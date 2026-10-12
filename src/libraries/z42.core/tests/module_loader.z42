@@ -36,3 +36,23 @@ void test_load_missing_path_throws() {
     try { ModuleLoader.Load("/no/such/dir/no_such_module.zpkg"); } catch (Exception e) { threw = true; }
     Assert.True(threw);
 }
+
+public static class LoadProbe {
+    public static int Count = 0;
+}
+
+// 加载一个模块不得动调用方已有的静态状态（此前 `__load_module` 每次加载后把 VM 里全部静态字段清零，
+// 已初始化过的类型不会再跑初始化器 ⇒ 读回 0 / null）。加载对象取搜索路径里的 z42.core.zpkg（必然存在）。
+[Test]
+void test_load_keeps_static_state() {
+    LoadProbe.Count = 5;
+    string[] dirs = ModuleSearch.Dirs();
+    bool loaded = false;
+    int i = 0;
+    while (i < dirs.Length && !loaded) {
+        try { ModuleLoader.Load(dirs[i] + "/z42.core.zpkg"); loaded = true; } catch (Exception e) { }
+        i = i + 1;
+    }
+    Assert.True(loaded);
+    Assert.Equal(5, LoadProbe.Count);
+}
