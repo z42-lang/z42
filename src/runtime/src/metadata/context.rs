@@ -364,9 +364,8 @@ impl ContextRegistry {
 
     /// Fully-qualified names of the **free (top-level) functions** this assembly declares,
     /// sorted. A function is free when its owner prefix (everything before the last `.`) is
-    /// not a type of this assembly. Compiler-synthesized functions are left out: lifted
-    /// lambdas / attribute factories / `f$impl` bodies (`$` in the name), generic
-    /// specializations (`:`), and static initializers.
+    /// not a type of this assembly. Compiler-synthesized functions are left out (see
+    /// [`is_synthesized_fn`]); signature-overload keys (`f$1$int`) are real functions and stay.
     pub fn assembly_function_names(&self, aid: AssemblyId) -> Vec<String> {
         let Some(entry) = self.assemblies.get(aid.0 as usize) else {
             return Vec::new();
@@ -378,7 +377,7 @@ impl ContextRegistry {
             .functions
             .iter()
             .map(|f| f.name.as_str())
-            .filter(|n| !n.contains('$') && !n.contains(':') && !n.ends_with("__static_init__"))
+            .filter(|n| !is_synthesized_fn(n))
             .filter(|n| match n.rfind('.') {
                 Some(i) => !module.type_registry.contains_key(&n[..i]),
                 None => true,
@@ -387,6 +386,25 @@ impl ContextRegistry {
             .collect();
         out.sort();
         out
+    }
+}
+
+/// Compiler-synthesized function names, by the emitter's naming conventions:
+/// `__`-prefixed helpers (attribute factories `__attr$…`, `__static_init__`, method-group
+/// thunks), lifted lambdas / local functions (`…__lambda_N`), generic specializations
+/// (`f:int`), and `$`-suffixed bodies that are not an overload key (`f$impl`). An overload
+/// key is `name$<arity>$<types>` — `$` followed by a digit — and names a real function.
+pub(crate) fn is_synthesized_fn(qualified: &str) -> bool {
+    let simple = qualified.rsplit('.').next().unwrap_or(qualified);
+    if simple.starts_with("__") || simple.contains("__lambda_") || simple.contains("__mg_thunk_") {
+        return true;
+    }
+    if qualified.contains(':') {
+        return true;
+    }
+    match simple.find('$') {
+        Some(i) => !simple[i + 1..].starts_with(|c: char| c.is_ascii_digit()),
+        None => false,
     }
 }
 

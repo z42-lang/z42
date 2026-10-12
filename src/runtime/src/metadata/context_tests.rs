@@ -188,7 +188,9 @@ fn assembly_function_names_lists_free_functions_only() {
         "Ns.C.Method",                   // static method of a type → not free
         "Ns.alpha$impl",                 // synthesized body
         "Ns.__attr$fn$alpha$0",          // attribute factory
-        "Ns.lambda$0",                   // lifted lambda
+        "Ns.alpha__lambda_0",            // lifted lambda
+        "Ns.alpha__mg_thunk_1",          // method-group thunk
+        "Ns.overload$1$int",             // signature-overload key → a real free function
         "Ns.generic:int",                // generic specialization
         "Ns.C.__static_init__",          // static initializer
     ] {
@@ -197,5 +199,5 @@ fn assembly_function_names_lists_free_functions_only() {
     let mut r = ContextRegistry::new();
     let c = r.create_collectible("x");
     let aid = r.load_into(c, "dep", m);
-    assert_eq!(r.assembly_function_names(aid), vec!["Ns.alpha", "Ns.zeta", "top"]);
+    assert_eq!(r.assembly_function_names(aid), vec!["Ns.alpha", "Ns.overload$1$int", "Ns.zeta", "top"]);
 }
