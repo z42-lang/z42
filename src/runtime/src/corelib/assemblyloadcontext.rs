@@ -254,7 +254,7 @@ pub fn builtin_asm_get_functions(ctx: &VmContext, args: &[Value]) -> Result<Valu
     let mut out = Vec::with_capacity(names.len());
     for q in &names {
         let simple = q.rsplit('.').next().unwrap_or(q);
-        out.push(super::reflection::build_method_info(ctx, simple, q, false)?);
+        out.push(super::reflection::build_free_function_info(ctx, simple, q)?);
     }
     Ok(ctx.heap().alloc_array(out))
 }

@@ -151,8 +151,21 @@ pub(super) fn build_param_infos(
     ctx: &VmContext,
     qualified: &str,
 ) -> Result<(Vec<Value>, bool, String, u8, u8, bool)> {
+    build_param_infos_ex(ctx, qualified, false)
+}
+
+/// `receiverless`: the caller knows the function takes no receiver (a free / top-level
+/// function — `Assembly.GetFunctions`). Its `Function.is_static` is not set (the flag is
+/// written for static *class* methods only), so without this the first parameter would be
+/// mistaken for `this` and the MethodInfo would report `IsStatic == false`.
+fn build_param_infos_ex(
+    ctx: &VmContext,
+    qualified: &str,
+    receiverless: bool,
+) -> Result<(Vec<Value>, bool, String, u8, u8, bool)> {
     match resolve_func_sig(ctx, qualified) {
-        Some((param_count, ret_type, fn_is_static, param_types, param_names, vis, mf, min_arg, params_from, param_defaults)) => {
+        Some((param_count, ret_type, fn_is_static0, param_types, param_names, vis, mf, min_arg, params_from, param_defaults)) => {
+            let fn_is_static = fn_is_static0 || receiverless;
             // Instance methods / constructors carry `this` at param 0 — skip it.
             let start = if fn_is_static { 0 } else { 1 };
             // PR6: parameter defaults now persist as the `$Default` param attr-ref
@@ -218,6 +231,21 @@ pub(crate) fn build_method_info(
     qualified: &str,
     is_virtual: bool,
 ) -> Result<Value> {
+    build_method_info_ex(ctx, simple, qualified, is_virtual, false)
+}
+
+/// MethodInfo for a free (top-level) function: no receiver, `IsStatic == true`.
+pub(crate) fn build_free_function_info(ctx: &VmContext, simple: &str, qualified: &str) -> Result<Value> {
+    build_method_info_ex(ctx, simple, qualified, false, true)
+}
+
+fn build_method_info_ex(
+    ctx: &VmContext,
+    simple: &str,
+    qualified: &str,
+    is_virtual: bool,
+    receiverless: bool,
+) -> Result<Value> {
     // stabilize-dispatch-keys (方案A, 2026-07-14): dispatch keys now carry a
     // full `$N$types` mangle suffix for every method (vtable slots + own_methods
     // keys included), so the derived `simple` name may be e.g. `Foo$1$int`.
@@ -225,7 +253,7 @@ pub(crate) fn build_method_info(
     // the user-facing `MethodInfo.Name` (dispatch still uses `qualified`).
     let simple = simple.split('$').next().unwrap_or(simple);
     let (params, is_static, ret_tag, visibility, method_flags, sig_found) =
-        build_param_infos(ctx, qualified)?;
+        build_param_infos_ex(ctx, qualified, receiverless)?;
     // add-method-modifiers (unify P1-c): IsVirtual authoritative from the flag
     // (bit0) WHEN a SIGS entry was resolved — z42 lists every method (virtual or
     // not) in the vtable, so vtable-presence alone over-reports. Fall back to the
