@@ -113,6 +113,12 @@ impl DetachedBlock {
         unsafe { payload_ptr_of(self.header) }
     }
 
+    /// A handle to the block, valid while `self` lives (no ownership transfer).
+    #[cfg(test)]
+    pub fn handle(&self) -> VarGcRef {
+        VarGcRef::pack(self.header, 0)
+    }
+
     /// Give the memory up for good and return a handle to it — a block no region knows about,
     /// alive forever (tests and heap-less fallbacks; see `VarGcRef::alloc_leaked`).
     pub fn leak(self) -> VarGcRef {

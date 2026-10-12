@@ -1166,8 +1166,9 @@ fn a_detached_block_has_the_region_layout_but_no_chunk() {
     // SAFETY: the payload is 40 zeroed bytes owned by `b`.
     let first = unsafe { b.payload_ptr().read() };
     assert_eq!(first, 0, "the payload starts zeroed");
-    let h = b.leak();
+    let h = b.handle();
     assert_eq!(h.payload_size(), 40);
     assert_eq!(h.chunk_idx(), u32::MAX);
     assert!(h.is_live());
+    drop(b); // freed by `Drop` — Miri's leak check covers it
 }
