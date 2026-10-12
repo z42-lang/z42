@@ -24,4 +24,10 @@ public sealed class Assembly {
     // 本 assembly 定义的类型（按 FQ 名有序）。
     [Native("__asm_get_types")]
     public extern Std.Type[] GetTypes();
+
+    // 本 assembly 定义的自由（顶层）函数（按全限定名有序），编译器合成的函数（lambda、attribute 工厂等）不在内。
+    // 返回的 MethodInfo 按全限定名在**当前 VM** 里解析：要读 attribute / 签名或 Invoke，该包须已经
+    // `Std.Runtime.ModuleLoader.Load` 并入；纯反射投影只保证名字可枚举。
+    [Native("__asm_get_functions")]
+    public extern Std.Reflection.MethodInfo[] GetFunctions();
 }

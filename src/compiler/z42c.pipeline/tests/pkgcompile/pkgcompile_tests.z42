@@ -5,7 +5,6 @@ namespace Z42cPipelinePkgCompileTests;
 using Std.IO;
 using Std.Reflection;   // Activator（PR4d VM 执行 golden：外部 generator 产物真跑）
 using Z42.Pipeline;
-using Z42.Semantics;
 using Z42.Analyzers;   // LintConfig
 using Z42.Package;
 using Z42.Emission;
@@ -510,7 +509,7 @@ void test_external_analyzer_fix_off_leaves_consumer() {
 }
 
 // ── attribute-handler-registry PR4d：外部 generator zpkg 编译期加载 + VM 执行 golden ─────────────
-// 编译一个实现 Z42.Semantics.Generator（applied）+ ModuleGenerator 的 fixture → 临时 zpkg → 经
+// 编译一个实现 Z42.Generators.Generator（applied）+ ModuleGenerator 的 fixture → 临时 zpkg → 经
 // CompileInputs.AnalyzerZpkgs（driver 从 `[analyzers]` 段填，D9 单段覆盖两类；generator 复用该字段）喂给 PackageCompile →
 // GeneratorLoader 两路加载（发现 `: Generator`/`: ModuleGenerator` + 反射实例化）→ 引擎 splice/merge。
 // **VM 执行 golden**：把编好的 consumer zpkg 并入 live VM（__load_module）→ CreateInstance 生成的类型 →
@@ -918,4 +917,45 @@ void test_analyzer_sees_generated_code() {
     Assert.Equal(0, cArt.ErrorCount);
     Assert.Equal(true, cArt.GenCount > 0);                // generator 确实产出了 CU（GenCount 是 union 计数）
     Assert.Equal(true, _cmsHasCode(cArt, "Z9003"));       // analyzer 看到了生成 CU 里的 catch
+}
+
+// ── Assembly.GetFunctions()：自由函数可枚举、可读 attribute、可 Invoke ─────────────────
+// 这是测试 runner 改为运行期反射发现的基础路径：ModuleLoader.Load（并入、可执行）+
+// AssemblyLoadContext 投影（枚举）→ GetFunctions → GetCustomAttributes / Invoke。
+[Test]
+void test_assembly_get_functions_reflects_free_functions() {
+    string src = "namespace FnReflectDemo;\nusing Std;\n"
+        + "public class MarkAttribute : Attribute { public string Tag; public MarkAttribute(string tag) { this.Tag = tag; } }\n"
+        + "[Mark(\"answer\")] public int answer() { int x = 1; Func<int, int> f = (a) => a + x; return f(41); }\n"
+        + "public int helper() { return 1; }\n"
+        + "public int helper(int a) { return a; }\n"
+        + "public static class Holder { public static int Method() { return 2; } }\n";
+    CompileInputs cin = _inputs(src, "lib");
+    cin.Name = "demo.fnreflect";
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    if (libs != "") { string[] dirs = _depDirs(libs); cin.LibsDirs = dirs; cin.LibsDirsN = dirs.Length; }
+    CompileArtifacts art = PackageCompile.Compile(cin);
+    Assert.Equal(0, art.ErrorCount);
+    string tmp = _tmpRoot();
+    Directory.Create(tmp);
+    string zp = Path.Join(tmp, "demo.fnreflect.zpkg");
+    File.WriteAllBytes(zp, ZpkgWriterZ.WritePacked(art.Z, false).ToBytes());
+
+    ModuleLoader.Load(zp);                                        // 并入 live VM（可执行）
+    Assembly asm = AssemblyLoadContext.Default().Load(zp);        // 反射投影（枚举）
+    MethodInfo[] fs = asm.GetFunctions();
+    // 只有自由函数（含签名重载）：类的静态方法、attribute 工厂（__attr$…）、提升的 lambda 都不在内；
+    // 按全限定名有序（重载键 `helper$1$int` 排在 `helper` 之后，Name 已剥改名后缀）。
+    Assert.Equal(3, fs.Length);
+    Assert.Equal("answer", fs[0].Name);
+    Assert.Equal("helper", fs[1].Name);
+    Assert.Equal("helper", fs[2].Name);
+    Assert.Equal(1, fs[2].GetParameters().Length);
+
+    Attribute[] attrs = fs[0].GetCustomAttributes();
+    Assert.Equal(1, attrs.Length);
+    Assert.Equal("MarkAttribute", attrs[0].GetType().Name);
+    Assert.Equal(true, fs[0].IsStatic);
+    object r = fs[0].Invoke(null, new object[0]);
+    Assert.Equal(42, (int)r);
 }
