@@ -70,8 +70,9 @@ public sealed class StubEmitter {
     internal IrFunction _emitNativeStub(string name, MethodDecl md, string nat, bool isStatic, Decl rawMem) {
         int totalParams = md.ParamCount;
         if (!isStatic) { totalParams = totalParams + 1; }
-        string natRetName = this._g._symbols.ResolveType(md.RetType).Name();
-        bool isVoid = natRetName == "void";
+        Z42Type natRetT = this._g._symbols.ResolveType(md.RetType);
+        bool isVoid = natRetT.Name() == "void";
+        string natRetName = LayoutKey.Of(natRetT);   // 布局名（全名）
         // fix-native-stub-sret：声明返回 **blob 值 struct** 的 extern —— 调用点按返回类型传 sret 槽
         // （`CallEmitter` 的唯一判据），而本桩此前只发 `builtin nat(args…)` 并把 Value 直接 `ret`
         // ⇒ 物理签名少一个槽 ⇒ 运行期 `takes N+1 physical argument(s), the call passes N`。
@@ -166,7 +167,7 @@ public sealed class StubEmitter {
         string[] lt = this._nativeLibType(rawMem);
         if (lt[1] != "") { instrs[0] = new CallNativeInstr(boxed, lt[0], lt[1], nat, args, declaredParams); }
         else            { instrs[0] = new BuiltinInstr(boxed, nat, args, declaredParams); }
-        instrs[1] = new AsCastInstr(unboxed, boxed, this._g._q(retStructName));
+        instrs[1] = new AsCastInstr(unboxed, boxed, this._g._qLayout(retStructName));
         instrs[2] = new StructCopyInstr(sret, unboxed, rsz);
         IrBlock[] blocks = new IrBlock[1];
         blocks[0] = new IrBlock("entry", instrs, 3, new RetTerm(false, sret), true);

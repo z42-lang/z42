@@ -1,0 +1,8 @@
+namespace Demo.SlCollApp;
+
+using Std.IO;
+using Demo.SlColl;
+
+void Main() {
+    Console.WriteLine(Probe.Run());
+}

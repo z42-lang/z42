@@ -1,0 +1,14 @@
+namespace Demo.SlColl.A;
+
+public struct P {
+    public int X;
+    public string S;
+    public P(int x) { this.X = x; this.S = "a"; }
+    public string Show() { return this.S + this.X.ToString(); }
+}
+
+public struct Pair<T> {
+    public int N;
+    public T Item;
+    public Pair(int n, T item) { this.N = n; this.Item = item; }
+}

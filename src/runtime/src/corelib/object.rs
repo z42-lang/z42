@@ -274,7 +274,7 @@ pub fn builtin_obj_to_str(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     match args.first() {
         Some(Value::Object(rc)) => {
             let td_name = &rc.type_desc().name;
-            let simple = td_name.split('.').next_back().unwrap_or(td_name).to_string();
+            let simple = crate::metadata::type_names::unqualified(td_name);
             Ok(Value::Str(simple.into()))
         }
         // 2026-05-07 add-array-base-class: arrays ToString returns simple class name

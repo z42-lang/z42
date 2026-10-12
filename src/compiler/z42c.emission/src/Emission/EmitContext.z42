@@ -191,8 +191,14 @@ public sealed class EmitContext {
         // （镜像 C# ReceiverChainHasMethod 经 QualifyClassName 把 prim 映射到 "Std.String"）。
         string lookup = EmitContext._primWrapper(bare);
         if (!this.Symbols.HasClass(lookup)) { return false; }
-        Z42ClassType ct = this.Symbols.GetClass(lookup);
-        // 入口按名字查一次，之后每跳走句柄（`_nextBase`）。此前每跳都按 `BaseName` 短名重查 ——
+        return this.ChainHasMethodOf(this.Symbols.GetClass(lookup), method);
+    }
+
+    // 同上，入口是类型对象（调用方手里已有定义类时用它，不按名字再查一次）。
+    public bool ChainHasMethodOf(Z42ClassType ct0, string method0) {
+        string method = MethodSymbol.StripCallKey(method0);
+        Z42ClassType ct = ct0;
+        // 每跳走句柄（`_nextBase`）。此前每跳都按 `BaseName` 短名重查 ——
         // 跨 ns 同短名（`A.Foo : B.Foo`）会查回自己，靠 32 跳上限才停下。
         int hops = 0;
         while (ct != null) {

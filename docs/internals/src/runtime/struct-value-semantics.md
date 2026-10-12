@@ -703,11 +703,10 @@ z42c.semantics 依赖它作跨包 API。给它加新 `IsStruct` 字段并在 z42
 `StructSize`/引用位图**逐字节一致**）→ 发 `StructAlloc`/`StructFieldGetPrim/SetPrim`（正确字节 offset）。
 
 **「逐字节一致」的第二个前提：字段类型拼写同口径**。
-`_kindOf` 按符号表**裸名键**判「字段是不是 struct」。本地字段拼写由 `MemberCollector` 取
-`SurfaceTypeName(已解析类型)`（短名形式 `Point3`）；导入字段若**照搬导出元数据的 FQ 串**
-（`Demo.NestLayoutTarget.Point3`）→ 查不到 → 嵌套 struct 字段被判成 8B 引用叶子 → 消费方布局与生产方错位，
-读写静默错值。故 `ImportedSymbolLoader._fillClass` 登记 `OwnField` 时同样用 `SurfaceTypeName(fsym.FieldType)`
-（解析失败才回落原串，与本地回落对称）。`Point{int,int}` 恰为 8B = 引用叶子
+布局表以 `LayoutKey`（全名）为键，`_kindOf` 按它判「字段是不是 struct」；字段类型取**字段符号的已解析类型**
+（`LayoutKey.Of(fsym.FieldType)`），本地与导入走同一出口，不读源拼写 `OwnFieldSpellings`（那份只供 TSIG 导出）。
+解析失败才回落源拼写（短名在符号表里唯一时换成它的全名）。拼写一旦两侧不同口径，嵌套 struct 字段就会被判成
+8B 引用叶子 → 消费方布局与生产方错位，读写静默错值。`Point{int,int}` 恰为 8B = 引用叶子
 大小，偏移碰巧重合，所以 `struct_cross_pkg` 守不住这条；golden `cross-zpkg/struct_nested_layout_cross_pkg` 用 12B `Point3` + transitive
 `Frame` 守住（阴性对照：撤掉处理后 `Error: struct ref leaf at byte offset 8 not in type layout`）。
 
@@ -748,7 +747,7 @@ z42c.semantics 依赖它作跨包 API。给它加新 `IsStruct` 字段并在 z42
 - 用 `TypeDesc.fields` 的 `(name, type_tag)` 逐字段自然对齐累积 offset，映射 `字段名 → (byte_off, tag, is_ref,
   is_struct, type_name)`。`canon`/`size_of`/`align_of`/`leaf_kind` 镜像 `Z42Type.Canon`/`_sizeOf`/`_alignOf`/
   `_kindOf`；`tag_from_name` 忠实镜像 `Tag.FromName`（decode signedness 与 codegen encode 一致）。嵌套 struct
-  字段短名按声明类型的命名空间解析到 FQ（`resolve_named`）再递归。
+  字段的类型名先原样解析（编译器写全名），解析不到再按声明类型的命名空间补全（`resolve_named`，只看顶层的 `.`）再递归。
 - **三层校验**（`validate_against`，抓复刻漂移，不符即可 catch 的 `bail!`）：① `computed.size == 交付 size`；
   ② 计算的引用叶子 offset 集（含嵌套展平）逐一等交付 `ref_offsets`；③ 逐叶子 ref/prim 分类与交付位图交叉核对。
 - **GetValue**：基元 → `decode_prim(struct_bytes)`；引用叶子 → `struct_refs[ref_index]`；嵌套 struct → boxed 快照

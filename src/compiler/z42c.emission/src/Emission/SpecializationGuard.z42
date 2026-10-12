@@ -78,13 +78,13 @@ public static class SpecializationGuard {
         return s;
     }
 
-    // 定义处的 span：本包泛型类型表（裸名 / arity-mangle 名）→ 泛型体表（键以该名结尾）→ 退回本 CU 开头。
+    // 定义处的 span：本包泛型类型表（键是全名，比去掉 ns / `$N` 后的源码名）→ 泛型体表（键以该名结尾）→ 退回本 CU 开头。
     private static Span _spanOf(IrGen g, CompilationUnit cu, string owner) {
         if (g.GenericTypeDecls != null) {
             string[] tk = g.GenericTypeDecls.Keys();
             int i = 0;
             while (i < tk.Length) {
-                if (tk[i] == owner || tk[i].StartsWith(owner + "$")) {
+                if (SpecializationGuard._ownerOf(tk[i]) == owner) {
                     return (g.GenericTypeDecls.Get(tk[i]) as GenericBodySrc).Raw.Span;
                 }
                 i = i + 1;

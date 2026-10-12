@@ -190,14 +190,12 @@ public sealed class IrGen {
     //      （实测 `GBox<int>` 构造 2 次、`GBox<string>` 构造 3 次，两边都读出 5）。
     public bool InstNeedsOwnBody(string instName) {
         if (this.Layouts != null && this.Layouts.InstDiffersFromDef(instName)) { return true; }
-        return this.DefHasStaticState(StructLayout.BaseNameOf(instName));
+        return this.Layouts != null && IrGen.DefHasStaticState(this.Layouts.OwnerOf(instName));
     }
 
     // 泛型定义是否带**静态状态**（静态字段 / 静态属性后备 / 静态构造器）。
-    // 取自符号表而非 AST：跨 CU 时本 CU 未必有那份 AST，而符号表是包级的。
-    public bool DefHasStaticState(string bareDefName) {
-        if (this._symbols == null || !this._symbols.HasClass(bareDefName)) { return false; }
-        Z42ClassType ct = this._symbols.GetClass(bareDefName) as Z42ClassType;
+    // 定义类取自布局表（`OwnerOf`，按全名）：按短名在当前 CU 作用域查会撞另一个 ns 的同名类。
+    public static bool DefHasStaticState(Z42ClassType ct) {
         if (ct == null) { return false; }
         string[] fn = ct.Fields.Keys();
         int i = 0;
@@ -232,6 +230,9 @@ public sealed class IrGen {
         }
         return c.Name;
     }
+
+    // 布局名 / 实例化名（`LayoutKey`，已是全名）的 IR 名：基名已带 ns 原样，全局 ns 的定义才按当前 ns 兜底。
+    public string _qLayout(string name) { return EmitContext.BaseHasDot(name) ? name : this._q(name); }
 
     // **没有类型对象**时的兜底：按当前模块 ns 限定（同 EmitContext.QualifyClass；「短名 → ns」图已删，fqn-tables 5d）。
     public string _qClass(string name) { return this._q(name); }
@@ -461,14 +462,9 @@ public sealed class IrGen {
                     string gownerKey = symbols.LocalClassKey(cuNs, gc);
                     string gownerFq = SymbolTable.QualOf(cuNs, gownerKey);
                     // 泛型**类型**声明：`EmitInstantiation` / `_instClassDesc` 要靠它重发实例化的
-                    // 成员与描述符。**两个拼写都登记**：实例化名的基名是 arity-mangled 的
-                    // `Pair$2`（见 `ExprEmitter._instBaseName` —— 不 mangle 的话擦除前缀会撞上同名
-                    // 非泛型类），而别的调用点仍按裸名 `Pair` 查。同一份声明，两把钥匙。
-                    if (gc.TypeParams.Count > 0 && !types.ContainsKey(gc.Name)) {
-                        types.Put(gc.Name, new GenericBodySrc(cu.Decls[gi], mdl, "", "", ""));
-                    }
-                    if (gc.TypeParams.Count > 0 && !types.ContainsKey(gownerKey)) {
-                        types.Put(gownerKey, new GenericBodySrc(cu.Decls[gi], mdl, "", "", ""));
+                    // 成员与描述符。键 = 定义的布局键（全名，arity-mangle 时 `ns.Name$N`）= 实例化名的基名。
+                    if (gc.TypeParams.Count > 0 && !types.ContainsKey(gownerFq)) {
+                        types.Put(gownerFq, new GenericBodySrc(cu.Decls[gi], mdl, gownerFq, "", ""));
                     }
                     int gmi = 0;
                     while (gmi < gc.MemberCount) {
