@@ -164,7 +164,7 @@ impl GraphSnapshot {
 /// Returns `None` for non-heap values (primitives, refs, closures).
 fn value_ptr(v: &Value) -> Option<usize> {
     match v {
-        Value::Object(gc) => Some(crate::gc::GcRef::as_ptr(gc) as usize),
+        Value::Object(gc) => Some(crate::gc::ObjRef::as_ptr(gc) as usize),
         Value::Array(gc)  => Some(crate::gc::GcRef::as_ptr(gc) as usize),
         _ => None,
     }
@@ -254,7 +254,6 @@ pub fn build_graph_snapshot(heap: &dyn MagrGC) -> GraphSnapshot {
                 // (primitives decode; reference fields yield the `refs` cell). Only
                 // reference children matter to the snapshot graph (`value_ptr`).
                 let slots: Vec<Value> = (0..nfields).map(|i| obj.field_value(i)).collect();
-                drop(obj);
                 for (i, child) in slots.iter().enumerate() {
                     if let Some(ptr) = value_ptr(child) {
                         if let Some(&to_id) = id_map.get(&ptr) {
@@ -268,12 +267,11 @@ pub fn build_graph_snapshot(heap: &dyn MagrGC) -> GraphSnapshot {
                 let arr = gc.borrow();
                 // The array's reference slots (elements / struct[] reference leaves); packed
                 // primitives hold none.
-                let elems: Vec<Value> = arr.gc_refs().to_vec();
-                drop(arr);
+                let (elems, per) = arr.elem_ref_slots(0, arr.len());
                 for (i, child) in elems.iter().enumerate() {
                     if let Some(ptr) = value_ptr(child) {
                         if let Some(&to_id) = id_map.get(&ptr) {
-                            snap.push_edge(from_idx, EdgeType::Element, i as u32, to_id);
+                            snap.push_edge(from_idx, EdgeType::Element, (i / per.max(1)) as u32, to_id);
                         }
                     }
                 }

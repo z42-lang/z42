@@ -2,7 +2,7 @@
 //
 // A "test-bundle" is a set of cases assembled by the fleet orchestrator (xtask):
 //   golden — a whole program: run in a FRESH isolated VM (ModuleLoader.
-//            RunGoldensIsolated → per-case VmContext, no collision), then compare
+//            RunIsolated → per-case VmContext, no collision), then compare
 //            captured stdout to an `expected` sibling file.
 //   unit   — a [Test] module: run via Runner.RunModuleResults (shared VM — units
 //            are namespaced, collision-free by design).
@@ -78,7 +78,7 @@ public static class BundleRunner {
 
         TestResult[] all = new TestResult[0];
 
-        // Goldens: gather → RunGoldensIsolated (batched, isolated) → compare stdout.
+        // Goldens: gather → ModuleLoader.RunIsolated (batched, isolated) → compare stdout.
         if (gN > 0) {
             string[] gPaths = new string[gN];
             string[] gEntries = new string[gN];
@@ -101,7 +101,7 @@ public static class BundleRunner {
             }
             string libs = BundleRunner._resolveLibs(libsDir, bundleDir);
             int jobs = BundleRunner._jobs();
-            string[] outs = ModuleLoader.RunGoldensIsolated(gPaths, gEntries, libs, jobs);
+            string[] outs = ModuleLoader.RunIsolated(gPaths, gEntries, libs, jobs);
             TestResult[] gr = new TestResult[gN];
             for (int i = 0; i < gN; i = i + 1) {
                 string got = BundleRunner._stripNl(outs[i]);

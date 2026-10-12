@@ -48,7 +48,6 @@ z42 使用 **`<name>.z42.toml`** 作为工程配置文件，格式为 TOML。
 name    = "hello"      # 包名，全小写（见下「包名命名规则」）
 version = "0.1.0"      # SemVer
 kind    = "exe"        # exe | lib | analyzer
-entry   = "Hello.Main" # 可选；省略时由 PackageCompiler 自动发现 Main
 ```
 
 **字段说明：**
@@ -58,9 +57,13 @@ entry   = "Hello.Main" # 可选；省略时由 PackageCompiler 自动发现 Main
 | `name` | string | ✅ | 全小写；作为输出文件基名和依赖引用键。命名规则见下节 |
 | `version` | string | ✅ | SemVer，如 `"0.1.0"` |
 | `kind` | `"exe"` \| `"lib"` \| `"analyzer"` | 单目标必填；多目标用 `[[exe]]` 时省略 | 可执行程序 / 类库 / 编译期扩展（analyzer、generator 都用这个 kind）。写其它值 → 构建报用法错误 `unknown kind` |
-| `entry` | string | ❌ 可选 | 完全限定入口函数。**省略时**`PackageCompiler` 自动从编译后的 module 查找 `Main`（优先 `<Namespace>.Main` 再 `<Namespace>.main` 再裸 `Main` / `main`）；找不到则**编译期报错** |
 | `pack` | bool | ❌ 可选 | packed / indexed 布局，见 [L3](#l3--构建产物配置) |
 | `description` / `authors` / `license` | string / string[] / string | ❌ 可选 | 纯元数据（`authors` 是字符串数组，`license` 建议写 SPDX 标识）；构建不使用 |
+
+**入口不在清单里配**：`kind = "exe"` 的入口由编译器从编译后的 module 里找 `Main`——自由函数 `Main()` 或类里的
+静态无参方法 `Main()`（优先带命名空间的 `Main`，再小写 `main`，再无命名空间的 `Main` / `main`）；实例方法不算。
+找不到或不止一个都是**编译期报错**。`[project]` 里写 `entry` 是清单错误；
+同一工程要多个入口，用下文的 `[[exe]]`（那里的 `entry` 必填，用来在共享的源里挑 Main）。
 
 ### 包名命名规则
 
@@ -159,7 +162,7 @@ include = ["src/tool/**/*.z42"] # 可选：覆盖共享 [sources]
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `name` | string | ✅ | exe 名，同时作为产物文件基名 |
-| `entry` | string | ❌ 可选 | 完全限定入口函数；省略时走 `PackageCompiler` 的 `Main` 自动发现路径 |
+| `entry` | string | ✅ | 完全限定入口函数——各 exe 共享源，靠它挑各自的 Main |
 | `include` | string[] | ❌ | 独立 glob，覆盖 `[sources]`；省略则继承 `[sources]` |
 
 ```bash
@@ -273,7 +276,6 @@ my-app/
 name = "myapp"
 version = "0.1.0"
 kind = "exe"
-entry = "MyApp.main"
 pack = false           # 可选；省略 → debug 为 indexed、release 为 packed
 
 [build]
@@ -506,12 +508,14 @@ api-endpoint = "http://localhost:8080"
 name    = "myapp"
 version = "0.1.0"
 kind    = "exe"
-entry   = "MyApp.main"
 
 [dependencies]
 "my-utils" = "*"         # 在 libs/ 中找 name="my-utils" 的 .zpkg
 "my-http"  = "*"         # 版本约束目前只做存在性校验，不做 semver 比较
 ```
+
+**标准库不用声明**：`z42.core` / `z42.io` / `z42.text` 等随 SDK 分发（`libs/`），总是可用。在 `[dependencies]` 里写它们
+会报 [W0610](../appendix/error-codes.md)（照常构建）；例外是要用下文的 `deploy = "copy"` 把它复制进 exe 自包含的。
 
 **`path` 的两种形态**（对标 C# 的两种引用）：
 
@@ -593,7 +597,7 @@ entry   = "MyApp.main"
 | `copy` | 构建期复制进 exe 的 `dist/`，私有、不共享 |
 | `shared` | **不复制**，运行期从 [`probing-paths`](runtime-settings.md#probing-paths--依赖的额外搜索目录) 或 `libs/` 解析 |
 | `sdk` | **SDK 库专用**：不复制；z42c 在侧车 `probing-paths` 自动补一条 `${Z42_HOME}/programs/z42c`，运行期从**所在 SDK** 解析。用在非 SDK 库上报错 |
-| 省略 | 由默认规则决定：**从 shipped `libs/` 找到的不复制**（框架），从别处找到的复制（私有）|
+| 省略 | 由默认规则决定：**从 shipped `libs/` 找到的不复制**（框架；即 `Z42_LIBS`，给了 `--compile-libs` 时是它列的目录），从别处找到的复制（私有）|
 
 > ⚠️ `deploy = "sdk"` 让程序**依赖目标机器装了 SDK**，且运行期用的是**那台机器 SDK 里的版本**，不是编译时那份——
 > SDK 库不是稳定 API，版本不同就可能出问题。它适合「和特定 SDK 一起发布、在该 SDK 上运行」的工具；普通应用用默认
@@ -662,7 +666,6 @@ entry   = "MyApp.main"
 name    = "hello"
 version = "0.1.0"
 kind    = "exe"
-entry   = "Hello.main"
 
 [sources]
 include = ["src/**/*.z42"]
@@ -803,12 +806,12 @@ mode = "interp"
 # golden 用例（`main()` + `expected_output.txt`），**两者都长成 `<name>/source.z42`，glob 分不开**
 # （要分得靠扫目录里有没有 `[Test]` 标注，那不是 glob 能表达的）。猜错的代价是把 golden 目录
 # 当测试目标编，编不过或跑出零用例 —— 所以不猜。
-[tests.dependencies]
-"z42.test" = "0.1.0"      # 仅测试合入；release zpkg 元数据不含
+[tests.dependencies]       # 仅测试合入；release zpkg 元数据不含（z42.test 等标准库不用写，总是可用）
+"test-fixtures" = { path = "../test-fixtures" }
 
 [benches]
 [benches.dependencies]
-"z42.test" = "0.1.0"      # Bencher 在 z42.test 包内
+"bench-data" = { path = "../bench-data" }
 
 [examples]
 # 默认发现 examples/*.z42（同上：目录单元显式配）
@@ -1089,7 +1092,7 @@ output_dir = "artifacts/${project_name}/${profile}"
 |---|---|
 | `members` | 成员目录（glob / 显式路径），缺省 `["*"]` |
 | `exclude` | 从展开结果中剔除的成员路径 |
-| `default_members` | 默认成员子集。**z42c 目前不消费它**（`z42c build` / `--workspace` 都编全部成员）；仓内 xtask 用它推导成员列表。旧拼写 `default-members` 已删除，写了按未知键报错 |
+| `default_members` | 默认成员子集：编排器（`z42 build` / `test` / `bench` / `clean` 在工作区上）缺省只对它们执行，`--workspace` 才覆盖全部；`run` / `publish` / `export` 在工作区上要求它恰好选中一个成员（见 [`z42` · 工作区](cli-z42.md#工作区)）。条目写成员目录（相对工作区根）或成员的 `[project].name`；没写或写 `[]` = 全部成员；有条目匹配不到成员 → WS031。z42c 不看它（`z42c build --workspace` 恒编全部成员）。旧拼写 `default-members` 已删除，写了按未知键报错 |
 | `dependencies` | 中央依赖声明，条目写法同 `[dependencies]`。当前只解析与校验键名，构建不消费——成员仍在自己的 `[dependencies]` 里声明依赖 |
 | `build` | 只接受 `output_dir` / `cache_dir`，见 [L6.5](#l65-workspacebuild-集中产物) |
 
@@ -1124,7 +1127,7 @@ exclude = ["libs/sandbox-*"]
 |---|---|
 | `z42c build <manifest>` | 单工程：只编这一个清单（依赖按 `[dependencies]` 解析，path 依赖闭包先建） |
 | `z42c build`（不给清单） | 从 CWD 向上找**最近的** `z42.toml` 或 `z42.workspace.toml`：找到工程清单 → 同上；找到 workspace 清单 → 同 `--workspace` |
-| `z42c build --workspace` | 按拓扑序编**全部**成员（`members` 展开结果；`default_members` 不参与，见 L6.2） |
+| `z42c build --workspace` | 按拓扑序编**全部**成员（`members` 展开结果；`default_members` 不参与——它归编排器，见 L6.2） |
 
 ```bash
 z42c build                      # 最近的清单（工程 → 单工程；workspace → 全部成员）
@@ -1151,12 +1154,10 @@ core ← utils ← hello
 |---|---|
 | workspace 清单有不认识的键 | `<z42.workspace.toml>: unknown key …`（见[键校验](#键校验本页没列的键一律报错)） |
 | 显式成员目录不存在 | `workspace: member \`<pat>\` does not exist under <dir>` |
+| 两个成员声明同一 `[project] name` | `workspace: duplicate member name \`<name>\` (WS001): <清单 A>, <清单 B>` |
 | 成员目录里有多份清单 | `… has more than one manifest (WS005): …` |
-| 成员间依赖成环 | `z42c build --workspace: circular member dependency` |
+| 成员间依赖成环 | `workspace: circular member dependency` |
 
-> ⚠️ **两个成员声明同一个 `[project] name` 目前不报错**（文档曾列的 WS001 未实现）——产物按包名落盘，后建的覆盖先建的。
-
-跨 member 依赖的构建拓扑由 `src/compiler/z42c.pipeline/tests/workspace_topo/` 覆盖。
 
 #### 新建 / 清理（编排器 `z42` / `z42b`，不是 z42c）
 
@@ -1285,7 +1286,6 @@ monorepo/
 name        = "my-app"          # 必填
 version     = "0.1.0"           # 必填，SemVer
 kind        = "exe"             # exe | lib | analyzer；多目标用 [[exe]] 时省略
-entry       = "MyApp.Main"      # 可选；省略时自动发现 Main
 pack        = false             # 可选；省略 → debug indexed / release packed
 description = ""                # 可选，纯元数据
 authors     = []                # 可选，纯元数据
@@ -1338,8 +1338,8 @@ app-name = "demo-dev"
 include = ["tests/*.z42"]
 exclude = []
 auto    = true
-[tests.dependencies]
-"z42.test" = "0.1.0"
+[tests.dependencies]            # 测试专用依赖（标准库不用写）
+"test-fixtures" = { path = "../test-fixtures" }
 
 [[test]]                         # [[bench]] / [[example]] 同形（见 L5b）
 name    = "compile_perf"

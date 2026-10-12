@@ -19,7 +19,7 @@
 | 命令 | 作用 | 谁执行 |
 |---|---|---|
 | `z42 new` | 创建工程 | 转发 z42b |
-| `z42 build` | 编译工程 | 转发 z42c |
+| `z42 build` | 编译工程 | 转发 z42c（工作区 → z42b） |
 | `z42 run` | 构建并运行 | launcher |
 | `z42 test` | 运行 `[Test]` | 转发 z42b |
 | `z42 bench` | 运行 `[Benchmark]` | 转发 z42b |
@@ -62,6 +62,31 @@ error: could not find z42.toml in the current directory or any parent directory
 （`./z42.toml`、`../z42.toml`），于是编译诊断里是 `./src/Main.z42` 而不是一长串绝对路径。
 
 规则只有一处实现（`ManifestLocator`），launcher / z42b / z42c 共用。
+
+### 工作区
+
+定位到（或显式给出）工作区清单 `z42.workspace.toml` 时，按命令分两类。
+
+**`build` / `test` / `bench` / `clean`：逐成员执行。** 成员集合是 `default_members`
+（没写或写成 `[]` = 全部成员）；加 `--workspace` 改为全部成员，在成员目录里加也成立
+（找它所属的工作区）。
+
+- 按成员依赖的拓扑序执行，依赖在前；每个成员先打一行 `[i/n] <包名>`。
+- 选中成员依赖的其它工作区成员也会先构建（行尾标 `(dependency)`），但不是目标：不跑它们的
+  测试，`clean` 不删它们的产物。成员之间按名依赖即可，构建过的成员对后面的成员可见。
+- `build` 任一成员失败即停止；`test` / `bench` / `clean` 跑完全部目标，任一失败即非零退出。
+- `--format json` 只能对着一个目标：选中多个成员时报错退出 2。
+
+**`run` / `publish` / `export`：只落地一个工程。** `default_members` 恰好选中一个成员时用它；
+否则报错退出，列出选中的成员清单，由用户给出其中一个。
+
+`default_members` 的条目写成员目录（相对工作区根）或成员的 `[project].name`。有条目匹配不到
+任何成员时报 WS031、一个成员都不执行：
+
+```console
+$ z42 build
+z42 build: workspace: default_members entry `apps/nope` matches no member (WS031); members: core, hello, tool
+```
 
 ### 产物位置
 
@@ -180,13 +205,17 @@ include = ["src/**/*.z42"]
 
 ## `z42 build [<manifest>] [options]`
 
-编译工程（增量：只重编改动过的文件），产物写入 dist 目录。定位到的是工作区清单时等价
-`--workspace`。这条命令原样转发给 z42c，帮助里的用法行也写作 `z42c build`。
+编译工程（增量：只重编改动过的文件），产物写入 dist 目录。单工程原样转发给 z42c，帮助里的
+用法行也写作 `z42c build`。
+
+目标是工作区（定位到工作区清单、给出工作区目录或清单，或带 `--workspace`）时改由 z42b
+逐成员构建，规则见[工作区](#工作区)；这时只接受 `--release` / `--workspace` / `--rid`，
+下表其余旗标属于 z42c 单工程构建。
 
 | 旗标 | 作用 |
 |---|---|
 | `--release` | release profile（默认 debug） |
-| `--workspace` | 按拓扑序构建工作区全部成员 |
+| `--workspace` | 构建工作区全部成员（缺省只建 `default_members`），见[工作区](#工作区) |
 | `--output-dir <dir>` | 产物（zpkg / zsym / 侧车）写到 `<dir>`，generator 生成的源码写到 `<dir>/generated/<name>`；单工程下**不写增量缓存**（该模式不读缓存）|
 | `--no-incremental` | 全量重建（忽略构建缓存） |
 | `--opt <name>` | 开启一项优化（可重复） |
@@ -233,7 +262,7 @@ z42: unknown runtime knob `gc-mdoe` in --set; did you mean `gc-mode`?
      Run `z42vm --list-knobs` (or `--list-knobs --all`) to see every knob.
 ```
 
-定位到工作区清单时报错，需进成员目录运行。
+定位到工作区清单时运行 `default_members` 选中的那一个成员；选中多个时报错并列出它们，见[工作区](#工作区)。
 
 ### 单文件运行
 
@@ -266,10 +295,12 @@ z42: unknown runtime knob `gc-mdoe` in --set; did you mean `gc-mode`?
 
 构建工程并运行 `[Test]`。工程声明了测试目标（约定发现的 `tests/*.z42`，或 `[tests]` /
 `[[test]]`）时逐个构建运行，否则运行工程自身的 `[Test]`。目标也可以是已编译的
-`.zpkg` / `.zbc`，或 device 部署用的 `bundle.json`。
+`.zpkg` / `.zbc`，或 device 部署用的 `bundle.json`。目标是工作区时逐成员测试，
+见[工作区](#工作区)。
 
 | 旗标 | 作用 |
 |---|---|
+| `--workspace` | 测试工作区全部成员（缺省只测 `default_members`） |
 | `--list` | 只列出 test 目标名（一行一个），不编译不运行 |
 | `--name <n>` | 只构建运行**名字精确等于** `<n>` 的目标；点不中报错 |
 | `--filter <s>` | 只保留**目标名**含子串 `<s>` 的目标；一个都不匹配时打印提示并退出 0 |
@@ -311,15 +342,16 @@ $ z42 test
 
 ## `z42 bench [options] [<目标>]`
 
-同 `test`，运行 `[Benchmark]`。旗标是 `test` 的子集：`--list` / `--name` / `--filter` /
+同 `test`，运行 `[Benchmark]`。旗标是 `test` 的子集：`--workspace` / `--list` / `--name` / `--filter` /
 `--format`（`json` 时额外带 `bench_stats`）/ `--release` / `--reuse-parent` / `--out-root`（目标输出落 `<dir>/bench-targets/`）/ `--rid`。
 没有 device 那组旗标。
 
-## `z42 clean [<manifest|dir>]`
+## `z42 clean [--workspace] [<manifest|dir>]`
 
 删除工程的构建产物（debug 与 release 两个 profile）：dist 目录，以及 `artifacts/`——
 `[build] output_dir` 未配置时整个删除；配置了时只删解析出的 cache / generated 目录，
-不删可能与其它工程共享的 `output_dir` 本身。
+不删可能与其它工程共享的 `output_dir` 本身。目标是工作区时逐成员清理（`--workspace` = 全部成员），
+见[工作区](#工作区)。
 
 ```console
 $ z42 clean
@@ -356,7 +388,8 @@ removed ./artifacts
 
 ## `z42 publish [options] [<manifest>]`
 
-产出可部署应用。`--rid` 默认宿主 RID。
+产出可部署应用。`--rid` 默认宿主 RID。目标是工作区时取 `default_members` 选中的那一个成员，
+见[工作区](#工作区)。
 
 | 旗标 | 作用 |
 |---|---|
@@ -383,7 +416,8 @@ z42b publish: desktop apphost not available (the apphost ships with the desktop 
 
 ## `z42 export --rid <rid> [options] [<manifest>]`
 
-为 ios / android / wasm 生成原生 IDE 工程。`--rid` **必给**。
+为 ios / android / wasm 生成原生 IDE 工程。`--rid` **必给**。目标是工作区时同 `publish`，
+取 `default_members` 选中的那一个成员。
 
 | 旗标 | 作用 |
 |---|---|

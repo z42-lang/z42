@@ -1,7 +1,7 @@
 # attribute 管线（store-meta 一支）
 
-> 代码：`z42c.semantics/src/Generators/AttributeSynth.z42`、`Symbols/HandlerRegistry.z42`、
-> `MacroRegistry.z42`、`AnalyzerDriver.z42`
+> 代码：`z42c.semantics/src/Desugar/AttributeSynth.z42`、`Symbols/HandlerRegistry.z42`、
+> `MacroRegistry.z42`、`z42c.analyzers/src/AnalyzerDriver.z42`、`z42c.syntax/src/SuppressionSet.z42`
 
 用户面的写法（后缀约定、五个反射载体、`#suppress`、caller 宏）见 reference 的
 [自定义 Attribute 与反射](https://z42-lang.github.io/z42/reference/language/attributes.html)。本页写**编译器怎么把
@@ -18,8 +18,8 @@
 | kind | 判定 | 处理 |
 |---|---|---|
 | **Directive** | `IsDirectiveAttr`：`Native` / `Suppress` / `Deprecated` / `Record`（`:78-83`）| 靠**名字**识别，不需要用户建 backing 类；不合成反射工厂 |
-| **Handler** | `IsTestHandlerAttr`：test 全家族 8 名 | 编译器内建，由各自的 pass 消费 |
-| **StoreMeta** | 其余全部 | 按 D8 后缀约定展开成 `<name>Attribute` 类，合成反射工厂 |
+| **Handler** | `IsModuleInitHandler`：`[ModuleInit]` | 编译器内建，聚合成包级产物 |
+| **StoreMeta** | 其余全部（含测试家族 `[Test]` 等，类在 z42.core `TestAttributes.z42`） | 按 D8 后缀约定展开成 `<name>Attribute` 类，合成反射工厂 |
 
 后缀展开只有一处：`HandlerRegistry.StoreMetaClassName(appliedName)`（`:69-71`），被
 `AttributeSynth._synthFactory` 的 `new <cls>(args)` 与 `ClassDescBuilder` 的 `IrAttrRef` 类型名
@@ -39,6 +39,11 @@ attribute 的构造在编译期**全部已知**（已知类、已知构造器、
   ⇣
 public Attribute __attr$cls$C$0() { return new RouteAttribute("/u", method: "POST"); }
 ```
+
+泛型 attribute `[X<A, B>]` 的类型实参由 parser 收成完整的 `TypeExpr[]`（`Attr.TypeArgs`），工厂照搬进
+`new XAttribute<A, B>(...)` ⇒ 活实例是真正的实例化（类级 `typeof(T)` 读得回实参），解析与个数错误按普通
+`new` 在应用处报。持久化的 attr-ref 类型名仍是定义名（`XAttribute`）——运行期只按 `$` 前缀过滤它，实例
+一律由工厂产出，不按名字构造。
 
 工厂名记进 `Attr.FactoryFunc`。工厂 key 的前缀区分载体：
 `cls$<C>` / `mth$<C>$<M>` / `fld$<C>$<F>` / `fn$<F>`，参数级再加 `$prm$<j>`。

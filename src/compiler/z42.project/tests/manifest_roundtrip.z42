@@ -6,14 +6,13 @@ using Z42.Project;
 
 [Test]
 void test_project_manifest_roundtrip() {
-    string toml = "[project]\nname = \"demo\"\nversion = \"1.2.3\"\nkind = \"exe\"\nentry = \"Main\"\n\n[sources]\ninclude = [\"src/**/*.z42\"]\nexclude = [\"src/gen/**\"]\n\n[build]\nhooks = \"hooks\"\n\n[dependencies]\n\"z42.core\" = \"0.1.0\"\n";
+    string toml = "[project]\nname = \"demo\"\nversion = \"1.2.3\"\nkind = \"exe\"\n\n[sources]\ninclude = [\"src/**/*.z42\"]\nexclude = [\"src/gen/**\"]\n\n[build]\nhooks = \"hooks\"\n\n[dependencies]\n\"z42.core\" = \"0.1.0\"\n";
     ProjectManifest m = ManifestLoader.ParseText(toml);
     // [project] → 组合式 m.Project.*
     Assert.Equal("demo", m.Project.Name);
     Assert.Equal("1.2.3", m.Project.Version);
     Assert.Equal("exe", m.Project.Kind);
-    Assert.Equal(true, m.Project.HasEntry);
-    Assert.Equal("Main", m.Project.Entry);
+    Assert.Equal(false, m.Project.HasEntry);   // 入口不在清单里配（z42c 自动检测唯一 Main）
     // [sources] → 组合式 m.Sources.*
     Assert.Equal(1, m.Sources.IncludeCount);
     Assert.Equal("src/**/*.z42", m.Sources.Include[0]);
@@ -157,7 +156,7 @@ void test_build_generated_dir_explicit_empty_means_off() {
 // ── 未知键审计（ManifestKeys）：写错的键收集成错误行，不再静默忽略 ─────────────
 [Test]
 void test_known_keys_audit_clean() {
-    string toml = "[project]\nname = \"k\"\nversion = \"0.1.0\"\nkind = \"exe\"\nentry = \"Main\"\npack = true\n"
+    string toml = "[project]\nname = \"k\"\nversion = \"0.1.0\"\nkind = \"exe\"\npack = true\n"
                 + "description = \"d\"\nauthors = [\"a\", \"b\"]\nlicense = \"MIT\"\n"
                 + "[sources]\ninclude = [\"src/**/*.z42\"]\nexclude = []\n"
                 + "[build]\noutput_dir = \"o\"\ncache_dir = \"c\"\ndist_dir = \"d\"\nincremental = false\nhooks = \"h\"\ngenerated_dir = \"g\"\n"
@@ -178,6 +177,17 @@ void test_known_keys_audit_clean() {
     Assert.Equal("MIT", m.Project.License);
     Assert.Equal("dynamic", m.Platform.Desktop.Link);
     Assert.True(m.LintWarningsAsErrors);
+}
+
+// `[project] entry` 不是键：单独一句说清怎么改（不重复成泛泛的 unknown key），也不再被读进模型。
+[Test]
+void test_project_entry_rejected() {
+    string toml = "[project]\nname = \"k\"\nversion = \"0.1.0\"\nkind = \"exe\"\nentry = \"K.Main\"\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(1, m.UnknownKeys.Length);
+    Assert.True(m.UnknownKeys[0].Contains("[project] `entry` is not a manifest key"));
+    Assert.True(m.UnknownKeys[0].Contains("[[exe]]"));
+    Assert.Equal(false, m.Project.HasEntry);
 }
 
 [Test]

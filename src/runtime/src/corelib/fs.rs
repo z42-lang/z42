@@ -444,8 +444,8 @@ fn require_byte_array(args: &[Value], idx: usize, op: &str) -> Result<Vec<u8>> {
         Some(Value::Array(rc)) => {
             let borrowed = rc.borrow();
             // packed-primitive-arrays Step 3: packed `Bytes` → contiguous `&[u8]`.
-            if let Some(b) = borrowed.as_bytes() {
-                return Ok(b.to_vec());
+            if let Some(b) = borrowed.byte_snapshot() {
+                return Ok(b);
             }
             let mut out = Vec::with_capacity(borrowed.len());
             for (i, v) in borrowed.iter_boxed().enumerate() {
@@ -510,7 +510,7 @@ pub fn builtin_file_read(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         f.read(&mut tmp)?
     };
     // Copy actually-read bytes into the user's array.
-    let mut borrowed = buf_arr.borrow_mut();
+    let borrowed = buf_arr.borrow();
     for i in 0..n {
         borrowed.set_boxed(offset + i, Value::I64(tmp[i] as i64));
     }

@@ -1,0 +1,26 @@
+namespace Demo;
+
+using Std;
+
+// A generic class sharing its name with a non-generic one (`Box` and `Box<E>`) is registered
+// and emitted under the arity-mangled name `Box$1`. Class-level `typeof(E)` / `default(E)`
+// must name that same declaring class, or the runtime cannot find the declaring level and
+// falls back to the placeholder `T` / `null`.
+
+class Box {
+    public Type? Arg() { return null; }
+}
+
+class Box<E> {
+    public Type? Arg() { return typeof(E); }
+    public E Zero() { return default(E); }
+}
+
+void Main() {
+    Type? a = new Box<string>().Arg();
+    string name = "";
+    if (a is Type t) { name = t.FullName; }
+    Assert.Equal("Std.String", name);
+    Assert.Equal(0, new Box<int>().Zero());
+    Assert.Null(new Box().Arg());
+}

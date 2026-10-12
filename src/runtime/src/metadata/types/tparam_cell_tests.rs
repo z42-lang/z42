@@ -66,8 +66,8 @@ pub(crate) fn tparam_td(n: usize) -> Arc<TypeDesc> {
 
 /// A fresh `Box<arg>` the way `ObjNew` makes it: zeroed storage, then the instantiation's
 /// zero values written through `set_field_value` (`generic_field_zero_overrides`).
-fn new_box(td: &Arc<TypeDesc>, arg: Option<&str>) -> ScriptObject {
-    let mut o = ScriptObject::new(td.clone(), td.object_storage());
+fn new_box(td: &Arc<TypeDesc>, arg: Option<&str>) -> crate::metadata::types::OwnedObject {
+    let o = crate::metadata::types::OwnedObject::of_type(td.clone());
     if let Some(a) = arg {
         for (slot, zero) in generic_field_zero_overrides(td, &[a.to_string()]) {
             o.set_field_value(slot, &zero);
@@ -83,11 +83,11 @@ fn cell(o: &ScriptObject, slot: usize) -> (u32, u32) {
 }
 
 fn tag_word(o: &ScriptObject, slot: usize) -> u64 {
-    o.storage.load_word(cell(o, slot).0 as usize, Ordering::Relaxed)
+    o.cells().load_word(cell(o, slot).0 as usize, Ordering::Relaxed)
 }
 
 fn payload_word(o: &ScriptObject, slot: usize) -> u64 {
-    o.storage.load_word(cell(o, slot).1 as usize, Ordering::Relaxed)
+    o.cells().load_word(cell(o, slot).1 as usize, Ordering::Relaxed)
 }
 
 fn heap() -> ArcMagrGC {
@@ -102,11 +102,11 @@ fn the_cell_is_the_fields_own_slot_plus_a_payload_word_past_the_compiler_layout(
     let l = td.composed_object_layout_ref().unwrap();
     assert_eq!(l.size, 24, "the compiler's size is kept (a subclass's region starts there)");
     assert_eq!(&*l.tparam_cells, &[8, 16]);
-    assert!(l.ref_offsets.is_empty() && l.ref_cells.is_empty(), "no side table, no plain reference words");
+    assert!(l.ref_cells.is_empty(), "no plain reference words");
     assert_eq!((l.field_access[1].offset, l.field_access[1].aux), (8, 24));
     assert_eq!((l.field_access[2].offset, l.field_access[2].aux), (16, 32));
     assert_eq!(l.bytes_len(), 40);
-    assert_eq!(td.object_region_sizes(), (40, 0), "16 B per type-parameter field, no side-table slot");
+    assert_eq!(td.object_bytes_len(), 40, "16 B per type-parameter field");
 }
 
 /// The instantiation's zero value fixes the cell's variant at allocation; a reference or unknown
@@ -136,17 +136,17 @@ fn a_known_primitive_argument_fixes_the_variant_at_allocation() {
 fn primitives_of_the_fixed_variant_round_trip_through_the_payload_word() {
     let td = tparam_td(1);
     let before = boxes();
-    let mut o = new_box(&td, Some("double"));
+    let o = new_box(&td, Some("double"));
     for x in [1.5, -0.0, f64::MAX, f64::NAN] {
         assert!(matches!(o.try_set_field_value(1, &Value::F64(x)), Ok(FieldWrite::NotRef)));
         let Value::F64(back) = o.field_value(1) else { panic!() };
         assert_eq!(back.to_bits(), x.to_bits());
         assert_eq!(tag_word(&o, 1), prim_word(K_F64), "only the payload changes");
     }
-    let mut o = new_box(&td, Some("char"));
+    let o = new_box(&td, Some("char"));
     o.set_field_value(1, &Value::Char('é'));
     assert_eq!(o.field_value(1), Value::Char('é'));
-    let mut o = new_box(&td, Some("long"));
+    let o = new_box(&td, Some("long"));
     o.set_field_value(1, &Value::I64(i64::MIN));
     assert_eq!(o.field_value(1), Value::I64(i64::MIN));
     assert_eq!(boxes(), before, "no allocation on the fast path");
@@ -158,7 +158,7 @@ fn primitives_of_the_fixed_variant_round_trip_through_the_payload_word() {
 fn the_first_primitive_store_claims_the_variant_when_allocation_did_not_know_it() {
     let td = tparam_td(1);
     let before = boxes();
-    let mut o = new_box(&td, Some("T"));
+    let o = new_box(&td, Some("T"));
     o.set_field_value(1, &Value::I64(41));
     assert_eq!(tag_word(&o, 1), prim_word(K_I64));
     o.set_field_value(1, &Value::I64(42));
@@ -171,7 +171,7 @@ fn the_first_primitive_store_claims_the_variant_when_allocation_did_not_know_it(
 fn null_into_a_primitive_cell_keeps_the_variant() {
     let td = tparam_td(1);
     let before = boxes();
-    let mut o = new_box(&td, Some("int"));
+    let o = new_box(&td, Some("int"));
     o.set_field_value(1, &Value::I64(7));
     assert!(matches!(o.try_set_field_value(1, &Value::Null), Ok(FieldWrite::NotRef)));
     assert_eq!(tag_word(&o, 1), null_word(K_I64));
@@ -189,7 +189,7 @@ fn references_live_in_the_tag_word_without_a_box() {
     let _g = crate::gc::ambient::HeapGuard::enter(&heap);
     let td = tparam_td(1);
     let before = boxes();
-    let mut o = new_box(&td, Some("string"));
+    let o = new_box(&td, Some("string"));
     let s = Value::Str(heap.alloc_str("x"));
     assert!(matches!(o.try_set_field_value(1, &s), Ok(FieldWrite::Ref)));
     assert_eq!(tag_word(&o, 1), ref_word::encode(&s).unwrap());
@@ -211,7 +211,7 @@ fn mismatched_writes_take_the_boxed_slow_path_and_read_back_unchanged() {
     let s = Value::Str(heap.alloc_str("s"));
 
     // Fixed `int`, then a reference, another primitive variant, the fixed variant again, null.
-    let mut o = new_box(&td, Some("int"));
+    let o = new_box(&td, Some("int"));
     let before = boxes();
     assert!(matches!(o.try_set_field_value(1, &s), Ok(FieldWrite::Boxed(_))));
     assert_eq!(o.field_value(1), s);
@@ -226,7 +226,7 @@ fn mismatched_writes_take_the_boxed_slow_path_and_read_back_unchanged() {
 
     // Never held a primitive: a reference, then a primitive (claiming would hide the reference
     // from a racing reader).
-    let mut o = new_box(&td, None);
+    let o = new_box(&td, None);
     o.set_field_value(1, &s);
     let before = boxes();
     assert!(matches!(o.try_set_field_value(1, &Value::I64(9)), Ok(FieldWrite::Boxed(_))));
@@ -234,7 +234,7 @@ fn mismatched_writes_take_the_boxed_slow_path_and_read_back_unchanged() {
     assert_eq!(boxes() - before, 1);
 
     // A value no 8 B word encodes (a stack handle) is boxed too.
-    let mut o = new_box(&td, None);
+    let o = new_box(&td, None);
     let h = Value::StackObject { idx: 3, frame_id: 4 };
     assert!(matches!(o.try_set_field_value(1, &h), Ok(FieldWrite::Boxed(_))));
     assert_eq!(o.field_value(1), h);
@@ -247,7 +247,7 @@ fn the_payload_word_only_ever_holds_the_claimed_variant() {
     let heap = heap();
     let _g = crate::gc::ambient::HeapGuard::enter(&heap);
     let td = tparam_td(1);
-    let mut o = new_box(&td, None);
+    let o = new_box(&td, None);
     o.set_field_value(1, &Value::I64(5));
     let s = Value::Str(heap.alloc_str("s"));
     for v in [s, Value::F64(1.0), Value::Bool(true), Value::Null, Value::Char('c'), s] {
@@ -260,7 +260,7 @@ fn the_payload_word_only_ever_holds_the_claimed_variant() {
     assert_eq!(payload_word(&o, 1), 5);
     assert_eq!(o.field_value(1), Value::I64(6));
     // Through `null` the variant is still known: the payload word takes the next `int`.
-    let mut o = new_box(&td, Some("int"));
+    let o = new_box(&td, Some("int"));
     o.set_field_value(1, &Value::Null);
     o.set_field_value(1, &Value::I64(6));
     assert_eq!(payload_word(&o, 1), 6);
@@ -279,7 +279,7 @@ fn gc_traces_through_type_parameter_cells() {
     let weak_child = heap.make_weak(&child).expect("object");
     {
         let s = Value::Str(heap.alloc_str("kept by a tag word"));
-        let mut o = h.borrow_mut();
+        let o = h.borrow();
         o.set_field_value(1, &s);
         o.set_field_value(2, &Value::I64(1));
         o.set_field_value(2, &child); // claimed int, then a reference: boxed
@@ -301,7 +301,7 @@ fn gc_traces_through_type_parameter_cells() {
         assert_eq!(o.field_value(3), Value::I64(77));
     }
     {
-        let mut o = h.borrow_mut();
+        let o = h.borrow();
         for i in 1..=3 {
             o.set_field_value(i, &Value::Null);
         }
@@ -315,7 +315,7 @@ fn clear_refs_for_sweep_breaks_type_parameter_edges() {
     let heap = heap();
     let _g = crate::gc::ambient::HeapGuard::enter(&heap);
     let leaf = heap.alloc_object(tparam_td(0), vec![], NativeData::None);
-    let mut o = new_box(&tparam_td(2), None);
+    let o = new_box(&tparam_td(2), None);
     o.set_field_value(1, &leaf);
     o.set_field_value(2, &Value::I64(4));
     o.clear_refs_for_sweep();
@@ -346,4 +346,19 @@ fn a_subclass_moves_inherited_payload_words_past_its_own_fields() {
     assert_eq!(sub.field_access[1].aux, 24, "inherited cell's payload past the subclass layout");
     assert_eq!(sub.field_access[2].aux, 32);
     assert_eq!(sub.bytes_len(), 40);
+}
+
+#[test]
+fn the_jit_prim_table_matches_decode() {
+    use crate::metadata::types::Value;
+    let disc = |v: &Value| unsafe { *(v as *const Value as *const u8) };
+    assert_eq!(PRIM_KIND_TO_VALUE_TAG[0], disc(&Value::Null));
+    for v in [Value::I64(1), Value::F64(1.0), Value::Bool(true), Value::Char('x')] {
+        let (k, _) = prim_parts(&v).unwrap();
+        assert_eq!(PRIM_KIND_TO_VALUE_TAG[k as usize], disc(&v), "{v:?}");
+        assert_eq!(prim_value(k, 0), match v {
+            Value::I64(_) => Value::I64(0), Value::F64(_) => Value::F64(0.0),
+            Value::Bool(_) => Value::Bool(false), _ => Value::Char('\0'),
+        });
+    }
 }

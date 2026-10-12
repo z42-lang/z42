@@ -72,16 +72,18 @@ void _copyZpkgPair(string srcDir, string dstDir, string name) {
 
 // 覆盖复制（存在即删后拷）；src 不存在则跳过（冷启动首刷时 libraries dist 可能尚未产出前端库，
 // 由 _ensureBootstrapSelfDepLibs 建好后的重试刷再命中）。
-// 种子 driver 的运行期 libs = **它自己 dist 里那份 colocated 闭包**（搬到 run-libs），
-// 不是 flat 的快照。同时把成员 dist 清成「只有成员」——一举解决两件事：
+// 种子 driver 的运行期 libs = **它那一代的 stdlib 锚**（`_driverGenLibs`，上一次自建成功时记下；老 driver 建的
+// dist 里若还躺着 colocated 副本也一并搬到 run-libs），不是本轮开始时 flat 的快照。同时把成员 dist 清成
+// 「只有成员」——一举解决两件事：
 //
 // ① 运行期（代际锚）：`Z42_LIBS` 要给种子 driver **它编译时那一代**的库。此前从 flat 快照，
 //    而 flat 正是本轮要被 `_ensureBootstrapSelfDepLibs` 覆盖成当前源的目录 —— 上一轮跑到一半、
 //    或快照晚于预建，快照拿到的就是新代，种子 driver 随即
 //    `MissingSymbolException: Z42.Build.Project.ManifestLoader.LoadWorkspace`（B3 实测；
 //    `Z42.Build.Project` 是当时的旧名，B3b 已改叫 `Z42.Project`）。
-//    **flat 是会变的，不能当「代」的锚**。driver 的 dist 里躺的闭包（`z42c build` 对 exe 的
-//    colocate + `_ensureDriverSelfContained`）与 driver 同代是**构造保证**的 —— 换它当锚。
+//    **本轮的 flat 是会变的，不能当「代」的锚**。锚在 driver 产出的那一刻记：自建成功时 flat 里的 stdlib
+//    正是新 driver 编译时对着的那一代（`_snapshotDriverGenLibs`）—— 与 driver 同代是**构造保证**的。
+//    （z42c 不把 stdlib 复制进 exe 的 dist —— 它在外部档里、是框架 —— 所以锚不能再借 driver 的 dist。）
 //
 // ② 编译期（遮蔽）：z42c 的 workspace 解析面是 `libsDirs = 全成员 dist + 外部档`
 //    （WorkspaceBuild.z42），纯 basename 命中、**成员 dist 排在前**。成员 dist 同时是运行期
@@ -96,8 +98,8 @@ void _copyZpkgPair(string srcDir, string dstDir, string name) {
 //    （跑 workspace 构建的是**种子** driver ⇒ 要跨一个 nightly 才生效），故编排侧先解。
 //
 // 搬空后由调用方 `_ensureDriverSelfContained` 把成员 + fresh 前端补回 driver bundle
-// （前端与 flat 同代 ⇒ 不构成遮蔽）。返回搬了几个；0 = 这个 driver 没带 bundle
-// （冷启动刚从 SDK staged）⇒ 回落 SDK libs（`_ensureSeed` 正是从那儿取的种子，同代）。
+// （前端与 flat 同代 ⇒ 不构成遮蔽）。返回搬了几个；0 = 既无锚也无 bundle
+// （冷启动刚从 SDK staged，`_ensureSeed` 已作废旧锚）⇒ 回落 SDK libs（种子正是从那儿取的，同代）。
 int _relocateSeedRunLibs(string root, string profile, string[] members, string dst) {
     _resetDir(dst);
     int moved = 0;
@@ -116,7 +118,33 @@ int _relocateSeedRunLibs(string root, string profile, string[] members, string d
             moved = moved + 1;
         }
     }
+    // driver 那一代编译时对着的 stdlib（`_snapshotDriverGenLibs` 在上一次自建末尾记下的）。z42c 不再把 stdlib
+    // 复制进 exe 的 dist（它在外部档里 = 框架），所以代际锚由 xtask 自己记，不再借 driver 的 dist。
+    // 上面搬出来的（老 driver 建的 dist 还带 stdlib 副本）与锚同代，已在的不覆盖。
+    string anchor = _driverGenLibs(root, profile);
+    if (Directory.Exists(anchor)) {
+        string[] gl = Path.Glob(anchor, "*.zpkg");
+        int gi = 0;
+        while (gi < gl.Length) {
+            string name = Path.GetFileNameWithoutExtension(gl[gi]);
+            gi = gi + 1;
+            if (File.Exists(Path.Join(dst, name + ".zpkg"))) { continue; }
+            _copyZpkgPair(anchor, dst, name);
+            moved = moved + 1;
+        }
+    }
     return moved;
+}
+
+// 自建刚产出的 driver 编译时对着的 stdlib = 此刻 flat 里的 stdlib 成员 ⇒ 快照进 `_driverGenLibs`，作为下一次
+// 用它当种子时的运行期 libs（代际锚，见 `_relocateSeedRunLibs` 头注）。每次自建成功都重取（锚必须跟 driver 同代）。
+void _snapshotDriverGenLibs(string root, string profile, string stdlibFlat) {
+    string[] libs = _stdlibList(root);
+    if (libs.Length == 0) { return; }   // 读不到成员清单就不记：缺锚回落 SDK 补齐，好过记一份错的
+    string anchor = _driverGenLibs(root, profile);
+    _resetDir(anchor);
+    int i = 0;
+    while (i < libs.Length) { _copyZpkgPair(stdlibFlat, anchor, libs[i]); i = i + 1; }
 }
 
 // <name>.zpkg + 同名 .zsym 从 srcDir 搬到 dstDir（先拷后删；dst 已存在则覆盖）。
@@ -200,7 +228,7 @@ int _buildCompilerViaZ42c(string root, string profile, string[] members, string 
     // 现在：先把 flat 快照成种子代的运行期面（**必须在预建覆盖之前**），随后种子 driver 的调用
     // 用 `Z42_LIBS=快照` + `--compile-libs=flat`。driver 换代之后的步骤（`build stdlib` 步骤 4 等）
     // 仍照旧用 flat 当两者 —— 那时 driver 与 flat 同代。详见
-    // `变更 rename-project-namespaces` §3 的代际表。
+    // `docs/spec/archive/2026-09-27-rename-project-namespaces/design.md` §3 的代际表。
     // 🔴 **只有在 driver 认 `--compile-libs` 时才分开两个面**。种子 driver 若早于该旗标会
     // **静默忽略**它 ⇒ `Z42_LIBS`（此处本想设成种子代快照）会被当成编译期面，冷树上那个快照
     // 还是空的 ⇒ `z42.package 未找到`（CI compile-toolchain 实测红）。不认就逐字退回旧行为。
@@ -208,13 +236,13 @@ int _buildCompilerViaZ42c(string root, string profile, string[] members, string 
     string seedRun = stdlibFlat;
     string compileLibs = "";
     if (splitLibs) {
-        // 代际锚 = driver 自己 dist 里的 colocated 闭包（搬进 run-libs），**不是** flat 的快照。
+        // 代际锚 = driver 产出时记下的 stdlib（`_driverGenLibs`，拷进 run-libs），**不是**本轮 flat 的快照。
         // 理由与 flat 为何当不了锚见 `_relocateSeedRunLibs` 头注。
         seedRun = _seedRunLibs(root, profile);
         int movedLibs = _relocateSeedRunLibs(root, profile, members, seedRun);
         int filledLibs = _topUpSeedRunLibs(root, seedRun, members);
         if (movedLibs + filledLibs > 0) {
-            _vNormal("  seed run-libs ← driver bundle " + movedLibs.ToString()
+            _vNormal("  seed run-libs ← driver 代际锚/bundle " + movedLibs.ToString()
                      + " + SDK 补齐 " + filledLibs.ToString() + "（外部包搬出成员 dist）");
         } else {
             _seedRunLibsFallbackFlat(root, profile, seedRun, stdlibFlat);
@@ -243,6 +271,7 @@ int _buildCompilerViaZ42c(string root, string profile, string[] members, string 
         rc = _z42cWorkspaceBuild(vm, driver, compilerDir, seedRun, false, compileLibs);
     }
     if (rc != 0) { ConsoleError.WriteLine("  ✗ z42c --workspace self-build failed"); return 1; }
+    _snapshotDriverGenLibs(root, profile, stdlibFlat);
     // 先清 flat 里的破环预建，再做最后一次自包含：反过来的话，`_ensureDriverSelfContained` 会把 flat 里
     // **单包预建**的 z42c.core / z42c.syntax 盖在刚自建出的成员产物上 ⇒ 新 driver 带的前端与成员 dist 不是同一份。
     _purgeBootstrapPrebuildsFromFlat(root, stdlibFlat);

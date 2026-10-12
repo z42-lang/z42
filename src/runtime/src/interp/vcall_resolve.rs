@@ -79,7 +79,7 @@ pub(crate) fn receiver_type_id(obj_val: &Value) -> Option<u32> {
 }
 
 /// PIC fast path shared by both engines: hit → the callee's `FnId` under the site's module
-/// (resolve it with `exec_call::fn_by_id` / `JitModuleCtx::fn_of`, both lock-free). `None` on
+/// (resolve it with `exec_call::fn_by_id` / `JitRuntime::fn_of`, both lock-free). `None` on
 /// miss, on a non-cacheable receiver, or when the cached target is `UNRESOLVED`.
 ///
 /// Publication: the PIC entry is read `Relaxed`. A lazily loaded `FnId` is only usable through
@@ -117,7 +117,7 @@ pub(crate) fn assert_pic_target(
     let Value::Object(rc) = obj_val else { return };
     let td = rc.type_desc();
     let callee = callee.name.as_str();
-    let Some(declaring) = callee.rfind('.').map(|p| &callee[..p]) else { return };
+    let Some(declaring) = crate::metadata::type_names::last_top_dot(callee).map(|p| &callee[..p]) else { return };
     if super::dispatch::is_subclass_or_eq_td(ctx, &module.type_registry, &td.name, declaring) {
         return;
     }
@@ -198,8 +198,6 @@ fn resolve_vcall_unchecked<'a>(
             // `Color.ToString`, falls back to `Std.Object.ToString` with `this = I64` and
             // dies in `__obj_to_str: expected an object`. Undefined value → the number,
             // same as C#.
-            // NB: `type_desc()` is the lockless accessor — `gc.borrow()` here would
-            // deadlock against the guard still held by the `if let` above.
             if method == "ToString" && arity == 0 {
                 if let Some(name) = gc.type_desc().enum_member_name(scalar) {
                     return Ok(ResolvedVCall {
@@ -256,8 +254,7 @@ fn resolve_vcall_unchecked<'a>(
                 if let Some(target) = resolve_own_slot(ctx, module, &type_name, method, arity) {
                     return Ok(ResolvedVCall { target, this: obj_val.clone() });
                 }
-                let n: &str = &b.type_desc().name;
-                let short = n.rsplit('.').next().unwrap_or(n);
+                let short = crate::metadata::type_names::unqualified(&b.type_desc().name);
                 return Ok(ResolvedVCall {
                     target: VCallTarget::Immediate(Value::Str(short.into())), this: obj_val.clone(),
                 });

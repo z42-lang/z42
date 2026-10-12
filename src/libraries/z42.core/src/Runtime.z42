@@ -10,7 +10,7 @@
 //
 // Implementation status: DEFERRED — builtins __load_zpkg / __call_static are not yet
 // registered in the VM corelib. Implementation gate: reflection MVP + compiler self-hosting
-// complete. See 变更 runtime-dynamic-load-call
+// complete. See docs/spec/changes/runtime-dynamic-load-call/.
 namespace Std.Runtime;
 
 public static class Runtime {

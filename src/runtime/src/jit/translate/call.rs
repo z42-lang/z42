@@ -10,28 +10,14 @@ impl<'a, 'b> TxCtx<'a, 'b> {
     pub(super) fn tr_call(&mut self, instr: &Instruction) -> Result<()> {
         match instr {
                 Instruction::Call(insn) => {
-                    // add-generic-methods: generic Call sites are filtered out by
-                    // jit_unsupported_reason (stay interp); non-generic reach here.
-                    let CallInsn { dst, func: fname, args, .. } = &**insn;
-                    let d = self.ri(*dst);
-                    let (np, nl) = self.str_val(fname);
-                    let (ap, al) = self.regs_val(args);
-                    let mid = method_id_at(self.func, self.block_idx, self.instr_idx);
-                    let mid_val = self.builder.ins().iconst(types::I32, mid as i64);
-                    // The site's `method_tokens` cell: a callee bound after this
-                    // translation (first dispatch, by either backend) is read from
-                    // here, so the name is resolved once per site.
-                    let ic_ptr = method_token_ptr_at(self.func, self.block_idx, self.instr_idx);
-                    let ic_val = self.builder.ins().iconst(self.ptr, ic_ptr as i64);
-                    // jit-stack-trace: pass this site's code offset so jit_call can
-                    // stamp the caller's frame before descending into the callee.
-                    let off_val = self.builder.ins().iconst(types::I32, self.func.linear_offset(self.block_idx as u32, self.instr_idx as u32) as i64);
-                    let inst = self.builder.ins().call(self.hr_call, &[self.frame_val, self.ctx_val, d, mid_val, np, nl, ap, al, ic_val, off_val]);
-                    let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
-                    // add-gc-safepoint-jit (2026-05-21): post-Call safepoint
-                    // — long callees may yield to a GC request that arrived
-                    // partway through; the caller catches it on return.
-                    emit_safepoint_check(self.builder, self.ptr, self.ctx_val, self.frame_val, self.hr_check_safepoint_slow);
+                    // perf-str-jit-intrinsics: `string.CharAt` / `s[i]` (and any other
+                    // static call that forwards to `__str_length` / `__str_char_at`)
+                    // inline, with this helper sequence as the slow path.
+                    match self.str_intrinsic_of_call(insn) {
+                        Some(k) => self.emit_str_intrinsic(k, insn.dst, &insn.args, true,
+                            |cx| cx.emit_call_helper(insn)),
+                        None => self.emit_call_helper(insn),
+                    }
                 }
                 Instruction::Builtin(insn) => {
                     let BuiltinInsn { dst, name, args } = &**insn;
@@ -61,20 +47,41 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                 }
 
                 // Arrays
+                // P1-2 PR 8: a function reference's target is its site's `FnId` token. Bound
+                // at translate time (load-time pre-fill or an earlier execution) ⇒ baked: a
+                // `LoadFn` is then a plain native store of `Value::FuncRef(id)`. Otherwise the
+                // helper binds it on first execution (and stores the token for later ones).
                 Instruction::LoadFn(insn) => {
                     let LoadFnInsn { dst, func } = &**insn;
-                    let d = self.ri(*dst);
-                    let (np, nl) = self.str_val(func);
-                    let inst = self.builder.ins().call(self.hr_load_fn, &[self.frame_val, self.ctx_val, d, np, nl]);
-                    let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
+                    let tok = fn_ref_token_at(self.func, self.block_idx, self.instr_idx);
+                    let baked = tok.map_or(crate::metadata::tokens::UNRESOLVED,
+                        |t| t.load(std::sync::atomic::Ordering::Relaxed));
+                    if baked != crate::metadata::tokens::UNRESOLVED {
+                        let addr = reg_addr(self.builder, self.regs_base, *dst);
+                        let v = self.builder.ins().iconst(types::I64, baked as i64);
+                        store_const_tag(self.builder, addr, TAG_FUNCREF, v);
+                    } else {
+                        let d = self.ri(*dst);
+                        let (np, nl) = self.str_val(func);
+                        let tp = self.builder.ins().iconst(self.ptr,
+                            tok.map_or(std::ptr::null(), |t| t as *const _) as i64);
+                        let inst = self.builder.ins().call(self.hr_load_fn, &[self.frame_val, self.ctx_val, d, np, nl, tp]);
+                        let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
+                    }
                 }
                 Instruction::MkClos(insn) => {
                     let MkClosInsn { dst, fn_name, captures } = &**insn;
                     let d = self.ri(*dst);
+                    let tok = fn_ref_token_at(self.func, self.block_idx, self.instr_idx);
+                    let baked = tok.map_or(crate::metadata::tokens::UNRESOLVED,
+                        |t| t.load(std::sync::atomic::Ordering::Relaxed));
+                    let bv = self.builder.ins().iconst(types::I32, baked as i64);
                     let (np, nl) = self.str_val(fn_name);
+                    let tp = self.builder.ins().iconst(self.ptr,
+                        tok.map_or(std::ptr::null(), |t| t as *const _) as i64);
                     let (cp, cl) = self.regs_val(captures);
                     let inst = self.builder.ins().call(self.hr_mk_clos,
-                        &[self.frame_val, self.ctx_val, d, np, nl, cp, cl]);
+                        &[self.frame_val, self.ctx_val, d, bv, np, nl, tp, cp, cl]);
                     let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
                 }
                 Instruction::CallIndirect { dst, callee, args } => {
@@ -88,10 +95,37 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
                     // add-gc-safepoint-jit (2026-05-21): post-CallIndirect
                     // safepoint, see Instruction::Call for rationale.
-                    emit_safepoint_check(self.builder, self.ptr, self.ctx_val, self.frame_val, self.hr_check_safepoint_slow);
+                    emit_safepoint_check(self.builder, self.ctx_val, self.frame_val, self.hr_check_safepoint_slow);
                 }
             _ => anyhow::bail!("tr_call: unexpected opcode in category dispatch"),
         }
         Ok(())
+    }
+
+    /// The `jit_call` helper sequence for a `Call` site (call + exception check +
+    /// post-call safepoint). Also the slow path of an inlined string intrinsic.
+    pub(super) fn emit_call_helper(&mut self, insn: &CallInsn) {
+        // add-generic-methods: generic Call sites are filtered out by
+        // jit_unsupported_reason (stay interp); non-generic reach here.
+        let CallInsn { dst, func: fname, args, .. } = insn;
+        let d = self.ri(*dst);
+        let (np, nl) = self.str_val(fname);
+        let (ap, al) = self.regs_val(args);
+        let mid = method_id_at(self.func, self.block_idx, self.instr_idx);
+        let mid_val = self.builder.ins().iconst(types::I32, mid as i64);
+        // The site's `method_tokens` cell: a callee bound after this
+        // translation (first dispatch, by either backend) is read from
+        // here, so the name is resolved once per site.
+        let ic_ptr = method_token_ptr_at(self.func, self.block_idx, self.instr_idx);
+        let ic_val = self.builder.ins().iconst(self.ptr, ic_ptr as i64);
+        // jit-stack-trace: pass this site's code offset so jit_call can
+        // stamp the caller's frame before descending into the callee.
+        let off_val = self.builder.ins().iconst(types::I32, self.func.linear_offset(self.block_idx as u32, self.instr_idx as u32) as i64);
+        let inst = self.builder.ins().call(self.hr_call, &[self.frame_val, self.ctx_val, d, mid_val, np, nl, ap, al, ic_val, off_val]);
+        let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
+        // add-gc-safepoint-jit (2026-05-21): post-Call safepoint
+        // — long callees may yield to a GC request that arrived
+        // partway through; the caller catches it on return.
+        emit_safepoint_check(self.builder, self.ctx_val, self.frame_val, self.hr_check_safepoint_slow);
     }
 }

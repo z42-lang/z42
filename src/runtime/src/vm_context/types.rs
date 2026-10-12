@@ -296,6 +296,69 @@ pub struct VmCore {
     /// load on the already-throttled slow path. Produces a folded flamegraph
     /// (+ optional perfetto sample-trace when `Z42_TRACE_OUT` is set).
     pub(crate) sampler: crate::gc::Sampler,
+
+    /// The VM's JIT: one per VM, shared by every thread (slots table, the
+    /// compiler and its code, OSR entries, tier thresholds — see
+    /// `jit::runtime`). Set once by the first `jit::run` on this VM and kept
+    /// until the core drops, so compiled code stays valid for every thread
+    /// still holding the core. Unset ⇒ no thread of this VM runs native code
+    /// (interp mode).
+    #[cfg(feature = "jit")]
+    pub(crate) jit: std::sync::OnceLock<crate::jit::runtime::JitRuntime>,
+}
+
+/// The part of a [`VmContext`] that JIT-compiled code reads at fixed offsets.
+///
+/// Every compiled function and JIT helper receives the **running thread's own**
+/// `VmContext` as its context parameter, so these are per-thread values read
+/// without a helper call:
+///
+/// - `stack_limit` — the prologue's stack-overflow bound
+///   ([`VM_CONTEXT_STACK_LIMIT_OFFSET`]);
+/// - `cctors` — the VM's cctor registry, whose package-init gate counters the
+///   inline string intrinsics read ([`VM_CONTEXT_CCTORS_OFFSET`]).
+///
+/// It also caches the VM's JIT runtime pointer (`jit`), so helpers and the
+/// interpreter's mixed-mode diverts reach the shared JIT state with one load.
+///
+/// The safepoint throttle counter is the third JIT-read field; it stays on
+/// [`VmContext::safepoint_skip`] (the interpreter decrements it too) and is
+/// addressed by [`VM_CONTEXT_SAFEPOINT_SKIP_OFFSET`].
+#[repr(C)]
+pub(crate) struct JitHead {
+    /// Lowest stack address a JIT function may start at: `stack_guard::limit()`
+    /// of the thread driving this context, stored at its bottom frame push
+    /// (`push_frame` → `EngineGuards::install`), i.e. before any compiled code
+    /// runs on it. `0` until then (`sp < 0` never holds: no check). Written and
+    /// read by the owner thread only; atomic only to keep the context `Sync`.
+    pub(crate) stack_limit: std::sync::atomic::AtomicUsize,
+    /// `Arc::as_ptr(&core.cctors)` — stable for the core's life, set at
+    /// construction.
+    pub(crate) cctors: *const super::cctor::CctorRegistry,
+    /// `core.jit` once installed (null until then, and always in interp mode):
+    /// taken at construction, stored by `jit::runtime::install` for the
+    /// installing context, and refreshed at the bottom frame push for a context
+    /// that existed before the install. Points into the core this context keeps
+    /// alive. Written and read by the owner thread only.
+    #[cfg(feature = "jit")]
+    pub(crate) jit: std::sync::atomic::AtomicPtr<crate::jit::runtime::JitRuntime>,
+}
+
+// SAFETY: `cctors` points into the `Arc<CctorRegistry>` the context's own core
+// keeps alive; the registry is `Sync` and only read through the pointer.
+unsafe impl Send for JitHead {}
+unsafe impl Sync for JitHead {}
+
+impl JitHead {
+    pub(crate) fn new(core: &VmCore) -> Self {
+        JitHead {
+            stack_limit: std::sync::atomic::AtomicUsize::new(0),
+            cctors: Arc::as_ptr(&core.cctors),
+            #[cfg(feature = "jit")]
+            jit: std::sync::atomic::AtomicPtr::new(
+                core.jit.get().map_or(std::ptr::null_mut(), |rt| rt as *const _ as *mut _)),
+        }
+    }
 }
 
 /// Runtime-mutable state shared across one VM instance's interp + JIT paths.
@@ -394,19 +457,9 @@ pub struct VmContext {
     /// the owner thread (load + store, no RMW); an atomic only to keep the
     /// context `Sync`.
     pub(crate) next_frame_id:     std::sync::atomic::AtomicU32,
-    /// runtime-jit-tiering Phase 1.5 (mixed-mode): forward pointer to the active
-    /// `JitModuleCtx`, mirroring the existing `JitModuleCtx.vm_ctx` back-pointer.
-    /// Type-erased as `usize` (the `jit` module is `cfg`-gated; this field is not)
-    /// — cast back to `*const jit::frame::JitModuleCtx` at the interp dispatch hook.
-    /// Set by `JitModule::run_fn` for the duration of one entry call, 0 outside it.
-    /// Lets an interp frame (running as a JIT cold-tier / fallback) route an
-    /// already-compiled callee to its native code instead of re-interpreting.
-    pub(crate) jit_ctx:           std::sync::atomic::AtomicUsize,
-    /// `MkClos` function-name strings, interned per site (`intern_fn_name`): key = the
-    /// instruction's name `(address, length)`, hit confirmed by content. GC roots (scanned
-    /// with this context's other roots). Per thread, so the lock is uncontended. Goes away
-    /// once closures bind their function id at creation.
-    pub(crate) fn_name_cache:     Mutex<FxHashMap<(usize, usize), crate::metadata::vstr::Str>>,
+    /// What compiled code reads off this context at fixed offsets (stack limit,
+    /// cctor gate). See [`JitHead`].
+    pub(crate) jit_head:          JitHead,
     /// **optimize-subclass-check**: memoizes the type-test verdict, keyed by
     /// `(receiver TypeId, target key)` packed into a `u64` (`dispatch::isa_key`). Backs the
     /// direct-mapped `isa_cache` (its misses and collisions) and the name-only callers
@@ -464,6 +517,16 @@ pub struct VmContext {
 /// field reordering / `#[repr(Rust)]`, so it always yields the actual offset.
 pub const VM_CONTEXT_SAFEPOINT_SKIP_OFFSET: usize =
     std::mem::offset_of!(VmContext, safepoint_skip);
+
+/// Byte offset of [`JitHead::stack_limit`] within `VmContext` (loaded by every
+/// compiled prologue).
+pub const VM_CONTEXT_STACK_LIMIT_OFFSET: usize =
+    std::mem::offset_of!(VmContext, jit_head.stack_limit);
+
+/// Byte offset of [`JitHead::cctors`] within `VmContext` (loaded by the inline
+/// string intrinsics' package-init gate).
+pub const VM_CONTEXT_CCTORS_OFFSET: usize =
+    std::mem::offset_of!(VmContext, jit_head.cctors);
 
 // `Default` removed: `new()` now returns `Pin<Box<VmContext>>`, which
 // cannot satisfy `Default::default() -> Self`. Test helpers that

@@ -61,6 +61,19 @@
 | 静态方法组 → delegate 值 | `LoadFn`（`0x55`）|
 | delegate 调用 | `CallIndirect`（`0x56`）|
 
+**目标在创建时绑定（P1-2 PR 8）**：`LoadFn` / `MkClos` 执行时把目标函数名解析成 `FnId`
+（与 `Call` 站点 token 同一个 id 空间：入口模块函数 `0..n`，惰性包函数在其后），存进值里——
+`Value::FuncRef(FnId)`、`ClosureData { env, fn_id }`。解析结果同时写进站点 token
+（`ResolvedTokens::fn_ref_tokens`），同一站点之后的执行只读一次 token；加载期 resolver 已按
+`FuncTable::id_of` 预填（入口优先，再到已登记的惰性函数，不触发加载）。`CallIndirect` 按 id 派发：
+interp 走 `fn_by_id`，JIT 走槽位表 `resolve_fn_by_id_tiered`——不碰名字、不哈希，惰性目标与入口
+目标一样计数升层（interp 帧里的 `CallIndirect` 也会把已编译的目标转去原生码）。
+
+由此带来的行为变化：**目标包的加载与名字解析错误提前到创建时**。名字解析不到时，`LoadFn` /
+`MkClos` 抛可 catch 的 `Std.MissingSymbolException`（`undefined function `…``，与 `Call` 同一措辞），
+而不是等到第一次调用时报 VM 内部错误；目标所在的包在创建 delegate 时就加载。正常编译出来的程序
+不受影响——目标是编译器自己发出的函数名，总能解析到。
+
 delegate 类型自身在 IR 里由 `StubEmitter._emitDelegateInvoke`
 （`src/compiler/z42c.emission/src/Emission/StubEmitter.z42`）合成一个 `Invoke` 桩函数，
 由 `IrGenAuxEmitter` 挂进模块；跨 zpkg 导出走通用类型元数据通道。
@@ -112,8 +125,8 @@ emit `MkClos(thunk, [recv])`；thunk 体内对 `env[0]` 做 vcall。合成点在
 
 自由函数支持按参数类型重载，把一个**重载**自由函数当值
 取引用需要在候选间**定向**。关键在**发射键**：`LoadFn @<name>` 存的是函数名字符串，运行期
-`call_indirect`（`exec_call.rs`）用它查 `module.func_index`——与一次普通自由函数 `Call` **同一张表**、
-同一 key（`QualOf(ns, RegKey)`）。所以选中哪个重载，就发它的 **RegKey**：
+`LoadFn`（`exec_call::bind_fn_ref`）用它查 `module.func_index`（再到惰性加载器）——与一次普通自由函数
+`Call` **同一张表**、同一 key（`QualOf(ns, RegKey)`）。所以选中哪个重载，就发它的 **RegKey**：
 
 - **primary**（声明序首个同名）= 裸键（`Kind`）；**非-primary** = mangle 键（`Kind$1$long`）。
   primary 时 `RegKey == FuncName` ⇒ 既有单份取引用的发射逐字节不变（primary-bare 复用），
@@ -144,9 +157,9 @@ emit `MkClos(thunk, [recv])`；thunk 体内对 `env[0]` 做 vcall。合成点在
 | builtin | stdlib 入口（`Std.DelegateOps`）| 语义 |
 |---|---|---|
 | `__delegate_target` | `GetTarget(object) -> object` | 从 Closure 取 `env[0]`；`FuncRef` / 非 delegate 返回 null |
-| `__delegate_fn_name` | `GetFnName(object) -> string` | 取 Closure 的 `fn_name` |
-| `__make_closure` | `MakeClosure(string, object[]) -> object` | 用 `(fn_name, env)` 重建 Closure |
-| `__delegate_eq` | `ReferenceEquals(a, b) -> bool` | 按 `FuncRef` / `Closure` 两变体各自的身份语义比较；跨变体不等；非 delegate 返回 false 不报错 |
+| `__delegate_fn_name` | `GetFnName(object) -> string` | 目标函数的全限定名（值里存的是 `FnId`，名字从它指向的 `Function` 取，每次新分配一个串）|
+| `__make_closure` | `MakeClosure(string, object[]) -> object` | 用 `(fn_name, env)` 重建 Closure：名字在这里绑成 `FnId`（与 `MkClos` 同一条路径），解析不到就抛 |
+| `__delegate_eq` | `ReferenceEquals(a, b) -> bool` | 按 `FuncRef` / `Closure` 两变体各自的身份语义比较：`FuncRef` 比 `FnId`，`Closure` 比 `fn_id` + env 指针；跨变体不等；非 delegate 返回 false 不报错。一个函数只有一个 id，所以 id 相等即「同一函数」，与此前按名字比较等价 |
 
 `GetTarget` 返回 null 就是"无 receiver 可弱化" → 包装类退化为 strong。
 

@@ -67,7 +67,7 @@ fn dummy_type_desc(name: &str) -> Arc<TypeDesc> {
 
 #[test]
 fn is_heap_ref_true_for_object() {
-    let v = Value::Object(GcRef::new(ScriptObject::new(dummy_type_desc("Foo"), crate::metadata::types::ObjStorage::new(0, 0))));
+    let v = Value::Object(crate::gc::ObjRef::leak(crate::metadata::types::OwnedObject::new(dummy_type_desc("Foo"), 0)));
     assert!(v.is_heap_ref());
 }
 
@@ -82,7 +82,7 @@ fn is_heap_ref_true_for_closure() {
     let v = Value::Closure(crate::gc::var_region::VarGcRef::leak_for_test(
         ClosureData {
             env:     GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![Value::I64(42)])),
-            fn_name: crate::metadata::vstr::Str::new_leaked("lambda$0"),
+            fn_id:   crate::metadata::tokens::FnId(0),
         },
         crate::gc::var_region::BlockType::Closure,
     ));
@@ -105,25 +105,34 @@ fn is_heap_ref_false_for_ref_handle() {
 
 #[test]
 fn trace_children_visits_inline_struct_refs() {
-    // An object whose inline struct field holds a reference leaf (e.g. a nested
-    // object) in `struct_refs`. `trace_children` must visit it so the leaf stays
-    // marked — exactly the use-after-free P3b closes (`c.pt` holding a string/obj).
-    let leaf = Value::Object(GcRef::new(ScriptObject::new(dummy_type_desc("Leaf"), crate::metadata::types::ObjStorage::new(0, 0))));
-    let owner = Value::Object(GcRef::new(        // shrink-object-footprint P2: primitives (+ dead ref holes) in the byte
-        // region, all reference leaves in the reference region — one block.
-        // The inline-struct reference leaf lives among the refs.
-ScriptObject::new(dummy_type_desc("Owner"), {
-            let mut st = crate::metadata::types::ObjStorage::new(8, 1);
-            st.refs_mut_raw()[0] = leaf.clone();
-            st
-        })));
+    // An object whose inline struct field (16 B blob @0, reference leaf @8) holds a nested
+    // object. The leaf is a reference word in the object's bytes (the struct keeps its blob
+    // layout); `trace_children` must visit it so the leaf stays marked.
+    use crate::metadata::types::{FieldAccess, ObjectLayout, TypeDescCold, STRUCT_LEAF_STRUCT};
+    let leaf = Value::Object(crate::gc::ObjRef::leak(crate::metadata::types::OwnedObject::new(dummy_type_desc("Leaf"), 0)));
+    let layout = Arc::new(ObjectLayout {
+        size: 16,
+        field_offsets: Box::new([0]),
+        field_sizes:   Box::new([16]),
+        field_kinds:   Box::new([STRUCT_LEAF_STRUCT]),
+        ref_cells:     Box::new([8]),
+        tparam_cells:  Box::new([]),
+        field_access:  Box::new([FieldAccess::struct_root(0, 16)]),
+    });
+    let td = Arc::new(TypeDesc {
+        cold: Some(Box::new(TypeDescCold { composed_object_layout: Some(layout), ..Default::default() })),
+        ..(*dummy_type_desc("Owner")).clone()
+    });
+    let obj = crate::metadata::types::OwnedObject::of_type(td.clone());
+    obj.set_struct_ref_leaf(8, &leaf).unwrap();
+    assert!(obj.set_struct_ref_leaf(0, &leaf).is_err(), "offset 0 is not a reference leaf");
+    let owner = Value::Object(crate::gc::ObjRef::leak(obj));
 
     let mut visited_object_children = 0usize;
     owner.trace_children(crate::gc::refs::MarkKind::Major(1), &mut |v: &Value| {
         if matches!(v, Value::Object(_)) { visited_object_children += 1; }
     });
-    // Only the reference leaf in `refs` is an object; `bytes` holds no GcRefs.
-    assert_eq!(visited_object_children, 1, "reference leaf in refs must be traced");
+    assert_eq!(visited_object_children, 1, "the inline struct's reference leaf must be traced");
 }
 
 // ── unify-object-byte-layout (PR-3 chunk 2b): a DIRECT object field is byte-inlined as
@@ -139,8 +148,6 @@ fn inline_object_field_roundtrips_and_is_traced() {
         field_offsets: Box::new([0]),
         field_sizes:   Box::new([8]),
         field_kinds:   Box::new([STRUCT_LEAF_GCREF]),
-        ref_offsets:   Box::new([]),   // inlined → NOT in the side-table
-        ref_kinds:     Box::new([]),
         ref_cells:     Box::new([0]),
         tparam_cells:  Box::new([]),
         field_access:  Box::new([FieldAccess::ref_word(0, TAG_OBJECT)]),
@@ -159,20 +166,20 @@ fn inline_object_field_roundtrips_and_is_traced() {
     });
 
     // The heap object the inlined field will point at.
-    let leaf = Value::Object(GcRef::new(ScriptObject::new(dummy_type_desc("Leaf"), crate::metadata::types::ObjStorage::new(0, 0))));
+    let leaf = Value::Object(crate::gc::ObjRef::leak(crate::metadata::types::OwnedObject::new(dummy_type_desc("Leaf"), 0)));
     // A Holder instance: one 8B inline field window, zero-initialized.
-    let holder = GcRef::new(ScriptObject::new(holder_td, crate::metadata::types::ObjStorage::new(8, 0)));
+    let holder = crate::gc::ObjRef::leak(crate::metadata::types::OwnedObject::new(holder_td, 8));
 
     // Zeroed window (`0` sentinel) reads back as `Null`.
     assert!(matches!(holder.borrow().field_value(0), Value::Null), "zeroed inline field = Null");
     // Writing an object inlines its 8B tagged pointer AND reports a reference write
     // (so the caller still fires `write_barrier_field`).
-    let wrote_ref = holder.borrow_mut().set_field_value(0, &leaf);
+    let wrote_ref = holder.borrow().set_field_value(0, &leaf);
     assert!(wrote_ref, "inlined object field is a reference slot");
     // Reads back by reference identity (address + generation preserved through bytes).
     match holder.borrow().field_value(0) {
         Value::Object(got) => match &leaf {
-            Value::Object(l) => assert!(GcRef::ptr_eq(&got, l), "inlined object round-trips by identity"),
+            Value::Object(l) => assert!(crate::gc::ObjRef::ptr_eq(&got, l), "inlined object round-trips by identity"),
             _ => unreachable!(),
         },
         o => panic!("expected the inlined object, got {o:?}"),
@@ -203,8 +210,6 @@ fn clear_refs_for_sweep_erases_every_reference_word() {
         field_offsets: Box::new([0]),
         field_sizes:   Box::new([8]),
         field_kinds:   Box::new([STRUCT_LEAF_GCREF]),
-        ref_offsets:   Box::new([]),
-        ref_kinds:     Box::new([]),
         ref_cells:     Box::new([0]),
         tparam_cells:  Box::new([]),
         field_access:  Box::new([FieldAccess::ref_word(0, TAG_OBJECT)]),
@@ -222,16 +227,16 @@ fn clear_refs_for_sweep_erases_every_reference_word() {
         id: crate::metadata::tokens::TypeId::UNRESOLVED,
     });
 
-    let leaf = Value::Object(GcRef::new(ScriptObject::new(dummy_type_desc("Leaf"), crate::metadata::types::ObjStorage::new(0, 0))));
-    let holder = GcRef::new(ScriptObject::new(holder_td, crate::metadata::types::ObjStorage::new(8, 0)));
-    holder.borrow_mut().set_field_value(0, &leaf);
+    let leaf = Value::Object(crate::gc::ObjRef::leak(crate::metadata::types::OwnedObject::new(dummy_type_desc("Leaf"), 0)));
+    let holder = crate::gc::ObjRef::leak(crate::metadata::types::OwnedObject::new(holder_td, 8));
+    holder.borrow().set_field_value(0, &leaf);
 
     let hv = Value::Object(holder.clone());
     let mut before = 0usize;
     hv.trace_children(crate::gc::refs::MarkKind::Major(1), &mut |v: &Value| if matches!(v, Value::Object(_)) { before += 1; });
     assert_eq!(before, 1, "the edge exists before the erase");
 
-    holder.borrow_mut().clear_refs_for_sweep();
+    holder.borrow().clear_refs_for_sweep();
 
     let mut after = 0usize;
     hv.trace_children(crate::gc::refs::MarkKind::Major(1), &mut |v: &Value| if matches!(v, Value::Object(_)) { after += 1; });
@@ -252,8 +257,6 @@ fn clear_refs_for_sweep_skips_an_offset_past_the_payload() {
         field_offsets: Box::new([0]),
         field_sizes:   Box::new([8]),
         field_kinds:   Box::new([STRUCT_LEAF_GCREF]),
-        ref_offsets:   Box::new([]),
-        ref_kinds:     Box::new([]),
         // Offset 64 against a 8-byte payload: out of range on purpose.
         ref_cells:     Box::new([64]),
         tparam_cells:  Box::new([]),
@@ -272,9 +275,9 @@ fn clear_refs_for_sweep_skips_an_offset_past_the_payload() {
         id: crate::metadata::tokens::TypeId::UNRESOLVED,
     });
 
-    let obj = GcRef::new(ScriptObject::new(td, crate::metadata::types::ObjStorage::new(8, 0)));
-    obj.borrow_mut().clear_refs_for_sweep(); // must not panic
-    assert_eq!(obj.borrow().bytes().len(), 8, "payload untouched");
+    let obj = crate::gc::ObjRef::leak(crate::metadata::types::OwnedObject::new(td, 8));
+    obj.borrow().clear_refs_for_sweep(); // must not panic
+    assert_eq!(obj.borrow().payload_len(), 8, "payload untouched");
 }
 
 /// The borrowed layout accessor and the `Arc`-cloning one must never drift apart — the
@@ -290,49 +293,47 @@ fn composed_object_layout_ref_matches_the_cloning_twin() {
 }
 
 #[test]
-fn struct_array_backing_roundtrip_and_gc_refs() {
+fn struct_array_backing_roundtrip_and_traced_leaves() {
     use crate::metadata::types::*;
-    // Point[2] with element layout {x:i32@0, y:i32@4, tag:string@8}, size 12, 1 ref leaf.
+    // Point[2] with element layout {x:i32@0, y:i32@4, tag:string@8}, size 16, 1 ref leaf.
     let layout = Arc::new(StructTypeLayout {
-        size: 12,
+        size: 16,
         ref_offsets: Box::new([8]),
         ref_kinds: Box::new([STRUCT_REF_ARC_STRING]),
         fields: Box::new([]),
     });
-    // unify-gc-heap PR-3: struct[] byte + ref storage now lives in leaked GC blocks
-    // (heap-less test) — build via `struct_backed_leaked` + write element blobs through
-    // the heap-aware `write_struct_elem`, read back via `struct_bytes()` / `gc_refs()`.
+    // Heap-less test: a leaked block; element blobs written through `write_struct_elem`, read
+    // back through `struct_elem` / `visit_refs`.
     let mut arr = ArrayObj::struct_backed_leaked("Demo.P", 2, layout.clone());
-    assert_eq!(arr.len(), 2, "2 elements of 12 bytes each");
+    assert_eq!(arr.len(), 2, "2 elements of 16 bytes each");
+    assert_eq!(arr.elem_storage_bytes(), 32, "one block: the reference leaf is an 8 B word inside the blob");
 
-    // add-boxed-struct-identity (P4b): boxing a struct[] element is now a heap alloc
-    // (a shared `ScriptObject`), which this heap-less `ArrayObj` unit test can't do —
-    // and `get_boxed`/`set_boxed` no longer round-trip a value box. The struct[] byte
-    // backing itself (byte storage + independence + GC ref leaves) is what this test
-    // covers; the boxed round-trip is exercised end-to-end by the exec-layer /
-    // reflection golden tests. Write the element blobs straight into the backing.
     let write = |arr: &mut ArrayObj, i: usize, x: i32, y: i32, tag: &str| {
-        let mut b = [0u8; 12];
+        let mut b = [0u8; 16];
         b[0..4].copy_from_slice(&x.to_le_bytes());
         b[4..8].copy_from_slice(&y.to_le_bytes());
-        arr.write_struct_elem(i, &b, std::slice::from_ref(&Value::Str(tag.into())));
+        arr.write_struct_elem(i, &b, std::slice::from_ref(&Value::Str(tag.into())), &mut |_| {}).unwrap();
     };
     write(&mut arr, 0, 5, 6, "a");
     write(&mut arr, 1, 7, 8, "b");
 
-    // Element bytes are stored + independent across elements.
-    let bytes = arr.struct_bytes().expect("StructBytes backing");
-    assert_eq!(i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]), 5);
-    assert_eq!(i32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]), 6);
-    assert_eq!(i32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]), 7);
-    match &arr.gc_refs()[0] { Value::Str(s) => assert_eq!(&**s, "a"), o => panic!("{o:?}") }
+    // Element bytes are stored + independent across elements; reference slots read as zero.
+    let (b0, r0) = arr.struct_elem(0).expect("StructBytes backing");
+    assert_eq!(i32::from_le_bytes([b0[0], b0[1], b0[2], b0[3]]), 5);
+    assert_eq!(i32::from_le_bytes([b0[4], b0[5], b0[6], b0[7]]), 6);
+    assert!(b0[8..16].iter().all(|&x| x == 0), "the snapshot never carries handle bits");
+    match &r0[0] { Value::Str(s) => assert_eq!(&**s, "a"), o => panic!("{o:?}") }
+    let (b1, _) = arr.struct_elem(1).unwrap();
+    assert_eq!(i32::from_le_bytes([b1[0], b1[1], b1[2], b1[3]]), 7);
+    assert_eq!(arr.struct_elem_ref(1, 8).unwrap(), Value::Str("b".into()));
+    assert!(arr.struct_elem_ref(1, 4).is_err(), "offset 4 is not a reference leaf");
 
     // GC must see both elements' string ref leaves (else premature free).
-    assert_eq!(arr.gc_refs().len(), 2, "both struct[] element ref leaves are GC roots");
-    let strs: Vec<&str> = arr.gc_refs().iter().filter_map(|v| match v {
-        Value::Str(s) => Some(&**s), _ => None,
-    }).collect();
+    let mut strs: Vec<String> = Vec::new();
+    arr.visit_refs(&mut |v| if let Value::Str(s) = v { strs.push(s.to_string()) });
     assert_eq!(strs, vec!["a", "b"]);
+    let (slots, per) = arr.elem_ref_slots(0, 2);
+    assert_eq!((slots.len(), per), (2, 1), "one reference slot per element");
 }
 
 #[test]
@@ -340,9 +341,8 @@ fn object_storage_empty_for_fieldless_type() {
     // shrink-object-footprint P2: a field-less type with no delivered/synthesized
     // layout has an empty payload — and allocates nothing for it.
     let td = dummy_type_desc("Plain");
-    let storage = td.object_storage();
-    assert!(storage.bytes().is_empty() && storage.refs().is_empty());
-    assert_eq!(td.object_region_sizes(), (0, 0));
+    assert_eq!(crate::metadata::types::OwnedObject::of_type(td.clone()).payload_len(), 0);
+    assert_eq!(td.object_bytes_len(), 0);
 }
 
 #[test]
@@ -355,12 +355,12 @@ fn is_heap_ref_false_for_primitives() {
 }
 
 #[test]
-fn is_heap_ref_true_for_string_and_func_ref() {
-    // unify-gc-heap PR-4: strings are GC blocks now — `Value::Str` / `Value::FuncRef`
-    // (which carries a `Str`) are heap refs, so a write into a heap slot fires the
-    // barrier (generational card) that keeps the block found by a minor.
+fn is_heap_ref_true_for_string_false_for_func_ref() {
+    // unify-gc-heap PR-4: strings are GC blocks now — `Value::Str` is a heap ref, so a
+    // write into a heap slot fires the barrier (generational card) that keeps the block
+    // found by a minor. P1-2 PR 8: `Value::FuncRef` holds a `FnId` — no heap edge.
     assert!(Value::Str("hello".to_string().into()).is_heap_ref());
-    assert!(Value::FuncRef("Foo.bar".into()).is_heap_ref());
+    assert!(!Value::FuncRef(crate::metadata::tokens::FnId(3)).is_heap_ref());
 }
 
 #[test]
@@ -453,7 +453,7 @@ fn value_discriminants_pinned() {
     assert_eq!(tag(&Value::Null),                              5, "Null tag");
     // Heap variants (Array/Object tags 6/7) need a GcRef — skip cheap test.
     assert_eq!(tag(&Value::PinnedView { idx: 0, frame_id: 1 }), 8, "PinnedView tag");
-    assert_eq!(tag(&Value::FuncRef("".into())),                9, "FuncRef tag");
+    assert_eq!(tag(&Value::FuncRef(crate::metadata::tokens::FnId(0))), 9, "FuncRef tag");
     // Closure tag 10 — needs GcRef, skip.
     // 11 retired (was StackClosure).
     assert_eq!(tag(&Value::Ref { idx: 0, frame_id: 1 }), 12, "Ref tag");
@@ -498,10 +498,10 @@ fn value_bool_payload_at_offset_8() {
 //    struct_bytes 标量编解码（宽度 + 有无符号扩展）。box 侧存 LE 字节，unbox 侧按 wrapper
 //    名的 (width, signed) 还原 i64。见 well_known_names::int_wrapper_scalar_spec。────────
 
-fn boxed_prim(name: &str, bytes: &[u8]) -> GcRef<ScriptObject> {
-    GcRef::new(        // shrink-object-footprint P2: a boxed primitive's scalar is its whole byte
-        // payload; no reference leaves.
-ScriptObject::new(dummy_type_desc(name), crate::metadata::types::ObjStorage::from_bytes(bytes)))
+fn boxed_prim(name: &str, bytes: &[u8]) -> crate::gc::ObjRef {
+    // shrink-object-footprint P2: a boxed primitive's scalar is its whole byte payload; no
+    // reference leaves.
+    crate::gc::ObjRef::leak(crate::metadata::types::OwnedObject::from_bytes(dummy_type_desc(name), bytes))
 }
 
 #[test]
@@ -548,16 +548,14 @@ fn compose_object_layout_root_is_identity() {
     assert_eq!(composed.size, 24);
     assert_eq!(&*composed.field_offsets, &[0, 8, 16]);
     // Both direct reference fields — the string @8 and the object @16 — are 8 B reference
-    // words in `bytes`; nothing is left for the 16 B side table.
-    assert!(composed.ref_offsets.is_empty(), "no side-table leaves");
-    assert_eq!(composed.ref_count(), 0);
+    // words in `bytes`.
     assert_eq!(&*composed.ref_cells, &[8, 16]);
 }
 
 /// Cell assignment: type-parameter fields (`T`, `T?`) — any `Value`, a raw `I64` under erasure —
 /// get 16 B type-parameter cells (tag word at their own slot, payload word past the compiler
 /// layout); `object` / string / delegate fields of the same compiler kind get 8 B reference
-/// words. Only inline-struct interior leaves (not a direct field's offset) stay in the side table.
+/// words, and so are inline-struct interior leaves (the struct keeps its blob layout).
 #[test]
 fn compose_object_layout_gives_type_parameter_fields_their_own_cells() {
     let own = crate::metadata::bytecode::ObjectLayoutDesc {
@@ -572,9 +570,8 @@ fn compose_object_layout_gives_type_parameter_fields_their_own_cells() {
     let fields: Vec<FieldSlot> = [("v", "T"), ("o", "object"), ("n", "T?"), ("s", "string"), ("p", "Demo.P")]
         .iter().map(|(n, t)| FieldSlot { name: (*n).into(), type_tag: (*t).into(), visibility: 0 }).collect();
     let composed = compose_object_layout(None, &own, &fields, &["T".to_string()]);
-    assert_eq!(&*composed.ref_cells, &[8, 24], "object + string fields are reference words");
+    assert_eq!(&*composed.ref_cells, &[8, 24, 40], "object + string fields and the struct's leaf are reference words");
     assert_eq!(&*composed.tparam_cells, &[0, 16], "T and T? are type-parameter cells");
-    assert_eq!(&*composed.ref_offsets, &[40], "only the struct's interior leaf stays 16 B");
     let cells: Vec<FieldCell> = composed.field_access.iter().map(|f| f.cell()).collect();
     assert_eq!(cells, [FieldCell::TypeParam, FieldCell::Ref, FieldCell::TypeParam, FieldCell::Ref, FieldCell::Struct]);
     assert_eq!((composed.field_access[2].offset, composed.field_access[2].aux), (16, 56),
@@ -592,8 +589,6 @@ fn compose_object_layout_pads_base_to_8() {
         field_offsets: Box::new([0]),
         field_sizes:   Box::new([1]),
         field_kinds:   Box::new([0]),
-        ref_offsets:   Box::new([]),
-        ref_kinds:     Box::new([]),
         ref_cells:     Box::new([]),
         tparam_cells:  Box::new([]),
         field_access: Box::new([]),
@@ -611,8 +606,7 @@ fn compose_object_layout_pads_base_to_8() {
     assert_eq!(composed.size, 16, "8 (padded base) + 8 (own)");
     assert_eq!(&*composed.field_offsets, &[0, 8], "own field shifted to 8, not 1");
     // The own direct object field is an 8 B reference word at the shifted offset 8.
-    assert!(composed.ref_offsets.is_empty(), "own GCREF field is a reference word, not side-table");
-    assert_eq!(composed.ref_index(8), None, "a reference word has no side-table slot");
+    assert!(composed.is_ref_cell(8), "own GCREF field is a reference word at the shifted offset");
     assert_eq!(&*composed.ref_cells, &[8], "reference word at the shifted offset 8");
 }
 
@@ -623,8 +617,6 @@ fn compose_object_layout_already_aligned_base_no_extra_pad() {
         field_offsets: Box::new([0, 8]),
         field_sizes:   Box::new([8, 8]),
         field_kinds:   Box::new([0, 0]),
-        ref_offsets:   Box::new([]),
-        ref_kinds:     Box::new([]),
         ref_cells:     Box::new([]),
         tparam_cells:  Box::new([]),
         field_access: Box::new([]),
@@ -645,11 +637,15 @@ fn compose_object_layout_already_aligned_base_no_extra_pad() {
 
 #[test]
 fn script_object_stays_small() {
-    // shrink-object-footprint: `ScriptObject` is the payload of every
-    // `RegionEntry`, so its size is multiplied by the live object count. Pin it
-    // so an added field is a deliberate decision with a measurement, not a drift.
-    assert_eq!(std::mem::size_of::<ScriptObject>(), 32,
-        "ScriptObject grew — re-measure per-object RSS before updating this");
+    // shrink-object-footprint: the object header (`ObjHeader`, the sized prefix of the
+    // `ScriptObject` DST) sits in every object's GC block between the 16 B block header and the
+    // fields, so its size is multiplied by the live object count. Pin it so an added field is a
+    // deliberate decision with a measurement, not a drift.
+    assert_eq!(std::mem::size_of::<crate::metadata::types::ObjHeader>(), 16,
+        "the object header grew — re-measure per-object RSS before updating this");
+    assert_eq!(crate::metadata::types::OBJ_HEADER_BYTES, 16);
+    // `&ScriptObject` is fat (address + field-area length): hot structures keep `ObjRef`.
+    assert_eq!(std::mem::size_of::<&ScriptObject>(), 2 * std::mem::size_of::<usize>());
 }
 
 // ── generic_field_zero_overrides (fix-generic-typeparam-field-zero, 2026-09-25) ──

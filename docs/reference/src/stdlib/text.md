@@ -9,12 +9,8 @@
 `Std.String` 上，不需要导入本包，见 [字符串](../language/strings.md)。本包装的是
 **不适合塞进 prelude 的按需工具**。正则表达式**不在本包**（另有 `z42.regex`）。
 
-用之前要 `using Std.Text;`，工程清单里声明依赖：
-
-```toml
-[dependencies]
-"z42.text" = "0.1.0"
-```
+用之前要 `using Std.Text;`。本包随工具链分发、自动可用，工程清单里**不需要**声明依赖
+（声明了会报 [W0610](../appendix/error-codes.md)）。
 
 ## `StringBuilder`
 

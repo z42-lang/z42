@@ -44,7 +44,6 @@ public sealed class RecordSynthEmitter {
         this._ctx = new EmitContext(this._symbols, this._gen);
         this._ctx.Ns = this._gen.Ns;
         this._ctx.Deps = this._gen.Deps;
-        this._ctx.ImportedClassNs = this._gen.ImportedClassNs;
         this._ctx.ActiveNs = this._gen.ActiveNs; this._ctx.ActiveNsCount = this._gen.ActiveNsCount;
         this._ctx.LocalClasses = this._gen.LocalClasses;
         this._ctx.CurFnName = fnName;
@@ -279,12 +278,14 @@ public sealed class RecordSynthEmitter {
         // 前缀 "Simple { "
         TypedReg acc = this._ctx.Alloc(IrType.Str);
         this._ctx.Emit(new ConstStrInstr(acc, this._gen.Intern(simple + " { ")));
+        // 布局名：特化通道下是实例化（按实例化布局取字段），否则定义的布局键（全名）。
+        string layoutName = this._gen.SpecInstName != "" ? this._gen.SpecInstName : LayoutKey.OfClass(owner);
         int i = 0;
         while (i < fs.Count) {
             string sep = "";
             if (i > 0) { sep = ", "; }
             acc = this._concat(acc, sep + fs.Names[i] + " = ");
-            TypedReg fstr = this._emitFieldToStr(baseRef, fs.Names[i], fs.Types[i], isStruct, owner.Name());
+            TypedReg fstr = this._emitFieldToStr(baseRef, fs.Names[i], fs.Types[i], isStruct, layoutName);
             acc = this._concatReg(acc, fstr);
             i = i + 1;
         }

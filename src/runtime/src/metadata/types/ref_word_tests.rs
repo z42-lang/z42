@@ -7,7 +7,7 @@ use crate::gc::heap::MagrGC;
 use crate::gc::var_region::BlockType;
 use crate::gc::GcMode;
 use crate::metadata::types::{
-    FieldAccess, FieldSlot, FieldWrite, NativeData, ObjStorage, ObjectLayout, TypeDesc, TypeDescCold, TAG_OBJECT,
+    FieldAccess, FieldSlot, FieldWrite, NativeData, ObjectLayout, TypeDesc, TypeDescCold, TAG_OBJECT,
     STRUCT_LEAF_GCREF_CLOSURE,
 };
 use std::sync::Arc;
@@ -36,8 +36,6 @@ pub(crate) fn ref_cell_td(n: usize) -> Arc<TypeDesc> {
         field_offsets: offs.clone().into(),
         field_sizes: vec![8; n].into(),
         field_kinds: vec![STRUCT_LEAF_GCREF_CLOSURE; n].into(),
-        ref_offsets: Box::new([]),
-        ref_kinds: Box::new([]),
         ref_cells: offs.clone().into(),
         tparam_cells: Box::new([]),
         field_access: offs.iter().map(|&o| FieldAccess::ref_word(o, TAG_OBJECT)).collect(),
@@ -72,18 +70,16 @@ fn payload(v: &Value) -> u64 {
 
 /// One live handle of every encodable kind.
 fn one_of_each(heap: &ArcMagrGC) -> Vec<(Value, u64)> {
-    let obj = GcRef::new(ScriptObject::new(plain_td("O"), ObjStorage::new(0, 0)));
-    let boxed = GcRef::new(ScriptObject::new(plain_td("S"), ObjStorage::new(0, 0)));
+    let obj = crate::gc::ObjRef::leak(crate::metadata::types::OwnedObject::new(plain_td("O"), 0));
+    let boxed = crate::gc::ObjRef::leak(crate::metadata::types::OwnedObject::new(plain_td("S"), 0));
     let Value::Array(arr) = heap.alloc_array(vec![]) else { panic!() };
     let s = Str::new_leaked("text");
-    let f = Str::new_leaked("Demo.F");
     let clo = VarGcRef::leak_block_for_test(16, BlockType::Closure);
     vec![
         (Value::Object(obj), RK_OBJECT),
         (Value::Array(arr), RK_ARRAY),
         (Value::Str(s), RK_STR),
         (Value::Closure(clo), RK_CLOSURE),
-        (Value::FuncRef(f), RK_FUNC_REF),
         (Value::BoxedStruct(boxed), RK_BOXED_STRUCT),
     ]
 }
@@ -101,6 +97,22 @@ fn every_kind_round_trips_with_its_tag_in_the_low_bits() {
         let traced = unsafe { decode_for_trace(w) };
         assert_eq!(payload(&traced), payload(&v), "{v:?}: tracing sees the same handle");
     }
+}
+
+/// `FuncRef` is not a heap handle: the word is `FnId << 3 | kind`, round-trips for every id
+/// (including 0, which must not collide with the null word), and the JIT reads it via the slow path.
+#[test]
+fn func_ref_word_carries_the_fn_id_inline() {
+    use crate::metadata::tokens::FnId;
+    for id in [0u32, 1, 7, 123_456, (1 << 28) - 1] {
+        let w = encode(&Value::FuncRef(FnId(id))).expect("a FuncRef encodes");
+        assert_eq!(w & KIND_MASK, RK_FUNC_REF);
+        assert_ne!(w, 0);
+        for back in [unsafe { decode(w) }, unsafe { decode_for_trace(w) }] {
+            assert!(matches!(back, Value::FuncRef(f) if f == FnId(id)), "{id}");
+        }
+    }
+    assert_eq!(KIND_TO_VALUE_TAG[RK_FUNC_REF as usize], SLOW_PATH_TAG);
 }
 
 #[test]
@@ -165,7 +177,7 @@ fn gc_traces_through_reference_words() {
     {
         let child = heap.alloc_object(plain_td("Child"), vec![], NativeData::None);
         let s = Value::Str(heap.alloc_str("kept by a reference word"));
-        let mut o = h.borrow_mut();
+        let o = h.borrow();
         assert!(matches!(o.try_set_field_value(0, &s), Ok(FieldWrite::Ref)));
         assert!(matches!(o.try_set_field_value(1, &child), Ok(FieldWrite::Ref)));
         assert!(matches!(o.try_set_field_value(2, &Value::I64(99)), Ok(FieldWrite::Boxed(_))),
@@ -187,7 +199,7 @@ fn gc_traces_through_reference_words() {
     drop(o);
 
     {
-        let mut o = h.borrow_mut();
+        let o = h.borrow();
         for i in 0..3 {
             assert!(matches!(o.try_set_field_value(i, &Value::Null), Ok(FieldWrite::Ref)));
         }
@@ -200,13 +212,13 @@ fn gc_traces_through_reference_words() {
 /// `clear_refs_for_sweep` zeroes every word (the sweep breaking a dead object's edges).
 #[test]
 fn clear_refs_for_sweep_zeroes_every_word() {
-    let leaf = Value::Object(GcRef::new(ScriptObject::new(plain_td("Leaf"), ObjStorage::new(0, 0))));
-    let holder = GcRef::new(ScriptObject::new(ref_cell_td(2), ObjStorage::new(16, 0)));
-    holder.borrow_mut().set_field_value(0, &leaf);
-    holder.borrow_mut().set_field_value(1, &leaf);
-    holder.borrow_mut().clear_refs_for_sweep();
+    let leaf = Value::Object(crate::gc::ObjRef::leak(crate::metadata::types::OwnedObject::new(plain_td("Leaf"), 0)));
+    let holder = crate::gc::ObjRef::leak(crate::metadata::types::OwnedObject::new(ref_cell_td(2), 16));
+    holder.borrow().set_field_value(0, &leaf);
+    holder.borrow().set_field_value(1, &leaf);
+    holder.borrow().clear_refs_for_sweep();
     let mut edges = 0;
     holder.borrow().visit_refs(&mut |_| edges += 1);
     assert_eq!(edges, 0);
-    assert!(holder.borrow().bytes().iter().all(|&b| b == 0));
+    assert!(holder.borrow().snapshot_fields().iter().all(|&b| b == 0));
 }

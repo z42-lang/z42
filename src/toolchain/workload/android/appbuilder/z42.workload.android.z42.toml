@@ -10,11 +10,6 @@ kind    = "lib"
 # Only the export logic. AndroidWorkload.z42 (future z42.build pipeline handler)
 # is parked — imports the not-yet-compiled z42.build — so excluded here.
 include = ["export.z42"]
-
-[dependencies]
-"z42.core" = "0.1.0"
-"z42.io"   = "0.1.0"
-
 [build]
 # cache-dir-layout：显式 output_dir，让 cache（${output_dir}/.cache）与 z42b 中间产物也落进 artifacts，
 # 不再按默认值落进源码树。

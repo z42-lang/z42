@@ -1,0 +1,5 @@
+namespace Ws.Greet;
+
+public class Greeter {
+    public static string Hi(string who) { return "hi " + who; }
+}

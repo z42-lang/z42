@@ -42,7 +42,6 @@ public sealed class FunctionEmitter {
         this._finBodies = null; this._finDepth = 0;   // 每函数重置 finally 栈
         this._ctx.Ns = this._gen.Ns;   // BP-0：emitter 侧名字限定（ObjNew/is/as 类引用）
         this._ctx.Deps = this._gen.Deps;   // CI-4：跨包调用索引
-        this._ctx.ImportedClassNs = this._gen.ImportedClassNs;   // IC-1
         this._ctx.ActiveNs = this._gen.ActiveNs; this._ctx.ActiveNsCount = this._gen.ActiveNsCount;  // path C
         this._ctx.LocalClasses = this._gen.LocalClasses;
         this._ctx.OwnerCt = owner;                                 // fqn-tables 5d：Owner*Name 的限定按它的声明 ns
@@ -65,17 +64,17 @@ public sealed class FunctionEmitter {
             paramTypes[0] = (owner != null) ? owner.Name() : "?";   // this 槽类型 = 所属类
             // add-struct-value-semantics A-use：所属类是 blob 值 struct → `this` 是 StructRef 句柄，
             // 其字段 access（裸 `x` 或 `this.x`）翻转到 StructFieldGet/SetPrim（含 ctor 的 `this.f = a`）。
-            if (owner != null && this._gen.Layouts != null && this._gen.Layouts.IsBlobStruct(owner.Name())) {
+            if (owner != null && this._gen.Layouts != null && this._gen.Layouts.IsBlobStruct(LayoutKey.OfClass(owner))) {
                 // generic-struct-erased-slot-value-copy：特化通道下用**实例化名** ⇒ 体内 `this.f` 的
                 // 字节偏移按实例化布局烘焙。这是 B1 的核心：定义布局里型参字段一律 8B 句柄，
                 // 实例化布局里是内联字节，两者 size 与后续字段偏移都可能不同（P3 为 12B 时 Second 从 @8 挪到 @12）。
-                this._ctx.OwnerStructName = this._gen.SpecInstName != "" ? this._gen.SpecInstName : owner.Name();
+                this._ctx.OwnerStructName = this._gen.SpecInstName != "" ? this._gen.SpecInstName : LayoutKey.OfClass(owner);
             }
             // add-struct-heap-inline (P3b)：记所属类短名（含非-struct class）供裸 `pt`/`pt.x` 内联字段解析。
             // struct owner 无内联字段（其字段是嵌套展平，非堆内联）→ InlineFieldByteOffset 恒 -1，安全共存。
             // generic-struct-erased-slot-value-copy（形态 ②）：特化通道下用实例化名 ⇒ 体内裸字段
             // （`item` 即 `this.item`）按**实例化的内联布局**解析 offset。
-            if (owner != null) { this._ctx.OwnerClassName = this._gen.SpecInstName != "" ? this._gen.SpecInstName : owner.Name(); }
+            if (owner != null) { this._ctx.OwnerClassName = this._gen.SpecInstName != "" ? this._gen.SpecInstName : LayoutKey.OfClass(owner); }
             if (owner != null) {   // 实例方法：裸字段 → field_get(reg0)
                 string[] fnames = owner.Fields.Keys();
                 int fi = 0;
@@ -186,7 +185,6 @@ public sealed class FunctionEmitter {
         this._finBodies = null; this._finDepth = 0;
         this._ctx.Ns = this._gen.Ns;
         this._ctx.Deps = this._gen.Deps;
-        this._ctx.ImportedClassNs = this._gen.ImportedClassNs;
         this._ctx.ActiveNs = this._gen.ActiveNs; this._ctx.ActiveNsCount = this._gen.ActiveNsCount;
         this._ctx.LocalClasses = this._gen.LocalClasses;
         this._ctx.CurFnName = name;
@@ -202,7 +200,7 @@ public sealed class FunctionEmitter {
         // generic-struct-erased-slot-value-copy：特化后装箱值的运行期类型是**实例化**
         // （合成描述符 `GRec<int,int>`），拿定义名 `GRec` 做 `other is …` 必失败 ⇒ 值相等误返 false
         // （实测 generic_struct_equals 判红，且是**静默错值**不是崩）。按实例化名检查。
-        string seOwner = this._gen.SpecInstName != "" ? this._gen.SpecInstName : owner.Name();
+        string seOwner = this._gen.SpecInstName != "" ? this._gen.SpecInstName : LayoutKey.OfClass(owner);
         TypedReg result = this._expr.EmitSynthEqualsResult(seOwner,
                               new TypedReg(0, IrType.Ref), new TypedReg(1, IrType.Ref));
         if (!this._ctx.Ended) { this._ctx.EndBlock(new RetTerm(true, result)); }
@@ -286,6 +284,7 @@ public sealed class FunctionEmitter {
         // SIGS 泄漏 wrapper 名（`int[]`→`Int32[]`）→ 重建 stdlib 类型名不一致 → z42c 自编译误编。alias-prim
         // （byte/short…）已在上方按源名返回、不到此，故 SurfaceName 对 int/long/float/double/bool/char/string/
         // object 逐字复刻 baseline Prim.Name()，非内建原样。
+        if (resolved is Z42FuncType) { return SigTypeNames.Func(resolved as Z42FuncType); }   // 委托：成分写 FQN（5b-2）
         return PrimModel.SurfaceName(resolved.Name());
     }
     // drop-short-primitive-aliases：`_isAliasPrim` 守卫已删 —— 它存在的唯一理由是「这些次要别名
@@ -301,7 +300,6 @@ public sealed class FunctionEmitter {
         this._ctx = new EmitContext(this._symbols, this._gen);
         this._ctx.Ns = this._gen.Ns;
         this._ctx.Deps = this._gen.Deps;
-        this._ctx.ImportedClassNs = this._gen.ImportedClassNs;
         this._ctx.ActiveNs = this._gen.ActiveNs; this._ctx.ActiveNsCount = this._gen.ActiveNsCount;  // path C
         this._ctx.LocalClasses = this._gen.LocalClasses;
         this._ctx.CurFnName = name;
@@ -351,7 +349,6 @@ public sealed class FunctionEmitter {
         this._ctx = new EmitContext(this._symbols, this._gen);
         this._ctx.Ns = this._gen.Ns;
         this._ctx.Deps = this._gen.Deps;
-        this._ctx.ImportedClassNs = this._gen.ImportedClassNs;
         this._ctx.ActiveNs = this._gen.ActiveNs; this._ctx.ActiveNsCount = this._gen.ActiveNsCount;  // path C
         this._ctx.LocalClasses = this._gen.LocalClasses;
         this._ctx.CurFnName = name;
@@ -480,7 +477,7 @@ public sealed class FunctionEmitter {
         this._ctx.Locals.Put(lfn.Name, clos);
     }
 
-    // add-struct-value-semantics A-use：某类型是 blob 值 struct 则返回其短名（供值语义翻转），否则 ""。
+    // add-struct-value-semantics A-use：某类型是 blob 值 struct 则返回其布局名（`LayoutKey`，供值语义翻转），否则 ""。
     internal string _blobStructNameT(Z42Type t) {
         // complete-generic-class-identity P4：**类实例化**特化通道下，已代换的型参算具体类型。
         // `T Get()` 在 `G<P2>` 的特化体里返回的就是 `P2`（blob）——判否的代价是不走 sret，
@@ -503,13 +500,13 @@ public sealed class FunctionEmitter {
         if (t is Z42ClassType) { ct = t as Z42ClassType; }
         else if (t is Z42InstantiatedType) { ct = (t as Z42InstantiatedType).Def; }
         if (ct == null) { return ""; }
-        if (this._gen.Layouts != null && this._gen.Layouts.IsBlobStruct(ct.Name())) {
+        if (this._gen.Layouts != null && this._gen.Layouts.IsBlobStruct(LayoutKey.OfClass(ct))) {
             // generic-struct-erased-slot-value-copy：与 ExprEmitter._blobStructName 同口径——
             // 命中闸门的实例化给实例化规范名。两处必须一致，否则同一个值在
             // 「变量声明」（走这里）与「成员访问」（走那里）上会各查一份不同布局。
             string inst = this._expr._instLayoutName(t);
             if (inst != "") { return inst; }
-            return ct.Name();
+            return LayoutKey.OfClass(ct);
         }
         return "";
     }

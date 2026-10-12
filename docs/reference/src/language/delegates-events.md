@@ -61,6 +61,7 @@ public delegate bool Predicate<T>(T arg);
 | null | 调用 null delegate 抛 `Std.NullReferenceException`（可 `catch`，两个后端一致）。**触发前仍应查空**：`var h = X; if (h != null) { h.Invoke(args); }`（单播 event 字段默认就是 null；靠异常发现「没人订阅」不是好写法）。⚠️ `?.Invoke()` **已不可用**——`?.` 已移除（E0480）|
 | 方法组转换 | **自由函数** `Action<int> a = SomeMethod;` 与**实例方法** `obj.Method` 编译期合成 delegate 值。**自由函数重载**按目标委托签名精确消解，见 [§2.5](#25-重载自由函数取引用按目标委托消解)。🔴 **类的静态方法取不了引用** —— `Func<int,int> f = C.F;` 报 `E0401: undefined: C`，**类内不限定写 `F` 也一样**（报 `undefined: F`）。⚠️ 两种形态都试过了，别按「只是限定名的问题」去改。能用的是**自由函数**与**实例方法组** `obj.M`。变通：包一层 lambda（`(int x) => C.F(x)`），或改成自由函数。（已知缺口；⚠️ `internals` 里「静态方法组 → LoadFnCached」指的是**自由函数**，不是类的静态方法）|
 | Lambda 转换 | `Func<int,int> f = x => x*2;` |
+| 目标何时解析 | **创建 delegate 值时**（lambda、方法组转换求值的那一刻），不是第一次调用时。目标函数所在的包在这时加载；目标找不到（例如运行时缺了它所在的依赖包）就在**创建处**抛 `Std.MissingSymbolException`（可 `catch`），之后的调用不再查找名字 |
 | 名字查找 | 用户 `delegate` 的身份是全限定名：两个命名空间里的同名 `delegate` 是两个类型，各用各的签名。写短名按[命名空间规则](namespaces.md)找（外围 → `using` → prelude），找不到报 `E0436`。**依赖包导出的 `public delegate` 同样可用**（`using` 它的命名空间后当类型写：局部 / 形参 / 字段，lambda 与方法组都能转进去）|
 | `+=` / `-=` | 单播类型上这两个操作符**只在 `event` 字段上**有意义（见 §5）。用在**普通函数值**上（`f += g`，想串起两个处理器）是编译错误 E0402，消息直接指向 `MulticastAction<T>` / `Subscribe` —— 一个函数值最多绑一个目标 |
 

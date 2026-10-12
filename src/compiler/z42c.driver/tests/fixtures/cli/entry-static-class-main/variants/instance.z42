@@ -1,0 +1,7 @@
+namespace Scm;
+
+using Std.IO;
+
+public class Program {
+    public void Main() { Console.WriteLine("instance"); }
+}

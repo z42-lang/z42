@@ -115,7 +115,7 @@ int _indexOf(string[] a, string x) {
 //
 // 终局：这两个数该由 **VM 自报**（VM 才是「能加载什么格式」的权威；Rust 侧 ZPKG_VERSION_MAJOR/MINOR
 // 已在，只是未经 builtin 暴露给 z42）。届时本函数改调 Std.Runtime、z42i 也不再需要 z42.package。
-// 见 变更 add-package-roles 批 0 注。
+// 见 docs/spec/changes/add-package-roles/design.md 批 0 注。
 string _formatVersion() {
     return "zbc " + ZbcVersion.Major.ToString() + "." + ZbcVersion.Minor.ToString()
          + ", zpkg " + ZpkgWriterZ.Major.ToString() + "." + ZpkgWriterZ.Minor.ToString();

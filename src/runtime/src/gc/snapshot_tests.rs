@@ -137,11 +137,11 @@ fn cycle_does_not_loop() {
     let b = alloc_obj_with_fields(&heap, td.clone(), vec![Value::Null, Value::Null]);
     // a.head = b
     if let Value::Object(gc) = &a {
-        gc.borrow_mut().refs_mut_raw()[0] = b.clone();
+        gc.borrow().set_ref_raw_for_test(0, &b.clone());
     }
     // b.head = a — completes the cycle
     if let Value::Object(gc) = &b {
-        gc.borrow_mut().refs_mut_raw()[0] = a.clone();
+        gc.borrow().set_ref_raw_for_test(0, &a.clone());
     }
     let root = heap.pin_root(a.clone());
 
@@ -300,7 +300,7 @@ fn root_edge_count_matches_pinned_root_count() {
     heap.unpin_root(r3);
 
     // Touch ScriptObject import so it's not flagged as unused.
-    let _ = std::mem::size_of::<ScriptObject>();
+    let _ = std::mem::size_of::<&ScriptObject>();
     let _ = GcRef::<Vec<Value>>::clone;
 }
 

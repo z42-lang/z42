@@ -16,6 +16,120 @@ graph LR
     M --> E[写出] --> O[.zbc / .zpkg]
 ```
 
+## 包级编译流程（逐步）
+
+上图是**单文件**的抽象链。真实的包编译（`z42c build` / z42b 的 `Compile` 阶段 / REPL 每一轮）都走
+`PackageCompile.Compile`（`z42c.pipeline`），它在「前端 → 代码生成」之外还夹着依赖解析、两类编译期扩展
+（generator / analyzer）和收尾组装。先看**时间线**——每一步由哪个包提供、哪些步骤条件门控：
+
+```mermaid
+flowchart TD
+  subgraph S0["① 解析 + 内建 AST 脱糖（调用方逐文件做；z42c.syntax / z42c.semantics）"]
+    P0[Lexer → Parser → CompilationUnit] --> RA["HandlerRegistry.RunAst（z42c.semantics）<br/>BenchmarkDesugar（Testing/）→ AttributeSynth（Desugar/）"]
+  end
+  RA --> DEP["② 依赖解析（z42c.pipeline）<br/>DepScan → DepScanResult → ImportedSymbols<br/>REPL：复用缓存的 CachedScan"]
+  DEP --> GATE{"③ 有 generator？<br/>[analyzers] zpkg 里的 : Generator / : ModuleGenerator<br/>或源里用了 [Forward]"}
+  GATE -->|否| AGATE
+  GATE -->|是| GEN["GeneratorDriver.RunRounds（z42c.generators）<br/>provisional 绑定 → 产出 union CU<br/>（见下「generator 怎么参与」）"]
+  GEN --> AGATE
+  AGATE{"④ 有 analyzer？<br/>[analyzers] 非空"}
+  AGATE -->|否| BIND
+  AGATE -->|是| AN["_runAnalyzers：AnalyzerLoader 加载 → AnalyzerDriver 遍历（z42c.analyzers）<br/>**union CU 的 AST（含生成代码）**，诊断先按 CU 暂存<br/>（见下「analyzer 怎么参与」）"]
+  AN --> BIND
+  BIND["⑤ 包级编译 IrDump.BuildPackageCus<br/>收集 → 类型检查 → IR 生成 → IR 优化<br/>（见下「⑤ 展开」）"]
+  BIND --> POST["⑥ 回填缓存元数据 → E0436 文件级 using → exe 入口检查<br/>→ 并入 ④ 暂存的 analyzer 诊断"]
+  POST --> TAIL["⑦ 未知 using 检查 → 错误门：任一 CU 有错误则不产出"]
+  TAIL --> ASM["⑧ 组装：CtorKnownFixup → ZbcFileZ → ZpkgBuilder → 内存 ZpkgFileZ"]
+```
+
+**前置线与主编译线**（③④ 的实现集中在 `z42c.pipeline` 的 `FrontLine`，`PackageCompile.Compile` 只剩顺序骨架）：①–④ 是「源码层」——解析、脱糖、generator 改写源码、analyzer 检查源码，都只操作 AST；⑤ 起才是「编译层」，
+对**最终的 union CU 只跑一遍**。generator 与 analyzer 都不碰 IR，也不参与优化。（对标 Roslyn：generator 产出的语法树并入最终
+`Compilation`，analyzer 在其上运行。）
+
+### ⑤ 展开：收集、类型检查、代码生成、优化
+
+`IrDump.BuildPackageCus` 内部是「包级串行 → 逐 CU 并行」两段（`ParallelFor`）。**代码生成与优化都在逐 CU 并行段里，
+优化是 IR 生成的最后一步，不是独立的包级阶段**：
+
+```mermaid
+flowchart TD
+  subgraph SER["包级串行（所有 CU 一起）"]
+    A1["global using 注入"] --> A2["SymbolCollector.CollectAll（Pass 0）<br/>Stub → Member → Inheritance → DeclEnforcer 各 pass<br/>D8 后缀 · Native · ModuleInit；TestAttrEnforcer E0911–17"]
+    A2 --> A3["VarFieldInfer · partial 合并 · StructLayout 布局表<br/>泛型体扫描（pkgGenerics）"]
+  end
+  A3 --> PAR
+  subgraph PAR["逐 CU 并行 CuCompile._compileCu（无共享可变状态）"]
+    direction TB
+    C1["TypeChecker.Infer → Bound 树 + SemanticModel<br/>（方法体绑定后跑 FlowAnalyzer）"] --> C2{"本 CU 有类型错误？包级收集有错误？<br/>前置线（③④）有错误？"}
+    C2 -->|是| C3["跳过代码生成，返回空 IrModule + 诊断"]
+    C2 -->|否| G["IrGen.Generate"]
+    subgraph GEN2["IrGen.Generate（z42c.emission）"]
+      direction TB
+      G1["静态初始化 → 类 / impl / 接口 / 枚举 / 委托 / 自由函数<br/>→ ModuleInitSynth"] --> G2["泛型单调化工作表（特化体 + 实例布局，不动点迭代）"]
+      G2 --> G3["lambda / 局部函数 lift 入函数表"]
+      G3 --> G4["TestIndexBuilder → TIDX（[Test]/[Benchmark] 发现表）"]
+      G4 --> G5["new IrModule（常量池 + 类 + 函数）"]
+      G5 --> O["**IrOptPipeline.Run(irm, optSet)**（z42c.optimization）<br/>Inline（模块级）→ 逐函数 ConstFold · DeadBranch · LICM · CSE · CopyProp · DCE<br/>→ 逃逸分析 StackAlloc → LoopAllocReuse"]
+    end
+    G --> G1
+    O --> C4["UsingLint W0607/8 · 汇总诊断 → CompiledModuleZ"]
+  end
+```
+
+- **优化的位置与粒度**：`IrOptPipeline` 由 `IrGen.Generate` 末尾调用，**每个 CU 的 `IrModule` 单独优化**，所以 Inline 只能内联同一 CU 内的 callee；
+  跨 CU / 跨包的调用点不内联。开关由 `optSet` 决定：release 默认 `Opt.All`，debug 默认 `Opt.None`（`CompileInputs.OptSet` 可显式覆盖）。
+  TIDX 在优化**之前**按函数下标建好；优化只改函数体、不增删函数，所以 TIDX 里的 method id 不受影响。
+- **优化之后还有一步包级处理**：⑧ 里的 `CtorKnownFixup` 需要「本包全部已发射函数 ∪ 依赖索引」才能判定某个 `new` 的构造器是否存在，把结果写进 `ObjNew.CtorKnown`；单个 CU 看不到同包其它文件，所以只能在整包装配后做。
+- **有错误即不生成**：`GenerateIfClean` 在有任何类型错误、包级收集期错误，或前置线（generator 护栏 E0448 / analyzer）报了 error 时不进 `Generate`（`IrDump.BuildPackageCusGated` 的 `upstreamErrors`）。所以代码生成与优化**只对无错误的程序运行**；类型检查照做，诊断一次报全。
+
+### generator 怎么参与（③，在绑定之前）
+
+generator 要**改写源码结构**，所以必须赶在「真绑定」之前；但它又需要解析符号，于是走**双次绑定**：
+
+```mermaid
+flowchart LR
+  I["解析后的 CU[]<br/>+ ImportedSymbols"] --> L0["第 0 层：provisional CollectAll<br/>（仅建符号表，不类型检查）"]
+  L0 --> R["applied generator：按 AppliedName() 找 [X]@类型 → Generate<br/>module generator：GenContext 强类型查询全编译 → AddSource"]
+  R --> S["三个 sink 落地<br/>Augment=合成 partial · Replace=按 DeclId 换 AST · AddSource=新 CU"]
+  S --> N{"还有依赖本层产出的下一层？<br/>（consumes / produces 拓扑，Kahn；成环 E0449）"}
+  N -->|是| L1["对 union CU 再 provisional CollectAll，跑下一层"] --> R
+  N -->|否| U["union CU（原始 + 生成）"]
+  U --> RB["⑤ 对 union **全量重编**（缓存失效）<br/>= 真绑定：生成的代码和手写代码走同一条 收集 → 类型检查 → 生成 → 优化"]
+```
+
+- 生成物最终是**普通 CU**，所以它们**照常经过代码生成与优化**；generator 自己不碰 IR。
+- 护栏（E0448：applied 只许改触发它的声明，module 只许 `AddSource`）的诊断并入首个 CU，拦住编译。
+- 产出的文件名 / 文本经 `CompileArtifacts.GenFiles/GenTexts` 带给调用方（driver 按 `[build] generated_dir` 落盘，便于调试）。
+
+### analyzer 怎么参与（④，在 generator 之后、包级编译之前）
+
+analyzer **只读、只产诊断**，不参与编译主线：
+
+- 遍历的是 **union CU 的 AST**（原始 CU + generator 产出的 CU）——**生成代码同样被检查**；不是 Bound 树，不依赖类型检查结果，所以放在前置线，不必等代码生成。
+- 此时 `CompiledModuleZ` 还不存在，诊断**按 CU 暂存**（`DiagnosticBag[]`），到 ⑥ 与 E0436 / exe 入口检查同一位置并入对应 CU，再由 ⑦ 的错误门统一判定；analyzer 报了 error 时 ⑤ 照常类型检查、但跳过代码生成与优化（并入点没变，所以缓存快照仍在 analyzer 诊断之前取，缓存命中的文件每次构建重跑 analyzer 也不会重复打印）。
+- `AnalyzerDriver.Run` 对每个 CU 遍历 AST，只对命中 `ObservedKinds` 的节点回调 `OnSyntaxNode`；诊断经 `DiagSinkImpl` 过 `LintConfig`（`[lints]`：默认启用门 → 精确 Id / `pkg.*` 通配覆盖 → `"none"` 抑制 → `warnings_as_errors` 升级）和 `SuppressionSet`（`#suppress` 区间 + `[Suppress]` 活跃栈）。
+- `--fix` 只作用于**原始 CU**：generator 产出的 CU 没有对应的真实源文件，不重写。
+- analyzer 的加载失败（E0493）落到与 generator 同一个诊断袋，并入首个 CU。
+
+### 其余约定
+
+- **诊断是分相位并入的**：parse → 收集 → 类型检查 → generator 护栏 → E0436 → analyzer（并入点）→ using 检查；缓存命中的文件从 meta 回填前三者（快照点在 E0436 / analyzer 并入之前）。
+- **没有 generator / analyzer 的包（含 z42c 自建、REPL）不进 ③ 与 ④**，输出与不存在这套机制时逐字节相同。
+- 单文件入口（`--dump-bound` / `--emit-zbc` / `ExtractExports`）走 `FrontEnd.Check/Collect`，是 ①⑤ 的单 CU 缩影，不含 ②③④⑥⑦⑧。
+
+### 编译期与构建期的四类「扩展」
+
+名字相近、机制与时机完全不同，不要混为一谈：
+
+| 机制 | 何时跑 | 看到什么 | 产出 | 加载方式 |
+|---|---|---|---|---|
+| **内建 handler**（`BenchmarkDesugar` / `AttributeSynth` / test 与 `[ModuleInit]` 校验 / `TestIndexBuilder`） | ①⑤ | AST / 符号表 | 改写 AST；合成工厂；TIDX | 编译器内建，永远开启 |
+| **Generator**（`: Generator` / `: ModuleGenerator`，内建 `[Forward]`） | ③ | AST + 已解析符号（provisional 绑定） | 新源码 / 替换声明 / 增补 partial | `[analyzers]` zpkg，`GeneratorLoader` 反射加载 |
+| **Analyzer**（`: Analyzer`） | ④（generator 之后、包级编译之前） | union CU 的 AST（含生成代码；不含 Bound） | 诊断（可带 `--fix` 重写源） | 同上，`AnalyzerLoader` |
+| **BuildHooks**（`class ProjectHooks : BuildHooks`） | **z42b** 构建阶段（不在 z42c 里） | 构建上下文 | 构建副作用 | `[build] hooks` 目录由 z42b 编成 zpkg，`ModuleLoader` 加载 |
+
+前三类属于编译器，后一类属于构建编排（见 [z42b](../toolchain/z42b.md)）。generator / analyzer 共用一段 `[analyzers]` 清单，同一批 zpkg 由两个 loader 各按接口过滤。
+
 ## 机制
 
 各阶段单向推进，前一阶段的产物是后一阶段的唯一输入。每个阶段都有对应的 `--dump-*` 命令可单独观察其产物（见 [CLI 与诊断工具](https://z42-lang.github.io/z42/reference/toolchain/cli-z42c-z42b.html)）。
@@ -94,11 +208,12 @@ AST → Bound 树 + `SemanticModel`。分两步：先由 `SymbolCollector` 遍�
 
 - 每个 `Z42ClassType` 带 `Namespace` 字段（本地类由 `StubCollector` 从 `cu.Namespace` 回填，导入类由
   `ImportedSymbolLoader` 从模块 ns 回填），并提供 `Fqn()`（`ns.IrName()`；全局类退回裸名）。
-- `SymbolTable.ClassesByFqn`（FQN 键 → 类型）与裸名 `Classes` **并存**，注册时同时登记，**保留每一份**同短名类。
-- `ResolveTypeP` 的限定名路径**优先**按 FQN 命中 `ClassesByFqn`（`A.Foo` → 声明 ns==A 的那份），不剥短名撞赢家；
-  非限定引用仍走裸名表（沿用其 first/last-wins，另见下「Deferred」）。
-- 发射端（`CallEmitter` 的 `ObjNew`）对已解析到的、`Namespace!=""` 的类型直接发 `Fqn()`，绕开
-  `EmitContext.QualifyClass` 按短名走 `ImportedClassNs` 的同类撞名歧义；`is`/`as` 本就发 AST 源码原始限定名，天然正确。
+- `SymbolTable.ClassesByFqn`（FQN 键 → 类型）**保留每一份**同短名类；按短名键的 `Classes` / `Interfaces` 已于
+  fqn-tables 5（2026-10）删除，非限定引用走作用域解析（外围 ns → FQN → using → prelude）。
+- `ResolveTypeP` 的限定名路径按 FQN 命中 `ClassesByFqn`（`A.Foo` → 声明 ns==A 的那份），不剥短名撞赢家。
+- 发射端限定类名一律取**类型对象**的声明 ns（`EmitContext.QualifyType` / `QualifyLayout` / `QualifySource`）；
+  曾经的「短名 → ns」图（`ImportedClassNs` / `ImportedSymbols.ClassNamespaces`）已删——发射端拿到的短名多来自已解析类型，
+  按短名查图（或按引用方作用域重解析）都会撞同短名的别的类。
 
 > **③ 第三条路：基表（`class C : X` 的那个 `X`）。**
 >
@@ -581,7 +696,7 @@ getter 是真实函数体。
 
 - **同 arity 候选 < 2**（单方法 / 纯 arity 重载——今天所有 prim 实例方法）：走原 `_overloadKey`/`_findMethod` 快路径，`wms!=null` 即用其键。**字节中性**。
 - **同 arity 候选 ≥ 2**：**跳过快路径**，直接 `_resolveOverload`（与 class 接收者路径 `MemberResolver.z42:57` 同款类型决议）取命中符号的 `RegKey`（mangle 键）产 `BoundCall`。这样跨包也无视裸别名、按实参类型命中正确重载。
-- 对称守卫：`CallEmitter.z42:160` 的实例 DepIndex 捷径加 `ownerIsLocalInst`（`LocalClasses.ContainsKey(TypeFactsTc._primWrapper(c.OwnerClass))`），本地 prim 类即便 `owns` 因故为 false 也不进捷径、不被下游同名劫持（对称静态路径 `:201-202` 的 `ownerIsLocal`）。
+- 对称守卫：`CallEmitter.z42:160` 的实例 DepIndex 捷径加 `ownerIsLocalInst`（`EmitContext.IsLocalReceiver(c.Receiver.Type())`：基元接收者按 prelude 根 ns 的包装类 FQN 查本包类集），本地 prim 类即便 `owns` 因故为 false 也不进捷径、不被下游同名劫持（对称静态路径 `:201-202` 的 `ownerIsLocal`）。
 
 **VM 侧无需改动**：基元接收者 VCall 的运行期派发（`src/runtime/src/interp/exec_vcall.rs:321-379`）按 `<class>.<method名>` 拼函数名直查——即它**本就以完整 mangle RegKey 为派发键**。只要绑定 emit 出正确的 `Split$1$string`，VM 就命中 `Std.String.Split$1$string`，跨包一样生效。
 
@@ -1064,11 +1179,17 @@ z42 的 IR 把**字节偏移烘焙进指令**（`struct_fget_prim %0 @8`）。�
 
 ### 登记表的粒度陷阱
 
-`IrGen` 由 `CuCompile._compileCu` **按编译单元**创建，而闸门用的 `LocalClasses` 是**包级**的。
+`IrGen` 由 `CuCompile._compileCu` **按编译单元**创建，而闸门用的本包类集 `LocalClassSet`（FQN 键，按类型对象判）是**包级**的。
 **凡是「包级判据 + 按 CU 的数据」就是一处 bug**。故泛型体登记表由
 `IrDump.BuildPackageCus` 扫全包 CU 建好后注入，与 `layouts` 同为并行段**只读**共享；
 `Generate` 仅在未注入时按本 CU 自扫（单文件 dump / 测试路径），两条路共用
 `IrGen.ScanGenericBodies`，判据只有一份。
+
+登记表的键是**发射出的函数名**（自由函数 `ns.RegKey`、方法 `ns.Owner.RegKey`），调用点拿自己的目标名
+（`_specializeGenericBody` 的 `func`；实例方法用接收者类型的声明 ns 拼）去查。键必须带 ns：包里两个
+命名空间各有一个 `Util.Tag<T>` 时，短键 first-wins 会让另一份的调用**静默特化出前一份的体**
+（cross-zpkg `generic_body_crossns_collision`）。`GenericBodySrc.BodyKey` 另存 model 里的短体键——
+`SemanticModel` 按 CU 建、一个 CU 一个 ns，短键在其内唯一。
 
 > 🔴 **待办**：`SemanticModel` 也按 CU 建（`TypeChecker.Infer(cu, …)`），所以**泛型声明与
 > 实例化跨文件**时拿不到绑定后的体 —— 登记表提到包级**不足以**解决它。

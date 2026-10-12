@@ -1,0 +1,14 @@
+namespace Demo.GbColl;
+
+public static class Probe {
+    public static string Run() {
+        int a = Demo.GbColl.A.Util.Tag<int>(0);
+        int b = Demo.GbColl.B.Util.Tag<int>(0);
+        int c = new Demo.GbColl.A.Box().Tag<int>(0);
+        int d = new Demo.GbColl.B.Box().Tag<int>(0);
+        int e = Demo.GbColl.A.FreeTag<int>(0);
+        int f = Demo.GbColl.B.FreeTag<int>(0);
+        return a.ToString() + " " + b.ToString() + " " + c.ToString() + " " + d.ToString()
+            + " " + e.ToString() + " " + f.ToString();
+    }
+}

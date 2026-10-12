@@ -22,7 +22,7 @@
 namespace Z42.TestHost.Agent;
 
 using Std.IO;
-using Std.Test;
+using Std.Test;   // Runner / BundleRunner / TestReport（测试执行器）
 using Std.Json;
 
 void Main() {

@@ -2,7 +2,6 @@
 name    = "demo.depapp"
 version = "0.1.0"
 kind    = "exe"
-entry   = "Demo.DepApp.Main"
 pack    = true
 
 [dependencies]

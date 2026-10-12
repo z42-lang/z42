@@ -8,7 +8,7 @@
 // per-CU 阶段看不到别的 CU ⇒ 「一个包至多一个」这条只能在包级判；而合成只看本 CU、
 // 是纯函数式的 ⇒ 可以留在并行段里。
 //
-// 设计 SoT：变更 add-module-init-hook。
+// 设计 SoT：docs/spec/changes/add-module-init-hook/design.md。
 namespace Z42.Semantics;
 
 using Z42.Syntax;

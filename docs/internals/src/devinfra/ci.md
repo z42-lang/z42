@@ -5,6 +5,9 @@
 > `.github/workflows/{bench-pr,release,deploy-book,jit-fixpoint-check}.yml`
 >
 > 每个 job 具体跑哪条 `xtask` 命令见[测试怎么跑](testing.md)；gate 的 stage 组成见[测试门禁](test-gate.md)。
+>
+> 待办：`ci-bootstrap` 每代构建前清空其就地 artifacts 的那一步（§1.5）只在冷启动 + 格式 bump 时走到、本地不可验，
+> 暂时保留；下一次格式 bump 的 PR 里删掉它并观察 CI——那时它正好被真实行使一次。
 
 改 CI 编排、或者想知道「这条腿为什么没跑 / 我这个改动会触发哪些 job」时读这页。
 

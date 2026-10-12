@@ -111,22 +111,22 @@ public static partial class ImportedSymbolLoader {
         //
         // 放在类 **之前**：万一同短名既是类又是 enum，也保证标志不被丢。
         //
-        // ⬇ 裸名回落（enum / 类 / 接口，含下方泛型基名）：TSIG 里仍有生产端写出的裸名（`TypeVisibility`、
-        // `ISubscription<T>` …，导出端改写 FQN 之前的产物）。取**加载序上最先声明它的那个 ns**（`*NsAll` 第一段）
-        // 再按 FQN 查 —— 与此前按短名键的 first-wins 表逐一等价，只是不再维护一张短名表。全局 ns 的类型
-        // （键即裸名）也走这条（第一段为 ""）。
-        string _ens = ImportedSymbolLoader._firstNs(r.EnumNsAll, name);
-        if (_ens != null) {
-            Z42ClassType iect = Z42ClassType.Enum(name);
-            iect.Namespace = _ens;   // unify-type-identity-fqn：缺它则 imported enum 的 Fqn() 退化成短名
-            return iect;
+        // ⬇ 不含点的名字（enum / 类 / 接口，含下方泛型基名）：生产端对有 ns 的类型一律写 FQN（fqn-tables 5b / 5b-2），
+        // 这里剩下的只有**全局 ns** 的类型（FQN 键即裸名）——按 FQN 表直查。fqn-tables 5c 删掉了此前的「裸名回落」
+        // （取加载序上最先声明这个短名的 ns，同短名跨 ns 时撞赢家）：删前探针实测 stdlib + 编译器全量构建 0 命中。
+        if (r.EnumTypeNamesByFqn.ContainsKey(name)) { return Z42ClassType.Enum(name); }   // 全局 ns：Namespace 恒为空串
+        // 基元包装类名（`Int32` / `String` …，泛型实参与委托成分里按裁决 D2 保留的拼写）：恒在 prelude 根 ns。
+        // 这是基元规则，不是裸名猜测。
+        if (PrimModel.Wrapper(name) == name && PrimModel.Code(PrimModel.Canon(name)) >= 0) {
+            Z42ClassType _pw = r.ClassesByFqn.Get(PreludeNs.Root() + "." + name) as Z42ClassType;
+            if (_pw != null) { return _pw; }
         }
-        Z42ClassType _bc = ImportedSymbolLoader._bareClass(r, name);
-        if (_bc != null) { return _bc; }
+        int _gc = r.ClassesByFqn.Find(name);
+        if (_gc >= 0) { return r.ClassesByFqn.ValAt(_gc) as Z42ClassType; }
         // fix-crosspkg-interface-impl：imported 接口名 → Z42InterfaceType（此前落 prim fallback →
         // imported 类的接口型属性/参数（Pipeline.Compiler : ICompiler）解析错型 → 赋值 E0402）。
-        Z42InterfaceType _bi = ImportedSymbolLoader._bareIface(r, name);
-        if (_bi != null) { return _bi; }
+        int _gi = r.InterfacesByFqn.Find(name);
+        if (_gi >= 0) { return r.InterfacesByFqn.ValAt(_gi) as Z42InterfaceType; }
         // 根因修复（infer-crosspkg-generic-instantiation）：泛型实例化串 `List<int>` /
         // `Dictionary<string,int>` → 解析基类（r.Classes）+ 递归解析类型参数 → Z42InstantiatedType。
         // 否则落 fallback prim(name) 垃圾类型；一旦该字段被跨轮 carry-forward（`var v = Other.f;`）
@@ -136,14 +136,9 @@ public static partial class ImportedSymbolLoader {
         if (ltIdx > 0 && name.EndsWith(">")) {
             string baseN = name.Substring(0, ltIdx);
             Z42ClassType gdef = null;
-            // unify-type-identity-fqn：基名也 FQ 优先（`Std.List<int>` → 精确定位 ns==Std 的 List），
-            // 再退到既有的短名 / _shortName 路径（那两条是**有损**的：同短名跨 ns 会撞赢家）。
-            int _fqg = -1;
-            if (baseN.IndexOf('.') >= 0) { _fqg = r.ClassesByFqn.Find(baseN); }
+            // 基名按 FQN 精确查（`Std.List<int>` → ns==Std 的 List；不含点 = 全局 ns 类型，键即裸名）。
+            int _fqg = r.ClassesByFqn.Find(baseN);
             if (_fqg >= 0) { gdef = r.ClassesByFqn.ValAt(_fqg) as Z42ClassType; }
-            // 裸基名（TSIG 里写的就是短名，如 `ISubscription<T>`）才查短名表；限定名在 FQN 视图里没有就是没有
-            // —— 不再剥成短名去撞别的 ns 的同名类（fqn-tables 3b：全量 GREEN 实测该回落 0 命中）。
-            else if (baseN.IndexOf('.') < 0) { gdef = ImportedSymbolLoader._bareClass(r, baseN); }
             // **接口同样可以泛型实例化**（`IEnumerator<T>` / `IEnumerable<int>`）——上面只查了
             // 类，而接口在另一张表里 ⇒ 此前一律落到末尾 fallback，变成一个
             // **名字里带尖括号的伪 Class**（`Z42ClassType.Builtin("IEnumerator<T>")`）。
@@ -152,12 +147,8 @@ public static partial class ImportedSymbolLoader {
             // 这就是 `Std.IEnumerable<T>` 至今没人实现得了的原因。
             Z42InterfaceType idef = null;
             if (gdef == null) {
-                int _fqi = -1;
-                if (baseN.IndexOf('.') >= 0) { _fqi = r.InterfacesByFqn.Find(baseN); }
+                int _fqi = r.InterfacesByFqn.Find(baseN);
                 if (_fqi >= 0) { idef = r.InterfacesByFqn.ValAt(_fqi) as Z42InterfaceType; }
-                else {
-                    if (baseN.IndexOf('.') < 0) { idef = ImportedSymbolLoader._bareIface(r, baseN); }   // 同上：只有裸基名走回落
-                }
             }
             if (gdef != null || idef != null) {
                 string argsStr = name.Substring(ltIdx + 1, name.Length - ltIdx - 2);
@@ -176,24 +167,6 @@ public static partial class ImportedSymbolLoader {
         int tp = 0;
         while (tp < tpCount) { if (typeParams[tp] == name) { return new Z42GenericParamType(name); } tp = tp + 1; }
         return Z42ClassType.Builtin(name);    // fallback（含泛型实例化串——既有 Unknown 吸收兼容）
-    }
-
-    // 裸名回落的三个小件（见 `_resolve` 里的说明）。`*NsAll` 的值是加载序的 ns 列表（"|" 连接），取第一段。
-    private static string _firstNs(StrMap nsAll, string name) {
-        StrBox b = nsAll.Get(name) as StrBox;
-        if (b == null) { return null; }
-        int bar = b.Value.IndexOf('|');
-        return bar < 0 ? b.Value : b.Value.Substring(0, bar);
-    }
-    private static Z42ClassType _bareClass(ImportedSymbols r, string name) {
-        string ns = ImportedSymbolLoader._firstNs(r.ClassNsAll, name);
-        if (ns == null) { return null; }
-        return r.ClassesByFqn.Get(SymbolTable.QualOf(ns, name)) as Z42ClassType;
-    }
-    private static Z42InterfaceType _bareIface(ImportedSymbols r, string name) {
-        string ns = ImportedSymbolLoader._firstNs(r.IfaceNsAll, name);
-        if (ns == null) { return null; }
-        return r.InterfacesByFqn.Get(SymbolTable.QualOf(ns, name)) as Z42InterfaceType;
     }
 
     // 无型参上下文（自由函数等）——委托四参版本。

@@ -346,7 +346,7 @@ int _pkgCopyLibsOf(string root, string libsDir, string pkgDir) {
 // **推论**。反过来不成立：两两比对只能证明「大家一样」，证不了「大家都对」（所有包
 // 一致地拷了一份陈旧副本时，跨包比对全绿）。且各包在独立 xtask 进程 / 独立 CI job
 // 里打，`_pkgFinish` 只见得到一个 pkgDir，真做跨包比对得先改 CI 拓扑。
-// 论证全文见 变更 fix-package-identity-gate。
+// 论证全文见 docs/spec/changes/fix-package-identity-gate/proposal.md。
 
 // 一条规则 = 包内相对路径 ↔ 仓库源绝对路径。
 // PkgRel 落在目录上 → **递归**比对以 Suffix 结尾的文件（Suffix="" 表示全部）；

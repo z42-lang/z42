@@ -67,10 +67,17 @@ public static class ZpkgBuilder {
                 int rc = 0;
                 i = 0;
                 while (i < moduleCount) {
+                    IrModule im = modules[i].Module;
+                    bool aligned = im != null && im.FuncCount == modules[i].ExportCount;
                     int x = 0;
                     while (x < modules[i].ExportCount) {
-                        raw[rc] = new ZpkgExportZ(modules[i].Exports[x], "func");
-                        rc = rc + 1;
+                        // 实例方法不能当入口（VM 以零实参调用入口，`this` 会是 null）。认法是首参槽名 `this`：
+                        // IR 名认不出（实例 `C.Main` 与自由函数 `C.Main` 同形），IsStatic 也不行（自由函数同样是 false）。
+                        bool instance = aligned && ZpkgBuilder._hasThis(im.Functions[x]);
+                        if (!instance) {
+                            raw[rc] = new ZpkgExportZ(modules[i].Exports[x], "func");
+                            rc = rc + 1;
+                        }
                         x = x + 1;
                     }
                     i = i + 1;
@@ -165,12 +172,19 @@ public static class ZpkgBuilder {
         }
     }
 
-    // entry 自动检测（镜像 C# AutoDetectEntry / vm.rs resolve_entry 四级优先）：
+    // entry 自动检测（四级优先）：
     // 1. FQ `.Main` 结尾  2. 裸 `Main`  3. FQ `.main`  4. 裸 `main`。同级多候选 → "<ambiguous>"。
+    // 第 1 / 3 级同时认类里的静态无参方法：它的 IR 名带零参重载后缀（`Ns.Program.Main$0`），返回的就是这个
+    // 真实名字 —— VM 按函数名精确匹配（`resolve_entry_in`），写成 `Ns.Program.Main` 运行期找不到。
+    // 带参的 `Main$1` 不是候选（VM 以零实参调用入口）；实例方法由调用方按 `this` 参数槽先滤掉。
     public static string AutoDetectEntry(ZpkgExportZ[] exports, int count) {
         string r = ZpkgBuilder._pick(exports, count, ".Main", "Main");
         if (r != "") { return r; }
         return ZpkgBuilder._pick(exports, count, ".main", "main");
+    }
+
+    private static bool _hasThis(IrFunction f) {
+        return f.ParamNames != null && f.ParamNames.Length > 0 && f.ParamNames[0] == "this";
     }
 
     private static string _pick(ZpkgExportZ[] exports, int count, string fqSuffix, string bare) {
@@ -181,7 +195,7 @@ public static class ZpkgBuilder {
         int i = 0;
         while (i < count) {
             string s = exports[i].Symbol;
-            if (s.EndsWith(fqSuffix)) { fqHit = s; fqN = fqN + 1; }
+            if (s.EndsWith(fqSuffix) || s.EndsWith(fqSuffix + "$0")) { fqHit = s; fqN = fqN + 1; }
             else if (s == bare) { bareHit = s; bareN = bareN + 1; }
             i = i + 1;
         }

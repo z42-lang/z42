@@ -41,7 +41,8 @@ pub fn builtin_gc_used_bytes(ctx: &VmContext, _args: &[Value]) -> Result<Value> 
     Ok(Value::I64(ctx.heap().used_bytes() as i64))
 }
 
-/// `Std.GC.ForceCollect()` —— 强制完整 collect，返回 `freed_bytes`（i64）。
+/// `Std.GC.ForceCollect()` —— 强制一次**全堆** collect（分代下是 major，见 `MagrGC::collect_full`），
+/// 返回 `freed_bytes`（i64）。
 /// 与 `Collect()` 区别：前者是建议性（pause 时跳过），后者总是触发并返回数据。
 ///
 /// **add-gc-safepoint (2026-05-20)**: same stop-the-world wrapper as
@@ -53,7 +54,7 @@ pub fn builtin_gc_used_bytes(ctx: &VmContext, _args: &[Value]) -> Result<Value> 
 /// best-effort semantics as `builtin_gc_collect`.
 pub fn builtin_gc_force_collect(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
     if let Some(_pause) = crate::gc::safepoint::request_gc_pause(ctx) {
-        let stats = ctx.heap().force_collect();
+        let stats = ctx.heap().collect_full();
         Ok(Value::I64(stats.freed_bytes as i64))
     } else {
         Ok(Value::I64(0))
@@ -194,7 +195,7 @@ fn extract_gc_handle_slot(ctx: &VmContext, arg: &Value) -> u64 {
             .lock()
             .with(*idx, *frame_id, |s| first_i64(&s.bytes))
             .unwrap_or(0),
-        Value::BoxedStruct(gc) => first_i64(gc.borrow().bytes()),
+        Value::BoxedStruct(gc) => first_i64(&gc.borrow().snapshot_fields()),
         Value::Object(rc) => match rc.borrow().field_value(0) {
             Value::I64(i) => i.max(0) as u64,
             _ => 0,

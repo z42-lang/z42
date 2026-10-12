@@ -34,7 +34,7 @@ z42c 是用 z42 写的编译器，由上一代 z42c 编译自己。结论：**�
 | 限制 | 受限写法 |
 |---|---|
 | 类字段的泛型参数被 parser 丢弃（`private List<X> f;` 取元素退化为 `<unknown>`，无法调其方法）| **typed array + count**：`Diagnostic[] _items; int _count;` + 手动 `Grow()`，故编译器内集合一律是并行数组 |
-| `new T[n][]` 不能创建交错数组 | 平铺单数组 + 偏移，或平行数组 + 线性查（如 `WsMembers.DepFlat/DepOff/DepLen`）|
+| `new T[n][]` 不能创建交错数组 | 平铺单数组 + 偏移，或平行数组 + 线性查（如 `WorkspaceMembers.DepFlat/DepOff/DepLen`）|
 | AST / IR 节点 | `class` 继承层级 + `virtual`。IR 指令的操作数 / 编码 / 头部 tag / 可删性是指令类上的虚方法（基类给安全默认）；AST 与 bound tree 的遍历是手写 `is` 穷举 walker，完备性由 `xtask check walkers` 对账 |
 | 错误路径 | `throw` / `try-catch` + Exception 子类 |
 
@@ -44,9 +44,9 @@ z42c 是用 z42 写的编译器，由上一代 z42c 编译自己。结论：**�
 
 `./xtask build compiler` = `_buildCompiler`（`scripts/build/xtask_compiler.z42`）：确保种子（`_ensureSeed`）→ 建 z42vm → 必要时先建 stdlib → `_buildCompilerViaZ42c` 用种子 driver 跑 `build --workspace --release`。命令面见 `./xtask --help`。
 
-**z42c driver 自有 `build --workspace`**（`z42c.pipeline/src/WorkspaceBuild.z42`）：
+**z42c driver 自有 `build --workspace`**（`z42c.driver/src/WorkspaceBuild.z42`，规划在 `z42.project/src/WorkspacePlan.z42`）：
 
-- **成员发现 + 拓扑序**：`[workspace] members`（缺省 `["*"]`，段内通配）展开、`exclude` 剔除；读各成员 `[project].name` + `[dependencies]`，只保留指向 workspace 内成员的边；层式拓扑，层内按 name Ordinal 排序，环抛异常。
+- **成员发现 + 拓扑序**：`[workspace] members`（缺省 `["*"]`，段内通配）展开、`exclude` 剔除；读各成员 `[project].name` + `[dependencies]`，只保留指向 workspace 内成员的边；按 name Ordinal 逐轮扫描、依赖已发射即发射，环抛异常。z42c 恒编全部成员，`default_members` 归编排器（z42b）。
 - **显式 `--output-dir <flat>`**：全成员产物落该 flat 目录，兼作各成员的兄弟解析目录。
 - **无 `--output-dir`**：按 `[workspace.build].output_dir` 模板展开 per-member 布局，产物落各自 `<output_dir>/dist`；兄弟解析扫全成员 dist + 外部档（`Z42_LIBS` / `--compile-libs`）。先建全部成员 dist（空目录）再按拓扑序逐个 build。
 - **解析分档**（`WsTier`）：成员 dist 只回答**成员**包名，外部档只回答**非成员**包名；拓扑序在后的成员整个不可见（`Hidden`）。成员 dist 同时是 exe 的运行期载荷目录（`z42c build` 会把依赖闭包 colocate 进去），里面的外部包副本是载荷不是解析源；`build stdlib` 的外部档是 flat（全成员 dist 的聚合），里面有每个成员上一轮的副本——分档防止这两种旧副本遮蔽本轮 fresh 产物。
@@ -64,6 +64,10 @@ z42c 是用 z42 写的编译器，由上一代 z42c 编译自己。结论：**�
 ## .zbc 写入器（`z42.package/src/BinaryFormat/`）
 
 - **架构**：`ByteWriter`（`byte[]` + LE 助手）→ 各指令类的 `IrInstr.Write(ZbcEncoder)`（指令布局跟指令类走；`ZbcEncoder` 打包缓冲 / 串池 / token 分配器，每函数一个）+ `ZbcInstr`（终结符编码、串池预扫、字面量解析）→ `ZbcWriter`（intern 预扫 + 分段组装）；读端 `ZbcReaderInstr.Retype` 按 `IrInstr.TagReg` 回填 REGT；`TokenAllocator`（插入序 index）；`ZbcStringPool`（插入序 = STRS 字节序）。格式规格见 [zpkg](../formats/zpkg.md)。
+- **预扫之后池只读**：STRS 字节序 = intern 调用序，故全部串先按固定序预扫 intern，各段构建器（`BuildFunc` / `BuildType` /
+  `BuildDbug` / `BuildTidx`、`TokenAllocator.ResolveMethod/Type`）只 `Idx` 查（漏扫直接抛，不静默追加）。zpkg 写出因此能把
+  逐模块段体并行算（`ZpkgWriterZ._buildMods` → `ParallelFor`，各模块写自己的槽，按模块序串行拼装 ⇒ 产物与串行逐字节一致）。
+  新加的构建器若在构建期 `Intern`，会在并行下写共享池 —— 改到预扫里。
 - **确定性铁律**：字符串池 intern 序须固定（模块名 → const.str 池 → 类 → "?" → 每函数[名/ret/param → 每块 label→指令串]）；IMPT 写前 Ordinal 排序。
 - runtime builtin 在 z42 侧直接 `[Native("__double_to_bits")]` 自声明。
 
@@ -166,7 +170,8 @@ entry-dir 最优先）供运行期用。两件齐了，改名就能**一步落**
 自建步骤是 `Z42_LIBS=<种子代 run-libs>` + `--compile-libs=<flat>`；driver 换代后的步骤两者都用 flat。
 
 - **旗标探测**：早于 `--compile-libs` 的种子 driver 会静默忽略未知旗标，故先 `_driverSupportsCompileLibs` 跑 `build --help` 认关键字，不认则退回共用 flat。driver 加载不到自己那代 stdlib 会直接崩（输出无旗标名，易被误判为「不支持」），所以做两次尝试取第一个真打出 `usage:` 的；两次都没有 = 探测失败，要出声（`_helpRan`）。
-- **种子代 run-libs 不能取自 flat**：flat 正是要被预建覆盖的目录，快照晚于覆盖会拿到新代，种子 driver 即 `MissingSymbolException`。锚取 driver 自己 dist 里的 colocated 闭包（与 driver 同代是构造保证），**搬**进 `artifacts/build/compiler/seed-run-libs/<profile>/`（`_relocateSeedRunLibs`）；判据是「齐了吗」而非「搬到了吗」，缺口从 SDK libs 补（`_topUpSeedRunLibs`）。搬（而非拷）同时清掉成员 dist 里的外部包副本，避免它遮蔽 flat 里的新版。
+- **种子代 run-libs 不能取自 flat**：flat 正是要被预建覆盖的目录，快照晚于覆盖会拿到新代，种子 driver 即 `MissingSymbolException`。锚是**上一次自建成功那一刻**的 flat stdlib——新 driver 正是对着它编译的（与 driver 同代是构造保证）：`_snapshotDriverGenLibs` 记进 driver dist 的兄弟目录 `z42c.driver/<profile>/gen-libs/`（不进 dist ⇒ 不随 publish 进 SDK；`package ci` 单独带上），下一次自建由 `_relocateSeedRunLibs` 拷进 `intermediate/compiler/seed-run-libs/<profile>/`；判据是「齐了吗」而非「搬到了吗」，缺口从 SDK libs 补（`_topUpSeedRunLibs`）。冷启动从 SDK 供种时旧锚作废（它与种子不同代）。成员 dist 里若还有外部包副本（老 driver 建的）同样搬走，避免它遮蔽 flat 里的新版。
+- **driver dist 不带 stdlib**：exe 复制判据的「框架目录」与解析面的外部档是同一份（`CompileLibsOpt.ExtDirs()`：`--compile-libs`，否则 `Z42_LIBS`）。自建时 stdlib 从 `--compile-libs` 的 flat 解析到 ⇒ 判框架、不复制，所以锚只能由 xtask 自己记。
 - 该旗标自身也受种子纪律；`WsTier` 分档生效后，「搬」可退回「拷」。
 
 ## 分阶段流程与不变量

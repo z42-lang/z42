@@ -33,3 +33,28 @@ z42vm —— Rust 写的虚拟机：加载 `.zpkg`、执行字节码、管理内
 [AOT](aot.md) · [分层执行](tiered-execution.md) · [组件化运行时](componentized-runtime.md) ·
 [热重载](hot-reload.md) · [safepoint 泛化](safepoint-design.md) · [诊断事件模型](diagnostics-design.md) ·
 [加载上下文强制清理](load-context-design.md) · [IR intrinsic 特化](ir-specialization-design.md)
+
+## 依赖与参考实现
+
+Rust 侧的第三方依赖与候选库。「状态」只标已采用的；其余是调研结论，引入前仍要评估并在 `Cargo.toml` 注明用途。
+
+| 用途 | 推荐库 | 状态 | 说明 |
+|------|--------|------|------|
+| JIT 代码生成 | `cranelift-*` | ✅ 已用 | Bytecode Alliance，Wasmtime 同款（feature `jit`） |
+| 内容哈希 | `blake3` | ✅ 已用 | zbc build_id |
+| AOT / LLVM | `inkwell` | 调研 | LLVM safe bindings for Rust |
+| 解析辅助（调试格式） | `nom` 或 `winnow` | 调研 | 文本 IR（`.zasm`）解析 |
+| GC（未来沙盒模式） | `gc-arena` | 调研 | arena 式 GC，可选引入 |
+| 并发运行时 | `tokio` | 调研 | async VM task 调度 |
+| 性能剖析 | `pprof-rs` | 调研 | 火焰图 |
+| 文件监听 | `notify` | 调研 | 热更新文件系统事件，跨平台，支持 debounce |
+
+动手实现某个子系统前先看的参考项目：
+
+| 子系统 | 参考项目 |
+|--------|---------|
+| 解释器结构 | CPython（ceval.c）、wren、lua 5.4 |
+| SSA / IR 设计 | LLVM IR、Cranelift CLIF、QBE |
+| 类型推导 | OCaml 编译器、Hindley-Milner 论文实现 |
+| JIT 流水线 | LuaJIT、V8 Maglev、JavaScriptCore |
+| 模式匹配编译 | `rustc_mir_build`、MLton |

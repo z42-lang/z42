@@ -37,10 +37,10 @@ fn mark_phase_visits_reachable_only() {
     let Value::Object(b_gc) = &b else { panic!() };
     let Value::Object(c_gc) = &c else { panic!() };
     let Value::Object(d_gc) = &d else { panic!() };
-    assert!(GcRef::is_marked(a_gc, heap.major_mark_for_test()), "a (root) must be marked");
-    assert!(GcRef::is_marked(b_gc, heap.major_mark_for_test()), "b (reachable via a.refs[0]) must be marked");
-    assert!(GcRef::is_marked(c_gc, heap.major_mark_for_test()), "c (reachable via b.refs[0]) must be marked");
-    assert!(!GcRef::is_marked(d_gc, heap.major_mark_for_test()), "d (unreachable) must stay unmarked");
+    assert!(crate::gc::ObjRef::is_marked(a_gc, heap.major_mark_for_test()), "a (root) must be marked");
+    assert!(crate::gc::ObjRef::is_marked(b_gc, heap.major_mark_for_test()), "b (reachable via a.refs[0]) must be marked");
+    assert!(crate::gc::ObjRef::is_marked(c_gc, heap.major_mark_for_test()), "c (reachable via b.refs[0]) must be marked");
+    assert!(!crate::gc::ObjRef::is_marked(d_gc, heap.major_mark_for_test()), "d (unreachable) must stay unmarked");
 
     // Cleanup so other tests are unaffected.
     heap.unpin_root(root_handle);
@@ -84,8 +84,8 @@ fn mark_phase_handles_array_children() {
     let Value::Object(e1_gc) = &elem1 else { panic!() };
     let Value::Object(e2_gc) = &elem2 else { panic!() };
     assert!(GcRef::is_marked(arr_gc, heap.major_mark_for_test()));
-    assert!(GcRef::is_marked(e1_gc, heap.major_mark_for_test()));
-    assert!(GcRef::is_marked(e2_gc, heap.major_mark_for_test()));
+    assert!(crate::gc::ObjRef::is_marked(e1_gc, heap.major_mark_for_test()));
+    assert!(crate::gc::ObjRef::is_marked(e2_gc, heap.major_mark_for_test()));
     heap.reset_marks_for_test();
 }
 
@@ -100,8 +100,8 @@ fn mark_phase_cyclic_unreachable_stays_unmarked() {
     {
         let Value::Object(a_gc) = &a else { panic!() };
         let Value::Object(b_gc) = &b else { panic!() };
-        a_gc.borrow_mut().refs_mut_raw()[0] = b.clone();
-        b_gc.borrow_mut().refs_mut_raw()[0] = a.clone();
+        a_gc.borrow().set_ref_raw_for_test(0, &b.clone());
+        b_gc.borrow().set_ref_raw_for_test(0, &a.clone());
     }
 
     heap.reset_marks_for_test();
@@ -112,15 +112,15 @@ fn mark_phase_cyclic_unreachable_stays_unmarked() {
 
     let Value::Object(a_gc) = &a else { panic!() };
     let Value::Object(b_gc) = &b else { panic!() };
-    assert!(!GcRef::is_marked(a_gc, heap.major_mark_for_test()));
-    assert!(!GcRef::is_marked(b_gc, heap.major_mark_for_test()));
+    assert!(!crate::gc::ObjRef::is_marked(a_gc, heap.major_mark_for_test()));
+    assert!(!crate::gc::ObjRef::is_marked(b_gc, heap.major_mark_for_test()));
 
     // Clear cycle before drop so trial-deletion (still default) doesn't
     // see stale shapes from other tests.
     let Value::Object(a_gc) = &a else { panic!() };
     let Value::Object(b_gc) = &b else { panic!() };
-    a_gc.borrow_mut().refs_mut_raw()[0] = Value::Null;
-    b_gc.borrow_mut().refs_mut_raw()[0] = Value::Null;
+    a_gc.borrow().set_ref_raw_for_test(0, &Value::Null);
+    b_gc.borrow().set_ref_raw_for_test(0, &Value::Null);
 }
 
 #[test]
@@ -134,9 +134,9 @@ fn clear_mark_resets_state() {
     heap.mark_phase();
 
     let Value::Object(a_gc) = &a else { panic!() };
-    assert!(GcRef::is_marked(a_gc, heap.major_mark_for_test()));
+    assert!(crate::gc::ObjRef::is_marked(a_gc, heap.major_mark_for_test()));
     heap.reset_marks_for_test();
-    assert!(!GcRef::is_marked(a_gc, heap.major_mark_for_test()));
+    assert!(!crate::gc::ObjRef::is_marked(a_gc, heap.major_mark_for_test()));
 }
 
 // ── add-mark-sweep-collector P2 (2026-05-21): sweep + full cycle ────────────
@@ -156,8 +156,8 @@ fn mark_sweep_frees_two_node_cycle() {
     {
         let Value::Object(a_gc) = &a else { panic!() };
         let Value::Object(b_gc) = &b else { panic!() };
-        a_gc.borrow_mut().refs_mut_raw()[0] = b.clone();
-        b_gc.borrow_mut().refs_mut_raw()[0] = a.clone();
+        a_gc.borrow().set_ref_raw_for_test(0, &b.clone());
+        b_gc.borrow().set_ref_raw_for_test(0, &a.clone());
     }
     drop(a);
     drop(b);
@@ -176,7 +176,7 @@ fn mark_sweep_frees_self_reference_cycle() {
     let a = heap.alloc_object(dummy_type_desc("Self"), vec![Value::Null], NativeData::None);
     {
         let Value::Object(a_gc) = &a else { panic!() };
-        a_gc.borrow_mut().refs_mut_raw()[0] = a.clone();
+        a_gc.borrow().set_ref_raw_for_test(0, &a.clone());
     }
     drop(a);
     assert_eq!(alive_count(&heap), 1);
@@ -221,9 +221,9 @@ fn mark_sweep_frees_three_node_cycle() {
         let Value::Object(a_gc) = &a else { panic!() };
         let Value::Object(b_gc) = &b else { panic!() };
         let Value::Object(c_gc) = &c else { panic!() };
-        a_gc.borrow_mut().refs_mut_raw()[0] = b.clone();
-        b_gc.borrow_mut().refs_mut_raw()[0] = c.clone();
-        c_gc.borrow_mut().refs_mut_raw()[0] = a.clone();
+        a_gc.borrow().set_ref_raw_for_test(0, &b.clone());
+        b_gc.borrow().set_ref_raw_for_test(0, &c.clone());
+        c_gc.borrow().set_ref_raw_for_test(0, &a.clone());
     }
     drop(a);
     drop(b);
@@ -244,8 +244,8 @@ fn mark_sweep_preserves_externally_referenced_cycle() {
     {
         let Value::Object(a_gc) = &a else { panic!() };
         let Value::Object(b_gc) = &b else { panic!() };
-        a_gc.borrow_mut().refs_mut_raw()[0] = b.clone();
-        b_gc.borrow_mut().refs_mut_raw()[0] = a.clone();
+        a_gc.borrow().set_ref_raw_for_test(0, &b.clone());
+        b_gc.borrow().set_ref_raw_for_test(0, &a.clone());
     }
     // Pin a as root → both a and b are reachable through the cycle.
     let root_handle = heap.pin_root(a.clone());
@@ -272,13 +272,13 @@ fn sweep_resets_marks_on_survivors() {
 
     let Value::Object(a_gc) = &a else { panic!() };
     // add-incremental-major-gc M1: the survivor keeps this cycle's epoch; the next epoch whitens it.
-    assert!(GcRef::is_marked(a_gc, heap.major_mark_for_test()), "survivor carries this cycle's epoch");
+    assert!(crate::gc::ObjRef::is_marked(a_gc, heap.major_mark_for_test()), "survivor carries this cycle's epoch");
     heap.reset_marks_for_test();
-    assert!(!GcRef::is_marked(a_gc, heap.major_mark_for_test()), "survivor is white to the next cycle");
+    assert!(!crate::gc::ObjRef::is_marked(a_gc, heap.major_mark_for_test()), "survivor is white to the next cycle");
 
     // Run again — should still preserve a (a new epoch, re-marked). Verifies the cycle is repeatable.
     heap.collect_cycles_mark_sweep_for_test();
-    assert!(GcRef::is_marked(a_gc, heap.major_mark_for_test()));
+    assert!(crate::gc::ObjRef::is_marked(a_gc, heap.major_mark_for_test()));
     assert_eq!(alive_count(&heap), 1);
 
     heap.unpin_root(root_handle);

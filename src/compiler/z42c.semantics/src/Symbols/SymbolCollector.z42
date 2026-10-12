@@ -10,6 +10,7 @@
 //   MemberCollector     —— Pass B 成员填充：字段/方法/属性/索引器 + regKey mangle + const + 转换运算符
 //   InheritanceResolver —— 基链解析：override regKey 对齐 + sealed 强制 + 继承字段 + impl-block 合并
 //   DeclEnforcer        —— 声明良构约束：D8 后缀强制（attribute/analyzer/generator）+ partial 校验
+//   TestAttrEnforcer    —— 测试 / bench attribute 校验（E0911–E0917，Testing/）
 // 每簇持 _sc 反向引用、经 _sc 访问共享辅助/状态（零簇间边，所有跨簇流量过 hub）。
 namespace Z42.Semantics;
 using Z42.IR;   // StrMap 统一到 z42c.ir（compiler-review §4.1）
@@ -36,6 +37,7 @@ public sealed class SymbolCollector {
     private MemberCollector     _member;    // Pass B：成员填充
     private InheritanceResolver _inherit;   // 基链解析（override/sealed/继承字段/impl）
     private DeclEnforcer        _enforce;   // 声明良构约束（后缀 D8 + partial 校验）
+    private TestAttrEnforcer    _tests;     // 测试 / bench attribute 校验（E0911–E0917；Testing/）
 
     public SymbolCollector() {
         this.Diags = new DiagnosticBag();
@@ -47,6 +49,7 @@ public sealed class SymbolCollector {
         this._member = new MemberCollector(this);
         this._inherit = new InheritanceResolver(this);
         this._enforce = new DeclEnforcer(this);
+        this._tests = new TestAttrEnforcer(this);
     }
 
     // 单 CU 入口（dump / 单测 / 导出提取 / `--emit-zbc`）：**就是** `CollectAll` 的一元情形。
@@ -344,13 +347,13 @@ public sealed class SymbolCollector {
         c = 0;
         // enforce-test-attr-placement：[Test]/[Benchmark]/[Setup]/[Teardown] 位置+签名强制（E0911/0912/0915）。
         // ⚠️ 相位同上：须在 RunAst（BenchmarkDesugar）之后。
-        while (c < cuCount) { this._enforce._passTestAttrEnforce(cus[c]); c = c + 1; }
+        while (c < cuCount) { this._tests._passTestAttrEnforce(cus[c]); c = c + 1; }
         c = 0;
         while (c < cuCount) { this._enforce._passNativeEnforce(cus[c]); c = c + 1; }   // validate-extern-native（E0903/E0904/E0907）
         c = 0;
         // complete-test-attr-arg-checks：E0913（[ShouldThrow<E>] 的 E 须派生 Exception）——
         // 需符号表走基类链，故与上面的纯语法 pass 分开（design §1）。
-        while (c < cuCount) { this._enforce._passTestAttrSemantic(table, cus[c]); c = c + 1; }
+        while (c < cuCount) { this._tests._passTestAttrSemantic(table, cus[c]); c = c + 1; }
         c = 0;
         // enforce-attribute-const-args：attribute 实参须编译期常量（E0500）。与上面的 semantic pass 同
         // 一档（要符号表查 enum 成员 / const 字段），故同样单独一轮跨 CU 循环。

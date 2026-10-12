@@ -2,7 +2,10 @@
 ///
 /// Architecture
 /// ------------
-/// * `frame.rs`        — JitFrame (register file) and JitModuleCtx (per-run shared state)
+/// * `frame.rs`        — JitFrame (register file) and FnEntry (one compiled function)
+/// * `runtime.rs`      — JitRuntime: the VM's one JIT on `VmCore` (slots, compiler, OSR
+///                       cache), shared by every thread; compiled code and helpers take the
+///                       running thread's own `VmContext` as their context parameter
 /// * `lazy.rs`         — LazyCompiler: per-function compilation on first call / OSR entries
 /// * `invoke.rs`       — `call_native`: the single push_frame → native code → pop_frame sequence
 /// * `helpers/`        — `extern "C"` helper functions called by JIT code, split
@@ -11,17 +14,19 @@
 /// * `translate/`      — Cranelift IR translation (one submodule per instruction category)
 /// * `reg_access.rs`   — `frame.regs` slot load / store
 /// * `vm_interface.rs` — read-only metadata contract between JIT and VM
-/// * `mod.rs`          — JitModule::setup / run_fn / run (lazy: setup compiles nothing)
+/// * `mod.rs`          — `run` / `run_fn`: install the runtime (compiles nothing), run the entry
 
 /// `[Native]` extern-wrapper short-circuit: call helpers dispatch the builtin directly.
 mod forward;
-pub(crate) mod frame; // runtime-jit-tiering Phase 1.5: interp dispatch reaches JitFrame/JitModuleCtx
+pub(crate) mod frame; // runtime-jit-tiering Phase 1.5: interp dispatch reaches JitFrame
 pub(crate) mod helpers;
 /// The single native-call sequence (push_frame → compiled code → pop_frame), shared by
 /// the JIT entry, the call helpers and the interpreter's mixed-mode diverts.
 pub(crate) mod invoke;
 /// Lazy per-function compilation state (lazy-per-function-jit, 2026-07-23).
 mod lazy;
+/// The VM's shared JIT state (`VmCore::jit`): slots, compiler, OSR cache.
+pub(crate) mod runtime;
 /// Centralized `frame.regs` slot access — the single load/store choke point
 /// (jit-unbox-regalloc Phase 2.0; foundation for the 2B/2C register cache).
 mod reg_access;
@@ -39,195 +44,90 @@ use crate::metadata::Module;
 use vm_interface::JitVm;
 use anyhow::Result;
 use crate::vm_context::VmContext;
-use frame::{JitFrame, JitModuleCtx};
-use lazy::LazyCompiler;
+use frame::JitFrame;
 use helpers::take_exception_error;
-use std::sync::Mutex;
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
-/// A z42 module wired for native execution. lazy-per-function-jit (2026-07-23):
-/// functions are compiled **on first call**, not eagerly at load — `setup` only
-/// builds the JIT infrastructure; `JitModuleCtx::resolve_fn_by_id` compiles each
-/// function on demand (`LazyCompiler::compile_fn`).
-pub struct JitModule {
-    /// Mutex-guarded lazy compiler; owns the cranelift `JITModule` so the
-    /// machine-code pages stay valid for the whole run. Read only through the
-    /// raw pointer stashed in `ctx.lazy` (heap-stable via `Box`, so the pointer
-    /// never dangles) — the field itself just keeps it alive, hence `_lazy`.
-    _lazy: Box<Mutex<LazyCompiler>>,
-    ctx:   Box<JitModuleCtx>,
-    // 2026-04-27 fix-static-field-access: removed `name: String` —
-    // 之前用来 format `"{name}.__static_init__"`，新版扫描所有
-    // `*.__static_init__` 函数，不再需要主模块名。
-}
-
-impl JitModule {
-    /// Build the JIT infrastructure for `module` without compiling any user
-    /// function (compile-on-first-call) and wire `ctx.lazy` at the owned mutex.
-    pub fn setup(module: &Module) -> Result<Self> {
-        let lazy_box: Box<Mutex<LazyCompiler>> = Box::new(Mutex::new(LazyCompiler::setup()?));
-        // Tier-up threshold (`jit-threshold` knob, default 2): a function compiles on
-        // its 2nd tiered call. 1 also compiled every run-once function (561 Cranelift
-        // compiles ≈ 0.33 s of a 0.80 s hello-world build); larger values keep the
-        // z42c pipeline — functions called a handful of times per build — on the
-        // interpreter. OSR (`osr_threshold`) upgrades hot loops independently.
-        let jit_threshold = crate::config::runtime_config().jit_threshold;
-        // Back-edge count that triggers OSR of the running interp activation.
-        let osr_threshold = crate::config::runtime_config().osr_threshold;
-        // Per-function slots are allocated on first touch (`SparseSegTable`), keyed
-        // by JIT id (= `FnId`, see `JitModuleCtx`); `vm_ctx` / `stack_limit` are set
-        // by `run_fn`.
-        let ctx = Box::new(JitModuleCtx::new(
-            module as *const Module,
-            &*lazy_box as *const Mutex<LazyCompiler>,
-            jit_threshold,
-            osr_threshold,
-        ));
-        Ok(JitModule { _lazy: lazy_box, ctx })
-    }
-
-    /// Run a specific entry function by name (no static-init).
-    ///
-    /// `ctx` is the canonical state holder; we wire its raw pointer into
-    /// `JitModuleCtx.vm_ctx` for the duration of this call so JIT helpers
-    /// (which receive `*const JitModuleCtx`) can reach VmContext through it.
-    pub fn run_fn(&mut self, ctx: &VmContext, entry_name: &str) -> Result<()> {
-        // Cast `&VmContext` (immutable ref) to a `*mut VmContext` for the
-        // JIT ABI. The JIT extern-C bridge expects a `*mut` pointer for
-        // historical compatibility (the helper functions reach VmContext
-        // through `(*jit_ctx).vm_ctx`), but they only ever call `&self`
-        // methods on it. add-vmcontext-registry (2026-05-20) converted
-        // the caller signature to `&VmContext`, so the cast goes via
-        // `*const _` first to satisfy the strict pointer-cast rules.
-        // Scope the heap as the ambient GC heap for this JIT run. The entry's
-        // bottom-frame push installs it too (`vm_context/engine_guards.rs`); this
-        // one also covers the entry's lazy compile before that push.
-        let _heap_guard = crate::gc::ambient::HeapGuard::enter(ctx.heap());
-        // lazy-per-function-jit (2026-07-23): wire this BEFORE resolving the
-        // entry so the entry's own lazy compile is counted (resolve reaches the
-        // counters through `vm_ctx`).
-        self.ctx.vm_ctx = (ctx as *const VmContext) as *mut VmContext;
-        // runtime-audit P0-4: JIT code runs on this thread only (see `vm_ctx`),
-        // so its prologue checks against this thread's stack limit.
-        self.ctx.stack_limit = crate::stack_guard::limit();
-        // runtime-jit-tiering Phase 1.5 (mixed-mode): publish the JitModuleCtx
-        // forward pointer (type-erased) so interp frames spawned under this run
-        // (cold-tier callees / fallbacks) can route an already-compiled callee back
-        // to its native code instead of re-interpreting the whole subtree. Cleared
-        // in lockstep with `vm_ctx` below (they must be valid together — native
-        // code reaches `vm_ctx` through `(*jit_ctx).vm_ctx`).
-        ctx.set_jit_ctx(&*self.ctx as *const JitModuleCtx as usize);
-        // Resolve (and lazily compile on first call) the entry function.
-        // SAFETY: module/lazy valid for the JitModule's lifetime.
-        let entry = match unsafe { self.ctx.resolve_fn_by_name(entry_name) } {
-            Some(e) => e.clone(),
+/// Run entry function `entry_name` on the JIT installed on `ctx`'s VM (no
+/// static-init). The calling thread's `ctx` is the compiled code's context
+/// parameter for the whole activation.
+///
+/// lazy-per-function-jit (2026-07-23): the entry is compiled on its first call
+/// ([`runtime::JitRuntime::resolve_fn_by_id`]); a non-translatable entry runs on
+/// the interpreter, which still routes hot callees to native code.
+pub fn run_fn(ctx: &VmContext, entry_name: &str) -> Result<()> {
+    let rt = ctx.jit().ok_or_else(|| anyhow::anyhow!("JIT: no JIT installed on this VM"))?;
+    // Scope the heap as the ambient GC heap for this JIT run. The entry's
+    // bottom-frame push installs it too (`vm_context/engine_guards.rs`); this
+    // one also covers the entry's lazy compile before that push.
+    let _heap_guard = crate::gc::ambient::HeapGuard::enter(ctx.heap());
+    let module = rt.module();
+    // Resolve (and lazily compile on first call) the entry function.
+    let Some(entry) = rt.resolve_fn_by_name(ctx, entry_name) else {
+        // Not JIT-translatable (contains an interp-only opcode such as
+        // `LoadLocalAddr`) or absent from the module. Run it on the interpreter
+        // instead of hard-failing — covers a skipped entry-point or
+        // `__static_init__`.
+        // make-vm-loading-lazy: the entry may be an untranslatable function in a
+        // lazily-loaded zpkg (e.g. a dep's `__static_init__`) that is NOT in the
+        // merged module — resolve it through the lazy loader, mirroring interp's
+        // path.
+        let holder;
+        let func = match module.func_index.get(entry_name).and_then(|&idx| module.functions.get(idx)) {
+            Some(f) => f,
             None => {
-                // Not JIT-translatable (contains an interp-only opcode such as
-                // `LoadLocalAddr`) or absent from the module. Run it on the
-                // interpreter instead of hard-failing — covers a skipped
-                // entry-point or `__static_init__`. The interpreter never
-                // re-enters JIT code, so the whole call subtree runs
-                // interpreted. SAFETY: `module` outlives the JitModule.
-                self.ctx.vm_ctx = std::ptr::null_mut();
-                ctx.set_jit_ctx(0); // keep jit_ctx in lockstep with vm_ctx
-                let module = unsafe { &*self.ctx.module };
-                // make-vm-loading-lazy: the entry may be an untranslatable
-                // function in a lazily-loaded zpkg (e.g. a dep's
-                // `__static_init__`) that is NOT in the merged module — resolve
-                // it through the lazy loader, mirroring interp's path.
-                if let Some(func) = module.func_index.get(entry_name)
-                    .and_then(|&idx| module.functions.get(idx))
-                {
-                    return match crate::interp::exec_function(ctx, module, func, &[])? {
-                        crate::interp::ExecOutcome::Returned(_) => Ok(()),
-                        crate::interp::ExecOutcome::Thrown(val) =>
-                            Err(anyhow::anyhow!("{}", crate::exception::format_uncaught(&val, ctx, module))),
-                    };
-                }
-                let func = ctx.try_lookup_function(entry_name)
+                holder = ctx.try_lookup_function(entry_name)
                     .ok_or_else(|| anyhow::anyhow!("JIT: entry `{}` not found", entry_name))?;
-                return match crate::interp::exec_function(ctx, module, func.as_ref(), &[])? {
-                    crate::interp::ExecOutcome::Returned(_) => Ok(()),
-                    crate::interp::ExecOutcome::Thrown(val) =>
-                        Err(anyhow::anyhow!("{}", crate::exception::format_uncaught(&val, ctx, module))),
-                };
+                holder.as_ref()
             }
         };
-        // One `VmFrame` push enrolling the entry frame's regs (GC roots)
-        // + function (trace); inner calls go through the same `invoke::call_native`.
-        let outcome = unsafe {
-            invoke::call_entry(ctx, &*self.ctx as *const JitModuleCtx, &entry, JitFrame::new(ctx, entry.max_reg, &[]))
+        return match crate::interp::exec_function(ctx, module, func, &[])? {
+            crate::interp::ExecOutcome::Returned(_) => Ok(()),
+            crate::interp::ExecOutcome::Thrown(val) =>
+                Err(anyhow::anyhow!("{}", crate::exception::format_uncaught(&val, ctx, module))),
         };
-        self.ctx.vm_ctx = std::ptr::null_mut();
-        ctx.set_jit_ctx(0); // keep jit_ctx in lockstep with vm_ctx
-        if let invoke::NativeOutcome::Threw = outcome {
-            // SAFETY: ctx.module set in compile_module from a &Module that
-            // outlives the JitModule (caller-owned). Deref is safe here.
-            let module = unsafe { &*self.ctx.module };
-            return Err(take_exception_error(ctx, module));
-        }
-        Ok(())
+    };
+    // One `VmFrame` push enrolling the entry frame's regs (GC roots)
+    // + function (trace); inner calls go through the same `invoke::call_native`.
+    let outcome = unsafe { invoke::call_entry(ctx, entry, JitFrame::new(ctx, entry.max_reg, &[])) };
+    if let invoke::NativeOutcome::Threw = outcome {
+        return Err(take_exception_error(ctx, module));
     }
+    Ok(())
+}
 
-
-    /// Run with static initialisation: clears static fields, calls **all**
-    /// `*.__static_init__` functions (sorted) — including imported zpkgs —
-    /// then calls the given entry function.
-    ///
-    /// 2026-04-27 fix-static-field-access: 与 interp 的 `run_with_static_init`
-    /// 对称修复。修前只跑主模块 init，导入 zpkg（如 z42.math 的
-    /// `Std.Math.__static_init__`）虽然 link 但永不被调用。
-    pub fn run(&mut self, ctx: &VmContext, entry_name: &str) -> Result<()> {
-        ctx.static_fields_clear();
-
-        // Collect all __static_init__ entries; sort by name for determinism.
-        // fix-jit-cross-zpkg-transitive-eager (2026-06-20): enumerate from the
-        // merged module (not `fn_entries`) so a `__static_init__` that was
-        // skipped by `compile_module` (interp-only opcode) is still run — via
-        // `run_fn`'s interp fallback. Matches interp's `init_static_fields`,
-        // which also scans `module.functions`. SAFETY: see `run_fn`.
-        //
-        // make-vm-loading-lazy: dep zpkgs are no longer eagerly merged, so their
-        // `__static_init__` functions are reachable only via the lazy loader. We
-        // gather BOTH sources, then run them in ONE globally-sorted order:
-        //   • eager: inits in the merged module (main + z42.core);
-        //   • lazy:  inits in every declared-but-unloaded zpkg (force-loaded).
-        //
-        // unify-static-init-into-cctor（7.4）：此前这里扫 `module.functions` 里所有
-        // `*.__static_init__`、排序去重、逐一在**解释器**上执行（编译一次性函数纯属浪费，
-        // 实测启动时约 73% 的被编译函数都是它们）。
-        //
-        // 静态字段初始化器已全部并入**每类型的类型初始化器**、按首次使用惰性触发 ——
-        // 没有 `__static_init__` 可扫了。上面注释记录的顺序依赖（依赖包的 init 必须先于
-        // 主模块 init）现在由**真实依赖**保证：读依赖包静态字段时屏障先跑完它的初始化器，
-        // 比旧的「全局按名排序」精确得多。
-        //
-        // 仍需排空「待加载类型」队列（T3），让屏障在访问点有类型可查。
-        ctx.run_pending_static_inits();
-
-        // runtime-jit-tiering Phase 1: the entry runs via `run_fn` →
-        // `resolve_fn_by_id` (non-tiered) → compile-on-first-call. Only tiered call
-        // sites (`jit_call`/vcall/closure/ctor + the interp central divert) apply
-        // the tier-up threshold.
-        self.run_fn(ctx, entry_name)
-    }
+/// Run with static initialisation, then the given entry function.
+///
+/// unify-static-init-into-cctor（7.4）：静态字段初始化器已全部并入**每类型的类型初始化器**、
+/// 按首次使用惰性触发（读依赖包静态字段时屏障先跑完它的初始化器）。这里只清空静态字段、
+/// 排空「待加载类型」队列（T3），让屏障在访问点有类型可查，然后跑入口。
+///
+/// runtime-jit-tiering Phase 1: the entry runs via `run_fn` → `resolve_fn_by_id`
+/// (non-tiered) → compile-on-first-call. Only tiered call sites
+/// (`jit_call`/vcall/closure/ctor + the interp central divert) apply the tier-up
+/// threshold.
+fn run_with_static_init(ctx: &VmContext, entry_name: &str) -> Result<()> {
+    ctx.static_fields_clear();
+    ctx.run_pending_static_inits();
+    run_fn(ctx, entry_name)
 }
 
 // ─── Public entry point called from vm.rs ───────────────────────────────────
 
 /// Called by `Vm::run` when the execution mode is JIT.
 ///
-/// lazy-per-function-jit (2026-07-23): `setup` builds the JIT infrastructure
-/// without compiling any user function; each function is compiled on its first
-/// call (see [`JitModuleCtx::resolve_fn_by_id`]). The counters therefore report
-/// what was **actually** compiled:
+/// Installs the VM's JIT ([`runtime::install`] — one per VM, shared by every
+/// thread; reused when already installed) without compiling any user function;
+/// each function is compiled on its first call (see
+/// [`runtime::JitRuntime::resolve_fn_by_id`]). The counters therefore report what
+/// was **actually** compiled:
 /// - `jit_methods_compiled` is incremented per compiled function (not the module's
-///   total function count) — see `resolve_fn_by_id`.
+///   total function count) — on the shard of the thread that compiled it;
 /// - `jit_compile_us_total` accumulates each lazy compile's duration — likewise.
 ///
-/// The one-per-module `JitModuleCompiled` event still fires here, now reporting
-/// the module **size** (`functions().len()`) and the **setup** time (not a
+/// The one-per-run `JitModuleCompiled` event still fires here, reporting the
+/// module **size** (`functions().len()`) and the **setup** time (not a
 /// whole-module compile time). Per-function compile events are deferred to a
 /// future observability spec (avoids one event per function).
 pub fn run(ctx: &VmContext, module: &Module, entry_name: &str) -> Result<()> {
@@ -235,7 +135,7 @@ pub fn run(ctx: &VmContext, module: &Module, entry_name: &str) -> Result<()> {
     let function_count = module.functions().len() as u32;
     let start = std::time::Instant::now();
 
-    let mut jit_module = JitModule::setup(module)?;
+    runtime::install(ctx, module)?;
 
     let setup_us = start.elapsed().as_micros() as u64;
     ctx.fire_runtime_event(&crate::observer::RuntimeEvent::JitModuleCompiled {
@@ -244,5 +144,5 @@ pub fn run(ctx: &VmContext, module: &Module, entry_name: &str) -> Result<()> {
         duration_us:    setup_us,
     });
 
-    jit_module.run(ctx, entry_name)
+    run_with_static_init(ctx, entry_name)
 }

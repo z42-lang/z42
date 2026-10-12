@@ -350,7 +350,7 @@ public sealed partial class SymbolTable {
     }
 
     // ── 基表分流的**唯一判定**（qualified-base-name）──────────────────────────────────
-    // 「源码里写下的这个基类型名，指的是接口吗？」是则返回接口的短名，
+    // 「源码里写下的这个基类型名，指的是接口吗？」是则返回接口的 FQN，
     // 不是则返回 ""（调用方按类处理）。
     //
     // 🔴 **必须只有这一份**。此前判据有两处各写一遍 —— `StubCollector._passClassStubs`（符号层）
@@ -361,13 +361,16 @@ public sealed partial class SymbolTable {
     // `_constraintDescs` 抬头那条「writer 与 checker 从此共用同一个判定」就是上一次。
     //
     // 判据（fqn-tables 3）：写法按**作用域**解析得到接口 ⇒ 是接口（外围 ns → FQN → using → prelude，即
-    // `GetInterface` 那一个出口）；返回其短名（存进 `InterfaceNames` 的形态，随后由 `_passQualifyIfaceNames*`
-    // 限定成 FQN）。`table` 必须是声明方 CU 的作用域视图（`_passClassStubs` 与发射端 `model.Symbols` 都是）。
+    // `GetInterface` 那一个出口）；返回其 **FQN**（存进 `InterfaceNames`；随后的 `_passQualifyIfaceNames*` 对 FQN 幂等）。
+    // fqn-tables 5d：此前返回短名、再按作用域限定 ⇒ `class C : Std.IDisposable` 而本包另有 `IDisposable` 时，
+    // 短名被限定成本包那个，真正写的 `Std.IDisposable` 丢了（实测 `o is Std.IDisposable` 判 false）。
+    // `table` 必须是声明方 CU 的作用域视图（`_passClassStubs` 与发射端 `model.Symbols` 都是）。
     // 此前按全局短名表判：任何 ns（含没 using 的导入包）里有个同名接口，`class X : Foo` 就把 `Foo` 当成接口，
     // 哪怕本作用域看得见的 `Foo` 是个类。
     public static string InterfaceKeyOf(SymbolTable table, string written) {
-        if (table.GetInterface(written) == null) { return ""; }
-        return SymbolTable.ShortNameOf(written);
+        Z42InterfaceType it = table.GetInterface(written);
+        if (it == null) { return ""; }
+        return it.Fqn();
     }
 
     // 取最后一段（`Std.IDisposable` → `IDisposable`）。无点则恒等。

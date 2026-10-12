@@ -16,7 +16,7 @@
 //   cache_dir  = `[workspace.build].cache_dir` ?? `${output_dir}/.cache`（模板不含成员名时追加成员名子目录）
 //   generated  = 成员 [build].generated_dir（"" = 不落盘）?? `${output_dir}/generated`
 //   dist_dir   = `${output_dir}/dist`
-// 与 `z42c build --workspace` 的 `WorkspaceBuild.PlanLayout` 同一套规则（两边都经 WorkspaceLayout）。
+// 与 workspace 构建的 `WorkspacePlan.PlanLayout` 同一套规则（两边都经 WorkspaceLayout）。
 // 于是成员被单独构建、被当作 path 依赖代建、被 z42b / launcher / xtask 查询时，都落在 workspace
 // 构建的那个位置 —— 此前它们走单工程默认，产物进了**源码树**。
 namespace Z42.Project;

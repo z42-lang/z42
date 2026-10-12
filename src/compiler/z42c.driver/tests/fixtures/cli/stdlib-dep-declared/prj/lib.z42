@@ -1,0 +1,5 @@
+namespace Sdd;
+
+using Std.Text;
+
+public static class D { public static int Of(string a, string b) { return Levenshtein.Distance(a, b); } }

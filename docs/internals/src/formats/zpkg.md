@@ -194,13 +194,12 @@ Phase 3 — impl merge
 ```
 
 冲突策略：first-wins（与 SymbolCollector.MergeImported `TryAdd` 一致）。
-`target` FQ 名通过 `SplitFqName` 拆 `Std.Int32` → namespace `Std` + short `int`，
-仅在 namespace 匹配 `classNs[short]` 时才合并（避免不同包同名类污染）。
+`target` 按 FQN 查导入类表（`ClassesByFqn`）；不在表里（不在 import 集）就跳过，不剥短名去撞别的 ns 的同名类。
 
 ### IrGen — QualifyClassName 对齐 imported target
 
-`src/compiler/z42c.emission/src/Emission/IrGen.z42` 用 `QualifyClassName` 给 impl 方法注册 funcParams
-和生成方法 body 的 IR 函数符号：imported target（如 z42.numerics 给
+`IrGenTypeEmitter` 按 impl target 的**类型对象**的声明 ns（`IrGen._qType`）生成方法 body 的 IR 函数符号；导出端的
+target / trait FQ 名按声明方 CU 作用域解析（`FuncImplExtractor._fqOf`）。imported target（如 z42.numerics 给
 z42.core `int` 加方法）走 source namespace，生成 `Std.Int32.op_Add`
 而非 `numerics.int.op_Add`，与消费者 VCall 期望的 `func_index` 符号一致；local target 等同 QualifyName。
 

@@ -2,7 +2,6 @@
 name    = "sp.app"
 version = "0.1.0"
 kind    = "exe"
-entry   = "Sp.App.Main"
 pack    = true
 [dependencies]
 "sp.base" = "0.1.0"

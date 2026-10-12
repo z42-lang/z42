@@ -5,18 +5,10 @@
 name    = "z42.testagent"
 version = "0.1.0"
 kind    = "exe"
-entry   = "Z42.TestHost.Agent.Main"
 pack    = true
 
 [sources]
 include = ["src/**/*.z42"]
-
-[dependencies]
-"z42.core" = "0.1.0"   # prelude / String / Platform
-"z42.io"   = "0.1.0"   # Console / Environment (GetCommandLineArgs) / Path / File
-"z42.test" = "0.1.0"   # Std.Test.Runner.RunModule / RunModuleResults / TestReport
-"z42.json" = "0.1.0"   # Std.Json — parse the test-bundle manifest
-
 [build]
 # cache-dir-layout：显式 output_dir，让 cache（${output_dir}/.cache）与 z42b 中间产物也落进 artifacts，
 # 不再按默认值落进源码树。

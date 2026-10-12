@@ -37,7 +37,7 @@ fn an_unbarriered_old_to_young_field_store_is_reported_by_owner() {
     promote(&heap, &owner);
     let young = heap.alloc_object(dummy_type_desc("Young"), vec![], NativeData::None);
     let Value::Object(g) = &owner else { panic!() };
-    g.borrow_mut().set_field_value(0, &young); // SATB only — the card half skipped
+    g.borrow().set_field_value(0, &young); // SATB only — the card half skipped
 
     let err = heap.verify_card_invariant().expect_err("a missing card must be reported");
     assert!(err.contains("`Demo.Owner`"), "the report names the owner: {err}");
@@ -53,7 +53,7 @@ fn an_unbarriered_old_to_young_array_store_is_reported() {
     promote(&heap, &arr);
     let young = heap.alloc_str("young");
     let Value::Array(g) = &arr else { panic!() };
-    g.borrow_mut().set_boxed(2, Value::Str(young));
+    g.borrow().set_boxed(2, Value::Str(young));
 
     let err = heap.verify_card_invariant().expect_err("a missing card must be reported");
     assert!(err.contains("old array (len 3)") && err.contains("string"), "{err}");
@@ -74,7 +74,7 @@ fn promotion_with_a_young_child_keeps_the_invariant() {
     }
     let child = heap.alloc_object(dummy_type_desc("Child"), vec![], NativeData::None);
     let Value::Object(g) = &owner else { panic!() };
-    g.borrow_mut().set_field_value(0, &child);
+    g.borrow().set_field_value(0, &child);
     heap.write_barrier_field(&owner, 0, &child); // young owner: no card, correctly
     heap.force_collect(); // owner crosses the line holding a still-young child
     heap.unpin_root(pin);
@@ -89,6 +89,66 @@ fn non_generational_modes_always_pass() {
     let owner = heap.alloc_object(dummy_type_desc("Owner"), vec![Value::Null], NativeData::None);
     let young = heap.alloc_object(dummy_type_desc("Young"), vec![], NativeData::None);
     let Value::Object(g) = &owner else { panic!() };
-    g.borrow_mut().set_field_value(0, &young);
+    g.borrow().set_field_value(0, &young);
+    assert_eq!(heap.verify_card_invariant(), Ok(()));
+}
+
+/// Object model R3: the verifier walks every array mode through `ArrayObj::visit_refs` — REF
+/// reference words, MIXED type-parameter cells and `struct[]` reference leaves inside the blob.
+/// Each mode on its own heap (neighbouring entries share a card): an unbarriered old→young store
+/// is reported, the barrier for what landed satisfies it.
+#[test]
+fn every_array_mode_is_checked() {
+    use crate::metadata::types::{ArrayObj, ElemKind, ElemType, StructTypeLayout, STRUCT_REF_GCREF};
+    for mode in ["REF", "MIXED", "STRUCT"] {
+        let heap = gen_heap();
+        let a = match mode {
+            "REF" => ArrayObj::filled(&heap, ElemType::intern("object"), ElemKind::Ref, 2, Value::Null),
+            "MIXED" => ArrayObj::filled(&heap, ElemType::intern("T"), ElemKind::Mixed, 2, Value::Null),
+            _ => ArrayObj::struct_backed(&heap, ElemType::intern("Demo.S"), 2, std::sync::Arc::new(StructTypeLayout {
+                size: 16, ref_offsets: Box::new([8]), ref_kinds: Box::new([STRUCT_REF_GCREF]), fields: Box::new([]),
+            })),
+        };
+        let arr = heap.alloc_array_obj(a);
+        let _pin = heap.pin_root(arr.clone());
+        promote(&heap, &arr);
+        let young = heap.alloc_object(dummy_type_desc("Young"), vec![], NativeData::None);
+        let Value::Array(g) = &arr else { panic!() };
+        let mut landed = Vec::new();
+        if mode == "STRUCT" {
+            g.borrow().write_struct_elem(1, &[0u8; 16], &[young], &mut |v| landed.push(*v)).unwrap();
+        } else {
+            let wrote = g.borrow().set_boxed(1, young);
+            wrote.with_barrier_value(&young, |v| landed.push(*v));
+        }
+        let err = heap.verify_card_invariant().expect_err(&format!("{mode}: a missing card must be reported"));
+        assert!(err.contains("old array (len 2)"), "{mode}: {err}");
+        for v in &landed {
+            heap.write_barrier_array_elem(&arr, 1, v);
+        }
+        assert_eq!(heap.verify_card_invariant(), Ok(()), "{mode}: the barrier's card satisfies it");
+    }
+}
+
+/// MIXED: a cell claimed for `int` that then receives a `double` stores a young kind-7 box in its
+/// tag word. The verifier sees the box, and the `FieldWrite` hands the barrier the box (not the
+/// `double`, which is no heap reference and would skip the card).
+#[test]
+fn a_mixed_cells_kind7_box_is_checked() {
+    use crate::metadata::types::{ArrayObj, ElemKind, ElemType};
+    let heap = gen_heap();
+    let _g = crate::gc::ambient::HeapGuard::enter(&heap); // the box is allocated on the ambient heap
+    let arr = heap.alloc_array_obj(ArrayObj::filled(&heap, ElemType::intern("T"), ElemKind::Mixed, 1, Value::Null));
+    let _pin = heap.pin_root(arr.clone());
+    let Value::Array(g) = &arr else { panic!() };
+    let _ = g.borrow().set_boxed(0, Value::I64(7));
+    promote(&heap, &arr);
+    assert_eq!(heap.verify_card_invariant(), Ok(()), "a primitive needs no card");
+    let wrote = g.borrow().set_boxed(0, Value::F64(1.5));
+    let mut boxed = Vec::new();
+    wrote.with_barrier_value(&Value::F64(1.5), |v| boxed.push(*v));
+    assert_eq!(boxed.len(), 1, "a mismatched primitive lands as a box");
+    heap.verify_card_invariant().expect_err("the young box on a clean card must be reported");
+    heap.write_barrier_array_elem(&arr, 0, &boxed[0]);
     assert_eq!(heap.verify_card_invariant(), Ok(()));
 }

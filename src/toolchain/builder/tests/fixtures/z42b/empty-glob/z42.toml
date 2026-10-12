@@ -14,10 +14,6 @@ kind    = "lib"
 
 [sources]
 include = ["src/**/*.z42"]
-
-[dependencies]
-"z42.core" = "0.1.0"
-
 [[test]]
 name    = "ghost"
 include = ["tests/this_file_does_not_exist_*.z42"]

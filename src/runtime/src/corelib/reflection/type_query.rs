@@ -183,7 +183,7 @@ pub fn builtin_type_declaring_type(ctx: &VmContext, args: &[Value]) -> Result<Va
         Some(t) => t,
         None => return Ok(Value::Null),
     };
-    match td.name.rfind('+') {
+    match crate::metadata::type_names::last_top(&td.name, '+') {
         Some(i) => Ok(make_type_from_name(ctx, &td.name[..i])),
         None => Ok(Value::Null),
     }

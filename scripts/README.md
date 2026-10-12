@@ -111,7 +111,7 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 >   改路径只动 toml。定位 helper：`build/xtask_toolchain.z42` 的 `_desktopPublishDir` / `_toolchainZpkg`。
 > - **workspace per-member 产物路径同样单源自 `z42.workspace.toml`**：`artifacts/build/{libraries,compiler}/<member>/<profile>/dist` 由
 >   `[workspace.build].output_dir` 模板经 `common/xtask_layout.z42` 的 `_memberDist`
->   （`ManifestLoader.LoadWorkspace` + `PathTemplate.Expand`，与 z42c `WorkspaceBuild.PlanLayout`
+>   （`ManifestLoader.LoadWorkspace` + `PathTemplate.Expand`，与 `WorkspacePlan.PlanLayout`
 >   同一份布局真相）展开——xtask 不字面拼接。flat dist / runtime out / build root 等 xtask 约定
 >   （无 toml 归属）也集中到该模块单点定义。顶层桶（`tools` / `packages` / …）与两种镜像（编译产物 `_buildMirror`、中间物 `_workOut` / `_workRootOf` / `_compilerWsWork` 等）同样在该模块单点定义。
 

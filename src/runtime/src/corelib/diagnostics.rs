@@ -24,8 +24,8 @@ const STD_RUNTIME_COUNTERS: &str = "Std.Diagnostics.RuntimeCounters";
 /// non-heap values (primitive / null → no retention to report).
 fn target_ptr(v: &Value) -> Option<usize> {
     match v {
-        Value::Object(gc) => Some(gc.data_ptr_unlocked() as usize),
-        Value::Array(gc) => Some(gc.data_ptr_unlocked() as usize),
+        Value::Object(gc) => Some(crate::gc::ObjRef::as_ptr(gc) as usize),
+        Value::Array(gc) => Some(gc.borrow() as *const _ as usize),
         _ => None,
     }
 }

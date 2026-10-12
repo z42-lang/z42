@@ -221,6 +221,35 @@ struct 的同名布局会分叉。
 > 另一块 blob 的句柄（`generic_struct_chain` 那条覆盖）；实例化字段是 struct ⇒ 应当**内联**
 > ⇒ 两端必须对「它有多大」达成一致（`generic_struct_inst_field` 覆盖）。
 
+### 布局名与实例化名一律全名（`LayoutKey`）
+
+`StructLayout` 的键、发射进 IR 的布局名（`StructAlloc` 的类型名、合成实例化描述符名、特化成员的
+owner 前缀）都出自 `z42c.semantics/src/Types/LayoutKey.z42`：
+
+| 输入 | 拼法 |
+|---|---|
+| 类 / struct | `Z42ClassType.Fqn()`：`ns.Name`，arity-mangle 时 `ns.Name$N`；全局 ns 的类是裸名 |
+| 基元（含 `string` / `object`） | 关键字（`int`，不是 `Std.Int32`）—— 运行期 `Tag.FromName` 只认关键字 |
+| 实例化 | `InstName(基名, 实参…)`，实参递归同规则：`Demo.Pair<Demo.A.P,int>` |
+| 特化函数 | `owner.F:实参:…`，实参同上 |
+
+**为什么必须全名**：同一个包里两个 ns 各有一个 `struct P`（或泛型 `Pair<T>`）时，短名键只能登记一份 ⇒
+另一份要么查不到布局（编译器崩在 `struct field path: layout lookup failed`），要么按**另一个类型**的字段
+偏移读写（静默读错）；实参只写短名时 `Pair<P>` / `Echo:P` 也会把两个 `P` 落到同一个名字上。
+`GenericDecls` / `GenericTypeDecls`（泛型类型声明表）同样按定义的布局键登记，实例化特化时的定义类取自
+`StructLayout.OwnerOf(实例化名)`，不在实例化点所在 CU 的作用域里按短名查。
+
+查表前的规范化用 `LayoutKey.Norm`（剥 `?`、基元拼写归关键字），**不能**用 `PrimModel.Canon`：后者剥任何
+`Std.` 前缀（`Std.Guid` → `Guid`），会把全名键折坏。
+
+**运行期切分名字只看顶层**：实参里有点（`Demo.Pair<Demo.A.P>`、`Demo.C.Echo:Demo.A.P`），于是「取最后一个
+`.`」会落进实参里 —— `Type.Name` 得出 `P>`、静态方法的 owner 得出 `Demo.C.Echo:Demo.A`（类型初始化屏障静默跳过）。
+`src/runtime/src/metadata/type_names.rs` 收拢了正确切法（`last_top_dot` 在 `<…>` 外、`:` 之前找；
+`simple` / `unqualified` 去 ns 并递归简化实参，`Type.Name` 与装箱值默认 `ToString` 因此仍是 `Pair<P,int>`）；
+`symbol_key` 在 `:` 处也截断。新增按名字切分的代码要经它们。
+
+golden `cross-zpkg/struct_layout_crossns_collision` 覆盖同包跨 ns 同名 struct / 泛型 struct / 值类型特化。
+
 ### zbc 二进制扩展
 
 SIGS section 扩展：
@@ -672,7 +701,7 @@ C# 对齐：struct 可以
 - **TSIG 格式扩展**：`ExportedClassDef` 新增 `TypeParams: List<string>?`；ZpkgReader/Writer 在 class 条目尾部增加 `tp_count + name_idx[]`（向前兼容：reader 在 section 剩余空间不足时按 0 处理）
 - **ExportedTypeExtractor / ImportedSymbolLoader**：跨 zpkg 保留 TypeParams，imported 泛型类在消费方重建时保持泛型性质
 - **SymbolCollector 冲突裁决**：local 同名覆盖 imported — 发现 `_classes` 已有同名且属于 `_importedClassNames`，移除 imported 记录，继续注册 local（不报 duplicate）
-- **IrGen QualifyClassName**：local 优先 — `Classes.ContainsKey(n) && !ImportedClassNames.Contains(n)` → 用本模块命名空间；否则 imported → 用 `ImportedClassNamespaces` 映射
+- **发射端类名限定**：取类型对象的声明 ns（fqn-tables 5，2026-10；此前按「短名 → ns」图、local 优先）
 - **FunctionEmitterCalls DepIndex 守卫**：仅在接收者非本地类时查 DepIndex（否则 local class 方法会被同名 stdlib 方法劫持）
 - **VM ObjNew lazy-load**：type_registry 未命中时调 `lazy_loader::try_lookup_type` 触发 zpkg 按命名空间加载；同样对 ctor 函数用 `try_lookup_function` 兜底
 

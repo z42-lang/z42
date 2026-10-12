@@ -15,10 +15,12 @@ pub(super) fn compute_hoists(
     hr_array_data_opt: FuncRef,
     hr_obj_field_slot: FuncRef,
     hr_obj_ref_field_slot: FuncRef,
+    hr_array_ref_data: FuncRef,
 ) -> (
     HashMap<u32, (Value, Value, Value)>,
     HashMap<(u32, String), (Value, Value)>,
     HashMap<(u32, String), (Value, Value)>,
+    HashMap<u32, (Value, Value, Value)>,
 ) {
     let written: std::collections::HashSet<u32> = {
         let mut w = std::collections::HashSet::new();
@@ -172,5 +174,47 @@ pub(super) fn compute_hoists(
         }
         map
     };
-    (hoisted_arrays, hoisted_fields, hoisted_ref_fields)
+    // ── R3: hoist (data_ptr, len, stride) for REF / MIXED arrays read into a whole-`Value`
+    //    register (`arr_ref_elem`) — the twin of `hoisted_arrays` for reference reads. ──
+    let hoisted_ref_arrays: HashMap<u32, (Value, Value, Value)> = {
+        let mut cands: Vec<u32> = Vec::new();
+        for b in &func.blocks {
+            for ins in &b.instructions {
+                if let Instruction::ArrayGet { dst, arr, idx } = ins {
+                    if arr_prim_elem(func, *dst).is_none() && arr_ref_elem(func, *dst)
+                        && idx_int_ok(func, *idx) && !written.contains(arr) && !cands.contains(arr)
+                    {
+                        cands.push(*arr);
+                    }
+                }
+            }
+        }
+        cands.sort_unstable();
+        let mut map = HashMap::new();
+        for arr in cands {
+            map.insert(arr, ref_array_data(builder, ptr, frame_val, ctx_val, hr_array_ref_data, arr));
+        }
+        map
+    };
+    (hoisted_arrays, hoisted_fields, hoisted_ref_fields, hoisted_ref_arrays)
+}
+
+/// Emit a `jit_array_ref_data_opt(arr)` call and load its `(data_ptr, len, stride)` results.
+pub(super) fn ref_array_data(
+    builder: &mut FunctionBuilder, ptr: cranelift_codegen::ir::Type, frame_val: Value, ctx_val: Value,
+    hr_array_ref_data: FuncRef, arr: u32,
+) -> (Value, Value, Value) {
+    use cranelift_codegen::ir::{StackSlotData, StackSlotKind};
+    let slot = |b: &mut FunctionBuilder| b.create_sized_stack_slot(StackSlotData::new(StackSlotKind::ExplicitSlot, 8, 3));
+    let (ss_ptr, ss_len, ss_stride) = (slot(builder), slot(builder), slot(builder));
+    let ptr_addr = builder.ins().stack_addr(ptr, ss_ptr, 0);
+    let len_addr = builder.ins().stack_addr(ptr, ss_len, 0);
+    let stride_addr = builder.ins().stack_addr(ptr, ss_stride, 0);
+    let a_c = builder.ins().iconst(types::I32, arr as i64);
+    builder.ins().call(hr_array_ref_data, &[frame_val, ctx_val, a_c, ptr_addr, len_addr, stride_addr]);
+    (
+        builder.ins().stack_load(ptr, ptr, ss_ptr, 0),
+        builder.ins().stack_load(ptr, types::I64, ss_len, 0),
+        builder.ins().stack_load(ptr, types::I64, ss_stride, 0),
+    )
 }

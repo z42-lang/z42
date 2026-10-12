@@ -25,7 +25,7 @@ use cranelift_jit::JITModule;
 pub use super::helpers::HelperIds;
 use super::reg_access::{
     load_payload, load_payload_i64, load_tag, reg_addr, store_const_tag, store_tag_const,
-    store_tagged, RegCache, TAG_BOOL, TAG_CHAR, TAG_F64, TAG_I64, TAG_NULL,
+    store_tagged, RegCache, TAG_BOOL, TAG_CHAR, TAG_F64, TAG_FUNCREF, TAG_I64, TAG_NULL,
 };
 
 // refactor-jit-translate-split (H2): TxCtx + per-category instruction handlers
@@ -41,6 +41,7 @@ mod array;
 mod object;
 mod structs;
 mod term;
+mod str_intrinsics;
 
 // refactor-jit-translate-split (H2): leaf emit/predicate/analysis helpers
 mod unsupported;
@@ -98,6 +99,9 @@ pub fn translate_function(
     // `None` = normal entry at block 0 (unchanged). The dedicated OSR entry block is
     // created only in the `Some` case, so the non-OSR path is byte-for-byte identical.
     osr_entry:    Option<usize>,
+    // perf-str-jit-intrinsics: what a call site's target forwards to (string
+    // `Length` / `CharAt` are emitted inline — see `str_intrinsics`).
+    callees:      &dyn super::forward::ForwardLookup,
 ) -> Result<()> {
     let ptr     = jit.target_config().pointer_type();
 
@@ -175,6 +179,7 @@ pub fn translate_function(
     let hr_array_data_opt = imp!(helper_ids.array_data_opt);
     // The per-access packed-data fetch is the same non-throwing helper as the hoist.
     let hr_array_data    = hr_array_data_opt;
+    let hr_array_ref_data = imp!(helper_ids.array_ref_data_opt);
     let hr_array_set     = imp!(helper_ids.array_set);
     let hr_array_len     = imp!(helper_ids.array_len);
     let hr_obj_new       = imp!(helper_ids.obj_new);
@@ -215,7 +220,7 @@ pub fn translate_function(
     // A spawned worker that enters JIT-compiled code immediately after
     // spawn must respect a pending GC pause before touching any roots.
     emit_stack_check(&mut builder, ptr, ctx_val, frame_val, hr_stack_overflow);
-    emit_safepoint_check(&mut builder, ptr, ctx_val, frame_val, hr_check_safepoint_slow);
+    emit_safepoint_check(&mut builder, ctx_val, frame_val, hr_check_safepoint_slow);
 
     // Register-file base for every inline slot access: `JitFrame::regs_ptr`
     // (`frame.regs.as_mut_ptr()`, the frame's first field), one load per call.
@@ -295,9 +300,9 @@ pub fn translate_function(
     // the `jit_array_get` cold path (correct exception at the real access site;
     // no spurious throw when the loop runs 0 times).
     // Registers written anywhere (never-reassigned check for both hoists below).
-    let (hoisted_arrays, hoisted_fields, hoisted_ref_fields) =
+    let (hoisted_arrays, hoisted_fields, hoisted_ref_fields, hoisted_ref_arrays) =
         hoist::compute_hoists(&mut builder, z42_func, ptr, frame_val, ctx_val,
-            hr_array_data_opt, hr_obj_field_slot, hr_obj_ref_field_slot);
+            hr_array_data_opt, hr_obj_field_slot, hr_obj_ref_field_slot, hr_array_ref_data);
 
     // add-osr-loop-tiering: OSR variant — after the prologue (which cached
     // `regs_base` etc. into SSA values that now dominate every block), jump into the
@@ -356,6 +361,9 @@ pub fn translate_function(
             catch_info, catch_chain: &catch_chain,
             hoisted_arrays: &hoisted_arrays, hoisted_fields: &hoisted_fields,
             hoisted_ref_fields: &hoisted_ref_fields,
+            hoisted_ref_arrays: &hoisted_ref_arrays,
+            hr_array_ref_data,
+            callees,
             hr_const_i32, hr_const_i64, hr_const_f64, hr_const_bool, hr_const_char, hr_const_null, hr_const_str, hr_copy, hr_add, hr_sub, hr_mul, hr_div, hr_rem, hr_eq, hr_ne, hr_lt, hr_le, hr_gt, hr_ge, hr_and, hr_or, hr_not, hr_neg, hr_bit_and, hr_bit_or, hr_bit_xor, hr_bit_not, hr_shl, hr_shr, hr_str_concat, hr_to_str, hr_call, hr_builtin, hr_array_new, hr_array_new_lit, hr_array_get, hr_array_data, hr_array_set, hr_array_len, hr_obj_new, hr_typeof, hr_field_get, hr_field_set, hr_vcall, hr_is_instance, hr_as_cast, hr_static_get, hr_static_set, hr_struct_alloc, hr_struct_copy, hr_struct_field_get_prim, hr_struct_field_set_prim, hr_get_bool, hr_throw, hr_install_catch, hr_match_catch_type, hr_load_fn, hr_mk_clos, hr_call_indirect, hr_default_of, hr_convert, hr_check_safepoint_slow, hr_fatal_pending,
         };
         for (instr_idx, instr) in z42_block.instructions.iter().enumerate() {

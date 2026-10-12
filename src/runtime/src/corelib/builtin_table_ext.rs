@@ -288,4 +288,10 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     ("__str_split",         Native::Val(string::builtin_str_split)),
     // `String.Join(sep, values)`：一次分配拼出交错结果。
     ("__str_join",          Native::Val(string::builtin_str_join)),
+    // ── harness-stage2 — appended to preserve existing BuiltinIds ──
+    // 种子 SDK 旧 runner 用：加载测试 / bench 产物并取回 TIDX 条目（in-tree runner 已改反射发现）。
+    ("__test_module_load",  Native::Val(reflection::builtin_test_module_load)),
+    // ── assembly-get-functions — appended to preserve existing BuiltinIds ──
+    // `Assembly.GetFunctions()`：一个 zpkg 的自由（顶层）函数 → MethodInfo[]。
+    ("__asm_get_functions", Native::Val(assemblyloadcontext::builtin_asm_get_functions)),
 ];

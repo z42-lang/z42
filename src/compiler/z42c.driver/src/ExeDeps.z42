@@ -62,11 +62,16 @@ int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, stri
     // pipeline 副本）落空 ⇒ `no compiler injected`。实测踩到过，本地看不见——本地
     // `build compiler` 的 Z42_LIBS 指向不含编译器包的 stdlib flat dist。
     //
-    // ⇒ 判据用**它是从哪个目录找到的**：`libsDirs` 的顺序本来就是 `[私有 dist…, Z42_LIBS]`
-    //（path 闭包 dist / workspace 成员 dist 在前）。从 shipped libs/ 找到 ⇒ 框架，运行期也从
+    // ⇒ 判据用**它是从哪个目录找到的**：`libsDirs` 的顺序本来就是 `[私有 dist…, 外部档]`
+    //（path 闭包 dist / workspace 成员 dist 在前）。从外部档找到 ⇒ 框架，运行期也从
     // 那儿解析、不复制；从更靠前的目录找到 ⇒ **本次构建产出的私有包**，复制。
     // 顺带把「判是不是框架」和「去哪拷」合并成一次查找，不再扫两遍。
-    string shippedLibs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    //
+    // 外部档 = `CompileLibsOpt.ExtDirs()`（`--compile-libs`，否则 `Z42_LIBS`）——与解析面同一份。
+    // 🔴 不能只认 `Z42_LIBS`：自举时 `Z42_LIBS` 是种子代 run-libs、外部档是 `--compile-libs` 给的 flat，
+    // 只认前者 ⇒ flat 里解析到的 stdlib 全被判成私有包复制进 dist（z42c.driver 的 dist 带上整套 stdlib，
+    // 经 publish 进 SDK 的 `programs/z42c/`）。
+    string[] frameworkDirs = CompileLibsOpt.ExtDirs();
     // 待拷名单 = 直接依赖 ∪ **path 依赖闭包全体**（去重，fix-path-dep-closure）。
     // 闭包成员恒为私有包（按路径引入、其 dist 不在 Z42_LIBS）⇒ 判据自然判出「拷」，
     // 不需要再单独记「这一项是不是 path 依赖」——那份平行数组随判据统一一起退休。
@@ -135,9 +140,9 @@ int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, stri
         while (d < libsDirsN) {
             string cand = Path.Join(libsDirs[d], zname);
             if (File.Exists(cand)) {
-                // 从 shipped libs/ 找到 ⇒ 框架，默认不复制（运行期同样从那儿解析）。
+                // 从外部档（框架目录）找到 ⇒ 框架，默认不复制（运行期同样从那儿解析）。
                 // `deploy = "copy"` **压过**这条：显式要自包含的，即使是框架包也复制。
-                if (dpl != "copy" && shippedLibs.Length > 0 && libsDirs[d] == shippedLibs) {
+                if (dpl != "copy" && _inDirs(frameworkDirs, libsDirs[d])) {
                     copied = true;
                     d = libsDirsN;
                     continue;
@@ -220,7 +225,7 @@ int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, stri
 // 的做法，而那条路**在 repo 外整个失效**（`srcRoot == ""` ⇒ 每个依赖都 continue，零复制零递归）
 // —— 把它搬过来等于把一个更大的毛病也搬过来。
 // ⇒ 正解是先给 z42 侧补 zpkg DEPS 解码（support 先行、卡一个 nightly）。
-// 见 `变更 add-deployment-model` 批 2。
+// 见 `docs/spec/changes/add-deployment-model/tasks.md` 批 2。
 
 // `z42c build --workspace [--output-dir <flat>] [--release]`：从 CWD 向上找
 // z42.workspace.toml → 成员拓扑序 → 逐成员 build。
@@ -277,6 +282,12 @@ int _chkDeployValue(string section, string name, string value) {
         + "或 \"sdk\"（SDK 库专用：不复制，运行期从所在 SDK 解析）；省略 = 由默认规则决定"
         + "（在 shipped libs/ 里的不复制，其余复制）。");
     return ExitCode.BuildError;
+}
+
+bool _inDirs(string[] dirs, string dir) {
+    int i = 0;
+    while (i < dirs.Length) { if (dirs[i] == dir) { return true; } i = i + 1; }
+    return false;
 }
 
 // libsDirs 里第一个含 `file` 的目录；没有 ⇒ ""。

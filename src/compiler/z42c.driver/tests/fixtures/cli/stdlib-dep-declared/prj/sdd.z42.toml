@@ -1,0 +1,10 @@
+[project]
+name    = "sdd"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["*.z42"]
+
+[dependencies]
+"z42.text" = "0.1.0"

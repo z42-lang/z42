@@ -5,7 +5,8 @@
 
 use crate::metadata::types::{ElemType, ElemTypeInfo};
 use crate::metadata::Value;
-use super::super::frame::{JitFrame, JitModuleCtx};
+use super::super::frame::JitFrame;
+use crate::vm_context::VmContext;
 use super::{raise, vm_ctx_ref};
 
 /// `class_tp`: for `new T[n]` on a **class-level** type parameter, its index (else -1).
@@ -15,12 +16,14 @@ use super::{raise, vm_ctx_ref};
 /// stack-allocates, so no frame id.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_array_new(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     dst: u32, size: u32, elem_tag: u8,
     // the instruction's interned element-type handle (`ElemType::as_raw`) —
     // non-erased array reflection, no name allocation.
     et: *const ElemTypeInfo,
     class_tp: i32,
+    // the instruction's `type_param_kind` (non-zero = element is a type parameter → MIXED).
+    tp_kind: u8,
 ) -> u8 {
     let element_type = ElemType::from_raw(et);
     let len = (*frame).regs[size as usize];
@@ -28,7 +31,7 @@ pub unsafe extern "C" fn jit_array_new(
         crate::objops::array::class_type_param_zero((*frame).regs.first(), class_tp as usize)
     } else { None };
     let r = crate::objops::array::array_new(
-        vm_ctx_ref(ctx), &len, elem_tag, element_type, prim_zero, None::<fn() -> u32>);
+        vm_ctx_ref(ctx), &len, elem_tag, element_type, tp_kind != 0, prim_zero, None::<fn() -> u32>);
     match r {
         Ok(arr) => { (*frame).regs[dst as usize] = arr; 0 }
         Err(e) => raise(ctx, e),
@@ -37,7 +40,7 @@ pub unsafe extern "C" fn jit_array_new(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_array_new_lit(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     dst: u32, elems_ptr: *const u32, elem_cnt: usize,
     et: *const ElemTypeInfo,
 ) -> u8 {
@@ -61,7 +64,7 @@ pub unsafe extern "C" fn jit_array_new_lit(
 /// and the collector is non-moving, so the buffer stays put for the frame.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_array_data_opt(
-    frame: *mut JitFrame, _ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, _ctx: *const VmContext,
     arr: u32, out_ptr: *mut *const Value, out_len: *mut i64, out_width: *mut i64,
 ) {
     let (ptr, len, width) = crate::objops::array::packed_data(&(*frame).regs[arr as usize]);
@@ -70,9 +73,24 @@ pub unsafe extern "C" fn jit_array_data_opt(
     *out_width = width;
 }
 
+/// Reference-read fast path data (REF / MIXED arrays, object model R3): writes the element
+/// buffer base, length and stride (8 = REF words, 16 = MIXED cells, tag word first). Anything
+/// else — packed / struct / frozen / stack arrays, non-array, null — writes stride 0 = "no fast
+/// path" and the inline code calls `jit_array_get`. **Never throws** (hoist + per access).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_array_ref_data_opt(
+    frame: *mut JitFrame, _ctx: *const VmContext,
+    arr: u32, out_ptr: *mut *const u8, out_len: *mut i64, out_stride: *mut i64,
+) {
+    let (ptr, len, stride) = crate::objops::array::ref_data(&(*frame).regs[arr as usize]);
+    *out_ptr = ptr;
+    *out_len = len;
+    *out_stride = stride;
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_array_get(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     dst: u32, arr: u32, idx: u32,
 ) -> u8 {
     let (a, i) = ((*frame).regs[arr as usize], (*frame).regs[idx as usize]);
@@ -87,7 +105,7 @@ pub unsafe extern "C" fn jit_array_get(
 /// `ArraySet` helper (write barrier inside objops).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_array_set(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     arr: u32, idx: u32, val: u32,
 ) -> u8 {
     let regs = &(*frame).regs;
@@ -101,7 +119,7 @@ pub unsafe extern "C" fn jit_array_set(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_array_len(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     dst: u32, arr: u32,
 ) -> u8 {
     let a = (*frame).regs[arr as usize];

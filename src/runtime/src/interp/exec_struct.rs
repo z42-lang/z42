@@ -18,6 +18,7 @@ use super::Frame;
 // unify-object-byte-layout (PR-2): the primitive byte<->Value codec moved to
 // `metadata::types` (both object byte-storage and struct blobs consume it). Re-export
 // so existing call sites here + in `corelib::reflection` keep the same path.
+#[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use crate::metadata::types::{decode_prim, encode_prim, prim_width};
 // 叶子读写的引擎无关核心在 objops（interp 与 JIT 共用）。
 use crate::objops::struct_leaf::{as_struct_ref, struct_field_get_val, struct_field_set_val};
@@ -83,7 +84,7 @@ pub(crate) fn resolve_layout(ctx: &VmContext, type_name: &str, size: u32) -> Arc
 /// 返回值 struct `StructRef` 句柄（`(P)o` / `o as P` 用）。alloc 用类型布局（size 兜底自 `bytes.len()`），
 /// 再 memcpy bytes + clone refs。拆出的 struct 是独立副本（改它不影响 boxed 或再次拆箱）。
 pub(crate) fn unbox_struct(
-    ctx: &VmContext, frame_id: u32, gc: &crate::gc::GcRef<ty::ScriptObject>,
+    ctx: &VmContext, frame_id: u32, gc: &crate::gc::ObjRef,
 ) -> Result<Value> {
     // add-boxed-struct-identity (P4b, 路 B2): the box is a shared struct-typed
     // `ScriptObject` — snapshot its blob (`struct_bytes`/`struct_refs`) into a fresh

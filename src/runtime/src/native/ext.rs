@@ -487,8 +487,8 @@ fn require_byte_array(args: &[Value], idx: usize, ctx: &str) -> Result<Vec<u8>> 
             // packed-primitive-arrays Step 3: a packed `byte[]` (`Bytes` backing)
             // is already a contiguous `&[u8]` — copy it straight out, no per-byte
             // unbox (the "简化 extern call" win). Boxed falls back to validation.
-            if let Some(b) = borrowed.as_bytes() {
-                return Ok(b.to_vec());
+            if let Some(b) = borrowed.byte_snapshot() {
+                return Ok(b);
             }
             let mut out = Vec::with_capacity(borrowed.len());
             for (i, v) in borrowed.iter_boxed().enumerate() {

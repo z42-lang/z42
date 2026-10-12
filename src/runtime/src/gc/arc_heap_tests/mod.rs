@@ -39,6 +39,7 @@ pub(super) fn dummy_type_desc(name: &str) -> Arc<TypeDesc> {
 
 mod allocation;
 mod card_verify;
+mod array_modes;
 mod collection;
 mod config_stats;
 mod cycle_collection;
@@ -57,6 +58,7 @@ mod mark_queue;
 mod mode_selection;
 mod multi_vm;
 mod object_model;
+mod objects;
 mod oom;
 mod pause_histogram;
 mod roots;

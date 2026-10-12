@@ -285,7 +285,7 @@ fn resolve_named(
     if let Some(td) = resolve(name) {
         return Some((td, name.to_string()));
     }
-    if let Some(idx) = current_type_fq.rfind('.') {
+    if let Some(idx) = crate::metadata::type_names::last_top_dot(current_type_fq) {
         let fq = format!("{}.{}", &current_type_fq[..idx], name);
         if let Some(td) = resolve(&fq) {
             return Some((td, fq));

@@ -166,10 +166,10 @@ fn apply(op: Op, heap: &ArcMagrGC, state: &mut State, rng: &mut Rng) {
                 (state.pick_object(rng), state.pick_object(rng))
             {
                 if let Value::Object(gc) = &owner {
-                    let slot_count = gc.borrow().refs().len();
+                    let slot_count = gc.borrow().type_desc.fields.len();
                     if slot_count > 0 {
                         let slot = rng.gen_range(0, slot_count);
-                        gc.borrow_mut().refs_mut_raw()[slot] = new.clone();
+                        gc.borrow().set_ref_raw_for_test(slot, &new.clone());
                         if new.is_heap_ref() {
                             heap.write_barrier_field(&owner, slot, &new);
                         }
@@ -181,11 +181,11 @@ fn apply(op: Op, heap: &ArcMagrGC, state: &mut State, rng: &mut Rng) {
         Op::FieldSetWithPrimitive => {
             if let Some(owner) = state.pick_object(rng) {
                 if let Value::Object(gc) = &owner {
-                    let slot_count = gc.borrow().refs().len();
+                    let slot_count = gc.borrow().type_desc.fields.len();
                     if slot_count > 0 {
                         let slot = rng.gen_range(0, slot_count);
                         let v = Value::I64(rng.next_u64() as i64);
-                        gc.borrow_mut().refs_mut_raw()[slot] = v;
+                        gc.borrow().set_ref_raw_for_test(slot, &v);
                         // No barrier for primitive (caller-filter contract).
                         state.n_field_set += 1;
                     }
@@ -200,7 +200,7 @@ fn apply(op: Op, heap: &ArcMagrGC, state: &mut State, rng: &mut Rng) {
                     let len = gc.borrow().len();
                     if len > 0 {
                         let idx = rng.gen_range(0, len);
-                        gc.borrow_mut().set_boxed(idx, new.clone());
+                        gc.borrow().set_boxed(idx, new.clone());
                         if new.is_heap_ref() {
                             heap.write_barrier_array_elem(&arr, idx, &new);
                         }
@@ -402,8 +402,8 @@ fn pr3_pinned_byte_array_survives_gc_churn() {
         heap.force_collect();
         let b = rc.borrow();
         assert_eq!(b.len(), want.len(), "iter {iter}: len corrupt");
-        let got = b.as_bytes().expect("byte[] backing");
-        assert_eq!(got, &want[..], "iter {iter}: bytes corrupt");
+        let got = b.byte_snapshot().expect("byte[] backing");
+        assert_eq!(got, want, "iter {iter}: bytes corrupt");
     }
 }
 
@@ -456,7 +456,7 @@ fn pr3_mixed_region_var_churn_keeps_graph_intact() {
             let env = heap.alloc_array(vec![Value::I64(k as i64)]);
             let Value::Array(env_rc) = env else { panic!() };
             let _c = heap.alloc_closure(crate::metadata::types::ClosureData {
-                env: env_rc, fn_name: heap.alloc_str(&format!("lambda${k}")),
+                env: env_rc, fn_id: crate::metadata::tokens::FnId(k as u32),
             });
         }
         // churn objects
@@ -472,9 +472,9 @@ fn pr3_mixed_region_var_churn_keeps_graph_intact() {
         for slot in 0..2 {
             let Value::Object(orc) = rb.get_boxed(slot) else { panic!("iter {iter}: slot {slot} not object: {:?}", rb.get_boxed(slot)) };
             let ob = orc.borrow();
-            let Value::Array(larc) = &ob.refs()[0] else { panic!("iter {iter}: obj{slot}.refs()[0] not array: {:?}", ob.refs()[0]) };
+            let Value::Array(larc) = ob.field_value(0) else { panic!("iter {iter}: obj{slot}.field_value(0) not array: {:?}", ob.field_value(0)) };
             let lb = larc.borrow();
-            let bytes = lb.as_bytes().expect("leaf byte[]");
+            let bytes = lb.byte_snapshot().expect("leaf byte[]");
             assert!(bytes.starts_with(b"leaf-"), "iter {iter}: leaf{slot} corrupt: {:?}", &bytes[..bytes.len().min(8)]);
         }
     }

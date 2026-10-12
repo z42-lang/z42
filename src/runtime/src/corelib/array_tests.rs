@@ -20,7 +20,7 @@ fn clone_primitives_independent() {
     assert!(!GcRef::ptr_eq(orig_rc, copy_rc), "clone returns a distinct array reference");
     assert_eq!(copy_rc.borrow().len(), 3);
 
-    copy_rc.borrow_mut().set_boxed(0, Value::I64(99));
+    copy_rc.borrow().set_boxed(0, Value::I64(99));
     assert!(matches!(orig_rc.borrow().get_boxed(0), Value::I64(1)));
     assert!(matches!(copy_rc.borrow().get_boxed(0), Value::I64(99)));
 }
@@ -225,7 +225,7 @@ mod write_barriers {
         {
             let Value::Array(s) = &src else { panic!() };
             let young = ctx.heap().alloc_array(vec![Value::I64(1)]);
-            s.borrow_mut().set_boxed(0, young);
+            s.borrow().set_boxed(0, young);
         }
         assert!(!card_dirty(&ctx, &dst), "test setup: card starts clean");
 
@@ -361,6 +361,8 @@ fn copy_same_element_type_is_unaffected() {
 #[test]
 fn prim_backing_accepts_agrees_with_set_boxed() {
     let ctx = ctx();
+    // A primitive stored into `string[]` (REF) is boxed (`ref_word` kind 7) from the ambient heap.
+    let _g = crate::gc::ambient::HeapGuard::enter(ctx.heap());
     let probes = [
         Value::I64(7), Value::F64(2.5), Value::Bool(true),
         Value::Char('q'), Value::Str("s".into()), Value::Null,
@@ -383,7 +385,7 @@ fn prim_backing_accepts_agrees_with_set_boxed() {
             if !gc.borrow().prim_backing_accepts(p) {
                 continue;   // 见上：反方向在 debug 下会 panic，不在这里断言
             }
-            gc.borrow_mut().set_boxed(0, p.clone());
+            gc.borrow().set_boxed(0, p.clone());
             let back = gc.borrow().get_boxed(0);
             let faithful = match (p, &back) {
                 (Value::I64(a), Value::I64(b)) => a == b,

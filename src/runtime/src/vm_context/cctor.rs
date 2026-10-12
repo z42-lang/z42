@@ -205,6 +205,13 @@ impl Default for CctorRegistry {
 }
 
 impl CctorRegistry {
+    /// `module_pending` / `module_failed` 的字节偏移：JIT 内联字符串原语（`jit::translate::str_intrinsics`）
+    /// 在快路径上直接读这两个计数，代替 `jit_call` 的包级屏障门（[`VmContext::module_init_gate_open`]）。
+    #[cfg(feature = "jit")]
+    pub(crate) const MODULE_PENDING_OFFSET: usize = std::mem::offset_of!(CctorRegistry, module_pending);
+    #[cfg(feature = "jit")]
+    pub(crate) const MODULE_FAILED_OFFSET: usize = std::mem::offset_of!(CctorRegistry, module_failed);
+
     /// 当前初始化代际。快路比对用；一次 relaxed load。
     #[inline(always)]
     pub fn generation(&self) -> u32 { self.generation.load(Ordering::Relaxed) }
@@ -511,6 +518,15 @@ impl crate::vm_context::VmContext {
         cc.any_module_init_pending() || cc.any_module_init_failed()
     }
 
+    /// 编译期判定：静态调用 `func_fq` 的类型初始化屏障（[`Self::ensure_callee_owner_init`]）恒为空操作——
+    /// 属主类型已加载且没有静态构造器。属主未加载 / 自由函数一律答 `false`（保守）。
+    #[cfg(feature = "jit")]
+    pub(crate) fn callee_owner_init_free(&self, func_fq: &str) -> bool {
+        owner_class_of_static_func(func_fq)
+            .and_then(|o| self.loaded_type(o))
+            .is_some_and(|td| td.cctor_func().is_none())
+    }
+
     /// **静态字段访问的 cctor 屏障**（interp 与 JIT **共用同一实现**）。
     ///
     /// 两个后端共用一份，是因为「两后端语义一致」正是这个特性最容易出错的地方——
@@ -785,9 +801,10 @@ pub fn owner_class_of_static_field(field_fq: &str) -> Option<&str> {
 }
 
 /// 从静态方法的全限定名取所属类 FQ。与静态字段同构，但方法名可能带 `$N` mangle，
-/// 那部分在最后一段里，不影响按最后一个 `.` 切分。
+/// 那部分在最后一段里，不影响按最后一个 `.` 切分。特化名的实参是全名
+/// （`Demo.C.Echo:Demo.A.P`）、实例化 owner 的实参也是（`Demo.G<Demo.A.P>.M`）——只看顶层的点。
 pub fn owner_class_of_static_func(func_fq: &str) -> Option<&str> {
-    func_fq.rfind('.').map(|i| &func_fq[..i])
+    crate::metadata::type_names::last_top_dot(func_fq).map(|i| &func_fq[..i])
 }
 
 #[cfg(test)]

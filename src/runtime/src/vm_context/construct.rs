@@ -130,6 +130,7 @@ impl VmContext {
         let pending_exception: Arc<Mutex<Option<Value>>> = Arc::new(Mutex::new(None));
 
         let ctx = Self {
+            jit_head: JitHead::new(&core),
             core,
             pending_exception,
             pending_thrown: Mutex::new(None),
@@ -145,8 +146,6 @@ impl VmContext {
             struct_len: std::sync::atomic::AtomicUsize::new(0),
             transient_len: std::sync::atomic::AtomicUsize::new(0),
             next_frame_id: std::sync::atomic::AtomicU32::new(1),
-            jit_ctx: std::sync::atomic::AtomicUsize::new(0),
-            fn_name_cache: Mutex::new(FxHashMap::default()),
             subclass_memo: Mutex::new(FxHashMap::default()),
             type_lookup_cache: Mutex::new(FxHashMap::default()),
             fn_lookup_cache: Mutex::new(FxHashMap::default()),
@@ -260,6 +259,8 @@ impl VmContext {
                 ),
                 None => crate::gc::Sampler::disabled(),
             },
+            #[cfg(feature = "jit")]
+            jit: std::sync::OnceLock::new(),
         });
 
         // add-os-signal-handler (2026-05-25): register this Arc<VmCore> into
@@ -370,10 +371,6 @@ impl VmContext {
                             }
                         });
                     }
-                    // `MkClos` names interned by this context (`intern_fn_name`).
-                    for s in ctx.fn_name_cache.lock().values() {
-                        visit(&Value::Str(*s));
-                    }
                     // add-escape-analysis-stack-alloc: stack-alloc arena roots.
                     // A stack object's slots / stack array's elements may hold heap
                     // GcRefs that must stay marked while the stack object is live.
@@ -441,9 +438,6 @@ impl VmContext {
                             }
                         });
                     }
-                    for s in ctx.fn_name_cache.lock().values() {
-                        visit(&Value::Str(*s), RootKind::StackFrame);
-                    }
                     ctx.stack_arena
                         .lock()
                         .scan_roots(&mut |v| visit(v, RootKind::StackFrame));
@@ -460,6 +454,7 @@ impl VmContext {
         }
 
         let ctx = Self {
+            jit_head: JitHead::new(&core),
             core,
             pending_exception,
             pending_thrown: Mutex::new(None),
@@ -475,8 +470,6 @@ impl VmContext {
             struct_len: std::sync::atomic::AtomicUsize::new(0),
             transient_len: std::sync::atomic::AtomicUsize::new(0),
             next_frame_id: std::sync::atomic::AtomicU32::new(1),
-            jit_ctx: std::sync::atomic::AtomicUsize::new(0),
-            fn_name_cache: Mutex::new(FxHashMap::default()),
             subclass_memo: Mutex::new(FxHashMap::default()),
             type_lookup_cache: Mutex::new(FxHashMap::default()),
             fn_lookup_cache: Mutex::new(FxHashMap::default()),

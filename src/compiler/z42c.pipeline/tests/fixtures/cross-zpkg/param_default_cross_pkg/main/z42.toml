@@ -2,7 +2,6 @@
 name    = "demo.pdapp"
 version = "0.1.0"
 kind    = "exe"
-entry   = "Demo.PdApp.Main"
 pack    = true
 
 [dependencies]

@@ -92,6 +92,7 @@ pub struct HelperIds {
     pub array_new_lit:  FuncId,
     pub array_get:      FuncId,
     pub array_data_opt: FuncId,
+    pub array_ref_data_opt: FuncId,
     pub array_set:      FuncId,
     pub array_len:      FuncId,
     // object
@@ -183,6 +184,7 @@ pub fn register_symbols(builder: &mut JITBuilder) {
     reg!("jit_array_new_lit", array::jit_array_new_lit);
     reg!("jit_array_get",     array::jit_array_get);
     reg!("jit_array_data_opt", array::jit_array_data_opt);
+    reg!("jit_array_ref_data_opt", array::jit_array_ref_data_opt);
     reg!("jit_array_set",     array::jit_array_set);
     reg!("jit_array_len",     array::jit_array_len);
     // object
@@ -232,10 +234,9 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         }};
     }
 
-    // extend-jit-helper-abi (2026-04-28): every helper receives `ctx: *const
-    // JitModuleCtx` as 2nd param (after `frame`). Helper bodies reach
-    // VmContext via `(*ctx).vm_ctx`, replacing the previous `thread_local!`
-    // slots in the old `helpers.rs`.
+    // Every helper receives `ctx: *const VmContext` — the running thread's own
+    // context — as 2nd param (after `frame`), the same pointer the compiled
+    // caller was entered with.
     Ok(HelperIds {
         const_i32:     decl!("jit_const_i32",  [ptr, ptr, i32t, i32t],                    []),
         const_i64:     decl!("jit_const_i64",  [ptr, ptr, i32t, i64t],                    []),
@@ -279,17 +280,18 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         // fix-jit-builtin-ext-fallback: name_ptr/len added so an UNRESOLVED id (native-ext
         // facade unresolved at compile time) can resolve by name at call time.
         builtin:       decl!("jit_builtin",    [ptr, ptr, i32t, i32t, ptr, i64t, ptr, i64t], [i8t]),
-        array_new:     decl!("jit_array_new",     [ptr, ptr, i32t, i32t, i8t, ptr, i32t], [i8t]),
+        array_new:     decl!("jit_array_new",     [ptr, ptr, i32t, i32t, i8t, ptr, i32t, i8t], [i8t]),
         array_new_lit: decl!("jit_array_new_lit", [ptr, ptr, i32t, ptr, i64t, ptr], [i8t]),
         array_get:     decl!("jit_array_get",     [ptr, ptr, i32t, i32t, i32t],           [i8t]),
         // jit_array_data_opt(frame, ctx, arr, out_ptr, out_len, out_width) -> () — never throws (hoist + per access)
         array_data_opt: decl!("jit_array_data_opt", [ptr, ptr, i32t, ptr, ptr, ptr],       []),
+        // jit_array_ref_data_opt(frame, ctx, arr, out_ptr, out_len, out_stride) -> () — never throws (REF / MIXED reads)
+        array_ref_data_opt: decl!("jit_array_ref_data_opt", [ptr, ptr, i32t, ptr, ptr, ptr], []),
         array_set:     decl!("jit_array_set",     [ptr, ptr, i32t, i32t, i32t],           [i8t]),
         array_len:     decl!("jit_array_len",     [ptr, ptr, i32t, i32t],                 [i8t]),
         // jit_obj_new(frame, ctx, dst, cls_ptr, cls_len, ctor_ptr, ctor_len, args_ptr, argc,
-        //             type_args_ptr, type_args_count, ctorless_mark_ptr)
-        //             type_args_ptr, type_args_count) -> u8
-        obj_new:       decl!("jit_obj_new",    [ptr, ptr, i32t, ptr, i64t, ptr, i64t, ptr, i64t, ptr, i64t, ptr, i8t], [i8t]),
+        //             type_args (`*const TypeArgsInfo`), site (`*const ObjNewSite`), ctor_known) -> u8
+        obj_new:       decl!("jit_obj_new",    [ptr, ptr, i32t, ptr, i64t, ptr, i64t, ptr, i64t, ptr, ptr, i8t], [i8t]),
         // jit_typeof(frame, ctx, dst, type_name_ptr, type_name_len, type_args_ptr, type_args_count)
         // add-reflection-generic-type-definition: type_args_ptr is `*const String`
         // into the IR `Instruction::Typeof { type_args }` storage (module lifetime).
@@ -327,10 +329,10 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         // jit_stack_overflow(frame, ctx) -> void ; jit_fatal_pending(frame, ctx) -> i8
         stack_overflow:   decl!("jit_stack_overflow",   [ptr, ptr],                       []),
         fatal_pending:    decl!("jit_fatal_pending",    [ptr, ptr],                       [i8t]),
-        // jit_load_fn(frame, ctx, dst, name_ptr, name_len) -> u8
-        load_fn:        decl!("jit_load_fn",       [ptr, ptr, i32t, ptr, i64t],                  [i8t]),
-        // jit_mk_clos(frame, ctx, dst, name_ptr, name_len, caps_ptr, caps_len) -> u8
-        mk_clos:        decl!("jit_mk_clos",       [ptr, ptr, i32t, ptr, i64t, ptr, i64t],      [i8t]),
+        // jit_load_fn(frame, ctx, dst, name_ptr, name_len, tok_ptr) -> u8
+        load_fn:        decl!("jit_load_fn",       [ptr, ptr, i32t, ptr, i64t, ptr],            [i8t]),
+        // jit_mk_clos(frame, ctx, dst, baked_id, name_ptr, name_len, tok_ptr, caps_ptr, caps_len) -> u8
+        mk_clos:        decl!("jit_mk_clos",       [ptr, ptr, i32t, i32t, ptr, i64t, ptr, ptr, i64t], [i8t]),
         // jit_call_indirect(frame, ctx, dst, callee, args_ptr, args_len, caller_offset) -> u8
         call_indirect:  decl!("jit_call_indirect", [ptr, ptr, i32t, i32t, ptr, i64t, i32t], [i8t]),
         // jit_default_of(frame, ctx, dst, param_index) -> u8

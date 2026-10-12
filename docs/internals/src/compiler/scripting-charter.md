@@ -58,7 +58,7 @@ compiler 域的包都在 [`src/compiler/`](https://github.com/z42-lang/z42/blob/
 | `z42c.semantics` | L2 | `Z42.Semantics` | `TypeChecker` / `Bound*` / `SymbolCollector` / `FrontEnd` |
 | `z42c.emission` | L2 | `Z42.Emission` | `IrGen` / 各 `*Emitter` / `IrDump` / `CompiledModuleZ` |
 | `z42.project` | L2 | — | manifest 解析 / source discovery |
-| `z42c.pipeline` | L2 | `Z42.Pipeline` | `Z42cCompiler` / `PackageCompile` / `WorkspaceBuild` |
+| `z42c.pipeline` | L2 | `Z42.Pipeline` | `Z42cCompiler` / `PackageCompile` |
 | `z42.scripting` | L3 | — | `Script.Eval` / `ScriptState` / `Engine` |
 | `z42c.driver` | L3 | `Z42.Driver` | CLI 命令路由（build / check / disasm / explain / test）|
 

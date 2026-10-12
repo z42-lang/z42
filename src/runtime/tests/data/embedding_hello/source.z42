@@ -1,6 +1,6 @@
 // Embedding API hello-world fixture.
 //
-// Spec: 变更 add-embedding-api (H2 / H3)
+// Spec: docs/spec/archive/2026-05-10-add-embedding-api/ (H2 / H3)
 //       docs/internals/src/runtime/embedding.md §9.1, §10
 //
 // Loaded by `host::host_tests::*`.

@@ -2,7 +2,7 @@
 //! 装箱 / 拆箱两条路要真实的 struct 类型描述符，由 golden `src/tests/types/struct_array_natives.z42` 覆盖。
 
 use super::*;
-use crate::gc::{GcMode, MagrGC};
+use crate::gc::GcMode;
 use crate::metadata::types::{StructTypeLayout, STRUCT_REF_GCREF};
 use crate::objops::error::{ARRAY_TYPE_MISMATCH_EXC, INVALID_CAST_EXC};
 use crate::objops::Throw;
@@ -29,7 +29,7 @@ fn struct_arr(ctx: &VmContext, elem: &str, len: usize) -> GcRef<ArrayObj> {
 fn put(arr: &GcRef<ArrayObj>, i: usize, n: i32, o: Value) {
     let mut bytes = [0u8; 16];
     bytes[..4].copy_from_slice(&n.to_le_bytes());
-    arr.borrow_mut().write_struct_elem(i, &bytes, &[o]);
+    arr.borrow().write_struct_elem(i, &bytes, &[o], &mut |_| {}).unwrap();
 }
 
 fn n_of(arr: &GcRef<ArrayObj>, i: usize) -> i32 {
@@ -169,7 +169,7 @@ fn young_leaves_survive_a_minor(barrier: bool) -> bool {
         if barrier {
             copy_range(&ctx, &src, 0, &dst, 0, 4).expect("copy");
         } else {
-            dst.borrow_mut().copy_elems_from(&src.borrow(), 0, 0, 4);
+            dst.borrow().copy_elems_from(&src.borrow(), 0, 0, 4);
         }
         leaves.iter().map(|l| ctx.heap().make_weak(l).expect("array")).collect::<Vec<_>>()
     };

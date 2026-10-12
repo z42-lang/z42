@@ -95,7 +95,7 @@ apphost 启动做两步。
 |---|---|---|
 | `run` / `version` / `help` | launcher 自己 | 直接处理 |
 | `publish` / `export` / `workload` | launcher 自己 | router dispatch |
-| `build` | **z42c** | `_forwardZ42c`：直接跑 `bin/z42c` apphost，argv 原样 |
+| `build` | **z42c**；工作区目标 → **z42b** | `_buildTargetsWorkspace` 判目标（`--workspace`、argv 里第一个已存在的清单 / 目录，都没有则向上找最近清单）：工作区 → `_forwardZ42b`，否则 `_forwardZ42c` 直接跑 `bin/z42c` apphost；argv 原样 |
 | `new` / `test` / `bench` / `clean` | **z42b** | `_forwardZ42b`：`z42vm programs/z42b/z42.builder.zpkg -- <argv>` |
 | `repl` | **z42i** | `_forwardRepl`：同上，另设 `ShareProcessGroup` |
 

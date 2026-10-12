@@ -1,0 +1,6 @@
+namespace Ws.Hello.Tests;
+
+[Test]
+void test_line_uses_sibling() {
+    Assert.Equal("hi workspace", Hello.Line());
+}

@@ -56,14 +56,24 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     // ── 1. Allocation ────────────────────────────────────────────────────────
 
     /// 分配一个 `ScriptObject` 并以 `Value::Object` 返回。
-    /// 调用方负责通过 `type_args` 字段（默认 `vec![]`）后续 set 运行时泛型类型
-    /// 参数（D-8b-3 Phase 2）；本接口保持向后兼容，不强制每个调用点都传 type_args。
+    /// 泛型实例的类型实参由调用方随后经 `ScriptObject::install_type_args` 写入（驻留句柄，
+    /// 见 `metadata/types/type_args.rs`）；本接口不带实参。
     fn alloc_object(
         &self,
         type_desc: Arc<TypeDesc>,
         slots: Vec<Value>,
         native: NativeData,
     ) -> Value;
+
+    /// 分配一个**在堆外建好**的对象（`OwnedObject`，对象模型 R4 / R6）：发布之后对象只经 `&self`
+    /// 访问、不再能改 `NativeData` / 泛型实参（没有每对象锁），所以要先设好这些的冷路径（反射的
+    /// `Activator.CreateInstance`、测试）在本地建好整个对象，再交给 heap —— heap 把对象头与字段
+    /// 拷进一个新块。热路径 `ObjNew` 走 [`MagrGC::alloc_instance`]，直接在块里建。
+    fn alloc_script_object(&self, obj: crate::metadata::types::OwnedObject) -> Value;
+
+    /// `ObjNew` 的堆分支（对象模型 R6）：`type_desc` 的新实例（字段清零）加上实例的泛型一步
+    /// （`ScriptObject::install_type_args`），在对象自己的块里建好再发布。strict OOM 越限返 `Null`。
+    fn alloc_instance(&self, type_desc: Arc<TypeDesc>, type_args: crate::metadata::types::TypeArgs) -> Value;
 
     /// unify Phase 2 R3（装箱统一）：装箱一个基元（整数）成堆 `ScriptObject` + 引用身份。
     /// 裸标量 LE 字节存 `struct_bytes`（宽度由调用方按 wrapper 标量宽度定尺，与 struct 装箱完全同构），
@@ -268,10 +278,6 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     /// == true`. Primitive writes (`I64 / F64 / Bool / Char / Str / Null /
     /// FuncRef / PinnedView / Ref::Stack`) skip the call —
     /// they neither create cross-region nor cross-generation references.
-    /// Caller also drops any held inner-`Mutex` lock before calling
-    /// (`borrow_mut` on `owner.slots`), so a future override that needs
-    /// to re-borrow `owner` (e.g. card-marking that inspects all slots)
-    /// does not deadlock.
     ///
     /// **Override 契约**: implementations may `debug_assert!(new.is_heap_ref())`
     /// to detect contract violations. Phase 1 STW mark-sweep default is
@@ -365,6 +371,13 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     /// 强制立即回收，返回本次 GC 的统计。返回 `kind: None` 表示被
     /// `pause()` 跳过。
     fn force_collect(&self) -> CollectStats;
+
+    /// 立即做一次**全堆**回收：不论模式，返回时所有不可达对象都已回收（分代下是一次 major，
+    /// 而 `force_collect` 在分代下只是 minor，够不着已晋升的对象）。`GC.ForceCollect()` 与
+    /// retention 诊断走这里。`pause()` 期间跳过，返回 `kind: None`。
+    fn collect_full(&self) -> CollectStats {
+        self.force_collect()
+    }
 
     /// 暂停 GC（关键区使用，如 host 在采样热路径时不希望 GC 介入）。
     /// 暂停期间 `force_collect` / `collect_cycles` 跳过实际工作但仍返回

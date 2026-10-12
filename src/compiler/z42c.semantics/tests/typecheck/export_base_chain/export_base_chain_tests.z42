@@ -1,0 +1,43 @@
+// 导出端（TSIG）沿基链合并实例方法时取祖先 ClassDecl：导入祖先与本包某类**同短名**时，
+// 不得取到本包那份声明。修前两张表（per-CU classMap / 全包 pkgClassMap）按短名键，
+// `Mine : Dep.Core.Base` 的祖先 `Base` 命中本包 `App.Base` ⇒ 导出方法表混进 `App.Base.Q`。
+namespace Z42cSemanticsExportBaseChainTests;
+
+using Z42.Semantics;
+using Z42.IR;
+using Z42.Emission;
+
+ExportedClassZ ebcClass(ExportedModuleZ em, string name) {
+    int i = 0;
+    while (i < em.ClassCount) { if (em.Classes[i].Name == name) { return em.Classes[i]; } i = i + 1; }
+    return null;
+}
+
+bool ebcHasMethod(ExportedClassZ c, string name) {
+    int i = 0;
+    while (i < c.MethodCount) { if (c.Methods[i].Name == name) { return true; } i = i + 1; }
+    return false;
+}
+
+[Test]
+void test_imported_ancestor_does_not_bind_local_same_short_name() {
+    string[] srcs = new string[1];
+    srcs[0] = "namespace Dep.Core;\npublic class Base { public virtual int P() { return 1; } }\n";
+    string[] nss = new string[1]; nss[0] = "Dep.Core";
+    string[] pkgs = new string[1]; pkgs[0] = "dep";
+    string[] us = new string[1]; us[0] = "Dep.Core";
+    ExportedModuleZ[] ems = new ExportedModuleZ[1];
+    ems[0] = FrontEnd.ExtractExports(srcs[0], "dep0.z42", nss[0]);
+    ImportedSymbols imp = ImportedSymbolLoader.Load(ems, pkgs, 1, us, 1);
+
+    string[] msrc = new string[1];
+    msrc[0] = "namespace App;\nusing Dep.Core;\n"
+        + "public class Base { public int Q() { return 2; } }\n"
+        + "public class Mine : Dep.Core.Base { }\n";
+    string[] files = new string[1]; files[0] = "main.z42";
+    CompiledModuleZ[] cms = IrDump.BuildPackage(msrc, files, 1, null, imp, false);
+    ExportedClassZ mine = ebcClass(cms[0].Exported, "Mine");
+    Assert.True(mine != null);
+    Assert.True(ebcHasMethod(mine, "P"));
+    Assert.False(ebcHasMethod(mine, "Q"));
+}

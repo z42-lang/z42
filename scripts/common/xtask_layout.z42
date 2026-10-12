@@ -29,7 +29,7 @@ using Std.Cli;   // ParseResult（`_layoutCmd`）
 // 🔴 要动它，别按直觉「在 `z42.project` 里加一版并存」——**那条实测编不出来**（同包内两套同短名类
 // 串味 `E0401`，且种子 z42c 一样如此），另立兼容包也没用（运行期按 **zpkg 文件名**解析，没有任何
 // `DEPS` 指向它）。可行形态 = **编译期 overlay + 运行期旁置**，配方与四段实测判据见
-// `变更 rename-project-namespaces` §6.1/§6.2。
+// `docs/spec/archive/2026-09-27-rename-project-namespaces/design.md` §6.1/§6.2。
 // （B3b 已按该形态一步落完，2026-09-27；那两段 CI 接线是一代过渡形态、当天即撤。）
 using Z42.Project;   // ManifestLoader / WorkspaceManifest / PathTemplate / TemplateContext
 
@@ -127,10 +127,15 @@ string _compilerMemberZpkg(string root, string member, string profile) {
 // z42c driver dist / zpkg (the self-host seed entry). Just the compiler member
 // "z42c.driver" — named for its many call sites.
 string _driverDist(string root, string profile) { return _compilerMemberDist(root, "z42c.driver", profile); }
+// driver 那一代的 stdlib 快照（代际锚，`_snapshotDriverGenLibs` 写、`_relocateSeedRunLibs` 读）：dist 的兄弟目录，
+// 不进 dist ⇒ 不会经 publish 进 SDK。
+string _driverGenLibs(string root, string profile) {
+    return Path.Join(Path.GetDirectoryName(_driverDist(root, profile)), "gen-libs");
+}
 string _driverZpkg(string root, string profile) { return _compilerMemberZpkg(root, "z42c.driver", profile); }
 
-// z42c driver 的「home」= 它自己 release dist 的目录：自包含（z42c.driver.zpkg + z42c.* 兄弟 + 它那一代的
-// stdlib 闭包），z42vm 从入口 zpkg 所在目录解析依赖，被编译代码的 stdlib 另走 Z42_LIBS。driver 未构建返回 ""。
+// z42c driver 的「home」= 它自己 release dist 的目录：自包含（z42c.driver.zpkg + 编译器兄弟包），z42vm 从入口
+// zpkg 所在目录解析兄弟包，stdlib 走 Z42_LIBS。driver 未构建返回 ""。
 string _driverHome(string root) {
     string d = _driverZpkg(root, "release");
     return File.Exists(d) ? Path.GetDirectoryName(d) : "";

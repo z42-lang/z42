@@ -12,6 +12,7 @@ public static class SigTypeNames {
         if (t == null) { return "unknown"; }
         if (t is Z42UnknownType) { return "unknown"; }
         if (t is Z42ArrayType) { return SigTypeNames.OfResolved((t as Z42ArrayType).Elem) + "[]"; }
+        if (t is Z42FuncType) { return SigTypeNames.Func(t as Z42FuncType); }
         if (t is Z42ClassType) {
             Z42ClassType ct = t as Z42ClassType;
             if (ct.PrimCode() < 0 && ct.Namespace != "") { return ct.Fqn(); }
@@ -45,6 +46,25 @@ public static class SigTypeNames {
         // （实测破坏：ext 导出签名 `Kv<String, Int32>[]` 变成 `Kv<string, int>[]` ⇒
         //  generic_struct_array_cross_pkg 的 main 整个导入失效。）
         return t.Name();
+    }
+
+    // 委托（结构化函数类型）→ `Func<p…, ret>` / `Action<p…>` / `Action`，与 `Z42FuncType.Name()` 同形，只是
+    // 每个成分按本文法拼（fqn-tables 5b-2：此前成分是短名 ⇒ `Action<HttpServerContext>` 进 SIGS，消费端只能裸名回落）。
+    public static string Func(Z42FuncType ft) {
+        bool isVoid = ft.Ret is Z42VoidType;
+        if (isVoid && ft.ParamCount == 0) { return "Action"; }
+        string s = isVoid ? "Action<" : "Func<";
+        int i = 0;
+        while (i < ft.ParamCount) {
+            if (i > 0) { s = s + ", "; }
+            s = s + SigTypeNames.OfResolved(ft.ParamTypes[i]);
+            i = i + 1;
+        }
+        if (!isVoid) {
+            if (ft.ParamCount > 0) { s = s + ", "; }
+            s = s + SigTypeNames.OfResolved(ft.Ret);
+        }
+        return s + ">";
     }
 
     // 实例化接口 → `<基名 FQN><实参…>`（实参同 OfResolved 文法）。

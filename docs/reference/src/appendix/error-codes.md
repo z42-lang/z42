@@ -162,12 +162,12 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | E0427 | 继承 `sealed` 类 | ✅ `InheritanceResolver.z42:251` | `class D : SealedBase { }` |
 | E0428 | `override` 一个已 `sealed` 的 override 方法 | ✅ `InheritanceResolver.z42:292` | — |
 | E0429 | 方法级 `sealed` 没有 override 基类的任何 `virtual` 方法 | ✅ `InheritanceResolver.z42:287` | — |
-| E0430 | 同名类型的某个声明没标 `partial`（必须全部标） | ✅ `DeclEnforcer.z42:139` | `partial class C {} class C {}` |
-| E0431 | 各碎片的 Kind（class / struct / interface）不一致 | ✅ `DeclEnforcer.z42:143` | `partial class C {} partial struct C {}` |
+| E0430 | 同名类型的某个声明没标 `partial`（必须全部标） | ✅ `DeclEnforcer.z42:194` | `partial class C {} class C {}` |
+| E0431 | 各碎片的 Kind（class / struct / interface）不一致 | ✅ `DeclEnforcer.z42:198` | `partial class C {} partial struct C {}` |
 | E0432 | 基类被多个碎片声明（至多一个碎片可写基类） | ✅ `StubCollector.z42:199` | — |
 | E0433 | 碎片之间重复成员（同名字段 / 同签名方法） | ✅ `MemberCollector.z42:176,323` | — |
-| E0434 | `partial` 方法：实现找不到匹配的声明，或声明与实现签名不一致 | ✅ `DeclEnforcer.z42:476` | — |
-| E0435 | 嵌套类型自身标 `partial`（v1 不支持） | ✅ `DeclEnforcer.z42:160` | — |
+| E0434 | `partial` 方法：实现找不到匹配的声明，或声明与实现签名不一致 | ✅ `DeclEnforcer.z42:231` | — |
+| E0435 | 嵌套类型自身标 `partial`（v1 不支持） | ✅ `DeclEnforcer.z42:215` | — |
 | E0451 | `static` 类含实例成员（方法 / 字段 / 属性 / 构造器）、声明了基类、或实现了接口（对标 C# CS0708/0710/0713/0714） | ✅ `InheritanceResolver.z42:262,266,554,557,563,568` | `static class U { public int V; }` |
 | E0469 | 实例构造器没写初始化子句（⇒ 隐式 `: base()`），而基类有实例构造器却**无一可零实参调用** ⇒ 须显式 `: base(...)`（对标 C# CS7036）。派生类**没写任何构造器**时不报 | ✅ `DeclBinder.z42:516` | `class B { public B(int x){} } class D : B { public D(){} }` |
 | E0470 | `ref` 实参不是可取址的左值（属性 / 索引器 / 静态字段 / 值 struct 的字段 / 字面量 / 调用结果 / 数组虚成员）。这些形态若放行会**写回静默丢失**——取的是承载读出值的临时寄存器的地址 | ✅ `ExprTyper.z42`（`_chkRefArgLvalue`）| `void Inc(ref int x){} ... Inc(ref h.P)` |
@@ -227,9 +227,9 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 
 | 码 | 含义 | 状态 | 触发示例 |
 |---|---|---|---|
-| E0444 | `: Attribute` 的类名必须以 `Attribute` 结尾 | ✅ `DeclEnforcer.z42:26` | `class My : Attribute { }` |
-| E0445 | `: Analyzer` 的类名必须以 `Analyzer` 结尾 | ✅ `DeclEnforcer.z42:52` | — |
-| E0447 | `: Generator` 的类名必须以 `Generator` 结尾 | ✅ `DeclEnforcer.z42:73` | — |
+| E0444 | `: Attribute` 的类名必须以 `Attribute` 结尾 | ✅ `DeclEnforcer.z42:25` | `class My : Attribute { }` |
+| E0445 | `: Analyzer` 的类名必须以 `Analyzer` 结尾 | ✅ `DeclEnforcer.z42:107` | — |
+| E0447 | `: Generator` 的类名必须以 `Generator` 结尾 | ✅ `DeclEnforcer.z42:128` | — |
 | E0448 | generator 只能改它 trigger 命中的声明（Augment / Replace 越界） | ✅ `GeneratorDriver.z42:273,281,319,327,496` | — |
 | E0449 | generator 的 consumes / produces 依赖成环，拓扑分层无法定序 | ✅ `GeneratorDriver.z42:531` | — |
 | E0450 | 编译期宏 `name!()` 误用：未知宏名 / 参数类型不符 / 出现在非参数默认值位 | ✅ `DeclBinder.z42:566,569,577,579,586`、`ExprTyper.z42:88,417` | 形参默认值写 `nope!()` |
@@ -246,7 +246,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 `DiagnosticCodes.z42` 里 `ForwardTargetNotFound = E0464` / `ForwardNotRenderable = E0465` /
 `ForwardAmbiguous = E0466` 这组**常量名与实际发射不一致**（`ForwardSkipped` 的值是 I0466）。
 实际发出来的是下面四个，含义取自
-[`ForwardGenerator.z42`](https://github.com/z42-lang/z42/blob/main/src/compiler/z42c.semantics/src/Generators/ForwardGenerator.z42)
+[`ForwardGenerator.z42`](https://github.com/z42-lang/z42/blob/main/src/compiler/z42c.generators/src/ForwardGenerator.z42)
 的诊断文本：
 
 | 码 | 实际含义（按发射点消息） | 状态 |
@@ -325,7 +325,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 ### E0911–E0917 测试框架
 
 发射点全在
-[`DeclEnforcer.z42`](https://github.com/z42-lang/z42/blob/main/src/compiler/z42c.semantics/src/Validation/DeclEnforcer.z42)
+[`TestAttrEnforcer.z42`](https://github.com/z42-lang/z42/blob/main/src/compiler/z42c.semantics/src/Testing/TestAttrEnforcer.z42)
 的 `_passTestAttrEnforce`（纯语法检查，不依赖符号表）与相邻的 `_passTestAttrSemantic`。
 
 强制五条规则：**零接收者**（顶层自由函数或 `static` 方法）、**返回 `void`**、**无参数**、
@@ -333,12 +333,12 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 
 | 码 | 含义 | 状态 | 触发示例 |
 |---|---|---|---|
-| E0911 | `[Test]` 违反五条规则之一 | ✅ `DeclEnforcer.z42:371` | `[Test] int t() { return 0; }` |
-| E0912 | `[Benchmark]` 违反同五条规则（**脱糖后**判定：form-2 `void f(Bencher b)` 合法） | ✅ `DeclEnforcer.z42:369` | — |
-| E0913 | `[ShouldThrow]` 缺类型实参，或该类型**可解析但基类链到不了 `Exception`**。⚠️ 类型解析不到时**刻意不报**（跨包 / 符号表不完整会误伤） | ✅ `DeclEnforcer.z42:427,432` | `[ShouldThrow(typeof(int))]` |
-| E0914 | `[Skip]` 缺 `reason` 或 reason 为空串；或 `[Skip]`/`[Ignore]` **孤儿使用**（同声明上没有 `[Test]`/`[Benchmark]`） | ✅ `DeclEnforcer.z42:270,303` | `[Skip] void t() {}` |
-| E0915 | `[Setup]` / `[Teardown]` 违反同五条规则 | ✅ `DeclEnforcer.z42:370` | — |
-| E0917 | `[Timeout]` 缺 `milliseconds`（或该实参非整数字面量），或其值 ≤ 0 | ✅ `DeclEnforcer.z42:278,284` | `[Timeout(0)] [Test] void t() {}` |
+| E0911 | `[Test]` 违反五条规则之一 | ✅ `TestAttrEnforcer.z42:220` | `[Test] int t() { return 0; }` |
+| E0912 | `[Benchmark]` 违反同五条规则（**脱糖后**判定：form-2 `void f(Bencher b)` 合法） | ✅ `TestAttrEnforcer.z42:218` | — |
+| E0913 | `[ShouldThrow]` 缺类型实参，或该类型**可解析但基类链到不了 `Exception`**。⚠️ 类型解析不到时**刻意不报**（跨包 / 符号表不完整会误伤） | ✅ `TestAttrEnforcer.z42:277,282` | `[ShouldThrow(typeof(int))]` |
+| E0914 | `[Skip]` 缺 `reason` 或 reason 为空串；或 `[Skip]`/`[Ignore]` **孤儿使用**（同声明上没有 `[Test]`/`[Benchmark]`） | ✅ `TestAttrEnforcer.z42:119,152` | `[Skip] void t() {}` |
+| E0915 | `[Setup]` / `[Teardown]` 违反同五条规则 | ✅ `TestAttrEnforcer.z42:219` | — |
+| E0917 | `[Timeout]` 缺 `milliseconds`（或该实参非整数字面量），或其值 ≤ 0 | ✅ `TestAttrEnforcer.z42:127,133` | `[Timeout(0)] [Test] void t() {}` |
 
 > E0913 / E0914 / E0917 防的是**静默降级**——编译器读不到合法实参若取默认值继续走
 > （skip 没理由、超时静默失效、抛出类型永不匹配），会把问题全推到运行期且症状指不回病灶。
@@ -385,6 +385,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | W0607 | 不必要的 `using`（对标 C# CS8019 / IDE0005）：本文件没有任何地方用到它；或它指向本来就可见的 prelude（`Std` / `Std.Runtime`）/ 本文件 namespace 及其外围。判「用到」与 E0436 同一份集合。本文件已有编译错误时不报（解析不全，会误报）；generator 生成的源文件不报（它的 using 是编译器从宿主文件抄来的）；`global using` 按**全包**判：没有任何文件用到才报（报在声明处），写在自己命名空间的文件里不算多余 | ✅ `UsingLint.z42` | `namespace B; using A; int F() { return 1; }` |
 | W0608 | 重复的 `using`（对标 C# CS0105）：同一文件里写了两次；或包里已有同名 `global using` | ✅ `UsingLint.z42` | `using A; using A;` |
 | W0609 | ❌ 已退役：原「`[dependencies]` 的 `path` 用了 `${compiler_libs}` 路径宏」过渡期 warning。宏已删除，旧写法当场报错并给出按名写法；编号不复用（占号常量 `RetiredCompilerLibsMacroDeprecated`） | ❌ | — |
+| W0610 | 清单 `[dependencies]` 声明了标准库包。stdlib 总是可用（从 SDK 的 `libs/` 解析），不需要声明；照常构建，只提示删掉这一行。`path` 依赖、`deploy = "copy"`（要把它复制进 exe 自包含）与 workspace 成员之间的依赖不报 | ✅ driver `DepDecls.z42` | `[dependencies]` 里写 `"z42.io" = "0.1.0"` |
 | W0700 | `switch` 不穷尽：对 `bool` / `enum` / 封闭类型做 `switch` 时漏了分支，且没有 `default` | ✅ `ExhaustCheck.z42:127,154,200` | `switch (b) { case true: ... }`，`b` 是 `bool` |
 | W0701 | 解构声明的绑定名遮蔽了当前类的字段 / 属性：`(A, B) = (a, b);`（花括号体里）声明的是两个**新局部**，随即离开作用域，一个成员都没动。局部遮蔽字段本身合法，单看语法挑不出毛病——只能靠「遮蔽了同名成员」这个信号拦。仅在有 `this` 的上下文里查。表达式位置的同一写法由 **E0482** 直接报错 | ✅ `StmtBinder.z42`（发 `DiagnosticCodes.DeconstructShadowsMember`） | `class C { int A; void M(int a) { (A, _) = (a, 0); } }` |
 
@@ -399,11 +400,10 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 
 ---
 
-## WSxxx — 工作区清单（⚠️ 整组未接线）
+## WSxxx — 工作区清单（⚠️ 大部分未接线）
 
-> 🔴 这一组码由已删除的 C# `Z42.Package.ManifestErrors` 抛出。自举后的 z42c 里**没有任何发射点**
-> （`WorkspaceBuild.z42:136` 只在注释里提了一句 WS005「暂跳过」）。
-> 下表保留编号登记，**这些校验当前不生效**：重复 member 名、循环依赖、policy 冲突、
+> 🔴 这一组码由已删除的 C# `Z42.Package.ManifestErrors` 抛出。自举后只有 WS001 / WS005 / WS031 有发射点。
+> 下表保留编号登记。WS001 / WS005 / WS031 已由工作区规划以错误行报出；其余**当前不生效**：循环依赖（另有无码的 `circular member dependency` 错误）、policy 冲突、
 > include 环 / 超深 / 路径越界、模板变量错误，工作区构建都不会拦。
 >
 > 📌 **另有 `WS012` / `WS040`–`WS043` 不在下表**（dev-target 清单校验：缺 `name`、`harness=false`
@@ -414,10 +414,10 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 
 | 码 | 原含义 | 状态 |
 |---|---|---|
-| WS001 | 两个 member 声明同一 `[project] name` | ⚠️ 零发射点 |
+| WS001 | 两个 member 声明同一 `[project] name` | ✅ 由工作区规划以错误行报出（不走诊断码） |
 | WS002 | `-p` 与 `--exclude` 同时指定同一 member | ⚠️ 零发射点 |
 | WS003 | Member `<name>.z42.toml` 含 `[workspace.*]` / `[policy]` / `[profile.*]` 段 | ⚠️ 零发射点 |
-| WS005 | 同一 member 目录有两份 `*.z42.toml` | ⚠️ 零发射点 |
+| WS005 | 同一 member 目录有两份 `*.z42.toml` | ✅ 由工作区规划以错误行报出（不走诊断码） |
 | WS006 | Member 间依赖图含环 | ⚠️ 零发射点 |
 | WS007 | Manifest 在 workspace 子树内但未被 `members` 命中（原为 warning） | ⚠️ 零发射点 |
 | WS010 | Member 显式声明的字段值与 workspace `[policy]` 锁定值冲突 | ⚠️ 零发射点 |
@@ -428,7 +428,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | WS023 | Include 指向的文件不存在 | ⚠️ 零发射点 |
 | WS024 | Include 路径含绝对系统路径 / URL / glob | ⚠️ 零发射点 |
 | WS030 | `[workspace]` 段出现在非 `z42.workspace.toml` 文件 | ⚠️ 零发射点 |
-| WS031 | `default_members` 引用了未匹配的成员 | ⚠️ 零发射点 |
+| WS031 | `default_members` 引用了未匹配的成员 | ✅ 编排器（`z42 build` / `test` / `bench` / `clean` / `run` / `publish` / `export`）在工作区上规划时以错误行报出（不走诊断码）；z42c 不看 `default_members` |
 | WS032 | Member 写 `xxx.workspace = true` 但根 `[workspace.project]` 未声明该字段 | ⚠️ 零发射点 |
 | WS033 | `[workspace.project]` 字段类型错误 / 不可共享字段被声明 | ⚠️ 零发射点 |
 | WS034 | Member 引用未在 `[workspace.dependencies]` 中声明的依赖 | ⚠️ 零发射点 |

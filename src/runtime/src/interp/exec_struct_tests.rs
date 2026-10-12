@@ -122,18 +122,15 @@ fn heap_object_inline_struct_field_roundtrips() {
     use crate::metadata::NameIndex;
     use crate::metadata::tokens::TypeId;
 
-    // unify-object-byte-layout (PR-2): the object stores the inline struct's leaves in
-    // its `bytes`/`refs` via the composed object layout (`ref_index` maps a leaf's
-    // object-relative offset to a `refs` slot). Point{x:i32@0, y:i32@4, tag:str@8},
-    // size 12, one reference leaf at offset 8.
+    // The object stores the inline struct's leaves in its `bytes` at their composed offsets,
+    // the reference leaf as an 8 B reference word (listed in `ref_cells`).
+    // Point{x:i32@0, y:i32@4, tag:str@8}, size 16, one reference leaf at offset 8.
     let composed = Arc::new(crate::metadata::types::ObjectLayout {
-        size: 12,
+        size: 16,
         field_offsets: Box::new([]),
         field_sizes: Box::new([]),
         field_kinds: Box::new([]),
-        ref_offsets: Box::new([8]),
-        ref_kinds: Box::new([crate::metadata::types::STRUCT_REF_ARC_STRING]),
-        ref_cells: Box::new([]), // string leaf stays in the side-table (not inlined)
+        ref_cells: Box::new([8]), // the string leaf: an 8 B reference word, like the standalone blob
         tparam_cells: Box::new([]),
         field_access: Box::new([]),
     });
@@ -187,7 +184,8 @@ fn heap_object_inline_struct_field_roundtrips() {
 /// add-struct-heap-inline (P3b, D1-a, route α): a `Point[]` **element** leaf is read/
 /// written through `struct_field_get_prim`/`set_prim` with a `Value::StructRefHeap`
 /// handle (`arr[index]`). Exercises the array-backing branch of the interp handlers.
-/// Element layout {x:i32@0, y:i32@4, tag:string@8}, size 12, one ref leaf.
+/// Element layout {x:i32@0, y:i32@4, tag:string@8}, size 16 (8-aligned like the compiler's),
+/// one ref leaf.
 #[test]
 fn struct_array_element_leaf_access_via_handle() {
     use crate::vm_context::VmContext;
@@ -195,7 +193,7 @@ fn struct_array_element_leaf_access_via_handle() {
     use crate::gc::GcRef;
 
     let layout = Arc::new(StructTypeLayout {
-        size: 12,
+        size: 16,
         ref_offsets: Box::new([8]),
         ref_kinds: Box::new([STRUCT_REF_ARC_STRING]),
         fields: Box::new([]),
@@ -283,16 +281,14 @@ fn stack_object_inline_struct_field_roundtrips() {
     use crate::metadata::NameIndex;
     use crate::metadata::tokens::TypeId;
 
-    // Same shape as the heap test: Point{x:i32@0, y:i32@4, tag:str@8}, size 12,
-    // one reference leaf at offset 8.
+    // Same shape as the heap test: Point{x:i32@0, y:i32@4, tag:str@8}, size 16,
+    // one reference leaf (a reference word) at offset 8.
     let composed = Arc::new(crate::metadata::types::ObjectLayout {
-        size: 12,
+        size: 16,
         field_offsets: Box::new([]),
         field_sizes: Box::new([]),
         field_kinds: Box::new([]),
-        ref_offsets: Box::new([8]),
-        ref_kinds: Box::new([crate::metadata::types::STRUCT_REF_ARC_STRING]),
-        ref_cells: Box::new([]),
+        ref_cells: Box::new([8]),
         tparam_cells: Box::new([]),
         field_access: Box::new([]),
     });
@@ -311,8 +307,7 @@ fn stack_object_inline_struct_field_roundtrips() {
 
     let ctx = VmContext::new();
     let mut frame = Frame::new(&ctx, &[], 8);
-    let storage = td.object_storage();
-    let obj = ScriptObject::new(td, storage);
+    let obj = crate::metadata::types::OwnedObject::of_type(td);
     let idx = ctx.stack_alloc_obj(frame.frame_id(&ctx), obj);
     let base = Value::StackObject { idx, frame_id: frame.frame_id(&ctx) };
 

@@ -29,7 +29,7 @@
 //! `__process_spawn` returns `Value::I64(slot_id)`; subsequent
 //! `__process_handle_*` builtins take `slot_id` as arg 0.
 //!
-//! See [`变更 add-std-process`].
+//! See [`docs/spec/changes/add-std-process/design.md`].
 
 use super::convert::{arg_str, arg_i64, arg_bool};
 use crate::metadata::Value;
@@ -736,7 +736,7 @@ fn process_handle_read_impl<R: Read>(
         }
     };
 
-    let mut borrowed = buf_arr.borrow_mut();
+    let borrowed = buf_arr.borrow();
     for i in 0..n {
         borrowed.set_boxed(offset + i, Value::I64(tmp[i] as i64));
     }

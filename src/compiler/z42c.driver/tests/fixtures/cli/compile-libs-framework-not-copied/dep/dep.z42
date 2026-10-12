@@ -1,0 +1,5 @@
+namespace CfDep;
+
+using Std.Text;
+
+public static class Dist { public static int Of(string a, string b) { return Levenshtein.Distance(a, b); } }

@@ -77,14 +77,19 @@ fn test_something() { ... }
 
 ### 堆引用写入必须走带 SATB 屏障的原语
 
-**任何把引用写进堆对象 / 数组的代码，一律走 `ScriptObject::set_field_value` / `set_ref_slot`、
-`ArrayObj::set_boxed` / `write_struct_elem` / `set_struct_ref` / `copy_elems_from` / `copy_elems_within`。** 这些原语在覆盖前把旧值交给 SATB 删除屏障
+**任何把引用写进堆对象 / 数组的代码，一律走 `ScriptObject::set_field_value` / `set_struct_ref_leaf` / `write_blob`、
+`ArrayObj::set_boxed` / `write_struct_elem` / `set_struct_elem_ref` / `copy_elems_from` / `copy_elems_within`。** 这些原语在覆盖前把旧值交给 SATB 删除屏障
 （`gc::satb::record_overwrite`）；绕过它们 = major 标记进行中可能漏标一个仍被使用的对象（从未扫描的对象里读出
 引用放进寄存器、再清掉字段，该对象就会被扫掉）。
 
 - **批量写（`clone_from_slice` / `copy_from_slice` / `copy_within` 作用于 `Value` 切片）同样是覆盖**：先对被覆盖区间 `record_overwrite_all`（参照 `copy_elems_from`）。
-- **对象字段只经单元方法读写**（`metadata/types/object_fields.rs`：`field_value` / `try_set_field_value` / `visit_refs`，引擎侧经 `objops`）：基元是同宽 relaxed 原子、引用是 8 B 自描述字（release / acquire，标记期 swap）、型参字段是标签字 + 负载字的 16 B 单元（`tparam_cell`，负载字一生只装一种基元），直接对 `bytes_mut()` 写会绕过内存序、种类编码与屏障。
-- `refs_mut_raw()` 只给两种场景：**刚分配出来的对象**（旧值全是 `Null`，没有可漏的）和 **GC 自己**（给死对象断边，
+- **对象字段只经单元方法读写**（`metadata/types/object_fields.rs`：`field_value` / `try_set_field_value` / `visit_refs`，引擎侧经 `objops`）：基元是同宽 relaxed 原子、引用是 8 B 自描述字（release / acquire，标记期 swap）、型参字段是标签字 + 负载字的 16 B 单元（`tparam_cell`，负载字一生只装一种基元）。对象 / 数组载荷**没有普通切片视图**：对象跨线程共享、没有每对象锁，
+  整块快照与拷贝一律经 `Cells`（`copy_out` / `copy_in` / `copy_prims`，按单元宽度的原子访问），堆对象上不取 `&mut`
+  （构造期的 `&mut ScriptObject` 只在发布之前：`MagrGC::alloc_instance` 在对象自己的块里建好再交出句柄，堆外的对象见 `OwnedObject`）。
+- **数组元素与 struct 叶子同理**：只经 `ArrayObj::set_boxed` / `store_elem` / `write_struct_elem` / `set_struct_elem_ref`、
+  `ScriptObject::set_struct_ref_leaf` / `write_blob`（`ref_word` / `tparam_cell` / `struct_blob` 的写原语）；它们返回 `FieldWrite`，
+  写屏障要的是**真正落进单元的引用**（装箱时是盒子），批量写之后按 `elem_ref_slots` 对区间发屏障（`objops::array_bulk`）。
+- 不带屏障的直接写只给两种场景：**刚分配、还不可达的块**（构造期，旧值全是 0）和 **GC 自己**（`clear_refs_for_sweep` 给死对象断边，
   记录死对象只会把悬空句柄塞进标记队列）。新增调用点时在旁边写清是哪一种。
 - 新增一种「在堆里存引用」的布局（新的 backing / 内联引用形态）时，读旧值 + `record_overwrite` 必须随写入原语一起加，
   并照 `gc/arc_heap_tests/incremental.rs` 的形状补一对「开屏障存活 / 关屏障被扫」的测试。
@@ -111,47 +116,19 @@ nightly `test-wasm-browser` 能照出来。典型场景：time builtins、GC `no
 
 - `ExecMode` 决定函数级别的分发路径
 - 模块级默认模式 → `Vm::default_mode`；函数级注解优先
-- JIT/AOT 后端在实现完成前**必须**返回 `bail!("... not yet implemented")`，不允许部分实现
-- **实现顺序严格 interp ✅ → JIT → AOT**：interp 未全绿不得开始填 JIT / AOT（见 [workflow.md](workflow.md) 阶段 5）
+- 尚未实现的后端 / 路径**必须**返回 `bail!("... not yet implemented")`，不允许部分实现
+- **实现顺序严格 interp → JIT → AOT**：interp 未全绿不得开始填 JIT / AOT
 
 ## 序列化
 
 - `.zbc` / `.zpkg` 由 `metadata/zbc_reader` 手写解码（规格见 internals 的 formats 部分）；
   `Module` / `Function` / `Instruction` 等 IR 类型不 derive serde——它们只从 zbc 解码而来，没有文本往返
 
-## 资源加载顺序
-
-`std::fs::read_dir` / `HashMap` 迭代 + `or_insert` first-wins 等不确定性来源的处理规则见 [common-pitfalls.md §1](common-pitfalls.md#1-资源加载顺序必须显式排序)。该规则跨语言适用（Rust / z42 / bash 都涉及），统一在 common-pitfalls.md 沉淀。
-
-## 推荐依赖与参考实现
+## 引入依赖
 
 **触发条件**：要给 Rust VM / native 层加新依赖，或动手实现一个有成熟先例的子系统。
-原则：优先用成熟开源库，只在无合适库或需要深度定制时自行实现。
 
-z42 自身的编译器、标准库、工具链都是 z42 源码（`src/compiler` / `src/libraries` / `src/toolchain`）；
-下面的推荐只针对 Rust 侧（`src/runtime` 及 native 扩展）。z42 包之间的依赖按 manifest 声明，见
-[docs/reference/](../../reference/)。
-
-状态列只标仓库**已采用**的；其余是调研结论，真要引入时仍须按 [philosophy.md](philosophy.md) 评估并在
-Cargo.toml 注明用途。
-
-| 用途 | 推荐库 | 状态 | 说明 |
-|------|--------|------|------|
-| JIT 代码生成 | `cranelift-*` | ✅ 已用 | Bytecode Alliance，Wasmtime 同款（feature `jit`） |
-| 内容哈希 | `blake3` | ✅ 已用 | zbc build_id |
-| AOT / LLVM | `inkwell` | 调研 | LLVM safe bindings for Rust |
-| 解析辅助（调试格式） | `nom` 或 `winnow` | 调研 | 文本 IR（`.zasm`）解析 |
-| GC（未来沙盒模式） | `gc-arena` | 调研 | arena 式 GC，可选引入 |
-| 并发运行时 | `tokio` | 调研 | async VM task 调度 |
-| 性能剖析 | `pprof-rs` | 调研 | 火焰图 |
-| 文件监听 | `notify` | 调研 | 热更新文件系统事件，跨平台，支持 debounce |
-
-**参考实现**（动手实现某子系统前先调研）：
-
-| 子系统 | 参考项目 |
-|--------|---------|
-| 解释器结构 | CPython（ceval.c）、wren、lua 5.4 |
-| SSA / IR 设计 | LLVM IR、Cranelift CLIF、QBE |
-| 类型推导 | OCaml 编译器、Hindley-Milner 论文实现 |
-| JIT 流水线 | LuaJIT、V8 Maglev、JavaScriptCore |
-| 模式匹配编译 | `rustc_mir_build`、MLton |
+- 优先用成熟开源库，只在无合适库或需要深度定制时自行实现；引入前按 [philosophy.md](philosophy.md) 评估，
+  并在 `Cargo.toml` 注明用途。
+- 动手实现前先查已调研的候选库与参考项目：[运行时 · 依赖与参考实现](../../internals/src/runtime/README.md#依赖与参考实现)。
+- 只针对 Rust 侧（`src/runtime` 及 native 扩展）；z42 包之间的依赖按 manifest 声明。

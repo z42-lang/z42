@@ -66,6 +66,32 @@ void Demo() {
 - 反射查询用**真实类名**（`typeof(RouteAttribute)`）。`GetAttribute(Type)` 按实例的运行期类型
   （`FullName`）比较，所以**子类 attribute 也会匹配**。
 
+### 泛型 attribute
+
+attribute 类可以是泛型的，应用时写类型实参（剥后缀规则不变）：
+
+```z42
+class ExpectsAttribute<T> : Attribute {
+    public Type Expected() { return typeof(T); }
+}
+
+class PairAttribute<K, V> : Attribute { }
+
+[Expects<InvalidOperationException>]
+[Pair<string, List<int>>]
+class Holder { }
+
+void Demo() {
+    Attribute[] all = typeof(Holder).GetCustomAttributes();
+    ExpectsAttribute<InvalidOperationException> e = all[0] as ExpectsAttribute<InvalidOperationException>;
+    Console.WriteLine(e.Expected().Name);   // "InvalidOperationException"
+}
+```
+
+- 类型实参可以是任意类型表达式（多个实参、嵌套泛型）；读回的是**真正的实例化**，类里的
+  `typeof(T)` 给出应用时写的类型。
+- 类型实参解析不到、个数与类声明不符，按普通 `new` 的规则在**应用处**报错。
+
 ## 可以贴在哪、怎么读回来
 
 五种反射载体都有同一对 API：
@@ -98,11 +124,9 @@ foreach (PropertyInfo p in t.GetProperties()) { p.GetCustomAttributes(); }
 > 脱糖出来的那个私有 backing 字段上的 attribute；**计算属性**（写了 `get { ... }` 体、没有
 > backing 字段）永远返回空数组。
 
-> ⚠️ **顶层（自由）函数上的 attribute 写得进产物，但反射拿不到**。贴在顶层函数上的 attribute
-> 会随它进 zbc（编译期消费它的东西照常工作——`[Deprecated]` 的调用点告警、`[Test]` 的用例发现
-> 都是这一路），但**没有任何 API 能交给你一个自由函数的 `MethodInfo`**：`GetMethods()` 要先有
-> 一个 `Type`，而 [`methodof`](methodof.md) 语法上强制带 owner 类型。要反射就把函数挪进
-> 某个类当 `static` 方法。
+> 顶层（自由）函数上的 attribute 经 [`Assembly.GetFunctions()`](../stdlib/reflection.md#stdreflectionassembly)
+> 读回：它列出一个包的自由函数（`MethodInfo`），在其上 `GetCustomAttributes()` / `Invoke` 照常可用。
+> [`methodof`](methodof.md) 语法上强制带 owner 类型，拿不到自由函数。
 
 ## 对 C# 的改进
 
@@ -118,7 +142,7 @@ foreach (PropertyInfo p in t.GetProperties()) { p.GetCustomAttributes(); }
 attribute 是被动的——它只是数据，不会主动改写被注解的声明。
 
 **暂未提供**：`AttributeUsage` 式的 target / 重复性限制（attribute 可以贴在任何支持的位置）；
-泛型 attribute 类与 `GetAttribute<T>()` 泛型糖（用 `GetAttribute(typeof(T))`）；
+`GetAttribute<T>()` 泛型糖（用 `GetAttribute(typeof(T))`）；
 C# `CustomAttributeData` 那种「不实例化就读原始 ctor 实参」的视图。
 
 ## 局部抑制诊断：`#suppress` / `[Suppress]`

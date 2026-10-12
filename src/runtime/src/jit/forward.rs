@@ -26,7 +26,9 @@ use crate::metadata::bytecode::{Function, Instruction, Terminator};
 use crate::metadata::tokens::UNRESOLVED;
 use crate::metadata::Value;
 
-use super::frame::{JitFrame, JitModuleCtx};
+use super::frame::JitFrame;
+use super::runtime::JitRuntime;
+use crate::vm_context::VmContext;
 use super::helpers::call::builtin_error_into_exception;
 use super::helpers::vm_ctx_ref;
 
@@ -88,7 +90,7 @@ pub(crate) fn chained_forward(func: &Function, lookup: impl FnOnce(&str) -> Opti
 
 /// `Ns.Type` of a function key `Ns.Type.Method[$arity$sig…]`.
 fn owner_type(name: &str) -> Option<&str> {
-    let base = name.split('$').next()?;
+    let base = name.split(|c| c == '$' || c == ':').next()?;
     base.rsplit_once('.').map(|(owner, _)| owner)
 }
 
@@ -100,7 +102,7 @@ fn owner_type(name: &str) -> Option<&str> {
 /// # Safety
 /// `frame` / `ctx` as for every JIT helper; `arg_regs` index `frame.regs`.
 pub(crate) unsafe fn call_forward(
-    frame: &mut JitFrame, ctx: *const JitModuleCtx, dst: u32, id: u32,
+    frame: &mut JitFrame, ctx: *const VmContext, dst: u32, id: u32,
     this: Option<Value>, arg_regs: &[u32],
 ) -> u8 {
     let mut args: SmallVec<[Value; 4]> = SmallVec::new();
@@ -110,6 +112,92 @@ pub(crate) unsafe fn call_forward(
     match crate::corelib::exec_builtin_by_id(vm, crate::metadata::tokens::BuiltinId(id), &args) {
         Ok(v) => { frame.regs[dst as usize] = v.unwrap_or(Value::Null); 0 }
         Err(e) => unsafe { builtin_error_into_exception(vm, ctx, e) },
+    }
+}
+
+// ── Translate-time view (perf-str-jit-intrinsics) ────────────────────────────
+
+/// A string builtin the JIT emits inline at a call site instead of dispatching
+/// (`translate::str_intrinsics`). Recognised by the builtin the call target
+/// forwards to — the same identification as [`builtin_forward`] /
+/// [`chained_forward`] — never by the callee's name alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StrIntrinsic {
+    /// `__str_length` — `string.Length` (receiver only).
+    Length,
+    /// `__str_char_at` — `string.CharAt(i)` and the indexer `s[i]` (receiver + index).
+    CharAt,
+}
+
+impl StrIntrinsic {
+    /// The intrinsic builtin `id` implements, if any.
+    pub(crate) fn of_builtin(id: u32) -> Option<Self> {
+        let is = |name| crate::corelib::builtin_id_of(name).is_some_and(|b| b.0 == id);
+        if is("__str_length") { Some(Self::Length) }
+        else if is("__str_char_at") { Some(Self::CharAt) }
+        else { None }
+    }
+
+    /// Argument count of the forwarded builtin, receiver included.
+    pub(crate) fn argc(self) -> usize {
+        match self { Self::Length => 1, Self::CharAt => 2 }
+    }
+}
+
+/// What the translator may ask about a call target while compiling a caller.
+/// Implemented by [`CompileLookup`]; never loads a package or binds a site.
+pub(crate) trait ForwardLookup {
+    /// The builtin the function under JIT id `id` forwards to (shape 1 or 2),
+    /// provided a static call of it needs no type-init barrier (its owner type is
+    /// loaded and has no static constructor).
+    fn forward_of_id(&self, id: u32) -> Option<u32>;
+    /// The same for the function registered under key `name`, looked up the way
+    /// `resolve_vcall`'s candidate walk does (merged module, then loaded packages) —
+    /// but without loading anything.
+    fn forward_of_name(&self, name: &str) -> Option<u32>;
+}
+
+/// The translator's view of the VM while one function compiles: the shared JIT
+/// runtime plus the compiling thread's context (for read-only probes of loaded
+/// packages and types — VM-wide facts, so the compiled code is valid on every
+/// thread).
+pub(crate) struct CompileLookup<'a> {
+    pub(crate) rt: &'a JitRuntime,
+    pub(crate) vm: &'a VmContext,
+}
+
+impl CompileLookup<'_> {
+    /// Builtin id `func` forwards to (shape 1, or shape 2 over an already-registered
+    /// target), gated on its static-call barrier being a no-op.
+    fn barrier_free_forward(&self, func: &Function) -> Option<u32> {
+        if !self.vm.callee_owner_init_free(&func.name) {
+            return None;
+        }
+        builtin_forward(func).or_else(|| chained_forward(func, |name| {
+            self.probe_fn(name, |f| builtin_forward(f))
+        }))
+    }
+
+    /// Apply `f` to the function registered under `name` — merged module first, then
+    /// the packages loaded so far (the order `resolve_vcall` probes). Read-only: the
+    /// translator runs under the compile lock and must not load or initialise anything.
+    fn probe_fn<R>(&self, name: &str, f: impl FnOnce(&Function) -> Option<R>) -> Option<R> {
+        let module = self.rt.module();
+        if let Some(func) = module.func_index.get(name).and_then(|&i| module.functions.get(i)) {
+            return f(func);
+        }
+        let func = self.vm.probe_loaded_function(name)?;
+        f(&func)
+    }
+}
+
+impl ForwardLookup for CompileLookup<'_> {
+    fn forward_of_id(&self, id: u32) -> Option<u32> {
+        self.barrier_free_forward(self.rt.fn_of(id as usize)?)
+    }
+
+    fn forward_of_name(&self, name: &str) -> Option<u32> {
+        self.probe_fn(name, |f| self.barrier_free_forward(f))
     }
 }
 

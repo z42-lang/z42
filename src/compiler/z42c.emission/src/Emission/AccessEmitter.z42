@@ -349,16 +349,23 @@ public sealed class AccessEmitter {
             if (idn != "") { return this._ee._qualifyInstName(idn) + "." + member; }
         }
         IrGen g = this._ctx.Gen;
-        if (g != null && g.SpecInstName != ""
-            && AccessEmitter._bareOf(st.ClassName) == AccessEmitter._bareOf(g.SpecOwnerName)) {
+        if (g != null && g.SpecInstName != "" && AccessEmitter._isSpecOwner(st, g.SpecOwnerName)) {
             return this._ee._qualifyInstName(g.SpecInstName) + "." + member;
         }
         if (st.OwnerCt != null) { return this._ctx.QualifyType(st.OwnerCt, st.ClassName) + "." + member; }
         return this._ctx.QualifyClass(st.ClassName) + "." + member;
     }
 
-    // 去掉 arity mangle（`GBox$1` → `GBox`）：`SpecOwnerName` 取的是符号表键、可能带 `$N`，
-    // 而 `BoundStaticGet.ClassName` 是源码短名。比之前先归一，否则恒不相等（静默退回擦除键）。
+    // 这个静态成员的所有者是不是正在特化的定义。`SpecOwnerName` 是定义的布局键（全名，可能带 `$N`）：
+    // 有所有者类型就按它的布局键比；没有时按源码短名比（去 ns、去 arity mangle，否则恒不相等 ⇒ 静默退回擦除键）。
+    private static bool _isSpecOwner(BoundStaticGet st, string specOwner) {
+        if (st.OwnerCt != null) { return LayoutKey.OfClass(st.OwnerCt) == specOwner; }
+        int dot = specOwner.LastIndexOf('.');
+        string shortOwner = dot >= 0 ? specOwner.Substring(dot + 1) : specOwner;
+        return AccessEmitter._bareOf(st.ClassName) == AccessEmitter._bareOf(shortOwner);
+    }
+
+    // 去掉 arity mangle（`GBox$1` → `GBox`）。
     private static string _bareOf(string n) {
         int d = n.LastIndexOf('$');
         if (d <= 0) { return n; }

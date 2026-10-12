@@ -23,7 +23,7 @@ public sealed partial class ExprEmitter {
     internal bool _isBlobStruct(Z42Type t) {
         Z42ClassType ct = this._receiverClassType(t);
         if (ct == null) { return false; }
-        bool isBlob = this._ctx.Gen.Layouts != null && this._ctx.Gen.Layouts.IsBlobStruct(ct.Name());
+        bool isBlob = this._ctx.Gen.Layouts != null && this._ctx.Gen.Layouts.IsBlobStruct(LayoutKey.OfClass(ct));
         // generic-struct-erased-slot-value-copy：这里是「某静态类型被当 blob struct 值用」的**唯一咽喉点**
         // （AccessEmitter / OperatorEmitter 的十余处判定全经此）。确认是 blob struct 后顺手登记它的
         // 实例化——TYPE 段尾据此投送合成描述符。登记是**纯副作用**，本增量不改任何返回值。
@@ -43,7 +43,7 @@ public sealed partial class ExprEmitter {
         // （按实例化布局烘焙偏移），而消费方编译时只读依赖的**签名**（DepReconcile 走 ReadModuleSigs），
         // 拿不到生产方的方法体 ⇒ 跨包实例化无法特化。收窄到本包后两侧都不特化、行为与今天逐字不变
         // （不是「修了一半更坏」）。跨包覆盖需另一条 change（泛型体随包投送 + 消费方重发）。
-        if (!this._ctx.Gen.LocalClasses.ContainsKey(inst.Def.Name())) { return ""; }
+        if (!this._ctx.Gen.LocalClasses.Has(inst.Def)) { return ""; }
         // 闸门之三：实参必须**全是具体类型**。与 `_instIdentityName` 同一道闸门 —— 此前只有身份
         // 路径有，布局路径没有，两条对**伪实例化**（实参里还有未代换型参）给出不同答案。
         //
@@ -102,19 +102,9 @@ public sealed partial class ExprEmitter {
         return b == null ? "" : b.Value;
     }
 
-    // 实例化名的**基名**。泛型类与同名非泛型类共存时（add-class-arity-overloading），必须用
-    // arity-mangled 短名 `Pair$2` —— 否则 `Pair<int,string>` 的擦除前缀是 `Demo.Pair`，而那是
-    // **非泛型**的那个类，运行期擦除名回落会调到它身上（实测 `p2.Describe()` 返回
-    // "non-generic Pair"，而且是**静默**返回错值）。
-    // 判据与 `IrGen._classIrShortName` / `EmitInstantiation` 的 ownerKey 逐字同款：
-    // 只有符号表里**确实**注册了 `Name$N` 才 mangle（无冲突时不 mangle ⇒ 既有名字不变）。
-    internal string _instBaseName(Z42ClassType def) {
-        string n = def.Name();
-        if (def.GenericParamCount <= 0) { return n; }
-        string m = n + "$" + def.GenericParamCount.ToString();
-        if (this._ctx.Gen._symbols != null && this._ctx.Gen._symbols.HasClass(m)) { return m; }
-        return n;
-    }
+    // 实例化名的**基名** = 定义的布局键（全名；泛型类与同名非泛型类共存时 arity-mangled `Demo.Pair$2`
+    // —— 否则 `Pair<int,string>` 的擦除前缀是**非泛型**那个类，运行期擦除名回落会静默调到它身上）。
+    internal string _instBaseName(Z42ClassType def) { return LayoutKey.OfClass(def); }
 
     internal bool _isConcreteTypeArg(Z42Type a) {
         if (a == null) { return false; }
@@ -135,9 +125,8 @@ public sealed partial class ExprEmitter {
         Z42InstantiatedType inst = t as Z42InstantiatedType;
         if (inst.Def == null || inst.ArgCount <= 0) { return ""; }
         if (this._ctx.Gen.Layouts == null) { return ""; }
-        // 本包泛型定义才有实例化描述符。`LocalClasses` 是**短名**集 ⇒ 导入的同短名泛型（本包有个 `List`、
-        // 引用的是 `Std.Collections.List<int>`）也会命中，先按类型对象排除导入的（fqn-tables 5d 实测）。
-        if (inst.Def.IsImported || !this._ctx.Gen.LocalClasses.ContainsKey(inst.Def.Name())) { return ""; }
+        // 本包泛型定义才有实例化描述符（按类型对象的 FQN 判：导入的同短名泛型不算）。
+        if (!this._ctx.Gen.LocalClasses.Has(inst.Def)) { return ""; }
         int c0 = 0;
         while (c0 < inst.ArgCount) {
             if (!this._isConcreteTypeArg(inst.TypeArgs[c0])) { return ""; }   // 含未代换型参 → 不是真实例化
@@ -214,9 +203,7 @@ public sealed partial class ExprEmitter {
             }
             return StructLayout.InstName(this._instBaseName(it.Def), sub, it.ArgCount);
         }
-        string n = a.Name();
-        if (n == "") { return ""; }
-        return PrimModel.Canon(n);   // `Int32` / `Std.Int32` → `int`（布局缓存与 IsStructType 均按 Canon 键）
+        return LayoutKey.Of(a);   // 全名（同包跨 ns 的同短名 struct 各是各的）；基元 → 关键字
     }
 
     // complete-generic-class-identity P2：**类型测试的目标名**（`is` / `as` / cast / 模式匹配共用）。
@@ -248,9 +235,7 @@ public sealed partial class ExprEmitter {
         return qn;
     }
 
-    // 实例化短名 → FQ 名：**只限定基名、实参原样**（`Pair<P2,int>` → `Demo.Pair<P2,int>`）。
-    // 与 `_qualifyElemName`（数组元素名）同一约定，也与合成描述符的注册键（ns + 短实例化名）对齐。
-    // fqn-tables 5d：实例化名都是布局名（本包泛型定义的实例化）⇒ ns 取算出该布局的定义类（`QualifyLayout`）。
+    // 实例化名的 IR 名。布局键已是全名，`QualifyLayout` 只给全局 ns 的定义兜底。
     internal string _qualifyInstName(string instName) {
         return this._ctx.QualifyLayout(instName);
     }
@@ -271,12 +256,13 @@ public sealed partial class ExprEmitter {
         Z42ClassType oc = this._receiverClassType(t);
         if (oc == null) { return ""; }
         this._noteInstLayout(t);
-        if (this._ctx.Gen.SpecInstName != "" && oc.Name() == this._ctx.Gen.SpecOwnerName) {
+        string ok = LayoutKey.OfClass(oc);
+        if (this._ctx.Gen.SpecInstName != "" && ok == this._ctx.Gen.SpecOwnerName) {
             return this._ctx.Gen.SpecInstName;   // 特化体内 `this` 指代该实例化
         }
         string inst = this._instLayoutName(t);
         if (inst != "") { return inst; }
-        return oc.Name();
+        return ok;
     }
 
     // blob struct 的**布局名**（调用方已确认 _isBlobStruct）。
@@ -294,10 +280,11 @@ public sealed partial class ExprEmitter {
         // 特化体内：指向被特化定义的静态类型（典型是 `this`，其类型是定义 `Pair` 而非 `Pair<P2,int>`）
         // 代表**那个实例化** ⇒ 布局查询必须换名，否则按定义布局判字段种类（型参字段=引用叶子）
         // 而运行期 blob 是实例化布局 ⇒ `struct ref leaf at byte offset 0 not in type layout`。
-        if (rc != null && this._ctx.Gen.SpecInstName != "" && rc.Name() == this._ctx.Gen.SpecOwnerName) {
+        string rk = LayoutKey.OfClass(rc);
+        if (this._ctx.Gen.SpecInstName != "" && rk == this._ctx.Gen.SpecOwnerName) {
             return this._ctx.Gen.SpecInstName;
         }
-        return rc.Name();
+        return rk;
     }
 
 }

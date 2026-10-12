@@ -77,7 +77,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     pub(super) fn fire_barrier_field(&self, owner: &Value, slot: usize, new: &Value) {
         if let Some(obs) = self.barrier_observer.lock().as_ref() {
             let owner_addr = match owner {
-                Value::Object(rc) => GcRef::as_ptr(rc) as *const () as usize,
+                Value::Object(rc) => crate::gc::ObjRef::as_ptr(rc) as *const () as usize,
                 _ => 0,
             };
             obs.push(BarrierEvent::Field {
@@ -123,7 +123,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         snapshot
     }
 
-    /// Alive entries (object + array regions) that still carry a finalizer — the same set
+    /// Alive entries (arrays, and objects through their side table) that still carry a finalizer — the same set
     /// `snapshot_live_from_registry` would hand out, counted in place. An entry an incremental
     /// sweep has already judged dead is not counted (as `admit_resurrected` would refuse it);
     /// nothing escapes, so unlike that gate there is nothing to shade.
@@ -133,8 +133,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         fn counts<T>(e: &RegionEntry<T>, doomed: Option<crate::gc::refs::MarkKind>) -> bool {
             e.has_finalizer() && doomed.map_or(true, |k| e.is_marked(k))
         }
-        let mut n = 0u64;
-        self.region_object.lock().iterate_alive(|_, e| n += counts(e, doomed) as u64);
+        let mut n = self.count_object_finalizers();
         self.region_array.lock().iterate_alive(|_, e| n += counts(e, doomed) as u64);
         n
     }

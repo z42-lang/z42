@@ -59,7 +59,7 @@ int _testDocs(string root, bool update) {
     // 纯文档 PR 走的 docs-check 才不会漏掉它 —— 只改 test-gate.md 的 PR 正是最可能把它改坏的那种。
     Console.WriteLine("② gate stage 清单与 test-gate.md 一致");
     if (_checkGateStageDoc() != 0) { return 1; }
-    // ③ 分层链接方向（doc-system §2.4）：三本书与 README 不得引用 docs/agent。
+    // ③ 分层链接方向（doc-system §2.1）：三本书与 README 不得引用 docs/agent。
     if (_checkAgentRefs(root) != 0) { return 1; }
     Console.WriteLine("✔ test docs");
     return 0;
@@ -70,7 +70,7 @@ int _testDocs(string root, bool update) {
 // 为什么要单列一条正向断言（而不是靠上面的死链检查）：agent 的规范文件改动最频繁（改名 / 删并），
 // 而跨书那批引用多是**绝对 GitHub URL**，死链检查只查仓内相对路径、照不到它们 ⇒ 只能正向禁止。
 //
-// 豁免两处（doc-system §2.4）：① agent 自己；② 仓库门面 `README.md` 与 `docs/README.md` 的分流导航
+// 豁免两处（doc-system §2.1）：① agent 自己；② 仓库门面 `README.md` 与 `docs/README.md` 的分流导航
 // —— 它们本身就是「文档与代码的总入口」，不指路会让贡献者找不到规范。
 int _checkAgentRefs(string root) {
     Console.WriteLine("③ 分层链接：书 / README 不引用 agent");
@@ -101,7 +101,7 @@ int _checkAgentRefs(string root) {
     }
     if (bad > 0) {
         Console.WriteLine("");
-        ConsoleError.WriteLine("  ❌ docs: " + bad.ToString() + " 处书 / README 引用了 docs/agent（规则见 doc-system §2.4）");
+        ConsoleError.WriteLine("  ❌ docs: " + bad.ToString() + " 处书 / README 引用了 docs/agent（规则见 doc-system §2.1）");
         ConsoleError.WriteLine("     规范在 docs/agent/；书与 README 只能链三本书。需要引用某条规范时，");
         ConsoleError.WriteLine("     改写为不带链接的散文陈述事实。");
         return 1;
@@ -172,7 +172,7 @@ sealed class DocScan {
 }
 
 // 参与检查的 markdown：docs/ 全部 + 根 README + src/**/README.md + scripts/README.md。
-// 排除 变更 archive。
+// 排除 docs/spec/archive/（历史记录，其链接指向的文件可能早已删除——那是留痕，不是死链）。
 string[] _docMarkdownFiles(string root) {
     string[] acc = new string[1024];
     int n = 0;
@@ -182,7 +182,7 @@ string[] _docMarkdownFiles(string root) {
     int i = 0;
     while (i < all.Length) {
         string rel = all[i].Replace("\\", "/");
-        if (rel.EndsWith(".md")) {
+        if (rel.EndsWith(".md") && !rel.StartsWith("spec/archive/")) {
             string full = Path.Join(docs, rel);
             if (File.Exists(full) && n < acc.Length) { acc[n] = full.Replace("\\", "/"); n = n + 1; }
         }
@@ -293,7 +293,8 @@ string _stripFences(string text) {
 // 单反引号把状态翻了回去，span 的**后半截被当成正文** —— `docs/z42-doc.md` 讲链接写法的那行因此
 // 被误报成死链（`-> ``` `，基线里没有 → 判新死链 → main 红）。
 //
-// 未闭合的反引号串按 markdown 语义是**普通文本**，此时整行原样返回（宁可多查，不可漏报死链）。
+// 未闭合的反引号串按 markdown 语义是**普通文本**：原样保留这串反引号，从它后面继续扫
+// （其后的内容照常查链接，不漏报死链）。
 string _stripCodeSpans(string line) {
     string outLine = "";
     int i = 0;
@@ -303,7 +304,7 @@ string _stripCodeSpans(string line) {
         int j = i;
         while (j < line.Length && line.CharAt(j) == '`') { j = j + 1; }
         int close = _findTickRun(line, j, j - i);
-        if (close < 0) { return line; }
+        if (close < 0) { outLine = outLine + line.Substring(i, j - i); i = j; continue; }
         i = close + (j - i);        // 跳过 span 内容与收尾定界符
     }
     return outLine;

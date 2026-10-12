@@ -2,7 +2,6 @@
 name    = "appcfg"
 version = "0.1.0"
 kind    = "exe"
-entry   = "AppCfg.Main"
 
 [sources]
 include = ["src/*.z42"]

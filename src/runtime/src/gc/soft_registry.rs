@@ -39,14 +39,16 @@ pub(crate) fn soft_threshold_from_env() -> f64 {
 /// Which region owns the target — needed to re-construct the right
 /// `Value` variant if the revive pass needed to produce a `Value`
 /// (not needed currently; kept for future extension).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) enum ErasedKind {
-    Object,
+    /// An object block (object model R6) — its handle (a pointer, so provenance is kept).
+    Object { obj: crate::gc::ObjRef },
     Array,
 }
 
-/// Type-erased soft-ref entry. Stores a raw pointer to a
-/// `RegionEntry<T>` plus the generation counter at construction time.
+/// Type-erased soft-ref entry. Stores a raw pointer to the target — a `RegionEntry<ArrayObj>`
+/// for an array, the block header for an object (object model R6) — plus the generation
+/// snapshot taken at construction time.
 /// Does NOT increment soft_ref_count — that is the responsibility of
 /// `SoftGcRef<T>`. The registry is purely a set of "entries to
 /// consider for revive"; liveness is re-checked at revive time.
@@ -65,8 +67,21 @@ unsafe impl Send for ErasedSoftEntry {}
 unsafe impl Sync for ErasedSoftEntry {}
 
 impl ErasedSoftEntry {
-    pub(crate) fn from_object(ptr: NonNull<RegionEntry<crate::metadata::ScriptObject>>, generation: u32) -> Self {
-        Self { ptr: ptr.cast(), generation, kind: ErasedKind::Object }
+    /// An object target (object model R6): the handle itself (it carries its own generation
+    /// snapshot); `ptr` is its block header, the key the flagged-dead drain removes it by.
+    pub(crate) fn from_object(obj: crate::gc::ObjRef) -> Self {
+        let ptr = obj.var_ref().header_raw();
+        Self { ptr, generation: 0, kind: ErasedKind::Object { obj } }
+    }
+
+    /// The object handle of an [`ErasedKind::Object`] entry.
+    pub(crate) fn object(&self) -> Option<crate::gc::ObjRef> {
+        match self.kind {
+            // The entry is dropped (via the heap's flagged-dead drain) before the object's chunk
+            // can be reclaimed, so the handle always names a readable header.
+            ErasedKind::Object { obj } => Some(obj),
+            ErasedKind::Array => None,
+        }
     }
 
     pub(crate) fn from_array(ptr: NonNull<RegionEntry<crate::metadata::types::ArrayObj>>, generation: u32) -> Self {
@@ -91,12 +106,11 @@ impl ErasedSoftEntry {
         // SAFETY: ptr was derived from a live RegionEntry whose region
         // outlives the registry. We only touch atomic fields.
         match self.kind {
-            ErasedKind::Object => {
-                let e = unsafe { &*(self.ptr.as_ptr() as *const RegionEntry<crate::metadata::ScriptObject>) };
-                e.alive.load(Ordering::Acquire) && e.generation.load(Ordering::Acquire) == self.generation
-            }
+            // An object's entry is dropped when its block is tombstoned (`process_flagged_dead`),
+            // before the chunk can be reclaimed, so its header is always readable here.
+            ErasedKind::Object { .. } => self.object().is_some_and(|o| o.var_ref().is_live()),
             ErasedKind::Array => {
-                let e = unsafe { &*(self.ptr.as_ptr() as *const RegionEntry<Vec<crate::metadata::Value>>) };
+                let e = unsafe { &*(self.ptr.as_ptr() as *const RegionEntry<crate::metadata::types::ArrayObj>) };
                 e.alive.load(Ordering::Acquire) && e.generation.load(Ordering::Acquire) == self.generation
             }
         }
@@ -107,12 +121,9 @@ impl ErasedSoftEntry {
     pub(crate) fn revive_if_unmarked(&self, major: crate::gc::refs::MarkKind) -> bool {
         if !self.is_alive() { return false; }
         match self.kind {
-            ErasedKind::Object => {
-                let e = unsafe { &*(self.ptr.as_ptr() as *const RegionEntry<crate::metadata::ScriptObject>) };
-                e.mark(major)
-            }
+            ErasedKind::Object { .. } => self.object().is_some_and(|o| crate::gc::ObjRef::mark(&o, major)),
             ErasedKind::Array => {
-                let e = unsafe { &*(self.ptr.as_ptr() as *const RegionEntry<Vec<crate::metadata::Value>>) };
+                let e = unsafe { &*(self.ptr.as_ptr() as *const RegionEntry<crate::metadata::types::ArrayObj>) };
                 e.mark(major)
             }
         }
@@ -140,6 +151,12 @@ impl SoftRegistry {
         if let Some(pos) = self.entries.iter().position(|e| e.ptr_key() == key) {
             self.entries.swap_remove(pos);
         }
+    }
+
+    /// Drop every entry whose target is the block at `key` (object model R6: the object died —
+    /// see `ArcMagrGC::process_flagged_dead`).
+    pub(crate) fn remove_all(&mut self, key: usize) {
+        self.entries.retain(|e| e.ptr_key() != key);
     }
 
     /// Clone the current entry list so the caller can release the heap

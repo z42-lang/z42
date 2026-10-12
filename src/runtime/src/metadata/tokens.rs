@@ -19,7 +19,7 @@
 //! `u32`, so a per-module id would make two zpkgs' classes indistinguishable.
 //! See [`alloc_type_id_block`].
 //!
-//! See `变更 introduce-method-token` (or its archived form) for the
+//! See `docs/spec/changes/introduce-method-token/` (or its archived form) for the
 //! full design rationale, including the Decision 6 flip that brought
 //! Field/Static into Phase 1 alongside method dispatch.
 

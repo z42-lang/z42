@@ -33,7 +33,7 @@ fn gc_ref_value_types_are_send_sync() {
     // The two concrete GcRef instantiations that appear in Value variants.
     assert_send_sync::<GcRef<Vec<Value>>>();
     // ScriptObject path checked via Value enum below — separate explicit
-    // GcRef<ScriptObject> assertion requires re-exporting ScriptObject so
+    // crate::gc::ObjRef assertion requires re-exporting ScriptObject so
     // is covered indirectly through `Value`.
 }
 

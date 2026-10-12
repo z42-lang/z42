@@ -230,6 +230,32 @@ public sealed class TypeParser {
         return this._emptyType();
     }
 
+    // attribute 的类型实参 `[X<A, B<int>>]`：游标停在 '<'，解析到闭合 '>'（含 `>>` 拆分）。
+    // 与 `_parseType` 内的实参循环同一套（`_parseTypeArg` + `_tryCloseTypeArgs`）；空 `<>` 返回 0 长数组。
+    internal TypeExpr[] _parseTypeArgList() {
+        this._p._advance();   // <
+        TypeExpr[] args = new TypeExpr[2];
+        int ac = 0;
+        if (!this._tryCloseTypeArgs()) {
+            while (true) {
+                if (ac == args.Length) {
+                    TypeExpr[] b = new TypeExpr[args.Length * 2];
+                    Array.Copy(args, b, ac);
+                    args = b;
+                }
+                args[ac] = this._parseTypeArg(); ac = ac + 1;
+                if (this._p._pendingGt == 0 && this._p._peek().Kind == TokenKind.Comma) { this._p._advance(); continue; }
+                break;
+            }
+            if (!this._tryCloseTypeArgs()) {
+                this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected '>'", this._p._peek().Span);
+            }
+        }
+        TypeExpr[] outp = new TypeExpr[ac];
+        Array.Copy(args, outp, ac);
+        return outp;
+    }
+
     private bool _tryCloseTypeArgs() {
         if (this._p._pendingGt > 0) { this._p._pendingGt = this._p._pendingGt - 1; return true; }
         if (this._p._peek().Kind == TokenKind.Gt) { this._p._advance(); return true; }

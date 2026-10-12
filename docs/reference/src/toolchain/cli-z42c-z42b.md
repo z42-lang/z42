@@ -36,7 +36,9 @@ z42c 还有一组 `--dump-*` 编译阶段转储开关，面向改编译器本身
 ## `z42c build [<manifest>] [options]`
 
 编译一个包，产出 packed `.zpkg` 到 dist 目录。不给清单时按[工程定位](cli-z42.md#工程定位)
-规则从当前目录向上找；定位到工作区清单时等价 `--workspace`。
+规则从当前目录向上找；定位到工作区清单时等价 `--workspace`。z42c 的工作区构建恒编**全部**成员、
+不看 `default_members`——按 `default_members` 选成员是编排器 z42b 的事（`z42 build` 在工作区上就走 z42b，
+见 [`z42` · 工作区](cli-z42.md#工作区)）。
 
 ```console
 $ z42c build
@@ -136,6 +138,9 @@ Z42_LIBS=/sdk/libs  z42c build app.z42.toml --compile-libs /sdk/libs:/fresh/libs
 
 未给则逐字回落 `Z42_LIBS`（行为不变）。
 
+给了它，它也就是「框架所在」：exe 构建时，从这些目录解析到的依赖按框架包处理、不复制进 `dist/`
+（与未给时从 `Z42_LIBS` 解析到的一样），见 [`deploy`](z42-toml.md) 的默认规则。
+
 > 它是**旗标而不是环境变量**，是刻意的：环境变量会静默影响这台机器上后续每一次 z42c 调用，
 > 而这件事只该在自举那几步生效。
 
@@ -159,7 +164,7 @@ z42b 编译为 `z42.builder.zpkg`，用户通过 launcher 到达它的命令：
 | `bench` | `z42 bench` | 同上 |
 | `clean` | `z42 clean` | 同上 |
 | `publish` | `z42 publish` | launcher 先解析已安装 workload 的 apphost，再转发 |
-| `build` | — | 供编排方使用；用户面的 `z42 build` 走 z42c |
+| `build` | `z42 build`（仅工作区目标） | 单工程的 `z42 build` 走 z42c；工作区目标按 `default_members` 逐成员建，见 [`z42` · 工作区](cli-z42.md#工作区) |
 | `export` | — | 供编排方使用；用户面的 `z42 export` 由 launcher 实现 |
 
 直接敲 `z42b <verb>` 时旗标与 `z42 <verb>` 一致，只有 `publish` / `export` 两处差别：

@@ -1,7 +1,7 @@
 //! In-memory filesystem backend — a `path → bytes` map. The default on wasm
 //! (no real fs); host code mounts the stdlib + z42c zpkgs via `__vfs_mount`, then
 //! `DepScan` / z42c / scripting run **unchanged** (fs.rs routes to the active
-//! backend). See `变更 add-wasm-vfs-backend`.
+//! backend). See `docs/spec/changes/add-wasm-vfs-backend/`.
 //!
 //! Read/glob/exists are the compile-critical ops (DepScan). Write ops mutate the
 //! map; `write_atomic` degrades to a plain write (no fsync in-memory). Directory

@@ -7,12 +7,8 @@
 name    = "z42.package"
 version = "0.1.0"
 kind    = "lib"
-
-[dependencies]
-"z42.core"     = "0.1.0"
-"z42.encoding" = "0.1.0"   # Utf8.GetBytes（zbc/zpkg 串编码）
-"z42.io"       = "0.1.0"   # File/Path（zpkg 读写）
-"z42.crypto"   = "0.1.0"   # Sha256Hex（ZpkgBuilder 的密码学强度入口；源变更检测/BLID 已换 Murmur3）
-
 [sources]
 include = ["src/**/*.z42"]
+
+[dependencies]
+"z42.threading" = "0.1.0"   # ParallelFor 工作池（Thread / ThreadException）

@@ -9,6 +9,7 @@
 //!   • `Call.func`            → `FnId` (every callee already registered in the
 //!                              VM's `FuncTable`; the rest filled on first dispatch)
 //!   • `Builtin.name`         → `BuiltinId` (closed set — panic on miss)
+//!   • `LoadFn` / `MkClos`    → `FnId` of the target (P1-2 PR 8; same rule as `Call`)
 //!   • `ObjNew` class + ctor  → `ObjNewSite` (class descriptor + ctor `FnId`; whatever is
 //!                              already registered, the rest filled on first dispatch)
 //!   • `StaticGet/Set.field`  → `StaticFieldId` (lazy global ID via
@@ -49,7 +50,7 @@ pub struct ResolvedTokens {
     /// package into itself or into any package loaded so far); the rest are
     /// bound on first dispatch (`interp::exec_call::bind_callee`, which both
     /// backends use). The JIT shares the cells: the token is its slot id
-    /// (`JitModuleCtx`), baked into a compiled call site when already bound and
+    /// (`jit::runtime`), baked into a compiled call site when already bound and
     /// read from the cell at run time otherwise.
     pub method_tokens: Vec<AtomicU32>,
     /// `Builtin` sites: `BuiltinId` resolved at load (closed set —
@@ -61,6 +62,12 @@ pub struct ResolvedTokens {
     /// (the module's type registry, `FuncTable::id_of`), the rest on first dispatch
     /// (`interp::obj_new_resolve`, which both backends use).
     pub obj_new: Vec<ObjNewSite>,
+    /// `LoadFn` / `MkClos` sites (P1-2 PR 8, one numbering for both): the target's `FnId` —
+    /// the id the created `Value::FuncRef` / closure carries — or `UNRESOLVED` until the first
+    /// execution binds it (`interp::exec_call::bind_fn_ref`, which loads the target's package
+    /// if needed; both backends use it). Same id space and pre-fill rule as `method_tokens`,
+    /// without the arity check (an indirect call is not checked against a signature).
+    pub fn_ref_tokens: Vec<AtomicU32>,
     /// `VCall` sites: polymorphic inline cache, `TypeId` → callee `FnId` (same id space
     /// as `method_tokens`; lazily loaded callees included, P1-2 PR 4).
     pub vcall_ic: Vec<VCallIC>,
@@ -141,6 +148,7 @@ pub fn resolve_function_tokens(
         // ObjNew sites: (class name, ctor name, physical argc incl. `this`).
         let mut obj_new_sites:       Vec<(&str, &str, usize)> = Vec::new();
         let mut static_site_names:   Vec<String> = Vec::new();
+        let mut fn_ref_site_names:   Vec<&str>   = Vec::new();
         let mut vcall_site_count:    u32 = 0;
         let mut field_site_count:    u32 = 0;
 
@@ -165,6 +173,16 @@ pub fn resolve_function_tokens(
                     Instruction::ObjNew(insn) => {
                         let s = obj_new_sites.len() as u32;
                         obj_new_sites.push((&insn.class_name, &insn.ctor_name, insn.args.len() + 1));
+                        s
+                    }
+                    Instruction::LoadFn(insn) => {
+                        let s = fn_ref_site_names.len() as u32;
+                        fn_ref_site_names.push(&insn.func);
+                        s
+                    }
+                    Instruction::MkClos(insn) => {
+                        let s = fn_ref_site_names.len() as u32;
+                        fn_ref_site_names.push(&insn.fn_name);
                         s
                     }
                     Instruction::VCall(_) => {
@@ -223,6 +241,19 @@ pub fn resolve_function_tokens(
                     Some((tok, f)) if crate::vm_context::symres::call_arity(f).accepts(argc) => tok,
                     _ => UNRESOLVED,
                 })
+            })
+            .collect();
+
+        // P1-2 PR 8: function-reference targets, bound by the same lookup (no arity check;
+        // nothing loaded — a target in a package not loaded yet binds on first execution).
+        let fn_ref_tokens: Vec<AtomicU32> = fn_ref_site_names.iter()
+            .map(|&name| {
+                let bound = if by_fn_id {
+                    funcs.id_of(name).map(|id| id.0)
+                } else {
+                    module.func_index.get(name).map(|&idx| idx as u32)
+                };
+                AtomicU32::new(bound.unwrap_or(UNRESOLVED))
             })
             .collect();
 
@@ -302,6 +333,7 @@ pub fn resolve_function_tokens(
             method_tokens,
             builtin_tokens,
             obj_new,
+            fn_ref_tokens,
             vcall_ic,
             field_ic,
             static_field_tokens,

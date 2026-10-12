@@ -1,6 +1,6 @@
 //! loom 模型：PIC entry 的 (TypeId, 载荷) 发布协议。
 //!
-//! 对应 `变更 fix-field-ic-publication-race`。
+//! 对应 `docs/spec/changes/fix-field-ic-publication-race`。
 //!
 //! ## 为什么要 loom
 //!

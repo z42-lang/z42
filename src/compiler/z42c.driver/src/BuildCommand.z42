@@ -5,7 +5,6 @@
 namespace Z42.Driver;
 
 using Std.IO;
-using Z42.Semantics;
 using Z42.Project;
 using Std.Toml;
 using Z42.Optimization;
@@ -56,7 +55,7 @@ int _cmdBuild(string[] argv) {
         }
         // parallelize-package-compile：--jobs N 控制包内文件级并行度（1=串行逃生舱；不写 = min(4, 核数)，见下）。
         else if (a == "--jobs" && ai + 1 < argv.Length) {
-            ParallelConfig.SetJobs(Int32.Parse(argv[ai + 1])); ai = ai + 1; jobsSet = true;
+            Z42.Package.ParallelConfig.SetJobs(Int32.Parse(argv[ai + 1])); ai = ai + 1; jobsSet = true;
         }
         else if (a.StartsWith("-")) {
             ConsoleError.WriteLine("z42c build: unknown option `" + a + "`");
@@ -85,7 +84,7 @@ int _cmdBuild(string[] argv) {
     // （CLI 应只覆盖它点名的位，不是整体取代 toml）。而且 workspace 每个成员有**自己的**
     // manifest，per-member 的 `[optimize]` 只能在 manifest 在手的那一层解。
     // 故 cliAdd/cliRemove 原样透传，唯一一次 `Opt.Resolve` 落在 `_build`（那里有 `pm`）。
-    if (!jobsSet) { ParallelConfig.SetJobs(_defaultBuildJobs()); }
+    if (!jobsSet) { Z42.Package.ParallelConfig.SetJobs(_defaultBuildJobs()); }
     if (isWorkspace) {
         // --fix 暂不作用于 workspace（多成员批量），单包路径生效
         return _buildWorkspace(isRelease, outputDir, cliAdd, cliRemove, noIncremental);

@@ -3,12 +3,13 @@
 
 use crate::metadata::Value;
 
-use super::super::frame::{FnEntry, JitFrame, JitModuleCtx};
+use super::super::frame::{FnEntry, JitFrame};
+use crate::vm_context::VmContext;
 use super::super::invoke::call_entry;
 use super::{set_exception, vm_ctx_ref};
 
 /// Direct call. The callee is named by its JIT id (= `FnId`, see
-/// `JitModuleCtx`), cheapest source first:
+/// `jit::runtime`), cheapest source first:
 ///   1. `method_id` baked at translate time (the site's token was already bound);
 ///   2. the site's `method_tokens` cell (`ic_ptr`), bound since — by either backend;
 ///   3. cold: bind by name (`interp::bind_callee` — may load the defining package,
@@ -25,7 +26,7 @@ use super::{set_exception, vm_ctx_ref};
 /// call site.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_call(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     dst: u32,
     method_id: u32,
     fn_name_ptr: *const u8, fn_name_len: usize,
@@ -34,7 +35,7 @@ pub unsafe extern "C" fn jit_call(
     caller_offset: u32, // packed code offset of the call site
 ) -> u8 {
     use crate::metadata::tokens::UNRESOLVED;
-    let ctx_ref   = &*ctx;
+    let rt        = super::jit_rt(ctx);
     let frame_ref = &mut *frame;
     let arg_regs  = std::slice::from_raw_parts(args_ptr, argc);
 
@@ -47,10 +48,10 @@ pub unsafe extern "C" fn jit_call(
     };
     if token != UNRESOLVED {
         // A bound token already passed its signature check (resolver / first bind).
-        if let Some(entry) = ctx_ref.resolve_fn_by_id_tiered(token as usize) {
+        if let Some(entry) = rt.resolve_fn_by_id_tiered(&*ctx, token as usize) {
             return call_compiled(frame_ref, ctx, dst, entry, arg_regs, caller_offset);
         }
-        if let Some(callee) = ctx_ref.fn_of(token as usize) {
+        if let Some(callee) = rt.fn_of(token as usize) {
             return call_interp(frame_ref, ctx, dst, callee, arg_regs, caller_offset);
         }
     }
@@ -58,7 +59,7 @@ pub unsafe extern "C" fn jit_call(
     // Tier 3: bind by name (the first call through this site). Signature mismatch /
     // undefined function surface as catchable exceptions and are not cached.
     let vm = vm_ctx_ref(ctx);
-    let module = &*ctx_ref.module;
+    let module = super::jit_module(ctx);
     let name = std::str::from_utf8(std::slice::from_raw_parts(fn_name_ptr, fn_name_len))
         .unwrap_or("<invalid>");
     let site = if ic_ptr.is_null() { None } else { Some(&*ic_ptr) };
@@ -67,7 +68,7 @@ pub unsafe extern "C" fn jit_call(
         Ok(bound) => bound,
         Err(exc) => { set_exception(vm, exc); return 1; }
     };
-    if let Some(entry) = id.and_then(|id| ctx_ref.resolve_fn_by_id_tiered(id)) {
+    if let Some(entry) = id.and_then(|id| rt.resolve_fn_by_id_tiered(&*ctx, id)) {
         return call_compiled(frame_ref, ctx, dst, entry, arg_regs, caller_offset);
     }
     call_interp(frame_ref, ctx, dst, callee, arg_regs, caller_offset)
@@ -78,7 +79,7 @@ pub unsafe extern "C" fn jit_call(
 /// straight from the caller's registers.
 #[inline]
 unsafe fn call_compiled(
-    frame_ref: &mut JitFrame, ctx: *const JitModuleCtx, dst: u32,
+    frame_ref: &mut JitFrame, ctx: *const VmContext, dst: u32,
     entry: &FnEntry, arg_regs: &[u32], caller_offset: u32,
 ) -> u8 {
     let vm = vm_ctx_ref(ctx);
@@ -104,7 +105,7 @@ unsafe fn call_compiled(
         }
     }
     let callee_frame = JitFrame::new_args_from(vm, entry.max_reg, &frame_ref.regs, arg_regs);
-    call_entry(vm, ctx, entry, callee_frame).store_into(&mut frame_ref.regs, dst)
+    call_entry(vm, entry, callee_frame).store_into(&mut frame_ref.regs, dst)
 }
 
 /// Run a callee without a compiled entry (below the tier threshold, or
@@ -112,11 +113,11 @@ unsafe fn call_compiled(
 /// caller's registers, and splice the result back into the JIT caller's frame.
 #[inline(never)]
 unsafe fn call_interp(
-    frame_ref: &mut JitFrame, ctx: *const JitModuleCtx, dst: u32,
+    frame_ref: &mut JitFrame, ctx: *const VmContext, dst: u32,
     callee: &crate::metadata::Function, arg_regs: &[u32], caller_offset: u32,
 ) -> u8 {
     let vm = vm_ctx_ref(ctx);
-    let module = &*(*ctx).module;
+    let module = super::jit_module(ctx);
     // jit-stack-trace: stamp the caller's call-site offset before descending.
     vm.set_top_frame_pc(caller_offset);
     // runtime-ambiguous-use-site：与 interp `exec_call` 对称（两后端同判据）。
@@ -142,10 +143,10 @@ unsafe fn call_interp(
 /// Package-init then type-init barrier for a static call of `callee`; `Some` = the
 /// `TypeInitializationException` to throw.
 unsafe fn call_barriers(
-    vm: &crate::vm_context::VmContext, ctx: *const JitModuleCtx,
+    vm: &crate::vm_context::VmContext, ctx: *const VmContext,
     callee: &crate::metadata::Function, owner: &crate::metadata::bytecode::OwnerInitCell,
 ) -> Option<Value> {
-    let module = &*(*ctx).module;
+    let module = super::jit_module(ctx);
     if let Err(msg) = vm.ensure_module_inits(Some(&callee.name)) {
         return Some(crate::vm_context::cctor::make_type_init_exception(vm, module, &msg));
     }
@@ -163,7 +164,7 @@ unsafe fn call_barriers(
 /// `BUILTINS[id]` directly — zero hash on every call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_builtin(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     dst: u32,
     builtin_id: u32,
     name_ptr: *const u8, name_len: usize,
@@ -200,9 +201,9 @@ pub unsafe extern "C" fn jit_builtin(
 /// by `jit_builtin` and the forwarder short-circuit (`jit::forward`).
 ///
 /// # Safety
-/// `ctx` must be a valid `JitModuleCtx` (as for every JIT helper).
+/// `ctx` is the running thread's `VmContext` (as for every JIT helper).
 pub(crate) unsafe fn builtin_error_into_exception(
-    vm: &crate::vm_context::VmContext, ctx: *const JitModuleCtx, e: anyhow::Error,
+    vm: &crate::vm_context::VmContext, ctx: *const VmContext, e: anyhow::Error,
 ) -> u8 {
     // A callback builtin (reflection `MethodInfo.Invoke`) that ran z42
     // code which threw stashed the ORIGINAL exception value — propagate
@@ -215,7 +216,7 @@ pub(crate) unsafe fn builtin_error_into_exception(
     // Same exception as interp `exec_call::builtin` (one shared mapping): a typed
     // throw (null receiver → NullReferenceException) or a `Std.Exception`, so
     // JIT-compiled code can `catch` it. Raw string only when the class isn't loaded.
-    let module = unsafe { &*(*ctx).module };
+    let module = unsafe { super::jit_module(ctx) };
     let exc = crate::corelib::builtin_error_exception(vm, module, e)
         .unwrap_or_else(|e| Value::Str(e.to_string().into()));
     set_exception(vm, exc);

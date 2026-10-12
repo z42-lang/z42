@@ -4,7 +4,6 @@
 name    = "xtask"
 version = "0.1.0"
 kind    = "exe"
-# `entry` omitted — z42c auto-detects the only `Main()` (Z42Xtask.Main).
 pack    = true
 
 [sources]
