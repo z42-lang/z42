@@ -6,6 +6,7 @@ using Z42.Project;
 using Z42.Pipeline;    // WsTier
 using Z42.Package;     // ZpkgReader / ZpkgInfo
 using Z42.Semantics;   // PreludeNs
+using Z42.Core;        // DiagnosticCodes（W0610）
 
 // stdlib 不用声明：它在框架目录（编译期外部档 = `CompileLibsOpt.ExtDirs()`）里，解析面本来就看得见
 // （`z42.*` 包的 DepIndex 准入不看声明），运行期也从 shipped `libs/` 解析。声明它不改变任何结果，
@@ -37,10 +38,7 @@ void _warnStdlibDeps(ProjectManifest pm, string tomlPath, string[] libsDirs, int
         string found = _firstDirHaving(libsDirs, libsDirsN, d.Name + ".zpkg");
         if (found.Length == 0 || !_inDirs(fw, found)) { continue; }
         if (!_providesStdNs(Path.Join(found, d.Name + ".zpkg"))) { continue; }
-        // ⚠️ 码用字面量：常量 `StdlibDepDeclared` 与本发射点同 PR 新增，上一版 z42c 的 z42c.core 里还没有它
-        // （bootstrap-seed.md 分阶段引入纪律）；随 nightly 进种子后切回常量（diag-literal-emitters.txt 记着这笔账）。
-        string code = "W0610";
-        ConsoleError.WriteLine(tomlPath + "(" + _tomlKeyLine(tomlPath, d.Name).ToString() + ",1): " + code
+        ConsoleError.WriteLine(tomlPath + "(" + _tomlKeyLine(tomlPath, d.Name).ToString() + ",1): " + DiagnosticCodes.StdlibDepDeclared
             + ": [dependencies] `" + d.Name + "` 是标准库包，不需要声明（总是可用，解析自 " + found + "）—— 删掉这一行。");
     }
 }
