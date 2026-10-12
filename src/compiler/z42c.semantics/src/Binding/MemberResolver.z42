@@ -808,7 +808,7 @@ public sealed partial class MemberResolver {
         string reason = "";
         bool ok = false;
         if (argCount == 1 && rawArgs != null && rawArgs.Length >= 1 && (rawArgs[0] is StringLitExpr)) {
-            // `Raw` 是**含引号的原始词法**（`BenchmarkDesugar.z42:103` 明写着这条）⇒ 必须解码。
+            // `Raw` 是**含引号的原始词法** ⇒ 必须解码。
             reason = Lexer.DecodeString((rawArgs[0] as StringLitExpr).Raw);
             ok = (reason.Trim() != "");
         }

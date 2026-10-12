@@ -190,16 +190,21 @@ void test_r7_signature_violations_reported_together() {
     Assert.Equal(2, teCount(d, "E0911"));
 }
 
-// ── 相位回归（design §3.2）：form-2 benchmark 必须编译通过 ────────────────────
-// [Benchmark] void f(Bencher b) 是**合法**写法，BenchmarkDesugar 会脱糖成零参 wrapper。
-// 本 pass 若被移到 RunAst 之前，这条会红 —— 它是相位约束的哨兵。
+// ── [Benchmark] 的 Bencher 形参：唯一被允许的参数形状（runner 建好传入）────────────
 [Test]
-void test_phase_form2_benchmark_survives_desugar() {
-    var p = new Parser("class Bencher { } [Benchmark] void b(Bencher bb) { }", "t.z42");
-    var cu = HandlerRegistry.RunAst(p.ParseCompilationUnit());
-    var coll = new SymbolCollector();
-    coll.Collect(cu);
-    Assert.Equal(false, teHas(coll.Diags, "E0912"));
+void test_benchmark_bencher_param_is_allowed() {
+    Assert.Equal(false, teHas(teDiags("class Bencher { } [Benchmark] void b(Bencher bb) { }"), "E0912"));
+}
+
+[Test]
+void test_benchmark_other_param_is_rejected() {
+    Assert.Equal(true, teHas(teDiags("[Benchmark] void b(int n) { }"), "E0912"));
+    Assert.Equal(true, teHas(teDiags("class Bencher { } [Benchmark] void b(Bencher x, int n) { }"), "E0912"));
+}
+
+[Test]
+void test_bencher_param_only_allowed_for_benchmark() {
+    Assert.Equal(true, teHas(teDiags("class Bencher { } [Test] void t(Bencher bb) { }"), "E0911"));
 }
 
 // ════════════════════════════════════════════════════════════════════════════
