@@ -60,8 +60,9 @@ kind    = "exe"        # exe | lib | analyzer
 | `pack` | bool | ❌ 可选 | packed / indexed 布局，见 [L3](#l3--构建产物配置) |
 | `description` / `authors` / `license` | string / string[] / string | ❌ 可选 | 纯元数据（`authors` 是字符串数组，`license` 建议写 SPDX 标识）；构建不使用 |
 
-**入口不在清单里配**：`kind = "exe"` 的入口由编译器从编译后的 module 里找 `Main`（优先 `<Namespace>.Main` 再
-`<Namespace>.main` 再裸 `Main` / `main`），找不到或不止一个都是**编译期报错**。`[project]` 里写 `entry` 是清单错误；
+**入口不在清单里配**：`kind = "exe"` 的入口由编译器从编译后的 module 里找 `Main`——自由函数 `Main()` 或类里的
+静态无参方法 `Main()`（优先带命名空间的 `Main`，再小写 `main`，再无命名空间的 `Main` / `main`）；实例方法不算。
+找不到或不止一个都是**编译期报错**。`[project]` 里写 `entry` 是清单错误；
 同一工程要多个入口，用下文的 `[[exe]]`（那里的 `entry` 必填，用来在共享的源里挑 Main）。
 
 ### 包名命名规则
