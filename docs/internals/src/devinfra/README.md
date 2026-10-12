@@ -15,4 +15,4 @@
 
 > **与「测试体系」部分的分工**：本部分的 [怎么跑测试](testing.md) / [GREEN gate](test-gate.md) /
 > [测试流水线](test-pipeline.md) 讲的是**仓库侧怎么组织和跑**；
-> 测试框架本身（TIDX 语义、runner 协议、平台后端）在[测试体系](../testing/index.md)。
+> 测试框架本身（反射发现、runner 协议、平台后端）在[测试体系](../testing/index.md)。

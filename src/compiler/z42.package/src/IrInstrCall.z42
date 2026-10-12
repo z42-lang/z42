@@ -240,10 +240,8 @@ public sealed class CallIndirectInstr : IrInstr {
 public sealed class MkClosInstr : IrInstr {
     public TypedReg Dst; public string Func;
     public TypedReg[] Captures; public int CaptureCount;
-    public bool StackAlloc;   // zbc 保留字节：恒 false，VM 读后丢弃（闭包恒堆分配，runtime-audit D6）；下次 zbc bump 删（version-bumping.md）
-    public MkClosInstr(TypedReg dst, string func, TypedReg[] captures, int captureCount, bool stackAlloc) {
+    public MkClosInstr(TypedReg dst, string func, TypedReg[] captures, int captureCount) {
         this.Dst = dst; this.Func = func; this.Captures = captures; this.CaptureCount = captureCount;
-        this.StackAlloc = stackAlloc;
     }
     public override string Dump() {
         string s = "%" + this.Dst.Id.ToString() + " = mk_clos @" + this.Func + "(";
@@ -263,11 +261,10 @@ public sealed class MkClosInstr : IrInstr {
     public override int StrCount() { return 1; }
     public override string StrAt(int i) { if (i == 0) { return this.Func; } return null; }
     public override IrInstr Clone() {
-        return new MkClosInstr(this.Dst, this.Func, IrInstr.CloneRegs(this.Captures), this.CaptureCount, this.StackAlloc);
+        return new MkClosInstr(this.Dst, this.Func, IrInstr.CloneRegs(this.Captures), this.CaptureCount);
     }
     public override void Write(ZbcEncoder e) {
         e.Head(Op.MkClos, this.Dst); e.MethodTok(this.Func);
-        e.Flag(this.StackAlloc);
         e.Args(this.Captures, this.CaptureCount);
     }
 }

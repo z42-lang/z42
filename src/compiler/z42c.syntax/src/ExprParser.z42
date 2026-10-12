@@ -577,7 +577,7 @@ public sealed partial class ExprParser {
             // 无新 token、无新 AST 节点——译成既有 IdentExpr 的哨兵名 `$macro:<name>`（`$` 非法于真
             // 标识符 → 零撞名，同本 change `$Default`/`$Caller` 哨兵哲学）。这样 z42c.semantics 只需靠
             // 既有 IdentExpr.Name 识别、**不引用任何新 syntax 类型** → 避免 syntax→semantics 新跨包符号
-            // 撞 F2 冷启动 stale-cache（见 design「caller 宏语法」节 + bootstrap-seed 轴②/④ 教训）。
+            // 撞 F2 冷启动 stale-cache（见 design「caller 宏语法」节 + self-hosting 轴②/④ 教训）。
             // 白名单认名 + 位置合法性由语义层强制（E0450）。
             //
             // add-symbol-availability-macro：扩出**带参**形态 `name!(args)`（如 `available!(B.Foo)`）。

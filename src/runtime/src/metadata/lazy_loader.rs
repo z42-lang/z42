@@ -38,7 +38,6 @@ use anyhow::Result;
 
 use super::bytecode::{Function, Instruction};
 use super::loader::{load_artifact, load_artifact_from_bytes, LoadedArtifact};
-use super::test_index::LoadedTestEntry;
 use super::types::TypeDesc;
 use super::namespace_index;
 

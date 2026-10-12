@@ -5,7 +5,7 @@
 
 ## 概述
 
-`.zpkg` 是 z42c 把一个包的多个模块打成的分发单元：包级元数据 + 各模块的 zbc 内容。当前版本 **0.52**，内嵌 zbc 1.46（zbc 变则两者同步 bump）。
+`.zpkg` 是 z42c 把一个包的多个模块打成的分发单元：包级元数据 + 各模块的 zbc 内容。当前版本 **0.53**，内嵌 zbc 1.47（zbc 变则两者同步 bump）。
 
 它有两种布局：**packed**（模块 zbc 字节内嵌，用于分发与测试）与 **indexed**（模块 zbc 外挂为散装 `.zbc` 文件，用于开发态增量）。字节原语与 section 目录结构与 [zbc](zbc.md) 一致，本页只列 zpkg 特有部分。
 
@@ -86,10 +86,9 @@ func_len  u32 + func 体      （zbc FUNC 段字节）
 type_len  u32 + type 体      （zbc TYPE 段字节；无则 0）
 dbug_len  u32 + dbug 体      （release strip 时 0）
 regt_len  u32 + regt 体
-tidx_len  u32 + tidx 体      （无测试则 0）
 ```
 
-五个 `len + 体` 即各模块内嵌的 zbc section 字节，用同一套 `ZbcWriter` 构建器产出，但共享 zpkg 全局字符串池（加 per-module remap 与 token 分配）。
+四个 `len + 体` 即各模块内嵌的 zbc section 字节，用同一套 `ZbcWriter` 构建器产出，但共享 zpkg 全局字符串池（加 per-module remap 与 token 分配）。
 
 `hash` 是**源码哈希**，形如 `mmh3:<32 hex>`（`Z42.Package.ZpkgBuilder.SourceHashHex`，MurmurHash3
 x86_128）。它只服务增量构建的**变更检测**——「这个 `.z42` 与上次编译时是否一字不差」，纯相等性比较，
@@ -226,7 +225,7 @@ section（基于 tag 查找天然跳过未识别 section）。
 | 维度 | Packed | Indexed |
 |------|--------|---------|
 | flags bit0 | 置位 | 不置 |
-| 模块体 | MODS（内嵌 func/type/dbug/regt/tidx） | FILE（仅目录 + zbc_hash） |
+| 模块体 | MODS（内嵌 func/type/dbug/regt） | FILE（仅目录 + zbc_hash） |
 | zbc 位置 | 内嵌主文件 | 散装 `.zbc` 外挂 |
 | 字符串池 | 主文件全量 | 主文件仅元数据/SIGS/IMPL 串 |
 | strip / sidecar | 支持 | 无（开发态 debug-only） |
@@ -279,12 +278,12 @@ trace 里每帧的函数名携带参数类型签名（`at MyApp.Greeter.greet(Gr
 
 ## zpkg 与 zbc 的关系
 
-- **packed**：每模块的 zbc FUNC/TYPE/DBUG/REGT/TIDX 段字节内嵌进 MODS，与独立 `.zbc` 逐字节同构，唯一区别是字符串池全局共享而非文件局部。SIGS 复用同一条目构建器。
+- **packed**：每模块的 zbc FUNC/TYPE/DBUG/REGT 段字节内嵌进 MODS，与独立 `.zbc` 逐字节同构，唯一区别是字符串池全局共享而非文件局部。SIGS 复用同一条目构建器。
 - **indexed**：主文件只存目录 + 全局 SIGS，zbc 作散装文件外挂，主文件用 `zbc_hash` 校验一致性。
 
 ## 版本
 
-Strict-pin，与 zbc 同政策；zpkg 版本与 zbc 版本强耦合（当前 0.52 ↔ 1.46），bump 联动。同步 checklist 见开发基础设施部分的 version-bumping 规范。
+Strict-pin，与 zbc 同政策；zpkg 版本与 zbc 版本强耦合（当前 0.53 ↔ 1.47），bump 联动。同步 checklist 见开发基础设施部分的 version-bumping 规范。
 
 > 📌 **本页不维护逐 minor 的 changelog 表**（zbc 那边有一张）。zpkg 的 minor 历史写在写端常量旁 ——
 > `src/compiler/z42.package/src/ZpkgWriter.z42` 的 `ZpkgWriterZ.Minor` 注释，那里逐条记着

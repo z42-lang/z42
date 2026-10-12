@@ -388,7 +388,7 @@ z42c build <toml> [--release] [--no-incremental]      （单工程模式；works
   ├─ IncrementalBuild.Close：token 保守边闭包（文件 i 标识符 token ∩ 文件 j 包内定义名
   │    （类型+自由函数+成员名）→ 边 i→j；j fresh → i fresh；边每次从当前源重算）
   ├─ cached 读回：ZbcReader.Read(cache zbc) + meta 残留回填（块 label 原文改名（含终结符/
-  │    异常表引用）、模块池原序、TIDX idx——wire 不携带的 writer 残留，见 D5a）；失败→降级 fresh
+  │    异常表引用）、模块池原序——wire 不携带的 writer 残留，见 D5a）；失败→降级 fresh
   ├─ IrDump.BuildPackageCus：仅失效子集跑 typecheck/codegen；TSIG 全包重算
   ├─ fresh 落 cache（zbc + meta）+ 包级源清单
   └─ BuildPackedD(全部 IrModule 同构组装) → dist/<name>.zpkg（任一变更即整包重写）
@@ -888,7 +888,7 @@ artifacts/build/libraries/<lib>/<profile>/
         └── <lib>.bench.<dir_name>.zpkg         ← dir-mode
 ```
 
-> 单文件单元走轻量 `z42c --emit zbc` 产 `.zbc`；dir-mode 单元(多文件)合成 mini-manifest 跑 `z42c build` 产 packed `.zpkg`。两者都由 z42b（z42.builder.zpkg）经 TIDX 发现 + 调度，落同一 `<subtree>/dist/`。
+> 单文件单元走轻量 `z42c --emit zbc` 产 `.zbc`；dir-mode 单元(多文件)合成 mini-manifest 跑 `z42c build` 产 packed `.zpkg`。两者都由 z42b（z42.builder.zpkg）经运行期反射发现 + 调度，落同一 `<subtree>/dist/`。
 
 **zpkg 命名硬约束**：`.test.` / `.bench.` infix 是文件名硬规则（也是 CI 守门正则的 anchor）。`tests_dir` / `bench_dir` 字段**不暴露** — 强制 `<output_dir>/tests/` 和 `<output_dir>/benches/`；改路径走 `output_dir`，两子树一并变。
 

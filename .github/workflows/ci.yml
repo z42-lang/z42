@@ -210,7 +210,7 @@ jobs:
           workspaces: src/runtime -> ../../artifacts/build/runtime
           shared-key: test-host-v1
 
-      # 每条腿都用上一版 nightly 的 z42c 种子从源码自举（bootstrap-seed 纪律保证能编过），之后一切经 xtask。
+      # 每条腿都用上一版 nightly 的 z42c 种子从源码自举（自举纪律保证能编过），之后一切经 xtask。
       - name: Bootstrap toolchain (nightly z42c seed → current source)
         uses: ./.github/actions/ci-bootstrap
         with:
@@ -254,7 +254,7 @@ jobs:
           fi
           exit "${PIPESTATUS[0]}"
 
-      # build wave 就地重写 zbc-format 字节基线；diff 非空 = 提交的基线过期（格式变更漏了 version-bumping.md 第 4 步）。
+      # build wave 就地重写 zbc-format 字节基线；diff 非空 = 提交的基线过期（格式变更漏了 format-bump.md 清单第 4 步）。
       # 消费方校验的永远是刚重写的字节，不靠这道门过期基线会一直绿。挂在 test-host 上（失败经 ci-ok 挡合并），零额外构建。
       - name: Golden byte baselines are up to date (regen produced no diff)
         if: matrix.os != 'windows-latest'
@@ -265,7 +265,7 @@ jobs:
             echo "::error::committed zbc-format byte baselines are stale — regen rewrote them."
             echo "Fix: run 'xtask build compiler && xtask build stdlib && xtask build test',"
             echo "review the diff, then commit the regenerated fixtures"
-            echo "(see docs/agent/rules/version-bumping.md step 4)."
+            echo "(see docs/internals/src/devinfra/format-bump.md step 4)."
             git --no-pager diff --stat -- src/compiler/z42.package/tests/fixtures/zbc-format
             exit 1
           fi
@@ -890,7 +890,7 @@ jobs:
     name: publish-nightly
     timeout-minutes: 40
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && needs.changes.outputs.sdk != 'false'
-    # needs 只列编 / 测 / 打包**当前源码**的 job。所有自举都从上一版 nightly 起步，自愈靠 bootstrap-seed 纪律
+    # needs 只列编 / 测 / 打包**当前源码**的 job。所有自举都从上一版 nightly 起步，自愈靠 自举纪律
     # （上一版 nightly 必须能编当前源）。不要加纯下载自举的门（vm-jit / stdlib-jit）：格式 bump 时它们会暂时红、
     # 下次自愈，把 publish 挂在它们身上只会多一条死锁边。
     needs:

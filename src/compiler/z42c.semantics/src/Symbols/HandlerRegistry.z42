@@ -26,10 +26,9 @@ public sealed class DeclId {
 
 public static class HandlerRegistry {
     // ── AST-phase 单一入口（挂载点：IncrementalDriver / IrDump ×3）──────────────────────────
-    // 内建 Generator（BenchmarkDesugar）先跑，再走 store-meta 合成（AttributeSynth）——与收敛前
-    // `AttributeSynth.Run(BenchmarkDesugar.Run(cu))` 语义逐字节一致。
+    // store-meta 合成（AttributeSynth）：给自定义 attribute 合成反射工厂。
     public static CompilationUnit RunAst(CompilationUnit cu) {
-        return AttributeSynth.Run(BenchmarkDesugar.Run(cu));
+        return AttributeSynth.Run(cu);
     }
 
     // ── 三路 kind 判定（替换 AttributeSynth._isUserAttr）────────────────────────────────────

@@ -108,12 +108,12 @@ impl VmContext {
     /// for every zpkg the resolver pulled in transitively, so observers
     /// see lazy-load activity (not just boot-time eager loads).
     /// Load a compiled artifact at `path` into the live registries (functions +
-    /// types become callable / reflectable) and return its TIDX test entries.
-    /// Backs `Std.Runtime.ModuleLoader.Load` (`__load_module`) and the seed-compat `__test_module_load`.
+    /// types become callable / reflectable).
+    /// Backs `Std.Runtime.ModuleLoader.Load` (`__load_module`).
     /// Errors if no lazy loader is installed (a bare VM with no dep resolution).
     pub fn load_module_into_vm(
         &self, path: &str,
-    ) -> anyhow::Result<Vec<crate::metadata::test_index::LoadedTestEntry>> {
+    ) -> anyhow::Result<()> {
         // optimize-subclass-check: an explicit (re)load can redefine a type (REPL), which
         // could invalidate a cached subclass answer. Lazy-load ADDs (monotonic) are safe and
         // don't clear; only these explicit loads do.

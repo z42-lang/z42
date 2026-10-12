@@ -126,17 +126,15 @@ fn zbc_version_constants_pinned() {
     // `ZbcFormat.z42` / `ZpkgWriter.z42` and compares against these constants.
     assert_eq!(ZBC_VERSION_MAJOR, 1, "zbc major locked at 1 by freeze-zbc-v1");
     assert_eq!(
-        ZBC_VERSION_MINOR, 46,
-        "zbc minor at 1.46 (symbolic-struct-field-access P2: StructFieldGet/SetPrim carry \
-         (root_type, field-index path) instead of a baked byte offset — the root type name also \
-         disambiguates which offset numbering space applies)"
+        ZBC_VERSION_MINOR, 47,
+        "zbc minor at 1.47 (retire-tidx: TIDX section removed; MkClos drops its reserved u8)"
     );
 }
 
 #[test]
 fn zpkg_version_constants_pinned() {
     assert_eq!(ZPKG_VERSION_MAJOR, 0, "zpkg major locked at 0 by freeze-zpkg-v0");
-    assert_eq!(ZPKG_VERSION_MINOR, 52, "zpkg minor at 0.52 (precise-pkg-refs: DEPS symbol lists)");
+    assert_eq!(ZPKG_VERSION_MINOR, 53, "zpkg minor at 0.53 (retire-tidx: MODS drops tidx_len + body)");
 }
 
 #[test]

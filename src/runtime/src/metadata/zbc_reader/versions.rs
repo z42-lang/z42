@@ -12,7 +12,7 @@ use super::*;
 //      src/compiler/z42.package/tests/fixtures/zpkg-format/; they regen by different commands
 //
 // ⚠️ This list is a convenience pointer, NOT the procedure. The procedure lives in
-// docs/agent/rules/version-bumping.md and has 9+ steps — notably step 5
+// docs/internals/src/devinfra/format-bump.md §一 — notably the self-check
 // (`cargo test --lib`, unfiltered) and step 9 (regen the zpkg-format fixtures,
 // which `xtask build test` does NOT touch). **Do not grow this comment into a
 // second copy of that doc**; it already rotted once:
@@ -202,14 +202,17 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // Why a second flags word: `class_flags` is a u8 with all 8 bits taken. Running out
 // already cost something concrete — the 1.33/1.34 object block had to be gated by a
 // **derived predicate** mirrored on both sides instead of a flag bit.
-pub const ZBC_VERSION_MINOR: u16 = 46;
+// 2026-10-12 retire-tidx: bumped to 1.47 — the TIDX section is gone (tests are discovered by
+// runtime reflection in z42.test, so the compiler no longer writes a test index), and `MkClos`
+// drops its always-zero trailing u8 (the former stack-alloc flag; closures are always heap).
+pub const ZBC_VERSION_MINOR: u16 = 47;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
 // Strict-pin policy (freeze-zpkg-v0, 2026-05-14). Same coupling rules as zbc:
 // reader accepts exactly major == ZPKG_VERSION_MAJOR && minor == ZPKG_VERSION_MINOR.
 // Additionally, zbc minor bump REQUIRES zpkg minor bump (strong coupling per
-// docs/internals/src/formats/zpkg.md). See docs/agent/rules/workflow.md for the bump
+// docs/internals/src/formats/zpkg.md). See docs/internals/src/devinfra/format-bump.md for the bump
 // procedure (zbc bump → 4 zbc steps + 4 zpkg steps in the same commit).
 
 pub const ZPKG_VERSION_MAJOR: u16 = 0;
@@ -331,7 +334,9 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // Outer layout unchanged.
 // 2026-10-06 precise-pkg-refs: bumped to 0.52 — DEPS entries gain `u32 symCount; u32×symIdx`
 // (referenced type / free-function full names defined by that dependency) for precise lazy routing.
-pub const ZPKG_VERSION_MINOR: u16 = 52;
+// 2026-10-12 retire-tidx: bumped to 0.53 — embeds zbc 1.47; each MODS module record drops its
+// trailing `tidx_len: u32 + tidx_data` (four length-prefixed bodies: func/type/dbug/regt).
+pub const ZPKG_VERSION_MINOR: u16 = 53;
 
 // ── Strict-pin header verification ────────────────────────────────────────────
 //
@@ -343,9 +348,7 @@ pub const ZPKG_VERSION_MINOR: u16 = 52;
 // handling themselves, since those diverge per reader.
 
 /// Reject truncated data, wrong magic, or any zbc major/minor ≠ the pinned writer
-/// version. Used by [`super::read_zbc`]; the leaner `read_test_index_section` /
-/// `read_raw_string_pool` paths intentionally do only a magic check (optional
-/// sections), so they do not route through here.
+/// version. Used by [`super::read_zbc`].
 pub(super) fn verify_zbc_version(data: &[u8]) -> Result<()> {
     if data.len() < 16 { bail!("zbc file too short") }
     if &data[0..4] != ZBC_MAGIC { bail!("not a binary zbc (bad magic)") }

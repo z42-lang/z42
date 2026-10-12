@@ -346,7 +346,6 @@ public sealed class SymbolCollector {
         while (c < cuCount) { this._enforce._passGeneratorSuffixEnforce(cus[c]); c = c + 1; }   // attribute-handler-registry PR4a（D8 generator 后缀）
         c = 0;
         // enforce-test-attr-placement：[Test]/[Benchmark]/[Setup]/[Teardown] 位置+签名强制（E0911/0912/0915）。
-        // ⚠️ 相位同上：须在 RunAst（BenchmarkDesugar）之后。
         while (c < cuCount) { this._tests._passTestAttrEnforce(cus[c]); c = c + 1; }
         c = 0;
         while (c < cuCount) { this._enforce._passNativeEnforce(cus[c]); c = c + 1; }   // validate-extern-native（E0903/E0904/E0907）

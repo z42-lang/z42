@@ -39,7 +39,7 @@
 | 构建脚本 / CI / xtask | [scripts](../../scripts/README.md) | [开发基础设施](../internals/src/devinfra/README.md) | — | [bootstrap-seed](rules/bootstrap-seed.md) |
 | 文档 | [docs](../README.md) | — | — | [doc-system](rules/doc-system.md) · [book-writing](rules/book-writing.md) · [readme-writing](rules/readme-writing.md) |
 
-跨语言的坑（加载顺序、id 作用域、局部变量 shadow）不分子系统，写任何代码前扫一眼 [common-pitfalls](rules/common-pitfalls.md)。
+跨语言的坑（加载顺序、id 作用域）不分子系统，写任何代码前扫一眼 [common-pitfalls](rules/common-pitfalls.md)。
 
 ---
 
@@ -66,16 +66,16 @@
 | 文件 | 管什么 |
 |------|--------|
 | [code-organization.md](rules/code-organization.md) | 哪层目录要 README + 文件/函数/类型的行数限制（`xtask check lines` 棘轮） |
-| [common-pitfalls.md](rules/common-pitfalls.md) | 跨语言共同陷阱：加载顺序非确定性、id 作用域、局部变量无块级 shadow |
-| [compiler-z42c.md](rules/compiler-z42c.md) | z42c 代码约定：受限写法、Parser 错误处理 |
-| [runtime-rust.md](rules/runtime-rust.md) | Rust VM 代码约定：错误处理、测试组织、GC 根集 / park / 写屏障、wasm、依赖引入 |
+| [common-pitfalls.md](rules/common-pitfalls.md) | 跨语言共同陷阱：加载顺序非确定性、id 作用域 |
+| [compiler-z42c.md](rules/compiler-z42c.md) | z42c 代码约定：只用当前语言子集、Parser 错误处理 |
+| [runtime-rust.md](rules/runtime-rust.md) | Rust VM 代码约定：错误处理、测试组织、原生代码与 GC 的四条规则、执行模式、依赖引入 |
 
 ### 碰自举链 / 改格式时
 
 | 文件 | 管什么 |
 |------|--------|
 | [bootstrap-seed.md](rules/bootstrap-seed.md) | 种子鸡蛋问题；**新语法 / 格式 / API support 先行、晚一个 nightly 再 use** |
-| [version-bumping.md](rules/version-bumping.md) | zbc / zpkg 格式 bump 纪律 + 版本常量坐标表 + 编译器语义指纹 |
+| [version-bumping.md](rules/version-bumping.md) | zbc / zpkg 格式 bump 纪律 + 编译器语义指纹 |
 
 ## 各 AI 工具的入口
 

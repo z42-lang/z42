@@ -11,7 +11,7 @@ public static class SourceDiscovery {
     // fix-hooks-source-scan 阶段3：原三参 `Discover(pd, inc, incCount)` shim 已删除——所有调用点
     // （z42c `Main.z42` / `Z42cCompiler`）自阶段2 起改调 `DiscoverWithExclude`，且阶段2 nightly
     // （其种子 `Main.z42` 已调 `DiscoverWithExclude`、不再引用 `Discover`）已发布，故 z42c 运行期
-    // 自依赖不再需要三参 shim（bootstrap-seed 轴④，比源引用的 API 晚一个 nightly）。
+    // 自依赖不再需要三参 shim（self-hosting 轴④，比源引用的 API 晚一个 nightly）。
     //
     // fix-hooks-source-scan：应用 `[sources] exclude` glob（此前 `Sources.Exclude` 解析了却从不
     // 生效）+ 调用方并入的 hooks 目录（`[build] hooks` → 自动排除）。excludes 为相对

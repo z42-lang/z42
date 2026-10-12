@@ -66,8 +66,7 @@ public Attribute __attr$cls$C$0() { return new RouteAttribute("/u", method: "POS
 ⚠️ 该 pass 的遍历面必须与 `AttributeSynth._process*` 一致（后者决定谁被合成工厂 = 谁的实参会被
 执行），加新载体时两处都要动。
 
-挂载点是 `HandlerRegistry.RunAst(cu)`（`:46`），它规定了顺序：**内建 Generator
-（`BenchmarkDesugar`）先跑，再跑 `AttributeSynth`**。
+挂载点是 `HandlerRegistry.RunAst(cu)`：parse 之后、符号收集之前对每个 CU 跑 `AttributeSynth`。
 
 ## 持久化：attr-ref 进 zbc，property 例外
 

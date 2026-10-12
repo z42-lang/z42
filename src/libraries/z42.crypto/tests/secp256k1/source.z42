@@ -1,7 +1,5 @@
-// add-tests-bench-manifest-config Phase 5 (2026-06-06): first multi-file
-// `tests/<name>/source.z42` demo. Unblocked by aggregate-zpkg-tidx (same
-// date) which makes the packed test zpkg's TIDX discoverable by the
-// in-process VM.
+// Multi-file `tests/<name>/source.z42` demo: the packed test zpkg's [Test]
+// functions are discovered by runtime reflection like any single-file unit.
 //
 //   tests/secp256k1/
 //     source.z42    ← [Test] methods, this file (the dir-mode entry)

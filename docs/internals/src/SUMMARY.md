@@ -54,6 +54,7 @@
 
 - [GC 子系统与 safepoint 协议](runtime/gc.md)
   - [增量 major：SATB 屏障](runtime/gc-incremental-major.md)
+- [原生代码与 GC 的协作约定](runtime/native-gc-contract.md)
   - [GC TLAB：线程本地分配](runtime/gc-tlab.md)
   - [GC 调参与诊断旋钮](runtime/gc-tuning.md)
   - [GC 句柄表（Std.GCHandle）](runtime/gc-handle.md)

@@ -28,7 +28,7 @@ public sealed class CachedNsMeta {
     public string[] Diags;     public int DiagCount;
     // using-csharp-rules 2.9：第三格 —— 本文件用到的**全部** ns（含同包跨 ns；`UsedDepNs` 只有依赖包那一半）。
     // E0436（`_enforceFileScope`）判据是两者之并；此前 cached 文件只剩 `UsedDepNs` ⇒ 另一个文件删掉
-    // `global using` 时，cached 文件的同包跨 ns 引用不报 E0436。driver 侧写入 / 读出晚一个 nightly 接（bootstrap-seed）。
+    // `global using` 时，cached 文件的同包跨 ns 引用不报 E0436。driver 侧写入 / 读出晚一个 nightly 接（分阶段引入）。
     public string[] UsedNs;
     public CachedNsMeta(string[] usedDepNs, int count) {
         this.UsedDepNs = usedDepNs; this.UsedDepNsCount = count;

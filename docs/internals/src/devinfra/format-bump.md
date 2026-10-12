@@ -25,6 +25,24 @@ warm 建 / 测 / fixture 重生全部走通，两代自举彻底不需要。
 改 `.zbc` / `.zpkg` wire 格式（新 opcode / 新 section / 已定义 section 字段语义变化）时，**单次 commit 必须同步以下各处**，
 否则 Rust reader 的 strict-pin 校验、`zbc_compat` 字节基线、或 z42c golden hex 单测任一会 fail。
 
+### 版本常量坐标（唯一真相表）
+
+z42 pre-1.0 是 **strict-pin**：Rust reader 精确匹配 writer 的 major + minor，没有兼容回退。四个常量的位置与当前值：
+
+| 端 | 文件 | 常量 | 当前值 |
+|----|------|------|--------|
+| zbc writer（z42c） | `src/compiler/z42.package/src/BinaryFormat/ZbcFormat.z42` | `ZbcVersion.Major` / `.Minor` | 1 / 47 |
+| zbc reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZBC_VERSION_MAJOR` / `_MINOR` | 1 / 47 |
+| zpkg writer（z42c） | `src/compiler/z42.package/src/ZpkgWriter.z42` | `ZpkgWriterZ.Major` / `.Minor` | 0 / 53 |
+| zpkg reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZPKG_VERSION_MAJOR` / `_MINOR` | 0 / 53 |
+
+> 🔒 **本表有防腐门**：`cargo test --test format_fixture_versions` 的
+> `version_bumping_coordinate_table_matches_the_real_constants` **解析本表自己的四行**，拿每行的「值」去和该行
+> 指着的文件里的常量对账——路径写错 / 常量改名 / 值过期，任一即红；行数不是 4 也红。同文件的
+> `writer_and_reader_pin_the_same_format_versions` 另外钉住 writer↔reader 不许偏斜。这张表是散文，没有构建会读它，
+> 而它偏偏是承重的（过期的行会把下一个 bump 的人送到错的文件或错的起始号上），所以配了这道门。
+> 门按本页路径解析，**挪表时同一提交改测试**。
+
 ### Bumping `.zbc` minor version —— 5 步
 
 1. **`src/compiler/z42.package/src/BinaryFormat/ZbcFormat.z42`** — `ZbcVersion.Minor++`，常量旁注释本次 bump 内容
@@ -35,8 +53,8 @@ warm 建 / 测 / fixture 重生全部走通，两代自举彻底不需要。
    注释块追加一行（日期 / PR / 字段变化）；reader 解码逻辑（`read_*_section`）同步新格式。
 3. **[zbc.md](../formats/zbc.md)** — 该页的 "Minor changelog" 表加一行（minor / 日期 / 触发变更 / 引入内容）。
 4. **regen zbc-format fixture** — 跑 `xtask build test`（前置 `build compiler` + `build stdlib` 已用新格式重建），
-   原地覆写 `src/compiler/z42.package/tests/fixtures/zbc-format/*/source.zbc`（6 个 committed 字节基线：`empty` /
-   `strp-func-minimal` / `multi-method` / `with-tidx` / `cross-import-token` / `with-frcs`）；`git diff` 应显示格式
+   原地覆写 `src/compiler/z42.package/tests/fixtures/zbc-format/*/source.zbc`（5 个 committed 字节基线：`empty` /
+   `strp-func-minimal` / `multi-method` / `cross-import-token` / `with-frcs`）；`git diff` 应显示格式
    delta，**必须连同 bump 一起提交**。
 
    > 🔒 **CI 有门（`refresh-format-fixtures`）**：`test-host` 的三条非 Windows 腿在 `test`（其 build wave 就地 regen）
@@ -153,7 +171,7 @@ export Z42_PORTABLE_VM="$PWD/artifacts/build/runtime/release/z42vm"
 
 ```bash
 xtask build compiler && xtask build stdlib   # warm，同格式
-xtask build test                             # 原地重生 6 个 zbc-format fixture
+xtask build test                             # 原地重生全部 zbc-format fixture
 cargo test --lib                             # committed fixture 现应全过
 xtask test                                   # 完整 GREEN，含自举不动点 gen1==gen2
 ```

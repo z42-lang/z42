@@ -428,7 +428,7 @@ public sealed partial class ExprEmitter {
             }
             i = i + 1;
         }
-        this._ctx.Emit(new MkClosInstr(dst, liftName, caps, lam.CaptureCount, false));
+        this._ctx.Emit(new MkClosInstr(dst, liftName, caps, lam.CaptureCount));
         return dst;
     }
 

@@ -17,7 +17,6 @@ public sealed class IrGen {
     private StrIndex    _poolIdx;    // 字面量 → 池下标（perf-compiler-lookup-tables：去重查找 O(1)）
     public SymbolTable _symbols;
 
-    public TestIndexBuilder _testIx;
     public ClassDescBuilder _classDescB;
     public StubEmitter _stubE;
     // add-struct-value-semantics Phase A-use：值类型字节布局（每 struct 的 size/字段 offset/kind + 引用位图）。
@@ -98,7 +97,6 @@ public sealed class IrGen {
         this._pool[0] = "";
         this._poolCount = 1;
         this._poolIdx = new StrIndex();
-        this._testIx = new TestIndexBuilder(this);
         this._classDescB = new ClassDescBuilder(this);
         this._stubE = new StubEmitter(this);
         this.InstLayouts = new StrMap();
@@ -411,11 +409,7 @@ public sealed class IrGen {
         }
         string modName = "main";   // 模块名 = 根命名空间（对齐 C# `cu.Namespace ?? "main"`）
         if (cu.HasNamespace) { modName = cu.Namespace; }
-        // TIDX（add-z42c-tidx-emit）：先扫测试 attribute 建 TestIndex（**会 intern skip/reason 串入池**），
-        // 再构造 IrModule —— 须在 new IrModule 之前，否则后 intern 的串落在 StringCount 之外、strRemap 漏映射。
-        this._testIx._buildTestIndex(cu, funcs, fc);
         IrModule irm = new IrModule(modName, this._pool, this._poolCount, classes, cc, funcs, fc);
-        irm.TestIndex = this._testIx._tiEntries; irm.TestCount = this._testIx._tiCount;
         IrOptPipeline.Run(irm, optSet);   // 编译期 IR 优化管线（可独立开关的 OptSet，interp-first）
         return irm;
     }
@@ -552,40 +546,6 @@ public sealed class IrGen {
 
         this.SpecTypeArgs = saved;
     }
-
-
-    // ── TIDX 构建（add-z42c-tidx-emit；镜像 C# IrGen.Generate.BuildTestIndex）──────────────────
-    // 扫描每个携内建测试 attribute 的函数声明 → IrTestEntry。MethodId = 该函数在 funcs[] 的下标，
-    // 按 emit 时同一限定名（类方法 = _q(classShortName).methKey；顶层 = _q(name)）匹配。
-
-
-    // 扫一个类的方法成员，追加测试条目。返回新的条目数 n；增长后的数组存 this._lastEntries。
-
-    // funcs[] 线性查首现下标（first-wins，镜像 C# fnIndexByName.TryAdd 后查）；未命中 -1。
-
-    // 是否带任一内建测试 attribute（Test/Benchmark/Setup/Teardown/Ignore/Skip/ShouldThrow/Timeout）。
-
-
-    // 把一个函数的测试 attribute 聚合成单个 IrTestEntry（镜像 C# BuildTestEntry）。
-
-    // [ShouldThrow<E>] 的 `;`-分隔期望异常链（镜像 C# IrGen.Tests.BuildShouldThrowChain）。
-    // 链 = typeArg + 全部可见类（含 imported）中 base 链传递到达 typeArg 的短名。runner split ';'
-    // 任一匹配即放行 → 继承感知 ShouldThrow，无需 TIDX 布局变更或运行期跨模块类加载。
-    // 仅枚举本 CU SymbolTable.Classes 可见的类（含 using 引入的 imported 类）。
-
-    // clsName 是否经 base 链传递派生自 ancestorShortName（剥 base 名命名空间取短名；环防护 32 跳）。
-
-    // FQ base 名取短名（剥末段 `.` 前的命名空间；无 `.` 原样）。镜像 SymbolTable.z42 last-dot 扫描。
-
-    // 原地 Ordinal（按 char 码点）插入排序——名集小（可见类名），稳定确定序优先于性能。
-
-    // x < y（Ordinal/码点逐字符比较；前缀更短者小）。
-
-    // 命名字符串实参（`reason: "..."`）→ 1-based 池索引；无则 0。镜像 C# Intern(v)+1。
-
-    // 命名整型实参（`milliseconds: N`）→ int 值；无/非法则 0。
-
-    // 十进制整型文本 → int（剥 `_` 分隔，遇非数字停；Timeout 值为简单正十进制）。
 
 
     // TYPE 段（IrClassDesc）字段类型名：**源拼写**（byte[]，非规范 u8[]）——whichsec/disasm 实证 C#

@@ -295,8 +295,7 @@ stdlib、`bundle` 组嵌入语料并放进宿主、`run` 在宿主 / 设备上�
 | ③ | `src/**/*.z42` 里的 `// requires-caps:` 与 `[Skip(feature: "…")]` 只用「已生效」的名字 | 改成已生效的名字；需要新能力就先让运行期报告它 |
 | ④ | `build/` 的一级目录、`build/{compiler,libraries,toolchain}/` 的二级目录、`intermediate/` 的一级目录，在 `src/` 下都有同名目录（不存在的跳过） | 编译产物改到 `build/` 镜像（`_buildMirror`），其余改到 `intermediate/` 镜像（`_workOut` 等）；旧布局残留按报错给的 `rm -rf` 删掉 |
 
-③ 豁免两类故意写未知能力名的 fixture（`_tlCapFixtures()`）：`src/runtime/tests/data/`（TIDX 解码）与
-`z42.test` 的 `skip_platform_demo.z42`（deny-by-default 演示）。④ 的例外只有 `intermediate/xtask`（xtask 不在 `src/` 下）。
+③ 豁免故意写未知能力名的 fixture（`_tlCapFixtures()`）：`z42.test` 的 `skip_platform_demo.z42`（deny-by-default 演示）。④ 的例外只有 `intermediate/xtask`（xtask 不在 `src/` 下）。
 
 | 组件 | 位置 |
 |---|---|

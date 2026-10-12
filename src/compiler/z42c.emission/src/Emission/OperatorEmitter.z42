@@ -227,7 +227,7 @@ public sealed class OperatorEmitter {
     }
 
     // 落空异常的 FQ 类名。emitter 只写**字符串**、不 `using` 这个类 ⇒ 编译期零依赖，
-    // 因此不踩 bootstrap-seed 的「新 stdlib API 要晚一个 nightly」纪律（轴 ③ 不触发）。
+    // 因此不踩 「新 stdlib API 要晚一个 nightly」纪律（轴 ③ 不触发）。
     private static string SWX_EXC = "Std.SwitchExpressionException";
 
     // 落空异常的 FQ ctor 名，**从符号表现查、不硬编码**。

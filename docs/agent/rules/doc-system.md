@@ -40,7 +40,7 @@
 | `z42.toml` | 字段全表（契约） | `BuildLayout` 级联默认的实现 |
 | 泛型 | `where` 能写什么、报什么错 | 约束检查器、TSIG、单态化策略 |
 | GC | **不写**（除非有用户可感知的旋钮 → 归运行时设置） | 全部 |
-| 测试 | `[Test]` 怎么写、`z42 test` 怎么用 | TIDX 格式、runner 协议、GREEN gate 组成 |
+| 测试 | `[Test]` 怎么写、`z42 test` 怎么用 | 反射发现、runner 协议、GREEN gate 组成 |
 | CLI | `z42`（面向用户的命令面） | `z42c --dump-*`（编译器调试）、`xtask *`（仓库开发） |
 | 嵌入 | C ABI **契约**（宿主开发者也在「用 z42」） | VM 内部如何实现这套 ABI |
 | stdlib | 公开 API、语法覆盖、不支持项 | Tier 归属、extern 预算、怎么加一个包 |
@@ -65,6 +65,7 @@ README       ──链──▶  三本书             ✅ 允许
   绝对 URL，死链检查**查不到**。
 - **受众**：书的读者不该被带进「AI 怎么干活」的流程层。
 - **唯一例外**：根 `README.md` 与 `docs/README.md` 的分流导航——它们是总入口，不指路会让贡献者找不到规范。
+- **代码注释、脚本、CI 配置同理**：不写 `docs/agent/` 路径；要交代事实或做法，指向书里讲这件事的页。
 - 书 / README 需要引用某条规范时，用**不带链接的散文**陈述事实（写「pre-1.0 不留兼容」，而不是链到规则标题）。
 - 由 `xtask test docs` 的 ③ 机械校验（豁免自动生效）。
 
@@ -101,7 +102,7 @@ learn  ──链──▶  reference          internals  ──链──▶  lea
 | 门 | 内容 |
 |---|---|
 | **① 同一个 PR** | 文档与代码同分支同 PR。禁止「代码先合、文档后补」 |
-| **② `xtask test docs`** | 机械检查：① 相对链接可解析；② gate stage 清单与 test-gate 文档一致；③ 书 / README 不链 agent；④ `src/` 第 2、3 层的目录 README 有「关联文档」段。`xtask test docs examples` 另查 learn ↔ examples（B1–B10，含 learn 的 SUMMARY 对账）并重放会话脚本 |
+| **② `xtask test docs`** | 机械检查：① 相对链接可解析；② gate stage 清单与 test-gate 文档一致；③ 书 / README / 代码不引用 agent；④ `src/` 第 2、3 层的目录 README 有「关联文档」段。`xtask test docs examples` 另查 learn ↔ examples（B1–B10，含 learn 的 SUMMARY 对账）并重放会话脚本 |
 | **③ 合并前 doc-check** | 人工兜底，清单如下 |
 
 **合并前 doc-check 清单**（全部勾上才能合并）：

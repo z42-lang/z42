@@ -52,7 +52,6 @@ pub use sidecar::{ZbcSidecarData, ZpkgSidecarData, read_build_id, parse_zbc_side
 pub use zpkg::{ZpkgInfo, read_zpkg_meta, read_zpkg_modules, read_zpkg_namespaces};
 pub use zpkg_index::{
     ZpkgFileEntry, read_zpkg_impl_pairs, read_zpkg_file_entries,
-    read_test_index_section, read_test_index_resolved, read_raw_string_pool,
 };
 
 // ── Section directory ─────────────────────────────────────────────────────────

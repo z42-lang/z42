@@ -9,7 +9,7 @@
 
 | 页 | 什么时候读 |
 |---|---|
-| [测试框架与 runner](framework.md) | 要改用例发现、执行、报告；要知道 TIDX 各字段谁写谁读 |
+| [测试框架与 runner](framework.md) | 要改用例发现、执行、报告；要知道测试 attribute 谁写谁读 |
 | [跨平台测试](cross-platform.md) | 要加一个平台后端，或改能力门控 |
 | [嵌入式 app 运行](embedded-app-run.md) | 要改 test-agent / bundle 流水线 / 静动链接矩阵 |
 | [执行 profile 矩阵](exec-profile-matrix.md) | 要加一根轴或改矩阵 schema |
