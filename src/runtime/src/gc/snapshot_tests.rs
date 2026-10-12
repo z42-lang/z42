@@ -300,7 +300,7 @@ fn root_edge_count_matches_pinned_root_count() {
     heap.unpin_root(r3);
 
     // Touch ScriptObject import so it's not flagged as unused.
-    let _ = std::mem::size_of::<ScriptObject>();
+    let _ = std::mem::size_of::<&ScriptObject>();
     let _ = GcRef::<Vec<Value>>::clone;
 }
 

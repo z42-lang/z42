@@ -275,9 +275,10 @@ pub type CategorizedRootScanner =
 /// to key the reverse reference graph. Mirrors `mark_if_unmarked`'s variant set.
 fn value_heap_ptr(v: &Value) -> Option<usize> {
     match v {
-        Value::Object(gc) => Some(gc.borrow() as *const _ as usize),
+        // Object model R6: the header address, taken from the handle (thin, whole-block provenance).
+        Value::Object(gc) => Some(ObjRef::as_ptr(gc) as usize),
         // add-boxed-struct-identity (P4b): boxed struct is a heap object (an object block).
-        Value::BoxedStruct(gc) => Some(gc.borrow() as *const _ as usize),
+        Value::BoxedStruct(gc) => Some(ObjRef::as_ptr(gc) as usize),
         Value::Array(gc) => Some(gc.borrow() as *const _ as usize),
         // unify-gc-heap PR-2: the closure is itself a heap object (region_var block) — its own
         // block address is its identity.
@@ -338,7 +339,8 @@ unsafe fn var_drop_glue(bt: BlockType, payload: *mut u8, size: usize) -> u64 {
             if unsafe { (payload as *const usize).read() } == 0 {
                 return 0;
             }
-            let obj = payload as *mut ScriptObject;
+            // SAFETY: `payload` / `size` are this block's (whole-block provenance, from the region).
+            let obj = unsafe { ScriptObject::from_payload(payload, size) };
             // SAFETY: a written object header, dropped exactly once (the region calls the glue
             // once per reclaim); the extras box size is read before it is freed.
             unsafe {

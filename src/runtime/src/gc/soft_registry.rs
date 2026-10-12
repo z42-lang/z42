@@ -39,10 +39,10 @@ pub(crate) fn soft_threshold_from_env() -> f64 {
 /// Which region owns the target — needed to re-construct the right
 /// `Value` variant if the revive pass needed to produce a `Value`
 /// (not needed currently; kept for future extension).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) enum ErasedKind {
-    /// An object block (object model R6) — the handle's raw bits (`ObjRef::to_tagged_bits`).
-    Object { bits: u64 },
+    /// An object block (object model R6) — its handle (a pointer, so provenance is kept).
+    Object { obj: crate::gc::ObjRef },
     Array,
 }
 
@@ -67,20 +67,19 @@ unsafe impl Send for ErasedSoftEntry {}
 unsafe impl Sync for ErasedSoftEntry {}
 
 impl ErasedSoftEntry {
-    /// An object target (object model R6): the block handle's raw bits ride in `generation`'s
-    /// place — `VarGcRef` carries its own generation snapshot.
+    /// An object target (object model R6): the handle itself (it carries its own generation
+    /// snapshot); `ptr` is its block header, the key the flagged-dead drain removes it by.
     pub(crate) fn from_object(obj: crate::gc::ObjRef) -> Self {
-        let bits = obj.to_tagged_bits();
-        let ptr = NonNull::new(obj.var_ref().addr() as *mut u8).expect("object handle is non-null");
-        Self { ptr, generation: 0, kind: ErasedKind::Object { bits } }
+        let ptr = obj.var_ref().header_raw();
+        Self { ptr, generation: 0, kind: ErasedKind::Object { obj } }
     }
 
     /// The object handle of an [`ErasedKind::Object`] entry.
     pub(crate) fn object(&self) -> Option<crate::gc::ObjRef> {
         match self.kind {
-            // SAFETY: the bits came from a live handle; the entry is dropped (via the heap's
-            // flagged-dead drain) before the object's chunk can be reclaimed.
-            ErasedKind::Object { bits } => unsafe { crate::gc::ObjRef::from_tagged_bits(bits) },
+            // The entry is dropped (via the heap's flagged-dead drain) before the object's chunk
+            // can be reclaimed, so the handle always names a readable header.
+            ErasedKind::Object { obj } => Some(obj),
             ErasedKind::Array => None,
         }
     }

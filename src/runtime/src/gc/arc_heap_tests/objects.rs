@@ -8,7 +8,7 @@ use super::*;
 use crate::gc::region::PROMOTION_THRESHOLD;
 use crate::gc::var_region::{class_for, BlockType, GcBlockHeader};
 use crate::gc::{GcMode, ObjRef};
-use crate::metadata::types::{OwnedObject, OBJ_HEADER_BYTES};
+use crate::metadata::types::{OwnedObject, ScriptObject, OBJ_HEADER_BYTES};
 
 fn generational_heap() -> ArcMagrGC {
     let heap = ArcMagrGC::new();
@@ -300,8 +300,8 @@ fn an_owned_object_reads_like_a_heap_object() {
     let (a, b) = (&*owned, heaped.borrow());
     assert_eq!(a.payload_len(), b.payload_len());
     assert_eq!(
-        a.cells().base_ptr() as usize - a as *const _ as usize,
-        b.cells().base_ptr() as usize - b as *const _ as usize,
+        a.cells().base_ptr() as usize - (a as *const ScriptObject).cast::<u8>() as usize,
+        b.cells().base_ptr() as usize - (b as *const ScriptObject).cast::<u8>() as usize,
         "fields sit at the same offset from the header"
     );
     assert!(a.field_value(0) == b.field_value(0));

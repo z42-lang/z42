@@ -25,7 +25,8 @@ extern crate mimalloc as _;
 /// what a major frees outside the GC chunks (extras boxes, element-type names, the chunks of
 /// freed large objects) mimalloc otherwise purges only lazily.
 fn release_allocator_cache() {
-    #[cfg(feature = "mimalloc-alloc")]
+    // Not under Miri: it cannot call into mimalloc (and Miri runs on its own allocator).
+    #[cfg(all(feature = "mimalloc-alloc", not(miri)))]
     {
         extern "C" {
             fn mi_collect(force: bool);

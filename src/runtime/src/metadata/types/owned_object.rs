@@ -23,7 +23,7 @@
 
 use std::sync::Arc;
 
-use super::{NativeData, ScriptObject, TypeArgs, TypeDesc, OBJ_HEADER_BYTES};
+use super::{NativeData, ObjHeader, ScriptObject, TypeArgs, TypeDesc, OBJ_HEADER_BYTES};
 use crate::gc::var_region::{BlockType, DetachedBlock};
 
 /// A managed object owned outside the GC heap — see the module docs.
@@ -38,7 +38,7 @@ impl OwnedObject {
         let block = DetachedBlock::new(OBJ_HEADER_BYTES + field_bytes, BlockType::Object);
         // SAFETY: the block's payload is `OBJ_HEADER_BYTES + field_bytes` zeroed bytes, 8-aligned;
         // the header goes at its start and is dropped exactly once (see `Drop`).
-        unsafe { block.payload_ptr().cast::<ScriptObject>().write(ScriptObject::header(type_desc)) };
+        unsafe { block.payload_ptr().cast::<ObjHeader>().write(ObjHeader::new(type_desc)) };
         Self { block: std::mem::ManuallyDrop::new(block) }
     }
 
@@ -83,12 +83,23 @@ impl OwnedObject {
     }
 }
 
+impl OwnedObject {
+    /// The object as a fat pointer over the detached block's payload (header + fields), derived
+    /// from the block's own allocation.
+    #[inline]
+    fn object_ptr(&self) -> *mut ScriptObject {
+        // SAFETY: the payload is `payload_size` bytes of header + fields of this block, which was
+        // carved by `class_for` (capacity covers the rounded-up `size_of_val`).
+        unsafe { ScriptObject::from_payload(self.block.payload_ptr(), self.block.payload_size()) }
+    }
+}
+
 impl std::ops::Deref for OwnedObject {
     type Target = ScriptObject;
     #[inline]
     fn deref(&self) -> &ScriptObject {
         // SAFETY: the header was written in `new` and lives until `Drop`.
-        unsafe { &*self.block.payload_ptr().cast::<ScriptObject>() }
+        unsafe { &*self.object_ptr() }
     }
 }
 
@@ -96,7 +107,7 @@ impl std::ops::DerefMut for OwnedObject {
     #[inline]
     fn deref_mut(&mut self) -> &mut ScriptObject {
         // SAFETY: as `deref`; `&mut self` makes the access exclusive.
-        unsafe { &mut *self.block.payload_ptr().cast::<ScriptObject>() }
+        unsafe { &mut *self.object_ptr() }
     }
 }
 
@@ -105,7 +116,7 @@ impl Drop for OwnedObject {
         // SAFETY: the header was written in `new` and is dropped exactly once, here; the block's
         // memory is released right after.
         unsafe {
-            std::ptr::drop_in_place(self.block.payload_ptr().cast::<ScriptObject>());
+            std::ptr::drop_in_place(self.object_ptr());
             std::mem::ManuallyDrop::drop(&mut self.block);
         }
     }

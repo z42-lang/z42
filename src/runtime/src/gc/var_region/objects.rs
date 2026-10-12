@@ -119,6 +119,13 @@ impl DetachedBlock {
         VarGcRef::pack(self.header, 0)
     }
 
+    /// The payload's byte length (from the block header).
+    #[inline]
+    pub fn payload_size(&self) -> usize {
+        // SAFETY: the header heads this block's own allocation and was written in `new`.
+        unsafe { self.header.as_ref() }.size()
+    }
+
     /// Give the memory up for good and return a handle to it — a block no region knows about,
     /// alive forever (tests and heap-less fallbacks; see `VarGcRef::alloc_leaked`).
     pub fn leak(self) -> VarGcRef {

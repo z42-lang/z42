@@ -173,24 +173,27 @@ impl std::fmt::Debug for ObjMeta {
     }
 }
 
-/// A managed object's **header** (object model R6) — the first 16 bytes of its storage, with
-/// the field cells immediately after it:
+/// A managed object (object model R6): its 16 B header — type descriptor and meta word — and,
+/// immediately after it, its field cells, as **one dynamically sized value**:
 ///
 /// ```text
-///   GcBlockHeader (16 B) │ ScriptObject: type_desc (8 B) │ meta (8 B) │ field cells …
-///                         ↑ &ScriptObject                             ↑ cells(): payload_len() bytes
+///   GcBlockHeader (16 B) │ type_desc (8 B) │ meta (8 B) │ fields: [UnsafeCell<u8>] …
+///                         ↑ &ScriptObject (fat: address + field-area length) ──────────┘
 /// ```
 ///
-/// A heap object is one `BlockType::Object` block of the variable-length GC region: block
-/// header, this header, fields — one allocation, freed (and its `Arc<TypeDesc>` / extras box
-/// dropped by the heap's drop glue) when the block is tombstoned. An object outside the heap (a
-/// stack-allocated object, one under construction) lives in an [`OwnedObject`], a detached
-/// block of the same shape — so every `&ScriptObject` finds its block header 16 bytes before it
-/// and its fields 16 bytes after it, and the field area's length is the block header's payload
-/// size minus this header.
+/// A heap object is the payload of one `BlockType::Object` block of the variable-length GC
+/// region: block header, then this value — one allocation, freed (and its `Arc<TypeDesc>` /
+/// extras box dropped by the heap's drop glue) when the block is tombstoned. An object outside
+/// the heap (a stack-allocated object, one under construction) lives in an [`OwnedObject`], a
+/// detached block of the same shape.
 ///
-/// `ScriptObject` is therefore never a free-standing value: it is only ever reached by
-/// reference, through an [`ObjRef`](crate::gc::ObjRef) or an `OwnedObject`.
+/// `&ScriptObject` is a **fat reference** whose metadata is the field-area length, so it covers
+/// the header *and* the fields: every field access stays inside the reference's own range
+/// (Stacked Borrows: the retag spans `size_of_val`), and nothing ever walks from it to memory
+/// outside it. It is built only from a pointer that carries the whole block's provenance
+/// ([`ScriptObject::from_payload`]: `ObjRef::borrow`, `OwnedObject`, the allocators, the drop
+/// glue), with the length read from the block header there. Hot structures and ABIs keep thin
+/// handles (`ObjRef`, the header address from `ObjRef::as_ptr`), never a `&ScriptObject`.
 ///
 /// Field cells (object model R1–R3): every primitive leaf (incl. inline-struct interior
 /// primitive leaves) lives at its composed byte offset, and so does every reference: a direct
@@ -210,24 +213,47 @@ pub struct ScriptObject {
     /// interned [`TypeArgs`] entry (shared, nothing allocated per object); only a
     /// native-backed object pays for a box.
     meta: ObjMeta,
-    /// The trailing field area, zero-sized here. An `UnsafeCell` so `&ScriptObject` is not
-    /// `Freeze`: the field cells behind the header are written through `&self` (atomic cell
-    /// stores), which a `readonly` / `noalias` shared reference would forbid.
-    fields: std::cell::UnsafeCell<[u64; 0]>,
+    /// The field area. `UnsafeCell` because the cells are written through `&self` (atomic cell
+    /// stores), which a shared reference to plain bytes would forbid.
+    fields: [std::cell::UnsafeCell<u8>],
+}
+
+/// The sized prefix of [`ScriptObject`] — exactly its header fields, same `#[repr(C)]` order —
+/// which is what the allocators write into a fresh block and what an object's identity address
+/// (`ObjRef::as_ptr`) points at.
+#[repr(C)]
+pub struct ObjHeader {
+    pub type_desc: Arc<TypeDesc>,
+    meta: ObjMeta,
+}
+
+impl ObjHeader {
+    /// The header of a fresh object of `type_desc` (no extras).
+    #[inline]
+    pub(crate) fn new(type_desc: Arc<TypeDesc>) -> Self {
+        Self { type_desc, meta: ObjMeta::NONE }
+    }
+
+    /// Per-instance generic type-arguments (see [`ScriptObject::type_args`]).
+    #[inline]
+    pub fn type_args(&self) -> &[String] {
+        self.meta.type_args()
+    }
 }
 
 /// Bytes of the object header in front of the field cells (object model R6): two pointer-sized
 /// words — 16 on 64-bit targets, 8 on 32-bit ones (wasm32 / armv7). A multiple of 8 either way,
-/// so the field cells start 8-aligned behind the 8-aligned block payload.
-pub const OBJ_HEADER_BYTES: usize = std::mem::size_of::<ScriptObject>();
+/// so the field cells start 8-aligned behind the 8-aligned block payload. Under `#[repr(C)]` the
+/// shared prefix puts `ScriptObject::fields` exactly here (pinned by `object_tests`).
+pub const OBJ_HEADER_BYTES: usize = std::mem::size_of::<ObjHeader>();
 #[cfg(target_pointer_width = "64")]
 const _: () = assert!(OBJ_HEADER_BYTES == 16);
 const _: () = assert!(OBJ_HEADER_BYTES % 8 == 0);
-const _: () = assert!(std::mem::align_of::<ScriptObject>() == 8);
+const _: () = assert!(std::mem::align_of::<ObjHeader>() == std::mem::size_of::<usize>());
 
 // SAFETY: the header's fields are `Send + Sync` (`ObjMeta`'s impls say why); the field area is
 // only ever accessed through atomic cell views (`Cells`), so sharing `&ScriptObject` across
-// threads is race-free — the `UnsafeCell` marker is not a plain-memory mutation channel.
+// threads is race-free — the `UnsafeCell`s are not a plain-memory mutation channel.
 unsafe impl Send for ScriptObject {}
 unsafe impl Sync for ScriptObject {}
 
@@ -242,43 +268,38 @@ impl std::fmt::Debug for ScriptObject {
 }
 
 impl ScriptObject {
-    /// The header of a fresh object of `type_desc` (no extras) — written into a block by the
-    /// allocators (`OwnedObject`, `ArcMagrGC`), never used as a free-standing value.
-    #[inline]
-    pub(crate) fn header(type_desc: Arc<TypeDesc>) -> Self {
-        Self { type_desc, meta: ObjMeta::NONE, fields: std::cell::UnsafeCell::new([]) }
-    }
-
-    /// The block header 16 bytes in front of this object header (a heap block's, or an
-    /// `OwnedObject`'s detached block's).
+    /// The object stored in a block payload of `payload_size` bytes at `payload` (header + field
+    /// area), as a fat raw pointer whose metadata is the field-area length.
+    ///
+    /// # Safety
+    /// `payload` carries the provenance of the whole block (derived from the block's own
+    /// allocation, never from a narrower reference), `payload_size >= OBJ_HEADER_BYTES`, and the
+    /// block's capacity covers `size_of_val` of the result (`payload_size` rounded up to the
+    /// header's alignment — every size class / detached block does). The caller writes the header
+    /// before reading through the pointer.
     #[inline(always)]
-    fn block_header(&self) -> &crate::gc::var_region::GcBlockHeader {
-        // SAFETY: a `ScriptObject` only exists at the payload start of a block (see the type
-        // docs), so the 16 bytes before it are that block's header.
-        unsafe {
-            &*(self as *const Self)
-                .cast::<u8>()
-                .sub(crate::gc::var_region::GcBlockHeader::DATA_OFFSET)
-                .cast::<crate::gc::var_region::GcBlockHeader>()
-        }
+    pub(crate) unsafe fn from_payload(payload: *mut u8, payload_size: usize) -> *mut ScriptObject {
+        debug_assert!(payload_size >= OBJ_HEADER_BYTES, "object payload shorter than its header");
+        std::ptr::slice_from_raw_parts_mut(payload, payload_size - OBJ_HEADER_BYTES) as *mut ScriptObject
     }
 
     /// Payload length in bytes — the field area behind the header (a boxed primitive's scalar
-    /// width, a boxed struct's blob size, a class instance's `TypeDesc::object_bytes_len`).
+    /// width, a boxed struct's blob size, a class instance's `TypeDesc::object_bytes_len`). The
+    /// reference's own metadata: no memory read.
     #[inline(always)]
     pub fn payload_len(&self) -> usize {
-        self.block_header().size() - OBJ_HEADER_BYTES
+        self.fields.len()
     }
 
     /// Atomic loads and stores of the field cells.
     #[inline(always)]
     pub fn cells(&self) -> Cells<'_> {
-        // SAFETY: the field area starts right after the header, 8-aligned (block payloads are
-        // 8-aligned and the header is 16 bytes), `payload_len()` bytes long and owned by this
-        // object's block; every access to it after construction is an atomic cell access (JIT
-        // inline loads / stores are plain same-width accesses, the relaxed atomics of x86-64 /
-        // AArch64).
-        unsafe { Cells::from_raw(self.fields.get().cast::<u8>(), self.payload_len()) }
+        // SAFETY: the field area is this value's own tail (in range of `&self`), 8-aligned
+        // (block payloads are 8-aligned and the header is a multiple of 8), `fields.len()` bytes,
+        // and interior-mutable; every access to it after construction is an atomic cell access
+        // (JIT inline loads / stores are plain same-width accesses, the relaxed atomics of
+        // x86-64 / AArch64).
+        unsafe { Cells::from_raw(std::cell::UnsafeCell::raw_get(self.fields.as_ptr()), self.fields.len()) }
     }
 
     /// An atomic snapshot of the whole field area ([`Cells::copy_out`]).
@@ -390,10 +411,11 @@ impl ScriptObject {
 impl crate::gc::ObjRef {
     /// The object's `type_desc` (set at construction, never changed). Used by hot-path IC
     /// scans (VCallIC, FieldIC, IsInstance) and the GC mark traversal. Returns the inner
-    /// `&TypeDesc` (one fewer deref at the call site than `&Arc<TypeDesc>`).
+    /// `&TypeDesc` (one fewer deref at the call site than `&Arc<TypeDesc>`). Reads through the
+    /// thin header (`ObjRef::header`): no field-area length, no fat reference.
     #[inline]
     pub fn type_desc(&self) -> &TypeDesc {
-        &self.borrow().type_desc
+        &self.header().type_desc
     }
 
     /// Lockless read of the object's `type_desc` as `&Arc<TypeDesc>`.
@@ -403,7 +425,7 @@ impl crate::gc::ObjRef {
     /// `&TypeDesc`) which saves one deref.
     #[inline]
     pub fn type_desc_arc(&self) -> &Arc<TypeDesc> {
-        &self.borrow().type_desc
+        &self.header().type_desc
     }
 
     /// Lockless read of the object's `type_args` (generic type arguments at construction).
@@ -411,7 +433,7 @@ impl crate::gc::ObjRef {
     /// escapes, never mutated after; the slice itself is an interned `'static` entry.
     #[inline]
     pub fn type_args(&self) -> &[String] {
-        self.borrow().type_args()
+        self.header().type_args()
     }
 }
 

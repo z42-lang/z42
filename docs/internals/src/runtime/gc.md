@@ -173,7 +173,7 @@ panic（generation/alive mismatch detection）。该守卫 **debug 与 release �
 - `region_array: Mutex<Region<ArrayObj>>` —— `Value::Array` 的数组头（定长槽）。
 
 **对象 = 一个变长块**：16 B 块头（`GcBlockHeader`：generation / size / mark / alive / type_tag / size_class / chunk_idx）、
-16 B 对象头（`ScriptObject`：`type_desc` + `meta`）、字段单元，一次分配（布局见 [object-abi.md](object-abi.md) §1）。
+16 B 对象头（`ObjHeader`：`type_desc` + `meta`）、字段单元，一次分配；`&ScriptObject` 是盖住对象头 + 字段的胖引用（布局见 [object-abi.md](object-abi.md) §1）。
 没有单独的字段块 malloc，死对象的字段随块一起回收；对象头里的 `Arc<TypeDesc>` 与 extras 盒子由变长区的 drop glue
 在块被 tombstone 时释放（`var_drop_glue` 的 `Object` 臂，返回 extras 的字节数，变长区记回占用账）。
 分配走 `acquire_var_block`（TLAB 无锁 bump，或锁路径），对象在块里建好再发布（`gc/arc_heap/alloc_object.rs`）。
@@ -243,7 +243,7 @@ VarRegion 变长块（16B 对齐原始 chunk + 四分之一八度 size-class fre
 
 | BlockType | payload | 消费者 | drop-glue |
 |-----------|---------|--------|-----------|
-| `Object` | 16 B 对象头（`ScriptObject`）+ 字段单元 | `Value::Object` / `Value::BoxedStruct`（`ObjRef`）| **有**：drop 对象头（`Arc<TypeDesc>`、extras 盒子），返回 extras 字节数供占用账扣回 |
+| `Object` | 16 B 对象头（`ObjHeader`）+ 字段单元（整体即 `ScriptObject` DST） | `Value::Object` / `Value::BoxedStruct`（`ObjRef`）| **有**：drop 对象头（`Arc<TypeDesc>`、extras 盒子），返回 extras 字节数供占用账扣回 |
 | `Str` | inline UTF-8 | `Value::Str`（8B 细指针，**不可变叶子**，trace 无出边）| POD，无 |
 | `Closure` | 一个 `ClosureData{env: GcRef, fn_id: FnId}` | `Value::Closure` | **POD，无**（目标是函数 id，闭包全 POD）|
 | `ArrayPrim` / `ArrayStruct` | 紧凑 `[T;n]`（PRIM 数组 / `struct[]` blob，引用叶子是 8 B 引用字）| `ArrayObj` backing | POD，无 |

@@ -16,7 +16,7 @@
 
 use crate::gc::refs::MarkKind;
 use crate::gc::var_region::VarGcRef;
-use crate::metadata::types::{OwnedObject, ScriptObject};
+use crate::metadata::types::{ObjHeader, OwnedObject, ScriptObject};
 
 /// Handle of a managed object — see the module docs. `Copy`, 8 bytes, `Option<ObjRef>` too.
 #[derive(Clone, Copy)]
@@ -40,7 +40,9 @@ impl ObjRef {
         self.0
     }
 
-    /// The object header (and through it, the fields). **Panics** when the handle is stale —
+    /// The object — header and fields, as one fat reference built from the block's own pointer
+    /// (whole-block provenance) with the field-area length read from the block header (see
+    /// [`ScriptObject`]). **Panics** when the handle is stale —
     /// the block was tombstoned (and maybe reused) since the handle was taken: the generation
     /// guard is the backstop against reading another object's memory as this one
     /// (use-after-finalize via `GC.Finalize`, or a VM bug). Unconditional (release too), and one
@@ -52,9 +54,23 @@ impl ObjRef {
         if !self.0.generation_matches() {
             stale_borrow();
         }
-        // SAFETY: a live object block holds a written `ScriptObject` header at its payload start;
-        // the block stays mapped while the handle is reachable (the GC keeps it alive).
-        unsafe { &*self.0.payload_as_ptr::<ScriptObject>() }
+        // SAFETY: a live object block holds a written object header at its payload start and
+        // `payload_size` bytes of header + fields; the pointer derives from the block header
+        // pointer (whole-block provenance); the block stays mapped while the handle is reachable
+        // (the GC keeps it alive).
+        unsafe { &*ScriptObject::from_payload(self.0.payload_as_ptr::<u8>(), self.0.payload_size()) }
+    }
+
+    /// Just the object header (type descriptor, meta word) as a thin reference over its 16 bytes
+    /// — what the type checks and virtual-call caches need, without reading the field-area
+    /// length or building the fat `&ScriptObject`. Same stale-handle guard as [`Self::borrow`].
+    #[inline(always)]
+    pub fn header(&self) -> &ObjHeader {
+        if !self.0.generation_matches() {
+            stale_borrow();
+        }
+        // SAFETY: as `borrow`; the header is the payload's sized prefix.
+        unsafe { &*self.0.payload_as_ptr::<ObjHeader>() }
     }
 
     /// Identity: same block **and** same generation.
@@ -64,11 +80,12 @@ impl ObjRef {
     }
 
     /// The object header's address — the object's identity (hash keys, dedup, retention). Stable
-    /// for the object's lifetime: blocks never move.
+    /// for the object's lifetime: blocks never move. A thin pointer derived from the block (not
+    /// from a `&ScriptObject`), so it is safe to keep and compare without touching the object.
     #[inline]
-    pub fn as_ptr(this: &Self) -> *const ScriptObject {
+    pub fn as_ptr(this: &Self) -> *const ObjHeader {
         // SAFETY: pointer arithmetic only (no dereference).
-        unsafe { this.0.payload_as_ptr::<ScriptObject>() }
+        unsafe { this.0.payload_as_ptr::<ObjHeader>() }
     }
 
     /// The handle's raw bits, for storing in a reference word (`ref_word`). Never zero, low 3
@@ -128,7 +145,7 @@ impl std::fmt::Debug for ObjRef {
         if !self.0.is_live() {
             return f.debug_tuple("ObjRef").field(&"<tombstoned>").finish();
         }
-        f.debug_tuple("ObjRef").field(self.borrow()).finish()
+        f.debug_tuple("ObjRef").field(&self.borrow()).finish()
     }
 }
 

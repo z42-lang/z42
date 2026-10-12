@@ -13,15 +13,22 @@
 - **对象** = 变长 GC 区（`region_var`）里的**一个** `BlockType::Object` 块，一次分配（对象模型 R6）：
 
   ```
-  GcBlockHeader (16 B) │ ScriptObject: type_desc (8 B) │ meta (8 B) │ 字段单元 …
-                        ↑ &ScriptObject / ObjRef::as_ptr          ↑ cells()：payload_len() 字节
+  GcBlockHeader (16 B) │ type_desc (8 B) │ meta (8 B) │ fields: [UnsafeCell<u8>] …
+                        ↑ ObjRef::as_ptr（*const ObjHeader，细指针）
+                        └──────── &ScriptObject（胖引用：地址 + 字段区长度）────────┘
   ```
 
-  `ScriptObject`（[metadata/types/object.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/object.rs)）只是这 16 B 的对象头，`#[repr(C)]`，**从不作为独立值存在**：
-  字段区紧跟在它后面，长度 = 块头的 `size`（载荷长度）− 16，`cells()` 从 `self` 的地址推出（块头里的 `size` 是唯一的长度来源，
-  装箱基元按标量宽度、装箱 struct 按 blob、类实例按 `TypeDesc::object_bytes_len`）。字段区是零初始化的：基元字段、8 B 引用字
-  （含内联 struct 的引用叶子）与 16 B 型参单元都在里面，没有 16 B `Value` 侧表，布局见 §3「字段存储布局」。对象头里有一个零尺寸的
-  `UnsafeCell` 标记，`&ScriptObject` 因而不是 `Freeze`——字段经 `&self` 原子写，不能让编译器把对象头引用当只读。
+  `ScriptObject`（[metadata/types/object.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/object.rs)）是一个 `#[repr(C)]` **动态大小类型**：
+  `{ type_desc, meta, fields: [UnsafeCell<u8>] }`，`&ScriptObject` 是胖引用，元数据就是字段区长度，**引用的范围恰好盖住对象头 + 字段**。
+  所以 `payload_len()` 就是 `fields.len()`（不读内存）、`cells()` 从 `fields` 推出——每次字段访问都在引用自己的范围里，从不从引用走到它外面的内存
+  （Stacked Borrows 的 retag 覆盖 `size_of_val`；Miri 核过）。胖引用只在持有整块 provenance 的指针上构造（`ScriptObject::from_payload`：
+  `ObjRef::borrow`、`OwnedObject`、分配器、drop glue），长度在那里从块头的 `size`（载荷长度）− 对象头算出——块头 `size` 是唯一的长度来源
+  （装箱基元按标量宽度、装箱 struct 按 blob、类实例按 `TypeDesc::object_bytes_len`）。对象头的定长前缀是 `ObjHeader`（同样 `#[repr(C)]`、
+  同样两个字段），分配器只经它写对象头（不按值构造 `ScriptObject`），`OBJ_HEADER_BYTES = size_of::<ObjHeader>()`（64 位 16 B、32 位 8 B），
+  `#[repr(C)]` 的公共前缀保证 `fields` 正好从这里开始（单测钉住）。`fields` 是 `UnsafeCell`：字段经 `&self` 原子写。
+  字段区是零初始化的：基元字段、8 B 引用字（含内联 struct 的引用叶子）与 16 B 型参单元都在里面，没有 16 B `Value` 侧表，布局见 §3「字段存储布局」。
+  热路径的结构与 ABI 只放细句柄（`ObjRef`、`ObjRef::as_ptr` 的对象头地址），不放 `&ScriptObject`；只看类型的路径（虚调用 IC、类型检查）经
+  `ObjRef::header()` 拿细的 `&ObjHeader`，不读字段区长度。
   堆外的对象（栈分配对象、堆外构造的对象）是同样形状的**脱离块**（`OwnedObject`，[owned_object.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/owned_object.rs)：
   一个不属于任何 region 的 `{块头, 对象头, 字段}`），所以 `&ScriptObject` 不论对象在哪都一样读。
   典型尺寸（块头 + 对象头 + 字段，按四分之一八度档取整）：空类 32 B、`{int}` / `{long}` 40 B、`{int; string}` 48 B。
@@ -182,7 +189,7 @@ ObjectHeader {
     type/kind: ptr,     // → TypeDesc（含字段布局/vtable/反射）或 kind 判别
 }
 ```
-> 注:当前对象的 mark / 代龄 / generation 在它所在 GC 块的 16 B 块头（`GcBlockHeader`）上，对象头（`ScriptObject`，16 B）里没有 GC 字；
+> 注:当前对象的 mark / 代龄 / generation 在它所在 GC 块的 16 B 块头（`GcBlockHeader`）上，对象头（`ObjHeader`，16 B）里没有 GC 字；
 > 块头 + 对象头共 32 B，对象模型 R8 计划合成一个 16 B 头。**为移动/分代,规范要求对象自带 `gc_word`**（见 §6）。
 
 ### 对象种类

@@ -97,6 +97,13 @@ impl VarGcRef {
         self.generation as u16
     }
 
+    /// The block header as a raw pointer (tag masked off, provenance kept) — for keys that must
+    /// stay pointers rather than integers (strict provenance).
+    #[inline]
+    pub(crate) fn header_raw(&self) -> NonNull<u8> {
+        self.header_ptr().cast()
+    }
+
     /// The block's stable header address as a `usize` — a heap-identity key (e.g. for the
     /// retention reverse-reference graph or `ptr_eq`-style identity). Masks off the generation
     /// tag; unique per live block for its lifetime.

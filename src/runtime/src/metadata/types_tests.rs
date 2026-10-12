@@ -637,13 +637,15 @@ fn compose_object_layout_already_aligned_base_no_extra_pad() {
 
 #[test]
 fn script_object_stays_small() {
-    // shrink-object-footprint: `ScriptObject` is the header of every object — object model R6
-    // puts it in the object's own GC block, between the 16 B block header and the fields — so
-    // its size is multiplied by the live object count. Pin it so an added field is a deliberate
-    // decision with a measurement, not a drift.
-    assert_eq!(std::mem::size_of::<ScriptObject>(), 16,
-        "ScriptObject grew — re-measure per-object RSS before updating this");
+    // shrink-object-footprint: the object header (`ObjHeader`, the sized prefix of the
+    // `ScriptObject` DST) sits in every object's GC block between the 16 B block header and the
+    // fields, so its size is multiplied by the live object count. Pin it so an added field is a
+    // deliberate decision with a measurement, not a drift.
+    assert_eq!(std::mem::size_of::<crate::metadata::types::ObjHeader>(), 16,
+        "the object header grew — re-measure per-object RSS before updating this");
     assert_eq!(crate::metadata::types::OBJ_HEADER_BYTES, 16);
+    // `&ScriptObject` is fat (address + field-area length): hot structures keep `ObjRef`.
+    assert_eq!(std::mem::size_of::<&ScriptObject>(), 2 * std::mem::size_of::<usize>());
 }
 
 // ── generic_field_zero_overrides (fix-generic-typeparam-field-zero, 2026-09-25) ──

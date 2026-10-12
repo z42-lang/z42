@@ -86,3 +86,16 @@ fn native_backing_is_dropped_with_the_object() {
     }
     assert!(probe.upgrade().is_none(), "the extras box (and its Arc) is freed on drop");
 }
+
+#[test]
+fn the_dst_fields_start_right_after_the_sized_header_prefix() {
+    // `ObjHeader` is written into fresh blocks and `ScriptObject` read over them: under
+    // `#[repr(C)]` they share the prefix, and the field area starts at `OBJ_HEADER_BYTES`.
+    let o = OwnedObject::new(td("Layout"), 24);
+    let base = (&*o as *const ScriptObject).cast::<u8>() as usize;
+    assert_eq!(o.cells().base_ptr() as usize - base, OBJ_HEADER_BYTES);
+    assert_eq!(std::mem::size_of_val(&*o), OBJ_HEADER_BYTES + 24, "the reference covers header + fields");
+    assert_eq!(o.type_desc.name, "Layout", "type_desc reads through the prefix");
+    let odd = OwnedObject::new(td("Odd"), 4);
+    assert!(std::mem::size_of_val(&*odd) <= OBJ_HEADER_BYTES + 8, "rounded up to 8 only");
+}

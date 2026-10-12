@@ -14,12 +14,13 @@ use std::sync::Arc;
 use crate::gc::obj_ref::ObjRef;
 use crate::gc::types::{AllocKind, GcEvent};
 use crate::gc::var_region::{BlockType, GcBlockHeader};
-use crate::metadata::types::{OwnedObject, ScriptObject, TypeArgs, OBJ_HEADER_BYTES};
+use crate::metadata::types::{ObjHeader, OwnedObject, ScriptObject, TypeArgs, OBJ_HEADER_BYTES};
 use crate::metadata::{TypeDesc, Value};
 
 impl crate::gc::arc_heap::ArcMagrGC {
     /// The allocation funnel for objects. `payload` is header + fields; `write` must initialize
-    /// the header at the pointer it is given (the fields are zeroed already). Returns
+    /// the header at the (fat, whole-block-provenance) object pointer it is given — through
+    /// `ObjHeader` writes, never by value — the fields are zeroed already. Returns
     /// `Value::Object`, or `Value::Null` when a strict-OOM heap refuses the allocation.
     pub(super) fn alloc_object_block(
         &self,
@@ -32,7 +33,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // SAFETY: a fresh, zeroed block of `payload >= OBJ_HEADER_BYTES` bytes that nothing else
         // can reach yet; `write` puts the header at its payload start.
         let obj: &ScriptObject = unsafe {
-            let p = vref.payload_as_ptr::<ScriptObject>();
+            let p = ScriptObject::from_payload(vref.payload_as_ptr::<u8>(), payload);
             write(p);
             &*p
         };
@@ -69,7 +70,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         self.alloc_object_block(payload, |p| {
             // SAFETY: `p` is the unpublished block's header slot (see `alloc_object_block`).
             unsafe {
-                p.write(ScriptObject::header(type_desc));
+                p.cast::<ObjHeader>().write(ObjHeader::new(type_desc));
                 (*p).install_type_args(type_args);
             }
         })
@@ -80,7 +81,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         self.alloc_object_block(OBJ_HEADER_BYTES + bytes.len(), |p| {
             // SAFETY: as above; the fields are written before the object is published.
             unsafe {
-                p.write(ScriptObject::header(type_desc));
+                p.cast::<ObjHeader>().write(ObjHeader::new(type_desc));
                 (*p).cells().copy_in(0, bytes);
             }
         })
