@@ -96,7 +96,7 @@ impl ErasedSoftEntry {
                 e.alive.load(Ordering::Acquire) && e.generation.load(Ordering::Acquire) == self.generation
             }
             ErasedKind::Array => {
-                let e = unsafe { &*(self.ptr.as_ptr() as *const RegionEntry<Vec<crate::metadata::Value>>) };
+                let e = unsafe { &*(self.ptr.as_ptr() as *const RegionEntry<crate::metadata::types::ArrayObj>) };
                 e.alive.load(Ordering::Acquire) && e.generation.load(Ordering::Acquire) == self.generation
             }
         }
@@ -112,7 +112,7 @@ impl ErasedSoftEntry {
                 e.mark(major)
             }
             ErasedKind::Array => {
-                let e = unsafe { &*(self.ptr.as_ptr() as *const RegionEntry<Vec<crate::metadata::Value>>) };
+                let e = unsafe { &*(self.ptr.as_ptr() as *const RegionEntry<crate::metadata::types::ArrayObj>) };
                 e.mark(major)
             }
         }

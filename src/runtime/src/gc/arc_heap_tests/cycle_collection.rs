@@ -289,3 +289,19 @@ fn stw_softref_revive_keeps_the_targets_children() {
     );
 }
 
+
+/// The soft registry read an **array** target's `alive` / `generation` through a
+/// `RegionEntry<Vec<Value>>` cast while the slot is a `RegionEntry<ArrayObj>` — the two
+/// instantiations need not lay out their GC fields at the same offsets, so the liveness check
+/// read unrelated bytes. A soft-referenced array must read back as alive while it is.
+#[test]
+fn soft_ref_to_an_array_reads_its_own_liveness() {
+    let heap = ArcMagrGC::new();
+    heap.set_mode(crate::gc::GcMode::StwMarkSweep);
+    let arr = heap.alloc_array(vec![Value::I64(7), Value::I64(8)]);
+    let key = heap.register_soft_ref(&arr);
+    assert!(matches!(heap.soft_ref_get(key), Value::Array(_)), "a live array target reads back");
+    heap.force_collect(); // no pressure: revive keeps it
+    assert!(matches!(heap.soft_ref_get(key), Value::Array(_)), "revived array target survives");
+    heap.unregister_soft_ref(key);
+}
