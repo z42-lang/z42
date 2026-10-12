@@ -1,9 +1,8 @@
 // `TestReport` 的 JSON 形状（z42b `--format json` 的契约）。输入是确定的字符串，不含计时。
 
-namespace Z42HarnessTestReport;
+namespace Z42TestReportTests;
 
-using Std.Test;      // BenchStats
-using Std.Harness;   // TestReport / TestResult
+using Std.Test;   // TestReport / TestResult / BenchStats
 
 // ── TestReport.toJson ───────────────────────────────────────────────────────
 

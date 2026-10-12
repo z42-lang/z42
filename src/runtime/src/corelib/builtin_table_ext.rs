@@ -289,7 +289,7 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     // `String.Join(sep, values)`：一次分配拼出交错结果。
     ("__str_join",          Native::Val(string::builtin_str_join)),
     // ── harness-stage2 — appended to preserve existing BuiltinIds ──
-    // `Std.Harness.TestModule.Load`：加载测试 / bench 产物并取回 TIDX 条目（`__load_module` 归通用加载）。
+    // `Std.Test.TestModule.Load`：加载测试 / bench 产物并取回 TIDX 条目（`__load_module` 归通用加载）。
     ("__test_module_load",  Native::Val(reflection::builtin_test_module_load)),
     // ── assembly-get-functions — appended to preserve existing BuiltinIds ──
     // `Assembly.GetFunctions()`：一个 zpkg 的自由（顶层）函数 → MethodInfo[]。

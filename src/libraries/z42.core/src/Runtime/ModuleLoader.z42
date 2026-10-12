@@ -35,7 +35,14 @@ public static class ModuleLoader {
         return Activator.CreateInstance(t);
     }
 
-    // 返回值没有意义，丢弃。测试运行器要的 TIDX 条目走 `Std.Harness.TestModule.Load`（`__test_module_load`）。
+    // 把每个程序（自包含的 app.zpkg / .zbc）放进一个**全新隔离的 VM 上下文**（各自的堆、静态字段、函数表）
+    // 运行，按输入顺序返回各自捕获的 stdout。`entries[i]` 是 `paths[i]` 的入口全限定名（"" = 产物内置入口）；
+    // `libsDir` 提供标准库。`jobs` 个上下文并行（<=0 = 按核数，1 = 串行）。运行出错时该项 stdout 末尾带
+    // `<z42-run-error: …>` 标记。共享同名 `Main` / 命名空间的程序互不冲突、静态状态互不渗漏。
+    [Native("__run_goldens_isolated")]
+    public static extern string[] RunIsolated(string[] paths, string[] entries, string libsDir, int jobs);
+
+    // 返回值没有意义，丢弃。
     [Native("__load_module")]
     private static extern object _load(string path);
 }

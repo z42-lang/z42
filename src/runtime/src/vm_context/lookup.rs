@@ -109,7 +109,7 @@ impl VmContext {
     /// see lazy-load activity (not just boot-time eager loads).
     /// Load a compiled artifact at `path` into the live registries (functions +
     /// types become callable / reflectable) and return its TIDX test entries.
-    /// Backs `Std.Runtime.ModuleLoader.Load` / `Std.Harness.TestModule.Load`.
+    /// Backs `Std.Runtime.ModuleLoader.Load` (`__load_module`) and the seed-compat `__test_module_load`.
     /// Errors if no lazy loader is installed (a bare VM with no dep resolution).
     pub fn load_module_into_vm(
         &self, path: &str,

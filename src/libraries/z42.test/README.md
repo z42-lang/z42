@@ -2,10 +2,12 @@
 
 ## 职责
 
-z42 标准测试库的**作者侧**：写测试 / bench 时用到的 `TestIO`（console 捕获）+ `Bencher`（基准测量）+ `TestRunner`（命令式 runner）+ 集合契约测试。**执行**（加载编好的测试产物、按 TIDX 发现并调度、出报告）在 [z42.harness](../z42.harness/)，由 [z42b](../../toolchain/builder/)（`z42b test` / `z42b bench`）调用——写测试的工程只依赖本包。
-`[Test]` / `[Skip]` / `[Ignore]` / `[Setup]` / `[Teardown]` / `[Benchmark]` / `[ShouldThrow<E>]` / `[Timeout]` 等 attribute 的语法见 `docs/reference/`。
+z42 的测试库，两半：
+- **写测试用**：`TestIO`（console 捕获）、`Bencher`（基准测量）、`TestRunner`（命令式 runner）、集合契约测试；
+- **跑测试用**：`Runner` / `BundleRunner`（运行期反射发现 `[Test]` / `[Benchmark]` 并调度）、`TestReport`（pretty / JSON 报告），由 [z42b](../../toolchain/builder/)（`z42b test` / `z42b bench`）与设备端 test-agent 调用。
 
-**`Assert` 不在本包**：全仓唯一的 `Std.Assert`（及 `TestFailure` / `SkipSignal`）位于 **z42.core**（`src/Assert.z42` + `src/Failure.z42`），因为断言必须 prelude 可见。本包不提供 Assert 类。
+**不在本包**：`Assert`（及 `TestFailure` / `SkipSignal`）与测试 attribute 类（`TestAttribute` / `BenchmarkAttribute` / `SkipAttribute` / `ShouldThrowAttribute<E>` …）都在 **z42.core**（`src/Assert.z42`、`src/Failure.z42`、`src/TestAttributes.z42`）——它们必须 prelude 可见，绝大多数测试文件不写 `using Std.Test;`。
+attribute 的写法见 `docs/reference/`。
 
 ## 功能索引
 
@@ -15,6 +17,11 @@ z42 标准测试库的**作者侧**：写测试 / bench 时用到的 `TestIO`（
 | 基准测量 | `Bencher.iter(Action)` / `printSummary` / `Min·Max·Median·Mean·StdDev·Total·Samples`；`BenchHelpers.blackBox`（`src/Bencher.z42`） |
 | 命令式 runner（无 lambda） | `TestRunner.Begin` / `Fail` / `Summary`（`src/TestRunner.z42`） |
 | bench 摘要解析 | `BenchStats.parse`（`Bencher.printSummary` 输出行的反向解析；执行器据此写 `bench_stats`） |
+| 发现测试 | `TestDiscovery.Discover(path) → TestCase[]`：并入产物，经 `Assembly.GetFunctions()` + 各类型静态方法反射读测试 attribute（`src/TestDiscovery.z42`）|
+| 单模块执行 | `Runner.RunModule(path, format)` → 退出码；`Runner.RunModuleResults(path)` → `TestResult[]`（`src/Runner.z42`）|
+| bundle 执行 | `BundleRunner.RunBundle(cases, dir, libs)`：golden 经 `ModuleLoader.RunIsolated` 各自隔离、unit 共享 VM、能力门（`src/BundleRunner.z42`）|
+| 报告 | 默认 pretty；`--format json` 产 `TestReport.toJson`（`src/TestReport.z42`）|
+| 零发现判红 | `Runner.ExitCodeFor(runnable, failed)` |
 | 集合契约测试 | `BasicCollectionContract`（`src/Contracts/`） |
 
 ## 基础用法
@@ -82,7 +89,7 @@ void Main() {
 ## 如何测试验证
 
 ```bash
-xtask test stdlib z42.test          # 本包 [Test]（执行器行为在 z42.harness）
+xtask test stdlib z42.test          # 本包 [Test]（含执行器：报告形状、退出码、bundle 能力门）
 xtask test stdlib mylib             # 跑某个库的 [Test]（默认 in-process VM，保留 [Setup]/[Teardown]）
 xtask test stdlib --jobs 0 mylib    # 并行：0 = available_parallelism；N>1 走 subprocess，[Setup]/[Teardown] 不运行
 ```
@@ -96,9 +103,13 @@ xtask test stdlib --jobs 0 mylib    # 并行：0 = available_parallelism；N>1 �
 | `src/BenchStats.z42` | `BenchStats` | benchmark 统计（含 `parse`，供执行器解析 benchmark stdout） |
 | `src/TestRunner.z42` | `TestRunner` | 命令式 runner |
 | `src/Contracts/BasicCollectionContract.z42` | `static class` | `IBasicCollection` 契约测试 |
+| `src/TestDiscovery.z42` | `static class TestDiscovery` + `TestCase` | 运行期反射发现：自由函数 + 静态方法上的测试 attribute → `TestCase`（按全限定名排序）|
+| `src/Runner.z42` | `static class Runner` + `InvokeOutcome` | 单模块调度：Setup → 用例 → Teardown、Skip / Ignore 门、`[ShouldThrow<E>]` 按类型可赋值判定 |
+| `src/BundleRunner.z42` | `static class BundleRunner` + `BundleCase` | bundle 执行（z42b `--rid host` 与设备 agent 共用） |
+| `src/TestReport.z42` | `static class TestReport` + `TestResult` | pretty / JSON 报告 |
 
 ## 依赖关系
-依赖 `z42.core` + `z42.io`（`Bencher` 用 `Console.WriteLine`）。纯脚本，无 native 库、无新 builtin。
+依赖 `z42.core`（测试 attribute、反射、`ModuleLoader`）+ `z42.io`（Console）。纯脚本：发现与调用只用通用反射（`Assembly.GetFunctions` / `MethodInfo.Invoke`），golden 隔离用 core 的 `ModuleLoader.RunIsolated`，不依赖测试专用的 VM 能力。不依赖 z42.json（执行核要随设备端 agent 走，报告 JSON 手搓）。
 
 ## 待办
 - criterion-style baseline diff

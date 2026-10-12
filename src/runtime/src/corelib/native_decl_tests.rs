@@ -58,6 +58,9 @@ const UNDECLARED_ALLOWLIST: &[(&str, &str)] = &[
     // Legacy string primitives retained for `exec_builtin(name, …)` unit tests / embedders
     // (`BUILTINS` is append-only for `BuiltinId` stability, so they are not removed).
     ("__concat",   "legacy: kept for BuiltinId stability"),
+    // Test discovery moved to runtime reflection (z42.test `TestDiscovery`); this builtin is kept
+    // only so a seed SDK's runner still works on this VM. Retired with the TIDX chain.
+    ("__test_module_load", "seed compat: pre-reflection test runner (STAGE2-DEBT load-module-entries)"),
     ("__contains", "legacy: kept for BuiltinId stability"),
     ("__len",      "legacy: kept for BuiltinId stability"),
     // 🪦 store-sync-values-in-heap 阶段 2 已落地（2026-09-26）：旧同步原语的 19 条豁免连同它们的

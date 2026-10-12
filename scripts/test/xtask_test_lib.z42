@@ -210,8 +210,8 @@ int _testPkgsCore(string kind, string suite, string[] dirs, string[] names, bool
     string libs = useOverride ? ovLibs : _libsDir(root);
     // retire-test-runner: the reflective runner is z42b (z42.builder.zpkg), run
     // via z42vm — replaces the deleted Rust z42-test-runner. z42b loads each
-    // compiled test/bench artifact (Std.Harness.TestModule) and runs its
-    // [Test]/[Benchmark] free functions by reflection (Std.Harness.Runner.RunModule),
+    // compiled test/bench artifact, discovers its [Test]/[Benchmark] functions
+    // by runtime reflection (Std.Test.TestDiscovery) and runs them (Std.Test.Runner.RunModule),
     // exiting 0 (all passed) / 1 (any failure). Its deps (z42.test/.project/.build
     // + core) resolve from `libs`, same flat dir the test units compile against.
     // Build z42b unconditionally (even under --no-build): it's a z42c incremental

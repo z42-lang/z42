@@ -1,6 +1,4 @@
-namespace Std.Harness;
-
-using Std.Test;   // 作者侧：BenchStats（bench 统计，写进 JSON 报告）
+namespace Std.Test;
 
 
 // Per-entry outcome of a reflective test/bench run (rebuild-bench-structured-output).

@@ -3,7 +3,7 @@
 > 代码：
 > `scripts/test/xtask_test_platform.z42`（三阶段框架 + `IPlatformBackend`）、
 > `scripts/test/xtask_test_{desktop,wasm,ios,android}.z42`（四个 backend）、
-> `src/runtime/src/corelib/platform.rs`（能力集）、`src/libraries/z42.harness/src/BundleRunner.z42`（设备上的能力门）、
+> `src/runtime/src/corelib/platform.rs`（能力集）、`src/libraries/z42.test/src/BundleRunner.z42`（设备上的能力门）、
 > `src/toolchain/workload/platform-contract.md`（状态码 ↔ 平台异常映射）、
 > `.github/workflows/ci.yml`（`test-desktop` / `test-wasm` / `test-ios` / `test-android`）。
 >

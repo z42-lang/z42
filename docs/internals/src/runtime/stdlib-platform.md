@@ -92,7 +92,7 @@ const HOST_OS: &str = if cfg!(target_arch = "wasm32") { "wasm" } else { std::env
 ```
 
 整条 OS 识别链都吊在它身上：`OS()`、`OSKindValue()`、`IsWasm()`，以及测试框架的
-`[Skip(platform: "wasm")]`（`z42.harness` 的 `Runner._skipApplies` 直接拿 `Platform.OS()` 与
+`[Skip(platform: "wasm")]`（`z42.test` 的 `Runner._skipApplies` 直接拿 `Platform.OS()` 与
 属性里的字符串比）。绕过 `HOST_OS` 直接写 `consts::OS` 就会让这四样在 wasm 上同时失效，而
 wasm 上「`IsWasm()` 恒假」不会报错，只会安静地少跳过一批测试。
 

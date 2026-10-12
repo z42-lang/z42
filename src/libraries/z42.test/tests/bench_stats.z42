@@ -1,5 +1,5 @@
 // rebuild-bench-structured-output — unit coverage for `BenchStats.parse`（`TestReport`
-// 的 JSON 形状在 z42.harness/tests/test_report.z42）. These inputs are deterministic strings (not timings), so
+// 的 JSON 形状在 z42.test/tests/test_report.z42）. These inputs are deterministic strings (not timings), so
 // the tests are stable. Mirrors the retired Rust runner's `bench_stats_*` tests.
 
 namespace Z42TestBenchStats;

@@ -1,22 +1,21 @@
 use super::*;
 
 /// `__test_module_load(path: str) -> Std.Harness.TestEntry[]` — load a compiled
-/// test / bench module at `path` into the live VM (its functions / types become
-/// callable + reflectable) and return its TIDX entries as z42
-/// `Std.Harness.TestEntry` objects. Powers `Std.Harness.TestModule.Load` (the
-/// reflective test runner).
+/// test / bench module and return its TIDX entries. Kept only for a seed SDK's
+/// pre-reflection runner; the in-tree runner discovers tests by reflection
+/// (`Std.Test.TestDiscovery`).
+// STAGE2-DEBT(load-module-entries): 种子 SDK 的 runner 换成反射版后，随 TIDX 链（编译器写出 / VM 解码）删除本 builtin
 pub fn builtin_test_module_load(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let entries = load_path(ctx, args)?;
     test_entries_to_values(ctx, &entries)
 }
 
 /// `__load_module(path: str)` — the generic load behind `Std.Runtime.ModuleLoader.Load`
-/// (component injection: compiler into z42b / REPL, project hooks, `[analyzers]` zpkgs).
-/// The caller discards the result.
-// STAGE2-DEBT(load-module-entries): 种子 SDK 的 z42.harness 改用 __test_module_load 后，本 builtin 不再实例化 TIDX 条目、改返回 Null（纯加载）
+/// (component injection, project hooks, `[analyzers]` zpkgs, and the test runner, which then
+/// discovers tests by reflection). Pure load: returns Null.
 pub fn builtin_load_module(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let entries = load_path(ctx, args)?;
-    test_entries_to_values(ctx, &entries)
+    load_path(ctx, args)?;
+    Ok(Value::Null)
 }
 
 /// Shared body: merge the artifact (+ dependency closure) into the live registries.
@@ -61,7 +60,7 @@ fn test_entries_to_values(
     Ok(ctx.heap().alloc_array(objs))
 }
 
-/// z42 type the TIDX entries are materialized as (`z42.harness`).
+/// z42 type the TIDX entries are materialized as (the seed SDK runner's `Std.Harness.TestEntry`).
 const TEST_ENTRY_TYPE: &str = "Std.Harness.TestEntry";
 
 pub(super) fn load_module_opt(o: &Option<String>) -> Value {

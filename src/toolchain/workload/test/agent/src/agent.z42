@@ -6,7 +6,7 @@
 // it is z42 bytecode, ALL platforms run the exact same runner — no per-language
 // re-implementation (retires the 4× R1–R7 native drivers).
 //
-// It is a thin front for Std.Harness.Runner.RunModule: receive a command (which
+// It is a thin front for Std.Test.Runner.RunModule: receive a command (which
 // test module + output format), run it, emit the structured report. z42b is the
 // BUILD tool; this is the RUN tool — same Runner, different host.
 //
@@ -22,7 +22,7 @@
 namespace Z42.TestHost.Agent;
 
 using Std.IO;
-using Std.Harness;   // Runner / BundleRunner / TestReport（测试执行器）
+using Std.Test;   // Runner / BundleRunner / TestReport（测试执行器）
 using Std.Json;
 
 void Main() {
@@ -64,8 +64,8 @@ void _emit(string report, string outPath) {
 
 // Bundle mode: read manifest `{cases:[…]}` and RETURN ONE aggregate TestReport.
 // The bundle EXECUTION (isolate/compare goldens + run units + aggregate) is the
-// shared Std.Harness.BundleRunner (wire-z42b-embedded-test) — the same core z42b runs
-// on the host. This agent only adapts the JSON manifest into BundleCase[] (z42.harness
+// shared Std.Test.BundleRunner (wire-z42b-embedded-test) — the same core z42b runs
+// on the host. This agent only adapts the JSON manifest into BundleCase[] (z42.test
 // stays JSON-free), then renders the aggregate report as JSON.
 //   golden — `{name, zbc, entry, expected}` : whole program, isolated VM + stdout compare.
 //   unit   — `{name, zbc}`                   : [Test] module, shared VM.

@@ -1,7 +1,7 @@
 # 测试
 
 > 代码：`src/libraries/z42.test/src/`、
-> `src/libraries/z42.core/src/Assert.z42`、`src/compiler/z42c.semantics/src/Testing/TestAttrEnforcer.z42`、
+> `src/libraries/z42.core/src/Assert.z42`、`src/libraries/z42.core/src/TestAttributes.z42`、`src/compiler/z42c.semantics/src/Testing/TestAttrEnforcer.z42`、
 > `src/toolchain/builder/core/builder_test.z42`
 >
 > 测试文件放在哪、`[tests]` / `[[test]]` / `[benches]` 怎么配、`harness = false` 是什么，
@@ -448,7 +448,7 @@ bench[addition] min=375ns median=417ns max=3583ns mean=432ns stddev=109ns sample
 | 按测试函数名过滤 | **做不到**。`--filter` 筛的是目标名。 |
 | 失败位置 | 报告里**没有** file:line，也没有栈。`TestFailure` 的位置字段当前恒为空。 |
 | 每个用例的耗时 | `[Test]` 的报告里**没有**耗时字段（`pretty` 和 `json` 都没有）。要计时用 `[Benchmark]`。 |
-| 并行执行 | 一个目标内的单元**串行**执行，顺序即声明顺序。 |
+| 并行执行 | 一个目标内的单元**串行**执行，按全限定名（`<命名空间>.<函数名>`）排序。 |
 
 ## 相关
 
@@ -458,5 +458,5 @@ bench[addition] min=375ns median=417ns max=3583ns mean=432ns stddev=109ns sample
 - [平台与宿主信息](stdlib/platform.md)——`Platform.OS()` / `Capabilities()` 的完整取值与谓词
 - [闭包与捕获](language/closures.md)——lambda 按值快照捕获的完整规则
 - [异常](language/exceptions.md)——`Exception` 层次与 `catch` 语义
-- [自定义 Attribute 与反射](language/attributes.md)——自己写 attribute（本页这些是编译器内建的）
+- [自定义 Attribute 与反射](language/attributes.md)——自己写 attribute。本页这些也是普通 attribute 类（在 z42.core 里，无需 `using`），可以用反射读回
 - [错误码全量表](appendix/error-codes.md)——`E0911`–`E0917` 的完整条目
