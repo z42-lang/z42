@@ -9,5 +9,5 @@
 src/compiler/z42c.driver/src/BuildPaths.z42#compile-libs-knob 2026-11-10 改名迁移做完后重估：只剩自举在用就把旗标撤掉（保留内部区分）。2026-09-30 推到 11-10：前提确实未到 —— 等 add-package-roles 批 3 大重命名，那件事跨 nightly、要先出 DRAFT
 src/compiler/z42c.pipeline/src/WorkspaceBuild.z42#ws-plan-forwarders 2026-10-12 含 WorkspacePlan 的 nightly 发布后删掉本文件（WsPlan + 两个转发入口）。
 src/compiler/z42c.semantics/src/Compilation/ParallelFor.z42#parallel-for-forwarders 2026-10-12 含 Z42.Package.ParallelFor 的 nightly 发布后删掉本文件。
-src/runtime/src/corelib/reflection/module_load.rs#load-module-entries 2026-10-11 测试发现已改运行期反射；种子 SDK 的 runner 也换成反射版后，随 TIDX 链（编译器写出 / VM 解码）一并删除 __test_module_load，本 builtin 改纯加载（不实例化 TIDX 条目）
+src/runtime/src/corelib/reflection/module_load.rs#load-module-entries 2026-10-11 种子 SDK 的 runner 换成反射版后，随 TIDX 链（编译器写出 / VM 解码）删除本 builtin
 .github/workflows/bench-pr.yml#bench-pr-libdir-probe 2026-10-27 旧名/旧位置彻底退役后删掉后两档。2026-09-30 推到 10-27：后两档是给 **base 树**兜底的，base 若早于 #921（09-27 把该库挪进 src/compiler/）就仍在 src/libraries/ ⇒ 现在删会让「从 09-27 前的 main 分出来的 PR」本门红。等 relocate 满一个月
