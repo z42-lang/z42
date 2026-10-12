@@ -60,7 +60,7 @@ public static class IncrementalDriver {
         // parallel-parse-and-cache：逐文件解析（词法 + 语法 + 表面哈希 + AST handler）互不依赖，各写自己的槽 ⇒
         // 并行后结果与串行逐项相同。jobs=1 时 ParallelFor 内联、不起线程。实测（编译器 workspace、jobs=1）
         // 这一段占总耗时 22.7%，此前是并行编译里最大的串行段。
-        Z42.Package.ParallelFor.Run(n, Z42.Package.ParallelConfig.Jobs(n), new ParseFileTask(texts, names, want, feats, cus, idents, surfaces));
+        ParallelFor.Run(n, ParallelConfig.Jobs(n), new ParseFileTask(texts, names, want, feats, cus, idents, surfaces));
         return new ParsedPkg(cus, idents, surfaces);
     }
 
@@ -198,7 +198,7 @@ public static class IncrementalDriver {
         while (i < n) { rels[i] = IncrementalBuild.Rel(projectDir, srcs[i]); i = i + 1; }
         WriteMetaTask t = new WriteMetaTask(cacheDir, srcs, texts, hashes, cms, mods, plan, idents, surfaces,
                                             feats, cuDiags, zbcHashes, rels);
-        Z42.Package.ParallelFor.Run(n, Z42.Package.ParallelConfig.Jobs(n), t);
+        ParallelFor.Run(n, ParallelConfig.Jobs(n), t);
         if (t.Error != "") { throw new Exception(t.Error); }
         CacheStore.SaveSrcList(cacheDir, rels, n, depsId);
     }
