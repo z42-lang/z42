@@ -1325,7 +1325,7 @@ pub struct ResolvedTokens {
 - `VCallIC` 撞键 → **调用另一个类的方法**，`this` 却是本类对象 ⇒ 按错误的字段布局解释内存
 - `FieldIC` 撞键 → **读写错误的字段槽**，不崩不报错，**静默数据损坏**
 
-典型现场：`Z42.Semantics.ParallelFor.Run` 的 `body.Run(i)`（`IParallelBody` 接口调用）同时
+典型现场：`Z42.Package.ParallelFor.Run` 的 `body.Run(i)`（`IParallelTask` 接口调用）同时
 接 `CompileCuTask`（z42c.emission）与 `SrcReadHashTask`（z42c.driver）。两者共号 139 时，
 `CompileCuTask` 的 receiver 跑进 `SrcReadHashTask.Run`，其首行 `File.ReadAllText(this._srcs[i])`
 读到槽 0 上的 `CompilationUnit[] _cus` ⇒ 自举链崩在

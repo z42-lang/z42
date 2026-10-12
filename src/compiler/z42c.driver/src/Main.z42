@@ -33,7 +33,7 @@ static class ExitCode {
 // parallelize-package-compile ★①：per-file 源读取 + SHA-256 并行（解释执行的 SHA-256 是 CPU 热点，
 // D8 增量差价主项）。每文件独立读文本 + 算 hash，写自己的 _texts[i]/_hashes[i] → 确定性、可并行。
 // handlerFp 循环前算好（与文件无关），Run 内只读。
-sealed class SrcReadHashTask : IParallelBody {
+sealed class SrcReadHashTask : IParallelTask {
     string[] _srcs; string[] _texts; string[] _hashes; string _handlerFp;
     public SrcReadHashTask(string[] srcs, string[] texts, string[] hashes, string handlerFp) {
         this._srcs = srcs; this._texts = texts; this._hashes = hashes; this._handlerFp = handlerFp;
@@ -326,7 +326,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     // parallelize-package-compile ★①：per-file 读+哈希并行（各写独立槽，确定性）。
     string[] texts = new string[srcs.Length];
     string[] srcHashes = new string[srcs.Length];
-    ParallelFor.Run(srcs.Length, ParallelConfig.Jobs(srcs.Length),
+    Z42.Package.ParallelFor.Run(srcs.Length, Z42.Package.ParallelConfig.Jobs(srcs.Length),
         new SrcReadHashTask(srcs, texts, srcHashes, handlerFp));
     // exe 判定：显式 kind=exe，或声明了 `[[exe]]` 多目标（unify-run-modes P3）。
     bool isExe = pm.Project.Kind == "exe" || pm.ExeCount > 0;

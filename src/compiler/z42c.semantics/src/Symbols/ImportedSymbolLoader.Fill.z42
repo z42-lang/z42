@@ -3,9 +3,11 @@
 // 一组由一个任务独占 —— `_fillClass` 只写该类对象，只读 Phase1 的骨架表，组间无共享写。
 namespace Z42.Semantics;
 
+using Z42.Package;   // IParallelTask
+
 using Z42.IR;   // StrIndex / ExportedClassZ
 
-public sealed class ClassFillTask : IParallelBody {
+public sealed class ClassFillTask : IParallelTask {
     private ImportedSymbols _r;
     private StrIndex _groupOf;          // 组键（类的 FQN 键）→ 组号
     private Z42ClassType[] _groupCt;

@@ -9,3 +9,6 @@ version = "0.1.0"
 kind    = "lib"
 [sources]
 include = ["src/**/*.z42"]
+
+[dependencies]
+"z42.threading" = "0.1.0"   # ParallelFor 工作池（Thread / ThreadException）

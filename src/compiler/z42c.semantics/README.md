@@ -31,7 +31,7 @@
 | `src/Exports/` | 导出签名（TSIG）提取 |
 | `src/Desugar/` | 内建、永远开启的 AST 级脱糖（parse 后、收集前，由 `HandlerRegistry.RunAst` 调）：attribute 工厂合成 |
 | `src/Testing/` | 编译侧 test / bench：`[Benchmark]` form-2 脱糖（`RunAst` 第一步）+ 测试 attribute 校验 E0911–E0917（`TestAttrEnforcer`，符号收集期）；整条链见 [framework.md](../../../docs/internals/src/testing/framework.md) §2.3 |
-| `src/Compilation/` | 单文件前端 `FrontEnd`、`SemanticDump` 门面、`ParallelFor` |
+| `src/Compilation/` | 单文件前端 `FrontEnd`、`SemanticDump` 门面、`ParallelFor` 种子转发 |
 
 **分层**：本包**不得引用** `z42c.emission`（`Z42.Emission`）——依赖只能是 `z42c.emission` → 本包单向。代码生成用到的
 声明 / 常量判定放在本包（如 `DeclFacts`、`ConstBlob`），由 `z42c.emission` 反过来引用。
@@ -101,7 +101,7 @@
 | `src/Symbols/HandlerRegistry.z42` | attribute handler 注册表（`AttrKind` 三路判定、`DeclId`；`RunAst` = 内建脱糖入口：`[Benchmark]` 脱糖先于 store-meta 合成） |
 | `src/Symbols/DeclFacts.z42` | 可见性（`_visCode` / `classVis*`，入参是 `ModFlags`）/ 字面量文本助手——只看 AST 与字符串，语义层与代码生成共用 |
 | `src/Validation/ModuleInitScan.z42` | `[ModuleInit]` 合法性校验（E0485 包内第二个 / E0486 标注目标非法）与站点扫描 |
-| `src/Compilation/ParallelFor.z42` | 包内文件级并行编译的 `ParallelFor` 机件 |
+| `src/Compilation/ParallelFor.z42` | 种子转发：`ParallelFor` / `ParallelConfig` / `IParallelBody` → `z42.package` 的工作池（种子 driver 自举时调旧入口；含新位置的 nightly 后删） |
 
 ### 导出面提取（ExportedTypeExtractor）
 TSIG 导出面提取：用户类/函数按 **CU 声明序**（hashed StrMap 不可迭代）+ 编译器级固定内建面静态表
@@ -120,5 +120,5 @@ TSIG 导出面提取：用户类/函数按 **CU 声明序**（hashed StrMap 不�
 **设计模型**：静态类变体——spoke 与 hub 均 `static class`，用限定静态调（`ClassExtractor._extractClass` / `ExportedTypeExtractor._unwrap`）单向委回，无实例 `_ref` 字段。唯一 spoke→spoke 边 = ClassExtractor / FuncImplExtractor → `TypeNameResolver`（单向进纯叶子工具，干净分层）；其余全经 hub。跨类方法 `private→internal`。
 
 ## 依赖关系
-`z42c.core`（Diagnostic/Span/DiagnosticCodes）、`z42c.syntax`（AST：Expr/Stmt/Decl + TypeExpr）、`z42.package`（`Z42.IR` 数据模型：`StrMap` 等工具类型、TSIG 导出模型 `ExportedModuleZ`、依赖索引）、`z42.io`（`AnalyzerDriver` `--fix` 就地重写源）、`z42.threading`（`ParallelFor` 工作池）。stdlib 自动可用。不依赖 `z42c.optimization` 与 `z42c.emission`。
+`z42c.core`（Diagnostic/Span/DiagnosticCodes）、`z42c.syntax`（AST：Expr/Stmt/Decl + TypeExpr）、`z42.package`（`Z42.IR` 数据模型：`StrMap` 等工具类型、TSIG 导出模型 `ExportedModuleZ`、依赖索引）、`z42.io`（`AnalyzerDriver` `--fix` 就地重写源）。并行工作池在 `z42.package`（`ParallelFor`）。stdlib 自动可用。不依赖 `z42c.optimization` 与 `z42c.emission`。
 被依赖：`z42c.emission`（代码生成）、`z42c.pipeline`、`z42c.driver`。

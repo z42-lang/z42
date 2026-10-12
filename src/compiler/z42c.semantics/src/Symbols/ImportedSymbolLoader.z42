@@ -6,6 +6,7 @@
 namespace Z42.Semantics;
 
 using Z42.IR;
+using Z42.Package;   // IParallelTask
 using Z42.Core;   // Span（导入接口的父接口形态包成 ResolvedTypeExpr 时要）
 using Z42.Syntax;
 
@@ -362,7 +363,8 @@ public static partial class ImportedSymbolLoader {
             }
             oi = oi + 1;
         }
-        ParallelFor.Run(fill.GroupCount, ParallelConfig.Jobs(fill.GroupCount), fill);
+        IParallelTask fillTask = fill;
+        Z42.Package.ParallelFor.Run(fill.GroupCount, Z42.Package.ParallelConfig.Jobs(fill.GroupCount), fillTask);
         oi = 0;
         while (oi < orderN) {
             i = order[oi];
