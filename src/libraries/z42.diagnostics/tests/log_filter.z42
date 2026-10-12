@@ -2,6 +2,7 @@
 namespace Z42DiagnosticsFilterTests;
 
 using Std.Diagnostics;
+using Std.Test;
 
 [Test]
 void test_set_min_level_changes_gate() {

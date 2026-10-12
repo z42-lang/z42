@@ -4,6 +4,7 @@
 namespace Z42NetTcpListenerFactoryTests;
 
 using Std.Net.Sockets;
+using Std.Test;
 
 [Test]
 void test_create_returns_bound_listener() {

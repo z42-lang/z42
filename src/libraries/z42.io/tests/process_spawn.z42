@@ -3,6 +3,7 @@
 namespace Z42IoProcessSpawnTests;
 
 using Std.IO;
+using Std.Test;
 
 [Test]
 void test_spawn_then_wait_returns_result() {

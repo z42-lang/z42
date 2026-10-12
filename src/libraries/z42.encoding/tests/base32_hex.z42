@@ -2,6 +2,7 @@
 namespace Z42EncodingTests.Base32HexTests;
 
 using Std.Encoding;
+using Std.Test;
 
 byte[] ascii(string s) {
     byte[] result = new byte[s.Length];

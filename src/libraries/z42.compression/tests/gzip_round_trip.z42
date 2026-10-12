@@ -4,6 +4,7 @@
 namespace Z42CompressionGzipTests;
 
 using Std.Compression;
+using Std.Test;
 
 [Test]
 void test_round_trip_short_text() {

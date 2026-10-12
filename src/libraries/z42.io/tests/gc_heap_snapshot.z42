@@ -6,6 +6,7 @@
 namespace Z42IoGcHeapSnapshotTests;
 
 using Std.IO;
+using Std.Test;
 
 [Test]
 [Skip(platform: "android", reason: "内存而非能力：嵌入 runner 共享一个 VM，跑到这里时堆已很大，整堆快照膨胀到数 GB，模拟器的 low-memory-killer 直接杀掉 app")]

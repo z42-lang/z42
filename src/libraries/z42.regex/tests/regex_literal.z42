@@ -2,6 +2,7 @@
 namespace Z42RegexLiteralTests;
 
 using Std.Regex;
+using Std.Test;
 
 [Test]
 void test_literal_match_anywhere() {

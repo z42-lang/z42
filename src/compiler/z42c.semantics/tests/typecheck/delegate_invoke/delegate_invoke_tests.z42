@@ -26,6 +26,7 @@
 namespace Z42cSemanticsDelegateInvokeTests;
 
 using Z42.Semantics;
+using Std.Test;
 
 // ── `.Invoke` 现在是合法的调用形式（不再零诊断 + 运行期崩）──
 

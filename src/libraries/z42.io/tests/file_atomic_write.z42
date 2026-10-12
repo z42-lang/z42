@@ -4,6 +4,7 @@ namespace Z42IoFileAtomicWriteTests;
 
 using Std.IO;
 using Std.Encoding;
+using Std.Test;
 
 [Test]
 void test_atomic_text_round_trip() {

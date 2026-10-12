@@ -5,6 +5,8 @@
 // try/catch.
 namespace Z42IoCtorThrowCatchTests;
 
+using Std.Test;
+
 class Validator {
     public int x;
 

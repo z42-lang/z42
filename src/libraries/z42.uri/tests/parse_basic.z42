@@ -2,6 +2,7 @@
 namespace Z42UriBasicTests;
 
 using Std.Uri;
+using Std.Test;
 
 [Test]
 void test_simple_https_url() {

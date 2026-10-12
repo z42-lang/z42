@@ -13,6 +13,7 @@ using Std.Encoding;
 using Std.Compression;
 using Std.Net.Sockets;
 using Std.Net.Http;
+using Std.Test;
 
 [Test]
 void test_accept_encoding_default_advertises_gzip_and_br() {

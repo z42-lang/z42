@@ -8,6 +8,7 @@ using Std.Encoding;
 using Std.Crypto;
 using Std.Net.Sockets;
 using Std.Net.Http;
+using Std.Test;
 
 // Helper: drain HTTP request bytes from `s` until \r\n\r\n.
 // Returns the raw byte sequence (header block only — no body parsing for

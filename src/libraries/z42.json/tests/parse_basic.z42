@@ -2,6 +2,7 @@
 namespace Z42JsonBasicTests;
 
 using Std.Json;
+using Std.Test;
 
 [Test]
 void test_parse_null() {

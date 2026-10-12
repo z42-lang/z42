@@ -3,6 +3,7 @@ namespace Z42CryptoScryptVectorsTests;
 
 using Std.Crypto;
 using Std.Encoding;
+using Std.Test;
 
 // ── RFC 7914 §11 vector #1 — the only small-N vector ─────────────────────
 

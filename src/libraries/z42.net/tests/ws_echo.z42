@@ -7,6 +7,7 @@ using Std.Crypto;
 using Std.Encoding;
 using Std.Net.Sockets;
 using Std.Net.WebSockets;
+using Std.Test;
 
 // Helper: completes WS handshake server-side + returns the open NetworkStream
 // to the test for direct frame manipulation. Computes the proper

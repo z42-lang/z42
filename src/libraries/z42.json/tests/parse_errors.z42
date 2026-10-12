@@ -2,6 +2,7 @@
 namespace Z42JsonErrorsTests;
 
 using Std.Json;
+using Std.Test;
 
 [Test]
 void test_empty_input_rejected() {

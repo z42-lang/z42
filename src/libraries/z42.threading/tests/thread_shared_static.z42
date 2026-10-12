@@ -6,6 +6,7 @@
 namespace Z42ThreadingSharedStaticTests;
 
 using Std.Threading;
+using Std.Test;
 
 public static class Shared {
     public static long Value;

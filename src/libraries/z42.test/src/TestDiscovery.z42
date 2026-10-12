@@ -2,7 +2,7 @@
 // `[Setup]` / `[Teardown]` 的函数，连同 `[Skip]` / `[Ignore]` / `[ShouldThrow<E>]` 一起读成 `TestCase`。
 //
 // 发现面 = 包的自由函数（`Assembly.GetFunctions()`）+ 包内各类型的静态方法（`Type.GetMethods()`）。
-// attribute 是 z42.core 的普通 attribute 类（`TestAttributes.z42`），这里只读它们的活实例——不依赖任何
+// attribute 是本包的普通 attribute 类（`TestAttributes.z42`），这里只读它们的活实例——不依赖任何
 // 编译器写进产物的测试专用元数据，也不依赖测试专用的 VM 能力。
 //
 // 顺序：按全限定名排序（与 cargo test 一致；同输入同输出，便于比对报告）。

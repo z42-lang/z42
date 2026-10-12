@@ -2,6 +2,7 @@
 namespace Z42cSyntaxParserTests;
 
 using Z42.Syntax;
+using Std.Test;
 
 // 辅助：解析表达式并返回其 s-expression dump。
 string parse(string src) {

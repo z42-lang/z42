@@ -3,6 +3,7 @@
 namespace Z42IoProcessStdioTests;
 
 using Std.IO;
+using Std.Test;
 
 [Test]
 void test_stdout_null_discards_output() {

@@ -4,6 +4,7 @@
 namespace Z42CliRequiredAndTypedTests;
 
 using Std.Cli;
+using Std.Test;
 
 string[] argv(string[] xs) { return xs; }
 

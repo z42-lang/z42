@@ -5,6 +5,7 @@ namespace Z42NetHttpServerPoolTests;
 
 using Std.Threading;
 using Std.Net.Http;
+using Std.Test;
 
 [Test]
 void test_serve_with_pool_handles_concurrent_clients() {

@@ -2,6 +2,7 @@
 namespace Z42YamlParseErrorsTests;
 
 using Std.Yaml;
+using Std.Test;
 
 [Test]
 void test_tab_in_indentation_throws() {

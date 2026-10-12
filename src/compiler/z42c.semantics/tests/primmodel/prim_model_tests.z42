@@ -7,6 +7,7 @@ namespace Z42cSemanticsPrimModelTests;
 
 using Z42.Semantics;
 using Z42.IR;   // IrType
+using Std.Test;
 
 [Test]
 void test_canon_normalizes_all_spellings() {

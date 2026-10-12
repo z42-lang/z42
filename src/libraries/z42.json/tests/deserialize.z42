@@ -4,6 +4,7 @@ namespace Z42JsonDeserializeTests;
 
 using Std.Json;
 using Std.Collections;
+using Std.Test;
 
 class Point {
     public int x;

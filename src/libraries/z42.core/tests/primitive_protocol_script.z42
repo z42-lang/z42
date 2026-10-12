@@ -6,6 +6,8 @@
 // passthrough.
 namespace Z42CorePrimitiveProtocolTests;
 
+using Std.Test;
+
 // ── Integer Equals / GetHashCode ─────────────────────────────────────────────
 
 [Test]

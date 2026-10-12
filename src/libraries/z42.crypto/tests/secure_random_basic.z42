@@ -4,6 +4,7 @@
 namespace Z42CryptoSecureRandomBasicTests;
 
 using Std.Crypto;
+using Std.Test;
 
 [Test]
 void test_get_bytes_returns_requested_length() {

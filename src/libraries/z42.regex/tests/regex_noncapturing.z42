@@ -4,6 +4,7 @@
 namespace Z42RegexNonCapturingTests;
 
 using Std.Regex;
+using Std.Test;
 
 // ── Basic non-capturing ────────────────────────────────────────────────
 

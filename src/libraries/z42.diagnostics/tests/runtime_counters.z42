@@ -3,6 +3,7 @@
 namespace Z42DiagnosticsRuntimeCountersTests;
 
 using Std.Diagnostics;
+using Std.Test;
 
 // 一个小堆对象，用来制造确定的分配。
 class Box {

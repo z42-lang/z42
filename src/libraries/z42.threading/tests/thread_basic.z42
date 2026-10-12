@@ -5,6 +5,7 @@
 namespace Z42ThreadingBasicTests;
 
 using Std.Threading;
+using Std.Test;
 
 [Test]
 void test_spawn_empty_action_then_join() {

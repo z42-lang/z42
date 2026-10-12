@@ -2,6 +2,7 @@
 namespace Z42EncodingTests.Utf8Tests;
 
 using Std.Encoding;
+using Std.Test;
 
 [Test]
 void test_get_bytes_empty() {

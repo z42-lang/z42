@@ -1,6 +1,7 @@
 // add-foreach-ienumerable：Dictionary<K,V>.GetEnumerator() + DictionaryEnumerator struct 迭代器（槽游标零分配）。
 namespace Z42CoreDictionaryEnumeratorTests;
 using Std.Collections;
+using Std.Test;
 
 [Test]
 void test_enumerator_visits_all_entries() {

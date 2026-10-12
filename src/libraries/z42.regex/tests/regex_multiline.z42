@@ -6,6 +6,7 @@
 namespace Z42RegexMultilineTests;
 
 using Std.Regex;
+using Std.Test;
 
 // ── Default (single-line) anchors — regression ────────────────────────
 

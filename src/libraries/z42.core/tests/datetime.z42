@@ -3,6 +3,7 @@
 namespace Z42DateTimeTests;
 
 using Std.Time;
+using Std.Test;
 
 [Test]
 void test_utcnow_positive() {

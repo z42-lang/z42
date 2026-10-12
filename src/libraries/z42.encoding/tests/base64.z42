@@ -2,6 +2,7 @@
 namespace Z42EncodingTests.Base64Tests;
 
 using Std.Encoding;
+using Std.Test;
 
 // Helper: build byte[] from an ASCII string. Not using Utf8.GetBytes to keep
 // Base64 tests independent of Utf8 implementation.

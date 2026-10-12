@@ -2,6 +2,7 @@
 namespace Z42TomlErrorsTests;
 
 using Std.Toml;
+using Std.Test;
 
 [Test]
 void test_duplicate_key_rejected() {

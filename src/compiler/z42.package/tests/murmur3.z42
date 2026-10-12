@@ -10,6 +10,7 @@ namespace Z42IrMurmur3Tests;
 using Std.Encoding;
 using Z42.IR;
 using Z42.Package;   // ZpkgBuilder.SourceHashHex
+using Std.Test;
 
 string _h(string text) { return Murmur3.Hash128Hex(Utf8.GetBytes(text)); }
 

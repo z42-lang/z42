@@ -6,6 +6,7 @@ namespace Z42IrSmokeTests;
 
 using Z42.IR;
 using Z42.IR.BinaryFormat;
+using Std.Test;
 
 // StrMap：put / get / contains / count / keys / first-wins（编译器全程用的有序 map util）。
 [Test]

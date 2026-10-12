@@ -6,6 +6,7 @@ namespace Z42cSemanticsExportBaseChainTests;
 using Z42.Semantics;
 using Z42.IR;
 using Z42.Emission;
+using Std.Test;
 
 ExportedClassZ ebcClass(ExportedModuleZ em, string name) {
     int i = 0;

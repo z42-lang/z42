@@ -3,6 +3,7 @@ namespace Z42ProjectWorkspacePlanTests;
 
 using Std.IO;
 using Z42.Project;
+using Std.Test;
 
 // chain: a→b→c（a 依赖 b，b 依赖 c）→ 拓扑序 c,b,a（叶子在前）。
 [Test]

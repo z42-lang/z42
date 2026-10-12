@@ -3,6 +3,7 @@
 namespace Z42cSyntaxIncompleteTests;
 
 using Z42.Syntax;
+using Std.Test;
 
 // 走顶层声明入口 parse（Completeness 声明语义）：缺闭合符 或 缺 `;` 都算没写完。
 bool unitIncomplete(string src) {

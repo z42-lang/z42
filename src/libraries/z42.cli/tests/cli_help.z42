@@ -2,6 +2,7 @@
 namespace Z42CliHelpTests;
 
 using Std.Cli;
+using Std.Test;
 
 [Test]
 void test_short_help_sets_show_help() {

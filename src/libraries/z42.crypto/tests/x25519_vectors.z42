@@ -3,6 +3,7 @@ namespace Z42CryptoX25519VectorsTests;
 
 using Std.Crypto;
 using Std.Encoding;
+using Std.Test;
 
 // ── RFC 7748 §5.2 — single-step ScalarMult vectors ──────────────────────
 

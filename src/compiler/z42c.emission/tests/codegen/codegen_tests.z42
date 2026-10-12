@@ -3,6 +3,7 @@ namespace Z42cSemanticsCodegenTests;
 
 using Z42.Optimization;
 using Z42.Emission;
+using Std.Test;
 
 [Test]
 void test_return_int_literal() {

@@ -6,6 +6,7 @@
 namespace Z42IoProcessTimeoutTests;
 
 using Std.IO;
+using Std.Test;
 
 [Test]
 void test_timeout_does_not_fire_when_child_quick() {

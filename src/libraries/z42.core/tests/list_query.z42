@@ -5,6 +5,7 @@
 namespace Z42CoreListQueryTests;
 
 using Std.Collections;
+using Std.Test;
 
 List<int> nums() {
     var xs = new List<int>();

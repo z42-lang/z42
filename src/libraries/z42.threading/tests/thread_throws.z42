@@ -5,6 +5,7 @@
 namespace Z42ThreadingThrowsTests;
 
 using Std.Threading;
+using Std.Test;
 
 [Test]
 void test_worker_throw_propagates_as_thread_exception() {

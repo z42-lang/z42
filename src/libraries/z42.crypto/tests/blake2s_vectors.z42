@@ -4,6 +4,7 @@ namespace Z42CryptoBlake2sVectorsTests;
 
 using Std.Crypto;
 using Std.Encoding;
+using Std.Test;
 
 // ── RFC 7693 §B.1: "abc" — canonical sample ─────────────────────────────
 

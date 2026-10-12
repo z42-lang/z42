@@ -2,6 +2,7 @@
 namespace Z42UriEncodingTests;
 
 using Std.Uri;
+using Std.Test;
 
 [Test]
 void test_encode_unreserved_unchanged() {
