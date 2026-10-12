@@ -40,7 +40,7 @@
 ```bash
 ./xtask test compiler        # tests/<unit>/ 全部 [Test] 单元 + 自举不动点；全部 PASS 即通过
 ```
-`tests/` 按子系统分单元目录（typecheck / collect / overload / pattern / desugar / directives / conversion 等；analyzer / generator 单元在 [`z42c.analyzers/tests/`](../z42c.analyzers/tests/) / [`z42c.generators/tests/`](../z42c.generators/tests/)），每个单元自带 `*.z42.toml`。codegen / zbc / zbcreader 单元在 [`z42c.emission/tests/`](../z42c.emission/tests/)。
+`tests/` 按子系统分单元目录（typecheck / collect / overload / pattern / directives / conversion 等；analyzer / generator 单元在 [`z42c.analyzers/tests/`](../z42c.analyzers/tests/) / [`z42c.generators/tests/`](../z42c.generators/tests/)），每个单元自带 `*.z42.toml`。codegen / zbc / zbcreader 单元在 [`z42c.emission/tests/`](../z42c.emission/tests/)。
 
 ## 关联文档
 - 设计 / 机制：[architecture.md](../../../docs/internals/src/compiler/architecture.md)、[binder-hierarchy.md](../../../docs/internals/src/compiler/binder-hierarchy.md)、[generics.md](../../../docs/internals/src/compiler/generics.md)、[access-control.md](../../../docs/internals/src/compiler/access-control.md)、[self-hosting.md](../../../docs/internals/src/compiler/self-hosting.md)
@@ -97,8 +97,8 @@
 | `src/Validation/FlowAnalyzer.z42`（+ `.Reachability`） / `DeclEnforcer.AttrArgs.z42` | 流分析（可达性 / definite assignment）/ attribute 实参校验 |
 | `src/Binding/ConstBlob.z42` | 常量 blob 编解码（`ConstBlobReader`，重载决议 / 构造器继承读默认值）|
 | `src/Desugar/AttributeSynth.z42` | parse 后、收集前的 AST 级脱糖：attribute 工厂合成 |
-| `src/Testing/BenchmarkDesugar.z42` / `TestAttrEnforcer.z42` | `[Benchmark] void f(Bencher b)` → `f$impl` + 零参 wrapper / 测试 attribute 的位置·签名·实参校验（E0911–E0917；必须在脱糖之后）|
-| `src/Symbols/HandlerRegistry.z42` | attribute handler 注册表（`AttrKind` 三路判定、`DeclId`；`RunAst` = 内建脱糖入口：`[Benchmark]` 脱糖先于 store-meta 合成） |
+| `src/Testing/TestAttrEnforcer.z42` | 测试 attribute 的位置·签名·实参校验（E0911–E0917；`[Benchmark]` 允许零参或单个 `Bencher` 形参）|
+| `src/Symbols/HandlerRegistry.z42` | attribute handler 注册表（`AttrKind` 三路判定、`DeclId`；`RunAst` = AST 相位入口：store-meta 合成） |
 | `src/Symbols/DeclFacts.z42` | 可见性（`_visCode` / `classVis*`，入参是 `ModFlags`）/ 字面量文本助手——只看 AST 与字符串，语义层与代码生成共用 |
 | `src/Validation/ModuleInitScan.z42` | `[ModuleInit]` 合法性校验（E0485 包内第二个 / E0486 标注目标非法）与站点扫描 |
 | `src/Compilation/ParallelFor.z42` | 种子转发：`ParallelFor` / `ParallelConfig` / `IParallelBody` → `z42.package` 的工作池（种子 driver 自举时调旧入口；含新位置的 nightly 后删） |
