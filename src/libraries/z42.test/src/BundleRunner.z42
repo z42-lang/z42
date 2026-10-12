@@ -1,8 +1,8 @@
 // Shared test-bundle executor (wire-z42b-embedded-test, unify-test-pipeline ②b).
 //
 // A "test-bundle" is a set of cases assembled by the fleet orchestrator (xtask):
-//   golden — a whole program: run in a FRESH isolated VM (TestModule.
-//            RunGoldensIsolated → per-case VmContext, no collision), then compare
+//   golden — a whole program: run in a FRESH isolated VM (ModuleLoader.
+//            RunIsolated → per-case VmContext, no collision), then compare
 //            captured stdout to an `expected` sibling file.
 //   unit   — a [Test] module: run via Runner.RunModuleResults (shared VM — units
 //            are namespaced, collision-free by design).
@@ -11,13 +11,11 @@
 // shared by both callers of a bundle:
 //   • the on-device test-agent (Z42.TestHost.Agent — embedded VM, every platform)
 //   • z42b test --rid host    (in-process host executor)
-// The manifest is JSON, but z42.harness stays JSON-free (TestReport hand-rolls JSON to
+// The manifest is JSON, but z42.test stays JSON-free (TestReport hand-rolls JSON to
 // avoid a z42.json dependency); so callers parse manifest.json → BundleCase[] with
 // their own z42.json, and hand the parsed cases here. z42 has no jagged arrays →
 // result arrays grow manually.
-namespace Std.Harness;
-
-using Std.Test;   // 作者侧：TestIO（捕获输出）/ BenchStats（解析 bench 摘要）
+namespace Std.Test;
 
 using Std.IO;
 
@@ -80,7 +78,7 @@ public static class BundleRunner {
 
         TestResult[] all = new TestResult[0];
 
-        // Goldens: gather → RunGoldensIsolated (batched, isolated) → compare stdout.
+        // Goldens: gather → ModuleLoader.RunIsolated (batched, isolated) → compare stdout.
         if (gN > 0) {
             string[] gPaths = new string[gN];
             string[] gEntries = new string[gN];
@@ -103,7 +101,7 @@ public static class BundleRunner {
             }
             string libs = BundleRunner._resolveLibs(libsDir, bundleDir);
             int jobs = BundleRunner._jobs();
-            string[] outs = TestModule.RunGoldensIsolated(gPaths, gEntries, libs, jobs);
+            string[] outs = ModuleLoader.RunIsolated(gPaths, gEntries, libs, jobs);
             TestResult[] gr = new TestResult[gN];
             for (int i = 0; i < gN; i = i + 1) {
                 string got = BundleRunner._stripNl(outs[i]);

@@ -370,7 +370,7 @@ verbosity ≥ 4 才输出，而 CI 跑的是默认 verbosity——于是 `xtask 
 
 ## 8. 反射 runner 的输出格式（`z42b test` / `z42b bench`）
 
-stdlib 与 compiler stage 驱动的 `Std.Harness.Runner` 支持两种输出，经 `--format` 选择（默认 `pretty`）：
+stdlib 与 compiler stage 驱动的 `Std.Test.Runner` 支持两种输出，经 `--format` 选择（默认 `pretty`）：
 
 - **pretty**：逐条 `PASS` / `FAIL` / `SKIP` + `Result:` 汇总，供人眼与 gate 退出码判定。
 - **json**：单个 `TestReport` 对象 `{tool, module, summary{total,passed,failed,skipped}, results[]}`；

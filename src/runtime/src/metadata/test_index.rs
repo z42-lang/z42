@@ -319,7 +319,7 @@ impl<'a> TidxCursor<'a> {
     }
 }
 
-/// A runtime-loaded test entry, returned by `Std.Harness.TestModule.Load` (the
+/// A runtime-loaded test entry, returned by `__test_module_load` (the seed SDK
 /// `__load_module` builtin) to a z42 test runner. Flattens a [`TestEntry`] + its
 /// resolved method FQN into a self-contained, z42-facing record so the runner can
 /// discover, classify, and `Invoke` each test reflectively without reaching back

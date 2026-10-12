@@ -1,0 +1,72 @@
+namespace Std;
+
+// ── 测试 / bench attribute：作者与 runner 共享的契约 ───────────────────────────
+//
+// 都是普通 attribute 类：编译器为每处 `[Test]` 合成反射工厂，runner（z42.test 的 `Runner`）在运行期
+// 经反射发现被标注的函数（`Assembly.GetFunctions()` + 各类型的静态方法），读这些实例决定怎么跑。
+//
+// 住 z42.core（prelude）的理由与 `Assert` / `TestFailure` 相同：全仓绝大多数测试文件不写
+// `using Std.Test;`，靠 prelude 就能写 `[Test]`。
+//
+// 编译期校验（位置 / 签名 E0911·E0912·E0915、实参 E0913·E0914·E0917）按名字进行，见
+// z42c.semantics 的 `Testing/TestAttrEnforcer`；这里的构造器只决定「写法能不能编过」与「runner 读到什么」。
+
+// 一条测试：零参、返回 void 的自由函数或静态方法。
+public sealed class TestAttribute : Attribute {
+    public TestAttribute() { }
+}
+
+// 一条基准：零参，或唯一参数为 `Bencher`（`void f(Bencher b)`）。
+public sealed class BenchmarkAttribute : Attribute {
+    public BenchmarkAttribute() { }
+}
+
+// 同命名空间（或同一类型）里每条测试之前执行。
+public sealed class SetupAttribute : Attribute {
+    public SetupAttribute() { }
+}
+
+// 同命名空间（或同一类型）里每条测试之后执行（测试失败也执行）。
+public sealed class TeardownAttribute : Attribute {
+    public TeardownAttribute() { }
+}
+
+// 跳过：`reason` 必填（E0914）。给了 `platform` ⇒ 仅在该平台跳过；给了 `feature` ⇒ 运行时缺这项能力才跳过。
+public sealed class SkipAttribute : Attribute {
+    public string Reason;
+    public string Platform;
+    public string Feature;
+    public SkipAttribute(string reason = "", string platform = "", string feature = "") {
+        this.Reason = reason;
+        this.Platform = platform;
+        this.Feature = feature;
+    }
+}
+
+// 无条件跳过（不报理由）。
+public sealed class IgnoreAttribute : Attribute {
+    public IgnoreAttribute() { }
+}
+
+// 超时（毫秒，必须为正：E0917）。
+public sealed class TimeoutAttribute : Attribute {
+    public int Milliseconds;
+    public TimeoutAttribute(int milliseconds = 0) { this.Milliseconds = milliseconds; }
+}
+
+// 期望抛出 `E`（或其子类型）。runner 经 `IExpectsException` 取到 `E`，不必知道类型实参。
+public sealed class ShouldThrowAttribute<E> : Attribute, IExpectsException {
+    public ShouldThrowAttribute() { }
+    public Type? ExceptionType() { return typeof(E); }
+}
+
+// 漏写类型实参的 `[ShouldThrow]` 落到这里（E0913 照报）；它不期望任何具体类型。
+public sealed class ShouldThrowAttribute : Attribute, IExpectsException {
+    public ShouldThrowAttribute() { }
+    public Type? ExceptionType() { return null; }
+}
+
+// 「期望抛出某类型」的 attribute 统一口径（runner 只认这个接口）。
+public interface IExpectsException {
+    Type? ExceptionType();
+}

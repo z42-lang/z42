@@ -19,7 +19,7 @@ internal sealed class TestAttrEnforcer {
     // 一起被删、从未移植到 z42c，而 docs/reference/src/appendix/error-codes.md 至今写着「已启用」。
     // 后果实测：`[Test]` 贴实例方法编译期全绿 → TestIndexBuilder 照写 TIDX entry → 运行期
     // `__invoke_static` 撞 `expects 1 argument(s) (incl. receiver), got 0`（runner 按 FQN 无参调用，
-    // 见 z42.harness/src/Runner.z42 头注的不变量）。同一失败模式在 BenchmarkDesugar 上已发生过一次。
+    // 见 z42.test/src/Runner.z42 头注的不变量）。同一失败模式在 BenchmarkDesugar 上已发生过一次。
     //
     // 五条规则（全纯语法，不查符号表 → 与 E0444/E0445/E0447 同级、first-pass 可用）：
     //   R1 零接收者：顶层自由函数 或 static 方法      R4 非泛型

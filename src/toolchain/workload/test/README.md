@@ -3,7 +3,7 @@
 ## 职责
 
 承载**跑测试流程**所需的**平台无关共享件**——目前是 on-device test-agent（一份 z42 字节码，
-经嵌入式 z42vm 在每个平台跑同一套 `Std.Harness.Runner`）。作为按需能力 workload
+经嵌入式 z42vm 在每个平台跑同一套 `Std.Test.Runner`）。作为按需能力 workload
 （`z42 workload install test`）分发：**要跑测试才下载**，不进 SDK 恒在核心，z42b 编排时拉取并调用，
 自身不夹带此 payload。
 
@@ -17,8 +17,8 @@
 |------|-----------|
 | test-agent（命令 → 跑测试 → 结构化报告） | `agent/src/agent.z42` 的 `Z42.TestHost.Agent.Main` |
 | agent 工程（app.zpkg） | `agent/z42.testagent.z42.toml` |
-| 单模块执行逻辑（发现/执行/报告） | `Std.Harness.Runner.RunModule`（`src/libraries/z42.harness`）|
-| **bundle 执行逻辑（golden 隔离 + unit 共享 + 聚合）** | `Std.Harness.BundleRunner.RunBundle`（`src/libraries/z42.harness`）——**agent 与 z42b 共用一份核** |
+| 单模块执行逻辑（发现/执行/报告） | `Std.Test.Runner.RunModule`（`src/libraries/z42.test`）|
+| **bundle 执行逻辑（golden 隔离 + unit 共享 + 聚合）** | `Std.Test.BundleRunner.RunBundle`（`src/libraries/z42.test`）——**agent 与 z42b 共用一份核** |
 | 嵌入入口（load app.zpkg + 跑） | `z42-host::run_app` → `z42::app::run`（`src/runtime`） |
 
 ## 基础用法
@@ -45,7 +45,7 @@ agent 通过转发的 `-- <args>` 收一条一次性命令，签名（`agent/src
 - **单模块**（`.zbc`）——`Runner.RunModule` 自动发现该模块的 `[Test]` / `[Benchmark]` 并跑，按
   `format` 渲染。给了 `out-path` 时改走 `RunModuleResults` → 聚合 JSON → 写文件。
 - **测试包**（以 `.json` 结尾的 manifest `{cases:[…]}`）——聚合成**一份**报告。agent 把 manifest 解析成
-  `BundleCase[]` 后交 **`Std.Harness.BundleRunner.RunBundle`** 执行（**host 上 z42b 直接调同一函数**，无需
+  `BundleCase[]` 后交 **`Std.Test.BundleRunner.RunBundle`** 执行（**host 上 z42b 直接调同一函数**，无需
   agent/testhost 进程）。用例分两类：
   - `golden` = `{name, zbc, entry, expected}`：整个程序，在**全新隔离 VM**（`RunGoldensIsolated`，
     每例独立 `VmContext` 不串味）跑，比对 stdout 与 `expected` 文件。
@@ -95,4 +95,4 @@ publish-nightly）在 macos-arm64 单 host 建一次 + `--archive` 出 `z42-work
 | 文件 | 职责 |
 |------|------|
 | `agent/src/agent.z42` | test-agent：命令 → `Runner.RunModule`（单模块）/ manifest→`BundleRunner.RunBundle`（bundle）→ 报告 |
-| `agent/z42.testagent.z42.toml` | agent app 工程（deps: z42.core/io/harness/json） |
+| `agent/z42.testagent.z42.toml` | agent app 工程（deps: z42.core/io/test/json） |

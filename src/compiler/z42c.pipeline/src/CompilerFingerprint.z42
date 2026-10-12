@@ -150,7 +150,11 @@ public static class CompilerFingerprint {
         "reject-inheritance-cycle",
         // deps-from-bound-tree：文件依赖集改由绑定期 + 绑定树 walker 产出、不再取代码生成的记录（DEPS 条目顺序变化）；
         // 声明类在别的包里的跨包 devirt 回落 VCall —— 输出变化。
-        "deps-from-bound-tree"
+        "deps-from-bound-tree",
+        // reflective-test-discovery：测试家族 attribute（`[Test]` / `[Skip]` …）改为普通 store-meta ⇒ 每处应用多合成
+        // 一个反射工厂 + attr-ref；同名多 arity 泛型类（`Box` / `Box<E>`）的类级 `typeof(E)` / `default(E)` 声明类名改用
+        // `Box$1`（此前写 `Box` ⇒ 运行期退成占位 `T`）—— 输出变化。
+        "reflective-test-discovery"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

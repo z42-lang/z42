@@ -63,6 +63,9 @@ public sealed class TypeOpEmitter {
         string on = this._ctx.OwnerClassName;
         if (on == "") { return ""; }
         int lt = on.IndexOf('<');
+        // 同名多 arity 的泛型类（`Box` 与 `Box<E>` 并存）以 `Box$1` 注册、发射、在运行期叫这个名字；
+        // 声明类名必须同形，否则运行期沿基链找不到声明层，类级 `typeof(E)` / `default(E)` 退成占位 `T`。
+        if (lt < 0 && this._ctx.OwnerCt != null && this._ctx.OwnerCt.HasArityMangle) { on = this._ctx.OwnerCt.IrName(); }
         if (this._ctx.OwnerCt != null) { return this._ctx.QualifyType(this._ctx.OwnerCt, on); }   // fqn-tables 5d：owner 的声明 ns
         if (lt < 0) { return this._ctx.QualifyClass(on); }
         return this._ctx.QualifyClass(on.Substring(0, lt)) + on.Substring(lt, on.Length - lt);
