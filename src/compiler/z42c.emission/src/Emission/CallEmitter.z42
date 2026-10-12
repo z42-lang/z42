@@ -664,7 +664,7 @@ public sealed class CallEmitter {
         TypedReg[] caps = new TypedReg[1];
         caps[0] = recv;
         TypedReg dst = this._ctx.Alloc(IrType.Ref);
-        this._ctx.Emit(new MkClosInstr(dst, thunkName, caps, 1, false));
+        this._ctx.Emit(new MkClosInstr(dst, thunkName, caps, 1));
         return dst;
     }
 

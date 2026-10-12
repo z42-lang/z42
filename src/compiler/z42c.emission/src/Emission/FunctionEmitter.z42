@@ -473,7 +473,7 @@ public sealed class FunctionEmitter {
             ci = ci + 1;
         }
         TypedReg clos = this._ctx.Alloc(IrType.Ref);
-        this._ctx.Emit(new MkClosInstr(clos, lifted, caps, lfn.CaptureCount, false));
+        this._ctx.Emit(new MkClosInstr(clos, lifted, caps, lfn.CaptureCount));
         this._ctx.Locals.Put(lfn.Name, clos);
     }
 

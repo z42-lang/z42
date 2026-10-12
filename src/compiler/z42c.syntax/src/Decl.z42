@@ -46,7 +46,7 @@ public sealed class Attr {
     // 泛型 attribute 的类型实参 `[Attr<A, B<int>>]`（解析器填；空 = 非泛型）。工厂合成按它构造 `new AttrAttribute<A, B<int>>()`。
     public TypeExpr[] TypeArgs;
     public int TypeArgCount;
-    // 首个类型实参的名字（无 = ""）：测试发现表（TIDX）的 `[ShouldThrow<E>]` 仍按名字取 E。
+    // 首个类型实参的名字（无 = ""）：`[ShouldThrow<E>]` 的编译期校验（E0913）按名字取 E。
     public string TypeArg;
     public Attr(string name, Expr[] args, int argCount, Span span) { this.Span = span;
         this.Name = name; this.Args = args; this.ArgCount = argCount; this.FactoryFunc = ""; this.TypeArg = "";

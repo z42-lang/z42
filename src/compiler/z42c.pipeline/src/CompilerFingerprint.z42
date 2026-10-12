@@ -154,7 +154,10 @@ public static class CompilerFingerprint {
         // reflective-test-discovery：测试家族 attribute（`[Test]` / `[Skip]` …）改为普通 store-meta ⇒ 每处应用多合成
         // 一个反射工厂 + attr-ref；同名多 arity 泛型类（`Box` / `Box<E>`）的类级 `typeof(E)` / `default(E)` 声明类名改用
         // `Box$1`（此前写 `Box` ⇒ 运行期退成占位 `T`）—— 输出变化。
-        "reflective-test-discovery"
+        "reflective-test-discovery",
+        // retire-tidx：不再写 TIDX 段（zbc 1.47 / zpkg 0.53）、MkClos 去尾字节；`[Benchmark] f(Bencher b)` 不再脱糖成
+        // `f$impl` + 零参 wrapper —— 输出变化。
+        "retire-tidx"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。
