@@ -19,7 +19,7 @@ include = ["**/*.z42"]
 # 运行期侧车自动带 `${Z42_HOME}/programs/z42c`，VM 由自己的位置（`.z42/bin/z42vm` ⇒ `.z42`）展开，取的是同一份。
 #
 # ⚠️ 代价 = 自举纪律：编 xtask 的是**上一版 nightly**，所以 xtask 用到的 `Z42.Project` / `Z42.Build` 新 API
-# 必须先随一次合入进 nightly、下一个 PR 再用（docs/agent/rules/bootstrap-seed.md）。
+# 必须先随一次合入进 nightly、下一个 PR 再用（docs/internals/src/compiler/self-hosting.md）。
 [dependencies]
 "z42.project" = { version = "*", deploy = "sdk" }
 "z42.build"   = { version = "*", deploy = "sdk" }

@@ -272,7 +272,7 @@ interp `Frame` / `JitFrame` / `VmFrame` 没有闭包 env arena，`CallIndirect` 
   `IrEscapeAnalysis` 只给 `ObjNew` / `ArrayNew` / `ArrayNewLit` 置标志，不碰 `MkClos`。
 - **格式**：zbc 的 `MkClos` 仍带一个 `u8` 尾字节（原 `stack_alloc`）。VM 读出后丢弃
   （`zbc_reader/instr_decode.rs`），下次 zbc bump 时删除（登记在
-  [version-bumping.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/version-bumping.md)「下次 zbc bump 时顺带删除」）。
+  [zbc.md `## Deferred`](../formats/zbc.md#deferred)）。
 - **为什么不做栈闭包**（runtime-audit D6 决策）：它只覆盖「创建后当场调用」这一种用法；把 lambda 传给别的
   函数（`list.Where(x => …)`）本来就逃逸。维护两套闭包表示要让调用协议、对象模型、OSR、GC 根扫描每次都改两条
   路径，收益却很窄。以后真要消掉不逃逸闭包的分配，做法是 JIT 里的**标量替换**（把 env 拆进寄存器），不需要
@@ -306,4 +306,4 @@ reference 那条「循环变量每次迭代是新绑定」的语义**由值快�
 ## 关联文档
 - 开关 / 管线位置：[optimization-pipeline](optimization-pipeline.md)
 - 闭包的用户面捕获语义：[闭包与捕获语义](https://z42-lang.github.io/z42/reference/language/closures.html)
-- 格式 bump：[version-bumping.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/version-bumping.md)
+- 格式 bump：[格式 bump 清单](../devinfra/format-bump.md)

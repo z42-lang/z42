@@ -22,7 +22,7 @@
 //!
 //! This test reads the **committed bytes straight off disk** and asserts their
 //! header version equals the current constant, so "someone bumped the format and
-//! forgot step 4/9 of `docs/agent/rules/version-bumping.md`" is a red test rather
+//! forgot step 4/9 of the bump checklist in `docs/internals/src/devinfra/format-bump.md`" is a red test rather
 //! than a silent diff. Regenerate with the per-fixture recipes documented in
 //! `src/compiler/z42.package/tests/fixtures/zpkg-format/README.md`.
 
@@ -102,7 +102,7 @@ fn committed_zbc_baselines_match_the_current_writer() {
         ZBC_VERSION_MINOR,
         "Fix: `xtask build compiler && xtask build stdlib && xtask build test` regenerates the \
          zbc-format set in place; review the diff and commit it \
-         (docs/agent/rules/version-bumping.md step 4).",
+         (docs/internals/src/devinfra/format-bump.md step 4).",
     );
 }
 
@@ -118,7 +118,7 @@ fn committed_zpkg_baselines_match_the_current_writer() {
         ZPKG_VERSION_MINOR,
         "Fix: rebuild each fixture from its committed `<name>.z42.toml` \
          (see src/compiler/z42.package/tests/fixtures/zpkg-format/README.md) and commit the result \
-         (docs/agent/rules/version-bumping.md step 9).",
+         (docs/internals/src/devinfra/format-bump.md step 9).",
     );
 }
 
@@ -156,9 +156,9 @@ fn sym_only_fixture_really_holds_sidecar_bytes() {
     );
 }
 
-// ─── The "唯一真相表" in version-bumping.md ───────────────────────────────────
+// ─── The "唯一真相表" in format-bump.md ──────────────────────────────────────
 //
-// `docs/agent/rules/version-bumping.md` opens with a four-row table ("版本常量
+// `docs/internals/src/devinfra/format-bump.md` carries a four-row table ("版本常量
 // 坐标（唯一真相表）") giving, for each of the two writers and the two readers,
 // the file, the constant names, and the **current value**. It is the first thing
 // anyone consults when bumping a format.
@@ -274,7 +274,7 @@ fn parse_claim_rows(md: &str) -> Vec<ClaimRow> {
 #[test]
 fn version_bumping_coordinate_table_matches_the_real_constants() {
     let root = repo_root();
-    let md_rel = "docs/agent/rules/version-bumping.md";
+    let md_rel = "docs/internals/src/devinfra/format-bump.md";
     let md_path = root.join(md_rel);
     let md = std::fs::read_to_string(&md_path)
         .unwrap_or_else(|e| panic!("read {}: {e}", md_path.display()));

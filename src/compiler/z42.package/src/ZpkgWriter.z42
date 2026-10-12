@@ -31,7 +31,7 @@ public sealed class ZpkgSectionList {
 }
 
 public static class ZpkgWriterZ {
-    // 版本（须与 C# ZpkgWriter.VersionMajor/Minor 一致；strict-pin。bump 同步见 version-bumping.md 第 5 步）。
+    // 版本（须与 Rust reader 的 ZPKG_VERSION_* 一致；strict-pin。bump 清单见 docs/internals/src/devinfra/format-bump.md）。
     public static int Major = 0;
     public static int Minor = 53;   // 2026-10-12 retire-tidx：内嵌 zbc 1.47；MODS 每模块删掉 `tidx_len` + 体
     // （测试改由运行期反射发现）。每模块段体由 func/type/dbug/regt/tidx 五个变为前四个。

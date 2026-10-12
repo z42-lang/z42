@@ -46,6 +46,19 @@ git clone https://github.com/z42-lang/z42 && cd z42
   Z42_PORTABLE_VM="$vm" Z42_LIBS="$libs" "$vm" artifacts/xtask/xtask.zpkg -- build stdlib
   ```
 
+### 并行 worktree 供种
+
+每个改动在自己的 worktree 里做（`git worktree add -b <branch> ../wt/<branch> origin/main`）。新树不必重走
+上面四步，从一个 warm 树拷种子即可，但 **xtask 必须按本树源码重建**——门禁逻辑编在 `xtask.zpkg` 里，
+沿用供体树那份旧的去查本树的新文档 / 新测试，会稳定地假红：
+
+```bash
+cp -R <warm 树>/.z42 <warm 树>/xtask .                     # 种子 SDK + apphost
+mkdir -p artifacts && cp -R <warm 树>/artifacts/xtask artifacts/
+./.z42/z42 publish scripts/xtask.z42.toml                  # 按本树源码重建 xtask
+./xtask build all                                          # 要跑依赖自建产物的 stage 时再备齐
+```
+
 ## 2. 日常命令
 
 ```bash

@@ -83,7 +83,7 @@ public sealed class TypeOpEmitter {
         //
         // **不新增 IR 指令、不 bump 格式**：照下面 `_emitMethodOf` / `_emitBoxPrim` 的同一范式
         // 复用既有 Builtin opcode。新 opcode 要 zbc 格式 bump + 两代自举纪律
-        // （bootstrap-seed.md），换来的语义与这条完全相同；而 `Instruction::Builtin` 在 JIT 里
+        // （self-hosting.md），换来的语义与这条完全相同；而 `Instruction::Builtin` 在 JIT 里
         // 是按名 / BuiltinId 的通用派发 ⇒ JIT 支持白送。
         //
         // 🔴 `Locals.Get("this")` 为 null 必须落回占位路径：绑定期已用

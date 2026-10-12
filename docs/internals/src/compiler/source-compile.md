@@ -138,11 +138,29 @@ analyzer **只读、只产诊断**，不参与编译主线：
 
 跳过 trivia 使后续语法阶段只面对干净的 Token 序列，无需再关心排版与注释。观察：`--dump-tokens`。
 
+**实现要点**（改词法器时）：
+
+- 主循环 `_lexOne()` 按首字符分派到 `_lexIdent` / `_lexNumber` / `_lexString` / `_lexRawString` / `_lexInterpolated` / `_lexChar` / `_lexSymbol`；trivia（空白 / `//` / `/* */`）单独跳过。
+- 关键字：`_initKeywords()` 注册到并行数组 `_kwNames` / `_kwKinds`（注册序供 DumpTool / vscode-syntax 生成），`_kwLookup()` 走首字符分桶链 `_kwHead` / `_kwNext`；标识符 lex 后查表，命中即关键字。
+- 符号：`_lexSymbol()` 做**最长匹配**（`==` 胜 `=`，`>>>` 胜 `>>` 胜 `>`）。
+- Token 类型在 `TokenKind.z42`：`static class` + `int` 常量（无 enum），值仅需互异、顺序沿用既有排列；`Token`（`Token.z42`）= `Kind` + `Text` + `Span`。
+
 ### 语法（Parser）
 
 Token 流 → AST（`CompilationUnit`）。表达式用 Pratt 优先级爬升解析，运算符的结合与优先级由绑定力表驱动，便于增删运算符；语句与声明用递归下降。类型统一经 `_parseType` 产出 `TypeExpr`。
 
 解析器按关注点拆成若干子解析器（表达式、声明、成员、语句、类型），各司其职。AST 节点不可变，为后续并行分析与安全遍历提供基础。观察：`--dump-ast`。
+
+三个公开入口：`ParseExpression()` → `Expr`、`ParseStatement()` → `Stmt`、`ParseCompilationUnit()` → `CompilationUnit`（顶层）。
+
+**AST 节点**（class 继承层次，**非** record；每个节点带 `Span Span` 用于错误报告，带 `virtual Dump()` 产 s-expr 供 golden 对账）：
+
+| 基类 | 文件 | 子类举例 |
+|------|------|---------|
+| `Expr` | `Ast.z42` | `IntLitExpr` / `IdentExpr` / `UnaryExpr` / `BinaryExpr` / `MemberExpr` / `CallExpr` / `IndexExpr` / `AssignExpr` / `TernaryExpr` / `ObjNewExpr` / `IsExpr` / `AsExpr` / `CastExpr` / `TypeofExpr` / `LambdaExpr` … |
+| `Stmt` | `Stmt.z42` | `ExprStmt` / `BlockStmt` / `IfStmt` / `WhileStmt` / `ForStmt` / `ForeachStmt` / `SwitchStmt` / `TryStmt` / `ReturnStmt` / `VarDeclStmt` … |
+| `Decl` | `Decl.z42` | `CompilationUnit` / `UsingDecl` / `ClassDecl`（`Kind` 区分 class/struct/interface）/ `FieldDecl` / `MethodDecl` / `ConstructorDecl` / `EnumDecl` / `Param` / `AttributedDecl` … |
+| `TypeExpr` | `TypeExpr.z42` | `NamedType`（`Name` + 泛型 `Args`）/ `ArrayType` / `NullableType` / `FuncTypeExpr`；`TypeParamList` / `WhereClause` |
 
 **三处「唯一真相」**（各自只许一份实现，手抄副本会漂移出静默误解析）：
 
@@ -182,8 +200,7 @@ AST → Bound 树 + `SemanticModel`。分两步：先由 `SymbolCollector` 遍�
 `SymbolTable.Classes` 以**裸类名**为键（`Foo`），同短名不同命名空间的类（`namespace A { class Foo }` 与
 `namespace B { class Foo }`）会在该表里 first/last-wins 只留一份。仅靠裸名表，限定引用 `new A.Foo` 会被剥成
 `Foo` 再查裸名表 → 撞见碰巧赢的那份（B.Foo），致对象身份、`is`/`as`、`GetType().FullName` 全错
-（与静态调用侧同源，见
-[common-pitfalls §1](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/common-pitfalls.md)）。
+（与静态调用侧同源）。
 
 解法是**并存的 FQN 视图**：
 
@@ -681,7 +698,7 @@ getter 是真实函数体。
 
 **VM 侧无需改动**：基元接收者 VCall 的运行期派发（`src/runtime/src/interp/exec_vcall.rs:321-379`）按 `<class>.<method名>` 拼函数名直查——即它**本就以完整 mangle RegKey 为派发键**。只要绑定 emit 出正确的 `Split$1$string`，VM 就命中 `Std.String.Split$1$string`，跨包一样生效。
 
-> 阶段纪律（[bootstrap-seed.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/bootstrap-seed.md)）：z42c / stdlib 源自身**不使用** prim 类同 arity 重载；待办：往 `Std.String` 加 `Split(char[])` 等实际重载，晚一个 nightly。
+> 阶段纪律（见[编译器自举](self-hosting.md)）：z42c / stdlib 源自身**不使用** prim 类同 arity 重载；待办：往 `Std.String` 加 `Split(char[])` 等实际重载，晚一个 nightly。
 
 #### 重载决议：默认值形参、命名实参、params 两种形态
 

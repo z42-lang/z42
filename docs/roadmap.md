@@ -34,7 +34,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 - **IR**：寄存器 SSA 形式
 - **执行模式注解**：作用于命名空间级
 - **`.zbc` magic**：`ZBC\0`
-- **pre-1.0 不承诺向后兼容**（与 [`philosophy.md` "不为旧版本提供兼容"](agent/rules/philosophy.md#不为旧版本提供兼容) 对齐）
+- **pre-1.0 不承诺向后兼容**（与 协作规范的「不为旧版本提供兼容」 对齐）
 - **1.0+ 启用 SemVer + deprecation 周期**
 
 ---
@@ -354,7 +354,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 
 ## Deferred Backlog Index
 
-> 所有显式延后特性的横向索引；条目正文存于对应书页的「待办」段或「不支持」节。新增延后项时：① 在对应书页写清当前行为 ② 在本表加索引行。规则见 [`agent/rules/philosophy.md`](agent/rules/philosophy.md#延后特性管理必须遵守) "延后特性管理"。
+> 所有显式延后特性的横向索引；条目正文存于 internals 对应机制页的 `## Deferred` 节（reference 页为「不支持」节）。新增延后项时：① 在对应书页写清当前行为与延后条目 ② 在本表加索引行。
 
 ### 设计期延后
 
@@ -510,7 +510,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 
 ### 实施期延后（D-* 系列）
 
-| ID | 标题 | Design doc 条目 |
+| ID | 标题 | 正文条目 |
 |------|------|------|
 | **D-2** | ISubscription chain `.AsOnce()` / `.AsWeak()` 跨 generic interface impl | [language/delegates-events.md](reference/src/language/delegates-events.md#d-2-isubscription-chain-asonce--asweak-跨-generic-interface-impl) |
 | **D-3** | N>4 arity Action / Func（自举后用 z42 写生成器）| [language/delegates-events.md](reference/src/language/delegates-events.md#d-3-n4-arity-action--func) |
@@ -530,6 +530,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | `packaging-future-selector` | `packages.toml` 自动发现（组件自报 `packages=[...]`，中央零编辑）；牺牲显式 include 的可见性，apphost 数量多时再评估 | [internals: packaging.md](internals/src/devinfra/packaging.md)（同上，正文暂只在本行） |
 | `packaging-future-artifact-naming` | `packages.toml` 的 `[package.*].artifact` 模板未被 xtask 消费，包目录命名仍是既有硬编码拼接（与模板字面值不一致）；改成真读字段会变更包目录名（外部可见），Phase 1 不做 | [internals: packaging.md](internals/src/devinfra/packaging.md)（同上，正文暂只在本行） |
 | `packaging-future-byte-identical-verification` | sdk/runtime 包树端到端逐字节一致验证被并行会话的 zpkg 格式升级（minor 22→0.23）环境问题阻塞；重构逻辑本身已通过单元+部分 e2e 独立验证 | [internals: packaging.md](internals/src/devinfra/packaging.md)（同上，正文暂只在本行） |
+
 
 ### 代码内临时绕过（in-code stopgaps，待正解）
 
@@ -556,7 +557,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 |------|------|------|
 | `add-cli-version-flag` | `--version` 内建进 `Std.Cli`（今天每个 CLI 自己手写）。todo#3 | 工具链命令面打磨时 |
 | `add-union-types` | 联合类型（组合类型的快速访问）。todo#13 —— 与 `T?`、模式匹配同一片设计区，需 DRAFT | L2 类型系统阶段 |
-| `rename-toolchain-and-libs` | 命名收敛：标准库明确 `std` / `z42` / `z42c` / `z42b` 分界；`z42vm` → `z42r`；`z42.package` → `z42.package`。todo#17 —— ⚠️ 命名空间互换实测**跨 nightly**（种子 driver 会从正在重建的 libs 解析旧 FQN），须按 [bootstrap-seed.md](agent/rules/bootstrap-seed.md) 的 support→use 分阶段走 | 有一个 nightly 窗口时 |
+| `rename-toolchain-and-libs` | 命名收敛：标准库明确 `std` / `z42` / `z42c` / `z42b` 分界；`z42vm` → `z42r`；`z42.package` → `z42.package`。todo#17 —— ⚠️ 命名空间互换实测**跨 nightly**（种子 driver 会从正在重建的 libs 解析旧 FQN），须按 协作规范的「support 先行」分阶段引入纪律 的 support→use 分阶段走 | 有一个 nightly 窗口时 |
 | `add-debugger` | 调试器：命令行前端 + 调试协议 + vscode/vs 集成，组件（动态库）形态。todo#18 —— 落点是 `src/toolchain/devtools/` 的 `z42d dbg`（现为占位） | 0.4.x 调试符号落地后 |
 | `zaia` | todo#15，User 只留了名字、尚无定义 | 待 User 补充意图 |
 | `triage-test-corpus-by-tier` | 测试语料按「runtime / 运行模式（interp·JIT）/ 层级」分档，toolchain 档全在 host 平台 ⇒ 削掉 CI 里不必要的流程。todo#16 —— 与 [test-gate.md](internals/src/devinfra/test-gate.md) 的 stage 分档、`xtask test --skip` 的 per-leg 卸载部分重叠，本条是「把分档变成语料属性而非 CI 参数」 | CI 关键路径再成瓶颈时 |
@@ -606,7 +607,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 ### Backlog 项实施流程
 
 每条 deferred 项被实施时：
-1. 开一个独立 PR（完整模式按 [workflow.md](agent/rules/workflow.md)，条目内容搬进 PR 描述的 Why / Design）
+1. 开一个独立 PR（完整模式按 协作规范的流程主线，条目内容搬进 PR 描述的 Why / Design）
 2. 验证 + GREEN 后合并；机制页 `## Deferred` 段移除该条目，本表索引行同步删除
 
 ---

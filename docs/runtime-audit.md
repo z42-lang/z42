@@ -1,6 +1,6 @@
 # z42 运行时审计与改进计划（临时迭代底稿）
 
-> **临时底稿**：运行时改进迭代的工作文档，不属于三本书。阶段 0 已全部完成（修复的知识已上浮到 internals / reference，本文不再保留）；本文现在是**阶段 1** 的工作文档。迭代全部完成后删除本文件（同时移除 `docs/README.md` 里的入口链接）；届时仍未完成的项转入 `docs/internals/` 对应机制页的「待办 / Deferred」（类别登记见 [doc-system.md](agent/rules/doc-system.md)）。
+> **临时底稿**：运行时改进迭代的工作文档，不属于三本书。阶段 0 已全部完成（修复的知识已上浮到 internals / reference，本文不再保留）；本文现在是**阶段 1** 的工作文档。迭代全部完成后删除本文件（同时移除 `docs/README.md` 里的入口链接）；届时仍未完成的项转入 `docs/internals/` 对应机制页的「待办 / Deferred」（类别登记见 协作规范的文档总纲）。
 > 范围：`src/runtime`。方法：按子系统（值模型/IR、加载链路/启动/配置、解释器、JIT、GC、corelib/native/host/VmContext、构建打包）逐个只读审计 + 实测（release z42vm，macOS arm64：`sample` 采样、GC trace、计时）。
 > 证据级别：**【实测】** profile / trace / 计时（方法见附录）；**【确认】** 读代码确认；**【推断】** 有代码依据但需测量。
 > 计时环境负载较高，绝对值可能偏高 20–40%，相对比例可信。文中行号对应审计时的版本，随修改漂移。

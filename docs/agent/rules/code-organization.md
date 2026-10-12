@@ -1,16 +1,10 @@
----
-paths:
-  - "src/**/*"
-  - "docs/**/*"
----
-
 # 代码组织规范
 
 ## 目录 README.md
 
 **每个功能目录必须有一个 `README.md`，描述该目录的职责、核心模块和入口点。**
 
-适用范围：`src/` 下最多 **3 层**目录（含 `src/` 本身算第 0 层，则子目录最深到第 3 层）。
+适用范围：从 `src/` 算第 1 层，到第 3 层为止。
 
 ```
 src/                          ← 第 1 层，不需要（已有根 README.md）
@@ -26,17 +20,8 @@ src/compiler/z42c.semantics/src/  ← 第 4 层 ✗ 不自动加 README
 **六段模板（职责 / 功能索引 / 基础用法 / 如何测试验证 / 关联文档 / 核心文件）的唯一 SoT 是
 [readme-writing.md](readme-writing.md)**——本文件只管「哪一层目录需要 README」，不复制模板。
 
-### 阅读顺序规则
-
-**Claude 在阅读某个目录的代码前，必须先读取该目录的 `README.md`（如果存在），再决定读哪些具体文件。**
-
-这样可以：
-- 避免盲目读取无关文件浪费 token
-- 快速定位关键入口，减少探索成本
-
-### README 同步规则
-
-何时必须同步 README，见 [doc-system.md「三问」](doc-system.md)第 3 问——**不在此另立分表**。
+何时必须同步 README 见 [doc-system.md 三问](doc-system.md)第 3 问；读代码前先读 README 的规则见
+[开工导航](../README.md#开工先找-readme-和书)。
 
 ---
 
@@ -78,12 +63,11 @@ src/compiler/z42c.semantics/src/  ← 第 4 层 ✗ 不自动加 README
 
 ### 执行方式
 
-- **机械门禁**：`xtask check lines` 是 GREEN gate 的一个 stage——扫 `src/` 下非测试
-  `.z42` / `.rs` 文件，**新的越界文件（>886 行）或比 `scripts/test/line-limit-baseline.txt` 基线更长的已知越界文件 → 红**；软限（>500 行）只出一条 advisory 提示、不进棘轮、永不变红；
-  基线内未增长的只 warn。基线是**棘轮**：拆分后降到上限以下 → `xtask check lines --update` 剔除；禁止用 `--update` 把新越界 /
-  增长写进基线（那等于关掉门禁）。
-- Claude 每次新增代码时，**主动检查**所在文件是否超出软限制
+- **机械门禁**：`xtask check lines` 是 GREEN gate 的一个 stage，按硬限做棘轮（怎么判红、基线在哪见
+  [GREEN gate](../../internals/src/devinfra/test-gate.md)）。拆分后降到上限以下的文件要从基线里剔除；
+  **禁止把新越界或增长写进基线**——那等于关掉门禁。
+- AI 每次新增代码时，**主动检查**所在文件是否超出软限制
 - 超出软限制时，**建议**拆分方案但不强制打断当前任务
 - 超出硬限制时，**必须**在本次迭代内拆分，不得推迟
-- 拆分是独立的 `refactor` 变更，单独 commit，不与功能变更混合
+- 拆分是独立的 `refactor` PR，不与功能变更混在一起
 

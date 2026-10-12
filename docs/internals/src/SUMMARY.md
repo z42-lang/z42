@@ -25,6 +25,7 @@
   - [工程模型、依赖解析与工作区编译](compiler/project-model.md)
     - [编译器语义指纹（CompilerFingerprint）](compiler/compiler-fingerprint.md)
   - [自举与种子](compiler/self-hosting.md)
+  - [扩展语言与 IR：新增词法元素 / 语法 / IR 指令](compiler/extending-language.md)
 
 # 编译器 · 设计已定（未实施）
 
@@ -53,6 +54,7 @@
 
 - [GC 子系统与 safepoint 协议](runtime/gc.md)
   - [增量 major：SATB 屏障](runtime/gc-incremental-major.md)
+- [原生代码与 GC 的协作约定](runtime/native-gc-contract.md)
   - [GC TLAB：线程本地分配](runtime/gc-tlab.md)
   - [GC 调参与诊断旋钮](runtime/gc-tuning.md)
   - [GC 句柄表（Std.GCHandle）](runtime/gc-handle.md)
@@ -169,11 +171,13 @@
 
 - [怎么跑测试](devinfra/testing.md)
 - [测试用例组织规范](devinfra/test-layout.md)
+- [学习手册示例与会话脚本](devinfra/learn-examples.md)
 - [声明式夹具（expect.toml）](devinfra/fixture-harness.md)
 - [GREEN gate](devinfra/test-gate.md)
 - [测试流水线（两层模型）](devinfra/test-pipeline.md)
 - [性能基准与回归门禁](devinfra/benchmarking.md)
 - [CI 拓扑](devinfra/ci.md)
+- [格式 bump 期的本地验证](devinfra/format-bump.md)
 
 # 开发基础设施 · 发布
 

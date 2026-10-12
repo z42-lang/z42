@@ -239,7 +239,7 @@ walker 文件里找 `is <类名>`；全集里既不被匹配、又不在该 walk
 
 > **发射点为什么还允许用字面量**：新增的 `DiagnosticCodes` 常量**不能在同一个 PR 里被引用**
 > （上一版 z42c 的 `z42c.core` 里还没有这个常量，见
-> [bootstrap-seed.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/bootstrap-seed.md) 的分阶段引入纪律；`GeneratorDriver`
+> [编译器自举](../compiler/self-hosting.md) 的分阶段引入纪律；`GeneratorDriver`
 > 的 E0449 是走完两阶段的既有先例）。所以字面量是**过渡期形态**，清单只应缩短。
 >
 > **清算是常态、不是一次性事件**：字面量会被批量切回常量，之后又会被后来者自然挂上新的。**这里不记

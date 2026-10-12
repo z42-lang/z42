@@ -12,7 +12,7 @@ use super::*;
 //      src/compiler/z42.package/tests/fixtures/zpkg-format/; they regen by different commands
 //
 // ⚠️ This list is a convenience pointer, NOT the procedure. The procedure lives in
-// docs/agent/rules/version-bumping.md and has 9+ steps — notably step 5
+// docs/internals/src/devinfra/format-bump.md §一 — notably the self-check
 // (`cargo test --lib`, unfiltered) and step 9 (regen the zpkg-format fixtures,
 // which `xtask build test` does NOT touch). **Do not grow this comment into a
 // second copy of that doc**; it already rotted once:
@@ -212,7 +212,7 @@ pub const ZBC_VERSION_MINOR: u16 = 47;
 // Strict-pin policy (freeze-zpkg-v0, 2026-05-14). Same coupling rules as zbc:
 // reader accepts exactly major == ZPKG_VERSION_MAJOR && minor == ZPKG_VERSION_MINOR.
 // Additionally, zbc minor bump REQUIRES zpkg minor bump (strong coupling per
-// docs/internals/src/formats/zpkg.md). See docs/agent/rules/workflow.md for the bump
+// docs/internals/src/formats/zpkg.md). See docs/internals/src/devinfra/format-bump.md for the bump
 // procedure (zbc bump → 4 zbc steps + 4 zpkg steps in the same commit).
 
 pub const ZPKG_VERSION_MAJOR: u16 = 0;

@@ -96,7 +96,7 @@ void test_write_packed_header() {
     // bumped to 43, and never went red because the whole unit was undiscovered
     // until 2026-09-06 (see _discoverTestUnits). Deriving them keeps the test
     // asserting the header *shape*, which is what it is for, and takes it off
-    // version-bumping.md's manual-sync list.
+    // the format-bump checklist's manual-sync list.
     Assert.Equal("5a504b00", hex.Substring(0, 8));                     // magic
     Assert.Equal(_hexU16le(ZpkgWriterZ.Major), hex.Substring(8, 4));   // major
     Assert.Equal(_hexU16le(ZpkgWriterZ.Minor), hex.Substring(12, 4));  // minor

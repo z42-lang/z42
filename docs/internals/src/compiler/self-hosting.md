@@ -1,7 +1,7 @@
 # 编译器自举（self-hosting）— `src/compiler/` 架构
 
 > **页型**: 机制页 ｜ **代码**: `src/compiler/` · `scripts/build/xtask_compiler.z42` · `scripts/build/xtask_bootstrap_check.z42`
-> **相关**: [架构总览](architecture.md) · [源代码编译流程](source-compile.md) · [构建编排](../devinfra/build.md) · [自举种子纪律](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/bootstrap-seed.md)
+> **相关**: [架构总览](architecture.md) · [源代码编译流程](source-compile.md) · [构建编排](../devinfra/build.md)
 
 z42c 是用 z42 写的编译器，由上一代 z42c 编译自己。结论：**种子（上一个 nightly SDK）→ 破环预建自依赖库 → 自建 z42c → 用 fresh z42c 建 stdlib**；z42vm 由 Rust 构建，是打破格式环的锚点。
 
@@ -29,7 +29,7 @@ z42c 是用 z42 写的编译器，由上一代 z42c 编译自己。结论：**�
 
 ## 受限写法约定
 
-用当前语言子集写，遇到无法表达的写法：停下汇报 → L1/L2 可补则当次补进语言；**禁止在编译器代码里写 workaround**。
+z42c 只用当前语言子集写；子集表达不了的写法，补进语言而不是在编译器里绕。目前的受限写法：
 
 | 限制 | 受限写法 |
 |---|---|
@@ -91,6 +91,14 @@ z42c / stdlib / xtask (z42)  ──互为前置──►  自举环
 
 格式轴不需要纪律；真正靠纪律约束的只有语法 / API 轴。
 
+> **两代自举与 `DepScanCache`**：gen0→gen1(stdlib) / gen1→gen2(compiler) **就地覆写同一
+> `artifacts/build/{libraries,compiler}`**；`DepScanCache.Get` 按 **path + (size, mtime_ms)** 作答，
+> 命中但文件被覆写过即重读重解、并作废该条目的 Tsig/Mods/Types，于是「进程内覆写 zpkg 后重扫」不会返回
+> 陈旧 null，两代自举不依赖外部清理。回归测试 `src/compiler/z42c.pipeline/tests/depscancache/` 按真实
+> 形状复现（旧 minor 头 → 缓存 null → 就地覆写成当前 minor → 必须重解）。
+> ⚠️ 残余窗口：mtime 只有毫秒粒度，「同毫秒内覆写成同样大小的另一份内容」测不出来（make / ninja / rustc
+> 同款取舍）；两代自举之间隔着整轮构建，不在这个窗口里。
+
 ### 轴 ④ 的破环预建
 
 `_ensureBootstrapSelfDepLibs`（`xtask_compiler.z42`）在 workspace 自建**前**，用当前 driver（冷启动 = 上一 nightly 种子）把**当前源**的 `z42.core` → `z42.project` → `z42.build` → `z42.package` → `z42c.core` → `z42c.syntax` 依次编进 flat（顺序即依赖序，先于其消费者）。理由：z42c 源若消费这些库的新 API 而 flat 里是种子带来的旧版，自建会 `unknown type` / `no field`；若 fresh z42c emit 的调用钉在旧库上，运行期加载真库时解析不到（`undefined function`）。
@@ -101,6 +109,54 @@ z42c / stdlib / xtask (z42)  ──互为前置──►  自举环
 - 预建前先 `_breakHardLink`：flat 由硬链接装配，就地写会穿透到规范 dist。
 - 自建完成后 `_purgeBootstrapPrebuildsFromFlat` 把非 stdlib 成员从 flat 清走（规范产物在各成员 dist），使 flat 保持「只有 stdlib」，否则开发树的 `Z42_LIBS` 里会出现 `z42.project` 等包被误判为框架包。
 - 自建首遍失败（跨成员新增符号：driver 自包含的是旧兄弟包）时，用本轮 fresh 成员 dist 重新自包含 driver 并重试一遍。
+
+### 改名：编译期与运行期是两个解析面
+
+**重命名 / 删除一个 driver 运行期要调的符号不是增量**：预建用**当前源**重建自依赖库，加 API 时旧 FQN 还在、
+上一版 driver 运行期照旧解析得到；但**改名或删除会抹掉旧 FQN**，而跑这轮 bootstrap 的正是那个 driver ⇒
+它在中途就死。实测（想把 `Z42.Build.Project` ↔ `Z42.Package` 互换）：
+
+```
+Std.MissingSymbolException: undefined function `Z42.Build.Project.ManifestLoader.Load$1$string`
+  at Z42.Driver._build (Main.z42:166)
+```
+
+⇒ 动自依赖库里「driver 运行期会调」的符号的**名字或存在性**，是跨 nightly 的两 / 三阶段改动。
+
+要让两代并存就得有兼容物，**而兼容物形态选错就是白干一轮**。判据只有一条：
+
+> **编译期与运行期是两个独立的解析面，一件兼容物通常只盖住其中一个。**
+
+| 面 | 按什么解析 | 依据 |
+|---|---|---|
+| 编译期 | 命名空间（`using` + FQN），**不看包文件名** | z42c 语义层的 using-scoped 解析 |
+| 运行期 | **zpkg 文件名**（消费者 `DEPS` 段记的名字），**不看命名空间** | `runtime/src/metadata/loader/namespace.rs` 的 `resolve_dependency` |
+
+于是别名形态跟着「改的是哪一面」走：
+
+| 改的是 | 别名形态 | 先例 |
+|---|---|---|
+| **包名（文件名）**，命名空间没动 | 同内容**两个文件名** | `z42.ir` → `z42.package` |
+| **命名空间**，文件名没动 | 只能**旁置**一份到消费者的 entry 目录 | — |
+
+这两条已实测否证，别再试：
+
+- ❌ **另立一个兼容包**（旧名副本换个包名）：编译期够用，**运行期是空气**——没有任何 `DEPS` 指向那个新
+  文件名，它永不被加载。
+- ❌ **同一个包里同时声明两套命名空间**：同包内两套**同短名类**会串味（`E0401: no field … on <Class>`，
+  短名键混同），**且种子 z42c 一样如此** ⇒ 阶段 1 的源码根本编不出来。
+
+✅ **可行形态 = 编译期 overlay + 运行期旁置**：用种子 z42c 把**当前源**那个库编出来、覆盖进一份种子 libs
+的副本供编译期用；再把这份新名产物 `cp` 到消费者 zpkg 旁边（搜索序 `[entry-dir, Z42_LIBS, probing]`，
+entry-dir 最优先）供运行期用。两件齐了，改名就能**一步落**，不必拆成跨 nightly 的三步。
+
+> ⭐ **消掉这一整类危险的思路**：把旧 `<pkg>.zpkg` 拷进 driver **自己的 dist**（同样靠 entry-dir 最优先），
+> 带改名的 stdlib 重建就过去了——即「让编译器对它运行期要用的 stdlib 库自包含」。注意
+> `xtask_stdlib.z42` 步骤 4 的注释本就写着要给 driver「稳定 stdlib 快照」，而
+> 「fresh member 从 workspace dist 解析、优先于快照」恰好把那个意图吃掉了。
+
+⚠️ 验这类接线的对照实验，**命令必须真的会触碰那个符号**：懒加载没走到，撤掉兼容物也照样绿——那是空门
+（实测踩过：`xtask check stage2` 不读清单 ⇒ 对照无效，换 `package ci` 才红）。
 
 ### 运行期 libs 与编译期 libs 分离
 
@@ -131,8 +187,10 @@ Stage 2  gen1 再编 z42c 源 → gen2；各成员 zpkg 除 BLID 段外逐段一
 ```
 
 xtask 最先被种子编出来、还要回头驱动编 stdlib / z42c，所以它只能用种子已有的语法与 stdlib API，INV-1 是最受约束的不变量。
+xtask 用到的编译器域 API（`Z42.Project` / `Z42.Build`）同属这一约束；另一个后果是：改布局规则的那次合入里，CI 上的
+xtask 仍按上一 nightly 的规则计算路径，xtask 侧的跟进要放到下一个 PR。
 
-**种子来源**：SDK package（`z42-sdk-<ver>-<rid>`）的 `programs/z42c/` + `libs/`，而非 runtime package（runtime package 是纯嵌入式运行时，可能跨 host 使用，不携带单一 host 的 z42c）。冷启动由 `_ensureSeed` 按 `Z42_HOME` → 运行 xtask 的 apphost SDK → `./.z42` 找到 SDK 并供种到 in-tree（按当前 `default_members` 逐个拷；**种子那一代还没有的成员**——新拆出 / 新增的包——跳过，由随后的 `build --workspace` 按拓扑序从源码建出，只有 `z42c.driver` 必须在种子里）；warm 树不被覆盖（gen2 不动点靠「从 in-tree gen1 再种」收敛）。CI 与本地走同一条 resolver，详见 [自举种子纪律](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/bootstrap-seed.md)。
+**种子来源**：SDK package（`z42-sdk-<ver>-<rid>`）的 `programs/z42c/` + `libs/`，而非 runtime package（runtime package 是纯嵌入式运行时，可能跨 host 使用，不携带单一 host 的 z42c）。冷启动由 `_ensureSeed` 按 `Z42_HOME` → 运行 xtask 的 apphost SDK → `./.z42` 找到 SDK 并供种到 in-tree（按当前 `default_members` 逐个拷；**种子那一代还没有的成员**——新拆出 / 新增的包——跳过，由随后的 `build --workspace` 按拓扑序从源码建出，只有 `z42c.driver` 必须在种子里）；warm 树不被覆盖（gen2 不动点靠「从 in-tree gen1 再种」收敛）。CI 与本地走同一条 resolver。
 
 ### 门
 
@@ -140,13 +198,25 @@ xtask 最先被种子编出来、还要回头驱动编 stdlib / z42c，所以它
 |---|---|---|
 | forward-bootstrap：CI composite action `ci-bootstrap`，由 `build-and-test`（test-host ×4 OS）与 `toolchain-bootstrap`（compile-toolchain）两个 job 的 Bootstrap 步骤调用 | 下载上一 nightly SDK 作种子 → 编当前 xtask → xtask 自建 z42c + stdlib → 验证工具链；zpkg minor 与种子不同时先走两代自举 | INV-1 |
 | self-host 不动点：`compiler-checks` job 的 `xtask test compiler` 步骤（仅 z42c 源变动 / schedule / 手动触发才跑，test-host 跳过它）| 先验全成员 zpkg 在、z42c `[Test]` 单元、e2e，再 `_testSelfHostByteIdentical`：快照现有 dist（gen1）→ 用其 driver 同参再 `build --workspace` 一遍（gen2）→ 逐成员比 zpkg 各段（BLID 段不比，其余段的集合与内容须一致）| INV-3 |
-| 本地 `xtask test compiler bootstrap`（CI 不调用）| 上一 nightly z42c 编当前源，越界立即红；经同一个 `_ensureBootstrapSelfDepLibs`，所以只守语法 / 格式 / 非自依赖 stdlib 轴，不验运行期自依赖 | INV-1（改 parser / codegen / 格式后必跑）|
+| 本地 `xtask test compiler bootstrap`（CI 不调用；下载 nightly 需 `gh` 已登录）| 上一 nightly z42c 编当前源，越界立即红；经同一个 `_ensureBootstrapSelfDepLibs`，所以只守语法 / 格式 / 非自依赖 stdlib 轴，不验运行期自依赖 | INV-1（改 parser / codegen / 格式后必跑）|
 
 INV-2（测试全绿）由 `test-host` 的 `xtask test` 守。
 
 测试单元布局 `src/compiler/<member>/tests/<unit>/{<name>.z42.toml(kind=lib) + *.z42}`，经 z42b 运行；`z42.test` 自动可用，不在 toml 声明。`xtask test` 含 compiler。
 
 ## Deferred / Future Work
+
+### self-hosting-future-seed-syntax-capability
+
+- **当前形态**：种子的校验只有**格式**维度——`ci-bootstrap` 的版本差 gate 比种子 `z42c.driver.zpkg` 的
+  zpkg minor 与当前 writer minor（不等则走两代自举），strict-pin 也天然拒读旧格式。
+  **语法能力维度没有校验**：种子 z42c 若不懂当前源码用的新语法，只会在编译期以普通编译错误暴露，
+  而不是"种子太旧"这类明确诊断。
+- **触发原因**：没有 z42c 自举能力版本号这类常量，也没有对种子的能力校验；按纪律
+  （support 先行、晚一个 nightly 再 use）人为克制，把这个问题挡在前面。
+- **前置依赖**：给 z42c 引入自举能力版本号（新增语法 / 新格式时 +1）并写进种子元数据，供下载侧比对。
+- **触发条件**：纪律被实际违反并造成一次"莫名编译失败"的排障成本时。
+- **当前 workaround**：靠 `xtask test compiler bootstrap` 在开发期判定"上一 nightly 能否编当前源"。
 
 ### self-hosting-future-remote-deps
 

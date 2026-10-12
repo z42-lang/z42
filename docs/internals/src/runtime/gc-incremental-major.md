@@ -43,7 +43,7 @@ sweep  ：X 被回收，而 r 还攥着它
 | `ArrayObj::copy_elems_from` / `copy_elems_within` | `Array.Copy` 的批量路径：REF→REF 逐字 `store_word_recorded`，其余逐元素 —— 第一轮审计漏掉批量路径，增量 major 的 `Z42_GC_SLICE_MS=0.05` 压测以编译器 SIGSEGV 抓到 |
 
 不带屏障的写只有两种：**刚分配、还不可达的块**（构造期直接写字 / 单元，旧值全是 0）和 **GC 自己断边**
-（`clear_refs_for_sweep`，记录死对象会把悬空句柄塞进标记队列）。规则写在 `../../../agent/rules/runtime-rust.md`。
+（`clear_refs_for_sweep`，记录死对象会把悬空句柄塞进标记队列）。
 
 ### 原语手里没有堆 —— 线程本地记录
 
