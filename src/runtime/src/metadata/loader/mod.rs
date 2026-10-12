@@ -22,12 +22,11 @@ use crate::corelib::fs_backend;
 use super::bytecode::Module;
 use super::formats::{ZpkgDep, ZBC_MAGIC, ZPKG_MAGIC};
 use super::merge::merge_modules;
-use super::test_index::TestEntry;
 use super::name_index::NameIndex;
 use super::types::{FieldSlot, TypeDesc};
 use super::zbc_reader::{
     parse_zbc_sidecar, parse_zpkg_sidecar, read_build_id,
-    read_test_index_resolved, read_zbc, read_zpkg_file_entries, read_zpkg_meta,
+    read_zbc, read_zpkg_file_entries, read_zpkg_meta,
     read_zpkg_modules,
 };
 

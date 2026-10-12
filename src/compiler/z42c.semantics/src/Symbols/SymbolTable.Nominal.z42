@@ -382,7 +382,7 @@ public sealed partial class SymbolTable {
     }
 
     // 类的**短名键**：登记时 FQN 键去掉 ns 的那一段（`Name`，同包同短名多 arity 时为 `Name$N`）。
-    // 按短名组织的下游（StructLayout 的布局键、TIDX 的 `[ShouldThrow]` 链）从 `SortedClasses()` 取类时用它。
+    // 按短名组织的下游（StructLayout 的布局键）从 `SortedClasses()` 取类时用它。
     public static string ClassKeyOf(Z42ClassType ct) {
         if (ct.HasArityMangle) { return ct.Name() + "$" + ct.ArityMangleCount.ToString(); }
         return ct.Name();

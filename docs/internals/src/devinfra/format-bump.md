@@ -35,8 +35,8 @@ warm 建 / 测 / fixture 重生全部走通，两代自举彻底不需要。
    注释块追加一行（日期 / PR / 字段变化）；reader 解码逻辑（`read_*_section`）同步新格式。
 3. **[zbc.md](../formats/zbc.md)** — 该页的 "Minor changelog" 表加一行（minor / 日期 / 触发变更 / 引入内容）。
 4. **regen zbc-format fixture** — 跑 `xtask build test`（前置 `build compiler` + `build stdlib` 已用新格式重建），
-   原地覆写 `src/compiler/z42.package/tests/fixtures/zbc-format/*/source.zbc`（6 个 committed 字节基线：`empty` /
-   `strp-func-minimal` / `multi-method` / `with-tidx` / `cross-import-token` / `with-frcs`）；`git diff` 应显示格式
+   原地覆写 `src/compiler/z42.package/tests/fixtures/zbc-format/*/source.zbc`（5 个 committed 字节基线：`empty` /
+   `strp-func-minimal` / `multi-method` / `cross-import-token` / `with-frcs`）；`git diff` 应显示格式
    delta，**必须连同 bump 一起提交**。
 
    > 🔒 **CI 有门（`refresh-format-fixtures`）**：`test-host` 的三条非 Windows 腿在 `test`（其 build wave 就地 regen）
@@ -153,7 +153,7 @@ export Z42_PORTABLE_VM="$PWD/artifacts/build/runtime/release/z42vm"
 
 ```bash
 xtask build compiler && xtask build stdlib   # warm，同格式
-xtask build test                             # 原地重生 6 个 zbc-format fixture
+xtask build test                             # 原地重生全部 zbc-format fixture
 cargo test --lib                             # committed fixture 现应全过
 xtask test                                   # 完整 GREEN，含自举不动点 gen1==gen2
 ```

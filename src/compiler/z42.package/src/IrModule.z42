@@ -451,34 +451,6 @@ public sealed class IrFunction {
     }
 }
 
-// TIDX section 条目（add-z42c-tidx-emit；镜像 C# Z42.IR.TestEntry）。
-// 一条 = 一个被 [Test]/[Benchmark]/[Setup]/[Teardown]/[Ignore]/[Skip]/[ShouldThrow]/[Timeout]
-// 标注的函数。所有 *StrIdx 都是 **1-based z42c IrModule.StringPool 索引**（0=无；ZbcWriter
-// 写出时经 strRemap → 1-based STRS 池索引，与 ConstStr 同一约定）。
-public sealed class IrTestCase {
-    public int ArgReprStrIdx;   // 1-based 池索引（参数文本表示）
-    public IrTestCase(int argReprStrIdx) { this.ArgReprStrIdx = argReprStrIdx; }
-}
-
-public sealed class IrTestEntry {
-    public int    MethodId;             // module.Functions[] 下标
-    public int    Kind;                 // 1=Test 2=Benchmark 3=Setup 4=Teardown 5=Doctest
-    public int    Flags;                // bit0=Skipped bit1=Ignored bit2=ShouldThrow bit3=Doctest
-    public int    SkipReasonStrIdx;     // 0=无；否则 1-based 池索引
-    public int    SkipPlatformStrIdx;
-    public int    SkipFeatureStrIdx;
-    public int    ExpectedThrowTypeIdx;
-    public IrTestCase[] TestCases; public int TestCaseCount;
-    public int    TimeoutMs;            // 0=无 override（v=3 末尾 i32）
-    public IrTestEntry(int methodId) {
-        this.MethodId = methodId; this.Kind = 1; this.Flags = 0;
-        this.SkipReasonStrIdx = 0; this.SkipPlatformStrIdx = 0; this.SkipFeatureStrIdx = 0;
-        this.ExpectedThrowTypeIdx = 0;
-        this.TestCases = new IrTestCase[0]; this.TestCaseCount = 0;
-        this.TimeoutMs = 0;
-    }
-}
-
 // 顶层模块：函数 + 类描述 + 字符串池（1-based，0=无）。
 public sealed class IrModule {
     public string         Name;
@@ -488,14 +460,11 @@ public sealed class IrModule {
     public int            ClassCount;
     public IrFunction[]   Functions;
     public int            FuncCount;
-    public IrTestEntry[]  TestIndex;    // TIDX 条目（add-z42c-tidx-emit；默认空 → TestCount=0 → 无 TIDX）
-    public int            TestCount;
     public IrModule(string name, string[] pool, int strCount,
                     IrClassDesc[] classes, int classCount, IrFunction[] funcs, int funcCount) {
         this.Name = name; this.StringPool = pool; this.StringCount = strCount;
         this.Classes = classes; this.ClassCount = classCount;
         this.Functions = funcs; this.FuncCount = funcCount;
-        this.TestIndex = new IrTestEntry[0]; this.TestCount = 0;
     }
     public string Dump() {
         string s = "module \"" + this.Name + "\"";

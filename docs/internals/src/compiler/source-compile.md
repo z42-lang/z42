@@ -25,7 +25,7 @@ graph LR
 ```mermaid
 flowchart TD
   subgraph S0["① 解析 + 内建 AST 脱糖（调用方逐文件做；z42c.syntax / z42c.semantics）"]
-    P0[Lexer → Parser → CompilationUnit] --> RA["HandlerRegistry.RunAst（z42c.semantics）<br/>BenchmarkDesugar（Testing/）→ AttributeSynth（Desugar/）"]
+    P0[Lexer → Parser → CompilationUnit] --> RA["HandlerRegistry.RunAst（z42c.semantics）<br/>AttributeSynth（Desugar/）"]
   end
   RA --> DEP["② 依赖解析（z42c.pipeline）<br/>DepScan → DepScanResult → ImportedSymbols<br/>REPL：复用缓存的 CachedScan"]
   DEP --> GATE{"③ 有 generator？<br/>[analyzers] zpkg 里的 : Generator / : ModuleGenerator<br/>或源里用了 [Forward]"}
@@ -67,8 +67,7 @@ flowchart TD
       direction TB
       G1["静态初始化 → 类 / impl / 接口 / 枚举 / 委托 / 自由函数<br/>→ ModuleInitSynth"] --> G2["泛型单调化工作表（特化体 + 实例布局，不动点迭代）"]
       G2 --> G3["lambda / 局部函数 lift 入函数表"]
-      G3 --> G4["TestIndexBuilder → TIDX（[Test]/[Benchmark] 发现表）"]
-      G4 --> G5["new IrModule（常量池 + 类 + 函数）"]
+      G3 --> G5["new IrModule（常量池 + 类 + 函数）"]
       G5 --> O["**IrOptPipeline.Run(irm, optSet)**（z42c.optimization）<br/>Inline（模块级）→ 逐函数 ConstFold · DeadBranch · LICM · CSE · CopyProp · DCE<br/>→ 逃逸分析 StackAlloc → LoopAllocReuse"]
     end
     G --> G1
@@ -78,7 +77,6 @@ flowchart TD
 
 - **优化的位置与粒度**：`IrOptPipeline` 由 `IrGen.Generate` 末尾调用，**每个 CU 的 `IrModule` 单独优化**，所以 Inline 只能内联同一 CU 内的 callee；
   跨 CU / 跨包的调用点不内联。开关由 `optSet` 决定：release 默认 `Opt.All`，debug 默认 `Opt.None`（`CompileInputs.OptSet` 可显式覆盖）。
-  TIDX 在优化**之前**按函数下标建好；优化只改函数体、不增删函数，所以 TIDX 里的 method id 不受影响。
 - **优化之后还有一步包级处理**：⑧ 里的 `CtorKnownFixup` 需要「本包全部已发射函数 ∪ 依赖索引」才能判定某个 `new` 的构造器是否存在，把结果写进 `ObjNew.CtorKnown`；单个 CU 看不到同包其它文件，所以只能在整包装配后做。
 - **有错误即不生成**：`GenerateIfClean` 在有任何类型错误、包级收集期错误，或前置线（generator 护栏 E0448 / analyzer）报了 error 时不进 `Generate`（`IrDump.BuildPackageCusGated` 的 `upstreamErrors`）。所以代码生成与优化**只对无错误的程序运行**；类型检查照做，诊断一次报全。
 
@@ -123,7 +121,7 @@ analyzer **只读、只产诊断**，不参与编译主线：
 
 | 机制 | 何时跑 | 看到什么 | 产出 | 加载方式 |
 |---|---|---|---|---|
-| **内建 handler**（`BenchmarkDesugar` / `AttributeSynth` / test 与 `[ModuleInit]` 校验 / `TestIndexBuilder`） | ①⑤ | AST / 符号表 | 改写 AST；合成工厂；TIDX | 编译器内建，永远开启 |
+| **内建 handler**（`AttributeSynth` / test 与 `[ModuleInit]` 校验） | ①⑤ | AST / 符号表 | 合成工厂；诊断 | 编译器内建，永远开启 |
 | **Generator**（`: Generator` / `: ModuleGenerator`，内建 `[Forward]`） | ③ | AST + 已解析符号（provisional 绑定） | 新源码 / 替换声明 / 增补 partial | `[analyzers]` zpkg，`GeneratorLoader` 反射加载 |
 | **Analyzer**（`: Analyzer`） | ④（generator 之后、包级编译之前） | union CU 的 AST（含生成代码；不含 Bound） | 诊断（可带 `--fix` 重写源） | 同上，`AnalyzerLoader` |
 | **BuildHooks**（`class ProjectHooks : BuildHooks`） | **z42b** 构建阶段（不在 z42c 里） | 构建上下文 | 构建副作用 | `[build] hooks` 目录由 z42b 编成 zpkg，`ModuleLoader` 加载 |

@@ -22,7 +22,7 @@
 // ## 不判的
 //
 //   · 注释、字符串字面量里的 `[Skip(…)]`（只认 trim 后以 `[` 开头的属性行）；
-//   · _tlCapFixtures() 列的 fixture：它们故意写未知能力名，测的正是 TIDX 解码 / deny-by-default 本身。
+//   · _tlCapFixtures() 列的 fixture：它故意写未知能力名，测的正是 deny-by-default 本身。
 namespace Z42Xtask;
 
 using Std.IO;
@@ -32,7 +32,6 @@ string _tlDocPath(string root) { return Path.Join(root, "docs/internals/src/devi
 // 故意使用未登记能力名的 fixture（相对仓库根的路径前缀）。
 string[] _tlCapFixtures() {
     return new string[]{
-        "src/runtime/tests/data/",                              // TIDX 解码 fixture：字段值是任意字符串
         "src/libraries/z42.test/tests/skip_platform_demo.z42"   // deny-by-default 演示：故意写未知能力名
     };
 }

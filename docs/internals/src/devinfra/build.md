@@ -155,7 +155,7 @@ windows-x64 / macos-arm64 四平台）确认 z42c `--workspace` 编译在 **inte
 包级源清单；`[build].cache_dir`，默认 `${output_dir}/.cache`）。cache **不论是否增量都落盘**。
 粒度是**文件级**：种子（hash / 条目缺失 / pin / 源清单不一致 → 全量）→ 失效传播 → 只重编失效闭包，
 其余文件的 `IrModule` 经 `ZbcReader` 从 cache 读回（`.meta` 回填 zbc wire 不携带的 writer 残留：
-块 label 原文、模块池原序、TIDX idx）；TSIG 与符号恒全包重算，组装零分叉。全命中打印 `no changes; preserved`。
+块 label 原文、模块池原序）；TSIG 与符号恒全包重算，组装零分叉。全命中打印 `no changes; preserved`。
 省下的是失效闭包之外文件的 typecheck + codegen（最贵的相位）；parse / TSIG / 组装恒做，这是 Amdahl 上界。
 
 失效判据的粒度是**名字**，不是文件：

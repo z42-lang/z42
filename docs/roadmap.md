@@ -531,7 +531,6 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | `packaging-future-artifact-naming` | `packages.toml` 的 `[package.*].artifact` 模板未被 xtask 消费，包目录命名仍是既有硬编码拼接（与模板字面值不一致）；改成真读字段会变更包目录名（外部可见），Phase 1 不做 | [internals: packaging.md](internals/src/devinfra/packaging.md)（同上，正文暂只在本行） |
 | `packaging-future-byte-identical-verification` | sdk/runtime 包树端到端逐字节一致验证被并行会话的 zpkg 格式升级（minor 22→0.23）环境问题阻塞；重构逻辑本身已通过单元+部分 e2e 独立验证 | [internals: packaging.md](internals/src/devinfra/packaging.md)（同上，正文暂只在本行） |
 
-| `bump-future-drop-mkclos-stack-alloc` | `MkClos` 的 `u8` 尾字节（原 `stack_alloc`）已无消费者：栈闭包支持删除后 Rust reader 读出即丢、z42c 恒写 `0`。做下一次 zbc bump 时连同字段与三个发射点一并删 | [formats/zbc.md](internals/src/formats/zbc.md#deferred) |
 
 ### 代码内临时绕过（in-code stopgaps，待正解）
 

@@ -268,9 +268,8 @@ public static class ZbcReaderInstr {
         }
         if (op == Op.MkClos) {
             string fname = ZbcReaderInstr._method(c.U32(), pool, fnNames, fnCount);
-            bool stackAlloc = c.U8() != 0;
             TypedReg[] caps = ZbcReaderInstr._args(c);
-            return new MkClosInstr(d, fname, caps, ZbcReaderInstr._argN, stackAlloc);
+            return new MkClosInstr(d, fname, caps, ZbcReaderInstr._argN);
         }
         if (op == Op.CallIndirect) {
             TypedReg callee = ZbcReaderInstr._ru(c.U16());

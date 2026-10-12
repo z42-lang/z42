@@ -40,7 +40,7 @@
 | `z42.toml` | 字段全表（契约） | `BuildLayout` 级联默认的实现 |
 | 泛型 | `where` 能写什么、报什么错 | 约束检查器、TSIG、单态化策略 |
 | GC | **不写**（除非有用户可感知的旋钮 → 归运行时设置） | 全部 |
-| 测试 | `[Test]` 怎么写、`z42 test` 怎么用 | TIDX 格式、runner 协议、GREEN gate 组成 |
+| 测试 | `[Test]` 怎么写、`z42 test` 怎么用 | 反射发现、runner 协议、GREEN gate 组成 |
 | CLI | `z42`（面向用户的命令面） | `z42c --dump-*`（编译器调试）、`xtask *`（仓库开发） |
 | 嵌入 | C ABI **契约**（宿主开发者也在「用 z42」） | VM 内部如何实现这套 ABI |
 | stdlib | 公开 API、语法覆盖、不支持项 | Tier 归属、extern 预算、怎么加一个包 |

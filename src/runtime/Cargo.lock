@@ -2215,7 +2215,6 @@ name = "z42"
 version = "0.6.0"
 dependencies = [
  "anyhow",
- "bitflags 2.13.2",
  "blake3",
  "cc",
  "clap",

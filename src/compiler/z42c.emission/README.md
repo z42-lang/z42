@@ -31,7 +31,6 @@
 |------|------|
 | `src/Emission/` | Bound → IR：`IrGen*`、`EmitContext`、各 `*Emitter`、`ClassDescBuilder`、`SpecializationGuard` |
 | `src/Lowering/` | IR 级合成：record / 模块初始化 / 接口桥合成 |
-| `src/Testing/` | 测试索引（TIDX）构建：`[Test]` 家族 → `IrModule.TestIndex`（编译侧 test 链见 [framework.md](../../../docs/internals/src/testing/framework.md) §2.3）|
 | `src/Exports/` | 编译产物束 `CompiledModuleZ` |
 | `src/Compilation/` | 单 CU / 包编译编排：`CuCompile`、`CuPreprocess`、`IrDump` 门面、包级 `global using` 告警 |
 
@@ -62,7 +61,7 @@
 | `src/Emission/EmitContext.z42` | **codegen 共享状态 + 低层助手**：寄存器分配 Alloc / Emit / 基本块 StartBlock·EndBlock / Fresh 标签 / 循环标签栈 PushLoop·PopLoop / Z42Type→IrType 映射（`z42.package` 的 IR 层不引用 Z42Type，映射在此）。FunctionEmitter 与 ExprEmitter 共用一个 ctx（z42 无 partial class，用拆 helper 代替） |
 | `src/Emission/ExprEmitter.z42` | **表达式 lowering**：集中 if-is Emit(BoundExpr)→TypedReg。字面量 / ident·字段 / 二元（算术·比较·位·拼接）/ 一元（!·-·~）/ 赋值 / 成员 / 调用 / new / 数组索引 / is·as / **块化：短路 &&·‖、三目 ?:、??**（中途分块 + 结果寄存器 copy 汇合）。**sealed 去虚化**（`_emitCall` instance 分支，receiver 静态类型是**本地或 imported** 类（`DevirtReceiverClass`，含泛型——解包 `Z42InstantiatedType.Def`、短名走 `_classShortName` 的 `$N` 条件 arity-mangle）+ `EmitContext.ResolveSealedTarget(…, classSealed)` 在 declClass 处门控 `classSealed ‖ ms.IsSealed`（整类 sealed **或** sealed override 方法）解出目标 → `VCall` 降级直接 `Call`，`Opt.Devirt` 门控 → 解锁 `IrInline`。imported 定义类经 `Deps.Statics` 校验 FQ 真实发射，排除 TSIG 展平的继承方法）|
 | `src/Emission/FunctionEmitter.z42` | **codegen 函数入口 + 语句 + 控制流**：EmitFunction（建 ctx + 形参/this/字段绑定 → 出 IrFunction）+ 集中 if-is EmitStmt；if/while/break/continue → 多块 + Br/BrCond（委托 _ctx 块管理 + _expr 表达式） |
-| `src/Emission/IrGen.z42` | codegen 模块级驱动：Layouts / 接口表 / 静态初始化 → `IrGenTypeEmitter` / `IrGenAuxEmitter` 按固定顺序往 `IrGenSink` 追加 → lifted → TIDX → IrModule + IrOptPipeline |
+| `src/Emission/IrGen.z42` | codegen 模块级驱动：Layouts / 接口表 / 静态初始化 → `IrGenTypeEmitter` / `IrGenAuxEmitter` 按固定顺序往 `IrGenSink` 追加 → lifted → IrModule + IrOptPipeline |
 | `src/Emission/IrGenSink.z42` | 模块级累加器（Funcs / Classes + AddFunc / AddClass）；发射顺序 = byte-identical 的唯一约束点 |
 | `src/Emission/IrGenTypeEmitter.z42` | 类 / struct：**partial 主碎片（min-path）发 1 条合并 TYPE record**，成员循环（→ MemberEmitter），合成隐式 ctor、struct blob-equals、**`[Record]` 值语义**（`RecordSynth`）；impl 块方法 |
 | `src/Emission/IrGenMemberEmitter.z42` | 成员 → IR 函数：方法（体 / extern 桩 / abstract 桩）、属性（计算 getter / extern getter / auto-prop 桩）、索引器 get_Item / set_Item |
@@ -77,7 +76,6 @@
 | `src/Emission/CallEmitter.z42` / `AccessEmitter.z42` / `StmtEmitter.z42` / `OperatorEmitter.z42` / `TypeOpEmitter.z42` / `StubEmitter.z42` | 调用 / 成员访问 / 语句 / 运算符（含 record `==` 拦截脱糖）/ is·as·cast / 桩函数 的 IR 发射 |
 | `src/Emission/ClassDescBuilder.z42`（+ `.GenericInst`）/ `ExprEmitter.GenericInst.z42` / `GenericBodySrc.z42` / `IrGenFacts.z42` | 类描述构建 / 泛型实例化发射 / 泛型体源 / 发射期 IR 助手（类型标签、方法标志、形参元数据）|
 | `src/Lowering/IfaceBridgeSynth.z42` / `ModuleInitSynth.z42` / `RecordSynth.z42` | 接口桥合成 / 模块初始化合成 / record 值语义合成 |
-| `src/Testing/TestIndexBuilder.z42` | 测试索引（TIDX）：扫 CU 的 `[Test]` 家族，按函数下标写 kind / flags / skip / throw / timeout；在 `IrOptPipeline` 之前建 |
 | `src/Compilation/GlobalUsingLint.z42` | 包级告警：全包没有文件用到的 `global using X;` ⇒ W0607（作用于编译产物，与 `CuPreprocess._enforceFileScope` 同层）|
 
 ## 依赖关系

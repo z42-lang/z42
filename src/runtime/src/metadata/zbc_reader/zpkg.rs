@@ -51,16 +51,10 @@ pub fn read_zpkg_meta(data: &[u8]) -> Result<ZpkgInfo> {
     Ok(ZpkgInfo { name, version, entry, namespaces, dependencies, is_packed, is_exe })
 }
 
-/// Read all modules from a packed zpkg. Returns (Module, namespace) pairs.
-/// Decode every inner module from a binary zpkg, returning
-/// `(Module, namespace, resolved_tidx_entries)` per module. The entry vec is
-/// empty when the module has no [Test] / [Benchmark]. aggregate-zpkg-tidx
-/// (zpkg 0.11, 2026-06-06) introduced the third element; fix-tidx-strings-in-zpkg
-/// (2026-09-12) changed it from raw bytes to **entries with strings already
-/// resolved** — only here is the right string pool in scope (see read_mods_section).
+/// Decode every inner module from a binary zpkg, returning `(Module, namespace)` pairs.
 pub fn read_zpkg_modules(
     data: &[u8],
-) -> Result<Vec<(Module, String, Vec<crate::metadata::TestEntry>)>> {
+) -> Result<Vec<(Module, String)>> {
     verify_zpkg_version(data)?;
     let flags     = u16::from_le_bytes([data[8], data[9]]);
     let sec_count = u16::from_le_bytes([data[10], data[11]]);
@@ -151,16 +145,12 @@ pub(super) fn read_deps_section(sec: &[u8], pool: &[String]) -> Result<Vec<ZpkgD
 }
 
 /// Decode the MODS section of a packed zpkg into one entry per inner
-/// module. Returns the per-module `(Module, namespace, resolved_tidx_entries)`
-/// triple — the entry vec is empty when the module has no TIDX annotation.
-/// 字符串在**这里**解析（对着打包 zpkg 的全局 raw 池），调用方只需再补
-/// `method_id` 的累计函数偏移。原先的设计是把裸字节交给调用方「按累计函数 +
-/// 字符串偏移重映射」—— 字符串那一半是错的，见下方 TIDX 处的注释。
+/// module, returning `(Module, namespace)` pairs.
 pub(super) fn read_mods_section(
     sec: &[u8],
     pool: &[String],
     global_sigs: &[FuncSig],
-) -> Result<Vec<(Module, String, Vec<crate::metadata::TestEntry>)>> {
+) -> Result<Vec<(Module, String)>> {
     let mut c = Cursor::new(sec);
     let mod_count = c.read_u32()? as usize;
     let mut result = Vec::with_capacity(mod_count);
@@ -184,31 +174,6 @@ pub(super) fn read_mods_section(
         // with no IrType-tagged functions).
         let regt_len    = c.read_u32()? as usize;
         let regt_data   = c.read_bytes(regt_len)?;
-        // aggregate-zpkg-tidx (zpkg 0.11, 2026-06-06): per-member TIDX
-        // body, length-prefixed like DBUG / REGT. 0 bytes = module has
-        // no [Test] / [Benchmark] annotations.
-        //
-        // fix-tidx-strings-in-zpkg (2026-09-12)：**就地解析字符串**，不再把裸字节交给
-        // 调用方去「按累计偏移重映射」。两个理由，各自都足以致命：
-        //   ① 打包 zpkg 的 TIDX 索引**已经是全局的** —— 写入端 `ZpkgWriter` 用
-        //      `remap[i] = pool.Intern(...)` 把每模块索引映射进了这里这个共享 `pool`。
-        //      再叠加一层「累计字符串偏移」是把已经对的索引推到错的地方。
-        //   ② 那个累计偏移取自 `module.string_pool.len()`，而 `read_zbc` 的
-        //      `rebuild_string_pool` **只保留被代码引用的字符串** —— 只被 TIDX 引用的
-        //      （`[ShouldThrow<E>]` 的类型链、`[Skip(reason)]` 文案）在那一步就没了。
-        //      于是即使单模块（偏移 0）也解不出来，`.get()` 返回 None。
-        // 症状：打包成 zpkg 的测试里 `[ShouldThrow<E>]` 全部退化为「expected throw null」
-        // 而判失败；走裸 .zbc 的老路径恒对（一个模块 + 对着 raw 池解析）。
-        let tidx_len    = c.read_u32()? as usize;
-        let tidx_bytes  = c.read_bytes(tidx_len)?;
-        let mut tidx_entries = if tidx_len > 0 {
-            crate::metadata::test_index::read_test_index(tidx_bytes)?
-        } else {
-            Vec::new()
-        };
-        if !tidx_entries.is_empty() {
-            crate::metadata::test_index::resolve_test_index_strings(&mut tidx_entries, pool);
-        }
 
         let namespace = pool_str_owned(pool, ns_idx)?;
         let sigs_slice = &global_sigs[first_sig..first_sig + func_count.min(global_sigs.len() - first_sig.min(global_sigs.len()))];
@@ -303,7 +268,7 @@ pub(super) fn read_mods_section(
             // are always merged before consumption).
             type_registry: rustc_hash::FxHashMap::default(),
             func_index: rustc_hash::FxHashMap::default(),
-        }, namespace, tidx_entries));
+        }, namespace));
 
         sig_offset += func_count;
         let _ = sig_offset; // used for validation if needed
