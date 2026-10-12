@@ -70,9 +70,96 @@ flowchart TB
 - 结构类似，但块是**变长** bump（64KB chunk 内按 footprint 前移 `off`），claim 记
   `{base 裸指针, off, starts（块起点位图，每 8 字节一位）, filled}`；`fill` 只多置一位。
   retire 把 `hwm[ci]` 设为 `off`（块从此对所有遍历可见）、把 `starts` OR 进该 chunk 的年轻位图。
-- **oversized 块**（> chunk）/ **free-list 复用**走锁路径（低频，不进 TLAB）。
-- 对象块与其它块一样从 TLAB 里 bump 出来：`fill` 写好块头、payload 清零，堆随后在块里写对象头、跑泛型一步，
-  建完才发布（`gc/arc_heap/alloc_object.rs`）。chunk 在 retire 之前对任何遍历都不可见，所以没人看得到建到一半的对象。
+- **oversized 块**（> chunk）走锁路径（低频，不进 TLAB）。
+- 半活 chunk 里的死槽由 TLAB 按 size class 成批认领、无锁填回（见下「空洞复用」）；bump 只在本 class 没有
+  死槽可用时才走。
+- 对象块与其它块一样从 TLAB 里分配：`fill` 写好块头、payload 清零，堆随后在块里写对象头、跑泛型一步，
+  建完才发布（`gc/arc_heap/alloc_object.rs`）。bump 出来的块在 chunk retire 之前对任何遍历都不可见；
+  填进空洞的块所在 chunk 早已发布，靠块头 `alive` 延后到建完才置位来做到同一件事。所以没人看得到建到一半的对象。
+
+### 空洞复用：TLAB 按 size class 成批认领死槽（M12）
+
+> 代码：`gc/var_region/holes.rs`（`VarHoleStash` / `take_holes` / `retire_holes` / `fill_hole`）、
+> `gc/arc_heap/alloc.rs`（`tlab_alloc_var` 快路径、`retire_thread_tlab`）、`VarGcRef::publish`。
+
+**为什么。** bump claim 只认领整块新 chunk 或池里整块死透的 chunk。sweep 在**还有活块**的 chunk 里
+tombstone 出来的死槽只进 size-class free list，而只有锁路径 `VarRegion::alloc` 弹它——生产分配走 TLAB，
+从来不碰。流失负载下活块零散地钉住一个又一个 chunk，堆按「半活 chunk 数」涨，而不是按活字节涨。
+
+**怎么做。** 每个线程的 `Tlab` 内联一个 `VarHoleStash`：每个 size class 一批（`HOLE_BATCH = 64`）从
+region free list 弹出来的死槽，外加三张 class 位掩码（`avail` 有现成槽 / `dry` 上次去要时 region 已没有 /
+`touched` retire 要看的 class）。快路径：
+
+```
+tlab_alloc_var(payload):
+  sc = class_for(payload)
+  if avail[sc]                       → fill（无锁）
+  elif !dry[sc] && take_holes(sc)    → fill（锁一次，弹至多 64 个槽）
+  else                               → bump claim（原路径）
+fill:
+  取下一个槽；预取同 class 的再下一个槽（冷行，写预取，让缺失与本块的构造重叠）
+  fill_hole：写 size / mark=0 / type_tag（年龄 0、所有标志清零），清零 payload，
+             保留 tombstone 时 +1 过的 generation；alive 留 false
+funnel 写完 payload → VarGcRef::publish（alive ← true，release）
+```
+
+`take_holes` 弹 free list（条目里带 chunk 下标，**不读块头**），对每个槽当场记账：`live_count` /
+`live_per_chunk` +1、放进年轻集合。`retire_holes`（`retire_thread_tlab` 里，与 bump claim 的 retire 同一次锁）
+把没用上的槽撤账、摘出年轻集合、以当前 epoch 推回 free list，清掉三张掩码。每次回收前所有 TLAB 都会
+retire，所以 sweep / chunk 回收看到的永远是没有 stash 的 region；`dry` 也因此只需活到下次回收
+（free list 只在回收里长）。
+
+**为什么只按 size class 原址复用，不把相邻死槽并成 span 切。** 原址复用让槽保持地址、footprint 和块头位置，
+下面三类「读一个可能已死的地址」的人才不需要任何新规则：
+
+| 读者 | 原址复用下 | 若在 span 里按新偏移切块 |
+|---|---|---|
+| chunk 遍历（`for_each_block_in` 按块头 `size_class` 步进） | `[0, hwm)` 仍是一串块头 | 要 filler 头 + 新步进规则 |
+| 陈旧句柄（`WeakObjRef`、字符串元数据缓存的 `is_live`） | 落在块头上，generation 已 +1 → 判死 | 可能落在别的块的 payload 中间，读到的 "generation" 是任意字节 |
+| free list 条目 | 条目本来就指这些槽，epoch 校验照旧 | 条目会指进新块中间，需要另一套失效 |
+
+代价是一个死槽只能被同 class 的新块用；四分之一八度分档下同一种对象 / 字符串长度落在同一档，流失负载
+里这正是主形状。
+
+**不变式**（`holes.rs` 模块文档逐条展开）：
+
+- **一个死槽一条条目**：进了 stash 的槽已离开 free list，锁路径不会再发它；没用上的 retire 时推回。
+- **取时记账、退时撤账**，而不是填时记账：另一个线程的 `finalize_now` 可以在属主 retire 之前 tombstone 一个刚填的块，
+  这样计数与年轻集合任何时刻都对；stash 里有槽的 chunk 也就不可能被判「全死」进池。
+- **建完才可见**：见上；`acquire_var_block` 的四个 funnel（字符串 ×2、闭包、对象）在写完 payload 后 `publish`，
+  `MagrGC::alloc_var_block`（数组元素）当场 `publish`（元素区零值合法，回收之外没有遍历读它）。
+- **侧表先清**：flagged-dead 列表非空时 `take_holes`（以及锁路径的 free-list 弹槽）一个槽都不发——finalizer / 软引用 /
+  记忆集按块头地址记账，新块不能在旧条目被 `process_flagged_dead` 删掉之前占到这个地址。
+- **块头标志清零**：`fill_hole` 整个重写 `type_tag`，年龄、`REMEMBERED_BIT`、`SIDE_BIT`、`ASCII_STR_BIT` 都回到 0，
+  mark 字节清零。
+- **增量标记期间 allocate-black**：`acquire_var_block` 对 TLAB 与锁路径统一 `shade_var_newborn`，填进空洞的块同样带
+  本周期 epoch 出生；被它占的槽此前已死，任何快照路径都到不了它。
+- **generation 不在一个 chunk epoch 内回绕**：句柄只存 generation 的低 16 位。槽的 generation 超过所在 chunk 的
+  `reuse_gen` 达 `GEN_REUSE_SPAN`（65 535）时，`tombstone` 不再把它推进 free list，它保持死态直到整块进池
+  （epoch 前移、`reuse_gen` 抬过所有块）。于是本 epoch 内铸出的任何句柄的 16 位快照都不会与该地址后来的
+  占用者相同。`purge_blocks` 用同一个判断跳过这种槽，陈旧计数保持精确。
+
+**代价。** 快路径多两次 class 位测试（什么都不释放的负载只付这个）；取一批锁一次 region、不读块头，
+逐槽置年轻位、按 chunk 成串记账（bump claim 在 retire 时按字 OR 起点位图，没有这一项）。剩下的是
+**局部性**：一起分配的块落进各自 class 找到的空洞，而不是背靠背——`13_gc_large_heap` 的链表节点、它的
+`long[8]` 元素块、每轮的临时 `Node` 分属三个 class（56 / 80 / 48 B），新链散在旧链和临时对象留下的洞里，
+`ChainSum` 与标记都多付缓存缺失；minor 每条目耗时随之上升，自适应 nursery 收小，多出 tenure 与 major。
+z42c 构建上同一件事表现为指令数几乎不变、cycles 多 2%。payload 在块内之前（对象 payload 单独 malloc）
+这一步还要当场 free 旧 payload，所以那时做不划算；现在填空洞只写块头与清零 payload。
+
+**实测**（release z42vm，jit，与合并基交错，基准 11 次 / cycles 9 次取中位数，负载 3–5）：
+
+| | 峰值 RSS | 稳态 RSS | 墙钟 | cycles |
+|---|---|---|---|---|
+| 13_gc_large_heap 分代 | 728 → 341 MB（−53%） | 647 → 334 MB | +6~7% | +6%（指令 +1%） |
+| 13_gc_large_heap STW | 597 → 479 MB（−20%） | 585 → 479 MB | 持平 | 持平 |
+| 12_gc_churn 分代 | 84.4 → 66.8 MB（−21%） | 83.2 → 64.2 MB | −4% | −2% |
+| 12_gc_churn STW | 126.4 → 109.1 MB（−14%） | 同左 | 持平 | −1% |
+| 09_alloc_ctorless（不释放） | 持平 | 持平 | +1% | +1~3% |
+| z42c 工作区构建（6 次） | 695 → 455 MB（−35%） | — | 7.02 → 7.19 s（+2.4%） | +2.3%（指令 +0.5%） |
+
+z42c 产物逐字节一致。固定 nursery（16M）并关掉自适应晋升时，13 分代反而快 12%（GC 停顿合计
+845–1024 → 560–650 ms，mutator +8%）——上表 13 分代的墙钟差一大半来自策略级联，不是复用本身。
 
 ### ⚠️ size class：四分之一八度，不是 2 的幂
 
@@ -108,12 +195,13 @@ minor GC 同时扫变长区 `region_var`——它占 RSS 约 45%，
 
 ```
 type_tag: AtomicU8
-  bit 0..2  BlockType（5 个变体，3 位）
+  bit 0..2  BlockType（8 个变体，3 位用满）
   bit 3..4  gen_age（2 位 → 上限 3；默认晋升年龄 3 正好用满）
-  bit 5     未用，恒 0（年轻集合的成员关系在 region 的位图里，不在块头）
+  bit 5     REMEMBERED_BIT（仅 Object 块：在记忆集里）
   bit 6     ASCII_STR_BIT（仅 Str 块：字节全为 ASCII；年龄的 STW 读改写保留它）
-  bit 7     未用，恒 0
+  bit 7     SIDE_BIT（仅 Object 块：堆按地址记着 finalizer / 软引用）
 ```
+年轻集合的成员关系在 region 的位图里，不在块头。
 
 换 `AtomicU8` 是因为写屏障要在 mutator 线程无锁读 `gen_age`，而晋升写在 STW——
 `u8` 上的并发读写是数据竞争。`AtomicU8` 与 `u8` 同 size/align，布局不变。
@@ -137,6 +225,8 @@ nursery 为 16M、回收频繁时，
 **真正的危险只有一个**：池化的 chunk 会被从 offset 0 重新 bump，陈旧条目会指到新的**活块**上，
 发出去就是两个活块共用一个地址。守卫是 `pool_epoch`：每个 chunk 一个计数器，池化时 +1，
 push 条目时记下当时的值，pop 时对不上就丢弃。
+
+TLAB 成批取槽（`take_holes`，见上「空洞复用」）走的是同一个 `pop_free_slot`，陈旧条目在那里同样被丢弃。
 
 **为什么不用现成的 `reuse_gen`**：那个是 `VarGcRef` 的 ABA 守卫，值来自
 `max_gen_per_chunk + 1`。「它是否每次池化都严格递增」是**另一个**不变式的性质；
@@ -461,16 +551,11 @@ thread-local `TlabCell { armed: u32, tlab }`（`UnsafeCell`，owner 独占 + all
 
 ## Deferred / Future Work
 
-- **TLAB slot 级复用**（`gc-tlab-slot-reuse`）：整块借用绕过了 region 的 slot 级 free_list（tombstone 单槽
-  复用）；partial-live chunk 里的零散死槽暂不被 TLAB 复用（仍可被 ambient 锁路径 / free_list 复用）。
-  非移动 GC 本有碎片，pre-1.0 可接受。见 roadmap Deferred Backlog Index。
-  对象 payload 已并入 GC 块（对象模型 R6），下面的前提已满足，这一步（M12：TLAB 认领半活 chunk 的空洞）可以做了。
-  并入之前的实测（13_gc_large_heap，分代模式）：
-  - **TLAB 直接认领半活 chunk 的空洞**：RSS −27%，但墙钟 +50%（3.20 → 4.86 s）。指令只多 7%，周期多 40%，原因有两个：
-    - 填空洞时要当场 free 旧对象单独 malloc 的 payload，约占 0.75 s；
-    - 新对象散落进各个旧 chunk，局部性变差。
-  - **只续用 TLAB 尾巴**（retire 时把半满 chunk 的剩余部分留给下次借用）：13 与 z42c 构建上时间和 RSS 都没有可测变化。
-  - payload 并入 GC 槽之后，填空洞不再需要 free，新对象也和槽一起连续分配，这一步才值得做。
+- **定长区（数组头）的空洞复用**（P1-7 A2）：`Region<ArrayObj>` 的 TLAB 仍只认领整块空 chunk，半活 chunk 的
+  死槽只有锁路径按 `free_bits` 复用。做法可照变长区：按槽的空闲位图成批认领。
+- **复用的局部性**：变长区的空洞按 size class 各自取，一起分配的不同 class 的块不相邻（见「空洞复用」的代价）。
+  可以试按 chunk 成批认领（同一 chunk 的各 class 死槽一起进 stash）——需要一张每 chunk 的死槽位图，
+  否则认领时要读该 chunk 的全部块头，实测比局部性省下的还多。
 - **编译器重阶段并行化**：真正的并行加速前置——把 parse/typecheck/codegen 做成 per-file 并行（编译器侧
   change，非本 VM change）。TLAB 已为其铺好零锁地基。
 

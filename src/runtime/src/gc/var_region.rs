@@ -38,6 +38,9 @@
 //!   bumped at tombstone → stale `VarGcRef` can't resolve it).
 //! - **Slow path**: bump-allocate within the current 64 KB chunk; grow a fresh chunk when
 //!   full. Blocks whose total exceeds a chunk get a dedicated exactly-sized chunk.
+//! - **TLAB** (production allocation, `arc_heap/alloc.rs`): the same free lists, taken a batch
+//!   per size class at a time and filled lock-free ([`holes`], M12), before the thread's bump
+//!   claim on a whole fresh or pooled chunk ([`chunk::VarChunkClaim`]).
 //!
 //! # Sweep model
 //!
@@ -64,6 +67,7 @@
 //!
 //! - [`block`] — `BlockType` / `GcBlockHeader` / payload pointer + drop-glue plumbing.
 //! - [`chunk`] — size classes, raw chunks, the TLAB claim, and chunk grow/borrow/reclaim.
+//! - [`holes`] — the TLAB's batched reuse of dead slots in partially-live chunks (M12).
 //! - [`var_ref`] — the [`VarGcRef`] tagged handle.
 //! - this file — the `VarRegion` allocator itself (alloc / resolve / tombstone / sweep).
 
@@ -74,6 +78,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 mod block;
 mod chunk;
 mod generation;
+mod holes;
 mod objects;
 mod var_ref;
 
@@ -87,6 +92,7 @@ pub(crate) use var_ref::HANDLE_ADDR_MASK;
 pub(crate) use chunk::{class_for, class_for_with_limit, OVERSIZED_CLASS};
 pub use chunk::{loh_bytes, set_loh_bytes};
 pub use chunk::{VarChunkClaim, VarChunkReclaim};
+pub use holes::VarHoleStash;
 pub use var_ref::VarGcRef;
 
 use chunk::{Chunk, FreeEntry, FreeSlot, NUM_CLASSES};
@@ -406,8 +412,11 @@ impl VarRegion {
         // entry whose stamp no longer matches its chunk's `pool_epoch` is discarded here —
         // that is the one thing standing between this list and handing out a slot inside a
         // pooled or re-bumped chunk.
-        if size_class != OVERSIZED_CLASS {
-            while let Some(slot) = self.pop_free_slot(size_class) {
+        //
+        // M12: not while the flagged-dead list is non-empty — the heap still has side-table
+        // entries keyed by those addresses (same rule as `holes::take_holes`).
+        if size_class != OVERSIZED_CLASS && self.flagged_dead.is_empty() {
+            while let Some((slot, _)) = self.pop_free_slot(size_class) {
                 return self.reinit_slot(slot, payload, block_type, size_class);
             }
         }
@@ -434,7 +443,9 @@ impl VarRegion {
     /// entries", not "empty". Each discarded entry is `O(1)` and happens at most once per
     /// entry ever pushed, so the amortised cost of the whole scheme is one extra compare per
     /// allocation that reuses a slot.
-    fn pop_free_slot(&mut self, size_class: u8) -> Option<NonNull<GcBlockHeader>> {
+    /// Also returns the slot's chunk index (from the entry — no header read: M12's batch take
+    /// pops dozens at a time, and the header would be a cache miss each).
+    pub(super) fn pop_free_slot(&mut self, size_class: u8) -> Option<(NonNull<GcBlockHeader>, usize)> {
         let sc = size_class as usize;
         loop {
             let FreeEntry { slot, epoch } = self.free_lists[sc].pop()?;
@@ -449,7 +460,7 @@ impl VarRegion {
                 // `tombstone` never pushes those), so `base` is mapped and `base + offset` is
                 // the slot's own header, in bounds and 8-aligned.
                 let raw = unsafe { self.chunks[ci].base.as_ptr().add(slot.offset()) };
-                return Some(unsafe { NonNull::new_unchecked(raw as *mut GcBlockHeader) });
+                return Some((unsafe { NonNull::new_unchecked(raw as *mut GcBlockHeader) }, ci));
             }
             // Stale: the chunk was pooled after this entry was pushed, so the slot either
             // belongs to the pool or has already been re-bumped into something live.
@@ -629,7 +640,9 @@ impl VarRegion {
         if ci < self.chunks.len() {
             self.remove_young(ptr, ci);
         }
-        if sc != OVERSIZED_CLASS && ci < self.chunks.len() {
+        // M12: a slot whose generation has run a whole 16-bit span past its chunk's epoch floor
+        // stays tombstoned until the chunk is pooled (`holes::GEN_REUSE_SPAN`).
+        if sc != OVERSIZED_CLASS && ci < self.chunks.len() && self.reusable_gen(ci, generation) {
             // lazy-var-free-list: stamp the chunk's pooling count so a pop after the chunk is
             // recycled can tell this entry is stale.
             // perf-free-slot-encoding: the entry records where the slot is rather than pointing

@@ -37,6 +37,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
             write(p);
             &*p
         };
+        // Built: from here a heap walk may see it (M12 — a reused slot is born not alive).
+        vref.publish();
         let extras = obj.extras_bytes();
         if extras != 0 {
             // The extras box lives outside the block; the drop glue credits it back.

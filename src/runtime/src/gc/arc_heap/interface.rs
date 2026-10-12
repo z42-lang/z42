@@ -144,7 +144,11 @@ impl MagrGC for ArcMagrGC {
         // add-gc-tlab (stage 3): lock-free var TLAB when armed; else locked path.
         // (No stats record here — matches the pre-TLAB behavior; the array/backing
         // caller records the whole allocation's size.)
-        self.acquire_var_block(payload, block_type).0
+        // Published at once: the caller writes element storage into a block it already owns, and
+        // no heap walk outside a collection reads a backing's payload (M12, `VarGcRef::publish`).
+        let vref = self.acquire_var_block(payload, block_type).0;
+        vref.publish();
+        vref
     }
 
     // ── 2. Roots ─────────────────────────────────────────────────────────────

@@ -37,7 +37,7 @@
 use std::cell::UnsafeCell;
 
 use super::region::ChunkClaim;
-use super::var_region::VarChunkClaim;
+use super::var_region::{VarChunkClaim, VarHoleStash};
 use crate::metadata::types::ArrayObj;
 
 /// Per-thread allocation buffer: one borrowed chunk claim per region the fast path
@@ -49,19 +49,23 @@ pub(crate) struct Tlab {
     /// **stage 3**: active claim on `region_var` (`Value::Object` / `BoxedStruct` / `Str` /
     /// `Closure` / var blocks).
     pub(crate) var: Option<VarChunkClaim>,
+    /// **M12**: dead slots of `region_var` taken for reuse, per size class
+    /// (`var_region::holes`). Inline so the fast path's class test is one load away; its per-class
+    /// table is allocated at the first refill.
+    pub(crate) holes: VarHoleStash,
     /// Heap epoch the current claims belong to; `0` = unbound (no live claims).
     pub(crate) heap_epoch: u64,
 }
 
 impl Tlab {
     const fn empty() -> Self {
-        Self { arr: None, var: None, heap_epoch: 0 }
+        Self { arr: None, var: None, holes: VarHoleStash::new(), heap_epoch: 0 }
     }
 
     /// True when the TLAB holds no live claims (safe to (re)bind to any heap).
     #[inline]
     pub(crate) fn is_unbound(&self) -> bool {
-        self.arr.is_none() && self.var.is_none()
+        self.arr.is_none() && self.var.is_none() && !self.holes.holds_slots()
     }
 }
 
