@@ -8,6 +8,7 @@
 ///   `loader`   — format-dispatch entry point: `load_artifact(path)`
 
 pub mod types;
+pub mod type_names;
 pub mod tokens;
 /// unify-object-byte-layout PR-4: `Str` — 8-byte thin ref-counted UTF-8 string handle
 /// (replaces `Value::Str(Arc<str>)`'s 16-byte fat pointer; lets `Value` reach 16 B in PR-5).

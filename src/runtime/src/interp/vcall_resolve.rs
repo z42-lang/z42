@@ -117,7 +117,7 @@ pub(crate) fn assert_pic_target(
     let Value::Object(rc) = obj_val else { return };
     let td = rc.type_desc();
     let callee = callee.name.as_str();
-    let Some(declaring) = callee.rfind('.').map(|p| &callee[..p]) else { return };
+    let Some(declaring) = crate::metadata::type_names::last_top_dot(callee).map(|p| &callee[..p]) else { return };
     if super::dispatch::is_subclass_or_eq_td(ctx, &module.type_registry, &td.name, declaring) {
         return;
     }
@@ -254,8 +254,7 @@ fn resolve_vcall_unchecked<'a>(
                 if let Some(target) = resolve_own_slot(ctx, module, &type_name, method, arity) {
                     return Ok(ResolvedVCall { target, this: obj_val.clone() });
                 }
-                let n: &str = &b.type_desc().name;
-                let short = n.rsplit('.').next().unwrap_or(n);
+                let short = crate::metadata::type_names::unqualified(&b.type_desc().name);
                 return Ok(ResolvedVCall {
                     target: VCallTarget::Immediate(Value::Str(short.into())), this: obj_val.clone(),
                 });

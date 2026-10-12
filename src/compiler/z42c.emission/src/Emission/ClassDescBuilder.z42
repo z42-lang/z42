@@ -227,7 +227,7 @@ public sealed partial class ClassDescBuilder {
                 bool closed = ltIdx >= 0 && ClassDescBuilder._isClosedTypeExpr(c.Bases[bi2], c);
                 if (closed) {
                     // 规范名必须与表达式侧同口径（`Int32`→`int`、嵌套递归、无空格）。
-                    string cn = ClassDescBuilder._substTypeName(c.Bases[bi2], new StrMap());
+                    string cn = this._substTypeName(c.Bases[bi2], new StrMap());
                     baseName = this._qInst(cn);
                     this._g.NoteInstName(cn);   // 基也要有描述符，否则运行期基链断在这里
                 } else {
@@ -360,11 +360,10 @@ public sealed partial class ClassDescBuilder {
         cd2.Flags = flags;
         cd2.Visibility = DeclFacts.classVisCode(c.ModFlags, c.Name.IndexOf('+') >= 0);   // enforce-class-access（zbc 1.33）：类可见性进 TYPE 记录（跨包 internal 强制载体）
         // add-struct-value-semantics A-use（zbc 1.31）：值 struct 的字节+引用布局随 TYPE 尾部 emit。
-        // 布局键 = 符号表短名（_classIrShortName，与 StructLayout.BuildFromSymbols 的 Classes 键一致——
-        // 那是短名 Name/Name$N，非 FQ；用 cd2.Name(FQ) 查会 miss）。含引用叶子（string/object/array 字段）
+        // 布局键 = 描述符名（全名，`LayoutKey.OfClass` 同口径）。含引用叶子（string/object/array 字段）
         // 时 RefLeaf* 非空 → 运行时 GC 扫描 + StructCopy 逐叶子 clone。纯基元 struct 引用位图空。
         if (c.Kind == "struct" && this._g.Layouts != null) {
-            string layoutKey = this._g._classIrShortName(c);
+            string layoutKey = cd2.Name;
             if (this._g.Layouts.IsStructType(layoutKey)) {
                 StructLayoutInfo li = this._g.Layouts.LayoutOf(layoutKey);
                 cd2.StructSize = li.Size;
@@ -386,7 +385,7 @@ public sealed partial class ClassDescBuilder {
         // 布局同源 StructLayout.InlineLayoutOf（codegen stage 4 烘焙 offset 用同一表 → 一致）。z42c/stdlib
         // 零生产内联字段 class → HasInlineFields 恒 false → flag/块不写 → 格式字节不变（自举字节不动）。
         if (c.Kind != "struct" && this._g.Layouts != null) {
-            string inlineKey = this._g._classIrShortName(c);
+            string inlineKey = cd2.Name;
             if (this._g.Layouts.HasInlineFields(inlineKey)) {
                 StructLayoutInfo il = this._g.Layouts.InlineLayoutOf(inlineKey);
                 cd2.Flags = cd2.Flags + 128;   // CLASS_FLAG_HAS_INLINE_STRUCT (bit7)
@@ -401,7 +400,7 @@ public sealed partial class ClassDescBuilder {
         // → 与 reader 一致，无需新标志位。struct 走上面 struct 块（ObjectLayoutOf 对 struct 返回空，且 writer
         // 谓词排除）。休眠元数据：runtime 暂不消费（PR-2 切字节存储时替换 slots）。
         if (c.Kind != "struct" && this._g.Layouts != null) {
-            string objKey = this._g._classIrShortName(c);
+            string objKey = cd2.Name;
             StructLayoutInfo ol = this._g.Layouts.ObjectLayoutOf(objKey);
             cd2.ObjectSize = ol.Size;
             cd2.ObjFieldOffsets = ol.FieldOffsets; cd2.ObjFieldSizes = ol.FieldSizes;
@@ -621,10 +620,8 @@ public sealed partial class ClassDescBuilder {
         // 用短名会**静默 miss**，回落到「只有 size、空引用位图」的兜底布局：零引用叶子的实例化
         // （`Pair<P2,int>`）恰好照常工作，有引用叶子的（`Pair<P2,string>`）才在写 string 那一刻崩
         // （`struct ref leaf at byte offset 8 not in type layout`）。**「能跑」曾经掩盖了它。**
-        // 只限定基名、实参原样，与 `ExprEmitter._qualifyInstName` 同一约定。
-        int ltq = instName.IndexOf('<');
-        string fqInst = ltq < 0 ? this._g._q(instName)
-                                : this._g._q(instName.Substring(0, ltq)) + instName.Substring(ltq, instName.Length - ltq);
+        // 实例化名的基名已是定义的全名（`LayoutKey`），与 `ExprEmitter._qualifyInstName` 同一约定。
+        string fqInst = this._g._qLayout(instName);
         IrClassDesc cd = new IrClassDesc(fqInst, false, "", fs, n);
         cd.Flags = 4;   // bit2 = struct → writer 追加 struct 布局块
         cd.StructSize = li.Size;

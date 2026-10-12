@@ -1,0 +1,70 @@
+// struct / class **布局名**的唯一拼法 —— `StructLayout` 的键，也是发射进 IR 的布局名 / 实例化名
+// （`StructAlloc` 的类型名、合成实例化描述符名、特化成员的 owner）。编译器 / wire / 运行期三方同一串。
+//
+// 类按**全限定名**：`ns.Name`（arity-mangle 时 `ns.Name$N`，同 `Z42ClassType.Fqn()`）；全局 ns 的类是裸名。
+// 同一个包里两个 ns 各有一个 `struct P` 时，短名键只能登记一份 ⇒ 另一份查不到布局（编译器崩）或按别人的
+// 字段偏移读写（静默读错）。实例化实参同理写全名：`Demo.Pair<Demo.A.P>` 与 `Demo.Pair<Demo.B.P>` 是两个类型。
+//
+// 基元（含 string / object）一律用**关键字**拼写（`int` 而非 `Std.Int32`）：运行期 `Tag.FromName` 只认关键字，
+// 且 stdlib 既有实例化名（`MulticastException$1<bool>`）因此逐字节不变。
+namespace Z42.Semantics;
+
+public static class LayoutKey {
+    // 类 → 布局键。基元包装类（Std.Int32 / Std.String / Std.Object …）→ 关键字。
+    public static string OfClass(Z42ClassType ct) {
+        int c = ct.PrimCode();
+        if (c >= 0) { return PrimModel.KeywordOfCode(c); }
+        return ct.Fqn();
+    }
+
+    // 类型 → 规范布局名。实例化递归（`Base<a,b>`，无空格）、数组 `E[]`、型参原名、接口 `ns.Name`。
+    // 不可名（未解析 / 错误类型、实参不可名）→ ""，调用方据此放弃。
+    public static string Of(Z42Type t) {
+        if (t == null) { return ""; }
+        if (t is Z42InstantiatedType) {
+            Z42InstantiatedType it = t as Z42InstantiatedType;
+            if (it.Def == null || it.ArgCount <= 0) { return ""; }
+            string[] args = new string[it.ArgCount];
+            int i = 0;
+            while (i < it.ArgCount) {
+                string a = LayoutKey.Of(it.TypeArgs[i]);
+                if (a == "") { return ""; }
+                args[i] = a;
+                i = i + 1;
+            }
+            return StructLayout.InstName(LayoutKey.OfClass(it.Def), args, it.ArgCount);
+        }
+        if (t is Z42ClassType) { return LayoutKey.OfClass(t as Z42ClassType); }
+        if (t is Z42ArrayType) {
+            string e = LayoutKey.Of((t as Z42ArrayType).Elem);
+            return e == "" ? "" : e + "[]";
+        }
+        if (t is Z42InstantiatedInterfaceType) {
+            Z42InstantiatedInterfaceType ii = t as Z42InstantiatedInterfaceType;
+            string[] iargs = new string[ii.ArgCount];
+            int j = 0;
+            while (j < ii.ArgCount) {
+                string a2 = LayoutKey.Of(ii.TypeArgs[j]);
+                if (a2 == "") { return ""; }
+                iargs[j] = a2;
+                j = j + 1;
+            }
+            return StructLayout.InstName(ii.Def.Fqn(), iargs, ii.ArgCount);
+        }
+        if (t is Z42InterfaceType) { return (t as Z42InterfaceType).Fqn(); }
+        if (t is Z42GenericParamType) { return t.Name(); }
+        if ((t is Z42UnknownType) || (t is Z42ErrorType)) { return ""; }
+        string n = t.Name();
+        return n == "" ? "" : PrimModel.Canon(n);
+    }
+
+    // 查表前的规范化：剥尾部 `?`；基元的任何拼写（`Int32` / `Std.Int32`）→ 关键字；其余**原样**
+    // （`PrimModel.Canon` 会剥任何 `Std.` 前缀 —— `Std.Guid` → `Guid` —— 不能拿它规范化全名键）。
+    public static string Norm(string n) {
+        string s = n;
+        if (s.Length > 0 && s.CharAt(s.Length - 1) == '?') { s = s.Substring(0, s.Length - 1); }
+        string c = PrimModel.Canon(s);
+        if (PrimModel.Code(c) >= 0) { return c; }
+        return s;
+    }
+}

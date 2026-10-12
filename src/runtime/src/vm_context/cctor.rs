@@ -806,9 +806,10 @@ pub fn owner_class_of_static_field(field_fq: &str) -> Option<&str> {
 }
 
 /// 从静态方法的全限定名取所属类 FQ。与静态字段同构，但方法名可能带 `$N` mangle，
-/// 那部分在最后一段里，不影响按最后一个 `.` 切分。
+/// 那部分在最后一段里，不影响按最后一个 `.` 切分。特化名的实参是全名
+/// （`Demo.C.Echo:Demo.A.P`）、实例化 owner 的实参也是（`Demo.G<Demo.A.P>.M`）——只看顶层的点。
 pub fn owner_class_of_static_func(func_fq: &str) -> Option<&str> {
-    func_fq.rfind('.').map(|i| &func_fq[..i])
+    crate::metadata::type_names::last_top_dot(func_fq).map(|i| &func_fq[..i])
 }
 
 #[cfg(test)]

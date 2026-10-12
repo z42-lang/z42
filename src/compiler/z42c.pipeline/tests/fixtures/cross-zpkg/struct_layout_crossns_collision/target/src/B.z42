@@ -1,0 +1,15 @@
+namespace Demo.SlColl.B;
+
+public struct P {
+    public string S;
+    public long Y;
+    public bool Flag;
+    public P(long y) { this.S = "b"; this.Y = y; this.Flag = true; }
+    public string Show() { return this.S + this.Y.ToString(); }
+}
+
+public struct Pair<T> {
+    public T Item;
+    public long N;
+    public Pair(long n, T item) { this.Item = item; this.N = n; }
+}

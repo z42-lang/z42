@@ -88,7 +88,7 @@ pub(crate) fn chained_forward(func: &Function, lookup: impl FnOnce(&str) -> Opti
 
 /// `Ns.Type` of a function key `Ns.Type.Method[$arity$sig…]`.
 fn owner_type(name: &str) -> Option<&str> {
-    let base = name.split('$').next()?;
+    let base = name.split(|c| c == '$' || c == ':').next()?;
     base.rsplit_once('.').map(|(owner, _)| owner)
 }
 
