@@ -196,7 +196,7 @@ minor 的价钱是 `1 / minor 收益`。两者同单位（字节 / 微秒停顿�
 
 ### tenure：整个年轻代晋升，不标记
 
-`run_tenure` 把三个 region 的 young 表各走一遍，每个条目的年龄设成晋升年龄、清空 young 表：
+`run_tenure` 把两个 region 的 young 表各走一遍，每个条目的年龄设成晋升年龄、清空 young 表：
 **不追踪、不扫卡、不清扫** —— 实测是它替下的那次 minor 的约十分之一（`z42c` 15 ms → 1.6 ms），
 且不随这个阶段持续多久而变大。闸门仍是停顿预算算出的 nursery，所以年轻代永远不超过一个 nursery，
 下一次真 minor 的代价与平常一样。tenure 不喂停顿预算模型（它不是 minor 代价的样本），只把模型的
@@ -629,8 +629,8 @@ helper 发；下面三处也必须发：
 
 ## 真实占用记账与软上限
 
-`used_bytes` 是逐对象的**活字节估算**：不含每个对象外面那层 `RegionEntry`（对象 64 B、数组头
-96 B）、分配器的尺寸级取整、等着槽位被复用的死对象 payload、整块空出的 chunk、以及 GC 自己的侧表。
+`used_bytes` 是逐对象的**活字节估算**（对象按整块计：块头 + 对象头 + 字段；数组头不含外面那层 `RegionEntry`）：
+不含分配器的尺寸级取整、整块空出的 chunk、以及 GC 自己的侧表。
 实测稠密负载 RSS 是它的 1.7–2 倍，流失负载 8 倍 —— 拿它判软上限，`gc-max-bytes=256M` 根本框不住
 RSS。所以软上限按 `gc::footprint::Footprint` 判，这是一份**随变随记**的真实占用（读一次 = 一次原子
 load，`HeapStats::committed_bytes` / `--stats` 的 `gc_committed_bytes` 就是它）：
@@ -639,17 +639,18 @@ load，`HeapStats::committed_bytes` / `--stats` 的 `gc_committed_bytes` 就是�
 |---|---|---|
 | region chunk（槽数组 + 三张槽位图 + 逐 chunk 表项，`Region::CHUNK_FOOTPRINT`） | chunk 增长 | 不扣（chunk 不释放） |
 | 变长 chunk（bump 64K / dedicated 按分配器取整） | `push_chunk` | dedicated chunk `free_in_place` |
-| 槽外 payload（`ObjStorage` 字段块、extras、数组的元素类型名 `Arc<str>`，按分配器取整） | 槽被填（`Region::alloc` / TLAB `fill`） | **死对象的槽被复用时**（旧 entry 被 drop 那一刻） |
+| 数组头槽外 payload（元素类型名 `Arc<str>`，按分配器取整） | 槽被填（`Region::alloc` / TLAB `fill`） | **死数组头的槽被复用时**（旧 entry 被 drop 那一刻） |
+| 对象的 extras 盒子（只有带原生底座的对象有；字段在对象块里，算在变长 chunk 中） | 对象分配时（`alloc_object_block`） | 对象块被 tombstone 时（drop glue 返回盒子字节数，变长区扣回） |
 | 变长侧表（chunk 列表、变长区的年轻位图与 size-class free list；[侧表的形状](gc-tlab.md#侧表位图与高水位)） | 每次 sweep 尾部重量（`refresh_side_tables`，O(chunks)） | 同左 |
 | 池中 chunk 被 decommit（[GC TLAB · 池中空 chunk 的 decommit](gc-tlab.md#池中空-chunk-的-decommit)） | 复用时重新记入 | decommit 时扣除（定长区连同 drop 掉的死 payload） |
 
-三个 region 共用同一个 `Arc<Footprint>`（建堆时 `attach_footprint` 挂上）。TLAB `fill` 不碰共享
+两个 region（数组头、变长块）共用同一个 `Arc<Footprint>`（建堆时 `attach_footprint` 挂上）。TLAB `fill` 不碰共享
 状态：payload 增减先攒在 `ChunkClaim::payload_delta`，`retire_chunk` 时一次记入，所以读数最多落后
 每线程一个 chunk 的 payload。
 
-⚠️ **payload 在 sweep 时不扣**：死对象的 `ObjStorage` 要到它的槽被下一个对象复用、旧 entry 被 drop
+⚠️ **数组头的 payload 在 sweep 时不扣**：死数组头的元素类型名要到它的槽被复用、旧 entry 被 drop
 时才真正 free，账就记到那一刻。整块死掉进池的 chunk 也一样 —— 池里的死 entry 还拿着各自的 payload，
-直到 chunk 被重新借出、逐槽覆盖。
+直到 chunk 被重新借出、逐槽覆盖。对象没有这层滞后：字段在块里，extras 随块 tombstone 当场释放。
 
 **`occupied` 与 `pooled`**：`pooled` 是 `committed` 里躺在 chunk 池（整块死透、可直接复用）的那部分。
 软上限判的是 `occupied = committed − pooled`：池里的 chunk 下一次分配就能直接用、不会让占用增长，

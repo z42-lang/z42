@@ -367,7 +367,7 @@ fn primitive_fqn_maps_both_vocabularies() {
 /// 带 per-instance type_args 的对象（镜像 `ObjNew` 的填充动作）。
 fn obj_with_type_args(ctx: &VmContext, name: &str, targs: &[&str]) -> Value {
     let td = bare_td(name);
-    let mut obj = crate::metadata::ScriptObject::new(td.clone(), td.object_storage());
+    let mut obj = crate::metadata::types::OwnedObject::of_type(td.clone());
     let names: Vec<String> = targs.iter().map(|s| s.to_string()).collect();
     obj.set_type_args(crate::metadata::types::TypeArgs::intern(&names));
     ctx.heap().alloc_script_object(obj)

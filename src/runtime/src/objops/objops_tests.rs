@@ -10,7 +10,7 @@ use super::field::{field_get, field_set};
 use super::{OpError, Throw};
 use crate::gc::GcRef;
 use crate::metadata::types::{
-    ArrayObj, FieldAccess, ObjStorage, ObjectLayout, ScriptObject, TypeDesc, TypeDescCold,
+    ArrayObj, FieldAccess, ObjectLayout, ScriptObject, TypeDesc, TypeDescCold,
     STRUCT_LEAF_PRIM, TAG_I32, TAG_STR,
 };
 use crate::metadata::Value;
@@ -59,7 +59,7 @@ fn holder() -> Value {
         cold: Some(Box::new(TypeDescCold { composed_object_layout: Some(layout), ..Default::default() })),
         id: crate::metadata::tokens::TypeId::UNRESOLVED,
     });
-    Value::Object(GcRef::new(ScriptObject::new(td, ObjStorage::new(16))))
+    Value::Object(crate::gc::ObjRef::leak(crate::metadata::types::OwnedObject::new(td, 16)))
 }
 
 fn long_array(vm: &VmContext, vals: &[i64]) -> Value {
@@ -145,7 +145,7 @@ fn stack_object_fields_go_through_the_arena() {
     let vm = VmContext::new();
     let Value::Object(rc) = holder() else { unreachable!() };
     let td = rc.type_desc_arc().clone();
-    let idx = vm.stack_alloc_obj(5, ScriptObject::new(td, ObjStorage::new(16)));
+    let idx = vm.stack_alloc_obj(5, crate::metadata::types::OwnedObject::new(td, 16));
     let so = Value::StackObject { idx, frame_id: 5 };
     field_set(&vm, &so, "n", &Value::I64(9), None).unwrap();
     assert_eq!(field_get(&vm, &so, "n", None).unwrap(), Value::I64(9));

@@ -250,11 +250,12 @@ impl Drop for DropCounter {
 }
 
 /// Test drop glue: drop the `DropCounter` for `Closure`-tagged blocks; POD otherwise.
-unsafe fn test_drop_glue(bt: BlockType, p: *mut u8, _size: usize) {
+unsafe fn test_drop_glue(bt: BlockType, p: *mut u8, _size: usize) -> u64 {
     if bt == BlockType::Closure {
         // SAFETY: Closure-tagged test blocks store exactly one initialized `DropCounter`.
         unsafe { std::ptr::drop_in_place(p as *mut DropCounter) }
     }
+    0
 }
 
 /// Allocate a block holding a fresh `DropCounter`.
@@ -269,7 +270,7 @@ fn alloc_counter(r: &mut VarRegion) -> VarGcRef {
 fn drop_glue_finalizes_payload_on_reclaim_and_teardown() {
     DROP_COUNT.store(0, AOrd::SeqCst);
     {
-        let mut r = VarRegion::with_drop_glue(test_drop_glue);
+        let mut r = VarRegion::with_drop_glue(test_drop_glue, crate::gc::var_region::drop_type_bit(BlockType::Closure));
 
         // (1) tombstone runs the finalizer exactly once.
         let a = alloc_counter(&mut r);
@@ -1081,4 +1082,92 @@ fn chunk_walk_finds_every_block() {
     r.iterate_alive(|_, _| counted += 1);
     assert_eq!(counted, alive);
     assert_eq!(r.young_count(), alive, "every alive block is still young");
+}
+
+// ---------------------------------------------------------------------------------------
+// Object model R6: what the region does for object blocks
+// ---------------------------------------------------------------------------------------
+
+#[test]
+fn object_is_the_eighth_block_type() {
+    assert_eq!(BlockType::from_u8(7), Some(BlockType::Object));
+    let mut r = VarRegion::new();
+    let h = r.alloc(16, BlockType::Object);
+    assert_eq!(h.block_type(), BlockType::Object);
+}
+
+#[test]
+fn only_flagged_blocks_reach_the_dead_list() {
+    let mut r = VarRegion::new();
+    let plain = r.alloc(16, BlockType::Object);
+    let side = r.alloc(16, BlockType::Object);
+    let remembered = r.alloc(16, BlockType::Object);
+    side.set_side();
+    assert!(remembered.try_set_remembered());
+    assert!(!remembered.try_set_remembered(), "the second setter loses — one push per object");
+    for h in [plain, side, remembered] {
+        assert!(r.tombstone(h));
+    }
+    let mut dead = r.take_flagged_dead();
+    dead.sort_unstable();
+    let mut want = vec![side.addr(), remembered.addr()];
+    want.sort_unstable();
+    assert_eq!(dead, want, "an unflagged block is never reported");
+    assert!(r.take_flagged_dead().is_empty(), "the list is handed over once");
+}
+
+#[test]
+fn age_updates_keep_the_object_flags() {
+    let mut r = VarRegion::new();
+    let h = r.alloc(16, BlockType::Object);
+    h.set_side();
+    assert!(h.try_set_remembered());
+    // STW age writes rewrite the whole tag byte; the flags must survive them.
+    h.mark(crate::gc::refs::MarkKind::Minor);
+    r.sweep_young(None);
+    h.raise_gen_age_to(crate::gc::region::PROMOTION_THRESHOLD);
+    assert!(h.is_remembered());
+    assert_eq!(h.block_type(), BlockType::Object);
+    h.clear_remembered();
+    assert!(!h.is_remembered());
+}
+
+#[test]
+fn chunk_epoch_moves_when_a_chunk_is_pooled_or_freed() {
+    let mut r = VarRegion::new();
+    // A bump chunk the reclaim can pool (it must not be the ambient bump chunk: fill a
+    // second one so the first is behind it).
+    let first = r.alloc(1024, BlockType::Object);
+    let mut rest = Vec::new();
+    while rest.last().map_or(true, |h: &VarGcRef| h.chunk_idx() == first.chunk_idx()) {
+        rest.push(r.alloc(1024, BlockType::Object));
+    }
+    let big = r.alloc(2 * super::chunk::CHUNK_BYTES, BlockType::Object);
+    let (ci_small, ci_big) = (first.chunk_idx(), big.chunk_idx());
+    let (e_small, e_big) = (r.chunk_epoch(ci_small).unwrap(), r.chunk_epoch(ci_big).unwrap());
+    // Everything in the first chunk and the dedicated one dies.
+    for h in std::iter::once(first).chain(rest.iter().copied().filter(|h| h.chunk_idx() == ci_small)) {
+        r.tombstone(h);
+    }
+    r.tombstone(big);
+    let got = r.reclaim_dead_var_chunks();
+    assert!(got.pooled >= 1 && got.freed_chunks == 1);
+    assert_ne!(r.chunk_epoch(ci_small), Some(e_small), "pooling moves the epoch");
+    assert_eq!(r.chunk_epoch(ci_big), None, "a freed chunk has no epoch at all");
+    // The freed slot is reused by the next dedicated chunk under a fresh epoch.
+    let again = r.alloc(2 * super::chunk::CHUNK_BYTES, BlockType::Object);
+    assert_eq!(again.chunk_idx(), ci_big, "the tombstoned chunk slot is recycled");
+    assert_ne!(r.chunk_epoch(ci_big), Some(e_big));
+}
+
+#[test]
+fn a_detached_block_has_the_region_layout_but_no_chunk() {
+    let b = DetachedBlock::new(40, BlockType::Object);
+    // SAFETY: the payload is 40 zeroed bytes owned by `b`.
+    let first = unsafe { b.payload_ptr().read() };
+    assert_eq!(first, 0, "the payload starts zeroed");
+    let h = b.leak();
+    assert_eq!(h.payload_size(), 40);
+    assert_eq!(h.chunk_idx(), u32::MAX);
+    assert!(h.is_live());
 }

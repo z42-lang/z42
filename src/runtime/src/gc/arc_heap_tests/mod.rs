@@ -58,6 +58,7 @@ mod mark_queue;
 mod mode_selection;
 mod multi_vm;
 mod object_model;
+mod objects;
 mod oom;
 mod pause_histogram;
 mod roots;

@@ -75,7 +75,7 @@ impl ScriptObject {
     #[inline]
     pub fn field_value(&self, slot: usize) -> Value {
         let Some(fa) = self.field_access_of(slot) else { return Value::Null };
-        let c = self.storage.cells();
+        let c = self.cells();
         match fa.cell() {
             FieldCell::Ref => ref_word::load(&c, fa.offset as usize),
             FieldCell::TypeParam => tparam_cell::load(&c, fa.offset as usize, fa.aux as usize),
@@ -95,7 +95,7 @@ impl ScriptObject {
     pub fn inline_prim_field(&self, name: &str) -> Option<(*const u8, u32, u32, u8)> {
         let slot = *self.type_desc.field_index.get(name)?;
         let fa = self.field_access_of(slot)?;
-        (fa.cell() == FieldCell::Prim).then(|| (self.storage.cells().base_ptr(), fa.offset, fa.width, fa.tag))
+        (fa.cell() == FieldCell::Prim).then(|| (self.cells().base_ptr(), fa.offset, fa.width, fa.tag))
     }
 
     /// JIT hoist: if `name` is a direct field held in an 8 B **reference word**, `(bytes base
@@ -105,7 +105,7 @@ impl ScriptObject {
     pub fn inline_ref_field(&self, name: &str) -> Option<(*const u8, u32)> {
         let slot = *self.type_desc.field_index.get(name)?;
         let fa = self.field_access_of(slot)?;
-        (fa.cell() == FieldCell::Ref).then(|| (self.storage.cells().base_ptr(), fa.offset))
+        (fa.cell() == FieldCell::Ref).then(|| (self.cells().base_ptr(), fa.offset))
     }
 
     /// Write direct field `slot` from `v`; `true` iff the target is a reference cell.
@@ -130,7 +130,7 @@ impl ScriptObject {
     #[inline]
     pub fn try_set_field_value(&self, slot: usize, v: &Value) -> anyhow::Result<FieldWrite> {
         let Some(fa) = self.field_access_of(slot) else { return Ok(FieldWrite::NotRef) };
-        let c = self.storage.cells();
+        let c = self.cells();
         match fa.cell() {
             FieldCell::Ref => ref_word::store(&c, fa.offset as usize, v),
             FieldCell::Prim => {
@@ -159,7 +159,7 @@ impl ScriptObject {
     fn unbox_for_prim(v: &Value, fa: FieldAccess) -> Value {
         let Value::BoxedStruct(gc) = v else { return *v };
         let b = gc.borrow();
-        if b.storage.len() >= fa.width as usize {
+        if b.payload_len() >= fa.width as usize {
             b.prim_leaf(0, fa.width as usize, fa.tag).unwrap_or(Value::Null)
         } else {
             *v
@@ -172,7 +172,7 @@ impl ScriptObject {
     /// retention graph share.
     #[inline]
     pub fn visit_refs(&self, visit: &mut dyn FnMut(&Value)) {
-        let c = self.storage.cells();
+        let c = self.cells();
         for_each_ref_cell(&self.type_desc, |cell| match cell {
             RefCell::Word(off) => ref_word::visit(&c, off, visit),
             RefCell::TypeParam(off) => tparam_cell::visit(&c, off, visit),
@@ -184,7 +184,7 @@ impl ScriptObject {
     pub fn clear_refs_for_sweep(&self) {
         // `type_desc` and `storage` are disjoint fields: the layout stays borrowed across the
         // writes (this runs once per dead object).
-        let c = self.storage.cells();
+        let c = self.cells();
         for_each_ref_cell(&self.type_desc, |cell| match cell {
             RefCell::Word(off) => ref_word::clear(&c, off),
             RefCell::TypeParam(off) => tparam_cell::clear(&c, off),
@@ -216,7 +216,7 @@ impl ScriptObject {
         if !self.is_struct_ref_leaf(off) {
             return Err(self.not_a_ref_leaf(off));
         }
-        Ok(ref_word::load(&self.storage.cells(), off as usize))
+        Ok(ref_word::load(&self.cells(), off as usize))
     }
 
     /// Write the struct reference leaf at byte `off` (see [`Self::struct_ref_leaf`]). The result
@@ -225,13 +225,13 @@ impl ScriptObject {
         if !self.is_struct_ref_leaf(off) {
             return Err(self.not_a_ref_leaf(off));
         }
-        ref_word::store(&self.storage.cells(), off as usize, v)
+        ref_word::store(&self.cells(), off as usize, v)
     }
 
     /// Read the primitive leaf at byte `off` (width `w`, `ty::TAG_*` `kind`).
     #[inline]
     pub fn prim_leaf(&self, off: usize, w: usize, kind: u8) -> anyhow::Result<Value> {
-        self.storage.cells().load_prim(off, w, kind)
+        self.cells().load_prim(off, w, kind)
     }
 
     /// Write the primitive leaf at byte `off`. Never a reference cell (that would plant raw bits
@@ -240,14 +240,14 @@ impl ScriptObject {
     pub fn set_prim_leaf(&self, off: usize, w: usize, kind: u8, v: &Value) -> anyhow::Result<()> {
         debug_assert!(!self.is_struct_ref_leaf((off & !7) as u32),
             "primitive store over a reference cell at {off} of `{}`", self.type_desc.name);
-        self.storage.cells().store_prim(off, w, kind, v)
+        self.cells().store_prim(off, w, kind, v)
     }
 
     /// Snapshot the value struct of `size` bytes at `base` (an inline field; `0` for a boxed
     /// struct) into the frame-arena form — bytes with the reference slots zeroed, reference leaves
     /// at `base + ref_offsets` decoded in order (`struct_blob::read`).
     pub fn read_blob(&self, base: usize, size: usize, ref_offsets: &[u32]) -> (Vec<u8>, Vec<Value>) {
-        struct_blob::read(&self.storage.cells(), base, size, ref_offsets)
+        struct_blob::read(&self.cells(), base, size, ref_offsets)
     }
 
     /// Copy an arena-form value struct into the blob at `base` (`struct_blob::write`); each stored
@@ -256,7 +256,7 @@ impl ScriptObject {
         &self, base: usize, size: usize, bytes: &[u8], refs: &[Value], ref_offsets: &[u32],
         barrier: &mut dyn FnMut(&Value),
     ) -> anyhow::Result<()> {
-        struct_blob::write(&self.storage.cells(), base, size, bytes, refs, ref_offsets, barrier)
+        struct_blob::write(&self.cells(), base, size, bytes, refs, ref_offsets, barrier)
     }
 
     /// A boxed struct's whole blob in the arena form (bytes with the reference slots zeroed + the
@@ -264,8 +264,8 @@ impl ScriptObject {
     /// primitive) yields its bytes and no references.
     pub fn boxed_blob(&self) -> (Vec<u8>, Vec<Value>) {
         match self.type_desc.struct_layout_ref() {
-            Some(sl) => self.read_blob(0, self.storage.len(), &sl.ref_offsets),
-            None => (self.storage.snapshot(), Vec::new()),
+            Some(sl) => self.read_blob(0, self.payload_len(), &sl.ref_offsets),
+            None => (self.snapshot_fields(), Vec::new()),
         }
     }
 }
@@ -313,7 +313,7 @@ impl ScriptObject {
     pub(crate) fn set_ref_raw_for_test(&self, slot: usize, v: &Value) {
         use std::sync::atomic::Ordering;
         let Some(fa) = self.field_access_of(slot) else { return };
-        let c = self.storage.cells();
+        let c = self.cells();
         match fa.cell() {
             FieldCell::Ref => {
                 let w = ref_word::encode(v).expect("test value fits a reference word");

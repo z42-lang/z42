@@ -92,7 +92,7 @@ fn test_something() { ... }
 - **批量写（`clone_from_slice` / `copy_from_slice` / `copy_within` 作用于 `Value` 切片）同样是覆盖**：先对被覆盖区间 `record_overwrite_all`（参照 `copy_elems_from`）。
 - **对象字段只经单元方法读写**（`metadata/types/object_fields.rs`：`field_value` / `try_set_field_value` / `visit_refs`，引擎侧经 `objops`）：基元是同宽 relaxed 原子、引用是 8 B 自描述字（release / acquire，标记期 swap）、型参字段是标签字 + 负载字的 16 B 单元（`tparam_cell`，负载字一生只装一种基元）。对象 / 数组载荷**没有普通切片视图**：对象跨线程共享、没有每对象锁，
   整块快照与拷贝一律经 `Cells`（`copy_out` / `copy_in` / `copy_prims`，按单元宽度的原子访问），堆对象上不取 `&mut`
-  （构造期的 `&mut ScriptObject` 只在分配之前，见 `ScriptObject::new_instance`）。
+  （构造期的 `&mut ScriptObject` 只在发布之前：`MagrGC::alloc_instance` 在对象自己的块里建好再交出句柄，堆外的对象见 `OwnedObject`）。
 - **数组元素与 struct 叶子同理**：只经 `ArrayObj::set_boxed` / `store_elem` / `write_struct_elem` / `set_struct_elem_ref`、
   `ScriptObject::set_struct_ref_leaf` / `write_blob`（`ref_word` / `tparam_cell` / `struct_blob` 的写原语）；它们返回 `FieldWrite`，
   写屏障要的是**真正落进单元的引用**（装箱时是盒子），批量写之后按 `elem_ref_slots` 对区间发屏障（`objops::array_bulk`）。

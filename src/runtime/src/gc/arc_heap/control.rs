@@ -2,7 +2,7 @@
 //! mark/sweep 原语见 `collect.rs`（refactor-arc-heap-modularization）。
 
 use crate::gc::heap::MagrGC;
-use crate::metadata::{ScriptObject, Value};
+use crate::metadata::Value;
 use crate::metadata::types::{ArrayObj};
 use crate::gc::refs::{GcRef};
 use crate::gc::types::{CollectStats, GcEvent, GcKind};
@@ -233,15 +233,14 @@ impl crate::gc::arc_heap::ArcMagrGC {
 
                 // Measure young population pre-minor for escalation calc.
                 let young_before = {
-                    let r_obj = self.region_object.lock();
                     let r_arr = self.region_array.lock();
                     let r_var = self.region_var.lock();
                     // fix-minor-gc-skips-var-region: the var region is a minor participant
                     // now, so it belongs in the denominator too. Leaving it out made the
-                    // survival ratio systematically wrong — it measured two of the three
-                    // regions the sweep actually touches, and escalation to major fired off
-                    // that partial view.
-                    r_obj.young_count() + r_arr.young_count() + r_var.young_count()
+                    // survival ratio systematically wrong — it measured only part of what
+                    // the sweep actually touches, and escalation to major fired off that
+                    // partial view. (Object model R6: objects are var blocks.)
+                    r_arr.young_count() + r_var.young_count()
                 };
 
                 // add-bounded-nursery (2026-09-08): the auto-collect policy decides the kind
@@ -385,18 +384,21 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // explicit-finalize path, so the retire cost is negligible.
         self.retire_thread_tlab();
         match value {
-            Value::Object(gc) => {
-                let entry_ptr = gc.entry_ptr();
-                // SAFETY: GcRef contract guarantees entry pointer is
-                // valid for the lifetime of the GcRef. We're under
-                // the trait dispatch path; caller's Value parameter
-                // keeps the GcRef alive throughout.
-                let entry: &crate::gc::region::RegionEntry<ScriptObject> = unsafe { entry_ptr.as_ref() };
-                let fin = entry.take_finalizer();
+            // Object model R6: the finalizer is a side-table entry; the block is tombstoned in
+            // the variable-length region (its drop glue releases the header), unless another
+            // thread's TLAB still has its chunk — then the collector reclaims it as usual.
+            Value::Object(gc) | Value::BoxedStruct(gc) => {
+                let fin = self.take_object_finalizer(gc);
                 let fired = fin.is_some();
                 if let Some(f) = fin { f(); }
-                let mut region = self.region_object.lock();
-                region.tombstone_via_entry(entry);
+                {
+                    let mut region = self.region_var.lock();
+                    let vref = gc.var_ref();
+                    if vref.chunk_idx() != u32::MAX && !region.is_chunk_borrowed(vref.chunk_idx()) {
+                        region.tombstone(vref);
+                    }
+                }
+                self.process_flagged_dead();
                 fired
             }
             Value::Array(gc) => {
@@ -416,15 +418,12 @@ impl crate::gc::arc_heap::ArcMagrGC {
     pub(super) fn register_soft_ref(&self, value: &Value) -> u64 {
         use crate::gc::soft_registry::ErasedSoftEntry;
         let (entry, key) = match value {
+            // Object model R6: keyed by the block-header address; `SIDE_BIT` makes the object's
+            // death drop the entry (`process_flagged_dead`).
             Value::Object(gc) => {
-                let ptr = gc.entry_ptr();
-                let generation = {
-                    // SAFETY: entry pointer stable; we only read the generation atomic.
-                    unsafe { ptr.as_ref() }.generation.load(std::sync::atomic::Ordering::Acquire)
-                };
-                unsafe { ptr.as_ref() }.inc_soft_ref_count();
-                let key = ptr.as_ptr() as u64;
-                (ErasedSoftEntry::from_object(ptr, generation), key)
+                gc.var_ref().set_side();
+                let key = gc.var_ref().addr() as u64;
+                (ErasedSoftEntry::from_object(*gc), key)
             }
             Value::Array(gc) => {
                 let ptr = gc.entry_ptr();
@@ -464,10 +463,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
     pub(super) fn soft_entry_value(e: &crate::gc::soft_registry::ErasedSoftEntry) -> Value {
         let key_usize = e.ptr_key();
         match e.kind {
-            crate::gc::soft_registry::ErasedKind::Object => {
-                let ptr = key_usize as *mut crate::gc::region::RegionEntry<crate::metadata::ScriptObject>;
-                let nn = unsafe { std::ptr::NonNull::new_unchecked(ptr) };
-                Value::Object(unsafe { GcRef::from_region_entry(nn, e.generation_snapshot()) })
+            crate::gc::soft_registry::ErasedKind::Object { .. } => {
+                e.object().map_or(Value::Null, Value::Object)
             }
             crate::gc::soft_registry::ErasedKind::Array => {
                 let ptr = key_usize as *mut crate::gc::region::RegionEntry<ArrayObj>;
@@ -491,12 +488,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // Decrement soft_ref_count on the backing RegionEntry.
         if let Some(kind) = kind {
             match kind {
-                crate::gc::soft_registry::ErasedKind::Object => {
-                    // SAFETY: pointer came from a live RegionEntry; we only
-                    // touch the atomic soft_ref_count field.
-                    let ptr = key_usize as *mut crate::gc::region::RegionEntry<crate::metadata::ScriptObject>;
-                    unsafe { (*ptr).dec_soft_ref_count(); }
-                }
+                // Object model R6: objects keep no soft-ref count; the registry entry was the
+                // whole record.
+                crate::gc::soft_registry::ErasedKind::Object { .. } => {}
                 crate::gc::soft_registry::ErasedKind::Array => {
                     let ptr = key_usize as *mut crate::gc::region::RegionEntry<ArrayObj>;
                     unsafe { (*ptr).dec_soft_ref_count(); }

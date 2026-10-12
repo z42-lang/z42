@@ -117,6 +117,20 @@ impl VarGcRef {
         h.is_alive() && h.generation() as u16 == self.gen16()
     }
 
+    /// Whether the block still carries this handle's generation — the strong-reference guard
+    /// (`ObjRef::borrow`). Every tombstone bumps the generation, and a reused slot / re-bumped
+    /// chunk never hands out an old one again (free-list slots keep the bumped value, a pooled
+    /// chunk restarts above every generation it reached), so a mismatch is exactly "this handle
+    /// outlived its block"; the alive flag adds nothing on top. One relaxed load: it is a
+    /// use-after-free tripwire, not a synchronization point. Reads only the 16-byte header.
+    #[inline(always)]
+    pub fn generation_matches(&self) -> bool {
+        let ptr = self.header_ptr();
+        // SAFETY: header address is chunk-owned + mapped while a strong handle exists.
+        let h = unsafe { ptr.as_ref() };
+        h.generation.load(std::sync::atomic::Ordering::Relaxed) as u16 == self.gen16()
+    }
+
     /// The block's requested payload byte length (from its header). unify-gc-heap PR-3:
     /// used to bounds-check typed slice views against the actual block size (`slice_of`).
     #[inline]
@@ -159,6 +173,49 @@ impl VarGcRef {
     pub fn gen_age(&self) -> u8 {
         // SAFETY: the caller holds a live handle; the header address is valid.
         unsafe { self.header_ptr().as_ref().gen_age() }
+    }
+
+    /// Object model R6: set the block's remembered-set bit; `true` iff this call set it (see
+    /// `GcBlockHeader::try_set_remembered`).
+    #[inline]
+    pub(crate) fn try_set_remembered(&self) -> bool {
+        // SAFETY: the caller holds a live handle; the header address is valid.
+        unsafe { self.header_ptr().as_ref() }.try_set_remembered()
+    }
+
+    /// Object model R6: clear the block's remembered-set bit (collector, STW).
+    #[inline]
+    pub(crate) fn clear_remembered(&self) {
+        // SAFETY: the caller holds a live handle; the header address is valid.
+        unsafe { self.header_ptr().as_ref() }.clear_remembered()
+    }
+
+    /// Object model R6: whether the block's remembered-set bit is set.
+    #[cfg(test)]
+    pub(crate) fn is_remembered(&self) -> bool {
+        // SAFETY: the caller holds a live handle; the header address is valid.
+        unsafe { self.header_ptr().as_ref() }.is_remembered()
+    }
+
+    /// Object model R6: flag that the heap keeps side-table entries keyed by this block.
+    #[inline]
+    pub(crate) fn set_side(&self) {
+        // SAFETY: the caller holds a live handle; the header address is valid.
+        unsafe { self.header_ptr().as_ref() }.set_side()
+    }
+
+    /// Index of the chunk that owns the block (`u32::MAX` outside any region).
+    #[inline]
+    pub(crate) fn chunk_idx(&self) -> u32 {
+        // SAFETY: the caller holds a live handle; the header address is valid.
+        unsafe { self.header_ptr().as_ref() }.chunk_idx()
+    }
+
+    /// The block's payload kind.
+    #[inline]
+    pub fn block_type(&self) -> BlockType {
+        // SAFETY: the caller holds a live handle; the header address is valid.
+        unsafe { self.header_ptr().as_ref() }.block_type()
     }
 
     /// Mark this (freshly written, not yet shared) string block as all-ASCII.

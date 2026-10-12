@@ -18,8 +18,8 @@ fn td(name: &str) -> Arc<TypeDesc> {
     })
 }
 
-fn obj(name: &str) -> ScriptObject {
-    ScriptObject::new(td(name), ObjStorage::new(0))
+fn obj(name: &str) -> OwnedObject {
+    OwnedObject::new(td(name), 0)
 }
 
 fn names(xs: &[&str]) -> Vec<String> {
@@ -35,7 +35,7 @@ fn instances_of_one_instantiation_share_one_entry() {
     assert_eq!(a.type_args(), &["Std.Int32".to_string()][..]);
     assert!(std::ptr::eq(a.type_args().as_ptr(), b.type_args().as_ptr()), "one shared entry");
     // Nothing is allocated per object for the arguments.
-    assert_eq!(a.heap_payload_bytes(), 0);
+    assert_eq!(a.extras_bytes(), 0);
 }
 
 #[test]
@@ -45,7 +45,7 @@ fn non_generic_object_has_no_metadata() {
     o.set_native(NativeData::None);
     assert!(o.type_args().is_empty());
     assert!(matches!(o.native(), NativeData::None));
-    assert_eq!(o.heap_payload_bytes(), 0);
+    assert_eq!(o.extras_bytes(), 0);
 }
 
 #[test]
@@ -64,7 +64,7 @@ fn native_backing_keeps_type_args_in_either_order() {
     assert!(std::ptr::eq(b.type_args().as_ptr(), ta.as_slice().as_ptr()));
     assert!(matches!(b.native(), NativeData::LoadContextHandle(ContextId(8))));
     // Only the native box is charged.
-    assert!(b.heap_payload_bytes() > 0);
+    assert!(b.extras_bytes() > 0);
 
     // Replacing the native keeps the arguments; clearing them keeps the native.
     b.set_native(NativeData::LoadContextHandle(ContextId(9)));

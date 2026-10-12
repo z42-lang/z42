@@ -97,9 +97,10 @@ fn committed_bytes_counts_the_chunks_the_regions_hold() {
         .map(|_| heap.pin_root(heap.alloc_object(dummy_type_desc("C"), vec![], NativeData::None)))
         .collect();
     let full = heap.stats();
-    let slot = std::mem::size_of::<crate::gc::region::RegionEntry<crate::metadata::ScriptObject>>() as u64;
+    // Object model R6: an object is one var block, at least the 32 B smallest size class.
+    let slot = 32u64;
     assert!(full.committed_bytes >= before + 2000 * slot,
-        "2000 object slots are at least 2000 × {slot} B of chunk ({} → {})", before, full.committed_bytes);
+        "2000 object blocks are at least 2000 × {slot} B of chunk ({} → {})", before, full.committed_bytes);
     for p in pins {
         heap.unpin_root(p);
     }
@@ -112,26 +113,34 @@ fn committed_bytes_counts_the_chunks_the_regions_hold() {
         "but their chunks are still held ({} → {})", full.committed_bytes, after.committed_bytes);
 }
 
-/// `committed_bytes` is the true footprint: an object's out-of-slot payload is charged with it
-/// and credited only when its dead slot is reused — not when the sweep tombstones it.
+/// `committed_bytes` is the true footprint. Object model R6: an object's fields live in its own
+/// GC block, so filling a chunk that already exists charges nothing more — the only thing an
+/// object still holds outside the GC chunks is a native backing's extras box, charged at birth
+/// and credited when the object's block dies (its drop glue frees the box).
 #[test]
-fn committed_bytes_charges_payloads_until_the_slot_is_reused() {
+fn committed_bytes_charges_extras_while_the_object_lives() {
     let heap = ArcMagrGC::new();
     heap.set_mode(crate::gc::GcMode::StwMarkSweep);
     heap.set_nursery_bytes_for_test(1 << 40);
     let one = heap.alloc_object(dummy_type_desc("C"), vec![], NativeData::None);
     let _p = heap.pin_root(one);
     let base = heap.stats().committed_bytes;
-    // Fill more of the same chunk without growing it: what moves is payload only — four
-    // reference fields, one 64-byte block per object.
-    let pins: Vec<_> = (0..100)
+    // Fields only: the existing chunk takes them, nothing is charged.
+    let plain: Vec<_> = (0..100)
         .map(|_| heap.pin_root(heap.alloc_object(dummy_type_desc("C"), vec![], NativeData::None)))
         .collect();
+    assert_eq!(heap.stats().committed_bytes, base, "fields live in the chunk — no payload malloc");
+    // Native-backed: each carries an extras box outside the chunk.
+    let native = || NativeData::LoadContextHandle(crate::metadata::context::ContextId(1));
+    let boxed: Vec<_> = (0..100)
+        .map(|_| heap.pin_root(heap.alloc_object(dummy_type_desc("C"), vec![], native())))
+        .collect();
     let full = heap.stats().committed_bytes;
-    assert!(full >= base + 100 * 64, "100 four-field payloads are charged ({base} → {full})");
-    for p in pins {
+    assert!(full >= base + 100 * 16, "100 extras boxes are charged ({base} → {full})");
+    for p in boxed.into_iter().chain(plain) {
         heap.unpin_root(p);
     }
     heap.force_collect();
-    assert!(heap.stats().committed_bytes + 4096 >= full, "a sweep does not free the dead payloads");
+    let after = heap.stats().committed_bytes;
+    assert!(after + 100 * 16 <= full + 4096, "the dead objects' extras boxes are credited ({full} → {after})");
 }

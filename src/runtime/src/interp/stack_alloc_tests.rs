@@ -115,7 +115,7 @@ fn scan_roots_visits_object_inlined_refs() {
     use std::sync::Arc;
     use crate::gc::GcRef;
     use crate::metadata::types::{
-        FieldAccess, ObjStorage, ObjectLayout, ScriptObject, TypeDesc, TypeDescCold,
+        FieldAccess, ObjectLayout, ScriptObject, TypeDesc, TypeDescCold,
         STRUCT_LEAF_GCREF, TAG_OBJECT,
     };
 
@@ -147,9 +147,9 @@ fn scan_roots_visits_object_inlined_refs() {
         vtable_index: crate::metadata::NameIndex::new(), cold: None,
         class_flags: 0, visibility: 0, id: crate::metadata::tokens::TypeId::UNRESOLVED,
     });
-    let leaf = Value::Object(GcRef::new(ScriptObject::new(leafless, ObjStorage::new(0))));
+    let leaf = Value::Object(crate::gc::ObjRef::leak(crate::metadata::types::OwnedObject::new(leafless, 0)));
 
-    let holder = ScriptObject::new(holder_td, ObjStorage::new(8));
+    let holder = crate::metadata::types::OwnedObject::new(holder_td, 8);
     assert!(holder.set_field_value(0, &leaf), "the inlined field is a reference slot");
 
     let mut a = StackArena::default();

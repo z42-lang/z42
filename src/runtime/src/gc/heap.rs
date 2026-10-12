@@ -65,10 +65,15 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
         native: NativeData,
     ) -> Value;
 
-    /// 分配一个**已经建好**的 `ScriptObject`（对象模型 R4）：发布之后对象只经 `&self` 访问、
-    /// 不再能改 `NativeData` / 泛型实参（没有每对象锁），所以 `ObjNew` 这类要设实参、写型参零值的
-    /// 路径先在本地建好整个对象，再交给 heap。
-    fn alloc_script_object(&self, obj: crate::metadata::types::ScriptObject) -> Value;
+    /// 分配一个**在堆外建好**的对象（`OwnedObject`，对象模型 R4 / R6）：发布之后对象只经 `&self`
+    /// 访问、不再能改 `NativeData` / 泛型实参（没有每对象锁），所以要先设好这些的冷路径（反射的
+    /// `Activator.CreateInstance`、测试）在本地建好整个对象，再交给 heap —— heap 把对象头与字段
+    /// 拷进一个新块。热路径 `ObjNew` 走 [`MagrGC::alloc_instance`]，直接在块里建。
+    fn alloc_script_object(&self, obj: crate::metadata::types::OwnedObject) -> Value;
+
+    /// `ObjNew` 的堆分支（对象模型 R6）：`type_desc` 的新实例（字段清零）加上实例的泛型一步
+    /// （`ScriptObject::install_type_args`），在对象自己的块里建好再发布。strict OOM 越限返 `Null`。
+    fn alloc_instance(&self, type_desc: Arc<TypeDesc>, type_args: crate::metadata::types::TypeArgs) -> Value;
 
     /// unify Phase 2 R3（装箱统一）：装箱一个基元（整数）成堆 `ScriptObject` + 引用身份。
     /// 裸标量 LE 字节存 `struct_bytes`（宽度由调用方按 wrapper 标量宽度定尺，与 struct 装箱完全同构），

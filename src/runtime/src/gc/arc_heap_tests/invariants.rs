@@ -89,8 +89,8 @@ fn validation_detects_stale_mark_queue() {
 }
 
 #[test]
-#[should_panic(expected = "stale mark bit in region_object")]
-fn validation_detects_stale_mark_in_region_object() {
+#[should_panic(expected = "stale mark bit on an object")]
+fn validation_detects_stale_mark_on_an_object() {
     let heap = ArcMagrGC::new();
     let v = heap.alloc_object(dummy_type_desc("MarkLeak"), vec![], NativeData::None);
     let _pin = heap.pin_root(v.clone());
@@ -99,8 +99,8 @@ fn validation_detects_stale_mark_in_region_object() {
     let Value::Object(gc) = &v else { panic!() };
     let stale = crate::gc::refs::MarkKind::Major(100);
     assert_ne!(stale, heap.major_mark_for_test());
-    GcRef::mark(gc, stale);
-    assert!(GcRef::is_marked(gc, stale));
+    crate::gc::ObjRef::mark(gc, stale);
+    assert!(crate::gc::ObjRef::is_marked(gc, stale));
 
     heap.debug_validate_invariants();  // expected panic
 }
@@ -108,13 +108,13 @@ fn validation_detects_stale_mark_in_region_object() {
 /// add-incremental-major-gc M1: a leftover **minor** bit is stale too — the next minor would skip
 /// tracing the entry's children.
 #[test]
-#[should_panic(expected = "stale mark bit in region_object")]
-fn validation_detects_stale_minor_mark_in_region_object() {
+#[should_panic(expected = "stale mark bit on an object")]
+fn validation_detects_stale_minor_mark_on_an_object() {
     let heap = ArcMagrGC::new();
     let v = heap.alloc_object(dummy_type_desc("MinorLeak"), vec![], NativeData::None);
     let _pin = heap.pin_root(v.clone());
     let Value::Object(gc) = &v else { panic!() };
-    GcRef::mark(gc, crate::gc::refs::MarkKind::Minor);
+    crate::gc::ObjRef::mark(gc, crate::gc::refs::MarkKind::Minor);
     heap.debug_validate_invariants();  // expected panic
 }
 
@@ -126,25 +126,26 @@ fn validation_accepts_current_epoch() {
     let v = heap.alloc_object(dummy_type_desc("Survivor"), vec![], NativeData::None);
     let _pin = heap.pin_root(v.clone());
     let Value::Object(gc) = &v else { panic!() };
-    GcRef::mark(gc, heap.major_mark_for_test());
+    crate::gc::ObjRef::mark(gc, heap.major_mark_for_test());
     heap.debug_validate_invariants();
 }
 
 #[test]
 #[should_panic(expected = "invariant violation")]
-fn validation_detects_region_object_corruption() {
+fn validation_detects_region_corruption() {
     let heap = ArcMagrGC::new();
     // fix-young-list-only-when-generational: `young_list` is maintained — and so
     // the "alive young entry must be listed" invariant only holds — in
     // generational mode. Arm it before corrupting the list.
     heap.set_mode(crate::gc::GcMode::GenerationalMarkSweep);
-    let v = heap.alloc_object(dummy_type_desc("Corrupt"), vec![], NativeData::None);
+    // Object model R6: objects are var blocks; the fixed-size region left is the arrays'.
+    let v = heap.alloc_array(vec![Value::Null]);
     let _pin = heap.pin_root(v.clone());
 
     // Corrupt: clear young_list directly. The entry is still alive
     // young → not in list → YoungEntryNotInList violation.
     {
-        let mut r = heap.region_object_for_test().lock();
+        let mut r = heap.region_array_for_test().lock();
         r.clear_young_set_for_test();
     }
 

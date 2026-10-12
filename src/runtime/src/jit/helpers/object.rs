@@ -70,14 +70,13 @@ pub unsafe extern "C" fn jit_obj_new(
     };
 
     // The instance — zeroed fields, generic arguments, type-parameter field zeros — is built
-    // completely before allocation (`ScriptObject::new_instance`, shared with interp `obj_new`
-    // so the two engines agree; a published object never changes its meta word, object model
-    // R4). The arguments are set before the ctor runs so its `default(T)` resolves correctly.
+    // completely in its block before it is published (`MagrGC::alloc_instance`, shared with
+    // interp `obj_new` so the two engines agree; a published object never changes its meta
+    // word, object model R4 / R6). The arguments are set before the ctor runs so its `default(T)` resolves correctly.
     // SAFETY: `type_args` was baked from `TypeArgs::as_raw` at translate time.
     let site_args = unsafe { crate::metadata::types::TypeArgs::from_raw(type_args) };
     let inst_args = instance_type_args(site_args, &type_desc);
-    let obj_val = vm.heap().alloc_script_object(
-        crate::metadata::types::ScriptObject::new_instance(type_desc, inst_args));
+    let obj_val = vm.heap().alloc_instance(type_desc, inst_args);
 
     // runtime-jit-tiering Phase 1b: tiered ctor. Compiled (or compiling at the threshold) →
     // native, `this` in reg 0 and args straight from the caller's registers; cold /

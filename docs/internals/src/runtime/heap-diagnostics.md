@@ -27,14 +27,14 @@ GC 只有**正向**追踪（`Value::trace_children`）；诊断需**反向**。�
 ```
 collect_full()                        // ① 先触发全堆 GC（分代下是 major） —— 之后存活即可达，无浮动垃圾误报
 build_retention_graph():              // ② 一次堆扫描建反向图
-  region_object.iterate_alive: 每对象的 slots 里每条堆-ref child → rev[child].push(parent)
+  region_var（对象块）: 每对象的字段里每条堆-ref child → rev[child].push(parent)
   region_array.iterate_alive:  每数组的 elements 里每条堆-ref child → rev[child].push(parent)
   分类根 + pinned 根: 每个根 Value → root_ptrs[obj].push(RootKind)
 L1 direct_referrers(target) = rev[target]（按 id 去重）
 L2 retaining_roots(target)  = 从 target 沿 rev 反向 BFS，收集途经对象被根直接指向的 RootKind（按类别去重、有序）
 ```
 
-对象身份用 data ptr（`GcRef::data_ptr_unlocked` as usize）作 key。反向 BFS 用 `visited` 集处理环。
+对象身份用对象头 / 数组头地址（`ObjRef::as_ptr` / `GcRef::as_ptr` as usize）作 key。反向 BFS 用 `visited` 集处理环。
 纯图逻辑在 `gc/retention.rs`（`RetentionGraph`），堆遍历在 `arc_heap.rs::build_retention_graph`。
 
 ### 分类根 scanner（L2 报根的前提）

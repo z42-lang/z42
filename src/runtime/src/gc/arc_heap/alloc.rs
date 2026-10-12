@@ -1,8 +1,7 @@
 //! `ArcMagrGC` 分配尾部：region 分配 + OOM 兜底 + 压力检查 + size 估算/查询。
 //! 从 `arc_heap.rs` 拆出（refactor-arc-heap-modularization）。
 
-use std::sync::Arc;
-use crate::metadata::{ScriptObject, Value};
+use crate::metadata::Value;
 use crate::metadata::types::ClosureData;
 use crate::gc::refs::{GcRef};
 use crate::gc::var_region::{BlockType, GcBlockHeader};
@@ -114,50 +113,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
     }
 
-    /// **add-gc-tlab (stage 2)**: object-region fast path. Bump-fills the
-    /// calling thread's TLAB object claim lock-free; borrows a fresh chunk
-    /// (retiring the full one) when needed. Returns `Err(obj)` — handing the
-    /// object back for the ambient locked path — only when this thread's TLAB
-    /// still holds claims bound to a *different* heap (multi-heap test edge).
-    pub(super) fn tlab_alloc_object(
-        &self,
-        obj: ScriptObject,
-        td: &Arc<crate::metadata::TypeDesc>,
-    ) -> Result<Value, ScriptObject> {
-        // Fill inside the TLAB borrow; record OUTSIDE it (record_alloc_fast may run
-        // maybe_auto_collect when the heap is bounded — must not re-enter the borrow).
-        let value = match crate::gc::tlab::with_current_tlab(|tlab| {
-            // Bind an unbound TLAB to this heap; decline if it holds foreign claims.
-            if tlab.heap_epoch != self.epoch {
-                if tlab.is_unbound() {
-                    tlab.heap_epoch = self.epoch;
-                } else {
-                    return Err(obj);
-                }
-            }
-            // Ensure the object claim has a free slot.
-            if tlab.obj.as_ref().map_or(true, |c| !c.has_room()) {
-                if let Some(full) = tlab.obj.take() {
-                    self.region_object.lock().retire_chunk(&full);
-                }
-                tlab.obj = Some(self.region_object.lock().borrow_chunk());
-            }
-            // SAFETY: fill only fails on a full claim; we just ensured room.
-            let (entry_ptr, generation) = tlab.obj.as_mut().unwrap().fill(obj).unwrap();
-            // SAFETY: entry_ptr is a fresh, stable slot; generation matches.
-            let gc = unsafe { GcRef::from_region_entry(entry_ptr, generation) };
-            Ok(Value::Object(gc))
-        }) {
-            Ok(v) => v,
-            Err(o) => return Err(o),
-        };
-        let size = self.object_size_bytes(&value);
-        self.record_alloc_fast(|| AllocKind::Object { class: td.name.clone() }, size);
-        Ok(value)
-    }
-
-    /// **add-gc-tlab (stage 2)**: array-region fast path (mirror of
-    /// [`tlab_alloc_object`] for `region_array`).
+    /// **add-gc-tlab (stage 2)**: array-region fast path. Bump-fills the calling thread's TLAB
+    /// array claim lock-free; borrows a fresh chunk (retiring the full one) when needed. Returns
+    /// `Err(obj)` — handing the array back for the ambient locked path — only when this thread's
+    /// TLAB still holds claims bound to a *different* heap (multi-heap test edge).
     pub(super) fn tlab_alloc_array(
         &self,
         obj: crate::metadata::types::ArrayObj,
@@ -262,9 +221,6 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 // Not bound to this heap (or already unbound) → nothing of ours.
                 return;
             }
-            if let Some(claim) = tlab.obj.take() {
-                self.region_object.lock().retire_chunk(&claim);
-            }
             if let Some(claim) = tlab.arr.take() {
                 self.region_array.lock().retire_chunk(&claim);
             }
@@ -275,16 +231,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
         });
     }
 
-    /// Size estimate helpers for sweep_phase — operate on the borrowed value
-    /// (the `RegionEntry` slot header is not part of the estimate).
-    pub(super) fn script_object_size_estimate(obj: &ScriptObject) -> u64 {
-        use std::mem::size_of;
-        // slots is `Box<[Value]>` — len == actual allocation (no excess
-        // capacity to charge separately).
-        (size_of::<Value>() + size_of::<ScriptObject>()
-            + obj.payload_len()) as u64
-    }
-
+    /// Size estimate of an array header for sweep_phase (the `RegionEntry` slot header is not
+    /// part of the estimate).
     pub(super) fn array_size_estimate(arr: &crate::metadata::types::ArrayObj) -> u64 {
         use std::mem::size_of;
         // packed-primitive-arrays: `elem_storage_bytes` is per-backing (byte[] 1B
@@ -359,62 +307,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
     }
 
-    /// 共享对象分配尾部：把已建好的 `ScriptObject` alloc 进 region + OOM 兜底 + record。
-    /// `alloc_object`（struct_bytes 由 `type_desc.inline_regions()` 定尺）与 `alloc_boxed_prim`
-    /// （struct_bytes 由调用方按 wrapper 标量宽度显式定尺，unify Phase 2 R3）复用本尾部。
-    pub(super) fn finish_alloc(&self, obj: ScriptObject) -> Value {
-        let td_for_record = Arc::clone(&obj.type_desc);
-        // **add-gc-tlab (stage 2)**: chunk-exclusive TLAB fast path (lock-free
-        // bump-fill) — only on a TLAB-armed thread (has a live VmContext) and
-        // not in strict-OOM mode (D6 needs the per-object refund path). `Err`
-        // hands the object back for the ambient path.
-        let obj = if crate::gc::tlab::is_armed()
-            && !self.strict_oom_atomic.load(std::sync::atomic::Ordering::Relaxed)
-        {
-            match self.tlab_alloc_object(obj, &td_for_record) {
-                Ok(value) => return self.shade_newborn(value), // 3.2 allocate-black
-                Err(o) => o,
-            }
-        } else {
-            obj
-        };
-        // **add-custom-allocator P1 (2026-05-22)**: alloc into region (ambient
-        // locked path — strict-OOM or a foreign-heap TLAB).
-        // Region::alloc returns a stable handle; resolve gives us the
-        // entry pointer for GcRef construction.
-        let (entry_ptr, generation, handle) = {
-            let mut region = self.region_object.lock();
-            let handle = region.alloc(obj);
-            let entry: std::ptr::NonNull<crate::gc::region::RegionEntry<ScriptObject>> =
-                std::ptr::NonNull::from(region.resolve(handle));
-            (entry, handle.generation, handle)
-        };
-        // SAFETY: handle was just produced by region.alloc; entry ptr
-        // is stable for entry lifetime; generation matches.
-        let gc = unsafe { GcRef::from_region_entry(entry_ptr, generation) };
-        let value = self.shade_newborn(Value::Object(gc)); // 3.2 allocate-black
-
-        let size = self.object_size_bytes(&value);
-        // Phase 3-OOM: strict 模式下若 alloc 后会越界，撤销并返 Null
-        let (would_oom, limit) = self.would_oom_after_alloc(size as u64);
-        if would_oom {
-            // Refund: tombstone the entry (no finalizer registered yet,
-            // so no fire on tombstone).
-            self.region_object.lock().tombstone(handle);
-            self.fire_event(GcEvent::OutOfMemory {
-                requested_bytes: size as u64,
-                limit_bytes: limit,
-            });
-            return Value::Null;
-        }
-        self.record_alloc(&value, || AllocKind::Object { class: td_for_record.name.clone() }, size);
-        self.maybe_auto_collect();
-        value
-    }
-
     /// unify-gc-heap PR-2: allocate a capturing closure's [`ClosureData`] into the
     /// variable-length GC region (`region_var`) and return a `Value::Closure` handle. The
-    /// block is a POD leaf (env `GcRef` + target `FnId`). Mirrors `finish_alloc`'s
+    /// block is a POD leaf (env `GcRef` + target `FnId`). Mirrors `alloc_object_block`'s
     /// record + auto-collect tail (no strict-OOM refund path — closure blocks are tiny and the
     /// env array's own alloc already went through the OOM gate). Exposed via the `MagrGC` trait
     /// (`alloc_closure`) so `ctx.heap()` callers reach it through `&dyn MagrGC`.
@@ -546,12 +441,11 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 size_of::<Value>() + size_of::<crate::metadata::types::ArrayObj>()
                     + rc.borrow().elem_storage_bytes()
             }
-            Value::Object(rc) => {
-                let obj = rc.borrow();
-                // slots is `Box<[Value]>` — len == actual allocation.
-                // add-struct-heap-inline (P3b): + inline struct byte region + ref side-table.
-                size_of::<Value>() + size_of::<ScriptObject>()
-                    + obj.payload_len()
+            // Object model R6: the object's whole block — block header, object header, fields —
+            // the figure its allocation charged and its sweep credits (`alloc_charge_bytes`).
+            Value::Object(rc) | Value::BoxedStruct(rc) => {
+                GcBlockHeader::DATA_OFFSET + crate::metadata::types::OBJ_HEADER_BYTES
+                    + rc.borrow().payload_len()
             }
             // impl-lambda-l2 / P1-2 PR 8: FuncRef holds a `FnId` — no heap allocation.
             Value::FuncRef(_) => size_of::<Value>(),
@@ -578,14 +472,6 @@ impl crate::gc::arc_heap::ArcMagrGC {
             | Value::StructRef { .. }
             | Value::Ref { .. }
             | Value::PinnedView { .. } | Value::StructRefHeap { .. } => size_of::<Value>(),
-            // add-boxed-struct-identity (P4b, 路 B2): boxed struct 现是共享 `ScriptObject`——按对象
-            // 计其 struct_bytes/struct_refs（与 Object 臂同）。对象本体在 region_object，alloc 时已计一次；
-            // 此臂给按 Value 计尺寸的诚实值。
-            Value::BoxedStruct(gc) => {
-                let obj = gc.borrow();
-                size_of::<Value>() + size_of::<ScriptObject>()
-                    + obj.payload_len()
-            }
         }
     }
 }

@@ -36,7 +36,7 @@ pub enum RefKind {
     /// 指向 caller 数组对象的 `idx` 元素。GcRef 持有数组，让 GC 跟随。
     Array { gc_ref: GcRef<ArrayObj>, idx: usize },
     /// 指向 caller 对象的命名字段。
-    Field { gc_ref: GcRef<ScriptObject>, field_name: String },
+    Field { gc_ref: crate::gc::ObjRef, field_name: String },
 }
 
 /// Origin of a [`Value::PinnedView`]. Recorded for diagnostics; both kinds

@@ -5,6 +5,7 @@ use crate::gc::refs::MarkKind;
 use crate::gc::heap::MagrGC;
 use crate::metadata::{Value};
 use crate::gc::refs::{GcRef};
+use crate::gc::obj_ref::ObjRef;
 use crate::gc::types::{FinalizerFn};
 use crate::gc::phase_timer::PhaseTimer;
 
@@ -20,11 +21,10 @@ pub(crate) struct MinorSweepResult {
 }
 
 impl crate::gc::arc_heap::ArcMagrGC {
-    /// Young entries listed across all three regions — what the next minor will have to scan
+    /// Young entries listed across both regions — what the next minor will have to scan
     /// before it sees a single new allocation (add-pause-budget-nursery).
     pub(super) fn young_count(&self) -> usize {
-        self.region_object.lock().young_count()
-            + self.region_array.lock().young_count()
+        self.region_array.lock().young_count()
             + self.region_var.lock().young_count()
     }
 
@@ -55,11 +55,11 @@ impl crate::gc::arc_heap::ArcMagrGC {
     ///   edge no card covers. Re-dirtying costs one minor's worth of full-heap rooting, once.
     fn apply_promotion_age(&self, age: u8) {
         self.promotion_age.store(age, std::sync::atomic::Ordering::Relaxed);
-        self.region_object.lock().set_promotion_age(age);
         self.region_array.lock().set_promotion_age(age);
         self.region_var.lock().set_promotion_age(age);
-        self.region_object.lock().dirty_every_card();
         self.region_array.lock().dirty_every_card();
+        // Object model R6: objects have no cards — remember every old one with a young child.
+        self.remember_every_old_object_with_young();
     }
 
     /// The age this heap was configured with — the line the adaptive policy lowers *from*.
@@ -73,7 +73,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// to generational dispatch — mark/sweep already handles those).
     pub(super) fn gen_age_of(v: &Value) -> u8 {
         match v {
-            Value::Object(gc) => GcRef::gen_age(gc),
+            Value::Object(gc) => ObjRef::gen_age(gc),
             Value::Array(gc)  => GcRef::gen_age(gc),
             // fix-minor-gc-skips-var-region (2026-09-08): the closure block carries its own
             // age now, so report *its* age rather than its `env` array's.
@@ -90,7 +90,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             // than correctness — but there is no reason to pay it now that the age is real.
             Value::Str(s) => s.gen_age(),
             // add-boxed-struct-identity (P4b): gen-age of the boxed struct's shared object.
-            Value::BoxedStruct(gc) => GcRef::gen_age(gc),
+            Value::BoxedStruct(gc) => ObjRef::gen_age(gc),
             // make-value-copy: `Ref` handle carries no direct heap allocation to age
             // (its target is aged via the arena root scan) → 0.
             _ => 0,
@@ -161,6 +161,9 @@ grey {grey_n} (skipped old {grey_old})"));
         // them — measured on `z42c.semantics`, the late minors seeded **518 530** card roots
         // to find **76** young objects.
         self.seed_from_dirty_cards(&mut queue, threshold);
+        // Object model R6: the remembered set is the objects' half of the same invariant.
+        let remembered = self.seed_from_remembered(&mut queue, threshold);
+        crate::gc::phase_timer::note(format_args!("  remembered seed  {remembered} objects"));
 
         let mut marked = 0usize;
         let (mut visited, mut children, mut old_traced) = (0usize, 0usize, 0usize);
@@ -293,22 +296,6 @@ grey {grey_n} (skipped old {grey_old})"));
         // already. Tracing through it would follow those dangling edges; it has no young children
         // anyone can reach, so it contributes nothing (and does not keep its card dirty).
         let doomed = self.doomed_unless_marked();
-        let mut clean_obj: Vec<(u32, u8)> = Vec::new();
-        {
-            let region = self.region_object.lock();
-            let mut cur: Option<(u32, u8, bool)> = None;
-            region.iterate_dirty_cards(|h, entry, card| {
-                let entry_ptr = std::ptr::NonNull::from(entry);
-                // SAFETY: handle came from iterate_dirty_cards; entry is alive and its
-                // generation matches at iteration time.
-                let gc = unsafe { GcRef::from_region_entry(entry_ptr, h.generation) };
-                seeded += 1;
-                let found = doomed.is_none_or(|k| entry.is_marked(k))
-                    && Self::seed_card_entry(Value::Object(gc), queue, threshold);
-                Self::note_card(&mut cur, &mut clean_obj, h.chunk_idx, card, found);
-            });
-            Self::flush_card(cur, &mut clean_obj);
-        }
         let mut clean_arr: Vec<(u32, u8)> = Vec::new();
         {
             let region = self.region_array.lock();
@@ -324,13 +311,7 @@ grey {grey_n} (skipped old {grey_old})"));
             });
             Self::flush_card(cur, &mut clean_arr);
         }
-        let (clean_obj_n, clean_arr_n) = (clean_obj.len(), clean_arr.len());
-        {
-            let mut region = self.region_object.lock();
-            for (ci, card) in clean_obj {
-                region.clean_card(ci, card);
-            }
-        }
+        let clean_arr_n = clean_arr.len();
         {
             let mut region = self.region_array.lock();
             for (ci, card) in clean_arr {
@@ -338,7 +319,7 @@ grey {grey_n} (skipped old {grey_old})"));
             }
         }
         crate::gc::phase_timer::note(format_args!(
-            "  card seed  {seeded} old entries, {} cards cleaned", clean_obj_n + clean_arr_n));
+            "  card seed  {seeded} old entries, {clean_arr_n} cards cleaned"));
     }
 
     /// Push `v`'s young children onto the mark queue. Returns whether it had any — which is
@@ -359,7 +340,7 @@ grey {grey_n} (skipped old {grey_old})"));
     ///   made the loop skip marking old entries and trace through them — so doing it here is
     ///   the same work, minus a push and a pop, and it is what makes the card's verdict
     ///   available at all.
-    fn seed_card_entry(v: Value, queue: &mut Vec<Value>, threshold: u8) -> bool {
+    pub(super) fn seed_card_entry(v: Value, queue: &mut Vec<Value>, threshold: u8) -> bool {
         if Self::gen_age_of(&v) < threshold {
             // Young: root it (unchanged), and let the BFS trace it. Its own age already says
             // the card has something young in it.
@@ -408,44 +389,16 @@ grey {grey_n} (skipped old {grey_old})"));
         }
     }
 
-    /// **fix-promotion-creates-uncarded-old-to-young (2026-09-08)**: the write barrier records
-    /// an old→young edge **at the moment of the write**. Promotion creates such edges with no
-    /// write at all: a parent allocated before its child ages out first, and the instant it
-    /// crosses `PROMOTION_THRESHOLD` it is an old object holding a young one — with a clean
-    /// card, because the store that put the child there was young→young.
-    ///
-    /// Measured shape: an old `Z42.IR.StrMap` (age 2) holding the bucket array it grew into
-    /// later (age 1). The next minor did not root the map, nothing else reached the array, and
-    /// the array was swept while still referenced — surfacing as
-    /// `__str_hash_code: arg 0 expected string, got Null`.
-    ///
-    /// So promotion has to do the barrier's job: an entry that just became old and still
-    /// refers to something young gets its card dirtied, exactly as a write would have.
-    /// Only entries that actually cross the threshold are examined, once each, and only those
-    /// with a young child dirty a card — dirtying every promoted entry's chunk would turn the
-    /// next minor into a full-heap scan (cards are chunk-granular, 256 entries wide).
-    fn dirty_cards_for_newly_old_objects(&self, handles: &[crate::gc::region::RegionHandle]) {
-        if handles.is_empty() { return; }
-        let mut to_dirty = Vec::new();
-        {
-            let region = self.region_object.lock();
-            for &h in handles {
-                let entry = region.resolve(h);
-                // SAFETY: `promote` returned true for this handle in this same STW window, so
-                // the entry is alive and its generation matches.
-                let gc = unsafe {
-                    GcRef::from_region_entry(std::ptr::NonNull::from(entry), h.generation)
-                };
-                if self.refers_to_young(&Value::Object(gc)) {
-                    to_dirty.push((h.chunk_idx, h.entry_idx));
-                }
-            }
-        }
-        let mut region = self.region_object.lock();
-        for (ci, ei) in to_dirty {
-            region.mark_card_dirty(ci, ei);
-        }
-    }
+    // **fix-promotion-creates-uncarded-old-to-young (2026-09-08)**: the write barrier records
+    // an old→young edge **at the moment of the write**. Promotion creates such edges with no
+    // write at all: a parent allocated before its child ages out first, and the instant it
+    // crosses the promotion age it is an old object holding a young one — with a clean card,
+    // because the store that put the child there was young→young. Measured shape: an old
+    // `Z42.IR.StrMap` (age 2) holding the bucket array it grew into later (age 1), swept while
+    // still referenced (`__str_hash_code: arg 0 expected string, got Null`). So promotion does the
+    // barrier's job: an entry that just became old and still refers to something young gets its
+    // card dirtied (arrays, `dirty_cards_for_newly_old_arrays`) or is remembered (objects,
+    // `remember_newly_old_objects`), exactly as a write would have done.
 
     /// **fix-primitives-count-as-young (2026-09-11)**: keep every just-promoted array's
     /// element-storage block at least as old as the array header that owns it.
@@ -477,7 +430,8 @@ grey {grey_n} (skipped old {grey_old})"));
         }
     }
 
-    /// Array-region twin of [`Self::dirty_cards_for_newly_old_objects`].
+    /// Promotion's barrier for arrays: dirty the card of every just-promoted array that still
+    /// refers to something young (see the note above `age_backing_with_owner`).
     fn dirty_cards_for_newly_old_arrays(&self, handles: &[crate::gc::region::RegionHandle]) {
         if handles.is_empty() { return; }
         let mut to_dirty = Vec::new();
@@ -536,44 +490,8 @@ grey {grey_n} (skipped old {grey_old})"));
         // epoch — checked in debug builds (`promote_black`).
         let promote_black = self.doomed_unless_marked();
 
-        // Object region — **one-pass-minor-sweep (2026-09-12)**: scan, promote and tombstone
-        // in a single walk of the young list. See `Region::sweep_young_in_one_pass`; what
-        // stays here is the part that is about *objects* rather than about the region.
-        let sweep_objects = PhaseTimer::start("minor/sweep objects");
-        let obj = {
-            let mut region = self.region_object.lock();
-            region.sweep_young_in_one_pass(
-                observed_age,
-                promote_black,
-                |marked| self.promotion_policy.observe(marked),
-                |entry| {
-                    let o = &entry.value;
-                    let size = Self::script_object_size_estimate(&o);
-                    // Break every strong reference edge — the 16 B side table and the 8 B
-                    // reference words — so no tombstoned entry is left holding a handle into
-                    // the region (`iterate_live_objects` and any later traversal would
-                    // otherwise meet a stale generation).
-                    //
-                    // **perf-cheap-dead-edge-break (2026-09-12)**: done here, under the value
-                    // lock this size estimate already holds, rather than in a separate
-                    // tombstone loop that re-took the region lock and re-`resolve`d the
-                    // handle for it. That loop cost 67.7 ns an entry against the array
-                    // twin's 10.8; it is now 10.6.
-                    o.clear_refs_for_sweep();
-                    (entry.take_finalizer(), size)
-                },
-            )
-        };
-        sweep_objects.count(obj.survivors + obj.reclaimed);
-        freed_bytes += obj.freed_bytes;
-        reclaimed_entries += obj.reclaimed;
-        // add-bounded-nursery: everything that just crossed into the old generation counts
-        // towards the next major's trigger — see `promoted_bytes_since_major`.
-        promoted_bytes += self.promoted_size_of_objects(&obj.newly_old);
-        self.dirty_cards_for_newly_old_objects(&obj.newly_old);
-        drop(sweep_objects);
-
-        // Array region — same one pass (see the object half above).
+        // Array region — **one-pass-minor-sweep (2026-09-12)**: scan, promote and tombstone in a
+        // single walk of the young list (see `Region::sweep_young_in_one_pass`).
         let sweep_arrays = PhaseTimer::start("minor/sweep arrays");
         let arr = {
             let mut region = self.region_array.lock();
@@ -611,12 +529,23 @@ grey {grey_n} (skipped old {grey_old})"));
         // fix-minor-gc-skips-var-region (2026-09-08): the variable-length region — strings,
         // closures and every array's element storage, ~45% of RSS — used to sit out every
         // minor and wait for a major. It sweeps here with the other two now.
+        //
+        // Object model R6: objects are var blocks, so this one walk also scans, promotes and
+        // tombstones them — feeding the promotion policy the objects' survival sample, and
+        // handing back the objects that just became old (they may need remembering, the object
+        // twin of `dirty_cards_for_newly_old_arrays`).
         {
             let t = PhaseTimer::start("minor/var sweep");
-            let (reclaimed, credited) = self.region_var.lock().sweep_young(promote_black);
-            t.count(reclaimed);
-            freed_bytes += credited;
-            reclaimed_entries += reclaimed;
+            let var = self.region_var.lock().sweep_young_with(
+                promote_black,
+                observed_age,
+                |marked| self.promotion_policy.observe(marked),
+            );
+            t.count(var.reclaimed);
+            freed_bytes += var.credited;
+            reclaimed_entries += var.reclaimed;
+            promoted_bytes += var.promoted_object_bytes;
+            self.remember_newly_old_objects(&var.newly_old_objects);
         }
 
         // **add-bounded-nursery (2026-09-08)**: chunk-level reclaim at the minor tail.
@@ -648,18 +577,8 @@ grey {grey_n} (skipped old {grey_old})"));
         MinorSweepResult { freed_bytes, reclaimed_entries, promoted_bytes }
     }
 
-    /// Bytes the just-promoted object entries carry into the old generation. Uses the same
+    /// Bytes the just-promoted array headers carry into the old generation. Uses the same
     /// estimator the sweep credits back, so promotion and reclamation speak one unit.
-    fn promoted_size_of_objects(&self, handles: &[crate::gc::region::RegionHandle]) -> u64 {
-        if handles.is_empty() { return 0; }
-        let region = self.region_object.lock();
-        handles.iter().map(|&h| {
-            let entry = region.resolve(h);
-            Self::script_object_size_estimate(&entry.value)
-        }).sum()
-    }
-
-    /// Array-region twin of [`Self::promoted_size_of_objects`].
     fn promoted_size_of_arrays(&self, handles: &[crate::gc::region::RegionHandle]) -> u64 {
         if handles.is_empty() { return 0; }
         let region = self.region_array.lock();
@@ -787,14 +706,12 @@ grey {grey_n} (skipped old {grey_old})"));
         // **one-pass-major-aging (2026-09-13)**: one walk per region — see
         // `Region::age_young_survivors`. This used to copy each young list into a `Vec` and
         // then take the region lock once per entry to promote it.
-        let newly_old_obj = self.region_object.lock().age_young_survivors();
-        self.dirty_cards_for_newly_old_objects(&newly_old_obj);
-
         let newly_old_arr = self.region_array.lock().age_young_survivors();
         self.age_backing_with_owner(&newly_old_arr);
         self.dirty_cards_for_newly_old_arrays(&newly_old_arr);
 
-        self.region_var.lock().age_young_survivors();
+        let newly_old_obj = self.region_var.lock().age_young_survivors();
+        self.remember_newly_old_objects(&newly_old_obj);
     }
 
     /// **add-generational-gc P3 (2026-05-22)**: escalation threshold.

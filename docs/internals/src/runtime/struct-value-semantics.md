@@ -309,8 +309,8 @@ p1 == p2   ⟹   逐叶子: la=field_get(p1,off,tag); lc=field_get(p2,off,tag); 
 规则），但若无装箱就**裸拷帧作用域 `Value::StructRef` 句柄进 object 槽**——创建帧一退出（arena LIFO
 truncate）即 use-after-free。
 
-**堆表示**：`Value::BoxedStruct` 载荷是 `GcRef<ScriptObject>`（共享堆句柄，struct blob 存进对象
-`struct_bytes`/`struct_refs`；引用叶子作真 `Value`，GC 扫描）→ 对齐 C# 引用身份，复用 `region_object`，
+**堆表示**：`Value::BoxedStruct` 载荷是 `ObjRef`（共享堆句柄，struct blob 就是对象的字段区；
+引用叶子是 blob 里的 8 B 引用字，GC 扫描）→ 对齐 C# 引用身份，与普通对象同为变长区的对象块，
 见下「装箱引用身份」节。**不**给 struct 加 base+vtable，只是把值装进对象容器。
 
 **装箱**（`__box_struct` builtin，复用 `Builtin` opcode → 无格式 bump，同 `__box_prim`）：`TypeChecker.BoxIfNeeded`
@@ -538,13 +538,13 @@ writer 侧 `ClassDescBuilder` 用 `StructLayout.InlineLayoutOf`（`BuildFromSymb
 
 ## 基元装箱统一到 `BoxedStruct`
 
-**为什么统一**：struct 装箱与基元装箱若是两套不对称模型（struct = `Value::BoxedStruct(GcRef<ScriptObject>)`，
+**为什么统一**：struct 装箱与基元装箱若是两套不对称模型（struct = `Value::BoxedStruct(ObjRef)`，
 GC 管理 + 引用身份；基元 = 轻量 `Box`、无引用身份、非 GC 管理），则 `is`/`as`/`GetType`/`value_to_str`/GC visit/equality/
 反射/vcall 等 ~20 处 helper 要双写；且 `object o=5; object p=5; ReferenceEquals(o,p)` 在 C# 是 `false`（两个不同盒），
 无引用身份就是语义偏差。
 
 **唯一装箱模型**：`__box_prim`（`corelib/convert.rs`）产堆 `ScriptObject` + `Value::BoxedStruct`，
-与 struct 装箱同一路径 → 每次装箱 alloc 新盒（C# 引用身份），复用 `region_object` 全套 GC。无 `Value::Boxed`
+与 struct 装箱同一路径 → 每次装箱 alloc 新盒（C# 引用身份），复用对象块的全套 GC。无 `Value::Boxed`
 变体（判别号 13 留空，`#[repr(C,u8)]` 显式判别 14-18，JIT 原始布局不受影响）。
 
 **标量存储（与 struct 装箱完全同构，零格式 bump）**：`__box_prim` 只装**整数**（bool/char/double/
@@ -725,15 +725,15 @@ z42c.semantics 依赖它作跨包 API。给它加新 `IsStruct` 字段并在 z42
 
 若 `Value::BoxedStruct` 载荷是**值**（`Box` 独占，`.cloned()` 深拷贝）→ `object b = a`
 是两份独立盒、反射 `SetValue` 改盒调用方看不见，与 C#（box 是共享堆引用）不一致。故载荷是
-**`GcRef<ScriptObject>`**（共享堆句柄）：
+**`ObjRef`**（共享堆句柄）：
 
 - 装箱 = 分配一个 **struct 类型的 `ScriptObject`**（`type_desc.is_struct()`，struct blob 存进对象已有的
   `struct_bytes`/`struct_refs`，`slots` 空）。`inline_region_sizes()` 对 `is_struct()` 类型改读该类型自己的
   `struct_layout`（size + ref_count），使 `alloc_object` 为盒分配正确大小的 blob 区。装箱经
   `corelib::convert::box_struct_blob`（`__box_struct` 复用它），拆箱 `unbox_struct` 读对象 blob → 当前帧 arena。
-- **复用 `region_object` + 全部 GC 机制，零 GC 核心改动**：GC 的 mark / gen-age / trace / scan_object_refs /
+- **复用对象块 + 全部 GC 机制，零 GC 核心改动**：GC 的 mark / gen-age / trace / scan_object_refs /
   size / 跨代写屏障（`maybe_mark_cross_gen_card` 的 owner+new 两侧）的 `BoxedStruct` 臂与 `Value::Object` **同路**
-  （底层同为 `GcRef<ScriptObject>`）。`is/as/GetType/vcall/Equals` 保持 boxed 值类型特判，只改「读盒」经对象
+  （底层同为 `ObjRef`）。`is/as/GetType/vcall/Equals` 保持 boxed 值类型特判，只改「读盒」经对象
   `type_desc.name`/`struct_bytes`/`struct_refs`。
 - **收益**：`object b = a` 别名同盒、传参改盒可见、反射 `SetValue` 写穿——达成 C# 引用身份。
 - **不给 struct 加 base/vtable**——只是把值装进已有对象容器、用 struct 自己的 TypeDesc。

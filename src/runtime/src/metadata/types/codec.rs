@@ -87,7 +87,7 @@ pub fn encode_prim(bytes: &mut [u8], off: usize, w: usize, kind: u8, val: &Value
 }
 
 /// A primitive leaf's raw little-endian bits (low `prim_width(kind)` bytes significant) —
-/// the value an object's same-width atomic cell stores (`ObjStorage::store_prim`). Same
+/// the value an object's same-width atomic cell stores (`Cells::store_prim`). Same
 /// conversions and rejections as [`encode_prim`].
 #[inline]
 pub fn prim_to_bits(kind: u8, val: &Value) -> anyhow::Result<u64> {

@@ -1,11 +1,10 @@
-//! NativeData / ScriptObject + GcRef<ScriptObject> 访问。refactor-split-metadata-types（2026-09-03）：从 2436 行的 `types.rs` 按职责拆出，
+//! NativeData / ScriptObject（对象头）+ ObjRef 访问。refactor-split-metadata-types（2026-09-03）：从 2436 行的 `types.rs` 按职责拆出，
 //! 对外路径不变（`metadata::types::*` 经 hub 的 `pub use` 全量再导出）。
 
 #![allow(unused_imports)]
 use super::*;
 use std::sync::Arc;
 use crate::metadata::vstr::Str;
-use crate::gc::GcRef;
 use crate::gc::var_region::{BlockType, VarGcRef};
 use crate::gc::heap::MagrGC;
 
@@ -44,11 +43,9 @@ pub enum NativeData {
 
 // ── ScriptObject — unified managed object ───────────────────────────────────
 //
-// Replaces the old `ObjectData`. Every class instance is represented as a
-// `ScriptObject`, which combines:
-//   1. A type descriptor pointer (Arc<TypeDesc>) — the class identity
-//   2. A flat slot array (Vec<Value>)            — instance fields by index
-//   3. Optional native backing (NativeData)      — for built-in types
+// Every class instance (and every boxed value struct / primitive) is a `ScriptObject` header —
+// the type descriptor (class identity) and one meta word (generic arguments, native backing) —
+// followed in the same GC block by its field cells (see the type docs below).
 
 /// The cold per-instance native backing of a [`ScriptObject`], boxed only for the few
 /// objects that have one (WeakRef / Type / LoadContext / Assembly / Monitor handles).
@@ -176,30 +173,121 @@ impl std::fmt::Debug for ObjMeta {
     }
 }
 
-/// Heap-allocated managed object with reference semantics (CoreCLR Object equivalent).
-#[derive(Debug)]
+/// A managed object's **header** (object model R6) — the first 16 bytes of its storage, with
+/// the field cells immediately after it:
+///
+/// ```text
+///   GcBlockHeader (16 B) │ ScriptObject: type_desc (8 B) │ meta (8 B) │ field cells …
+///                         ↑ &ScriptObject                             ↑ cells(): payload_len() bytes
+/// ```
+///
+/// A heap object is one `BlockType::Object` block of the variable-length GC region: block
+/// header, this header, fields — one allocation, freed (and its `Arc<TypeDesc>` / extras box
+/// dropped by the heap's drop glue) when the block is tombstoned. An object outside the heap (a
+/// stack-allocated object, one under construction) lives in an [`OwnedObject`], a detached
+/// block of the same shape — so every `&ScriptObject` finds its block header 16 bytes before it
+/// and its fields 16 bytes after it, and the field area's length is the block header's payload
+/// size minus this header.
+///
+/// `ScriptObject` is therefore never a free-standing value: it is only ever reached by
+/// reference, through an [`ObjRef`](crate::gc::ObjRef) or an `OwnedObject`.
+///
+/// Field cells (object model R1–R3): every primitive leaf (incl. inline-struct interior
+/// primitive leaves) lives at its composed byte offset, and so does every reference: a direct
+/// reference field or an inline-struct reference leaf is an 8 B self-describing reference word
+/// (`ref_word`, `ObjectLayout::ref_cells`); a type-parameter field (and every reference field of a
+/// synthesized layout) is a 16 B cell whose tag word sits at its own offset and whose payload
+/// word sits past the compiler's layout (`tparam_cell`, `ObjectLayout::tparam_cells`). A boxed
+/// struct's payload is its struct blob. Field access goes through the methods in
+/// `object_fields.rs`, every one an atomic cell access (`Cells`).
+#[repr(C)]
 pub struct ScriptObject {
-    /// Type descriptor shared across all instances of this class.
+    /// Type descriptor shared across all instances of this class. Set before the object is
+    /// published, never changed.
     pub type_desc: Arc<TypeDesc>,
-    /// The object's field payload — one zeroed byte block (see [`ObjStorage`]).
-    ///
-    /// Every primitive leaf (incl. inline-struct interior primitive leaves) lives at its
-    /// composed byte offset, and so does every reference: a direct reference field or an
-    /// inline-struct reference leaf is an 8 B self-describing reference word (`ref_word`,
-    /// `ObjectLayout::ref_cells`); a type-parameter field (and every reference field of a
-    /// synthesized layout) is a 16 B cell whose tag word sits at its own offset and whose payload
-    /// word sits past the compiler's layout (`tparam_cell`, `ObjectLayout::tparam_cells`). A boxed
-    /// struct's payload is its struct blob. Field access goes through the methods in
-    /// `object_fields.rs`.
-    pub storage: ObjStorage,
     /// The two cold per-instance side-fields — generic type-arguments and native backing —
     /// in one 8 B word (see [`ObjMeta`]): a generic instance points at its instantiation's
     /// interned [`TypeArgs`] entry (shared, nothing allocated per object); only a
     /// native-backed object pays for a box.
     meta: ObjMeta,
+    /// The trailing field area, zero-sized here. An `UnsafeCell` so `&ScriptObject` is not
+    /// `Freeze`: the field cells behind the header are written through `&self` (atomic cell
+    /// stores), which a `readonly` / `noalias` shared reference would forbid.
+    fields: std::cell::UnsafeCell<[u64; 0]>,
+}
+
+/// Bytes of the object header in front of the field cells (object model R6): two pointer-sized
+/// words — 16 on 64-bit targets, 8 on 32-bit ones (wasm32 / armv7). A multiple of 8 either way,
+/// so the field cells start 8-aligned behind the 8-aligned block payload.
+pub const OBJ_HEADER_BYTES: usize = std::mem::size_of::<ScriptObject>();
+#[cfg(target_pointer_width = "64")]
+const _: () = assert!(OBJ_HEADER_BYTES == 16);
+const _: () = assert!(OBJ_HEADER_BYTES % 8 == 0);
+const _: () = assert!(std::mem::align_of::<ScriptObject>() == 8);
+
+// SAFETY: the header's fields are `Send + Sync` (`ObjMeta`'s impls say why); the field area is
+// only ever accessed through atomic cell views (`Cells`), so sharing `&ScriptObject` across
+// threads is race-free — the `UnsafeCell` marker is not a plain-memory mutation channel.
+unsafe impl Send for ScriptObject {}
+unsafe impl Sync for ScriptObject {}
+
+impl std::fmt::Debug for ScriptObject {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ScriptObject")
+            .field("type", &self.type_desc.name)
+            .field("meta", &self.meta)
+            .field("payload_len", &self.payload_len())
+            .finish()
+    }
 }
 
 impl ScriptObject {
+    /// The header of a fresh object of `type_desc` (no extras) — written into a block by the
+    /// allocators (`OwnedObject`, `ArcMagrGC`), never used as a free-standing value.
+    #[inline]
+    pub(crate) fn header(type_desc: Arc<TypeDesc>) -> Self {
+        Self { type_desc, meta: ObjMeta::NONE, fields: std::cell::UnsafeCell::new([]) }
+    }
+
+    /// The block header 16 bytes in front of this object header (a heap block's, or an
+    /// `OwnedObject`'s detached block's).
+    #[inline(always)]
+    fn block_header(&self) -> &crate::gc::var_region::GcBlockHeader {
+        // SAFETY: a `ScriptObject` only exists at the payload start of a block (see the type
+        // docs), so the 16 bytes before it are that block's header.
+        unsafe {
+            &*(self as *const Self)
+                .cast::<u8>()
+                .sub(crate::gc::var_region::GcBlockHeader::DATA_OFFSET)
+                .cast::<crate::gc::var_region::GcBlockHeader>()
+        }
+    }
+
+    /// Payload length in bytes — the field area behind the header (a boxed primitive's scalar
+    /// width, a boxed struct's blob size, a class instance's `TypeDesc::object_bytes_len`).
+    #[inline(always)]
+    pub fn payload_len(&self) -> usize {
+        self.block_header().size() - OBJ_HEADER_BYTES
+    }
+
+    /// Atomic loads and stores of the field cells.
+    #[inline(always)]
+    pub fn cells(&self) -> Cells<'_> {
+        // SAFETY: the field area starts right after the header, 8-aligned (block payloads are
+        // 8-aligned and the header is 16 bytes), `payload_len()` bytes long and owned by this
+        // object's block; every access to it after construction is an atomic cell access (JIT
+        // inline loads / stores are plain same-width accesses, the relaxed atomics of x86-64 /
+        // AArch64).
+        unsafe { Cells::from_raw(self.fields.get().cast::<u8>(), self.payload_len()) }
+    }
+
+    /// An atomic snapshot of the whole field area ([`Cells::copy_out`]).
+    pub fn snapshot_fields(&self) -> Vec<u8> {
+        let mut out = vec![0u8; self.payload_len()];
+        self.cells().copy_out(0, &mut out);
+        out
+    }
+
     /// The object's native backing (`None` for every ordinary user class).
     #[inline]
     pub fn native(&self) -> &NativeData {
@@ -214,7 +302,7 @@ impl ScriptObject {
 
     /// Install the native backing, allocating the cold extras box on first use. Construction
     /// only (`&mut self`): a published object is shared without a lock, so its extras never
-    /// change — build the object completely, then allocate it (`MagrGC::alloc_script_object`).
+    /// change — build the object completely before it is published.
     #[inline]
     pub fn set_native(&mut self, native: NativeData) {
         if matches!(native, NativeData::None) && self.meta.extras_ptr().is_none() {
@@ -247,54 +335,22 @@ impl ScriptObject {
         }
     }
 
-    /// What this object holds from the allocator **outside** its GC slot: the field payload
-    /// block and, when present, the native extras box — each rounded to the allocator's
-    /// size class. Type-arguments are interned per instantiation and cost nothing here.
-    /// The GC charges it to the heap footprint when the object is born and credits it when
-    /// the dead object's slot is reused.
-    pub fn heap_payload_bytes(&self) -> u64 {
-        use crate::gc::footprint::malloc_size;
-        let mut n = malloc_size(self.storage.alloc_bytes());
+    /// What this object holds from the allocator **outside** its block: the native extras box
+    /// when present, rounded to the allocator's size class. Type-arguments are interned per
+    /// instantiation and cost nothing here. The GC charges it to the heap footprint when the
+    /// object is born and its drop glue credits it back when the block dies.
+    pub fn extras_bytes(&self) -> u64 {
         if self.meta.extras_ptr().is_some() {
-            n += malloc_size(std::mem::size_of::<ObjExtras>());
+            crate::gc::footprint::malloc_size(std::mem::size_of::<ObjExtras>())
+        } else {
+            0
         }
-        n
     }
-
-    /// Construct with no extras — the common case.
-    #[inline]
-    pub fn new(type_desc: std::sync::Arc<TypeDesc>, storage: ObjStorage) -> Self {
-        Self { type_desc, storage, meta: ObjMeta::NONE }
-    }
-
-    /// A fresh instance of `type_desc` for `ObjNew` (interp heap and stack branches, JIT): zeroed
-    /// fields plus the instance's generic step ([`Self::install_type_args`] with the handle
-    /// `obj_new_resolve::instance_type_args` picked). Built completely before allocation: a
-    /// published object never changes its meta word (object model R4).
-    pub fn new_instance(type_desc: Arc<TypeDesc>, type_args: TypeArgs) -> Self {
-        let storage = type_desc.object_storage();
-        let mut obj = Self::new(type_desc, storage);
-        obj.install_type_args(type_args);
-        obj
-    }
-
-    /// Construct with a native backing (built-in boxes).
-    #[inline]
-    pub fn with_native(
-        type_desc: std::sync::Arc<TypeDesc>, storage: ObjStorage, native: NativeData,
-    ) -> Self {
-        let mut o = Self::new(type_desc, storage);
-        o.set_native(native);
-        o
-    }
-
-    /// Payload length in bytes (a boxed primitive's scalar width, a boxed struct's blob size).
-    #[inline] pub fn payload_len(&self) -> usize { self.storage.len() }
 
     /// unify Phase 2 R3（装箱统一）：若本对象是**整数基元装箱盒**（`type_desc` 是整数 wrapper、
-    /// 标量 LE 字节存 `struct_bytes`，见 `corelib::convert::box_prim_to_heap`），读回其 i64 标量；
+    /// 标量 LE 字节存载荷，见 `corelib::convert::box_prim_to_heap`），读回其 i64 标量；
     /// 否则（多字段 struct 装箱 / 非整数 wrapper）返 `None`。按 wrapper 宽度 + 有无符号从
-    /// `struct_bytes` 前 `width` 字节还原（signed narrow → 符号扩展，unsigned → 零扩展）。
+    /// 载荷前 `width` 字节还原（signed narrow → 符号扩展，unsigned → 零扩展）。
     /// 让装箱整数盒与 struct 装箱盒共用 `Value::BoxedStruct`，同时保留整数的透明拆箱语义。
     /// make-enum-distinct-type 1.5: an **enum box** is the same shape (i64 LE bytes,
     /// `TypeDesc` = the enum itself instead of a `Std.*` wrapper), so it unboxes here
@@ -309,12 +365,12 @@ impl ScriptObject {
         } else {
             crate::metadata::well_known_names::int_wrapper_scalar_spec(&self.type_desc.name)?
         };
-        if self.storage.len() < width {
+        if self.payload_len() < width {
             return None;
         }
         // One relaxed load of the scalar cell (the scalar is stored little-endian at offset 0 by
         // `box_prim_to_heap`; the VM's targets are all little-endian).
-        let mut v = self.storage.cells().load_bits(0, width)? as i64;
+        let mut v = self.cells().load_bits(0, width)? as i64;
         if signed && width < 8 {
             let shift = (8 - width) * 8;
             v = (v << shift) >> shift; // 符号扩展窄整数
@@ -331,7 +387,7 @@ impl ScriptObject {
     }
 }
 
-impl crate::gc::GcRef<ScriptObject> {
+impl crate::gc::ObjRef {
     /// The object's `type_desc` (set at construction, never changed). Used by hot-path IC
     /// scans (VCallIC, FieldIC, IsInstance) and the GC mark traversal. Returns the inner
     /// `&TypeDesc` (one fewer deref at the call site than `&Arc<TypeDesc>`).

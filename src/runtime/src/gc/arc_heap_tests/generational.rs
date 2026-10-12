@@ -20,32 +20,19 @@ fn alloc_arr(heap: &ArcMagrGC, len: usize) -> Value {
 
 fn gen_age_of(v: &Value) -> u8 {
     match v {
-        Value::Object(gc) => GcRef::gen_age(gc),
+        Value::Object(gc) => crate::gc::ObjRef::gen_age(gc),
         Value::Array(gc)  => GcRef::gen_age(gc),
         _ => unreachable!("test helper expects heap ref"),
     }
 }
 
 fn promote_to_old(v: &Value) {
-    // Loop entry.gen_age.fetch_add until >= PROMOTION_THRESHOLD.
-    // We can't call Region::promote without a handle; for tests we
-    // simulate "this object survived N minor GCs" by directly bumping
-    // gen_age via the entry. SAFETY: tests own the heap; entries
-    // stay valid.
-    let entry_ptr = match v {
-        Value::Object(gc) => gc.entry_ptr().cast::<u8>(),
-        Value::Array(gc)  => gc.entry_ptr().cast::<u8>(),
-        _ => unreachable!(),
-    };
-    // Re-cast via the actual entry type. We use trick via the GcRef
-    // helpers.
+    // Simulate "this object survived N minor GCs" by raising its age directly (it stays listed
+    // young; the minor sweep delists an aged entry it finds there). SAFETY: tests own the heap;
+    // entries stay valid.
     match v {
-        Value::Object(gc) => {
-            for _ in 0..PROMOTION_THRESHOLD {
-                let e = unsafe { gc.entry_ptr().as_ref() };
-                e.gen_age.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            }
-        }
+        // Object model R6: an object's age lives in its var block header.
+        Value::Object(gc) => gc.var_ref().raise_gen_age_to(PROMOTION_THRESHOLD),
         Value::Array(gc) => {
             for _ in 0..PROMOTION_THRESHOLD {
                 let e = unsafe { gc.entry_ptr().as_ref() };
@@ -54,7 +41,15 @@ fn promote_to_old(v: &Value) {
         }
         _ => unreachable!(),
     }
-    let _ = entry_ptr;
+}
+
+/// Object model R6: an object owner has no card — the barrier puts it in the remembered set.
+/// The probe is the owner's handle; `.var_ref().is_remembered()` reads the bit.
+fn remembered_probe(v: &Value) -> crate::gc::ObjRef {
+    match v {
+        Value::Object(gc) => *gc,
+        _ => unreachable!("object owner expected"),
+    }
 }
 
 // ── P1: GcMode variant ──────────────────────────────────────────────────────
@@ -85,26 +80,18 @@ fn barrier_marks_card_on_old_to_young_field_write() {
     assert_eq!(gen_age_of(&child_young), 0);
 
     // Owner's chunk should be clean before the barrier dispatch.
-    let owner_chunk = match &owner {
-        Value::Object(gc) => {
-            let e = unsafe { gc.entry_ptr().as_ref() };
-            e.location().0
-        }
-        _ => unreachable!(),
-    };
+    let owner_chunk = remembered_probe(&owner);
     // Need to peek at region without holding the lock through assertion.
     // Use a scoped block to drop the lock.
     let clean_before = {
-        let r = heap.region_object_for_test().lock();
-        !r.is_card_dirty(owner_chunk)
+        !owner_chunk.var_ref().is_remembered()
     };
     assert!(clean_before);
 
     heap.write_barrier_field(&owner, 0, &child_young);
 
     let dirty_after = {
-        let r = heap.region_object_for_test().lock();
-        r.is_card_dirty(owner_chunk)
+        owner_chunk.var_ref().is_remembered()
     };
     assert!(dirty_after, "cross-gen old→young write marks owner's chunk dirty");
 }
@@ -123,15 +110,12 @@ fn barrier_marks_card_on_old_to_young_string_write() {
     let s = heap.alloc_str("young");
     assert!(s.gen_age() < PROMOTION_THRESHOLD, "fresh string is young");
     let young_str = Value::Str(s);
-    let owner_chunk = match &owner {
-        Value::Object(gc) => unsafe { gc.entry_ptr().as_ref() }.location().0,
-        _ => unreachable!(),
-    };
-    assert!(!heap.region_object_for_test().lock().is_card_dirty(owner_chunk));
+    let owner_chunk = remembered_probe(&owner);
+    assert!(!owner_chunk.var_ref().is_remembered());
 
     heap.write_barrier_field(&owner, 0, &young_str);
 
-    assert!(heap.region_object_for_test().lock().is_card_dirty(owner_chunk),
+    assert!(owner_chunk.var_ref().is_remembered(),
         "old→young string write must mark the owner's chunk dirty");
 }
 
@@ -143,19 +127,12 @@ fn barrier_no_card_on_young_to_young_write() {
     let owner_young = alloc_obj(&heap, "OwnerYoung");
     let child_young = alloc_obj(&heap, "ChildYoung");
 
-    let owner_chunk = match &owner_young {
-        Value::Object(gc) => {
-            let e = unsafe { gc.entry_ptr().as_ref() };
-            e.location().0
-        }
-        _ => unreachable!(),
-    };
+    let owner_chunk = remembered_probe(&owner_young);
 
     heap.write_barrier_field(&owner_young, 0, &child_young);
 
     let dirty = {
-        let r = heap.region_object_for_test().lock();
-        r.is_card_dirty(owner_chunk)
+        owner_chunk.var_ref().is_remembered()
     };
     assert!(!dirty, "young→young writes do not mark cards");
 }
@@ -170,19 +147,12 @@ fn barrier_no_card_on_old_to_old_write() {
     promote_to_old(&owner_old);
     promote_to_old(&child_old);
 
-    let owner_chunk = match &owner_old {
-        Value::Object(gc) => {
-            let e = unsafe { gc.entry_ptr().as_ref() };
-            e.location().0
-        }
-        _ => unreachable!(),
-    };
+    let owner_chunk = remembered_probe(&owner_old);
 
     heap.write_barrier_field(&owner_old, 0, &child_old);
 
     let dirty = {
-        let r = heap.region_object_for_test().lock();
-        r.is_card_dirty(owner_chunk)
+        owner_chunk.var_ref().is_remembered()
     };
     assert!(!dirty, "old→old writes do not mark cards (cross-gen does not apply)");
 }
@@ -199,19 +169,12 @@ fn barrier_no_op_in_stw_mode_even_under_cross_gen_setup() {
     let child = alloc_obj(&heap, "Child");
     promote_to_old(&owner);
 
-    let owner_chunk = match &owner {
-        Value::Object(gc) => {
-            let e = unsafe { gc.entry_ptr().as_ref() };
-            e.location().0
-        }
-        _ => unreachable!(),
-    };
+    let owner_chunk = remembered_probe(&owner);
 
     heap.write_barrier_field(&owner, 0, &child);
 
     let dirty = {
-        let r = heap.region_object_for_test().lock();
-        r.is_card_dirty(owner_chunk)
+        owner_chunk.var_ref().is_remembered()
     };
     assert!(!dirty, "STW mode never marks cards regardless of gen_age");
 }
@@ -303,14 +266,14 @@ fn set_mode_round_trip_keeps_young_list_in_step_with_mode() {
     let heap = ArcMagrGC::new();
     heap.set_mode(GcMode::GenerationalMarkSweep);
     let _live = alloc_obj(&heap, "Live");
-    assert_eq!(heap.region_object_for_test().lock().young_count(), 1);
+    assert_eq!(heap.region_var_for_test().lock().young_count(), 1);
 
     heap.set_mode(GcMode::StwMarkSweep);
-    assert_eq!(heap.region_object_for_test().lock().young_count(), 0,
+    assert_eq!(heap.region_var_for_test().lock().young_count(), 0,
         "leaving generational mode drops the young list");
 
     heap.set_mode(GcMode::GenerationalMarkSweep);
-    assert_eq!(heap.region_object_for_test().lock().young_count(), 1,
+    assert_eq!(heap.region_var_for_test().lock().young_count(), 1,
         "re-entering generational mode rebuilds it from the live entries");
 }
 
@@ -353,7 +316,7 @@ fn minor_gc_promotes_after_n_survivals() {
 
     // Entry no longer in young_list (one more minor won't promote it again).
     let young_count = {
-        let r = heap.region_object_for_test().lock();
+        let r = heap.region_var_for_test().lock();
         r.young_count()
     };
     assert_eq!(young_count, 0, "promoted entry removed from young_list");
@@ -423,7 +386,7 @@ fn cross_gen_write_target_survives_minor_via_dirty_card() {
         "owner promoted to old");
     // Owner no longer in young_list.
     assert_eq!({
-        let r = heap.region_object_for_test().lock();
+        let r = heap.region_var_for_test().lock();
         r.young_count()
     }, 0);
 
@@ -478,24 +441,16 @@ fn minor_gc_does_not_clear_card_dirty_bits() {
     }
     heap.write_barrier_field(&owner, 0, &child);
 
-    let owner_chunk = match &owner {
-        Value::Object(gc) => {
-            let e = unsafe { gc.entry_ptr().as_ref() };
-            e.location().0
-        }
-        _ => unreachable!(),
-    };
+    let owner_chunk = remembered_probe(&owner);
     assert!({
-        let r = heap.region_object_for_test().lock();
-        r.is_card_dirty(owner_chunk)
+        owner_chunk.var_ref().is_remembered()
     });
 
     // Minor GC. Card should remain dirty (only major clears).
     heap.force_collect();
 
     assert!({
-        let r = heap.region_object_for_test().lock();
-        r.is_card_dirty(owner_chunk)
+        owner_chunk.var_ref().is_remembered()
     }, "minor GC does NOT clear card_dirty (preserves stable old→young refs)");
 }
 
@@ -526,13 +481,7 @@ fn major_collect_via_context_clears_card_dirty() {
     }
     heap_dyn.write_barrier_field(&owner, 0, &child);
 
-    let owner_chunk = match &owner {
-        Value::Object(gc) => {
-            let e = unsafe { gc.entry_ptr().as_ref() };
-            e.location().0
-        }
-        _ => unreachable!(),
-    };
+    let owner_chunk = remembered_probe(&owner);
 
     // Concrete ArcMagrGC access for region inspection.
     // Cast via trait + downcast unavailable; use the test-only entry on
@@ -780,7 +729,7 @@ fn a_major_ages_its_survivors_so_the_young_list_still_drains() {
     }
     for v in &vals {
         let Value::Object(g) = v else { panic!("expected Object") };
-        assert_eq!(GcRef::gen_age(g), 0, "test setup: all ten start young");
+        assert_eq!(crate::gc::ObjRef::gen_age(g), 0, "test setup: all ten start young");
     }
 
     // One minor (ages 0 → 1), then one-shot majors for the remaining tiers.
@@ -793,9 +742,9 @@ fn a_major_ages_its_survivors_so_the_young_list_still_drains() {
     // if the **majors** aged them too, the same way a minor does.
     for v in &vals {
         let Value::Object(g) = v else { panic!("expected Object") };
-        assert!(GcRef::gen_age(g) >= PROMOTION_THRESHOLD,
+        assert!(crate::gc::ObjRef::gen_age(g) >= PROMOTION_THRESHOLD,
             "the major must age its survivors like a minor does; got age {}",
-            GcRef::gen_age(g));
+            crate::gc::ObjRef::gen_age(g));
     }
     let _ = pins;
 }
@@ -1103,7 +1052,7 @@ fn minor_leaves_no_mark_on_any_entry() {
 
     for v in [&old_owner, &young] {
         let Value::Object(g) = v else { panic!() };
-        assert!(!GcRef::is_marked(g, crate::gc::refs::MarkKind::Minor), "a minor must not leave a mark bit set");
+        assert!(!crate::gc::ObjRef::is_marked(g, crate::gc::refs::MarkKind::Minor), "a minor must not leave a mark bit set");
     }
 }
 
