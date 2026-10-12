@@ -134,8 +134,8 @@ pub(crate) fn exec_function_with_type_args(
 }
 
 /// runtime-jit-tiering Phase 1.5.2: mixed-mode divert used as the universal
-/// backstop at `exec_function`, keyed by the function's JIT id (no hashing). Returns `None` (→ interpret) when no JIT
-/// ctx is published (interp-only run), when an argument is a `Ref` (a stack address
+/// backstop at `exec_function`, keyed by the function's JIT id (no hashing). Returns `None` (→ interpret) when the
+/// VM has no JIT installed (interp-only run), when an argument is a `Ref` (a stack address
 /// can't cross into native code — see `super::exec_call::try_native_static_call`; a
 /// compiled fn never has ref params anyway, so this is defensive), or when the
 /// function is not compiled yet (or has no JIT id). On a
@@ -143,13 +143,10 @@ pub(crate) fn exec_function_with_type_args(
 /// `ExecOutcome`, mirroring `try_native_static_call`.
 #[cfg(feature = "jit")]
 pub(super) fn try_native_exec(ctx: &VmContext, func: &Function, args: &[Value]) -> Option<Result<ExecOutcome>> {
-    let p = ctx.jit_ctx_ptr();
-    if p == 0 { return None; }
+    let rt = ctx.jit()?;
     if args.iter().any(|a| matches!(a, Value::Ref { .. })) { return None; }
-    let jit_ctx = p as *const crate::jit::frame::JitModuleCtx;
-    // SAFETY: `jit_ctx` is valid for the whole `JitModule::run_fn` (set/cleared in
-    // lockstep with `vm_ctx`). Copy the small entry fields out before the native
-    // call so no borrow of `*jit_ctx` is held across it.
+    // Copy the small entry fields out before the native call so no borrow of the
+    // runtime's slot is held across it.
     // Phase 1.5.2: peek (already-compiled?) — NOT the tiered resolve. The divert
     // only ROUTES already-hot functions to native; tier-up counting belongs to the
     // primary call sites. The tiered resolve here double-counted a cold callee
@@ -158,17 +155,17 @@ pub(super) fn try_native_exec(ctx: &VmContext, func: &Function, args: &[Value]) 
         // Z42_JIT_INTERP_TIERUP：0（默认）= 只 peek，与历史行为逐字一致；N ≥ 1 = 本路径
         // 也参与 tier-up 计数，第 N 次进入即编译。默认关的理由见 config.rs 的字段文档。
         let dthr = crate::config::runtime_config().jit_interp_tierup;
-        let id = unsafe { (*jit_ctx).id_of_func(func) }?;
+        let id = rt.id_of_func(func)?;
         let entry = if dthr == 0 {
-            unsafe { (*jit_ctx).peek_fn_by_id(id) }?
+            rt.peek_fn_by_id(id)?
         } else {
-            unsafe { (*jit_ctx).resolve_fn_by_id_thr(id, dthr) }?
+            rt.resolve_fn_by_id_thr(ctx, id, dthr)?
         };
         (entry.max_reg, entry.ptr, entry.func)
     };
     ctx.counters().jit_native_from_interp.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let callee = crate::jit::frame::JitFrame::new(ctx, max_reg, args);
-    let outcome = unsafe { crate::jit::invoke::call_native(ctx, jit_ctx, ptr, callee_fn, callee) };
+    let outcome = unsafe { crate::jit::invoke::call_native(ctx, ptr, callee_fn, callee) };
     Some(Ok(outcome.into_exec(ctx)))
 }
 
@@ -197,15 +194,10 @@ pub(super) fn try_native_exec(_ctx: &VmContext, _func: &Function, _args: &[Value
 pub(super) fn try_osr(ctx: &VmContext, frame: &mut Frame, func: &Function, loop_header: usize)
     -> Option<Result<ExecOutcome>>
 {
-    let p = ctx.jit_ctx_ptr();
-    if p == 0 { return None; }                        // interp-only mode: no OSR
+    let rt = ctx.jit()?;                               // interp-only mode: no OSR
     frame.back_edge_count = frame.back_edge_count.wrapping_add(1);
-    let jit_ctx = p as *const crate::jit::frame::JitModuleCtx;
-    // SAFETY: jit_ctx is valid for the whole JitModule::run_fn (set/cleared in
-    // lockstep with vm_ctx). Only touched through &-methods / Copy field reads.
-    let threshold = unsafe { (*jit_ctx).osr_threshold };
-    if frame.back_edge_count != threshold { return None; }   // fire exactly once
-    osr_hand_off(ctx, frame, func, loop_header, jit_ctx)
+    if frame.back_edge_count != rt.osr_threshold { return None; }   // fire exactly once
+    osr_hand_off(ctx, frame, func, loop_header, rt)
 }
 
 #[cfg(feature = "jit")]
@@ -213,15 +205,15 @@ pub(super) fn try_osr(ctx: &VmContext, frame: &mut Frame, func: &Function, loop_
 #[inline(never)]
 fn osr_hand_off(
     ctx: &VmContext, frame: &mut Frame, func: &Function, loop_header: usize,
-    jit_ctx: *const crate::jit::frame::JitModuleCtx,
+    rt: &crate::jit::runtime::JitRuntime,
 ) -> Option<Result<ExecOutcome>> {
     // `ref` / `out` params are copied back to the caller by `run_ref_writebacks`
     // on the interp frame's exit paths. The OSR native frame returns straight
     // past them, so its final values would be lost — stay on the interpreter.
     if !frame.ref_writebacks.is_empty() { return None; }
     // Entry-module and lazily loaded functions alike, keyed by JIT id (no hashing).
-    let id = unsafe { (*jit_ctx).id_of_func(func) }?;
-    let entry = unsafe { (*jit_ctx).resolve_osr_entry(id, loop_header) }?; // owned FnEntry
+    let id = rt.id_of_func(func)?;
+    let entry = rt.resolve_osr_entry(ctx, id, loop_header)?; // owned FnEntry
     ctx.counters().jit_native_from_interp.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let mut osr = crate::jit::frame::JitFrame::from_interp_regs(ctx, &frame.regs, entry.max_reg);
     // OSR continues the SAME logical activation, so the native frame inherits the
@@ -236,7 +228,7 @@ fn osr_hand_off(
     // (cosmetic). Popped in `call_native`; the interp frame's guard pops on the
     // caller's `return`.
     let outcome = unsafe {
-        crate::jit::invoke::call_native(ctx, jit_ctx, entry.ptr, entry.func, osr)
+        crate::jit::invoke::call_native(ctx, entry.ptr, entry.func, osr)
     };
     Some(Ok(outcome.into_exec(ctx)))
 }

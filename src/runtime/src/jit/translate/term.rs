@@ -57,7 +57,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                 // loop back-edge; check safepoint so long-running JIT
                 // loops park promptly when GC requests a pause.
                 if target <= self.block_idx {
-                    emit_safepoint_check(self.builder, self.ptr, self.ctx_val, self.frame_val, self.hr_check_safepoint_slow);
+                    emit_safepoint_check(self.builder, self.ctx_val, self.frame_val, self.hr_check_safepoint_slow);
                 }
                 self.builder.ins().jump(self.cl_blocks[target], &[]);
             }
@@ -66,7 +66,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                 // isn't known until cond is evaluated; check unconditionally.
                 // Idle fast path is cheap; this catches loops where the
                 // back-edge is a BrCond rather than a Br.
-                emit_safepoint_check(self.builder, self.ptr, self.ctx_val, self.frame_val, self.hr_check_safepoint_slow);
+                emit_safepoint_check(self.builder, self.ctx_val, self.frame_val, self.hr_check_safepoint_slow);
 
                 let true_idx  = self.func.blocks.iter().position(|blk| &blk.label == true_label)
                     .expect("true_label not found");

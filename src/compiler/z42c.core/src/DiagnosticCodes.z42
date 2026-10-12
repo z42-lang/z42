@@ -146,6 +146,9 @@ public static class DiagnosticCodes {
     //   W0608 重复的 `using`：同一文件里写了两次，或包里已有同名 `global using`。
     public static string UnnecessaryUsing = "W0607";
     public static string DuplicateUsing   = "W0608";
+    // 【Warning】清单 `[dependencies]` 声明了标准库包（从框架目录 = 编译期外部档解析到的包）。stdlib 总是可用，声明是多余的；
+    // `path` 依赖、`deploy = "copy"`、workspace 成员不报。发射点在 driver 的 DepDecls.z42，位置落清单里该依赖的行。
+    public static string StdlibDepDeclared = "W0610";
     // report-crosspkg-duplicate-type：**本包声明的类型遮蔽了某个导入包的同 FQN 类型**。
     //
     // 🔴 这条曾按 C# CS0436 做成 warning（理由：「本地恒赢是既定规则、不是猜」），**改成了 error**：

@@ -12,9 +12,9 @@ Ruby / RustPython 的事实标准 GC 抽象）。trait 在单文件内按"能力
 |-------|---------|------|
 | 1. Allocation | `alloc_object` / `alloc_array` | 脚本驱动堆分配 |
 | 2. Roots | `pin_root` / `unpin_root` / `enter_frame` / `leave_frame` / `for_each_root` | host pin + frame scope + GC scan |
-| 3. Write barriers | `write_barrier_field` / `write_barrier_array_elem` | 分代模式用（卡表），默认 no-op |
+| 3. Write barriers | `write_barrier_field` / `write_barrier_array_elem` | 分代模式用（数组卡表 / 对象记忆集），默认 no-op |
 | 4. Object Model | `object_size_bytes` / `scan_object_refs` | trace / snapshot 基础设施 |
-| 5. Collection | `collect` / `collect_cycles` / `force_collect` / `pause` / `resume` | GC 控制 |
+| 5. Collection | `collect` / `collect_cycles` / `force_collect` / `collect_full` / `pause` / `resume` | GC 控制。`force_collect` 按当前模式跑一次（分代下是 minor，Rust 测试用它驱动 minor）；`collect_full` 不论模式都做全堆回收（分代下是 major），`GC.ForceCollect()` 与保留图诊断走它 |
 | 6. Heap config | `set_max_heap_bytes` / `used_bytes` | 堆上限 / 用量 |
 | 7. Finalization | `register_finalizer` / `cancel_finalizer` | 析构回调（sweep 时触发，或 `Std.GC.Finalize` 显式触发）|
 | 8. Weak refs | `make_weak` / `upgrade_weak` | 弱引用 |
@@ -71,7 +71,7 @@ RAII guard：
 
 **接入点**：`corelib/gc.rs` 的 `builtin_gc_collect` / `builtin_gc_force_collect`
 （即 z42 `Std.GC.Collect()` / `ForceCollect()`）持 RAII guard 调
-`heap.collect_cycles()` / `force_collect()`。
+`heap.collect_cycles()` / `collect_full()`。
 
 **范围**：
 
@@ -140,11 +140,16 @@ mark bit 用 `Relaxed` 原子仍然安全：
 Finalizer **不**在 `GcRef`
 出 scope 时触发（`GcRef::drop` 是 no-op，无 refcount）。两条触发路径：
 
-1. **自动**：GC `sweep_phase` 找到 unreachable 对象 → take finalizer →
-   触发 → tombstone slot。时机不可控（依赖下次 collect）。
+1. **自动**：GC 清扫到 unreachable 对象 → take finalizer →
+   触发 → tombstone。时机不可控（依赖下次 collect）。
 2. **手动**：用户显式调 `Std.GC.Finalize(target)` → 立即 take + 触发
-   finalizer → tombstone slot。匹配 .NET `IDisposable.Dispose()` /
+   finalizer → tombstone。匹配 .NET `IDisposable.Dispose()` /
    Java `AutoCloseable.close()` 语义。
+
+数组的 finalizer 在它的 `RegionEntry` 槽里（`AtomicPtr`），清扫数组头时 take。**对象的 finalizer 在侧表里**
+（`RcHeapInner::obj_finalizers`，按块头地址做 key）：对象块没有 finalizer 槽，登记时给块头置 `SIDE_BIT`；
+块被 tombstone 时变长区把它的地址记进「带标记的死块」列表，堆在每个清扫尾巴（回收 chunk 之前）
+`process_flagged_dead` 取出列表、取走并触发这些 finalizer（在所有锁之外）。增量清扫每扫完一个桶也处理一次。
 
 **RAII 模式建议**：
 
@@ -154,80 +159,75 @@ Finalizer **不**在 `GcRef`
 - finalizer 是 **safety net**（防泄漏），不是即时释放机制
 
 **Strong reference 检测**（design D5）: 显式 `Std.GC.Finalize` 后，
-其他 strong reference 之后 `borrow`（经 `GcRef::entry_ref`）会 `assert!`
+其他 strong reference 之后 `borrow`（对象经 `ObjRef::borrow`、数组经 `GcRef::entry_ref`）会 `assert!`
 panic（generation/alive mismatch detection）。该守卫 **debug 与 release 均生效**：用 `assert!` 而非 `debug_assert!`：release 若被编译掉，
-slot 被复用后会静默读到**另一个对象**（type confusion）——见 `refs.rs::entry_ref`
-的说明。成本仅为一次 `borrow` 阻塞加锁前的两个 `Acquire` 读，可忽略。
+块 / 槽被复用后会静默读到**另一个对象**（type confusion）——见 `refs.rs::entry_ref`
+的说明。成本仅为每次 `borrow` 两个 `Acquire` 读，可忽略。
 
 ### GC heap backing
 
-`ArcMagrGC` 用两个定长 region 持有堆引用对象（变长 payload 见下「变长块堆」）：
+`ArcMagrGC` 有两个 region（对象模型 R6）：
 
-- `region_object: Mutex<Region<ScriptObject>>` —— `Value::Object` 后端
-- `region_array: Mutex<Region<ArrayObj>>` —— `Value::Array` 后端
+- `region_var: Mutex<VarRegion>` —— **对象**（`Value::Object` / `Value::BoxedStruct`）与字符串、闭包、数组元素块，
+  全是变长块（下一节）；
+- `region_array: Mutex<Region<ArrayObj>>` —— `Value::Array` 的数组头（定长槽）。
 
-`Region<T>` 内部是 256 槽一个的 chunk（`[MaybeUninit<RegionEntry<T>>; 256]`，从页对齐 slab
-里按下标切出、永不移动）—— entry 地址在 region 生命周期内**绝对稳定**
-（`GcRef::as_ptr` 身份哈希契约的物理基础）。Alloc 走空闲槽复用优先
-（reuse tombstoned slot，preserve bumped generation）+ bump pointer。槽之外的每槽信息
-（构造过 / 年轻 / 空闲）是每 chunk 一张位图，见 [侧表：位图与高水位](gc-tlab.md#侧表位图与高水位)。
+**对象 = 一个变长块**：16 B 块头（`GcBlockHeader`：generation / size / mark / alive / type_tag / size_class / chunk_idx）、
+16 B 对象头（`ObjHeader`：`type_desc` + `meta`）、字段单元，一次分配；`&ScriptObject` 是盖住对象头 + 字段的胖引用（布局见 [object-abi.md](object-abi.md) §1）。
+没有单独的字段块 malloc，死对象的字段随块一起回收；对象头里的 `Arc<TypeDesc>` 与 extras 盒子由变长区的 drop glue
+在块被 tombstone 时释放（`var_drop_glue` 的 `Object` 臂，返回 extras 的字节数，变长区记回占用账）。
+分配走 `acquire_var_block`（TLAB 无锁 bump，或锁路径），对象在块里建好再发布（`gc/arc_heap/alloc_object.rs`）。
 
-`GcRef<T>` 是 8B 的标记指针 handle（64 位：低 48 位 `RegionEntry<T>` 地址 + 高 16 位 generation 快照；32 位：`{ptr, gen}`）：
+`Region<T>`（数组头）内部是 256 槽一个的 chunk（`[MaybeUninit<RegionEntry<T>>; 256]`，从页对齐 slab
+里按下标切出、永不移动）。Alloc 走空闲槽复用优先（reuse tombstoned slot，preserve bumped generation）+ bump pointer。
+槽之外的每槽信息（构造过 / 年轻 / 空闲）是每 chunk 一张位图，见 [侧表：位图与高水位](gc-tlab.md#侧表位图与高水位)。
+两种 chunk 都永不移动 —— 地址在对象生命周期内**绝对稳定**（`ObjRef::as_ptr` / `GcRef::as_ptr` 身份哈希契约的物理基础，
+JIT 按帧提升的字段基址也依赖它）。
+
+句柄都是 8B 标记指针（64 位：低 48 位地址 + 高 16 位 generation 快照；32 位：`{ptr, gen}`）：
+`ObjRef`（[gc/obj_ref.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/obj_ref.rs)）指对象块头，`GcRef<ArrayObj>` 指数组的 `RegionEntry`。
 - Clone = memcpy 8 字节，**零原子 op**（相对 `Arc::clone` 每次
   `fetch_add` 2-4 ns）
 
-#### type_desc / type_args 免锁读取
+#### 访问：`borrow()` 给 `&T`，没有锁
 
-`ScriptObject.type_desc` 和 `type_args` 是 write-once-at-alloc 字段
-（`alloc_object` 写入 type_desc；`ObjNew` 写 type_args 都发生在 GcRef
-escape 之前），运行时其余地方**不可变**。读取它们走的是 `GcRef<ScriptObject>`
-上新增的 lockless accessor：
+`ObjRef::borrow()` / `GcRef::borrow()` 校验 generation / alive 后给 `&ScriptObject` / `&ArrayObj`，没有每对象锁。
+对象与数组跨线程共享，字段 / 元素读写都是 `&self` 上的同宽原子单元访问（机制与内存序见
+[object-abi.md](object-abi.md) §3「字段单元的内存序」）。`type_desc` / `type_args` / `NativeData`
+在发布之前定好、之后不变，`ObjRef::type_desc()` / `type_desc_arc()` / `type_args()` 只是 `borrow()` 上的便捷读。
+需要独占的只有 GC 自己：清扫死对象、槽位复用 / decommit / region drop 时 drop（块 / 条目已死，持 region 锁或在停顿里）。
 
-- `GcRef::type_desc(&self) -> &TypeDesc`
-- `GcRef::type_desc_arc(&self) -> &Arc<TypeDesc>`（需要 clone Arc 时用）
-- `GcRef::type_args(&self) -> &[String]`
-
-实现原理是 `parking_lot::Mutex::data_ptr()` 暴露的 `*mut T`：跳过 `lock()`
-直读 UnsafeCell 内部。Safety 锚定在 "type_desc / type_args 永不 mutate"
-的全局 invariant（`grep -rn '.type_desc *=' src/runtime/` 0 命中验证）。
-
-为什么值：每次 PIC / IsInstance / IcCall 都要读 type_id，Mutex lock 即使
-uncontended 也是 ~5–10 ns 的 atomic CAS。lockless 后变成 3 条 native load。
-对照 CoreCLR `MethodTable*` 在 `ObjHeader` 固定偏移 / HotSpot `klass*` 在
-`oopDesc` 头部——属于业界成熟模式。
-
-`borrow()` / `borrow_mut()` 路径不变：slots / native 仍 mutable，必须
-走 Mutex。仅 type_desc / type_args 这两个 immutable 字段走 lockless。
 - Drop = no-op（无 refcount）
-- borrow / borrow_mut 走 `RegionEntry.value: Mutex<T>` 阻塞 lock
-  （同并发模型）
-- `ptr_eq` 比 NonNull + generation（stale-vs-fresh 区分）
-- `as_ptr` 返回 entry 内 `Mutex<T>` 稳定地址
+- `ptr_eq` 比地址 + generation（stale-vs-fresh 区分）
+- `as_ptr` 返回对象头 / entry 内 `value: T` 的稳定地址
 
-**WeakGcRef** 同 handle shape + generation snapshot。`upgrade` 检查
-`alive && generation matches` —— ABA-safe：被 tombstone 后即使槽位
-重用，generation 也 mismatch 不会假阳性 upgrade。
+**弱引用**。数组的 `WeakGcRef` 同 handle shape + generation snapshot，`upgrade` 检查 `alive && generation matches`
+（定长槽的地址永远是一个槽头，所以读它总是安全的）。**对象的弱引用 `WeakObjRef` 多记一个所在 chunk 的复用 epoch**：
+变长区的地址会被重新切分——整块死掉的 bump chunk 进池后从偏移 0 重新 bump，旧地址可能落在新块的中间；
+大对象的专用 chunk 死后直接还给分配器。所以 `upgrade` 由堆来做（`ArcMagrGC::upgrade_weak_object`，持变长区锁）：
+先比 `VarRegion::chunk_epoch(chunk)`（chunk 进池或被释放时 +1），不等就是死了、**根本不读那块内存**；
+相等才说明地址仍是这个 chunk 里的块头，再看 generation / alive。弱引用不会让 chunk 推迟回收。
 
-**Sweep 路径**：`sweep_phase` 直接 walk `region_object` + `region_array`
-的 `iterate_alive`；找 unmarked `is_marked() == false` → 取 finalizer
-（mutex take）→ 触发 finalizer → tombstone（alive=false, generation++,
-push free_list）。region
-就是 authoritative liveness store（无 `heap_registry`）。
+**Sweep 路径**：`sweep_phase` 先 walk `region_array` 的 `iterate_alive`（unmarked → 取 finalizer → 触发 → tombstone），
+再 `VarRegion::sweep`（对象块与其它变长块一起：未标记 → drop glue → tombstone）。region 就是 authoritative
+liveness store（无 `heap_registry`）。清扫尾巴的 `reclaim_dead_chunks_and_measure` 先 `process_flagged_dead`
+（触发对象 finalizer、丢掉死对象的软引用条目与记忆集条目），再回收整块死掉的 chunk——**顺序不能反**：
+回收之后死块的头可能已被重新 bump 或还给分配器。
 
-**生命周期契约**：`GcRef` 不能 outlive 它所指 `Region` 所属的
-`ArcMagrGC`。z42 现有架构所有 GcRef 都活在 VmContext 范围内，契约
+**生命周期契约**：句柄不能 outlive 它所指 region 所属的
+`ArcMagrGC`。z42 现有架构所有句柄都活在 VmContext 范围内，契约
 天然满足。Embedder 需注意 drop order。
 
 ### 变长块堆：统一变长 payload 到单一 GC 堆
 
-定长 `Region<T>` 只能存**定长头**（`ScriptObject` / `ArrayObj`）；string 的字节、
+定长 `Region<T>` 只能存**定长头**（`ArrayObj`）；对象（R6）、string 的字节、
 closure 的 `ClosureData`、array 的元素后端若各自在 GC **外**（手写 thin-Arc /
 `Box` / 外部 `Vec`），会两套内存管理并存。这三类变长 payload
 因此全部收进 GC，达成 CLR/JVM 式的**单一堆**（为将来移动/压缩/去重 GC 铺路）。
 
-**分配器方向 = A'（变长块 region）**：第三个 region
+**分配器方向 = A'（变长块 region）**：另一个 region
 `region_var: Mutex<VarRegion>`（[`gc/var_region.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/var_region.rs)），
-与 `region_object` / `region_array` 并列、同一 mark/sweep cycle 回收。一个变长对象 =
+与 `region_array` 并列、同一 mark/sweep cycle 回收。一个变长对象 =
 **单块 `{GcBlockHeader, inline payload…}` 单次分配**（等价原 thin-Arc 的紧凑度，但纳入 GC）。
 
 ```
@@ -243,22 +243,25 @@ VarRegion 变长块（16B 对齐原始 chunk + 四分之一八度 size-class fre
 
 | BlockType | payload | 消费者 | drop-glue |
 |-----------|---------|--------|-----------|
-| `Str` | inline UTF-8 | `Value::Str` / `FuncRef`（8B 细指针，**不可变叶子**，trace 无出边）| POD，无 |
-| `Closure` | 一个 `ClosureData{env: GcRef, fn_name: Str}` | `Value::Closure` | **POD，无**（fn_name 是 GC Str，闭包全 POD）|
-| `ArrayPrim` / `ArrayStruct` | 紧凑 `[T;n]`（packed 基元 / struct[] 字节区）| `ArrayObj` backing | POD，无 |
-| `ArrayValue` | inline `[Value;n]`（Boxed 数组 / struct[] refs 侧表）| `ArrayObj` backing | **唯一需 finalizer**：drop 每个 `Value` |
+| `Object` | 16 B 对象头（`ObjHeader`）+ 字段单元（整体即 `ScriptObject` DST） | `Value::Object` / `Value::BoxedStruct`（`ObjRef`）| **有**：drop 对象头（`Arc<TypeDesc>`、extras 盒子），返回 extras 字节数供占用账扣回 |
+| `Str` | inline UTF-8 | `Value::Str`（8B 细指针，**不可变叶子**，trace 无出边）| POD，无 |
+| `Closure` | 一个 `ClosureData{env: GcRef, fn_id: FnId}` | `Value::Closure` | **POD，无**（目标是函数 id，闭包全 POD）|
+| `ArrayPrim` / `ArrayStruct` | 紧凑 `[T;n]`（PRIM 数组 / `struct[]` blob，引用叶子是 8 B 引用字）| `ArrayObj` backing | POD，无 |
+| `ArrayRef` | `[u64;n]` 8 B 引用字（REF 数组）| `ArrayObj` backing | POD，无 |
+| `ArrayCell` | `[u64;2n]` 16 B 型参单元（MIXED 数组）| `ArrayObj` backing | POD，无 |
+| `ArrayValue` | inline `[Value;n]`（FROZEN 数组：闭包环境、种类 7 值盒子）| `ArrayObj` backing | `Value` 有 drop glue 时才需 finalizer（当前 `Value: Copy`，无）|
 
 **数组直接在块里构造**（[`metadata/types/array.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/array.rs)）：
-`ArrayNew`（interp + JIT `jit_array_new`）/ `Array.CreateInstance` 走 `ArrayObj::typed_filled(heap, elem_type, n, default)`，
-`ArrayNewLit`（interp + JIT `jit_array_new_lit`）/ `ToCharArray` 走 `ArrayObj::typed_iter`（从源寄存器 / 迭代器直写）。
+`ArrayNew`（interp + JIT `jit_array_new`）/ `Array.CreateInstance` 走 `ArrayObj::filled(heap, elem_type, mode, n, default)`，
+`ArrayNewLit`（interp + JIT `jit_array_new_lit`）/ `ToCharArray` 走 `ArrayObj::from_iter_kind` / `typed_iter`（从源寄存器 / 迭代器直写）。
+模式（PRIM / REF / MIXED / STRUCT / FROZEN）见 [object-abi.md](object-abi.md)「数组元素」。
 两者都按元素类型选好 backing 后直接分配目标块，中间没有 `Vec<Value>` 暂存——峰值内存 = 目标块本身
 （扩容 `List<T>.EnsureCapacity` = `new T[2n]` + `Array.Copy` 时 = 旧块 + 新块）。
-分配器本就把 payload 清零，所以默认值恰为该 backing 的零（packed `0`/`'\0'`/`false`/`+0.0`，或 Boxed 块里的
-`I64(0)`——`Value` 是 `#[repr(C, u8)]`、判别式 0 = `I64`）时**新块即数组**，零逐元素写；否则（引用数组的
-`Null` 等）逐槽原地写一次。GC 安全：块在 `alloc_array_obj` 分配数组头（第一个可能触发回收的点）之前就已写完，
-新块在头指向它之前不可达。同类 backing 之间的 `__array_copy` 是块到块 `memcpy`（同一 struct 的 struct[] 是字节块 +
-引用侧表各拷一段）；拷完对写入区间的每个引用槽发写屏障（`objops::array_bulk::barrier_after_range_store`：引用数组
-是元素本身，struct[] 是元素的每个引用叶子），packed 目的数组不持引用、没有可扫的槽。
+分配器本就把 payload 清零，所以默认值恰为该 backing 的零（packed `0`/`'\0'`/`false`/`+0.0`，REF / MIXED 的整字 0
+= `null`，MIXED 的基元 `T` 记作数组的零种类）时**新块即数组**，零逐元素写；否则逐槽原地写一次。GC 安全：块在 `alloc_array_obj` 分配数组头（第一个可能触发回收的点）之前就已写完，
+新块在头指向它之前不可达。同种 PRIM backing 之间的 `__array_copy` 是块到块 `memcpy`（REF → REF 逐字、同一 struct 的
+struct[] 逐元素拷 blob，都经引用字写原语记 SATB）；拷完对写入区间的每个引用槽发写屏障（`objops::array_bulk::barrier_after_range_store`：
+REF / MIXED / FROZEN 是元素本身，struct[] 是元素的每个引用叶子，只对真正的堆引用发、不分配），packed 目的数组不持引用、没有可扫的槽。
 
 **分配落地 = ambient 堆**（[`gc/ambient.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/ambient.rs)）：`current_heap()` +
 `HeapGuard` 在引擎入口设 thread-local（ctx 栈底帧 push 时、宿主 invoke、`jit::run_fn`；见
@@ -294,20 +297,20 @@ chunk 内存还给系统 malloc，新堆可能在**同一地址**重分配块，
 
 **mark/trace 统一到单一访问器**：`Value::visit_gc_children(for_marking, visit)` 是
 mark 阶段与 heapsnapshot/retention 枚举的**单一来源**，二者仅在两条 mark 副作用轴上不同
-（`mark_backing` 标变长元素块 + 闭包是否 surfaced env 头/fn_name），由 `for_marking` 参数统一；
+（`mark_backing` 标变长元素块 + 闭包是否 surfaced env 头），由 `for_marking` 参数统一；
 `trace_children`（`for_marking=true`）/ `scan_object_refs`（`false`）退化为薄委托。
 
 ```mermaid
 flowchart TD
   MARK["mark_phase BFS<br/>(STW / minor / 增量切片同源)"] -->|"mark_if_unmarked(v)"| M{"v 是堆引用?"}
-  M -->|"Object/Array"| RO["GcRef::mark → region_object/array 置位"]
-  M -->|"Closure/Str/FuncRef"| RV["VarGcRef::mark → region_var 块置位"]
+  M -->|"Array"| RO["GcRef::mark → region_array 置位"]
+  M -->|"Object/Closure/Str"| RV["ObjRef / VarGcRef::mark → region_var 块头置位"]
   RO --> TC["v.visit_gc_children(true, push child)"]
   RV --> TC
-  TC -->|"Array"| MB["mark_backing() 标元素块 + 推 gc_refs"]
-  TC -->|"Closure"| CE["推 env 数组头 + fn_name 串"]
+  TC -->|"Array"| MB["mark_backing() 标元素块 + visit_refs 推出边"]
+  TC -->|"Closure"| CE["推 env 数组头"]
   TC --> Q["子节点入队 → 循环"]
-  SWEEP["sweep_phase (mark 后, STW)"] --> S3["region_object/array/var 各自 sweep<br/>未标块 → drop-glue(仅 ArrayValue) → tombstone/回收"]
+  SWEEP["sweep_phase (mark 后, STW)"] --> S3["region_array / region_var 各自 sweep<br/>未标块 → drop-glue(对象头) → tombstone<br/>→ process_flagged_dead → chunk 回收"]
 ```
 
 **safepoint = 几乎免费**（关键去风险，D-safepoint）：`maybe_auto_collect` 在 wired VmCore 下**只置
@@ -329,11 +332,11 @@ fn write_barrier_array_elem(&self, arr: &Value, idx: usize, new: &Value);
 ```
 
 trait 默认实现（含 `ArcMagrGC` STW mark-sweep）是 no-op；分代模式 override 为
-card-marking 真实逻辑。**call-site wiring + 调用契约**与模式无关（no-op 实现下仅
+真实逻辑：属主是数组 → 染它的卡；属主是对象 → 把它放进**记忆集**（见下「对象的记忆集」）。**call-site wiring + 调用契约**与模式无关（no-op 实现下仅
 `#[cfg(test)]` 时 dispatch 到 test-only `BarrierObserver`）。
 
 **Caller 契约**。引擎（interp / JIT）的写入全部经 `objops`（`field_set` / `store_named` /
-`array_set` / `elem_store` / `struct_field_set_val`），卡表那一半屏障就在那里发，一处实现、两个引擎共用：
+`array_set` / `elem_store` / `struct_field_set_val`），分代那一半屏障就在那里发，一处实现、两个引擎共用：
 
 1. **Filter at call site**: 只在 `new.is_heap_ref()` 时 invoke barrier。堆引用是
    `Object / Array / Closure / Str / FuncRef / BoxedStruct`（字符串与函数引用是 var 块，有真实年龄，
@@ -351,8 +354,8 @@ card-marking 真实逻辑。**call-site wiring + 调用契约**与模式无关�
 5. **StaticSet 不 dispatch**: static fields 是 GC root，"old → new"
    写永远在 root，不存在 cross-region/cross-generation 关心的场景。
 6. **引用叶子被拷进别处时，按叶子发**：装箱 struct 写进 `struct[]`（`StructBytes` backing）时
-   `set_boxed` 把盒子的引用叶子**拷进**数组，数组持有的是叶子而不是盒子 ⇒ 屏障按每个叶子发
-   （`objops::array::barrier_after_elem_store`），不能拿盒子判龄（老盒子、年轻叶子就漏卡）。
+   写入把盒子的 blob（含引用叶子）**拷进**数组，数组持有的是叶子而不是盒子 ⇒ 屏障按每个叶子发
+   （`objops::array::barrier_elem`），不能拿盒子判龄（老盒子、年轻叶子就漏卡）。
 
 #### VM 自己的写入点
 
@@ -364,9 +367,9 @@ card-marking 真实逻辑。**call-site wiring + 调用契约**与模式无关�
 |---|---|
 | throw 点补 `Exception.StackTrace` | `objops::field::store_slot` |
 | 反射 `FieldInfo.SetValue`（普通字段） | `objops::field::store_slot` |
-| 反射 `FieldInfo.SetValue`（装箱 struct 字段 / 对象内联 struct 叶子） | `set_ref_slot` + 逐叶子 `write_barrier_field` |
+| 反射 `FieldInfo.SetValue`（装箱 struct 字段 / 对象内联 struct 叶子） | `write_blob` / `set_struct_ref_leaf`，落下的每个引用发 `write_barrier_field` |
 | 反射构造泛型 `Type`（`__typeArgs` / `__fullName`） | `objops::field::store_slot` |
-| `Std.Array.SetValue` | `try_set_boxed` + `objops::array::barrier_after_elem_store` |
+| `Std.Array.SetValue` | `try_set_boxed` + `objops::array::barrier_elem` |
 | `Std.Array.Copy`（`__array_copy`） | `objops::array_bulk::copy_range` + `barrier_after_range_store`（对写入区间每个引用槽，含 struct 元素的引用叶子） |
 | `PropertyInfo.SetValue` | 调 setter ⇒ 走 `FieldSet` |
 
@@ -383,27 +386,44 @@ card-marking 真实逻辑。**call-site wiring + 调用契约**与模式无关�
 （没有预晋升 / 直接分配进老年代的路径——大块只是独占 chunk，年龄照样从 0 起）；
 **单条指令 / builtin 的 Rust 执行中途不跑 GC**（见上「临时 string 落寄存器前天然安全」）。
 
+#### 对象的记忆集（对象模型 R6）
+
+变长区没有卡表，对象（变长块）用**记忆集**满足同一条不变量——「持有年轻引用的老属主，下一次 minor 一定会从它重新出根」
+（`gc/arc_heap/remembered.rs`）：
+
+- **入集**：写屏障看到老对象收到年轻引用，或晋升（minor 清扫、major 后的老化）让一个仍持有年轻引用的对象变老
+  （`remember_newly_old_objects`，与数组的 `dirty_cards_for_newly_old_arrays` 对应），就对块头 `type_tag` 的
+  `REMEMBERED_BIT`（bit 5）做一次 `fetch_or`；**只有把位从 0 置成 1 的那一方**把句柄压进 `ArcMagrGC::remembered`，
+  所以每个对象只进一次。mutator 路径不拿 region 锁：一次 relaxed 读代龄、一次原子 or，只有首次才在记忆集自己的锁下 push。
+- **出根**：minor 的 `seed_from_remembered` 逐个「穿过」记忆集里的对象（老对象不标记，只把年轻孩子入队），
+  **不再有年轻孩子就清位、出集**——相当于按对象粒度清卡。已死（tombstone 还没排出）的跳过并出集，
+  增量 major 清扫期的 doomed 对象同样跳过（与脏卡播种同一条规则）。
+- **死亡**：带 `REMEMBERED_BIT` 的块被 tombstone 时进「带标记的死块」列表，`process_flagged_dead` 在 chunk 回收之前把它从记忆集删掉，
+  所以记忆集里的地址永远是一个块头。
+- **晋升线降低**（adaptive promotion）：数组仍是 `dirty_every_card`，对象改为把每个持有年轻孩子的老对象入集
+  （`remember_every_old_object_with_young`，同样是一次 O(堆) 的代价）。
+- major 不清空记忆集（同 card 的「perf-drop-card-rebuild」理由：minor 会自己把它排空）。
+
 #### 卡表不变量核对（`Z42_GC_VERIFY_CARDS`）
 
 漏一个写屏障不会当场出事：年轻对象在之后某次 minor 被扫掉，症状是隔了几次回收的 UAF。
-`ArcMagrGC::verify_card_invariant`（`gc/arc_heap/card_verify.rs`）从头重算卡表不变量——遍历两个有卡的
-region 里每个活着的老条目，持有年轻引用而所在卡是干净的就报出来（带属主类型名）。代价 O(老年代)，
+`ArcMagrGC::verify_card_invariant`（`gc/arc_heap/card_verify.rs`）从头重算这条不变量——遍历每个活着的老数组与老对象，
+持有年轻引用而所在卡是干净的（数组）/ 不在记忆集里（对象）就报出来（带属主类型名）。代价 O(老年代)，
 所以是开关：`Z42_GC_VERIFY_CARDS=1` 时每次 minor 开始前核对一次、不成立就 panic；单测直接调它
-（经 `MagrGC::verify_card_invariant`）。`region_var`（字符串、闭包）没有卡也不需要：字符串是叶子，
+（经 `MagrGC::verify_card_invariant`）。字符串与闭包两样都不需要：字符串是叶子，
 闭包的引用在构造时定死，老了以后不会再长出年轻孩子。
 
 **Override 契约**:
 
 - 实现可以 `debug_assert!(new.is_heap_ref())` 检测 caller 是否漏 filter
-- 不能假设 `owner` 持有 inner-`Mutex` lock；可以自由 `owner.borrow()` /
-  `owner.borrow_mut()`（caller 已 drop）
+- 可以自由 `owner.borrow()`（对象没有锁，读字段不会与 caller 冲突）
 - default no-op 不修改 `HeapStats`；这条契约保留下来意味着
   pure-tracing / generational override 也不应改 `HeapStats`（stats 反映
   alloc/free，不反映 barrier dispatch 次数）
 
-> **这条契约有两个消费者**：卡表不变量（「老对象的年轻子节点
-> 一定能从脏卡集合到达」）被 minor BFS 依赖（所以它**不把老年子节点入队**），也被增量 major 的
-> 周期根集依赖：周期的灰队列 / SATB 队列播种给 minor 时**只播种年轻条目**，老条目靠卡表覆盖。
+> **这条契约有两个消费者**：卡表 / 记忆集不变量（「老属主的年轻子节点
+> 一定能从脏卡与记忆集到达」）被 minor BFS 依赖（所以它**不把老年子节点入队**），也被增量 major 的
+> 周期根集依赖：周期的灰队列 / SATB 队列播种给 minor 时**只播种年轻条目**，老条目靠卡表 / 记忆集覆盖。
 > ⇒ 任何削弱 barrier 覆盖面的改动（漏一个写入点、给某类条目免掉卡）会同时打断两处，
 > 而**只有后者要等增量 major 周期打开时才现形**。见 [增量 major](gc-incremental-major.md)。
 
@@ -442,7 +462,7 @@ only 验证器在每次 collect 末尾检查；release 构建完全编译掉。
 **2 个 heap 级检查**（panic-only，无 Violation enum）：
 
 - mark_queue 必须在 cycle 外为空（major 的 mark 必须 drain 完整；增量周期进行中不查）
-- 没有 alive entry 携带 marked=1（sweep 必须清 survivors 的 mark）
+- 没有 alive entry（含对象块）携带 marked=1（sweep 必须清 survivors 的 mark）
 
 **触发时机**：
 
@@ -680,7 +700,7 @@ Write>` 流式直写 `BufWriter<File>`，无中间 `String` 内存分配。
 - 内存压力下 GC 可主动回收的引用，介于 strong 与 weak 之间
 - 用于缓存场景（"内存够则保留，紧张则丢弃"），无需手动 weak + 重建
 - **实现要点**：
-  - `SoftRegistry`（`gc/soft_registry.rs`）：类型擦除的 `Vec<ErasedSoftEntry>`（region entry 指针 + generation 快照）；mark 之后、sweep 之前跑 revive pass
+  - `SoftRegistry`（`gc/soft_registry.rs`）：类型擦除的 `Vec<ErasedSoftEntry>`（数组：region entry 指针 + generation 快照；对象：块头地址 + `ObjRef` 原始位，登记时给块头置 `SIDE_BIT`，对象死时 `process_flagged_dead` 删掉它的条目）；mark 之后、sweep 之前跑 revive pass
   - 压力判定：`occupied / max_heap_bytes >= soft_threshold` 时不复活（`occupied` = 堆的真实占用，见 [GC 调参 · 真实占用记账](gc-tuning.md#真实占用记账与软上限)）、软目标按普通对象被回收；低于阈值则复活。`Z42_GC_SOFT_THRESHOLD` 控制阈值（默认 0.80）；`max_heap_bytes == 0`（无限）时软引用永不清除
   - 2 个 builtin：`__soft_handle_create(target: object) -> SoftHandle`；`__soft_handle_get(self) -> object`
   - `Std.SoftHandle` 类（`z42.core/GC/SoftHandle.z42`）暴露给 z42 脚本

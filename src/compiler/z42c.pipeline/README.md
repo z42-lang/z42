@@ -13,7 +13,7 @@
 | 清单驱动的一次包编译 | `BuildSession` / `BuildOptions` |
 | 单包编译编排 | `PackageCompile.Compile` |
 | 依赖扫描 / 跨包类型世界 | `DepScan.Scan` / `ScanDirs` / `ScanDirsLazy` |
-| workspace 成员发现 + 拓扑序 + 布局 | `WorkspaceBuild`（`WsPlan`）|
+| workspace 规划的种子转发（实现在 `z42.project` 的 `WorkspacePlan`） | `WorkspaceBuild`（`WsPlan`）|
 | 文件级增量 probe / 失效闭包 | `IncrementalBuild.ProbeFiles` / `Close` |
 
 ## 如何测试验证
@@ -37,9 +37,9 @@
 | `src/Z42cCompiler.z42` | `z42.build` `ICompiler` 实现——对外编译入口。BuildSession 的薄封装（`HostTarget`）；`req.Manifest` 必填 |
 | `src/Z42cReplCompiler.z42` | `IReplCompiler` 实现：REPL 增量编译路径（累积声明 + 惰性符号世界）|
 | `src/BuildSession.z42` | 清单驱动的**一次包编译**：`BuildOptions`（清单 / 源根 / `BuildRole` / 解析域 / 产物路径）→ 旋钮决议 → 源发现 → `[analyzers]` 解析（path 条目代建为 `AnalyzerChild`）→ `PackageCompile.Compile` → 写 packed + `.zsym`。**从不打印**，消息经 `IBuildReporter`（`CollectingReporter` 收集型实现）。目前由 z42b（`HostTarget`）使用；driver 共用其中的 `ManifestKnobs` 与 `CompilerDomain`，其余步骤仍在 driver 的 `Main._build`。同文件含 `CompilerDomain`（编译器域解析域）|
-| `src/PackageCompile.z42` | 单包编译编排（源发现 → sem → emit → zpkg）|
+| `src/PackageCompile.z42` | 单包编译核心的**顺序骨架**：② 依赖解析 → ③④ 前置线 → ⑤ 包级编译 → ⑥⑦ 诊断收口 + 错误门 → ⑧ 组装（编号同 source-compile.md）|
+| `src/FrontLine.z42` | **前置线**：③ generator（`z42c.generators`，含内建 `[Forward]`）→ ④ analyzer（`z42c.analyzers`）；只动 AST，产出 union CU + 暂存诊断（`FrontLineResult`，`HasErrors()` ⇒ 主编译线跳过代码生成）|
 | `src/CtorKnownFixup.z42` | 整包装配后的 `ObjNew.CtorKnown` 置位（区分「零构造器类」与「构造器名解析不到」）|
-| `src/GeneratorLoader.z42` | source generator 加载 + 运行 |
 | `src/ManifestKnobs.z42` | `[optimize]` / `[syntax]` / `[lints]` / pack / strip 决议为 `KnobResult`（错误行收集、不打印）。**唯一实现**：driver 与 BuildSession 共用 |
 | `src/SdkLibs.z42` | **SDK 库的可见性**：`Plan` 算放行集（exe / lib = 按名声明的 SDK 库 + DEPS 传递闭包；analyzer = 编译器目录里基础解析域中没有的全部包），不放行的经 `MergeTier` 并入扫描 tier 的 `Hidden`；`ExtendDeclared` 把放行集并进声明白名单；`HiddenProviderOf` 给 E0494 点名未声明的 SDK 库。driver 与 BuildSession 共用；放行集为空 ⇒ 什么都不动 |
 | `src/ZpkgDeps.z42` | zpkg **DEPS 段**计算（含每个依赖的符号表，供运行期精确路由）：每个模块 `UsedDepNs` 里带归属包的条目只记那个包，归属不明的按 ns 保守回落为全部提供包（`Z42C_TRACE_DEPS=1` 打印）；`using` 本身不贡献依赖；测试 / bench 目标加父包。规则见 internals `formats/zpkg.md` 的 DEPS 小节 |
@@ -58,7 +58,7 @@
 ### workspace 与增量
 | 文件 | 职责 |
 |------|------|
-| `src/WorkspaceBuild.z42` | workspace 成员发现 + 拓扑序 + per-member 布局（`WsPlan`）|
+| `src/WorkspaceBuild.z42` | 种子转发：`Plan` / `PlanLayout` → `Z42.Project.WorkspacePlan`（种子 driver 自举时调的旧入口；含 WorkspacePlan 的 nightly 后删） |
 | `src/IncrementalBuild.z42` | 文件级增量 probe：`ProbeFiles` 种子（hash / 条目·pin / 包级源清单）+ `Close` **名字级**失效闭包（已变名字集 → token 命中即失效 → 只有「声明面提到别人的已变名字」才继续传播）；`Z42_INCR_DEBUG` 打 `[name-changed]` / `[invalidated]` / `[spread]`；单测见 `tests/incremental/` |
 | `src/CacheStore.z42` | 增量缓存落盘（`z42.io`/`z42.encoding`）；条目 meta = 源 hash + **名字级声明面指纹 `nsurf`** + 声明面标识符 `sident` + ns/useddep/token + writer 残留 |
 | `src/DepIdentity.z42` | 依赖身份：增量缓存键里「这次编译看到的依赖」一维；每包取 BLID，无 BLID 回落整文件 Murmur3，使依赖接口变化能使消费方 cache 失效 |

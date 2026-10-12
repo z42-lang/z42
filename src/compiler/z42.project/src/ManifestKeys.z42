@@ -7,7 +7,7 @@
 // 分工同 `Profile.BadKeys`：z42.project **只收集、不报错**（`ManifestLoader` 构造后把结果挂到
 // `ProjectManifest.UnknownKeys` 与 `WorkspaceManifest.UnknownKeys`），由消费方决定怎么呈现——
 // 项目清单在 `ManifestKnobs.Resolve`（z42c build 与 z42b 共用入口），workspace 清单在
-// `WorkspaceBuild.Plan` / `PlanLayout`。
+// `WorkspacePlan.Plan` / `PlanLayout` / `PlanDefault`。
 // 不抛异常：有的调用方（xtask `_loadManifestOr`）会吞异常回落默认，抛了反而把错误藏起来。
 //
 // 不审计的位置（键名本身就是用户数据）：`[dependencies]` / `[analyzers]` / `[native]` 的子表名、
@@ -31,7 +31,7 @@ public static class ManifestKeys {
         return "project/sources/build/dependencies/profile/exe/platform/tests/benches/examples/test/bench/example"
             + "/optimize/syntax/analyzers/lints/native/properties";
     }
-    public static string ProjectKeys()   { return "name/version/kind/entry/pack/description/authors/license"; }
+    public static string ProjectKeys()   { return "name/version/kind/pack/description/authors/license"; }
     public static string SourcesKeys()   { return "include/exclude"; }
     public static string BuildKeys()     { return "output_dir/cache_dir/dist_dir/incremental/hooks/generated_dir"; }
     public static string DepKeys()       { return "version/path/deploy"; }
@@ -52,7 +52,7 @@ public static class ManifestKeys {
     public static KeyAudit AuditProject(TomlValue root) {
         KeyAudit a = new KeyAudit();
         a.Check(root, "top level", ManifestKeys.RootKeys());
-        a.CheckSub(root, "project", ManifestKeys.ProjectKeys());
+        ManifestKeys._project(a, root);
         a.CheckSub(root, "sources", ManifestKeys.SourcesKeys());
         a.CheckSub(root, "build",   ManifestKeys.BuildKeys());
         ManifestKeys._deps(a, root, "dependencies", "dependencies");
@@ -113,6 +113,19 @@ public static class ManifestKeys {
             }
             i = i + 1;
         }
+    }
+
+    // `[project]`：`entry` 不是键 —— 入口由 z42c 自动检测唯一的 `Main()`；一个工程要多个入口用 `[[exe]]`（那里的
+    // `entry` 是必填的，用来在共享的源里挑 Main）。单独给一句说清怎么改，不落成泛泛的「unknown key」。
+    private static void _project(KeyAudit a, TomlValue root) {
+        TomlValue p = null;
+        if (!root.TryGet("project", ref p) || !p.IsTable()) { return; }
+        TomlValue ev = null;
+        if (p.TryGet("entry", ref ev)) {
+            a.Add("[project] `entry` is not a manifest key: z42c detects the entry point (the single `Main()`)."
+                + " Delete it; for several entry points in one project use [[exe]] tables (name + entry).");
+        }
+        a.Check(p, "[project]", ManifestKeys.ProjectKeys() + "/entry");   // entry 上面已单独报过，不再重复成 unknown key
     }
 
     // `[<key>.<name>]` 依赖子表：字符串简写不审计，表形式只认 version/path/deploy。

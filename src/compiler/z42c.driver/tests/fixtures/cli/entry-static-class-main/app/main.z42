@@ -1,0 +1,8 @@
+namespace Scm;
+
+using Std.IO;
+
+public static class Program {
+    public static void Main() { Console.WriteLine("static-main"); }
+    public static int Helper(int x) { return x; }
+}

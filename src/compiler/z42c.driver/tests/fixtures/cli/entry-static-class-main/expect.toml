@@ -1,0 +1,31 @@
+desc = "清单不写入口：类里的静态无参 Main() 被自动检测为入口（烤入真实 IR 名 Ns.Program.Main$0），产物直接能跑；实例方法 Main 不算入口（见 README）"
+outside_repo = true
+
+[[step]]
+tool = "copy"
+from = "{stdlib}/*.zpkg"
+to = "libs/"
+
+[[step]]
+args = ["build", "app/scm.z42.toml", "--release"]
+libs = "libs"
+exit = 0
+
+[[step]]
+tool = "run"
+target = "app/dist/scm.zpkg"
+libs = "libs"
+exit = 0
+stdout_equals = "static-main"
+
+# 实例方法 Main ⇒ 没有入口
+[[step]]
+tool = "copy"
+from = "variants/instance.z42"
+to = "app/main.z42"
+
+[[step]]
+args = ["build", "app/scm.z42.toml", "--release"]
+libs = "libs"
+exit = "nonzero"
+stderr_contains = ["no Main() found"]

@@ -5,7 +5,7 @@
 use super::*;
 
 /// The callee id to bake into a `Call` site: the site's `method_tokens` value at
-/// translate time — a JIT id (`FnId`, see `JitModuleCtx`) for entry-module and
+/// translate time — a JIT id (`FnId`, see `jit::runtime`) for entry-module and
 /// lazily loaded callees alike — or `UNRESOLVED` (= u32::MAX) when the site is
 /// not bound yet; `jit_call` then reads the token cell at run time
 /// ([`method_token_ptr_at`]) and binds by name on a miss.
@@ -19,7 +19,7 @@ pub(super) fn method_id_at(func: &Function, block_idx: usize, instr_idx: usize) 
 /// cache `jit_call` reads when the baked id is `UNRESOLVED`, and writes on first
 /// bind (the interpreter's `Call` shares it). Null when `Function.resolved` is
 /// unset (`jit_call` then binds by name every time). The cell lives inside
-/// `Function.resolved`, valid for the whole JitModule lifetime.
+/// `Function.resolved`, valid for as long as the module (and so the code baking it).
 pub(super) fn method_token_ptr_at(func: &Function, block_idx: usize, instr_idx: usize) -> *const std::sync::atomic::AtomicU32 {
     method_token_at(func, block_idx, instr_idx)
         .map(|c| c as *const _)
@@ -32,12 +32,21 @@ fn method_token_at(func: &Function, block_idx: usize, instr_idx: usize) -> Optio
     r.method_tokens.get(site as usize)
 }
 
+/// P1-2 PR 8: a `LoadFn` / `MkClos` site's token cell (`ResolvedTokens::fn_ref_tokens`) —
+/// the target `FnId` once bound. Null when `Function.resolved` is unset (the helper then
+/// binds by name on every execution). Same lifetime guarantees as `method_token_ptr_at`.
+pub(super) fn fn_ref_token_at(func: &Function, block_idx: usize, instr_idx: usize) -> Option<&std::sync::atomic::AtomicU32> {
+    let r = func.resolved.get()?;
+    let site = *r.site_index.get(block_idx)?.get(instr_idx)?;
+    r.fn_ref_tokens.get(site as usize)
+}
+
 /// formalize-jit-method-token Phase 2.E helper: stable raw pointer to
 /// the `VCallIC` slot for the VCall site at `(block_idx, instr_idx)`.
 /// Returns null when `Function.resolved` is unset (helper degrades to
 /// non-IC slow path). The IC lives inside `Function.resolved.vcall_ic`
 /// (which lives inside Module), so the pointer is valid for the entire
-/// JitModule lifetime.
+/// lifetime of the code that bakes it.
 pub(super) fn vcall_ic_ptr_at(func: &Function, block_idx: usize, instr_idx: usize) -> *const crate::metadata::resolver::VCallIC {
     func.resolved.get()
         .and_then(|r| {

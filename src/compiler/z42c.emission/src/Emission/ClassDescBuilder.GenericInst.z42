@@ -47,24 +47,38 @@ public sealed partial class ClassDescBuilder {
         return m;
     }
 
-    // TypeExpr → **代换后**的规范名（`Base<T>` + {T→int} ⇒ `Base<int>`）。
+    // TypeExpr → **代换后**的规范名（`Base<T>` + {T→int} ⇒ `Demo.Base<int>`）。
     //
     // 必须按 AST 结构递归、**不能**对 `Dump()` 的字符串做替换：型参名是单字母居多
     //（`T` / `A`），字符串替换会命中 `TArray` 这类无关标识符的子串。
-    // 与 `StructLayout.InstName` 同一拼写（无空格），否则两边算出的名字对不上。
-    private static string _substTypeName(TypeExpr t, StrMap subst) {
+    // 与表达式侧 `ExprEmitter._canonTypeName` 同一拼写（`LayoutKey`：全名、基元关键字、无空格），
+    // 否则基表这条路与表达式那条路给同一个实例化算出两个名字。名字按**声明方 CU** 的作用域解析。
+    private string _substTypeName(TypeExpr t, StrMap subst) {
         if (!(t is NamedType)) { return t.Dump(); }
         NamedType nt = t as NamedType;
         if (nt.ArgCount <= 0) {
             StrBox b = subst.ContainsKey(nt.Name) ? subst.Get(nt.Name) as StrBox : null;
-            // `PrimModel.Canon`：`Int32` → `int`。**必须与 `ExprEmitter._canonTypeName` 同一口径**，
-            // 否则基表这条路算出 `GBox<Int32>`、表达式那条算出 `GBox<int>`，同一个实例化两个名字。
-            return b == null ? PrimModel.Canon(nt.Name) : b.Value;
+            return b == null ? this._declTypeKey(nt.Name, 0) : b.Value;
         }
         string[] an = new string[nt.ArgCount];
         int i = 0;
-        while (i < nt.ArgCount) { an[i] = ClassDescBuilder._substTypeName(nt.Args[i], subst); i = i + 1; }
-        return StructLayout.InstName(nt.Name, an, nt.ArgCount);
+        while (i < nt.ArgCount) { an[i] = this._substTypeName(nt.Args[i], subst); i = i + 1; }
+        return StructLayout.InstName(this._declTypeKey(nt.Name, nt.ArgCount), an, nt.ArgCount);
+    }
+
+    // 声明里写的类型名 → 布局键（`LayoutKey`）：基元 → 关键字；类 / 接口按声明方作用域解析成全名；
+    // 解析不到原样（规范化基元拼写）。
+    private string _declTypeKey(string name, int arity) {
+        string c = PrimModel.Canon(name);
+        if (PrimModel.Code(c) >= 0) { return c; }
+        SymbolTable st = this._scope();
+        Z42ClassType ct = null;
+        if (arity > 0) { ct = st.GetClass(name + "$" + arity.ToString()); }
+        if (ct == null) { ct = st.GetClass(name); }
+        if (ct != null) { return LayoutKey.OfClass(ct); }
+        Z42InterfaceType it = st.GetInterface(name);
+        if (it != null) { return it.Fqn(); }
+        return name;
     }
 
     // 基表里的泛型基是不是**闭合**的（实参全具体）：任一实参（递归）是本类的型参 ⇒ 开放。
@@ -86,12 +100,8 @@ public sealed partial class ClassDescBuilder {
         return true;
     }
 
-    // 短名 → FQ，实例化名只限定基名（与 `ExprEmitter._qualifyInstName` / 本文件 `fqInst` 同约定）。
-    private string _qInst(string name) {
-        int lt = name.IndexOf('<');
-        if (lt < 0) { return this._g._qClass(name); }
-        return this._g._qClass(name.Substring(0, lt)) + name.Substring(lt, name.Length - lt);
-    }
+    // 声明里写的（代换后的）基 / 接口名 → FQ，实例化名只限定基名（同 `_qDecl`）。
+    private string _qInst(string name) { return this._qDecl(name); }
 
     // 泛型 class 实例化的合成描述符。
     //
@@ -120,11 +130,19 @@ public sealed partial class ClassDescBuilder {
         Decl rawDef = this._genericRawOf(bareDef);
         ClassDecl cdef = this._genericDeclOf(bareDef);
         if (cdef == null) { return null; }              // 非本包泛型（闸门已拦，这里兜底）
+        // 定义在别的 CU：它声明里写的名字（基 / 接口 / 约束）按**那个 CU** 的作用域解析（fqn-tables 5d）。
+        SymbolTable prevDecl = this._declSyms;
+        GenericBodySrc dsrc = this._g.GenericDecls.ContainsKey(bareDef) ? null : this._g.GenericTypeDecls.Get(bareDef) as GenericBodySrc;
+        if (dsrc != null && dsrc.Model != null) { this._declSyms = dsrc.Model.Symbols; }
+        IrClassDesc r = this._instClassDescIn(instName, bareDef, rawDef, cdef, ly);
+        this._declSyms = prevDecl;
+        return r;
+    }
+
+    private IrClassDesc _instClassDescIn(string instName, string bareDef, Decl rawDef, ClassDecl cdef, StructLayout ly) {
         StructLayoutInfo ol = ly.ObjectLayoutOf(instName);
         StructLayoutInfo il = ly.InlineLayoutOf(instName);
-        int ltq = instName.IndexOf('<');
-        string fqInst = ltq < 0 ? this._g._q(instName)
-                                : this._g._q(instName.Substring(0, ltq)) + instName.Substring(ltq, instName.Length - ltq);
+        string fqInst = this._qDecl(instName);   // 实例化名的基名已是定义的全名（`LayoutKey`），原样
         StrMap subst = ClassDescBuilder._instSubstOf(cdef, instName);
         // ── 定义那条描述符（字段集合与顺序的唯一来源）──────────────────────────
         IrClassDesc cd = this._classDesc(cdef, HandlerRegistry.HasRecord(rawDef));
@@ -172,11 +190,11 @@ public sealed partial class ClassDescBuilder {
         string[] ifs = new string[4]; int ifc = 0;
         int bi = 0;
         while (bi < cdef.BaseCount) {
-            string sn = ClassDescBuilder._substTypeName(cdef.Bases[bi], subst);
+            string sn = this._substTypeName(cdef.Bases[bi], subst);
             string bare = sn;
             int lt2 = sn.IndexOf('<');
             if (lt2 >= 0) { bare = sn.Substring(0, lt2); }
-            if (this._g._symbols.HasInterface(bare)) {
+            if (this._scope().HasInterface(bare)) {
                 if (ifc == ifs.Length) {
                     string[] b2 = new string[ifs.Length * 2];
                     int z = 0; while (z < ifc) { b2[z] = ifs[z]; z = z + 1; }

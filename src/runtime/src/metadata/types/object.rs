@@ -1,11 +1,10 @@
-//! NativeData / ScriptObject + GcRef<ScriptObject> 访问。refactor-split-metadata-types（2026-09-03）：从 2436 行的 `types.rs` 按职责拆出，
+//! NativeData / ScriptObject（对象头）+ ObjRef 访问。refactor-split-metadata-types（2026-09-03）：从 2436 行的 `types.rs` 按职责拆出，
 //! 对外路径不变（`metadata::types::*` 经 hub 的 `pub use` 全量再导出）。
 
 #![allow(unused_imports)]
 use super::*;
 use std::sync::Arc;
 use crate::metadata::vstr::Str;
-use crate::gc::GcRef;
 use crate::gc::var_region::{BlockType, VarGcRef};
 use crate::gc::heap::MagrGC;
 
@@ -44,137 +43,335 @@ pub enum NativeData {
 
 // ── ScriptObject — unified managed object ───────────────────────────────────
 //
-// Replaces the old `ObjectData`. Every class instance is represented as a
-// `ScriptObject`, which combines:
-//   1. A type descriptor pointer (Arc<TypeDesc>) — the class identity
-//   2. A flat slot array (Vec<Value>)            — instance fields by index
-//   3. Optional native backing (NativeData)      — for built-in types
+// Every class instance (and every boxed value struct / primitive) is a `ScriptObject` header —
+// the type descriptor (class identity) and one meta word (generic arguments, native backing) —
+// followed in the same GC block by its field cells (see the type docs below).
 
-/// shrink-object-footprint P3: the cold per-instance side-fields of a
-/// [`ScriptObject`]. Allocated only when at least one of them is non-empty.
-#[derive(Debug, Default)]
+/// The cold per-instance native backing of a [`ScriptObject`], boxed only for the few
+/// objects that have one (WeakRef / Type / LoadContext / Assembly / Monitor handles).
+/// A generic native-backed object keeps its type-arguments handle here too.
+#[derive(Debug)]
 struct ObjExtras {
-    /// Native backing for built-in types (WeakRef / Type / LoadContext / Assembly).
+    /// Native backing for built-in types.
     native: NativeData,
-    /// 2026-05-07 add-default-generic-typeparam (D-8b-3 Phase 2): per-instance
-    /// generic type-arguments. For `new Foo<int, string>()` this is
-    /// `["int", "string"]`. Index aligns with `type_desc.type_params`.
-    /// Read by `DefaultOf` and runtime type-args queries.
-    type_args: Box<[String]>,
+    /// Per-instance generic type-arguments (interned; empty for non-generic).
+    type_args: TypeArgs,
 }
 
 impl Default for NativeData {
     fn default() -> Self { NativeData::None }
 }
 
-/// Heap-allocated managed object with reference semantics (CoreCLR Object equivalent).
-#[derive(Debug)]
+// `ObjMeta` stores the extras box as a tagged raw pointer, which opts out of auto-trait
+// propagation; the object stays `Send + Sync` only because what the box owns is.
+const _: () = {
+    const fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<NativeData>();
+};
+
+/// One 8 B word for an object's cold metadata (`type_args` + native backing).
+///
+/// - null — non-generic, no native backing (the overwhelming majority);
+/// - an even pointer — the interned [`TypeArgs`] entry of a generic instance (no allocation:
+///   every instance of one instantiation shares the entry);
+/// - an odd pointer — a [`Box<ObjExtras>`] tagged with the low bit (native-backed objects).
+///
+/// Both pointees are ≥ 8-aligned, so the low bit is free for the tag.
+struct ObjMeta(*const ());
+
+// SAFETY: the word is either null, a pointer to an immutable leaked `'static` `TypeArgsInfo`,
+// or an owned `Box<ObjExtras>` whose contents are `Send + Sync` (asserted above). It is only
+// mutated through `&mut self`.
+unsafe impl Send for ObjMeta {}
+// SAFETY: see the `Send` impl — shared access only reads.
+unsafe impl Sync for ObjMeta {}
+
+impl ObjMeta {
+    const EXTRAS_TAG: usize = 1;
+    const NONE: Self = ObjMeta(std::ptr::null());
+
+    #[inline]
+    fn extras_ptr(&self) -> Option<*mut ObjExtras> {
+        if self.0.addr() & Self::EXTRAS_TAG != 0 {
+            Some(self.0.map_addr(|a| a & !Self::EXTRAS_TAG) as *mut ObjExtras)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    fn extras(&self) -> Option<&ObjExtras> {
+        // SAFETY: a tagged word is an owned, live `Box<ObjExtras>` (see `extras_or_alloc`).
+        self.extras_ptr().map(|p| unsafe { &*p })
+    }
+
+    #[inline]
+    fn type_args(&self) -> &'static [String] {
+        if self.0.is_null() {
+            return &[];
+        }
+        match self.extras() {
+            Some(e) => e.type_args.as_slice(),
+            // SAFETY: an untagged non-null word came from `TypeArgs::as_raw`.
+            None => unsafe { TypeArgs::from_raw(self.0 as *const TypeArgsInfo) }.as_slice(),
+        }
+    }
+
+    #[inline]
+    fn native(&self) -> &NativeData {
+        const NONE: &NativeData = &NativeData::None;
+        self.extras().map_or(NONE, |e| &e.native)
+    }
+
+    /// The extras box, allocating it (and carrying any type-args handle over) on first use.
+    fn extras_or_alloc(&mut self) -> &mut ObjExtras {
+        let p = match self.extras_ptr() {
+            Some(p) => p,
+            None => {
+                let type_args = if self.0.is_null() {
+                    TypeArgs::empty()
+                } else {
+                    // SAFETY: an untagged non-null word came from `TypeArgs::as_raw`.
+                    unsafe { TypeArgs::from_raw(self.0 as *const TypeArgsInfo) }
+                };
+                let p = Box::into_raw(Box::new(ObjExtras { native: NativeData::None, type_args }));
+                self.0 = (p as *const ()).map_addr(|a| a | Self::EXTRAS_TAG);
+                p
+            }
+        };
+        // SAFETY: `p` is the owned `Box<ObjExtras>` this word holds; `&mut self` gives
+        // exclusive access.
+        unsafe { &mut *p }
+    }
+
+    #[inline]
+    fn set_type_args(&mut self, ta: TypeArgs) {
+        match self.extras_ptr() {
+            // SAFETY: owned box, exclusive via `&mut self`.
+            Some(p) => unsafe { (*p).type_args = ta },
+            None if ta.is_empty() => self.0 = std::ptr::null(),
+            None => self.0 = ta.as_raw() as *const (),
+        }
+    }
+}
+
+impl Drop for ObjMeta {
+    fn drop(&mut self) {
+        if let Some(p) = self.extras_ptr() {
+            // SAFETY: a tagged word owns the `Box<ObjExtras>` it was made from.
+            drop(unsafe { Box::from_raw(p) });
+        }
+    }
+}
+
+impl std::fmt::Debug for ObjMeta {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ObjMeta")
+            .field("type_args", &self.type_args())
+            .field("native", self.native())
+            .finish()
+    }
+}
+
+/// A managed object (object model R6): its 16 B header — type descriptor and meta word — and,
+/// immediately after it, its field cells, as **one dynamically sized value**:
+///
+/// ```text
+///   GcBlockHeader (16 B) │ type_desc (8 B) │ meta (8 B) │ fields: [UnsafeCell<u8>] …
+///                         ↑ &ScriptObject (fat: address + field-area length) ──────────┘
+/// ```
+///
+/// A heap object is the payload of one `BlockType::Object` block of the variable-length GC
+/// region: block header, then this value — one allocation, freed (and its `Arc<TypeDesc>` /
+/// extras box dropped by the heap's drop glue) when the block is tombstoned. An object outside
+/// the heap (a stack-allocated object, one under construction) lives in an [`OwnedObject`], a
+/// detached block of the same shape.
+///
+/// `&ScriptObject` is a **fat reference** whose metadata is the field-area length, so it covers
+/// the header *and* the fields: every field access stays inside the reference's own range
+/// (Stacked Borrows: the retag spans `size_of_val`), and nothing ever walks from it to memory
+/// outside it. It is built only from a pointer that carries the whole block's provenance
+/// ([`ScriptObject::from_payload`]: `ObjRef::borrow`, `OwnedObject`, the allocators, the drop
+/// glue), with the length read from the block header there. Hot structures and ABIs keep thin
+/// handles (`ObjRef`, the header address from `ObjRef::as_ptr`), never a `&ScriptObject`.
+///
+/// Field cells (object model R1–R3): every primitive leaf (incl. inline-struct interior
+/// primitive leaves) lives at its composed byte offset, and so does every reference: a direct
+/// reference field or an inline-struct reference leaf is an 8 B self-describing reference word
+/// (`ref_word`, `ObjectLayout::ref_cells`); a type-parameter field (and every reference field of a
+/// synthesized layout) is a 16 B cell whose tag word sits at its own offset and whose payload
+/// word sits past the compiler's layout (`tparam_cell`, `ObjectLayout::tparam_cells`). A boxed
+/// struct's payload is its struct blob. Field access goes through the methods in
+/// `object_fields.rs`, every one an atomic cell access (`Cells`).
+#[repr(C)]
 pub struct ScriptObject {
-    /// Type descriptor shared across all instances of this class.
+    /// Type descriptor shared across all instances of this class. Set before the object is
+    /// published, never changed.
     pub type_desc: Arc<TypeDesc>,
-    /// The object's field payload — primitive leaves, 8 B reference words, type-parameter
-    /// cells and the 16 B reference side table — in ONE allocation (see [`ObjStorage`]).
-    ///
-    /// Every primitive leaf (incl. inline-struct interior primitive leaves) lives at its
-    /// composed byte offset in `storage.bytes()`, and so does every direct reference field,
-    /// as an 8 B self-describing reference word (`ref_word`, `ObjectLayout::ref_cells`).
-    /// A type-parameter field's tag word sits at its own offset too, its payload word past
-    /// the compiler's layout (`tparam_cell`, `ObjectLayout::tparam_cells`). Only
-    /// inline-struct interior reference leaves (and the references of a synthesized layout)
-    /// are 16 B `Value`s in `storage.refs()`, ordered by `ObjectLayout::ref_offsets`. Field
-    /// access goes through the methods in `object_fields.rs`.
-    pub storage: ObjStorage,
-    /// shrink-object-footprint P3: the two **cold** per-instance side-fields —
-    /// native backing and generic type-arguments — behind one optional box.
-    ///
-    /// Both are empty for the overwhelming majority of objects: `NativeData::None`
-    /// for every ordinary user class (only WeakRef / Type / LoadContext / Assembly
-    /// carry a handle), and no type-args for every non-generic instantiation.
-    /// Inline they cost 16 + 16 = **32 bytes on every object**; as
-    /// `Option<Box<ObjExtras>>` they cost 8, and only an object that actually has
-    /// one of them pays for the box.
-    extras: Option<Box<ObjExtras>>,
+    /// The two cold per-instance side-fields — generic type-arguments and native backing —
+    /// in one 8 B word (see [`ObjMeta`]): a generic instance points at its instantiation's
+    /// interned [`TypeArgs`] entry (shared, nothing allocated per object); only a
+    /// native-backed object pays for a box.
+    meta: ObjMeta,
+    /// The field area. `UnsafeCell` because the cells are written through `&self` (atomic cell
+    /// stores), which a shared reference to plain bytes would forbid.
+    fields: [std::cell::UnsafeCell<u8>],
+}
+
+/// The sized prefix of [`ScriptObject`] — exactly its header fields, same `#[repr(C)]` order —
+/// which is what the allocators write into a fresh block and what an object's identity address
+/// (`ObjRef::as_ptr`) points at.
+#[repr(C)]
+pub struct ObjHeader {
+    pub type_desc: Arc<TypeDesc>,
+    meta: ObjMeta,
+}
+
+impl ObjHeader {
+    /// The header of a fresh object of `type_desc` (no extras).
+    #[inline]
+    pub(crate) fn new(type_desc: Arc<TypeDesc>) -> Self {
+        Self { type_desc, meta: ObjMeta::NONE }
+    }
+
+    /// Per-instance generic type-arguments (see [`ScriptObject::type_args`]).
+    #[inline]
+    pub fn type_args(&self) -> &[String] {
+        self.meta.type_args()
+    }
+}
+
+/// Bytes of the object header in front of the field cells (object model R6): two pointer-sized
+/// words — 16 on 64-bit targets, 8 on 32-bit ones (wasm32 / armv7). A multiple of 8 either way,
+/// so the field cells start 8-aligned behind the 8-aligned block payload. Under `#[repr(C)]` the
+/// shared prefix puts `ScriptObject::fields` exactly here (pinned by `object_tests`).
+pub const OBJ_HEADER_BYTES: usize = std::mem::size_of::<ObjHeader>();
+#[cfg(target_pointer_width = "64")]
+const _: () = assert!(OBJ_HEADER_BYTES == 16);
+const _: () = assert!(OBJ_HEADER_BYTES % 8 == 0);
+const _: () = assert!(std::mem::align_of::<ObjHeader>() == std::mem::size_of::<usize>());
+
+// SAFETY: the header's fields are `Send + Sync` (`ObjMeta`'s impls say why); the field area is
+// only ever accessed through atomic cell views (`Cells`), so sharing `&ScriptObject` across
+// threads is race-free — the `UnsafeCell`s are not a plain-memory mutation channel.
+unsafe impl Send for ScriptObject {}
+unsafe impl Sync for ScriptObject {}
+
+impl std::fmt::Debug for ScriptObject {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ScriptObject")
+            .field("type", &self.type_desc.name)
+            .field("meta", &self.meta)
+            .field("payload_len", &self.payload_len())
+            .finish()
+    }
 }
 
 impl ScriptObject {
-    /// shrink-object-footprint P3: the object's native backing (`None` when it has
-    /// no extras box, which is the common case).
+    /// The object stored in a block payload of `payload_size` bytes at `payload` (header + field
+    /// area), as a fat raw pointer whose metadata is the field-area length.
+    ///
+    /// # Safety
+    /// `payload` carries the provenance of the whole block (derived from the block's own
+    /// allocation, never from a narrower reference), `payload_size >= OBJ_HEADER_BYTES`, and the
+    /// block's capacity covers `size_of_val` of the result (`payload_size` rounded up to the
+    /// header's alignment — every size class / detached block does). The caller writes the header
+    /// before reading through the pointer.
+    #[inline(always)]
+    pub(crate) unsafe fn from_payload(payload: *mut u8, payload_size: usize) -> *mut ScriptObject {
+        debug_assert!(payload_size >= OBJ_HEADER_BYTES, "object payload shorter than its header");
+        std::ptr::slice_from_raw_parts_mut(payload, payload_size - OBJ_HEADER_BYTES) as *mut ScriptObject
+    }
+
+    /// Payload length in bytes — the field area behind the header (a boxed primitive's scalar
+    /// width, a boxed struct's blob size, a class instance's `TypeDesc::object_bytes_len`). The
+    /// reference's own metadata: no memory read.
+    #[inline(always)]
+    pub fn payload_len(&self) -> usize {
+        self.fields.len()
+    }
+
+    /// Atomic loads and stores of the field cells.
+    #[inline(always)]
+    pub fn cells(&self) -> Cells<'_> {
+        // SAFETY: the field area is this value's own tail (in range of `&self`), 8-aligned
+        // (block payloads are 8-aligned and the header is a multiple of 8), `fields.len()` bytes,
+        // and interior-mutable; every access to it after construction is an atomic cell access
+        // (JIT inline loads / stores are plain same-width accesses, the relaxed atomics of
+        // x86-64 / AArch64).
+        unsafe { Cells::from_raw(std::cell::UnsafeCell::raw_get(self.fields.as_ptr()), self.fields.len()) }
+    }
+
+    /// An atomic snapshot of the whole field area ([`Cells::copy_out`]).
+    pub fn snapshot_fields(&self) -> Vec<u8> {
+        let mut out = vec![0u8; self.payload_len()];
+        self.cells().copy_out(0, &mut out);
+        out
+    }
+
+    /// The object's native backing (`None` for every ordinary user class).
     #[inline]
     pub fn native(&self) -> &NativeData {
-        const NONE: &NativeData = &NativeData::None;
-        self.extras.as_ref().map_or(NONE, |e| &e.native)
+        self.meta.native()
     }
 
     /// Per-instance generic type-arguments; empty for non-generic instances.
     #[inline]
     pub fn type_args(&self) -> &[String] {
-        self.extras.as_ref().map_or(&[], |e| &e.type_args)
+        self.meta.type_args()
     }
 
-    /// Install the native backing, allocating the cold extras box on first use.
+    /// Install the native backing, allocating the cold extras box on first use. Construction
+    /// only (`&mut self`): a published object is shared without a lock, so its extras never
+    /// change — build the object completely before it is published.
     #[inline]
     pub fn set_native(&mut self, native: NativeData) {
-        if matches!(native, NativeData::None) && self.extras.is_none() {
+        if matches!(native, NativeData::None) && self.meta.extras_ptr().is_none() {
             return; // nothing to record — stay box-free
         }
-        self.extras.get_or_insert_with(Default::default).native = native;
+        self.meta.extras_or_alloc().native = native;
     }
 
-    /// Install per-instance type-arguments (no-op for an empty list on a
-    /// box-free object, so a non-generic `new` never allocates the box).
+    /// Install the per-instance type-arguments handle (an interned instantiation; empty
+    /// for a non-generic `new`). Never allocates unless the object is native-backed.
+    /// Construction only, like [`Self::set_native`].
     #[inline]
-    pub fn set_type_args(&mut self, type_args: Box<[String]>) {
-        if type_args.is_empty() && self.extras.is_none() {
+    pub fn set_type_args(&mut self, type_args: TypeArgs) {
+        self.meta.set_type_args(type_args);
+    }
+
+    /// `ObjNew`'s generic step, shared by the interpreter (heap and stack objects) and the
+    /// JIT: record the instantiation's type-arguments, then rewrite every type-parameter
+    /// field whose argument is a primitive value type to that type's zero
+    /// (fix-generic-typeparam-field-zero — see [`generic_field_zero_overrides`]). One
+    /// implementation, so the engines and `Z42_STACKALLOC` cannot disagree on
+    /// `GBox<int>().V`. No-op for an empty list.
+    pub fn install_type_args(&mut self, type_args: TypeArgs) {
+        if type_args.is_empty() {
             return;
         }
-        self.extras.get_or_insert_with(Default::default).type_args = type_args;
-    }
-
-    /// What this object holds from the allocator **outside** its GC slot: the field payload
-    /// block and, when present, the cold extras box with its type-argument strings — each
-    /// rounded to the allocator's size class. The GC charges it to the heap footprint when the
-    /// object is born and credits it when the dead object's slot is reused.
-    pub fn heap_payload_bytes(&self) -> u64 {
-        use crate::gc::footprint::malloc_size;
-        let mut n = malloc_size(self.storage.alloc_bytes());
-        if let Some(e) = &self.extras {
-            n += malloc_size(std::mem::size_of::<ObjExtras>())
-                + malloc_size(e.type_args.len() * std::mem::size_of::<String>())
-                + e.type_args.iter().map(|a| malloc_size(a.len())).sum::<u64>();
+        self.set_type_args(type_args);
+        for (slot, zero) in generic_field_zero_overrides(&self.type_desc, type_args.as_slice()) {
+            self.set_field_value(slot, &zero);
         }
-        n
     }
 
-    /// Construct with no extras — the common case.
-    #[inline]
-    pub fn new(type_desc: std::sync::Arc<TypeDesc>, storage: ObjStorage) -> Self {
-        Self { type_desc, storage, extras: None }
+    /// What this object holds from the allocator **outside** its block: the native extras box
+    /// when present, rounded to the allocator's size class. Type-arguments are interned per
+    /// instantiation and cost nothing here. The GC charges it to the heap footprint when the
+    /// object is born and its drop glue credits it back when the block dies.
+    pub fn extras_bytes(&self) -> u64 {
+        if self.meta.extras_ptr().is_some() {
+            crate::gc::footprint::malloc_size(std::mem::size_of::<ObjExtras>())
+        } else {
+            0
+        }
     }
-
-    /// Construct with a native backing (built-in boxes).
-    #[inline]
-    pub fn with_native(
-        type_desc: std::sync::Arc<TypeDesc>, storage: ObjStorage, native: NativeData,
-    ) -> Self {
-        let mut o = Self::new(type_desc, storage);
-        o.set_native(native);
-        o
-    }
-
-    /// shrink-object-footprint P2: the byte-packed primitive leaves.
-    #[inline] pub fn bytes(&self) -> &[u8] { self.storage.bytes() }
-    /// Mutable view of the primitive leaves.
-    #[inline] pub fn bytes_mut(&mut self) -> &mut [u8] { self.storage.bytes_mut() }
-    /// The reference leaves, in composed reference-bitmap order.
-    #[inline] pub fn refs(&self) -> &[Value] { self.storage.refs() }
-    /// Mutable view of the reference leaves (GC scan / field store).
-    /// Reference leaves **without the SATB barrier** — see [`ObjStorage::refs_mut_raw`].
-    #[inline] pub fn refs_mut_raw(&mut self) -> &mut [Value] { self.storage.refs_mut_raw() }
 
     /// unify Phase 2 R3（装箱统一）：若本对象是**整数基元装箱盒**（`type_desc` 是整数 wrapper、
-    /// 标量 LE 字节存 `struct_bytes`，见 `corelib::convert::box_prim_to_heap`），读回其 i64 标量；
+    /// 标量 LE 字节存载荷，见 `corelib::convert::box_prim_to_heap`），读回其 i64 标量；
     /// 否则（多字段 struct 装箱 / 非整数 wrapper）返 `None`。按 wrapper 宽度 + 有无符号从
-    /// `struct_bytes` 前 `width` 字节还原（signed narrow → 符号扩展，unsigned → 零扩展）。
+    /// 载荷前 `width` 字节还原（signed narrow → 符号扩展，unsigned → 零扩展）。
     /// 让装箱整数盒与 struct 装箱盒共用 `Value::BoxedStruct`，同时保留整数的透明拆箱语义。
     /// make-enum-distinct-type 1.5: an **enum box** is the same shape (i64 LE bytes,
     /// `TypeDesc` = the enum itself instead of a `Std.*` wrapper), so it unboxes here
@@ -189,12 +386,12 @@ impl ScriptObject {
         } else {
             crate::metadata::well_known_names::int_wrapper_scalar_spec(&self.type_desc.name)?
         };
-        if self.bytes().len() < width {
+        if self.payload_len() < width {
             return None;
         }
-        let mut buf = [0u8; 8];
-        buf[..width].copy_from_slice(&self.bytes()[..width]);
-        let mut v = i64::from_le_bytes(buf);
+        // One relaxed load of the scalar cell (the scalar is stored little-endian at offset 0 by
+        // `box_prim_to_heap`; the VM's targets are all little-endian).
+        let mut v = self.cells().load_bits(0, width)? as i64;
         if signed && width < 8 {
             let shift = (8 - width) * 8;
             v = (v << shift) >> shift; // 符号扩展窄整数
@@ -205,31 +402,20 @@ impl ScriptObject {
     /// make-enum-distinct-type 1.5: if this object is an **enum box**, the declared
     /// member name for the value it carries — C# `Enum.ToString()`; `None` for every
     /// other box, so callers keep their existing behaviour. Convenience for code that
-    /// already holds the `borrow()` guard; the real lookup is
-    /// [`TypeDesc::enum_member_name`], which lock-free callers use directly.
+    /// already holds the object; the real lookup is [`TypeDesc::enum_member_name`].
     pub fn boxed_enum_name(&self) -> Option<String> {
         self.type_desc.enum_member_name(self.boxed_prim_i64()?)
     }
 }
 
-impl crate::gc::GcRef<ScriptObject> {
-    /// **extract-typedesc-from-mutex (2026-05-31)**: lockless read of
-    /// the object's `type_desc`. type_desc is set by `alloc_object` and
-    /// never mutated for the object's lifetime — there's no concurrent
-    /// writer, so bypassing the per-entry Mutex is sound. Used by
-    /// hot-path IC scans (VCallIC, FieldIC, IsInstance) and the GC mark
-    /// traversal.
-    ///
-    /// Returns a `&TypeDesc` borrowed for the GcRef's lifetime. The
-    /// Arc itself stays alive through the entry's storage; the borrow
-    /// is to the inner TypeDesc directly (one fewer deref at the call
-    /// site than returning `&Arc<TypeDesc>`).
+impl crate::gc::ObjRef {
+    /// The object's `type_desc` (set at construction, never changed). Used by hot-path IC
+    /// scans (VCallIC, FieldIC, IsInstance) and the GC mark traversal. Returns the inner
+    /// `&TypeDesc` (one fewer deref at the call site than `&Arc<TypeDesc>`). Reads through the
+    /// thin header (`ObjRef::header`): no field-area length, no fat reference.
     #[inline]
     pub fn type_desc(&self) -> &TypeDesc {
-        // SAFETY: type_desc is write-once-at-alloc. Verified 0 mutation
-        // sites in the runtime via `grep -rn '.type_desc *=' src/`.
-        let obj_ptr: *const ScriptObject = self.data_ptr_unlocked();
-        unsafe { &(*obj_ptr).type_desc }
+        &self.header().type_desc
     }
 
     /// Lockless read of the object's `type_desc` as `&Arc<TypeDesc>`.
@@ -239,22 +425,20 @@ impl crate::gc::GcRef<ScriptObject> {
     /// `&TypeDesc`) which saves one deref.
     #[inline]
     pub fn type_desc_arc(&self) -> &Arc<TypeDesc> {
-        // SAFETY: see type_desc() — write-once invariant.
-        let obj_ptr: *const ScriptObject = self.data_ptr_unlocked();
-        unsafe { &(*obj_ptr).type_desc }
+        &self.header().type_desc
     }
 
-    /// **extract-typedesc-from-mutex (2026-05-31)**: lockless read of
-    /// the object's `type_args` (generic type arguments at construction).
-    /// Same write-once invariant as `type_desc` — set by `alloc_object`
-    /// (per the spec, `alloc_object` accepts `type_args` and writes them
-    /// before returning the GcRef), never mutated after.
+    /// Lockless read of the object's `type_args` (generic type arguments at construction).
+    /// Same write-once invariant as `type_desc`: set by `ObjNew` before the reference
+    /// escapes, never mutated after; the slice itself is an interned `'static` entry.
     #[inline]
     pub fn type_args(&self) -> &[String] {
-        // SAFETY: type_args is write-once-at-alloc; see type_desc().
-        let obj_ptr: *const ScriptObject = self.data_ptr_unlocked();
-        unsafe { &(*obj_ptr).type_args() }
+        self.header().type_args()
     }
 }
 
 // ── Value ────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+#[path = "object_tests.rs"]
+mod object_tests;

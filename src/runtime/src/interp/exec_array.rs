@@ -30,7 +30,7 @@ pub(super) fn array_new(
     let len = *frame.get(size)?;
     let prim_zero = generic_prim_zero(frame, type_param_kind, type_param_index);
     let r = objops::array::array_new(
-        ctx, &len, elem_tag, element_type, prim_zero, stack_frame(ctx, frame, stack_alloc));
+        ctx, &len, elem_tag, element_type, type_param_kind != 0, prim_zero, stack_frame(ctx, frame, stack_alloc));
     match r {
         Ok(arr) => { frame.set(dst, arr); Ok(None) }
         Err(e) => raise(ctx, module, e),

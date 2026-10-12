@@ -309,8 +309,8 @@ p1 == p2   ⟹   逐叶子: la=field_get(p1,off,tag); lc=field_get(p2,off,tag); 
 规则），但若无装箱就**裸拷帧作用域 `Value::StructRef` 句柄进 object 槽**——创建帧一退出（arena LIFO
 truncate）即 use-after-free。
 
-**堆表示**：`Value::BoxedStruct` 载荷是 `GcRef<ScriptObject>`（共享堆句柄，struct blob 存进对象
-`struct_bytes`/`struct_refs`；引用叶子作真 `Value`，GC 扫描）→ 对齐 C# 引用身份，复用 `region_object`，
+**堆表示**：`Value::BoxedStruct` 载荷是 `ObjRef`（共享堆句柄，struct blob 就是对象的字段区；
+引用叶子是 blob 里的 8 B 引用字，GC 扫描）→ 对齐 C# 引用身份，与普通对象同为变长区的对象块，
 见下「装箱引用身份」节。**不**给 struct 加 base+vtable，只是把值装进对象容器。
 
 **装箱**（`__box_struct` builtin，复用 `Builtin` opcode → 无格式 bump，同 `__box_prim`）：`TypeChecker.BoxIfNeeded`
@@ -448,35 +448,32 @@ struct 处发此 AsCast），使两种运行期种类统一：`BoxedStruct`→�
 **堆对象字段**（`class C { Point pt; }`）与 **`Point[]`**——真密度（基元字节精确打包，逼近 C# 布局）+
 FFI 零 marshaling + 零 per-field 堆分配。这是 struct 值语义功能面的闭合项。
 
-### 决策：基元内联 + 引用叶子侧表（非裸内联）
+### 堆上的布局：与独立 blob 逐字节相同
 
-内联 struct 的引用叶子（string/object/array）怎么存，是核心设计分叉。选定**侧表**方案：
-- **基元叶子**按字节精确**打包进对象字节区** `ScriptObject::struct_bytes`（密度/FFI 收益全在此）；
-- **引用叶子**走对象的 `struct_refs: Box<[Value]>` **侧表**（真 `Value`），**不裸内联** 16B 句柄进字节区。
+堆上的值 struct —— 对象里内联的 struct 字段、装箱 struct（`BoxedStruct` 的整个 payload）、`struct[]` 的每个元素 ——
+都按编译器的 struct 布局存：**基元叶子**按字节精确打包，**引用叶子**是编译器为它留的 8 B 槽里的
+**自描述引用字**（`ref_word`：低 3 位种类、其余位是句柄，整字 0 = `null`；装不进 8 B 的值走种类 7 盒子）。
+所以内联 struct 与独立 blob 逐字节同布局，偏移只有一套（[object-abi.md](object-abi.md)「字段存储布局」）。
 
-> **为什么不裸内联引用叶子（否决）**：GC 访问协议是 `visitor(&Value)`，`Value` enum 远大于 16B 且带
-> 判别式——无法只存 16B 句柄再还原完整 `&Value`；`Arc<str>` 裸字节要手工 `ManuallyDrop`/`Arc::from_raw`
-> 管引用计数，漏一处即 double-free。而引用叶子无论放侧表还是字节区**都是 16B 句柄，密度无差**。故侧表既拿
-> 全部密度收益、又换回内存安全 + 与 arena `StructSlot`/`BoxedStruct` 完全同构（`StructCopy` 无转码）。
+帧 arena 是寄存器侧：`StructSlot` 的引用叶子是 `refs` 里的 16 B `Value`（arena 是 GC 根，无屏障）。
+两种形态之间的转换只在 `metadata/types/struct_blob.rs`：`read`（读出时引用槽清零，arena 字节里从不带句柄位）、
+`write`（基元字节段拷入，每个引用叶子经引用字写原语：SATB 记旧字、落下的引用交给调用方的写屏障）。
 
 ### 对象内联表示与访问（路线 α）
 
-`ScriptObject` 加 `struct_bytes`（内联字段基元打包）+ `struct_refs`（引用叶子侧表）。`TypeDescCold.inline_layout`
-= 类的**合成内联布局**（对象相对字节区 size + 引用位图，复用 `StructTypeLayout`——对象内联区 = 字节 blob +
-引用侧表，与 struct 同构）。alloc 时零初始化（= struct 默认值）。**内联字段仍保留一个 dead slot**（不重排
-`field_index`/slots，最简；真数据只在 struct_bytes，dead slot 恒 Null；1 slot/字段为小浪费）。
+`TypeDescCold.composed_object_layout` 里，内联字段的引用叶子与直接引用字段一样列在 `ref_cells`（对象相对偏移）。
+alloc 时整块零初始化（= struct 默认值，引用叶子 `null`）。
 
 访问复用现有 `StructFieldGetPrim/SetPrim`（0xC0–0xC3，**无新 opcode**）——`base` 从「仅 arena StructRef」扩到
-「也可为堆 `Value::Object`」：叶子基元读写 `obj.struct_bytes[byte_off]`（叶子的对象相对复合 offset
-`off_field + off_leaf` 由 `root_type`（类）+ 字段序号路径解出）；引用叶子读写 `obj.struct_refs[inline_layout.ref_index(byte_off)]`。
+「也可为堆 `Value::Object`」：叶子的对象相对复合 offset `off_field + off_leaf` 由 `root_type`（类）+ 字段序号路径解出；
+基元叶子按宽度原子读写，引用叶子经 `ScriptObject::struct_ref_leaf` / `set_struct_ref_leaf`（先校验该偏移确是引用单元）。
 
 ### GC：扫描 + 写屏障
 
-内联 struct 的引用叶子落在堆对象字节区内，**不再是独立 GC 根重扫**（arena 每采集重扫故无屏障，见上「GC：arena 是根，无写屏障」）——堆里的内联叶子需两件事：
-- **扫描**（mark 追踪）：`scan_object_refs`/`trace_children` 的 `Object` 臂遍历 `obj.struct_refs`（与
-  `BoxedStruct.refs` 一行同构，零 unsafe）——侧表让这平凡复用 `visitor(&Value)`；
-- **写屏障**（并发/分代正确性）：写内联引用叶子 = 写 `struct_refs[k]` 一个 `Value` 槽 → 复用现有
-  `write_barrier_field(owner, k, new)`（STW 默认 no-op）。**无新屏障机制**——这是侧表相对裸内联最大的工程简化。
+内联 struct 的引用叶子在堆对象字节区内，**不是独立 GC 根**：
+- **扫描**：`ScriptObject::visit_refs` 遍历 `ref_cells` 时一并解码这些引用字（装箱 struct 按其 struct 布局的 `ref_offsets`）；
+- **写屏障**：写引用叶子返回 `FieldWrite`，调用方把落下的引用（或盒子）交给 `write_barrier_field`；
+  被覆盖的旧字由引用字写原语交给 SATB。
 
 ### 格式 wire：内联字段表（zbc 1.32 / zpkg 0.37）
 
@@ -494,10 +491,11 @@ writer 侧 `ClassDescBuilder` 用 `StructLayout.InlineLayoutOf`（`BuildFromSymb
 
 ### `struct[]` 字节 backing
 
-`ArrayBacking::StructBytes{len, bytes, refs, layout}`（C# inline `struct[]`：元素基元紧凑
-`bytes[len*layout.size]` + 引用叶子并行 `refs[len*ref_count]`）。`arr[i]` 元素 offset 运行期定 → 需**堆 base 句柄**
+`ArrayBacking::StructBytes{len, block, layout}`（C# inline `struct[]`：`len` 个元素 blob 紧凑排在一个块里，
+每个元素就是独立 blob 的布局，引用叶子是元素内的引用字）。`arr[i]` 元素 offset 运行期定 → 需**堆 base 句柄**
 `Value::StructRefHeap{idx, frame_id}`（指向 `VmContext::transient_arena` 里的 `StructArrayElem{arr, index}`；arena `StructRef` 热路径不动；仅数组需句柄）。GC：
-`ArrayObj::gc_refs()` 统一 `Boxed ∪ StructBytes.refs` 供扫描；元素引用叶子写触发 `write_barrier_array_elem`。
+`ArrayObj::visit_refs` 逐元素解码引用叶子供扫描；元素引用叶子写触发 `write_barrier_array_elem`，
+整元素写与批量写之后按 `elem_ref_slots` 对每个引用叶子发屏障。
 
 - **创建**：`array_new`/`array_new_lit` 对 **blob 值 struct 元素**（`try_struct_backed`：`TypeDesc.fields≥2` +
   `struct_layout`，匹配编译期 `IsBlobStruct`）造 `StructBytes` backing（`ArrayObj::struct_backed`，经
@@ -531,8 +529,8 @@ writer 侧 `ClassDescBuilder` 用 `StructLayout.InlineLayoutOf`（`BuildFromSymb
 - **对象内联 struct 字段反射**：反射 `GetValue/SetValue` 读写
   `class C { Point pt; }` 的内联 struct 字段（复刻类级内联布局，见下同名节）。
 - **`Std.Array` 的无类型 / 批量原生**（`objops/array_bulk.rs`）：`get_boxed` / `set_boxed` 没有堆、对
-  `StructBytes` 只有断言，所以这几个原生按两侧 backing 选路——同一 struct 的两个数组之间 `CopyRange` 拷字节区间 +
-  引用叶子区间（同数组按 memmove）；struct[] → 引用数组逐元素 `box_struct_blob`；引用数组 → struct[] 先整段校验是该
+  `StructBytes` 只有断言，所以这几个原生按两侧 backing 选路——同一 struct 的两个数组之间 `CopyRange` 逐元素拷 blob
+  （引用叶子经引用字写原语，同数组按 memmove 方向）；struct[] → 引用数组逐元素 `box_struct_blob`；引用数组 → struct[] 先整段校验是该
   struct 的装箱再逐元素拷入；`GetValue` 装箱元素快照；`SetValue` 只收该 struct 的装箱；`CreateInstance` 走
   `try_struct_backed`。类型不符照 C#：数组类型不兼容 `ArrayTypeMismatchException`、元素转不过去
   `InvalidCastException`，目的数组不动。写入后对区间里每个引用叶子发 `write_barrier_array_elem`
@@ -540,13 +538,13 @@ writer 侧 `ClassDescBuilder` 用 `StructLayout.InlineLayoutOf`（`BuildFromSymb
 
 ## 基元装箱统一到 `BoxedStruct`
 
-**为什么统一**：struct 装箱与基元装箱若是两套不对称模型（struct = `Value::BoxedStruct(GcRef<ScriptObject>)`，
+**为什么统一**：struct 装箱与基元装箱若是两套不对称模型（struct = `Value::BoxedStruct(ObjRef)`，
 GC 管理 + 引用身份；基元 = 轻量 `Box`、无引用身份、非 GC 管理），则 `is`/`as`/`GetType`/`value_to_str`/GC visit/equality/
 反射/vcall 等 ~20 处 helper 要双写；且 `object o=5; object p=5; ReferenceEquals(o,p)` 在 C# 是 `false`（两个不同盒），
 无引用身份就是语义偏差。
 
 **唯一装箱模型**：`__box_prim`（`corelib/convert.rs`）产堆 `ScriptObject` + `Value::BoxedStruct`，
-与 struct 装箱同一路径 → 每次装箱 alloc 新盒（C# 引用身份），复用 `region_object` 全套 GC。无 `Value::Boxed`
+与 struct 装箱同一路径 → 每次装箱 alloc 新盒（C# 引用身份），复用对象块的全套 GC。无 `Value::Boxed`
 变体（判别号 13 留空，`#[repr(C,u8)]` 显式判别 14-18，JIT 原始布局不受影响）。
 
 **标量存储（与 struct 装箱完全同构，零格式 bump）**：`__box_prim` 只装**整数**（bool/char/double/
@@ -705,11 +703,10 @@ z42c.semantics 依赖它作跨包 API。给它加新 `IsStruct` 字段并在 z42
 `StructSize`/引用位图**逐字节一致**）→ 发 `StructAlloc`/`StructFieldGetPrim/SetPrim`（正确字节 offset）。
 
 **「逐字节一致」的第二个前提：字段类型拼写同口径**。
-`_kindOf` 按符号表**裸名键**判「字段是不是 struct」。本地字段拼写由 `MemberCollector` 取
-`SurfaceTypeName(已解析类型)`（短名形式 `Point3`）；导入字段若**照搬导出元数据的 FQ 串**
-（`Demo.NestLayoutTarget.Point3`）→ 查不到 → 嵌套 struct 字段被判成 8B 引用叶子 → 消费方布局与生产方错位，
-读写静默错值。故 `ImportedSymbolLoader._fillClass` 登记 `OwnField` 时同样用 `SurfaceTypeName(fsym.FieldType)`
-（解析失败才回落原串，与本地回落对称）。`Point{int,int}` 恰为 8B = 引用叶子
+布局表以 `LayoutKey`（全名）为键，`_kindOf` 按它判「字段是不是 struct」；字段类型取**字段符号的已解析类型**
+（`LayoutKey.Of(fsym.FieldType)`），本地与导入走同一出口，不读源拼写 `OwnFieldSpellings`（那份只供 TSIG 导出）。
+解析失败才回落源拼写（短名在符号表里唯一时换成它的全名）。拼写一旦两侧不同口径，嵌套 struct 字段就会被判成
+8B 引用叶子 → 消费方布局与生产方错位，读写静默错值。`Point{int,int}` 恰为 8B = 引用叶子
 大小，偏移碰巧重合，所以 `struct_cross_pkg` 守不住这条；golden `cross-zpkg/struct_nested_layout_cross_pkg` 用 12B `Point3` + transitive
 `Frame` 守住（阴性对照：撤掉处理后 `Error: struct ref leaf at byte offset 8 not in type layout`）。
 
@@ -728,15 +725,15 @@ z42c.semantics 依赖它作跨包 API。给它加新 `IsStruct` 字段并在 z42
 
 若 `Value::BoxedStruct` 载荷是**值**（`Box` 独占，`.cloned()` 深拷贝）→ `object b = a`
 是两份独立盒、反射 `SetValue` 改盒调用方看不见，与 C#（box 是共享堆引用）不一致。故载荷是
-**`GcRef<ScriptObject>`**（共享堆句柄）：
+**`ObjRef`**（共享堆句柄）：
 
 - 装箱 = 分配一个 **struct 类型的 `ScriptObject`**（`type_desc.is_struct()`，struct blob 存进对象已有的
   `struct_bytes`/`struct_refs`，`slots` 空）。`inline_region_sizes()` 对 `is_struct()` 类型改读该类型自己的
   `struct_layout`（size + ref_count），使 `alloc_object` 为盒分配正确大小的 blob 区。装箱经
   `corelib::convert::box_struct_blob`（`__box_struct` 复用它），拆箱 `unbox_struct` 读对象 blob → 当前帧 arena。
-- **复用 `region_object` + 全部 GC 机制，零 GC 核心改动**：GC 的 mark / gen-age / trace / scan_object_refs /
+- **复用对象块 + 全部 GC 机制，零 GC 核心改动**：GC 的 mark / gen-age / trace / scan_object_refs /
   size / 跨代写屏障（`maybe_mark_cross_gen_card` 的 owner+new 两侧）的 `BoxedStruct` 臂与 `Value::Object` **同路**
-  （底层同为 `GcRef<ScriptObject>`）。`is/as/GetType/vcall/Equals` 保持 boxed 值类型特判，只改「读盒」经对象
+  （底层同为 `ObjRef`）。`is/as/GetType/vcall/Equals` 保持 boxed 值类型特判，只改「读盒」经对象
   `type_desc.name`/`struct_bytes`/`struct_refs`。
 - **收益**：`object b = a` 别名同盒、传参改盒可见、反射 `SetValue` 写穿——达成 C# 引用身份。
 - **不给 struct 加 base/vtable**——只是把值装进已有对象容器、用 struct 自己的 TypeDesc。
@@ -750,7 +747,7 @@ z42c.semantics 依赖它作跨包 API。给它加新 `IsStruct` 字段并在 z42
 - 用 `TypeDesc.fields` 的 `(name, type_tag)` 逐字段自然对齐累积 offset，映射 `字段名 → (byte_off, tag, is_ref,
   is_struct, type_name)`。`canon`/`size_of`/`align_of`/`leaf_kind` 镜像 `Z42Type.Canon`/`_sizeOf`/`_alignOf`/
   `_kindOf`；`tag_from_name` 忠实镜像 `Tag.FromName`（decode signedness 与 codegen encode 一致）。嵌套 struct
-  字段短名按声明类型的命名空间解析到 FQ（`resolve_named`）再递归。
+  字段的类型名先原样解析（编译器写全名），解析不到再按声明类型的命名空间补全（`resolve_named`，只看顶层的 `.`）再递归。
 - **三层校验**（`validate_against`，抓复刻漂移，不符即可 catch 的 `bail!`）：① `computed.size == 交付 size`；
   ② 计算的引用叶子 offset 集（含嵌套展平）逐一等交付 `ref_offsets`；③ 逐叶子 ref/prim 分类与交付位图交叉核对。
 - **GetValue**：基元 → `decode_prim(struct_bytes)`；引用叶子 → `struct_refs[ref_index]`；嵌套 struct → boxed 快照

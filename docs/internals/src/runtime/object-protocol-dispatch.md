@@ -54,6 +54,9 @@ reference 的[类](https://z42-lang.github.io/z42/reference/language/classes.htm
 **`Value::BoxedStruct`** → `resolve_vcall(.., "ToString", ..)` 的阶梯（enum 成员名 / 基元标量 /
 struct 自身的 `ToString`），刻意不回落 `Std.Object.ToString`。
 
+**`Value::FuncRef` / `Value::Closure`**（P1-2 PR 8）→ `<fn 函数名>` / `<closure 函数名>`：值里存的是目标
+`FnId`，名字从它指向的 `Function` 取（`fn_by_id`）。与值里还存着名字时 `value_to_str` 打印的文本相同。
+
 **其余全部变体** → `value_to_str` 规则（标量经 `with_value_str` 在栈上格式化，文本逐字节相同）。
 
 ## `value_to_str`：不可失败的 Display
@@ -68,8 +71,8 @@ z42 函数才能渲染的变体，它只能给占位符。
 | `Null` | `null` |
 | `Array` | `[e0, e1, …]`（对元素递归）|
 | `Object` | `类型名{...}`（**不查 vtable**——需要派发的路径走上面的 `ToString` 协议）|
-| `FuncRef(n)` | `<fn n>` |
-| `Closure(c)` | `<closure 被提升函数名>` |
+| `FuncRef(id)` | `<fn #id>`（值里只有 `FnId`，无 `ctx` 解不出名字）|
+| `Closure(c)` | `<closure #id>`（同上）|
 | `BoxedStruct` | ① `boxed_enum_name()` 命中 → **enum 成员名**；② 否则 `boxed_prim_i64()` 命中 → 裸标量；③ 否则 `类型名{...}` |
 | `PinnedView` / `Ref` / `StackObject` / `StackArray` / `StructRef` / `StructRefHeap` | `<pinned view>` / `<ref>` / `<stack object>` / `<stack array>` / `<struct value>` —— 都是 arena 句柄，**无 `ctx` 可解** |
 

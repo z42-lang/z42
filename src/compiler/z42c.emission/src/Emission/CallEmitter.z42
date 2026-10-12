@@ -237,8 +237,7 @@ public sealed class CallEmitter {
             // add-prim-instance-type-overload（辅修 A，对称守卫）：本地 prim 类实例调用（OwnerClass=
             // 关键字小写，经 _primWrapper 映射到包装类名）恒不进 DepIndex 捷径——对称静态路径 :201-202
             // 的 ownerIsLocal 守卫，防本地 prim 类方法被下游同短名方法（如 Std.Regex.Split）劫持。
-            bool ownerIsLocalInst = this._ctx.LocalClasses != null
-                && this._ctx.LocalClasses.ContainsKey(TypeFactsTc._primWrapper(c.OwnerClass));
+            bool ownerIsLocalInst = this._ctx.IsLocalReceiver(c.Receiver.Type());
             if (!owns && !ifaceRecv && !virtualRecv && !ownerIsLocalInst && this._ctx.Deps != null) {
                 // instance-call-by-receiver：导入类（含 prim 的包装类）上的**非虚**实例方法 → 直接 Call 声明类的实现。
                 // 目标按「接收者类型的基类链 + 注册键」定位（ResolveSealedTarget 以 classSealed=true 调用：走到这里
@@ -294,7 +293,7 @@ public sealed class CallEmitter {
         // 类（converge 期 z42.project 的 SourceDiscovery/ManifestLoader 与 z42c.project 自有同名）时，
         // DepIndex 自排除 self → GetStaticScoped 落空 → 短键 fallback 误绑到依赖那份。local-wins 是正解。
         // （无同名依赖时 DepIndex 本就自排除 self → 落空 → 走本地，与本守卫同果 → 字节不动。）
-        bool ownerIsLocal = this._ctx.LocalClasses != null && this._ctx.LocalClasses.ContainsKey(c.OwnerClass);
+        bool ownerIsLocal = this._ctx.IsLocalClass(c.OwnerCt);
         if (c.Kind == "static" && !ownerIsLocal) {
             string depFq = this._depStaticTarget(c.OwnerClass, c.MethodName, c.ArgCount);
             if (depFq != "") {
@@ -317,9 +316,8 @@ public sealed class CallEmitter {
             this._ctx.Emit(new CallIndirectInstr(cidst, callee, args, c.ArgCount));
             return cidst;
         }
-        // 调用目标限定（BP-0）：静态类用 QualifyClass（imported/同包跨-ns aware，查 ImportedClassNs；
-        // 镜像 C# QualifyClassName）——否则同包跨-ns 静态调用（如 Std.Archive.Zip →
-        // Std.Compression.Deflate.Compress）被误限定当前 ns。自由函数用绑定期解析出的 ns（`FreeNs`，
+        // 调用目标限定（BP-0）：静态类按绑定期记下的目标类类型对象的声明 ns（`_qualifyOwner`，fqn-tables 5d）
+        // ——否则同包跨-ns 静态调用（如 Std.Archive.Zip → Std.Compression.Deflate.Compress）被误限定当前 ns。自由函数用绑定期解析出的 ns（`FreeNs`，
         // resolve-free-functions-by-namespace；取代按名猜的 QualifyFreeFunc）——跨包 / 同包跨 ns 都指到声明处。
         // 局部函数（lifted）优先，已 FQ、不再 Qualify。
         string func;
@@ -347,13 +345,27 @@ public sealed class CallEmitter {
         return this._ctx.QualifyClass(c.OwnerClass);
     }
 
+    // 实例调用的**声明类**类型对象：从接收者类型沿基链找 `Name() == OwnerClass` 的那一层；找不到 null。
+    private Z42ClassType _declOwnerOfInstance(BoundCall c) {
+        if (c.Receiver == null || this._ctx.Symbols == null) { return null; }
+        Z42ClassType ct = this._ee._receiverClassType(c.Receiver.Type());
+        int hops = 0;
+        while (ct != null) {
+            if (ct.Name() == c.OwnerClass) { return ct; }
+            ct = this._ctx.Symbols.BaseOf(ct);
+            hops = SymbolTable.NextBaseHop(hops);
+        }
+        return null;
+    }
+
     // complete-generic-instantiation S1-c：实例泛型方法的 vcall 简单名 → 特化简单名。
     // 登记的工作项键是**完整** IR 名（`<OwnerFq>.<简单名>:<实参…>`），与运行期解析拼出的名字一致。
     private string _specializeVCallName(BoundCall c) {
         if (c.MethodTypeArgCount <= 0) { return c.MethodName; }
         IrGen g = this._ctx.Gen;
         if (g == null || g.GenericBodies == null) { return c.MethodName; }
-        string lookup = c.OwnerClass + "." + c.MethodName;
+        // 体登记表按方法的 IR 名建键（`IrGen.ScanGenericBodies`）：接收者类型的声明 ns + 类名 + 方法键。
+        string lookup = SymbolTable.QualOf(EmitContext.DeclNsOf(c.Receiver.Type()), c.OwnerClass) + "." + c.MethodName;
         if (!g.GenericBodies.ContainsKey(lookup)) { return c.MethodName; }   // 非本包 / 虚方法（刻意排除）
         string suffix = "";
         int i = 0;
@@ -364,7 +376,9 @@ public sealed class CallEmitter {
             suffix = suffix + ":" + an;
             i = i + 1;
         }
-        string specFq = this._ctx.QualifyClass(c.OwnerClass) + "." + c.MethodName + suffix;
+        Z42ClassType oct = this._declOwnerOfInstance(c);
+        string specFq = (oct != null ? this._ctx.QualifyType(oct, c.OwnerClass) : this._ctx.QualifyClass(c.OwnerClass))
+                        + "." + c.MethodName + suffix;
         if (!g.GenericFnInsts.ContainsKey(specFq)) { g.GenericFnInsts.Put(specFq, new StrBox(lookup)); }
         // S1-d：虚派发可能落到**子类**的 override 上 ⇒ 本 CU 内同名的每个声明都要各特化一份，
         // 否则那些接收者会 miss（运行期不沿基类链继承特化名，故是大声报错而非静默调错）。
@@ -384,21 +398,9 @@ public sealed class CallEmitter {
         if (c.MethodTypeArgCount <= 0) { return func; }
         IrGen g = this._ctx.Gen;
         if (g == null || g.GenericBodies == null) { return func; }
-        // 体查找键：静态方法 = `OwnerKey.RegKey`；自由函数 = `RegKey`（= FQ 名去掉 ns 前缀）。
-        string lookup = "";
-        if (c.Kind == "static") {
-            int d1 = func.LastIndexOf('.');
-            if (d1 < 0) { return func; }
-            string ownerFq = func.Substring(0, d1);
-            string mkey = func.Substring(d1 + 1, func.Length - d1 - 1);
-            int d2 = ownerFq.LastIndexOf('.');
-            string ownerBare = d2 < 0 ? ownerFq : ownerFq.Substring(d2 + 1, ownerFq.Length - d2 - 1);
-            lookup = ownerBare + "." + mkey;
-        } else {
-            int d3 = func.LastIndexOf('.');
-            lookup = d3 < 0 ? func : func.Substring(d3 + 1, func.Length - d3 - 1);
-        }
-        if (!g.GenericBodies.ContainsKey(lookup)) { return func; }
+        // 体登记表按 IR 名建键（静态方法 `ns.Owner.RegKey` / 自由函数 `ns.RegKey`），`func` 就是它。
+        // 跨 ns 同名（`A.Util.Tag<T>` / `B.Util.Tag<T>`）各取各的体。
+        if (!g.GenericBodies.ContainsKey(func)) { return func; }
         string spec = func;
         int i = 0;
         while (i < c.MethodTypeArgCount) {
@@ -408,7 +410,7 @@ public sealed class CallEmitter {
             spec = spec + ":" + an;
             i = i + 1;
         }
-        if (!g.GenericFnInsts.ContainsKey(spec)) { g.GenericFnInsts.Put(spec, new StrBox(lookup)); }
+        if (!g.GenericFnInsts.ContainsKey(spec)) { g.GenericFnInsts.Put(spec, new StrBox(func)); }
         return spec;
     }
 
@@ -436,7 +438,7 @@ public sealed class CallEmitter {
     // 赋值表达式要保住右值寄存器作为表达式值，`++/--` 要复用读出的旧值，故不能经 BoundCall 重发实参。
     // 调用目标与 `_emitCall` 的 static 分支同一口径（本包类 → QualifyClass；依赖包 → DepIndex）。
     internal TypedReg _emitStaticAccessor(string ownerClass, Z42ClassType ownerCt, string accessor, TypedReg[] args, int argCount, Z42Type retType) {
-        bool ownerIsLocal = this._ctx.LocalClasses != null && this._ctx.LocalClasses.ContainsKey(ownerClass);
+        bool ownerIsLocal = this._ctx.IsLocalClass(ownerCt);
         if (!ownerIsLocal) {
             string depFq = this._depStaticTarget(ownerClass, accessor, argCount);
             if (depFq != "") {
@@ -560,9 +562,8 @@ public sealed class CallEmitter {
             while (k < inst.ArgCount) { targs[k] = this._ee._typeofArgName(inst.TypeArgs[k]); k = k + 1; }
             tcount = inst.ArgCount;
         }
-        // fix-type-ref-ns-collision：已解析到的类型（本地类带 Namespace）直接用其 FQN 发射，绕开
-        // QualifyClass 按短名走 ImportedClassNs first-wins 的撞名歧义（曾致 `new A.Foo` emit `B.Foo`）。
-        // Namespace=="" 的类（全局 / imported——本 change 未给 imported 设 ns）走原 QualifyClass 路径，无回归。
+        // fix-type-ref-ns-collision：已解析到的类型直接用其 FQN 发射（曾按短名查图致 `new A.Foo` emit `B.Foo`）。
+        // Namespace=="" 的类（全局 ns / 兜底合成类型）按当前 ns 限定。
         Z42ClassType _rct = null;
         if (n.Type() is Z42ClassType) { _rct = n.Type() as Z42ClassType; }
         else if (n.Type() is Z42InstantiatedType) { _rct = (n.Type() as Z42InstantiatedType).Def; }

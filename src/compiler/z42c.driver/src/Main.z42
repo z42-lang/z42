@@ -33,7 +33,7 @@ static class ExitCode {
 // parallelize-package-compile ★①：per-file 源读取 + SHA-256 并行（解释执行的 SHA-256 是 CPU 热点，
 // D8 增量差价主项）。每文件独立读文本 + 算 hash，写自己的 _texts[i]/_hashes[i] → 确定性、可并行。
 // handlerFp 循环前算好（与文件无关），Run 内只读。
-sealed class SrcReadHashTask : IParallelBody {
+sealed class SrcReadHashTask : IParallelTask {
     string[] _srcs; string[] _texts; string[] _hashes; string _handlerFp;
     public SrcReadHashTask(string[] srcs, string[] texts, string[] hashes, string handlerFp) {
         this._srcs = srcs; this._texts = texts; this._hashes = hashes; this._handlerFp = handlerFp;
@@ -172,7 +172,7 @@ string[] _displaySrcs(string[] srcs) {
 
 // `z42c build <toml>`：manifest → 源发现 → 逐文件编译 → packed zpkg → dist/<name>.zpkg。
 // MVP：单工程/packed/无增量（镜像 C# PackageCompiler.BuildTarget 关键路径）。
-// cacheDirOverride：workspace 构建由 WsPlan 给出成员 cache 目录（成员 toml 通常无 [build]，按单工程解析会落进
+// cacheDirOverride：workspace 构建由 WorkspaceLayoutPlan 给出成员 cache 目录（成员 toml 通常无 [build]，按单工程解析会落进
 // 源码树）；"" = 按本工程 manifest 解析（BuildLayout）。
 // tier：解析**分档**（见 z42c.pipeline 的 WsTier.z42）——成员 dist 只答成员包、外部档只答
 // 非成员包，外加「拓扑序排在本成员之后的成员整个不可见」。null = 非 workspace 路径，全可见。
@@ -227,13 +227,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         //
         // ⇒ `--compile-libs` 只喂 ②**编译期**解析，未给则回落 `Z42_LIBS`（行为逐字不变）。
         // 做成旗标而非环境变量的理由见 `CompileLibsOpt` 头注。
-        if (CompileLibsOpt.Count() > 0) {
-            libsDirs = CompileLibsOpt.Dirs(); libsDirsN = CompileLibsOpt.Count();
-        } else {
-            string env = Environment.GetEnvironmentVariable("Z42_LIBS", "");
-            if (env.Length > 0) { libsDirs = new string[1]; libsDirs[0] = env; libsDirsN = 1; }
-            else { libsDirs = new string[0]; libsDirsN = 0; }
-        }
+        libsDirs = CompileLibsOpt.ExtDirs(); libsDirsN = libsDirs.Length;
     }
     // ── path 依赖闭包（add-path-dependencies 阶段2 use）——实现见 PathDepBuild.z42 `_buildPathDepClosure`。
     string[] closureNames = new string[0];
@@ -258,11 +252,11 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         if (zrefs0 == null) { return ExitCode.BuildError; }
         // 🔴 **编译器域目录必须排在框架之后，不能排在前面**（relocate-compiler-domain-libs 实测）。
         //
-        // `<sdk>/programs/z42c/` 是 driver 的**自包含闭包** —— 里面除了编译器域包，还躺着整套
-        // stdlib 的副本。把它放在 `Z42_LIBS` 之前，`z42.core` 等就会**先在那儿命中**，于是
-        // `_bundleExeDeps` 按「不是从 shipped libs/ 找到的 ⇒ 私有」把**整套 stdlib 拷进用户工程
-        // 的输出目录**（实测：引用一个编译器域包，dist 从 1 个 zpkg 变成十几个；
-        // 同工程不引用编译器域包时只有 1 个）。
+        // 编译器域目录（`<sdk>/programs/z42c/`、开发树的 driver dist）里可能躺着 stdlib 副本：老版本 driver 的
+        // exe 复制判据只认 `Z42_LIBS`，自举时把整套 stdlib 当私有包复制进了自己的 dist，那一代 SDK 就带着它们。
+        // 把这种目录放在 `Z42_LIBS` 之前，`z42.core` 等就会**先在那儿命中**，于是 `_bundleExeDeps` 按「不是从
+        // 框架目录找到的 ⇒ 私有」把**整套 stdlib 拷进用户工程的输出目录**（实测：引用一个编译器域包，dist 从
+        // 1 个 zpkg 变成十几个；同工程不引用编译器域包时只有 1 个）。
         //
         // 手写的 vendored zpkg 引用仍排在框架**之前**（那是「我显式指定的这一份要压过碰巧同名的
         // 框架包」的原意）；编译器域目录不需要这条优先级 —— 它里面的编译器域包按构造不存在于
@@ -299,6 +293,8 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
             libsDirs = withZ; libsDirsN = libsDirsN + zn;
         }
     }
+    // 声明了 stdlib ⇒ W0610（DepDecls.z42）。此刻 libsDirs = path 闭包 / vendored zpkg + 外部档，正是判「从哪解析到」的那一份。
+    _warnStdlibDeps(pm, tomlPath, libsDirs, libsDirsN, tier);
     // ── SDK 库的可见性（add-sdk-libs；规则与实现见 z42c.pipeline 的 SdkLibs.z42）────────────────────
     // exe / lib：按名声明的 SDK 库（+ 传递闭包）可见；analyzer：编译器目录里的 SDK 库全部可见（编译期扩展的
     // 契约包在那里）。不放行的并入扫描 tier 的 Hidden。放行集为空（绝大多数工程，含 z42c 自建）⇒ 不追加目录、
@@ -330,7 +326,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     // parallelize-package-compile ★①：per-file 读+哈希并行（各写独立槽，确定性）。
     string[] texts = new string[srcs.Length];
     string[] srcHashes = new string[srcs.Length];
-    ParallelFor.Run(srcs.Length, ParallelConfig.Jobs(srcs.Length),
+    Z42.Package.ParallelFor.Run(srcs.Length, Z42.Package.ParallelConfig.Jobs(srcs.Length),
         new SrcReadHashTask(srcs, texts, srcHashes, handlerFp));
     // exe 判定：显式 kind=exe，或声明了 `[[exe]]` 多目标（unify-run-modes P3）。
     bool isExe = pm.Project.Kind == "exe" || pm.ExeCount > 0;
@@ -441,7 +437,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     }
     // workspace-read-cache：workspace 成员（cacheDirOverride 非空）也 probe。单工程 `--output-dir`（自举预建 build-libs 等）
     // 仍不 probe——那条路径没有 workspace 布局给出的 cache 目录，dist 是临时拼的平铺目录。
-    // 实际生效的 cache 目录：workspace 成员由 WsPlan 给出，否则按本工程 manifest 解析。probe / indexed dist 读回 /
+    // 实际生效的 cache 目录：workspace 成员由 WorkspaceLayoutPlan 给出，否则按本工程 manifest 解析。probe / indexed dist 读回 /
     // 写 cache 三处必须是同一个目录（此前 indexed dist 固定按 manifest 解析，workspace 一读 cache 就读错位置）。
     string effCacheDir = cacheDirOverride.Length > 0 ? cacheDirOverride : BuildLayout.Resolve(pm, projectDir, isRelease).CacheDir;
     // fix-output-dir-aux-outputs：单工程 `--output-dir`（非 workspace）**不写 cache**。这条路径本就不 probe

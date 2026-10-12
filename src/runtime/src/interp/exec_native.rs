@@ -144,8 +144,8 @@ pub(super) fn pin_ptr(
             // packed-primitive-arrays: a packed `byte[]` (`Bytes` backing) is a
             // contiguous `&[u8]` — copy it straight out, no per-element unbox
             // (the "简化 extern call" win). Boxed falls back to validated unbox.
-            let bytes: Vec<u8> = if let Some(b) = arr_ref.as_bytes() {
-                b.to_vec()
+            let bytes: Vec<u8> = if let Some(b) = arr_ref.byte_snapshot() {
+                b
             } else {
                 let n_elems = arr_ref.len();
                 let mut out = Vec::with_capacity(n_elems);
@@ -157,7 +157,6 @@ pub(super) fn pin_ptr(
                     }
                 }
                 if let Some((i, o)) = invalid {
-                    drop(arr_ref);
                     let msg = format!("PinPtr Array element {i} not a u8 in 0..=255: {o}");
                     let exc = make_stdlib_exception(ctx, module, INVALID_MARSHAL_FQ, msg)?;
                     return Ok(Some(exc));

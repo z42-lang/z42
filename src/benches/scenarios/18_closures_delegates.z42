@@ -1,0 +1,52 @@
+// tier: full — 闭包与委托：建闭包 + 间接调用、自由函数方法组、多播 event，隔离 LoadFn / MkClos / CallIndirect
+//
+// Three shapes in one loop: a capturing lambda created per iteration and invoked through a
+// higher-order function (`MkClos` + `CallIndirect`, the cross-language `closures` workload's
+// shape), a free-function method group (`LoadFn` + `CallIndirect`), and a multicast event
+// with two subscribed handlers — an instance method group and a lambda — fired once per
+// iteration (`MulticastAction<T>.Invoke` in z42.core walks its handler array with
+// `CallIndirect`). Counterpart of 10_mono_vcall for indirect calls. Run in both modes:
+// interp and JIT each create and invoke the values through their own path.
+//
+// Expected output (deterministic): 3000000999997
+
+namespace Bench.ClosuresDelegates;
+
+using Std;
+using Std.IO;
+
+long Twice(long x) { return x * 2L; }
+
+long Apply((long) -> long f, long x) { return f(x); }
+
+class Sink {
+    public long Total;
+    public void Add(long v) { this.Total = this.Total + v; }
+}
+
+class Ticker {
+    public event MulticastAction<long> Ticked;
+    public void Fire(long v) { this.Ticked.Invoke(v); }
+}
+
+long Drive(long n) {
+    Sink sink = new Sink();
+    Ticker ticker = new Ticker();
+    ticker.Ticked += sink.Add;
+    ticker.Ticked += (long v) => { sink.Total = sink.Total + 1L; };
+    (long) -> long twice = Twice;
+    long acc = 0L;
+    long i = 0L;
+    while (i < n) {
+        long k = i % 7L;
+        acc = acc + Apply((long x) => x * 3L + k, i);
+        acc = acc + Apply(twice, i);
+        ticker.Fire(i);
+        i = i + 1L;
+    }
+    return acc + sink.Total;
+}
+
+void Main() {
+    Console.WriteLine(Drive(1000000L).ToString());
+}

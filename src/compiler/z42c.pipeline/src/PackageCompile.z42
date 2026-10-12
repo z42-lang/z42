@@ -1,6 +1,7 @@
 // 包编译核心（extract-compile-pipeline-api）：源+依赖 → 组装好的 in-memory ZpkgFileZ + 结构化诊断。
 //
-// 从 z42c.driver/_build 抽出的**纯核心**（依赖解析 ⑥ → 包级编译 ⑧ → 组装 ⑩）：不落盘、不写
+// 从 z42c.driver/_build 抽出的**纯核心**（② 依赖解析 → ③④ 前置线 → ⑤ 包级编译 → ⑥⑦ 诊断收口 + 错误门 → ⑧ 组装；
+// 编号与 docs/internals/src/compiler/source-compile.md 的流程图一致）：不落盘、不写
 // Console、不返回 ExitCode、不做增量 probe。z42c.driver（CLI）与 Z42cCompiler（z42b 进程内编译，
 // wire-z42b 落地）共享本实现。落盘 / 呈现 / 增量策略留调用方（见 design.md D1/D2）。
 //
@@ -8,10 +9,11 @@
 // 依赖从磁盘 LibsDirs 解析（design D3；DeclaredDeps 取名字串数组，故本核心不依赖 manifest 模型）。
 namespace Z42.Pipeline;
 
-using Std.IO;      // File（加载失败时读 handler zpkg 头做成因分流）
 using Z42.Core;       // DiagnosticBag / Diagnostic / DiagnosticSeverity（analyzer 诊断合入）
 using Z42.Syntax;
 using Z42.Semantics;
+using Z42.Generators;   // CompileInputs 的测试注入面（Generator / ModuleGenerator）
+using Z42.Analyzers;   // CompileInputs.Lints（LintConfig）
 using Z42.IR;
 using Z42.Package;
 using Z42.Optimization;
@@ -153,9 +155,9 @@ public sealed class CompileArtifacts {
 
 public static class PackageCompile {
 
-    // 纯核心：⑥依赖解析 → ⑧包级编译 → ⑩组装。零落盘 / 零 Console / 零 ExitCode。
+    // 纯核心：② 依赖解析 → ③④ 前置线（FrontLine）→ ⑤ 包级编译 → ⑥⑦ 诊断收口 + 错误门 → ⑧ 组装。零落盘 / 零 Console / 零 ExitCode。
     public static CompileArtifacts Compile(CompileInputs inp) {
-        // ── ⑥ 跨包依赖解析（libsDirs 扫描 → DepIndex + nsMap + usings 聚合 → ImportedSymbols）──
+        // ── ② 跨包依赖解析（libsDirs 扫描 → DepIndex + nsMap + usings 聚合 → ImportedSymbols）──
         // perf ②：inp.CachedScan 非 null → 跳过 DepScan.ScanDirs，直接复用（REPL 每轮省 ~98%）。
         DepScanResult scan = null;
         ImportedSymbols imported = null;
@@ -201,93 +203,25 @@ public static class PackageCompile {
             while (dd < inp.DepCount) { imported.DeclaredDeps.Put(inp.DeclaredDeps[dd], "1"); dd = dd + 1; }
         }
 
-        // ── attribute-handler-registry PR4a/4c：generator 引擎（方案 B post-bind splice/merge，参考 Roslyn）──
-        // gated on GeneratorCount>0 → z42c 自建无 generator → 分支不进 → 逐字节不动。有 generator 时走
-        // double-bind：provisional CollectAll（给 generator 解析符号）→ applied `Run` + module `RunModules`
-        // （Add/Replace/Augment → union）→ 下面 BuildPackageCus 对 union 重编（其内 CollectAll = real bind）。
-        // union 一律 fresh 编译（cachedMods=null）——生成内容使增量缓存失效；跨 build 的 generator-身份失效由
-        // 增量 probe 的 handler 指纹兜底（PR4e，见 BuildPaths._handlerFingerprint，已 active）。
-        // PR4e-wire：本块经 GeneratorDriver.RunRounds 走**有界多轮**——applied+module 按 consumes/produces
-        // 拓扑分层（Kahn 最长路径 + 成环 E0449），逐层 re-bind，后层见前层产出。**默认全空 consumes/produces
-        // → 全落第 0 层、一轮跑完 = 退化回 PR4a/4c 单轮语义（applied 先、module 后）**，与旧单轮 byte-identical。
-        // RunRounds 内部逐层做 provisional CollectAll（level 0 = 原始 bind）→ 此处不再自建 prov。gate 仍 off
-        // 于 z42c 自建（无 generator）→ 本块不进 → 逐字节不动。（PR4e 已随 nightly 发布 RunRounds，故此处
-        // pipeline→semantics 引用 RunRounds 不再撞 F2 冷启动 stale-cache——staged-bootstrap use 阶段。）
-        CompilationUnit[] cus = inp.Cus;
-        string[] files = inp.Files;
-        string[] texts = inp.Texts;
-        int srcCount = inp.SrcCount;
-        IrModule[] cachedMods = inp.CachedMods;
-        // PR4c：module generator（不贴任何处、扫全编译 + 强类型查询 → AddSource）接在 applied 之后同一
-        // gated 块——共用 provisional bind；applied 可能改写 CU（Augment/Replace/AddSource），module 扫
-        // 其产出的 union AST。任一路径有产出 → union 全 fresh 重编。
-        DiagnosticBag genDiags = new DiagnosticBag();
-        string[] genFiles = new string[0]; string[] genTexts = new string[0]; int genCount = 0;
-        // PR4d：外部 generator zpkg **复用 `[analyzers]` 段路径（AnalyzerZpkgs）**（D9 单段覆盖两类）→
-        // GeneratorLoader 发现 `: Generator`/`: ModuleGenerator` 类型、实例化，并入测试注入的数组，走同一
-        // gated 块。z42c 自建无 [analyzers] → AnalyzerZpkgCount==0 → 不加载、effGens/effMods 即注入的空数组
-        // → gate false → 逐字节不动。（不用独立 GeneratorZpkgs 字段：见 CompileInputs 上方注 —— 避免 driver
-        // 引用 CompileInputs 新字段撞 F2 冷启动 stale-cache。）
-        Generator[] effGens = inp.Generators; int effGenCount = inp.GeneratorCount;
-        ModuleGenerator[] effMods = inp.ModuleGenerators; int effModCount = inp.ModuleGeneratorCount;
-        // handler zpkg 能否加载 —— 两个 loader（generator / analyzer）打的是**同一批路径**、同一个
-        // `__load_module`，失败必然同时失败。下面 generator 侧先跑，失败即置 false，`_runAnalyzers`
-        // 据此跳过，避免同一个根因报两遍。
-        bool handlersLoadable = true;
-        // 从 `[analyzers]` zpkg 里**真发现**的 handler 数（不含 `[Forward]` 这类内建 generator、
-        // 也不含测试注入的实例）—— 零发现是一条静默洞，见下方 `_reportNoHandlers`。
-        int externHandlers = 0;
-        if (inp.AnalyzerZpkgCount > 0) {
-            // 🔴 加载失败必须是**诊断**，不是崩溃。`GeneratorLoader.Load` 里的 `__load_module` 对
-            // 加载不了的 zpkg 直接抛（最常见：indexed zpkg 被单独拷走、散装 `.zbc` 没跟着，报
-            // `cannot load indexed zpkg`）—— 此前这个异常一路穿出 driver，用户看到的是一段带
-            // z42c 内部栈帧的 `uncaught exception`，既不说是哪个 [analyzers] 条目的问题，也不说
-            // 该怎么办。捕获后落成 E0493，编译按正常错误路径收尾。
-            LoadedGenerators lg = null;
-            try {
-                lg = GeneratorLoader.Load(inp.AnalyzerZpkgs, inp.AnalyzerZpkgCount);
-            } catch (Exception e) {
-                handlersLoadable = false;
-                genDiags.Error(DiagnosticCodes.HandlerZpkgLoadFailed,
-                    PackageCompile._handlerLoadFailMessage(inp, e.Message),
-                    new Span(0, 0, 1, 1, inp.AnalyzerZpkgs[0]));
-            }
-            if (lg != null) {
-                externHandlers = externHandlers + lg.AppliedCount + lg.ModuleCount;
-                effGens = PackageCompile._concatGen(inp.Generators, inp.GeneratorCount, lg.Applied, lg.AppliedCount);
-                effGenCount = inp.GeneratorCount + lg.AppliedCount;
-                effMods = PackageCompile._concatMod(inp.ModuleGenerators, inp.ModuleGeneratorCount, lg.Modules, lg.ModuleCount);
-                effModCount = inp.ModuleGeneratorCount + lg.ModuleCount;
-            }
-        }
-        // add-member-forwarding：`[Forward]` 是**语言内建** generator，但**按需注册**。
-        // 🔴 不能无条件并进来：本 gate（下一行）正是「空 → 分支不进 → 逐字节不动」赖以成立的
-        // 条件，无条件注册会让**每次**编译都走 union 全 fresh 重编、直接破坏自举字节不动点。
-        // 预扫是纯 AST 遍历（CU 已 parse），没用 `[Forward]` 的包一个字节都不变。
-        if (ForwardGenerator.AnyTrigger(cus, srcCount)) {
-            Generator[] fwd = new Generator[1];
-            fwd[0] = new ForwardGenerator();
-            effGens = PackageCompile._concatGen(effGens, effGenCount, fwd, 1);
-            effGenCount = effGenCount + 1;
-        }
-        if (effGenCount > 0 || effModCount > 0) {
-            GenOutcome ro = GeneratorDriver.RunRounds(effGens, effGenCount, effMods, effModCount,
-                                                      cus, files, srcCount, imported, genDiags);
-            if (ro.HasOutput) {
-                cus = ro.Cus; files = ro.Files; srcCount = ro.CuCount;
-                genFiles = ro.Files; genTexts = ro.Texts; genCount = ro.CuCount;
-                texts = new string[srcCount];   // 生成 CU 无源文本；fresh 路径不读 texts（仅 cached 读）→ 占位即可
-                int ti = 0; while (ti < srcCount) { texts[ti] = ti < inp.SrcCount ? inp.Texts[ti] : ""; ti = ti + 1; }
-                cachedMods = null;   // union 全 fresh
-            }
-        }
+        // ── ③④ 前置线（generator → analyzer）：只动源码层，产出 union CU + 暂存诊断（见 FrontLine.z42）──
+        // 无 generator / analyzer 的包（z42c 自建 / REPL / 绝大多数包）两段都不进 ⇒ 逐字节不动。
+        FrontLineResult fl = FrontLine.Run(inp, imported);
+        CompilationUnit[] cus = fl.Cus;
+        string[] files = fl.Files;
+        string[] texts = fl.Texts;
+        int srcCount = fl.Count;
+        IrModule[] cachedMods = fl.Regenerated ? null : inp.CachedMods;   // 生成内容使增量缓存失效 ⇒ union 全 fresh
+        DiagnosticBag genDiags = fl.Diags;
 
-        // ── ⑧ 包级编译（全文件先 parse 合并收集符号，再逐文件产物；cached 跳过 typecheck/codegen）──
+        // ── ⑤ 包级编译（全文件先 parse 合并收集符号，再逐文件产物；cached 跳过 typecheck/codegen）──
         // add-compiler-inlining：OptSet -1（未设）→ 取 profile 默认（release=All / debug=None）。
         int optSet = inp.OptSet;
         if (optSet < 0) { optSet = Opt.ProfileDefault(inp.IsRelease); }
-        CompiledModuleZ[] cms = IrDump.BuildPackageCus(texts, files, srcCount, cus,
-                                                       depIndex, imported, inp.IsRelease, cachedMods, optSet);
+        // 前置线（③ generator 护栏 E0448 / ④ analyzer）已有 error ⇒ 主编译线照常收集 + 类型检查（诊断一次报全），
+        // 但跳过代码生成与优化：这次编译不会产出，白做的那段恰是最贵的。
+        CompiledModuleZ[] cms = IrDump.BuildPackageCusGated(texts, files, srcCount, cus,
+                                                            depIndex, imported, inp.IsRelease, cachedMods, optSet,
+                                                            fl.HasErrors());
         // cached 的 UsedDepNs 是 typecheck 产物（本轮跳过）→ 从 meta 回填（源不变即不变）。
         // 诊断同理（warnings-survive-cache）：`CompileCuTask.Run` 的 cached 分支把 `DiagMsgs`
         // 置空，此前无人回填 ⇒ **警告只在冷构建那一次可见**（实测 W0700：第 ① 次打印，第 ②
@@ -342,12 +276,17 @@ public static class PackageCompile {
             if (exeDiags.Count() > 0) { PackageCompile._mergeDiags(cms[0], exeDiags); }
         }
 
-        // ── attribute-handler-registry PR3a-load：外部 analyzer（[analyzers] 段声明的 handler zpkg）──
+        // ── ⑥ 并入前置线暂存的 analyzer 诊断 + 零发现判红（E0496）──
         // gated on 非空 → z42c 自建无 [analyzers] → 该分支不进 → 逐字节不动。analyzer 诊断合入 per-file
         // Cms（默认 Warning 级不增 ErrorCount → 不 fail 编译，但对调用方可见）。放在错误门**前**，让
         // analyzer 报的 Error 级也能拦编译。
-        if (inp.AnalyzerZpkgCount > 0 && handlersLoadable) {
-            externHandlers = externHandlers + PackageCompile._runAnalyzers(inp, cms);
+        if (inp.AnalyzerZpkgCount > 0 && fl.HandlersLoadable) {
+            int ab = 0;
+            while (ab < fl.AnalyzerDiags.Length) {
+                if (fl.AnalyzerDiags[ab] != null && ab < cms.Length) { PackageCompile._mergeDiags(cms[ab], fl.AnalyzerDiags[ab]); }
+                ab = ab + 1;
+            }
+            int externHandlers = fl.ExternHandlers;
             // 🔴 **零发现此前是静默空转**：声明的 zpkg 加载成功、里面一个 `: Analyzer` /
             // `: Generator` / `: ModuleGenerator` 都没有 ⇒ 两个 loader 各返回空数组 ⇒ 提前 return
             // ⇒ **编译退出码 0、零诊断**，用户的扩展干脆不跑，而他有充分理由以为跑了。
@@ -377,7 +316,7 @@ public static class PackageCompile {
             while (hi < srcCount) { hashes[hi] = hi < inp.SrcCount ? inp.SrcHashes[hi] : "GENERATED"; hi = hi + 1; }
         }
 
-        // ── `using` 指向不存在的命名空间（E0494）────────────────────────────────────────
+        // ── ⑦ `using` 指向不存在的命名空间（E0494）────────────────────────────────────────
         // 🔴 此前**零诊断**：`using Z42.Totally.Bogus;` 编译通过。usings 的唯一去向是
         // `ImportedSymbolLoader.Load` 的**激活过滤**——名字对不上任何已知 ns，就只是没激活任何东西，
         // 与「写了个没用到的 using」不可区分。于是拼错命名空间得到的不是「没有这个命名空间」，
@@ -438,7 +377,7 @@ public static class PackageCompile {
             return errArt;
         }
 
-        // ── ⑩ 组装：ZbcFileZ[] → BuildDependencyMap → BuildPackedD → ZpkgFileZ ──
+        // ── ⑧ 组装：ZbcFileZ[] → BuildDependencyMap → BuildPackedD → ZpkgFileZ ──
         // encode-ctorless-objnew：装配是本包**全部** IrModule 第一次同时在手的时刻（含增量 cached），
         // 也是 `ObjNew.CtorKnown` 唯一算得准的地方——同包其它文件的构造器到这时才都在手上。
         // 见 `CtorKnownFixup` 的文件头注释。
@@ -490,31 +429,13 @@ public static class PackageCompile {
             else if (z.Entry == "") { entryStatus = "missing"; }
         }
         CompileArtifacts okArt = new CompileArtifacts(z, mods, srcCount, cms, srcCount, 0, entryStatus);
-        okArt.GenFiles = genFiles; okArt.GenTexts = genTexts; okArt.GenCount = genCount;
+        okArt.GenFiles = fl.GenFiles; okArt.GenTexts = fl.GenTexts; okArt.GenCount = fl.GenCount;
         okArt.CuDiags = snap;
         okArt.Scan = scan;   // perf ②：回显 scan 供调用方缓存 + 后续 ExtendWithPackage
         return okArt;
     }
 
-    // PR4d：注入的 applied generator + 外部加载的 applied generator 合并（注入在前，加载在后——外部
-    // 加载已按路径 Ordinal 稳定序）。z42c 自建两者皆空 → 返回空 → 不触 gate。
-    private static Generator[] _concatGen(Generator[] a, int an, Generator[] b, int bn) {
-        Generator[] r = new Generator[an + bn];
-        int i = 0;
-        while (i < an) { r[i] = a[i]; i = i + 1; }
-        int j = 0;
-        while (j < bn) { r[an + j] = b[j]; j = j + 1; }
-        return r;
-    }
 
-    private static ModuleGenerator[] _concatMod(ModuleGenerator[] a, int an, ModuleGenerator[] b, int bn) {
-        ModuleGenerator[] r = new ModuleGenerator[an + bn];
-        int i = 0;
-        while (i < an) { r[i] = a[i]; i = i + 1; }
-        int j = 0;
-        while (j < bn) { r[an + j] = b[j]; j = j + 1; }
-        return r;
-    }
 
     // fix-crosspkg-ns-split-deps：把 toml 声明的依赖并入 DEPS（file = "<name>.zpkg"），
     // 已存在 / 自依赖跳过；命名空间跨包时（ns-first-wins 漏第二提供包）确保声明依赖成为运行时
@@ -569,78 +490,8 @@ public static class PackageCompile {
         return false;
     }
 
-    // 返回**发现的 analyzer 个数**（零发现判定要它；加载失败返回 0）。
-    private static int _runAnalyzers(CompileInputs inp, CompiledModuleZ[] cms) {
-        // 同 generator 侧：加载失败落 E0493 诊断，不让异常穿出成 uncaught。两处都要 —— 走到这里
-        // 时 generator 侧可能已经成功（只含 analyzer 的 zpkg 发现 0 个 generator 也算成功返回）。
-        Analyzer[] analyzers = null;
-        try {
-            analyzers = AnalyzerLoader.Load(inp.AnalyzerZpkgs, inp.AnalyzerZpkgCount);
-        } catch (Exception e) {
-            if (cms.Length > 0) {
-                DiagnosticBag lbag = new DiagnosticBag();
-                lbag.Error(DiagnosticCodes.HandlerZpkgLoadFailed,
-                           PackageCompile._handlerLoadFailMessage(inp, e.Message),
-                           new Span(0, 0, 1, 1, inp.AnalyzerZpkgs[0]));
-                PackageCompile._mergeDiags(cms[0], lbag);
-            }
-            return 0;
-        }
-        if (analyzers.Length == 0) { return 0; }
-        int i = 0;
-        while (i < inp.SrcCount) {
-            CompilationUnit cu = inp.Cus[i];
-            if (cu != null) {
-                DiagnosticBag bag = new DiagnosticBag();
-                // PR7-wire：传 inp.Fix 调 6-参 Run——true（`z42c build --fix`）→ analyzer 携修复就地重写
-                // cu 的源文件（TextEdit.At.File）。z42c 自建无 [analyzers] → analyzers 空、提前 return → 不触发。
-                AnalyzerDriver.Run(analyzers, analyzers.Length, cu, bag, inp.Lints, inp.Fix);
-                if (bag.Count() > 0) { PackageCompile._mergeDiags(cms[i], bag); }
-            }
-            i = i + 1;
-        }
-        return analyzers.Length;
-    }
 
-    // ── handler zpkg 的失败消息（add-package-roles 批 2）──────────────────────────────────
-    //
-    // 此前这条 E0493 **一口咬定成因**：「indexed zpkg 必须连同散装 .zbc 一起放进依赖目录；或改用
-    // `--release`」。那是最常见的成因，但不是唯一的：把 handler zpkg 的版本改一位（模拟由另一代
-    // 编译器编出）同样走到这里，而用户照那句提示去拷 `.zbc` 做的是完全无关的事 —— 一条**指向错误
-    // 方向的诊断**，比不解释更费时间。故先读 zpkg 头的版本做成因分流，对不上就换一句话说。
-    private static string _handlerLoadFailMessage(CompileInputs inp, string inner) {
-        string skew = PackageCompile._versionSkewNote(inp.AnalyzerZpkgs, inp.AnalyzerZpkgCount);
-        if (skew.Length > 0) {
-            return "[analyzers] 声明的 handler zpkg 加载失败：" + inner + skew;
-        }
-        return "[analyzers] 声明的 handler zpkg 加载失败：" + inner
-            + "（indexed zpkg 必须连同它旁边的散装 .zbc 一起放进依赖目录；"
-            + "或改用 `--release` 构建 handler 工程得到单文件 packed zpkg）";
-    }
 
-    // 声明的 zpkg 里有没有版本对不上本编译器的；有则返回一句可读的说明，没有返回 ""。
-    // zpkg 头（`ZpkgWriterZ._assemble`）：`"ZPK"` + u8(0) + u16 major(off 4) + u16 minor(off 6)。
-    // 只在**已经失败**的路径上调用 ⇒ 读整个文件的开销不在任何热路径上。
-    private static string _versionSkewNote(string[] paths, int count) {
-        string note = "";
-        int i = 0;
-        while (i < count) {
-            string p = paths[i];
-            i = i + 1;
-            byte[] d = null;
-            try { d = File.ReadAllBytes(p); } catch (Exception e) { d = null; }
-            if (d == null || d.Length < 8) { continue; }
-            int maj = ((int)d[4]) | (((int)d[5]) << 8);
-            int min = ((int)d[6]) | (((int)d[7]) << 8);
-            if (maj != ZpkgWriterZ.Major || min != ZpkgWriterZ.Minor) {
-                note = note + "。`" + p + "` 是 zpkg " + maj.ToString() + "." + min.ToString()
-                     + " 格式，而本编译器只认 " + ZpkgWriterZ.Major.ToString() + "."
-                     + ZpkgWriterZ.Minor.ToString()
-                     + " —— 它由**另一代编译器**编出，用当前工具链重建该 handler 工程";
-            }
-        }
-        return note;
-    }
 
     // 零发现的消息：把「声明了哪些」摆出来，再给两条成因与各自的处置。
     private static string _noHandlersMessage(CompileInputs inp) {

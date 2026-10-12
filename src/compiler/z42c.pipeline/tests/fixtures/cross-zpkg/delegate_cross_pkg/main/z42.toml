@@ -2,7 +2,6 @@
 name    = "demo.dgapp"
 version = "0.1.0"
 kind    = "exe"
-entry   = "Demo.DgApp.Main"
 pack    = true
 
 [dependencies]

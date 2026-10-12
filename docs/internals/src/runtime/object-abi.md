@@ -1,6 +1,6 @@
 # 对象与值表示 ABI（Object & Value ABI）
 
-> 待办：Value ABI 版本化规范、统一对象头（`gc_word`）、GcRef 可重定位、card table、移动/分代 GC 尚未实施（值/对象表示本身已实现）；去掉每对象 `Mutex` 之前的剩余项见 §3「字段单元的内存序」。
+> 待办：Value ABI 版本化规范、统一对象头（`gc_word`）、GcRef 可重定位、card table、移动/分代 GC 尚未实施（值/对象表示本身已实现）；对象模型 R5 之后的剩余项见 §3「字段单元的内存序」。
 >
 > 把当前**隐式**的跨引擎值/对象表示固化成**显式、版本化的 ABI**（组件化的"共享契约"本体），并为**移动/分代 GC**预留空间、**统一所有堆对象**（含字符串）到一个对象头。
 >
@@ -9,11 +9,42 @@
 ---
 
 ## 1. 现状（已成形，但隐式且脆弱）
-- **Value = Rust tagged enum**（[metadata/types/value.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/value.rs)），`#[repr(C, u8)]` + 显式判别值：`I64=0/F64=1/Bool=2/Char=3`（内联值）、`Str(Str)=4`、`Null=5`、`Array(GcRef<ArrayObj>)=6`、`Object(GcRef<ScriptObject>)=7`、`PinnedView=8`、`FuncRef(Str)=9`、`Closure(VarGcRef)=10`、`Ref=12`、`StackObject=14`、`StackArray=15`、`StructRef=16`、`BoxedStruct(GcRef<ScriptObject>)=17`、`StructRefHeap=18`（11、13 空号）。`{idx, frame_id}` 形的变体都是 8B arena 句柄（瞬态的 3 个见 §2.2）。**`Value` 是 `Copy`（16B POD，无 `Drop` glue）**。
-- **ScriptObject** = `{ type_desc: Arc<TypeDesc>, storage: ObjStorage, extras: Option<Box<ObjExtras>> }`（[metadata/types/object.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/object.rs)）。`storage` 是单次分配的 `[refs: Value × n_refs][bytes: u8 × n_bytes]` 块（[obj_storage.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/obj_storage.rs)）：`bytes` 放基元字段、8 B 引用字与型参字段的 16 B 单元，`refs` 只剩内联 struct 的引用叶子（以及合成布局的引用字段），布局见 §3「字段存储布局」；`extras` 装冷字段 `native: NativeData`（WeakRef / Type / LoadContext / Assembly / Monitor 句柄）与泛型实参 `type_args`，两者都空时不分配。
-- **GcRef** = 8B 标记指针（低 48 位 `RegionEntry` 地址、高 16 位窄 generation 快照，见 §2.1）。`RegionEntry` = `{ value: Mutex<T>, marked, alive, gen_age, generation, finalizer, … }`：mark 位和代龄在 entry 上，对象本身没有 GC 字；每个对象带一把 `Mutex`；chunk 是 Box-owned、永不重定位 → **当前非移动堆**。
+- **Value = Rust tagged enum**（[metadata/types/value.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/value.rs)），`#[repr(C, u8)]` + 显式判别值：`I64=0/F64=1/Bool=2/Char=3`（内联值）、`Str(Str)=4`、`Null=5`、`Array(GcRef<ArrayObj>)=6`、`Object(ObjRef)=7`、`PinnedView=8`、`FuncRef(FnId)=9`、`Closure(VarGcRef)=10`、`Ref=12`、`StackObject=14`、`StackArray=15`、`StructRef=16`、`BoxedStruct(ObjRef)=17`、`StructRefHeap=18`（11、13 空号）。`{idx, frame_id}` 形的变体都是 8B arena 句柄（瞬态的 3 个见 §2.2）。**`Value` 是 `Copy`（16B POD，无 `Drop` glue）**。
+- **对象** = 变长 GC 区（`region_var`）里的**一个** `BlockType::Object` 块，一次分配（对象模型 R6）：
+
+  ```
+  GcBlockHeader (16 B) │ type_desc (8 B) │ meta (8 B) │ fields: [UnsafeCell<u8>] …
+                        ↑ ObjRef::as_ptr（*const ObjHeader，细指针）
+                        └──────── &ScriptObject（胖引用：地址 + 字段区长度）────────┘
+  ```
+
+  `ScriptObject`（[metadata/types/object.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/object.rs)）是一个 `#[repr(C)]` **动态大小类型**：
+  `{ type_desc, meta, fields: [UnsafeCell<u8>] }`，`&ScriptObject` 是胖引用，元数据就是字段区长度，**引用的范围恰好盖住对象头 + 字段**。
+  所以 `payload_len()` 就是 `fields.len()`（不读内存）、`cells()` 从 `fields` 推出——每次字段访问都在引用自己的范围里，从不从引用走到它外面的内存
+  （Stacked Borrows 的 retag 覆盖 `size_of_val`；Miri 核过）。胖引用只在持有整块 provenance 的指针上构造（`ScriptObject::from_payload`：
+  `ObjRef::borrow`、`OwnedObject`、分配器、drop glue），长度在那里从块头的 `size`（载荷长度）− 对象头算出——块头 `size` 是唯一的长度来源
+  （装箱基元按标量宽度、装箱 struct 按 blob、类实例按 `TypeDesc::object_bytes_len`）。对象头的定长前缀是 `ObjHeader`（同样 `#[repr(C)]`、
+  同样两个字段），分配器只经它写对象头（不按值构造 `ScriptObject`），`OBJ_HEADER_BYTES = size_of::<ObjHeader>()`（64 位 16 B、32 位 8 B），
+  `#[repr(C)]` 的公共前缀保证 `fields` 正好从这里开始（单测钉住）。`fields` 是 `UnsafeCell`：字段经 `&self` 原子写。
+  字段区是零初始化的：基元字段、8 B 引用字（含内联 struct 的引用叶子）与 16 B 型参单元都在里面，没有 16 B `Value` 侧表，布局见 §3「字段存储布局」。
+  热路径的结构与 ABI 只放细句柄（`ObjRef`、`ObjRef::as_ptr` 的对象头地址），不放 `&ScriptObject`；只看类型的路径（虚调用 IC、类型检查）经
+  `ObjRef::header()` 拿细的 `&ObjHeader`，不读字段区长度。
+  堆外的对象（栈分配对象、堆外构造的对象）是同样形状的**脱离块**（`OwnedObject`，[owned_object.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/owned_object.rs)：
+  一个不属于任何 region 的 `{块头, 对象头, 字段}`），所以 `&ScriptObject` 不论对象在哪都一样读。
+  典型尺寸（块头 + 对象头 + 字段，按四分之一八度档取整）：空类 32 B、`{int}` / `{long}` 40 B、`{int; string}` 48 B。
+  `meta` 是一个 8 B 字，装两样冷数据：
+  - 泛型实参 `type_args`：按实例化**进程级驻留**的 `TypeArgs`（[type_args.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/type_args.rs)，同 `ElemType` 的套路：8 B 细指针、同内容同址、永不释放）。同一实例化的所有实例指向同一个条目，每个对象不为实参分配任何东西。驻留发生在解码 / 注册期：`ObjNewInsn::type_args` 解码时驻留，实例化描述符（`Demo.Box<int>`）名字里解析出的实参在 `build_type_registry` 驻留进 `TypeDescCold::type_args`；`ObjNew`（interp 堆 / 栈两支、JIT `jit_obj_new`）只拷句柄：两引擎共用 `interp/obj_new_resolve.rs::instance_type_args` 挑出实参（站点自己的，否则描述符的），再经 `ScriptObject::install_type_args` 一处写入并改写型参字段零值。进程级而非 VM 级，因为包惰性加载、多个 VM 可并存。
+  - 原生底座 `native: NativeData`（WeakRef / Type / LoadContext / Assembly / Monitor 句柄）：只有这类对象才分配一个 `ObjExtras` 盒子；带原生底座的泛型对象（如 `Mutex<T>`）把实参句柄也放进盒子。
+  - 编码：`0` = 非泛型且无原生底座（绝大多数对象）；偶指针 = 驻留的 `TypeArgs` 条目；奇指针（低位标签）= `Box<ObjExtras>`。
+  - 读者（`DefaultOf`、`__class_type_arg` / `__class_default`、`GetType().GetGenericArguments()`、数组 `T` 零值、型参字段零值）拿到的是 `&'static [String]`。擦除代码里的 `new Box<T>()` 以开放实例化名 `Box<T>` 分配，实参是字面 `["T"]`，同样驻留成一个共享条目。
+  - 已知边界：擦除分配的实例只知道 `T`，于是 `GetGenericArguments()` 报 `T`、`default(T)` 得 `null`、`is Box<int>` 为 `false`。真实实参要从分配时所在方法的泛型上下文（接收者的 `type_args` 或帧的 `method_type_args`）按型参名解析，目前没有做。
+- **ObjRef**（对象，[gc/obj_ref.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/obj_ref.rs)）= 对象块的 `VarGcRef`：8B 标记指针（低 48 位块头地址、高 16 位窄 generation 快照，见 §2.1）。
+  mark 位、代龄、generation、存活位都在 16 B 块头（`GcBlockHeader`）上，对象头本身没有 GC 字；`ObjRef::borrow()` 校验 generation / 存活后直接给 `&ScriptObject`，**没有每对象锁**（见 §3「字段单元的内存序」）。
+  弱引用 `WeakObjRef` 额外记下所在 chunk 的复用 epoch（见 [gc.md](gc.md)「GC heap backing」）。
+- **GcRef**（数组头）= 8B 标记指针（低 48 位 `RegionEntry` 地址 + generation 快照）。`RegionEntry` = `{ value: T, marked, alive, gen_age, generation, finalizer, location, soft_ref_count }`；数组头槽 64 B。
+  两种 chunk 都永不重定位 → **当前非移动堆**。
 - **JIT 与 interp 共享内存 Value 表示**：JIT 直接 `store tag`+payload 到帧的 Value 寄存器数组，**硬编码 tag 值 + 偏移**。
-- 内存管理：`Value` 能到达的堆数据全在 GC 堆（`GcRef`：Object / Array / BoxedStruct；`VarGcRef` 变长块：Str / Closure / 数组元素）；`Arc` 只留给内部元数据（`TypeDesc`、帧名等，§5、§7）；瞬态句柄的 payload 在 per-`VmContext` arena（§2.2）。
+- 内存管理：`Value` 能到达的堆数据全在 GC 堆（`GcRef`：Array；`VarGcRef` 变长块：Object / BoxedStruct（`ObjRef`）、Str、Closure、数组元素）；`Arc` 只留给内部元数据（`TypeDesc`、帧名等，§5、§7）；瞬态句柄的 payload 在 per-`VmContext` arena（§2.2）。
 
 **核心问题**：已有一份**事实上的跨引擎 Value ABI**，但它绑死 rustc 对 enum 的布局——隐式、脆弱。**本文 = 把它固化成显式版本化规范。**
 
@@ -27,9 +58,9 @@
 ### 2.1 引用压到平台指针大小 → `Value` 16B（路 A：标记指针）
 
 > 采用**路 A（标记指针）**，`Value` 为 **16B**：
-> - `GcRef`/`WeakGcRef` 是 8B 单标记指针（低 48 位 RegionEntry 地址、高 16 位窄 generation，deref mask）。**保留非移动 region GC**（generation 变窄，ABA 窗口 2^16 已接受，见 §4）。wasm32（usize 32 位）按 `target_pointer_width` cfg-gate 成 `{ptr:NonNull(4B), generation:u32(4B)}` 仍 8B。
+> - `GcRef`/`WeakGcRef`（数组）、`ObjRef`（对象）、`VarGcRef`（其余变长块）都是 8B 单标记指针（低 48 位 RegionEntry / 块头地址、高 16 位窄 generation，deref mask）。**保留非移动 region GC**（generation 变窄，ABA 窗口 2^16 已接受，见 §4）。wasm32（usize 32 位）按 `target_pointer_width` cfg-gate 成 `{ptr:NonNull(4B), generation:u32(4B)}` 仍 8B。
 > - `Value::Str` 是 8B 细指针 `Str`（[`metadata/vstr.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/vstr.rs)，长度进块头；GC 化见 §5）。
-> - `Value::FuncRef` 是 `Str`（8B 细）。每个 payload ≤ 8B → `#[repr(C,u8)]` 给出 tag(1B padded to 8) + 8B = **16B**。由 [`metadata/types/value.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/value.rs) 的 `const _: () = assert!(size_of::<Value>()==16)` 编译期锁死；JIT 的 `VALUE_STRIDE` 取 `size_of::<Value>()`（单一真相，[`jit/reg_access.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/jit/reg_access.rs)）。
+> - `Value::FuncRef` 是目标函数的 `FnId`（4B，P1-2 PR 8；此前是 8B 的 `Str` 名字）。每个 payload ≤ 8B → `#[repr(C,u8)]` 给出 tag(1B padded to 8) + 8B = **16B**。由 [`metadata/types/value.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/value.rs) 的 `const _: () = assert!(size_of::<Value>()==16)` 编译期锁死；JIT 的 `VALUE_STRIDE` 取 `size_of::<Value>()`（单一真相，[`jit/reg_access.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/jit/reg_access.rs)）。
 >
 > payload 偏移固定（tag@0、payload@8）。native FFI 的 `Z42Value` 是**独立冻结的 16B ABI struct**（`{tag:u32, reserved:u32, payload:u64}`，[z42-abi](https://github.com/z42-lang/z42/tree/main/src/runtime/crates/z42-abi)），与内部 `Value` enum 表示解耦，marshal 显式转换。
 
@@ -158,15 +189,17 @@ ObjectHeader {
     type/kind: ptr,     // → TypeDesc（含字段布局/vtable/反射）或 kind 判别
 }
 ```
-> 注:当前 mark 在 `RegionEntry` 上、对象无 GC 字。**为移动/分代,规范要求对象自带 `gc_word`**（见 §6）。
+> 注:当前对象的 mark / 代龄 / generation 在它所在 GC 块的 16 B 块头（`GcBlockHeader`）上，对象头（`ObjHeader`，16 B）里没有 GC 字；
+> 块头 + 对象头共 32 B，对象模型 R8 计划合成一个 16 B 头。**为移动/分代,规范要求对象自带 `gc_word`**（见 §6）。
 
 ### 对象种类
 | kind | payload | 精确 GC 扫描 |
 |---|---|---|
-| 普通 ref 对象（用户类） | 字段单元（见下「字段存储布局」） | 侧表 `Value` + 每个非零引用字 + 型参单元标签字里的引用 |
+| 普通 ref 对象（用户类） | 字段单元（见下「字段存储布局」） | 每个非零引用字 + 型参单元标签字里的引用 |
+| 装箱 struct | struct blob（引用叶子是引用字） | struct 布局的每个引用叶子 |
 | **字符串（改 GC，§5）** | len + UTF-8 字节 | 无内部 ref，跳过 |
 | 字节/原始缓冲 | 原始字节 | 无内部 ref，跳过 |
-| ref 数组 | element_type + 元素 Value[] | 扫元素 |
+| 数组 | element_type + 一个元素块，模式见下「数组元素」 | REF 引用字 / MIXED 标签字 / `struct[]` 引用叶子 / FROZEN `Value` |
 | 弱引用对象 | weak handle | **不 trace target** |
 | Type 对象（反射） | 引用 TypeDesc | 该引用是保留边（§7 边界） |
 | **不透明 native（未来 Stream/FileHandle）** | 原始 native ptr + **finalizer** | 无 ref；收集时跑 finalizer（§5.1） |
@@ -175,7 +208,7 @@ ObjectHeader {
 
 ### 字段存储布局（= 对象内存布局本体，跨引擎 ABI）
 
-实例字段按**字节布局**存放在 `ScriptObject.storage`，布局由加载期组合出的 `ObjectLayout`
+实例字段按**字节布局**存放在对象头之后的字段区（`ScriptObject::cells()`），布局由加载期组合出的 `ObjectLayout`
 （[metadata/types/layout.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/layout.rs) 的 `compose_object_layout`）决定，`alloc` 时定长。
 编译器的对象布局给每个引用字段留 8 B、每个基元字段按自身宽度对齐（`StructLayout._alignOf`），运行时照单使用，**不改字节码格式**。
 每个直接字段落在一种**单元**里（`FieldAccess::cell()` → `FieldCell`）：
@@ -185,17 +218,16 @@ ObjectHeader {
 | 基元 `Prim` | `int` / `long` / `double` / `bool` / `char` … | `bytes` 的组合偏移，声明宽度 | 同宽 relaxed 原子 |
 | 引用字 `Ref` | `string`、类、数组、接口、`object`、委托 | `bytes` 的组合偏移，8 B（`ObjectLayout.ref_cells`） | release 写 / acquire 读 |
 | 型参 `TypeParam` | 型参字段（`T F;`、`T? F;`） | 标签字在组合偏移（`ObjectLayout.tparam_cells`），负载字追加在编译器布局之后，各 8 B | 标签字 release 写 / acquire 读，负载字 relaxed |
-| 侧表 `Value` | 合成布局（没有编译器对象块的类型）的引用字段 | `refs[aux]`，16 B `Value` | 持对象锁读写 |
-| struct 根 `Struct` | 内联值 struct 字段 | 叶子摊在 `bytes`（基元）与 `refs`（引用） | `StructFieldGetPrim` / `SetPrim` |
+| struct 根 `Struct` | 内联值 struct 字段 | 独立 blob 的布局原样摊在 `bytes`：基元叶子 + 引用叶子的引用字（`ObjectLayout.ref_cells`） | `StructFieldGetPrim` / `SetPrim` |
 
 **引用字**（[metadata/types/ref_word.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/ref_word.rs)）是自描述的：
-低 3 位记种类，其余位是句柄原始位（`GcRef::to_tagged_bits` / `VarGcRef::to_bits`，`RegionEntry` 与变长块头都 8 字节对齐，低 3 位恒为 0），
+低 3 位记种类，其余位是句柄原始位（`GcRef::to_tagged_bits` / `ObjRef::to_tagged_bits` / `VarGcRef::to_bits`，`RegionEntry` 与变长块头都 8 字节对齐，低 3 位恒为 0），
 整字为 0 = `null`（零初始化即正确的默认值）。
 
 | 种类 | `Value` | 句柄 |
 |---|---|---|
 | 0（整字 0） | `Null` | — |
-| 1 / 6 | `Object` / `BoxedStruct` | `GcRef<ScriptObject>` |
+| 1 / 6 | `Object` / `BoxedStruct` | `ObjRef`（对象块的 `VarGcRef`） |
 | 2 | `Array` | `GcRef<ArrayObj>` |
 | 3 / 5 | `Str` / `FuncRef` | `VarGcRef`（GC 字符串块） |
 | 4 | `Closure` | `VarGcRef`（闭包块） |
@@ -208,16 +240,22 @@ ObjectHeader {
   判据在 `compose_object_layout`：编译器种类为 `GCREF_CLOSURE`、声明类型是本类的型参名（含 `T?`）。
   闭合实例化（`Box<int>` 的描述符，见 [compiler/generics.md](../compiler/generics.md)）的字段类型已代换，`int` 落基元单元、`string` 落引用字，不是型参单元；
   型参单元出现在没有实例化描述符的实例上：跨包泛型（`LinkedListNode<int>`、`Lazy<int>`）与擦除代码里的分配（`new Node<T>()`，实参是字面的 `T`）。见下「型参单元」。
-- **内联 struct 的引用叶子留在侧表**：struct blob（帧 arena、装箱 struct、`struct[]` 元素）的引用叶子还是 16 B，对象里内联的 struct 与独立 blob 逐字节同布局，
-  整块拷进拷出（`snapshot_box`、反射）不做转换；数组改 8 B 单元时一起改。
-- **合成布局**（没有编译器对象块的类型：Rust 构造的类型、单测）保守地把每个引用放侧表（分不出哪个是型参字段）。
+- **堆上的值 struct 只有一种布局**（[metadata/types/struct_blob.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/struct_blob.rs)）：
+  装箱 struct 的整个 payload、对象里内联的 struct 字段、`struct[]` 的每个元素都是编译器的 struct 布局（`StructTypeLayout`），
+  引用叶子是编译器给它留的 8 B 槽里的引用字。于是内联 struct 与独立 blob 逐字节同布局，偏移只有一套。
+  帧 arena（`StructRef`）是寄存器侧的形态：`bytes` + 按 `ref_offsets` 顺序的 16 B `Value`（arena 是 GC 根）；
+  `struct_blob::read` / `write` 在两种形态之间转换（读出时引用槽清零，快照里从不带句柄位；写入时每个引用叶子经引用字写原语，
+  SATB 记旧字，装不进 8 B 的值装箱，落下的引用交给调用方的写屏障）。
+  擦除泛型 struct 的型参叶子（定义布局里按引用叶子排）收到基元时走种类 7 装箱，对用户透明。
+- **合成布局**（没有编译器对象块的类型：Rust 构造的类型、单测、`make_fallback_type_desc`）把每个引用字段排成型参单元
+  （分不出哪个是型参字段，型参单元什么 `Value` 都装得下）。
 - 名→字段下标由 `TypeDesc.field_index`（类级共享）。**继承：基类字段在前、子类追加**，子类区从 `align_up(base.size, 8)` 开始，
   基类部分的单元归属原样继承。
 - 访问 `obj.f` = 按字段下标查 `ObjectLayout.field_access[i]`（`{offset, width, tag, cell, aux}`，加载期算好），按单元读写
   （`metadata/types/object_fields.rs`：`field_value` / `try_set_field_value`）。`Value` ↔ 单元的转换只在这里、`ref_word` 与 `tparam_cell`；
   两个引擎经 [objops](interp-jit-semantics.md#对象操作objops) 调到它们。JIT 对基元字段的读写、对引用字的读直接按字节偏移生成原生
   load/store（见 [jit.md](jit.md)）→ **字段偏移、宽度、引用字编码与 Value 大小是 ABI 一部分，须固化**。
-- GC 只经 `ScriptObject::visit_refs`（侧表 + 每个非零引用字 + 型参单元标签字里的引用）遍历一个对象的出边，标记、栈对象根扫描、保留图共用；
+- GC 只经 `ScriptObject::visit_refs`（每个非零引用字 + 型参单元标签字里的引用；装箱 struct 按 struct 布局，合成布局按型参单元）遍历一个对象的出边，标记、栈对象根扫描、保留图共用；
   清扫断边用 `clear_refs_for_sweep`。
 
 #### 型参单元
@@ -249,29 +287,87 @@ ObjectHeader {
 - **屏障**：每次改写标签字都拿到旧字（CAS，或标记期的 swap），旧字是引用就交给 SATB；新落进标签字的引用
   （或盒子）经 `FieldWrite` 交给调用方的 `write_barrier_field`。
 
+### 数组元素
+
+`ArrayObj` 是定长头 + 一个 GC 变长块（`region_var`），元素的存法（**模式**）在分配时由元素类型定下、之后不变
+（[metadata/types/array.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/array.rs)；
+读写在 `array_elems.rs`，GC / 拷贝在 `array_access.rs`）。每个元素单元同样 ≤ 8 B、同宽原子访问：
+
+| 模式 | backing / 块类型 | 元素 | 哪些数组 | 读 / 写 |
+|---|---|---|---|---|
+| PRIM | `I32` / `I64` / `F64` / `Chars` / `Bytes` / `Bool`，`ArrayPrim` | 打包基元 | `int[]`、`long[]`、`double[]`、`char[]`、`byte[]`、`bool[]` … | 同宽 relaxed 原子 |
+| REF | `Refs`，`ArrayRef` | 8 B 引用字（`ref_word`） | `string[]`、`object[]`、类 / 接口 / 委托 / 数组元素类型 | acquire 读 / release 写，标记期 swap |
+| MIXED | `Cells`，`ArrayCell` | 16 B 型参单元（`tparam_cell`，元素 i 的标签字在 `16i`、负载字在 `16i+8`） | 擦除的 `T[]`、enum、非 blob struct、类型表里查不到的、Rust 合成的无类型数组 | 型参单元协议 |
+| STRUCT | `StructBytes`，`ArrayStruct` | 值 struct blob（引用叶子是引用字，见上） | blob 值 struct 的 `P[]` | 各叶子按自己的单元 |
+| FROZEN | `Frozen`，`ArrayValue` | 16 B `Value`，发布前写一次、之后只读 | 闭包环境、种类 7 的值盒子（里面可能是栈句柄，不能再按单元编码） | 普通读 |
+
+- **模式判定**（`objops::array::elem_mode`，`ArrayNew` / `ArrayNewLit` / `Array.CreateInstance` 共用）：
+  名字就能定的先定（`ElemKind::of`：基元 → PRIM；`string` / `object` / `X[]` → REF）；元素是型参（指令的 `type_param_kind`）→ MIXED；
+  其余查类型表：blob 值 struct → STRUCT，enum 与非 blob struct → MIXED，类 / 接口 / 委托 → REF，查不到 → MIXED。
+  这次查表本来就在建数组的路上（判 struct）。
+- **MIXED 复用型参单元协议，不用分片锁**：擦除的 `T[]` 编译期不知道元素种类，16 B 是必须的；型参单元的
+  「负载字一生只装一种基元、种类由唯一一次 CAS 认领」保证 16 B 元素读永不撕裂（与型参字段同一个证明），
+  没有每对象锁也不需要任何锁。实参是基元时（`new T[n]` 的 `class_type_param_zero`，如 `List<int>` 的 backing），
+  数组记下该基元种类（`Cells::zero`）、不写任何字：从未写过的单元（标签字 `0`）读作这个零值，第一次写才认领——
+  预留容量的页面从不被碰。`List<string>` 的单元里引用就是标签字本身，负载字不用。不符的写（同一个单元先后放不同种类的基元）装箱成种类 7，对用户透明。
+- **写屏障**：元素写返回 `FieldWrite`，屏障拿的是真正落进单元的引用（装箱时是盒子）；整元素 `struct[]` 写与批量写
+  （`Array.Copy` / 排序）之后按 `elem_ref_slots` 对区间内每个引用槽发 `write_barrier_array_elem`（`objops::array_bulk`）。
+  被覆盖的旧引用由各写原语交给 SATB。
+- **GC** 只经 `ArrayObj::visit_refs` 遍历一个数组的出边（标记、栈数组根扫描、保留图共用），块本身由 `mark_backing` 标活。
+- **JIT**：PRIM 的读写按 `packed_data` 内联；从不被重赋值的 REF / MIXED 数组读进整 `Value` 寄存器（`Ref` / `Str` / 擦除的 `T`）时按
+  `ref_data`（基址、长度、步长 8 / 16，入口块取一次）内联：acquire 读元素的（标签）字、按 `KIND_TO_VALUE_TAG` 查表打 tag；
+  种类 7 盒子与 MIXED 的基元标记字（低 3 位 0、整字非 0）回落 helper。引用写一律走 helper（要写屏障）。
+
 ### 字段单元的内存序
 
-堆上每个可变单元 ≤ 8 B、用同宽原子访问，这是为去掉每对象 `Mutex` 铺路：16 B `Value` 只留在寄存器，
+堆上每个可变单元 ≤ 8 B、用同宽原子访问，所以对象不需要锁：16 B `Value` 只留在寄存器，
 堆上不会出现「写到一半」的单元，任何时刻读到的都是某次完整写入的值。
 
 - **基元**：relaxed。x86-64 / AArch64 上就是普通对齐 load / store，JIT 内联码直接用普通 load / store。
 - **引用字**：release 写、acquire 读（AArch64 上 `stlr` / `ldar`，JIT 内联读用 Cranelift `atomic_load`）。
   于是「在一个线程里构造对象、经字段交给另一线程」是安全的：读到引用的线程一定看得到构造期写入的字段。
 - **SATB 删除屏障**要的是被覆盖的真旧值：major 标记进行中（`satb::marking_any()`），引用字的写是 `swap`，
-  旧字交给 `record_overwrite`；不在标记期就是普通 release store。这样屏障不依赖对象锁，并发写也不会漏记。
+  旧字交给 `record_overwrite`；不在标记期就是普通 release store。这样屏障不需要锁，并发写也不会漏记。
 - **跨字段没有一致性**：两个字段之间、读改写之间都没有原子性，用户侧需要组合一致时用 `Mutex<T>` / `Channel<T>`
   （参考手册 threading 页「线程之间怎么传值」写了这份契约）。
 
 - **型参单元**：标签字 release 写 / acquire 读，负载字 relaxed；负载字只在标签字为 `PRIM(k)` 时才被读，
   而它一生只装 `k` 种位（见上「型参单元」），所以两个字分开读写也不会读到「一半标签 + 一半负载」。
 
-现状与后续（对象模型 R2 之后）：
+**没有每对象锁**（对象模型 R4）：`ObjRef::borrow()` 给 `&ScriptObject`、`GcRef::borrow()` 给 `&ArrayObj`，对象与数组跨线程共享，
+字段 / 元素的读写全部是 `&self` 上的原子单元访问（`metadata/types/cells.rs` 的 `Cells`，读写都经同一个视图）。
+堆上没有 16 B 的可变 `Value` 单元（FROZEN 数组发布前写一次、之后只读，发布后的写入报错）。
 
-- 每对象 `Mutex` 还在（`GcRef::borrow` / `borrow_mut`），解释器与 JIT helper 的字段读写仍持锁；JIT 内联快路本来就不持锁。
-  去掉它（R4）之前还要处理的单元：内联 struct 引用叶子与合成布局引用字段的 16 B 侧表（struct 叶子随数组改造，R3）、
-  `bytes()` / `refs()` 的切片视图（整块拷贝要改逐单元原子拷贝，写原语改为 `&self`）、`try_set_field_value` 里的 `BoxedStruct` 拆箱读。
-- JIT 的引用字内联读不覆盖型参单元（标记字按引用字查表会读成 `null`），型参字段读写仍走 helper。
-- 数组元素仍是 16 B `Value` 或打包基元，由数组锁保护（R3：REF / PRIM / MIXED 三种模式）。
+- **整块拷贝也是原子的**：没有对象 / 数组载荷的普通切片视图。快照（装箱 struct 的 blob、对象内联 struct 的基元字节段、
+  FFI / I/O 拿走的 `byte[]`，`Cells::copy_out`）与写入（`struct_blob` 的基元段，`Cells::copy_in`）按「当前位置对齐、
+  剩余长度放得下的最宽 8 / 4 / 2 / 1 B」分块，每块一次原子访问；单元都按自身宽度对齐且 ≤ 8 B，所以分块从不劈开一个单元
+  （一块可能盖住几个更窄的单元——混合宽度访问，x86-64 / AArch64 上单拷贝原子，与 JIT 的普通宽度内联访问同一个前提）。
+  8 B 块用 acquire 读：块里可能是引用字，数组克隆把它带进新数组后，读新数组的线程要看得到被引用对象的构造。
+  PRIM 数组之间的批量移动（`Array.Copy`、同一数组内的重叠移动）按元素宽度逐元素 relaxed 读写（`Cells::copy_prims`，
+  memmove 方向），数组克隆（`deep_copy`）读源块用 `copy_out`。
+- **批量操作对别的线程不是原子的**：`Array.Copy` / 排序 / struct 整体读写都是一串单元访问，别的线程可能看到做了一半，
+  但每个单元是完整的值。没有取锁顺序问题：两条线程同时互相 `Array.Copy` 两个数组也只是逐元素竞争。
+- **需要独占的场合各有机制**，都不经 `GcRef`：
+  - 构造：对象在发布之前建好。`ObjNew` 的堆分支（interp、JIT）走 `MagrGC::alloc_instance`：取一个清零的对象块、写对象头、
+    在**还没发布**的块上跑泛型一步（`install_type_args`：驻留的实参句柄 + 型参字段零值），然后才记账（可能触发回收）并交出句柄——
+    取块与发布之间不分配任何东西，所以没有回收能看到建到一半的对象。栈分支用 `OwnedObject::new_instance` 建同样的对象；
+    `Activator.CreateInstance` 与带初值 / 原生底座的 `alloc_object` 先在 `OwnedObject` 里建好（写初值可能要分配装箱盒子），再
+    `MagrGC::alloc_script_object` 整块拷进新块。`set_native` / `set_type_args` 只在构造期（`&mut self`）。发布之后对象的 `meta` 字
+    （`NativeData`、驻留的泛型实参句柄）不再变。
+  - 栈数组（`StackVec`）由每上下文的 stack arena 持有、在它的锁下访问，写入走 `ArrayObj::set_boxed_exclusive`（`&mut self`）。
+  - GC：对象块被 tombstone 时由 drop glue 释放对象头（`Arc<TypeDesc>`、extras 盒子）；数组头在槽位复用 / decommit /
+    region drop 时 drop。此时块 / 条目已死、持 region 锁或在停顿里。
+  - 原生数据自带同步：`NativeData::Monitor`（`Std.Threading.Mutex/RwLock/Channel` 的底座）用自己的内部锁，
+    WeakRef / Type / LoadContext / Assembly 句柄发布后只读。
+- **`lock(obj)`**：语言里还没有 `lock` 语句、也没有 `Monitor.Enter(obj)` 这类按对象加锁的 API（z42 代码的锁都是
+  `Std.Threading` 的 `Mutex<T>` / `RwLock<T>`，底座是对象自己的 `NativeData::Monitor`），所以去掉每对象锁不需要过渡机制。
+  对任意对象加锁的语义由 R5 的 Monitor 侧表提供（首次加锁才膨胀，按对象地址索引，GC 停顿时清理）。
+
+后续：
+
+- JIT 的引用字内联读不覆盖型参字段（标记字按引用字查表会读成 `null`），型参字段读写仍走 helper；MIXED 数组的基元元素读也走 helper。
+- 对象是变长区里的一块（R6），但仍有两个头：16 B 块头 + 16 B 对象头；R8 合成一个 16 B 头。小对象所在的半活 chunk 里的空洞
+  目前只有锁路径的 free list 会复用，TLAB 只认领整块空 chunk（M12）。
 
 ### 槽位零初始化
 
@@ -279,22 +375,21 @@ ObjectHeader {
 （`vec![Value::Null; n]`），会长出一族内部错误
 （`__box_prim: expected integer value, got Null` / `type mismatch in arithmetic: Null vs I64(1)`）。
 
-口径：`alloc_object` 不逐字段填默认值，而是按
-`TypeDesc::object_storage()` composed layout 分配**整块零字节区 + `Null` 引用区**
-（`gc/arc_heap/interface.rs`）。于是：
+口径：对象分配不逐字段填默认值，而是按 `TypeDesc::object_bytes_len()`（composed layout）取一个**整块清零的对象块**
+（`gc/arc_heap/alloc_object.rs`；堆外的 `OwnedObject` 同样清零）。于是：
 
 | 槽的种类 | 零值 | 为什么对 |
 |---|---|---|
 | 基元值字段（int/bool/char/double/long…） | 字节零 ⇒ `0` / `false` / `'\0'` / `0.0` | 值落在 bytes 区 |
-| 引用字段 | 引用字为 0（侧表单元为 `Value::Null`） | `null` 本就是引用类型的零值；整字 0 就是 `null` 的编码 |
-| 数组元素 | `default_value_for_tag(elem_tag)` | `ArrayNew`（interp + JIT 两份）按元素 tag 取；`ArrayObj::typed_filled` 直接写进 GC 块（是该 backing 的零就不逐元素写）|
+| 引用字段 | 引用字为 0 | `null` 本就是引用类型的零值；整字 0 就是 `null` 的编码 |
+| 数组元素 | `default_value_for_tag(elem_tag)` | `ArrayNew`（interp + JIT 两份）按元素 tag 取；`ArrayObj::filled` 直接写进 GC 块（是该模式的零 —— 基元 0 / REF 与 MIXED 的 `null` —— 就不逐元素写；MIXED 的基元 `T` 记作数组的 `zero`，未写过的单元读作它）|
 | **型参字段**（`class GBox<T> { T V; }`） | 按**实例化**取：`default_value_for(type_args[i])` | 见下 |
 
 **型参字段要单独一条**，因为布局是**按声明**算的：声明里 `T` 不是基元 ⇒ 该槽是型参单元 ⇒
 整块零初始化给它的是标签字 `0` = `Null`，而不是 `GBox<int>` 该有的 `0`。
-实例自己带着实参（`ObjNew` 写入 `set_type_args`），所以真正的零值在**分配点**可以还原：
+实例自己带着实参（`ObjNew` 经 `install_type_args` 写入驻留句柄），所以真正的零值在**分配点**可以还原：
 把字段的 `type_tag` 按名字映射到 `TypeDesc::type_params()` 的下标，再取该实参的零值
-（`metadata/types/field.rs::generic_field_zero_overrides`，interp 的堆/栈两支 + JIT 三处共用）。
+（`metadata/types/field.rs::generic_field_zero_overrides`，由 `ScriptObject::install_type_args` 调用，interp 的堆/栈两支 + JIT 三处共用这一个入口）。
 这次写入同时定下型参单元的基元种类（见上「型参单元」）。
 
 口径**刻意窄**，与 `ArrayNew` 同一条线：**只有基元值实参**才改写。解析出的 *struct* 实参
@@ -347,7 +442,7 @@ ObjectHeader {
 ---
 
 ## 4. GcRef 语义
-- 现:8B 标记指针 = `RegionEntry` 地址 + 高 16 位窄 generation(ABA 防护，§2.1)。**改名 `generation`→`epoch`**:避免与**分代 GC 的 young/old generation** 混淆。
+- 现:8B 标记指针 = `RegionEntry` 地址（数组）/ 变长块头地址（对象 `ObjRef`、字符串、闭包）+ 高 16 位窄 generation(ABA 防护，§2.1)。**改名 `generation`→`epoch`**:避免与**分代 GC 的 young/old generation** 混淆。
 - **必须"可重定位"**（为移动 GC，§6）。两方案(fork,待 benchmark):
   - **(a) 稳定 entry + 重定位 payload + 精确 fixup**:GC 把所有 GcRef 改写到新址(evacuation+fixup)。访问无额外间接;移动时全堆 fixup。
   - **(b) 句柄表间接**:GcRef→表→对象;移动只改表一格,访问多一跳。
@@ -364,7 +459,7 @@ ObjectHeader {
 > （无 VM 的单测）回退 leaked 块。变长 payload 全部在 GC 堆内，统一堆模型闭合。
 
 - `Value::Str(VarGcRef)` = **GC 字符串对象**：8B 细指针指变长块，与 Object/Array 同一堆的
-  mark/sweep（string 是**不可变叶子**，trace 无出边）。字段存储：string 字段落对象 `refs` 侧表
+  mark/sweep（string 是**不可变叶子**，trace 无出边）。字段存储：string 字段是对象里的 8 B 引用字（种类 3）
   （`STRUCT_LEAF_ARCSTRING` → `TAG_STR`），被 `trace_children` / `scan_object_refs` 扫描 →
   string-in-object 正确可达；`is_heap_ref(Str)=true` → 存进堆槽触发写屏障（分代 card）。
 - **驻留/字面量串**：**每 VM 惰性驻留**——加载期**不**物化（无堆），某个字符串 id 首次 `ConstStr(idx)`
@@ -374,9 +469,9 @@ ObjectHeader {
   指令/builtin 的 Rust 执行中途 → 临时 string（表达式中间值）落寄存器前天然安全，与既有
   Object/Array 临时值同一不变式（分配器 `maybe_auto_collect` 只置标志、延到 safepoint）。
 - 代价:纳入 GC → 多点 GC 压力(换掉 Arc 确定性释放，string-heavy 的 z42c 自编译最敏感);收益:统一一套堆 + 为可移动/压缩/去重铺路。架构统一优先于短期性能。
-- **闭包与访问器**：`ClosureData.fn_name` 是 GC `Str`（8B），闭包块全 POD（region_var 仅 `ArrayValue` 需 finalizer）；
-  这个名字串按 `MkClos` 站点在每个 `VmContext` 里驻留一次（`VmContext::intern_fn_name`：每线程一张 `fn_name_cache`，
-  键是名字的地址 + 长度、命中按内容复核，表项是 GC 根），循环里建闭包不再每次新分配一个名字块；闭包改为在创建时绑定函数 id 之后，这层驻留随之删除；
+- **闭包与访问器**：`ClosureData` 是 `{env: GcRef, fn_id: FnId}`，闭包块全 POD（region_var 仅 `ArrayValue` 需 finalizer）；
+  目标在 `MkClos` 时绑定成函数 id（P1-2 PR 8，见 [vm-architecture.md「闭包 dispatch」](vm-architecture.md#闭包-dispatchclosure--funcref)），
+  闭包里不再有名字串，PR 7 那层每线程的名字驻留（`fn_name_cache`）随之删除；
   mark 与枚举共用单一访问器 `Value::visit_gc_children(for_marking, …)`。
 - **不迁移的 `Arc<str>`**：栈帧名/文件名（`Function.frame_meta`）**保留 `Arc<str>`**——它们是
   **诊断/栈回溯元数据、非 `Value::Str` GC payload**，加载时算一次，生成栈回溯时 O(1) clone

@@ -24,10 +24,10 @@ pub(crate) struct SymbolRoute {
     pub exact: bool,
 }
 
-/// Normalize a lookup name to its symbol key: cut at the first `<` (generic arguments) or `$`
-/// (overload / arity suffix), whichever comes first.
+/// Normalize a lookup name to its symbol key: cut at the first `<` (generic arguments), `$`
+/// (overload / arity suffix) or `:` (specialization args, which are FQ and carry dots), whichever comes first.
 pub(crate) fn symbol_key(name: &str) -> &str {
-    let cut = name.find(|c| c == '<' || c == '$').unwrap_or(name.len());
+    let cut = name.find(|c| c == '<' || c == '$' || c == ':').unwrap_or(name.len());
     &name[..cut]
 }
 

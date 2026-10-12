@@ -36,7 +36,7 @@ pub enum RefKind {
     /// 指向 caller 数组对象的 `idx` 元素。GcRef 持有数组，让 GC 跟随。
     Array { gc_ref: GcRef<ArrayObj>, idx: usize },
     /// 指向 caller 对象的命名字段。
-    Field { gc_ref: GcRef<ScriptObject>, field_name: String },
+    Field { gc_ref: crate::gc::ObjRef, field_name: String },
 }
 
 /// Origin of a [`Value::PinnedView`]. Recorded for diagnostics; both kinds
@@ -63,16 +63,19 @@ pub struct PinnedViewData {
 /// one; `CallIndirect`, `__delegate_target`, `__delegate_fn_name`,
 /// `__delegate_eq` and the GC scanner consume.
 ///
-/// **unify-gc-heap PR-5**: `fn_name` migrated `String` → GC [`Str`] (8B handle),
-/// so `ClosureData` now owns **no heap memory outside the GC** — both fields are
-/// trivially-droppable (`GcRef`/`Str` have no-op/`Copy` drops). The block is a
-/// POD leaf for finalization → the `BlockType::Closure` drop-glue arm is gone
-/// (see `gc::arc_heap::var_drop_glue`). Both edges (`env` array, `fn_name`
-/// string) are traced by [`Value::trace_children`].
+/// **unify-gc-heap PR-5** made `ClosureData` own **no heap memory outside the GC**, so the
+/// block is a POD leaf for finalization (no `BlockType::Closure` drop-glue arm, see
+/// `gc::arc_heap::var_drop_glue`). Its one edge, the `env` array, is traced by
+/// [`Value::trace_children`].
+///
+/// **P1-2 PR 8**: the target is `fn_id`, bound once at `MkClos` (the site token makes later
+/// executions of the site a single load) — previously `fn_name`, a GC string looked up by
+/// name on every `CallIndirect`. Same id space as [`Value::FuncRef`]; the name for
+/// reflection (`__delegate_fn_name`) and display comes from the function the id names.
 #[derive(Debug, Clone)]
 pub struct ClosureData {
     pub env: GcRef<ArrayObj>,
-    pub fn_name: Str,
+    pub fn_id: crate::metadata::tokens::FnId,
 }
 
 /// unify-gc-heap PR-2: read the [`ClosureData`] behind a closure's `VarGcRef` handle (the

@@ -16,8 +16,8 @@ fn simple_two_node_cycle_is_freed_after_collect() {
     {
         let Value::Object(a_gc) = &a else { panic!() };
         let Value::Object(b_gc) = &b else { panic!() };
-        a_gc.borrow_mut().refs_mut_raw()[0] = b.clone();
-        b_gc.borrow_mut().refs_mut_raw()[0] = a.clone();
+        a_gc.borrow().set_ref_raw_for_test(0, &b.clone());
+        b_gc.borrow().set_ref_raw_for_test(0, &a.clone());
     }
     drop(a);
     drop(b);
@@ -34,7 +34,7 @@ fn self_reference_cycle_is_freed() {
     let a = heap.alloc_object(dummy_type_desc("Self"), vec![Value::Null], NativeData::None);
     {
         let Value::Object(a_gc) = &a else { panic!() };
-        a_gc.borrow_mut().refs_mut_raw()[0] = a.clone();
+        a_gc.borrow().set_ref_raw_for_test(0, &a.clone());
     }
     drop(a);
     assert_eq!(alive_count(&heap), 1);
@@ -59,8 +59,8 @@ fn cycle_with_external_user_ref_is_not_broken_yet() {
     {
         let Value::Object(a_gc) = &a else { panic!() };
         let Value::Object(b_gc) = &b else { panic!() };
-        a_gc.borrow_mut().refs_mut_raw()[0] = b.clone();
-        b_gc.borrow_mut().refs_mut_raw()[0] = a.clone();
+        a_gc.borrow().set_ref_raw_for_test(0, &b.clone());
+        b_gc.borrow().set_ref_raw_for_test(0, &a.clone());
     }
     // Pin a explicitly — this is the new contract for "I want this to
     // survive collect_cycles even though my code holds a strong ref".
@@ -87,8 +87,8 @@ fn pinned_root_cycle_is_not_broken() {
     {
         let Value::Object(a_gc) = &a else { panic!() };
         let Value::Object(b_gc) = &b else { panic!() };
-        a_gc.borrow_mut().refs_mut_raw()[0] = b.clone();
-        b_gc.borrow_mut().refs_mut_raw()[0] = a.clone();
+        a_gc.borrow().set_ref_raw_for_test(0, &b.clone());
+        b_gc.borrow().set_ref_raw_for_test(0, &a.clone());
     }
     let _root = heap.pin_root(a.clone());
 
@@ -98,7 +98,7 @@ fn pinned_root_cycle_is_not_broken() {
     assert_eq!(alive_count(&heap), 2, "pinned cycle survives collect");
     let Value::Object(a_gc) = &a else { panic!() };
     // a.refs[0] 还是 b 的引用，不是 Null
-    assert!(matches!(a_gc.borrow().refs()[0], Value::Object(_)));
+    assert!(matches!(a_gc.borrow().field_value(0), Value::Object(_)));
 }
 
 #[test]
@@ -115,7 +115,7 @@ fn unrelated_alive_object_is_not_affected_by_collect() {
 
     assert_eq!(alive_count(&heap), 1, "pinned object survives collect");
     let Value::Object(gc) = &alive else { panic!() };
-    assert_eq!(gc.borrow().refs()[0], Value::I64(42), "data intact");
+    assert_eq!(gc.borrow().field_value(0), Value::I64(42), "data intact");
 
     heap.unpin_root(pin);
 }
@@ -128,18 +128,18 @@ fn multiple_disjoint_cycles_all_freed() {
     let b = heap.alloc_object(dummy_type_desc("B1"), vec![Value::Null], NativeData::None);
     {
         let Value::Object(g) = &a else { panic!() };
-        g.borrow_mut().refs_mut_raw()[0] = b.clone();
+        g.borrow().set_ref_raw_for_test(0, &b.clone());
         let Value::Object(g) = &b else { panic!() };
-        g.borrow_mut().refs_mut_raw()[0] = a.clone();
+        g.borrow().set_ref_raw_for_test(0, &a.clone());
     }
     // 第二个环 c-d
     let c = heap.alloc_object(dummy_type_desc("C2"), vec![Value::Null], NativeData::None);
     let d = heap.alloc_object(dummy_type_desc("D2"), vec![Value::Null], NativeData::None);
     {
         let Value::Object(g) = &c else { panic!() };
-        g.borrow_mut().refs_mut_raw()[0] = d.clone();
+        g.borrow().set_ref_raw_for_test(0, &d.clone());
         let Value::Object(g) = &d else { panic!() };
-        g.borrow_mut().refs_mut_raw()[0] = c.clone();
+        g.borrow().set_ref_raw_for_test(0, &c.clone());
     }
     drop(a); drop(b); drop(c); drop(d);
     assert_eq!(alive_count(&heap), 4);
@@ -156,9 +156,9 @@ fn collect_cycles_freed_bytes_observable() {
     let b = heap.alloc_object(dummy_type_desc("B"), vec![Value::Null], NativeData::None);
     {
         let Value::Object(g) = &a else { panic!() };
-        g.borrow_mut().refs_mut_raw()[0] = b.clone();
+        g.borrow().set_ref_raw_for_test(0, &b.clone());
         let Value::Object(g) = &b else { panic!() };
-        g.borrow_mut().refs_mut_raw()[0] = a.clone();
+        g.borrow().set_ref_raw_for_test(0, &a.clone());
     }
     drop(a);
     drop(b);
@@ -237,7 +237,7 @@ fn iterate_live_objects_dedupes_cycle() {
     // 自引用 cycle：obj.refs[0] = obj 自己（通过 wrap-by-clone）
     let obj = heap.alloc_object(dummy_type_desc("Cycle"), vec![Value::Null], NativeData::None);
     let Value::Object(rc) = &obj else { panic!() };
-    rc.borrow_mut().refs_mut_raw()[0] = obj.clone();
+    rc.borrow().set_ref_raw_for_test(0, &obj.clone());
     let _h = heap.pin_root(obj);
 
     let mut count = 0;
@@ -270,7 +270,7 @@ fn stw_softref_revive_keeps_the_targets_children() {
     let parent = heap.alloc_object(dummy_type_desc("Parent"), vec![Value::Null], NativeData::None);
     {
         let Value::Object(parent_gc) = &parent else { panic!() };
-        parent_gc.borrow_mut().refs_mut_raw()[0] = child.clone();
+        parent_gc.borrow().set_ref_raw_for_test(0, &child.clone());
     }
     let key = heap.register_soft_ref(&parent);
     let weak_child = heap.make_weak(&child).expect("object");
@@ -289,3 +289,19 @@ fn stw_softref_revive_keeps_the_targets_children() {
     );
 }
 
+
+/// The soft registry read an **array** target's `alive` / `generation` through a
+/// `RegionEntry<Vec<Value>>` cast while the slot is a `RegionEntry<ArrayObj>` — the two
+/// instantiations need not lay out their GC fields at the same offsets, so the liveness check
+/// read unrelated bytes. A soft-referenced array must read back as alive while it is.
+#[test]
+fn soft_ref_to_an_array_reads_its_own_liveness() {
+    let heap = ArcMagrGC::new();
+    heap.set_mode(crate::gc::GcMode::StwMarkSweep);
+    let arr = heap.alloc_array(vec![Value::I64(7), Value::I64(8)]);
+    let key = heap.register_soft_ref(&arr);
+    assert!(matches!(heap.soft_ref_get(key), Value::Array(_)), "a live array target reads back");
+    heap.force_collect(); // no pressure: revive keeps it
+    assert!(matches!(heap.soft_ref_get(key), Value::Array(_)), "revived array target survives");
+    heap.unregister_soft_ref(key);
+}

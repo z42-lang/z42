@@ -41,6 +41,19 @@ pub(crate) fn site_for<'s>(
     site.filter(|_| ctx.funcs().is_entry(module))
 }
 
+/// The new instance's generic type-arguments: the site's own (`ObjNewInsn::type_args`),
+/// else — complete-generic-class-identity P1: an instantiation's class name already carries
+/// its arguments (`Demo.Box<int>`), so the compiler ships no second copy on the instruction —
+/// the ones the registry parsed off the name. Both are interned handles (decode / registration
+/// time), so this is a pointer pick: every instance of an instantiation shares one entry.
+/// Both engines hand the result to `ScriptObject::install_type_args` before the ctor runs.
+#[inline]
+pub(crate) fn instance_type_args(
+    site_args: crate::metadata::types::TypeArgs, class: &TypeDesc,
+) -> crate::metadata::types::TypeArgs {
+    if site_args.is_empty() { class.type_args_handle() } else { site_args }
+}
+
 /// The class to allocate. `Err` carries the exception to throw (missing type, ambiguous
 /// type, missing base). Hit: the cached descriptor, no hashing.
 #[inline]

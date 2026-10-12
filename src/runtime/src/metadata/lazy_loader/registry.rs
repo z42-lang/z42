@@ -215,7 +215,7 @@ impl LazyLoader {
     /// Load a compiled artifact from an arbitrary **path** (not a declared dep)
     /// and merge its functions / types / strings into the live registries, then
     /// return its TIDX test entries (resolved FQN + kind + flags). Powers
-    /// `Std.Test.ModuleLoader.Load` so a z42 test runner can load a compiled test
+    /// `__test_module_load` (seed-compat test loader) so a z42 test runner can load a compiled test
     /// module and discover + `Invoke` its `[Test]` methods. Mirrors
     /// `load_zpkg_file`'s merge (string-pool offset + `remap_const_str` + first-wins
     /// + inheritance fixup); idempotent per module name. (retire-test-runner)

@@ -1,0 +1,6 @@
+namespace CfApp;
+
+using Std.IO;
+using CfDep;
+
+void Main() { Console.WriteLine(Dist.Of("kitten", "sitting").ToString()); }

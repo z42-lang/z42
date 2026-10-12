@@ -51,7 +51,7 @@ public static class ClassExtractor {
     }
 
     // ── 用户类：字段（继承实例 → 自有实例 → 自有 static）+ 方法（Object 四方法 → base 链合并实例 → 自有 static）──
-    // pkgClassMap：全包 className→ClassDecl，用于跨文件 base 类方法继承（G18 部分修复）。
+    // pkgClassMap：全包 类 FQN→ClassDecl，用于跨文件 base 类方法继承（G18 部分修复）。
     internal static ExportedClassZ _extractClass(ClassDecl c, SymbolTable symbols, StrMap classMap, StrMap pkgClassMap) {
         // Arity-mangle：泛型类以 Name$N 键注册时从 Name$N 取 CT。
         string ecCtKey = c.Name;
@@ -145,10 +145,12 @@ public static class ClassExtractor {
         int mci = chainLen - 1;        // topmost 祖先 → self（反向）
         while (mci >= 0) {
             // per-CU classMap 先查；miss 时用全包 pkgClassMap 回退（G18 部分修复：跨文件 base 类方法继承）。
+            // 两表都按类 FQN 建键、只给本包祖先查：导入祖先与本包某类同短名时不会取到本包那份声明。
             ClassDecl ancd = null;
-            if (symbols != null) {
-                ancd = classMap.Get(chain[mci].IrName()) as ClassDecl;
-                if (ancd == null && pkgClassMap != null) { ancd = pkgClassMap.Get(chain[mci].IrName()) as ClassDecl; }
+            if (symbols != null && !chain[mci].IsImported) {
+                string ank = chain[mci].Fqn();
+                ancd = classMap.Get(ank) as ClassDecl;
+                if (ancd == null && pkgClassMap != null) { ancd = pkgClassMap.Get(ank) as ClassDecl; }
             }
             if (ancd == null && chain[mci].OwnMethodCount > 0) {
                 // G18-import：imported 祖先（无 ClassDecl）→ 按 OwnMethod* 有序元数据贡献实例方法，

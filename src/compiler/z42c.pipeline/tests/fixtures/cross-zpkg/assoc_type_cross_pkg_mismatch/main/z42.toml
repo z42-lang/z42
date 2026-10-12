@@ -2,7 +2,6 @@
 name    = "demo.assocmissapp"
 version = "0.1.0"
 kind    = "exe"
-entry   = "DemoAMissApp.Main"
 pack    = true
 
 [dependencies]

@@ -160,9 +160,23 @@ impl VarRegion {
     /// Only what this minor marked survives, whatever epoch a block carries; `promote_black` is
     /// the debug check of `Region::sweep_young_in_one_pass`.
     pub fn sweep_young(&mut self, promote_black: Option<crate::gc::refs::MarkKind>) -> (usize, u64) {
+        let out = self.sweep_young_with(promote_black, u8::MAX, |_| {});
+        (out.reclaimed, out.credited)
+    }
+
+    /// [`Self::sweep_young`] with what the heap's generational bookkeeping needs about the
+    /// **object** blocks among them (object model R6): `observe(marked)` for every young object
+    /// at `observed_age` before it is aged (the adaptive promotion policy's survival sample —
+    /// the same one `Region::sweep_young_in_one_pass` takes), and the objects that cross the
+    /// promotion age in this sweep.
+    pub fn sweep_young_with(
+        &mut self,
+        promote_black: Option<crate::gc::refs::MarkKind>,
+        observed_age: u8,
+        mut observe: impl FnMut(bool),
+    ) -> super::VarMinorSweep {
         let threshold = self.promotion_age;
-        let mut reclaimed = 0usize;
-        let mut credited: u64 = 0;
+        let mut out = super::VarMinorSweep::default();
         self.for_each_young(|r, ptr, ci| {
             // SAFETY: see `for_each_young`.
             let header = unsafe { ptr.as_ref() };
@@ -186,7 +200,12 @@ impl VarRegion {
                 r.remove_young(ptr, ci);
                 return;
             }
-            if header.is_marked(crate::gc::refs::MarkKind::Minor) {
+            let is_object = header.block_type() == BlockType::Object;
+            let marked = header.is_marked(crate::gc::refs::MarkKind::Minor);
+            if is_object && header.gen_age() == observed_age {
+                observe(marked);
+            }
+            if marked {
                 header.clear_minor_mark();
                 if header.bump_gen_age() >= threshold {
                     debug_assert!(
@@ -194,25 +213,30 @@ impl VarRegion {
                         "var block promoted while the cycle sweeps, without its epoch"
                     );
                     r.remove_young(ptr, ci);
+                    if is_object {
+                        out.newly_old_objects.push(VarGcRef::pack(ptr, header.generation()));
+                        out.promoted_object_bytes += Self::alloc_charge_bytes(header);
+                    }
                 }
             } else {
                 let charge = Self::alloc_charge_bytes(header);
                 if r.tombstone(VarGcRef::pack(ptr, header.generation())) {
-                    reclaimed += 1;
-                    credited += charge;
+                    out.reclaimed += 1;
+                    out.credited += charge;
                 }
             }
         });
-        (reclaimed, credited)
+        out
     }
 
     /// **Tenure** — the var-region twin of `Region::tenure_young`: every young block leaves the
     /// set at the promotion age, without a mark. While the open cycle sweeps, a block without
     /// its epoch is garbage the sweep has not reached yet and stays young. Returns how many
-    /// blocks left.
-    pub fn tenure_young(&mut self, doomed_unless: Option<crate::gc::refs::MarkKind>) -> usize {
+    /// blocks left, and the allocation charge of the **objects** among them (object model R6:
+    /// objects count towards the heap's promoted-byte budget, other var blocks never did).
+    pub fn tenure_young(&mut self, doomed_unless: Option<crate::gc::refs::MarkKind>) -> (usize, u64) {
         let threshold = self.promotion_age;
-        let mut tenured = 0usize;
+        let (mut tenured, mut object_bytes) = (0usize, 0u64);
         self.for_each_young(|r, ptr, ci| {
             // SAFETY: see `for_each_young`.
             let header = unsafe { ptr.as_ref() };
@@ -222,8 +246,11 @@ impl VarRegion {
             header.raise_gen_age_to(threshold);
             r.remove_young(ptr, ci);
             tenured += 1;
+            if header.block_type() == BlockType::Object {
+                object_bytes += Self::alloc_charge_bytes(header);
+            }
         });
-        tenured
+        (tenured, object_bytes)
     }
 
     /// **fix-minor-and-major-in-one-pause (2026-09-10)**: age the young survivors after a
@@ -234,15 +261,21 @@ impl VarRegion {
     /// aging is what drains the young set. Without this a major leaves every live block young,
     /// and the *next* minor re-marks the entire heap. The blocks were already swept by
     /// [`Self::sweep`] (which took the dead out of the set); this only walks the survivors' ages.
-    pub fn age_young_survivors(&mut self) {
+    /// Returns the **object** blocks that crossed the line (the heap may have to remember them).
+    pub fn age_young_survivors(&mut self) -> Vec<VarGcRef> {
         let threshold = self.promotion_age;
+        let mut newly_old = Vec::new();
         self.for_each_young(|r, ptr, ci| {
             // SAFETY: see `for_each_young`.
             let header = unsafe { ptr.as_ref() };
             debug_assert!(header.is_alive(), "the young set holds only the alive");
             if header.bump_gen_age() >= threshold {
                 r.remove_young(ptr, ci);
+                if header.block_type() == BlockType::Object {
+                    newly_old.push(VarGcRef::pack(ptr, header.generation()));
+                }
             }
         });
+        newly_old
     }
 }

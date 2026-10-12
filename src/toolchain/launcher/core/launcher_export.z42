@@ -106,12 +106,9 @@ void _cmdExportWasm(ParseResult r) {
     string sdkVer = r.GetOption("sdk-ver");
     if (sdkVer.Length == 0) { sdkVer = "nightly"; }
 
+    // 清单里没有入口键（`[project] entry` 报错，z42c 自动检测唯一 Main）⇒ `--entry` 或按约定 `<name>.Main`。
     string entryOpt = r.GetOption("entry");
-    string tomlEntry = _expTomlStr(toml, "project", "entry", "");
-    string entryPoint;
-    if (entryOpt.Length > 0) { entryPoint = entryOpt; }
-    else if (tomlEntry.Length > 0) { entryPoint = tomlEntry; }
-    else { entryPoint = projName + ".Main"; }
+    string entryPoint = entryOpt.Length > 0 ? entryOpt : projName + ".Main";
 
     string outputDir = r.GetOption("output");
     if (outputDir.Length == 0) { outputDir = _expDefaultOutputDir(tomlPath, projName, "-wasm"); }
@@ -230,20 +227,19 @@ void _cmdExport(ParseResult r) {
 // publish / export 的工程清单：给了就用（须存在），没给就从当前目录向上找。失败打印原因并返回 ""。
 string _resolveDeployManifest(string verb, string given) {
     if (given.Length > 0) {
-        if (File.Exists(given)) { return given; }
         if (Directory.Exists(given)) {
             ManifestLocation inDir = ManifestLocator.FindIn(given);
             if (inDir.Kind == ManifestLocateKind.Project) { return inDir.ManifestPath; }
+            if (inDir.Kind == ManifestLocateKind.Workspace) { return _singleDefaultMember(verb, inDir.ManifestPath); }
+        } else if (File.Exists(given)) {
+            return given.EndsWith("z42.workspace.toml") ? _singleDefaultMember(verb, given) : given;
         }
         ConsoleError.WriteLine("z42 " + verb + ": no project manifest at " + given);
         return "";
     }
     ManifestLocation loc = ManifestLocator.FindUp(".");
     if (loc.Kind == ManifestLocateKind.Project) { return loc.ManifestPath; }
-    if (loc.Kind == ManifestLocateKind.Workspace) {
-        ConsoleError.WriteLine("z42 " + verb + ": `" + loc.ManifestPath + "` is a workspace; pass a member's manifest");
-        return "";
-    }
+    if (loc.Kind == ManifestLocateKind.Workspace) { return _singleDefaultMember(verb, loc.ManifestPath); }
     ConsoleError.WriteLine(ManifestLocator.ErrorText(loc, "."));
     return "";
 }
@@ -316,4 +312,11 @@ string _expResolveZbc(string tomlPath, TomlValue toml, string name) {
         if (File.Exists(cached)) { return cached; }
     }
     return Path.Join(projDir.Length > 0 ? projDir : ".", zbcName);
+}
+
+// workspace 根上只能落地一个工程的命令（publish / export / run）：`default_members` 恰选中一个成员 →
+// 它的清单；否则打印候选并返回 ""。
+string _singleDefaultMember(string verb, string wsToml) {
+    try { return WorkspacePlan.SingleDefault(wsToml); }
+    catch (Exception e) { ConsoleError.WriteLine("z42 " + verb + ": " + e.Message); return ""; }
 }

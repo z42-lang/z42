@@ -276,4 +276,22 @@ static class CompileLibsOpt {
 
     public static int Count() { return CompileLibsOpt._n; }
     public static string[] Dirs() { return CompileLibsOpt._dirs; }
+
+    // 编译期解析的**外部档**（= 框架所在）：`--compile-libs`（给了的话），否则 `Z42_LIBS`；都没有 ⇒ 空。
+    // 解析面（单工程 / workspace）与 exe 复制判据（`_bundleExeDeps`）共用这一份 —— 此前复制判据只认
+    // `Z42_LIBS`，于是自举（`Z42_LIBS` = 种子代 run-libs、`--compile-libs` = flat）时从 flat 解析到的
+    // stdlib 全被判成私有包复制进 exe 的 dist，z42c.driver 的 dist ⇒ SDK `programs/z42c/` 随之带上整套 stdlib。
+    public static string[] ExtDirs() {
+        if (CompileLibsOpt._n > 0) {
+            string[] r = new string[CompileLibsOpt._n];
+            int i = 0;
+            while (i < CompileLibsOpt._n) { r[i] = CompileLibsOpt._dirs[i]; i = i + 1; }
+            return r;
+        }
+        string env = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+        if (env.Length == 0) { return new string[0]; }
+        string[] one = new string[1];
+        one[0] = env;
+        return one;
+    }
 }

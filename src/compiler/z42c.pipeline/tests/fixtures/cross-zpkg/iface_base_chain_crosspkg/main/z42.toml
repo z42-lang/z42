@@ -2,7 +2,6 @@
 name    = "demo.ifchainapp"
 version = "0.1.0"
 kind    = "exe"
-entry   = "Demo.IfChainApp.Main"
 pack    = true
 
 [dependencies]

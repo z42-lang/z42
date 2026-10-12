@@ -2,8 +2,9 @@
 //! `generational.rs` (which had reached the 886-line limit).
 //!
 //! The barrier's whole job is the **card invariant**: every old→young reference the mutator
-//! creates must leave a dirty card behind, because the minor mark phase re-roots from those
-//! cards and from nothing else that reaches into the old generation. A young *owner* needs
+//! creates must leave a dirty card (array owner) or a remembered object (object owner, object
+//! model R6) behind, because the minor mark phase re-roots from those and from nothing else that
+//! reaches into the old generation. A young *owner* needs
 //! no card — it is found by scanning the young generation — which is exactly the asymmetry
 //! that makes changing the definition of "old" a delicate operation (see
 //! `ArcMagrGC::apply_promotion_age`).
@@ -12,6 +13,7 @@
 
 use crate::metadata::Value;
 use crate::gc::refs::GcRef;
+use crate::gc::obj_ref::ObjRef;
 use crate::gc::heap::MagrGC;
 
 impl crate::gc::arc_heap::ArcMagrGC {
@@ -25,11 +27,11 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// Non-heap or stack-kind owners → no-op (no card to mark).
     pub(super) fn maybe_mark_cross_gen_card(&self, owner: &Value, new: &Value) {
         let new_age = match new {
-            Value::Object(gc) => GcRef::gen_age(gc),
-            // add-boxed-struct-identity (P4b): a boxed struct is a shared region_object
-            // entry — a young box stored into an old owner MUST mark the card, else it is
-            // missed by minor GC and freed prematurely.
-            Value::BoxedStruct(gc) => GcRef::gen_age(gc),
+            Value::Object(gc) => ObjRef::gen_age(gc),
+            // add-boxed-struct-identity (P4b): a boxed struct is a shared object — a young box
+            // stored into an old owner MUST be recorded, else it is missed by minor GC and freed
+            // prematurely.
+            Value::BoxedStruct(gc) => ObjRef::gen_age(gc),
             Value::Array(gc)  => GcRef::gen_age(gc),
             // fix-minor-gc-skips-var-region (#533) gave the closure block its own age, and
             // `gen_age_of` — the judge the minor mark phase actually uses — reads *that*.
@@ -45,7 +47,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             // re-scan the old owner, the string went unmarked and was swept while still
             // referenced (use-after-free → garbage strings / failed map lookups). Seen as
             // intermittent failures of the nursery-1M compiler build under `--jobs 4`.
-            Value::Str(s) | Value::FuncRef(s) => s.gen_age(),
+            Value::Str(s) => s.gen_age(),
             // make-value-copy: a `Ref` handle never escapes into a heap slot (is_heap_ref
             // = false), so a write barrier here is unreachable for it; its target's age is
             // handled via the transient-arena root scan.
@@ -57,18 +59,15 @@ impl crate::gc::arc_heap::ArcMagrGC {
             return;
         }
         match owner {
-            // add-boxed-struct-identity (P4b): a boxed struct owner is a region_object
-            // entry too (reflection SetValue writes a ref leaf into its struct_refs).
+            // add-boxed-struct-identity (P4b): a boxed struct owner is an object too
+            // (reflection SetValue writes a ref leaf into its blob).
+            //
+            // Object model R6: objects live in the variable-length region, which has no card
+            // table — an old owner joins the remembered set instead (one header CAS, and a push
+            // only the first time; no region lock on this path). See `remembered.rs`.
             Value::Object(gc) | Value::BoxedStruct(gc) => {
-                if GcRef::gen_age(gc) < self.promotion_age() { return; }
-                // owner is old; mark its chunk in region_object dirty.
-                let entry_ptr = gc.entry_ptr();
-                // SAFETY: entry pointer valid for GcRef lifetime.
-                let entry = unsafe { entry_ptr.as_ref() };
-                let (ci, ei) = entry.location();
-                if ci != u32::MAX {
-                    self.region_object.lock().mark_card_dirty(ci, ei);
-                }
+                if ObjRef::gen_age(gc) < self.promotion_age() { return; }
+                self.remember_object(gc);
             }
             Value::Array(gc) => {
                 if GcRef::gen_age(gc) < self.promotion_age() { return; }

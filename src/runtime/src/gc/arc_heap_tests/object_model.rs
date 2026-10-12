@@ -24,25 +24,28 @@ fn object_size_bytes_string_includes_capacity() {
 #[test]
 fn scan_object_refs_visits_every_slot() {
     let heap = ArcMagrGC::new();
+    let a = heap.alloc_object(dummy_type_desc("A"), vec![], NativeData::None);
     let v = heap.alloc_object(
         dummy_type_desc("Foo"),
-        vec![Value::I64(1), Value::I64(2), Value::I64(3)],
+        vec![a, Value::I64(2), a],
         NativeData::None,
     );
     let mut count = 0;
     heap.scan_object_refs(&v, &mut |_| count += 1);
-    // unify-object-byte-layout (PR-2): the dummy type has 4 reference fields → 4 refs
-    // slots (the 3 initial values fill refs[0..3], refs[3] stays Null); scan visits all.
-    assert_eq!(count, 4);
+    // The dummy type's 4 reference fields are type-parameter cells: the scan visits the
+    // cells holding a reference (fields 0 and 2) — a primitive or `null` is no edge.
+    assert_eq!(count, 2);
 }
 
 #[test]
 fn scan_object_refs_visits_every_array_elem() {
     let heap = ArcMagrGC::new();
-    let v = heap.alloc_array(vec![Value::I64(1); 5]);
+    let a = heap.alloc_object(dummy_type_desc("A"), vec![], NativeData::None);
+    let v = heap.alloc_array(vec![a, Value::I64(1), a, Value::Null, a]);
     let mut count = 0;
     heap.scan_object_refs(&v, &mut |_| count += 1);
-    assert_eq!(count, 5);
+    // An untyped array is MIXED: only the cells holding a reference are edges.
+    assert_eq!(count, 3);
 }
 
 #[test]

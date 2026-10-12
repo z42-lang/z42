@@ -285,50 +285,42 @@ public static class ZpkgWriterZ {
     }
 
     // MODS：count + 每模块{ns,src,hash idx + fnCount u16 + firstSigIdx u32 +
-    //        func_len+体, type_len+体, dbug_len+体, regt_len+体, tidx_len(0)}。
+    //        func_len+体, type_len+体, dbug_len+体, regt_len+体, tidx_len+体}。
     // 体复用 zbc 段构建器（全局池 + per-module remap + per-module TokenAllocator）。
+    //
+    // 各模块的段体互不相干、且此时池已冻结（预扫已全量 intern，构建器只 `Idx` 读）⇒ 按模块并行算体
+    // （`ParallelConfig.Jobs`），再按模块序串行拼装 ⇒ 产物与串行逐字节一致。
     public static ByteWriter _buildMods(ZpkgFileZ zpkg, ZbcStringPool pool, bool isRelease) {
+        int n = zpkg.ModuleCount;
+        ModBodies bodies = new ModBodies(zpkg, pool, isRelease);
+        ParallelFor.Run(n, ParallelConfig.Jobs(n), bodies);
         var w = new ByteWriter();
-        w.WriteU32(zpkg.ModuleCount);
+        w.WriteU32(n);
         int firstSigIdx = 0;
         int mi = 0;
-        while (mi < zpkg.ModuleCount) {
+        while (mi < n) {
             ZbcFileZ m = zpkg.Modules[mi];
             IrModule irm = m.Module;
-            var alloc = TokenAllocator.FromModule(irm);
-            // remap 重算（Intern 幂等；预扫已全量入池 → 索引相同）
-            int[] remap = new int[irm.StringCount];
-            int si = 1;
-            while (si < irm.StringCount) { remap[si] = pool.Intern(irm.StringPool[si]); si = si + 1; }
-            ByteWriter funcData = ZbcWriter.BuildFunc(irm.Functions, irm.FuncCount, pool, remap, alloc);
-            ByteWriter typeData = new ByteWriter();
-            if (irm.ClassCount > 0) { typeData = ZbcWriter.BuildType(irm.Classes, irm.ClassCount, pool); }
-            ByteWriter dbugData = new ByteWriter();
-            if (!isRelease && ZbcWriter.HasDebug(irm)) { dbugData = ZbcWriter.BuildDbug(irm.Functions, irm.FuncCount, pool); }
-            ByteWriter regtData = ZbcWriter.BuildRegt(irm.Functions, irm.FuncCount);
-            // TIDX（add-z42c-tidx-emit）：TestCount>0 → 测试发现 section（与 zbc Write 同格式，per-module remap）。
-            ByteWriter tidxData = new ByteWriter();
-            if (irm.TestCount > 0) { tidxData = ZbcWriter.BuildTidx(irm.TestIndex, irm.TestCount, remap); }
-
             w.WriteU32(pool.Idx(m.Namespace));
             w.WriteU32(pool.Idx(m.SourceFile));
             w.WriteU32(pool.Idx(m.SourceHash));
             w.WriteU16(irm.FuncCount);
             w.WriteU32(firstSigIdx);
-            w.WriteU32(funcData.Len());
-            w.AppendWriter(funcData);
-            w.WriteU32(typeData.Len());
-            if (typeData.Len() > 0) { w.AppendWriter(typeData); }
-            w.WriteU32(dbugData.Len());
-            if (dbugData.Len() > 0) { w.AppendWriter(dbugData); }
-            w.WriteU32(regtData.Len());
-            if (regtData.Len() > 0) { w.AppendWriter(regtData); }
-            w.WriteU32(tidxData.Len());   // tidx_len（TestCount==0 → 0，保持零测试路径 byte-identical）
-            if (tidxData.Len() > 0) { w.AppendWriter(tidxData); }
+            ZpkgWriterZ._appendSized(w, bodies.Func[mi], true);
+            ZpkgWriterZ._appendSized(w, bodies.Type[mi], false);
+            ZpkgWriterZ._appendSized(w, bodies.Dbug[mi], false);
+            ZpkgWriterZ._appendSized(w, bodies.Regt[mi], false);
+            ZpkgWriterZ._appendSized(w, bodies.Tidx[mi], false);   // tidx_len（TestCount==0 → 0，零测试路径 byte-identical）
             firstSigIdx = firstSigIdx + irm.FuncCount;
             mi = mi + 1;
         }
         return w;
+    }
+
+    // `len u32` + 体（空体只写长度；func 体恒写，与历史一致）。
+    private static void _appendSized(ByteWriter w, ByteWriter body, bool always) {
+        w.WriteU32(body.Len());
+        if (always || body.Len() > 0) { w.AppendWriter(body); }
     }
 
     // ── TSIG intern（顺序 1:1 C# InternTsigStrings）──────────────────────────────
@@ -428,5 +420,33 @@ public static class ZpkgWriterZ {
         i = 0;
         while (i < secCount) { w.AppendWriter(datas[i]); i = i + 1; }
         return w;
+    }
+}
+
+// `_buildMods` 的逐模块段体（并行体：只写自己的槽，池只读）。
+sealed class ModBodies : IParallelTask {
+    ZpkgFileZ _zpkg; ZbcStringPool _pool; bool _isRelease;
+    public ByteWriter[] Func; public ByteWriter[] Type; public ByteWriter[] Dbug; public ByteWriter[] Regt; public ByteWriter[] Tidx;
+    public ModBodies(ZpkgFileZ zpkg, ZbcStringPool pool, bool isRelease) {
+        this._zpkg = zpkg; this._pool = pool; this._isRelease = isRelease;
+        int n = zpkg.ModuleCount;
+        this.Func = new ByteWriter[n]; this.Type = new ByteWriter[n]; this.Dbug = new ByteWriter[n];
+        this.Regt = new ByteWriter[n]; this.Tidx = new ByteWriter[n];
+    }
+    public void Run(int mi) {
+        IrModule irm = this._zpkg.Modules[mi].Module;
+        ZbcStringPool pool = this._pool;
+        var alloc = TokenAllocator.FromModule(irm);
+        // remap：预扫已全量入池 ⇒ 纯查（`Idx`，并行下不得写池）。
+        int[] remap = new int[irm.StringCount];
+        int si = 1;
+        while (si < irm.StringCount) { remap[si] = pool.Idx(irm.StringPool[si]); si = si + 1; }
+        this.Func[mi] = ZbcWriter.BuildFunc(irm.Functions, irm.FuncCount, pool, remap, alloc);
+        this.Type[mi] = irm.ClassCount > 0 ? ZbcWriter.BuildType(irm.Classes, irm.ClassCount, pool) : new ByteWriter();
+        this.Dbug[mi] = (!this._isRelease && ZbcWriter.HasDebug(irm))
+            ? ZbcWriter.BuildDbug(irm.Functions, irm.FuncCount, pool) : new ByteWriter();
+        this.Regt[mi] = ZbcWriter.BuildRegt(irm.Functions, irm.FuncCount);
+        // TIDX（add-z42c-tidx-emit）：TestCount>0 → 测试发现 section（与 zbc Write 同格式，per-module remap）。
+        this.Tidx[mi] = irm.TestCount > 0 ? ZbcWriter.BuildTidx(irm.TestIndex, irm.TestCount, remap) : new ByteWriter();
     }
 }

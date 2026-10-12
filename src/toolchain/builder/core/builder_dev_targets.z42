@@ -233,10 +233,36 @@ bool _textHasTestAttr(string text) {
     while (i < lines.Length) {
         string ln = lines[i].TrimStart();
         bool comment = ln.StartsWith("//") || ln.StartsWith("/*") || ln.StartsWith("*");
-        if (!comment && (ln.Contains("[Test]") || ln.Contains("[Benchmark]"))) { return true; }
+        if (!comment) {
+            // 字符串字面量里的 `[Test]` 不是 attribute：测试执行器（z42.test 的 Runner）的报错文本
+            // 就写着 `no [Test] or [Benchmark] found`，不剥掉就把执行器自己当成测试工程。
+            string code = _stripStringLiterals(ln);
+            if (code.Contains("[Test]") || code.Contains("[Benchmark]")) { return true; }
+        }
         i = i + 1;
     }
     return false;
+}
+
+// 去掉一行里 `"…"` 字符串字面量的内容（认 `\"` 转义）。只服务上面的子串判据，不是词法分析。
+string _stripStringLiterals(string ln) {
+    if (ln.IndexOf('"') < 0) { return ln; }
+    string o = "";
+    bool inStr = false;
+    int i = 0;
+    while (i < ln.Length) {
+        char c = ln[i];
+        if (inStr) {
+            if (c == '\\') { i = i + 2; continue; }
+            if (c == '"') { inStr = false; }
+        } else if (c == '"') {
+            inStr = true;
+        } else {
+            o = o + c.ToString();
+        }
+        i = i + 1;
+    }
+    return o;
 }
 
 /// 孤儿源守卫（fix-silent-gates 的 z42b 版）：本包一个目标都没解析出来，但 `[tests]` / `[bench]`

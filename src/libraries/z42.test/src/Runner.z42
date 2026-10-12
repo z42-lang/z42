@@ -1,20 +1,14 @@
-// Reflective test runner v2 (retire-test-runner). Replaces the Rust z42-test-runner:
-// loads a compiled test module and runs each [Test] / [Benchmark] it declares,
-// classifying pass / fail / skip — including [Skip] gating and [ShouldThrow<E>]
-// matching.
+// 反射式测试 runner：并入一个编好的测试 / bench 产物，经 TestDiscovery（运行期反射）找出
+// `[Test]` / `[Benchmark]` / `[Setup]` / `[Teardown]`，逐条执行并归类 pass / fail / skip
+// （`[Skip]` 平台 / 能力门、`[Ignore]`、`[ShouldThrow<E>]` 按类型可赋值判定）。
 //
-// z42 [Test]/[Benchmark]/[Setup]/[Teardown] are emitted as zero-arg FREE
-// functions (`<Namespace>.<func>`), so the runner invokes them by their TIDX
-// fully-qualified name (ModuleLoader.Invoke) — not via instance + MethodInfo.
+// 测试函数是零参、无接收者的自由函数或静态方法，经 `MethodInfo.Invoke` 调用。
 //
-// Lifecycle per [Test]: same-namespace [Setup] → the test → same-namespace
-// [Teardown] (teardown always runs). Exit code: 0 = all passed (failures=0),
-// 1 = any failure.
+// 每条 [Test] 的生命周期：同命名空间（或同类型）的 [Setup] → 测试 → [Teardown]（总会执行）。
+// 退出码：0 = 全过；1 = 有失败，或一条可跑的测试都没发现。
 //
-// Output format (rebuild-bench-structured-output): `format` selects
-//   "pretty" (default) — human-readable PASS/FAIL/SKIP lines + Result summary;
-//   "json"             — a single structured `TestReport` object (with per-benchmark
-//                        `bench_stats` parsed from the benchmark's captured stdout).
+// 输出格式：`format` 为 "pretty"（缺省，PASS/FAIL/SKIP 行 + Result 汇总）或 "json"（单个结构化
+// `TestReport`，benchmark 条目带从其输出解析出的 `bench_stats`）。
 namespace Std.Test;
 
 using Std.IO;
@@ -23,11 +17,12 @@ using Std.IO;
 // benchmark's captured stdout (json mode only; "" otherwise / on throw).
 public class InvokeOutcome {
     public bool Threw;
+    public Type? Thrown;      // 抛出的异常的运行期类型（[ShouldThrow<E>] 判定用）
     public string ErrType;
     public string ErrMsg;
     public string Captured;
     public InvokeOutcome() {
-        this.Threw = false; this.ErrType = ""; this.ErrMsg = ""; this.Captured = "";
+        this.Threw = false; this.Thrown = null; this.ErrType = ""; this.ErrMsg = ""; this.Captured = "";
     }
 }
 
@@ -37,7 +32,7 @@ public static class Runner {
     // code (0 = no failures, 1 = at least one failure).
     public static int RunModule(string path, string format) {
         bool json = (format == "json");
-        TestEntry[] entries = ModuleLoader.Load(path);
+        TestCase[] entries = TestDiscovery.Discover(path);
 
         int runnable = 0;
         int c = 0;
@@ -51,7 +46,7 @@ public static class Runner {
         int ri = 0;
         int i = 0;
         while (i < entries.Length) {
-            TestEntry e = entries[i];
+            TestCase e = entries[i];
             // [Test] and [Benchmark] are dispatched identically (zero-arg
             // invocation); the benchmark body constructs its own Bencher and
             // self-reports — mirrors the retired Rust runner, which ran both.
@@ -104,7 +99,7 @@ public static class Runner {
     // test-host, wire-embedded-testhost): the caller collects results from many
     // modules and renders one combined TestReport.
     public static TestResult[] RunModuleResults(string path) {
-        TestEntry[] entries = ModuleLoader.Load(path);
+        TestCase[] entries = TestDiscovery.Discover(path);
         int runnable = 0;
         int c = 0;
         while (c < entries.Length) {
@@ -115,7 +110,7 @@ public static class Runner {
         int ri = 0;
         int i = 0;
         while (i < entries.Length) {
-            TestEntry e = entries[i];
+            TestCase e = entries[i];
             if (e.IsTest() || e.IsBenchmark()) {
                 results[ri] = Runner._runOne(e, entries, true);   // json=true → no pretty print
                 ri = ri + 1;
@@ -127,7 +122,7 @@ public static class Runner {
 
     // Run one [Test]/[Benchmark]. Returns its TestResult; prints pretty lines only
     // when `!json` (pretty output stays byte-identical to pre-structured-output).
-    static TestResult _runOne(TestEntry e, TestEntry[] all, bool json) {
+    static TestResult _runOne(TestCase e, TestCase[] all, bool json) {
         bool isBench = e.IsBenchmark();
         if (e.IsIgnored()) {
             if (!json) { Console.WriteLine("  SKIP " + e.Qualified + " (ignored)"); }
@@ -146,12 +141,15 @@ public static class Runner {
         Runner._runLifecycle(all, ns, 4);   // [Teardown] (always)
 
         if (e.HasShouldThrow()) {
-            if (o.Threw && Runner._typeMatches(o.ErrType, e.ShouldThrow)) {
+            if (o.Threw && Runner._typeMatches(o.Thrown, e.Expected)) {
                 if (!json) { Console.WriteLine("  PASS " + e.Qualified); }
                 return Runner._pass(e, isBench, o.Captured, json);
             }
             string got = o.Threw ? o.ErrType : "no throw";
-            string freason = "expected throw " + e.ShouldThrow + ", got " + got;
+            Type? exp = e.Expected;
+            string want = "?";
+            if (exp is Type et) { want = et.FullName; }
+            string freason = "expected throw " + want + ", got " + got;
             if (!json) { Console.WriteLine("  FAIL " + e.Qualified + " (" + freason + ")"); }
             return new TestResult(e.Qualified, "failed", isBench, freason, null);
         }
@@ -166,19 +164,19 @@ public static class Runner {
 
     // Invoke the entry. In json mode, capture its stdout (so the benchmark's
     // `bench[...]` line can be parsed and is not echoed into the JSON stream).
-    static InvokeOutcome _invoke(TestEntry e, bool json) {
+    static InvokeOutcome _invoke(TestCase e, bool json) {
         InvokeOutcome o = new InvokeOutcome();
         if (json) {
             try {
-                o.Captured = TestIO.captureStdout(() => { ModuleLoader.Invoke(e.Qualified); });
+                o.Captured = TestIO.captureStdout(() => { e.Invoke(); });
             } catch (Exception ex) {
-                o.Threw = true; o.ErrMsg = ex.Message; o.ErrType = ex.GetType().FullName;
+                Type tt = ex.GetType(); o.Threw = true; o.ErrMsg = ex.Message; o.Thrown = tt; o.ErrType = tt.FullName;
             }
         } else {
             try {
-                ModuleLoader.Invoke(e.Qualified);
+                e.Invoke();
             } catch (Exception ex) {
-                o.Threw = true; o.ErrMsg = ex.Message; o.ErrType = ex.GetType().FullName;
+                Type tt = ex.GetType(); o.Threw = true; o.ErrMsg = ex.Message; o.Thrown = tt; o.ErrType = tt.FullName;
             }
         }
         return o;
@@ -186,7 +184,7 @@ public static class Runner {
 
     // Build a passed TestResult; for a benchmark in json mode, parse its captured
     // summary line into bench_stats (null if the line is absent/malformed).
-    static TestResult _pass(TestEntry e, bool isBench, string captured, bool json) {
+    static TestResult _pass(TestCase e, bool isBench, string captured, bool json) {
         BenchStats stats = null;
         if (json && isBench) { stats = BenchStats.parse(captured); }
         return new TestResult(e.Qualified, "passed", isBench, null, stats);
@@ -195,12 +193,12 @@ public static class Runner {
     // Run all [Setup] (kind 3) or [Teardown] (kind 4) functions declared in the
     // same namespace `ns` as the test. (z42 free-function fixtures have no shared
     // instance; same-namespace grouping preserves locality.)
-    static void _runLifecycle(TestEntry[] all, string ns, int kind) {
+    static void _runLifecycle(TestCase[] all, string ns, int kind) {
         int i = 0;
         while (i < all.Length) {
-            TestEntry e = all[i];
+            TestCase e = all[i];
             if (e.Kind == kind && e.DeclaringType() == ns) {
-                try { ModuleLoader.Invoke(e.Qualified); } catch (Exception ex) { }
+                try { e.Invoke(); } catch (Exception ex) { }
             }
             i = i + 1;
         }
@@ -213,7 +211,7 @@ public static class Runner {
     // so it runs where X is present (e.g. threads/socket on native) and skips
     // where it isn't (wasm). Deny-by-default preserved: an unknown feature is not
     // in Capabilities() → absent → skip.
-    static bool _skipApplies(TestEntry e) {
+    static bool _skipApplies(TestCase e) {
         if (e.SkipPlatform != null) { return Platform.OS() == e.SkipPlatform; }
         if (e.SkipFeature != null) { return !Runner._capsHas(e.SkipFeature); }
         return true;
@@ -230,36 +228,14 @@ public static class Runner {
         return false;
     }
 
-    // Match the thrown type against the [ShouldThrow<E>] expectation. `expected`
-    // is z42c's chain "E;descendant…" (the declared type + every visible subtype
-    // reaching it) — any segment matching the thrown type's FullName (exact or by
-    // simple name) is a hit, mirroring the retired Rust runner. Null-safe: a
-    // missing expected chain or thrown-type name → no match (reported as a fail).
-    static bool _typeMatches(string actualFullName, string expected) {
-        if (actualFullName == null || expected == null) { return false; }
-        int start = 0;
-        int i = 0;
-        while (i <= expected.Length) {
-            bool atEnd = (i == expected.Length);
-            if (atEnd || expected.Substring(i, 1) == ";") {
-                string seg = expected.Substring(start, i - start);
-                if (seg.Length > 0) {
-                    if (actualFullName == seg) { return true; }
-                    if (Runner._simpleName(actualFullName) == Runner._simpleName(seg)) { return true; }
-                }
-                start = i + 1;
-            }
-            i = i + 1;
+    // Match the thrown type against the [ShouldThrow<E>] expectation: E itself or any subtype.
+    // A missing expectation (`[ShouldThrow]` without a type argument, E0913) or a missing thrown
+    // type → no match (reported as a fail).
+    static bool _typeMatches(Type? thrown, Type? expected) {
+        // `Type` 重载了 `==` / `!=`（按 FullName 比较），判空用类型模式。
+        if (expected is Type exp) {
+            if (thrown is Type thr) { return exp.IsAssignableFrom(thr); }
         }
         return false;
-    }
-
-    static string _simpleName(string fqn) {
-        int i = fqn.Length - 1;
-        while (i >= 0) {
-            if (fqn.Substring(i, 1) == ".") { return fqn.Substring(i + 1, fqn.Length - (i + 1)); }
-            i = i - 1;
-        }
-        return fqn;
     }
 }

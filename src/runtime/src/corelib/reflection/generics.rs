@@ -49,14 +49,14 @@ pub(super) fn constraint_satisfied_by(ctx: &VmContext, arg_name: &str, constrain
     if type_name_assignable(ctx, arg_name, constraint) {
         return true;
     }
-    let target_simple = constraint.rsplit('.').next().unwrap_or(constraint);
+    let target_simple = crate::metadata::type_names::unqualified(constraint);
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut stack = vec![arg_name.to_string()];
     while let Some(cur) = stack.pop() {
         if !seen.insert(cur.clone()) {
             continue;
         }
-        if cur.rsplit('.').next().unwrap_or(&cur) == target_simple {
+        if crate::metadata::type_names::unqualified(&cur) == target_simple {
             return true;
         }
         if let Some(td) = resolve_td(ctx, &cur) {

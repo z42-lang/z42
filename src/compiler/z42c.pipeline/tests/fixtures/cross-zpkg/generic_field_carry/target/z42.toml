@@ -5,5 +5,3 @@ kind = "lib"
 pack = true
 [sources]
 include = ["src/**/*.z42"]
-[dependencies]
-"z42.collections" = "0.1.0"

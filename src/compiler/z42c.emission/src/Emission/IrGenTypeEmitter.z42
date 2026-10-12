@@ -27,10 +27,10 @@ public sealed class IrGenTypeEmitter {
         if (c.TypeParams.Count > 0) { string om = c.Name + "$" + c.TypeParams.Count.ToString(); if (model.Symbols.HasClass(om)) { ownerKey = om; } }
         Z42ClassType owner = model.Symbols.GetClass(ownerKey) as Z42ClassType;
         // generic-struct-erased-slot-value-copy：记下本包**泛型**类型的声明，供实例化特化时重发成员。
-        // **两个拼写都登记**（裸名 + arity-mangled）：实例化名的基名是 `Pair$2`
-        // （见 `ExprEmitter._instBaseName`），而别的调用点仍按裸名 `Pair` 查。
-        if (c.TypeParams.Count > 0 && !g.GenericDecls.ContainsKey(c.Name)) { g.GenericDecls.Put(c.Name, rawDecl); }
-        if (c.TypeParams.Count > 0 && !g.GenericDecls.ContainsKey(ownerKey)) { g.GenericDecls.Put(ownerKey, rawDecl); }
+        // 键 = 布局键（全名，即实例化名的基名）：同包两个 ns 的同名泛型各是各的。
+        if (c.TypeParams.Count > 0 && owner != null && !g.GenericDecls.ContainsKey(LayoutKey.OfClass(owner))) {
+            g.GenericDecls.Put(LayoutKey.OfClass(owner), rawDecl);
+        }
         // add-partial-types：partial 类型仅**主碎片**（min-path）发一条**合并** TYPE record；非主碎片跳过 record（方法体照发）。
         bool ptIsPartial = owner != null && owner.IsPartial;
         bool ptIsMain = !ptIsPartial || owner.PartialMainFile == g.SourceFile;
@@ -92,13 +92,13 @@ public sealed class IrGenTypeEmitter {
         Decl dd = DeclFacts._unwrap(rawDecl);
         if (!(dd is ClassDecl)) { return; }
         ClassDecl c = dd as ClassDecl;
-        string ownerKey = c.Name;
-        if (c.TypeParams.Count > 0) { string om = c.Name + "$" + c.TypeParams.Count.ToString(); if (model.Symbols.HasClass(om)) { ownerKey = om; } }
-        Z42ClassType owner = model.Symbols.GetClass(ownerKey) as Z42ClassType;
+        // 定义类取自布局表（实例化名的基名是全名）：按实例化点所在 CU 的作用域查短名会撞另一个 ns 的同名类。
+        Z42ClassType owner = g.Layouts != null ? g.Layouts.OwnerOf(instName) : null;
+        string ownerKey = owner != null ? SymbolTable.ClassKeyOf(owner) : c.Name;
         string saved = g.SpecInstName; string savedOwner = g.SpecOwnerName;
         SemanticModel savedBM = g.SpecBodyModel;
         StrMap savedTA = g.SpecTypeArgs;
-        g.SpecInstName = instName; g.SpecOwnerName = owner != null ? owner.Name() : c.Name;
+        g.SpecInstName = instName; g.SpecOwnerName = owner != null ? LayoutKey.OfClass(owner) : c.Name;
         g.SpecBodyModel = bodyModel;   // S1-f：成员体从**声明所属 CU** 的 model 取
         // complete-generic-class-identity P4：特化通道也要铺**类级**型参代换表。
         //
@@ -143,7 +143,7 @@ public sealed class IrGenTypeEmitter {
         if (bodyModel != null && bodyModel.SiCount > 0 && bodyModel.HasStaticInitFor(c.Name)
             && !this._declaresExplicitCctor(c)) {
             var cfe = new FunctionEmitter(bodyModel.Symbols, g);
-            this._out.AddFunc(cfe.EmitStaticInit(g._q(instName) + "." + IrStaticCtor.MethodKey, bodyModel, c.Name));
+            this._out.AddFunc(cfe.EmitStaticInit(g._qLayout(instName) + "." + IrStaticCtor.MethodKey, bodyModel, c.Name));
         }
         g.SpecInstName = saved; g.SpecOwnerName = savedOwner; g.SpecBodyModel = savedBM;
         g.SpecTypeArgs = savedTA;
@@ -166,11 +166,11 @@ public sealed class IrGenTypeEmitter {
     // add-struct-object-methods (PR2b)：blob 值 struct 合成 `Equals(object)`（用户未显式声明才合成）。
     private void _emitStructEquals(ClassDecl c, Z42ClassType owner) {
         IrGen g = this._g;
-        if (owner != null && g.Layouts != null && g.Layouts.IsBlobStruct(owner.Name())
+        if (owner != null && g.Layouts != null && g.Layouts.IsBlobStruct(LayoutKey.OfClass(owner))
             && !owner.Methods.ContainsKey("Equals$1") && !owner.Methods.ContainsKey("Equals")) {
             var eqFe = new FunctionEmitter(this._model.Symbols, g);
             // 特化通道下用实例化名（调用点按同一规则派发）。
-            string eqIr = g._q(g.SpecInstName != "" ? g.SpecInstName : g._classIrShortName(c)) + ".Equals$1";
+            string eqIr = (g.SpecInstName != "" ? g._qLayout(g.SpecInstName) : g._q(g._classIrShortName(c))) + ".Equals$1";
             IrFunction eqF = eqFe.EmitSynthStructEquals(eqIr, owner);
             eqF.MinArg = 1;   // Equals(other) 逻辑参数 1（reconcile：默认=含 this 总数，需覆盖）
             this._out.AddFunc(eqF);
@@ -185,7 +185,7 @@ public sealed class IrGenTypeEmitter {
         IrGen g = this._g;
         if (owner != null && HandlerRegistry.HasRecord(rawDecl)) {
             var rse = new RecordSynthEmitter(this._model.Symbols, g);
-            string rq = g._q(g.SpecInstName != "" ? g.SpecInstName : g._classIrShortName(c));   // 特化通道下用实例化名
+            string rq = g.SpecInstName != "" ? g._qLayout(g.SpecInstName) : g._q(g._classIrShortName(c));   // 特化通道下用实例化名
             bool hasTs = owner.Methods.ContainsKey("ToString") || owner.Methods.ContainsKey("ToString$0");
             if (owner.IsStruct) {
                 if (!hasTs) { this._out.AddFunc(rse.EmitRecordToString(rq + ".ToString", owner, true)); }

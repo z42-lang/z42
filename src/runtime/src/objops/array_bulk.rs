@@ -1,19 +1,19 @@
 //! `Std.Array` 的无类型 / 批量元素操作：`CopyRange`（`__array_copy`）、`GetValue` 的元素读取、
 //! `SetValue` 的值 struct 元素校验，以及批量写入后的写屏障。corelib 只解析参数、把 [`OpError`] 抛给用户。
 //!
-//! 元素可以是任意 backing。值 struct 数组（`StructBytes`：元素字节紧凑打包 + 引用叶子侧表）不能走
-//! `get_boxed` / `set_boxed`——那两个访问器没有堆、装不了箱——所以这里按两侧 backing 选一条路：
+//! 元素可以是任意 backing。值 struct 数组（`StructBytes`：元素 blob 紧凑打包，引用叶子是 8 B 引用字）
+//! 的读不能走 `get_boxed`——它没有堆、装不了箱——所以这里按两侧 backing 选一条路：
 //!
 //! | 源 → 目的 | 做法 | 类型不符 |
 //! |---|---|---|
-//! | `T[]` → `T[]`（同一 struct） | 字节区间 + 引用叶子区间各拷一次（同数组按 memmove） | 元素类型不同 → `ArrayTypeMismatchException` |
+//! | `T[]` → `T[]`（同一 struct） | 逐元素拷 blob，引用叶子经引用字写原语（同数组按 memmove 方向） | 元素类型不同 → `ArrayTypeMismatchException` |
 //! | struct[] → 引用数组（`object[]` / 接口数组） | 逐元素装箱 | 目的元素类型装不下这个 struct → `ArrayTypeMismatchException` |
 //! | 引用数组 → struct[] | 先逐元素校验是该 struct 的装箱，再逐元素拆进去 | 数组类型不兼容 → `ArrayTypeMismatchException`；某个元素不是（含 null）→ `InvalidCastException` |
 //! | struct[] ↔ 基元数组 | — | `ArrayTypeMismatchException` |
-//! | 其余（基元 / 引用之间） | `ArrayObj::copy_elems_from`（同种 backing 一次切片拷贝） | 元素种类不符 → `InvalidCastException` |
+//! | 其余（基元 / 引用之间） | `ArrayObj::copy_elems_from`（同种 PRIM backing 一次切片拷贝，REF → REF 逐字） | 元素种类不符 → `InvalidCastException` |
 //!
-//! 抛异常时目的数组不动。写入之后对写入区间里**每个引用槽**（引用数组的元素、struct[] 元素的每个
-//! 引用叶子）发 `write_barrier_array_elem`；覆盖前的旧引用由各写入原语交给 SATB。
+//! 抛异常时目的数组不动。写入之后对写入区间里**每个引用槽**（REF / MIXED / FROZEN 的元素、struct[] 元素的每个
+//! 引用叶子）里的堆引用发 `write_barrier_array_elem`；覆盖前的旧引用由各写入原语交给 SATB。
 
 use crate::gc::GcRef;
 use crate::metadata::types::{ArrayObj, ElemType};
@@ -29,10 +29,10 @@ pub fn copy_range(
     if n == 0 {
         return Ok(());
     }
-    // 同一数组 ⇒ 只取一把锁（同一 GcRef 上 borrow + borrow_mut 会自锁）；元素类型必然相同。
+    // 同一数组：元素类型必然相同，按 memmove 方向在数组内移动。
     if GcRef::ptr_eq(src, dst) {
         {
-            let mut a = dst.borrow_mut();
+            let a = dst.borrow();
             let len = a.len();
             if si + n > len || di + n > len {
                 return Err(OpError::copy_range_out_of_bounds(len, si, len, di, n));
@@ -46,7 +46,8 @@ pub fn copy_range(
     if si + n > s.len || di + n > d.len {
         return Err(OpError::copy_range_out_of_bounds(s.len, si, d.len, di, n));
     }
-    // 类型判定会查类型表（可能触发惰性加载），放在数组锁之外。
+    // 类型判定会查类型表（可能触发惰性加载）。数组没有锁（对象模型 R4）：两条线程同时互相拷贝
+    // 两个数组只是逐元素竞争，没有取锁顺序问题。
     match plan(ctx, &s, &d)? {
         Plan::Direct => copy_direct(src, si, dst, di, n)?,
         Plan::Box => box_into(ctx, src, &s, si, dst, di, n)?,
@@ -63,7 +64,7 @@ pub fn elem_get_boxed(ctx: &VmContext, arr: &GcRef<ArrayObj>, i: usize) -> OpRes
         let a = arr.borrow();
         match a.struct_elem(i) {
             None => return Ok(a.get_boxed(i)),
-            Some((b, r)) => (a.element_type, (b.to_vec(), r.to_vec())),
+            Some(blob) => (a.element_type, blob),
         }
     };
     box_struct(ctx, et, &elem.0, &elem.1)
@@ -83,21 +84,16 @@ pub fn check_untyped_store(arr: &ArrayObj, v: &Value) -> OpResult<()> {
     }
 }
 
-/// 批量写入 `dst[di..di+n]` **之后**的写屏障：区间内每个引用槽（引用数组的元素 / struct[] 元素的每个
-/// 引用叶子）里的堆引用各发一次 `write_barrier_array_elem`。并发模式要逐个染色新值，所以不能只发一次。
-/// 调用时数组的借用必须已经放掉。
+/// 批量写入 `dst[di..di+n]` **之后**的写屏障：区间内每个引用槽（REF / MIXED / FROZEN 的元素、
+/// struct[] 元素的每个引用叶子）里的堆引用各发一次 `write_barrier_array_elem`——槽里实际落下的引用，
+/// 装箱的值给盒子（`ArrayObj::visit_elem_refs`；只收集真正的引用，`List<int>` 的扩容拷贝不分配）。
+/// 并发模式要逐个染色新值，所以不能只发一次。调用时数组的借用必须已经放掉。
 pub fn barrier_after_range_store(ctx: &VmContext, dst: &GcRef<ArrayObj>, di: usize, n: usize) {
-    let hits: Vec<(usize, Value)> = {
-        let a = dst.borrow();
-        let (slots, per) = a.elem_ref_slots(di, n);
-        if per == 0 {
-            return;
-        }
-        slots.iter().enumerate()
-            .filter(|(_, v)| v.is_heap_ref())
-            .map(|(k, v)| (di + k / per, *v))
-            .collect()
-    };
+    let mut hits: Vec<(usize, Value)> = Vec::new();
+    dst.borrow().visit_elem_refs(di, n, |i, v| hits.push((i, *v)));
+    if hits.is_empty() {
+        return;
+    }
     let owner = Value::Array(*dst);
     for (i, v) in &hits {
         ctx.heap().write_barrier_array_elem(&owner, *i, v);
@@ -106,12 +102,12 @@ pub fn barrier_after_range_store(ctx: &VmContext, dst: &GcRef<ArrayObj>, di: usi
 
 // ── 拷贝计划 ─────────────────────────────────────────────────────────────────
 
-/// 一侧数组决定拷贝路线的全部信息（取完就放锁）。
+/// 一侧数组决定拷贝路线的全部信息。
 struct Shape {
     len: usize,
     elem: ElemType,
-    /// 值 struct 数组的元素 `(size, ref_count)`。
-    strukt: Option<(usize, usize)>,
+    /// 值 struct 数组的元素 `(size, 引用叶子偏移)`。
+    strukt: Option<(usize, Box<[u32]>)>,
     /// 基元 backing 的种类标签（`int[]` …）；引用 / struct backing 为 `None`。
     prim: Option<&'static str>,
 }
@@ -121,7 +117,7 @@ impl Shape {
         Shape {
             len: a.len(),
             elem: a.element_type,
-            strukt: a.struct_layout().map(|l| (l.size, l.ref_count())),
+            strukt: a.struct_layout().map(|l| (l.size, l.ref_offsets.clone())),
             prim: a.prim_backing_kind(),
         }
     }
@@ -134,7 +130,7 @@ enum Plan { Direct, Box, Unbox }
 
 fn plan(ctx: &VmContext, s: &Shape, d: &Shape) -> OpResult<Plan> {
     let mismatch = || OpError::array_type_mismatch(s.kind(), d.kind());
-    match (s.strukt, d.strukt) {
+    match (&s.strukt, &d.strukt) {
         (Some(sl), Some(dl)) => {
             if *s.elem != *d.elem { return Err(mismatch()); }
             if sl != dl {
@@ -178,7 +174,7 @@ fn check_struct_box(elem: &str, v: &Value) -> OpResult<()> {
 /// 同种 backing / 同一 struct：`copy_elems_from`。基元 ↔ 引用这种混搭先逐元素校验种类，不符就整段拒绝。
 fn copy_direct(src: &GcRef<ArrayObj>, si: usize, dst: &GcRef<ArrayObj>, di: usize, n: usize) -> OpResult<()> {
     let s = src.borrow();
-    let mut d = dst.borrow_mut();
+    let d = dst.borrow();
     // 两侧 backing 同种 ⇒ 不可能不符，零成本跳过（真实用法几乎全在这条）。
     if s.prim_backing_kind() != d.prim_backing_kind() {
         if let Some(kind) = d.prim_backing_kind() {
@@ -196,20 +192,18 @@ fn copy_direct(src: &GcRef<ArrayObj>, si: usize, dst: &GcRef<ArrayObj>, di: usiz
     Ok(())
 }
 
-/// struct[] → 引用数组：逐元素装箱。装箱要分配，分配期间不持有任何数组锁；
+/// struct[] → 引用数组：逐元素装箱。
 /// 每个盒子一出生就写进目的数组（目的数组在调用方寄存器里，是根）。
 fn box_into(
     ctx: &VmContext, src: &GcRef<ArrayObj>, s: &Shape, si: usize, dst: &GcRef<ArrayObj>, di: usize, n: usize,
 ) -> OpResult<()> {
     for k in 0..n {
-        let (bytes, refs) = {
-            let a = src.borrow();
-            let (b, r) = a.struct_elem(si + k)
-                .ok_or_else(|| OpError::internal("Array.CopyRange: struct[] source lost its StructBytes backing".into()))?;
-            (b.to_vec(), r.to_vec())
-        };
+        let (bytes, refs) = src.borrow().struct_elem(si + k)
+            .ok_or_else(|| OpError::internal("Array.CopyRange: struct[] source lost its StructBytes backing".into()))?;
         let boxed = box_struct(ctx, s.elem, &bytes, &refs)?;
-        dst.borrow_mut().set_boxed(di + k, boxed);
+        // 下一个盒子的分配可能触发回收：这一个先发屏障，不等整段写完。
+        let wrote = dst.borrow().set_boxed(di + k, boxed);
+        super::array::barrier_elem(ctx, dst, di + k, wrote, &boxed);
     }
     Ok(())
 }
@@ -217,12 +211,12 @@ fn box_into(
 /// 引用数组 → struct[]：先整段校验（不符就抛、目的地不动），再逐元素把装箱的字节与引用叶子拷进去。
 fn unbox_into(src: &GcRef<ArrayObj>, si: usize, dst: &GcRef<ArrayObj>, d: &Shape, di: usize, n: usize) -> OpResult<()> {
     let s = src.borrow();
-    let mut a = dst.borrow_mut();
+    let a = dst.borrow();
     for k in 0..n {
         check_struct_box(&d.elem, &s.get_boxed(si + k))?;
     }
     for k in 0..n {
-        a.set_boxed(di + k, s.get_boxed(si + k));   // StructBytes 臂：拷字节 + 引用叶子（SATB 记旧叶子）
+        let _ = a.set_boxed(di + k, s.get_boxed(si + k));   // STRUCT 臂：拷 blob（SATB 记旧叶子）；屏障由调用方整段发
     }
     Ok(())
 }

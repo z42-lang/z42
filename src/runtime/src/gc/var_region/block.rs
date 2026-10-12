@@ -20,15 +20,23 @@ pub enum BlockType {
     ArrayPrim = 2,
     /// `struct[]` inline bytes + reference-leaf bitmap (mixed). PR-4.
     ArrayStruct = 3,
-    /// `ClosureData` fields (env edge + fn_name string edge). PR-3.
+    /// `ClosureData` fields (env edge + target `FnId`, P1-2 PR 8). PR-3.
     Closure = 4,
+    /// REF array elements: 8 B self-describing reference words (`ref_word`). Object model R3.
+    ArrayRef = 5,
+    /// MIXED array elements: 16 B type-parameter cells (`tparam_cell`). Object model R3.
+    ArrayCell = 6,
+    /// A managed object (`Value::Object` / `Value::BoxedStruct`): the 16 B object header
+    /// (`metadata::types::ScriptObject` — type descriptor + meta word) followed by the field
+    /// cells. Object model R6. Owns its header's `Arc<TypeDesc>` and extras box, so the heap's
+    /// drop glue runs for it.
+    Object = 7,
 }
 
 impl BlockType {
     /// Reconstruct from the tag bits of a header's `type_tag` byte. Returns `None` on an
     /// unknown tag (corruption guard — a valid block always carries one of the variants
-    /// above). Callers pass the already-masked low [`TAG_BITS`]; values 5..=7 are unused
-    /// and reaching one means the byte is corrupt.
+    /// above). Callers pass the already-masked low [`TAG_BITS`]; all eight values are in use.
     #[inline]
     pub(super) fn from_u8(v: u8) -> Option<Self> {
         match v {
@@ -37,12 +45,15 @@ impl BlockType {
             2 => Some(Self::ArrayPrim),
             3 => Some(Self::ArrayStruct),
             4 => Some(Self::Closure),
+            5 => Some(Self::ArrayRef),
+            6 => Some(Self::ArrayCell),
+            7 => Some(Self::Object),
             _ => None,
         }
     }
 }
 
-/// Width of the [`BlockType`] field inside a header's `type_tag` byte. 5 variants → 3 bits.
+/// Width of the [`BlockType`] field inside a header's `type_tag` byte. 8 variants → 3 bits (full).
 const TAG_BITS: u32 = 3;
 /// Mask selecting the [`BlockType`] bits of a `type_tag` byte.
 const TAG_MASK: u8 = (1 << TAG_BITS) - 1;
@@ -56,7 +67,24 @@ const AGE_MASK: u8 = 0b11;
 /// (`set_ascii_str`) before the handle escapes; clear means *unknown*, never "not ASCII",
 /// so a path that does not set it only loses the fast path. The STW age updates below
 /// preserve it.
-const ASCII_STR_BIT: u8 = 1 << 6;
+pub(crate) const ASCII_STR_BIT: u8 = 1 << 6;
+
+/// `BlockType::Object` only: the object is in the heap's **remembered set** — it is old and a
+/// write barrier (or promotion) saw it receive a young reference, so the next minor re-roots
+/// from it (object model R6; the var region has no card table). Set by a CAS on the mutator
+/// path (`try_set_remembered`), cleared by the collector when the object no longer reaches
+/// anything young.
+pub(crate) const REMEMBERED_BIT: u8 = 1 << 5;
+
+/// The heap keeps side-table state keyed by this block's address (a finalizer, a soft
+/// reference). Tombstoning a block with this bit — or [`REMEMBERED_BIT`] — records its address
+/// in the region's flagged-dead list, so the heap can drop those entries before the chunk is
+/// pooled or freed (`VarRegion::take_flagged_dead`). Sweep never has to look anything up for an
+/// unflagged block.
+pub(crate) const SIDE_BIT: u8 = 1 << 7;
+
+/// The `type_tag` bits a GC age update must preserve (everything but the age).
+const KEEP_MASK: u8 = TAG_MASK | ASCII_STR_BIT | REMEMBERED_BIT | SIDE_BIT;
 
 /// Largest `gen_age` a block header can represent (see [`AGE_MASK`]).
 ///
@@ -86,8 +114,9 @@ pub struct GcBlockHeader {
     pub(super) alive: AtomicBool,
     /// Packed payload kind + generation age + string flag. Low [`TAG_BITS`] hold the
     /// [`BlockType`] (tells the tracer how to scan the payload); the next two bits hold
-    /// `gen_age`; bit 6 is [`ASCII_STR_BIT`] (string blocks only). Bits 5 and 7 are unused
-    /// (always 0) — young-set membership lives in the region's bitmap.
+    /// `gen_age`; bit 6 is [`ASCII_STR_BIT`] (string blocks only); bit 5 is [`REMEMBERED_BIT`]
+    /// and bit 7 [`SIDE_BIT`] (object blocks only). Young-set membership lives in the region's
+    /// bitmap.
     ///
     /// **fix-minor-gc-skips-var-region (2026-09-08)**: the age had to live *inside* an
     /// existing byte — the header is pinned at 16 by the assert below, and growing it to 24
@@ -122,6 +151,16 @@ pub struct GcBlockHeader {
 // thin-Arc string have identical payload offsets, easing the PR-2 migration.
 const _: () = assert!(std::mem::size_of::<GcBlockHeader>() == 16);
 const _: () = assert!(std::mem::align_of::<GcBlockHeader>() == 8);
+
+/// Byte offset of [`GcBlockHeader::size`] (the payload byte length, `u32`) — read by
+/// JIT-emitted code that inspects a string block without a helper call
+/// (`metadata::vstr::jit_layout`).
+#[cfg(feature = "jit")]
+pub(crate) const HEADER_SIZE_OFFSET: usize = std::mem::offset_of!(GcBlockHeader, size);
+/// Byte offset of [`GcBlockHeader::type_tag`] (holds [`ASCII_STR_BIT`]) — see
+/// [`HEADER_SIZE_OFFSET`].
+#[cfg(feature = "jit")]
+pub(crate) const HEADER_TYPE_TAG_OFFSET: usize = std::mem::offset_of!(GcBlockHeader, type_tag);
 
 impl GcBlockHeader {
     /// Byte offset of the inline payload within the allocation = the (padded) header size.
@@ -166,7 +205,7 @@ impl GcBlockHeader {
     pub(super) fn bump_gen_age(&self) -> u8 {
         let cur = self.type_tag.load(Ordering::Relaxed);
         let age = ((cur >> AGE_SHIFT) & AGE_MASK).saturating_add(1).min(MAX_GEN_AGE);
-        let keep = cur & (TAG_MASK | ASCII_STR_BIT);
+        let keep = cur & KEEP_MASK;
         self.type_tag.store(keep | (age << AGE_SHIFT), Ordering::Relaxed);
         age
     }
@@ -184,7 +223,7 @@ impl GcBlockHeader {
         if now >= want {
             return;
         }
-        let keep = cur & (TAG_MASK | ASCII_STR_BIT);
+        let keep = cur & KEEP_MASK;
         self.type_tag.store(keep | (want << AGE_SHIFT), Ordering::Relaxed);
     }
 
@@ -200,6 +239,46 @@ impl GcBlockHeader {
     #[inline]
     pub(crate) fn is_ascii_str(&self) -> bool {
         self.type_tag.load(Ordering::Relaxed) & ASCII_STR_BIT != 0
+    }
+
+    /// Put the block into the remembered set's bit (see [`REMEMBERED_BIT`]). Returns `true` iff
+    /// this call set it — the caller that wins pushes the object onto the heap's remembered
+    /// list, so the list holds each object once. An atomic OR: the mutator path races only
+    /// other mutators here (age updates happen under STW).
+    #[inline]
+    pub(crate) fn try_set_remembered(&self) -> bool {
+        self.type_tag.fetch_or(REMEMBERED_BIT, Ordering::Relaxed) & REMEMBERED_BIT == 0
+    }
+
+    /// Take the block out of the remembered set's bit (collector, STW).
+    #[inline]
+    pub(crate) fn clear_remembered(&self) {
+        self.type_tag.fetch_and(!REMEMBERED_BIT, Ordering::Relaxed);
+    }
+
+    /// Whether [`REMEMBERED_BIT`] is set.
+    #[inline]
+    pub(crate) fn is_remembered(&self) -> bool {
+        self.type_tag.load(Ordering::Relaxed) & REMEMBERED_BIT != 0
+    }
+
+    /// Flag that the heap keeps side-table state for this block (see [`SIDE_BIT`]).
+    #[inline]
+    pub(crate) fn set_side(&self) {
+        self.type_tag.fetch_or(SIDE_BIT, Ordering::Relaxed);
+    }
+
+    /// Whether tombstoning this block must be reported to the heap (side tables or the
+    /// remembered set name it).
+    #[inline]
+    pub(super) fn needs_dead_notice(&self) -> bool {
+        self.type_tag.load(Ordering::Relaxed) & (SIDE_BIT | REMEMBERED_BIT) != 0
+    }
+
+    /// Index of the chunk that owns this block (`u32::MAX` for a block outside any region).
+    #[inline]
+    pub(crate) fn chunk_idx(&self) -> u32 {
+        self.chunk_idx
     }
 
     /// True while the block is live (not yet swept).
@@ -260,8 +339,10 @@ pub(crate) unsafe fn payload_ptr_of(header: NonNull<GcBlockHeader>) -> *mut u8 {
 }
 
 /// Injected payload finalizer: given a block's [`BlockType`], a pointer to its inline payload,
-/// and the payload byte length, run the payload's destructor (e.g. `drop_in_place` a
-/// `ClosureData`'s `String`, or each `Value` in an array-of-values block).
+/// and the payload byte length, run the payload's destructor (an object's header — its
+/// `Arc<TypeDesc>` and extras box —, or each `Value` in an array-of-values block). Returns the
+/// bytes the destructor gave back to the allocator **outside** the block (an object's extras
+/// box), which the region credits to the heap footprint.
 ///
 /// Injected (rather than matched inside `VarRegion`) so the allocator stays a **pure byte
 /// allocator** with no dependency on the payload types (`metadata::types`). The heap supplies
@@ -271,4 +352,11 @@ pub(crate) unsafe fn payload_ptr_of(header: NonNull<GcBlockHeader>) -> *mut u8 {
 /// # Safety
 /// The glue is called exactly once per block reclaim, with a valid pointer to that block's
 /// initialized `size`-byte payload; it must not touch the `VarRegion` (called while borrowed).
-pub type PayloadDropGlue = unsafe fn(BlockType, *mut u8, usize);
+pub type PayloadDropGlue = unsafe fn(BlockType, *mut u8, usize) -> u64;
+
+/// Bit of `bt` in a drop-type mask (`VarRegion::drop_types`): which block types the drop glue
+/// runs for.
+#[inline]
+pub const fn drop_type_bit(bt: BlockType) -> u8 {
+    1 << (bt as u8)
+}

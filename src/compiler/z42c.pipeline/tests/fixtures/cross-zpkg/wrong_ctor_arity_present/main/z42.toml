@@ -2,7 +2,6 @@
 name    = "demo.wcapapp"
 version = "0.1.0"
 kind    = "exe"
-entry   = "Demo.WcapApp.Main"
 pack    = true
 
 [dependencies]

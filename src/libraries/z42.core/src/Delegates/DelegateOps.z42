@@ -9,8 +9,8 @@ namespace Std;
 // `event` 关键字 `-=` desugar。
 //
 // 两个 Value 变体按各自身份语义比较：
-//   FuncRef(name)            —— fn name 字符串相等
-//   Closure(env, fn_name)    —— fn_name 相等 + env GC ptr_eq
+//   FuncRef(fnId)            —— 目标函数相同（VM 在创建时把名字绑成 FnId）
+//   Closure(env, fnId)       —— 目标函数相同 + env GC ptr_eq
 //   （闭包恒堆分配，没有第三种变体）
 // 跨变体不等；非 delegate 值返回 false 不报错。
 //

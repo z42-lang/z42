@@ -736,7 +736,7 @@ fn process_handle_read_impl<R: Read>(
         }
     };
 
-    let mut borrowed = buf_arr.borrow_mut();
+    let borrowed = buf_arr.borrow();
     for i in 0..n {
         borrowed.set_boxed(offset + i, Value::I64(tmp[i] as i64));
     }

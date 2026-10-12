@@ -33,7 +33,7 @@ slot id；`0` 是「未分配」sentinel。五个成员全是 `[Native("__gc_han
 backing、任一 alias `Free()` 后全体失效」。三条路里只有这条走得通：
 
 - 纯 z42 class：引用类型天然共享，但 corelib 侧拿不住用户 class 实例的句柄（那是
-  `Value::Object(GcRef<ScriptObject>)`，句柄表要存的是自己的 slot）；
+  `Value::Object(ObjRef)`，句柄表要存的是自己的 slot）；
 - 纯 z42 struct、状态放在字段里：值拷贝把状态一起复制，`h1.Free()` 只清 `h1`，`h2` 还持有
   引用——`Free` 失去意义；
 - **struct + 一条 slot id**：拷贝复制的是 id，所有 alias 指向 corelib 里同一个 slot，`Free`
@@ -52,10 +52,10 @@ struct HandleSlab {
 }
 
 enum HandleEntry {
-    StrongObject(GcRef<ScriptObject>),
+    StrongObject(ObjRef),
     StrongArray (GcRef<ArrayObj>),
     StrongAtomic(Value),              // I64 / F64 / Str / Bool / Char / FuncRef / …
-    WeakObject  (WeakGcRef<ScriptObject>),
+    WeakObject  (WeakObjRef),         // 句柄 + 所在 chunk 的复用 epoch，由堆 upgrade
     WeakArray   (WeakGcRef<ArrayObj>),
 }
 ```
@@ -71,7 +71,7 @@ enum HandleEntry {
 
 | target | Strong | Weak |
 |---|---|---|
-| `Value::Object` / `Value::Array` | 存 `GcRef` clone | 存 `GcRef::downgrade` |
+| `Value::Object` / `Value::Array` | 存 `ObjRef` / `GcRef` 拷贝 | 存 `downgrade_object` / `GcRef::downgrade` |
 | 原子值（int / string / bool / …） | 存 `Value` clone | **返回 slot 0**（原子值无法弱化） |
 | `Value::Null` | **返回 slot 0** | **返回 slot 0** |
 
@@ -83,14 +83,14 @@ enum HandleEntry {
 
 ## 3. 强句柄靠什么保活：它是 mark root
 
-**这是本页最容易写错的一条。** slab 里存一个 `GcRef` 本身**不**保活：`GcRef<T>` 是
+**这是本页最容易写错的一条。** slab 里存一个 `ObjRef` / `GcRef` 本身**不**保活：它们是
 「地址 + generation」的 region 句柄，不是引用计数指针，clone 它不改变任何存活判定。强句柄
 之所以是强的，是因为 `HandleSlab::strong_targets()`（只吐 Strong 三种 variant，Weak 两种
 故意排除）被挂进了**每一条标记的根集**：
 
 | 路径 | 文件 | 什么时候跑 |
 |---|---|---|
-| 全堆 STW 标记 | `arc_heap/collect.rs::mark_phase` | `force_collect` / 非分代整堆回收 |
+| 全堆 STW 标记 | `arc_heap/collect.rs::mark_phase` | `collect_full`（`GC.ForceCollect()`）/ 非分代整堆回收 / 一次性 major |
 | 分代 minor 标记 | `arc_heap/generational.rs::mark_phase_minor` | 默认收集器的绝大多数停顿 |
 | 增量 major 开镜 | `arc_heap/roots.rs::snapshot_roots_into_mark_queue` | 增量 major 的根快照 |
 | 保留诊断反查 | `arc_heap/roots.rs`（retention 图） | `Heap.RetainingRoots`，报成 `RootKind::Pinned` |
@@ -105,7 +105,7 @@ enum HandleEntry {
 
 ## 4. 读出口上的增量 major 闸门
 
-`handle_target` 读到值之后还要过 `admit_resurrected`（`arc_heap/incremental.rs`）：
+`handle_target` 先把条目拷出 `inner` 锁再求值（弱对象引用的 upgrade 要拿变长区的锁，不能嵌在 `inner` 里），读到值之后还要过 `admit_resurrected`（`arc_heap/incremental.rs`）：
 
 - 增量 major 正在**标记**：把读出的值 shade 一次——它可能在快照时只被弱可达，而现在要进
   寄存器了；

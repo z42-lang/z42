@@ -26,7 +26,7 @@
 //! never reused), so ids cached against them keep pointing at the old functions.
 //!
 //! Consumers: `Call` site tokens (`ResolvedTokens.method_tokens` hold `FnId`s,
-//! see `metadata::resolver`), the JIT slot table (`JitModuleCtx`, indexed by
+//! see `metadata::resolver`), the JIT slot table (`jit::runtime::JitRuntime`, indexed by
 //! `FnId`), and the `VCall` PIC payload (`metadata::resolver::ic`) — all three
 //! read a lazily loaded callee back through [`FuncTable::get`].
 //!

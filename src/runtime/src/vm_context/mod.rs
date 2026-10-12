@@ -14,7 +14,8 @@
 //! - **`stack_arena`** / **`struct_arena`** / **`transient_arena`** — frame-scoped
 //!   payloads behind `{idx, frame_id}` handles
 //! - **`counters`** — this thread's `RuntimeCounters` shard
-//! - **`jit_ctx`** — the active `JitModuleCtx` (0 when this thread runs no JIT)
+//! - **`jit_head`** — what compiled code reads at fixed offsets (this thread's
+//!   stack limit, the cctor gate)
 //! - lookup / isa caches, the safepoint throttle counter
 //!
 //! # Lifecycle
@@ -37,10 +38,10 @@
 //!
 //! # JIT integration
 //!
-//! `JitModuleCtx::vm_ctx: *mut VmContext` carries the ctx pointer through the
-//! `extern "C"` boundary. The pointer is set by `JitModule::run` for the
-//! duration of one entry-point invocation and cleared on return. JIT helpers
-//! access fields through `(*jit_ctx).vm_ctx` and call ctx methods.
+//! Every compiled function and JIT helper takes the running thread's own
+//! context as its `extern "C"` context parameter (`*const VmContext`), so JIT
+//! code on any thread reaches that thread's state directly; the VM's shared JIT
+//! (slots, compiler, OSR cache) is `VmCore::jit` (`jit::runtime`).
 //!
 //! See `docs/internals/src/runtime/vm-architecture.md` "VmContext —— 运行时状态归口" 段 for
 //! the full state-collapse rationale.
@@ -73,7 +74,11 @@ pub(crate) mod cctor;
 // fix-silent-symbol-resolution：「确定不存在」的判定（两后端共用）。
 pub(crate) mod symres;
 
-pub use types::{VmCore, VmContext, VM_CONTEXT_SAFEPOINT_SKIP_OFFSET};
+pub use types::{
+    VmCore, VmContext, VM_CONTEXT_CCTORS_OFFSET, VM_CONTEXT_SAFEPOINT_SKIP_OFFSET,
+    VM_CONTEXT_STACK_LIMIT_OFFSET,
+};
+pub(crate) use types::JitHead;
 pub(crate) use resource_registry::ResourceRegistry;
 
 /// Type-erased pointer to a registered [`VmContext`].

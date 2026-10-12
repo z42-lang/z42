@@ -30,11 +30,10 @@ public static class ExportedTypeExtractor {
     }
 
     // 带全包 classMap 的版本（G18 部分修复：同包跨文件 base 类构造器继承）。
-    // classNs：短类名→声明 ns 图（imported + 同包跨-ns），用于 impl target/trait FQ 化。
     public static ExportedModuleZ ExtractP(CompilationUnit cu, SymbolTable symbols, string ns,
-                                           ExportedFuncZ[] allFuncs, int allFuncCount, StrMap pkgClassMap, StrMap classNs) {
+                                           ExportedFuncZ[] allFuncs, int allFuncCount, StrMap pkgClassMap) {
         // F3：skipFuncs=true —— 本文件函数会被 allFuncs 覆盖，跳过每文件函数抽取。
-        ExportedModuleZ em = ExportedTypeExtractor._extractCore(cu, symbols, ns, pkgClassMap, classNs, true);
+        ExportedModuleZ em = ExportedTypeExtractor._extractCore(cu, symbols, ns, pkgClassMap, true);
         ExportedModuleZ r = new ExportedModuleZ(em.Namespace,
             em.Classes, em.ClassCount,
             em.Interfaces, em.InterfaceCount,
@@ -46,15 +45,11 @@ public static class ExportedTypeExtractor {
     }
 
     public static ExportedModuleZ Extract(CompilationUnit cu, SymbolTable symbols, string ns) {
-        return ExportedTypeExtractor.Extract(cu, symbols, ns, null, null);
+        return ExportedTypeExtractor.Extract(cu, symbols, ns, null);
     }
 
     public static ExportedModuleZ Extract(CompilationUnit cu, SymbolTable symbols, string ns, StrMap pkgClassMap) {
-        return ExportedTypeExtractor.Extract(cu, symbols, ns, pkgClassMap, null);
-    }
-
-    public static ExportedModuleZ Extract(CompilationUnit cu, SymbolTable symbols, string ns, StrMap pkgClassMap, StrMap classNs) {
-        return ExportedTypeExtractor._extractCore(cu, symbols, ns, pkgClassMap, classNs, false);
+        return ExportedTypeExtractor._extractCore(cu, symbols, ns, pkgClassMap, false);
     }
 
     // F3（pipeline 优化）：仅提取自由函数（不 materialize class/interface/enum/delegate/impl）。
@@ -86,16 +81,17 @@ public static class ExportedTypeExtractor {
     }
 
     // skipFuncs：ExtractP 路径下自由函数会被全包 allFuncs 覆盖，故跳过每文件函数抽取（F3）。
-    private static ExportedModuleZ _extractCore(CompilationUnit cu, SymbolTable symbols, string ns, StrMap pkgClassMap, StrMap classNs, bool skipFuncs) {
-        // 短类名 → ClassDecl（本 CU 内；TSIG 继承方法合并走 base 链需祖先 ClassDecl 取自有方法 AST 序+签名）。
+    private static ExportedModuleZ _extractCore(CompilationUnit cu, SymbolTable symbols, string ns, StrMap pkgClassMap, bool skipFuncs) {
+        // 类 FQN → ClassDecl（本 CU 内；TSIG 继承方法合并走 base 链需祖先 ClassDecl 取自有方法 AST 序+签名）。
         // z42c.syntax/ir 继承均同文件（Expr+子类 / IrInstr+子类）→ per-CU 图足够；跨文件继承待扩展为包级图。G18。
-        // arity-mangle 检测（同 SymbolCollector._passClassStubs）：泛型类以 Name$N 键存入 classMap。
+        // arity-mangle 检测（同 SymbolCollector._passClassStubs）：泛型类以 ns.Name$N 键存入 classMap（= `Fqn()`）。
         //
         // fix-arity-mangle-package-wide：与符号表**同一个**包级集合。此前这里也是 per-CU 预扫，
         // 与 StubCollector 各算一份 —— 两处必须同口径，否则生产端（TSIG 键）与消费端（符号表键）
         // 对同一个类算出不同的名字。
         StrMap etMultiArityMap = symbols.MultiArityNames;
         StrMap classMap = new StrMap();
+        string cuNs = cu.HasNamespace ? cu.Namespace : "";
         int mi = 0;
         while (mi < cu.DeclCount) {
             Decl dm = ExportedTypeExtractor._unwrap(cu.Decls[mi]);
@@ -104,7 +100,7 @@ public static class ExportedTypeExtractor {
                 if (cm.Kind == "class" || cm.Kind == "struct") {
                     bool cmMangle = cm.TypeParams.Count > 0 && etMultiArityMap.ContainsKey(cm.Name);
                     string cmKey = cmMangle ? cm.Name + "$" + cm.TypeParams.Count.ToString() : cm.Name;
-                    classMap.Put(cmKey, cm);
+                    classMap.Put(SymbolTable.QualOf(cuNs, cmKey), cm);
                 }
             }
             mi = mi + 1;
@@ -187,7 +183,7 @@ public static class ExportedTypeExtractor {
             funcs, fc,
             BuiltinTypeDefs._builtinDelegates(), 11);
         // ── impl 块（L3-Impl2 跨 zpkg `impl Trait for Type`；CU 声明序）──
-        ExportedImplZ[] impls = FuncImplExtractor._extractImpls(cu, ns, classNs);
+        ExportedImplZ[] impls = FuncImplExtractor._extractImpls(cu, ns, symbols);
         emr.Impls = impls; emr.ImplCount = impls.Length;
         return emr;
     }

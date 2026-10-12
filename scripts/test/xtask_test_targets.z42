@@ -126,6 +126,7 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
         failed = failed + _smokeBuildHooks(root, tt);
         failed = failed + _smokeBuildHooksBroken(root, tt);
         failed = failed + _smokeBuildHooksMode(root, tt);
+        failed = failed + _smokeWorkspaceDefault(root, tt);
     }
     Console.WriteLine("");
     if (failed > 0) {

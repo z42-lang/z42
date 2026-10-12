@@ -31,6 +31,8 @@ vm.run(&ctx, hint)?;
 
 `__thread_spawn`（[corelib/threading.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/corelib/threading.rs)）流程：拿到调用者 `ctx.core` 的 `Arc::clone` → `std::thread::spawn` → worker 内 `VmContext::new_with_core(core)` 构造 worker ctx → `interp::exec_function` dispatch。worker 的 per-thread 字段（pending_exception / call_stack）私有；通过 `vm_contexts` 注册让 GC scanner 看见 worker 自己的 roots。
 
+VM 装了 JIT（`--mode jit`）时 worker 一样跑原生码：`VmCore.jit` 是全 VM 共用的 JIT（槽表、编译器、OSR 缓存），worker 的解释器帧经混合模式分流路由到已编译函数、自己计数升层、到阈值就在 worker 线程上编译；原生码与 helper 的上下文参数就是 worker 自己的 `VmContext`（见 [jit.md](jit.md)「数据结构」「线程安全」）。
+
 ### VmCore：跨线程共享状态
 
 `VmCore` 持有 **process-globally singular** 的状态，通过 `Arc<VmCore>` 让多个 `VmContext`（每个 OS 线程一个）共享：
@@ -46,7 +48,7 @@ vm.run(&ctx, hint)?;
 - `processes: ResourceRegistry<ProcessSlot>` — `Std.IO.Process` 子进程注册表
 - `heap: Box<dyn MagrGC>` — GC 子系统接口（后端 `ArcMagrGC`）
 - `module: Option<Arc<Module>>` — 用户编译后的 Module，跨线程共享；测试路径 `None`，生产路径 `Some(Arc::new(module))`
-- `funcs: Arc<FuncTable>` — VM 级函数身份表（`metadata/func_table.rs`）：每个函数一个 `FnId`（u32，本 VmCore 内稠密、永不复用、只存在于运行期），`get(id)` 无锁。入口模块的函数在构造 VmCore 时整块登记为 `0..n`，**等于 `module.functions` 下标**（槽位借用 `module`，表里持有同一个 `Arc`）；惰性包的函数在 `LazyLoader::insert_function` 入表时逐个追加（槽位持有 `Arc<Function>`），重名 first-wins、不分配新 id。`Function.id` 记录登记得到的 id。名字反查 `id_of` 是冷路径：先查入口模块的 `func_index`，再查惰性函数的 `by_name`。`by_name` 同时就是 lazy loader 的函数名表（加载器自己不另存一份，`probe_function` / `resolve_function` 都经 `FuncTable::lazy_fn` 读它）；惰性函数与入口函数同名时仍各有 id，`id_of` 答入口那个。再次安装 lazy loader（只有测试会）用 `reset_lazy_names` 清空名字空间，槽位与 id 保留。底层是 `metadata/seg_vec.rs` 的 `SegVec`：倍增分段（首段 1024 项）、段永不移动，追加持写者锁并以 Release 发布长度，读侧 Acquire 读长度。消费方：interp `Call` 站点 token（见下文「Call 站点 token：FnId」）；VCall / ObjNew / CallIndirect 与 JIT 的槽位仍按名字或各自的 id。
+- `funcs: Arc<FuncTable>` — VM 级函数身份表（`metadata/func_table.rs`）：每个函数一个 `FnId`（u32，本 VmCore 内稠密、永不复用、只存在于运行期），`get(id)` 无锁。入口模块的函数在构造 VmCore 时整块登记为 `0..n`，**等于 `module.functions` 下标**（槽位借用 `module`，表里持有同一个 `Arc`）；惰性包的函数在 `LazyLoader::insert_function` 入表时逐个追加（槽位持有 `Arc<Function>`），重名 first-wins、不分配新 id。`Function.id` 记录登记得到的 id。名字反查 `id_of` 是冷路径：先查入口模块的 `func_index`，再查惰性函数的 `by_name`。`by_name` 同时就是 lazy loader 的函数名表（加载器自己不另存一份，`probe_function` / `resolve_function` 都经 `FuncTable::lazy_fn` 读它）；惰性函数与入口函数同名时仍各有 id，`id_of` 答入口那个。再次安装 lazy loader（只有测试会）用 `reset_lazy_names` 清空名字空间，槽位与 id 保留。底层是 `metadata/seg_vec.rs` 的 `SegVec`：倍增分段（首段 1024 项）、段永不移动，追加持写者锁并以 Release 发布长度，读侧 Acquire 读长度。消费方：`Call` 站点 token（见下文「Call 站点 token：FnId」）、VCall PIC 载荷、ObjNew 站点的 ctor、`LoadFn` / `MkClos` 站点 token 与 `FuncRef` / 闭包值里的目标（见下文「闭包 dispatch」），以及 JIT 的槽位表——全都存同一个 `FnId`。
 - `types: Arc<TypeTable>` — VM 级类型身份表（`metadata/type_table.rs`）：`TypeId` → 该类型**最新版本**的描述符，`get(id)` 无锁（Acquire 读槽指针）。`TypeId` 是**进程级**的（`tokens::alloc_type_id_block` 在构建模块类型注册表时整块分配，见下「TypeId 的作用域」），一个 VM 只看到其中稀疏的一部分，所以底层是按裸 id 下标的 `SparseSegTable`（段在首次触碰时分配）。登记：入口模块的 `type_registry` 在构造 VmCore 时整体登记；lazy loader 在每个改动自己类型表的步骤之后调 `LazyLoader::publish_types` 把整张表发布一遍——包加载（继承 fixup 跑完之后，此时新描述符仍独占，fixup 原地改）、`seed_types_for_lookup`、`ensure_base_chain_loaded` 的 fixup。fixup 写时复制出的合并副本与原描述符同 id 同名，发布时槽位改指新副本；发布过的每个版本都留在表里直到表析构，借出的 `&TypeDesc` 不会悬空。同一 id 下名字不同的描述符被拒（first-wins，记 error 日志；只有发号器不变量被破坏才会发生）。重名类型由加载器 first-wins，输家从不发布。**不登记**：按对象现建的回落描述符、corelib 原生句柄单例（两者 `id == UNRESOLVED`）、只由 load context 持有的模块的类型。名字查找仍走 `Module.type_registry` 与加载器的 `type_registry`（两张名字表尚未并入本表）。另外为**类型判定的目标名**保留键（`name_key`，见 [interp-jit-semantics.md](interp-jit-semantics.md)「类型判定的缓存键」）。消费方：`isa_cache` 的键；字段 IC 载荷改 `TypeId | offset | kind`（P1-4）时按 id 取描述符。
 - `strings: Arc<StrTable>` — VM 级字符串字面量身份表（`metadata/str_table.rs`）：每个 `ConstStr` 操作数都是本 VM 一个稠密、只追加、永不复用的**字符串 id**，槽位存字面量文本与驻留的 GC 字符串。入口模块的 `string_pool` 在构造 VmCore 时整块登记为 `0..n`（槽位不复制文本，从 `module` 读）；惰性包注册时加载器把它的整个池追加进来（`StrTable::append` 返回首个 id，`remap_const_str` 把包内 `ConstStr.idx` 加上它）。再次安装 lazy loader（只有测试会）接着往后编号，旧加载器的函数仍读得到自己的字面量；加载器的 `main_pool_len` 以下、表里没有文本的 id 用空槽占位（`reserve`）。驻留与 GC 根见下「ConstStr：每 VM 的字符串表」。
 - `threads: ResourceRegistry<JoinHandle<Result<()>>>` — `Std.Threading.Thread` 的 JoinHandle slot table；`__thread_spawn` 插入，`__thread_join` take-out 后 join
@@ -81,8 +83,8 @@ vm.run(&ctx, hint)?;
 - `pending_thrown: Mutex<Option<Value>>` — callback 型 builtin（反射 `MethodInfo.Invoke`）把原异常值带出 builtin 边界的槽位；每线程一份，GC 根
 - `call_stack: FrameStack` — 当前线程帧栈，只由所属线程无锁读写（见下「帧栈的归属」）
 - `reg_pool: RegPool` — interp `Frame` 与 `JitFrame` 共用的寄存器文件 free-list；`engine_guards` — 栈非空期间装好的 VM / 堆 thread-local（见下「寄存器池、引擎入口 guard、frame_id」）。两者都只由所属线程无锁访问
-- `stack_arena` / `struct_arena` / `transient_arena`（及其发布长度原子，见下一节）、`next_frame_id`（frame id 来源，帧惰性取号）、`safepoint_skip`（safepoint 节流计数，JIT 内联读写）、`jit_ctx`（混合模式下指向当前 `JitModuleCtx`）
-- `fn_name_cache`（`MkClos` 站点函数名串的每线程驻留，GC root；闭包改为创建时绑定函数 id 后删除）、`subclass_memo` + `isa_cache`（`is`/`as`/`catch` 子类判定缓存，键 `(接收者 TypeId, 目标键)`，见 [interp-jit-semantics.md](interp-jit-semantics.md)）、`type_lookup_cache` + `fn_lookup_cache`（`try_lookup_type/function` 命中的前置缓存，免去共享 `lazy_loader` 锁）
+- `stack_arena` / `struct_arena` / `transient_arena`（及其发布长度原子，见下一节）、`next_frame_id`（frame id 来源，帧惰性取号）、`safepoint_skip`（safepoint 节流计数，JIT 内联读写）、`jit_head`（`#[repr(C)]`，生成码按偏移读的本线程栈下限与 cctor 门指针，外加缓存的 `&VmCore.jit`）
+- `subclass_memo` + `isa_cache`（`is`/`as`/`catch` 子类判定缓存，键 `(接收者 TypeId, 目标键)`，见 [interp-jit-semantics.md](interp-jit-semantics.md)）、`type_lookup_cache` + `fn_lookup_cache`（`try_lookup_type/function` 命中的前置缓存，免去共享 `lazy_loader` 锁）
 
 每个 `VmFrame` 只有 40 B：`func`（`*const Function`）、`regs` 指针、`pc: Cell<u32>`，
 以及四个 arena（stack 对象 / stack 数组 / struct / transient）的截断 base（`u32`）。GC root scanner 扫
@@ -169,7 +171,9 @@ regs，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
   - 同一线程上**别的 VM 的代码**插进来的唯一途径是宿主重入（native 回调里 `z42_host_invoke`）：A → native →
     B → native → A 时，A 的栈非空、thread-local 却指着 B。所以 `host::ops::invoke_impl` **无条件**安装两者；
     每个 guard 恢复它进来时看到的值（已是同一 VM 时为 no-op），嵌套按序退栈。
-  - `JitModule::run_fn` 在入口 push 之前另装一个堆 guard，覆盖入口函数的惰性编译。
+  - `jit::run_fn` 在入口 push 之前另装一个堆 guard，覆盖入口函数的惰性编译。
+  - 栈底帧 push 时还把**驱动本 ctx 的线程**的栈下限（`stack_guard::limit()`）写进 `jit_head.stack_limit`，
+    JIT 序言比较的就是它；同一 ctx 换线程驱动时随新的栈底帧更新。
 - **frame_id 惰性分配**：帧的 id 只用来给它在 arena 里分配的槽打标签（栈分配对象 / 数组、`Ref`、`PinnedView`、
   值 struct），句柄带着它，帧 truncate 后的悬垂访问由 id 不符拦下。interp `Frame::frame_id(ctx)` 与 JIT
   `struct_ops::frame_id_of` 都在**第一次用到**时取号，`0` 表示尚未取；大多数帧从不取。`next_frame_id` 只由所属
@@ -231,8 +235,9 @@ blob）、`transient_arena`（`Ref`/`PinnedView`/`StructRefHeap` 的 payload）�
 - 下限 = 栈底 + 余量，余量为栈大小的 1/8、夹在 256 KiB–1 MiB（给两次检查之间的原生工作：builtin、
   一次惰性 JIT 编译、生成报告）。栈边界来自 `pal::stack`，线程首次进入时算一次，存 TLS。
 - interp：`enter_frame` 在 `push_frame` 之后检查（报告里含这一帧），越界返回内部错误。
-- JIT：函数 prologue 内联 `get_stack_pointer` 与 `JitModuleCtx::stack_limit` 比较（`run_fn` 按当前
-  线程设置；JIT 代码只在该线程上跑），越界调 `jit_stack_overflow` 后返回「已抛出」。
+- JIT：函数 prologue 内联 `get_stack_pointer` 与上下文参数的 `jit_head.stack_limit` 比较（运行线程自己的
+  `VmContext`，值在栈底帧 push 时按该线程写入），越界调 `jit_stack_overflow` 后返回「已抛出」。每条线程（含 worker）
+  都按自己的栈检查。
 
 越界时记下 z42 调用栈、置 `VmCore.fatal`（每个 VM 一份，同一 VM 的所有线程共享）。之后：
 
@@ -281,7 +286,7 @@ z42vm <file>                                   [main.rs：CLI + 运行时配置 
   │      → seed_lazy_loader_types / seed_lazy_loader_impls
   │
   └── Vm::new(mode).run(&ctx, entry)
-         → boot::prepare_execution（FuncRef 槽 + resolve_module）
+         → boot::prepare_execution（resolve_module：各站点 token 预填）
          → interp::run_with_static_init | jit::run
 ```
 
@@ -567,12 +572,13 @@ token = UNRESOLVED（bind_callee，冷路径）:
   （`translate/ic.rs` `method_id_at`，惰性目标也一样），未绑定的站点在运行时读同一个 token 单元，首次按名绑定也走
   同一个 `bind_callee`（见下文「JIT cross-zpkg 调用解析」）。解释器按 token 调用时也计数，惰性函数与入口函数一样
   到阈值升层、编译后转原生码。
-- **待办**：`CallIndirect` / `LoadFn` / `MkClos` 仍按名字。
+- **函数引用同理**（P1-2 PR 8）：`LoadFn` / `MkClos` 站点有自己的 token（`fn_ref_tokens`，同一套预填与首执
+  绑定规则，不做签名检查），值里存目标 `FnId`，`CallIndirect` 按 id 派发。见下文「闭包 dispatch」。
 
 ### 惰性加载函数的 token 首执解析
 
 上面所有 per-site 缓存（`method_tokens` / `vcall_ic` /
-`field_ic` / `builtin_tokens` / `static_field_tokens` / `obj_new` / `site_index`）
+`field_ic` / `builtin_tokens` / `static_field_tokens` / `obj_new` / `fn_ref_tokens` / `site_index`）
 都挂在 `Function.resolved: OnceLock<ResolvedTokens>`，由
 [`resolver::resolve_module`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/resolver.rs) 一次性填充。
 但 `resolve_module` **只经 `Vm::run` → `boot::prepare_execution` 对 entry module 跑一次**——而
@@ -636,7 +642,7 @@ stdlib 里必然含有 JIT 尚未支持的 opcode —— `out`/`ref`/`in` 参数
 **逐函数降级**而非「整模块要么全编译要么全失败」。
 
 1. **首编前判定**（`jit_unsupported_reason`，[jit/translate/unsupported.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/jit/translate/unsupported.rs)；
-   调用点 `JitModuleCtx::resolve_fn_by_id_thr`）：函数达到编译条件时先扫描一次，含不可翻译 opcode 的
+   调用点 `JitRuntime::resolve_fn_by_id_thr`）：函数达到编译条件时先扫描一次，含不可翻译 opcode 的
    **不编译**：槽位记为 Rejected（`JitSlot.state` 负缓存，此后不再重扫；编译失败同样记 Rejected、不重编），
    入口函数与惰性函数一样。名单由 `unsupported_reason(instr)`
    单一来源给出，`translate_function` 里的 `bail!` 分支也取自它，两处不会漂移。
@@ -646,12 +652,12 @@ stdlib 里必然含有 JIT 尚未支持的 opcode —— `out`/`ref`/`in` 参数
    `interp::vcall_resolve::resolve_vcall` 完成，[jit/helpers/vcall.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/jit/helpers/vcall.rs)
    只决定怎么调：有编译入口走原生，否则在解释器上以填好接收者的帧执行。
 
-3. **entry 也兜底**：`JitModule::run_fn` 在入口取不到时（被拒绝的 entry）改用 `interp::exec_function`
+3. **entry 也兜底**：`jit::run_fn` 在入口取不到时（被拒绝的 entry）改用 `interp::exec_function`
    执行，而不是硬报 `entry not found`。静态字段初始化器随类型初始化器惰性触发（`run_pending_static_inits`），
    不再有 `__static_init__` 名单需要在 JIT 侧枚举。
 
-> 净效果：JIT 尽量编原生码，含 interp-only opcode 的函数（及其整棵调用子树）在解释器上
-> 跑，全程对外行为与 `--mode interp` 一致。回归测试：`src/tests/refs/{out_var,
+> 净效果：JIT 尽量编原生码，含 interp-only opcode 的函数在解释器上跑（它调用的已编译函数仍经混合模式
+> 分流回原生码），全程对外行为与 `--mode interp` 一致。回归测试：`src/tests/refs/{out_var,
 > in_param,ref_local,ref_nested}` 在 interp + jit 双模式皆过。
 
 ### 依赖传递（着色算法）
@@ -831,8 +837,8 @@ const_str(module, idx):
          否则 module.func_index[ctor_name] | ctx.try_lookup_function(ctor_name)
             → 签名判定（不符则抛、不缓存）→ 写回 FnId
             | 都没有：判定缺失则抛，否则记 ctorless 标记
-4. 分配 ScriptObject(type_desc)：TypeDesc::object_storage() 给出零字节区 + Null 引用区；
-   泛型实例按实参改写型参字段（generic_field_zero_overrides）
+4. 分配对象：MagrGC::alloc_instance 取一个清零的对象块（TypeDesc::object_bytes_len() 定尺），写对象头，
+   泛型实例按实参改写型参字段（generic_field_zero_overrides），建完才发布（栈分支：OwnedObject::new_instance）
 5. if ctor: interp exec_function(ctor, [obj, ...args]) / JIT 已编译 → 原生（按 FnId 计数升层），否则 interp
    else:    skip ctor call（默认无参 ctor 语义；TypeChecker 已确保有显式 ctor 时 ctor_name 命中）
 6. frame[dst] = obj
@@ -862,7 +868,7 @@ ctor 在分配**之前**绑定：绑定可能加载包、跑包初始化器，�
 `ctor_name` 含 `$N` arity suffix（重载场景）；单 ctor 时无 suffix。
 
 **字段默认值**：步骤 2 不逐字段填值。对象按加载期组合好的字节布局分配：基元字段落在清零的
-字节区（⇒ `0` / `false` / `'\0'` / `0.0`），引用字段为 `Null`（`TypeDesc::object_storage()`，
+字节区（⇒ `0` / `false` / `'\0'` / `0.0`），引用字段为 `Null`（对象块整块清零，`TypeDesc::object_bytes_len()` 定尺，
 `metadata/types/type_desc.rs`）。布局按**声明**算，`T` 型参字段因此被归为引用槽、零值是 `Null`；
 泛型实例由 `metadata/types/field.rs::generic_field_zero_overrides` 按实参把基元型参字段改写成该类型的零值。
 interp（堆 / 栈两支）与 JIT (`jit_obj_new`) 共用步骤 4。字段分类依赖 `FieldSlot` 携带的
@@ -993,15 +999,34 @@ Char → Std.Char   Str → Std.String   Array → Std.Array
 
 ## 闭包 dispatch（Closure / FuncRef）
 
-`Value` 两种 callable variant（`FuncRef(Str)` / `Closure(VarGcRef)`）的 CallIndirect 路径：
+`Value` 两种 callable variant（`FuncRef(FnId)` / `Closure(VarGcRef)`）的 CallIndirect 路径：
 
 ```
 match callee_value {
-  FuncRef(name)      → 直接 call name；无 env
-  Closure(VarGcRef)  → ClosureData { env, fn_name }（在 GC var region）；env 作 implicit first arg → call fn_name
+  FuncRef(id)        → call id；无 env
+  Closure(VarGcRef)  → ClosureData { env, fn_id }（在 GC var region）；env 作 implicit first arg → call fn_id
   Null               → Std.NullReferenceException（可 catch）
 }
 ```
+
+**目标在创建时绑定（P1-2 PR 8）**：`LoadFn` / `MkClos` 把指令里的函数名解析成 `FnId`，一次，在值被创建时
+（`interp::exec_call::fn_ref_id` / `bind_fn_ref`，两个后端共用）：站点 token（`ResolvedTokens::fn_ref_tokens`）
+已绑定就只读它；否则本模块 `func_index` → 惰性加载器（会加载目标所在的包），结果写回 token。resolver 加载期按
+`FuncTable::id_of` 预填已登记的目标。id 空间与 `Call` token 相同（`fn_by_id` 读回；生产运行里就是 `FuncTable`
+的 id，裸 `VmContext::new()` 的测试里只有该模块自己的下标——那里惰性目标没有 id，创建时抛）。
+
+- **派发**：interp `call_indirect` 用 `fn_by_id`，并像 `Call` 一样经 `resolve_fn_by_id_tiered` 计数、把已编译的
+  目标转去原生码；JIT `jit_call_indirect` 直接按 id 查槽位表，冷目标回落解释器。没有名字解码、没有哈希。
+- **JIT 的 `LoadFn`**：编译时站点 token 已绑定（绝大多数情况，resolver 预填）就直接内联一次寄存器写
+  （tag 9 + id），不调 helper；`MkClos` 把已绑定的 id 烘焙成 helper 参数。未绑定的站点由 helper 首执绑定。
+- **错误时机**：目标名解析不到，`LoadFn` / `MkClos` 当场抛 `Std.MissingSymbolException`（`undefined function `…``），
+  而不是等第一次调用；目标所在的包在创建时加载（runtime-audit §7 P1-2 的已定方案）。
+- **身份与反射**：`FuncRef` 相等 = id 相等；闭包相等 = `fn_id` 相等且 env 是同一数组。`__delegate_fn_name`、显示
+  （`<fn 名字>` / `<closure 名字>`，`interp::dispatch::tostring_result`）从 id 指向的 `Function` 取名字；没有 ctx 的
+  `value_to_str` 只能打印 `<fn #id>`。`__make_closure` 把传入的名字走同一条 `fn_ref_id` 绑定。
+- **值不再是堆引用**：`FuncRef` 的载荷是 4 B 的 id，`ClosureData` 里也没有名字串——GC 不追踪、写屏障不触发，
+  PR 7 的每线程函数名驻留表（`fn_name_cache`）随之删除。`Value` 仍是 16 B。线程 `spawn` 把 id 原样交给 worker
+  （同一个 `FuncTable`）。
 
 `MkClos` 恒堆分配：env 是 GC 数组，`ClosureData` 在 GC var region。callee 直接拿到已有的 env `GcRef`
 （不拷贝）。没有栈闭包变体，帧里也没有闭包 env arena——见[逃逸分析](escape-analysis.md)末节「闭包：一律堆分配」。
@@ -1064,13 +1089,13 @@ import metadata 内部类型；helpers/* 同样走 trait"这一**完整愿景**�
   `module.module_name()` 等替代直接字段访问
 - **helper 暂无 trait 消费者**：`jit_obj_new` 的类 / 构造器解析与 interp 共用
   `interp::obj_new_resolve`，不经 `type_lookup`；raw pointer 不变
-- **签名保持具体类型**：`JitModule::setup(&Module)`；`JitModuleCtx.module:
+- **签名保持具体类型**：`jit::runtime::install(vm, &Module)`；`JitRuntime.module:
   *const Module` 是具体类型
 
 ### 待办
 
 - 把余下 9 个 helper 全迁到 trait method
-- 探索 `JitModule::setup<M: JitVm + ?Sized>(module: &M)` generic 化（前提：解决
+- 探索 `install<M: JitVm + ?Sized>(vm, module: &M)` generic 化（前提：解决
   helper 端的 raw pointer ABI 问题，可能需要 type-erased dispatch table）
 - 远期 AOT 后端通过另一个 `JitVm` impl 接入相同 contract
 
@@ -1095,7 +1120,7 @@ import metadata 内部类型；helpers/* 同样走 trait"这一**完整愿景**�
 
 ```
 jit/helpers/
-├── mod.rs        — 共享工具（vm_ctx_ref / set_exception / 数值 helper）+
+├── mod.rs        — 共享工具（vm_ctx_ref / jit_rt / jit_module / set_exception / 数值 helper）+
 │                   VM_JIT_INTERFACE_VERSION
 ├── registry.rs   — 中央注册表（单一真相源）
 │                   ├── HelperIds {fields...}     ← 一字段一 FuncId
@@ -1282,7 +1307,7 @@ pub struct ResolvedTokens {
 - **ObjNew**: 站点缓存命中 → 缓存的 `Arc<TypeDesc>` + ctor 按 `FnId` 无锁取回；未命中 → 按名解析 + 回填（见上文「ObjNew dispatch」）
 - **StaticGet/Set**: 命中 → `static_fields[id]`；UNRESOLVED → name lookup + 回填
 - **VCall**: PIC 命中（4-slot 线性扫描；receiver 的 type id 匹配任一槽位的 `type_id`）→ 按载荷 `FnId` 直调（`fn_by_id`：入口函数 = `module.functions` 下标，惰性函数经 `FuncTable::get`）；miss → 走 `vcall_resolve` 的完整派发阶梯，目标有 `FnId`（本模块与惰性包的函数都有；唯一例外是非入口模块单测里的惰性目标）且实参个数匹配时通过 `vcall_ic_install` 填入第一个空槽（或 round-robin 牺牲一个槽）
-- **FieldGet/Set**: PIC 命中（4-slot 线性扫描）→ 字段下标 `slot` → `field_access[slot]` 定位到对象的字节区或 `refs` 侧表读写；miss → `field_index` 查 + 通过 `field_ic_install` 填槽
+- **FieldGet/Set**: PIC 命中（4-slot 线性扫描）→ 字段下标 `slot` → `field_access[slot]` 定位到对象字节区里的单元（基元 / 引用字 / 型参单元）读写；miss → `field_index` 查 + 通过 `field_ic_install` 填槽
 
 > **Polymorphic IC**：IC 是 4-slot polymorphic IC（每槽 `(type_id, 载荷)`）。线性扫描使用 `UNRESOLVED` sentinel 提前退出（mono 站点首槽命中即返回，0 额外开销）。超过 4 个 receiver type 的站点用 round-robin counter 牺牲槽位（`ic.round_robin.fetch_add(1, Relaxed) % 4`）。每个槽是**一个** `AtomicU64`（高 32 位 `type_id`、低 32 位载荷：VCall 是 `FnId`，Field 是字段下标），安装写一次、查找读一次，`(type_id, 载荷)` 永远成对，撕裂在结构上不可能，所以 `Relaxed` 足够。惰性函数的 `FnId` 只经 `FuncTable::get` 解引用，那里对段长度和槽指针的 Acquire 与登记时的 Release 配对，槽内容的发布顺序由它保证；先看到 id、后看到登记的读者只会拿到 `None` 走慢路径。发布协议的细节见 [inline-cache-publication.md](inline-cache-publication.md)。Helpers `field_ic_lookup` / `field_ic_install` / `vcall_ic_lookup` / `vcall_ic_install` 在 `metadata::resolver` 公开，供 interp + JIT helpers 共用。
 >
@@ -1300,7 +1325,7 @@ pub struct ResolvedTokens {
 - `VCallIC` 撞键 → **调用另一个类的方法**，`this` 却是本类对象 ⇒ 按错误的字段布局解释内存
 - `FieldIC` 撞键 → **读写错误的字段槽**，不崩不报错，**静默数据损坏**
 
-典型现场：`Z42.Semantics.ParallelFor.Run` 的 `body.Run(i)`（`IParallelBody` 接口调用）同时
+典型现场：`Z42.Package.ParallelFor.Run` 的 `body.Run(i)`（`IParallelTask` 接口调用）同时
 接 `CompileCuTask`（z42c.emission）与 `SrcReadHashTask`（z42c.driver）。两者共号 139 时，
 `CompileCuTask` 的 receiver 跑进 `SrcReadHashTask.Run`，其首行 `File.ReadAllText(this._srcs[i])`
 读到槽 0 上的 `CompilationUnit[] _cus` ⇒ 自举链崩在
@@ -1314,7 +1339,7 @@ pub struct ResolvedTokens {
 
 id 永不复用，所以它也是比地址更稳的缓存键：描述符释放后地址可能被别的类型复用（可回收的 load context、REPL 轮次），id 不会。`isa_cache` 因此按 `(接收者 TypeId, 目标键)` 做键（见 [interp-jit-semantics.md](interp-jit-semantics.md)「类型判定的缓存键」）。同一类型可能有多个描述符版本（急切主模块里只含自身字段的那份、惰性加载器 fixup 出的合并副本），它们同 id、同名、同基类链——按 id 做键的缓存对它们给出同一判定；`TypeTable` 的槽位指向最新版本。
 
-> **无锁读 type_id**：PIC scan 读 receiver `type_id` 不走 Mutex lock。`GcRef<ScriptObject>::type_desc()`（`metadata/types/object.rs`）通过 `data_ptr_unlocked()` 直接读 type_desc（write-once-at-alloc invariant 锁定 safety），跳过 per-entry 锁的 atomic CAS。详见 `docs/internals/src/runtime/gc.md`。这是 PIC inline 入 Cranelift IR（待办）的前置条件 —— 需 lock 的话 PIC 不能 inline。
+> **无锁读 type_id**：PIC scan 读 receiver `type_id` 不拿锁。`ObjRef::type_desc()`（`metadata/types/object.rs`）经 `borrow()` 直接读对象头里的 `type_desc`（发布前写定、之后不变），没有每对象锁。详见 `docs/internals/src/runtime/gc.md`。这是 PIC inline 入 Cranelift IR（待办）的前置条件 —— 需 lock 的话 PIC 不能 inline。
 
 ### 跨 zpkg 时序
 
@@ -1325,7 +1350,7 @@ id 永不复用，所以它也是比地址更稳的缓存键：描述符释放�
 ### JIT 与 wire 形态
 
 - **JIT**：JIT helper 走 token / IC 形态，但 dispatch 仍走 helper-call 一次（helper carries IC）。IC hit 时直接通过
-  被缓存目标的 JIT 槽位（`JitModuleCtx.slots[id]`）跳到目标 native 代码，无 HashMap 哈希、无 vtable 解析，
+  被缓存目标的 JIT 槽位（`JitRuntime` 的 `slots[id]`）跳到目标 native 代码，无 HashMap 哈希、无 vtable 解析，
   hot path 与 interp 行为对齐。
 - **wire**：zbc 中 IR 字段 token 化——本地 = `module.Functions/Classes` 索引；cross-zpkg = `IMPORT_BASE + STRS idx`
   （STRS 池复用 + IMPORT_BASE bit 编码，无需单独 IMPT 格式）；token id 按源序分配；IR enum 字段在内存里保持
@@ -1384,9 +1409,9 @@ builtin 按功能分 submodule：`string.rs` / `io.rs` / `math.rs` / `fs.rs` 等
 | Pending exception (interp) | 无 thread_local —— interp 全程走 `ExecOutcome::Thrown(Value)` |
 | Pending exception / 静态字段 (JIT) | `ctx.pending_exception` / `VmCore.static_fields`，无同步桥接 |
 
-> JIT 端所有 extern "C" helper 签名都带 `ctx: *const JitModuleCtx`
-> 第 2 参，Cranelift translate.rs 在调用点插入 `ctx_val`。helper 内部通过 `vm_ctx_ref(ctx)` → `(*ctx).vm_ctx`
-> 两层间接拿到 `VmContext`。
+> JIT 端所有 extern "C" helper 签名都带 `ctx: *const VmContext` 第 2 参——**运行线程自己的**上下文，
+> 即编译码被调用时收到的那个（`jit::invoke::call_native` 传入）；Cranelift translate 在调用点插入 `ctx_val`。
+> helper 用 `vm_ctx_ref(ctx)` 直接解引用，共享的 JIT 状态经 `ctx.jit()`（缓存的 `&VmCore.jit`，`jit_rt(ctx)`）取。
 >
 > 寄存器池也在 `VmContext` 上（`reg_pool`）。`VmContext` 是所有 runtime-mutable 状态的唯一规范来源；
 > 仍是 thread-local 的只有引擎入口 guard 维护的 `CURRENT_VM` 与 ambient 堆指针（供拿不到 ctx 的

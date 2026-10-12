@@ -43,7 +43,7 @@
 ### src/metadata/ — IR 元数据与加载层
 | 文件 | 职责 |
 |------|------|
-| `types.rs` + `types/` | 运行时值类型与对象模型：`field`（FieldSlot / TAG_*）、`type_desc`（TypeDesc / Cold）、`layout` / `codec`（字节布局、字段单元归属与编解码）、`ref_word`（对象引用字段的 8 B 自描述字）、`tparam_cell`（型参字段的 16 B 单元：自描述标签字 + 基元负载字）、`object` / `object_fields` / `obj_storage`（ScriptObject / NativeData；字段单元的原子读写与 GC 遍历）、`array` / `array_access`（ArrayObj）、`value` / `value_aux`（Value / ExecMode / Closure 数据）；hub 全量 `pub use` |
+| `types.rs` + `types/` | 运行时值类型与对象模型：`field`（FieldSlot / TAG_*）、`type_desc`（TypeDesc / Cold）、`layout` / `codec`（字节布局、字段单元归属与编解码）、`cells`（堆上单元的同宽原子访问视图）、`ref_word`（8 B 自描述引用字）、`tparam_cell`（16 B 型参单元：自描述标签字 + 基元负载字）、`struct_blob`（堆上值 struct blob 与帧 arena 形态互转）、`object` / `object_fields` / `owned_object`（ScriptObject 对象头 / NativeData / 堆外对象 `OwnedObject`；字段单元的原子读写与 GC 遍历）、`array` / `array_elems` / `array_access`（ArrayObj：REF / MIXED / PRIM / STRUCT / FROZEN 模式）、`value` / `value_aux`（Value / ExecMode / Closure 数据）；hub 全量 `pub use` |
 | `bytecode.rs` + `bytecode/` | zbc IR 数据结构：`module`（Module）、`class`（ClassDesc / FieldDesc / 布局描述 / CLASS_FLAG_*）、`function`（Function / BasicBlock / 异常表）、`insn`（*Insn 载荷）、`instruction`（Instruction / Terminator）；`bytecode_serde.rs` 为 TypedReg 兼容 serde |
 | `formats.rs` | `.zbc` / `.zpkg` magic 常量 + 依赖记录 `ZpkgDep` |
 | `zbc_reader/` | zbc / zpkg 二进制读取：`cursor` / `opcodes` / `instr_decode` / `func_reader` / `type_reader` / `zpkg` / `zpkg_index` / `sidecar` / `versions` |
@@ -53,6 +53,7 @@
 | `resolver.rs` + `resolver/` | 加载期 token 解析（预填每函数 `ResolvedTokens`）+ 内联缓存（`ic.rs`） |
 | `context.rs` | 加载上下文模型（`AssemblyLoadContext` 对等的代码边界抽象） |
 | `tokens.rs` / `name_index.rs` / `namespace_index.rs` / `vstr.rs` | 热路径 token 新类型（含运行期 `FnId` / `FnIdCell` / 类型判定目标键 `TypeKeyCell`） / 字段·vtable 名称索引 / namespace→zpkg 索引 / GC 堆内不可变字符串句柄 |
+| `type_names.rs` | 类型名 / 函数名的顶层切分（`<…>` 外、特化实参 `:` 前找 `.` / `+`）与简单名；实例化实参是全名，按名字切分的代码经它 |
 | `func_table.rs` | `FuncTable`：VM 级函数身份（`FnId` → `Function`，读无锁）；入口模块函数 + 惰性包函数统一编号 |
 | `type_table.rs` | `TypeTable`：VM 级类型身份（进程级 `TypeId` → 最新版本 `TypeDesc`，读无锁，稀疏分段）；入口模块类型 + 惰性包发布的类型；类型判定目标名的保留键 |
 | `str_table.rs` | `StrTable`：VM 级字符串字面量身份（`ConstStr` 操作数 = 字符串 id → 文本 + 驻留的 GC 字符串，驻留后读无锁）；入口模块字符串池 + 惰性包追加的池统一编号，驻留串是 GC 根 |

@@ -1,0 +1,11 @@
+namespace Demo.GbColl.A;
+
+public static class Util {
+    public static int Tag<T>(T x) { return 1; }
+}
+
+public class Box {
+    public int Tag<T>(T x) { return 10; }
+}
+
+public static int FreeTag<T>(T x) { return 100; }

@@ -61,4 +61,4 @@ EvalResult r2 = Script.Eval(s, "add(4, 5)");       // 跨轮裸调 → r2.Value 
 | `Playground.z42` | WASM playground 入口 `evalFromVfs` |
 
 ## 依赖关系
-`z42.core`（String / Reflection）、`z42.io`（Environment / File / Path / Console，组件定位 + Z42_LIBS）、`z42.build`（`IReplCompiler` 门面）、`z42.test`（`ModuleLoader`）、`z42c.core` / `z42c.syntax`（Span / Lexer / Parser）、`z42.threading`（预热 worker）。编译器后端不静态依赖，运行期经反射注入。
+`z42.core`（String / Reflection）、`z42.io`（Environment / File / Path / Console，组件定位 + Z42_LIBS）、`z42.build`（`IReplCompiler` 门面）、`z42c.core` / `z42c.syntax`（Span / Lexer / Parser）、`z42.threading`（预热 worker）。编译器后端不静态依赖，运行期经反射注入。

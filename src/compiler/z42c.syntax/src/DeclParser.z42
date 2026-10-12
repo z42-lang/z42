@@ -38,13 +38,11 @@ public sealed class DeclParser {
             while (true) {
                 Span asp = this._p._peek().Span;
                 string name = this._parseQualifiedName();
-                // 泛型类型实参 `[Attr<E>]`（镜像 C# attribute TypeArg；dogfood: [ShouldThrow<TestFailure>]）。
+                // 泛型 attribute 的类型实参 `[Attr<A, B<int>>]`（如 `[ShouldThrow<TestFailure>]`）：完整类型表达式列表。
                 // 在 (args) 之前——`<` 出现在属性名后即类型实参，非小于运算（声明起始位置无歧义）。
-                string typeArg = "";
+                TypeExpr[] typeArgs = new TypeExpr[0];
                 if (this._p._peek().Kind == TokenKind.Lt) {
-                    this._p._advance();   // <
-                    typeArg = this._parseQualifiedName();
-                    this._p._expect(TokenKind.Gt, ">");
+                    typeArgs = this._p._typeP._parseTypeArgList();
                 }
                 Expr[] args = new Expr[4];
                 int ac = 0;
@@ -79,7 +77,7 @@ public sealed class DeclParser {
                     Array.Copy(items, b, n);
                     items = b;
                 }
-                items[n] = new Attr(name, args, ac, asp); items[n].TypeArg = typeArg; n = n + 1;
+                items[n] = new Attr(name, args, ac, asp); items[n].SetTypeArgs(typeArgs); n = n + 1;
                 if (this._p._peek().Kind == TokenKind.Comma) { this._p._advance(); } else { break; }
             }
             this._p._expect(TokenKind.RBracket, "]");

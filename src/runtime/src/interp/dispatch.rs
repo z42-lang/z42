@@ -349,6 +349,16 @@ fn tostring_result(ctx: &VmContext, module: &Module, val: &Value) -> Result<ToSt
     // enum → 成员名、基元 → 标量、struct → 自身槽位的 `ToString`（没有才短类型名），
     // 且**刻意不回落 `Std.Object.ToString`**（那个 builtin 收装箱 struct 直接抛
     // `__obj_to_str: expected an object`）。自己再写一份判据必然与它漂移。
+    // P1-2 PR 8: a callable holds its target's `FnId`; the display names the function
+    // (`<fn N>` / `<closure N>`, the text `value_to_str` printed when the value held the name).
+    if let Some(id) = val.callable_id() {
+        if let Some(f) = super::exec_call::fn_by_id(ctx, module, id.0) {
+            let kind = if matches!(val, Value::FuncRef(_)) { "fn" } else { "closure" };
+            let text = format!("<{kind} {}>", f.name);
+            return Ok(ToStringResult::Value(Value::Str(ctx.heap().alloc_str(&text))));
+        }
+        return Ok(ToStringResult::NotDispatched);
+    }
     if matches!(val, Value::BoxedStruct(_)) {
         let r = super::vcall_resolve::resolve_vcall(ctx, module, val, "ToString", 0, None)?;
         return match r.target {
@@ -462,6 +472,11 @@ pub fn make_fallback_type_desc(module: &Module, class_name: &str) -> TypeDesc {
     // all fields as own (cross-zpkg fixup won't re-process this entry since
     // base resolution above is already complete).
     let own_fields = fields.clone();
+    // Like the loader's fallback for a class without an object block: a synthesized layout
+    // (references in type-parameter cells), so field access and GC walks read a stored layout
+    // instead of synthesizing one per access.
+    let composed = (!fields.is_empty())
+        .then(|| std::sync::Arc::new(crate::metadata::types::synthesize_object_layout(&fields)));
     TypeDesc {
         name: class_name.to_string(),
         base_name,
@@ -472,6 +487,7 @@ pub fn make_fallback_type_desc(module: &Module, class_name: &str) -> TypeDesc {
         vtable: Vec::new(),
         vtable_index: crate::metadata::NameIndex::new(),
         cold: Some(Box::new(crate::metadata::types::TypeDescCold {
+            composed_object_layout: composed,
             own_fields: own_fields.into(),
             ..Default::default()
         })),

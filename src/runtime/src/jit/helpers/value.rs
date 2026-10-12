@@ -5,7 +5,8 @@
 
 use crate::corelib::convert::with_value_str;
 use crate::metadata::Value;
-use super::super::frame::{JitFrame, JitModuleCtx};
+use super::super::frame::JitFrame;
+use crate::vm_context::VmContext;
 use super::super::invoke::{call_entry, NativeOutcome};
 use super::{set_exception, vm_ctx_ref};
 
@@ -13,7 +14,7 @@ use super::{set_exception, vm_ctx_ref};
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_const_i32(
-    frame: *mut JitFrame, _ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, _ctx: *const VmContext,
     dst: u32, val: i32,
 ) {
     (*frame).regs[dst as usize] = Value::I64(val as i64);
@@ -21,7 +22,7 @@ pub unsafe extern "C" fn jit_const_i32(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_const_i64(
-    frame: *mut JitFrame, _ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, _ctx: *const VmContext,
     dst: u32, val: i64,
 ) {
     (*frame).regs[dst as usize] = Value::I64(val);
@@ -29,7 +30,7 @@ pub unsafe extern "C" fn jit_const_i64(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_const_f64(
-    frame: *mut JitFrame, _ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, _ctx: *const VmContext,
     dst: u32, val: f64,
 ) {
     (*frame).regs[dst as usize] = Value::F64(val);
@@ -37,7 +38,7 @@ pub unsafe extern "C" fn jit_const_f64(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_const_bool(
-    frame: *mut JitFrame, _ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, _ctx: *const VmContext,
     dst: u32, val: u8,
 ) {
     (*frame).regs[dst as usize] = Value::Bool(val != 0);
@@ -45,7 +46,7 @@ pub unsafe extern "C" fn jit_const_bool(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_const_char(
-    frame: *mut JitFrame, _ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, _ctx: *const VmContext,
     dst: u32, val: i32,
 ) {
     (*frame).regs[dst as usize] = Value::Char(char::from_u32(val as u32).unwrap_or('\0'));
@@ -53,7 +54,7 @@ pub unsafe extern "C" fn jit_const_char(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_const_null(
-    frame: *mut JitFrame, _ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, _ctx: *const VmContext,
     dst: u32,
 ) {
     (*frame).regs[dst as usize] = Value::Null;
@@ -62,13 +63,13 @@ pub unsafe extern "C" fn jit_const_null(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_const_str(
     frame: *mut JitFrame,
-    ctx:   *const JitModuleCtx,
+    ctx:   *const VmContext,
     dst:   u32,
     idx:   u32,
 ) -> u8 {
     let vm = vm_ctx_ref(ctx);
     // Same lookup as interp `const_str`: the VM's string table, lock-free once interned.
-    if let Some(s) = vm.const_str(&*(*ctx).module, idx) {
+    if let Some(s) = vm.const_str(super::jit_module(ctx), idx) {
         (*frame).regs[dst as usize] = Value::Str(s);
         return 0;
     }
@@ -80,7 +81,7 @@ pub unsafe extern "C" fn jit_const_str(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_copy(
-    frame: *mut JitFrame, _ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, _ctx: *const VmContext,
     dst: u32, src: u32,
 ) {
     let v = (*frame).regs[src as usize].clone();
@@ -91,7 +92,7 @@ pub unsafe extern "C" fn jit_copy(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_str_concat(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     dst: u32, a: u32, b: u32,
 ) -> u8 {
     match (&(*frame).regs[a as usize], &(*frame).regs[b as usize]) {
@@ -110,7 +111,7 @@ pub unsafe extern "C" fn jit_str_concat(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_to_str(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx, dst: u32, src: u32,
+    frame: *mut JitFrame, ctx: *const VmContext, dst: u32, src: u32,
 ) -> u8 {
     let val = &(*frame).regs[src as usize];
     if let Value::Object(rc) = val {
@@ -118,10 +119,10 @@ pub unsafe extern "C" fn jit_to_str(
         let func_name_opt = type_desc.vtable_index.get("ToString")
             .map(|&slot| type_desc.vtable[slot].1.clone());
         if let Some(func_name) = func_name_opt {
-            let ctx_ref = &*ctx;
-            if let Some(entry) = ctx_ref.resolve_fn_by_name(func_name.as_str()) {
+            let rt = super::jit_rt(ctx);
+            if let Some(entry) = rt.resolve_fn_by_name(&*ctx, func_name.as_str()) {
                 let callee = JitFrame::new(vm_ctx_ref(ctx), entry.max_reg, &[val.clone()]);
-                let ret = match call_entry(vm_ctx_ref(ctx), ctx, entry, callee) {
+                let ret = match call_entry(vm_ctx_ref(ctx), entry, callee) {
                     NativeOutcome::Returned(ret) => ret,
                     NativeOutcome::Threw => return 1,
                 };
@@ -161,7 +162,7 @@ pub(crate) const JIT_GET_BOOL_ERR: u8 = 255;
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_get_bool(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     reg: u32,
 ) -> u8 {
     match &(*frame).regs[reg as usize] {

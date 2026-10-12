@@ -8,7 +8,7 @@
 //!  Idle ─trip→ [open: epoch++, SATB on, alloc-black on, grey the roots] ─→ Marking
 //!  Marking:   trace the grey queue within budget; queue empty → grey the SATB records → repeat;
 //!             both empty → revive soft refs once → SATB off ─→ Sweeping
-//!  Sweeping:  objects → arrays → var blocks, one chunk at a time within budget
+//!  Sweeping:  arrays → var blocks (objects included), one chunk at a time within budget
 //!  wrap-up:   chunk reclaim, alloc-black off, contexts / soft registry, promotion bookkeeping ─→ Idle
 //! ```
 //!
@@ -100,7 +100,7 @@ struct Cycle {
     max_slice_us: u64,
     traced: usize,
     reclaimed: usize,
-    /// Work units spent sweeping (`CHUNK_SIZE` per object / array chunk, `CLOCK_EVERY` per bucket).
+    /// Work units spent sweeping (`CHUNK_SIZE` per array chunk, `CLOCK_EVERY` per bucket).
     sweep_units: u64,
     /// Pacer inputs: `used_bytes` when the cycle opened, the growth it should finish within, and
     /// the work it is expected to take.
@@ -118,7 +118,6 @@ impl Cycle {
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
 enum SweepStage {
     #[default]
-    Objects,
     Arrays,
     Var,
     Done,
@@ -415,8 +414,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     fn estimate_cycle_units(&self) -> u64 {
         match self.incremental.last_cycle_units.load(Ordering::Relaxed) {
             0 => {
-                let slots = (self.region_object.lock().chunk_count() + self.region_array.lock().chunk_count())
-                    * crate::gc::region::CHUNK_SIZE;
+                let slots = self.region_array.lock().chunk_count() * crate::gc::region::CHUNK_SIZE;
                 let var = self.region_var.lock();
                 (2 * slots + var.live_count() + var.bucket_count() * CLOCK_EVERY as usize) as u64
             }
@@ -483,7 +481,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             .filter(|r| r.is_unloading())
             .map(|r| r.snapshot());
         cycle.live_contexts = snapshot.as_ref().map(|s| self.scan_marked_contexts(s));
-        cycle.stage = SweepStage::Objects;
+        cycle.stage = SweepStage::Arrays;
         cycle.cursor = 0;
         self.incremental.phase.store(SWEEPING, Ordering::Relaxed);
     }
@@ -494,14 +492,6 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let mut freed = 0u64;
         while cycle.stage != SweepStage::Done {
             let (units, done) = match cycle.stage {
-                SweepStage::Objects => {
-                    let mut region = self.region_object.lock();
-                    let (f, r, next) = region.sweep_chunks(kind, cycle.cursor, 1, Self::prepare_dead_object);
-                    freed += f;
-                    cycle.reclaimed += r;
-                    cycle.cursor = next;
-                    (crate::gc::region::CHUNK_SIZE as u32, next >= region.chunk_count())
-                }
                 SweepStage::Arrays => {
                     let mut region = self.region_array.lock();
                     let (f, r, next) = region.sweep_chunks(kind, cycle.cursor, 1, Self::prepare_dead_array);
@@ -511,12 +501,18 @@ impl crate::gc::arc_heap::ArcMagrGC {
                     (crate::gc::region::CHUNK_SIZE as u32, next >= region.chunk_count())
                 }
                 SweepStage::Var => {
-                    let mut region = self.region_var.lock();
-                    let (r, credited, next) = region.sweep_buckets(kind, cycle.cursor, 1);
+                    let (r, credited, next, done) = {
+                        let mut region = self.region_var.lock();
+                        let (r, credited, next) = region.sweep_buckets(kind, cycle.cursor, 1);
+                        (r, credited, next, next >= region.bucket_count())
+                    };
+                    // Object model R6: fire the finalizers of objects this bucket reclaimed, drop
+                    // their soft / remembered entries (the minors between slices read both).
+                    self.process_flagged_dead();
                     freed += credited;
                     cycle.reclaimed += r;
                     cycle.cursor = next;
-                    (CLOCK_EVERY, next >= region.bucket_count())
+                    (CLOCK_EVERY, done)
                 }
                 SweepStage::Done => unreachable!(),
             };
@@ -524,7 +520,6 @@ impl crate::gc::arc_heap::ArcMagrGC {
             if done {
                 cycle.cursor = 0;
                 cycle.stage = match cycle.stage {
-                    SweepStage::Objects => SweepStage::Arrays,
                     SweepStage::Arrays => SweepStage::Var,
                     _ => SweepStage::Done,
                 };

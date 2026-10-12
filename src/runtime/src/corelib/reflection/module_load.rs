@@ -1,30 +1,50 @@
 use super::*;
 
-/// `__load_module(path: str) -> Std.Test.TestEntry[]` — load a compiled test
-/// module at `path` into the live VM (its functions / types become callable +
-/// reflectable) and return its TIDX entries as z42 `Std.Test.TestEntry` objects.
-/// Powers `Std.Test.ModuleLoader.Load` so a z42 test runner can load a compiled
-/// test module and discover + `Invoke` its `[Test]` methods. (retire-test-runner)
+/// `__test_module_load(path: str) -> Std.Harness.TestEntry[]` — load a compiled
+/// test / bench module and return its TIDX entries. Kept only for a seed SDK's
+/// pre-reflection runner; the in-tree runner discovers tests by reflection
+/// (`Std.Test.TestDiscovery`).
+// STAGE2-DEBT(load-module-entries): 种子 SDK 的 runner 换成反射版后，随 TIDX 链（编译器写出 / VM 解码）删除本 builtin
+pub fn builtin_test_module_load(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let entries = load_path(ctx, args)?;
+    test_entries_to_values(ctx, &entries)
+}
+
+/// `__load_module(path: str)` — the generic load behind `Std.Runtime.ModuleLoader.Load`
+/// (component injection, project hooks, `[analyzers]` zpkgs, and the test runner, which then
+/// discovers tests by reflection). Pure load: returns Null.
 pub fn builtin_load_module(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    load_path(ctx, args)?;
+    Ok(Value::Null)
+}
+
+/// Shared body: merge the artifact (+ dependency closure) into the live registries.
+fn load_path(
+    ctx: &VmContext, args: &[Value],
+) -> Result<Vec<crate::metadata::test_index::LoadedTestEntry>> {
     let path = match args.first() {
         Some(Value::Str(s)) => s.to_string(),
         _ => bail!("ModuleLoader.Load: expected a path string"),
     };
+    // Static fields of the loaded closure need nothing here: their initializers are
+    // per-type and run lazily at first use, and `load_module_into_vm` already drains
+    // the pending type-load queue. Do NOT call `init_static_fields` — it clears every
+    // static field in the VM, so the caller's own state (and any already-initialized
+    // type) would silently read back as zero after each load.
     let entries = ctx.load_module_into_vm(&path)?;
-    // Run static-field initializers for the freshly-loaded test module + its
-    // dependency closure: their `*.__static_init__` functions weren't present
-    // when the VM ran its startup static-init pass (the module is loaded now,
-    // mid-run), so e.g. `Std.Math.Pi` would read Null. Re-running init is
-    // idempotent for value-init statics; `__load_module` runs once per artifact
-    // (before any test executes), so this clears no meaningful test state.
-    if let Some(m) = ctx.module().cloned() {
-        crate::interp::init_static_fields(ctx, &m)?;
-    }
+    Ok(entries)
+}
+
+/// Materialize TIDX entries as `Std.Harness.TestEntry[]`. A module with no TIDX
+/// allocates nothing, so plain component loads never need the type.
+fn test_entries_to_values(
+    ctx: &VmContext, entries: &[crate::metadata::test_index::LoadedTestEntry],
+) -> Result<Value> {
     let mut objs: Vec<Value> = Vec::with_capacity(entries.len());
-    for e in &entries {
+    for e in entries {
         let obj = alloc_named(
             ctx,
-            "Std.Test.TestEntry",
+            TEST_ENTRY_TYPE,
             &[
                 ("Qualified", Value::Str(e.qualified.clone().into())),
                 ("Kind", Value::I64(e.kind as i64)),
@@ -39,6 +59,9 @@ pub fn builtin_load_module(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     }
     Ok(ctx.heap().alloc_array(objs))
 }
+
+/// z42 type the TIDX entries are materialized as (the seed SDK runner's `Std.Harness.TestEntry`).
+const TEST_ENTRY_TYPE: &str = "Std.Harness.TestEntry";
 
 pub(super) fn load_module_opt(o: &Option<String>) -> Value {
     match o {

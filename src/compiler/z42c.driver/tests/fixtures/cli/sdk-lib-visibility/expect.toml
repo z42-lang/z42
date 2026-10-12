@@ -1,4 +1,4 @@
-desc = "SDK 库（z42c.semantics）的可见性：kind=analyzer 免声明可见；kind=lib 按名声明后可见；kind=lib 未声明不可见，且报错点名该库并给出声明写法（见 README）"
+desc = "SDK 库（z42c.generators）的可见性：kind=analyzer 免声明可见；kind=lib 按名声明后可见；kind=lib 未声明不可见，且报错点名该库并给出声明写法（见 README）"
 
 [[step]]
 args = ["build", "analyzer-undeclared/e2e.gen.z42.toml", "--release"]
@@ -11,4 +11,4 @@ exit = 0
 [[step]]
 args = ["build", "lib-undeclared/e2e.gen.z42.toml", "--release"]
 exit = "nonzero"
-stderr_contains = ["z42c.semantics", "按名声明"]
+stderr_contains = ["z42c.generators", "按名声明"]

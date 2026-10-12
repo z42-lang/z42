@@ -8,16 +8,16 @@ use super::*;
 /// z42.core's `Std.Type` isn't loaded (shouldn't happen in practice).
 pub fn make_type_object(ctx: &VmContext, td: Arc<TypeDesc>) -> Value {
     let full = td.name.clone();
-    let simple = type_simple_name(&full).to_string();
+    let simple = type_simple_name(&full);
     build_type(ctx, &simple, &full, NativeData::TypeHandle(td))
 }
 
 /// Simple (unqualified) type name for `Type.Name`: strip the namespace (`.`)
 /// then, for nested types, the declaring-type prefix (`+`) — so
 /// `Nest.Outer+Inner` → `Inner`, mirroring C#. add-nested-types.
-pub fn type_simple_name(full: &str) -> &str {
-    let after_dot = full.rsplit('.').next().unwrap_or(full);
-    after_dot.rsplit('+').next().unwrap_or(after_dot)
+/// Instantiation args are FQ (`Demo.Pair<Demo.A.P>`) and get the same treatment → `Pair<P>`.
+pub fn type_simple_name(full: &str) -> String {
+    crate::metadata::type_names::simple(full)
 }
 
 /// Split a generic arg list on top-level commas, respecting nested `<>` / `[]`
@@ -165,7 +165,7 @@ pub fn make_type_from_name(ctx: &VmContext, name: &str) -> Value {
     // Degraded fallback: z42.core not loaded (no `Std.Int32` to resolve) or a truly
     // unresolved name → a handle-less synthetic carrying a canonical user-facing name.
     let canon = canonical_type_name(name);
-    let simple = type_simple_name(&canon).to_string();
+    let simple = type_simple_name(&canon);
     build_type(ctx, &simple, &canon, NativeData::None)
 }
 
@@ -387,8 +387,6 @@ pub(super) fn simple_method_name(qualified: &str) -> &str {
 /// Types have these slots written by `build_type`).
 pub(super) fn read_type_str_slot(args: &[Value], field: &str) -> Value {
     if let Some(Value::Object(rc)) = args.first() {
-        // `type_desc()` is the lockless accessor on the GcRef; slots come from
-        // the locked guard.
         if let Some(i) = rc.type_desc().field_index.get(field).copied() {
             let obj = rc.borrow();
             return obj.field_value(i);

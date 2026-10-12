@@ -4,9 +4,10 @@
 
 use crate::interp::dispatch::isa_td;
 use crate::metadata::resolver::ObjNewSite;
-use crate::metadata::{NativeData, Value};
+use crate::metadata::Value;
 
-use super::super::frame::{JitFrame, JitModuleCtx};
+use super::super::frame::JitFrame;
+use crate::vm_context::VmContext;
 use super::super::invoke::{call_entry, NativeOutcome};
 use super::{set_exception, vm_ctx_ref};
 
@@ -19,28 +20,27 @@ use super::{set_exception, vm_ctx_ref};
 /// interpreter.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_obj_new(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     dst: u32,
     cls_name_ptr: *const u8, cls_name_len: usize,
     ctor_name_ptr: *const u8, ctor_name_len: usize,
     args_ptr: *const u32, argc: usize,
-    // 2026-05-07 expand-jit-type-args: per-instance generic type-args (D-8b-3
-    // Phase 2 JIT path). `type_args_ptr` is a `*const String` directly into the
-    // IR `Instruction::ObjNew { type_args: Vec<String> }` storage, valid for
-    // module lifetime. Non-generic ObjNew passes count = 0.
-    type_args_ptr: *const String, type_args_count: usize,
+    // expand-jit-type-args: the site's interned type-arguments handle
+    // (`ObjNewInsn::type_args.as_raw()`, a leaked process-lifetime entry; the empty
+    // handle for a non-generic `new`).
+    type_args: *const crate::metadata::types::TypeArgsInfo,
     // P1-2 PR 5: this site's `ResolvedTokens::obj_new` cache (null when the function was
     // compiled without a resolved token table).
     site_ptr: *const ObjNewSite,
     // encode-ctorless-objnew: compile-time positive ctor marker; see `missing_ctor_exception`.
     ctor_known: u8,
 ) -> u8 {
-    use crate::interp::obj_new_resolve::{resolve_class, resolve_ctor, site_for};
+    use crate::interp::obj_new_resolve::{instance_type_args, resolve_class, resolve_ctor, site_for};
     // Baked by `TxCtx::str_val` from the IR: valid UTF-8, no re-validation per `new`.
     let class_name = super::baked_str(cls_name_ptr, cls_name_len);
     let ctor_name = super::baked_str(ctor_name_ptr, ctor_name_len);
-    let ctx_ref   = &*ctx;
-    let module    = &*ctx_ref.module;
+    let rt        = super::jit_rt(ctx);
+    let module    = super::jit_module(ctx);
     let frame_ref = &mut *frame;
     let vm        = vm_ctx_ref(ctx);
     let site = site_for(vm, module, if site_ptr.is_null() { None } else { Some(&*site_ptr) });
@@ -69,47 +69,14 @@ pub unsafe extern "C" fn jit_obj_new(
         Err(exc) => { set_exception(vm, exc); return 1; }
     };
 
-    // unify-object-byte-layout (PR-2): fields default to zero-initialized bytes +
-    // `Null` refs (= the old per-field defaults), produced inside `alloc_object` from
-    // the composed layout; pass no initial values (mirrors interp `obj_new`).
-    let obj_val = vm.heap().alloc_object(type_desc, Vec::new(), NativeData::None);
-
-    // 2026-05-07 expand-jit-type-args: populate per-instance type_args BEFORE
-    // ctor call so the ctor body's `default(T)` resolves correctly (mirrors
-    // interp ObjNew handler order).
-    // complete-generic-class-identity P1: an instantiation's class name already carries its
-    // arguments, so the compiler ships no separate copy on the instruction. Fall back to the
-    // ones the registry parsed off the name — must mirror interp `obj_new` exactly (a
-    // one-sided pair here is what made `GBox<int>().V == 0` disagree between the two engines).
-    let name_args: Box<[String]> = if type_args_count > 0 {
-        Box::new([])
-    } else if let Value::Object(ref rc) = obj_val {
-        Box::<[String]>::from(rc.borrow().type_desc.type_args())
-    } else {
-        Box::new([])
-    };
-    if type_args_count > 0 || !name_args.is_empty() {
-        if let Value::Object(ref rc) = obj_val {
-            let slice: &[String] = if type_args_count > 0 {
-                std::slice::from_raw_parts(type_args_ptr, type_args_count)
-            } else {
-                &name_args
-            };
-            let mut o = rc.borrow_mut();
-            o.set_type_args(Box::<[String]>::from(slice));
-            // fix-generic-typeparam-field-zero: a `T`-typed field is laid out as a
-            // *reference* slot (layout comes from the declaration), so layout zero-init
-            // leaves it `Null` instead of the instantiation's zero. Must mirror the interp
-            // `obj_new` handler exactly — this pair being one-sided is what made
-            // `GBox<int>().V == 0` answer `false` under interp and `true` under JIT.
-            let overrides = crate::metadata::types::generic_field_zero_overrides(
-                &o.type_desc, slice,
-            );
-            for (slot, zero) in overrides {
-                o.set_field_value(slot, &zero);
-            }
-        }
-    }
+    // The instance — zeroed fields, generic arguments, type-parameter field zeros — is built
+    // completely in its block before it is published (`MagrGC::alloc_instance`, shared with
+    // interp `obj_new` so the two engines agree; a published object never changes its meta
+    // word, object model R4 / R6). The arguments are set before the ctor runs so its `default(T)` resolves correctly.
+    // SAFETY: `type_args` was baked from `TypeArgs::as_raw` at translate time.
+    let site_args = unsafe { crate::metadata::types::TypeArgs::from_raw(type_args) };
+    let inst_args = instance_type_args(site_args, &type_desc);
+    let obj_val = vm.heap().alloc_instance(type_desc, inst_args);
 
     // runtime-jit-tiering Phase 1b: tiered ctor. Compiled (or compiling at the threshold) →
     // native, `this` in reg 0 and args straight from the caller's registers; cold /
@@ -117,12 +84,12 @@ pub unsafe extern "C" fn jit_obj_new(
     // in place. `None` = a class without a ctor: the object stays default-initialised.
     if let Some((func, id)) = ctor {
         let arg_regs = std::slice::from_raw_parts(args_ptr, argc);
-        match id.and_then(|id| ctx_ref.resolve_fn_by_id_tiered(id)) {
+        match id.and_then(|id| rt.resolve_fn_by_id_tiered(&*ctx, id)) {
             Some(entry) => {
                 let callee = JitFrame::new_method_args_from(
                     vm, entry.max_reg, obj_val.clone(), &frame_ref.regs, arg_regs);
                 // The ctor mutates `this` in place; its (void) return value is discarded.
-                if let NativeOutcome::Threw = call_entry(vm, ctx, entry, callee) { return 1; }
+                if let NativeOutcome::Threw = call_entry(vm, entry, callee) { return 1; }
             }
             None => {
                 let mut ctor_args: Vec<Value> = Vec::with_capacity(argc + 1);
@@ -147,7 +114,7 @@ pub unsafe extern "C" fn jit_obj_new(
 /// (valid for module lifetime; count = 0 for non-generic typeof).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_typeof(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     dst: u32,
     type_name_ptr: *const u8, type_name_len: usize,
     type_args_ptr: *const String, type_args_count: usize,
@@ -169,7 +136,7 @@ pub unsafe extern "C" fn jit_typeof(
 // generic-T zero-value resolution.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_default_of(
-    _frame: *mut JitFrame, _ctx: *const JitModuleCtx,
+    _frame: *mut JitFrame, _ctx: *const VmContext,
     dst: u32, param_index: u32,
 ) -> u8 {
     let frame_ref = &mut *_frame;
@@ -194,7 +161,7 @@ pub unsafe extern "C" fn jit_default_of(
 ///     exception via `set_exception` and returns 1
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_convert(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     dst: u32, src: u32, to_tag: u32,
 ) -> u8 {
     let frame_ref = &mut *frame;
@@ -246,14 +213,14 @@ pub(super) fn is_array_isa(class_name: &str) -> bool {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_is_instance(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     dst: u32, obj: u32, cls_ptr: *const u8, cls_len: usize,
     key: *const crate::metadata::tokens::TypeKeyCell,
 ) {
     let class_name = super::baked_str(cls_ptr, cls_len);
     // The instruction's own key cell, baked at translate time (lives as long as the code).
     let key = &*key;
-    let module = &*(*ctx).module;
+    let module = super::jit_module(ctx);
     let result = match &(*frame).regs[obj as usize] {
         Value::Object(rc) => isa_td(vm_ctx_ref(ctx), &module.type_registry, rc.type_desc(), class_name, key),
         Value::Array(_)   => is_array_isa(class_name),
@@ -270,14 +237,14 @@ pub unsafe extern "C" fn jit_is_instance(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_as_cast(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     dst: u32, obj: u32, cls_ptr: *const u8, cls_len: usize,
     key: *const crate::metadata::tokens::TypeKeyCell,
 ) {
     let class_name = super::baked_str(cls_ptr, cls_len);
     // The instruction's own key cell, baked at translate time (lives as long as the code).
     let key = &*key;
-    let module = &*(*ctx).module;
+    let module = super::jit_module(ctx);
     let val    = (*frame).regs[obj as usize].clone();
     // add-struct-object-boxing → unify Phase 2 R3: BoxedStruct 特判（struct 或基元装箱统一，镜像
     // interp as_cast）——精确类型命中 → 拆箱（基元盒 → 裸标量；struct 盒 → 当前帧 arena StructRef 值
@@ -341,13 +308,13 @@ pub unsafe extern "C" fn jit_as_cast(
 /// (`field_ptr`/`field_len`, always passed).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_static_get(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     dst: u32, field_id: u32,
     field_ptr: *const u8, field_len: usize,
 ) -> i32 {
     let field = super::baked_str(field_ptr, field_len);
     let id = (field_id != crate::metadata::tokens::UNRESOLVED).then_some(field_id);
-    match crate::objops::statics::static_get(vm_ctx_ref(ctx), &*(*ctx).module, field, id) {
+    match crate::objops::statics::static_get(vm_ctx_ref(ctx), super::jit_module(ctx), field, id) {
         Ok(v) => { (*frame).regs[dst as usize] = v; 0 }
         Err(e) => super::raise(ctx, e) as i32,
     }
@@ -356,14 +323,14 @@ pub unsafe extern "C" fn jit_static_get(
 /// `StaticSet` helper — adapter over [`crate::objops::statics::static_set`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_static_set(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     field_id: u32, val: u32,
     field_ptr: *const u8, field_len: usize,
 ) -> i32 {
     let field = super::baked_str(field_ptr, field_len);
     let id = (field_id != crate::metadata::tokens::UNRESOLVED).then_some(field_id);
     let v = (*frame).regs[val as usize];
-    match crate::objops::statics::static_set(vm_ctx_ref(ctx), &*(*ctx).module, field, id, v) {
+    match crate::objops::statics::static_set(vm_ctx_ref(ctx), super::jit_module(ctx), field, id, v) {
         Ok(()) => 0,
         Err(e) => super::raise(ctx, e) as i32,
     }

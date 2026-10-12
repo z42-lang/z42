@@ -1,0 +1,18 @@
+namespace Demo.SlColl;
+
+public static class Probe {
+    public static T Echo<T>(T x) { return x; }
+
+    public static string Run() {
+        Demo.SlColl.A.P a = new Demo.SlColl.A.P(7);
+        Demo.SlColl.B.P b = new Demo.SlColl.B.P(9);
+        Demo.SlColl.A.Pair<Demo.SlColl.A.P> pa = new Demo.SlColl.A.Pair<Demo.SlColl.A.P>(1, a);
+        Demo.SlColl.B.Pair<Demo.SlColl.B.P> pb = new Demo.SlColl.B.Pair<Demo.SlColl.B.P>(2, b);
+        Demo.SlColl.A.P ea = Probe.Echo<Demo.SlColl.A.P>(a);
+        Demo.SlColl.B.P eb = Probe.Echo<Demo.SlColl.B.P>(b);
+        return a.Show() + " " + b.Show()
+            + " " + pa.N.ToString() + "|" + pa.Item.Show()
+            + " " + pb.N.ToString() + "|" + pb.Item.Show()
+            + " " + ea.Show() + " " + eb.Show();
+    }
+}

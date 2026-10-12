@@ -41,7 +41,7 @@ fn thread_spawn_without_module_errors() {
     // `VmContext::new()` constructs VmCore with `module = None`; spawn must
     // refuse rather than panic later from the worker.
     let ctx = no_module_ctx();
-    let action = Value::FuncRef("Anything.DoesNotMatter".into());
+    let action = Value::FuncRef(crate::metadata::tokens::FnId(0));
     let err = builtin_thread_spawn(&ctx, &[action]).unwrap_err();
     assert!(err.to_string().contains("no shared Module"),
         "unexpected error: {err}");

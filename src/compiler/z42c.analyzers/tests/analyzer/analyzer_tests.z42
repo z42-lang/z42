@@ -1,0 +1,385 @@
+// z42c.analyzers 单测：AnalyzerDriver / LintConfig / SuppressionSet / `--fix`。
+//
+// 验证编译期 analyzer 驱动机制：一个测试内 analyzer（实现 Z42.Analyzers.Analyzer 契约，Register 里用
+// lambda 注册 OnSyntaxNode——这是 user code，lambda 合法）经 AnalyzerDriver.Run 遍历 parse 出的
+// CompilationUnit，命中的回调把诊断汇入 DiagnosticBag。证驱动的 store/invoke delegate + AST 遍历
+// 分派 + DiagSink→DiagnosticBag 映射全链，无需外部 zpkg 加载（那是后续增量）。
+namespace Z42cAnalyzersTests;
+
+using Std.IO;         // PR7-wire：File/Environment/Directory/Path —— --fix 就地重写单测
+using Z42.Syntax;
+using Z42.Analyzers;
+using Z42.Core;
+
+// 测试用 analyzer：报告空 catch（吞异常）。类名带 Analyzer 后缀（D8/E0445）。visitor 模型——声明
+// ObservedKinds=CatchClause，driver 对每个 catch 调 OnSyntaxNode，内部 as-cast + 报告。无 delegate/lambda。
+class NoEmptyCatchAnalyzer : Analyzer {
+    public DiagRule[] SupportedRules() {
+        DiagRule[] rules = new DiagRule[1];
+        rules[0] = NoEmptyCatchAnalyzer._rule();
+        return rules;
+    }
+    public int[] ObservedKinds() {
+        int[] k = new int[1];
+        k[0] = SyntaxKind.CatchClause;
+        return k;
+    }
+    public void OnSyntaxNode(int kind, object node, DiagSink diags) {
+        if (kind == SyntaxKind.CatchClause) {
+            CatchClause c = node as CatchClause;
+            if (c.Body is BlockStmt) {
+                BlockStmt b = c.Body as BlockStmt;
+                if (b.Count == 0) { diags.Report(NoEmptyCatchAnalyzer._rule(), c.Span); }
+            }
+        }
+    }
+    static DiagRule _rule() {
+        return new DiagRule("Z9002", "empty catch", "empty catch swallows exception",
+            "Correctness", AnalyzerSeverity.Warning, true);
+    }
+}
+
+// 跑 analyzer over src（可带 [lints] 决策器；null → LintConfig.Empty()），返回诊断袋。
+DiagnosticBag _runCfg(Analyzer a, string src, LintConfig cfg) {
+    var p = new Parser(src, "t.z42");
+    var cu = p.ParseCompilationUnit();
+    var bag = new DiagnosticBag();
+    Analyzer[] arr = new Analyzer[1];
+    arr[0] = a;
+    AnalyzerDriver.Run(arr, 1, cu, bag, cfg);
+    return bag;
+}
+
+// 无 [lints] 覆盖（默认级 + EnabledByDefault）。
+DiagnosticBag _run(Analyzer a, string src) {
+    return _runCfg(a, src, null);
+}
+
+// 构造单条 `Id = sev` 覆盖的 LintConfig。
+LintConfig _cfg1(string id, string sev, bool wae) {
+    string[] keys = new string[1]; keys[0] = id;
+    string[] sevs = new string[1]; sevs[0] = sev;
+    return new LintConfig(keys, sevs, 1, wae);
+}
+
+// 报告 Z9003（默认禁用 EnabledByDefault=false）的 analyzer——验 EnabledByDefault 门 + 显式开启。
+class OffByDefaultAnalyzer : Analyzer {
+    public DiagRule[] SupportedRules() {
+        DiagRule[] rules = new DiagRule[1];
+        rules[0] = OffByDefaultAnalyzer._rule();
+        return rules;
+    }
+    public int[] ObservedKinds() {
+        int[] k = new int[1]; k[0] = SyntaxKind.CatchClause; return k;
+    }
+    public void OnSyntaxNode(int kind, object node, DiagSink diags) {
+        if (kind == SyntaxKind.CatchClause) {
+            CatchClause c = node as CatchClause;
+            if (c.Body is BlockStmt) {
+                BlockStmt b = c.Body as BlockStmt;
+                if (b.Count == 0) { diags.Report(OffByDefaultAnalyzer._rule(), c.Span); }
+            }
+        }
+    }
+    static DiagRule _rule() {
+        return new DiagRule("Z9003", "opt-in catch", "opt-in lint",
+            "Style", AnalyzerSeverity.Warning, false);   // EnabledByDefault=false
+    }
+}
+
+string _emptyCatchSrc() { return "class C { void M() { try { risky(); } catch (Error e) { } } }"; }
+
+int _sevOf(DiagnosticBag bag, string code) {
+    int i = 0;
+    while (i < bag.Count()) {
+        if (bag.Get(i).Code == code) { return bag.Get(i).Severity; }
+        i = i + 1;
+    }
+    return -1;
+}
+
+bool _hasCode(DiagnosticBag bag, string code) {
+    int i = 0;
+    while (i < bag.Count()) {
+        if (bag.Get(i).Code == code) { return true; }
+        i = i + 1;
+    }
+    return false;
+}
+
+[Test]
+void test_empty_catch_reported() {
+    // 空 catch → analyzer 报 Z9002
+    var bag = _run(new NoEmptyCatchAnalyzer(),
+        "class C { void M() { try { risky(); } catch (Error e) { } } }");
+    Assert.Equal(true, _hasCode(bag, "Z9002"));
+}
+
+[Test]
+void test_empty_catch_inside_local_function_reported() {
+    // 局部函数体内的空 catch —— analyzer 必须能看到（analyzer-driver-walk-local-function）。
+    // 修前：_walkStmt 把 LocalFunctionStmt 当无子语句、不下钻 → catch 从不被遍历 → 零诊断（静默漏）。
+    var bag = _run(new NoEmptyCatchAnalyzer(),
+        "class C { void M() { void helper() { try { risky(); } catch (Error e) { } } } }");
+    Assert.Equal(true, _hasCode(bag, "Z9002"));
+}
+
+[Test]
+void test_nonempty_catch_not_reported() {
+    // 非空 catch → 不报
+    var bag = _run(new NoEmptyCatchAnalyzer(),
+        "class C { void M() { try { risky(); } catch (Error e) { log(e); } } }");
+    Assert.Equal(false, _hasCode(bag, "Z9002"));
+}
+
+[Test]
+void test_no_try_no_report() {
+    // 无 try/catch → analyzer 无触发点，零诊断
+    var bag = _run(new NoEmptyCatchAnalyzer(), "class C { void M() { risky(); } }");
+    Assert.Equal(false, _hasCode(bag, "Z9002"));
+}
+
+[Test]
+void test_reported_severity_is_warning() {
+    // Z9002 默认级 Warning → 映射进 DiagnosticBag 为 DiagnosticSeverity.Warning
+    var bag = _run(new NoEmptyCatchAnalyzer(),
+        "class C { void M() { try { risky(); } catch (Error e) { } } }");
+    int i = 0;
+    bool found = false;
+    while (i < bag.Count()) {
+        if (bag.Get(i).Code == "Z9002") {
+            Assert.Equal(DiagnosticSeverity.Warning, bag.Get(i).Severity);
+            found = true;
+        }
+        i = i + 1;
+    }
+    Assert.Equal(true, found);
+}
+
+// ── PR3b：[lints] severity 决策（LintConfig.Resolve）────────────────────────────
+
+[Test]
+void test_lints_override_to_error() {
+    // [lints] Z9002 = "error" → 默认 Warning 升为 Error
+    var bag = _runCfg(new NoEmptyCatchAnalyzer(), _emptyCatchSrc(), _cfg1("Z9002", "error", false));
+    Assert.Equal(true, _hasCode(bag, "Z9002"));
+    Assert.Equal(DiagnosticSeverity.Error, _sevOf(bag, "Z9002"));
+}
+
+[Test]
+void test_lints_none_suppresses() {
+    // [lints] Z9002 = "none" → 整条抑制，不进 bag
+    var bag = _runCfg(new NoEmptyCatchAnalyzer(), _emptyCatchSrc(), _cfg1("Z9002", "none", false));
+    Assert.Equal(false, _hasCode(bag, "Z9002"));
+}
+
+[Test]
+void test_lints_warnings_as_errors() {
+    // warnings_as_errors + 无逐规则覆盖 → 默认 Warning 规则升为 Error
+    LintConfig cfg = new LintConfig(new string[0], new string[0], 0, true);
+    var bag = _runCfg(new NoEmptyCatchAnalyzer(), _emptyCatchSrc(), cfg);
+    Assert.Equal(DiagnosticSeverity.Error, _sevOf(bag, "Z9002"));
+}
+
+[Test]
+void test_lints_wildcard_suppresses() {
+    // 前缀通配 "Z9*" = "none" → 抑制 Z9002
+    var bag = _runCfg(new NoEmptyCatchAnalyzer(), _emptyCatchSrc(), _cfg1("Z9*", "none", false));
+    Assert.Equal(false, _hasCode(bag, "Z9002"));
+}
+
+[Test]
+void test_disabled_by_default_not_reported() {
+    // EnabledByDefault=false + 无覆盖 → 抑制
+    var bag = _runCfg(new OffByDefaultAnalyzer(), _emptyCatchSrc(), null);
+    Assert.Equal(false, _hasCode(bag, "Z9003"));
+}
+
+[Test]
+void test_disabled_by_default_enabled_via_lints() {
+    // EnabledByDefault=false，但 [lints] Z9003 = "warning" 显式打开 → 报
+    var bag = _runCfg(new OffByDefaultAnalyzer(), _emptyCatchSrc(), _cfg1("Z9003", "warning", false));
+    Assert.Equal(true, _hasCode(bag, "Z9003"));
+    Assert.Equal(DiagnosticSeverity.Warning, _sevOf(bag, "Z9003"));
+}
+
+// ── PR3c：局部抑制 `#suppress`/`#restore`（字节区间）+ `[Suppress]`（声明活跃栈）─────────────
+
+int _countCode(DiagnosticBag bag, string code) {
+    int i = 0; int n = 0;
+    while (i < bag.Count()) { if (bag.Get(i).Code == code) { n = n + 1; } i = i + 1; }
+    return n;
+}
+
+[Test]
+void test_suppress_pragma_region_suppresses() {
+    // `#suppress Z9002` … `#restore Z9002` 圈住空 catch → 抑制
+    var bag = _run(new NoEmptyCatchAnalyzer(),
+        "class C { void M() { #suppress Z9002 \"gen code\" try { risky(); } catch (Error e) { } #restore Z9002 } }");
+    Assert.Equal(false, _hasCode(bag, "Z9002"));
+}
+
+[Test]
+void test_suppress_pragma_outside_reported() {
+    // 空 catch 在 `#restore` 之后（区间外）→ 仍报
+    var bag = _run(new NoEmptyCatchAnalyzer(),
+        "class C { void M() { #suppress Z9002 \"g\" #restore Z9002 try { risky(); } catch (Error e) { } } }");
+    Assert.Equal(true, _hasCode(bag, "Z9002"));
+}
+
+[Test]
+void test_suppress_pragma_wrong_id_not_suppressed() {
+    // `#suppress Z9999`（不同 Id）不抑制 Z9002
+    var bag = _run(new NoEmptyCatchAnalyzer(),
+        "class C { void M() { #suppress Z9999 try { risky(); } catch (Error e) { } #restore Z9999 } }");
+    Assert.Equal(true, _hasCode(bag, "Z9002"));
+}
+
+[Test]
+void test_suppress_pragma_unclosed_to_eof() {
+    // `#suppress Z9002` 无 `#restore` → 延伸到 EOF，抑制其后所有 Z9002
+    var bag = _run(new NoEmptyCatchAnalyzer(),
+        "class C { void M() { #suppress Z9002 try { risky(); } catch (Error e) { } } }");
+    Assert.Equal(false, _hasCode(bag, "Z9002"));
+}
+
+[Test]
+void test_suppress_attr_on_method_suppresses() {
+    // `[Suppress("Z9002")]` 贴方法 → 该方法内空 catch 抑制
+    var bag = _run(new NoEmptyCatchAnalyzer(),
+        "class C { [Suppress(\"Z9002\")] void M() { try { risky(); } catch (Error e) { } } }");
+    Assert.Equal(false, _hasCode(bag, "Z9002"));
+}
+
+[Test]
+void test_suppress_attr_scoped_to_decl() {
+    // `[Suppress]` 只作用于所贴方法：M 抑制、N 不抑制 → 恰 1 条 Z9002
+    var bag = _run(new NoEmptyCatchAnalyzer(),
+        "class C { [Suppress(\"Z9002\")] void M() { try { risky(); } catch (Error e) { } }"
+        + " void N() { try { risky(); } catch (Error e) { } } }");
+    Assert.Equal(1, _countCode(bag, "Z9002"));
+}
+
+// SuppressionSet 直接单测（字节区间 + 活跃栈判定）。
+[Test]
+void test_suppression_set_region() {
+    var s = new SuppressionSet();
+    s.AddRegion("Z9002", 10, 20);
+    Assert.Equal(true, s.IsSuppressed("Z9002", 10));    // 下界含
+    Assert.Equal(true, s.IsSuppressed("Z9002", 19));
+    Assert.Equal(false, s.IsSuppressed("Z9002", 20));   // 上界排他
+    Assert.Equal(false, s.IsSuppressed("Z9002", 5));    // 区间外
+    Assert.Equal(false, s.IsSuppressed("Z9999", 15));   // Id 不匹配
+}
+
+[Test]
+void test_suppression_set_active_stack() {
+    var s = new SuppressionSet();
+    s.PushActive("Z9002");
+    Assert.Equal(true, s.IsSuppressed("Z9002", 0));     // 活跃栈命中（位置无关）
+    Assert.Equal(false, s.IsSuppressed("Z9003", 0));
+    s.PopActive(1);
+    Assert.Equal(false, s.IsSuppressed("Z9002", 0));    // 弹出后不再抑制
+}
+
+// ── attribute-handler-registry PR7-wire：代码修复 `--fix`（FixSink + 就地重写）─────────────
+// 可修复 analyzer：命中空 catch 时经 `diags as FixSink` 下转、调 ReportFix 报诊断 **并** 附修复
+// （在 catch 关键字前零宽插入注释标记）。演示 D4「同套 splice」——analyzer 在同一 OnSyntaxNode 里
+// 报诊断 + 产修复（litmus B「谁报诊断谁产修复」）；host 无 --fix 能力（sink.Collect=false）时优雅回落。
+class FixableEmptyCatchAnalyzer : Analyzer {
+    public DiagRule[] SupportedRules() {
+        DiagRule[] r = new DiagRule[1]; r[0] = FixableEmptyCatchAnalyzer._rule(); return r;
+    }
+    public int[] ObservedKinds() { int[] k = new int[1]; k[0] = SyntaxKind.CatchClause; return k; }
+    public void OnSyntaxNode(int kind, object node, DiagSink diags) {
+        if (kind == SyntaxKind.CatchClause) {
+            CatchClause c = node as CatchClause;
+            if (c.Body is BlockStmt) {
+                BlockStmt b = c.Body as BlockStmt;
+                if (b.Count == 0) {
+                    // 修复 = catch 关键字前零宽插入（Start==End=c.Span.Start）→ 保留原 catch、仅插标记。
+                    if (diags is FixSink) {
+                        Span at = new Span(c.Span.Start, c.Span.Start, c.Span.Line, c.Span.Column, c.Span.File);
+                        TextEdit[] edits = new TextEdit[1];
+                        edits[0] = new TextEdit(at, "/*FIXED*/");
+                        CodeFix fix = new CodeFix("insert marker", edits, 1);
+                        (diags as FixSink).ReportFix(FixableEmptyCatchAnalyzer._rule(), c.Span, fix);
+                    } else {
+                        diags.Report(FixableEmptyCatchAnalyzer._rule(), c.Span);
+                    }
+                }
+            }
+        }
+    }
+    static DiagRule _rule() {
+        return new DiagRule("Z9010", "empty catch (fixable)", "empty catch swallows exception",
+            "Correctness", AnalyzerSeverity.Warning, true);
+    }
+}
+
+// temp 文件：写 content 到 $TMPDIR/z42c-fix-tests/<name>，返回路径（供 spans.File 定位 + 重写后回读）。
+string _tmpFile(string name, string content) {
+    string t = Environment.GetEnvironmentVariable("TMPDIR", "");
+    if (t == "") { t = "/tmp"; }
+    string dir = Path.Join(t, "z42c-fix-tests");
+    Directory.Create(dir);
+    string p = Path.Join(dir, name);
+    File.WriteAllText(p, content);
+    return p;
+}
+
+// 把 src 写临时文件、以该路径 parse（spans.File=该路径）、跑 6-参 Run(fix)，返回重写后文件内容。
+string _runFix(Analyzer a, string name, string src, bool fix) {
+    string p = _tmpFile(name, src);
+    var parser = new Parser(src, p);
+    var cu = parser.ParseCompilationUnit();
+    var bag = new DiagnosticBag();
+    Analyzer[] arr = new Analyzer[1]; arr[0] = a;
+    AnalyzerDriver.Run(arr, 1, cu, bag, null, fix);
+    return File.ReadAllText(p);
+}
+
+int _occurrences(string hay, string needle) {
+    return hay.Split(needle).Length - 1;
+}
+
+[Test]
+void test_fix_rewrites_source_in_place() {
+    // fix=true → analyzer 携修复就地重写源：标记插入 + 原 catch 保留（插入非破坏性替换）。
+    string src = "class C { void M() { try { } catch { } } }";
+    string after = _runFix(new FixableEmptyCatchAnalyzer(), "inplace.z42", src, true);
+    Assert.Equal(true, after.Contains("/*FIXED*/"));       // 修复已应用
+    Assert.Equal(true, after.Contains("/*FIXED*/catch"));  // 标记恰在 catch 前（零宽插入）
+    Assert.Equal(true, after.Contains("catch"));           // 原 catch 未被破坏
+}
+
+[Test]
+void test_fix_false_leaves_source_unchanged() {
+    // fix=false → 诊断照报、但源文件原样不动（Collect=false → 不收编辑 → 不重写）。
+    string src = "class C { void M() { try { } catch { } } }";
+    string after = _runFix(new FixableEmptyCatchAnalyzer(), "nofix.z42", src, false);
+    Assert.Equal(src, after);
+    Assert.Equal(false, after.Contains("/*FIXED*/"));
+}
+
+[Test]
+void test_fix_suppressed_no_rewrite() {
+    // [lints] Z9010="none" → 抑制诊断 → 不产生修复（不改用户已抑制的代码），即便 fix=true 也不重写。
+    string src = "class C { void M() { try { } catch { } } }";
+    string p = _tmpFile("suppressed.z42", src);
+    var parser = new Parser(src, p);
+    var cu = parser.ParseCompilationUnit();
+    var bag = new DiagnosticBag();
+    Analyzer[] arr = new Analyzer[1]; arr[0] = new FixableEmptyCatchAnalyzer();
+    LintConfig cfg = _cfg1("Z9010", "none", false);
+    AnalyzerDriver.Run(arr, 1, cu, bag, cfg, true);
+    Assert.Equal(src, File.ReadAllText(p));   // 抑制 → 无重写
+}
+
+[Test]
+void test_fix_multiple_edits_descending() {
+    // 两个空 catch → 两处插入，按 Start 降序应用（靠前编辑不移位靠后偏移）→ 两个标记都在。
+    string src = "class C { void M() { try { } catch { } try { } catch { } } }";
+    string after = _runFix(new FixableEmptyCatchAnalyzer(), "multi.z42", src, true);
+    Assert.Equal(2, _occurrences(after, "/*FIXED*/"));
+}

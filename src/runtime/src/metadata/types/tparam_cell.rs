@@ -43,7 +43,7 @@
 use std::sync::atomic::Ordering;
 
 use super::ref_word::{self, KIND_MASK, RK_BOXED_VALUE};
-use super::{ArrayObj, FieldWrite, ObjStorage, Value};
+use super::{ArrayObj, Cells, FieldWrite, Value};
 use crate::gc::GcRef;
 
 const NULL_FLAG: u64 = 8;
@@ -73,6 +73,10 @@ fn is_marker(w0: u64) -> bool {
     w0 != 0 && w0 & KIND_MASK == 0
 }
 
+/// JIT 读路径的查表：基元种类 `k`（`PRIM(k)` 的 `k`，或 MIXED 数组的 `zero`）→ 寄存器里 `Value` 的判别值；
+/// 下标 0 = `Null`（判别值 5）。由 `the_jit_prim_table_matches_decode` 钉住。
+pub static PRIM_KIND_TO_VALUE_TAG: [u8; 16] = [5, 0, 1, 2, 3, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5];
+
 /// 基元 `Value` → (种类, 原始位)；不是基元 → `None`。
 #[inline(always)]
 fn prim_parts(v: &Value) -> Option<(u64, u64)> {
@@ -97,11 +101,17 @@ fn prim_value(k: u64, bits: u64) -> Value {
 
 /// 读单元。
 #[inline]
-pub fn load(st: &ObjStorage, w0_off: u32, w1_off: u32) -> Value {
-    let (w0, w1) = st.load_tparam(w0_off as usize, w1_off as usize);
+pub fn load(st: &Cells, w0_off: usize, w1_off: usize) -> Value {
+    let (w0, w1) = st.load_tparam(w0_off, w1_off);
+    decode_words(w0, w1)
+}
+
+/// The value of a cell whose tag word is `w0` and payload word `w1` (loaded in that order).
+#[inline(always)]
+fn decode_words(w0: u64, w1: u64) -> Value {
     if w0 & KIND_MASK != 0 {
         // SAFETY: a reference word of this cell (written by `store`); its referent is kept
-        // alive by the object, which the caller holds.
+        // alive by the owner, which the caller holds.
         return unsafe { ref_word::decode(w0) };
     }
     if w0 == 0 || w0 & NULL_FLAG != 0 {
@@ -112,10 +122,39 @@ pub fn load(st: &ObjStorage, w0_off: u32, w1_off: u32) -> Value {
     prim_value(w0 >> 4, w1)
 }
 
+/// 读单元；标签字为 `0`（从未写过）时读作种类 `zero` 的基元零值（`zero == 0` = `null`）——
+/// MIXED 数组按实参零值分配时不写任何字（`ArrayBacking::Cells::zero`）。
+#[inline]
+pub fn load_or_zero(st: &Cells, w0_off: usize, w1_off: usize, zero: u8) -> Value {
+    let (w0, w1) = st.load_tparam(w0_off, w1_off);
+    if w0 == 0 && zero != 0 {
+        return prim_value(zero as u64, 0);
+    }
+    decode_words(w0, w1)
+}
+
+/// `v` 是基元零值（位全 0：`0` / `+0.0` / `false` / `'\0'`）时它的种类，否则 `0`。
+#[inline]
+pub fn zero_kind_of(v: &Value) -> u8 {
+    match prim_parts(v) {
+        Some((k, 0)) => k as u8,
+        _ => 0,
+    }
+}
+
 /// 写单元。返回值交给调用方发写屏障（见模块文档）。
 #[inline]
-pub fn store(st: &mut ObjStorage, w0_off: u32, w1_off: u32, v: &Value) -> anyhow::Result<FieldWrite> {
-    let (w0_off, w1_off) = (w0_off as usize, w1_off as usize);
+pub fn store(st: &Cells, w0_off: usize, w1_off: usize, v: &Value) -> anyhow::Result<FieldWrite> {
+    store_or_zero(st, w0_off, w1_off, v, 0)
+}
+
+/// [`store`] into a cell whose never-written state (`0`) reads as kind `zero`'s zero
+/// ([`load_or_zero`]; `0` = `null`). Such a cell counts as **already claimed** for `zero`: a
+/// `zero`-kind primitive goes straight to payload + publish (no claim CAS — no writer ever claims
+/// another kind out of `0` there, a primitive of another kind is boxed instead), so the payload
+/// still only ever holds `zero`-kind bits.
+#[inline]
+pub fn store_or_zero(st: &Cells, w0_off: usize, w1_off: usize, v: &Value, zero: u8) -> anyhow::Result<FieldWrite> {
     let prim = prim_parts(v);
     if let Some((k, bits)) = prim {
         // Fast path: the cell already holds a `k` primitive — only the payload changes.
@@ -124,13 +163,26 @@ pub fn store(st: &mut ObjStorage, w0_off: u32, w1_off: u32, v: &Value) -> anyhow
         }
     }
     let w0 = st.load_word(w0_off, Ordering::Relaxed);
+    if w0 == 0 && zero != 0 {
+        match prim {
+            Some((k, bits)) if k == zero as u64 => {
+                st.store_word(w1_off, bits, Ordering::Relaxed);
+                publish(st, w0_off, prim_word(k));
+                return Ok(FieldWrite::NotRef);
+            }
+            // `null` keeps the never-written state (it reads as the zero, like `default(T)`).
+            _ if matches!(v, Value::Null) => return Ok(FieldWrite::NotRef),
+            Some(_) => return store_boxed(st, w0_off, v),
+            None => {}
+        }
+    }
     store_transition(st, w0_off, w1_off, v, prim, w0)
 }
 
 /// Every write that changes the tag word.
 #[inline(never)]
 fn store_transition(
-    st: &mut ObjStorage, w0_off: usize, w1_off: usize, v: &Value, prim: Option<(u64, u64)>, mut w0: u64,
+    st: &Cells, w0_off: usize, w1_off: usize, v: &Value, prim: Option<(u64, u64)>, mut w0: u64,
 ) -> anyhow::Result<FieldWrite> {
     let w0 = &mut w0;
     loop {
@@ -201,9 +253,20 @@ fn store_transition(
     }
 }
 
+/// The two words a **fresh** cell (zeroed, not yet reachable from anything) gets for `v` — what
+/// one `store` into a zeroed cell would leave, written without the CAS protocol because no other
+/// thread can see the cell yet. `None` = the value needs a box (a stack handle).
+#[inline]
+pub fn init_words(v: &Value) -> Option<(u64, u64)> {
+    if let Some((k, bits)) = prim_parts(v) {
+        return Some((prim_word(k), bits));
+    }
+    ref_word::encode(v).map(|w| (w, 0))
+}
+
 /// Box `v` into the tag word (kind 7).
 #[cold]
-fn store_boxed(st: &mut ObjStorage, w0_off: usize, v: &Value) -> anyhow::Result<FieldWrite> {
+fn store_boxed(st: &Cells, w0_off: usize, v: &Value) -> anyhow::Result<FieldWrite> {
     let b = box_value(v)?;
     publish(st, w0_off, ref_word::encode_boxed(&b));
     Ok(FieldWrite::Boxed(b))
@@ -220,7 +283,7 @@ fn box_value(v: &Value) -> anyhow::Result<GcRef<ArrayObj>> {
 /// Release-store a tag word. While a major mark is running it is a swap, and a replaced
 /// reference word goes to the SATB deletion barrier.
 #[inline(always)]
-fn publish(st: &mut ObjStorage, w0_off: usize, w: u64) {
+fn publish(st: &Cells, w0_off: usize, w: u64) {
     if crate::gc::satb::marking_any() {
         record(st.swap_word(w0_off, w));
     } else {
@@ -241,8 +304,8 @@ fn record(old: u64) {
 /// The cell's reference edge for GC tracing, if its tag word holds one (a boxed value yields
 /// its box). The payload word never holds a reference.
 #[inline]
-pub fn visit(st: &ObjStorage, w0_off: u32, visit: &mut dyn FnMut(&Value)) {
-    let w0 = st.load_word(w0_off as usize, Ordering::Acquire);
+pub fn visit(st: &Cells, w0_off: usize, visit: &mut dyn FnMut(&Value)) {
+    let w0 = st.load_word(w0_off, Ordering::Acquire);
     if w0 & KIND_MASK != 0 && ref_word::handle_bits(w0) != 0 {
         // SAFETY: a reference word of a reachable object names a live referent.
         visit(&unsafe { ref_word::decode_for_trace(w0) });
@@ -251,10 +314,10 @@ pub fn visit(st: &ObjStorage, w0_off: u32, visit: &mut dyn FnMut(&Value)) {
 
 /// Break the cell's reference edge (GC sweeping a dead object — no barrier).
 #[inline]
-pub fn clear(st: &mut ObjStorage, w0_off: u32) {
-    let w0 = st.load_word(w0_off as usize, Ordering::Relaxed);
+pub fn clear(st: &Cells, w0_off: usize) {
+    let w0 = st.load_word(w0_off, Ordering::Relaxed);
     if w0 & KIND_MASK != 0 {
-        st.store_word(w0_off as usize, 0, Ordering::Relaxed);
+        st.store_word(w0_off, 0, Ordering::Relaxed);
     }
 }
 

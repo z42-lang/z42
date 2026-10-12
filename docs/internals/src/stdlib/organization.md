@@ -137,8 +137,8 @@ stdlib 上的特化。
    收敛手法：调用方改调那个唯一声明点，需要保住调用点写法时加一层本地转发——
    `private static long __time_now_mono_ns() { return Clock.MonoNanos(); }`（`z42.test/src/Bencher.z42` 即此例）。
 
-   **当前仍有一处跨包重复**：`__invoke_static` 在 `z42.test/src/ModuleLoader.z42` 与
-   `z42.scripting/src/Engine.z42` 各声明一次。scripting 本就依赖 test，按本条应收敛到其中一处。
+   模块加载同理：`__load_module`（并入）与 `__run_goldens_isolated`（隔离运行）只在
+   `core/src/Runtime/ModuleLoader.z42` 声明；测试 runner 经它们与通用反射工作，不另绑 builtin。
 
    > 这条规则管的是**跨包**。core 内部**同一符号被多个类型各绑一次**是刻意的，不算违规：8 个整型
    > （Int16/Int32/Int64/SByte/Byte/UInt16/UInt32/UInt64）的 `ToString` 都绑 `__int32_to_string`，

@@ -224,7 +224,7 @@ fn probe_declared(declared: &[(String, ZpkgCandidate)], fq: &str, kind: ProbeKin
 
 /// `A.B.C.Member` → `A.B.C`（去掉最后一段）。无点 → None（全局命名空间，无候选可查）。
 fn namespace_of(fq: &str) -> Option<String> {
-    fq.rfind('.').map(|i| fq[..i].to_string())
+    crate::metadata::type_names::last_top_dot(fq).map(|i| fq[..i].to_string())
 }
 
 /// 候选声明的 namespace `claimed` 是否覆盖目标 `ns`（等于或为其祖先）。

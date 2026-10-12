@@ -1,0 +1,12 @@
+// Test: 限定名泛型局部声明 `Ns.Type<T> x = …` 判为 var-decl（此前落成表达式 → E0401 undefined Std）。
+using Std.Collections;
+
+void Main() {
+    Std.Collections.List<int> xs = new Std.Collections.List<int>();
+    xs.Add(7);
+    Std.Collections.List<int> ys;
+    ys = xs;
+    Assert.Equal(1, ys.Count);
+    Std.Collections.List<Std.Collections.List<int>>? nested = null;
+    Assert.True(nested == null);
+}

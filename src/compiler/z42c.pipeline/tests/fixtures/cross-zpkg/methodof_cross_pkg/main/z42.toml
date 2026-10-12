@@ -2,7 +2,6 @@
 name    = "mo.app"
 version = "0.1.0"
 kind    = "exe"
-entry   = "Mo.App.Main"
 pack    = true
 [dependencies]
 "mo.base" = "0.1.0"

@@ -1,25 +1,11 @@
-// attribute-handler-registry PR1a/PR1b — 编译期 handler 注册表（attribute 名 → kind 的唯一真相源）。
+// 编译期 attribute 注册表：attribute 名 → kind 的唯一真相源，外加 AST 相位的内建脱糖入口（RunAst）。
 //
-// PR1a（AST-phase）：把「解析后、类型检查前」的两个 AST 级 pass 收敛到单一入口 RunAst，并用
-// **三路 kind 判定**（KindOf）替换散落在 AttributeSynth 的 `_isUserAttr` 名字白名单。
-// PR1b（IR-phase）：把 IR 级两个子构建器（TestIndexBuilder / StubEmitter）的 attribute **名字识别**
-// 也收敛进本注册表——它们的 emit **逻辑不变**，只是「哪个名字算 directive / 算 test handler」这项知识
-// 从 `_isTestAttrName` / 散落的 `== "Native"` 字面量上移到这里（design §Implementation Notes：
-// 「逻辑不变，识别改注册表」）。设计 SoT：docs/spec/changes/attribute-handler-registry/design.md。
-//
-// 三路 kind（design §消费模型）：
-//   · store-meta —— 普通 `: Attribute` 类 → 反射 blob（IrAttrRef）。由 AttributeSynth 合成工厂。
-//   · directive  —— 编译器原生封闭集（当前仅 `[Native]`）→ codegen 烘进 descriptor。StubEmitter 消费。
-//   · handler    —— 编译期消费即弃 / 聚合成表（module-generator 形）。**内建**：test 家族驱动
-//     TestIndexBuilder 扫全 CU 聚合 TIDX 表。对外 Generator/Analyzer 加载留 PR3/PR4。
-//     （design 记 TestIndexBuilder 的**终态**是 store-meta + 反射发现、TIDX 退休——那是独立后续变更；
-//      本 PR 标注的是**现状机制**：eager 聚合表 = handler 形。）
-//
-// PR1a/PR1b 是纯内部重构（byte-identical）。**PR2（后缀约定 D8）是破坏性、非 byte-identical**：
-//   ① store-meta 应用名按后缀展开解析成类名（`[Route]` → `RouteAttribute`，见 StoreMetaClassName）；
-//   ② test 家族全 8 名归 Handler（KindOf），消除 PR1a/1b 为保字节不动点保留的「5/3 差集」折衷——
-//      Setup/Teardown/Ignore 不再走 store-meta 工厂（它们本就该是内建 handler、豁免后缀）。
-//   现在 KindOf 的 Handler 集 == IsTestHandlerAttr 触发集（全 8 名），两集收敛。
+// 三路 kind：
+//   · store-meta —— 普通 `: Attribute` 类 → 反射 blob（IrAttrRef），AttributeSynth 合成工厂。应用名按 D8
+//     后缀展开解析成类名（`[Route]` → `RouteAttribute`，见 StoreMetaClassName）。测试家族也在此列。
+//   · directive  —— 编译器原生封闭集（Native / Suppress / Deprecated / Record）：豁免后缀、不合成工厂，
+//     或烘进 descriptor、或纯编译期消费。
+//   · handler    —— 编译期消费并聚合成包级产物（`[ModuleInit]`）。外部 Generator / Analyzer 不经这里。
 namespace Z42.Semantics;
 
 using Z42.Syntax;
@@ -47,16 +33,12 @@ public static class HandlerRegistry {
     }
 
     // ── 三路 kind 判定（替换 AttributeSynth._isUserAttr）────────────────────────────────────
-    // PR2（后缀约定 D8）：test 家族**全 8 名**归 Handler（含 Setup/Teardown/Ignore）——消除 PR1a/PR1b
-    // 为保字节不动点而刻意保留的「5 名 Handler / 3 名 store-meta」差集折衷（那个差集会让 [Setup] 走
-    // store-meta 工厂 → 合成 `new Setup()`；D8 后 [Setup] 会按后缀展开成 `SetupAttribute` 更荒谬）。
-    // 现在 KindOf 的 Handler 子集 == IsTestHandlerAttr 的触发集（全 8 名），两者收敛为同一集合。
-    // 三路：Native=directive（豁免后缀）、test 全家族=handler（豁免后缀，编译器内建）、其余=store-meta
-    // （按 D8 后缀展开解析成 `<name>Attribute` 类）。**本 PR 非 byte-identical**：Setup/Teardown/Ignore
-    // 不再合成工厂 = 少几个死工厂；test_demo / 用到这些名字的 golden 会重生（预期）。
+    // 三路：Native / Suppress / Deprecated / Record = directive（豁免后缀、不合成工厂）；`[ModuleInit]` = handler
+    // （编译期聚合成包级产物）；其余全部 = store-meta（按 D8 后缀展开解析成 `<name>Attribute` 类、合成反射工厂）。
+    // 测试家族（`[Test]` / `[Benchmark]` / `[Skip]` …）是 store-meta：类在 z42.core（`TestAttributes.z42`），
+    // runner 在运行期反射读回；编译期校验仍按名字进行（`IsTestHandlerAttr` / `IsTestKindAttr`，见 TestAttrEnforcer）。
     public static int KindOf(string name) {
         if (HandlerRegistry.IsDirectiveAttr(name)) { return AttrKind.Directive; }
-        if (HandlerRegistry.IsTestHandlerAttr(name)) { return AttrKind.Handler; }
         if (HandlerRegistry.IsModuleInitHandler(name)) { return AttrKind.Handler; }
         return AttrKind.StoreMeta;
     }
@@ -86,7 +68,7 @@ public static class HandlerRegistry {
     // PR3c：`[Suppress("Id","reason")]` directive 识别（AnalyzerDriver 读，不持久化）。保留名，用户不可
     // 再定义同名 store-meta 类（同 Native）。
     public static bool IsSuppressDirective(string name) {
-        return name == "Suppress";
+        return name == SuppressionSet.Directive;
     }
 
     // PR5：`[Deprecated]` / `[Deprecated("msg")]` directive 识别（D2）。归 directive 使 KindOf≠StoreMeta
@@ -151,10 +133,9 @@ public static class HandlerRegistry {
         return name == "Native";
     }
 
-    // ── 内建 test handler 触发家族（IR-phase：TestIndexBuilder 消费）────────────────────────
-    // module-generator 形：扫全 CompilationUnit、按这些 attr 聚合成 TIDX 表。全 8 名——含
-    // Setup/Teardown/Ignore（取代 TestIndexBuilder._isTestAttrName）。注意这是**触发集**，与
-    // KindOf 的 Handler 子集（非-store-meta 那 5 名）不同，差集 = 字节不动点陷阱（见文件头注）。
+    // ── 测试家族的名字表（8 名）──────────────────────────────────────────────────────────────
+    // 这些 attribute 本身是普通 store-meta 类（z42.core `TestAttributes.z42`）；名字表只服务编译期：
+    // 校验（TestAttrEnforcer）按名字认它们。
     public static bool IsTestHandlerAttr(string name) {
         if (HandlerRegistry.IsTestKindAttr(name)) { return true; }
         if (name == "Ignore" || name == "Skip" || name == "ShouldThrow" || name == "Timeout") { return true; }
@@ -162,7 +143,7 @@ public static class HandlerRegistry {
     }
 
     // ── handler 家族：`[ModuleInit]`（add-module-init-hook）──────────────────────────────────
-    // 包级初始化回调。归 **handler** 而非 directive：消费形态与 test 家族的 TIDX 同形 ——
+    // 包级初始化回调。归 **handler** 而非 directive：编译期消费 ——
     // 扫全 CU、聚合成一个**包级产物**（合成 `<ns>.$Module` 伪类型 + 其类型初始化器），
     // 而 directive 那一路（Native/Deprecated/Record/Suppress）是「烘进该声明自己的 descriptor」。
     // 归 handler 的实际效果 = 豁免 D8 的 `Attribute` 后缀约定 + 不合成 store-meta 反射工厂
@@ -185,8 +166,8 @@ public static class HandlerRegistry {
         return false;
     }
 
-    // 上面 8 名触发集里的 **kind 子集**（4 名）——决定 TIDX entry 的 Kind，也决定
-    // DeclEnforcer._passTestAttrEnforce 的诊断码（Test→E0911 / Benchmark→E0912 /
+    // 上面 8 名里的 **kind 子集**（4 名）——决定
+    // TestAttrEnforcer._passTestAttrEnforce 的诊断码（Test→E0911 / Benchmark→E0912 /
     // Setup·Teardown→E0915）。修饰类 attr（Skip/Ignore/ShouldThrow/Timeout）不在其中：
     // 它们骑在同一声明上，位置/签名由所修饰的 kind attr 的检查覆盖。
     // 名字知识留在注册表（PR1b 原则：逻辑不变，识别改注册表），不散到消费方。

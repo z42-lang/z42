@@ -109,7 +109,7 @@ impl VmContext {
     /// see lazy-load activity (not just boot-time eager loads).
     /// Load a compiled artifact at `path` into the live registries (functions +
     /// types become callable / reflectable) and return its TIDX test entries.
-    /// Backs `Std.Test.ModuleLoader.Load` for the reflective test runner.
+    /// Backs `Std.Runtime.ModuleLoader.Load` (`__load_module`) and the seed-compat `__test_module_load`.
     /// Errors if no lazy loader is installed (a bare VM with no dep resolution).
     pub fn load_module_into_vm(
         &self, path: &str,
@@ -160,6 +160,14 @@ impl VmContext {
         // 同上（REPL 每轮的字节码加载路径）。
         self.run_pending_static_inits();
         r
+    }
+
+    /// An already-registered function, or `None` — **never loads a package and never
+    /// runs initializers** (unlike [`Self::try_lookup_function`]). For callers that
+    /// must not re-enter the VM, such as the JIT translator recognising intrinsics.
+    #[cfg(feature = "jit")]
+    pub(crate) fn probe_loaded_function(&self, func_name: &str) -> Option<Arc<Function>> {
+        self.core.lazy_loader.read().as_ref()?.probe_function(func_name)
     }
 
     pub fn try_lookup_function(&self, func_name: &str) -> Option<Arc<Function>> {
@@ -474,22 +482,14 @@ impl VmContext {
         self.const_str_foreign(module, idx)
     }
 
-    /// The GC string for a `MkClos` site's function name, interned per context so a
-    /// closure created in a loop does not allocate (and later collect) a fresh name
-    /// block every time. Keyed by the name's address + length — the name is the
-    /// instruction's module-lifetime `String` — and confirmed by content, so a reused
-    /// address can never hand back a stale name. The cache (`fn_name_cache`) is
-    /// per thread, so its lock is uncontended, and a GC root.
-    #[inline]
-    pub fn intern_fn_name(&self, name: &str) -> crate::metadata::vstr::Str {
-        let key = (name.as_ptr() as usize, name.len());
-        if let Some(s) = self.fn_name_cache.lock().get(&key) {
-            if &**s == name { return *s; }
-        }
-        // Allocate outside the lock: the root scanner takes it from inside a collection.
-        let s = self.heap().alloc_str(name);
-        self.fn_name_cache.lock().insert(key, s);
-        s
+    /// P1-2 PR 8: the function a `FuncRef` / closure target id names, for paths that have
+    /// no executing module at hand (reflection builtins, thread spawn, display). Needs the
+    /// VM's entry module: there the id is a `FuncTable` id. Without one (a bare test
+    /// context) ids are indices of whatever module created the value, which this context
+    /// does not know — `None`.
+    pub(crate) fn callable_fn(&self, id: crate::metadata::tokens::FnId) -> Option<&crate::metadata::Function> {
+        self.core.module.as_ref()?;
+        self.funcs().get(id)
     }
 
     /// `const_str` against a module that is not the VM's entry module (unit tests running

@@ -2,7 +2,6 @@
 name    = "demo.freeapp"
 version = "0.1.0"
 kind    = "exe"
-entry   = "Demo.FreeFuncApp.Main"
 pack    = true
 
 [dependencies]

@@ -1,0 +1,61 @@
+namespace Demo;
+
+using Std;
+using Std.Reflection;
+
+// Generic attributes: `[X<T>]` applies a generic attribute class `XAttribute<T>`.
+// The compiler synthesizes the factory as `new XAttribute<T>()`, so the live instance
+// read back through reflection is a real instantiation — its class-level `typeof(T)`
+// answers the type argument the attribute was applied with. This is what lets
+// `[ShouldThrow<E>]` be an ordinary reflectable attribute instead of compiler-only metadata.
+
+class ExpectsAttribute<T> : Attribute {
+    public string Note;
+    public ExpectsAttribute() { this.Note = ""; }
+    public ExpectsAttribute(string note) { this.Note = note; }
+    public Type Expected() { return typeof(T); }
+}
+
+class PairAttribute<K, V> : Attribute {
+    public Type Key() { return typeof(K); }
+    public Type Value() { return typeof(V); }
+}
+
+class Payload { }
+
+[Expects<Payload>("on class")]
+[Pair<string, int>]
+class Holder {
+    [Expects<InvalidOperationException>]
+    public static void Run() { }
+}
+
+void Main() {
+    Type t = typeof(Holder);
+    Attribute[] attrs = t.GetCustomAttributes();
+    Assert.Equal(2, attrs.Length);
+
+    // Class-level generic attribute with a constructor argument.
+    ExpectsAttribute<Payload> e = attrs[0] as ExpectsAttribute<Payload>;
+    Assert.NotNull(e);
+    Assert.Equal("on class", e.Note);
+    Assert.Equal("Payload", e.Expected().Name);
+
+    // Two type arguments.
+    PairAttribute<string, int> p = attrs[1] as PairAttribute<string, int>;
+    Assert.NotNull(p);
+    Assert.Equal("String", p.Key().Name);
+    Assert.Equal("Int32", p.Value().Name);
+
+    // Method-level generic attribute; the type argument is an exception type.
+    MethodInfo[] ms = t.GetMethods();
+    MethodInfo run = null;
+    int i = 0;
+    while (i < ms.Length) { if (ms[i].Name == "Run") { run = ms[i]; } i = i + 1; }
+    Assert.NotNull(run);
+    Attribute[] mattrs = run.GetCustomAttributes();
+    Assert.Equal(1, mattrs.Length);
+    ExpectsAttribute<InvalidOperationException> me = mattrs[0] as ExpectsAttribute<InvalidOperationException>;
+    Assert.NotNull(me);
+    Assert.Equal("InvalidOperationException", me.Expected().Name);
+}

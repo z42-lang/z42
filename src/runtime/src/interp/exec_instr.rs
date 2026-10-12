@@ -30,7 +30,7 @@ use super::Frame;
 /// `func` / `block_idx` / `instr_idx` are passed through for the
 /// introduce-method-token Phase 4 dispatch fast path. Token-bearing
 /// helpers (Call / Builtin / ObjNew / VCall / FieldGet / FieldSet /
-/// StaticGet / StaticSet) read `func.resolved.site_index[block_idx]
+/// StaticGet / StaticSet / LoadFn / MkClos) read `func.resolved.site_index[block_idx]
 /// [instr_idx]` to find their per-kind cache slot. Non-token-bearing
 /// instructions ignore these parameters.
 pub fn exec_instr(
@@ -47,7 +47,7 @@ pub fn exec_instr(
     // to string lookup in that case. Cheap: one OnceLock atomic load.
     let resolved = func.resolved.get();
     // S1 (perf-interp-hot-paths): the per-site index is a nested `Vec<Vec<u32>>`
-    // lookup (two pointer chases + two bounds checks). Only the 8 token-bearing
+    // lookup (two pointer chases + two bounds checks). Only the 10 token-bearing
     // arms below consume it, so compute it lazily *inside* those arms via
     // `site_idx!()` rather than unconditionally here — the hot arithmetic /
     // compare / copy / branch instructions no longer pay for it every iteration.
@@ -200,7 +200,15 @@ pub fn exec_instr(
                 return Ok(Some(thrown));
             }
         }
-        Instruction::LoadFn(insn) => exec_call::load_fn(frame, insn.dst, &insn.func),
+        Instruction::LoadFn(insn) => {
+            let _site_idx = site_idx!();
+            // P1-2 PR 8: the site's target `FnId` — bound once (first execution or load-time
+            // pre-fill), afterwards one load.
+            let token = cached_token!(_site_idx, fn_ref_tokens);
+            if let Some(thrown) = exec_call::load_fn(ctx, module, frame, insn.dst, &insn.func, token) {
+                return Ok(Some(thrown));
+            }
+        }
         Instruction::CallIndirect { dst, callee, args } => {
             stamp_call_site(ctx, func, block_idx, instr_idx);
             if let Some(thrown) = exec_call::call_indirect(ctx, module, frame, *dst, *callee, args)? {
@@ -210,7 +218,9 @@ pub fn exec_instr(
         }
         Instruction::MkClos(insn) => {
             let MkClosInsn { dst, fn_name, captures } = &**insn;
-            if let Some(thrown) = exec_call::mk_clos(ctx, module, frame, *dst, fn_name, captures)? {
+            let _site_idx = site_idx!();
+            let token = cached_token!(_site_idx, fn_ref_tokens);
+            if let Some(thrown) = exec_call::mk_clos(ctx, module, frame, *dst, fn_name, captures, token)? {
                 return Ok(Some(thrown));
             }
         }
@@ -254,7 +264,7 @@ pub fn exec_instr(
             // propagate user `throw` from the ctor body to the enclosing
             // try/catch instead of silently dropping it.
             if let Some(thrown) = exec_object::obj_new(
-                ctx, module, frame, *dst, class_name, ctor_name, args, type_args, site,
+                ctx, module, frame, *dst, class_name, ctor_name, args, *type_args, site,
                 *stack_alloc, *ctor_known,
             )? {
                 return Ok(Some(thrown));

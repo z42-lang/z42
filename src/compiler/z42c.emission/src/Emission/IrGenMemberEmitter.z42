@@ -24,7 +24,7 @@ public sealed class IrGenMemberEmitter {
     // 逐个改必漏——收敛到一个出口。
     private string _irOwner(ClassDecl c) {
         IrGen g = this._g;
-        return g._q(g.SpecInstName != "" ? g.SpecInstName : g._classIrShortName(c));
+        return g.SpecInstName != "" ? g._qLayout(g.SpecInstName) : g._q(g._classIrShortName(c));
     }
 
     public void EmitMethod(ClassDecl c, Z42ClassType owner, string ownerKey, Decl rawMem, MethodDecl md) {

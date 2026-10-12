@@ -5,7 +5,7 @@ namespace Z42cPipelinePkgCompileTests;
 using Std.IO;
 using Std.Reflection;   // Activator（PR4d VM 执行 golden：外部 generator 产物真跑）
 using Z42.Pipeline;
-using Z42.Semantics;
+using Z42.Analyzers;   // LintConfig
 using Z42.Package;
 using Z42.Emission;
 
@@ -24,15 +24,9 @@ string[] _depDirs(string libs) {
     return r;
 }
 
-// PR4d VM 执行 golden 用：把编好的 consumer zpkg 并入 live VM（可 Type.GetType + Activator + 虚调用）。
-// native 是 VM builtin（种子恒在），返回值忽略——只要加载副作用。同 GeneratorLoader/AnalyzerLoader Path-B。
-static class _VmLoad {
-    [Native("__load_module")]
-    public static extern object load(string path);
-}
 
 // ── attribute-handler-registry PR3a-load：外部 analyzer zpkg 编译期加载端到端 ─────────────────
-// 编译一个实现 Z42.Syntax.Analyzer 的 fixture → 临时 zpkg → 经 CompileInputs.AnalyzerZpkgs 喂给
+// 编译一个实现 Z42.Analyzers.Analyzer 的 fixture → 临时 zpkg → 经 CompileInputs.AnalyzerZpkgs 喂给
 // PackageCompile → 断言 analyzer 的 Z9002 诊断合入 consumer 的 per-file Cms。**非提交二进制**（fixture
 // 现编 → 免格式-bump 脆性），走真实 AnalyzerLoader（两路加载 + 反射实例化）+ AnalyzerDriver 全链。
 
@@ -206,11 +200,12 @@ void test_extend_with_package_adds_namespace() {
 
 // ── PR3a-load 外部 analyzer 加载端到端 ──────────────────────────────────────────
 
-// fixture analyzer 源：实现 Z42.Syntax.Analyzer，报告空 catch（Z9002）。类名带 Analyzer 后缀（E0445）；
+// fixture analyzer 源：实现 Z42.Analyzers.Analyzer，报告空 catch（Z9002）。类名带 Analyzer 后缀（E0445）；
 // 独立命名空间/类名（避免与 z42c.semantics 测试模块里 NoEmptyCatchAnalyzer 在 live VM 撞名）。
 string _fixtureAnalyzerSrc() {
     return "namespace AnalyzerLoadFixture;\n"
         + "using Z42.Syntax;\n"
+        + "using Z42.Analyzers;\n"
         + "using Z42.Core;\n"
         + "public class FixtureNoEmptyCatchAnalyzer : Analyzer {\n"
         + "    public DiagRule[] SupportedRules() { DiagRule[] r = new DiagRule[1]; r[0] = FixtureNoEmptyCatchAnalyzer._rule(); return r; }\n"
@@ -238,8 +233,8 @@ CompileInputs _fixtureAnalyzerInputs(string[] dirs) {
     cin.HasEntry = false; cin.Entry = "";
     cin.IsRelease = false;
     cin.LibsDirs = dirs; cin.LibsDirsN = dirs.Length;
-    string[] deps = new string[2]; deps[0] = "z42c.syntax"; deps[1] = "z42c.core";
-    cin.DeclaredDeps = deps; cin.DepCount = 2;
+    string[] deps = new string[3]; deps[0] = "z42c.syntax"; deps[1] = "z42c.core"; deps[2] = "z42c.analyzers";
+    cin.DeclaredDeps = deps; cin.DepCount = 3;
     return cin;
 }
 
@@ -336,6 +331,19 @@ void test_lints_warnings_as_errors_fails_compile() {
     CompileArtifacts cArt = PackageCompile.Compile(_consumerWithAnalyzer(azPath, cfg));
     Assert.Equal(true, cArt.ErrorCount > 0);
     Assert.Equal(true, _cmsHasCode(cArt, "Z9002"));
+    // 前置线有 error ⇒ 主编译线只做到类型检查：consumer 的函数一个都没进代码生成。
+    Assert.Equal(0, cArt.Cms[0].Module.FuncCount);
+}
+
+[Test]
+void test_analyzer_warning_still_generates_code() {
+    // 对照：同一 analyzer 只报 Warning ⇒ 不拦代码生成。
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    if (libs == "") { return; }
+    string azPath = _writeFixtureZpkg(_depDirs(libs));
+    CompileArtifacts cArt = PackageCompile.Compile(_consumerWithAnalyzer(azPath, LintConfig.Empty()));
+    Assert.Equal(0, cArt.ErrorCount);
+    Assert.Equal(true, cArt.Cms[0].Module.FuncCount > 0);
 }
 
 [Test]
@@ -401,6 +409,7 @@ void test_suppress_attr_end_to_end() {
 string _fixtureFixSrc() {
     return "namespace AnalyzerFixFixture;\n"
         + "using Z42.Syntax;\n"
+        + "using Z42.Analyzers;\n"
         + "using Z42.Core;\n"
         + "public class FixtureFixEmptyCatchAnalyzer : Analyzer {\n"
         + "    public DiagRule[] SupportedRules() { DiagRule[] r = new DiagRule[1]; r[0] = FixtureFixEmptyCatchAnalyzer._rule(); return r; }\n"
@@ -434,8 +443,8 @@ string _writeFixtureFixZpkg(string[] dirs) {
     cin.HasEntry = false; cin.Entry = "";
     cin.IsRelease = false;
     cin.LibsDirs = dirs; cin.LibsDirsN = dirs.Length;
-    string[] deps = new string[2]; deps[0] = "z42c.syntax"; deps[1] = "z42c.core";
-    cin.DeclaredDeps = deps; cin.DepCount = 2;
+    string[] deps = new string[3]; deps[0] = "z42c.syntax"; deps[1] = "z42c.core"; deps[2] = "z42c.analyzers";
+    cin.DeclaredDeps = deps; cin.DepCount = 3;
     CompileArtifacts aArt = PackageCompile.Compile(cin);
     Assert.Equal(0, aArt.ErrorCount);
     string tmp = _tmpRoot();
@@ -500,7 +509,7 @@ void test_external_analyzer_fix_off_leaves_consumer() {
 }
 
 // ── attribute-handler-registry PR4d：外部 generator zpkg 编译期加载 + VM 执行 golden ─────────────
-// 编译一个实现 Z42.Semantics.Generator（applied）+ ModuleGenerator 的 fixture → 临时 zpkg → 经
+// 编译一个实现 Z42.Generators.Generator（applied）+ ModuleGenerator 的 fixture → 临时 zpkg → 经
 // CompileInputs.AnalyzerZpkgs（driver 从 `[analyzers]` 段填，D9 单段覆盖两类；generator 复用该字段）喂给 PackageCompile →
 // GeneratorLoader 两路加载（发现 `: Generator`/`: ModuleGenerator` + 反射实例化）→ 引擎 splice/merge。
 // **VM 执行 golden**：把编好的 consumer zpkg 并入 live VM（__load_module）→ CreateInstance 生成的类型 →
@@ -513,7 +522,7 @@ void test_external_analyzer_fix_off_leaves_consumer() {
 string _fixtureGeneratorSrc() {
     return "namespace GeneratorLoadFixture;\n"
         + "using Std;\n"
-        + "using Z42.Semantics;\n"
+        + "using Z42.Generators;\n"
         + "public class EntityAttribute : Attribute { public EntityAttribute() { } }\n"
         // applied：Augment 被贴类 override ToString → (40+2).ToString() == \"42\"（无嵌套字符串字面量）。
         + "public class StringifyGenerator : Generator {\n"
@@ -558,7 +567,7 @@ string _fixtureGeneratorSrc() {
         + "}\n";
 }
 
-// 编 fixture generator（依赖 z42c.semantics；Std=prelude 提供 Attribute）→ 临时 zpkg，返回其路径。
+// 编 fixture generator（依赖 z42c.generators；Std=prelude 提供 Attribute）→ 临时 zpkg，返回其路径。
 string _writeFixtureGeneratorZpkg(string[] dirs) {
     string[] texts = new string[1]; texts[0] = _fixtureGeneratorSrc();
     string[] files = new string[1]; files[0] = "fixture_generator.z42";
@@ -571,7 +580,7 @@ string _writeFixtureGeneratorZpkg(string[] dirs) {
     cin.HasEntry = false; cin.Entry = "";
     cin.IsRelease = false;
     cin.LibsDirs = dirs; cin.LibsDirsN = dirs.Length;
-    string[] deps = new string[1]; deps[0] = "z42c.semantics";
+    string[] deps = new string[1]; deps[0] = "z42c.generators";
     cin.DeclaredDeps = deps; cin.DepCount = 1;
     CompileArtifacts aArt = PackageCompile.Compile(cin);
     Assert.Equal(0, aArt.ErrorCount);
@@ -588,7 +597,7 @@ string _loadAndToString(CompileArtifacts cArt, string zpkgName, string typeFqn) 
     Directory.Create(tmp);
     string czPath = Path.Join(tmp, zpkgName);
     File.WriteAllBytes(czPath, ZpkgWriterZ.WritePacked(cArt.Z, false).ToBytes());
-    _VmLoad.load(czPath);                       // Path-B：并入 live VM
+    ModuleLoader.Load(czPath);                  // Path-B：并入 live VM
     Type t = Type.GetType(typeFqn);
     Assert.Equal(true, t != null);
     object o = Activator.CreateInstance(t);
@@ -846,4 +855,107 @@ void test_no_analyzer_zpkgs_no_nohandler_error() {
         _inputs("namespace PlainConsumer;\nint M() { return 1; }\n", "lib"));
     Assert.Equal(false, _cmsHasCode(art, "E0496"));
     Assert.Equal(0, art.ErrorCount);
+}
+
+// ── analyzer 在 generator 之后跑：生成代码也被检查 ─────────────────────────────────
+//
+// 一个 zpkg 里同时有 module generator（AddSource 一个含空 catch 的新 CU）与 analyzer（报空 catch，Z9003）。
+// consumer 自己没有任何 catch ⇒ Z9003 只可能来自**生成的 CU**。此前 analyzer 只遍历原始 CU ⇒ 本断言不成立。
+string _fixtureGenAndAnalyzerSrc() {
+    return "namespace GenAnalyzeFixture;\n"
+        + "using Z42.Syntax;\n"
+        + "using Z42.Analyzers;\n"
+        + "using Z42.Core;\n"
+        + "using Z42.Generators;\n"
+        + "public class EmitCatchGenerator : ModuleGenerator {\n"
+        + "    public string[] Consumes() { return new string[0]; }\n"
+        + "    public string[] Produces() { return new string[0]; }\n"
+        + "    public void Generate(GenContext ctx, GenSink sink) {\n"
+        + "        sink.AddSource(\"gen_catch.z42\", \"namespace GenAnalyzeOut; class GenCatch { public int M() { int r = 0; try { r = 1; } catch { } return r; } }\");\n"
+        + "    }\n"
+        + "}\n"
+        + "public class GenSeesCatchAnalyzer : Analyzer {\n"
+        + "    public DiagRule[] SupportedRules() { DiagRule[] r = new DiagRule[1]; r[0] = GenSeesCatchAnalyzer._rule(); return r; }\n"
+        + "    public int[] ObservedKinds() { int[] k = new int[1]; k[0] = SyntaxKind.CatchClause; return k; }\n"
+        + "    public void OnSyntaxNode(int kind, object node, DiagSink diags) {\n"
+        + "        CatchClause c = node as CatchClause;\n"
+        + "        diags.Report(GenSeesCatchAnalyzer._rule(), c.Span);\n"
+        + "    }\n"
+        + "    static DiagRule _rule() { return new DiagRule(\"Z9003\", \"any catch\", \"catch seen\", \"Correctness\", AnalyzerSeverity.Warning, true); }\n"
+        + "}\n";
+}
+
+[Test]
+void test_analyzer_sees_generated_code() {
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    if (libs == "") { return; }
+    string[] dirs = _depDirs(libs);
+    string[] texts = new string[1]; texts[0] = _fixtureGenAndAnalyzerSrc();
+    string[] files = new string[1]; files[0] = "fixture_gen_analyze.z42";
+    string[] hashes = new string[1]; hashes[0] = "FIXTUREGA";
+    CompileInputs fin = new CompileInputs();
+    fin.Texts = texts; fin.Files = files; fin.SrcHashes = hashes; fin.SrcCount = 1;
+    fin.Cus = IrDump.ParseAll(texts, files, 1);
+    fin.CachedMods = null; fin.CachedMetas = null;
+    fin.Name = "demo.genanalyzefixture"; fin.Version = "0.1.0"; fin.Kind = "lib";
+    fin.HasEntry = false; fin.Entry = ""; fin.IsRelease = false;
+    fin.LibsDirs = dirs; fin.LibsDirsN = dirs.Length;
+    string[] deps = new string[4]; deps[0] = "z42c.syntax"; deps[1] = "z42c.core"; deps[2] = "z42c.generators"; deps[3] = "z42c.analyzers";
+    fin.DeclaredDeps = deps; fin.DepCount = 4;
+    CompileArtifacts fArt = PackageCompile.Compile(fin);
+    Assert.Equal(0, fArt.ErrorCount);
+    string tmp = _tmpRoot();
+    Directory.Create(tmp);
+    string zp = Path.Join(tmp, "demo.genanalyzefixture.zpkg");
+    File.WriteAllBytes(zp, ZpkgWriterZ.WritePacked(fArt.Z, false).ToBytes());
+
+    CompileInputs cin = _inputs("namespace GenAnalyzeConsumer;\nint M() { return 1; }\n", "lib");
+    cin.Name = "demo.genanalyzeconsumer";
+    string[] az = new string[1]; az[0] = zp;
+    cin.AnalyzerZpkgs = az; cin.AnalyzerZpkgCount = 1;
+    CompileArtifacts cArt = PackageCompile.Compile(cin);
+    Assert.Equal(0, cArt.ErrorCount);
+    Assert.Equal(true, cArt.GenCount > 0);                // generator 确实产出了 CU（GenCount 是 union 计数）
+    Assert.Equal(true, _cmsHasCode(cArt, "Z9003"));       // analyzer 看到了生成 CU 里的 catch
+}
+
+// ── Assembly.GetFunctions()：自由函数可枚举、可读 attribute、可 Invoke ─────────────────
+// 这是测试 runner 改为运行期反射发现的基础路径：ModuleLoader.Load（并入、可执行）+
+// AssemblyLoadContext 投影（枚举）→ GetFunctions → GetCustomAttributes / Invoke。
+[Test]
+void test_assembly_get_functions_reflects_free_functions() {
+    string src = "namespace FnReflectDemo;\nusing Std;\n"
+        + "public class MarkAttribute : Attribute { public string Tag; public MarkAttribute(string tag) { this.Tag = tag; } }\n"
+        + "[Mark(\"answer\")] public int answer() { int x = 1; Func<int, int> f = (a) => a + x; return f(41); }\n"
+        + "public int helper() { return 1; }\n"
+        + "public int helper(int a) { return a; }\n"
+        + "public static class Holder { public static int Method() { return 2; } }\n";
+    CompileInputs cin = _inputs(src, "lib");
+    cin.Name = "demo.fnreflect";
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    if (libs != "") { string[] dirs = _depDirs(libs); cin.LibsDirs = dirs; cin.LibsDirsN = dirs.Length; }
+    CompileArtifacts art = PackageCompile.Compile(cin);
+    Assert.Equal(0, art.ErrorCount);
+    string tmp = _tmpRoot();
+    Directory.Create(tmp);
+    string zp = Path.Join(tmp, "demo.fnreflect.zpkg");
+    File.WriteAllBytes(zp, ZpkgWriterZ.WritePacked(art.Z, false).ToBytes());
+
+    ModuleLoader.Load(zp);                                        // 并入 live VM（可执行）
+    Assembly asm = AssemblyLoadContext.Default().Load(zp);        // 反射投影（枚举）
+    MethodInfo[] fs = asm.GetFunctions();
+    // 只有自由函数（含签名重载）：类的静态方法、attribute 工厂（__attr$…）、提升的 lambda 都不在内；
+    // 按全限定名有序（重载键 `helper$1$int` 排在 `helper` 之后，Name 已剥改名后缀）。
+    Assert.Equal(3, fs.Length);
+    Assert.Equal("answer", fs[0].Name);
+    Assert.Equal("helper", fs[1].Name);
+    Assert.Equal("helper", fs[2].Name);
+    Assert.Equal(1, fs[2].GetParameters().Length);
+
+    Attribute[] attrs = fs[0].GetCustomAttributes();
+    Assert.Equal(1, attrs.Length);
+    Assert.Equal("MarkAttribute", attrs[0].GetType().Name);
+    Assert.Equal(true, fs[0].IsStatic);
+    object r = fs[0].Invoke(null, new object[0]);
+    Assert.Equal(42, (int)r);
 }

@@ -19,7 +19,7 @@ fn snapshot_roots_marks_and_enqueues_pinned_roots() {
     let queue = heap.mark_queue_for_test();
     assert_eq!(queue.len(), 1);
     let Value::Object(rc) = &obj else { panic!() };
-    assert!(GcRef::is_marked(rc, heap.major_mark_for_test()), "root is marked after snapshot");
+    assert!(crate::gc::ObjRef::is_marked(rc, heap.major_mark_for_test()), "root is marked after snapshot");
 }
 
 #[test]
@@ -68,7 +68,7 @@ fn snapshot_roots_includes_external_scanner_output() {
     assert_eq!(count, 1, "external scanner yielded 1 root → 1 mark");
 
     let Value::Object(rc) = &external_obj else { panic!() };
-    assert!(GcRef::is_marked(rc, heap.major_mark_for_test()));
+    assert!(crate::gc::ObjRef::is_marked(rc, heap.major_mark_for_test()));
 }
 
 #[test]
@@ -80,7 +80,7 @@ fn mark_if_unmarked_returns_true_first_then_false() {
     assert!(!heap.mark_if_unmarked_for_test(&obj), "second call CAS fails");
 
     let Value::Object(rc) = &obj else { panic!() };
-    assert!(GcRef::is_marked(rc, heap.major_mark_for_test()));
+    assert!(crate::gc::ObjRef::is_marked(rc, heap.major_mark_for_test()));
 }
 
 #[test]
@@ -127,7 +127,7 @@ fn barrier_field_no_op_in_stw_mode() {
     assert!(heap.mark_queue_for_test().is_empty(),
         "STW mode → barrier is no-op, mark_queue stays empty");
     let Value::Object(rc) = &new else { panic!() };
-    assert!(!GcRef::is_marked(rc, heap.major_mark_for_test()),
+    assert!(!crate::gc::ObjRef::is_marked(rc, heap.major_mark_for_test()),
         "STW mode → barrier does not mark new value");
 }
 
@@ -147,8 +147,8 @@ fn collect_cycles_with_context_frees_an_unrooted_cycle_under_stw() {
     {
         let Value::Object(a_gc) = &a else { panic!() };
         let Value::Object(b_gc) = &b else { panic!() };
-        a_gc.borrow_mut().refs_mut_raw()[0] = b.clone();
-        b_gc.borrow_mut().refs_mut_raw()[0] = a.clone();
+        a_gc.borrow().set_ref_raw_for_test(0, &b);
+        b_gc.borrow().set_ref_raw_for_test(0, &a);
     }
     drop(a); drop(b);
 
@@ -210,7 +210,7 @@ fn allocate_black_keeps_an_object_that_becomes_a_root_after_the_snapshot() {
     // so the next cycle's epoch (add-incremental-major-gc M1) sees it white and can take it.
     let Value::Object(fresh_rc) = &fresh else { panic!() };
     heap.reset_marks_for_test();
-    assert!(!GcRef::is_marked(fresh_rc, heap.major_mark_for_test()), "newborn is white to the next cycle");
+    assert!(!crate::gc::ObjRef::is_marked(fresh_rc, heap.major_mark_for_test()), "newborn is white to the next cycle");
 
     heap.unpin_root(fresh_pin);
     heap.unpin_root(old_pin);

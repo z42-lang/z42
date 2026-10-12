@@ -351,23 +351,25 @@ pub fn builtin_activator_create(ctx: &VmContext, args: &[Value]) -> Result<Value
         .iter()
         .map(|f| crate::metadata::default_value_for(&f.type_tag))
         .collect();
-    let obj = ctx.heap().alloc_object(td.clone(), slots, NativeData::None);
-    if matches!(obj, Value::Null) {
-        bail!("Activator.CreateInstance: allocation failed for `{class_name}`");
-    }
-
     // plan-generic-reflection G1: a constructed generic Type (typeof(Box<int>) or
     // MakeGenericType(...)) carries its argument Types in `__typeArgs`; reify them
     // onto the new instance's `type_args` (mirrors ObjNew) so reflection survives —
     // `Activator.CreateInstance(typeof(Box<>).MakeGenericType(t)).GetType()
     // .GetGenericArguments()` returns the args. Non-generic Type → slot absent → no-op.
+    // Set before allocation: a published object never changes its extras (object model R4).
+    let mut inst = crate::metadata::types::OwnedObject::of_type(td.clone());
+    for (i, v) in slots.iter().enumerate() {
+        inst.set_field_value(i, v);
+    }
     if let Value::Array(rc) = read_type_str_slot(args, "__typeArgs") {
         let names: Vec<String> = rc.borrow().iter_boxed().filter_map(|v| type_arg_name(&v)).collect();
         if !names.is_empty() {
-            if let Value::Object(orc) = &obj {
-                orc.borrow_mut().set_type_args(names.into_boxed_slice());
-            }
+            inst.set_type_args(crate::metadata::types::TypeArgs::intern(&names));
         }
+    }
+    let obj = ctx.heap().alloc_script_object(inst);
+    if matches!(obj, Value::Null) {
+        bail!("Activator.CreateInstance: allocation failed for `{class_name}`");
     }
 
     let module_arc = ctx

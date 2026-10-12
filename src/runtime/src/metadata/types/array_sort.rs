@@ -8,11 +8,12 @@
 //! `Std.Int32` / `Std.Double` / `Std.Char` / `Std.String` (`interp::exec_vcall::
 //! primitive_class_name`) — so sorting natively with the **same** order and a **stable**
 //! algorithm yields exactly the permutation the script would. Anything else (objects,
-//! boxed structs, null, mixed kinds, packed backings) declines and the script sorts.
+//! boxed structs, null, mixed kinds, packed / struct backings) declines and the script sorts.
+//! REF and MIXED arrays are sorted through their element cells (`get_boxed` / `set_boxed`).
 
 use std::cmp::Ordering;
 
-use super::{ArrayBacking, ArrayObj, Value};
+use super::{ArrayBacking, ArrayObj, FieldWrite, Value};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum PrimKind { Int, Double, Char, Str }
@@ -41,23 +42,22 @@ fn double_compare_to(a: f64, b: f64) -> Ordering {
 impl ArrayObj {
     /// Stable-sort elements `[0, n)` in place when they are all one primitive kind
     /// (int-like / double / char / string), ordering exactly as their `CompareTo`.
-    /// Returns `false` — array untouched — when it declines (see module doc) or
-    /// `n` exceeds the length; the caller then runs the script sort.
-    pub fn sort_prims_prefix(&mut self, n: usize) -> bool {
-        let ArrayBacking::Boxed { block, len } = &self.backing else { return false };
-        if n > *len {
-            return false;
+    /// `None` — array untouched — when it declines (see module doc) or `n` exceeds the length;
+    /// the caller then runs the script sort. Like the script sort it replaces, it is not atomic
+    /// with respect to other threads writing the array (each element store is one atomic cell
+    /// write). `Some(refs)`: sorted; `refs` are the references the
+    /// stores produced that the caller must hand to the write barrier (a box, when a cell of a
+    /// MIXED array had fixed another primitive kind — the permutation itself only moves
+    /// references the array already held).
+    pub fn sort_prims_prefix(&self, n: usize) -> Option<Vec<Value>> {
+        if !matches!(self.backing, ArrayBacking::Refs { .. } | ArrayBacking::Cells { .. }) || n > self.len() {
+            return None;
         }
-        // SAFETY: `&mut self` = exclusive access to a live ArrayValue block of `len`
-        // `Value`s; `n <= len`.
-        let elems = unsafe { &mut Self::slice_of_mut::<Value>(block, *len)[..n] };
-        let Some(kind) = elems.first().and_then(kind_of) else { return n == 0 };
+        let mut elems: Vec<Value> = (0..n).map(|i| self.get_boxed(i)).collect();
+        let Some(kind) = elems.first().and_then(kind_of) else { return (n == 0).then(Vec::new) };
         if !elems.iter().all(|v| kind_of(v) == Some(kind)) {
-            return false;
+            return None;
         }
-        // A permutation moves references around without dropping any, but it does
-        // overwrite slots — report them to the SATB barrier like any bulk write.
-        crate::gc::satb::record_overwrite_all(elems);
         match kind {
             PrimKind::Int => elems.sort_by_key(|v| match v { Value::I64(x) => *x, _ => 0 }),
             PrimKind::Char => elems.sort_by_key(|v| match v { Value::Char(c) => *c, _ => '\0' }),
@@ -70,7 +70,14 @@ impl ArrayObj {
                 _ => Ordering::Equal,
             }),
         }
-        true
+        // Each store SATB-records the slot it overwrites, like any bulk write.
+        let mut barrier = Vec::new();
+        for (i, v) in elems.into_iter().enumerate() {
+            if let FieldWrite::Boxed(b) = self.set_boxed(i, v) {
+                barrier.push(Value::Array(b));
+            }
+        }
+        Some(barrier)
     }
 }
 

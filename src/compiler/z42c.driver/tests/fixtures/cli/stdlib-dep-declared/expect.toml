@@ -1,0 +1,38 @@
+desc = "[dependencies] 声明了标准库包 ⇒ W0610（照常构建，定位到清单行）；不声明照样编过；deploy = \"copy\" 有意义、不报（见 README）"
+outside_repo = true
+
+[[step]]
+tool = "copy"
+from = "{stdlib}/*.zpkg"
+to = "libs/"
+
+# ① 声明了 z42.text ⇒ warning、仍然成功
+[[step]]
+args = ["build", "prj/sdd.z42.toml", "--release"]
+libs = "libs"
+exit = 0
+stderr_contains = ["sdd.z42.toml(10,1): W0610", "`z42.text`"]
+
+# ② 不声明：照样解析得到 Std.Text，且没有 warning
+[[step]]
+tool = "copy"
+from = "variants/none.z42.toml"
+to = "prj/sdd.z42.toml"
+
+[[step]]
+args = ["build", "prj/sdd.z42.toml", "--release"]
+libs = "libs"
+exit = 0
+stderr_not_contains = ["W0610"]
+
+# ③ deploy = "copy"：要把框架包复制进 exe 自包含，声明是有意义的 ⇒ 不报
+[[step]]
+tool = "copy"
+from = "variants/copy.z42.toml"
+to = "prj/sdd.z42.toml"
+
+[[step]]
+args = ["build", "prj/sdd.z42.toml", "--release"]
+libs = "libs"
+exit = 0
+stderr_not_contains = ["W0610"]

@@ -247,7 +247,7 @@ pub fn builtin_net_tcp_socket_read(ctx: &VmContext, args: &[Value]) -> Result<Va
 
     match read_result {
         Ok(n) => {
-            let mut borrowed = buf_arr.borrow_mut();
+            let borrowed = buf_arr.borrow();
             for i in 0..n {
                 borrowed.set_boxed(offset + i, Value::I64(tmp[i] as i64));
             }
@@ -278,8 +278,8 @@ pub fn builtin_net_tcp_socket_write(ctx: &VmContext, args: &[Value]) -> Result<V
         let borrowed = buf_arr.borrow();
         // packed-primitive-arrays Step 3: packed `Bytes` → slice-copy the send
         // window in one memcpy, no per-byte unbox.
-        if let Some(b) = borrowed.as_bytes() {
-            tmp.copy_from_slice(&b[offset..offset + count]);
+        if let Some(b) = borrowed.byte_range(offset, count) {
+            tmp = b;
         } else {
             for i in 0..count {
                 match borrowed.get_boxed(offset + i) {

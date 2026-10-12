@@ -15,7 +15,7 @@
 //!
 //! The [`Tlab`] lives in a `thread_local!` cell, so it is inherently
 //! per-OS-thread and every access point runs **on the owning thread**:
-//! - allocation fast path ([`ArcMagrGC::finish_alloc`] / `alloc_array_obj`),
+//! - allocation fast path (`acquire_var_block` / `alloc_array_obj`),
 //! - retire-on-park at a GC safepoint (the mutator parks *itself*),
 //! - retire at `VmContext::drop` (runs on the owner thread).
 //!
@@ -39,17 +39,15 @@ use std::cell::UnsafeCell;
 use super::region::ChunkClaim;
 use super::var_region::VarChunkClaim;
 use crate::metadata::types::ArrayObj;
-use crate::metadata::ScriptObject;
 
 /// Per-thread allocation buffer: one borrowed chunk claim per region the fast path
-/// serves — the two fixed-size regions (object + array) and, since stage 3, the
-/// variable-length region (`region_var`: strings / closures / array backings).
+/// serves — the fixed-size array region and the variable-length region (`region_var`:
+/// objects, strings, closures, array backings).
 pub(crate) struct Tlab {
-    /// Active claim on `region_object` (`Value::Object` / boxed struct).
-    pub(crate) obj: Option<ChunkClaim<ScriptObject>>,
     /// Active claim on `region_array` (`Value::Array`).
     pub(crate) arr: Option<ChunkClaim<ArrayObj>>,
-    /// **stage 3**: active claim on `region_var` (`Value::Str` / `Closure` / var blocks).
+    /// **stage 3**: active claim on `region_var` (`Value::Object` / `BoxedStruct` / `Str` /
+    /// `Closure` / var blocks).
     pub(crate) var: Option<VarChunkClaim>,
     /// Heap epoch the current claims belong to; `0` = unbound (no live claims).
     pub(crate) heap_epoch: u64,
@@ -57,13 +55,13 @@ pub(crate) struct Tlab {
 
 impl Tlab {
     const fn empty() -> Self {
-        Self { obj: None, arr: None, var: None, heap_epoch: 0 }
+        Self { arr: None, var: None, heap_epoch: 0 }
     }
 
     /// True when the TLAB holds no live claims (safe to (re)bind to any heap).
     #[inline]
     pub(crate) fn is_unbound(&self) -> bool {
-        self.obj.is_none() && self.arr.is_none() && self.var.is_none()
+        self.arr.is_none() && self.var.is_none()
     }
 }
 

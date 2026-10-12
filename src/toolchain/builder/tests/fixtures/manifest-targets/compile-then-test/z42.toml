@@ -5,6 +5,3 @@ kind = "lib"
 
 [sources]
 include = ["src/**/*.z42"]
-
-[dependencies]
-"z42.test" = "*"   # 点号键必须加引号，否则 TOML 解析成 [dependencies.z42] test = "*"（依赖名 `z42`）

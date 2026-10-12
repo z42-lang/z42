@@ -1,8 +1,7 @@
 // z42b test / bench — reflective [Test]/[Benchmark] runner (retire-test-runner).
 //
-// Replaces the Rust z42-test-runner. A compiled test/bench module (.zbc / .zpkg)
-// is loaded into the live VM by Std.Test.ModuleLoader and its TIDX
-// [Test] / [Benchmark] free functions are run by reflection via
+// A compiled test/bench module (.zbc / .zpkg) is loaded into the live VM, its
+// [Test] / [Benchmark] functions are discovered by runtime reflection and run via
 // Std.Test.Runner.RunModule, which exits 0 (all passed) / 1 (any failure).
 //
 // Execution mode (interp / jit) is inherited from the z42vm hosting this program
@@ -12,7 +11,7 @@ namespace Z42Builder;
 
 using Std.IO;
 using Std.Cli;
-using Std.Test;
+using Std.Test;   // Runner / BundleRunner / TestReport（测试执行器）
 using Std.Json;
 using Z42.Build;
 using Z42.Project;   // ProjectManifest / ManifestLoader（z42b-owns-test-targets：按目标建/跑）
@@ -62,6 +61,9 @@ int _runModule(ParseResult r, string verb) {
     if (target.EndsWith(".zbc") || target.EndsWith(".zpkg")) {
         return Runner.RunModule(target, format);
     }
+    // workspace 根 → 逐成员（default_members / --workspace），见 builder_workspace.z42。
+    int wrc = _wsDispatch(r, verb);
+    if (wrc >= 0) { return wrc; }
     // Otherwise treat as a project manifest (empty → nearest z42.toml): compile then run
     // the produced dist zpkg through the same reflective Runner path. Build
     // diagnostics/exit-code come from _buildProject; a missing manifest surfaces
@@ -86,6 +88,10 @@ void _applyOutRoot(ProjectManifest m, string outRoot) {
 int _runDevTargets(ParseResult r, string verb, string format) {
     string tomlPath = _locateManifest(verb, r.GetPositional(0));
     if (tomlPath.Length == 0) { return 2; }
+    return _runDevTargetsAt(r, verb, format, tomlPath);
+}
+
+int _runDevTargetsAt(ParseResult r, string verb, string format, string tomlPath) {
     ProjectManifest m = ManifestLoader.Load(tomlPath);
     string kind = (verb == "bench") ? "bench" : "test";
     // --out-root（z42b-dev-target-out-root）：替换默认的 `<清单目录>/artifacts` 产物根。目标输出落
@@ -187,7 +193,7 @@ int _runDevTargets(ParseResult r, string verb, string format) {
         // 未声明任何目标 → 回落到既有「编译项目自身再跑」的行为。`--out-root` 照样生效：`_buildProject`
         // 会从磁盘重新加载清单，上面那份内存覆盖到不了它 ⇒ 此前独立测试工程带 `--out-root` 仍把产物写回
         // `<清单目录>/artifacts` + `<清单目录>/dist`（fix-z42b-fallback-out-root）。
-        BuildOutcome b0 = _buildProjectAt(r, "", outRootOpt);
+        BuildOutcome b0 = _buildProjectAt(r, "", outRootOpt, tomlPath);
         if (b0.Rc != 0) { return b0.Rc; }
         if (b0.Dist.Length == 0) {
             ConsoleError.WriteLine("z42b " + verb + ": build produced no runnable artifact");
@@ -268,6 +274,7 @@ int _runOneDevTarget(ParseResult r, ProjectManifest m, DevTarget t, string kind,
         File.Copy(parentPkgs[pi], dstp);
         pi = pi + 1;
     }
+    _colocateSiblings(dirs.Dist);
 
     if (!t.Harness) {
         // harness=false：目标自带 Main、**退出码即判定**（无 golden 对比）。
@@ -456,6 +463,7 @@ string _buildParentForTargets(ProjectManifest m, Target tgt, string sourceDir, b
     Directory.Create(dirs.Dist);
     string dist = Path.Join(dirs.Dist, m.Project.Name + ".zpkg");
     File.Copy(built, dist);
+    WsSiblings.Note(m.Project.Name, dirs.Dist);
     return dirs.Dist;
 }
 

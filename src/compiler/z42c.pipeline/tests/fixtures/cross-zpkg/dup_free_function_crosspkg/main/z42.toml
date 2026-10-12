@@ -2,7 +2,6 @@
 name    = "demo.fnapp"
 version = "0.1.0"
 kind    = "exe"
-entry   = "Demo.FreeFnApp.Main"
 pack    = true
 
 [dependencies]

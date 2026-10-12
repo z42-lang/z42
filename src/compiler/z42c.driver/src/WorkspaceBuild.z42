@@ -35,7 +35,7 @@ int _buildWorkspaceFlat(string wsToml, bool isRelease, string outputDir, int cli
     // 成员发现 / 拓扑会抛（依赖成环、显式成员不存在、WS005 多份清单）——接住打印消息本身，
     // 不让用户看到带 z42c 内部栈帧的 uncaught exception（fix-workspace-member-discovery）。
     string[] ordered;
-    try { ordered = WorkspaceBuild.Plan(wsToml); }
+    try { ordered = WorkspacePlan.Plan(wsToml); }
     catch (Exception pe) { ConsoleError.WriteLine("z42c build --workspace: " + pe.Message); return ExitCode.BuildError; }
     Console.WriteLine("workspace: " + wsToml + " (" + ordered.Length.ToString() + " members, topo order, flat)");
     int i = 0;
@@ -62,13 +62,9 @@ int _buildWorkspaceFlat(string wsToml, bool isRelease, string outputDir, int cli
 // Milestone 2：per-member 布局（drop-in 替代 C# stdlib build）。
 int _buildWorkspacePerMember(string wsToml, bool isRelease, int cliAdd, int cliRemove, bool noIncremental) {
     string profile = isRelease ? "release" : "debug";
-    WsPlan plan;
-    try { plan = WorkspaceBuild.PlanLayout(wsToml, profile); }   // 同 flat：抛出的消息直接呈现
+    WorkspaceLayoutPlan plan;
+    try { plan = WorkspacePlan.PlanLayout(wsToml, profile); }   // 同 flat：抛出的消息直接呈现
     catch (Exception pe) { ConsoleError.WriteLine("z42c build --workspace: " + pe.Message); return ExitCode.BuildError; }
-    if (plan == null) {
-        ConsoleError.WriteLine("z42c build --workspace: no --output-dir and no [workspace.build].output_dir in " + wsToml);
-        return ExitCode.UsageError;
-    }
     // libsDirs = 全成员 dist + **编译期外部包目录**（stdlib，如 z42c.* → z42.core）。
     //
     // 🔴 外部那一档取 `--compile-libs`（给了的话），否则回落 `Z42_LIBS`。此前这里**直接读
@@ -78,16 +74,8 @@ int _buildWorkspacePerMember(string wsToml, bool isRelease, int cliAdd, int cliR
     // 为什么要能分开：自举时 z42c 是**上一代二进制**，它自己运行期要加载那一代的库，而它
     // 编译的源码要解析**当前源**新建出来的库。两者挤在 `Z42_LIBS` 一个变量里，改名/删符号
     // 这类变更就无路可走（见 `CompileLibsOpt` 头注列的三种撞法）。
-    string[] ext;
-    int extra;
-    if (CompileLibsOpt.Count() > 0) {
-        ext = CompileLibsOpt.Dirs();
-        extra = CompileLibsOpt.Count();
-    } else {
-        string env = Environment.GetEnvironmentVariable("Z42_LIBS", "");
-        if (env.Length > 0) { ext = new string[1]; ext[0] = env; extra = 1; }
-        else { ext = new string[0]; extra = 0; }
-    }
+    string[] ext = CompileLibsOpt.ExtDirs();
+    int extra = ext.Length;
     string[] libsDirs = new string[plan.Count + extra];
     int i = 0;
     while (i < plan.Count) { libsDirs[i] = plan.DistDirs[i]; i = i + 1; }

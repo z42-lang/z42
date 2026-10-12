@@ -1,6 +1,6 @@
 //! Terminator translation tests that need hand-built IR (shapes z42c never emits).
 
-use crate::jit::JitModule;
+use crate::jit::runtime::install;
 use crate::metadata::bytecode::{BasicBlock, Function, Instruction, Module, Terminator};
 use crate::metadata::types::ExecMode;
 use crate::vm_context::VmContext;
@@ -51,7 +51,7 @@ fn br_cond_on_non_bool_throws_instead_of_branching() {
         type_registry: rustc_hash::FxHashMap::default(),
     };
     let vm = VmContext::new();
-    let mut jm = JitModule::setup(&module).expect("setup");
-    let err = jm.run_fn(&vm, "f").expect_err("a non-Bool condition must throw, not take a branch");
+    install(&vm, &module).expect("install");
+    let err = crate::jit::run_fn(&vm, "f").expect_err("a non-Bool condition must throw, not take a branch");
     assert!(err.to_string().contains("expected bool"), "unexpected error: {err}");
 }

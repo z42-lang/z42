@@ -338,11 +338,7 @@ string _resolveRunManifest(string app) {
     string start = app.Length > 0 ? app : ".";
     ManifestLocation loc = app.Length > 0 ? ManifestLocator.FindIn(app) : ManifestLocator.FindUp(start);
     if (loc.Kind == ManifestLocateKind.Project) { return loc.ManifestPath; }
-    if (loc.Kind == ManifestLocateKind.Workspace) {
-        ConsoleError.WriteLine("z42 run: `" + loc.ManifestPath + "` is a workspace; run one of its members:");
-        ConsoleError.WriteLine("  z42 run <member-dir>");
-        return "";
-    }
+    if (loc.Kind == ManifestLocateKind.Workspace) { return _singleDefaultMember("run", loc.ManifestPath); }
     ConsoleError.WriteLine(ManifestLocator.ErrorText(loc, start));
     return "";
 }

@@ -36,7 +36,7 @@
 别在文档或代码里写死——以 `default_members` 为准。
 
 产物路径同理不是硬编码：`scripts/common/xtask_layout.z42` 读 `[workspace.build].output_dir`
-模板（正是 z42c 的 `WorkspaceBuild.PlanLayout` 消费的那一份）再展开，改 toml 模板 xtask 自动跟上。
+模板（正是 `WorkspacePlan.PlanLayout` 消费的那一份）再展开，改 toml 模板 xtask 自动跟上。
 
 ## 3. `build stdlib`：三阶段自举构建
 

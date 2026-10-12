@@ -1,85 +1,96 @@
-# 测试框架机制（TIDX · runner 协议 · GREEN gate）
+# 测试框架机制（反射发现 · runner 协议 · GREEN gate）
 
 > 代码：
-> `src/runtime/src/metadata/test_index.rs`（TIDX 类型 + decoder）、
-> `src/runtime/src/corelib/reflection/module_load.rs` + `src/runtime/src/corelib/builtin_table.rs`
-> （`__load_module` / `__invoke_static` / `__run_goldens_isolated` 三个 builtin）、
-> `src/libraries/z42.test/src/`（`ModuleLoader` · `Runner` · `BundleRunner` · `TestReport` ·
-> `BenchStats` · `Bencher` · `TestIO`）、`src/toolchain/builder/core/builder_test.z42`（z42b test/bench）、
+> `src/libraries/z42.core/src/TestAttributes.z42`（`[Test]` 等 attribute 类）、
+> `src/libraries/z42.core/src/Runtime/ModuleLoader.z42`（加载 / 隔离运行）、
+> `src/libraries/z42.test/src/`（`TestDiscovery` · `Runner` · `BundleRunner` · `TestReport`，以及作者侧 `Bencher` · `BenchStats` · `TestIO`）、
+> `src/compiler/z42c.semantics/src/Testing/`（编译期校验 + benchmark 脱糖）、
+> `src/toolchain/builder/core/builder_test.z42`（z42b test/bench）、
 > `scripts/test/xtask_test.z42`（GREEN gate）、`scripts/test/xtask_test_lib.z42`（stdlib 单元编排）。
 >
 > 要查 `[Test]` / `[Benchmark]` / `[Skip]` **怎么写**、`z42 test` **怎么用**、以及
 > `Assert` 方法全表 → 看 reference，不在本页。本页只写这套东西**怎么实现的**。
 
-z42 的测试发现是**编译期**的：编译器把带 `z42.test.*` attribute 的函数写进 zbc 的 `TIDX` section，
-运行期**不扫** method table。运行器本身是用 z42 写的（`Std.Test.Runner`），靠三个反射 builtin
-把一个已编译模块加载进活 VM 再按 FQN 调用。读这页的时机：要改运行器行为、加一个
-attribute 的运行期语义、调 GREEN gate 的组成，或者搞清楚一条测试失败到底是哪一层报的。
+z42 的测试发现是**运行期反射**：`[Test]` 等是 z42.core 里的普通 attribute 类，编译器像对待任何
+attribute 一样为每处应用合成反射工厂；runner（`Std.Test.Runner`，z42 写的）把编好的测试产物并入
+当前 VM，用通用反射（`Assembly.GetFunctions()` / `Type.GetMethods()` / `GetCustomAttributes()` /
+`MethodInfo.Invoke`）找出并调用它们。测试链上**没有测试专用的元数据或 VM 能力**。读这页的时机：
+要改运行器行为、加一个 attribute 的运行期语义、调 GREEN gate 的组成，或者搞清楚一条测试失败到底是哪一层报的。
 
 ## 1. 三层结构
 
 | 层 | 是什么 | 在哪 |
 |---|---|---|
-| **发现** | 编译期写入的 `TIDX` section（method_id + kind + flags + skip/throw/timeout 槽） | 编译器 → `.zbc`；读端 `src/runtime/src/metadata/test_index.rs` |
-| **执行** | z42 写的反射 runner：加载模块 → 按 FQN 调用 → 归类 pass/fail/skip | `src/libraries/z42.test/src/Runner.z42` |
+| **发现** | 运行期反射：自由函数 + 各类型静态方法上的测试 attribute → `TestCase` | `src/libraries/z42.test/src/TestDiscovery.z42` |
+| **执行** | 逐条调度：Setup → 用例 → Teardown，归类 pass / fail / skip | `src/libraries/z42.test/src/Runner.z42` |
 | **编排** | 谁决定「跑哪些模块、怎么并行、结果怎么聚合」 | z42b（单目标）/ xtask（语料级），见 §5 |
 
-三层之间只有两个契约：TIDX 的字段语义（§2）与 runner 的 JSON 报告形状（§4）。
+层间契约只有两个：attribute 类的形状（§2）与 runner 的 JSON 报告形状（§4）。
 
-## 2. TIDX：编译期发现的载体
+## 2. attribute：作者与 runner 的契约
 
-**字节布局不在本页**——它是 zbc 格式的一部分，写在 [zbc 格式规格](../formats/zbc.md) 的 TIDX 段
-（当前 `version = 3`，`TestEntry` 在 `TestCase[]` 之后追加 `timeout_ms: i32`）。本页写它的**语义**。
+### 2.1 类与语义
 
-### 2.1 谁写、谁读
+全部在 z42.core（prelude，命名空间 `Std`）——绝大多数测试文件不写 `using Std.Test;`：
 
-只有**含至少一条测试 attribute** 的模块才带 TIDX section；section 缺失 = 该 `.zbc` 没有测试。
-读端有两个：
+| attribute | 实例上 runner 读什么 |
+|---|---|
+| `TestAttribute` / `BenchmarkAttribute` / `SetupAttribute` / `TeardownAttribute` | 只看类型：决定 kind（1–4） |
+| `SkipAttribute(reason, platform, feature)` | 三个字段，空串 = 未给 |
+| `IgnoreAttribute` | 只看类型 |
+| `ShouldThrowAttribute<E>` | 经 `IExpectsException.ExceptionType()` 取 `typeof(E)`——runner 不必知道 E |
+| `TimeoutAttribute(milliseconds)` | runner 当前**不执行**超时 |
 
-- Rust 侧 `read_test_index()` 解出 `Vec<TestEntry>`，挂到 `LoadedArtifact.test_index`；
-- z42 侧经 `__load_module` builtin 拿到扁平化后的 `Std.Test.TestEntry[]`（§3.1）。
+漏写类型实参的 `[ShouldThrow]` 落到同名非泛型类（`ExceptionType()` 返回 null，永不匹配；E0913 照报）。
 
-`kind` 是 `1=Test / 2=Benchmark / 3=Setup / 4=Teardown / 5=Doctest`（Doctest 是预留槽，
-当前没有产生它的路径）。`flags` 位是 `SKIPPED / IGNORED / SHOULD_THROW / DOCTEST`，
-保留位（4–15）置位会让 decoder 直接报错——这是为了让未来加位时老 VM **硬失败而不是静默忽略**。
+### 2.2 发现规则
 
-### 2.2 字符串解析生命周期（最容易踩的一处）
+`TestDiscovery.Discover(path)`：
 
-TIDX 里所有 `*_str_idx` 是 **1-based** 索引，指向 **重建前的原始 STRS pool**（`0` = 无值）。
-而加载器随后会跑 `rebuild_string_pool`，它**只保留被 `ConstStr` 指令引用的字符串**——
-TIDX 独有的字符串（skip reason、platform 名、ShouldThrow 类型链）全部会被丢掉。
+1. `ModuleLoader.Load(path)`：并入当前 VM（可执行）；`AssemblyLoadContext.Default().Load(path)`：拿包的反射视图（枚举）。
+2. 候选 = `Assembly.GetFunctions()`（自由函数）+ `GetTypes()` 里每个类型解析到活类型后 `GetMethods()` 的**静态**方法。
+3. 带 kind attribute 的才成为 `TestCase`；同一函数上的 `[Skip]` / `[Ignore]` / `IExpectsException` 读进同一条。
+4. 名字 = `<命名空间或类型>.<源码名>`（剥掉签名改名后缀）；**按名字排序**（同输入同输出）。
 
-所以 `loader::load_zbc` 在 `read_zbc` 之后、`rebuild_string_pool` 之前调
-`resolve_test_index_strings(entries, raw_pool)`，把索引解析进 `skip_reason` / `skip_platform` /
-`skip_feature` / `expected_throw_type` 这几个 `Option<String>` 字段。
+### 2.3 编译侧
 
-> **改 runner 代码时读 `*_resolved` 字段，别读 `*_str_idx`**。索引只为跨语言契约测试的
-> round-trip 留着；在解析之后它们指向的池已经不是原来那个了。
+一条 `[Test]` / `[Benchmark]` 在编译器里经过三个点，代码在 `z42c.semantics/src/Testing/`
+（名字表除外——它是全部 attribute 的分流表）：
 
-### 2.3 编译期校验
+```mermaid
+flowchart LR
+  N["名字表<br/>HandlerRegistry.IsTestHandlerAttr / IsTestKindAttr<br/>（z42c.semantics/Symbols）"] --> D
+  D["① 脱糖（parse 后）<br/>BenchmarkDesugar：form-2 <code>void f(Bencher b)</code><br/>→ <code>f$impl(b)</code> + 零参 wrapper"] --> V
+  V["② 校验（符号收集期）<br/>TestAttrEnforcer：位置 / 签名 E0911·E0912·E0915，<br/>实参 E0913·E0914·E0917"] --> F
+  F["③ 普通 attribute 工厂<br/>AttributeSynth（store-meta）<br/>→ attr-ref 进产物，运行期反射读回"]
+```
 
-位置与签名（`[Test]` 必须是零参 / 非泛型 / 有 body 的 free function 或 static 方法）、
-以及实参语义（`[Skip]` 的 reason、`[Timeout]` 的 milliseconds、`[ShouldThrow]` 的类型实参）
-由 `z42c.semantics` 的 `DeclEnforcer` 在符号收集期强制，发射 E0911–E0917。
-**具体每个码的触发条件与发射点** 见 [错误码参考](https://z42-lang.github.io/z42/reference/appendix/error-codes.html)
-的「E0911–E0917 测试框架」一节——那里逐条带 `DeclEnforcer.z42:<line>`，本页不复制。
+| 点 | 负责什么 | 不变量 |
+|---|---|---|
+| 名字表 | 哪些 attribute 名属测试家族（8 名 / 4 名 kind 子集）。它们是**普通 store-meta**，名字表只服务编译期校验 | 名字只在这里写一次 |
+| ① 脱糖 | 把带 `Bencher` 形参的 benchmark 改写成零参形状 | 是 `HandlerRegistry.RunAst` 的第一步（先于 `AttributeSynth`）；脱糖出的 `f$impl` 不被 `GetFunctions` 列出（合成函数） |
+| ② 校验 | 形状校验纯语法；`[ShouldThrow]` 查符号表看异常类型链 | **必须在脱糖之后** |
+| ③ 工厂 | 与任何 attribute 相同 | — |
+
+各码的触发条件与发射行见 [错误码参考](https://z42-lang.github.io/z42/reference/appendix/error-codes.html)
+的「E0911–E0917 测试框架」一节。编译侧与运行侧**不共享代码**，只共享 z42.core 的 attribute 类。
+
+> **待删**：编译器仍为测试模块写出 TIDX 段（`TestIndexBuilder`），VM 仍解码它并保留
+> `__test_module_load`——只为种子 SDK 里的旧 runner。种子换成反射版后整条链删除
+> （STAGE2-DEBT `load-module-entries`；格式见 [zbc 格式规格](../formats/zbc.md) 的 TIDX 段）。
 
 ## 3. Runner 协议
 
-### 3.1 三个反射 builtin
+### 3.1 用到的运行期能力
 
-runner 是普通 z42 代码，它能"加载并调用别的模块"全靠这三个 native 绑定
-（登记在 `corelib/builtin_table.rs`，实现在 `corelib/reflection/module_load.rs`）：
+全是通用 API，不是测试专用：
 
-| builtin | z42 门面 | 作用 |
+| 能力 | API | 作用 |
 |---|---|---|
-| `__load_module` | `ModuleLoader.Load(path) -> TestEntry[]` | 把 `.zbc` / `.zpkg` 加载进**活 VM**（函数与类型变得可反射、可 Invoke），并返回它的 TIDX 条目。按模块名幂等 |
-| `__invoke_static` | `ModuleLoader.Invoke(fqn) -> object` | 按**完全限定名**零参调用一个 free/static 函数。内部抛出的异常按原类型透传，调用方可 catch |
-| `__run_goldens_isolated` | `ModuleLoader.RunGoldensIsolated(paths, entries, libsDir, jobs) -> string[]` | 每个 golden 程序在**全新隔离 VM**（各自 VmContext：堆 + 静态字段 + 函数表）里跑，返回各自捕获的 stdout。`jobs<=0` = 按核数并行 |
-
-**为什么 Invoke 走 FQN 而不是 `Type.GetType` + `MethodInfo`**：z42 的
-`[Test]`/`[Benchmark]`/`[Setup]`/`[Teardown]` 编译产物是**零参 free function**
-（`<Namespace>.<func>`），根本没有承载它们的类实例。
+| 并入 | `Std.Runtime.ModuleLoader.Load(path)`（`__load_module`） | 把 `.zbc` / `.zpkg` 并入活 VM，函数与类型可反射、可调用。按模块名幂等 |
+| 枚举 | `AssemblyLoadContext.Default().Load(path)` → `GetFunctions()` / `GetTypes()` | 包的反射视图 |
+| 调用 | `MethodInfo.Invoke(null, [])` | 零参调用；被调函数内抛出的异常按原类型透传 |
+| 隔离运行 | `Std.Runtime.ModuleLoader.RunIsolated(paths, entries, libsDir, jobs)`（`__run_goldens_isolated`） | 每个 golden 程序在**全新隔离 VM**（各自 VmContext：堆 + 静态字段 + 函数表）里跑，返回各自捕获的 stdout。`jobs<=0` = 按核数并行 |
 
 **为什么 golden 要隔离而 unit 不用**：golden 是整程序，多个 golden 共享 `Main`/命名空间必然撞车，
 且静态状态会互相渗漏；unit 是带命名空间的 `[Test]` 模块，设计上不冲突，共享一个 VM 更省。
@@ -93,15 +104,15 @@ runner 是普通 z42 代码，它能"加载并调用别的模块"全靠这三个
 [Ignore]?                      → skipped("ignored")，不调 body
 [Skip] 且 _skipApplies()?      → skipped(SkipReason)，不调 body
 否则：
-  同 namespace 的全部 [Setup]  → Invoke（异常被吞）
+  同组的全部 [Setup]            → Invoke（异常被吞）
   被测函数                      → Invoke（json 模式下 stdout 被 TestIO 捕获）
-  同 namespace 的全部 [Teardown]→ Invoke（**总是跑**，异常被吞）
-  有 [ShouldThrow]? → 抛了且类型链命中 = passed；否则 failed
+  同组的全部 [Teardown]         → Invoke（**总是跑**，异常被吞）
+  有 [ShouldThrow<E>]? → 抛了且 E 可赋值自抛出类型 = passed；否则 failed
   否则抛了            → failed（reason = "<ErrType>: <Message>"）
   否则                → passed
 ```
 
-**fixture 按 namespace 而非按类分组**：free function 没有共享实例，同命名空间是唯一可用的
+**fixture 按命名空间（自由函数）或类型（静态方法）分组**：没有共享实例，这是唯一可用的
 locality 单位。Setup/Teardown 里的异常被静默吞掉——这是当前实现的取舍，不是疏漏能推翻的，
 但它意味着一个坏掉的 Setup 会表现为"测试本身失败"。
 
@@ -132,14 +143,11 @@ SkipFeature  != null → skip iff !Capabilities().contains(SkipFeature)
 **deny-by-default 是免费得到的**：未知 feature 名不在 `Capabilities()` 里 → 视为"缺" → 跳过。
 把 typo（`multi-threading`）当成"这环境不支持"，比 fail-open 静默吞掉安全。
 
-### 3.4 `[ShouldThrow<E>]` 的链匹配
+### 3.4 `[ShouldThrow<E>]` 的类型匹配
 
-编译期把 `E` 连同**当前编译单元里可见的每个派生类**拼成 `";"` 分隔的一串写进
-`expected_throw_type` 槽（例如 `Exception;TestFailure;SkipSignal`）。运行期
-`Runner._typeMatches` 逐段比：段与实际异常的 `FullName` 相等、或**短名**相等，任一命中即 pass。
-
-这是"编译期展开继承链"的方案——运行期不需要类型层次反射。代价：只覆盖当前 CU
-`using` 链上可见的类；不在 import 链上的 zpkg 依赖枚举不到，退化为直接匹配。
+`Runner._typeMatches(thrown, expected)` = `expected.IsAssignableFrom(thrown)`：抛出 `E` 本身或其任意
+子类型都算命中。`expected` 来自 attribute 实例的 `typeof(E)`（运行期真值），子类型判定走运行期类型
+层次，不受编译期可见范围限制。
 
 ### 3.5 退出码
 
@@ -173,7 +181,7 @@ failed   >  0 → 1
 
 三处约束值得记住：
 
-1. **z42.test 不依赖 z42.json**——它是基础库，JSON 是手搓的（`TestReport.esc` 只转义
+1. **z42.harness 不依赖 z42.json**——执行核要随设备端 agent 走，依赖面保持最小，JSON 是手搓的（`TestReport.esc` 只转义
    `" \ \n \r \t`，够这份报告携带的字符串用）。
 2. **`module` 是 z42 保留字**，所以那个参数在源码里叫 `artifact`。曾经把它命名为 `module`
    一次就把 parser 弄崩、且当时诊断被丢弃导致**静默误编译了这个文件本身**。
@@ -288,9 +296,10 @@ build wave 也算一个 stage：它同样走 `_stageStart` 打 banner、同样�
 
 | 要改什么 | 改哪 |
 |---|---|
-| TIDX 加字段 / 改语义 | `src/runtime/src/metadata/test_index.rs` + 编译器 emit 侧 + [zbc 格式](../formats/zbc.md)（**要 bump section version**） |
+| 加一个测试 attribute / 改它的字段 | `src/libraries/z42.core/src/TestAttributes.z42` + 发现 `src/libraries/z42.test/src/TestDiscovery.z42` + 编译期名字表 / 校验 |
 | 一个 attribute 的运行期行为 | `src/libraries/z42.test/src/Runner.z42` |
-| 一个 attribute 的编译期校验 | `src/compiler/z42c.semantics/src/Validation/DeclEnforcer.z42` |
+| 一个 attribute 的编译期校验 | `src/compiler/z42c.semantics/src/Testing/TestAttrEnforcer.z42`（名字表在 `Symbols/HandlerRegistry.z42`） |
+| benchmark 的 form-2 脱糖 | `src/compiler/z42c.semantics/src/Testing/BenchmarkDesugar.z42` |
 | 报告字段 | `src/libraries/z42.test/src/TestReport.z42`（json）+ `Runner._runOne`（pretty） |
 | benchmark 统计形状 | `Bencher.printSummary` **和** `BenchStats._parseLine`，同一个 commit |
 | 加载/调用能力 | `src/runtime/src/corelib/reflection/module_load.rs` + `builtin_table.rs` 登记 |

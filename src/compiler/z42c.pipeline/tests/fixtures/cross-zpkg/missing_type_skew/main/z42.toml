@@ -2,7 +2,6 @@
 name    = "demo.mtskewapp"
 version = "0.1.0"
 kind    = "exe"
-entry   = "Demo.MtskewApp.Main"
 pack    = true
 
 [dependencies]

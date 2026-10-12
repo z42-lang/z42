@@ -61,7 +61,7 @@ pub fn builtin_obj_get_type(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 /// or both are null.
 pub fn builtin_obj_ref_eq(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let result = match (args.first(), args.get(1)) {
-        (Some(Value::Object(a)), Some(Value::Object(b))) => crate::gc::GcRef::ptr_eq(a, b),
+        (Some(Value::Object(a)), Some(Value::Object(b))) => crate::gc::ObjRef::ptr_eq(a, b),
         (Some(Value::Null), Some(Value::Null))           => true,
         (Some(Value::Null), _) | (_, Some(Value::Null)) => false,
         _                                                => false,
@@ -111,20 +111,20 @@ pub fn builtin_delegate_target(_ctx: &VmContext, args: &[Value]) -> Result<Value
 }
 
 /// 2026-05-04 D-1b: 提取 Closure 的 fn_name（thunk 函数全限定名）。
+/// P1-2 PR 8：值里存的是目标 `FnId`，名字从 id 指向的 `Function` 取，每次新分配一个 GC 串
+/// （冷路径：`WeakRef` 构造时调一次）。
 /// 与 `__delegate_target` 配套使用 —— `Std.WeakRef<TD>` 不强持原 handler
 /// （那会反向锁住 receiver），而是存 `(WeakHandle, fnName)`，Get 时用
 /// `__make_closure(fnName, [upgradedTarget])` 重建一个新 Closure。
 ///
 /// 语义：
-/// - `Closure { fn_name }` → 返回 fn_name 字符串
-/// - `FuncRef(name)` → 返回 name
+/// - `Closure` / `FuncRef` → 目标函数的全限定名
 /// - 其他 → Null
-pub fn builtin_delegate_fn_name(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    match args.first() {
-        // unify-gc-heap PR-5: fn_name is a GC `Str` (Copy) — reuse the handle directly.
-        Some(Value::Closure(c)) => Ok(Value::Str(crate::metadata::types::closure_data_of(c).fn_name)),
-        Some(Value::FuncRef(name)) => Ok(Value::Str(name.clone().into())),
-        _ => Ok(Value::Null),
+pub fn builtin_delegate_fn_name(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let Some(id) = args.first().and_then(Value::callable_id) else { return Ok(Value::Null) };
+    match ctx.callable_fn(id) {
+        Some(f) => Ok(Value::Str(ctx.heap().alloc_str(&f.name))),
+        None => bail!("__delegate_fn_name: function id {} is not registered in this VM", id.0),
     }
 }
 
@@ -136,29 +136,38 @@ pub fn builtin_delegate_fn_name(_ctx: &VmContext, args: &[Value]) -> Result<Valu
 /// - args[0]: Value::Str (fn_name)
 /// - args[1]: Value::Array (env Vec<Value>)
 /// - 非 string / 非 array / Null → Null（lenient）
+/// - P1-2 PR 8：名字在这里解析成 `FnId`（与 `MkClos` 同一条 `bind_fn_ref`），解析不到就抛
+///   （`MissingSymbolException`，与 `MkClos` 相同）
 pub fn builtin_make_closure(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let fn_name = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
+        Some(Value::Str(s)) => *s,
         _ => return Ok(Value::Null),
     };
     let env_arr = match args.get(1) {
         Some(Value::Array(a)) => a.clone(),
         _ => return Ok(Value::Null),
     };
+    let Some(module) = ctx.module() else {
+        bail!("__make_closure: no entry module to resolve `{}` against", &*fn_name);
+    };
+    let fn_id = match crate::interp::fn_ref_id(ctx, module, &fn_name, None) {
+        Ok(id) => id,
+        Err(exc) => {
+            // Propagates with its own type (`exec_call::builtin` takes it from here).
+            ctx.set_pending_thrown(exc);
+            bail!("__make_closure: cannot bind `{}`", &*fn_name);
+        }
+    };
     // 把 Array 里的元素拷贝到 Vec<Value>，再走 heap.alloc_array 拿到新的 GcRef。
     // 与 jit_mk_clos 同款路径：env 是 GC 管理的 Array → Closure 持其 GcRef。
     let env_vec: Vec<Value> = env_arr.borrow().iter_boxed().collect();
-    let env_val = ctx.heap().alloc_array(env_vec);
+    let env_val = crate::metadata::types::ArrayObj::alloc_frozen_value(ctx.heap(), env_vec);
     let env = match env_val {
         Value::Array(rc) => rc,
         _ => return Ok(Value::Null),  // unreachable but lenient
     };
-    // unify-gc-heap PR-2/5: the ClosureData lives in the GC variable-length region;
-    // `fn_name` is already a GC `Str` (from the `Value::Str` arg) — reuse the handle.
-    Ok(ctx.heap().alloc_closure(crate::metadata::ClosureData {
-        env,
-        fn_name,
-    }))
+    // unify-gc-heap PR-2: the ClosureData lives in the GC variable-length region.
+    Ok(ctx.heap().alloc_closure(crate::metadata::ClosureData { env, fn_id }))
 }
 
 /// 2026-05-04 expose-weak-ref-builtin (D-1a)：升格 WeakHandle 弱引用。
@@ -202,8 +211,8 @@ fn weak_handle_type_desc() -> Arc<TypeDesc> {
 /// 各自身份语义比较。跨变体不等，非 delegate 值返回 false 不报错。
 ///
 /// 语义参见 `delegates-events.md` 与本 spec design.md：
-/// - `FuncRef(name)` —— fn name 字符串相等
-/// - `Closure { env, fn_name }` —— fn_name 相等且 env GcRef::ptr_eq
+/// - `FuncRef(id)` —— 目标 `FnId` 相等（P1-2 PR 8 起；一个函数一个 id，等价于此前的名字相等）
+/// - `Closure { env, fn_id }` —— fn_id 相等且 env GcRef::ptr_eq
 pub fn builtin_delegate_eq(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let result = match (args.first(), args.get(1)) {
         // fix-delegate-equality-operator: FuncRef / Closure identity now lives in
@@ -232,7 +241,7 @@ pub(crate) fn identity_hash(addr: usize) -> i64 {
 pub fn builtin_obj_hash_code(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     match args.first() {
         Some(Value::Object(gc)) => {
-            let addr = crate::gc::GcRef::as_ptr(gc) as *const _ as *const u8 as usize;
+            let addr = crate::gc::ObjRef::as_ptr(gc) as *const _ as *const u8 as usize;
             Ok(Value::I64(identity_hash(addr)))
         }
         // 2026-05-07 add-array-base-class: identity hash for Value::Array
@@ -249,7 +258,7 @@ pub fn builtin_obj_hash_code(_ctx: &VmContext, args: &[Value]) -> Result<Value> 
 /// args: [this, other]
 pub fn builtin_obj_equals(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let result = match (args.first(), args.get(1)) {
-        (Some(Value::Object(a)), Some(Value::Object(b))) => crate::gc::GcRef::ptr_eq(a, b),
+        (Some(Value::Object(a)), Some(Value::Object(b))) => crate::gc::ObjRef::ptr_eq(a, b),
         // 2026-05-07 add-array-base-class: reference-equality for arrays (mirror Object)
         (Some(Value::Array(a)),  Some(Value::Array(b)))  => crate::gc::GcRef::ptr_eq(a, b),
         (Some(Value::Null), Some(Value::Null))           => true,
@@ -265,7 +274,7 @@ pub fn builtin_obj_to_str(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     match args.first() {
         Some(Value::Object(rc)) => {
             let td_name = &rc.type_desc().name;
-            let simple = td_name.split('.').next_back().unwrap_or(td_name).to_string();
+            let simple = crate::metadata::type_names::unqualified(td_name);
             Ok(Value::Str(simple.into()))
         }
         // 2026-05-07 add-array-base-class: arrays ToString returns simple class name

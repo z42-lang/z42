@@ -17,6 +17,12 @@
 //! `host::ops::invoke_impl` installs both guards itself, unconditionally. Each
 //! guard restores what it found, so the nesting unwinds in order.
 //!
+//! The same bottom push also stores the running thread's stack limit into the
+//! context's JIT head (`JitHead::stack_limit`), which every compiled prologue
+//! compares the stack pointer with: a context's compiled code always checks
+//! against the stack of the thread that is driving it. A context created before
+//! the VM's JIT was installed picks up the runtime pointer (`JitHead::jit`) here.
+//!
 //! Owner-thread only, like the frame stack (`frame_stack.rs`).
 
 use std::cell::UnsafeCell;
@@ -50,6 +56,13 @@ impl EngineGuards {
     #[cold]
     #[inline(never)]
     pub(crate) fn install(&self, ctx: &VmContext) {
+        ctx.jit_head.stack_limit.store(crate::stack_guard::limit(), std::sync::atomic::Ordering::Relaxed);
+        #[cfg(feature = "jit")]
+        if ctx.jit_head.jit.load(std::sync::atomic::Ordering::Relaxed).is_null() {
+            if let Some(rt) = ctx.core.jit.get() {
+                ctx.jit_head.jit.store(rt as *const _ as *mut _, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
         // SAFETY: the context outlives its guards — they are dropped at the
         // last pop or, at the latest, with the context itself.
         #[cfg(feature = "native-interop")]

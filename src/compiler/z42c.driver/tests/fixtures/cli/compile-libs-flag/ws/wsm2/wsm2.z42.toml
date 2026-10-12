@@ -7,5 +7,4 @@ kind    = "lib"
 include = ["src/*.z42"]
 
 [dependencies]
-"z42.core" = "0.1.0"
 "cldep" = "0.1.0"

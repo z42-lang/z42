@@ -10,7 +10,7 @@ use super::field::{field_get, field_set};
 use super::{OpError, Throw};
 use crate::gc::GcRef;
 use crate::metadata::types::{
-    ArrayObj, FieldAccess, ObjStorage, ObjectLayout, ScriptObject, TypeDesc, TypeDescCold,
+    ArrayObj, FieldAccess, ObjectLayout, ScriptObject, TypeDesc, TypeDescCold,
     STRUCT_LEAF_PRIM, TAG_I32, TAG_STR,
 };
 use crate::metadata::Value;
@@ -35,20 +35,18 @@ fn internal(e: OpError) -> String {
     }
 }
 
-/// `class Holder { int n; string s; }`：`n` 打包在 bytes（offset 0, 4B），`s` 在 refs 侧表。
+/// `class Holder { int n; string s; }`：`n` 打包在 bytes（offset 0, 4B），`s` 是 offset 8 的引用字。
 fn holder() -> Value {
     let layout = Arc::new(ObjectLayout {
-        size: 4,
-        field_offsets: Box::new([0, 0]),
+        size: 16,
+        field_offsets: Box::new([0, 8]),
         field_sizes:   Box::new([4, 8]),
         field_kinds:   Box::new([STRUCT_LEAF_PRIM, STRUCT_LEAF_PRIM]),
-        ref_offsets:   Box::new([0]),
-        ref_kinds:     Box::new([TAG_STR]),
-        ref_cells:     Box::new([]),
+        ref_cells:     Box::new([8]),
         tparam_cells:  Box::new([]),
         field_access:  Box::new([
             FieldAccess::prim(0, 4, TAG_I32),
-            FieldAccess::side(0, TAG_STR, 0),
+            FieldAccess::ref_word(8, TAG_STR),
         ]),
     });
     let mut field_index = crate::metadata::NameIndex::new();
@@ -61,7 +59,7 @@ fn holder() -> Value {
         cold: Some(Box::new(TypeDescCold { composed_object_layout: Some(layout), ..Default::default() })),
         id: crate::metadata::tokens::TypeId::UNRESOLVED,
     });
-    Value::Object(GcRef::new(ScriptObject::new(td, ObjStorage::new(4, 1))))
+    Value::Object(crate::gc::ObjRef::leak(crate::metadata::types::OwnedObject::new(td, 16)))
 }
 
 fn long_array(vm: &VmContext, vals: &[i64]) -> Value {
@@ -147,7 +145,7 @@ fn stack_object_fields_go_through_the_arena() {
     let vm = VmContext::new();
     let Value::Object(rc) = holder() else { unreachable!() };
     let td = rc.type_desc_arc().clone();
-    let idx = vm.stack_alloc_obj(5, ScriptObject::new(td, ObjStorage::new(4, 1)));
+    let idx = vm.stack_alloc_obj(5, crate::metadata::types::OwnedObject::new(td, 16));
     let so = Value::StackObject { idx, frame_id: 5 };
     field_set(&vm, &so, "n", &Value::I64(9), None).unwrap();
     assert_eq!(field_get(&vm, &so, "n", None).unwrap(), Value::I64(9));
@@ -166,7 +164,7 @@ fn array_roundtrip_heap_and_stack() {
     assert_eq!(array_get(&vm, &a, &Value::I64(1), no_fid).unwrap(), Value::I64(21));
     assert_eq!(array_len(&vm, &a).unwrap(), 3);
 
-    let s = array_new(&vm, &Value::I64(2), 0, ElemType::intern("long"), None, Some(|| 4u32)).unwrap();
+    let s = array_new(&vm, &Value::I64(2), 0, ElemType::intern("long"), false, None, Some(|| 4u32)).unwrap();
     assert!(matches!(s, Value::StackArray { frame_id: 4, .. }));
     array_set(&vm, &s, &Value::I64(0), &Value::I64(5)).unwrap();
     assert_eq!(array_get(&vm, &s, &Value::I64(0), no_fid).unwrap(), Value::I64(5));
@@ -199,7 +197,7 @@ fn null_check_comes_before_the_index_check() {
 #[test]
 fn out_of_range_index_throws_index_out_of_range() {
     let vm = VmContext::new();
-    for a in [long_array(&vm, &[1, 2, 3]), array_new(&vm, &Value::I64(3), 0, ElemType::intern("long"), None, Some(|| 2u32)).unwrap()] {
+    for a in [long_array(&vm, &[1, 2, 3]), array_new(&vm, &Value::I64(3), 0, ElemType::intern("long"), false, None, Some(|| 2u32)).unwrap()] {
         for (i, msg) in [(3, "index 3 is out of range for an array of length 3"),
                          (-1, "index -1 is out of range for an array of length 3")] {
             let t = thrown(array_get(&vm, &a, &Value::I64(i), no_fid).unwrap_err());
@@ -217,17 +215,17 @@ fn out_of_range_index_throws_index_out_of_range() {
 #[test]
 fn negative_array_size_throws_overflow() {
     let vm = VmContext::new();
-    let t = thrown(array_new(&vm, &Value::I64(-2), 0, ElemType::intern("long"), None, None::<fn() -> u32>).unwrap_err());
+    let t = thrown(array_new(&vm, &Value::I64(-2), 0, ElemType::intern("long"), false, None, None::<fn() -> u32>).unwrap_err());
     assert_eq!(t.class, "Std.OverflowException");
     assert_eq!(t.msg, "array size cannot be negative (got -2)");
-    assert_eq!(internal(array_new(&vm, &Value::Null, 0, ElemType::intern("long"), None, None::<fn() -> u32>).unwrap_err()),
+    assert_eq!(internal(array_new(&vm, &Value::Null, 0, ElemType::intern("long"), false, None, None::<fn() -> u32>).unwrap_err()),
         "ArrayNew: array size must be an integer, got Null");
 }
 
 #[test]
 fn packed_data_never_throws() {
     let vm = VmContext::new();
-    let a = array_new(&vm, &Value::I64(4), crate::metadata::types::TAG_I64, ElemType::intern("long"), None, None::<fn() -> u32>).unwrap();
+    let a = array_new(&vm, &Value::I64(4), crate::metadata::types::TAG_I64, ElemType::intern("long"), false, None, None::<fn() -> u32>).unwrap();
     let (ptr, len, width) = packed_data(&a);
     assert!(!ptr.is_null());
     assert_eq!((len, width), (4, 8));

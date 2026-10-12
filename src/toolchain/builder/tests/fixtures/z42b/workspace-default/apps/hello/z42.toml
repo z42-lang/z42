@@ -1,0 +1,10 @@
+[project]
+name    = "ws.hello"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["src/**/*.z42"]
+
+[dependencies]
+"ws.greet" = "0.1.0"   # 按名依赖兄弟成员：从本轮已建成员的 dist 解析

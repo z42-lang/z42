@@ -16,7 +16,7 @@ CLI 入口（命令路由）。唯一 **exe** 子包，对外别名 = 用户 `z4
 完整选项见 `z42c build -h` 与 [cli-z42c-z42b.md](../../../docs/reference/src/toolchain/cli-z42c-z42b.md)。
 
 ## 增量编译（文件级）
-`build` 的判定与组装 SoT = cache（`<rel>.zbc` fullMode + `<rel>.meta` + 包级源清单，`[build].cache_dir` → `${output_dir}/.cache`；workspace 成员由 `WsPlan.CacheDirs` 给出）。cache 不论是否增量都落盘（单工程 `--output-dir` 例外：该路径从不读 cache，故不写）。种子（hash / 条目 / 清单）→ token 保守边传递闭包 → **仅失效闭包重编**（typecheck + codegen），其余 IrModule 经 ZbcReader 读回 + meta 残留回填（块 label / 模块池原序 / TIDX idx）；TSIG 恒全包重算；全命中完全跳过（`no changes; preserved`）。`--no-incremental` 强制全量；`Z42_INCR_DEBUG=1` 看种子与传播链。
+`build` 的判定与组装 SoT = cache（`<rel>.zbc` fullMode + `<rel>.meta` + 包级源清单，`[build].cache_dir` → `${output_dir}/.cache`；workspace 成员由 `WorkspaceLayoutPlan.CacheDirs` 给出）。cache 不论是否增量都落盘（单工程 `--output-dir` 例外：该路径从不读 cache，故不写）。种子（hash / 条目 / 清单）→ token 保守边传递闭包 → **仅失效闭包重编**（typecheck + codegen），其余 IrModule 经 ZbcReader 读回 + meta 残留回填（块 label / 模块池原序 / TIDX idx）；TSIG 恒全包重算；全命中完全跳过（`no changes; preserved`）。`--no-incremental` 强制全量；`Z42_INCR_DEBUG=1` 看种子与传播链。
 
 `_build` 遇本地 path 依赖（`DepEntry.Path` 非空）时，先经 `z42.project` 的 `PathDepPlan.Resolve`（`PathDepBuild.z42`）建叶子在前的传递闭包 → 逐成员现建 + 累积 libsDirs，`_bundleExeDeps` 再把私有 path 依赖 zpkg colocate 进消费方 dist（真-stdlib 走 Z42_LIBS 不复制）。
 
@@ -45,6 +45,7 @@ z42vm <out.zbc> Main        # 执行产物
 | `src/BuildCommand.z42` | `z42c build` 参数解析：未知选项报错、`-h`、`--quiet`；不给清单时 `ManifestLocator.FindUp` 定位（工作区 → `--workspace`）→ `_build` / `_buildWorkspace` |
 | `src/WorkspaceBuild.z42` | workspace 构建编排（`_buildWorkspace*` / `_findWorkspaceToml`）：按 `[workspace.build].output_dir` 展开成员布局，成员产物落各自 dist，兄弟解析扫全成员 dist + Z42_LIBS |
 | `src/ExeDeps.z42` | exe 产物的兄弟包依赖 bundling（`_bundleExeDeps`）：非框架依赖的已构建 zpkg（+ `.zsym`）复制进 exe dist |
+| `src/DepDecls.z42` | `[dependencies]` 声明 lint：声明了框架包（stdlib）报 W0610（判据与 `_bundleExeDeps` 同源：从外部档解析到） |
 | `src/BuildCache.z42` | 构建 cache 落盘：逐文件写 fullMode `.zbc` + meta + 包级源清单（单产物与多 exe 共用）|
 | `src/BuildLog.z42` | 进度行开关（`--quiet` 抑制 `cached:` / `wrote ->` / `cache ->`；诊断不受影响）|
 | `src/PathDepBuild.z42` | path 依赖闭包代建（`_buildPathDepClosure`）：`PathDepPlan.Resolve` 叶子在前的闭包 → 逐个 `_build` + 累积 libsDirs，结果经 `PathClosureOut` 回给调用方 |

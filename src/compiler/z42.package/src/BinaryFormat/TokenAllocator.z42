@@ -27,14 +27,15 @@ public sealed class TokenAllocator {
         return new TokenAllocator(fns, irm.FuncCount, cls, irm.ClassCount);
     }
 
-    // 本模块函数 → 插入序 index；否则 import token（名字须已在预扫 intern → Intern 命中返回既有 idx）。
+    // 本模块函数 → 插入序 index；否则 import token（名字须已在预扫 intern ⇒ 只查不写：
+    // zpkg 写出按模块并行构建段体，共享池此时必须只读）。
     public int ResolveMethod(string name, ZbcStringPool pool) {
         int i = 0;
         while (i < this.FuncCount) {
             if (this.FuncNames[i] == name) { return i; }
             i = i + 1;
         }
-        return TokenAllocator.ImportBase() | pool.Intern(name);
+        return TokenAllocator.ImportBase() | pool.Idx(name);
     }
 
     public int ResolveType(string name, ZbcStringPool pool) {
@@ -43,6 +44,6 @@ public sealed class TokenAllocator {
             if (this.ClassNames[i] == name) { return i; }
             i = i + 1;
         }
-        return TokenAllocator.ImportBase() | pool.Intern(name);
+        return TokenAllocator.ImportBase() | pool.Idx(name);
     }
 }

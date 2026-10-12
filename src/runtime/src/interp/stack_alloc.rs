@@ -28,14 +28,16 @@
 //! bypasses stack allocation at runtime (heap everything) for triage without a
 //! recompile; `=stats` prints hit counts.
 
-use crate::metadata::types::{ArrayObj, ScriptObject, Value};
+use crate::metadata::types::{ArrayObj, OwnedObject, ScriptObject, Value};
 use anyhow::Result;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-/// One stack-allocated object; `frame_id` = creating frame's id (staleness guard).
+/// One stack-allocated object; `frame_id` = creating frame's id (staleness guard). The object
+/// lives in a detached block shaped exactly like a heap object's (`OwnedObject`, object model
+/// R6), so `&ScriptObject` works identically on both.
 pub(crate) struct StackObjSlot {
     pub frame_id: u32,
-    pub obj: ScriptObject,
+    pub obj: OwnedObject,
 }
 
 /// One stack-allocated array; `frame_id` = creating frame's id.
@@ -76,7 +78,7 @@ impl StackArena {
     /// Allocate an object; returns its arena index (paired with `frame_id` into a
     /// `Value::StackObject { idx, frame_id }` handle by the caller).
     #[inline]
-    pub fn alloc_obj(&mut self, frame_id: u32, obj: ScriptObject) -> u32 {
+    pub fn alloc_obj(&mut self, frame_id: u32, obj: OwnedObject) -> u32 {
         let idx = self.objs.len() as u32;
         self.objs.push(StackObjSlot { frame_id, obj });
         self.obj_allocs += 1;
@@ -144,10 +146,7 @@ impl StackArena {
             s.obj.visit_refs(visit);
         }
         for s in &self.arrs {
-            // add-struct-heap-inline (P3b): gc_refs covers Boxed elements + struct[] refs.
-            for e in s.arr.gc_refs() {
-                visit(e);
-            }
+            s.arr.visit_refs(visit);
         }
     }
 }

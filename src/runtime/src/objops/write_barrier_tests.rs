@@ -47,7 +47,7 @@ fn class_td(name: &str, fields: &[(&str, &str)]) -> Arc<TypeDesc> {
 
 fn age(v: &Value) -> u8 {
     match v {
-        Value::Object(gc) | Value::BoxedStruct(gc) => GcRef::gen_age(gc),
+        Value::Object(gc) | Value::BoxedStruct(gc) => crate::gc::ObjRef::gen_age(gc),
         Value::Array(gc) => GcRef::gen_age(gc),
         other => panic!("not a carded heap value: {other:?}"),
     }

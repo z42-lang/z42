@@ -1,0 +1,105 @@
+// `s.Length`, `s[i]` and `s.CharAt(i)` are emitted inline by the JIT for strings
+// whose block is marked all-ASCII; anything else (non-ASCII, out of range,
+// negative index) goes through the builtin. `char` comparisons are native too. Both paths must agree with the
+// interpreter: same values, same exception messages. Each check runs for many
+// rounds so the helpers below are JIT-compiled (tier-up at the 2nd call).
+namespace Demo;
+
+using Std.Text;
+
+int Len(string s) { return s.Length; }
+char At(string s, int i) { return s[i]; }
+char CharAtM(string s, int i) { return s.CharAt(i); }
+
+string AtOrMessage(string s, int i) {
+    try {
+        char c = s[i];
+        return "ok " + c.ToString();
+    } catch (Exception e) {
+        return e.Message;
+    }
+}
+
+string CharAtOrMessage(string s, int i) {
+    try {
+        char c = s.CharAt(i);
+        return "ok " + c.ToString();
+    } catch (Exception e) {
+        return e.Message;
+    }
+}
+
+int CountChar(string s, char want) {
+    int n = 0;
+    for (int i = 0; i < s.Length; i = i + 1) {
+        if (s[i] == want) { n = n + 1; }
+    }
+    return n;
+}
+
+int CountDigits(string s) {
+    int n = 0;
+    for (int i = 0; i < s.Length; i = i + 1) {
+        char c = s[i];
+        if (c >= '0' && c <= '9') { n = n + 1; }
+    }
+    return n;
+}
+
+bool After(char a, char b) { return a > b; }
+
+int SumForeach(string s) {
+    int sum = 0;
+    foreach (char c in s) { sum = sum + (int)c; }
+    return sum;
+}
+
+void Round(string built, string sliced) {
+    // ASCII literal, empty string, runtime-built strings (concat / builder / slice).
+    Assert.Equal(5, Len("hello"));
+    Assert.Equal(0, Len(""));
+    Assert.Equal('h', At("hello", 0));
+    Assert.Equal('o', At("hello", 4));
+    Assert.Equal('e', CharAtM("hello", 1));
+    Assert.Equal(12, Len(built));
+    Assert.Equal('8', At(built, 11));
+    Assert.Equal(3, Len(sliced));
+    Assert.Equal('c', CharAtM(sliced, 2));
+
+    // Non-ASCII: char semantics, not bytes.
+    Assert.Equal(5, Len("héllo"));
+    Assert.Equal(2, Len("你好"));
+    Assert.Equal('é', At("héllo", 1));
+    Assert.Equal('好', CharAtM("你好", 1));
+    Assert.Equal('o', At("héllo", 4));
+
+    // Out of range: the builtin's message on every path.
+    Assert.Equal("__str_char_at: index 5 out of range (length 5)", AtOrMessage("hello", 5));
+    Assert.Equal("__str_char_at: index 5 out of range (length 5)", CharAtOrMessage("hello", 5));
+    Assert.Equal("__str_char_at: index 0 out of range (length 0)", AtOrMessage("", 0));
+    Assert.Equal("__str_char_at: index 2 out of range (length 2)", AtOrMessage("你好", 2));
+    Assert.True(AtOrMessage("hello", -1).Contains("non-negative"));
+    Assert.True(CharAtOrMessage("你好", -1).Contains("non-negative"));
+
+    // Loops over the members.
+    Assert.Equal(3, CountChar("a7b7c7", '7'));
+    Assert.Equal(2, CountChar("ü7ö7", '7'));
+    Assert.Equal(0, CountChar("", '7'));
+    Assert.Equal(3, CountDigits("a1b2é3你"));
+    Assert.True(After('é', 'z'));
+    Assert.True(After('你', 'é'));
+    Assert.True(!After('0', '9'));
+    Assert.Equal(294, SumForeach("abc"));
+    Assert.Equal(0, SumForeach(""));
+}
+
+void Main() {
+    var sb = new StringBuilder();
+    sb.Append("item");
+    sb.Append((12345678).ToString());
+    string built = sb.ToString();
+    string sliced = "xxabcxx".Substring(2, 3);
+    for (int r = 0; r < 20; r = r + 1) {
+        Round(built, sliced);
+    }
+}
