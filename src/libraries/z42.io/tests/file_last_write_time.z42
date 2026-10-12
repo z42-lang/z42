@@ -7,6 +7,7 @@ namespace Z42IoFileLastWriteTimeTests;
 
 using Std.IO;
 using Std.Time;
+using Std.Test;
 
 [Test]
 void test_mtime_is_real_current_time() {

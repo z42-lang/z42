@@ -3,6 +3,7 @@
 namespace Z42IoFileTempTests;
 
 using Std.IO;
+using Std.Test;
 
 [Test]
 void test_create_temp_dir_exists_and_is_unique() {

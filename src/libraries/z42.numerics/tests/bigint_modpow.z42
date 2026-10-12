@@ -3,6 +3,7 @@
 namespace Z42NumericsBigIntModPowTests;
 
 using Std.Numerics;
+using Std.Test;
 
 // ── Basics ──────────────────────────────────────────────────────────────
 

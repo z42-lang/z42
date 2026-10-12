@@ -5,6 +5,8 @@
 // 配置文件的优先级断言在 Rust 侧（src/runtime/src/config_tests.rs）。
 namespace Z42CoreRuntimeConfigTests;
 
+using Std.Test;
+
 [Test]
 void test_registry_is_loaded() {
     Assert.True(RuntimeConfig.Names().Length > 10);

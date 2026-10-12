@@ -3,6 +3,7 @@
 namespace Z42NumericsBigIntBpswTests;
 
 using Std.Numerics;
+using Std.Test;
 
 [Test]
 void test_zero_one_negative_are_not_prime() {

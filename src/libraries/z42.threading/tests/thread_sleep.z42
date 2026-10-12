@@ -4,6 +4,7 @@ namespace Z42ThreadingThreadSleepTests;
 
 using Std.Time;
 using Std.Threading;
+using Std.Test;
 
 [Test]
 void test_sleep_actually_blocks() {

@@ -2,6 +2,8 @@
 // predicate search / binary search / transform (generic static, pure script).
 namespace Z42CoreArrayCsharpAlgorithmsTests;
 
+using Std.Test;
+
 [Test]
 void test_find_and_findlast() {
     int[] xs = new int[]{ 1, 2, 3, 4, 5 };

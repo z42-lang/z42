@@ -5,6 +5,7 @@
 namespace Z42NumericsBigIntModLargeDivisorTests;
 
 using Std.Numerics;
+using Std.Test;
 
 [Test]
 void test_mod_by_poly1305_prime() {

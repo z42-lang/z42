@@ -3,6 +3,7 @@
 namespace Z42YamlParseBlockScalarsTests;
 
 using Std.Yaml;
+using Std.Test;
 
 // ── Literal style (`|`) ─────────────────────────────────────────────────
 

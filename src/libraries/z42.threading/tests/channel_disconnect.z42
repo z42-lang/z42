@@ -3,6 +3,7 @@
 namespace Z42ThreadingChannelDisconnectTests;
 
 using Std.Threading;
+using Std.Test;
 
 [Test]
 void test_close_then_recv_throws_disconnected() {

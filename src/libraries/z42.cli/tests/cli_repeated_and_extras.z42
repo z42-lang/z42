@@ -3,6 +3,7 @@
 namespace Z42CliRepeatedAndExtrasTests;
 
 using Std.Cli;
+using Std.Test;
 
 // ── Repeated option: basic ─────────────────────────────────────────────
 

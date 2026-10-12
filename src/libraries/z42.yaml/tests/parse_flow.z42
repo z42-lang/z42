@@ -2,6 +2,7 @@
 namespace Z42YamlParseFlowTests;
 
 using Std.Yaml;
+using Std.Test;
 
 [Test]
 void test_empty_flow_sequence() {

@@ -3,6 +3,7 @@
 namespace Z42NetIPEndPointTests;
 
 using Std.Net.Sockets;
+using Std.Test;
 
 [Test]
 void test_construct_with_ipv4() {

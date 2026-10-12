@@ -10,6 +10,7 @@
 namespace Z42ThreadingGcParkWhileBlockedTests;
 
 using Std.Threading;
+using Std.Test;
 
 // 制造足够的堆压力以触发 GC（返回值防止被优化掉）。
 static long _churn(long rounds) {

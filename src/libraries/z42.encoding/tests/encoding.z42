@@ -2,6 +2,7 @@
 namespace Z42EncodingEncodingTests;
 
 using Std.Encoding;
+using Std.Test;
 
 [Test]
 void test_get_utf8_returns_non_null() {

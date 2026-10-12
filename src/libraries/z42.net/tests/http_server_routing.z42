@@ -4,6 +4,7 @@ namespace Z42NetHttpServerRoutingTests;
 
 using Std.Threading;
 using Std.Net.Http;
+using Std.Test;
 
 [Test]
 void test_handler_dispatches_by_path() {

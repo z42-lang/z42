@@ -3,6 +3,7 @@
 namespace Z42YamlParseNumericBasesTests;
 
 using Std.Yaml;
+using Std.Test;
 
 // ── Hex literals ────────────────────────────────────────────────────────
 

@@ -4,6 +4,7 @@ namespace Z42NetTcpConnectTimeoutTests;
 
 using Std.Threading;
 using Std.Net.Sockets;
+using Std.Test;
 
 [Test]
 void test_connect_within_timeout_succeeds() {

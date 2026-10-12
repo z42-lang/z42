@@ -13,6 +13,7 @@
 namespace Z42cSemanticsBareTypeParamMemberTests;
 
 using Z42.Semantics;
+using Std.Test;
 
 // 每个用例都自带 Object 与接口声明（见抬头）。
 string _prelude() {

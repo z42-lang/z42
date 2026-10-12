@@ -2,6 +2,7 @@
 namespace Z42cSemanticsTypeCheckTests;
 
 using Z42.Semantics;
+using Std.Test;
 
 [Test]
 void test_bind_var_infer_and_return() {

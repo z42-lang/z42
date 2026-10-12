@@ -6,6 +6,7 @@
 namespace Z42CoreListSortTests;
 
 using Std.Collections;
+using Std.Test;
 
 // Sort key is `Key` only; `Seq` records insertion order so a *stable* sort must
 // keep equal-Key elements in their original relative order.

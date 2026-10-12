@@ -2,6 +2,8 @@
 // add-platform-os-stdlib: Std.Platform tests.
 namespace Z42IoPlatformTests;
 
+using Std.Test;
+
 [Test]
 void test_os_string_known() {
     string os = Platform.OS();

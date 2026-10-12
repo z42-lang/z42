@@ -8,6 +8,7 @@
 namespace Z42cSemanticsOverloadHierarchyTests;
 
 using Z42.Semantics;
+using Std.Test;
 
 // ── 子类实参匹配基类形参：不再报错 ────────────────────────────────
 [Test]

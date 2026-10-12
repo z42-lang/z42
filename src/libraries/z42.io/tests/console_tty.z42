@@ -6,6 +6,7 @@
 namespace Z42IoConsoleTtyTests;
 
 using Std.IO;
+using Std.Test;
 
 [Test]
 void test_console_is_terminal_does_not_throw() {

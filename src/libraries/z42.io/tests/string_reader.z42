@@ -3,6 +3,7 @@
 namespace Z42IoStringReaderTests;
 
 using Std.IO;
+using Std.Test;
 
 // ── Peek / Read ─────────────────────────────────────────────────────────
 

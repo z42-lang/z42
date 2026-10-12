@@ -8,6 +8,7 @@ namespace Z42CryptoRsaVectorsTests;
 using Std.Crypto;
 using Std.Encoding;
 using Std.Numerics;
+using Std.Test;
 
 // ── Test key fixture ────────────────────────────────────────────────────
 //

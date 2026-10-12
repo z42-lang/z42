@@ -2,6 +2,7 @@
 namespace Z42TimeDateTimeOffsetTests;
 
 using Std.Time;
+using Std.Test;
 
 [Test]
 void test_construct_stores_utc_and_offset() {

@@ -6,6 +6,7 @@
 namespace Z42YamlTryGetTests;
 
 using Std.Yaml;
+using Std.Test;
 
 [Test]
 void test_tryget_hit_and_miss() {

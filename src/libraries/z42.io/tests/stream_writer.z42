@@ -4,6 +4,7 @@ namespace Z42IoStreamWriterTests;
 
 using Std.IO;
 using Std.Encoding;
+using Std.Test;
 
 string _utf8_decode(byte[] bytes) {
     return Encoding.GetUtf8().GetString(bytes);

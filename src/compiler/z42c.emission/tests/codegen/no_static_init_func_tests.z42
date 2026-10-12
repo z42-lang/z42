@@ -13,6 +13,7 @@
 namespace Z42cSemanticsNoStaticInitTests;
 
 using Z42.Emission;
+using Std.Test;
 
 // ── 有静态字段初始化器的类 → 只发类型初始化器，不发 __static_init__ ──
 [Test]

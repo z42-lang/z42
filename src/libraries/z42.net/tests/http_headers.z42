@@ -3,6 +3,7 @@
 namespace Z42NetHttpHeadersTests;
 
 using Std.Net.Http;
+using Std.Test;
 
 [Test]
 void test_case_insensitive_get() {

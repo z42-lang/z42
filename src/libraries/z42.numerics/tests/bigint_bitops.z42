@@ -4,6 +4,7 @@
 namespace Z42NumericsBigIntBitOpsTests;
 
 using Std.Numerics;
+using Std.Test;
 
 // ── AND ─────────────────────────────────────────────────────────────────
 

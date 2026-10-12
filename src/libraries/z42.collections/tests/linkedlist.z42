@@ -6,6 +6,7 @@ namespace Z42CollectionsLinkedListTests;
 
 using Std.Test.Contracts;
 using Std.Collections;
+using Std.Test;
 
 // add-collection-contract-phase1 (2026-06-03): exercise the shared
 // IBasicCollection contract on a LinkedList<int> instance. Covers the

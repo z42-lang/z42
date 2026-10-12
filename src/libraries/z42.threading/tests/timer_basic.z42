@@ -5,6 +5,7 @@ namespace Z42ThreadingTimerTests;
 
 using Std.Threading;
 using Std.Time;
+using Std.Test;
 
 [Test]
 void test_periodic_fires_multiple_times() {

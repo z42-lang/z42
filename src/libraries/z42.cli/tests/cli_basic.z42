@@ -2,6 +2,7 @@
 namespace Z42CliBasicTests;
 
 using Std.Cli;
+using Std.Test;
 
 [Test]
 void test_flag_set_when_long_passed() {

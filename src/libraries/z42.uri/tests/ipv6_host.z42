@@ -5,6 +5,7 @@
 namespace Z42UriIPv6HostTests;
 
 using Std.Uri;
+using Std.Test;
 
 [Test]
 void test_parse_ipv6_loopback_with_port() {

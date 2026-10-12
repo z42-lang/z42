@@ -21,6 +21,7 @@
 namespace Z42cSemanticsAssignLvalueTests;
 
 using Z42.Semantics;
+using Std.Test;
 
 // ── 合法赋值形态：不应报错 ────────────────────────────────────────
 

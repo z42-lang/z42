@@ -9,6 +9,7 @@ using Std.Encoding;
 using Std.Crypto;
 using Std.Net.Sockets;
 using Std.Net.Http;
+using Std.Test;
 
 static byte[] _drainHttpRequest(NetworkStream s) {
     byte[] buf = new byte[4096];

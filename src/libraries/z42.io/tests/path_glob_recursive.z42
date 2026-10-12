@@ -3,6 +3,7 @@
 namespace Z42IoPathGlobRecursiveTests;
 
 using Std.IO;
+using Std.Test;
 
 [Test]
 void test_glob_recursive_finds_in_single_layer() {

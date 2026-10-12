@@ -3,6 +3,7 @@ namespace Z42CryptoHmacSha512Sha384Tests;
 
 using Std.Crypto;
 using Std.Encoding;
+using Std.Test;
 
 // ── Helpers ────────────────────────────────────────────────────────────
 

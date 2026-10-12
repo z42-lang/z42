@@ -5,6 +5,8 @@
 // mirrors the stdlib corpus.
 namespace CompileThenTest;
 
+using Std.Test;
+
 [Test]
 void it_compiles_and_runs() {
     Assert.Equal(2, 1 + 1);

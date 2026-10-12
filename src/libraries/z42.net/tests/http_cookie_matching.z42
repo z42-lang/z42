@@ -3,6 +3,7 @@
 namespace Z42NetHttpCookieMatchingTests;
 
 using Std.Net.Http;
+using Std.Test;
 
 [Test]
 void test_exact_domain_match() {
