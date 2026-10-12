@@ -1,40 +1,54 @@
 use super::*;
 
-/// `__load_module(path: str) -> Std.Harness.TestEntry[]` — load a compiled
-/// module at `path` into the live VM (its functions / types become callable +
-/// reflectable) and return its TIDX entries as z42 `Std.Harness.TestEntry`
-/// objects. Powers `Std.Harness.TestModule.Load` (the reflective test runner);
-/// `Std.Runtime.ModuleLoader.Load` binds it too and discards the entries.
-///
-/// The entry type is resolved by name: `Std.Harness.TestEntry`, falling back to
-/// `Std.Test.TestEntry` — a runner built against a z42.test that still carried the
-/// executor (a pre-harness SDK seed) keeps working on this VM. A module with no
-/// TIDX allocates nothing, so plain component loads never need either type.
+/// `__test_module_load(path: str) -> Std.Harness.TestEntry[]` — load a compiled
+/// test / bench module at `path` into the live VM (its functions / types become
+/// callable + reflectable) and return its TIDX entries as z42
+/// `Std.Harness.TestEntry` objects. Powers `Std.Harness.TestModule.Load` (the
+/// reflective test runner).
+pub fn builtin_test_module_load(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let entries = load_and_init(ctx, args)?;
+    test_entries_to_values(ctx, &entries)
+}
+
+/// `__load_module(path: str)` — the generic load behind `Std.Runtime.ModuleLoader.Load`
+/// (component injection: compiler into z42b / REPL, project hooks, `[analyzers]` zpkgs).
+/// The caller discards the result.
+// STAGE2-DEBT(load-module-entries): 种子 SDK 的 z42.harness 改用 __test_module_load 后，本 builtin 不再实例化 TIDX 条目、改返回 Null（纯加载）
 pub fn builtin_load_module(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+    let entries = load_and_init(ctx, args)?;
+    test_entries_to_values(ctx, &entries)
+}
+
+/// Shared body: merge the artifact (+ dependency closure) into the live registries,
+/// then run static-field initializers for it — their `*.__static_init__` functions
+/// weren't present when the VM ran its startup static-init pass (the module is loaded
+/// now, mid-run), so e.g. `Std.Math.Pi` would read Null. Re-running init is idempotent
+/// for value-init statics; a module is loaded once per artifact (before any test
+/// executes), so this clears no meaningful test state.
+fn load_and_init(
+    ctx: &VmContext, args: &[Value],
+) -> Result<Vec<crate::metadata::test_index::LoadedTestEntry>> {
     let path = match args.first() {
         Some(Value::Str(s)) => s.to_string(),
         _ => bail!("ModuleLoader.Load: expected a path string"),
     };
     let entries = ctx.load_module_into_vm(&path)?;
-    // Run static-field initializers for the freshly-loaded test module + its
-    // dependency closure: their `*.__static_init__` functions weren't present
-    // when the VM ran its startup static-init pass (the module is loaded now,
-    // mid-run), so e.g. `Std.Math.Pi` would read Null. Re-running init is
-    // idempotent for value-init statics; `__load_module` runs once per artifact
-    // (before any test executes), so this clears no meaningful test state.
     if let Some(m) = ctx.module().cloned() {
         crate::interp::init_static_fields(ctx, &m)?;
     }
+    Ok(entries)
+}
+
+/// Materialize TIDX entries as `Std.Harness.TestEntry[]`. A module with no TIDX
+/// allocates nothing, so plain component loads never need the type.
+fn test_entries_to_values(
+    ctx: &VmContext, entries: &[crate::metadata::test_index::LoadedTestEntry],
+) -> Result<Value> {
     let mut objs: Vec<Value> = Vec::with_capacity(entries.len());
-    let entry_type = if ctx.try_lookup_type(TEST_ENTRY_TYPE).is_some() {
-        TEST_ENTRY_TYPE
-    } else {
-        TEST_ENTRY_TYPE_PRE_HARNESS
-    };
-    for e in &entries {
+    for e in entries {
         let obj = alloc_named(
             ctx,
-            entry_type,
+            TEST_ENTRY_TYPE,
             &[
                 ("Qualified", Value::Str(e.qualified.clone().into())),
                 ("Kind", Value::I64(e.kind as i64)),
@@ -52,9 +66,6 @@ pub fn builtin_load_module(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 
 /// z42 type the TIDX entries are materialized as (`z42.harness`).
 const TEST_ENTRY_TYPE: &str = "Std.Harness.TestEntry";
-/// Same shape, as declared by z42.test before the executor moved to z42.harness.
-// STAGE2-DEBT(pre-harness-test-entry): 种子 SDK 的 z42b 也自带 z42.harness 后删掉 Std.Test.TestEntry 回退，并把 __load_module 拆成「加载」（归 core）与「读 TIDX」（归 z42.harness）两个 builtin，收掉跨包双声明
-const TEST_ENTRY_TYPE_PRE_HARNESS: &str = "Std.Test.TestEntry";
 
 pub(super) fn load_module_opt(o: &Option<String>) -> Value {
     match o {

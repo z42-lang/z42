@@ -137,9 +137,8 @@ stdlib 上的特化。
    收敛手法：调用方改调那个唯一声明点，需要保住调用点写法时加一层本地转发——
    `private static long __time_now_mono_ns() { return Clock.MonoNanos(); }`（`z42.test/src/Bencher.z42` 即此例）。
 
-   **当前仍有一处跨包重复**：`__load_module` 在 `core/src/Runtime/ModuleLoader.z42`（通用加载，丢弃返回值）
-   与 `z42.harness/src/TestModule.z42`（取回 TIDX 条目）各声明一次——VM 的这个 builtin 同时承担「加载」与
-   「返回测试索引」两件事。拆成两个 builtin（通用加载归 core、读 TIDX 归 z42.harness）后收敛到各一处。
+   模块加载同理：通用加载 `__load_module` 只在 `core/src/Runtime/ModuleLoader.z42` 声明；测试执行器要的
+   「加载并取回 TIDX 条目」是另一个 builtin `__test_module_load`，只在 `z42.harness/src/TestModule.z42` 声明。
 
    > 这条规则管的是**跨包**。core 内部**同一符号被多个类型各绑一次**是刻意的，不算违规：8 个整型
    > （Int16/Int32/Int64/SByte/Byte/UInt16/UInt32/UInt64）的 `ToString` 都绑 `__int32_to_string`，

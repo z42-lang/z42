@@ -63,7 +63,7 @@ public class TestEntry {
 public static class TestModule {
     // 加载并返回 TIDX 条目（`[Test]` / `[Benchmark]` / `[Setup]` / `[Teardown]`，含 skip / ShouldThrow 元数据）。
     // 按模块名幂等。路径加载不了或 VM 未装 lazy loader 时抛异常。
-    [Native("__load_module")]
+    [Native("__test_module_load")]
     public static extern TestEntry[] Load(string path);
 
     // mature-embed-testhost P1: run each golden program (self-contained

@@ -52,4 +52,4 @@ xtask test toolchain builder        # z42b 端到端（编译 → 加载 → 执
 
 ## 依赖关系
 
-依赖 `z42.core`（`ModuleLoader.Invoke`、平台能力）+ `z42.io`（Console）+ `z42.test`（`TestIO` 捕获 bench 输出、`BenchStats` 解析摘要）。VM 侧 builtin：`__load_module`（加载 + 返回 TIDX，条目实例化为 `Std.Harness.TestEntry`）、`__run_goldens_isolated`。
+依赖 `z42.core`（`ModuleLoader.Invoke`、平台能力）+ `z42.io`（Console）+ `z42.test`（`TestIO` 捕获 bench 输出、`BenchStats` 解析摘要）。VM 侧 builtin：`__test_module_load`（加载 + 返回 TIDX，条目实例化为 `Std.Harness.TestEntry`）、`__run_goldens_isolated`。
