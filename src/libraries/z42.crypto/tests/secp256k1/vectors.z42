@@ -5,9 +5,7 @@
 // reference vectors (from SEC2 / Bitcoin / Ethereum specs) doesn't
 // noise up the test logic file. Both files compile into the same
 // synthetic `<lib>.test.secp256k1.zpkg` package — the dir-mode
-// xtask path globs `tests/secp256k1/**/*.z42` into a single project,
-// and aggregate-zpkg-tidx (2026-06-06) makes the merged zpkg's TIDX
-// discoverable by z42-test-runner.
+// xtask path globs `tests/secp256k1/**/*.z42` into a single project.
 namespace Z42CryptoEcdsaSecp256k1VectorsTests;
 
 using Std.Encoding;

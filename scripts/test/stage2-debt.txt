@@ -1,4 +1,4 @@
-# 阶段-2 欠账清单（bootstrap-seed 分阶段引入纪律的配套；门 = `xtask check stage2`）。
+# 阶段-2 欠账清单（分阶段引入纪律的配套；门 = `xtask check stage2`）。
 # 每条 = 一个**阶段 1 过渡形态**：为让上一版 z42c/种子仍能编当前源，而暂留的形状
 # （新 API 未消费 / 旧 FQN 的转发层 / 字面量替常量 / 空转桩……）。
 # 挂账超过宽限期即红 —— 因为「阶段 2 忘了不会红」是本仓库反复吃过的亏。
@@ -9,5 +9,4 @@
 src/compiler/z42c.driver/src/BuildPaths.z42#compile-libs-knob 2026-11-10 改名迁移做完后重估：只剩自举在用就把旗标撤掉（保留内部区分）。2026-09-30 推到 11-10：前提确实未到 —— 等 add-package-roles 批 3 大重命名，那件事跨 nightly、要先出 DRAFT
 src/compiler/z42c.pipeline/src/WorkspaceBuild.z42#ws-plan-forwarders 2026-10-12 含 WorkspacePlan 的 nightly 发布后删掉本文件（WsPlan + 两个转发入口）。
 src/compiler/z42c.semantics/src/Compilation/ParallelFor.z42#parallel-for-forwarders 2026-10-12 含 Z42.Package.ParallelFor 的 nightly 发布后删掉本文件。
-src/runtime/src/corelib/reflection/module_load.rs#load-module-entries 2026-10-11 种子 SDK 的 runner 换成反射版后，随 TIDX 链（编译器写出 / VM 解码）删除本 builtin
 .github/workflows/bench-pr.yml#bench-pr-libdir-probe 2026-10-27 旧名/旧位置彻底退役后删掉后两档。2026-09-30 推到 10-27：后两档是给 **base 树**兜底的，base 若早于 #921（09-27 把该库挪进 src/compiler/）就仍在 src/libraries/ ⇒ 现在删会让「从 09-27 前的 main 分出来的 PR」本门红。等 relocate 满一个月

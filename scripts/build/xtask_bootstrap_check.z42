@@ -1,7 +1,7 @@
 // xtask — `test compiler bootstrap`: staged-bootstrap boundary check.
 //
 // Script-zero port of the former scripts/check-bootstrap-compat.sh. Enforces the
-// staged-bootstrap discipline (docs/agent/rules/bootstrap-seed.md): the LAST PUBLISHED
+// staged-bootstrap discipline (docs/internals/src/compiler/self-hosting.md): the LAST PUBLISHED
 // nightly's z42c must be able to compile the CURRENT repo source. If it can't, the
 // source uses syntax / a zbc·zpkg format newer than the published nightly supports
 // — a boundary violation that would break the bootstrap (build-and-test seeds from
@@ -131,7 +131,7 @@ int _bootstrapCheck(string ridArg) {
     } else {
         ConsoleError.WriteLine("❌ BOUNDARY VIOLATION: the published nightly z42c CANNOT compile current source.");
         ConsoleError.WriteLine("   Current source uses syntax / zbc·zpkg format newer than the last nightly.");
-        ConsoleError.WriteLine("   Fix per bootstrap-seed.md: land the SUPPORT (old-syntax-written) first, publish");
+        ConsoleError.WriteLine("   Fix per the staged-bootstrap rule: land the SUPPORT (old-syntax-written) first, publish");
         ConsoleError.WriteLine("   a nightly, THEN use the new syntax. Or revert the premature use.");
     }
     if (b == 0) { Console.WriteLine("✅ repo z42c self-build OK"); }

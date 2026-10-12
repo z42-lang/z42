@@ -4,7 +4,7 @@
 > `src/libraries/z42.core/src/TestAttributes.z42`（`[Test]` 等 attribute 类）、
 > `src/libraries/z42.core/src/Runtime/ModuleLoader.z42`（加载 / 隔离运行）、
 > `src/libraries/z42.test/src/`（`TestDiscovery` · `Runner` · `BundleRunner` · `TestReport`，以及作者侧 `Bencher` · `BenchStats` · `TestIO`）、
-> `src/compiler/z42c.semantics/src/Testing/`（编译期校验 + benchmark 脱糖）、
+> `src/compiler/z42c.semantics/src/Testing/`（编译期校验）、
 > `src/toolchain/builder/core/builder_test.z42`（z42b test/bench）、
 > `scripts/test/xtask_test.z42`（GREEN gate）、`scripts/test/xtask_test_lib.z42`（stdlib 单元编排）。
 >
@@ -54,30 +54,24 @@ attribute 一样为每处应用合成反射工厂；runner（`Std.Test.Runner`�
 
 ### 2.3 编译侧
 
-一条 `[Test]` / `[Benchmark]` 在编译器里经过三个点，代码在 `z42c.semantics/src/Testing/`
-（名字表除外——它是全部 attribute 的分流表）：
+编译器对测试**只做校验**，不改写、不生成任何测试专用的东西。一条 `[Test]` / `[Benchmark]` 经过两个点，
+校验代码在 `z42c.semantics/src/Testing/`（名字表除外——它是全部 attribute 的分流表）：
 
 ```mermaid
 flowchart LR
-  N["名字表<br/>HandlerRegistry.IsTestHandlerAttr / IsTestKindAttr<br/>（z42c.semantics/Symbols）"] --> D
-  D["① 脱糖（parse 后）<br/>BenchmarkDesugar：form-2 <code>void f(Bencher b)</code><br/>→ <code>f$impl(b)</code> + 零参 wrapper"] --> V
-  V["② 校验（符号收集期）<br/>TestAttrEnforcer：位置 / 签名 E0911·E0912·E0915，<br/>实参 E0913·E0914·E0917"] --> F
-  F["③ 普通 attribute 工厂<br/>AttributeSynth（store-meta）<br/>→ attr-ref 进产物，运行期反射读回"]
+  N["名字表<br/>HandlerRegistry.IsTestHandlerAttr / IsTestKindAttr<br/>（z42c.semantics/Symbols）"] --> V
+  V["① 校验（符号收集期）<br/>TestAttrEnforcer：位置 / 签名 E0911·E0912·E0915，<br/>实参 E0913·E0914·E0917"] --> F
+  F["② 普通 attribute 工厂<br/>AttributeSynth（store-meta）<br/>→ attr-ref 进产物，运行期反射读回"]
 ```
 
 | 点 | 负责什么 | 不变量 |
 |---|---|---|
 | 名字表 | 哪些 attribute 名属测试家族（8 名 / 4 名 kind 子集）。它们是**普通 store-meta**，名字表只服务编译期校验 | 名字只在这里写一次 |
-| ① 脱糖 | 把带 `Bencher` 形参的 benchmark 改写成零参形状 | 是 `HandlerRegistry.RunAst` 的第一步（先于 `AttributeSynth`）；脱糖出的 `f$impl` 不被 `GetFunctions` 列出（合成函数） |
-| ② 校验 | 形状校验纯语法；`[ShouldThrow]` 查符号表看异常类型链 | **必须在脱糖之后** |
-| ③ 工厂 | 与任何 attribute 相同 | — |
+| ① 校验 | 形状校验纯语法：零接收者、返回 `void`、零参（`[Benchmark]` 另允许恰好一个 `Bencher` 形参）、非泛型、有方法体；`[ShouldThrow]` 查符号表看异常类型链 | 允许的签名形状 = runner 会调用的形状（§3.2） |
+| ② 工厂 | 与任何 attribute 相同 | — |
 
 各码的触发条件与发射行见 [错误码参考](https://z42-lang.github.io/z42/reference/appendix/error-codes.html)
 的「E0911–E0917 测试框架」一节。编译侧与运行侧**不共享代码**，只共享 z42.core 的 attribute 类。
-
-> **待删**：编译器仍为测试模块写出 TIDX 段（`TestIndexBuilder`），VM 仍解码它并保留
-> `__test_module_load`——只为种子 SDK 里的旧 runner。种子换成反射版后整条链删除
-> （STAGE2-DEBT `load-module-entries`；格式见 [zbc 格式规格](../formats/zbc.md) 的 TIDX 段）。
 
 ## 3. Runner 协议
 
@@ -89,7 +83,7 @@ flowchart LR
 |---|---|---|
 | 并入 | `Std.Runtime.ModuleLoader.Load(path)`（`__load_module`） | 把 `.zbc` / `.zpkg` 并入活 VM，函数与类型可反射、可调用。按模块名幂等 |
 | 枚举 | `AssemblyLoadContext.Default().Load(path)` → `GetFunctions()` / `GetTypes()` | 包的反射视图 |
-| 调用 | `MethodInfo.Invoke(null, [])` | 零参调用；被调函数内抛出的异常按原类型透传 |
+| 调用 | `MethodInfo.Invoke(null, args)` | 无接收者调用；`args` 为空，或 `[Benchmark] f(Bencher b)` 时是 runner 建好的 `Bencher`（§3.2）。被调函数内抛出的异常按原类型透传 |
 | 隔离运行 | `Std.Runtime.ModuleLoader.RunIsolated(paths, entries, libsDir, jobs)`（`__run_goldens_isolated`） | 每个 golden 程序在**全新隔离 VM**（各自 VmContext：堆 + 静态字段 + 函数表）里跑，返回各自捕获的 stdout。`jobs<=0` = 按核数并行 |
 
 **为什么 golden 要隔离而 unit 不用**：golden 是整程序，多个 golden 共享 `Main`/命名空间必然撞车，
@@ -105,7 +99,8 @@ flowchart LR
 [Skip] 且 _skipApplies()?      → skipped(SkipReason)，不调 body
 否则：
   同组的全部 [Setup]            → Invoke（异常被吞）
-  被测函数                      → Invoke（json 模式下 stdout 被 TestIO 捕获）
+  被测函数                      → Invoke（json 模式下 stdout 被 TestIO 捕获；
+                                  `[Benchmark] f(Bencher b)` 由 runner 建 Bencher 传入，跑完 printSummary(函数名)）
   同组的全部 [Teardown]         → Invoke（**总是跑**，异常被吞）
   有 [ShouldThrow<E>]? → 抛了且 E 可赋值自抛出类型 = passed；否则 failed
   否则抛了            → failed（reason = "<ErrType>: <Message>"）
@@ -197,7 +192,8 @@ failed   >  0 → 1
 bench[<label>] min=<n>ns median=<n>ns max=<n>ns mean=<n>ns stddev=<n>ns samples=<n>
 ```
 
-`Bencher.printSummary(label)` 打它，runner 在 json 模式下用 `TestIO.captureStdout` 捕获 body 的
+`Bencher.printSummary(label)` 打它——自建 `Bencher` 的 benchmark 自己调；`[Benchmark] f(Bencher b)` 由 runner
+建好 `Bencher` 传入、跑完按函数名调（`TestCase.Invoke`）。runner 在 json 模式下用 `TestIO.captureStdout` 捕获 body 的
 stdout，再由 `BenchStats.parse` 解回结构。**改了 `printSummary` 的输出形状就必须同 commit 改
 `BenchStats._parseLine`**；老格式（无 `mean=` / `stddev=`）仍能解析，对应字段为 `-1`，消费方按
 "没有置信区间"处理。
@@ -299,7 +295,7 @@ build wave 也算一个 stage：它同样走 `_stageStart` 打 banner、同样�
 | 加一个测试 attribute / 改它的字段 | `src/libraries/z42.core/src/TestAttributes.z42` + 发现 `src/libraries/z42.test/src/TestDiscovery.z42` + 编译期名字表 / 校验 |
 | 一个 attribute 的运行期行为 | `src/libraries/z42.test/src/Runner.z42` |
 | 一个 attribute 的编译期校验 | `src/compiler/z42c.semantics/src/Testing/TestAttrEnforcer.z42`（名字表在 `Symbols/HandlerRegistry.z42`） |
-| benchmark 的 form-2 脱糖 | `src/compiler/z42c.semantics/src/Testing/BenchmarkDesugar.z42` |
+| `[Benchmark]` 的调用形状（零参 / 单个 `Bencher`） | `TestCase.Invoke` / `TakesBencher`（`TestDiscovery.z42`）**和** `TestAttrEnforcer` 的 R3，同一个 commit |
 | 报告字段 | `src/libraries/z42.test/src/TestReport.z42`（json）+ `Runner._runOne`（pretty） |
 | benchmark 统计形状 | `Bencher.printSummary` **和** `BenchStats._parseLine`，同一个 commit |
 | 加载/调用能力 | `src/runtime/src/corelib/reflection/module_load.rs` + `builtin_table.rs` 登记 |

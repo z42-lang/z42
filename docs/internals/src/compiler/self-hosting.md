@@ -29,7 +29,7 @@ z42c 是用 z42 写的编译器，由上一代 z42c 编译自己。结论：**�
 
 ## 受限写法约定
 
-用当前语言子集写，遇到无法表达的写法：停下汇报 → L1/L2 可补则当次补进语言；**禁止在编译器代码里写 workaround**。
+z42c 只用当前语言子集写；子集表达不了的写法，补进语言而不是在编译器里绕。目前的受限写法：
 
 | 限制 | 受限写法 |
 |---|---|
@@ -187,6 +187,8 @@ Stage 2  gen1 再编 z42c 源 → gen2；各成员 zpkg 除 BLID 段外逐段一
 ```
 
 xtask 最先被种子编出来、还要回头驱动编 stdlib / z42c，所以它只能用种子已有的语法与 stdlib API，INV-1 是最受约束的不变量。
+xtask 用到的编译器域 API（`Z42.Project` / `Z42.Build`）同属这一约束；另一个后果是：改布局规则的那次合入里，CI 上的
+xtask 仍按上一 nightly 的规则计算路径，xtask 侧的跟进要放到下一个 PR。
 
 **种子来源**：SDK package（`z42-sdk-<ver>-<rid>`）的 `programs/z42c/` + `libs/`，而非 runtime package（runtime package 是纯嵌入式运行时，可能跨 host 使用，不携带单一 host 的 z42c）。冷启动由 `_ensureSeed` 按 `Z42_HOME` → 运行 xtask 的 apphost SDK → `./.z42` 找到 SDK 并供种到 in-tree（按当前 `default_members` 逐个拷；**种子那一代还没有的成员**——新拆出 / 新增的包——跳过，由随后的 `build --workspace` 按拓扑序从源码建出，只有 `z42c.driver` 必须在种子里）；warm 树不被覆盖（gen2 不动点靠「从 in-tree gen1 再种」收敛）。CI 与本地走同一条 resolver。
 
@@ -196,7 +198,7 @@ xtask 最先被种子编出来、还要回头驱动编 stdlib / z42c，所以它
 |---|---|---|
 | forward-bootstrap：CI composite action `ci-bootstrap`，由 `build-and-test`（test-host ×4 OS）与 `toolchain-bootstrap`（compile-toolchain）两个 job 的 Bootstrap 步骤调用 | 下载上一 nightly SDK 作种子 → 编当前 xtask → xtask 自建 z42c + stdlib → 验证工具链；zpkg minor 与种子不同时先走两代自举 | INV-1 |
 | self-host 不动点：`compiler-checks` job 的 `xtask test compiler` 步骤（仅 z42c 源变动 / schedule / 手动触发才跑，test-host 跳过它）| 先验全成员 zpkg 在、z42c `[Test]` 单元、e2e，再 `_testSelfHostByteIdentical`：快照现有 dist（gen1）→ 用其 driver 同参再 `build --workspace` 一遍（gen2）→ 逐成员比 zpkg 各段（BLID 段不比，其余段的集合与内容须一致）| INV-3 |
-| 本地 `xtask test compiler bootstrap`（CI 不调用）| 上一 nightly z42c 编当前源，越界立即红；经同一个 `_ensureBootstrapSelfDepLibs`，所以只守语法 / 格式 / 非自依赖 stdlib 轴，不验运行期自依赖 | INV-1（改 parser / codegen / 格式后必跑）|
+| 本地 `xtask test compiler bootstrap`（CI 不调用；下载 nightly 需 `gh` 已登录）| 上一 nightly z42c 编当前源，越界立即红；经同一个 `_ensureBootstrapSelfDepLibs`，所以只守语法 / 格式 / 非自依赖 stdlib 轴，不验运行期自依赖 | INV-1（改 parser / codegen / 格式后必跑）|
 
 INV-2（测试全绿）由 `test-host` 的 `xtask test` 守。
 

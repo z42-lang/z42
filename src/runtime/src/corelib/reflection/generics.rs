@@ -175,7 +175,7 @@ pub(super) fn type_has_no_arg_ctor(ctx: &VmContext, name: &str) -> bool {
 /// (z42's reified erasure with a per-instance type-arg view).
 ///
 /// **Why a builtin and not a new opcode**: a new `Instruction` would mean a zbc
-/// format bump plus the two-nightly bootstrap dance (`bootstrap-seed.md`) for
+/// format bump plus the two-nightly bootstrap dance (`self-hosting.md`) for
 /// semantics a builtin already delivers — and `Instruction::Builtin` is dispatched
 /// by name/BuiltinId in the JIT too, so JIT support comes for free. `__methodof`
 /// set the same precedent (see `TypeOpEmitter._emitMethodOf`).

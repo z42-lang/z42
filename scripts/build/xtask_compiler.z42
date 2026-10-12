@@ -525,11 +525,8 @@ int _testCompilerUnits(string root, string profile, string[] members) {
                     totalFailed = totalFailed + 1;
                     continue;
                 }
-                // Run each produced test zpkg through the test-runner. z42c now
-                // emits the TIDX (test-index) section (port-z42c-tidx, 2026-06-25),
-                // so the runner discovers + executes [Test] methods just like for
-                // C#-built units. (Pre-TIDX this was a loud SKIP — z42c-built
-                // zpkgs had no TIDX → runner exit 3, no discovery.)
+                // Run each produced test zpkg through z42b's runner, which discovers the
+                // [Test] functions by runtime reflection.
                 int j = 0;
                 while (j < zps.Length) {
                     int rc = _z42bProc(vm, flat)
@@ -550,7 +547,7 @@ int _testCompilerUnits(string root, string profile, string[] members) {
             + totalUnits.ToString() + ")");
         return 1;
     }
-    Console.WriteLine("✅ z42c [Test]: all " + totalUnits.ToString() + " unit(s) passed (compiled + run via TIDX)");
+    Console.WriteLine("✅ z42c [Test]: all " + totalUnits.ToString() + " unit(s) passed (compiled + run)");
     int ec = _testCompilerE2e(root, vm, flat);
     if (ec != 0) { return ec; }
     return _testSelfHostByteIdentical(root, vm, members, profile);

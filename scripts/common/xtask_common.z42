@@ -592,7 +592,7 @@ int _ensureSeed(string root) {
     if (Directory.Exists(staleAnchor)) { Directory.Delete(staleAnchor, true); }
 
     // 种子本身也可能落后一代（刚 bump 完格式、新 nightly 还没发）。这里**只告警不失败**：
-    // 「上一版 z42c 能编当前源」是 bootstrap-seed.md 的纪律，落后一代未必不能用；
+    // 「上一版 z42c 能编当前源」是 分阶段引入纪律（self-hosting.md），落后一代未必不能用；
     // 但一旦真的不能用，失败形态会是运行期崩在某个静态表上，那时这行是唯一的线索。
     int wantSeed = _treeZpkgMinor(root);
     int gotSeed = _zpkgFileMinor(Path.Join(driverHome, "z42c.driver.zpkg"));
@@ -635,7 +635,7 @@ int _ensureSeed(string root) {
         }
         i = i + 1;
     }
-    // bootstrap-seed（converge-z42c-ir-metadata 修）：种子 driver 可能是**收敛前**的 nightly
+    // 自举纪律（converge-z42c-ir-metadata 修）：种子 driver 可能是**收敛前**的 nightly
     // （z42c.ir/z42c.project 尚在其兄弟集、当前 members 已不含）。它运行时按 entry-dir 解析兄弟，
     // 缺 z42c.project → `ZpkgBuilder.Sha256Hex` 等 undefined（CI bootstrap 全红根因）。故把
     // driverHome 的**全部 z42c.* 兄弟**（含遗留 z42c.ir/z42c.project）铺到 driver dist，令种子

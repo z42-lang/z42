@@ -202,7 +202,7 @@ z42 解释器**在原生调用栈上递归**——每次 z42 调用一层原生�
 ### 6.2 共享 VM 里同 namespace 多文件会静默冲突
 
 嵌入 bundle 把每个 `[Test]` **文件**单独编成一个 `.zbc`，`BundleRunner` 的 unit 段把它们
-**依次 load 进同一个共享 VM**（golden 走隔离，unit 不隔离）。而原生模块加载器（`__test_module_load` / `__load_module` 共用的 `load_module_into_vm`）
+**依次 load 进同一个共享 VM**（golden 走隔离，unit 不隔离）。而原生模块加载器（`__load_module` 背后的 `load_module_into_vm`）
 **按 namespace 去重（first-wins）**——第 2 个声明同一 namespace 的 `.zbc`，它的 `[Test]` 自由函数
 **不再注册**，`__invoke_static` 找不到 → 该模块每个测试报 `function ... not found`，
 **伪装成测试失败**。

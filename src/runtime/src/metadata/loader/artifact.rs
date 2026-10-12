@@ -11,11 +11,6 @@ pub struct LoadedArtifact {
     /// Namespace prefixes extracted from the import table (populated by load_zbc).
     /// Used by main.rs to load the corresponding zpkgs.
     pub import_namespaces: Vec<String>,
-    /// Spec R1 (add-test-metadata-section) — compile-time test metadata
-    /// extracted from the zbc TIDX section. Empty when the artifact has no
-    /// `[Test]`/`[Benchmark]`/etc.-decorated functions or the section is absent
-    /// (older artifacts). Consumed by R3 z42-test-runner.
-    pub test_index: Vec<TestEntry>,
     /// add-crosspkg-impl-reflection (unify P1-e): `(target_fq, trait_fq)`
     /// pairs from the zpkg IMPL section (`impl Trait for Type` declared in
     /// this package). Empty for .zbc. Merged into the lazy loader's impls
@@ -159,15 +154,11 @@ fn load_zbc_bytes(raw: &[u8]) -> Result<LoadedArtifact> {
 
     let import_namespaces = extract_import_namespaces_from_module(&module);
 
-    let test_index =
-        read_test_index_resolved(raw).context("cannot read TIDX section")?;
-
     Ok(LoadedArtifact {
         module,
         entry_hint: None,
         dependencies: vec![],
         import_namespaces,
-        test_index,
         impl_pairs: vec![],
         package_name: None, // bare .zbc carries no zpkg package name
     })
@@ -210,7 +201,7 @@ fn load_zpkg_indexed(path: &str, raw: &[u8]) -> Result<LoadedArtifact> {
         .parent()
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| std::path::PathBuf::from("."));
-    let mut module_triples = Vec::with_capacity(entries.len());
+    let mut module_pairs = Vec::with_capacity(entries.len());
     for e in &entries {
         let stem = e.rel.strip_suffix(".z42").unwrap_or(&e.rel);
         let zbc_path = base.join(format!("{stem}.zbc"));
@@ -233,14 +224,9 @@ fn load_zpkg_indexed(path: &str, raw: &[u8]) -> Result<LoadedArtifact> {
         }
         let module = read_zbc(&bytes)
             .with_context(|| format!("decoding scattered zbc `{}`", zbc_path.display()))?;
-        // 索引态：每个散装 .zbc 有**自己的** raw 池，就地解析（打包态在 read_mods_section
-        // 里对着全局池解析）。此前这里存裸字节、由聚合按 rebuild 后的池长度做偏移 —— 错两次，
-        // 见 read_mods_section 的注释。
-        let tidx = crate::metadata::zbc_reader::read_test_index_resolved(&bytes)
-            .with_context(|| format!("resolving TIDX of scattered zbc `{}`", zbc_path.display()))?;
-        module_triples.push((module, e.namespace.clone(), tidx));
+        module_pairs.push((module, e.namespace.clone()));
     }
-    assemble_zpkg_artifact(meta.entry, meta.dependencies, module_triples,
+    assemble_zpkg_artifact(meta.entry, meta.dependencies, module_pairs,
         crate::metadata::zbc_reader::read_zpkg_impl_pairs(raw).context("cannot read zpkg IMPL section")?,
         Some(meta.name))
 }
@@ -263,40 +249,30 @@ fn load_zpkg_bytes_with_sidecar(
     }
 
     let meta = read_zpkg_meta(raw).context("cannot read zpkg metadata")?;
-    let mut module_triples = read_zpkg_modules(raw).context("cannot load modules from zpkg")?;
+    let mut module_pairs = read_zpkg_modules(raw).context("cannot load modules from zpkg")?;
 
     // Apply sidecar (if present + valid + build_id matches) to per-module
     // function debug fields before flattening.
     if let Some(sym) = sym_raw {
-        apply_zpkg_sidecar(&mut module_triples, raw, sym, sym_path);
+        apply_zpkg_sidecar(&mut module_pairs, raw, sym, sym_path);
     }
 
-    // aggregate-zpkg-tidx (2026-06-06): walk per-module TIDX bytes BEFORE
-    // moving the modules into merge_modules — we need each module's local
-    // function count + string pool length to compute the cumulative
-    // offsets that remap `method_id` and `*_str_idx` into the merged
-    // module's index space. Empty `tidx_bytes` (modules with no [Test])
-    // contribute zero entries but still bump the offset counters.
-    assemble_zpkg_artifact(meta.entry, meta.dependencies, module_triples,
+    assemble_zpkg_artifact(meta.entry, meta.dependencies, module_pairs,
         crate::metadata::zbc_reader::read_zpkg_impl_pairs(raw).context("cannot read zpkg IMPL section")?,
         Some(meta.name))
 }
 
 /// Shared tail of every zpkg load path (packed by path / packed by bytes /
-/// indexed): TIDX aggregation → merge → registries/indices → test-string
-/// resolution. Extracted by add-indexed-zpkg-min-patch so indexed reuses the
-/// exact packed pipeline (zero divergence after module_triples).
+/// indexed): merge → registries/indices. Extracted by add-indexed-zpkg-min-patch
+/// so indexed reuses the exact packed pipeline (zero divergence after module_pairs).
 fn assemble_zpkg_artifact(
     entry_hint: Option<String>,
     dependencies: Vec<ZpkgDep>,
-    module_triples: Vec<(Module, String, Vec<crate::metadata::TestEntry>)>,
+    module_pairs: Vec<(Module, String)>,
     impl_pairs: Vec<(String, String)>,
     package_name: Option<String>,
 ) -> Result<LoadedArtifact> {
-    let aggregated_test_index =
-        aggregate_zpkg_test_index(&module_triples).context("aggregating zpkg TIDX entries")?;
-
-    let modules: Vec<Module> = module_triples.into_iter().map(|(m, _, _)| m).collect();
+    let modules: Vec<Module> = module_pairs.into_iter().map(|(m, _)| m).collect();
     let mut module = merge_modules(modules).context("merging zpkg modules")?;
 
     build_type_registry(&mut module);
@@ -305,62 +281,18 @@ fn assemble_zpkg_artifact(
     build_block_indices(&mut module);
     build_func_index(&mut module);
 
-    // 字符串**已经在读取点解析好了**（打包态对 zpkg 全局 raw 池、索引态对各散装 zbc 的
-    // raw 池），这里不再解析第二次。
-    //
-    // 此前这里对着 `module.string_pool`（merge 之后的**重建**池）又解析了一遍，把上游解析
-    // 对的值覆盖成 None —— 两处不匹配：① TIDX 索引指向的是 raw 池，而重建池只保留被代码
-    // 引用的字符串，只被 TIDX 引用的（`[ShouldThrow<E>]` 的类型链、`[Skip(reason)]` 文案）
-    // 在重建时就没了；② 打包 zpkg 的索引是全局的（写入端 remap 过），比重建后的合并池长，
-    // 越界即 None。症状：打包成 zpkg 的测试里 `[ShouldThrow<E>]` 全退化成
-    // 「expected throw null」而判失败；走裸 .zbc 的路径恒对（单模块 + 对着 raw 池解析）。
-    let test_index = aggregated_test_index;
-
     Ok(LoadedArtifact {
         module,
         entry_hint,
         dependencies,
         import_namespaces: vec![],
-        test_index,
         impl_pairs,
         package_name,
     })
 }
 
-/// aggregate-zpkg-tidx (2026-06-06): merge per-module TIDX bytes into a
-/// flat `Vec<TestEntry>` whose `method_id` / `*_str_idx` values reference
-/// the merged module's `functions[]` / `string_pool[]` index space.
-///
-/// Cumulative offsets mirror `merge_modules`' string-pool / function-list
-/// concatenation order: module N's local indices land at
-/// `[prev modules' counts, …]`. `*_str_idx == 0` ("no string") stays 0
-/// since it's a sentinel, not a real index.
-pub(crate) fn aggregate_zpkg_test_index(
-    module_triples: &[(crate::metadata::bytecode::Module, String, Vec<crate::metadata::TestEntry>)],
-) -> Result<Vec<crate::metadata::test_index::TestEntry>> {
-    let mut aggregated = Vec::new();
-    let mut cumulative_func: u32 = 0;
-    for (module, _ns, entries) in module_triples {
-        let func_offset = cumulative_func;
-        cumulative_func = cumulative_func.saturating_add(module.functions.len() as u32);
-        if entries.is_empty() { continue; }
-        let mut entries = entries.clone();
-        for e in entries.iter_mut() {
-            // `method_id` is a 0-based index into module.functions[];
-            // bump by cumulative function count of prior modules.
-            e.method_id = e.method_id.saturating_add(func_offset);
-            // 字符串**不在这里动**：它们在各自的读取点已经解析成 Option<String>
-            //（打包态对全局 raw 池、索引态对各散装 zbc 的 raw 池）。此前这里按
-            // `module.string_pool.len()` 做累计偏移 —— 那个池是 rebuild 之后的，
-            // 而 rebuild 会丢掉只被 TIDX 引用的字符串，索引也不再对应。
-        }
-        aggregated.extend(entries);
-    }
-    Ok(aggregated)
-}
-
 fn apply_zpkg_sidecar(
-    module_pairs: &mut Vec<(Module, String, Vec<crate::metadata::TestEntry>)>,
+    module_pairs: &mut Vec<(Module, String)>,
     main: &[u8],
     sym: &[u8],
     sym_path: Option<&Path>,
@@ -394,7 +326,7 @@ fn apply_zpkg_sidecar(
     // Match by namespace: sidecar order matches main MODS order, but we
     // double-check ns equality to be defensive against future MDBG layout
     // changes.
-    for ((module, ns, _tidx), (sym_ns, fns)) in module_pairs.iter_mut().zip(sidecar.modules.into_iter()) {
+    for ((module, ns), (sym_ns, fns)) in module_pairs.iter_mut().zip(sidecar.modules.into_iter()) {
         if ns != &sym_ns {
             tracing::warn!(
                 "{display_path}: sidecar module ns mismatch (main={ns}, sidecar={sym_ns}); skipped this module"
@@ -426,8 +358,8 @@ fn load_zpkg_bytes(raw: &[u8]) -> Result<LoadedArtifact> {
     }
 
     let meta = read_zpkg_meta(raw).context("cannot read zpkg metadata")?;
-    let module_triples = read_zpkg_modules(raw).context("cannot load modules from zpkg")?;
-    assemble_zpkg_artifact(meta.entry, meta.dependencies, module_triples,
+    let module_pairs = read_zpkg_modules(raw).context("cannot load modules from zpkg")?;
+    assemble_zpkg_artifact(meta.entry, meta.dependencies, module_pairs,
         crate::metadata::zbc_reader::read_zpkg_impl_pairs(raw).context("cannot read zpkg IMPL section")?,
         Some(meta.name))
 }
