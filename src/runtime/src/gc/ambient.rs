@@ -22,7 +22,7 @@
 //! - **Host re-entry**: `host::ops::invoke_impl` installs one unconditionally —
 //!   the one way another VM's code can run on a thread whose stack already
 //!   holds this context's frames.
-//! - **JIT entry**: `jit::JitModule::run_fn` installs one before its first push,
+//! - **JIT entry**: `jit::run_fn` installs one before its first push,
 //!   so the entry's lazy compile is covered too.
 //! - **Heap-less contexts** (unit tests without a VM, and — before lazy interning
 //!   — module load): [`current_heap`] returns `None`; `Str::new` falls back to a

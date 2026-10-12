@@ -6,7 +6,7 @@
 //! - **interp**: exceptions flow as `ExecOutcome::Thrown(Value)`; no
 //!   thread_local intermediary.
 //! - **JIT**: in-flight exception lives in `VmContext::pending_exception`,
-//!   reached from helper extern "C" via `(*jit_ctx).vm_ctx`.
+//!   reached by a JIT helper through its context parameter (the thread's `VmContext`).
 //!
 //! All previously-existing thread_local exception slots
 //! (`interp::PENDING_EXCEPTION`, `jit::helpers::PENDING_EXCEPTION`) and
@@ -54,7 +54,7 @@ use crate::vm_context::VmContext;
 /// `func` / `regs` are raw pointers. `regs` points into a `JitFrame` or
 /// interp `Frame` on the Rust call stack; `func`
 /// points at the executing `Function`, which the caller (interp) or the
-/// `JitModuleCtx` (JIT, merged module or a lazily-loaded function kept
+/// JIT runtime (merged module or a lazily-loaded function kept
 /// alive by its lazy slot) holds for at least the activation. All are valid
 /// for the duration of the corresponding `exec_function` / native call —
 /// RAII (`FrameGuard` for interp, `jit::invoke::call_native` for JIT)

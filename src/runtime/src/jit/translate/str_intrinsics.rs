@@ -39,7 +39,7 @@
 //! before dispatching. The latter is a no-op for an owner without a static
 //! constructor (checked at translate time); the former is a no-op exactly when
 //! no package initializer is pending or failed — the inline gate reads those two
-//! counters (`JitModuleCtx::cctors`) and otherwise takes the helper path.
+//! counters (the context's `JitHead::cctors`) and otherwise takes the helper path.
 //!
 //! **GC.** Nothing on the fast path allocates or reaches a safepoint, and the
 //! receiver handle stays in its frame register (a root) throughout, so the block
@@ -142,13 +142,13 @@ impl<'a, 'b> TxCtx<'a, 'b> {
 
     /// `jit_call`'s package-init barrier is a no-op ⇔ no package initializer is
     /// pending or failed: take `slow_blk` unless both counters of the running VM's
-    /// cctor registry are zero (no registry attached ⇒ slow).
+    /// cctor registry are zero. The registry pointer is read off the context
+    /// parameter (`JitHead::cctors`, set at the context's construction — never null).
     fn emit_module_init_gate(&mut self, slow_blk: cranelift_codegen::ir::Block) {
         use crate::vm_context::cctor::CctorRegistry;
         let flags = MemFlagsData::trusted();
         let reg = self.builder.ins().load(self.ptr, flags, self.ctx_val,
-            crate::jit::frame::JIT_MODULE_CTX_CCTORS_OFFSET as i32);
-        self.continue_if(reg, slow_blk);
+            crate::vm_context::VM_CONTEXT_CCTORS_OFFSET as i32);
         let pending = self.builder.ins().load(types::I64, flags, reg, CctorRegistry::MODULE_PENDING_OFFSET as i32);
         let failed = self.builder.ins().load(types::I64, flags, reg, CctorRegistry::MODULE_FAILED_OFFSET as i32);
         let any = self.builder.ins().bor(pending, failed);

@@ -58,9 +58,9 @@
 当前（单 crate）实测依赖：
 - **后端 → core**：大量直接边。jit 侧约 40 处直接引用 `crate::interp::*`（`exec_function` 回退、`vcall_resolve` / `isa_td` 等共享判定），helpers 调 core，共享 `VmContext`。
 - **core → jit**：模式派发一条——[src/runtime/src/vm.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/vm.rs) 的 `ExecMode::Jit => crate::jit::run(...)`。
-- **interp → jit**：混合模式带来的 4 个入口，十余处引用：`exec_call::try_native_static_call`、`exec_vcall::try_native_method_call`（被调方已编译就直接跑原生码）、`exec_support::try_native_exec`（`exec_function` 处按名转入原生码）、`exec_support::try_osr`（回边 OSR）。它们把 `VmContext::jit_ctx_ptr()` 转回 `*const JitModuleCtx`，直接读其字段（`osr_threshold`、`module.func_index`）、调其解析方法、构造 `JitFrame`，再把入口指针 transmute 成 `JitFn` 调用。
+- **interp → jit**：混合模式带来的 4 个入口，十余处引用：`exec_call::try_native_static_call`、`exec_vcall::try_native_method_call`（被调方已编译就直接跑原生码）、`exec_support::try_native_exec`（`exec_function` 处按名转入原生码）、`exec_support::try_osr`（回边 OSR）。它们经 `VmContext::jit()` 取 `VmCore` 上的 `JitRuntime`，直接读其字段（`osr_threshold`）、调其解析方法、构造 `JitFrame`，再经 `jit::invoke::call_native` 把入口指针 transmute 成 `JitFn` 调用。
 
-拆分后 `libz42`（含 vm.rs 派发与 interp）若仍直调 jit → `libz42 → libz42_jit → libz42` 成环。**Cargo 在 crate 层禁止循环依赖**，会直接编译失败，所以这两类边都**必须**反转。interp → jit 这一类目前直接依赖 `JitModuleCtx` / `JitFrame` 的内部布局，反转前要先把它收敛成槽上的少数几个函数（如「调用已编译函数」「尝试 OSR」）。
+拆分后 `libz42`（含 vm.rs 派发与 interp）若仍直调 jit → `libz42 → libz42_jit → libz42` 成环。**Cargo 在 crate 层禁止循环依赖**，会直接编译失败，所以这两类边都**必须**反转。interp → jit 这一类目前直接依赖 `JitRuntime` / `JitFrame` 的内部布局，反转前要先把它收敛成槽上的少数几个函数（如「调用已编译函数」「尝试 OSR」）。
 
 ### 4.2 反转：注册槽（即 ext.rs 既有模式）
 core 不静态调后端，改持注册槽；后端在加载/初始化时把自己注册进来：

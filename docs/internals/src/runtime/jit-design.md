@@ -1,14 +1,14 @@
 # JIT 后端（Cranelift）：结构与调用约定
 
-> 代码：`src/runtime/src/jit/`（`mod.rs` / `frame.rs` / `lazy.rs` / `translate/` / `helpers/`）
+> 代码：`src/runtime/src/jit/`（`mod.rs` / `runtime.rs` / `frame.rs` / `lazy.rs` / `translate/` / `helpers/`）
 > 相关：[惰性逐函数 JIT](jit.md)（编译时机、调用计数 tier-up、混合模式、OSR、原生快路径） · [解释器 / JIT 标量语义](interp-jit-semantics.md)
-> 待办：只有执行入口的线程跑 JIT，VM 创建的其他线程全程解释执行
+> 待办：编译在调用线程的编译锁内串行进行，尚无批量 / 后台编译（runtime-audit §4.5 第 3 条）
 
 本页只讲 JIT 后端的骨架：入口、两块运行时数据结构、原生函数 ABI、指令怎么翻译、异常怎么走。
 
 ## 概述
 
-`--mode jit`（默认模式）下，z42 函数由 **Cranelift** 编成原生机器码。编译是**惰性**的：`JitModule::setup`
+`--mode jit`（默认模式）下，z42 函数由 **Cranelift** 编成原生机器码。编译是**惰性**的：`runtime::install`
 只建基础设施，不编任何用户函数；函数在调用次数达到 `jit-threshold`（默认 2）时才编译，热循环另由 OSR
 在回边计数达到 `osr-threshold`（默认 10000）时转入原生码。没编译的函数、以及含 JIT 不支持指令的函数，都在解释器上跑。
 
@@ -17,33 +17,45 @@
 ```
 vm.rs: ExecMode::Jit → jit::run(ctx, module, entry)
     │
-    ▼ JitModule::setup(module)      建 LazyCompiler（持 cranelift JITModule）+ JitModuleCtx，不编译
-    ▼ JitModule::run_fn(ctx, entry)
-        1. JitModuleCtx.vm_ctx ← ctx；stack_limit ← 本线程栈下限
-        2. ctx.set_jit_ctx(&JitModuleCtx)        —— 让本次运行里的 interp 帧能回跳原生码
-        3. resolve_fn_by_name(entry)             —— 首次调用即编译入口
-           └ 入口不可翻译 → 整个入口交给 interp::exec_function
-        4. push VmFrame → jit_fn(&mut frame, &ctx) → pop
-        5. 清空 vm_ctx / jit_ctx
+    ▼ runtime::install(ctx, module)  VmCore.jit 装上 JitRuntime（LazyCompiler 持 cranelift JITModule），
+    │                                 不编译；已装则复用（每 VM 一个 JIT）
+    ▼ jit::run_fn(ctx, entry)
+        1. resolve_fn_by_name(ctx, entry)        —— 首次调用即编译入口
+           └ 入口不可翻译 → 入口交给 interp::exec_function（其调用的已编译函数仍回跳原生码）
+        2. push VmFrame（栈底帧顺带写入本线程栈下限）→ jit_fn(&mut frame, ctx) → pop
 ```
 
-JIT 只在执行 `run_fn` 的那个线程上运行。VM 创建的其他线程用各自的 `VmContext`，其 `jit_ctx` 恒为 0，全程解释执行。
+VM 的每条线程都跑 JIT：`__thread_spawn` 的 worker 用自己的 `VmContext`（`new_with_core`），共享同一个
+`VmCore.jit`；它的解释器帧经混合模式分流进入已编译函数，到阈值就在 worker 线程上编译（编译锁内）。
 
-## 运行时数据结构（`frame.rs`）
+## 运行时数据结构（`runtime.rs` / `frame.rs`）
 
-**`JitModuleCtx`**：每个 `JitModule` 一份，以 `*const JitModuleCtx` 传给每个原生函数和每个 helper。主要字段：
+**上下文参数是运行线程自己的 `VmContext`**：每个原生函数和每个 helper 都收 `ctx: *const VmContext`——调用它的那条
+线程的上下文。可变执行状态（帧栈、待抛异常、寄存器池、arena、计数器分片、safepoint 计数、栈下限）因此都直接是本线程的。
+生成码按偏移直接读三个字段：
+
+| 字段（`VmContext` 上） | 偏移常量 | 作用 |
+|---|---|---|
+| `jit_head.stack_limit` | `VM_CONTEXT_STACK_LIMIT_OFFSET` | 序言栈深检查的下限：驱动本 ctx 的线程的栈下限，栈底帧 push 时写入 |
+| `jit_head.cctors` | `VM_CONTEXT_CCTORS_OFFSET` | VM 的 `CctorRegistry`；内联字符串原语读它的包初始化门计数 |
+| `safepoint_skip` | `VM_CONTEXT_SAFEPOINT_SKIP_OFFSET` | safepoint 节流计数，内联快路 load/store |
+
+`jit_head` 是 `#[repr(C)]` 的 `JitHead`（`vm_context/types.rs`），另缓存一份 `&VmCore.jit`（`VmContext::jit()` 一次 load
+取到共享运行时；早于安装的 ctx 在下一次栈底帧 push 时补上）。
+
+**`JitRuntime`**（`VmCore.jit: OnceLock<JitRuntime>`）：每 VM 一份、所有线程共享，随 VmCore 释放，helper 经
+`ctx.jit()` 取（`helpers::jit_rt`）。主要字段：
 
 | 字段 | 作用 |
 |---|---|
 | `slots: SparseSegTable<JitSlot>` | 每函数的 JIT 状态，按 JIT id（= `FnId`：入口函数 `0..n`、惰性函数其后）索引：`entry`（已编译）、`count`（tier-up 计数）、`state`（Rejected 负缓存）；读无锁 |
-| `module` | 指回字节码 `Module`（类描述、函数体、`func_index`） |
-| `lazy` | `Mutex<LazyCompiler>`：首编串行化，热路径只读 `OnceLock` |
-| `vm_ctx` | 本次运行的 `VmContext`；helper 经它访问可变 VM 状态 |
-| `jit_threshold` | tier-up 阈值（计数在 `JitSlot.count`） |
+| `module` | 指回字节码 `Module`（类描述、函数体、`func_index`）——JIT id 相对它 |
+| `funcs` | VM 的 `FuncTable`，惰性函数按 `FnId` 取 |
+| `lazy` | `Mutex<LazyCompiler>`：编译在调用线程上串行进行，热路径只读 `OnceLock` |
+| `jit_threshold` | tier-up 阈值（计数在 `JitSlot.count`，各线程一起计） |
 | `osr_entries` / `osr_threshold` | OSR 入口缓存（按「JIT id, 循环头块」，入口与惰性函数都支持）与阈值 |
-| `stack_limit` | 函数序言做栈深检查用的下限 |
 
-`vm_ctx` 和 `stack_limit` 的偏移由 `offset_of!` 导出给生成码，内联 safepoint 检查和栈检查直接 load。
+跨线程的安全性（编译锁不 park 的理由、代码发布、调用点缓存、GC 扫描）见 [jit.md「线程安全」](jit.md#线程安全)。
 
 **`JitFrame`**：一次调用一份，`#[repr(C)]`——生成码按 `offset_of!` 导出的偏移直接读写其中三个字段。
 
@@ -66,7 +78,7 @@ JIT 只在执行 `run_fn` 的那个线程上运行。VM 创建的其他线程用
 
 ```rust
 // helpers/mod.rs
-pub type JitFn = unsafe extern "C" fn(frame: *mut JitFrame, ctx: *const JitModuleCtx) -> u8;
+pub type JitFn = unsafe extern "C" fn(frame: *mut JitFrame, ctx: *const VmContext) -> u8; // ctx = 运行线程的上下文
 // 0 = 正常返回（frame.has_ret != 0 时返回值在 frame.ret）；1 = 抛出异常（异常值挂在 VmContext 上）
 ```
 
@@ -109,9 +121,10 @@ brif v, exc_block, next
 
 ```
 src/runtime/src/jit/
-├── mod.rs           JitModule（setup / run_fn）、jit::run
+├── mod.rs           jit::run / run_fn
+├── runtime.rs       JitRuntime（VmCore.jit）：JitSlot 表、fn_of / id_of_func / id_by_name、resolve_fn_by_* / OSR 入口解析、install
 ├── lazy.rs          LazyCompiler：持 cranelift JITModule，compile_fn / compile_fn_osr 按需编译单函数
-├── frame.rs         JitFrame、JitModuleCtx（JitSlot 表、fn_of / id_of_func / id_by_name）、FnEntry、resolve_fn_by_* / OSR 入口解析
+├── frame.rs         JitFrame、FnEntry
 ├── reg_access.rs    frame.regs 槽位读写的唯一出口
 ├── vm_interface.rs  编译期读取 VM 元数据的只读接口
 ├── translate/       z42 指令 → Cranelift IR（按指令类别拆分；unsupported.rs 为不可翻译表）

@@ -9,7 +9,7 @@
 //!    arms. The IR types ARE the JIT's input language — they cannot be
 //!    hidden behind a trait without throwing the visitor pattern away.
 //! 2. Helpers reach `Module` via the `*const Module` field in
-//!    `JitModuleCtx`. A `*const dyn JitVm` is a fat pointer; replacing
+//!    the JIT runtime. A `*const dyn JitVm` is a fat pointer; replacing
 //!    the raw pointer with it would break the extern "C" ABI that the
 //!    Cranelift-compiled code uses to call helpers.
 //!

@@ -28,14 +28,15 @@
 
 use crate::interp::exec_struct;
 use crate::metadata::Value;
-use super::super::frame::{JitFrame, JitModuleCtx};
+use super::super::frame::JitFrame;
+use crate::vm_context::VmContext;
 use super::{set_exception, vm_ctx_ref};
 
 /// Lazily assign (and return) this JIT frame's monotonic id, so a `StructRef` it
 /// allocates participates in the arena staleness guard exactly like an interp
 /// frame. Called only from allocation sites (StructAlloc / unbox / array copy-out).
 #[inline]
-pub(super) unsafe fn frame_id_of(frame: *mut JitFrame, ctx: *const JitModuleCtx) -> u32 {
+pub(super) unsafe fn frame_id_of(frame: *mut JitFrame, ctx: *const VmContext) -> u32 {
     if (*frame).frame_id == 0 {
         (*frame).frame_id = vm_ctx_ref(ctx).next_frame_id();
     }
@@ -47,7 +48,7 @@ pub(super) unsafe fn frame_id_of(frame: *mut JitFrame, ctx: *const JitModuleCtx)
 /// (arena allocation cannot fail), so no u8 return / exception path.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_struct_alloc(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     dst: u32, type_ptr: *const u8, type_len: usize, size: u32,
 ) {
     let type_name = std::str::from_utf8(std::slice::from_raw_parts(type_ptr, type_len))
@@ -61,7 +62,7 @@ pub unsafe extern "C" fn jit_struct_alloc(
 /// Returns 0 on success, 1 (+ pending exception) on a stale/mismatched handle.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_struct_copy(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     dst: u32, src: u32, size: u32,
 ) -> u8 {
     let dst_val = (*frame).regs[dst as usize].clone();
@@ -93,7 +94,7 @@ unsafe fn root_and_path<'a>(
 /// 所以这里不重写一份解析。
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_struct_field_get_prim(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     dst: u32, base: u32,
     root_ptr: *const u8, root_len: u64, path_ptr: *const u16, path_len: u64,
     kind: u8,
@@ -114,7 +115,7 @@ pub unsafe extern "C" fn jit_struct_field_get_prim(
 /// on success, 1 (+ exception) on a bad base / layout / path.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_struct_field_set_prim(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     base: u32,
     root_ptr: *const u8, root_len: u64, path_ptr: *const u16, path_len: u64,
     kind: u8, val: u32,

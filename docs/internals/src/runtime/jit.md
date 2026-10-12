@@ -1,7 +1,7 @@
 # 惰性逐函数 JIT（lazy per-function compilation）
 
 > 代码：`src/runtime/src/jit/`
-> （`lazy.rs` / `frame.rs` / `mod.rs` / `helpers/call.rs` / `helpers/vcall.rs`）。
+> （`runtime.rs` / `lazy.rs` / `frame.rs` / `mod.rs` / `helpers/call.rs` / `helpers/vcall.rs`）。
 
 ## 为什么
 
@@ -30,33 +30,50 @@
 ## 数据结构
 
 ```
-JitModule
-├── _lazy: Box<Mutex<LazyCompiler>>     // 拥有 cranelift JITModule，保活代码页
-│                └─ LazyCompiler { jit: JITModule, helper_ids, profile }
-└── ctx: Box<JitModuleCtx>
+VmCore（每 VM 一份，所有线程共享）
+└── jit: OnceLock<JitRuntime>                          // 首个 jit::run 装上，随 VmCore 一起释放
         ├── slots: SparseSegTable<JitSlot>             // 按 JIT id 索引
         │        └─ JitSlot { entry: OnceLock<FnEntry>, count: AtomicU32, state: Untried | Rejected }
-        ├── module: *const Module
-        ├── lazy:   *const Mutex<LazyCompiler>         // 指向上面的 _lazy（Box 堆稳定）
-        ├── vm_ctx: *mut VmContext
+        ├── module: *const Module                      // JIT id 相对的模块（生产即 VmCore.module）
+        ├── funcs: Arc<FuncTable>                      // 惰性函数按 FnId 取
+        ├── lazy: Mutex<LazyCompiler>                  // 拥有 cranelift JITModule，保活代码页
+        │        └─ LazyCompiler { jit: JITModule, helper_ids, profile }
+        ├── jit_threshold / osr_threshold
         └── osr_entries: Mutex<HashMap<(id, K), FnEntry>>
+
+VmContext（每线程一份）
+├── jit_head: JitHead (#[repr(C)])                     // 生成码按偏移读
+│        ├── stack_limit   // 驱动本 ctx 的线程的栈下限，栈底帧 push 时写入
+│        ├── cctors        // VM 的 CctorRegistry（包初始化门计数）
+│        └── jit           // 缓存的 &VmCore.jit（未装 JIT 时为空）
+└── safepoint_skip                                     // safepoint 节流计数，生成码按偏移读写
 ```
+
+**上下文参数 = 运行线程自己的 `VmContext`**。每个编译出的函数和每个 helper 的签名都是
+`fn(frame: *mut JitFrame, ctx: *const VmContext, …)`，`ctx` 就是调用它的那条线程的上下文（`invoke::call_native`
+传入）。于是帧栈、待抛异常、寄存器池、arena、计数器分片、safepoint 计数、栈下限都直接是本线程的；生成码按
+`offset_of!` 常量读 `VM_CONTEXT_STACK_LIMIT_OFFSET` / `VM_CONTEXT_CCTORS_OFFSET` / `VM_CONTEXT_SAFEPOINT_SKIP_OFFSET`，
+helper 与解释器分流经 `VmContext::jit()` 取共享的 `JitRuntime`（`helpers::jit_rt` / `jit_module`）：一次 relaxed load
+读本 ctx 缓存的 `jit_head.jit`。缓存在构造时取自 `core.jit`、由 `install` 写给安装它的 ctx；早于安装就存在的 ctx
+在下一次栈底帧 push 时补上（在那之前它的解释器帧照常解释执行）。这与 HotSpot / .NET 的「线程寄存器」
+同构：共享的是代码和槽表，可变的执行状态一律跟线程走。
 
 - **JIT id = `FnId`**（`VmCore.funcs`，见 [vm-architecture.md](vm-architecture.md)「Call 站点 token：FnId」）：
   入口模块的函数是 `0..n`（= `module.functions` 下标），惰性加载包的函数是之后的 id。interp `Call` 站点的
-  token 存的就是这个 id，所以 JIT 直接烘焙、直接缓存，不另起一套编号。`JitModuleCtx::fn_of(id)` 无锁取回
+  token 存的就是这个 id，所以 JIT 直接烘焙、直接缓存，不另起一套编号。`JitRuntime::fn_of(id)` 无锁取回
   `&Function`（入口函数取模块，惰性函数取 FuncTable 槽，后者持有 `Arc` 保活）；`id_of_func(f)` 反查
   （入口函数按地址，惰性函数按 `f.id`，均不哈希）。模块不是 FuncTable 的入口模块时（单测里的裸
   `VmContext::new()`），只有模块下标算 JIT id，惰性函数没有 id、一律解释执行——与 interp 的 token 规则一致。
 - **`slots`** 是稀疏分段表：段在首次触达时 CAS 分配、永不移动，`get(id)` 无锁，`OnceLock::get()` 交出的
-  `&FnEntry` 在整个 run 内有效——**热路径读取零锁**。槽随 `JITModule` 存活（代码页的生命周期）；挪到 VmCore
-  是 P1-6 的事。
+  `&FnEntry` 在 VM 存活期内有效——**热路径读取零锁**。槽与 `JITModule`（代码页）同在 `JitRuntime` 里，随 VmCore 释放；
+  还持有 VmCore 的线程（worker）因此始终能跑已编译的代码。
 - **by-name 只在冷路径**：`id_by_name(name)` = `func_index` → `funcs.lazy_id` → `try_lookup_function`（可能加载包）
   → 同一套 by-id 槽。仍按名字进来的只有入口函数和 `ToString`。闭包 / `FuncRef` 在 `LoadFn` / `MkClos` 时就把目标绑成 `FnId`
   （P1-2 PR 8），`jit_call_indirect` 直接按 id 查槽；`LoadFn` 的 token 编译时已绑定就内联成一次寄存器写（tag 9 + id），
   不调 helper，见 [vm-architecture.md「闭包 dispatch」](vm-architecture.md#闭包-dispatchclosure--funcref)。构造器取
   `ObjNew` 站点缓存里的 `FnId`（见 [vm-architecture.md](vm-architecture.md)「ObjNew dispatch」）。
-- **`Mutex<LazyCompiler>`** 只在**真正编译某函数**时加锁。
+- **`Mutex<LazyCompiler>`** 只在**真正编译某函数**时加锁。编译发生在**调用线程**上：哪条线程先让函数达到阈值，
+  就由它在锁下编；别的线程要编同一个或另一个函数就等锁（见「线程安全」）。
 
 ## 首次调用流程
 
@@ -80,20 +97,22 @@ flowchart TD
     U --> R
 ```
 
-伪代码（`JitModuleCtx::resolve_fn_by_id_thr`，`frame.rs`；`thr = 0` 即不分层、立刻编）：
+伪代码（`JitRuntime::resolve_fn_by_id_thr`，`runtime.rs`；`thr = 0` 即不分层、立刻编；`vm` 是调用线程的上下文）：
 
 ```rust
-fn resolve_fn_by_id_thr(&self, id, thr) -> Option<&FnEntry> {
+fn resolve_fn_by_id_thr(&self, vm, id, thr) -> Option<&FnEntry> {
     if let Some(e) = self.slots.get(id)?.entry.get() { return Some(e); } // 热路径：零锁
     let func = self.fn_of(id)?;                                // 无锁取函数
     let slot = self.slots.get_or_init(id)?;
     if slot.state == Rejected { return None; }                 // 负缓存
     if thr > 0 && slot.count.fetch_add(1) + 1 < thr { return None; } // 冷 → interp
+    resolve_function_tokens(func, module, vm);                // 锁外：可能加载包
     if jit_unsupported_reason(func).is_some() { slot.state = Rejected; return None; }
-    let mut guard = (&*self.lazy).lock();                      // 只有编译拿锁
+    let chained = chained_forward(vm, func);                   // 锁外：可能加载包
+    let mut guard = self.lazy.lock();                          // 只有编译拿锁
     if slot.entry.get().is_none() {                            // 双重检查
-        match guard.compile_fn(func) {
-            Ok(e)  => { slot.entry.set(e); counters.jit_methods_compiled += 1; }
+        match guard.compile_fn(func, &CompileLookup { rt: self, vm }) {
+            Ok(e)  => { slot.entry.set(e); vm.counters().jit_methods_compiled += 1; }
             Err(_) => { slot.state = Rejected; return None; }  // 编译确定性 → 不重试
         }
     }
@@ -101,9 +120,10 @@ fn resolve_fn_by_id_thr(&self, id, thr) -> Option<&FnEntry> {
 }
 ```
 
-`resolve_fn_by_name(name)` = `id_by_name(name) → resolve_fn_by_id(id)`。
+`resolve_fn_by_name(vm, name)` = `id_by_name(vm, name) → resolve_fn_by_id(vm, id)`。
 
-**入口函数**无调用者触发，故 `JitModule::run` 在执行前显式 `resolve_fn_by_name(entry)` 先编它。
+**入口函数**无调用者触发，故 `jit::run_fn` 在执行前显式 `resolve_fn_by_name(entry)` 先编它。`jit::run` 先
+`runtime::install`（每 VM 一个 JIT；已装则复用，换模块则报错），再清静态字段、跑入口。
 
 ## 为什么「编译时运行中的调用者不崩」
 
@@ -117,12 +137,28 @@ fn resolve_fn_by_id_thr(&self, id, thr) -> Option<&FnEntry> {
 
 ## 线程安全
 
-- **编译**：`Mutex<LazyCompiler>` 串行化，`OnceLock` 双重检查 → 同一函数只 `define` 一次、
-  无数据竞争。
-- **执行**：并发读 `OnceLock` 槽是安全发布；段指针 Acquire 读、CAS 发布（`SparseSegTable`）。
+VM 的每条线程都跑 JIT 代码：主线程和 `__thread_spawn` 的 worker（`VmContext::new_with_core`）共用 `VmCore.jit`，
+各自以自己的 `VmContext` 作上下文参数。
+
+- **编译**：在调用线程上、`Mutex<LazyCompiler>` 锁内进行，`OnceLock` 双重检查 → 同一函数只 `define` 一次、
+  无数据竞争。等锁的线程**不 park**：调用方可能在 resolve 期间手握只在 Rust 局部变量里的值（`jit_obj_new` 刚分配、
+  ctor 还没跑的实例），park 期间跑的回收看不到它。持锁方在锁内不到 safepoint、不等回收——翻译器只探查已加载的东西
+  （`forward::CompileLookup`），可能加载包 / 跑初始化器的两件事（token 解析、`chained_forward` 的查找）都在拿锁之前做完——
+  所以等待以一次编译为上界，与 VM 其他内部锁同一立足点。代价：GC 请求要等排在编译锁上的线程轮完。
+- **发布**：`compile_fn` 返回前 cranelift 已把代码页改为可执行、刷 icache 并对所有线程做流水线同步
+  （`wasmtime_jit_icache_coherence::pipeline_flush_mt`）；之后 `OnceLock::set`（release）发布，别的线程 `get`
+  （acquire）后直接跳进去。段指针 Acquire 读、CAS 发布（`SparseSegTable`）。
   `LazyCompiler` 手动 `unsafe impl Send`（非 `Sync` 的 `JITModule` 只在锁内触碰）。
+- **计数**：`count` Relaxed 累加，多线程一起计；丢一次增量只会晚一次升层。编译计数记在**编译线程**的计数器分片上，
+  总数看 `counters_snapshot`。
 - **负缓存**：`state` 用 Relaxed 读写；竞争中的读者偶尔没看到刚写下的 Rejected，只会把（确定性的）判定再做一遍。
-- 单测 `concurrent_first_call_compiles_exactly_once` 覆盖两线程竞争首调。
+- **OSR 缓存**：在编译锁内再查一次、编完在锁内写入（锁序：编译锁 → `osr_entries`），同一 `(id, K)` 只编一次。
+- **调用点缓存**：生成码烘焙的可变单元全在 `Function.resolved` 里（`method_tokens` / `VCallIC` / `FieldIC` / `ObjNew`
+  站点），本就由解释器的多线程共用、原子读写；JIT 没有私有的可变缓存。
+- **GC**：worker 的 JIT 帧经 `call_native` 压进 worker 自己的帧栈，safepoint 计数与慢路径都用 worker 自己的上下文，
+  park 后由回收线程经 `scan_frames_parked` 扫描——与主线程完全相同。
+- 单测：`concurrent_first_call_compiles_exactly_once`（两线程竞争首调）、`runtime_tests.rs`（一条线程编译、另一条线程原生调用；
+  worker 到阈值在本线程编译；worker 上抛异常只落在 worker；序言按运行线程自己的栈下限检查）。
 
 ## 决策权衡
 
@@ -133,6 +169,8 @@ fn resolve_fn_by_id_thr(&self, id, thr) -> Option<&FnEntry> {
 | id 空间 | 复用 FnId，不另编号 | interp token、JIT 烘焙常量、站点缓存三者同值；惰性函数也能烘焙 |
 | by-name 表 | 无，冷路径经 `id_by_name` 路由回 by-id | 消除第二套内部可变结构 |
 | 计数器 | `jit_methods_compiled` = **实际编译数** | 更真实；`JitModuleCompiled` 事件仍每模块一次（报模块规模 + setup 耗时） |
+| 上下文参数 | **运行线程自己的 `VmContext`**；共享 JIT 状态放 `VmCore.jit` | 任何线程都能跑原生码，不经共享的单一 `vm_ctx` 指针；热字段按偏移读，少一次间接 |
+| 编译在哪 | 调用线程、编译锁内 | 不引入后台编译线程；批量 / 后台编译是 runtime-audit §4.5 第 3 条的事 |
 
 ## 覆盖不变（与 interp 的关系）
 
@@ -155,7 +193,7 @@ fn resolve_fn_by_id_thr(&self, id, thr) -> Option<&FnEntry> {
 这类字符串原语在循环里调用时，这个帧就是调用成本的大头（`s[i]` 还要再多一层：脚本索引器
 `get_Item` 调 `CharAt`）。
 
-- **识别**：编译出 `FnEntry` 时（`LazyCompiler::compile_fn` 判形状 1，`JitModuleCtx::resolve_slot_slow` 补判形状 2）判定两种形状，
+- **识别**：编译出 `FnEntry` 时（`LazyCompiler::compile_fn` 判形状 1，`JitRuntime::resolve_slot_slow` 补判形状 2）判定两种形状，
   把 builtin id 记进 `FnEntry::forward`：
   1. `builtin_forward`：单块、唯一一条 `builtin`，实参恰是全部形参按序，`ret` 它的结果（或 void），
      无异常表、非泛型，且 builtin 名能解析到 id；
@@ -209,8 +247,8 @@ CharAt → (u64)i < len ? dst = Char(hdr.data[i]) : helper   // 负下标按无�
   负下标的结果与异常文本都和改前、和解释器逐字相同。
 - **屏障**：`jit_vcall` 不跑屏障，`VCall` 形无需门。`jit_call` 先跑包初始化屏障、再跑被调方类型的
   cctor 屏障。后者对无静态构造器的属主恒为空操作（翻译期 `callee_owner_init_free` 判定）；前者当且仅当
-  没有待跑或失败的包初始化器时为空操作——快路径直接读这两个计数（`JitModuleCtx::cctors` 指向运行中 VM 的
-  `CctorRegistry`，与 `vm_ctx` 同步设置 / 清空；为空则一律走 helper）。注意不能用 `any_cctor_pending`
+  没有待跑或失败的包初始化器时为空操作——快路径直接读这两个计数（上下文参数的 `JitHead::cctors` 指向本 VM 的
+  `CctorRegistry`，上下文构造时写定，不为空）。注意不能用 `any_cctor_pending`
   作门：程序里只要有一个没被触达的静态构造器它就恒真，快路径会形同虚设。
 - **GC**：快路径不分配、不经 safepoint，接收者句柄一直在帧寄存器里（根），非移动堆 ⇒ 块在这几次 load
   之间不会被回收或移走。快路径也不盖调用点偏移、不做 `Call` 之后的 safepoint：没有进入任何 z42 帧，也不会抛。
@@ -290,14 +328,13 @@ golden `src/tests/strings/str_intrinsics_jit` 覆盖真实编译器与标准库�
 调用的所有子函数——**即便已编译为原生**——也全在 interp 跑。混合模式打破它:**interp 的调用分发也路由到
 已编译的原生码**。
 
-**结构**：VmContext 需要指向 JitModuleCtx 的前向指针（另有反向 `JitModuleCtx.vm_ctx`）。为此有类型擦除的 `VmContext.jit_ctx: AtomicUsize`
-（`vm_context.rs`），在 `JitModule::run_fn` 里与 `vm_ctx` **同生命周期设置/清零**（二者必须一起有效——原生码
-经 `(*jit_ctx).vm_ctx` 够到 VmContext）。
+**结构**：interp 帧经 `VmContext::jit()`（本 ctx 缓存的 `core.jit` 指针）拿到本 VM 的 `JitRuntime`；VM 装了 JIT（`--mode jit`）
+就在任何线程上路由，interp 模式下恒为 `None`。
 
 **分发 hook**（`interp/exec_call.rs::try_native_static_call` / `try_native_indirect_call` /
 `exec_vcall.rs::try_native_method_call`）：解析出 callee 的 JIT id（`Call` 的 token；VCall 的 PIC 载荷或解析结果里的
-`FnId`；`CallIndirect` 是 `FuncRef` / 闭包值里创建时绑定的 `FnId`，闭包的 env 作 reg 0）后，若 `jit_ctx`
-已发布且 `resolve_fn_by_id_tiered(id)` 返回已编译 entry → 建 `JitFrame`
+`FnId`；`CallIndirect` 是 `FuncRef` / 闭包值里创建时绑定的 `FnId`，闭包的 env 作 reg 0）后，若 VM 装了 JIT
+且 `resolve_fn_by_id_tiered(id)` 返回已编译 entry → 建 `JitFrame`
 （`new_args_from` / `new_method_args_from`）调原生、marshal 结果（照搬 `jit_call`/`jit_vcall`）；否则(冷/不可编)
 返回 None → 原样走 interp。这一步也计数：从解释器调的函数（入口与惰性一样）照样到阈值升层。GC 统一帧链类型无关（interp `Frame` 与 `JitFrame` 都暴露 `regs`），
 push/pop_frame 复制即安全。
@@ -388,7 +425,7 @@ flowchart TD
 - **跳过 prologue 的正确性**：带 `ref` 形参的帧（`Frame.ref_writebacks` 非空）**不 OSR**——解释器在
   出口跑 `run_ref_writebacks` 把形参终值写回调用方，OSR 原生帧直接返回会越过它，调用方就看到调用前的旧值。
   其余帧无入口 ref copy-in、无出口 copy-out 要补；safepoint 刚在回边点查过。golden：`osr/ref_param_writeback`。
-- **缓存**：`JitModuleCtx.osr_entries: Mutex<HashMap<(id, K), FnEntry>>`——按 `(JIT id, 循环头 K)`
+- **缓存**：`JitRuntime.osr_entries: Mutex<HashMap<(id, K), FnEntry>>`——按 `(JIT id, 循环头 K)`
   键（一函数两循环可在不同 K OSR）。入口函数与惰性函数都能 OSR（id 由 `id_of_func` 取得）。OSR 是稀有事件，用普通 Mutex（非热路径 lock-free 槽表）够。
 - **v1 简化**：交接时解释器自身的 VmFrame 仍在栈上，OSR 原生帧再 push 一个——GC 双扫（interp regs
   是 OSR regs 的克隆，同一批 heap 引用，保守正确）；崩溃 trace 该函数出现两次（仅美观）。

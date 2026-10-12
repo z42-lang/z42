@@ -5,10 +5,10 @@
 //! see `docs/internals/src/runtime/escape-analysis.md`（闭包栈分配）+ `docs/spec/archive/2026-05-02-impl-closure-l3-jit-complete/`.
 //!
 //! Convention follows the rest of `jit/helpers/`:
-//!   • Every helper takes `frame: *mut JitFrame, ctx: *const JitModuleCtx` first.
+//!   • Every helper takes `frame: *mut JitFrame, ctx: *const VmContext` first.
 //!   • Returns `u8`: 0 on success, 1 on exception (set via `set_exception`).
 //!   • Strings / register-index slices are passed as `(ptr, len)` pairs whose
-//!     storage lives inside the `Module` bytecode (lifetime ≥ JitModule).
+//!     storage lives inside the `Module` bytecode (lifetime ≥ the compiled code).
 //!   • P1-2 PR 8: `LoadFn` / `MkClos` bind the target's `FnId` when the value is created
 //!     (site token, shared with the interpreter); `CallIndirect` dispatches on that id
 //!     through the slot table — no name on the call path.
@@ -16,7 +16,8 @@
 use crate::metadata::tokens::FnId;
 use crate::metadata::Value;
 
-use super::super::frame::{FnEntry, JitFrame, JitModuleCtx};
+use super::super::frame::{FnEntry, JitFrame};
+use crate::vm_context::VmContext;
 use super::super::invoke::call_entry;
 use super::{set_exception, vm_ctx_ref};
 
@@ -29,11 +30,11 @@ use super::{set_exception, vm_ctx_ref};
 /// `Err(())` = the exception is already set.
 #[inline]
 unsafe fn bind_target(
-    ctx: *const JitModuleCtx, name_ptr: *const u8, name_len: usize,
+    ctx: *const VmContext, name_ptr: *const u8, name_len: usize,
     tok: *const std::sync::atomic::AtomicU32,
 ) -> Result<FnId, ()> {
     let vm_ctx = vm_ctx_ref(ctx);
-    let module = &*(*ctx).module;
+    let module = super::jit_module(ctx);
     let name = super::baked_str(name_ptr, name_len);
     crate::interp::fn_ref_id(vm_ctx, module, name, tok.as_ref())
         .map_err(|exc| set_exception(vm_ctx, exc))
@@ -45,7 +46,7 @@ unsafe fn bind_target(
 /// cannot be bound (exception set). See closure.md §6 + L3-C-2.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_load_fn(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     dst: u32,
     name_ptr: *const u8, name_len: usize,
     tok: *const std::sync::atomic::AtomicU32,
@@ -64,7 +65,7 @@ pub unsafe extern "C" fn jit_load_fn(
 /// (`UNRESOLVED` otherwise → [`bind_target`]).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_mk_clos(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     dst: u32,
     baked: u32,
     name_ptr: *const u8, name_len: usize,
@@ -105,13 +106,13 @@ pub unsafe extern "C" fn jit_mk_clos(
 /// Anything else → exception. See closure.md §6 + L3-C-6.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_call_indirect(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     dst: u32, callee: u32,
     args_ptr: *const u32, args_len: usize,
     caller_offset: u32, // packed code offset of the call site (jit-stack-trace)
 ) -> u8 {
     let frame_ref = &mut *frame;
-    let ctx_ref   = &*ctx;
+    let rt        = super::jit_rt(ctx);
     let vm_ctx    = vm_ctx_ref(ctx);
 
     // 1) Callee Value → (target id, optional env).
@@ -120,7 +121,7 @@ pub unsafe extern "C" fn jit_call_indirect(
     // 安全性同 interp S3：env 数组 MkClos 时写一次、体内只 array_get 读（编译器
     // _emitAssign 无 BoundCapturedIdent 写回分支）→ 跨调用共享 GcRef 字节等价。
     // P1-2 PR 8: the value carries its target's id (bound at creation) — a JIT id, the
-    // index of the slot table (`JitModuleCtx`), for entry and lazily loaded targets alike.
+    // index of the JIT runtime's slot table, for entry and lazily loaded targets alike.
     let (id, env_val_opt): (FnId, Option<Value>) = match &frame_ref.regs[callee as usize] {
         Value::FuncRef(id) => (*id, None),
         Value::Closure(c) => {
@@ -132,7 +133,7 @@ pub unsafe extern "C" fn jit_call_indirect(
         // gets a catchable `Std.NullReferenceException` rather than a raw string. Both
         // backends must do this: fixing only one leaves the bug alive under the other.
         Value::Null => {
-            let module = &*(*ctx).module;
+            let module = super::jit_module(ctx);
             let exc = crate::exception::make_stdlib_exception(
                 vm_ctx, module, crate::semantics::NULL_REF_EXC,
                 crate::semantics::null_invoke_msg(),
@@ -154,11 +155,11 @@ pub unsafe extern "C" fn jit_call_indirect(
     //    interpreter with the already-assembled `args` (env prepended for closures, exactly
     //    as the native path receives it). At the threshold it compiles and subsequent
     //    indirect calls take the native path.
-    let entry: &FnEntry = match ctx_ref.resolve_fn_by_id_tiered(id.0 as usize) {
+    let entry: &FnEntry = match rt.resolve_fn_by_id_tiered(&*ctx, id.0 as usize) {
         Some(e) => e,
         None => {
-            let module = &*ctx_ref.module;
-            let Some(callee) = ctx_ref.fn_of(id.0 as usize) else {
+            let module = super::jit_module(ctx);
+            let Some(callee) = rt.fn_of(id.0 as usize) else {
                 set_exception(vm_ctx, Value::Str(format!(
                     "CallIndirect: function id {} is not registered in this VM", id.0).into()));
                 return 1;
@@ -186,7 +187,7 @@ pub unsafe extern "C" fn jit_call_indirect(
         None => JitFrame::new_args_from(vm_ctx, entry.max_reg, &frame_ref.regs, user_regs),
     };
     vm_ctx.set_top_frame_pc(caller_offset);
-    call_entry(vm_ctx, ctx, entry, callee_frame).store_into(&mut frame_ref.regs, dst)
+    call_entry(vm_ctx, entry, callee_frame).store_into(&mut frame_ref.regs, dst)
 }
 
 #[cfg(test)]

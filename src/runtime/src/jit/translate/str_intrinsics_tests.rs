@@ -10,7 +10,7 @@
 use crate::jit::forward::{builtin_forward, chained_forward, ForwardLookup, StrIntrinsic};
 use crate::jit::frame::JitFrame;
 use crate::jit::invoke::{call_entry, NativeOutcome};
-use crate::jit::JitModule;
+use crate::jit::runtime::install;
 use crate::metadata::bytecode::{
     BasicBlock, BuiltinInsn, CallInsn, Function, Instruction, Module, Terminator, VCallInsn,
 };
@@ -125,21 +125,25 @@ fn thrown(msg: &str) -> String {
     format!("throw {}", msg.lines().next().unwrap_or(""))
 }
 
-/// Run caller `idx` on the JIT (`gated`: attach the VM's cctor registry, as
-/// `run_fn` does). Returns the outcome and whether the slow path ran.
-fn run_jit(m: &Module, idx: usize, args: &[Value], gated: bool) -> (String, bool) {
+/// Run caller `idx` on the JIT (`init_pending`: a package initializer is pending,
+/// which closes the inline gate). Returns the outcome and whether the slow path ran.
+fn run_jit(m: &Module, idx: usize, args: &[Value], init_pending: bool) -> (String, bool) {
     let vm = VmContext::new();
     crate::metadata::resolver::resolve_function_tokens(&m.functions[idx], m, &vm);
-    let mut jm = JitModule::setup(m).expect("setup");
-    jm.ctx.vm_ctx = (&*vm as *const VmContext) as *mut VmContext;
-    jm.ctx.cctors = if gated { vm.cctor_registry_ptr() } else { std::ptr::null() };
-    let entry = jm._lazy.lock().expect("lock")
-        .compile_fn(&m.functions[idx], &Callees(m)).expect("compile");
-    let out = match unsafe { call_entry(&vm, &*jm.ctx, &entry, JitFrame::new(&vm, entry.max_reg, args)) } {
+    let rt = install(&vm, m).expect("install");
+    if init_pending {
+        use crate::vm_context::cctor::CctorRegistry;
+        // The counter the inline gate reads (and `jit_call`'s barrier recounts).
+        let reg = std::sync::Arc::as_ptr(&vm.core.cctors) as *const u8;
+        let pending = unsafe { &*(reg.add(CctorRegistry::MODULE_PENDING_OFFSET) as *const std::sync::atomic::AtomicUsize) };
+        pending.store(1, std::sync::atomic::Ordering::Relaxed);
+    }
+    let entry = rt.compile_with(&m.functions[idx], &Callees(m)).expect("compile");
+    let out = match unsafe { call_entry(&vm, &entry, JitFrame::new(&vm, entry.max_reg, args)) } {
         NativeOutcome::Returned(v) => show(v.unwrap_or(Value::Null)),
         NativeOutcome::Threw => show(vm.take_exception().unwrap_or(Value::Null)),
     };
-    let slow = [GET_LENGTH, CHAR_AT, GET_ITEM].iter().any(|&w| jm.ctx.slot_probe(w).0 > 0);
+    let slow = [GET_LENGTH, CHAR_AT, GET_ITEM].iter().any(|&w| rt.slot_probe(w).0 > 0);
     (out, slow)
 }
 
@@ -156,7 +160,7 @@ fn run_interp(m: &Module, idx: usize, args: &[Value]) -> String {
 fn check(idx: usize, args: &[Value], inline: bool, expect: &str) {
     let m = module();
     let interp = run_interp(&m, idx, args);
-    let (jit, slow) = run_jit(&m, idx, args, true);
+    let (jit, slow) = run_jit(&m, idx, args, false);
     assert_eq!(jit, interp, "{}({args:?}): jit vs interp", m.functions[idx].name);
     assert!(jit.contains(expect), "{}({args:?}) = {jit}, expected {expect}", m.functions[idx].name);
     assert_eq!(!slow, inline, "{}({args:?}): inline path taken?", m.functions[idx].name);
@@ -179,7 +183,7 @@ fn length_of_non_ascii_takes_the_helper() {
 fn length_of_null_throws_identically() {
     let m = module();
     let interp = run_interp(&m, LEN_VCALL, &[Value::Null]);
-    assert_eq!(run_jit(&m, LEN_VCALL, &[Value::Null], true).0, interp);
+    assert_eq!(run_jit(&m, LEN_VCALL, &[Value::Null], false).0, interp);
 }
 
 #[test]
@@ -210,12 +214,12 @@ fn char_at_out_of_range_throws_the_same_message() {
 }
 
 #[test]
-fn static_call_without_a_cctor_registry_keeps_the_barrier_path() {
+fn static_call_with_a_pending_package_init_keeps_the_barrier_path() {
     let m = module();
-    let (out, slow) = run_jit(&m, AT_CALL, &[s("hello"), Value::I64(1)], false);
-    assert!(out.contains("Char('e')") && slow, "gate closed only with a registry attached: {out}");
-    // The vcall form runs no barrier, so it needs no registry.
-    let (out, slow) = run_jit(&m, LEN_VCALL, &[s("hello")], false);
+    let (out, slow) = run_jit(&m, AT_CALL, &[s("hello"), Value::I64(1)], true);
+    assert!(out.contains("Char('e')") && slow, "a pending package init closes the gate: {out}");
+    // The vcall form runs no barrier, so it ignores the gate.
+    let (out, slow) = run_jit(&m, LEN_VCALL, &[s("hello")], true);
     assert!(out.contains("I64(5)") && !slow, "{out}");
 }
 
@@ -272,7 +276,7 @@ fn char_comparisons_match_the_interpreter() {
         for &x in &chars {
             for &y in &chars {
                 let args = [Value::Char(x), Value::Char(y)];
-                let (jit, _) = run_jit(&m, idx, &args, true);
+                let (jit, _) = run_jit(&m, idx, &args, false);
                 assert_eq!(jit, run_interp(&m, idx, &args), "{}({x:?}, {y:?})", ops[idx].0);
             }
         }

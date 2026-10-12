@@ -50,7 +50,7 @@ pub struct ResolvedTokens {
     /// package into itself or into any package loaded so far); the rest are
     /// bound on first dispatch (`interp::exec_call::bind_callee`, which both
     /// backends use). The JIT shares the cells: the token is its slot id
-    /// (`JitModuleCtx`), baked into a compiled call site when already bound and
+    /// (`jit::runtime`), baked into a compiled call site when already bound and
     /// read from the cell at run time otherwise.
     pub method_tokens: Vec<AtomicU32>,
     /// `Builtin` sites: `BuiltinId` resolved at load (closed set —

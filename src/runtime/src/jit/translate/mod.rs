@@ -220,7 +220,7 @@ pub fn translate_function(
     // A spawned worker that enters JIT-compiled code immediately after
     // spawn must respect a pending GC pause before touching any roots.
     emit_stack_check(&mut builder, ptr, ctx_val, frame_val, hr_stack_overflow);
-    emit_safepoint_check(&mut builder, ptr, ctx_val, frame_val, hr_check_safepoint_slow);
+    emit_safepoint_check(&mut builder, ctx_val, frame_val, hr_check_safepoint_slow);
 
     // Register-file base for every inline slot access: `JitFrame::regs_ptr`
     // (`frame.regs.as_mut_ptr()`, the frame's first field), one load per call.

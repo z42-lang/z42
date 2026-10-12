@@ -17,14 +17,13 @@ use super::{ExecOutcome, Frame};
 /// runtime-jit-tiering Phase 1.5 (mixed-mode): receiver-aware analogue of
 /// `exec_call::try_native_static_call`. Counts method `id` (its JIT id / `FnId`)
 /// toward its tier-up; once it is JIT-compiled, invoke it natively (receiver in reg 0 via `new_method_args_from`) and marshal the
-/// result. `None` → not published / cold / untranslatable → caller stays interp.
+/// result. `None` → no JIT installed / cold / untranslatable → caller stays interp.
 #[cfg(feature = "jit")]
 fn try_native_method_call(
     ctx: &VmContext, frame: &mut Frame, dst: u32, id: usize,
     receiver: &Value, args: &[u32],
 ) -> Option<Result<Option<Value>>> {
-    let p = ctx.jit_ctx_ptr();
-    if p == 0 { return None; }
+    let rt = ctx.jit()?;
     // runtime-jit-tiering Phase 1.5 safety: never marshal a `Ref(Stack)` (out/ref
     // address, which only an INTERP frame can hold) into native code — see
     // `exec_call::try_native_static_call` for the full rationale. Guard receiver + args.
@@ -32,15 +31,14 @@ fn try_native_method_call(
         || args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref { .. }))) {
         return None;
     }
-    let jit_ctx = p as *const crate::jit::frame::JitModuleCtx;
     let (max_reg, ptr, callee_fn) = {
-        let entry = unsafe { (*jit_ctx).resolve_fn_by_id_tiered(id) }?;
+        let entry = rt.resolve_fn_by_id_tiered(ctx, id)?;
         (entry.max_reg, entry.ptr, entry.func)
     };
     ctx.counters().jit_native_from_interp.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let callee = crate::jit::frame::JitFrame::new_method_args_from(
         ctx, max_reg, receiver.clone(), &frame.regs, args);
-    let outcome = unsafe { crate::jit::invoke::call_native(ctx, jit_ctx, ptr, callee_fn, callee) };
+    let outcome = unsafe { crate::jit::invoke::call_native(ctx, ptr, callee_fn, callee) };
     Some(Ok(super::exec_call::native_result_to_dst(ctx, frame, dst, outcome)))
 }
 

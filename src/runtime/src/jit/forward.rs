@@ -26,7 +26,9 @@ use crate::metadata::bytecode::{Function, Instruction, Terminator};
 use crate::metadata::tokens::UNRESOLVED;
 use crate::metadata::Value;
 
-use super::frame::{JitFrame, JitModuleCtx};
+use super::frame::JitFrame;
+use super::runtime::JitRuntime;
+use crate::vm_context::VmContext;
 use super::helpers::call::builtin_error_into_exception;
 use super::helpers::vm_ctx_ref;
 
@@ -100,7 +102,7 @@ fn owner_type(name: &str) -> Option<&str> {
 /// # Safety
 /// `frame` / `ctx` as for every JIT helper; `arg_regs` index `frame.regs`.
 pub(crate) unsafe fn call_forward(
-    frame: &mut JitFrame, ctx: *const JitModuleCtx, dst: u32, id: u32,
+    frame: &mut JitFrame, ctx: *const VmContext, dst: u32, id: u32,
     this: Option<Value>, arg_regs: &[u32],
 ) -> u8 {
     let mut args: SmallVec<[Value; 4]> = SmallVec::new();
@@ -143,7 +145,7 @@ impl StrIntrinsic {
 }
 
 /// What the translator may ask about a call target while compiling a caller.
-/// Implemented by [`JitModuleCtx`]; never loads a package or binds a site.
+/// Implemented by [`CompileLookup`]; never loads a package or binds a site.
 pub(crate) trait ForwardLookup {
     /// The builtin the function under JIT id `id` forwards to (shape 1 or 2),
     /// provided a static call of it needs no type-init barrier (its owner type is
@@ -155,48 +157,47 @@ pub(crate) trait ForwardLookup {
     fn forward_of_name(&self, name: &str) -> Option<u32>;
 }
 
-impl JitModuleCtx {
+/// The translator's view of the VM while one function compiles: the shared JIT
+/// runtime plus the compiling thread's context (for read-only probes of loaded
+/// packages and types — VM-wide facts, so the compiled code is valid on every
+/// thread).
+pub(crate) struct CompileLookup<'a> {
+    pub(crate) rt: &'a JitRuntime,
+    pub(crate) vm: &'a VmContext,
+}
+
+impl CompileLookup<'_> {
     /// Builtin id `func` forwards to (shape 1, or shape 2 over an already-registered
     /// target), gated on its static-call barrier being a no-op.
-    ///
-    /// # Safety
-    /// `module` valid; `vm_ctx` valid or null.
-    unsafe fn barrier_free_forward(&self, func: &Function) -> Option<u32> {
-        if self.vm_ctx.is_null() || !unsafe { (*self.vm_ctx).callee_owner_init_free(&func.name) } {
+    fn barrier_free_forward(&self, func: &Function) -> Option<u32> {
+        if !self.vm.callee_owner_init_free(&func.name) {
             return None;
         }
         builtin_forward(func).or_else(|| chained_forward(func, |name| {
-            unsafe { self.probe_fn(name, |f| builtin_forward(f)) }
+            self.probe_fn(name, |f| builtin_forward(f))
         }))
     }
 
     /// Apply `f` to the function registered under `name` — merged module first, then
     /// the packages loaded so far (the order `resolve_vcall` probes). Read-only: the
     /// translator runs under the compile lock and must not load or initialise anything.
-    ///
-    /// # Safety
-    /// As [`Self::barrier_free_forward`].
-    unsafe fn probe_fn<R>(&self, name: &str, f: impl FnOnce(&Function) -> Option<R>) -> Option<R> {
-        let module = unsafe { &*self.module };
+    fn probe_fn<R>(&self, name: &str, f: impl FnOnce(&Function) -> Option<R>) -> Option<R> {
+        let module = self.rt.module();
         if let Some(func) = module.func_index.get(name).and_then(|&i| module.functions.get(i)) {
             return f(func);
         }
-        if self.vm_ctx.is_null() { return None; }
-        let func = unsafe { (*self.vm_ctx).probe_loaded_function(name) }?;
+        let func = self.vm.probe_loaded_function(name)?;
         f(&func)
     }
 }
 
-impl ForwardLookup for JitModuleCtx {
+impl ForwardLookup for CompileLookup<'_> {
     fn forward_of_id(&self, id: u32) -> Option<u32> {
-        // SAFETY: `module` / `vm_ctx` are valid while compiling (the compile lock is
-        // taken inside a `run_fn`, or by a test that set them up).
-        unsafe { self.barrier_free_forward(self.fn_of(id as usize)?) }
+        self.barrier_free_forward(self.rt.fn_of(id as usize)?)
     }
 
     fn forward_of_name(&self, name: &str) -> Option<u32> {
-        // SAFETY: as above.
-        unsafe { self.probe_fn(name, |f| self.barrier_free_forward(f)) }
+        self.probe_fn(name, |f| self.barrier_free_forward(f))
     }
 }
 

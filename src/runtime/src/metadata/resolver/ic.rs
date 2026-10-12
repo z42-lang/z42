@@ -20,7 +20,7 @@ pub const IC_SLOTS: usize = 4;
 /// P1-2 PR 4: the payload is the callee's `FnId` under the site's module — entry-module
 /// functions `0..n` (numerically their `module.functions` index, so merged dispatch is
 /// unchanged), lazily loaded functions the ids after that. Read it back with
-/// `interp::exec_call::fn_by_id` / `JitModuleCtx::fn_of`; it is also the JIT slot id.
+/// `interp::exec_call::fn_by_id` / `JitRuntime::fn_of`; it is also the JIT slot id.
 ///
 /// fix-field-ic-publication-race (2026-09-17): 拆成两个独立原子量会撕裂，见
 /// [`pack`] 上方的说明。承载的 vtable slot 已删——它是死载荷：唯一的消费点

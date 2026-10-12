@@ -12,7 +12,8 @@
 
 use crate::metadata::resolver::FieldIC;
 
-use super::super::frame::{JitFrame, JitModuleCtx};
+use super::super::frame::JitFrame;
+use crate::vm_context::VmContext;
 use super::{raise, vm_ctx_ref};
 
 #[inline(always)]
@@ -27,7 +28,7 @@ unsafe fn ic_ref<'a>(ic_ptr: *const FieldIC) -> Option<&'a FieldIC> {
 /// `bytes` allocation, receiver held live by the frame.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_obj_field_slot(
-    frame: *mut JitFrame, _ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, _ctx: *const VmContext,
     obj: u32, field_name_ptr: *const u8, field_name_len: usize,
     expected_width: u32, expected_tag: u32,
     out_bytes_ptr: *mut *const u8, out_off: *mut i64,
@@ -50,7 +51,7 @@ pub unsafe extern "C" fn jit_obj_field_slot(
 /// `ref_word::KIND_TO_VALUE_TAG` (kind 7 = a boxed primitive → `jit_field_get`). Read-only.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_obj_ref_field_slot(
-    frame: *mut JitFrame, _ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, _ctx: *const VmContext,
     obj: u32, field_name_ptr: *const u8, field_name_len: usize,
     out_bytes_ptr: *mut *const u8, out_off: *mut i64,
 ) {
@@ -67,7 +68,7 @@ pub unsafe extern "C" fn jit_obj_ref_field_slot(
 /// `FieldGet` helper. `ic_ptr` = the site's `FieldIC` (stable pointer baked at codegen; may be null).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_field_get(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     dst: u32, obj: u32,
     field_name_ptr: *const u8, field_name_len: usize,
     ic_ptr: *const FieldIC,
@@ -83,7 +84,7 @@ pub unsafe extern "C" fn jit_field_get(
 /// `FieldSet` helper (write barrier + primitive-slot type check inside objops).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_field_set(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     obj: u32,
     field_name_ptr: *const u8, field_name_len: usize, val: u32,
     ic_ptr: *const FieldIC,

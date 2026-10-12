@@ -12,7 +12,7 @@
 1. **头号系统性问题：运行时的"身份"全程按名字。** 函数/类型/字段/方法从解码起就被还原成 `String`，运行期再靠一堆哈希表和旁路缓存"重新压缩"。wire 格式本来是紧凑的下标与 token，加载器先解压成字符串、执行时再哈希回去。JIT 字段 helper 按名解析在 z42c 构建里占 **约 10%**。惰性包函数没有整数身份，导致 PIC 永远缓存不了跨包目标，而 z42c 的代码全在惰性包里（§4.1）。
 2. **调用协议是解释器与 JIT 共同的天花板。** 每次调用约 11 次原子 RMW、3 次加锁、4 次 TLS、2 个 `Arc<str>` 引用计数，JIT 还要经 4 次 helper。单态虚调用 JIT ≈52 ns、解释器 ≈94 ns；fib 递归每次调用 ≈140 ns【实测】。帧管理在 z42c 里占 **约 10%**（§4.2）。
 3. **对象模型与 GC 的内存开销是 .NET 的 2.5–3 倍，RSS 是 GC 记账堆的 4.5–6 倍。** 72 B 头（含每对象一把 Mutex）+ 单独 malloc 的负载；TLAB 不复用死槽。默认的分代 + 增量模式在大堆场景下**比纯 STW 更慢也更大**【实测】（§4.3、§4.4）。
-4. **JIT 在结构上只能单线程。** worker 线程永远走解释器（`jit_ctx` 恒为 0），z42c `--jobs N` 的并行阶段全部是解释执行【确认】（§4.5）。
+4. ~~**JIT 在结构上只能单线程。**~~ ✅ P1-6 已解决：worker 线程照常分层、编译、跑原生码，z42c `--jobs 4` 构建 −19%（§4.5、§7）。
 5. **组件化的前提尚不成立。** interp→jit 有 12 处依赖；metadata ↔ gc ↔ vm_context 成环；GC trait 有 58 个方法却只有 1 个实现，还大量泄漏实现细节；VmCore 是上帝对象，挂着 socket/文件/进程表；`#[cfg(target_os)]` 在 PAL 外有 123 处、PAL 内只有 13 处（§5）。
 6. **还有 6 个已确认、未修的缺陷**（§3），都不在热路径上，但有挂起、fd 泄漏、数据竞争的风险。
 
@@ -304,7 +304,7 @@ JIT 的每次调用 = 4 次 native→Rust helper（vcall/call、`jit_regs_ptr`�
 
 ### 4.5 JIT 专项
 
-1. **worker 线程不跑 JIT**【确认】：`construct.rs:112` 在 `new_with_core` 里把 `jit_ctx` 置 0；JIT ABI 经共享的 `JitModuleCtx.vm_ctx` 访问 VmContext（safepoint 计数、call_stack 都是主线程的），直接放开会产生数据竞争。改法：每线程上下文放进 JitFrame 或作为第 3 个参数传入，JitModuleCtx 挂到 VmCore 上。
+1. ~~**worker 线程不跑 JIT**~~ ✅ 已解决（P1-6，方案见 §7「P1-6」）：编译码与 helper 的上下文参数改为运行线程自己的 `VmContext`，共享 JIT 状态挂到 `VmCore.jit`，worker 线程照常分层、编译、跑原生码。
 2. **惰性函数缺统一身份的 5 个后果**：
    - interp→native 既不路由也不计数（只编了 58 个方法）；
    - PIC 不缓存 lazy 目标；
@@ -508,6 +508,15 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
   - 8：FuncRef / Closure 改存 FnId。🟡 已实现、待合并（分支 `vm/funcref-closure-fnid`）：`Value::FuncRef(FnId)`（4 B 载荷，`Value` 仍 16 B）、`ClosureData { env, fn_id }`；`LoadFn` / `MkClos` 在创建时经 `exec_call::fn_ref_id` / `bind_fn_ref` 把名字绑成 FnId（本模块 `func_index` → 惰性加载器，含加载目标包），结果存进站点 token `ResolvedTokens::fn_ref_tokens`（resolver 加载期按 `id_of` 预填），之后同一站点只读一次 token。`CallIndirect` 按 id 派发：interp `fn_by_id` + 经 `resolve_fn_by_id_tiered` 计数并转原生码，JIT `jit_call_indirect` 直接查槽位表；JIT 的 `LoadFn` 已绑定时内联成一次寄存器写。目标名解析不到时在 `LoadFn` / `MkClos` 处抛 `MissingSymbolException`（此前在调用时报内部错误）。删除 PR 7 的 `fn_name_cache` / `intern_fn_name`；`FuncRef` 不再是堆引用。`__delegate_eq` 按 id 比较，`__delegate_fn_name` / 显示从 id 取名字，`__make_closure` 走同一条绑定。
   - 9：清理。
 - 不改 `.zbc` / `.zpkg` 格式。
+
+**P1-6 JIT 每线程上下文**（User，2026-10-12：选最根本、以后不用再迭代的方案，不计改动量）
+- 决定：
+  - 编译码与所有 JIT helper 的上下文参数改为**运行线程自己的 `VmContext`**（HotSpot / .NET 的「线程寄存器」）。生成码按偏移读的字段收进 `VmContext` 上 `#[repr(C)]` 的 `JitHead`：本线程栈下限（栈底帧 push 时按驱动线程写入）、cctor 门指针，外加缓存的共享运行时指针；safepoint 计数仍在 `VmContext::safepoint_skip`，内联快路直接按偏移读写，少一次间接。
+  - 共享的 JIT 状态挂到 `VmCore.jit: OnceLock<JitRuntime>`（每 VM 一个 JIT：槽表、`Mutex<LazyCompiler>` 与代码页、OSR 缓存、阈值、模块指针），随 VmCore 释放；删除 `JitModuleCtx` / `JitModule` 与 `VmContext::jit_ctx`。
+  - 编译在**调用线程**上、编译锁内进行（谁先到阈值谁编，别的线程等锁）；批量 / 后台编译仍归 §4.5 第 3 条。等锁不 park（调用方可能手握只在 Rust 局部里的新对象），锁内不到 safepoint：可能加载包的 token 解析与 `chained_forward` 查找都挪到拿锁之前。OSR 缓存在锁内复查、写入。
+  - 不改字节码 / 格式；行为上唯一的变化是 worker 线程跑原生码（不可翻译的入口在解释器上跑时，其调用的已编译函数也回跳原生码）。
+- 安全性逐项核对：待抛异常、safepoint 计数与慢路径、帧栈登记（`call_native` 压进本线程帧栈）、寄存器池、三个 arena、计数器分片、`isa_cache` / 查找缓存都是每线程的；静态字段（VmCore 锁）、cctor 门（Condvar + park）、调用点缓存（`Function.resolved` 里的原子单元，本就由多线程解释器共用）是共享且已同步的；槽位经 `OnceLock` release / acquire 发布，发布前 cranelift 已 mprotect + 刷 icache + `pipeline_flush_mt`；worker 的 JIT 帧经 `scan_frames_parked` 与主线程一样被扫描。
+- 实测（release z42vm，与合并基 fd500f4ac 交错，负载 9–28）：z42c 工作区构建 `--jobs 4` 10.72 → 8.63 s（−19%，7 轮中位），`--jobs 1` 13.29 → 12.99 s（持平），产物逐字节一致；`--jobs 4` 下 VM 实际编译 1144 → 2050 个函数（worker 也升层）。`06_thread_scaling`（每线程 5000 万次迭代）941 → 272 ms；01（fib 32）/ 05 / 10 单线程 0.97 / 0.96 / 0.99。
 
 **P1-7 GC**
 - 决定：
