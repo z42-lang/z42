@@ -2,7 +2,6 @@
 name    = "demo.slcollapp"
 version = "0.1.0"
 kind    = "exe"
-entry   = "Demo.SlCollApp.Main"
 pack    = true
 
 [dependencies]
