@@ -5,7 +5,7 @@
 
 ## 概述
 
-`.zbc` 是 z42c 为单个模块产出的平台无关字节码：寄存器式指令流 + 元数据 section。它是编译流程写出阶段的产物，也是虚拟机的输入。当前版本 **1.47**（`major=1, minor=47`）。
+`.zbc` 是 z42c 为单个模块产出的平台无关字节码：寄存器式指令流 + 元数据 section。它是编译流程写出阶段的产物，也是虚拟机的输入。当前版本号以写端常量为准（坐标见[格式 bump 清单](../devinfra/format-bump.md)）。
 
 本页是 wire format 参考——文件如何逐字节编码；指令的执行语义见运行时部分。
 
@@ -276,7 +276,7 @@ IMPORT_BASE       0x80000000
 
 触发 **minor** bump：新增 opcode、新增 section、已有 section 字段/语义变化、flag 位语义变化。触发 **major** bump（迄今未发生）：改 magic、改 16B 头字段、改 section 目录条目格式、重划 token 编码空间。
 
-bump 的同步 checklist 见开发基础设施部分的 version-bumping 规范。
+bump 的同步清单见[格式 bump：清单与本地验证](../devinfra/format-bump.md)。
 
 ## Minor changelog
 

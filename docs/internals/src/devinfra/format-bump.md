@@ -27,20 +27,21 @@ warm 建 / 测 / fixture 重生全部走通，两代自举彻底不需要。
 
 ### 版本常量坐标（唯一真相表）
 
-z42 pre-1.0 是 **strict-pin**：Rust reader 精确匹配 writer 的 major + minor，没有兼容回退。四个常量的位置与当前值：
+z42 pre-1.0 是 **strict-pin**：Rust reader 精确匹配 writer 的 major + minor，没有兼容回退。四个常量在哪如下；
+**当前版本号以代码为准，文档不抄数值**——抄了就要每次 bump 都跟着改，而且迟早会漏。
 
-| 端 | 文件 | 常量 | 当前值 |
-|----|------|------|--------|
-| zbc writer（z42c） | `src/compiler/z42.package/src/BinaryFormat/ZbcFormat.z42` | `ZbcVersion.Major` / `.Minor` | 1 / 47 |
-| zbc reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZBC_VERSION_MAJOR` / `_MINOR` | 1 / 47 |
-| zpkg writer（z42c） | `src/compiler/z42.package/src/ZpkgWriter.z42` | `ZpkgWriterZ.Major` / `.Minor` | 0 / 53 |
-| zpkg reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZPKG_VERSION_MAJOR` / `_MINOR` | 0 / 53 |
+| 端 | 文件 | 常量 |
+|----|------|------|
+| zbc writer（z42c） | `src/compiler/z42.package/src/BinaryFormat/ZbcFormat.z42` | `ZbcVersion.Major` / `.Minor` |
+| zbc reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZBC_VERSION_MAJOR` / `_MINOR` |
+| zpkg writer（z42c） | `src/compiler/z42.package/src/ZpkgWriter.z42` | `ZpkgWriterZ.Major` / `.Minor` |
+| zpkg reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZPKG_VERSION_MAJOR` / `_MINOR` |
 
 > 🔒 **本表有防腐门**：`cargo test --test format_fixture_versions` 的
-> `version_bumping_coordinate_table_matches_the_real_constants` **解析本表自己的四行**，拿每行的「值」去和该行
-> 指着的文件里的常量对账——路径写错 / 常量改名 / 值过期，任一即红；行数不是 4 也红。同文件的
-> `writer_and_reader_pin_the_same_format_versions` 另外钉住 writer↔reader 不许偏斜。这张表是散文，没有构建会读它，
-> 而它偏偏是承重的（过期的行会把下一个 bump 的人送到错的文件或错的起始号上），所以配了这道门。
+> `version_bumping_coordinate_table_matches_the_real_constants` **解析本表自己的四行**，到每行指着的文件里找该行
+> 写的常量——路径写错 / 常量改名，任一即红；行数不是 4 也红。同文件的
+> `writer_and_reader_pin_the_same_format_versions` 钉住 writer↔reader 的数值不许偏斜。这张表是散文，没有构建会读它，
+> 而它偏偏是承重的（过期的行会把下一个 bump 的人送到错的文件上），所以配了这道门。
 > 门按本页路径解析，**挪表时同一提交改测试**。
 
 ### Bumping `.zbc` minor version —— 5 步
@@ -53,8 +54,7 @@ z42 pre-1.0 是 **strict-pin**：Rust reader 精确匹配 writer 的 major + min
    注释块追加一行（日期 / PR / 字段变化）；reader 解码逻辑（`read_*_section`）同步新格式。
 3. **[zbc.md](../formats/zbc.md)** — 该页的 "Minor changelog" 表加一行（minor / 日期 / 触发变更 / 引入内容）。
 4. **regen zbc-format fixture** — 跑 `xtask build test`（前置 `build compiler` + `build stdlib` 已用新格式重建），
-   原地覆写 `src/compiler/z42.package/tests/fixtures/zbc-format/*/source.zbc`（5 个 committed 字节基线：`empty` /
-   `strp-func-minimal` / `multi-method` / `cross-import-token` / `with-frcs`）；`git diff` 应显示格式
+   原地覆写 `src/compiler/z42.package/tests/fixtures/zbc-format/*/source.zbc`（该目录下全部 committed 字节基线）；`git diff` 应显示格式
    delta，**必须连同 bump 一起提交**。
 
    > 🔒 **CI 有门（`refresh-format-fixtures`）**：`test-host` 的三条非 Windows 腿在 `test`（其 build wave 就地 regen）
@@ -65,12 +65,12 @@ z42 pre-1.0 是 **strict-pin**：Rust reader 精确匹配 writer 的 major + min
 
    | 测试 | 内嵌什么 |
    |---|---|
-   | `test_zbc_empty_byte_identical` | `empty/source.zbc` 全量 hex（231B）|
+   | `test_zbc_empty_byte_identical` | `empty/source.zbc` 全量 hex |
    | `test_zbc_f5_with_dbug_byte_identical` | `int F(){return 5;}` 的全量 hex（含 DBUG 行表）|
    | `test_zbc_selfcheck_program_header` | 自检程序 header 前 10 字节 `5a4243 0001 <minor> 0200` |
 
    ⭐ **改之前先逐字节 diff，把「为什么只有这些字节变」写进注释** —— 那句推理才是 golden 的价值所在
-   （例：1.46 那次三个用例都**一条 struct 指令都不发** ⇒ 只有 header 的 minor 那一个字节变）。
+   （例：bump 只改了 struct 指令的编码，而三个用例都**一条 struct 指令都不发** ⇒ 只有 header 的 minor 那一个字节变）。
    第一个从 regen 后的 fixture 重截：
    ```bash
    xxd -p src/compiler/z42.package/tests/fixtures/zbc-format/empty/source.zbc | tr -d '\n'
@@ -83,10 +83,10 @@ z42 pre-1.0 是 **strict-pin**：Rust reader 精确匹配 writer 的 major + min
 
 6. **`src/compiler/z42.package/src/ZpkgWriter.z42`** — `ZpkgWriterZ.Minor++`，注释更新内嵌 zbc 版本。
 7. **`zbc_reader/versions.rs`** — `ZPKG_VERSION_MINOR` 同步；上方 zpkg changelog 注释块追加一行（指明耦合的 inner zbc minor）。
-8. **[zpkg.md](../formats/zpkg.md)** — 更新页首「状态」与 `## 版本` 段的**当前配对**（`当前 0.NN ↔ 1.MM`，两处）。
-   ⚠️ 本页没有 Minor changelog 表：zpkg 的逐 minor 历史写在写端常量旁（步骤 6 已覆盖）。
+8. **[zpkg.md](../formats/zpkg.md)** — 页内不写当前版本号；只有 outer 布局变化时才改对应章节。
+   zpkg 的逐 minor 记录写在写端常量旁（步骤 6 已覆盖）。
 9. **regen zpkg-format fixture** — 覆写 `src/compiler/z42.package/tests/fixtures/zpkg-format/*/source.zpkg`
-   （4 个 committed 基线：`packed-minimal` / `packed-multi-module` / `indexed-minimal` / `sym-only-sidecar`）。
+   （该目录下全部 committed 基线）。
    每个 fixture 目录自带 **committed 构建配方 `<fixture>.z42.toml`**：`[project].pack` 决定 packed / indexed，
    是否带 `--release` 决定 strip / sidecar。完整重生命令见
    [zpkg-format fixture README](../../../../src/compiler/z42.package/tests/fixtures/zpkg-format/README.md)「维护流程」。

@@ -5,7 +5,7 @@
 
 ## 概述
 
-`.zpkg` 是 z42c 把一个包的多个模块打成的分发单元：包级元数据 + 各模块的 zbc 内容。当前版本 **0.53**，内嵌 zbc 1.47（zbc 变则两者同步 bump）。
+`.zpkg` 是 z42c 把一个包的多个模块打成的分发单元：包级元数据 + 各模块的 zbc 内容。版本与内嵌的 zbc 版本强耦合，zbc 变则两者同步 bump；当前版本号以写端常量为准（坐标见[格式 bump 清单](../devinfra/format-bump.md)）。
 
 它有两种布局：**packed**（模块 zbc 字节内嵌，用于分发与测试）与 **indexed**（模块 zbc 外挂为散装 `.zbc` 文件，用于开发态增量）。字节原语与 section 目录结构与 [zbc](zbc.md) 一致，本页只列 zpkg 特有部分。
 
@@ -283,11 +283,11 @@ trace 里每帧的函数名携带参数类型签名（`at MyApp.Greeter.greet(Gr
 
 ## 版本
 
-Strict-pin，与 zbc 同政策；zpkg 版本与 zbc 版本强耦合（当前 0.53 ↔ 1.47），bump 联动。同步 checklist 见开发基础设施部分的 version-bumping 规范。
+Strict-pin，与 zbc 同政策；zpkg 版本与 zbc 版本强耦合，bump 联动。同步清单见[格式 bump：清单与本地验证](../devinfra/format-bump.md)。
 
 > 📌 **本页不维护逐 minor 的 changelog 表**（zbc 那边有一张）。zpkg 的 minor 历史写在写端常量旁 ——
 > `src/compiler/z42.package/src/ZpkgWriter.z42` 的 `ZpkgWriterZ.Minor` 注释，那里逐条记着
-> 「这一版内嵌哪个 zbc、outer 布局有没有变」。bump 时更新的是**上面那句当前配对** + 那条注释。
+> 「这一版内嵌哪个 zbc、outer 布局有没有变」。bump 时更新的是那条注释，本页不写当前版本号。
 
 ### 版本失配怎么表现
 

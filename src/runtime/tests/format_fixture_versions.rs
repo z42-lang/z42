@@ -160,26 +160,14 @@ fn sym_only_fixture_really_holds_sidecar_bytes() {
 //
 // `docs/internals/src/devinfra/format-bump.md` carries a four-row table ("版本常量
 // 坐标（唯一真相表）") giving, for each of the two writers and the two readers,
-// the file, the constant names, and the **current value**. It is the first thing
-// anyone consults when bumping a format.
+// the file and the constant names. It is the first thing anyone consults when
+// bumping a format, so a stale row sends the next bumper to the wrong file.
 //
-// It has rotted twice, and the document says so about itself:
-//
-//   > ⚠️ 这张表**自己也会腐坏**（2026-09-04 发现时停在 1/35 与 0/40，落后 3 个
-//   > minor，且路径在 reader 拆分后已失效）。
-//   > 二进制 fixture 那边已有防腐门（步骤 4 / 9），**这张表还没有**。
-//
-// It then rotted a third time: `type-section-flags2-and-struct-fields` moved all
-// four constants to zbc 1.45 / zpkg 0.50 and left the table at 1.44 / 0.49.
-//
-// That is a gate watching nothing at all: the table is prose, so no build, no
-// test and no strict-pin check ever reads it. Meanwhile it is load-bearing —
-// a stale row is what sends the next bumper to the wrong file or the wrong
-// starting number.
-//
-// This test closes it the same way the fixture gates above are closed: parse the
-// table's own rows and check each claim against **the file that row points at**.
-// Path wrong, constant renamed, or value stale ⇒ red.
+// The table is prose — no build reads it — so it gets its own gate: parse the
+// table's rows and check each claim against **the file that row points at**.
+// Path wrong or constant renamed ⇒ red. The table holds no version numbers on
+// purpose (those live in code; a copied number rots on every bump), and the
+// writer↔reader numbers are pinned against each other by the next test.
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -227,45 +215,52 @@ fn backticked(cell: &str) -> Option<&str> {
     Some(&rest[..b])
 }
 
-/// A `| … | … | … | <major> / <minor> |` row of the coordinate table.
-struct ClaimRow {
+/// A `| 端 | 文件 | 常量 |` row of the coordinate table. The table deliberately
+/// carries **no version numbers**: those live in code only (a copied number has
+/// to be edited on every bump and eventually is not). What the table claims is
+/// *where* each constant lives, and that is what this gate checks.
+struct CoordRow {
     line_no: usize,
     path: String,
     consts: String,
-    claimed: (u16, u16),
 }
 
-fn parse_claim_rows(md: &str) -> Vec<ClaimRow> {
+/// Which of the four constant pairs a row names, keyed on the constant names the
+/// row itself prints (so renaming a constant without touching the table is caught).
+fn coord_kind(consts: &str) -> Option<&'static str> {
+    if consts.contains("ZbcVersion") {
+        Some("zbc writer")
+    } else if consts.contains("ZpkgWriterZ") {
+        Some("zpkg writer")
+    } else if consts.contains("ZBC_VERSION") {
+        Some("zbc reader")
+    } else if consts.contains("ZPKG_VERSION") {
+        Some("zpkg reader")
+    } else {
+        None
+    }
+}
+
+fn parse_coord_rows(md: &str) -> Vec<CoordRow> {
     let mut rows = Vec::new();
     for (i, line) in md.lines().enumerate() {
         let t = line.trim();
         if !t.starts_with('|') {
             continue;
         }
-        // `| a | b | c | d |` → ["", a, b, c, d, ""]
+        // `| a | b | c |` → ["", a, b, c, ""]
         let parts: Vec<&str> = t.split('|').collect();
-        if parts.len() != 6 {
+        if parts.len() != 5 || coord_kind(parts[3]).is_none() {
             continue;
         }
-        // Last cell must read exactly "<n> / <n>" — that is what makes it a
-        // value-bearing row rather than the header or the `|---|` separator.
-        let (lhs, rhs) = match parts[4].split_once('/') {
-            Some(p) => p,
-            None => continue,
-        };
-        let (major, minor) = match (lhs.trim().parse::<u16>(), rhs.trim().parse::<u16>()) {
-            (Ok(a), Ok(b)) => (a, b),
-            _ => continue,
-        };
         let path = match backticked(parts[2]) {
             Some(p) => p.to_string(),
             None => continue,
         };
-        rows.push(ClaimRow {
+        rows.push(CoordRow {
             line_no: i + 1,
             path,
             consts: parts[3].to_string(),
-            claimed: (major, minor),
         });
     }
     rows
@@ -279,21 +274,18 @@ fn version_bumping_coordinate_table_matches_the_real_constants() {
     let md = std::fs::read_to_string(&md_path)
         .unwrap_or_else(|e| panic!("read {}: {e}", md_path.display()));
 
-    let rows = parse_claim_rows(&md);
+    let rows = parse_coord_rows(&md);
     assert_eq!(
         rows.len(),
         4,
-        "{md_rel}: expected the 4-row 「版本常量坐标（唯一真相表）」 table, found {} \
-         value-bearing row(s).\n\
-         Rows are recognised by a last cell of the exact form `<major> / <minor>`. \
-         If you restructured the table, update this gate in the same commit — \
-         silently dropping a row is exactly the rot it exists to catch.",
+        "{md_rel}: expected the 4-row 「版本常量坐标（唯一真相表）」 table, found {} row(s).\n\
+         Rows are recognised as 3-cell table rows whose constant cell names one of \
+         ZbcVersion / ZpkgWriterZ / ZBC_VERSION / ZPKG_VERSION. If you restructured \
+         the table, update this gate in the same commit — silently dropping a row is \
+         exactly the rot it exists to catch.",
         rows.len()
     );
 
-    // Which constant pair does each row claim to describe? Keyed on the constant
-    // names the row itself prints, so renaming a constant without touching the
-    // table is also caught.
     let mut seen: Vec<&str> = Vec::new();
     for row in &rows {
         let file = root.join(&row.path);
@@ -308,36 +300,33 @@ fn version_bumping_coordinate_table_matches_the_real_constants() {
         let src = std::fs::read_to_string(&file)
             .unwrap_or_else(|e| panic!("read {}: {e}", file.display()));
 
-        let (kind, actual) = if row.consts.contains("ZbcVersion") {
-            ("zbc writer", (z42_static_int(&src, "ZbcVersion", "Major"), z42_static_int(&src, "ZbcVersion", "Minor")))
-        } else if row.consts.contains("ZpkgWriterZ") {
-            ("zpkg writer", (z42_static_int(&src, "ZpkgWriterZ", "Major"), z42_static_int(&src, "ZpkgWriterZ", "Minor")))
-        } else if row.consts.contains("ZBC_VERSION") {
-            ("zbc reader", (rust_u16_const(&src, "ZBC_VERSION_MAJOR"), rust_u16_const(&src, "ZBC_VERSION_MINOR")))
-        } else if row.consts.contains("ZPKG_VERSION") {
-            ("zpkg reader", (rust_u16_const(&src, "ZPKG_VERSION_MAJOR"), rust_u16_const(&src, "ZPKG_VERSION_MINOR")))
-        } else {
-            panic!(
-                "{md_rel}:{}: cannot tell which constants this row describes from {:?}. \
-                 Expected one of ZbcVersion / ZpkgWriterZ / ZBC_VERSION / ZPKG_VERSION.",
-                row.line_no, row.consts
-            );
-        };
+        // Each lookup panics with a precise message if the constant is not where
+        // the row says it is.
+        let kind = coord_kind(&row.consts).expect("filtered by parse_coord_rows");
+        match kind {
+            "zbc writer" => {
+                z42_static_int(&src, "ZbcVersion", "Major");
+                z42_static_int(&src, "ZbcVersion", "Minor");
+            }
+            "zpkg writer" => {
+                z42_static_int(&src, "ZpkgWriterZ", "Major");
+                z42_static_int(&src, "ZpkgWriterZ", "Minor");
+            }
+            "zbc reader" => {
+                rust_u16_const(&src, "ZBC_VERSION_MAJOR");
+                rust_u16_const(&src, "ZBC_VERSION_MINOR");
+            }
+            _ => {
+                rust_u16_const(&src, "ZPKG_VERSION_MAJOR");
+                rust_u16_const(&src, "ZPKG_VERSION_MINOR");
+            }
+        }
         assert!(
             !seen.contains(&kind),
             "{md_rel}:{}: two rows both describe the {kind} constants.",
             row.line_no
         );
         seen.push(kind);
-
-        assert_eq!(
-            row.claimed, actual,
-            "{md_rel}:{}: the table says the {kind} is at {}.{}, but `{}` actually \
-             declares {}.{}.\n\
-             Fix the table row (step: the 「版本常量坐标」 table is part of every \
-             bump, same as the fixture regens in steps 4 / 9).",
-            row.line_no, row.claimed.0, row.claimed.1, row.path, actual.0, actual.1
-        );
     }
     assert_eq!(seen.len(), 4, "{md_rel}: rows do not cover all four coordinates: {seen:?}");
 }
