@@ -1,0 +1,151 @@
+// WorkspacePlan：成员拓扑序 / WS001 重名 / default_members 选取（WS031）。
+namespace Z42ProjectWorkspacePlanTests;
+
+using Std.IO;
+using Z42.Project;
+
+// chain: a→b→c（a 依赖 b，b 依赖 c）→ 拓扑序 c,b,a（叶子在前）。
+[Test]
+void test_topo_chain() {
+    string[] names = new string[]{ "a", "b", "c" };
+    string[] tomls = new string[]{ "a.toml", "b.toml", "c.toml" };
+    string[] depFlat = new string[]{ "b", "c" };   // a→b, b→c
+    int[] depOff = new int[]{ 0, 1, 2 };
+    int[] depLen = new int[]{ 1, 1, 0 };
+    int[] order = WorkspacePlan.TopoOrder(new WorkspaceMembers(tomls, names, depFlat, depOff, depLen, 3));
+    Assert.Equal(3, order.Length);
+    Assert.Equal("c", names[order[0]]);
+    Assert.Equal("b", names[order[1]]);
+    Assert.Equal("a", names[order[2]]);
+}
+
+// fan-out: root 依赖 x,y（两叶子互不依赖）→ 叶子按 name Ordinal 先发（x,y），root 最后。
+[Test]
+void test_topo_fanout() {
+    string[] names = new string[]{ "root", "x", "y" };
+    string[] tomls = new string[]{ "root.toml", "x.toml", "y.toml" };
+    string[] depFlat = new string[]{ "x", "y" };   // root→x, root→y
+    int[] depOff = new int[]{ 0, 2, 2 };
+    int[] depLen = new int[]{ 2, 0, 0 };
+    int[] order = WorkspacePlan.TopoOrder(new WorkspaceMembers(tomls, names, depFlat, depOff, depLen, 3));
+    Assert.Equal("x", names[order[0]]);
+    Assert.Equal("y", names[order[1]]);
+    Assert.Equal("root", names[order[2]]);
+}
+
+// cycle: a→b, b→a → 无进展 → 抛。
+[Test]
+void test_topo_cycle_throws() {
+    string[] names = new string[]{ "a", "b" };
+    string[] tomls = new string[]{ "a.toml", "b.toml" };
+    string[] depFlat = new string[]{ "b", "a" };
+    int[] depOff = new int[]{ 0, 1 };
+    int[] depLen = new int[]{ 1, 1 };
+    string msg = "";
+    try {
+        WorkspacePlan.TopoOrder(new WorkspaceMembers(tomls, names, depFlat, depOff, depLen, 2));
+    } catch (Exception e) {
+        msg = e.Message;
+    }
+    Assert.Equal("workspace: circular member dependency", msg);
+}
+
+// WS001：两个成员同名 [project] name → 抛，消息含两份清单路径；无重名则放行。
+[Test]
+void test_duplicate_member_name_throws() {
+    string[] tomls = new string[]{ "a/a.z42.toml", "b/b.z42.toml", "c/x.z42.toml" };
+    string[] names = new string[]{ "lib", "app", "lib" };
+    string msg = "";
+    try {
+        WorkspacePlan.CheckUniqueNames(tomls, names, 3);
+    } catch (Exception e) {
+        msg = e.Message;
+    }
+    Assert.True(msg.Contains("WS001"));
+    Assert.True(msg.Contains("a/a.z42.toml") && msg.Contains("c/x.z42.toml"));
+    WorkspacePlan.CheckUniqueNames(tomls, names, 2);   // 前两项不重名 → 不抛
+}
+
+// ── default_members（真目录）────────────────────────────────────────────────
+
+// 三成员：libs/core（无依赖）、apps/hello（依赖 core）、apps/tool（无依赖）。
+string _ws(string defaults) {
+    string root = Directory.CreateTempDir("z42-wsplan");
+    _member(root, "libs/core", "core", "");
+    _member(root, "apps/hello", "hello", "\n[dependencies]\n\"core\" = { path = \"../../libs/core\" }\n");
+    _member(root, "apps/tool", "tool", "");
+    string ws = "[workspace]\nmembers = [\"libs/*\", \"apps/*\"]\n" + defaults;
+    string toml = Path.Join(root, "z42.workspace.toml");
+    File.WriteAllText(toml, ws);
+    return toml;
+}
+
+void _member(string root, string rel, string name, string extra) {
+    string dir = Path.Join(root, rel);
+    Directory.Create(dir);
+    File.WriteAllText(Path.Join(dir, "z42.toml"),
+        "[project]\nname = \"" + name + "\"\nversion = \"0.1.0\"\nkind = \"lib\"\n" + extra);
+}
+
+string _names(WorkspaceLayoutPlan p) {
+    string s = "";
+    int i = 0;
+    while (i < p.Count) { if (i > 0) { s = s + ","; } s = s + p.Names[i]; i = i + 1; }
+    return s;
+}
+
+// 没写 default_members → 全部成员，拓扑序（依赖在前；按名扫描，依赖就绪即发）。
+[Test]
+void test_default_absent_selects_all() {
+    string ws = _ws("");
+    Assert.Equal("core,hello,tool", _names(WorkspacePlan.PlanDefault(ws, "debug")));
+    Assert.Equal("core,hello,tool", _names(WorkspacePlan.PlanLayout(ws, "debug")));
+}
+
+// `[]` 等同没写。
+[Test]
+void test_default_empty_selects_all() {
+    Assert.Equal("core,hello,tool", _names(WorkspacePlan.PlanDefault(_ws("default_members = []\n"), "debug")));
+}
+
+// 按成员目录（可带 ./ 与尾随 /）或 [project].name 选。
+[Test]
+void test_default_by_path_and_name() {
+    string ws = _ws("default_members = [\"./apps/hello/\", \"tool\"]\n");
+    WorkspaceLayoutPlan p = WorkspacePlan.PlanDefault(ws, "release");
+    // hello 依赖 core ⇒ core 也进计划（排前、不作目标）。
+    Assert.Equal("core,hello,tool", _names(p));
+    Assert.False(p.Selected[0]);
+    Assert.True(p.Selected[1] && p.Selected[2]);
+    Assert.Equal(2, p.SelectedCount());
+    Assert.True(p.DistDirs[0].EndsWith("/dist"));
+    // PlanLayout（z42c --workspace）不看 default_members。
+    Assert.Equal(3, WorkspacePlan.PlanLayout(ws, "release").Count);
+}
+
+// 匹配不到任何成员 → WS031，消息列出全部成员名。
+[Test]
+void test_default_unknown_member_ws031() {
+    string msg = "";
+    try {
+        WorkspacePlan.PlanDefault(_ws("default_members = [\"apps/nope\"]\n"), "debug");
+    } catch (Exception e) {
+        msg = e.Message;
+    }
+    Assert.Equal("workspace: default_members entry `apps/nope` matches no member (WS031); members: core, hello, tool", msg);
+}
+
+// 只选 tool（无依赖）→ 计划里只有它；SingleDefault 返回它的清单。选两个 → SingleDefault 抛、列出两份清单。
+[Test]
+void test_single_default() {
+    string one = _ws("default_members = [\"tool\"]\n");
+    WorkspaceLayoutPlan p = WorkspacePlan.PlanDefault(one, "debug");
+    Assert.Equal("tool", _names(p));
+    Assert.True(WorkspacePlan.SingleDefault(one).EndsWith("apps/tool/z42.toml"));
+    // 选中 hello（依赖 core）：目标仍只有一个 ⇒ SingleDefault 给 hello。
+    Assert.True(WorkspacePlan.SingleDefault(_ws("default_members = [\"hello\"]\n")).EndsWith("apps/hello/z42.toml"));
+    string msg = "";
+    try { WorkspacePlan.SingleDefault(_ws("")); } catch (Exception e) { msg = e.Message; }
+    Assert.True(msg.Contains("default_members selects 3 members; pass one of them:"));
+    Assert.True(msg.Contains("libs/core/z42.toml"));
+}

@@ -45,7 +45,7 @@ golden、编译器测试单元都在某个 profile 下面。编译器 workspace 
 `stdlib-run` / `seed-run-libs` / `bootstrap-check`）不属于任何成员，在 `intermediate/compiler/`。
 
 **per-member 的产物路径不是硬编码的**：`scripts/common/xtask_layout.z42` 读各 workspace toml 的
-`[workspace.build].output_dir` / `cache_dir` 模板（正是 z42c 的 `WorkspaceBuild.PlanLayout` 消费的
+`[workspace.build].output_dir` / `cache_dir` 模板（正是 `WorkspacePlan.PlanLayout` 消费的
 同一份）再展开。改 toml 模板，xtask 自动跟上。cargo 侧同理由 `.cargo/config.toml` 的
 `target-dir` 决定：全仓只有一份 `src/runtime/.cargo` → `artifacts/build/runtime`（路径相对 `.cargo/`
 所在目录），runtime workspace 与 toolchain 平台 crate 共用。**注意它不带 `<cargo-target>` 这一层**，

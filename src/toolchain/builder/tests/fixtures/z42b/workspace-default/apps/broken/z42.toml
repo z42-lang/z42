@@ -1,0 +1,10 @@
+[project]
+name    = "ws.broken"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["src/**/*.z42"]
+
+[dependencies]
+"z42.core" = "0.1.0"

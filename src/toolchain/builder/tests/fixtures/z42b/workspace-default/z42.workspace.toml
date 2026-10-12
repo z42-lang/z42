@@ -1,0 +1,8 @@
+# workspace 根上的 z42b（由 xtask test toolchain builder 的 _smokeWorkspaceDefault 驱动）。
+#
+#   · `z42b build <本目录>` / `z42b test <本目录>` 只针对 default_members（apps/hello）；
+#     hello 按名依赖 libs/greet ⇒ greet 作为依赖先建（不作目标）。
+#   · apps/broken 故意编不过：默认构建碰都不碰它；`--workspace`（全部成员）必须在它那里失败。
+[workspace]
+members         = ["libs/*", "apps/*"]
+default_members = ["apps/hello"]

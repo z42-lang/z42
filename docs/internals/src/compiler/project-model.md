@@ -28,7 +28,7 @@ graph LR
 | 字段 | 含义 | 谁呈现 | 怎么呈现 |
 |---|---|---|---|
 | `ProjectManifest.UnknownKeys` | 不认识的键（错误行） | `ManifestKnobs.Resolve`（`z42c build` 与 z42b 共用） | 进 `KnobResult.Errors` → 用法错误 |
-| `WorkspaceManifest.UnknownKeys` | 同上，workspace 清单 | `WorkspaceBuild.Plan` / `PlanLayout` | 抛出，driver 原样呈现，一个成员都不建 |
+| `WorkspaceManifest.UnknownKeys` | 同上，workspace 清单 | `WorkspacePlan.Plan` / `PlanLayout` / `PlanDefault` | 抛出，driver / z42b 原样呈现，一个成员都不建 |
 
 不审计的位置是「键名本身就是用户数据」的段：依赖 / analyzer / native 的子表名、`[optimize]` / `[syntax]`
 （消费方按名表校验）、`[lints]` 规则名（值仍校验：severity 串 / `warnings_as_errors` 布尔）、`[properties]`、`[profile.<n>.runtime|properties]`；`[profile.<n>]`
@@ -232,7 +232,16 @@ stdlib flat 在 `artifacts/` 下的深度属于 xtask 的布局，挪位置时�
 
 ### 工作区编译
 
-`WorkspaceBuild.Plan` 先做**成员发现**：当前支持 `members = ["*"]`，即工作区目录下每个"恰好含一份 `*.z42.toml`"的子目录算一个成员。随后按成员间依赖做**拓扑排序**，叶子（无依赖）在前；同一层（互不依赖）的成员按名字 Ordinal 排序，保证结果稳定。
+规划在 `z42.project` 的 `WorkspacePlan`（不在编译器包里：z42b 刻意零编译器程序依赖，`z42c build --workspace`
+与 z42b 在工作区根共用这一份）。先做**成员发现**：`members` 逐条展开（段内 `*` / `?` 通配；显式路径必须存在），
+`exclude` 剔除，每个目录经 `ManifestLocator.FindIn` 认一份清单（WS005 / WS001 在这里拦）。随后按成员间依赖
+（`[dependencies]` 里指向本工作区成员的条目，按名或 path 都算）做**拓扑排序**：按成员名 Ordinal 逐轮扫描，依赖已发射即发射，
+叶子在前、结果确定。
+
+- `Plan` / `PlanLayout`：全部成员（z42c 用）。
+- `PlanDefault`：目标 = `default_members` 选中的成员（`SelectDefault`：条目按成员目录、再按包名匹配，不中抛 WS031；
+  没写 / `[]` 全选），再并入目标在工作区内的传递依赖，计划里用 `Selected = false` 标出（要先建、不作目标）。
+- `SingleDefault`：`run` / `publish` / `export` 在工作区上要恰好一个目标，否则抛并列出候选。
 
 driver 拿到拓扑序后逐个调用单包编译（即[源代码编译流程](source-compile.md)），每个包编完由 `ZpkgBuilder` 组装进 dist。重复构建时，`IncrementalBuild` 的文件级探测可跳过未变动文件的类型检查与代码生成。
 
@@ -351,12 +360,12 @@ preserved 早退**（`fix-analyzer-diags-preserved`）。早退路径只能回�
 | 关注点 | 关键文件 |
 |--------|---------|
 | 工程模型 | `z42.project/src/ManifestLoader.z42`、`ProjectManifest.z42`、`SourceDiscovery.z42`；`z42.package/src/PackageTypes.z42` |
-| 清单键审计 | `z42.project/src/ManifestKeys.z42`；呈现：`z42c.pipeline/src/ManifestKnobs.z42`、`WorkspaceBuild.z42`、`z42c.driver/src/WorkspaceBuild.z42` |
+| 清单键审计 | `z42.project/src/ManifestKeys.z42`；呈现：`z42c.pipeline/src/ManifestKnobs.z42`、`z42.project/src/WorkspacePlan.z42`、`z42c.driver/src/WorkspaceBuild.z42` |
 | 包级缓存身份 | `z42c.driver/src/Main.z42`（拼 `depsId`）、`z42c.pipeline/src/DepIdentity.z42`、`IncrementalDriver.z42`、`CacheStore.z42` |
 | 依赖扫描 | `z42c.pipeline/src/DepScan.z42`；跨成员 memo：`DepScanCache.z42`（F2） |
 | 依赖索引 | `z42.package/src/DependencyIndex.z42` |
 | 跨包符号加载（TSIG） | `z42c.semantics/src/Symbols/ImportedSymbolLoader.z42`；调和：`z42.package/src/TsigReconcile.z42` |
-| 工作区规划 | `z42c.pipeline/src/WorkspaceBuild.z42`；增量：`IncrementalBuild.z42` |
+| 工作区规划 | `z42.project/src/WorkspacePlan.z42`（z42c driver 与 z42b 共用；`z42c.pipeline/src/WorkspaceBuild.z42` 只剩种子转发）；z42b 逐成员编排：`src/toolchain/builder/core/builder_workspace.z42`；增量：`IncrementalBuild.z42` |
 | 产物组装 | `z42.package/src/ZpkgBuilder.z42`、`ZpkgWriter.z42` |
 | 编译期扩展解析域 / `[analyzers]` 解析 | 编译器目录 `z42c.pipeline/src/BuildSession.z42`（`CompilerDomain.Dirs`）；SDK 库可见性 `z42c.pipeline/src/SdkLibs.z42`；`z42c.driver/src/BuildPaths.z42`（`_resolveHandlerZpkgs` / `_handlerFingerprint`）；`${compiler_libs}` 宏 `ExeDeps.z42`；接线在 `Main.z42` |
 | handler 加载与执行 | `z42c.pipeline/src/AnalyzerLoader.z42`、`GeneratorLoader.z42`、`PackageCompile.z42` |

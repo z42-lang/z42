@@ -52,7 +52,8 @@ SubcommandRouter _builderRoot() {
     root.Add("new", "create a new project", newP);
 
     ArgParser build = new ArgParser("z42b build", "compile to a platform-agnostic app.zpkg");
-    build.AddOptionalPositional("project", "<manifest> (default: the nearest z42.toml)");
+    build.AddOptionalPositional("project", "<manifest|dir> (default: the nearest manifest; a workspace builds its default_members)");
+    build.AddFlag("workspace", "", "build every workspace member (default: default_members)");
     build.AddOption("rid", "", "target RID (default: host)", "");
     build.AddFlag("release", "", "release profile (default: debug)");
     root.Add("build", "compile to a platform-agnostic app.zpkg", build);
@@ -77,7 +78,8 @@ SubcommandRouter _builderRoot() {
     // target 双形态：已编译产物直跑 / 工程 toml（或默认 z42.toml）→ compile-then-test
     // （add-z42b-compile-then-test）；--release 供后者选 build profile（默认 debug）。
     ArgParser test = new ArgParser("z42 test", "build the project and run its [Test] units");
-    test.AddOptionalPositional("target", "<manifest|file.zpkg|file.zbc|bundle.json> (default: the nearest z42.toml)");
+    test.AddOptionalPositional("target", "<manifest|dir|file.zpkg|file.zbc|bundle.json> (default: the nearest manifest; a workspace tests its default_members)");
+    test.AddFlag("workspace", "", "test every workspace member (default: default_members)");
     test.AddOption("filter", "", "test name substring filter (reserved)", "");
     test.AddOption("format", "", "output format: pretty|json", "pretty");
     test.AddOption("name", "", "only build+run the [[test]] target with this name (default: all)", "");
@@ -108,7 +110,8 @@ SubcommandRouter _builderRoot() {
     root.Add("test", "run [Test] in a compiled module, project, or test-bundle", test);
 
     ArgParser bench = new ArgParser("z42 bench", "build the project and run its [Benchmark] units");
-    bench.AddOptionalPositional("target", "<manifest|file.zpkg|file.zbc> (default: the nearest z42.toml)");
+    bench.AddOptionalPositional("target", "<manifest|dir|file.zpkg|file.zbc> (default: the nearest manifest; a workspace benches its default_members)");
+    bench.AddFlag("workspace", "", "bench every workspace member (default: default_members)");
     bench.AddOption("filter", "", "benchmark name substring filter (reserved)", "");
     bench.AddOption("format", "", "output format: pretty|json (json adds bench_stats)", "pretty");
     bench.AddOption("name", "", "only build+run the [[bench]] target with this name (default: all)", "");
@@ -123,7 +126,8 @@ SubcommandRouter _builderRoot() {
     // clean — remove a project's build artifacts (moved out of z42c: the compiler
     // only compiles; artifact lifecycle belongs to the orchestrator z42b).
     ArgParser clean = new ArgParser("z42 clean", "remove the project's build output (dist, cache, artifacts)");
-    clean.AddOptionalPositional("project", "<manifest|dir> (default: the nearest z42.toml)");
+    clean.AddOptionalPositional("project", "<manifest|dir> (default: the nearest manifest; a workspace cleans its default_members)");
+    clean.AddFlag("workspace", "", "clean every workspace member (default: default_members)");
     root.Add("clean", "remove build output", clean);
 
     return root;
@@ -134,8 +138,14 @@ SubcommandRouter _builderRoot() {
 // output_dir 未显式配置时它是工程独占的 `<工程>/artifacts/`，整个删除。显式配置的 output_dir
 // 可能与别的工程共享（如仓库级 artifacts/），只删解析出的子目录，不删 output_dir 本身。
 int _cmdClean(ParseResult r) {
+    int wrc = _wsDispatch(r, "clean");
+    if (wrc >= 0) { return wrc; }
     string toml = _locateManifest("clean", r.GetPositional(0));
     if (toml.Length == 0) { return 2; }
+    return _cleanAt(toml);
+}
+
+int _cleanAt(string toml) {
     ProjectManifest pm = ManifestLoader.Load(toml);
     string projDir = Path.GetDirectoryName(toml);
     if (projDir.Length == 0) { projDir = "."; }

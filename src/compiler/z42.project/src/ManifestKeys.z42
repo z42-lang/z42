@@ -7,7 +7,7 @@
 // 分工同 `Profile.BadKeys`：z42.project **只收集、不报错**（`ManifestLoader` 构造后把结果挂到
 // `ProjectManifest.UnknownKeys` 与 `WorkspaceManifest.UnknownKeys`），由消费方决定怎么呈现——
 // 项目清单在 `ManifestKnobs.Resolve`（z42c build 与 z42b 共用入口），workspace 清单在
-// `WorkspaceBuild.Plan` / `PlanLayout`。
+// `WorkspacePlan.Plan` / `PlanLayout` / `PlanDefault`。
 // 不抛异常：有的调用方（xtask `_loadManifestOr`）会吞异常回落默认，抛了反而把错误藏起来。
 //
 // 不审计的位置（键名本身就是用户数据）：`[dependencies]` / `[analyzers]` / `[native]` 的子表名、

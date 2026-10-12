@@ -27,6 +27,7 @@ src/toolchain/builder/core/*.z42  →  z42b.zpkg  →  apphost z42b
 | 功能 | 入口 / 文件 |
 |------|-----------|
 | 命令路由（new / test / bench / clean / publish / build / export） | `core/builder_cli.z42` |
+| 工作区根逐成员 build / test / bench / clean（`default_members`，`--workspace` = 全部） | `core/builder_workspace.z42` |
 | 管线编排与编译器注入 | `core/builder.z42` 的 `_orchestrate` / `_hostCompiler` |
 | 反射式 `[Test]` / `[Benchmark]` 运行 | `core/builder_test.z42` |
 | desktop publish（apphost + payload） | `core/builder_publish.z42`、`core/builder_apphost.z42` |
@@ -64,6 +65,7 @@ xtask test stdlib       # z42b 作为 [Test] 运行器跑全部 stdlib 单元
 | `core/builder_hooks.z42` | 项目 build hook 动态注入：把 `[build] hooks` 目录编成 zpkg → 加载 `Build.ProjectHooks` |
 | `core/builder_new.z42` | **`new` 脚手架**：生成 z42.toml + src 模板（exe/lib）+ .gitignore + README；工程名校验、`--path` 为父目录 |
 | `core/builder_test.z42` | **test / bench**：反射式 `[Test]`/`[Benchmark]` 运行器。target 双形态：已编译 `.zbc/.zpkg` 直跑 / 工程 `z42.toml`（或无 target）→ compile-then-test |
+| `core/builder_workspace.z42` | **工作区根**：`_wsDispatch` 判目标、按 `WorkspacePlan.PlanDefault` / `PlanLayout` 逐成员跑；`WsSiblings` 登记本轮已建成员（编译期排在 Z42_LIBS 前、path 闭包复用、测试产物旁并置）|
 | `core/builder_dev_targets.z42` | test / bench 目标从真 manifest 解析并在内存派生 `ProjectManifest`（保留父包身份）|
 | `core/builder_publish.z42` | **desktop publish**：产 apphost + `[platform.desktop]` `bin`/`payload` 布局 + 依赖/native/payload 落位；launcher 转发 `z42 publish` 至此 |
 | `core/builder_publish_build.z42` | publish 前每次经 z42c 增量编一遍；`--no-build` 保留「就用现成字节」供 xtask 的 SDK 组装 / 自举不动点路径 |

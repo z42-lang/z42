@@ -6,7 +6,7 @@ use super::*;
 /// `Std.Harness.TestEntry` objects. Powers `Std.Harness.TestModule.Load` (the
 /// reflective test runner).
 pub fn builtin_test_module_load(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let entries = load_and_init(ctx, args)?;
+    let entries = load_path(ctx, args)?;
     test_entries_to_values(ctx, &entries)
 }
 
@@ -15,27 +15,24 @@ pub fn builtin_test_module_load(ctx: &VmContext, args: &[Value]) -> Result<Value
 /// The caller discards the result.
 // STAGE2-DEBT(load-module-entries): 种子 SDK 的 z42.harness 改用 __test_module_load 后，本 builtin 不再实例化 TIDX 条目、改返回 Null（纯加载）
 pub fn builtin_load_module(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let entries = load_and_init(ctx, args)?;
+    let entries = load_path(ctx, args)?;
     test_entries_to_values(ctx, &entries)
 }
 
-/// Shared body: merge the artifact (+ dependency closure) into the live registries,
-/// then run static-field initializers for it — their `*.__static_init__` functions
-/// weren't present when the VM ran its startup static-init pass (the module is loaded
-/// now, mid-run), so e.g. `Std.Math.Pi` would read Null. Re-running init is idempotent
-/// for value-init statics; a module is loaded once per artifact (before any test
-/// executes), so this clears no meaningful test state.
-fn load_and_init(
+/// Shared body: merge the artifact (+ dependency closure) into the live registries.
+fn load_path(
     ctx: &VmContext, args: &[Value],
 ) -> Result<Vec<crate::metadata::test_index::LoadedTestEntry>> {
     let path = match args.first() {
         Some(Value::Str(s)) => s.to_string(),
         _ => bail!("ModuleLoader.Load: expected a path string"),
     };
+    // Static fields of the loaded closure need nothing here: their initializers are
+    // per-type and run lazily at first use, and `load_module_into_vm` already drains
+    // the pending type-load queue. Do NOT call `init_static_fields` — it clears every
+    // static field in the VM, so the caller's own state (and any already-initialized
+    // type) would silently read back as zero after each load.
     let entries = ctx.load_module_into_vm(&path)?;
-    if let Some(m) = ctx.module().cloned() {
-        crate::interp::init_static_fields(ctx, &m)?;
-    }
     Ok(entries)
 }
 

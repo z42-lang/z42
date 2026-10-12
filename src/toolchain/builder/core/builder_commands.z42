@@ -19,26 +19,26 @@ using Z42.Project;
 
 // 命令给出的工程清单：给了就用（须存在；给目录则看该目录）；没给就从当前目录向上找
 // （ManifestLocator，与 z42 run / z42c build 同一规则）。失败打印原因并返回 ""。
+// 落到 workspace 清单 → `default_members` 恰选中的那一个成员（逐成员跑的动词在此之前已被
+// `_wsTarget` 分流走，到这里的只有单工程动词）。
 string _locateManifest(string verb, string given) {
-    if (given.Length > 0) {
-        if (Directory.Exists(given)) {
-            ManifestLocation inDir = ManifestLocator.FindIn(given);
-            if (inDir.Kind == ManifestLocateKind.Project) { return inDir.ManifestPath; }
-            ConsoleError.WriteLine(ManifestLocator.ErrorText(inDir, given));
-            return "";
-        }
+    if (given.Length > 0 && !Directory.Exists(given)) {
+        if (given.EndsWith("z42.workspace.toml") && File.Exists(given)) { return _singleMember(verb, given); }
         if (File.Exists(given)) { return given; }
         ConsoleError.WriteLine("z42 " + verb + ": manifest not found: " + given);
         return "";
     }
-    ManifestLocation loc = ManifestLocator.FindUp(".");
+    string start = given.Length > 0 ? given : ".";
+    ManifestLocation loc = given.Length > 0 ? ManifestLocator.FindIn(given) : ManifestLocator.FindUp(".");
     if (loc.Kind == ManifestLocateKind.Project) { return loc.ManifestPath; }
-    if (loc.Kind == ManifestLocateKind.Workspace) {
-        ConsoleError.WriteLine("z42 " + verb + ": `" + loc.ManifestPath + "` is a workspace; run it in a member directory");
-        return "";
-    }
-    ConsoleError.WriteLine(ManifestLocator.ErrorText(loc, "."));
+    if (loc.Kind == ManifestLocateKind.Workspace) { return _singleMember(verb, loc.ManifestPath); }
+    ConsoleError.WriteLine(ManifestLocator.ErrorText(loc, start));
     return "";
+}
+
+string _singleMember(string verb, string wsToml) {
+    try { return WorkspacePlan.SingleDefault(wsToml); }
+    catch (Exception e) { ConsoleError.WriteLine("z42 " + verb + ": " + e.Message); return ""; }
 }
 
 
@@ -79,6 +79,12 @@ ClosurePlan _buildPathDepClosure(string tomlPath, Target t, string consumerHooks
         string depToml = closure.Tomls[ci];
         ci = ci + 1;
         ProjectManifest depPm = ManifestLoader.Load(depToml);
+        // workspace 逐成员构建里本轮已建过的成员：直接用它的 dist，不重建。
+        string builtDist = WsSiblings.DistOf(depPm.Project.Name);
+        if (builtDist.Length > 0) {
+            dists[dn] = builtDist; names[dn] = depPm.Project.Name; dn = dn + 1;
+            continue;
+        }
         // 双向校验：编译期扩展不得作运行期依赖（与 driver 同判据、同改法指路）。
         if (depPm.Project.Kind == "analyzer") {
             ConsoleError.WriteLine("z42b build: [dependencies] `" + depPm.Project.Name
@@ -105,6 +111,7 @@ ClosurePlan _buildPathDepClosure(string tomlPath, Target t, string consumerHooks
         Directory.Create(dd.Dist);
         File.Copy(depBuilt, Path.Join(dd.Dist, depPm.Project.Name + ".zpkg"));
         dists[dn] = dd.Dist; names[dn] = depPm.Project.Name; dn = dn + 1;
+        WsSiblings.Note(depPm.Project.Name, dd.Dist);
     }
     r.Dists = dists; r.Names = names; r.Count = dn;
     return r;
@@ -112,7 +119,11 @@ ClosurePlan _buildPathDepClosure(string tomlPath, Target t, string consumerHooks
 
 // ── build / publish / export：共用 _runVerb（仅 Mode 不同）──────────────────────
 
-int _cmdBuild(ParseResult r)   { return _runVerb(r, ""); }
+int _cmdBuild(ParseResult r) {
+    int wrc = _wsDispatch(r, "build");
+    if (wrc >= 0) { return wrc; }
+    return _runVerb(r, "");
+}
 int _cmdPublish(ParseResult r) { return _runVerb(r, BuildMode.Publish); }
 int _cmdExport(ParseResult r)  { return _runVerb(r, BuildMode.Export); }
 
@@ -131,13 +142,20 @@ BuildOutcome _buildProject(ParseResult r, string mode) { return _buildProjectAt(
 
 // `outRoot` 非空 → 清单加载后套 `_applyOutRoot`（`z42b test --out-root` 的零目标回落用）。
 BuildOutcome _buildProjectAt(ParseResult r, string mode, string outRoot) {
-    BuildOutcome o = new BuildOutcome();
-    o.Dist = "";
     string tomlPath = _locateManifest(mode.Length > 0 ? mode : "build", r.GetPositional(0));
     if (tomlPath.Length == 0) {
-        o.Rc = 2;
-        return o;
+        BuildOutcome bad = new BuildOutcome();
+        bad.Dist = "";
+        bad.Rc = 2;
+        return bad;
     }
+    return _buildProjectAt(r, mode, outRoot, tomlPath);
+}
+
+// 清单已定位（workspace 逐成员 / compile-then-test 已解析过）。
+BuildOutcome _buildProjectAt(ParseResult r, string mode, string outRoot, string tomlPath) {
+    BuildOutcome o = new BuildOutcome();
+    o.Dist = "";
     ProjectManifest m = ManifestLoader.Load(tomlPath);
     _applyOutRoot(m, outRoot);
     string sourceDir = Path.GetDirectoryName(tomlPath);
@@ -189,7 +207,7 @@ BuildOutcome _buildProjectAt(ParseResult r, string mode, string outRoot) {
             // 📌 它现在只还剩**按名依赖**那半（在 repo 内按 srcRoot 搜源码树）。path 依赖那半已由
             // 上面的闭包名单接管 —— 那份走 srcRoot 的实现在 repo 外恒为空转（见 #852）。
             rc = _pubBundleProjectDeps(tomlPath, toml, dirs.Dist, false);
-            if (rc == 0) { o.Dist = distZpkg; }
+            if (rc == 0) { o.Dist = distZpkg; WsSiblings.Note(m.Project.Name, dirs.Dist); }
         }
     }
     o.Rc = rc;

@@ -1,0 +1,142 @@
+// z42b 在 workspace 根：build / test / bench / clean 逐成员执行同一动词。
+//
+// 成员集合 = `default_members`（没写或 `[]` = 全部），`--workspace` = 全部；拓扑序（依赖在前）。
+// 规划与 `z42c build --workspace` 同一份实现（Z42.Project.WorkspacePlan），WS031 等规划错误在这里报。
+// 只能落地一个工程的动词（publish / export / run）不逐成员跑：`WorkspacePlan.SingleDefault`（见 `_locateManifest`）。
+//
+// 已建成员的 dist 记进 `WsSiblings`：后续成员按名依赖它时，`_initialInputs` 把这些目录排在 Z42_LIBS 前供扫
+// （同 z42c workspace 构建「成员 dist 在前」）；path 依赖闭包遇到已建成员直接复用，不重建。
+namespace Z42Builder;
+
+using Std.IO;
+using Std.Cli;
+using Z42.Project;
+
+static class WsSiblings {
+    static string[] _names = new string[0];
+    static string[] _dists = new string[0];
+    static int _n = 0;
+
+    public static int Count() { return WsSiblings._n; }
+    public static string Name(int i) { return WsSiblings._names[i]; }
+    public static string Dist(int i) { return WsSiblings._dists[i]; }
+
+    public static void Note(string name, string distDir) {
+        if (WsSiblings.DistOf(name).Length > 0) { return; }
+        if (WsSiblings._n == WsSiblings._names.Length) {
+            int cap = WsSiblings._n == 0 ? 8 : WsSiblings._n * 2;
+            string[] nn = new string[cap];
+            string[] nd = new string[cap];
+            int i = 0;
+            while (i < WsSiblings._n) { nn[i] = WsSiblings._names[i]; nd[i] = WsSiblings._dists[i]; i = i + 1; }
+            WsSiblings._names = nn; WsSiblings._dists = nd;
+        }
+        WsSiblings._names[WsSiblings._n] = name;
+        WsSiblings._dists[WsSiblings._n] = distDir;
+        WsSiblings._n = WsSiblings._n + 1;
+    }
+
+    // 本轮已建成员 `name` 的 dist 目录；没建过 → ""。
+    public static string DistOf(string name) {
+        int i = 0;
+        while (i < WsSiblings._n) {
+            if (WsSiblings._names[i] == name) { return WsSiblings._dists[i]; }
+            i = i + 1;
+        }
+        return "";
+    }
+}
+
+// 逐成员动词（build / test / bench / clean）的入口分流：目标不是 workspace → -1（调用方走单工程）；
+// 是 → 逐成员跑的退出码。`--workspace` 却找不到 workspace → 报错（不静默退回单工程）。
+int _wsDispatch(ParseResult r, string verb) {
+    string ws = _wsTarget(r);
+    if (ws.Length > 0) { return _wsRunVerb(r, verb, ws); }
+    if (r.GetFlag("workspace")) {
+        ConsoleError.WriteLine("z42 " + verb + ": --workspace: no enclosing z42.workspace.toml");
+        return 2;
+    }
+    return -1;
+}
+
+// 命令目标是不是 workspace：返回 z42.workspace.toml 路径，不是 → ""（不打印任何东西）。
+//   · 给了目标：workspace 清单文件本身，或「目录里就是 workspace 清单」的目录；
+//   · 没给目标：从当前目录向上找，**最近的**清单是 workspace（在成员目录里仍是单工程）；
+//   · `--workspace`：从目标（缺省当前目录）所在成员向上找它所属的 workspace，在成员目录里也成立。
+string _wsTarget(ParseResult r) {
+    string given = r.GetPositional(0);
+    bool all = r.GetFlag("workspace");
+    if (given.EndsWith("z42.workspace.toml") && File.Exists(given)) { return given; }
+    string memberDir;
+    if (given.Length > 0 && !Directory.Exists(given) && File.Exists(given)) {
+        if (!all) { return ""; }
+        memberDir = Path.GetDirectoryName(given);
+    } else {
+        if (given.Length > 0 && !Directory.Exists(given)) { return ""; }
+        ManifestLocation loc = given.Length > 0 ? ManifestLocator.FindIn(given) : ManifestLocator.FindUp(".");
+        if (loc.Kind == ManifestLocateKind.Workspace) { return loc.ManifestPath; }
+        if (!all || loc.Kind != ManifestLocateKind.Project) { return ""; }
+        memberDir = Path.GetDirectoryName(loc.ManifestPath);
+    }
+    if (memberDir.Length == 0) { memberDir = "."; }
+    return WorkspaceLayout.FindWorkspaceFor(memberDir);
+}
+
+// 逐成员跑 `verb`（计划按拓扑序，依赖在前）。计划里「只因被依赖而入」的成员（Selected = false）：
+// build / test / bench 先把它建出来（后续成员按名依赖它），clean 跳过。build 遇到失败即停（后续成员
+// 可能依赖它）；test / bench / clean 跑完全部目标、任一非零即非零。
+int _wsRunVerb(ParseResult r, string verb, string wsToml) {
+    // clean 不分 profile（两个都删），没注册 --release；只有 test / bench 注册了 --format。
+    string profile = (verb != "clean" && r.GetFlag("release")) ? "release" : "debug";
+    WorkspaceLayoutPlan plan;
+    try {
+        plan = r.GetFlag("workspace") ? WorkspacePlan.PlanLayout(wsToml, profile)
+                                      : WorkspacePlan.PlanDefault(wsToml, profile);
+    } catch (Exception e) {
+        ConsoleError.WriteLine("z42 " + verb + ": " + e.Message);
+        return 2;
+    }
+    string format = (verb == "test" || verb == "bench") ? r.GetOption("format") : "";
+    if (format.Length == 0) { format = "pretty"; }
+    // `--format json` 的契约是 stdout 只有一份机器可读报告 ⇒ 多个目标拼不成一份，直接拒绝。
+    if (format == "json" && plan.SelectedCount() > 1) {
+        ConsoleError.WriteLine("z42 " + verb + ": --format json needs a single project; this workspace selects "
+            + plan.SelectedCount().ToString() + " members (pass one member's manifest)");
+        return 2;
+    }
+    bool quietOut = format == "json";   // 单目标 json：进度行走 stderr
+    int worst = 0;
+    int i = 0;
+    while (i < plan.Count) {
+        bool target = plan.Selected[i];
+        string toml = plan.Tomls[i];
+        string name = plan.Names[i];
+        string line = "[" + (i + 1).ToString() + "/" + plan.Count.ToString() + "] " + name
+            + (target ? "" : " (dependency)");
+        i = i + 1;
+        if (verb == "clean" && !target) { continue; }
+        if (quietOut) { ConsoleError.WriteLine(line); } else { Console.WriteLine(line); }
+        int rc;
+        if (verb == "clean")                    { rc = _cleanAt(toml); }
+        else if (verb == "build" || !target)    { rc = _buildProjectAt(r, "", "", toml).Rc; }
+        else                                    { rc = _runDevTargetsAt(r, verb, format, toml); }
+        if (rc == 0) { continue; }
+        if (verb == "build" || !target) {
+            ConsoleError.WriteLine("z42 " + verb + ": member `" + name + "` failed to build; stopping");
+            return rc;
+        }
+        if (worst == 0) { worst = rc; }
+    }
+    return worst;
+}
+
+// 本轮已建的兄弟成员 zpkg 并置到 `destDir`（测试产物旁）：Runner 把测试产物加载进 live VM 后按 VM 搜索目录
+// 解析依赖，兄弟成员的 dist 不在其中（编译期是经 `_initialInputs` 显式供给的）。同父包并置，总是覆盖。
+void _colocateSiblings(string destDir) {
+    int i = 0;
+    while (i < WsSiblings.Count()) {
+        string z = Path.Join(WsSiblings.Dist(i), WsSiblings.Name(i) + ".zpkg");
+        i = i + 1;
+        if (File.Exists(z)) { File.Copy(z, Path.Join(destDir, Path.GetFileName(z))); }
+    }
+}

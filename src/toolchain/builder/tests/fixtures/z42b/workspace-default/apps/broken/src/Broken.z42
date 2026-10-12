@@ -1,0 +1,6 @@
+namespace Ws.Broken;
+
+// 故意编不过：只有 `--workspace` 会建到这里。
+public class Broken {
+    public static int X() { return undefinedName; }
+}

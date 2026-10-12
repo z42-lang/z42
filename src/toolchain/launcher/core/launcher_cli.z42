@@ -2,13 +2,15 @@
 //
 // 命令分三类：
 //   - launcher 自己实现：run / version / help / publish / export / workload
-//   - 原样转发给工具：build → z42c；new / test / bench / clean → z42b；repl → z42i
+//   - 原样转发给工具：build → z42c（目标是 workspace 时 → z42b，按 default_members 逐成员建）；
+//     new / test / bench / clean → z42b；repl → z42i
 //     （转发命令的参数与帮助由对应工具负责；这里注册只为让 `z42 --help` 列出它们）
 //   - 简写：`z42 <app.zpkg|.zbc|.z42> [-- args]` ≡ `z42 run <app>`（`.z42` = 单文件源码）
 namespace Z42Launcher;
 
 using Std.IO;
 using Std.Cli;
+using Z42.Project;   // ManifestLocator —— `z42 build` 判定目标是不是 workspace
 
 void _runLauncher(string[] argv) {
     if (argv.Length == 0) { Console.WriteLine(_launcherRoot().HelpText()); return; }
@@ -23,7 +25,10 @@ void _runLauncher(string[] argv) {
         Environment.Exit(_forwardZ42b(argv));
         return;
     }
-    if (c0 == "build") { Environment.Exit(_forwardZ42c(argv)); return; }
+    if (c0 == "build") {
+        Environment.Exit(_buildTargetsWorkspace(argv) ? _forwardZ42b(argv) : _forwardZ42c(argv));
+        return;
+    }
     if (c0 == "repl") { Environment.Exit(_forwardRepl(_tail(argv, 1))); return; }
 
     SubcommandRouter root = _launcherRoot();
@@ -161,6 +166,23 @@ int _forwardZ42b(string[] argv, string extraKey, string extraVal) {
     proc = proc.Env("Z42_LIBS", _sdkLibs());
     if (extraKey.Length > 0) { proc = proc.Env(extraKey, extraVal); }
     return proc.Run().ExitCode;
+}
+
+// `z42 build` 的目标是不是 workspace（是 → 交 z42b 按 default_members 逐成员建；z42c 的 workspace 构建
+// 恒编全部成员）。判定看 argv 里第一个指向已存在清单 / 目录的参数；都没有 → 从当前目录向上找最近的清单。
+// `--workspace` 一律算 workspace。
+bool _buildTargetsWorkspace(string[] argv) {
+    int w = 1;
+    while (w < argv.Length) { if (argv[w] == "--workspace") { return true; } w = w + 1; }
+    int i = 1;
+    while (i < argv.Length) {
+        string a = argv[i];
+        i = i + 1;
+        if (a.StartsWith("-")) { continue; }
+        if (Directory.Exists(a)) { return ManifestLocator.FindIn(a).Kind == ManifestLocateKind.Workspace; }
+        if (File.Exists(a)) { return a.EndsWith("z42.workspace.toml"); }
+    }
+    return ManifestLocator.FindUp(".").Kind == ManifestLocateKind.Workspace;
 }
 
 // build → SDK 的 bin/z42c（apphost，自带兄弟包与 stdlib 解析）。argv 以 "build" 开头。
