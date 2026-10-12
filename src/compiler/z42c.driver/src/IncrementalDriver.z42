@@ -60,7 +60,7 @@ public static class IncrementalDriver {
         // parallel-parse-and-cache：逐文件解析（词法 + 语法 + 表面哈希 + AST handler）互不依赖，各写自己的槽 ⇒
         // 并行后结果与串行逐项相同。jobs=1 时 ParallelFor 内联、不起线程。实测（编译器 workspace、jobs=1）
         // 这一段占总耗时 22.7%，此前是并行编译里最大的串行段。
-        ParallelFor.Run(n, ParallelConfig.Jobs(n), new ParseFileTask(texts, names, want, feats, cus, idents, surfaces));
+        Z42.Package.ParallelFor.Run(n, Z42.Package.ParallelConfig.Jobs(n), new ParseFileTask(texts, names, want, feats, cus, idents, surfaces));
         return new ParsedPkg(cus, idents, surfaces);
     }
 
@@ -198,7 +198,7 @@ public static class IncrementalDriver {
         while (i < n) { rels[i] = IncrementalBuild.Rel(projectDir, srcs[i]); i = i + 1; }
         WriteMetaTask t = new WriteMetaTask(cacheDir, srcs, texts, hashes, cms, mods, plan, idents, surfaces,
                                             feats, cuDiags, zbcHashes, rels);
-        ParallelFor.Run(n, ParallelConfig.Jobs(n), t);
+        Z42.Package.ParallelFor.Run(n, Z42.Package.ParallelConfig.Jobs(n), t);
         if (t.Error != "") { throw new Exception(t.Error); }
         CacheStore.SaveSrcList(cacheDir, rels, n, depsId);
     }
@@ -462,7 +462,7 @@ string _writeCacheZbc(string cacheDir, string projectDir, string src, IrModule i
 }
 
 // 第 i 个文件的解析（ParseAllTk 的并行体）。只读输入、只写第 i 个槽；`SurfaceHash.Of` 不碰静态状态。
-sealed class ParseFileTask : IParallelBody {
+sealed class ParseFileTask : IParallelTask {
     private string[] _texts; private string[] _names; private bool[] _want; private LanguageFeatures _feats;
     private CompilationUnit[] _cus; private NameListZ[] _idents; private NameSurfacesZ[] _surfaces;
     public ParseFileTask(string[] texts, string[] names, bool[] want, LanguageFeatures feats,
@@ -484,7 +484,7 @@ sealed class ParseFileTask : IParallelBody {
 
 // 第 i 个源文件的 cache meta（`IncrementalDriver.WriteMetas` 的并行体）。只读入参、只写第 i 个文件；
 // 失败记下首条消息，由调用方整体放弃本次 cache。
-sealed class WriteMetaTask : IParallelBody {
+sealed class WriteMetaTask : IParallelTask {
     private string _cacheDir; private string[] _srcs; private string[] _texts; private string[] _hashes;
     private CompiledModuleZ[] _cms; private ZbcFileZ[] _mods; private IncrFilePlan _plan; private NameListZ[] _idents;
     private NameSurfacesZ[] _surfaces; private LanguageFeatures _feats; private CuDiagSnapshot[] _cuDiags;

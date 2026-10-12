@@ -64,6 +64,10 @@ z42c 是用 z42 写的编译器，由上一代 z42c 编译自己。结论：**�
 ## .zbc 写入器（`z42.package/src/BinaryFormat/`）
 
 - **架构**：`ByteWriter`（`byte[]` + LE 助手）→ 各指令类的 `IrInstr.Write(ZbcEncoder)`（指令布局跟指令类走；`ZbcEncoder` 打包缓冲 / 串池 / token 分配器，每函数一个）+ `ZbcInstr`（终结符编码、串池预扫、字面量解析）→ `ZbcWriter`（intern 预扫 + 分段组装）；读端 `ZbcReaderInstr.Retype` 按 `IrInstr.TagReg` 回填 REGT；`TokenAllocator`（插入序 index）；`ZbcStringPool`（插入序 = STRS 字节序）。格式规格见 [zpkg](../formats/zpkg.md)。
+- **预扫之后池只读**：STRS 字节序 = intern 调用序，故全部串先按固定序预扫 intern，各段构建器（`BuildFunc` / `BuildType` /
+  `BuildDbug` / `BuildTidx`、`TokenAllocator.ResolveMethod/Type`）只 `Idx` 查（漏扫直接抛，不静默追加）。zpkg 写出因此能把
+  逐模块段体并行算（`ZpkgWriterZ._buildMods` → `ParallelFor`，各模块写自己的槽，按模块序串行拼装 ⇒ 产物与串行逐字节一致）。
+  新加的构建器若在构建期 `Intern`，会在并行下写共享池 —— 改到预扫里。
 - **确定性铁律**：字符串池 intern 序须固定（模块名 → const.str 池 → 类 → "?" → 每函数[名/ret/param → 每块 label→指令串]）；IMPT 写前 Ordinal 排序。
 - runtime builtin 在 z42 侧直接 `[Native("__double_to_bits")]` 自声明。
 

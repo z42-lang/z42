@@ -1,5 +1,7 @@
 namespace Z42.Emission;
 
+using Z42.Package;   // IParallelTask
+
 using Z42.Semantics;
 
 using Z42.Syntax;
@@ -17,7 +19,7 @@ using Z42.Optimization;
 // 循环体——cached 回填 或 _compileCu（typecheck+codegen）→ file-scope 检查 → 导出抽取，每项写自己
 // 的 _r[i]。所有输入字段在并行前冻结、Run 内只读（symbols 数据字段 + deps/imported/各聚合表）；
 // 唯 _r[i] 各写各槽 → 确定性、可并行（完成序不影响结果）。诊断已 per-file 隔离进 _r[i]。
-sealed class CompileCuTask : IParallelBody {
+sealed class CompileCuTask : IParallelTask {
     CompilationUnit[] _cus; string[] _files; SymbolTable _symbols;
     DependencyIndex _deps; ImportedSymbols _imported;
     LocalClassSet _localClasses; bool _isRelease;
@@ -265,7 +267,7 @@ public static class IrDump {
             localClasses, isRelease, partialMerged, optSet, cachedModules, allFuncs, afc, pkgClassMap,
             layouts, pkgGenerics, pkgGenericTypes, r);
         _task.PkgHasErrors = upstreamErrors || coll.Diags.ErrorCount() > 0;
-        ParallelFor.Run(count, ParallelConfig.Jobs(count), _task);
+        Z42.Package.ParallelFor.Run(count, Z42.Package.ParallelConfig.Jobs(count), _task);
         // add-partial-types：分发 partial 合并的包级诊断到对应文件的 CompiledModuleZ（按 Span.File 匹配；无匹配落 0 号）。
         // 这些诊断在 CollectAll（包级）产生，不属于任一 _compileCu 的 per-file bag，故此处并入使 PackageCompile 诊断门捕获。
         int pdi = 0;

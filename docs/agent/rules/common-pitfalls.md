@@ -105,7 +105,7 @@ z42 VM 的 `TypeId` 每个 `Module`（≈每个 zpkg）从 0 重开——文档�
 本身没错。错在两条派发内联缓存（`VCallIC` / `FieldIC`）拿这个裸 `u32` 当**全局**类型身份：
 
 ```
-site: body.Run(i)              // IParallelBody 接口调用，位于 z42c.semantics
+site: body.Run(i)              // IParallelTask 接口调用，位于 z42.package 的 ParallelFor
   第一次 receiver = SrcReadHashTask (z42c.driver,   TypeId 139) → 装入 PIC
   第二次 receiver = CompileCuTask   (z42c.emission, TypeId 139) → 误命中
       ⇒ 跑了 SrcReadHashTask.Run，this._srcs[i] 读到 CompileCuTask 槽 0 的 _cus[i]

@@ -87,7 +87,7 @@ JIT 侧不自带子类遍历：`jit_is_instance` / `jit_as_cast` / `jit_match_ca
 receiver 误命中先到者的条目：
 
 ```
-site: body.Run(i)            // IParallelBody 接口调用，z42c.semantics
+site: body.Run(i)            // IParallelTask 接口调用，z42.package 的 ParallelFor
   第一次: receiver = SrcReadHashTask (z42c.driver,   TypeId 139) → 装 PIC
   第二次: receiver = CompileCuTask   (z42c.emission, TypeId 139) → 误命中
       ⇒ 跑 SrcReadHashTask.Run，其 this._srcs[i] 读到 CompileCuTask 槽 0 的 _cus[i]

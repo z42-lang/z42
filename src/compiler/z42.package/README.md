@@ -42,7 +42,8 @@ IR 由 `z42c.emission` 的 IrGen 构建；本库只提供模型 + 序列化。
 | TSIG 重建索引 | `TsigIndex.z42`（`ReconClassIndex` / `SigsClassIndex`）| 类 FQ → (包,模块,类) 与 SIGS 按类分桶两张索引，使 `Rebuild` 的 world 扫描与祖先模块扫描为线性 |
 | 惰性跨包类型世界 | `TsigReconcile.LazyReconWorld` | 按包懒填 TYPE/SIGS + 命名空间路由（`EnsureFq`）——`Rebuild` 基类链只解析引用闭包，开销随引用数而非库总量增长 |
 | 元数据 | `ExportedTypes` / `DependencyIndex` | 导出类型面 + 跨包依赖调用索引 |
+| 并行 | `ParallelFor.z42`（`ParallelFor` / `ParallelConfig` / `IParallelTask`）| 编译栈共用的静态分块工作池（`--jobs` 由 driver 设进 `ParallelConfig`）：包内逐 CU 编译、导入类填充、源读取、zpkg 逐模块段体（`ZpkgWriterZ._buildMods`，池已冻结、只读）。每项只写自己的槽 ⇒ 产物与串行逐字节一致 |
 | util | `StrMap` / `StrIndex` / `Murmur3` | `StrMap`：string→object 开放寻址 map（编译器全程用）；`StrIndex`：string→int 反查索引（无装箱、无删除），给插入序数组配 O(1) 查下标，`ZbcStringPool` / `IrGen` 字面量池用；`Murmur3`：MurmurHash3 x86_128，zpkg 内部内容标识（BLID build_id、源文件变更检测），非密码学用途 |
 
 ## 依赖关系
-`z42.core`（prelude）+ `z42.encoding`（Utf8）+ `z42.io`（zpkg 文件）+ `z42.crypto`（`ZpkgBuilder` 的 Sha256Hex 入口）。**无** `z42c.*` 反依赖（叶子）。
+`z42.core`（prelude）+ `z42.encoding`（Utf8）+ `z42.io`（zpkg 文件）+ `z42.crypto`（`ZpkgBuilder` 的 Sha256Hex 入口）+ `z42.threading`（`ParallelFor` 工作池）。**无** `z42c.*` 反依赖（叶子）。

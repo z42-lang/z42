@@ -1,11 +1,11 @@
 // ParallelFor 工作池单测（parallelize-package-compile）：确定性（结果与串行同）、
-// jobs=1 等价、jobs>n 收敛、n=0 边界。IParallelBody 接口派发 + Std.Threading 线程。
-namespace Z42cSemanticsParallelForTests;
+// jobs=1 等价、jobs>n 收敛、n=0 边界。IParallelTask 接口派发 + Std.Threading 线程。
+namespace Z42PackageParallelForTests;
 
-using Z42.Semantics;
+using Z42.Package;
 
 // 测试体：out[i] = i*i + 1（非平凡，验证每槽独立写、无串扰）。
-sealed class SquareTask : IParallelBody {
+sealed class SquareTask : IParallelTask {
     int[] _out;
     public SquareTask(int[] o) { this._out = o; }
     public void Run(int i) { this._out[i] = i * i + 1; }
