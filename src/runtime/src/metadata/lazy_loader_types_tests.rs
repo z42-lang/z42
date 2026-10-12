@@ -44,7 +44,6 @@ fn artifact(module_name: &str, classes: Vec<ClassDesc>) -> crate::metadata::load
         entry_hint: None,
         dependencies: vec![],
         import_namespaces: vec![],
-        test_index: vec![],
         impl_pairs: vec![],
         package_name: Some(module_name.to_lowercase()),
     }

@@ -236,7 +236,7 @@ const PART1: &[(&str, Native)] = &[
     ("__activator_create",   Native::Val(reflection::builtin_activator_create)),
     // add-reflective-invoke: ConstructorInfo.Invoke — parameterised construction.
     ("__ctor_invoke",        Native::Val(reflection::builtin_ctor_invoke)),
-    // retire-test-runner: load a compiled test module + return its TIDX entries.
+    // `Std.Runtime.ModuleLoader.Load`: merge a compiled artifact into the live VM (pure load).
     ("__load_module",        Native::Val(reflection::builtin_load_module)),
     // retire-test-runner: invoke a free/static [Test]/[Benchmark] function by FQN
     // (zero-arg) — stdlib tests are free functions, not class instance methods.

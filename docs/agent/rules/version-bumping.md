@@ -22,10 +22,10 @@ paths:
 
 | 端 | 文件 | 常量 | 当前值 |
 |----|------|------|--------|
-| zbc writer（z42c） | `src/compiler/z42.package/src/BinaryFormat/ZbcFormat.z42` | `ZbcVersion.Major` / `.Minor` | 1 / 46 |
-| zbc reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZBC_VERSION_MAJOR` / `_MINOR` | 1 / 46 |
-| zpkg writer（z42c） | `src/compiler/z42.package/src/ZpkgWriter.z42` | `ZpkgWriterZ.Major` / `.Minor` | 0 / 52 |
-| zpkg reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZPKG_VERSION_MAJOR` / `_MINOR` | 0 / 52 |
+| zbc writer（z42c） | `src/compiler/z42.package/src/BinaryFormat/ZbcFormat.z42` | `ZbcVersion.Major` / `.Minor` | 1 / 47 |
+| zbc reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZBC_VERSION_MAJOR` / `_MINOR` | 1 / 47 |
+| zpkg writer（z42c） | `src/compiler/z42.package/src/ZpkgWriter.z42` | `ZpkgWriterZ.Major` / `.Minor` | 0 / 53 |
+| zpkg reader（Rust） | `src/runtime/src/metadata/zbc_reader/versions.rs` | `ZPKG_VERSION_MAJOR` / `_MINOR` | 0 / 53 |
 
 > 🔒 **本表有防腐门**：`cargo test --test format_fixture_versions` 的
 > `version_bumping_coordinate_table_matches_the_real_constants` **解析本表自己的四行**，
@@ -55,7 +55,7 @@ paths:
    `zbc_reader_tests.rs` 的 `zbc_version_constants_pinned` / `zpkg_version_constants_pinned`——它们只在
    `cargo test --lib` 里跑，`xtask test` 不包含）；并在常量上方 changelog 注释块追加一行（日期 / spec / 字段变化）；reader 解码逻辑（`read_*_section`）同步新格式。
 3. **`docs/internals/src/formats/zbc.md`** — "Minor changelog" 表加一行（minor / 日期 / 触发 spec / 引入内容）。
-4. **regen zbc-format fixture** — 跑 `xtask build test`（前置 `build compiler`+`build stdlib` 已用新格式重建），原地覆写 `src/compiler/z42.package/tests/fixtures/zbc-format/*/source.zbc`（6 个 committed 字节基线：`empty` / `strp-func-minimal` / `multi-method` / `with-tidx` / `cross-import-token` / `with-frcs`）；`git diff` 应显示格式 delta，**必须连同 bump 一起提交**。
+4. **regen zbc-format fixture** — 跑 `xtask build test`（前置 `build compiler`+`build stdlib` 已用新格式重建），原地覆写 `src/compiler/z42.package/tests/fixtures/zbc-format/*/source.zbc`（5 个 committed 字节基线：`empty` / `strp-func-minimal` / `multi-method` / `cross-import-token` / `with-frcs`）；`git diff` 应显示格式 delta，**必须连同 bump 一起提交**。
 
    > 🔒 **CI 有门（`refresh-format-fixtures`）**：`test-host` 的三条非 Windows 腿在
    > `test`（其 build wave 就地 regen）之后跑 `git diff --quiet -- src/compiler/z42.package/tests/fixtures/zbc-format`，**有差异即红**。
@@ -101,9 +101,7 @@ xtask test compiler    # z42c golden hex 单测
 已废弃、但为了不单独 bump 一次而暂留在 wire 上的字段。做下一次 zbc bump 时把下列条目一并删掉（writer、两端 reader、
 `zbc.md` 指令表都要改），删完把条目从这里移除：
 
-- **`MkClos` 的 `u8` 尾字节**（原 `stack_alloc`）。运行时的栈闭包支持已删除（runtime-audit D6）：Rust reader
-  读出后丢弃（`zbc_reader/instr_decode.rs` `OP_MK_CLOS`），一律堆分配；z42c 恒写 `0`。删除时同步
-  `IrInstrCall.z42` `MkClosInstr.StackAlloc`（字段 + `e.Flag`）、`ZbcReaderInstr.z42` 对应的读取、三个发射点的 `false` 实参。
+（当前无条目。）
 
 ---
 

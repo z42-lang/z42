@@ -202,7 +202,10 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // Why a second flags word: `class_flags` is a u8 with all 8 bits taken. Running out
 // already cost something concrete — the 1.33/1.34 object block had to be gated by a
 // **derived predicate** mirrored on both sides instead of a flag bit.
-pub const ZBC_VERSION_MINOR: u16 = 46;
+// 2026-10-12 retire-tidx: bumped to 1.47 — the TIDX section is gone (tests are discovered by
+// runtime reflection in z42.test, so the compiler no longer writes a test index), and `MkClos`
+// drops its always-zero trailing u8 (the former stack-alloc flag; closures are always heap).
+pub const ZBC_VERSION_MINOR: u16 = 47;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -331,7 +334,9 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // Outer layout unchanged.
 // 2026-10-06 precise-pkg-refs: bumped to 0.52 — DEPS entries gain `u32 symCount; u32×symIdx`
 // (referenced type / free-function full names defined by that dependency) for precise lazy routing.
-pub const ZPKG_VERSION_MINOR: u16 = 52;
+// 2026-10-12 retire-tidx: bumped to 0.53 — embeds zbc 1.47; each MODS module record drops its
+// trailing `tidx_len: u32 + tidx_data` (four length-prefixed bodies: func/type/dbug/regt).
+pub const ZPKG_VERSION_MINOR: u16 = 53;
 
 // ── Strict-pin header verification ────────────────────────────────────────────
 //
@@ -343,9 +348,7 @@ pub const ZPKG_VERSION_MINOR: u16 = 52;
 // handling themselves, since those diverge per reader.
 
 /// Reject truncated data, wrong magic, or any zbc major/minor ≠ the pinned writer
-/// version. Used by [`super::read_zbc`]; the leaner `read_test_index_section` /
-/// `read_raw_string_pool` paths intentionally do only a magic check (optional
-/// sections), so they do not route through here.
+/// version. Used by [`super::read_zbc`].
 pub(super) fn verify_zbc_version(data: &[u8]) -> Result<()> {
     if data.len() < 16 { bail!("zbc file too short") }
     if &data[0..4] != ZBC_MAGIC { bail!("not a binary zbc (bad magic)") }

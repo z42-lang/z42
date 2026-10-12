@@ -39,7 +39,7 @@ z42 的工具链是三个独立进程，互相之间只通过**文件格式**通
 | [产物格式](formats/index.md) | zbc / zpkg / IR —— 编译器与运行时之间的协议 |
 | [标准库](stdlib/index.md) | 三层架构、包划分规则、API 准则、关键实现 |
 | [工具链](toolchain/index.md) | launcher / z42b / workload / 平台发布 / REPL |
-| [测试体系](testing/index.md) | 测试框架、TIDX 格式、runner 协议、跨平台测试 |
+| [测试体系](testing/index.md) | 测试框架、反射发现、runner 协议、跨平台测试 |
 | [开发基础设施](devinfra/index.md) | 构建、测试门禁、CI、发布、调试、基准——**怎么跑** |
 
 ## 行文约定

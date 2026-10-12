@@ -374,7 +374,7 @@ for ((module, ns, _tidx), (sym_ns, fns)) in module_pairs.iter_mut().zip(sidecar.
 
 1. `read_zpkg_modules(raw)` → `Vec<(Module, ns, TestEntry[])>` 拥有可变 Module
 2. `apply_zpkg_sidecar(&mut module_pairs, raw, sym, sym_path)` — 把 sidecar DBUG 合入 per-module funcs
-3. `assemble_zpkg_artifact`：TIDX 聚合 → `merge_modules(modules)`（命名空间扁平化 + 函数表合并）
+3. `assemble_zpkg_artifact`：`merge_modules(modules)`（命名空间扁平化 + 函数表合并）
 4. `build_type_registry` / `verify_constraints` / `build_block_indices` / `build_func_index`
 
 为什么 sidecar 在 merge 之前：sidecar 的 MDBG section 按 module namespace 索引，merge 后 namespace 信息丢失到扁平化 IR；提前 merge 会让 sidecar 的"按 ns 配对"丢失对应关系。

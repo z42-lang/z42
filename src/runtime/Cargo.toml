@@ -62,8 +62,6 @@ smallvec = "1"
 # Error handling
 anyhow = "1"
 
-# Bitflags (used by metadata::test_index for TestFlags; spec R1)
-bitflags = "2"
 
 # Fast non-cryptographic hasher (FxHash) for VM-internal symbol tables.
 # z42c self-compile spends ~14% in HashMap symbol resolution (function/type

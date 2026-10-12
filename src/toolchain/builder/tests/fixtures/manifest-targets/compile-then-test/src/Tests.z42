@@ -2,7 +2,7 @@
 // `z42b test <z42.toml>` (add-z42b-compile-then-test). z42b builds this project
 // via the injected in-process compiler, then reflectively runs these free
 // [Test] functions through Std.Test.Runner. Free-function [Test] convention
-// mirrors the stdlib corpus (the form ModuleLoader TIDX indexes).
+// mirrors the stdlib corpus.
 namespace CompileThenTest;
 
 [Test]

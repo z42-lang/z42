@@ -16,7 +16,7 @@ CLI 入口（命令路由）。唯一 **exe** 子包，对外别名 = 用户 `z4
 完整选项见 `z42c build -h` 与 [cli-z42c-z42b.md](../../../docs/reference/src/toolchain/cli-z42c-z42b.md)。
 
 ## 增量编译（文件级）
-`build` 的判定与组装 SoT = cache（`<rel>.zbc` fullMode + `<rel>.meta` + 包级源清单，`[build].cache_dir` → `${output_dir}/.cache`；workspace 成员由 `WorkspaceLayoutPlan.CacheDirs` 给出）。cache 不论是否增量都落盘（单工程 `--output-dir` 例外：该路径从不读 cache，故不写）。种子（hash / 条目 / 清单）→ token 保守边传递闭包 → **仅失效闭包重编**（typecheck + codegen），其余 IrModule 经 ZbcReader 读回 + meta 残留回填（块 label / 模块池原序 / TIDX idx）；TSIG 恒全包重算；全命中完全跳过（`no changes; preserved`）。`--no-incremental` 强制全量；`Z42_INCR_DEBUG=1` 看种子与传播链。
+`build` 的判定与组装 SoT = cache（`<rel>.zbc` fullMode + `<rel>.meta` + 包级源清单，`[build].cache_dir` → `${output_dir}/.cache`；workspace 成员由 `WorkspaceLayoutPlan.CacheDirs` 给出）。cache 不论是否增量都落盘（单工程 `--output-dir` 例外：该路径从不读 cache，故不写）。种子（hash / 条目 / 清单）→ token 保守边传递闭包 → **仅失效闭包重编**（typecheck + codegen），其余 IrModule 经 ZbcReader 读回 + meta 残留回填（块 label / 模块池原序）；TSIG 恒全包重算；全命中完全跳过（`no changes; preserved`）。`--no-incremental` 强制全量；`Z42_INCR_DEBUG=1` 看种子与传播链。
 
 `_build` 遇本地 path 依赖（`DepEntry.Path` 非空）时，先经 `z42.project` 的 `PathDepPlan.Resolve`（`PathDepBuild.z42`）建叶子在前的传递闭包 → 逐成员现建 + 累积 libsDirs，`_bundleExeDeps` 再把私有 path 依赖 zpkg colocate 进消费方 dist（真-stdlib 走 Z42_LIBS 不复制）。
 
