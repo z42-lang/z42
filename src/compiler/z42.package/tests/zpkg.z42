@@ -52,6 +52,20 @@ void test_entry_autodetect_priority() {
     Assert.Equal("<ambiguous>", ZpkgBuilder.AutoDetectEntry(e3, 2));
     // 无候选
     Assert.Equal("", ZpkgBuilder.AutoDetectEntry(new ZpkgExportZ[0], 0));
+    // 类里的静态 `Main()`：IR 名带零参重载后缀 `$0`，烤入的就是这个真实名字（VM 按函数名精确匹配）
+    var e4 = new ZpkgExportZ[2];
+    e4[0] = new ZpkgExportZ("Demo.Program.Helper$1", "func");
+    e4[1] = new ZpkgExportZ("Demo.Program.Main$0", "func");
+    Assert.Equal("Demo.Program.Main$0", ZpkgBuilder.AutoDetectEntry(e4, 2));
+    // 自由函数 Main 与类静态 Main 并存 ⇒ 同级歧义
+    var e5 = new ZpkgExportZ[2];
+    e5[0] = new ZpkgExportZ("Demo.Main", "func");
+    e5[1] = new ZpkgExportZ("Demo.Program.Main$0", "func");
+    Assert.Equal("<ambiguous>", ZpkgBuilder.AutoDetectEntry(e5, 2));
+    // 带参数的 Main（`$1`）不是入口候选
+    var e6 = new ZpkgExportZ[1];
+    e6[0] = new ZpkgExportZ("Demo.Program.Main$1", "func");
+    Assert.Equal("", ZpkgBuilder.AutoDetectEntry(e6, 1));
 }
 
 [Test]
