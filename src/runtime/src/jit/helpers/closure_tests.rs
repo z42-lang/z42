@@ -2,7 +2,7 @@
 //! slot table — a lazily loaded target is counted and compiled at the tier threshold like
 //! any `Call`, from native code and from an interpreter frame alike.
 
-use crate::jit::JitModule;
+use crate::jit::runtime::{install, install_tuned};
 use crate::metadata::bytecode::{BasicBlock, Function, Instruction, LoadFnInsn, Module, Terminator};
 use crate::metadata::resolver::ResolvedTokens;
 use crate::metadata::tokens::UNRESOLVED;
@@ -79,14 +79,13 @@ fn compiled(vm: &VmContext) -> u64 {
 fn call_indirect_counts_and_compiles_the_lazy_target_slot() {
     let (vm, f) = vm_with_lazy_target(main_calling_lib_f_three_times());
     let id = f.id.get().expect("registered").0 as usize;
-    let mut jm = JitModule::setup(vm.module().unwrap()).expect("setup");
-    jm.ctx.jit_threshold = 2;
-    jm.run_fn(&vm, "App.Main").expect("runs");
+    let rt = install_tuned(&vm, vm.module().unwrap(), |rt| rt.jit_threshold = 2);
+    crate::jit::run_fn(&vm, "App.Main").expect("runs");
     let main = &vm.module().unwrap().functions[0];
     let tok = main.resolved.get().unwrap().fn_ref_tokens[0].load(Ordering::Relaxed);
     assert_eq!(tok as usize, id, "LoadFn site bound to the lazy FnId");
-    assert_eq!(jm.ctx.slot_probe(id), (2, false), "counted on its own slot, compiled at 2");
-    assert!(jm.ctx.peek_fn_by_id(id).is_some(), "Lib.F compiled");
+    assert_eq!(rt.slot_probe(id), (2, false), "counted on its own slot, compiled at 2");
+    assert!(rt.peek_fn_by_id(id).is_some(), "Lib.F compiled");
     assert_eq!(compiled(&vm), 2, "App.Main + Lib.F");
 }
 
@@ -102,12 +101,11 @@ fn unbound_load_fn_site_binds_on_first_execution() {
     });
     let (vm, f) = vm_with_lazy_target(main);
     let id = f.id.get().unwrap().0;
-    let mut jm = JitModule::setup(vm.module().unwrap()).expect("setup");
-    jm.ctx.jit_threshold = 2;
-    jm.run_fn(&vm, "App.Main").expect("runs");
+    let rt = install_tuned(&vm, vm.module().unwrap(), |rt| rt.jit_threshold = 2);
+    crate::jit::run_fn(&vm, "App.Main").expect("runs");
     let main = &vm.module().unwrap().functions[0];
     assert_eq!(main.resolved.get().unwrap().fn_ref_tokens[0].load(Ordering::Relaxed), id);
-    assert_eq!(jm.ctx.slot_probe(id as usize), (2, false));
+    assert_eq!(rt.slot_probe(id as usize), (2, false));
 }
 
 /// An undefined target throws from `jit_load_fn` (at creation), before any call.
@@ -118,8 +116,8 @@ fn undefined_target_throws_from_the_load_fn_helper() {
     ]);
     let vm = VmContext::with_module(module_of(vec![main]));
     vm.install_lazy_loader(None, 0);
-    let mut jm = JitModule::setup(vm.module().unwrap()).expect("setup");
-    let err = jm.run_fn(&vm, "App.Main").expect_err("throws");
+    install(&vm, vm.module().unwrap()).expect("install");
+    let err = crate::jit::run_fn(&vm, "App.Main").expect_err("throws");
     assert!(err.to_string().contains("undefined function `Nowhere.F`"), "{err}");
 }
 
@@ -130,18 +128,13 @@ fn interp_call_indirect_routes_to_the_jit_slot() {
     let (vm, f) = vm_with_lazy_target(main_calling_lib_f_three_times());
     let id = f.id.get().unwrap().0 as usize;
     let module = Arc::clone(vm.module().unwrap());
-    let mut jm = JitModule::setup(&module).expect("setup");
-    jm.ctx.jit_threshold = 2;
-    jm.ctx.vm_ctx = (&*vm as *const VmContext) as *mut VmContext;
-    vm.set_jit_ctx(&*jm.ctx as *const crate::jit::frame::JitModuleCtx as usize);
+    let rt = install_tuned(&vm, &module, |rt| rt.jit_threshold = 2);
     let main = &module.functions[0];
     crate::metadata::resolver::resolve_function_tokens(main, &module, &vm);
     let before = vm.counters().jit_native_from_interp.load(Ordering::Relaxed);
     let r = crate::interp::exec_function(&vm, &module, main, &[]);
-    vm.set_jit_ctx(0);
-    jm.ctx.vm_ctx = std::ptr::null_mut();
     assert!(matches!(r, Ok(crate::interp::ExecOutcome::Returned(_))));
-    assert_eq!(jm.ctx.slot_probe(id), (2, false));
+    assert_eq!(rt.slot_probe(id), (2, false));
     assert_eq!(vm.counters().jit_native_from_interp.load(Ordering::Relaxed) - before, 2,
         "calls 2 and 3 ran natively");
 }

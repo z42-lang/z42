@@ -3,7 +3,8 @@
 //! Mirror the interpreter's `Terminator::Throw` and `find_handler` paths.
 
 use crate::metadata::Value;
-use super::super::frame::{JitFrame, JitModuleCtx};
+use super::super::frame::JitFrame;
+use crate::vm_context::VmContext;
 use super::{set_exception, take_exception, vm_ctx_ref};
 
 /// `jit_throw`: `throw_offset` is the throw site's packed code offset (baked by
@@ -12,13 +13,13 @@ use super::{set_exception, take_exception, vm_ctx_ref};
 /// `Std.Exception.StackTrace`; line / column are resolved from it there.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_throw(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     reg: u32,
     throw_offset: u32,
 ) {
     let v = (*frame).regs[reg as usize].clone();
     let vm_ctx = vm_ctx_ref(ctx);
-    let module = &*(*ctx).module;
+    let module = super::jit_module(ctx);
     vm_ctx.set_top_frame_pc(throw_offset);
     crate::exception::populate_stack_trace(&v, vm_ctx, module);
     set_exception(vm_ctx, v);
@@ -26,7 +27,7 @@ pub unsafe extern "C" fn jit_throw(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_install_catch(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     catch_reg: u32,
 ) {
     let v = take_exception(vm_ctx_ref(ctx)).unwrap_or(Value::Null);
@@ -40,7 +41,7 @@ pub unsafe extern "C" fn jit_install_catch(
 /// later `jit_install_catch` call once a matching handler is selected.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_match_catch_type(
-    _frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    _frame: *mut JitFrame, ctx: *const VmContext,
     target_ptr: *const u8, target_len: i64,
     key: *const crate::metadata::tokens::TypeKeyCell,
 ) -> i8 {
@@ -58,7 +59,7 @@ pub unsafe extern "C" fn jit_match_catch_type(
         Value::Object(rc) => rc.type_desc(),
         _                 => return 0, // primitives / null don't match typed catches
     };
-    let module = &*(*ctx).module;
+    let module = super::jit_module(ctx);
     // `key` is the exception-table row's key cell, baked into the JIT code with `target`.
     if crate::interp::dispatch::isa_td(vm_ctx, &module.type_registry, td, target, &*key) {
         1
@@ -77,13 +78,12 @@ pub unsafe extern "C" fn jit_match_catch_type(
 /// `_frame` is unused (signature kept for ABI uniformity with the rest of
 /// the JIT helpers — every helper is `(frame, ctx, ...)`).
 ///
-/// Safety: `ctx` must point to a valid `JitModuleCtx` whose `vm_ctx`
-/// dereferences to a live `VmContext`. The JIT entry path (`JitModule::run`)
-/// guarantees this for the duration of any compiled function call.
+/// Safety: `ctx` must be the running thread's live `VmContext` — the context
+/// parameter every compiled function is entered with (`jit::invoke::call_native`).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_check_safepoint(
     _frame: *mut JitFrame,
-    ctx:    *const JitModuleCtx,
+    ctx:    *const VmContext,
 ) {
     let vm_ctx = vm_ctx_ref(ctx);
     crate::gc::safepoint::check_safepoint(vm_ctx);
@@ -104,11 +104,11 @@ pub unsafe extern "C" fn jit_check_safepoint(
 /// `(frame, ctx, ...)`).
 ///
 /// Safety: same contract as [`jit_check_safepoint`] — `ctx` must point to a
-/// valid `JitModuleCtx` whose `vm_ctx` is a live `VmContext`.
+/// the running thread's live `VmContext`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_check_safepoint_slow(
     _frame: *mut JitFrame,
-    ctx:    *const JitModuleCtx,
+    ctx:    *const VmContext,
 ) {
     let vm_ctx = vm_ctx_ref(ctx);
     vm_ctx.safepoint_skip.store(
@@ -118,12 +118,12 @@ pub unsafe extern "C" fn jit_check_safepoint_slow(
     crate::gc::safepoint::check_safepoint_slow(vm_ctx);
 }
 
-/// Prologue slow branch: the stack pointer is below `JitModuleCtx::stack_limit`.
+/// Prologue slow branch: the stack pointer is below the context's `JitHead::stack_limit`.
 /// Records the fatal stack overflow (`stack_guard`) and leaves a pending
 /// exception so the native caller returns the "thrown" code; the catch
 /// dispatch then declines every handler while the fatal flag is set.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn jit_stack_overflow(_frame: *mut JitFrame, ctx: *const JitModuleCtx) {
+pub unsafe extern "C" fn jit_stack_overflow(_frame: *mut JitFrame, ctx: *const VmContext) {
     let vm_ctx = vm_ctx_ref(ctx);
     let err = crate::stack_guard::overflow(vm_ctx);
     super::set_exception(vm_ctx, Value::Str(err.to_string().into()));
@@ -132,7 +132,7 @@ pub unsafe extern "C" fn jit_stack_overflow(_frame: *mut JitFrame, ctx: *const J
 /// Non-zero while a fatal VM error unwinds — the JIT catch dispatch then
 /// propagates instead of entering a handler (see `stack_guard`).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn jit_fatal_pending(_frame: *mut JitFrame, ctx: *const JitModuleCtx) -> i8 {
+pub unsafe extern "C" fn jit_fatal_pending(_frame: *mut JitFrame, ctx: *const VmContext) -> i8 {
     crate::stack_guard::is_fatal(vm_ctx_ref(ctx)) as i8
 }
 
@@ -145,15 +145,10 @@ mod check_safepoint_tests {
     //! trampoline ABI + the protocol routing.
 
     use super::*;
-    use crate::vm_context::VmContext;
     use std::sync::atomic::Ordering;
 
-    fn make_jit_ctx(vm_ctx: &VmContext) -> (JitModuleCtx, JitFrame) {
-        // module pointer dangles for the test — check_safepoint never
-        // dereferences it.
-        let mut jit_ctx = JitModuleCtx::new(std::ptr::null(), std::ptr::null(), 1, 10_000);
-        jit_ctx.vm_ctx = vm_ctx as *const VmContext as *mut VmContext;
-        (jit_ctx, JitFrame::new(vm_ctx, 0, &[]))
+    fn make_frame(vm_ctx: &VmContext) -> JitFrame {
+        JitFrame::new(vm_ctx, 0, &[])
     }
 
     #[test]
@@ -162,12 +157,9 @@ mod check_safepoint_tests {
         // immediately without touching gc_cycles.
         let ctx = VmContext::new();
         let cycles_before = ctx.heap().stats().gc_cycles;
-        let (jit_ctx, mut frame) = make_jit_ctx(&ctx);
+        let mut frame = make_frame(&ctx);
         unsafe {
-            jit_check_safepoint(
-                &mut frame as *mut JitFrame,
-                &jit_ctx as *const JitModuleCtx,
-            );
+            jit_check_safepoint(&mut frame as *mut JitFrame, &*ctx as *const VmContext);
         }
         assert_eq!(ctx.heap().stats().gc_cycles, cycles_before,
             "Idle path should be a no-op");
@@ -186,12 +178,9 @@ mod check_safepoint_tests {
         let cycles_before = ctx.heap().stats().gc_cycles;
         ctx.core.needs_auto_collect.store(true, Ordering::Release);
 
-        let (jit_ctx, mut frame) = make_jit_ctx(&ctx);
+        let mut frame = make_frame(&ctx);
         unsafe {
-            jit_check_safepoint(
-                &mut frame as *mut JitFrame,
-                &jit_ctx as *const JitModuleCtx,
-            );
+            jit_check_safepoint(&mut frame as *mut JitFrame, &*ctx as *const VmContext);
         }
         assert!(!ctx.core.needs_auto_collect.load(Ordering::Acquire),
             "trampoline should have drained the flag");

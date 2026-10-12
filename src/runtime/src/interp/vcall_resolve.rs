@@ -79,7 +79,7 @@ pub(crate) fn receiver_type_id(obj_val: &Value) -> Option<u32> {
 }
 
 /// PIC fast path shared by both engines: hit → the callee's `FnId` under the site's module
-/// (resolve it with `exec_call::fn_by_id` / `JitModuleCtx::fn_of`, both lock-free). `None` on
+/// (resolve it with `exec_call::fn_by_id` / `JitRuntime::fn_of`, both lock-free). `None` on
 /// miss, on a non-cacheable receiver, or when the cached target is `UNRESOLVED`.
 ///
 /// Publication: the PIC entry is read `Relaxed`. A lazily loaded `FnId` is only usable through

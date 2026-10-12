@@ -234,10 +234,9 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         }};
     }
 
-    // extend-jit-helper-abi (2026-04-28): every helper receives `ctx: *const
-    // JitModuleCtx` as 2nd param (after `frame`). Helper bodies reach
-    // VmContext via `(*ctx).vm_ctx`, replacing the previous `thread_local!`
-    // slots in the old `helpers.rs`.
+    // Every helper receives `ctx: *const VmContext` — the running thread's own
+    // context — as 2nd param (after `frame`), the same pointer the compiled
+    // caller was entered with.
     Ok(HelperIds {
         const_i32:     decl!("jit_const_i32",  [ptr, ptr, i32t, i32t],                    []),
         const_i64:     decl!("jit_const_i64",  [ptr, ptr, i32t, i64t],                    []),

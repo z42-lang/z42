@@ -11,7 +11,8 @@ use crate::metadata::resolver::VCallIC;
 use crate::metadata::{Function, Value};
 use crate::interp::vcall_resolve::{resolve_vcall, vcall_ic_hit, VCallTarget};
 
-use super::super::frame::{FnEntry, JitFrame, JitModuleCtx};
+use super::super::frame::{FnEntry, JitFrame};
+use crate::vm_context::VmContext;
 use super::super::invoke::call_entry;
 use super::{set_exception, vm_ctx_ref};
 
@@ -26,14 +27,14 @@ use super::{set_exception, vm_ctx_ref};
 /// tests bypassing `Vm::run`); helper degrades gracefully to slow path.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_vcall(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     dst: u32, obj: u32, method_ptr: *const u8, method_len: usize,
     args_ptr: *const u32, argc: usize,
     ic_ptr: *const VCallIC,
     caller_offset: u32, // packed code offset of the call site (jit-stack-trace)
 ) -> u8 {
-    let ctx_ref   = &*ctx;
-    let module    = &*ctx_ref.module;
+    let rt        = super::jit_rt(ctx);
+    let module    = super::jit_module(ctx);
     let frame_ref = &mut *frame;
     let vm_ctx    = vm_ctx_ref(ctx);
 
@@ -52,7 +53,7 @@ pub unsafe extern "C" fn jit_vcall(
     // once. `fn_of` is `None` only while the id's registration is not yet visible to this
     // thread (see `vcall_ic_hit`); the slow path then binds by name.
     if let Some(id) = vcall_ic_hit(ic, &obj_val) {
-        if let Some(func) = ctx_ref.fn_of(id) {
+        if let Some(func) = rt.fn_of(id) {
             // The check is debug-only; keep its argument (a UTF-8 validation of the
             // method name) out of release builds, where it ran on every IC hit.
             #[cfg(debug_assertions)]
@@ -61,7 +62,7 @@ pub unsafe extern "C" fn jit_vcall(
                 std::str::from_utf8(std::slice::from_raw_parts(method_ptr, method_len)).unwrap_or("?"),
                 func);
             // Move `obj_val` in — this branch always returns.
-            return match ctx_ref.resolve_fn_by_id_tiered(id) {
+            return match rt.resolve_fn_by_id_tiered(&*ctx, id) {
                 Some(entry) => invoke_entry(frame_ref, ctx, dst, entry, obj_val, arg_regs),
                 None => invoke_interp(frame_ref, ctx, dst, func, obj_val, arg_regs),
             };
@@ -82,7 +83,7 @@ pub unsafe extern "C" fn jit_vcall(
         // Module-local or lazily loaded: compiled (or compiles at the tier threshold) →
         // native; cold / untranslatable (interp-only opcode such as `LoadLocalAddr`) / no
         // `FnId` → interp, mirroring `jit_call`'s cross-zpkg-via-interp fallback.
-        VCallTarget::Local { func, id } => match id.and_then(|id| ctx_ref.resolve_fn_by_id_tiered(id)) {
+        VCallTarget::Local { func, id } => match id.and_then(|id| rt.resolve_fn_by_id_tiered(&*ctx, id)) {
             Some(entry) => invoke_entry(frame_ref, ctx, dst, entry, resolved.this, arg_regs),
             None => invoke_interp(frame_ref, ctx, dst, func, resolved.this, arg_regs),
         },
@@ -92,7 +93,7 @@ pub unsafe extern "C" fn jit_vcall(
 /// Run a compiled entry: receiver in reg 0, args read straight from the caller's
 /// registers (no `Vec<Value>`), one `VmFrame` push covering GC roots + stack trace.
 unsafe fn invoke_entry(
-    frame_ref: &mut JitFrame, ctx: *const JitModuleCtx, dst: u32,
+    frame_ref: &mut JitFrame, ctx: *const VmContext, dst: u32,
     entry: &FnEntry, this: Value, arg_regs: &[u32],
 ) -> u8 {
     // `[Native]` extern wrapper (e.g. `string.Length`): run its builtin directly (`jit::forward`).
@@ -103,17 +104,16 @@ unsafe fn invoke_entry(
     }
     let vm = vm_ctx_ref(ctx);
     let callee = JitFrame::new_method_args_from(vm, entry.max_reg, this, &frame_ref.regs, arg_regs);
-    call_entry(vm, ctx, entry, callee).store_into(&mut frame_ref.regs, dst)
+    call_entry(vm, entry, callee).store_into(&mut frame_ref.regs, dst)
 }
 
 /// Run a function on the interpreter with `this` in reg 0 and args filled from the
 /// caller's registers (same frame builder the interpreter's own vcall uses).
 unsafe fn invoke_interp(
-    frame_ref: &mut JitFrame, ctx: *const JitModuleCtx, dst: u32,
+    frame_ref: &mut JitFrame, ctx: *const VmContext, dst: u32,
     func: &Function, this: Value, arg_regs: &[u32],
 ) -> u8 {
-    let ctx_ref = &*ctx;
-    let module  = &*ctx_ref.module;
+    let module  = super::jit_module(ctx);
     let vm_ctx  = vm_ctx_ref(ctx);
     match crate::interp::exec_function_from_receiver_regs(
         vm_ctx, module, func, &this, &frame_ref.regs, arg_regs, &[])

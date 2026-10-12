@@ -11,7 +11,7 @@
 
 use super::*;
 use crate::jit::helpers::take_exception;
-use super::super::super::frame::{JitFrame, JitModuleCtx};
+use super::super::super::frame::JitFrame;
 use crate::metadata::types::{
     FieldAccess, ObjStorage, ObjectLayout, ScriptObject, TypeDesc, TypeDescCold, Value,
     STRUCT_LEAF_PRIM, TAG_I32, TAG_STR,
@@ -19,14 +19,6 @@ use crate::metadata::types::{
 use crate::gc::GcRef;
 use crate::vm_context::VmContext;
 use std::sync::Arc;
-
-/// 最小 JIT ctx：只有 `vm_ctx` 是活的（module 悬空——本组 helper 不碰 module）。
-/// 手法同 `array_tests.rs::make_jit_ctx`。
-fn make_jit_ctx(vm_ctx: &VmContext) -> JitModuleCtx {
-    let mut c = JitModuleCtx::new(std::ptr::null(), std::ptr::null(), 1, 10_000);
-    c.vm_ctx = vm_ctx as *const VmContext as *mut VmContext;
-    c
-}
 
 /// `class Holder { int n; string s; }`
 /// —— `n` 是字节打包的基元叶子（offset 0, 4B, TAG_I32）；
@@ -73,7 +65,7 @@ fn read_n(v: &Value) -> Value {
     }
 }
 
-fn set(frame: &mut JitFrame, ctx: &JitModuleCtx, name: &str) -> u8 {
+fn set(frame: &mut JitFrame, ctx: &VmContext, name: &str) -> u8 {
     unsafe { jit_field_set(frame, ctx, 0, name.as_ptr(), name.len(), 1, std::ptr::null()) }
 }
 
@@ -84,19 +76,19 @@ fn set(frame: &mut JitFrame, ctx: &JitModuleCtx, name: &str) -> u8 {
 #[test]
 fn null_into_primitive_field_raises_instead_of_silently_doing_nothing() {
     let vm = VmContext::new();
-    let ctx = make_jit_ctx(&vm);
+    let ctx: &VmContext = &vm;
     let mut frame = JitFrame::new(&vm, 4, &[]);
     let h = holder();
     frame.regs[0] = h.clone();
 
     // 先写一个正常值，确认字段可写（否则下面的「旧值不变」断言是空的）。
     frame.regs[1] = Value::I64(7);
-    assert_eq!(set(&mut frame, &ctx, "n"), 0, "正常整数必须写得进");
+    assert_eq!(set(&mut frame, ctx, "n"), 0, "正常整数必须写得进");
     assert!(matches!(read_n(&h), Value::I64(7)), "写入后应读回 7");
 
     // 被测：Null 进基元槽。
     frame.regs[1] = Value::Null;
-    let rc = set(&mut frame, &ctx, "n");
+    let rc = set(&mut frame, ctx, "n");
 
     assert_eq!(rc, 1, "Null 写进基元字段必须报异常（rc=0 即回归成静默失败）");
     let exc = take_exception(&vm);
@@ -109,15 +101,15 @@ fn null_into_primitive_field_raises_instead_of_silently_doing_nothing() {
 #[test]
 fn null_into_reference_field_stays_legal() {
     let vm = VmContext::new();
-    let ctx = make_jit_ctx(&vm);
+    let ctx: &VmContext = &vm;
     let mut frame = JitFrame::new(&vm, 4, &[]);
     frame.regs[0] = holder();
 
     frame.regs[1] = Value::Str("hi".into());
-    assert_eq!(set(&mut frame, &ctx, "s"), 0, "字符串写得进");
+    assert_eq!(set(&mut frame, ctx, "s"), 0, "字符串写得进");
 
     frame.regs[1] = Value::Null;
-    assert_eq!(set(&mut frame, &ctx, "s"), 0, "引用字段写 null 是合法的，不得报异常");
+    assert_eq!(set(&mut frame, ctx, "s"), 0, "引用字段写 null 是合法的，不得报异常");
     assert!(take_exception(&vm).is_none(), "不得置异常");
 }
 
@@ -126,12 +118,12 @@ fn null_into_reference_field_stays_legal() {
 #[test]
 fn type_mismatch_into_primitive_field_also_raises() {
     let vm = VmContext::new();
-    let ctx = make_jit_ctx(&vm);
+    let ctx: &VmContext = &vm;
     let mut frame = JitFrame::new(&vm, 4, &[]);
     frame.regs[0] = holder();
 
     frame.regs[1] = Value::Str("not a number".into());
-    assert_eq!(set(&mut frame, &ctx, "n"), 1, "字符串写进 int 槽必须报异常");
+    assert_eq!(set(&mut frame, ctx, "n"), 1, "字符串写进 int 槽必须报异常");
     assert!(take_exception(&vm).is_some());
 }
 
@@ -140,10 +132,10 @@ fn type_mismatch_into_primitive_field_also_raises() {
 #[test]
 fn null_receiver_field_get_raises_the_shared_text() {
     let vm = VmContext::new();
-    let ctx = make_jit_ctx(&vm);
+    let ctx: &VmContext = &vm;
     let mut frame = JitFrame::new(&vm, 4, &[]);
     frame.regs[0] = Value::Null;
-    let rc = unsafe { jit_field_get(&mut frame, &ctx, 1, 0, "n".as_ptr(), 1, std::ptr::null()) };
+    let rc = unsafe { jit_field_get(&mut frame, ctx, 1, 0, "n".as_ptr(), 1, std::ptr::null()) };
     assert_eq!(rc, 1);
     match take_exception(&vm) {
         Some(Value::Str(s)) => assert_eq!(&*s,

@@ -28,13 +28,13 @@ pub(super) fn find_handler_entries(func: &Function, block_idx: usize) -> Vec<usi
 ///
 /// Mirrors `gc::safepoint::check_safepoint`:
 /// ```text
-///   vm_ctx = *(ctx + JIT_MODULE_CTX_VM_CTX_OFFSET)
-///   prev   = *(vm_ctx + SAFEPOINT_SKIP_OFFSET)      // plain i32 load
-///            *(vm_ctx + SAFEPOINT_SKIP_OFFSET) = prev - 1
+///   prev   = *(ctx + SAFEPOINT_SKIP_OFFSET)         // plain i32 load
+///            *(ctx + SAFEPOINT_SKIP_OFFSET) = prev - 1
 ///   if prev u> 1 { fast: continue }                 // ~99.9%
 ///   else         { slow: jit_check_safepoint_slow(frame, ctx); continue }
 /// ```
-/// The decrement is a plain (non-atomic) load/store: `safepoint_skip` is
+/// `ctx` is the running thread's own `VmContext`, so the counter is this
+/// thread's. The decrement is a plain (non-atomic) load/store: `safepoint_skip` is
 /// single-writer per mutator (only `force_safepoint`, test-only, writes it
 /// cross-thread), so RMW atomicity is unnecessary — and dropping it is what
 /// makes the fast path inlinable as two bare `mov`s (the `atomic_rmw` form
@@ -44,9 +44,9 @@ pub(super) fn find_handler_entries(func: &Function, block_idx: usize) -> Vec<usi
 /// `fast` block, which the caller keeps building into. Blocks are sealed later
 /// by `seal_all_blocks()` (per this file's convention).
 /// runtime-audit P0-4: stack overflow is fatal. Compare the stack pointer with
-/// `JitModuleCtx::stack_limit` (the running thread's limit, set by
-/// `JitModule::run_fn`); below it, record the overflow and return the
-/// "thrown" code. Two loads and a compare on the hot path.
+/// the context's `JitHead::stack_limit` — the limit of the thread driving it,
+/// stored at its bottom frame push; below it, record the overflow and return the
+/// "thrown" code. One load and a compare on the hot path.
 pub(super) fn emit_stack_check(
     builder:   &mut FunctionBuilder,
     ptr:       cranelift_codegen::ir::Type,
@@ -58,7 +58,7 @@ pub(super) fn emit_stack_check(
     let sp = builder.ins().get_stack_pointer(ptr);
     let limit = builder.ins().load(
         ptr, flags, ctx_val,
-        crate::jit::frame::JIT_MODULE_CTX_STACK_LIMIT_OFFSET as i32,
+        crate::vm_context::VM_CONTEXT_STACK_LIMIT_OFFSET as i32,
     );
     let over = builder.ins().icmp(IntCC::UnsignedLessThan, sp, limit);
     let ok_blk = builder.create_block();
@@ -73,21 +73,15 @@ pub(super) fn emit_stack_check(
 
 pub(super) fn emit_safepoint_check(
     builder:   &mut FunctionBuilder,
-    ptr:       cranelift_codegen::ir::Type,
     ctx_val:   cranelift_codegen::ir::Value,
     frame_val: cranelift_codegen::ir::Value,
     hr_slow:   cranelift_codegen::ir::FuncRef,
 ) {
     let flags = MemFlagsData::trusted();
-    // vm_ctx pointer lives inside JitModuleCtx.
-    let vm_ctx = builder.ins().load(
-        ptr, flags, ctx_val,
-        crate::jit::frame::JIT_MODULE_CTX_VM_CTX_OFFSET as i32,
-    );
     let skip_off = crate::vm_context::VM_CONTEXT_SAFEPOINT_SKIP_OFFSET as i32;
-    let prev = builder.ins().load(types::I32, flags, vm_ctx, skip_off);
+    let prev = builder.ins().load(types::I32, flags, ctx_val, skip_off);
     let newv = builder.ins().iadd_imm_s(prev, -1);
-    builder.ins().store(flags, newv, vm_ctx, skip_off);
+    builder.ins().store(flags, newv, ctx_val, skip_off);
     // prev u> 1  ⇒  still throttled, take the fast (skip) path.
     let cond = builder.ins().icmp_imm_s(IntCC::UnsignedGreaterThan, prev, 1);
     let fast_blk = builder.create_block();

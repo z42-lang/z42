@@ -18,7 +18,7 @@
 ///   * Functions that can fail return `u8`: 0 = success, 1 = exception
 ///     (stored on `VmContext` via `set_exception`)
 ///   * Functions that cannot fail return `()`
-///   * Every helper takes `frame: *mut JitFrame, ctx: *const JitModuleCtx`
+///   * Every helper takes `frame: *mut JitFrame, ctx: *const VmContext`
 ///     as the first two parameters
 
 pub mod arith;
@@ -35,10 +35,11 @@ pub mod vcall;
 
 pub use registry::{declare_imports, register_symbols, HelperIds};
 
-use crate::metadata::Value;
+use crate::metadata::{Module, Value};
 use crate::vm_context::VmContext;
 
-use super::frame::{JitFrame, JitModuleCtx};
+use super::frame::JitFrame;
+use super::runtime::JitRuntime;
 
 // ─── ABI version ────────────────────────────────────────────────────────────
 //
@@ -49,26 +50,42 @@ use super::frame::{JitFrame, JitModuleCtx};
 // fail the JIT init if its compiled-against version doesn't match.
 
 #[allow(dead_code)] // hook for future tier-up / multiple JIT backend version-mismatch detection
-pub const VM_JIT_INTERFACE_VERSION: u32 = 2;
+pub const VM_JIT_INTERFACE_VERSION: u32 = 3;
 
-// ─── VmContext access via JitModuleCtx ──────────────────────────────────────
+// ─── Context access ─────────────────────────────────────────────────────────
 //
-// Every JIT helper receives `*const JitModuleCtx` as its 2nd parameter
-// (after `*mut JitFrame`). The `JitModuleCtx::vm_ctx: *mut VmContext` field
-// (set by `JitModule::run` for the duration of one entry call) is the only
-// runtime-mutable VM state — the previous `PENDING_EXCEPTION` and
-// `STATIC_FIELDS` thread_local slots have been removed.
+// Every JIT helper receives the running thread's `*const VmContext` as its 2nd
+// parameter (after `*mut JitFrame`) — the same pointer the compiled caller got.
+// Per-thread state (frame stack, pending exception, arenas, register pool,
+// counters) is a field of it; the VM's shared JIT state is `vm.jit()` (`VmCore::jit`,
+// cached in the context's `JitHead`).
 
-/// Borrow the VmContext from a JitModuleCtx pointer for the duration of the
-/// helper call.
+/// Borrow the running thread's context for the duration of the helper call.
 ///
-/// SAFETY: caller must ensure
-///   1. `jit_ctx` is non-null and points to a valid JitModuleCtx
-///   2. `(*jit_ctx).vm_ctx` is non-null (always true while inside
-///      `JitModule::run` / `run_fn`)
-///   3. The returned reference's lifetime does not outlive the helper call
-pub(super) unsafe fn vm_ctx_ref<'a>(jit_ctx: *const JitModuleCtx) -> &'a VmContext {
-    &*((*jit_ctx).vm_ctx)
+/// SAFETY: `ctx` is the context parameter compiled code was called with
+/// (`jit::invoke::call_native`): non-null, live, driven by this thread. The
+/// returned reference must not outlive the helper call.
+#[inline(always)]
+pub(super) unsafe fn vm_ctx_ref<'a>(ctx: *const VmContext) -> &'a VmContext {
+    &*ctx
+}
+
+/// The VM's shared JIT runtime. Compiled code only exists once `jit::run`
+/// installed it, so a helper always finds it.
+///
+/// SAFETY: as [`vm_ctx_ref`].
+#[inline]
+pub(super) unsafe fn jit_rt<'a>(ctx: *const VmContext) -> &'a JitRuntime {
+    (*ctx).jit().expect("JIT helper called on a VM without the JIT installed")
+}
+
+/// The module the JIT's ids are relative to (the one compiled code executes
+/// against).
+///
+/// SAFETY: as [`vm_ctx_ref`].
+#[inline]
+pub(super) unsafe fn jit_module<'a>(ctx: *const VmContext) -> &'a Module {
+    jit_rt(ctx).module()
 }
 
 pub(super) fn set_exception(ctx: &VmContext, v: Value) {
@@ -80,12 +97,12 @@ pub(super) fn set_exception(ctx: &VmContext, v: Value) {
 /// 消息逐字一致；内部错误退化为字符串异常（JIT helper 没有别的出口）。
 ///
 /// # Safety
-/// `ctx` 是 helper 收到的 `JitModuleCtx` 指针（`module` 可为空——单测的最小 ctx）。
+/// `ctx` 是 helper 收到的线程 `VmContext` 指针（单测的最小 ctx 可能没装 JIT——回落到 VM 自己的 module）。
 #[cold]
 #[inline(never)]
-pub(super) unsafe fn raise(ctx: *const JitModuleCtx, e: crate::objops::OpError) -> u8 {
+pub(super) unsafe fn raise(ctx: *const VmContext, e: crate::objops::OpError) -> u8 {
     let vm = vm_ctx_ref(ctx);
-    let module = if (*ctx).module.is_null() { vm.module().map(|m| &**m) } else { Some(&*(*ctx).module) };
+    let module = match vm.jit() { Some(rt) => Some(rt.module()), None => vm.module().map(|m| &**m) };
     let exc = match e.into_exception(vm, module) {
         Ok(v) => v,
         Err(err) => Value::Str(err.to_string().into()),
@@ -108,7 +125,7 @@ pub fn take_exception_error(ctx: &VmContext, module: &crate::metadata::Module) -
 
 // ─── JIT function type alias ────────────────────────────────────────────────
 
-pub type JitFn = unsafe extern "C" fn(frame: *mut JitFrame, ctx: *const JitModuleCtx) -> u8;
+pub type JitFn = unsafe extern "C" fn(frame: *mut JitFrame, ctx: *const VmContext) -> u8;
 
 // ─── Shared numeric helpers ─────────────────────────────────────────────────
 //

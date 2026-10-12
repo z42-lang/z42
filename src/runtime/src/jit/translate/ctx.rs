@@ -124,7 +124,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
 
     /// Embed a `&str` as (ptr, len: i64) Cranelift constants (former `str_val!`).
     /// SAFETY: the string is 'static from the bytecode module (lives for the
-    /// whole JitModule lifetime).
+    /// whole life of the code that bakes it).
     #[inline]
     pub(super) fn str_val(&mut self, s: &str) -> (Value, Value) {
         let bytes: &'static [u8] = unsafe {

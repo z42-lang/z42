@@ -95,7 +95,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
                     // add-gc-safepoint-jit (2026-05-21): post-CallIndirect
                     // safepoint, see Instruction::Call for rationale.
-                    emit_safepoint_check(self.builder, self.ptr, self.ctx_val, self.frame_val, self.hr_check_safepoint_slow);
+                    emit_safepoint_check(self.builder, self.ctx_val, self.frame_val, self.hr_check_safepoint_slow);
                 }
             _ => anyhow::bail!("tr_call: unexpected opcode in category dispatch"),
         }
@@ -126,6 +126,6 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         // add-gc-safepoint-jit (2026-05-21): post-Call safepoint
         // — long callees may yield to a GC request that arrived
         // partway through; the caller catches it on return.
-        emit_safepoint_check(self.builder, self.ptr, self.ctx_val, self.frame_val, self.hr_check_safepoint_slow);
+        emit_safepoint_check(self.builder, self.ctx_val, self.frame_val, self.hr_check_safepoint_slow);
     }
 }

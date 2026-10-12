@@ -23,7 +23,7 @@ pub(crate) struct Frame {
     /// requiring 80+ instruction handlers to be deref-aware.
     pub ref_writebacks: Vec<(u32, crate::metadata::types::RefKind)>,
     /// add-osr-loop-tiering: loop back-edges taken in THIS activation. When it
-    /// reaches `JitModuleCtx.osr_threshold` (jit mode only), the running loop is
+    /// reaches `JitRuntime::osr_threshold` (jit mode only), the running loop is
     /// hot enough to hand off to native code (OSR). Per-activation (reset each
     /// `Frame::new*`) so "called once, loops a lot" upgrades while "called a lot,
     /// loops a little" does not (that's the call-count path's job).

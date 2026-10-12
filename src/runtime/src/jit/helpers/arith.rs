@@ -6,7 +6,8 @@ use crate::metadata::Value;
 // converge-vm-arith-semantics (H3): scalar rules come from the single source of
 // truth `crate::semantics` (shared with interp), not a JIT-local copy.
 use crate::semantics;
-use super::super::frame::{JitFrame, JitModuleCtx};
+use super::super::frame::JitFrame;
+use crate::vm_context::VmContext;
 use super::{set_exception, vm_ctx_ref};
 
 // ── Arithmetic ───────────────────────────────────────────────────────────────
@@ -20,7 +21,7 @@ use super::{set_exception, vm_ctx_ref};
 /// 与 interp `exec_value::add` 的 `with_obj_str` 一一对应。perf-str-concat-direct：文本以
 /// `&str` 借给 `f`（标量在栈缓冲里格式化、用户 `ToString` 的 GC 串原样借用），不落地中间串。
 #[inline]
-unsafe fn jit_with_str<R>(ctx: *const JitModuleCtx, v: &Value, f: impl FnOnce(&str) -> R) -> anyhow::Result<R> {
+unsafe fn jit_with_str<R>(ctx: *const VmContext, v: &Value, f: impl FnOnce(&str) -> R) -> anyhow::Result<R> {
     match v {
         Value::Object(_) | Value::BoxedStruct(_) =>
             crate::interp::dispatch::with_stringify_dispatch(vm_ctx_ref(ctx), v, f),
@@ -31,7 +32,7 @@ unsafe fn jit_with_str<R>(ctx: *const JitModuleCtx, v: &Value, f: impl FnOnce(&s
 /// Raise a stringification failure: the user `ToString`'s own exception when it
 /// threw (`dispatch::tostring_threw` parks it in `pending_thrown`), otherwise
 /// the error text. Returns the "thrown" sentinel.
-pub(crate) unsafe fn stringify_failed(ctx: *const JitModuleCtx, e: anyhow::Error) -> u8 {
+pub(crate) unsafe fn stringify_failed(ctx: *const VmContext, e: anyhow::Error) -> u8 {
     let vm = vm_ctx_ref(ctx);
     let exc = vm.take_pending_thrown().unwrap_or_else(|| Value::Str(e.to_string().into()));
     set_exception(vm, exc);
@@ -40,7 +41,7 @@ pub(crate) unsafe fn stringify_failed(ctx: *const JitModuleCtx, e: anyhow::Error
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_add(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     dst: u32, a: u32, b: u32,
 ) -> u8 {
     // Fast path: both I64
@@ -89,7 +90,7 @@ macro_rules! arith_op {
     ($name:ident, $int_op:expr, $float_op:expr) => {
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn $name(
-            frame: *mut JitFrame, ctx: *const JitModuleCtx,
+            frame: *mut JitFrame, ctx: *const VmContext,
             dst: u32, a: u32, b: u32,
         ) -> u8 {
             // Fast path: both I64 — no clone, no match dispatch
@@ -124,7 +125,7 @@ arith_op!(jit_mul, i64::wrapping_mul, |x, y| x * y);
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_div(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     dst: u32, a: u32, b: u32,
 ) -> u8 {
     let regs = &(*frame).regs;
@@ -148,7 +149,7 @@ pub unsafe extern "C" fn jit_div(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_rem(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     dst: u32, a: u32, b: u32,
 ) -> u8 {
     let regs = &(*frame).regs;
@@ -174,9 +175,9 @@ pub unsafe extern "C" fn jit_rem(
 /// `set_exception`. Matches interp's `check_int_div_by_zero` flow.
 /// Returns 1 (the "thrown" sentinel) so the caller can `return` it
 /// directly.
-unsafe fn throw_int_div_by_zero(ctx: *const JitModuleCtx, op: &str) -> u8 {
+unsafe fn throw_int_div_by_zero(ctx: *const VmContext, op: &str) -> u8 {
     let vm_ctx = vm_ctx_ref(ctx);
-    let module = &*(*ctx).module;
+    let module = super::jit_module(ctx);
     let exc = crate::exception::make_stdlib_exception(
         vm_ctx, module, semantics::DIV_BY_ZERO_EXC,
         semantics::div_by_zero_msg(op),
@@ -189,7 +190,7 @@ unsafe fn throw_int_div_by_zero(ctx: *const JitModuleCtx, op: &str) -> u8 {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_eq(
-    frame: *mut JitFrame, _ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, _ctx: *const VmContext,
     dst: u32, a: u32, b: u32,
 ) {
     // Compute the result under a scoped immutable borrow, then write — no
@@ -208,7 +209,7 @@ pub unsafe extern "C" fn jit_eq(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_ne(
-    frame: *mut JitFrame, _ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, _ctx: *const VmContext,
     dst: u32, a: u32, b: u32,
 ) {
     // Clone-free: compare by reference under a scoped borrow (see jit_eq).
@@ -223,7 +224,7 @@ macro_rules! cmp_op {
     ($name:ident, $i64_op:expr, $lt_swap:expr, $negate:expr) => {
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn $name(
-            frame: *mut JitFrame, ctx: *const JitModuleCtx,
+            frame: *mut JitFrame, ctx: *const VmContext,
             dst: u32, a: u32, b: u32,
         ) -> u8 {
             let regs = &(*frame).regs;
@@ -255,7 +256,7 @@ cmp_op!(jit_ge, |x: &i64, y: &i64| x >= y, false, true);
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_and(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     dst: u32, a: u32, b: u32,
 ) -> u8 {
     match (&(*frame).regs[a as usize], &(*frame).regs[b as usize]) {
@@ -269,7 +270,7 @@ pub unsafe extern "C" fn jit_and(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_or(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     dst: u32, a: u32, b: u32,
 ) -> u8 {
     match (&(*frame).regs[a as usize], &(*frame).regs[b as usize]) {
@@ -283,7 +284,7 @@ pub unsafe extern "C" fn jit_or(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_not(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     dst: u32, src: u32,
 ) -> u8 {
     match &(*frame).regs[src as usize] {
@@ -299,7 +300,7 @@ pub unsafe extern "C" fn jit_not(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_neg(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     dst: u32, src: u32,
 ) -> u8 {
     let result = match &(*frame).regs[src as usize] {
@@ -320,7 +321,7 @@ macro_rules! bitwise_op {
     ($name:ident, $op:expr) => {
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn $name(
-            frame: *mut JitFrame, ctx: *const JitModuleCtx,
+            frame: *mut JitFrame, ctx: *const VmContext,
             dst: u32, a: u32, b: u32,
         ) -> u8 {
             let va = (*frame).regs[a as usize].clone();
@@ -341,7 +342,7 @@ bitwise_op!(jit_shr,     |x, y| x >> (y & 63));
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_bit_not(
-    frame: *mut JitFrame, ctx: *const JitModuleCtx,
+    frame: *mut JitFrame, ctx: *const VmContext,
     dst: u32, src: u32,
 ) -> u8 {
     let result = match &(*frame).regs[src as usize] {

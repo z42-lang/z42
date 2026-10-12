@@ -31,6 +31,8 @@ vm.run(&ctx, hint)?;
 
 `__thread_spawn`（[corelib/threading.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/corelib/threading.rs)）流程：拿到调用者 `ctx.core` 的 `Arc::clone` → `std::thread::spawn` → worker 内 `VmContext::new_with_core(core)` 构造 worker ctx → `interp::exec_function` dispatch。worker 的 per-thread 字段（pending_exception / call_stack）私有；通过 `vm_contexts` 注册让 GC scanner 看见 worker 自己的 roots。
 
+VM 装了 JIT（`--mode jit`）时 worker 一样跑原生码：`VmCore.jit` 是全 VM 共用的 JIT（槽表、编译器、OSR 缓存），worker 的解释器帧经混合模式分流路由到已编译函数、自己计数升层、到阈值就在 worker 线程上编译；原生码与 helper 的上下文参数就是 worker 自己的 `VmContext`（见 [jit.md](jit.md)「数据结构」「线程安全」）。
+
 ### VmCore：跨线程共享状态
 
 `VmCore` 持有 **process-globally singular** 的状态，通过 `Arc<VmCore>` 让多个 `VmContext`（每个 OS 线程一个）共享：
@@ -81,7 +83,7 @@ vm.run(&ctx, hint)?;
 - `pending_thrown: Mutex<Option<Value>>` — callback 型 builtin（反射 `MethodInfo.Invoke`）把原异常值带出 builtin 边界的槽位；每线程一份，GC 根
 - `call_stack: FrameStack` — 当前线程帧栈，只由所属线程无锁读写（见下「帧栈的归属」）
 - `reg_pool: RegPool` — interp `Frame` 与 `JitFrame` 共用的寄存器文件 free-list；`engine_guards` — 栈非空期间装好的 VM / 堆 thread-local（见下「寄存器池、引擎入口 guard、frame_id」）。两者都只由所属线程无锁访问
-- `stack_arena` / `struct_arena` / `transient_arena`（及其发布长度原子，见下一节）、`next_frame_id`（frame id 来源，帧惰性取号）、`safepoint_skip`（safepoint 节流计数，JIT 内联读写）、`jit_ctx`（混合模式下指向当前 `JitModuleCtx`）
+- `stack_arena` / `struct_arena` / `transient_arena`（及其发布长度原子，见下一节）、`next_frame_id`（frame id 来源，帧惰性取号）、`safepoint_skip`（safepoint 节流计数，JIT 内联读写）、`jit_head`（`#[repr(C)]`，生成码按偏移读的本线程栈下限与 cctor 门指针，外加缓存的 `&VmCore.jit`）
 - `subclass_memo` + `isa_cache`（`is`/`as`/`catch` 子类判定缓存，键 `(接收者 TypeId, 目标键)`，见 [interp-jit-semantics.md](interp-jit-semantics.md)）、`type_lookup_cache` + `fn_lookup_cache`（`try_lookup_type/function` 命中的前置缓存，免去共享 `lazy_loader` 锁）
 
 每个 `VmFrame` 只有 40 B：`func`（`*const Function`）、`regs` 指针、`pc: Cell<u32>`，
@@ -169,7 +171,9 @@ regs，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
   - 同一线程上**别的 VM 的代码**插进来的唯一途径是宿主重入（native 回调里 `z42_host_invoke`）：A → native →
     B → native → A 时，A 的栈非空、thread-local 却指着 B。所以 `host::ops::invoke_impl` **无条件**安装两者；
     每个 guard 恢复它进来时看到的值（已是同一 VM 时为 no-op），嵌套按序退栈。
-  - `JitModule::run_fn` 在入口 push 之前另装一个堆 guard，覆盖入口函数的惰性编译。
+  - `jit::run_fn` 在入口 push 之前另装一个堆 guard，覆盖入口函数的惰性编译。
+  - 栈底帧 push 时还把**驱动本 ctx 的线程**的栈下限（`stack_guard::limit()`）写进 `jit_head.stack_limit`，
+    JIT 序言比较的就是它；同一 ctx 换线程驱动时随新的栈底帧更新。
 - **frame_id 惰性分配**：帧的 id 只用来给它在 arena 里分配的槽打标签（栈分配对象 / 数组、`Ref`、`PinnedView`、
   值 struct），句柄带着它，帧 truncate 后的悬垂访问由 id 不符拦下。interp `Frame::frame_id(ctx)` 与 JIT
   `struct_ops::frame_id_of` 都在**第一次用到**时取号，`0` 表示尚未取；大多数帧从不取。`next_frame_id` 只由所属
@@ -231,8 +235,9 @@ blob）、`transient_arena`（`Ref`/`PinnedView`/`StructRefHeap` 的 payload）�
 - 下限 = 栈底 + 余量，余量为栈大小的 1/8、夹在 256 KiB–1 MiB（给两次检查之间的原生工作：builtin、
   一次惰性 JIT 编译、生成报告）。栈边界来自 `pal::stack`，线程首次进入时算一次，存 TLS。
 - interp：`enter_frame` 在 `push_frame` 之后检查（报告里含这一帧），越界返回内部错误。
-- JIT：函数 prologue 内联 `get_stack_pointer` 与 `JitModuleCtx::stack_limit` 比较（`run_fn` 按当前
-  线程设置；JIT 代码只在该线程上跑），越界调 `jit_stack_overflow` 后返回「已抛出」。
+- JIT：函数 prologue 内联 `get_stack_pointer` 与上下文参数的 `jit_head.stack_limit` 比较（运行线程自己的
+  `VmContext`，值在栈底帧 push 时按该线程写入），越界调 `jit_stack_overflow` 后返回「已抛出」。每条线程（含 worker）
+  都按自己的栈检查。
 
 越界时记下 z42 调用栈、置 `VmCore.fatal`（每个 VM 一份，同一 VM 的所有线程共享）。之后：
 
@@ -637,7 +642,7 @@ stdlib 里必然含有 JIT 尚未支持的 opcode —— `out`/`ref`/`in` 参数
 **逐函数降级**而非「整模块要么全编译要么全失败」。
 
 1. **首编前判定**（`jit_unsupported_reason`，[jit/translate/unsupported.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/jit/translate/unsupported.rs)；
-   调用点 `JitModuleCtx::resolve_fn_by_id_thr`）：函数达到编译条件时先扫描一次，含不可翻译 opcode 的
+   调用点 `JitRuntime::resolve_fn_by_id_thr`）：函数达到编译条件时先扫描一次，含不可翻译 opcode 的
    **不编译**：槽位记为 Rejected（`JitSlot.state` 负缓存，此后不再重扫；编译失败同样记 Rejected、不重编），
    入口函数与惰性函数一样。名单由 `unsupported_reason(instr)`
    单一来源给出，`translate_function` 里的 `bail!` 分支也取自它，两处不会漂移。
@@ -647,12 +652,12 @@ stdlib 里必然含有 JIT 尚未支持的 opcode —— `out`/`ref`/`in` 参数
    `interp::vcall_resolve::resolve_vcall` 完成，[jit/helpers/vcall.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/jit/helpers/vcall.rs)
    只决定怎么调：有编译入口走原生，否则在解释器上以填好接收者的帧执行。
 
-3. **entry 也兜底**：`JitModule::run_fn` 在入口取不到时（被拒绝的 entry）改用 `interp::exec_function`
+3. **entry 也兜底**：`jit::run_fn` 在入口取不到时（被拒绝的 entry）改用 `interp::exec_function`
    执行，而不是硬报 `entry not found`。静态字段初始化器随类型初始化器惰性触发（`run_pending_static_inits`），
    不再有 `__static_init__` 名单需要在 JIT 侧枚举。
 
-> 净效果：JIT 尽量编原生码，含 interp-only opcode 的函数（及其整棵调用子树）在解释器上
-> 跑，全程对外行为与 `--mode interp` 一致。回归测试：`src/tests/refs/{out_var,
+> 净效果：JIT 尽量编原生码，含 interp-only opcode 的函数在解释器上跑（它调用的已编译函数仍经混合模式
+> 分流回原生码），全程对外行为与 `--mode interp` 一致。回归测试：`src/tests/refs/{out_var,
 > in_param,ref_local,ref_nested}` 在 interp + jit 双模式皆过。
 
 ### 依赖传递（着色算法）
@@ -1084,13 +1089,13 @@ import metadata 内部类型；helpers/* 同样走 trait"这一**完整愿景**�
   `module.module_name()` 等替代直接字段访问
 - **helper 暂无 trait 消费者**：`jit_obj_new` 的类 / 构造器解析与 interp 共用
   `interp::obj_new_resolve`，不经 `type_lookup`；raw pointer 不变
-- **签名保持具体类型**：`JitModule::setup(&Module)`；`JitModuleCtx.module:
+- **签名保持具体类型**：`jit::runtime::install(vm, &Module)`；`JitRuntime.module:
   *const Module` 是具体类型
 
 ### 待办
 
 - 把余下 9 个 helper 全迁到 trait method
-- 探索 `JitModule::setup<M: JitVm + ?Sized>(module: &M)` generic 化（前提：解决
+- 探索 `install<M: JitVm + ?Sized>(vm, module: &M)` generic 化（前提：解决
   helper 端的 raw pointer ABI 问题，可能需要 type-erased dispatch table）
 - 远期 AOT 后端通过另一个 `JitVm` impl 接入相同 contract
 
@@ -1115,7 +1120,7 @@ import metadata 内部类型；helpers/* 同样走 trait"这一**完整愿景**�
 
 ```
 jit/helpers/
-├── mod.rs        — 共享工具（vm_ctx_ref / set_exception / 数值 helper）+
+├── mod.rs        — 共享工具（vm_ctx_ref / jit_rt / jit_module / set_exception / 数值 helper）+
 │                   VM_JIT_INTERFACE_VERSION
 ├── registry.rs   — 中央注册表（单一真相源）
 │                   ├── HelperIds {fields...}     ← 一字段一 FuncId
@@ -1345,7 +1350,7 @@ id 永不复用，所以它也是比地址更稳的缓存键：描述符释放�
 ### JIT 与 wire 形态
 
 - **JIT**：JIT helper 走 token / IC 形态，但 dispatch 仍走 helper-call 一次（helper carries IC）。IC hit 时直接通过
-  被缓存目标的 JIT 槽位（`JitModuleCtx.slots[id]`）跳到目标 native 代码，无 HashMap 哈希、无 vtable 解析，
+  被缓存目标的 JIT 槽位（`JitRuntime` 的 `slots[id]`）跳到目标 native 代码，无 HashMap 哈希、无 vtable 解析，
   hot path 与 interp 行为对齐。
 - **wire**：zbc 中 IR 字段 token 化——本地 = `module.Functions/Classes` 索引；cross-zpkg = `IMPORT_BASE + STRS idx`
   （STRS 池复用 + IMPORT_BASE bit 编码，无需单独 IMPT 格式）；token id 按源序分配；IR enum 字段在内存里保持
@@ -1404,9 +1409,9 @@ builtin 按功能分 submodule：`string.rs` / `io.rs` / `math.rs` / `fs.rs` 等
 | Pending exception (interp) | 无 thread_local —— interp 全程走 `ExecOutcome::Thrown(Value)` |
 | Pending exception / 静态字段 (JIT) | `ctx.pending_exception` / `VmCore.static_fields`，无同步桥接 |
 
-> JIT 端所有 extern "C" helper 签名都带 `ctx: *const JitModuleCtx`
-> 第 2 参，Cranelift translate.rs 在调用点插入 `ctx_val`。helper 内部通过 `vm_ctx_ref(ctx)` → `(*ctx).vm_ctx`
-> 两层间接拿到 `VmContext`。
+> JIT 端所有 extern "C" helper 签名都带 `ctx: *const VmContext` 第 2 参——**运行线程自己的**上下文，
+> 即编译码被调用时收到的那个（`jit::invoke::call_native` 传入）；Cranelift translate 在调用点插入 `ctx_val`。
+> helper 用 `vm_ctx_ref(ctx)` 直接解引用，共享的 JIT 状态经 `ctx.jit()`（缓存的 `&VmCore.jit`，`jit_rt(ctx)`）取。
 >
 > 寄存器池也在 `VmContext` 上（`reg_pool`）。`VmContext` 是所有 runtime-mutable 状态的唯一规范来源；
 > 仍是 thread-local 的只有引擎入口 guard 维护的 `CURRENT_VM` 与 ambient 堆指针（供拿不到 ctx 的

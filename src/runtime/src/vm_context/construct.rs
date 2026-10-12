@@ -130,6 +130,7 @@ impl VmContext {
         let pending_exception: Arc<Mutex<Option<Value>>> = Arc::new(Mutex::new(None));
 
         let ctx = Self {
+            jit_head: JitHead::new(&core),
             core,
             pending_exception,
             pending_thrown: Mutex::new(None),
@@ -145,7 +146,6 @@ impl VmContext {
             struct_len: std::sync::atomic::AtomicUsize::new(0),
             transient_len: std::sync::atomic::AtomicUsize::new(0),
             next_frame_id: std::sync::atomic::AtomicU32::new(1),
-            jit_ctx: std::sync::atomic::AtomicUsize::new(0),
             subclass_memo: Mutex::new(FxHashMap::default()),
             type_lookup_cache: Mutex::new(FxHashMap::default()),
             fn_lookup_cache: Mutex::new(FxHashMap::default()),
@@ -259,6 +259,8 @@ impl VmContext {
                 ),
                 None => crate::gc::Sampler::disabled(),
             },
+            #[cfg(feature = "jit")]
+            jit: std::sync::OnceLock::new(),
         });
 
         // add-os-signal-handler (2026-05-25): register this Arc<VmCore> into
@@ -452,6 +454,7 @@ impl VmContext {
         }
 
         let ctx = Self {
+            jit_head: JitHead::new(&core),
             core,
             pending_exception,
             pending_thrown: Mutex::new(None),
@@ -467,7 +470,6 @@ impl VmContext {
             struct_len: std::sync::atomic::AtomicUsize::new(0),
             transient_len: std::sync::atomic::AtomicUsize::new(0),
             next_frame_id: std::sync::atomic::AtomicU32::new(1),
-            jit_ctx: std::sync::atomic::AtomicUsize::new(0),
             subclass_memo: Mutex::new(FxHashMap::default()),
             type_lookup_cache: Mutex::new(FxHashMap::default()),
             fn_lookup_cache: Mutex::new(FxHashMap::default()),

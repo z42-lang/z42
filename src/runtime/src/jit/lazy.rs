@@ -2,10 +2,10 @@
 //!
 //! Holds the cranelift `JITModule` plus helper import ids, and compiles a single
 //! z42 function to native code on demand. A `LazyCompiler` is owned (behind a
-//! `Mutex`) by the `JitModule`; `JitModuleCtx.lazy` points at that mutex.
-//! `JitModuleCtx::resolve_fn_by_id` calls [`LazyCompiler::compile_fn`] under the
-//! lock, with a `OnceLock` double-check so each function compiles exactly once
-//! even under concurrent first-calls.
+//! `Mutex`) by the VM's `JitRuntime` (`VmCore::jit`).
+//! `JitRuntime::resolve_fn_by_id` calls [`LazyCompiler::compile_fn`] under the
+//! lock, on the calling thread, with a `OnceLock` double-check so each function
+//! compiles exactly once even under concurrent first-calls from several threads.
 //!
 //! Replaces the former eager whole-module compile (`compile_module` translated
 //! every function at load); a short-lived program now compiles only the handful
@@ -91,7 +91,7 @@ impl LazyCompiler {
     /// `hr_*` helper symbols. That is what lets us declare + define + finalize
     /// each function independently, on demand.
     ///
-    /// Caller (`JitModuleCtx::resolve_fn_by_id`) holds the mutex and has already
+    /// Caller (`JitRuntime::resolve_fn_by_id`) holds the mutex and has already
     /// verified the function is JIT-translatable and its slot is empty. The
     /// returned entry's `func` points at `func`, which outlives the entry (the
     /// module owns entry functions, the `FuncTable` slot lazily loaded ones).
@@ -99,7 +99,7 @@ impl LazyCompiler {
         let ptr = self.jit.target_config().pointer_type();
         let mut sig = self.jit.make_signature();
         sig.params.push(AbiParam::new(ptr));        // frame *mut JitFrame
-        sig.params.push(AbiParam::new(ptr));        // ctx   *const JitModuleCtx
+        sig.params.push(AbiParam::new(ptr));        // ctx   *const VmContext (running thread's)
         sig.returns.push(AbiParam::new(types::I8)); // 0 = ok, 1 = exception
         let func_id = self.jit.declare_function(&func.name, Linkage::Local, &sig)?;
 
@@ -134,7 +134,7 @@ impl LazyCompiler {
         let ptr = self.jit.target_config().pointer_type();
         let mut sig = self.jit.make_signature();
         sig.params.push(AbiParam::new(ptr));        // frame *mut JitFrame
-        sig.params.push(AbiParam::new(ptr));        // ctx   *const JitModuleCtx
+        sig.params.push(AbiParam::new(ptr));        // ctx   *const VmContext (running thread's)
         sig.returns.push(AbiParam::new(types::I8)); // 0 = ok, 1 = exception
         let osr_name = format!("{}$osr{}", func.name, k);
         let func_id = self.jit.declare_function(&osr_name, Linkage::Local, &sig)?;

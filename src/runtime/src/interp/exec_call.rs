@@ -17,8 +17,8 @@ use super::{ExecOutcome, Frame};
 /// (its `FnId` — entry-module and lazily loaded functions alike) to native code,
 /// mirroring `jit_call`: the call is counted and the callee compiles at the tier
 /// threshold; a compiled callee runs natively — set `frame.regs[dst]` from the
-/// result, or propagate a throw as `Ok(Some(val))`. Returns `None` when no JIT ctx
-/// is published (interp-only run) or the callee is cold / untranslatable
+/// result, or propagate a throw as `Ok(Some(val))`. Returns `None` when the VM has
+/// no JIT installed (interp-only run) or the callee is cold / untranslatable
 /// (`resolve_fn_by_id_tiered` → None) → the caller then stays on the interpreter.
 /// This is what lets an interp frame (a JIT cold-tier callee / fallback) route a hot
 /// compiled callee back to native instead of interpreting the whole subtree.
@@ -26,8 +26,7 @@ use super::{ExecOutcome, Frame};
 fn try_native_static_call(
     ctx: &VmContext, frame: &mut Frame, dst: u32, id: usize, args: &[u32],
 ) -> Option<Result<Option<Value>>> {
-    let p = ctx.jit_ctx_ptr();
-    if p == 0 { return None; }
+    let rt = ctx.jit()?;
     // runtime-jit-tiering Phase 1.5 safety: an INTERP frame can hold a
     // `Ref(Stack)` (an out/ref-param address from `LoadLocalAddr`) in a register;
     // a JIT frame never can (ref-using functions are untranslatable). Native code
@@ -38,19 +37,17 @@ fn try_native_static_call(
     if args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref { .. }))) {
         return None;
     }
-    let jit_ctx = p as *const crate::jit::frame::JitModuleCtx;
-    // SAFETY: `jit_ctx` is valid for the whole `JitModule::run_fn` (set/cleared in
-    // lockstep with `vm_ctx`). Copy the small entry fields out immediately so no
-    // borrow of `*jit_ctx` is held across the native call. `resolve_fn_by_id_tiered`
-    // uses interior mutability (OnceLock/Mutex) and may compile-on-threshold — same
-    // as `jit_call`.
+    // Copy the small entry fields out so no borrow of the runtime's slot is held
+    // across the native call. `resolve_fn_by_id_tiered` uses interior mutability
+    // (OnceLock/Mutex) and may compile-on-threshold on this thread — same as
+    // `jit_call`.
     let (max_reg, ptr, callee_fn) = {
-        let entry = unsafe { (*jit_ctx).resolve_fn_by_id_tiered(id) }?;
+        let entry = rt.resolve_fn_by_id_tiered(ctx, id)?;
         (entry.max_reg, entry.ptr, entry.func)
     };
     ctx.counters().jit_native_from_interp.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let callee = crate::jit::frame::JitFrame::new_args_from(ctx, max_reg, &frame.regs, args);
-    let outcome = unsafe { crate::jit::invoke::call_native(ctx, jit_ctx, ptr, callee_fn, callee) };
+    let outcome = unsafe { crate::jit::invoke::call_native(ctx, ptr, callee_fn, callee) };
     Some(Ok(native_result_to_dst(ctx, frame, dst, outcome)))
 }
 
@@ -372,16 +369,13 @@ pub(super) fn load_fn(
 fn try_native_indirect_call(
     ctx: &VmContext, frame: &mut Frame, dst: u32, id: usize, env: Option<Value>, args: &[u32],
 ) -> Option<Result<Option<Value>>> {
-    let p = ctx.jit_ctx_ptr();
-    if p == 0 { return None; }
+    let rt = ctx.jit()?;
     // Same Ref guard as `try_native_static_call` (an interp frame may hold a `Ref`).
     if args.iter().any(|&r| matches!(frame.regs.get(r as usize), Some(Value::Ref { .. }))) {
         return None;
     }
-    let jit_ctx = p as *const crate::jit::frame::JitModuleCtx;
-    // SAFETY: as in `try_native_static_call`.
     let (max_reg, ptr, callee_fn) = {
-        let entry = unsafe { (*jit_ctx).resolve_fn_by_id_tiered(id) }?;
+        let entry = rt.resolve_fn_by_id_tiered(ctx, id)?;
         (entry.max_reg, entry.ptr, entry.func)
     };
     ctx.counters().jit_native_from_interp.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -389,7 +383,7 @@ fn try_native_indirect_call(
         Some(env) => crate::jit::frame::JitFrame::new_method_args_from(ctx, max_reg, env, &frame.regs, args),
         None => crate::jit::frame::JitFrame::new_args_from(ctx, max_reg, &frame.regs, args),
     };
-    let outcome = unsafe { crate::jit::invoke::call_native(ctx, jit_ctx, ptr, callee_fn, callee) };
+    let outcome = unsafe { crate::jit::invoke::call_native(ctx, ptr, callee_fn, callee) };
     Some(Ok(native_result_to_dst(ctx, frame, dst, outcome)))
 }
 

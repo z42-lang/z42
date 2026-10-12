@@ -518,11 +518,6 @@ impl crate::vm_context::VmContext {
         cc.any_module_init_pending() || cc.any_module_init_failed()
     }
 
-    /// 本 VM 的 cctor 登记表地址（`VmCore` 持有的 `Arc`，地址在 VM 存活期内不变）。JIT 内联门读它的
-    /// [`CctorRegistry::MODULE_PENDING_OFFSET`] / [`CctorRegistry::MODULE_FAILED_OFFSET`]。
-    #[cfg(feature = "jit")]
-    pub(crate) fn cctor_registry_ptr(&self) -> *const CctorRegistry { Arc::as_ptr(&self.core.cctors) }
-
     /// 编译期判定：静态调用 `func_fq` 的类型初始化屏障（[`Self::ensure_callee_owner_init`]）恒为空操作——
     /// 属主类型已加载且没有静态构造器。属主未加载 / 自由函数一律答 `false`（保守）。
     #[cfg(feature = "jit")]

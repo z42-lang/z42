@@ -1,18 +1,18 @@
 //! Unit tests for lazy per-function JIT (lazy-per-function-jit, 2026-07-23).
 //!
-//! These drive the lazy primitive directly — `JitModule::setup` + `run_fn` +
-//! `JitModuleCtx::resolve_fn_by_id` — on hand-built empty/interp-only functions.
+//! These drive the lazy primitive directly — `runtime::install` + `run_fn` +
+//! `JitRuntime::resolve_fn_by_id` — on hand-built empty/interp-only functions.
 //! End-to-end coverage of real cross-function `Call`s (a caller compiling its
 //! callee on first invocation) lives in the golden suite (`xtask test e2e
 //! --mode jit`, all outputs byte-identical to interp); here we prove the
 //! compile-on-first-call bookkeeping, the "uncalled ⇒ never compiled" invariant,
 //! idempotency, the interp-only skip, and thread-safe single-compilation.
 
-use crate::jit::JitModule;
+use crate::jit::runtime::{install, install_tuned};
+use crate::jit::run_fn;
 use crate::metadata::bytecode::{BasicBlock, CallInsn, Function, Instruction, Module, Terminator};
 use crate::metadata::types::ExecMode;
 use crate::vm_context::VmContext;
-use std::sync::atomic::Ordering;
 
 /// A JIT-translatable function whose body is a bare `return;` (no `Call`, no
 /// interp-only opcode → `jit_unsupported_reason` is `None`).
@@ -80,15 +80,16 @@ fn module_of(name: &str, functions: Vec<Function>) -> Module {
     }
 }
 
+/// VM-wide total (every thread's shard).
 fn compiled_count(vm: &VmContext) -> u64 {
-    vm.counters().jit_methods_compiled.load(Ordering::Relaxed)
+    vm.counters_snapshot().jit_methods_compiled
 }
 
 #[test]
 fn setup_compiles_nothing() {
     let module = module_of("M", vec![empty_fn("entry"), empty_fn("a"), empty_fn("b")]);
     let vm = VmContext::new();
-    let _jm = JitModule::setup(&module).expect("setup");
+    install(&vm, &module).expect("install");
     assert_eq!(compiled_count(&vm), 0, "setup must not compile any function");
 }
 
@@ -96,8 +97,8 @@ fn setup_compiles_nothing() {
 fn run_entry_compiles_only_the_entry() {
     let module = module_of("M", vec![empty_fn("entry"), empty_fn("unused_a"), empty_fn("unused_b")]);
     let vm = VmContext::new();
-    let mut jm = JitModule::setup(&module).expect("setup");
-    jm.run_fn(&vm, "entry").expect("run entry");
+    install(&vm, &module).expect("install");
+    run_fn(&vm, "entry").expect("run entry");
     assert_eq!(compiled_count(&vm), 1,
         "only the called entry compiles; the two unused functions stay uncompiled");
 }
@@ -106,9 +107,9 @@ fn run_entry_compiles_only_the_entry() {
 fn second_run_does_not_recompile() {
     let module = module_of("M", vec![empty_fn("entry")]);
     let vm = VmContext::new();
-    let mut jm = JitModule::setup(&module).expect("setup");
-    jm.run_fn(&vm, "entry").expect("run 1");
-    jm.run_fn(&vm, "entry").expect("run 2");
+    install(&vm, &module).expect("install");
+    run_fn(&vm, "entry").expect("run 1");
+    run_fn(&vm, "entry").expect("run 2");
     assert_eq!(compiled_count(&vm), 1, "already-compiled entry is not recompiled on re-run");
 }
 
@@ -116,9 +117,9 @@ fn second_run_does_not_recompile() {
 fn distinct_functions_each_compile_once() {
     let module = module_of("M", vec![empty_fn("a"), empty_fn("b")]);
     let vm = VmContext::new();
-    let mut jm = JitModule::setup(&module).expect("setup");
-    jm.run_fn(&vm, "a").expect("run a");
-    jm.run_fn(&vm, "b").expect("run b");
+    install(&vm, &module).expect("install");
+    run_fn(&vm, "a").expect("run a");
+    run_fn(&vm, "b").expect("run b");
     assert_eq!(compiled_count(&vm), 2, "each distinct called function compiles exactly once");
 }
 
@@ -128,9 +129,8 @@ fn interp_only_function_is_not_compiled() {
     // leaving it to the interpreter fallback — and never bumps the compile count.
     let module = module_of("M", vec![interp_only_fn("f")]);
     let vm = VmContext::new();
-    let mut jm = JitModule::setup(&module).expect("setup");
-    jm.ctx.vm_ctx = (&*vm as *const VmContext) as *mut VmContext;
-    let resolved = unsafe { jm.ctx.resolve_fn_by_id(0) };
+    let rt = install(&vm, &module).expect("install");
+    let resolved = rt.resolve_fn_by_id(&vm, 0);
     assert!(resolved.is_none(), "interp-only function must not resolve to a JIT entry");
     assert_eq!(compiled_count(&vm), 0, "interp-only function is never compiled");
 }
@@ -144,12 +144,11 @@ fn caller_lazily_compiles_callee_mid_execution() {
     // code pages — the property that makes per-function lazy compilation sound.
     let module = module_of("M", vec![caller_of("A", "B"), empty_fn("B")]);
     let vm = VmContext::new();
-    let mut jm = JitModule::setup(&module).expect("setup");
     // runtime-jit-tiering: this test is about the mid-execution compile property
     // (orthogonal to tiering), so force threshold=1 → B compiles on its first
     // jit_call. (Deterministic regardless of Z42_JIT_THRESHOLD in the env.)
-    jm.ctx.jit_threshold = 1;
-    jm.run_fn(&vm, "A").expect("run A, which calls (and lazily compiles) B");
+    install_tuned(&vm, &module, |rt| rt.jit_threshold = 1);
+    run_fn(&vm, "A").expect("run A, which calls (and lazily compiles) B");
     assert_eq!(compiled_count(&vm), 2,
         "the caller A and its callee B — lazily compiled mid-call — are both compiled");
 }
@@ -161,9 +160,8 @@ fn tiering_cold_jit_call_callee_stays_interp() {
     // compiled) calls B once with threshold=2 → B stays uncompiled.
     let module = module_of("M", vec![caller_of("A", "B"), empty_fn("B")]);
     let vm = VmContext::new();
-    let mut jm = JitModule::setup(&module).expect("setup");
-    jm.ctx.jit_threshold = 2;
-    jm.run_fn(&vm, "A").expect("run A");
+    install_tuned(&vm, &module, |rt| rt.jit_threshold = 2);
+    run_fn(&vm, "A").expect("run A");
     assert_eq!(compiled_count(&vm), 1,
         "only entry A compiles; B (1 jit_call < threshold 2) stays on the interpreter");
 }
@@ -180,16 +178,18 @@ fn tiering_rejected_marker_is_negative_cache() {
 
 #[test]
 fn concurrent_first_call_compiles_exactly_once() {
-    // Two threads race to first-call the same slot; the Mutex + OnceLock
-    // double-check must compile it exactly once.
+    // Two threads — each on its own context of the same VM — race to first-call
+    // the same slot; the Mutex + OnceLock double-check must compile it exactly once.
     let module = module_of("M", vec![empty_fn("f")]);
     let vm = VmContext::new();
-    let mut jm = JitModule::setup(&module).expect("setup");
-    jm.ctx.vm_ctx = (&*vm as *const VmContext) as *mut VmContext;
-    let ctx = &*jm.ctx; // &JitModuleCtx is Sync (unsafe impl)
+    install(&vm, &module).expect("install");
+    let first_call = || {
+        let w = VmContext::new_with_core(vm.core_arc());
+        w.jit().expect("shared JIT").resolve_fn_by_id(&w, 0).is_some()
+    };
     std::thread::scope(|s| {
-        let h1 = s.spawn(|| unsafe { ctx.resolve_fn_by_id(0).is_some() });
-        let h2 = s.spawn(|| unsafe { ctx.resolve_fn_by_id(0).is_some() });
+        let h1 = s.spawn(first_call);
+        let h2 = s.spawn(first_call);
         assert!(h1.join().expect("t1"), "thread 1 resolves a valid entry");
         assert!(h2.join().expect("t2"), "thread 2 resolves a valid entry");
     });
