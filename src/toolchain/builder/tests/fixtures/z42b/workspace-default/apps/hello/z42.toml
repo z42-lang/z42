@@ -7,5 +7,4 @@ kind    = "lib"
 include = ["src/**/*.z42"]
 
 [dependencies]
-"z42.core" = "0.1.0"
 "ws.greet" = "0.1.0"   # 按名依赖兄弟成员：从本轮已建成员的 dist 解析
