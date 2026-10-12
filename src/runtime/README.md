@@ -99,3 +99,8 @@ xtask test e2e                                # VM golden 端到端（interp + j
 | `jit` | Cranelift JIT 后端（desktop x64/arm64） |
 | `native-interop` | Tier 1 原生扩展 ABI（dlopen + libffi） |
 | `mimalloc-alloc` | z42vm 二进制的 `#[global_allocator]` 走 mimalloc。z42c 自编译**分配受限**，换 mimalloc 后 z42c 编译显著提速。仅二进制生效（嵌入 lib 用宿主分配器）；wasm/移动预设不含（C 构建不入 wasm 沙箱 / 移动体积敏感） |
+
+## 关联文档
+
+- 用法与规则（参考手册）：[嵌入](../../docs/reference/src/embedding/README.md)
+- 设计 / 机制（实现内幕）：[运行时](../../docs/internals/src/runtime/README.md) · [VM 总体架构](../../docs/internals/src/runtime/vm-architecture.md) · [产物格式](../../docs/internals/src/formats/README.md)

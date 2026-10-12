@@ -61,7 +61,39 @@ int _testDocs(string root, bool update) {
     if (_checkGateStageDoc() != 0) { return 1; }
     // ③ 分层链接方向（doc-system §2.1）：三本书与 README 不得引用 docs/agent。
     if (_checkAgentRefs(root) != 0) { return 1; }
+    // ④ 目录 README → 书的链路：src/ 第 2、3 层的目录 README 必有「关联文档」段。
+    if (_checkReadmeRelatedDocs(root) != 0) { return 1; }
     Console.WriteLine("✔ test docs");
+    return 0;
+}
+
+// ④ 目录 README 必有 `## 关联文档`：README 是入口、书是细节，人和 AI 都是「先读目录 README，再顺着
+// 关联文档进书」。这一段缺了，链路就断在目录层——而缺段不会让任何死链检查变红，只能正向断言。
+// 范围与「哪层目录要 README」一致：`src/<X>/README.md` 与 `src/<X>/<Y>/README.md`。
+int _checkReadmeRelatedDocs(string root) {
+    Console.WriteLine("④ 目录 README 有「关联文档」段");
+    string[] files = _docMarkdownFiles(root);
+    int bad = 0;
+    int i = 0;
+    while (i < files.Length) {
+        string rel = _relToRoot(root, files[i]);
+        int depth = rel.Split("/").Length;
+        if (rel.StartsWith("src/") && rel.EndsWith("/README.md") && (depth == 3 || depth == 4)) {
+            string text = "\n" + _stripFences(File.ReadAllText(files[i]));
+            if (!text.Contains("\n## 关联文档")) {
+                ConsoleError.WriteLine("  ✗ " + rel);
+                bad = bad + 1;
+            }
+        }
+        i = i + 1;
+    }
+    if (bad > 0) {
+        Console.WriteLine("");
+        ConsoleError.WriteLine("  ❌ docs: " + bad.ToString() + " 个目录 README 缺「## 关联文档」段");
+        ConsoleError.WriteLine("     列出这个目录在参考手册 / 实现内幕里对应的页（模板见目录 README 六段制）。");
+        return 1;
+    }
+    Console.WriteLine("  ✓ 全部目录 README 都链到了书");
     return 0;
 }
 

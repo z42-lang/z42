@@ -33,3 +33,8 @@ z42 任意精度 + 扩展数值类型：`BigInt`（任意精度整数）/ `Compl
 ```bash
 xtask test stdlib z42.numerics    # 本库全部 [Test]
 ```
+
+## 关联文档
+
+- 用法与规则（参考手册）：[z42.numerics](../../../docs/reference/src/stdlib/numerics.md)
+- 设计 / 机制（实现内幕）：[标准库三层架构](../../../docs/internals/src/stdlib/architecture.md) · [包划分与 interop 归属](../../../docs/internals/src/stdlib/organization.md)

@@ -25,8 +25,8 @@
 4. **构建 / 测试 / 调试命令** → [internals · 开发基础设施](../internals/src/devinfra/README.md)
    （[开发环境](../internals/src/devinfra/dev-setup.md) · [怎么跑测试](../internals/src/devinfra/testing.md) ·
    [GREEN gate](../internals/src/devinfra/test-gate.md) · [调试手法](../internals/src/devinfra/debugging.md)）。
-5. **找不到**：按子系统翻 [internals 目录](../internals/src/SUMMARY.md)；某目录 README 缺「关联文档」或链错，
-   补上它属于本次的文档同步（列入 Scope）。
+5. **找不到**：按子系统翻 [internals 目录](../internals/src/SUMMARY.md)；某目录 README 的「关联文档」链得不对，
+   修正它属于本次的文档同步（列入 Scope）。
 
 | 要动什么 | 目录 README | internals | reference | 规则 |
 |---|---|---|---|---|
