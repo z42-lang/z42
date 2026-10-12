@@ -3,7 +3,7 @@
 > 管两类 README：**根 `README.md`**（仓库门面，第一部分）与 **`src/**/README.md`**
 > （目录级六段制，第二部分）。目标一致：**只链接不复制**、**结构固定**（人和大模型都靠
 > 稳定骨架定位）、**基础自足**（各自层级看完即够用）。
-> 文档体系定位见 [doc-system.md](doc-system.md)；「哪些目录必须有 README」的层级规则归
+> 内容归属见 [doc-system.md](doc-system.md)；「哪些目录必须有 README」的层级规则归
 > [`code-organization.md`](code-organization.md)。
 
 ---
@@ -50,7 +50,7 @@
 
 ## 三、内容边界（防漂移，双向纪律）
 
-与 [doc-system.md 「三本书的角色」](doc-system.md)「两层分工」同款，方向相反的两条都要守：
+README 是入口、书是细节（[doc-system.md 内容归属](doc-system.md)），方向相反的两条都要守：
 
 - README **不展开**设计原理 / 内部机制 / 完整命令清单 / 文件职责表——需要时**一句话 + 链接**。
 - 三本书**不反抄** README 的定位段与索引表——它们链接回 README，不复制。
@@ -88,9 +88,8 @@
 
 ## 六、定位与角色
 
-目录 README 是文档四类中的**④ 目录说明**，两层分工（[doc-system.md 「三本书的角色」](doc-system.md)，D9）
-中的**基础层**：看完即掌握"这个目录干什么、怎么用、怎么开发"的全部基础知识，是**人 review
-AI 实现的落点**；更深的设计与机制在 `docs/internals/`，README 链接过去。
+目录 README 是这个目录的**入口**（[doc-system.md 内容归属](doc-system.md)）：看完即掌握「这个目录干什么、
+怎么用、怎么测」的基础知识，并通过「关联文档」把人和 AI 带到书里的深入页；它也是**人 review AI 实现的落点**。
 
 **判定铁律**：要往目录 README 加的内容，先问「它是设计原理 / 实现机制 / 决策权衡吗？」
 → 是，就写进 `docs/internals/` 对应页，README 只留一句话 + 链接。
@@ -183,7 +182,7 @@ AI 实现的落点**；更深的设计与机制在 `docs/internals/`，README �
 
 | 段 | 粒度 | ❌ 反例 |
 |----|------|--------|
-| ① 职责 | 1–3 句陈述句：做什么 + **不做什么**（边界句防职责漂移） | 演进史（只描述当前状态，见 [doc-system.md「知识上浮」](doc-system.md)） |
+| ① 职责 | 1–3 句陈述句：做什么 + **不做什么**（边界句防职责漂移） | 演进史（只描述当前状态，见 [doc-system.md「不写历史」](doc-system.md)） |
 | ② 功能索引 | 能力用动词短语（"解析 packages.toml"），入口精确到文件 + 符号；粒度对齐「一次 change 引入的一个特性」——人拿到 diff 扫这张表就能定位改了哪个能力 | 逐文件罗列（那是⑥的职责）；写实现方式（算法 / 数据结构归 internals） |
 | ③ 基础用法 | 最常用的 3–5 条，**复制即可运行**，每条带一句"做什么" | 堆完整命令面 / 全部参数（链接参考手册对应页） |
 | ④ 如何测试验证 | **可复制粘贴的命令 + 预期结果**——AI 自验与人 review 共用的合同：AI 照着跑，人照着核 | 「跑相关测试即可」「确保测试通过」这类不可执行的表述 |
@@ -229,14 +228,14 @@ AI 实现的落点**；更深的设计与机制在 `docs/internals/`，README �
   长尾细节靠代码与三本书兑现；目录 README **软限 ~100 行**，超出优先删减而非拆分。
   拿不准一条信息该不该进 README，问「人 review / 上手时会用到它吗？」→ 不会就不进。
 - **语种**：根 README 是对外门面，**英文正文**；目录 README 是内部开发材料，**中文正文、
-  关键术语保留英文**（沿用 [doc-system.md 「语种」](doc-system.md)）。
+  关键术语保留英文**。
 - **只描述当前状态**：不写考古注记、不写"不再是什么"的历史对照（判据见
   [doc-system.md「不写历史」](doc-system.md)）。
 - **每段首句 = 结论句**；引用代码用 `src/...` 路径 + 符号名，**不写行号**。
 
 ## 十二、与其他规则的关系
 
-- 文档体系顶层地图与"这该写哪份文档"：[doc-system.md](doc-system.md)
-- 哪些目录必须有 README、阅读顺序规则：[`code-organization.md`](code-organization.md)
+- 文档地图：[docs/README.md](../../README.md)；"这该写哪份文档"：[doc-system.md](doc-system.md)
+- 哪些目录必须有 README：[`code-organization.md`](code-organization.md)
 - 文档同步判据（三问）与合并前 doc-check：[doc-system.md](doc-system.md)；合并流程：[`workflow.md` 阶段 6](workflow.md)
 - 书页写作（reference / internals）：[book-writing.md](book-writing.md)

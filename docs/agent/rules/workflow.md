@@ -83,9 +83,8 @@ PR 描述只记「这次为什么这么做、做了什么、验证了什么」�
 
 ## 阶段 0：意图识别
 
-**每次新对话首条消息触发：** 读取你所用工具的跨会话记忆（下文统称 memory：Claude Code 的 auto-memory，存于本机
-`~/.claude/projects/<project>/memory/`，**不入库**；其他工具用其等价物）、当前阶段（`docs/roadmap.md`）和
-进行中的 PR（`gh pr list`），主动汇报状态和下一步，再处理用户输入。
+**每次新对话首条消息触发：** 读取你所用工具的跨会话记忆（下文统称 memory，**不入库**；放在哪由各工具入口文件交代）、
+当前阶段（`docs/roadmap.md`）和进行中的 PR（`gh pr list`），主动汇报状态和下一步，再处理用户输入。
 
 读到以下关键词时触发对应动作：
 
@@ -106,7 +105,7 @@ PR 描述只记「这次为什么这么做、做了什么、验证了什么」�
 
 输出，不创建 PR / 分支 / 文件：
 
-1. 读取相关源文件，理解现有结构
+1. 按[开工导航](../README.md#开工先找-readme-和书)先读目录 README 与书里的对应页，再读源文件，理解现有结构
 2. 梳理核心问题 / 需求
 3. 列出潜在风险和边界情况
 4. 提出 2–3 个可行方案（如有），给出推荐及理由
@@ -125,12 +124,8 @@ PR 描述只记「这次为什么这么做、做了什么、验证了什么」�
 
 1. **建 worktree**：先 `git fetch`，基于**最新 `origin/main`**（别基于滞后的本地 ref）开同名分支——
    `git worktree add -b <branch> ../wt/<branch> origin/main`；分支命名见[「PR 即在制品账本」](#pr-即在制品账本)。
-   **供种**：从一个 warm 树拷 `.z42` / `xtask` / `artifacts/xtask`，然后**必须按当前源码重建 `xtask`**：
-   ```bash
-   ./.z42/z42 publish scripts/xtask.z42.toml
-   ```
-   门禁逻辑本身就编在 `xtask.zpkg` 里——拿供体树那份旧的去查本树的新文档 / 新测试 = **保证假红**。
-   （要跑依赖自建产物的 stage 时，再 `./xtask build all` 备齐 z42c / stdlib / launcher。）
+   **供种后必须按当前源码重建 `xtask`**——门禁逻辑本身编在 `xtask.zpkg` 里，拿供体树那份旧的去查本树的
+   新文档 / 新测试 = **保证假红**。命令见[开发环境 · 并行 worktree 供种](../../internals/src/devinfra/dev-setup.md)。
 2. **完整模式：先开 draft PR，再写代码。** PR 需要至少一个提交，用空提交承载（squash 合并时它会消失）：
    ```bash
    git commit --allow-empty -m "chore: 开工 <name>"
@@ -296,32 +291,12 @@ PR #N 的方案已就绪，请确认是否有问题：
 cargo build && xtask test          # 默认串联所有必跑 stage（完整 GREEN gate）
 ```
 
-**iteration 期加速**：dev 期可用 `xtask test changed`（按改动文件挑 stage）或单跑某 stage（`xtask test e2e --dir/--file` /
-`test stdlib <lib>` / `--no-build` 跳过重建波）缩窄。但 **commit 前最终 GREEN 必须跑完整 `xtask test`**——
-partial 验证只算 dev 期快速 iterate，不替代门禁。缩窄手段只有这三种：`test changed` / 单 stage / `--no-build`。
-
-裸 `test` 先跑 **regen 构建波**（stdlib + z42c 自建 + golden `.zbc` 基线 + debug VM；`--no-build` 可跳过），
-随后按顺序跑全部 stage（任一失败立刻停）。
-
-> **stage 清单不在这里复列。** 唯一 SoT 是 `_gateStageNames()`（`scripts/test/xtask_test.z42`）与 test-gate 文档的
-> `gate-stages` 区，两者由门禁逐项对账、不一致即红。**复列必漂**，故不复列。
-
-常用的单 stage（调试期缩窄用，**不替代**完整 `xtask test`）：
-
-```bash
-xtask build runtime                 # z42vm（Rust VM）
-xtask test e2e                      # VM goldens（interp）
-xtask test e2e --dir cross-zpkg     # 跨 zpkg 端到端
-xtask test stdlib                   # stdlib [Test] dogfood
-xtask test compiler                 # z42c 自举字节不动点
-xtask test docs                     # 文档死链
-xtask test docs examples            # 学习手册 ↔ examples 重放
-```
-
-> **不要漏跑 cross-zpkg / lib / compiler**：它们**都在**默认 GREEN 路径里（不是"额外才跑"），
-> 调试期可以用单 stage 缩窄——漏跑会让对应层的回归长期不被发现。编译器正确性由 z42c 自举 stage 保证。
-
-发行版变更（xtask package / 跨平台 / 嵌入接口）追加跑 `xtask package sdk --verify`（先 `xtask package sdk` 产 host-RID 包）。
+- **dev 期可以缩窄**（`xtask test changed` / 单 stage / `--no-build`），但 **commit 前最终 GREEN 必须跑完整
+  `xtask test`**——partial 验证只算快速迭代，不替代门禁。
+- **stage 清单不在这里复列**：唯一 SoT 是 `_gateStageNames()` 与 [GREEN gate](../../internals/src/devinfra/test-gate.md)
+  的 `gate-stages` 区（两者由门禁对账）。单跑某层、按改动挑 stage、「我改了 X 该验什么」见
+  [怎么跑测试](../../internals/src/devinfra/testing.md)。
+- 发行版变更（xtask package / 跨平台 / 嵌入接口）追加跑 `xtask package sdk --verify`。
 
 **测试失败处理（唯一口径）：**
 
@@ -378,16 +353,13 @@ Spec 覆盖：| 场景 | 实现位置 | 验证方式 | ✅ |             # 完�
    git push origin --delete <branch>        # 远程分支（用 --delete-branch 合并时已删）
    ```
    删自己这条已合并 PR 的分支 / worktree 属**默认授权**；force-push / 删他人分支仍需单独确认（阶段 3 边界）。
-6. **提供续推口令（必做）**：任何任务合并或提交落地后，若还有后续任务（同一程序的下一 PR、Deferred 项、阶梯下一阶段等），
-   必须主动给出一个「续推口令」，让 User 可以清理上下文（`/clear`）以减少 token 消耗，之后凭口令在新会话无缝续推。具体动作：
-   1. **把后续任务写进 memory**（`memory/<slug>.md`）——需求说明与前因后果必须写透，至少覆盖：**需求 / 目标**（解决什么问题、
-      User 原话意图）；**前因后果 / 背景**（属哪个大程序 / Deferred、已合并的 PR 各自解决了什么、已裁决的关键决策及理由）；
-      **关键机制入口**（file:line 与作用，别让下个会话重新探索已知事实）；**未决设计分叉**（须 User 裁决的点 + 备选 + 推荐）；
-      **恢复环境**（worktree 路径 / 种子 / 构建·验证配方 / 踩过的坑）；**流程**（是否需完整模式、拆分建议、下一步第一个动作）。
-      判据：**一个对本程序零记忆的新会话，只读这份 memory（+ 它链接的 PR），就能理解全貌并正确接手**。
-   2. **定义口令**：一句简短无歧义的中文触发语（如「推进 struct P3」），在 memory 文件 `description` 和 `MEMORY.md`
-      置顶指针行标注「🔑 口令『…』→ 读本文件续推」。
-   3. **回复 User 时明确给出口令**，并附一句当前落地状态。没有后续任务时无需口令。
+6. **提供续推口令（必做）**：合并后若还有后续任务（同一程序的下一 PR、Deferred 项、阶梯下一阶段等），必须让 User
+   能清空上下文、之后凭一句口令在新会话无缝续推：
+   1. **把后续任务写进 memory**，写透：需求 / 目标（User 原话意图）；前因后果（属哪个程序、已合并的 PR 各解决了什么、
+      已裁决的决策及理由）；关键机制入口（file:line）；未决设计分叉（备选 + 推荐）；恢复环境（worktree / 种子 /
+      验证配方 / 踩过的坑）；下一步第一个动作。判据：**零记忆的新会话只读这份 memory（+ 它链接的 PR）就能正确接手**。
+   2. **定义口令**：一句简短无歧义的中文触发语（如「推进 struct P3」），标在 memory 的索引处。
+   3. **回复 User 时明确给出口令**，附一句当前落地状态。没有后续任务时无需口令。
 
 ### 并行与合并顺序（多 PR in-flight）
 
@@ -397,29 +369,21 @@ Spec 覆盖：| 场景 | 实现位置 | 验证方式 | ✅ |             # 完�
 - **GREEN 结论会过期**：「绿了」不是一个属性，而是对**某个 main sha** 的断言——main 一动断言就可能失效，而绿灯
   不会自己熄灭。合并前若 main 已前进到你跑 GREEN 的 sha 之外，**必须重跑再合**；PR 描述里写明本轮 GREEN 基于哪个
   sha，否则审阅者无从判断那个绿灯还算不算数。验证与按下 merge 之间的窗口里落地的 PR 会让结论过期。
-- **本地 GREEN 可能被热产物掩盖**：夹具产物是热的（缓存命中就不重编），编译错误可能只在冷构建出现 ⇒ 改动会影响
-  编译产物时（编译器 / 清单解析 / 发现规则），合并前至少跑一轮**冷**的：
-  ```bash
-  rm -rf src/compiler/*/dist src/toolchain/builder/tests/fixtures/z42b/*/artifacts
-  xtask test
-  ```
-  > 两条同一个形状：**绿灯的前提变了，绿灯却不会自己失效**——前提是 base sha，或是产物状态。
+- **本地 GREEN 可能被热产物掩盖**：夹具产物缓存命中就不重编，编译错误可能只在冷构建出现 ⇒ 改动会影响编译产物时
+  （编译器 / 清单解析 / 发现规则），合并前至少跑一轮**冷**的（命令见[怎么跑测试](../../internals/src/devinfra/testing.md)
+  「冷跑一轮」）。与上一条同一个形状：**绿灯的前提变了（base sha 或产物状态），绿灯却不会自己失效**。
 - **语义耦合的代价要认清**：worktree + PR 解决物理隔离与文本冲突，**解决不了语义耦合**——两个 PR 改 `runtime`
   的不同文件、行不重叠、各自 clean merge，合起来逻辑却可能坏，git 测不出来（高发区：GC / JIT / safepoint 边界，
   以及共享基础设施文件）。兜底就是上面那条 rebase + 完整 GREEN。**这是用「返工换并行度」的权衡**——把返工推到
   合并前就地修，而不是「冲突消失了」；pre-1.0 快速迭代期通常值。明显深度耦合的两个 change，开工前在 PR 描述里
   互相知会一声能省一轮返工（建议，非强制）。
-- **改「跑测试的工具」时，它依赖的源码修复必须先落地**：当一次变更让 gate 用**更严格的方式**编译 / 运行既有源码时
-  （如 `bench-regression` 故意用 **PR 的 runner** 去跑 **base 树**），那些源码的配套修复必须是**独立的、先合并的** PR——
-  放同一个 PR 里，base 树没有那条修复 ⇒ 新 runner 一编就红，而 PR 本身没有任何问题。**本地 GREEN 永远测不出这一类**
-  （本地只跑当前树，不会拿新工具跑旧树），「这次没红」不等于可以合并。
-- **抢同一个「全局唯一编号」时按合并顺序让号**：两个 PR 各自从一张登记表里挑了同一个没人用的编号（诊断码号最典型）
-  ——各自合法，**合起来才错**。裁决规则：**先合进 main 的保留编号，后合的让号**；不用「谁先想到」「谁引用得少」
-  「谁改动小」之类的判断（那些每次都要重吵，而合并顺序是 git 里的客观事实）。诊断码的完整流程以
-  [错误码全表](../../reference/src/appendix/error-codes.md)的「新增一个码」一节为唯一 SoT，**不要在别处复制**。
-  配套：占号必须落在**唯一的登记表**里（那样抢号会变成文本冲突，而不是欢快合并）。`test-host(linux-x64)` 末尾会把
-  最新 main 并进来重跑 `xtask check diagcodes`，所以抢号这一维会在 CI 里红出来——但它只覆盖码号这**一个**维度、
-  且有窗口，**不能替代**上面的 rebase + 完整 GREEN。
+- **改「跑测试的工具」时，它依赖的源码修复必须先落地**：变更让 gate 用更严格的方式编译 / 运行既有源码时
+  （如 `bench-regression` 用 PR 的 runner 跑 base 树），配套源码修复必须是**独立的、先合并的** PR——否则 base 树
+  缺那条修复，新 runner 一编就红。本地 GREEN 测不出这一类（本地不会拿新工具跑旧树）。
+- **抢同一个「全局唯一编号」时按合并顺序让号**（诊断码号最典型）：**先合进 main 的保留，后合的让号**——不比
+  「谁先想到 / 谁改动小」，合并顺序是 git 里的客观事实。占号必须落在唯一的登记表里（抢号才会变成文本冲突）。
+  诊断码流程以[错误码全表](../../reference/src/appendix/error-codes.md)「新增一个码」为唯一 SoT。CI 的 diagcodes
+  复查只覆盖码号一维且有窗口，**不替代** rebase + 完整 GREEN。
 
 ---
 
@@ -455,12 +419,6 @@ User 说「继续」时，自动执行：
 
 **自主决定（无需询问）：** 算法细节、数据结构选择、代码风格、变量命名。
 
-## 实现哲学 / 设计完整性 / 延后管理
-
-以下规则不属于流程主线，独立沉淀在 [philosophy.md](philosophy.md)：实现方案原则（最终方案优先 / 最本质解 /
-不为破坏性顾虑而牺牲 / 修复必须从根因出发 / 不为旧版本提供兼容）、设计完整性原则（设计无法承载需求时停下讨论，
-禁止打补丁）、规范冲突检测与事实校正责任、延后特性管理。
-
 ---
 
 ## 测试要求（必须遵守）
@@ -475,7 +433,4 @@ User 说「继续」时，自动执行：
 | 新 CLI 命令 / 工程文件字段 | 单元测试验证解析正确性 + 错误输入报错 |
 | refactor | 确保已有测试仍覆盖（不必新增，但不得删除测试） |
 
-**测试位置：**
-- z42c 编译器：`src/compiler/<member>/tests/<name>/`（如 `z42c.semantics/tests/`、`z42c.syntax/tests/`）
-- Rust VM：`src/tests/<category>/<name>/`（VM e2e）或 `src/runtime/src/*_tests.rs`（Rust 单测）；stdlib-bound 用例放 `src/libraries/<lib>/tests/<name>/`
-- 跨语言端到端：golden test（source.z42 + expected_output.txt）
+用例放哪（「被测对象在哪，测试就在哪」）见[怎么跑测试 · 用例放哪](../../internals/src/devinfra/testing.md)。

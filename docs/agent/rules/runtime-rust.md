@@ -116,47 +116,19 @@ nightly `test-wasm-browser` 能照出来。典型场景：time builtins、GC `no
 
 - `ExecMode` 决定函数级别的分发路径
 - 模块级默认模式 → `Vm::default_mode`；函数级注解优先
-- JIT/AOT 后端在实现完成前**必须**返回 `bail!("... not yet implemented")`，不允许部分实现
-- **实现顺序严格 interp ✅ → JIT → AOT**：interp 未全绿不得开始填 JIT / AOT（见 [workflow.md](workflow.md) 阶段 5）
+- 尚未实现的后端 / 路径**必须**返回 `bail!("... not yet implemented")`，不允许部分实现
+- **实现顺序严格 interp → JIT → AOT**：interp 未全绿不得开始填 JIT / AOT
 
 ## 序列化
 
 - `.zbc` / `.zpkg` 由 `metadata/zbc_reader` 手写解码（规格见 internals 的 formats 部分）；
   `Module` / `Function` / `Instruction` 等 IR 类型不 derive serde——它们只从 zbc 解码而来，没有文本往返
 
-## 资源加载顺序
-
-`std::fs::read_dir` / `HashMap` 迭代 + `or_insert` first-wins 等不确定性来源的处理规则见 [common-pitfalls.md §1](common-pitfalls.md#1-资源加载顺序必须显式排序)。该规则跨语言适用（Rust / z42 / bash 都涉及），统一在 common-pitfalls.md 沉淀。
-
-## 推荐依赖与参考实现
+## 引入依赖
 
 **触发条件**：要给 Rust VM / native 层加新依赖，或动手实现一个有成熟先例的子系统。
-原则：优先用成熟开源库，只在无合适库或需要深度定制时自行实现。
 
-z42 自身的编译器、标准库、工具链都是 z42 源码（`src/compiler` / `src/libraries` / `src/toolchain`）；
-下面的推荐只针对 Rust 侧（`src/runtime` 及 native 扩展）。z42 包之间的依赖按 manifest 声明，见
-[docs/reference/](../../reference/)。
-
-状态列只标仓库**已采用**的；其余是调研结论，真要引入时仍须按 [philosophy.md](philosophy.md) 评估并在
-Cargo.toml 注明用途。
-
-| 用途 | 推荐库 | 状态 | 说明 |
-|------|--------|------|------|
-| JIT 代码生成 | `cranelift-*` | ✅ 已用 | Bytecode Alliance，Wasmtime 同款（feature `jit`） |
-| 内容哈希 | `blake3` | ✅ 已用 | zbc build_id |
-| AOT / LLVM | `inkwell` | 调研 | LLVM safe bindings for Rust |
-| 解析辅助（调试格式） | `nom` 或 `winnow` | 调研 | 文本 IR（`.zasm`）解析 |
-| GC（未来沙盒模式） | `gc-arena` | 调研 | arena 式 GC，可选引入 |
-| 并发运行时 | `tokio` | 调研 | async VM task 调度 |
-| 性能剖析 | `pprof-rs` | 调研 | 火焰图 |
-| 文件监听 | `notify` | 调研 | 热更新文件系统事件，跨平台，支持 debounce |
-
-**参考实现**（动手实现某子系统前先调研）：
-
-| 子系统 | 参考项目 |
-|--------|---------|
-| 解释器结构 | CPython（ceval.c）、wren、lua 5.4 |
-| SSA / IR 设计 | LLVM IR、Cranelift CLIF、QBE |
-| 类型推导 | OCaml 编译器、Hindley-Milner 论文实现 |
-| JIT 流水线 | LuaJIT、V8 Maglev、JavaScriptCore |
-| 模式匹配编译 | `rustc_mir_build`、MLton |
+- 优先用成熟开源库，只在无合适库或需要深度定制时自行实现；引入前按 [philosophy.md](philosophy.md) 评估，
+  并在 `Cargo.toml` 注明用途。
+- 动手实现前先查已调研的候选库与参考项目：[运行时 · 依赖与参考实现](../../internals/src/runtime/README.md#依赖与参考实现)。
+- 只针对 Rust 侧（`src/runtime` 及 native 扩展）；z42 包之间的依赖按 manifest 声明。

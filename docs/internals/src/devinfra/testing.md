@@ -260,6 +260,16 @@ base 默认 `HEAD`，也可以给 ref 或用 `Z42_TEST_CHANGED_BASE`；收集范
 的 untracked；它不理解跨文件的语义依赖（改 stdlib 内部 helper 不会触发依赖它的 cross-zpkg 用例），
 靠「未识别路径一律坍缩为 `test`」保守弥补。
 
+### 冷跑一轮
+
+夹具产物是热的（缓存命中就不重编），编译错误可能只在冷构建时出现。改动会影响编译产物时（编译器 / 清单解析 /
+发现规则），合并前清掉热产物再跑一次完整 gate：
+
+```bash
+rm -rf src/compiler/*/dist src/toolchain/builder/tests/fixtures/z42b/*/artifacts
+xtask test
+```
+
 ## 5. 我改了 X，该验什么
 
 通用前提：commit 前完整 `xtask test` 全绿。下表「快速迭代」列不构成 GREEN。

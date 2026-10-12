@@ -22,14 +22,8 @@ xtask / build 基础设施驱动；stdlib 又被两者依赖。任何「从源�
 | **warm 种子** | 本地已建过 / CI 有缓存 / 上游 nightly 已下载 | `artifacts/build/z42c/.../z42c.driver.zpkg` 存在 → z42c 自建 z42c |
 | **cold 种子** | fresh checkout / CI 全新 runner，**没有任何 in-tree z42c 产物** | 下载 nightly（`install-z42.sh` / CI `setup-z42-sdk` → 都是 `./.z42`）→ `_ensureSeed` 把 `programs/z42c` + `libs` 供种到 in-tree |
 
-> **cold 种子的统一解析**：`build compiler` / `build stdlib` 冷启动由 `_ensureSeed`
-> （`scripts/common/xtask_common.z42`，SDK 定位在 `_seedSdkDir`）按 **`Z42_HOME`（`--toolchain` 设它，
-> 或 launcher / install 设）→ 运行 xtask 的 apphost SDK（`Z42_PORTABLE_VM` 反推）→ `./.z42`** 找到 SDK，
-> 把 `programs/z42c` + `libs` 拷进 in-tree 再自建。**CI 与本地同一条 resolver、同一个位置**：CI
-> （`.github/actions/setup-z42-sdk`）把 nightly 装进仓库根 `./.z42`，与本地 `install-z42.sh` 相同。
-> warm 树（in-tree 已有种子）**不被覆盖**——gen2 字节不动点靠「第二次从 in-tree gen1 再种」收敛，
-> 故 in-tree 必须最高优先。managed 布局的 `Z42_HOME`（`runtimes/`，无 `programs/`）不符
-> SDK-toolchain 布局 → 跳过（不误当种子源）；`Z42_LIBS` 显式覆盖仅在其确实含 `z42.core.zpkg` 时生效。
+> cold 种子的解析顺序（`Z42_HOME` → 运行 xtask 的 apphost SDK → `./.z42`，CI 与本地同一条）、warm 树为什么
+> 不被覆盖，见 [xtask · 种子从哪来](../../internals/src/devinfra/xtask.md)。
 
 ---
 
@@ -58,15 +52,9 @@ xtask / build 基础设施驱动；stdlib 又被两者依赖。任何「从源�
    **种子供给的 PR 必须先合并 / 同一 commit 落地，再删兜底**。
 3. **本地不可验的部分（CI / packaging）**：本地只能验 warm 路径；cold 路径只能靠 CI。
    因此删 cold 兜底的 commit **push 后必须盯 CI**，红了立即回滚或补种子。
-4. **格式漂移**：下载的 nightly 种子其 zbc / zpkg 格式与当前 z42vm 的 strict-pin 不同时，`ci-bootstrap`
-   的**版本差 gate** 检测到不等就走**两代自举**（用 SDK 自带的旧 VM 跑 gen1/gen2，把种子推进到当前格式，
-   再交新 VM），所以格式 bump 的 build-and-test / toolchain-bootstrap / package 路径 **CI 自动过、
-   免手动传种子**。机制见 [CI 拓扑](../../internals/src/devinfra/ci.md)。**删 cold 兜底不要踩在 format
-   bump 同一周期**：纯 download-bootstrap 的 job（vm-jit / bench）在 bump 当次仍会短暂红一跑，
-   等新 nightly 发布自愈，不阻塞发布链。
-5. **`ci-bootstrap` §1.5 每代构建前清空其就地 artifacts**：因这条路径**本地不可验**（冷启动 + 格式 bump
-   才走到），暂时保留。**ToDo**：下一次格式 bump 的 PR 里顺手删掉它并观察 CI——那时它正好被真实行使一次，
-   红了也立刻知道是谁的锅。
+4. **格式漂移**：CI 的版本差 gate 会自动走两代自举，格式 bump 免手动传种子（见
+   [version-bumping.md](version-bumping.md)「与 CI 的关系」）。**删 cold 兜底不要和格式 bump 踩在同一周期**——
+   纯 download-bootstrap 的 job 在 bump 当次本来就会红一跑，两件事叠在一起分不清是谁的锅。
 
 ---
 
@@ -133,12 +121,12 @@ CI 冷启动用**种子 z42c + 种子 stdlib** 编当前 xtask 源与 z42c 源�
 断环机制（`_ensureBootstrapSelfDepLibs` 的预建顺序、不 warm-skip、flat 装配细节）见
 [编译器自举 · 轴 ④ 的破环预建](../../internals/src/compiler/self-hosting.md)。由此有两条与纪律不同的结论：
 
-- 对这 6 个库，「**加**一个新 API 并同 commit 用它」**无需等一个 nightly**——预建用当前源重建它们，
+- 对这些自依赖库（清单见上面链接），「**加**一个新 API 并同 commit 用它」**无需等一个 nightly**——预建用当前源重建它们，
   新 API 加上了、旧的还在，上一版 driver 运行期照旧解析得到
 - **但改名 / 删除不受此豁免**：它会抹掉旧 FQN，而跑这轮 bootstrap 的正是那个旧 driver ⇒ 中途就死。
   要让两代并存需要兼容物，而**兼容物形态要按「编译期 / 运行期是两个独立解析面」来选**——见
   [编译器自举 · 改名](../../internals/src/compiler/self-hosting.md)
-- **种子 ABI 残余约束**：给这 6 个库的既有导出类型**加字段**时，新字段不得进 ctor 签名（ctor 内给默认值 +
+- **种子 ABI 残余约束**：给这些库的既有导出类型**加字段**时，新字段不得进 ctor 签名（ctor 内给默认值 +
   消费方构造后赋值），否则旧种子的构造调用元数对不上
 
 > ⚠️ 这类漏网**本地 warm 验不出来**：`xtask test compiler bootstrap` 只「编」不「跑」新建出来的 z42c，
@@ -160,20 +148,12 @@ z42c 源码，确认上一个 nightly 仍能编当前源 → 没有「用了比�
 **何时跑**：改动 z42c（parser/lexer/codegen/zbc·zpkg writer）、加新语法、bump 格式后；CI 的
 冷启动全栈重建（`ci-bootstrap`：下载 nightly → 重建全栈）是其全量版，本脚本是开发期快速本地版。
 
-### 为什么这与「不为旧版本提供兼容」不冲突
-
-[philosophy.md](philosophy.md) 的「不做兼容」是**不写兼容代码 / 不留旧路径**。本约定不写任何兼容代码——
-它是**纪律**（晚一个 release 再用新语法），不是兼容层。z42c 永远只懂一个语法 / 格式版本；旧 nightly 能编当前
-源码，纯粹因为当前源码**克制**着没用新东西，而非 z42c 兼容了旧的。**快速开发期照样不做兼容、实现保持最简。**
-
 ---
 
 ## 与其他规则的关系
 
-- **[philosophy.md](philosophy.md) 不为旧版本提供兼容**：种子的「format 漂移」是该规则的例外——nightly 种子是
-  *跨进程的二进制接口*，删兜底要尊重发布周期，不能假设旧种子永远可读。**分阶段引入纪律正是让这个
-  「发布周期」可控的前提。**
-- **[workflow.md](workflow.md) 阶段 5 GREEN**：cold 路径本地不可验 → 该路径的「全绿」判定**以 CI 为准**，
+- **[philosophy.md](philosophy.md) 不为旧版本提供兼容**：两者不冲突。「不做兼容」是不写兼容代码、不留旧路径；
+  本文件是**纪律**（晚一个 release 再用新东西），不写任何兼容代码——z42c 永远只懂一个版本，旧 nightly 能编当前
+  源码，纯粹因为当前源码**克制**着没用新东西。种子是跨进程的二进制接口，删兜底要尊重发布周期。
+- **[workflow.md](workflow.md) 阶段 5 GREEN**：cold 路径本地不可验 → 该路径的「全绿」**以 CI 为准**，
   不是本地 warm 跑通就算数。
-- **设计原理**（为什么自举需要种子、warm/cold 两态如何切换、四轴与断环）落在
-  [编译器自举](../../internals/src/compiler/self-hosting.md)，本文件只管「改动时如何避免踩坑」的流程约束。

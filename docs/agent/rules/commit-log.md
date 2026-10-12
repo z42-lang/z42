@@ -48,11 +48,8 @@ type(scope): 描述
 ## 一个 commit = 一个逻辑单元
 
 - 一个 PR 对应一个逻辑单元，不积压、不混合多个独立功能/修复；squash 合并后 main 上**一个 PR 一个提交**（标题带 `(#N)`）
-- 拆分（refactor）与功能变更**分开提交**（各自成 PR）（见 [code-organization.md](code-organization.md)）
-- 规则变更（`docs/agent/`、各工具入口文件）**必须纳入**对应提交，不得遗漏
-- **伴随文档属同一逻辑单元，必须进同一个 PR**，不留「代码先合、文档后补」的尾巴。
-  完整论证见 [workflow.md 阶段 6 铁律](workflow.md)。
-- **squash 提交正文**写 Why + What 摘要（≤ 10 行）与关键决策；完整方案留在 PR 描述，靠标题的 `(#N)` 找回。
+- 伴随文档、规则变更（`docs/agent/`、各工具入口文件）属同一逻辑单元，进同一个 PR
+- squash 提交正文的写法见 [workflow.md 阶段 6](workflow.md) 第 4 步
 
 ## 页脚
 
