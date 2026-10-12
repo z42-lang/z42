@@ -1,0 +1,55 @@
+// A call of a `[Native]` extern method runs its builtin directly (the VM folds the
+// one-instruction wrapper away, in the interpreter and the JIT alike), but an exception
+// the builtin throws still shows the wrapper's row in `StackTrace`, between the
+// builtin's caller and nothing else — exactly as if the wrapper had run. The warm-up
+// loop makes `ParseIt` / `CharOf` hot enough to be JIT-compiled.
+namespace Demo;
+
+int ParseIt(string s) {
+    return Int32.Parse(s);
+}
+
+char CharOf(string s, int i) {
+    return s[i];
+}
+
+int RowOf(string trace, string frame) {
+    string[] rows = trace.Split("\n");
+    for (int i = 0; i < rows.Length; i = i + 1) {
+        if (rows[i].Contains(frame)) { return i; }
+    }
+    return -1;
+}
+
+void Main() {
+    int acc = 0;
+    for (int k = 0; k < 20000; k = k + 1) {
+        acc = acc + ParseIt("1") + (int)CharOf("ab", 1);
+    }
+    Assert.Equal(20000 * 99, acc);
+
+    string parse = "";
+    try {
+        ParseIt("x");
+    } catch (FormatException e) {
+        parse = e.StackTrace;
+    }
+    // innermost first: the folded wrapper, then its caller, then the entry point
+    int wrapper = RowOf(parse, "Std.Int32.Parse");
+    int callerRow = RowOf(parse, "Demo.ParseIt");
+    int mainRow = RowOf(parse, "Demo.Main");
+    Assert.Equal(0, wrapper);
+    Assert.Equal(1, callerRow);
+    Assert.Equal(2, mainRow);
+
+    // `s[i]`: the indexer forwards to `CharAt`, which forwards to the builtin — both
+    // wrapper rows stay.
+    string index = "";
+    try {
+        CharOf("ab", 5);
+    } catch (IndexOutOfRangeException e) {
+        index = e.StackTrace;
+    }
+    Assert.True(RowOf(index, "Std.String.CharAt") >= 0);
+    Assert.True(RowOf(index, "Std.String.CharAt") < RowOf(index, "Demo.CharOf"));
+}

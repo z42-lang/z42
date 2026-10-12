@@ -447,6 +447,7 @@ fn ll_stub_function(name: &str) -> crate::metadata::bytecode::Function {
         resolved: std::sync::OnceLock::new(),
         owner_init: Default::default(),
         id: Default::default(),
+        forward: Default::default(),
     }
 }
 
@@ -662,6 +663,7 @@ fn fn_shape(name: &str, param_count: usize, instr_count: usize) -> Function {
         resolved: std::sync::OnceLock::new(),
         owner_init: Default::default(),
         id: Default::default(),
+        forward: Default::default(),
     }
 }
 

@@ -31,7 +31,7 @@
 | `src/objops/` | 引擎无关的对象操作（字段 / 数组 / 静态字段 / struct 叶子的读写与错误通道），interp 与 JIT 共用，见 [`src/objops/README.md`](src/objops/README.md) |
 | `src/interp/` | 字节码解释器，见 [`src/interp/README.md`](src/interp/README.md) |
 | `src/jit/` | Cranelift JIT 后端，见 [`src/jit/README.md`](src/jit/README.md) |
-| `src/corelib/` | 内置函数（builtin）实现，统一入口 `exec_builtin_by_id` 供 interp / JIT 调用，见 [`src/corelib/README.md`](src/corelib/README.md) |
+| `src/corelib/` | 内置函数（builtin）实现，统一入口 `invoke_builtin` 供 interp / JIT 调用（builtin ABI v2：`corelib/abi/`），见 [`src/corelib/README.md`](src/corelib/README.md) |
 | `src/gc/` | GC 子系统（`trait MagrGC` + 分代 / STW / 并发 / 增量 major），见 [`src/gc/README.md`](src/gc/README.md) |
 | `src/vm_context/` | `VmContext`：单个 VM 实例所有可变状态的唯一持有者（静态字段、type / 方法解析缓存、isa cache、cctor、资源登记、native 句柄表） |
 | `src/native/` | Tier 1 C ABI 运行时 + stdlib native 扩展加载，见 [`src/native/README.md`](src/native/README.md) |

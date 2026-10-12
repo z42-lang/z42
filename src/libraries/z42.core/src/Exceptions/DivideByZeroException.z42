@@ -2,7 +2,7 @@ namespace Std;
 
 // 整数除法 / 取模的除数为 0。镜像 .NET BCL `System.DivideByZeroException`。
 // 浮点除以 0 不抛此异常 — IEEE 754 语义返回 ±∞ 或 NaN。
-public class DivideByZeroException : Exception {
+public class DivideByZeroException : ArithmeticException {
     public DivideByZeroException(string message) : base(message) {}
 
     override string ToString() {

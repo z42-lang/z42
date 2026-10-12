@@ -64,6 +64,13 @@ typed `catch (Exception e)` 不会捕获它们。新代码请一律 `throw new <
 | `new T[n]` 的 `n` 为负 | `OverflowException` | `array size cannot be negative (got -2)` |
 | 整数除 / 取模的除数为 0 | `DivideByZeroException` | |
 | 硬转换失败 | `InvalidCastException` / `NullReferenceException` | 见[类型转换](conversions.md) |
+| `Int32.Parse` 等解析的文本格式不对 | `FormatException` | `Int32.Parse: the input string 'x' was not in a correct format` |
+| 解析出的数超出目标类型（含无符号类型解析负数） | `OverflowException` | `Int32.Parse: value was either too large or too small for Int32` |
+| 解析 null | `ArgumentNullException` | `Value cannot be null. (Parameter 's')` |
+| `s[i]` / `s.CharAt(i)` 越界（含负数） | `IndexOutOfRangeException` | `index 9 is out of range for a string of length 3` |
+
+`TryParse` 一族（`Int32.TryParse(s, ref v)` 等）**从不抛异常**：格式不对、越界或 `s` 为 null 都返回
+`false` 并把 `v` 置零。
 
 null 检查先于下标检查：`a[-1]` 在 `a` 为 null 时抛 `NullReferenceException`。
 
@@ -124,28 +131,43 @@ outer.InnerException.Message;      // "cause"
 |---|---|---|
 | `ArgumentException` | `Exception` | 参数非法（值或组合不符合契约） |
 | `ArgumentNullException` | `ArgumentException` | 参数为 null 但要求非空 |
+| `ArgumentOutOfRangeException` | `ArgumentException` | 参数值超出方法允许的范围 |
 | `InvalidOperationException` | `Exception` | 对象当前状态不允许此操作（如空 Queue 出队） |
 | `NullReferenceException` | `Exception` | 解引用 null（字段 / 数组访问、在 null 上调方法由运行期自动抛） |
 | `IndexOutOfRangeException` | `Exception` | 索引越界（数组下标越界由运行期自动抛） |
 | `KeyNotFoundException` | `Exception` | 字典 / Map 找不到键 |
-| `FormatException` | `Exception` | 字符串解析 / 格式化失败 |
+| `FormatException` | `Exception` | 字符串解析 / 格式化失败（`Int32.Parse("x")`） |
 | `NotImplementedException` | `Exception` | 方法已声明但未实现 |
 | `NotSupportedException` | `Exception` | 方法不支持当前场景（如对只读集合 `Add`） |
-| `OverflowException` | `Exception` | 数值运算超出目标类型容量（`Int32.Parse` 溢出、checked 溢出）；数组长度为负 |
-| `DivideByZeroException` | `Exception` | 整数除 / 取模的除数为 0（浮点除 0 按 IEEE 754 返回 ±∞ / NaN，不抛） |
+| `ArithmeticException` | `Exception` | 算术出错的基类：`catch (ArithmeticException)` 同时接住下面两种 |
+| `OverflowException` | `ArithmeticException` | 数值运算超出目标类型容量（`Int32.Parse` 溢出、checked 溢出）；数组长度为负 |
+| `DivideByZeroException` | `ArithmeticException` | 整数除 / 取模的除数为 0（浮点除 0 按 IEEE 754 返回 ±∞ / NaN，不抛） |
 | `InvalidCastException` | `Exception` | 硬转换 `(T)x` 失败：`x` 非 null 但不是 `T`（`as` 失配返 null、不抛） |
 | `ArrayTypeMismatchException` | `Exception` | `Array.CopyRange` 两侧的数组元素类型互不兼容（见 [数组](arrays.md)） |
 | `SwitchExpressionException` | `Exception` | `switch` **表达式**求值时无任何臂被采纳（没匹配上，或匹配了但守卫为假）。消息含落空的值；`switch` **语句**不抛。见 [模式匹配](pattern-matching.md) |
 | `OutOfMemoryException` | `Exception` | 堆内存不足（strict OOM 模式下超 `max_heap_bytes`） |
 | `TypeInitializationException` | `Exception` | 静态构造器抛出；该类型此后不可用，后续访问直接重抛，**不重试 cctor** |
-| `MissingSymbolException` | `Exception` | 运行期解析不到符号，通常意味着依赖版本 skew |
+| `MissingSymbolException` | `Exception` | 运行期解析不到符号（函数、类型、运行时内建），通常意味着依赖版本 skew |
+| `TimeoutException` | `Exception` | 操作在给定时限内没有完成 |
+| `UnauthorizedAccessException` | `Exception` | 操作系统拒绝访问（文件 / 目录权限不足） |
 | `InvalidMarshalException` | `Exception` | z42 值无法 marshal 成 native ABI 类型 |
 | `AggregateException` | `Exception` | 聚合多个异常，携带 `InnerExceptions` 数组 |
 | `MulticastException` | `AggregateException` | 多播委托 `Invoke(continueOnException: true)` 时聚合各 handler 的异常 |
 
-每个子类只有 ctor 转发 + 一个 `override ToString()`（返回 `"<ClassName>: <Message>"`）——
+I/O 异常位于 `Std.IO` 命名空间（`using Std.IO;`）：
+
+| 子类 | 继承自 | 何时用 |
+|---|---|---|
+| `IOException` | `Exception` | I/O 出错的基类 |
+| `FileNotFoundException` | `IOException` | 要访问的文件不存在 |
+| `DirectoryNotFoundException` | `IOException` | 路径中的目录不存在 |
+| `PathTooLongException` | `IOException` | 路径超出系统允许的长度 |
+| `EndOfStreamException`（`z42.io`） | `IOException` | 流在凑满所需字节前到达末尾 |
+
+⚠️ 文件系统操作（`File.ReadAllText` 等）的失败**目前仍抛 `Std.Exception`**，还没改为抛上面这些类型。
+
+部分子类只有 ctor 转发 + 一个 `override ToString()`（返回 `"<ClassName>: <Message>"`）——
 ⚠️ 那些 override 是**冗余**的：基类已按运行期类型取名，输出一字不差。
-（`IOException` **尚不存在**。）
 
 > `Exception.ToString()` 用 `this.GetType().Name` 取类名，所以**用户自定义的异常子类**
 > （`class NotFoundException : Exception`）自动得到 `"NotFoundException: …"`，不必自己重写 `ToString`。
@@ -161,6 +183,13 @@ outer.InnerException.Message;      // "cause"
 
 不做成可 catch 的原因：两次栈检查之间有些原生代码的栈用量没有上界，运行时在那里用完栈就只能崩溃，
 无法保证每一次溢出都变成异常。与其提供一个有时能 catch、有时直接崩的异常，不如一律按致命错误处理。
+
+## 运行时内部错误是致命错误
+
+运行时（VM 及其内建函数）自身的缺陷——标准库的 native 声明与运行时实现对不上、内部不变式被破坏——不变成
+z42 异常，而是与栈溢出一样**终止**：`catch` 拦不住，`z42vm` 打印 `fatal error: internal error in builtin …`
+和 z42 调用栈，以退出码 **3** 结束；嵌入 API 返回 `Z42_HOST_ERR_FATAL`。用户代码能触发的失败
+（格式不对、越界、文件不存在……）一律是上面列出的可 catch 异常。
 
 ## 当前限制
 

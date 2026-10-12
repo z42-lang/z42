@@ -29,7 +29,7 @@ public extern char[] ToCharArray();
 |---|---|
 | `Length` | 字符数。`"你好".Length == 2`。是**属性**，不写括号 |
 | `ByteLength` | UTF-8 字节数。`"你好".ByteLength == 6`。热路径尺寸查询用它 |
-| `CharAt(index)` | 第 `index` 个字符。越界抛 `Std.Exception`：`__str_char_at: index 9 out of range (length 3)` |
+| `CharAt(index)` | 第 `index` 个字符（`s[index]` 同）。越界（含负数）抛 `IndexOutOfRangeException`：`index 9 is out of range for a string of length 3` |
 | `IsEmpty()` | `Length == 0`。是**方法**，写括号 |
 | `ToCharArray()` | 物化成 `char[]`；空串 → 空数组 |
 

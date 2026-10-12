@@ -35,6 +35,7 @@ fn const_str_fn(name: &str, idx: u32) -> Function {
         resolved: std::sync::OnceLock::new(),
         owner_init: Default::default(),
         id: Default::default(),
+        forward: Default::default(),
     }
 }
 

@@ -179,6 +179,11 @@ fn invoke(
     this: &Value, args: &[u32], method_type_args: &[String],
 ) -> Result<Option<Value>> {
     if method_type_args.is_empty() {
+        // runtime-audit P1-8: a `[Native]` forwarder (`string.Length`, `s[i]`) runs its
+        // builtin directly, the receiver passed alongside the registers.
+        if let Some(res) = super::exec_call::try_fold(ctx, module, frame, dst, func, Some(*this), args) {
+            return res;
+        }
         if let Some(id) = id {
             if let Some(res) = try_native_method_call(ctx, frame, dst, id, this, args) {
                 return res;

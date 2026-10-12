@@ -534,6 +534,20 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
   - A4：decommit（定长区按页对齐，记录 generation 下限）。
   - A5：committed 计数、`stats()` 降为 O(1)、软上限按 footprint。
 
+**P1-8 Builtin ABI v2**（User，2026-10-12；取代上表 P1-8 行里的 manifest 方案）
+- 决定：
+  - **Rust 侧单一真相**：`#[builtin(name = "__x", pure?, blocking?, reenters?, this = "M"?)]` 写在领域文件的 `#[z42_macros::builtins]` 内联模块里，签名就是普通类型化 Rust 函数；宏生成从调用方寄存器按下标读参的包装器（不经 `Vec` / `SmallVec`）、`BuiltinDesc`（名字、参数种类、返回种类、标志）与模块的 `DESCS`，`builtin_table.rs` 的 `TYPED` 一个模块一行。旧表与新路径并存，按领域迁，迁完删旧表。
+  - **不做 manifest，也不在编译期校验 `[Native]`**（User：靠测试，用例不过自然就有问题）。不恢复 E0901 / E0902；`native_decl_tests`（名字、void）保留。
+  - **类型化错误** `BuiltinError`：Format / Argument / ArgumentNull / ArgumentOutOfRange / IndexOutOfRange / Overflow / InvalidOperation / NotSupported / InvalidCast / NullReference / KeyNotFound / IO 族（IO / FileNotFound / DirectoryNotFound / PathTooLong / EndOfStream）/ UnauthorizedAccess / Timeout / 任意类 `Exception{class}` / 原样重抛 `Thrown` / `Internal`，各对应 .NET 同名类；缺的 stdlib 类按 .NET 名字与继承补齐（`ArithmeticException`，`OverflowException` / `DivideByZeroException` 改继承它；`ArgumentOutOfRangeException`、`TimeoutException`、`UnauthorizedAccessException`；`Std.IO.IOException` 及 `FileNotFound` / `DirectoryNotFound` / `PathTooLong`，`EndOfStreamException` 改继承 `IOException`）。
+  - **内部错误致命**：`BuiltinError::Internal`（Rust 缺陷、不变式被破、声明与签名不符）与栈溢出同一机制（`stack_guard::fatal_error`：致命标志 + z42 栈报告，退出码 3 / `Z42_HOST_ERR_FATAL`），不可 catch。未迁移的旧表 builtin 照旧映射成 `Std.Exception`。两个引擎共用一个失败出口 `abi::error::raise`，JIT 侧缺的 `is_fatal` 检查随之补上。运行期解析不到的 builtin 名 → `MissingSymbolException`。
+  - **阻塞即 park，结构上禁止分配**：`#[builtin(blocking)]` 的函数体整段 park 运行，只收 `PlainArg`、只回 `PlainRet`，拿不到 `&VmContext`；需要先用 ctx 准备的返回 `Blocking::new(move || …)`（`Send + 'static` 闭包 park 运行）。结果都在 unpark 之后才转成 `Value`。
+  - **`[Native]` 桩在 VM 链接期折叠，两个引擎都做，不在编译器里做**（编译器折叠会把 stdlib 私有的 builtin 名烤进用户包、破坏包版本边界）：一块的 `builtin; ret` 桩与同类型链式转发按函数识别（`Function::forward`，首调时算），调用直接按 FnId 跑 builtin；cctor 屏障照旧在折叠前执行。**栈回溯不变**：不会执行 z42 代码的 builtin 无帧折叠，失败时才从函数现算包装函数那一行；可能执行 z42 代码的（`reenters`、旧表的反射 / 加载上下文 / REPL builtin）压一个轻帧。sret 桩（仅 `GCHandle.Alloc`）不折叠。
+  - **`TryParse` 不再靠异常**：`[Native("__int32_try_parse")] extern bool TryParse(string, ref int)` 一族，builtin 经 `RefArg` 写穿出参；`Boolean` / `Char` / `Single.TryParse` 改纯脚本无 try。
+  - 同名 builtin 改语义要换名字：已发布种子的 stdlib 跑在新 VM 上（冷启动自举），本 PR 只把抛出的异常换成更具体的子类，形状不变。
+- 序列：
+  - PR1 🟡（分支 `vm/builtin-abi-v2`）：全部基础设施（宏、`corelib/abi/`、两个引擎的新调用口 `invoke_builtin`、错误出口、致命路径、blocking、链接期折叠）；迁 convert（9 个 Parse + 9 个新 TryParse + ToString / BitConverter / 装箱 / `__str_compare_to`，`__str_compare_to(null)` 改按 .NET 返回 1）、`__str_length` / `__str_char_at`（越界改抛 `IndexOutOfRangeException`）、线程 sleep / join（blocking 样板）。实测（release，交错中位数，负载 4–14，new / base）：`Int32.Parse` + `Double.Parse` 循环 interp 0.53 / jit 0.74；字符串逐字符求和 interp 0.38 / jit 0.99（JIT 本已内联）；`TryParse` 失败路径 interp 0.23 / jit 0.26；旧表 builtin 的折叠调用（`GetHashCode` / `Equals` 循环）interp 0.47 / jit 0.85；07 / 08 / 05 / 10 interp 0.89–1.00、jit 1.00–1.02（噪声内）；启动 +2%（z42.core 多 8 个类）；z42c 工作区构建 1.00（两轮 0.97 / 1.00），产物逐字节一致。
+  - 后续 PR 按领域迁：fs（顺带把系统调用移出全局 `file_handles` 锁、抛 IO 族异常）、stdout 路由、net / tls / process（从 Rust 抛 `SocketException` 等，取代 `[KIND, msg]` 元组）、io readline、monitor、反射、ext 压缩库（`wrap_*` 胶水）；旧表迁空后删 `Native::Val` / `Void`、`PART1` / `PART2`、`LEGACY_REENTERS`、`exec_builtin` 的 `&[Value]` 入口改为只服务测试。
+
 **对象模型（M10 + M11）已定方案**（User，2026-10-07）
 - 目标：堆上每个可变单元 ≤ 8 B、用同宽原子读写，去掉每对象 Mutex 后不会读到「一半标签 + 一半指针」；16 B `Value` 只留在寄存器。
   - 原始类型字段保持原宽度；引用字段改为 8 B 自描述指针（低 3 位记种类，0 = null），顺带去掉字符串 / 闭包字段的 16 B 侧表；泛型 `T` 字段仍是 16 B，但标签在分配时按实例化类型写死，之后只原子地改 8 B 负载。

@@ -27,6 +27,7 @@ fn with_call_tokens(tokens: &[u32]) -> Function {
         resolved: std::sync::OnceLock::new(),
         owner_init: Default::default(),
         id: Default::default(),
+        forward: Default::default(),
     };
     let _ = f.resolved.set(ResolvedTokens {
         method_tokens: tokens.iter().map(|&t| AtomicU32::new(t)).collect(),

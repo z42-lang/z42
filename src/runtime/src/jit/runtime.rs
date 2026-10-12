@@ -325,13 +325,9 @@ impl JitRuntime {
             slot.state.store(SLOT_REJECTED, Ordering::Relaxed);
             return None;
         }
-        // Outside the lock too: the chained target's lookup may load its package
-        // (and so run initializers — z42 code that can park for a collection, which
-        // must never happen while other threads queue on the compiler lock).
-        let chained = match super::forward::builtin_forward(func) {
-            Some(_) => None,
-            None => self.chained_forward(vm, func),
-        };
+        // `[Native]` forwarder? (Shared with the interpreter and the cold call paths;
+        // the probe never loads anything.)
+        let forward = crate::interp::forward::forward_of(vm, self.module(), func);
         let mut guard = self.lock_compiler();
         if slot.entry.get().is_none() {
             if slot.state.load(Ordering::Relaxed) == SLOT_REJECTED { return None; }
@@ -339,7 +335,7 @@ impl JitRuntime {
             let lookup = CompileLookup { rt: self, vm };
             match guard.compile_fn(func, &lookup) {
                 Ok(mut entry) => {
-                    if entry.forward.is_none() { entry.forward = chained; }
+                    entry.forward = forward;
                     let _ = slot.entry.set(entry);
                     bump_compile_counters(vm, t0);
                 }
@@ -366,18 +362,6 @@ impl JitRuntime {
         &self, func: &Function, callees: &dyn super::forward::ForwardLookup,
     ) -> Result<FnEntry> {
         self.lock_compiler().compile_fn(func, callees)
-    }
-
-    /// [`super::forward::chained_forward`] with the callee looked up in the merged
-    /// module, then through the lazy loader.
-    fn chained_forward(&self, vm: &VmContext, func: &Function) -> Option<u32> {
-        super::forward::chained_forward(func, |name| {
-            let module = self.module();
-            if let Some(&i) = module.func_index.get(name) {
-                return module.functions.get(i).and_then(super::forward::builtin_forward);
-            }
-            vm.try_lookup_function(name).and_then(|f| super::forward::builtin_forward(&f))
-        })
     }
 
     /// Name-keyed resolution (compile now): `id_by_name` → `resolve_fn_by_id`.

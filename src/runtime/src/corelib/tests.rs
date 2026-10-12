@@ -313,6 +313,7 @@ fn ctx_with_fns(names: &[&str]) -> std::pin::Pin<Box<VmContext>> {
         resolved: std::sync::OnceLock::new(),
         owner_init: Default::default(),
         id: Default::default(),
+        forward: Default::default(),
     }).collect();
     let func_index = names.iter().enumerate().map(|(i, n)| (n.to_string(), i)).collect();
     VmContext::with_module(Module {

@@ -34,6 +34,7 @@ fn fn_with_block_sizes(sizes: &[usize]) -> Function {
         resolved: std::sync::OnceLock::new(),
         owner_init: Default::default(),
         id: Default::default(),
+        forward: Default::default(),
     }
 }
 

@@ -2245,6 +2245,7 @@ dependencies = [
  "webpki-roots",
  "z42-abi",
  "z42-compression",
+ "z42-macros",
  "z42-rs",
 ]
 

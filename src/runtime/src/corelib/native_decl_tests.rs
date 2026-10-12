@@ -167,8 +167,10 @@ fn every_declared_native_has_a_builtin() {
 fn every_builtin_is_declared_or_allowlisted() {
     let declared: BTreeSet<String> = declared_natives().into_iter().map(|(n, _)| n).collect();
     let allow: BTreeSet<&str> = UNDECLARED_ALLOWLIST.iter().map(|(n, _)| *n).collect();
+    // `__test_abi_*`: the builtin ABI's own test builtins (`corelib::abi::test_builtins`,
+    // registered under `cfg(test)` only).
     let undeclared: Vec<&str> = BUILTINS.iter().map(|(n, _)| *n)
-        .filter(|n| !declared.contains(*n) && !allow.contains(n))
+        .filter(|n| !declared.contains(*n) && !allow.contains(n) && !n.starts_with("__test_abi_"))
         .collect();
     assert!(undeclared.is_empty(),
         "BUILTINS entries neither declared via [Native] in src/libraries nor allowlisted \
