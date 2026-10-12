@@ -400,8 +400,11 @@ trait 默认实现（含 `ArcMagrGC` STW mark-sweep）是 no-op；分代模式 o
   增量 major 清扫期的 doomed 对象同样跳过（与脏卡播种同一条规则）。
 - **死亡**：带 `REMEMBERED_BIT` 的块被 tombstone 时进「带标记的死块」列表，`process_flagged_dead` 在 chunk 回收之前把它从记忆集删掉，
   所以记忆集里的地址永远是一个块头。
-- **晋升线降低**（adaptive promotion）：数组仍是 `dirty_every_card`，对象改为把每个持有年轻孩子的老对象入集
-  （`remember_every_old_object_with_young`，同样是一次 O(堆) 的代价）。
+- **晋升线降低**（adaptive promotion）：数组仍是 `dirty_every_card`；对象只看新线**刚划成老**的那一批——年龄落在
+  `[新线, 旧线)` 的对象，恰好是年轻集合里已到线的对象（`VarRegion::objects_past_lowered_line`），持有年轻孩子的入集
+  （`remember_lowered_cohort`，`O(年轻集合)`）。旧线下就已是老的对象不必看：新线下年轻的孩子在旧线下也是年轻的，
+  它们的老→新边早被屏障或晋升记过，而记忆集只在对象再也够不着年轻孩子时才放它出集。逐个扫全部对象块是一次
+  `O(堆)` 的停顿内工作——`13_gc_large_heap` 上 21.6–23.0 ms，正是该负载的最大停顿。
 - major 不清空记忆集（同 card 的「perf-drop-card-rebuild」理由：minor 会自己把它排空）。
 
 #### 卡表不变量核对（`Z42_GC_VERIFY_CARDS`）
