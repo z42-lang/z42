@@ -1,0 +1,7 @@
+namespace Ws.Hello;
+
+using Ws.Greet;
+
+public class Hello {
+    public static string Line() { return Greeter.Hi("workspace"); }
+}

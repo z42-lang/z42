@@ -34,7 +34,7 @@ z42c 是用 z42 写的编译器，由上一代 z42c 编译自己。结论：**�
 | 限制 | 受限写法 |
 |---|---|
 | 类字段的泛型参数被 parser 丢弃（`private List<X> f;` 取元素退化为 `<unknown>`，无法调其方法）| **typed array + count**：`Diagnostic[] _items; int _count;` + 手动 `Grow()`，故编译器内集合一律是并行数组 |
-| `new T[n][]` 不能创建交错数组 | 平铺单数组 + 偏移，或平行数组 + 线性查（如 `WsMembers.DepFlat/DepOff/DepLen`）|
+| `new T[n][]` 不能创建交错数组 | 平铺单数组 + 偏移，或平行数组 + 线性查（如 `WorkspaceMembers.DepFlat/DepOff/DepLen`）|
 | AST / IR 节点 | `class` 继承层级 + `virtual`。IR 指令的操作数 / 编码 / 头部 tag / 可删性是指令类上的虚方法（基类给安全默认）；AST 与 bound tree 的遍历是手写 `is` 穷举 walker，完备性由 `xtask check walkers` 对账 |
 | 错误路径 | `throw` / `try-catch` + Exception 子类 |
 
@@ -44,9 +44,9 @@ z42c 是用 z42 写的编译器，由上一代 z42c 编译自己。结论：**�
 
 `./xtask build compiler` = `_buildCompiler`（`scripts/build/xtask_compiler.z42`）：确保种子（`_ensureSeed`）→ 建 z42vm → 必要时先建 stdlib → `_buildCompilerViaZ42c` 用种子 driver 跑 `build --workspace --release`。命令面见 `./xtask --help`。
 
-**z42c driver 自有 `build --workspace`**（`z42c.pipeline/src/WorkspaceBuild.z42`）：
+**z42c driver 自有 `build --workspace`**（`z42c.driver/src/WorkspaceBuild.z42`，规划在 `z42.project/src/WorkspacePlan.z42`）：
 
-- **成员发现 + 拓扑序**：`[workspace] members`（缺省 `["*"]`，段内通配）展开、`exclude` 剔除；读各成员 `[project].name` + `[dependencies]`，只保留指向 workspace 内成员的边；层式拓扑，层内按 name Ordinal 排序，环抛异常。
+- **成员发现 + 拓扑序**：`[workspace] members`（缺省 `["*"]`，段内通配）展开、`exclude` 剔除；读各成员 `[project].name` + `[dependencies]`，只保留指向 workspace 内成员的边；按 name Ordinal 逐轮扫描、依赖已发射即发射，环抛异常。z42c 恒编全部成员，`default_members` 归编排器（z42b）。
 - **显式 `--output-dir <flat>`**：全成员产物落该 flat 目录，兼作各成员的兄弟解析目录。
 - **无 `--output-dir`**：按 `[workspace.build].output_dir` 模板展开 per-member 布局，产物落各自 `<output_dir>/dist`；兄弟解析扫全成员 dist + 外部档（`Z42_LIBS` / `--compile-libs`）。先建全部成员 dist（空目录）再按拓扑序逐个 build。
 - **解析分档**（`WsTier`）：成员 dist 只回答**成员**包名，外部档只回答**非成员**包名；拓扑序在后的成员整个不可见（`Hidden`）。成员 dist 同时是 exe 的运行期载荷目录（`z42c build` 会把依赖闭包 colocate 进去），里面的外部包副本是载荷不是解析源；`build stdlib` 的外部档是 flat（全成员 dist 的聚合），里面有每个成员上一轮的副本——分档防止这两种旧副本遮蔽本轮 fresh 产物。

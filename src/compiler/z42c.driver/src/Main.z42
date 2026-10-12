@@ -172,7 +172,7 @@ string[] _displaySrcs(string[] srcs) {
 
 // `z42c build <toml>`：manifest → 源发现 → 逐文件编译 → packed zpkg → dist/<name>.zpkg。
 // MVP：单工程/packed/无增量（镜像 C# PackageCompiler.BuildTarget 关键路径）。
-// cacheDirOverride：workspace 构建由 WsPlan 给出成员 cache 目录（成员 toml 通常无 [build]，按单工程解析会落进
+// cacheDirOverride：workspace 构建由 WorkspaceLayoutPlan 给出成员 cache 目录（成员 toml 通常无 [build]，按单工程解析会落进
 // 源码树）；"" = 按本工程 manifest 解析（BuildLayout）。
 // tier：解析**分档**（见 z42c.pipeline 的 WsTier.z42）——成员 dist 只答成员包、外部档只答
 // 非成员包，外加「拓扑序排在本成员之后的成员整个不可见」。null = 非 workspace 路径，全可见。
@@ -441,7 +441,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     }
     // workspace-read-cache：workspace 成员（cacheDirOverride 非空）也 probe。单工程 `--output-dir`（自举预建 build-libs 等）
     // 仍不 probe——那条路径没有 workspace 布局给出的 cache 目录，dist 是临时拼的平铺目录。
-    // 实际生效的 cache 目录：workspace 成员由 WsPlan 给出，否则按本工程 manifest 解析。probe / indexed dist 读回 /
+    // 实际生效的 cache 目录：workspace 成员由 WorkspaceLayoutPlan 给出，否则按本工程 manifest 解析。probe / indexed dist 读回 /
     // 写 cache 三处必须是同一个目录（此前 indexed dist 固定按 manifest 解析，workspace 一读 cache 就读错位置）。
     string effCacheDir = cacheDirOverride.Length > 0 ? cacheDirOverride : BuildLayout.Resolve(pm, projectDir, isRelease).CacheDir;
     // fix-output-dir-aux-outputs：单工程 `--output-dir`（非 workspace）**不写 cache**。这条路径本就不 probe

@@ -20,6 +20,7 @@ schema 以 [z42-toml.md](../../../docs/reference/src/toolchain/z42-toml.md) 为�
 | 路径模板展开 | `PathTemplate.Expand(template, ctx)` |
 | 清单定位 | `ManifestLocator.FindUp` / `FindIn` |
 | 产物目录解析 | `BuildLayout.Resolve(manifest, projectDir, isRelease)` |
+| workspace 规划 | `WorkspacePlan.Plan` / `PlanLayout`（全部成员）/ `PlanDefault`（`default_members` + 依赖闭包）/ `SingleDefault` |
 
 ## 如何测试验证
 ```bash
@@ -47,6 +48,7 @@ schema 以 [z42-toml.md](../../../docs/reference/src/toolchain/z42-toml.md) 为�
 |------|------|
 | `src/BuildLayout.z42` | 产物目录级联：`Resolve` → output / cache / generated / dist；z42c 写、launcher run 找、z42b clean 删共用。`Display(path)` 把目录呈现给终端（相对当前目录，带 `./`），进度行统一走它 |
 | `src/WorkspaceLayout.z42` | workspace 成员判定与成员产物布局的唯一来源；`BuildLayout.Resolve` 与 workspace 构建都经由它 |
+| `src/WorkspacePlan.z42` | workspace 成员发现 + 拓扑序 + per-member 布局 + `default_members` 选取（WS001 / WS005 / WS031）；`z42c build --workspace` 与 z42b 在工作区根共用 |
 | `src/PathDepPlan.z42` | 路径依赖 `dep = { path = "../foo" }` 的传递闭包规划（拓扑序，叶子在前）；`z42c build` 与 `z42b build` 共用一份实现 |
 
 ### 清单模型（按段）

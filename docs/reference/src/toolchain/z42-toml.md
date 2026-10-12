@@ -1090,7 +1090,7 @@ output_dir = "artifacts/${project_name}/${profile}"
 |---|---|
 | `members` | 成员目录（glob / 显式路径），缺省 `["*"]` |
 | `exclude` | 从展开结果中剔除的成员路径 |
-| `default_members` | 默认成员子集。**z42c 目前不消费它**（`z42c build` / `--workspace` 都编全部成员）；仓内 xtask 用它推导成员列表。旧拼写 `default-members` 已删除，写了按未知键报错 |
+| `default_members` | 默认成员子集：编排器（`z42 build` / `test` / `bench` / `clean` 在工作区上）缺省只对它们执行，`--workspace` 才覆盖全部；`run` / `publish` / `export` 在工作区上要求它恰好选中一个成员（见 [`z42` · 工作区](cli-z42.md#工作区)）。条目写成员目录（相对工作区根）或成员的 `[project].name`；没写或写 `[]` = 全部成员；有条目匹配不到成员 → WS031。z42c 不看它（`z42c build --workspace` 恒编全部成员）。旧拼写 `default-members` 已删除，写了按未知键报错 |
 | `dependencies` | 中央依赖声明，条目写法同 `[dependencies]`。当前只解析与校验键名，构建不消费——成员仍在自己的 `[dependencies]` 里声明依赖 |
 | `build` | 只接受 `output_dir` / `cache_dir`，见 [L6.5](#l65-workspacebuild-集中产物) |
 
@@ -1125,7 +1125,7 @@ exclude = ["libs/sandbox-*"]
 |---|---|
 | `z42c build <manifest>` | 单工程：只编这一个清单（依赖按 `[dependencies]` 解析，path 依赖闭包先建） |
 | `z42c build`（不给清单） | 从 CWD 向上找**最近的** `z42.toml` 或 `z42.workspace.toml`：找到工程清单 → 同上；找到 workspace 清单 → 同 `--workspace` |
-| `z42c build --workspace` | 按拓扑序编**全部**成员（`members` 展开结果；`default_members` 不参与，见 L6.2） |
+| `z42c build --workspace` | 按拓扑序编**全部**成员（`members` 展开结果；`default_members` 不参与——它归编排器，见 L6.2） |
 
 ```bash
 z42c build                      # 最近的清单（工程 → 单工程；workspace → 全部成员）
@@ -1154,10 +1154,8 @@ core ← utils ← hello
 | 显式成员目录不存在 | `workspace: member \`<pat>\` does not exist under <dir>` |
 | 两个成员声明同一 `[project] name` | `workspace: duplicate member name \`<name>\` (WS001): <清单 A>, <清单 B>` |
 | 成员目录里有多份清单 | `… has more than one manifest (WS005): …` |
-| 成员间依赖成环 | `z42c build --workspace: circular member dependency` |
+| 成员间依赖成环 | `workspace: circular member dependency` |
 
-
-跨 member 依赖的构建拓扑由 `src/compiler/z42c.pipeline/tests/workspace_topo/` 覆盖。
 
 #### 新建 / 清理（编排器 `z42` / `z42b`，不是 z42c）
 
