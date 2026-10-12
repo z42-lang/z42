@@ -10,7 +10,7 @@ CLI 入口（命令路由）。唯一 **exe** 子包，对外别名 = 用户 `z4
 |------|------|
 | `z42c --dump-tokens\|--dump-ast\|--dump-bound\|--dump-ir <file>` | 前端 / IR dump |
 | `z42c --emit-zbc <file.z42> <out.zbc>` | 单文件编 `.zbc` |
-| `z42c build [<manifest>] [--release] [--no-incremental] [--output-dir <d>] [--jobs <n>] [--opt <name>] [--no-opt <name>] [--compile-libs <dirs>] [--fix] [-q]` | 编工程；省略 manifest 时 `ManifestLocator.FindUp` 定位；`[project].pack` 决议 packed/indexed（debug 默认 indexed——散装 zbc + FILE 主文件；`pack=false ∧ --release` 报错） |
+| `z42c build [<manifest>] [--release] [--no-incremental] [--output-dir <d>] [--jobs <n>] [--opt <name>] [--no-opt <name>] [--fix] [-q]` | 编工程；省略 manifest 时 `ManifestLocator.FindUp` 定位；`[project].pack` 决议 packed/indexed（debug 默认 indexed——散装 zbc + FILE 主文件；`pack=false ∧ --release` 报错） |
 | `z42c build --workspace [--output-dir <d>]` | 按拓扑序构建全部 workspace 成员 |
 
 完整选项见 `z42c build -h` 与 [cli-z42c-z42b.md](../../../docs/reference/src/toolchain/cli-z42c-z42b.md)。

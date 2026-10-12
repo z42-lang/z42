@@ -41,8 +41,6 @@ int _cmdBuild(string[] argv) {
         else if (a == "--fix") { isFix = true; }
         else if (a == "--quiet" || a == "-q") { BuildLog.SetQuiet(true); }
         else if (a == "--output-dir" && ai + 1 < argv.Length) { outputDir = argv[ai + 1]; ai = ai + 1; }
-        // 只改**编译期**依赖解析面；z42c 自己的运行期加载仍读 Z42_LIBS（见 CompileLibsOpt 头注）。
-        else if (a == "--compile-libs" && ai + 1 < argv.Length) { CompileLibsOpt.Set(argv[ai + 1]); ai = ai + 1; }
         else if (a == "--opt" && ai + 1 < argv.Length) {
             int b = Opt.ByName(argv[ai + 1]);
             if (b < 0) { return _unknownOpt(argv[ai + 1]); }
@@ -108,11 +106,6 @@ void _buildUsage() {
     Console.WriteLine("  --workspace            build every workspace member (topological order)");
     Console.WriteLine("  --output-dir <dir>     write products to <dir> (generated sources: <dir>/generated/<name>;");
     Console.WriteLine("                         single project: no incremental cache — this mode never reads it)");
-    // 列进 usage 不只是为了给人看：自举脚本靠 `build --help` **探测本 driver 认不认这个旗标**
-    // —— 旧种子 driver（早于本旗标）会静默忽略未知旗标，脚本若无条件依赖它就会拿到
-    // 「旗标被丢掉、Z42_LIBS 当编译期面」的错行为。见 xtask 的 `_driverSupportsCompileLibs`。
-    Console.WriteLine("  --compile-libs <dirs>  compile-time dependency dirs (platform-separated);");
-    Console.WriteLine("                         Z42_LIBS still feeds z42c's OWN runtime loading");
     Console.WriteLine("  --no-incremental       full rebuild (ignore the build cache)");
     Console.WriteLine("  --opt <name>           enable an optimization (const-fold/copy-prop/dce/inline/all)");
     Console.WriteLine("  --no-opt <name>        disable an optimization");

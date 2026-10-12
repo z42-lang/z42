@@ -48,7 +48,7 @@ z42c 只用当前语言子集写；子集表达不了的写法，补进语言而
 
 - **成员发现 + 拓扑序**：`[workspace] members`（缺省 `["*"]`，段内通配）展开、`exclude` 剔除；读各成员 `[project].name` + `[dependencies]`，只保留指向 workspace 内成员的边；按 name Ordinal 逐轮扫描、依赖已发射即发射，环抛异常。z42c 恒编全部成员，`default_members` 归编排器（z42b）。
 - **显式 `--output-dir <flat>`**：全成员产物落该 flat 目录，兼作各成员的兄弟解析目录。
-- **无 `--output-dir`**：按 `[workspace.build].output_dir` 模板展开 per-member 布局，产物落各自 `<output_dir>/dist`；兄弟解析扫全成员 dist + 外部档（`Z42_LIBS` / `--compile-libs`）。先建全部成员 dist（空目录）再按拓扑序逐个 build。
+- **无 `--output-dir`**：按 `[workspace.build].output_dir` 模板展开 per-member 布局，产物落各自 `<output_dir>/dist`；兄弟解析扫全成员 dist + 外部档（`Z42_LIBS`）。先建全部成员 dist（空目录）再按拓扑序逐个 build。
 - **解析分档**（`WsTier`）：成员 dist 只回答**成员**包名，外部档只回答**非成员**包名；拓扑序在后的成员整个不可见（`Hidden`）。成员 dist 同时是 exe 的运行期载荷目录（`z42c build` 会把依赖闭包 colocate 进去），里面的外部包副本是载荷不是解析源；`build stdlib` 的外部档是 flat（全成员 dist 的聚合），里面有每个成员上一轮的副本——分档防止这两种旧副本遮蔽本轮 fresh 产物。
 
 **stdlib 由 z42c 构建**：`xtask build stdlib` 用 z42vm `--mode interp` 跑 `z42c.driver.zpkg build --workspace --release`，per-member 落 `artifacts/build/libraries/<name>/<profile>/dist/`，再 verify + 装配 flat view。整个 stdlib 构建同时是 z42c 的 dogfood。
@@ -59,7 +59,7 @@ z42c 只用当前语言子集写；子集表达不了的写法，补进语言而
 
 ## CLI
 
-`z42c.driver` 提供 `--dump-keywords` / `--dump-tokens` / `--dump-ast` / `--dump-bound` / `--dump-ir` / `--emit-zbc <src> <out>` / `build [<manifest>]`（含 `--workspace`、`--output-dir`、`--compile-libs`）。完整列表见 `z42c --help`。
+`z42c.driver` 提供 `--dump-keywords` / `--dump-tokens` / `--dump-ast` / `--dump-bound` / `--dump-ir` / `--emit-zbc <src> <out>` / `build [<manifest>]`（含 `--workspace`、`--output-dir`）。完整列表见 `z42c --help`。
 
 ## .zbc 写入器（`z42.package/src/BinaryFormat/`）
 
@@ -164,15 +164,15 @@ entry-dir 最优先）供运行期用。两件齐了，改名就能**一步落**
 
 | 面 | 谁读它 | 怎么给 |
 |---|---|---|
-| 运行期 | 被执行的 z42c 加载自己的依赖 | `Z42_LIBS`（+ zpkg 旁 colocated 副本优先）|
-| 编译期 | z42c 为被编译工程解析依赖 | `--compile-libs <dirs>`（缺省回落 `Z42_LIBS`）|
+| 运行期 | 被执行的 z42c 加载自己的依赖 | VM 搜索序：入口 zpkg 目录 → `Z42_PROBING_PATHS` → `Z42_LIBS` |
+| 编译期 | z42c 为被编译工程解析依赖 | `Z42_LIBS`（只此一处，probing 不进编译期面）|
 
-自建步骤是 `Z42_LIBS=<种子代 run-libs>` + `--compile-libs=<flat>`；driver 换代后的步骤两者都用 flat。
-
-- **旗标探测**：早于 `--compile-libs` 的种子 driver 会静默忽略未知旗标，故先 `_driverSupportsCompileLibs` 跑 `build --help` 认关键字，不认则退回共用 flat。driver 加载不到自己那代 stdlib 会直接崩（输出无旗标名，易被误判为「不支持」），所以做两次尝试取第一个真打出 `usage:` 的；两次都没有 = 探测失败，要出声（`_helpRan`）。
+自建步骤是 `Z42_PROBING_PATHS=<种子代 run-libs>` + `Z42_LIBS=<flat>`（xtask `_z42cProcSeed`）：同名包运行期先取
+probing 那份（上一代），编译期只解析 flat（当前源）。driver 换代后的步骤两者同代，只用 flat。夹具
+`z42c.driver/tests/fixtures/cli/compile-surface-z42-libs` 守住「probing 不漏进编译期面」。
 - **种子代 run-libs 不能取自 flat**：flat 正是要被预建覆盖的目录，快照晚于覆盖会拿到新代，种子 driver 即 `MissingSymbolException`。锚是**上一次自建成功那一刻**的 flat stdlib——新 driver 正是对着它编译的（与 driver 同代是构造保证）：`_snapshotDriverGenLibs` 记进 driver dist 的兄弟目录 `z42c.driver/<profile>/gen-libs/`（不进 dist ⇒ 不随 publish 进 SDK；`package ci` 单独带上），下一次自建由 `_relocateSeedRunLibs` 拷进 `intermediate/compiler/seed-run-libs/<profile>/`；判据是「齐了吗」而非「搬到了吗」，缺口从 SDK libs 补（`_topUpSeedRunLibs`）。冷启动从 SDK 供种时旧锚作废（它与种子不同代）。成员 dist 里若还有外部包副本（老 driver 建的）同样搬走，避免它遮蔽 flat 里的新版。
-- **driver dist 不带 stdlib**：exe 复制判据的「框架目录」与解析面的外部档是同一份（`CompileLibsOpt.ExtDirs()`：`--compile-libs`，否则 `Z42_LIBS`）。自建时 stdlib 从 `--compile-libs` 的 flat 解析到 ⇒ 判框架、不复制，所以锚只能由 xtask 自己记。
-- 该旗标自身也受种子纪律；`WsTier` 分档生效后，「搬」可退回「拷」。
+- **driver dist 不带 stdlib**：exe 复制判据的「框架目录」与解析面的外部档是同一份（driver `_extLibDirs()` = `Z42_LIBS`）。自建时 stdlib 从 flat 解析到 ⇒ 判框架、不复制，所以锚只能由 xtask 自己记。
+- `WsTier` 分档生效后，「搬」可退回「拷」。
 
 ## 分阶段流程与不变量
 

@@ -53,7 +53,7 @@
 | `src/ZpkgPathSort.z42` | zpkg 路径确定性枚举 + 排序：多目录合并 + prelude-first + Ordinal 排序 + 同名去重（`_dedupByBasename`）+ DepIndex 准入（`_allowedForIndex`）|
 | `src/DepReconcile.z42` | 惰性包加载 + 候选 reconcile 辅助：`_loadOpenedPackage`（按需 Rebuild + DepIndex 并入 scan）+ completer 候选类型追加 |
 | `src/DepScanCache.z42` | 进程级 zpkg memo：按 path 缓存打开的 `ZpkgInfo` + 该包 `TsigReconcile.Rebuild` 结果，把 workspace 逐成员重复解同一 zpkg 的 O(N²) 降成 O(N)；正确性依赖「进程内 path→内容稳定」不变式 |
-| `src/WsTier.z42` | 依赖解析分档：workspace per-member 布局下，成员 dist 档与外部档（`--compile-libs`，否则 `Z42_LIBS`）分开解析，成员 dist 里 colocate 的载荷副本不作解析源 |
+| `src/WsTier.z42` | 依赖解析分档：workspace per-member 布局下，成员 dist 档与外部档（`Z42_LIBS`）分开解析，成员 dist 里 colocate 的载荷副本不作解析源 |
 
 ### workspace 与增量
 | 文件 | 职责 |

@@ -67,11 +67,8 @@ int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, stri
     // 那儿解析、不复制；从更靠前的目录找到 ⇒ **本次构建产出的私有包**，复制。
     // 顺带把「判是不是框架」和「去哪拷」合并成一次查找，不再扫两遍。
     //
-    // 外部档 = `CompileLibsOpt.ExtDirs()`（`--compile-libs`，否则 `Z42_LIBS`）——与解析面同一份。
-    // 🔴 不能只认 `Z42_LIBS`：自举时 `Z42_LIBS` 是种子代 run-libs、外部档是 `--compile-libs` 给的 flat，
-    // 只认前者 ⇒ flat 里解析到的 stdlib 全被判成私有包复制进 dist（z42c.driver 的 dist 带上整套 stdlib，
-    // 经 publish 进 SDK 的 `programs/z42c/`）。
-    string[] frameworkDirs = CompileLibsOpt.ExtDirs();
+    // 外部档 = `_extLibDirs()`（`Z42_LIBS`）——与解析面同一份。
+    string[] frameworkDirs = _extLibDirs();
     // 待拷名单 = 直接依赖 ∪ **path 依赖闭包全体**（去重，fix-path-dep-closure）。
     // 闭包成员恒为私有包（按路径引入、其 dist 不在 Z42_LIBS）⇒ 判据自然判出「拷」，
     // 不需要再单独记「这一项是不是 path 依赖」——那份平行数组随判据统一一起退休。

@@ -233,6 +233,15 @@ Process _z42cProc(string vm, string libs, string driverZpkg) {
     return _z42cProcMode(vm, libs, driverZpkg, _z42cMode());
 }
 
+// 跑**上一代** driver（自举）：它运行期要加载**那一代**的库（`runLibs`），而它编译的源码要解析**当前源**
+// 新建的库（`libs`）。z42vm 找依赖的顺序是 入口目录 → `Z42_PROBING_PATHS` → `Z42_LIBS` ⇒ 那一代的库挂
+// probing（同名包运行期先取它），`Z42_LIBS` 只当编译期依赖面。`runLibs` 为空或与 `libs` 相同 ⇒ 同 _z42cProc。
+Process _z42cProcSeed(string vm, string libs, string runLibs, string driverZpkg) {
+    Process p = _z42cProc(vm, libs, driverZpkg);
+    if (runLibs.Length > 0 && runLibs != libs) { p = p.Env("Z42_PROBING_PATHS", runLibs); }
+    return p;
+}
+
 // 同 _z42cProc，指定 driver 自己的执行模式；mode == "" ⇒ 不传 `--mode`（用 z42vm 的缺省）。
 Process _z42cProcMode(string vm, string libs, string driverZpkg, string mode) {
     Process p = _z42Proc(vm, libs).Env("Z42_COMPILER_LIBS", Path.GetDirectoryName(driverZpkg)).Arg(driverZpkg);

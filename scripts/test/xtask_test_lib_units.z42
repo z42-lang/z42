@@ -215,8 +215,8 @@ int _runUnitsViaZ42b(string root, string projToml, string[] names, int nUnits, s
 //
 // 这个旗标只在新 z42b 里有，而 xtask 并不总是驱动**同一代**的 z42b：bench A/B（bench-pr.yml 的
 // 「Capture base micro baseline」）用本树的 xtask 驱动 **base 树**现建的 z42b —— 旧版不认它，
-// 直接 `z42b: unknown option '--out-root'` 失败（#975 首轮 CI 实测）。与 `_driverSupportsCompileLibs`
-// 同一手法：先看 `test --help` 里有没有这个旗标，没有就不传（产物回落到 z42b 旧默认的清单目录旁）。
+// 直接 `z42b: unknown option '--out-root'` 失败（#975 首轮 CI 实测）。先看 `test --help` 里有没有
+// 这个旗标，没有就不传（产物回落到 z42b 旧默认的清单目录旁）。
 // 每个 z42b 路径只探测一次（进程内记忆），不按库重复拉起。
 class Z42bCaps {
     public static string ProbedFor = "";
