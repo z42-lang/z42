@@ -90,7 +90,7 @@ enum HandleEntry {
 
 | 路径 | 文件 | 什么时候跑 |
 |---|---|---|
-| 全堆 STW 标记 | `arc_heap/collect.rs::mark_phase` | `force_collect` / 非分代整堆回收 |
+| 全堆 STW 标记 | `arc_heap/collect.rs::mark_phase` | `collect_full`（`GC.ForceCollect()`）/ 非分代整堆回收 / 一次性 major |
 | 分代 minor 标记 | `arc_heap/generational.rs::mark_phase_minor` | 默认收集器的绝大多数停顿 |
 | 增量 major 开镜 | `arc_heap/roots.rs::snapshot_roots_into_mark_queue` | 增量 major 的根快照 |
 | 保留诊断反查 | `arc_heap/roots.rs`（retention 图） | `Heap.RetainingRoots`，报成 `RootKind::Pinned` |

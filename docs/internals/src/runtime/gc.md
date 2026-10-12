@@ -14,7 +14,7 @@ Ruby / RustPython 的事实标准 GC 抽象）。trait 在单文件内按"能力
 | 2. Roots | `pin_root` / `unpin_root` / `enter_frame` / `leave_frame` / `for_each_root` | host pin + frame scope + GC scan |
 | 3. Write barriers | `write_barrier_field` / `write_barrier_array_elem` | 分代模式用（卡表），默认 no-op |
 | 4. Object Model | `object_size_bytes` / `scan_object_refs` | trace / snapshot 基础设施 |
-| 5. Collection | `collect` / `collect_cycles` / `force_collect` / `pause` / `resume` | GC 控制 |
+| 5. Collection | `collect` / `collect_cycles` / `force_collect` / `collect_full` / `pause` / `resume` | GC 控制。`force_collect` 按当前模式跑一次（分代下是 minor，Rust 测试用它驱动 minor）；`collect_full` 不论模式都做全堆回收（分代下是 major），`GC.ForceCollect()` 与保留图诊断走它 |
 | 6. Heap config | `set_max_heap_bytes` / `used_bytes` | 堆上限 / 用量 |
 | 7. Finalization | `register_finalizer` / `cancel_finalizer` | 析构回调（sweep 时触发，或 `Std.GC.Finalize` 显式触发）|
 | 8. Weak refs | `make_weak` / `upgrade_weak` | 弱引用 |
@@ -71,7 +71,7 @@ RAII guard：
 
 **接入点**：`corelib/gc.rs` 的 `builtin_gc_collect` / `builtin_gc_force_collect`
 （即 z42 `Std.GC.Collect()` / `ForceCollect()`）持 RAII guard 调
-`heap.collect_cycles()` / `force_collect()`。
+`heap.collect_cycles()` / `collect_full()`。
 
 **范围**：
 

@@ -175,6 +175,39 @@ impl crate::gc::arc_heap::ArcMagrGC {
         CollectStats { freed_bytes, pause_us, kind: Some(kind) }
     }
 
+    /// A whole-heap collection in every mode: STW → the one-shot mark-sweep; generational → a
+    /// one-shot major (which finishes any open incremental cycle first). This is the promise of
+    /// `GC.ForceCollect()` and of the retention diagnostics — everything unreachable is gone when
+    /// it returns. [`Self::force_collect`] cannot keep it under the generational collector: its
+    /// minor never reaches an object that was promoted before it died, and adaptive promotion
+    /// makes that common after a long-lived workload (an in-process compile, say).
+    pub(super) fn collect_full(&self) -> CollectStats {
+        if self.inner.lock().pause_count > 0 {
+            return CollectStats::default();
+        }
+        let start = Self::now_us();
+        let used_before = self.used_bytes_atomic();
+        let kind = GcKind::Major;
+        self.fire_event(GcEvent::BeforeCollect { kind, used_bytes: used_before });
+        let freed_bytes = match self.mode() {
+            crate::gc::GcMode::StwMarkSweep => self.run_cycle_collection_stw(),
+            crate::gc::GcMode::GenerationalMarkSweep => self.run_cycle_collection_major(),
+        };
+        {
+            let mut i = self.inner.lock();
+            Self::count_collection(&mut i.stats, kind, false);
+            i.stats.reclaimed_bytes = i.stats.reclaimed_bytes.saturating_add(freed_bytes);
+            self.sub_used_bytes(freed_bytes);
+        }
+        self.maybe_reset_near_limit_warned();
+        let pause_us = Self::now_us().saturating_sub(start);
+        self.pause_histogram.lock().record(pause_us);
+        self.fire_event(GcEvent::AfterCollect { kind, freed_bytes, pause_us });
+        #[cfg(debug_assertions)]
+        self.debug_validate_invariants();
+        CollectStats { freed_bytes, pause_us, kind: Some(kind) }
+    }
+
     pub(super) fn collect_cycles_with_context(&self, ctx: &crate::vm_context::VmContext) {
         match self.mode() {
             crate::gc::GcMode::StwMarkSweep => {

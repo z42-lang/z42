@@ -173,7 +173,7 @@ minor 第一次访问保留新对象并清掉 minor 位，第二次访问判它�
 | 进行中 | 触及软上限 | **同步做完整个周期** |
 | 进行中 | 什么都没请求 | 显式 `GC.Collect()` ⇒ **同步做完** |
 
-`force_collect`（`GC.ForceCollect()`、保留图诊断）也先同步做完打开的周期。
+`collect_full`（`GC.ForceCollect()`、保留图诊断）先同步做完打开的周期，再跑一次一次性 major——只做完周期不够：周期开之前就已晋升、之后才死的对象要等下一个周期，而 minor 碰不到老年代。`force_collect`（Rust 测试的按模式回收）只做完打开的周期再跑 minor。
 
 ### 周期期间的 minor：年轻代归 minor 管
 

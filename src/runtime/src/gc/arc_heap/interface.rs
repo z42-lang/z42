@@ -45,14 +45,14 @@ impl MagrGC for ArcMagrGC {
     /// **L1**: direct heap referrers of `target` (a heap object's data ptr).
     /// Forces a full GC first so only reachable objects are reported.
     fn retention_direct_referrers(&self, target: usize) -> Vec<crate::gc::retention::RetainerInfo> {
-        self.force_collect();
+        self.collect_full();
         self.build_retention_graph().direct_referrers(target)
     }
 
     /// **L2**: GC roots retaining `target` (category-level), via reverse BFS.
     /// Forces a full GC first for accuracy.
     fn retention_roots(&self, target: usize) -> Vec<crate::gc::retention::RootInfo> {
-        self.force_collect();
+        self.collect_full();
         self.build_retention_graph().retaining_roots(target)
     }
 
@@ -287,6 +287,10 @@ impl MagrGC for ArcMagrGC {
 
     fn force_collect(&self) -> CollectStats {
         ArcMagrGC::force_collect(self)
+    }
+
+    fn collect_full(&self) -> CollectStats {
+        ArcMagrGC::collect_full(self)
     }
 
     fn pause(&self)  { self.inner.lock().pause_count += 1; }
