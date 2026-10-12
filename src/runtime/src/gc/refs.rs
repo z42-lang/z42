@@ -154,7 +154,7 @@ pub(crate) const GCREF_ADDR_MASK: usize = (1usize << GCREF_ADDR_BITS) - 1;
 ///   `1usize << 48` const overflowed const-eval on 32-bit — package-wasm E0080).
 // NB: `Clone`/`Copy`/`PartialEq`/`Eq` are impl'd by hand (below) rather than derived —
 // `#[derive]` would spuriously add a `T: Trait` bound even though `T` only appears behind
-// `NonNull`/`PhantomData` (both trait-independent), which would break `GcRef<ScriptObject>`
+// `NonNull`/`PhantomData` (both trait-independent), which would break `crate::gc::ObjRef`
 // where `ScriptObject: !Copy`.
 #[cfg(target_pointer_width = "64")]
 pub(crate) struct Tagged<T>(NonNull<RegionEntry<T>>);

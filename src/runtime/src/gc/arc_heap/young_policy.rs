@@ -245,19 +245,16 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // retired at its park).
         self.retire_thread_tlab();
         let doomed_unless = self.doomed_unless_marked();
-        let (objs, obj_bytes) = self
-            .region_object
-            .lock()
-            .tenure_young(doomed_unless, |e| Self::script_object_size_estimate(&e.value));
         let (arrs, arr_bytes) = self
             .region_array
             .lock()
             .tenure_young(doomed_unless, |e| Self::array_size_estimate(&e.value));
-        let blocks = self.region_var.lock().tenure_young(doomed_unless);
+        // Object model R6: objects are var blocks; the var tenure reports their bytes.
+        let (blocks, obj_bytes) = self.region_var.lock().tenure_young(doomed_unless);
         let promoted = obj_bytes + arr_bytes;
         self.promoted_bytes_since_major.fetch_add(promoted, Ordering::Relaxed);
         crate::gc::phase_timer::note(format_args!(
-            "tenure  objects {objs}  arrays {arrs}  var blocks {blocks}  -> old {}  (run {})",
+            "tenure  arrays {arrs}  var blocks (objects included) {blocks}  -> old {}  (run {})",
             crate::gc::trace::human(promoted), self.young_policy.run()));
         promoted
     }

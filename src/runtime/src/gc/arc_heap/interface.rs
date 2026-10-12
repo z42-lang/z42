@@ -2,7 +2,8 @@
 //! 重方法体下沉到 concern 子模块的 inherent 方法（refactor-arc-heap-modularization）。
 
 use std::sync::Arc;
-use crate::metadata::{NativeData, ScriptObject, TypeDesc, Value};
+use crate::metadata::{NativeData, TypeDesc, Value};
+use crate::metadata::types::OwnedObject;
 use crate::metadata::types::ClosureData;
 use crate::gc::heap::MagrGC;
 use crate::gc::refs::{GcRef};
@@ -75,36 +76,35 @@ impl MagrGC for ArcMagrGC {
         slots: Vec<Value>,
         native: NativeData,
     ) -> Value {
-        // unify-object-byte-layout (PR-2): `slots` is now **initial field values by
-        // slot index** (not a stored `Box<[Value]>`). Allocate the zeroed byte region
-        // + `Null` refs from the composed layout (zero = every primitive/ref default),
-        // then encode each provided initial value through `set_field_value`. Callers
-        // that pass `Vec::new()` (e.g. `obj_new`, which relies on defaults) skip the
-        // loop entirely — zero-init already equals the old per-field defaults.
-        let storage = type_desc.object_storage();
-        let obj = ScriptObject::with_native(type_desc, storage, native);
+        // unify-object-byte-layout (PR-2): `slots` is **initial field values by slot index**.
+        // Zeroed fields are every field's default, so with no initial values (and no native
+        // backing) the object is built straight in its block. Otherwise it is built outside the
+        // heap first: encoding a value can allocate (a boxed primitive in an `object` field), and
+        // no allocation may happen between taking an object's block and publishing it.
+        if slots.is_empty() && matches!(native, NativeData::None) {
+            return self.alloc_instance_in_region(type_desc, crate::metadata::types::TypeArgs::empty());
+        }
+        let obj = OwnedObject::with_native(type_desc, native);
         for (i, v) in slots.into_iter().enumerate() {
             obj.set_field_value(i, &v);
         }
-
-        self.finish_alloc(obj)
+        self.alloc_owned_in_region(obj)
     }
 
-    fn alloc_script_object(&self, obj: ScriptObject) -> Value {
-        self.finish_alloc(obj)
+    fn alloc_script_object(&self, obj: OwnedObject) -> Value {
+        self.alloc_owned_in_region(obj)
     }
 
-    /// unify Phase 2 R3（装箱统一）：装箱一个基元（整数）成堆 `ScriptObject`+引用身份——`struct_bytes`
-    /// 装裸标量（LE 字节，宽度由调用方按 wrapper 定，见 `corelib/convert.rs::box_prim_to_heap`），
-    /// **不走 `type_desc.inline_regions()`**（基元 wrapper 如 Int32 是零字段 struct，layout size=0，
-    /// 装不下标量）。整数装箱无引用叶子 → `struct_refs`/`slots` 空。返 `Value::Object`，调用方包成
-    /// `Value::BoxedStruct`（与 struct 装箱同款引用身份/GC/反射路径）。
+    fn alloc_instance(&self, type_desc: Arc<TypeDesc>, type_args: crate::metadata::types::TypeArgs) -> Value {
+        self.alloc_instance_in_region(type_desc, type_args)
+    }
+
+    /// unify Phase 2 R3（装箱统一）：装箱一个基元（整数）成堆对象 + 引用身份——载荷装裸标量（LE 字节，
+    /// 宽度由调用方按 wrapper 定，见 `corelib/convert.rs::box_prim_to_heap`），**不走
+    /// `type_desc.inline_regions()`**（基元 wrapper 如 Int32 是零字段 struct，layout size=0，装不下标量）。
+    /// 返 `Value::Object`，调用方包成 `Value::BoxedStruct`（与 struct 装箱同款引用身份/GC/反射路径）。
     fn alloc_boxed_prim(&self, type_desc: Arc<TypeDesc>, scalar_bytes: Box<[u8]>) -> Value {
-        // unify-object-byte-layout (PR-2): the boxed scalar IS the object's whole byte
-        // payload (`bytes`); no reference leaves.
-        let obj = ScriptObject::new(
-            type_desc, crate::metadata::types::ObjStorage::from_bytes(&scalar_bytes));
-        self.finish_alloc(obj)
+        self.alloc_boxed_bytes_in_region(type_desc, &scalar_bytes)
     }
 
     fn alloc_array(&self, elems: Vec<Value>) -> Value {
@@ -261,7 +261,6 @@ impl MagrGC for ArcMagrGC {
         // the store. Switching *to* generational rebuilds the set from the
         // live entries, so a heap that has already allocated collects correctly.
         let generational = mode == crate::gc::GcMode::GenerationalMarkSweep;
-        self.region_object.lock().set_generational(generational);
         self.region_array.lock().set_generational(generational);
         // fix-minor-gc-skips-var-region: the var region keeps a young set too (its bitmaps are
         // only allocated while generational).
@@ -341,7 +340,8 @@ impl MagrGC for ArcMagrGC {
     /// 触发（含 cycle 断环后 alive_vec drop 链 + 普通 Rc Drop）。
     fn register_finalizer(&self, value: &Value, fin: FinalizerFn) {
         match value {
-            Value::Object(gc) => GcRef::set_finalizer(gc, fin),
+            // Object model R6: objects keep finalizers in a side table keyed by block address.
+            Value::Object(gc) | Value::BoxedStruct(gc) => self.set_object_finalizer(gc, fin),
             Value::Array(gc)  => GcRef::set_finalizer(gc, fin),
             _ => {} // 原子值无 finalizer
         }
@@ -349,7 +349,7 @@ impl MagrGC for ArcMagrGC {
 
     fn cancel_finalizer(&self, value: &Value) {
         match value {
-            Value::Object(gc) => { let _ = GcRef::cancel_finalizer(gc); }
+            Value::Object(gc) | Value::BoxedStruct(gc) => { let _ = self.take_object_finalizer(gc); }
             Value::Array(gc)  => { let _ = GcRef::cancel_finalizer(gc); }
             _ => {}
         }
@@ -360,7 +360,7 @@ impl MagrGC for ArcMagrGC {
     fn make_weak(&self, value: &Value) -> Option<WeakRef> {
         match value {
             Value::Object(gc) => Some(WeakRef {
-                inner: WeakRefInner::Object(GcRef::downgrade(gc)),
+                inner: WeakRefInner::Object(self.downgrade_object(gc)),
             }),
             Value::Array(gc) => Some(WeakRef {
                 inner: WeakRefInner::Array(GcRef::downgrade(gc)),
@@ -371,7 +371,7 @@ impl MagrGC for ArcMagrGC {
 
     fn upgrade_weak(&self, weak: &WeakRef) -> Option<Value> {
         let v = match &weak.inner {
-            WeakRefInner::Object(w) => w.upgrade().map(Value::Object),
+            WeakRefInner::Object(w) => self.upgrade_weak_object(w).map(Value::Object),
             WeakRefInner::Array (w) => w.upgrade().map(Value::Array),
         };
         // add-incremental-major-gc M2a/M2b: shade while marking; refuse a doomed target while sweeping.
@@ -397,9 +397,9 @@ impl MagrGC for ArcMagrGC {
     fn handle_alloc(&self, target: &Value, kind: GcHandleKind) -> u64 {
         let entry = match (target, kind) {
             (Value::Null, _) => return 0,
-            (Value::Object(g), GcHandleKind::Strong) => HandleEntry::StrongObject(g.clone()),
+            (Value::Object(g), GcHandleKind::Strong) => HandleEntry::StrongObject(*g),
             (Value::Array (g), GcHandleKind::Strong) => HandleEntry::StrongArray (g.clone()),
-            (Value::Object(g), GcHandleKind::Weak)   => HandleEntry::WeakObject(GcRef::downgrade(g)),
+            (Value::Object(g), GcHandleKind::Weak)   => HandleEntry::WeakObject(self.downgrade_object(g)),
             (Value::Array (g), GcHandleKind::Weak)   => HandleEntry::WeakArray (GcRef::downgrade(g)),
             // Atomic Strong: just clone the Value into the slot.
             (v, GcHandleKind::Strong) => HandleEntry::StrongAtomic(v.clone()),
@@ -410,7 +410,10 @@ impl MagrGC for ArcMagrGC {
     }
 
     fn handle_target(&self, slot: u64) -> Option<Value> {
-        let v = self.inner.lock().handle_slab.get(slot).and_then(|e| e.target());
+        // The entry is copied out first: upgrading a weak object reference takes the region lock,
+        // which must not nest inside `inner`.
+        let entry = self.inner.lock().handle_slab.get(slot).cloned();
+        let v = entry.and_then(|e| e.target(self));
         // add-incremental-major-gc M2a/M2b: weak handles — see `ArcMagrGC::admit_resurrected`.
         v.filter(|v| self.admit_resurrected(v))
     }

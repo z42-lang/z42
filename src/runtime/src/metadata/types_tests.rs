@@ -67,7 +67,7 @@ fn dummy_type_desc(name: &str) -> Arc<TypeDesc> {
 
 #[test]
 fn is_heap_ref_true_for_object() {
-    let v = Value::Object(GcRef::new(ScriptObject::new(dummy_type_desc("Foo"), crate::metadata::types::ObjStorage::new(0))));
+    let v = Value::Object(crate::gc::ObjRef::leak(crate::metadata::types::OwnedObject::new(dummy_type_desc("Foo"), 0)));
     assert!(v.is_heap_ref());
 }
 
@@ -109,7 +109,7 @@ fn trace_children_visits_inline_struct_refs() {
     // object. The leaf is a reference word in the object's bytes (the struct keeps its blob
     // layout); `trace_children` must visit it so the leaf stays marked.
     use crate::metadata::types::{FieldAccess, ObjectLayout, TypeDescCold, STRUCT_LEAF_STRUCT};
-    let leaf = Value::Object(GcRef::new(ScriptObject::new(dummy_type_desc("Leaf"), crate::metadata::types::ObjStorage::new(0))));
+    let leaf = Value::Object(crate::gc::ObjRef::leak(crate::metadata::types::OwnedObject::new(dummy_type_desc("Leaf"), 0)));
     let layout = Arc::new(ObjectLayout {
         size: 16,
         field_offsets: Box::new([0]),
@@ -123,10 +123,10 @@ fn trace_children_visits_inline_struct_refs() {
         cold: Some(Box::new(TypeDescCold { composed_object_layout: Some(layout), ..Default::default() })),
         ..(*dummy_type_desc("Owner")).clone()
     });
-    let obj = ScriptObject::new(td.clone(), td.object_storage());
+    let obj = crate::metadata::types::OwnedObject::of_type(td.clone());
     obj.set_struct_ref_leaf(8, &leaf).unwrap();
     assert!(obj.set_struct_ref_leaf(0, &leaf).is_err(), "offset 0 is not a reference leaf");
-    let owner = Value::Object(GcRef::new(obj));
+    let owner = Value::Object(crate::gc::ObjRef::leak(obj));
 
     let mut visited_object_children = 0usize;
     owner.trace_children(crate::gc::refs::MarkKind::Major(1), &mut |v: &Value| {
@@ -166,9 +166,9 @@ fn inline_object_field_roundtrips_and_is_traced() {
     });
 
     // The heap object the inlined field will point at.
-    let leaf = Value::Object(GcRef::new(ScriptObject::new(dummy_type_desc("Leaf"), crate::metadata::types::ObjStorage::new(0))));
+    let leaf = Value::Object(crate::gc::ObjRef::leak(crate::metadata::types::OwnedObject::new(dummy_type_desc("Leaf"), 0)));
     // A Holder instance: one 8B inline field window, zero-initialized.
-    let holder = GcRef::new(ScriptObject::new(holder_td, crate::metadata::types::ObjStorage::new(8)));
+    let holder = crate::gc::ObjRef::leak(crate::metadata::types::OwnedObject::new(holder_td, 8));
 
     // Zeroed window (`0` sentinel) reads back as `Null`.
     assert!(matches!(holder.borrow().field_value(0), Value::Null), "zeroed inline field = Null");
@@ -179,7 +179,7 @@ fn inline_object_field_roundtrips_and_is_traced() {
     // Reads back by reference identity (address + generation preserved through bytes).
     match holder.borrow().field_value(0) {
         Value::Object(got) => match &leaf {
-            Value::Object(l) => assert!(GcRef::ptr_eq(&got, l), "inlined object round-trips by identity"),
+            Value::Object(l) => assert!(crate::gc::ObjRef::ptr_eq(&got, l), "inlined object round-trips by identity"),
             _ => unreachable!(),
         },
         o => panic!("expected the inlined object, got {o:?}"),
@@ -227,8 +227,8 @@ fn clear_refs_for_sweep_erases_every_reference_word() {
         id: crate::metadata::tokens::TypeId::UNRESOLVED,
     });
 
-    let leaf = Value::Object(GcRef::new(ScriptObject::new(dummy_type_desc("Leaf"), crate::metadata::types::ObjStorage::new(0))));
-    let holder = GcRef::new(ScriptObject::new(holder_td, crate::metadata::types::ObjStorage::new(8)));
+    let leaf = Value::Object(crate::gc::ObjRef::leak(crate::metadata::types::OwnedObject::new(dummy_type_desc("Leaf"), 0)));
+    let holder = crate::gc::ObjRef::leak(crate::metadata::types::OwnedObject::new(holder_td, 8));
     holder.borrow().set_field_value(0, &leaf);
 
     let hv = Value::Object(holder.clone());
@@ -275,7 +275,7 @@ fn clear_refs_for_sweep_skips_an_offset_past_the_payload() {
         id: crate::metadata::tokens::TypeId::UNRESOLVED,
     });
 
-    let obj = GcRef::new(ScriptObject::new(td, crate::metadata::types::ObjStorage::new(8)));
+    let obj = crate::gc::ObjRef::leak(crate::metadata::types::OwnedObject::new(td, 8));
     obj.borrow().clear_refs_for_sweep(); // must not panic
     assert_eq!(obj.borrow().payload_len(), 8, "payload untouched");
 }
@@ -341,8 +341,7 @@ fn object_storage_empty_for_fieldless_type() {
     // shrink-object-footprint P2: a field-less type with no delivered/synthesized
     // layout has an empty payload — and allocates nothing for it.
     let td = dummy_type_desc("Plain");
-    let storage = td.object_storage();
-    assert!(storage.is_empty());
+    assert_eq!(crate::metadata::types::OwnedObject::of_type(td.clone()).payload_len(), 0);
     assert_eq!(td.object_bytes_len(), 0);
 }
 
@@ -499,10 +498,10 @@ fn value_bool_payload_at_offset_8() {
 //    struct_bytes 标量编解码（宽度 + 有无符号扩展）。box 侧存 LE 字节，unbox 侧按 wrapper
 //    名的 (width, signed) 还原 i64。见 well_known_names::int_wrapper_scalar_spec。────────
 
-fn boxed_prim(name: &str, bytes: &[u8]) -> GcRef<ScriptObject> {
-    GcRef::new(        // shrink-object-footprint P2: a boxed primitive's scalar is its whole byte
-        // payload; no reference leaves.
-ScriptObject::new(dummy_type_desc(name), crate::metadata::types::ObjStorage::from_bytes(bytes)))
+fn boxed_prim(name: &str, bytes: &[u8]) -> crate::gc::ObjRef {
+    // shrink-object-footprint P2: a boxed primitive's scalar is its whole byte payload; no
+    // reference leaves.
+    crate::gc::ObjRef::leak(crate::metadata::types::OwnedObject::from_bytes(dummy_type_desc(name), bytes))
 }
 
 #[test]
@@ -638,11 +637,15 @@ fn compose_object_layout_already_aligned_base_no_extra_pad() {
 
 #[test]
 fn script_object_stays_small() {
-    // shrink-object-footprint: `ScriptObject` is the payload of every
-    // `RegionEntry`, so its size is multiplied by the live object count. Pin it
-    // so an added field is a deliberate decision with a measurement, not a drift.
-    assert_eq!(std::mem::size_of::<ScriptObject>(), 32,
-        "ScriptObject grew — re-measure per-object RSS before updating this");
+    // shrink-object-footprint: the object header (`ObjHeader`, the sized prefix of the
+    // `ScriptObject` DST) sits in every object's GC block between the 16 B block header and the
+    // fields, so its size is multiplied by the live object count. Pin it so an added field is a
+    // deliberate decision with a measurement, not a drift.
+    assert_eq!(std::mem::size_of::<crate::metadata::types::ObjHeader>(), 16,
+        "the object header grew — re-measure per-object RSS before updating this");
+    assert_eq!(crate::metadata::types::OBJ_HEADER_BYTES, 16);
+    // `&ScriptObject` is fat (address + field-area length): hot structures keep `ObjRef`.
+    assert_eq!(std::mem::size_of::<&ScriptObject>(), 2 * std::mem::size_of::<usize>());
 }
 
 // ── generic_field_zero_overrides (fix-generic-typeparam-field-zero, 2026-09-25) ──

@@ -304,8 +304,9 @@ impl TypeDesc {
     #[inline] pub fn composed_object_layout_ref(&self) -> Option<&ObjectLayout> {
         self.cold.as_ref().and_then(|c| c.composed_object_layout.as_deref())
     }
-    /// Byte length of a fresh instance's payload (`ObjStorage`) — every field cell, references
-    /// included (object model R3: no reference side table).
+    /// Byte length of a fresh instance's field area (the cells behind the object header) — every
+    /// field cell, references included (object model R3: no reference side table). Single sizing
+    /// site for every object construction (`OwnedObject::of_type`, `MagrGC::alloc_instance`).
     ///
     /// - **Boxed value struct** (`is_struct`): the payload IS the struct blob — the struct
     ///   layout's `size` (reference leaves are 8 B words inside it).
@@ -323,13 +324,6 @@ impl TypeDesc {
         }
         if self.fields.is_empty() { return 0; }
         synthesize_object_layout(&self.fields).bytes_len()
-    }
-
-    /// Allocate a fresh instance's payload: one zeroed byte block (zero = every field's default,
-    /// `null` included). Single sizing site for every `ScriptObject` construction.
-    #[inline]
-    pub fn object_storage(&self) -> crate::metadata::types::ObjStorage {
-        crate::metadata::types::ObjStorage::new(self.object_bytes_len())
     }
 
     /// add-struct-value-semantics: whether this type is a value struct (Type.IsValueType).

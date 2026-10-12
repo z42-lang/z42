@@ -284,7 +284,7 @@ fn close_major_marking_marks_recorded_values_with_the_cycle_epoch() {
     heap.satb_queue.lock().push(x.clone());
     heap.close_major_marking();
     let Value::Object(gc) = &x else { panic!() };
-    assert!(GcRef::is_marked(gc, kind));
+    assert!(crate::gc::ObjRef::is_marked(gc, kind));
     assert!(crate::gc::satb::heap_is_marking(heap.heap_epoch()).is_none(), "recording stopped");
 }
 
@@ -401,9 +401,10 @@ fn obj(heap: &ArcMagrGC, name: &str) -> Value {
     heap.alloc_object(dummy_type_desc(name), vec![Value::Null], NativeData::None)
 }
 
-fn raw_alive(weak: &crate::gc::WeakRef) -> bool {
+fn raw_alive(heap: &ArcMagrGC, weak: &crate::gc::WeakRef) -> bool {
     match &weak.inner {
-        crate::gc::types::WeakRefInner::Object(w) => w.upgrade().is_some(),
+        // Object model R6: an object's weak reference is upgraded by the heap (chunk epoch).
+        crate::gc::types::WeakRefInner::Object(w) => heap.upgrade_weak_object(w).is_some(),
         crate::gc::types::WeakRefInner::Array(w) => w.upgrade().is_some(),
     }
 }
@@ -433,7 +434,7 @@ fn an_incremental_cycle_spans_several_slices_and_collects_garbage() {
     assert!(slices > 4, "a 16-unit budget must split this cycle (took {slices} slices)");
     assert!(!heap.major_cycle_active());
     assert!(chain.iter().all(|w| heap.upgrade_weak(w).is_some()), "the rooted chain survives");
-    assert!(garbage.iter().all(|w| !raw_alive(w)), "everything unreachable is reclaimed");
+    assert!(garbage.iter().all(|w| !raw_alive(&heap, w)), "everything unreachable is reclaimed");
     #[cfg(debug_assertions)]
     heap.debug_validate_invariants();
 }
@@ -458,7 +459,7 @@ fn run_satb_across_slices(barrier_on: bool) -> bool {
     holder_gc.borrow().set_field_value(0, &Value::Null);
     drop(holder);
     while !heap.run_major_slice_for_test(1) {}
-    let alive = raw_alive(&weak_x);
+    let alive = raw_alive(&heap, &weak_x);
     std::mem::forget(held);
     alive
 }
@@ -490,11 +491,11 @@ fn objects_born_while_marking_or_sweeping_survive_their_cycle() {
     let born_sweeping = heap.make_weak(&obj(&heap, "BornSweeping")).unwrap();
 
     while !heap.run_major_slice_for_test(300) {}
-    assert!(raw_alive(&born_marking) && raw_alive(&born_sweeping), "allocate-black covers the whole cycle");
+    assert!(raw_alive(&heap, &born_marking) && raw_alive(&heap, &born_sweeping), "allocate-black covers the whole cycle");
 
     // One cycle of retention, not forever: the next cycle sees them white.
     assert!(heap.run_major_slice_for_test(WHOLE));
-    assert!(!raw_alive(&born_marking) && !raw_alive(&born_sweeping));
+    assert!(!raw_alive(&heap, &born_marking) && !raw_alive(&heap, &born_sweeping));
 }
 
 #[test]
@@ -506,7 +507,7 @@ fn a_doomed_object_is_not_handed_out_while_the_sweep_has_not_reached_it() {
 
     assert!(!heap.run_major_slice_for_test(300));
     assert!(heap.major_cycle_sweeping_for_test());
-    let unswept = garbage.iter().filter(|w| raw_alive(w)).count();
+    let unswept = garbage.iter().filter(|w| raw_alive(&heap, w)).count();
     assert!(unswept > 0, "the budget must leave some garbage unswept for this test to mean anything");
     assert!(garbage.iter().all(|w| heap.upgrade_weak(w).is_none()), "weak reads refuse doomed objects");
     let mut listed = 0;
@@ -514,7 +515,7 @@ fn a_doomed_object_is_not_handed_out_while_the_sweep_has_not_reached_it() {
     assert_eq!(listed, 1, "heap iteration lists only the live object");
 
     assert!(heap.finish_major_cycle_for_test());
-    assert!(garbage.iter().all(|w| !raw_alive(w)));
+    assert!(garbage.iter().all(|w| !raw_alive(&heap, w)));
 }
 
 /// Root → holder → young `y`. Between slices the mutator cuts the edge (the barrier records `y`)
@@ -536,9 +537,9 @@ fn run_minor_between_slices(barrier_on: bool) -> bool {
     let held = y;
     holder_gc.borrow().set_field_value(0, &Value::Null);
     heap.run_cycle_collection_minor();
-    let after_minor = raw_alive(&weak_y);
+    let after_minor = raw_alive(&heap, &weak_y);
     while !heap.run_major_slice_for_test(1) {}
-    let alive = after_minor && raw_alive(&weak_y);
+    let alive = after_minor && raw_alive(&heap, &weak_y);
     std::mem::forget(held);
     alive
 }
@@ -570,7 +571,7 @@ fn slots_freed_by_an_incremental_sweep_are_safe_to_reuse_before_the_next_minor()
     #[cfg(debug_assertions)]
     heap.debug_validate_invariants();
     heap.run_cycle_collection_minor();
-    assert!(weaks.iter().all(raw_alive), "a pinned object in a reused slot must survive the minor");
+    assert!(weaks.iter().all(|w| raw_alive(&heap, w)), "a pinned object in a reused slot must survive the minor");
     #[cfg(debug_assertions)]
     heap.debug_validate_invariants();
     drop(pins);
@@ -583,7 +584,7 @@ fn an_explicit_collection_finishes_the_open_cycle() {
     assert!(!heap.run_major_slice_for_test(1));
     assert!(heap.finish_major_cycle_for_test());
     assert!(!heap.major_cycle_active());
-    assert!(garbage.iter().all(|w| !raw_alive(w)));
+    assert!(garbage.iter().all(|w| !raw_alive(&heap, w)));
 }
 
 #[test]
@@ -689,7 +690,7 @@ fn incremental_cycles_interleaved_with_writes_and_minors_keep_the_graph_intact()
     let mut seen = std::collections::HashSet::new();
     while let Some(v) = stack.pop() {
         let Value::Object(gc) = &v else { continue };
-        if !seen.insert(gc.entry_ptr().as_ptr() as usize) {
+        if !seen.insert(crate::gc::ObjRef::as_ptr(gc) as usize) {
             continue;
         }
         v.visit_gc_children(None, &mut |c| stack.push(c.clone()));
@@ -762,7 +763,7 @@ fn run_minor_inside_cycle(mark_it: bool) -> bool {
     let held = x;
     heap.run_cycle_collection_minor();
 
-    let alive = raw_alive(&weak_x);
+    let alive = raw_alive(&heap, &weak_x);
     std::mem::forget(held);
     heap.finish_major_cycle_for_test();
     alive
@@ -791,7 +792,7 @@ fn run_grey_subtree(seeded: bool) -> bool {
     drop(c);
 
     assert!(!heap.run_major_slice_for_test(1), "cycle open");
-    let is_g = |v: &Value| matches!(v, Value::Object(o) if GcRef::ptr_eq(o, g_gc));
+    let is_g = |v: &Value| matches!(v, Value::Object(o) if crate::gc::ObjRef::ptr_eq(o, g_gc));
     assert!(heap.mark_queue_for_test().iter().any(is_g),
         "g must be grey after a budget-1 slice");
     if !seeded {
@@ -801,7 +802,7 @@ fn run_grey_subtree(seeded: bool) -> bool {
     crate::gc::satb::set_disabled_for_test(true);
     root_gc.borrow().set_field_value(0, &Value::Null);
     heap.run_cycle_collection_minor();
-    let alive = raw_alive(&weak_c);
+    let alive = raw_alive(&heap, &weak_c);
     std::mem::forget(g);
     heap.finish_major_cycle_for_test();
     alive
@@ -855,13 +856,13 @@ fn run_old_grey_entry_child(dirty_card: bool) -> bool {
     // entry, with `y` still white behind it.
     assert!(!heap.run_major_slice_for_test(1), "cycle open");
     assert!(heap.mark_queue_for_test().iter()
-            .any(|v| matches!(v, Value::Object(o) if GcRef::ptr_eq(o, holder_gc))),
+            .any(|v| matches!(v, Value::Object(o) if crate::gc::ObjRef::ptr_eq(o, holder_gc))),
         "holder must be grey after a budget-1 slice");
 
     crate::gc::satb::set_disabled_for_test(true);
     root_gc.borrow().set_field_value(0, &Value::Null);
     heap.run_cycle_collection_minor();
-    let alive = raw_alive(&weak_y);
+    let alive = raw_alive(&heap, &weak_y);
     if !alive {
         // The control manufactured a state the card invariant rules out — an old→young edge with
         // no card — so the edge is now dangling. Cut it before letting the marker trace `holder`,
@@ -925,8 +926,8 @@ fn a_minor_inside_a_cycle_reclaims_what_was_born_dead_in_it() {
 
     heap.run_cycle_collection_minor();
     assert!(heap.major_cycle_active(), "still inside the cycle");
-    assert!(!raw_alive(&weak_x), "an in-cycle newborn object nothing refers to is reclaimed");
-    assert!(!raw_alive(&weak_arr), "an in-cycle newborn array nothing refers to is reclaimed");
+    assert!(!raw_alive(&heap, &weak_x), "an in-cycle newborn object nothing refers to is reclaimed");
+    assert!(!raw_alive(&heap, &weak_arr), "an in-cycle newborn array nothing refers to is reclaimed");
     assert!(!s.var_ref().is_live(), "an in-cycle newborn var block nothing refers to is reclaimed");
     assert_eq!(ArcMagrGC::gen_age_of(&kept), 1, "control: the rooted newborn survives and ages");
 

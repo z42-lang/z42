@@ -39,6 +39,7 @@ pub mod ambient;
 pub mod heap;
 pub mod arc_heap;
 pub mod mode;
+pub mod obj_ref;
 pub mod footprint;
 pub(crate) mod os_mem;
 pub mod phase_timer;
@@ -60,6 +61,7 @@ pub use heap::MagrGC;
 pub use sampler::Sampler;
 pub use arc_heap::ArcMagrGC;
 pub use mode::GcMode;
+pub use obj_ref::{ObjRef, WeakObjRef};
 pub use refs::{GcRef, WeakGcRef};
 pub use safepoint::{
     check_safepoint, request_gc_pause, GcPauseGuard, GcPhase, NativeParkGuard, NativeUnparkGuard,

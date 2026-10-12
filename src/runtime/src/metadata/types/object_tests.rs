@@ -18,8 +18,8 @@ fn td(name: &str) -> Arc<TypeDesc> {
     })
 }
 
-fn obj(name: &str) -> ScriptObject {
-    ScriptObject::new(td(name), ObjStorage::new(0))
+fn obj(name: &str) -> OwnedObject {
+    OwnedObject::new(td(name), 0)
 }
 
 fn names(xs: &[&str]) -> Vec<String> {
@@ -35,7 +35,7 @@ fn instances_of_one_instantiation_share_one_entry() {
     assert_eq!(a.type_args(), &["Std.Int32".to_string()][..]);
     assert!(std::ptr::eq(a.type_args().as_ptr(), b.type_args().as_ptr()), "one shared entry");
     // Nothing is allocated per object for the arguments.
-    assert_eq!(a.heap_payload_bytes(), 0);
+    assert_eq!(a.extras_bytes(), 0);
 }
 
 #[test]
@@ -45,7 +45,7 @@ fn non_generic_object_has_no_metadata() {
     o.set_native(NativeData::None);
     assert!(o.type_args().is_empty());
     assert!(matches!(o.native(), NativeData::None));
-    assert_eq!(o.heap_payload_bytes(), 0);
+    assert_eq!(o.extras_bytes(), 0);
 }
 
 #[test]
@@ -64,7 +64,7 @@ fn native_backing_keeps_type_args_in_either_order() {
     assert!(std::ptr::eq(b.type_args().as_ptr(), ta.as_slice().as_ptr()));
     assert!(matches!(b.native(), NativeData::LoadContextHandle(ContextId(8))));
     // Only the native box is charged.
-    assert!(b.heap_payload_bytes() > 0);
+    assert!(b.extras_bytes() > 0);
 
     // Replacing the native keeps the arguments; clearing them keeps the native.
     b.set_native(NativeData::LoadContextHandle(ContextId(9)));
@@ -85,4 +85,17 @@ fn native_backing_is_dropped_with_the_object() {
         assert!(probe.upgrade().is_some());
     }
     assert!(probe.upgrade().is_none(), "the extras box (and its Arc) is freed on drop");
+}
+
+#[test]
+fn the_dst_fields_start_right_after_the_sized_header_prefix() {
+    // `ObjHeader` is written into fresh blocks and `ScriptObject` read over them: under
+    // `#[repr(C)]` they share the prefix, and the field area starts at `OBJ_HEADER_BYTES`.
+    let o = OwnedObject::new(td("Layout"), 24);
+    let base = (&*o as *const ScriptObject).cast::<u8>() as usize;
+    assert_eq!(o.cells().base_ptr() as usize - base, OBJ_HEADER_BYTES);
+    assert_eq!(std::mem::size_of_val(&*o), OBJ_HEADER_BYTES + 24, "the reference covers header + fields");
+    assert_eq!(o.type_desc.name, "Layout", "type_desc reads through the prefix");
+    let odd = OwnedObject::new(td("Odd"), 4);
+    assert!(std::mem::size_of_val(&*odd) <= OBJ_HEADER_BYTES + 8, "rounded up to 8 only");
 }

@@ -837,8 +837,8 @@ const_str(module, idx):
          否则 module.func_index[ctor_name] | ctx.try_lookup_function(ctor_name)
             → 签名判定（不符则抛、不缓存）→ 写回 FnId
             | 都没有：判定缺失则抛，否则记 ctorless 标记
-4. 分配 ScriptObject(type_desc)：TypeDesc::object_storage() 给出零字节区 + Null 引用区；
-   泛型实例按实参改写型参字段（generic_field_zero_overrides）
+4. 分配对象：MagrGC::alloc_instance 取一个清零的对象块（TypeDesc::object_bytes_len() 定尺），写对象头，
+   泛型实例按实参改写型参字段（generic_field_zero_overrides），建完才发布（栈分支：OwnedObject::new_instance）
 5. if ctor: interp exec_function(ctor, [obj, ...args]) / JIT 已编译 → 原生（按 FnId 计数升层），否则 interp
    else:    skip ctor call（默认无参 ctor 语义；TypeChecker 已确保有显式 ctor 时 ctor_name 命中）
 6. frame[dst] = obj
@@ -868,7 +868,7 @@ ctor 在分配**之前**绑定：绑定可能加载包、跑包初始化器，�
 `ctor_name` 含 `$N` arity suffix（重载场景）；单 ctor 时无 suffix。
 
 **字段默认值**：步骤 2 不逐字段填值。对象按加载期组合好的字节布局分配：基元字段落在清零的
-字节区（⇒ `0` / `false` / `'\0'` / `0.0`），引用字段为 `Null`（`TypeDesc::object_storage()`，
+字节区（⇒ `0` / `false` / `'\0'` / `0.0`），引用字段为 `Null`（对象块整块清零，`TypeDesc::object_bytes_len()` 定尺，
 `metadata/types/type_desc.rs`）。布局按**声明**算，`T` 型参字段因此被归为引用槽、零值是 `Null`；
 泛型实例由 `metadata/types/field.rs::generic_field_zero_overrides` 按实参把基元型参字段改写成该类型的零值。
 interp（堆 / 栈两支）与 JIT (`jit_obj_new`) 共用步骤 4。字段分类依赖 `FieldSlot` 携带的
@@ -1339,7 +1339,7 @@ pub struct ResolvedTokens {
 
 id 永不复用，所以它也是比地址更稳的缓存键：描述符释放后地址可能被别的类型复用（可回收的 load context、REPL 轮次），id 不会。`isa_cache` 因此按 `(接收者 TypeId, 目标键)` 做键（见 [interp-jit-semantics.md](interp-jit-semantics.md)「类型判定的缓存键」）。同一类型可能有多个描述符版本（急切主模块里只含自身字段的那份、惰性加载器 fixup 出的合并副本），它们同 id、同名、同基类链——按 id 做键的缓存对它们给出同一判定；`TypeTable` 的槽位指向最新版本。
 
-> **无锁读 type_id**：PIC scan 读 receiver `type_id` 不走 Mutex lock。`GcRef<ScriptObject>::type_desc()`（`metadata/types/object.rs`）通过 `data_ptr_unlocked()` 直接读 type_desc（write-once-at-alloc invariant 锁定 safety），跳过 per-entry 锁的 atomic CAS。详见 `docs/internals/src/runtime/gc.md`。这是 PIC inline 入 Cranelift IR（待办）的前置条件 —— 需 lock 的话 PIC 不能 inline。
+> **无锁读 type_id**：PIC scan 读 receiver `type_id` 不拿锁。`ObjRef::type_desc()`（`metadata/types/object.rs`）经 `borrow()` 直接读对象头里的 `type_desc`（发布前写定、之后不变），没有每对象锁。详见 `docs/internals/src/runtime/gc.md`。这是 PIC inline 入 Cranelift IR（待办）的前置条件 —— 需 lock 的话 PIC 不能 inline。
 
 ### 跨 zpkg 时序
 

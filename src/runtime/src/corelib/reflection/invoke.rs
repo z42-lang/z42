@@ -357,7 +357,7 @@ pub fn builtin_activator_create(ctx: &VmContext, args: &[Value]) -> Result<Value
     // `Activator.CreateInstance(typeof(Box<>).MakeGenericType(t)).GetType()
     // .GetGenericArguments()` returns the args. Non-generic Type → slot absent → no-op.
     // Set before allocation: a published object never changes its extras (object model R4).
-    let mut inst = crate::metadata::ScriptObject::with_native(td.clone(), td.object_storage(), NativeData::None);
+    let mut inst = crate::metadata::types::OwnedObject::of_type(td.clone());
     for (i, v) in slots.iter().enumerate() {
         inst.set_field_value(i, v);
     }

@@ -10,7 +10,8 @@
 //! |---|---|---|
 //! | region chunk (slot array + per-chunk tables and slot bitmaps) | chunk grow | never (chunks are not freed) |
 //! | var-region chunk (bump or dedicated) | chunk push | dedicated chunk freed |
-//! | object / array payload outside the slot (`ObjStorage`, extras, element-type name) | slot filled | slot's dead entry dropped (slot reuse) |
+//! | array-header payload outside the slot (element-type name) | slot filled | slot's dead entry dropped (slot reuse) |
+//! | an object's extras box (object model R6: fields live in the object's var block) | object allocated | its block tombstoned (drop glue) |
 //! | variable-size side tables (chunk lists, var free lists, var young bitmaps) | re-measured at every sweep tail | same |
 //!
 //! `pooled` is the part of `committed` sitting in fully-dead chunks in a region's chunk pool:

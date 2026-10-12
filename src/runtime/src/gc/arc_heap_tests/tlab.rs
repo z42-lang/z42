@@ -93,14 +93,14 @@ fn alive_count(heap: &ArcMagrGC) -> usize {
     n
 }
 
-/// Cross-chunk: allocating more than one `CHUNK_SIZE` (256) via the TLAB spans
-/// multiple borrowed chunks; after retire (snapshot forces it) every pinned
-/// object is alive and visible.
+/// Cross-chunk: allocating more objects than one 64 KB var chunk holds via the TLAB spans
+/// multiple borrowed chunks (object model R6: objects are var blocks); after retire (snapshot
+/// forces it) every pinned object is alive and visible.
 #[test]
 fn tlab_cross_chunk_all_pinned_alive() {
     let heap = ArcMagrGC::new();
     let _g = ArmGuard::new(&heap);
-    let n = 300; // > CHUNK_SIZE → at least 2 object chunks
+    let n = 5000; // 32 B each > 64 KB → at least 2 var chunks
     let mut pins = Vec::new();
     for _ in 0..n {
         let v = heap.alloc_object(dummy_type_desc("X"), vec![], NativeData::None);
@@ -109,8 +109,8 @@ fn tlab_cross_chunk_all_pinned_alive() {
     // iterate_live_objects retires the TLAB first → all merged + visible.
     assert_eq!(alive_count(&heap), n, "all TLAB-allocated pinned objects visible");
     assert!(
-        heap.region_object_for_test().lock().chunks_count_for_test() >= 2,
-        "300 objects span >= 2 chunks"
+        heap.region_var_for_test().lock().chunk_count() >= 2,
+        "5000 objects span >= 2 chunks"
     );
 }
 
@@ -166,19 +166,24 @@ fn tlab_chunk_reclaim_bounds_growth() {
     let heap = ArcMagrGC::new();
     let _g = ArmGuard::new(&heap);
     let mut max_chunks = 0;
-    for _ in 0..6 {
-        for _ in 0..300 {
+    let mut first_round = 0;
+    for round in 0..6 {
+        for _ in 0..5000 {
             let _ = heap.alloc_object(dummy_type_desc("Round"), vec![], NativeData::None);
         }
         heap.force_collect();
-        let c = heap.region_object_for_test().lock().chunks_count_for_test();
+        let c = heap.region_var_for_test().lock().chunk_count();
+        if round == 0 {
+            first_round = c;
+        }
         max_chunks = max_chunks.max(c);
     }
-    // 300 objects need 2 chunks; with pool reuse the total stays small across 6
-    // rounds. Allow generous slack but well below 6*2 = 12 (no-reuse growth).
+    // One round of 5000 objects needs a few var chunks (object model R6: objects are var
+    // blocks); with pool reuse the total stays within a small multiple of one round across six
+    // rounds, well below the 6× of no reuse.
     assert!(
-        max_chunks <= 4,
-        "chunk pool reuse bounds growth (saw {max_chunks} chunks)"
+        max_chunks <= 2 * first_round,
+        "chunk pool reuse bounds growth (saw {max_chunks} chunks, {first_round} after one round)"
     );
 }
 

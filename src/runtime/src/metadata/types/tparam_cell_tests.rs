@@ -66,8 +66,8 @@ pub(crate) fn tparam_td(n: usize) -> Arc<TypeDesc> {
 
 /// A fresh `Box<arg>` the way `ObjNew` makes it: zeroed storage, then the instantiation's
 /// zero values written through `set_field_value` (`generic_field_zero_overrides`).
-fn new_box(td: &Arc<TypeDesc>, arg: Option<&str>) -> ScriptObject {
-    let o = ScriptObject::new(td.clone(), td.object_storage());
+fn new_box(td: &Arc<TypeDesc>, arg: Option<&str>) -> crate::metadata::types::OwnedObject {
+    let o = crate::metadata::types::OwnedObject::of_type(td.clone());
     if let Some(a) = arg {
         for (slot, zero) in generic_field_zero_overrides(td, &[a.to_string()]) {
             o.set_field_value(slot, &zero);
@@ -83,11 +83,11 @@ fn cell(o: &ScriptObject, slot: usize) -> (u32, u32) {
 }
 
 fn tag_word(o: &ScriptObject, slot: usize) -> u64 {
-    o.storage.cells().load_word(cell(o, slot).0 as usize, Ordering::Relaxed)
+    o.cells().load_word(cell(o, slot).0 as usize, Ordering::Relaxed)
 }
 
 fn payload_word(o: &ScriptObject, slot: usize) -> u64 {
-    o.storage.cells().load_word(cell(o, slot).1 as usize, Ordering::Relaxed)
+    o.cells().load_word(cell(o, slot).1 as usize, Ordering::Relaxed)
 }
 
 fn heap() -> ArcMagrGC {

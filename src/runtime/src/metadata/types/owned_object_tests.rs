@@ -1,23 +1,63 @@
-//! Unit tests for the object byte payload and the atomic cell view's bulk copies.
+//! Unit tests for detached objects (`OwnedObject`) and the atomic cell view's bulk copies.
 
 use super::*;
 
+
+fn td(name: &str) -> Arc<TypeDesc> {
+    Arc::new(TypeDesc {
+        class_flags: 0,
+        visibility: 0,
+        name: name.to_string(),
+        base_name: None,
+        fields: Vec::new(),
+        field_index: crate::metadata::NameIndex::new(),
+        vtable: Vec::new(),
+        vtable_index: crate::metadata::NameIndex::new(),
+        cold: None,
+        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+    })
+}
+
+/// A detached object with `n` field bytes (the stand-in for the old free-standing payload).
+fn storage(n: usize) -> OwnedObject {
+    OwnedObject::new(td("T"), n)
+}
+
 #[test]
-fn empty_storage_allocates_nothing_and_yields_an_empty_snapshot() {
-    let s = ObjStorage::new(0);
-    assert!(s.is_empty());
-    assert!(s.snapshot().is_empty());
-    assert_eq!(s.alloc_bytes(), 0);
+fn header_and_fields_share_one_block_at_fixed_offsets() {
+    let o = storage(24);
+    let hdr = (&*o as *const ScriptObject).cast::<u8>() as usize;
+    assert_eq!(o.cells().base_ptr() as usize, hdr + OBJ_HEADER_BYTES, "fields follow the header");
+    assert_eq!(o.payload_len(), 24);
+    assert_eq!(o.type_desc.name, "T");
+}
+
+#[test]
+fn dropping_an_owned_object_releases_its_type_desc() {
+    let t = td("Probe");
+    let before = Arc::strong_count(&t);
+    {
+        let _o = OwnedObject::new(t.clone(), 8);
+        assert_eq!(Arc::strong_count(&t), before + 1);
+    }
+    assert_eq!(Arc::strong_count(&t), before, "the header's Arc is dropped with the object");
+}
+
+#[test]
+fn empty_object_has_an_empty_field_area() {
+    let s = storage(0);
+    assert_eq!(s.payload_len(), 0);
+    assert!(s.snapshot_fields().is_empty());
     assert_eq!(s.cells().load_ref_word(0), 0, "an out-of-bounds reference word reads as null");
 }
 
 #[test]
 fn bytes_start_zeroed_and_are_writable() {
-    let s = ObjStorage::new(40);
-    assert_eq!(s.len(), 40);
-    assert!(s.snapshot().iter().all(|&b| b == 0), "zero = every field's default, null included");
+    let s = storage(40);
+    assert_eq!(s.payload_len(), 40);
+    assert!(s.snapshot_fields().iter().all(|&b| b == 0), "zero = every field's default, null included");
     assert!(s.cells().store_bits(7, 1, 0xAB));
-    let snap = s.snapshot();
+    let snap = s.snapshot_fields();
     assert_eq!(snap[7], 0xAB);
     assert_eq!(snap[6], 0);
 }
@@ -25,14 +65,14 @@ fn bytes_start_zeroed_and_are_writable() {
 #[test]
 fn block_is_eight_aligned() {
     for n in [1usize, 8, 13, 16, 40] {
-        let s = ObjStorage::new(n);
+        let s = storage(n);
         assert_eq!(s.cells().base_ptr() as usize % 8, 0, "payload of {n} bytes misaligned");
     }
 }
 
 #[test]
 fn cells_round_trip_every_width() {
-    let s = ObjStorage::new(32);
+    let s = storage(32);
     {
         let c = s.cells();
         assert!(c.store_bits(0, 1, 0xAB));
@@ -55,16 +95,16 @@ fn cells_round_trip_every_width() {
 fn many_blocks_alloc_and_free_without_tripping_the_allocator() {
     for round in 0..200usize {
         let n = round % 41;
-        let s = ObjStorage::new(n);
+        let s = storage(n);
         if n > 0 { assert!(s.cells().store_bits(n - 1, 1, 0xFF)); }
-        assert_eq!(s.len(), n);
+        assert_eq!(s.payload_len(), n);
     }
 }
 
 #[test]
 fn from_bytes_copies_the_scalar_payload() {
-    let st = ObjStorage::from_bytes(&[1, 2, 3, 4]);
-    assert_eq!(st.snapshot(), vec![1, 2, 3, 4]);
+    let st = OwnedObject::from_bytes(td("B"), &[1, 2, 3, 4]);
+    assert_eq!(st.snapshot_fields(), vec![1, 2, 3, 4]);
 }
 
 #[test]
@@ -73,11 +113,11 @@ fn chunked_copies_round_trip_at_every_offset_and_length() {
     // alignment) must reproduce the bytes exactly, and never touch a byte outside the range.
     for off in 0..24usize {
         for len in 0..=(24 - off) {
-            let s = ObjStorage::new(24);
+            let s = storage(24);
             let c = s.cells();
             let src: Vec<u8> = (0..len as u8).map(|b| b.wrapping_mul(37).wrapping_add(1)).collect();
             assert!(c.copy_in(off, &src));
-            let snap = s.snapshot();
+            let snap = s.snapshot_fields();
             assert_eq!(&snap[off..off + len], &src[..], "copy_in off={off} len={len}");
             assert!(snap[..off].iter().chain(&snap[off + len..]).all(|&b| b == 0),
                 "copy_in off={off} len={len} wrote outside its range");
@@ -86,7 +126,7 @@ fn chunked_copies_round_trip_at_every_offset_and_length() {
             assert_eq!(out, src, "copy_out off={off} len={len}");
         }
     }
-    let s = ObjStorage::new(8);
+    let s = storage(8);
     assert!(!s.cells().copy_in(4, &[0; 5]), "out of bounds is refused");
     assert!(!s.cells().copy_out(4, &mut [0; 5]), "out of bounds is refused");
 }
@@ -94,7 +134,7 @@ fn chunked_copies_round_trip_at_every_offset_and_length() {
 #[test]
 fn copy_prims_moves_whole_elements_and_handles_overlap() {
     for w in [1usize, 2, 4, 8] {
-        let s = ObjStorage::new(16 * w);
+        let s = storage(16 * w);
         let c = s.cells();
         for i in 0..16 { assert!(c.store_bits(i * w, w, i as u64 + 1)); }
         // Overlapping, destination above source: memmove semantics.
@@ -109,7 +149,7 @@ fn copy_prims_moves_whole_elements_and_handles_overlap() {
         let got: Vec<u64> = (0..16).map(|i| c.load_bits(i * w, w).unwrap()).collect();
         assert_eq!(got, want, "w={w} downward overlap");
         // Distinct views.
-        let d = ObjStorage::new(16 * w);
+        let d = storage(16 * w);
         assert!(d.cells().copy_prims(0, &c, 0, 16, w));
         assert!((0..16).all(|i| d.cells().load_bits(i * w, w) == c.load_bits(i * w, w)));
         assert!(!d.cells().copy_prims(10, &c, 0, 7, w), "out of bounds is refused");

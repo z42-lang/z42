@@ -4,12 +4,6 @@
 use std::sync::atomic::Ordering;
 
 use crate::metadata::types::ArrayObj;
-use crate::metadata::ScriptObject;
-
-/// `region_object`'s payload measure: the field block and extras outside the slot.
-pub(super) fn object_payload(o: &ScriptObject) -> u64 {
-    o.heap_payload_bytes()
-}
 
 /// `region_array`'s payload measure: the element-type name, an `Arc<str>` of its own per
 /// array (two counters + the bytes). The element storage is a `region_var` block, charged
@@ -28,10 +22,11 @@ const POOL_KEEP_MIN: u64 = 64 * 1024 * 1024;
 extern crate mimalloc as _;
 
 /// After a major: ask mimalloc (when it is the allocator) to return the memory it is caching —
-/// most of what a major frees is payload blocks (`ObjStorage`, extras) of dead objects whose
-/// slots were reused or decommitted, which mimalloc otherwise purges only lazily.
+/// what a major frees outside the GC chunks (extras boxes, element-type names, the chunks of
+/// freed large objects) mimalloc otherwise purges only lazily.
 fn release_allocator_cache() {
-    #[cfg(feature = "mimalloc-alloc")]
+    // Not under Miri: it cannot call into mimalloc (and Miri runs on its own allocator).
+    #[cfg(all(feature = "mimalloc-alloc", not(miri)))]
     {
         extern "C" {
             fn mi_collect(force: bool);
@@ -97,16 +92,14 @@ impl crate::gc::arc_heap::ArcMagrGC {
         cap.is_some_and(|c| self.occupied_bytes() >= (c.footprint as f64 * near_ratio) as u64)
     }
 
-    /// The sweep tail every collection path shares: pool the fully-dead chunks of all three
-    /// regions, re-measure their side tables (both `O(chunks)`), and decommit whatever the pools
-    /// hold beyond [`Self::pool_keep_bytes`]. After a major, also let the allocator hand back
-    /// what it has cached ([`release_allocator_cache`]).
+    /// The sweep tail every collection path shares: retire the side-table entries of the objects
+    /// that died ([`Self::process_flagged_dead`] — before any chunk goes back, while their headers
+    /// are still in place), pool the fully-dead chunks of both regions, re-measure their side
+    /// tables (both `O(chunks)`), and decommit whatever the pools hold beyond
+    /// [`Self::pool_keep_bytes`]. After a major, also let the allocator hand back what it has
+    /// cached ([`release_allocator_cache`]).
     pub(super) fn reclaim_dead_chunks_and_measure(&self, major: bool) {
-        {
-            let mut r = self.region_object.lock();
-            r.reclaim_dead_chunks();
-            r.refresh_side_tables();
-        }
+        self.process_flagged_dead();
         {
             let mut r = self.region_array.lock();
             r.reclaim_dead_chunks();
@@ -138,7 +131,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     }
 
     /// Decommit pooled chunks beyond [`Self::pool_keep_bytes`] — the variable-length region
-    /// first (whole 64 KB chunks, the cheapest to recommit), then objects, then arrays.
+    /// first (whole 64 KB chunks, the cheapest to recommit), then arrays.
     fn trim_chunk_pools(&self) {
         if !crate::gc::os_mem::CAN_DECOMMIT {
             return;
@@ -149,9 +142,6 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
         let _t = crate::gc::phase_timer::PhaseTimer::start("chunk decommit");
         excess = excess.saturating_sub(self.region_var.lock().decommit_pool(excess));
-        if excess > 0 {
-            excess = excess.saturating_sub(self.region_object.lock().decommit_pool(excess));
-        }
         if excess > 0 {
             self.region_array.lock().decommit_pool(excess);
         }

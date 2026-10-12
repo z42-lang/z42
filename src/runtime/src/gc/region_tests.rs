@@ -796,20 +796,20 @@ fn region_drop_after_slot_reuse_drops_each_value_exactly_once() {
 // ── shrink-object-footprint P1: finalizer slot ──────────────────────────────
 
 #[test]
-fn region_entry_stays_lean_for_script_objects() {
+fn region_entry_stays_lean_for_arrays() {
     use std::mem::size_of;
     // The whole point of P1: a `RegionEntry` header must not carry a 24-byte
     // mutex-wrapped finalizer for a capability nothing registers, nor a young-list back-index
     // (M8: young-set membership is a bit in the region). Object model R4 removed the per-entry
-    // `Mutex<T>` (8 B with padding): `T + 24` bytes of GC metadata.
+    // `Mutex<T>` (8 B with padding): `T + 24` bytes of GC metadata. (Objects left the
+    // fixed-size region in R6 — they are variable-length blocks; see `var_region_tests`.)
+    use crate::metadata::types::ArrayObj;
     assert_eq!(
-        size_of::<RegionEntry<crate::metadata::ScriptObject>>(),
-        size_of::<crate::metadata::ScriptObject>() + 24,
+        size_of::<RegionEntry<ArrayObj>>(),
+        size_of::<ArrayObj>() + 24,
         "RegionEntry header grew — check what was added before updating this number",
     );
-    assert_eq!(size_of::<crate::metadata::ScriptObject>(), 32);
-    assert_eq!(size_of::<RegionEntry<crate::metadata::ScriptObject>>(), 56);
-    assert_eq!(size_of::<RegionEntry<crate::metadata::types::ArrayObj>>(), 64);
+    assert_eq!(size_of::<RegionEntry<ArrayObj>>(), 64);
 }
 
 #[test]

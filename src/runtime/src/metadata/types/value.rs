@@ -33,7 +33,9 @@ pub enum Value {
     /// derefs to the element `Vec<Value>`, so element access is unchanged.
     Array(GcRef<ArrayObj>)      = 6,
     /// Heap-allocated managed class instance with reference semantics.
-    Object(GcRef<ScriptObject>) = 7,
+    /// Object model R6: an [`ObjRef`](crate::gc::ObjRef) — one variable-length GC block holding
+    /// the object header and its field cells.
+    Object(crate::gc::ObjRef) = 7,
     /// Spec C4 — borrowed view of a `String` / `Array<u8>` for native FFI.
     /// Created by `PinPtr`, released by `UnpinPtr`. The `ptr` is an
     /// untyped raw address — consumers must know the source `kind` to
@@ -126,10 +128,10 @@ pub enum Value {
     ///
     /// **add-boxed-struct-identity (P4b, 路 B2)**: 装箱 = 一个 struct 类型的共享 `ScriptObject`
     /// （`type_desc.is_struct()`，struct blob 存进对象的 `struct_bytes`/`struct_refs`，`slots` 空）。
-    /// 载荷从值语义 `Box<BoxedStructData>` 改为**共享堆句柄** `GcRef<ScriptObject>` → 对齐 C# 引用身份
-    /// （`object b = a` 别名同盒、反射 `SetValue` 写穿、传参改盒可见）。复用 `region_object` + 全部 GC 机制
+    /// 载荷从值语义 `Box<BoxedStructData>` 改为**共享堆句柄** `crate::gc::ObjRef` → 对齐 C# 引用身份
+    /// （`object b = a` 别名同盒、反射 `SetValue` 写穿、传参改盒可见）。复用对象块 + 全部 GC 机制
     /// （GC 里与 `Value::Object` 同路标记/追踪；仅 is/as/GetType/vcall/Equals 保持 boxed 值类型特判）。
-    BoxedStruct(GcRef<ScriptObject>) = 17,
+    BoxedStruct(crate::gc::ObjRef) = 17,
     /// add-struct-heap-inline (P3b, route α): a transient handle to a value-struct
     /// **inlined in a heap array element** (`arr[i]`). Unlike an object field (whose
     /// composite byte offset the compiler bakes → base = `Value::Object`), a struct[]
@@ -340,7 +342,7 @@ impl PartialEq for Value {
             (Value::Null,    Value::Null)    => true,
             // Array/Object equality is reference equality (same as C# reference semantics)
             (Value::Array(a),  Value::Array(b))  => GcRef::ptr_eq(a, b),
-            (Value::Object(a), Value::Object(b)) => GcRef::ptr_eq(a, b),
+            (Value::Object(a), Value::Object(b)) => crate::gc::ObjRef::ptr_eq(a, b),
             // fix-delegate-equality-operator: function values are reference-ish too, and
             // these two arms were simply MISSING — so `==` fell through to `_ => false`
             // and `f == f` answered **false** (a silently wrong answer, not an error).
@@ -382,7 +384,7 @@ impl PartialEq for Value {
             // add-boxed-struct-identity (P4b): 载荷现是共享 `ScriptObject`——先 ptr_eq（同盒必等），
             // 否则比两盒的 blob（保持值相等语义）。
             (Value::BoxedStruct(a), Value::BoxedStruct(b)) => {
-                if GcRef::ptr_eq(a, b) {
+                if crate::gc::ObjRef::ptr_eq(a, b) {
                     true
                 } else {
                     // Reference leaves are reference words inside the blob: compare the bytes

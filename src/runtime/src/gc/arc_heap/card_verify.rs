@@ -1,6 +1,7 @@
 //! **fix-missing-write-barriers (2026-10-07)**: re-derive the card-table invariant from scratch.
 //!
-//! The invariant — **every old entry that holds a young reference sits on a dirty card** — is
+//! The invariant — **every old entry that holds a young reference sits on a dirty card** (arrays)
+//! **or is in the remembered set** (objects, object model R6) — is
 //! what lets a minor root itself from the dirty cards and nothing else in the old generation
 //! (see `barrier.rs`). It has exactly two producers: the write barrier on an old→young store and
 //! `dirty_cards_for_newly_old_*` on promotion. A store that skips the barrier breaks it silently:
@@ -8,12 +9,12 @@
 //! use-after-free collections away from the cause.
 //!
 //! This check makes the break loud at the first minor after the store, naming the owner. It walks
-//! every alive old entry of the two carded regions, so it costs O(old heap) — opt-in only:
+//! every alive old array and object, so it costs O(old heap) — opt-in only:
 //! `Z42_GC_VERIFY_CARDS=1` runs it before every minor; tests call it directly.
 //!
-//! `region_var` (strings, closures) has no card table and needs none: strings are leaves, and a
-//! closure's references (`env`, `fn_name`) are fixed at construction, so neither can *gain* a young
-//! child after it is old.
+//! The rest of `region_var` (strings, closures) needs neither: strings are leaves, and a closure's
+//! references (`env`, `fn_name`) are fixed at construction, so neither can *gain* a young child
+//! after it is old.
 
 use crate::gc::refs::GcRef;
 use crate::gc::{GcMode, MagrGC};
@@ -34,24 +35,24 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let threshold = self.promotion_age();
         let doomed = self.doomed_unless_marked();
         let mut bad: Vec<String> = Vec::new();
+        // Object model R6: objects have no card — an old object with a young child must be in
+        // the remembered set (its block's `REMEMBERED_BIT`).
         {
-            let region = self.region_object.lock();
-            region.iterate_alive(|h, entry| {
-                if entry.gen_age.load(std::sync::atomic::Ordering::Relaxed) < threshold
-                    || doomed.is_some_and(|k| !entry.is_marked(k))
-                    || region.is_entry_card_dirty(h.chunk_idx, h.entry_idx)
+            let mut owners: Vec<crate::gc::ObjRef> = Vec::new();
+            self.region_var.lock().iterate_alive_of(crate::gc::var_region::BlockType::Object, |h, header| {
+                if header.gen_age() >= threshold
+                    && !header.is_remembered()
+                    && doomed.is_none_or(|k| header.is_marked(k))
                 {
-                    return;
-                }
-                // SAFETY: handle from `iterate_alive` under the region lock; the entry is alive and
-                // its generation matches.
-                let gc = unsafe { GcRef::from_region_entry(std::ptr::NonNull::from(entry), h.generation) };
-                let owner = Value::Object(gc);
-                if let Some(child) = Self::first_young_child(&owner, threshold) {
-                    let name = gc.borrow().type_desc.name.to_string();
-                    bad.push(format!("old object `{name}` holds young {child} on a clean card"));
+                    owners.push(crate::gc::ObjRef::from_var(h));
                 }
             });
+            for gc in owners {
+                if let Some(child) = Self::first_young_child(&Value::Object(gc), threshold) {
+                    let name = gc.borrow().type_desc.name.to_string();
+                    bad.push(format!("old object `{name}` holds young {child} but is not remembered"));
+                }
+            }
         }
         {
             let region = self.region_array.lock();

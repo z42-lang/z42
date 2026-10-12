@@ -2,7 +2,7 @@
 //! 从 `arc_heap.rs` 拆出（refactor-arc-heap-modularization）。
 
 use parking_lot::Mutex;
-use crate::metadata::{ScriptObject, Value};
+use crate::metadata::Value;
 use crate::metadata::types::{ArrayObj};
 use crate::gc::refs::{GcRef};
 
@@ -45,11 +45,6 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// for the region locks (needed by `arc_heap_tests::generational`
     /// to peek at card_dirty state without going through MagrGC trait).
     #[cfg(test)]
-    pub(crate) fn region_object_for_test(&self) -> &Mutex<crate::gc::region::Region<ScriptObject>> {
-        &self.region_object
-    }
-
-    #[cfg(test)]
     pub(crate) fn region_array_for_test(&self) -> &Mutex<crate::gc::region::Region<ArrayObj>> {
         &self.region_array
     }
@@ -76,7 +71,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// at the call site.
     ///
     /// Invariants checked:
-    /// - `region_object` + `region_array`: see
+    /// - `region_array`: see
     ///   [`crate::gc::region::Region::validate`]
     /// - `mark_queue` is empty post-collect (a major's mark drains it
     ///   to empty before sweep)
@@ -85,9 +80,6 @@ impl crate::gc::arc_heap::ArcMagrGC {
     #[cfg(debug_assertions)]
     pub(crate) fn debug_validate_invariants(&self) {
         // 1. Per-region invariants.
-        if let Err(v) = self.region_object.lock().validate() {
-            panic!("region_object invariant violation: {}", v);
-        }
         if let Err(v) = self.region_array.lock().validate() {
             panic!("region_array invariant violation: {}", v);
         }
@@ -149,22 +141,18 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // object is the freshly-allocated `Leaf` from the stress
         // worker loop (race: barrier ran post-sweep) vs an `Owner` /
         // older object (race: something re-marked it during STW).
-        let region_object = self.region_object.lock();
-        let mut stale_obj: Option<(u32, u32, String, usize)> = None;
-        region_object.iterate_alive(|h, e| {
+        // Object model R6: objects are var blocks.
+        let mut stale_obj: Option<(usize, String, usize)> = None;
+        self.region_var.lock().iterate_alive_of(crate::gc::var_region::BlockType::Object, |h, header| {
             if stale_obj.is_some() { return; }
-            if stale(e.is_marked(crate::gc::refs::MarkKind::Minor), e.major_epoch()) {
-                let obj = &e.value;
-                let ty = obj.type_desc.name.clone();
-                let nslots = obj.payload_len(); // payload bytes (diagnostic)
-                stale_obj = Some((h.chunk_idx as u32, h.entry_idx as u32, ty, nslots));
+            if stale(header.is_marked(crate::gc::refs::MarkKind::Minor), header.major_epoch()) {
+                let obj = crate::gc::ObjRef::from_var(h);
+                let obj = obj.borrow();
+                stale_obj = Some((h.addr(), obj.type_desc.name.clone(), obj.payload_len()));
             }
         });
-        drop(region_object);
-        if let Some((c, i, ty, n)) = stale_obj {
-            panic!(
-                "stale mark bit in region_object after sweep: chunk={c}, entry={i}, type={ty}, payload={n} B"
-            );
+        if let Some((addr, ty, n)) = stale_obj {
+            panic!("stale mark bit on an object after sweep: block={addr:#x}, type={ty}, payload={n} B");
         }
         let region_array = self.region_array.lock();
         let mut stale_arr: Option<(u32, u32, usize)> = None;

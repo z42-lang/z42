@@ -13,7 +13,6 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use super::refs::WeakGcRef;
-use crate::metadata::ScriptObject;
 
 // ── Handles ──────────────────────────────────────────────────────────────────
 
@@ -141,7 +140,8 @@ pub struct WeakRef {
 
 #[derive(Debug, Clone)]
 pub(crate) enum WeakRefInner {
-    Object(WeakGcRef<ScriptObject>),
+    /// Object model R6: an object's weak reference records its chunk's reuse epoch.
+    Object(super::obj_ref::WeakObjRef),
     Array (WeakGcRef<crate::metadata::types::ArrayObj>),
 }
 

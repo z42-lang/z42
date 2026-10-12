@@ -149,7 +149,7 @@ pub(crate) fn take_thread_buffer(heap: u64) -> Vec<Value> {
 }
 
 /// Whether any heap has a major mark in progress — the cheap pre-check a lock-free reference
-/// store uses to decide whether it needs the overwritten value (`ObjStorage::store_ref_word`).
+/// store uses to decide whether it needs the overwritten value (`Cells::store_ref_word`).
 #[inline(always)]
 pub fn marking_any() -> bool {
     MARKING_HEAPS.load(Ordering::Relaxed) != 0

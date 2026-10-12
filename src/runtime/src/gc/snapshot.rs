@@ -164,7 +164,7 @@ impl GraphSnapshot {
 /// Returns `None` for non-heap values (primitives, refs, closures).
 fn value_ptr(v: &Value) -> Option<usize> {
     match v {
-        Value::Object(gc) => Some(crate::gc::GcRef::as_ptr(gc) as usize),
+        Value::Object(gc) => Some(crate::gc::ObjRef::as_ptr(gc) as usize),
         Value::Array(gc)  => Some(crate::gc::GcRef::as_ptr(gc) as usize),
         _ => None,
     }

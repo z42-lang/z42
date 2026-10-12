@@ -5,7 +5,7 @@
 //! the program is unlikely to want back soon, so the oldest pooled chunks are decommitted:
 //!
 //! 1. **Drop every constructed slot.** A pooled chunk's slots are dead entries that still own
-//!    their payloads (`ObjStorage`, extras) — freeing them is half the point, and a decommitted
+//!    their payloads (an array header's element-type name) — freeing them is half the point, and a decommitted
 //!    page may read back as zeroes, which is not a valid `RegionEntry` to drop later. The
 //!    constructed-slot bits are cleared, so every later reader skips the slots (`iterate_alive`,
 //!    sweeps, `ChunkClaim::fill`'s write mode).

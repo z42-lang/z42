@@ -24,9 +24,10 @@ fn link(from: &Value, to: &Value) {
     f.borrow().set_field_value(0, to);
 }
 
-fn raw_alive(weak: &crate::gc::WeakRef) -> bool {
+fn raw_alive(heap: &ArcMagrGC, weak: &crate::gc::WeakRef) -> bool {
     match &weak.inner {
-        crate::gc::types::WeakRefInner::Object(w) => w.upgrade().is_some(),
+        // Object model R6: an object's weak reference is upgraded by the heap (chunk epoch).
+        crate::gc::types::WeakRefInner::Object(w) => heap.upgrade_weak_object(w).is_some(),
         crate::gc::types::WeakRefInner::Array(w) => w.upgrade().is_some(),
     }
 }
@@ -42,15 +43,15 @@ fn a_tenure_empties_the_young_generation_and_reclaims_nothing() {
     assert_eq!(heap.young_count(), 0, "everything listed leaves the young generation");
     assert!(promoted > 0 && heap.promoted_bytes_for_test() >= promoted,
         "tenured bytes count towards the next major's trigger");
-    assert!(garbage.iter().all(raw_alive), "a tenure reclaims nothing — that is the major's job now");
+    assert!(garbage.iter().all(|w| raw_alive(&heap, w)), "a tenure reclaims nothing — that is the major's job now");
     #[cfg(debug_assertions)]
     heap.debug_validate_invariants();
 
     // The next minor has nothing young to look at; the next major takes the tenured garbage.
     heap.run_cycle_collection_minor();
-    assert!(garbage.iter().all(raw_alive), "old garbage is out of a minor's reach");
+    assert!(garbage.iter().all(|w| raw_alive(&heap, w)), "old garbage is out of a minor's reach");
     assert!(heap.run_major_slice_for_test(WHOLE));
-    assert!(garbage.iter().all(|w| !raw_alive(w)), "the major reclaims what was tenured dead");
+    assert!(garbage.iter().all(|w| !raw_alive(&heap, w)), "the major reclaims what was tenured dead");
     #[cfg(debug_assertions)]
     heap.debug_validate_invariants();
     drop(live);
@@ -73,7 +74,7 @@ fn after_a_tenure_new_young_objects_are_carried_by_the_write_barrier() {
     heap.write_barrier_field(&holder, 0, &y);
     drop(y);
     heap.run_cycle_collection_minor();
-    assert!(raw_alive(&weak_y), "the young child of a tenured holder survives on its card");
+    assert!(raw_alive(&heap, &weak_y), "the young child of a tenured holder survives on its card");
 }
 
 /// A tenure while the cycle is **marking**: a pre-cycle young object reachable only through a
@@ -95,7 +96,7 @@ fn a_tenure_while_marking_does_not_lose_what_the_snapshot_reaches() {
     heap.run_tenure();
     assert_eq!(heap.young_count(), 0);
     assert!(heap.finish_major_cycle_for_test());
-    assert!(raw_alive(&weak_x), "the cycle's marking reaches the tenured chain");
+    assert!(raw_alive(&heap, &weak_x), "the cycle's marking reaches the tenured chain");
     #[cfg(debug_assertions)]
     heap.debug_validate_invariants();
 }
@@ -113,7 +114,7 @@ fn a_tenure_while_sweeping_leaves_the_doomed_young_for_the_sweep() {
 
     assert!(!heap.run_major_slice_for_test(300));
     assert!(heap.major_cycle_sweeping_for_test());
-    let unswept = garbage.iter().filter(|w| raw_alive(w)).count();
+    let unswept = garbage.iter().filter(|w| raw_alive(&heap, w)).count();
     assert!(unswept > 0, "the budget must leave some garbage unswept for this test to mean anything");
     let born = obj(&heap, "Born");
     let weak_born = heap.make_weak(&born).unwrap();
@@ -126,8 +127,8 @@ fn a_tenure_while_sweeping_leaves_the_doomed_young_for_the_sweep() {
     heap.debug_validate_invariants();
 
     assert!(heap.finish_major_cycle_for_test());
-    assert!(garbage.iter().all(|w| !raw_alive(w)), "the sweep reclaims the doomed it left young");
-    assert!(raw_alive(&weak_born));
+    assert!(garbage.iter().all(|w| !raw_alive(&heap, w)), "the sweep reclaims the doomed it left young");
+    assert!(raw_alive(&heap, &weak_born));
     assert_eq!(heap.young_count(), 0);
     #[cfg(debug_assertions)]
     heap.debug_validate_invariants();

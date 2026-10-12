@@ -74,9 +74,11 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 mod block;
 mod chunk;
 mod generation;
+mod objects;
 mod var_ref;
 
-pub use block::{BlockType, GcBlockHeader, PayloadDropGlue};
+pub use block::{drop_type_bit, BlockType, GcBlockHeader, PayloadDropGlue};
+pub use objects::{DetachedBlock, VarMinorSweep};
 pub(crate) use block::payload_ptr_of;
 #[cfg(feature = "jit")]
 pub(crate) use block::{ASCII_STR_BIT, HEADER_SIZE_OFFSET, HEADER_TYPE_TAG_OFFSET};
@@ -184,6 +186,13 @@ pub struct VarRegion {
     /// region drops with the block still alive. `None` = all payloads POD (PR-1). Consumers
     /// storing non-POD payloads (e.g. closure `ClosureData` with an owned `String`) supply it.
     drop_glue: Option<PayloadDropGlue>,
+    /// Which block types `drop_glue` runs for (`block::drop_type_bit` mask). Checked before the
+    /// indirect call, so a reclaimed POD block (a string, a packed array) costs one branch.
+    drop_types: u8,
+    /// Object model R6: addresses of blocks tombstoned while carrying `SIDE_BIT` /
+    /// `REMEMBERED_BIT` — the heap drops its side-table entries for them before any chunk is
+    /// pooled or freed (`take_flagged_dead`).
+    flagged_dead: Vec<usize>,
 
     // ── add-gc-tlab stage 3 (2026-08-29): per-thread chunk-exclusive var alloc ──
     /// Per-chunk "borrowed by a TLAB" flag (parallel to `chunks`). A borrowed chunk is being
@@ -269,6 +278,8 @@ impl Default for VarRegion {
             generational: true,
             live_count: 0,
             drop_glue: None,
+            drop_types: 0,
+            flagged_dead: Vec::new(),
             borrowed: Vec::new(),
             var_free_chunk_pool: Vec::new(),
             reuse_gen: Vec::new(),
@@ -298,12 +309,12 @@ impl VarRegion {
     /// payloads are all POD has nothing for it to do, and a `None` here is what removes the
     /// indirect call from the reclaim path — see [`Self::finalize_payload`].
     pub fn with_drop_glue_for_mode(
-        glue: Option<PayloadDropGlue>,
+        glue: Option<(PayloadDropGlue, u8)>,
         generational: bool,
         promotion_age: u8,
     ) -> Self {
         let mut r = match glue {
-            Some(glue) => Self::with_drop_glue(glue),
+            Some((glue, types)) => Self::with_drop_glue(glue, types),
             None => Self::new(),
         };
         r.generational = generational;
@@ -311,9 +322,9 @@ impl VarRegion {
         r
     }
 
-    /// Construct a region whose non-POD payloads are finalized by `glue` on reclaim. Used by
-    /// the heap for the closure region (`ClosureData` owns a `String` that must be dropped).
-    pub fn with_drop_glue(glue: PayloadDropGlue) -> Self {
+    /// Construct a region whose non-POD payloads — blocks of the types in the `types` mask
+    /// (`block::drop_type_bit`) — are finalized by `glue` on reclaim.
+    pub fn with_drop_glue(glue: PayloadDropGlue, types: u8) -> Self {
         // Build explicitly (can't `..Self::default()` — `VarRegion: Drop` forbids moving fields
         // out of the temporary).
         Self {
@@ -333,6 +344,8 @@ impl VarRegion {
             generational: true,
             live_count: 0,
             drop_glue: Some(glue),
+            drop_types: types,
+            flagged_dead: Vec::new(),
             borrowed: Vec::new(),
             var_free_chunk_pool: Vec::new(),
             reuse_gen: Vec::new(),
@@ -366,8 +379,14 @@ impl VarRegion {
                 let h = unsafe { header.as_ref() };
                 (h.block_type(), h.size())
             };
+            if self.drop_types & block::drop_type_bit(bt) == 0 {
+                return;
+            }
             let payload = unsafe { payload_ptr_of(header) };
-            unsafe { glue(bt, payload, size) };
+            let freed = unsafe { glue(bt, payload, size) };
+            if freed != 0 {
+                self.footprint.credit(freed);
+            }
         }
     }
 
@@ -585,6 +604,11 @@ impl VarRegion {
         if !header.alive.swap(false, Ordering::Release) {
             return false;
         }
+        // Object model R6: the heap keeps entries keyed by this address (side tables, the
+        // remembered set); tell it before the slot can be recycled or its chunk pooled.
+        if header.needs_dead_notice() {
+            self.flagged_dead.push(ptr.as_ptr() as usize);
+        }
         // Run the payload finalizer (e.g. drop a closure's `String`) exactly once, now that
         // this call won the alive 1→0 race, before the slot can be recycled.
         // SAFETY: the block is freshly reclaimed and still points at its initialized payload.
@@ -684,16 +708,17 @@ impl VarRegion {
     /// The number of `used_bytes` a block of this kind added when it was allocated — the
     /// only figure sweep may credit back.
     ///
-    /// - `Str` / `Closure` — `alloc_str_in_region` / `alloc_closure_in_region` charge
-    ///   `DATA_OFFSET + payload`, so that is what comes back.
+    /// - `Str` / `Closure` / `Object` — `alloc_str_in_region` / `alloc_closure_in_region` /
+    ///   the object allocator charge `DATA_OFFSET + payload` (an object's payload is its 16 B
+    ///   header plus its fields), so that is what comes back.
     /// - `ArrayValue` / `ArrayPrim` / `ArrayStruct` / `ArrayRef` / `ArrayCell` — **zero**. `alloc_var_block` records
     ///   no stats at all (by design); the owning array header charged the element storage
     ///   through `object_size_bytes`, and `array_size_estimate` credits it back when the
     ///   header is tombstoned. Crediting the block here as well would refund it twice.
     #[inline]
-    fn alloc_charge_bytes(header: &GcBlockHeader) -> u64 {
+    pub(crate) fn alloc_charge_bytes(header: &GcBlockHeader) -> u64 {
         match header.block_type() {
-            BlockType::Str | BlockType::Closure => {
+            BlockType::Str | BlockType::Closure | BlockType::Object => {
                 (GcBlockHeader::DATA_OFFSET + header.size()) as u64
             }
             BlockType::ArrayValue | BlockType::ArrayPrim | BlockType::ArrayStruct

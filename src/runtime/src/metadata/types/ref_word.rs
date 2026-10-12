@@ -7,12 +7,12 @@
 //! | 种类 | `Value` | 句柄 |
 //! |---|---|---|
 //! | 0（整字为 0） | `Null` | — |
-//! | 1 | `Object` | `GcRef<ScriptObject>` |
+//! | 1 | `Object` | `ObjRef`（变长区块） |
 //! | 2 | `Array` | `GcRef<ArrayObj>` |
 //! | 3 | `Str` | `VarGcRef` |
 //! | 4 | `Closure` | `VarGcRef` |
 //! | 5 | `FuncRef` | 不是句柄：`FnId << 3`，JIT 读走慢路径 |
-//! | 6 | `BoxedStruct` | `GcRef<ScriptObject>` |
+//! | 6 | `BoxedStruct` | `ObjRef` |
 //! | 7 | 装箱的任意 `Value`（逃生口） | `GcRef<ArrayObj>`，单元素数组 |
 //!
 //! **种类 7 是逃生口**：`object` / 接口字段能经擦除泛型收到裸的 `I64` / `F64` / `Bool` / `Char`
@@ -23,7 +23,8 @@
 //!
 //! GC 追踪用 [`decode_for_trace`]：种类 7 交出盒子本身（`Value::Array`），盒子再交出里面的值。
 
-use super::{ArrayObj, Cells, FieldWrite, ScriptObject, Value};
+use super::{ArrayObj, Cells, FieldWrite, Value};
+use crate::gc::ObjRef;
 use crate::gc::var_region::VarGcRef;
 use crate::gc::GcRef;
 use crate::metadata::vstr::Str;
@@ -45,8 +46,9 @@ pub static KIND_TO_VALUE_TAG: [u8; 8] = [5, 7, 6, 4, 10, SLOW_PATH_TAG, 17, SLOW
 pub const SLOW_PATH_TAG: u8 = 0xFF;
 
 // 句柄的低 3 位必须空着。64 位目标上 entry / 块头都含指针宽字段，天然 8 对齐；32 位目标由
-// `RegionEntry` 的 `repr(align(8))` 与 `GcBlockHeader` 的 `align(8)` 保证。
-const _: () = assert!(std::mem::align_of::<crate::gc::region::RegionEntry<ScriptObject>>() >= 8);
+// `RegionEntry` 的 `repr(align(8))` 与 `GcBlockHeader` 的 `align(8)` 保证。对象（R6）与字符串、
+// 闭包一样是变长区块，句柄指向块头。
+const _: () = assert!(std::mem::align_of::<crate::gc::var_region::GcBlockHeader>() >= 8);
 const _: () = assert!(std::mem::align_of::<crate::gc::region::RegionEntry<ArrayObj>>() >= 8);
 
 #[inline(always)]
@@ -108,12 +110,12 @@ pub unsafe fn decode_for_trace(w: u64) -> Value {
     // SAFETY（下面每个 from_*）：`h` 来自同一种句柄的 `to_*bits`，调用方保证对象仍活着。
     unsafe {
         match w & KIND_MASK {
-            RK_OBJECT => GcRef::from_tagged_bits(h).map_or(Value::Null, Value::Object),
+            RK_OBJECT => ObjRef::from_tagged_bits(h).map_or(Value::Null, Value::Object),
             RK_ARRAY | RK_BOXED_VALUE => GcRef::from_tagged_bits(h).map_or(Value::Null, Value::Array),
             RK_STR => VarGcRef::from_bits(h).map_or(Value::Null, |b| Value::Str(Str::from_var_ref(b))),
             RK_CLOSURE => VarGcRef::from_bits(h).map_or(Value::Null, Value::Closure),
             RK_FUNC_REF => Value::FuncRef(crate::metadata::tokens::FnId((w >> 3) as u32)),
-            RK_BOXED_STRUCT => GcRef::from_tagged_bits(h).map_or(Value::Null, Value::BoxedStruct),
+            RK_BOXED_STRUCT => ObjRef::from_tagged_bits(h).map_or(Value::Null, Value::BoxedStruct),
             _ => {
                 debug_assert_eq!(w, 0, "reference word with kind 0 but a non-zero handle");
                 Value::Null

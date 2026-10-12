@@ -61,10 +61,11 @@ impl crate::gc::arc_heap::ArcMagrGC {
             return live;
         }
         let major = self.major_mark();
-        let region = self.region_object.lock();
-        region.iterate_alive(|_h, entry| {
-            if entry.is_marked(major) {
-                let obj = &entry.value;
+        let region = self.region_var.lock();
+        region.iterate_alive_of(crate::gc::var_region::BlockType::Object, |h, header| {
+            if header.is_marked(major) {
+                let obj = crate::gc::ObjRef::from_var(h);
+                let obj = obj.borrow();
                 let td_ptr = std::sync::Arc::as_ptr(&obj.type_desc) as usize;
                 if let Some(cid) = snap.retained_context(td_ptr, &obj.native()) {
                     live.insert(cid);
@@ -85,12 +86,13 @@ impl crate::gc::arc_heap::ArcMagrGC {
         self.retire_thread_tlab();
         let mut g = crate::gc::retention::RetentionGraph::new();
 
-        // Object region → each object's heap-ref slots become reverse edges.
+        // Objects (variable-length region) → each object's heap-ref slots become reverse edges.
         {
-            let region = self.region_object.lock();
-            region.iterate_alive(|_h, entry| {
-                let self_ptr = &entry.value as *const _ as usize;
-                let obj = &entry.value;
+            let region = self.region_var.lock();
+            region.iterate_alive_of(crate::gc::var_region::BlockType::Object, |h, _| {
+                let handle = crate::gc::ObjRef::from_var(h);
+                let self_ptr = crate::gc::ObjRef::as_ptr(&handle) as usize;
+                let obj = handle.borrow();
                 let type_name = obj.type_desc.name.clone();
                 obj.visit_refs(&mut |slot: &Value| {
                     if let Some(child) = value_heap_ptr(slot) {

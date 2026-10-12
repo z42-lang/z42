@@ -7,7 +7,7 @@ use crate::gc::heap::MagrGC;
 use crate::gc::var_region::BlockType;
 use crate::gc::GcMode;
 use crate::metadata::types::{
-    FieldAccess, FieldSlot, FieldWrite, NativeData, ObjStorage, ObjectLayout, TypeDesc, TypeDescCold, TAG_OBJECT,
+    FieldAccess, FieldSlot, FieldWrite, NativeData, ObjectLayout, TypeDesc, TypeDescCold, TAG_OBJECT,
     STRUCT_LEAF_GCREF_CLOSURE,
 };
 use std::sync::Arc;
@@ -70,8 +70,8 @@ fn payload(v: &Value) -> u64 {
 
 /// One live handle of every encodable kind.
 fn one_of_each(heap: &ArcMagrGC) -> Vec<(Value, u64)> {
-    let obj = GcRef::new(ScriptObject::new(plain_td("O"), ObjStorage::new(0)));
-    let boxed = GcRef::new(ScriptObject::new(plain_td("S"), ObjStorage::new(0)));
+    let obj = crate::gc::ObjRef::leak(crate::metadata::types::OwnedObject::new(plain_td("O"), 0));
+    let boxed = crate::gc::ObjRef::leak(crate::metadata::types::OwnedObject::new(plain_td("S"), 0));
     let Value::Array(arr) = heap.alloc_array(vec![]) else { panic!() };
     let s = Str::new_leaked("text");
     let clo = VarGcRef::leak_block_for_test(16, BlockType::Closure);
@@ -212,13 +212,13 @@ fn gc_traces_through_reference_words() {
 /// `clear_refs_for_sweep` zeroes every word (the sweep breaking a dead object's edges).
 #[test]
 fn clear_refs_for_sweep_zeroes_every_word() {
-    let leaf = Value::Object(GcRef::new(ScriptObject::new(plain_td("Leaf"), ObjStorage::new(0))));
-    let holder = GcRef::new(ScriptObject::new(ref_cell_td(2), ObjStorage::new(16)));
+    let leaf = Value::Object(crate::gc::ObjRef::leak(crate::metadata::types::OwnedObject::new(plain_td("Leaf"), 0)));
+    let holder = crate::gc::ObjRef::leak(crate::metadata::types::OwnedObject::new(ref_cell_td(2), 16));
     holder.borrow().set_field_value(0, &leaf);
     holder.borrow().set_field_value(1, &leaf);
     holder.borrow().clear_refs_for_sweep();
     let mut edges = 0;
     holder.borrow().visit_refs(&mut |_| edges += 1);
     assert_eq!(edges, 0);
-    assert!(holder.borrow().storage.snapshot().iter().all(|&b| b == 0));
+    assert!(holder.borrow().snapshot_fields().iter().all(|&b| b == 0));
 }

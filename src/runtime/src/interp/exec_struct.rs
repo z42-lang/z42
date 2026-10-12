@@ -84,7 +84,7 @@ pub(crate) fn resolve_layout(ctx: &VmContext, type_name: &str, size: u32) -> Arc
 /// 返回值 struct `StructRef` 句柄（`(P)o` / `o as P` 用）。alloc 用类型布局（size 兜底自 `bytes.len()`），
 /// 再 memcpy bytes + clone refs。拆出的 struct 是独立副本（改它不影响 boxed 或再次拆箱）。
 pub(crate) fn unbox_struct(
-    ctx: &VmContext, frame_id: u32, gc: &crate::gc::GcRef<ty::ScriptObject>,
+    ctx: &VmContext, frame_id: u32, gc: &crate::gc::ObjRef,
 ) -> Result<Value> {
     // add-boxed-struct-identity (P4b, 路 B2): the box is a shared struct-typed
     // `ScriptObject` — snapshot its blob (`struct_bytes`/`struct_refs`) into a fresh

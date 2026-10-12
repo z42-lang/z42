@@ -539,6 +539,11 @@ impl VarRegion {
         for &ci in &free {
             freed_bytes += self.chunks[ci].cap as u64;
             self.footprint.credit(crate::gc::footprint::malloc_size(self.chunks[ci].cap));
+            // Object model R6: a weak object reference names its chunk and this epoch
+            // (`VarRegion::chunk_epoch`); bumping it is what makes a weak reference into a freed
+            // dedicated chunk read as dead without touching the memory. Free lists never name a
+            // dedicated chunk, so their staleness test is unaffected.
+            self.pool_epoch[ci] = self.pool_epoch[ci].wrapping_add(1);
             self.chunks[ci].free_in_place();
             self.blocks_per_chunk[ci] = 0;
             self.live_per_chunk[ci] = 0;
