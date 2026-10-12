@@ -621,6 +621,36 @@ fn major_collect_via_context_full_scans_unrooted_old_entries() {
         "the escalated major freed the unrooted old Target; 10 pinned survive");
 }
 
+/// `collect_full` (what `GC.ForceCollect()` runs) reclaims an object that died **after** it was
+/// promoted. `force_collect` is a minor under the generational collector and cannot reach it —
+/// the gap `z42.threading`'s `test_abandoned_mutex_does_not_retain_value` fell into once a long
+/// in-process compile had made adaptive promotion promote early.
+#[test]
+fn collect_full_reclaims_an_unrooted_old_entry_in_one_call() {
+    use crate::vm_context::VmContext;
+    let ctx = VmContext::new();
+    ctx.heap().set_mode(GcMode::GenerationalMarkSweep);
+    let heap_dyn = ctx.heap();
+
+    let target = heap_dyn.alloc_object(dummy_type_desc("Target"), vec![], NativeData::None);
+    let pin = heap_dyn.pin_root(target.clone());
+    for _ in 0..PROMOTION_THRESHOLD {
+        heap_dyn.force_collect();
+    }
+    assert!(gen_age_of(&target) >= PROMOTION_THRESHOLD, "test setup: target is old");
+    let weak = heap_dyn.make_weak(&target).expect("weak ref");
+    heap_dyn.unpin_root(pin);
+    drop(target);
+
+    heap_dyn.force_collect();
+    assert!(heap_dyn.upgrade_weak(&weak).is_some(),
+        "test premise: a generational force_collect is a minor and leaves the old entry alone");
+
+    let stats = heap_dyn.collect_full();
+    assert_eq!(stats.kind, Some(crate::gc::types::GcKind::Major));
+    assert!(heap_dyn.upgrade_weak(&weak).is_none(), "collect_full reclaims the dead old entry");
+}
+
 // ── fix-primitives-count-as-young (2026-09-11) ──────────────────────────────
 
 /// An array's element storage lives in `region_var` and is kept alive **only** by

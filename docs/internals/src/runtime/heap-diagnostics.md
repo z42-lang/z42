@@ -25,7 +25,7 @@ z42 自有**精确 GC**，能回答 .NET GC 回答不了的问题：**"这个对
 GC 只有**正向**追踪（`Value::trace_children`）；诊断需**反向**。查询时做一次堆扫描：
 
 ```
-force_collect()                       // ① 先触发 full GC —— 之后存活即可达，无浮动垃圾误报
+collect_full()                        // ① 先触发全堆 GC（分代下是 major） —— 之后存活即可达，无浮动垃圾误报
 build_retention_graph():              // ② 一次堆扫描建反向图
   region_object.iterate_alive: 每对象的 slots 里每条堆-ref child → rev[child].push(parent)
   region_array.iterate_alive:  每数组的 elements 里每条堆-ref child → rev[child].push(parent)
@@ -44,7 +44,7 @@ mark 阶段的 `external_root_scanner` 只吐**匿名** Value，报不出根类�
 `Pinned`。**只在诊断查询时调用**，mark 热路径不变（零回归）。
 
 ### 准确性
-先 `force_collect()` → `iterate_alive` 只见可达对象 → 反向图不含浮动垃圾。诊断非热路径，一次额外 GC 可接受。
+先 `collect_full()` → `iterate_alive` 只见可达对象 → 反向图不含浮动垃圾。诊断非热路径，一次额外 GC 可接受。
 整个查询（回收 + 建反向图 + 扫根）在 `request_gc_pause` 的停世界窗口里执行（`corelib/diagnostics.rs` 的
 `with_world_stopped`）：扫根要读**每个线程**的帧栈，别的 mutator 必须先 park。拿不到 collector 角色时，
 `request_gc_pause` 已经让本线程停到那个回收结束，重试即可。

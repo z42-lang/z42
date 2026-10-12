@@ -367,6 +367,13 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     /// `pause()` 跳过。
     fn force_collect(&self) -> CollectStats;
 
+    /// 立即做一次**全堆**回收：不论模式，返回时所有不可达对象都已回收（分代下是一次 major，
+    /// 而 `force_collect` 在分代下只是 minor，够不着已晋升的对象）。`GC.ForceCollect()` 与
+    /// retention 诊断走这里。`pause()` 期间跳过，返回 `kind: None`。
+    fn collect_full(&self) -> CollectStats {
+        self.force_collect()
+    }
+
     /// 暂停 GC（关键区使用，如 host 在采样热路径时不希望 GC 介入）。
     /// 暂停期间 `force_collect` / `collect_cycles` 跳过实际工作但仍返回
     /// 一致结果。
