@@ -142,7 +142,7 @@ fn only_a_policy_minor_is_served_as_a_tenure() {
     use super::super::young_policy::MinorYield;
     use std::sync::atomic::Ordering::Relaxed;
     let heap = generational_heap();
-    heap.young_policy.observe_minor(MinorYield { freed: 0, pause_us: 1000, gate: 1 << 20 });
+    heap.young_policy.observe_minor(MinorYield { freed: 0, pause_us: 1000, gate: 1 << 20, scanned: 0, reclaimed: 0, survivors: 0, survivor_budget: None });
     assert_eq!(heap.choose_generational_work(false), GenWork::Minor, "explicit: a real minor");
     heap.incremental.pending_minor.store(true, Relaxed);
     assert_eq!(heap.choose_generational_work(false), GenWork::Tenure, "the turn is still there");
@@ -159,7 +159,7 @@ fn a_major_waits_one_allowance_floor_longer_while_nothing_dies() {
     let heap = generational_heap();
     let floor = heap.allowance_floor();
     let allowance = 3 * floor;
-    let minor = |freed| MinorYield { freed, pause_us: 5_000, gate: 16 << 20 };
+    let minor = |freed| MinorYield { freed, pause_us: 5_000, gate: 16 << 20, scanned: 0, reclaimed: 0, survivors: 0, survivor_budget: None };
     assert_eq!(heap.promoted_gate(allowance), allowance, "no major yet: the plain allowance");
     heap.observe_major_work(0, 20_000, true);
     heap.young_policy.observe_minor(minor(8 << 20));

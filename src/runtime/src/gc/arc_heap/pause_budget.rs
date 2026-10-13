@@ -185,6 +185,20 @@ impl PauseBudget {
         self.target_us
     }
 
+    /// The part of the next minor's entry budget left for the survivors it inherits: the entries
+    /// the pause target buys at the current cost reading, minus the fresh entries `nursery` will
+    /// add at the current size reading. What the young policy compares a minor's survivors
+    /// against (`young_policy::Verdict::OverBudget`): reaching it means the next minor busts the
+    /// target even though the model already moved the nursery as far as it may (halving at most,
+    /// never below the floor). `None` while adaptation is off or before a minor was measured.
+    #[inline]
+    pub(crate) fn survivor_budget(&self, nursery: u64) -> Option<u64> {
+        let cost = self.cost_ns_per_entry.load(Ordering::Relaxed);
+        let bpe = self.bytes_per_entry.load(Ordering::Relaxed);
+        (self.enabled() && cost > 0 && bpe > 0)
+            .then(|| (self.target_us * 1000 / cost).saturating_sub(nursery / bpe))
+    }
+
     /// The model's current reading (ns per young entry), for diagnostics.
     #[inline]
     pub(crate) fn cost_ns_per_entry(&self) -> u64 {

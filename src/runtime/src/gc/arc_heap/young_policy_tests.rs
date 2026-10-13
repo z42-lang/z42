@@ -4,8 +4,37 @@ use super::*;
 
 const MB: u64 = 1024 * 1024;
 
+/// A minor that freed `freed` bytes in `pause_us`, with neutral entry counts (half its 1 000
+/// scanned entries reclaimed, no pause budget measured).
 fn minor(freed: u64, pause_us: u64) -> MinorYield {
-    MinorYield { freed, pause_us, gate: 4 * MB }
+    MinorYield { freed, pause_us, gate: 4 * MB, scanned: 1_000, reclaimed: 500, survivors: 500, survivor_budget: None }
+}
+
+#[test]
+fn futility_is_also_judged_in_entries() {
+    // Plenty of bytes freed (a few large blocks), but 99% of the scanned entries survived.
+    let p = YoungPolicy::new(true);
+    let m = MinorYield { scanned: 100_000, reclaimed: 1_000, survivors: 99_000, ..minor(2 * MB, 5_000) };
+    assert_eq!(p.observe_minor(m), Verdict::Futile);
+    assert!(p.take_tenure_turn());
+}
+
+#[test]
+fn survivors_that_fill_the_pause_budget_buy_a_tenure() {
+    // The `13_gc_large_heap` shape on a denser heap: productive by bytes and by entries, but the
+    // 675 k survivors left listed exceed the 627 k entries the budget leaves them next to the
+    // floor nursery's fresh entries.
+    let p = YoungPolicy::new(true);
+    let base = MinorYield { scanned: 780_000, reclaimed: 105_000, survivors: 675_000, ..minor(5 * MB, 11_000) };
+    assert_eq!(p.observe_minor(MinorYield { survivor_budget: Some(627_000), ..base }), Verdict::OverBudget);
+    assert!(p.take_tenure_turn());
+    // Below the budget it keeps running real minors; with no budget measured it cannot tell.
+    assert_eq!(p.observe_minor(MinorYield { survivor_budget: Some(700_000), ..base }), Verdict::Productive);
+    assert_eq!(p.observe_minor(base), Verdict::Productive);
+    // Survivors that are a minority of what the minor scanned do not count, however few entries
+    // the budget leaves (the fixed part inflated the cost reading).
+    let few = MinorYield { scanned: 100_000, reclaimed: 60_000, survivors: 40_000, ..minor(5 * MB, 11_000) };
+    assert_eq!(p.observe_minor(MinorYield { survivor_budget: Some(0), ..few }), Verdict::Productive);
 }
 
 #[test]

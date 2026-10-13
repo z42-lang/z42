@@ -30,7 +30,7 @@ GC 的「何时自动回收」由几个**比率魔数**决定（near-limit 90%�
 | `Z42_GC_PROMOTION_AGE` | **3** | **分代专用**：熬过几次 minor 才晋升到老年代；范围 1–3（年龄只有两位）。默认值就是上界 ⇒ **只能调低、不能调高**。**建堆时读一次**，写屏障读的是字段 | `gc/mod.rs` |
 | `Z42_GC_LOH_BYTES` | 64K | 变长块走 dedicated chunk 的尺寸门槛（死后内存直接还给分配器）；上界 = 64K bump chunk。**进程级** | `var_region/chunk.rs` |
 | `Z42_GC_NURSERY_BYTES` | **16M** | **整套策略的计量单位**：自上次回收以来分配这么多就触发 minor（分代）；×4 是 major 余量的下界（两种模式）。买停顿上界的那个旋钮，**调它必须连 `Z42_GC_PROMOTION_AGE` 一起想**（见下「过早晋升」） | `arc_heap/auto_collect` |
-| `Z42_GC_PAUSE_TARGET_MS` | **10** | **分代专用**：minor 停顿的目标上限（ms），nursery 按实测代价反推而非常量；`0` 关掉自适应，显式设 `Z42_GC_NURSERY_BYTES` 也会关掉它（手动挡优先）。clamp 到 `[0.5, 1000]`。见下「按停顿预算自适应 nursery」 | `arc_heap/pause_budget.rs` |
+| `Z42_GC_PAUSE_TARGET_MS` | **10** | **分代专用**：minor 停顿的目标上限（ms），nursery 按实测代价反推而非常量；它折算出的条目预算同时是年轻代策略的「超预算」线（幸存者单独就占满预算 → 接下来 tenure，见「年轻代策略」）。`0` 关掉自适应（也关掉超预算判定），显式设 `Z42_GC_NURSERY_BYTES` 也会关掉它（手动挡优先）。clamp 到 `[0.5, 1000]`。见下「按停顿预算自适应 nursery」 | `arc_heap/pause_budget.rs`、`arc_heap/young_policy.rs` |
 | `Z42_GC_MAX_BYTES` | **unset = 无上限** | **软上限，不是武装开关**：设了只压回收余量并加一个近上限触发；**按真实占用判定**（不是 `used`），见「真实占用记账与软上限」 | `arc_heap/auto_collect`、`arc_heap/footprint.rs` |
 | `Z42_GC_MINOR_THRESHOLD` | 0.75 | minor GC 后年轻代存活比率高于此 → 下次回收立即升级 major（上一次 major 徒劳时不升级，见「年轻代策略」） | `arc_heap` |
 | `Z42_GC_SOFT_THRESHOLD` | 0.80 | 堆压力比率高于此 → `SoftHandle` 弱引用变为可回收 | `gc/soft_registry.rs` |
@@ -180,12 +180,33 @@ nursery 是**测出来的量**、不是常量：每次 minor 结束时
 ### 判定：每单位停顿回收多少，对比上一次 major
 
 ```text
-每次真 minor 之后：unproductive = freed < gate / 16                                   (Futile)
+每次真 minor 之后：unproductive = freed < gate / 16                                   (Futile，按字节)
+                              || 回收条目 < 扫描条目 / 16                             (Futile，按条目)
+                              || 幸存者 ≥ 扫描条目 / 2 且 ≥ 预算留给它们的条目数          (OverBudget)
                               || freed/pause < (上次 major freed / 其切片停顿和) / 4      (Outyielded)
                    unproductive → run = clamp(2·run, 1, 8)，接下来 run 次 minor trip 做 tenure
                    productive   → run = 0
 minor trip：       还有 tenure 名额 → tenure；否则真 minor（它同时是探针）
 ```
+
+**判定不随对象大小漂移。** 徒劳线按字节、也按条目各判一次：同一个程序换一种更紧凑的对象布局，所有
+字节读数都会变小，只按字节判时，「哪一次 minor 被判徒劳」会落到程序的另一个阶段上。
+
+**超预算（`OverBudget`）。** 停顿预算模型知道一个年轻条目要花一次 minor 多少（ns/条，衰减最大值）、
+目标停顿买得起多少条目、刚定下的 nursery 会带来多少新条目（按字节/条折算）。预算减去这些新条目，剩下的
+才是留给继承下来的幸存者的；幸存者到了这个数，模型已经把 nursery 挪到了它能挪的极限（一次至多减半、
+不低于下限），下一次 minor 仍然会超目标、把停顿花在重标这一次刚标过的东西上 —— nursery 只管新分配的条目，
+而幸存者要熬够 `promotion_age` 次 minor 才离开年轻代。这与上面两种形状是同一件事（minor 不再划算），
+只是按实测代价判出来，于是给同一个答案：tenure。另要求幸存者至少占这次扫描的一半：一次 minor 的每条代价
+若被固定部分（卡表扫描、周期的 grey 队列）抬高、幸存者却不多，tenure 它们帮不上忙。
+实测形状：`13_gc_large_heap` 换成更紧凑的对象布局后，首个 major 之后有一次 minor 回收了 5.2 MB（按字节、
+按条目都不算徒劳），留下 67.5 万个幸存者，而预算（14 ns/条 → 71.4 万条）减去下限 nursery 的 8.7 万个新条目
+只剩 62.7 万；下一次 minor 扫 76.5 万条、停 16–19 ms，而布局不变时那里是一次 tenure、最大停顿 12 ms。
+
+在现有布局上它同样起作用（release，与不带这两条的策略交错 11 次中位数）：`13_gc_large_heap` 分代 jit 最大停顿
+12.3 → 7.9 ms、p99 11.3 → 6.7 ms、墙钟 −10%（interp：13.5 → 8.6 ms、−7%），代价是峰值 RSS 344 → 380 MB——多出来的
+tenure 把一部分年轻垃圾送进老年代，major 次数随之变少（切片 208 → 134）、每次收得更多；STW、`12_gc_churn`、
+`09_alloc_ctorless`、`z42c` 工作区构建持平。
 
 **为什么对比 major。** 一字节年轻垃圾，要么现在由 minor 收，要么 tenure 进老年代、由下一次 major 收。
 tenure 让它计入晋升字节闸门（老年代增长），所以它的价钱是 major 每回收一字节的成本 `1 / major 收益`；

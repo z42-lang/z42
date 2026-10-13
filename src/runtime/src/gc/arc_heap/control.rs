@@ -273,6 +273,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 // policy's flags (and whether a cycle is open) decide what this one pause does.
                 let freed_bytes: u64;
                 let (mut did_major, mut did_minor) = (false, false);
+                let mut minor_reclaimed = 0usize;
                 let work = self.choose_generational_work(want_major);
                 // P0-16: the events name the work this pause does, not the entry point.
                 let kind = match work {
@@ -301,6 +302,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                     did_minor = true;
                     let minor = self.run_cycle_collection_minor();
                     freed_bytes = minor.freed_bytes;
+                    minor_reclaimed = minor.reclaimed_entries;
 
                     // fix-minor-survival-counts-promotion-as-death (2026-09-08): survival is
                     // `1 - reclaimed / young_before` — the fraction of the young set the sweep
@@ -357,14 +359,25 @@ impl crate::gc::arc_heap::ArcMagrGC {
                     // Not a sample of what a minor costs; only move the model's growth anchor.
                     self.pause_budget.note_tenure(used_before);
                 } else if did_minor {
-                    self.observe_minor_yield(freed_bytes, pause_us, used_before.saturating_sub(freed_bytes));
+                    let survivors = self.young_count() as u64;
+                    // The cost model first: the young policy reads its updated pause budget.
                     self.observe_minor_pause(super::pause_budget::MinorSample {
                         pause_us,
                         scanned: young_before as u64,
-                        survivors: self.young_count() as u64,
+                        survivors,
                         used_before,
                         used_after: used_before.saturating_sub(freed_bytes),
                     });
+                    self.observe_minor_yield(
+                        freed_bytes,
+                        pause_us,
+                        used_before.saturating_sub(freed_bytes),
+                        super::young_policy::MinorEntries {
+                            scanned: young_before as u64,
+                            reclaimed: minor_reclaimed as u64,
+                            survivors,
+                        },
+                    );
                 } else {
                     self.observe_major_work(freed_bytes, pause_us, did_major);
                 }
