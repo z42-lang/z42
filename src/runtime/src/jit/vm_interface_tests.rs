@@ -40,6 +40,7 @@ fn empty_function(name: &str) -> Function {
         resolved: std::sync::OnceLock::new(),
         owner_init: Default::default(),
         id: Default::default(),
+        forward: Default::default(),
     }
 }
 

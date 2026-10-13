@@ -85,16 +85,23 @@ fn null_string_receiver_is_a_null_reference() {
         assert_eq!(t.class, "Std.NullReferenceException");
         t.msg
     };
-    assert_eq!(nre(builtin_str_length(&ctx, &[Value::Null]).unwrap_err()),
-        "cannot read property `Length` of a null reference");
-    assert_eq!(nre(builtin_str_char_at(&ctx, &[Value::Null, Value::I64(0)]).unwrap_err()),
-        "cannot call method `CharAt` on a null reference");
+    let typed_nre = |name: &str, args: &[Value]| match crate::corelib::exec_builtin_value(&ctx, name, args)
+        .unwrap_err().downcast::<crate::corelib::abi::BuiltinError>() {
+        Ok(crate::corelib::abi::BuiltinError::NullReference(m)) => m,
+        other => panic!("expected a NullReference, got {other:?}"),
+    };
+    assert_eq!(typed_nre("__str_length", &[Value::Null]), "cannot read property `Length` of a null reference");
+    assert_eq!(typed_nre("__str_char_at", &[Value::Null, Value::I64(0)]), "cannot call method `CharAt` on a null reference");
     assert_eq!(nre(builtin_str_to_chars(&ctx, &[Value::Null]).unwrap_err()),
         "cannot call method `ToCharArray` on a null reference");
     assert_eq!(nre(builtin_str_substring(&ctx, &[Value::Null, Value::I64(0), Value::I64(0)]).unwrap_err()),
         "cannot call method `Substring` on a null reference");
-    assert_eq!(nre(super::super::convert::builtin_str_compare_to(&ctx, &[Value::Str("a".into()), Value::Null]).unwrap_err()),
-        "cannot pass null as argument 1 of `String.CompareTo`");
+    // `CompareTo(null)` is 1 (.NET: any string sorts after null); a null receiver throws.
+    assert_eq!(crate::corelib::exec_builtin_value(&ctx, "__str_compare_to", &[Value::Str("a".into()), Value::Null]).unwrap(),
+        Value::I64(1));
+    assert!(crate::corelib::exec_builtin_value(&ctx, "__str_compare_to", &[Value::Null, Value::Str("a".into())])
+        .unwrap_err().downcast_ref::<crate::corelib::abi::BuiltinError>()
+        .is_some_and(|e| matches!(e, crate::corelib::abi::BuiltinError::NullReference(m) if m == "cannot call method `CompareTo` on a null reference")));
     // `Equals` 的实参 null 是合法输入（false），只有接收者 null 才抛。
     assert_eq!(builtin_str_equals(&ctx, &[Value::Str("a".into()), Value::Null]).unwrap(), Value::Bool(false));
     assert_eq!(nre(builtin_str_equals(&ctx, &[Value::Null, Value::Str("a".into())]).unwrap_err()),

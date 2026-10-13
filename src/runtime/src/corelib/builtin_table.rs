@@ -1,33 +1,18 @@
-//! `BUILTINS` 第 1 段 —— 原始登记表（2026-05-14 首次追加点之前）。
+//! `BUILTINS` —— 旧表第 1 段（`PART1`），以及整张表的编译期拼接：
+//! `PART1 ++ PART2（builtin_table_ext.rs）++ TYPED（builtin ABI v2 的 #[builtins] 模块）`。
 //!
-//! **约定上只在表尾追加**：BuiltinId 就是本表的下标。表内多处 "appended to preserve
-//! existing BuiltinIds" 注释记录了历次追加点。
+//! 下标就是 `BuiltinId`。zbc 里存的是**名字**（`BuiltinInsn { dst, name, args }`），`BuiltinId` 由
+//! resolver 在**加载期**按名字填进 `Function.resolved.builtin_tokens`，AOT 也不烤它 ⇒ 它是单次运行内的
+//! 派发令牌，不跨进程持久化：旧表项随领域迁到 ABI v2 时直接删掉，下标平移对既有产物没有影响。
 //!
-//! 🔴 **本注原先写着「BuiltinId 会被烤进 zbc；在中间插入会让既有产物里的调用全部错位」——
-//! 那句话不成立**（2026-09-26 由 `builtin_table_ext.rs` 抬头读码核实，本处 2026-09-27 更正）：
-//! zbc 里存的是**名字**（`BuiltinInsn { dst, name, args }`），`BuiltinId` 由 resolver 在
-//! **加载期**按名字填进 `Function.resolved.builtin_tokens`，AOT 也不烤它 ⇒ 它是单次运行内的
-//! 派发令牌，不跨进程持久化。append-only 的真实价值是让按 id 做的测试/遥测稳定、
-//! 以及避免 review 时重核整张表。两份抬头此前互相矛盾，以核实过的那份为准。
-//!
-//! refactor-split-corelib-mod（complete-runtime-settings P5 前置，2026-09-05）：
-//! 自 `corelib/mod.rs` 逐行搬出的**纯移动**（无逻辑改动）。mod.rs 长期 665 行、在
-//! line-limit 棘轮基线上，再追加一条 builtin 就会让 `xtask check lines` 变红；而表
-//! 本身是数据、按名字线性增长，与 mod.rs 里的分发逻辑变更频率完全不同。
+//! 新 builtin 不再加进旧表：写进所在领域的 `#[builtins]` 模块（`corelib/README.md`「加一个 builtin」）。
 
 use super::*;
 
 use super::builtin_table_ext::PART2;
 
-/// Single source of truth for all corelib builtins. Each entry's index
-/// (position in this slice) is its **stable `BuiltinId`** for the lifetime
-/// of the process — the resolver assigns IDs by walking this slice.
-///
-/// `introduce-method-token` (2026-05-08): replaces ad-hoc `HashMap` with an
-/// indexed array so dispatch hot path can `BUILTINS[id.0 as usize].1(ctx, args)`
-/// without hashing. The HashMap-based `exec_builtin(name, args)` entry point
-/// remains as fallback for paths that haven't threaded `BuiltinId` yet (e.g.
-/// JIT helpers Phase 1).
+/// The old-style entries (first half). Each entry's index in the joined table is its
+/// `BuiltinId` for the lifetime of the process — the resolver assigns ids by name.
 const PART1: &[(&str, Native)] = &[
     // ── I/O ────────────────────────────────────────────────────────────────────
     ("__println",  Native::Void(io::builtin_println)),
@@ -50,9 +35,7 @@ const PART1: &[(&str, Native)] = &[
     ("__bench_black_box",  Native::Val(bench::builtin_bench_black_box)),
 
     // ── String (minimal intrinsic core; most methods are script-side now) ────
-    ("__str_length",      Native::Val(string::builtin_str_length)),
     ("__str_byte_length", Native::Val(string::builtin_str_byte_length)),
-    ("__str_char_at",     Native::Val(string::builtin_str_char_at)),
     ("__str_to_chars",    Native::Val(string::builtin_str_to_chars)),
     ("__str_from_chars", Native::Val(string::builtin_str_from_chars)),
     // shrink-primitive-native-interop (2026-08-27): __str_to_string removed —
@@ -65,44 +48,8 @@ const PART1: &[(&str, Native)] = &[
     // removed — ASCII-only casing 迁纯脚本。IsWhiteSpace 保留（真 Unicode）。
     ("__char_is_whitespace", Native::Val(char::builtin_char_is_whitespace)),
 
-    // ── Parse / convert ───────────────────────────────────────────────────────
-    //
-    // rename-primitives-to-pascal-case (2026-05-24): builtin names now follow
-    // BCL convention (Int32 / Int64 / SByte / Byte / Single / Boolean / ...).
-    // BUILTINS array position is the stable BuiltinId — entry order preserved.
-    ("__int64_parse",   Native::Val(convert::builtin_int64_parse)),
-    ("__int32_parse",   Native::Val(convert::builtin_int32_parse)),
-    // add-narrow-int-primitives (2026-05-15): per-type Parse with range
-    // validation. Underlying Value is still I64; these only differ from
-    // __int32_parse in the [min, max] check.
-    ("__sbyte_parse",   Native::Val(convert::builtin_sbyte_parse)),
-    ("__int16_parse",   Native::Val(convert::builtin_int16_parse)),
-    ("__byte_parse",    Native::Val(convert::builtin_byte_parse)),
-    ("__uint16_parse",  Native::Val(convert::builtin_uint16_parse)),
-    ("__uint32_parse",  Native::Val(convert::builtin_uint32_parse)),
-    ("__uint64_parse",  Native::Val(convert::builtin_uint64_parse)),
-    ("__double_parse",  Native::Val(convert::builtin_double_parse)),
-    ("__to_str",        Native::Val(convert::builtin_to_str)),
-    ("__box_prim",      Native::Val(convert::builtin_box_prim)),
-    ("__box_struct",    Native::Val(convert::builtin_box_struct)),
-    ("__struct_hash_code", Native::Val(convert::builtin_struct_hash_code)),
-
-    // ── Primitive IComparable / IEquatable (L3-G4b) ───────────────────────────
-    // `__int32_*` underlying routines are shared by all narrow integer wrapper
-    // types (Int16 / SByte / Byte / UInt16 / UInt32 / UInt64 / Int64) since
-    // VM stores them all as Value::I64.
-    // shrink-primitive-native-interop (2026-08-27): __int32_equals/__int32_hash_code,
-    // __double_equals/__double_hash_code, __char_equals/__char_hash_code removed —
-    // 迁纯脚本（对齐 wave1-bool-script）。ToString/Parse/compare 保留 native。
-    ("__int32_to_string",   Native::Val(convert::builtin_int32_to_string)),
-    ("__double_to_string",  Native::Val(convert::builtin_double_to_string)),
-    // add-binary-float (2026-06-09): IEEE-754 bit reinterpret for BinaryReader/Writer
-    ("__single_to_bits",    Native::Val(convert::builtin_single_to_bits)),
-    ("__single_from_bits",  Native::Val(convert::builtin_single_from_bits)),
-    ("__double_to_bits",    Native::Val(convert::builtin_double_to_bits)),
-    ("__double_from_bits",  Native::Val(convert::builtin_double_from_bits)),
-    ("__char_to_string",    Native::Val(convert::builtin_char_to_string)),
-    ("__str_compare_to",    Native::Val(convert::builtin_str_compare_to)),
+    // ── Parse / convert / primitive ToString / BitConverter ── 已迁 builtin ABI v2：
+    //    见 `convert::typed`（`#[builtins]` 模块，经下方 `TYPED` 登记）。
 
     // ── Math ──────────────────────────────────────────────────────────────────
     ("__math_pow",     Native::Val(math::builtin_math_pow)),
@@ -288,15 +235,69 @@ const PART1: &[(&str, Native)] = &[
 /// 让热路径 `BUILTINS[id].1(..)` 多一次间接。分两个文件纯粹是行数硬限所迫
 /// （单文件 515 行 > 500）——切点选在历史首个「appended to preserve BuiltinIds」
 /// 边界，语义上就是「原始表 ++ 追加日志」，不是按行数腰斩。
-const TOTAL: usize = PART1.len() + PART2.len();
+/// Builtin ABI v2（runtime-audit P1-8）：`#[z42_macros::builtins]` 模块各自的 `DESCS`，排在
+/// PART1 ++ PART2 之后。**一个模块一行**——模块里写了 `#[builtin]` 即登记，不再逐函数列表。
+/// 迁过来的 builtin 同时从 PART1 / PART2 删掉（名字唯一，`native_decl_tests` 核对）。
+const TYPED: &[&[super::abi::BuiltinDesc]] = &[
+    super::convert::typed::DESCS,
+    super::string::typed::DESCS,
+    super::threading::typed::DESCS,
+    #[cfg(test)]
+    super::abi::test_builtins::DESCS,
+];
+
+/// Old-table builtins that may run z42 code on the calling thread (reflection invoke /
+/// property access / attribute construction / type and module loading that runs
+/// initializers, the REPL's callbacks): a folded call of their `[Native]` wrapper keeps a
+/// light frame for the wrapper, so whatever that code throws shows the same stack as the
+/// unfolded call (`interp::forward`). Conservative — every reflection / load-context / REPL
+/// builtin. Typed builtins say it themselves (`#[builtin(reenters)]`); this list only
+/// shrinks, as those areas migrate.
+pub(crate) const LEGACY_REENTERS: &[&str] = &[
+    "__type_full_name", "__type_element", "__type_fields", "__type_methods", "__type_constructors",
+    "__type_base", "__type_generic_args", "__type_interfaces", "__type_members",
+    "__type_properties", "__type_is_abstract", "__type_is_sealed", "__type_is_value_type",
+    "__type_is_record", "__type_is_generic", "__type_is_primitive", "__type_is_generic_definition",
+    "__type_generic_definition", "__type_make_generic", "__type_is_interface", "__type_is_enum",
+    "__type_is_delegate", "__enum_names", "__enum_values", "__enum_name", "__type_is_class",
+    "__type_is_assignable_from", "__type_custom_attributes", "__method_custom_attributes",
+    "__field_custom_attributes", "__param_custom_attributes", "__property_custom_attributes",
+    "__type_get_type", "__method_invoke", "__method_make_generic", "__method_generic_arguments",
+    "__property_get_value", "__property_set_value", "__field_get_value", "__field_set_value",
+    "__activator_create", "__ctor_invoke", "__load_module", "__invoke_static", "__repl_readline",
+    "__repl_complete_probe", "__repl_set_completer", "__repl_set_key_editor", "__repl_set_keywords",
+    "__repl_member_names", "__load_bytecode_in_memory", "__enum_parse", "__enum_is_defined",
+    "__type_enum_underlying", "__type_is_nested", "__type_declaring_type", "__type_nested_types",
+    "__type_visibility", "__lctx_default", "__lctx_create_collectible", "__lctx_load",
+    "__lctx_name", "__lctx_is_collectible", "__lctx_assemblies", "__asm_name",
+    "__asm_is_collectible", "__asm_loadcontext", "__asm_get_types", "__type_is_collectible",
+    "__type_assembly", "__lctx_unload", "__run_goldens_isolated", "__methodof", "__class_type_arg",
+    "__class_default", "__test_module_load", "__asm_get_functions",
+];
+
+const TYPED_N: usize = super::abi::descs_len(TYPED);
+
+const TOTAL: usize = PART1.len() + PART2.len() + TYPED_N;
 
 const fn joined() -> [(&'static str, Native); TOTAL] {
-    // 填充值只为让数组可 const 初始化；下面的两个循环会覆盖每一格（长度即 TOTAL）。
+    // 填充值只为让数组可 const 初始化；下面的循环会覆盖每一格（长度即 TOTAL）。
     let mut out = [("", Native::Val(nop as NativeFn)); TOTAL];
     let mut i = 0;
     while i < PART1.len() { out[i] = PART1[i]; i += 1; }
     let mut j = 0;
     while j < PART2.len() { out[PART1.len() + j] = PART2[j]; j += 1; }
+    let mut k = PART1.len() + PART2.len();
+    let mut m = 0;
+    while m < TYPED.len() {
+        let mut d = 0;
+        while d < TYPED[m].len() {
+            let desc: &'static super::abi::BuiltinDesc = &TYPED[m][d];
+            out[k] = (desc.name, Native::Typed(desc));
+            k += 1;
+            d += 1;
+        }
+        m += 1;
+    }
     out
 }
 

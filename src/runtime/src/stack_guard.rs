@@ -84,16 +84,27 @@ pub fn check(ctx: &crate::vm_context::VmContext) -> anyhow::Result<()> {
 #[cold]
 #[inline(never)]
 pub fn overflow(ctx: &crate::vm_context::VmContext) -> anyhow::Error {
+    record(ctx, |n| format!("stack overflow ({n} z42 frames)"));
+    anyhow::anyhow!("stack overflow")
+}
+
+/// Any other fatal VM error — an internal error of a builtin (`BuiltinError::Internal`,
+/// runtime-audit P1-8): same flag, same report (`fatal error: <what>` + the z42 call
+/// stack), same unwinding as a stack overflow. Returns the error the engine propagates.
+#[cold]
+#[inline(never)]
+pub fn fatal_error(ctx: &crate::vm_context::VmContext, what: &str) -> anyhow::Error {
+    record(ctx, |_| what.to_string());
+    anyhow::anyhow!("{FATAL_PREFIX}{what}")
+}
+
+/// Set the fatal flag; the first fatal error of the VM keeps its report.
+fn record(ctx: &crate::vm_context::VmContext, what: impl FnOnce(usize) -> String) {
     if !ctx.core.fatal.swap(true, Ordering::SeqCst) {
         let frames = ctx.snapshot_call_stack();
-        let report = format!(
-            "{FATAL_PREFIX}stack overflow ({} z42 frames)\n{}",
-            frames.len(),
-            format_trace(&frames),
-        );
+        let report = format!("{FATAL_PREFIX}{}\n{}", what(frames.len()), format_trace(&frames));
         *REPORT.lock().unwrap_or_else(|e| e.into_inner()) = Some(report);
     }
-    anyhow::anyhow!("stack overflow")
 }
 
 /// Same order as an exception's stack trace (innermost frame first). A very
@@ -119,6 +130,11 @@ fn format_trace(frames: &[crate::exception::FrameSnapshot]) -> String {
 pub fn is_fatal(ctx: &crate::vm_context::VmContext) -> bool {
     ctx.core.fatal.load(Ordering::Relaxed)
 }
+
+/// Unit tests that raise a fatal error serialize on this: the report is process-wide,
+/// so two at once could take each other's.
+#[cfg(test)]
+pub(crate) static FATAL_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// The report of the fatal error, if one happened (taken once).
 pub fn take_report() -> Option<String> {

@@ -1303,7 +1303,7 @@ pub struct ResolvedTokens {
 每条 token-bearing 指令在 `interp::exec_instr` 入口查 `resolved.site_index[block_idx][instr_idx] → site_idx`，传给对应 helper：
 
 - **Call**: 命中 → 入口函数 `module.functions[t]` / 惰性函数 `funcs.get(t)`；UNRESOLVED → 按名绑定 + 写回（见上文「Call 站点 token：FnId」）
-- **Builtin**: 命中 → `exec_builtin_by_id`（`BUILTINS[id]` 或 ext 表）；`UNRESOLVED` → 按名 `corelib::exec_builtin`（调用时重查 ext 注册表）
+- **Builtin**: 命中 → `corelib::invoke_builtin`（`BUILTINS[id]` 或 ext 表，实参原地从寄存器读）；`UNRESOLVED` → 同一入口按名解析（调用时重查 ext 注册表，仍解不出抛 `MissingSymbolException`）
 - **ObjNew**: 站点缓存命中 → 缓存的 `Arc<TypeDesc>` + ctor 按 `FnId` 无锁取回；未命中 → 按名解析 + 回填（见上文「ObjNew dispatch」）
 - **StaticGet/Set**: 命中 → `static_fields[id]`；UNRESOLVED → name lookup + 回填
 - **VCall**: PIC 命中（4-slot 线性扫描；receiver 的 type id 匹配任一槽位的 `type_id`）→ 按载荷 `FnId` 直调（`fn_by_id`：入口函数 = `module.functions` 下标，惰性函数经 `FuncTable::get`）；miss → 走 `vcall_resolve` 的完整派发阶梯，目标有 `FnId`（本模块与惰性包的函数都有；唯一例外是非入口模块单测里的惰性目标）且实参个数匹配时通过 `vcall_ic_install` 填入第一个空槽（或 round-robin 牺牲一个槽）
@@ -1364,7 +1364,7 @@ id 永不复用，所以它也是比地址更稳的缓存键：描述符释放�
 
 位置：`src/runtime/src/corelib/`
 
-`Builtin` IR 指令在 interp / JIT 都经 `BuiltinId`（加载期由 `corelib::builtin_id_of` 解析）索引 `corelib::BUILTINS` 表分发（`exec_builtin_by_id`；按名入口 `exec_builtin(name, args)`）。
+`Builtin` IR 指令在 interp / JIT 都经 `BuiltinId`（加载期由 `corelib::builtin_id_of` 解析）索引 `corelib::BUILTINS` 表分发（`invoke_builtin`，实参原地从寄存器读；只握着实参切片的调用方用按名入口 `exec_builtin(name, args)`）。ABI 与错误模型见 [native ABI §6](native-abi.md)。
 builtin 按功能分 submodule：`string.rs` / `io.rs` / `math.rs` / `fs.rs` 等，详见 `src/runtime/src/corelib/README.md`。
 
 **新增 builtin 三处同改（强制规则）**：

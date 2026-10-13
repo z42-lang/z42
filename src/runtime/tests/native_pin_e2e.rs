@@ -33,6 +33,7 @@ fn build_module(name: &str, instructions: Vec<Instruction>, terminator: Terminat
         resolved: std::sync::OnceLock::new(),
         owner_init: Default::default(),
         id: Default::default(),
+        forward: Default::default(),
     };
     Module {
         name: name.to_string(),

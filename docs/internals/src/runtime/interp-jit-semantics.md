@@ -173,13 +173,16 @@ JIT helpers/* (extern C) ┘                       └ Err(OpError) → 引擎�
 | 调用形态（编译器发什么） | 判空落在哪 | 热路径代价 |
 |------|-----------|-----------|
 | `VCall`（虚 / 接口 / 本包非虚方法、属性访问器、`s.Length`） | `vcall_resolve::resolve_vcall` 开头，产出 `VCallTarget::Thrown`，两个引擎沿用既有的 `Thrown` 臂 | 零：PIC 键 `receiver_type_id(Null)` 本就是 `None`，null 只会走到未命中的慢路 |
-| 直接 `Call` 到 `[Native]` 转发桩（`s.CharAt(i)`、`s.ToCharArray()`……） | builtin 的接收者取值 `corelib::convert::this_str(args, 成员名)`；非接收者实参走 `arg_str` → `null_arg` | 零：只在既有 tag match 的失配臂里构造 |
+| 直接 `Call` 到 `[Native]` 转发桩（`s.CharAt(i)`、`s.ToCharArray()`……） | builtin 的接收者取值：旧表 `corelib::convert::this_str(args, 成员名)`（非接收者实参走 `arg_str` → `null_arg`）；类型化 builtin 由 `#[builtin(this = "成员名")]` 生成同一条消息（非接收者实参为 null 报 `ArgumentNullException`） | 零：只在既有 tag match 的失配臂里构造 |
 | `CallIndirect`（null 委托） | `semantics::null_invoke_msg`（不经 objops，见 [委托与事件](delegates-events.md)） | — |
 
-builtin 签名返回 `anyhow::Result`，所以用户异常经 `OpError::into_builtin_error` 把 `objops::Throw`
-**原样装进** `anyhow::Error`；interp `exec_call::builtin` 与 JIT `jit_builtin` 的错误出口共用
-`corelib::builtin_error_exception`：能 downcast 回 `Throw` 就按它的类构造，否则照旧包成 `Std.Exception`。
+builtin 失败的出口两个引擎共用 `corelib::abi::error::raise`（interp `exec_call::builtin` 与折叠调用、
+JIT `jit_builtin` 与 `call_forward`）：类型化 builtin 的 `BuiltinError` 按种类构造异常类（ABI v2 的类型化
+builtin 里接收者为 null 报 `NullReferenceException`，见 [native ABI §6.2](native-abi.md)）；旧表 builtin
+返回 `anyhow::Result`，用户异常经 `OpError::into_builtin_error` 把 `objops::Throw` **原样装进**
+`anyhow::Error`，`raise` 能 downcast 回 `Throw` 就按它的类构造，否则照旧包成 `Std.Exception`。
 `Throw` 的 `Display` 与 `into_anyhow` 同为 `<类名>: <消息>`，被别的路径折成字符串时文本也一致。
+`raise` 先查致命标志：致命错误展开期间两个引擎都不再把错误变成 z42 异常。
 
 **已知边界：直接 `Call` 的实例方法不在调用点判空。** 编译器静态绑定的实例调用（其他包里的非虚方法、
 sealed 类去虚化后的调用）发的是 `Call`，接收者只是第 0 个实参；在调用点判空要给每个 `Call` 加一次取 tag

@@ -21,23 +21,6 @@ pub fn builtin_str_to_chars(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     Ok(heap.alloc_array_obj(crate::metadata::types::ArrayObj::typed_iter(heap, crate::metadata::types::ElemType::char(), n, s.chars().map(Value::Char))))
 }
 
-/// Returns the number of Unicode scalar values (characters) in the string.
-/// O(n) — walks the UTF-8 bytes to count chars. For an O(1) byte count
-/// see [`builtin_str_byte_length`] / `Std.String.ByteLength`.
-/// args: [this: str]
-pub fn builtin_str_length(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    // O(1) amortised via the per-string metadata cache (perf-str-char-index):
-    // the z42c lexer queries `src.Length` once per character, which would be
-    // O(n²) with a fresh `chars().count()` each time.
-    match args.first() {
-        Some(Value::Str(s)) => Ok(Value::I64(super::str_meta::char_len(s) as i64)),
-        _ => {
-            let s = this_str(args, "get_Length")?;
-            Ok(Value::I64(s.chars().count() as i64))
-        }
-    }
-}
-
 /// Returns the number of UTF-8 bytes in the string. O(1).
 ///
 /// review.md C11.1 (2026-05-27, option 4): non-breaking sibling to
@@ -51,37 +34,31 @@ pub fn builtin_str_byte_length(_ctx: &VmContext, args: &[Value]) -> Result<Value
     Ok(Value::I64(s.len() as i64))
 }
 
-/// Returns the char at the given scalar index.
-/// args: [this: str, index: i64]
-///
-/// docs/review.md Part 2 C11.2 (2026-05-25): single-pass implementation —
-/// fast path returns at iteration `i` (O(i+1)); error path knows the
-/// actual char count from the same iteration. Previous version did two
-/// full scans (`chars().nth(i)` + `chars().count()` in the error branch)
-/// — O(2n) on failure, wasteful on long strings.
-pub fn builtin_str_char_at(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let i = arg_usize(args, 1, "__str_char_at")?;
-    // O(1) amortised via the per-string metadata cache (perf-str-char-index):
-    // ASCII strings index bytes directly; non-ASCII use a cached char→byte
-    // offset table. Avoids the O(i) `chars().nth(i)` walk the lexer triggers
-    // for every character (→ O(n²) over a source file).
-    if let Some(Value::Str(s)) = args.first() {
-        return match super::str_meta::char_at(s, i) {
-            Some(c) => Ok(Value::Char(c)),
-            None => Err(anyhow!(
-                "__str_char_at: index {} out of range (length {})",
-                i, super::str_meta::char_len(s))),
-        };
+/// The string access builtins on ABI v2 (`string.Length`, `s[i]` / `CharAt`): typed, no
+/// frame when folded — the hottest `[Native]` calls of string-processing code.
+#[z42_macros::builtins]
+pub mod typed {
+    use crate::corelib::abi::BuiltinError;
+    use crate::metadata::vstr::Str;
+
+    /// Number of Unicode scalar values. O(1) amortised via the per-string metadata
+    /// cache (`str_meta`, perf-str-char-index): the z42c lexer queries `src.Length` once
+    /// per character, which would be O(n²) with a fresh count each time.
+    #[builtin(name = "__str_length", this = "get_Length", pure)]
+    pub fn str_length(this: &Str) -> i64 {
+        crate::corelib::str_meta::char_len(this) as i64
     }
-    let s = this_str(args, "CharAt")?;
-    let mut last_seen = 0usize;
-    for (idx, c) in s.chars().enumerate() {
-        if idx == i {
-            return Ok(Value::Char(c));
-        }
-        last_seen = idx + 1;
+
+    /// The char at scalar index `i`. O(1) amortised: ASCII strings index bytes directly,
+    /// others use a cached char → byte offset table (`str_meta`). Out of range (negative
+    /// included) → `IndexOutOfRangeException`, as .NET's `s[i]`.
+    #[builtin(name = "__str_char_at", this = "CharAt", pure)]
+    pub fn str_char_at(this: &Str, i: i64) -> Result<char, BuiltinError> {
+        usize::try_from(i).ok()
+            .and_then(|i| crate::corelib::str_meta::char_at(this, i))
+            .ok_or_else(|| BuiltinError::IndexOutOfRange(format!(
+                "index {i} is out of range for a string of length {}", crate::corelib::str_meta::char_len(this))))
     }
-    Err(anyhow!("__str_char_at: index {} out of range (length {})", i, last_seen))
 }
 
 /// `Std.String.Substring(start, length)` bulk path (perf-stdlib-hot-paths): character

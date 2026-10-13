@@ -13,7 +13,8 @@
 | `exec_instr.rs` | 薄分发器：穷尽 match 把 `Instruction` 分派到下面各 `exec_<category>.rs` |
 | `exec_value.rs` | 常量 / Copy / 算术 / 比较 / 逻辑 / 一元 / 位运算 / 字符串构造 |
 | `exec_address.rs` | `LoadLocalAddr` / `LoadElemAddr` / `LoadFieldAddr`（检查走 objops）/ `DefaultOf`（类级泛型零值）/ `MethodTypeArg`·`MethodDefault`（方法级泛型：读 `Frame.method_type_args`，见 book「泛型方法」页）|
-| `exec_call.rs` | `Call` / `Builtin` / `LoadFn` / `CallIndirect` / `MkClos` |
+| `exec_call.rs` | `Call` / `Builtin` / `LoadFn` / `CallIndirect` / `MkClos`；`[Native]` 包装函数的折叠调用（`try_fold`） |
+| `forward.rs` | **`[Native]` 桩折叠单一实现**（识别转发函数、`Function::forward` 缓存、无帧 / 轻帧执行、失败时现算包装函数的 trace 行），interp `exec_call` / `exec_vcall` 与 JIT `jit/forward.rs` 共用；机制见 internals「native ABI §6.4」 |
 | `exec_array.rs` | `ArrayNew` / `ArrayNewLit` / `ArrayGet` / `ArraySet` / `ArrayLen`：`objops::array` 的薄适配（另解析泛型型参的基元零值） |
 | `exec_object.rs` | `ObjNew`；`FieldGet` / `FieldSet` / `Static*` 是 `objops::field` / `objops::statics` 的薄适配 |
 | `exec_object_isa.rs` | `IsInstance` / `AsCast` 类型判定（`exec_object` 再导出） |
@@ -31,7 +32,7 @@
 - `interp::run_with_static_init(module, func)` — 初始化静态字段后执行
 
 ## 依赖关系
-- 依赖 `corelib` 模块的 `exec_builtin` 和 `value_to_str`
+- 依赖 `corelib` 模块的 `invoke_builtin` / `abi::error::raise` 和 `value_to_str`
 - 依赖 `metadata` 模块的 `Module`、`Function`、`Instruction`、`Value` 等类型
 
 ## 如何测试验证

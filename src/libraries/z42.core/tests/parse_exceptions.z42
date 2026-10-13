@@ -1,0 +1,119 @@
+// runtime-audit P1-8: the parse builtins throw .NET's exception types —
+// `FormatException` for malformed text, `OverflowException` (an
+// `ArithmeticException`) outside the target range, `ArgumentNullException` for
+// null — and `TryParse` reports failure without throwing.
+namespace Z42CoreParseExceptionsTests;
+
+[Test]
+void test_malformed_is_format_exception() {
+    Assert.Throws("FormatException", () => Int32.Parse("x"));
+    Assert.Throws("FormatException", () => Int64.Parse(""));
+    Assert.Throws("FormatException", () => Double.Parse("abc"));
+    Assert.Throws("FormatException", () => Int32.Parse("3.5"));
+}
+
+[Test]
+void test_format_exception_is_catchable_by_type_and_as_exception() {
+    string msg = "";
+    try {
+        Int32.Parse("x");
+    } catch (FormatException e) {
+        msg = e.Message;
+    }
+    Assert.True(msg.Contains("'x'"));
+    bool caught = false;
+    try {
+        Int32.Parse("x");
+    } catch (Exception e) {
+        caught = true;
+    }
+    Assert.True(caught);
+}
+
+[Test]
+void test_out_of_range_is_overflow_exception() {
+    Assert.Throws("OverflowException", () => Int32.Parse("2147483648"));
+    Assert.Throws("OverflowException", () => Int64.Parse("99999999999999999999"));
+    Assert.Throws("OverflowException", () => UInt32.Parse("-1"));
+    bool arithmetic = false;
+    try {
+        Byte.Parse("256");
+    } catch (ArithmeticException e) {
+        arithmetic = true;
+    }
+    Assert.True(arithmetic);
+}
+
+[Test]
+void test_null_is_argument_null_exception() {
+    string s = null;
+    Assert.Throws("ArgumentNullException", () => Int32.Parse(s));
+    Assert.Throws("ArgumentNullException", () => Boolean.Parse(s));
+    Assert.Throws("ArgumentNullException", () => Char.Parse(s));
+}
+
+[Test]
+void test_whitespace_and_sign_are_accepted() {
+    Assert.Equal(42, Int32.Parse("  42 "));
+    Assert.Equal(7, Int32.Parse("+7"));
+    Assert.Equal(0, Int32.Parse("-0"));
+}
+
+[Test]
+void test_tryparse_failure_returns_false_without_throwing() {
+    int v = 5;
+    bool threw = false;
+    bool ok = true;
+    try {
+        ok = Int32.TryParse("x", ref v);
+    } catch (Exception e) {
+        threw = true;
+    }
+    Assert.False(threw);
+    Assert.False(ok);
+    Assert.Equal(0, v);
+    string none = null;
+    Assert.False(Int32.TryParse(none, ref v));
+    short w = 9;
+    Assert.False(Int16.TryParse("40000", ref w));
+    Assert.Equal((short)0, w);
+}
+
+[Test]
+void test_tryparse_every_width() {
+    sbyte a = 0;  Assert.True(SByte.TryParse("-128", ref a));   Assert.Equal((sbyte)-128, a);
+    short b = 0;  Assert.True(Int16.TryParse("-32768", ref b));  Assert.Equal((short)-32768, b);
+    byte c = 0;   Assert.False(Byte.TryParse("-1", ref c));      Assert.Equal((byte)0, c);
+    ushort d = 0; Assert.True(UInt16.TryParse("65535", ref d));  Assert.Equal((ushort)65535, d);
+    uint e = 0;   Assert.True(UInt32.TryParse("4294967295", ref e));
+    ulong f = 0;  Assert.True(UInt64.TryParse("18446744073709551615", ref f));
+    Assert.Equal("18446744073709551615", f.ToString());
+    float g = 0.0f; Assert.True(Single.TryParse("1.5", ref g));  Assert.Equal(1.5f, g);
+    bool h = true;  Assert.False(Boolean.TryParse("yes", ref h)); Assert.False(h);
+    char i = 'a';   Assert.False(Char.TryParse("ab", ref i));     Assert.Equal('\0', i);
+}
+
+[Test]
+void test_tryparse_inline_declaration_and_discard() {
+    // `ref var n` (declared at the call site) and `ref _` (hidden slot) reach the
+    // builtin as ordinary `ref` locations.
+    if (Int32.TryParse("123", ref var n)) {
+        Assert.Equal(123, n);
+    } else {
+        Assert.True(false);
+    }
+    Assert.True(Int32.TryParse("7", ref _));
+    Assert.False(Int32.TryParse("seven", ref _));
+}
+
+class Holder { public int F; }
+
+[Test]
+void test_tryparse_into_field_and_array_element() {
+    var h = new Holder();
+    Assert.True(Int32.TryParse("55", ref h.F));
+    Assert.Equal(55, h.F);
+    long[] a = new long[2];
+    Assert.True(Int64.TryParse("-9", ref a[1]));
+    Assert.Equal(-9L, a[1]);
+}

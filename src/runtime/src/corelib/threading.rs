@@ -158,52 +158,61 @@ impl Drop for SpawnedEnvRoot {
     }
 }
 
-/// `__thread_sleep(millis: i64)` — block the current thread for the given
-/// duration. add-thread-sleep (2026-05-27). Negative values saturate to 0
-/// (matches BCL `Thread.Sleep`). Backed by `std::thread::sleep` (POSIX
-/// `nanosleep`); ms precision is sufficient for the scripting use case.
-pub fn builtin_thread_sleep(ctx: &VmContext, args: &[Value]) -> Result<()> {
-    let millis = match args.first() {
-        Some(Value::I64(n)) => *n,
-        Some(other) => bail!("__thread_sleep: expected i64 millis, got {:?}", other),
-        None        => bail!("__thread_sleep: missing millis argument"),
-    };
-    let clamped = if millis < 0 { 0u64 } else { millis as u64 };
-    // fix-sync-primitives-gc-park：睡眠期间到不了 safepoint ⇒ 并发 GC 的停顿被拉长到**整个睡眠
-    // 时长**（`Thread.Sleep(60000)` 就是卡 GC 一分钟；poll 循环里则是持续拖累）。
-    // 与 recv/join 不同，这条不是永久死锁，但同属「阻塞期间必须让出 safepoint」。
-    {
-        let _park = crate::gc::NativeParkGuard::enter(ctx);
-        std::thread::sleep(std::time::Duration::from_millis(clamped));
+/// The blocking thread builtins (builtin ABI v2): their waits run with the context
+/// parked, so a collection another thread starts meanwhile does not wait for them.
+#[z42_macros::builtins]
+pub mod typed {
+    use super::JoinOutcome;
+    use crate::corelib::abi::Blocking;
+    use crate::vm_context::VmContext;
+
+    /// `__thread_sleep(millis)` — block the current thread. Negative values saturate to
+    /// 0 (BCL `Thread.Sleep`). The whole body runs parked (`blocking`): a sleeping thread
+    /// cannot hold up a collection for the length of its sleep (`Thread.Sleep(60000)`
+    /// would otherwise stall every other thread's GC for a minute).
+    #[builtin(name = "__thread_sleep", blocking)]
+    pub fn thread_sleep(millis: i64) {
+        std::thread::sleep(std::time::Duration::from_millis(millis.max(0) as u64));
     }
-    Ok(())
-}
 
-/// `__thread_join(slot_id) -> Value::Array` — wait for the spawned thread and
-/// return a discriminated outcome (see module-level docs for the shape).
-pub fn builtin_thread_join(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let slot_id: u64 = match args.first() {
-        Some(Value::I64(n)) if *n >= 0 => *n as u64,
-        Some(other) => bail!("__thread_join: expected i64 slot id, got {:?}", other),
-        None        => bail!("__thread_join: missing slot id"),
-    };
-
-    let handle = match ctx.core.threads.lock().remove(&slot_id) {
-        Some(h) => h,
-        None    => return Ok(unknown_slot_result(ctx)),
-    };
-
-    // fix-blocking-native-calls-round2：阻塞期间必须让出 GC safepoint，否则并发 GC 死锁
-    // （同 #598 的网络七处；机制见 gc/safepoint.rs 的 NativeParkGuard）。
-    // ⚠️ 这条是最危险的一个：`t.Join()` 是 z42 多线程的主干写法。被 join 的线程只要在结束前
-    // 触发 GC，join 方卡在 handle.join()（不在安全点）⇒ GC 等不到它 ⇒ 被 join 的线程也结束不了。
-    let joined = { let _park = crate::gc::NativeParkGuard::enter(ctx); handle.join() };
-    match joined {
-        Ok(Ok(()))     => Ok(ok_result(ctx)),
-        Ok(Err(e))     => Ok(action_err_result(ctx, &format!("{e}"))),
-        Err(_panic)    => Ok(action_err_result(ctx, "thread panicked")),
+    /// `__thread_join(slot)` — wait for a spawned thread; returns the discriminated
+    /// outcome array (module docs). The handle is taken out of the registry unparked,
+    /// the join itself runs parked: the joined thread may need a collection to finish,
+    /// and the collector waits for every thread that is not parked — joining unparked
+    /// deadlocks both (`t.Join()` is the backbone of z42 threading).
+    #[builtin(name = "__thread_join")]
+    pub fn thread_join(ctx: &VmContext, slot: i64) -> Blocking<JoinOutcome> {
+        let handle = ctx.core.threads.lock().remove(&(slot as u64));
+        Blocking::new(move || Ok(match handle {
+            None => JoinOutcome::UnknownSlot,
+            Some(h) => match h.join() {
+                Ok(Ok(()))  => JoinOutcome::Ok,
+                Ok(Err(e))  => JoinOutcome::ActionErr(format!("{e}")),
+                Err(_panic) => JoinOutcome::ActionErr("thread panicked".to_string()),
+            },
+        }))
     }
 }
+
+/// What `__thread_join` found — plain data, built into the result array only after the
+/// joining thread is unparked again.
+pub enum JoinOutcome {
+    Ok,
+    ActionErr(String),
+    UnknownSlot,
+}
+
+impl crate::corelib::abi::IntoRet for JoinOutcome {
+    const KIND: crate::corelib::abi::RetKind = crate::corelib::abi::RetKind::Any;
+    fn into_ret(self, ctx: &VmContext) -> crate::corelib::abi::CallResult {
+        Ok(Some(match self {
+            JoinOutcome::Ok => ok_result(ctx),
+            JoinOutcome::ActionErr(msg) => action_err_result(ctx, &msg),
+            JoinOutcome::UnknownSlot => unknown_slot_result(ctx),
+        }))
+    }
+}
+impl crate::corelib::abi::PlainRet for JoinOutcome {}
 
 // ── internal helpers ─────────────────────────────────────────────────────────
 

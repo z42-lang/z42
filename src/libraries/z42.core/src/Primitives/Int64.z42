@@ -17,10 +17,7 @@ public struct Int64 : IComparable, IEquatable, INumber {
 
     // Non-throwing parse — see Int32.TryParse. Returns false with `v` = 0 on
     // malformed input (value types are never nullable → out-value goes by `ref`).
-    public static bool TryParse(string s, ref long v) {
-        try { v = Int64.Parse(s); return true; }
-        catch (Exception e) { v = 0; return false; }
-    }
+    [Native("__int64_try_parse")] public static extern bool TryParse(string s, ref long v);
 
     // Equals / GetHashCode 是纯脚本。hash 折叠高低 32 位（同 C# Int64.GetHashCode）：
     // `(int)` 只留低 32 位，只在高位不同的键（如 `i << 32`）若不折叠会全撞同一个 hash。

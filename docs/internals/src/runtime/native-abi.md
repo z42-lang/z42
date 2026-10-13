@@ -90,7 +90,7 @@
 | [`src/runtime/src/native/`](https://github.com/z42-lang/z42/tree/main/src/runtime/src/native) | Tier 1 在 VM 内的实现（`registry` / `marshal` / `dispatch` / `loader` / `error` / `exports` / `ext`） |
 | [`src/runtime/crates/z42-abi`](https://github.com/z42-lang/z42/tree/main/src/runtime/crates/z42-abi) | Tier 1 的 Rust 镜像（结构体 + 冻结 tag 常量 + `extern "C"` 声明） |
 | [`src/runtime/crates/z42-rs`](https://github.com/z42-lang/z42/tree/main/src/runtime/crates/z42-rs) | 面向用户的门面 crate（`Z42Type` trait + helper） |
-| [`src/runtime/crates/z42-macros`](https://github.com/z42-lang/z42/tree/main/src/runtime/crates/z42-macros) | proc macro：`methods_attr` / `module_macro` / `shim` / `signature` |
+| [`src/runtime/crates/z42-macros`](https://github.com/z42-lang/z42/tree/main/src/runtime/crates/z42-macros) | proc macro：`methods_attr` / `module_macro` / `shim` / `signature`（Tier 2）；`builtins_attr`（VM 自己的 builtin ABI，§6.2） |
 | `src/compiler/z42c.emission/src/Emission/StubEmitter.z42` | 编译器侧：`[Native]` → `CallNativeInstr` / `BuiltinInstr` 的分流 |
 
 整条通路由 cargo feature **`native-interop`** 门控（`= ["dep:libffi", "dep:libloading"]`，在默认
@@ -218,18 +218,22 @@ PinSourceKind }` 住在 per-`VmContext` 的 `TransientArena` 里，随帧 LIFO �
 ## 6. 内置函数通路（`BUILTINS`）
 
 typed 通路之外的那一半：`[Native("__name")]` 把 stdlib 的 z42 声明接到 VM 里的 Rust 实现上。
+builtin 有两种写法并存：**ABI v2 的类型化 builtin**（`#[builtin]`，§6.2，新代码一律用它）和
+旧表里的手写 `fn(&VmContext, &[Value])`（按领域逐个迁走，迁完删除）。
 
 ### 6.1 表与 id
 
 ```rust
-pub type NativeFn     = fn(&VmContext, &[Value]) -> Result<Value>;
-pub type NativeVoidFn = fn(&VmContext, &[Value]) -> Result<()>;   // 无返回值：类型上无法产出 Value
+pub enum Native {
+    Val(NativeFn),                     // 旧：fn(&VmContext, &[Value]) -> Result<Value>
+    Void(NativeVoidFn),                // 旧：fn(&VmContext, &[Value]) -> Result<()>
+    Typed(&'static abi::BuiltinDesc),  // ABI v2：#[builtin] 生成的描述符
+}
 
-pub enum Native { Val(NativeFn), Void(NativeVoidFn) }             // 表项两味
-
-const PART1: &[(&str, Native)] = &[ ("__println", Native::Void(io::builtin_println)), … ];  // builtin_table.rs
-const PART2: &[(&str, Native)] = &[ … ];                                                   // builtin_table_ext.rs
-static JOINED: [(&str, Native); TOTAL] = joined();   // const fn 编译期拼接
+const PART1: &[(&str, Native)] = &[ … ];                       // builtin_table.rs（旧表）
+const PART2: &[(&str, Native)] = &[ … ];                       // builtin_table_ext.rs（旧表）
+const TYPED: &[&[abi::BuiltinDesc]] = &[convert::typed::DESCS, string::typed::DESCS, …];  // 一个模块一行
+static JOINED: [(&str, Native); TOTAL] = joined();             // const fn 编译期拼接：PART1 ++ PART2 ++ TYPED
 pub(crate) const BUILTINS: &[(&str, Native)] = &JOINED;
 ```
 
@@ -237,57 +241,193 @@ pub(crate) const BUILTINS: &[(&str, Native)] = &JOINED;
 
 > `BuiltinId` **不会被烤进 zbc**：zbc 里存的是**名字**（`BuiltinInsn { dst, name, args }`），
 > `BuiltinId` 由 resolver 在**加载期**按名字填进 `Function.resolved.builtin_tokens`，AOT 也不烤它
-> ⇒ 它是**单次运行内的派发令牌**，不跨进程持久化，在表中间插入不会让既有产物错位。
+> ⇒ 它是**单次运行内的派发令牌**，不跨进程持久化。迁到 ABI v2 的 builtin 从旧表删掉、出现在 `TYPED`
+> 段，下标随之平移，对既有产物没有影响。
 
-- **约定上只在表尾追加**：真实价值是让按 id 做的测试/遥测稳定，以及避免 review 时重核整张表，
-  **不是**格式约束。表里多处 "appended to preserve existing BuiltinIds" 注释记的是历次追加点。
+- 名字唯一：同一个名字只能在表里出现一次（`abi_tests::typed_builtins_are_in_the_table_once`）。
 - 名字 → id 的反查表 `BUILTIN_INDEX: OnceLock<HashMap<&str, u32>>` 首次访问时从 `BUILTINS` 现算
   （`corelib/mod.rs`），保证单一真相。
-- 拆成 `PART1` / `PART2` 两段纯粹是行数门禁：表是按名字线性增长的数据，与 `mod.rs` 里的分发逻辑变更
-  频率完全不同，合在一起会顶到 `xtask check lines` 的棘轮基线。
+- 拆成 `PART1` / `PART2` 两段纯粹是行数门禁，旧表迁空后整段删掉。
 
 加载期由 `metadata::resolver` 把每个 builtin 调用点的名字解析成 token：先查 `BUILTINS`，未命中再查
-per-VM 的 ext 表；两边都没有则留 `UNRESOLVED`，在真正调用时按名字再解一次
-（JIT 在 ext 库尚未加载时就可能走到这里，硬 panic 会整个 VM 崩掉）。
+per-VM 的 ext 表；两边都没有则留 `UNRESOLVED`，在真正调用时按名字再解一次（JIT 在 ext 库尚未加载时就
+可能走到这里）。调用时仍解不出 ⇒ 抛 `Std.MissingSymbolException`（与调用不存在的函数同一个类）。
 
-### 6.1b 有返回值 vs 无返回值（`Native::Val` / `Native::Void`）
+**两个引擎的调用口只有一个**：`corelib::invoke_builtin(ctx, id, name, this, regs, args)`。实参
+**原地从调用方寄存器读**——`this`（vcall 短路持有的接收者，不在寄存器里）在前，其后是 `regs[args[i]]`。
+类型化 builtin 的包装器直接按下标取；旧表 builtin 才把实参拷进一个栈上缓冲区（≤ 6 个，超出用 `Vec`）再调——缓冲区原地填、不移动，实参逐个 16 字节拷贝（经 `Option<Value>` 中转或移动 `SmallVec` 会让被调方读实参时错过 store forwarding，曾使折叠后的旧表调用慢 25%）。
+解释器 `exec_call::builtin` 与 JIT `jit_builtin`（签名 `(frame, ctx, dst, id, name, args_ptr, argc)`）
+都只做「结果写 `dst`、失败交给 §6.3」。只握着切片的调用方（反射、单测、`exec_builtin_value`）走
+`exec_builtin` / `exec_builtin_by_id`，类型化 builtin 为它们另生成一个读切片的入口。
 
-**void builtin 不用 `Value::Null` 表示「没有返回值」**。
+### 6.1b 有返回值 vs 无返回值
 
-若所有 builtin 共用 `-> Result<Value>`，无返回值的那些返回 `Ok(Value::Null)`，而
-`exec_call::builtin` / `jit_builtin` 若**无条件** `frame.set(dst, v)` ⇒ 「无返回值」与
-「返回 null」在寄存器里**长得一模一样**。这正是 `Value::Null` 多义哨兵中的一义。
+**void builtin 不用 `Value::Null` 表示「没有返回值」**：调用口返回 `Option<Value>`，**`None` = void**，
+interp / JIT 都**不写 `dst`**（若共用 `Value` 返回值，「无返回值」与「返回 null」在寄存器里一模一样）。
 
 | 部件 | 契约 |
 |---|---|
-| 表项 | `Native::Val(f)`（`f: -> Result<Value>`）/ `Native::Void(f)`（`f: -> Result<()>`）|
-| 分发 | `exec_builtin{,_by_id}(..) -> Result<Option<Value>>`，**`None` = void** |
-| interp / jit | `Ok(None)` ⇒ **不写 `dst`**（两侧逐字同款；一侧漏改就是「两个后端只有一个错」那种最难发现的形态）|
+| 旧表项 | `Native::Val(f)`（`-> Result<Value>`）/ `Native::Void(f)`（`-> Result<()>`）|
+| 类型化 builtin | 返回 `()` ⇒ `RetKind::Void`；其余返回类型都产出值 |
 | 期待有值的调用方 | `exec_builtin_value(..) -> Result<Value>` —— 撞上 void **报错**，不给占位值 |
 
-⭐ **为什么用枚举而不是拆两张表**：`BuiltinId` 就是表下标，拆表会让 45 个 void 条目之后的下标
-全部平移。枚举保持下标逐一不动，同时拿到**类型强制** —— 声明为 void 的 builtin
-**在类型上无法产出 `Value`**，不是靠约定。
+🔒 **有门**：`corelib/native_decl_tests.rs::declared_voidness_matches_the_builtin_table` 对账
+「stdlib 声明 `void` ⟺ 表项无返回值」，`every_declared_native_has_a_builtin` 对账名字。参数个数与类型
+**没有编译期对账**（User 决定：靠测试——声明与 Rust 签名不一致，调用即报内部错误，见 §6.3）。
 
-⚠️ **权威清单从 stdlib 的 `[Native]` 声明推导**（返回类型是否 `void`），不是从
-「哪些 builtin 返回 `Ok(Value::Null)`」反推：全仓 `Ok(Value::Null)` 有 90 处，而真正 void 的只有
-**45** 个 —— 另一半在**有返回值**的 builtin 里，`Null` 是它们的合法返回
-（如 `Type.GetType` 查不到返 null）。按 90 处机械替换会改坏一半。
+### 6.2 加一个 builtin（ABI v2：`#[builtin]`）
 
-🔒 **有门**：`corelib/native_decl_tests.rs::declared_voidness_matches_the_builtin_table`
-对账「stdlib 声明 `void` ⟺ 表项是 `Native::Void`」。`Native::Val`/`Void` 是**手写的第三份数据**，
-漂开的后果不是崩而是**悄悄退回 `Null` 哨兵行为**（声明 void 却登记成 `Val` + 返回 `Ok(Value::Null)`
-—— 那编得过）。只改「味」编不过（签名不匹配），所以门防的正是这个方向。
+builtin 写成**普通的类型化 Rust 函数**，放进所在领域文件里的一个 `#[z42_macros::builtins]` 内联模块：
 
-### 6.2 命名约定
+```rust
+#[z42_macros::builtins]
+pub mod typed {
+    use crate::corelib::abi::{BuiltinError, RefArg};
+    use crate::vm_context::VmContext;
+
+    #[builtin(name = "__int32_parse", pure)]
+    pub fn int32_parse(s: &str) -> Result<i64, BuiltinError> { … }
+
+    #[builtin(name = "__str_char_at", this = "CharAt", pure)]
+    pub fn str_char_at(this: &Str, i: i64) -> Result<char, BuiltinError> { … }
+
+    #[builtin(name = "__int32_try_parse")]
+    pub fn int32_try_parse(ctx: &VmContext, s: Option<&str>, v: RefArg) -> Result<bool, BuiltinError> { … }
+
+    #[builtin(name = "__thread_sleep", blocking)]
+    pub fn thread_sleep(millis: i64) { … }
+}
+```
+
+三步：
+
+1. 在领域文件的 `#[builtins]` 模块里写函数（没有就建一个 `pub mod typed`）；
+2. 新模块要在 `builtin_table.rs` 的 `TYPED` 里加**一行**（模块的 `DESCS`）——模块里的函数不再逐个登记，
+   写了 `#[builtin]` 就在表里；`#[builtin]` 写在 `#[builtins]` 模块之外是编译错误（找不到该属性）；
+3. z42 侧用 `[Native("__foo")] … extern` 声明（stdlib）。
+
+宏（`crates/z42-macros/src/builtins_attr.rs`）是**单一真相**，每个函数展开出：
+
+- 一个按参数源泛型的读参包装器，实例化两份：`__z42b_regs_<f>`（从寄存器按下标读，引擎用）与
+  `__z42b_slice_<f>`（读 `&[Value]`）；
+- 一个 `BuiltinDesc { name, params: &[ParamKind], ret: RetKind, flags, call_regs, call_slice }`；
+- 模块尾部的 `DESCS`（编译期拼接；带 `#[cfg]` 的 builtin 随条件整条消失）。
+
+**签名约定**（`corelib/abi/`）：
+
+| 位置 | 能写什么 | 说明 |
+|---|---|---|
+| 首参 | `ctx: &VmContext`（可选） | 不算 z42 实参 |
+| 参数 | `&str` / `String` / `&Str`、`Option<&str>` / `Option<String>`、`i64`、`f64`、`bool`、`char`、`&Value` / `Value`、`RefArg` | 每种一个 `FromArg` impl：null / 类型检查在这里，失败是类型化错误 |
+| 返回 | `T` 或 `Result<T, BuiltinError>`，`T` ∈ `()`、`i64`、`f64`、`bool`、`char`、`String`、`&str`、`Option<String>`、`Value`、`Blocking<R>` | 每种一个 `IntoRet` impl；`()` = void |
+| 属性 | `name = "__x"`（必填）、`pure`、`blocking`、`reenters`、`this = "Member"` | 见下 |
+
+- **实参错误**：非空参数收到 null → `ArgumentNullException("Value cannot be null. (Parameter 's')")`
+  （参数名取自 Rust 形参）；`this = "Member"` 标出的接收者为 null → `NullReferenceException`，消息与
+  `VCall` 撞 null 同一条；类型不符 → `InvalidCastException`；**实参个数不符**只可能是 `[Native]` 声明与
+  Rust 签名不一致 ⇒ `Internal`（致命）。
+- **`ref` / `out` 出参**：参数写 `RefArg`，`v.store(ctx, value)` 经 transient arena 解出位置后写穿
+  （与 z42 方法里给 `ref` 形参赋值同一条 `store_thru_ref`）。`TryParse` 一族就是这样做到不抛异常的。
+  builtin 拿到调用方的引用依赖 §6.4 的折叠（直接调用与虚调用都会折叠）：真正执行的包装函数帧在入口把 `ref`
+  实参解引用成值（copy-in / copy-out），builtin 写不回去；这种情况只出现在反射 `Invoke` / 嵌入方直接调用，
+  而它们本来就只传值、没有 `ref` 位置——`store` 此时什么都不做，与不折叠时的效果一致。
+- **`pure`**：无副作用、结果只取决于实参（描述符数据，供日后 JIT intrinsic 使用）。
+- **`reenters`**：builtin 可能执行 z42 代码（回调、getter、初始化器）。影响 §6.4 的折叠方式。
+
+#### `blocking`：park 在结构上禁止分配
+
+会长时间不返回的 builtin（sleep、join、网络 / 管道 I/O、条件等待）必须在阻塞期间 park，否则
+GC 等不到它到达 safepoint（规则见 runtime-rust.md「阻塞的 native 调用必须 park」）。ABI v2 把规则做成结构：
+
+- `#[builtin(blocking)]`：**整个函数体在 park 状态下运行**。它**不能**取 `&VmContext`（宏报错），参数
+  必须是 `PlainArg`（`i64` / `f64` / `bool` / `char` / `String` / `Option<String>`，不指向 GC 堆），
+  返回值必须是 `PlainRet`；包装器先把实参转成纯 Rust 数据、再 park、跑函数体、unpark，**最后**才把结果
+  转成 `Value`（`String` 结果是一次 GC 分配）。函数体拿不到堆，就不可能在 park 期间分配。
+- 需要先用 ctx 准备（从 registry 取出句柄）的 builtin 不加 `blocking`，而是返回 `Blocking::new(move || …)`：
+  准备阶段 unpark 运行，闭包在 park 状态下运行，结果同样 unpark 之后才转换。闭包要求 `Send + 'static`
+  ——借不到 `&VmContext`，也借不到调用方栈上的任何东西。`__thread_join` 是这一形态的样板。
+
+单测照 `abi_tests::a_blocking_builtin_lets_a_collection_run_while_it_waits` 写：阻塞线程 `parked_count == 1`，
+另一线程此时能发起并完成一次全堆回收，结束后回到 0。debug 构建下 park 期间分配会被
+`debug_assert_not_native_parked` 当场拦下。
+
+### 6.3 错误模型（`BuiltinError`）
+
+类型化 builtin 以 `BuiltinError` 失败，每一种对应一个 stdlib 异常类（.NET 的名字与继承关系）：
+
+| 变体 | 抛出的类（按序取第一个已加载的，最后兜底 `Std.Exception`） |
+|---|---|
+| `Format` | `Std.FormatException` |
+| `Argument` / `ArgumentNull` / `ArgumentOutOfRange` | `Std.ArgumentException` / `Std.ArgumentNullException` → `ArgumentException` / `Std.ArgumentOutOfRangeException` → `ArgumentException` |
+| `IndexOutOfRange` / `InvalidOperation` / `NotSupported` / `InvalidCast` / `NullReference` / `KeyNotFound` | 同名 `Std.*` 类 |
+| `Overflow` | `Std.OverflowException` → `Std.ArithmeticException` |
+| `Io` / `FileNotFound` / `DirectoryNotFound` / `PathTooLong` / `EndOfStream` | `Std.IO.IOException` 及其同名子类（`EndOfStreamException` 在 `z42.io`） |
+| `UnauthorizedAccess` / `Timeout` | `Std.UnauthorizedAccessException` / `Std.TimeoutException` |
+| `Exception { class, message }` | 任意类（包级异常，如 `Std.Threading.ThreadException`） |
+| `Thrown(Value)` | 已构造好的异常值，原样抛（回调里 z42 代码抛的） |
+| `Internal(String)` | **致命错误**，不可 catch |
+| `Legacy(anyhow::Error)` | 旧表 builtin 的错误：沿用旧映射（`objops::Throw` 按其类，其余 `Std.Exception`） |
+
+`From<std::io::Error>` 按 .NET 的口径映射 OS 错误（不存在 → `FileNotFound`，无权限 →
+`UnauthorizedAccess`，超时 → `Timeout`，提前 EOF → `EndOfStream`，其余 → `Io`）；`From<OpError>` 接 objops。
+
+**唯一的出口** `corelib::abi::error::raise`，两个引擎共用（interp `exec_call::builtin` / 折叠调用，
+JIT `jit_builtin` / `call_forward`），判定顺序：
+
+1. 回调里 z42 代码抛出的原异常（`pending_thrown`）优先，原样抛出；
+2. **致命错误正在展开**（`stack_guard::is_fatal`）⇒ 不构造任何异常，原错误继续向外传；
+3. `Internal` ⇒ `stack_guard::fatal_error`：与栈溢出**同一套机制**——置 VM 的致命标志、记下
+   `fatal error: internal error in builtin `__x`: …` 加 z42 调用栈，此后不再有 z42 handler 运行，
+   `z42vm` 打印报告并以退出码 3 结束，嵌入 API 返回 `Z42_HOST_ERR_FATAL`；
+4. 其余按类构造异常，并**在 builtin 处**填 `StackTrace`——两个引擎的 trace 因此逐字一致
+   （JIT 以前要等异常回到解释器帧才填）。
+
+「内部错误」指 VM / stdlib 自身的缺陷：`[Native]` 声明与 Rust 签名不一致、句柄失效、不变式被破
+（如 `__box_prim` 在 debug 构建收到 `Null`）。用户代码能触发的失败一律用对应的异常类。
+旧表 builtin 的 `anyhow` 错误**迁移前**仍按旧映射成 `Std.Exception`，不区分内部错误。
+
+### 6.4 `[Native]` 桩折叠（两个引擎，VM 链接期）
+
+每个 `[Native("__x")] extern` 方法编译成一条指令的包装函数
+（`%n = builtin __x(%0…); ret %n`）。按普通协议调用它要付一整个调用帧，只为把实参原样转给 builtin。
+调用解析到这样的转发函数时，**两个引擎都直接从调用方寄存器跑它的 builtin**（`interp/forward.rs`）：
+
+- 解释器：`exec_call::call`（静态调用，在模块初始化 / 类型初始化屏障之后）与 `exec_vcall::invoke`；
+- JIT：`jit_call` / `jit_vcall` 的已编译目标（`FnEntry::forward`）与冷目标（经解释器的那条路）。
+
+识别是**按函数**的、首次调用时算一次并缓存在 `Function::forward`：
+
+1. 一块、无异常表、无泛型参数、全部形参按序转发的 `builtin` + `ret`（含 void 形态）；
+2. 同一类型内再包一层的 `call G(%0…); ret`，`G` 是形态 1（`string` 索引器：`get_Item` → `CharAt` →
+   `__str_char_at`）——同类型保证外层的类型初始化屏障已覆盖 `G`；
+3. 返回 blob struct 的 sret 桩（`GCHandle.Alloc`）**不折叠**：它的函数体依赖帧的 struct arena，且不在热路径上。
+
+**为什么不在编译器里折叠**：把桩折进调用方等于把 stdlib 私有的 builtin 名字烤进用户包，用户包从此绑死
+某一版 VM 的 builtin 集合，包版本边界就破了。VM 链接期按函数识别没有这个问题。
+
+**栈回溯不变**（用户不可见折叠）：
+
+- 不会执行 z42 代码的 builtin（类型化且不 `reenters`；旧表里不在 `LEGACY_REENTERS` 上的）：**不建任何帧**。
+  失败时才从函数现算包装函数那一行（链式形态两行）拼进 trace，结果与不折叠时逐字相同；
+- 可能执行 z42 代码的（类型化的 `reenters`；旧表的反射 / 加载上下文 / REPL builtin，列在
+  `builtin_table.rs` 的 `LEGACY_REENTERS`）：在 builtin 运行期间压一个**轻帧**——只有包装函数指针、
+  没有寄存器文件、什么都不执行——于是回调里抛出的异常、致命报告都看到与不折叠时一样的栈。这类 builtin
+  只折叠形态 1。
+
+帧策略在函数首次被调用、算折叠结果时一并定下，编进缓存的折叠令牌（builtin id + 「要轻帧」位），调用时不再查表。
+
+单测 `interp/forward_tests.rs` 在手建模块上逐条比对「折叠 / 不折叠 / JIT」三份 trace；golden
+`src/tests/exceptions/stack_trace_native_fold.z42` 覆盖真实 stdlib。
+
+### 6.5 命名约定
 
 新 builtin 名一律 `__<area>_<verb>[_<modifier>]`，`<area>` 是单个词、内部不带下划线：
 
 | area | 领域 | 例 |
 |---|---|---|
 | `str` | `Std.String` 上的字符串操作 | `__str_char_at` |
-| `char` | `Std.Char` | `__char_to_upper`、`__char_is_whitespace` |
-| `int32` / `int64` / `double` | 基元的 parse / hash / equals / to_string | `__int32_parse` |
+| `char` | `Std.Char` | `__char_is_whitespace` |
+| `int32` / `int64` / `double` / … | 基元的 parse / try_parse / to_string | `__int32_parse`、`__int32_try_parse` |
 | `math` | `Std.Math.Math` 静态方法 | `__math_sqrt`、`__math_atan2` |
 | `obj` | 通用对象协议 | `__obj_get_type`、`__obj_hash_code` |
 | `file` | `Std.IO.File` 静态方法 | `__file_read_text` |
@@ -298,15 +438,17 @@ per-VM 的 ext 表；两边都没有则留 `UNRESOLVED`，在真正调用时按�
 新领域 → 往这张表里加一行，再挑一个短单词。
 
 **裸名一族**（`__println` / `__print` / `__readline` / `__concat` / `__contains` / `__len` /
-`__to_str` / `__time_now_ms` / `__process_exit`）不遵守该约定，**不要再加新的**；它们所在的模块重组时
-顺手迁走即可。
+`__to_str` / `__time_now_ms` / `__process_exit`）不遵守该约定，**不要再加新的**。
 
-### 6.3 与 ext 表的关系
+**改语义要换名字**：已发布的种子 stdlib 跑在新 VM 上（冷启动自举），同名 builtin 的签名与返回形状
+必须保持兼容（只把抛出的异常换成更具体的子类是兼容的）。要改形状就起新名字、旧名字随 STAGE2 清理删除。
+
+### 6.6 与 ext 表的关系
 
 `[Native(lib="z42_compression", entry="__deflate_compress")]` 这类 facade 声明发的是同一条
 `BuiltinInstr`——`lib=` 在这条路上**完全不参与解析**，只是给人看的标注。实际的库发现与符号注册在
 [native-ext-loader.md](native-ext-loader.md)：ext builtin 的 id 在高位打标
-（`BUILTIN_ID_EXT_BIT`），低 31 位是 ext 表下标。
+（`BUILTIN_ID_EXT_BIT`），低 31 位是 ext 表下标；它们仍是旧 ABI（`&[Value]`），不参与折叠。
 
 ---
 

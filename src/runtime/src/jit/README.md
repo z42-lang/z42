@@ -10,7 +10,7 @@
 | `runtime.rs` | `JitRuntime`：VM 唯一的 JIT（`VmCore.jit`，所有线程共享）——按 `FnId` 索引的 `JitSlot` 表（编译槽 + tier-up 计数 + Rejected 负缓存）、编译器 `Mutex<LazyCompiler>`、OSR 入口缓存、阈值；集中解析器 `resolve_fn_by_id` / `resolve_fn_by_name`，热路径零锁、只有编译拿锁（在调用线程上编）；`install` |
 | `lazy.rs` | `LazyCompiler`：持 cranelift `JITModule` + helper ids；`setup`（建基础设施）+ `compile_fn` / `compile_fn_osr`（按需编译单函数 / OSR 变体）。Mutex 守护，`Z42_JIT_PROFILE` 逐函数打印 |
 | `invoke.rs` | `call_native` / `call_entry`：唯一的原生调用序列（`push_frame` → 编译码 → `pop_frame` → 回收 `JitFrame`），返回 `NativeOutcome`。`run_fn`、调用类 helper 与 interp 的混合模式分流都经它 |
-| `forward.rs` | `[Native]` extern 包装函数的短路：识别「一条 `builtin` 原样转发全部参数再 `ret`」的函数（及同类型内再包一层的 `get_Item` → `CharAt` 这种），编译时记进 `FnEntry::forward`；`jit_call` / `jit_vcall` 命中时直接从调用者寄存器派发 builtin，不建包装函数的帧。另给翻译器提供 `ForwardLookup`（调用点目标转发到哪个 builtin）与 `StrIntrinsic` |
+| `forward.rs` | `[Native]` extern 包装函数短路的 JIT 一侧（识别与执行在 `interp/forward.rs`，两引擎共用）：`call_forward`（`jit_call` / `jit_vcall` 命中 `FnEntry::forward` 时直接从调用者寄存器派发 builtin）；另给翻译器提供 `ForwardLookup`（调用点目标转发到哪个 builtin）与 `StrIntrinsic` |
 | `frame.rs` | `JitFrame`（寄存器文件）、`FnEntry`（一个已编译函数） |
 | `translate/` | z42 指令 → Cranelift IR（`translate_function` 取单 `FuncId`）；`HelperIds` 重导出自 `helpers`。按职责拆为 21 个子模块：`mod.rs`（驱动：函数序言 + 逐块循环 + `TxCtx` 构造 + 按类别分发）、`ctx.rs`（`TxCtx` 每块上下文 + 6 个前置局部宏转成的方法 `ri`/`str_val`/`regs_val`/`check`/`dispatch_to_catch_or_return`/`emit_int_divrem`）、`hoist.rs`（循环不变量提升）、指令 handler `value`/`arith`/`compare`/`convert`/`call`/`array`/`object`/`structs`/`term`（各 `impl TxCtx { fn tr_* }`）、Cranelift 发射 `emit_int`/`emit_fc`、谓词 `predicates`、分析 `analysis`、寄存器变量 `reg_var`、站点缓存 `ic`、控制流 `control`、不支持指令表 `unsupported`、字符串原语内联 `str_intrinsics`（`s.Length` / `s[i]` / `CharAt` 对全 ASCII 串直接 load，慢路径即原 helper 序列；`compare` 对两个 `char` 原生比较）。语义锚：`emit_*` 以 `// SEMANTICS: semantics::<fn>` 引用 `crate::semantics` |
 | `helpers/` | `extern "C"` helper 集合（按指令类别拆分；与 `interp/exec_*.rs` 命名对称）。查表统一经 `resolve_fn_*`（含惰性 hook） |
@@ -52,7 +52,7 @@ Z42_JIT_PROFILE=1 <z42vm> <artifact> <entry> --mode jit             # 打印每�
 详见 [docs/internals/src/runtime/vm-architecture.md](../../../../docs/internals/src/runtime/vm-architecture.md) "JIT/EE helper 边界"。
 
 ## 依赖关系
-- 依赖 `corelib` 的 `exec_builtin` 和 `value_to_str`
+- 依赖 `corelib` 的 `invoke_builtin` / `abi::error::raise` 和 `value_to_str`；`[Native]` 折叠依赖 `interp::forward`
 - 依赖 `metadata` 的 `Module`、`Function`、`Instruction`、`Value` 等类型
 - 依赖 `interp::vcall_resolve`（vcall 目标解析单一实现）+ `interp::obj_new_resolve`（ObjNew 类 / 构造器解析与站点缓存）+ `interp::primitive_class_name`（is/as 共享判定）+ `interp::dispatch::isa_td`（is / as / catch 类型判定单一实现，含 `IsaCache`；helpers/object.rs 与 control.rs 共享，JIT 不自带基链遍历；翻译时烘焙指令 / 异常表行的 `TypeKeyCell` 指针）
 - 外部依赖：`cranelift-codegen`、`cranelift-frontend`、`cranelift-jit`、`cranelift-module`
