@@ -100,10 +100,36 @@ impl VarRegion {
         }
     }
 
+    /// Whether the young-set entry at `ptr` is a block, as opposed to a slot a TLAB has taken into
+    /// its hole stash (M12) and not yet published. `take_holes` lists a slot young (and counts it
+    /// live) when it is **taken**, so the young set holds those slots from then until the stash
+    /// retires — dead (`fill_hole` leaves the block dead until the funnel publishes). They
+    /// belong to the stash, exactly as a borrowed chunk's blocks belong to the bump claim, so every
+    /// young-set walk leaves them alone: aging, tenuring or tombstoning a slot under its owner's
+    /// lock-free fill would corrupt it (an old previous occupant's age would take a slot about to be
+    /// refilled out of the young set, leaving a young block the minors never sweep). A collection
+    /// only meets them when it runs while another thread still holds a stash — never under the
+    /// safepoint protocol (every TLAB retires first), but the TLAB contract promises such a
+    /// collection stays sound ("lock + skip"), and it did for bump claims before M12.
+    #[inline]
+    fn young_entry_is_block(&self, header: &GcBlockHeader, ptr: NonNull<GcBlockHeader>) -> bool {
+        if header.is_alive() {
+            return true;
+        }
+        #[cfg(debug_assertions)]
+        assert!(
+            self.stashed.contains_key(&(ptr.as_ptr() as usize)),
+            "a dead young-set entry that no hole stash holds"
+        );
+        let _ = ptr;
+        false
+    }
+
     /// Visit every block of the young set with `&mut self`, chunk by chunk, address order
-    /// within a chunk. The summary and each bitmap word are read once and visited from the copy,
-    /// so `visit` may take blocks out of the set (every caller only ever clears the bit of the
-    /// block it is visiting, which the copy already covers).
+    /// within a chunk (skipping slots out in a hole stash — see [`Self::young_entry_is_block`]).
+    /// The summary and each bitmap word are read once and visited from the copy, so `visit` may
+    /// take blocks out of the set (every caller only ever clears the bit of the block it is
+    /// visiting, which the copy already covers).
     fn for_each_young(&mut self, mut visit: impl FnMut(&mut Self, NonNull<GcBlockHeader>, usize)) {
         for wi in 0..self.young_chunks.len() {
             let mut cw = self.young_chunks[wi];
@@ -116,33 +142,40 @@ impl VarRegion {
                     while w != 0 {
                         let g = k * 64 + w.trailing_zeros() as usize;
                         w &= w - 1;
-                        // SAFETY: a young bit marks the start of a carved, alive block in chunk `ci`.
+                        // SAFETY: a young bit marks the start of a carved block (or stashed slot)
+                        // in chunk `ci`.
                         let ptr = unsafe { NonNull::new_unchecked(base.add(g << 3) as *mut GcBlockHeader) };
-                        visit(self, ptr, ci);
+                        if self.young_entry_is_block(unsafe { ptr.as_ref() }, ptr) {
+                            visit(self, ptr, ci);
+                        }
                     }
                 }
             }
         }
     }
 
-    /// Visit every block currently in the young set. Read-only; chunk order, address order
-    /// within a chunk.
+    /// Visit every block currently in the young set (skipping slots out in a hole stash). Read-only;
+    /// chunk order, address order within a chunk.
     pub fn iterate_young(&self, mut visit: impl FnMut(VarGcRef, &GcBlockHeader)) {
         for (wi, &cw) in self.young_chunks.iter().enumerate() {
             side_bits::for_each(&[cw], |b| {
                 let ci = wi * 64 + b;
                 let base = self.chunks[ci].base.as_ptr();
                 side_bits::for_each(&self.young_bits[ci], |g| {
-                    // SAFETY: a young bit marks the start of a carved, alive block in chunk `ci`.
+                    // SAFETY: a young bit marks the start of a carved block (or stashed slot) in
+                    // chunk `ci`.
                     let ptr = unsafe { NonNull::new_unchecked(base.add(g << 3) as *mut GcBlockHeader) };
                     let header = unsafe { ptr.as_ref() };
-                    visit(VarGcRef::pack(ptr, header.generation()), header);
+                    if self.young_entry_is_block(header, ptr) {
+                        visit(VarGcRef::pack(ptr, header.generation()), header);
+                    }
                 });
             });
         }
     }
 
-    /// How many blocks the next minor GC will visit — exact (the set never holds the dead).
+    /// How many entries the young set holds — exact: every alive young block, plus the slots out in
+    /// hole stashes, which are counted live and young from the moment they are taken.
     pub fn young_count(&self) -> usize {
         self.young_len
     }
@@ -178,9 +211,8 @@ impl VarRegion {
         let threshold = self.promotion_age;
         let mut out = super::VarMinorSweep::default();
         self.for_each_young(|r, ptr, ci| {
-            // SAFETY: see `for_each_young`.
+            // SAFETY: see `for_each_young` (which only hands over blocks, never stashed slots).
             let header = unsafe { ptr.as_ref() };
-            debug_assert!(header.is_alive(), "the young set holds only the alive");
             // **fix-old-block-left-in-young-list (2026-09-12)**: a young-set block can already
             // be past the line, and a minor must never reclaim an old block.
             //
@@ -268,7 +300,6 @@ impl VarRegion {
         self.for_each_young(|r, ptr, ci| {
             // SAFETY: see `for_each_young`.
             let header = unsafe { ptr.as_ref() };
-            debug_assert!(header.is_alive(), "the young set holds only the alive");
             if header.bump_gen_age() >= threshold {
                 r.remove_young(ptr, ci);
                 if header.block_type() == BlockType::Object {

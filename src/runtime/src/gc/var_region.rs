@@ -189,6 +189,13 @@ pub struct VarRegion {
     generational: bool,
     /// Count of live (alive=true) blocks, for diagnostics + auto-collect heuristics.
     live_count: usize,
+    /// Debug builds: how many hole stashes hold each slot address (taken by `take_holes`, not yet
+    /// handed back by `retire_holes`) — what the young-set walks check a dead entry against
+    /// (`generation::young_entry_is_block`). A count, not a set: a slot filled from one stash can be
+    /// reclaimed by a collection that runs outside the safepoint protocol and taken by a second
+    /// stash before the first one retires.
+    #[cfg(debug_assertions)]
+    stashed: std::collections::HashMap<usize, u32>,
     /// Optional payload finalizer run once when a block is reclaimed (tombstone) or when the
     /// region drops with the block still alive. `None` = all payloads POD (PR-1). Consumers
     /// storing non-POD payloads (e.g. closure `ClosureData` with an owned `String`) supply it.
@@ -284,6 +291,8 @@ impl Default for VarRegion {
             // heaps) maintains the young set; the heap narrows it via `set_generational`.
             generational: true,
             live_count: 0,
+            #[cfg(debug_assertions)]
+            stashed: std::collections::HashMap::new(),
             drop_glue: None,
             drop_types: 0,
             flagged_dead: Vec::new(),
@@ -350,6 +359,8 @@ impl VarRegion {
             // heaps) maintains the young set; the heap narrows it via `set_generational`.
             generational: true,
             live_count: 0,
+            #[cfg(debug_assertions)]
+            stashed: std::collections::HashMap::new(),
             drop_glue: Some(glue),
             drop_types: types,
             flagged_dead: Vec::new(),

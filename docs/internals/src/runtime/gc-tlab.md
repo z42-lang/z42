@@ -126,6 +126,11 @@ retire，所以 sweep / chunk 回收看到的永远是没有 stash 的 region；
 - **一个死槽一条条目**：进了 stash 的槽已离开 free list，锁路径不会再发它；没用上的 retire 时推回。
 - **取时记账、退时撤账**，而不是填时记账：另一个线程的 `finalize_now` 可以在属主 retire 之前 tombstone 一个刚填的块，
   这样计数与年轻集合任何时刻都对；stash 里有槽的 chunk 也就不可能被判「全死」进池。
+- **年轻集合里的 stash 槽归 stash**：取时就进了年轻集合的槽，在填好、发布之前都不存活。
+  年轻集合的每一种遍历（minor 清扫、major 后的增龄、tenure、`iterate_young`）都跳过不存活的条目、原样留给属主
+  （debug 构建核对它确实在某个 stash 里，`VarRegion::stashed`）。正常协议下回收前所有 TLAB 都已 retire，碰不到它们；
+  但不经 safepoint 的并发回收（`tlab_concurrent_shared_heap_stress`）会碰到——若照常处理，上一个占用者已老的槽会被
+  增龄判断摘出年轻集合，填进去的新块年轻却不在集合里，没有 minor 会清扫它、清它的标记。
 - **建完才可见**：见上；`acquire_var_block` 的四个 funnel（字符串 ×2、闭包、对象）在写完 payload 后 `publish`，
   `MagrGC::alloc_var_block`（数组元素）当场 `publish`（元素区零值合法，回收之外没有遍历读它）。
 - **侧表先清**：flagged-dead 列表非空时 `take_holes`（以及锁路径的 free-list 弹槽）一个槽都不发——finalizer / 软引用 /

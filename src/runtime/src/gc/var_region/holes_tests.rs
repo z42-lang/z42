@@ -268,3 +268,42 @@ fn chunk_epoch_is_unchanged_by_reuse() {
     assert!(dead.iter().all(|h| !h.is_live()));
     assert!(live.iter().all(|h| h.is_live()));
 }
+
+/// A collection that runs while another thread still holds a hole stash (outside the safepoint
+/// protocol; `tlab_concurrent_shared_heap_stress` does it) meets the stash's slots in the young set:
+/// taken at `take_holes`, dead until filled and published. Every young-set walk must leave them to
+/// their owner — before, the minor sweep asserted on them, and a slot whose previous occupant was
+/// old was taken out of the young set by the age check, so the block refilled into it was young but
+/// unlisted (no minor would ever sweep it, or clear its mark).
+#[test]
+fn a_collection_leaves_a_foreign_stash_alone() {
+    let mut r = VarRegion::new();
+    let all: Vec<VarGcRef> = (0..8).map(|_| r.alloc(PAYLOAD, BlockType::Object)).collect();
+    for h in all.iter().skip(1).step_by(2) {
+        // The previous occupants were old: their headers keep the age after the tombstone.
+        h.raise_gen_age_to(crate::gc::region::PROMOTION_THRESHOLD);
+        assert!(r.tombstone(*h));
+    }
+    let mut stash = VarHoleStash::new();
+    assert!(r.take_holes(class(), &mut stash));
+    let taken: Vec<usize> = all.iter().skip(1).step_by(2).map(|&h| addr(h)).collect();
+    // One slot filled but not yet published, the rest untouched.
+    // SAFETY: owner thread; the slots came from `r`.
+    let filled = unsafe { stash.fill(class(), PAYLOAD, BlockType::Object) };
+
+    // The "concurrent" collection: a minor sweep (nothing marked), an aging pass and a tenure.
+    r.sweep_young(None);
+    let _ = r.age_young_survivors();
+    let young: Vec<usize> = r.young_blocks_for_test().iter().map(|p| p.as_ptr() as usize).collect();
+    assert!(young.is_empty(), "the stashed slots are not blocks; the live blocks were swept");
+    let listed = r.young_count();
+    assert_eq!(listed, taken.len(), "the stashed slots stay listed (counted at take)");
+
+    // The owner finishes: the filled block is born young and listed, the census holds.
+    filled.publish();
+    assert!(r.resolve(filled).is_some());
+    assert!(r.young_blocks_for_test().iter().any(|p| p.as_ptr() as usize == addr(filled)));
+    r.retire_holes(&mut stash);
+    assert_census(&r);
+    assert_eq!(r.young_count(), 1, "only the published block remains young");
+}

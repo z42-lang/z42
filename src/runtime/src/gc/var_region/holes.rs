@@ -265,6 +265,10 @@ impl VarRegion {
                 let fresh = crate::gc::side_bits::set(&mut self.young_bits[ci], g);
                 debug_assert!(fresh, "a dead slot is never in the young set");
             }
+            #[cfg(debug_assertions)]
+            {
+                *self.stashed.entry(slot.as_ptr() as usize).or_insert(0) += 1;
+            }
             b.slots.push(slot);
         }
         self.count_taken(run_ci, run);
@@ -303,6 +307,16 @@ impl VarRegion {
             let sc = touched.trailing_zeros() as usize;
             touched &= touched - 1;
             let b = &mut stash.batches[sc];
+            #[cfg(debug_assertions)]
+            for &slot in &b.slots {
+                let a = slot.as_ptr() as usize;
+                match self.stashed.get_mut(&a) {
+                    Some(n) if *n > 1 => *n -= 1,
+                    _ => {
+                        self.stashed.remove(&a);
+                    }
+                }
+            }
             for &slot in &b.slots[b.next..] {
                 // SAFETY: a taken, never-filled slot — still the tombstoned header it was.
                 let ci = unsafe { slot.as_ref() }.chunk_idx as usize;
