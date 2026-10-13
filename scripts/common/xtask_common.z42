@@ -95,15 +95,13 @@ int _z42cWorkspaceBuild(string vm, string driver, string cwd, string libs, bool 
     return _z42cWorkspaceBuild(vm, driver, cwd, libs, noIncremental, "");
 }
 
-// `compileLibs` 非空 ⇒ 额外传 `--compile-libs`：**编译期**依赖解析面与 `libs`（= driver 自己
-// 运行期的加载面）分开。自举期这两件事要不同代的库，见 `CompileLibsOpt` 头注与
-// `docs/spec/archive/2026-09-27-rename-project-namespaces/design.md` §3。
+// `libs` = 编译期依赖面（`Z42_LIBS`）；`runLibs` 非空 ⇒ driver 自己运行期先从那里加载（上一代 driver 自举，
+// 见 `_z42cProcSeed`）。
 int _z42cWorkspaceBuild(string vm, string driver, string cwd, string libs, bool noIncremental,
-                        string compileLibs) {
-    Process p = _z42cProc(vm, libs, driver)
+                        string runLibs) {
+    Process p = _z42cProcSeed(vm, libs, runLibs, driver)
         .Arg("build").Arg("--workspace").Arg("--release");
     if (noIncremental) { p = p.Arg("--no-incremental"); }
-    if (compileLibs.Length > 0) { p = p.Arg("--compile-libs").Arg(compileLibs); }
     return p
         .WorkingDirectory(cwd)
         .Stdout(_verbAtLeast(3) ? Stdio.Inherit() : Stdio.Null()).Stderr(Stdio.Inherit())
@@ -117,13 +115,11 @@ int _z42cBuildPackage(string vm, string driver, string tomlPath, string libs, st
     return _z42cBuildPackage(vm, driver, tomlPath, libs, outputDir, "");
 }
 
-// `compileLibs` 非空 ⇒ 额外传 `--compile-libs`（同上：编译期面与 driver 运行期面分开）。
+// `runLibs` 同 `_z42cWorkspaceBuild`。
 int _z42cBuildPackage(string vm, string driver, string tomlPath, string libs, string outputDir,
-                      string compileLibs) {
-    Process p = _z42cProc(vm, libs, driver)
-        .Arg("build").Arg(tomlPath).Arg("--release").Arg("--output-dir").Arg(outputDir);
-    if (compileLibs.Length > 0) { p = p.Arg("--compile-libs").Arg(compileLibs); }
-    return p
+                      string runLibs) {
+    return _z42cProcSeed(vm, libs, runLibs, driver)
+        .Arg("build").Arg(tomlPath).Arg("--release").Arg("--output-dir").Arg(outputDir)
         .Stdout(_verbAtLeast(3) ? Stdio.Inherit() : Stdio.Null()).Stderr(Stdio.Inherit())
         .Run().ExitCode;
 }
@@ -405,47 +401,6 @@ string _seedStdlibDir(string root) {
     return "";
 }
 
-// ── driver 认不认 `--compile-libs`（rename-project-namespaces B2 的安全降级）─────────────
-//
-// 🔴 **enabler 自己也受自举纪律约束**：`--compile-libs` 是**新增旗标**，而冷启动跑的是
-// **上一 nightly 的种子 driver** —— 它不认识这个旗标且**静默忽略**。若脚本无条件依赖它，
-// 就会拿到「旗标被丢掉、`Z42_LIBS`（= 种子代快照）当成编译期面」的错行为：CI 的
-// compile-toolchain 实测红在 `z42.package 未找到；已查找：…/seed-run-libs`。
-//
-// ⇒ 用 `build --help` 探一次：认 ⇒ 分开两个面；不认 ⇒ **逐字退回旧行为**（flat 当两者、
-//    不传旗标）。这样本改动今天就能安全落地，等旗标随 nightly 进种子后自动启用。
-bool _driverSupportsCompileLibs(string vm, string driver) {
-    // 🔴 **探测自己也得先跑得起来**：driver 是 z42 写的，加载不到它那一代的 stdlib 就直接崩，
-    // stdout 里自然没有旗标名 ⇒ 被误判成「不支持」而**静默退化**。而「它那一代」是什么，
-    // 恰恰要看 driver 是种子还是已换代的 gen1：
-    //   · gen1（暖树刚建的）—— 裸跑即可：它自己的 colocated bundle / VM 默认落点就是同代；
-    //   · 种子（冷启动从 SDK staged）—— 需要 SDK libs（种子的出处、与它同代）。
-    // 所以**两次尝试，取第一个真打出 usage 的**。给一种就够的那种写法两边都会错一半。
-    string first = _driverBuildHelp(vm, driver, "");
-    if (_helpRan(first)) { return first.IndexOf("--compile-libs") >= 0; }
-    string sdkLibs = _seedLibsSource(_root());
-    if (sdkLibs.Length > 0) {
-        string second = _driverBuildHelp(vm, driver, sdkLibs);
-        if (_helpRan(second)) { return second.IndexOf("--compile-libs") >= 0; }
-    }
-    // 判别力：两次都没打出 usage ≠「不支持」，而是**探测失败**（driver 根本跑不起来）——
-    // 两者此前不可区分，而处置完全不同：前者该退化，后者是种子或它的运行期 libs 配错了，该出声。
-    _vNormal("  ⚠ --compile-libs 能力探测跑不起来（driver 两次都没打出 usage）→ 按不支持处理；"
-             + "这通常意味着种子或它的运行期 libs 配错了");
-    return false;
-}
-
-// `build --help` 的合并输出（`libs` 非空则当 `Z42_LIBS` 传）。
-string _driverBuildHelp(string vm, string driver, string libs) {
-    Process p = (libs.Length > 0 ? _z42Proc(vm, libs) : new Process(vm)).Arg(driver).Arg("--").Arg("build").Arg("--help")
-        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe());
-    ProcessResult r = p.Run();
-    return r.Stdout + r.Stderr;
-}
-
-// usage 真打出来了 ⇒ 这次探测的答案可信（旗标有无都算答案）。
-bool _helpRan(string text) { return text.IndexOf("usage: z42c build") >= 0; }
-
 // 冷启动 staged 种子时，`_ensureSeed` 把**种子 stdlib 的出处**记在这里 —— 那就是这个 driver
 // 那一代的运行期 libs，是**构造保证**的（它就是从那儿来的）。暖树不 set。
 static class SeedStage {
@@ -492,9 +447,8 @@ string _seedLibsSource(string root) {
 // （按它自己编译时的 FQN 调用），而它正在编译的源码要解析**当前源**新建出来的库。
 // 两件事此前共用 flat 一个目录 ⇒ 预建一覆盖 flat，种子 driver 自己就崩（改名/删符号时必然）。
 //
-// 本函数在**任何预建覆盖 flat 之前**把 flat 快照下来 —— 那一刻 flat 里正是「当前 in-tree
-// driver 编译时对着的那一代」。之后种子 driver 的调用用这个快照当 `Z42_LIBS`，用 flat 当
-// `--compile-libs`。driver 换代之后的调用两者都用 flat（见 design.md §3 的代际表）。
+// 种子 driver 的调用把这里挂成运行期 probing、flat 当 `Z42_LIBS`（编译期面，见 `_z42cProcSeed`）。
+// driver 换代之后的调用两者同代，只用 flat。
 //
 // 🔴 **快照每轮重取**，不做「已存在就跳过」：跳过会让它停留在更早的一代，而 driver 已经换过代
 //    —— 那正是这一路反复吃亏的「陈旧快照假装是权威」。

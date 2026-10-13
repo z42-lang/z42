@@ -1,7 +1,7 @@
-desc = "--compile-libs 给出的目录就是框架所在：从那里解析到的 stdlib（含私有依赖 DEPS 段带进来的传递依赖）不得复制进 exe 的 dist，即使 Z42_LIBS 指向别处（见 README）"
+desc = "Z42_LIBS 就是框架所在：从那里解析到的 stdlib（含私有依赖 DEPS 段带进来的传递依赖）不得复制进 exe 的 dist，即使 driver 运行期的库挂在 probing 上、在别的目录（见 README）"
 outside_repo = true
 
-# libs/ = 编译期外部档（--compile-libs）；run/ = driver 自己的运行期 Z42_LIBS。两份都是 stdlib，但目录不同。
+# libs/ = 编译期外部档（Z42_LIBS）；run/ = driver 自己运行期先加载的目录（Z42_PROBING_PATHS）。两份都是 stdlib，但目录不同。
 [[step]]
 tool = "copy"
 from = "{stdlib}/*.zpkg"
@@ -14,8 +14,9 @@ to = "run/"
 
 # cfdep 是 path 依赖 ⇒ 私有、复制；它 DEPS 段里的 z42.text 从 libs/（框架）解析 ⇒ 不复制
 [[step]]
-args = ["build", "app/cfapp.z42.toml", "--release", "--compile-libs", "{case}/libs"]
-libs = "run"
+args = ["build", "app/cfapp.z42.toml", "--release"]
+libs = "libs"
+env = { Z42_PROBING_PATHS = "{case}/run" }
 exit = 0
 exists = ["app/dist/cfdep.zpkg"]
 absent = ["app/dist/z42.text.zpkg", "app/dist/z42.core.zpkg"]

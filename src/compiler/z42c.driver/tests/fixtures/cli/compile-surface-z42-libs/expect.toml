@@ -1,0 +1,58 @@
+desc = "编译期依赖面只看 Z42_LIBS：Z42_PROBING_PATHS（VM 运行期的依赖搜索目录）不得漏进编译期解析面；单包与 workspace 两条路都认（见 README）"
+outside_repo = true
+
+# libs/ = 只有 stdlib；only/ = 只有 cldep；full/ = stdlib + cldep
+[[step]]
+tool = "copy"
+from = "{stdlib}/*.zpkg"
+to = "libs/"
+
+[[step]]
+args = ["build", "dep/cldep.z42.toml", "--release"]
+libs = "libs"
+exit = 0
+
+[[step]]
+tool = "copy"
+from = "dep/dist/cldep.zpkg"
+to = "only/"
+
+[[step]]
+tool = "copy"
+from = "{stdlib}/*.zpkg"
+to = "full/"
+
+[[step]]
+tool = "copy"
+from = "dep/dist/cldep.zpkg"
+to = "full/"
+
+# ① cldep 只在 probing 里 ⇒ 编译期必须找不到它（probing 只管运行期加载）
+[[step]]
+args = ["build", "app/clapp.z42.toml", "--release"]
+libs = "libs"
+env = { Z42_PROBING_PATHS = "{case}/only" }
+exit = "nonzero"
+output_contains = ["cldep"]
+
+# ② cldep 在 Z42_LIBS 里 ⇒ 编过
+[[step]]
+args = ["build", "app/clapp.z42.toml", "--release"]
+libs = "full"
+exit = 0
+exists = ["app/dist/clapp.zpkg"]
+
+# ③ workspace 路径同口径：a. 只在 probing ⇒ 失败；b. 在 Z42_LIBS ⇒ 成功
+[[step]]
+args = ["build", "--workspace", "--release"]
+cwd = "ws"
+libs = "libs"
+env = { Z42_PROBING_PATHS = "{case}/only" }
+exit = "nonzero"
+output_contains = ["cldep"]
+
+[[step]]
+args = ["build", "--workspace", "--release"]
+cwd = "ws"
+libs = "full"
+exit = 0
