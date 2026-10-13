@@ -26,7 +26,7 @@
 | `src/Symbols/` | 符号表与收集：`SymbolTable`（4 碎片）、`SymbolCollector` 及各簇 pass、继承解析、导入符号加载、命名空间作用域、attribute handler 注册表、声明修饰符助手 `DeclFacts` |
 | `src/Types/` | 类型模型：`Z42Type`、类型代换、转换分类、基元模型、泛型约束、类型实参推断、struct 布局 |
 | `src/BoundTree/` | Bound 树节点（表达式 / 语句 / 模式）、`SemanticModel` |
-| `src/Binding/` | 绑定 + 类型检查：`TypeChecker`、各 `*Typer`、`MemberResolver`（8 碎片）、重载决议、语句 / 声明 / 模式绑定、访问检查、穷尽检查、常量求值与常量 blob、编译期宏 |
+| `src/Binding/` | 绑定 + 类型检查：`TypeChecker`、各 `*Typer`、`MemberResolver`（9 碎片）、重载决议、语句 / 声明 / 模式绑定、访问检查、穷尽检查、常量求值与常量 blob、编译期宏 |
 | `src/Validation/` | 声明期约束（`DeclEnforcer`）、流分析（`FlowAnalyzer`）、声明位类型引用补录、跨包依赖收集（`DepUseCollector`）、多余 `using` 告警、`[ModuleInit]` 校验 |
 | `src/Exports/` | 导出签名（TSIG）提取 |
 | `src/Desugar/` | 内建、永远开启的 AST 级脱糖（parse 后、收集前，由 `HandlerRegistry.RunAst` 调）：attribute 工厂合成 |
@@ -85,7 +85,7 @@
 | `src/Binding/ConstValue.z42` | **编译期常量值**：`ConstValue{Kind, IntVal, StrVal}`，Kind 区分 `Int/Bool/Char/Float(bits)/Str/Null`——供 codegen 把 const 引用替换成对应字面量指令时选对指令 |
 | `src/Binding/ConstEval.z42` | **常量表达式求值器**：AST `Expr` + 已定义 const 环境(`StrMap`) → `ConstValue`（非常量返回 null，调用方报诊断）。覆盖字面量 + 一元/二元 算术·比较·逻辑·位·串接 + 已定义 const 引用（镜像 `IrGenFacts._foldBinary` 语义） |
 | `src/Binding/ExprTyper.z42` / `AssignTyper.z42` / `CollectionTyper.z42` / `ConstructTyper.z42` / `TypeOpTyper.z42` | 各类表达式的绑定与类型推断（`TypeChecker` 的 `*Typer` 分工：一般表达式 / 赋值 / 集合与索引 / new·构造 / is·as·typeof·cast）|
-| `src/Binding/MemberResolver.z42`（+ `.Bare` / `.Func` / `.Nested` / `.Prim` / `.Static` / `.Subst` / `.TypeParam` 碎片） | 成员解析：实例 / 静态 / 基元 / 型参 / 函数类型成员，含泛型代换 |
+| `src/Binding/MemberResolver.z42`（+ `.Bare` / `.Func` / `.Generic` / `.Nested` / `.Prim` / `.Static` / `.Subst` / `.TypeParam` 碎片） | 成员解析：实例 / 静态 / 基元 / 型参 / 函数类型成员，含泛型代换；`.Generic` = 泛型方法调用的类型实参解析 / 推断与返回类型代换（收尾在 `GenericCallRet.z42`） |
 | `src/Binding/OverloadResolver.z42` / `OverloadBinder.z42`（+ `.Candidates`） | 重载决议与实参归位 |
 | `src/Binding/DeclBinder.z42` / `StmtBinder.z42` | 声明（类 / 方法体 / 属性）与语句绑定 |
 | `src/Binding/ExhaustCheck.z42` / `MacroRegistry.z42` / `RefArgCheck.z42` / `VarFieldInfer.z42` | switch 穷尽性检查 / 编译期宏注册 / `ref`·`out` 实参校验 / `var` 字段类型推断 |

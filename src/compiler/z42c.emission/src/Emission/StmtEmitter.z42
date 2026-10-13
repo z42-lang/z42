@@ -326,6 +326,8 @@ public sealed class StmtEmitter {
             this._fe._ctx.Emit(new VCallInstr(elemReg, collReg, "get_Item", idxArgs, 1));
         } else {
             this._fe._ctx.Emit(new ArrayGetInstr(elemReg, collReg, idxReg));
+            TypedReg owned = this._fe._ctx.OwnIfMethodTypeParam(elemReg, fe.VarType);
+            if (owned.Id != elemReg.Id) { this._fe._ctx.Emit(new CopyInstr(elemReg, owned)); }
         }
         // add-struct-generic-boxing (P3a)：循环变量是值 struct 时对元素发 AsCast——泛型容器（List<P> 迭代
         // 其 T[] backing / get_Item）元素是**装箱后**的 struct（Add/set 时装箱）→ 拆箱回值 struct；普通 P[]

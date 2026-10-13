@@ -1,0 +1,101 @@
+// 泛型方法调用的类型实参：解析 / 推断、校验，以及**调用点返回类型的代换**。
+// 与 MemberResolver 主文件同一个类（partial 拆分只为守 code-organization 行数上限），共享 `_tc`。
+//
+// 返回类型代换与物理约定是两件事：
+//   · 静态类型：`T Id<T>(T x)` 的 `Id(3)` 是 `int`、`Id<Vec2>(v)` 是 `Vec2` —— 按（显式写出的或推断出的）
+//     类型实参代换声明返回类型，先方法级（按名）、再类级（按受者实参）。
+//   · 物理约定：泛型方法体（跨包的擦除体、本包的特化体）对型参位一律走**装箱模型** —— 形参与返回都是
+//     句柄，struct 经装箱进出，callee 不收 sret。所以返回位若是裸方法级型参、代换成 struct，内层调用定型
+//     `Unknown`（发射端不按 struct 预留 sret），外包 `BoundConvert` 拆箱（`TypeOpEmitter` 的 AsCast 臂）——
+//     与类级型参返回 struct 的 `StructUnboxTarget` 同一个先例。实参那一侧见 `TypeChecker.BoxArgs`。
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+using Z42.Core;
+
+public sealed partial class MemberResolver {
+    internal BoundExpr _applyMethodTypeArgs(BoundCall bc, CallExpr call, MethodSymbol ms, TypeEnv env) {
+        return this._applyMethodTypeArgs(bc, call, ms, env, null);
+    }
+
+    // 解析泛型方法调用 `Foo<A,B>(...)` 的类型实参，写入 BoundCall.MethodTypeArgs（解析后的具体 Z42Type[]，
+    // ExprEmitter 转 FQ 名编进 IR Call）；省略尖括号时从实参推断。ms 有本地 Decl 时校验 arity（E0445）与 where
+    // 约束；ms=null（间接 / loose 绑定）→ 仅解析、不校验、不代换返回。
+    // 幂等：已附加（MethodTypeArgCount>0）即不再改写。返回调用表达式的最终形态（bc 本身，或包了拆箱的 bc）。
+    // `instRecv` = 受者那一层的代换来源（实例化类 / 接口，见 GenericCallRet.Finish），无则 null。
+    internal BoundExpr _applyMethodTypeArgs(BoundCall bc, CallExpr call, MethodSymbol ms, TypeEnv env,
+                                            Z42Type instRecv) {
+        if (bc.MethodTypeArgCount > 0) { return bc; }
+        if (call.TypeArgCount == 0) { return this._inferMethodTypeArgs(bc, call, ms, env, instRecv); }
+        Z42Type[] targs = new Z42Type[call.TypeArgCount];
+        int[] fwd = new int[call.TypeArgCount];
+        int i = 0;
+        while (i < call.TypeArgCount) {
+            targs[i] = env.ResolveType(call.TypeArgs[i]);
+            this._tc._chkTypeRef(targs[i], env, call.TypeArgs[i].Span);   // 类型实参引用的可访问性/存在性
+            // add-generic-activator：类型实参是外层方法的方法级泛型形参（Foo<T>() 里的 T）→ 记其
+            // 方法级下标，emit 期发 `$mta:<idx>` 转发标记而非字面 "T"（运行期按调用方 frame 解析）。
+            fwd[i] = 0 - 1;
+            if (targs[i] is Z42GenericParamType) {
+                int mIdx = env.MethodParamIndexOf(targs[i].Name());
+                if (mIdx >= 0) { fwd[i] = mIdx; }
+            }
+            i = i + 1;
+        }
+        bc.MethodTypeArgs = targs;
+        bc.MethodTypeArgFwd = fwd;
+        bc.MethodTypeArgCount = call.TypeArgCount;
+        if (ms == null) { return bc; }
+        if (ms.HasDecl && ms.Decl != null) {
+            int declTp = ms.Decl.TypeParams.Count;
+            if (declTp != call.TypeArgCount) {
+                this._tc._diags.Error(DiagnosticCodes.GenericMethodArity,
+                    "generic method `" + ms.Name + "` expects " + declTp.ToString()
+                    + " type argument(s) but got " + call.TypeArgCount.ToString(), call.Span);
+                return bc;
+            }
+            this._tc._constraints.CheckMethod(env.GetSymbols(), ms.Decl, targs, call.TypeArgCount, call.Span);
+            // 形参位按类型实参代换后补查实参（`IdOf<string>(7)` 报错）。签名若已在绑实参**之前**代换过
+            // （ForExplicitTypeArgs，`MethodErasedSig` 非空），实参已对着代换后的签名查过一次 ⇒ 不再补查，
+            // 否则同一实参报两条。只对方法级型参代换；类级型参由受者那条路负责。
+            if (ms.MethodErasedSig == null) {
+                MethodTypeArgSubst.CheckSubstMethodArgs(this._tc, bc, ms.Signature, ms.TypeParamNames, declTp, targs, env);
+            }
+        }
+        if (ms.TypeParamNames.Length != call.TypeArgCount) { return bc; }
+        return GenericCallRet.Finish(bc, ms, ms.TypeParamNames, call.TypeArgCount, targs, instRecv);
+    }
+
+    // add-generic-type-arg-inference：**省略尖括号**的泛型方法调用 → 从实参推断。
+    // 推断成功 ⇒ 本地方法复用 ConstraintChecker.CheckMethod 校验 where 约束、按推断结果代换形参位后真查实参；
+    // 本地与导入方法都按推断结果代换**返回类型**（导入符号带着有序型参名，与本地同口径）。
+    // 推断失败 ⇒ 返回原样，不发任何诊断。
+    //
+    // ⚠️ **不写 bc.MethodTypeArgs**：写了 emit 就从 Op.Call 换成 Op.CallGeneric、重排 zbc 串池、并关掉
+    // `exec_call.rs` 的 native 快路径门。推断出的类型实参只用于静态类型；callee 真在运行期消费型参的情形由
+    // 下面的 GenericTypeArgRequired 报错要求显式写出（把静默错值换成编译错误）。
+    private BoundExpr _inferMethodTypeArgs(BoundCall bc, CallExpr call, MethodSymbol ms, TypeEnv env,
+                                           Z42Type instRecv) {
+        if (ms == null || ms.TypeParamCount == 0 || ms.TypeParamNames.Length != ms.TypeParamCount) { return bc; }
+        Z42FuncType esig = MethodTypeArgSubst.ErasedSig(ms);
+        TypeArgBindings inf = TypeArgInference.Infer(env.GetSymbols(), esig, ms.TypeParamNames,
+                                                     ms.TypeParamCount, bc.Args, bc.ArgCount);
+        bool local = ms.HasDecl && ms.Decl != null;
+        if (inf.Ok && local) {
+            this._tc._constraints.CheckMethod(env.GetSymbols(), ms.Decl, inf.Args, inf.Count, call.Span);
+            MethodTypeArgSubst.CheckSubstMethodArgs(this._tc, bc, esig, ms.TypeParamNames, inf.Count, inf.Args, env);
+        }
+        // callee 体内**真的消费**型参时（typeof(T)/new T()/default(T)/new T[n]/把 T 转发给嵌套泛型调用），
+        // 省略尖括号会让运行期读到**空**的 frame.method_type_args ⇒ 静默错值。与推断是否成功**无关**
+        // （推断结果不回灌运行期）。只有本地方法的体看得见。
+        if (local && MethodTypeParamUse.Consumes(ms.Decl)) {
+            this._tc._diags.Error(DiagnosticCodes.GenericTypeArgRequired,
+                "generic method `" + ms.Name + "` uses its type parameter at runtime "
+                + "(`typeof(T)` / `new T()` / `default(T)` / `new T[n]`, or forwards it to a nested "
+                + "generic call) — write the type argument explicitly, e.g. `"
+                + ms.Name + "<" + ms.TypeParamNames[0] + ">(...)`", call.Span);
+        }
+        if (!inf.Ok) { return bc; }
+        return GenericCallRet.Finish(bc, ms, ms.TypeParamNames, inf.Count, inf.Args, instRecv);
+    }
+}

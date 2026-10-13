@@ -157,7 +157,11 @@ public static class CompilerFingerprint {
         "reflective-test-discovery",
         // retire-tidx：不再写 TIDX 段（zbc 1.47 / zpkg 0.53）、MkClos 去尾字节；`[Benchmark] f(Bencher b)` 不再脱糖成
         // `f$impl` + 零参 wrapper —— 输出变化。
-        "retire-tidx"
+        "retire-tidx",
+        // subst-generic-return：泛型方法调用点按类型实参代换返回类型（struct 返回包拆箱）、实参装箱改按擦除形参、
+        // 本地符号型参名裁成精确长度（显式代换此前只在 4 / 8 个型参时生效）、泛型方法体读方法级型参元素后
+        // 发 __box_struct —— 输出变化。
+        "subst-generic-return"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

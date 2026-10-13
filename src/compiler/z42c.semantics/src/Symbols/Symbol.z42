@@ -25,8 +25,8 @@ public sealed class MethodSymbol {
                                               // 本地由 SymbolCollector 从 Decl.TypeParams.Count 设；导入由 ImportedSymbolLoader
                                               // 从 ExportedMethodZ.TypeParamCount 还原。供泛型 arity 重载过滤（默认 0）。
     public string[]    TypeParamNames;        // fix-explicit-type-arg-not-substituted：方法级泛型形参**名**（声明序）。
-                                              // 与 TypeParamCount 同源同步设置（本地 Decl.TypeParams.Names；导入
-                                              // ExportedMethodZ.TypeParams）。`TypeParamCount` 只够做 arity 过滤，
+                                              // 与 TypeParamCount 同源同步设置，长度恰为 TypeParamCount（本地从
+                                              // Decl.TypeParams.Names 裁出；导入 ExportedMethodZ.TypeParams）。`TypeParamCount` 只够做 arity 过滤，
                                               // 而**按名代换**签名（`Sort<int>` 的 `Comparison<T>` → `Comparison<int>`）
                                               // 必须有名字——导入侧此前把这些名字读出来只当解析上下文用，没留在符号上。
     public string      IfaceBridgeRet;        // add-iface-return-bridge：本方法实现了某接口成员，而**实现返回值类型
@@ -38,6 +38,10 @@ public sealed class MethodSymbol {
                                               // ⚠️ 这只是**标记**：真要不要桥接由 IrGen 用 `_isBlobStruct` 再判一次
                                               // —— 标量 repr 的 struct（展平叶子 < 2）是自描述 Value，经接口返回今天
                                               // 本来就对（实测真读字段 + 二次虚派发 + `is` 均正确），绝不能动它。
+    public Z42FuncType MethodErasedSig;       // 方法级类型实参代换**之前**的签名（类级已代换、方法级型参仍是裸型参）；
+                                              // null = 签名未经方法级代换（即 Signature 本身）。泛型方法体对型参位
+                                              // 走装箱模型（形参 / 返回都是句柄），物理约定按这一份定：实参装箱看它，
+                                              // 调用点返回是否拆箱也看它；Signature 只用于静态类型检查。见 GenericCallRet。
     public MethodSymbol(string name, string visibility, Z42FuncType sig, bool isStatic,
                         string containingTypeName, bool hasDecl, MethodDecl decl) {
         this.Name = name; this.Visibility = visibility; this.Signature = sig; this.IsStatic = isStatic;
@@ -48,6 +52,7 @@ public sealed class MethodSymbol {
         this.TypeParamCount = 0;
         this.TypeParamNames = new string[0];
         this.IfaceBridgeRet = "";
+        this.MethodErasedSig = null;
     }
     // fix-explicit-type-arg-not-substituted：同一符号、换一条签名的浅拷贝。
     //
@@ -63,6 +68,7 @@ public sealed class MethodSymbol {
         c.IsDeprecated = this.IsDeprecated; c.DeprecationMsg = this.DeprecationMsg;
         c.TypeParamCount = this.TypeParamCount; c.TypeParamNames = this.TypeParamNames;
         c.IfaceBridgeRet = this.IfaceBridgeRet;
+        c.MethodErasedSig = this.MethodErasedSig;
         return c;
     }
     // add-iface-return-bridge：**绑定 BoundCall 目标名的唯一出口。**

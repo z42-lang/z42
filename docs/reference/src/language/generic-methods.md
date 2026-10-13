@@ -71,6 +71,31 @@ bool r = a < b && b > c;   // 两个比较，不是泛型调用
 int  g = Id<int>(x);       // 泛型调用
 ```
 
+## 调用结果的类型
+
+调用的静态类型 = 声明的返回类型**按类型实参代换**后的类型。显式写出 `<...>` 与省略（从实参推断）一致：
+
+```z42
+T Id<T>(T x) { return x; }
+T[] Pair<T>(T a, T b) { T[] r = new T[2]; r[0] = a; r[1] = b; return r; }
+
+int a = Id(3) + 1;              // Id(3) 的类型是 int
+int b = Id<int>(3) + 1;
+string s = Id(3);               // ❌ E0402：int 不能赋给 string
+Vec2 v = Id(p);                 // 值 struct：拿到的是副本，改 v 不影响 p
+Vec2[] ps = Pair<Vec2>(p, q);   // 组合返回（T[] / List<T> / Func<T> …）同样代换
+```
+
+推断可以**穿过接口实现**：形参是 `IVisitor<R>`、实参是实现了 `IVisitor<int>` 的类时，推出 `R = int`。
+
+```z42
+interface IVisitor<R> { R VisitLit(Lit n); }
+abstract class Node { public abstract R Accept<R>(IVisitor<R> v); }
+class Eval : IVisitor<int> { public int VisitLit(Lit n) { return n.V; } }
+
+int total = node.Accept(new Eval()) + 1;   // Accept(...) 的类型是 int
+```
+
 ## 校验
 
 - **arity**：类型实参数必须等于方法声明的类型形参数，否则 `E0446`。
@@ -130,7 +155,7 @@ flowchart LR
 
 - 直接调用 `Foo<T>()`；反射式 `MakeGenericMethod().Invoke()` 见下节。
 - 类型**推断**（从实参推 `T`，省略 `<...>`）：省略尖括号会从实参结构化
-  unify 出型参绑定，用于**形参位实参检查**与 **`where` 约束校验**。但推断结果**刻意不回灌**
+  unify 出型参绑定，用于**形参位实参检查**、**`where` 约束校验**与**调用结果的类型**。但推断结果**刻意不回灌**
   `BoundCall.MethodTypeArgs` —— 回灌会把 opcode 从 `Op.Call` 换成 `Op.CallGeneric`、重排 zbc
   串池、并关掉 native 快路径门，而全仓 112 处隐式泛型调用全是不消费型参的 `Array.Copy<T>`
   ⇒ 纯回归。⇒ **本页「非泛型调用逐字节不变」的不变量不受推断影响**；callee 真消费型参时
@@ -139,6 +164,7 @@ flowchart LR
     / `Array.Sort(xs, (a,b) => b-a)` 这类**省略 `<>` + 无标注 lambda** 能编能跑——从非-lambda 实参或
     lambda 标注推出型参、只代换 Func 形参位、据此重绑 lambda 拿具体类型。见
     lambda 实参驱动的推断。
+  - 穿过接口实现的推断只认**本包声明**的类：跨包类的实现子句不带类型实参，此时要显式写出 `<…>`。
 
 ## 方法级形参转发
 

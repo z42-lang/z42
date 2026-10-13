@@ -1,0 +1,61 @@
+// Test: a generic visitor `R Accept<R>(INodeVisitor<R> v)` — the call's static type is the visitor's
+// result type, with R inferred through the class's interface implementation (`Eval : INodeVisitor<int>`)
+// or written explicitly, including a value-struct result. Also: generic methods on a generic receiver
+// (class- and method-level parameters together) and through an interface receiver.
+
+public struct Vec2 { public long X; public long Y; public Vec2(long x, long y) { this.X = x; this.Y = y; } }
+
+public interface INodeVisitor<R> { R VisitLit(Lit n); R VisitAdd(Add n); }
+public abstract class Node { public abstract R Accept<R>(INodeVisitor<R> v); }
+public sealed class Lit : Node {
+    public int V;
+    public Lit(int v) { this.V = v; }
+    public override R Accept<R>(INodeVisitor<R> v) { return v.VisitLit(this); }
+}
+public sealed class Add : Node {
+    public Node L; public Node Rt;
+    public Add(Node l, Node r) { this.L = l; this.Rt = r; }
+    public override R Accept<R>(INodeVisitor<R> v) { return v.VisitAdd(this); }
+}
+public sealed class Eval : INodeVisitor<int> {
+    public int VisitLit(Lit n) { return n.V; }
+    public int VisitAdd(Add n) { return n.L.Accept(this) + n.Rt.Accept<int>(this); }
+}
+public sealed class Span2 : INodeVisitor<Vec2> {
+    public Vec2 VisitLit(Lit n) { return new Vec2(n.V, n.V); }
+    public Vec2 VisitAdd(Add n) {
+        Vec2 a = n.L.Accept(this);
+        Vec2 b = n.Rt.Accept(this);
+        return new Vec2(a.X + b.X, a.Y * b.Y);
+    }
+}
+
+class Holder<T> {
+    public T Item;
+    public Holder(T t) { this.Item = t; }
+    public U Map<U>(Func<T, U> f) { return f(this.Item); }
+}
+
+interface IMaker { T Make<T>(T seed); }
+class Maker : IMaker { public T Make<T>(T seed) { return seed; } }
+
+void Main() {
+    Node t = new Add(new Lit(1), new Add(new Lit(2), new Lit(3)));
+    Assert.Equal(60, t.Accept(new Eval()) * 10);
+    Vec2 s = t.Accept<Vec2>(new Span2());
+    Assert.Equal(6, s.X);
+    Assert.Equal(6, s.Y);
+    Vec2 s2 = t.Accept(new Span2());
+    s2.X = 99;
+    Assert.Equal(6, t.Accept(new Span2()).X);
+
+    Holder<int> h = new Holder<int>(20);
+    Assert.Equal(41, h.Map((int x) => x * 2) + 1);
+    Assert.Equal(3, h.Map<string>((int x) => "n" + x).Length);
+    Holder<Vec2> hv = new Holder<Vec2>(new Vec2(4, 5));
+    Assert.Equal(9, hv.Map((Vec2 v) => v.X + v.Y));
+
+    IMaker m = new Maker();
+    Assert.Equal(6, m.Make(5) + 1);
+    Assert.Equal(7, m.Make<Vec2>(new Vec2(6, 7)).Y);
+}

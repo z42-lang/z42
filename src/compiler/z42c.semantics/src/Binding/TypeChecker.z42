@@ -306,13 +306,19 @@ public sealed class TypeChecker {
     // add-primitive-value-boxing: 对已决议方法的实参逐位装箱（整数实参 → object/接口 形参）。
     // 就地改写 args（BoxIfNeeded 对非整数实参 / 非 object·接口形参是 no-op），返回同数组便于链式。
     // 仅覆盖声明形参位（i < ParamTypes.Length）；params 尾包的元素装箱另论（罕见，暂不处理）。
+    //
+    // 装箱看**方法级擦除**的形参类型（`MethodErasedSig`）：泛型方法体对型参位走装箱模型，`Id<Vec2>(v)` 的形参
+    // 静态类型是 `Vec2`，物理上仍是 `T` 的句柄位 —— 按代换后的类型判就不装箱，裸 StructRef 逃出创建帧。
+    // 表示转换（ConvertIfNeeded）仍按代换后的类型：那是语义上的目标类型。
     public BoundExpr[] BoxArgs(BoundExpr[] args, int count, MethodSymbol ms, SymbolTable syms) {
         if (args == null || ms == null || ms.Signature == null) { return args; }
         Z42Type[] pts = ms.Signature.ParamTypes;
         if (pts == null) { return args; }
+        Z42Type[] bts = MethodTypeArgSubst.ErasedSig(ms).ParamTypes;
+        if (bts == null || bts.Length != pts.Length) { bts = pts; }
         int i = 0;
         while (i < count && i < pts.Length && i < args.Length) {
-            args[i] = this.BoxIfNeeded(args[i], pts[i]);
+            args[i] = this.BoxIfNeeded(args[i], bts[i]);
             args[i] = this.ConvertIfNeeded(args[i], pts[i], syms);   // tighten-implicit-conversions: 实参拓宽表示转换；add-user-conversions: 用户 implicit
             i = i + 1;
         }

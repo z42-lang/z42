@@ -1,0 +1,28 @@
+// Test: inside a generic method, reading an element of a `T[]` that is really a value-struct array
+// yields an owned copy, not a view into the array scoped to the method's frame — so returning it,
+// keeping it from a foreach, or reading it in a lambda is safe. Covers a local generic and the
+// stdlib's Array.Find (another package), explicit and inferred.
+
+struct Vec2 { public long X; public long Y; public Vec2(long x, long y) { this.X = x; this.Y = y; } }
+
+T First<T>(T[] a) { return a[0]; }
+T Last<T>(T[] a) { T last = a[0]; foreach (T e in a) { last = e; } return last; }
+T Pick<T>(T[] a, int i) { Func<T> f = () => a[i]; return f(); }
+
+void Main() {
+    Vec2[] vs = new Vec2[2];
+    vs[0] = new Vec2(1, 2);
+    vs[1] = new Vec2(3, 4);
+    Assert.Equal(2, First(vs).Y);
+    Vec2 c = First<Vec2>(vs);
+    c.X = 50;
+    Assert.Equal(1, vs[0].X);
+    Assert.Equal(4, Last(vs).Y);
+    Assert.Equal(3, Pick(vs, 1).X);
+    Assert.Equal(4, Array.Find(vs, (Vec2 v) => v.X == 3).Y);
+    Assert.Equal(4, Array.Find<Vec2>(vs, (Vec2 v) => v.X == 3).Y);
+    int[] xs = new int[3];
+    xs[0] = 4; xs[1] = 9; xs[2] = 16;
+    Assert.Equal(10, Array.Find<int>(xs, (int a) => a > 5) + 1);
+    Assert.Equal(9, First(xs) + 5);
+}

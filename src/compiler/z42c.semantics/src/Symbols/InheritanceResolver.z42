@@ -300,6 +300,7 @@ public sealed class InheritanceResolver {
                         // ⑥ add-interface-satisfaction-check：实现接口就必须**补齐其成员**（名字在 +
                         //    签名匹配）。与 ⑤ 同一时机、同一理由（要求接口成员已收集完）。
                         this._checkIfaceMembersComplete(sv, ct, c);
+                        this._recordIfaceInsts(sv, ct, c);
                         // ① 继承 sealed 类
                         if (table.BaseOf(ct) != null) {
                             Z42ClassType baseCt = table.BaseOf(ct);
@@ -492,6 +493,17 @@ public sealed class InheritanceResolver {
         while (i < c.BaseCount) {
             Z42Type bt = table.ResolveTypeP(c.Bases[i], c.TypeParams.Names, c.TypeParams.Count);
             if (bt is Z42InterfaceType) { this._checkOneIfaceMembers(table, ct, c.Name, c.Span, bt as Z42InterfaceType); }
+            i = i + 1;
+        }
+    }
+
+    // 记下声明实现的接口的解析形态（带类型实参），见 Z42ClassType.IfaceInsts。与上面同一时机（接口已收集完）。
+    private void _recordIfaceInsts(SymbolTable table, Z42ClassType ct, ClassDecl c) {
+        if (ct.IfaceInstCount > 0) { return; }   // 多入口路径重复跑本 pass 时只记一次
+        int i = 0;
+        while (i < c.BaseCount) {
+            Z42Type bt = table.ResolveTypeP(c.Bases[i], c.TypeParams.Names, c.TypeParams.Count);
+            if (bt is Z42InterfaceType) { ct.AddIfaceInst(bt as Z42InterfaceType); }
             i = i + 1;
         }
     }

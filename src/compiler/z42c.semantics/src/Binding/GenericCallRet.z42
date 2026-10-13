@@ -1,0 +1,58 @@
+// 泛型方法调用点的返回类型代换（机制见 MemberResolver.Generic.z42 头注）。
+namespace Z42.Semantics;
+
+public static class GenericCallRet {
+    // 按方法级类型实参（`names[i]` ↔ `targs[i]`）代换 ms 声明的返回类型，再按受者实参代换类级型参，
+    // 改写 bc 的静态类型；返回位是裸方法级型参且代换成 struct 时，bc 定型 Unknown、外包拆箱。
+    // 返回类型不涉及方法级型参 ⇒ bc 原样（类级那半已由调用点处理）。
+    // `recv` = 受者那一层的代换来源：实例化类（类级型参按其实参）/ 接口（`Self` → 该接口、接口型参按其实参）；
+    // 无则 null。
+    public static BoundExpr Finish(BoundCall bc, MethodSymbol ms, string[] names, int n, Z42Type[] targs,
+                                   Z42Type recv) {
+        if (bc == null || ms == null || n == 0 || targs == null) { return bc; }
+        Z42Type raw = MethodTypeArgSubst.ErasedSig(ms).Ret;
+        CountingNameMap m = new CountingNameMap(names, n, targs);
+        Z42Type r = TypeSubst.Apply(raw, m);
+        if (m.Hits == 0) { return bc; }
+        r = GenericCallRet._recvSubst(r, recv);
+        if ((raw is Z42GenericParamType) && GenericCallRet._isStruct(r)) {
+            bc.Retype(new Z42UnknownType());
+            return new BoundConvert(bc, r, bc.Span);
+        }
+        bc.Retype(r);
+        return bc;
+    }
+
+    private static Z42Type _recvSubst(Z42Type r, Z42Type recv) {
+        if (recv is Z42InstantiatedType) { return MemberResolver._substGeneric(r, recv as Z42InstantiatedType); }
+        if (recv is Z42InterfaceType) {
+            Z42Type s = MemberResolver._substSelf(r, recv);
+            if (recv is Z42InstantiatedInterfaceType) { s = MemberResolver._substIfaceArgs(s, recv as Z42InstantiatedInterfaceType); }
+            return s;
+        }
+        return r;
+    }
+
+    private static bool _isStruct(Z42Type t) {
+        if (t is Z42ClassType) { return (t as Z42ClassType).IsStruct; }
+        if ((t is Z42InstantiatedType) && ((t as Z42InstantiatedType).Def is Z42ClassType)) {
+            return (t as Z42InstantiatedType).Def.IsStruct;
+        }
+        return false;
+    }
+}
+
+// 按名代换方法级型参（同 NameListMap），并记下命中次数 —— 0 次即返回类型与方法级型参无关。
+public sealed class CountingNameMap : ITypeParamMap {
+    private NameListMap _inner;
+    public int Hits;
+    public CountingNameMap(string[] names, int nameCount, Z42Type[] targs) {
+        this._inner = new NameListMap(names, nameCount, targs);
+        this.Hits = 0;
+    }
+    public Z42Type Map(Z42GenericParamType p) {
+        Z42Type r = this._inner.Map(p);
+        if (r != null) { this.Hits = this.Hits + 1; }
+        return r;
+    }
+}

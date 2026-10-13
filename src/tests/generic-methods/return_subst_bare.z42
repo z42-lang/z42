@@ -1,0 +1,51 @@
+// Test: the static type of a generic method call is its declared return type with the type
+// arguments substituted — explicit (`Id<int>(3)`) and inferred (`Id(3)`) alike. Struct returns
+// come back from the (boxing-model) generic body boxed and are unboxed at the call site.
+
+struct Vec2 { public long X; public long Y; public Vec2(long x, long y) { this.X = x; this.Y = y; } }
+struct One { public long V; public One(long v) { this.V = v; } }
+class Box { public int N; public Box(int n) { this.N = n; } }
+
+T Id<T>(T x) { return x; }
+A First4<A, B, C, D>(A x) { return x; }
+
+class Calc {
+    public int Base;
+    public Calc(int b) { this.Base = b; }
+    T Pass<T>(T x) { return x; }
+    static T SPass<T>(T x) { return x; }
+    public int Run() { return Pass(this.Base) + SPass<int>(1) + Pass<int>(2); }
+}
+
+void Main() {
+    // scalar / string / class: the result takes part in type-sensitive expressions
+    Assert.Equal(4, Id(3) + 1);
+    Assert.Equal(4, Id<int>(3) + 1);
+    Assert.Equal(3, Id("abc").Length);
+    Assert.Equal(3, Id<string>("abc").Length);
+    Box b = new Box(7);
+    Assert.Equal(7, Id(b).N);
+    Assert.Equal(7, Id<Box>(b).N);
+
+    // value structs (2 fields and 1 field), explicit and inferred
+    Vec2 v = new Vec2(10, 20);
+    Assert.Equal(10, Id(v).X);
+    Assert.Equal(20, Id<Vec2>(v).Y);
+    One o = new One(5);
+    Assert.Equal(5, Id(o).V);
+    Assert.Equal(5, Id<One>(o).V);
+
+    // value semantics: the result is a copy
+    Vec2 r = Id(v);
+    r.X = 99;
+    Assert.Equal(10, v.X);
+    Assert.Equal(99, r.X);
+
+    // four type parameters (the explicit-substitution count is the real one, not an array capacity)
+    Assert.Equal(4, First4<int, string, bool, long>(3) + 1);
+    Assert.Equal(10, First4<Vec2, int, int, int>(v).X);
+    Assert.Equal(5, First4<One, int, int, int>(o).V);
+
+    // same-class bare calls (instance and static)
+    Assert.Equal(16, new Calc(13).Run());
+}
