@@ -28,6 +28,7 @@ const INVALID_MARSHAL_FQ: &str = "Std.InvalidMarshalException";
 /// Returns `Ok(Some(exc))` when a marshal failure produces a user-catchable
 /// `Std.InvalidMarshalException`; `Ok(None)` on success; `Err` on internal
 /// VM faults (unknown native type / method / arity mismatch).
+#[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
 pub(super) fn call_native(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
     dst: u32, module_name: &str, type_name: &str, symbol: &str, args: &[u32],
@@ -103,6 +104,7 @@ pub(super) fn call_native(
     Ok(None)
 }
 
+#[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
 pub(super) fn call_native_vtable(vtable_slot: u16) -> Result<()> {
     bail!(
         "CallNativeVtable not yet implemented (spec C5 / impl-source-generator): slot={vtable_slot}"
@@ -119,6 +121,7 @@ pub(super) fn call_native_vtable(vtable_slot: u16) -> Result<()> {
 /// 2026-05-11 retire-z-codes: type-mismatch + element-out-of-range
 /// surface as `Std.InvalidMarshalException` (user-catchable). Returns
 /// `Ok(Some(exc))` to propagate via interp's value-based throw channel.
+#[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
 pub(super) fn pin_ptr(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, src: u32,
 ) -> Result<Option<Value>> {
@@ -184,6 +187,7 @@ pub(super) fn pin_ptr(
     Ok(None)
 }
 
+#[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
 pub(super) fn unpin_ptr(ctx: &VmContext, frame: &Frame, pinned: u32) -> Result<()> {
     match frame.get(pinned)? {
         // make-value-copy: resolve the PinnedView handle → (kind, ptr) via the arena.

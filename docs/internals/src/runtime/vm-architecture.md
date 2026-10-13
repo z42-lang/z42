@@ -1037,7 +1037,13 @@ match callee_value {
 位置：`src/runtime/src/vm.rs` + `interp/` + `jit/`
 
 - **interp**：`exec_function` → `exec_instr` match 分发到近 70 个 IR 指令
-  实现。`Value` 是 `Copy` 的 16B tagged enum（见 [object-abi.md](object-abi.md)）
+  实现。`Value` 是 `Copy` 的 16B tagged enum（见 [object-abi.md](object-abi.md)）。
+  `exec_instr` 内联进执行循环 `exec_function_body`，内联进来的 helper 和分发循环共用一份寄存器分配与栈帧，
+  所以大而少见的分支都是 `#[inline(never)]` 的 helper（对象 / 数组分配、`is` / `as`、静态字段、取地址、
+  反射、值 struct、原生互操作、`Add` 的字符串分支），分支里只留操作数解码和一次直接调用；循环自己的慢路
+  （`ref` 参数 copy-in、异常回卷、内部错误定位、按标签跳转）在 `interp/exec_body_cold.rs`。留在内联里的
+  是算术 / 比较 / 拷贝、`Call` / `VCall` / `Builtin` 和字段 / 元素读写——字段与元素读写移出去实测更慢
+  （每次访问多一次调用，写密集循环的代价大于循环变紧的收益）。`func.resolved` 每次激活读一次，不是每条指令一次
 - **JIT**：Cranelift 后端把 `Function` **惰性逐函数**编译成 native code（见 [jit.md](jit.md)）；
   模块默认模式由 `Vm::default_mode`。
   **z42vm CLI 默认 = jit**（built `--features jit`

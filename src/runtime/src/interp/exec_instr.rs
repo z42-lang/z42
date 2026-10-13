@@ -9,12 +9,25 @@
 /// Helpers that may propagate a callee user exception return
 /// `Result<Option<Value>>` and the dispatcher checks `is_some()` to forward
 /// the throw upstack. All other helpers return `Result<()>`.
+///
+/// 热循环布局: this match is inlined into the execution loop (`exec_function_body`),
+/// so every helper LLVM inlines here becomes part of one function, sharing its
+/// register allocation and stack frame with the hot dispatch loop. Big or rare
+/// helpers (object / array allocation, `is` / `as`, statics, address-of, reflection,
+/// value structs, native interop, the string arm of `Add`) are `#[inline(never)]` so
+/// their bodies — and their live values across calls — stay out of the loop; the arm
+/// keeps only the operand decode and a direct call. Inline stay the arithmetic /
+/// compare / copy handlers, `Call` / `VCall` / `Builtin`, and the field and element
+/// accesses (`FieldGet` / `FieldSet` / `ArrayGet` / `ArraySet`): moving those out
+/// measured slower — a call per access costs store-heavy loops more than the tighter
+/// loop gains. The loop's own slow paths live in `exec_body_cold.rs`.
 
 use crate::metadata::{Function, Instruction, Module, Value};
 use crate::metadata::{
     BuiltinInsn, CallInsn, CallNativeInsn, FieldGetInsn, FieldSetInsn, MkClosInsn, ObjNewInsn,
     StaticGetInsn, StaticSetInsn, VCallInsn,
 };
+use crate::metadata::resolver::ResolvedTokens;
 use crate::metadata::tokens::UNRESOLVED;
 use crate::vm_context::VmContext;
 use anyhow::Result;
@@ -27,25 +40,26 @@ use super::Frame;
 ///   Ok(Some(val))  — a callee threw a user exception (value-based propagation)
 ///   Err(e)         — internal VM error
 ///
-/// `func` / `block_idx` / `instr_idx` are passed through for the
+/// `func` / `resolved` / `block_idx` / `instr_idx` are passed through for the
 /// introduce-method-token Phase 4 dispatch fast path. Token-bearing
 /// helpers (Call / Builtin / ObjNew / VCall / FieldGet / FieldSet /
-/// StaticGet / StaticSet / LoadFn / MkClos) read `func.resolved.site_index[block_idx]
+/// StaticGet / StaticSet / LoadFn / MkClos) read `resolved.site_index[block_idx]
 /// [instr_idx]` to find their per-kind cache slot. Non-token-bearing
 /// instructions ignore these parameters.
+#[allow(clippy::too_many_arguments)]
 pub fn exec_instr(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
-    func: &Function, block_idx: usize, instr_idx: usize,
+    func: &Function, resolved: Option<&ResolvedTokens>, block_idx: usize, instr_idx: usize,
     instr: &Instruction,
 ) -> Result<Option<Value>> {
     use super::{exec_address, exec_array, exec_call, exec_object, exec_struct, exec_value, exec_vcall};
     #[cfg(feature = "native-interop")]
     use super::exec_native;
 
-    // `resolved` is None only if Vm::run hasn't been called yet (e.g. unit tests
-    // calling exec_function directly without resolver hookup) — helpers fall back
-    // to string lookup in that case. Cheap: one OnceLock atomic load.
-    let resolved = func.resolved.get();
+    // `resolved` = `func.resolved`, read once per activation by the execution loop
+    // (not one acquire load per instruction). None only when the resolver never ran
+    // for `func` (unit tests calling exec_function without resolver hookup) — helpers
+    // fall back to string lookup then.
     // S1 (perf-interp-hot-paths): the per-site index is a nested `Vec<Vec<u32>>`
     // lookup (two pointer chases + two bounds checks). Only the 10 token-bearing
     // arms below consume it, so compute it lazily *inside* those arms via
@@ -270,14 +284,7 @@ pub fn exec_instr(
                 return Ok(Some(thrown));
             }
         }
-        Instruction::Typeof(insn) => {
-            // add-reflection-generic-type-definition: build a Std.Type from the
-            // FQ type name + structured generic instantiation args.
-            let v = crate::corelib::reflection::make_constructed_type(
-                ctx, &insn.type_name, &insn.type_args,
-            );
-            frame.set(insn.dst, v);
-        }
+        Instruction::Typeof(insn) => exec_address::type_of(ctx, frame, insn),
         Instruction::FieldGet(insn) => {
             let FieldGetInsn { dst, obj, field_name } = &**insn;
             let _site_idx = site_idx!();

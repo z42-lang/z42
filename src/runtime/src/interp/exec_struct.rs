@@ -27,6 +27,7 @@ use crate::objops::struct_leaf::{as_struct_ref, struct_field_get_val, struct_fie
 /// per-context struct arena; `dst` = `Value::StructRef` handle. The blob's byte +
 /// reference layout comes from the type's TYPE-section struct block (via
 /// [`resolve_layout`]); pure-primitive types fall back to a `size`-only layout.
+#[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
 pub(super) fn struct_alloc(
     ctx: &VmContext, frame: &mut Frame, dst: u32, type_name: &str, size: u32,
 ) -> Result<()> {
@@ -121,6 +122,7 @@ pub(crate) fn copy_array_elem_out(ctx: &VmContext, frame_id: u32, e: &ty::Struct
 
 /// `StructCopy dst, src, size` — copy the `src` blob into the `dst` blob (both
 /// already allocated). This is the value-semantics copy point (assign/param/return).
+#[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
 pub(super) fn struct_copy(
     ctx: &VmContext, frame: &mut Frame, dst: u32, src: u32, size: u32,
 ) -> Result<()> {
@@ -343,6 +345,7 @@ pub(crate) fn resolve_for_access(
 /// heap `Value::Object` whose inline struct field lives in
 /// `ScriptObject::struct_bytes`/`struct_refs` (add-struct-heap-inline P3b, route α),
 /// a `StackObject`, a `BoxedStruct`, or a `StructRefHeap` array element.
+#[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
 pub(super) fn struct_field_get_prim(
     ctx: &VmContext, frame: &mut Frame,
     insn: &crate::metadata::bytecode::StructFieldGetInsn,
@@ -363,6 +366,7 @@ pub(super) fn struct_field_get_prim(
 /// Heap-object base (P3b): a reference-leaf write into `struct_refs` **does** need a
 /// write barrier — the heap object is not re-scanned as a root, so a
 /// generational collector must observe the store (routed through `write_barrier_field`).
+#[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
 pub(super) fn struct_field_set_prim(
     ctx: &VmContext, frame: &mut Frame,
     insn: &crate::metadata::bytecode::StructFieldSetInsn,

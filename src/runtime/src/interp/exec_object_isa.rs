@@ -22,6 +22,7 @@ pub(crate) fn is_integer_class(cn: &str) -> bool {
         | "Byte" | "UInt16" | "UInt32" | "UInt64")
 }
 
+#[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
 pub(crate) fn is_instance(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, obj: u32, class_name: &str,
     key: &TypeKeyCell,
@@ -47,6 +48,7 @@ pub(crate) fn is_instance(
     Ok(())
 }
 
+#[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
 pub(crate) fn as_cast(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, obj: u32, class_name: &str,
     key: &TypeKeyCell,
