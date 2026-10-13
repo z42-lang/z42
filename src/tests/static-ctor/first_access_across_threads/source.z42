@@ -1,0 +1,44 @@
+// requires-caps: threads
+using Std.IO;
+using Std.Threading;
+
+// 多个线程同时首次读同一个静态字段：类型初始化器恰好跑一次，每个线程读到的都是初始化完成后的值
+// （后到的线程等先到的跑完）。读写点在 JIT 下是内联的静态字段访问，初始化屏障的稳态判定在生成码里。
+public static class Shared {
+    public static Channel<int> Out;
+}
+
+class C {
+    public static int V = 0;
+    public static int Runs = 0;
+    static C() {
+        C.Runs = C.Runs + 1;
+        long spin = 0L;
+        while (spin < 200000L) { spin = spin + 1L; }
+        C.V = 7;
+    }
+}
+
+void Main() {
+    int n = 4;
+    Shared.Out = new Channel<int>(n);
+    Thread[] ts = new Thread[n];
+    for (int k = 0; k < n; k = k + 1) {
+        ts[k] = Thread.Start(() => {
+            Shared.Out.Send(C.V);
+        });
+    }
+    for (int k = 0; k < n; k = k + 1) {
+        ts[k].Join();
+    }
+    int total = 0;
+    for (int k = 0; k < n; k = k + 1) {
+        total = total + Shared.Out.Recv();
+    }
+    Console.WriteLine(total);
+    Console.WriteLine(C.Runs);
+    // 已初始化：后续读写不再触发。
+    C.V = C.V + 1;
+    Console.WriteLine(C.V);
+    Console.WriteLine(C.Runs);
+}

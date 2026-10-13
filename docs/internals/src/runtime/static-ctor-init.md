@@ -39,7 +39,14 @@ if any_pending() { ensure_type_init(...) }   // 热路径的全部代价
 - **静态字段**：属主判定缓存在该字段的静态单元旁（`vm_context/static_table.rs` 的 `StaticCell::owner`，整个 VM 共享、
   读无锁）。第一次仍按名推属主，并走会加载的 `try_lookup_type`——跨包读静态字段时，属主所在的包可能确实还没加载；
   之后一次 acquire load 命中：无 cctor 的属主记为免检，有 cctor 的交给上一条的代际标记。基类链未合并的属主不缓存；
-  显式模块（重）加载清空全部缓存答案（`StaticTable::forget_owners`）。槽号未解析的站点（少见）仍每次按名推。
+  显式模块（重）加载清空全部缓存答案（`VmContext::forget_static_owners`）。槽号未解析的站点（少见）仍每次按名推。
+- **静态字段的整个屏障**（包初始化器 + 属主的 cctor）再缓存一层「已放行」：`CctorRegistry::barrier_epoch` 在任何
+  「放行过的屏障可能不再放行」的事件后加一——登记静态构造器、登记包初始化器、包初始化器失败或又有待跑的、重跑代际、
+  显式模块（重）加载；单元的 `StaticCell::ready` 记下屏障上次判为空操作时的纪元。`ensure_static_field_init`（interp
+  与 JIT helper 共用）先比这两个字，相等即返回；否则 acquire 读纪元、跑完整屏障，结论对所有线程都稳定时（没有待跑的包
+  初始化器——本线程重入中的那个放行但不算稳定；没有待初始化的 cctor，或属主免检，或属主在当前代际已初始化）才把读到的
+  纪元写进单元。屏障跑的同时发生的事件让写下的纪元当场过期，旧结论不会记到新纪元下。JIT 生成码内联的正是这一比较
+  （`jit/translate/static_field.rs`，见[惰性逐函数 JIT](jit.md) 的「静态字段」一节）。
 
 > ⚠️ **失败时计数不减。** 失败的类型必须让门继续开着，否则屏障短路、`Failed` 分支
 > 永远检查不到，失败类型会**静默变回可用**。代价是一旦有类型初始化失败，门就长期开着
@@ -108,12 +115,12 @@ stateDiagram-v2
 
 | 触发 | interp | JIT |
 |---|---|---|
-| 静态字段读 / 写 | `exec_object::static_get/set` | `jit_static_get/set` |
+| 静态字段读 / 写 | `exec_object::static_get/set` | 生成码内联放行判定（`translate/static_field.rs`），未放行走 `jit_static_get/set` |
 | 创建实例 | `exec_object::obj_new` | `jit_obj_new` |
 | 静态方法调用 | `exec_call::call` | `jit_call` |
 
-**两个后端调的是同一份实现**（`ensure_static_owner_init` / `ensure_callee_owner_init` /
-`ensure_type_init`）。这不是洁癖：两后端语义一致正是本特性最容易出错的地方，各写一份迟早
+**两个后端调的是同一份实现**（`ensure_static_field_init` / `ensure_callee_owner_init` /
+`ensure_type_init`；JIT 生成码只内联前者第一行的比较，其余都在 helper 里走同一函数）。这不是洁癖：两后端语义一致正是本特性最容易出错的地方，各写一份迟早
 漂移。开发期就吃过一次——JIT 侧一度完全没有屏障，而**用户代码默认走 JIT**（只有
 `__static_init__` 被强制走解释器），于是默认模式下静态构造器根本不跑。
 
@@ -211,7 +218,7 @@ catch (Exception e) {
 |---|---|---|
 | 静态调用 / 自由函数 | 被调函数 FQ 名 | `exec_call.rs`、`jit/helpers/call.rs`（两条去路各一处） |
 | `new` | 被创建类型的 FQ 名 | `exec_object.rs`、`jit/helpers/object.rs` |
-| 静态字段读写 | 字段 FQ 名 | `exec_object.rs::ensure_owner_type_init` |
+| 静态字段读写 | 字段 FQ 名 | `vm_context/statics.rs::ensure_static_field_init` |
 
 **本轮新跑出来的失败仍在当前屏障抛出**，不看归属 —— 初始化器是在这次调用里跑的，失败
 就该在这里浮出来（与「加载即执行」和 `module_init_load_order` 钉住的语义一致）。归属判定

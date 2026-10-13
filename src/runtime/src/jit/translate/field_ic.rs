@@ -308,7 +308,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
     }
 
     /// Continue in a fresh block when `cond` is zero; branch to `otherwise` when it is not.
-    fn continue_unless(&mut self, cond: CValue, otherwise: Block) {
+    pub(super) fn continue_unless(&mut self, cond: CValue, otherwise: Block) {
         let next = self.builder.create_block();
         self.builder.ins().brif(cond, otherwise, &[], next, &[]);
         self.builder.switch_to_block(next);
