@@ -291,11 +291,15 @@ pub(crate) fn debug_assert_frame_change_not_parked() {
 /// allocate until the matching [`native_park_decr`] — enforced in debug builds by
 /// [`debug_assert_not_native_parked`].
 fn native_park_incr(ctx: &VmContext) {
-    // add-gc-tlab (stage 2, D5): retire this thread's TLAB before it counts as
-    // parked for a blocking native call — a background collector may scan the
-    // region while this thread sits in native code, so no chunk may stay
-    // borrowed. (The thread won't allocate again until native_park_decr.)
-    ctx.heap().retire_thread_tlab();
+    // add-gc-tlab (stage 2, D5): a collector that runs while this thread sits in native
+    // code must see no chunk borrowed by it. The claims are set aside rather than retired
+    // (`MagrGC::park_thread_tlab`): retiring on every blocking call burned a half-filled
+    // chunk per call — a loop of parked builtins grew the heap by a chunk per iteration
+    // (`Thread.Sleep(0)` + one allocation, 100 000 times: 1.8 GB RSS) without ever looking
+    // used enough to collect. A collector beginning meanwhile retires them on our behalf
+    // (`request_gc_pause`); otherwise `native_park_decr` takes them back. (The thread won't
+    // allocate again until native_park_decr.)
+    ctx.heap().park_thread_tlab(&ctx.parked_tlab);
     NATIVE_PARK_DEPTH.with(|d| d.set(d.get() + 1));
     ctx.core.parked_count.fetch_add(1, Ordering::AcqRel);
     // Hold the phase lock across notify_all — same lost-wakeup discipline as
@@ -314,6 +318,9 @@ fn native_park_decr(ctx: &VmContext) {
     while matches!(*phase, GcPhase::Requested | GcPhase::Marking) {
         ctx.core.gc_phase_cv.wait(&mut phase);
     }
+    // Still counted parked and holding the phase lock: no collector can be retiring our
+    // set-aside claims now, nor start to before we are unparked.
+    ctx.heap().unpark_thread_tlab(&ctx.parked_tlab);
     ctx.core.parked_count.fetch_sub(1, Ordering::AcqRel);
     drop(phase);
     NATIVE_PARK_DEPTH.with(|d| d.set(d.get() - 1));
@@ -436,6 +443,16 @@ pub fn request_gc_pause(ctx: &VmContext) -> Option<GcPauseGuard<'_>> {
     }
     *phase = GcPhase::Marking;
     drop(phase);
+
+    // Native-parked threads set their TLAB claims aside instead of retiring them
+    // (`native_park_incr`): retire those now, before marking, as their owners would have
+    // at a safepoint park. Safepoint-parked threads retired their own already (their slot
+    // is empty), and none of them can unpark before the pause ends.
+    for p in ctx.core.vm_contexts.lock().iter() {
+        // SAFETY: see `VmContextPtr` — live while registered; we hold the registry lock.
+        let other = unsafe { &*p.0 };
+        ctx.heap().retire_parked_tlab(&other.parked_tlab);
+    }
 
     Some(GcPauseGuard { ctx })
 }

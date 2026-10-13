@@ -141,6 +141,7 @@ impl VmContext {
             stack_arena: Arc::new(Mutex::new(Default::default())),
             struct_arena: Arc::new(Mutex::new(Default::default())),
             transient_arena: Arc::new(Mutex::new(Default::default())),
+            parked_tlab: Default::default(),
             stack_obj_len: std::sync::atomic::AtomicUsize::new(0),
             stack_arr_len: std::sync::atomic::AtomicUsize::new(0),
             struct_len: std::sync::atomic::AtomicUsize::new(0),
@@ -459,6 +460,7 @@ impl VmContext {
             stack_arena: Arc::new(Mutex::new(Default::default())),
             struct_arena: Arc::new(Mutex::new(Default::default())),
             transient_arena: Arc::new(Mutex::new(Default::default())),
+            parked_tlab: Default::default(),
             stack_obj_len: std::sync::atomic::AtomicUsize::new(0),
             stack_arr_len: std::sync::atomic::AtomicUsize::new(0),
             struct_len: std::sync::atomic::AtomicUsize::new(0),
@@ -516,6 +518,7 @@ impl Drop for VmContext {
         // objects to other threads). Runs on the owning thread; leaves the
         // thread-local TLAB unbound for the next context. No-op if unbound.
         self.core.heap.retire_thread_tlab();
+        self.core.heap.retire_parked_tlab(&self.parked_tlab);
         // add-gc-tlab (stage 2): balance the arm() from construction.
         crate::gc::tlab::disarm();
         // add-incremental-major-gc M2a: the retire above handed this thread's SATB buffer over.

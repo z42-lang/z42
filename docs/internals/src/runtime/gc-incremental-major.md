@@ -55,7 +55,7 @@ VmContext::new*  ── satb::bind_thread(heap_id)        // 本线程的记录�
                      if MARKING_HEAPS == 0 { return }  // 标记期外：一次 relaxed load
                      slow: 本线程缓存「我的堆在标记吗、epoch 是几」（MARKING_GEN 变了才刷新）
                            旧值已被本周期标记 → 不记；否则 push 进线程本地 buf
-retire_thread_tlab ── buf 交给本堆的 satb_queue          // 每条 park 路径都先 retire，collector 等到全员 park 才继续
+retire_thread_tlab ── buf 交给本堆的 satb_queue          // 每条 park 路径都先交出 buf（native park 的 park_thread_tlab 同样交），collector 等到全员 park 才继续
 close_major_marking ── loop { retire 自己；取 satb_queue；标记入 mark_queue；drain } 直到一轮取空
                        satb::end_marking(heap_id)
 ```

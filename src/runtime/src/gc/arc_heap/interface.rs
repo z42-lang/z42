@@ -345,6 +345,18 @@ impl MagrGC for ArcMagrGC {
         ArcMagrGC::retire_thread_tlab(self)
     }
 
+    fn park_thread_tlab(&self, slot: &crate::gc::tlab::ParkedTlabSlot) {
+        ArcMagrGC::park_thread_tlab(self, slot)
+    }
+
+    fn unpark_thread_tlab(&self, slot: &crate::gc::tlab::ParkedTlabSlot) {
+        ArcMagrGC::unpark_thread_tlab(self, slot)
+    }
+
+    fn retire_parked_tlab(&self, slot: &crate::gc::tlab::ParkedTlabSlot) {
+        if let Some(p) = slot.take() { ArcMagrGC::retire_claims(self, p) }
+    }
+
     // ── 7. Finalization ──────────────────────────────────────────────────────
 
     /// **Phase 3e**: finalizer 直接挂在 GcAllocation wrapper 上，Drop 时自动

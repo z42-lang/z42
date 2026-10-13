@@ -169,3 +169,71 @@ fn a_hole_filled_during_an_incremental_cycle_is_allocated_black() {
     #[cfg(debug_assertions)]
     heap.debug_validate_invariants();
 }
+
+// ── a native park carries the hole stash (gc::safepoint::native_park_incr) ──────────────
+
+fn census_is_exact(heap: &ArcMagrGC) {
+    let r = heap.region_var_for_test().lock();
+    let mut alive = vec![0u32; r.live_per_chunk_for_test().len()];
+    r.iterate_alive(|_, h| alive[h.chunk_idx() as usize] += 1);
+    assert_eq!(r.live_per_chunk_for_test(), alive, "live_per_chunk matches a walk");
+    assert_eq!(r.live_count(), alive.iter().map(|&n| n as usize).sum::<usize>(), "live_count matches a walk");
+}
+
+/// No collection while parked: the stash comes back with the claims and the thread keeps
+/// filling the same batch.
+#[test]
+fn a_native_park_without_a_collection_hands_the_hole_stash_back() {
+    let heap = ArcMagrGC::new();
+    let _g = Armed::new(&heap);
+    let (_pins, dead) = half_dead(&heap, scaled(400));
+    let first = obj(&heap, "H");
+    assert!(dead.contains(&addr_of(&first)), "the batch was taken");
+    let unused = crate::gc::tlab::with_current_tlab(|t| t.holes.unused());
+    assert!(unused > 0);
+    let slot = crate::gc::tlab::ParkedTlabSlot::default();
+    heap.park_thread_tlab(&slot);
+    assert!(crate::gc::tlab::with_current_tlab(|t| t.is_unbound() && t.holes.is_empty()), "the stash left the thread");
+    heap.unpark_thread_tlab(&slot);
+    assert_eq!(crate::gc::tlab::with_current_tlab(|t| t.holes.unused()), unused, "the same batch is back");
+    let next = obj(&heap, "H");
+    assert!(dead.contains(&addr_of(&next)), "and filling resumes from it");
+}
+
+/// A collection that runs while the thread is native-parked retires the parked stash as the
+/// thread's own retire would (`request_gc_pause` → `retire_parked_tlab`): unused slots go back
+/// on the free list once, the census is exact, nothing is lost or handed out twice, and after
+/// unparking the thread takes a fresh batch and keeps reusing holes.
+#[test]
+fn a_collection_during_a_native_park_retires_the_parked_hole_stash() {
+    let heap = ArcMagrGC::new();
+    let _g = Armed::new(&heap);
+    let (_pins, dead) = half_dead(&heap, scaled(400));
+    let filled: Vec<Value> = (0..3).map(|_| obj(&heap, "H")).collect();
+    assert!(filled.iter().all(|v| dead.contains(&addr_of(v))));
+    let _filled_pins: Vec<_> = filled.iter().map(|v| heap.pin_root(v.clone())).collect();
+    assert!(crate::gc::tlab::with_current_tlab(|t| t.holes.unused()) > 0, "unused slots are stashed");
+    let slot = crate::gc::tlab::ParkedTlabSlot::default();
+    heap.park_thread_tlab(&slot);
+    // The collector, on another thread: retire every parked TLAB, then collect.
+    std::thread::scope(|s| {
+        s.spawn(|| {
+            MagrGC::retire_parked_tlab(&heap, &slot);
+            heap.force_collect();
+        }).join().unwrap();
+    });
+    census_is_exact(&heap);
+    heap.unpark_thread_tlab(&slot); // nothing left to take back
+    assert!(crate::gc::tlab::with_current_tlab(|t| t.is_unbound() && t.holes.is_empty()));
+    // Every dead slot but the three filled ones is reusable exactly once.
+    let again: Vec<Value> = (0..dead.len() - 3).map(|_| obj(&heap, "H")).collect();
+    let addrs: HashSet<usize> = again.iter().map(addr_of).collect();
+    assert_eq!(addrs.len(), again.len(), "no slot handed out twice");
+    let filled_addrs: HashSet<usize> = filled.iter().map(addr_of).collect();
+    assert!(addrs.is_disjoint(&filled_addrs), "a live block's slot is not reused");
+    assert_eq!(addrs.iter().filter(|a| dead.contains(a)).count(), again.len(), "every one lands in a hole");
+    heap.retire_thread_tlab();
+    census_is_exact(&heap);
+    #[cfg(debug_assertions)]
+    heap.debug_validate_invariants();
+}
