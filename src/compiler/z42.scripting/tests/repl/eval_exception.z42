@@ -1,0 +1,23 @@
+// REPL 求值期运行异常不逃逸终止会话（fix-repl-eval-exception）：用户 throw / 除零等在 Engine.Invoke 期
+// 抛出的异常被捕获、作失败 EvalResult 返回、会话不推进。
+namespace Z42ScriptingTests;
+
+using Std.Scripting;
+using Std.Harness;
+
+[Test]
+void test_eval_exception_keeps_session() {
+    ScriptState s = Script.Create();
+    Assert.Equal("10", _step(s, "int a = 10"));
+    Assert.Equal("10", _step(s, "a"));
+    // 用户 throw：捕获 → 错误文本，进程不死
+    Assert.Equal("Exception: boom", _step(s, "throw new Std.Exception(\"boom\")"));
+    // 会话在异常后完好
+    Assert.Equal("10", _step(s, "a"));
+    // 异常后仍可新声明并使用（失败轮未污染编译世界）
+    Assert.Equal("20", _step(s, "int b = 20"));
+    Assert.Equal("30", _step(s, "a + b"));
+    // 除零：另一种运行异常同样被捕获、可继续
+    Assert.Equal("DivideByZeroException: integer / by zero", _step(s, "1 / 0"));
+    Assert.Equal("30", _step(s, "a + b"));
+}

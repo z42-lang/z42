@@ -4,18 +4,20 @@
 
 use std::alloc::{alloc, dealloc, handle_alloc_error, Layout};
 use std::ptr::NonNull;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-use super::block::{payload_ptr_of, BlockType, GcBlockHeader};
+use super::block::{payload_ptr_of, BlockType, GcBlockHeader, ALIVE_GEN_BIT, FIRST_GEN};
 use super::{VarGcRef, VarRegion};
 
-/// `size_class` sentinel for a block that exceeds the largest in-chunk class and got its own
-/// dedicated, exactly-sized chunk.
+/// Size-class sentinel ([`class_for`]) for a block that exceeds the largest in-chunk class and
+/// gets its own dedicated, exactly-sized chunk.
 pub(crate) const OVERSIZED_CLASS: u8 = u8::MAX;
 
-/// Smallest total block footprint (header + payload), a power of two. 32 = 16 B header + up
-/// to 16 B payload.
-pub(super) const MIN_BLOCK: usize = 32;
+/// Smallest total block footprint (header + payload), a power of two: a header-only block — a
+/// field-less object, an empty string. Object model R8: with one 16 B header per object the old
+/// 32 B floor would have put the most common small objects (`{int}` / `{long}`, 24 B) and the
+/// empty ones (16 B) in the same 32 B class as `{int; string}`.
+pub(super) const MIN_BLOCK: usize = 16;
 
 /// Byte capacity of a bump chunk (payloads larger than this get a dedicated chunk).
 pub(super) const CHUNK_BYTES: usize = 64 * 1024;
@@ -25,7 +27,8 @@ pub(super) const CHUNK_BYTES: usize = 64 * 1024;
 pub(super) const CHUNK_ALIGN: usize = 16;
 
 /// Sub-classes per octave, as a log2. `0` would be plain powers of two; `2` splits every
-/// octave into four (32/40/48/56, 64/80/96/112, …) — the mimalloc / jemalloc shape.
+/// octave into four (32/40/48/56, 64/80/96/112, …) — the mimalloc / jemalloc shape. The octave
+/// below 32 keeps only its 8-aligned steps: 16 and 24.
 ///
 /// **shrink-var-size-classes (2026-09-07)**: plain powers of two rounded the average live
 /// block from 118 B of payload+header up to 188 B of footprint. Measured over a
@@ -89,29 +92,53 @@ pub(crate) fn class_for(payload: usize) -> (usize, u8) {
 /// allocating a var block).
 #[inline]
 pub(crate) fn class_for_with_limit(payload: usize, loh_bytes: usize) -> (usize, u8) {
-    let total = GcBlockHeader::DATA_OFFSET + payload;
-    let t = total.max(MIN_BLOCK);
-    // Round up to the next quarter-octave step. `t >= MIN_BLOCK` puts `oct` at 5 or more, so
-    // `step` is at least 8 and every footprint stays 8-aligned — the bump and TLAB offsets
-    // are only ever advanced by a footprint, and their alignment rests on that.
-    let oct = usize::BITS - 1 - t.leading_zeros();
-    let step = (1usize << oct) >> SUB_LOG2;
-    let footprint = (t + step - 1) & !(step - 1);
+    let footprint = payload_footprint(payload);
     if footprint > loh_bytes {
         // Oversized: dedicated chunk sized to exactly hold header + payload, 16-aligned.
+        let total = GcBlockHeader::DATA_OFFSET + payload;
         let dedicated = (total + CHUNK_ALIGN - 1) & !(CHUNK_ALIGN - 1);
         return (dedicated, OVERSIZED_CLASS);
     }
-    // Rounding can carry into the next octave (57..64 → 64), so take the octave off the
-    // rounded footprint rather than reusing `oct`.
+    (footprint, class_of_footprint(footprint))
+}
+
+/// The size-class footprint of a block of `payload` bytes — header + payload rounded up to the
+/// next quarter-octave step, at least [`MIN_BLOCK`] — regardless of the large-object threshold.
+/// For a block in a bump chunk this is its footprint; a chunk walk steps by it (object model R8:
+/// the header records the payload length, not the class).
+#[inline]
+pub(super) fn payload_footprint(payload: usize) -> usize {
+    let t = (GcBlockHeader::DATA_OFFSET + payload).max(MIN_BLOCK);
+    // Round up to the next quarter-octave step, and to 8: every footprint stays 8-aligned — the
+    // bump and TLAB offsets are only ever advanced by a footprint, and their alignment rests on
+    // that. From 32 up the step is at least 8 already; below it (16..31, step 4) the 8-rounding
+    // leaves the classes 16 and 24.
+    let oct = usize::BITS - 1 - t.leading_zeros();
+    let step = ((1usize << oct) >> SUB_LOG2).max(8);
+    (t + step - 1) & !(step - 1)
+}
+
+/// The class index of an in-chunk footprint (`octave << SUB_LOG2 | sub`).
+#[inline]
+fn class_of_footprint(footprint: usize) -> u8 {
+    // Rounding can carry into the next octave (57..64 → 64), so the octave is taken off the
+    // rounded footprint.
     let oct = usize::BITS - 1 - footprint.leading_zeros();
     let sub = (footprint - (1usize << oct)) >> (oct - SUB_LOG2);
-    (footprint, ((oct << SUB_LOG2) | sub as u32) as u8)
+    ((oct << SUB_LOG2) | sub as u32) as u8
+}
+
+/// The size class of a block of `payload` bytes in a **bump** chunk (its free list). Never
+/// [`OVERSIZED_CLASS`]: whether a block went to a dedicated chunk is a property of the chunk.
+#[inline]
+pub(super) fn payload_class(payload: usize) -> u8 {
+    class_of_footprint(payload_footprint(payload))
 }
 
 /// The footprint of size class `sc` — the inverse of [`class_for_with_limit`] for in-chunk
-/// classes (`octave << SUB_LOG2 | sub` → `2^octave + sub · 2^octave / 2^SUB_LOG2`). A block's
-/// header names its class, so this is how a chunk walk finds the next block.
+/// classes (`octave << SUB_LOG2 | sub` → `2^octave + sub · 2^octave / 2^SUB_LOG2`). Tests pin
+/// that every class index names exactly one footprint.
+#[cfg(test)]
 #[inline]
 pub(super) fn class_footprint(sc: u8) -> usize {
     let oct = (sc >> SUB_LOG2) as u32;
@@ -224,18 +251,22 @@ pub(super) struct Chunk {
     /// Total byte capacity of this chunk (`CHUNK_BYTES` for bump chunks, exact size for
     /// dedicated oversized chunks). **`0` marks a freed slot** — see [`Chunk::free_in_place`].
     pub(super) cap: usize,
+    /// Whether this chunk holds one oversized block (`VarRegion::alloc_dedicated`) rather than a
+    /// run of size-classed blocks. A dedicated chunk's single block is never free-listed, and a
+    /// walk visits it alone.
+    pub(super) dedicated: bool,
 }
 
 impl Chunk {
     /// Allocate a fresh `cap`-byte, 16-aligned chunk. Aborts on OOM (a partly-built region
     /// can't recover a null chunk).
-    pub(super) fn new(cap: usize) -> Self {
+    pub(super) fn new(cap: usize, dedicated: bool) -> Self {
         let layout = Layout::from_size_align(cap, CHUNK_ALIGN).expect("chunk layout");
         // SAFETY: `cap` is non-zero (>= MIN_BLOCK). On OOM abort rather than return a
         // dangling base.
         let raw = unsafe { alloc(layout) };
         let base = NonNull::new(raw).unwrap_or_else(|| handle_alloc_error(layout));
-        Chunk { base, cap }
+        Chunk { base, cap, dedicated }
     }
 
     /// The `Layout` this chunk was allocated with (for `dealloc`).
@@ -292,9 +323,9 @@ pub struct VarChunkClaim {
     cap: usize,
     off: usize,
     /// Generation stamped on every block filled from this claim (the chunk's `reuse_gen` at
-    /// borrow time). Fresh chunks → 0; recycled chunks → a value above every prior occupant's
-    /// generation (ABA guard).
-    base_gen: u32,
+    /// borrow time, odd). Fresh chunks → [`FIRST_GEN`](super::block::FIRST_GEN); recycled chunks
+    /// → the value right past every prior occupant's generation (ABA guard).
+    base_gen: u16,
     /// Start bits of the blocks filled from this claim (one bit per 8-byte granule) — merged
     /// into the region's young set at retire.
     starts: [u64; CHUNK_WORDS],
@@ -316,6 +347,8 @@ impl VarChunkClaim {
         if self.off + footprint > self.cap {
             return None;
         }
+        debug_assert_eq!(payload_class(payload), size_class, "fill takes `class_for(payload)`");
+        debug_assert_eq!(payload_footprint(payload), footprint, "fill takes `class_for(payload)`");
         let off = self.off;
         debug_assert_eq!(off % 8, 0, "var TLAB bump offset must stay 8-aligned");
         // SAFETY: off + footprint <= cap, chunk base is 16-aligned; owner-exclusive.
@@ -323,15 +356,7 @@ impl VarChunkClaim {
         let header_ptr = unsafe { NonNull::new_unchecked(raw as *mut GcBlockHeader) };
         // SAFETY: fresh space large enough for header + payload; write header + zero payload.
         unsafe {
-            header_ptr.as_ptr().write(GcBlockHeader {
-                generation: AtomicU32::new(self.base_gen),
-                size: payload as u32,
-                marked: AtomicU8::new(0),
-                alive: AtomicBool::new(true),
-                type_tag: AtomicU8::new(GcBlockHeader::pack_tag(block_type, 0)),
-                size_class,
-                chunk_idx: self.chunk_idx as u32,
-            });
+            header_ptr.as_ptr().write(GcBlockHeader::fresh(self.base_gen, payload, block_type));
             let data = payload_ptr_of(header_ptr);
             std::ptr::write_bytes(data, 0, payload);
         }
@@ -357,7 +382,7 @@ impl VarRegion {
             Some(ci) => self.bump_off + footprint > self.chunks[ci].cap,
         };
         if need_new {
-            let ci = self.push_chunk(CHUNK_BYTES);
+            let ci = self.push_chunk(CHUNK_BYTES, false);
             self.bump_chunk = Some(ci);
             self.bump_off = 0;
         }
@@ -378,7 +403,7 @@ impl VarRegion {
     /// Allocate a dedicated, exactly-sized chunk for an oversized block. Returns the header
     /// ptr at the chunk base.
     pub(super) fn alloc_dedicated(&mut self, footprint: usize) -> (NonNull<GcBlockHeader>, u32) {
-        let ci = self.push_chunk(footprint);
+        let ci = self.push_chunk(footprint, true);
         self.hwm[ci] = footprint as u32;
         let base = self.chunks[ci].base;
         // SAFETY: chunk base is 16-aligned (≥ header align 8) and non-null.
@@ -386,10 +411,12 @@ impl VarRegion {
     }
 
     /// **add-gc-tlab stage 3**: append a fresh chunk of `cap` bytes and grow every parallel
-    /// per-chunk table (`borrowed` false, `reuse_gen` 0). Returns the new chunk index. Single
-    /// growth point so `chunks` / `borrowed` / `reuse_gen` stay length-consistent.
-    fn push_chunk(&mut self, cap: usize) -> usize {
-        let chunk = Chunk::new(cap);
+    /// per-chunk table (`borrowed` false, `reuse_gen` [`FIRST_GEN`]). Returns the new chunk
+    /// index. Single growth point so `chunks` / `borrowed` / `reuse_gen` stay length-consistent,
+    /// and the one place a chunk enters the address index (`VarRegion::chunk_of`).
+    fn push_chunk(&mut self, cap: usize, dedicated: bool) -> usize {
+        let chunk = Chunk::new(cap, dedicated);
+        let base = chunk.base.as_ptr() as usize;
         self.footprint.charge(crate::gc::footprint::malloc_size(cap));
         // fix-loh-never-freed: reuse a slot left behind by a freed dedicated chunk first.
         // Without this, a workload that churns large objects grows `chunks` / `borrowed` /
@@ -400,24 +427,26 @@ impl VarRegion {
             // `Chunk` has no `Drop` (the region frees chunk memory), so overwriting the
             // tombstone can't double-free.
             self.chunks[ci] = chunk;
+            self.chunk_index.insert(base, ci as u32);
             self.borrowed[ci] = false;
-            self.reuse_gen[ci] = 0;
+            self.reuse_gen[ci] = FIRST_GEN;
             self.blocks_per_chunk[ci] = 0;
             self.live_per_chunk[ci] = 0;
-            self.max_gen_per_chunk[ci] = 0;
+            self.max_span_per_chunk[ci] = 0;
             self.hwm[ci] = 0;
             debug_assert_eq!(self.young_per_chunk[ci], 0, "a freed chunk holds nothing young");
             self.young_bits[ci] = self.new_young_row(cap);
             return ci;
         }
         self.chunks.push(chunk);
+        self.chunk_index.insert(base, (self.chunks.len() - 1) as u32);
         self.footprint.charge(crate::gc::footprint::VAR_CHUNK_TABLES);
         self.borrowed.push(false);
-        self.reuse_gen.push(0);
+        self.reuse_gen.push(FIRST_GEN);
         self.pool_epoch.push(0);
         self.blocks_per_chunk.push(0);
         self.live_per_chunk.push(0);
-        self.max_gen_per_chunk.push(0);
+        self.max_span_per_chunk.push(0);
         self.hwm.push(0);
         let row = self.new_young_row(cap);
         self.young_bits.push(row);
@@ -439,7 +468,7 @@ impl VarRegion {
                 self.take_pooled(ci);
                 ci
             }
-            None => self.push_chunk(CHUNK_BYTES),
+            None => self.push_chunk(CHUNK_BYTES, false),
         };
         self.borrowed[ci] = true;
         VarChunkClaim {
@@ -521,9 +550,12 @@ impl VarRegion {
         }
         self.purge_blocks(&pool, &free);
         for &ci in &pool {
-            // Bump reuse_gen above every generation this chunk's blocks reached, so a fresh
-            // re-bump can't mint an (address, generation) pair matching a stale VarGcRef.
-            self.reuse_gen[ci] = self.max_gen_per_chunk[ci].wrapping_add(1);
+            // Move reuse_gen right past every generation this chunk's blocks reached in this
+            // epoch (all of them lie in `reuse_gen ..= reuse_gen + max_span`, mod 2^16), so a
+            // fresh re-bump can't mint an (address, generation) pair matching a stale VarGcRef
+            // minted in this epoch. Stays odd: every recorded span is a dead (even) offset's.
+            self.reuse_gen[ci] = self.reuse_gen[ci].wrapping_add(self.max_span_per_chunk[ci]).wrapping_add(1) | ALIVE_GEN_BIT;
+            self.max_span_per_chunk[ci] = 0;
             // **lazy-var-free-list (2026-09-12)**: every free-list entry pointing into this
             // chunk just went stale. They are not evicted here — that scan was the whole cost
             // this change removes — so record how many there are, exactly: a chunk reaches
@@ -544,6 +576,7 @@ impl VarRegion {
             // dedicated chunk read as dead without touching the memory. Free lists never name a
             // dedicated chunk, so their staleness test is unaffected.
             self.pool_epoch[ci] = self.pool_epoch[ci].wrapping_add(1);
+            self.chunk_index.remove(&(self.chunks[ci].base.as_ptr() as usize));
             self.chunks[ci].free_in_place();
             self.blocks_per_chunk[ci] = 0;
             self.live_per_chunk[ci] = 0;
@@ -577,7 +610,7 @@ impl VarRegion {
             {
                 continue;
             }
-            if self.chunks[ci].cap == CHUNK_BYTES {
+            if !self.chunks[ci].dedicated {
                 pool.push(ci);
             } else {
                 free.push(ci); // dedicated / oversized — dealloc, never pooled (D-3)
@@ -616,14 +649,18 @@ impl VarRegion {
     /// linear in address.
     pub(super) fn purge_blocks(&mut self, pool: &[usize], free: &[usize]) {
         for &ci in pool.iter().chain(free) {
+            if self.chunks[ci].dedicated {
+                // A dedicated chunk's block is never free-listed, so it stales nothing.
+                self.hwm[ci] = 0;
+                continue;
+            }
             self.for_each_block_in_mut(ci, |r, p| {
                 // SAFETY: the chunk is still owned here — `purge_blocks` runs before anything
                 // is pooled or freed.
                 let h = unsafe { p.as_ref() };
-                let sc = h.size_class as usize;
                 // M12: a slot past its generation span was never free-listed, so it stales nothing.
-                if sc < r.stale_per_class.len() && r.reusable_gen(ci, h.generation()) {
-                    r.stale_per_class[sc] += 1;
+                if r.reusable_gen(ci, h.generation()) {
+                    r.stale_per_class[payload_class(h.size()) as usize] += 1;
                     r.stale_free += 1;
                 }
             });
@@ -633,18 +670,19 @@ impl VarRegion {
     }
 
     /// Visit every block carved in chunk `ci` (`[0, hwm)`), in address order. Each header
-    /// names its size class, which gives the next block's offset; a dedicated chunk holds one
-    /// block. Nothing for a pooled, freed or borrowed chunk (its mark is `0`).
+    /// records its payload length, which gives its footprint and so the next block's offset
+    /// ([`payload_footprint`]); a dedicated chunk holds one block. Nothing for a pooled, freed
+    /// or borrowed chunk (its mark is `0`).
     #[inline]
     pub(super) fn for_each_block_in(&self, ci: usize, mut f: impl FnMut(NonNull<GcBlockHeader>)) {
-        let (base, end, cap) = (self.chunks[ci].base.as_ptr(), self.hwm[ci] as usize, self.chunks[ci].cap);
+        let (base, end, dedicated) = (self.chunks[ci].base.as_ptr(), self.hwm[ci] as usize, self.chunks[ci].dedicated);
         let mut off = 0usize;
         while off < end {
             // SAFETY: `[0, hwm)` is a run of carved blocks, each starting with a written header
             // (see `VarRegion::hwm`); `off` is one of their starts, so in bounds and 8-aligned.
             let p = unsafe { NonNull::new_unchecked(base.add(off) as *mut GcBlockHeader) };
-            let sc = unsafe { p.as_ref() }.size_class;
-            off += if sc == OVERSIZED_CLASS { cap } else { class_footprint(sc) };
+            let size = unsafe { p.as_ref() }.size();
+            off = if dedicated { end } else { off + payload_footprint(size) };
             f(p);
         }
     }
@@ -654,15 +692,26 @@ impl VarRegion {
     /// own state stays valid).
     #[inline]
     pub(super) fn for_each_block_in_mut(&mut self, ci: usize, mut f: impl FnMut(&mut Self, NonNull<GcBlockHeader>)) {
-        let (base, end, cap) = (self.chunks[ci].base.as_ptr(), self.hwm[ci] as usize, self.chunks[ci].cap);
+        let (base, end, dedicated) = (self.chunks[ci].base.as_ptr(), self.hwm[ci] as usize, self.chunks[ci].dedicated);
         let mut off = 0usize;
         while off < end {
             // SAFETY: as in `for_each_block_in`.
             let p = unsafe { NonNull::new_unchecked(base.add(off) as *mut GcBlockHeader) };
-            let sc = unsafe { p.as_ref() }.size_class;
-            off += if sc == OVERSIZED_CLASS { cap } else { class_footprint(sc) };
+            let size = unsafe { p.as_ref() }.size();
+            off = if dedicated { end } else { off + payload_footprint(size) };
             f(self, p);
         }
+    }
+
+    /// The chunk that owns the block at `addr` (a header address), or `None` for an address
+    /// outside every chunk this region owns (a detached / leaked block). `O(log chunks)` — for
+    /// the callers that start from a bare handle (weak references, an explicit tombstone);
+    /// sweeps and allocation always know the chunk they work in. The index is kept by
+    /// `push_chunk` and the dedicated-chunk free in `reclaim_dead_var_chunks`.
+    pub fn chunk_of(&self, addr: usize) -> Option<usize> {
+        let (&base, &ci) = self.chunk_index.range(..=addr).next_back()?;
+        let c = &self.chunks[ci as usize];
+        (!c.is_freed() && addr < base + c.cap).then_some(ci as usize)
     }
 }
 

@@ -1,0 +1,21 @@
+// 作用域补全（add-completion-query-api Phase 1）：按前缀过滤 + 去重 + 顺序（VarNames 先、DeclNames 后）。
+// 前缀匹配区分大小写：`ban` 不命中 `Bandit`。
+namespace Z42ScriptingTests;
+
+using Std.Scripting;
+using Std.Harness;
+
+[Test]
+void test_scope_completion() {
+    ScriptState s = Script.Create();
+    s.VarNames.Add("banana");
+    s.VarNames.Add("band");
+    s.VarNames.Add("apple");
+    s.DeclNames.Add("Bandit");
+    Completer.SetActive(s);
+
+    Assert.Equal("banana,band", String.Join(",", _complete("ban", 3)));
+    Assert.Equal("apple", String.Join(",", _complete("app", 3)));
+    Assert.Equal(0, _complete("xyz", 3).Length);
+    Assert.Equal("banana,band,apple,Bandit", String.Join(",", _complete("", 0)));
+}

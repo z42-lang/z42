@@ -526,11 +526,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 size_of::<Value>() + size_of::<crate::metadata::types::ArrayObj>()
                     + rc.borrow().elem_storage_bytes()
             }
-            // Object model R6: the object's whole block — block header, object header, fields —
-            // the figure its allocation charged and its sweep credits (`alloc_charge_bytes`).
+            // Object model R6 / R8: the object's whole block — header, fields, meta word — the
+            // figure its allocation charged and its sweep credits (`alloc_charge_bytes`).
             Value::Object(rc) | Value::BoxedStruct(rc) => {
-                GcBlockHeader::DATA_OFFSET + crate::metadata::types::OBJ_HEADER_BYTES
-                    + rc.borrow().payload_len()
+                GcBlockHeader::DATA_OFFSET + rc.var_ref().payload_size()
             }
             // impl-lambda-l2 / P1-2 PR 8: FuncRef holds a `FnId` — no heap allocation.
             Value::FuncRef(_) => size_of::<Value>(),

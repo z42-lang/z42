@@ -8,7 +8,7 @@ use super::*;
 use crate::gc::region::PROMOTION_THRESHOLD;
 use crate::gc::var_region::{class_for, BlockType, GcBlockHeader};
 use crate::gc::{GcMode, ObjRef};
-use crate::metadata::types::{OwnedObject, ScriptObject, OBJ_HEADER_BYTES};
+use crate::metadata::types::{OwnedObject, ScriptObject};
 
 fn generational_heap() -> ArcMagrGC {
     let heap = ArcMagrGC::new();
@@ -42,26 +42,30 @@ fn an_object_is_one_block_header_then_fields() {
     let o = sized(&heap, 8);
     let v = o.var_ref();
     assert_eq!(v.block_type(), BlockType::Object);
-    assert_eq!(v.payload_size(), OBJ_HEADER_BYTES + 8, "payload = object header + fields");
+    assert_eq!(v.payload_size(), 8, "payload = the fields (R8: the block header is the object header)");
     let hdr = ObjRef::as_ptr(&o) as usize;
-    assert_eq!(hdr, v.addr() + GcBlockHeader::DATA_OFFSET, "the object header opens the payload");
-    assert_eq!(o.borrow().cells().base_ptr() as usize, hdr + OBJ_HEADER_BYTES, "fields follow it");
+    assert_eq!(hdr, v.addr(), "the object header is the block header");
+    assert_eq!(o.borrow().cells().base_ptr() as usize, hdr + GcBlockHeader::DATA_OFFSET, "fields follow it");
     assert_eq!(o.borrow().payload_len(), 8);
+    assert!(!o.borrow().has_meta(), "a boxed primitive carries no meta word");
 }
 
 #[test]
 fn small_objects_land_in_the_smallest_size_classes() {
-    // 16 B block header + 16 B object header + fields, rounded to a quarter-octave class.
-    assert_eq!(class_for(OBJ_HEADER_BYTES).0, 32, "a field-less object is 32 B");
-    assert_eq!(class_for(OBJ_HEADER_BYTES + 4).0, 40, "`{{int}}` is 40 B");
-    assert_eq!(class_for(OBJ_HEADER_BYTES + 8).0, 40, "`{{long}}` is 40 B");
-    assert_eq!(class_for(OBJ_HEADER_BYTES + 16).0, 48, "`{{int; string}}` is 48 B");
+    // Object model R8: one 16 B header + fields, rounded to a size class (16 / 24, then
+    // quarter-octave steps).
+    assert_eq!(class_for(0).0, 16, "a field-less object is 16 B");
+    assert_eq!(class_for(4).0, 24, "`{{int}}` is 24 B");
+    assert_eq!(class_for(8).0, 24, "`{{long}}` is 24 B");
+    assert_eq!(class_for(16).0, 32, "`{{int; string}}` is 32 B");
+    // A generic instance pays one meta word on top.
+    assert_eq!(class_for(8 + 8).0, 32, "`Box<T>{{T}}`-shaped: 16 + 8 + meta 8");
     // And the heap charges exactly the block it carved.
     let heap = stw_heap();
     let before = heap.used_bytes();
     let o = sized(&heap, 4);
-    assert_eq!(heap.used_bytes() - before, (GcBlockHeader::DATA_OFFSET + OBJ_HEADER_BYTES + 4) as u64);
-    assert_eq!(heap.object_size_bytes(&Value::Object(o)), GcBlockHeader::DATA_OFFSET + OBJ_HEADER_BYTES + 4);
+    assert_eq!(heap.used_bytes() - before, (GcBlockHeader::DATA_OFFSET + 4) as u64);
+    assert_eq!(heap.object_size_bytes(&Value::Object(o)), GcBlockHeader::DATA_OFFSET + 4);
 }
 
 #[test]

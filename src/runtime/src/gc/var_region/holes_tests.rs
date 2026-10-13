@@ -3,7 +3,7 @@
 //! (raw slot pointers, in-place header rewrites): run under
 //! `cargo +nightly miri test -p z42 --lib gc::var_region::holes`.
 
-use super::super::block::BlockType;
+use super::super::block::{BlockType, FIRST_GEN};
 use super::super::chunk::class_for;
 use super::super::{VarGcRef, VarRegion};
 use super::{VarHoleStash, GEN_REUSE_SPAN, HOLE_BATCH};
@@ -39,8 +39,8 @@ fn region_with_holes(n: usize, ty: BlockType) -> (VarRegion, Vec<VarGcRef>, Vec<
 fn assert_census(r: &VarRegion) {
     let mut alive = vec![0u32; r.live_per_chunk_for_test().len()];
     let mut young = 0usize;
-    r.iterate_alive(|_, h| {
-        alive[h.chunk_idx() as usize] += 1;
+    r.iterate_alive(|v, h| {
+        alive[r.chunk_of(v.addr()).expect("in a chunk")] += 1;
         if h.gen_age() < r.promotion_age {
             young += 1;
         }
@@ -100,8 +100,8 @@ fn a_reused_slot_keeps_the_tombstone_generation_and_rejects_stale_handles() {
     assert!(r.resolve(stale).is_none() && !stale.is_live(), "the old occupant's handle stays dead");
     // SAFETY: both are headers in `r`'s chunks.
     let (g_old, g_new) = unsafe { (stale.header_ptr().as_ref().generation(), fresh.header_ptr().as_ref().generation()) };
-    assert_eq!(g_old, g_new, "same slot, same (tombstone-bumped) generation");
-    assert_ne!(stale.gen16(), fresh.gen16());
+    assert_eq!(g_old, g_new, "same slot, one header");
+    assert_eq!(fresh.gen16(), stale.gen16().wrapping_add(2), "tombstone took it to even, reuse to the next odd");
     assert!(!r.tombstone(stale), "a stale handle cannot tombstone the new occupant");
     r.retire_holes(&mut stash);
     assert_census(&r);
@@ -206,14 +206,17 @@ fn a_slot_stops_being_recycled_before_its_generation_wraps() {
     let mut r = VarRegion::new();
     let a = r.alloc(PAYLOAD, BlockType::Str);
     let b = r.alloc(PAYLOAD, BlockType::Str);
-    // SAFETY: headers of live blocks in `r`; `reuse_gen` of a fresh chunk is 0.
+    // Live generations as far past a fresh chunk's `reuse_gen` (`FIRST_GEN`) as they may get:
+    // `a`'s next occupant lands exactly on the span, `b`'s would pass it.
+    let (ga, gb) = (FIRST_GEN.wrapping_add(GEN_REUSE_SPAN - 2), FIRST_GEN.wrapping_add(GEN_REUSE_SPAN));
+    // SAFETY: headers of live blocks in `r`.
     unsafe {
-        a.header_ptr().as_ref().generation.store(GEN_REUSE_SPAN - 1, std::sync::atomic::Ordering::Relaxed);
-        b.header_ptr().as_ref().generation.store(GEN_REUSE_SPAN, std::sync::atomic::Ordering::Relaxed);
+        a.header_ptr().as_ref().generation.store(ga, std::sync::atomic::Ordering::Relaxed);
+        b.header_ptr().as_ref().generation.store(gb, std::sync::atomic::Ordering::Relaxed);
     }
-    let a = VarGcRef::pack(a.header_ptr(), GEN_REUSE_SPAN - 1);
-    let b = VarGcRef::pack(b.header_ptr(), GEN_REUSE_SPAN);
-    assert!(r.tombstone(a), "reaches GEN_REUSE_SPAN: still recyclable");
+    let a = VarGcRef::pack(a.header_ptr(), ga);
+    let b = VarGcRef::pack(b.header_ptr(), gb);
+    assert!(r.tombstone(a), "its next occupant reaches GEN_REUSE_SPAN: still recyclable");
     assert!(r.tombstone(b), "would pass it: retired until the chunk is pooled");
     let mut stash = VarHoleStash::new();
     assert!(r.take_holes(class(), &mut stash));
@@ -255,7 +258,7 @@ fn chunk_epoch_is_unchanged_by_reuse() {
     // Weak object references check the chunk epoch, then the header: reuse must leave the first
     // alone (the address is still a header) and make the second fail.
     let (mut r, live, dead) = region_with_holes(4, BlockType::Object);
-    let ci = live[0].chunk_idx();
+    let ci = r.chunk_of(live[0].addr()).unwrap() as u32;
     let epoch = r.chunk_epoch(ci);
     let mut stash = VarHoleStash::new();
     assert!(r.take_holes(class(), &mut stash));
@@ -267,4 +270,43 @@ fn chunk_epoch_is_unchanged_by_reuse() {
     assert_eq!(r.chunk_epoch(ci), epoch);
     assert!(dead.iter().all(|h| !h.is_live()));
     assert!(live.iter().all(|h| h.is_live()));
+}
+
+/// A collection that runs while another thread still holds a hole stash (outside the safepoint
+/// protocol; `tlab_concurrent_shared_heap_stress` does it) meets the stash's slots in the young set:
+/// taken at `take_holes`, dead until filled and published. Every young-set walk must leave them to
+/// their owner — before, the minor sweep asserted on them, and a slot whose previous occupant was
+/// old was taken out of the young set by the age check, so the block refilled into it was young but
+/// unlisted (no minor would ever sweep it, or clear its mark).
+#[test]
+fn a_collection_leaves_a_foreign_stash_alone() {
+    let mut r = VarRegion::new();
+    let all: Vec<VarGcRef> = (0..8).map(|_| r.alloc(PAYLOAD, BlockType::Object)).collect();
+    for h in all.iter().skip(1).step_by(2) {
+        // The previous occupants were old: their headers keep the age after the tombstone.
+        h.raise_gen_age_to(crate::gc::region::PROMOTION_THRESHOLD);
+        assert!(r.tombstone(*h));
+    }
+    let mut stash = VarHoleStash::new();
+    assert!(r.take_holes(class(), &mut stash));
+    let taken: Vec<usize> = all.iter().skip(1).step_by(2).map(|&h| addr(h)).collect();
+    // One slot filled but not yet published, the rest untouched.
+    // SAFETY: owner thread; the slots came from `r`.
+    let filled = unsafe { stash.fill(class(), PAYLOAD, BlockType::Object) };
+
+    // The "concurrent" collection: a minor sweep (nothing marked), an aging pass and a tenure.
+    r.sweep_young(None);
+    let _ = r.age_young_survivors();
+    let young: Vec<usize> = r.young_blocks_for_test().iter().map(|p| p.as_ptr() as usize).collect();
+    assert!(young.is_empty(), "the stashed slots are not blocks; the live blocks were swept");
+    let listed = r.young_count();
+    assert_eq!(listed, taken.len(), "the stashed slots stay listed (counted at take)");
+
+    // The owner finishes: the filled block is born young and listed, the census holds.
+    filled.publish();
+    assert!(r.resolve(filled).is_some());
+    assert!(r.young_blocks_for_test().iter().any(|p| p.as_ptr() as usize == addr(filled)));
+    r.retire_holes(&mut stash);
+    assert_census(&r);
+    assert_eq!(r.young_count(), 1, "only the published block remains young");
 }

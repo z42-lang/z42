@@ -196,10 +196,12 @@ panic（generation/alive mismatch detection）。该守卫 **debug 与 release �
   全是变长块（下一节）；
 - `region_array: Mutex<Region<ArrayObj>>` —— `Value::Array` 的数组头（定长槽）。
 
-**对象 = 一个变长块**：16 B 块头（`GcBlockHeader`：generation / size / mark / alive / type_tag / size_class / chunk_idx）、
-16 B 对象头（`ObjHeader`：`type_desc` + `meta`）、字段单元，一次分配；`&ScriptObject` 是盖住对象头 + 字段的胖引用（布局见 [object-abi.md](object-abi.md) §1）。
-没有单独的字段块 malloc，死对象的字段随块一起回收；对象头里的 `Arc<TypeDesc>` 与 extras 盒子由变长区的 drop glue
-在块被 tombstone 时释放（`var_drop_glue` 的 `Object` 臂，返回 extras 的字节数，变长区记回占用账）。
+**对象 = 一个变长块、一个 16 B 头**（对象模型 R8）：块头的 GC 字（generation 含存活位 / mark / `type_tag` / payload 长度）
+加种类字里的 `Arc<TypeDesc>` 就是对象头，后面是字段单元（泛型 / 带原生底座的实例再加一个 meta 字），一次分配；
+`&ScriptObject` 是盖住整块的胖引用（布局见 [object-abi.md](object-abi.md) §1）。
+没有单独的字段块 malloc，死对象的字段随块一起回收；类型字里的 `Arc<TypeDesc>` 与 meta 字指着的 extras 盒子由变长区的 drop glue
+在块被 tombstone 时释放（`var_drop_glue` 的 `Object` 臂，返回 extras 的字节数，变长区记回占用账；之后把种类字清空，
+槽位的下一个占用者看到的总是空字）。
 分配走 `acquire_var_block`（TLAB：先无锁填同 size class 的空洞、再无锁 bump，见 [GC TLAB · 空洞复用](gc-tlab.md#空洞复用tlab-按-size-class-成批认领死槽m12)；或锁路径），对象在块里建好再发布（`gc/arc_heap/alloc_object.rs`）。
 
 `Region<T>`（数组头）内部是 256 槽一个的 chunk（`[MaybeUninit<RegionEntry<T>>; 256]`，从页对齐 slab
@@ -215,7 +217,8 @@ JIT 按帧提升的字段基址也依赖它）。
 
 #### 访问：`borrow()` 给 `&T`，没有锁
 
-`ObjRef::borrow()` / `GcRef::borrow()` 校验 generation / alive 后给 `&ScriptObject` / `&ArrayObj`，没有每对象锁。
+`ObjRef::borrow()` 比一次 generation（变长块活着时 generation 为奇数，句柄存的就是它）、`GcRef::borrow()` 校验 generation / alive，
+然后给 `&ScriptObject` / `&ArrayObj`，没有每对象锁。
 对象与数组跨线程共享，字段 / 元素读写都是 `&self` 上的同宽原子单元访问（机制与内存序见
 [object-abi.md](object-abi.md) §3「字段单元的内存序」）。`type_desc` / `type_args` / `NativeData`
 在发布之前定好、之后不变，`ObjRef::type_desc()` / `type_desc_arc()` / `type_args()` 只是 `borrow()` 上的便捷读。
@@ -230,7 +233,8 @@ JIT 按帧提升的字段基址也依赖它）。
 变长区的地址会被重新切分——整块死掉的 bump chunk 进池后从偏移 0 重新 bump，旧地址可能落在新块的中间；
 大对象的专用 chunk 死后直接还给分配器。所以 `upgrade` 由堆来做（`ArcMagrGC::upgrade_weak_object`，持变长区锁）：
 先比 `VarRegion::chunk_epoch(chunk)`（chunk 进池或被释放时 +1），不等就是死了、**根本不读那块内存**；
-相等才说明地址仍是这个 chunk 里的块头，再看 generation / alive。弱引用不会让 chunk 推迟回收。
+相等才说明地址仍是这个 chunk 里的块头，再看 generation（含存活位）。弱引用不会让 chunk 推迟回收。块头不记所属 chunk：
+`downgrade` 时持变长区锁按地址查一次（`VarRegion::chunk_of`，chunk 基址的有序索引，`O(log chunk 数)`）。
 
 **Sweep 路径**：`sweep_phase` 先 walk `region_array` 的 `iterate_alive`（unmarked → 取 finalizer → 触发 → tombstone），
 再 `VarRegion::sweep`（对象块与其它变长块一起：未标记 → drop glue → tombstone）。region 就是 authoritative
@@ -255,19 +259,33 @@ closure 的 `ClosureData`、array 的元素后端若各自在 GC **外**（手�
 **单块 `{GcBlockHeader, inline payload…}` 单次分配**（等价原 thin-Arc 的紧凑度，但纳入 GC）。
 
 ```
-VarRegion 变长块（16B 对齐原始 chunk + 四分之一八度 size-class free-list + oversized 专用块）
-┌──────────────── GcBlockHeader (16B, repr(C,align8)) ────────────────┐┌── payload (8B 对齐) ──┐
-│ generation │ size │ marked │ alive │ type_tag(BlockType) │ size_class ││  inline bytes / [T;n]  │
-└─────────────────────────────────────────────────────────────────────┘└───────────────────────┘
+VarRegion 变长块（16B 对齐原始 chunk + size-class free-list + oversized 专用块）
+┌──────────────── GcBlockHeader (16B, repr(C,align8)) ────────────────────────┐┌── payload (8B 对齐) ──┐
+│ GcWord: generation u16 │ marked u8 │ type_tag u8 │ size u32 │ 种类字 (8B)   ││  inline bytes / [T;n]  │
+│         (bit0 = 存活)                                         对象: TypeDesc ││  对象: 字段 [+ meta]   │
+└──────────────────────────────────────────────────────────────────────────────┘└───────────────────────┘
    ▲ VarGcRef = type-erased 8B 标记指针（low48 地址 + high16 gen；wasm32 用 {ptr,gen}）
    payload 指针必须从原始 NonNull 派生（D8：绝不经窄 &GcBlockHeader reborrow → SB UB）
 ```
+
+头里只放每块必须有、又推不出来的东西（对象模型 R8：块头与对象头是同一个 16 B 头）：
+
+| 字段 | 为什么在头里 / 推不出来的东西去了哪 |
+|---|---|
+| `generation: u16` | 陈旧句柄守卫，句柄本来就只存 16 位。**最低位是存活位**：活块为奇数，tombstone 变偶、复用变下一个奇数，所以 `borrow` / `resolve` 一次相等比较同时判「死了」与「被复用」；M12 填进空洞的块保持偶数 generation 直到 `publish` 以 release 写入奇数（遍历者 acquire 读） |
+| `marked: u8` | 标记位（minor 位 + major epoch），与定长区共用 `refs::mark_cell` |
+| `type_tag: u8` | 块种类 / 代龄 / 记忆集 / ASCII 或 meta / 侧表位（位表见 [GC TLAB](gc-tlab.md#变长区的分代)），屏障在 mutator 线程无锁读 |
+| `size: u32` | payload 长度：字符串长度、数组元素区边界、对象的字段区 + meta。**size class 是它的函数**（`chunk::payload_class`），chunk 遍历按它的 footprint 步进 |
+| 种类字 | 对象的 `Arc<TypeDesc>`；别的块恒空 |
+| size class（不单存） | 由 `size` 推出；块是否在专用 chunk 由 chunk 自己记（`Chunk::dedicated`） |
+| 所属 chunk（不单存） | 清扫、TLAB、空洞认领本来就按 chunk 走、手里有下标；从句柄出发的少数调用（弱引用 `downgrade`、`finalize_now`、OOM 退款）用 `VarRegion::chunk_of` 按地址查 |
+| 存活位（不单存） | 并进 generation 的最低位 |
 
 **BlockType 分派**（`var_drop_glue`，注入 region 让 `var_region.rs` 保持纯字节分配器）：
 
 | BlockType | payload | 消费者 | drop-glue |
 |-----------|---------|--------|-----------|
-| `Object` | 16 B 对象头（`ObjHeader`）+ 字段单元（整体即 `ScriptObject` DST） | `Value::Object` / `Value::BoxedStruct`（`ObjRef`）| **有**：drop 对象头（`Arc<TypeDesc>`、extras 盒子），返回 extras 字节数供占用账扣回 |
+| `Object` | 字段单元 [+ meta 字]（类型字在块头，整块即 `ScriptObject` DST） | `Value::Object` / `Value::BoxedStruct`（`ObjRef`）| **有**：drop 类型字（`Arc<TypeDesc>`）与 extras 盒子、清空种类字，返回 extras 字节数供占用账扣回 |
 | `Str` | inline UTF-8 | `Value::Str`（8B 细指针，**不可变叶子**，trace 无出边）| POD，无 |
 | `Closure` | 一个 `ClosureData{env: GcRef, fn_id: FnId}` | `Value::Closure` | **POD，无**（目标是函数 id，闭包全 POD）|
 | `ArrayPrim` / `ArrayStruct` | 紧凑 `[T;n]`（PRIM 数组 / `struct[]` blob，引用叶子是 8 B 引用字）| `ArrayObj` backing | POD，无 |

@@ -19,7 +19,8 @@
 //!
 //! - the chunk walk (`for_each_block_in`) still finds a header at every block start, so `[0, hwm)`
 //!   stays a run of headers — carving a span into differently-sized blocks would need filler
-//!   headers and a new walk rule;
+//!   headers and a new walk rule (the walk steps by the class footprint of each header's payload
+//!   length, which a same-class fill does not change);
 //! - a stale handle (a weak object reference, the string-metadata cache) still lands on a block
 //!   header, whose generation was bumped at tombstone and is kept on reuse, so the generation
 //!   guard rejects it — carving at new offsets would put such an address in the middle of
@@ -46,23 +47,24 @@
 //!   retire undoes both for the unused ones. Census and young set therefore stay right even if a
 //!   filled block is tombstoned by another thread before the owner retires (`finalize_now`), and
 //!   a chunk holding a stashed slot can never look fully dead (it is never pooled under a stash).
-//! - **Invisible until built.** [`fill_hole`] leaves the block's `alive` flag clear; the allocation
-//!   funnel sets it with release ordering once the payload is written
-//!   (`VarGcRef::publish`). A bump-filled block gets the same guarantee from its chunk's
+//! - **Invisible until built.** [`fill_hole`] leaves the slot's generation at its (even, dead)
+//!   tombstone value; the allocation funnel moves it to the next (odd, alive) value with release
+//!   ordering once the payload is written (`VarGcRef::publish`). A bump-filled block gets the same guarantee from its chunk's
 //!   unpublished high-water mark; a reused slot sits in a published chunk, so the flag is what keeps
 //!   a heap walk on another thread (`snapshot_live_from_registry`) from reading a half-built object.
 //! - **Side tables first.** No slot is handed out while the flagged-dead list is non-empty
 //!   ([`VarRegion::take_holes`] refuses), so a finalizer / soft reference / remembered-set entry
 //!   keyed by a dead block's address is always dropped before a new block can take that address.
-//! - **No generation wrap within an epoch.** `tombstone` stops free-listing a slot once its
-//!   generation is [`GEN_REUSE_SPAN`] past its chunk's `reuse_gen`, so a 16-bit handle snapshot
-//!   taken in this chunk epoch can never match a later occupant (see [`VarRegion::reusable_gen`]).
+//! - **No generation wrap within an epoch.** `tombstone` stops free-listing a slot once its next
+//!   occupant's generation would be more than [`GEN_REUSE_SPAN`] past its chunk's `reuse_gen`, so a
+//!   16-bit handle snapshot taken in this chunk epoch can never match a later occupant (see
+//!   [`VarRegion::reusable_gen`]).
 
 use std::ptr::NonNull;
 use std::sync::atomic::Ordering;
 
-use super::block::{payload_ptr_of, BlockType, GcBlockHeader};
-use super::chunk::{FreeEntry, FreeSlot, NUM_CLASSES};
+use super::block::{payload_ptr_of, BlockType, GcBlockHeader, GcWord, ALIVE_GEN_BIT};
+use super::chunk::{payload_class, FreeEntry, FreeSlot, NUM_CLASSES};
 use super::{VarGcRef, VarRegion};
 
 /// Slots taken per refill. Large enough that the region lock is taken once per 64 reused
@@ -70,16 +72,18 @@ use super::{VarGcRef, VarRegion};
 /// potential reuse between safepoints.
 pub(crate) const HOLE_BATCH: usize = 64;
 
-/// How far past its chunk's `reuse_gen` a slot's generation may go before the slot stops being
-/// recycled. Handles carry the low 16 bits of the generation, so within one chunk epoch (all
-/// generations in `[reuse_gen, reuse_gen + GEN_REUSE_SPAN]`) no two occupants of an address share a
-/// snapshot. A slot that reaches the limit stays tombstoned until its chunk is pooled.
-pub(super) const GEN_REUSE_SPAN: u32 = u16::MAX as u32;
+/// How far past its chunk's `reuse_gen` (mod 2^16) a **live** generation may lie. Handles carry
+/// the whole 16-bit generation, so within one chunk epoch (all live generations in
+/// `reuse_gen ..= reuse_gen + GEN_REUSE_SPAN`, odd offsets from an odd base) no two occupants of an
+/// address share a snapshot. A slot whose next occupant would pass the limit stays tombstoned
+/// until its chunk is pooled.
+pub(super) const GEN_REUSE_SPAN: u16 = u16::MAX - 1;
 
 /// One size class's batch: `slots[next..]` are taken and unused, `slots[..next]` were filled.
 #[derive(Default)]
 struct HoleBatch {
-    slots: Vec<NonNull<GcBlockHeader>>,
+    /// Each slot with the chunk it lives in (the header does not record it).
+    slots: Vec<(NonNull<GcBlockHeader>, u32)>,
     next: usize,
 }
 
@@ -134,12 +138,12 @@ impl VarHoleStash {
     pub(crate) unsafe fn fill(&mut self, size_class: u8, payload: usize, block_type: BlockType) -> VarGcRef {
         debug_assert!(self.has(size_class));
         let b = &mut self.batches[size_class as usize];
-        let slot = b.slots[b.next];
+        let (slot, _) = b.slots[b.next];
         b.next += 1;
         match b.slots.get(b.next) {
             // The next slot of this class is somewhere else in the heap, cold: start pulling its
             // line in now, so the store miss overlaps with this block's construction.
-            Some(&ahead) => prefetch_write(ahead.as_ptr().cast()),
+            Some(&(ahead, _)) => prefetch_write(ahead.as_ptr().cast()),
             None => self.avail &= !(1u128 << size_class),
         }
         // SAFETY: a taken slot is a tombstoned header of `size_class` that only this thread owns.
@@ -199,11 +203,12 @@ pub(crate) fn prefetch_write(p: *const u8) {
 
 /// Re-initialize the tombstoned slot at `slot` for a new block, keeping the generation its
 /// tombstone bumped (the ABA guard — same discipline as the locked `reinit_slot`). Writes the
-/// size, a fresh `type_tag` (age 0, every flag clear: remembered / side / ASCII) and an empty mark,
-/// zeroes the payload, and leaves `alive` clear for the funnel to publish.
+/// size, a fresh `type_tag` (age 0, every flag clear: remembered / side / ASCII / meta) and an empty
+/// mark, zeroes the payload, and leaves the generation at its dead (even) value for the funnel to
+/// publish; the returned handle carries the next (odd) one.
 ///
-/// The size class and chunk index are not rewritten: a slot keeps both for life, and a heap walk
-/// on another thread may be reading `size_class` to step over this (dead) block.
+/// The new size is in the slot's own size class, so a heap walk on another thread reading it to
+/// step over this (dead) block sees the same footprint before and after.
 ///
 /// # Safety
 /// `slot` is a dead header of the class `payload` maps to, owned by the calling thread.
@@ -213,17 +218,16 @@ unsafe fn fill_hole(slot: NonNull<GcBlockHeader>, payload: usize, block_type: Bl
     // SAFETY: (all below) `p` heads a tombstoned block of this region whose footprint holds the
     // header + `payload` bytes; the taking thread has exclusive use of it until it publishes.
     unsafe {
-        debug_assert!(!(*p).is_alive(), "a stashed slot is dead");
-        debug_assert!(
-            super::chunk::class_for(payload).1 == (*p).size_class,
-            "a slot is only reused by its own size class"
-        );
-        std::ptr::addr_of_mut!((*p).size).write(payload as u32);
-        (*p).marked.store(0, Ordering::Relaxed);
-        (*p).type_tag.store(GcBlockHeader::pack_tag(block_type, 0), Ordering::Relaxed);
+        let h = &(*p).word;
+        let dead = h.generation.load(Ordering::Relaxed);
+        debug_assert_eq!(dead & ALIVE_GEN_BIT, 0, "a stashed slot is dead");
+        debug_assert_eq!(payload_class(h.size()), payload_class(payload), "a slot is only reused by its own size class");
+        debug_assert!((*p).kind_word().is_null(), "a dead slot owns no kind word");
+        h.size.store(payload as u32, Ordering::Relaxed);
+        h.marked.store(0, Ordering::Relaxed);
+        h.type_tag.store(GcWord::pack_tag(block_type, 0), Ordering::Relaxed);
         std::ptr::write_bytes(payload_ptr_of(slot), 0, payload);
-        let generation = (*p).generation.load(Ordering::Relaxed);
-        VarGcRef::pack(slot, generation)
+        VarGcRef::pack(slot, dead.wrapping_add(1))
     }
 }
 
@@ -265,7 +269,11 @@ impl VarRegion {
                 let fresh = crate::gc::side_bits::set(&mut self.young_bits[ci], g);
                 debug_assert!(fresh, "a dead slot is never in the young set");
             }
-            b.slots.push(slot);
+            #[cfg(debug_assertions)]
+            {
+                *self.stashed.entry(slot.as_ptr() as usize).or_insert(0) += 1;
+            }
+            b.slots.push((slot, ci as u32));
         }
         self.count_taken(run_ci, run);
         if b.slots.is_empty() {
@@ -303,9 +311,18 @@ impl VarRegion {
             let sc = touched.trailing_zeros() as usize;
             touched &= touched - 1;
             let b = &mut stash.batches[sc];
-            for &slot in &b.slots[b.next..] {
-                // SAFETY: a taken, never-filled slot — still the tombstoned header it was.
-                let ci = unsafe { slot.as_ref() }.chunk_idx as usize;
+            #[cfg(debug_assertions)]
+            for &(slot, _) in &b.slots {
+                let a = slot.as_ptr() as usize;
+                match self.stashed.get_mut(&a) {
+                    Some(n) if *n > 1 => *n -= 1,
+                    _ => {
+                        self.stashed.remove(&a);
+                    }
+                }
+            }
+            for &(slot, ci) in &b.slots[b.next..] {
+                let ci = ci as usize;
                 self.live_count -= 1;
                 self.live_per_chunk[ci] -= 1;
                 self.remove_young(slot, ci);
@@ -324,13 +341,13 @@ impl VarRegion {
         stash.dry = 0;
     }
 
-    /// Whether a slot of chunk `ci` that just reached `generation` may be recycled (see
-    /// [`GEN_REUSE_SPAN`]). Every handle into the chunk minted in its current epoch carries a
-    /// generation in `[reuse_gen, generation)`; keeping the span under 2^16 keeps their 16-bit
-    /// snapshots distinct from every later occupant of the same address.
+    /// Whether a slot of chunk `ci` whose tombstone just took it to the (even) `dead` generation
+    /// may be recycled (see [`GEN_REUSE_SPAN`]). Every handle into the chunk minted in its current
+    /// epoch carries a generation in `reuse_gen ..= dead` (mod 2^16); the next occupant gets
+    /// `dead + 1`, which must stay within the span to keep its snapshot distinct from all of them.
     #[inline]
-    pub(super) fn reusable_gen(&self, ci: usize, generation: u32) -> bool {
-        generation.wrapping_sub(self.reuse_gen[ci]) <= GEN_REUSE_SPAN
+    pub(super) fn reusable_gen(&self, ci: usize, dead: u16) -> bool {
+        dead.wrapping_sub(self.reuse_gen[ci]) < GEN_REUSE_SPAN
     }
 }
 

@@ -1,0 +1,30 @@
+// 函数 / 类型声明累积 + 多行（add-repl-decls-multiline）：多行自由函数声明→裸调、后声明引先声明、
+// 类声明→构造+字段+实例方法、enum 声明体内跨轮使用、重定义 ERROR 且旧定义存活、
+// 会话变量与声明正交。
+namespace Z42ScriptingTests;
+
+using Std.Scripting;
+using Std.Harness;
+
+[Test]
+void test_decls_multiline() {
+    ScriptState s = Script.Create();
+    Assert.Equal("ok", _step(s, "int square(int x) {\n    return x * x;\n}"));
+    Assert.Equal("49", _step(s, "square(7)"));
+    Assert.Equal("ok", _step(s, "int dbl(int x) { return x + x; }"));
+    Assert.Equal("ok", _step(s, "int quad(int x) { return dbl(dbl(x)); }"));
+    Assert.Equal("12", _step(s, "quad(3)"));
+    Assert.Equal("ok", _step(s, "class Adder { public int b; public int add(int y) { return this.b + y; } }"));
+    Assert.Equal("10", _step(s, "new Adder().add(10)"));
+    Assert.Equal("ok", _step(s, "enum Color { Red, Green, Blue }"));
+    Assert.Equal("ok", _step(s, "long pickColor() { return (long)Color.Green; }"));
+    Assert.Equal("1", _step(s, "pickColor()"));
+    Assert.Equal("error: 'square' is already declared in this session (redefinition not supported)",
+                 _step(s, "int square(int x) { return 0; }"));
+    Assert.Equal("49", _step(s, "square(7)"));
+    Assert.Equal("10", _step(s, "var n = 10;"));
+    Assert.Equal("ok", _step(s, "int inc(int x) { return x + 1; }"));
+    Assert.Equal("11", _step(s, "inc(n)"));
+    // DeclTypeNames（`.types` 的数据源）只含类型声明，不含自由函数；重定义失败的 square 不重复计入。
+    Assert.Equal("Adder,Color", String.Join(",", s.DeclTypeNames.ToArray()));
+}

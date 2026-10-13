@@ -330,28 +330,30 @@ fn var_payload_drop_glue() -> Option<(crate::gc::var_region::PayloadDropGlue, u8
     Some((var_drop_glue as crate::gc::var_region::PayloadDropGlue, types))
 }
 
-unsafe fn var_drop_glue(bt: BlockType, payload: *mut u8, size: usize) -> u64 {
+unsafe fn var_drop_glue(bt: BlockType, header: std::ptr::NonNull<crate::gc::var_region::GcBlockHeader>, size: usize) -> u64 {
     match bt {
         BlockType::Object => {
-            // A block whose header was never written (still all zeroes — an allocation refunded
-            // before construction) owns nothing; `Arc` is never null otherwise.
-            // SAFETY: an object block's payload is at least the 16 B header, 8-aligned.
-            if unsafe { (payload as *const usize).read() } == 0 {
+            // A block whose type word was never written (an allocation refunded before
+            // construction) owns nothing; an installed `Arc` is never null.
+            // SAFETY: `header` is this block's header (whole-block provenance, from the region).
+            if unsafe { header.as_ref() }.kind_word().is_null() {
                 return 0;
             }
-            // SAFETY: `payload` / `size` are this block's (whole-block provenance, from the region).
-            let obj = unsafe { ScriptObject::from_payload(payload, size) };
-            // SAFETY: a written object header, dropped exactly once (the region calls the glue
-            // once per reclaim); the extras box size is read before it is freed.
+            // SAFETY: `header` / `size` are this block's (whole-block provenance, from the region).
+            let obj = unsafe { ScriptObject::from_block(header.cast(), size) };
+            // SAFETY: a constructed object, dropped exactly once (the region calls the glue once
+            // per reclaim); the extras box size is read before it is freed. The kind word is
+            // cleared behind it, so a later occupant of the slot finds it null.
             unsafe {
-                let freed = (*obj).extras_bytes();
-                std::ptr::drop_in_place(obj);
+                let freed = ScriptObject::destroy(obj);
+                header.as_ref().clear_kind_word();
                 freed
             }
         }
         BlockType::ArrayValue => {
             let n = size / std::mem::size_of::<Value>();
-            let base = payload as *mut Value;
+            // SAFETY: the payload follows the header in the same allocation.
+            let base = unsafe { crate::gc::var_region::payload_ptr_of(header) } as *mut Value;
             for i in 0..n {
                 // SAFETY: `base[i]` is one of `n` initialized `Value`s in the block payload.
                 unsafe { std::ptr::drop_in_place(base.add(i)) }

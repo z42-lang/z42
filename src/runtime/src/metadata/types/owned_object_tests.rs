@@ -27,7 +27,7 @@ fn storage(n: usize) -> OwnedObject {
 fn header_and_fields_share_one_block_at_fixed_offsets() {
     let o = storage(24);
     let hdr = (&*o as *const ScriptObject).cast::<u8>() as usize;
-    assert_eq!(o.cells().base_ptr() as usize, hdr + OBJ_HEADER_BYTES, "fields follow the header");
+    assert_eq!(o.cells().base_ptr() as usize, hdr + crate::gc::var_region::GcBlockHeader::DATA_OFFSET, "fields follow the header");
     assert_eq!(o.payload_len(), 24);
     assert_eq!(o.type_desc.name, "T");
 }

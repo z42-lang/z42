@@ -89,15 +89,41 @@ fn native_backing_is_dropped_with_the_object() {
 
 #[test]
 fn the_dst_fields_start_right_after_the_sized_header_prefix() {
-    // `ObjHeader` is written into fresh blocks and `ScriptObject` read over them: under
-    // `#[repr(C)]` they share the prefix, and the field area starts at `OBJ_HEADER_BYTES`.
+    // `ObjHeader` is the object view of the 16 B block header and `ScriptObject` is read over
+    // the whole block: under `#[repr(C)]` they share the prefix, and the field area starts at the
+    // block's `DATA_OFFSET`.
+    use crate::gc::var_region::GcBlockHeader;
     let o = OwnedObject::new(td("Layout"), 24);
     let base = (&*o as *const ScriptObject).cast::<u8>() as usize;
-    assert_eq!(o.cells().base_ptr() as usize - base, OBJ_HEADER_BYTES);
-    assert_eq!(std::mem::size_of_val(&*o), OBJ_HEADER_BYTES + 24, "the reference covers header + fields");
+    assert_eq!(o.cells().base_ptr() as usize - base, GcBlockHeader::DATA_OFFSET);
+    assert_eq!(std::mem::size_of_val(&*o), GcBlockHeader::DATA_OFFSET + 24, "the reference covers header + fields");
     assert_eq!(o.type_desc.name, "Layout", "type_desc reads through the prefix");
     let odd = OwnedObject::new(td("Odd"), 4);
-    assert!(std::mem::size_of_val(&*odd) <= OBJ_HEADER_BYTES + 8, "rounded up to 8 only");
+    assert!(std::mem::size_of_val(&*odd) <= GcBlockHeader::DATA_OFFSET + 8, "rounded up to 8 only");
+    assert_eq!(std::mem::size_of::<ObjHeader>(), GcBlockHeader::DATA_OFFSET);
+}
+
+/// Object model R8: a generic / native-backed object carries its meta word at the payload's end,
+/// after the field area; `payload_len` and the cell view stop before it, the reference covers it.
+#[test]
+fn the_meta_word_trails_the_fields_and_only_generic_or_native_objects_have_one() {
+    use crate::gc::var_region::GcBlockHeader;
+    let plain = OwnedObject::new(td("Plain"), 12);
+    assert!(!plain.has_meta());
+    let mut g = OwnedObject::new(td("Gen"), 12);
+    g.cells().store_bits(8, 4, 0xDEAD_BEEF);
+    g.set_type_args(TypeArgs::intern(&names(&["Std.Int32"])));
+    assert!(g.has_meta(), "giving it type-arguments grows the meta word");
+    assert_eq!(g.payload_len(), 12, "the field area is unchanged");
+    assert_eq!(g.cells().load_bits(8, 4), Some(0xDEAD_BEEF), "the fields moved with the object");
+    assert_eq!(std::mem::size_of_val(&*g), GcBlockHeader::DATA_OFFSET + 12 + 8 + 4, "covers fields + meta, rounded to 8");
+    assert_eq!(g.type_args(), &["Std.Int32".to_string()][..]);
+    // Clearing the arguments keeps the (now null) word.
+    g.set_type_args(TypeArgs::empty());
+    assert!(g.type_args().is_empty() && g.has_meta());
+    let built = OwnedObject::new_instance(td("Gen"), TypeArgs::intern(&names(&["Std.String"])));
+    assert!(built.has_meta() && built.payload_len() == 0);
+    assert_eq!(built.type_args(), &["Std.String".to_string()][..]);
 }
 
 /// What compiled field access reads off a handle (`obj_jit_layout`): the TypeId through the

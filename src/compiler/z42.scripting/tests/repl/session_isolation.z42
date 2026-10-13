@@ -1,0 +1,19 @@
+// 同一进程里的多个会话（z42i 的 `.reset`、宿主多次 Script.Create）：轮次号进程级单调，后一个会话的
+// 第 N 轮不会撞上前一个会话已加载的 `Repl.R{N}`——撞上时 VM 里的旧函数胜出，求值静默拿到旧结果。
+namespace Z42ScriptingTests;
+
+using Std.Scripting;
+using Std.Harness;
+
+[Test]
+void test_second_session_gets_its_own_results() {
+    ScriptState a = Script.Create();
+    Assert.Equal("3", _step(a, "1 + 2"));
+    Assert.Equal("7", _step(a, "var x = 7"));
+    ScriptState b = Script.Create();
+    Assert.Equal("42", _step(b, "40 + 2"));
+    Assert.Equal("9", _step(b, "var x = 9"));
+    Assert.Equal("9", _step(b, "x"));
+    // 前一个会话照常可用，变量不受后一个会话影响
+    Assert.Equal("7", _step(a, "x"));
+}
