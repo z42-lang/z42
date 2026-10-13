@@ -214,21 +214,17 @@ Process _z42Proc(string exe, string libs) {
 }
 
 // z42b 及其 fork 的子 VM：另挂编译器成员 dist 的 probing（见 _compilerProbingPaths）。z42b 在进程内用的是
-// 本树的编译器包，编译器目录也同 _z42cProc 一样显式指向本树 driver 的自包含 dist（理由见那里）。
+// 本树的编译器包；编译器目录由 `Z42_LIBS`（本树 flat）上溯落到本树 driver 的 dist（CompilerDomain 的开发树档）。
 Process _z42bProc(string vm, string libs) {
-    string root = _root();
-    return _z42Proc(vm, libs).Env("Z42_PROBING_PATHS", _compilerProbingPaths(root))
-        .Env("Z42_COMPILER_LIBS", _driverDist(root, "release"));
+    return _z42Proc(vm, libs).Env("Z42_PROBING_PATHS", _compilerProbingPaths(_root()));
 }
 
 // 跑一个 z42c driver：`vm <driverZpkg> --mode <m> --`，调用方接着追加 z42c 的参数（build … / --emit-zbc …）。
 //
-// 编译器目录（`Z42_COMPILER_LIBS`，CompilerDomain 的最高档）**显式**设成 driver 所在的目录——driver dist
-// 是自包含的（driver + 全部编译器成员），那里就是「这个 driver 自己的编译器域」：本树 driver ⇒ 本树刚建的
-// dist，种子 / nightly driver ⇒ 它自己的 `programs/z42c/`。不显式设时：xtask 经 SDK apphost 启动，
-// `Z42_PORTABLE_VM` 被子进程继承，CompilerDomain 的 SDK 档排在开发树档之前 ⇒ 按名声明的编译器包
-// （`deploy = "sdk"` / `"shared"`）是对着**种子 SDK 里上一版的编译器包**解析的——测的不是当前源码，
-// 编译器包的符号一挪包 / 改命名空间就编不过（拆 z42c.optimization 时 units、后来 gc-modes 各踩过一次）。
+// 编译器目录（CompilerDomain）应是这个 driver **自己**的 dist（自包含：driver + 全部编译器成员）。本树 driver
+// 不用设：`Z42_LIBS` 在开发树里 ⇒ CompilerDomain 先取开发树档，就是本树 driver 的 dist。住在
+// `<sdk>/programs/z42c/` 的 driver（种子 / nightly / 打包中的 SDK）设 `Z42_HOME=<sdk>`：否则落到继承来的
+// `Z42_PORTABLE_VM` 反推的那份 SDK（跑 xtask 的种子），不是 driver 自己那份。
 Process _z42cProc(string vm, string libs, string driverZpkg) {
     return _z42cProcMode(vm, libs, driverZpkg, _z42cMode());
 }
@@ -244,7 +240,13 @@ Process _z42cProcSeed(string vm, string libs, string runLibs, string driverZpkg)
 
 // 同 _z42cProc，指定 driver 自己的执行模式；mode == "" ⇒ 不传 `--mode`（用 z42vm 的缺省）。
 Process _z42cProcMode(string vm, string libs, string driverZpkg, string mode) {
-    Process p = _z42Proc(vm, libs).Env("Z42_COMPILER_LIBS", Path.GetDirectoryName(driverZpkg)).Arg(driverZpkg);
+    Process p = _z42Proc(vm, libs);
+    string driverDir = Path.GetDirectoryName(driverZpkg);
+    string programs = Path.GetDirectoryName(driverDir);
+    if (Path.GetFileName(driverDir) == "z42c" && Path.GetFileName(programs) == "programs") {
+        p = p.Env("Z42_HOME", Path.GetDirectoryName(programs));
+    }
+    p = p.Arg(driverZpkg);
     if (mode.Length > 0) { p = p.Arg("--mode").Arg(mode); }
     return p.Arg("--");
 }

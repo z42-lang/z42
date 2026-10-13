@@ -21,7 +21,6 @@ to = "fakesdk/programs/z42c/"
 tool = "run"
 target = "app/dist/sdkdeploy.zpkg"
 env = { Z42_HOME = "{case}/fakesdk" }
-env_remove = ["Z42_COMPILER_LIBS"]
 exit = 0
 stdout_equals = "sdkdeploy ok"
 

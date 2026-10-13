@@ -165,7 +165,7 @@ runs:
         # 缓存只是优化，跳过它；真失败（没产出 zpkg）由守卫判红。
         echo "── [2/5] SDK z42c builds current xtask.zpkg ──"
         z42c="$SDK/bin/z42c"; [ -f "$z42c.exe" ] && z42c="$z42c.exe"
-        env -u Z42_LIBS -u Z42_HOME -u Z42_PORTABLE_VM -u Z42_COMPILER_LIBS \
+        env -u Z42_LIBS -u Z42_HOME -u Z42_PORTABLE_VM \
           "$z42c" build scripts/xtask.z42.toml --release --no-incremental \
           || echo "  seed z42c exited non-zero (nightly Windows cache write?) — verifying xtask.zpkg below"
         [ -f "$ROOT/artifacts/xtask/xtask.zpkg" ] || { echo "::error::xtask.zpkg not produced"; exit 1; }
@@ -184,7 +184,7 @@ runs:
         # `-v detailed`：CI 日志保留完整的种子查找过程与逐文件输出（排查自举用）。
         # Windows 上「xtask 从构建树 z42vm.exe 的拷贝启动，免得 cargo 重链时覆盖正在运行的 exe」那层绕行随之删掉：
         # xtask 现在跑在 SDK 的 VM 上，cargo 从不重链它。
-        xt() { env -u Z42_HOME -u Z42_PORTABLE_VM -u Z42_COMPILER_LIBS "$GITHUB_WORKSPACE/.github/ci/xtask" "$@"; }
+        xt() { env -u Z42_HOME -u Z42_PORTABLE_VM "$GITHUB_WORKSPACE/.github/ci/xtask" "$@"; }
         echo "── [3/5] xtask build compiler ──"
         xt -v detailed build compiler
 

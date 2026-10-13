@@ -23,8 +23,8 @@
 | `tool` | 程序 | 缺省环境 | 额外的 |
 |---|---|---|---|
 | `z42`（缺省） | 包根的 `z42`（launcher） | 便携：删 `Z42_HOME` `Z42_PORTABLE_VM` `Z42_PORTABLE_LIBS` `Z42_LIBS` `Z42_CONFIG` `Z42_MODE` | — |
-| `z42c` | `bin/z42c` | 安装：`Z42_HOME` = 包根；删 `Z42_LIBS` `Z42_PORTABLE_VM` `Z42_COMPILER_LIBS` | 跑前先删掉 `absent` 里列的文件 |
-| `z42b` | `bin/z42b` | 便携：删 `Z42_HOME` `Z42_PORTABLE_VM` `Z42_LIBS` `Z42_COMPILER_LIBS` | 同上 |
+| `z42c` | `bin/z42c` | 安装：`Z42_HOME` = 包根；删 `Z42_LIBS` `Z42_PORTABLE_VM` | 跑前先删掉 `absent` 里列的文件 |
+| `z42b` | `bin/z42b` | 便携：删 `Z42_HOME` `Z42_PORTABLE_VM` `Z42_LIBS` | 同上 |
 | `run` | `bin/z42vm`，跑 `target` | 安装：`Z42_HOME` = 包根；删 `Z42_LIBS` `Z42_PORTABLE_VM` | — |
 | `exec` | `target` 本身（如 `z42 publish` 发布出的程序） | 同 `z42` | — |
 

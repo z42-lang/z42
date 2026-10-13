@@ -107,7 +107,7 @@ runs:
         if [ "$have" = "$want" ]; then echo "xtask.zpkg built by seed $want — reuse"; exit 0; fi
         echo "xtask.zpkg seed '$have' ≠ installed SDK '$want' — rebuilding xtask on the installed SDK"
         z42c=.z42/bin/z42c; [ -f "$z42c.exe" ] && z42c="$z42c.exe"
-        env -u Z42_LIBS -u Z42_HOME -u Z42_PORTABLE_VM -u Z42_COMPILER_LIBS \
+        env -u Z42_LIBS -u Z42_HOME -u Z42_PORTABLE_VM \
           "$z42c" build scripts/xtask.z42.toml --release --no-incremental
         cp -f .z42/seed-id.txt artifacts/xtask/seed-id.txt
 

@@ -553,7 +553,7 @@ kind    = "exe"
 | 谁能看见 | `kind = "exe"` / `"lib"`：**声明了才可见**（连同它们在 SDK 库内的传递依赖）。`kind = "analyzer"`：**自动可见**，免声明（见 [compile-time-extensions.md](compile-time-extensions.md)） |
 | 不声明会怎样 | `E0494: 命名空间 … 不存在`，并点名提供它的 SDK 库与声明写法：`它由 SDK 库 \`z42c.semantics\` 提供 —— … "z42c.semantics" = "*"` |
 | 部署 | exe：用到的 SDK 库**连同传递依赖**拷进输出目录（runtime 包里没有它们），拷走能跑；lib：不打包，由最终 exe 决定；analyzer / hooks：不拷，由宿主进程（z42c / z42b）提供 |
-| 位置怎么找 | 本机编译器目录：`Z42_COMPILER_LIBS` → `Z42_HOME/programs/z42c` → 由 `Z42_PORTABLE_VM` 反推的 SDK 根 → 开发树 |
+| 位置怎么找 | 本机编译器目录：开发树（`Z42_LIBS` 位于仓库的 `artifacts/` 下时）→ `Z42_HOME/programs/z42c` → 由 `Z42_PORTABLE_VM` 反推的 SDK 根 |
 | stdlib 副本 | `programs/z42c/` 里还有一套 stdlib 副本，对解析**不可见**——stdlib 永远从 `libs/` 解析、不会被拷 |
 
 > ⚠️ SDK 库**不是稳定 API**：编译器内部随版本调整，不承诺兼容。拷进产物后运行期不受 SDK 升级影响，
