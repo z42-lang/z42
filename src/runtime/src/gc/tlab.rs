@@ -69,6 +69,44 @@ impl Tlab {
     }
 }
 
+/// The claims a thread set aside when it parked for a blocking native call
+/// ([`crate::gc::NativeParkGuard`]): they stay borrowed (the thread may continue filling
+/// them after the call) unless a collection begins meanwhile — then the collector retires
+/// them on the parked thread's behalf, exactly as the thread would have at a safepoint park.
+pub(crate) struct ParkedTlab {
+    pub(crate) arr: Option<ChunkClaim<ArrayObj>>,
+    pub(crate) var: Option<VarChunkClaim>,
+    /// M12: the dead slots this thread took (counted live + young at take time). Retired with
+    /// the claims (`VarRegion::retire_holes`: unused ones back on the free list), so a collection
+    /// never runs while a parked thread holds slots off the free list.
+    pub(crate) holes: VarHoleStash,
+    pub(crate) heap_epoch: u64,
+}
+
+// SAFETY: the claims and the hole stash hold raw pointers into chunks the heap owns. A parked thread's claims
+// move to the collector thread only while the owner is parked (it neither allocates nor
+// touches them — `debug_assert_not_native_parked`), and back to the owner only once the
+// phase is `Idle`; the parking handshake (`gc_phase` lock) orders the two sides' accesses.
+unsafe impl Send for ParkedTlab {}
+
+/// Per-`VmContext` holder of its [`ParkedTlab`] while the thread is native-parked
+/// (`MagrGC::park_thread_tlab` / `unpark_thread_tlab` / `retire_parked_tlab`).
+#[derive(Default)]
+pub struct ParkedTlabSlot {
+    inner: parking_lot::Mutex<Option<ParkedTlab>>,
+}
+
+impl ParkedTlabSlot {
+    pub(crate) fn put(&self, p: ParkedTlab) -> Option<ParkedTlab> { self.inner.lock().replace(p) }
+    pub(crate) fn take(&self) -> Option<ParkedTlab> { self.inner.lock().take() }
+}
+
+impl std::fmt::Debug for ParkedTlabSlot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ParkedTlabSlot")
+    }
+}
+
 /// Per-thread TLAB cell: the arm count + the TLAB, behind one `UnsafeCell` so the
 /// hot path does a **single** thread-local access and no runtime borrow check.
 struct TlabCell {

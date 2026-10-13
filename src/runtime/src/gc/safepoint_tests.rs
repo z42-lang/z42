@@ -656,3 +656,62 @@ fn an_auto_collect_trip_sends_every_mutator_to_the_slow_path() {
     }
     drop(keep);
 }
+
+// ── a native park sets the TLAB aside instead of retiring it ──────────────────────────────
+
+/// Retiring the TLAB on every blocking builtin burned the half-filled chunk each time, so
+/// "park, allocate, park, allocate …" claimed a fresh chunk per iteration and the heap only
+/// grew (`Thread.Sleep(0)` + one string, 100 000 times: 1.8 GB RSS). Parked claims are now set
+/// aside and resumed: the committed footprint stays flat.
+#[test]
+fn repeated_native_parks_keep_filling_the_same_chunks() {
+    let ctx = VmContext::new();
+    // Strings live in the variable-length region, the TLAB's busiest claim.
+    let alloc = |ctx: &VmContext| { let _ = ctx.heap().alloc_str("park-and-allocate"); };
+    alloc(&ctx);
+    let before = ctx.heap().stats().committed_bytes;
+    for _ in 0..if cfg!(miri) { 500 } else { 20_000 } {
+        { let _park = NativeParkGuard::enter(&ctx); }
+        alloc(&ctx);
+    }
+    let after = ctx.heap().stats().committed_bytes;
+    assert!(after - before < 8 << 20,
+        "park / allocate rounds must not claim a chunk each ({before} → {after} bytes)");
+}
+
+/// A collection that begins while a thread is native-parked retires that thread's set-aside
+/// claims (the collector must see no borrowed chunk); what the thread allocated before the
+/// park and still holds stays alive, and it allocates normally after unparking.
+#[test]
+fn a_collection_during_a_native_park_retires_the_parked_claims() {
+    let collector = VmContext::new();
+    let core = collector.core_arc();
+    let (to_main, from_worker) = std::sync::mpsc::channel::<()>();
+    let (to_worker, from_main) = std::sync::mpsc::channel::<()>();
+    let worker = std::thread::spawn(move || {
+        let w = VmContext::new_with_core(core);
+        let kept = crate::metadata::Value::Str(w.heap().alloc_str("kept across the park"));
+        let root = w.heap().pin_root(kept);
+        {
+            let _park = NativeParkGuard::enter(&w);
+            assert!(w.parked_tlab.take().map(|p| { w.parked_tlab.put(p); }).is_some(),
+                "the TLAB claims are set aside while parked");
+            to_main.send(()).unwrap();
+            from_main.recv().unwrap();
+            assert!(w.parked_tlab.take().is_none(), "the collector retired them");
+        }
+        let after = w.heap().alloc_str("allocated after unparking");
+        let crate::metadata::Value::Str(k) = kept else { panic!() };
+        assert_eq!(k.as_str(), "kept across the park", "survived the collection");
+        assert_eq!(after.as_str(), "allocated after unparking");
+        w.heap().unpin_root(root);
+    });
+    from_worker.recv().unwrap();
+    {
+        let pause = request_gc_pause(&collector).expect("this thread collects");
+        collector.heap().collect_full();
+        drop(pause);
+    }
+    to_worker.send(()).unwrap();
+    worker.join().unwrap();
+}

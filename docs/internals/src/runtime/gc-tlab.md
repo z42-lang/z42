@@ -489,10 +489,22 @@ chunk 的一个问题：里面有没有年轻的。这些答案全是**每 chunk
 
 ## safepoint 集成：retire-on-park（D5）
 
-STW 模型（`request_gc_pause`）停所有 mutator。**关键时序**：mutator park 前
-（`park_until_idle` / `native_park_incr`，在 `parked_count += 1` **之前**）retire 自己的 3 块 TLAB
-（合并元数据 + 清活跃句柄）；collector 成为 collector 后、mark 前也 retire 自己那份。collector 拿到
-**完整一致**的共享 region 后 mark/sweep——与单 region 的 sweep **完全一样**。
+STW 模型（`request_gc_pause`）停所有 mutator。**关键时序**：mutator 在 safepoint park 前
+（`park_until_idle`，在 `parked_count += 1` **之前**）retire 自己的 TLAB（合并元数据 + 清活跃句柄）；
+collector 成为 collector 后、mark 前也 retire 自己那份。collector 拿到**完整一致**的共享 region 后
+mark/sweep——与单 region 的 sweep **完全一样**。
+
+**阻塞的 native 调用不 retire，而是把 claim 寄存起来**（`native_park_incr` → `MagrGC::park_thread_tlab`）：
+两块 chunk claim 连同空洞缓存（`VarHoleStash`，见「空洞复用」）从线程本地挪进本 `VmContext` 的 `parked_tlab`
+槽，chunk 仍是借出状态、缓存里的槽仍算在占用与年轻集合里。期间若有 collector 拿到暂停，
+它在全员 park 之后、mark 之前遍历 `vm_contexts`，把各槽里的 claim 代为 retire、空洞缓存经同一个
+`retire_holes` 交还（`retire_parked_tlab`）——与那条线程在 safepoint 自己 retire 等价，回收开始时没有哪个槽
+既在 free list 又在某个缓存里；没有回收发生时，`native_park_decr` 在仍算 parked、持着 phase 锁的
+时刻把 claim 与空洞缓存（连同 dry 标记——其间没有回收，free list 没长）取回（`unpark_thread_tlab`），接着往同一块
+chunk、同一批空洞里填。为什么不能每次都 retire：bump claim 只认领
+整块空（或池里的）chunk，retire 掉的半满 chunk 的尾巴不再被 bump 填（空洞复用只回收死槽），而尾巴不算占用、触发
+不了回收——「park 一次、分配一次」的循环每轮烧掉一块 chunk（`Thread.Sleep(0)` + 一个字符串跑 10 万轮：RSS 1.8 GB；寄存之后 18 MB）。
+blocking builtin（文件 / 管道 / 进程 I/O）一调一 park，这条路径因此是热的。
 
 ```mermaid
 sequenceDiagram
