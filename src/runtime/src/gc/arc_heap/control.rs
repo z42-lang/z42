@@ -407,7 +407,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 {
                     let mut region = self.region_var.lock();
                     let vref = gc.var_ref();
-                    if vref.chunk_idx() != u32::MAX && !region.is_chunk_borrowed(vref.chunk_idx()) {
+                    if region.chunk_of(vref.addr()).is_some_and(|ci| !region.is_chunk_borrowed(ci as u32)) {
                         region.tombstone(vref);
                     }
                 }

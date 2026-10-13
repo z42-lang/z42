@@ -8,9 +8,8 @@
 
 use std::alloc::{alloc, dealloc, handle_alloc_error, Layout};
 use std::ptr::NonNull;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8};
 
-use super::block::{payload_ptr_of, BlockType, GcBlockHeader};
+use super::block::{payload_ptr_of, BlockType, GcBlockHeader, FIRST_GEN};
 use super::chunk::{class_for, CHUNK_ALIGN};
 use super::{VarGcRef, VarRegion};
 
@@ -92,6 +91,7 @@ impl VarRegion {
 /// [`Drop`] (or leaked on purpose by [`DetachedBlock::leak`]). Object model R6 builds objects
 /// that live outside the heap in it (stack-allocated objects, objects under construction), so
 /// that `&ScriptObject` finds its header and field area at the same offsets wherever it lives.
+/// [`VarRegion::chunk_of`] knows no chunk for it.
 ///
 /// The payload is zeroed. Dropping a `DetachedBlock` releases the memory only — whoever wrote a
 /// non-POD payload drops it first.
@@ -106,28 +106,27 @@ unsafe impl Send for DetachedBlock {}
 unsafe impl Sync for DetachedBlock {}
 
 impl DetachedBlock {
-    /// A fresh, zeroed block of `payload` bytes tagged `block_type` (alive, generation 0, no
-    /// chunk — `chunk_idx == u32::MAX`).
+    /// A fresh, zeroed block of `payload` bytes tagged `block_type` (alive, generation
+    /// `FIRST_GEN`, in no region chunk).
     pub fn new(payload: usize, block_type: BlockType) -> Self {
-        let (footprint, size_class) = class_for(payload);
+        let (footprint, _) = class_for(payload);
         let layout = Layout::from_size_align(footprint, CHUNK_ALIGN).expect("detached block layout");
         // SAFETY: non-zero layout (footprint >= MIN_BLOCK).
         let raw = unsafe { alloc(layout) };
         let header = NonNull::new(raw as *mut GcBlockHeader).unwrap_or_else(|| handle_alloc_error(layout));
         // SAFETY: fresh 16-aligned allocation large enough for the header + `payload` bytes.
         unsafe {
-            header.as_ptr().write(GcBlockHeader {
-                generation: AtomicU32::new(0),
-                size: payload as u32,
-                marked: AtomicU8::new(0),
-                alive: AtomicBool::new(true),
-                type_tag: AtomicU8::new(GcBlockHeader::pack_tag(block_type, 0)),
-                size_class,
-                chunk_idx: u32::MAX,
-            });
+            header.as_ptr().write(GcBlockHeader::fresh(FIRST_GEN, payload, block_type));
             std::ptr::write_bytes(payload_ptr_of(header), 0, payload);
         }
         Self { header, layout }
+    }
+
+    /// The block's header (whole-allocation provenance) — object model R8 writes an object's
+    /// type descriptor into its kind word and reads the object over the whole block from here.
+    #[inline]
+    pub fn header_ptr(&self) -> NonNull<GcBlockHeader> {
+        self.header
     }
 
     /// The payload's start (whole-allocation provenance).
@@ -140,7 +139,7 @@ impl DetachedBlock {
     /// A handle to the block, valid while `self` lives (no ownership transfer).
     #[cfg(test)]
     pub fn handle(&self) -> VarGcRef {
-        VarGcRef::pack(self.header, 0)
+        VarGcRef::pack(self.header, FIRST_GEN)
     }
 
     /// The payload's byte length (from the block header).
@@ -153,7 +152,7 @@ impl DetachedBlock {
     /// Give the memory up for good and return a handle to it — a block no region knows about,
     /// alive forever (tests and heap-less fallbacks; see `VarGcRef::alloc_leaked`).
     pub fn leak(self) -> VarGcRef {
-        let h = VarGcRef::pack(self.header, 0);
+        let h = VarGcRef::pack(self.header, FIRST_GEN);
         std::mem::forget(self);
         h
     }

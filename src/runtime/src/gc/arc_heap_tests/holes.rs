@@ -175,7 +175,7 @@ fn a_hole_filled_during_an_incremental_cycle_is_allocated_black() {
 fn census_is_exact(heap: &ArcMagrGC) {
     let r = heap.region_var_for_test().lock();
     let mut alive = vec![0u32; r.live_per_chunk_for_test().len()];
-    r.iterate_alive(|_, h| alive[h.chunk_idx() as usize] += 1);
+    r.iterate_alive(|v, _| alive[r.chunk_of(v.addr()).expect("in a chunk")] += 1);
     assert_eq!(r.live_per_chunk_for_test(), alive, "live_per_chunk matches a walk");
     assert_eq!(r.live_count(), alive.iter().map(|&n| n as usize).sum::<usize>(), "live_count matches a walk");
 }

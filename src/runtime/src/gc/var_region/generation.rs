@@ -252,7 +252,7 @@ impl VarRegion {
                 }
             } else {
                 let charge = Self::alloc_charge_bytes(header);
-                if r.tombstone(VarGcRef::pack(ptr, header.generation())) {
+                if r.tombstone_in(ptr, header.generation(), ci) {
                     out.reclaimed += 1;
                     out.credited += charge;
                 }

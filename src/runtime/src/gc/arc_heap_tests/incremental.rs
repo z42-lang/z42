@@ -479,7 +479,7 @@ fn objects_born_while_marking_or_sweeping_survive_their_cycle() {
     let heap = generational_heap();
     let keep = obj(&heap, "Keep");
     let _pin = heap.pin_root(keep);
-    for _ in 0..700 {
+    for _ in 0..1400 {
         obj(&heap, "G"); // enough garbage for a sweep that spans slices
     }
     assert!(!heap.run_major_slice_for_test(1));
@@ -503,7 +503,7 @@ fn a_doomed_object_is_not_handed_out_while_the_sweep_has_not_reached_it() {
     let heap = generational_heap();
     let keep = obj(&heap, "Keep");
     let _pin = heap.pin_root(keep);
-    let garbage: Vec<_> = (0..700).map(|_| heap.make_weak(&obj(&heap, "G")).unwrap()).collect();
+    let garbage: Vec<_> = (0..1400).map(|_| heap.make_weak(&obj(&heap, "G")).unwrap()).collect();
 
     assert!(!heap.run_major_slice_for_test(300));
     assert!(heap.major_cycle_sweeping_for_test());

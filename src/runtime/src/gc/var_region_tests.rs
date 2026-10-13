@@ -250,10 +250,10 @@ impl Drop for DropCounter {
 }
 
 /// Test drop glue: drop the `DropCounter` for `Closure`-tagged blocks; POD otherwise.
-unsafe fn test_drop_glue(bt: BlockType, p: *mut u8, _size: usize) -> u64 {
+unsafe fn test_drop_glue(bt: BlockType, header: NonNull<GcBlockHeader>, _size: usize) -> u64 {
     if bt == BlockType::Closure {
         // SAFETY: Closure-tagged test blocks store exactly one initialized `DropCounter`.
-        unsafe { std::ptr::drop_in_place(p as *mut DropCounter) }
+        unsafe { std::ptr::drop_in_place(payload_ptr_of(header) as *mut DropCounter) }
     }
     0
 }
@@ -399,7 +399,7 @@ fn each_size_class_index_names_exactly_one_footprint() {
         assert_eq!(footprint % 8, 0, "footprint {footprint} breaks the 8-aligned bump invariant");
         assert!(footprint <= CHUNK_BYTES, "in-chunk footprint must fit a chunk");
     }
-    // Quarter-octave classes: 32/40/48/56, 64/80/96/112, … up to 65536.
+    // Quarter-octave classes: 16/24, 32/40/48/56, 64/80/96/112, … up to 65536.
     assert_eq!(footprint_of.values().copied().collect::<Vec<_>>().first(), Some(&MIN_BLOCK));
     assert!(footprint_of.values().copied().eq({
         let mut v = footprint_of.values().copied().collect::<Vec<_>>();
@@ -410,7 +410,12 @@ fn each_size_class_index_names_exactly_one_footprint() {
 
 #[test]
 fn class_for_rounds_to_quarter_octave_steps() {
-    // Exactly at MIN_BLOCK — payload 16 fills the 32-byte block with no waste.
+    // A header-only block is MIN_BLOCK (16 B: an empty string, a field-less object).
+    assert_eq!(class_for(0).0, 16);
+    // Below 32 only the 8-aligned steps exist: 17..24 total → 24.
+    assert_eq!(class_for(1).0, 24);
+    assert_eq!(class_for(8).0, 24);
+    assert_eq!(class_for(9).0, 32);
     assert_eq!(class_for(16).0, 32);
     // One byte over rounds to the next quarter step, not the next power of two.
     assert_eq!(class_for(17).0, 40);
@@ -421,8 +426,6 @@ fn class_for_rounds_to_quarter_octave_steps() {
     assert_eq!(class_for(48).0, 64);
     // The shape that dominated the waste: 304 payload = 320 total, was a 512-byte slot.
     assert_eq!(class_for(304).0, 320);
-    // Anything ≤ MIN_BLOCK still gets MIN_BLOCK.
-    assert_eq!(class_for(0).0, 32);
 }
 
 #[test]
@@ -933,36 +936,45 @@ fn the_loh_threshold_is_clamped_to_the_chunk_size() {
 // add-incremental-chunk-reclaim: the per-chunk census
 // ---------------------------------------------------------------------------------------
 
-/// `chunk_idx` had to be **free**: the 16-byte header is one of the three immovable
-/// constraints of the three-heap design (24 would push the ~1.8 M blocks whose total is
-/// exactly `MIN_BLOCK` into the next size class). It fits because `#[repr(C, align(8))]` was
-/// already padding the other six fields (12 bytes) out to 16.
+/// Object model R8: one 16-byte header for every block — the 8-byte GC word (generation with
+/// the alive bit, mark, type tag, payload length) and the kind word (an object's type
+/// descriptor). The payload length is at the offset the string intrinsics read, the type tag
+/// at the one the JIT's field IC reads.
 #[test]
-fn chunk_idx_fits_in_the_headers_existing_padding() {
+fn header_is_the_gc_word_and_the_kind_word() {
     assert_eq!(std::mem::size_of::<GcBlockHeader>(), 16);
     assert_eq!(std::mem::align_of::<GcBlockHeader>(), 8);
+    assert_eq!(std::mem::size_of::<GcWord>(), 8);
+    assert_eq!(KIND_WORD_OFFSET, 8);
+    assert_eq!(std::mem::offset_of!(GcWord, type_tag), 3);
+    assert_eq!(std::mem::offset_of!(GcWord, size), 4);
 }
 
-/// Every block must know which chunk it lives in — that is what makes "is this chunk fully
-/// dead?" `O(1)` instead of a binary search per block.
+/// The chunk of every block is found from its address — that is what the census needs from a
+/// bare handle, now that the header does not carry it.
 #[test]
-fn every_block_carries_its_owning_chunk() {
+fn chunk_of_finds_every_blocks_owning_chunk() {
     let mut r = VarRegion::new();
     let small: Vec<_> = (0..600).map(|_| r.alloc(1024, BlockType::Str)).collect();
     let big = r.alloc(OVERSIZED_PAYLOAD, BlockType::ArrayPrim);
 
     for h in small.iter().chain(std::iter::once(&big)) {
-        let ci = r.resolve(*h).expect("alive").chunk_idx as usize;
+        let ci = r.chunk_of(h.addr()).expect("in a chunk");
         assert!(
             r.owns_addr(h.addr()),
             "block must live in a chunk the region owns"
         );
-        assert!(ci < r.chunk_slot_count(), "chunk_idx {ci} out of range");
+        assert!(ci < r.chunk_slot_count(), "chunk {ci} out of range");
+        // Interior and one-past-the-header addresses of the same block resolve to the same chunk.
+        assert_eq!(r.chunk_of(h.addr() + GcBlockHeader::DATA_OFFSET), Some(ci));
     }
     // The oversized block gets a dedicated chunk, so it cannot share one with the small ones.
-    let big_ci = r.resolve(big).expect("alive").chunk_idx;
-    let small_ci = r.resolve(small[0]).expect("alive").chunk_idx;
+    let big_ci = r.chunk_of(big.addr());
+    let small_ci = r.chunk_of(small[0].addr());
     assert_ne!(big_ci, small_ci, "an oversized block owns its chunk alone");
+    // An address no chunk owns.
+    let outside = DetachedBlock::new(8, BlockType::Str);
+    assert_eq!(r.chunk_of(outside.payload_ptr() as usize - GcBlockHeader::DATA_OFFSET), None);
 }
 
 /// The census is what the reclaim pass reads instead of walking the blocks. If it ever
@@ -984,9 +996,10 @@ fn the_per_chunk_census_matches_a_full_scan() {
     for p in r.tracked_blocks_for_test() {
         // SAFETY: carved headers of chunks the region owns.
         let h = unsafe { p.as_ref() };
-        truth_blocks[h.chunk_idx as usize] += 1;
+        let ci = r.chunk_of(p.as_ptr() as usize).expect("in a chunk");
+        truth_blocks[ci] += 1;
         if h.is_alive() {
-            truth_live[h.chunk_idx as usize] += 1;
+            truth_live[ci] += 1;
         }
     }
     assert_eq!(r.live_per_chunk_for_test(), truth_live, "live census drifted");
@@ -1138,15 +1151,17 @@ fn chunk_epoch_moves_when_a_chunk_is_pooled_or_freed() {
     // A bump chunk the reclaim can pool (it must not be the ambient bump chunk: fill a
     // second one so the first is behind it).
     let first = r.alloc(1024, BlockType::Object);
+    let chunk = |r: &VarRegion, h: &VarGcRef| r.chunk_of(h.addr()).unwrap() as u32;
     let mut rest = Vec::new();
-    while rest.last().map_or(true, |h: &VarGcRef| h.chunk_idx() == first.chunk_idx()) {
+    while rest.last().map_or(true, |h: &VarGcRef| chunk(&r, h) == chunk(&r, &first)) {
         rest.push(r.alloc(1024, BlockType::Object));
     }
     let big = r.alloc(2 * super::chunk::CHUNK_BYTES, BlockType::Object);
-    let (ci_small, ci_big) = (first.chunk_idx(), big.chunk_idx());
+    let (ci_small, ci_big) = (chunk(&r, &first), chunk(&r, &big));
     let (e_small, e_big) = (r.chunk_epoch(ci_small).unwrap(), r.chunk_epoch(ci_big).unwrap());
     // Everything in the first chunk and the dedicated one dies.
-    for h in std::iter::once(first).chain(rest.iter().copied().filter(|h| h.chunk_idx() == ci_small)) {
+    let doomed: Vec<VarGcRef> = std::iter::once(first).chain(rest.iter().copied().filter(|h| chunk(&r, h) == ci_small)).collect();
+    for h in doomed {
         r.tombstone(h);
     }
     r.tombstone(big);
@@ -1156,7 +1171,7 @@ fn chunk_epoch_moves_when_a_chunk_is_pooled_or_freed() {
     assert_eq!(r.chunk_epoch(ci_big), None, "a freed chunk has no epoch at all");
     // The freed slot is reused by the next dedicated chunk under a fresh epoch.
     let again = r.alloc(2 * super::chunk::CHUNK_BYTES, BlockType::Object);
-    assert_eq!(again.chunk_idx(), ci_big, "the tombstoned chunk slot is recycled");
+    assert_eq!(chunk(&r, &again), ci_big, "the tombstoned chunk slot is recycled");
     assert_ne!(r.chunk_epoch(ci_big), Some(e_big));
 }
 
@@ -1168,7 +1183,7 @@ fn a_detached_block_has_the_region_layout_but_no_chunk() {
     assert_eq!(first, 0, "the payload starts zeroed");
     let h = b.handle();
     assert_eq!(h.payload_size(), 40);
-    assert_eq!(h.chunk_idx(), u32::MAX);
+    assert_eq!(VarRegion::new().chunk_of(h.addr()), None, "no region owns it");
     assert!(h.is_live());
     drop(b); // freed by `Drop` — Miri's leak check covers it
 }

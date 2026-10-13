@@ -109,10 +109,11 @@ pub(crate) fn malloc_size(n: usize) -> u64 {
 /// (chunk pointer, census, card word, generation floor, flags, young-summary bit), rounded up.
 pub(crate) const REGION_CHUNK_TABLES: u64 = 128;
 
-/// The same for a var-region chunk: `Chunk` itself, its young-bitmap box header and the
-/// per-chunk words (borrowed / reuse_gen / pool_epoch / census / high-water mark / young
-/// count). The young bitmap's words are re-measured with the other variable-size tables.
-pub(crate) const VAR_CHUNK_TABLES: u64 = 80;
+/// The same for a var-region chunk: `Chunk` itself, its entry in the address index
+/// (`VarRegion::chunk_of`, a B-tree node share), its young-bitmap box header and the per-chunk
+/// words (borrowed / reuse_gen / pool_epoch / census / high-water mark / young count). The young
+/// bitmap's words are re-measured with the other variable-size tables.
+pub(crate) const VAR_CHUNK_TABLES: u64 = 112;
 
 #[cfg(test)]
 mod tests {
