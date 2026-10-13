@@ -4,6 +4,8 @@
 // null — and `TryParse` reports failure without throwing.
 namespace Z42CoreParseExceptionsTests;
 
+using Std.Test;
+
 [Test]
 void test_malformed_is_format_exception() {
     Assert.Throws("FormatException", () => Int32.Parse("x"));
