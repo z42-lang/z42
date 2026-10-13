@@ -259,6 +259,7 @@ public sealed class DeclParser {
         int mc = 0;
         while (this._p._peek().Kind != TokenKind.RBrace && this._p._peek().Kind != TokenKind.Eof) {
             Span msp = this._p._peek().Span;
+            int docTok = this._p._mark();
             string mName = this._p._peek().Text;
             if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
             else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected enum member name", this._p._peek().Span); this._p._advance(); }
@@ -277,7 +278,9 @@ public sealed class DeclParser {
                 Array.Copy(members, b, mc);
                 members = b;
             }
-            members[mc] = new EnumMember(mName, hasValue, value, msp); mc = mc + 1;
+            members[mc] = new EnumMember(mName, hasValue, value, msp);
+            if (this._p._lx.DocBlockCount() > 0) { members[mc].Doc = this._p._claimDoc(docTok, docTok); }
+            mc = mc + 1;
             if (this._p._peek().Kind == TokenKind.Comma) { this._p._advance(); } else { break; }
         }
         this._p._expect(TokenKind.RBrace, "}");

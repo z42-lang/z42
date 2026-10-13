@@ -93,10 +93,13 @@ public sealed class MemberParser {
     }
 
     internal Decl _parseMember(string className) {
+        int docTok = this._p._mark();
         AttrList attrs = this._p._declP._parseAttributes();
+        int docAfterAttrs = this._p._mark();
         string mods = this._p._declP._parseModifiers();
         Decl d = this._parseMemberBody(mods, className, attrs);   // add-record-attribute：attrs 供嵌套类型位置参数判 [Record]
-        if (attrs.Count > 0) { return new AttributedDecl(attrs.Items, attrs.Count, d, d.Span); }
+        if (attrs.Count > 0) { d = new AttributedDecl(attrs.Items, attrs.Count, d, d.Span); }
+        this._p._attachDoc(d, docTok, docAfterAttrs);
         return d;
     }
 

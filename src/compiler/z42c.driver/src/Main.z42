@@ -68,7 +68,7 @@ void Main() {
         Environment.Exit(_cmdSingleFile(argv, cmd == "--emit-zbc"));
         return;
     }
-    if (cmd != "--dump-tokens" && cmd != "--dump-ast" && cmd != "--dump-bound") {
+    if (cmd != "--dump-tokens" && cmd != "--dump-ast" && cmd != "--dump-doc" && cmd != "--dump-bound") {
         ConsoleError.WriteLine("z42c: unknown command '" + cmd + "'");
         _usage();
         Environment.Exit(ExitCode.UsageError);
@@ -77,6 +77,7 @@ void Main() {
     string src = File.ReadAllText(file);
     if (cmd == "--dump-tokens")     { Console.WriteLine(DumpTool.DumpTokens(src)); }
     else if (cmd == "--dump-ast")   { Console.WriteLine(DumpTool.DumpAst(src)); }
+    else if (cmd == "--dump-doc")   { Console.Write(DumpTool.DumpDoc(src)); }
     else                            { Console.WriteLine(SemanticDump.DumpAll(src)); }
 }
 
@@ -808,6 +809,7 @@ void _usage() {
     Console.WriteLine("  z42c --dump-keywords                   keyword table (one per line)");
     Console.WriteLine("  z42c --dump-tokens <file.z42>          token stream");
     Console.WriteLine("  z42c --dump-ast    <file.z42>          AST s-expression");
+    Console.WriteLine("  z42c --dump-doc    <file.z42>          doc comments attached to each declaration");
     Console.WriteLine("  z42c --dump-bound  <file.z42>          type-checked Bound tree");
     Console.WriteLine("  z42c --dump-ir     <file.z42> [--opt-all]         .zasm-like IR text (what --emit-zbc writes)");
     Console.WriteLine("  z42c --emit-zbc    <file.z42> <out> [--opt-all]   compile to .zbc (subset)");

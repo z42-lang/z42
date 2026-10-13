@@ -1,0 +1,125 @@
+// z42c.syntax doc 注释挂靠单测：`///` 挂到紧随其后的声明，`//!` 挂到文件命名空间，其余是孤立块。
+// 断言走 DumpTool.DumpDoc（`--dump-doc` 同一函数）：每个声明一行 `<种类> <名字> = <doc>`。
+namespace Z42cSyntaxDocTests;
+
+using Z42.Syntax;
+using Std.Harness;
+
+[Test]
+void test_doc_attaches_to_each_declaration_kind() {
+    string src = "namespace App;\n"
+        + "/// 一个类。\n"
+        + "public class C {\n"
+        + "    /// 字段。\n"
+        + "    public int X;\n"
+        + "    /// 属性。\n"
+        + "    public int P { get; set; }\n"
+        + "    /// 构造器。\n"
+        + "    public C() { }\n"
+        + "    /// 方法。\n"
+        + "    public int M(int a) { return a; }\n"
+        + "    public int NoDoc() { return 0; }\n"
+        + "}\n"
+        + "/// 枚举。\n"
+        + "public enum E {\n"
+        + "    /// 成员 A。\n"
+        + "    A,\n"
+        + "    B\n"
+        + "}\n"
+        + "/// 委托。\n"
+        + "public delegate int D(int x);\n"
+        + "/// 自由函数。\n"
+        + "int F() { return 1; }\n";
+    Assert.Equal("class C = 一个类。\n"
+        + "  field X = 字段。\n"
+        + "  prop P = 属性。\n"
+        + "  ctor C = 构造器。\n"
+        + "  method M = 方法。\n"
+        + "  method NoDoc = -\n"
+        + "enum E = 枚举。\n"
+        + "  member A = 成员 A。\n"
+        + "  member B = -\n"
+        + "delegate D = 委托。\n"
+        + "func F = 自由函数。\n", DumpTool.DumpDoc(src));
+}
+
+[Test]
+void test_doc_lines_join_and_strip_prefix() {
+    // 去掉 `///` 与其后一个空格；空 `///` 行保留为空行（段落分隔）；多出的空格原样保留。
+    string src = "/// 摘要。\n///\n///   缩进的正文\n///无空格\nclass C { }\n";
+    Assert.Equal("class C = 摘要。\\n\\n  缩进的正文\\n无空格\n", DumpTool.DumpDoc(src));
+}
+
+[Test]
+void test_doc_with_attributes_either_side() {
+    // 约定写法：doc 在 attribute 之前；写在 attribute 与修饰符之间也认。
+    string src = "class C {\n"
+        + "    /// 在前。\n"
+        + "    [Native(\"a\")]\n"
+        + "    public static extern int A();\n"
+        + "    [Native(\"b\")]\n"
+        + "    /// 在后。\n"
+        + "    public static extern int B();\n"
+        + "}\n";
+    Assert.Equal("class C = -\n  method A = 在前。\n  method B = 在后。\n", DumpTool.DumpDoc(src));
+}
+
+[Test]
+void test_inner_doc_at_file_top() {
+    // 文件开头（第一个 token 之前）的 `//!` 块合成命名空间文档；隔空行的多块按空行拼接。
+    string src = "// 普通文件头注释\n//! 第一段。\n//! 续行。\n\n//! 第二段。\nnamespace App;\nclass C { }\n";
+    Assert.Equal("//! = 第一段。\\n续行。\\n\\n第二段。\nclass C = -\n", DumpTool.DumpDoc(src));
+}
+
+[Test]
+void test_orphan_blocks() {
+    // 方法体里的 `///`、不在文件开头的 `//!`、同一声明前被空行隔开的较早一块，都没人认领。
+    string src = "namespace App;\n"
+        + "//! 太晚了。\n"
+        + "class C {\n"
+        + "    /// 被空行隔开的旧块。\n"
+        + "\n"
+        + "    /// 最近的一块。\n"
+        + "    void M() {\n"
+        + "        /// 体内。\n"
+        + "        int x = 1;\n"
+        + "    }\n"
+        + "    /// 末尾悬空。\n"
+        + "}\n";
+    Assert.Equal("class C = -\n"
+        + "  method M = 最近的一块。\n"
+        + "orphan@2 = 太晚了。\n"
+        + "orphan@4 = 被空行隔开的旧块。\n"
+        + "orphan@8 = 体内。\n"
+        + "orphan@11 = 末尾悬空。\n", DumpTool.DumpDoc(src));
+}
+
+[Test]
+void test_not_doc_comments() {
+    // `////` 是分隔线；写在代码后面的 `///` 是普通注释；`//` 不影响挂靠（只是 trivia）。
+    string src = "//// ----\nclass C {\n    int X; /// 行尾\n    /// 文档。\n    // 实现笔记\n    void M() { }\n}\n";
+    Assert.Equal("class C = -\n  field X = -\n  method M = 文档。\n", DumpTool.DumpDoc(src));
+}
+
+[Test]
+void test_doc_crlf_and_nested() {
+    // CRLF 行尾去掉 `\r`；嵌套类型、接口成员、impl 方法同样挂靠。
+    string src = "/// 外层。\r\nclass O {\r\n    /// 内层。\r\n    class I { }\r\n}\r\n"
+        + "interface J {\r\n    /// 接口方法。\r\n    int Get();\r\n}\r\n"
+        + "impl J for O {\r\n    /// 实现。\r\n    int Get() { return 1; }\r\n}\r\n";
+    Assert.Equal("class O = 外层。\n"
+        + "  class I = 内层。\n"
+        + "interface J = -\n"
+        + "  method Get = 接口方法。\n"
+        + "impl = -\n"
+        + "  method Get = 实现。\n", DumpTool.DumpDoc(src));
+}
+
+[Test]
+void test_doc_does_not_change_token_stream_or_ast() {
+    // doc 注释是 trivia：token 流与 AST 与去掉它们的源码完全一致。
+    string withDoc = "/// a\nclass C {\n    /// b\n    int X;\n}\n";
+    string plain = "class C {\n    int X;\n}\n";
+    Assert.Equal(DumpTool.DumpTokens(plain), DumpTool.DumpTokens(withDoc));
+    Assert.Equal(DumpTool.DumpAst(plain), DumpTool.DumpAst(withDoc));
+}

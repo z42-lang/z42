@@ -141,6 +141,9 @@ analyzer **只读、只产诊断**，不参与编译主线：
 **实现要点**（改词法器时）：
 
 - 主循环 `_lexOne()` 按首字符分派到 `_lexIdent` / `_lexNumber` / `_lexString` / `_lexRawString` / `_lexInterpolated` / `_lexChar` / `_lexSymbol`；trivia（空白 / `//` / `/* */`）单独跳过。
+- doc 注释：跳过行注释时，行首的 `///` / `//!`（`////` 及写在代码后的除外）另收进 `DocBlock` 旁挂表——去前缀的原文、
+  `Span`、块后第一个 token 的下标 `NextTok`。连续同种行合成一块，空行或普通注释行断块。**token 流不变**，
+  后续阶段照旧只看到干净的 Token 序列。
 - 关键字：`_initKeywords()` 注册到并行数组 `_kwNames` / `_kwKinds`（注册序供 DumpTool / vscode-syntax 生成），`_kwLookup()` 走首字符分桶链 `_kwHead` / `_kwNext`；标识符 lex 后查表，命中即关键字。
 - 符号：`_lexSymbol()` 做**最长匹配**（`==` 胜 `=`，`>>>` 胜 `>>` 胜 `>`）。
 - Token 类型在 `TokenKind.z42`：`static class` + `int` 常量（无 enum），值仅需互异、顺序沿用既有排列；`Token`（`Token.z42`）= `Kind` + `Text` + `Span`。
@@ -152,6 +155,12 @@ Token 流 → AST（`CompilationUnit`）。表达式用 Pratt 优先级爬升解
 解析器按关注点拆成若干子解析器（表达式、声明、成员、语句、类型），各司其职。AST 节点不可变，为后续并行分析与安全遍历提供基础。观察：`--dump-ast`。
 
 三个公开入口：`ParseExpression()` → `Expr`、`ParseStatement()` → `Stmt`、`ParseCompilationUnit()` → `CompilationUnit`（顶层）。
+
+**doc 注释挂靠**：解析器在三个声明入口（顶层声明循环、`MemberParser._parseMember`、枚举成员循环）记下「前置
+attribute 之前」与「attribute 之后、修饰符之前」两个 token 下标，按 `NextTok` 二分认领对应的 `///` 块，挂到
+`Decl.Doc`（`AttributedDecl` 的挂在 `Inner` 上）或 `EnumMember.Doc`。认领按位置幂等，回溯重解析不受影响。
+收尾时文件开头（`NextTok == 0`）的 `//!` 块合成 `CompilationUnit.Doc`，全部块挂在 `CompilationUnit.DocBlocks`，
+未认领的即孤立块，留给文档检查报告。观察：`--dump-doc`。
 
 **AST 节点**（class 继承层次，**非** record；每个节点带 `Span Span` 用于错误报告，带 `virtual Dump()` 产 s-expr 供 golden 对账）：
 
