@@ -9,6 +9,7 @@
 namespace Z42cSemanticsMemberNameSpanTests;
 
 using Z42.Semantics;
+using Std.Test;
 
 [Test]
 void test_missing_method_underlines_member_name_not_receiver() {

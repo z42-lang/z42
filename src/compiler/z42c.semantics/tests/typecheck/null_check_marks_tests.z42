@@ -10,6 +10,7 @@
 namespace Z42cSemanticsNullCheckMarksTests;
 
 using Z42.Semantics;
+using Std.Test;
 
 // ── 基础：标了就强制、没标就不管 ──────────────────────────────────
 

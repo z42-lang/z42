@@ -105,38 +105,40 @@ public static extern long Spawn(object action);
 
 ## 4. 新增一个 builtin 要改哪里
 
-1. `src/runtime/src/corelib/<area>.rs` —— 写 `fn(&VmContext, &[Value]) -> Result<Value>`。
-2. `src/runtime/src/corelib/builtin_table_ext.rs` —— **只能表尾追加**（下标即 `BuiltinId`，会被烤进
-   zbc，中间插入会让既有产物整体错位）。
-3. `src/libraries/z42.core/src/…` —— 写 `[Native("__…")] public static extern` 声明；归属见
+1. `src/runtime/src/corelib/<area>.rs` —— 在该文件的 `#[z42_macros::builtins]` 模块里写一个类型化函数
+   `#[builtin(name = "__…")] fn f(…) -> Result<T, BuiltinError>`（新模块要在 `builtin_table.rs` 的 `TYPED`
+   里加一行；签名约定、错误类型、`blocking` 见 [native ABI §6.2](../runtime/native-abi.md)）。
+2. `src/libraries/z42.core/src/…` —— 写 `[Native("__…")] public static extern` 声明；归属见
    [包划分](organization.md)。
 
-没有第四处：z42c 不维护 builtin 签名表，签名就是那条 z42 声明本身。命名约定
-（`__<area>_<verb>`）与 area 清单在 [native ABI §6.2](../runtime/native-abi.md)。
+没有第三处：z42c 不维护 builtin 签名表，签名就是那条 z42 声明本身，参数个数与类型也不在编译期对账
+（不一致时调用即报内部错误，靠测试发现）。命名约定（`__<area>_<verb>`）与 area 清单在
+[native ABI §6.5](../runtime/native-abi.md)。
 
 ## 5. 全仓 native 表面（实测）
 
-VM 注册表 `BUILTINS`（`builtin_table.rs` + `builtin_table_ext.rs`）共 **321** 个条目。stdlib 侧
-`[Native("__…")]` 声明的**不同符号** **288** 个，全部能在表里找到。
+VM 注册表 `BUILTINS` 共 **321** 个条目：旧表（`builtin_table.rs` + `builtin_table_ext.rs`）286 个，
+ABI v2 的 `#[builtins]` 模块 35 个。stdlib 与编译器域侧 `[Native("__…")]` 声明的**不同符号** **306** 个，
+全部能在表里找到。
 
-按包分布——**全仓只有五个包声明 interop**：
+按包分布：
 
 | 包 | 声明文件数 | 不同 `__` 符号 | 性质 |
 |---|---|---|---|
-| `z42.core` | 35 | 275 | 语义汇聚核 |
-| `z42.test` | 3 | 8 | 可插拔工具（harness / 计时 / 模块加载） |
+| `z42.core` | 51 | 293 | 语义汇聚核 |
+| `z42.test` | 2 | 5 | 可插拔工具（harness / 计时 / 模块加载） |
 | `z42.diagnostics` | 2 | 3 | 可插拔工具（heap 内省 / 计数器） |
-| `z42.scripting` | 1 | 3 | 可插拔工具（模块加载） |
+| `z42.scripting` / `z42.package` / `z42c.*`（`src/compiler/`） | 6 | 4 | 编译器域（模块加载 / REPL） |
 | `z42.compression` | 8 | 12 个 `entry =`（`lib = "z42_compression"`） | 可插拔工具（外部 cdylib） |
 
 compression 那 12 个**不在** `BUILTINS` 里——它们由 cdylib 在加载时注册进 per-VM 的 ext 表
-（见 [native ABI §6.3](../runtime/native-abi.md)）。
+（见 [native ABI §6.6](../runtime/native-abi.md)）。
 
 其余 **全部为零**：`io` / `net` / `threading` / `json` / `text` / `collections` / `encoding` /
 `toml` / `yaml` / `uri` / `regex` / `cli` / `random` / `numerics` / `crypto` / `build` / `project`
 / `ir` / `z42c.core` / `z42c.syntax`。`z42.crypto` 的全部哈希、HMAC、椭圆曲线都是纯 z42。
 
-`z42.core` 内部 275 个符号的来源（前几名）：
+`z42.core` 内部 293 个符号的来源（前几名）：
 
 | 文件 | 符号数 | 领域 |
 |---|---|---|
@@ -146,22 +148,15 @@ compression 那 12 个**不在** `BUILTINS` 里——它们由 cdylib 在加载�
 | `IO/File.z42` | 18 | 文件 syscall |
 | `IO/ProcessNative.z42` | 12 | 子进程 |
 | `GC/GC.z42` | 12 | GC 控制与内省 |
-| `String.z42` | 11 | UTF-8 访问 |
+| `String.z42` | 10 | UTF-8 访问 |
 
-### 表里的死条目
+### 表里没有 stdlib 声明的条目
 
-有 **33** 个表项没有任何 stdlib 声明。其中一部分是编译器直接发射的（`__concat` / `__len` /
-`__contains` / `__box_prim` / `__box_struct` / `__methodof` / `__struct_hash_code`），一部分住在
-`src/toolchain/`（`__repl_*` / `__vfs_*`），剩下一族是**真死码**：
-
-- `__mutex_new` / `__mutex_lock_acquire` / `__mutex_unlock` / `__mutex_store`
-- `__rwlock_*`（9 个）
-- `__channel_*`（6 个）
-
-`Mutex<T>` / `RwLock<T>` / `Channel<T>` 是纯 z42 实现，只用
-`MonitorNative`（`New` / `Enter` / `TryEnter` / `Exit` / `Wait`）这一组原语——把值放回普通字段让 GC 看得见，
-（值存在 Rust 侧 `parking_lot::Mutex<Value>` 里则没有 GC 根覆盖。）上述 19 个 builtin 现在无人
-声明。因为下标就是 `BuiltinId`，**它们不能删，只能留着占位**。
+一部分是编译器直接发射的（`__concat` / `__len` / `__contains` / `__box_prim` / `__box_struct` /
+`__methodof` / `__struct_hash_code` / `__class_type_arg` / `__class_default`），一部分住在
+`src/toolchain/`（`__repl_*` / `__vfs_*`），还有只为种子 SDK 保留的（`__test_module_load`）。清单与理由在
+`corelib/native_decl_tests.rs` 的 `UNDECLARED_ALLOWLIST`；表项可以真删——`BuiltinId` 不跨进程持久化，
+判据只是「已发布种子里还有没有 z42 源声明这个名字」。
 
 > 审计时注意：`grep "extern"` 会大量命中注释——`z42.io` / `z42.net` / `z42.json` / `z42.text` 里
 > 提到 extern 的行全是「本文件不自带 extern，已上移 core」这类说明。要数真实声明必须匹配

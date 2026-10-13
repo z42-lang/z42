@@ -33,6 +33,7 @@ pub(crate) fn test_function(name: &str, param_types: &[&str], line_table: Vec<Li
         resolved: std::sync::OnceLock::new(),
         owner_init: Default::default(),
         id: Default::default(),
+        forward: Default::default(),
     }
 }
 

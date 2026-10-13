@@ -22,6 +22,7 @@ namespace Z42cSemanticsBuiltinNameClashTests;
 using Z42.Syntax;
 using Z42.Semantics;
 using Z42.Core;
+using Std.Test;
 
 bool hasClash(DiagnosticBag d) {
     int i = 0;

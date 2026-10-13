@@ -2,6 +2,7 @@
 namespace Z42cSyntaxDumpTests;
 
 using Z42.Syntax;
+using Std.Test;
 
 [Test]
 void test_dump_tokens() {

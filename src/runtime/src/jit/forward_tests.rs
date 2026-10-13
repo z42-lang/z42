@@ -33,6 +33,7 @@ fn wrapper(name: &str, params: usize, args: &[u32], ret: Option<u32>) -> Functio
         resolved: std::sync::OnceLock::new(),
         owner_init: Default::default(),
         id: Default::default(),
+        forward: Default::default(),
     }
 }
 

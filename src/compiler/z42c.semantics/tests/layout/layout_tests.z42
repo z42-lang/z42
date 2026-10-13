@@ -4,6 +4,7 @@
 namespace Z42cSemanticsLayoutTests;
 using Z42.IR;
 using Z42.Semantics;
+using Std.Test;
 
 // 构造一个只含 struct 类型定义的 defs map。
 StructFieldsDef _mkDef(string[] names, string[] types, int n) {

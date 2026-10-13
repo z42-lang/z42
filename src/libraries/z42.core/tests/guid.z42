@@ -1,6 +1,8 @@
 // add-guid-lazy-version (2026-09-03): Std.Guid 单元测试。
 namespace Z42GuidTests;
 
+using Std.Test;
+
 [Test]
 void test_empty() {
     var g = Guid.Empty();

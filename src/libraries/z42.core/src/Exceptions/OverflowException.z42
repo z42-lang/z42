@@ -5,7 +5,7 @@ namespace Std;
 //   - `Int32.Parse(...)` 数字过大
 //   - checked arithmetic 溢出
 // 镜像 .NET BCL `System.OverflowException`。
-public class OverflowException : Exception {
+public class OverflowException : ArithmeticException {
     public OverflowException(string message) : base(message) {}
 
     override string ToString() {

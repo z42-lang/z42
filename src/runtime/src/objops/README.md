@@ -13,7 +13,7 @@
 |------|------|
 | 错误通道：异常类 + 消息文本的唯一定义，物化成异常值 | `error.rs` 的 `OpError`、`OpError::into_exception` |
 | 调用的 null 接收者（`VCall` 解析、string builtin 的接收者）、builtin 的 null 实参 | `error.rs` 的 `OpError::null_call` / `null_arg` |
-| builtin（返回 `anyhow`）里抛用户异常：`Throw` 原样装进 `anyhow::Error` | `error.rs` 的 `OpError::into_builtin_error`（两引擎出口：`corelib::builtin_error_exception`） |
+| builtin（返回 `anyhow`）里抛用户异常：`Throw` 原样装进 `anyhow::Error` | `error.rs` 的 `OpError::into_builtin_error`（两引擎出口：`corelib::abi::error::raise`；类型化 builtin 经 `From<OpError> for BuiltinError`） |
 | `FieldGet` / `FieldSet`（FieldIC、栈对象、`Length` 伪字段、`PinnedView`、装箱 struct、写屏障） | `field.rs` 的 `field_get` / `field_set` |
 | JIT 提升快路的字段槽解析（不抛） | `field.rs` 的 `inline_prim_slot` / `inline_ref_slot` |
 | `ref obj.f` 的接收者检查与经 ref 读写 | `field.rs` 的 `check_field_addr` / `load_named` / `store_named` |

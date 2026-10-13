@@ -3,6 +3,7 @@
 namespace Z42IoBufferedStreamTests;
 
 using Std.IO;
+using Std.Test;
 
 // ── helpers ─────────────────────────────────────────────────────────────
 

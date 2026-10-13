@@ -14,6 +14,7 @@ namespace Z42CryptoEcdsaSecp256k1VectorsTests;
 
 using Std.Crypto;
 using Std.Encoding;
+using Std.Test;
 
 // ── Trivial curve-constants check: d = 1 → public key = G ───────────────
 

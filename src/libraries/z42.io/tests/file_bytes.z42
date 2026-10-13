@@ -4,6 +4,7 @@ namespace Z42IoFileBytesTests;
 
 using Std.IO;
 using Std.Encoding;
+using Std.Test;
 
 [Test]
 void test_round_trip_short_payload() {

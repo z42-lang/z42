@@ -1,9 +1,10 @@
 // An exception thrown by z42 code that a builtin called back into
 // (`MethodInfo.Invoke` → `__method_invoke` → the invoked method) keeps the user
 // frames on both sides of the builtin in its `StackTrace`, and the caller's row
-// points at the call site. Under JIT the `[Native]` wrapper itself (`Invoke`)
-// has no row — the call goes straight to the builtin — so only the user frames
-// are asserted. The warm-up loop makes `Call` hot enough to be JIT-compiled.
+// points at the call site. The `[Native]` wrapper itself (`Invoke`) keeps its row
+// too, in both engines: the VM folds the wrapper's call to the builtin, but a
+// builtin that runs z42 code does so under a light frame for the wrapper. The
+// warm-up loop makes `Call` hot enough to be JIT-compiled.
 namespace Demo;
 
 using Std.Reflection;
@@ -44,8 +45,9 @@ void Main() {
     }
     Assert.NotNull(captured);
     Assert.True(captured.Contains("Demo.Calc.Boom"));
+    Assert.True(captured.Contains("MethodInfo.Invoke"));
     Assert.True(captured.Contains("Demo.Call"));
     Assert.True(captured.Contains("Demo.Main"));
     // The caller's row cites the `m.Invoke(...)` line, not a stale earlier one.
-    Assert.True(captured.Contains("stack_trace_builtin_callback.z42:29:"));
+    Assert.True(captured.Contains("stack_trace_builtin_callback.z42:30:"));
 }

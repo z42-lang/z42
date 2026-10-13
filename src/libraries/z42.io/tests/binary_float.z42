@@ -4,6 +4,7 @@
 namespace Z42IoBinaryFloatTests;
 
 using Std.IO.Binary;
+using Std.Test;
 
 // ── Known IEEE-754 byte patterns ─────────────────────────────────────────
 

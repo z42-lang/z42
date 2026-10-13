@@ -17,6 +17,7 @@ namespace Z42cSemanticsEnumTypeTests;
 using Z42.Semantics;
 using Z42.Syntax;
 using Z42.Core;
+using Std.Test;
 
 // 体内诊断（TypeChecker.Infer 产出）——镜像 SemanticDump.FirstErrorCode 的构建序，但返回整袋。
 DiagnosticBag bodyDiags(string src) {

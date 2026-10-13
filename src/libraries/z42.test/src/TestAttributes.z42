@@ -1,12 +1,12 @@
-namespace Std;
+namespace Std.Test;
 
 // ── 测试 / bench attribute：作者与 runner 共享的契约 ───────────────────────────
 //
-// 都是普通 attribute 类：编译器为每处 `[Test]` 合成反射工厂，runner（z42.test 的 `Runner`）在运行期
+// 都是普通 attribute 类：编译器为每处 `[Test]` 合成反射工厂，runner（本包的 `Runner`）在运行期
 // 经反射发现被标注的函数（`Assembly.GetFunctions()` + 各类型的静态方法），读这些实例决定怎么跑。
 //
-// 住 z42.core（prelude）的理由与 `Assert` / `TestFailure` 相同：全仓绝大多数测试文件不写
-// `using Std.Test;`，靠 prelude 就能写 `[Test]`。
+// 住在测试框架自己的包里：测试文件写 `using Std.Test;` 才看得见它们（`Assert` / `TestFailure` 仍在
+// z42.core 的 prelude——断言不只测试代码在用）。
 //
 // 编译期校验（位置 / 签名 E0911·E0912·E0915、实参 E0913·E0914·E0917）按名字进行，见
 // z42c.semantics 的 `Testing/TestAttrEnforcer`；这里的构造器只决定「写法能不能编过」与「runner 读到什么」。

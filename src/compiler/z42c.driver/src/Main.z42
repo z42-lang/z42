@@ -317,7 +317,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     // parallelize-package-compile ★①：per-file 读+哈希并行（各写独立槽，确定性）。
     string[] texts = new string[srcs.Length];
     string[] srcHashes = new string[srcs.Length];
-    Z42.Package.ParallelFor.Run(srcs.Length, Z42.Package.ParallelConfig.Jobs(srcs.Length),
+    ParallelFor.Run(srcs.Length, ParallelConfig.Jobs(srcs.Length),
         new SrcReadHashTask(srcs, texts, srcHashes, handlerFp));
     // exe 判定：显式 kind=exe，或声明了 `[[exe]]` 多目标（unify-run-modes P3）。
     bool isExe = pm.Project.Kind == "exe" || pm.ExeCount > 0;

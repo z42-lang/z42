@@ -3,6 +3,7 @@
 namespace Z42NetSocketOptionsTests;
 
 using Std.Net.Sockets;
+using Std.Test;
 
 [Test]
 void test_tcp_client_set_nodelay_after_connect() {

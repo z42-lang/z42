@@ -2,6 +2,7 @@
 namespace Z42CliOptionalPositionalTests;
 
 using Std.Cli;
+using Std.Test;
 
 // ── optional alone ──────────────────────────────────────────────────────────
 

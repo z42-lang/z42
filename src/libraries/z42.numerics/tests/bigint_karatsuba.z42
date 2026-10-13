@@ -3,6 +3,7 @@
 namespace Z42NumericsBigIntKaratsubaTests;
 
 using Std.Numerics;
+using Std.Test;
 
 // Build a BigInt with `bits` random-looking bits — uses `Pow` to construct
 // a deterministic large operand without relying on RNG state.

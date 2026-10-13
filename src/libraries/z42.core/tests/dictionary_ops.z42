@@ -9,6 +9,7 @@
 namespace Z42CoreDictOpsTests;
 
 using Std.Collections;
+using Std.Test;
 
 [Test]
 void test_is_empty_and_clear() {

@@ -2,6 +2,7 @@
 namespace Z42RegexErrorsTests;
 
 using Std.Regex;
+using Std.Test;
 
 [Test]
 void test_unclosed_paren_throws() {

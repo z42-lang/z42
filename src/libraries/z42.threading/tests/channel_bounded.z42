@@ -4,6 +4,7 @@
 namespace Z42ThreadingChannelBoundedTests;
 
 using Std.Threading;
+using Std.Test;
 
 [Test]
 void test_bounded_basic_send_recv() {

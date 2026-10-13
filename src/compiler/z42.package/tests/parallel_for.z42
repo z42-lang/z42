@@ -3,6 +3,7 @@
 namespace Z42PackageParallelForTests;
 
 using Z42.Package;
+using Std.Test;
 
 // 测试体：out[i] = i*i + 1（非平凡，验证每槽独立写、无串扰）。
 sealed class SquareTask : IParallelTask {

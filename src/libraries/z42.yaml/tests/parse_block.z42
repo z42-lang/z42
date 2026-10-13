@@ -2,6 +2,7 @@
 namespace Z42YamlParseBlockTests;
 
 using Std.Yaml;
+using Std.Test;
 
 [Test]
 void test_nested_mapping() {

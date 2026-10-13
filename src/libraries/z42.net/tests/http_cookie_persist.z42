@@ -4,6 +4,7 @@ namespace Z42NetCookiePersistTests;
 
 using Std.IO;
 using Std.Net.Http;
+using Std.Test;
 
 [Test]
 void test_save_then_load_roundtrip_preserves_cookies() {

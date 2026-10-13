@@ -213,6 +213,7 @@ pub fn read_zbc(data: &[u8]) -> Result<Module> {
             resolved:        std::sync::OnceLock::new(),
             owner_init:        Default::default(),
             id: Default::default(),
+            forward: Default::default(),
         }
     }).collect();
 

@@ -2,6 +2,7 @@
 namespace Z42RandomShuffleSampleTests;
 
 using Std.Random;
+using Std.Test;
 
 [Test]
 void test_shuffle_int_preserves_set() {

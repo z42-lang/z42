@@ -2,6 +2,7 @@
 namespace Z42IoBinaryStringsTests;
 
 using Std.IO.Binary;
+using Std.Test;
 
 [Test]
 void test_ascii_string_round_trip() {

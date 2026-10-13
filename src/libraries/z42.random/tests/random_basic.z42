@@ -2,6 +2,7 @@
 namespace Z42RandomBasicTests;
 
 using Std.Random;
+using Std.Test;
 
 [Test]
 void test_same_seed_same_sequence() {

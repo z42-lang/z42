@@ -4,6 +4,7 @@
 namespace Z42JsonTryGetTests;
 
 using Std.Json;
+using Std.Test;
 
 [Test]
 void test_tryget_hit_and_miss() {

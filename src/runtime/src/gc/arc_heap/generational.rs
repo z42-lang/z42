@@ -58,8 +58,14 @@ impl crate::gc::arc_heap::ArcMagrGC {
         self.region_array.lock().set_promotion_age(age);
         self.region_var.lock().set_promotion_age(age);
         self.region_array.lock().dirty_every_card();
-        // Object model R6: objects have no cards — remember every old one with a young child.
-        self.remember_every_old_object_with_young();
+        // Object model R6: objects have no cards — remember the newly-old ones with a young child.
+        self.remember_lowered_cohort();
+    }
+
+    /// [`Self::apply_promotion_age`] for tests that lower the line by hand.
+    #[cfg(test)]
+    pub(crate) fn apply_promotion_age_for_test(&self, age: u8) {
+        self.apply_promotion_age(age);
     }
 
     /// The age this heap was configured with — the line the adaptive policy lowers *from*.

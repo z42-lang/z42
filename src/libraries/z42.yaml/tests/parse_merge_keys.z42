@@ -2,6 +2,7 @@
 namespace Z42YamlParseMergeKeysTests;
 
 using Std.Yaml;
+using Std.Test;
 
 [Test]
 void test_basic_merge_from_anchor() {

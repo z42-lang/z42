@@ -4,6 +4,7 @@
 namespace Z42IoStreamConvenienceTests;
 
 using Std.IO;
+using Std.Test;
 
 [Test]
 void test_read_all_bytes_from_memory_stream() {

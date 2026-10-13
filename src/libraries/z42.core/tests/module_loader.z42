@@ -2,6 +2,8 @@
 // 真实的跨包加载（编译器组件、hooks、analyzer zpkg）由 z42b / REPL / z42c.pipeline 的用例覆盖。
 namespace Z42CoreModuleLoaderTests;
 
+using Std.Test;
+
 
 public class Probe {
     public int V;

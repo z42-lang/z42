@@ -5,6 +5,7 @@ namespace Z42CryptoHkdfVectorsTests;
 
 using Std.Crypto;
 using Std.Encoding;
+using Std.Test;
 
 // ── RFC 5869 §A.1 — basic test case with SHA-256 ────────────────────────
 

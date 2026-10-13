@@ -101,7 +101,7 @@ unsafe fn call_compiled(
     // instead of building the wrapper's activation (see `jit::forward`).
     if let Some(id) = entry.forward {
         if arg_regs.len() == (*entry.func).param_count {
-            return super::super::forward::call_forward(frame_ref, ctx, dst, id, None, arg_regs);
+            return super::super::forward::call_forward(frame_ref, ctx, dst, entry.func, id, None, arg_regs);
         }
     }
     let callee_frame = JitFrame::new_args_from(vm, entry.max_reg, &frame_ref.regs, arg_regs);
@@ -130,6 +130,12 @@ unsafe fn call_interp(
         set_exception(vm, exc);
         return 1;
     }
+    // A cold `[Native]` wrapper (no compiled entry yet) folds too (`interp::forward`).
+    if arg_regs.len() == callee.param_count {
+        if let Some(id) = crate::interp::forward::forward_of(vm, module, callee) {
+            return super::super::forward::call_forward(frame_ref, ctx, dst, callee, id, None, arg_regs);
+        }
+    }
     match crate::interp::exec_function_from_regs(vm, module, callee, &frame_ref.regs, arg_regs, &[]) {
         Ok(crate::interp::ExecOutcome::Returned(ret)) => {
             frame_ref.regs[dst as usize] = ret.unwrap_or(Value::Null);
@@ -156,12 +162,10 @@ unsafe fn call_barriers(
     None
 }
 
-/// `jit_builtin` after `formalize-jit-method-token` (2026-05-08): receives
-/// pre-resolved `BuiltinId` directly (not name pointers). Resolver
-/// guarantees every `Instruction::Builtin.name` resolves at module load
-/// (closed set; panic on miss), so JIT codegen embeds the id as an i32
-/// constant in the generated machine code. Helper indexes
-/// `BUILTINS[id]` directly — zero hash on every call.
+/// `jit_builtin`: the site's pre-resolved `BuiltinId` (or `UNRESOLVED` + the name, to
+/// resolve now — which re-checks the ext registry, as the interpreter does). The
+/// arguments are read in place from this frame's registers (`corelib::invoke_builtin`);
+/// a void builtin leaves `dst` alone (same as interp `exec_call::builtin`).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_builtin(
     frame: *mut JitFrame, ctx: *const VmContext,
@@ -172,53 +176,34 @@ pub unsafe extern "C" fn jit_builtin(
 ) -> u8 {
     let frame_ref = &mut *frame;
     let arg_regs  = std::slice::from_raw_parts(args_ptr, argc);
-    // Inline storage: builtins take ≤ 4 args almost always — no heap Vec per call.
-    let args: smallvec::SmallVec<[Value; 4]> = arg_regs.iter().map(|&r| frame_ref.regs[r as usize].clone()).collect();
-
     let vm = vm_ctx_ref(ctx);
-    // fix-jit-builtin-ext-fallback: `UNRESOLVED` means the resolver could not bind this
-    // site's name to a static or ext builtin at resolve time (e.g. a native-ext facade
-    // resolved before its lib was loaded in this VM). Resolve by name now, which re-checks
-    // the per-VM ext registry — mirrors interp `exec_call::builtin`'s name fallback. The
-    // hot path (resolved id) still dispatches by index with no hashing.
-    let result = if builtin_id != crate::metadata::tokens::UNRESOLVED {
-        crate::corelib::exec_builtin_by_id(vm, crate::metadata::tokens::BuiltinId(builtin_id), &args)
-    } else {
-        let name = std::str::from_utf8(std::slice::from_raw_parts(name_ptr, name_len)).unwrap_or("<invalid>");
-        crate::corelib::exec_builtin(vm, name, &args)
+    let name = if builtin_id != crate::metadata::tokens::UNRESOLVED { "" } else {
+        std::str::from_utf8(std::slice::from_raw_parts(name_ptr, name_len)).unwrap_or("<invalid>")
     };
-    match result {
-        // split-null-sentinel-channels ④：void builtin ⇒ 不写 `dst`（与 interp
-        // `exec_call::builtin` 逐字同款 —— 两个后端必须同时改，否则就是
-        // 「两个后端只有一个错」那种最难发现的形态）。
+    match crate::corelib::invoke_builtin(vm, builtin_id, name, None, &frame_ref.regs, arg_regs) {
         Ok(Some(v)) => { frame_ref.regs[dst as usize] = v; 0 }
         Ok(None)    => 0,
-        Err(e) => builtin_error_into_exception(vm, ctx, e),
+        Err(e) => {
+            let module = super::jit_module(ctx);
+            let who = if name.is_empty() { crate::corelib::builtin_name(builtin_id, "?") } else { name };
+            raised_into_exception(vm, crate::corelib::abi::error::raise(vm, module, who, *e, &[]))
+        }
     }
 }
 
-/// Turn a builtin's `Err` into the pending JIT exception and report `1`. Shared
-/// by `jit_builtin` and the forwarder short-circuit (`jit::forward`).
-///
-/// # Safety
-/// `ctx` is the running thread's `VmContext` (as for every JIT helper).
-pub(crate) unsafe fn builtin_error_into_exception(
-    vm: &crate::vm_context::VmContext, ctx: *const VmContext, e: anyhow::Error,
+/// A failed builtin call → the JIT's exception channel (pending exception + status 1).
+/// The thrown value comes from the shared `abi::error::raise` (same class, message and
+/// trace as the interpreter). A fatal error — or an exception class that is not loaded —
+/// leaves the error text: while the fatal flag is set the catch dispatch declines every
+/// handler, so it unwinds to the entry, which reports it.
+pub(crate) fn raised_into_exception(
+    vm: &crate::vm_context::VmContext, r: crate::corelib::abi::error::Raised,
 ) -> u8 {
-    // A callback builtin (reflection `MethodInfo.Invoke`) that ran z42
-    // code which threw stashed the ORIGINAL exception value — propagate
-    // it with its real type, not wrapped into Std.Exception (parity with
-    // interp `exec_call::builtin`).
-    if let Some(thrown) = vm.take_pending_thrown() {
-        set_exception(vm, thrown);
-        return 1;
-    }
-    // Same exception as interp `exec_call::builtin` (one shared mapping): a typed
-    // throw (null receiver → NullReferenceException) or a `Std.Exception`, so
-    // JIT-compiled code can `catch` it. Raw string only when the class isn't loaded.
-    let module = unsafe { super::jit_module(ctx) };
-    let exc = crate::corelib::builtin_error_exception(vm, module, e)
-        .unwrap_or_else(|e| Value::Str(e.to_string().into()));
+    use crate::corelib::abi::error::Raised;
+    let exc = match r {
+        Raised::Throw(v) => v,
+        Raised::Fatal(e) | Raised::Raw(e) => Value::Str(e.to_string().into()),
+    };
     set_exception(vm, exc);
     1
 }

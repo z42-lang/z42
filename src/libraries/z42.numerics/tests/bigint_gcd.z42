@@ -2,6 +2,7 @@
 namespace Z42NumericsBigIntGcdTests;
 
 using Std.Numerics;
+using Std.Test;
 
 // ── Gcd: basic ──────────────────────────────────────────────────────────
 

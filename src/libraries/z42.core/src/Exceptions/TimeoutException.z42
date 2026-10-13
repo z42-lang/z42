@@ -1,0 +1,6 @@
+namespace Std;
+
+// 操作在给定时限内没有完成。镜像 .NET `System.TimeoutException`。
+public class TimeoutException : Exception {
+    public TimeoutException(string message) : base(message) {}
+}

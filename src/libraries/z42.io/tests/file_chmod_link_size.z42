@@ -3,6 +3,7 @@
 namespace Z42IoFileChmodLinkSizeTests;
 
 using Std.IO;
+using Std.Test;
 
 [Test]
 void test_get_size_of_known_content() {

@@ -4,6 +4,7 @@
 namespace Z42CoreReflectionTests;
 
 using Std.Reflection;
+using Std.Test;
 
 class Base {
     public int a;

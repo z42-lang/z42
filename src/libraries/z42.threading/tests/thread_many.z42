@@ -5,6 +5,7 @@
 namespace Z42ThreadingManyTests;
 
 using Std.Threading;
+using Std.Test;
 
 [Test]
 void test_spawn_ten_threads_all_join() {

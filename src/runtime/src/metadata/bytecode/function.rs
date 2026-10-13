@@ -180,6 +180,10 @@ pub struct Function {
     /// set when the function is registered there. Runtime-only — not part of any
     /// file format.
     pub id: crate::metadata::tokens::FnIdCell,
+    /// Whether this is a pure `[Native]` forwarder, and to which builtin — computed on
+    /// the first call (`interp::forward::forward_of`), so both engines dispatch calls of
+    /// it straight to the builtin. Runtime-only.
+    pub forward: crate::metadata::tokens::ForwardCell,
 }
 
 /// See [`Function::owner_init`].

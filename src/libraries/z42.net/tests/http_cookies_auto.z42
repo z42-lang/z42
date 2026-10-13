@@ -7,6 +7,7 @@ namespace Z42NetHttpCookiesAutoTests;
 using Std.Threading;
 using Std.Net.Http;
 using Std.Encoding;
+using Std.Test;
 
 [Test]
 void test_auto_cookie_round_trip() {

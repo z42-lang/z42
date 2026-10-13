@@ -2,6 +2,7 @@
 namespace Z42CryptoSha384VectorsTests;
 
 using Std.Crypto;
+using Std.Test;
 
 [Test]
 void test_sha384_empty() {
