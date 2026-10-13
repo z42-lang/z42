@@ -558,6 +558,9 @@ pub struct ArcMagrGC {
     /// adapts — the old generation's allowance is denominated in this one. See
     /// `auto_collect::allowance_unit`.
     allowance_unit_bytes: std::sync::atomic::AtomicU64,
+    /// The allocation-size reading that caps the default gates in entries — see
+    /// `arc_heap/entry_unit.rs`. Off when the nursery is configured explicitly.
+    entry_unit: entry_unit::EntryUnit,
 }
 
 impl ArcMagrGC {
@@ -569,6 +572,8 @@ impl ArcMagrGC {
         // old generation's allowance unit moves with it (production splits the two — see
         // `auto_collect::allowance_unit`).
         self.allowance_unit_bytes.store(n.max(1), std::sync::atomic::Ordering::Relaxed);
+        // A stated byte nursery is a manual setting: no entry cap on top of it.
+        self.entry_unit.disable();
         self.rearm_auto_collect();
     }
 
@@ -646,6 +651,7 @@ mod generational;
 mod incremental;
 mod mark_ring;
 mod pause_budget;
+mod entry_unit;
 mod promotion_policy;
 mod young_policy;
 mod roots;

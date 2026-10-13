@@ -442,7 +442,10 @@ trait 默认实现（含 `ArcMagrGC` STW mark-sweep）是 no-op；分代模式 o
   增量 major 清扫期的 doomed 对象同样跳过（与脏卡播种同一条规则）。
 - **死亡**：带 `REMEMBERED_BIT` 的块被 tombstone 时进「带标记的死块」列表，`process_flagged_dead` 在 chunk 回收之前把它从记忆集删掉，
   所以记忆集里的地址永远是一个块头。
-- **晋升线降低**（adaptive promotion）：数组仍是 `dirty_every_card`；对象只看新线**刚划成老**的那一批——年龄落在
+- **晋升线降低**（adaptive promotion）有两个时机。没有周期开着时就在**定下降线的那次 minor 之后**
+  （`lower_line_after_minor`）：此刻年轻集合里只剩这次 minor 的幸存者、minor 标记已清，新线判老的那批整批摘出年轻集合，
+  只对这一批做晋升屏障——引用年轻对象的数组置卡（元素块抬到同龄）、持有年轻孩子的对象进记忆集，不用一次 major。
+  周期开着时等周期收尾，走 major 路径：数组仍是 `dirty_every_card`；对象只看新线**刚划成老**的那一批——年龄落在
   `[新线, 旧线)` 的对象，恰好是年轻集合里已到线的对象（`VarRegion::objects_past_lowered_line`），持有年轻孩子的入集
   （`remember_lowered_cohort`，`O(年轻集合)`）。旧线下就已是老的对象不必看：新线下年轻的孩子在旧线下也是年轻的，
   它们的老→新边早被屏障或晋升记过，而记忆集只在对象再也够不着年轻孩子时才放它出集。逐个扫全部对象块是一次

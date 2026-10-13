@@ -285,6 +285,25 @@ impl VarRegion {
         (tenured, object_bytes)
     }
 
+    /// [`Region::delist_past_line`](crate::gc::region::Region) for this region: take every young
+    /// block the lowered line makes old out of the set, without aging anything. Returns the
+    /// **object** blocks among them (the heap remembers those with a young child).
+    pub fn delist_past_line(&mut self) -> Vec<VarGcRef> {
+        let threshold = self.promotion_age;
+        let mut newly_old = Vec::new();
+        self.for_each_young(|r, ptr, ci| {
+            // SAFETY: see `for_each_young`.
+            let header = unsafe { ptr.as_ref() };
+            if header.gen_age() >= threshold {
+                r.remove_young(ptr, ci);
+                if header.block_type() == BlockType::Object {
+                    newly_old.push(VarGcRef::pack(ptr, header.generation()));
+                }
+            }
+        });
+        newly_old
+    }
+
     /// **fix-minor-and-major-in-one-pause (2026-09-10)**: age the young survivors after a
     /// **major**, the way [`Self::sweep_young`] does after a minor.
     ///

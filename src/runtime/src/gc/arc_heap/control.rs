@@ -247,14 +247,12 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 // (the deferred safepoint path only knows "collect") and hands it over here.
                 // A promoted-byte gate trip means the old generation needs sweeping, which a
                 // minor cannot do at all.
+                // (Adaptive promotion needs no major of its own: the minor that settles a lower
+                // line applies it — `lower_line_after_minor` — or, with a cycle open, the cycle's
+                // close does.)
                 let want_major = self
                     .pending_major
-                    .swap(false, std::sync::atomic::Ordering::AcqRel)
-                    // **adaptive-promotion (2026-09-12)**: the policy has decided to drop a
-                    // promotion tier, and the switch may only be applied on top of a major —
-                    // see `ArcMagrGC::apply_promotion_age` for why. So ask for one.
-                    || (crate::config::runtime_config().gc_adaptive_promotion
-                        && self.promotion_policy.wants_major());
+                    .swap(false, std::sync::atomic::Ordering::AcqRel);
 
                 // **fix-minor-and-major-in-one-pause (2026-09-10)**: a major marks the whole
                 // heap from the roots and sweeps every region — everything a minor reclaims and

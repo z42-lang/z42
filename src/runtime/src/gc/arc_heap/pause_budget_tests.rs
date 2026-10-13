@@ -22,7 +22,7 @@ fn it_converges_on_the_nursery_the_budget_buys() {
     let mut nursery = 16 * MIB;
     for _ in 0..24 {
         let entries = nursery / 48;
-        nursery = b.observe(sample(entries * 60 / 1000, entries, 0, nursery, &mut used), nursery).expect("adaptive");
+        nursery = b.observe(sample(entries * 60 / 1000, entries, 0, nursery, &mut used), nursery, Bounds::BYTES).expect("adaptive");
     }
     assert!((7 * MIB..=9 * MIB).contains(&nursery), "expected ~8 MiB, got {nursery}");
 }
@@ -36,7 +36,7 @@ fn survivors_already_on_the_bill_shrink_the_headroom() {
     let mut nursery = 16 * MIB;
     for _ in 0..10 {
         let entries = 150_000 + nursery / 48;
-        nursery = b.observe(sample(entries * 60 / 1000, entries, 150_000, nursery, &mut used), nursery)
+        nursery = b.observe(sample(entries * 60 / 1000, entries, 150_000, nursery, &mut used), nursery, Bounds::BYTES)
             .expect("adaptive");
     }
     assert_eq!(nursery, MIN_NURSERY, "a young list that big leaves no headroom");
@@ -44,14 +44,14 @@ fn survivors_already_on_the_bill_shrink_the_headroom() {
 
 #[test]
 fn it_grows_slowly_and_shrinks_fast() {
-    assert_eq!(PauseBudget::next_nursery(64 * MIB, 16 * MIB), 18 * MIB, "grow at most +1/8");
-    assert_eq!(PauseBudget::next_nursery(MIN_NURSERY, 16 * MIB), 8 * MIB, "shrink at most -1/2");
+    assert_eq!(PauseBudget::next_nursery(64 * MIB, 16 * MIB, Bounds::BYTES), 18 * MIB, "grow at most +1/8");
+    assert_eq!(PauseBudget::next_nursery(MIN_NURSERY, 16 * MIB, Bounds::BYTES), 8 * MIB, "shrink at most -1/2");
 }
 
 #[test]
 fn a_cheap_young_set_stops_at_the_ceiling_and_an_expensive_one_at_the_floor() {
-    assert_eq!(PauseBudget::next_nursery(u64::MAX, MAX_NURSERY), MAX_NURSERY);
-    assert_eq!(PauseBudget::next_nursery(0, MIN_NURSERY), MIN_NURSERY);
+    assert_eq!(PauseBudget::next_nursery(u64::MAX, MAX_NURSERY, Bounds::BYTES), MAX_NURSERY);
+    assert_eq!(PauseBudget::next_nursery(0, MIN_NURSERY, Bounds::BYTES), MIN_NURSERY);
 }
 
 #[test]
@@ -59,13 +59,13 @@ fn a_zero_target_leaves_the_nursery_alone() {
     let b = PauseBudget::new(0);
     let mut used = 0;
     assert!(!b.enabled());
-    assert_eq!(b.observe(sample(50_000, 500_000, 0, 16 * MIB, &mut used), 16 * MIB), None);
+    assert_eq!(b.observe(sample(50_000, 500_000, 0, 16 * MIB, &mut used), 16 * MIB, Bounds::BYTES), None);
 }
 
 #[test]
 fn a_collection_that_scanned_nothing_teaches_nothing() {
     let b = PauseBudget::new(10_000);
     let mut used = 0;
-    assert_eq!(b.observe(sample(5_000, 0, 0, 16 * MIB, &mut used), 16 * MIB), None);
+    assert_eq!(b.observe(sample(5_000, 0, 0, 16 * MIB, &mut used), 16 * MIB, Bounds::BYTES), None);
     assert_eq!(b.cost_ns_per_entry(), 0, "the model must not learn from it");
 }
