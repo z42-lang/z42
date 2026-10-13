@@ -20,6 +20,7 @@ use super::Frame;
 /// propagation pattern in `exec_instr.rs`. `Ok(None)` = success. `Err(...)` = internal
 /// anyhow error (separate from user exceptions). A throwing ctor never writes the
 /// partially constructed object into `dst`.
+#[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
 pub(super) fn obj_new(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
     dst: u32, class_name: &str, ctor_name: &str, args: &[u32],
@@ -183,6 +184,7 @@ use isa::is_integer_class;
 /// `StaticGet` — adapter over [`crate::objops::statics::static_get`] (init barrier,
 /// lazy zero-init of never-assigned value-type statics, missing-symbol check).
 /// `field_id` = resolver-populated `StaticFieldId` (None → by-name fallback).
+#[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
 pub(super) fn static_get(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, field: &str,
     field_id: Option<u32>,
@@ -193,6 +195,7 @@ pub(super) fn static_get(
     }
 }
 
+#[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
 pub(super) fn static_set(
     ctx: &VmContext, module: &Module, frame: &Frame, field: &str, val: u32,
     field_id: Option<u32>,

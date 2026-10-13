@@ -22,6 +22,7 @@ fn stack_frame<'f>(ctx: &'f VmContext, frame: &'f Frame, stack_alloc: bool) -> O
 }
 
 #[allow(clippy::too_many_arguments)]
+#[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
 pub(super) fn array_new(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
     dst: u32, size: u32, elem_tag: u8, element_type: ElemType, stack_alloc: bool,
@@ -59,6 +60,7 @@ fn generic_prim_zero(frame: &Frame, kind: u8, index: i32) -> Option<Value> {
     }
 }
 
+#[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
 pub(super) fn array_new_lit(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
     dst: u32, elems: &[u32], element_type: ElemType, stack_alloc: bool,

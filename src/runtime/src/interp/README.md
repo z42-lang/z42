@@ -10,7 +10,8 @@
 | `entry.rs` | 公开 API：`ExecOutcome`、`run` / `run_returning` / `run_outcome`、`init_static_fields` / `run_with_static_init` |
 | `frame.rs` | `Frame`（寄存器文件按 `Function::reg_file_len` 一次性预分配——loader 回填 `func.max_reg`，见 book「超级指令融合」页；`Frame.method_type_args` 携泛型方法调用点的具体类型实参名，供 `MethodTypeArg`/`MethodDefault`——见 book「泛型方法」页）、执行循环、异常表查找
 | `exec_support.rs` | `exec_function` 族入口、`enter_frame` + `FrameGuard`（interp 帧登记 / RAII 弹出并归还寄存器文件）、OSR / 原生分流（`try_osr` / `try_native_exec`）、异常事件、`find_handler`、ref 写回 |
-| `exec_instr.rs` | 薄分发器：穷尽 match 把 `Instruction` 分派到下面各 `exec_<category>.rs` |
+| `exec_instr.rs` | 薄分发器：穷尽 match 把 `Instruction` 分派到下面各 `exec_<category>.rs`；内联进执行主循环，大而少见的分支调 `#[inline(never)]` helper（「热循环布局」，见文件头注释）|
+| `exec_body_cold.rs` | 执行主循环的冷路径（`ref` 参数 copy-in、异常回卷到本帧 handler、内部错误定位、按标签跳转），不占热循环的寄存器 / 栈帧 |
 | `exec_value.rs` | 常量 / Copy / 算术 / 比较 / 逻辑 / 一元 / 位运算 / 字符串构造 |
 | `exec_address.rs` | `LoadLocalAddr` / `LoadElemAddr` / `LoadFieldAddr`（检查走 objops）/ `DefaultOf`（类级泛型零值）/ `MethodTypeArg`·`MethodDefault`（方法级泛型：读 `Frame.method_type_args`，见 book「泛型方法」页）|
 | `exec_call.rs` | `Call` / `Builtin` / `LoadFn` / `CallIndirect` / `MkClos`；`[Native]` 包装函数的折叠调用（`try_fold`） |

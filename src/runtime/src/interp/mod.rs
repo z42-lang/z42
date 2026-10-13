@@ -5,6 +5,7 @@
 /// Implementation is split across submodules:
 /// • mod.rs        — public API, Frame, core execution loop
 /// • exec_instr.rs — thin per-Instruction dispatcher (exhaustive match → helpers)
+/// • exec_body_cold.rs — the loop's out-of-line slow paths (ref copy-in, unwinding, error location)
 /// • exec_value.rs — constants / copy / arith / cmp / logical / unary / bitwise / string
 /// • exec_address.rs — LoadLocalAddr / LoadElemAddr / LoadFieldAddr / DefaultOf
 /// • exec_call.rs    — Call / Builtin / LoadFn / CallIndirect / MkClos
@@ -58,29 +59,20 @@ use anyhow::{bail, Context, Result};
 mod entry;
 mod frame;
 mod exec_support;
+mod exec_body_cold;
+use exec_body_cold::{callee_threw, copy_in_ref_param, label_target, locate_error, throw_here, Unwind};
 pub use entry::{ExecOutcome, run, run_returning, run_outcome, init_static_fields, run_with_static_init};
 pub(crate) use frame::*;
 pub(crate) use exec_support::*;
 
 fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut frame: Frame) -> Result<ExecOutcome> {
-    // Spec impl-ref-out-in-runtime (Decision R2 architecture E):
-    // 入口 copy-in：扫描 params，对每个持 Value::Ref 的 reg：
-    //   1. 通过 RefKind 解引用得到底层值
-    //   2. 将 reg[i] 替换为底层值（callee 体内所有指令读到的是普通 Value）
-    //   3. 把原 RefKind 存入 frame.ref_writebacks，留给出口 copy-out 用
-    // 这样 callee 的 80+ 指令 handler 完全不需要感知 Ref —— 透明性由
-    // 入口/出口完成，仅一次 Vec 分配代价。
-    // 注意：deref 必须在 push_frame_state 之前完成，因为此时 callee 自己的
-    // frame 尚未入栈，Ref::Stack { frame_idx } 指向 caller 的栈位置，
-    // ctx.frame_state_at 能找到正确 regs 指针。
+    // Spec impl-ref-out-in-runtime (Decision R2 architecture E): entry copy-in — each
+    // param register holding a `Value::Ref` is replaced by the underlying value (so no
+    // instruction handler sees a `Ref`), its kind kept for the exit copy-out. Must run
+    // before `enter_frame` (see `copy_in_ref_param`).
     for i in 0..(func.param_count as usize).min(frame.regs.len()) {
-        // make-value-copy: Ref is a transient-arena handle — resolve its RefKind via the
-        // arena (the handle was created in the caller's frame, still live here).
         if let Value::Ref { idx, frame_id } = frame.regs[i] {
-            let kind_clone = ctx.transient_arena.lock().ref_kind(idx, frame_id)?;
-            let underlying = deref_ref(&kind_clone, ctx)?;
-            frame.regs[i] = underlying;
-            frame.ref_writebacks.push((i as u32, kind_clone));
+            copy_in_ref_param(ctx, &mut frame, i, idx, frame_id)?;
         }
     }
 
@@ -127,7 +119,9 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
         crate::metadata::resolver::resolve_function_tokens(func, module, ctx);
     }
 
-    let block_map = &func.block_index;
+    // Read once per activation (a `OnceLock`: once set — at the latest by the resolve
+    // above — it never changes), not once per instruction.
+    let resolved = func.resolved.get();
     let mut block_idx = 0usize;
 
     'exec: loop {
@@ -150,64 +144,21 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
             //   Ok(Some(val))  — a callee threw an exception (value-based propagation)
             //   Err(e)         — internal VM error
             //
-            // (block_idx, instr_idx, func) are passed through for the
+            // (resolved, block_idx, instr_idx) are passed through for the
             // introduce-method-token Phase 4 dispatch fast path: helpers
-            // that need cache lookup index `func.resolved.site_index[block_idx]
+            // that need cache lookup index `resolved.site_index[block_idx]
             // [instr_idx]` to find their per-kind cache slot.
-            match exec_instr::exec_instr(ctx, module, &mut frame, func, block_idx, instr_idx, instr) {
+            match exec_instr::exec_instr(ctx, module, &mut frame, func, resolved, block_idx, instr_idx, instr) {
                 Ok(None) => {}
                 Ok(Some(thrown_val)) => {
-                    // 2026-05-10 exception-stack-trace: callees may throw
-                    // via JIT's set_exception path which doesn't run
-                    // Terminator::Throw — populate here too. Idempotent
-                    // (null-check skips already-populated objects).
-                    crate::exception::populate_stack_trace(&thrown_val, ctx, module);
-
-                    // User exception from a callee — try to find a local handler
-                    if let Some(entry_idx) = find_handler(
-                        ctx, func, block_idx, block_map, &module.type_registry, &thrown_val,
-                    ) {
-                        let entry = &func.exception_table()[entry_idx];
-                        // Phase 2 D3+D6: callee-thrown + caller-caught is
-                        // an unwind of exactly 1 frame (the callee). Throw
-                        // was already counted/emitted at its origin
-                        // (Terminator::Throw or JIT set_exception bridge,
-                        // tracked separately when the JIT path also wires
-                        // in Phase 2.x).
-                        fire_exception_caught(ctx, module, &thrown_val, 1);
-                        frame.set(entry.catch_reg, thrown_val);
-                        block_idx = *block_map.get(entry.catch_label.as_str())
-                            .with_context(|| format!("undefined block `{}`", entry.catch_label))?;
-                        continue 'exec;
+                    // User exception from a callee: an unwind of exactly 1 frame (the callee)
+                    // if a local handler catches it.
+                    match callee_threw(ctx, module, func, &mut frame, block_idx, thrown_val)? {
+                        Unwind::Catch(target) => { block_idx = target; continue 'exec; }
+                        Unwind::Propagate(val) => return Ok(ExecOutcome::Thrown(val)),
                     }
-                    // No handler — propagate up as ExecOutcome::Thrown (no anyhow allocation)
-                    // Spec impl-ref-out-in-runtime: writebacks still run on
-                    // throw paths so any modifications callee made to ref/out
-                    // params before the throw are visible to caller (matches
-                    // C# DA model: caller in catch block sees mutations).
-                    run_ref_writebacks(&frame, ctx)?;
-                    return Ok(ExecOutcome::Thrown(thrown_val));
                 }
-                Err(e) => {
-                    // Internal error — enrich with source location.
-                    // (consolidate-vm-state, 2026-04-28: removed legacy
-                    // UserException sentinel branch — JIT helpers now report
-                    // exceptions via `ctx.set_exception` + extern-C return code,
-                    // not via `anyhow::Error` wrapping.)
-                    //
-                    // fix-vm-error-display-loses-cause (2026-05-24): inline the
-                    // original error message into the location string instead
-                    // of `e.context(...)`. anyhow's `.context()` makes the
-                    // location the *new* topmost message, and downstream
-                    // consumers that print via `Display` (`{e}`) show ONLY the
-                    // topmost — losing the actual bug. Pre-fix, every "VM
-                    // error" in test output read `"  at <fn> (line X)"` with
-                    // no clue what blew up. Format change: include the cause
-                    // first, then location, separated by `\n  at`.
-                    let (line, col) = resolve_line(func.line_table(), block_idx as u32, instr_idx as u32);
-                    let loc_str = if col > 0 { format!("line {line}, col {col}") } else { format!("line {line}") };
-                    return Err(anyhow::anyhow!("{}\n  at {} ({})", e, func.name, loc_str));
-                }
+                Err(e) => return Err(locate_error(e, func, block_idx, instr_idx)),
             }
         }
 
@@ -252,8 +203,7 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
                 // targets weren't precomputed (hand-built test functions).
                 let target = match func.branch_targets.get(block_idx) {
                     Some(BranchTargets::Br(t)) => *t,
-                    _ => *block_map.get(label.as_str())
-                        .with_context(|| format!("undefined block `{label}`"))?,
+                    _ => label_target(&func.block_index, label)?,
                 };
                 // add-gc-safepoint (2026-05-20): backward branch heuristic
                 // — block index decreasing is a loop back-edge. Check
@@ -274,11 +224,7 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
                 };
                 let target = match func.branch_targets.get(block_idx) {
                     Some(BranchTargets::BrCond(t, f)) => if go_true { *t } else { *f },
-                    _ => {
-                        let label = if go_true { true_label } else { false_label };
-                        *block_map.get(label.as_str())
-                            .with_context(|| format!("undefined block `{label}`"))?
-                    }
+                    _ => label_target(&func.block_index, if go_true { true_label } else { false_label })?,
                 };
                 if target <= block_idx {
                     crate::gc::safepoint::check_safepoint(ctx);
@@ -291,33 +237,9 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
             }
             Terminator::Throw { reg } => {
                 let val = frame.get(*reg)?.clone();
-                // 2026-05-10 exception-stack-trace: stamp the throwing
-                // frame's current site so the snapshot's top entry shows
-                // the throw site (not whatever the previous Call left).
-                // Throw is a block terminator; instr_idx isn't a meaningful
-                // intra-block offset, so use end-of-block (block.instructions.len()).
-                ctx.set_top_frame_pc(
-                    func.linear_offset(block_idx as u32, block.instructions.len() as u32));
-                crate::exception::populate_stack_trace(&val, ctx, module);
-
-                // Phase 2 D3+D6 wiring (2026-05-26): count + emit the throw
-                // BEFORE handler lookup so even immediately-caught exceptions
-                // are visible in the event stream.
-                fire_exception_thrown(ctx, module, &val);
-
-                if let Some(entry_idx) = find_handler(
-                    ctx, func, block_idx, block_map, &module.type_registry, &val,
-                ) {
-                    let entry = &func.exception_table()[entry_idx];
-                    // Same-frame catch — 0 frames unwound.
-                    fire_exception_caught(ctx, module, &val, 0);
-                    frame.set(entry.catch_reg, val);
-                    block_idx = *block_map.get(entry.catch_label.as_str())
-                        .with_context(|| format!("undefined block `{}`", entry.catch_label))?;
-                } else {
-                    // No local handler — propagate via value, not anyhow
-                    run_ref_writebacks(&frame, ctx)?;
-                    return Ok(ExecOutcome::Thrown(val));
+                match throw_here(ctx, module, func, &mut frame, block_idx, val)? {
+                    Unwind::Catch(target) => block_idx = target,
+                    Unwind::Propagate(val) => return Ok(ExecOutcome::Thrown(val)),
                 }
             }
         }

@@ -49,6 +49,19 @@ pub(super) fn add(
     // perf-str-concat-direct: 非串操作数**不落地**成中间串——标量格式化进栈缓冲、用户
     // `ToString` 返回的 GC 串原样借用——直接和另一侧一起拷进结果块（一次 GC 分配，零 malloc）。
     let result = match (frame.get(a)?, frame.get(b)?) {
+        (Value::Str(_), _) | (_, Value::Str(_)) => return add_str(ctx, module, frame, dst, a, b),
+        // 2026-04-28 vm-wrapping-int-arith: wrapping_add（与 Rust release build /
+        // C# unchecked int / Java int 一致），解锁 hash / PRNG / 校验和算法
+        _ => int_binop(&frame.regs, a, b, i64::wrapping_add, |x, y| x + y)?,
+    };
+    frame.set(dst, result);
+    Ok(())
+}
+
+/// The string arm of [`add`] — at least one operand is a string.
+#[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
+fn add_str(ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
+    let result = match (frame.get(a)?, frame.get(b)?) {
         // fuse-str-concat-alloc: allocate the concatenation as one fused GC block.
         (Value::Str(sa), Value::Str(sb)) => Value::Str(ctx.heap().alloc_str_concat2(sa, sb)),
         (Value::Str(sa), vb) => {
@@ -59,9 +72,7 @@ pub(super) fn add(
             let sb = *sb;
             Value::Str(with_obj_str(ctx, module, va, |t| ctx.heap().alloc_str_concat2(t, &sb))?)
         }
-        // 2026-04-28 vm-wrapping-int-arith: wrapping_add（与 Rust release build /
-        // C# unchecked int / Java int 一致），解锁 hash / PRNG / 校验和算法
-        _ => int_binop(&frame.regs, a, b, i64::wrapping_add, |x, y| x + y)?,
+        _ => bail!("add_str: neither operand is a string"),
     };
     frame.set(dst, result);
     Ok(())
@@ -232,6 +243,7 @@ pub(super) fn shr(frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
 
 // ── String formation ─────────────────────────────────────────────────────
 
+#[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
 pub(super) fn str_concat(ctx: &VmContext, frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
     // fuse-str-concat-alloc: borrow both operands as `&str` and allocate the
     // concatenation as a single fused GC block — no per-operand `str_val` String
@@ -244,6 +256,7 @@ pub(super) fn str_concat(ctx: &VmContext, frame: &mut Frame, dst: u32, a: u32, b
     Ok(())
 }
 
+#[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
 pub(super) fn to_str(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, src: u32,
 ) -> Result<()> {
