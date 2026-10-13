@@ -129,7 +129,7 @@ void test_set_keepalive_tuned_zero_idle_throws_socket_err() {
     bool threw = false;
     try {
         c.SetKeepAlive(true, 0, 10, 3);
-    } catch (SocketException e) {
+    } catch (ArgumentOutOfRangeException e) {
         threw = true;
     }
     Assert.True(threw);

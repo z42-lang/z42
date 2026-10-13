@@ -348,8 +348,11 @@ GC 等不到它到达 safepoint（规则见 runtime-rust.md「阻塞的 native �
   ——借不到 `&VmContext`，也借不到调用方栈上的任何东西。`__thread_wait` / `__process_wait` 是这一形态的样板。
 - `Blocking::ready(r)`：答案不用等（零长度读、已关闭的管道）——不 park。
 - `Blocking::new(..).then(|ctx, r| …)` → `Then<V>`：parked 部分产出的不是 `PlainRet`（打开的 `File`、spawn 出的
-  `Child`、要拷进调用方 `byte[]` 的字节），`then` 在 **unpark 之后**拿着 ctx 收尾——把句柄登记进表、写 GC 数组、
-  分配。`__file_open` / `__file_read` / `__process_start` / `__process_stdout_read` 是样板。
+  `Child`、连上的 `TcpStream`、要拷进调用方 `byte[]` 的字节），`then` 在 **unpark 之后**拿着 ctx 收尾——把句柄登记进表、
+  写 GC 数组、分配、核对阻塞期间句柄有没有被别的线程关掉。`__file_open` / `__file_read` / `__process_start` /
+  `__tcp_accept` / `__tcp_read` 是样板。
+- 先在 unpark 状态下试一把、不行再等的（`__monitor_enter`：重入检查、无争用快路径、短暂自旋）返回
+  `Result<Blocking<()>, _>`：拿到了就 `Blocking::ready(())`（不 park），要等才 `Blocking::new`（闭包只握 `Arc<Monitor>`）。
 - 函数体自己 park 的只剩一种：执行期间要以本 ctx 回调 z42 的（`__repl_readline`：行编辑器在读的中途回调补全器，
   回调里 `NativeUnparkGuard` 暂离 park）。它标 `reenters`、函数体显式 `NativeParkGuard`，结果在 park 结束后才分配。
 - 资源表（`file_handles` / `processes`）的锁下**只取 / 克隆句柄**（`Arc<File>`、每条管道自己的锁），系统调用在
@@ -371,8 +374,8 @@ GC 等不到它到达 safepoint（规则见 runtime-rust.md「阻塞的 native �
 | `Overflow` | `Std.OverflowException` → `Std.ArithmeticException` |
 | `Io` / `FileNotFound` / `DirectoryNotFound` / `PathTooLong` / `EndOfStream` | `Std.IO.IOException` 及其同名子类（`EndOfStreamException` 在 `z42.io`） |
 | `UnauthorizedAccess` / `Timeout` | `Std.UnauthorizedAccessException` / `Std.TimeoutException` |
-| `Exception { class, message }` | 任意类（包级异常，如 `Std.Threading.ThreadException`） |
-| `Detailed { classes, message, fields }` | 按序取第一个已加载的类，另外填公开字段（`Std.IO.ProcessTimeoutException` 的 `Program` / `TimeoutMs`，退到基类时跳过它没有的字段） |
+| `Exception { class, message }` | 任意类（包级异常，如 `Std.Threading.ThreadException`、`Std.Security.Authentication.AuthenticationException`） |
+| `Detailed { classes, message, fields }` | 按序取第一个已加载的类，另外填公开字段（`Std.IO.ProcessTimeoutException` 的 `Program` / `TimeoutMs`、`Std.Net.Sockets.SocketException` 的 `SocketErrorCode` / `ErrorCode`，退到基类时跳过它没有的字段）。`BuiltinError::object_disposed(name, msg)` 用它造 `Std.ObjectDisposedException`（→ `InvalidOperationException`），带 `ObjectName` |
 | `Thrown(Value)` | 已构造好的异常值，原样抛（回调里 z42 代码抛的） |
 | `Internal(String)` | **致命错误**，不可 catch |
 | `Legacy(anyhow::Error)` | 旧表 builtin 的错误：沿用旧映射（`objops::Throw` 按其类，其余 `Std.Exception`） |
@@ -382,7 +385,11 @@ GC 等不到它到达 safepoint（规则见 runtime-rust.md「阻塞的 native �
 `From<OpError>` 接 objops。**按路径操作的文件系统 builtin 不用它**，而用 `corelib::fs::fs_error(e, path, role)`：
 手里有路径、知道要找的是文件还是目录，才分得出 `FileNotFound`（文件所在的目录存在）与 `DirectoryNotFound`，
 消息也是 .NET 的原文（`Could not find file '<path>'.`）——完整对照在该函数的文档与
-[reference · 控制台与文件](../../../reference/src/stdlib/io-file.md)。进程的对照在 `corelib/process.rs` 抬头。
+[reference · 控制台与文件](../../../reference/src/stdlib/io-file.md)。进程的对照在 `corelib/process.rs` 抬头；
+socket 的（OS 错误 → `SocketException` + Winsock 码 `SocketErrorCode`，超时 → `TimedOut`，解析失败 → `HostNotFound`，
+关闭的句柄 → `SocketClosedException : ObjectDisposedException`）在 `corelib/network/error.rs`，TLS 的（握手被拒 →
+`AuthenticationException`，传输 / 流 → `IOException`）在 `corelib/tls.rs` 抬头；Monitor 误用 → `LockRecursionException` /
+`SynchronizationLockException`（`corelib/monitor.rs`）。
 
 **唯一的出口** `corelib::abi::error::raise`，两个引擎共用（interp `exec_call::builtin` / 折叠调用，
 JIT `jit_builtin` / `call_forward`），判定顺序：
@@ -449,6 +456,8 @@ JIT `jit_builtin` / `call_forward`），判定顺序：
 | `process` | 宿主进程控制、子进程（`Std.IO.Process`） | `__process_exit`、`__process_run_sync`、`__process_wait` |
 | `thread` | `Std.Threading.Thread` | `__thread_spawn`、`__thread_wait` |
 | `dir` | `Std.IO.Directory` 静态方法 | `__dir_enumerate` |
+| `tcp` / `udp` / `dns` / `tls` | `Std.Net.Sockets` 的 TCP / UDP / 名字解析 / TLS 客户端 | `__tcp_connect`、`__udp_recv_into`、`__dns_lookup`、`__tls_read` |
+| `monitor` | 同步原语底座 `MonitorNative` | `__monitor_enter` |
 
 新领域 → 往这张表里加一行，再挑一个短单词。
 
@@ -457,14 +466,17 @@ JIT `jit_builtin` / `call_forward`），判定顺序：
 
 **改语义要换名字**：已发布的种子 stdlib 跑在新 VM 上（冷启动自举），同名 builtin 的签名与返回形状
 必须保持兼容（只把抛出的异常换成更具体的子类是兼容的）。要改形状就起新名字（`__process_run` →
-`__process_run_sync`、`__process_handle_*` → `__process_*`、`__thread_join` → `__thread_wait`：旧的返回
-`[KIND, …]` 判别数组，新的从 Rust 抛），旧名字挂 `STAGE2-DEBT` 留到种子不再声明它为止。
+`__process_run_sync`、`__process_handle_*` → `__process_*`、`__thread_join` → `__thread_wait`、`__net_tcp_*` /
+`__net_udp_*` / `__net_dns_lookup` / `__net_tls_*` → `__tcp_*` / `__udp_*` / `__dns_lookup` / `__tls_*`：旧的返回
+`[KIND, …]` 判别数组，新的从 Rust 抛），旧名字挂 `STAGE2-DEBT` 留到种子不再声明它为止。形状不变、只把抛出的
+异常换成更具体子类的可以原名迁（`__monitor_*`：`Std.Exception` → `LockRecursionException` / `SynchronizationLockException`）。
 
 **z42.core 里的 `[Native]` 包装同样不能改形状**：`ProcessNative` / `ThreadNative` 这类 core 静态类被别的包
 （`z42.io` / `z42.threading`）调用，而 z42.core 总按当前源预建、别的包可能还是种子带来的旧版——同一个 libs
 目录里新 core + 旧 io。改 `ThreadNative.Join` 的返回类型，旧 `Thread.Join` 就会把 `void` 当数组读。做法：
-core 里**加新方法**（`ThreadNative.Wait`、`ProcessNative.RunSync` / `Start`、`ChildProcessNative.*`），新的
-z42.io / z42.threading 改调新方法，旧方法与旧 builtin 一起挂债。
+core 里**加新方法**（`ThreadNative.Wait`、`ProcessNative.RunSync` / `Start`、`ChildProcessNative.*`、
+`TcpSocketNative` / `UdpSocketNative` / `TlsSocketNative` / `DnsNative.Resolve`），新的 z42.io / z42.threading /
+z42.net 改调新方法，旧方法与旧 builtin 一起挂债。
 
 ### 6.6 与 ext 表的关系
 

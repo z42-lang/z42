@@ -374,8 +374,9 @@ void Main() {
   ⇒ `using (var r = new StreamReader(s)) { ... }` 可用。
 - **没有 async**：不存在 `ReadAsync` / `WriteAsync`。
 - **没有超时旋钮**：`ReadTimeout` / `WriteTimeout` 不存在。
-- **没有 `ObjectDisposedException`**：关闭后的误用要么抛 `InvalidOperationException`，
-  要么（`MemoryStream`）根本不报错——`MemoryStream.Close()` 是空操作，关闭后流依旧可读可写。
+- **关闭后的误用抛 `InvalidOperationException`，不是 `ObjectDisposedException`**（`Std.ObjectDisposedException`
+  存在、继承 `InvalidOperationException`，目前只有网络流的 `SocketClosedException` 用它），
+  或者（`MemoryStream`）根本不报错——`MemoryStream.Close()` 是空操作，关闭后流依旧可读可写。
 - **`StreamReader` 不做分块解码**：见上面的一次性 drain 说明；`Encoding` 也没有
   流式 `Decoder` 接口。
 - **`StringWriter(int initialCapacity)` 的容量被忽略**（`StringBuilder` 还没有带容量的构造）。

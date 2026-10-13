@@ -20,24 +20,16 @@ public static class Dns {
     /// (e.g. `"127.0.0.1"`, `"::1"`) round-trips back as a single-element
     /// array without hitting the network.
     public static IPAddress[] GetHostAddresses(string host) {
-        object[] raw = DnsNative.Lookup(host);
-        long kind = (long)raw[0];
-        if (kind != 0) {
-            // Reuse the UDP/TCP error decoder — it covers `socket_err` /
-            // `handle_invalid` / `unsupported` consistently.
-            UdpDecode.Throw(raw, kind);
-            return new IPAddress[0];
-        }
-        object[] strs = (object[])raw[1];
+        // Resolver failure → SocketException(HostNotFound), thrown by the VM.
+        string[] strs = DnsNative.Resolve(host);
         IPAddress[] result = new IPAddress[strs.Length];
         int i = 0;
         while (i < strs.Length) {
-            result[i] = IPAddress.Parse((string)strs[i]);
+            result[i] = IPAddress.Parse(strs[i]);
             i = i + 1;
         }
         return result;
     }
 }
 
-/// Native sink — keeps the [Native] extern signature isolated.
 // (native 语义层已上移 z42.core: src/Native/NetNative.z42 —— organization.md「native 语义层 → core」2026-08-27)

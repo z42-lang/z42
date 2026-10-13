@@ -97,8 +97,11 @@ try {
 这是整个实现里最容易写错的地方。Monitor 的「持有」是 z42 层语义（`owner` 字段）；内部的
 `parking_lot::Mutex<State>` 只在 O(1) 临界区里被持有。三条铁律：
 
-1. **阻塞必须处于 `NativeParkGuard` 之内。** 否则另一线程发起 GC 时要等「全世界停下」，
+1. **阻塞必须处于 park 之内。** 否则另一线程发起 GC 时要等「全世界停下」，
    而阻塞中的线程永远到不了字节码 safepoint ⇒ 死锁（#598 / #600 / #606 同一判据）。
+   `__monitor_*` 是 builtin ABI v2 的类型化 builtin：`enter` / `wait` 的不阻塞部分（重入 / 持有检查、
+   快路径、自旋）在 builtin 里 unpark 做完，真正要等时返回 `Blocking::new(move || …)`——闭包只握
+   `Arc<Monitor>` 与 `ThreadId`（`Send + 'static`），由 ABI 在 park 状态下运行，结构上碰不到堆、不可能分配。
 2. **离开 park 之前必须先释放内部锁。** `NativeParkGuard` 退出时若 GC 正在 STW，要等它结束。
    假如此时还攥着内部锁：
 
@@ -114,26 +117,36 @@ try {
        Note over A,B: A 等 GC，GC 等 B，B 等 A —— 死锁
    ```
 
-   代码里靠**声明顺序**保证：`_park` 先声明（后 drop），内部锁守卫后声明（先 drop）。
+   结构上保证：内部锁守卫是闭包里的局部量，闭包返回时已 drop；ABI 在闭包返回之后才退出 park。
 3. **阻塞前先把 `Arc<Monitor>` 从句柄对象里克隆出来，并释放对象借用。** 带着对象借用阻塞，
    会挡住 GC 对该对象的处理。
 
 ```rust
-fn enter(&self, ctx) -> Result<()> {
+fn begin_enter(self: &Arc<Self>, ctx) -> Result<Blocking<()>, BuiltinError> {
     { // 快路径：不 park —— park 的进出要拿全局 phase 锁并 notify_all
         let mut st = self.state.lock();
-        if st.owner == Some(me) { bail!("not reentrant") }
-        if st.owner.is_none() { st.owner = Some(me); return Ok(()) }
+        if st.owner == Some(me) { return Err(LockRecursionException) }
+        if st.owner.is_none() { st.owner = Some(me); return Ok(Blocking::ready(())) }
     }
-    let _park = NativeParkGuard::enter(ctx);   // 先声明 → 后 drop
-    let mut st = self.state.lock();            // 后声明 → 先 drop
-    st.entry_waiters += 1;
-    while st.owner.is_some() { self.entry_cv.wait(&mut st); }
-    st.entry_waiters -= 1;
-    st.owner = Some(me);
-    Ok(())
+    for _ in 0..SPIN_ROUNDS { /* 自旋重试，拿到 → Blocking::ready */ }
+    let m = Arc::clone(self);
+    Ok(Blocking::new(move || {                 // ABI 在 park 状态下运行
+        let mut st = m.state.lock();           // 闭包返回前 drop，先于退出 park
+        st.entry_waiters += 1;
+        while st.owner.is_some() { m.entry_cv.wait(&mut st); }
+        st.entry_waiters -= 1;
+        st.owner = Some(me);
+        Ok(())
+    }))
 }
 ```
+
+`wait` 同形：持有检查在 unpark 状态下做（只有持有者本线程能改 `owner`，检查到 park 之间不会变），
+「释放 → 等信号 → 重新持有」整段在闭包里 park 运行。
+
+误用的异常按 .NET：同线程重入 → `Std.Threading.LockRecursionException`；非持有者 `Exit` / `Wait` →
+`Std.Threading.SynchronizationLockException`（.NET `Monitor.Exit` 的原文）；句柄不是 Monitor →
+`ArgumentNullException` / `ArgumentException`（`MonitorNative` 是公开类，用户代码能传进任何值）。
 
 快路径失败后**先短暂自旋再 park**（32 次 `spin_loop` + 8 次 `yield_now`，每次重试获取）：Monitor 保护的都是
 O(1) 的 z42 片段，持有者通常转眼就释放，而 park 一次要拿全局 phase 锁、`notify_all`，被唤醒还要走条件变量。
@@ -169,8 +182,8 @@ O(1) 的 z42 片段，持有者通常转眼就释放，而 park 一次要拿全�
 
 | 写法 | 结果 |
 |---|---|
-| `Lock` 里再 `Lock` | 抛异常（否则永久自死锁） |
-| `Write` 里再 `Write` / `Read` | 抛异常（否则永久自死锁） |
+| `Lock` 里再 `Lock` | 抛 `LockRecursionException`（否则永久自死锁） |
+| `Write` 里再 `Write` / `Read` | 抛 `LockRecursionException`（否则永久自死锁） |
 | `Read` 里 `Write` | **自等**：等自己的读者退出 |
 | 有写者排队时 `Read` 里再 `Read` | **自等**：写者优先 ⇒ 等写者 |
 

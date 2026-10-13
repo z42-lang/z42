@@ -1,386 +1,259 @@
-//! `Std.Net` TLS client builtins — rustls-backed blocking TLS streams.
+//! `Std.Net` TLS client builtins (builtin ABI v2) — rustls-backed blocking TLS streams:
+//! `TlsSocketNative` in z42.core, used by z42.net's `TlsClient` / `TlsStream`.
 //!
-//! Mirrors the raw TCP builtins (slot-id handle, the table holds an `Arc`
-//! that read / write clone instead of taking the stream out). The stored
-//! handle is a [`TlsSlot`]: the rustls session needs `&mut` for both read and
-//! write, so it sits behind a lock, and a dup of the TCP socket is kept beside
-//! it for shutdown and timeouts. Read and write are therefore serialized: while
-//! one thread is blocked in a read, another thread's write waits for it. Real
-//! full duplex would need the rustls state and the blocking socket I/O locked
-//! separately.
+//! Same handle model as the TCP builtins (`network/tcp.rs`): a slot id into
+//! `VmCore.tls_sockets`; the table holds an `Arc<TlsSlot>` that calls clone. The rustls
+//! session needs `&mut` for reads and writes alike, so it sits behind a lock, with a dup
+//! of the TCP socket beside it for shutdown and timeouts. Read and write are therefore
+//! serialized: while one thread is blocked in a read, another thread's write waits for
+//! it. Certificate verification is always on (bundled Mozilla roots, `webpki-roots`;
+//! rustls' `ring` provider — no OpenSSL / C toolchain).
 //!
-//! Certificate verification is always on: roots come from the bundled
-//! Mozilla set (`webpki-roots`), so no host trust-store wiring is needed.
-//! The crypto backend is rustls' `ring` provider (pure-Rust build, no
-//! OpenSSL / aws-lc-rs C toolchain).
+//! **Failures throw from Rust, as .NET's `TcpClient` + `SslStream` do:**
 //!
-//! ## Return shape
+//! | failure | exception |
+//! |---|---|
+//! | name resolution / TCP connect | `SocketException` (`network/error.rs`) |
+//! | the handshake: certificate rejected (unknown issuer, name mismatch, expired), protocol mismatch, the peer is not speaking TLS | `Std.Security.Authentication.AuthenticationException` |
+//! | the transport fails during the handshake (peer hung up, reset, timed out) | `IOException` (`Received an unexpected EOF or 0 bytes from the transport stream.` / `Unable to read data from the transport connection: …`) |
+//! | read / write on the established stream (I/O error, timeout, corrupt record) | `IOException` (`Unable to read / write data to the transport connection: …`) |
+//! | a host name that cannot be a TLS server name | `ArgumentException` |
+//! | a closed / unknown handle (also: closed while blocked on it) | `SocketClosedException : ObjectDisposedException` |
 //!
-//! Identical to `network.rs` — a discriminated `Value::Array` tuple whose
-//! first element is a `KIND_*` tag:
+//! A peer that closes the connection without a TLS `close_notify` reads as end of stream
+//! (0), as `SslStream` does.
 //!
-//! ```text
-//!   [I64(0), I64(slot)]      // KIND_OK — connect
-//!   [I64(0), I64(nbytes)]    // KIND_OK — read / write (0 = EOF / set-timeout)
-//!   [I64(1), Str(message)]   // KIND_SOCKET_ERR — io / handshake fail
-//!   [I64(2)]                 // KIND_HANDLE_INVALID — slot missing
-//!   [I64(3)]                 // KIND_UNSUPPORTED — wasm32
-//! ```
+//! Connect (resolution + connect + handshake), read and write run parked
+//! (`Blocking::new(..).then(..)`); the results are built after unparking.
 //!
-//! Drops always return `Value::Null` (idempotent).
+//! The older `__net_tls_*` builtins (discriminated arrays) live in `tls_legacy.rs` — the
+//! published seed's z42.net still calls them.
 
-use super::convert::{arg_i64, arg_str};
-use crate::metadata::Value;
-use crate::vm_context::VmContext;
-use anyhow::{bail, Result};
+#[path = "tls_legacy.rs"]
+mod legacy;
+pub use legacy::*;
 
-const KIND_OK:             i64 = 0;
-const KIND_SOCKET_ERR:     i64 = 1;
-const KIND_HANDLE_INVALID: i64 = 2;
-#[cfg(target_arch = "wasm32")]
-const KIND_UNSUPPORTED:    i64 = 3;
-
-fn ok_value(ctx: &VmContext, v: i64) -> Value {
-    ctx.heap().alloc_array(vec![Value::I64(KIND_OK), Value::I64(v)])
-}
-
-fn socket_err(ctx: &VmContext, msg: String) -> Value {
-    ctx.heap().alloc_array(vec![Value::I64(KIND_SOCKET_ERR), Value::Str(msg.into())])
-}
-
-fn handle_invalid(ctx: &VmContext) -> Value {
-    ctx.heap().alloc_array(vec![Value::I64(KIND_HANDLE_INVALID)])
-}
-
-#[cfg(target_arch = "wasm32")]
-fn unsupported(ctx: &VmContext) -> Value {
-    ctx.heap().alloc_array(vec![Value::I64(KIND_UNSUPPORTED)])
-}
-
-fn require_slot_id(args: &[Value], idx: usize, name: &str) -> Result<u64> {
-    let n = arg_i64(args, idx, name)?;
-    if n < 0 {
-        bail!("{}: slot id must be non-negative, got {}", name, n);
-    }
-    Ok(n as u64)
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn require_port(args: &[Value], idx: usize, name: &str) -> Result<u16> {
-    let p = arg_i64(args, idx, name)?;
-    if !(0..=65535).contains(&p) {
-        bail!("{}: port out of range [0, 65535]: {}", name, p);
-    }
-    Ok(p as u16)
-}
-
-// ── desktop / mobile (non-wasm32) implementations ─────────────────────────
-
-/// One TLS connection. `stream` holds the TLS session plus the socket (rustls
-/// needs `&mut` for reads and writes alike); `sock` is a dup of the same socket,
-/// used to shut it down on drop — waking a read blocked inside `stream`'s lock —
-/// and to set timeouts without waiting for that lock.
+/// One TLS connection. `stream` holds the TLS session plus the socket; `sock` is a dup
+/// of the same socket, used to shut it down on close — waking a read blocked inside
+/// `stream`'s lock — and to set timeouts without waiting for that lock.
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) struct TlsSlot {
-    pub(crate) stream: parking_lot::Mutex<
-        rustls::StreamOwned<rustls::ClientConnection, std::net::TcpStream>>,
+    pub(crate) stream: parking_lot::Mutex<rustls::StreamOwned<rustls::ClientConnection, std::net::TcpStream>>,
     pub(crate) sock: std::net::TcpStream,
 }
 
+/// Process-wide rustls client config (root store + ring provider), built once.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn client_config() -> Result<std::sync::Arc<rustls::ClientConfig>, crate::corelib::abi::BuiltinError> {
+    use std::sync::{Arc, OnceLock};
+    static CONFIG: OnceLock<Arc<rustls::ClientConfig>> = OnceLock::new();
+    if let Some(c) = CONFIG.get() {
+        return Ok(c.clone());
+    }
+    let mut roots = rustls::RootCertStore::empty();
+    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let config = rustls::ClientConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .map_err(|e| crate::corelib::abi::BuiltinError::Internal(format!("tls config: {e}")))?
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    // First writer wins; a concurrent racer just discards its identical copy.
+    Ok(CONFIG.get_or_init(|| Arc::new(config)).clone())
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 mod imp {
-    use super::*;
-    use std::io::{Read, Write};
-    use std::net::{TcpStream, ToSocketAddrs};
-    use std::sync::{Arc, OnceLock};
-    use std::time::Duration;
-    use rustls::pki_types::ServerName;
-    use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned};
+    use super::TlsSlot;
+    use crate::corelib::abi::BuiltinError;
+    use crate::corelib::network::error::{closed, describe, slot_id, timeout_message};
+    use crate::vm_context::VmContext;
+    use std::sync::Arc;
 
-    /// Process-wide rustls client config (root store + ring provider). Built
-    /// once and shared via `Arc` — parsing the Mozilla root set on every
-    /// connect would be wasteful, and the config is immutable.
-    fn client_config() -> Result<Arc<ClientConfig>> {
-        static CONFIG: OnceLock<Arc<ClientConfig>> = OnceLock::new();
-        if let Some(c) = CONFIG.get() {
-            return Ok(c.clone());
-        }
-        let mut roots = RootCertStore::empty();
-        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-        let provider = Arc::new(rustls::crypto::ring::default_provider());
-        let config = ClientConfig::builder_with_provider(provider)
-            .with_safe_default_protocol_versions()
-            .map_err(|e| anyhow::anyhow!("tls config: {}", e))?
-            .with_root_certificates(roots)
-            .with_no_client_auth();
-        let arc = Arc::new(config);
-        // First writer wins; a concurrent racer just discards its identical copy.
-        let _ = CONFIG.set(arc.clone());
-        Ok(CONFIG.get().cloned().unwrap_or(arc))
+    pub(super) fn slot(ctx: &VmContext, slot: i64) -> Result<Arc<TlsSlot>, BuiltinError> {
+        ctx.core.tls_sockets.get_cloned(slot_id(slot)?).ok_or_else(closed)
     }
 
-    /// `__net_tls_connect(host, port, timeout_ms) -> [0, slot] | err`
-    /// TCP-connects to `host:port`, performs a TLS handshake with SNI =
-    /// `host` and certificate verification against the bundled roots, then
-    /// stores the live stream and returns its slot id. The handshake is
-    /// forced here (`complete_io`) so cert / protocol errors surface at
-    /// connect rather than on the first read.
-    ///
-    /// `timeout_ms > 0` bounds both the TCP connect and the handshake (a
-    /// stalled peer can't hang the script). The deadline is cleared once the
-    /// handshake completes — subsequent read/write timeouts are set
-    /// explicitly via `__net_tls_socket_set_*_timeout`. `timeout_ms <= 0`
-    /// means blocking (no deadline), matching the raw-TCP builtins.
-    pub fn builtin_net_tls_connect(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-        const NAME: &str = "__net_tls_connect";
-        let host = arg_str(args, 0, NAME)?.to_string();
-        let port = require_port(args, 1, NAME)?;
-        let millis = arg_i64(args, 2, NAME)?;
-        let deadline = if millis > 0 { Some(Duration::from_millis(millis as u64)) } else { None };
+    pub(super) fn still_open(ctx: &VmContext, id: u64) -> Result<(), BuiltinError> {
+        if ctx.core.tls_sockets.lock().contains_key(&id) { Ok(()) } else { Err(closed()) }
+    }
 
-        let config = client_config()?;
-        let server_name = match ServerName::try_from(host.clone()) {
-            Ok(n) => n,
-            Err(e) => return Ok(socket_err(ctx, format!("invalid server name {:?}: {}", host, e))),
-        };
-        let conn = match ClientConnection::new(config, server_name) {
-            Ok(c) => c,
-            Err(e) => return Ok(socket_err(ctx, format!("tls client init: {}", e))),
-        };
+    /// The rustls error inside an I/O error (rustls reports protocol failures as
+    /// `InvalidData` wrapping its own error).
+    fn tls_cause(e: &std::io::Error) -> Option<&rustls::Error> {
+        e.get_ref().and_then(|inner| inner.downcast_ref::<rustls::Error>())
+    }
 
-        let addr = format!("{}:{}", host, port);
-        // fix-park-blocking-natives (2026-09-14): DNS, the TCP connect and the handshake can
-        // each block indefinitely, so they run parked — an unparked thread stuck here stalls
-        // every collection (see `corelib/network/tcp.rs`). The park covers the blocking work
-        // only: errors come out as Rust `String`s and the result tuple is allocated after the
-        // guard drops (`gc::safepoint::debug_assert_not_native_parked`).
-        let established: std::result::Result<StreamOwned<ClientConnection, TcpStream>, String> = {
-            let _park = crate::gc::NativeParkGuard::enter(ctx);
-            let tcp = match deadline {
-                Some(dur) => addr.to_socket_addrs()
-                    .and_then(|mut it| it.next().ok_or_else(|| std::io::Error::new(
-                        std::io::ErrorKind::AddrNotAvailable, "no addresses")))
-                    .map_err(|e| format!("resolve {}: {}", addr, e))
-                    .and_then(|socket_addr| TcpStream::connect_timeout(&socket_addr, dur)
-                        .map_err(|e| format!("connect to {} (timeout {}ms): {}", addr, millis, e))),
-                None => TcpStream::connect(&addr).map_err(|e| format!("connect to {}: {}", addr, e)),
+    fn transport_text(e: &std::io::Error) -> String {
+        match e.kind() {
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut => timeout_message(),
+            _ => describe(e),
+        }
+    }
+
+    /// A failed handshake (`complete_io`): rustls' own verdict → `AuthenticationException`;
+    /// the transport giving out → `IOException`.
+    pub(super) fn handshake_error(e: &std::io::Error) -> BuiltinError {
+        if let Some(tls) = tls_cause(e) {
+            let message = match tls {
+                rustls::Error::InvalidCertificate(_) | rustls::Error::NoCertificatesPresented => format!(
+                    "The remote certificate is invalid according to the validation procedure: {tls}."),
+                other => format!("Authentication failed: {other}."),
             };
-            tcp.and_then(|tcp| {
-                // Bound the handshake itself: a half-open peer that completes the TCP
-                // SYN but never finishes the TLS exchange would otherwise hang here.
-                if let Some(dur) = deadline {
-                    let _ = tcp.set_read_timeout(Some(dur));
-                    let _ = tcp.set_write_timeout(Some(dur));
+            return BuiltinError::Exception { class: "Std.Security.Authentication.AuthenticationException", message };
+        }
+        if e.kind() == std::io::ErrorKind::UnexpectedEof {
+            return BuiltinError::Io("Received an unexpected EOF or 0 bytes from the transport stream.".into());
+        }
+        BuiltinError::Io(format!("Unable to read data from the transport connection: {}.", transport_text(e)))
+    }
+
+    /// A failed read / write on the established stream → `IOException`.
+    pub(super) fn stream_error(e: &std::io::Error, op: &str) -> BuiltinError {
+        let text = match tls_cause(e) {
+            Some(tls) => tls.to_string(),
+            None => transport_text(e),
+        };
+        BuiltinError::Io(format!("Unable to {op} data {} the transport connection: {text}.",
+            if op == "read" { "from" } else { "to" }))
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[z42_macros::builtins]
+pub mod typed {
+    use super::imp::{handshake_error, slot, still_open, stream_error};
+    use super::{client_config, TlsSlot};
+    use crate::corelib::abi::{Blocking, BuiltinError, Then};
+    use crate::corelib::fs::{byte_array, check_buffer_range, read_byte_range, write_byte_range};
+    use crate::corelib::network::error::{check_port, resolve, slot_id, socket_error, timeout};
+    use crate::metadata::Value;
+    use crate::vm_context::VmContext;
+    use rustls::pki_types::ServerName;
+    use rustls::{ClientConnection, StreamOwned};
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+
+    /// `Connect(host, port, timeoutMs) -> slot`: TCP connect, then the handshake (SNI =
+    /// `host`), forced here so certificate / protocol errors surface at connect.
+    /// `timeoutMs > 0` bounds the connect and the handshake each; the deadline is cleared
+    /// afterwards (stream timeouts are set separately).
+    #[builtin(name = "__tls_connect")]
+    pub fn tls_connect(host: String, port: i64, timeout_ms: i64) -> Result<Then<i64>, BuiltinError> {
+        let port = check_port(port)?;
+        let limit = timeout(timeout_ms);
+        let name = ServerName::try_from(host.clone()).map_err(|_| BuiltinError::Argument(format!(
+            "The target host name is not valid for TLS: '{host}'. (Parameter 'host')")))?;
+        let conn = ClientConnection::new(client_config()?, name)
+            .map_err(|e| BuiltinError::Internal(format!("tls client init: {e}")))?;
+        Ok(Blocking::new(move || {
+            let addrs = resolve(&host, port)?;
+            let mut last = None;
+            let mut tcp = None;
+            for addr in &addrs {
+                let r = match limit {
+                    Some(d) => TcpStream::connect_timeout(addr, d),
+                    None => TcpStream::connect(addr),
+                };
+                match r {
+                    Ok(s) => { tcp = Some(s); break; }
+                    Err(e) => last = Some(socket_error(&e, Some(addr))),
                 }
-                let mut stream = StreamOwned::new(conn, tcp);
-                match stream.conn.complete_io(&mut stream.sock) {
-                    Ok(_) => Ok(stream),
-                    Err(e) => Err(format!("tls handshake with {}: {}", host, e)),
-                }
+            }
+            let Some(tcp) = tcp else {
+                return Err(last.unwrap_or_else(|| BuiltinError::Internal("connect: no address".into())));
+            };
+            if limit.is_some() {
+                let _ = tcp.set_read_timeout(limit);
+                let _ = tcp.set_write_timeout(limit);
+            }
+            let mut stream = StreamOwned::new(conn, tcp);
+            stream.conn.complete_io(&mut stream.sock).map_err(|e| handshake_error(&e))?;
+            if limit.is_some() {
+                let _ = stream.sock.set_read_timeout(None);
+                let _ = stream.sock.set_write_timeout(None);
+            }
+            let sock = stream.sock.try_clone().map_err(|e| socket_error(&e, None))?;
+            Ok(TlsSlot { stream: parking_lot::Mutex::new(stream), sock })
+        }).then(|ctx: &VmContext, s: TlsSlot| Ok(ctx.alloc_tls_socket_slot(s) as i64)))
+    }
+
+    /// `Read(slot, buffer, offset, count) -> n` decrypted bytes (0 = end of stream).
+    #[builtin(name = "__tls_read")]
+    pub fn tls_read(ctx: &VmContext, slot_arg: i64, buffer: Value, offset: i64, count: i64) -> Result<Then<i64>, BuiltinError> {
+        let arr = byte_array(&buffer, "buffer")?;
+        let (off, n) = check_buffer_range(offset, count, arr.borrow().len())?;
+        let id = slot_id(slot_arg)?;
+        let s = slot(ctx, slot_arg)?;
+        let read = if n == 0 {
+            Blocking::ready(Ok(Vec::new()))
+        } else {
+            Blocking::new(move || {
+                let mut tmp = vec![0u8; n];
+                let r = s.stream.lock().read(&mut tmp);
+                Ok(match r {
+                    Ok(got) => { tmp.truncate(got); Ok(tmp) }
+                    // No close_notify: end of stream, as SslStream reads it.
+                    Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => Ok(Vec::new()),
+                    Err(e) => Err(e),
+                })
             })
         };
-        let stream = match established {
-            Ok(s) => s,
-            Err(msg) => return Ok(socket_err(ctx, msg)),
-        };
-        // Clear the handshake deadline; per-call read/write timeouts (if any)
-        // are applied separately by the z42 TlsClient after connect.
-        if deadline.is_some() {
-            let _ = stream.get_ref().set_read_timeout(None);
-            let _ = stream.get_ref().set_write_timeout(None);
-        }
-        let sock = match stream.get_ref().try_clone() {
-            Ok(s) => s,
-            Err(e) => return Ok(socket_err(ctx, format!("tls: dup socket: {}", e))),
-        };
-        let slot = super::TlsSlot { stream: parking_lot::Mutex::new(stream), sock };
-        let slot_id = ctx.alloc_tls_socket_slot(slot);
-        Ok(ok_value(ctx, slot_id as i64))
+        Ok(read.then(move |ctx: &VmContext, r: std::io::Result<Vec<u8>>| {
+            still_open(ctx, id)?;
+            let bytes = r.map_err(|e| stream_error(&e, "read"))?;
+            write_byte_range(&arr.borrow(), off, &bytes);
+            Ok(bytes.len() as i64)
+        }))
     }
 
-    /// `__net_tls_socket_read(slot, buf, offset, count) -> [0, n] | err | invalid`
-    /// Reads up to `count` decrypted bytes into `buf[offset..]`; `n == 0`
-    /// signals clean EOF (peer closed the TLS session).
-    pub fn builtin_net_tls_socket_read(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-        const NAME: &str = "__net_tls_socket_read";
-        let slot_id = require_slot_id(args, 0, NAME)?;
-        let buf_arr = match args.get(1) {
-            Some(Value::Array(rc)) => rc.clone(),
-            other => bail!("{}: arg 1 expected byte array, got {:?}", NAME, other),
+    /// `Write(slot, buffer, offset, count)` — encrypts and writes all of it, then flushes.
+    #[builtin(name = "__tls_write")]
+    pub fn tls_write(ctx: &VmContext, slot_arg: i64, buffer: &Value, offset: i64, count: i64) -> Result<Then<()>, BuiltinError> {
+        let arr = byte_array(buffer, "buffer")?;
+        let bytes = {
+            let a = arr.borrow();
+            let (off, n) = check_buffer_range(offset, count, a.len())?;
+            read_byte_range(&a, off, n)?
         };
-        let offset = arg_i64(args, 2, NAME)? as usize;
-        let count  = arg_i64(args, 3, NAME)? as usize;
-
-        let buf_len = buf_arr.borrow().len();
-        if offset + count > buf_len {
-            bail!("{}: offset {} + count {} exceeds buf length {}", NAME, offset, count, buf_len);
-        }
-        if count == 0 { return Ok(ok_value(ctx, 0)); }
-
-        let Some(slot) = ctx.core.tls_sockets.get_cloned(slot_id) else {
-            return Ok(handle_invalid(ctx));
+        let id = slot_id(slot_arg)?;
+        let s = slot(ctx, slot_arg)?;
+        let write = if bytes.is_empty() {
+            Blocking::ready(Ok(()))
+        } else {
+            Blocking::new(move || {
+                let mut st = s.stream.lock();
+                Ok(st.write_all(&bytes).and_then(|_| st.flush()))
+            })
         };
-
-        let mut tmp = vec![0u8; count];
-        // fix-park-blocking-natives (2026-09-14): a blocking syscall runs parked, and the
-        // park ends before any GC allocation (see `builtin_net_tls_connect`).
-        let read_result = {
-            let _park = crate::gc::NativeParkGuard::enter(ctx);
-            slot.stream.lock().read(&mut tmp)
-        };
-        // Closed while we were blocked: the drop's shutdown woke the read.
-        if !ctx.core.tls_sockets.lock().contains_key(&slot_id) {
-            return Ok(handle_invalid(ctx));
-        }
-
-        match read_result {
-            Ok(n) => {
-                let borrowed = buf_arr.borrow();
-                for i in 0..n {
-                    borrowed.set_boxed(offset + i, Value::I64(tmp[i] as i64));
-                }
-                Ok(ok_value(ctx, n as i64))
-            }
-            Err(e) => Ok(socket_err(ctx, format!("read: {}", e))),
-        }
+        Ok(write.then(move |ctx: &VmContext, r: std::io::Result<()>| {
+            still_open(ctx, id)?;
+            r.map_err(|e| stream_error(&e, "write"))
+        }))
     }
 
-    /// `__net_tls_socket_write(slot, buf, offset, count) -> [0, n] | err | invalid`
-    /// Encrypts and writes all `count` bytes from `buf[offset..]`.
-    pub fn builtin_net_tls_socket_write(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-        const NAME: &str = "__net_tls_socket_write";
-        let slot_id = require_slot_id(args, 0, NAME)?;
-        let buf_arr = match args.get(1) {
-            Some(Value::Array(rc)) => rc.clone(),
-            other => bail!("{}: arg 1 expected byte array, got {:?}", NAME, other),
-        };
-        let offset = arg_i64(args, 2, NAME)? as usize;
-        let count  = arg_i64(args, 3, NAME)? as usize;
-
-        let buf_len = buf_arr.borrow().len();
-        if offset + count > buf_len {
-            bail!("{}: offset {} + count {} exceeds buf length {}", NAME, offset, count, buf_len);
-        }
-        if count == 0 { return Ok(ok_value(ctx, 0)); }
-
-        let mut tmp = vec![0u8; count];
-        {
-            let borrowed = buf_arr.borrow();
-            for i in 0..count {
-                match borrowed.get_boxed(offset + i) {
-                    Value::I64(v) => tmp[i] = (v & 0xFF) as u8,
-                    other => bail!("{}: byte[] elem at {} expected I64, got {:?}", NAME, offset + i, other),
-                }
+    /// Idempotent. Shuts the socket down so a read blocked on another thread wakes up.
+    #[builtin(name = "__tls_close")]
+    pub fn tls_close(ctx: &VmContext, slot_arg: i64) {
+        if let Ok(id) = u64::try_from(slot_arg) {
+            if let Some(s) = ctx.core.tls_sockets.take(id) {
+                let _ = s.sock.shutdown(std::net::Shutdown::Both);
             }
         }
-
-        let Some(slot) = ctx.core.tls_sockets.get_cloned(slot_id) else {
-            return Ok(handle_invalid(ctx));
-        };
-
-        // write_all then flush — rustls buffers cleartext until flushed.
-        // fix-park-blocking-natives (2026-09-14): a blocking syscall runs parked, and the
-        // park ends before any GC allocation (see `builtin_net_tls_connect`).
-        let write_result = {
-            let _park = crate::gc::NativeParkGuard::enter(ctx);
-            let mut stream = slot.stream.lock();
-            stream.write_all(&tmp).and_then(|_| stream.flush()).map(|_| count)
-        };
-        if !ctx.core.tls_sockets.lock().contains_key(&slot_id) {
-            return Ok(handle_invalid(ctx));
-        }
-
-        match write_result {
-            Ok(n) => Ok(ok_value(ctx, n as i64)),
-            Err(e) => Ok(socket_err(ctx, format!("write: {}", e))),
-        }
     }
 
-    /// `__net_tls_socket_drop(slot) -> null` — idempotent; closes the fd.
-    pub fn builtin_net_tls_socket_drop(ctx: &VmContext, args: &[Value]) -> Result<()> {
-        const NAME: &str = "__net_tls_socket_drop";
-        let slot_id = require_slot_id(args, 0, NAME)?;
-        // Shut the socket down so a read blocked on another thread wakes up; the fd
-        // closes when that thread drops its `Arc`.
-        if let Some(slot) = ctx.core.tls_sockets.take(slot_id) {
-            let _ = slot.sock.shutdown(std::net::Shutdown::Both);
-        }
-        Ok(())
+    /// `millis <= 0` clears the timeout. Goes through the socket dup: does not wait for a
+    /// read / write that holds the session lock.
+    #[builtin(name = "__tls_set_read_timeout")]
+    pub fn tls_set_read_timeout(ctx: &VmContext, slot_arg: i64, millis: i64) -> Result<(), BuiltinError> {
+        slot(ctx, slot_arg)?.sock.set_read_timeout(timeout(millis)).map_err(|e| socket_error(&e, None))
     }
 
-    // add-z42-net-tls (2026-06-03): read / write deadlines on the underlying
-    // TCP socket so a stalled peer can't hang the script. `millis <= 0`
-    // clears the timeout (blocking I/O). Goes through the socket dup, so it
-    // does not wait for a read / write holding the session lock.
-    fn apply_timeout(
-        ctx: &VmContext,
-        slot_id: u64,
-        millis: i64,
-        which: &'static str,
-    ) -> Result<Value> {
-        let dur = if millis > 0 {
-            Some(std::time::Duration::from_millis(millis as u64))
-        } else {
-            None
-        };
-        let Some(slot) = ctx.core.tls_sockets.get_cloned(slot_id) else {
-            return Ok(handle_invalid(ctx));
-        };
-        let result = if which == "set_read_timeout" {
-            slot.sock.set_read_timeout(dur)
-        } else {
-            slot.sock.set_write_timeout(dur)
-        };
-        match result {
-            Ok(()) => Ok(ok_value(ctx, 0)),
-            Err(e) => Ok(socket_err(ctx, format!("{}: {}", which, e))),
-        }
-    }
-
-    /// `__net_tls_socket_set_read_timeout(slot, millis) -> [0,0] | err | invalid`
-    pub fn builtin_net_tls_socket_set_read_timeout(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-        const NAME: &str = "__net_tls_socket_set_read_timeout";
-        let slot_id = require_slot_id(args, 0, NAME)?;
-        let millis = arg_i64(args, 1, NAME)?;
-        apply_timeout(ctx, slot_id, millis, "set_read_timeout")
-    }
-
-    /// `__net_tls_socket_set_write_timeout(slot, millis) -> [0,0] | err | invalid`
-    pub fn builtin_net_tls_socket_set_write_timeout(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-        const NAME: &str = "__net_tls_socket_set_write_timeout";
-        let slot_id = require_slot_id(args, 0, NAME)?;
-        let millis = arg_i64(args, 1, NAME)?;
-        apply_timeout(ctx, slot_id, millis, "set_write_timeout")
+    #[builtin(name = "__tls_set_write_timeout")]
+    pub fn tls_set_write_timeout(ctx: &VmContext, slot_arg: i64, millis: i64) -> Result<(), BuiltinError> {
+        slot(ctx, slot_arg)?.sock.set_write_timeout(timeout(millis)).map_err(|e| socket_error(&e, None))
     }
 }
-
-// ── wasm32: all builtins return KIND_UNSUPPORTED tuple ────────────────────
-
-#[cfg(target_arch = "wasm32")]
-mod imp {
-    use super::*;
-
-    pub fn builtin_net_tls_connect(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-        Ok(unsupported(ctx))
-    }
-    pub fn builtin_net_tls_socket_read(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-        Ok(unsupported(ctx))
-    }
-    pub fn builtin_net_tls_socket_write(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-        Ok(unsupported(ctx))
-    }
-    pub fn builtin_net_tls_socket_drop(_ctx: &VmContext, _args: &[Value]) -> Result<()> {
-        Ok(())
-    }
-    pub fn builtin_net_tls_socket_set_read_timeout(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-        Ok(unsupported(ctx))
-    }
-    pub fn builtin_net_tls_socket_set_write_timeout(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-        Ok(unsupported(ctx))
-    }
-}
-
-pub use imp::*;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "tls_tests.rs"]

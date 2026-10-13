@@ -4,12 +4,12 @@ using Std.IO;
 
 // add-z42-net K1 (2026-05-24): byte-oriented Stream over a TCP socket.
 //
-// Read/write 路径转发到 `__net_tcp_socket_*` builtin。Read 返回 0 = peer
+// Read/write 路径转发到 `__tcp_*` builtin。Read 返回 0 = peer
 // 关闭 (EOF)。Write throw on broken pipe / connection reset。
 //
 // Lifecycle 由 owning `TcpClient` 管理 — `NetworkStream.Close()` 仅标记
 // 本对象 _closed；底层 fd 在 `TcpClient.Dispose()` 时通过
-// `__net_tcp_socket_drop` 关闭。多次 Close / Dispose 幂等。
+// `__tcp_close` 关闭。多次 Close / Dispose 幂等。
 //
 // Capability：CanRead = true / CanWrite = true / CanSeek = false。
 // Seek 调用走 base Stream 默认 throw NotSupportedException。
@@ -41,17 +41,25 @@ public class NetworkStream : Stream {
     override int Read(byte[] buffer, int offset, int count) {
         this.EnsureOpen();
         if (count == 0) return 0;
-        object[] raw = NetTcpNative.SocketRead(this._slotId, buffer, offset, count);
-        return NetTcpDecode.ToInt(raw);
+        // .NET: a socket failure under a NetworkStream surfaces as IOException with the
+        // SocketException as InnerException (a closed socket stays SocketClosedException,
+        // .NET's ObjectDisposedException).
+        try {
+            return TcpSocketNative.Read(this._slotId, buffer, offset, count);
+        } catch (SocketException e) {
+            throw new IOException("Unable to read data from the transport connection: " + e.Message + ".", e);
+        }
     }
 
     override void Write(byte[] buffer, int offset, int count) {
         this.EnsureOpen();
         if (count == 0) return;
-        object[] raw = NetTcpNative.SocketWrite(this._slotId, buffer, offset, count);
-        // Return value ignored — for blocking write, OK case means all bytes
-        // went out; non-zero short-write is impossible via write_all on Rust side.
-        NetTcpDecode.ToInt(raw);
+        // Blocking write — returns once all bytes went out (write_all on the Rust side).
+        try {
+            TcpSocketNative.Write(this._slotId, buffer, offset, count);
+        } catch (SocketException e) {
+            throw new IOException("Unable to write data to the transport connection: " + e.Message + ".", e);
+        }
     }
 
     // ── Lifecycle ────────────────────────────────────────────────────────

@@ -13,10 +13,22 @@ fn ctx() -> std::pin::Pin<Box<VmContext>> {
 
 /// 建一个句柄对象，返回句柄 `Value` 与其中的 `Arc<Monitor>`。
 fn new_monitor(c: &VmContext) -> (Value, Arc<Monitor>) {
-    let h = builtin_monitor_new(c, &[]).unwrap();
-    let m = monitor_arg(&[h.clone()], "test").unwrap();
+    let h = builtin_monitor_new(c);
+    let m = monitor_arg(&h).unwrap();
     (h, m)
 }
+
+fn builtin_monitor_new(c: &VmContext) -> Value {
+    crate::corelib::exec_builtin_value(c, "__monitor_new", &[]).unwrap()
+}
+
+/// The builtins by name, as the engines call them (typed errors come back as `BuiltinError`).
+fn call(c: &VmContext, name: &str, args: &[Value]) -> Result<(), BuiltinError> {
+    crate::corelib::exec_builtin(c, name, args).map(|_| ()).map_err(|e| e.downcast::<BuiltinError>().expect("typed error"))
+}
+fn builtin_monitor_enter(c: &VmContext, args: &[Value]) -> Result<(), BuiltinError> { call(c, "__monitor_enter", args) }
+fn builtin_monitor_exit(c: &VmContext, args: &[Value]) -> Result<(), BuiltinError> { call(c, "__monitor_exit", args) }
+fn builtin_monitor_wait(c: &VmContext, args: &[Value]) -> Result<(), BuiltinError> { call(c, "__monitor_wait", args) }
 
 fn wait_until(deadline: Duration, mut cond: impl FnMut() -> bool) -> bool {
     let t0 = Instant::now();
@@ -32,7 +44,7 @@ fn wait_until(deadline: Duration, mut cond: impl FnMut() -> bool) -> bool {
 #[test]
 fn new_returns_monitor_handle() {
     let c = ctx();
-    let h = builtin_monitor_new(&c, &[]).unwrap();
+    let h = builtin_monitor_new(&c);
     match &h {
         Value::Object(rc) => assert!(matches!(rc.borrow().native(), NativeData::Monitor(_))),
         other => panic!("expected an object handle, got {other:?}"),
@@ -43,9 +55,12 @@ fn new_returns_monitor_handle() {
 fn non_handle_argument_errors() {
     let c = ctx();
     let err = builtin_monitor_enter(&c, &[Value::I64(3)]).unwrap_err();
-    assert!(err.to_string().contains("expected a monitor handle"));
+    assert!(matches!(err, BuiltinError::Argument(ref m) if m.contains("not a monitor handle")), "{err}");
+    let err = builtin_monitor_exit(&c, &[Value::Null]).unwrap_err();
+    assert!(matches!(err, BuiltinError::ArgumentNull(_)), "{err}");
+    // A wrong argument count is a declaration / signature mismatch: internal (fatal).
     let err = builtin_monitor_exit(&c, &[]).unwrap_err();
-    assert!(err.to_string().contains("missing monitor handle"));
+    assert!(matches!(err, BuiltinError::Internal(_)), "{err}");
 }
 
 #[test]
@@ -65,7 +80,7 @@ fn reentrant_enter_errors_instead_of_deadlocking() {
     let (h, m) = new_monitor(&c);
     builtin_monitor_enter(&c, &[h.clone()]).unwrap();
     let err = builtin_monitor_enter(&c, &[h.clone()]).unwrap_err();
-    assert!(err.to_string().contains("not reentrant"), "got: {err}");
+    assert!(err.to_string().starts_with("Std.Threading.LockRecursionException: "), "got: {err}");
     // 报错不改变持有状态：仍由本线程持有，exit 成功。
     assert!(!m.try_enter());
     builtin_monitor_exit(&c, &[h]).unwrap();
@@ -77,13 +92,13 @@ fn exit_by_non_owner_errors() {
     let (h, m) = new_monitor(&c);
     // 从未持有。
     let err = builtin_monitor_exit(&c, &[h.clone()]).unwrap_err();
-    assert!(err.to_string().contains("does not hold the monitor"), "got: {err}");
+    assert!(err.to_string().starts_with("Std.Threading.SynchronizationLockException: Object synchronization method"), "got: {err}");
     // 由别的线程持有。
     let m2 = Arc::clone(&m);
     let holder = std::thread::spawn(move || m2.try_enter());
     assert!(holder.join().unwrap());
     let err = builtin_monitor_exit(&c, &[h]).unwrap_err();
-    assert!(err.to_string().contains("does not hold the monitor"), "got: {err}");
+    assert!(err.to_string().starts_with("Std.Threading.SynchronizationLockException: Object synchronization method"), "got: {err}");
 }
 
 #[test]
@@ -91,7 +106,7 @@ fn wait_by_non_owner_errors() {
     let c = ctx();
     let (h, _m) = new_monitor(&c);
     let err = builtin_monitor_wait(&c, &[h]).unwrap_err();
-    assert!(err.to_string().contains("does not hold the monitor"), "got: {err}");
+    assert!(err.to_string().starts_with("Std.Threading.SynchronizationLockException: Object synchronization method"), "got: {err}");
 }
 
 #[test]
@@ -290,4 +305,69 @@ fn waiting_thread_is_parked_for_gc() {
     builtin_monitor_exit(&c, &[h]).unwrap();
     worker.join().unwrap();
     assert_eq!(core.parked_count.load(Ordering::Acquire), 0, "park must be released");
+}
+
+/// With one other thread parked, this thread becomes the collector and a full collection
+/// finishes without waiting for it.
+fn collect_while_parked(c: &VmContext) {
+    assert!(wait_until(Duration::from_secs(5), || c.core.parked_count.load(Ordering::Acquire) == 1),
+            "the blocked thread is parked");
+    let t0 = Instant::now();
+    {
+        let pause = crate::gc::safepoint::request_gc_pause(c);
+        assert!(pause.is_some(), "this thread becomes the collector");
+        c.heap().collect_full();
+    }
+    assert!(t0.elapsed() < Duration::from_secs(1), "the collection waited for the blocked thread");
+}
+
+#[test]
+fn a_collection_completes_while_a_thread_is_blocked_in_enter() {
+    let c = ctx();
+    let (h, _m) = new_monitor(&c);
+    builtin_monitor_enter(&c, &[h]).unwrap();
+    let core = Arc::clone(&c.core);
+    let done = Arc::new(AtomicU64::new(0));
+    let done2 = Arc::clone(&done);
+    let worker = std::thread::spawn(move || {
+        let w = VmContext::new_with_core(core);
+        // The handle object is the main thread's (pinned below); the worker goes through
+        // the builtin by name like the engines do.
+        builtin_monitor_enter(&w, &[h]).unwrap();
+        done2.store(1, Ordering::SeqCst);
+        builtin_monitor_exit(&w, &[h]).unwrap();
+    });
+    let root = c.heap().pin_root(h);
+    collect_while_parked(&c);
+    assert_eq!(done.load(Ordering::SeqCst), 0, "still waiting for the monitor");
+    builtin_monitor_exit(&c, &[h]).unwrap();
+    worker.join().unwrap();
+    assert_eq!(done.load(Ordering::SeqCst), 1);
+    c.heap().unpin_root(root);
+    assert_eq!(c.core.parked_count.load(Ordering::Acquire), 0);
+}
+
+#[test]
+fn a_collection_completes_while_a_thread_waits_on_the_monitor() {
+    let c = ctx();
+    let (h, _m) = new_monitor(&c);
+    let root = c.heap().pin_root(h);
+    let core = Arc::clone(&c.core);
+    let go = Arc::new(AtomicU64::new(0));
+    let go2 = Arc::clone(&go);
+    let worker = std::thread::spawn(move || {
+        let w = VmContext::new_with_core(core);
+        builtin_monitor_enter(&w, &[h]).unwrap();
+        while go2.load(Ordering::SeqCst) == 0 {
+            builtin_monitor_wait(&w, &[h]).unwrap();
+        }
+        builtin_monitor_exit(&w, &[h]).unwrap();
+    });
+    collect_while_parked(&c);
+    go.store(1, Ordering::SeqCst);
+    builtin_monitor_enter(&c, &[h]).unwrap();
+    builtin_monitor_exit(&c, &[h]).unwrap();
+    worker.join().unwrap();
+    c.heap().unpin_root(root);
+    assert_eq!(c.core.parked_count.load(Ordering::Acquire), 0);
 }

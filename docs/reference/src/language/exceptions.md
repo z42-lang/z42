@@ -133,12 +133,14 @@ outer.InnerException.Message;      // "cause"
 | `ArgumentNullException` | `ArgumentException` | 参数为 null 但要求非空 |
 | `ArgumentOutOfRangeException` | `ArgumentException` | 参数值超出方法允许的范围 |
 | `InvalidOperationException` | `Exception` | 对象当前状态不允许此操作（如空 Queue 出队） |
+| `ObjectDisposedException` | `InvalidOperationException` | 对已释放（`Dispose` / `Close`）的对象操作；`ObjectName` 是对象的类型名（如已关闭的 socket：`SocketClosedException`） |
 | `NullReferenceException` | `Exception` | 解引用 null（字段 / 数组访问、在 null 上调方法由运行期自动抛） |
 | `IndexOutOfRangeException` | `Exception` | 索引越界（数组下标越界由运行期自动抛） |
 | `KeyNotFoundException` | `Exception` | 字典 / Map 找不到键 |
 | `FormatException` | `Exception` | 字符串解析 / 格式化失败（`Int32.Parse("x")`） |
 | `NotImplementedException` | `Exception` | 方法已声明但未实现 |
 | `NotSupportedException` | `Exception` | 方法不支持当前场景（如对只读集合 `Add`） |
+| `PlatformNotSupportedException` | `NotSupportedException` | 功能在当前平台上不可用（如 wasm32 上的 socket） |
 | `ArithmeticException` | `Exception` | 算术出错的基类：`catch (ArithmeticException)` 同时接住下面两种 |
 | `OverflowException` | `ArithmeticException` | 数值运算超出目标类型容量（`Int32.Parse` 溢出、checked 溢出）；数组长度为负 |
 | `DivideByZeroException` | `ArithmeticException` | 整数除 / 取模的除数为 0（浮点除 0 按 IEEE 754 返回 ±∞ / NaN，不抛） |
@@ -163,6 +165,11 @@ I/O 异常位于 `Std.IO` 命名空间（`using Std.IO;`）：
 | `DirectoryNotFoundException` | `IOException` | 路径中的目录不存在 |
 | `PathTooLongException` | `IOException` | 路径超出系统允许的长度 |
 | `EndOfStreamException`（`z42.io`） | `IOException` | 流在凑满所需字节前到达末尾 |
+
+同步原语的误用异常位于 `Std.Threading`（同在 `z42.core`）：`LockRecursionException`（同一线程再次获取
+不可重入的锁）、`SynchronizationLockException`（没持有锁却释放 / 等待），见
+[z42.threading](../stdlib/threading.md#lockrecursionexception--synchronizationlockexception)。网络与 TLS 的异常
+（`SocketException` 带 `SocketErrorCode`、`AuthenticationException`）在 `z42.net`，见 [z42.net · 异常](../stdlib/net.md#异常)。
 
 文件 / 目录 / 进程操作的失败按 .NET 的口径抛这些类型（文件不存在 → `FileNotFoundException`，
 目录不存在 → `DirectoryNotFoundException`，权限不足 → `UnauthorizedAccessException`……），对照见

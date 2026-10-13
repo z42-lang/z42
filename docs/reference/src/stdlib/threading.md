@@ -1,7 +1,8 @@
 # z42.threading —— OS 线程与同步原语
 
 > 包路径 `src/libraries/z42.threading/`；命名空间 `Std.Threading`
-> （含 `ThreadException` / `ChannelDisconnectedException`）
+> （含 `ThreadException` / `ChannelDisconnectedException`；`LockRecursionException` /
+> `SynchronizationLockException` 在 `z42.core`，命名空间同为 `Std.Threading`）
 
 真 OS 线程的并发原语：`Thread` 起停、`Channel<T>` 传值、`Mutex<T>` / `RwLock<T>` 护住共享
 状态、`Timer` 跑后台周期任务。线程之间**共享 GC 堆与静态字段**，但 lambda 捕获的是**值快照**
@@ -172,9 +173,8 @@ public class Mutex<T> {
 要点：
 
 - **`body` 抛异常时值不变**（写回被跳过），锁照样释放，异常原样传给 `Lock` 的调用方。
-- **不可重入**：同一条线程在 `body` 里再次 `Lock` 同一个实例会抛异常——基类 `Std.Exception`，
-  消息 `Monitor is not reentrant: the calling thread already holds it`（不是死锁，也没有专门
-  的异常类型可 catch）。外层 `Lock` 的写回不受影响。
+- **不可重入**：同一条线程在 `body` 里再次 `Lock` 同一个实例抛 `Std.Threading.LockRecursionException`
+  （不是死锁；.NET 不可重入锁的同名异常）。外层 `Lock` 的写回不受影响。
 - **`Lock` 没有返回值**：想把锁内读到的值带出来，在 `body` 里写静态字段或 1 元数组单元。
 - **`T` 是引用类型时锁保护的是那个引用**：`body` 里通过引用改对象字段照样生效，对象本身
   能不能被别处并发访问由你自己保证。
@@ -214,7 +214,7 @@ public class RwLock<T> {
 要点：
 
 - **`Write` 的 `body` 抛异常时值不变**，锁释放，异常传给调用方。
-- **不可重入**：`Write` 里套 `Write`、`Write` 里套 `Read` → 抛 `Monitor is not reentrant…`
+- **不可重入**：`Write` 里套 `Write`、`Write` 里套 `Read` → 抛 `LockRecursionException`
   （同 `Mutex`）；`Read` 里套 `Write`、以及夹在写者后面的 `Read` 里套 `Read` → **自死锁**，
   不抛异常也不返回。不要在同一个 `RwLock` 上嵌套获取。
 - **`T` 是引用类型时 `Read` 的快照是引用**：在读体里改对象字段会真的改到共享值，而且此刻
@@ -313,6 +313,22 @@ public class ChannelDisconnectedException : Exception {
 
 `TrySend` / `TryRecv` 永远不抛这个异常，用返回值表达同样的状态。
 
+## `LockRecursionException` / `SynchronizationLockException`
+
+```z42
+namespace Std.Threading;   // 在 z42.core
+
+public class LockRecursionException : Exception { … }        // 同一线程再次获取不可重入的锁
+public class SynchronizationLockException : Exception { … }  // 没持有锁却要释放 / 等待
+```
+
+`Mutex<T>` / `RwLock<T>` / `Channel<T>` 都建在 VM 的 Monitor 上，误用时由 VM 抛这两个类（与 .NET 同名、同语义）：
+
+| 抛什么 | 触发 |
+|---|---|
+| `LockRecursionException`（`Recursive lock acquisition is not allowed: the calling thread already holds this lock.`） | 同一线程在持有时再次获取同一把锁（`Lock` 里套 `Lock`、`Write` 里套 `Write` / `Read`） |
+| `SynchronizationLockException`（`Object synchronization method was called from an unsynchronized block of code.`） | 不持有 Monitor 却 `Exit` / `Wait`——只有直接调 `MonitorNative` 才会遇到 |
+
 ## 用法
 
 ```z42
@@ -398,7 +414,7 @@ if (kind == 0) {
 - **没有信号量、条件变量、屏障、倒计时事件、`ManualResetEvent`、读写升级锁**。
 - **`Mutex<T>` 没有 `TryLock`**（`RwLock<T>` 有 `TryRead` / `TryWrite`，`Mutex` 没有对应物）。
 - **没有带超时的获取**：`Try*` 只有「立刻成功或立刻失败」两态。
-- **不可重入**，且重入抛的是基类 `Exception`，没有可精确 catch 的专用异常类型。
+- **不可重入**：重入抛 `LockRecursionException`，不是递归计数。
 - **`Lock` / `Read` / `Write` 都没有返回值**：读出来的值必须靠静态字段或数组单元带出回调体。
 - **`RwLock<T>.Read` 的「只读」不由类型系统保证**：`T` 是引用类型时，读体里改字段会真的改到
   共享值。

@@ -1,93 +1,80 @@
-//! wasm32 桩：全部返回 `KIND_UNSUPPORTED`（refactor-split-network，自 `network.rs` 内联 `mod imp` 搬出）。
+//! wasm32: no sockets. The ABI v2 network / TLS builtins throw
+//! `NetUnsupportedException : PlatformNotSupportedException` (closing is a no-op, as
+//! there is never anything open). Same names and arities as `network/{tcp,udp}.rs` /
+//! `tls.rs` — the stdlib declarations are shared.
 
-#![allow(unused_imports)]
-use super::*;
+#[z42_macros::builtins]
+pub mod typed {
+    use crate::corelib::abi::BuiltinError;
+    use crate::corelib::network::error::unsupported;
+    use crate::metadata::Value;
 
-pub fn builtin_net_tcp_connect(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    Ok(unsupported(ctx))
-}
-pub fn builtin_net_tcp_listen(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    Ok(unsupported(ctx))
-}
-pub fn builtin_net_tcp_accept(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    Ok(unsupported(ctx))
-}
-pub fn builtin_net_tcp_socket_read(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    Ok(unsupported(ctx))
-}
-pub fn builtin_net_tcp_socket_write(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    Ok(unsupported(ctx))
-}
-pub fn builtin_net_tcp_socket_drop(_ctx: &VmContext, _args: &[Value]) -> Result<()> {
-    Ok(())
-}
-pub fn builtin_net_tcp_listener_drop(_ctx: &VmContext, _args: &[Value]) -> Result<()> {
-    Ok(())
-}
-
-// UDP wasm32 fallbacks
-pub fn builtin_net_udp_bind(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    Ok(unsupported(ctx))
-}
-pub fn builtin_net_udp_send(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    Ok(unsupported(ctx))
-}
-pub fn builtin_net_udp_recv(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    Ok(unsupported(ctx))
-}
-pub fn builtin_net_udp_drop(_ctx: &VmContext, _args: &[Value]) -> Result<()> {
-    Ok(())
-}
-pub fn builtin_net_udp_recv_into(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    Ok(unsupported(ctx))
-}
-pub fn builtin_net_udp_join_multicast(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    Ok(unsupported(ctx))
-}
-pub fn builtin_net_udp_leave_multicast(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    Ok(unsupported(ctx))
-}
-pub fn builtin_net_udp_set_multicast_loop(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    Ok(unsupported(ctx))
-}
-pub fn builtin_net_dns_lookup(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    Ok(unsupported(ctx))
-}
-pub fn builtin_net_tcp_socket_set_nodelay(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    Ok(unsupported(ctx))
-}
-pub fn builtin_net_tcp_socket_set_ttl(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    Ok(unsupported(ctx))
-}
-pub fn builtin_net_tcp_listener_set_ttl(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    Ok(unsupported(ctx))
-}
-pub fn builtin_net_udp_set_ttl(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    Ok(unsupported(ctx))
-}
-pub fn builtin_net_tcp_socket_set_read_timeout(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    Ok(unsupported(ctx))
-}
-pub fn builtin_net_tcp_socket_set_write_timeout(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    Ok(unsupported(ctx))
-}
-
-// add-net-socket-options-extended (2026-05-30) wasm32 stubs
-pub fn builtin_net_tcp_connect_with_timeout(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    Ok(unsupported(ctx))
-}
-pub fn builtin_net_tcp_socket_set_keepalive(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    Ok(unsupported(ctx))
-}
-pub fn builtin_net_tcp_socket_set_keepalive_tuned(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    Ok(unsupported(ctx))
-}
-pub fn builtin_net_tcp_listen_with_options(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    Ok(unsupported(ctx))
-}
-pub fn builtin_net_udp_set_read_timeout(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    Ok(unsupported(ctx))
-}
-pub fn builtin_net_udp_set_write_timeout(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    Ok(unsupported(ctx))
+    #[builtin(name = "__tcp_connect")]
+    pub fn tcp_connect(_a0: &Value, _a1: &Value, _a2: &Value) -> Result<Value, BuiltinError> { Err(unsupported()) }
+    #[builtin(name = "__tcp_listen")]
+    pub fn tcp_listen(_a0: &Value, _a1: &Value, _a2: &Value) -> Result<Value, BuiltinError> { Err(unsupported()) }
+    #[builtin(name = "__tcp_listener_port")]
+    pub fn tcp_listener_port(_a0: &Value) -> Result<Value, BuiltinError> { Err(unsupported()) }
+    #[builtin(name = "__tcp_accept")]
+    pub fn tcp_accept(_a0: &Value) -> Result<Value, BuiltinError> { Err(unsupported()) }
+    #[builtin(name = "__tcp_read")]
+    pub fn tcp_read(_a0: &Value, _a1: &Value, _a2: &Value, _a3: &Value) -> Result<Value, BuiltinError> { Err(unsupported()) }
+    #[builtin(name = "__tcp_write")]
+    pub fn tcp_write(_a0: &Value, _a1: &Value, _a2: &Value, _a3: &Value) -> Result<(), BuiltinError> { Err(unsupported()) }
+    #[builtin(name = "__tcp_close")]
+    pub fn tcp_close(_a0: &Value) {}
+    #[builtin(name = "__tcp_listener_close")]
+    pub fn tcp_listener_close(_a0: &Value) {}
+    #[builtin(name = "__tcp_set_read_timeout")]
+    pub fn tcp_set_read_timeout(_a0: &Value, _a1: &Value) -> Result<(), BuiltinError> { Err(unsupported()) }
+    #[builtin(name = "__tcp_set_write_timeout")]
+    pub fn tcp_set_write_timeout(_a0: &Value, _a1: &Value) -> Result<(), BuiltinError> { Err(unsupported()) }
+    #[builtin(name = "__tcp_set_nodelay")]
+    pub fn tcp_set_nodelay(_a0: &Value, _a1: &Value) -> Result<(), BuiltinError> { Err(unsupported()) }
+    #[builtin(name = "__tcp_set_ttl")]
+    pub fn tcp_set_ttl(_a0: &Value, _a1: &Value) -> Result<(), BuiltinError> { Err(unsupported()) }
+    #[builtin(name = "__tcp_listener_set_ttl")]
+    pub fn tcp_listener_set_ttl(_a0: &Value, _a1: &Value) -> Result<(), BuiltinError> { Err(unsupported()) }
+    #[builtin(name = "__tcp_set_keepalive")]
+    pub fn tcp_set_keepalive(_a0: &Value, _a1: &Value) -> Result<(), BuiltinError> { Err(unsupported()) }
+    #[builtin(name = "__tcp_set_keepalive_tuned")]
+    pub fn tcp_set_keepalive_tuned(_a0: &Value, _a1: &Value, _a2: &Value, _a3: &Value, _a4: &Value) -> Result<(), BuiltinError> { Err(unsupported()) }
+    #[builtin(name = "__udp_bind")]
+    pub fn udp_bind(_a0: &Value, _a1: &Value) -> Result<Value, BuiltinError> { Err(unsupported()) }
+    #[builtin(name = "__udp_local_port")]
+    pub fn udp_local_port(_a0: &Value) -> Result<Value, BuiltinError> { Err(unsupported()) }
+    #[builtin(name = "__udp_send")]
+    pub fn udp_send(_a0: &Value, _a1: &Value, _a2: &Value, _a3: &Value, _a4: &Value, _a5: &Value) -> Result<Value, BuiltinError> { Err(unsupported()) }
+    #[builtin(name = "__udp_recv")]
+    pub fn udp_recv(_a0: &Value) -> Result<Value, BuiltinError> { Err(unsupported()) }
+    #[builtin(name = "__udp_recv_into")]
+    pub fn udp_recv_into(_a0: &Value, _a1: &Value, _a2: &Value, _a3: &Value) -> Result<Value, BuiltinError> { Err(unsupported()) }
+    #[builtin(name = "__udp_close")]
+    pub fn udp_close(_a0: &Value) {}
+    #[builtin(name = "__udp_join_multicast")]
+    pub fn udp_join_multicast(_a0: &Value, _a1: &Value, _a2: &Value) -> Result<(), BuiltinError> { Err(unsupported()) }
+    #[builtin(name = "__udp_leave_multicast")]
+    pub fn udp_leave_multicast(_a0: &Value, _a1: &Value, _a2: &Value) -> Result<(), BuiltinError> { Err(unsupported()) }
+    #[builtin(name = "__udp_set_multicast_loop")]
+    pub fn udp_set_multicast_loop(_a0: &Value, _a1: &Value) -> Result<(), BuiltinError> { Err(unsupported()) }
+    #[builtin(name = "__udp_set_ttl")]
+    pub fn udp_set_ttl(_a0: &Value, _a1: &Value) -> Result<(), BuiltinError> { Err(unsupported()) }
+    #[builtin(name = "__udp_set_read_timeout")]
+    pub fn udp_set_read_timeout(_a0: &Value, _a1: &Value) -> Result<(), BuiltinError> { Err(unsupported()) }
+    #[builtin(name = "__udp_set_write_timeout")]
+    pub fn udp_set_write_timeout(_a0: &Value, _a1: &Value) -> Result<(), BuiltinError> { Err(unsupported()) }
+    #[builtin(name = "__dns_lookup")]
+    pub fn dns_lookup(_a0: &Value) -> Result<Value, BuiltinError> { Err(unsupported()) }
+    #[builtin(name = "__tls_connect")]
+    pub fn tls_connect(_a0: &Value, _a1: &Value, _a2: &Value) -> Result<Value, BuiltinError> { Err(unsupported()) }
+    #[builtin(name = "__tls_read")]
+    pub fn tls_read(_a0: &Value, _a1: &Value, _a2: &Value, _a3: &Value) -> Result<Value, BuiltinError> { Err(unsupported()) }
+    #[builtin(name = "__tls_write")]
+    pub fn tls_write(_a0: &Value, _a1: &Value, _a2: &Value, _a3: &Value) -> Result<(), BuiltinError> { Err(unsupported()) }
+    #[builtin(name = "__tls_close")]
+    pub fn tls_close(_a0: &Value) {}
+    #[builtin(name = "__tls_set_read_timeout")]
+    pub fn tls_set_read_timeout(_a0: &Value, _a1: &Value) -> Result<(), BuiltinError> { Err(unsupported()) }
+    #[builtin(name = "__tls_set_write_timeout")]
+    pub fn tls_set_write_timeout(_a0: &Value, _a1: &Value) -> Result<(), BuiltinError> { Err(unsupported()) }
 }

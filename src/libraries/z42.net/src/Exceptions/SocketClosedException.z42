@@ -1,12 +1,12 @@
 namespace Std.Net.Sockets;
 
-// add-z42-net K1 (2026-05-24): 在已 `Dispose` / `Close` / `Stop` 的 socket
-// 或 listener 上调用操作时抛出。也包括 slot id 在 VM 侧找不到的边界情况
-// （通常意味着 user-after-free 误用）。镜像 `ProcessHandleInvalidException`
-// 的角色。
-public class SocketClosedException : NetException {
-    public SocketClosedException()
-        : base("socket has been closed or disposed") {
+// 在已 `Dispose` / `Close` / `Stop` 的 socket 或 listener 上操作（含阻塞中的 accept / 读写
+// 被另一个线程关掉）。.NET 对已释放的 socket 抛 `ObjectDisposedException`，所以它继承
+// `ObjectDisposedException`，`ObjectName` 为
+// `Std.Net.Sockets.Socket`。与 .NET 的出入：listener 在阻塞的 accept 期间被 Stop，.NET 抛
+// `SocketException(Interrupted)`，z42 仍抛本类（HttpServer 的 serve 循环靠它收尾）。
+public class SocketClosedException : ObjectDisposedException {
+    public SocketClosedException() : base("Std.Net.Sockets.Socket") {
     }
 
     override string ToString() {

@@ -1,389 +1,260 @@
-//! `Std.Net` builtins — TCP 连接 / 监听 / 收发 / 超时 / 句柄释放（非 wasm32）。refactor-split-network（2026-09-03）：自 `network.rs`
-//! 内联 `mod imp` 逐行搬出；`KIND_*` / 句柄槽等共享定义仍在 hub（`use super::*`）。
+//! `Std.Net.Sockets` TCP builtins (builtin ABI v2): `TcpSocketNative` in z42.core,
+//! used by z42.net's `TcpClient` / `TcpListener` / `NetworkStream`.
+//!
+//! Handles are registry slot ids (`VmCore.tcp_sockets` / `tcp_listeners`). A call clones
+//! the `Arc` out under the table lock and does the system call outside it, so a socket
+//! is full duplex and a read blocked on one thread does not stall another thread's
+//! write or close. Close = take the slot out + `shutdown`, which wakes a blocked read /
+//! write; the fd closes when the last `Arc` drops.
+//!
+//! - **Failures throw from Rust** — the mapping is in `network/error.rs`.
+//! - **Everything that can block runs parked** (name resolution, connect, accept, read,
+//!   write) — `Blocking::new(..).then(..)`: the parked part sees only Rust data; the
+//!   `then` step (register the new slot, copy into the caller's `byte[]`, notice a close
+//!   that happened meanwhile) runs unparked. Option setters (`setsockopt`) do not block.
 
-#![allow(unused_imports)]
-use super::*;
-use std::net::{TcpListener, TcpStream, SocketAddr, ToSocketAddrs};
-use std::io::{Read, Write};
+use super::error::{check_port, check_ttl, closed, out_of_range, resolve, slot_id, socket_error, timeout};
+use super::listener::{accept_wait, AcceptWait, ListenerSlot};
+use crate::corelib::abi::BuiltinError;
+use crate::vm_context::VmContext;
+use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::sync::Arc;
 
-/// fix-accept-not-interruptible (2026-09-17)：监听槽位 = 共享的 listener + 一个关闭标志。
-///
-/// 此前 `builtin_net_tcp_accept` 在阻塞前把 `TcpListener` **从表里摘走**，于是
-/// `__net_tcp_listener_drop` 在表里找不到它 ⇒ `TcpListener.Stop()` 退化成空操作，
-/// 连 fd 都没关；而 macOS 上即便关了 fd 也唤不醒阻塞中的 `accept`。两者叠加的结果是
-/// `HttpServer` 只能靠一次性自连探针唤醒 accept，探针一漏就**永久死锁**
-/// （实测：整包工作台挂过 44 小时）。
-///
-/// 现在 accept **不摘表**、只克隆 `Arc`（与 #648 给子进程管道用的手法同构）；
-/// `drop` 先置 `closed` 再摘表，真正的 fd 关闭发生在最后一个 `Arc` 放手时
-/// —— 也就是 Go 的 netpoll 用引用计数做的那件事：**不在别人用着 fd 的时候关它**。
-#[derive(Clone)]
-pub(crate) struct ListenerSlot {
-    pub(crate) listener: std::sync::Arc<std::net::TcpListener>,
-    pub(crate) closed:   std::sync::Arc<std::sync::atomic::AtomicBool>,
-}
-
-impl ListenerSlot {
-    pub(crate) fn new(listener: std::net::TcpListener) -> Self {
-        Self {
-            listener: std::sync::Arc::new(listener),
-            closed:   std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+/// Connect to the first address of `addrs` that accepts (as `TcpStream::connect` does),
+/// bounded by `limit` per address. The error is the last address's, with its endpoint.
+fn connect_any(addrs: &[SocketAddr], limit: Option<std::time::Duration>) -> Result<TcpStream, BuiltinError> {
+    let mut last = None;
+    for addr in addrs {
+        let r = match limit {
+            Some(d) => TcpStream::connect_timeout(addr, d),
+            None => TcpStream::connect(addr),
+        };
+        match r {
+            Ok(s) => return Ok(s),
+            Err(e) => last = Some(socket_error(&e, Some(addr))),
         }
     }
-
-    pub(crate) fn is_closed(&self) -> bool {
-        self.closed.load(std::sync::atomic::Ordering::Acquire)
-    }
+    Err(last.unwrap_or_else(|| BuiltinError::Internal("connect: no address to try".into())))
 }
 
-/// 等这个 socket 变得「可读」（对监听 socket 而言 = 有连接在队列里），或超时。
-///
-/// `Ok(true)` = 就绪；`Ok(false)` = 超时；`Err` = 真错误。`EINTR` 按超时处理
-/// （由上层循环重试并顺带复查 `closed`）。
-///
-/// **为什么必须轮询**：Unix 上没有可移植的手段中断阻塞中的 `accept`——
-/// `shutdown()` 在 Linux 能唤醒、**macOS 返回 ENOTCONN 且不唤醒**；
-/// 关 fd 属未定义行为；`SO_RCVTIMEO` 实测在 macOS 上**对 accept 不生效**
-/// （150ms 超时的 accept 跑满 10 分钟没返回）。
-/// Go / libuv 的做法是「非阻塞 fd + 中央事件循环 + 显式唤醒」，那等于给运行时引入事件循环；
-/// 在没有事件循环的前提下，带超时的 `poll` 是唯一一条不用为每个平台写一套唤醒通道的路。
-/// 代价是每个**监听** socket 每秒 10 次空转唤醒（一个进程通常只有一两个监听 socket）。
-/// Deferred：将来运行时真需要事件循环时，换成 eventfd / `EVFILT_USER` / 自管道显式唤醒。
-#[cfg(unix)]
-fn wait_readable(sock: &std::net::TcpListener, timeout_ms: i32) -> std::io::Result<bool> {
-    use std::os::fd::AsRawFd;
-    let mut pfd = libc::pollfd { fd: sock.as_raw_fd(), events: libc::POLLIN, revents: 0 };
-    // SAFETY: 单个合法 pollfd，fd 由 `sock` 借用保活。
-    let rc = unsafe { libc::poll(&mut pfd, 1, timeout_ms) };
-    match rc {
-        n if n > 0 => Ok(true),
-        0          => Ok(false),
-        _          => {
-            let e = std::io::Error::last_os_error();
-            if e.kind() == std::io::ErrorKind::Interrupted { Ok(false) } else { Err(e) }
-        }
+/// Bind + listen on `addr`. `reuse_addr` sets `SO_REUSEADDR` before the bind (POSIX wants
+/// it pre-bind); without it this is std's `TcpListener::bind` (which itself sets the
+/// option on Unix, not on Windows).
+fn listen_on(addr: SocketAddr, reuse_addr: bool) -> std::io::Result<TcpListener> {
+    if !reuse_addr {
+        return TcpListener::bind(addr);
     }
+    let domain = if addr.is_ipv4() { socket2::Domain::IPV4 } else { socket2::Domain::IPV6 };
+    let sock = socket2::Socket::new(domain, socket2::Type::STREAM, None)?;
+    sock.set_reuse_address(true)?;
+    sock.bind(&addr.into())?;
+    sock.listen(128)?;
+    Ok(sock.into())
 }
 
-#[cfg(windows)]
-#[repr(C)]
-struct WsaPollFd { fd: usize, events: i16, revents: i16 }
-
-#[cfg(windows)]
-extern "system" {
-    fn WSAPoll(fdarray: *mut WsaPollFd, fds: u32, timeout: i32) -> i32;
+pub(crate) fn stream(ctx: &VmContext, slot: i64) -> Result<Arc<TcpStream>, BuiltinError> {
+    ctx.core.tcp_sockets.get_cloned(slot_id(slot)?).ok_or_else(closed)
 }
 
-#[cfg(windows)]
-fn wait_readable(sock: &std::net::TcpListener, timeout_ms: i32) -> std::io::Result<bool> {
-    use std::os::windows::io::AsRawSocket;
-    const POLLRDNORM: i16 = 0x0100;
-    let mut pfd = WsaPollFd { fd: sock.as_raw_socket() as usize, events: POLLRDNORM, revents: 0 };
-    // SAFETY: 单个合法 WSAPOLLFD，socket 由 `sock` 借用保活。
-    let rc = unsafe { WSAPoll(&mut pfd, 1, timeout_ms) };
-    match rc {
-        n if n > 0 => Ok(true),
-        0          => Ok(false),
-        _          => Err(std::io::Error::last_os_error()),
-    }
+fn listener(ctx: &VmContext, slot: i64) -> Result<ListenerSlot, BuiltinError> {
+    ctx.core.tcp_listeners.get_cloned(slot_id(slot)?).ok_or_else(closed)
 }
 
-/// accept 的轮询周期。关闭延迟上限 = 这个值；空闲监听 socket 每秒醒 1000/这个值 次。
-const ACCEPT_POLL_MS: i32 = 100;
-
-pub fn builtin_net_tcp_connect(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    const NAME: &str = "__net_tcp_connect";
-    let host = arg_str(args, 0, NAME)?.to_string();
-    let port = require_port(args, 1, NAME)?;
-
-    let addr = format!("{}:{}", host, port);
-    // fix-blocking-io-deadlocks-gc：**阻塞系统调用期间必须让出 GC safepoint**。
-    // 线程卡在 recv/accept/connect 里时永远到不了字节码 safepoint；此时另一个线程发起 GC
-    // （`request_gc_pause`）会等「全世界停下」——而这个线程停不下来 ⇒ **死锁**。
-    // `NativeParkGuard` 就是为此存在的（add-repl-prewarm 给 REPL 的 readline 加的，
-    // 同 JVM `_thread_in_native` / Go `entersyscall`），网络这边一直没用上。
-    //
-    // **fix-alloc-inside-native-park (2026-09-14)**: the park covers the syscall and nothing
-    // else. The result tuple below is a GC allocation, and one made while still parked is
-    // not a root for any collection running meanwhile — see
-    // `gc::safepoint::debug_assert_not_native_parked`.
-    let connected = { let _park = crate::gc::NativeParkGuard::enter(ctx); TcpStream::connect(&addr) };
-    match connected {
-        Ok(stream) => {
-            let slot_id = ctx.alloc_tcp_socket_slot(stream);
-            Ok(ok_value(ctx, slot_id as i64))
-        }
-        Err(e) => Ok(socket_err(ctx, format!("connect to {}: {}", addr, e))),
-    }
+/// After a parked read / write: a close that happened meanwhile wins over whatever the
+/// woken system call returned (the close's `shutdown` is what woke it).
+fn still_open(ctx: &VmContext, id: u64) -> Result<(), BuiltinError> {
+    if ctx.core.tcp_sockets.lock().contains_key(&id) { Ok(()) } else { Err(closed()) }
 }
 
-pub fn builtin_net_tcp_listen(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    const NAME: &str = "__net_tcp_listen";
-    let host = arg_str(args, 0, NAME)?.to_string();
-    let port = require_port(args, 1, NAME)?;
+#[z42_macros::builtins]
+pub mod typed {
+    use super::*;
+    use crate::corelib::abi::{Blocking, Then};
+    use crate::corelib::fs::{byte_array, check_buffer_range, read_byte_range, write_byte_range};
+    use crate::metadata::Value;
+    use std::io::{Read, Write};
 
-    let bind_target = format!("{}:{}", host, port);
-    // fix-park-blocking-natives (2026-09-14): name resolution (getaddrinfo) can block for the
-    // resolver timeout ⇒ parked; the result tuple is allocated after the park ends.
-    let bind_result = {
-        let _park = crate::gc::NativeParkGuard::enter(ctx);
-        bind_target.to_socket_addrs()
-            .and_then(|mut iter| iter.next()
-                .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "no addresses")))
-            .and_then(|addr: SocketAddr| TcpListener::bind(addr))
-    };
-
-    match bind_result {
-        Ok(listener) => {
-            let actual_port = listener.local_addr()
-                .map(|a| a.port())
-                .unwrap_or(port);
-            let slot_id = ctx.alloc_tcp_listener_slot(listener);
-            Ok(ok_two(ctx, slot_id as i64, actual_port as i64))
-        }
-        Err(e) => Ok(socket_err(ctx, format!("bind {}: {}", bind_target, e))),
-    }
-}
-
-pub fn builtin_net_tcp_accept(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    const NAME: &str = "__net_tcp_accept";
-    let slot_id = require_slot_id(args, 0, NAME)?;
-
-    // fix-accept-not-interruptible (2026-09-17)：**不再把 listener 摘出表**，只克隆 Arc。
-    // 摘表是老实现让 `Stop()` 变成空操作的原因（drop 在表里找不到正被 accept 用着的那个）。
-    let slot = match ctx.core.tcp_listeners.get_cloned(slot_id) {
-        Some(s) => s,
-        None => return Ok(handle_invalid(ctx)),
-    };
-
-    if let Err(e) = slot.listener.set_nonblocking(true) {
-        return Ok(socket_err(ctx, format!("accept: set_nonblocking: {}", e)));
+    /// `Connect(host, port, timeoutMs) -> slot`; `timeoutMs <= 0` = no limit.
+    #[builtin(name = "__tcp_connect")]
+    pub fn tcp_connect(host: String, port: i64, timeout_ms: i64) -> Result<Then<i64>, BuiltinError> {
+        let port = check_port(port)?;
+        let limit = timeout(timeout_ms);
+        Ok(Blocking::new(move || connect_any(&resolve(&host, port)?, limit))
+            .then(|ctx: &VmContext, s: TcpStream| Ok(ctx.alloc_tcp_socket_slot(s) as i64)))
     }
 
-    // fix-blocking-io-deadlocks-gc：**阻塞系统调用期间必须让出 GC safepoint**。
-    // 线程卡在 recv/accept/connect 里时永远到不了字节码 safepoint；此时另一个线程发起 GC
-    // （`request_gc_pause`）会等「全世界停下」——而这个线程停不下来 ⇒ **死锁**。
-    // `NativeParkGuard` 就是为此存在的（同 JVM `_thread_in_native` / Go `entersyscall`）。
-    //
-    // fix-alloc-inside-native-park (2026-09-14)：park 区间内**不得分配** GC 对象，
-    // 所以整个等待循环只碰 Rust 局部量，产出的 socket 槽位在出 park 之后才建。
-    let accept_result = {
-        let _park = crate::gc::NativeParkGuard::enter(ctx);
-        loop {
-            // 每轮先看关闭标志：`__net_tcp_listener_drop` 先置标志再摘表。
-            if slot.is_closed() {
-                break Err(AcceptWait::Closed);
-            }
-            match slot.listener.accept() {
-                Ok(pair) => break Ok(pair),
-                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    match wait_readable(&slot.listener, ACCEPT_POLL_MS) {
-                        Ok(_)  => continue,   // 就绪或超时，都回到循环顶部复查 closed
-                        Err(e) => break Err(AcceptWait::Io(e)),
-                    }
-                }
-                Err(e) => break Err(AcceptWait::Io(e)),
-            }
-        }
-    };
-
-    match accept_result {
-        Ok((stream, _peer)) => {
-            // 连接是从非阻塞的监听 socket 上接来的；在 macOS/Linux 上它会继承
-            // O_NONBLOCK，而上层的读写按阻塞语义写的 ⇒ 显式恢复。
-            if let Err(e) = stream.set_nonblocking(false) {
-                return Ok(socket_err(ctx, format!("accept: clear nonblocking: {}", e)));
-            }
-            let sock_slot = ctx.alloc_tcp_socket_slot(stream);
-            Ok(ok_value(ctx, sock_slot as i64))
-        }
-        // listener 被 `Stop()` / `Dispose()` 关掉。`KIND_HANDLE_INVALID` 在 z42 侧就是
-        // `SocketClosedException`（`NetTcpDecode.Throw`），而三个 serve 循环
-        // （Serve / ServeThreaded / ServeWithPool）已经在 catch 它 —— 语义正好对上：
-        // 句柄没了。
-        Err(AcceptWait::Closed) => Ok(handle_invalid(ctx)),
-        Err(AcceptWait::Io(e))  => Ok(socket_err(ctx, format!("accept: {}", e))),
-    }
-}
-
-/// accept 等待循环的结束原因 —— 区分「listener 被关了」与真 I/O 错误。
-enum AcceptWait {
-    Closed,
-    Io(std::io::Error),
-}
-
-pub fn builtin_net_tcp_socket_read(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    const NAME: &str = "__net_tcp_socket_read";
-    let slot_id = require_slot_id(args, 0, NAME)?;
-    let buf_arr = match args.get(1) {
-        Some(Value::Array(rc)) => rc.clone(),
-        other => bail!("{}: arg 1 expected byte array, got {:?}", NAME, other),
-    };
-    let offset = arg_i64(args, 2, NAME)? as usize;
-    let count  = arg_i64(args, 3, NAME)? as usize;
-
-    let buf_len = buf_arr.borrow().len();
-    if offset + count > buf_len {
-        bail!("{}: offset {} + count {} exceeds buf length {}", NAME, offset, count, buf_len);
-    }
-    if count == 0 { return Ok(ok_value(ctx, 0)); }
-
-    let Some(stream) = ctx.core.tcp_sockets.get_cloned(slot_id) else {
-        return Ok(handle_invalid(ctx));
-    };
-
-    let mut tmp = vec![0u8; count];
-    // fix-blocking-io-deadlocks-gc：**阻塞系统调用期间必须让出 GC safepoint**。
-    // 线程卡在 recv/accept/connect 里时永远到不了字节码 safepoint；此时另一个线程发起 GC
-    // （`request_gc_pause`）会等「全世界停下」——而这个线程停不下来 ⇒ **死锁**。
-    // `NativeParkGuard` 就是为此存在的（add-repl-prewarm 给 REPL 的 readline 加的，
-    // 同 JVM `_thread_in_native` / Go `entersyscall`），网络这边一直没用上。
-    let read_result = { let _park = crate::gc::NativeParkGuard::enter(ctx); (&*stream).read(&mut tmp) };
-    // 读的期间被 Close 了：`drop` 的 shutdown 把阻塞的 recv 唤醒，这里如实报句柄已关。
-    if !ctx.core.tcp_sockets.lock().contains_key(&slot_id) {
-        return Ok(handle_invalid(ctx));
+    /// `Listen(host, port, reuseAddress) -> listener slot` (port 0 = the OS picks).
+    #[builtin(name = "__tcp_listen")]
+    pub fn tcp_listen(host: String, port: i64, reuse_addr: bool) -> Result<Then<i64>, BuiltinError> {
+        let port = check_port(port)?;
+        Ok(Blocking::new(move || {
+            let addr = resolve(&host, port)?[0];
+            listen_on(addr, reuse_addr).map_err(|e| socket_error(&e, None))
+        }).then(|ctx: &VmContext, l: TcpListener| Ok(ctx.alloc_tcp_listener_slot(l) as i64)))
     }
 
-
-    match read_result {
-        Ok(n) => {
-            let borrowed = buf_arr.borrow();
-            for i in 0..n {
-                borrowed.set_boxed(offset + i, Value::I64(tmp[i] as i64));
-            }
-            Ok(ok_value(ctx, n as i64))
-        }
-        Err(e) => Ok(socket_err(ctx, format!("read: {}", e))),
+    /// The port a listener is bound to.
+    #[builtin(name = "__tcp_listener_port")]
+    pub fn tcp_listener_port(ctx: &VmContext, slot: i64) -> Result<i64, BuiltinError> {
+        let l = listener(ctx, slot)?;
+        l.listener.local_addr().map(|a| a.port() as i64).map_err(|e| socket_error(&e, None))
     }
-}
 
-pub fn builtin_net_tcp_socket_write(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    const NAME: &str = "__net_tcp_socket_write";
-    let slot_id = require_slot_id(args, 0, NAME)?;
-    let buf_arr = match args.get(1) {
-        Some(Value::Array(rc)) => rc.clone(),
-        other => bail!("{}: arg 1 expected byte array, got {:?}", NAME, other),
-    };
-    let offset = arg_i64(args, 2, NAME)? as usize;
-    let count  = arg_i64(args, 3, NAME)? as usize;
-
-    let buf_len = buf_arr.borrow().len();
-    if offset + count > buf_len {
-        bail!("{}: offset {} + count {} exceeds buf length {}", NAME, offset, count, buf_len);
+    /// `Accept(listener) -> slot`. A listener closed while waiting → `SocketClosedException`
+    /// within the accept poll period (`network/listener.rs`).
+    #[builtin(name = "__tcp_accept")]
+    pub fn tcp_accept(ctx: &VmContext, slot: i64) -> Result<Then<i64>, BuiltinError> {
+        let l = listener(ctx, slot)?;
+        Ok(Blocking::new(move || match accept_wait(&l) {
+            Ok((s, _peer)) => Ok(s),
+            Err(AcceptWait::Closed) => Err(closed()),
+            Err(AcceptWait::Io(e)) => Err(socket_error(&e, None)),
+        }).then(|ctx: &VmContext, s: TcpStream| Ok(ctx.alloc_tcp_socket_slot(s) as i64)))
     }
-    if count == 0 { return Ok(ok_value(ctx, 0)); }
 
-    let mut tmp = vec![0u8; count];
-    {
-        let borrowed = buf_arr.borrow();
-        // packed-primitive-arrays Step 3: packed `Bytes` → slice-copy the send
-        // window in one memcpy, no per-byte unbox.
-        if let Some(b) = borrowed.byte_range(offset, count) {
-            tmp = b;
+    /// `Read(slot, buffer, offset, count) -> n` (0 = the peer closed).
+    #[builtin(name = "__tcp_read")]
+    pub fn tcp_read(ctx: &VmContext, slot: i64, buffer: Value, offset: i64, count: i64) -> Result<Then<i64>, BuiltinError> {
+        let arr = byte_array(&buffer, "buffer")?;
+        let (off, n) = check_buffer_range(offset, count, arr.borrow().len())?;
+        let id = slot_id(slot)?;
+        let s = stream(ctx, slot)?;
+        let read = if n == 0 {
+            Blocking::ready(Ok(Vec::new()))
         } else {
-            for i in 0..count {
-                match borrowed.get_boxed(offset + i) {
-                    Value::I64(v) => tmp[i] = (v & 0xFF) as u8,
-                    other => bail!("{}: byte[] elem at {} expected I64, got {:?}", NAME, offset + i, other),
-                }
+            Blocking::new(move || {
+                let mut tmp = vec![0u8; n];
+                Ok((&*s).read(&mut tmp).map(|got| { tmp.truncate(got); tmp }))
+            })
+        };
+        Ok(read.then(move |ctx: &VmContext, r: std::io::Result<Vec<u8>>| {
+            still_open(ctx, id)?;
+            let bytes = r.map_err(|e| socket_error(&e, None))?;
+            write_byte_range(&arr.borrow(), off, &bytes);
+            Ok(bytes.len() as i64)
+        }))
+    }
+
+    /// `Write(slot, buffer, offset, count)` — all of it (`write_all`).
+    #[builtin(name = "__tcp_write")]
+    pub fn tcp_write(ctx: &VmContext, slot: i64, buffer: &Value, offset: i64, count: i64) -> Result<Then<()>, BuiltinError> {
+        let arr = byte_array(buffer, "buffer")?;
+        let bytes = {
+            let a = arr.borrow();
+            let (off, n) = check_buffer_range(offset, count, a.len())?;
+            read_byte_range(&a, off, n)?
+        };
+        let id = slot_id(slot)?;
+        let s = stream(ctx, slot)?;
+        let write = if bytes.is_empty() {
+            Blocking::ready(Ok(()))
+        } else {
+            Blocking::new(move || Ok((&*s).write_all(&bytes)))
+        };
+        Ok(write.then(move |ctx: &VmContext, r: std::io::Result<()>| {
+            still_open(ctx, id)?;
+            r.map_err(|e| socket_error(&e, None))
+        }))
+    }
+
+    /// Idempotent. Shuts the socket down so a blocked read / write wakes up.
+    #[builtin(name = "__tcp_close")]
+    pub fn tcp_close(ctx: &VmContext, slot: i64) {
+        if let Ok(id) = u64::try_from(slot) {
+            if let Some(s) = ctx.core.tcp_sockets.take(id) {
+                let _ = s.shutdown(std::net::Shutdown::Both);
             }
         }
     }
 
-    let Some(stream) = ctx.core.tcp_sockets.get_cloned(slot_id) else {
-        return Ok(handle_invalid(ctx));
-    };
-
-    // fix-blocking-io-deadlocks-gc：**阻塞系统调用期间必须让出 GC safepoint**。
-    // 线程卡在 recv/accept/connect 里时永远到不了字节码 safepoint；此时另一个线程发起 GC
-    // （`request_gc_pause`）会等「全世界停下」——而这个线程停不下来 ⇒ **死锁**。
-    // `NativeParkGuard` 就是为此存在的（add-repl-prewarm 给 REPL 的 readline 加的，
-    // 同 JVM `_thread_in_native` / Go `entersyscall`），网络这边一直没用上。
-    let write_result = { let _park = crate::gc::NativeParkGuard::enter(ctx); (&*stream).write_all(&tmp).map(|_| count) };
-    if !ctx.core.tcp_sockets.lock().contains_key(&slot_id) {
-        return Ok(handle_invalid(ctx));
-    }
-
-
-    match write_result {
-        Ok(n) => Ok(ok_value(ctx, n as i64)),
-        Err(e) => Ok(socket_err(ctx, format!("write: {}", e))),
-    }
-}
-
-pub fn builtin_net_tcp_socket_drop(ctx: &VmContext, args: &[Value]) -> Result<()> {
-    const NAME: &str = "__net_tcp_socket_drop";
-    let slot_id = require_slot_id(args, 0, NAME)?;
-    // 读写都只克隆 `Arc`、不摘表（全双工：一个线程阻塞在 read 时另一个线程照样能 write）。
-    // 关闭 = 摘表 + shutdown：shutdown 唤醒阻塞中的 read / write，它们看到槽位没了就报
-    // 句柄已关；fd 在最后一个 `Arc` 放手时关闭，不会在别人用着的时候关掉。
-    if let Some(stream) = ctx.core.tcp_sockets.take(slot_id) {
-        let _ = stream.shutdown(std::net::Shutdown::Both);
-    }
-    Ok(())
-}
-
-// add-httpclient-timeout (2026-05-27): apply read / write deadlines so
-// a misbehaving peer can't hang the script. `millis <= 0` clears the
-// timeout (blocking I/O). On error returns socket_err; on missing slot
-// returns handle_invalid (caller treats as already-disposed).
-
-fn apply_timeout(
-    ctx: &VmContext,
-    slot_id: u64,
-    millis: i64,
-    which: &'static str,
-) -> Result<Value> {
-    let dur = if millis > 0 {
-        Some(std::time::Duration::from_millis(millis as u64))
-    } else {
-        None
-    };
-    let stream = {
-        let map = ctx.core.tcp_sockets.lock();
-        match map.get(&slot_id) {
-            Some(s) => s.try_clone(),
-            None => return Ok(handle_invalid(ctx)),
+    /// Idempotent. Sets the closed flag first (a blocked accept sees it on its next poll),
+    /// then takes the slot out; the fd closes with the last `Arc`.
+    #[builtin(name = "__tcp_listener_close")]
+    pub fn tcp_listener_close(ctx: &VmContext, slot: i64) {
+        let Ok(id) = u64::try_from(slot) else { return };
+        if let Some(l) = ctx.core.tcp_listeners.get_cloned(id) {
+            l.closed.store(true, std::sync::atomic::Ordering::Release);
         }
-    };
-    let stream = match stream {
-        Ok(s) => s,
-        Err(e) => return Ok(socket_err(ctx, format!("{}: try_clone: {}", which, e))),
-    };
-    let result = if which == "set_read_timeout" {
-        stream.set_read_timeout(dur)
-    } else {
-        stream.set_write_timeout(dur)
-    };
-    match result {
-        Ok(()) => Ok(ok_value(ctx, 0)),
-        Err(e) => Ok(socket_err(ctx, format!("{}: {}", which, e))),
+        ctx.core.tcp_listeners.lock().remove(&id);
+    }
+
+    /// `millis <= 0` clears the timeout (blocking again).
+    #[builtin(name = "__tcp_set_read_timeout")]
+    pub fn tcp_set_read_timeout(ctx: &VmContext, slot: i64, millis: i64) -> Result<(), BuiltinError> {
+        stream(ctx, slot)?.set_read_timeout(timeout(millis)).map_err(|e| socket_error(&e, None))
+    }
+
+    #[builtin(name = "__tcp_set_write_timeout")]
+    pub fn tcp_set_write_timeout(ctx: &VmContext, slot: i64, millis: i64) -> Result<(), BuiltinError> {
+        stream(ctx, slot)?.set_write_timeout(timeout(millis)).map_err(|e| socket_error(&e, None))
+    }
+
+    /// `TCP_NODELAY` (disable Nagle).
+    #[builtin(name = "__tcp_set_nodelay")]
+    pub fn tcp_set_nodelay(ctx: &VmContext, slot: i64, enable: bool) -> Result<(), BuiltinError> {
+        stream(ctx, slot)?.set_nodelay(enable).map_err(|e| socket_error(&e, None))
+    }
+
+    /// `IP_TTL` (0..=255, else `ArgumentOutOfRangeException`, as .NET's `Socket.Ttl`).
+    #[builtin(name = "__tcp_set_ttl")]
+    pub fn tcp_set_ttl(ctx: &VmContext, slot: i64, ttl: i64) -> Result<(), BuiltinError> {
+        let ttl = check_ttl(ttl)?;
+        stream(ctx, slot)?.set_ttl(ttl).map_err(|e| socket_error(&e, None))
+    }
+
+    #[builtin(name = "__tcp_listener_set_ttl")]
+    pub fn tcp_listener_set_ttl(ctx: &VmContext, slot: i64, ttl: i64) -> Result<(), BuiltinError> {
+        let ttl = check_ttl(ttl)?;
+        listener(ctx, slot)?.listener.set_ttl(ttl).map_err(|e| socket_error(&e, None))
+    }
+
+    /// `SO_KEEPALIVE` with the OS's idle / interval / probe defaults.
+    #[builtin(name = "__tcp_set_keepalive")]
+    pub fn tcp_set_keepalive(ctx: &VmContext, slot: i64, enable: bool) -> Result<(), BuiltinError> {
+        let s = stream(ctx, slot)?;
+        socket2::SockRef::from(&*s).set_keepalive(enable).map_err(|e| socket_error(&e, None))
+    }
+
+    /// `SO_KEEPALIVE` + idle / interval / probe count (seconds, each `>= 1`, else
+    /// `ArgumentOutOfRangeException`). The probe count is ignored where the OS has no
+    /// `TCP_KEEPCNT` (Windows); `enable = false` ignores the tuning arguments.
+    #[builtin(name = "__tcp_set_keepalive_tuned")]
+    pub fn tcp_set_keepalive_tuned(
+        ctx: &VmContext, slot: i64, enable: bool, idle_secs: i64, interval_secs: i64, probes: i64,
+    ) -> Result<(), BuiltinError> {
+        let s = stream(ctx, slot)?;
+        let sref = socket2::SockRef::from(&*s);
+        if !enable {
+            return sref.set_keepalive(false).map_err(|e| socket_error(&e, None));
+        }
+        for (v, name) in [(idle_secs, "idleSecs"), (interval_secs, "intervalSecs"), (probes, "probes")] {
+            if v < 1 || v > u32::MAX as i64 {
+                return Err(out_of_range(name));
+            }
+        }
+        sref.set_tcp_keepalive(&keepalive(idle_secs as u64, interval_secs as u64, probes as u32))
+            .map_err(|e| socket_error(&e, None))
     }
 }
 
-pub fn builtin_net_tcp_socket_set_read_timeout(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    const NAME: &str = "__net_tcp_socket_set_read_timeout";
-    let slot_id = require_slot_id(args, 0, NAME)?;
-    let millis = arg_i64(args, 1, NAME)?;
-    apply_timeout(ctx, slot_id, millis, "set_read_timeout")
-}
-
-pub fn builtin_net_tcp_socket_set_write_timeout(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    const NAME: &str = "__net_tcp_socket_set_write_timeout";
-    let slot_id = require_slot_id(args, 0, NAME)?;
-    let millis = arg_i64(args, 1, NAME)?;
-    apply_timeout(ctx, slot_id, millis, "set_write_timeout")
-}
-
-pub fn builtin_net_tcp_listener_drop(ctx: &VmContext, args: &[Value]) -> Result<()> {
-    const NAME: &str = "__net_tcp_listener_drop";
-    let slot_id = require_slot_id(args, 0, NAME)?;
-    // fix-accept-not-interruptible：**先置标志、再摘表**。阻塞在 accept 里的线程持有
-    // 同一个 `Arc`，它下一轮轮询（≤ ACCEPT_POLL_MS）看到标志就返回 SocketClosed；
-    // fd 的真正关闭发生在最后一个 Arc 放手时，因此不会在别人用着 fd 的时候关掉它。
-    if let Some(slot) = ctx.core.tcp_listeners.get_cloned(slot_id) {
-        slot.closed.store(true, std::sync::atomic::Ordering::Release);
-    }
-    ctx.core.tcp_listeners.lock().remove(&slot_id);
-    Ok(())
+/// socket2's `TcpKeepalive` with the parts this OS supports (`with_interval` /
+/// `with_retries` exist only where socket2 exposes them).
+fn keepalive(idle: u64, interval: u64, probes: u32) -> socket2::TcpKeepalive {
+    let ka = socket2::TcpKeepalive::new().with_time(std::time::Duration::from_secs(idle));
+    #[cfg(any(
+        target_os = "linux", target_os = "android", target_os = "macos", target_os = "ios",
+        target_os = "tvos", target_os = "watchos", target_os = "freebsd", target_os = "dragonfly",
+        target_os = "netbsd", target_os = "illumos", target_os = "solaris", target_os = "aix",
+        target_os = "windows",
+    ))]
+    let ka = ka.with_interval(std::time::Duration::from_secs(interval));
+    #[cfg(any(
+        target_os = "android", target_os = "dragonfly", target_os = "freebsd", target_os = "fuchsia",
+        target_os = "illumos", target_os = "ios", target_os = "visionos", target_os = "linux",
+        target_os = "macos", target_os = "netbsd", target_os = "tvos", target_os = "watchos",
+        target_os = "cygwin",
+    ))]
+    let ka = ka.with_retries(probes);
+    let _ = (interval, probes);
+    ka
 }
