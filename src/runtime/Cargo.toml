@@ -70,7 +70,7 @@ anyhow = "1"
 # internal (never hash-flood-adversarial), so a fast non-DoS-resistant hasher
 # is safe and ~5–10× cheaper on short-string keys. FxHash also gives a
 # deterministic iteration order (std SipHash randomises per-run), which is
-# strictly friendlier to the load-order-determinism rule (common-pitfalls §1).
+# strictly friendlier to the load-order determinism rule.
 rustc-hash = "2"
 
 # Mutex / RwLock — used for VmCore shared state across threads (add-multithreading-foundation, 2026-05-19).

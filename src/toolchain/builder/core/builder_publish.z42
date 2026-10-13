@@ -598,7 +598,7 @@ int _pubCopyPrebuiltNative(string depTomlPath, TomlValue depToml, string depName
     if (depDir.Length == 0) { depDir = "."; }
     TomlValue nat = depToml.Get("native");
     string[] keys = nat.Keys();
-    // stable name order (common-pitfalls §1: no reliance on TOML/container incidental order).
+    // stable name order (load-order determinism rule: no reliance on TOML/container incidental order).
     int a = 0;
     while (a < keys.Length) {
         int min = a; int b = a + 1;

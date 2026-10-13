@@ -52,7 +52,7 @@ z42 pre-1.0 是 **strict-pin**：Rust reader 精确匹配 writer 的 major + min
 2. **`src/runtime/src/metadata/zbc_reader/versions.rs`** — `ZBC_VERSION_MINOR` 同步，**同时改钉值单测**
    `zbc_reader_tests.rs` 的 `zbc_version_constants_pinned` / `zpkg_version_constants_pinned`；并在常量上方 changelog
    注释块追加一行（日期 / PR / 字段变化）；reader 解码逻辑（`read_*_section`）同步新格式。
-3. **[zbc.md](../formats/zbc.md)** — 该页的 "Minor changelog" 表加一行（minor / 日期 / 触发变更 / 引入内容）。
+3. **[zbc.md](../formats/zbc.md)** — 格式描述（指令表 / section 布局）变了就同步对应章节；页内不记版本历史。
 4. **regen zbc-format fixture** — 跑 `xtask build test`（前置 `build compiler` + `build stdlib` 已用新格式重建），
    原地覆写 `src/compiler/z42.package/tests/fixtures/zbc-format/*/source.zbc`（该目录下全部 committed 字节基线）；`git diff` 应显示格式
    delta，**必须连同 bump 一起提交**。

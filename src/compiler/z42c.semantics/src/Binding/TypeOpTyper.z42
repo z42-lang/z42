@@ -154,7 +154,7 @@ public sealed class TypeOpTyper {
 
             // ── 候选收集：沿继承链，含 imported（TSIG 已把继承方法展平进各派生类 Methods）──
             // 迭代 StrMap 前**必须按键排序**：hash 顺序非确定，而候选序决定诊断文案的列出顺序
-            // （common-pitfalls §1）。派生类先走 ⇒ override 的那份先入表，基类同 RegKey 不再重复收。
+            // （加载顺序确定性规则）。派生类先走 ⇒ override 的那份先入表，基类同 RegKey 不再重复收。
             MethodSymbol[] cands = new MethodSymbol[8];
             string[] candKeys = new string[8];
             string[] candOwnerFq = new string[8];
@@ -341,7 +341,7 @@ public sealed class TypeOpTyper {
         return true;
     }
 
-    // 插入排序（候选量极小；诊断列出顺序必须确定，见 common-pitfalls §1）。
+    // 插入排序（候选量极小；诊断列出顺序必须确定，见加载顺序确定性规则）。
     private static void _sortStr(string[] a) {
         int i = 1;
         while (i < a.Length) {

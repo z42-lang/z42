@@ -107,7 +107,6 @@ tag; source type is read at runtime from the source `Value` variant.
 
 **Opcode**: `0xB1` (slot in the 0xB0–0xBF generic-runtime range)
 **Encoding**: `op(1) + dst_tag(1) + dst_reg(u16) + src_reg(u16)`
-**zbc version**: 1.5+
 
 **Conversion matrix (legal pairs, VM-supported)**:
 
@@ -319,8 +318,8 @@ Five instructions cover the whole surface of `T[]` (`Instruction::ArrayNew` / `A
 `"Std.Int32"` / `"Std.Int32[]"`。泛型值 struct 上这里有个刻意的不对称：TypeDesc 只按**擦除**
 基名（`Kv`）注册一份，而 `element_type` 刻意带**非擦除**名（`Kv<string,int>`），
 故 `try_struct_backed` 查布局时先 `split('<')` 剥回基名，同时把完整名存进 `ArrayObj`
-（`interp/exec_array.rs`）。`array_new` 另带 `stack_alloc`（逃逸分析，zbc 1.29）与
-`type_param_kind` / `type_param_index`（元素是型参时运行期解析出真实零值，zbc 1.37）。
+（`interp/exec_array.rs`）。`array_new` 另带 `stack_alloc`（逃逸分析）与
+`type_param_kind` / `type_param_index`（元素是型参时运行期解析出真实零值）。
 
 `array_new_lit` 的元素个数在 zbc 里与所有 `args` 一样是 **u8**（[zbc.md](zbc.md) 的 args 编码）。
 字面量超过 255 个元素时，IrGen 改发 `array_new`（size = 元素个数）+ 逐元素 `array_set`——元素已按
@@ -375,7 +374,7 @@ JSON wire format (tag = `"op"`):
 {"op": "as_cast",     "dst": 9, "obj": 5, "class_name": "Demo.Shape"}
 ```
 
-`typeof`（opcode `0x73`，zbc 1.18，add-reflection-generic-type-definition）求值为一个
+`typeof`（opcode `0x73`）求值为一个
 `Std.Type` 反射对象。`type_name` 是反射类型的 FQ 名（泛型取**定义**名）；`type_args`
 是实例化 arg 的 FQ 名列表（`typeof(Box<int>)` → `["int"]`，非泛型为空），结构化编码
 （镜像 `obj_new` 的 type_args）。非空 args 标记为**构造型**泛型——运行期把解析后的

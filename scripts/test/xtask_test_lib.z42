@@ -161,7 +161,7 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     string root = _root();
     // add-tests-bench-manifest-config Phase 3.3 (2026-06-06): sort
     // Directory.Enumerate output so first-wins downstream behaviour is
-    // platform-stable (common-pitfalls.md §1 — macOS APFS vs Linux ext4
+    // platform-stable (load-order determinism rule — macOS APFS vs Linux ext4
     // give different orderings; CI on Linux blew up here before).
     string[] libList = reqLibsIn.Length > 0 ? reqLibsIn : _allTestableLibs(root);
     string[] dirs = new string[libList.Length];

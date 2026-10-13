@@ -27,7 +27,7 @@ void test_native_dir_prebuilt() {
 
 [Test]
 void test_multiple_native_stable_order() {
-    // 多个声明 → 按名稳定升序（common-pitfalls §1），与声明书写序无关。
+    // 多个声明 → 按名稳定升序（加载顺序确定性规则），与声明书写序无关。
     string toml = "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[native.zeta]\n\n[native.alpha]\n";
     ProjectManifest m = ManifestLoader.ParseText(toml);
     Assert.Equal(2, m.NativeCount);

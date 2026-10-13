@@ -348,7 +348,7 @@ impl ContextRegistry {
     }
 
     /// The `Arc<TypeDesc>`s defined by this assembly, sorted by FQ name for a
-    /// stable, deterministic `GetTypes()` order (common-pitfalls §1). Empty for
+    /// stable, deterministic `GetTypes()` order (load-order determinism rule). Empty for
     /// the root assembly and reclaimed assemblies (module = `None`).
     pub fn assembly_types(&self, aid: AssemblyId) -> Vec<Arc<TypeDesc>> {
         let Some(entry) = self.assemblies.get(aid.0 as usize) else {

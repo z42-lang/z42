@@ -9,7 +9,7 @@ using Std.IO;
 
 // Enumerate immediate subdirectories of `dir`, returning sorted basenames.
 // Filters Directory.Enumerate results (which can include files) to dirs only.
-// Sort enforces cross-OS determinism per common-pitfalls.md §1.
+// Sort enforces cross-OS determinism per the load-order determinism rule.
 string[] _enumDirsSorted(string dir) {
     if (!Directory.Exists(dir)) { return new string[0]; }
     string[] entries = Directory.Enumerate(dir);
@@ -34,7 +34,7 @@ string[] _enumDirsSorted(string dir) {
     return subs;
 }
 
-// In-place insertion sort (deterministic; common-pitfalls.md §1).
+// In-place insertion sort (deterministic; load-order determinism rule).
 void _sortStrings(string[] arr) {
     int i = 1;
     while (i < arr.Length) {
@@ -92,7 +92,7 @@ string[] _append(string[] arr, int count, string v) {
 //   "tests-flat"  src/tests/<cat>/<name>.z42
 //   "lib-file"    src/libraries/<lib>/tests/<name>.z42    (stdlib [Test] file unit)
 // Within a segment: category/lib sorted, then case name sorted — determinism per
-// common-pitfalls.md §1 (this also replaces the unsorted `Path.Glob` the flat
+// The load-order determinism rule (this also replaces the unsorted `Path.Glob` the flat
 // walks used to trust).
 class _GoldenEntry {
     public string seg;            // tests-dir | lib-dir | tests-flat | lib-file

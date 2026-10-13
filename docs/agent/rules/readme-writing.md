@@ -138,20 +138,19 @@ README 是入口、书是细节（[doc-system.md 内容归属](doc-system.md)）
 
 ```markdown
 ## 待办
-- `Zip.CreateFromDirectory` 未实现；`Zip.Write` 已可用
-- 条目名超 100 字节会被静默截断（未用 ustar prefix 字段）
+- `<某 API>` 未实现；`<相近 API>` 已可用
+- <某种输入>会被静默截断（<原因>）
 ```
 
-⚠️ **只写未来，不写过去**：「还没做 X」要写，「<某月> 做了 Y」不写
-（见 [doc-system.md「不写历史」](doc-system.md)）。长期项目计划归 `docs/roadmap.md`，
+⚠️ **只写还没做的，不写已经做过的**（见 [doc-system.md「不写历史」](doc-system.md)）。长期项目计划归 `docs/roadmap.md`，
 这里只写与**本目录**绑定的那几条。
 
 #### 「依赖关系」——库 / 包目录专用，放在「核心文件」之后
 
 ```markdown
 ## 依赖关系
-依赖 `z42.core` + `z42.text`（`StringBuilder` 用于 ToString 重组）。
-零 interop，纯脚本；要用 native 能力时经 core 的公开 API 间接调。
+依赖 `<包 A>` + `<包 B>`（<用它做什么>）。
+<有没有 interop；没有就写「纯脚本」>。
 ```
 
 一句话说清**依赖谁、为什么依赖**，以及**有没有 interop**。
@@ -163,13 +162,13 @@ README 是入口、书是细节（[doc-system.md 内容归属](doc-system.md)）
 六段里有两段要写得更具体：
 
 - **「功能索引」写成入口点**：按 `公开类型` / `静态函数` / `常量` 分组列，
-  每条给**命名空间全名**（`Std.Uri.Uri` 而非 `Uri`）——读者要能直接照着写 `using`。
+  每条给**命名空间全名**（`Std.<Ns>.<Type>` 而非 `<Type>`）——读者要能直接照着写 `using`。
 - **「核心文件」表加一列「类型」**：
 
   | 文件 | 类型 | 职责 |
   |---|---|---|
-  | `Uri.z42` | `class Uri` | 不可变值对象 + 组件访问器 |
-  | `UriCodec.z42` | `static class UriCodec` | percent 编解码 |
+  | `<Type>.z42` | `class <Type>` | <一句话职责> |
+  | `<Helper>.z42` | `static class <Helper>` | <一句话职责> |
 
   多一列「类型」，读者不打开文件就知道里面是类、静态类还是 struct。
 
@@ -229,8 +228,7 @@ README 是入口、书是细节（[doc-system.md 内容归属](doc-system.md)）
   拿不准一条信息该不该进 README，问「人 review / 上手时会用到它吗？」→ 不会就不进。
 - **语种**：根 README 是对外门面，**英文正文**；目录 README 是内部开发材料，**中文正文、
   关键术语保留英文**。
-- **只描述当前状态**：不写考古注记、不写"不再是什么"的历史对照（判据见
-  [doc-system.md「不写历史」](doc-system.md)）。
+- **只描述当前状态**（判据见 [doc-system.md「不写历史」](doc-system.md)）。
 - **每段首句 = 结论句**；引用代码用 `src/...` 路径 + 符号名，**不写行号**。
 
 ## 十二、与其他规则的关系

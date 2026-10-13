@@ -82,7 +82,7 @@ public static class Conversion {
 
     // add-user-conversions：用户自定义转换查找（精确 (源,目标) 匹配，Decision 5）。在 from 类与 to 类上
     // 找静态 op_Implicit / op_Explicit（单参、参数类型==from、返回类型==to）。命中返回带 Method 的 ConvResult。
-    // ② 保证同 (源,目标) 至多一个转换运算符，故命中唯一、无 first-wins 非确定性（common-pitfalls §1）。
+    // ② 保证同 (源,目标) 至多一个转换运算符，故命中唯一、无 first-wins 非确定性（加载顺序确定性规则）。
     public static ConvResult _classifyUser(Z42Type from, Z42Type to, SymbolTable symbols) {
         if (from == null || to == null || symbols == null) { return new ConvResult(ConvKind.None); }
         ConvResult r = Conversion._findConvOn(from.Name(), from, to, symbols);

@@ -58,7 +58,7 @@ void test_instance_ambiguity_removed() {
 [Test]
 void test_scoped_disambiguates_cross_ns_same_shortname() {
     // path C：同短类名跨 ns（Z42.Package.SourceDiscovery 与 Z42.Project.SourceDiscovery）——
-    // GetStaticScoped 按活跃命名空间集精确消歧，根治 common-pitfalls §1 短键 first-wins 串味。
+    // GetStaticScoped 按活跃命名空间集精确消歧，根治短键 first-wins 串味（加载顺序确定性规则）。
     var idx = new DependencyIndex();
     IrFunction[] a = new IrFunction[1];
     a[0] = _fn("Z42.Package.SourceDiscovery.Discover$1", 1, true);

@@ -1,6 +1,6 @@
 // libs 目录扫描（port-z42c-import CI-2）。镜像 C# PackageCompiler.Helpers.BuildDepIndex +
 // BuildTarget.ScanLibsForNamespaces。z42c 运行期 Z42_LIBS 是单目录（flat），扫描该目录全部
-// lib-kind zpkg：**prelude-first + Ordinal 排序**（common-pitfalls §1 + fix-depindex 同款），
+// lib-kind zpkg：**prelude-first + Ordinal 排序**（加载顺序确定性规则 + fix-depindex 同款），
 // 一次扫描产出三件：DependencyIndex（签名键表）/ nsMap（ns→zpkg basename，DEPS 用）/
 // TSIG ExportedModuleZ 池（ImportedSymbolLoader 输入）。
 namespace Z42.Pipeline;
@@ -33,7 +33,7 @@ public static class DepScan {
 
     // Milestone 2（per-member 布局）：成员产物落各自 dist 目录，故兄弟解析需扫**多个** libsDir。
     // dirs[0..dirCount) 全部 *.zpkg 合并后**prelude-first + Ordinal**（按 basename）排序——
-    // first-wins 跨目录确定（common-pitfalls §1：成员名唯一，无跨目录同名碰撞）。单目录调用方
+    // first-wins 跨目录确定（加载顺序确定性规则：成员名唯一，无跨目录同名碰撞）。单目录调用方
     // 经 Scan 退化到此（dirCount=1），扫描序与旧 _sortedZpkgs 一致 → 产物 byte-identical。
     // tier：解析分档 + 不可见包名（见 WsTier.z42 / ZpkgPathSort._sortedZpkgsMulti）；null = 全可见。
     public static DepScanResult ScanDirs(string[] dirs, int dirCount, string excludeName, string[] declaredDeps, int declaredCount,

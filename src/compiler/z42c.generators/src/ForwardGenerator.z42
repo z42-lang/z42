@@ -95,7 +95,7 @@ public sealed class ForwardGenerator : Generator {
         else if (t.Owner is AttributedDecl) { oc = (t.Owner as AttributedDecl).Inner as ClassDecl; }
         if (oc == null) { return; }
         // 成员按**声明序**遍历（ClassDecl.Members 是有序数组，不是 hashed StrMap）⇒ 生成顺序天然
-        // 确定，不需要额外 sort；这比从 Methods 走还更稳（后者迭代序不确定，见 common-pitfalls §1）。
+        // 确定，不需要额外 sort；这比从 Methods 走还更稳（后者迭代序不确定，见加载顺序确定性规则）。
         // 🔴 只转发**这个字段的类型真的有**的方法。
         // 一个类里可以有多个 `[Forward]` 字段，而 partial 声明是**类级**的一张总表 —— 不做这层
         // 过滤，每个字段都会试图转发别人的方法（实测：`_log` 的碎片去转发属于 `_clk` 的 `Now()`

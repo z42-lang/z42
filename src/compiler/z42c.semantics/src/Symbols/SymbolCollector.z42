@@ -138,7 +138,7 @@ public sealed class SymbolCollector {
         // 对不上 ⇒ **同 FQN 跨包的 enum 在类型注解位一声不吭**（实测：两个包各声明 `Demo.Ns.Color` 且成员顺序
         // 不同，`Color c = Color.Red;` 零诊断）。补上这张表，既有的 `_chkTypeRefPkg` 自然就点亮了。
         //
-        // 键序显式排序（common-pitfalls §1）：StrMap.Keys() 不保证稳定序，而下面是 first-wins。
+        // 键序显式排序（加载顺序确定性规则）：StrMap.Keys() 不保证稳定序，而下面是 first-wins。
         string[] efq = imported.EnumTypeNamesByFqn.Keys();
         SymbolCollector._sortStrs(efq);
         int i = 0;

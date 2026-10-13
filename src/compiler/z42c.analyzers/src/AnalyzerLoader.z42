@@ -22,7 +22,7 @@ namespace Z42.Analyzers;
 using Std.Reflection;  // Assembly / Activator
 
 public static class AnalyzerLoader {
-    // 发现 + 实例化给定 zpkg 路径里所有 `: Analyzer` 类型。路径先按 Ordinal 排序（common-pitfalls §1，
+    // 发现 + 实例化给定 zpkg 路径里所有 `: Analyzer` 类型。路径先按 Ordinal 排序（加载顺序确定性规则，
     // 确定序）。返回按发现序（同一 zpkg 内按 Assembly.GetTypes 的 FQ 名序）的 Analyzer 实例数组。
     public static Analyzer[] Load(string[] zpkgPaths, int count) {
         string[] sorted = AnalyzerLoader._sortedCopy(zpkgPaths, count);

@@ -103,7 +103,7 @@ fn candidates_routes_multi_zpkg_sharing_namespace() {
     );
 }
 
-/// fix-runtime-load-order-determinism (common-pitfalls.md §1): `candidates_for_namespace`
+/// fix-runtime-load-order-determinism (load-order determinism rule): `candidates_for_namespace`
 /// iterates an FxHashMap (non-deterministic order) and downstream consumers pick first-wins,
 /// so the returned Vec must be sorted regardless of insertion order. Insert several
 /// same-namespace candidates in reverse-sorted order and assert the result is sorted

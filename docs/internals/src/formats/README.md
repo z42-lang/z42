@@ -16,4 +16,3 @@ zbc（字节码）、zpkg（包）、IR —— **编译器与运行时之间的�
 
 > 格式 bump 的完整 checklist（改哪些文件、commit 前自检命令）与 bump 后本地重建 / 重生 fixture，
 > 都在书里：[格式 bump：清单与本地验证](../devinfra/format-bump.md)。
-> **每次 bump 必须在 [zbc.md](zbc.md) 的 Minor changelog 表加一行。**

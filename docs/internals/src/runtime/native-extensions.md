@@ -47,7 +47,7 @@ z42vm 把一部分「重、依赖多、或平台特有」的能力放进**独立
 
 搜索路径（`native_search_paths()`，急切扫描用）按序：`Z42_NATIVE_PATH` 覆盖 → `<exe>/../native/`
 （SDK 布局）→ `<exe>/native/` → `<exe>/`（dev cargo target 直放）。**都必须先 `sort` 再迭代**
-（common-pitfalls §1：`read_dir` 顺序依赖 OS/FS，first-wins 注册会非确定）。
+（加载顺序确定性规则：`read_dir` 顺序依赖 OS/FS，first-wins 注册会非确定）。
 
 ---
 

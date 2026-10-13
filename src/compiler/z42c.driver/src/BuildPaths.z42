@@ -32,8 +32,8 @@ bool _distModeMatches(string zpkgPath, bool isPacked) {
 
 // _writeCacheZbc（单文件 fullMode .zbc 落盘）已迁 IncrementalDriver.z42（500 行硬限）。
 
-// attribute-handler-registry PR4e：handler（[analyzers] 段）身份指纹——按 analyzer 名稳定序（common-pitfalls
-// §1）拼「名:zpkg 内容指纹」。无 [analyzers] → `""`（源 hash 不揉入 → 自举 byte-identical）。generator 换了
+// attribute-handler-registry PR4e：handler（[analyzers] 段）身份指纹——按 analyzer 名稳定序（加载顺序确定性
+// 规则）拼「名:zpkg 内容指纹」。无 [analyzers] → `""`（源 hash 不揉入 → 自举 byte-identical）。generator 换了
 // （zpkg 内容变）→ 指纹变 → 揉进源 hash 的每个文件都失效 → 全量重编（design red-line ②「产物纳入指纹」）。
 // zpkg 路径由 `_resolveHandlerZpkgs` 先行解析（add-package-roles 批 2：path 条目已代建完毕）——
 // 指纹与 CompileInputs 吃**同一份**路径，不再各自按名去 libsDirs 里找一遍。

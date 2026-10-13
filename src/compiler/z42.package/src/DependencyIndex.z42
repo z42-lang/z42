@@ -1,6 +1,6 @@
 // 跨包依赖调用索引（port-z42c-import CI-2）。镜像 C# z42.IR/DependencyIndex.cs。
 // static 键 "Cls.Method[$arity]" / instance 键 "Method$userArity"+"Method"；
-// first-wins 注册（输入须 prelude-first 排序——common-pitfalls §1）；instance 歧义键剔除。
+// first-wins 注册（输入须 prelude-first 排序——加载顺序确定性规则）；instance 歧义键剔除。
 namespace Z42.IR;
 
 public sealed class DepCallEntry {
@@ -43,7 +43,7 @@ public sealed class DependencyIndex {
         return null;
     }
 
-    // using-scoped 静态查找（path C：namespace-qualified 消歧，根治 common-pitfalls §1 短类名 first-wins 串味）。
+    // using-scoped 静态查找（path C：namespace-qualified 消歧，根治短类名 first-wins 串味（加载顺序确定性规则））。
     // 按本 CU 的**活跃命名空间集**（usings + 本 ns，prelude-first 序）逐个尝试全名键
     // `ns.ShortCls.Method[$arity]`——同短类名跨 ns（如 Z42.Package.SourceDiscovery 与
     // Z42.Project.SourceDiscovery）各占独立键，只命中调用方 using 到的那份。

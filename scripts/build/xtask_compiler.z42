@@ -549,7 +549,7 @@ int _testCompilerUnits(string root, string profile, string[] members) {
 // 关键（simplify-compiler-build，2026-07-05）：gen1、gen2 现在**同走 --workspace**。此前
 // gen2 用逐包 `build <toml> --output-dir` + `Z42_LIBS=flat`（含全部 z42c+stdlib 的胖目录），
 // Phase 2 把 gen1 切到 --workspace 后二者分歧——单包胖-flat 构建拉入更大且非确定的依赖闭包
-// （目录扫描顺序非确定，见 common-pitfalls §1）→ gen2>gen1 且逐次漂移。改为二者同路径后，
+// （目录扫描顺序非确定，见加载顺序确定性规则）→ gen2>gen1 且逐次漂移。改为二者同路径后，
 // 测试回到真正的「driver 复现自身」不动点语义。
 int _testSelfHostByteIdentical(string root, string vm, string[] members, string profile) {
     Console.WriteLine("");
