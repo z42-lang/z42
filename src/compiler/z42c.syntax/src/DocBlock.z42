@@ -1,0 +1,34 @@
+// doc 注释块：词法器把行首的 `///`（外部，挂到紧随其后的声明）与 `//!`（内部，挂到所在文件的命名空间）
+// 收进旁挂表，不进 token 流——表达式与语句解析完全不受影响。连续的同种行合成一块；空行、普通注释行
+// 或代码都会把块断开。`////`（四个及以上斜杠）与写在代码之后的 `///` 都是普通注释。
+//
+// 挂靠在解析期完成：解析器在每个声明入口（前置 attribute 之前，或 attribute 与修饰符之间）按 token 下标
+// 认领 `NextTok` 等于该位置的块。没被认领的块即孤立块，由文档检查报告。本层只保存原文，不解析
+// Markdown 与 `@tag`。
+namespace Z42.Syntax;
+
+using Z42.Core;
+
+public sealed class DocBlock {
+    public static int Outer = 0;   // `///`
+    public static int Inner = 1;   // `//!`
+
+    public int    Kind;
+    public string Text;      // 去掉每行的 `///` / `//!` 前缀及其后一个空格，行间以 `\n` 连接
+    public int    LineCount;
+    public Span   Span;      // 首行前缀起点 → 末行行尾；Line / Column = 首行
+    public int    NextTok;   // 块后第一个 token 的下标（Eof 也算）：认领键
+    public bool   Claimed;
+
+    public DocBlock(int kind, string text, Span span, int nextTok) {
+        this.Kind = kind; this.Text = text; this.LineCount = 1; this.Span = span;
+        this.NextTok = nextTok; this.Claimed = false;
+    }
+
+    // 续一行：同种、紧接上一行、中间没有 token。
+    public void Append(string line, int end) {
+        this.Text = this.Text + "\n" + line;
+        this.LineCount = this.LineCount + 1;
+        this.Span.End = end;
+    }
+}

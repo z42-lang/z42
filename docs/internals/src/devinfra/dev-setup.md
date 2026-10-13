@@ -128,6 +128,7 @@ mkdir -p artifacts && cp -R <warm 树>/artifacts/xtask artifacts/
 | `z42c --dump-keywords` | 关键字表，一行一个（vscode 语法门拿它对账） |
 | `z42c --dump-tokens <f.z42>` | token 流 |
 | `z42c --dump-ast <f.z42>` | AST s-表达式 |
+| `z42c --dump-doc <f.z42>` | 每个声明挂到的 doc 注释（`<种类> <名字> = <原文>`），未认领的块记作 `orphan@<行>` |
 | `z42c --dump-bound <f.z42>` | 类型检查后的 Bound 树（含类型注解 + 诊断计数） |
 | `z42c --dump-ir <f.z42> [--opt-all]` | `.zasm` 风格的 IR 文本：与 `--emit-zbc` 同一条编译（`Z42_LIBS` 解析依赖、有错只报诊断不出 IR） |
 | `z42c --emit-zbc <f.z42> <out.zbc> [--opt-all]` | 单文件编到 `.zbc` |
