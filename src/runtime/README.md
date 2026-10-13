@@ -33,7 +33,7 @@
 | `src/jit/` | Cranelift JIT 后端，见 [`src/jit/README.md`](src/jit/README.md) |
 | `src/corelib/` | 内置函数（builtin）实现，统一入口 `invoke_builtin` 供 interp / JIT 调用（builtin ABI v2：`corelib/abi/`），见 [`src/corelib/README.md`](src/corelib/README.md) |
 | `src/gc/` | GC 子系统（`trait MagrGC` + 分代 / STW / 并发 / 增量 major），见 [`src/gc/README.md`](src/gc/README.md) |
-| `src/vm_context/` | `VmContext`：单个 VM 实例所有可变状态的唯一持有者（静态字段、type / 方法解析缓存、isa cache、cctor、资源登记、native 句柄表） |
+| `src/vm_context/` | `VmContext`：单个 VM 实例所有可变状态的唯一持有者（静态字段（`static_table.rs`：每字段一个地址稳定、读写无锁的单元）、type / 方法解析缓存、isa cache、cctor、资源登记、native 句柄表） |
 | `src/native/` | Tier 1 C ABI 运行时 + stdlib native 扩展加载，见 [`src/native/README.md`](src/native/README.md) |
 | `src/host/` | 嵌入 / 宿主 API（`z42_host.h` 的 Tier 1 C ABI 实现），见 [embedding.md](../../docs/internals/src/runtime/embedding.md) |
 | `src/pal/` | 平台抽象层（OS 相关 `#[cfg]` 分支集中处），见 [`src/pal/README.md`](src/pal/README.md) |

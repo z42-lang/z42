@@ -282,6 +282,9 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     /// **Override 契约**: implementations may `debug_assert!(new.is_heap_ref())`
     /// to detect contract violations. Phase 1 STW mark-sweep default is
     /// no-op; `ArcMagrGC` overrides it with generational card-marking.
+    ///
+    /// `slot` only identifies the written cell for the test observer (callers pass its byte
+    /// offset in the owner's field area); the barrier itself looks at `owner` and `new`.
     #[allow(unused_variables)]
     fn write_barrier_field(&self, owner: &Value, slot: usize, new: &Value) {}
 
