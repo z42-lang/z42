@@ -2,7 +2,7 @@
 
 namespace Z42TestReportTests;
 
-using Std.Test;   // TestReport / TestResult / BenchStats
+using Std.Harness;   // TestReport / TestResult / BenchStats
 
 // ── TestReport.toJson ───────────────────────────────────────────────────────
 

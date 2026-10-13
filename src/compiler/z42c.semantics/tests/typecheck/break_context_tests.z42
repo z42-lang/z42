@@ -6,7 +6,7 @@
 namespace Z42cSemanticsBreakContextTests;
 
 using Z42.Semantics;
-using Std.Test;
+using Std.Harness;
 
 // ── switch 臂内 break：合法（跳出 switch），不需要外层循环 ──────────
 [Test]

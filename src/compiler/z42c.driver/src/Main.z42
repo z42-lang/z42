@@ -7,7 +7,7 @@
 //                                          --opt-all = 按 release 全优化编（golden 的 opt_all sidecar 用）
 //   z42c build         <project.z42.toml>  编译整包 → dist/<name>.zpkg
 // 注：z42c 只编译，不跑测试。`test` / `bench` 是构建编排（build+run+report），宿主 = z42b
-//     （编排器），runner 逻辑住 z42.test 库。见 docs/design/toolchain/build-orchestrator.md
+//     （编排器），runner 逻辑住 z42.harness 库。见 docs/design/toolchain/build-orchestrator.md
 //     Decision #9 + retire-test-runner spec。
 namespace Z42.Driver;
 

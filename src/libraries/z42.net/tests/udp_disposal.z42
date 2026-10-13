@@ -3,7 +3,7 @@
 namespace Z42NetUdpDisposalTests;
 
 using Std.Net.Sockets;
-using Std.Test;
+using Std.Harness;
 
 [Test]
 void test_dispose_is_idempotent() {

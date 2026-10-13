@@ -4,7 +4,7 @@ namespace Z42IoBinaryVarintTests;
 
 using Std.IO;
 using Std.IO.Binary;
-using Std.Test;
+using Std.Harness;
 
 // Helpers: round-trip a value through a MemoryStream and return decoded.
 long roundTrip(long v) {

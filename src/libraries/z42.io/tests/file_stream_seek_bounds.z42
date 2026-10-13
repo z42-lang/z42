@@ -4,7 +4,7 @@
 namespace Z42IoFileStreamSeekBoundsTests;
 
 using Std.IO;
-using Std.Test;
+using Std.Harness;
 
 [Test]
 void test_seek_negative_absolute_throws() {

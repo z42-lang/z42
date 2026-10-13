@@ -4,7 +4,7 @@
 namespace Z42cSemanticsTypeCheckParamsTests;
 
 using Z42.Semantics;
-using Std.Test;
+using Std.Harness;
 
 [Test]
 void test_params_expanded_form_packs_trailing_args() {

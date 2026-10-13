@@ -3,7 +3,7 @@ namespace Std;
 // "基础集合契约" — 集合类型实现此接口表明它有标准的"大小 + 清空"操作。
 //
 // review.md S2.4 Phase 1（add-collection-contract-phase1, 2026-06-03）落地的
-// 第一个 trait-based test commons 基石。`Std.Test.Contracts.
+// 第一个 trait-based test commons 基石。`Std.Harness.Contracts.
 // BasicCollectionContract` 接收 `Func<IBasicCollection<int>>` 工厂跑通用
 // 断言，5 个 z42.collections 类（Queue/Stack/LinkedList/SortedSet/
 // PriorityQueue）实现该接口即可"零行加"获得契约覆盖。

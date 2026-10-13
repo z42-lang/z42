@@ -38,7 +38,7 @@ public class LinkedListNode<T> {
 }
 
 // add-collection-contract-phase1 (2026-06-03): implements IBasicCollection<T>
-// to opt into Std.Test.Contracts.BasicCollectionContract coverage.
+// to opt into Std.Harness.Contracts.BasicCollectionContract coverage.
 public class LinkedList<T> : IBasicCollection<T> where T: IEquatable {
     LinkedListNode<T> head;
     LinkedListNode<T> tail;

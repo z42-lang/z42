@@ -3,7 +3,7 @@
 // 各有独立失败路径。
 namespace Z42CoreEnumParseTests;
 
-using Std.Test;
+using Std.Harness;
 
 // 非连续值，含 gap，用于 IsDefined 的正反例。
 enum Color {

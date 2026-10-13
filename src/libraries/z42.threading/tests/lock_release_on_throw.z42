@@ -10,7 +10,7 @@
 namespace Z42ThreadingLockReleaseOnThrowTests;
 
 using Std.Threading;
-using Std.Test;
+using Std.Harness;
 
 public static class ThrowState {
     public static long Observed;

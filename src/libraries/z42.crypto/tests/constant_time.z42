@@ -3,7 +3,7 @@
 namespace Z42CryptoConstantTimeTests;
 
 using Std.Crypto;
-using Std.Test;
+using Std.Harness;
 
 [Test]
 void test_equal_arrays() {

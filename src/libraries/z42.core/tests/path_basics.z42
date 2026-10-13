@@ -4,7 +4,7 @@
 namespace Z42CorePathBasicsTests;
 
 using Std.IO;
-using Std.Test;
+using Std.Harness;
 
 // ── Separator 常量 ────────────────────────────────────────────────────────
 

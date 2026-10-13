@@ -1,4 +1,4 @@
-// Spec R5 + R4.B — z42.test 库本地测试（dogfooding）。
+// Spec R5 + R4.B — z42.harness 库本地测试（dogfooding）。
 //
 // 用 Std.Assert 测试 Std.Assert 自身：
 // - 通过路径不抛异常 → Outcome::Passed
@@ -6,7 +6,7 @@
 // - Assert.Skip 抛 SkipSignal → 用 [ShouldThrow<SkipSignal>] 验证（同）
 namespace Z42TestDogfood;
 
-using Std.Test;  // TestIO + Bencher
+using Std.Harness;  // TestIO + Bencher
 using Std.IO;    // Console.WriteLine / Error.WriteLine (TestIO capture targets)
                  // 先前漏 import，C# 宽松解析侥幸编过，z42c 严格下静默误编成 VCall-null（见 tasks.md
                  // tracked: z42c --emit-zbc 未解析 static 调用应清晰报 E0401 而非崩）。

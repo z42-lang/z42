@@ -13,7 +13,7 @@ using Z42.Syntax;
 using Z42.Core;
 using Z42.IR;
 using Z42.Emission;
-using Std.Test;
+using Std.Harness;
 
 // 辅助函数带 `ar` 前缀：写于自由函数按 ns 解析之前（resolve-free-functions-by-namespace 起已非必需，保留无害）。
 

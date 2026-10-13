@@ -6,7 +6,7 @@
 namespace Z42cSemanticsPatternTests;
 
 using Z42.Semantics;
-using Std.Test;
+using Std.Harness;
 
 // ── 属性形态解构声明：合法（裸绑定子模式）→ 无诊断 ──────────
 [Test]

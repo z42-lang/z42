@@ -1,5 +1,5 @@
 [project]
-name    = "z42.test"
+name    = "z42.harness"
 version = "0.1.0"
 kind    = "lib"
 

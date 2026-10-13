@@ -3,7 +3,7 @@ namespace Z42JsonSerializeTests;
 
 using Std.Json;
 using Std.Collections;
-using Std.Test;
+using Std.Harness;
 
 class Point {
     public int x;

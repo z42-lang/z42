@@ -11,7 +11,7 @@ namespace Z42cSemanticsFreeFuncNsTests;
 
 using Z42.IR;
 using Z42.Emission;
-using Std.Test;
+using Std.Harness;
 
 CompiledModuleZ[] ffBuild(string[] srcs, string[] files) {
     return IrDump.BuildPackage(srcs, files, srcs.Length, null, null, false);

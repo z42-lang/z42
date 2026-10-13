@@ -23,7 +23,7 @@ internal sealed class TestAttrEnforcer {
     //   R1 零接收者：顶层自由函数 或 static 方法      R4 非泛型
     //   R2 返回 void                                   R5 有方法体
     //   R3 无参数 —— 唯一例外：`[Benchmark]` 可取恰好一个 `Bencher` 形参（runner 建好传入，
-    //      见 z42.test `TestCase.Invoke`）。按短名做语法匹配，与 runner 认的形状一致。
+    //      见 z42.harness `TestCase.Invoke`）。按短名做语法匹配，与 runner 认的形状一致。
     internal void _passTestAttrEnforce(CompilationUnit cu) {
         int i = 0;
         while (i < cu.DeclCount) {
@@ -206,13 +206,13 @@ internal sealed class TestAttrEnforcer {
     }
 
     // 码映射：三个常量早已存在于 z42c.core（非本次新增）→ 可直接引用，无 F2 冷启动顾虑。
-    // `[Benchmark] void f(Bencher b)`：恰好一个形参，类型短名 `Bencher`（或全名 `Std.Test.Bencher`）。
+    // `[Benchmark] void f(Bencher b)`：恰好一个形参，类型短名 `Bencher`（或全名 `Std.Harness.Bencher`）。
     private bool _teIsBencherParam(MethodDecl md) {
         if (md.ParamCount != 1) { return false; }
         TypeExpr pt = md.Params[0].Type;
         if (!(pt is NamedType)) { return false; }
         string n = (pt as NamedType).Name;
-        return n == "Bencher" || n == "Std.Test.Bencher";
+        return n == "Bencher" || n == "Std.Harness.Bencher";
     }
 
     private string _teCode(string name) {

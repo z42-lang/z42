@@ -31,7 +31,7 @@ string _ensureTestAgent(string root) {
 // it through the single Runner path, generate a [Test] wrapper in the SAME
 // module that captures Main()'s stdout and asserts it equals the expected output
 // (or, when there is no expected file, just runs Main — Assert-self-validating).
-// Proven approach: combine golden source + injected `using Std.Test;` + appended
+// Proven approach: combine golden source + injected `using Std.Harness;` + appended
 // [Test] → one module with a [Test] the agent runs like any other.
 
 // Escape a string for embedding as a z42 double-quoted literal.
@@ -43,10 +43,10 @@ string _zEscape(string s) {
     return o;
 }
 
-// Build the combined golden+wrapper source. Injects `using Std.Test;` after the
+// Build the combined golden+wrapper source. Injects `using Std.Harness;` after the
 // `namespace ...;` line if present, else at the top; appends the [Test] wrapper.
 string _wrapGoldenSource(string src, bool hasExpected, string expected) {
-    string inject = "using Std.Test;\n";
+    string inject = "using Std.Harness;\n";
     string body;
     string[] lines = src.Split("\n");
     int nsIdx = -1;
@@ -65,8 +65,8 @@ string _wrapGoldenSource(string src, bool hasExpected, string expected) {
         }
         body = head + inject + tail;
     }
-    // Use short names (TestIO / Assert) via the injected `using Std.Test;` —
-    // fully-qualified `Std.Test.TestIO` parses as a field-access chain (→ Null).
+    // Use short names (TestIO / Assert) via the injected `using Std.Harness;` —
+    // fully-qualified `Std.Harness.TestIO` parses as a field-access chain (→ Null).
     string wrapper;
     if (hasExpected) {
         wrapper = "\n[Test] void __golden_check() {\n"

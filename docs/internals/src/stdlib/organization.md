@@ -56,7 +56,7 @@ stdlib 上的特化。
 | | `z42.crypto` | core, encoding, numerics |
 | | `z42.diagnostics` | core, io |
 | | `z42.json` | core, text, io |
-| | `z42.test` | core, io |
+| | `z42.harness` | core, io |
 | | `z42.toml` / `z42.yaml` | core, io |
 | **4** | `z42.threading` | core, diagnostics |
 | **5** | `z42.net` | core, io, encoding, random, crypto, threading, compression |
@@ -81,7 +81,7 @@ stdlib 上的特化。
 | 类别 | 声明 interop？ | 成员 |
 |---|---|---|
 | **① 语义汇聚核** | ✅ 全部执行基座 + 内核原语 | `z42.core` |
-| **② 可插拔工具 / 算法库** | ✅ 各库自持 | `z42.compression` / `z42.diagnostics` / `z42.test` / `z42.scripting` |
+| **② 可插拔工具 / 算法库** | ✅ 各库自持 | `z42.compression` / `z42.diagnostics` / `z42.harness` / `z42.scripting` |
 | **③ 纯脚本库** | ❌ 零 interop | 其余全部，含 **io / net / threading / json / text / crypto** |
 
 三类的角色：
@@ -135,7 +135,7 @@ stdlib 上的特化。
    - OS 熵 `__crypto_random_bytes` → `Std.Runtime.Entropy`（`core/src/Entropy.z42`）
 
    收敛手法：调用方改调那个唯一声明点，需要保住调用点写法时加一层本地转发——
-   `private static long __time_now_mono_ns() { return Clock.MonoNanos(); }`（`z42.test/src/Bencher.z42` 即此例）。
+   `private static long __time_now_mono_ns() { return Clock.MonoNanos(); }`（`z42.harness/src/Bencher.z42` 即此例）。
 
    模块加载同理：`__load_module`（并入）与 `__run_goldens_isolated`（隔离运行）只在
    `core/src/Runtime/ModuleLoader.z42` 声明；测试 runner 经它们与通用反射工作，不另绑 builtin。
@@ -186,7 +186,7 @@ stdlib 上的特化。
 |---|---|---|
 | **R2 domain 包** | 只依赖 core（或少量同深度包）；内容形成一个自然 domain；纯脚本 | 次级集合 → `z42.collections`；文本 → `z42.text`；编解码 → `z42.encoding`；PRNG → `z42.random` |
 | **R3 runtime 包** | 提供 OS / runtime 服务接口；**native 语义层在 core**，本包是纯脚本应用层 | 文件 / 流 / 进程 → `z42.io`；线程 / 锁 / channel → `z42.threading`；socket / HTTP → `z42.net` |
-| **R4 领域包** | 依赖 runtime 服务，提供特定领域高层抽象；多数纯脚本 | JSON → `z42.json`；测试运行时 → `z42.test`；日志 → `z42.diagnostics`；正则 → `z42.regex`；CLI → `z42.cli` |
+| **R4 领域包** | 依赖 runtime 服务，提供特定领域高层抽象；多数纯脚本 | JSON → `z42.json`；测试运行时 → `z42.harness`；日志 → `z42.diagnostics`；正则 → `z42.regex`；CLI → `z42.cli` |
 
 已经落在 core 而不是独立包的两处，别再提议搬出去：数学 libm 原语 `Std.Math`（随 CoreLib，等同
 `System.Math`）、日期时间 `Std.Time`（`core/src/Time/`）。未来的非原语数值类型（BigInteger / 矩阵）
@@ -242,7 +242,7 @@ stdlib 上的特化。
 
 - **类型只有 1–3 个方法** → 放已有包，避免 zpkg 碎片化。
 - **与现有包 80% 重合的 domain** → 合进去，用子命名空间区分（`Std.Collections.Concurrent`）。
-- **只是想分离测试** → 测试不该是独立 stdlib 包；用 `z42.test` + 用户工程的 test 目录。
+- **只是想分离测试** → 测试不该是独立 stdlib 包；用 `z42.harness` + 用户工程的 test 目录。
 - **不是 z42 官方功能** → 不进 `z42.<x>`，用户自己开包。
 - **新加的是「从某种源读 / 写」能力** → 实现一个 `: Stream` 适配器复用既有 operation，不开新包也不开
   一组 `XxxFromYyy` 接口，见 [API 设计准则](api-guidelines.md)。

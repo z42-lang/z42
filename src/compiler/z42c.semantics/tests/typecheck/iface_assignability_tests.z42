@@ -14,7 +14,7 @@
 // （对着真实 stdlib 的 `Std.IDisposable` 写）。两处缺一不可。
 namespace Z42cSemanticsIfaceAssignabilityTests;
 using Z42.Semantics;
-using Std.Test;
+using Std.Harness;
 
 // ── 正例：这些此前全部报 E0402 ──────────────────────────────────────────────
 

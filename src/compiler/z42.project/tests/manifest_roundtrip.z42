@@ -3,7 +3,7 @@
 namespace Z42ProjectRoundtripTests;
 
 using Z42.Project;
-using Std.Test;
+using Std.Harness;
 
 [Test]
 void test_project_manifest_roundtrip() {
@@ -162,7 +162,7 @@ void test_known_keys_audit_clean() {
                 + "[sources]\ninclude = [\"src/**/*.z42\"]\nexclude = []\n"
                 + "[build]\noutput_dir = \"o\"\ncache_dir = \"c\"\ndist_dir = \"d\"\nincremental = false\nhooks = \"h\"\ngenerated_dir = \"g\"\n"
                 + "[dependencies]\n\"z42.core\" = \"0.1.0\"\n\"x\" = { version = \"1\", path = \"../x\", deploy = \"sdk\" }\n"
-                + "[tests]\ninclude = [\"tests/*.z42\"]\nauto = false\n[tests.dependencies]\n\"z42.test\" = \"0.1.0\"\n"
+                + "[tests]\ninclude = [\"tests/*.z42\"]\nauto = false\n[tests.dependencies]\n\"z42.harness\" = \"0.1.0\"\n"
                 + "[[test]]\nname = \"t\"\nharness = false\nentry = \"M\"\ninclude = [\"t.z42\"]\ntest = true\n"
                 + "[[exe]]\nname = \"e\"\nentry = \"M\"\ninclude = [\"e.z42\"]\n"
                 + "[platform.desktop]\napphost = true\npublish_dir = \"p\"\nbin = \"bin/k\"\npayload = \"k.zpkg\"\nlink = \"dynamic\"\n"

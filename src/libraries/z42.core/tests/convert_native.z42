@@ -6,7 +6,7 @@
 // ToDouble(`__double_parse`)、ToString(object)(`__to_str`)。
 namespace Z42CoreConvertNativeTests;
 
-using Std.Test;
+using Std.Harness;
 
 // ── ToInt32 ────────────────────────────────────────────────────────────────
 [Test]

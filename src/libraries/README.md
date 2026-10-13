@@ -13,7 +13,7 @@ z42 标准库的 `.z42` 源文件。每个库是独立的 z42 包，通过 `xtas
 | `z42.io/` | IO 应用层：`Stream` 家族 / `TextReader`·`TextWriter` / `Process` / `Ansi` / 二进制读写 `Std.IO.Binary` |
 | `z42.text/` | `StringBuilder` / `Levenshtein` / `Strings` |
 | `z42.encoding/` | `Hex` / `Base64` / `Base64Url` / `Base32*` / `Utf8` / `Utf16` / `Utf32` |
-| `z42.test/` | 测试运行时：`TestIO` / `Bencher` / `TestRunner` / `Runner` / `TestReport` |
+| `z42.harness/` | 测试运行时：`TestIO` / `Bencher` / `TestRunner` / `Runner` / `TestReport` |
 | `z42.toml/` `z42.json/` `z42.yaml/` | TOML / JSON（含对象 serde）/ YAML 子集 reader·writer |
 | `z42.uri/` | URI 解析 + percent codec（RFC 3986 子集） |
 | `z42.regex/` | 回溯式正则（`Regex.Compile` / `Find` / `Replace` / `Split`） |

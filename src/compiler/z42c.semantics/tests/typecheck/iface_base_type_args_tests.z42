@@ -16,7 +16,7 @@
 //   · `test_nongeneric_base_unaffected` 是对照组，两边都该绿；它红了说明改动伤到了既有行为。
 namespace Z42cSemanticsIfaceBaseTypeArgsTests;
 using Z42.Semantics;
-using Std.Test;
+using Std.Harness;
 
 // ── 消费端①：满足性校验 ───────────────────────────────────────────────
 

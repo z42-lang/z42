@@ -3,7 +3,7 @@
 
 namespace Z42RegexBench;
 
-using Std.Test;
+using Std.Harness;
 using Std.Regex;
 
 [Benchmark]

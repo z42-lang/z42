@@ -26,7 +26,7 @@
 
 namespace Z42TestSkipPlatformDemo;
 
-using Std.Test;
+using Std.Harness;
 
 // ── Per-platform: skipped iff host == <NAME>; otherwise runs and passes ──
 

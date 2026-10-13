@@ -1,9 +1,9 @@
 // add-priority-queue (2026-05-27): PriorityQueue<T> min-heap.
 namespace Z42CollectionsPriorityQueueTests;
 
-using Std.Test.Contracts;
+using Std.Harness.Contracts;
 using Std.Collections;
-using Std.Test;
+using Std.Harness;
 
 // add-collection-contract-phase1 (2026-06-03): shared IBasicCollection
 // invariants on PriorityQueue<int>.

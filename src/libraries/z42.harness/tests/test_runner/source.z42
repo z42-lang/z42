@@ -1,10 +1,10 @@
 using Std.IO;
-// Test: z42.test v0 TestRunner (add-z42-test-v0, 2026-04-27)
+// Test: z42.harness v0 TestRunner (add-z42-test-v0, 2026-04-27)
 //
 // 演示 imperative TestRunner 模式：Begin / try-catch / Fail / Summary。
 // 同时覆盖 pass 和 fail 路径，行为锁定在 expected_output.txt。
 
-using Std.Test;
+using Std.Harness;
 
 void Main() {
     var t = new TestRunner("DemoSuite");

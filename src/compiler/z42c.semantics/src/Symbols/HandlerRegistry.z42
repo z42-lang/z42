@@ -34,7 +34,7 @@ public static class HandlerRegistry {
     // ── 三路 kind 判定（替换 AttributeSynth._isUserAttr）────────────────────────────────────
     // 三路：Native / Suppress / Deprecated / Record = directive（豁免后缀、不合成工厂）；`[ModuleInit]` = handler
     // （编译期聚合成包级产物）；其余全部 = store-meta（按 D8 后缀展开解析成 `<name>Attribute` 类、合成反射工厂）。
-    // 测试家族（`[Test]` / `[Benchmark]` / `[Skip]` …）是 store-meta：类在 z42.test（`Std.Test`，`TestAttributes.z42`），
+    // 测试家族（`[Test]` / `[Benchmark]` / `[Skip]` …）是 store-meta：类在 z42.harness（`Std.Harness`，`TestAttributes.z42`），
     // runner 在运行期反射读回；编译期校验仍按名字进行（`IsTestHandlerAttr` / `IsTestKindAttr`，见 TestAttrEnforcer）。
     public static int KindOf(string name) {
         if (HandlerRegistry.IsDirectiveAttr(name)) { return AttrKind.Directive; }
@@ -133,7 +133,7 @@ public static class HandlerRegistry {
     }
 
     // ── 测试家族的名字表（8 名）──────────────────────────────────────────────────────────────
-    // 这些 attribute 本身是普通 store-meta 类（z42.test `TestAttributes.z42`）；名字表只服务编译期：
+    // 这些 attribute 本身是普通 store-meta 类（z42.harness `TestAttributes.z42`）；名字表只服务编译期：
     // 校验（TestAttrEnforcer）按名字认它们。
     public static bool IsTestHandlerAttr(string name) {
         if (HandlerRegistry.IsTestKindAttr(name)) { return true; }

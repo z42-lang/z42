@@ -1,6 +1,6 @@
 namespace Z42TestRunnerExitCodeTests;
 
-using Std.Test;
+using Std.Harness;
 
 // ── error-on-zero-discovered-tests ──────────────────────────────────────────
 // 「一条测试都没发现」必须判红：否则 attribute 拼错 / glob 漏文件 / 测试被改名，

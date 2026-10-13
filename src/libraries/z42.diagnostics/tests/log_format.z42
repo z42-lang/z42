@@ -5,7 +5,7 @@ namespace Z42DiagnosticsLogFormatTests;
 using Std.IO;
 using Std.Time;
 using Std.Diagnostics;
-using Std.Test;
+using Std.Harness;
 
 // ── Helpers ───────────────────────────────────────────────────────────
 

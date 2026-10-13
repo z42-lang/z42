@@ -1,4 +1,4 @@
-namespace Std.Test.Contracts;
+namespace Std.Harness.Contracts;
 
 // review.md S2.4 — trait-based test commons (Phase 1 2026-06-03
 // add-collection-contract-phase1; Phase 2 2026-06-11 add-collection-contract-phase2).

@@ -4,7 +4,7 @@
 namespace Z42cSemanticsStaticPropertyTests;
 
 using Z42.Semantics;
-using Std.Test;
+using Std.Harness;
 
 // ── 静态 get-only auto 属性：本类静态 ctor 内写，合法（裸名 / 限定名）────────
 [Test]

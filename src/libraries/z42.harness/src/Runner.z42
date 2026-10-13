@@ -9,7 +9,7 @@
 //
 // 输出格式：`format` 为 "pretty"（缺省，PASS/FAIL/SKIP 行 + Result 汇总）或 "json"（单个结构化
 // `TestReport`，benchmark 条目带从其输出解析出的 `bench_stats`）。
-namespace Std.Test;
+namespace Std.Harness;
 
 using Std.IO;
 

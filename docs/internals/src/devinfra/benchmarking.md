@@ -13,7 +13,7 @@ benchmark 基础设施回答一个问题：**这次改动让 z42 变慢了吗？
 | tier | 工具 | 位置 | 粒度 | 进 CI 门禁 |
 |---|---|---|---|---|
 | **z42 e2e** | hyperfine + 自建 harness | `src/benches/scenarios/` + `xtask bench` | 整程序 wall-clock（VM 启动 + stdlib 加载 + 执行），ms 级 | ✅ 硬门禁（只测 `--tier gate`）|
-| **z42 micro** | `[Benchmark]` + `Std.Test.Bencher`（z42b 派发）| 各 lib 的 `benches/*_bench.z42` | 单操作（`String.Replace` / `SortedSet.Add` …），ns 级 | ✅ 硬门禁（`bench --micro-diff` + 可疑即复测）|
+| **z42 micro** | `[Benchmark]` + `Std.Harness.Bencher`（z42b 派发）| 各 lib 的 `benches/*_bench.z42` | 单操作（`String.Replace` / `SortedSet.Add` …），ns 级 | ✅ 硬门禁（`bench --micro-diff` + 可疑即复测）|
 | **Rust micro** | criterion | `src/runtime/benches/gc_cycle_bench.rs` | VM 内部热路径（GC cycle / minor / sweep / alloc）| ⚠️ **只打印、不判红**（仅 `src/runtime` 有非文档改动时才测）|
 
 e2e 捕获全管线回归（启动开销 / dispatch / 整体吞吐）；micro 把回归定位到具体函数、守 stdlib 热路径。

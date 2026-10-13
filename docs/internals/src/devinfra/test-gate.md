@@ -122,7 +122,7 @@ fixture、debug VM 跑 `main.zpkg`——跨包 dispatch 的 debug 断言覆盖�
 | `versions` | `scripts/versions.toml` 与它的投影文件一致：`src/runtime/Cargo.toml` 的 workspace 版本、Android `build.gradle.kts` 的 minSdk / compileSdk、iOS harness `Package.swift` 的平台下限。只比文本、不看本机装了什么（那是 `xtask setup check`） | 纯文本扫描 < 1 s |
 
 **`stdlib [Benchmark]` 为什么必须在 gate 里**：bench 语料若只靠 `bench-pr.yml` 看门，
-而那个 job **不在分支保护的 required 列表里**。实例：一次把 `Failure.z42` 搬出 `z42.test` 的改动让
+而那个 job **不在分支保护的 required 列表里**。实例：一次把 `Failure.z42` 搬出 `z42.harness` 的改动让
 14/19 个 bench 文件当场跑不起来，门红了、PR 照合，此后连红 3 个 PR 无人过问——**会红但不挡人的门
 等价于没有门**。把它提进 required 不可行：`bench-pr.yml` 是 path-filtered，纯文档 PR 上根本不触发
 ⇒ required check 恒 pending ⇒ PR 永远合不了。正确的收口是拆两层：「语料能不能跑」是确定性事实，
@@ -370,7 +370,7 @@ verbosity ≥ 4 才输出，而 CI 跑的是默认 verbosity——于是 `xtask 
 
 ## 8. 反射 runner 的输出格式（`z42b test` / `z42b bench`）
 
-stdlib 与 compiler stage 驱动的 `Std.Test.Runner` 支持两种输出，经 `--format` 选择（默认 `pretty`）：
+stdlib 与 compiler stage 驱动的 `Std.Harness.Runner` 支持两种输出，经 `--format` 选择（默认 `pretty`）：
 
 - **pretty**：逐条 `PASS` / `FAIL` / `SKIP` + `Result:` 汇总，供人眼与 gate 退出码判定。
 - **json**：单个 `TestReport` 对象 `{tool, module, summary{total,passed,failed,skipped}, results[]}`；
@@ -380,9 +380,9 @@ stdlib 与 compiler stage 驱动的 `Std.Test.Runner` 支持两种输出，经 `
 **bench 结构化数据流**：benchmark 经 `Bencher.printSummary` 打出一行
 `bench[<label>] min=… median=… max=…` → json 模式下 `Runner` 用 `TestIO.captureStdout` 捕获该
 benchmark 的 stdout → `BenchStats.parse` 解析为结构化字段（malformed → `null`，不降级 sentinel）
-→ 汇入 `TestReport`（手写 JSON，因为 `z42.test` 是基础库、刻意不依赖 `z42.json`）。
+→ 汇入 `TestReport`（手写 JSON，因为 `z42.harness` 是基础库、刻意不依赖 `z42.json`）。
 格式契约的两端——产出端 `Bencher.printSummary` ↔ 消费端 `BenchStats.parse`，同住
-`src/libraries/z42.test/`——改格式须同提交，`tests/bench_stats.z42` 兜底防漂移。
+`src/libraries/z42.harness/`——改格式须同提交，`tests/bench_stats.z42` 兜底防漂移。
 pretty 模式不捕获、逐字节不变。
 
 ## 9. 边界与限制

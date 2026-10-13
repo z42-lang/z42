@@ -16,7 +16,7 @@ namespace Std.Collections;
 // `PriorityQueue<TElement, TPriority>` is deferred — wait for a concrete
 // use case that needs the indirection.
 // add-collection-contract-phase1 (2026-06-03): implements IBasicCollection<T>
-// to opt into Std.Test.Contracts.BasicCollectionContract coverage.
+// to opt into Std.Harness.Contracts.BasicCollectionContract coverage.
 public class PriorityQueue<T> : IBasicCollection<T> where T: IComparable {
     T[] items;
     int count;

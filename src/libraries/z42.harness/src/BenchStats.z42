@@ -1,7 +1,7 @@
-namespace Std.Test;
+namespace Std.Harness;
 
 
-// `Std.Test.BenchStats` — structured form of a benchmark's summary line
+// `Std.Harness.BenchStats` — structured form of a benchmark's summary line
 // (rebuild-bench-structured-output). The runner's json mode parses this out of a
 // benchmark's captured stdout and surfaces it as `TestResult.bench_stats`.
 //

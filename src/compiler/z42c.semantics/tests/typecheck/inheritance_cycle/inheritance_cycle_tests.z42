@@ -5,7 +5,7 @@
 namespace Z42cSemanticsInheritanceCycleTests;
 
 using Z42.Emission;
-using Std.Test;
+using Std.Harness;
 
 string[] icDiags(string[] srcs) {
     string[] files = new string[srcs.Length];

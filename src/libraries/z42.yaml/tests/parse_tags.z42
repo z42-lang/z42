@@ -3,7 +3,7 @@
 namespace Z42YamlParseTagsTests;
 
 using Std.Yaml;
-using Std.Test;
+using Std.Harness;
 
 // ── !!str: force scalar to stay as string ───────────────────────────────
 

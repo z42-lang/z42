@@ -133,7 +133,7 @@ int _releaseGuardDir(string dir) {
     return bad;
 }
 
-// `<lib>.test.<unit>.zpkg` / `<lib>.bench.<unit>.zpkg`：`test` / `bench` 段后面还有段。库 `z42.test.zpkg` 本身不算。
+// `<lib>.test.<unit>.zpkg` / `<lib>.bench.<unit>.zpkg`：`test` / `bench` 段后面还有段。库 `z42.harness.zpkg` 本身不算。
 bool _isHarnessZpkg(string name) {
     string[] seg = name.Substring(0, name.Length - 5).Split(".");
     int i = 0;

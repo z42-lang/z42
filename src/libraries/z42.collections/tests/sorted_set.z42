@@ -1,9 +1,9 @@
 // extend-z42-collections (2026-05-17): SortedSet<T> tests.
 namespace Z42CollectionsSortedSetTests;
 
-using Std.Test.Contracts;
+using Std.Harness.Contracts;
 using Std.Collections;
-using Std.Test;
+using Std.Harness;
 
 // add-collection-contract-phase1 (2026-06-03): shared IBasicCollection
 // invariants on SortedSet<int>.

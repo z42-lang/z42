@@ -10,7 +10,7 @@
 namespace Z42ThreadingSyncSemanticsEdgesTests;
 
 using Std.Threading;
-using Std.Test;
+using Std.Harness;
 
 public class Item {
     public long Seq;

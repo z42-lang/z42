@@ -105,7 +105,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | 0.3.10 | byte-identical CI gate 全 7 子系统 7 日零飘移 + compile-perf gate（median ≤3× / P99 ≤5×）启用 | | |
 | 0.3.11 | **Boxing 机制**（方案 A 类型系统层）：prim→object 隐式装箱（Value 已是 tagged union → codegen no-op，零分配）+ object→prim 受检拆箱（复用 Convert）。实证：编译器侧（GS6 赋值）已存在，整改动 = 运行期 Bool 拆箱恒等 + golden + 文档。**无 box/unbox IR、无格式 bump**。见 [internals: struct-value-semantics.md](internals/src/runtime/struct-value-semantics.md) | 🟢 实现完成（add-boxing-conversions，待归档）| |
 | 0.3.12 | **反射完整化**：~~Method.Invoke（非泛型）~~ ✅ + ~~Type.GetType(fqn)~~ ✅（add-method-invoke-non-generic；builtin 复用 exec_function，异常原类型传播 interp+jit；Activator 无参延后）‖ ~~IsEnum~~ ✅（2026-07-09）‖ ~~嵌套泛型 GetGenericArguments~~ ✅（2026-07-23 add-reflection-nested-generic-args，方案 A：z42c 发括号实参串 + runtime 递归解析，无格式 bump / TypeofInstr 接口不变）‖ ~~接口成员枚举~~ ✅（2026-07-20 add-interface-member-reflection，纯 runtime surface zbc 1.28 接口方法块）| ✅ 反射完整化收口（非泛型 Invoke/GetType/IsEnum/嵌套泛型 args/接口成员枚举 全落地；泛型 Invoke/MakeGenericType/Activator<T> 属 0.4.x G） | |
-| 0.3.13 | **test-runner 删除**：z42.test 加 TestRunner/BenchRunner（反射驱动 [Test]/[Benchmark] 发现）+ z42b `test`/`bench` verb + 退役 Rust binary（同替两者）‖ **CI 三平台模拟器**：WASM(Playwright) / iOS Simulator(`xcodebuild -destination`) / Android(emulator-runner+KVM) → JUnit → GitHub Checks（stdlib ‖ toolchain 双锁并行）| | |
+| 0.3.13 | **test-runner 删除**：z42.harness 加 TestRunner/BenchRunner（反射驱动 [Test]/[Benchmark] 发现）+ z42b `test`/`bench` verb + 退役 Rust binary（同替两者）‖ **CI 三平台模拟器**：WASM(Playwright) / iOS Simulator(`xcodebuild -destination`) / Android(emulator-runner+KVM) → JUnit → GitHub Checks（stdlib ‖ toolchain 双锁并行）| | |
 | 0.3.14 | **workload B1**（命令发现：launcher 扫目录 → Std.Cli 树合并）+ **B2**（workload 包格式 + `z42 workload install/list/remove`）| | |
 | ~~0.3.15~~ | ~~**REPL capstone**~~ → **上移 0.4.0**（2026-07-15，与 Playground 同批作产品能力；见 0.4.x 段模块整合表）| | |
 | 0.3.16 | 收尾：z42c-selfhost 下全 dotnet/xtask test 绿 + soak + A perf delta report | | |
@@ -332,7 +332,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | # | 版本 | 问题 |
 |:--:|:----:|-----|
 | Q1 | 0.3.3 | GC v1 放 0.3 还是延后到 0.8 与多线程一起？（暂定方案：0.3）|
-| Q2 | 0.4.6 | `z42.test` 注解风格：`[Test]`（C#）vs `test "name" {}`（Zig）？（推荐 C# 风）|
+| Q2 | 0.4.6 | `z42.harness` 注解风格：`[Test]`（C#）vs `test "name" {}`（Zig）？（推荐 C# 风）|
 | Q3 | 0.5.4 | Trait 与 interface 是否完全等价？同一类型可同时实现两者？|
 | Q4 | 0.6.0 | 闭包变量捕获：值捕获 vs 引用捕获 vs 显式标注？|
 | Q5 | 0.6.3 | 引入 `let` 后是否提供 `var → let` codemod？|
@@ -571,7 +571,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 > bundle manifest 为缝。**①（2026-08-29）**：on-device test-agent 迁入按需下载能力 workload
 > `workload/test/`（取消独立 testhost 目录）。**②a（2026-08-29 PR #331）**：`z42b test <toml>`
 > compile-then-test。**②b（wire-z42b-embedded-test，2026-08-29）**：`z42b test <manifest> --rid host`
-> in-process 跑 bundle（共享核 `Std.Test.BundleRunner`，agent 与 z42b 共用）+ `--rid <device>` 组装
+> in-process 跑 bundle（共享核 `Std.Harness.BundleRunner`，agent 与 z42b 共用）+ `--rid <device>` 组装
 > `{app,libs,bundle}` deployable；`xtask test app desktop` 委托 z42b。机制 SoT =
 > [test-pipeline.md](internals/src/devinfra/test-pipeline.md)。剩余：
 

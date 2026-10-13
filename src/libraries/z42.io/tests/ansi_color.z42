@@ -3,7 +3,7 @@
 namespace Z42IoAnsiColorTests;
 
 using Std.IO;
-using Std.Test;
+using Std.Harness;
 
 // Build the ESC ([0x1B]) string once per test (z42 string literals
 // don't have a hex escape, so we go via String.FromChars).

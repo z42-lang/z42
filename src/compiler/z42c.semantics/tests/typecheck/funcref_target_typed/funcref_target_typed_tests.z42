@@ -9,7 +9,7 @@ namespace Z42cFuncrefTargetTypedTests;
 
 using Z42.IR;
 using Z42.Emission;
-using Std.Test;
+using Std.Harness;
 
 CompiledModuleZ[] frBuild(string src) {
     string[] srcs = new string[1]; srcs[0] = src;

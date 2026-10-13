@@ -26,7 +26,7 @@
 namespace Z42cSemanticsConstraintParamRefTests;
 
 using Z42.Semantics;
-using Std.Test;
+using Std.Harness;
 
 // 公共前缀：接口链 IBase ← IDerived、实现者 C、不相关类 D、类链 B ← S。
 // `Pair<T, U> where U : T` = 被测形态本身。

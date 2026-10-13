@@ -12,7 +12,7 @@
 // custom ToString.
 namespace Z42CoreExceptionTypesTests;
 
-using Std.Test;
+using Std.Harness;
 
 // ---- leaf construction + ToString (every previously-untested leaf type) ----
 

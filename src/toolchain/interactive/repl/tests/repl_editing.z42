@@ -4,7 +4,7 @@
 namespace ReplEditingTests;
 
 using Std.Repl;
-using Std.Test;
+using Std.Harness;
 
 void expectEdit(string expected, string key, string line, int pos) {
     Assert.Equal(expected, ReplEditing.KeyEdit(key, line, pos));

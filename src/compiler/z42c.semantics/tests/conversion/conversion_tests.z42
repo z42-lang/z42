@@ -2,7 +2,7 @@
 namespace Z42cSemanticsConversionTests;
 
 using Z42.Semantics;
-using Std.Test;
+using Std.Harness;
 
 // 便捷：分类 prim 对（无需 symbols 上下文）。
 int _kind(string from, string to) {

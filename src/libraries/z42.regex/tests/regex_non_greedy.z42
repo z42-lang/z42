@@ -4,7 +4,7 @@
 namespace Z42RegexNonGreedyTests;
 
 using Std.Regex;
-using Std.Test;
+using Std.Harness;
 
 // ── *? (lazy star) ──────────────────────────────────────────────────────
 

@@ -3,7 +3,7 @@
 namespace Z42cEmissionSigTypeNameTests;
 
 using Z42.Emission;
-using Std.Test;
+using Std.Harness;
 
 string _hdr(string src, string fn) {
     string d = IrDump.DumpFunc(src, fn);

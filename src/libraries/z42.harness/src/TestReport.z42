@@ -1,4 +1,4 @@
-namespace Std.Test;
+namespace Std.Harness;
 
 
 // Per-entry outcome of a reflective test/bench run (rebuild-bench-structured-output).
@@ -21,7 +21,7 @@ public class TestResult {
     }
 }
 
-// JSON report serialization for the runner's `--format json` mode. z42.test has no
+// JSON report serialization for the runner's `--format json` mode. z42.harness has no
 // dependencies (foundational lib), so JSON is hand-rolled rather than via z42.json.
 // Contract (rebuild-bench-structured-output):
 //
