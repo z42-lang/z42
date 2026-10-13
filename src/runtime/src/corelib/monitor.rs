@@ -73,6 +73,8 @@ fn me() -> ThreadId {
 }
 
 /// 非持有者 `Exit` / `Wait`：.NET `Monitor.Exit` / `Wait` 的异常与原文。
+#[cold]
+#[inline(never)]
 fn not_held() -> BuiltinError {
     BuiltinError::Exception {
         class: "Std.Threading.SynchronizationLockException",
@@ -81,6 +83,8 @@ fn not_held() -> BuiltinError {
 }
 
 /// 同线程再次 `Enter`：.NET 不可重入锁（`ReaderWriterLockSlim` 的 NoRecursion 策略）的异常。
+#[cold]
+#[inline(never)]
 fn recursion() -> BuiltinError {
     BuiltinError::Exception {
         class: "Std.Threading.LockRecursionException",
@@ -222,14 +226,22 @@ pub(crate) fn monitor_arg(h: &Value) -> Result<Arc<Monitor>, BuiltinError> {
 /// 句柄里的 `Arc<Monitor>`，借用而不克隆：不阻塞的路径（`exit` / `try_enter` / `enter` 的快路径）
 /// 用它，省掉一对跨线程争用同一缓存行的引用计数原子操作；要阻塞时 [`Monitor::begin_enter`] /
 /// [`Monitor::begin_wait`] 自己克隆一份交给 park 闭包（D4 第 3 条）。
+#[inline]
 pub(crate) fn monitor_ref(h: &Value) -> Result<&Arc<Monitor>, BuiltinError> {
+    if let Value::Object(rc) = h {
+        if let NativeData::Monitor(m) = rc.borrow().native() {
+            return Ok(m);
+        }
+    }
+    Err(not_a_monitor(h))
+}
+
+#[cold]
+#[inline(never)]
+fn not_a_monitor(h: &Value) -> BuiltinError {
     match h {
-        Value::Object(rc) => match rc.borrow().native() {
-            NativeData::Monitor(m) => Ok(m),
-            _ => Err(BuiltinError::Argument("The object is not a monitor handle (MonitorNative.New). (Parameter 'monitor')".into())),
-        },
-        Value::Null => Err(BuiltinError::ArgumentNull("Value cannot be null. (Parameter 'monitor')".into())),
-        _ => Err(BuiltinError::Argument("The object is not a monitor handle (MonitorNative.New). (Parameter 'monitor')".into())),
+        Value::Null => BuiltinError::ArgumentNull("Value cannot be null. (Parameter 'monitor')".into()),
+        _ => BuiltinError::Argument("The object is not a monitor handle (MonitorNative.New). (Parameter 'monitor')".into()),
     }
 }
 
