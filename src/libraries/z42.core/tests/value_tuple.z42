@@ -3,7 +3,7 @@
 // **合成值语义**：== / != 相等、GetHashCode、以及高 arity（4..8）构造与 Item 访问。
 namespace Z42CoreValueTupleTests;
 
-using Std.Test;
+using Std.Harness;
 
 // ── 值相等（合成 == / !=）─────────────────────────────────────────────────
 

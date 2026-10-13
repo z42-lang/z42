@@ -7,7 +7,7 @@ namespace Z42CryptoMd5VectorsTests;
 
 using Std.Encoding;
 using Std.Crypto;
-using Std.Test;
+using Std.Harness;
 
 // ── RFC 1321 §A.5 ────────────────────────────────────────────────────────
 

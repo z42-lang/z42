@@ -4,7 +4,7 @@ namespace Z42cPackageWireTests;
 using Z42.Package;
 using Z42.IR;
 using Z42.IR.BinaryFormat;
-using Std.Test;
+using Std.Harness;
 
 // 手搓一个最小 .zsym：头（ZPK\0 / 版本 / flags=SymOnly / 3 段）+ 目录 + STRS + MDBG(0 模块) + BLID(16B)。
 // segIdx = STRS 里唯一串引用的段索引（段字典只有 1 段 ⇒ 0 合法，其余越界）。

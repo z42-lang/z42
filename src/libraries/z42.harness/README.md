@@ -1,4 +1,4 @@
-# z42.test
+# z42.harness
 
 ## 职责
 
@@ -6,7 +6,7 @@ z42 的测试库，两半：
 - **写测试用**：`TestIO`（console 捕获）、`Bencher`（基准测量）、`TestRunner`（命令式 runner）、集合契约测试；
 - **跑测试用**：`Runner` / `BundleRunner`（运行期反射发现 `[Test]` / `[Benchmark]` 并调度）、`TestReport`（pretty / JSON 报告），由 [z42b](../../toolchain/builder/)（`z42b test` / `z42b bench`）与设备端 test-agent 调用。
 
-**不在本包**：`Assert`（及 `TestFailure` / `SkipSignal`）在 **z42.core**（`src/Assert.z42`、`src/Failure.z42`），prelude 可见——断言不只测试代码在用。测试 attribute 类（`TestAttribute` / `BenchmarkAttribute` / `SkipAttribute` / `ShouldThrowAttribute<E>` …）**在本包**（`src/TestAttributes.z42`），测试文件需写 `using Std.Test;`。
+**不在本包**：`Assert`（及 `TestFailure` / `SkipSignal`）在 **z42.core**（`src/Assert.z42`、`src/Failure.z42`），prelude 可见——断言不只测试代码在用。测试 attribute 类（`TestAttribute` / `BenchmarkAttribute` / `SkipAttribute` / `ShouldThrowAttribute<E>` …）**在本包**（`src/TestAttributes.z42`），测试文件需写 `using Std.Harness;`。
 attribute 的写法见 `docs/reference/`。
 
 ## 功能索引
@@ -30,7 +30,7 @@ attribute 的写法见 `docs/reference/`。
 ```z42
 namespace MyTests;
 using Std;
-using Std.Test;
+using Std.Harness;
 using Std.IO;
 
 [Test]
@@ -65,7 +65,7 @@ class Counter { public int n; public Counter() { this.n = 0; } }
 命令式 runner（无 attribute，`Main` 返回失败计数作为 exit code）：
 
 ```z42
-using Std.Test;
+using Std.Harness;
 
 void Main() {
     var t = new TestRunner("MyTests");
@@ -75,8 +75,8 @@ void Main() {
 }
 ```
 
-> **`using Std.Test;` 必写，别靠搭便车**。`Assert` 在 z42.core（prelude，免 `using`）；但测试 attribute 与 `Bencher` / `BenchHelpers` /
-> `TestIO` / `BenchStats` 在 z42.test 的 `Std.Test` 命名空间，必须显式 `using Std.Test;`。
+> **`using Std.Harness;` 必写，别靠搭便车**。`Assert` 在 z42.core（prelude，免 `using`）；但测试 attribute 与 `Bencher` / `BenchHelpers` /
+> `TestIO` / `BenchStats` 在 z42.harness 的 `Std.Harness` 命名空间，必须显式 `using Std.Harness;`。
 > 包激活是**整包**粒度的，只写 `using Std;` 时 `Bencher` 可能编译期静默解析失败、运行期才炸
 > （`VCall: … .<unknown>.get_WarmupIters not found`）。机制见
 > [project-model.md「激活是整包粒度」](../../../docs/internals/src/compiler/project-model.md)。
@@ -90,7 +90,7 @@ void Main() {
 ## 如何测试验证
 
 ```bash
-xtask test stdlib z42.test          # 本包 [Test]（含执行器：报告形状、退出码、bundle 能力门）
+xtask test stdlib z42.harness          # 本包 [Test]（含执行器：报告形状、退出码、bundle 能力门）
 xtask test stdlib mylib             # 跑某个库的 [Test]（默认 in-process VM，保留 [Setup]/[Teardown]）
 xtask test stdlib --jobs 0 mylib    # 并行：0 = available_parallelism；N>1 走 subprocess，[Setup]/[Teardown] 不运行
 ```

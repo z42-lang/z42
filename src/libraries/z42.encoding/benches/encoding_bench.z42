@@ -3,7 +3,7 @@
 
 namespace Z42EncodingBench;
 
-using Std.Test;
+using Std.Harness;
 using Std.Encoding;
 
 // 256-byte deterministic payload shared by the encode/decode benches.

@@ -1,7 +1,7 @@
 // add-guid-lazy-version (2026-09-03): Std.Guid 单元测试。
 namespace Z42GuidTests;
 
-using Std.Test;
+using Std.Harness;
 
 [Test]
 void test_empty() {

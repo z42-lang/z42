@@ -1,7 +1,7 @@
 namespace Std.Runtime;
 
 // The single declaration site for the VM's clock intrinsics
-// (consolidate-core-intrinsics, A1). z42.io / z42.net / z42.test
+// (consolidate-core-intrinsics, A1). z42.io / z42.net / z42.harness
 // delegate here rather than re-declaring the externs (rule: 单一声明点).
 //
 // Minimal by design: only the two raw primitives. Semantic wrappers

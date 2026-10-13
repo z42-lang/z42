@@ -3,7 +3,7 @@
 
 namespace Z42UriBench;
 
-using Std.Test;
+using Std.Harness;
 using Std.Uri;
 
 [Benchmark]

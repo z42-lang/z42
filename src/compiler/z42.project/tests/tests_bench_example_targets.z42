@@ -4,7 +4,7 @@
 namespace Z42ProjectTargetsTests;
 
 using Z42.Project;
-using Std.Test;
+using Std.Harness;
 
 // 段缺失 → kind 专属默认 include + auto=true + 无 dev-deps；无显式目标。
 [Test]
@@ -27,7 +27,7 @@ void test_target_sections_default_when_absent() {
 // [tests] include/exclude/auto + [tests.dependencies] dev-deps。
 [Test]
 void test_tests_section_include_exclude_auto_deps() {
-    string toml = "[tests]\ninclude = [\"it/**/*.z42\"]\nexclude = [\"it/_skip/**\"]\nauto = false\n\n[tests.dependencies]\n\"z42.test\" = \"0.1.0\"\n";
+    string toml = "[tests]\ninclude = [\"it/**/*.z42\"]\nexclude = [\"it/_skip/**\"]\nauto = false\n\n[tests.dependencies]\n\"z42.harness\" = \"0.1.0\"\n";
     ProjectManifest m = ManifestLoader.ParseText(toml);
     Assert.Equal(1, m.TestsSection.IncCount);
     Assert.Equal("it/**/*.z42", m.TestsSection.Include[0]);
@@ -35,7 +35,7 @@ void test_tests_section_include_exclude_auto_deps() {
     Assert.Equal("it/_skip/**", m.TestsSection.Exclude[0]);
     Assert.Equal(false, m.TestsSection.Auto);
     Assert.Equal(1, m.TestsSection.DepCount);
-    Assert.Equal("z42.test", m.TestsSection.Deps[0].Name);
+    Assert.Equal("z42.harness", m.TestsSection.Deps[0].Name);
     Assert.Equal("0.1.0", m.TestsSection.Deps[0].Version);
 }
 

@@ -1,7 +1,7 @@
-namespace Std.Test;
+namespace Std.Harness;
 using Std.IO;
 
-// `TestRunner` — 极简单元测试运行器 (z42.test v0)
+// `TestRunner` — 极简单元测试运行器 (z42.harness v0)
 //
 // 当前 z42 缺 lambda / 通用 attribute / reflection，所以采用 imperative
 // "Begin / try-catch-Fail / Summary" 模式。每个测试 case 用一对

@@ -2,7 +2,7 @@
 namespace Z42RegexNamedGroupsTests;
 
 using Std.Regex;
-using Std.Test;
+using Std.Harness;
 
 // ── Basic named group ──────────────────────────────────────────────────
 

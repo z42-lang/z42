@@ -1,6 +1,6 @@
-namespace Std.Test;
+namespace Std.Harness;
 
-// `Std.Test.TestIO` — capture stdout/stderr emitted by code under test (R2 完整版).
+// `Std.Harness.TestIO` — capture stdout/stderr emitted by code under test (R2 完整版).
 //
 // Implementation: each capture pushes a thread-local buffer; on take, the
 // buffer is popped and returned as a string. Nested calls compose via the

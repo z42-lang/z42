@@ -2,7 +2,7 @@
 namespace Z42cCoreFeaturesTests;
 
 using Z42.Core;
-using Std.Test;
+using Std.Harness;
 
 [Test]
 void test_phase1_profile_all_on() {

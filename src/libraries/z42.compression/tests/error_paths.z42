@@ -7,7 +7,7 @@ namespace Z42CompressionErrorPathTests;
 
 using Std.Compression;
 using Std.Encoding;
-using Std.Test;
+using Std.Harness;
 
 byte[] DeadBeef() {
     byte[] b = new byte[4];

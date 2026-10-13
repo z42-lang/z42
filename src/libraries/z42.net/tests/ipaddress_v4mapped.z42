@@ -6,7 +6,7 @@
 namespace Z42NetIPAddressV4MappedTests;
 
 using Std.Net.Sockets;
-using Std.Test;
+using Std.Harness;
 
 void _assertBytes(IPAddress a, byte[] expected) {
     byte[] b = a.GetAddressBytes();

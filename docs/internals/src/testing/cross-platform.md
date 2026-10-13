@@ -3,7 +3,7 @@
 > 代码：
 > `scripts/test/xtask_test_platform.z42`（三阶段框架 + `IPlatformBackend`）、
 > `scripts/test/xtask_test_{desktop,wasm,ios,android}.z42`（四个 backend）、
-> `src/runtime/src/corelib/platform.rs`（能力集）、`src/libraries/z42.test/src/BundleRunner.z42`（设备上的能力门）、
+> `src/runtime/src/corelib/platform.rs`（能力集）、`src/libraries/z42.harness/src/BundleRunner.z42`（设备上的能力门）、
 > `src/toolchain/workload/platform-contract.md`（状态码 ↔ 平台异常映射）、
 > `.github/workflows/ci.yml`（`test-desktop` / `test-wasm` / `test-ios` / `test-android`）。
 >
@@ -101,7 +101,7 @@ public class AssetLayout {
 
 xtask 装 bundle 时**不排除任何用例**，也没有按 rid 写的能力表——那种表必然与运行期漂移。
 「不加载」是第一层的要点：`[Native]` facade 在没有 native interop 的 VM 上**一加载就在 resolver 里 panic**，
-判定必须先于加载（`z42.test/tests/bundle_runner_caps.z42` 钉住这一点）。
+判定必须先于加载（`z42.harness/tests/bundle_runner_caps.z42` 钉住这一点）。
 
 能力词表、三档平台（桌面 / app 沙箱 / wasm）各有哪些能力，见[测试用例组织规范 §4](../devinfra/test-layout.md)；
 `z42.core/tests/platform_capabilities.z42` 不声明能力、在每个平台都跑，钉住三档的分界。

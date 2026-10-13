@@ -4,7 +4,7 @@
 namespace Z42IoStreamTextPipelineTests;
 
 using Std.IO;
-using Std.Test;
+using Std.Harness;
 
 // ── StreamWriter → MemoryStream → StreamReader round-trip ───────────────
 

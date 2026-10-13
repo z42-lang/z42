@@ -3,7 +3,7 @@
 namespace Z42RegexWordBoundaryTests;
 
 using Std.Regex;
-using Std.Test;
+using Std.Harness;
 
 // ── \b — positive assertion ───────────────────────────────────────────
 

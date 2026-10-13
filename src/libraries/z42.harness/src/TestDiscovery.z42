@@ -6,7 +6,7 @@
 // 编译器写进产物的测试专用元数据，也不依赖测试专用的 VM 能力。
 //
 // 顺序：按全限定名排序（与 cargo test 一致；同输入同输出，便于比对报告）。
-namespace Std.Test;
+namespace Std.Harness;
 
 using Std.Reflection;   // Assembly / MethodInfo
 
@@ -65,12 +65,12 @@ public class TestCase {
         this.Method.Invoke(null, new object[0]);
     }
 
-    // 恰好一个 `Std.Test.Bencher` 形参（编译期 E0912 已保证 `[Benchmark]` 只有零参与这一种形状）。
+    // 恰好一个 `Std.Harness.Bencher` 形参（编译期 E0912 已保证 `[Benchmark]` 只有零参与这一种形状）。
     public bool TakesBencher() {
         ParameterInfo[] ps = this.Method.GetParameters();
         if (ps.Length != 1) { return false; }
         Type pt = ps[0].ParameterType;
-        if (pt is Type t) { return t.FullName == "Std.Test.Bencher"; }
+        if (pt is Type t) { return t.FullName == "Std.Harness.Bencher"; }
         return false;
     }
 }

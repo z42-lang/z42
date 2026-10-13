@@ -2,7 +2,7 @@
 namespace Z42DiagnosticsLogFieldsTests;
 
 using Std.Diagnostics;
-using Std.Test;
+using Std.Harness;
 
 [Test]
 void test_empty_fields_format() {

@@ -15,7 +15,7 @@
 namespace Z42cSemanticsMissingReturnTests;
 
 using Z42.Semantics;
-using Std.Test;
+using Std.Harness;
 
 // ⚠️ 测试源里用**本地声明的** `Ex1` 而不是 `Std.Exception`：`SemanticDump.FirstErrorCode`
 // 走的是**独立 Infer 路径、不链 stdlib**（同 `exhaust_tests.z42` 头注）。写 `Exception`

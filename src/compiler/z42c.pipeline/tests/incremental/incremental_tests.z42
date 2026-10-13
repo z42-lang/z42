@@ -12,7 +12,7 @@ using Z42.Semantics;
 using Z42.IR;   // Murmur3（v8 zbchash）
 using Z42.IR.BinaryFormat;
 using Z42.Emission;
-using Std.Test;
+using Std.Harness;
 
 string _src() { return "namespace T;\nint Add(int a, int b) { return a + b; }\n"; }
 string _src2() { return "namespace T;\nint Mul(int a, int b) { return a * b; }\n"; }

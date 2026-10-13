@@ -3,7 +3,7 @@
 namespace Z42IoBufferedStreamTests;
 
 using Std.IO;
-using Std.Test;
+using Std.Harness;
 
 // ── helpers ─────────────────────────────────────────────────────────────
 

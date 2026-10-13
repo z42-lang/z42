@@ -3,7 +3,7 @@ namespace Z42CryptoPoly1305VectorsTests;
 
 using Std.Crypto;
 using Std.Encoding;
-using Std.Test;
+using Std.Harness;
 
 // ── RFC 8439 §2.5.2: canonical 34-byte test vector ──────────────────────
 //

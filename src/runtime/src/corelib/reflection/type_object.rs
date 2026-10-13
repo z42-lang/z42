@@ -300,7 +300,7 @@ pub(super) fn build_type_ex(
             // `Std.Reflection.MemberInfo` (Type's base) — populate that slot so
             // `typeof(C).Name` / `(MemberInfo)typeof(C)).Name` resolve via the
             // shared base field (same as FieldInfo/MethodInfo). `__name` retained
-            // for low-level golden / z42.test direct reads.
+            // for low-level golden / z42.harness direct reads.
             if let Some(&i) = type_td.field_index.get("Name") {
                 slots[i] = Value::Str(simple.to_string().into());
             }

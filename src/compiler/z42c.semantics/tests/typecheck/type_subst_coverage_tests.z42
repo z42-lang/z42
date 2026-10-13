@@ -3,7 +3,7 @@
 // 漏换 ⇒ 裸型参 `T` 漏给调用方 ⇒ 两个方向都错：该拒的放行（Conversion 对含型参一侧擦除放行），该过的误报。
 namespace Z42cSemanticsTypeSubstCoverageTests;
 using Z42.Semantics;
-using Std.Test;
+using Std.Harness;
 
 string _box() {
     return "interface IGet<T> { T Get(); }"

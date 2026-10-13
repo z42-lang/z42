@@ -7,7 +7,7 @@ namespace Z42cIrZbcReaderTests;
 using Z42.IR;
 using Z42.IR.BinaryFormat;
 using Z42.Emission;
-using Std.Test;
+using Std.Harness;
 
 // 往返断言：hex(Write(m)) == hex(Write(Read(Write(m))))。
 void _assertRoundtrip(string src, string file) {

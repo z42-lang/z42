@@ -33,7 +33,7 @@ xtask test e2e --file std_assert                # 本库的 Main-based golden �
 
 | 形态 | 例子 | 说明 |
 |------|------|------|
-| `tests/<name>.z42`（`[Test]` 单元） | `string_methods.z42` | 绝大多数库 API 行为都写成这个。裸名 `Assert` = 唯一那份 `Std.Assert`（命名空间 `Std`、打包在 z42.test，失败抛 `TestFailure`）|
+| `tests/<name>.z42`（`[Test]` 单元） | `string_methods.z42` | 绝大多数库 API 行为都写成这个。裸名 `Assert` = 唯一那份 `Std.Assert`（命名空间 `Std`、打包在 z42.harness，失败抛 `TestFailure`）|
 | `tests/<name>/source.z42`（Main golden） | `std_assert/`、`math/` | 需要 sidecar（`expected_output.txt` / `interp_only`）时用。`std_assert` 顺带是「零 `using` 也能拿到 `Assert`」的守卫（`src/tests/` 下大量同款 golden 依赖这条）|
 
 > String 的库行为（Length / ByteLength / Trim / Split / Join / Format / Object 协议…）

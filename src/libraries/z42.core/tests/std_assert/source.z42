@@ -4,8 +4,8 @@
 //
 // **保持 Main-based golden 形态、不改写成测试框架单元**——理由在 unify-assert-api
 // (2026-09-08) 之后换了一条，但结论不变：
-//   - 旧理由（已失效）：那种文件必须 `using Std.Test`，会把裸名 `Assert` 绑到另一份
-//     `Std.Test.Assert`，于是 z42.core 那份反而没人测。两份 Assert 已合并成一份，
+//   - 旧理由（已失效）：那种文件必须 `using Std.Harness`，会把裸名 `Assert` 绑到另一份
+//     `Std.Harness.Assert`，于是 z42.core 那份反而没人测。两份 Assert 已合并成一份，
 //     不再有"抢名"这回事。
 //   - 新理由（现行）：本文件**一行 `using` 都不写**，走的是「纯靠 prelude 拿到 `Assert`」
 //     这条路径 —— `src/tests/` 下另有 188 个同款 golden 依赖它。改写成带 `using` 的框架

@@ -672,7 +672,7 @@ public sealed partial class SymbolTable {
         if (at < 0) { m.Put(name, new StrBox(ns)); return; }
         StrBox box = m.ValAt(at) as StrBox;
         string cur = box.Value;
-        // 逐段比对，避免 `Std` 与 `Std.Test` 互相子串命中。
+        // 逐段比对，避免 `Std` 与 `Std.Harness` 互相子串命中。
         string[] parts = cur.Split("|");
         int i = 0;
         while (i < parts.Length) { if (parts[i] == ns) { return; } i = i + 1; }

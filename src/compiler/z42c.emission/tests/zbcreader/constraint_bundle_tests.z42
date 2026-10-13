@@ -14,7 +14,7 @@ namespace Z42cIrConstraintBundleTests;
 
 using Z42.IR;
 using Z42.IR.BinaryFormat;
-using Std.Test;
+using Std.Harness;
 
 // 常量池：索引与下面拼装的 u32 一一对应。
 string[] _pool() {

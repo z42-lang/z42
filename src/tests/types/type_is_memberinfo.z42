@@ -23,7 +23,7 @@ void Main() {
     // FullName still works (kept native; MemberInfo has no FullName)
     Assert.Equal("Circle", t.FullName);   // top-level class → FullName == simple name
 
-    // Low-level backing slot retained for golden / z42.test compatibility
+    // Low-level backing slot retained for golden / z42.harness compatibility
     Assert.Equal("Circle", t.__name);
 
     // GetType() path too

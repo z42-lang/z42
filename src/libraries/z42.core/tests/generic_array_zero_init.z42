@@ -3,7 +3,7 @@
 // `__box_prim: expected integer value, got Null`；根修后得零值。
 namespace Z42CoreGenericArrayZeroInitTests;
 
-using Std.Test;
+using Std.Harness;
 
 // 方法级类型参数（kind=1）：泛型方法内 `new T[n]`。
 static T[] Make<T>(int n) {

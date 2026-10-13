@@ -126,7 +126,7 @@ ABI v2 的 `#[builtins]` 模块 35 个。stdlib 与编译器域侧 `[Native("__�
 | 包 | 声明文件数 | 不同 `__` 符号 | 性质 |
 |---|---|---|---|
 | `z42.core` | 51 | 293 | 语义汇聚核 |
-| `z42.test` | 2 | 5 | 可插拔工具（harness / 计时 / 模块加载） |
+| `z42.harness` | 2 | 5 | 可插拔工具（harness / 计时 / 模块加载） |
 | `z42.diagnostics` | 2 | 3 | 可插拔工具（heap 内省 / 计数器） |
 | `z42.scripting` / `z42.package` / `z42c.*`（`src/compiler/`） | 6 | 4 | 编译器域（模块加载 / REPL） |
 | `z42.compression` | 8 | 12 个 `entry =`（`lib = "z42_compression"`） | 可插拔工具（外部 cdylib） |

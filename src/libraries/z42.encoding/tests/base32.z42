@@ -2,7 +2,7 @@
 namespace Z42EncodingTests.Base32Tests;
 
 using Std.Encoding;
-using Std.Test;
+using Std.Harness;
 
 byte[] ascii(string s) {
     byte[] result = new byte[s.Length];

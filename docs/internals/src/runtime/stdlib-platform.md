@@ -92,7 +92,7 @@ const HOST_OS: &str = if cfg!(target_arch = "wasm32") { "wasm" } else { std::env
 ```
 
 整条 OS 识别链都吊在它身上：`OS()`、`OSKindValue()`、`IsWasm()`，以及测试框架的
-`[Skip(platform: "wasm")]`（`z42.test` 的 `Runner._skipApplies` 直接拿 `Platform.OS()` 与
+`[Skip(platform: "wasm")]`（`z42.harness` 的 `Runner._skipApplies` 直接拿 `Platform.OS()` 与
 属性里的字符串比）。绕过 `HOST_OS` 直接写 `consts::OS` 就会让这四样在 wasm 上同时失效，而
 wasm 上「`IsWasm()` 恒假」不会报错，只会安静地少跳过一批测试。
 
@@ -112,7 +112,7 @@ wasm 上「`IsWasm()` 恒假」不会报错，只会安静地少跳过一批测�
 
 两个消费者：
 
-- `z42.test` 的 `[Skip(feature: X)]`——读作「这个测试需要能力 X，缺 X 就跳过」，
+- `z42.harness` 的 `[Skip(feature: X)]`——读作「这个测试需要能力 X，缺 X 就跳过」，
   `Runner._capsHas` 在 `Capabilities()` 里线性找；**未知 feature 不在数组里 ⇒ 判为缺失 ⇒
   跳过**（deny-by-default，拼错一个能力名的后果是静默跳过，不是报错）。
 - exec-profile 的 bench / 测试编排：探测**目标** VM 二进制，让每条测量结果带上它自己报告的

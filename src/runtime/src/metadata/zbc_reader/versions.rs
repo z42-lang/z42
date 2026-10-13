@@ -203,7 +203,7 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // already cost something concrete — the 1.33/1.34 object block had to be gated by a
 // **derived predicate** mirrored on both sides instead of a flag bit.
 // 2026-10-12 retire-tidx: bumped to 1.47 — the TIDX section is gone (tests are discovered by
-// runtime reflection in z42.test, so the compiler no longer writes a test index), and `MkClos`
+// runtime reflection in z42.harness, so the compiler no longer writes a test index), and `MkClos`
 // drops its always-zero trailing u8 (the former stack-alloc flag; closures are always heap).
 pub const ZBC_VERSION_MINOR: u16 = 47;
 

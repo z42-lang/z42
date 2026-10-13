@@ -8,7 +8,7 @@
 namespace Z42cSemanticsExhaustTests;
 
 using Z42.Semantics;
-using Std.Test;
+using Std.Harness;
 
 // ── enum switch-expr 缺成员 → W0700 ──────────────────────────
 [Test]

@@ -4,9 +4,9 @@
 // why (embedded shared-VM loader dedups same-namespace .zbc → dropped functions).
 namespace Z42CollectionsLinkedListTests;
 
-using Std.Test.Contracts;
+using Std.Harness.Contracts;
 using Std.Collections;
-using Std.Test;
+using Std.Harness;
 
 // add-collection-contract-phase1 (2026-06-03): exercise the shared
 // IBasicCollection contract on a LinkedList<int> instance. Covers the

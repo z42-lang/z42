@@ -5,7 +5,7 @@ namespace Z42cSemanticsLayoutTests;
 using Z42.IR;
 using Z42.Package;   // IParallelTask（并行视图压测）
 using Z42.Semantics;
-using Std.Test;
+using Std.Harness;
 
 // 构造一个只含 struct 类型定义的 defs map。
 StructFieldsDef _mkDef(string[] names, string[] types, int n) {

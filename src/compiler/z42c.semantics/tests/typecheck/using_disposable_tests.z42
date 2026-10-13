@@ -12,7 +12,7 @@
 namespace Z42cSemanticsUsingDisposableTests;
 
 using Z42.Semantics;
-using Std.Test;
+using Std.Harness;
 
 // ── ① 形状不够（这正是与 foreach 的分界）──────────────────────────────────
 

@@ -3,7 +3,7 @@
 namespace Z42NetIPAddressTests;
 
 using Std.Net.Sockets;
-using Std.Test;
+using Std.Harness;
 
 // ── IPv4 parse + round-trip ───────────────────────────────────────────
 

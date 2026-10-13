@@ -5,7 +5,7 @@ namespace Z42NetTcpLoopbackTests;
 
 using Std.Threading;
 using Std.Net.Sockets;
-using Std.Test;
+using Std.Harness;
 
 [Test]
 void test_loopback_basic_round_trip() {

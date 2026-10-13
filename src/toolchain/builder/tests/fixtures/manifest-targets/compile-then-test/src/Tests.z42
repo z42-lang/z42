@@ -1,11 +1,11 @@
 // compile-then-test fixture — a plain test-kind project driven end-to-end by
 // `z42b test <z42.toml>` (add-z42b-compile-then-test). z42b builds this project
 // via the injected in-process compiler, then reflectively runs these free
-// [Test] functions through Std.Test.Runner. Free-function [Test] convention
+// [Test] functions through Std.Harness.Runner. Free-function [Test] convention
 // mirrors the stdlib corpus.
 namespace CompileThenTest;
 
-using Std.Test;
+using Std.Harness;
 
 [Test]
 void it_compiles_and_runs() {

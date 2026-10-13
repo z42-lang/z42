@@ -456,7 +456,7 @@ int _testCompiler(bool noBuild) {
 // 代价是编译器 dist 里的 stdlib 副本会遮蔽新 stdlib（#955）。
 //
 // 测试单元布局：src/compiler/<member>/tests/<unit>/{<name>.z42.toml + *.z42}。
-// kind=lib（runner 按 [Test] 方法 fork z42vm，不需 Main）；z42.test 自动可用。
+// kind=lib（runner 按 [Test] 方法 fork z42vm，不需 Main）；z42.harness 自动可用。
 int _testCompilerUnits(string root, string profile, string[] members) {
     string flat = _libsDir(root);   // 纯 stdlib；编译器包见上方头注
 

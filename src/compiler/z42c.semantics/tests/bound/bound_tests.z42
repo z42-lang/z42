@@ -3,7 +3,7 @@ namespace Z42cSemanticsBoundTests;
 
 using Z42.Semantics;
 using Z42.Core;
-using Std.Test;
+using Std.Harness;
 
 // 测试占位 span（Dump 不消费）。
 Span _sp() { return new Span(0, 0, 1, 1, "<t>"); }

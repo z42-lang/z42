@@ -6,7 +6,7 @@ namespace Z42CompressionStreamPipelineTests;
 
 using Std.IO;
 using Std.Compression;
-using Std.Test;
+using Std.Harness;
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 

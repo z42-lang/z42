@@ -6,7 +6,7 @@
 namespace Z42cSemanticsEnumDelegateNsTests;
 
 using Z42.Emission;
-using Std.Test;
+using Std.Harness;
 
 string[] ednDiags(string[] srcs) {
     string[] files = new string[srcs.Length];

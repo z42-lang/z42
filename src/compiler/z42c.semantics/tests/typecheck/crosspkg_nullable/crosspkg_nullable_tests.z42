@@ -10,7 +10,7 @@ namespace Z42cSemanticsCrossPkgNullableTests;
 
 using Z42.Semantics;
 using Z42cSemanticsCrossPkgDuplicateTests;
-using Std.Test;
+using Std.Harness;
 
 // 依赖包导出一个 `byte[]?` 形参的方法；消费方用**非空** `byte[]` 实参跨包调用它。
 // 修复前：形参跨包解析成 `Builtin("byte[]?")` 垃圾类 → 传 `byte[]` 触发参数类型不匹配（E0402）。

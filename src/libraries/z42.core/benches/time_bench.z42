@@ -4,7 +4,7 @@
 
 namespace Z42TimeBench;
 
-using Std.Test;
+using Std.Harness;
 using Std.Time;
 
 [Benchmark]

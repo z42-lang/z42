@@ -5,7 +5,7 @@ namespace Z42CryptoHmacMd5VectorsTests;
 
 using Std.Encoding;
 using Std.Crypto;
-using Std.Test;
+using Std.Harness;
 
 // Helper: build a `byte[n]` filled with the given byte value.
 static byte[] _fillBytes(int n, byte v) {

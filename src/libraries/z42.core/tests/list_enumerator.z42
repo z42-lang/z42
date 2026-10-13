@@ -3,7 +3,7 @@
 namespace Z42CoreListEnumeratorTests;
 
 using Std.Collections;
-using Std.Test;
+using Std.Harness;
 
 [Test]
 void test_enumerator_iterates_in_order() {

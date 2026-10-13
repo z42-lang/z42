@@ -11,7 +11,7 @@
 namespace Z42cSemanticsCatchTypeTests;
 
 using Z42.Semantics;
-using Std.Test;
+using Std.Harness;
 
 // ── 阳性 ─────────────────────────────────────
 

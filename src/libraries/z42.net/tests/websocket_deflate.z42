@@ -11,7 +11,7 @@ using Std.Encoding;
 using Std.Compression;
 using Std.Net.WebSockets;
 using Std.IO;
-using Std.Test;
+using Std.Harness;
 
 // ── Frame codec RSV1 bit ────────────────────────────────────────────────
 

@@ -3,7 +3,7 @@
 // char comparison (fix-char-comparison, 2026-05-24).
 namespace Z42CoreOpEdgeCasesTests;
 
-using Std.Test;
+using Std.Harness;
 
 // ── Division by zero ─────────────────────────────────────────────────────
 

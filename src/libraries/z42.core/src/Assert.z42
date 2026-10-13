@@ -9,19 +9,19 @@ namespace Std;
 // ── 为什么合并（推翻 2026-05 的「平行 API」选型）─────────────────────────────
 //
 // 此前有两份同短名的 Assert：`Std.Assert`（z42.core，抛裸
-// `Exception("AssertionError: ...")`）与 `Std.Test.Assert`（z42.test，抛
-// `TestFailure`，即本文件的前身）。当初分开的理由是「`TestFailure` 在 z42.test，
-// 改 `Std.Assert` 会让 prelude 包 z42.core 依赖 z42.test」。
+// `Exception("AssertionError: ...")`）与 `Std.Harness.Assert`（z42.harness，抛
+// `TestFailure`，即本文件的前身）。当初分开的理由是「`TestFailure` 在 z42.harness，
+// 改 `Std.Assert` 会让 prelude 包 z42.core 依赖 z42.harness」。
 //
 // 解法不是并存两份，而是把 **`Assert.z42` + `Failure.z42` 一起搬进 z42.core**：
 // 两个文件都只用 core 符号（`Exception` / `Action` / 基元），搬包不产生任何新依赖，
 // 命名空间也一个字没变（`Failure.z42` 本来就是 `namespace Std`）。
 // 600 个 `Assert.` 调用点一处不动。
 //
-// ⚠️ **必须住在 z42.core，留在 z42.test 走不通** —— 这不是洁癖，是硬约束：
+// ⚠️ **必须住在 z42.core，留在 z42.harness 走不通** —— 这不是洁癖，是硬约束：
 // `ImportedSymbolLoader._isPrelude` 判的是**包名**（`pkg == "z42.core"`），非 prelude 包
 // 得靠 `using` 命中它的某个 ns 才激活；而 `src/tests/` 下有 **188 个 golden 一行 `using`
-// 都不写**、纯靠 prelude 拿到 `Assert`。实测把本文件留在 z42.test：那 188 个用例全部
+// 都不写**、纯靠 prelude 拿到 `Assert`。实测把本文件留在 z42.harness：那 188 个用例全部
 // 解析不到 `Assert` → 落进实例路径 → 运行期 `VCall: expected object, got Null`
 // （而当时 `--emit-zbc` 还吞诊断，编译期 exit 0 照写产物 —— 正是本程序在修的那个洞）。
 //
@@ -29,10 +29,10 @@ namespace Std;
 // 一对类撑起了三处特判——
 //   - 「加载顺序 first-wins」的现场案例（zpkg 枚举顺序决定 `Assert.Equal` 绑到哪个包）
 //   - `CuPreprocess._activeNamespaces` 必须把 prelude ns 纳入活跃集，否则
-//     `using Std.Test` 会把裸 `Assert.Equal` 误消歧过去（AssertionError→values not equal 回归）
+//     `using Std.Harness` 会把裸 `Assert.Equal` 误消歧过去（AssertionError→values not equal 回归）
 //   - `DependencyIndex.GetStaticScoped` 的「活跃集内仍歧义 → 返回 null → 回落短键」分支
 // 并且它让 binder 与 emitter 长期不一致：emitter 按 `<短类名>.<方法名>` 组合键解析
-// （`Assert.Greater` 只有 z42.test 一条命中 → 绑对），binder 先定类再找成员（定到 `Std.Assert` →
+// （`Assert.Greater` 只有 z42.harness 一条命中 → 绑对），binder 先定类再找成员（定到 `Std.Assert` →
 // 「no static method Greater」）。这条不对称被 `--emit-zbc` 吞诊断掩盖了很久，
 // 一开门就是 216 条 E0401。合并即从根上消掉这唯一的同短名对。
 //

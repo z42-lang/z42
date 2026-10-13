@@ -19,7 +19,7 @@
 |---|---|---|
 | **Directive** | `IsDirectiveAttr`：`Native` / `Suppress` / `Deprecated` / `Record`（`:78-83`）| 靠**名字**识别，不需要用户建 backing 类；不合成反射工厂 |
 | **Handler** | `IsModuleInitHandler`：`[ModuleInit]` | 编译器内建，聚合成包级产物 |
-| **StoreMeta** | 其余全部（含测试家族 `[Test]` 等，类在 z42.test `TestAttributes.z42`） | 按 D8 后缀约定展开成 `<name>Attribute` 类，合成反射工厂 |
+| **StoreMeta** | 其余全部（含测试家族 `[Test]` 等，类在 z42.harness `TestAttributes.z42`） | 按 D8 后缀约定展开成 `<name>Attribute` 类，合成反射工厂 |
 
 后缀展开只有一处：`HandlerRegistry.StoreMetaClassName(appliedName)`（`:69-71`），被
 `AttributeSynth._synthFactory` 的 `new <cls>(args)` 与 `ClassDescBuilder` 的 `IrAttrRef` 类型名

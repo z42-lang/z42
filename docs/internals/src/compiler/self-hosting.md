@@ -202,7 +202,7 @@ xtask 仍按上一 nightly 的规则计算路径，xtask 侧的跟进要放到�
 
 INV-2（测试全绿）由 `test-host` 的 `xtask test` 守。
 
-测试单元布局 `src/compiler/<member>/tests/<unit>/{<name>.z42.toml(kind=lib) + *.z42}`，经 z42b 运行；`z42.test` 自动可用，不在 toml 声明。`xtask test` 含 compiler。
+测试单元布局 `src/compiler/<member>/tests/<unit>/{<name>.z42.toml(kind=lib) + *.z42}`，经 z42b 运行；`z42.harness` 自动可用，不在 toml 声明。`xtask test` 含 compiler。
 
 ## Deferred / Future Work
 

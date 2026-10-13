@@ -4,7 +4,7 @@
 namespace Z42IoProcessStreamStdioTests;
 
 using Std.IO;
-using Std.Test;
+using Std.Harness;
 
 // ── helpers ─────────────────────────────────────────────────────────────
 

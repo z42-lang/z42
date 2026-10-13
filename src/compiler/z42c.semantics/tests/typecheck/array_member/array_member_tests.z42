@@ -12,7 +12,7 @@
 namespace Z42cSemanticsArrayMemberTests;
 
 using Z42.Semantics;
-using Std.Test;
+using Std.Harness;
 
 // 与真实 z42.core 同形：Object 的继承方法 + Array 的实例方法（Clone / GetValue）与静态方法（Sort）。
 string _core() {

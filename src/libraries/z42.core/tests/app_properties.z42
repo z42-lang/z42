@@ -4,7 +4,7 @@
 // 那需要一个带 [properties] 的工程 + build，超出单文件用例的形态。
 namespace Z42CoreAppPropertiesTests;
 
-using Std.Test;
+using Std.Harness;
 
 [Test]
 void test_absent_property_lookups_are_empty() {

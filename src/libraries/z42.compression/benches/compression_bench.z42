@@ -6,7 +6,7 @@
 
 namespace Z42CompressionBench;
 
-using Std.Test;
+using Std.Harness;
 using Std.Compression;
 
 // Semi-structured payload: enough repetition that the coders do real modelling

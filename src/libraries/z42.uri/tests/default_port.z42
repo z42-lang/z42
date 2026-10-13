@@ -2,7 +2,7 @@
 namespace Z42UriDefaultPortTests;
 
 using Std.Uri;
-using Std.Test;
+using Std.Harness;
 
 // ── EffectivePort: explicit port wins ──────────────────────────────────
 

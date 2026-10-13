@@ -703,7 +703,7 @@ public sealed partial class MemberResolver {
             if (env.LookupVar(tid.Name) == null && env.Symbols.HasClass(tid.Name)) {
                 // add-bare-name-ambiguity-diagnostic：E0456。**这正是当年 216 条 E0401 的形状** ——
                 // `Assert.Greater(...)` 里的 `Assert` 是裸类名，`GetClass` 按裸名 first-wins 定到
-                // `Std.Assert`，于是 z42.test 那份的方法全报「no static method」。#532 合并两份 Assert
+                // `Std.Assert`，于是 z42.harness 那份的方法全报「no static method」。#532 合并两份 Assert
                 // 消掉了起因，但**择一本身仍是静默的**：换个同短名跨 ns 的类，照样无声选一份。
                 this._tc.ChkAmbiguousBareName(env.Symbols, tid.Name, sp);
                 return this._bindClassStaticCall(env.Symbols.GetClass(tid.Name), tid.Name, mem, args, argCount, rawArgs, env, sp, call);

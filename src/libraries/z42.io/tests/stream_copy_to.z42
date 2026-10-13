@@ -3,7 +3,7 @@
 namespace Z42IoStreamCopyToTests;
 
 using Std.IO;
-using Std.Test;
+using Std.Harness;
 
 byte[] _bytes_of(int[] xs) {
     byte[] r = new byte[xs.Length];

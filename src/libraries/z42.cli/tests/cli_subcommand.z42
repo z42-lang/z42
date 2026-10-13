@@ -2,7 +2,7 @@
 namespace Z42CliSubcommandTests;
 
 using Std.Cli;
-using Std.Test;
+using Std.Harness;
 
 static SubcommandRouter _git() {
     var commit = new ArgParser("git commit", "record changes");

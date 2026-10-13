@@ -2,7 +2,7 @@
 // `[Benchmark]` + Bencher machinery on representative z42.core hot paths,
 // and doubles as a copy-paste template for writing benchmarks.
 //
-// Reachable workloads here are limited to z42.test's dependencies
+// Reachable workloads here are limited to z42.harness's dependencies
 // (z42.core + z42.io): String ops + arithmetic. Collection / math / json
 // benchmarks belong in those libs' own tests/ dirs (where the lib is in
 // scope). Both `[Benchmark]` signature forms are shown:
@@ -16,7 +16,7 @@
 
 namespace Z42TestBenchExamples;
 
-using Std.Test;
+using Std.Harness;
 
 // ── String workloads (zero-arg form, custom sample count) ─────────────
 

@@ -5,7 +5,7 @@ namespace Z42cSyntaxDeclTests;
 
 using Z42.Syntax;
 using Z42.Core;
-using Std.Test;
+using Std.Harness;
 
 string parseUnit(string src) {
     var p = new Parser(src, "t.z42");
