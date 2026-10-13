@@ -1,0 +1,23 @@
+// 会话变量活值的成员补全：直接反射（__repl_member_names）与经 completer 的 `b.` / `b.W`。
+namespace Z42ScriptingTests;
+
+using Std.Scripting;
+using Std.Harness;
+
+[Test]
+void test_member_completion() {
+    ScriptState s = Script.Create();
+    Assert.Equal("ok", _step(s, "class Box { public int W; public int H; }"));
+    Assert.True(Script.Eval(s, "var b = new Box()").Success);
+    Completer.SetActive(s);
+
+    string vr = s.VarsRound.ToString();
+    string[] m = ReplNative.MemberNames("Repl.R" + vr + ".Vars" + vr + ".b");
+    Assert.True(_has(m, "W"));
+    Assert.True(_has(m, "H"));
+
+    Assert.True(_has(_complete("b.", 2), "W"));
+    Assert.Equal("W", String.Join(",", _complete("b.W", 3)));
+    // 非会话变量 receiver → 不补
+    Assert.Equal(0, _complete("zzz.W", 5).Length);
+}

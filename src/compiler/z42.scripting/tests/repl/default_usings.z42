@@ -1,0 +1,14 @@
+// 默认 using（add-completion-query-api）：Script.Create 种常用命名空间，无需手动 using 即可用
+// Math / StringBuilder 等。
+namespace Z42ScriptingTests;
+
+using Std.Scripting;
+using Std.Harness;
+
+[Test]
+void test_default_usings() {
+    ScriptState s = Script.Create();
+    Assert.Equal("5", _step(s, "Math.AbsInt(0 - 5)"));
+    Assert.Equal("abc", _step(s, "new StringBuilder().Append(\"ab\").Append(\"c\").ToString()"));
+    Assert.Equal(4, s.Usings.Count);
+}

@@ -1,3 +1,0 @@
-math=5
-sb=abc
-default_usings=4

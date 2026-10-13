@@ -76,11 +76,8 @@ void Main() {
                 else if (t == ".version") { Console.WriteLine(_formatVersion()); }
                 else if (t == ".clear") { _clear(); }
                 else if (t == ".reset") {
-                    // 清空变量/using/声明，回到空白会话。保持 Counter 单调递增——VM 已加载的
-                    // Repl.R{N} 模块仍在进程内，归零会让新一轮 R1 与旧 R1 撞名，故承接旧计数继续往后。
-                    int keep = s.Counter;
+                    // 清空变量/using/声明，回到空白会话（轮次号进程级单调，新会话不会与已加载的 Repl.R{N} 撞名）。
                     s = Script.Create();
-                    s.Counter = keep;
                     Console.WriteLine("会话已重置（变量 / using / 声明已清空）。");
                 }
                 else { Console.WriteLine("unknown command '" + t + "'; try .help"); }

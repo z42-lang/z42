@@ -1,9 +1,0 @@
-ok
-Pt
-0
-Pt
-3
-4
-Pt
-9
-E0437: target-typed `new` requires a known target type here

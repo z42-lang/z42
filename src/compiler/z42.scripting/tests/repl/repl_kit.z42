@@ -1,0 +1,30 @@
+// REPL 测试的共用助手：一步求值的结果文本 + 补全探针。
+// 用例直接驱动 Std.Scripting（Script.Eval / Completeness / Completer），不经 z42i 的行编辑，所以不需要 tty；
+// 编译经 ReplCompilerHost 运行期注入的 z42c.pipeline（跑测器给的编译器包 probing 里找到）。
+namespace Z42ScriptingTests;
+
+using Std.Scripting;
+
+// 一步求值：失败 → 错误文本（去空白）；有值 → 值；否则 → "ok"。
+string _step(ScriptState s, string input) {
+    EvalResult r = Script.Eval(s, input);
+    if (!r.Success) { return r.Error.Trim(); }
+    if (r.HasValue && r.Value != null) { return "" + r.Value; }
+    return "ok";
+}
+
+bool _has(string[] a, string name) {
+    int i = 0;
+    while (i < a.Length) { if (a[i] == name) { return true; } i = i + 1; }
+    return false;
+}
+
+// 与 rustyline Tab 同一条查找路径：按 FQN 运行期回调 Std.Scripting.replComplete（免 PTY）。
+class ReplNative {
+    [Native("__repl_complete_probe")] public static extern string[] Probe(string fqn, string line, int pos);
+    [Native("__repl_member_names")]   public static extern string[] MemberNames(string fqn);
+}
+
+string[] _complete(string line, int pos) {
+    return ReplNative.Probe("Std.Scripting.replComplete", line, pos);
+}

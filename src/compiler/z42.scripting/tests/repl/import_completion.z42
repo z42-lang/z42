@@ -1,0 +1,17 @@
+// 导入符号补全（add-completion-query-api）：作用域补全含导入类型名 + `Type.` 静态成员。
+// 数据源 = CachedScan，首轮 eval 后建成。
+namespace Z42ScriptingTests;
+
+using Std.Scripting;
+using Std.Harness;
+
+[Test]
+void test_import_completion() {
+    ScriptState s = Script.Create();
+    Script.Eval(s, "1");   // 触发首轮 DepScan → 建 CachedScan（导入世界）
+    Completer.SetActive(s);
+    Assert.True(_has(_complete("Con", 3), "Console"));
+    Assert.True(_has(_complete("Console.Wr", 10), "WriteLine"));
+    // 空前缀不刷屏导入类型（作用域分支 word 为空时不并入 imported）
+    Assert.False(_has(_complete("", 0), "Console"));
+}

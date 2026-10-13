@@ -1,0 +1,29 @@
+// 多 token 类型名的变量声明（fix-repl-generic-decl-classify）：泛型 / 限定名 / 数组 / 嵌套泛型都应被
+// Classifier 判为 var 声明（只认单 token 类型时漏判成局部变量或误解析成比较链，`a` 跨轮未定义）。
+namespace Z42ScriptingTests;
+
+using Std.Scripting;
+using Std.Harness;
+
+[Test]
+void test_generic_decl() {
+    ScriptState s = Script.Create();
+    Assert.Equal("List", _step(s, "List<int> a = new()"));
+    Assert.Equal("ok", _step(s, "a.Add(5)"));
+    Assert.Equal("ok", _step(s, "a.Add(9)"));
+    Assert.Equal("2", _step(s, "a.Count"));
+    Assert.Equal("List", _step(s, "Std.Collections.List<int> b = new()"));
+    Assert.Equal("ok", _step(s, "b.Add(7)"));
+    Assert.Equal("1", _step(s, "b.Count"));
+    Assert.Equal("[0, 0, 0]", _step(s, "int[] arr = new int[3]"));
+    Assert.Equal("3", _step(s, "arr.Length"));
+    Assert.Equal("Dictionary", _step(s, "Dictionary<string, int> d = new()"));
+    Assert.Equal("ok", _step(s, "d[\"k\"] = 42"));
+    Assert.Equal("42", _step(s, "d[\"k\"]"));
+    // 回归护栏：普通比较表达式不得被误判为声明
+    Assert.Equal("3", _step(s, "int p = 3"));
+    Assert.Equal("true", _step(s, "p < 5"));
+    // var 仍走推断路径
+    Assert.Equal("2", _step(s, "var v = a.Count"));
+    Assert.Equal("2", _step(s, "v"));
+}
