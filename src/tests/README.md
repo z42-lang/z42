@@ -127,3 +127,7 @@ runner 怎么发现、执行用例见 [测试框架与 runner](https://github.co
 ```
 
 或一把跑全 GREEN：`./xtask test`。
+
+## 关联文档
+
+- 怎么跑 / 怎么组织（实现内幕）：[怎么跑测试](../../docs/internals/src/devinfra/testing.md) · [测试用例组织规范](../../docs/internals/src/devinfra/test-layout.md) · [声明式夹具](../../docs/internals/src/devinfra/fixture-harness.md)
