@@ -19,7 +19,8 @@
 //! GC：静态字段是根 —— 每次回收（minor / major）都经 [`StaticTable::scan_roots`] 扫一遍标签字，
 //! 所以写入不需要分代写屏障；SATB 由单元协议负责。
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicPtr, AtomicU64, AtomicU8, Ordering};
+use std::sync::Arc;
 
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
@@ -27,17 +28,35 @@ use rustc_hash::FxHashMap;
 use crate::metadata::seg_vec::SegVec;
 use crate::metadata::tokens::StaticFieldId;
 use crate::metadata::types::{tparam_cell, Cells};
-use crate::metadata::Value;
+use crate::metadata::{TypeDesc, Value};
 
 /// Tag word at byte 0, payload word at byte 8 (`tparam_cell`).
 const W0: usize = 0;
 const W1: usize = 8;
 
 /// One static field's storage. All-zero = `null`, never written.
+///
+/// Next to the value: the field's static-constructor owner, as the type-init barrier
+/// (`VmContext::ensure_static_owner_init`) resolved it — so a hot static access does not re-derive
+/// the owner from the name. Owner state `0` = not looked up, [`OWNER_EXEMPT`] = no owner type or
+/// one without a static constructor, [`OWNER_CHECK`] = check `owner` (published before the state,
+/// release / acquire; the descriptor is kept alive by [`StaticTable::owners`]).
 #[repr(C, align(8))]
 #[derive(Default)]
 pub(crate) struct StaticCell {
     words: [AtomicU64; 2],
+    owner: AtomicPtr<TypeDesc>,
+    owner_state: AtomicU8,
+}
+
+const OWNER_EXEMPT: u8 = 1;
+const OWNER_CHECK: u8 = 2;
+
+/// The cached owner answer of a static field (see [`StaticCell`]).
+pub(crate) enum StaticOwner<'a> {
+    Unknown,
+    Exempt,
+    Check(&'a TypeDesc),
 }
 
 impl StaticCell {
@@ -59,6 +78,20 @@ impl StaticCell {
         tparam_cell::store(&self.cells(), W0, W1, v).map(|_| ())
     }
 
+    /// The cached type-init owner answer (one acquire load; `Check` adds one relaxed load).
+    #[inline(always)]
+    pub(crate) fn owner(&self) -> StaticOwner<'_> {
+        match self.owner_state.load(Ordering::Acquire) {
+            OWNER_EXEMPT => StaticOwner::Exempt,
+            OWNER_CHECK => {
+                // SAFETY: published before `OWNER_CHECK` (release, paired with the acquire above);
+                // the pointee is an `Arc` the table keeps in `owners` for its whole life.
+                StaticOwner::Check(unsafe { &*self.owner.load(Ordering::Relaxed) })
+            }
+            _ => StaticOwner::Unknown,
+        }
+    }
+
     /// Back to the never-written state (`null`, no kind claimed). The overwritten reference goes
     /// to SATB. Only for a full re-initialisation (`StaticTable::clear`): a reader racing with it
     /// could pair an old kind with a new payload, so nothing may be running.
@@ -77,6 +110,9 @@ impl StaticCell {
 pub(crate) struct StaticTable {
     cells: SegVec<StaticCell>,
     index: Mutex<FxHashMap<String, u32>>,
+    /// Every owner descriptor a cell has pointed at — kept alive (and never dropped before the
+    /// table) so a reader holding the pointer an instant before [`Self::forget_owners`] stays valid.
+    owners: Mutex<Vec<Arc<TypeDesc>>>,
 }
 
 impl StaticTable {
@@ -125,6 +161,31 @@ impl StaticTable {
             self.cells.push_with(|_| StaticCell::default()).expect("static field table full");
         }
         self.cell(id).expect("just grown")
+    }
+
+    /// Cache the type-init barrier's owner answer for `id` (`None` = exempt). No-op for an id
+    /// without a cell.
+    pub(crate) fn set_owner(&self, id: StaticFieldId, owner: Option<Arc<TypeDesc>>) {
+        let Some(cell) = self.cell(id) else { return };
+        match owner {
+            None => cell.owner_state.store(OWNER_EXEMPT, Ordering::Release),
+            Some(td) => {
+                let mut keep = self.owners.lock();
+                cell.owner.store(Arc::as_ptr(&td) as *mut TypeDesc, Ordering::Relaxed);
+                cell.owner_state.store(OWNER_CHECK, Ordering::Release);
+                keep.push(td);
+            }
+        }
+    }
+
+    /// Drop every cached owner answer (an explicit module (re)load can redefine a type); the next
+    /// access re-derives it.
+    pub(crate) fn forget_owners(&self) {
+        for i in 0..self.cells.len() {
+            if let Some(c) = self.cells.get(i) {
+                c.owner_state.store(0, Ordering::Release);
+            }
+        }
     }
 
     /// Every field back to `null` / never written; ids (and so every resolved site) stay valid.
