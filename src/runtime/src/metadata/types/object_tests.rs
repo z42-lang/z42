@@ -111,8 +111,9 @@ fn jit_layout_matches_the_accessors() {
     let r = crate::gc::ObjRef::leak(OwnedObject::new(Arc::new(d), 16));
     let hdr = (r.to_tagged_bits() & ol::HANDLE_ADDR_MASK) as *const u8;
     unsafe {
-        let td_word = std::ptr::read(hdr.add(ol::TYPE_DESC_OFFSET as usize) as *const usize);
-        let tid = std::ptr::read((td_word as *const u8).add(ol::type_id_offset() as usize) as *const u32);
+        // The type word read as a pointer (as compiled code does — a load, no integer round-trip).
+        let td_word = std::ptr::read(hdr.add(ol::TYPE_DESC_OFFSET as usize) as *const *const u8);
+        let tid = std::ptr::read(td_word.add(ol::type_id_offset() as usize) as *const u32);
         assert_eq!(tid, r.type_desc().id.0);
         assert_eq!(hdr.add(ol::FIELDS_OFFSET as usize), r.borrow().cells().base_ptr());
         let tt = || *hdr.add(ol::TYPE_TAG_OFFSET as usize) as i64;
