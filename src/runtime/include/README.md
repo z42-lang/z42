@@ -29,3 +29,8 @@ z42 runtime 对外暴露的 C ABI 公开头文件。供 host 应用 / native 库
 ## ABI 演进
 
 `abi_version` 字段永远在偏移 0；新字段只追加，major 版本升级 = 显式 break。两份头文件遵循同一规则（`z42_abi.h` 详见 `docs/reference/src/embedding/native-interop.md` §3.3；`z42_host.h` 详见 `docs/reference/src/embedding/c-abi.md`，另有 `struct_size` 门控追加字段）。
+
+## 关联文档
+
+- 用法与规则（参考手册）：[嵌入](../../../docs/reference/src/embedding/README.md)
+- 设计 / 机制（实现内幕）：[嵌入宿主](../../../docs/internals/src/runtime/embedding.md) · [native ABI](../../../docs/internals/src/runtime/native-abi.md)
