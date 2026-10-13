@@ -46,8 +46,7 @@ PathClosureOut _buildPathDepClosure(string tomlPath, bool isRelease, bool noIncr
     }
     if (closure.Count > 0) {
         o.Names = new string[closure.Count];
-        // 基础解析域 = 调用方已决议的 libsDirs（`--compile-libs` > `Z42_LIBS`；workspace 成员 = 成员 dist + 外部档）。
-        // 此前这里重读 `Z42_LIBS`，**绕过了 `--compile-libs`**（fix-path-dep-closure-scope）。
+        // 基础解析域 = 调用方已决议的 libsDirs（`Z42_LIBS`；workspace 成员 = 成员 dist + 外部档）。
         string[] accum = new string[closure.Count];
         int accN = 0;
         int ci = 0;

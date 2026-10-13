@@ -155,6 +155,13 @@ pub fn marking_any() -> bool {
     MARKING_HEAPS.load(Ordering::Relaxed) != 0
 }
 
+/// Address of the counter [`marking_any`] reads, for JIT-compiled reference stores: a non-zero
+/// load sends the store to the helper, which records the overwritten value.
+#[cfg(feature = "jit")]
+pub(crate) fn marking_heaps_addr() -> *const AtomicUsize {
+    &MARKING_HEAPS
+}
+
 /// The barrier: call **before** a heap reference slot holding `old` is overwritten.
 #[inline]
 pub fn record_overwrite(old: &Value) {

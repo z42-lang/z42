@@ -46,6 +46,8 @@ pub const TAG_BOOL: u8 = 2;
 pub const TAG_CHAR: u8 = 3;
 pub const TAG_STR: u8 = 4;
 pub const TAG_NULL: u8 = 5;
+/// `Value::Object(ObjRef)` — payload is the object handle (native field access, `field_ic`).
+pub const TAG_OBJECT: u8 = 7;
 /// `Value::FuncRef(FnId)` — payload is the id (P1-2 PR 8: a native `LoadFn` store).
 pub const TAG_FUNCREF: u8 = 9;
 

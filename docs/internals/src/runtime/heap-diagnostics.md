@@ -39,7 +39,7 @@ L2 retaining_roots(target)  = 从 target 沿 rev 反向 BFS，收集途经对象
 
 ### 分类根 scanner（L2 报根的前提）
 mark 阶段的 `external_root_scanner` 只吐**匿名** Value，报不出根类别。故新增**分类根 scanner**
-（`CategorizedRootScanner`，`VmCore` 接线捕 `Weak<VmCore>`）：按类别枚举 `static_fields → StaticField`、
+（`CategorizedRootScanner`，`VmCore` 接线捕 `Weak<VmCore>`）：按类别枚举静态字段单元（`VmCore.statics`）→ `StaticField`、
 每线程帧 regs/env/stack-arena → `StackFrame`；pinned 根（GC 内部）→
 `Pinned`。**只在诊断查询时调用**，mark 热路径不变（零回归）。
 

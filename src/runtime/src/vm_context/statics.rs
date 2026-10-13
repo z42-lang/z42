@@ -11,79 +11,43 @@ impl VmContext {
 
     // ── Static fields ─────────────────────────────────────────────────────
     //
-    // Layout (introduce-method-token, 2026-05-08):
-    //   `static_fields: Vec<Value>`           — slot storage by StaticFieldId.0
-    //   `static_field_index: HashMap<&str, u32>` — name → id (lazy-allocated)
-    //
-    // The legacy by-name `static_get` / `static_set` API lazy-allocates an
-    // ID on first write and looks up by name on read (returning Null if no
-    // ID is yet allocated). The dispatch hot path uses `static_get_by_id`
-    // / `static_set_by_id` after `metadata::resolver` has populated
-    // per-instruction `StaticFieldId` cache slots.
+    // Storage is `core.statics` (`static_table`): one stable-address cell per
+    // `StaticFieldId`, read and written without a lock; the name → id registration is
+    // lazy. The dispatch hot path uses `static_get_by_id` / `static_set_by_id` with the
+    // per-site id `metadata::resolver` resolved; the by-name `static_get` / `static_set`
+    // serve sites without one (and the REPL).
 
     /// Resolve (or lazy-allocate) a `StaticFieldId` for the given full-qualified
     /// static-field name. Idempotent. Called by `metadata::resolver` at module
     /// load and by hot paths on cache miss (cross-zpkg lazy fields).
     pub fn resolve_static_field_id(&self, name: &str) -> crate::metadata::tokens::StaticFieldId {
-        let mut idx = self.core.static_field_index.lock();
-        if let Some(&id) = idx.get(name) {
-            return crate::metadata::tokens::StaticFieldId(id);
-        }
-        let id = idx.len() as u32;
-        idx.insert(name.to_string(), id);
-        // Extend backing Vec to match index.
-        let mut sf = self.core.static_fields.lock();
-        if (id as usize) >= sf.len() {
-            sf.resize_with((id + 1) as usize, || Value::Null);
-        }
-        crate::metadata::tokens::StaticFieldId(id)
+        self.core.statics.resolve(name)
     }
 
-    /// Read a user-class static field by name. Unset fields read as
-    /// `Value::Null`. Lazy fallback for cross-zpkg paths and JIT helpers
-    /// not yet threading `StaticFieldId`.
+    /// Read a user-class static field by name. Unset fields read as `Value::Null`.
     pub fn static_get(&self, field: &str) -> Value {
-        let idx = self.core.static_field_index.lock();
-        match idx.get(field) {
-            Some(&id) => self
-                .core
-                .static_fields
-                .lock()
-                .get(id as usize)
-                .cloned()
-                .unwrap_or(Value::Null),
-            None => Value::Null,
-        }
+        self.core.statics.id_of(field).map_or(Value::Null, |id| self.core.statics.get(id))
     }
 
-    /// Write a user-class static field by name. Lazy-allocates the id on
-    /// first write.
-    pub fn static_set(&self, field: &str, val: Value) {
+    /// Write a user-class static field by name. Lazy-allocates the id on first write.
+    pub fn static_set(&self, field: &str, val: Value) -> anyhow::Result<()> {
         let id = self.resolve_static_field_id(field);
-        self.static_set_by_id(id, val);
+        self.static_set_by_id(id, val)
     }
 
-    /// Hot-path read by id (no hash). Caller must have a resolved id.
-    /// Returns `Value::Null` if id ≥ Vec length (unallocated slot).
+    /// Hot-path read by id: one acquire load of the cell's tag word (and a relaxed load of
+    /// its payload for a primitive). `Value::Null` for an id never allocated.
     #[inline]
     pub fn static_get_by_id(&self, id: crate::metadata::tokens::StaticFieldId) -> Value {
-        self.core
-            .static_fields
-            .lock()
-            .get(id.0 as usize)
-            .cloned()
-            .unwrap_or(Value::Null)
+        self.core.statics.get(id)
     }
 
-    /// Hot-path write by id. Caller must have a resolved id; the slot
-    /// is auto-extended if id ≥ current Vec length.
+    /// Hot-path write by id (no lock). A value of another kind than the cell already holds is
+    /// boxed into it (`tparam_cell`), which needs the thread's active heap — the only way this
+    /// fails (a context with no frame running).
     #[inline]
-    pub fn static_set_by_id(&self, id: crate::metadata::tokens::StaticFieldId, val: Value) {
-        let mut sf = self.core.static_fields.lock();
-        if (id.0 as usize) >= sf.len() {
-            sf.resize_with((id.0 + 1) as usize, || Value::Null);
-        }
-        sf[id.0 as usize] = val;
+    pub fn static_set_by_id(&self, id: crate::metadata::tokens::StaticFieldId, val: Value) -> anyhow::Result<()> {
+        self.core.statics.set(id, &val)
     }
 
     /// Drop all static fields (used by `run_with_static_init` to ensure a
@@ -92,11 +56,7 @@ impl VmContext {
     /// stable across runs (resolver-populated IDs in `Function.resolved`
     /// remain valid after re-init).
     pub fn static_fields_clear(&self) {
-        let mut sf = self.core.static_fields.lock();
-        for slot in sf.iter_mut() {
-            *slot = Value::Null;
-        }
-        drop(sf);
+        self.core.statics.clear();
         // 槽位清零后，**已跑过的初始化器必须重跑** —— 否则那些类型已是终态、不会再被
         // 任何访问重新触发，静态字段永远停在 Null/零值。
         //

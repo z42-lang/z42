@@ -251,6 +251,45 @@ const _: () = assert!(OBJ_HEADER_BYTES == 16);
 const _: () = assert!(OBJ_HEADER_BYTES % 8 == 0);
 const _: () = assert!(std::mem::align_of::<ObjHeader>() == std::mem::size_of::<usize>());
 
+/// What JIT-compiled code needs to reach an object's type and field cells from its handle without
+/// a call (64-bit targets; `jit::translate::field_ic`): `hdr = handle & HANDLE_ADDR_MASK` is the
+/// block header, the object header follows it, then the field cells — every offset below is from
+/// `hdr`. Pinned against the Rust accessors by `object_tests::jit_layout_matches_the_accessors`.
+#[cfg(all(feature = "jit", target_pointer_width = "64"))]
+pub(crate) mod obj_jit_layout {
+    use crate::gc::var_region::GcBlockHeader;
+
+    /// Mask turning an object handle's bits into its block-header address.
+    pub(crate) const HANDLE_ADDR_MASK: u64 = crate::gc::var_region::HANDLE_ADDR_MASK;
+    /// The object header's `type_desc` word (the `Arc<TypeDesc>`'s pointer to its heap block).
+    pub(crate) const TYPE_DESC_OFFSET: i32 = GcBlockHeader::DATA_OFFSET as i32;
+    /// Field cell 0: a `FieldLoc::offset` is relative to this.
+    pub(crate) const FIELDS_OFFSET: i32 = (GcBlockHeader::DATA_OFFSET + super::OBJ_HEADER_BYTES) as i32;
+    /// The block header's `type_tag` byte: block type, `gen_age`, remembered bit.
+    pub(crate) const TYPE_TAG_OFFSET: i32 = crate::gc::var_region::HEADER_TYPE_TAG_OFFSET as i32;
+    /// `gen_age` = `(type_tag >> AGE_SHIFT) & AGE_MASK` (var-region blocks: objects, strings,
+    /// closures alike).
+    pub(crate) const AGE_SHIFT: i64 = 3;
+    pub(crate) const AGE_MASK: i64 = 3;
+    /// Set ⇔ the object is in the heap's remembered set (a minor re-scans it whole).
+    pub(crate) const REMEMBERED_BIT: i64 = 1 << 5;
+
+    // `Arc<T>` (sized `T`) is one pointer to its heap block — the word the header stores.
+    const _: () = assert!(std::mem::size_of::<std::sync::Arc<u64>>() == 8);
+    const _: () = assert!(std::mem::align_of::<super::TypeDesc>() == std::mem::align_of::<u64>());
+
+    /// Offset from the `type_desc` word's pointer to `TypeDesc::id` (a `u32`): the `Arc`'s
+    /// counters, then the descriptor. Measured on a probe `Arc` of the same alignment rather than
+    /// assumed, so a std layout change shows up here (and in the pinning test), not as a wrong load.
+    pub(crate) fn type_id_offset() -> i32 {
+        let probe = std::sync::Arc::new(0u64);
+        // SAFETY: an `Arc<u64>` is exactly one pointer (asserted above); this reads it as an integer.
+        let block: usize = unsafe { std::mem::transmute_copy::<std::sync::Arc<u64>, usize>(&probe) };
+        let data = std::sync::Arc::as_ptr(&probe) as usize - block;
+        (data + std::mem::offset_of!(super::TypeDesc, id)) as i32
+    }
+}
+
 // SAFETY: the header's fields are `Send + Sync` (`ObjMeta`'s impls say why); the field area is
 // only ever accessed through atomic cell views (`Cells`), so sharing `&ScriptObject` across
 // threads is race-free — the `UnsafeCell`s are not a plain-memory mutation channel.

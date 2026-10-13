@@ -8,7 +8,7 @@ using Z42.Package;     // ZpkgReader / ZpkgInfo
 using Z42.Semantics;   // PreludeNs
 using Z42.Core;        // DiagnosticCodes（W0610）
 
-// stdlib 不用声明：它在框架目录（编译期外部档 = `CompileLibsOpt.ExtDirs()`）里，解析面本来就看得见
+// stdlib 不用声明：它在框架目录（编译期外部档 = `_extLibDirs()`）里，解析面本来就看得见
 // （`z42.*` 包的 DepIndex 准入不看声明），运行期也从 shipped `libs/` 解析。声明它不改变任何结果，
 // 只会让读清单的人以为「不写就用不了」。
 //
@@ -27,7 +27,7 @@ using Z42.Core;        // DiagnosticCodes（W0610）
 // ⚠️ 不把编译器成员之间的依赖改成 path 依赖来躲：z42b（BuildSession）不解析 path 依赖，它的测试目标会编不过。
 // 只 warn、不报错：照常构建。
 void _warnStdlibDeps(ProjectManifest pm, string tomlPath, string[] libsDirs, int libsDirsN, WsTier tier) {
-    string[] fw = CompileLibsOpt.ExtDirs();
+    string[] fw = _extLibDirs();
     if (fw.Length == 0) { return; }
     int i = 0;
     while (i < pm.DepCount) {

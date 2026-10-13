@@ -56,11 +56,18 @@ impl ScriptObject {
     /// Reads the type's composed object layout; falls back to on-the-fly synthesis for a
     /// layout-less type (rare — synthetic / Rust-constructed).
     #[inline(always)]
-    fn field_access_of(&self, slot: usize) -> Option<FieldAccess> {
+    pub fn field_access_of(&self, slot: usize) -> Option<FieldAccess> {
         if let Some(col) = self.type_desc.composed_object_layout_ref() {
             return col.field_access.get(slot).copied();
         }
         self.synthesized_field_access(slot)
+    }
+
+    /// The access a cached [`FieldLoc`] stands for on this object (a `FieldIC` hit). Only a
+    /// type-parameter cell consults the layout (its locator carries the slot).
+    #[inline(always)]
+    pub fn access_at(&self, loc: FieldLoc) -> Option<FieldAccess> {
+        FieldAccess::of_loc(loc, |slot| self.field_access_of(slot))
     }
 
     #[cold]
@@ -74,7 +81,15 @@ impl ScriptObject {
     /// struct root (accessed via `StructFieldGetPrim`, never `FieldGet`).
     #[inline]
     pub fn field_value(&self, slot: usize) -> Value {
-        let Some(fa) = self.field_access_of(slot) else { return Value::Null };
+        match self.field_access_of(slot) {
+            Some(fa) => self.load_access(fa),
+            None => Value::Null,
+        }
+    }
+
+    /// Read the cell `fa` describes (`field_value` once the slot is resolved, a `FieldIC` hit).
+    #[inline(always)]
+    pub fn load_access(&self, fa: FieldAccess) -> Value {
         let c = self.cells();
         match fa.cell() {
             FieldCell::Ref => ref_word::load(&c, fa.offset as usize),
@@ -84,28 +99,6 @@ impl ScriptObject {
                 .unwrap_or(Value::Null),
             FieldCell::Struct => Value::Null,
         }
-    }
-
-    /// JIT hoist: if `name` is a direct **primitive** field, `(bytes base ptr, byte offset,
-    /// width, tag)` for a native width-aware load / store (a plain aligned access is the
-    /// relaxed atomic on x86-64 / AArch64). `None` (→ keep the helper) for anything else.
-    /// The pointer stays valid for the frame: non-moving GC, fixed payload block, receiver
-    /// held live by the frame.
-    #[inline]
-    pub fn inline_prim_field(&self, name: &str) -> Option<(*const u8, u32, u32, u8)> {
-        let slot = *self.type_desc.field_index.get(name)?;
-        let fa = self.field_access_of(slot)?;
-        (fa.cell() == FieldCell::Prim).then(|| (self.cells().base_ptr(), fa.offset, fa.width, fa.tag))
-    }
-
-    /// JIT hoist: if `name` is a direct field held in an 8 B **reference word**, `(bytes base
-    /// ptr, byte offset)`. The inline code acquire-loads the word and decodes the kind
-    /// through `ref_word::KIND_TO_VALUE_TAG` (kind 7 → helper). Reads only.
-    #[inline]
-    pub fn inline_ref_field(&self, name: &str) -> Option<(*const u8, u32)> {
-        let slot = *self.type_desc.field_index.get(name)?;
-        let fa = self.field_access_of(slot)?;
-        (fa.cell() == FieldCell::Ref).then(|| (self.cells().base_ptr(), fa.offset))
     }
 
     /// Write direct field `slot` from `v`; `true` iff the target is a reference cell.
@@ -129,7 +122,15 @@ impl ScriptObject {
     /// never silently dropped: reflection's `SetValue` reaches this.
     #[inline]
     pub fn try_set_field_value(&self, slot: usize, v: &Value) -> anyhow::Result<FieldWrite> {
-        let Some(fa) = self.field_access_of(slot) else { return Ok(FieldWrite::NotRef) };
+        match self.field_access_of(slot) {
+            Some(fa) => self.store_access(fa, v),
+            None => Ok(FieldWrite::NotRef),
+        }
+    }
+
+    /// Write the cell `fa` describes (see [`Self::try_set_field_value`]).
+    #[inline(always)]
+    pub fn store_access(&self, fa: FieldAccess, v: &Value) -> anyhow::Result<FieldWrite> {
         let c = self.cells();
         match fa.cell() {
             FieldCell::Ref => ref_word::store(&c, fa.offset as usize, v),

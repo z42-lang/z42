@@ -245,9 +245,8 @@ arena 索引在子帧里无意义。**per-thread（per-`VmContext`）arena** 任
   `frame.regs`），回边 OSR 进 JIT 后 JIT 代码会**继承并访问**该句柄。故 JIT 的字段/元素 helper
   **必须**镜像 interp 处理栈句柄：`jit_field_get`/`jit_field_set`（对象，复用 FieldIC、栈槽无 write
   barrier）与 `jit_array_get`/`jit_array_set`/`jit_array_len`（数组）各带一条 `StackObject`/`StackArray`
-  臂，经 `ctx.stack_arena` 解析。原生内联字段/元素快路径的 hoist（`jit_obj_field_slot` /
-  `jit_array_data_opt`）对非堆 receiver 返回 sentinel（`off=-1` / `ptr=null`）→ 路由到冷 helper，故修
-  helper 即全覆盖。**漏这条 = OSR 下 `FieldGet/FieldSet/ArraySet…: expected object/array, got Stack*`
+  臂，经 `ctx.stack_arena` 解析。原生字段 IC 的守卫（接收者不是 `Value::Object` → 慢路）与元素快路径的 hoist
+  （`jit_array_data_opt`，对非堆 receiver 返回 `ptr=null`）都把栈句柄路由到冷 helper，故修 helper 即全覆盖。**漏这条 = OSR 下 `FieldGet/FieldSet/ArraySet…: expected object/array, got Stack*`
   崩**（默认 OSR 阈值高、`--release` 才开逃逸分析 → 平时 latent）。
 
 ### 诊断（栈分配出错要能第一时间知道）

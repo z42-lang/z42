@@ -43,7 +43,7 @@ fn retention_query_waits_for_running_mutators_to_park() {
 
     let ctx = VmContext::new();
     let target = ctx.heap().alloc_array(vec![Value::I64(1)]);
-    ctx.core.static_fields.lock().push(target.clone());   // keep it reachable
+    ctx.static_set("Diag.Keep", target).unwrap();   // keep it reachable
 
     let stop = Arc::new(AtomicBool::new(false));
     let (registered_tx, registered_rx) = mpsc::channel();

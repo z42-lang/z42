@@ -213,8 +213,8 @@ void _copyIfNewer(string src, string dst) {
 
 // z42c self-build：用现有 z42c.driver.zpkg 作种子编译器，一句 `build --workspace`
 // 按拓扑序重建全部编译器成员到各自 dist（兄弟包由 workspace dist 自动解析——旧「E0402
-// wrinkle」已不复现）。driver 先自包含化 → 直接跑，无需拼 selfbuild-runlibs；`stdlibFlat`
-// （稳定的现有 stdlib）作 Z42_LIBS 供种子 driver 运行期 Std.*（编译器构建不动 stdlib）。
+// wrinkle」已不复现）。driver 先自包含化 → 直接跑，无需拼 selfbuild-runlibs；`stdlibFlat` 作 Z42_LIBS
+// （编译期依赖面），种子 driver 运行期的 Std.* 走 seed run-libs（见下）。
 int _buildCompilerViaZ42c(string root, string profile, string[] members, string vm, string stdlibFlat) {
     _vNormal("  building z42c via z42c (--workspace)");
     _ensureDriverSelfContained(root, profile, members);   // 种子 driver 自包含 → 可直接跑
@@ -225,39 +225,27 @@ int _buildCompilerViaZ42c(string root, string profile, string[] members, string 
     // 而它编译的源码要解析**当前源**新建出来的库。此前两者共用 `stdlibFlat` 一个目录 ⇒ 下面的
     // 预建一覆盖 flat，种子 driver 自己就崩（改名/删符号这类变更必然踩到）。
     //
-    // 现在：先把 flat 快照成种子代的运行期面（**必须在预建覆盖之前**），随后种子 driver 的调用
-    // 用 `Z42_LIBS=快照` + `--compile-libs=flat`。driver 换代之后的步骤（`build stdlib` 步骤 4 等）
-    // 仍照旧用 flat 当两者 —— 那时 driver 与 flat 同代。详见
-    // `变更 rename-project-namespaces/design.md` §3 的代际表。
-    // 🔴 **只有在 driver 认 `--compile-libs` 时才分开两个面**。种子 driver 若早于该旗标会
-    // **静默忽略**它 ⇒ `Z42_LIBS`（此处本想设成种子代快照）会被当成编译期面，冷树上那个快照
-    // 还是空的 ⇒ `z42.package 未找到`（CI compile-toolchain 实测红）。不认就逐字退回旧行为。
-    bool splitLibs = _driverSupportsCompileLibs(vm, driver);
-    string seedRun = stdlibFlat;
-    string compileLibs = "";
-    if (splitLibs) {
-        // 代际锚 = driver 产出时记下的 stdlib（`_driverGenLibs`，拷进 run-libs），**不是**本轮 flat 的快照。
-        // 理由与 flat 为何当不了锚见 `_relocateSeedRunLibs` 头注。
-        seedRun = _seedRunLibs(root, profile);
-        int movedLibs = _relocateSeedRunLibs(root, profile, members, seedRun);
-        int filledLibs = _topUpSeedRunLibs(root, seedRun, members);
-        if (movedLibs + filledLibs > 0) {
-            _vNormal("  seed run-libs ← driver 代际锚/bundle " + movedLibs.ToString()
-                     + " + SDK 补齐 " + filledLibs.ToString() + "（外部包搬出成员 dist）");
-        } else {
-            _seedRunLibsFallbackFlat(root, profile, seedRun, stdlibFlat);
-        }
-        compileLibs = stdlibFlat;
+    // 现在：种子代的运行期面单独备一份（`seedRun`），种子 driver 的调用把它挂成运行期 probing、flat 当
+    // `Z42_LIBS`（编译期面，见 `_z42cProcSeed`）。driver 换代之后的步骤（`build stdlib` 步骤 4 等）
+    // 只用 flat —— 那时 driver 与 flat 同代。
+    // 代际锚 = driver 产出时记下的 stdlib（`_driverGenLibs`，拷进 run-libs），**不是**本轮 flat 的快照。
+    // 理由与 flat 为何当不了锚见 `_relocateSeedRunLibs` 头注。
+    string seedRun = _seedRunLibs(root, profile);
+    int movedLibs = _relocateSeedRunLibs(root, profile, members, seedRun);
+    int filledLibs = _topUpSeedRunLibs(root, seedRun, members);
+    if (movedLibs + filledLibs > 0) {
+        _vNormal("  seed run-libs ← driver 代际锚/bundle " + movedLibs.ToString()
+                 + " + SDK 补齐 " + filledLibs.ToString() + "（外部包搬出成员 dist）");
     } else {
-        _vNormal("  seed driver 不认 --compile-libs（早于该旗标）→ 运行期/编译期共用 flat（旧行为）");
+        _seedRunLibsFallbackFlat(root, profile, seedRun, stdlibFlat);
     }
     // 冷启动破 z42c⇄z42.package 环（须在 workspace build 前）。失败即判红，见 `_prebuildOne`。
     if (_ensureBootstrapSelfDepLibs(root, vm, driver, stdlibFlat, seedRun) != 0) { return 1; }
     // 预建刚把当前源的库写进 flat ⇒ 此刻把成员 + **fresh** 前端补回 driver bundle
     // （与 flat 同代 ⇒ 不遮蔽；外部包已搬进 run-libs，不再回到成员 dist）。
-    if (splitLibs) { _ensureDriverSelfContained(root, profile, members); }
+    _ensureDriverSelfContained(root, profile, members);
     string compilerDir = Path.Join(root, "src/compiler");
-    int rc = _z42cWorkspaceBuild(vm, driver, compilerDir, seedRun, false, compileLibs);
+    int rc = _z42cWorkspaceBuild(vm, driver, compilerDir, stdlibFlat, false, seedRun);
     // 跨成员符号新增（如 z42c.syntax 新增类型/字段被 z42c.semantics 消费）冷启动收敛（破 z42c⇄z42c 内部环）：
     // 上面 line 67 的自包含把当时 dist 里的**旧**兄弟包（如上一 nightly 种子的 z42c.syntax）打进 driver，
     // 而 driver 作编译器运行时解析 semantics 源里的 `Z42.Syntax.*` 用其**自身加载的旧兄弟包**（遮蔽 fresh
@@ -268,7 +256,7 @@ int _buildCompilerViaZ42c(string root, string profile, string[] members, string 
         _vNormal("  self-build 首遍失败 → 用本轮 fresh 成员 dist 重新自包含 driver + 重试（跨成员符号新增冷启动收敛）");
         _ensureDriverSelfContained(root, profile, members);
         // 重试仍用种子代 driver ⇒ 同样分开两个面。
-        rc = _z42cWorkspaceBuild(vm, driver, compilerDir, seedRun, false, compileLibs);
+        rc = _z42cWorkspaceBuild(vm, driver, compilerDir, stdlibFlat, false, seedRun);
     }
     if (rc != 0) { ConsoleError.WriteLine("  ✗ z42c --workspace self-build failed"); return 1; }
     _snapshotDriverGenLibs(root, profile, stdlibFlat);
@@ -391,11 +379,11 @@ int _ensureBootstrapSelfDepLibs(string root, string vm, string driver, string st
 // 判据是「产物写出来没有」而不是退出码：先输出到一个干净的临时目录，产物在 ⇒ 拷进 flat；不在 ⇒ 真失败。
 // 存在而退出码非零只警告 —— 旧 nightly 的 z42c 在 Windows 上会在**写完 zpkg 之后**写增量缓存时崩
 // （os error 3），产物是好的（CI ci-bootstrap 用的是同一个「产物守卫」口径）。
-// 不直接写 flat 再删旧文件：种子不认 `--compile-libs` 时 runLibs 就是 flat，正在跑的 driver 自己也从这里加载库。
+// 不直接写 flat 再删旧文件：run-libs 退回 flat 时（`_seedRunLibsFallbackFlat`），正在跑的 driver 自己也从这里加载库。
 int _prebuildOne(string vm, string driver, string toml, string name, string runLibs, string stdlibFlat) {
     string tmp = Path.Join(Path.GetDirectoryName(stdlibFlat), ".prebuild-" + name);
     _resetDir(tmp);
-    int rc = _z42cBuildPackage(vm, driver, toml, runLibs, tmp, stdlibFlat);
+    int rc = _z42cBuildPackage(vm, driver, toml, stdlibFlat, tmp, runLibs);
     string built = Path.Join(tmp, name + ".zpkg");
     if (!File.Exists(built)) {
         ConsoleError.WriteLine("  ✗ bootstrap: build " + name + " failed (" + rc.ToString() + ") — no " + name + ".zpkg produced");

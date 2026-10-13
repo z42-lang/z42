@@ -45,6 +45,22 @@ pub const RK_BOXED_VALUE: u64 = 7;
 pub static KIND_TO_VALUE_TAG: [u8; 8] = [5, 7, 6, 4, 10, SLOW_PATH_TAG, 17, SLOW_PATH_TAG];
 pub const SLOW_PATH_TAG: u8 = 0xFF;
 
+/// JIT 写路径的查表（[`KIND_TO_VALUE_TAG`] 的逆）：寄存器里 `Value` 的判别值 → 引用字种类，
+/// 字 = `负载 | 种类`（`Null` 的字是 0，种类 0）。[`SLOW_PATH_KIND`] = 这个值不能直接编码：基元
+/// （要装箱）、栈上句柄，以及 `FuncRef`（载荷只有低 4 字节有效）→ helper。下标是判别值（< 32）。
+/// 由 `ref_word_tests::the_jit_store_table_matches_encode` 钉住。
+pub static VALUE_TAG_TO_KIND: [u8; 32] = {
+    let mut t = [SLOW_PATH_KIND; 32];
+    t[4] = RK_STR as u8;            // Str
+    t[5] = 0;                       // Null
+    t[6] = RK_ARRAY as u8;          // Array
+    t[7] = RK_OBJECT as u8;         // Object
+    t[10] = RK_CLOSURE as u8;       // Closure
+    t[17] = RK_BOXED_STRUCT as u8;  // BoxedStruct
+    t
+};
+pub const SLOW_PATH_KIND: u8 = 0xFF;
+
 // 句柄的低 3 位必须空着。64 位目标上 entry / 块头都含指针宽字段，天然 8 对齐；32 位目标由
 // `RegionEntry` 的 `repr(align(8))` 与 `GcBlockHeader` 的 `align(8)` 保证。对象（R6）与字符串、
 // 闭包一样是变长区块，句柄指向块头。

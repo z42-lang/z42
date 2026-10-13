@@ -282,6 +282,9 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     /// **Override 契约**: implementations may `debug_assert!(new.is_heap_ref())`
     /// to detect contract violations. Phase 1 STW mark-sweep default is
     /// no-op; `ArcMagrGC` overrides it with generational card-marking.
+    ///
+    /// `slot` only identifies the written cell for the test observer (callers pass its byte
+    /// offset in the owner's field area); the barrier itself looks at `owner` and `new`.
     #[allow(unused_variables)]
     fn write_barrier_field(&self, owner: &Value, slot: usize, new: &Value) {}
 
@@ -289,6 +292,15 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     /// post-write + lock released before call）。
     #[allow(unused_variables)]
     fn write_barrier_array_elem(&self, arr: &Value, idx: usize, new: &Value) {}
+
+    /// The two bytes a JIT-compiled reference store reads to decide, without a call, whether
+    /// [`Self::write_barrier_field`] could do anything: the GC mode (`GcMode as u8`) and the
+    /// promotion age (owners younger than it never need a barrier). Both live as long as the
+    /// heap. `None` (the default) keeps every compiled reference store on the helper.
+    #[cfg(feature = "jit")]
+    fn jit_barrier_bytes(&self) -> Option<(*const std::sync::atomic::AtomicU8, *const std::sync::atomic::AtomicU8)> {
+        None
+    }
 
     /// Whether the array region's card covering `chunk_idx` is dirty (tests only).
     #[cfg(test)]

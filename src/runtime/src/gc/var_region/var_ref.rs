@@ -146,6 +146,20 @@ impl VarGcRef {
         unsafe { self.header_ptr().as_ref() }.size()
     }
 
+    /// M12: make a freshly allocated block visible — its allocation funnel calls this once the
+    /// payload is written. A block filled into a reused slot (`holes::fill_hole`) is born with
+    /// `alive` clear, because its chunk is already published and a heap walk on another thread
+    /// must not see it half-built; the release store pairs with the walkers' acquire load of
+    /// `alive`. Bump-filled and locked-path blocks are born alive, so for them this is one load.
+    #[inline]
+    pub(crate) fn publish(&self) {
+        // SAFETY: the caller just allocated this block and holds its only handle.
+        let h = unsafe { self.header_ptr().as_ref() };
+        if !h.alive.load(std::sync::atomic::Ordering::Relaxed) {
+            h.alive.store(true, std::sync::atomic::Ordering::Release);
+        }
+    }
+
     /// Mark the pointed-to block (mark phase). Returns `true` if this call won the CAS.
     ///
     /// # Safety

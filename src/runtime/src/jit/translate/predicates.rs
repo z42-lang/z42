@@ -128,22 +128,20 @@ pub(super) fn is_typed(func: &Function, reg: u32, expected: IrType) -> bool {
     func.reg_types.get(reg as usize).copied() == Some(expected)
 }
 
-/// post-layout JIT perf (P5-B): how to natively load/store a register's static
-/// primitive type against `ScriptObject::bytes` — mirroring `decode_prim`/
-/// `encode_prim`. `width` = packed byte width, `ext` = how to widen a loaded scalar
-/// into the 16B register payload, `reg_tag` = the `Value` discriminant stamped into
+/// How to natively load/store a register's static primitive type against an object's
+/// field cell — mirroring `prim_from_bits` / `prim_to_bits`. `load_ty` = the cell's
+/// width, `ext` = how to widen a loaded scalar into the 16B register payload, `reg_tag` = the `Value` discriminant stamped into
 /// the register tag byte (int types → `Value::I64` = 0; floats → `Value::F64` = 1),
-/// `field_tag` = the `TAG_*` handed to `jit_obj_field_slot` for runtime validation.
-/// `None` for types stage 1 does NOT inline (F32 / Bool / Char / Str / Ref / Void /
-/// Unknown) → those keep the `jit_field_get`/`jit_field_set` helper. Relies on the
-/// invariant that a `FieldGet` dst / `FieldSet` val is typed as the field's declared
-/// type (z42 has no implicit narrowing), so this width equals the packed field width.
+/// `field_tag` = the exact `TAG_*` the cell must have — the kind byte the site's `FieldIC`
+/// entry is compared against (`field_ic`), so a register typed differently from the field
+/// never takes the native path. `None` for types not inlined (F32 / Str / Ref / Void /
+/// Unknown) → those keep the `jit_field_get`/`jit_field_set` helper (references have their
+/// own inline path).
 #[derive(Clone, Copy)]
 pub(super) struct FieldPrim {
     pub(super) load_ty: cranelift_codegen::ir::Type,
     pub(super) ext: FieldExt,
     pub(super) reg_tag: i64,
-    pub(super) width: u32,
     pub(super) field_tag: u8,
 }
 
@@ -152,21 +150,25 @@ pub(super) enum FieldExt { Sext, Uext, Keep, Float }
 
 pub(super) fn field_prim_kind(func: &Function, reg: u32) -> Option<FieldPrim> {
     use crate::metadata::types::{
-        TAG_I8, TAG_I16, TAG_I32, TAG_I64, TAG_U8, TAG_U16, TAG_U32, TAG_U64, TAG_F64,
+        TAG_BOOL, TAG_CHAR, TAG_I8, TAG_I16, TAG_I32, TAG_I64, TAG_U8, TAG_U16, TAG_U32, TAG_U64, TAG_F64,
     };
-    let (load_ty, ext, reg_tag, width, field_tag) = match func.reg_types.get(reg as usize).copied()? {
-        IrType::I8  => (types::I8,  FieldExt::Sext,  0, 1, TAG_I8),
-        IrType::I16 => (types::I16, FieldExt::Sext,  0, 2, TAG_I16),
-        IrType::I32 => (types::I32, FieldExt::Sext,  0, 4, TAG_I32),
-        IrType::I64 => (types::I64, FieldExt::Keep,  0, 8, TAG_I64),
-        IrType::U8  => (types::I8,  FieldExt::Uext,  0, 1, TAG_U8),
-        IrType::U16 => (types::I16, FieldExt::Uext,  0, 2, TAG_U16),
-        IrType::U32 => (types::I32, FieldExt::Uext,  0, 4, TAG_U32),
-        IrType::U64 => (types::I64, FieldExt::Keep,  0, 8, TAG_U64),
-        IrType::F64 => (types::F64, FieldExt::Float, 1, 8, TAG_F64),
-        _ => return None, // F32 / Bool / Char / Str / Ref / Void / Unknown → helper
+    let (load_ty, ext, reg_tag, field_tag) = match func.reg_types.get(reg as usize).copied()? {
+        IrType::I8  => (types::I8,  FieldExt::Sext,  0, TAG_I8),
+        IrType::I16 => (types::I16, FieldExt::Sext,  0, TAG_I16),
+        IrType::I32 => (types::I32, FieldExt::Sext,  0, TAG_I32),
+        IrType::I64 => (types::I64, FieldExt::Keep,  0, TAG_I64),
+        IrType::U8  => (types::I8,  FieldExt::Uext,  0, TAG_U8),
+        IrType::U16 => (types::I16, FieldExt::Uext,  0, TAG_U16),
+        IrType::U32 => (types::I32, FieldExt::Uext,  0, TAG_U32),
+        IrType::U64 => (types::I64, FieldExt::Keep,  0, TAG_U64),
+        IrType::F64 => (types::F64, FieldExt::Float, 1, TAG_F64),
+        // `Value::Bool` / `Value::Char`: the payload's low byte / low 4 bytes (always 0/1 and a
+        // valid scalar value), zero-extended like `prim_from_bits`.
+        IrType::Bool => (types::I8, FieldExt::Uext, 2, TAG_BOOL),
+        IrType::Char => (types::I32, FieldExt::Uext, 3, TAG_CHAR),
+        _ => return None, // F32 / Str / Ref / Void / Unknown → helper
     };
-    Some(FieldPrim { load_ty, ext, reg_tag, width, field_tag })
+    Some(FieldPrim { load_ty, ext, reg_tag, field_tag })
 }
 
 /// Array-element classifier for the JIT inline get/set fast path

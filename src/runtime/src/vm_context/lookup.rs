@@ -121,7 +121,7 @@ impl VmContext {
         self.isa_cache.clear();
         self.type_lookup_cache.lock().clear();
         self.fn_lookup_cache.lock().clear();
-        self.static_owner_cache.lock().clear();
+        self.core.statics.forget_owners();
         let mut state = self.core.lazy_loader.write();
         let loader = state.as_mut().ok_or_else(|| {
             anyhow::anyhow!("LoadModule: no lazy loader installed (cannot register loaded module)")
@@ -150,7 +150,7 @@ impl VmContext {
         self.isa_cache.clear();
         self.type_lookup_cache.lock().clear();
         self.fn_lookup_cache.lock().clear();
-        self.static_owner_cache.lock().clear();
+        self.core.statics.forget_owners();
         let mut state = self.core.lazy_loader.write();
         let loader = state.as_mut().ok_or_else(|| {
             anyhow::anyhow!("LoadBytecodeInMemory: no lazy loader installed (cannot register loaded module)")

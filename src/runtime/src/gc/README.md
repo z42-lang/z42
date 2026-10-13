@@ -35,11 +35,11 @@ observers / profiler / weak refs / finalizers / strict OOM / ...）。
 | `arc_heap/interface.rs` | `impl MagrGC for ArcMagrGC` —— 公共 trait 接口（薄委托层，重方法体下沉到上列 concern 模块）|
 | `arc_heap/debug.rs` | `#[cfg(test)]`/`#[cfg(debug_assertions)]` 辅助：test accessors + `debug_validate_invariants` |
 | `region.rs` + `region/` | 定长 `Region<T>` chunk 分配器（数组头）+ TLAB borrow/retire/reclaim；`claim.rs`（`ChunkClaim`：TLAB 的无锁填充）、`footprint.rs`（region 的占用记账：chunk 常量、挂接、侧表重量）、`slab.rs`（chunk 从页对齐 slab 里切）、`decommit.rs`（池中空 chunk 交还物理页 + generation 下限）、`entry.rs`（`RegionEntry`：值 + 24 B GC 元数据）、`generation.rs`（年轻集合位图 / 晋升 / 卡表）、`invariants.rs`（debug 不变量）。每槽侧表（构造 / 年轻 / 空闲）是每 chunk 一张位图，见 [book: GC TLAB · 侧表](../../../../docs/internals/src/runtime/gc-tlab.md#侧表位图与高水位) |
-| `var_region.rs` + `var_region/` | 变长 `VarRegion` 字节 bump 分配器（对象/字符串/闭包/数组元素）：`block.rs`（`GcBlockHeader` 16 B 头 + payload）、`chunk.rs`（尺寸类 + `VarChunkClaim` + 按高水位逐块遍历 chunk —— 区内没有块索引）、`var_ref.rs`（`VarGcRef` 8 字节 tagged 句柄）、`generation.rs`（年轻集合：每 chunk 一张块起点位图）、`objects.rs`（对象块要的：带标记死块列表、chunk 复用 epoch、按类型遍历、minor 清扫的对象报告、堆外的脱离块 `DetachedBlock`） |
+| `var_region.rs` + `var_region/` | 变长 `VarRegion` 字节 bump 分配器（对象/字符串/闭包/数组元素）：`block.rs`（`GcBlockHeader` 16 B 头 + payload）、`chunk.rs`（尺寸类 + `VarChunkClaim` + 按高水位逐块遍历 chunk —— 区内没有块索引）、`var_ref.rs`（`VarGcRef` 8 字节 tagged 句柄）、`generation.rs`（年轻集合：每 chunk 一张块起点位图）、`holes.rs`（M12：TLAB 按 size class 成批认领半活 chunk 的死槽、原址复用；见 [book: GC TLAB · 空洞复用](../../../../docs/internals/src/runtime/gc-tlab.md#空洞复用tlab-按-size-class-成批认领死槽m12)）、`objects.rs`（对象块要的：带标记死块列表、chunk 复用 epoch、按类型遍历、minor 清扫的对象报告、堆外的脱离块 `DetachedBlock`） |
 | `obj_ref.rs` | `ObjRef`（对象句柄 = 对象块的 `VarGcRef`，方法集同 `GcRef`）/ `WeakObjRef`（多记 chunk 复用 epoch，由堆 upgrade） |
 | `side_bits.rs` | 字数组位集（置位 / 清位 / 逐位遍历），两个 region 的每 chunk 侧表位图共用 |
 | `satb.rs` | **SATB 删除屏障**：进程级 `MARKING_HEAPS` 快路径 + 线程本地记录缓冲，`retire_thread_tlab` 时交给堆 |
-| `tlab.rs` | thread-local `Tlab{arr,var}` + arm 门（仅 VmContext 线程走零锁 TLAB）。机制见 [book: GC TLAB](../../../../docs/internals/src/runtime/gc-tlab.md) |
+| `tlab.rs` | thread-local `Tlab{arr,var,holes}` + arm 门（仅 VmContext 线程走零锁 TLAB）。机制见 [book: GC TLAB](../../../../docs/internals/src/runtime/gc-tlab.md) |
 | `safepoint.rs` | GC safepoint 协议 |
 | `ambient.rs` | thread-local 当前 VM 堆指针，供无堆参数的调用点分配 GC block |
 | `refs.rs` | `GcRef<T>` / `WeakGcRef<T>` 不透明句柄（数组头；8B 标记指针：低 48 位 `RegionEntry` 地址 + 高 16 位 generation 快照；`Clone` 无 atomic，`Drop` no-op，finalizer 在 sweep 触发）；mark 位编码（`MarkKind`） |

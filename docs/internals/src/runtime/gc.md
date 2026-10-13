@@ -22,7 +22,7 @@ Ruby / RustPython 的事实标准 GC 抽象）。trait 在单文件内按"能力
 | 10. Profiler | `set_alloc_sampler` / `take_snapshot` / `iterate_live_objects` | 分配采样 + 堆快照 + 存活遍历 |
 | 11. Stats | `stats` | HeapStats 快照（8 字段）|
 
-`VmContext` 持有 `Box<dyn MagrGC>`（与 `static_fields` / `lazy_loader` 同 ownership
+`VmContext` 持有 `Box<dyn MagrGC>`（与 `statics` / `lazy_loader` 同 ownership
 模型）；所有脚本驱动分配走 `ctx.heap().alloc_*(...)`；JIT helper 通过
 `vm_ctx_ref(ctx).heap().alloc_*(...)` 调用同一接口；嵌入 host 通过同一
 `heap()` 入口访问 root / observer / profiler 等所有能力。
@@ -176,7 +176,7 @@ panic（generation/alive mismatch detection）。该守卫 **debug 与 release �
 16 B 对象头（`ObjHeader`：`type_desc` + `meta`）、字段单元，一次分配；`&ScriptObject` 是盖住对象头 + 字段的胖引用（布局见 [object-abi.md](object-abi.md) §1）。
 没有单独的字段块 malloc，死对象的字段随块一起回收；对象头里的 `Arc<TypeDesc>` 与 extras 盒子由变长区的 drop glue
 在块被 tombstone 时释放（`var_drop_glue` 的 `Object` 臂，返回 extras 的字节数，变长区记回占用账）。
-分配走 `acquire_var_block`（TLAB 无锁 bump，或锁路径），对象在块里建好再发布（`gc/arc_heap/alloc_object.rs`）。
+分配走 `acquire_var_block`（TLAB：先无锁填同 size class 的空洞、再无锁 bump，见 [GC TLAB · 空洞复用](gc-tlab.md#空洞复用tlab-按-size-class-成批认领死槽m12)；或锁路径），对象在块里建好再发布（`gc/arc_heap/alloc_object.rs`）。
 
 `Region<T>`（数组头）内部是 256 槽一个的 chunk（`[MaybeUninit<RegionEntry<T>>; 256]`，从页对齐 slab
 里按下标切出、永不移动）。Alloc 走空闲槽复用优先（reuse tombstoned slot，preserve bumped generation）+ bump pointer。

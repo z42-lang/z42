@@ -168,9 +168,21 @@ impl crate::gc::arc_heap::ArcMagrGC {
             if tlab.heap_epoch != self.epoch {
                 if tlab.is_unbound() {
                     tlab.heap_epoch = self.epoch;
+                    tlab.holes.forget_dry();
                 } else {
                     return None;
                 }
+            }
+            // M12: a dead slot of this size class first (`var_region::holes`) — lock-free out of
+            // the thread's stash, refilled in batches under the region lock until the region has
+            // none of this class left before the next collection.
+            let stash = &mut tlab.holes;
+            if stash.has(size_class)
+                || (!stash.is_dry(size_class) && self.region_var.lock().take_holes(size_class, stash))
+            {
+                // SAFETY: owner thread; a slot of this class is ready; the stash's slots were taken
+                // from this heap's region (the epoch check above binds the TLAB to it).
+                return Some(unsafe { stash.fill(size_class, payload, block_type) });
             }
             if tlab.var.as_ref().map_or(true, |c| !c.has_room(footprint)) {
                 if let Some(mut full) = tlab.var.take() {
@@ -190,7 +202,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// else the locked `VarRegion::alloc`. Returns the block handle plus whether
     /// the fast path was taken (so the caller records via the lock-free
     /// `record_alloc_fast` vs the locked `record_alloc` + `maybe_auto_collect`).
-    /// The caller writes the payload into the returned (zeroed) block.
+    /// The caller writes the payload into the returned (zeroed) block, then **publishes** it
+    /// (`VarGcRef::publish`): a block filled into a reused slot is not alive until then (M12).
     #[inline]
     pub(super) fn acquire_var_block(
         &self,
@@ -224,8 +237,17 @@ impl crate::gc::arc_heap::ArcMagrGC {
             if let Some(claim) = tlab.arr.take() {
                 self.region_array.lock().retire_chunk(&claim);
             }
-            if let Some(mut claim) = tlab.var.take() {
-                self.region_var.lock().retire_chunk(&mut claim);
+            let claim = tlab.var.take();
+            let holes = Some(&mut tlab.holes).filter(|h| !h.is_empty());
+            if claim.is_some() || holes.is_some() {
+                let mut region = self.region_var.lock();
+                if let Some(mut claim) = claim {
+                    region.retire_chunk(&mut claim);
+                }
+                // M12: unused stashed slots go back on the free list before anything sweeps.
+                if let Some(holes) = holes {
+                    region.retire_holes(holes);
+                }
             }
             tlab.heap_epoch = 0; // unbound
         });
@@ -318,6 +340,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let (vref, fast) = self.acquire_var_block(std::mem::size_of::<ClosureData>(), BlockType::Closure);
         // SAFETY: fresh block sized exactly for `ClosureData`; write before any typed read.
         unsafe { vref.payload_as_ptr::<ClosureData>().write(data) };
+        vref.publish();
         let value = Value::Closure(vref);
         let size = GcBlockHeader::DATA_OFFSET + std::mem::size_of::<ClosureData>();
         if fast {
@@ -345,6 +368,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
         // `Length` / `CharAt` / `Substring` then index bytes directly (corelib::str_meta).
         if s.is_ascii() { vref.set_ascii_str(); }
+        vref.publish();
         let size = GcBlockHeader::DATA_OFFSET + s.len();
         // `record_alloc`'s `_value` is unused (only the sampler's lazy `kind_fn` matters), so
         // pass `Null` rather than materialize a throwaway `Value::Str`.
@@ -375,6 +399,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             std::ptr::copy_nonoverlapping(b.as_ptr(), dst.add(a.len()), b.len());
         }
         if a.is_ascii() && b.is_ascii() { vref.set_ascii_str(); }
+        vref.publish();
         let size = GcBlockHeader::DATA_OFFSET + total;
         if fast {
             self.record_alloc_fast(|| AllocKind::Object { class: "<string>".to_string() }, size);

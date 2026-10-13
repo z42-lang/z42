@@ -1,6 +1,6 @@
 use super::*;
 
-// ── static_fields ─────────────────────────────────────────────────────────────
+// ── static fields ──────────────────────────────────────────────────────────────
 
 #[test]
 fn static_get_unset_returns_null() {
@@ -11,15 +11,15 @@ fn static_get_unset_returns_null() {
 #[test]
 fn static_set_then_get_roundtrip() {
     let ctx = VmContext::new();
-    ctx.static_set("Foo.Bar", Value::I64(42));
+    ctx.static_set("Foo.Bar", Value::I64(42)).unwrap();
     assert!(matches!(ctx.static_get("Foo.Bar"), Value::I64(42)));
 }
 
 #[test]
 fn static_fields_clear_drops_all() {
     let ctx = VmContext::new();
-    ctx.static_set("A", Value::I64(1));
-    ctx.static_set("B", Value::I64(2));
+    ctx.static_set("A", Value::I64(1)).unwrap();
+    ctx.static_set("B", Value::I64(2)).unwrap();
     ctx.static_fields_clear();
     assert!(matches!(ctx.static_get("A"), Value::Null));
     assert!(matches!(ctx.static_get("B"), Value::Null));
@@ -29,8 +29,8 @@ fn static_fields_clear_drops_all() {
 fn two_contexts_static_fields_isolated() {
     let ctx1 = VmContext::new();
     let ctx2 = VmContext::new();
-    ctx1.static_set("Foo", Value::I64(1));
-    ctx2.static_set("Foo", Value::I64(2));
+    ctx1.static_set("Foo", Value::I64(1)).unwrap();
+    ctx2.static_set("Foo", Value::I64(2)).unwrap();
     assert!(matches!(ctx1.static_get("Foo"), Value::I64(1)));
     assert!(matches!(ctx2.static_get("Foo"), Value::I64(2)));
 }
@@ -230,7 +230,7 @@ fn vm_context_new_with_core_shares_static_fields() {
     // values when one writes.
     let ctx1 = VmContext::new();
     let ctx2 = VmContext::new_with_core(std::sync::Arc::clone(&ctx1.core));
-    ctx1.static_set("Shared", Value::I64(7));
+    ctx1.static_set("Shared", Value::I64(7)).unwrap();
     assert!(matches!(ctx2.static_get("Shared"), Value::I64(7)));
 }
 

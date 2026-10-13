@@ -84,7 +84,7 @@ pub struct ResolvedTokens {
 
 mod ic;
 pub use ic::{
-    assert_field_ic_slot,
+    assert_field_ic_loc, FIELD_IC_GUARD_MASK,
     ctorless_hit, ctorless_note, fn_registration_mark, note_fn_registration,
     field_ic_install, field_ic_lookup, vcall_ic_install, vcall_ic_lookup,
     FieldIC, FieldICEntry, ObjNewSite, VCallIC, VCallICEntry, IC_SLOTS,

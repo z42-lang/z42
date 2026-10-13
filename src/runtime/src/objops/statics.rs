@@ -2,7 +2,8 @@
 //!
 //! 每次访问先过初始化屏障（包初始化器 → 属主类型的静态构造器），失败抛可 catch 的
 //! `TypeInitializationException`。读到 `Null` 时才确证字段是否声明过：未声明 → 缺符号异常；
-//! 声明了但从未赋值 → 惰性写回该字段类型的零值。
+//! 声明了但从未赋值 → 惰性写回该字段类型的零值。值本身在 `VmCore.statics` 的单元里，读写不拿锁
+//! （`vm_context::static_table`）。
 
 use crate::metadata::tokens::StaticFieldId;
 use crate::metadata::{Module, Value};
@@ -37,7 +38,7 @@ pub fn static_get(ctx: &VmContext, module: &Module, field: &str, field_id: Optio
         StaticNullVerdict::Missing(exc) => Err(OpError::Thrown(exc)),
         // 惰性零初始化：回写槽位，后续读不再走这条确证路径。
         StaticNullVerdict::Default(d) => {
-            store(ctx, field, field_id, d);
+            store(ctx, field, field_id, d)?;
             Ok(d)
         }
     }
@@ -46,14 +47,14 @@ pub fn static_get(ctx: &VmContext, module: &Module, field: &str, field_id: Optio
 /// `StaticSet`。
 pub fn static_set(ctx: &VmContext, module: &Module, field: &str, field_id: Option<u32>, v: Value) -> OpResult<()> {
     barrier(ctx, module, field, field_id)?;
-    store(ctx, field, field_id, v);
-    Ok(())
+    store(ctx, field, field_id, v)
 }
 
 #[inline]
-fn store(ctx: &VmContext, field: &str, field_id: Option<u32>, v: Value) {
+fn store(ctx: &VmContext, field: &str, field_id: Option<u32>, v: Value) -> OpResult<()> {
     match field_id {
         Some(id) => ctx.static_set_by_id(StaticFieldId(id), v),
         None => ctx.static_set(field, v),
     }
+    .map_err(|e| OpError::internal(format!("static field `{field}`: {e}")))
 }
