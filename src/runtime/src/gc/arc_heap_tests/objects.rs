@@ -166,6 +166,34 @@ fn promotion_remembers_an_object_that_becomes_old_holding_a_young_one() {
         "the child survives the next minor — only the remembered owner reaches it");
 }
 
+/// Lowering the promotion line makes a cohort old at once; one of them already holding a young
+/// child got there with no barrier record (it was young when it was written). The lowering must
+/// remember it — and only needs to look at the cohort, not at objects that were old before.
+#[test]
+fn lowering_the_promotion_line_remembers_the_cohort_that_holds_young_children() {
+    let heap = generational_heap();
+    let old = heap.alloc_object(dummy_type_desc("Old"), vec![], NativeData::None);
+    let _p0 = heap.pin_root(old);
+    for _ in 0..PROMOTION_THRESHOLD {
+        heap.force_collect();
+    }
+    let owner = heap.alloc_object(dummy_type_desc("Owner"), vec![], NativeData::None);
+    let _p1 = heap.pin_root(owner);
+    for _ in 0..(PROMOTION_THRESHOLD - 1) {
+        heap.force_collect(); // owner at the age just below the line
+    }
+    let child = heap.alloc_object(dummy_type_desc("Child"), vec![], NativeData::None);
+    obj_of(&owner).borrow().set_ref_raw_for_test(0, &child);
+    heap.write_barrier_field(&owner, 0, &child);
+    assert!(!obj_of(&owner).var_ref().is_remembered(), "young → young: no barrier record");
+
+    heap.apply_promotion_age_for_test(PROMOTION_THRESHOLD - 1);
+    assert!(obj_of(&owner).var_ref().is_remembered(), "the cohort's old → young edge is remembered");
+    assert!(!obj_of(&old).var_ref().is_remembered(), "an object with no young child is not");
+    assert_eq!(heap.remembered_len_for_test(), 1);
+    assert!(heap.verify_card_invariant().is_ok());
+}
+
 #[test]
 fn a_remembered_object_that_dies_leaves_the_set_before_its_chunk_is_reclaimed() {
     let heap = generational_heap();

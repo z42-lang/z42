@@ -24,8 +24,10 @@ public struct Single : IComparable, IEquatable, INumber {
     public static float Parse(string s) { return (float)Double.Parse(s); }
 
     public static bool TryParse(string s, ref float v) {
-        try { v = Single.Parse(s); return true; }
-        catch (Exception e) { v = 0.0f; return false; }
+        double d = 0.0;
+        bool ok = Double.TryParse(s, ref d);
+        v = (float)d;
+        return ok;
     }
 
     // IEEE-754 分类（纯脚本，与 Double 逐条同款）。NaN 是唯一不等于自身的值。

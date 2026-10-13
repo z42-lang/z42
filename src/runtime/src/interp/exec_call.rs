@@ -206,6 +206,15 @@ pub(super) fn call(
     // add-generic-methods: generic calls carry method_type_args that the native
     // JIT static-call fast path does not thread yet → stay on the interpreter so
     // the callee frame gets its type_args. (JIT generic support: jit_call path.)
+    // runtime-ambiguous-use-site（下方）先于折叠：歧义调用不该因为目标是 `[Native]` 桩就静默通过。
+    if crate::vm_context::symres::ambiguous_function_exception(ctx, module, fname).is_none()
+        && method_type_args.is_empty()
+    {
+        // runtime-audit P1-8: a `[Native]` forwarder runs its builtin directly.
+        if let Some(res) = try_fold(ctx, module, frame, dst, target, None, args) {
+            return res;
+        }
+    }
     if method_type_args.is_empty() {
         if let Some(id) = callee_id {
             if let Some(res) = try_native_static_call(ctx, frame, dst, id, args) {
@@ -232,66 +241,55 @@ pub(super) fn call(
     }
 }
 
-/// `Builtin` dispatch. Hot path uses pre-resolved `BuiltinId` to index
-/// `BUILTINS[id]` directly (no hash). Falls back to name-based lookup
-/// when the resolver hasn't populated a token (e.g. unit tests bypassing
-/// `Vm::run`).
+/// `Builtin`: the site's resolved `BuiltinId` (`None` / `UNRESOLVED` → by name, which
+/// re-checks the ext registry). The arguments are read in place from this frame's
+/// registers (`corelib::invoke_builtin`); a void builtin leaves `dst` alone.
 ///
-/// `builtin_id` is the resolved `BuiltinId.0` from
-/// `Function.resolved.builtin_tokens[site_idx]`, or `None` when the
-/// caller has no resolved token to pass (back-compat path).
-///
-/// make-corelib-errors-catchable (2026-05-15): when the builtin returns
-/// `Err`, we convert the anyhow string into a `Std.Exception` instance and
-/// surface it as a thrown value via `Ok(Some(exc))`. This makes
-/// `int.Parse("abc")` / `u8.Parse("256")` / `byte.Parse(...)` catchable
-/// from z42 code with normal `try / catch (Exception e)` syntax, instead of
-/// aborting the VM with an uncaught raw error. If exception construction
-/// itself fails (e.g. `Std.Exception` type isn't loaded), we fall back to
-/// propagating the original error to avoid masking startup-time corruption.
+/// A failure becomes what `abi::error::raise` says (shared with `jit_builtin`): the
+/// builtin's typed exception — catchable, `StackTrace` filled at the builtin —, or, for
+/// an internal error or while a fatal error unwinds, the raw error (`Err`), which no z42
+/// handler sees.
 pub(super) fn builtin(
     ctx: &VmContext, module: &crate::metadata::Module,
     frame: &mut Frame, dst: u32, name: &str, args: &[u32],
     builtin_id: Option<u32>,
 ) -> Result<Option<Value>> {
-    let arg_vals = collect_args(&frame.regs, args)?;
-    let result = match builtin_id {
-        // fix-jit-builtin-ext-fallback: `UNRESOLVED` means the resolver could not bind
-        // this name to a static or ext builtin at resolve time (see
-        // `resolver::resolve_function_tokens`) — resolve by name now, which re-checks the
-        // ext registry (parity with the `None` back-compat path below).
-        Some(id) if id != crate::metadata::tokens::UNRESOLVED => crate::corelib::exec_builtin_by_id(
-            ctx,
-            crate::metadata::tokens::BuiltinId(id),
-            &arg_vals,
-        ),
-        _ => crate::corelib::exec_builtin(ctx, name, &arg_vals),
-    };
-    match result {
-        // split-null-sentinel-channels ④：`None` = 该 builtin **声明为 void**
-        // ⇒ 不往 `dst` 存任何东西。此前 void builtin 返回 `Ok(Value::Null)`、
-        // 这里无条件 `frame.set(dst, Null)` ⇒ 「无返回值」与「返回 null」在寄存器里
-        // 长得一模一样。`Option` 在类型上强制这一格被处理。
+    let id = builtin_id.unwrap_or(crate::metadata::tokens::UNRESOLVED);
+    match crate::corelib::invoke_builtin(ctx, id, name, None, &frame.regs, args) {
         Ok(Some(v)) => {
             frame.set(dst, v);
             Ok(None)
         }
         Ok(None) => Ok(None),
-        Err(e) => {
-            // A callback builtin (reflection `MethodInfo.Invoke`) that ran z42
-            // code which threw stashes the ORIGINAL exception value here so it
-            // propagates with its real type, not wrapped into Std.Exception.
-            if let Some(thrown) = ctx.take_pending_thrown() {
-                return Ok(Some(thrown));
-            }
-            // A fatal VM error inside a re-entering builtin stays an internal
-            // error — it must not become a catchable `Std.Exception`.
-            if crate::stack_guard::is_fatal(ctx) { return Err(e); }
-            // Typed throw (null receiver → NullReferenceException) or `Std.Exception`;
-            // `Err` = the class is not loaded → keep the raw error. Shared with `jit_builtin`.
-            crate::corelib::builtin_error_exception(ctx, module, e).map(Some)
-        }
+        Err(e) => raised(crate::corelib::abi::error::raise(ctx, module, name, *e, &[])),
     }
+}
+
+/// `raise`'s verdict in the interpreter's channels: a thrown value, or an `Err`.
+#[cold]
+pub(super) fn raised(r: crate::corelib::abi::error::Raised) -> Result<Option<Value>> {
+    use crate::corelib::abi::error::Raised;
+    match r {
+        Raised::Throw(v) => Ok(Some(v)),
+        Raised::Fatal(e) | Raised::Raw(e) => Err(e),
+    }
+}
+
+/// A call that resolved to a `[Native]` forwarder: run its builtin straight from this
+/// frame's registers (`interp::forward`). `None` = not a forwarder (or the argument
+/// count differs from the wrapper's parameters) → the ordinary call.
+#[inline]
+pub(super) fn try_fold(
+    ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32,
+    target: &Function, this: Option<Value>, args: &[u32],
+) -> Option<Result<Option<Value>>> {
+    if args.len() + this.is_some() as usize != target.param_count { return None; }
+    let id = super::forward::forward_of(ctx, module, target)?;
+    Some(match super::forward::run_folded(ctx, target, id, this, &frame.regs, args, || module) {
+        Ok(Some(v)) => { frame.set(dst, v); Ok(None) }
+        Ok(None) => { frame.set(dst, Value::Null); Ok(None) }
+        Err(f) => raised(f.raise(ctx, module, target)),
+    })
 }
 
 // ── Function references (P1-2 PR 8) ─────────────────────────────────────────────

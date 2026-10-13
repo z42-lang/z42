@@ -1,0 +1,6 @@
+namespace Std.IO;
+
+// 路径超出系统允许的长度。镜像 .NET `System.IO.PathTooLongException`。
+public class PathTooLongException : IOException {
+    public PathTooLongException(string message) : base(message) {}
+}

@@ -36,6 +36,7 @@ fn br_cond_on_int() -> Function {
         resolved: std::sync::OnceLock::new(),
         owner_init: Default::default(),
         id: Default::default(),
+        forward: Default::default(),
     }
 }
 

@@ -4,6 +4,7 @@
 //! `#[derive(Z42Type)]` and `#[z42::trait_impl]` remain stubbed and
 //! redirect users to the spec that will land them (C5).
 
+mod builtins_attr;
 mod methods_attr;
 mod module_macro;
 mod shim;
@@ -28,6 +29,14 @@ pub fn derive_z42_type(_input: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn methods(attr: TokenStream, item: TokenStream) -> TokenStream {
     methods_attr::expand(attr, item)
+}
+
+/// `#[builtins]` on an inline `mod { ... }` of `#[builtin(name = "__x", ...)]` functions —
+/// the z42 VM's own builtin ABI (typed wrappers + descriptors + `DESCS`). Used by the
+/// `z42` crate only; see `builtins_attr`.
+#[proc_macro_attribute]
+pub fn builtins(attr: TokenStream, item: TokenStream) -> TokenStream {
+    builtins_attr::expand(attr, item)
 }
 
 /// `#[z42::trait_impl("trait_name")]` — reserved for C5.

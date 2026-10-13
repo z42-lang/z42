@@ -99,7 +99,7 @@ unsafe fn invoke_entry(
     // `[Native]` extern wrapper (e.g. `string.Length`): run its builtin directly (`jit::forward`).
     if let Some(id) = entry.forward {
         if arg_regs.len() + 1 == unsafe { (*entry.func).param_count } {
-            return unsafe { super::super::forward::call_forward(frame_ref, ctx, dst, id, Some(this), arg_regs) };
+            return unsafe { super::super::forward::call_forward(frame_ref, ctx, dst, entry.func, id, Some(this), arg_regs) };
         }
     }
     let vm = vm_ctx_ref(ctx);
@@ -115,6 +115,12 @@ unsafe fn invoke_interp(
 ) -> u8 {
     let module  = super::jit_module(ctx);
     let vm_ctx  = vm_ctx_ref(ctx);
+    // A cold `[Native]` wrapper folds too (`interp::forward`).
+    if arg_regs.len() + 1 == func.param_count {
+        if let Some(id) = crate::interp::forward::forward_of(vm_ctx, module, func) {
+            return unsafe { super::super::forward::call_forward(frame_ref, ctx, dst, func, id, Some(this), arg_regs) };
+        }
+    }
     match crate::interp::exec_function_from_receiver_regs(
         vm_ctx, module, func, &this, &frame_ref.regs, arg_regs, &[])
     {

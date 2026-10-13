@@ -37,6 +37,7 @@ fn make_module_with(
         resolved: std::sync::OnceLock::new(),
         owner_init: Default::default(),
         id: Default::default(),
+        forward: Default::default(),
     }];
     functions.extend(extra_functions);
     Module {
@@ -184,6 +185,7 @@ fn merge_deduplicates_functions_by_name() {
         resolved: std::sync::OnceLock::new(),
         owner_init: Default::default(),
         id: Default::default(),
+        forward: Default::default(),
     };
     let m0 = make_module("A", &["hello"], 0);
     let m1 = make_module_with("B", &["world"], 0, vec![], vec![dup_func]);

@@ -31,6 +31,7 @@ fn func(name: &str, param_count: usize, instructions: Vec<Instruction>, ret: Opt
         resolved: std::sync::OnceLock::new(),
         owner_init: Default::default(),
         id: Default::default(),
+        forward: Default::default(),
     }
 }
 

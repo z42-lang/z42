@@ -90,21 +90,25 @@ impl crate::gc::arc_heap::ArcMagrGC {
     }
 
     /// Adaptive promotion lowered the promotion age: objects that were young under the old line
-    /// may now be old with young children no barrier recorded. Remember every alive old object
-    /// that refers to something young — the object half of `Region::dirty_every_card`, and the
-    /// same one-off whole-heap cost. Runs at the end of a major (nothing doomed).
-    pub(super) fn remember_every_old_object_with_young(&self) {
-        let threshold = self.promotion_age();
-        let mut found: Vec<ObjRef> = Vec::new();
-        {
-            let region = self.region_var.lock();
-            region.iterate_alive_of(crate::gc::var_region::BlockType::Object, |h, header| {
-                if header.gen_age() >= threshold && !header.is_remembered() {
-                    found.push(ObjRef::from_var(h));
-                }
-            });
-        }
-        for o in found {
+    /// may now be old with young children no barrier recorded. Remember those that refer to
+    /// something young — the object half of `Region::dirty_every_card`. Runs at the end of a major
+    /// (nothing doomed), before the aging pass.
+    ///
+    /// Only the **cohort** the new line reclassified needs looking at — objects with an age in
+    /// `[new line, old line)`, which are exactly the young-set objects now at or past the line
+    /// (`VarRegion::objects_past_lowered_line`). An object already old under the old line cannot
+    /// gain an unrecorded old→young edge from a lower line: a child young under the new line was
+    /// young under the old one too, so the barrier (owner already old) or promotion (owner
+    /// crossing the old line) remembered the owner, and the remembered set only lets an owner go
+    /// once it reaches nothing young. Walking every object block instead was a whole-heap pass in
+    /// the pause that closes the major — 21.6–23.0 ms of a 25.5–26.9 ms slice on
+    /// `13_gc_large_heap` (400 000 live objects), the benchmark's maximum pause.
+    pub(super) fn remember_lowered_cohort(&self) {
+        let t = crate::gc::phase_timer::PhaseTimer::start("promotion/remember cohort");
+        let cohort = self.region_var.lock().objects_past_lowered_line();
+        t.count(cohort.len());
+        for v in cohort {
+            let o = ObjRef::from_var(v);
             if self.refers_to_young(&Value::Object(o)) {
                 self.remember_object(&o);
             }

@@ -267,7 +267,7 @@ public static class IrDump {
             localClasses, isRelease, partialMerged, optSet, cachedModules, allFuncs, afc, pkgClassMap,
             layouts, pkgGenerics, pkgGenericTypes, r);
         _task.PkgHasErrors = upstreamErrors || coll.Diags.ErrorCount() > 0;
-        Z42.Package.ParallelFor.Run(count, Z42.Package.ParallelConfig.Jobs(count), _task);
+        ParallelFor.Run(count, ParallelConfig.Jobs(count), _task);
         // add-partial-types：分发 partial 合并的包级诊断到对应文件的 CompiledModuleZ（按 Span.File 匹配；无匹配落 0 号）。
         // 这些诊断在 CollectAll（包级）产生，不属于任一 _compileCu 的 per-file bag，故此处并入使 PackageCompile 诊断门捕获。
         int pdi = 0;

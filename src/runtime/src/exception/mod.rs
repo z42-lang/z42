@@ -247,6 +247,13 @@ pub fn is_exception_subclass(desc: &TypeDesc, ctx: &VmContext, module: &Module) 
 /// Phase 1: throws of non-Exception values (`throw "raw string"`) are a
 /// no-op — they have no `StackTrace` field to populate.
 pub fn populate_stack_trace(value: &Value, ctx: &VmContext, module: &Module) {
+    populate_stack_trace_with(value, ctx, module, &[]);
+}
+
+/// [`populate_stack_trace`] with `extra` appended as the innermost rows — the
+/// `[Native]` wrapper rows of a builtin call that skipped the wrapper's activation
+/// (`interp::forward`), so the trace reads as if the wrapper had run.
+pub fn populate_stack_trace_with(value: &Value, ctx: &VmContext, module: &Module, extra: &[FrameSnapshot]) {
     let rc = match value {
         Value::Object(rc) => rc,
         _ => return,
@@ -267,7 +274,8 @@ pub fn populate_stack_trace(value: &Value, ctx: &VmContext, module: &Module) {
     let slot = match slot_opt { Some(s) => s, None => return };
 
     // Step 2: snapshot stack outside the borrow (reads call_stack RefCell).
-    let frames = ctx.snapshot_call_stack();
+    let mut frames = ctx.snapshot_call_stack();
+    frames.extend_from_slice(extra);
     let trace  = format_stack_trace(&frames);
 
     // Step 3: write the field — through objops, so the write barrier fires. The exception is

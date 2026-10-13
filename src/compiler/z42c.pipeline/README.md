@@ -13,7 +13,6 @@
 | 清单驱动的一次包编译 | `BuildSession` / `BuildOptions` |
 | 单包编译编排 | `PackageCompile.Compile` |
 | 依赖扫描 / 跨包类型世界 | `DepScan.Scan` / `ScanDirs` / `ScanDirsLazy` |
-| workspace 规划的种子转发（实现在 `z42.project` 的 `WorkspacePlan`） | `WorkspaceBuild`（`WsPlan`）|
 | 文件级增量 probe / 失效闭包 | `IncrementalBuild.ProbeFiles` / `Close` |
 
 ## 如何测试验证
@@ -58,7 +57,6 @@
 ### workspace 与增量
 | 文件 | 职责 |
 |------|------|
-| `src/WorkspaceBuild.z42` | 种子转发：`Plan` / `PlanLayout` → `Z42.Project.WorkspacePlan`（种子 driver 自举时调的旧入口；含 WorkspacePlan 的 nightly 后删） |
 | `src/IncrementalBuild.z42` | 文件级增量 probe：`ProbeFiles` 种子（hash / 条目·pin / 包级源清单）+ `Close` **名字级**失效闭包（已变名字集 → token 命中即失效 → 只有「声明面提到别人的已变名字」才继续传播）；`Z42_INCR_DEBUG` 打 `[name-changed]` / `[invalidated]` / `[spread]`；单测见 `tests/incremental/` |
 | `src/CacheStore.z42` | 增量缓存落盘（`z42.io`/`z42.encoding`）；条目 meta = 源 hash + **名字级声明面指纹 `nsurf`** + 声明面标识符 `sident` + ns/useddep/token + writer 残留 |
 | `src/DepIdentity.z42` | 依赖身份：增量缓存键里「这次编译看到的依赖」一维；每包取 BLID，无 BLID 回落整文件 Murmur3，使依赖接口变化能使消费方 cache 失效 |

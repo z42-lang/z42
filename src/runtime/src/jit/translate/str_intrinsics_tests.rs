@@ -50,6 +50,7 @@ fn func(name: &str, params: usize, regs: &[IrType], instr: Instruction, ret: u32
         resolved: std::sync::OnceLock::new(),
         owner_init: Default::default(),
         id: Default::default(),
+        forward: Default::default(),
     }
 }
 
@@ -205,11 +206,11 @@ fn char_at_non_ascii_takes_the_helper() {
 #[test]
 fn char_at_out_of_range_throws_the_same_message() {
     for f in [AT_CALL, AT_VCALL] {
-        check(f, &[s("hello"), Value::I64(5)], false, "index 5 out of range (length 5)");
-        check(f, &[s(""), Value::I64(0)], false, "out of range (length 0)");
-        check(f, &[s("héllo"), Value::I64(9)], false, "out of range (length 5)");
-        // Negative: the unsigned bounds check routes it to the helper's own message.
-        check(f, &[s("hello"), Value::I64(-1)], false, "non-negative integer");
+        check(f, &[s("hello"), Value::I64(5)], false, "index 5 is out of range for a string of length 5");
+        check(f, &[s(""), Value::I64(0)], false, "for a string of length 0");
+        check(f, &[s("héllo"), Value::I64(9)], false, "for a string of length 5");
+        // Negative: the unsigned bounds check routes it to the helper, same exception.
+        check(f, &[s("hello"), Value::I64(-1)], false, "index -1 is out of range");
     }
 }
 

@@ -175,6 +175,7 @@ fn stub_function(name: &str) -> crate::metadata::bytecode::Function {
         resolved: std::sync::OnceLock::new(),
         owner_init: Default::default(),
         id: Default::default(),
+        forward: Default::default(),
     }
 }
 

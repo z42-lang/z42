@@ -74,12 +74,12 @@ void Round(string built, string sliced) {
     Assert.Equal('o', At("héllo", 4));
 
     // Out of range: the builtin's message on every path.
-    Assert.Equal("__str_char_at: index 5 out of range (length 5)", AtOrMessage("hello", 5));
-    Assert.Equal("__str_char_at: index 5 out of range (length 5)", CharAtOrMessage("hello", 5));
-    Assert.Equal("__str_char_at: index 0 out of range (length 0)", AtOrMessage("", 0));
-    Assert.Equal("__str_char_at: index 2 out of range (length 2)", AtOrMessage("你好", 2));
-    Assert.True(AtOrMessage("hello", -1).Contains("non-negative"));
-    Assert.True(CharAtOrMessage("你好", -1).Contains("non-negative"));
+    Assert.Equal("index 5 is out of range for a string of length 5", AtOrMessage("hello", 5));
+    Assert.Equal("index 5 is out of range for a string of length 5", CharAtOrMessage("hello", 5));
+    Assert.Equal("index 0 is out of range for a string of length 0", AtOrMessage("", 0));
+    Assert.Equal("index 2 is out of range for a string of length 2", AtOrMessage("你好", 2));
+    Assert.Equal("index -1 is out of range for a string of length 5", AtOrMessage("hello", -1));
+    Assert.Equal("index -1 is out of range for a string of length 2", CharAtOrMessage("你好", -1));
 
     // Loops over the members.
     Assert.Equal(3, CountChar("a7b7c7", '7'));

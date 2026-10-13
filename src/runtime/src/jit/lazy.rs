@@ -120,7 +120,9 @@ impl LazyCompiler {
             max_reg: max_r,
             func:    func as *const Function,
             owner_init: std::sync::Arc::clone(&func.owner_init),
-            forward: super::forward::builtin_forward(func),
+            // Filled by the caller (`JitRuntime::resolve_slot_slow`, from the function's
+            // own forward cell — `interp::forward::forward_of`).
+            forward: None,
         })
     }
 
