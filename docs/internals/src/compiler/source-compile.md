@@ -1032,11 +1032,16 @@ PatternEmitter（烘焙 `struct_fget_prim` 等指令的立即数 offset）**同�
 > 提出循环后指令数 165.0 G → 114.7 G（−30.5%）、峰值 RSS 2.96 GB → 1.42 GB（−52%），
 > 产物逐字节不变。
 
-**并行安全的前提是「预计算后只读」**，改动这张表时必须守住：`LayoutOf` 对 `_defs` 里的键
-必命中 `_cache`（预计算已填满），缺失的键返回**不入缓存**的空布局；`InlineLayoutOf` /
-`ObjectLayoutOf` 纯查表。即 per-file 循环（`ParallelFor` 并行段）里没有任何一条路径会写这
-三张表。若日后新增惰性计算路径，要么在 `BuildFromSymbols` 里一并预计算，要么退回 per-CU
-建表——不能让并行 worker 共享一张会被写的表。
+**并行安全：基表只读，按需计算进各 CU 的视图**。预计算只覆盖**定义名**；泛型**实例化名**
+（`Pair$1<P>`）的布局（`LayoutOf` / `InlineLayoutOf` / `ObjectLayoutOf` 的实例化分支）只能在代码生成
+时按需算，那一步要写缓存与环检测在途集（`_inProgress`）。若并行 worker 直接共享基表：两个 worker 同算
+一个实例化时，后到者在在途集里看见先到者的键、误判为递归自含而拿到**空布局**
+（`FieldIndexOf` = -1 ⇒ `struct field path: layout lookup failed`，CI 上偶发）；`StrMap` 并发读写本身也
+不安全。故 `CuCompile._compileCu` 给每个 CU 一个 `StructLayout.ForkView()`：定义表与基表的预计算缓存
+只读共享，未命中时回落基表，按需算出的布局只进视图自己的缓存。基表在 `BuildFromSymbols` 之后不再被写。
+新增惰性计算路径时，缓存读必须同样「先查自己、再查基表」，写只写自己。
+`z42c.semantics/tests/layout` 的 `test_views_compute_same_instantiation_concurrently` 用真线程压这条
+（退回共享基表时几乎每次都红）。
 
 #### try/catch/finally 的控制流下沉（finally 非局部退出）
 

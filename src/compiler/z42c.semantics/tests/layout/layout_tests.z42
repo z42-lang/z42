@@ -3,6 +3,7 @@
 // 嵌套引用叶子偏移平移 / 递归自含值字段环检测（ABI 见 design.md 子决策 #2）。
 namespace Z42cSemanticsLayoutTests;
 using Z42.IR;
+using Z42.Package;   // IParallelTask（并行视图压测）
 using Z42.Semantics;
 using Std.Test;
 
@@ -322,4 +323,49 @@ void test_inst_name_roundtrip() {
     string n = StructLayout.InstName("Pair", new string[]{"P2", "int"}, 2);
     Assert.Equal("Pair<P2,int>", n);
     Assert.Equal("Pair", StructLayout.BaseNameOf(n));
+}
+
+// ── 并行视图（ForkView）──────────────────────────────────────────────────────
+// 包编译里基表被所有并行 CU 共享；实例化名（`Pair<P2,int>`）的布局只能按需算、要写缓存与在途集。
+// 共享同一个对象时，后到的 worker 会在在途集里看见先到者的键、误判为递归自含而拿到空布局
+// （`FieldIndexOf` = -1 ⇒ `struct field path: layout lookup failed`）。每个 CU 用自己的视图。
+
+[Test]
+void test_view_reads_base_and_computes_instantiation_locally() {
+    var b = new StructLayout(_genDefs());
+    b.LayoutOf("P2");                                   // 基表预计算
+    var v = b.ForkView();
+    Assert.Equal(8, v.LayoutOf("P2").Size);             // 回落基表的预计算结果
+    var li = v.LayoutOf("Pair<P2,int>");                // 视图按需算
+    Assert.Equal(StructLeafKind.Struct, li.FieldKinds[0]);
+    Assert.Equal(1, v.FieldIndexOf("Pair<P2,int>", "Second"));
+    Assert.Equal("", v.ErrorType);
+    Assert.Equal("", b.ErrorType);
+}
+
+// 每个并行任务开一个视图，算**同一个**实例化；任何一个拿到空布局 / 错序号都记下来。
+sealed class SameInstTask : IParallelTask {
+    StructLayout _base;
+    public int[] Bad;
+    public SameInstTask(StructLayout b, int n) { this._base = b; this.Bad = new int[n]; }
+    public void Run(int i) {
+        StructLayout v = this._base.ForkView();
+        StructLayoutInfo li = v.LayoutOf("Pair<P2,int>");
+        if (li.FieldCount != 2 || li.FieldKinds[0] != StructLeafKind.Struct
+            || v.FieldIndexOf("Pair<P2,int>", "Second") != 1) { this.Bad[i] = 1; }
+    }
+}
+
+[Test]
+void test_views_compute_same_instantiation_concurrently() {
+    var b = new StructLayout(_genDefs());
+    b.LayoutOf("P2");
+    int n = 64;
+    var t = new SameInstTask(b, n);
+    Z42.Package.ParallelFor.Run(n, 8, t);
+    int bad = 0;
+    int k = 0;
+    while (k < n) { bad = bad + t.Bad[k]; k = k + 1; }
+    Assert.Equal(0, bad);
+    Assert.Equal("", b.ErrorType);
 }

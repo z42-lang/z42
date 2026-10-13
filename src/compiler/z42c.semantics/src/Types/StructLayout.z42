@@ -100,7 +100,16 @@ public sealed class StructLayoutInfo {
 }
 
 // 布局计算器。按需计算 + 缓存；用「在途集」检测递归自含值字段（无限大小 → C# CS0523 同款）。
+//
+// 并发：包编译里一份 `BuildFromSymbols` 预计算的**基表**被所有并行 CU 共享，而实例化名
+// （`Pair$1<P>`）的布局只能在代码生成时按需算——那一步会写缓存与在途集。直接共享基表时，两个
+// worker 同算一个实例化，后到者会在 `_inProgress` 里看见先到者的键、误判为递归自含而拿到空布局
+// （`FieldIndexOf` = -1 ⇒ `struct field path: layout lookup failed`），且 `StrMap` 并发读写本身不安全。
+// 故每个 CU 经 `ForkView()` 拿一个**视图**：定义表与基表的预计算缓存只读共享，按需算出的布局只进视图
+// 自己的缓存。基表预计算完成后不再被写。
 public sealed class StructLayout {
+    // 视图的只读基表（null = 自己就是基表）。缓存未命中时回落到它预计算好的那份。
+    private StructLayout _base;
     private StrMap _defs;         // name → StructFieldsDef（仅 struct/record 类型）
     private StrMap _cache;        // name → StructLayoutInfo
     private StrMap _inProgress;   // name → "1"（环检测在途集）
@@ -137,6 +146,17 @@ public sealed class StructLayout {
         this.ErrorType = "";
         this.ErrorCycle = "";
         this._owners = null;
+        this._base = null;
+    }
+
+    // 并行 CU 用的视图：共享定义表与本表的预计算缓存（只读），按需算出的布局只进视图自己的缓存。
+    public StructLayout ForkView() {
+        StructLayout v = new StructLayout(this._defs);
+        v._classDefs = this._classDefs;
+        v._erasureNames = this._erasureNames;
+        v._owners = this._owners;
+        v._base = this;
+        return v;
     }
 
     // 布局名（`LayoutKey`：全名 / 实例化名 `Demo.Pair<Demo.P2,int>`）→ 算出该布局的类；不认识返回 null。
@@ -482,6 +502,7 @@ public sealed class StructLayout {
     public StructLayoutInfo InlineLayoutOf(string className) {
         string k = LayoutKey.Norm(className);
         object c = this._inlineCache.Get(k);
+        if (c == null && this._base != null) { c = this._base._inlineCache.Get(k); }
         if (c is StructLayoutInfo) { return c as StructLayoutInfo; }
         // generic-struct-erased-slot-value-copy：实例化名按需算（定义那份在 BuildFromSymbols 预计算）。
         // 泛型 class 的 `T` 字段在**定义**下 `IsBlobStruct("T")` 为假 ⇒ 无内联字段；带代换 `T→P2` 才内联。
@@ -550,6 +571,7 @@ public sealed class StructLayout {
     private StructLayoutInfo _objLayoutOfStruct(string structName) {
         string key = LayoutKey.Norm(structName);
         object cached = this._objStructCache.Get(key);
+        if (cached == null && this._base != null) { cached = this._base._objStructCache.Get(key); }
         if (cached is StructLayoutInfo) { return cached as StructLayoutInfo; }
         if (this._objStructInProgress.ContainsKey(key)) { return new StructLayoutInfo(key); }
         object d = this._defs.Get(key);
@@ -631,6 +653,7 @@ public sealed class StructLayout {
     public StructLayoutInfo ObjectLayoutOf(string className) {
         string k = LayoutKey.Norm(className);
         object c = this._objectCache.Get(k);
+        if (c == null && this._base != null) { c = this._base._objectCache.Get(k); }
         if (c is StructLayoutInfo) { return c as StructLayoutInfo; }
         // 同 InlineLayoutOf：实例化名按需算（`InlineFieldByteOffset` 要用它取 composed offset）。
         if (StructLayout.BaseNameOf(k) != k) {
@@ -654,6 +677,7 @@ public sealed class StructLayout {
     public StructLayoutInfo LayoutOf(string typeName) {
         string key = LayoutKey.Norm(typeName);
         object cached = this._cache.Get(key);
+        if (cached == null && this._base != null) { cached = this._base._cache.Get(key); }
         if (cached is StructLayoutInfo) { return cached as StructLayoutInfo; }
         if (this._inProgress.ContainsKey(key)) {
             // 递归自含值字段：struct 直接/间接把自身作为**值**字段 → 无限大小。
