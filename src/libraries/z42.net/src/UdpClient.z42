@@ -62,10 +62,9 @@ public class UdpClient : IDisposable {
         if (this._bound) {
             throw new InvalidOperationException("UdpClient already bound");
         }
-        object[] raw = UdpNative.Bind(host, port);
-        long[] slotAndPort = UdpDecode.ToBindResult(raw);
-        this._slotId    = slotAndPort[0];
-        this._localPort = (int)slotAndPort[1];
+        long slotId = UdpSocketNative.Bind(host, port);
+        this._slotId    = slotId;
+        this._localPort = UdpSocketNative.LocalPort(slotId);
         this._bindHost  = host;
         this._bound     = true;
     }
@@ -84,8 +83,7 @@ public class UdpClient : IDisposable {
             // Auto-bind to ephemeral on first Send.
             this.Bind("0.0.0.0", 0);
         }
-        object[] raw = UdpNative.Send(this._slotId, data, 0, length, remoteHost, remotePort);
-        return UdpDecode.ToInt(raw);
+        return UdpSocketNative.Send(this._slotId, data, 0, length, remoteHost, remotePort);
     }
 
     /// Block until a datagram arrives; return it plus the sender's address.
@@ -96,19 +94,15 @@ public class UdpClient : IDisposable {
         if (!this._bound) {
             throw new InvalidOperationException("UdpClient.Receive() called before Bind()");
         }
-        object[] raw = UdpNative.Recv(this._slotId);
-        long kind = (long)raw[0];
-        if (kind != 0) {
-            UdpDecode.Throw(raw, kind);
-        }
+        object[] raw = UdpSocketNative.Receive(this._slotId);
         // Note: `new UdpReceiveResult(...)` must be invoked in the same file as
         // the declared return type or z42's cross-file type resolver produces
         // two different type tokens for the same class (manifests as
         // "expected UdpReceiveResult, got UdpReceiveResult"). Filed as
         // a follow-up of `compiler-future-typed-overload-resolution`.
-        byte[] buf  = (byte[])raw[1];
-        string host = (string)raw[2];
-        int    port = (int)(long)raw[3];
+        byte[] buf  = (byte[])raw[0];
+        string host = (string)raw[1];
+        int    port = (int)(long)raw[2];
         return new UdpReceiveResult(buf, host, port);
     }
 
@@ -177,15 +171,10 @@ public class UdpClient : IDisposable {
         if (!this._bound) {
             throw new InvalidOperationException("UdpClient.ReceiveInto() called before Bind()");
         }
-        object[] raw = UdpNative.RecvInto(this._slotId, buf, offset, count);
-        long kind = (long)raw[0];
-        if (kind != 0) {
-            UdpDecode.Throw(raw, kind);
-            return -1;
-        }
-        int n = (int)(long)raw[1];
-        this._lastRxHost = (string)raw[2];
-        this._lastRxPort = (int)(long)raw[3];
+        object[] raw = UdpSocketNative.ReceiveInto(this._slotId, buf, offset, count);
+        int n = (int)(long)raw[0];
+        this._lastRxHost = (string)raw[1];
+        this._lastRxPort = (int)(long)raw[2];
         return n;
     }
 
@@ -216,9 +205,7 @@ public class UdpClient : IDisposable {
         if (!this._bound) {
             throw new InvalidOperationException("JoinMulticastGroup before Bind");
         }
-        object[] raw = UdpNative.JoinMulticast(this._slotId, groupIp, ifaceIp);
-        long kind = (long)raw[0];
-        if (kind != 0) { UdpDecode.Throw(raw, kind); }
+        UdpSocketNative.JoinMulticast(this._slotId, groupIp, ifaceIp);
     }
 
     /// Convenience: defer interface to the OS (`0.0.0.0`).
@@ -234,9 +221,7 @@ public class UdpClient : IDisposable {
         if (!this._bound) {
             throw new InvalidOperationException("LeaveMulticastGroup before Bind");
         }
-        object[] raw = UdpNative.LeaveMulticast(this._slotId, groupIp, ifaceIp);
-        long kind = (long)raw[0];
-        if (kind != 0) { UdpDecode.Throw(raw, kind); }
+        UdpSocketNative.LeaveMulticast(this._slotId, groupIp, ifaceIp);
     }
 
     public void LeaveMulticastGroup(string groupIp) {
@@ -255,9 +240,7 @@ public class UdpClient : IDisposable {
         if (!this._bound) {
             throw new InvalidOperationException("SetTtl before Bind");
         }
-        object[] raw = UdpNative.SetTtl(this._slotId, ttl);
-        long kind = (long)raw[0];
-        if (kind != 0) { UdpDecode.Throw(raw, kind); }
+        UdpSocketNative.SetTtl(this._slotId, ttl);
     }
 
     public void SetMulticastLoop(bool enable) {
@@ -265,9 +248,7 @@ public class UdpClient : IDisposable {
         if (!this._bound) {
             throw new InvalidOperationException("SetMulticastLoop before Bind");
         }
-        object[] raw = UdpNative.SetMulticastLoop(this._slotId, enable);
-        long kind = (long)raw[0];
-        if (kind != 0) { UdpDecode.Throw(raw, kind); }
+        UdpSocketNative.SetMulticastLoop(this._slotId, enable);
     }
 
     /// add-net-socket-options-extended (2026-05-30): UDP recv timeout.
@@ -279,9 +260,7 @@ public class UdpClient : IDisposable {
         if (!this._bound) {
             throw new InvalidOperationException("SetReadTimeout before Bind");
         }
-        object[] raw = UdpNative.SetReadTimeout(this._slotId, millis);
-        long kind = (long)raw[0];
-        if (kind != 0) { UdpDecode.Throw(raw, kind); }
+        UdpSocketNative.SetReadTimeout(this._slotId, millis);
     }
 
     public void SetWriteTimeout(int millis) {
@@ -289,9 +268,7 @@ public class UdpClient : IDisposable {
         if (!this._bound) {
             throw new InvalidOperationException("SetWriteTimeout before Bind");
         }
-        object[] raw = UdpNative.SetWriteTimeout(this._slotId, millis);
-        long kind = (long)raw[0];
-        if (kind != 0) { UdpDecode.Throw(raw, kind); }
+        UdpSocketNative.SetWriteTimeout(this._slotId, millis);
     }
 
     /// Local bound port — useful after `Bind(host, 0)` to discover the
@@ -315,7 +292,7 @@ public class UdpClient : IDisposable {
         if (this._disposed) return;
         this._disposed = true;
         if (this._bound) {
-            UdpNative.Drop(this._slotId);
+            UdpSocketNative.Close(this._slotId);
             this._bound = false;
         }
     }

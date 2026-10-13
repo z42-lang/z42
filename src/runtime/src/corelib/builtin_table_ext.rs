@@ -48,6 +48,9 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     ("__process_handle_read_stderr", Native::Val(process_legacy::builtin_process_handle_read_stderr)),
 
     // ── add-z42-net K1 (2026-05-24) — appended to preserve existing BuiltinIds ──
+    // STAGE2-DEBT(legacy-net-builtins): 种子的 z42.core 不再声明 `__net_*` 后删掉下面这些表项、corelib/network/legacy/ 与 tls_legacy.rs。
+    // 它们返回 `[KIND, …]` 判别数组，只为已发布种子的 z42.net（经 z42.core 的 NetTcpNative / UdpNative /
+    // NetTlsNative / DnsNative.Lookup）保留；新的是 ABI v2 的 `__tcp_*` / `__udp_*` / `__dns_lookup` / `__tls_*`。
     ("__net_tcp_connect",       Native::Val(network::builtin_net_tcp_connect)),
     ("__net_tcp_listen",        Native::Val(network::builtin_net_tcp_listen)),
     ("__net_tcp_accept",        Native::Val(network::builtin_net_tcp_accept)),
@@ -220,13 +223,7 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     // `methodof(Type.Member(sig))` → Std.Reflection.MethodInfo. The overload is
     // already resolved at compile time; the argument is the single qualified name.
     ("__methodof",        Native::Val(reflection::builtin_methodof)),
-    // ── store-sync-values-in-heap (2026-09-14) — appended to preserve existing BuiltinIds ──
-    // 值不在原生层：Mutex / RwLock / Channel 用 z42 写在这个不含值的 Monitor 之上。
-    ("__monitor_new",       Native::Val(monitor::builtin_monitor_new)),
-    ("__monitor_enter",     Native::Void(monitor::builtin_monitor_enter)),
-    ("__monitor_try_enter", Native::Val(monitor::builtin_monitor_try_enter)),
-    ("__monitor_exit",      Native::Void(monitor::builtin_monitor_exit)),
-    ("__monitor_wait",      Native::Void(monitor::builtin_monitor_wait)),
+    // `__monitor_*`（Mutex / RwLock / Channel 的底座）已迁 ABI v2：`monitor::typed`。
 
     // ── fix-class-level-typeof (2026-09-25) — appended to preserve existing BuiltinIds ──
     // 类级 `typeof(T)`：读 receiver 的 per-instance type_args[idx] 产 `Std.Type`。

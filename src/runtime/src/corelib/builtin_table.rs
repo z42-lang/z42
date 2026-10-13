@@ -206,6 +206,15 @@ const TYPED: &[&[super::abi::BuiltinDesc]] = &[
     super::process::typed::DESCS,
     super::io::typed::DESCS,
     super::repl::typed::DESCS,
+    super::monitor::typed::DESCS,
+    #[cfg(not(target_arch = "wasm32"))]
+    super::network::tcp::typed::DESCS,
+    #[cfg(not(target_arch = "wasm32"))]
+    super::network::udp::typed::DESCS,
+    #[cfg(not(target_arch = "wasm32"))]
+    super::tls::typed::DESCS,
+    #[cfg(target_arch = "wasm32")]
+    super::network::wasm::typed::DESCS,
     #[cfg(test)]
     super::abi::test_builtins::DESCS,
 ];

@@ -5,14 +5,141 @@
 // UdpClient / TlsClient / Dns + 各 *Decode 解码器）留在 z42.net 转纯脚本、调这里的
 // *Native 原语。命名空间保持 Std.Net.Sockets 不变，故 z42.net 调用点无需改动。
 // native 实现镜像 src/runtime/src/corelib/network.rs。
+//
+// builtin ABI v2（runtime-audit P1-8 PR3）：`TcpSocketNative` / `UdpSocketNative` /
+// `TlsSocketNative` / `DnsNative.Resolve` 返回普通值、失败**从 Rust 抛**（.NET 口径：
+// `SocketException`（带 `SocketErrorCode`）/ `SocketClosedException : ObjectDisposedException` /
+// TLS 握手 `AuthenticationException`、TLS 流 `IOException` / `ArgumentOutOfRangeException` /
+// wasm32 `NetUnsupportedException : PlatformNotSupportedException`），新的 z42.net 只调它们。
+// 下面的旧类（`NetTcpNative` / `NetTlsNative` / `UdpNative` / `DnsNative.Lookup`）返回
+// `[KIND, …]` 判别数组，形状不能动：已发布种子的 z42.net 与新 core 同处一个 libs 目录时仍调它们。
 namespace Std.Net.Sockets;
 
+public static class TcpSocketNative {
+    // timeoutMs <= 0 → 不限时。返回 socket 槽位。
+    [Native("__tcp_connect")]
+    public static extern long Connect(string host, int port, int timeoutMs);
+
+    // reuseAddress → bind 之前设 SO_REUSEADDR。返回监听槽位。
+    [Native("__tcp_listen")]
+    public static extern long Listen(string host, int port, bool reuseAddress);
+
+    // 实际监听端口（Listen 传 0 时由 OS 分配）。
+    [Native("__tcp_listener_port")]
+    public static extern int ListenerPort(long listenerSlotId);
+
+    [Native("__tcp_accept")]
+    public static extern long Accept(long listenerSlotId);
+
+    // 读到的字节数，0 = 对端已关闭。
+    [Native("__tcp_read")]
+    public static extern int Read(long slotId, byte[] buffer, int offset, int count);
+
+    [Native("__tcp_write")]
+    public static extern void Write(long slotId, byte[] buffer, int offset, int count);
+
+    [Native("__tcp_close")]
+    public static extern void Close(long slotId);
+
+    [Native("__tcp_listener_close")]
+    public static extern void ListenerClose(long listenerSlotId);
+
+    // millis <= 0 清除超时（回到阻塞）。
+    [Native("__tcp_set_read_timeout")]
+    public static extern void SetReadTimeout(long slotId, int millis);
+
+    [Native("__tcp_set_write_timeout")]
+    public static extern void SetWriteTimeout(long slotId, int millis);
+
+    [Native("__tcp_set_nodelay")]
+    public static extern void SetNoDelay(long slotId, bool enable);
+
+    [Native("__tcp_set_ttl")]
+    public static extern void SetTtl(long slotId, int ttl);
+
+    [Native("__tcp_listener_set_ttl")]
+    public static extern void ListenerSetTtl(long listenerSlotId, int ttl);
+
+    [Native("__tcp_set_keepalive")]
+    public static extern void SetKeepAlive(long slotId, bool enable);
+
+    [Native("__tcp_set_keepalive_tuned")]
+    public static extern void SetKeepAliveTuned(long slotId, bool enable, int idleSecs, int intervalSecs, int probes);
+}
+
+public static class UdpSocketNative {
+    [Native("__udp_bind")]
+    public static extern long Bind(string host, int port);
+
+    [Native("__udp_local_port")]
+    public static extern int LocalPort(long slotId);
+
+    [Native("__udp_send")]
+    public static extern int Send(long slotId, byte[] buf, int offset, int count, string remoteHost, int remotePort);
+
+    /// `[byte[] datagram, string remoteHost, long remotePort]`.
+    [Native("__udp_recv")]
+    public static extern object[] Receive(long slotId);
+
+    /// `[long bytesWritten, string remoteHost, long remotePort]`；超出 `count` 的部分截断。
+    [Native("__udp_recv_into")]
+    public static extern object[] ReceiveInto(long slotId, byte[] buf, int offset, int count);
+
+    [Native("__udp_close")]
+    public static extern void Close(long slotId);
+
+    [Native("__udp_join_multicast")]
+    public static extern void JoinMulticast(long slotId, string groupIp, string ifaceIp);
+
+    [Native("__udp_leave_multicast")]
+    public static extern void LeaveMulticast(long slotId, string groupIp, string ifaceIp);
+
+    [Native("__udp_set_multicast_loop")]
+    public static extern void SetMulticastLoop(long slotId, bool enable);
+
+    [Native("__udp_set_ttl")]
+    public static extern void SetTtl(long slotId, int ttl);
+
+    [Native("__udp_set_read_timeout")]
+    public static extern void SetReadTimeout(long slotId, int millis);
+
+    [Native("__udp_set_write_timeout")]
+    public static extern void SetWriteTimeout(long slotId, int millis);
+}
+
+public static class TlsSocketNative {
+    // timeoutMs <= 0 → 连接与握手都不限时；> 0 同时约束两者。
+    [Native("__tls_connect")]
+    public static extern long Connect(string host, int port, int timeoutMs);
+
+    [Native("__tls_read")]
+    public static extern int Read(long slotId, byte[] buffer, int offset, int count);
+
+    [Native("__tls_write")]
+    public static extern void Write(long slotId, byte[] buffer, int offset, int count);
+
+    [Native("__tls_close")]
+    public static extern void Close(long slotId);
+
+    [Native("__tls_set_read_timeout")]
+    public static extern void SetReadTimeout(long slotId, int millis);
+
+    [Native("__tls_set_write_timeout")]
+    public static extern void SetWriteTimeout(long slotId, int millis);
+}
+
 public static class DnsNative {
+    /// 解析出的地址（文本形式，去重）；解析失败抛 `SocketException(HostNotFound)`。
+    [Native("__dns_lookup")]
+    public static extern string[] Resolve(string host);
+
+    // STAGE2-DEBT(legacy-net-decls): 种子的 z42.net 不再调 DnsNative.Lookup / NetTcpNative / NetTlsNative / UdpNative 后删掉这些旧声明。
     /// Returns `[0, string[]]` ok / `[1, msg]` err / `[3]` unsupported.
     [Native("__net_dns_lookup")]
     public static extern object[] Lookup(string host);
 }
 
+// 种子兼容（旧形状），删除见 DnsNative.Lookup 处的挂账。
 public static class NetTcpNative {
     [Native("__net_tcp_connect")]
     public static extern object[] Connect(string host, int port);
@@ -71,6 +198,7 @@ public static class NetTcpNative {
     public static extern object[] ListenWithOptions(string host, int port, bool reuseAddr);
 }
 
+// 种子兼容（旧形状），删除见 DnsNative.Lookup 处的挂账。
 public static class NetTlsNative {
     // timeoutMs <= 0 → blocking connect + handshake; > 0 bounds both.
     [Native("__net_tls_connect")]
@@ -93,6 +221,7 @@ public static class NetTlsNative {
     public static extern object[] SocketSetWriteTimeout(long slotId, int millis);
 }
 
+// 种子兼容（旧形状），删除见 DnsNative.Lookup 处的挂账。
 public static class UdpNative {
     [Native("__net_udp_bind")]
     public static extern object[] Bind(string host, int port);

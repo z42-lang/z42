@@ -135,7 +135,8 @@ fn file_stream_round_trip_and_closed_handle() {
     let data = c.heap().alloc_bytes((0..=255u8).collect());
     crate::corelib::exec_builtin(&c, "__file_write", &[Value::I64(w), data, Value::I64(10), Value::I64(100)]).unwrap();
     crate::corelib::exec_builtin(&c, "__file_close", &[Value::I64(w)]).unwrap();
-    assert!(matches!(fail(&c, "__file_length", &[Value::I64(w)]), BuiltinError::InvalidOperation(_)), "closed handle");
+    let closed = fail(&c, "__file_length", &[Value::I64(w)]);
+    assert_eq!(closed.classes(), ["Std.ObjectDisposedException", "Std.InvalidOperationException"], "closed handle");
     let Value::I64(r) = exec_builtin_value(&c, "__file_open", &[ps, Value::I64(0)]).unwrap() else { panic!() };
     assert_eq!(exec_builtin_value(&c, "__file_length", &[Value::I64(r)]).unwrap(), Value::I64(100));
     let buf = c.heap().alloc_bytes(vec![0; 128]);

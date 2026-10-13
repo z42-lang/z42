@@ -59,15 +59,9 @@ public class TcpListener : IDisposable {
         }
         // add-net-socket-options-extended (2026-05-30): route through the
         // options-aware builtin only when the user opted into REUSEADDR.
-        object[] raw;
-        if (this._reuseAddress) {
-            raw = NetTcpNative.ListenWithOptions(host, port, true);
-        } else {
-            raw = NetTcpNative.Listen(host, port);
-        }
-        long[] slotAndPort = NetTcpDecode.ToListenSlot(raw);
-        this._slotId    = slotAndPort[0];
-        this._localPort = (int)slotAndPort[1];
+        long slotId = TcpSocketNative.Listen(host, port, this._reuseAddress);
+        this._slotId    = slotId;
+        this._localPort = TcpSocketNative.ListenerPort(slotId);
         this._bindHost  = host;
         this._started   = true;
     }
@@ -105,8 +99,7 @@ public class TcpListener : IDisposable {
         if (!this._started) {
             throw new InvalidOperationException("AcceptTcpClient() called before Bind()");
         }
-        object[] raw = NetTcpNative.Accept(this._slotId);
-        long sockSlot = NetTcpDecode.ToSlot(raw);
+        long sockSlot = TcpSocketNative.Accept(this._slotId);
         return new TcpClient(sockSlot, true);
     }
 
@@ -129,9 +122,7 @@ public class TcpListener : IDisposable {
         if (!this._started) {
             throw new InvalidOperationException("TcpListener.SetTtl called before Start");
         }
-        object[] raw = NetTcpNative.ListenerSetTtl(this._slotId, ttl);
-        long kind = (long)raw[0];
-        if (kind != 0) { NetTcpDecode.Throw(raw, kind); }
+        TcpSocketNative.ListenerSetTtl(this._slotId, ttl);
     }
 
     /// Stop accepting and release the listening socket. Idempotent. Once
@@ -144,7 +135,7 @@ public class TcpListener : IDisposable {
         if (this._stopped) return;
         this._stopped = true;
         if (this._started) {
-            NetTcpNative.ListenerDrop(this._slotId);
+            TcpSocketNative.ListenerClose(this._slotId);
             this._started = false;
         }
     }

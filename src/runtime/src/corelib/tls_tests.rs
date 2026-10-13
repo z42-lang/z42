@@ -1,169 +1,125 @@
-use super::*;
+//! ABI v2 TLS builtins (`tls.rs`): the .NET `SslStream` exception mapping and parking.
+//! Loopback only — the peers are plain TCP listeners and an in-process rustls server
+//! with a self-signed certificate (`tls_test_data/`: P-256, CN / SAN `localhost` +
+//! `127.0.0.1`, valid until 2126), which the client must reject: it is not under the
+//! bundled roots.
+
+use crate::corelib::abi::BuiltinError;
+use crate::corelib::network::network_tests::{call, collect_while_parked, detailed};
 use crate::metadata::Value;
 use crate::vm_context::VmContext;
+use std::sync::Arc;
+use std::time::Duration;
 
-fn ctx() -> std::pin::Pin<Box<VmContext>> {
-    VmContext::new()
+fn s(v: &str) -> Value {
+    Value::Str(v.to_string().into())
 }
 
-fn arr(values: Vec<Value>, ctx: &VmContext) -> Value {
-    ctx.heap().alloc_array(values)
+fn connect(ctx: &VmContext, host: &str, port: u16, timeout_ms: i64) -> Result<Option<Value>, BuiltinError> {
+    call(ctx, "__tls_connect", &[s(host), Value::I64(port as i64), Value::I64(timeout_ms)])
 }
 
-fn kind_of(v: &Value) -> Option<i64> {
-    match v {
-        Value::Array(rc) => match rc.borrow().first() {
-            Some(Value::I64(k)) => Some(k),
-            _ => None,
-        },
-        _ => None,
-    }
+fn listener() -> (std::net::TcpListener, u16) {
+    let l = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = l.local_addr().expect("addr").port();
+    (l, port)
 }
 
-fn ok_val(v: &Value) -> i64 {
-    match v {
-        Value::Array(rc) => {
-            let b = rc.borrow();
-            assert_eq!(b.len(), 2, "ok-value tuple has 2 elements: {:?}", b);
-            match (&b.get_boxed(0), &b.get_boxed(1)) {
-                (Value::I64(0), Value::I64(s)) => *s,
-                _ => panic!("not an ok tuple: {:?}", b),
-            }
-        }
-        _ => panic!("not an Array: {:?}", v),
-    }
-}
-
-// ── Connect failures (no network needed) ─────────────────────────────────
-
-// localhost:1 is guaranteed-refused (same rationale as network_tests). The
-// TCP connect fails before any TLS handshake, so we get KIND_SOCKET_ERR.
 #[test]
-fn connect_to_unbound_port_returns_socket_err() {
-    let ctx = ctx();
-    let args = vec![Value::Str("127.0.0.1".to_string().into()), Value::I64(1), Value::I64(0)];
-    let r = builtin_net_tls_connect(&ctx, &args).expect("call ok");
-    assert_eq!(kind_of(&r), Some(KIND_SOCKET_ERR), "got {:?}", r);
-    assert_eq!(ctx.tls_socket_slot_count(), 0, "failed connect must not leak a slot");
-}
-
-// An empty / invalid SNI host is rejected by rustls' ServerName parse before
-// any socket is opened.
-#[test]
-fn connect_with_invalid_server_name_returns_socket_err() {
-    let ctx = ctx();
-    let args = vec![Value::Str("not a valid host".to_string().into()), Value::I64(443), Value::I64(0)];
-    let r = builtin_net_tls_connect(&ctx, &args).expect("call ok");
-    assert_eq!(kind_of(&r), Some(KIND_SOCKET_ERR), "got {:?}", r);
-}
-
-/// **fix-park-blocking-natives (2026-09-14)**: DNS, connect and the handshake used to run
-/// unparked, so a peer that stalls the handshake stalled every GC on the process. The peer
-/// here accepts and never answers; the client must be parked until the peer hangs up, and
-/// the error tuple it then builds must come after the park (debug tripwire).
-#[test]
-fn stalled_handshake_is_parked_for_gc() {
-    let ctx = ctx();
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
-    let port = listener.local_addr().expect("addr").port() as i64;
-    let core = std::sync::Arc::clone(&ctx.core);
+fn a_peer_hanging_up_mid_handshake_is_an_io_exception_and_the_wait_is_parked() {
+    let ctx = VmContext::new();
+    let (l, port) = listener();
+    let core = Arc::clone(&ctx.core);
     let client = std::thread::spawn(move || {
         let w = VmContext::new_with_core(core);
-        let args = vec![Value::Str("127.0.0.1".to_string().into()), Value::I64(port), Value::I64(0)];
-        kind_of(&builtin_net_tls_connect(&w, &args).expect("call ok"))
+        connect(&w, "127.0.0.1", port, 0).err()
     });
-    let (peer, _) = listener.accept().expect("accept");
-    let parked = || ctx.core.parked_count.load(std::sync::atomic::Ordering::Acquire);
-    let t0 = std::time::Instant::now();
-    while parked() != 1 && t0.elapsed() < std::time::Duration::from_secs(5) {
-        std::thread::sleep(std::time::Duration::from_millis(2));
-    }
-    assert_eq!(parked(), 1, "a thread blocked in the TLS handshake must be parked");
+    let (mut peer, _) = l.accept().expect("accept");
+    collect_while_parked(&ctx);
+    // Read the ClientHello first: closing with unread input would reset (a different
+    // IOException text) instead of a clean EOF.
+    use std::io::Read;
+    let mut hello = [0u8; 4096];
+    let _ = peer.read(&mut hello);
     drop(peer);
-    assert_eq!(client.join().expect("client thread"), Some(KIND_SOCKET_ERR));
-    assert_eq!(parked(), 0, "park must be released");
-}
-
-// ── Slot lookups on unknown ids ──────────────────────────────────────────
-
-#[test]
-fn read_on_unknown_slot_returns_handle_invalid() {
-    let ctx = ctx();
-    let buf = arr(vec![Value::I64(0); 16], &ctx);
-    let args = vec![Value::I64(999_999), buf, Value::I64(0), Value::I64(16)];
-    let r = builtin_net_tls_socket_read(&ctx, &args).expect("call ok");
-    assert_eq!(kind_of(&r), Some(KIND_HANDLE_INVALID));
+    let e = client.join().unwrap().expect("the handshake fails");
+    assert!(matches!(e, BuiltinError::Io(ref m) if m.contains("unexpected EOF")), "{e}");
 }
 
 #[test]
-fn write_on_unknown_slot_returns_handle_invalid() {
-    let ctx = ctx();
-    let buf = arr(vec![Value::I64(b'x' as i64)], &ctx);
-    let args = vec![Value::I64(999_999), buf, Value::I64(0), Value::I64(1)];
-    let r = builtin_net_tls_socket_write(&ctx, &args).expect("call ok");
-    assert_eq!(kind_of(&r), Some(KIND_HANDLE_INVALID));
+fn a_silent_peer_times_the_handshake_out_as_an_io_exception() {
+    let ctx = VmContext::new();
+    let (_l, port) = listener();
+    let e = connect(&ctx, "127.0.0.1", port, 150).unwrap_err();
+    assert!(matches!(e, BuiltinError::Io(ref m) if m.starts_with("Unable to read data from the transport connection")), "{e}");
 }
 
 #[test]
-fn set_read_timeout_on_unknown_slot_returns_handle_invalid() {
-    let ctx = ctx();
-    let args = vec![Value::I64(999_999), Value::I64(1000)];
-    let r = builtin_net_tls_socket_set_read_timeout(&ctx, &args).expect("call ok");
-    assert_eq!(kind_of(&r), Some(KIND_HANDLE_INVALID));
+fn a_peer_that_does_not_speak_tls_fails_authentication() {
+    let ctx = VmContext::new();
+    let (l, port) = listener();
+    let server = std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        let (mut c, _) = l.accept().expect("accept");
+        let mut hello = [0u8; 64];
+        let _ = c.read(&mut hello);
+        let _ = c.write_all(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n");
+        std::thread::sleep(Duration::from_millis(200));
+    });
+    let e = connect(&ctx, "127.0.0.1", port, 2000).unwrap_err();
+    assert!(matches!(e, BuiltinError::Exception { class: "Std.Security.Authentication.AuthenticationException", .. }), "{e}");
+    server.join().unwrap();
+}
+
+/// A rustls server presenting the self-signed test certificate.
+fn self_signed_server() -> (std::thread::JoinHandle<()>, u16) {
+    use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+    let cert = CertificateDer::from(include_bytes!("tls_test_data/cert.der").to_vec());
+    let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(include_bytes!("tls_test_data/key.der").to_vec()));
+    let config = rustls::ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+        .with_safe_default_protocol_versions().unwrap()
+        .with_no_client_auth()
+        .with_single_cert(vec![cert], key).expect("test cert");
+    let config = Arc::new(config);
+    let (l, port) = listener();
+    let server = std::thread::spawn(move || {
+        let (mut tcp, _) = l.accept().expect("accept");
+        let mut conn = rustls::ServerConnection::new(config).unwrap();
+        // Runs until the client aborts with its certificate alert.
+        let _ = conn.complete_io(&mut tcp);
+    });
+    (server, port)
 }
 
 #[test]
-fn drop_unknown_slot_is_silent_null() {
-    let ctx = ctx();
-    let args = vec![Value::I64(999_999)];
-    builtin_net_tls_socket_drop(&ctx, &args).expect("call ok");
-}
-
-// ── Real-endpoint handshake (network; run with `--ignored`) ──────────────
-
-// Not part of the default GREEN run: CI sandboxes block outbound 443 and we
-// don't want a network flake to fail the suite. Validates the full path
-// (TCP connect → TLS handshake against bundled Mozilla roots → HTTP GET →
-// decrypt response) against a stable host. Run manually:
-//   cargo test -p z42 tls_tests -- --ignored --nocapture
-#[test]
-#[ignore = "requires outbound network on :443"]
-fn real_https_handshake_and_get_round_trip() {
-    let ctx = ctx();
-    let host = "example.com";
-    let connect_args = vec![Value::Str(host.to_string().into()), Value::I64(443), Value::I64(5000)];
-    let r = builtin_net_tls_connect(&ctx, &connect_args).expect("call ok");
-    assert_eq!(kind_of(&r), Some(KIND_OK), "handshake failed: {:?}", r);
-    let slot = ok_val(&r);
-
-    // Minimal HTTP/1.0 request (no keep-alive → server closes after body).
-    let req = format!("GET / HTTP/1.0\r\nHost: {}\r\nConnection: close\r\n\r\n", host);
-    let bytes: Vec<Value> = req.bytes().map(|b| Value::I64(b as i64)).collect();
-    let n = bytes.len();
-    let write_buf = arr(bytes, &ctx);
-    let w = builtin_net_tls_socket_write(
-        &ctx,
-        &[Value::I64(slot), write_buf, Value::I64(0), Value::I64(n as i64)],
-    ).expect("write ok");
-    assert_eq!(ok_val(&w), n as i64);
-
-    // Read the first chunk of the response and assert it looks like HTTP.
-    let read_buf = arr(vec![Value::I64(0); 64], &ctx);
-    let rd = builtin_net_tls_socket_read(
-        &ctx,
-        &[Value::I64(slot), read_buf.clone(), Value::I64(0), Value::I64(64)],
-    ).expect("read ok");
-    let got = ok_val(&rd);
-    assert!(got > 0, "expected response bytes, got {}", got);
-    if let Value::Array(rc) = &read_buf {
-        let b = rc.borrow();
-        let head: Vec<u8> = b.iter_boxed().take(got as usize).map(|v| match v {
-            Value::I64(x) => x as u8,
-            _ => 0,
-        }).collect();
-        assert!(head.starts_with(b"HTTP/"), "response head: {:?}", String::from_utf8_lossy(&head));
+fn an_untrusted_certificate_fails_authentication() {
+    let ctx = VmContext::new();
+    let (server, port) = self_signed_server();
+    let e = connect(&ctx, "localhost", port, 5000).unwrap_err();
+    match &e {
+        BuiltinError::Exception { class, message } => {
+            assert_eq!(*class, "Std.Security.Authentication.AuthenticationException");
+            assert!(message.starts_with("The remote certificate is invalid"), "{message}");
+        }
+        other => panic!("{other:?}"),
     }
+    server.join().unwrap();
+}
 
-    let _ = builtin_net_tls_socket_drop(&ctx, &[Value::I64(slot)]).expect("drop");
-    assert_eq!(ctx.tls_socket_slot_count(), 0);
+#[test]
+fn bad_arguments_and_unknown_handles() {
+    let ctx = VmContext::new();
+    let e = connect(&ctx, "127.0.0.1", 0, 0).err();
+    // Port 0 is a valid number but nobody listens there: the TCP connect fails.
+    assert_eq!(detailed(&e.expect("fails")).0, "Std.Net.Sockets.SocketException");
+    let e = call(&ctx, "__tls_connect", &[s("127.0.0.1"), Value::I64(-1), Value::I64(0)]).unwrap_err();
+    assert!(matches!(e, BuiltinError::ArgumentOutOfRange(_)), "{e}");
+    let e = connect(&ctx, "not a host name", 443, 0).unwrap_err();
+    assert!(matches!(e, BuiltinError::Argument(_)), "{e}");
+    let buf = ctx.heap().alloc_bytes(vec![0u8; 4]);
+    let e = call(&ctx, "__tls_read", &[Value::I64(999_999), buf, Value::I64(0), Value::I64(4)]).unwrap_err();
+    assert_eq!(detailed(&e).0, "Std.Net.Sockets.SocketClosedException");
+    let e = call(&ctx, "__tls_set_read_timeout", &[Value::I64(999_999), Value::I64(10)]).unwrap_err();
+    assert_eq!(detailed(&e).0, "Std.Net.Sockets.SocketClosedException");
+    call(&ctx, "__tls_close", &[Value::I64(999_999)]).unwrap();
 }

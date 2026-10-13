@@ -1,6 +1,6 @@
 # socket：Close 怎么打断阻塞中的调用
 
-> SoT：`src/runtime/src/corelib/network/tcp.rs`、`udp.rs`、`corelib/tls.rs`。
+> SoT：`src/runtime/src/corelib/network/{listener,tcp,udp}.rs`、`corelib/tls.rs`。
 
 监听 socket 的 accept 与已连接 socket 的读写是两套做法：accept 只能非阻塞 + 轮询（下面前几节），
 已连接的 socket 可以用 shutdown 唤醒（见[已连接的 socket](#已连接的-sockettcp--tls--udp)）。
@@ -28,8 +28,8 @@
 - `accept` **不把 listener 摘出资源表**，只克隆 `Arc`（与子进程管道用的手法相同）。
   然后把 socket 设为非阻塞，在 `NativeParkGuard` 内循环：
   `accept()` → `WouldBlock` → `poll(fd, POLLIN, 100ms)` → 回到循环顶部复查 `closed`。
-- `__net_tcp_listener_drop` **先置 `closed`、再摘表**。阻塞中的 accept 下一轮（≤100ms）看到标志，
-  返回 `KIND_HANDLE_INVALID` —— z42 侧就是 `SocketClosedException`，三个 serve 循环都在 catch 它。
+- `__tcp_listener_close` **先置 `closed`、再摘表**。阻塞中的 accept 下一轮（≤100ms）看到标志，
+  抛 `SocketClosedException`，三个 serve 循环都在 catch 它。
 - **fd 的真正关闭发生在最后一个 `Arc` 放手时**，所以不会在别人用着 fd 的时候关掉它 ——
   这正是 Go netpoll 用引用计数做的那件事。
 - accept 收下的连接会继承 `O_NONBLOCK`，而上层读写按阻塞语义写的 ⇒ **显式 `set_nonblocking(false)`**。
@@ -52,7 +52,7 @@
 Windows 的 `WSAPoll` 只能 poll socket 所以还得换回环 socket 对 —— 三套实现）。
 
 > **Deferred**：真需要显式唤醒（大量监听 socket / 省电诉求）时，换成 eventfd / `EVFILT_USER` / 自管道。
-> 唤醒机制完全封在 `builtin_net_tcp_accept` 里，z42 侧只看到「accept 抛 `SocketClosedException`」，
+> 唤醒机制完全封在 `network/listener.rs` 的 `accept_wait` 里，z42 侧只看到「accept 抛 `SocketClosedException`」，
 > 换实现不影响任何调用方。**触发条件：运行时开始需要事件循环时一起做。**
 
 ## 已连接的 socket（TCP / TLS / UDP）
@@ -63,7 +63,7 @@ Windows 的 `WSAPoll` 只能 poll socket 所以还得换回环 socket 对 ——
   write 拿到「句柄无效」。
 - **Close 能打断阻塞中的 read**：`drop` 摘表后对 socket 调 `shutdown(Both)`。对**已连接**的 socket，
   shutdown 在 Linux 和 macOS 上都能唤醒阻塞中的 recv（不像监听 socket 的 accept）。read 返回后发现
-  槽位已经不在表里，报 `KIND_HANDLE_INVALID`（z42 侧的 `SocketClosedException`）。
+  槽位已经不在表里，抛 `SocketClosedException`（unpark 之后的收尾步骤里查，先于系统调用自己的结果）。
   **Windows 例外**：shutdown 唤不醒另一个线程里阻塞中的 recv（只有 `closesocket` 能，而别人还持有
   `Arc` 时不能关 fd）。阻塞中的读要等到数据、对端关闭或读超时才返回，返回后同样报句柄已关。
 - **不泄漏 fd**：摘表的做法在读完后会把 socket 放回表里，已关闭的 socket 就此复活、fd 泄漏。

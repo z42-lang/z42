@@ -1,0 +1,18 @@
+namespace Std;
+
+// 对已释放（Dispose / Close）的对象执行操作。镜像 .NET `System.ObjectDisposedException :
+// InvalidOperationException`：`ObjectName` 是被释放对象的类型名（可为 null），消息与 .NET 同形
+// （`Cannot access a disposed object.\nObject name: '<name>'.`）。VM 从 Rust 抛它时直接填
+// `Message` / `ObjectName`（已关闭的文件句柄、socket，builtin ABI v2）。
+public class ObjectDisposedException : InvalidOperationException {
+    public string ObjectName;
+
+    public ObjectDisposedException(string objectName)
+        : base("Cannot access a disposed object.\nObject name: '" + objectName + "'.") {
+        this.ObjectName = objectName;
+    }
+
+    public ObjectDisposedException(string objectName, string message) : base(message) {
+        this.ObjectName = objectName;
+    }
+}

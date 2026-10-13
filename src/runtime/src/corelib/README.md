@@ -36,8 +36,9 @@ GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / As
 | GC 控制（collect / 阈值 / 快照） | `gc.rs` |
 | 基准计时 | `bench.rs` |
 | 子进程（`typed` 模块，ABI v2：失败从 Rust 抛、等子进程一律 park）/ 种子兼容的旧 `__process_*` 数组形状 / 平台 / 系统信息 | `process.rs` / `process_legacy.rs` / `platform.rs` / `system.rs` |
-| 线程 / 同步原语底座 Monitor（不含值，Mutex/RwLock/Channel 由 z42 写在其上）/ 锁争用探针 | `threading.rs` / `monitor.rs` / `sync_contention.rs`；机制见 [sync-primitives.md](../../../../docs/internals/src/runtime/sync-primitives.md) |
-| 网络 / TLS / 加密 | `network.rs`（hub：KIND_* / 句柄槽）+ `network/{tcp, tcp_options, udp, wasm}.rs` / `tls.rs` / `crypto.rs` |
+| 线程 / 同步原语底座 Monitor（不含值，Mutex/RwLock/Channel 由 z42 写在其上；`typed` 模块，ABI v2：误用抛 `LockRecursionException` / `SynchronizationLockException`，争用时的等待 park）/ 锁争用探针 | `threading.rs` / `monitor.rs` / `sync_contention.rs`；机制见 [sync-primitives.md](../../../../docs/internals/src/runtime/sync-primitives.md) |
+| 网络（ABI v2：`__tcp_*` / `__udp_*` / `__dns_lookup`，.NET 口径的 `SocketException` 等从 Rust 抛、会阻塞的一律 park）/ 种子兼容的旧 `__net_*` 数组形状 | `network.rs`（hub）+ `network/{tcp, udp, error, listener, wasm}.rs` / `network/legacy.rs` + `network/legacy/` |
+| TLS（ABI v2：`__tls_*`，握手被拒 → `AuthenticationException`、传输 / 流 → `IOException`）/ 旧 `__net_tls_*` / 加密 | `tls.rs` / `tls_legacy.rs` / `crypto.rs` |
 | REPL 支持（求值宿主 / 行编辑 / 行编辑器 cdylib 的懒 dlopen） | `repl.rs` / `repl_editing.rs` / `repl_native.rs` |
 | 测试宿主（隔离跑 golden） | `tests.rs`（+ `reflection/module_load.rs` 的 `__run_goldens_isolated`）|
 
@@ -67,7 +68,8 @@ GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / As
 
 **改语义要换名字**：已发布种子的 stdlib 会跑在新 VM 上，同名 builtin 的签名与返回形状必须兼容
 （只把抛出的异常换成更具体的子类是兼容的）。z42.core 里被别的包调用的 `[Native]` 包装（`ProcessNative`、
-`ThreadNative`）同理——加新方法，不改旧方法的形状；旧名字挂 `STAGE2-DEBT`（native ABI §6.5）。
+`ThreadNative`、`NetTcpNative` / `UdpNative` / `NetTlsNative` / `DnsNative`）同理——加新方法 / 新类，不改旧方法的形状；
+旧名字挂 `STAGE2-DEBT`（native ABI §6.5）。
 
 **lenient 约定**：类型/反射类 builtin 对「无 handle 的合成 Type（数组 `T[]`，及 z42.core
 未加载时的 primitive 兜底）」或非预期入参一律返回空数组 / null，不 `bail!`。primitive 正常解析为真 `Std.*` 句柄（`typeof(int)` ≡ `(5).GetType()`）。

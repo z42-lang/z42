@@ -37,7 +37,7 @@ void test_tcp_client_set_ttl_out_of_range_throws() {
     bool caught = false;
     try {
         client.SetTtl(-1);
-    } catch (SocketException e) {
+    } catch (ArgumentOutOfRangeException e) {
         caught = true;
     }
     Assert.True(caught);

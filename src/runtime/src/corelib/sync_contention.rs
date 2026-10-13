@@ -1,102 +1,43 @@
-//! User-lock contention probes (add-concurrency-probes, script-profiling P1b).
+//! User-lock contention probe (add-concurrency-probes, script-profiling P1b).
 //!
-//! Blocking user-lock acquires (`Std.Threading.Mutex.Lock` / `RwLock.Read` /
-//! `.Write`, in [`super::sync`]) route through these helpers. Under the
-//! `profile-contention` cargo feature each does a `try_*` first: a miss means
-//! the lock was already held → bump `VmCore.lock_contentions` and time the
-//! blocking wait into `VmCore.lock_wait_us`. Without the feature the helper is a
-//! plain forwarding call the optimizer inlines away, so the default build's
-//! acquire path is unchanged (zero cost).
-//!
-//! Split into its own file (rather than inline in `sync.rs`) to keep `sync.rs`
-//! from growing past the 500-line file limit.
+//! Every z42 user lock (`Std.Threading.Mutex` / `RwLock` / `Channel`) is built on the VM
+//! `Monitor` (`corelib/monitor.rs`); its contended enter path is timed here. Under the
+//! `profile-contention` cargo feature a contended acquire bumps `VmCore.lock_contentions`
+//! and adds its wait to `VmCore.lock_wait_us`; without the feature the probe is a
+//! zero-sized type and both calls inline away (the default build's acquire path is
+//! unchanged).
 
-use crate::metadata::Value;
 use crate::vm_context::VmContext;
-use std::sync::Arc;
 
-#[cfg(feature = "profile-contention")]
-pub(super) fn contended_lock<'a>(
-    ctx: &VmContext,
-    arc: &'a Arc<parking_lot::Mutex<Value>>,
-) -> parking_lot::MutexGuard<'a, Value> {
-    if let Some(g) = arc.try_lock() {
-        return g;
+/// `Monitor::begin_enter` 的慢路径（已确认争用）计时：`profile-contention` 下计一次争用并计时
+/// 「自旋 + park 等待」整段（`begin` 在自旋前、`end` 在拿到锁后——可能在 park 闭包里，所以
+/// 只握 `Arc<VmCore>`、`Send + 'static`）；默认构建是零大小类型，两个调用都内联成空。
+pub(crate) struct MonitorContention {
+    #[cfg(feature = "profile-contention")]
+    core: std::sync::Arc<crate::vm_context::VmCore>,
+    #[cfg(feature = "profile-contention")]
+    t0: std::time::Instant,
+}
+
+impl MonitorContention {
+    #[cfg(feature = "profile-contention")]
+    pub(crate) fn begin(ctx: &VmContext) -> Self {
+        ctx.core.lock_contentions.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        MonitorContention { core: std::sync::Arc::clone(&ctx.core), t0: std::time::Instant::now() }
     }
-    record_contention(ctx, || arc.lock())
-}
 
-#[cfg(not(feature = "profile-contention"))]
-#[inline(always)]
-pub(super) fn contended_lock<'a>(
-    _ctx: &VmContext,
-    arc: &'a Arc<parking_lot::Mutex<Value>>,
-) -> parking_lot::MutexGuard<'a, Value> {
-    arc.lock()
-}
-
-#[cfg(feature = "profile-contention")]
-pub(super) fn contended_read<'a>(
-    ctx: &VmContext,
-    arc: &'a Arc<parking_lot::RwLock<Value>>,
-) -> parking_lot::RwLockReadGuard<'a, Value> {
-    if let Some(g) = arc.try_read() {
-        return g;
+    #[cfg(not(feature = "profile-contention"))]
+    #[inline(always)]
+    pub(crate) fn begin(_ctx: &VmContext) -> Self {
+        MonitorContention {}
     }
-    record_contention(ctx, || arc.read())
-}
 
-#[cfg(not(feature = "profile-contention"))]
-#[inline(always)]
-pub(super) fn contended_read<'a>(
-    _ctx: &VmContext,
-    arc: &'a Arc<parking_lot::RwLock<Value>>,
-) -> parking_lot::RwLockReadGuard<'a, Value> {
-    arc.read()
-}
-
-#[cfg(feature = "profile-contention")]
-pub(super) fn contended_write<'a>(
-    ctx: &VmContext,
-    arc: &'a Arc<parking_lot::RwLock<Value>>,
-) -> parking_lot::RwLockWriteGuard<'a, Value> {
-    if let Some(g) = arc.try_write() {
-        return g;
+    #[cfg(feature = "profile-contention")]
+    pub(crate) fn end(&self) {
+        self.core.lock_wait_us.fetch_add(self.t0.elapsed().as_micros() as u64, std::sync::atomic::Ordering::Relaxed);
     }
-    record_contention(ctx, || arc.write())
-}
 
-#[cfg(not(feature = "profile-contention"))]
-#[inline(always)]
-pub(super) fn contended_write<'a>(
-    _ctx: &VmContext,
-    arc: &'a Arc<parking_lot::RwLock<Value>>,
-) -> parking_lot::RwLockWriteGuard<'a, Value> {
-    arc.write()
-}
-
-/// Count one contended acquire and time how long the blocking `acquire` closure
-/// takes. Shared by the Mutex / RwLock contended paths above.
-#[cfg(feature = "profile-contention")]
-fn record_contention<G>(ctx: &VmContext, acquire: impl FnOnce() -> G) -> G {
-    use std::sync::atomic::Ordering::Relaxed;
-    ctx.core.lock_contentions.fetch_add(1, Relaxed);
-    let t = std::time::Instant::now();
-    let g = acquire();
-    ctx.core.lock_wait_us.fetch_add(t.elapsed().as_micros() as u64, Relaxed);
-    g
-}
-
-/// store-sync-values-in-heap：`Monitor::enter` 的慢路径（已确认争用）走这里。
-/// `profile-contention` 下计一次争用并计时整段阻塞；默认构建直接调用、零开销。
-/// 用户锁（`Mutex` / `RwLock`）现在都经 Monitor，探针口径与旧的 `contended_*` 一致。
-#[cfg(feature = "profile-contention")]
-pub(super) fn monitor_contended<R>(ctx: &VmContext, block: impl FnOnce() -> R) -> R {
-    record_contention(ctx, block)
-}
-
-#[cfg(not(feature = "profile-contention"))]
-#[inline(always)]
-pub(super) fn monitor_contended<R>(_ctx: &VmContext, block: impl FnOnce() -> R) -> R {
-    block()
+    #[cfg(not(feature = "profile-contention"))]
+    #[inline(always)]
+    pub(crate) fn end(&self) {}
 }

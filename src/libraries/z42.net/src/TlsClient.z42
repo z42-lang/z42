@@ -2,15 +2,15 @@ namespace Std.Net.Sockets;
 
 using Std.IO;
 
-// add-z42-net-tls (2026-06-03): low-level extern wrappers for the
-// `__net_tls_*` VM builtins (corelib/tls.rs). The kind-tagged Array tuple
-// shape is identical to `__net_tcp_*`, so decoding reuses `NetTcpDecode`
-// (KIND_OK / KIND_SOCKET_ERR / KIND_HANDLE_INVALID / KIND_UNSUPPORTED).
+// add-z42-net-tls (2026-06-03): TLS client over the `__tls_*` VM builtins
+// (corelib/tls.rs, `TlsSocketNative`). Failures throw from the VM, as .NET's
+// SslStream: handshake → AuthenticationException, transport during the handshake
+// and stream read / write → IOException, closed → SocketClosedException.
 // (native 语义层已上移 z42.core: src/Native/NetNative.z42 —— organization.md「native 语义层 → core」2026-08-27)
 
 // add-z42-net-tls (2026-06-03): byte-oriented Stream over a rustls client TLS
 // session — the TLS analogue of `NetworkStream`. Read/Write forward to
-// `__net_tls_socket_*`, which encrypt/decrypt on the wire. Read returns 0 =
+// `__tls_*`, which encrypt/decrypt on the wire. Read returns 0 =
 // peer closed the TLS session (EOF); Write throws on broken pipe / reset.
 //
 // Co-located with TlsClient in this one file ON PURPOSE: z42's class-symbol
@@ -23,9 +23,7 @@ using Std.IO;
 // `Std.IO.Stream` so `HttpClient` (another file) never names `TlsStream`.
 //
 // Lifecycle owned by TlsClient: Close() only marks _closed; the fd + TLS
-// state are released in TlsClient.Dispose() via `__net_tls_socket_drop`.
-// The kind-tagged tuple shape matches the raw TCP builtins, so `NetTcpDecode`
-// decodes TLS results too.
+// state are released in TlsClient.Dispose() via `__tls_close`.
 public class TlsStream : Stream {
     private long _slotId;
     private bool _closed;
@@ -50,17 +48,16 @@ public class TlsStream : Stream {
     override int Read(byte[] buffer, int offset, int count) {
         this.EnsureOpen();
         if (count == 0) return 0;
-        object[] raw = NetTlsNative.SocketRead(this._slotId, buffer, offset, count);
-        return NetTcpDecode.ToInt(raw);
+        return TlsSocketNative.Read(this._slotId, buffer, offset, count);
     }
 
     override void Write(byte[] buffer, int offset, int count) {
         this.EnsureOpen();
         if (count == 0) return;
-        object[] raw = NetTlsNative.SocketWrite(this._slotId, buffer, offset, count);
-        // Blocking write — OK means every byte was encrypted + flushed
+        // Blocking write — returns once every byte was encrypted + flushed
         // (Rust side does write_all + flush); short writes are impossible.
-        NetTcpDecode.ToInt(raw);
+        // Failures are `IOException` from the VM (as .NET's SslStream).
+        TlsSocketNative.Write(this._slotId, buffer, offset, count);
     }
 
     override void Close() {
@@ -126,8 +123,7 @@ public class TlsClient : IDisposable {
         if (this._connected) {
             throw new InvalidOperationException("TlsClient already connected");
         }
-        object[] raw = NetTlsNative.Connect(host, port, timeoutMs);
-        long slotId = NetTcpDecode.ToSlot(raw);
+        long slotId = TlsSocketNative.Connect(host, port, timeoutMs);
         this._slotId     = slotId;
         this._connected  = true;
         this._remoteHost = host;
@@ -170,11 +166,7 @@ public class TlsClient : IDisposable {
         if (!this._connected) {
             throw new InvalidOperationException("TlsClient not connected — call Connect first");
         }
-        object[] raw = NetTlsNative.SocketSetReadTimeout(this._slotId, millis);
-        long kind = (long)raw[0];
-        if (kind != 0) {
-            NetTcpDecode.Throw(raw, kind);
-        }
+        TlsSocketNative.SetReadTimeout(this._slotId, millis);
     }
 
     public void SetWriteTimeout(int millis) {
@@ -184,11 +176,7 @@ public class TlsClient : IDisposable {
         if (!this._connected) {
             throw new InvalidOperationException("TlsClient not connected — call Connect first");
         }
-        object[] raw = NetTlsNative.SocketSetWriteTimeout(this._slotId, millis);
-        long kind = (long)raw[0];
-        if (kind != 0) {
-            NetTcpDecode.Throw(raw, kind);
-        }
+        TlsSocketNative.SetWriteTimeout(this._slotId, millis);
     }
 
     /// Close the session and release the underlying fd. Idempotent.
@@ -200,7 +188,7 @@ public class TlsClient : IDisposable {
             this._stream.MarkClosed();
         }
         if (this._connected) {
-            NetTlsNative.SocketDrop(this._slotId);
+            TlsSocketNative.Close(this._slotId);
             this._connected = false;
         }
     }
