@@ -173,7 +173,20 @@ grey {grey_n} (skipped old {grey_old})"));
 
         let mut marked = 0usize;
         let (mut visited, mut children, mut old_traced) = (0usize, 0usize, 0usize);
-        while let Some(v) = queue.pop() {
+        // Each value waits in the prefetching ring (`mark_ring`) before it is marked and traced,
+        // so `RING` header misses are in flight at a time.
+        let mut ring = super::mark_ring::MarkRing::new();
+        loop {
+            let v = match queue.pop() {
+                Some(v) => match ring.push(v) {
+                    Some(v) => v,
+                    None => continue,
+                },
+                None => match ring.pop_oldest() {
+                    Some(v) => v,
+                    None => break,
+                },
+            };
             visited += 1;
             // fix-minor-stale-mark-on-old-roots (2026-09-08): **only young entries are
             // marked.** A minor never sweeps old ones, so a mark on them buys nothing —

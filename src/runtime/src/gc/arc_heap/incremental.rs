@@ -427,15 +427,41 @@ impl crate::gc::arc_heap::ArcMagrGC {
     fn mark_slice(&self, cycle: &mut Cycle, budget: &mut SliceBudget) -> bool {
         let kind = self.major_mark();
         let mut stack: Vec<Value> = std::mem::take(&mut *self.mark_queue.lock());
+        // Children wait in the prefetching ring (`mark_ring`) before they are marked, so `RING`
+        // header misses are in flight at a time. Everything in `stack` stays marked (grey); the
+        // ring is drained into it whenever the stack runs dry and before a slice ends.
+        let mut ring = super::mark_ring::MarkRing::new();
         loop {
-            while let Some(v) = stack.pop() {
+            loop {
+                let Some(v) = stack.pop() else {
+                    // Out of grey values: mark what waits in the ring, then go on with those.
+                    while let Some(c) = ring.pop_oldest() {
+                        if Self::mark_if_unmarked(&c, kind) {
+                            stack.push(c);
+                        }
+                    }
+                    if stack.is_empty() {
+                        break;
+                    }
+                    continue;
+                };
                 cycle.traced += 1;
                 v.trace_children(kind, &mut |child| {
-                    if Self::mark_if_unmarked(child, kind) {
-                        stack.push(child.clone());
+                    if !child.is_heap_ref() {
+                        return;
+                    }
+                    if let Some(c) = ring.push(*child) {
+                        if Self::mark_if_unmarked(&c, kind) {
+                            stack.push(c);
+                        }
                     }
                 });
                 if budget.spend(1) {
+                    while let Some(c) = ring.pop_oldest() {
+                        if Self::mark_if_unmarked(&c, kind) {
+                            stack.push(c);
+                        }
+                    }
                     // Hand the rest back: the queue is a minor's root set between slices.
                     self.mark_queue.lock().append(&mut stack);
                     return false;
