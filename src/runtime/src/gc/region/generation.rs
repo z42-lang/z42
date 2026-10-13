@@ -269,6 +269,27 @@ impl<T> Region<T> {
         newly_old
     }
 
+    /// The promotion line was just lowered **between collections**: take every young entry the new
+    /// line makes old out of the set, without aging anything. Returns them — the caller does the
+    /// promotion barrier's work for them (cards, element storage age). See
+    /// `ArcMagrGC::lower_line_after_minor`.
+    pub fn delist_past_line(&mut self) -> Vec<RegionHandle> {
+        let threshold = self.promotion_age;
+        let mut newly_old = Vec::new();
+        self.for_each_young(|r, ci, ei| {
+            let entry = r.slot_entry(ci, ei);
+            if entry.gen_age() >= threshold {
+                newly_old.push(RegionHandle {
+                    chunk_idx: ci,
+                    entry_idx: ei,
+                    generation: entry.generation.load(Ordering::Acquire),
+                });
+                r.remove_young(ci, ei);
+            }
+        });
+        newly_old
+    }
+
     /// **Tenure**: promote every young entry **without a mark** — the young-generation policy's
     /// answer to minors that do not pay (`arc_heap/young_policy.rs`). One walk, no tracing, no
     /// card work: nothing is left young for a newly-old entry to point at.

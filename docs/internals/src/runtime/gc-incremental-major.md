@@ -92,7 +92,8 @@ close_major_marking ── loop { retire 自己；取 satb_queue；标记入 mar
 两条支撑它的前提，改动前必须先确认它们还成立：
 
 1. **minor 永不回收「按年龄算已老」的条目**。`Region::sweep_young_in_one_pass` 只走年轻集合（年轻位图），
-   而自适应晋升只在「mark 已用旧线跑完、紧接着的升龄趟会把新线判老的全部排空」那个窗口里降线
+   而自适应晋升只在两种窗口里降线：一次完整 minor 之后、没有周期开着（新线判老的整批当场摘出年轻集合，
+   `delist_past_line`），或周期收尾时「mark 已用旧线跑完、紧接着的升龄趟会把新线判老的全部排空」
    （`Region::set_promotion_age`）。`VarRegion::sweep_young` 另有**显式**跳过
    （`age_backing_with_owner` 会在不摘出年轻集合的情况下抬高 backing 年龄）。
 2. **`region_var` 没有卡表**（`maybe_mark_cross_gen_card` 的 `_ => {}` 臂），所以上面那条论证对 var 条目
@@ -166,7 +167,7 @@ minor 第一次访问保留新对象并清掉 minor 位，第二次访问判它�
 
 | 周期状态 | 请求 | 这次停顿 |
 |---|---|---|
-| 未开 | major（晋升字节闸门 / 升级 / 自适应晋升） | 开周期（第一个切片） |
+| 未开 | major（晋升字节闸门 / 升级） | 开周期（第一个切片） |
 | 未开 | major **且** minor | **minor**；周期在下一个 safepoint 开 —— 增量周期没有升龄趟，升龄是 minor 的活，开周期不能顶掉它 |
 | 进行中 | minor | minor（年轻代策略判 minor 不划算时是 **tenure**，任何周期状态下同理；见下） |
 | 进行中 | 切片 / major | 下一个切片（周期进行中晋升字节闸门不再开新周期） |

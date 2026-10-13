@@ -69,8 +69,9 @@ pub(super) struct PromotionPolicy {
     live: AtomicU64,
     /// Entries that were in that tier at all.
     total: AtomicU64,
-    /// The tier has been judged worthless, but the switch has not happened yet — it waits
-    /// for a major (see [`Self::wants_major`]). **Latches.**
+    /// The tier has been judged worthless, but the switch has not happened yet — it is applied
+    /// right after the minor that settled it, or by the close of an open cycle (see
+    /// [`Self::pending`]). **Latches.**
     wants_lower: AtomicBool,
     /// The switch has happened. **Latches** — see the module note on why raising the age
     /// back is not a safe operation.
@@ -121,17 +122,18 @@ impl PromotionPolicy {
         }
     }
 
-    /// Whether the next collection must be a **major** so the switch can be applied on top
-    /// of it. See the module note: the switch needs a heap whose card table and ages are
-    /// mutually consistent, and a major is what produces one.
-    pub(super) fn wants_major(&self) -> bool {
+    /// Whether a lower line has been decided but not applied yet. It is applied at a moment where
+    /// the young set, the cards and the marks are consistent: right after the minor that settled
+    /// it when no cycle is open (`ArcMagrGC::lower_line_after_minor`), otherwise when the open
+    /// cycle closes (`apply_adaptive_promotion_after_major`).
+    pub(super) fn pending(&self) -> bool {
         self.wants_lower.load(Ordering::Relaxed) && !self.lowered.load(Ordering::Relaxed)
     }
 
-    /// Called at the end of a major: apply the pending switch, if any. Returns `true` when
-    /// the caller must now perform the switch's one-off bookkeeping.
-    pub(super) fn apply_after_major(&self) -> bool {
-        if !self.wants_major() {
+    /// Apply the pending switch, if any. Returns `true` when the caller must now perform the
+    /// switch's one-off bookkeeping.
+    pub(super) fn apply(&self) -> bool {
+        if !self.pending() {
             return false;
         }
         self.lowered.store(true, Ordering::Relaxed);

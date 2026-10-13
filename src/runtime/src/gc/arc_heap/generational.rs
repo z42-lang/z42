@@ -38,7 +38,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// **adaptive-promotion (2026-09-12)**: put a new promotion age in force across the heap
     /// and all three regions' cached copies, and re-dirty the card table.
     ///
-    /// Only ever called at the end of a major, and both halves are load-bearing:
+    /// The **major** path's switch (an open cycle closing, or a one-shot major); a minor applies it
+    /// with targeted bookkeeping instead — [`Self::lower_line_after_minor`]. Both halves here are
+    /// load-bearing:
     ///
     /// - **A major is the only self-consistent moment.** Lowering the line redefines which
     ///   entries are old, and every invariant a minor leans on — the card table, the mark
@@ -60,6 +62,49 @@ impl crate::gc::arc_heap::ArcMagrGC {
         self.region_array.lock().dirty_every_card();
         // Object model R6: objects have no cards — remember the newly-old ones with a young child.
         self.remember_lowered_cohort();
+    }
+
+    /// Apply a lower promotion line the minor that just finished settled, **without a major**.
+    /// The caller holds the pause and has completed the minor (mark and both sweeps).
+    ///
+    /// What the major used to provide is a moment where nothing derived from the old line is
+    /// inconsistent; the end of a complete minor is such a moment too, as long as no cycle is open:
+    ///
+    /// - **Young set**: every listed entry survived this minor and was just aged; the ones at or
+    ///   past the new line are delisted here (no aging — they have aged once already).
+    /// - **Marks**: the sweep cleared the minor mark of every young survivor; old entries carry
+    ///   none (`fix-minor-stale-mark-on-old-roots`).
+    /// - **Old → young edges**: only the delisted cohort can hold an unrecorded one (an entry old
+    ///   under the old line had its edges recorded by the barrier or by promotion, and a child
+    ///   young under the new line was young under the old one). So the cohort gets exactly the
+    ///   promotion barrier — a dirty card per array that refers to something young (with its
+    ///   element storage raised to its age), a remembered-set entry per such object — instead of
+    ///   the major's blanket `dirty_every_card`.
+    ///
+    /// With a cycle open the switch waits for the cycle's close (`close_incremental_cycle`): a
+    /// sweeping cycle requires everything that leaves the young set to carry its epoch, which the
+    /// close does not have to reason about.
+    fn lower_line_after_minor(&self) {
+        if !crate::config::runtime_config().gc_adaptive_promotion
+            || self.major_cycle_active()
+            || !self.promotion_policy.apply()
+        {
+            return;
+        }
+        let lowered = self.configured_promotion_age().saturating_sub(1).max(1);
+        let t = PhaseTimer::start("promotion/lower after minor");
+        self.promotion_age.store(lowered, std::sync::atomic::Ordering::Relaxed);
+        self.region_array.lock().set_promotion_age(lowered);
+        self.region_var.lock().set_promotion_age(lowered);
+        let arrays = self.region_array.lock().delist_past_line();
+        self.age_backing_with_owner(&arrays);
+        self.dirty_cards_for_newly_old_arrays(&arrays);
+        let objects = self.region_var.lock().delist_past_line();
+        self.remember_newly_old_objects(&objects);
+        t.count(arrays.len() + objects.len());
+        crate::gc::phase_timer::note(format_args!(
+            "promotion  age {} -> {lowered} after a minor  (cohort: arrays {}, objects {})",
+            self.configured_promotion_age(), arrays.len(), objects.len()));
     }
 
     /// [`Self::apply_promotion_age`] for tests that lower the line by hand.
@@ -626,8 +671,13 @@ grey {grey_n} (skipped old {grey_old})"));
             t.count(n);
             n
         };
-        let _t = PhaseTimer::start("minor sweep");
-        self.sweep_phase_young_only()
+        let swept = {
+            let _t = PhaseTimer::start("minor sweep");
+            self.sweep_phase_young_only()
+        };
+        // adaptive-promotion: a lower line this minor settled goes into force now, not at a major.
+        self.lower_line_after_minor();
+        swept
     }
 
     /// **add-generational-gc P3 (2026-05-22)**: full major GC cycle.
@@ -703,7 +753,7 @@ grey {grey_n} (skipped old {grey_old})"));
     /// lowered line makes old out of the young lists. The one-shot major ages right after anyway.
     pub(super) fn apply_adaptive_promotion_after_major(&self, age_now: bool) {
         if !(crate::config::runtime_config().gc_adaptive_promotion
-            && self.promotion_policy.apply_after_major())
+            && self.promotion_policy.apply())
         {
             return;
         }

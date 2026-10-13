@@ -198,6 +198,56 @@ fn lowering_the_promotion_line_remembers_the_cohort_that_holds_young_children() 
     assert!(heap.verify_card_invariant().is_ok());
 }
 
+/// Adaptive promotion lowers the line **in the minor that settles it**, with no major: the cohort
+/// the new line makes old leaves the young set, and the ones holding a young child get exactly the
+/// promotion barrier (remembered set for objects, a dirty card for arrays). The young children —
+/// reachable only through the cohort — survive the next minor.
+#[test]
+fn a_lower_promotion_line_goes_into_force_after_the_minor_that_settles_it() {
+    if !crate::config::runtime_config().gc_adaptive_promotion {
+        return;
+    }
+    let heap = generational_heap();
+    // root (pinned) → owner → child: `owner` is mid-graph, so only a record can re-root it.
+    let root = heap.alloc_object(dummy_type_desc("Root"), vec![Value::Null], NativeData::None);
+    let owner = heap.alloc_object(dummy_type_desc("Owner"), vec![Value::Null], NativeData::None);
+    let arr = heap.alloc_array(vec![Value::Null]);
+    let _p0 = heap.pin_root(root);
+    let _p1 = heap.pin_root(arr.clone());
+    obj_of(&root).borrow().set_ref_raw_for_test(0, &owner);
+    heap.write_barrier_field(&root, 0, &owner);
+    for _ in 0..(PROMOTION_THRESHOLD - 2) {
+        heap.force_collect(); // owner and arr at two below the configured line
+    }
+    let child = heap.alloc_object(dummy_type_desc("Child"), vec![Value::Null], NativeData::None);
+    let elem = heap.alloc_object(dummy_type_desc("Elem"), vec![Value::Null], NativeData::None);
+    obj_of(&owner).borrow().set_ref_raw_for_test(0, &child);
+    heap.write_barrier_field(&owner, 0, &child); // young → young: no record
+    {
+        let Value::Array(g) = &arr else { panic!() };
+        g.borrow().set_boxed(0, elem.clone());
+    }
+    heap.write_barrier_array_elem(&arr, 0, &elem);
+
+    // The tier below the line survives wholesale: the policy settles a lower line in this minor.
+    for _ in 0..8192 {
+        heap.promotion_policy.observe(true);
+    }
+    heap.force_collect();
+    assert_eq!(heap.promotion_age(), PROMOTION_THRESHOLD - 1, "the line is lowered by the minor");
+    assert_eq!(heap.stats().major_collections, 0, "no major was needed");
+    assert!(obj_of(&owner).var_ref().is_remembered(), "the cohort's old → young edge is remembered");
+    assert!(heap.verify_card_invariant().is_ok(), "and the array's has a dirty card");
+
+    // `child` / `elem` are plain values, not roots: only the cohort reaches them now.
+    heap.force_collect();
+    let Value::Object(c) = obj_of(&owner).borrow().field_value(0) else { panic!("child swept") };
+    assert_eq!(c.borrow().type_desc.name, "Child");
+    let Value::Array(a) = &arr else { panic!() };
+    let Some(Value::Object(e)) = a.borrow().get(0) else { panic!("element swept") };
+    assert_eq!(e.borrow().type_desc.name, "Elem");
+}
+
 #[test]
 fn a_remembered_object_that_dies_leaves_the_set_before_its_chunk_is_reclaimed() {
     let heap = generational_heap();
