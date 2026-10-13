@@ -340,31 +340,24 @@ public sealed class BuildSession {
 // generator」在发布态一直是空的**，只有开发树靠第 ③ 档命中。改指真实存在的那个目录即修复。
 //
 // 探测序（存在者为准；一个都没有 → 空数组，调用方照旧只看 libs/）：
-//   ① `Z42_COMPILER_LIBS`                       —— 自定义/非常规 SDK 布局的逃生口
-//   ② `Z42_HOME/programs/z42c/`                 —— SDK 安装态（launcher 转发时已设）
-//   ③ `Z42_PORTABLE_VM` 反推 SDK 根 → `<sdk>/programs/z42c/`
-//   ④ 开发树：自 `Z42_LIBS` 逐级上溯（至多 4 级），第一个含 `build/compiler/z42c.driver/release/dist/` 的
+//   ① 开发树：自 `Z42_LIBS` 逐级上溯（至多 4 级），第一个含 `build/compiler/z42c.driver/release/dist/` 的
 //      祖先（即 `artifacts/`）命中
 //      （driver 是 exe，dist 里是它的**自包含闭包** —— 与 SDK 的 `programs/z42c/` 同形。此前指
 //      `z42c.semantics` 的 dist，那里只有它自己：analyzer 的契约包碰巧够用，`z42.project` 等其它编译器域
 //      包在开发树里就引用不到（tidy-xtask-config 里 xtask 改为 `${compiler_libs}` 引用时实测）。）
-// ①②③ 与 `ReplCompilerHost._findCompilerZpkg`（scripting 定位编译器组件）是**同一套落点**。
+//   ② `Z42_HOME/programs/z42c/`                 —— SDK 安装态（launcher 转发时已设）
+//   ③ `Z42_PORTABLE_VM` 反推 SDK 根 → `<sdk>/programs/z42c/`
+// 开发树排在 SDK 前：`Z42_LIBS` 是显式给的编译期依赖面，它在开发树里 ⇒ 编译器域也取同一棵树。SDK 变量常是从
+// 外层继承来的（xtask 经 SDK apphost 启动，`Z42_PORTABLE_VM` 传给每个子进程）——排在前面时，开发树里按名声明的
+// 编译器包会对着那份 SDK 里上一版的包解析。SDK 安装态 `Z42_LIBS = <sdk>/libs`，上溯找不到开发树，①落空。
+// ②③ 与 `ReplCompilerHost._findCompilerZpkg`（scripting 定位编译器组件）是**同一套落点**。
 //
 // unify-driver-knobs：driver 的 `_compilerDomainDirs` 已删，driver 与 BuildSession 共用本类（此前两份逐行相同）。
 public static class CompilerDomain {
     public static string[] Dirs() {
-        string[] found = new string[4];
+        string[] found = new string[3];
         int n = 0;
-        string env = Environment.GetEnvironmentVariable("Z42_COMPILER_LIBS", "");
-        if (env.Length > 0 && Directory.Exists(env)) { found[n] = env; n = n + 1; }
-        string home = Environment.GetEnvironmentVariable("Z42_HOME", "");
-        if (home.Length > 0) { n = CompilerDomain._add(found, n, Path.Join(home, Path.Join("programs", "z42c"))); }
-        string pv = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM", "");
-        if (pv.Length > 0) {
-            string sdk = Path.GetDirectoryName(Path.GetDirectoryName(pv));
-            n = CompilerDomain._add(found, n, Path.Join(sdk, Path.Join("programs", "z42c")));
-        }
-        // ④ 不按固定层数上溯：stdlib flat 在 artifacts/ 下的深度属于 xtask 的布局，换位置时编译器不该跟着改。
+        // ① 不按固定层数上溯：stdlib flat 在 artifacts/ 下的深度属于 xtask 的布局，换位置时编译器不该跟着改。
         string anc = Environment.GetEnvironmentVariable("Z42_LIBS", "");
         int up = 0;
         while (anc.Length > 0 && up < 4) {
@@ -373,6 +366,13 @@ public static class CompilerDomain {
             string dev = Path.Join(anc, Path.Join("build", Path.Join("compiler", Path.Join("z42c.driver", Path.Join("release", "dist")))));
             if (Directory.Exists(dev)) { n = CompilerDomain._add(found, n, dev); break; }
             up = up + 1;
+        }
+        string home = Environment.GetEnvironmentVariable("Z42_HOME", "");
+        if (home.Length > 0) { n = CompilerDomain._add(found, n, Path.Join(home, Path.Join("programs", "z42c"))); }
+        string pv = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM", "");
+        if (pv.Length > 0) {
+            string sdk = Path.GetDirectoryName(Path.GetDirectoryName(pv));
+            n = CompilerDomain._add(found, n, Path.Join(sdk, Path.Join("programs", "z42c")));
         }
         string[] r = new string[n];
         int i = 0; while (i < n) { r[i] = found[i]; i = i + 1; }

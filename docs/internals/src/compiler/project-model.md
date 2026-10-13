@@ -157,10 +157,16 @@ path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在*
 编译器域的包（`z42c.semantics` 等 Generator 契约所在，以及 `z42.project` / `z42.build` …，统称 **SDK 库**）**不在 SDK 的
 `libs/`**，而在**编译器目录**：SDK 的 `programs/z42c/`（z42c.driver 的自包含闭包）。
 
-编译器目录由 `CompilerDomain.Dirs()`（`z42c.pipeline/src/BuildSession.z42`）按序探测，存在者都收：① `Z42_COMPILER_LIBS`；
-② `Z42_HOME/programs/z42c/`；③ 由 `Z42_PORTABLE_VM` 反推 SDK 根 → `programs/z42c/`；④ 开发树——自 `Z42_LIBS` 逐级上溯
-（至多 4 级），第一个含 `build/compiler/z42c.driver/release/dist/` 的祖先命中（与 `programs/z42c/` 同形）。不按固定层数：
-stdlib flat 在 `artifacts/` 下的深度属于 xtask 的布局，挪位置时编译器不必跟着改。
+编译器目录由 `CompilerDomain.Dirs()`（`z42c.pipeline/src/BuildSession.z42`）按序探测，存在者都收，同名包取先到的：
+① 开发树——自 `Z42_LIBS` 逐级上溯（至多 4 级），第一个含 `build/compiler/z42c.driver/release/dist/` 的祖先命中（与
+`programs/z42c/` 同形）；② `Z42_HOME/programs/z42c/`；③ 由 `Z42_PORTABLE_VM` 反推 SDK 根 → `programs/z42c/`。
+上溯不按固定层数：stdlib flat 在 `artifacts/` 下的深度属于 xtask 的布局，挪位置时编译器不必跟着改。
+
+开发树排在 SDK 前，是因为 `Z42_LIBS` 是显式给的编译期依赖面，而两个 SDK 变量常是从外层继承来的：xtask 经 SDK
+apphost 启动，`Z42_PORTABLE_VM` 传给它起的每个子进程。SDK 档在前时，开发树里的 driver / z42b 解析按名声明的编译器包
+（`deploy = "sdk"` / `"shared"`、编译器单元测试）会落到**种子 SDK 里的上一版**，直到某次挪包 / 改命名空间才编不过。
+SDK 安装态 `Z42_LIBS = <sdk>/libs`，上溯找不到开发树，① 落空。不在这两种布局里的编译器目录没有逃生口：要用就摆成
+`<x>/programs/z42c/` 并设 `Z42_HOME=<x>`（`sdk-lib-explicit-ref` 夹具就是这么拼假 SDK 的）。
 
 **可见性规则**（实现在 `z42c.pipeline/src/SdkLibs.z42`，driver 与 BuildSession 共用）：
 

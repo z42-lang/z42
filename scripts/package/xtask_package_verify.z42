@@ -129,12 +129,12 @@ FixtureSuite _distFixtureSuite(string root, string distDir, string apphostTmpl, 
     z42c.Requires = z42c.Exe;
     z42c.ClearAbsent = true;
     z42c.EnvSet = new string[]{ "Z42_HOME", "{sdk}" };
-    z42c.EnvRemove = new string[]{ "Z42_LIBS", "Z42_PORTABLE_VM", "Z42_COMPILER_LIBS" };
+    z42c.EnvRemove = new string[]{ "Z42_LIBS", "Z42_PORTABLE_VM" };
 
     FixtureTool z42b = new FixtureTool("z42b", _distExe(Path.Join(distDir, "bin/z42b")));
     z42b.Requires = z42b.Exe;
     z42b.ClearAbsent = true;
-    z42b.EnvRemove = new string[]{ "Z42_HOME", "Z42_PORTABLE_VM", "Z42_LIBS", "Z42_COMPILER_LIBS" };
+    z42b.EnvRemove = new string[]{ "Z42_HOME", "Z42_PORTABLE_VM", "Z42_LIBS" };
 
     FixtureTool run = new FixtureTool("run", _distExe(Path.Join(distDir, "bin/z42vm")));
     run.Requires = run.Exe;

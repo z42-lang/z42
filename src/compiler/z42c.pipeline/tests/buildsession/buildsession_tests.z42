@@ -124,3 +124,62 @@ void test_missing_declared_dep_reported() {
     Assert.Equal(true, r.Code != BuildExit.Ok);
     Assert.Equal(true, rep.ErrorsText().Contains("no.such.pkg"));
 }
+
+// ── CompilerDomain 探测序：开发树（自 Z42_LIBS 上溯）排在 SDK 变量之前 ─────────────────────────────
+// xtask 经 SDK apphost 启动，`Z42_PORTABLE_VM` 被每个子进程继承；开发树里跑的 driver / z42b 的编译器目录
+// 必须是本树的 driver dist，而不是那份 SDK 的 `programs/z42c/`（否则按名声明的编译器包对着上一版解析）。
+
+string _mkDir(string path) {
+    Directory.Create(path);
+    return path;
+}
+
+void _setEnv(string k, string v) {
+    if (v == "") { Environment.UnsetEnvironmentVariable(k); } else { Environment.SetEnvironmentVariable(k, v); }
+}
+
+// 在给定的三个变量下取 Dirs()，取完还原（TestRunner 顺序执行，进程环境改动不会漏到并发的用例）。
+string[] _domainWith(string libs, string home, string portableVm) {
+    string oldLibs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    string oldHome = Environment.GetEnvironmentVariable("Z42_HOME", "");
+    string oldPv = Environment.GetEnvironmentVariable("Z42_PORTABLE_VM", "");
+    _setEnv("Z42_LIBS", libs);
+    _setEnv("Z42_HOME", home);
+    _setEnv("Z42_PORTABLE_VM", portableVm);
+    string[] r = CompilerDomain.Dirs();
+    _setEnv("Z42_LIBS", oldLibs);
+    _setEnv("Z42_HOME", oldHome);
+    _setEnv("Z42_PORTABLE_VM", oldPv);
+    return r;
+}
+
+string _cdRoot() {
+    string root = Path.Join(_tmpRoot(), "compiler-domain");
+    if (Directory.Exists(root)) { Directory.Delete(root, true); }
+    return root;
+}
+
+[Test]
+void test_compiler_domain_dev_tree_before_inherited_sdk() {
+    string root = _cdRoot();
+    string art = Path.Join(root, "tree", "artifacts");
+    string dev = _mkDir(Path.Join(art, "build", "compiler", "z42c.driver", "release", "dist"));
+    string libs = _mkDir(Path.Join(art, "libs"));
+    string home = _mkDir(Path.Join(root, "home", "programs", "z42c"));
+    string seed = _mkDir(Path.Join(root, "seed", "programs", "z42c"));
+    string[] d = _domainWith(libs, Path.Join(root, "home"), Path.Join(root, "seed", "bin", "z42vm"));
+    Assert.Equal(3, d.Length);
+    Assert.Equal(dev, d[0]);
+    Assert.Equal(home, d[1]);
+    Assert.Equal(seed, d[2]);
+}
+
+[Test]
+void test_compiler_domain_sdk_libs_skip_dev_tree() {
+    string root = _cdRoot();
+    string libs = _mkDir(Path.Join(root, "sdk", "libs"));
+    string sdk = _mkDir(Path.Join(root, "sdk", "programs", "z42c"));
+    string[] d = _domainWith(libs, "", Path.Join(root, "sdk", "bin", "z42vm"));
+    Assert.Equal(1, d.Length);
+    Assert.Equal(sdk, d[0]);
+}

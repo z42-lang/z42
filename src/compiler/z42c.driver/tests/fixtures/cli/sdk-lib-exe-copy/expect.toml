@@ -10,6 +10,6 @@ absent = ["app/dist/z42.core.zpkg"]
 [[step]]
 tool = "run"
 target = "app/dist/sdkexe.zpkg"
-env_remove = ["Z42_HOME", "Z42_COMPILER_LIBS"]
+env_remove = ["Z42_HOME"]
 exit = 0
 stdout_equals = "sdkexe ok"
