@@ -98,17 +98,22 @@ pub mod typed {
     }
 
     /// `ReceiveInto(slot, buf, offset, count) -> [n, remoteHost, remotePort]`; a datagram
-    /// longer than `count` is truncated (as .NET's `Socket.ReceiveFrom` into a short buffer).
+    /// longer than `count` is truncated to it. The OS receive always gets a full-datagram
+    /// buffer: into a short one, Unix truncates silently but Windows fails the receive
+    /// with `WSAEMSGSIZE` and drops the peer address.
     #[builtin(name = "__udp_recv_into")]
     pub fn udp_recv_into(ctx: &VmContext, slot: i64, buffer: Value, offset: i64, count: i64) -> Result<Then<Value>, BuiltinError> {
+        thread_local! {
+            static SCRATCH: std::cell::RefCell<Vec<u8>> = std::cell::RefCell::new(vec![0u8; MAX_DATAGRAM]);
+        }
         let arr = byte_array(&buffer, "buffer")?;
         let (off, n) = check_buffer_range(offset, count, arr.borrow().len())?;
         let s = socket(ctx, slot)?;
         Ok(Blocking::new(move || {
-            let mut tmp = vec![0u8; n];
-            let (got, peer) = s.recv_from(&mut tmp).map_err(|e| socket_error(&e, None))?;
-            tmp.truncate(got.min(n));
-            Ok((tmp, peer))
+            SCRATCH.with_borrow_mut(|tmp| {
+                let (got, peer) = s.recv_from(tmp).map_err(|e| socket_error(&e, None))?;
+                Ok((tmp[..got.min(n)].to_vec(), peer))
+            })
         }).then(move |ctx: &VmContext, (bytes, peer): (Vec<u8>, SocketAddr)| {
             write_byte_range(&arr.borrow(), off, &bytes);
             Ok(received(ctx, Value::I64(bytes.len() as i64), peer))
