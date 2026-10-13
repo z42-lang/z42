@@ -1,0 +1,19 @@
+// Test: reflective construction of a value type hands back a boxed struct — `is` / casting back /
+// `GetType` behave as for any boxed struct, and the no-arg constructor has run.
+
+using Std.Reflection;
+
+struct S3 { public int A; public S3() { this.A = 5; } }
+struct P2 { public int X; public int Y; public P2(int x, int y) { this.X = x; this.Y = y; } }
+
+void Main() {
+    object o = Activator.CreateInstance(typeof(S3));
+    Assert.True(o is S3);
+    Assert.Equal("S3", o.GetType().Name);
+    S3 s = (S3)o;
+    Assert.Equal(5, s.A);
+    // a value type whose only constructor takes arguments: default-field construction
+    object p = Activator.CreateInstance(typeof(P2));
+    P2 q = (P2)p;
+    Assert.Equal(0, q.X + q.Y);
+}

@@ -429,7 +429,18 @@ pub fn builtin_activator_create(ctx: &VmContext, args: &[Value]) -> Result<Value
             break; // ran the first matching ctor
         }
     }
-    Ok(obj)
+    Ok(boxed_if_struct(&td, obj))
+}
+
+/// A reflectively constructed **value type** leaves as a boxed struct: the same object block,
+/// tagged `Value::BoxedStruct` instead of `Value::Object`. That is the representation every
+/// boxed-struct path keys on — `is` / `as` / `GetType` / the unboxing `AsCast` at a generic
+/// call site (`T mk<T>() { return new T(); }` called as `mk<Vec2>()` comes back through it).
+fn boxed_if_struct(td: &crate::metadata::types::TypeDesc, obj: Value) -> Value {
+    if td.is_struct() {
+        if let Value::Object(gc) = obj { return Value::BoxedStruct(gc); }
+    }
+    obj
 }
 
 /// `__ctor_invoke(ci: ConstructorInfo, args: object[]) -> object` (add-reflective-invoke).
@@ -500,7 +511,7 @@ pub fn builtin_ctor_invoke(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     };
     match outcome {
         // A constructor returns void; the constructed object is the result.
-        ExecOutcome::Returned(_) => Ok(obj),
+        ExecOutcome::Returned(_) => Ok(boxed_if_struct(&td, obj)),
         ExecOutcome::Thrown(val) => {
             ctx.set_pending_thrown(val);
             bail!("__z42_reflected_throw__")

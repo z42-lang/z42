@@ -500,7 +500,9 @@ void Main() {
   TypeDesc alloc 一个 0 字段 ScriptObject。所以折成 `BoundDefault(t, -1)` ——
   **与 `default(t)` 复用同一个 Bound 节点**，零值由构造保证一致，不会两处各写一份再漂移。
 - 运行期那条（`builtin_activator_create`）先认基元包装类、直接返回
-  `default_value_for(td.name)`。⚠️ 它开头那句 `bail!("... type has no runtime handle
+  `default_value_for(td.name)`。用户值类型（struct）则交出**装箱 struct**（`Value::BoxedStruct`，同一个对象块
+  只换标签；`ConstructorInfo.Invoke` 同口径）—— 泛型方法体对型参位走装箱模型，调用点按返回 struct 拆箱
+  （AsCast 只认装箱 struct），交出裸 `Value::Object` 会让 `mk<Vec2>()` 拆不出来。⚠️ 它开头那句 `bail!("... type has no runtime handle
   (primitive/array/synthetic?)")` 的括注**说反了**：`Std.Int32` 是真 struct 类型、
   handle 一直在，基元从不落那条 bail。
 
