@@ -5,7 +5,8 @@
 > `src/toolchain/launcher/core/launcher.z42`（`run` / `version` / SDK 布局）、
 > `src/toolchain/launcher/core/launcher_export.z42`（`publish` / `export`）、
 > `src/toolchain/launcher/core/launcher_workload.z42`（`workload`）、
-> `src/compiler/z42.project/src/ManifestLocator.z42`（工程定位）
+> `src/compiler/z42.project/src/ManifestLocator.z42`（工程定位）、
+> `src/toolchain/devtools/core/doc_cmd.z42` 与 `src/compiler/z42.doc/src/`（`doc`）
 >
 > 清单字段（`[project]` / `[[exe]]` / `[platform.*]` / `[profile.*]`…）见
 > [工程清单 z42.toml](z42-toml.md)；`z42c` / `z42b` 的直接命令面见
@@ -25,6 +26,7 @@
 | `z42 bench` | 运行 `[Benchmark]` | 转发 z42b |
 | `z42 clean` | 删除构建产物 | 转发 z42b |
 | `z42 repl` | 交互式 REPL | 转发 z42i |
+| `z42 doc` | 按名字查符号的签名、doc 注释与位置 | 转发 z42d |
 | `z42 publish` | 产出可部署应用 | launcher → z42b |
 | `z42 export` | 生成原生 IDE 工程 | launcher |
 | `z42 workload` | 安装 / 列出 / 卸载平台 workload | launcher |
@@ -385,6 +387,51 @@ removed ./artifacts
 | `.exit` / `.quit` | 退出（或 Ctrl-D） |
 
 `z42 repl -c "-h"` 求值字符串 `-h`，而不是显示帮助——`-c` 的值不参与帮助探测。
+
+## `z42 doc [options] [<符号>]`
+
+按名字查符号：签名、[doc 注释](../language/doc-comments.md)与 `file:line`。直接读源码，不需要先构建；改完代码
+立即可查。
+
+| 旗标 | 作用 |
+|---|---|
+| `-m`, `--members` | 类型或命名空间的轮廓：每个成员一行 |
+| `-s`, `--search <文字>` | 按名字与摘要搜索（忽略大小写），名字命中的排在前面 |
+| `--private` | 轮廓与搜索里也列 private 成员（直接查名字时总能查到） |
+| `--pkg <包名>` | 只看这一个包 |
+| `--root <目录>` | 索引根；缺省是向上第一个 git 仓库根，不在仓库里时取最近的工程目录 |
+| `--json` | 以 JSON 输出命中的条目 |
+
+**名字怎么写**：完整 ID（`Sample.Shapes.Circle.Scale(int)`）、限定名的后缀（`Circle.Scale`）或短名（`Scale`）
+都行，按这个顺序匹配，再不行就忽略大小写，最后按短名包含。重载一起列出；命中多个不同的符号时每个一行列候选。
+写命名空间名得到该命名空间下的类型与顶层函数。
+
+```console
+$ z42 doc Circle.Area
+public double Area()    Sample.Shapes.Circle
+  返回面积 πr²。
+  @ src/Shapes/Shape.z42:22
+
+$ z42 doc Circle --members
+class Sample.Shapes.Circle    src/Shapes/Shape.z42:13
+  圆。
+  +double Radius           半径，不小于 0。  :15
+  +Circle(double radius)   用半径构造。  :19
+  +double Area()           返回面积 πr²。  :22
+  +Circle Scale(double k)  按比例缩放半径。  :25
+  +Circle Scale(int k)     按整数倍缩放（重载）。  :28
+```
+
+轮廓里每行开头的一个字符是可见性：`+` public、`#` protected、`~` internal、`-` private。位置相对索引根；
+与表头同一文件的成员只写 `:行号`。
+
+**索引范围**：索引根下全部 `.z42` 源文件，跳过隐藏目录与 `artifacts` `target` `node_modules` `tests` `benches`
+`examples` `fixtures`。索引按文件缓存在用户缓存目录（`Z42_CACHE_DIR` 可覆盖）的 `doc/` 下，只重新解析改过的文件。
+
+退出码：`0` 找到；`1` 没有匹配；`2` 用法错误（既没给名字也没给 `--search`，或 `--root` 不是目录）。
+
+**还不支持**：只看源码语法，参数类型按源码写法显示、不做全限定；没有继承来的文档；`@param` 等标记原样显示；
+不索引 Rust 运行时。
 
 ## `z42 publish [options] [<manifest>]`
 

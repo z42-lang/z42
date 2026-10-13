@@ -1,0 +1,12 @@
+namespace Sample.Shapes;
+
+/// 正方形。
+public class Square : IShape {
+    /// 边长。
+    public double Side;
+
+    public Square(double side) { this.Side = side; }
+
+    /// 返回面积 side²。
+    public double Area() { return this.Side * this.Side; }
+}

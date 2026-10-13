@@ -1,0 +1,161 @@
+// 语法级索引的增量缓存：每个源文件记 (大小, 修改时间, 包名) 和它的条目；下次查询时只重解析变过的文件。
+// 整棵仓库冷建一次要解析上千个文件，热查询只需逐个 stat。
+//
+// 缓存是本工具私有的行格式（不是 `.zdoc`）：
+//   z42doc-index 1 <根的绝对路径>
+//   F <相对路径> <大小> <修改时间 ms> <包名>
+//   I <id> <kind> <name> <parent> <sig> <line> <vis> <doc>
+// 字段以制表符分隔；字段内的 `\`、制表符、换行写成 `\\` `\t` `\n`。格式或根不符就整份作废重建；
+// 有文件增删改就整份重写（未变的文件原样抄回）。
+namespace Z42.Doc;
+
+using Std.IO;
+using Std.Text;
+using Std.Collections;
+
+public static class IndexCache {
+    public static string Header = "z42doc-index 1";
+
+    // 建 root 下全部源文件的索引；cachePath 为 "" 时不读写缓存。
+    public static DocIndex Build(string root, SourceFile[] files, string cachePath) {
+        string[] lines = IndexCache._readLines(root, cachePath);
+        // 缓存里每个文件记录的行号（相对路径 → 下标）。
+        Dictionary<string, int> at = new Dictionary<string, int>();
+        int cachedFiles = 0;
+        int li = 1;   // 跳过表头
+        while (li < lines.Length) {
+            if (IndexCache._isFileRec(lines[li])) { at.Set(IndexCache._field(lines[li], 1), li); cachedFiles = cachedFiles + 1; }
+            li = li + 1;
+        }
+        DocIndex ix = new DocIndex();
+        StringBuilder outSb = new StringBuilder();
+        outSb.Append(IndexCache.Header).Append("\t").Append(root).Append("\n");
+        bool dirty = lines.Length == 0 || cachedFiles != files.Length;
+        int fi = 0;
+        while (fi < files.Length) {
+            SourceFile f = files[fi];
+            long size = File.GetSize(f.Abs);
+            long mtime = File.GetLastWriteTime(f.Abs).UnixMs();
+            bool reused = false;
+            if (at.ContainsKey(f.Rel)) {
+                int start = at.Get(f.Rel);
+                string[] fr = lines[start].Split("\t");
+                if (fr.Length >= 5 && fr[2] == size.ToString() && fr[3] == mtime.ToString() && IndexCache._unesc(fr[4]) == f.Pkg) {
+                    int end = IndexCache._skipItems(lines, start + 1);
+                    outSb.Append(lines[start]).Append("\n");
+                    int k = start + 1;
+                    while (k < end) {
+                        ix.Add(IndexCache._readItem(lines[k], f));
+                        outSb.Append(lines[k]).Append("\n");
+                        k = k + 1;
+                    }
+                    reused = true;
+                }
+            }
+            if (!reused) {
+                dirty = true;
+                DocItem[] items = SyntaxIndexer.IndexSource(File.ReadAllText(f.Abs), f.Rel);
+                outSb.Append("F\t").Append(IndexCache._esc(f.Rel)).Append("\t").Append(size.ToString()).Append("\t")
+                    .Append(mtime.ToString()).Append("\t").Append(IndexCache._esc(f.Pkg)).Append("\n");
+                int j = 0;
+                while (j < items.Length) {
+                    items[j].Pkg = f.Pkg;
+                    ix.Add(items[j]);
+                    IndexCache._writeItem(outSb, items[j]);
+                    j = j + 1;
+                }
+            }
+            fi = fi + 1;
+        }
+        if (dirty && cachePath.Length > 0) {
+            try {
+                Directory.Create(Path.GetDirectoryName(cachePath));
+                File.WriteAllTextAtomic(cachePath, outSb.ToString());
+            } catch (Exception e) { }   // 缓存写不进去只损失速度，查询照常
+        }
+        return ix;
+    }
+
+    // 根路径 → 缓存文件名（两路多项式哈希拼 hex；碰撞只会让两个根互相作废缓存，表头的根路径兜底）。
+    public static string KeyOf(string root) {
+        long h1 = 7;
+        long h2 = 11;
+        int i = 0;
+        while (i < root.Length) {
+            int c = root.CharAt(i);
+            h1 = (h1 * 131 + c) % 1000000007;
+            h2 = (h2 * 137 + c) % 998244353;
+            i = i + 1;
+        }
+        return h1.ToString() + "-" + h2.ToString();
+    }
+
+    private static string[] _readLines(string root, string cachePath) {
+        if (cachePath.Length == 0 || !File.Exists(cachePath)) { return new string[0]; }
+        string text = "";
+        try { text = File.ReadAllText(cachePath); } catch (Exception e) { return new string[0]; }
+        string[] lines = text.Split("\n");
+        if (lines.Length == 0 || lines[0] != IndexCache.Header + "\t" + root) { return new string[0]; }
+        if (lines[lines.Length - 1].Length == 0) {
+            string[] t = new string[lines.Length - 1];
+            Array.Copy(lines, t, t.Length);
+            return t;
+        }
+        return lines;
+    }
+
+    private static bool _isFileRec(string line) { return line.StartsWith("F\t"); }
+
+    // 从 i 起跳过连续的条目行，返回下一个文件记录（或末尾）的下标。
+    private static int _skipItems(string[] lines, int i) {
+        int k = i;
+        while (k < lines.Length && !IndexCache._isFileRec(lines[k])) { k = k + 1; }
+        return k;
+    }
+
+    private static string _field(string line, int n) {
+        string[] fs = line.Split("\t");
+        if (n >= fs.Length) { return ""; }
+        return IndexCache._unesc(fs[n]);
+    }
+
+    private static void _writeItem(StringBuilder sb, DocItem it) {
+        sb.Append("I\t").Append(IndexCache._esc(it.Id)).Append("\t").Append(it.Kind).Append("\t")
+            .Append(IndexCache._esc(it.Name)).Append("\t").Append(IndexCache._esc(it.Parent)).Append("\t")
+            .Append(IndexCache._esc(it.Sig)).Append("\t").Append(it.Line.ToString()).Append("\t")
+            .Append(it.Vis).Append("\t").Append(IndexCache._esc(it.Doc)).Append("\n");
+    }
+
+    private static DocItem _readItem(string line, SourceFile f) {
+        string[] fs = line.Split("\t");
+        DocItem it = new DocItem(IndexCache._unesc(fs[1]), fs[2], IndexCache._unesc(fs[3]), IndexCache._unesc(fs[4]),
+            IndexCache._unesc(fs[5]), Convert.ToInt32(fs[6]), fs[7], IndexCache._unesc(fs[8]));
+        it.File = f.Rel;
+        it.Pkg = f.Pkg;
+        return it;
+    }
+
+    private static string _esc(string s) {
+        return s.Replace("\\", "\\\\").Replace("\t", "\\t").Replace("\n", "\\n");
+    }
+
+    private static string _unesc(string s) {
+        if (s.IndexOf("\\") < 0) { return s; }
+        StringBuilder sb = new StringBuilder();
+        int i = 0;
+        while (i < s.Length) {
+            char c = s.CharAt(i);
+            if (c == '\\' && i + 1 < s.Length) {
+                char n = s.CharAt(i + 1);
+                if (n == 't') { sb.Append("\t"); }
+                else if (n == 'n') { sb.Append("\n"); }
+                else { sb.Append(n.ToString()); }
+                i = i + 2;
+            } else {
+                sb.Append(c.ToString());
+                i = i + 1;
+            }
+        }
+        return sb.ToString();
+    }
+}

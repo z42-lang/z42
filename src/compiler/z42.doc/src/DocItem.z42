@@ -1,0 +1,72 @@
+// 文档索引的一条：一个可查的符号（命名空间 / 类型 / 成员）。语法级索引与（之后的）语义级 `.zdoc`
+// 共用这一个模型，`z42 doc` 只认它，不关心来源是哪门语言、哪一级。
+namespace Z42.Doc;
+
+public sealed class DocItem {
+    // Doc ID：全工具链共用的符号身份。`Ns.Type`、`Ns.Type.Member`、`Ns.Type.Method(int,string)`、
+    // `Ns.Type.ctor(long)`、`Ns.Type.this[int]`；嵌套类型用 `Outer+Inner`。语法级的参数类型按源码写法记。
+    public string Id;
+    public string Kind;     // DocKind.*
+    public string Name;     // 短名（ctor 记类型名）
+    public string Parent;   // 所属条目的 Id；命名空间与顶层条目记命名空间 Id（无命名空间时为 ""）
+    public string Pkg;      // 所属包名（不在任何包里为 ""）
+    public string Sig;      // 单行签名，按源码写法渲染
+    public string File;     // 相对索引根的路径，`/` 分隔
+    public int    Line;
+    public string Vis;      // public / protected / internal / private
+    public string Doc;      // doc 注释原文（无为 ""）
+
+    public DocItem(string id, string kind, string name, string parent, string sig, int line, string vis, string doc) {
+        this.Id = id; this.Kind = kind; this.Name = name; this.Parent = parent; this.Sig = sig;
+        this.Line = line; this.Vis = vis; this.Doc = doc; this.Pkg = ""; this.File = "";
+    }
+
+    // 摘要 = 首段（遇空行或首个 `@tag` 行即止），多行合成一行。
+    public string Summary() { return DocItem.SummaryOf(this.Doc); }
+
+    public static string SummaryOf(string doc) {
+        if (doc.Length == 0) { return ""; }
+        string[] lines = doc.Split("\n");
+        string s = "";
+        int i = 0;
+        while (i < lines.Length) {
+            string t = lines[i].Trim();
+            if (t.Length == 0 || t.StartsWith("@")) { break; }
+            if (s.Length > 0) { s = s + " "; }
+            s = s + t;
+            i = i + 1;
+        }
+        return s;
+    }
+
+    // 不带参数表的限定名（`Ns.Type.Method`），名字匹配用。
+    public string QualifiedName() {
+        int p = this.Id.IndexOf("(");
+        int b = this.Id.IndexOf("[");
+        if (b >= 0 && (p < 0 || b < p)) { p = b; }
+        if (p < 0) { return this.Id; }
+        return this.Id.Substring(0, p);
+    }
+
+    public bool IsType() {
+        return this.Kind == DocKind.Class || this.Kind == DocKind.Struct || this.Kind == DocKind.Interface
+            || this.Kind == DocKind.Enum || this.Kind == DocKind.Delegate;
+    }
+}
+
+public static class DocKind {
+    public static string Namespace  = "namespace";
+    public static string Class      = "class";
+    public static string Struct     = "struct";
+    public static string Interface  = "interface";
+    public static string Enum       = "enum";
+    public static string EnumMember = "enum-member";
+    public static string Delegate   = "delegate";
+    public static string Method     = "method";
+    public static string Ctor       = "ctor";
+    public static string Func       = "func";
+    public static string Field      = "field";
+    public static string Property   = "property";
+    public static string Indexer    = "indexer";
+    public static string AssocType  = "type";
+}

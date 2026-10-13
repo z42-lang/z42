@@ -142,6 +142,7 @@
 
 - [REPL](toolchain/repl.md)
 - [编辑器集成](toolchain/editor-integration.md)
+- [文档索引与 `z42 doc`](toolchain/doc.md)
 
 # 测试体系
 

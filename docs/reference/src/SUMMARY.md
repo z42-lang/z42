@@ -11,6 +11,7 @@
 # 语言 · 基础
 
 - [源文件的顶层结构](language/syntax.md)
+- [doc 注释](language/doc-comments.md)
 - [基本类型与字面量](language/types.md)
 - [类型转换](language/conversions.md)
 - [运算符](language/operators.md)

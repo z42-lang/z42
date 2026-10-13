@@ -22,10 +22,14 @@
    读某目录的代码前必须先读它的 README（如果存在），再决定读哪些文件。
 3. **进书**：要理解机制、决策、在哪改 → internals 对应页（页头「代码」行回指源码）；
    要确认对外行为（语法、API、CLI、诊断）→ reference 对应页。
-4. **构建 / 测试 / 调试命令** → [internals · 开发基础设施](../internals/src/devinfra/README.md)
+4. **定位 z42 符号用 `z42 doc`，不 grep**：`z42 doc <名字>` 给签名、doc 与 `file:line`，`--members` 给类型轮廓，
+   `--search` 按名字与摘要找；拿到行号后按 offset/limit 只读那一段。仓库里跑种子 SDK 的 `.z42/z42 doc …`
+   （要当前源码的版本：`xtask package dev-sdk` 后用 `artifacts/.z42/z42`）。用法见
+   [`z42 doc`](../reference/src/toolchain/cli-z42.md)。
+5. **构建 / 测试 / 调试命令** → [internals · 开发基础设施](../internals/src/devinfra/README.md)
    （[开发环境](../internals/src/devinfra/dev-setup.md) · [怎么跑测试](../internals/src/devinfra/testing.md) ·
    [GREEN gate](../internals/src/devinfra/test-gate.md) · [调试手法](../internals/src/devinfra/debugging.md)）。
-5. **找不到**：按子系统翻 [internals 目录](../internals/src/SUMMARY.md)；某目录 README 的「关联文档」链得不对，
+6. **找不到**：按子系统翻 [internals 目录](../internals/src/SUMMARY.md)；某目录 README 的「关联文档」链得不对，
    修正它属于本次的文档同步（列入 Scope）。
 
 | 要动什么 | 目录 README | internals | reference | 规则 |

@@ -121,6 +121,8 @@ void Main() {
    可以跨行 */
 ```
 
+行首的 `///` 与 `//!` 是 doc 注释，挂到声明上供 `z42 doc` 查询，见 [doc 注释](doc-comments.md)。
+
 ## 关联页面
 
 - [Namespace 与 Using](namespaces.md) — 导入解析、可见性、`global using`、类型别名

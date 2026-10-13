@@ -1,0 +1,116 @@
+// 文档索引：一组 DocItem + 查询。名字解析的顺序（先精确、后后缀、再模糊）是 `z42 doc` 的契约。
+namespace Z42.Doc;
+
+public sealed class DocIndex {
+    private DocItem[] _items;
+    private int       _count;
+
+    public DocIndex() { this._items = new DocItem[64]; this._count = 0; }
+
+    public int     Count()   { return this._count; }
+    public DocItem At(int i) { return this._items[i]; }
+
+    public void Add(DocItem it) {
+        if (this._count == this._items.Length) {
+            DocItem[] n = new DocItem[this._items.Length * 2];
+            Array.Copy(this._items, n, this._count);
+            this._items = n;
+        }
+        this._items[this._count] = it;
+        this._count = this._count + 1;
+    }
+
+    public void AddAll(DocItem[] items) {
+        int i = 0;
+        while (i < items.Length) { this.Add(items[i]); i = i + 1; }
+    }
+
+    // 名字解析，命中即停：
+    //   1. Id 完全相等（含参数表）；
+    //   2. 限定名（去掉参数表的 Id）等于 query，或以 `.query` / `+query` 结尾——`Random.NextIntRange`、
+    //      `NextIntRange` 都能命中；query 自带参数表时按完整 Id 的后缀比；
+    //   3. 同 2，忽略大小写；
+    //   4. 短名包含 query（忽略大小写）。
+    // 重载、同名类型都会一起返回，由调用方决定列候选还是展开。
+    public DocItem[] Find(string query) {
+        DocItem[] r = this._filter(query, 1);
+        if (r.Length == 0) { r = this._filter(query, 2); }
+        if (r.Length == 0) { r = this._filter(query, 3); }
+        if (r.Length == 0) { r = this._filter(query, 4); }
+        return r;
+    }
+
+    // 直接成员（Parent == id），按源码顺序。
+    public DocItem[] Members(string id) {
+        DocItem[] acc = new DocItem[8];
+        int n = 0;
+        int i = 0;
+        while (i < this._count) {
+            if (this._items[i].Parent == id) { acc = DocIndex._push(acc, n, this._items[i]); n = n + 1; }
+            i = i + 1;
+        }
+        return DocIndex._trim(acc, n);
+    }
+
+    // 按名字与摘要搜索（忽略大小写）：名字命中的排在摘要命中的前面。
+    public DocItem[] Search(string text) {
+        string q = text.ToLower();
+        DocItem[] byName = new DocItem[8];
+        int nn = 0;
+        DocItem[] bySummary = new DocItem[8];
+        int ns = 0;
+        int i = 0;
+        while (i < this._count) {
+            DocItem it = this._items[i];
+            if (it.Name.ToLower().Contains(q)) { byName = DocIndex._push(byName, nn, it); nn = nn + 1; }
+            else if (it.Summary().ToLower().Contains(q)) { bySummary = DocIndex._push(bySummary, ns, it); ns = ns + 1; }
+            i = i + 1;
+        }
+        DocItem[] r = new DocItem[nn + ns];
+        Array.Copy(byName, r, nn);
+        int j = 0;
+        while (j < ns) { r[nn + j] = bySummary[j]; j = j + 1; }
+        return r;
+    }
+
+    private DocItem[] _filter(string query, int level) {
+        DocItem[] acc = new DocItem[4];
+        int n = 0;
+        string lq = query.ToLower();
+        bool withParams = query.IndexOf("(") >= 0 || query.IndexOf("[") >= 0;
+        int i = 0;
+        while (i < this._count) {
+            DocItem it = this._items[i];
+            bool hit = false;
+            if (level == 1) { hit = it.Id == query; }
+            else if (level == 2) { hit = DocIndex._suffixMatch(withParams ? it.Id : it.QualifiedName(), query); }
+            else if (level == 3) {
+                string k = withParams ? it.Id : it.QualifiedName();
+                hit = DocIndex._suffixMatch(k.ToLower(), lq);
+            } else { hit = it.Name.ToLower().Contains(lq); }
+            if (hit) { acc = DocIndex._push(acc, n, it); n = n + 1; }
+            i = i + 1;
+        }
+        return DocIndex._trim(acc, n);
+    }
+
+    private static bool _suffixMatch(string key, string q) {
+        if (key == q) { return true; }
+        if (!key.EndsWith(q) || key.Length <= q.Length) { return false; }
+        char sep = key.CharAt(key.Length - q.Length - 1);
+        return sep == '.' || sep == '+';
+    }
+
+    private static DocItem[] _push(DocItem[] a, int n, DocItem it) {
+        DocItem[] b = a;
+        if (n == a.Length) { b = new DocItem[a.Length * 2]; Array.Copy(a, b, n); }
+        b[n] = it;
+        return b;
+    }
+
+    private static DocItem[] _trim(DocItem[] a, int n) {
+        DocItem[] r = new DocItem[n];
+        Array.Copy(a, r, n);
+        return r;
+    }
+}

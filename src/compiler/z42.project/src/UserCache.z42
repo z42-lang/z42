@@ -1,0 +1,29 @@
+// 用户级缓存根 —— launcher（`z42 run` 单文件工程）、z42c 的命名空间索引、z42d 的文档索引共用的唯一规则。
+//
+// 缓存不放进 SDK 安装目录：首次运行可能没有写权限；多用户共享同一份安装时缓存会互相串；分发目录被
+// 运行期状态污染后校验、卸载、diff 都不再干净。落点按平台惯例：
+//   `Z42_CACHE_DIR` 覆盖一切；
+//   Windows: `%LOCALAPPDATA%\z42\cache`；
+//   其他:    `$XDG_CACHE_HOME/z42`，否则 `$HOME/.cache/z42`。
+// 取不到任何根时返回 ""，由调用方决定退路（不缓存，或退回自己的目录）。
+namespace Z42.Project;
+
+using Std.IO;
+
+public static class UserCache {
+    public static string Root() {
+        string c = Environment.GetEnvironmentVariable("Z42_CACHE_DIR", "");
+        if (c.Length > 0) { return c; }
+        if (Platform.IsWindows()) {
+            string la = Environment.GetEnvironmentVariable("LOCALAPPDATA", "");
+            if (la.Length > 0) { return Path.Join(Path.Join(la, "z42"), "cache"); }
+        } else {
+            string xdg = Environment.GetEnvironmentVariable("XDG_CACHE_HOME", "");
+            if (xdg.Length > 0) { return Path.Join(xdg, "z42"); }
+        }
+        string home = Environment.GetEnvironmentVariable("HOME", "");
+        if (home.Length == 0) { home = Environment.GetEnvironmentVariable("USERPROFILE", ""); }
+        if (home.Length > 0) { return Path.Join(Path.Join(home, ".cache"), "z42"); }
+        return "";
+    }
+}

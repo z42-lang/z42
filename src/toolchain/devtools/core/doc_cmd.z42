@@ -1,0 +1,40 @@
+// z42d doc —— 符号查询：签名、doc 注释与 `file:line`。引擎在编译器域的 z42.doc 包（索引、名字解析、
+// 输出格式都在那里，并有单测）；这里只把命令行映射成查询选项、定索引根与缓存位置、打印结果。
+namespace Z42Devtools;
+
+using Std.IO;
+using Std.Cli;
+using Z42.Doc;
+using Z42.Project;   // UserCache
+
+public static class DocCommand {
+    public static int Run(ParseResult pr) {
+        DocQueryOptions o = new DocQueryOptions();
+        o.Query   = pr.GetPositional(0);
+        o.Search  = pr.GetOption("search");
+        o.Members = pr.GetFlag("members");
+        o.Json    = pr.GetFlag("json");
+        o.Private = pr.GetFlag("private");
+        o.Pkg     = pr.GetOption("pkg");
+        string root = pr.GetOption("root");
+        if (root.Length == 0) { root = SourceTree.FindRoot(Environment.GetCurrentDirectory()); }
+        else if (!Path.IsRooted(root)) { root = Path.Normalize(Path.Join(Environment.GetCurrentDirectory(), root)); }
+        if (!Directory.Exists(root)) {
+            ConsoleError.WriteLine("z42 doc: --root is not a directory: " + root);
+            return 2;
+        }
+        o.Root = root;
+        o.CachePath = DocCommand._cachePath(root);
+        DocQueryResult r = DocQuery.Run(o);
+        if (r.Out.Length > 0) { Console.Write(r.Out); }
+        if (r.Err.Length > 0) { ConsoleError.WriteLine(r.Err); }
+        return r.Exit;
+    }
+
+    // `<用户缓存根>/doc/<根路径的 key>.idx`；取不到缓存根就不缓存。
+    private static string _cachePath(string root) {
+        string c = UserCache.Root();
+        if (c.Length == 0) { return ""; }
+        return Path.Join(Path.Join(c, "doc"), IndexCache.KeyOf(root) + ".idx");
+    }
+}

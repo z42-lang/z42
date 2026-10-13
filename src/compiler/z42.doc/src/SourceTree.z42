@@ -1,0 +1,119 @@
+// 索引根与源文件发现：从根目录递归找 `.z42` 源文件，每个文件归属到离它最近的上层工程清单。
+// 根默认取起点向上第一个含 `.git` 的目录（整个仓库一份索引）；不在 git 仓库里时取最近的清单所在目录。
+namespace Z42.Doc;
+
+using Std.IO;
+
+public sealed class SourceFile {
+    public string Abs;   // 绝对路径
+    public string Rel;   // 相对根，`/` 分隔
+    public string Pkg;   // 所属包名（不在任何工程里为 ""）
+    public SourceFile(string abs, string rel, string pkg) { this.Abs = abs; this.Rel = rel; this.Pkg = pkg; }
+}
+
+public sealed class SourceTree {
+    private SourceFile[] _files;
+    private int          _count;
+
+    private SourceTree() { this._files = new SourceFile[64]; this._count = 0; }
+
+    // 起点向上找根：先找 `.git`（目录或 worktree 的文件），再退而求其次找工程清单，都没有就用起点。
+    public static string FindRoot(string start) {
+        string d = start;
+        while (d.Length > 0) {
+            string g = Path.Join(d, ".git");
+            if (Directory.Exists(g) || File.Exists(g)) { return d; }
+            string up = Path.GetDirectoryName(d);
+            if (up == d || up.Length == 0) { break; }
+            d = up;
+        }
+        d = start;
+        while (d.Length > 0) {
+            if (SourceTree._manifestIn(d).Length > 0 || File.Exists(Path.Join(d, "z42.workspace.toml"))) { return d; }
+            string up = Path.GetDirectoryName(d);
+            if (up == d || up.Length == 0) { break; }
+            d = up;
+        }
+        return start;
+    }
+
+    // 根下全部 `.z42` 源文件（按路径排序）。跳过隐藏目录与产物 / 测试 / 示例目录：
+    // `artifacts` `target` `node_modules` `tests` `benches` `examples` `fixtures`。
+    public static SourceFile[] Collect(string root) {
+        SourceTree t = new SourceTree();
+        t._walk(root, "", SourceTree._pkgOf(root, ""));
+        SourceFile[] r = new SourceFile[t._count];
+        Array.Copy(t._files, r, t._count);
+        return r;
+    }
+
+    private void _walk(string dir, string rel, string pkg) {
+        string[] names = Directory.Enumerate(dir);   // basename，已排序
+        int i = 0;
+        while (i < names.Length) {
+            string n = names[i];
+            string abs = Path.Join(dir, n);
+            string r = (rel.Length == 0) ? n : rel + "/" + n;
+            if (Directory.Exists(abs)) {
+                if (!SourceTree._skipDir(n)) { this._walk(abs, r, SourceTree._pkgOf(abs, pkg)); }
+            } else if (n.EndsWith(".z42")) {
+                this._add(new SourceFile(abs, r, pkg));
+            }
+            i = i + 1;
+        }
+    }
+
+    private static bool _skipDir(string n) {
+        if (n.StartsWith(".")) { return true; }
+        return n == "artifacts" || n == "target" || n == "node_modules" || n == "tests" || n == "benches"
+            || n == "examples" || n == "fixtures";
+    }
+
+    // 目录里有工程清单就换成它的包名，否则沿用上层的。
+    private static string _pkgOf(string dir, string inherited) {
+        string m = SourceTree._manifestIn(dir);
+        if (m.Length == 0) { return inherited; }
+        if (m != "z42.toml") { return m.Substring(0, m.Length - ".z42.toml".Length); }
+        return SourceTree._projectName(Path.Join(dir, m), inherited);
+    }
+
+    // `<name>.z42.toml` 或 `z42.toml`（工作区清单不算）；没有返回 ""。只认文件：目录也可能叫这个名字
+    // （stdlib 的 TOML 包目录就叫 `z42.toml`）。
+    private static string _manifestIn(string dir) {
+        if (SourceTree._isFile(Path.Join(dir, "z42.toml"))) { return "z42.toml"; }
+        string[] ms = Path.Glob(dir, "*.z42.toml");   // 已排序
+        int i = 0;
+        while (i < ms.Length) { if (SourceTree._isFile(ms[i])) { return Path.GetFileName(ms[i]); } i = i + 1; }
+        return "";
+    }
+
+    private static bool _isFile(string p) { return File.Exists(p) && !Directory.Exists(p); }
+
+    // `z42.toml` 里 `[project]` 段的 `name = "…"`；取不到沿用上层包名。
+    private static string _projectName(string manifest, string fallback) {
+        string[] lines = File.ReadAllText(manifest).Split("\n");
+        bool inProject = false;
+        int i = 0;
+        while (i < lines.Length) {
+            string t = lines[i].Trim();
+            if (t.StartsWith("[")) { inProject = t == "[project]"; }
+            else if (inProject && t.StartsWith("name")) {
+                int q1 = t.IndexOf("\"");
+                int q2 = t.LastIndexOf("\"");
+                if (q1 >= 0 && q2 > q1) { return t.Substring(q1 + 1, q2 - q1 - 1); }
+            }
+            i = i + 1;
+        }
+        return fallback;
+    }
+
+    private void _add(SourceFile f) {
+        if (this._count == this._files.Length) {
+            SourceFile[] n = new SourceFile[this._files.Length * 2];
+            Array.Copy(this._files, n, this._count);
+            this._files = n;
+        }
+        this._files[this._count] = f;
+        this._count = this._count + 1;
+    }
+}

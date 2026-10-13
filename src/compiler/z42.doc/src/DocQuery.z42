@@ -1,0 +1,131 @@
+// `z42 doc` 的查询编排：建索引 → 解析名字 → 选输出形态。纯函数式地返回输出文本与退出码，
+// z42d 只负责解析命令行和打印，便于单测。
+namespace Z42.Doc;
+
+
+public sealed class DocQueryOptions {
+    public string Query;     // 符号名（Doc ID、限定名后缀或短名）
+    public string Search;    // 非空 = 按名字与摘要搜索
+    public bool   Members;   // 类型 / 命名空间轮廓
+    public bool   Json;
+    public bool   Private;   // 轮廓与搜索里也列 private 成员（直接查名字时总是可见）
+    public string Pkg;       // 非空 = 只看这个包
+    public string Root;      // 索引根（绝对路径）
+    public string CachePath; // "" = 不用缓存
+    public DocQueryOptions() {
+        this.Query = ""; this.Search = ""; this.Members = false; this.Json = false; this.Private = false;
+        this.Pkg = ""; this.Root = ""; this.CachePath = "";
+    }
+}
+
+public sealed class DocQueryResult {
+    public string Out;
+    public string Err;
+    public int    Exit;   // 0 命中；1 没有匹配；2 用法错误
+    public DocQueryResult(string o, string e, int exit) { this.Out = o; this.Err = e; this.Exit = exit; }
+}
+
+public static class DocQuery {
+    public static DocQueryResult Run(DocQueryOptions o) {
+        if (o.Query.Length == 0 && o.Search.Length == 0) {
+            return new DocQueryResult("", "z42 doc: give a symbol name or --search <text>", 2);
+        }
+        DocIndex ix = DocQuery.BuildIndex(o.Root, o.Pkg, o.CachePath);
+        if (o.Search.Length > 0) {
+            DocItem[] hits = DocQuery._visible(ix.Search(o.Search), o.Private);
+            if (hits.Length == 0) { return DocQuery._none(o.Search); }
+            return DocQuery._ok(o.Json ? DocFormat.Json(hits) : DocFormat.SearchResults(hits));
+        }
+        // 命名空间：没写 `//!` 时没有命名空间条目，按「有顶层成员挂在它下面」认。
+        DocItem nsHead = DocQuery._namespaceHead(ix, o.Query);
+        if (nsHead != null) {
+            DocItem[] tops = DocQuery._visible(ix.Members(nsHead.Id), o.Private);
+            if (o.Json) { return DocQuery._ok(DocFormat.Json(tops)); }
+            return DocQuery._ok(DocFormat.Outline(nsHead, tops));
+        }
+        DocItem[] m = ix.Find(o.Query);
+        if (m.Length == 0) { return DocQuery._none(o.Query); }
+        if (o.Members) {
+            DocItem head = DocQuery._singleContainer(m);
+            if (head == null) { return DocQuery._ok(DocFormat.Candidates(m)); }
+            DocItem[] mem = DocQuery._visible(ix.Members(head.Id), o.Private);
+            if (o.Json) { return DocQuery._ok(DocFormat.Json(mem)); }
+            return DocQuery._ok(DocFormat.Outline(head, mem));
+        }
+        if (o.Json) { return DocQuery._ok(DocFormat.Json(m)); }
+        // 一个命中，或全是同一个名字的重载 → 逐个展开；否则列候选。
+        if (m.Length == 1 || DocQuery._sameName(m)) {
+            string s = "";
+            int i = 0;
+            while (i < m.Length) { if (i > 0) { s = s + "\n"; } s = s + DocFormat.Show(m[i]); i = i + 1; }
+            return DocQuery._ok(s);
+        }
+        return DocQuery._ok(DocFormat.Candidates(m));
+    }
+
+    // 索引根下（可按包过滤）全部源文件的语法级索引。
+    public static DocIndex BuildIndex(string root, string pkg, string cachePath) {
+        SourceFile[] all = SourceTree.Collect(root);
+        if (pkg.Length == 0) { return IndexCache.Build(root, all, cachePath); }
+        SourceFile[] keep = new SourceFile[all.Length];
+        int n = 0;
+        int i = 0;
+        while (i < all.Length) { if (all[i].Pkg == pkg) { keep[n] = all[i]; n = n + 1; } i = i + 1; }
+        SourceFile[] r = new SourceFile[n];
+        Array.Copy(keep, r, n);
+        return IndexCache.Build(root, r, "");   // 子集不写共享缓存，免得把整份缓存冲掉
+    }
+
+    private static DocItem _namespaceHead(DocIndex ix, string q) {
+        DocItem first = null;
+        int i = 0;
+        while (i < ix.Count()) {
+            DocItem it = ix.At(i);
+            if (it.Kind == DocKind.Namespace && it.Id == q) { return it; }
+            if (first == null && it.Parent == q && (it.IsType() || it.Kind == DocKind.Func)) { first = it; }
+            i = i + 1;
+        }
+        if (first == null) { return null; }
+        // 合成的表头没有源码位置（File 为空）：轮廓里每个成员都写完整路径。
+        DocItem h = new DocItem(q, DocKind.Namespace, q, "", "namespace " + q, 0, "public", "");
+        h.Pkg = first.Pkg;
+        return h;
+    }
+
+    // --members 的对象：命中里唯一的类型（同名的类型与成员并存时取类型）。
+    private static DocItem _singleContainer(DocItem[] m) {
+        DocItem found = null;
+        int i = 0;
+        while (i < m.Length) {
+            if (m[i].IsType()) {
+                if (found != null && found.Id != m[i].Id) { return null; }
+                found = m[i];
+            }
+            i = i + 1;
+        }
+        return found;
+    }
+
+    private static bool _sameName(DocItem[] m) {
+        int i = 1;
+        while (i < m.Length) { if (m[i].QualifiedName() != m[0].QualifiedName()) { return false; } i = i + 1; }
+        return true;
+    }
+
+    private static DocItem[] _visible(DocItem[] items, bool includePrivate) {
+        if (includePrivate) { return items; }
+        DocItem[] acc = new DocItem[items.Length];
+        int n = 0;
+        int i = 0;
+        while (i < items.Length) { if (items[i].Vis != "private") { acc[n] = items[i]; n = n + 1; } i = i + 1; }
+        DocItem[] r = new DocItem[n];
+        Array.Copy(acc, r, n);
+        return r;
+    }
+
+    private static DocQueryResult _ok(string s) { return new DocQueryResult(s, "", 0); }
+
+    private static DocQueryResult _none(string q) {
+        return new DocQueryResult("", "z42 doc: no symbol matches `" + q + "`", 1);
+    }
+}
