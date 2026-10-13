@@ -65,7 +65,7 @@ fn func(name: &str, params: usize, regs: &[IrType], blocks: Vec<BasicBlock>) -> 
         method_flags: 0, min_arg: 0, params_from: 0xFF,
         max_reg: regs.len().saturating_sub(1) as u32, cold: None, reg_types: regs.into(),
         block_index, branch_targets: Vec::new(), fused_tails: Vec::new(), frame_meta: None,
-        resolved: std::sync::OnceLock::new(), owner_init: Default::default(), id: Default::default(),
+        resolved: std::sync::OnceLock::new(), owner_init: Default::default(), id: Default::default(), forward: Default::default(),
     }
 }
 
