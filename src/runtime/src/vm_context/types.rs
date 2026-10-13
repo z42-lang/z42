@@ -432,6 +432,9 @@ pub struct VmContext {
     /// which now carry only an 8B `{idx,frame_id}` handle so `Value` is `Copy`). Same
     /// lifetime model as `stack_arena` (LIFO-truncated by `pop_frame`, GC-scanned at safepoint).
     pub(crate) transient_arena:   Arc<Mutex<crate::interp::transient_arena::TransientArena>>,
+    /// This thread's TLAB claims while it is parked in a blocking native call
+    /// (`gc::safepoint::native_park_incr`); a collector retires them if it runs meanwhile.
+    pub(crate) parked_tlab:       crate::gc::tlab::ParkedTlabSlot,
     /// perf interp-frame-lock-slim: published lengths of the three arenas above,
     /// mirroring their inner `Vec` len(s) (`stack_arena` has two — objs / arrs).
     /// Written ONLY by the mutator thread — under the relevant arena's own `Mutex`

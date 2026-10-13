@@ -429,6 +429,23 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     /// fully-merged heap (design D5). Default no-op for heaps without a TLAB.
     fn retire_thread_tlab(&self) {}
 
+    /// Park the calling thread's TLAB for a blocking native call (`NativeParkGuard`):
+    /// instead of retiring it — which would burn the half-filled chunks, one per call — set
+    /// its claims aside in `slot`. A collector that begins while the thread is parked
+    /// retires them ([`Self::retire_parked_tlab`]); otherwise the thread takes them back on
+    /// unpark ([`Self::unpark_thread_tlab`]) and keeps filling. Default: plain retire.
+    fn park_thread_tlab(&self, _slot: &crate::gc::tlab::ParkedTlabSlot) {
+        self.retire_thread_tlab()
+    }
+
+    /// Take the claims set aside by [`Self::park_thread_tlab`] back into the calling
+    /// thread's TLAB (or retire them, if the TLAB got bound meanwhile).
+    fn unpark_thread_tlab(&self, _slot: &crate::gc::tlab::ParkedTlabSlot) {}
+
+    /// Collector side: retire a native-parked thread's set-aside claims into the regions
+    /// (inside a pause, before marking — the collector must see no borrowed chunk).
+    fn retire_parked_tlab(&self, _slot: &crate::gc::tlab::ParkedTlabSlot) {}
+
     // ── 7. Finalization ──────────────────────────────────────────────────────
 
     /// 注册一个 finalizer，当 `value` 不可达时触发。

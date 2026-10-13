@@ -253,6 +253,66 @@ impl crate::gc::arc_heap::ArcMagrGC {
         });
     }
 
+    /// Set the calling thread's TLAB aside in `slot` (native park; see
+    /// `MagrGC::park_thread_tlab`): both chunk claims and the M12 hole stash move out of the
+    /// thread-local cell, which is left unbound. The SATB buffer is handed over as on retire.
+    pub(super) fn park_thread_tlab(&self, slot: &crate::gc::tlab::ParkedTlabSlot) {
+        let recorded = crate::gc::satb::take_thread_buffer(self.epoch);
+        if !recorded.is_empty() { self.satb_queue.lock().extend(recorded); }
+        let parked = crate::gc::tlab::with_current_tlab(|tlab| {
+            if tlab.heap_epoch != self.epoch || (tlab.is_unbound() && tlab.holes.is_empty()) { return None; }
+            let p = crate::gc::tlab::ParkedTlab {
+                arr: tlab.arr.take(),
+                var: tlab.var.take(),
+                holes: std::mem::take(&mut tlab.holes),
+                heap_epoch: tlab.heap_epoch,
+            };
+            tlab.heap_epoch = 0; // unbound while parked
+            Some(p)
+        });
+        if let Some(p) = parked {
+            // A slot still holding a parked TLAB cannot happen (parks do not nest past the
+            // outermost); retire defensively rather than lose it.
+            if let Some(stale) = slot.put(p) { self.retire_claims(stale) }
+        }
+    }
+
+    /// Take the set-aside TLAB back (unpark): claims and hole stash, dry marks included — no
+    /// collection ran in between (one would have retired the slot), so the free lists did not
+    /// grow and the marks still hold. If the TLAB got bound meanwhile, retire instead.
+    pub(super) fn unpark_thread_tlab(&self, slot: &crate::gc::tlab::ParkedTlabSlot) {
+        let Some(p) = slot.take() else { return };
+        if p.heap_epoch != self.epoch { return self.retire_claims(p); }
+        let back = crate::gc::tlab::with_current_tlab(|tlab| {
+            if !tlab.is_unbound() || !tlab.holes.is_empty() { return Some(p); }
+            tlab.arr = p.arr;
+            tlab.var = p.var;
+            tlab.holes = p.holes;
+            tlab.heap_epoch = p.heap_epoch;
+            None
+        });
+        if let Some(p) = back { self.retire_claims(p) }
+    }
+
+    /// Merge a set-aside TLAB into the regions — the retire half of `retire_thread_tlab`:
+    /// claims merged, unused stashed slots back on the free list (`retire_holes`), all under
+    /// the same region-lock order as there.
+    pub(super) fn retire_claims(&self, mut p: crate::gc::tlab::ParkedTlab) {
+        if let Some(claim) = p.arr.take() {
+            self.region_array.lock().retire_chunk(&claim);
+        }
+        let claim = p.var.take();
+        if claim.is_some() || !p.holes.is_empty() {
+            let mut region = self.region_var.lock();
+            if let Some(mut claim) = claim {
+                region.retire_chunk(&mut claim);
+            }
+            if !p.holes.is_empty() {
+                region.retire_holes(&mut p.holes);
+            }
+        }
+    }
+
     /// Size estimate of an array header for sweep_phase (the `RegionEntry` slot header is not
     /// part of the estimate).
     pub(super) fn array_size_estimate(arr: &crate::metadata::types::ArrayObj) -> u64 {
