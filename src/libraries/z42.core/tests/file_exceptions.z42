@@ -7,7 +7,7 @@
 namespace Z42CoreFileExceptionsTests;
 
 using Std.IO;
-using Std.Test;
+using Std.Harness;
 
 string _tmp() { return File.CreateTempDir("z42-file-exc"); }
 
