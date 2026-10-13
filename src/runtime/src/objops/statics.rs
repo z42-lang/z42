@@ -2,7 +2,8 @@
 //!
 //! 每次访问先过初始化屏障（包初始化器 → 属主类型的静态构造器），失败抛可 catch 的
 //! `TypeInitializationException`。读到 `Null` 时才确证字段是否声明过：未声明 → 缺符号异常；
-//! 声明了但从未赋值 → 惰性写回该字段类型的零值。值本身在 `VmCore.statics` 的单元里，读写不拿锁
+//! 声明了但从未赋值 → 惰性装入该字段类型的零值（值 struct 是一个全零的盒子，见
+//! `symres::static_zero_value`）。值本身在 `VmCore.statics` 的单元里，读写不拿锁
 //! （`vm_context::static_table`）。JIT 生成码内联屏障的稳态判定与常见形态的单元读写
 //! （`jit::translate::static_field`），其余情况经 helper 调这里。
 
@@ -34,11 +35,12 @@ pub fn static_get(ctx: &VmContext, module: &Module, field: &str, field_id: Optio
     match verify_static_field(ctx, module, field) {
         StaticNullVerdict::Ok => Ok(v),
         StaticNullVerdict::Missing(exc) => Err(OpError::Thrown(exc)),
-        // 惰性零初始化：回写槽位，后续读不再走这条确证路径。
-        StaticNullVerdict::Default(d) => {
-            store(ctx, field, field_id, d)?;
-            Ok(d)
-        }
+        // 惰性零初始化：只在槽位仍未写过时装入（先到者胜），后续读不再走这条确证路径。
+        // 不能用普通写：会盖掉并发的真实赋值；值 struct 的零值是一个盒子，两个首读各装各的盒子
+        // 会让经输家盒子做的叶子写（`S.P.X = 1`）悄悄丢失。
+        StaticNullVerdict::Default(d) => ctx
+            .static_init_default(field, field_id.map(StaticFieldId), &d)
+            .map_err(|e| OpError::internal(format!("static field `{field}`: {e}"))),
     }
 }
 

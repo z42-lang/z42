@@ -404,6 +404,7 @@ ObjectHeader {
 | 引用字段 | 引用字为 0 | `null` 本就是引用类型的零值；整字 0 就是 `null` 的编码 |
 | 数组元素 | `default_value_for_tag(elem_tag)` | `ArrayNew`（interp + JIT 两份）按元素 tag 取；`ArrayObj::filled` 直接写进 GC 块（是该模式的零 —— 基元 0 / REF 与 MIXED 的 `null` —— 就不逐元素写；MIXED 的基元 `T` 记作数组的 `zero`，未写过的单元读作它）|
 | **型参字段**（`class GBox<T> { T V; }`） | 按**实例化**取：`default_value_for(type_args[i])` | 见下 |
+| **静态字段** | 按声明类型取：基元 / 枚举的标量零，值 struct 是一个全零的盒子 | 单元按名字登记、登记时不知道声明类型，所以在**第一次读**（唯一的读漏斗 `static_get`）上一次性装入（CAS，先到者胜），见 [缺失符号](missing-symbol.md)「静态字段」一节 |
 
 **型参字段要单独一条**，因为布局是**按声明**算的：声明里 `T` 不是基元 ⇒ 该槽是型参单元 ⇒
 整块零初始化给它的是标签字 `0` = `Null`，而不是 `GBox<int>` 该有的 `0`。

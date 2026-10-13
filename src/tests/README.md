@@ -53,7 +53,7 @@
 | `pattern-matching/` | 模式匹配：常量 / 位置解构 / 属性 / 绑定 / 穷尽性 |
 | `reflection/` | 反射：`Activator` / `methodof` / 方法调用 / LoadContext |
 | `static-ctor/` | 静态构造器触发时机 / 至多一次 / 失败终态 / 字段初始化顺序 |
-| `structs/` | struct 的 ToString 路径等 |
+| `structs/` | struct 的 ToString 路径、值类型静态字段的零值等 |
 | `tuples/` | 元组 |
 | `user-conversions/` | 用户定义 `implicit` / `explicit` 转换 |
 | `strings/` | **语言侧**的字符串字面量：raw string `"""…"""` / 插值 / 拼接。另有 VM 侧的 JIT 内联 `Length` / 字符访问与解释器一致性（`str_intrinsics_jit`）。String 的**库行为**（Length·Trim·Split·Join·Format…）归 [z42.core](../libraries/z42.core/tests/string_methods.z42) |

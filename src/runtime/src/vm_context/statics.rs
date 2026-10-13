@@ -127,6 +127,16 @@ impl VmContext {
         Some((cell as *const _, self.core.cctors.barrier_epoch_ptr()))
     }
 
+    /// Lazy default-initialisation of a declared value-type static field read as never written:
+    /// install `zero` unless something was written meanwhile, and return the field's value
+    /// (`StaticTable::init_default`). `field_id` `None` = by name (allocating the id).
+    pub fn static_init_default(
+        &self, field: &str, field_id: Option<crate::metadata::tokens::StaticFieldId>, zero: &Value,
+    ) -> anyhow::Result<Value> {
+        let id = field_id.unwrap_or_else(|| self.resolve_static_field_id(field));
+        self.core.statics.init_default(id, zero)
+    }
+
     /// Drop all static fields (used by `run_with_static_init` to ensure a
     /// clean slate before each entry-point run). Resets values to Null but
     /// **keeps the index** so previously-allocated `StaticFieldId`s stay

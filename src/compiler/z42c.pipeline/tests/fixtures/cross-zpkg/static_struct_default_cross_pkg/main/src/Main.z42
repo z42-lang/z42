@@ -1,0 +1,24 @@
+// 消费方：静态字段的**声明类型在依赖包里**。第一次读它时依赖包还没加载 —— 零值要由 VM 按
+// 字段的声明类型惰性解析（会加载声明它的包）后装入：struct 是一个全零的盒子，枚举是 0。
+namespace Demo.App;
+
+using Std.IO;
+using Demo.Geo;
+
+class Cfg {
+    public static Vec Home;
+    public static Mode M;
+}
+
+void Main() {
+    Vec h = Cfg.Home;
+    Console.WriteLine(h.X + h.Y);
+    Console.WriteLine(Cfg.M == Mode.Off);
+    Cfg.Home.Y = 2;
+    Console.WriteLine(Cfg.Home.Y);
+    // 属主类型与字段类型都在依赖包里
+    Console.WriteLine(Origin.At.X);
+    Origin.At.X = 3;
+    Vec a = Origin.At;
+    Console.WriteLine(a.X);
+}

@@ -1,0 +1,95 @@
+// 值类型静态字段没有初始化器、赋值之前就读 = 该类型的零值（C# 语义：静态存储默认零初始化）。
+//
+// 回归来源：基元静态字段早就读作 0，但值 struct 与枚举的静态字段读出 `Null` ——
+//   Point p = S.P;   // StructCopy src: expected a struct value (StructRef), got Null
+//   S.C              // 枚举打印成 `null`
+// 根因在 VM 的惰性零初始化（`symres::static_zero_value`）只认基元类型标签。struct 静态字段
+// 由编译器存成**盒子**（整读 AsCast 拆箱、叶子读写就地改盒子），所以它的零值是一个全零的盒子，
+// 而且只能装一次：叶子写 `S.P.X = 5` 写进的就是那一个盒子。
+namespace Demo;
+
+struct Point { public int X; public int Y; }
+struct One { public int V; }
+struct Line { public Point A; public Point B; }
+struct Pair<TA, TB> { public TA First; public TB Second; }
+struct Named { public string Name; public int N; }
+enum Color { Red, Green }
+
+class S {
+    public static Point P;
+    public static Point Q;
+    public static One O;
+    public static Line L;
+    public static Pair<int, long> G;
+    public static Named Nm;
+    public static Color C;
+}
+
+class Holder<T> {
+    public static Point P;
+    public static T V;
+}
+
+// 有静态构造器的类：构造器体里读自己尚未赋值的 struct 静态字段。
+class WithCctor {
+    public static Point P;
+    public static int SeenX;
+    static WithCctor() { WithCctor.SeenX = WithCctor.P.X + 7; }
+}
+
+void Main() {
+    // 整读 + 叶子读
+    Point p = S.P;
+    Assert.Equal(0, p.X);
+    Assert.Equal(0, p.Y);
+    Assert.Equal(0, S.P.Y);
+
+    // 单字段 struct、嵌套 struct、泛型 struct 实例化、带引用叶子的 struct
+    One o = S.O;
+    Assert.Equal(0, o.V);
+    Assert.Equal(0, S.L.B.Y);
+    Line l = S.L;
+    Assert.Equal(0, l.A.X);
+    Pair<int, long> g = S.G;
+    Assert.Equal(0, g.First);
+    Assert.True(g.Second == 0L);
+    Assert.Equal(0, S.Nm.N);
+    Assert.True(S.Nm.Name == null);
+
+    // 枚举
+    Assert.True(S.C == Color.Red);
+
+    // 泛型类：具体 struct 类型的静态字段、型参字段（实参为 struct / 基元）
+    Point hp = Holder<int>.P;
+    Assert.Equal(0, hp.Y);
+    Point hv = Holder<Point>.V;
+    Assert.Equal(0, hv.X);
+    Assert.Equal(0, Holder<int>.V);
+
+    // 读之前先叶子写：写进惰性装入的那个盒子，之后的读看得见
+    S.Q.Y = 4;
+    Assert.Equal(4, S.Q.Y);
+    Assert.Equal(0, S.Q.X);
+
+    // 零值装入后照常是值语义：整读出来的是拷贝
+    S.P.X = 5;
+    Assert.Equal(5, S.P.X);
+    p = S.P;
+    p.X = 9;
+    Assert.Equal(5, S.P.X);
+    S.L.B.Y = 3;
+    Assert.Equal(3, S.L.B.Y);
+    Assert.Equal(0, S.L.A.Y);
+
+    // 整写之后读到写入的值
+    Point w = new Point();
+    w.X = 11;
+    S.P = w;
+    Assert.Equal(11, S.P.X);
+    Holder<int>.P = w;
+    Assert.Equal(11, Holder<int>.P.X);
+    Assert.Equal(0, Holder<long>.P.X);
+
+    // 静态构造器内读自己的 struct 静态字段
+    Assert.Equal(7, WithCctor.SeenX);
+}
