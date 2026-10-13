@@ -10,6 +10,7 @@ include = ["**/*.z42"]
 [dependencies]
 "z42c.semantics" = "0.1.0"
 "z42c.core"      = "0.1.0"
+"z42.package"    = "0.1.0"   # ParallelFor（分叉并发测试）
 
 [build]
 # Build output → artifacts mirror (mirror-build-output-per-component, 2026-06-16):

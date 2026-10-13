@@ -1032,11 +1032,13 @@ PatternEmitter（烘焙 `struct_fget_prim` 等指令的立即数 offset）**同�
 > 提出循环后指令数 165.0 G → 114.7 G（−30.5%）、峰值 RSS 2.96 GB → 1.42 GB（−52%），
 > 产物逐字节不变。
 
-**并行安全的前提是「预计算后只读」**，改动这张表时必须守住：`LayoutOf` 对 `_defs` 里的键
-必命中 `_cache`（预计算已填满），缺失的键返回**不入缓存**的空布局；`InlineLayoutOf` /
-`ObjectLayoutOf` 纯查表。即 per-file 循环（`ParallelFor` 并行段）里没有任何一条路径会写这
-三张表。若日后新增惰性计算路径，要么在 `BuildFromSymbols` 里一并预计算，要么退回 per-CU
-建表——不能让并行 worker 共享一张会被写的表。
+**并行段里每个 CU 用分叉**（`StructLayout.Fork`，`CuCompile._compileCu` 注入）。定义的布局预计算后只读，但
+**实例化**布局（`Pair<P2,int>`，codegen 期才出现的名字）由 `LayoutOf` / `InlineLayoutOf` / `ObjectLayoutOf` 按需计算，
+要写缓存与环检测的在途集。共享一张表时，一个 worker 把某实例化标成「计算中」，另一个 worker 会把它当成递归自含、
+拿到空布局 ⇒ 偶发 `struct field path: layout lookup failed`。分叉只读共享源的定义表与缓存，按需算出的只进自己的缓存
+（同一实例化在两个分叉里各算一遍，结果按构造相同）。规矩：**源在分叉存续期间不得再被写**；新增按需计算路径时，
+读缓存要走 `_cachedIn`（自己的 → 源的只读回退），写只写自己的。单测 `z42c.semantics/tests/layout` 的
+`test_forks_compute_same_instantiation_concurrently` 守住它（去掉分叉即红）。
 
 #### try/catch/finally 的控制流下沉（finally 非局部退出）
 
@@ -1179,7 +1181,7 @@ z42 的 IR 把**字节偏移烘焙进指令**（`struct_fget_prim %0 @8`）。�
 
 `IrGen` 由 `CuCompile._compileCu` **按编译单元**创建，而闸门用的本包类集 `LocalClassSet`（FQN 键，按类型对象判）是**包级**的。
 **凡是「包级判据 + 按 CU 的数据」就是一处 bug**。故泛型体登记表由
-`IrDump.BuildPackageCus` 扫全包 CU 建好后注入，与 `layouts` 同为并行段**只读**共享；
+`IrDump.BuildPackageCus` 扫全包 CU 建好后注入，并行段**只读**共享（`layouts` 则是每 CU 一个分叉，见上）；
 `Generate` 仅在未注入时按本 CU 自扫（单文件 dump / 测试路径），两条路共用
 `IrGen.ScanGenericBodies`，判据只有一份。
 

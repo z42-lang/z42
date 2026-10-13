@@ -134,8 +134,8 @@ public static class CuCompile {
         return new IrModule("main", pool, 1, new IrClassDesc[0], 0, new IrFunction[0], 0);
     }
 
-    // perf-layouts-once：`layouts` = 包级预计算的 StructLayout（BuildPackageCus 算一次；此前每 CU
-    // 各建一份 = 整包符号表重建 count 次）。预计算后只读 → 跨 CU / 跨 worker 共享安全。null=自行计算。
+    // perf-layouts-once：`layouts` = 包级预计算的 StructLayout（BuildPackageCus 算一次，不必每 CU 重建整包符号表）。
+    // 本 CU 拿它的分叉（`Fork`）：实例化布局在 codegen 期按需算、要写缓存，共享同一份会在并行段里数据竞争。null=自行计算。
     internal static CompiledModuleZ _compileCu(CompilationUnit cu, string file, SymbolTable symbols, DependencyIndex deps, ImportedSymbols imported, LocalClassSet localClasses, bool isRelease, StrMap partialMerged, int optSet, StructLayout layouts, StrMap pkgGenerics, StrMap pkgGenericTypes, bool pkgHasErrors) {
         var diags = new DiagnosticBag();
         cu.MergeParseDiags(diags);   // fix-parse-diags-dropped：parse 错误计入编译错误
@@ -144,7 +144,7 @@ public static class CuCompile {
         var tc = new TypeChecker(diags);
         var model = tc.Infer(cu, symbols, false);
         var gen = new IrGen();
-        gen.Layouts = layouts;   // perf-layouts-once：包级共享布局表（null → Generate 内自算）
+        gen.Layouts = layouts == null ? null : layouts.Fork();   // 只读共享包级表，按需算的只进本 CU 的分叉（null → Generate 内自算）
         // complete-generic-instantiation S1：包级泛型体登记表（null → Generate 内按本 CU 自扫，
         // 用于单文件 dump / 测试路径；包构建走这里注入，才看得见别的文件里声明的泛型）。
         gen.GenericBodies = pkgGenerics; gen.GenericTypeDecls = pkgGenericTypes;

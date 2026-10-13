@@ -25,7 +25,7 @@ sealed class CompileCuTask : IParallelTask {
     LocalClassSet _localClasses; bool _isRelease;
     StrMap _partialMerged; int _optSet; IrModule[] _cached;
     ExportedFuncZ[] _allFuncs; int _afc; StrMap _pkgClassMap;
-    StructLayout _layouts;   // perf-layouts-once：包级预计算布局表（并行段只读共享）
+    StructLayout _layouts;   // perf-layouts-once：包级预计算布局表（并行段里每 CU 用它的分叉，本体不被写）
     // complete-generic-instantiation S1：包级泛型体登记表（同 `_layouts`，并行段只读共享）。
     StrMap _pkgGenerics; StrMap _pkgGenericTypes;
     CompiledModuleZ[] _r;

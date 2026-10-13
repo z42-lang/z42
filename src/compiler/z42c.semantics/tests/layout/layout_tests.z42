@@ -3,6 +3,7 @@
 // 嵌套引用叶子偏移平移 / 递归自含值字段环检测（ABI 见 design.md 子决策 #2）。
 namespace Z42cSemanticsLayoutTests;
 using Z42.IR;
+using Z42.Package;   // ParallelFor（分叉并发测试）
 using Z42.Semantics;
 
 // 构造一个只含 struct 类型定义的 defs map。
@@ -321,4 +322,56 @@ void test_inst_name_roundtrip() {
     string n = StructLayout.InstName("Pair", new string[]{"P2", "int"}, 2);
     Assert.Equal("Pair<P2,int>", n);
     Assert.Equal("Pair", StructLayout.BaseNameOf(n));
+}
+
+// ── 分叉（`Fork`）：并行 codegen 每个 CU 一份 ──────────────────────────────────────
+
+// 分叉读得到源里已算好的布局，按需算出的实例化布局与源互不干扰（各算各的，结果一致）。
+[Test]
+void test_fork_reads_base_and_computes_on_demand() {
+    var sl = new StructLayout(_genDefs());
+    var p2 = sl.LayoutOf("P2");                  // 源里先算好
+    var f = sl.Fork();
+    Assert.Equal(p2.Size, f.LayoutOf("P2").Size);
+    var a = f.LayoutOf("Pair<P2,int>");
+    var b = sl.Fork().LayoutOf("Pair<P2,int>");  // 另一个分叉独立算
+    Assert.Equal(12, a.Size);
+    Assert.Equal(a.Size, b.Size);
+    Assert.Equal(StructLeafKind.Struct, a.FieldKinds[0]);
+}
+
+// 并发回归：多个线程同时沿同一串越来越深的嵌套实例化（`Pair<Pair<…>,int>`）各算一遍。此前各 CU 共享同一份
+// 布局表：一个线程把某个实例化标成「计算中」时，另一个线程会把它当成递归自含、拿到空布局（编译期偶发
+// `layout lookup failed`）。每个线程用自己的分叉就不会互相看见在途状态。
+sealed class ForkLayoutTask : IParallelTask {
+    StructLayout _base;
+    string[] _keys;
+    int[] _bad;
+    public ForkLayoutTask(StructLayout b, string[] keys, int[] bad) { this._base = b; this._keys = keys; this._bad = bad; }
+    public void Run(int i) {
+        StructLayout f = this._base.Fork();
+        int k = 0;
+        while (k < this._keys.Length) {
+            var li = f.LayoutOf(this._keys[k]);
+            if (li.FieldCount != 2 || li.Size == 0) { this._bad[i] = this._bad[i] + 1; }
+            k = k + 1;
+        }
+    }
+}
+
+[Test]
+void test_forks_compute_same_instantiation_concurrently() {
+    var sl = new StructLayout(_genDefs());
+    sl.LayoutOf("P2");
+    string[] keys = new string[120];
+    string cur = "P2";
+    int j = 0;
+    while (j < keys.Length) { cur = "Pair<" + cur + ",int>"; keys[j] = cur; j = j + 1; }
+    int threads = 8;
+    int[] bad = new int[threads];
+    Z42.Package.ParallelFor.Run(threads, threads, new ForkLayoutTask(sl, keys, bad));
+    int total = 0;
+    int i = 0;
+    while (i < threads) { total = total + bad[i]; i = i + 1; }
+    Assert.Equal(0, total);
 }

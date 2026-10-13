@@ -121,6 +121,8 @@ public sealed class StructLayout {
     private StrMap _objStructInProgress; // 8B struct 布局环检测在途集
     // 布局键（`LayoutKey`）→ 算出这份布局的那个类（`OwnerOf`）。手搭的布局（测试）为 null。
     private StrMap _owners;
+    // 分叉的源（`Fork`）：它的缓存只读回退；null = 不是分叉。
+    private StructLayout _base;
     public string  ErrorType;    // 非 "" → 检测到递归自含（诊断码 E0416 由持 DiagnosticBag 的调用方发）
     public string  ErrorCycle;   // 环路径描述（诊断信息用）
 
@@ -137,6 +139,30 @@ public sealed class StructLayout {
         this.ErrorType = "";
         this.ErrorCycle = "";
         this._owners = null;
+        this._base = null;
+    }
+
+    // 并行 codegen 用的分叉（每个 CU 一份）。实例化布局（`Pair<P2,int>`）是 codegen 期**按需**算的、会写缓存与
+    // 在途集；多个 CU 并发共享一份就是数据竞争 —— 一个线程把实例化标成「计算中」，另一个线程看到就当成递归自含、
+    // 拿到空布局，字段查不到（`struct field path: layout lookup failed`，偶发）。分叉只读共享构建期算好的定义表与
+    // 缓存，按需算出的东西只进自己的缓存；同一实例化在两个分叉里各算一遍，结果按构造相同。
+    // ⚠️ 源在分叉存续期间不得再被写（`BuildPackageCus` 只把分叉交给并行段）。
+    public StructLayout Fork() {
+        StructLayout f = new StructLayout(this._defs);
+        f._classDefs = this._classDefs;
+        f._erasureNames = this._erasureNames;
+        f._owners = this._owners;
+        f._base = this;
+        f.ErrorType = this.ErrorType;
+        f.ErrorCycle = this.ErrorCycle;
+        return f;
+    }
+
+    // 先查自己的缓存，再只读回退到分叉源的同名缓存。
+    private object? _cachedIn(StrMap own, StrMap fromBase, string key) {
+        object? c = own.Get(key);
+        if (c == null && fromBase != null) { c = fromBase.Get(key); }
+        return c;
     }
 
     // 布局名（`LayoutKey`：全名 / 实例化名 `Demo.Pair<Demo.P2,int>`）→ 算出该布局的类；不认识返回 null。
@@ -481,7 +507,7 @@ public sealed class StructLayout {
     // 某 class 的合成内联布局（无内联字段 → 空布局 FieldCount 0 / Size 0）。
     public StructLayoutInfo InlineLayoutOf(string className) {
         string k = LayoutKey.Norm(className);
-        object c = this._inlineCache.Get(k);
+        object? c = this._cachedIn(this._inlineCache, this._base == null ? null : this._base._inlineCache, k);
         if (c is StructLayoutInfo) { return c as StructLayoutInfo; }
         // generic-struct-erased-slot-value-copy：实例化名按需算（定义那份在 BuildFromSymbols 预计算）。
         // 泛型 class 的 `T` 字段在**定义**下 `IsBlobStruct("T")` 为假 ⇒ 无内联字段；带代换 `T→P2` 才内联。
@@ -549,7 +575,7 @@ public sealed class StructLayout {
     // 但引用叶子 8B。环检测在途集独立于 16B 版（_objStructInProgress），命中返回空布局打断递归。
     private StructLayoutInfo _objLayoutOfStruct(string structName) {
         string key = LayoutKey.Norm(structName);
-        object cached = this._objStructCache.Get(key);
+        object? cached = this._cachedIn(this._objStructCache, this._base == null ? null : this._base._objStructCache, key);
         if (cached is StructLayoutInfo) { return cached as StructLayoutInfo; }
         if (this._objStructInProgress.ContainsKey(key)) { return new StructLayoutInfo(key); }
         object d = this._defs.Get(key);
@@ -630,7 +656,7 @@ public sealed class StructLayout {
     // 某非-struct class 的对象全字段布局（无缓存 → 空布局 FieldCount 0 / Size 0）。
     public StructLayoutInfo ObjectLayoutOf(string className) {
         string k = LayoutKey.Norm(className);
-        object c = this._objectCache.Get(k);
+        object? c = this._cachedIn(this._objectCache, this._base == null ? null : this._base._objectCache, k);
         if (c is StructLayoutInfo) { return c as StructLayoutInfo; }
         // 同 InlineLayoutOf：实例化名按需算（`InlineFieldByteOffset` 要用它取 composed offset）。
         if (StructLayout.BaseNameOf(k) != k) {
@@ -653,7 +679,7 @@ public sealed class StructLayout {
     // 计算（或取缓存）某 struct 类型的布局。环检测命中 → 记 ErrorType 并返回空布局（size 0）打断递归。
     public StructLayoutInfo LayoutOf(string typeName) {
         string key = LayoutKey.Norm(typeName);
-        object cached = this._cache.Get(key);
+        object? cached = this._cachedIn(this._cache, this._base == null ? null : this._base._cache, key);
         if (cached is StructLayoutInfo) { return cached as StructLayoutInfo; }
         if (this._inProgress.ContainsKey(key)) {
             // 递归自含值字段：struct 直接/间接把自身作为**值**字段 → 无限大小。
