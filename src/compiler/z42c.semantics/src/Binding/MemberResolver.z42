@@ -111,8 +111,7 @@ public sealed partial class MemberResolver {
                 this._tc._access.CheckDeprecatedM(ms, mem.Name, sp);   // add-deprecated-directive
                 BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, rawArgs, argCount, env, sp, false);
                 BoundCall ibc = BoundCall.Marked(new BoundCall("instance", true, recv, ct.Name(), ms.CallKey(), fa, fa.Length, ms.Signature.Ret, sp), ms.Signature);
-                this._applyMethodTypeArgs(ibc, call, ms, env);   // 带真 ms → arity + where 约束真校验
-                return ibc;
+                return this._applyMethodTypeArgs(ibc, call, ms, env);   // 带真 ms → arity + where 约束真校验
             }
             if (_stub) {   // 懒加载 stub 受者、主符号表无真类 → loose 绑定（镜像翻转前 prim 路径 fallthrough，无 "no method"）
                 args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
@@ -154,7 +153,11 @@ public sealed partial class MemberResolver {
                         + "`: a `Self` parameter has no safe bound here — use a type parameter instead, e.g. `where T : "
                         + it.Name() + "`", sp);
                 }
+                ims = MethodTypeArgSubst.ForExplicitTypeArgs(ims, call, env);   // 显式 `<T>` → 先代换签名再绑实参
                 args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, ims.Signature, env);   // add-target-typed-new：接口方法按形参类型回填
+                // 实参装箱 / 表示转换：与其它调用形态同一个汇聚步（此前接口收者这条不经 `_withDefaults`，于是
+                // 整数传给 object 形参丢了宽度、struct 传给泛型方法的 T 位裸着逃出帧）。
+                args = this._tc.BoxArgs(args, argCount, ims, env.Symbols);
                 // self-return-type-substitution：返回类型里的 `Self` 换成接收者的静态接口类型，
                 // 否则型参 `Self` 会裸奔到调用方（`var x = c.Copy()` 得到 `:Self`，不可用）。
                 Z42Type ifRet = MemberResolver._substSelf(ims.Signature.Ret, it);
@@ -168,8 +171,9 @@ public sealed partial class MemberResolver {
                     this._tc._overload.CheckSubstitutedArgs(args, rawArgs, argCount, ims.Signature,
                         MemberResolver._substIfaceSig(ims.Signature, iRecv), env);
                 }
-                return BoundCall.Marked(new BoundCall("instance", true, recv, it.Name(), mem.Name, args, argCount,
+                BoundCall ifc = BoundCall.Marked(new BoundCall("instance", true, recv, it.Name(), mem.Name, args, argCount,
                                      ifRet, sp), ims.Signature);
+                return this._applyMethodTypeArgs(ifc, call, ims, env, iown != null ? iown : it);
             }
             this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
                 "no method `" + mem.Name + "` on interface `" + it.Name() + "`", mem.NameSpan);   // ⑦ 同上
@@ -228,8 +232,7 @@ public sealed partial class MemberResolver {
                     return new BoundConvert(rawM, ubR, sp);
                 }
                 BoundCall gbc = new BoundCall("instance", true, recv, itDef2.Name(), itms.CallKey(), fa, fa.Length, itRet, sp);
-                this._applyMethodTypeArgs(gbc, call, itms, env);   // 泛型受者上的实例泛型方法同款
-                return gbc;
+                return this._applyMethodTypeArgs(gbc, call, itms, env, instRecv);   // 泛型受者上的实例泛型方法同款
             }
             BoundExpr dgc = this.TryBindDelegateMemberCall(mem, itDef2, false, args, argCount, rawArgs, env, sp); if (dgc != null) { return dgc; }   // `Box<F>` 上类型为 T 的委托字段
             args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
@@ -464,92 +467,6 @@ public sealed partial class MemberResolver {
     }
 
 
-    // add-generic-methods：解析泛型方法调用 `Foo<A,B>(...)` 的类型实参，写入 BoundCall.MethodTypeArgs
-    // （解析后的具体 Z42Type[]，ExprEmitter 转 FQ 名编进 IR Call）。ms 有本地 Decl 时校验 arity（E0445）
-    // 与 where 约束（复用 ConstraintChecker.CheckMethod）；ms=null / 无 Decl（导入 / 间接）→ 仅解析、跳过校验。
-    // 幂等：已附加（MethodTypeArgCount>0）或非泛型调用（TypeArgCount==0）即返回。
-    private void _applyMethodTypeArgs(BoundCall bc, CallExpr call, MethodSymbol ms, TypeEnv env) {
-        if (call.TypeArgCount == 0 || bc.MethodTypeArgCount > 0) {
-            // add-generic-type-arg-inference 阶段 C：**省略尖括号**的泛型方法调用 → 从实参推断。
-            // 推断成功 ⇒ ① 复用同一条 ConstraintChecker.CheckMethod 校验 where 约束（关掉 Deferred
-            // where-constraint-future-inferred-method-args）② 按推断结果代换形参位后真查实参。
-            // 推断失败 ⇒ 什么都不做 = 今天行为，不发任何诊断。
-            //
-            // ⚠️ **不写 bc.MethodTypeArgs**：写了 emit 就从 Op.Call 换成 Op.CallGeneric(0xB4)、
-            // 重排 zbc 串池、并关掉 `exec_call.rs` 的 native 快路径门。全仓 112 处隐式泛型调用
-            // 全是 `Array.Copy<T>`，其 T 不被运行期消费 ⇒ 回灌是纯回归。callee 真消费型参的情形
-            // 由阶段 D 报错要求显式写出（把静默错值换成编译错误）。
-            //
-            // 与既有 arity/where 校验同一道门（ms.HasDecl）：导入方法拿不到有序型参名，
-            // 本分支进不来 ⇒ 不新增跨包能力。
-            if (call.TypeArgCount == 0 && bc.MethodTypeArgCount == 0
-                && ms != null && ms.HasDecl && ms.Decl != null && ms.Decl.TypeParams.Count > 0) {
-                TypeArgBindings inf = TypeArgInference.Infer(env.GetSymbols(), ms.Signature, ms.Decl.TypeParams.Names,
-                                                             ms.Decl.TypeParams.Count, bc.Args, bc.ArgCount);
-                if (inf.Ok) {
-                    this._tc._constraints.CheckMethod(env.GetSymbols(), ms.Decl, inf.Args, inf.Count, call.Span);
-                    MethodTypeArgSubst.CheckSubstMethodArgs(this._tc, bc, ms.Signature,
-                                                         ms.Decl.TypeParams.Names, inf.Count, inf.Args, env);
-                }
-                // 阶段 D：callee 体内**真的消费**型参时（typeof(T)/new T()/default(T)/new T[n]/
-                // 把 T 转发给嵌套泛型调用），省略尖括号会让运行期读到**空**的 frame.method_type_args
-                // ⇒ 静默错值。把它换成编译错误并直接给出修法。
-                //
-                // 与推断是否成功**无关**（推断成功也照报）：推断只驱动诊断、刻意不回灌类型实参
-                // （design D4），所以运行期照样拿不到 —— 这正是本诊断存在的理由。
-                if (MethodTypeParamUse.Consumes(ms.Decl)) {
-                    this._tc._diags.Error(DiagnosticCodes.GenericTypeArgRequired,
-                        "generic method `" + ms.Name + "` uses its type parameter at runtime "
-                        + "(`typeof(T)` / `new T()` / `default(T)` / `new T[n]`, or forwards it to a nested "
-                        + "generic call) — write the type argument explicitly, e.g. `"
-                        + ms.Name + "<" + ms.Decl.TypeParams.Names[0] + ">(...)`", call.Span);
-                }
-            }
-            return;
-        }
-        Z42Type[] targs = new Z42Type[call.TypeArgCount];
-        int[] fwd = new int[call.TypeArgCount];
-        int i = 0;
-        while (i < call.TypeArgCount) {
-            targs[i] = env.ResolveType(call.TypeArgs[i]);
-            this._tc._chkTypeRef(targs[i], env, call.TypeArgs[i].Span);   // 类型实参引用的可访问性/存在性
-            // add-generic-activator：类型实参是外层方法的方法级泛型形参（Foo<T>() 里的 T）→ 记其
-            // 方法级下标，emit 期发 `$mta:<idx>` 转发标记而非字面 "T"（运行期按调用方 frame 解析）。
-            fwd[i] = 0 - 1;
-            if (targs[i] is Z42GenericParamType) {
-                int mIdx = env.MethodParamIndexOf(targs[i].Name());
-                if (mIdx >= 0) { fwd[i] = mIdx; }
-            }
-            i = i + 1;
-        }
-        bc.MethodTypeArgs = targs;
-        bc.MethodTypeArgFwd = fwd;
-        bc.MethodTypeArgCount = call.TypeArgCount;
-        if (ms != null && ms.HasDecl && ms.Decl != null) {
-            int declTp = ms.Decl.TypeParams.Count;
-            if (declTp != call.TypeArgCount) {
-                this._tc._diags.Error(DiagnosticCodes.GenericMethodArity,
-                    "generic method `" + ms.Name + "` expects " + declTp.ToString()
-                    + " type argument(s) but got " + call.TypeArgCount.ToString(), call.Span);
-            } else {
-                this._tc._constraints.CheckMethod(env.GetSymbols(), ms.Decl, targs, call.TypeArgCount, call.Span);
-                // add-generic-type-arg-inference 阶段 B：**形参位**也按已解析的类型实参代换，再补查实参。
-                // 此前 targs 只用来写 bc.MethodTypeArgs + 校 arity/where，从不代回签名 ⇒ 形参仍是裸型参
-                // ⇒ Conversion 分支 B 擦除放行 ⇒ `IdOf<string>(7)` 编译期零诊断（#531 正面留下的口子）。
-                //
-                // **刻意不调整执行顺序**：本方法在 `_withDefaults` 之后跑，所以代换结果天然只能影响
-                // 诊断、进不了 target-typed new / lambda 绑定 / 装箱决策（不变式 I1）。把它提到
-                // `_withDefaults` 之前会立刻打开那四条字节漂移通道。
-                //
-                // 只对**方法级**型参代换（按 Decl.TypeParams.Names 匹配）；类级型参原样留着，
-                // 由阶段 A 那条路负责。导入方法（无 Decl）拿不到有序型参名 ⇒ 本分支进不来，
-                // 与既有的 arity/where 校验同一道门，不新增跨包能力。
-                MethodTypeArgSubst.CheckSubstMethodArgs(this._tc, bc, ms.Signature, ms.Decl.TypeParams.Names,
-                                                    declTp, targs, env);
-            }
-        }
-    }
-
     internal BoundExpr _bindCall(CallExpr call, TypeEnv env) {
         BoundExpr[] args = new BoundExpr[call.ArgCount];
         int i = 0;
@@ -625,8 +542,7 @@ public sealed partial class MemberResolver {
                 BoundExpr[] fa = this._tc._overload._withDefaults(ms, args, call.Args, call.ArgCount, env, call.Span, false);
                 BoundCall bc = BoundCall.Marked(new BoundCall("free", false, null, "", emitKey, fa, fa.Length, ms.Signature.Ret, call.Span), ms.Signature);
                 bc.FreeNs = fnNs; bc.FreeImported = !ms.HasDecl;
-                this._applyMethodTypeArgs(bc, call, ms, env);
-                return bc;
+                return this._applyMethodTypeArgs(bc, call, ms, env);
             }
             // 同类无限定调用（`M()` 在类体内）→ MemberResolver.Bare.z42
             // （partial 拆分只为守 code-organization 行数上限）。
@@ -643,7 +559,7 @@ public sealed partial class MemberResolver {
             // instance 路径都已在 _bindMemberCall / _bindInstanceMemberCall 内**带真 ms** 校验过，
             // 此处对它们因 `MethodTypeArgCount > 0` 幂等早退。剩下真正无本地 Decl 的路径
             // （imported / prim / loose 绑定）在此仅解析类型实参、不校验，保证运行期拿到 type_args。
-            if (mr is BoundCall) { this._applyMethodTypeArgs(mr as BoundCall, call, null, env); }
+            if (mr is BoundCall) { return this._applyMethodTypeArgs(mr as BoundCall, call, null, env); }
             return mr;
         }
         // 通用间接调用：array[i](args) / method()(args) 等 callee 是任意表达式且类型为 Z42FuncType。
@@ -690,11 +606,13 @@ public sealed partial class MemberResolver {
                 // 入口，与裸名那条（`_bindCall`）各走各的 ⇒ 弃用检查必须两处都放。同样放在重载
                 // 决议之后，只认被选中的那个重载。
                 this._tc._access.CheckDeprecatedM(nfs, mem.Name, sp);
+                string nKey = nfs.RegKey;   // 发射键先取再代换（同裸名自由函数）
+                nfs = MethodTypeArgSubst.ForExplicitTypeArgs(nfs, call, env);   // 显式 `<T>` → 先代换签名再绑实参
                 BoundExpr[] nfa = this._tc._overload._withDefaults(nfs, args, rawArgs, argCount, env, sp, false);   // add-call-arity-diagnostics：同自由函数汇聚点
-                BoundCall nbc = BoundCall.Marked(new BoundCall("free", false, null, "", nfs.RegKey, nfa, nfa.Length, nfs.Signature.Ret, sp), nfs.Signature);
+                BoundCall nbc = BoundCall.Marked(new BoundCall("free", false, null, "", nKey, nfa, nfa.Length, nfs.Signature.Ret, sp), nfs.Signature);
                 nbc.FreeNs = fnsPath; nbc.FreeImported = !nfs.HasDecl;
                 env.Symbols.NoteDepUse(fnsPath, env.Symbols.ImportedFuncPkgOf(mem.Name, fnsPath), SymbolTable.QualOf(fnsPath, mem.Name));   // DEPS（全限定写法不记 using）
-                return nbc;
+                return this._applyMethodTypeArgs(nbc, call, nfs, env);
             }
         }
         // 静态：target 是裸类名（非局部变量）→ Class.m(args)
@@ -768,8 +686,7 @@ public sealed partial class MemberResolver {
                         this._tc._access.CheckDeprecatedM(qms, mem.Name, sp);
                         BoundExpr[] qfa = this._tc._overload._withDefaults(qms, args, rawArgs, argCount, env, sp, true);
                         BoundCall qbc = BoundCall.WithOwner(BoundCall.Marked(new BoundCall("static", false, null, qct.Name(), qms.CallKey(), qfa, qfa.Length, qms.Signature.Ret, sp), qms.Signature), qct);
-                        this._applyMethodTypeArgs(qbc, call, qms, env);
-                        return qbc;
+                        return this._applyMethodTypeArgs(qbc, call, qms, env);
                     }
                     return this.NoStaticMethod(qct, qcls, mem.Name, args, argCount, rawArgs, env, sp);
                 }

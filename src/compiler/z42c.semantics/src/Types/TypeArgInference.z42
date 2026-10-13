@@ -51,7 +51,7 @@ public static class TypeArgInference {
                 Z42Type at = args[i].Type();
                 // 边界 ③：Unknown / Error 不携带信息，跳过（不算冲突）。
                 if (at != null && !(at is Z42UnknownType) && !(at is Z42ErrorType)) {
-                    if (!TypeArgInference._unify(sig.ParamTypes[i], at, names, nameCount, bound)) {
+                    if (!TypeArgInference._unify(symbols, sig.ParamTypes[i], at, names, nameCount, bound)) {
                         return new TypeArgBindings(false, new Z42Type[0], 0);   // 边界 ②
                     }
                 }
@@ -82,6 +82,7 @@ public static class TypeArgInference {
     public static Z42Type[] InferPreBinding(Z42FuncType sig, string[] names, int nameCount,
                                             BoundExpr[] boundArgs, Expr[] rawArgs, int argCount, TypeEnv env) {
         if (sig == null || names == null || nameCount == 0) { return new Z42Type[0]; }
+        SymbolTable symbols = env.GetSymbols();
         Z42Type[] bound = new Z42Type[nameCount];
         int fixedEnd = argCount;
         if (sig.ParamCount < fixedEnd) { fixedEnd = sig.ParamCount; }
@@ -92,7 +93,7 @@ public static class TypeArgInference {
                 // 源①：已绑非-lambda 实参
                 Z42Type at = boundArgs[i].Type();
                 if (at != null && !(at is Z42UnknownType) && !(at is Z42ErrorType)) {
-                    TypeArgInference._unify(sig.ParamTypes[i], at, names, nameCount, bound);
+                    TypeArgInference._unify(symbols, sig.ParamTypes[i], at, names, nameCount, bound);
                 }
             } else if ((rawArgs != null) && (rawArgs[i] is LambdaExpr) && (sig.ParamTypes[i] is Z42FuncType)) {
                 // 源②：lambda 延迟位，用 AST 里带标注的形参类型（无标注位无信息、跳过）
@@ -105,7 +106,7 @@ public static class TypeArgInference {
                     if (lam.Params[j].HasType) {
                         Z42Type pt = env.ResolveType(lam.Params[j].Type);
                         if (pt != null && !(pt is Z42UnknownType) && !(pt is Z42ErrorType)) {
-                            TypeArgInference._unify(ff.ParamTypes[j], pt, names, nameCount, bound);
+                            TypeArgInference._unify(symbols, ff.ParamTypes[j], pt, names, nameCount, bound);
                         }
                     }
                     j = j + 1;
@@ -154,7 +155,7 @@ public static class TypeArgInference {
     // 体内算术报 `E0402 ... got T`。全仓 18 条 E0402 全出自那一条缺失分支。
     // 现在 `MethodTypeArgSubst.ByName` 已补上 func 分支，三者（`_hasGenericParam` / 本 `_unify` / `ByName`）
     // 递归面一致；`_substGeneric`（类级、按下标）仍无 func 分支，那是另一条路、另算。
-    private static bool _unify(Z42Type p, Z42Type a, string[] names, int nameCount, Z42Type[] bound) {
+    private static bool _unify(SymbolTable symbols, Z42Type p, Z42Type a, string[] names, int nameCount, Z42Type[] bound) {
         if (p == null || a == null) { return true; }
         if (p is Z42GenericParamType) {
             int idx = TypeArgInference._nameIndex(names, nameCount, p.Name());
@@ -171,8 +172,23 @@ public static class TypeArgInference {
             }
             return false;   // 边界 ②：无数值公共类型（string/object/用户类型等冲突）→ 整体失败（静默）
         }
+        // 形参是泛型接口实例（`INodeVisitor<R>`）：实参是同一接口的实例 ⇒ 逐个实参 unify；实参是实现了它的
+        // 类 ⇒ 取该类实现子句里的那份实例（`class Eval : INodeVisitor<int>` ⇒ R := int）。找不到 ⇒ 无信息。
+        if (p is Z42InstantiatedInterfaceType) {
+            Z42InstantiatedInterfaceType pii = p as Z42InstantiatedInterfaceType;
+            Z42InstantiatedInterfaceType aii = TypeArgInference._ifaceView(symbols, a, pii.Def);
+            if (aii == null || aii.ArgCount != pii.ArgCount) { return true; }
+            int q = 0;
+            while (q < pii.ArgCount) {
+                if (!TypeArgInference._unify(symbols, pii.TypeArgs[q], aii.TypeArgs[q], names, nameCount, bound)) {
+                    return false;
+                }
+                q = q + 1;
+            }
+            return true;
+        }
         if ((p is Z42ArrayType) && (a is Z42ArrayType)) {
-            return TypeArgInference._unify((p as Z42ArrayType).Elem, (a as Z42ArrayType).Elem,
+            return TypeArgInference._unify(symbols, (p as Z42ArrayType).Elem, (a as Z42ArrayType).Elem,
                                            names, nameCount, bound);
         }
         if ((p is Z42InstantiatedType) && (a is Z42InstantiatedType)) {
@@ -182,7 +198,7 @@ public static class TypeArgInference {
             if (pi.Def.Name() != ai.Def.Name() || pi.ArgCount != ai.ArgCount) { return true; }
             int i = 0;
             while (i < pi.ArgCount) {
-                if (!TypeArgInference._unify(pi.TypeArgs[i], ai.TypeArgs[i], names, nameCount, bound)) {
+                if (!TypeArgInference._unify(symbols, pi.TypeArgs[i], ai.TypeArgs[i], names, nameCount, bound)) {
                     return false;
                 }
                 i = i + 1;
@@ -195,14 +211,50 @@ public static class TypeArgInference {
             if (pf.ParamCount != af.ParamCount) { return true; }
             int i = 0;
             while (i < pf.ParamCount) {
-                if (!TypeArgInference._unify(pf.ParamTypes[i], af.ParamTypes[i], names, nameCount, bound)) {
+                if (!TypeArgInference._unify(symbols, pf.ParamTypes[i], af.ParamTypes[i], names, nameCount, bound)) {
                     return false;
                 }
                 i = i + 1;
             }
-            return TypeArgInference._unify(pf.Ret, af.Ret, names, nameCount, bound);
+            return TypeArgInference._unify(symbols, pf.Ret, af.Ret, names, nameCount, bound);
         }
         return true;   // 形状不匹配 → 无信息可推（是否可赋由 CheckImplicitConvert 另行判定）
+    }
+
+    // `a` 作为接口 `def` 的实例是什么形态：`a` 本身就是 def 的实例 ⇒ 它；`a` 是类（或类的实例化）⇒ 沿基类链找
+    // 声明实现子句里的 def 实例（受者是实例化类时按其类型实参代换类级型参）。找不到 null。
+    // 只看声明子句（`Z42ClassType.IfaceInsts`），不沿接口继承闭包上溯；跨包类没有这份数据 ⇒ null。
+    private static Z42InstantiatedInterfaceType _ifaceView(SymbolTable symbols, Z42Type a, Z42InterfaceType def) {
+        if (a is Z42InstantiatedInterfaceType) {
+            Z42InstantiatedInterfaceType ai = a as Z42InstantiatedInterfaceType;
+            if (ai.Def.Fqn() == def.Fqn()) { return ai; }
+            return null;
+        }
+        Z42ClassType ct = null;
+        Z42InstantiatedType inst = null;
+        if (a is Z42ClassType) { ct = a as Z42ClassType; }
+        else if ((a is Z42InstantiatedType) && ((a as Z42InstantiatedType).Def is Z42ClassType)) {
+            inst = a as Z42InstantiatedType;
+            ct = inst.Def as Z42ClassType;
+        }
+        int hops = 0;
+        while (ct != null) {
+            int i = 0;
+            while (i < ct.IfaceInstCount) {
+                Z42InterfaceType it = ct.IfaceInsts[i];
+                if ((it is Z42InstantiatedInterfaceType) && (it as Z42InstantiatedInterfaceType).Def.Fqn() == def.Fqn()) {
+                    // 实例化类的类级型参按受者实参代换；基类那一层的类级型参无从代换 ⇒ 只接受受者自身那层。
+                    if (inst != null && hops == 0) { return MemberResolver._substGeneric(it, inst) as Z42InstantiatedInterfaceType; }
+                    if (inst == null || hops == 0) { return it as Z42InstantiatedInterfaceType; }
+                    return null;
+                }
+                i = i + 1;
+            }
+            if (symbols == null) { return null; }
+            ct = symbols.BaseOf(ct);
+            hops = SymbolTable.NextBaseHop(hops);
+        }
+        return null;
     }
 
     private static int _nameIndex(string[] names, int nameCount, string n) {

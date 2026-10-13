@@ -25,11 +25,19 @@ public sealed class FunctionEmitter {
 
     public FunctionEmitter(SymbolTable symbols, IrGen gen) {
         this._symbols = symbols; this._gen = gen; this._seedLocalFns = null;
+        this._seedMethodTp = null; this._seedMethodTpCount = 0;
         this._stmt = new StmtEmitter(this);
     }
 
     // lifted 局部函数体 emit 前注入兄弟 local-fn 映射（递归/前向引用解析为 Call <lifted>）。
     public void SeedLocalFns(StrMap m) { this._seedLocalFns = m; }
+    // lifted lambda / 局部函数继承外层泛型方法的方法级型参名（见 EmitContext.MethodTpNames）。
+    private string[] _seedMethodTp; private int _seedMethodTpCount;
+    public void SeedMethodTp(string[] names, int n) { this._seedMethodTp = names; this._seedMethodTpCount = n; }
+    private void _applyMethodTp(string[] own, int ownCount) {
+        if (ownCount > 0) { this._ctx.MethodTpNames = own; this._ctx.MethodTpCount = ownCount; return; }
+        if (this._seedMethodTp != null) { this._ctx.MethodTpNames = this._seedMethodTp; this._ctx.MethodTpCount = this._seedMethodTpCount; }
+    }
 
     // 入口：方法/自由函数 + 其 Bound 体 → IrFunction。
     // isInstance = 有 this（实例方法；驱动 reg0=this / paramOffset）。
@@ -52,6 +60,7 @@ public sealed class FunctionEmitter {
             while (si < sk.Length) { this._ctx.LocalFnNames.Put(sk[si], this._seedLocalFns.Get(sk[si])); si = si + 1; }
         }
         this._expr = new ExprEmitter(this._ctx, this);
+        this._applyMethodTp(md.TypeParams.Names, md.TypeParams.Count);
         string[] tp = this._mergeTp(classTp, classTpCount, md.TypeParams.Names, md.TypeParams.Count);
         int tpc = classTpCount + md.TypeParams.Count;
         int paramOffset = 0;
@@ -353,6 +362,7 @@ public sealed class FunctionEmitter {
         this._ctx.LocalClasses = this._gen.LocalClasses;
         this._ctx.CurFnName = name;
         this._expr = new ExprEmitter(this._ctx, this);
+        this._applyMethodTp(new string[0], 0);
         bool hasEnv = lam.CaptureCount > 0;
         int paramOffset = 0;
         if (hasEnv) { paramOffset = 1; }
@@ -448,6 +458,7 @@ public sealed class FunctionEmitter {
         if (lfn.CaptureCount == 0) {
             var fe = new FunctionEmitter(this._symbols, this._gen);
             fe.SeedLocalFns(this._ctx.LocalFnNames);
+            fe.SeedMethodTp(this._ctx.MethodTpNames, this._ctx.MethodTpCount);
             IrFunction f = fe.EmitFunction(lifted, lfn.Decl, lfn.Body, false, false, null, new string[0], 0);
             this._gen.AddLifted(f);
             return;
@@ -462,6 +473,7 @@ public sealed class FunctionEmitter {
         Z42FuncType ft = new Z42FuncType(pt, md.ParamCount, lret);
         BoundLambda synth = new BoundLambda(pn, pt, md.ParamCount, true, null, lfn.Body, lfn.Captures, lfn.CaptureCount, ft, lfn.Span);
         var fe2 = new FunctionEmitter(this._symbols, this._gen);
+        fe2.SeedMethodTp(this._ctx.MethodTpNames, this._ctx.MethodTpCount);
         IrFunction lf = fe2.EmitLambdaLifted(lifted, synth);
         this._gen.AddLifted(lf);
         TypedReg[] caps = new TypedReg[lfn.CaptureCount];

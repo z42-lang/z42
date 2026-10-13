@@ -1,0 +1,24 @@
+// Test: a value-struct argument passed at a type-parameter position is boxed even when the type
+// arguments are written out — the generic body keeps T values as boxes, so storing the argument
+// beyond the call (here: into an `object` static) must not leave a frame-scoped struct behind.
+
+struct Vec2 { public long X; public long Y; public Vec2(long x, long y) { this.X = x; this.Y = y; } }
+static class Keep { public static object Slot; }
+
+void Put1<A>(A x) { Keep.Slot = x; }
+void Put4<A, B, C, D>(A x) { Keep.Slot = x; }
+void stash1() { Vec2 v = new Vec2(11, 22); Put1<Vec2>(v); }
+void stash4() { Vec2 v = new Vec2(33, 44); Put4<Vec2, int, int, int>(v); }
+long clobber() { Vec2 a = new Vec2(99, 99); Vec2 b = new Vec2(98, 98); return a.X + b.X; }
+
+void Main() {
+    stash1();
+    Assert.Equal(197, clobber());
+    Assert.Equal("Vec2", Keep.Slot.GetType().Name);
+    Vec2 w1 = (Vec2)Keep.Slot;
+    Assert.Equal(22, w1.Y);
+    stash4();
+    Assert.Equal(197, clobber());
+    Vec2 w4 = (Vec2)Keep.Slot;
+    Assert.Equal(44, w4.Y);
+}

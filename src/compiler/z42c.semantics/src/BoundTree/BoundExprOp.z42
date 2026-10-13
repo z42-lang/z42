@@ -134,6 +134,9 @@ public sealed class BoundCall : BoundExpr {
         this.OwnerCt = null;
     }
 
+    // 泛型方法调用点的返回类型代换（GenericCallRet）在类型实参解析 / 推断之后才定下来，晚于构造。
+    public void Retype(Z42Type t) { this._retType = t; }
+
     // 记下目标类类型对象并原样交回 bc（便于 `return` 位直接包一层）。
     public static BoundCall WithOwner(BoundCall bc, Z42ClassType owner) {
         if (bc != null) { bc.OwnerCt = owner; }

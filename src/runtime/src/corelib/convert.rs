@@ -515,8 +515,10 @@ pub mod typed {
     /// Box a blob value struct into a shared heap `Value::BoxedStruct`: snapshot the
     /// bytes, references and type name out of the arena slot (the struct is live at the
     /// boxing point), detaching it from the frame's lifetime. Emitted by the compiler at
-    /// struct → object / interface conversions. Already boxed → the same box (reference
-    /// identity); a non-struct value passes through.
+    /// struct → object / interface conversions, and after an element read whose static type
+    /// is a generic method's type parameter (generic method bodies keep `T` values boxed; a
+    /// `struct[]` element read yields a frame-scoped view that must not leave the frame).
+    /// Already boxed → the same box (reference identity); a non-struct value passes through.
     #[builtin(name = "__box_struct")]
     pub fn box_struct(ctx: &VmContext, v: &Value) -> Result<Value, BuiltinError> {
         match v {
@@ -524,6 +526,13 @@ pub mod typed {
             Value::StructRef { idx, frame_id } => {
                 let (type_name, bytes, refs) = ctx.struct_arena.lock()
                     .with(*idx, *frame_id, |s| (s.type_name.clone(), s.bytes.clone(), s.refs.clone()))
+                    .map_err(|e| BuiltinError::Internal(e.to_string()))?;
+                super::box_struct_blob(ctx, &type_name, &bytes, &refs).map_err(|e| BuiltinError::Internal(e.to_string()))
+            }
+            Value::StructRefHeap { idx, frame_id } => {
+                let e = ctx.transient_arena.lock().struct_elem(*idx, *frame_id)
+                    .map_err(|e| BuiltinError::Internal(e.to_string()))?;
+                let (bytes, refs, _layout, type_name) = crate::objops::struct_leaf::snapshot_elem(&e)
                     .map_err(|e| BuiltinError::Internal(e.to_string()))?;
                 super::box_struct_blob(ctx, &type_name, &bytes, &refs).map_err(|e| BuiltinError::Internal(e.to_string()))
             }

@@ -1,0 +1,26 @@
+// Test: arguments of a call through an interface-typed receiver are boxed like any other call —
+// an integer passed to an `object` parameter keeps its width, and a value struct passed at a
+// generic method's type-parameter position is boxed, so storing it beyond the call is safe.
+
+public struct Vec2 { public long X; public long Y; public Vec2(long x, long y) { this.X = x; this.Y = y; } }
+static class Keep { public static object Slot; }
+interface ISink { void Put(object o); void PutT<T>(T x); }
+class Sink : ISink {
+    public void Put(object o) { Keep.Slot = o; }
+    public void PutT<T>(T x) { Keep.Slot = x; }
+}
+void stash(ISink s) { Vec2 v = new Vec2(11, 22); s.PutT<Vec2>(v); }
+long clobber() { Vec2 a = new Vec2(99, 99); Vec2 b = new Vec2(98, 98); return a.X + b.X; }
+
+void Main() {
+    ISink s = new Sink();
+    short sh = 3;
+    s.Put(sh);
+    Assert.Equal("Int16", Keep.Slot.GetType().Name);
+    s.Put(5L);
+    Assert.Equal("Int64", Keep.Slot.GetType().Name);
+    stash(s);
+    Assert.Equal(197, clobber());
+    Vec2 w = (Vec2)Keep.Slot;
+    Assert.Equal(22, w.Y);
+}

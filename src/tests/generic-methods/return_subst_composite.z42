@@ -1,0 +1,37 @@
+// Test: composite generic return types (`T[]`, `List<T>`, `Func<T>`) are substituted at the call
+// site — element access and invocation see the concrete type, including value structs.
+
+using Std.Collections;
+
+struct Vec2 { public long X; public long Y; public Vec2(long x, long y) { this.X = x; this.Y = y; } }
+class Box { public int N; public Box(int n) { this.N = n; } }
+
+T[] Pair<T>(T a, T b) { T[] r = new T[2]; r[0] = a; r[1] = b; return r; }
+List<T> ListOf<T>(T a, T b) { List<T> l = new List<T>(); l.Add(a); l.Add(b); return l; }
+Func<T> Konst<T>(T v) { return () => v; }
+
+void Main() {
+    int[] ia = Pair<int>(3, 4);
+    Assert.Equal(6, ia[1] + ia.Length);
+    string[] sa = Pair<string>("ab", "cde");
+    Assert.Equal(3, sa[1].Length);
+    Box[] ba = Pair<Box>(new Box(7), new Box(8));
+    Assert.Equal(8, ba[1].N);
+    Vec2[] va = Pair<Vec2>(new Vec2(1, 2), new Vec2(3, 4));
+    Assert.Equal(4, va[1].Y);
+    Assert.Equal(2, va.Length);
+
+    List<int> li = ListOf<int>(1, 2);
+    Assert.Equal(4, li.Count + li[1]);
+    List<string> ls = ListOf<string>("x", "yz");
+    Assert.Equal(2, ls[1].Length);
+    List<Vec2> lv = ListOf<Vec2>(new Vec2(1, 2), new Vec2(3, 4));
+    Assert.Equal(4, lv[1].Y);
+
+    Func<int> fi = Konst(41);
+    Assert.Equal(42, fi() + 1);
+    Func<string> fs = Konst<string>("hey");
+    Assert.Equal(3, fs().Length);
+    Func<Vec2> fv = Konst<Vec2>(new Vec2(9, 10));
+    Assert.Equal(10, fv().Y);
+}

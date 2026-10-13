@@ -145,6 +145,29 @@ var r = Max<int>(3, 5);
 %7 = call  @Max  %5, %6              ; 无需 @Max_int
 ```
 
+### 泛型方法调用的返回类型（静态类型与物理约定分开）
+
+调用点的**静态类型** = 声明返回类型按类型实参代换（先方法级按名、再受者那层：实例化类按其实参、接口按 `Self`
+与接口实参），显式与推断同一个收尾 `GenericCallRet.Finish`（`MemberResolver.Generic.z42` 的
+`_applyMethodTypeArgs` / `_inferMethodTypeArgs` 末尾调用）。返回类型里不出现方法级型参 ⇒ 原样。
+
+**物理约定**另按一份签名定：泛型**方法**体 —— 跨包调用的擦除体与本包具体实参调用改派到的特化体
+（`CallEmitter._specializeGenericBody`）—— 对型参位一律走**装箱模型**：形参与返回都是句柄，struct 经装箱进出，
+callee 不收 sret（`FunctionEmitter._blobStructNameT` 对方法级型参恒判否）。由此调用侧三条：
+
+| 位置 | 做法 | 依据 |
+|---|---|---|
+| 返回位是裸方法级型参、代换成 struct | 内层 `BoundCall` 定型 `Unknown`（发射端不按 struct 预留 sret），外包 `BoundConvert` 拆箱（`TypeOpEmitter` 的 AsCast 臂） | 与类级型参返回 struct 的 `TypeChecker.StructUnboxTarget` 同一先例 |
+| 实参装箱 | 按 `MethodSymbol.MethodErasedSig`（方法级代换**之前**的签名）判，表示转换仍按代换后的类型 | 显式 `<Vec2>` 把形参静态类型换成 `Vec2`，按它判就不装箱 ⇒ 裸 `StructRef` 逃出创建帧 |
+| 体内读 `T[]` 元素（`arr[i]` / foreach） | `array_get` 后发 `__box_struct`（非 struct 值透传；`StructRefHeap` 视图快照成 `BoxedStruct`） | struct 数组元素读出的是**帧内视图**，返回 / 存堆即悬垂；struct 型代码靠这个视图就地写，故只能在「静态类型是方法级型参」处由编译器加 |
+
+最后一条由 `EmitContext.MethodTpNames`（当前函数所在泛型方法的方法级型参名，lifted lambda / 局部函数经
+`FunctionEmitter.SeedMethodTp` 继承）判定。泛型**类**不需要：blob struct 实例化总有自己的特化体（`InstNeedsOwnBody`），
+体内 `T` 就是具体 struct。
+
+`MethodTypeArgSubst.ForExplicitTypeArgs` 的型参个数取 `ms.TypeParamNames.Length`：本地符号在 `SymbolCollector`
+裁成恰好 `TypeParamCount` 长（parser 的 `TypeParams.Names` 是带余量的容量数组），与导入侧（精确长度）同口径。
+
 ### 代码共享不是全部：布局不同就特化，而特化副本落在**消费方**
 
 上面那段是**默认**路径。模型是混合的：
@@ -845,6 +868,25 @@ GenericType("Foo", [T..])   → _classes["Foo$N"] first, fallback _classes["Foo"
 ## Deferred / Future Work
 
 > 索引也存于 [docs/roadmap.md](https://github.com/z42-lang/z42/blob/main/docs/roadmap.md) "Deferred Backlog Index"。
+
+### generic-inference-future-imported-iface-args：跨包类的接口实现参与类型实参推断
+
+- **来源**：subst-generic-return（泛型方法调用点代换返回类型）实施期
+- **触发原因**：推断穿过接口实现靠 `Z42ClassType.IfaceInsts`（带实参的实现子句），它只从本包 AST 填；
+  跨包类的导出数据（`ExportedClassZ.Interfaces`）只带接口名，没有类型实参
+- **前置依赖**：导出带实参的接口拼写 + `ImportedSymbolLoader` 解析回 `Z42InstantiatedInterfaceType`（zpkg 格式变更，support-then-use 两个 nightly）
+- **触发条件**：跨包 visitor / 访问者类库被大量使用、调用方不想写显式类型实参时
+- **当前 workaround**：显式写出类型实参，如 `node.Accept<int>(new Eval())`
+
+### generic-class-tarray-struct-escape：泛型类特化体里 `new T[n]` 存 struct 元素后出帧悬垂
+
+- **来源**：subst-generic-return 实施期发现，main 上即存在（与方法级代换无关）
+- **触发原因**：`class Holder<T> { T[] Twice() { T[] r = new T[2]; r[0] = this.Item; … return r; } }`，
+  `Holder<Vec2>` 调 `Twice()[1].Y` 报 `struct-value handle used after its creating frame exited`。泛型**类**的
+  blob struct 实例化走特化体，问题在特化体里 `T[]` 元素的存取，不在调用点
+- **前置依赖**：查清特化体里 `new T[n]` / 元素存的表示（struct 承载数组 vs 句柄数组）
+- **触发条件**：泛型容器类自己分配 `T[]` 并以 struct 实例化时（stdlib `List<T>` 的扩容路径值得先验证）
+- **当前 workaround**：无（避免在泛型类里自建 `T[]` 存 struct）
 
 ### D-4: 协变 / 逆变（`<in T, out R>` 等）
 

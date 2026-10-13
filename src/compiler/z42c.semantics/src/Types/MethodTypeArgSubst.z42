@@ -54,7 +54,13 @@ public static class MethodTypeArgSubst {
         subst.ParamDefaults = sig.ParamDefaults;
         subst.ParamCallers = sig.ParamCallers;
         subst.ParamNames = sig.ParamNames;
-        return ms.WithSignature(subst);
+        MethodSymbol r = ms.WithSignature(subst);
+        r.MethodErasedSig = MethodTypeArgSubst.ErasedSig(ms);
+        return r;
+    }
+    // 方法级代换之前的签名（物理约定以它为准，见 MethodSymbol.MethodErasedSig）。
+    public static Z42FuncType ErasedSig(MethodSymbol ms) {
+        return ms.MethodErasedSig != null ? ms.MethodErasedSig : ms.Signature;
     }
     // generic-inference-lambda-args：**只**对 `Z42FuncType` 形参位按名代换（且只换 targs 里已绑定=
     // 非 null 的型参名），用于隐式泛型调用**绑定 lambda 延迟位之前**——让 lambda 形参拿到具体类型能编，
@@ -93,12 +99,14 @@ public static class MethodTypeArgSubst {
             p = p + 1;
         }
         if (!anyFunc) { return ms; }
-        Z42FuncType subst = new Z42FuncType(np, sig.ParamCount, sig.Ret);   // Ret 不代换（B2）
+        Z42FuncType subst = new Z42FuncType(np, sig.ParamCount, sig.Ret);   // Ret 不在这里代换（见 GenericCallRet）
         subst.ParamsFrom = sig.ParamsFrom;
         subst.ParamDefaults = sig.ParamDefaults;
         subst.ParamCallers = sig.ParamCallers;
         subst.ParamNames = sig.ParamNames;
-        return ms.WithSignature(subst);
+        MethodSymbol r = ms.WithSignature(subst);
+        r.MethodErasedSig = MethodTypeArgSubst.ErasedSig(ms);
+        return r;
     }
     // add-generic-type-arg-inference 阶段 B：按方法级型参名做代换后补查实参。
     public static void CheckSubstMethodArgs(TypeChecker tc, BoundCall bc, Z42FuncType sig,

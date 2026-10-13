@@ -1,7 +1,7 @@
 // Test: L3-G2 generic constraints — where T: IComparable
 
 class Num : IComparable {
-    int value;
+    public int value;
     public Num(int v) { this.value = v; }
     public int CompareTo(Num other) {
         if (this.value > other.value) return 1;

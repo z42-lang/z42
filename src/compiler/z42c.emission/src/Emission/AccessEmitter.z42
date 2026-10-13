@@ -685,7 +685,7 @@ public sealed class AccessEmitter {
         TypedReg i = this._ee.Emit(idx.Index);
         TypedReg dst = this._ctx.Alloc(this._ctx.ToIrType(idx.Type()));
         this._ctx.Emit(new ArrayGetInstr(dst, arr, i));
-        return dst;
+        return this._ctx.OwnIfMethodTypeParam(dst, idx.Type());
     }
 
     // add-struct-array-codegen (P3b follow-up): emit `arr[i]` producing the **element

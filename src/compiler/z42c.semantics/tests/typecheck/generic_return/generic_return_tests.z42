@@ -1,0 +1,58 @@
+// 泛型方法调用点的返回类型 = 声明返回类型按类型实参代换（GenericCallRet）。显式与推断两条路；
+// 推断可穿过类的接口实现（`Eval : IVis<int>` 传给 `IVis<R>` 形参 ⇒ R := int）。
+// 断言口径同 argument_type：读体内诊断袋，断言码 + 条数（「本该无诊断」也要验）。
+namespace Z42cSemanticsGenericReturnTests;
+
+using Z42.Semantics;
+using Z42.Syntax;
+using Z42.Core;
+using Std.Harness;
+
+DiagnosticBag bodyDiags(string src) {
+    var p = new Parser(src, "t.z42");
+    var cu = p.ParseCompilationUnit();
+    var symbols = new SymbolCollector().Collect(cu);
+    var diags = new DiagnosticBag();
+    cu.MergeParseDiags(diags);
+    new TypeChecker(diags).Infer(cu, symbols);
+    return diags;
+}
+
+int countCode(DiagnosticBag d, string code) {
+    int n = 0;
+    int i = 0;
+    while (i < d.Count()) { if (d.Get(i).Code == code) { n = n + 1; } i = i + 1; }
+    return n;
+}
+
+string id1() { return "T Id<T>(T x) { return x; } "; }
+string id4() { return "A Id4<A, B, C, D>(A x) { return x; } "; }
+
+[Test]
+void test_inferred_return_is_substituted() {
+    Assert.Equal(0, bodyDiags(id1() + "void Main() { int r = Id(3) + 1; }").Count());
+    Assert.Equal(1, countCode(bodyDiags(id1() + "void Main() { string s = Id(3); }"), "E0402"));
+}
+
+// 1 个型参的显式代换：此前型参名数组是 parser 的容量数组（长 4），个数对不上 ⇒ 代换从不发生。
+[Test]
+void test_explicit_return_is_substituted_one_type_param() {
+    Assert.Equal(0, bodyDiags(id1() + "void Main() { int r = Id<int>(3) + 1; }").Count());
+    Assert.Equal(1, countCode(bodyDiags(id1() + "void Main() { int k = Id<string>(\"q\"); }"), "E0402"));
+}
+
+[Test]
+void test_explicit_return_is_substituted_four_type_params() {
+    Assert.Equal(0, bodyDiags(id4() + "void Main() { int r = Id4<int, string, bool, long>(3) + 1; }").Count());
+    Assert.Equal(1, countCode(bodyDiags(id4() + "void Main() { string s = Id4<int, string, bool, long>(3); }"), "E0402"));
+}
+
+[Test]
+void test_inference_through_interface_implementation() {
+    string vis = "interface IVis<R> { R Lit(int v); } "
+               + "abstract class Node { public abstract R Accept<R>(IVis<R> v); } "
+               + "class Leaf : Node { public int V; public override R Accept<R>(IVis<R> v) { return v.Lit(this.V); } } "
+               + "class Eval : IVis<int> { public int Lit(int v) { return v; } } ";
+    Assert.Equal(0, bodyDiags(vis + "void Main() { Node n = new Leaf(); int x = n.Accept(new Eval()) + 1; }").Count());
+    Assert.Equal(1, countCode(bodyDiags(vis + "void Main() { Node n = new Leaf(); string y = n.Accept(new Eval()); }"), "E0402"));
+}

@@ -59,6 +59,9 @@ public sealed class EmitContext {
     public bool InLambdaEnv;                                  // lift env 版：BoundCapturedIdent → array_get env(reg0)
     public string[] CaptureNames; public int CaptureNameCount;  // 当前 lifted lambda 的捕获名（env 布局序）→ 嵌套 lambda 解析外层捕获
     public StrMap LocalFnNames;     // impl-local-fn-l2：局部函数 local 名 → lifted 名（free call emit 改写）
+    // 当前函数（及其 lifted lambda / 局部函数）所在泛型方法的**方法级**型参名。泛型方法体对型参位走装箱模型：
+    // 静态类型是这些型参的值必须是自有副本 —— 读 struct 数组元素得到的是帧内视图，要经 `__box_struct` 快照。
+    public string[] MethodTpNames; public int MethodTpCount;
 
     public EmitContext(SymbolTable symbols, IrGen gen) {
         this._tlPath = null; this._tlBase = "";
@@ -66,6 +69,7 @@ public sealed class EmitContext {
         this.Locals = new StrMap(); this.Fields = new StrMap(); this.ReadonlyFields = new StrMap();
         this.InstProps = new StrMap(); this.InstPropHasSet = new StrMap();
         this.OwnerStructName = "";
+        this.MethodTpNames = new string[0]; this.MethodTpCount = 0;
         this.OwnerClassName = "";
         this.OwnerCt = null;
         this.RetIsStruct = false; this.RetStructSize = 0; this.SretReg = null;
@@ -494,6 +498,23 @@ public sealed class EmitContext {
     }
 
     // 本包自有声明类（按类型对象的 FQN 判，见 `LocalClassSet`）。
+    public bool IsMethodTypeParam(Z42Type t) {
+        if (!(t is Z42GenericParamType)) { return false; }
+        int i = 0;
+        while (i < this.MethodTpCount) { if (this.MethodTpNames[i] == t.Name()) { return true; } i = i + 1; }
+        return false;
+    }
+
+    // 读出的数组元素若静态类型是方法级型参：元素可能是 struct 数组里的帧内视图 ⇒ 装箱成自有副本
+    // （非 struct 值 `__box_struct` 原样透传）。见 MethodTpNames。
+    public TypedReg OwnIfMethodTypeParam(TypedReg v, Z42Type elemType) {
+        if (!this.IsMethodTypeParam(elemType)) { return v; }
+        TypedReg[] ba = new TypedReg[1]; ba[0] = v;
+        TypedReg boxed = this.Alloc(v.Type);
+        this.Emit(new BuiltinInstr(boxed, "__box_struct", ba, 1));
+        return boxed;
+    }
+
     public bool IsLocalClass(Z42ClassType ct) { return this.LocalClasses != null && this.LocalClasses.Has(ct); }
 
     // 实例调用的接收者类型是否本包类（`BoundCall.OwnerClass` 就是接收者类型名）：实例化类型看定义，

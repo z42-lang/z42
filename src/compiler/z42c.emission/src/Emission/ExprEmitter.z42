@@ -396,6 +396,7 @@ public sealed partial class ExprEmitter {
         string liftName = this._ctx.CurFnName + "__lambda_" + this._ctx.LambdaIdx.ToString();
         this._ctx.LambdaIdx = this._ctx.LambdaIdx + 1;
         var fe = new FunctionEmitter(this._ctx.Symbols, this._ctx.Gen);
+        fe.SeedMethodTp(this._ctx.MethodTpNames, this._ctx.MethodTpCount);
         IrFunction lifted = fe.EmitLambdaLifted(liftName, lam);
         this._ctx.Gen.AddLifted(lifted);
         TypedReg dst = this._ctx.Alloc(this._ctx.ToIrType(lam.Type()));

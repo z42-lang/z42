@@ -577,7 +577,12 @@ public sealed class SymbolCollector {
         var ms = new MethodSymbol(md.Name, this._vis(md.ModFlags, (containing == "" ? "internal" : "private")), sig, Mod.Has(md.ModFlags, Mod.Static), containing, true, md);
         ms.IsSealed = Mod.Has(md.ModFlags, Mod.Sealed);   // impl-sealed-semantics-devirt：本地方法级 sealed
         ms.TypeParamCount = mtpc;   // add-array-paired-sort：方法级泛型形参个数，供泛型 arity 重载过滤
-        ms.TypeParamNames = md.TypeParams.Names;   // fix-explicit-type-arg-not-substituted：按名代换签名要名字
+        // 按名代换签名要名字。parser 的 `TypeParams.Names` 是带余量的容量数组（Count 另记），这里裁成恰好
+        // `TypeParamCount` 长 —— 消费方按 `.Length` 取型参个数，与导入侧（精确长度）同口径。
+        string[] tpn = new string[mtpc];
+        int ti = 0;
+        while (ti < mtpc) { tpn[ti] = md.TypeParams.Names[ti]; ti = ti + 1; }
+        ms.TypeParamNames = tpn;
         return ms;
     }
 
