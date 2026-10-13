@@ -363,8 +363,7 @@ public static partial class ImportedSymbolLoader {
             }
             oi = oi + 1;
         }
-        IParallelTask fillTask = fill;
-        Z42.Package.ParallelFor.Run(fill.GroupCount, Z42.Package.ParallelConfig.Jobs(fill.GroupCount), fillTask);
+        ParallelFor.Run(fill.GroupCount, ParallelConfig.Jobs(fill.GroupCount), fill);
         oi = 0;
         while (oi < orderN) {
             i = order[oi];

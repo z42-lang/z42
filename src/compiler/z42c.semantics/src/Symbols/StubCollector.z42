@@ -177,8 +177,8 @@ public sealed class StubCollector {
     }
 
     // A5b-2c：**本地**声明先按**声明方 CU 的作用域**归一（三个入口都挂，紧挨根表那一趟之前）。
-    // 根表那一趟没有作用域：同包、外围 ns 里的接口（`class CompileCuTask : IParallelBody`，两者都在
-    // `Z42.Semantics`）在根表上 FQN 查不中，只能落 `GetInterface` 的裸名回落 —— 探针实测 stdlib + 编译器
+    // 根表那一趟没有作用域：同包、外围 ns 里的接口（`class C : IFoo`，两者在同一个
+    // ns 里）在根表上 FQN 查不中，只能落 `GetInterface` 的裸名回落 —— 探针实测 stdlib + 编译器
     // 全量 31 次，全来自这里与 `ClassExtractor._extractInterface`。根表那一趟保留：导入类（已是 FQ，幂等）
     // 与本 pass 没覆盖到的（查不到的原样留着）走它。
     internal void _passQualifyIfaceNamesInScope(SymbolTable table, CompilationUnit cu) {
