@@ -528,7 +528,9 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
   - 静态字段：VmCore 全局 `Mutex<Vec<Value>>` 换成 `StaticTable`（`SegVec` 里地址稳定的 16 B 型参单元 + 名字登记表），读写无锁，内存序同实例字段。**不用 seqlock**：每个静态字段的值都是一个 `Value`，型参单元协议本身保证不撕裂；值 struct 类型的静态字段由编译器装箱，单元里只有一个引用字。静态字段是 GC 根（每次回收扫一遍），写入不需要分代屏障，SATB 由单元协议记旧字。cctor 屏障的属主缓存（P0-5b）从每线程 `Mutex<Vec<..>>` 挪进单元旁（一次 acquire load），显式模块重载时清空；`ensure_module_inits` / `ensure_static_owner_init` 的稳态快路内联。
   - 不改字节码 / 格式，用户可见行为不变（`field_ic_tests` 逐例对照解释器，含 NRE 文本）。
 - 实测（release z42vm，macOS arm64，与合并基 eb2b431a8 交错，7 次中位数，负载 3–14）：字段微基准（实例字段读写循环 + getter + 换接收者的链表遍历）jit 1117 → 748 ms（0.67×）、interp 0.97×；静态字段读写循环 jit 2211 → 1300 ms（0.59×）、interp 2503 → 2215 ms（0.88×）。bench（new / base）：jit 05 0.99、09 0.68、10 0.80、12 0.73；interp 05 0.98、09 0.95、10 0.97、12 0.94。z42c 工作区构建（5 次中位数）`--jobs 1` 11.51 → 9.94 s（0.86×）、`--jobs 4` 7.11 → 6.30 s（0.89×），产物逐字节一致；`sample` 剖面（`--jobs 1`）里字段 helper 包含时间 15.9% → 1.3%。
-- 后续：JIT 的 `StaticGet` / `StaticSet` 仍经 helper（剖面 2.1%）——要内联得先把类型初始化屏障的「已初始化」判定放进单元；型参字段与 `F32` 字段仍走 helper；原生 IC 只比 entry 0。
+- 后续：
+  - JIT 的 `StaticGet` / `StaticSet` 已内联。屏障的「已放行」判定放进单元：`StaticCell::ready` 记下整个静态字段屏障（包初始化器 + 属主类型初始化器）判为空操作时的屏障纪元（`CctorRegistry::barrier_epoch`；登记静态构造器 / 包初始化器、包初始化器失败、重跑代际、显式模块（重）加载时递增）。interp 与生成码的快路都是「纪元一次 relaxed load + 单元一次 acquire load，相等即放行」，唯一实现 `VmContext::ensure_static_field_init`（只在结论对所有线程都稳定时记录：重入中的初始化器、失败的类型不记）。放行后按型参单元协议直接访问：读按标签字查表（引用字 / `PRIM(k)`）；基元写在单元已是该种类时只写负载字；引用写在单元从未存过基元时一次 CAS，SATB 标记中走 helper；静态字段是根，不需要分代屏障。null 读（确证字段、值类型惰性补零）、装箱、种类不符、`F32` / 擦除类型的写回落 helper。实测（release z42vm，macOS arm64，与合并基 6b021ceab 交错，负载 11–42）：静态字段读写微基准（`19_static_fields`，每轮 6 读 4 写，7 次中位数）jit 2013 → 838 ms（0.42×）、interp 2460 → 2087 ms（0.85×）；z42c 工作区构建（5 次中位数）`--jobs 1` 10.94 → 10.65 s（0.97×）、`--jobs 4` 7.22 → 7.24 s（1.00），产物逐字节一致。
+  - 型参字段与 `F32` 字段仍走 helper；原生 IC 只比 entry 0。
 
 **P1-7 GC**
 - 决定：

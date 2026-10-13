@@ -19,7 +19,7 @@
 //! GC：静态字段是根 —— 每次回收（minor / major）都经 [`StaticTable::scan_roots`] 扫一遍标签字，
 //! 所以写入不需要分代写屏障；SATB 由单元协议负责。
 
-use std::sync::atomic::{AtomicPtr, AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicPtr, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 
 use parking_lot::Mutex;
@@ -41,12 +41,18 @@ const W1: usize = 8;
 /// the owner from the name. Owner state `0` = not looked up, [`OWNER_EXEMPT`] = no owner type or
 /// one without a static constructor, [`OWNER_CHECK`] = check `owner` (published before the state,
 /// release / acquire; the descriptor is kept alive by [`StaticTable::owners`]).
+///
+/// And the barrier's verdict: `ready` = the cctor registry's barrier epoch at which the whole
+/// static-field barrier (package initializers + the owner's static constructor) was last found to
+/// be a no-op for this field ([`Self::barrier_ready`]; `0` = never). JIT-compiled accesses read it
+/// at [`Self::JIT_READY_OFFSET`].
 #[repr(C, align(8))]
 #[derive(Default)]
 pub(crate) struct StaticCell {
     words: [AtomicU64; 2],
     owner: AtomicPtr<TypeDesc>,
     owner_state: AtomicU8,
+    ready: AtomicU32,
 }
 
 const OWNER_EXEMPT: u8 = 1;
@@ -60,6 +66,15 @@ pub(crate) enum StaticOwner<'a> {
 }
 
 impl StaticCell {
+    /// Byte offsets JIT-compiled accesses use (pinned by `static_table_tests::jit_layout_matches_the_accessors`):
+    /// the tag word, the payload word (`tparam_cell` protocol), the barrier verdict.
+    #[cfg(feature = "jit")]
+    pub(crate) const JIT_TAG_OFFSET: i32 = W0 as i32;
+    #[cfg(feature = "jit")]
+    pub(crate) const JIT_PAYLOAD_OFFSET: i32 = W1 as i32;
+    #[cfg(feature = "jit")]
+    pub(crate) const JIT_READY_OFFSET: i32 = std::mem::offset_of!(StaticCell, ready) as i32;
+
     #[inline(always)]
     fn cells(&self) -> Cells<'_> {
         // SAFETY: 16 bytes of this cell, 8-aligned, only ever accessed atomically (through this
@@ -90,6 +105,19 @@ impl StaticCell {
             }
             _ => StaticOwner::Unknown,
         }
+    }
+
+    /// The static-field barrier is a no-op for this field at barrier epoch `epoch` (one acquire load).
+    #[inline(always)]
+    pub(crate) fn barrier_ready(&self, epoch: u32) -> bool {
+        self.ready.load(Ordering::Acquire) == epoch
+    }
+
+    /// Record that the barrier was found a no-op at `epoch` — the epoch read (acquire) **before**
+    /// the barrier ran, so an invalidating event in between leaves the record stale.
+    #[inline]
+    pub(crate) fn mark_barrier_ready(&self, epoch: u32) {
+        self.ready.store(epoch, Ordering::Release);
     }
 
     /// Back to the never-written state (`null`, no kind claimed). The overwritten reference goes
@@ -179,7 +207,8 @@ impl StaticTable {
     }
 
     /// Drop every cached owner answer (an explicit module (re)load can redefine a type); the next
-    /// access re-derives it.
+    /// access re-derives it. The caller then invalidates the barrier verdicts
+    /// (`VmContext::forget_static_owners`).
     pub(crate) fn forget_owners(&self) {
         for i in 0..self.cells.len() {
             if let Some(c) = self.cells.get(i) {

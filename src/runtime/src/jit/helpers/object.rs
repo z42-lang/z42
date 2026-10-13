@@ -301,8 +301,22 @@ pub unsafe extern "C" fn jit_as_cast(
 
 // ── Static fields ────────────────────────────────────────────────────────────
 
+#[cfg(test)]
+thread_local! {
+    /// Test probe: calls of the two static-field helpers on this thread — which accesses left the
+    /// native path (`translate::static_field`).
+    pub(crate) static STATIC_HELPER_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[inline(always)]
+fn note_static_helper_call() {
+    #[cfg(test)]
+    STATIC_HELPER_CALLS.with(|c| c.set(c.get() + 1));
+}
+
 /// `StaticGet` helper — adapter over [`crate::objops::statics::static_get`] (init
-/// barrier, lazy zero-init, missing-symbol check; shared with the interpreter).
+/// barrier, lazy zero-init, missing-symbol check; shared with the interpreter). The slow path of
+/// the native access (`translate::static_field`).
 /// `field_id` = pre-resolved `StaticFieldId`, or `UNRESOLVED` for a lazily-loaded
 /// function compiled without its token table — then the field resolves by NAME
 /// (`field_ptr`/`field_len`, always passed).
@@ -312,6 +326,7 @@ pub unsafe extern "C" fn jit_static_get(
     dst: u32, field_id: u32,
     field_ptr: *const u8, field_len: usize,
 ) -> i32 {
+    note_static_helper_call();
     let field = super::baked_str(field_ptr, field_len);
     let id = (field_id != crate::metadata::tokens::UNRESOLVED).then_some(field_id);
     match crate::objops::statics::static_get(vm_ctx_ref(ctx), super::jit_module(ctx), field, id) {
@@ -327,6 +342,7 @@ pub unsafe extern "C" fn jit_static_set(
     field_id: u32, val: u32,
     field_ptr: *const u8, field_len: usize,
 ) -> i32 {
+    note_static_helper_call();
     let field = super::baked_str(field_ptr, field_len);
     let id = (field_id != crate::metadata::tokens::UNRESOLVED).then_some(field_id);
     let v = (*frame).regs[val as usize];

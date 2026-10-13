@@ -143,3 +143,39 @@ fn concurrent_writers_never_tear_and_stay_rooted_across_collections() {
     assert!(stop.load(Ordering::Acquire));
     assert!(core.heap.stats().gc_cycles > 0, "collections ran during the race");
 }
+
+/// The offsets and encodings JIT-compiled `StaticGet` / `StaticSet` use (`jit::translate::static_field`)
+/// against the Rust accessors: the tag / payload words of the `tparam_cell` protocol and the barrier
+/// verdict word.
+#[cfg(feature = "jit")]
+#[test]
+fn jit_layout_matches_the_accessors() {
+    use crate::metadata::types::{ref_word, tparam_cell};
+    let ctx = VmContext::new();
+    let _heap = crate::gc::ambient::HeapGuard::enter(ctx.heap());
+    let t = StaticTable::default();
+    let raw64 = |c: &StaticCell, off: i32| unsafe { *((c as *const StaticCell as *const u8).add(off as usize) as *const u64) };
+    let raw32 = |c: &StaticCell, off: i32| unsafe { *((c as *const StaticCell as *const u8).add(off as usize) as *const u32) };
+    for (k, v, bits) in [(1, Value::I64(-3), (-3i64) as u64), (2, Value::F64(1.5), 1.5f64.to_bits()),
+                         (3, Value::Bool(true), 1), (4, Value::Char('é'), 'é' as u64)] {
+        let c = t.cell(t.resolve(&format!("P.{k}"))).unwrap();
+        c.store(&v).unwrap();
+        assert_eq!(raw64(c, StaticCell::JIT_TAG_OFFSET), tparam_cell::prim_word(k), "{v:?}: PRIM(k)");
+        assert_eq!(raw64(c, StaticCell::JIT_PAYLOAD_OFFSET), bits, "{v:?}: payload");
+        assert_eq!(tparam_cell::PRIM_KIND_TO_VALUE_TAG[k as usize] as usize, k as usize - 1, "{v:?}: register tag");
+        c.store(&Value::Null).unwrap();
+        assert_eq!(raw64(c, StaticCell::JIT_TAG_OFFSET), tparam_cell::null_word(k));
+        assert_ne!(tparam_cell::null_word(k) & tparam_cell::NULL_FLAG, 0);
+    }
+    let s = Value::Str("s".into());
+    let c = t.cell(t.resolve("R")).unwrap();
+    c.store(&s).unwrap();
+    assert_eq!(Some(raw64(c, StaticCell::JIT_TAG_OFFSET)), ref_word::encode(&s), "a reference is the tag word");
+    // The barrier verdict.
+    assert!(!c.barrier_ready(1), "never recorded");
+    c.mark_barrier_ready(0x1234_5678);
+    assert_eq!(raw32(c, StaticCell::JIT_READY_OFFSET), 0x1234_5678);
+    assert!(c.barrier_ready(0x1234_5678));
+    let reg = &ctx.core.cctors;
+    assert_eq!(unsafe { (*reg.barrier_epoch_ptr()).load(Ordering::Relaxed) }, reg.barrier_epoch());
+}

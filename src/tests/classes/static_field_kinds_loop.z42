@@ -1,0 +1,63 @@
+// 静态字段每种值形态的读写（基元认领种类后只改负载字；引用就是标签字；值 struct 由编译器装箱；
+// 种类不符的写装箱）在热循环里反复执行，结果与解释器逐值一致。JIT 下读写点内联，冷情况回落 helper。
+namespace Demo;
+
+struct Point {
+    public int x;
+    public int y;
+}
+
+class Box<T> {
+    public T V;
+    public Box(T v) { this.V = v; }
+}
+
+class S {
+    public static int I;
+    public static long L;
+    public static double D;
+    public static bool B;
+    public static char C;
+    public static string Str;
+    public static object O;
+    public static Box<int> G;
+    public static Point P;
+    public static int[] A;
+    public static string Never;
+    public static int Zero;
+}
+
+void Main() {
+    S.A = new int[3];
+    S.P = new Point();
+    S.G = new Box<int>(0);
+    for (int i = 0; i < 3000; i = i + 1) {
+        S.I = S.I + 1;
+        S.L = S.L + 2L;
+        S.D = S.D + 0.5;
+        S.B = !S.B;
+        S.C = S.B ? 'x' : 'y';
+        S.Str = "s" + i.ToString();
+        // object 静态字段先后放字符串与 int：后者装箱存放，读出原值。
+        if (i % 2 == 0) { S.O = S.Str; } else { S.O = i; }
+        S.G = new Box<int>(S.G.V + 1);
+        Point p = S.P;
+        p.x = p.x + 1;
+        S.P = p;
+        S.A[i % 3] = S.A[i % 3] + 1;
+    }
+    Assert.Equal(3000, S.I);
+    Assert.Equal(6000L, S.L);
+    Assert.Equal(1500.0, S.D);
+    Assert.Equal(false, S.B);
+    Assert.Equal('y', S.C);
+    Assert.Equal("s2999", S.Str);
+    Assert.Equal(2999, (int)S.O);
+    Assert.Equal(3000, S.G.V);
+    Assert.Equal(3000, S.P.x);
+    Assert.Equal(0, S.P.y);
+    Assert.Equal(1000, S.A[2]);
+    Assert.True(S.Never == null);
+    Assert.Equal(0, S.Zero);
+    Assert.Equal(1, S.Zero + 1);
+}

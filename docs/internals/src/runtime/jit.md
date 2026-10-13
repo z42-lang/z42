@@ -525,6 +525,57 @@ MIXED 数组）步长 0。不 hoist 的访问（`List<T>` 里每次重新取的 
 （低 3 位 0、整字非 0：`PRIM(k)` / `NULL(k)`）回落同一 helper。数组元素写一律走 `jit_array_set`（要写屏障），
 PRIM 数组的读写内联（`packed_data`）不变。
 
+## 静态字段：内联的 `StaticGet` / `StaticSet`
+
+> 代码：`src/runtime/src/jit/translate/static_field.rs`；屏障 `vm_context/statics.rs` 的 `ensure_static_field_init`；
+> 单元 `vm_context/static_table.rs`。
+
+### 为什么
+
+每次静态字段访问都要先过类型初始化屏障（包初始化器 → 属主类型的静态构造器）。屏障的稳态判定若散在几个计数和属主缓存上，
+生成码就只能每次调 helper；它是 z42c 剖面里仅次于字段访问的一层桥。
+
+### 放行记录
+
+屏障在字段单元里记下「上次判为空操作时的屏障纪元」（`StaticCell::ready`），纪元在任何能让放行过的屏障重新动作的事件后加一
+（机制与事件清单见[静态构造函数的按类型初始化](static-ctor-init.md)）。于是稳态判定只剩两个字的相等比较，interp 与生成码
+比的是同一对字，未放行时都进同一个 `ensure_static_field_init`。
+
+### 内联序列（每个访问）
+
+```text
+  cell = <烘焙的单元地址>                          SegVec 分段只追加，单元从不移动；纪元地址同样烘焙
+  load32 [epoch] == atomic_load32 [cell + ready] ?  ─ 否 → helper（跑屏障，结论稳定时记下纪元）
+  读：w = atomic_load [cell]
+      低 3 位非 0：引用字 → {KIND_TO_VALUE_TAG[w & 7], w & !7}；盒子（种类 7）/ FuncRef → helper
+      0 或 NULL(k) → helper（null 读要确证字段声明，未赋值的值类型字段惰性补零）
+      PRIM(k) → {PRIM_KIND_TO_VALUE_TAG[k], load [cell + 8]}
+  基元写：寄存器 tag 与静态类型相符，且 [cell] == PRIM(k) → store [cell + 8]；否则 helper
+  引用写：VALUE_TAG_TO_KIND 编码（基元、栈句柄、FuncRef → helper）；SATB 标记中 → helper；
+      [cell] 是 0 或直接引用字 → CAS(读到的字 → 新字)，CAS 失败 → helper；已认领种类 / 盒子 → helper
+```
+
+- 读不看寄存器静态类型，按标签字动态解码；写按值寄存器的静态类型选形态：`I8..U64` / `F64` / `Bool` / `Char` 走基元写
+  （`Bool` / `Char` 只取负载的低 1 / 4 字节），`Ref` / `Str` 走引用写，`F32`、擦除的 `T`、`Unknown` 只走 helper。
+- 写入不需要分代屏障：静态字段是根，每次回收（minor 与 major）都扫一遍单元。SATB 标记中的引用写整条交给 helper，由它记下
+  被覆盖的旧字。
+- 引用写用 CAS：型参单元协议里「从未存过基元」状态出发的转移都是 CAS，并发的种类认领不会被覆盖。
+- 槽号未解析的站点（没有解析表的函数）与 32 位目标整条走 helper。
+
+### 正确性靠的不变式
+
+- 单元里标签字 / 负载字 / `ready` 的偏移与编码由 `static_table_tests::jit_layout_matches_the_accessors` 对照 Rust 访问器钉住；
+  纪元事件由 `cctor_tests::barrier_epoch_moves_on_every_invalidating_event` 钉住。
+- 比较与访问之间没有 safepoint。
+- `static_field_tests` 逐例对照解释器：每种值形态、种类变化装箱、未赋值值类型字段补零、首次访问恰好跑一次静态构造器
+  （含多线程并发首次访问）、静态构造器抛异常后每次访问都抛且不重跑、新登记的静态构造器 / 重跑代际让记录失效、
+  标记中的引用写走 helper。
+
+### 效果佐证
+
+release z42vm、macOS arm64，与合并基交错 7 次中位数：`19_static_fields`（每轮 6 读 4 写）JIT 2013 → 838 ms（0.42×）、
+interp 2460 → 2087 ms（0.85×）；z42c 工作区构建 `--jobs 1` 0.97×、`--jobs 4` 持平，产物逐字节一致。
+
 ## 寄存器访问汇点：`reg_access`
 
 > `jit/reg_access.rs` + `jit/translate.rs`（全部 emitter 经汇点）。
