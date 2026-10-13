@@ -471,7 +471,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 | P1-4 | perf | **字段访问**（§4.3，依赖 P1-2、P1-3）：<br>• FieldIC 载荷 `TypeId \| offset \| kind`，`field_access` 挪进 TypeDesc 热区<br>• 静态字段改为稳定地址的 cell + seqlock，去掉 VmCore 全局 `Mutex<Vec<Value>>`<br>• JIT 原生单态字段 IC；hoist 只用于循环内的不变接收者 | 字段微基准；z42c 剖面里 JIT 字段 helper 下降 | ⬜ |
 | P1-5 | vm | **调用协议 v1**（§4.2，先出方案）：瘦 `VmFrame{*const Function, regs, pc, base}`，名字 / 行号在生成栈回溯时懒算；`call_stack` owner-only；寄存器池进 VmContext；guard 只在引擎入口安装；JIT `regs_ptr` 按偏移 load、`Ret` 直写 `frame.ret` | 栈回溯与异常栈文本不变；10_mono_vcall / fib 微基准；跨线程 GC 扫栈测试 | ✅ PR-0–5：#1143 #1145 #1152 #1156 #1161 #1171 |
 | P1-6 | vm | **JIT 每线程上下文，worker 线程跑 JIT**（§4.5 第 1 条，先出方案）：每线程状态放进 JitFrame 或作为参数传入，`JitModuleCtx` 挂到 VmCore | z42c `--jobs 4` 墙钟；cross-thread 测试在 JIT 下全绿 | ⬜ |
-| P1-7 | fix | **GC 内存复用与年轻代根治**（§4.4，先过模型 D）：TLAB 复用半活 chunk 的死槽、sweep 时就地释放 payload；年轻代归 minor 管、晋升时 promote-black | `tests/gc_incremental_model.rs` 模型 D 穷举；13_gc_large_heap 分代不劣于 STW；RSS 下降 | 🟡 B1 #1146 #1154；A4 / A5 #1177；A2 / A3 并入 M12（等 R6） |
+| P1-7 | fix | **GC 内存复用与年轻代根治**（§4.4，先过模型 D）：TLAB 复用半活 chunk 的死槽、sweep 时就地释放 payload；年轻代归 minor 管、晋升时 promote-black | `tests/gc_incremental_model.rs` 模型 D 穷举；13_gc_large_heap 分代不劣于 STW；RSS 下降 | 🟡 B1 #1146 #1154；A4 / A5 #1177；A3 随 M12（变长区空洞复用）；A2（定长区数组头）未做 |
 | P1-8 | vm | **Builtin ABI v2**（§5.3，先出方案）：`#[builtin]` 宏 + manifest、类型化 `BuiltinError`（`Int32.Parse` 抛 FormatException）、`blocking` 标志自动 park、实参不经 Vec、`[Native]` 桩折叠 | 编译器用 manifest 校验 `[Native]` 声明；错误类型测试 | ⬜ |
 
 **依赖与顺序**：P1-0、P1-1 先做；P1-2 是 P1-4、P1-6 的前置；P1-3 在 P1-4 之前（字段语义先收成一份再改载荷）；P1-5 不依赖 FnId（帧里存 `*const Function` 即可），帧管理是当前最大单项（§1.5），可与 P1-2 并行；P1-7、P1-8 与其余项独立。
@@ -530,7 +530,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 - 序列：
   - B1：删 `keep_major`，并加断言「Sweeping 期间晋升的条目必须带 epoch」。
   - A2：定长区续用 TLAB 尾巴，复用半活 chunk 的空洞（按槽的 claimed 位图）。
-  - A3：变长区复用空洞。
+  - A3：变长区复用空洞。🟡 随 M12：TLAB 按 size class 成批从 free list 认领半活 chunk 的死槽、原址复用（`gc/var_region/holes.rs`），数字见 M12 行。
   - A4：decommit（定长区按页对齐，记录 generation 下限）。
   - A5：committed 计数、`stats()` 降为 O(1)、软上限按 footprint。
 
@@ -599,7 +599,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 | M9 | 年轻集合增长加上限（futility 时提前晋升或转 major，而非放大 nursery） | 流失场景 RSS −13%，最大停顿 94 → 18 ms | 09_alloc_ctorless 吞吐退化（⏸） | ✅ #1190（按回收收益判定） |
 | M10 | 字段 payload 内联进 GC 槽 | 每对象 −16~−24 B；死 payload 随槽一起释放 | — | 🟡 对象模型 R1–R4 已合（#1192 #1203 #1214 #1225）；R6 进行中 |
 | M11 | 对象头 72 → 约 24 B：去掉每对象 Mutex，标记 / 存活 / 年龄 / 代号合成一个字，稀有字段移到侧表 | 每对象 −40~−48 B | 内存模型已定（见「对象模型（M10 + M11）已定方案」），按 R0–R9 推进 | 🟡 R4 #1225 去掉每对象 Mutex（槽 64 → 56 B）；R5 Monitor 侧表暂无消费方（语言没有 `lock(obj)`，锁都在 `NativeData::Monitor`），随 `lock` / `Volatile` 暴露再做；R7 即 M8（#1198）；R8 头 16 B 待做 |
-| M12 | 空洞复用（TLAB 认领半活 chunk） | 流失场景 RSS 降 2–4× | M10 | ⬜ 等 R6 |
+| M12 | 空洞复用（TLAB 认领半活 chunk） | 流失场景 RSS 降 2–4× | M10 | 🟡 变长区：TLAB 每个 size class 一批（64 个）从 region free list 取死槽、锁一次、无锁原址填回，保留 tombstone 时 +1 的 generation（只按 class 原址复用，不切 span：块头位置、陈旧句柄的 generation 守卫、free list 条目都不需要新规则）；取时记账 + 进年轻集合、retire 时撤销没用上的；填进空洞的块 `alive` 延后到 funnel 写完 payload 才置位（release）；flagged-dead 非空时不发槽；槽的 generation 超过 chunk `reuse_gen` 65 535 后不再复用（16 位句柄快照不回绕）。实测（release jit，交错 11 次中位数，负载 3–5，base → new）：13_gc_large_heap 峰值 RSS 分代 728 → 341 MB、STW 597 → 479 MB，稳态 647 → 334 / 585 → 479 MB；12_gc_churn 峰值 84.4 → 66.8 / 126.4 → 109.1 MB；z42c 工作区构建峰值 RSS 695 → 455 MB（6 次，产物逐字节一致）；墙钟 12 分代 −4%、12 / 13 STW 持平、09 +1%、13 分代 +6~7%（cycles +6%：局部性 + nursery 策略级联，固定 nursery 时反而 −12%），z42c +2.4%（cycles +2.3%，指令 +0.5%）。墙钟代价按 User 2026-10-13 决定先接受（「现在就合，局部性另做」）。后续：① 局部性——每 chunk 死槽位图、按连续空闲段认领（同一段内顺序 bump，不同大小的块仍挨着）；② 自适应 nursery 对 minor 成本的判定，避免局部性变差时 nursery 收缩级联成更多晋升 / major；③ 定长区数组头（A2，R9 之后不再需要）。 |
 | M13 | 泛型 `T[]` 的实参为原始类型时按类型打包 | `List<int>` / Dictionary 值每元素 16 → 4 B | 已定排在 M10 / M11 之后；编译器配合 | ⬜ 已定排在 M10 / M11 之后 |
 | M14 | 泛型实例的类型实参按实例化进程级驻留（`TypeArgs`，8 B 细指针，同 M2 套路），对象的冷元信息合成一个 8 B 标签字，只有带原生底座的对象才分配 `ObjExtras` 盒子 | 每个带实参的泛型实例 −55~−105 B RSS（实测：闭合 `Box<int>` 210 → 155 B、`Pair<int,string>` 258 → 153 B、`LinkedList<int>` 节点 214 → 158 B）；泛型分配密集负载快 30–40%，`LinkedList<int>` 建表快 7–10%；z42c 工作区构建墙钟 / RSS 持平、产物逐字节一致。已知边界：擦除分配（`new Node<T>()`）的实参仍是字面 `T` | — | 🟡 |
 

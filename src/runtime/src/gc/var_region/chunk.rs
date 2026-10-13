@@ -610,15 +610,19 @@ impl VarRegion {
     /// `pop_free_slot` for the guard that keeps it from handing out a re-bumped one.
     ///
     /// The stale count is exact: every block in a chunk that reaches here is tombstoned, and
-    /// every non-oversized tombstone pushed a free-list entry. The walk is `O(blocks in the
-    /// chunks being reclaimed)` — proportional to the work being done — and linear in address.
+    /// every non-oversized tombstone pushed a free-list entry — except a slot past its generation
+    /// span (`holes::GEN_REUSE_SPAN`), which the same test recognises and skips. The walk is
+    /// `O(blocks in the chunks being reclaimed)` — proportional to the work being done — and
+    /// linear in address.
     pub(super) fn purge_blocks(&mut self, pool: &[usize], free: &[usize]) {
         for &ci in pool.iter().chain(free) {
             self.for_each_block_in_mut(ci, |r, p| {
                 // SAFETY: the chunk is still owned here — `purge_blocks` runs before anything
                 // is pooled or freed.
-                let sc = unsafe { p.as_ref() }.size_class as usize;
-                if sc < r.stale_per_class.len() {
+                let h = unsafe { p.as_ref() };
+                let sc = h.size_class as usize;
+                // M12: a slot past its generation span was never free-listed, so it stales nothing.
+                if sc < r.stale_per_class.len() && r.reusable_gen(ci, h.generation()) {
                     r.stale_per_class[sc] += 1;
                     r.stale_free += 1;
                 }
