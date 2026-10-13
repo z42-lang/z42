@@ -7,7 +7,9 @@
 # 推期限 = **手改本文件的日期**（`--update` 不会替你判断前提到没到）；
 # 而**理由写进源码那条 `STAGE2-DEBT` 标记**——本文件的注释会被 `--update` 重写掉。
 src/libraries/z42.core/src/IO/ProcessNative.z42#legacy-process-decls 2026-10-13 种子的 z42.io 不再调 ProcessNative.Run / Spawn 与 ProcessHandleNative 后删掉这两组声明（连同 VM 的 corelib/process_legacy.rs）。
+src/libraries/z42.core/src/Native/NetNative.z42#legacy-net-decls 2026-10-13 种子的 z42.net 不再调 DnsNative.Lookup / NetTcpNative / NetTlsNative / UdpNative 后删掉这些旧声明。
 src/libraries/z42.core/src/Native/ThreadingNative.z42#legacy-thread-join-decl 2026-10-13 种子的 z42.threading 不再调 ThreadNative.Join 后删掉它（连同 VM 的 __thread_join）。
+src/runtime/src/corelib/builtin_table_ext.rs#legacy-net-builtins 2026-10-13 种子的 z42.core 不再声明 `__net_*` 后删掉下面这些表项、corelib/network/legacy/ 与 tls_legacy.rs。
 src/runtime/src/corelib/process_legacy.rs#legacy-process-builtins 2026-10-13 种子的 z42.core 不再声明 __process_run / __process_spawn / __process_handle_* 后删掉本文件、其表项与 process_legacy_tests.rs。
 src/runtime/src/corelib/threading.rs#legacy-thread-join 2026-10-13 种子的 z42.core 不再声明 __thread_join 后删掉它与 JoinOutcome / 结果数组。
 .github/workflows/bench-pr.yml#bench-pr-libdir-probe 2026-10-27 旧名/旧位置彻底退役后删掉后两档。2026-09-30 推到 10-27：后两档是给 **base 树**兜底的，base 若早于 #921（09-27 把该库挪进 src/compiler/）就仍在 src/libraries/ ⇒ 现在删会让「从 09-27 前的 main 分出来的 PR」本门红。等 relocate 满一个月

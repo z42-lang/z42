@@ -133,14 +133,13 @@ public static class DnsNative {
     [Native("__dns_lookup")]
     public static extern string[] Resolve(string host);
 
-    // STAGE2-DEBT(legacy-net-builtins): 种子的 z42.net 不再调 DnsNative.Lookup / NetTcpNative /
-    // NetTlsNative / UdpNative 后删掉这些旧类（连同 VM 的 `__net_*` builtin 与 corelib/network/legacy/）。
+    // STAGE2-DEBT(legacy-net-decls): 种子的 z42.net 不再调 DnsNative.Lookup / NetTcpNative / NetTlsNative / UdpNative 后删掉这些旧声明。
     /// Returns `[0, string[]]` ok / `[1, msg]` err / `[3]` unsupported.
     [Native("__net_dns_lookup")]
     public static extern object[] Lookup(string host);
 }
 
-// STAGE2-DEBT(legacy-net-builtins): 见 DnsNative.Lookup。
+// 种子兼容（旧形状），删除见 DnsNative.Lookup 处的挂账。
 public static class NetTcpNative {
     [Native("__net_tcp_connect")]
     public static extern object[] Connect(string host, int port);
@@ -199,7 +198,7 @@ public static class NetTcpNative {
     public static extern object[] ListenWithOptions(string host, int port, bool reuseAddr);
 }
 
-// STAGE2-DEBT(legacy-net-builtins): 见 DnsNative.Lookup。
+// 种子兼容（旧形状），删除见 DnsNative.Lookup 处的挂账。
 public static class NetTlsNative {
     // timeoutMs <= 0 → blocking connect + handshake; > 0 bounds both.
     [Native("__net_tls_connect")]
@@ -222,7 +221,7 @@ public static class NetTlsNative {
     public static extern object[] SocketSetWriteTimeout(long slotId, int millis);
 }
 
-// STAGE2-DEBT(legacy-net-builtins): 见 DnsNative.Lookup。
+// 种子兼容（旧形状），删除见 DnsNative.Lookup 处的挂账。
 public static class UdpNative {
     [Native("__net_udp_bind")]
     public static extern object[] Bind(string host, int port);

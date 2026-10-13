@@ -48,10 +48,9 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     ("__process_handle_read_stderr", Native::Val(process_legacy::builtin_process_handle_read_stderr)),
 
     // ── add-z42-net K1 (2026-05-24) — appended to preserve existing BuiltinIds ──
-    // STAGE2-DEBT(legacy-net-builtins): 下面所有 `__net_*`（TCP / UDP / DNS / TLS）返回 `[KIND, …]`
-    // 判别数组，只为已发布种子的 z42.net（经 z42.core 的 NetTcpNative / UdpNative / NetTlsNative /
-    // DnsNative.Lookup）保留；新的是 ABI v2 的 `__tcp_*` / `__udp_*` / `__dns_lookup` / `__tls_*`。
-    // 种子不再声明旧名字后连同 corelib/network/legacy/ 与 tls_legacy.rs 一起删。
+    // STAGE2-DEBT(legacy-net-builtins): 种子的 z42.core 不再声明 `__net_*` 后删掉下面这些表项、corelib/network/legacy/ 与 tls_legacy.rs。
+    // 它们返回 `[KIND, …]` 判别数组，只为已发布种子的 z42.net（经 z42.core 的 NetTcpNative / UdpNative /
+    // NetTlsNative / DnsNative.Lookup）保留；新的是 ABI v2 的 `__tcp_*` / `__udp_*` / `__dns_lookup` / `__tls_*`。
     ("__net_tcp_connect",       Native::Val(network::builtin_net_tcp_connect)),
     ("__net_tcp_listen",        Native::Val(network::builtin_net_tcp_listen)),
     ("__net_tcp_accept",        Native::Val(network::builtin_net_tcp_accept)),

@@ -1,4 +1,4 @@
-//! 旧 `__net_tcp_*` builtin（`[KIND, …]` 判别数组；种子兼容，STAGE2-DEBT(legacy-net-builtins)）——
+//! 旧 `__net_tcp_*` builtin（`[KIND, …]` 判别数组；种子兼容）——
 //! TCP 连接 / 监听 / 收发 / 超时 / 句柄释放（非 wasm32）。refactor-split-network（2026-09-03）：自 `network.rs`
 //! 内联 `mod imp` 逐行搬出；`KIND_*` 等共享定义在 `legacy.rs`（`use super::*`）。新代码见 `network/tcp.rs`。
 

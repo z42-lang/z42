@@ -173,18 +173,13 @@ impl Monitor {
         Ok(())
     }
 
-    /// `wait` 的不阻塞部分：持有检查在 unpark 状态下做（持有者只有本线程能改，检查到
-    /// park 之间状态不会变）；释放 → 等信号 → 重新持有整段 park 运行。
+    /// `wait` 整段 park 运行：持有检查、释放 → 等信号 → 重新持有，一次拿内部锁（与先在
+    /// unpark 状态下单独查一次持有相比，争用的 Channel 少一次内部锁往返）。非持有者的错误
+    /// 是纯 Rust 数据，在 park 中构造无妨。
     pub fn begin_wait(self: &Arc<Self>) -> Result<Blocking<()>, BuiltinError> {
         let me = me();
-        if self.state.lock().owner != Some(me) {
-            return Err(not_held());
-        }
         let m = Arc::clone(self);
-        Ok(Blocking::new(move || {
-            m.release_and_wait(me);
-            Ok(())
-        }))
+        Ok(Blocking::new(move || m.release_and_wait(me)))
     }
 
     pub fn wait(self: &Arc<Self>, ctx: &VmContext) -> Result<(), BuiltinError> {
@@ -192,8 +187,11 @@ impl Monitor {
     }
 
     /// park 状态下运行：原子地释放 → 等一次 `exit` 的信号 → 重新持有。
-    fn release_and_wait(&self, me: ThreadId) {
+    fn release_and_wait(&self, me: ThreadId) -> Result<(), BuiltinError> {
         let mut st = self.state.lock();
+        if st.owner != Some(me) {
+            return Err(not_held());
+        }
         st.owner = None;
         if st.entry_waiters > 0 {
             self.entry_cv.notify_one();
@@ -207,6 +205,7 @@ impl Monitor {
         }
         st.entry_waiters -= 1;
         st.owner = Some(me);
+        Ok(())
     }
 }
 

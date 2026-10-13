@@ -141,8 +141,9 @@ fn begin_enter(self: &Arc<Self>, ctx) -> Result<Blocking<()>, BuiltinError> {
 }
 ```
 
-`wait` 同形：持有检查在 unpark 状态下做（只有持有者本线程能改 `owner`，检查到 park 之间不会变），
-「释放 → 等信号 → 重新持有」整段在闭包里 park 运行。
+`wait` 整段是一个 park 运行的闭包：一次拿内部锁完成「查持有 → 释放 → 等信号 → 重新持有」
+（非持有者的 `SynchronizationLockException` 是纯 Rust 数据，在 park 中构造无妨；先 unpark 单独查一次持有
+会让争用的 Channel 每次 `Wait` 多一次内部锁往返）。
 
 误用的异常按 .NET：同线程重入 → `Std.Threading.LockRecursionException`；非持有者 `Exit` / `Wait` →
 `Std.Threading.SynchronizationLockException`（.NET `Monitor.Exit` 的原文）；句柄不是 Monitor →

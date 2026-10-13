@@ -1,5 +1,5 @@
 #![cfg_attr(target_arch = "wasm32", allow(dead_code, unused_imports))]
-//! 旧 `__net_*` builtin（TCP / UDP / DNS）——**种子兼容**，STAGE2-DEBT(legacy-net-builtins)：
+//! 旧 `__net_*` builtin（TCP / UDP / DNS）——**种子兼容**（删除时机挂在 `builtin_table_ext.rs` 的表项处）：
 //! 已发布种子的 z42.net 经 z42.core 的 `NetTcpNative` / `UdpNative` / `DnsNative.Lookup` 调它们，
 //! 返回 `[KIND, …]` 判别数组，形状不能动；新的 z42.net 调 ABI v2 的 `__tcp_*` / `__udp_*` /
 //! `__dns_lookup`（`network/tcp.rs` / `network/udp.rs`，失败从 Rust 抛）。种子不再声明旧名字后

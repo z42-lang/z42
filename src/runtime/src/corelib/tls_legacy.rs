@@ -1,5 +1,5 @@
 #![cfg_attr(target_arch = "wasm32", allow(dead_code, unused_imports))]
-//! 旧 `__net_tls_*` builtin（`[KIND, …]` 判别数组）——**种子兼容**，STAGE2-DEBT(legacy-net-builtins)：
+//! 旧 `__net_tls_*` builtin（`[KIND, …]` 判别数组）——**种子兼容**（删除时机挂在 `builtin_table_ext.rs` 的表项处）：
 //! 已发布种子的 z42.net 经 z42.core 的 `NetTlsNative` 调它们；新的 z42.net 调 `corelib/tls.rs` 的
 //! `__tls_*`（失败从 Rust 抛）。`TlsSlot` / rustls 配置在 `tls.rs`，句柄表共用。
 //!
