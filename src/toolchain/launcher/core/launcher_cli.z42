@@ -3,7 +3,7 @@
 // 命令分三类：
 //   - launcher 自己实现：run / version / help / publish / export / workload
 //   - 原样转发给工具：build → z42c（目标是 workspace 时 → z42b，按 default_members 逐成员建）；
-//     new / test / bench / clean → z42b；repl → z42i
+//     new / test / bench / clean → z42b；repl → z42i；doc → z42d
 //     （转发命令的参数与帮助由对应工具负责；这里注册只为让 `z42 --help` 列出它们）
 //   - 简写：`z42 <app.zpkg|.zbc|.z42> [-- args]` ≡ `z42 run <app>`（`.z42` = 单文件源码）
 namespace Z42Launcher;
@@ -30,6 +30,7 @@ void _runLauncher(string[] argv) {
         return;
     }
     if (c0 == "repl") { Environment.Exit(_forwardRepl(_tail(argv, 1))); return; }
+    if (c0 == "doc") { Environment.Exit(_forwardZ42d(argv)); return; }
 
     SubcommandRouter root = _launcherRoot();
     CommandResolution res;
@@ -74,6 +75,7 @@ SubcommandRouter _launcherRoot() {
     root.Add("bench", "run the project's benchmarks", _fwdParser("z42 bench", "run the project's benchmarks"));
     root.Add("clean", "remove build output", _fwdParser("z42 clean", "remove build output"));
     root.Add("repl", "start the interactive REPL", _fwdParser("z42 repl", "start the interactive REPL"));
+    root.Add("doc", "look up a symbol: signature, doc comment and file:line", _fwdParser("z42 doc", "look up a symbol: signature, doc comment and file:line"));
 
     // Platform deploy commands take `--rid <rid>` (its category selects the platform).
     ArgParser pub = new ArgParser("z42 publish", "produce a deployable app (--rid selects the platform)");
@@ -154,12 +156,22 @@ int _forwardZ42b(string[] argv) { return _forwardZ42b(argv, "", ""); }
 // free-function-overloads 阶段 2（use）：同名重载（3 参版）——附带一个额外环境变量
 // （publish 用它传预解析的 apphost stub：Z42_APPHOST_TEMPLATE）。此前因不支持重载分名 _forwardZ42bEnv。
 int _forwardZ42b(string[] argv, string extraKey, string extraVal) {
-    string builder = Path.Join(_home(), "programs/z42b/z42.builder.zpkg");
-    if (!File.Exists(builder)) {
-        ConsoleError.WriteLine("z42: z42b not found at " + builder + " — reinstall z42");
+    return _forwardProgram("z42b", "programs/z42b/z42.builder.zpkg", argv, extraKey, extraVal);
+}
+
+// doc → z42d：`z42vm programs/z42d/z42.devtools.zpkg -- doc <args>`，继承 stdio 与退出码。
+int _forwardZ42d(string[] argv) {
+    return _forwardProgram("z42d", "programs/z42d/z42.devtools.zpkg", argv, "", "");
+}
+
+// 跑 SDK 里的一个工具程序（`<home>/<rel>`），argv 原样透传。
+int _forwardProgram(string tool, string rel, string[] argv, string extraKey, string extraVal) {
+    string zpkg = Path.Join(_home(), rel);
+    if (!File.Exists(zpkg)) {
+        ConsoleError.WriteLine("z42: " + tool + " not found at " + zpkg + " — reinstall z42");
         return 2;
     }
-    Process proc = new Process(_sdkVm()).Arg(builder).Arg("--")
+    Process proc = new Process(_sdkVm()).Arg(zpkg).Arg("--")
         .Stdin(Stdio.Inherit()).Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit());
     int i = 0;
     while (i < argv.Length) { proc = proc.Arg(argv[i]); i = i + 1; }

@@ -1,0 +1,152 @@
+// z42.doc 查询单测：名字解析顺序、成员轮廓、搜索、源码树发现、增量缓存，以及示例工程上的端到端查询。
+namespace Z42DocQueryTests;
+
+using Std.IO;
+using Z42.Doc;
+using Std.Harness;
+
+// 字符串断言：不等时把两边原样报出来（多行输出逐字对比）。
+void _eq(string expected, string actual) {
+    if (expected != actual) { Assert.Fail("expected <" + expected + ">\n     got <" + actual + ">"); }
+}
+
+DocIndex _index(string src) {
+    DocIndex ix = new DocIndex();
+    ix.AddAll(SyntaxIndexer.IndexSource(src, "a.z42"));
+    return ix;
+}
+
+string _ids(DocItem[] items) {
+    string s = "";
+    int i = 0;
+    while (i < items.Length) { if (i > 0) { s = s + " | "; } s = s + items[i].Id; i = i + 1; }
+    return s;
+}
+
+string _src() {
+    return "namespace App;\n"
+        + "/// 随机数，可 shuffle。\npublic class Random {\n"
+        + "    /// 区间整数。\n    public int NextIntRange(int min, int max) { return min; }\n"
+        + "    public int NextIntRange(long min) { return 0; }\n"
+        + "    /// 洗牌。\n    public void Shuffle(int[] a) { }\n"
+        + "    private int _state;\n"
+        + "}\n"
+        + "public class Other { public void Shuffle() { } }\n";
+}
+
+[Test]
+void test_find_resolution_order() {
+    DocIndex ix = _index(_src());
+    // 1. 完整 Id；2. 限定名后缀（重载一起返回）；3. 忽略大小写；4. 短名包含。
+    _eq("App.Random.NextIntRange(int,int)", _ids(ix.Find("App.Random.NextIntRange(int,int)")));
+    _eq("App.Random.NextIntRange(int,int) | App.Random.NextIntRange(long)", _ids(ix.Find("Random.NextIntRange")));
+    _eq("App.Random.NextIntRange(long)", _ids(ix.Find("NextIntRange(long)")));
+    _eq("App.Random.Shuffle(int[]) | App.Other.Shuffle()", _ids(ix.Find("Shuffle")));
+    _eq("App.Random", _ids(ix.Find("random")));
+    _eq("App.Random.NextIntRange(int,int) | App.Random.NextIntRange(long)", _ids(ix.Find("intrange")));
+    _eq("", _ids(ix.Find("Nope")));
+    // 后缀匹配只认整段：`andom` 不命中 `Random`（落到第 4 级的短名包含）。
+    _eq("App.Random", _ids(ix.Find("andom")));
+}
+
+[Test]
+void test_members_and_search() {
+    DocIndex ix = _index(_src());
+    _eq("App.Random.NextIntRange(int,int) | App.Random.NextIntRange(long) | App.Random.Shuffle(int[]) | App.Random._state",
+        _ids(ix.Members("App.Random")));
+    // 名字命中排在摘要命中前面。
+    _eq("App.Random.Shuffle(int[]) | App.Other.Shuffle() | App.Random", _ids(ix.Search("shuffle")));
+    _eq("App.Random.NextIntRange(int,int)", _ids(ix.Search("区间")));
+}
+
+[Test]
+void test_format_outline_and_show() {
+    DocIndex ix = _index(_src());
+    DocItem head = ix.Find("App.Random")[0];
+    DocItem[] ms = ix.Members("App.Random");
+    string outl = DocFormat.Outline(head, ms);
+    _eq("class App.Random    a.z42:3\n"
+        + "  随机数，可 shuffle。\n"
+        + "  +int NextIntRange(int min, int max)  区间整数。  :5\n"
+        + "  +int NextIntRange(long min)          :6\n"
+        + "  +void Shuffle(int[] a)               洗牌。  :8\n"
+        + "  -int _state                          :9\n", outl);
+    _eq("public void Shuffle(int[] a)    App.Random\n  洗牌。\n  @ a.z42:8\n",
+        DocFormat.Show(ix.Find("Random.Shuffle")[0]));
+}
+
+[Test]
+void test_query_on_temp_tree_with_cache() {
+    string root = Directory.CreateTempDir("z42doc");
+    Directory.Create(Path.Join(root, "lib/src"));
+    Directory.Create(Path.Join(root, "lib/tests"));
+    File.WriteAllText(Path.Join(root, "lib/mylib.z42.toml"), "[project]\nname = \"mylib\"\n");
+    File.WriteAllText(Path.Join(root, "lib/src/A.z42"), "namespace L;\n/// 甲。\npublic class A { public void M() { } }\n");
+    File.WriteAllText(Path.Join(root, "lib/tests/t.z42"), "namespace T;\npublic class Hidden { }\n");
+    File.WriteAllText(Path.Join(root, "loose.z42"), "namespace Loose;\npublic class B { }\n");
+    // 名叫 `z42.toml` 的**目录**不是工程清单（stdlib 的 TOML 包目录就叫这个）。
+    Directory.Create(Path.Join(root, "z42.toml/src"));
+    File.WriteAllText(Path.Join(root, "z42.toml/src/T.z42"), "namespace Tm;\npublic class TomlThing { }\n");
+
+    SourceFile[] files = SourceTree.Collect(root);
+    Assert.Equal(3, files.Length);                    // tests/ 被跳过
+    _eq("lib/src/A.z42", files[0].Rel);
+    _eq("mylib", files[0].Pkg);
+    _eq("loose.z42", files[1].Rel);
+    _eq("", files[1].Pkg);
+    _eq("z42.toml/src/T.z42", files[2].Rel);
+    _eq("", files[2].Pkg);
+
+    string cache = Path.Join(root, "cache/index.idx");
+    DocQueryOptions o = new DocQueryOptions();
+    o.Root = root; o.CachePath = cache; o.Query = "A";
+    DocQueryResult r = DocQuery.Run(o);
+    Assert.Equal(0, r.Exit);
+    _eq("public class A    L\n  甲。\n  @ lib/src/A.z42:3\n", r.Out);
+    Assert.True(File.Exists(cache));
+
+    // 改源码后再查：缓存里该文件失效、重新解析，新符号立即可查。
+    File.WriteAllText(Path.Join(root, "lib/src/A.z42"), "namespace L;\n/// 乙。\npublic class A { public void N() { } }\n");
+    o.Query = "A.N";
+    Assert.Equal(0, DocQuery.Run(o).Exit);
+    o.Query = "A.M";
+    Assert.Equal(1, DocQuery.Run(o).Exit);
+
+    // --pkg 过滤；命名空间轮廓（没写 //! 也能查）。
+    o.Query = "B"; o.Pkg = "mylib";
+    Assert.Equal(1, DocQuery.Run(o).Exit);
+    o.Pkg = ""; o.Query = "L";
+    _eq("namespace L\n  +class A  乙。  lib/src/A.z42:3\n", DocQuery.Run(o).Out);
+    Directory.Delete(root, true);
+}
+
+[Test]
+void test_query_errors() {
+    DocQueryOptions o = new DocQueryOptions();
+    Assert.Equal(2, DocQuery.Run(o).Exit);   // 没给名字也没给 --search
+}
+
+[Test]
+void test_sample_project() {
+    // 示例工程（tests/fixtures/sample）：从仓库根定位，演示一次完整的查询。
+    string repo = SourceTree.FindRoot(Environment.GetCurrentDirectory());
+    string root = Path.Join(repo, "src/compiler/z42.doc/tests/fixtures/sample");
+    DocQueryOptions o = new DocQueryOptions();
+    o.Root = root;
+    o.Query = "Circle"; o.Members = true;
+    _eq("class Sample.Shapes.Circle    src/Shapes/Shape.z42:13\n"
+        + "  圆。\n"
+        + "  +double Radius           半径，不小于 0。  :15\n"
+        + "  +Circle(double radius)   用半径构造。  :19\n"
+        + "  +double Area()           返回面积 πr²。  :22\n"
+        + "  +Circle Scale(double k)  按比例缩放半径。  :25\n"
+        + "  +Circle Scale(int k)     按整数倍缩放（重载）。  :28\n", DocQuery.Run(o).Out);
+    o.Members = false; o.Query = "Sample.Shapes";
+    _eq("namespace Sample.Shapes    src/Shapes/Shape.z42:1\n"
+        + "  二维图形：面积、周长与缩放。\n"
+        + "  +interface IShape                      图形的公共接口。  :7\n"
+        + "  +class Circle : IShape                 圆。  :13\n"
+        + "  +enum Kind                             图形种类。  :35\n"
+        + "  +double TotalArea(IShape a, IShape b)  两个图形的面积和。  :42\n"
+        + "  +class Square : IShape                 正方形。  src/Shapes/Square.z42:4\n", DocQuery.Run(o).Out);
+}

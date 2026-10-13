@@ -1,0 +1,126 @@
+// 声明 → 单行签名文本（按源码写法：修饰符 + 类型 + 名字 + 参数表）。只用 AST，不读源码文本。
+namespace Z42.Doc;
+
+using Z42.Syntax;
+
+public static class DocSig {
+    public static string Class(ClassDecl c) {
+        string s = DocSig._mods(c.Mods) + c.Kind + " " + c.Name + c.TypeParams.Dump();
+        if (c.BaseCount > 0) {
+            s = s + " : ";
+            int i = 0;
+            while (i < c.BaseCount) { if (i > 0) { s = s + ", "; } s = s + c.Bases[i].Dump(); i = i + 1; }
+        }
+        return s + DocSig._wheres(c.Wheres, c.WhereCount);
+    }
+
+    public static string Enum(EnumDecl e) {
+        string s = DocSig._mods(e.Mods) + "enum " + e.Name;
+        if (e.HasBase) { s = s + " : " + e.Base.Dump(); }
+        return s;
+    }
+
+    public static string EnumMember(EnumMember m) {
+        if (m.HasValue) { return m.Name + " = " + m.Value; }
+        return m.Name;
+    }
+
+    public static string Delegate(DelegateDecl d) {
+        return DocSig._mods(d.Mods) + "delegate " + d.RetType.Dump() + " " + d.Name + d.TypeParams.Dump()
+            + "(" + DocSig.Params(d.Params, d.ParamCount) + ")" + DocSig._wheres(d.Wheres, d.WhereCount);
+    }
+
+    public static string Method(MethodDecl m) {
+        string s = DocSig._mods(m.Mods);
+        if (!m.IsCtor) { s = s + m.RetType.Dump() + " "; }
+        return s + m.Name + m.TypeParams.Dump() + "(" + DocSig.Params(m.Params, m.ParamCount) + ")"
+            + DocSig._wheres(m.Wheres, m.WhereCount);
+    }
+
+    public static string Field(FieldDecl f) {
+        return DocSig._mods(f.Mods) + f.Type.Dump() + " " + f.Name;
+    }
+
+    public static string Property(PropertyDecl p) {
+        string acc = "";
+        if (p.HasGet || p.HasGetBody) { acc = acc + DocSig._mods(p.GetMods) + "get; "; }
+        if (p.HasSet || p.HasSetBody) { acc = acc + DocSig._mods(p.SetMods) + "set; "; }
+        return DocSig._mods(p.Mods) + p.Type.Dump() + " " + p.Name + " { " + acc + "}";
+    }
+
+    public static string Indexer(IndexerDecl x) {
+        string acc = "";
+        if (x.HasGet) { acc = acc + "get; "; }
+        if (x.HasSet) { acc = acc + "set; "; }
+        return DocSig._mods(x.Mods) + x.RetType.Dump() + " this[" + DocSig.Params(x.Params, x.ParamCount) + "] { " + acc + "}";
+    }
+
+    public static string AssocType(AssocTypeDecl a) {
+        if (a.HasBound) { return "type " + a.Name + " = " + a.Bound.Dump(); }
+        return "type " + a.Name;
+    }
+
+    // 参数表：`ref int a, params string[] rest, int n = 5`。
+    public static string Params(Param[] ps, int n) {
+        string s = "";
+        int i = 0;
+        while (i < n) {
+            if (i > 0) { s = s + ", "; }
+            Param p = ps[i];
+            if (p.IsRef)    { s = s + "ref "; }
+            if (p.IsParams) { s = s + "params "; }
+            s = s + p.Type.Dump() + " " + p.Name;
+            if (p.Default != null) { s = s + " = " + DocSig.DefaultText(p.Default); }
+            i = i + 1;
+        }
+        return s;
+    }
+
+    // 默认值按源码写法：字面量、负数字面量、名字与 `A.B` 成员链原样写出，其余（表达式）记 `…`。
+    public static string DefaultText(Expr e) {
+        if (e is IntLitExpr || e is FloatLitExpr || e is StringLitExpr || e is BoolLitExpr || e is NullLitExpr) { return e.Dump(); }
+        if (e is CharLitExpr) {
+            char c = (e as CharLitExpr).Value;
+            if (c == '\n') { return "'\\n'"; }
+            if (c == '\t') { return "'\\t'"; }
+            if (c == '\'') { return "'\\''"; }
+            if (c == '\\') { return "'\\\\'"; }
+            return "'" + c.ToString() + "'";
+        }
+        if (e is UnaryExpr) {
+            UnaryExpr u = e as UnaryExpr;
+            if (u.Op == "-" && (u.Operand is IntLitExpr || u.Operand is FloatLitExpr)) { return "-" + u.Operand.Dump(); }
+        }
+        if (e is IdentExpr) { return (e as IdentExpr).Name; }
+        if (e is MemberExpr) {
+            MemberExpr m = e as MemberExpr;
+            string t = DocSig.DefaultText(m.Target);
+            if (t != "…") { return t + "." + m.Name; }
+        }
+        return "…";
+    }
+
+    // Doc ID 里的参数类型表：`int,string[]`（不含名字、修饰符、默认值）。
+    public static string ParamTypes(Param[] ps, int n) {
+        string s = "";
+        int i = 0;
+        while (i < n) {
+            if (i > 0) { s = s + ","; }
+            s = s + ps[i].Type.Dump();
+            i = i + 1;
+        }
+        return s;
+    }
+
+    private static string _mods(string mods) {
+        if (mods.Length == 0) { return ""; }
+        return mods + " ";
+    }
+
+    private static string _wheres(WhereClause[] ws, int n) {
+        string s = "";
+        int i = 0;
+        while (i < n) { s = s + " " + ws[i].Dump(); i = i + 1; }
+        return s;
+    }
+}

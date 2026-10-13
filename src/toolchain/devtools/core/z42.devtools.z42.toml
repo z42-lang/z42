@@ -3,11 +3,9 @@
 # `fmt` / `doc` / `dbg` / `prof` / `lint`. Mirrors z42b (builder): one exe, one
 # router, launcher forwards `z42 fmt` → `z42d fmt`.
 #
-# SCOPE (scaffold): command face only. Every subcommand prints "planned" — the
-# real engines land per roadmap (fmt 0.2.4→0.4.x, doc 0.4.6, prof 0.4.4,
-# lint 0.7.x, dbg/DAP 0.8.x). Registered in packages.toml ([component.z42d],
-# 2026-07-01) and shipped in the SDK package as a placeholder binary — each
-# subcommand still just prints "planned" until its engine lands. See README.md.
+# Implemented: doc / symbolicate / install. fmt / dbg / prof / lint only
+# register their command face and print "planned" until their engines land
+# (see README.md). Shipped in the SDK via packages.toml [component.z42d].
 [project]
 name    = "z42.devtools"
 version = "0.1.0"
@@ -15,10 +13,12 @@ kind    = "exe"
 pack    = true
 
 [sources]
-include = ["devtools_cli.z42", "symbolicate.z42", "editor_install.z42"]
+include = ["devtools_cli.z42", "symbolicate.z42", "editor_install.z42", "doc_cmd.z42"]
 
 [dependencies]
 "z42.package"   = { version = "0.1.0", deploy = "shared" }   # SidecarReader (.zsym) + IrLineEntry (add-offline-symbolication)（SDK 库：不复制）
+"z42.doc"       = { path = "../../../compiler/z42.doc" }   # `z42d doc` 的索引与查询引擎。编译器 driver 不依赖它（SDK 的 programs/z42c 里没有、driver dist 里也解析不到）⇒ path 依赖由 z42c 代建，并复制进本程序
+"z42.project"   = { version = "0.1.0", deploy = "shared" }   # UserCache：文档索引的缓存位置（SDK 库：不复制）
 
 [build]
 # 产物落共享 artifacts 树：artifacts/build/toolchain/devtools/{dist,.cache,publish}

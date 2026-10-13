@@ -1,0 +1,8 @@
+# z42.doc 单测的示例工程：演示 doc 注释的写法，也是 `z42 doc` 查询的夹具。
+[project]
+name    = "sample"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["src/**/*.z42"]

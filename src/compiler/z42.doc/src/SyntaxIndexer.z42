@@ -1,0 +1,156 @@
+// 语法级索引：只解析不做语义分析，从一个源文件的 AST 里取出全部声明（含私有成员）及其签名、
+// doc 原文、行号。足够快，改完代码立即可查；参数类型按源码写法记，不做全限定。
+namespace Z42.Doc;
+
+using Z42.Syntax;
+
+public sealed class SyntaxIndexer {
+    private DocItem[] _items;
+    private int       _count;
+    private string    _ns;
+
+    public SyntaxIndexer() { this._items = new DocItem[16]; this._count = 0; this._ns = ""; }
+
+    public int     Count()     { return this._count; }
+    public DocItem At(int i)   { return this._items[i]; }
+
+    // 一个源文件 → 条目（追加到本索引器）。file 是写进条目的相对路径。
+    public static DocItem[] IndexSource(string src, string file) {
+        SyntaxIndexer ix = new SyntaxIndexer();
+        Parser p = new Parser(src, file);
+        CompilationUnit cu = p.ParseCompilationUnit();
+        ix.AddUnit(cu);
+        DocItem[] r = new DocItem[ix._count];
+        Array.Copy(ix._items, r, ix._count);
+        int i = 0;
+        while (i < r.Length) { r[i].File = file; i = i + 1; }
+        return r;
+    }
+
+    public void AddUnit(CompilationUnit cu) {
+        this._ns = cu.HasNamespace ? cu.Namespace : "";
+        if (cu.Doc != null && this._ns.Length > 0) {
+            this._add(new DocItem(this._ns, DocKind.Namespace, this._ns, "", "namespace " + this._ns,
+                cu.Doc.Span.Line, "public", cu.Doc.Text));
+        }
+        int i = 0;
+        while (i < cu.DeclCount) { this._decl(cu.Decls[i], this._ns, true, false); i = i + 1; }
+    }
+
+    // parent = 所属条目的 Id；top = 是否命名空间级（决定默认可见性）；inIface = 接口成员（默认 public）。
+    private void _decl(Decl d0, string parent, bool top, bool inIface) {
+        Decl d = d0;
+        if (d is AttributedDecl) { d = (d as AttributedDecl).Inner; }
+        string doc = (d.Doc == null) ? "" : d.Doc.Text;
+        int line = d.Span.Line;
+        if (d is ClassDecl) {
+            ClassDecl c = d as ClassDecl;
+            string id = SyntaxIndexer._typeId(parent, top, c.Name) + c.TypeParams.Dump();
+            this._add(new DocItem(id, c.Kind, c.Name, parent, DocSig.Class(c), line,
+                SyntaxIndexer._vis(c.Mods, top, inIface), doc));
+            bool iface = c.Kind == "interface";
+            int i = 0;
+            while (i < c.MemberCount) { this._decl(c.Members[i], id, false, iface); i = i + 1; }
+            return;
+        }
+        if (d is EnumDecl) {
+            EnumDecl e = d as EnumDecl;
+            string eid = SyntaxIndexer._typeId(parent, top, e.Name);
+            string evis = SyntaxIndexer._vis(e.Mods, top, inIface);
+            this._add(new DocItem(eid, DocKind.Enum, e.Name, parent, DocSig.Enum(e), line, evis, doc));
+            int j = 0;
+            while (j < e.MemberCount) {
+                EnumMember m = e.Members[j];
+                string mdoc = (m.Doc == null) ? "" : m.Doc.Text;
+                this._add(new DocItem(eid + "." + m.Name, DocKind.EnumMember, m.Name, eid, DocSig.EnumMember(m),
+                    m.Span.Line, evis, mdoc));
+                j = j + 1;
+            }
+            return;
+        }
+        if (d is DelegateDecl) {
+            DelegateDecl dg = d as DelegateDecl;
+            string did = SyntaxIndexer._typeId(parent, top, dg.Name) + dg.TypeParams.Dump();
+            this._add(new DocItem(did, DocKind.Delegate, dg.Name, parent, DocSig.Delegate(dg), line,
+                SyntaxIndexer._vis(dg.Mods, top, inIface), doc));
+            return;
+        }
+        if (d is ImplDecl) {
+            // impl 块的方法并入目标类型：目标写短名时按本文件命名空间补全。
+            ImplDecl im = d as ImplDecl;
+            string target = im.TargetType.Dump();
+            if (target.IndexOf(".") < 0 && this._ns.Length > 0) { target = this._ns + "." + target; }
+            int k = 0;
+            while (k < im.MethodCount) { this._decl(im.Methods[k], target, false, true); k = k + 1; }
+            return;
+        }
+        if (d is MethodDecl) {
+            MethodDecl md = d as MethodDecl;
+            string kind = md.IsCtor ? DocKind.Ctor : (md.IsFree ? DocKind.Func : DocKind.Method);
+            string head = md.IsCtor ? "ctor" : md.Name + md.TypeParams.Dump();
+            string mid = SyntaxIndexer._join(parent, head) + "(" + DocSig.ParamTypes(md.Params, md.ParamCount) + ")";
+            this._add(new DocItem(mid, kind, md.Name, parent, DocSig.Method(md), line,
+                SyntaxIndexer._vis(md.Mods, md.IsFree, inIface), doc));
+            return;
+        }
+        if (d is FieldDecl) {
+            FieldDecl f = d as FieldDecl;
+            this._add(new DocItem(SyntaxIndexer._join(parent, f.Name), DocKind.Field, f.Name, parent,
+                DocSig.Field(f), line, SyntaxIndexer._vis(f.Mods, false, inIface), doc));
+            return;
+        }
+        if (d is PropertyDecl) {
+            PropertyDecl pr = d as PropertyDecl;
+            this._add(new DocItem(SyntaxIndexer._join(parent, pr.Name), DocKind.Property, pr.Name, parent,
+                DocSig.Property(pr), line, SyntaxIndexer._vis(pr.Mods, false, inIface), doc));
+            return;
+        }
+        if (d is IndexerDecl) {
+            IndexerDecl ix = d as IndexerDecl;
+            string xid = SyntaxIndexer._join(parent, "this") + "[" + DocSig.ParamTypes(ix.Params, ix.ParamCount) + "]";
+            this._add(new DocItem(xid, DocKind.Indexer, "this", parent, DocSig.Indexer(ix), line,
+                SyntaxIndexer._vis(ix.Mods, false, inIface), doc));
+            return;
+        }
+        if (d is AssocTypeDecl) {
+            AssocTypeDecl at = d as AssocTypeDecl;
+            this._add(new DocItem(SyntaxIndexer._join(parent, at.Name), DocKind.AssocType, at.Name, parent,
+                DocSig.AssocType(at), line, SyntaxIndexer._vis(at.Mods, false, true), doc));
+            return;
+        }
+        // using / using 别名：不是可查的符号
+    }
+
+    // 类型的 Id：顶层 = `Ns.Name`，嵌套 = `Outer+Inner`（与编译器展平嵌套类型的命名一致）。
+    private static string _typeId(string parent, bool top, string name) {
+        if (top) { return SyntaxIndexer._join(parent, name); }
+        return parent + "+" + name;
+    }
+
+    private static string _join(string parent, string name) {
+        if (parent.Length == 0) { return name; }
+        return parent + "." + name;
+    }
+
+    // 显式访问修饰符优先；否则接口成员 public、命名空间级 internal、类成员 private。
+    private static string _vis(string mods, bool top, bool inIface) {
+        int f = Mod.Parse(mods);
+        if (Mod.Has(f, Mod.Public))    { return "public"; }
+        if (Mod.Has(f, Mod.Protected)) { return "protected"; }
+        if (Mod.Has(f, Mod.Internal))  { return "internal"; }
+        if (Mod.Has(f, Mod.Private))   { return "private"; }
+        if (inIface) { return "public"; }
+        if (top)     { return "internal"; }
+        return "private";
+    }
+
+    private void _add(DocItem it) {
+        if (this._count == this._items.Length) {
+            DocItem[] n = new DocItem[this._items.Length * 2];
+            Array.Copy(this._items, n, this._count);
+            this._items = n;
+        }
+        this._items[this._count] = it;
+        this._count = this._count + 1;
+    }
+}

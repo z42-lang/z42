@@ -1,0 +1,12 @@
+# z42.doc — 文档索引与查询（`z42 doc` 的引擎）：从源码的 doc 注释建符号索引，按名字查签名、文档与位置。
+[project]
+name    = "z42.doc"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["src/**/*.z42"]
+
+[dependencies]
+"z42c.core"   = "0.1.0"
+"z42c.syntax" = "0.1.0"

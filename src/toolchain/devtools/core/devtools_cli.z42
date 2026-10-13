@@ -1,9 +1,7 @@
 // z42d CLI 路由 —— Std.Cli 嵌套 router（对照 builder_cli.z42 / launcher_cli.z42）。
 //
-// SCOPE（scaffold）：本编译单元只**登记命令面**——fmt / doc / dbg / prof / lint
-// 五个子命令的名字、help、占位参数已就位，dispatch 一律打 "planned"。各工具的真正
-// 引擎按 roadmap 分期落地（fmt → doc → prof → lint → dbg）。本包未登记进
-// workspace / xtask / CI，惰性占位，不影响任何现有构建（同 PARKED 的 builder）。
+// 已实现：doc / symbolicate / install。fmt / dbg / prof / lint 只登记了命令面，dispatch 打 "planned"，
+// 引擎按 roadmap 分期落地。
 namespace Z42Devtools;
 
 using Std.IO;
@@ -39,10 +37,16 @@ SubcommandRouter _devtoolsRoot() {
     fmt.AddOptionalPositional("path", "file or directory (default: current dir)");
     root.Add("fmt", "format z42 source files", fmt);
 
-    // doc — doc-comment → site generator（planned；roadmap 0.4.6，原独立 z42-doc）。
-    ArgParser doc = new ArgParser("z42d doc", "generate API docs from doc comments (planned)");
-    doc.AddOptionalPositional("project", "<project.z42.toml>");
-    root.Add("doc", "generate documentation", doc);
+    // doc — 符号查询：签名、doc 注释、file:line（引擎在 z42.doc）。
+    ArgParser doc = new ArgParser("z42d doc", "look up a symbol: signature, doc comment and file:line");
+    doc.AddOptionalPositional("symbol", "Doc ID, qualified-name suffix (Random.NextIntRange) or short name");
+    doc.AddFlag("members", "m", "outline a type or namespace: one line per member");
+    doc.AddOption("search", "s", "search names and summaries instead of resolving a symbol", "");
+    doc.AddFlag("private", "", "include private members in outlines and search results");
+    doc.AddOption("pkg", "", "only index this package", "");
+    doc.AddOption("root", "", "index root (default: enclosing git repository, else nearest project)", "");
+    doc.AddFlag("json", "", "print matching entries as JSON");
+    root.Add("doc", "look up symbols and their documentation", doc);
 
     // dbg — debugger（planned；前端在本目录 + VM 断点/单步钩子住 runtime/，DAP 0.8.x）。
     ArgParser dbg = new ArgParser("z42d dbg", "debug a z42 program (planned)");
@@ -90,6 +94,7 @@ int _dispatchDevtools(CommandResolution res) {
         string[] syms = pr.GetRepeatedOption("syms");
         return Symbolicate.Run(trace, syms, syms.Length);
     }
+    if (top == "doc") { return DocCommand.Run(res.Result()); }
     // install — 编辑器集成（unify-editor-install）。
     if (top == "install") {
         return EditorInstall.Run(res.Result().GetPositional(0));

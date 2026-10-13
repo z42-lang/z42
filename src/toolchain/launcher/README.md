@@ -3,7 +3,7 @@
 ## 职责
 
 SDK 的唯一命令入口 `z42`：新建 / 构建 / 运行 / 测试工程、发布应用、管理平台 workload。
-`build` 转发 z42c，`new` / `test` / `bench` / `clean` 转发 z42b，`repl` 转发 z42i；其余在这里实现。
+`build` 转发 z42c，`new` / `test` / `bench` / `clean` 转发 z42b，`repl` 转发 z42i，`doc` 转发 z42d；其余在这里实现。
 不管理多个运行时版本（SDK 单版本，运行应用用同址 `bin/z42vm`），不做自更新（由安装脚本负责）。
 
 `z42` 本身是通用 apphost stub（`src/toolchain/workload/desktop/platform/apphost`），打包时 patch 成
@@ -13,7 +13,7 @@ payload=`programs/launcher/launcher.zpkg`；本目录只有 launcher 核心的 z
 
 | 功能 | 入口 / 文件 |
 |------|-----------|
-| 命令树、路由、转发 z42b / z42c / z42i、`help` | `core/launcher_cli.z42` 的 `_runLauncher` / `_launcherRoot` |
+| 命令树、路由、转发 z42b / z42c / z42i / z42d、`help` | `core/launcher_cli.z42` 的 `_runLauncher` / `_launcherRoot` |
 | SDK 布局解析（`_home` / `_sdkVm` / `_sdkLibs` / `_sdkBin`） | `core/launcher.z42` |
 | `run`（定位工程 → `z42c build --quiet` → 按 `BuildLayout` 找产物 → z42vm） | `core/launcher.z42` 的 `_cmdRun` |
 | `version` | `core/launcher.z42` 的 `_cmdVersion` |

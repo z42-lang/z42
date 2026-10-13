@@ -6,14 +6,15 @@
 
 | 子命令 | 职责 |
 |--------|------|
+| `doc` | 按名字查符号：签名、doc 注释、`file:line`（`z42 doc` 转发到这里；引擎在 `z42.doc`）|
 | `symbolicate` | 离线还原剥离档崩溃栈（`at <fn> +0x<off>` + `.zsym` → `file:line:col`）|
 | `install` | 把 SDK 自带的编辑器集成装进用户编辑器（`z42d install vscode`）|
 
-待办：`fmt`（源码格式化）、`doc`（doc comment → 文档站点）、`dbg`（调试器 / DAP）、`prof`（性能剖析）、
-`lint`（静态检查）五个子命令已登记命令面，运行时只打印 "planned" 并返回 1；时点见 `docs/roadmap.md`。
+待办：`fmt`（源码格式化）、`dbg`（调试器 / DAP）、`prof`（性能剖析）、`lint`（静态检查）四个子命令已登记命令面，
+运行时只打印 "planned" 并返回 1；时点见 `docs/roadmap.md`。
 
 形态对照 z42b（builder）：**一个 exe + 一个 Std.Cli 嵌套 router**，launcher 命令分发
-（`z42 fmt` → `z42d fmt`，同 `z42 test` → `z42b`）。
+（`z42 doc` → `z42d doc`，同 `z42 test` → `z42b`）。
 
 ```
 src/toolchain/devtools/core/*.z42  →  z42.devtools.zpkg  →  apphost z42d
@@ -65,18 +66,22 @@ xtask check vscode-syntax    # 编辑器 grammar 一致性
 ## 关联文档
 
 - 编辑器集成：[editor-integration.md](../../../docs/internals/src/toolchain/editor-integration.md)；`.zsym` 格式：[zpkg.md](../../../docs/internals/src/formats/zpkg.md)
+- `doc`：[文档索引与 `z42 doc`](../../../docs/internals/src/toolchain/doc.md)
 
 ## 核心文件（`core/`）
 
 | 文件 | 职责 |
 |------|------|
 | `core/devtools_cli.z42` | **CLI 路由**（对照 `builder_cli.z42`）：`Std.Cli` 嵌套 router 登记全部子命令（每层 `-h`）+ dispatch |
+| `core/doc_cmd.z42` | `z42d doc`：命令行 → `DocQueryOptions`，定索引根与缓存路径，打印 `DocQuery.Run` 的结果 |
 | `core/symbolicate.z42` | **离线符号化引擎**：读崩溃栈 + `.zsym`（多目录递归）→ `SidecarReader` 建 frame-name→行表 索引 → `+0x<off>` 解包(block<<16\|instr) → `file:line:col` |
 | `core/editor_install.z42` | `z42d install <target>`：把 `<sdk>/editors/vscode/` 拷到 `~/.vscode/extensions/z42.z42-lang/` |
-| `core/z42.devtools.z42.toml` | 包清单（exe / pack / apphost；依赖 z42.core/io/cli/**ir**）|
+| `core/z42.devtools.z42.toml` | 包清单（exe / pack / apphost；依赖 z42.package / z42.project，path 依赖 z42.doc）|
 | `vscode/` | VSCode 编辑器资产包（见其 README）|
 
 ## 依赖关系
 
-- 依赖 `z42.core` / `z42.io` / `z42.cli`（命令面）与 `z42.package`（`.zsym` 读取）。
+- 依赖 `z42.core` / `z42.io` / `z42.cli`（命令面）、`z42.package`（`.zsym` 读取）、`z42.project`（用户缓存根）与
+  `z42.doc`（path 依赖，连同 `z42c.syntax` / `z42c.core` 复制进 `programs/z42d`：编译器 driver 不依赖它，
+  SDK 的 `programs/z42c` 里没有）。
 - 被 launcher 命令分发调用。

@@ -1,0 +1,119 @@
+// z42.doc 语法级索引单测：Doc ID、签名、可见性、doc 原文与摘要。
+namespace Z42DocIndexTests;
+
+using Z42.Doc;
+using Std.Harness;
+
+// 字符串断言：不等时把两边原样报出来（多行输出逐字对比）。
+void _eq(string expected, string actual) {
+    if (expected != actual) { Assert.Fail("expected <" + expected + ">\n     got <" + actual + ">"); }
+}
+
+DocItem _find(DocItem[] items, string id) {
+    int i = 0;
+    while (i < items.Length) { if (items[i].Id == id) { return items[i]; } i = i + 1; }
+    Assert.Fail("no item with id " + id);
+    return null;
+}
+
+[Test]
+void test_ids_and_kinds() {
+    string src = "namespace App;\n"
+        + "public class Box<T> {\n"
+        + "    public T Value;\n"
+        + "    public int Count { get; set; }\n"
+        + "    public Box(T v) { }\n"
+        + "    public T Get(int i, string[] tags) { return this.Value; }\n"
+        + "    public T this[int i] { get { return this.Value; } }\n"
+        + "    class Inner { void M() { } }\n"
+        + "}\n"
+        + "enum Color { Red, Green = 2 }\n"
+        + "delegate int Op(int a, int b);\n"
+        + "int Free(double x) { return 0; }\n";
+    DocItem[] it = SyntaxIndexer.IndexSource(src, "src/App.z42");
+    _eq("class", _find(it, "App.Box<T>").Kind);
+    _eq("field", _find(it, "App.Box<T>.Value").Kind);
+    _eq("property", _find(it, "App.Box<T>.Count").Kind);
+    _eq("ctor", _find(it, "App.Box<T>.ctor(T)").Kind);
+    _eq("method", _find(it, "App.Box<T>.Get(int,string[])").Kind);
+    _eq("indexer", _find(it, "App.Box<T>.this[int]").Kind);
+    _eq("class", _find(it, "App.Box<T>+Inner").Kind);
+    _eq("method", _find(it, "App.Box<T>+Inner.M()").Kind);
+    _eq("enum-member", _find(it, "App.Color.Green").Kind);
+    _eq("delegate", _find(it, "App.Op").Kind);
+    _eq("func", _find(it, "App.Free(double)").Kind);
+    _eq("App.Box<T>", _find(it, "App.Box<T>.Get(int,string[])").Parent);
+    _eq("src/App.z42", _find(it, "App.Free(double)").File);
+    Assert.Equal(12, _find(it, "App.Free(double)").Line);
+}
+
+[Test]
+void test_signatures() {
+    string src = "namespace App;\n"
+        + "public sealed class C<T> : Base, IThing where T : new() {\n"
+        + "    public static int Add(ref int a, params int[] rest) { return 0; }\n"
+        + "    public string Pad(string s, int n = 5, char c = ' ') { return s; }\n"
+        + "    public void Opt(int a = -1, Kind k = Kind.A, string t = \"x\", double d = 1.0 + 2.0) { }\n"
+        + "    public int P { get; private set; }\n"
+        + "    public int this[int i] { get { return 0; } set { } }\n"
+        + "}\n"
+        + "public enum E : long { A = 1 }\n";
+    DocItem[] it = SyntaxIndexer.IndexSource(src, "a.z42");
+    _eq("public sealed class C<T> : Base, IThing where T : new()", _find(it, "App.C<T>").Sig);
+    _eq("public static int Add(ref int a, params int[] rest)", _find(it, "App.C<T>.Add(int,int[])").Sig);
+    _eq("public string Pad(string s, int n = 5, char c = ' ')", _find(it, "App.C<T>.Pad(string,int,char)").Sig);
+    _eq("public void Opt(int a = -1, Kind k = Kind.A, string t = \"x\", double d = …)", _find(it, "App.C<T>.Opt(int,Kind,string,double)").Sig);
+    _eq("public int P { get; private set; }", _find(it, "App.C<T>.P").Sig);
+    _eq("public int this[int i] { get; set; }", _find(it, "App.C<T>.this[int]").Sig);
+    _eq("public enum E : long", _find(it, "App.E").Sig);
+    _eq("A = 1", _find(it, "App.E.A").Sig);
+}
+
+[Test]
+void test_visibility_defaults() {
+    // 显式修饰符优先；否则类成员 private、命名空间级 internal、接口成员 public；枚举成员随枚举。
+    string src = "namespace App;\n"
+        + "class Top { int f; protected int g; }\n"
+        + "public interface I { void M(); }\n"
+        + "public enum E { A }\n"
+        + "void F() { }\n";
+    DocItem[] it = SyntaxIndexer.IndexSource(src, "a.z42");
+    _eq("internal", _find(it, "App.Top").Vis);
+    _eq("private", _find(it, "App.Top.f").Vis);
+    _eq("protected", _find(it, "App.Top.g").Vis);
+    _eq("public", _find(it, "App.I.M()").Vis);
+    _eq("public", _find(it, "App.E.A").Vis);
+    _eq("internal", _find(it, "App.F()").Vis);
+}
+
+[Test]
+void test_doc_and_summary() {
+    string src = "//! 包概述。\n//!\n//! 正文。\nnamespace App;\n"
+        + "/// 第一行\n/// 第二行。\n///\n/// 正文段。\n/// @param x 说明\npublic void F(int x) { }\n"
+        + "/// 摘要后直接是 tag。\n/// @returns 值\npublic int G() { return 0; }\n";
+    DocItem[] it = SyntaxIndexer.IndexSource(src, "a.z42");
+    DocItem ns = _find(it, "App");
+    _eq("namespace", ns.Kind);
+    _eq("包概述。", ns.Summary());
+    DocItem f = _find(it, "App.F(int)");
+    _eq("第一行\n第二行。\n\n正文段。\n@param x 说明", f.Doc);
+    _eq("第一行 第二行。", f.Summary());
+    _eq("摘要后直接是 tag。", _find(it, "App.G()").Summary());
+}
+
+[Test]
+void test_impl_methods_join_target_type() {
+    string src = "namespace App;\nclass T { }\ninterface I { int Get(); }\nimpl I for T {\n    /// 实现。\n    int Get() { return 1; }\n}\n";
+    DocItem[] it = SyntaxIndexer.IndexSource(src, "a.z42");
+    DocItem g = _find(it, "App.T.Get()");
+    _eq("App.T", g.Parent);
+    _eq("实现。", g.Doc);
+}
+
+[Test]
+void test_no_namespace_and_broken_source() {
+    // 没有命名空间：Id 不带前缀；语法错误的文件照样产出能解析出来的那部分。
+    DocItem[] it = SyntaxIndexer.IndexSource("class A { int x; }\nclass B { void M( }\n", "a.z42");
+    _eq("class", _find(it, "A").Kind);
+    _eq("field", _find(it, "A.x").Kind);
+}

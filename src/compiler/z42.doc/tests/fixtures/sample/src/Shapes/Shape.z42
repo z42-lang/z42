@@ -1,0 +1,42 @@
+//! 二维图形：面积、周长与缩放。
+//!
+//! 所有长度单位一致即可，本包不做单位换算。
+namespace Sample.Shapes;
+
+/// 图形的公共接口。
+public interface IShape {
+    /// 返回面积。
+    double Area();
+}
+
+/// 圆。
+public class Circle : IShape {
+    /// 半径，不小于 0。
+    public double Radius;
+
+    /// 用半径构造。
+    /// @throws ArgumentException `radius < 0`
+    public Circle(double radius) { this.Radius = radius; }
+
+    /// 返回面积 πr²。
+    public double Area() { return 3.14159 * this.Radius * this.Radius; }
+
+    /// 按比例缩放半径。
+    public Circle Scale(double k) { return new Circle(this.Radius * k); }
+
+    /// 按整数倍缩放（重载）。
+    public Circle Scale(int k) { return new Circle(this.Radius * k); }
+
+    // 实现细节，不进文档。
+    private double _cache;
+}
+
+/// 图形种类。
+public enum Kind {
+    /// 圆形。
+    Round,
+    Polygon
+}
+
+/// 两个图形的面积和。
+public double TotalArea(IShape a, IShape b) { return a.Area() + b.Area(); }
