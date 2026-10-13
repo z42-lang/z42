@@ -29,7 +29,7 @@ GC 的「何时自动回收」由几个**比率魔数**决定（near-limit 90%�
 | `Z42_GC_THROTTLE_RATIO` | 0.10 | ⚠️ **不参与自动回收的触发**（闸门是相对余量）；保留供未来的去抖策略使用 | — |
 | `Z42_GC_PROMOTION_AGE` | **3** | **分代专用**：熬过几次 minor 才晋升到老年代；范围 1–3（年龄只有两位）。默认值就是上界 ⇒ **只能调低、不能调高**。**建堆时读一次**，写屏障读的是字段 | `gc/mod.rs` |
 | `Z42_GC_LOH_BYTES` | 64K | 变长块走 dedicated chunk 的尺寸门槛（死后内存直接还给分配器）；上界 = 64K bump chunk。**进程级** | `var_region/chunk.rs` |
-| `Z42_GC_NURSERY_BYTES` | **16M** | **整套策略的计量单位**：自上次回收以来分配这么多就触发 minor（分代）；×4 是 major 余量的下界（两种模式）。买停顿上界的那个旋钮，**调它必须连 `Z42_GC_PROMOTION_AGE` 一起想**（见下「过早晋升」） | `arc_heap/auto_collect` |
+| `Z42_GC_NURSERY_BYTES` | **16M** | **整套策略的计量单位**：自上次回收以来分配这么多就触发 minor（分代）；×4 是 major 余量的下界（两种模式）。**不设时** 16M 是字节上限，默认闸门另按分配次数封顶（256 Ki 次，见「默认闸门按条目封顶」）；**显式设置**是纯字节的手动挡（同时关掉自适应与条目封顶）。买停顿上界的那个旋钮，**调它必须连 `Z42_GC_PROMOTION_AGE` 一起想**（见下「过早晋升」） | `arc_heap/auto_collect`、`arc_heap/entry_unit.rs` |
 | `Z42_GC_PAUSE_TARGET_MS` | **10** | **分代专用**：minor 停顿的目标上限（ms），nursery 按实测代价反推而非常量；它折算出的条目预算同时是年轻代策略的「超预算」线（幸存者单独就占满预算 → 接下来 tenure，见「年轻代策略」）。`0` 关掉自适应（也关掉超预算判定），显式设 `Z42_GC_NURSERY_BYTES` 也会关掉它（手动挡优先）。clamp 到 `[0.5, 1000]`。见下「按停顿预算自适应 nursery」 | `arc_heap/pause_budget.rs`、`arc_heap/young_policy.rs` |
 | `Z42_GC_MAX_BYTES` | **unset = 无上限** | **软上限，不是武装开关**：设了只压回收余量并加一个近上限触发；**按真实占用判定**（不是 `used`），见「真实占用记账与软上限」 | `arc_heap/auto_collect`、`arc_heap/footprint.rs` |
 | `Z42_GC_MINOR_THRESHOLD` | 0.75 | minor GC 后年轻代存活比率高于此 → 下次回收立即升级 major（上一次 major 徒劳时不升级，见「年轻代策略」） | `arc_heap` |
@@ -53,7 +53,7 @@ GC 的「何时自动回收」由几个**比率魔数**决定（near-limit 90%�
 `Z42_GC_PHASES=1` 的一次 minor、和随后被年轻代策略换成的一次 tenure，长这样（`z42c` 工作区构建）：
 
 ```text
-z42-gc:   trip minor  gate 10.6M  grown 10.6M  (last freed 13.7M)
+z42-gc:   trip minor  gate 10.6M  grown 10.6M  (last freed 13.7M)  unit 16.0M at 139 B/alloc
 z42-gc:     minor roots  pinned+handles 0, satb 0 (skipped old 0), grey 0 (skipped old 0)
 z42-gc:     card seed  25495 old entries, 4696 cards cleaned
 z42-gc:     minor bfs  popped 248865 (old 2397), children 580083, marked 231140
@@ -67,7 +67,7 @@ z42-gc:   minor sweep                    5.486 ms
 z42-gc:   yield  minor 2.1M in 15223 us  Outyielded (major 51.2M in 38200 us)  -> tenure x1
 z42-gc: Minor used 136.9M -> 134.9M  freed 2.1M  pause 15.2ms  (cycle 107)
 …
-z42-gc:   trip minor  gate 12.7M  grown 12.7M  (last freed 3.0M)
+z42-gc:   trip minor  gate 12.7M  grown 12.7M  (last freed 3.0M)  unit 16.0M at 122 B/alloc
 z42-gc:   tenure  objects 53858  arrays 155512  var blocks 180349  -> old 23.4M  (run 1)
 z42-gc: Minor used 99.1M -> 99.1M  freed 0B  pause 1.6ms  (cycle 64)
 ```
@@ -83,6 +83,8 @@ major 打的是另一组名字：`full mark` / `sweep` 的四个半程 +
   却走了 12 ms，说明根集合里塞满了不该在那儿的东西（这正是「推进标记队列的 125 万个值里
   99.996% 是基元」的形状）。
 - `trip` 行说的不是「花在哪」而是「**为什么是现在**」，它决定了后面所有阶段要啃多大一片年轻代。
+  行尾的 `unit … at … B/alloc` 是按条目封顶后的计量单位与每次分配的字节读数（见「默认闸门按条目封顶」；
+  读数为 0 = 尚未采样或手动挡）。
   行尾若有 `xN`，是徒劳退避的倍数（见「「回收得少」不等于「徒劳」」）—— 分代下它只作用于软上限
   自己的触发，所以只在设了 `Z42_GC_MAX_BYTES` 时出现。
 - `yield` 行是年轻代策略对这次 minor 的判定（`Futile` / `Outyielded`，以及接下来几次 trip 做 tenure）；
@@ -141,7 +143,7 @@ nursery 是**测出来的量**、不是常量：每次 minor 结束时
 要真的做到 10 ms，得把 minor 本身也切片化（尚未做）。
 
 > 注意**堆能长多大不归这里管**：那是 `collection_allowance`，它的计量单位是**配置的** nursery
-> （`allowance_unit`），刻意不跟着自适应值走。若不拆开，nursery 自适应缩到 4M 让 major 余量的
+> （`allowance_unit`，按条目封顶，见下一节），刻意不跟着自适应值走。若不拆开，nursery 自适应缩到 4M 让 major 余量的
 > 下界（`nursery × 4`）跟着缩了 4 倍 ⇒ major 周期从 **4 次涨到 29 次**、墙钟 2.41 s → 4.40 s。
 
 这就是默认值把 nursery 与晋升年龄**一起**定为 16M / 年龄 3（而非 32M / 年龄 2）的原因：三个负载、两个二进制、各三跑：
@@ -163,6 +165,36 @@ nursery 是**测出来的量**、不是常量：每次 minor 结束时
 > 给自己的负载调 nursery 时，**别只看停顿**。把 `Z42_GC_PHASES=1` 打开看
 > `minor/promote objects` 的条目数：如果调小 nursery 之后它明显变大，你买到的停顿是拿
 > 老年代的内存换的 —— 那就该把 `Z42_GC_PROMOTION_AGE` 一起调上去（上界 3）。
+
+## 默认闸门按条目封顶
+
+> 代码：`gc/arc_heap/entry_unit.rs`（读数、封顶、探针）、`auto_collect.rs::allowance_unit`、
+> `pause_budget.rs::Bounds`。
+
+回收的**工作量按对象算**（minor 标记、清扫的是条目，major 追踪活条目、清扫死条目），而决定**何时**回收的默认闸门
+——默认 nursery 16M、major allowance 的下界 4 个 nursery、切片间隔与增量周期的增长目标（它们的分数）——若只按字节计，
+对象模型把同样的对象装进更少的字节时（空类 16 B、`{int}` 24 B），同一个字节闸门就装进更多对象，每个决定都换了位置。于是默认闸门**按分配次数陈述、按原来的字节值封顶**，哪个先到就在哪儿触发：
+
+```text
+每字节分配数读数 = Δ(used + 累计回收) / Δallocations         每次策略询问时采样（≥ 4096 次分配才读），EWMA
+unit            = min(配置 nursery 字节, 256 Ki × 每次分配字节)
+默认 nursery = unit；停顿预算的界 = [min(4M, unit/4 的条目), min(64M, 4×unit 的条目)]
+major 下界 = 4 × unit；切片间隔 ≤ unit / 4；周期增长目标 = allowance / 2
+```
+
+- **256 Ki 次分配 = 64 B 一次的 16M**：平均每次分配不小于 64 B（一条缓存行，`09_alloc_ctorless` 的节点）的程序，
+  闸门与纯字节时**逐字节相同**；只有小对象程序的闸门在字节上变小、在对象数上相等。按内存说话的量不动：
+  allowance 的 `live × 0.33`、软上限、`MAX_NURSERY`。
+- **按分配，不按年轻条目**：`allocations` 是每条分配路径本来就在加的无锁计数，采样只在本来就拿堆锁的慢路径多读两个
+  原子；一个数组算一次（数组头和元素块是一次分配，字节也是一起记的）。`13_gc_large_heap` 每次分配 82–86 B（节点 +
+  `long[8]`），所以它的闸门不变；`12_gc_churn` 41–43 B，unit 约 10.5M。
+- **探针**：读数出来之前不知道对象多大，首次询问就武装在 256 Ki × 16 B（最小块）= 4M —— 任何布局都不可能在那之前
+  越过条目界；在那里的询问采样、再武装到真正的闸门。
+- 显式 `Z42_GC_NURSERY_BYTES`（以及测试里 `set_nursery_bytes_for_test`）是字节手动挡，不封顶。
+
+参考尺寸本身是取舍：取更大的参考尺寸（例如 128 B，`unit` = 128 Ki 次分配），R8 的所有基准都会按对象数触发，
+最大停顿与峰值 RSS 明显下降，但回收更勤、墙钟变慢——实测见 runtime-audit 的 R8 后续条目。默认取 64 B，
+只保证「对象变小不会让一个闸门装进比 64 B 对象更多的对象」。
 
 ## 年轻代策略：按收益判定 minor，不划算就 tenure
 
@@ -607,7 +639,7 @@ helper 发；下面三处也必须发：
     │ 否则 grown ≥ nursery → minor    │
     └────────────────────────────────┘
 
-   allowance(live) = MAX(live × 0.33, nursery × 4)，再被软上限压一道
+   allowance(live) = MAX(live × 0.33, unit × 4)，再被软上限压一道（unit：按条目封顶的配置 nursery）
 ```
 
 **没有任何一处需要「一个字节预算先存在」** —— 这就是 GC 能默认武装的前提。

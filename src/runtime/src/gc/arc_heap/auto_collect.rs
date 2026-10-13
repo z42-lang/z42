@@ -176,6 +176,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
              i.last_trip_for_cap)
         };
         if paused { return; }
+        // Entry-capped units (`entry_unit.rs`): read the allocation size before any gate is.
+        self.sample_entry_unit(used, total_reclaimed);
         let cfg = crate::config::runtime_config();
         let soft_limit = self.soft_cap();
 
@@ -246,7 +248,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // follow account for the pause; this one accounts for the *young set* the pause had to
         // chew through, which is decided here and nowhere else.
         crate::gc::phase_timer::note(format_args!(
-            "trip {:<5}  gate {}{}  grown {}  (last freed {})",
+            "trip {:<5}  gate {}{}  grown {}  (last freed {})  unit {} at {} B/alloc",
             match trip.kind { TripKind::Major => "major", TripKind::Minor => "minor", TripKind::Slice => "slice" },
             crate::gc::trace::human(trip.gate),
             // The multiplier only touches the soft cap's trips (see the module note).
@@ -257,6 +259,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
             },
             crate::gc::trace::human(used.saturating_sub(baseline)),
             crate::gc::trace::human(reclaimed_since),
+            crate::gc::trace::human(self.allowance_unit()),
+            self.entry_unit.reading(),
         ));
         // Which kind of collection the policy is asking for. The deferred safepoint path only
         // knows "collect", so the choice is handed over through `pending_major`.
@@ -572,9 +576,13 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// generation four times as often": measured on `13_gc_large_heap`, the nursery going 16M → 4M
     /// took major cycles from **4 to 29** and wall time from 2.41 s to 4.40 s — almost none of it
     /// minor pause (which fell from 27.8 ms to 5.5 ms), nearly all of it extra major work.
+    ///
+    /// Entry-capped (`entry_unit.rs`): never more than `UNIT_ENTRIES` allocations of the measured
+    /// size, so smaller objects do not stretch the floor, the slice interval or the cycle target
+    /// over more objects.
     #[inline]
     pub(super) fn allowance_unit(&self) -> u64 {
-        self.allowance_unit_bytes.load(Ordering::Relaxed)
+        self.entry_unit.cap(self.allowance_unit_bytes.load(Ordering::Relaxed), super::entry_unit::UNIT_ENTRIES)
     }
 
     /// Set the next `used_bytes` reading at which the policy wants to be consulted.
@@ -605,6 +613,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
         } else {
             self.single_generation_gate(baseline, backoff, soft_limit)
         };
+        // Until the allocation size is measured, consult no later than the probe (`entry_unit.rs`).
+        let gate = self.entry_unit.probe(gate);
         let at_gate = baseline.saturating_add(gate);
         let next = if declined && at_gate > floor { at_gate } else { at_gate.max(floor.saturating_add(gate)) };
         self.next_collect_at.store(self.with_slice_gate(next, floor), Ordering::Relaxed);
@@ -660,7 +670,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let allowance = Self::collection_allowance(live, self.allowance_unit(), soft_limit);
         if crate::gc::MagrGC::mode(self) != crate::gc::GcMode::GenerationalMarkSweep {
             self.next_collect_at
-                .store(live.saturating_add(allowance), Ordering::Relaxed);
+                .store(live.saturating_add(self.entry_unit.probe(allowance)), Ordering::Relaxed);
             return;
         }
         // The old generation may already be over its allowance — a minor cannot help with
@@ -671,7 +681,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             // Same gate as `decide_trip` / `arm_next_collect` — see [`Self::minor_gate`]. This
             // is the arming point every *collect* path lands on, so a plain `nursery` here left
             // a bounded heap un-enforced from its very first allocation.
-            live.saturating_add(self.minor_gate(live, soft_limit))
+            live.saturating_add(self.entry_unit.probe(self.minor_gate(live, soft_limit)))
         };
         self.next_collect_at.store(self.with_slice_gate(next, live), Ordering::Relaxed);
     }

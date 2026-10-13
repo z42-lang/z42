@@ -82,6 +82,8 @@ impl Default for ArcMagrGC {
                     .unwrap_or(super::auto_collect::DEFAULT_NURSERY_BYTES)
                     .max(1),
             ),
+            // The entry cap only applies to the default gates: a configured nursery is taken as is.
+            entry_unit: entry_unit::EntryUnit::new(crate::config::runtime_config().gc_nursery_bytes.is_none()),
             incremental: Default::default(),
             // M9: wasm32's `now_us` counts ticks, so pauses are not comparable as time there.
             young_policy: young_policy::YoungPolicy::new(!cfg!(target_arch = "wasm32")),

@@ -63,10 +63,24 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// a smaller nursery halves how much allocation an object must outlive to be promoted, and
 /// `retune-gc-nursery-and-promotion-age` measured what premature promotion does to the footprint
 /// (16M at promotion age 2: peak RSS **405 MB** against 198 MB at 32M).
-pub(super) const MIN_NURSERY: u64 = 4 * 1024 * 1024;
+pub(crate) const MIN_NURSERY: u64 = 4 * 1024 * 1024;
 
 /// Largest nursery the budget may ask for — the historical default.
-pub(super) const MAX_NURSERY: u64 = 64 * 1024 * 1024;
+pub(crate) const MAX_NURSERY: u64 = 64 * 1024 * 1024;
+
+/// Where the nursery may move: `[MIN_NURSERY, MAX_NURSERY]`, entry-capped by the heap
+/// (`entry_unit.rs`) so a program of small objects gets bounds equal in objects, not in bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Bounds {
+    pub(crate) min: u64,
+    pub(crate) max: u64,
+}
+
+impl Bounds {
+    /// The byte bounds alone.
+    #[cfg(test)]
+    pub(crate) const BYTES: Bounds = Bounds { min: MIN_NURSERY, max: MAX_NURSERY };
+}
 
 /// EWMA weight for the size reading: `new = (3 * old + sample) / 4`.
 const EWMA_NUM: u64 = 3;
@@ -138,7 +152,7 @@ impl PauseBudget {
     }
 
     /// Fold one minor into the model and return the nursery the next one should use.
-    pub(crate) fn observe(&self, s: MinorSample, nursery: u64) -> Option<u64> {
+    pub(crate) fn observe(&self, s: MinorSample, nursery: u64, bounds: Bounds) -> Option<u64> {
         if !self.enabled() {
             return None;
         }
@@ -158,7 +172,7 @@ impl PauseBudget {
         let want = headroom.saturating_mul(bpe);
         self.last_want.store(want, Ordering::Relaxed);
         self.last_bpe.store(bpe, Ordering::Relaxed);
-        Some(Self::next_nursery(want, nursery))
+        Some(Self::next_nursery(want, nursery, bounds))
     }
 
     /// M9: a tenure emptied the young lists at `used` without being a sample of what a minor
@@ -173,10 +187,18 @@ impl PauseBudget {
     /// (the thing being bounded); overshooting downwards costs only throughput, which the fixed
     /// allowance unit already protects. Measured before this was asymmetric: a cheap startup phase
     /// grew the nursery 16M → 43M, and walking it back cost three 21~36 ms minors on the way down.
-    pub(super) fn next_nursery(want: u64, cur: u64) -> u64 {
-        let cur = cur.clamp(MIN_NURSERY, MAX_NURSERY);
+    pub(super) fn next_nursery(want: u64, cur: u64, b: Bounds) -> u64 {
+        let max = b.max.max(b.min);
+        let cur = cur.clamp(b.min, max);
         let bounded = want.clamp(cur / 2, cur + cur / 8);
-        bounded.clamp(MIN_NURSERY, MAX_NURSERY)
+        bounded.clamp(b.min, max)
+    }
+
+    /// Whether a minor has been measured, i.e. the nursery in force is this model's (until then the
+    /// heap keeps it at the default unit — `entry_unit.rs`). Always `false` while adaptation is off.
+    #[inline]
+    pub(crate) fn has_sized(&self) -> bool {
+        self.enabled() && self.cost_ns_per_entry.load(Ordering::Relaxed) != 0
     }
 
     /// The configured target, for diagnostics.
@@ -244,7 +266,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// Fold one minor's pause into the cost model and put the nursery it buys in force.
     pub(super) fn observe_minor_pause(&self, sample: MinorSample) {
         let cur = self.nursery_bytes.load(Ordering::Relaxed);
-        let Some(next) = self.pause_budget.observe(sample, cur) else {
+        let Some(next) = self.pause_budget.observe(sample, cur, self.nursery_bounds()) else {
             return;
         };
         if next != cur {
