@@ -290,6 +290,15 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     #[allow(unused_variables)]
     fn write_barrier_array_elem(&self, arr: &Value, idx: usize, new: &Value) {}
 
+    /// The two bytes a JIT-compiled reference store reads to decide, without a call, whether
+    /// [`Self::write_barrier_field`] could do anything: the GC mode (`GcMode as u8`) and the
+    /// promotion age (owners younger than it never need a barrier). Both live as long as the
+    /// heap. `None` (the default) keeps every compiled reference store on the helper.
+    #[cfg(feature = "jit")]
+    fn jit_barrier_bytes(&self) -> Option<(*const std::sync::atomic::AtomicU8, *const std::sync::atomic::AtomicU8)> {
+        None
+    }
+
     /// Whether the array region's card covering `chunk_idx` is dirty (tests only).
     #[cfg(test)]
     fn array_card_dirty_for_test(&self, _chunk_idx: u32) -> bool { false }

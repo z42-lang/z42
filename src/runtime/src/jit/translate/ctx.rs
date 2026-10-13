@@ -39,10 +39,8 @@ pub(super) struct TxCtx<'a, 'b> {
     pub(super) catch_chain: &'a [(Block, u32, Option<(&'a str, &'a TypeKeyCell)>)],
     /// jit-inline-fastpaths: loop-invariant array (data_ptr, len, width).
     pub(super) hoisted_arrays: &'a std::collections::HashMap<u32, (Value, Value, Value)>,
-    /// FieldGet/Set P5-B: loop-invariant primitive field (bytes_ptr, offset).
-    pub(super) hoisted_fields: &'a std::collections::HashMap<(u32, String), (Value, Value)>,
-    /// FieldGet T1-B: loop-invariant reference field (bytes_ptr, offset, tag).
-    pub(super) hoisted_ref_fields: &'a std::collections::HashMap<(u32, String), (Value, Value)>,
+    /// P1-4: field-IC guards hoisted into the entry block (`field_ic`).
+    pub(super) hoisted_fields: &'a super::field_ic::HoistedFields,
     /// R3: loop-invariant REF / MIXED array (data_ptr, len, stride).
     pub(super) hoisted_ref_arrays: &'a std::collections::HashMap<u32, (Value, Value, Value)>,
     pub(super) hr_array_ref_data: FuncRef,

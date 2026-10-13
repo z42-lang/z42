@@ -6,6 +6,7 @@
 
 use std::sync::atomic::{AtomicU32, AtomicU64};
 use crate::metadata::tokens::UNRESOLVED;
+use crate::metadata::types::FieldLoc;
 
 /// review.md C4 P2 + C5 P2 (jit-polymorphic-ic, 2026-05-28): 4-slot
 /// polymorphic inline cache. `IC_SLOTS` is the lookup window per site.
@@ -67,12 +68,21 @@ impl Default for VCallIC {
     }
 }
 
-/// Single Field PIC entry — (TypeId, field slot) packed into **one** atomic
-/// （理由同 [`VCallICEntry`]）。
+/// Single Field PIC entry — (TypeId, [`FieldLoc`]) packed into **one** atomic
+/// （理由同 [`VCallICEntry`]）：高 32 位 TypeId，低 32 位 `offset:16 | spare:8 | kind:8`
+/// （`FieldLoc::to_bits`）。命中即知单元的字节偏移与种类，不查名字、不走布局。
+///
+/// JIT 生成码直接读 `entries[0]`（单态内联 IC，`jit::translate::field_ic`）：按
+/// [`FIELD_IC_GUARD_MASK`] 取 (TypeId, kind) 与期望值一次比较。空 entry 的 kind 字节是
+/// `FieldLoc::KIND_NONE`，与任何真实种类都不等，所以 TypeId 为 `UNRESOLVED` 的接收者也不会误中。
 #[derive(Debug)]
+#[repr(transparent)]
 pub struct FieldICEntry {
     pub packed: AtomicU64,
 }
+
+/// The bits of a packed [`FieldICEntry`] an inline guard compares: the TypeId and the kind byte.
+pub const FIELD_IC_GUARD_MASK: u64 = 0xFFFF_FFFF_0000_00FF;
 
 impl Default for FieldICEntry {
     fn default() -> Self {
@@ -81,9 +91,11 @@ impl Default for FieldICEntry {
 }
 
 /// Polymorphic inline cache for `FieldGet` / `FieldSet` sites. Mirrors
-/// `VCallIC` PIC layout but caches just (TypeId, field slot). See
+/// `VCallIC` PIC layout but caches (TypeId, [`FieldLoc`]). See
 /// [`VCallIC`] for the linear-scan + round-robin-eviction protocol.
+/// `#[repr(C)]`: `entries[0]` sits at offset 0 — the address the JIT's inline guard loads.
 #[derive(Debug)]
+#[repr(C)]
 pub struct FieldIC {
     pub entries:     [FieldICEntry; IC_SLOTS],
     pub round_robin: AtomicU32,
@@ -126,15 +138,15 @@ const fn unpack(v: u64) -> (u32, u32) {
     ((v >> 32) as u32, v as u32)
 }
 
-/// PIC lookup for `FieldIC`. Returns `Some(slot)` on hit; `None` on miss
-/// (caller must do `field_index.get(name)` fallback + `field_ic_install`).
+/// PIC lookup for `FieldIC`. Returns the cached cell on hit; `None` on miss
+/// (caller resolves through `field_index` + the layout, then `field_ic_install`).
 #[inline]
-pub fn field_ic_lookup(ic: &FieldIC, recv_type: u32) -> Option<u32> {
+pub fn field_ic_lookup(ic: &FieldIC, recv_type: u32) -> Option<FieldLoc> {
     use std::sync::atomic::Ordering::Relaxed;
     if recv_type == UNRESOLVED { return None; }
     for entry in &ic.entries {
-        let (tid, slot) = unpack(entry.packed.load(Relaxed));
-        if tid == recv_type { return Some(slot); }
+        let (tid, loc) = unpack(entry.packed.load(Relaxed));
+        if tid == recv_type { return Some(FieldLoc::from_bits(loc)); }
         if tid == UNRESOLVED { return None; }  // early exit: rest are empty
     }
     None
@@ -142,22 +154,23 @@ pub fn field_ic_lookup(ic: &FieldIC, recv_type: u32) -> Option<u32> {
 
 /// PIC install for `FieldIC`. Finds the first `UNRESOLVED` slot; if all
 /// filled, picks the round-robin victim. Idempotent for the same
-/// `(recv_type, slot)` pair (just re-writes the same data).
+/// `(recv_type, loc)` pair (just re-writes the same data).
 #[inline]
-pub fn field_ic_install(ic: &FieldIC, recv_type: u32, slot: u32) {
+pub fn field_ic_install(ic: &FieldIC, recv_type: u32, loc: FieldLoc) {
     use std::sync::atomic::Ordering::Relaxed;
     if recv_type == UNRESOLVED { return; }
+    let packed = pack(recv_type, loc.to_bits());
     // First-empty-slot install.
     for entry in &ic.entries {
         let (tid, _) = unpack(entry.packed.load(Relaxed));
         if tid == UNRESOLVED || tid == recv_type {
-            entry.packed.store(pack(recv_type, slot), Relaxed);
+            entry.packed.store(packed, Relaxed);
             return;
         }
     }
     // All filled — round-robin victim.
     let victim = (ic.round_robin.fetch_add(1, Relaxed) as usize) % IC_SLOTS;
-    ic.entries[victim].packed.store(pack(recv_type, slot), Relaxed);
+    ic.entries[victim].packed.store(packed, Relaxed);
 }
 
 /// PIC lookup for `VCallIC`. Returns `Some(fn_id)` on hit.
@@ -300,27 +313,31 @@ pub fn ctorless_note(mark: Option<&std::sync::atomic::AtomicUsize>, mark_before:
 // mis-dispatch. Debug builds only (`cargo test` carries them); compiled out of
 // release, so the hot path is byte-identical to before.
 
-/// Assert a `FieldIC` hit resolved to the slot this receiver really holds under
-/// `field_name`.
+/// Assert a `FieldIC` hit resolved to the cell this receiver really holds under
+/// `field_name` (`expected` = what `field_index` + the layout resolve to now).
 ///
 /// 两种已知成因：① 两个不同类型共用一个 `TypeId`（#535 已把 `TypeId` 全局唯一化）；
 /// ② **发布竞态**——entry 曾是两个独立的 `Relaxed` 原子量，读者看到新 TypeId 配旧/未写入
-/// 的 slot（典型形态 `cached at slot 4294967295`）。② 已由 fix-field-ic-publication-race
+/// 的载荷（典型形态 kind `0xff`，即 `UNRESOLVED`）。② 已由 fix-field-ic-publication-race
 /// 用单原子打包修掉；这条断言留着守这两条不变量。
 #[cfg(debug_assertions)]
-pub fn assert_field_ic_slot(td: &crate::metadata::TypeDesc, field_name: &str, slot: u32) {
-    if td.field_index.get(field_name) == Some(&(slot as usize)) {
+pub fn assert_field_ic_loc(
+    td: &crate::metadata::TypeDesc, field_name: &str, cached: FieldLoc, expected: Option<FieldLoc>,
+) {
+    if expected == Some(cached) {
         return;
     }
     panic!(
-        "FieldIC mis-hit: receiver `{}` (TypeId {}) field `{}` cached at slot {}, \
-         but its field_index says {:?}. 要么两个类型共用了 TypeId（见 \
-         tokens::alloc_type_id_block），要么 PIC entry 的 (TypeId, slot) 被拆开发布了 \
-         （slot 为 4294967295 = UNRESOLVED 即是后者）。",
-        td.name, td.id.0, field_name, slot, td.field_index.get(field_name)
+        "FieldIC mis-hit: receiver `{}` (TypeId {}) field `{}` cached as {:?}, \
+         but its layout says {:?}. 要么两个类型共用了 TypeId（见 \
+         tokens::alloc_type_id_block），要么 PIC entry 的 (TypeId, 载荷) 被拆开发布了 \
+         （kind 为 0xff = UNRESOLVED 即是后者）。",
+        td.name, td.id.0, field_name, cached, expected
     );
 }
 
 #[cfg(not(debug_assertions))]
 #[inline(always)]
-pub fn assert_field_ic_slot(_td: &crate::metadata::TypeDesc, _field_name: &str, _slot: u32) {}
+pub fn assert_field_ic_loc(
+    _td: &crate::metadata::TypeDesc, _field_name: &str, _cached: FieldLoc, _expected: Option<FieldLoc>,
+) {}

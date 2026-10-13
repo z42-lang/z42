@@ -10,9 +10,8 @@ use super::*;
 /// stays directly on [`VmContext`], which references this struct through
 /// `Arc<VmCore>`.
 ///
-/// Phase 1 (this commit): only `static_fields` + `static_field_index` are
-/// here. Subsequent phases move `lazy_loader` / `native_types` /
-/// `native_libs` / `pinned_owned_buffers` / `processes` / `gc heap` in.
+/// It also holds the VM's lazy loader, cctor registry, native interop registry,
+/// GC heap and resource tables.
 ///
 /// `VmCore` will become `Send + Sync` once `GcRef<T>` backing switches to
 /// `Arc<...>` (Phase 3 of the spec). Until then, `Mutex` is wrapped around
@@ -20,12 +19,10 @@ use super::*;
 /// the current `GcRef` backing), so the API surface is already stable —
 /// Send-safety completes at Phase 3 without further VmCore API changes.
 pub struct VmCore {
-    /// Static field storage indexed by `StaticFieldId.0` (introduce-method-token,
-    /// 2026-05-08). Slot 0 reserved? No; ids start at 0 (allocation order).
-    pub(crate) static_fields:      Mutex<Vec<Value>>,
-    /// FQN → slot id map. Lazy-allocated on first access; cross-zpkg lazy
-    /// fields can be encountered in any order.
-    pub(crate) static_field_index: Mutex<FxHashMap<String, u32>>,
+    /// Static fields: one stable-address cell per `StaticFieldId` (read / written without a
+    /// lock), plus the FQN → id registration (lazy, first use; cross-zpkg fields can be met in
+    /// any order). See `vm_context::static_table`.
+    pub(crate) statics: super::static_table::StaticTable,
     /// On-demand zpkg loader. `None` until `install_lazy_loader[_with_deps]`
     /// is called (typically from `bootstrap.rs`). Shared across threads
     /// since zpkg resolution + module loading is a process-global operation.

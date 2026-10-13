@@ -42,6 +42,7 @@ mod object;
 mod structs;
 mod term;
 mod str_intrinsics;
+mod field_ic;
 
 // refactor-jit-translate-split (H2): leaf emit/predicate/analysis helpers
 mod unsupported;
@@ -185,8 +186,6 @@ pub fn translate_function(
     let hr_obj_new       = imp!(helper_ids.obj_new);
     let hr_typeof        = imp!(helper_ids.typeof_op);
     let hr_field_get     = imp!(helper_ids.field_get);
-    let hr_obj_field_slot = imp!(helper_ids.obj_field_slot);
-    let hr_obj_ref_field_slot = imp!(helper_ids.obj_ref_field_slot);
     let hr_field_set     = imp!(helper_ids.field_set);
     let hr_vcall         = imp!(helper_ids.vcall);
     let hr_is_instance   = imp!(helper_ids.is_instance);
@@ -300,9 +299,9 @@ pub fn translate_function(
     // the `jit_array_get` cold path (correct exception at the real access site;
     // no spurious throw when the loop runs 0 times).
     // Registers written anywhere (never-reassigned check for both hoists below).
-    let (hoisted_arrays, hoisted_fields, hoisted_ref_fields, hoisted_ref_arrays) =
-        hoist::compute_hoists(&mut builder, z42_func, ptr, frame_val, ctx_val,
-            hr_array_data_opt, hr_obj_field_slot, hr_obj_ref_field_slot, hr_array_ref_data);
+    let (hoisted_arrays, hoisted_fields, hoisted_ref_arrays) =
+        hoist::compute_hoists(&mut builder, z42_func, ptr, frame_val, ctx_val, regs_base,
+            hr_array_data_opt, hr_array_ref_data, callees.barrier_bytes().is_some());
 
     // add-osr-loop-tiering: OSR variant — after the prologue (which cached
     // `regs_base` etc. into SSA values that now dominate every block), jump into the
@@ -360,7 +359,6 @@ pub fn translate_function(
             regs_base, frame_val, ctx_val, ptr, block_idx, instr_idx: 0,
             catch_info, catch_chain: &catch_chain,
             hoisted_arrays: &hoisted_arrays, hoisted_fields: &hoisted_fields,
-            hoisted_ref_fields: &hoisted_ref_fields,
             hoisted_ref_arrays: &hoisted_ref_arrays,
             hr_array_ref_data,
             callees,

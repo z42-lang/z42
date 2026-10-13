@@ -41,36 +41,41 @@ fn field_ic_default_all_slots_unresolved() {
 
 // ── PIC lookup + install (review.md C4 P2 + C5 P2) ─────────────────
 
+/// A distinct primitive-cell locator per `n` (offset `n`, kind `TAG_I64`).
+fn loc(n: u32) -> crate::metadata::types::FieldLoc {
+    crate::metadata::types::FieldLoc { offset: n as u16, kind: crate::metadata::types::TAG_I64 }
+}
+
 #[test]
 fn field_ic_mono_hit() {
     let ic = FieldIC::default();
-    field_ic_install(&ic, 1, 7);
-    assert_eq!(field_ic_lookup(&ic, 1), Some(7));
+    field_ic_install(&ic, 1, loc(7));
+    assert_eq!(field_ic_lookup(&ic, 1), Some(loc(7)));
 }
 
 #[test]
 fn field_ic_poly_two_types_both_hit() {
     let ic = FieldIC::default();
-    field_ic_install(&ic, 1, 7);
-    field_ic_install(&ic, 2, 9);
-    assert_eq!(field_ic_lookup(&ic, 1), Some(7));
-    assert_eq!(field_ic_lookup(&ic, 2), Some(9));
+    field_ic_install(&ic, 1, loc(7));
+    field_ic_install(&ic, 2, loc(9));
+    assert_eq!(field_ic_lookup(&ic, 1), Some(loc(7)));
+    assert_eq!(field_ic_lookup(&ic, 2), Some(loc(9)));
 }
 
 #[test]
 fn field_ic_poly_four_types_all_hit() {
     let ic = FieldIC::default();
-    for t in 1..=4 { field_ic_install(&ic, t, t * 10); }
-    for t in 1..=4 { assert_eq!(field_ic_lookup(&ic, t), Some(t * 10)); }
+    for t in 1..=4 { field_ic_install(&ic, t, loc(t * 10)); }
+    for t in 1..=4 { assert_eq!(field_ic_lookup(&ic, t), Some(loc(t * 10))); }
 }
 
 #[test]
 fn field_ic_megamorphic_evicts_via_round_robin() {
     let ic = FieldIC::default();
-    for t in 1..=4 { field_ic_install(&ic, t, t * 10); }
+    for t in 1..=4 { field_ic_install(&ic, t, loc(t * 10)); }
     // 5th type triggers round-robin eviction (victim = slot 0).
-    field_ic_install(&ic, 5, 50);
-    assert_eq!(field_ic_lookup(&ic, 5), Some(50));
+    field_ic_install(&ic, 5, loc(50));
+    assert_eq!(field_ic_lookup(&ic, 5), Some(loc(50)));
     // Three of the original four still present; one (slot 0) replaced.
     let remaining_hits: usize = (1..=4)
         .filter(|t| field_ic_lookup(&ic, *t).is_some())
@@ -78,20 +83,40 @@ fn field_ic_megamorphic_evicts_via_round_robin() {
     assert_eq!(remaining_hits, 3, "round-robin victimizes exactly one slot");
 }
 
+/// The JIT's inline guard compares `entry & FIELD_IC_GUARD_MASK` against `tid << 32 | kind`: an
+/// empty entry carries kind `KIND_NONE`, so even an `UNRESOLVED` receiver never matches it.
+#[test]
+fn field_ic_guard_word_matches_only_installed_pairs() {
+    use crate::metadata::types::FieldLoc;
+    use std::sync::atomic::Ordering;
+    let want = |tid: u32, kind: u8| ((tid as u64) << 32) | kind as u64;
+    let ic = FieldIC::default();
+    let empty = ic.entries[0].packed.load(Ordering::Relaxed);
+    assert_eq!((empty & FIELD_IC_GUARD_MASK) as u8, FieldLoc::KIND_NONE);
+    for kind in [FieldLoc::KIND_REF, crate::metadata::types::TAG_I64, crate::metadata::types::TAG_BOOL] {
+        assert_ne!(empty & FIELD_IC_GUARD_MASK, want(UNRESOLVED, kind));
+    }
+    let l = FieldLoc { offset: 0x1234, kind: crate::metadata::types::TAG_I32 };
+    field_ic_install(&ic, 42, l);
+    let e = ic.entries[0].packed.load(Ordering::Relaxed);
+    assert_eq!(e & FIELD_IC_GUARD_MASK, want(42, l.kind));
+    assert_eq!((e >> FieldLoc::OFFSET_SHIFT) as u16, 0x1234, "the offset the guard extracts");
+}
+
 #[test]
 fn field_ic_unresolved_recv_type_returns_none() {
     let ic = FieldIC::default();
-    field_ic_install(&ic, 1, 7);
+    field_ic_install(&ic, 1, loc(7));
     assert_eq!(field_ic_lookup(&ic, UNRESOLVED), None);
 }
 
 #[test]
 fn field_ic_install_unresolved_is_noop() {
     let ic = FieldIC::default();
-    field_ic_install(&ic, UNRESOLVED, 7);
+    field_ic_install(&ic, UNRESOLVED, loc(7));
     // Should not poison the first slot — subsequent install must still hit it.
-    field_ic_install(&ic, 1, 9);
-    assert_eq!(field_ic_lookup(&ic, 1), Some(9));
+    field_ic_install(&ic, 1, loc(9));
+    assert_eq!(field_ic_lookup(&ic, 1), Some(loc(9)));
 }
 
 #[test]
@@ -147,10 +172,10 @@ fn note_fn_registration_strictly_advances_the_mark() {
 #[test]
 fn ic_reinstall_same_type_updates_slot_in_place() {
     let ic = FieldIC::default();
-    field_ic_install(&ic, 1, 7);
+    field_ic_install(&ic, 1, loc(7));
     // Reinstall with the same type should not consume another slot.
-    field_ic_install(&ic, 1, 99);
-    assert_eq!(field_ic_lookup(&ic, 1), Some(99));
+    field_ic_install(&ic, 1, loc(99));
+    assert_eq!(field_ic_lookup(&ic, 1), Some(loc(99)));
     // And the remaining 3 slots should still be UNRESOLVED.
     use std::sync::atomic::Ordering;
     for entry in &ic.entries[1..] {
@@ -180,7 +205,7 @@ fn concurrent_install_never_publishes_a_mismatched_payload() {
         let (ic, stop) = (Arc::clone(&ic), Arc::clone(&stop));
         writers.push(std::thread::spawn(move || {
             while !stop.load(Ordering::Relaxed) {
-                field_ic_install(&ic, t, t * 1000);
+                field_ic_install(&ic, t, loc(t * 1000));
             }
         }));
     }
@@ -192,7 +217,7 @@ fn concurrent_install_never_publishes_a_mismatched_payload() {
             while !stop.load(Ordering::Relaxed) {
                 for t in 1..=8u32 {
                     if let Some(payload) = field_ic_lookup(&ic, t) {
-                        if payload != t * 1000 { torn += 1; }
+                        if payload != loc(t * 1000) { torn += 1; }
                     }
                 }
             }

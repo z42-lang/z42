@@ -196,8 +196,7 @@ impl VmContext {
         // avoidance: heap owns the scanner, scanner refs core, core owns
         // heap → strong-Arc loop = leak). Weak.upgrade() per call.
         let core: Arc<VmCore> = Arc::new(VmCore {
-            static_fields:      Mutex::new(Vec::new()),
-            static_field_index: Mutex::new(FxHashMap::default()),
+            statics:            Default::default(),
             lazy_loader:        RwLock::new(None),
             pending_type_inits: Mutex::new(Vec::new()),
             cctors:             Arc::new(super::cctor::CctorRegistry::default()),
@@ -329,9 +328,7 @@ impl VmContext {
             core.heap.set_external_root_scanner(Box::new(move |visit| {
                 let Some(c) = core_weak.upgrade() else { return; };
                 // 1. Shared static fields.
-                for v in c.static_fields.lock().iter() {
-                    visit(v);
-                }
+                c.statics.scan_roots(visit);
                 // Interned `ConstStr` literals: after their instruction they live only in
                 // the VM's string table (`metadata::str_table`), which keeps them alive.
                 c.strings.scan_roots(|s| visit(&Value::Str(s)));
@@ -410,9 +407,7 @@ impl VmContext {
             core.heap.set_categorized_root_scanner(Box::new(move |visit| {
                 use crate::gc::retention::RootKind;
                 let Some(c) = core_weak.upgrade() else { return; };
-                for v in c.static_fields.lock().iter() {
-                    visit(v, RootKind::StaticField);
-                }
+                c.statics.scan_roots(&mut |v| visit(v, RootKind::StaticField));
                 // Interned `ConstStr` literals (VM-wide, like static fields).
                 c.strings.scan_roots(|s| visit(&Value::Str(s), RootKind::StaticField));
                 let registry = c.vm_contexts.lock();

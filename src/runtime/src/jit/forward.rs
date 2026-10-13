@@ -69,9 +69,15 @@ impl StrIntrinsic {
     }
 }
 
-/// What the translator may ask about a call target while compiling a caller.
-/// Implemented by [`CompileLookup`]; never loads a package or binds a site.
+/// What the translator may ask about the VM while compiling a function: call targets,
+/// and the heap's write-barrier gate. Implemented by [`CompileLookup`]; never loads a
+/// package or binds a site.
 pub(crate) trait ForwardLookup {
+    /// The heap's barrier-gate bytes (`MagrGC::jit_barrier_bytes`) that compiled reference
+    /// field stores read; `None` keeps every reference store on the helper.
+    fn barrier_bytes(&self) -> Option<(*const std::sync::atomic::AtomicU8, *const std::sync::atomic::AtomicU8)> {
+        None
+    }
     /// The builtin the function under JIT id `id` forwards to (shape 1 or 2),
     /// provided a static call of it needs no type-init barrier (its owner type is
     /// loaded and has no static constructor).
@@ -123,6 +129,12 @@ impl ForwardLookup for CompileLookup<'_> {
 
     fn forward_of_name(&self, name: &str) -> Option<u32> {
         self.probe_fn(name, |f| self.barrier_free_forward(f))
+    }
+
+    /// The VM's heap outlives its JIT (both belong to the core), so the addresses stay valid
+    /// for as long as the compiled code can run.
+    fn barrier_bytes(&self) -> Option<(*const std::sync::atomic::AtomicU8, *const std::sync::atomic::AtomicU8)> {
+        self.vm.heap().jit_barrier_bytes()
     }
 }
 
