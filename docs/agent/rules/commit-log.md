@@ -34,34 +34,29 @@ type(scope): 描述
 
 ## scope（子系统）
 
-沿用[子系统划分](parallel-development.md)：`compiler` / `runtime` / `stdlib` / `toolchain` / `docs`。
-跨子系统时取主要那个，或省略 scope。
+| scope | 范围 |
+|-------|------|
+| `compiler` | `src/compiler/`（z42c 自举编译器源码，用 z42 写） |
+| `runtime` | `src/runtime/`（Rust VM：interp / jit / aot / gc） |
+| `stdlib` | `src/libraries/`（.z42 标准库） |
+| `toolchain` | `src/toolchain/` + xtask dispatch |
+| `docs` | `docs/` |
+
+跨子系统时取主要那个，或省略 scope。这张表同时用来判断「两个 in-flight PR 是否同子系统、要不要互相知会」
+（见 [workflow.md 阶段 6](workflow.md)）。
 
 ## 一个 commit = 一个逻辑单元
 
 - 一个 PR 对应一个逻辑单元，不积压、不混合多个独立功能/修复；squash 合并后 main 上**一个 PR 一个提交**（标题带 `(#N)`）
-- 拆分（refactor）与功能变更**分开提交**（各自成 PR）（见 [code-organization.md](code-organization.md)）
-- 规则变更（`docs/agent/`、各工具入口文件）**必须纳入**对应提交，不得遗漏
-- **伴随文档属同一逻辑单元，必须进同一个 PR**，不留「代码先合、文档后补」的尾巴。
-  完整论证见 [workflow.md 阶段 6 铁律](workflow.md)。
-- **squash 提交正文**写 Why + What 摘要（≤ 10 行）与关键决策；完整方案留在 PR 描述，靠标题的 `(#N)` 找回。
+- 伴随文档、规则变更（`docs/agent/`、各工具入口文件）属同一逻辑单元，进同一个 PR
+- squash 提交正文的写法见 [workflow.md 阶段 6](workflow.md) 第 4 步
 
 ## 页脚
 
-AI 生成的提交在信息末尾附 **当次会话给出的模型** 署名行：
+**AI 生成的提交**，在信息末尾附**当次工具链下发的**模型署名行；**PR 描述**末尾附同一份署名。
 
-```
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
-```
-
-AI 生成的 PR，描述末尾附：
-
-```
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-```
-
-> **署谁以工具链当次下发的 attribution 为准**——Claude Code 每次会话会给出当前模型的署名
-> 格式，本文件只约定**新提交**跟着它走，换模型时不回头改历史提交。
+- **格式由工具链决定**（各工具的署名形式不同），本文件不规定具体字符串，也不硬编码某个工具的示例。
+- **工具链没有下发署名时，不加**——不要自己编一个（历史提交也不必回头补）。
 
 ## 示例
 

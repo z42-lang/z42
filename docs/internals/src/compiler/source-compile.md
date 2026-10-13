@@ -25,7 +25,7 @@ graph LR
 ```mermaid
 flowchart TD
   subgraph S0["① 解析 + 内建 AST 脱糖（调用方逐文件做；z42c.syntax / z42c.semantics）"]
-    P0[Lexer → Parser → CompilationUnit] --> RA["HandlerRegistry.RunAst（z42c.semantics）<br/>BenchmarkDesugar（Testing/）→ AttributeSynth（Desugar/）"]
+    P0[Lexer → Parser → CompilationUnit] --> RA["HandlerRegistry.RunAst（z42c.semantics）<br/>AttributeSynth（Desugar/）"]
   end
   RA --> DEP["② 依赖解析（z42c.pipeline）<br/>DepScan → DepScanResult → ImportedSymbols<br/>REPL：复用缓存的 CachedScan"]
   DEP --> GATE{"③ 有 generator？<br/>[analyzers] zpkg 里的 : Generator / : ModuleGenerator<br/>或源里用了 [Forward]"}
@@ -67,8 +67,7 @@ flowchart TD
       direction TB
       G1["静态初始化 → 类 / impl / 接口 / 枚举 / 委托 / 自由函数<br/>→ ModuleInitSynth"] --> G2["泛型单调化工作表（特化体 + 实例布局，不动点迭代）"]
       G2 --> G3["lambda / 局部函数 lift 入函数表"]
-      G3 --> G4["TestIndexBuilder → TIDX（[Test]/[Benchmark] 发现表）"]
-      G4 --> G5["new IrModule（常量池 + 类 + 函数）"]
+      G3 --> G5["new IrModule（常量池 + 类 + 函数）"]
       G5 --> O["**IrOptPipeline.Run(irm, optSet)**（z42c.optimization）<br/>Inline（模块级）→ 逐函数 ConstFold · DeadBranch · LICM · CSE · CopyProp · DCE<br/>→ 逃逸分析 StackAlloc → LoopAllocReuse"]
     end
     G --> G1
@@ -78,7 +77,6 @@ flowchart TD
 
 - **优化的位置与粒度**：`IrOptPipeline` 由 `IrGen.Generate` 末尾调用，**每个 CU 的 `IrModule` 单独优化**，所以 Inline 只能内联同一 CU 内的 callee；
   跨 CU / 跨包的调用点不内联。开关由 `optSet` 决定：release 默认 `Opt.All`，debug 默认 `Opt.None`（`CompileInputs.OptSet` 可显式覆盖）。
-  TIDX 在优化**之前**按函数下标建好；优化只改函数体、不增删函数，所以 TIDX 里的 method id 不受影响。
 - **优化之后还有一步包级处理**：⑧ 里的 `CtorKnownFixup` 需要「本包全部已发射函数 ∪ 依赖索引」才能判定某个 `new` 的构造器是否存在，把结果写进 `ObjNew.CtorKnown`；单个 CU 看不到同包其它文件，所以只能在整包装配后做。
 - **有错误即不生成**：`GenerateIfClean` 在有任何类型错误、包级收集期错误，或前置线（generator 护栏 E0448 / analyzer）报了 error 时不进 `Generate`（`IrDump.BuildPackageCusGated` 的 `upstreamErrors`）。所以代码生成与优化**只对无错误的程序运行**；类型检查照做，诊断一次报全。
 
@@ -123,7 +121,7 @@ analyzer **只读、只产诊断**，不参与编译主线：
 
 | 机制 | 何时跑 | 看到什么 | 产出 | 加载方式 |
 |---|---|---|---|---|
-| **内建 handler**（`BenchmarkDesugar` / `AttributeSynth` / test 与 `[ModuleInit]` 校验 / `TestIndexBuilder`） | ①⑤ | AST / 符号表 | 改写 AST；合成工厂；TIDX | 编译器内建，永远开启 |
+| **内建 handler**（`AttributeSynth` / test 与 `[ModuleInit]` 校验） | ①⑤ | AST / 符号表 | 合成工厂；诊断 | 编译器内建，永远开启 |
 | **Generator**（`: Generator` / `: ModuleGenerator`，内建 `[Forward]`） | ③ | AST + 已解析符号（provisional 绑定） | 新源码 / 替换声明 / 增补 partial | `[analyzers]` zpkg，`GeneratorLoader` 反射加载 |
 | **Analyzer**（`: Analyzer`） | ④（generator 之后、包级编译之前） | union CU 的 AST（含生成代码；不含 Bound） | 诊断（可带 `--fix` 重写源） | 同上，`AnalyzerLoader` |
 | **BuildHooks**（`class ProjectHooks : BuildHooks`） | **z42b** 构建阶段（不在 z42c 里） | 构建上下文 | 构建副作用 | `[build] hooks` 目录由 z42b 编成 zpkg，`ModuleLoader` 加载 |
@@ -140,11 +138,29 @@ analyzer **只读、只产诊断**，不参与编译主线：
 
 跳过 trivia 使后续语法阶段只面对干净的 Token 序列，无需再关心排版与注释。观察：`--dump-tokens`。
 
+**实现要点**（改词法器时）：
+
+- 主循环 `_lexOne()` 按首字符分派到 `_lexIdent` / `_lexNumber` / `_lexString` / `_lexRawString` / `_lexInterpolated` / `_lexChar` / `_lexSymbol`；trivia（空白 / `//` / `/* */`）单独跳过。
+- 关键字：`_initKeywords()` 注册到并行数组 `_kwNames` / `_kwKinds`（注册序供 DumpTool / vscode-syntax 生成），`_kwLookup()` 走首字符分桶链 `_kwHead` / `_kwNext`；标识符 lex 后查表，命中即关键字。
+- 符号：`_lexSymbol()` 做**最长匹配**（`==` 胜 `=`，`>>>` 胜 `>>` 胜 `>`）。
+- Token 类型在 `TokenKind.z42`：`static class` + `int` 常量（无 enum），值仅需互异、顺序沿用既有排列；`Token`（`Token.z42`）= `Kind` + `Text` + `Span`。
+
 ### 语法（Parser）
 
 Token 流 → AST（`CompilationUnit`）。表达式用 Pratt 优先级爬升解析，运算符的结合与优先级由绑定力表驱动，便于增删运算符；语句与声明用递归下降。类型统一经 `_parseType` 产出 `TypeExpr`。
 
 解析器按关注点拆成若干子解析器（表达式、声明、成员、语句、类型），各司其职。AST 节点不可变，为后续并行分析与安全遍历提供基础。观察：`--dump-ast`。
+
+三个公开入口：`ParseExpression()` → `Expr`、`ParseStatement()` → `Stmt`、`ParseCompilationUnit()` → `CompilationUnit`（顶层）。
+
+**AST 节点**（class 继承层次，**非** record；每个节点带 `Span Span` 用于错误报告，带 `virtual Dump()` 产 s-expr 供 golden 对账）：
+
+| 基类 | 文件 | 子类举例 |
+|------|------|---------|
+| `Expr` | `Ast.z42` | `IntLitExpr` / `IdentExpr` / `UnaryExpr` / `BinaryExpr` / `MemberExpr` / `CallExpr` / `IndexExpr` / `AssignExpr` / `TernaryExpr` / `ObjNewExpr` / `IsExpr` / `AsExpr` / `CastExpr` / `TypeofExpr` / `LambdaExpr` … |
+| `Stmt` | `Stmt.z42` | `ExprStmt` / `BlockStmt` / `IfStmt` / `WhileStmt` / `ForStmt` / `ForeachStmt` / `SwitchStmt` / `TryStmt` / `ReturnStmt` / `VarDeclStmt` … |
+| `Decl` | `Decl.z42` | `CompilationUnit` / `UsingDecl` / `ClassDecl`（`Kind` 区分 class/struct/interface）/ `FieldDecl` / `MethodDecl` / `ConstructorDecl` / `EnumDecl` / `Param` / `AttributedDecl` … |
+| `TypeExpr` | `TypeExpr.z42` | `NamedType`（`Name` + 泛型 `Args`）/ `ArrayType` / `NullableType` / `FuncTypeExpr`；`TypeParamList` / `WhereClause` |
 
 **三处「唯一真相」**（各自只许一份实现，手抄副本会漂移出静默误解析）：
 
@@ -184,8 +200,7 @@ AST → Bound 树 + `SemanticModel`。分两步：先由 `SymbolCollector` 遍�
 `SymbolTable.Classes` 以**裸类名**为键（`Foo`），同短名不同命名空间的类（`namespace A { class Foo }` 与
 `namespace B { class Foo }`）会在该表里 first/last-wins 只留一份。仅靠裸名表，限定引用 `new A.Foo` 会被剥成
 `Foo` 再查裸名表 → 撞见碰巧赢的那份（B.Foo），致对象身份、`is`/`as`、`GetType().FullName` 全错
-（与静态调用侧同源，见
-[common-pitfalls §1](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/common-pitfalls.md)）。
+（与静态调用侧同源）。
 
 解法是**并存的 FQN 视图**：
 
@@ -683,7 +698,7 @@ getter 是真实函数体。
 
 **VM 侧无需改动**：基元接收者 VCall 的运行期派发（`src/runtime/src/interp/exec_vcall.rs:321-379`）按 `<class>.<method名>` 拼函数名直查——即它**本就以完整 mangle RegKey 为派发键**。只要绑定 emit 出正确的 `Split$1$string`，VM 就命中 `Std.String.Split$1$string`，跨包一样生效。
 
-> 阶段纪律（[bootstrap-seed.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/bootstrap-seed.md)）：z42c / stdlib 源自身**不使用** prim 类同 arity 重载；待办：往 `Std.String` 加 `Split(char[])` 等实际重载，晚一个 nightly。
+> 阶段纪律（见[编译器自举](self-hosting.md)）：z42c / stdlib 源自身**不使用** prim 类同 arity 重载；待办：往 `Std.String` 加 `Split(char[])` 等实际重载，晚一个 nightly。
 
 #### 重载决议：默认值形参、命名实参、params 两种形态
 

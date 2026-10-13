@@ -18,7 +18,7 @@ z42vm —— Rust 写的虚拟机：加载 `.zpkg`、执行字节码、管理内
 | 主题 | 页 |
 |---|---|
 | **执行** | [执行模型](execution-model.md) · [JIT 后端（Cranelift）](jit-design.md) · [JIT 惰性逐函数编译](jit.md) · [解释器/JIT 语义单一真相源](interp-jit-semantics.md) · [超级指令融合](superinstr-fusion.md) · [优化管线](optimization-pipeline.md) · [加载期可用性折叠](availability-folding.md) · [内联缓存（PIC）](inline-cache-publication.md) |
-| **内存与 GC** | [GC 子系统与 safepoint 协议](gc.md) · [GC 调参与诊断旋钮](gc-tuning.md) · [TLAB 线程本地分配](gc-tlab.md) · [增量 major：SATB 屏障](gc-incremental-major.md) · [逃逸分析与栈上分配](escape-analysis.md) · [堆保留诊断](heap-diagnostics.md) |
+| **内存与 GC** | [GC 子系统与 safepoint 协议](gc.md) · [GC 调参与诊断旋钮](gc-tuning.md) · [TLAB 线程本地分配](gc-tlab.md) · [增量 major：SATB 屏障](gc-incremental-major.md) · [原生代码与 GC 的协作约定](native-gc-contract.md) · [逃逸分析与栈上分配](escape-analysis.md) · [堆保留诊断](heap-diagnostics.md) |
 | **对象与类型** | [委托与事件的实现](delegates-events.md) · [struct 值语义](struct-value-semantics.md) · [反射 Type 身份](reflection-type-identity.md) · [静态构造函数初始化](static-ctor-init.md) · [缺符号不再静默](missing-symbol.md) · [对象协议的派发](object-protocol-dispatch.md) · [GC 句柄表](gc-handle.md) |
 | **加载与配置** | [加载上下文](load-context.md) · [运行时设置的实现](runtime-settings.md) |
 | **并发** | [同步原语](sync-primitives.md) · [并发与 async](concurrency.md) |
@@ -33,3 +33,28 @@ z42vm —— Rust 写的虚拟机：加载 `.zpkg`、执行字节码、管理内
 [AOT](aot.md) · [分层执行](tiered-execution.md) · [组件化运行时](componentized-runtime.md) ·
 [热重载](hot-reload.md) · [safepoint 泛化](safepoint-design.md) · [诊断事件模型](diagnostics-design.md) ·
 [加载上下文强制清理](load-context-design.md) · [IR intrinsic 特化](ir-specialization-design.md)
+
+## 依赖与参考实现
+
+Rust 侧的第三方依赖与候选库。「状态」只标已采用的；其余是调研结论，引入前仍要评估并在 `Cargo.toml` 注明用途。
+
+| 用途 | 推荐库 | 状态 | 说明 |
+|------|--------|------|------|
+| JIT 代码生成 | `cranelift-*` | ✅ 已用 | Bytecode Alliance，Wasmtime 同款（feature `jit`） |
+| 内容哈希 | `blake3` | ✅ 已用 | zbc build_id |
+| AOT / LLVM | `inkwell` | 调研 | LLVM safe bindings for Rust |
+| 解析辅助（调试格式） | `nom` 或 `winnow` | 调研 | 文本 IR（`.zasm`）解析 |
+| GC（未来沙盒模式） | `gc-arena` | 调研 | arena 式 GC，可选引入 |
+| 并发运行时 | `tokio` | 调研 | async VM task 调度 |
+| 性能剖析 | `pprof-rs` | 调研 | 火焰图 |
+| 文件监听 | `notify` | 调研 | 热更新文件系统事件，跨平台，支持 debounce |
+
+动手实现某个子系统前先看的参考项目：
+
+| 子系统 | 参考项目 |
+|--------|---------|
+| 解释器结构 | CPython（ceval.c）、wren、lua 5.4 |
+| SSA / IR 设计 | LLVM IR、Cranelift CLIF、QBE |
+| 类型推导 | OCaml 编译器、Hindley-Milner 论文实现 |
+| JIT 流水线 | LuaJIT、V8 Maglev、JavaScriptCore |
+| 模式匹配编译 | `rustc_mir_build`、MLton |

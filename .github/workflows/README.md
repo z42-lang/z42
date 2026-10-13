@@ -37,7 +37,7 @@
 ## 设计约定
 
 - **统一入口**：workflow 只调 `xtask <cmd>`，不在 yaml 里硬编码构建 / 测试命令。
-- **自举**：CI 从上一个 nightly（失败则回退最近正式 release）的 SDK 起步，自己编当前源码；约束见 [bootstrap-seed.md](../../docs/agent/rules/bootstrap-seed.md)。
+- **自举**：CI 从上一个 nightly（取不到则回退 main 上最近成功 CI 的产物）的 SDK 起步，自己编当前源码；机制见 [CI 拓扑 · 自举种子从哪来](../../docs/internals/src/devinfra/ci.md)。
 - **缓存**：Rust 依赖用 Swatinem `rust-cache`，bench 缓存由 main 上的 `bench-cache-warm` 预热。
 - **并发控制**：同一 ref、同一事件类型的旧 run 自动取消（`concurrency` 段）。
 

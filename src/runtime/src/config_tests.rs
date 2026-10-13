@@ -1,4 +1,4 @@
-//! `config.rs` 的单测（runtime-rust.md：测试独立文件；refactor-split-config 自内联 `mod tests` 搬出）。
+//! `config.rs` 的单测（测试独立成文件；refactor-split-config 自内联 `mod tests` 搬出）。
 use super::*;
 use std::collections::{BTreeMap, HashMap};
 

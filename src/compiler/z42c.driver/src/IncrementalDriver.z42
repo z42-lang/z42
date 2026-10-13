@@ -1,6 +1,6 @@
 // 文件级增量的 driver 侧编排（add-file-level-incremental 阶段 4；Main._build 调用）。
 // 职责：token/定义名提取（D3 保守边输入）→ ProbeFiles+Close → cached zbc 读回 +
-// meta 残留回填（D5a：块 label / 模块池原序 / TIDX idx）→ 失败降级 fresh（含其
+// meta 残留回填（D5a：块 label / 模块池原序）→ 失败降级 fresh（含其
 // 依赖方重闭包）→ fresh 落 cache（zbc + meta + 包级源清单）。
 // Main.z42 只留编排调用（500 行硬限）；本文件承载全部增量细节。
 namespace Z42.Driver;
@@ -203,7 +203,7 @@ public static class IncrementalDriver {
         CacheStore.SaveSrcList(cacheDir, rels, n, depsId);
     }
 
-    // ── 残留回填（D5a）：占位 label → 真实 label；模块池 → meta 原序；TIDX idx 重映射 ──
+    // ── 残留回填（D5a）：占位 label → 真实 label；模块池 → meta 原序 ──
 
     private static bool _applyResidue(IrModule irm, CacheMeta meta) {
         if (meta == null) { return false; }
@@ -244,7 +244,7 @@ public static class IncrementalDriver {
             }
             f = f + 1;
         }
-        // ② 模块池 → meta 原序；ConstStr / TIDX idx 按串值重映射（池条目唯一）。
+        // ② 模块池 → meta 原序；ConstStr idx 按串值重映射（池条目唯一）。
         string[] newPool = new string[meta.PoolCount + 1];
         newPool[0] = "";
         StrMap poolIdx = new StrMap();
@@ -274,20 +274,6 @@ public static class IncrementalDriver {
             }
             f = f + 1;
         }
-        int e2 = 0;
-        while (e2 < irm.TestCount) {
-            IrTestEntry t = irm.TestIndex[e2];
-            t.SkipReasonStrIdx = IncrementalDriver._poolRemapOrZero(poolIdx, irm, t.SkipReasonStrIdx);
-            t.SkipPlatformStrIdx = IncrementalDriver._poolRemapOrZero(poolIdx, irm, t.SkipPlatformStrIdx);
-            t.SkipFeatureStrIdx = IncrementalDriver._poolRemapOrZero(poolIdx, irm, t.SkipFeatureStrIdx);
-            t.ExpectedThrowTypeIdx = IncrementalDriver._poolRemapOrZero(poolIdx, irm, t.ExpectedThrowTypeIdx);
-            int tc = 0;
-            while (tc < t.TestCaseCount) {
-                t.TestCases[tc].ArgReprStrIdx = IncrementalDriver._poolRemapOrZero(poolIdx, irm, t.TestCases[tc].ArgReprStrIdx);
-                tc = tc + 1;
-            }
-            e2 = e2 + 1;
-        }
         irm.StringPool = newPool;
         irm.StringCount = meta.PoolCount + 1;
         return true;
@@ -316,12 +302,6 @@ public static class IncrementalDriver {
         string v = irm.StringPool[curIdx];
         if (!poolIdx.ContainsKey(v)) { return 0 - 1; }
         return (poolIdx.Get(v) as IntBoxZ).Value;
-    }
-    private static int _poolRemapOrZero(StrMap poolIdx, IrModule irm, int curIdx) {
-        if (curIdx <= 0) { return 0; }
-        int ni = IncrementalDriver._poolLookup(poolIdx, irm, curIdx);
-        if (ni < 0) { return 0; }
-        return ni;
     }
 
     // ── D3 保守边输入 ────────────────────────────────────────────────────────────

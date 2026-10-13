@@ -5,7 +5,7 @@
 
 ## 概述
 
-`.zbc` 是 z42c 为单个模块产出的平台无关字节码：寄存器式指令流 + 元数据 section。它是编译流程写出阶段的产物，也是虚拟机的输入。当前版本 **1.27**（`major=1, minor=27`）。
+`.zbc` 是 z42c 为单个模块产出的平台无关字节码：寄存器式指令流 + 元数据 section。它是编译流程写出阶段的产物，也是虚拟机的输入。当前版本 **1.47**（`major=1, minor=47`）。
 
 本页是 wire format 参考——文件如何逐字节编码；指令的执行语义见运行时部分。
 
@@ -55,7 +55,7 @@ size     u32    该段字节数
 
 ### Section 顺序
 
-固定写出 8 段：`NSPC` → `STRS` → `TYPE` → `SIGS` → `IMPT` → `EXPT` → `FUNC` → `REGT`；其后按需追加 `DBUG`（任一函数有行号/局部变量名）、`TIDX`（模块含测试）。
+固定写出 8 段：`NSPC` → `STRS` → `TYPE` → `SIGS` → `IMPT` → `EXPT` → `FUNC` → `REGT`；其后按需追加 `DBUG`（任一函数有行号/局部变量名）。
 
 ## Sections
 
@@ -176,19 +176,6 @@ instr_bytes   instr_len 字节（各块指令 + 终结符）
 
 `u32 fn_count`，每函数：`u16 line_count` + 每行 `{ blk u16; instr u16; line u32; file u32(0xFFFFFFFF=无); col u32 }`；`u16 var_count` + 每变量 `{ name pool idx; reg u16 }`。
 
-### TIDX — 测试索引（可选）
-
-```
-magic         utf8 "TIDX"
-version       u8 = 3
-entry_count   u32
-每条目 ×      { method_id u32; kind u8; flags u16;
-                skip_reason u32; skip_platform u32; skip_feature u32; expected_throw u32;
-                test_case_count u32; arg_repr u32 × test_case_count; timeout_ms i32 }
-```
-
-`kind`：1 Test / 2 Benchmark / 3 Setup / 4 Teardown。字符串字段为 1-based pool idx（`0` = 无）。
-
 ## 指令编码
 
 每条指令与终结符以 4 字节头开始，后跟按操作码定义的操作数：
@@ -234,7 +221,7 @@ dst       u16    目标寄存器；无目标 = 0xFFFF
 | 0x53 | CallNative | `u32 module, u32 type, u32 symbol` + args |
 | 0x55 | LoadFn | `u32 method_token` |
 | 0x56 | CallIndirect | `u16 callee` + args |
-| 0x57 | MkClos | `u32 method_token, u8 reserved` + args（捕获）。`reserved` 原为 `stack_alloc`：writer 恒写 0，VM 读后丢弃、一律堆分配；下次 bump 删除 |
+| 0x57 | MkClos | `u32 method_token` + args（捕获）。闭包一律堆分配 |
 | 0x60 | FieldGet | `u16 obj, u32 field_idx` |
 | 0x61 | FieldSet | `u16 obj, u32 field_idx, u16 val` |
 | 0x62 | StaticGet | `u32 field_idx` |
@@ -339,11 +326,12 @@ bump 的同步 checklist 见开发基础设施部分的 version-bumping 规范�
 | 1.41 | 2026-09-15 | **接口方法块新增 `is_static:u8`**（TYPE 段 `CLASS_FLAG_INTERFACE` bit4 gated 的接口方法块，每方法在 `pcount` 之后、`ptype`s 之前）。镜像 SIGS 早有的 `is_static` 专用字节。此前接口方法块只携 `name/ret/pcount/ptypes`、**零 flags 字节** ⇒ `static abstract` 接口成员的静态位一路丢成 false（`TsigReconcile._rebuildInterface` 硬编码 `isStatic=false`），迫使 `InheritanceResolver` 用 `if (it.IsImported) return;` 临时守卫跳过导入接口的 static 满足性校验（#636）。承载真值后：`TsigReconcile` 用 wire 值构造 `ExportedMethodZ`（`isVirtual=!isStatic`、`isAbstract=true` 派生）、导入侧 `mz.IsStatic` 恢复真值、删守卫 ⇒ 导入接口获完整 static/可见性/返回满足性校验。VM 侧 **read-and-consume**（保游标对齐；vtable 派发不需要它，`IfaceMethodSig.is_static` 供未来 `MethodInfo.IsStatic` 反射）。耦合 zpkg 0.46。Pre-1.41 zbc 不可读 |
 | 1.42 | 2026-09-16 | **跨包关联类型**（associated types across zpkg）：两处 wire 新增，承载此前一个字节没进 wire 的三份数据。① **约束 bundle 新增 bit7 = `has_assoc_binding`**（`assoc_count:u8 + (name_idx:u32, type_idx:u32)×n`，在 iface 列表之后）——承载 `where T:IEnum<Item=int>` 的绑定要求。② **每条 TYPE 记录尾部新增 always-present 统一 assoc 块**（`assoc_count:u16 + (name_idx:u32, type_idx:u32)×n`）——接口写 `(Item, "")` = 声明的关联类型名单、类写 `(Item, int)` = 类侧绑定；消费端按 `class_flags & CLASS_FLAG_INTERFACE` 路由。此前接口关联类型名单（`Z42InterfaceType.AssocTypeNames`）+ 类侧绑定（`Z42ClassType.AssocBinding`）+ 约束绑定（`ConstraintBundle.AssocBinding`）**全无 wire 承载**，跨包 100% 丢失，迫使 `ConstraintChecker`/`InheritanceResolver` 三处 `IsImported` 守卫保守跳过。承载后：`TsigReconcile`/`ImportedSymbolLoader` 恢复三份数据、删三守卫 ⇒ 跨包关联类型获与同包一致的完整校验（正确绑定放行、错/缺绑定 E0453）。关联类型是**纯编译期**概念，VM 侧两处新载荷均 **read-and-consume**（`validate_type_arg_constraint` 无关联类型分支）。耦合 zpkg 0.47。Pre-1.42 zbc 不可读 |
 | 1.43 | 2026-09-17 | **z42c 开始发射 `LoadElemAddr`(0xA1) / `LoadFieldAddr`(0xA2)** —— `ref arr[i]` / `ref obj.f` 的取址。⚠️ 注意这是 **A-use 而非 A-support**：VM 侧这两条的解码（`zbc_reader/opcodes.rs`）与执行（`interp/exec_address.rs`）**自 2026-05-05 `cb61cc072` 就完整存在**，四个多月来一直是纯死代码（零测试、零生产者）。此前编译器对**任何** ref 实参一律发 `LoadLocalAddr`(0xA0)，而对数组元素 / 对象字段，`Emit(inner)` 是一次**读取**、返回新分配的**临时寄存器** ⇒ 取的是临时槽的地址 ⇒ 出口 copy-out 写回临时槽、调用方看不到（**静默丢写**：`Inc(ref arr[0])` 打印 10 而非 11）。按本页既有纪律「A-support 不 bump、**bump 在 A-use**」（同 1.31 blob 值指令）。wire 布局：`LoadElemAddr` = `dst + arr:u16 + idx:u16`（同二元算术形），`LoadFieldAddr` = `dst + obj:u16 + field:u32`（同 `FieldGet` 形）——两者**布局早由 VM 解码器钉死**，本次只是补上生产方。耦合 zpkg 0.48 |
+| 1.47 | 2026-10-12 | **删除 `TIDX` section**：测试由 z42.test 的 runner 在运行期经反射发现（`[Test]` 等是 z42.core 里的普通 attribute 类，attribute 工厂随 TYPE / SIGS 段承载），编译器不再写测试索引。**`MkClos` 删掉尾部 `u8`**（原 `stack_alloc`，writer 恒写 0、闭包一律堆分配）。耦合 zpkg 0.53。Pre-1.47 zbc 不可读 |
 | 1.46 | 2026-09-28 | **`StructFieldGetPrim` / `StructFieldSetPrim` 的 `byte_off:u32` 换成 `root_type:u32(池) + depth:u8 + idx:u16 × depth`**（字段序号路径；`depth >= 1`，扁平 `a.x` 就是 depth 1）。🔴 **动机不是性能** —— 实测符号化是**中性**的：struct 字段访问在 JIT 里**恒是 helper 调用**（`jit/translate/structs.rs`），烘焙偏移只是个 `iconst` 实参，符号化的边际代价是那次**已经要付的调用**里多一次查表。真正的回报是**消掉一处编号空间歧义**：偏移此前活在两个互不相容的编号空间里 —— struct blob 相对（`StructRef`/`BoxedStruct`/`StructRefHeap`）与 composed 对象相对（`Object`/`StackObject`）—— 而**指令里一个字都没记是哪个**，正确性靠编译器（`AccessEmitter._isInlineStructFieldRoot`）与 Rust 运行时（按 `Value` 变体分派）**各自独立地同意**，正是结构审计 R2「判据复制」在 struct 路径上的实例。⭐ **`root_type` 本身就是判别器**：解析成 class ⇒ 第一级索引 `composed_object_layout().field_offsets`；解析成 struct ⇒ 索引 1.45 那张 `struct_field_table`。**不需要新增任何块** —— 路径下一跳的类型名由 `TypeDesc.fields[i].type_tag` 平行承载（1.45 刻意「名/类型名不重复承载」正为此）。⭐ 用**序号**而非字段名：序号**实例化不变、偏移才变**（`Pair<A,B>` 的 First/Second 永远 0/1）⇒ 运行期 O(1) 下标，无哈希、无字符串、不需要 IC。实测路径深度：1 占 **85.1%**、≥2 占 14.9%、**最大 4**。⚠️ **`depth 0` 非法**，写端与两个读端都拒 —— 空路径会静默解析到偏移 0（blob 头部），正是本刀要消掉的那类「看起来合法的错偏移」。⚠️ 连带：字段访问**从此依赖类型元数据**（`resolve_layout` 的 size-only 兜底之下无法解析），实测 289 条 e2e 语料里只有 1 条走到兜底且其字段从不经 IR 指令访问。耦合 zpkg 0.51。Pre-1.46 zbc 不可读 |
 | 1.45 | 2026-09-27 | **TYPE 记录两项新增，均 A-support（写端写、两个读端对称消费、无人使用）**。① **`class_flags2: u16`，紧随 `visibility`、恒存在**（每条 TYPE 记录 +2 字节，无 gate）—— 既有 `class_flags` 是 u8 且 **8 位已用满**（abstract/sealed/struct/record/interface/enum/delegate/has-inline-struct）。位用光的后果**已经现形**：1.33/1.34 的对象全字段块拿不到 flag 位，只能由一个**推导谓词**当闸门（「非 struct/接口/枚举/委托」，写端 `(Flags & 116) == 0`），而那个谓词在写端与 Rust 读端**各抄一份** —— 正是结构审计 R2「判据复制」的样本。`class_flags2` 为「新块按位 gated、判据下沉为数据」开位面；bit0 = `HAS_STRUCT_FIELD_TABLE`，其余位留空。② **值 struct 的逐字段布局表**（`class_flags2` bit0 gated，紧随 struct 引用位图块）：`field_count:u16 + (off:u32, size:u32, kind:u8)×n`，**同序平行于 `fields`**（字段名与类型名不重复承载 —— `fields[i]` 已有）。🔴 为什么要它：`StructFieldGetPrim/SetPrim` 的 `byte_offset` 今天由 codegen **烘焙成立即数**，而那是「泛型实例化必须有自己的体」的**唯一活跃动因**（`IrGen.InstNeedsOwnBody` 的另一条 `DefHasStaticState` 实测在**产品代码零命中**：全仓 269 个泛型声明里真带静态字段的 2 个、都在专测该特性的 fixture 里）⇒ 承载逐字段偏移是让运行期**有可能**自己解析的前置条件，即符号化访问（提案 `symbolic-struct-field-access` 的 P0）。数据**零新计算**：`StructLayoutInfo.FieldOffsets/FieldSizes/FieldKinds` 早已算好，此前只是没进 wire。耦合 zpkg 0.50。Pre-1.45 zbc 不可读 |
 | 1.44 | 2026-09-22 | **字符串池内容变更，wire 布局不变**：primitive 的 canonical 拼写从短名（`i8`/`i16`/`u8`/`u16`/`u32`/`u64`）统一到 C# 关键字（`sbyte`/`short`/`byte`/`ushort`/`uint`/`ulong`）。此前 canonical 表里 `int`/`long`/`float`/`double` 走关键字、窄整数族走短名，两套风格并存；收敛后 **源码拼写 == canonical == 线格式名**，SIGS/TYPE/FUNC 写出的类型名字符串随之变化（`u8[]` → `byte[]` 等）。连带：`Tag.FromName` 的窄整数族改绑关键字 —— 返回类型 tag 与 bump 前**逐条等价**（`i8 Parse` → `sbyte Parse` 仍是 `Tag.I8`），并把原先因只认短名而误落 `Object`(0x20) 的 `byte`/`short` 等源拼写归位到正确 tag（struct 字段侧无影响：全仓没有任何 struct 声明窄整型字段）。短名同时从词法器退役（`TokenKind.I8..F64` 删除），不再是合法 z42 类型拼写。**注**：`[Extern]` FFI 签名串与 IR 文本 dump 里的 `i8`/`u8` 是各自独立的记法（C/Rust ABI、LLVM 风格），不在此次收敛范围。耦合 zpkg 0.49 |
 
-> **如何 bump minor**：见 [`version-bumping.md` §"Bumping `.zbc` minor version"](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/version-bumping.md#bumping-zbc-minor-version)。简而言之 — 写 `ZbcWriter.VersionMinor++` + 同步 `zbc_reader.rs` 常量 + 本表加一行 + `xtask build test` regen（原地重生 6 个 zbc-format fixture）+ commit。Invariant CI 校验三方常量一致。
+> **如何 bump minor**：见 [格式 bump 清单 §一](../devinfra/format-bump.md)。简而言之 — 写 `ZbcWriter.VersionMinor++` + 同步 `zbc_reader.rs` 常量 + 本表加一行 + `xtask build test` regen（原地重生全部 zbc-format fixture）+ commit。Invariant CI 校验三方常量一致。
 
 ### Token 编码（v1.0+）
 
@@ -375,4 +363,4 @@ v0.x 的 namespace 提取语义（用于 lazy zpkg 路由）。
 
 ---
 
-> **每次格式 bump 必须在此加一行** —— 见 [version-bumping.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/version-bumping.md) 第 3 步。
+> **每次格式 bump 必须在此加一行** —— 见 [格式 bump 清单](../devinfra/format-bump.md) 第 3 步。

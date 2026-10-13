@@ -82,6 +82,11 @@ auto-prop）。不支持：Dict 非字符串键 / Set / enum / nullable。
 xtask test stdlib z42.json    # 本库全部 [Test]（DOM / JsonPath / serde / stream）
 ```
 
+## 关联文档
+
+- 用法与规则（参考手册）：[z42.json](../../../docs/reference/src/stdlib/json.md)
+- 设计 / 机制（实现内幕）：[标准库三层架构](../../../docs/internals/src/stdlib/architecture.md) · [包划分与 interop 归属](../../../docs/internals/src/stdlib/organization.md) · [JSON serde 的反射底座](../../../docs/internals/src/stdlib/json-serde.md)
+
 ## 依赖关系
 依赖 `z42.core` + `z42.text`（StringBuilder for stringify 缓冲）+ `z42.io`（`ParseStream` / `WriteTo` 的 Stream 重载）。
 

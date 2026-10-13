@@ -31,9 +31,11 @@ public sealed class ZpkgSectionList {
 }
 
 public static class ZpkgWriterZ {
-    // 版本（须与 C# ZpkgWriter.VersionMajor/Minor 一致；strict-pin。bump 同步见 version-bumping.md 第 5 步）。
+    // 版本（须与 Rust reader 的 ZPKG_VERSION_* 一致；strict-pin。bump 清单见 docs/internals/src/devinfra/format-bump.md）。
     public static int Major = 0;
-    public static int Minor = 52;   // 2026-10-06 precise-pkg-refs：DEPS 条目加符号表（u32 symCount + u32×symIdx）
+    public static int Minor = 53;   // 2026-10-12 retire-tidx：内嵌 zbc 1.47；MODS 每模块删掉 `tidx_len` + 体
+    // （测试改由运行期反射发现）。每模块段体由 func/type/dbug/regt/tidx 五个变为前四个。
+    // 0.52 2026-10-06 precise-pkg-refs：DEPS 条目加符号表（u32 symCount + u32×symIdx）
     // 0.51 2026-09-28 symbolic-struct-field-access P2：内嵌 zbc 1.46
     // （struct 叶子访问从烘焙 byte_off 改为 root_type + 字段序号路径）。outer 布局不变。
     // 前史 0.50 type-section-flags2-and-struct-fields：内嵌 zbc 1.45
@@ -285,7 +287,7 @@ public static class ZpkgWriterZ {
     }
 
     // MODS：count + 每模块{ns,src,hash idx + fnCount u16 + firstSigIdx u32 +
-    //        func_len+体, type_len+体, dbug_len+体, regt_len+体, tidx_len+体}。
+    //        func_len+体, type_len+体, dbug_len+体, regt_len+体}。
     // 体复用 zbc 段构建器（全局池 + per-module remap + per-module TokenAllocator）。
     //
     // 各模块的段体互不相干、且此时池已冻结（预扫已全量 intern，构建器只 `Idx` 读）⇒ 按模块并行算体
@@ -310,7 +312,6 @@ public static class ZpkgWriterZ {
             ZpkgWriterZ._appendSized(w, bodies.Type[mi], false);
             ZpkgWriterZ._appendSized(w, bodies.Dbug[mi], false);
             ZpkgWriterZ._appendSized(w, bodies.Regt[mi], false);
-            ZpkgWriterZ._appendSized(w, bodies.Tidx[mi], false);   // tidx_len（TestCount==0 → 0，零测试路径 byte-identical）
             firstSigIdx = firstSigIdx + irm.FuncCount;
             mi = mi + 1;
         }
@@ -426,12 +427,12 @@ public static class ZpkgWriterZ {
 // `_buildMods` 的逐模块段体（并行体：只写自己的槽，池只读）。
 sealed class ModBodies : IParallelTask {
     ZpkgFileZ _zpkg; ZbcStringPool _pool; bool _isRelease;
-    public ByteWriter[] Func; public ByteWriter[] Type; public ByteWriter[] Dbug; public ByteWriter[] Regt; public ByteWriter[] Tidx;
+    public ByteWriter[] Func; public ByteWriter[] Type; public ByteWriter[] Dbug; public ByteWriter[] Regt;
     public ModBodies(ZpkgFileZ zpkg, ZbcStringPool pool, bool isRelease) {
         this._zpkg = zpkg; this._pool = pool; this._isRelease = isRelease;
         int n = zpkg.ModuleCount;
         this.Func = new ByteWriter[n]; this.Type = new ByteWriter[n]; this.Dbug = new ByteWriter[n];
-        this.Regt = new ByteWriter[n]; this.Tidx = new ByteWriter[n];
+        this.Regt = new ByteWriter[n];
     }
     public void Run(int mi) {
         IrModule irm = this._zpkg.Modules[mi].Module;
@@ -446,7 +447,5 @@ sealed class ModBodies : IParallelTask {
         this.Dbug[mi] = (!this._isRelease && ZbcWriter.HasDebug(irm))
             ? ZbcWriter.BuildDbug(irm.Functions, irm.FuncCount, pool) : new ByteWriter();
         this.Regt[mi] = ZbcWriter.BuildRegt(irm.Functions, irm.FuncCount);
-        // TIDX（add-z42c-tidx-emit）：TestCount>0 → 测试发现 section（与 zbc Write 同格式，per-module remap）。
-        this.Tidx[mi] = irm.TestCount > 0 ? ZbcWriter.BuildTidx(irm.TestIndex, irm.TestCount, remap) : new ByteWriter();
     }
 }

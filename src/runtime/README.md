@@ -59,7 +59,7 @@
 | `str_table.rs` | `StrTable`：VM 级字符串字面量身份（`ConstStr` 操作数 = 字符串 id → 文本 + 驻留的 GC 字符串，驻留后读无锁）；入口模块字符串池 + 惰性包追加的池统一编号，驻留串是 GC 根 |
 | `seg_vec.rs` | `SegVec`（只追加、读无锁的分段向量）/ `SparseSegTable`（按 id 索引、段首次触达才分配的侧表） |
 | `superinstr.rs` | 超级指令融合框架 |
-| `test_index.rs` / `build_id.rs` / `well_known_names.rs` / `ir_type.rs` | 编译期测试发现 TIDX 段 / 分离调试符号的 build id / 常用限定名常量 / 寄存器类型 tag |
+| `build_id.rs` / `well_known_names.rs` / `ir_type.rs` | 分离调试符号的 build id / 常用限定名常量 / 寄存器类型 tag |
 
 ### crates/ — Rust workspace 子 crate
 native interop 三层 ABI 的 Rust 侧公开接口与宿主 / native 扩展 crate；详见 [`crates/README.md`](crates/README.md)。
@@ -99,3 +99,8 @@ xtask test e2e                                # VM golden 端到端（interp + j
 | `jit` | Cranelift JIT 后端（desktop x64/arm64） |
 | `native-interop` | Tier 1 原生扩展 ABI（dlopen + libffi） |
 | `mimalloc-alloc` | z42vm 二进制的 `#[global_allocator]` 走 mimalloc。z42c 自编译**分配受限**，换 mimalloc 后 z42c 编译显著提速。仅二进制生效（嵌入 lib 用宿主分配器）；wasm/移动预设不含（C 构建不入 wasm 沙箱 / 移动体积敏感） |
+
+## 关联文档
+
+- 用法与规则（参考手册）：[嵌入](../../docs/reference/src/embedding/README.md)
+- 设计 / 机制（实现内幕）：[运行时](../../docs/internals/src/runtime/README.md) · [VM 总体架构](../../docs/internals/src/runtime/vm-architecture.md) · [产物格式](../../docs/internals/src/formats/README.md)

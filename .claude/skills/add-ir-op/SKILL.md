@@ -8,5 +8,5 @@ argument-hint: <instruction-name>
 
 # 添加 IR 指令：$ARGUMENTS
 
-完整清单在 [docs/agent/playbooks/add-ir-op.md](../../../docs/agent/playbooks/add-ir-op.md)（与具体 AI 工具无关，
+完整清单在 [docs/internals/src/compiler/extending-language.md 的「三、新增 IR 指令（opcode）」一节](../../../docs/internals/src/compiler/extending-language.md)（与具体 AI 工具无关，
 本文件只是它的斜杠命令包装）。先读它，**尤其开头「多数情况下你不该加 opcode」那一节**，再动手。

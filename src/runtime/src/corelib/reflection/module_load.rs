@@ -1,27 +1,10 @@
 use super::*;
 
-/// `__test_module_load(path: str) -> Std.Harness.TestEntry[]` — load a compiled
-/// test / bench module and return its TIDX entries. Kept only for a seed SDK's
-/// pre-reflection runner; the in-tree runner discovers tests by reflection
-/// (`Std.Test.TestDiscovery`).
-// STAGE2-DEBT(load-module-entries): 种子 SDK 的 runner 换成反射版后，随 TIDX 链（编译器写出 / VM 解码）删除本 builtin
-pub fn builtin_test_module_load(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let entries = load_path(ctx, args)?;
-    test_entries_to_values(ctx, &entries)
-}
-
 /// `__load_module(path: str)` — the generic load behind `Std.Runtime.ModuleLoader.Load`
 /// (component injection, project hooks, `[analyzers]` zpkgs, and the test runner, which then
-/// discovers tests by reflection). Pure load: returns Null.
+/// discovers tests by reflection): merge the artifact (+ dependency closure) into the live
+/// registries. Returns Null.
 pub fn builtin_load_module(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    load_path(ctx, args)?;
-    Ok(Value::Null)
-}
-
-/// Shared body: merge the artifact (+ dependency closure) into the live registries.
-fn load_path(
-    ctx: &VmContext, args: &[Value],
-) -> Result<Vec<crate::metadata::test_index::LoadedTestEntry>> {
     let path = match args.first() {
         Some(Value::Str(s)) => s.to_string(),
         _ => bail!("ModuleLoader.Load: expected a path string"),
@@ -31,43 +14,8 @@ fn load_path(
     // the pending type-load queue. Do NOT call `init_static_fields` — it clears every
     // static field in the VM, so the caller's own state (and any already-initialized
     // type) would silently read back as zero after each load.
-    let entries = ctx.load_module_into_vm(&path)?;
-    Ok(entries)
-}
-
-/// Materialize TIDX entries as `Std.Harness.TestEntry[]`. A module with no TIDX
-/// allocates nothing, so plain component loads never need the type.
-fn test_entries_to_values(
-    ctx: &VmContext, entries: &[crate::metadata::test_index::LoadedTestEntry],
-) -> Result<Value> {
-    let mut objs: Vec<Value> = Vec::with_capacity(entries.len());
-    for e in entries {
-        let obj = alloc_named(
-            ctx,
-            TEST_ENTRY_TYPE,
-            &[
-                ("Qualified", Value::Str(e.qualified.clone().into())),
-                ("Kind", Value::I64(e.kind as i64)),
-                ("Flags", Value::I64(e.flags as i64)),
-                ("SkipReason", load_module_opt(&e.skip_reason)),
-                ("SkipPlatform", load_module_opt(&e.skip_platform)),
-                ("SkipFeature", load_module_opt(&e.skip_feature)),
-                ("ShouldThrow", load_module_opt(&e.expected_throw)),
-            ],
-        )?;
-        objs.push(obj);
-    }
-    Ok(ctx.heap().alloc_array(objs))
-}
-
-/// z42 type the TIDX entries are materialized as (the seed SDK runner's `Std.Harness.TestEntry`).
-const TEST_ENTRY_TYPE: &str = "Std.Harness.TestEntry";
-
-pub(super) fn load_module_opt(o: &Option<String>) -> Value {
-    match o {
-        Some(s) => Value::Str(s.clone().into()),
-        None => Value::Null,
-    }
+    ctx.load_module_into_vm(&path)?;
+    Ok(Value::Null)
 }
 
 /// `__load_bytecode_in_memory(bytes: byte[]) -> bool` — load a compiled

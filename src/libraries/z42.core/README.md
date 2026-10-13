@@ -40,10 +40,15 @@ xtask test e2e --file std_assert                # 本库的 Main-based golden �
 > 集中在 `tests/string_methods.z42` + `tests/string_bcl_augment.z42`。字符串**字面量语法**
 > （raw string、插值、拼接）不在这里，归 [src/tests/strings/](../../tests/strings/)。
 
+## 关联文档
+
+- 用法与规则（参考手册）：[标准库总览](../../../docs/reference/src/stdlib/README.md) · [字符串](../../../docs/reference/src/stdlib/string.md) · [反射](../../../docs/reference/src/stdlib/reflection.md)
+- 设计 / 机制（实现内幕）：[标准库三层架构](../../../docs/internals/src/stdlib/architecture.md) · [包划分与 interop 归属](../../../docs/internals/src/stdlib/organization.md) · [平台识别的脚本表面](../../../docs/internals/src/runtime/stdlib-platform.md) · [GC 句柄表](../../../docs/internals/src/runtime/gc-handle.md) · [委托与事件的实现](../../../docs/internals/src/runtime/delegates-events.md)
+
 ## 设计要点
 
 - **集合的包位置与 namespace 解耦**：`List<T>` / `Dictionary<K,V>` / `HashSet<T>` 物理在 `z42.core/src/Collections/`（随 prelude 隐式加载），namespace 仍是 `Std.Collections`，用户写 `using Std.Collections;` 才能无限定访问；`Queue` / `Stack` 等次级集合在 [z42.collections](../z42.collections/README.md)。
-- **`List<T>` 尺寸例外**：拆为 `List.z42`（核心）+ `List.Query.z42`（查询族）两个 partial 文件保文件可读；类型整体超 [code-organization.md](../../../docs/agent/rules/code-organization.md) 的类型尺寸限，属有意的记录在案的例外（公开成员面本就庞大）。
+- **`List<T>` 尺寸例外**：拆为 `List.z42`（核心）+ `List.Query.z42`（查询族）两个 partial 文件保文件可读；类型整体超出类型尺寸限，属有意的记录在案的例外（公开成员面本就庞大）。
 - **`Dictionary<K,V>` 尺寸例外**：类型整体约 250 行（不计注释），超类型尺寸限，属有意的记录在案的例外——索引器读写 / `ContainsKey` 把 hash 规整、探测与追加就地展开（z42 的每层调用都要建帧，抽成方法插入路径慢约两成），扩容 / 压实要搬 `TKey` / `TValue` 数组也只能留在类里（抽成泛型方法会让调用方整函数退回解释器执行）。
 - **`Dictionary` / `HashSet` 按插入顺序遍历**：CPython 式紧凑布局——稠密 entries 数组按插入顺序追加、删除留 tombstone，另有 `int[]` 索引表做开放寻址（首槽取 hash 低位、冲突后 perturb 探测）；布局、不变量与探测序列见 `src/Collections/HashIndex.z42` 头注释。
 - **primitive 是 struct**：`int` / `long` / `double` / `float` / `bool` / `char` 等以 `struct <小写名>` 声明，运行时仍是 unboxed `Value::I64` / `Value::F64`；`string` 为 `class String`。`INumber` 的 `op_*` 为纯脚本 static abstract 实现，零 VM builtin（Script-First）。

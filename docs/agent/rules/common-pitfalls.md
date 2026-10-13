@@ -1,152 +1,41 @@
 # 跨语言共同陷阱
 
-> 适用于 **z42c 编译器（z42）+ Rust VM + bash 脚本**所有代码路径。
-> 这些规则是"因此出过 bug、且与具体语言无关"的横切约束。
+> 适用于 z42 / Rust / 脚本的所有代码路径。每条都出过真实 bug，且与具体语言、具体库无关。
 > 语言专属约定见 [compiler-z42c.md](compiler-z42c.md) / [runtime-rust.md](runtime-rust.md)。
 
 ---
 
-## 1. 资源加载顺序必须显式排序
+## 1. first-wins 注册之前必须按稳定键排序（必须遵守）
 
-**任何"first-wins 注册到全局 key"的资源加载循环都必须先按稳定键 sort 才迭代，禁止依赖 OS / 文件系统 / Dict / HashSet 的"碰巧字母序"。**
+**任何「first-wins 注册到全局 key」的加载循环（加载包 / 模块 / 插件、注册 builtin），迭代前必须按语义稳定的键排序**
+（先 prelude 再字母序，或纯字母序），不能用 mtime / inode / hash 当顺序键。
 
-### 为什么这条规则
+- 目录枚举的顺序随文件系统变，哈希容器的迭代顺序每次运行都可能变——本机「碰巧字母序」跑通，换个 OS 的 CI 就炸。
+- 见到「无序迭代 + first-wins 写入」（`TryAdd` / `if (!contains)` / `or_insert` 之类）就加一次排序，成本几乎为零。
+- 名字解析层面的根治（同短名跨命名空间按调用方活跃命名空间解析）见
+  [源代码编译流程](../../internals/src/compiler/source-compile.md)；排序规则仍要守，它兜住活跃集内的歧义和一切非名字的
+  first-wins 注册。
 
-文件系统迭代 API 都**不是** alphabetical：
+## 2. 发号作用域必须覆盖比较作用域（必须遵守）
 
-| API | 实际顺序 |
-|-----|---------|
-| Rust `std::fs::read_dir` | macOS APFS 通常字母序（巧合）；Linux ext4 / btrfs 按 inode；Windows NTFS 多数字母序；底层 syscall 返回什么就是什么 |
-| Bash `for f in dir/*` | shell glob 字母序（这条**是**确定的，shell 帮你 sort 了） |
+**计数器发出的 id 只在它的发号作用域内唯一。** 拿到更大范围里当身份用（相等比较、缓存 key、去重），必然会撞，
+而且撞了通常是静默的。
 
-哈希容器迭代顺序：
-
-| 容器 | 顺序 |
-|------|------|
-| Rust `HashMap` / `HashSet` (std) | 默认 `SipHash` 随机种子；同二进制每次跑也不同 |
-| Rust `BTreeMap` / `BTreeSet` | 按 key 排序 ✓ 这条**是**确定的 |
-
-任何后续依赖"第一个出现的赢"的 first-wins 逻辑（`TryAdd` / `if (!contains)` / `or_insert` / 类似 pattern）一旦上面任一非确定源进入数据流，**整条解析链都是非确定的**。本地某 OS 上"碰巧字母序"会让你误以为正确，CI 在另一 OS 上炸。
-
-### 现场案例
-
-两个包导出同一个 `<ShortClass>.<Method>` 静态短键（如 `Assert.Equal`），加载循环用 `TryAdd` 注册、谁先到谁赢，
-而 zpkg 枚举用的是文件系统顺序：
-
-- macOS：枚举碰巧字母序 → 绑到 A 包 ✓
-- Linux/Windows CI：枚举顺序不同 → 绑到 B 包 ✗ → zbc 字节漂移 + 测试输出变样
-
-规则管的是「first-wins + 非确定迭代序」这个**模式**，不是某一对类。任何新加的同短名对都会立刻把它带回来，
-而下一次未必有 CI 帮你在另一个 OS 上炸出来。
-
-> **根治**：「同短类名跨 ns → 短键 first-wins 串味」的**根因**由 z42c 的 `DependencyIndex.GetStaticScoped`
-> 解决——按调用方**活跃命名空间集**（usings + 本 ns）解析静态调用，只命中调用方 `using` 到的那份 FQN，
-> 不靠排序碰巧选对。sort 仍是**必要的兜底**（活跃集内仍歧义时、以及任何非静态调用的 first-wins 注册仍需确定序），故本
-> §1 的排序规则**继续遵守**；根治只是让「跨包静态调用绑错 ns」这一具体症状不依赖排序侥幸。
->
-> **类型引用同款**：上面是**静态调用**；**类型引用**（`new`/`is`/`as`/字段·参数类型）同样有此坑——
-> `SymbolTable.Classes` 按裸类名 first/last-wins，`new A.Foo` 被剥短名撞赢家 → 对象身份 emit 成 `B.Foo`。
-> 根治：`Z42ClassType` 带 `Namespace` + `SymbolTable.ClassesByFqn`
-> 并存 FQN 视图，限定名按 FQN 精确解析、发射端用已解析类型的 `Fqn()`。机制见
-> [source-compile.md「同短名跨命名空间的类型解析」](../../internals/src/compiler/source-compile.md)。
-
-### 强制规则
-
-写任何"加载 zpkg / 加载 module / 加载 plugin / 注册 builtin"循环时：
-
-1. **加载循环前必须按稳定键 sort 一次**
-   - Rust：`paths.sort_by(|a, b| ...)` 或 collect 到 `BTreeSet` / `BTreeMap`
-   - bash：shell glob 本身 sort，无需额外
-   - 顺序键要语义稳定（prelude-first 后字母序，或纯字母序）；**不能用 mtime / inode / hash code**
-
-2. **不要"碰巧字母序"**：本地某次跑通别窃喜，显式 sort 一次（成本几乎零）
-
-3. **现有 `foreach (.. in hashSet)` / `for .. in hashmap.iter()` + first-wins 写入** 都是潜在 bug —— 见到就加 sort
-
-### 反例
-
-```rust
-// ❌ Rust：read_dir 顺序不确定
-for entry in std::fs::read_dir(dir)? {
-    let path = entry?.path();
-    table.entry(key).or_insert(path);  // first-wins
-}
-
-// ❌ Rust：HashMap 迭代顺序不确定（每次跑都变）
-for (k, v) in cache.iter() {
-    if !result.contains_key(k) { result.insert(k.clone(), v.clone()); }
-}
-```
-
-### 正例
-
-```rust
-// ✅ Rust：read_dir 后 collect + sort
-let mut paths: Vec<PathBuf> = std::fs::read_dir(dir)?
-    .filter_map(|e| e.ok().map(|e| e.path()))
-    .collect();
-paths.sort();
-for path in paths { ... }
-
-// ✅ Rust：用 BTreeMap 替代 HashMap 当迭代顺序重要时
-let cache: BTreeMap<String, Value> = ...;  // 迭代时按 key 字母序
-```
-
----
-
-## 2. 在作用域 S 内发的号，不得拿到 S 之外做相等比较
-
-**任何「计数器发出来的 id」都只在它的发号作用域内唯一。把它拿到更大的范围里当身份用
-（相等比较、缓存 key、去重），就是一个必然会撞、且撞了通常静默的 bug。**
-
-### 现场案例
-
-z42 VM 的 `TypeId` 每个 `Module`（≈每个 zpkg）从 0 重开——文档契约写着「per module」，
-本身没错。错在两条派发内联缓存（`VCallIC` / `FieldIC`）拿这个裸 `u32` 当**全局**类型身份：
-
-```
-site: body.Run(i)              // IParallelTask 接口调用，位于 z42.package 的 ParallelFor
-  第一次 receiver = SrcReadHashTask (z42c.driver,   TypeId 139) → 装入 PIC
-  第二次 receiver = CompileCuTask   (z42c.emission, TypeId 139) → 误命中
-      ⇒ 跑了 SrcReadHashTask.Run，this._srcs[i] 读到 CompileCuTask 槽 0 的 _cus[i]
-```
-
-- 症状离根因十万八千里：`__file_read_text: arg 0 expected string, got CompilationUnit`。
-- 触发条件荒谬到没人会怀疑：**从 z42.core 删掉一个无关的类**，把两边的号对齐了而已。
-- `FieldIC` 那条更糟：撞键 = 拿到**错误的字段槽**，不崩不报错，**静默读写错数据**。
-- 之所以不常炸，只是因为绝大多数派发站点是**单态**的——撞键要求同一站点先后见到
-  两个同号的类。这是运气，不是设计保证。
-
-> 与 §1「加载顺序非确定性」同族：都是**拿一个不保证唯一/稳定的东西当身份用**。
-> §1 是顺序不稳，本条是范围不够。
-
-### 强制规则
-
-给任何 id / handle / token 定义**「发号作用域」**和**「比较作用域」**，并保证
-**发号作用域 ⊇ 比较作用域**。两者不等时，只有两条出路：
-
-1. **把发号范围提上去**（本案的选择：进程级 `AtomicU32` 批量发号）。
-2. **改用天然全局的身份**——UUID / (scope, id) 复合键。指针只在「对象永不释放」时才算：
-   释放后地址会被复用（可回收 load context 正是这种场景），所以 `IsaCache` 最终改用进程级 `TypeId` 做键。
-
-写代码时的自查问题只有一句：**「这个 id 是谁发的？会不会有第二个发号者？」**
-若答案是「每个模块 / 每个文件 / 每个连接各发各的」，那它就**不能**单独当 key。
-
-### 兜底：让撞键当场炸
-
-范围对齐之后仍要留一道**会响的门**，否则下一次回归又是静默的。做法是在**用这个 id 的
-地方**校验一次身份的其它侧面（本案：debug 构建下核对 callee 的 declaring class /
-字段槽名），不匹配即 panic。
-**代价放 debug 构建、release 编译掉**，热路径不受影响。
+- 给每个 id / handle / token 想清楚**发号作用域**与**比较作用域**，保证前者覆盖后者。不覆盖时只有两条路：
+  把发号范围提上去，或改用天然全局的身份（复合键；指针只在对象永不释放时才算——释放后地址会被复用）。
+- 自查只有一句：**「这个 id 是谁发的？会不会有第二个发号者？」**
+- 范围对齐之后仍留一道会响的门：在使用 id 的地方，debug 构建下校验身份的其它侧面，不匹配即 panic（release 编译掉）。
+- 现场案例见[内联缓存的发布与撕裂](../../internals/src/runtime/inline-cache-publication.md)。
 
 ---
 
 ## 添加新规则的标准
 
-新规则进 `common-pitfalls.md` 要满足**全部**三条：
+新规则进本文件要**同时**满足三条：
 
-1. 这个坑可以在 z42 / Rust / bash 任一种语言里出现（不是某语言独有 idiom）
-2. 至少出过一次实际 bug（不是预防性脑补）
-3. 修复方式是"模式而非具体 API"（"避免 X 类型行为"，不是"换用 Y 库"）
+1. 这个坑能在 z42 / Rust / 脚本写的代码里出现，而不是「换个库就好」的偏好；
+2. 至少出过一次实际 bug（不是预防性脑补）；
+3. 修复方式是「避免某类行为」的模式，而不是「换用某个 API」。
 
-否则该规则属于 [compiler-z42c.md](compiler-z42c.md) / [runtime-rust.md](runtime-rust.md) / 具体设计 doc。
+否则它属于 [compiler-z42c.md](compiler-z42c.md) / [runtime-rust.md](runtime-rust.md)，或书里对应的机制页。
+**语言或编译器已经从根上消除的坑，从本文件删除**——规则只留给仍然需要人守的东西。

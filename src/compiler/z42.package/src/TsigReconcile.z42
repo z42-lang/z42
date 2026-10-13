@@ -234,7 +234,7 @@ public static class TsigReconcile {
 
     // 兼容重载（4-arg + BuildWorld）：种子 z42c 运行期的旧 DepScan 仍调此路径——包装为 eager
     // LazyReconWorld（Wp 全填）。本 change 的新 DepScan 走下面 3-arg 的惰性 Rebuild；跨一版种子后
-    // 此 4-arg + BuildWorld 可删（bootstrap-seed 轴④：改 z42c 运行期自依赖函数签名，保旧一版给种子）。
+    // 此 4-arg + BuildWorld 可删（self-hosting 轴④：改 z42c 运行期自依赖函数签名，保旧一版给种子）。
     public static ExportedModuleZ[] Rebuild(ZpkgInfo z, string zDir, ReconWorldPkg[] wp, int wc) {
         return TsigReconcile.Rebuild(z, zDir, LazyReconWorld.FromEager(wp, wc));
     }

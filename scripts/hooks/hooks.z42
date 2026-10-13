@@ -48,7 +48,7 @@ public class ProjectHooks : BuildHooks {
         // `Target.Mode = "publish-self-contained"`（BuildMode.PublishSelfContained）。此前每次 publish 都做，
         // libz42.a 不在就整个 z42 crate 按 staticlib 重编一遍（fat LTO），而普通 publish 一个字节都用不到。
         // ⚠️ 用字面量、不引用 BuildMode.PublishSelfContained：本 hook 由**编 xtask 的那份 SDK**（上一 nightly）
-        // 的 z42.build 编译，新常量要晚一个 nightly 才在那里（bootstrap-seed.md）。旧 z42b 永远传 "publish"
+        // 的 z42.build 编译，新常量要晚一个 nightly 才在那里（self-hosting.md）。旧 z42b 永远传 "publish"
         // ⇒ 过渡期 xtask 的 --self-contained publish 拿不到 embed 产物（会明确报缺，可用 Z42_EMBED_* 顶上）。
         if (ctx.Target.Mode == "publish-self-contained") { this._embedArtifacts(ctx, repo); }
     }

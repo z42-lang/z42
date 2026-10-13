@@ -300,7 +300,6 @@ fn ll_inmem_artifact(
             .map(|f| crate::metadata::formats::ZpkgDep { file: (*f).to_string(), namespaces: vec![], symbols: vec![] })
             .collect(),
         import_namespaces: vec![],
-        test_index: vec![],
         impl_pairs: vec![],
         package_name: pkg.map(str::to_string),
     }

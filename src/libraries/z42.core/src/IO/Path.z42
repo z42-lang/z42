@@ -237,8 +237,8 @@ public static class Path {
             }
             i = i + 1;
         }
-        // Sort for determinism (EnumerateRecursive order is OS-dependent
-        // per docs/agent/rules/common-pitfalls.md §1).
+        // Sort for determinism (EnumerateRecursive order is OS-dependent:
+        // filesystem enumeration is never guaranteed alphabetical).
         _sortStrings(hits);
         return hits;
     }

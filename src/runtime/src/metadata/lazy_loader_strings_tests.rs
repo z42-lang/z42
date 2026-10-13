@@ -56,7 +56,6 @@ fn package(name: &str, pool: &[&str], functions: Vec<Function>) -> LoadedArtifac
         entry_hint: None,
         dependencies: vec![],
         import_namespaces: vec![],
-        test_index: vec![],
         impl_pairs: vec![],
         package_name: Some(name.to_lowercase()),
     }

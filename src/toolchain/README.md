@@ -44,6 +44,11 @@ xtask test toolchain builder         # z42b 夹具
 
 各组件专项验证见其 README。
 
+## 关联文档
+
+- 用法与规则（参考手册）：[工具链](../../docs/reference/src/toolchain/README.md)
+- 设计 / 机制（实现内幕）：[工具链](../../docs/internals/src/toolchain/README.md)
+
 ## 依赖关系
 
 - 消费：`compiler/`（调用 CLI 或 API）、`runtime/`（嵌入或调用 VM）

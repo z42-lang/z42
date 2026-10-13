@@ -39,11 +39,10 @@ z42 的工具链是三个独立进程，互相之间只通过**文件格式**通
 | [产物格式](formats/index.md) | zbc / zpkg / IR —— 编译器与运行时之间的协议 |
 | [标准库](stdlib/index.md) | 三层架构、包划分规则、API 准则、关键实现 |
 | [工具链](toolchain/index.md) | launcher / z42b / workload / 平台发布 / REPL |
-| [测试体系](testing/index.md) | 测试框架、TIDX 格式、runner 协议、跨平台测试 |
+| [测试体系](testing/index.md) | 测试框架、反射发现、runner 协议、跨平台测试 |
 | [开发基础设施](devinfra/index.md) | 构建、测试门禁、CI、发布、调试、基准——**怎么跑** |
 
 ## 行文约定
 
-- 页型与页头见 [book-writing.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/book-writing.md)。
 - **只写当前状态**，不写演进史（那归 git blame 与 PR 历史）。
 - 尚未实施的设计页在页头标 **状态: 设计已定 / 未实施**。

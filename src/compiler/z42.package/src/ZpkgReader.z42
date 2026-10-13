@@ -171,7 +171,7 @@ public static class ZpkgReader {
 
     // SIGS + MODS/FILE 头 → 每模块 (ns, IrFunction 签名 stub 列表)。
     // SIGS 条目布局 = zbc WriteSigEntries（名/арity/retTag/retIdx/exec/static/paramTypes/tp 块/attr 块）。
-    // packed：MODS 只读头（ns/src/hash/fnCount/firstSigIdx）+ 按 len 跳过五个体；
+    // packed：MODS 只读头（ns/src/hash/fnCount/firstSigIdx）+ 按 len 跳过四个体；
     // indexed：FILE 条目（同五字段 + zbcHash u32，无体）——配对逻辑同构。
     public static ZpkgModuleSigs[] ReadModuleSigs(ZpkgInfo z) {
         ZpkgSection sig = z.Section("SIGS");
@@ -201,7 +201,7 @@ public static class ZpkgReader {
             int firstSig = m.U32();
             if (z.Packed) {
                 int k = 0;
-                while (k < 5) {                 // func/type/dbug/regt/tidx 五个 len+体
+                while (k < 4) {                 // func/type/dbug/regt 四个 len+体
                     int len = m.U32();
                     m.Pos = m.Pos + len;
                     k = k + 1;
@@ -245,7 +245,7 @@ public static class ZpkgReader {
                 m.Pos = m.Pos + typeLen;
             }
             int k = 0;
-            while (k < 3) {                     // ③④⑤ dbug/regt/tidx（跳过）
+            while (k < 2) {                     // ③④ dbug/regt（跳过）
                 int len = m.U32();
                 m.Pos = m.Pos + len;
                 k = k + 1;
@@ -298,7 +298,7 @@ public static class ZpkgReader {
             }
             m.Pos = m.Pos + typeLen;               // 跳过 TYPE 体（不提前 return，故恒跳）
             int k = 0;
-            while (k < 3) { int len = m.U32(); m.Pos = m.Pos + len; k = k + 1; }   // ③④⑤ dbug/regt/tidx
+            while (k < 2) { int len = m.U32(); m.Pos = m.Pos + len; k = k + 1; }   // ③④ dbug/regt
             i = i + 1;
         }
         return new ZpkgModuleTypes(targetNs, acc, accn);
@@ -393,7 +393,7 @@ public static class ZpkgReader {
             m.U16();                            // fnCount
             m.U32();                            // firstSigIdx
             int k = 0;
-            while (k < 5) {                     // func/type/dbug/regt/tidx 五个 len+体
+            while (k < 4) {                     // func/type/dbug/regt 四个 len+体
                 int len = m.U32();
                 m.Pos = m.Pos + len;
                 k = k + 1;

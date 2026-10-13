@@ -262,7 +262,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                 // converge-vm-arith-semantics (H3): these arms are UNREACHABLE in
                 // practice — `jit_unsupported_reason` (driven by `unsupported_reason`)
                 // routes any function containing them to the interpreter before
-                // translation. Kept for match exhaustiveness (runtime-rust.md: no `_`
+                // translation. Kept for match exhaustiveness (no `_`
                 // wildcard). Each bail sources its reason from the single source of
                 // truth `unsupported_reason(instr)` so the prescan list and these arms
                 // can never name a different opcode set.

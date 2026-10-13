@@ -388,7 +388,7 @@ z42c build <toml> [--release] [--no-incremental]      （单工程模式；works
   ├─ IncrementalBuild.Close：token 保守边闭包（文件 i 标识符 token ∩ 文件 j 包内定义名
   │    （类型+自由函数+成员名）→ 边 i→j；j fresh → i fresh；边每次从当前源重算）
   ├─ cached 读回：ZbcReader.Read(cache zbc) + meta 残留回填（块 label 原文改名（含终结符/
-  │    异常表引用）、模块池原序、TIDX idx——wire 不携带的 writer 残留，见 D5a）；失败→降级 fresh
+  │    异常表引用）、模块池原序——wire 不携带的 writer 残留，见 D5a）；失败→降级 fresh
   ├─ IrDump.BuildPackageCus：仅失效子集跑 typecheck/codegen；TSIG 全包重算
   ├─ fresh 落 cache（zbc + meta）+ 包级源清单
   └─ BuildPackedD(全部 IrModule 同构组装) → dist/<name>.zpkg（任一变更即整包重写）
@@ -404,8 +404,7 @@ pin：源 hash、ns、usedDepNs、模块池原序（hex）、每函数块 label 
 不携带、但参与 STRS 字节的 writer 残留）+ 包级 `package.meta`（上次源清单 + **`deps` 依赖身份**：编译扫描到的
 全部依赖 zpkg 的 BLID/内容哈希，任一变化 ⇒ 整包全量；依赖重编但输出不变时 BLID 不变 ⇒ 下游照常命中）。任何 pin 不符/损坏
 → 条目作废按 fresh 处理（宁 fresh 不误命中）。`z42c-fp`（`CacheStore.CompilerFingerprint`）堵住
-「源没变 + 格式没 bump 但编译器 codegen/优化/typecheck 变了」的误命中漏洞（bump 纪律见
-[version-bumping.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/version-bumping.md#编译器语义指纹非格式失效次元)）。cache 可整目录删除。
+「源没变 + 格式没 bump 但编译器 codegen/优化/typecheck 变了」的误命中漏洞（bump 纪律见格式 bump 清单）。cache 可整目录删除。
 indexed 模式（stripped zbc = `<dist>/<rel>.zbc`）自举重写未实现，见
 self-hosting.md Deferred。
 
@@ -717,7 +716,7 @@ mode = "interp"
 
 - ❌ 运行时延迟 import / 函数体内 import（Python 风格） —— z42 不提供此后门
 - ❌ "源码引用"打洞（Haskell `{-# SOURCE #-}` 风格） —— z42 不引入此机制
-- ❌ 新旧 zpkg 共存 + 灰度迁移以"绕开"循环 —— pre-1.0 不留兼容（见 [philosophy.md "不为旧版本提供兼容"](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/philosophy.md#不为旧版本提供兼容)）
+- ❌ 新旧 zpkg 共存 + 灰度迁移以"绕开"循环 —— pre-1.0 不留兼容
 
 **编译器报错要求**（待实现时遵守）：
 
@@ -782,7 +781,7 @@ mode = "interp"
 3. `benches/*` 与 `examples/*` → 同 1/2 规则（默认发现 dir 分别为 `benches/` `examples/`）
 4. 子目录内非 `.z42` 文件（fixture / data）随产物打包，运行时 cwd 切到 `<dir>`，相对路径读取
 5. `_` 前缀的 `.z42` 文件是 dir-mode 内的辅助；不是目标入口
-6. **发现循环必须先按稳定键 sort** 再注册（[common-pitfalls §1](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/common-pitfalls.md)——
+6. **发现循环必须先按稳定键 sort** 再注册（——
    first-wins 禁止依赖 FS 枚举序）
 7. `tests/fixtures/`（`benches/`、`examples/` 下同名目录同理）是**保留目录**：约定发现不从里面认领目标，
    「目录里有 `.z42` 源却一个目标都没解析出来」的检查也跳过它。放由外部脚本驱动、先构建再比对的
@@ -889,7 +888,7 @@ artifacts/build/libraries/<lib>/<profile>/
         └── <lib>.bench.<dir_name>.zpkg         ← dir-mode
 ```
 
-> 单文件单元走轻量 `z42c --emit zbc` 产 `.zbc`；dir-mode 单元(多文件)合成 mini-manifest 跑 `z42c build` 产 packed `.zpkg`。两者都由 z42b（z42.builder.zpkg）经 TIDX 发现 + 调度，落同一 `<subtree>/dist/`。
+> 单文件单元走轻量 `z42c --emit zbc` 产 `.zbc`；dir-mode 单元(多文件)合成 mini-manifest 跑 `z42c build` 产 packed `.zpkg`。两者都由 z42b（z42.builder.zpkg）经运行期反射发现 + 调度，落同一 `<subtree>/dist/`。
 
 **zpkg 命名硬约束**：`.test.` / `.bench.` infix 是文件名硬规则（也是 CI 守门正则的 anchor）。`tests_dir` / `bench_dir` 字段**不暴露** — 强制 `<output_dir>/tests/` 和 `<output_dir>/benches/`；改路径走 `output_dir`，两子树一并变。
 

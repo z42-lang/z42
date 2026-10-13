@@ -2,7 +2,7 @@
 // ZW-1A：trivial 函数（无类/无调用/无 debug）→ 恒 8 section NSPC/STRS/TYPE/SIGS/IMPT/EXPT/FUNC/REGT。
 // byte-identical 铁律：section 顺序 + 编码原语 + 字符串池插入序每处与 C# 完全一致（对 golden fixture 逐字节）。
 // 延后（ZW-1B+）：控制流/比较/位/一元 opcode；调用 + TokenAllocator + 真 IMPT 扫描；TYPE 类描述；
-//   ConstStr strRemap；可选 DBUG/TIDX；f64/char 字面量（BitConverter）。
+//   ConstStr strRemap；可选 DBUG；f64/char 字面量（BitConverter）。
 namespace Z42.IR.BinaryFormat;
 
 
@@ -25,11 +25,8 @@ public static class ZbcWriter {
 
         // DBUG（add-z42c-source-spans）：任一函数有行表/局部表 → flags.HasDebug + 第 9 section（镜像 C#）。
         bool hasDebug = ZbcWriter.HasDebug(irm);
-        // TIDX（add-z42c-tidx-emit）：TestCount>0 → 追加测试发现 section（镜像 C# `if TestIndex.Count>0`）。
-        bool hasTidx = irm.TestCount > 0;
         int secCount = 8;
         if (hasDebug) { secCount = secCount + 1; }
-        if (hasTidx) { secCount = secCount + 1; }
         string[]     tags   = new string[secCount];
         ByteWriter[] datas  = new ByteWriter[secCount];
         tags[0] = "NSPC"; datas[0] = nspc;
@@ -41,9 +38,8 @@ public static class ZbcWriter {
         tags[6] = "FUNC"; datas[6] = func;
         tags[7] = "REGT"; datas[7] = regt;
         int next = 8;
-        // section 顺序镜像 C# AssembleFile：REGT 后 DBUG（仅 !strip）再 TIDX。
+        // section 顺序镜像 C# AssembleFile：REGT 后 DBUG（仅 !strip）。
         if (hasDebug) { tags[next] = "DBUG"; datas[next] = ZbcWriter.BuildDbug(irm.Functions, irm.FuncCount, pool); next = next + 1; }
-        if (hasTidx) { tags[next] = "TIDX"; datas[next] = ZbcWriter.BuildTidx(irm.TestIndex, irm.TestCount, strRemap); next = next + 1; }
         int flags = 0;
         if (hasDebug) { flags = 2; }   // ZbcFlags.HasDebug
         return ZbcWriter._assemble(tags, datas, secCount, flags);
@@ -808,47 +804,6 @@ public static class ZbcWriter {
             fi = fi + 1;
         }
         return w;
-    }
-
-    // ── TIDX（add-z42c-tidx-emit）：测试发现元数据。镜像 C# BuildTidxSection。──────────────────
-    //   magic "TIDX"(4) + version u8 + entry_count u32 +
-    //   每条目：method_id u32, kind u8, flags u16,
-    //           skip_reason u32, skip_platform u32, skip_feature u32, expected_throw u32,
-    //           test_case_count u32, [arg_repr u32]×, timeout_ms i32（v=3 末尾）。
-    //   *StrIdx 为 1-based z42c 池索引 → strRemap → +1 回到 1-based STRS（0 保持 0=无）。
-    public static ByteWriter BuildTidx(IrTestEntry[] testIndex, int testCount, int[] strRemap) {
-        var w = new ByteWriter();
-        w.WriteUtf8Bytes("TIDX");                 // 4 字节 ASCII magic（同 section tag 写法）
-        w.WriteU8(TidxVersion.Version);           // u8 version = 3
-        w.WriteU32(testCount);
-        int e = 0;
-        while (e < testCount) {
-            IrTestEntry t = testIndex[e];
-            w.WriteU32(t.MethodId);
-            w.WriteU8(t.Kind);
-            w.WriteU16(t.Flags);
-            w.WriteU32(ZbcWriter._remapTidxStrIdx(t.SkipReasonStrIdx, strRemap));
-            w.WriteU32(ZbcWriter._remapTidxStrIdx(t.SkipPlatformStrIdx, strRemap));
-            w.WriteU32(ZbcWriter._remapTidxStrIdx(t.SkipFeatureStrIdx, strRemap));
-            w.WriteU32(ZbcWriter._remapTidxStrIdx(t.ExpectedThrowTypeIdx, strRemap));
-            w.WriteU32(t.TestCaseCount);
-            int tc = 0;
-            while (tc < t.TestCaseCount) {
-                w.WriteU32(ZbcWriter._remapTidxStrIdx(t.TestCases[tc].ArgReprStrIdx, strRemap));
-                tc = tc + 1;
-            }
-            w.WriteU32(t.TimeoutMs);   // i32 LE（>0 才有效；WriteU32 写 4 字节 LE，TimeoutMs 恒 >=0）
-            e = e + 1;
-        }
-        return w;
-    }
-
-    // 1-based z42c 池索引 → 1-based STRS 池索引（0=无 保持 0）。镜像 C# RemapTidxStrIdx。
-    // strRemap[z42cIdx] = 0-based ZbcStringPool 索引；+1 = TIDX wire 1-based 约定。
-    private static int _remapTidxStrIdx(int origIdx1Based, int[] strRemap) {
-        if (origIdx1Based <= 0) { return 0; }
-        if (origIdx1Based >= strRemap.Length) { return 0; }
-        return strRemap[origIdx1Based] + 1;
     }
 
     // ── 组装：header(16) + directory(secCount×12) + section data；offset 绝对回填 ──────────

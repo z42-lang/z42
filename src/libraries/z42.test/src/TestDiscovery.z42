@@ -49,9 +49,29 @@ public class TestCase {
         return this.Qualified.Substring(0, i);
     }
 
-    // 零参调用（测试函数都是零参、无接收者）。被调函数里抛出的异常按原类型传出。
+    // 调用（无接收者）。被调函数里抛出的异常按原类型传出。
+    //   - 零参：直接调（`[Test]` / `[Setup]` / `[Teardown]`，以及自建 Bencher 的 `[Benchmark]`）。
+    //   - `[Benchmark] void f(Bencher b)`：runner 建 Bencher 传入，跑完按函数名打摘要
+    //     （`bench[f] …`，与自建形式手写 `b.printSummary("f")` 同一行）。
     public void Invoke() {
+        if (this.TakesBencher()) {
+            Bencher b = new Bencher();
+            object[] args = new object[1];
+            args[0] = b;
+            this.Method.Invoke(null, args);
+            b.printSummary(this.Method.Name);
+            return;
+        }
         this.Method.Invoke(null, new object[0]);
+    }
+
+    // 恰好一个 `Std.Test.Bencher` 形参（编译期 E0912 已保证 `[Benchmark]` 只有零参与这一种形状）。
+    public bool TakesBencher() {
+        ParameterInfo[] ps = this.Method.GetParameters();
+        if (ps.Length != 1) { return false; }
+        Type pt = ps[0].ParameterType;
+        if (pt is Type t) { return t.FullName == "Std.Test.Bencher"; }
+        return false;
     }
 }
 

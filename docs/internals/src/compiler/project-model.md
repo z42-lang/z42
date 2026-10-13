@@ -38,6 +38,10 @@ graph LR
 警告；阶段 2 仓内清单切新名并删掉旧名支持，旧名回落成未知键。2026-10 的 `default_members` /
 `warnings_as_errors` 已走完两阶段，警告通道随之删除——下一次改名再按需加回。
 
+**加一个新键**同理跨两阶段：阶段 1 只给 loader 加解析 + 进 `ManifestKeys` 键表，**仓内清单不写**它；nightly
+发布后（阶段 2）才在仓内清单里用它。只由刚建出的编译器构建的测试夹具不受此限，但拿不准就按种子算。
+`xtask` 直接按原始 TOML 读的键（如 `_stdlibList` 读 `workspace.default_members`）与仓内清单**同一个提交**一起切。
+
 `SourceDiscovery` 按 `[sources]` 的 include/exclude 规则展开出参与编译的源文件清单，交给源代码编译流程。
 `DiscoverWithExclude(projectDir, includes, excludes)` 是纯 glob 原语：先按 include 展开（`**/*.z42` 递归 /
 `<prefix>/**/<suffix>` / 单层），去重 + Ordinal 排序，再逐条按 exclude glob（`<dir>/**` 前缀 / `**/<suffix>`

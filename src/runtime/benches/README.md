@@ -42,3 +42,7 @@ criterion 原生 `--save-baseline` / `--baseline` 做同 runner 对照（CI 见 
 ## 待办
 - `interp` dispatch / call / 算术循环 bench
 - `.zbc` 解码吞吐 bench
+
+## 关联文档
+
+- 怎么跑（实现内幕）：[性能基准与回归门禁](../../../docs/internals/src/devinfra/benchmarking.md)

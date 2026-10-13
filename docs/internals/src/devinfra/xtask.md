@@ -44,7 +44,7 @@
 强依赖 SDK：本地 `./xtask` 与 CI 垫片都用仓库根 `.z42/` 编它、跑它。所以**不复制**：编译期从这份 SDK 的
 `programs/z42c/` 解析；运行期侧车自动带 `${Z42_HOME}/programs/z42c`，VM 从自己的位置（`.z42/bin/z42vm`）推出
 `.z42`，取的是同一份。编 xtask 的是上一 nightly，所以 xtask 用这两个包的新 API 要晚一个 nightly
-（[bootstrap-seed.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/bootstrap-seed.md)「stdlib API 面」）。
+（[编译器自举](../compiler/self-hosting.md)「stdlib API 面」）。
 
 ### 改了 `scripts/*.z42` 之后
 
@@ -137,8 +137,7 @@ graph TD
 拷进 in-tree 再自建。warm 树（已有 in-tree 种子）**直接复用、不覆盖**——gen2 字节不动点靠的就是这一点
 （见[构建编排](build.md)）。
 
-为什么种子必须存在、新语法为什么要晚一个 nightly 才能用，见
-[自举与种子纪律](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/bootstrap-seed.md)与[编译器自举](../compiler/self-hosting.md)。
+为什么种子必须存在、新语法为什么要晚一个 nightly 才能用，见[编译器自举](../compiler/self-hosting.md)。
 
 ## 6. `setup`：依赖的两层模型
 

@@ -213,13 +213,12 @@ impl LazyLoader {
     }
 
     /// Load a compiled artifact from an arbitrary **path** (not a declared dep)
-    /// and merge its functions / types / strings into the live registries, then
-    /// return its TIDX test entries (resolved FQN + kind + flags). Powers
-    /// `__test_module_load` (seed-compat test loader) so a z42 test runner can load a compiled test
-    /// module and discover + `Invoke` its `[Test]` methods. Mirrors
+    /// and merge its functions / types / strings into the live registries. Powers
+    /// `__load_module` (`Std.Runtime.ModuleLoader.Load`): components, hooks, analyzers and
+    /// the test runner (which then discovers `[Test]` functions by reflection). Mirrors
     /// `load_zpkg_file`'s merge (string-pool offset + `remap_const_str` + first-wins
     /// + inheritance fixup); idempotent per module name. (retire-test-runner)
-    pub fn load_module_from_path(&mut self, path: &str) -> Result<Vec<LoadedTestEntry>> {
+    pub fn load_module_from_path(&mut self, path: &str) -> Result<()> {
         // support-colocated-zpkg-deps for mid-run loads: a module loaded by an
         // absolute/foreign path (e.g. z42.scripting's REPL injector loading
         // z42c.pipeline.zpkg from the SDK's programs/z42c/) carries a transitive dep
@@ -242,8 +241,7 @@ impl LazyLoader {
             }
         }
         let artifact = load_artifact(path)?;
-        let entries = self.register_loaded_artifact(artifact)?;
-        Ok(entries)
+        self.register_loaded_artifact(artifact)
     }
 
     /// In-memory sibling of [`load_module_from_path`]: load a compiled artifact
@@ -258,39 +256,17 @@ impl LazyLoader {
     /// `Vars{N}` 在被读/写时自然初始化，且天然只初始化本轮的类型，不再需要这条通道。
     pub fn load_module_from_bytes(&mut self, raw: &[u8]) -> Result<()> {
         let artifact = load_artifact_from_bytes(raw)?;
-        let _ = self.register_loaded_artifact(artifact)?;
-        Ok(())
+        self.register_loaded_artifact(artifact)
     }
 
     /// Shared registration body for [`load_module_from_path`] /
     /// [`load_module_from_bytes`]: merge functions / types / string pool,
     /// register dep + namespace candidates, force-load the declared closure,
-    /// run inheritance fixup, and return the artifact's TIDX test entries.
+    /// run inheritance fixup.
     pub(super) fn register_loaded_artifact(
         &mut self, mut artifact: LoadedArtifact,
-    ) -> Result<Vec<LoadedTestEntry>> {
+    ) -> Result<()> {
         let mod_key = format!("__loaded_path__{}", artifact.module.name);
-
-        // Capture test entries (FQN resolved via functions[method_id]) before the
-        // functions are moved into the table.
-        let mut entries: Vec<LoadedTestEntry> = Vec::with_capacity(artifact.test_index.len());
-        for e in &artifact.test_index {
-            let qualified = artifact
-                .module
-                .functions
-                .get(e.method_id as usize)
-                .map(|f| f.name.clone())
-                .unwrap_or_default();
-            entries.push(LoadedTestEntry {
-                qualified,
-                kind: e.kind as u8,
-                flags: e.flags.bits(),
-                skip_reason: e.skip_reason.clone(),
-                skip_platform: e.skip_platform.clone(),
-                skip_feature: e.skip_feature.clone(),
-                expected_throw: e.expected_throw_type.clone(),
-            });
-        }
 
         // Register the loaded module's dependencies as lazy-loader candidates so
         // cross-zpkg calls FROM the test module — including virtual (instance-
@@ -352,9 +328,9 @@ impl LazyLoader {
             }
         }
 
-        // Idempotent: a re-load of the same module just returns its entries.
+        // Idempotent: a re-load of the same module is a no-op.
         if self.loaded_zpkgs.contains(&mod_key) {
-            return Ok(entries);
+            return Ok(());
         }
         self.mark_zpkg_loaded(mod_key);
 
@@ -418,7 +394,7 @@ impl LazyLoader {
         }
         self.publish_types();
 
-        Ok(entries)
+        Ok(())
     }
 }
 

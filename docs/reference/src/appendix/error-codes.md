@@ -461,7 +461,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
    PR 抢同一个号会在这个文件上产生 git 冲突（而不是双双静默合并）。
 2. **加发射点**，并在提交前用 `grep -rn '"<码号>"' src/` 自证它真的会被报出——只加常量不加发射点，
    等于给了用户一条不存在的保护。⚠️ 发射点若用**字面量**（新常量与其引用不能同 PR，见
-   [bootstrap-seed.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/bootstrap-seed.md) 分阶段引入纪律），还要把
+   support 先行的分阶段引入纪律），还要把
    `<码号> <相对路径>` 加进 [`scripts/test/diag-literal-emitters.txt`](../../../../scripts/test/diag-literal-emitters.txt)
    （`xtask check diagcodes --update`）。**加这一行时先停一秒**：你是不是在给一个已经有主的码挂第二个含义？
    撞码正是这么来的。

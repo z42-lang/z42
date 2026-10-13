@@ -6,7 +6,7 @@
 
 | 类型 | 回答 | 页 |
 |---|---|---|
-| **操作页** | 照着敲就能跑 | [开发环境准备](dev-setup.md) · [平台构建](build-platforms.md) · [怎么跑测试](testing.md) · [CI 拓扑](ci.md) · [发版流程](release.md) · [调试手法](debugging.md) |
+| **操作页** | 照着敲就能跑 | [开发环境准备](dev-setup.md) · [平台构建](build-platforms.md) · [怎么跑测试](testing.md) · [学习手册示例与会话脚本](learn-examples.md) · [格式 bump 期的本地验证](format-bump.md) · [CI 拓扑](ci.md) · [发版流程](release.md) · [调试手法](debugging.md) |
 | **机制页** | 为什么这样编排、在哪改 | [xtask](xtask.md) · [构建编排](build.md) · [GREEN gate](test-gate.md) · [测试流水线](test-pipeline.md) · [声明式夹具](fixture-harness.md) · [性能门禁](benchmarking.md) · [打包引擎](packaging.md) · [产物目录布局](artifacts-layout.md) |
 
 另有两页是约定而非流程：[本仓命名与目录约定](repo-conventions.md)——改 z42 本身时用；
@@ -15,4 +15,4 @@
 
 > **与「测试体系」部分的分工**：本部分的 [怎么跑测试](testing.md) / [GREEN gate](test-gate.md) /
 > [测试流水线](test-pipeline.md) 讲的是**仓库侧怎么组织和跑**；
-> 测试框架本身（TIDX 语义、runner 协议、平台后端）在[测试体系](../testing/index.md)。
+> 测试框架本身（反射发现、runner 协议、平台后端）在[测试体系](../testing/index.md)。

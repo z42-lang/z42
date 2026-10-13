@@ -5,6 +5,9 @@
 > `.github/workflows/{bench-pr,release,deploy-book,jit-fixpoint-check}.yml`
 >
 > 每个 job 具体跑哪条 `xtask` 命令见[测试怎么跑](testing.md)；gate 的 stage 组成见[测试门禁](test-gate.md)。
+>
+> 待办：`ci-bootstrap` 每代构建前清空其就地 artifacts 的那一步（§1.5）只在冷启动 + 格式 bump 时走到、本地不可验，
+> 暂时保留；下一次格式 bump 的 PR 里删掉它并观察 CI——那时它正好被真实行使一次。
 
 改 CI 编排、或者想知道「这条腿为什么没跑 / 我这个改动会触发哪些 job」时读这页。
 
@@ -102,7 +105,7 @@ main push 上 `publish-nightly` 也随之不跑（纯文档本来就不影响 SD
 
 PR 上新 push 照常取消旧运行；**push to main 每个 commit 单独一个 concurrency group**，GitHub 不自动取消。
 否则连续合并时每个 main 运行都被下一个取消，一个都跑不完 ⇒ nightly 发不出来，而「support 先行、晚一个
-nightly 再 use」（[bootstrap-seed.md](../../../agent/rules/bootstrap-seed.md)）的后续提交等的正是那份 nightly。
+nightly 再 use」（见[编译器自举](../compiler/self-hosting.md)）的后续提交等的正是那份 nightly。
 
 取消改由每个 main 运行在 `detect-changes` 里自己做（`.github/ci/main-supersede.sh supersede`）：
 
@@ -124,6 +127,15 @@ install、`ci.yml`、`.github/actions/`——它们决定 SDK 里装什么或怎
 | `.github/workflows/{bench-pr,deploy-book,jit-fixpoint-check}.yml` | 不参与发布的 workflow |
 
 SoT 是脚本里的 `non_sdk_re`，这张表随它改。
+
+**怎么确认 nightly 已包含某个提交**（阶段 1 落地后判断"能不能开始用"）：
+
+```bash
+gh api repos/z42-lang/z42/compare/<阶段1 的 main 提交>...$(gh api repos/z42-lang/z42/git/ref/tags/nightly -q .object.sha) -q .status
+```
+
+返回 `ahead` 或 `identical` 才算包含——**不是**「发布时间晚于合并时间」。阶段 1 合并后不必盯着它的 main 运行：
+改到 SDK 路径的 main 运行不会被后来的合并取消，一定跑完发布（见上节）。
 
 `publish-nightly` 自身仍是全局串行（job 级 `cancel-in-progress: false`）。main 运行不再互相取消后，较早的运行
 可能排在较新的之后才发布，所以它先查一次：**nightly 已指向本 commit 的后代** ⇒ 跳过，不拿旧 commit 覆盖新 nightly。
@@ -304,7 +316,7 @@ main 上最近 5 次成功 CI 运行的 release-host-<rid> artifact（回退，�
 报错退出（错误信息带人工恢复指引）
 ```
 
-**回退为什么是安全的**：自举纪律（[bootstrap-seed.md](https://github.com/z42-lang/z42/blob/main/docs/agent/rules/bootstrap-seed.md)）
+**回退为什么是安全的**：自举纪律（[编译器自举](../compiler/self-hosting.md)）
 保证「上一版 z42c 永远能编当前源码」——新语法与格式 bump 都是 support 先行、晚一个
 nightly 再 use。成功 CI 运行的产物顶多落后一两个 commit，牢牢在这条**单向递推**的纪律内。
 

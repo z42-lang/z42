@@ -40,7 +40,7 @@ done
 # 各自把 dist/<name>.zpkg 覆写为 source.zpkg；sym-only-sidecar 取 dist/demo.sidecar.zsym
 ```
 
-流程见 [version-bumping.md](../../../../../../docs/agent/rules/version-bumping.md) 步骤 9。
+流程见 [格式 bump 清单](../../../../../../docs/internals/src/devinfra/format-bump.md) 步骤 9。
 
 ## 核心文件
 | 文件 | 职责 |
