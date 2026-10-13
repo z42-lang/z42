@@ -1,6 +1,6 @@
 # 对象与值表示 ABI（Object & Value ABI）
 
-> 待办：Value ABI 版本化规范、统一对象头（`gc_word`）、GcRef 可重定位、card table、移动/分代 GC 尚未实施（值/对象表示本身已实现）；对象模型 R5 之后的剩余项见 §3「字段单元的内存序」。
+> 待办：Value ABI 版本化规范、GcRef 可重定位、card table、移动/分代 GC 尚未实施（值/对象表示本身已实现，对象已是「GC 字 + 类型字」一个 16 B 头）；对象模型的剩余项见 §3「字段单元的内存序」。
 >
 > 把当前**隐式**的跨引擎值/对象表示固化成**显式、版本化的 ABI**（组件化的"共享契约"本体），并为**移动/分代 GC**预留空间、**统一所有堆对象**（含字符串）到一个对象头。
 >
@@ -10,36 +10,43 @@
 
 ## 1. 现状（已成形，但隐式且脆弱）
 - **Value = Rust tagged enum**（[metadata/types/value.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/value.rs)），`#[repr(C, u8)]` + 显式判别值：`I64=0/F64=1/Bool=2/Char=3`（内联值）、`Str(Str)=4`、`Null=5`、`Array(GcRef<ArrayObj>)=6`、`Object(ObjRef)=7`、`PinnedView=8`、`FuncRef(FnId)=9`、`Closure(VarGcRef)=10`、`Ref=12`、`StackObject=14`、`StackArray=15`、`StructRef=16`、`BoxedStruct(ObjRef)=17`、`StructRefHeap=18`（11、13 空号）。`{idx, frame_id}` 形的变体都是 8B arena 句柄（瞬态的 3 个见 §2.2）。**`Value` 是 `Copy`（16B POD，无 `Drop` glue）**。
-- **对象** = 变长 GC 区（`region_var`）里的**一个** `BlockType::Object` 块，一次分配（对象模型 R6）：
+- **对象** = 变长 GC 区（`region_var`）里的**一个** `BlockType::Object` 块，一次分配、**一个 16 B 头**（对象模型 R6 / R8）：
 
   ```
-  GcBlockHeader (16 B) │ type_desc (8 B) │ meta (8 B) │ fields: [UnsafeCell<u8>] …
-                        ↑ ObjRef::as_ptr（*const ObjHeader，细指针）
-                        └──────── &ScriptObject（胖引用：地址 + 字段区长度）────────┘
+  GcWord (8 B) │ type_desc (8 B) │ fields: [UnsafeCell<u8>] … │ [meta (8 B)]
+  └── 块头 = 对象头（16 B）─────┘ └── payload：块头 size 字节 ────────────┘
+  ↑ ObjRef::as_ptr（*const ObjHeader，细指针，= 块头地址）
+  └──────────── &ScriptObject（胖引用：地址 + payload 长度）──────────────────┘
   ```
 
+  块头（`GcBlockHeader`，[gc/var_region/block.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/var_region/block.rs)）对所有变长块同形：
+  前 8 字节是 GC 字（`GcWord`：16 位 generation，最低位即存活位 / mark / `type_tag` / 32 位 payload 长度），后 8 字节是「种类字」——
+  对象的 `Arc<TypeDesc>`，其余块恒为空。所以对象头**就是**块头，类型字之后直接是字段单元（布局与取舍见 [gc.md](gc.md)「变长块堆」）。
   `ScriptObject`（[metadata/types/object.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/object.rs)）是一个 `#[repr(C)]` **动态大小类型**：
-  `{ type_desc, meta, fields: [UnsafeCell<u8>] }`，`&ScriptObject` 是胖引用，元数据就是字段区长度，**引用的范围恰好盖住对象头 + 字段**。
-  所以 `payload_len()` 就是 `fields.len()`（不读内存）、`cells()` 从 `fields` 推出——每次字段访问都在引用自己的范围里，从不从引用走到它外面的内存
-  （Stacked Borrows 的 retag 覆盖 `size_of_val`；Miri 核过）。胖引用只在持有整块 provenance 的指针上构造（`ScriptObject::from_payload`：
-  `ObjRef::borrow`、`OwnedObject`、分配器、drop glue），长度在那里从块头的 `size`（载荷长度）− 对象头算出——块头 `size` 是唯一的长度来源
-  （装箱基元按标量宽度、装箱 struct 按 blob、类实例按 `TypeDesc::object_bytes_len`）。对象头的定长前缀是 `ObjHeader`（同样 `#[repr(C)]`、
-  同样两个字段），分配器只经它写对象头（不按值构造 `ScriptObject`），`OBJ_HEADER_BYTES = size_of::<ObjHeader>()`（64 位 16 B、32 位 8 B），
-  `#[repr(C)]` 的公共前缀保证 `fields` 正好从这里开始（单测钉住）。`fields` 是 `UnsafeCell`：字段经 `&self` 原子写。
+  `{ gc: GcWord, type_desc, payload: [UnsafeCell<u8>] }`，盖在整个块上；`&ScriptObject` 是胖引用，元数据是 payload 长度，
+  **引用的范围恰好盖住头 + 字段 + meta 字**。`payload_len()`（字段区长度）= payload 长度减去 meta 字（有 meta 时 8 B，看块头 `type_tag`
+  bit 6，`OBJ_META_BIT`），`cells()` 只覆盖字段区——每次字段访问都在引用自己的范围里，从不从引用走到它外面的内存
+  （Stacked Borrows 的 retag 覆盖 `size_of_val`；Miri 核过）。胖引用只在持有整块 provenance 的指针上构造（`ScriptObject::from_block`：
+  `ObjRef::borrow`、`OwnedObject`、分配器、drop glue），长度取自块头的 `size`——它是唯一的长度来源
+  （装箱基元按标量宽度、装箱 struct 按 blob、类实例按 `TypeDesc::object_bytes_len`，再加 meta 字）。头的定长视图是 `ObjHeader`
+  （同样 `#[repr(C)]` 的 `{gc, type_desc}`，16 B，`offset_of!(type_desc)` 与块头种类字的偏移由常量断言钉住），分配器经
+  `ObjHeader::install` 只写类型字（不按值构造任何一个），GC 字由变长区写。`payload` 是 `UnsafeCell`：字段经 `&self` 原子写。
   字段区是零初始化的：基元字段、8 B 引用字（含内联 struct 的引用叶子）与 16 B 型参单元都在里面，没有 16 B `Value` 侧表，布局见 §3「字段存储布局」。
-  热路径的结构与 ABI 只放细句柄（`ObjRef`、`ObjRef::as_ptr` 的对象头地址），不放 `&ScriptObject`；只看类型的路径（虚调用 IC、类型检查）经
-  `ObjRef::header()` 拿细的 `&ObjHeader`，不读字段区长度。
+  热路径的结构与 ABI 只放细句柄（`ObjRef`、`ObjRef::as_ptr` 的头地址），不放 `&ScriptObject`；只看类型的路径（虚调用 IC、类型检查）经
+  `ObjRef::header()` 拿细的 `&ObjHeader`，不读 payload 长度。
   堆外的对象（栈分配对象、堆外构造的对象）是同样形状的**脱离块**（`OwnedObject`，[owned_object.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/owned_object.rs)：
-  一个不属于任何 region 的 `{块头, 对象头, 字段}`），所以 `&ScriptObject` 不论对象在哪都一样读。
-  典型尺寸（块头 + 对象头 + 字段，按四分之一八度档取整）：空类 32 B、`{int}` / `{long}` 40 B、`{int; string}` 48 B。
-  `meta` 是一个 8 B 字，装两样冷数据：
+  一个不属于任何 region 的 `{头, 字段, [meta]}`），所以 `&ScriptObject` 不论对象在哪都一样读。
+  典型尺寸（头 + 字段，按 size class 取整：16 / 24，再往上每八度 4 档）：空类 16 B、`{int}` / `{long}` 24 B、`{int; string}` 32 B；
+  泛型实例与带原生底座的对象再多一个 8 B meta 字。
+  `meta` 是一个 8 B 字，**只有泛型实例与带原生底座的对象才有**（在 payload 末尾、字段区之后，可能不按 8 对齐，整字非对齐读写；
+  分配点就知道要不要：`alloc_instance` 看实参是否为空，`OwnedObject` 在构造期补实参 / 原生底座时把块加长一个字），装两样冷数据：
   - 泛型实参 `type_args`：按实例化**进程级驻留**的 `TypeArgs`（[type_args.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/metadata/types/type_args.rs)，同 `ElemType` 的套路：8 B 细指针、同内容同址、永不释放）。同一实例化的所有实例指向同一个条目，每个对象不为实参分配任何东西。驻留发生在解码 / 注册期：`ObjNewInsn::type_args` 解码时驻留，实例化描述符（`Demo.Box<int>`）名字里解析出的实参在 `build_type_registry` 驻留进 `TypeDescCold::type_args`；`ObjNew`（interp 堆 / 栈两支、JIT `jit_obj_new`）只拷句柄：两引擎共用 `interp/obj_new_resolve.rs::instance_type_args` 挑出实参（站点自己的，否则描述符的），再经 `ScriptObject::install_type_args` 一处写入并改写型参字段零值。进程级而非 VM 级，因为包惰性加载、多个 VM 可并存。
   - 原生底座 `native: NativeData`（WeakRef / Type / LoadContext / Assembly / Monitor 句柄）：只有这类对象才分配一个 `ObjExtras` 盒子；带原生底座的泛型对象（如 `Mutex<T>`）把实参句柄也放进盒子。
   - 编码：`0` = 非泛型且无原生底座（绝大多数对象）；偶指针 = 驻留的 `TypeArgs` 条目；奇指针（低位标签）= `Box<ObjExtras>`。
   - 读者（`DefaultOf`、`__class_type_arg` / `__class_default`、`GetType().GetGenericArguments()`、数组 `T` 零值、型参字段零值）拿到的是 `&'static [String]`。擦除代码里的 `new Box<T>()` 以开放实例化名 `Box<T>` 分配，实参是字面 `["T"]`，同样驻留成一个共享条目。
   - 已知边界：擦除分配的实例只知道 `T`，于是 `GetGenericArguments()` 报 `T`、`default(T)` 得 `null`、`is Box<int>` 为 `false`。真实实参要从分配时所在方法的泛型上下文（接收者的 `type_args` 或帧的 `method_type_args`）按型参名解析，目前没有做。
-- **ObjRef**（对象，[gc/obj_ref.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/obj_ref.rs)）= 对象块的 `VarGcRef`：8B 标记指针（低 48 位块头地址、高 16 位窄 generation 快照，见 §2.1）。
-  mark 位、代龄、generation、存活位都在 16 B 块头（`GcBlockHeader`）上，对象头本身没有 GC 字；`ObjRef::borrow()` 校验 generation / 存活后直接给 `&ScriptObject`，**没有每对象锁**（见 §3「字段单元的内存序」）。
+- **ObjRef**（对象，[gc/obj_ref.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/obj_ref.rs)）= 对象块的 `VarGcRef`：8B 标记指针（低 48 位块头地址、高 16 位 generation 快照——头里的 generation 本身就是 16 位，见 §2.1）。
+  mark 位、代龄、generation（含存活位）都在头的 GC 字上；`ObjRef::borrow()` 比一次 generation（活着的块 generation 为奇数，句柄存的就是它，所以相等同时说明「活着」且「没被复用」）后直接给 `&ScriptObject`，**没有每对象锁**（见 §3「字段单元的内存序」）。
   弱引用 `WeakObjRef` 额外记下所在 chunk 的复用 epoch（见 [gc.md](gc.md)「GC heap backing」）。
 - **GcRef**（数组头）= 8B 标记指针（低 48 位 `RegionEntry` 地址 + generation 快照）。`RegionEntry` = `{ value: T, marked, alive, gen_age, generation, finalizer, location, soft_ref_count }`；数组头槽 64 B。
   两种 chunk 都永不重定位 → **当前非移动堆**。
@@ -189,8 +196,8 @@ ObjectHeader {
     type/kind: ptr,     // → TypeDesc（含字段布局/vtable/反射）或 kind 判别
 }
 ```
-> 注:当前对象的 mark / 代龄 / generation 在它所在 GC 块的 16 B 块头（`GcBlockHeader`）上，对象头（`ObjHeader`，16 B）里没有 GC 字；
-> 块头 + 对象头共 32 B，对象模型 R8 计划合成一个 16 B 头。**为移动/分代,规范要求对象自带 `gc_word`**（见 §6）。
+> 注:当前对象头就是这个形状（对象模型 R8）：16 B 块头 = 8 B GC 字（generation + 存活位、mark、`type_tag`（种类 / 代龄 / 记忆集 / 侧表位）、
+> payload 长度）+ 8 B 类型字（`Arc<TypeDesc>`）。GC 字目前不能兼作 forwarding pointer（非移动堆），**移动 GC 需要的转发字是 §6 的事**。
 
 ### 对象种类
 | kind | payload | 精确 GC 扫描 |
@@ -257,7 +264,7 @@ ObjectHeader {
   struct 根），命中只比较一次 `TypeId` 就做单元访问，不查名字、不读布局（只有型参单元回布局取第二个坐标）。`Value` ↔ 单元的转换只在这里、
   `ref_word` 与 `tparam_cell`；两个引擎经 [objops](interp-jit-semantics.md#对象操作objops) 调到它们。JIT 生成码直接读站点 IC 的
   entry 0，按对象头 → `TypeDesc::id` 守卫后按字节偏移原生读写基元与引用字，引用写内联屏障判定（见 [jit.md](jit.md)「字段访问：
-  原生单态字段 IC」）→ **对象块头 / 对象头 / 字段偏移、`TypeDesc::id` 的位置、引用字编码与 Value 大小是 ABI 一部分，须固化**
+  原生单态字段 IC」）→ **对象头（类型字在 +8、`type_tag` 在 +3、字段从 +16 起）、`TypeDesc::id` 的位置、引用字编码与 Value 大小是 ABI 一部分，须固化**
   （`obj_jit_layout`，由 `object_tests::jit_layout_matches_the_accessors` 钉住）。
 - GC 只经 `ScriptObject::visit_refs`（每个非零引用字 + 型参单元标签字里的引用；装箱 struct 按 struct 布局，合成布局按型参单元）遍历一个对象的出边，标记、栈对象根扫描、保留图共用；
   清扫断边用 `clear_refs_for_sweep`。
@@ -378,8 +385,9 @@ ObjectHeader {
 - JIT 的引用字内联读不覆盖型参字段（标记字按引用字查表会读成 `null`），型参字段读写仍走 helper；MIXED 数组的基元元素读也走 helper。
 - JIT 的 `StaticGet` / `StaticSet` 仍经 helper（单元访问本身无锁，但类型初始化屏障的判定还没内联进生成码）。
 - 原生字段 IC 只比 entry 0：同一站点见到多个接收者类型（继承字段经基类方法访问）时，其余类型走 helper 的 4 槽扫描。
-- 对象是变长区里的一块（R6），但仍有两个头：16 B 块头 + 16 B 对象头；R8 合成一个 16 B 头。小对象所在的半活 chunk 里的空洞
-  目前只有锁路径的 free list 会复用，TLAB 只认领整块空 chunk（M12）。
+- 对象的类型字是一个 `Arc<TypeDesc>`：每次分配一次原子 +1、每次回收一次 −1。描述符的生存期并不统一（按分配新建的回落描述符、
+  只被加载上下文持有的类型、继承 fixup 的 copy-on-write 新版本），改成不计数的细指针 / 32 位类型号之前要先让描述符由一个只增不减的
+  arena 持有（R8 没做）。
 
 ### 槽位零初始化
 

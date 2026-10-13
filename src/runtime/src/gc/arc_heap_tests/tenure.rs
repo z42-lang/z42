@@ -110,7 +110,7 @@ fn a_tenure_while_sweeping_leaves_the_doomed_young_for_the_sweep() {
     let heap = generational_heap();
     let keep = obj(&heap, "Keep");
     let _pin = heap.pin_root(keep);
-    let garbage: Vec<_> = (0..700).map(|_| heap.make_weak(&obj(&heap, "G")).unwrap()).collect();
+    let garbage: Vec<_> = (0..1400).map(|_| heap.make_weak(&obj(&heap, "G")).unwrap()).collect();
 
     assert!(!heap.run_major_slice_for_test(300));
     assert!(heap.major_cycle_sweeping_for_test());

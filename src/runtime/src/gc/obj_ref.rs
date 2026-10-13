@@ -1,8 +1,9 @@
 //! [`ObjRef`] — the handle of a managed object (`Value::Object` / `Value::BoxedStruct`), object
 //! model R6.
 //!
-//! An object is one `BlockType::Object` block of the heap's variable-length region (16 B block
-//! header, 16 B [`ScriptObject`] header, field cells), so the handle is a [`VarGcRef`] — the
+//! An object is one `BlockType::Object` block of the heap's variable-length region (one 16 B
+//! header — GC word + type descriptor — then the field cells, object model R8), so the handle is
+//! a [`VarGcRef`] — the
 //! 8-byte path-A tagged pointer (low 48 bits block-header address, high 16 bits a narrow
 //! generation snapshot) — typed as "this block is an object". Same bits as before for
 //! everything that stores a handle: an object reference word (`ref_word` kinds 1 / 6) and the
@@ -40,8 +41,8 @@ impl ObjRef {
         self.0
     }
 
-    /// The object — header and fields, as one fat reference built from the block's own pointer
-    /// (whole-block provenance) with the field-area length read from the block header (see
+    /// The object — header and payload, as one fat reference built from the block's own pointer
+    /// (whole-block provenance) with the payload length read from the block header (see
     /// [`ScriptObject`]). **Panics** when the handle is stale —
     /// the block was tombstoned (and maybe reused) since the handle was taken: the generation
     /// guard is the backstop against reading another object's memory as this one
@@ -54,23 +55,22 @@ impl ObjRef {
         if !self.0.generation_matches() {
             stale_borrow();
         }
-        // SAFETY: a live object block holds a written object header at its payload start and
-        // `payload_size` bytes of header + fields; the pointer derives from the block header
-        // pointer (whole-block provenance); the block stays mapped while the handle is reachable
-        // (the GC keeps it alive).
-        unsafe { &*ScriptObject::from_payload(self.0.payload_as_ptr::<u8>(), self.0.payload_size()) }
+        // SAFETY: a live object block holds a written type word and `payload_size` bytes of
+        // payload; the pointer is the block header pointer (whole-block provenance); the block
+        // stays mapped while the handle is reachable (the GC keeps it alive).
+        unsafe { &*ScriptObject::from_block(self.0.header_raw(), self.0.payload_size()) }
     }
 
-    /// Just the object header (type descriptor, meta word) as a thin reference over its 16 bytes
-    /// — what the type checks and virtual-call caches need, without reading the field-area
-    /// length or building the fat `&ScriptObject`. Same stale-handle guard as [`Self::borrow`].
+    /// Just the object header (GC word, type descriptor) as a thin reference over its 16 bytes —
+    /// what the type checks and virtual-call caches need, without reading the payload length or
+    /// building the fat `&ScriptObject`. Same stale-handle guard as [`Self::borrow`].
     #[inline(always)]
     pub fn header(&self) -> &ObjHeader {
         if !self.0.generation_matches() {
             stale_borrow();
         }
-        // SAFETY: as `borrow`; the header is the payload's sized prefix.
-        unsafe { &*self.0.payload_as_ptr::<ObjHeader>() }
+        // SAFETY: as `borrow`; the object header is the block header.
+        unsafe { &*self.0.header_raw().as_ptr().cast::<ObjHeader>() }
     }
 
     /// Identity: same block **and** same generation.
@@ -79,13 +79,13 @@ impl ObjRef {
         a.0.ptr_eq(&b.0)
     }
 
-    /// The object header's address — the object's identity (hash keys, dedup, retention). Stable
-    /// for the object's lifetime: blocks never move. A thin pointer derived from the block (not
-    /// from a `&ScriptObject`), so it is safe to keep and compare without touching the object.
+    /// The object header's address — the block header's, the object's identity (hash keys,
+    /// dedup, retention). Stable for the object's lifetime: blocks never move. A thin pointer
+    /// derived from the block (not from a `&ScriptObject`), so it is safe to keep and compare
+    /// without touching the object.
     #[inline]
     pub fn as_ptr(this: &Self) -> *const ObjHeader {
-        // SAFETY: pointer arithmetic only (no dereference).
-        unsafe { this.0.payload_as_ptr::<ObjHeader>() }
+        this.0.header_raw().as_ptr().cast::<ObjHeader>()
     }
 
     /// The handle's raw bits, for storing in a reference word (`ref_word`). Never zero, low 3

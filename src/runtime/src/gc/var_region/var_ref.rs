@@ -3,9 +3,8 @@
 
 use std::alloc::{alloc, handle_alloc_error, Layout};
 use std::ptr::NonNull;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8};
 
-use super::block::{payload_ptr_of, BlockType, GcBlockHeader};
+use super::block::{payload_ptr_of, BlockType, GcBlockHeader, FIRST_GEN};
 use super::chunk::{class_for, CHUNK_ALIGN};
 
 /// Mask isolating the 48-bit header address from a tagged handle (64-bit targets).
@@ -20,8 +19,9 @@ const ADDR_MASK: usize = (1usize << ADDR_BITS) - 1;
 pub(crate) const HANDLE_ADDR_MASK: u64 = ADDR_MASK as u64;
 
 /// An 8-byte, type-erased handle to a variable-length GC block. The low 48 bits are the
-/// [`GcBlockHeader`] address, the high 16 bits are a narrow generation snapshot (path-A
-/// tagged pointer, same scheme as `GcRef` in `refs.rs`). "Type-erased" because a `VarRegion`
+/// [`GcBlockHeader`] address, the high 16 bits the block's generation (the header's whole
+/// 16-bit field — odd, the live value; path-A tagged pointer, same scheme as `GcRef` in
+/// `refs.rs`). "Type-erased" because a `VarRegion`
 /// mixes payload kinds — the block's `type_tag` (not a static `T`) discriminates.
 ///
 /// On 32-bit targets there are no spare high bits, so the generation rides in a separate
@@ -51,8 +51,8 @@ impl VarGcRef {
     /// Fold a clean header pointer + generation into the 8-byte handle.
     #[cfg(target_pointer_width = "64")]
     #[inline]
-    pub(super) fn pack(ptr: NonNull<GcBlockHeader>, generation: u32) -> Self {
-        let gen16 = generation as u16 as usize;
+    pub(super) fn pack(ptr: NonNull<GcBlockHeader>, generation: u16) -> Self {
+        let gen16 = generation as usize;
         // strict-provenance `map_addr`: the tag lives only in never-dereferenced high bits,
         // so the result keeps `ptr`'s provenance (Miri-clean).
         let tagged = ptr
@@ -64,8 +64,8 @@ impl VarGcRef {
 
     #[cfg(not(target_pointer_width = "64"))]
     #[inline]
-    pub(super) fn pack(ptr: NonNull<GcBlockHeader>, generation: u32) -> Self {
-        Self { ptr, generation }
+    pub(super) fn pack(ptr: NonNull<GcBlockHeader>, generation: u16) -> Self {
+        Self { ptr, generation: generation as u32 }
     }
 
     /// The backing header pointer with the tag masked off.
@@ -84,7 +84,7 @@ impl VarGcRef {
         self.ptr
     }
 
-    /// The 16-bit generation snapshot (matches the `header.generation as u16` guard).
+    /// The 16-bit generation snapshot (matches the header's generation while the block lives).
     #[cfg(target_pointer_width = "64")]
     #[inline]
     pub(super) fn gen16(&self) -> u16 {
@@ -113,29 +113,29 @@ impl VarGcRef {
     }
 
     /// True iff the block is still alive and its generation matches this handle (not
-    /// tombstoned/reused). Reads only the 16-byte header (always chunk-mapped), so it's
-    /// safe even when the payload was reused. unify-gc-heap PR-3 safety guard for array/
-    /// string/closure block access.
+    /// tombstoned/reused): the snapshot is a live (odd) generation, so equality says both. Reads
+    /// only the 16-byte header (always chunk-mapped), so it's safe even when the payload was
+    /// reused. unify-gc-heap PR-3 safety guard for array/string/closure block access.
     #[inline]
     pub fn is_live(&self) -> bool {
         let ptr = self.header_ptr();
         // SAFETY: header address is chunk-owned + mapped for the region's lifetime.
         let h = unsafe { ptr.as_ref() };
-        h.is_alive() && h.generation() as u16 == self.gen16()
+        h.generation() == self.gen16()
     }
 
     /// Whether the block still carries this handle's generation — the strong-reference guard
-    /// (`ObjRef::borrow`). Every tombstone bumps the generation, and a reused slot / re-bumped
-    /// chunk never hands out an old one again (free-list slots keep the bumped value, a pooled
-    /// chunk restarts above every generation it reached), so a mismatch is exactly "this handle
-    /// outlived its block"; the alive flag adds nothing on top. One relaxed load: it is a
+    /// (`ObjRef::borrow`). Every tombstone bumps the generation (to an even, dead value), and a
+    /// reused slot / re-bumped chunk never hands out an old one again within its epoch (a reused
+    /// slot takes the next value, a pooled chunk restarts past every generation it reached), so a
+    /// mismatch is exactly "this handle outlived its block". One relaxed load: it is a
     /// use-after-free tripwire, not a synchronization point. Reads only the 16-byte header.
     #[inline(always)]
     pub fn generation_matches(&self) -> bool {
         let ptr = self.header_ptr();
         // SAFETY: header address is chunk-owned + mapped while a strong handle exists.
         let h = unsafe { ptr.as_ref() };
-        h.generation.load(std::sync::atomic::Ordering::Relaxed) as u16 == self.gen16()
+        h.generation.load(std::sync::atomic::Ordering::Relaxed) == self.gen16()
     }
 
     /// The block's requested payload byte length (from its header). unify-gc-heap PR-3:
@@ -148,15 +148,16 @@ impl VarGcRef {
 
     /// M12: make a freshly allocated block visible — its allocation funnel calls this once the
     /// payload is written. A block filled into a reused slot (`holes::fill_hole`) is born with
-    /// `alive` clear, because its chunk is already published and a heap walk on another thread
-    /// must not see it half-built; the release store pairs with the walkers' acquire load of
-    /// `alive`. Bump-filled and locked-path blocks are born alive, so for them this is one load.
+    /// its dead (even) generation still in the header, because its chunk is already published
+    /// and a heap walk on another thread must not see it half-built; storing the handle's live
+    /// generation with release ordering pairs with the walkers' acquire load (`is_alive`).
+    /// Bump-filled and locked-path blocks are born alive, so for them this is one load.
     #[inline]
     pub(crate) fn publish(&self) {
         // SAFETY: the caller just allocated this block and holds its only handle.
         let h = unsafe { self.header_ptr().as_ref() };
-        if !h.alive.load(std::sync::atomic::Ordering::Relaxed) {
-            h.alive.store(true, std::sync::atomic::Ordering::Release);
+        if h.generation.load(std::sync::atomic::Ordering::Relaxed) != self.gen16() {
+            h.generation.store(self.gen16(), std::sync::atomic::Ordering::Release);
         }
     }
 
@@ -225,11 +226,12 @@ impl VarGcRef {
         unsafe { self.header_ptr().as_ref() }.set_side()
     }
 
-    /// Index of the chunk that owns the block (`u32::MAX` outside any region).
+    /// Object model R8: record that this (unpublished) object block's payload ends in a meta
+    /// word (`block::OBJ_META_BIT`).
     #[inline]
-    pub(crate) fn chunk_idx(&self) -> u32 {
+    pub(crate) fn set_obj_meta(&self) {
         // SAFETY: the caller holds a live handle; the header address is valid.
-        unsafe { self.header_ptr().as_ref() }.chunk_idx()
+        unsafe { self.header_ptr().as_ref() }.set_obj_meta()
     }
 
     /// The block's payload kind.
@@ -309,11 +311,11 @@ impl VarGcRef {
         let ptr = self.header_ptr();
         // Read the guard metadata through a short-lived shared ref over the header only.
         // SAFETY: caller guarantees the region outlives the borrow.
-        let (len, gen, alive) = {
+        let (len, gen) = {
             let header = unsafe { ptr.as_ref() };
-            (header.size(), header.generation(), header.is_alive())
+            (header.size(), header.generation())
         };
-        if gen as u16 != self.gen16() || !alive {
+        if gen != self.gen16() {
             return None;
         }
         // Derive the payload pointer from the raw header pointer (whole-allocation provenance).
@@ -330,11 +332,11 @@ impl VarGcRef {
     pub unsafe fn payload_mut(&self) -> Option<&mut [u8]> {
         let ptr = self.header_ptr();
         // SAFETY: caller guarantees exclusive region access for the borrow.
-        let (len, gen, alive) = {
+        let (len, gen) = {
             let header = unsafe { ptr.as_ref() };
-            (header.size(), header.generation(), header.is_alive())
+            (header.size(), header.generation())
         };
-        if gen as u16 != self.gen16() || !alive {
+        if gen != self.gen16() {
             return None;
         }
         // Derive the payload pointer from the raw header pointer (whole-allocation provenance),
@@ -377,26 +379,17 @@ impl VarGcRef {
     /// this path is never taken on a hot path. Callers write the payload through
     /// [`payload_as_ptr`](Self::payload_as_ptr) before reading it back.
     pub fn alloc_leaked(payload: usize, block_type: BlockType) -> Self {
-        let (footprint, size_class) = class_for(payload);
+        let (footprint, _) = class_for(payload);
         let layout = Layout::from_size_align(footprint, CHUNK_ALIGN).expect("leak block layout");
         // SAFETY: non-zero layout (footprint >= MIN_BLOCK); leaked (never freed).
         let raw = unsafe { alloc(layout) };
         let header = NonNull::new(raw as *mut GcBlockHeader).unwrap_or_else(|| handle_alloc_error(layout));
         // SAFETY: fresh 8-aligned allocation large enough for the header + `payload` bytes.
         unsafe {
-            header.as_ptr().write(GcBlockHeader {
-                generation: AtomicU32::new(0),
-                size: payload as u32,
-                marked: AtomicU8::new(0),
-                alive: AtomicBool::new(true),
-                type_tag: AtomicU8::new(GcBlockHeader::pack_tag(block_type, 0)),
-                size_class,
-                // Leaked / test blocks belong to no region chunk.
-                chunk_idx: u32::MAX,
-            });
+            header.as_ptr().write(GcBlockHeader::fresh(FIRST_GEN, payload, block_type));
             std::ptr::write_bytes(payload_ptr_of(header), 0, payload);
         }
-        VarGcRef::pack(header, 0)
+        VarGcRef::pack(header, FIRST_GEN)
     }
 
     #[cfg(test)]
@@ -407,26 +400,17 @@ impl VarGcRef {
     #[cfg(test)]
     pub(crate) fn leak_for_test<T>(value: T, block_type: BlockType) -> Self {
         let payload = std::mem::size_of::<T>();
-        let (footprint, size_class) = class_for(payload);
+        let (footprint, _) = class_for(payload);
         let layout = Layout::from_size_align(footprint, CHUNK_ALIGN).expect("leak layout");
         // SAFETY: non-zero layout; leaked (never freed) — acceptable for test fixtures.
         let raw = unsafe { alloc(layout) };
         let header = NonNull::new(raw as *mut GcBlockHeader).unwrap_or_else(|| handle_alloc_error(layout));
         // SAFETY: fresh 8-aligned allocation large enough for the header + one `T`.
         unsafe {
-            header.as_ptr().write(GcBlockHeader {
-                generation: AtomicU32::new(0),
-                size: payload as u32,
-                marked: AtomicU8::new(0),
-                alive: AtomicBool::new(true),
-                type_tag: AtomicU8::new(GcBlockHeader::pack_tag(block_type, 0)),
-                size_class,
-                // Leaked / test blocks belong to no region chunk.
-                chunk_idx: u32::MAX,
-            });
+            header.as_ptr().write(GcBlockHeader::fresh(FIRST_GEN, payload, block_type));
             payload_ptr_of(header).cast::<T>().write(value);
         }
-        VarGcRef::pack(header, 0)
+        VarGcRef::pack(header, FIRST_GEN)
     }
 }
 

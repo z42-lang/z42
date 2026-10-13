@@ -73,9 +73,9 @@ flowchart TB
 - **oversized 块**（> chunk）走锁路径（低频，不进 TLAB）。
 - 半活 chunk 里的死槽由 TLAB 按 size class 成批认领、无锁填回（见下「空洞复用」）；bump 只在本 class 没有
   死槽可用时才走。
-- 对象块与其它块一样从 TLAB 里分配：`fill` 写好块头、payload 清零，堆随后在块里写对象头、跑泛型一步，
+- 对象块与其它块一样从 TLAB 里分配：`fill` 写好块头的 GC 字、payload 清零，堆随后写类型字（块头的种类字）、跑泛型一步，
   建完才发布（`gc/arc_heap/alloc_object.rs`）。bump 出来的块在 chunk retire 之前对任何遍历都不可见；
-  填进空洞的块所在 chunk 早已发布，靠块头 `alive` 延后到建完才置位来做到同一件事。所以没人看得到建到一半的对象。
+  填进空洞的块所在 chunk 早已发布，靠 generation 保持偶数（= 不活）到建完才写成奇数来做到同一件事。所以没人看得到建到一半的对象。
 
 ### 空洞复用：TLAB 按 size class 成批认领死槽（M12）
 
@@ -99,8 +99,8 @@ tlab_alloc_var(payload):
 fill:
   取下一个槽；预取同 class 的再下一个槽（冷行，写预取，让缺失与本块的构造重叠）
   fill_hole：写 size / mark=0 / type_tag（年龄 0、所有标志清零），清零 payload，
-             保留 tombstone 时 +1 过的 generation；alive 留 false
-funnel 写完 payload → VarGcRef::publish（alive ← true，release）
+             generation 留在 tombstone 后的偶数值（不活）；句柄带下一个奇数
+funnel 写完 payload → VarGcRef::publish（generation ← 句柄的奇数值，release）
 ```
 
 `take_holes` 弹 free list（条目里带 chunk 下标，**不读块头**），对每个槽当场记账：`live_count` /
@@ -114,8 +114,8 @@ retire，所以 sweep / chunk 回收看到的永远是没有 stash 的 region；
 
 | 读者 | 原址复用下 | 若在 span 里按新偏移切块 |
 |---|---|---|
-| chunk 遍历（`for_each_block_in` 按块头 `size_class` 步进） | `[0, hwm)` 仍是一串块头 | 要 filler 头 + 新步进规则 |
-| 陈旧句柄（`WeakObjRef`、字符串元数据缓存的 `is_live`） | 落在块头上，generation 已 +1 → 判死 | 可能落在别的块的 payload 中间，读到的 "generation" 是任意字节 |
+| chunk 遍历（`for_each_block_in` 按块头 `size` 的 class footprint 步进） | `[0, hwm)` 仍是一串块头；同 class 填回不改 footprint，另一线程的遍历在填写中途读到新旧 `size` 都一样跨过去 | 要 filler 头 + 新步进规则 |
+| 陈旧句柄（`WeakObjRef`、字符串元数据缓存的 `is_live`） | 落在块头上，generation 已变 → 判死 | 可能落在别的块的 payload 中间，读到的 "generation" 是任意字节 |
 | free list 条目 | 条目本来就指这些槽，epoch 校验照旧 | 条目会指进新块中间，需要另一套失效 |
 
 代价是一个死槽只能被同 class 的新块用；四分之一八度分档下同一种对象 / 字符串长度落在同一档，流失负载
@@ -126,18 +126,24 @@ retire，所以 sweep / chunk 回收看到的永远是没有 stash 的 region；
 - **一个死槽一条条目**：进了 stash 的槽已离开 free list，锁路径不会再发它；没用上的 retire 时推回。
 - **取时记账、退时撤账**，而不是填时记账：另一个线程的 `finalize_now` 可以在属主 retire 之前 tombstone 一个刚填的块，
   这样计数与年轻集合任何时刻都对；stash 里有槽的 chunk 也就不可能被判「全死」进池。
+- **年轻集合里的 stash 槽归 stash**：取时就进了年轻集合的槽，在填好、发布之前都不存活。
+  年轻集合的每一种遍历（minor 清扫、major 后的增龄、tenure、`iterate_young`）都跳过不存活的条目、原样留给属主
+  （debug 构建核对它确实在某个 stash 里，`VarRegion::stashed`）。正常协议下回收前所有 TLAB 都已 retire，碰不到它们；
+  但不经 safepoint 的并发回收（`tlab_concurrent_shared_heap_stress`）会碰到——若照常处理，上一个占用者已老的槽会被
+  增龄判断摘出年轻集合，填进去的新块年轻却不在集合里，没有 minor 会清扫它、清它的标记。
 - **建完才可见**：见上；`acquire_var_block` 的四个 funnel（字符串 ×2、闭包、对象）在写完 payload 后 `publish`，
   `MagrGC::alloc_var_block`（数组元素）当场 `publish`（元素区零值合法，回收之外没有遍历读它）。
 - **侧表先清**：flagged-dead 列表非空时 `take_holes`（以及锁路径的 free-list 弹槽）一个槽都不发——finalizer / 软引用 /
   记忆集按块头地址记账，新块不能在旧条目被 `process_flagged_dead` 删掉之前占到这个地址。
-- **块头标志清零**：`fill_hole` 整个重写 `type_tag`，年龄、`REMEMBERED_BIT`、`SIDE_BIT`、`ASCII_STR_BIT` 都回到 0，
-  mark 字节清零。
+- **块头标志清零**：`fill_hole` 整个重写 `type_tag`，年龄、`REMEMBERED_BIT`、`SIDE_BIT`、`ASCII_STR_BIT` / `OBJ_META_BIT` 都回到 0，
+  mark 字节清零；种类字在上一个占用者死时已被 drop glue 清空（非对象块从来是空的）。
 - **增量标记期间 allocate-black**：`acquire_var_block` 对 TLAB 与锁路径统一 `shade_var_newborn`，填进空洞的块同样带
   本周期 epoch 出生；被它占的槽此前已死，任何快照路径都到不了它。
-- **generation 不在一个 chunk epoch 内回绕**：句柄只存 generation 的低 16 位。槽的 generation 超过所在 chunk 的
-  `reuse_gen` 达 `GEN_REUSE_SPAN`（65 535）时，`tombstone` 不再把它推进 free list，它保持死态直到整块进池
-  （epoch 前移、`reuse_gen` 抬过所有块）。于是本 epoch 内铸出的任何句柄的 16 位快照都不会与该地址后来的
-  占用者相同。`purge_blocks` 用同一个判断跳过这种槽，陈旧计数保持精确。
+- **generation 不在一个 chunk epoch 内回绕**：块头与句柄的 generation 都是 16 位，活块为奇数（存活位），
+  每次占用花两步（tombstone +1、复用 +1）。槽的下一个占用者的 generation 会超过所在 chunk 的 `reuse_gen`
+  `GEN_REUSE_SPAN`（65 534，按 2^16 取模）时，`tombstone` 不再把它推进 free list，它保持死态直到整块进池
+  （epoch 前移、`reuse_gen` 移过本 epoch 到过的所有值）——一个槽每个 epoch 至多被占用 32 768 次。于是本 epoch 内铸出的
+  任何句柄都不会与该地址后来的占用者相同。`purge_blocks` 用同一个判断跳过这种槽，陈旧计数保持精确。
 
 **代价。** 快路径多两次 class 位测试（什么都不释放的负载只付这个）；取一批锁一次 region、不读块头，
 逐槽置年轻位、按 chunk 成串记账（bump claim 在 retire 时按字 OR 起点位图，没有这一项）。剩下的是
@@ -167,8 +173,9 @@ z42c 产物逐字节一致。固定 nursery（16M）并关掉自适应晋升时�
 块实际占的就是这个 footprint。free-list 按 class 分桶，`alloc` 弹槽时**不复查容量** ——
 这条捷径成立的前提是**一个 class 索引只对应唯一一个 footprint**。改分档规则时这是首要不变量。
 
-分档规则是**每八度 4 档**（32/40/48/56、64/80/96/112、128/160/192/224 …），
-索引编码 `octave << 2 | sub`。不用**纯 2 的幂**（索引直接是 `log2(footprint)`），
+分档规则是**每八度 4 档**（32/40/48/56、64/80/96/112、128/160/192/224 …），最下面一个八度（16..31）
+只留 8 对齐的两档 16 / 24；索引编码 `octave << 2 | sub`。块头不记 class：它是 `size` 的函数（`chunk::payload_class` /
+`payload_footprint`，不看大对象阈值——块在不在专用 chunk 由 chunk 自己记）。不用**纯 2 的幂**（索引直接是 `log2(footprint)`），
 因为实测浪费大得离谱：
 
 `z42c.semantics --release --no-incremental` 一次构建里 274 万个活块，逻辑字节
@@ -178,10 +185,10 @@ z42c 产物逐字节一致。固定 nursery（16M）并关掉自适应晋升时�
 四分之一八度分档后浪费降到 57.9 MB，实测 RSS 未武装 1026.7 → 884.8 MB（**−13.8%**）、
 武装 256M 预算 818.7 → 736.8 MB（**−10.0%**），指令数与墙钟均持平。
 
-⚠️ **每八度不能超过 4 档**。bump 与 TLAB 的偏移只按 footprint 前移，其 8 对齐完全依赖
-「每个 footprint 都是 8 的倍数」。最小八度是 `MIN_BLOCK = 32`（`oct == 5`），4 档时步长
-`32 >> 2 = 8` 刚好卡在下限；再细成 8 档步长就变成 4 字节，直接破坏对齐。
-所以理论上更省的 8 档（浪费可降到 34.5 MB）**在当前 16 字节块头下不可取**。
+⚠️ **步长不能小于 8**。bump 与 TLAB 的偏移只按 footprint 前移，其 8 对齐完全依赖
+「每个 footprint 都是 8 的倍数」。从 32 起每八度 4 档的步长 `32 >> 2 = 8` 刚好卡在下限，再细成 8 档步长就变成 4 字节；
+`MIN_BLOCK = 16`（只有头的块：无字段对象、空字符串）所在的八度步长本是 4，所以只取其中 8 对齐的 16 / 24。
+理论上更省的 8 档（浪费可降到 34.5 MB）因此不可取。
 
 ### 变长区的分代
 
@@ -189,16 +196,16 @@ minor GC 同时扫变长区 `region_var`——它占 RSS 约 45%，
 不能只等 major。注意数组头 tombstone 时把 `array_size_estimate`（含 `elem_storage_bytes()`）
 计进 `freed_bytes`，那些字节却住在变长块里、这一轮并没被回收：须防**账退了、内存没退**。
 
-**年龄塞在哪。** `GcBlockHeader` 被 `assert!(size_of == 16)` 钉死，头涨到 24 会把
-180 万个 total 恰好 32 字节的块推进下一个 size class，吐回 15 MB+（见 `class_for` 的实测）。
-所以年龄挤进 `type_tag` 的空闲位：
+**年龄塞在哪。** `GcBlockHeader` 被 `assert!(size_of == 16)` 钉死（对象的类型字占了后 8 字节，
+GC 字只有 8 字节：generation 16 位 + mark + `type_tag` + 32 位长度），所以年龄挤进 `type_tag` 的空闲位：
 
 ```
 type_tag: AtomicU8
   bit 0..2  BlockType（8 个变体，3 位用满）
   bit 3..4  gen_age（2 位 → 上限 3；默认晋升年龄 3 正好用满）
   bit 5     REMEMBERED_BIT（仅 Object 块：在记忆集里）
-  bit 6     ASCII_STR_BIT（仅 Str 块：字节全为 ASCII；年龄的 STW 读改写保留它）
+  bit 6     ASCII_STR_BIT（仅 Str 块：字节全为 ASCII）/ OBJ_META_BIT（仅 Object 块：payload 末尾有 meta 字）；
+            年龄的 STW 读改写保留它
   bit 7     SIDE_BIT（仅 Object 块：堆按地址记着 finalizer / 软引用）
 ```
 年轻集合的成员关系在 region 的位图里，不在块头。
@@ -212,8 +219,8 @@ type_tag: AtomicU8
 
 ### free-list 的陈旧条目为什么可以留着
 
-这一趟 purge 若要对 `free_lists` 做一次 `retain`：**每个条目解引用一次块头**去读它的
-`chunk_idx`。那是 `O(堆)` 的活，干的却是 `O(本次回收的 chunk)` 的事 —— 实测
+这一趟 purge 若要对 `free_lists` 做一次 `retain`：**每个条目都要弄清它属于哪个 chunk**（条目只记
+`(chunk, 偏移)` 之前，这是一次块头解引用）。那是 `O(堆)` 的活，干的却是 `O(本次回收的 chunk)` 的事 —— 实测
 `z42c.semantics` 上 **142.5 ms / 总停顿 513 ms**（45 次 minor × 最多 123 万条目）。
 nursery 为 16M、回收频繁时，
 它会是单项最大开销。
@@ -229,7 +236,7 @@ push 条目时记下当时的值，pop 时对不上就丢弃。
 TLAB 成批取槽（`take_holes`，见上「空洞复用」）走的是同一个 `pop_free_slot`，陈旧条目在那里同样被丢弃。
 
 **为什么不用现成的 `reuse_gen`**：那个是 `VarGcRef` 的 ABA 守卫，值来自
-`max_gen_per_chunk + 1`。「它是否每次池化都严格递增」是**另一个**不变式的性质；
+`reuse_gen + max_span + 1`（按 2^16 取模）。「它是否每次池化都严格递增」是**另一个**不变式的性质；
 把槽位复用的正确性挂在上面等于把两者绑死。一个纯计数器每 chunk 四字节，且不可能算错。
 
 **浪费有界**：陈旧条目只在 pop 到时才被发现，所以一个不再分配的 size class 会永远留着它们。
@@ -320,15 +327,17 @@ chunk 回收对每个 chunk 只问两件事：**它有过块吗**、**它还有�
                    │                           │
  blocks_per_chunk[ci] ++                       │
  live_per_chunk[ci]   ++          live_per_chunk[ci] --
-                                  max_gen_per_chunk[ci] = max(…)
+                                  max_span_per_chunk[ci] = max(…)
                    └───────────┬───────────────┘
                                ▼
         「全死」= blocks[ci] > 0 && live[ci] == 0   ← 一次比较
 ```
 
-🔑 **变长区的归属查询靠块头里的 `chunk_idx: u32`，而它是免费的**：`GcBlockHeader` 是
-`#[repr(C, align(8))]`，六个字段共 12 字节被**填充到 16**，这个 `u32` 正好落进那 4 字节
-padding —— **头仍然是 16 字节**（那是三堆设计的不可动摇约束之一）。
+🔑 **计数要的 chunk 下标都来自调用方，不读块头**：清扫按 chunk 走（`sweep_buckets` / 年轻集合的位图行），
+TLAB claim、空洞批（每个槽连同 chunk 下标一起存）、free list 条目（`(chunk, 偏移)`）都自带下标，tombstone 收的是
+`tombstone_in(ptr, generation, ci)`。块头里没有 chunk 下标（16 字节的头装下对象的类型字之后已没有空位）；只有从
+裸句柄出发的少数调用（弱引用 `downgrade`、`finalize_now`、OOM 退款）按地址查一次 `VarRegion::chunk_of`（chunk 基址的
+有序索引，`O(log chunk 数)`，chunk 新建 / 释放时维护）。
 
 ⚠️ **维护点必须穷举**，漏一处就是**把还有活块的 chunk 回收掉**（比慢严重得多）：
 alloc（bump / dedicated / 自由链复用）、`retire_chunk`、`tombstone`、入池、释放、
@@ -449,8 +458,8 @@ chunk 的一个问题：里面有没有年轻的。这些答案全是**每 chunk
 | chunk 摘要 | `young_chunks`：每 chunk 一位 | `young_chunks` 每 chunk 一位 + `young_per_chunk` 计数 |
 
 **变长区没有块索引。** 块在 chunk 里背靠背切出，复用的槽保持原 size class，所以 `[0, hwm)` 是一串
-「块头 + 该 class 的 footprint」：从 offset 0 起按块头的 `size_class` 跳（`class_footprint`，
-`class_for` 的逆）就能走完整个 chunk（`for_each_block_in`）。dedicated chunk 只有 offset 0 一个块。
+「块头 + 该 class 的 footprint」：从 offset 0 起按块头 `size` 的 class footprint 跳（`payload_footprint`）就能走完整个
+chunk（`for_each_block_in`）。dedicated chunk 只有 offset 0 一个块。
 `hwm` 由 `bump`（每次切块后）、`alloc_dedicated`、`retire_chunk` 设置，chunk 入池 / 释放时归零 ——
 所以在借的 chunk（高水位未发布）、池里的 chunk（可能已 decommit、页读出来是零）永远不会被走到。
 
@@ -484,8 +493,10 @@ chunk 的一个问题：里面有没有年轻的。这些答案全是**每 chunk
 - **定长 `Region<T>`**：槽定长、复用重对齐 → fill **逐槽保留** generation（读旧写新同 gen），
   stale 句柄 gen 不匹配 → 安全。
 - **变长 `VarRegion`**：块变长、chunk 复用后新块**不重对齐**旧块边界 → 无法逐槽保留。改用
-  **per-chunk `reuse_gen`**：回收时把 `reuse_gen[ci]` 跳到**超过该 chunk 所有块历史最大 generation**，
-  fresh 再 bump 的块一律取此 gen → 绝不与指向同地址旧占用者的 stale 句柄撞 `(addr, gen)`。
+  **per-chunk `reuse_gen`**（奇数，块头 generation 是 16 位、最低位是存活位）：一个 epoch 里块的 generation 都落在
+  `reuse_gen ..= reuse_gen + max_span`（按 2^16 取模，`max_span_per_chunk` 在 tombstone 时更新），回收时把 `reuse_gen[ci]`
+  移到 `reuse_gen + max_span + 1`，fresh 再 bump 的块一律取此 gen → 不与本 epoch 铸出的 stale 句柄撞 `(addr, gen)`；
+  跨 epoch 的陈旧句柄只有弱引用会留着，它们先比 chunk epoch。
 
 ## safepoint 集成：retire-on-park（D5）
 

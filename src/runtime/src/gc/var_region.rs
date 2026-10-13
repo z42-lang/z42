@@ -10,18 +10,22 @@
 //! # Block model
 //!
 //! One GC object = a single allocation of a fixed 16-byte [`GcBlockHeader`] immediately
-//! followed by its inline variable-length payload (mirrors the `vstr::StrHeader` + inline
-//! bytes layout, but the header carries **GC metadata** instead of an Arc refcount):
+//! followed by its inline variable-length payload:
 //!
 //! ```text
-//!   ┌────────────────────────────┬─────────────────────────────┐
-//!   │ GcBlockHeader (16 B, align8)│ inline payload (size bytes)  │
-//!   │  generation / size /        │  Str: UTF-8 bytes            │
-//!   │  marked / alive /           │  Array<Value>: [Value; n]    │
-//!   │  type_tag / size_class      │  Array<prim>: packed bytes   │
-//!   └────────────────────────────┴─────────────────────────────┘
+//!   ┌──────────────────────────────────────────┬────────────────────────────────┐
+//!   │ GcBlockHeader (16 B, align 8)            │ inline payload (size bytes)     │
+//!   │  GcWord: generation(+alive) / marked /   │  Object: field cells [+ meta]   │
+//!   │          type_tag / size                 │  Str: UTF-8 bytes               │
+//!   │  kind word: object → Arc<TypeDesc>       │  Array<Value>: [Value; n] …     │
+//!   └──────────────────────────────────────────┴────────────────────────────────┘
 //!     ↑ payload starts at DATA_OFFSET = 16 (8-aligned)
 //! ```
+//!
+//! Object model R8: the header records the payload length but not the size class (derived from
+//! it, `chunk::payload_class`) nor the owning chunk (sweeps know it; `chunk_of` finds it from an
+//! address), and the alive flag is the low bit of the generation (`block::ALIVE_GEN_BIT`) — that
+//! is what leaves the kind word free for an object's type descriptor.
 //!
 //! A [`VarGcRef`] handle is a single 8-byte tagged `NonNull<GcBlockHeader>` (low 48 bits =
 //! header address, high 16 bits = narrow generation snapshot) — the same path-A tagged
@@ -31,7 +35,7 @@
 //! # Allocation model
 //!
 //! - **Size classes**: total block size (header + payload) is rounded up to the next
-//!   quarter-octave step — 32/40/48/56, 64/80/96/112, … (≥ `MIN_BLOCK` = 32).
+//!   quarter-octave step — 16/24, 32/40/48/56, 64/80/96/112, … (≥ `MIN_BLOCK` = 16).
 //!   `free_lists[size_class]` recycles tombstoned slots of the same class, and because each
 //!   class carries exactly one footprint, any slot in it fits any payload in it.
 //! - **Fast path**: pop a same-size-class tombstoned slot from its free list (generation was
@@ -72,8 +76,9 @@
 //! - this file — the `VarRegion` allocator itself (alloc / resolve / tombstone / sweep).
 
 use std::alloc::dealloc;
+use std::collections::BTreeMap;
 use std::ptr::NonNull;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
+use std::sync::atomic::Ordering;
 
 mod block;
 mod chunk;
@@ -82,7 +87,8 @@ mod holes;
 mod objects;
 mod var_ref;
 
-pub use block::{drop_type_bit, BlockType, GcBlockHeader, PayloadDropGlue};
+pub use block::{drop_type_bit, BlockType, GcBlockHeader, GcWord, PayloadDropGlue};
+pub(crate) use block::KIND_WORD_OFFSET;
 pub use objects::{DetachedBlock, VarMinorSweep};
 pub(crate) use block::payload_ptr_of;
 #[cfg(feature = "jit")]
@@ -90,6 +96,8 @@ pub(crate) use block::{ASCII_STR_BIT, HEADER_SIZE_OFFSET, HEADER_TYPE_TAG_OFFSET
 #[cfg(all(feature = "jit", target_pointer_width = "64"))]
 pub(crate) use var_ref::HANDLE_ADDR_MASK;
 pub(crate) use chunk::{class_for, class_for_with_limit, OVERSIZED_CLASS};
+use block::{ALIVE_GEN_BIT, FIRST_GEN};
+use chunk::payload_class;
 pub use chunk::{loh_bytes, set_loh_bytes};
 pub use chunk::{VarChunkClaim, VarChunkReclaim};
 pub use holes::VarHoleStash;
@@ -113,6 +121,9 @@ pub struct VarRegion {
     /// Owned chunk memory. Chunks never move, so header addresses stay stable for
     /// [`VarGcRef`] identity until the region drops.
     chunks: Vec<Chunk>,
+    /// Chunk base address → index, for every chunk that owns memory — what
+    /// [`Self::chunk_of`] searches (object model R8: a block header no longer names its chunk).
+    chunk_index: BTreeMap<usize, u32>,
     /// Index of the current bump chunk (into `chunks`), or `None` before the first bump
     /// chunk is created. Dedicated oversized chunks are appended but never become the bump
     /// chunk.
@@ -189,6 +200,13 @@ pub struct VarRegion {
     generational: bool,
     /// Count of live (alive=true) blocks, for diagnostics + auto-collect heuristics.
     live_count: usize,
+    /// Debug builds: how many hole stashes hold each slot address (taken by `take_holes`, not yet
+    /// handed back by `retire_holes`) — what the young-set walks check a dead entry against
+    /// (`generation::young_entry_is_block`). A count, not a set: a slot filled from one stash can be
+    /// reclaimed by a collection that runs outside the safepoint protocol and taken by a second
+    /// stash before the first one retires.
+    #[cfg(debug_assertions)]
+    stashed: std::collections::HashMap<usize, u32>,
     /// Optional payload finalizer run once when a block is reclaimed (tombstone) or when the
     /// region drops with the block still alive. `None` = all payloads POD (PR-1). Consumers
     /// storing non-POD payloads (e.g. closure `ClosureData` with an owned `String`) supply it.
@@ -213,20 +231,21 @@ pub struct VarRegion {
     /// stop existing to every walk); the chunk memory is re-bumped from offset 0 with a bumped
     /// `reuse_gen`.
     var_free_chunk_pool: Vec<usize>,
-    /// Per-chunk generation base for TLAB-bumped blocks (parallel to `chunks`). Fresh chunks
-    /// start at 0. On reclaim, bumped **above every generation any block in the chunk reached**,
-    /// so a fresh re-bump can never mint a `(address, generation)` pair that collides with a
-    /// stale `VarGcRef` into a prior occupant of the same address — the ABA guard for
-    /// variable-size chunk reuse (fixed-slot `Region<T>` preserves per-slot generation instead;
-    /// var blocks don't re-align on reuse so a per-chunk base is used).
-    reuse_gen: Vec<u32>,
+    /// Per-chunk generation base (odd) for the blocks carved in the chunk's current epoch
+    /// (parallel to `chunks`). Fresh chunks start at `FIRST_GEN`. On reclaim, moved **right past
+    /// every generation any block in the chunk reached** (`reuse_gen + max_span + 1`, mod 2^16), so
+    /// a fresh re-bump can never mint a `(address, generation)` pair that collides with a stale
+    /// `VarGcRef` minted in the epoch before — the ABA guard for variable-size chunk reuse
+    /// (fixed-slot `Region<T>` preserves per-slot generation instead; var blocks don't re-align
+    /// on reuse so a per-chunk base is used).
+    reuse_gen: Vec<u16>,
     /// **lazy-var-free-list (2026-09-12)**: how many times chunk `ci` has been pooled. Stamped
     /// onto every [`Self::free_lists`] entry at push and re-checked at pop; that is the whole
     /// staleness test.
     ///
     /// Deliberately **not** reusing [`Self::reuse_gen`], which is derived from block
-    /// generations (`max_gen_per_chunk + 1`) for the `VarGcRef` ABA guard. Whether that
-    /// derivation is strictly increasing across every pooling is a property of a *different*
+    /// generations (`reuse_gen + max_span + 1`, mod 2^16) for the `VarGcRef` ABA guard and
+    /// wraps. Whether that derivation separates every pooling is a property of a *different*
     /// invariant; hanging slot-recycling correctness off it would couple the two. A plain
     /// counter is four bytes per chunk and cannot be wrong.
     pool_epoch: Vec<u32>,
@@ -247,11 +266,12 @@ pub struct VarRegion {
     /// vectors the pass is `O(chunks)`.
     ///
     /// `blocks_per_chunk` counts slots ever carved (a never-used chunk has nothing to
-    /// recycle); `live_per_chunk` counts the ones still alive; `max_gen_per_chunk` is the
-    /// ABA floor a recycled chunk's `reuse_gen` must clear.
+    /// recycle); `live_per_chunk` counts the ones still alive; `max_span_per_chunk` is how far
+    /// past `reuse_gen` (mod 2^16) any tombstone in the current epoch took a generation — the
+    /// ABA floor a recycled chunk's next `reuse_gen` must clear.
     blocks_per_chunk: Vec<u32>,
     live_per_chunk: Vec<u32>,
-    max_gen_per_chunk: Vec<u32>,
+    max_span_per_chunk: Vec<u16>,
     /// The owning heap's footprint (`gc::footprint`) and the last side-table reading charged to
     /// it — see `chunk::VarRegion::refresh_side_tables`.
     footprint: std::sync::Arc<crate::gc::footprint::Footprint>,
@@ -270,6 +290,7 @@ impl Default for VarRegion {
     fn default() -> Self {
         Self {
             chunks: Vec::new(),
+            chunk_index: BTreeMap::new(),
             bump_chunk: None,
             bump_off: 0,
             hwm: Vec::new(),
@@ -284,6 +305,8 @@ impl Default for VarRegion {
             // heaps) maintains the young set; the heap narrows it via `set_generational`.
             generational: true,
             live_count: 0,
+            #[cfg(debug_assertions)]
+            stashed: std::collections::HashMap::new(),
             drop_glue: None,
             drop_types: 0,
             flagged_dead: Vec::new(),
@@ -295,7 +318,7 @@ impl Default for VarRegion {
             free_chunk_slots: Vec::new(),
             blocks_per_chunk: Vec::new(),
             live_per_chunk: Vec::new(),
-            max_gen_per_chunk: Vec::new(),
+            max_span_per_chunk: Vec::new(),
             footprint: Default::default(),
             side_accounted: 0,
             pool_decommitted: 0,
@@ -332,40 +355,10 @@ impl VarRegion {
     /// Construct a region whose non-POD payloads — blocks of the types in the `types` mask
     /// (`block::drop_type_bit`) — are finalized by `glue` on reclaim.
     pub fn with_drop_glue(glue: PayloadDropGlue, types: u8) -> Self {
-        // Build explicitly (can't `..Self::default()` — `VarRegion: Drop` forbids moving fields
-        // out of the temporary).
-        Self {
-            chunks: Vec::new(),
-            bump_chunk: None,
-            bump_off: 0,
-            hwm: Vec::new(),
-            free_lists: (0..NUM_CLASSES).map(|_| Vec::new()).collect(),
-            stale_free: 0,
-            stale_per_class: vec![0; NUM_CLASSES],
-            young_bits: Vec::new(),
-            young_per_chunk: Vec::new(),
-            young_chunks: Vec::new(),
-            young_len: 0,
-            // Matches `Region<T>`'s default: a bare `VarRegion::new()` (unit tests, mock
-            // heaps) maintains the young set; the heap narrows it via `set_generational`.
-            generational: true,
-            live_count: 0,
-            drop_glue: Some(glue),
-            drop_types: types,
-            flagged_dead: Vec::new(),
-            borrowed: Vec::new(),
-            var_free_chunk_pool: Vec::new(),
-            reuse_gen: Vec::new(),
-            pool_epoch: Vec::new(),
-            promotion_age: crate::gc::region::PROMOTION_THRESHOLD,
-            free_chunk_slots: Vec::new(),
-            blocks_per_chunk: Vec::new(),
-            live_per_chunk: Vec::new(),
-            max_gen_per_chunk: Vec::new(),
-            footprint: Default::default(),
-            side_accounted: 0,
-            pool_decommitted: 0,
-        }
+        let mut r = Self::default();
+        r.drop_glue = Some(glue);
+        r.drop_types = types;
+        r
     }
 
     /// Run the injected payload finalizer on `header`'s payload, if any. Called exactly once
@@ -389,8 +382,7 @@ impl VarRegion {
             if self.drop_types & block::drop_type_bit(bt) == 0 {
                 return;
             }
-            let payload = unsafe { payload_ptr_of(header) };
-            let freed = unsafe { glue(bt, payload, size) };
+            let freed = unsafe { glue(bt, header, size) };
             if freed != 0 {
                 self.footprint.credit(freed);
             }
@@ -417,8 +409,8 @@ impl VarRegion {
         // M12: not while the flagged-dead list is non-empty — the heap still has side-table
         // entries keyed by those addresses (same rule as `holes::take_holes`).
         if size_class != OVERSIZED_CLASS && self.flagged_dead.is_empty() {
-            while let Some((slot, _)) = self.pop_free_slot(size_class) {
-                return self.reinit_slot(slot, payload, block_type, size_class);
+            if let Some((slot, ci)) = self.pop_free_slot(size_class) {
+                return self.reinit_slot(slot, ci, payload, block_type);
             }
         }
 
@@ -429,12 +421,15 @@ impl VarRegion {
         } else {
             self.bump(footprint)
         };
-        self.write_fresh_header(header_ptr, payload, block_type, size_class, 0, chunk_idx);
+        // A bump or dedicated chunk is always fresh (pooled chunks only go to TLABs), so its
+        // epoch's generation base is `FIRST_GEN`.
+        debug_assert_eq!(self.reuse_gen[chunk_idx as usize], FIRST_GEN);
+        self.write_fresh_header(header_ptr, payload, block_type, FIRST_GEN);
         self.add_young(header_ptr, chunk_idx as usize);
         self.live_count += 1;
         self.blocks_per_chunk[chunk_idx as usize] += 1;
         self.live_per_chunk[chunk_idx as usize] += 1;
-        VarGcRef::pack(header_ptr, 0)
+        VarGcRef::pack(header_ptr, FIRST_GEN)
     }
 
     /// **lazy-var-free-list (2026-09-12)**: pop the next *usable* slot of `size_class`,
@@ -527,62 +522,37 @@ impl VarRegion {
         }
     }
 
-    /// Re-initialize a recycled slot in place: read the (bumped) generation, drop nothing
-    /// (payloads are POD bytes in PR-1), write a fresh header preserving the generation,
-    /// zero the payload. Returns the fresh handle.
-    fn reinit_slot(
-        &mut self,
-        slot: NonNull<GcBlockHeader>,
-        payload: usize,
-        block_type: BlockType,
-        size_class: u8,
-    ) -> VarGcRef {
+    /// Re-initialize a recycled slot of chunk `ci` in place: write a fresh header whose
+    /// generation is the one right after the tombstone's (odd again — alive), zero the payload.
+    /// Returns the fresh handle.
+    fn reinit_slot(&mut self, slot: NonNull<GcBlockHeader>, ci: usize, payload: usize, block_type: BlockType) -> VarGcRef {
         // SAFETY: `slot` came from this region's free list → it points at a valid, chunk-
         // owned, tombstoned header whose generation was bumped at tombstone time.
-        let (generation, chunk_idx) = {
-            let h = unsafe { slot.as_ref() };
-            (h.generation(), h.chunk_idx)
-        };
+        let dead = unsafe { slot.as_ref() }.generation();
+        debug_assert_eq!(dead & ALIVE_GEN_BIT, 0, "a free-listed slot is dead");
+        let generation = dead.wrapping_add(1);
         // The recycled block is young again (gen_age 0); its tombstone took it out of the
         // young set, so it goes back in exactly once.
-        self.write_fresh_header(slot, payload, block_type, size_class, generation, chunk_idx);
-        self.add_young(slot, chunk_idx as usize);
+        self.write_fresh_header(slot, payload, block_type, generation);
+        self.add_young(slot, ci);
         self.live_count += 1;
         // A recycled slot never moves, so only the live count changes.
-        self.live_per_chunk[chunk_idx as usize] += 1;
+        self.live_per_chunk[ci] += 1;
         VarGcRef::pack(slot, generation)
     }
 
-    /// Write a fresh header at `ptr` (alive=true, unmarked, given generation) and zero its
-    /// payload bytes.
-    fn write_fresh_header(
-        &self,
-        ptr: NonNull<GcBlockHeader>,
-        payload: usize,
-        block_type: BlockType,
-        size_class: u8,
-        generation: u32,
-        chunk_idx: u32,
-    ) {
+    /// Write a fresh header at `ptr` (given generation, unmarked, age 0) and zero its payload.
+    fn write_fresh_header(&self, ptr: NonNull<GcBlockHeader>, payload: usize, block_type: BlockType, generation: u16) {
         // SAFETY: `ptr` addresses freshly-carved (bump) or recycled (free-list) space large
         // enough for the header + `payload` bytes; we own exclusive access (`&mut self`).
         unsafe {
-            ptr.as_ptr().write(GcBlockHeader {
-                generation: AtomicU32::new(generation),
-                size: payload as u32,
-                marked: AtomicU8::new(0),
-                alive: AtomicBool::new(true),
-                type_tag: AtomicU8::new(GcBlockHeader::pack_tag(block_type, 0)),
-                size_class,
-                chunk_idx,
-            });
+            ptr.as_ptr().write(GcBlockHeader::fresh(generation, payload, block_type));
             // Zero the payload so a consumer never reads uninitialized bytes. Derive the
             // payload pointer from the raw `ptr` (whole-allocation provenance), not `as_ref()`.
             let data = payload_ptr_of(ptr);
             std::ptr::write_bytes(data, 0, payload);
         }
     }
-
 
     /// Resolve a handle to a shared `&GcBlockHeader`, checking the generation guard. Returns
     /// `None` if the handle is stale (its slot was tombstoned + possibly reused).
@@ -594,26 +564,32 @@ impl VarRegion {
         // SAFETY: a live handle from this region points at a chunk-owned header whose memory
         // outlives `&self`; the generation check below rejects reused slots.
         let header = unsafe { handle.header_ptr().as_ref() };
-        if header.generation() as u16 != handle.gen16() {
-            return None;
-        }
-        if !header.is_alive() {
-            return None;
-        }
-        Some(header)
+        // The snapshot is odd (a live generation), so a match also says "alive".
+        (header.generation() == handle.gen16()).then_some(header)
     }
 
     /// Tombstone the block behind `handle`: alive=false, bump generation, take it out of the
     /// young set, push its slot to the size-class free list. No-op (returns `false`) on a
-    /// stale/already-dead handle.
+    /// stale/already-dead handle or one outside this region. Finds the block's chunk by address
+    /// ([`Self::chunk_of`]); sweeps, which know it, call [`Self::tombstone_in`].
     pub fn tombstone(&mut self, handle: VarGcRef) -> bool {
-        let ptr = handle.header_ptr();
-        // SAFETY: handle from this region → valid chunk-owned header.
+        match self.chunk_of(handle.addr()) {
+            Some(ci) => self.tombstone_in(handle.header_ptr(), handle.gen16(), ci),
+            None => false,
+        }
+    }
+
+    /// [`Self::tombstone`] for the block at `ptr` in chunk `ci` whose live generation is
+    /// `generation`. The generation CAS (odd → even) is both the stale-handle check and the
+    /// race-winner test: exactly one caller tombstones a block.
+    pub(super) fn tombstone_in(&mut self, ptr: NonNull<GcBlockHeader>, generation: u16, ci: usize) -> bool {
+        // SAFETY: a handle / walk of this region → valid chunk-owned header.
         let header = unsafe { ptr.as_ref() };
-        if header.generation() as u16 != handle.gen16() {
+        if generation & ALIVE_GEN_BIT == 0 {
             return false;
         }
-        if !header.alive.swap(false, Ordering::Release) {
+        let dead = generation.wrapping_add(1);
+        if header.generation.compare_exchange(generation, dead, Ordering::AcqRel, Ordering::Relaxed).is_err() {
             return false;
         }
         // Object model R6: the heap keeps entries keyed by this address (side tables, the
@@ -621,36 +597,32 @@ impl VarRegion {
         if header.needs_dead_notice() {
             self.flagged_dead.push(ptr.as_ptr() as usize);
         }
-        // Run the payload finalizer (e.g. drop a closure's `String`) exactly once, now that
-        // this call won the alive 1→0 race, before the slot can be recycled.
+        // Run the payload finalizer (e.g. drop an object's type descriptor) exactly once, now
+        // that this call won the alive 1→0 race, before the slot can be recycled.
         // SAFETY: the block is freshly reclaimed and still points at its initialized payload.
         unsafe { self.finalize_payload(ptr) };
-        let generation = header.generation.fetch_add(1, Ordering::AcqRel) + 1;
         self.live_count -= 1;
-        // add-incremental-chunk-reclaim: O(1) — the block carries its own chunk index, so the
-        // census stays current without a lookup. `max_gen` is tracked here because tombstone
-        // is the only thing that ever raises a block's generation.
-        let ci = header.chunk_idx as usize;
-        if ci < self.live_per_chunk.len() {
-            self.live_per_chunk[ci] -= 1;
-            if generation > self.max_gen_per_chunk[ci] {
-                self.max_gen_per_chunk[ci] = generation;
-            }
+        // add-incremental-chunk-reclaim: O(1) — the caller names the chunk, so the census stays
+        // current without a lookup. The span is tracked here because tombstone is the only thing
+        // that ever raises a block's generation past its chunk's epoch base.
+        self.live_per_chunk[ci] -= 1;
+        let span = dead.wrapping_sub(self.reuse_gen[ci]);
+        if span > self.max_span_per_chunk[ci] {
+            self.max_span_per_chunk[ci] = span;
         }
-        let sc = header.size_class;
-        if ci < self.chunks.len() {
-            self.remove_young(ptr, ci);
-        }
+        self.remove_young(ptr, ci);
         // M12: a slot whose generation has run a whole 16-bit span past its chunk's epoch floor
-        // stays tombstoned until the chunk is pooled (`holes::GEN_REUSE_SPAN`).
-        if sc != OVERSIZED_CLASS && ci < self.chunks.len() && self.reusable_gen(ci, generation) {
+        // stays tombstoned until the chunk is pooled (`holes::GEN_REUSE_SPAN`). A dedicated
+        // chunk's block is never free-listed (its chunk is freed as soon as it is dead).
+        if !self.chunks[ci].dedicated && self.reusable_gen(ci, dead) {
             // lazy-var-free-list: stamp the chunk's pooling count so a pop after the chunk is
             // recycled can tell this entry is stale.
             // perf-free-slot-encoding: the entry records where the slot is rather than pointing
             // at it, so nothing downstream has to read the header back to find its chunk.
             let off = ptr.as_ptr() as usize - self.chunks[ci].base.as_ptr() as usize;
             if let Some(slot) = FreeSlot::pack(ci, off) {
-                self.free_lists[sc as usize].push(FreeEntry { slot, epoch: self.pool_epoch[ci] });
+                let sc = payload_class(header.size()) as usize;
+                self.free_lists[sc].push(FreeEntry { slot, epoch: self.pool_epoch[ci] });
             }
         }
         true
@@ -704,7 +676,7 @@ impl VarRegion {
                     return;
                 }
                 let charge = Self::alloc_charge_bytes(header);
-                if r.tombstone(VarGcRef::pack(ptr, header.generation())) {
+                if r.tombstone_in(ptr, header.generation(), ci) {
                     reclaimed += 1;
                     credited += charge;
                 }

@@ -5,7 +5,8 @@
 use super::*;
 use std::sync::Arc;
 use crate::metadata::vstr::Str;
-use crate::gc::var_region::{BlockType, VarGcRef};
+use crate::gc::var_region::{BlockType, GcBlockHeader, GcWord, VarGcRef};
+use std::ptr::NonNull;
 use crate::gc::heap::MagrGC;
 
 /// Native backing data for built-in classes.
@@ -43,9 +44,10 @@ pub enum NativeData {
 
 // ── ScriptObject — unified managed object ───────────────────────────────────
 //
-// Every class instance (and every boxed value struct / primitive) is a `ScriptObject` header —
-// the type descriptor (class identity) and one meta word (generic arguments, native backing) —
-// followed in the same GC block by its field cells (see the type docs below).
+// Every class instance (and every boxed value struct / primitive) is one `BlockType::Object`
+// block of the variable-length GC region: the 16 B block header — the GC word and the type
+// descriptor — followed by the field cells and, for a generic or native-backed instance, one
+// meta word (see the type docs below).
 
 /// The cold per-instance native backing of a [`ScriptObject`], boxed only for the few
 /// objects that have one (WeakRef / Type / LoadContext / Assembly / Monitor handles).
@@ -69,29 +71,25 @@ const _: () = {
     assert_send_sync::<NativeData>();
 };
 
-/// One 8 B word for an object's cold metadata (`type_args` + native backing).
+/// The value of an object's 8 B meta word (cold metadata: `type_args` + native backing):
 ///
-/// - null — non-generic, no native backing (the overwhelming majority);
+/// - null — non-generic, no native backing;
 /// - an even pointer — the interned [`TypeArgs`] entry of a generic instance (no allocation:
 ///   every instance of one instantiation shares the entry);
 /// - an odd pointer — a [`Box<ObjExtras>`] tagged with the low bit (native-backed objects).
 ///
-/// Both pointees are ≥ 8-aligned, so the low bit is free for the tag.
+/// Both pointees are ≥ 8-aligned, so the low bit is free for the tag. A plain value: the word
+/// lives (unaligned) at the end of the object's payload and is read / written as a whole; the
+/// extras box it may own is freed by `ScriptObject::destroy`.
+#[derive(Clone, Copy)]
 struct ObjMeta(*const ());
-
-// SAFETY: the word is either null, a pointer to an immutable leaked `'static` `TypeArgsInfo`,
-// or an owned `Box<ObjExtras>` whose contents are `Send + Sync` (asserted above). It is only
-// mutated through `&mut self`.
-unsafe impl Send for ObjMeta {}
-// SAFETY: see the `Send` impl — shared access only reads.
-unsafe impl Sync for ObjMeta {}
 
 impl ObjMeta {
     const EXTRAS_TAG: usize = 1;
     const NONE: Self = ObjMeta(std::ptr::null());
 
     #[inline]
-    fn extras_ptr(&self) -> Option<*mut ObjExtras> {
+    fn extras_ptr(self) -> Option<*mut ObjExtras> {
         if self.0.addr() & Self::EXTRAS_TAG != 0 {
             Some(self.0.map_addr(|a| a & !Self::EXTRAS_TAG) as *mut ObjExtras)
         } else {
@@ -100,32 +98,22 @@ impl ObjMeta {
     }
 
     #[inline]
-    fn extras(&self) -> Option<&ObjExtras> {
-        // SAFETY: a tagged word is an owned, live `Box<ObjExtras>` (see `extras_or_alloc`).
-        self.extras_ptr().map(|p| unsafe { &*p })
-    }
-
-    #[inline]
-    fn type_args(&self) -> &'static [String] {
+    fn type_args(self) -> &'static [String] {
         if self.0.is_null() {
             return &[];
         }
-        match self.extras() {
-            Some(e) => e.type_args.as_slice(),
+        match self.extras_ptr() {
+            // SAFETY: a tagged word is an owned, live `Box<ObjExtras>`; its `type_args` is an
+            // interned `'static` entry.
+            Some(e) => unsafe { (*e).type_args.as_slice() },
             // SAFETY: an untagged non-null word came from `TypeArgs::as_raw`.
             None => unsafe { TypeArgs::from_raw(self.0 as *const TypeArgsInfo) }.as_slice(),
         }
     }
 
-    #[inline]
-    fn native(&self) -> &NativeData {
-        const NONE: &NativeData = &NativeData::None;
-        self.extras().map_or(NONE, |e| &e.native)
-    }
-
     /// The extras box, allocating it (and carrying any type-args handle over) on first use.
-    fn extras_or_alloc(&mut self) -> &mut ObjExtras {
-        let p = match self.extras_ptr() {
+    fn extras_or_alloc(&mut self) -> *mut ObjExtras {
+        match self.extras_ptr() {
             Some(p) => p,
             None => {
                 let type_args = if self.0.is_null() {
@@ -138,16 +126,13 @@ impl ObjMeta {
                 self.0 = (p as *const ()).map_addr(|a| a | Self::EXTRAS_TAG);
                 p
             }
-        };
-        // SAFETY: `p` is the owned `Box<ObjExtras>` this word holds; `&mut self` gives
-        // exclusive access.
-        unsafe { &mut *p }
+        }
     }
 
     #[inline]
     fn set_type_args(&mut self, ta: TypeArgs) {
         match self.extras_ptr() {
-            // SAFETY: owned box, exclusive via `&mut self`.
+            // SAFETY: owned box, exclusive via the object's `&mut`.
             Some(p) => unsafe { (*p).type_args = ta },
             None if ta.is_empty() => self.0 = std::ptr::null(),
             None => self.0 = ta.as_raw() as *const (),
@@ -155,45 +140,41 @@ impl ObjMeta {
     }
 }
 
-impl Drop for ObjMeta {
-    fn drop(&mut self) {
-        if let Some(p) = self.extras_ptr() {
-            // SAFETY: a tagged word owns the `Box<ObjExtras>` it was made from.
-            drop(unsafe { Box::from_raw(p) });
-        }
-    }
-}
+/// Bytes of an object's meta word, when it has one (`gc::var_region::OBJ_META_BIT`).
+const META_BYTES: usize = std::mem::size_of::<*const ()>();
+const _: () = assert!(META_BYTES <= 8);
 
-impl std::fmt::Debug for ObjMeta {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ObjMeta")
-            .field("type_args", &self.type_args())
-            .field("native", self.native())
-            .finish()
-    }
-}
+/// Padding after the type word so the payload starts at the block's `DATA_OFFSET` on every
+/// target (4 bytes on 32-bit ones, none on 64-bit).
+const TYPE_WORD_PAD: usize = 16 - std::mem::size_of::<GcWord>() - std::mem::size_of::<usize>();
 
-/// A managed object (object model R6): its 16 B header — type descriptor and meta word — and,
-/// immediately after it, its field cells, as **one dynamically sized value**:
+/// A managed object (object model R6 / R8) — **one** 16 B header and the payload, as one
+/// dynamically sized value laid over the object's whole block:
 ///
 /// ```text
-///   GcBlockHeader (16 B) │ type_desc (8 B) │ meta (8 B) │ fields: [UnsafeCell<u8>] …
-///                         ↑ &ScriptObject (fat: address + field-area length) ──────────┘
+///   GcWord (8 B) │ type_desc (8 B) │ field cells … │ [meta word (8 B)]
+///   └─ block header (16 B) ───────┘ └─ payload: GcWord::size bytes ───┘
+///   ↑ &ScriptObject (fat: address + payload length) ─────────────────────┘
 /// ```
 ///
-/// A heap object is the payload of one `BlockType::Object` block of the variable-length GC
-/// region: block header, then this value — one allocation, freed (and its `Arc<TypeDesc>` /
-/// extras box dropped by the heap's drop glue) when the block is tombstoned. An object outside
-/// the heap (a stack-allocated object, one under construction) lives in an [`OwnedObject`], a
-/// detached block of the same shape.
+/// The GC word is the region's (generation + alive bit, mark, type tag, payload length —
+/// `gc::var_region::GcWord`), the type word the header's kind word: a heap object is one
+/// `BlockType::Object` block of the variable-length region, freed (its `Arc<TypeDesc>` and extras
+/// box dropped by the heap's drop glue) when the block is tombstoned. An object outside the heap
+/// (a stack-allocated object, one under construction) lives in an [`OwnedObject`], a detached
+/// block of the same shape.
 ///
-/// `&ScriptObject` is a **fat reference** whose metadata is the field-area length, so it covers
-/// the header *and* the fields: every field access stays inside the reference's own range
-/// (Stacked Borrows: the retag spans `size_of_val`), and nothing ever walks from it to memory
-/// outside it. It is built only from a pointer that carries the whole block's provenance
-/// ([`ScriptObject::from_payload`]: `ObjRef::borrow`, `OwnedObject`, the allocators, the drop
-/// glue), with the length read from the block header there. Hot structures and ABIs keep thin
-/// handles (`ObjRef`, the header address from `ObjRef::as_ptr`), never a `&ScriptObject`.
+/// A generic or native-backed instance carries one more word at the very end of its payload (the
+/// header's `OBJ_META_BIT` says so; [`ObjMeta`]): the interned type-arguments entry or the extras
+/// box. Every other object — the overwhelming majority — is header + fields only.
+///
+/// `&ScriptObject` is a **fat reference** whose metadata is the payload length, so it covers the
+/// header, the fields *and* the meta word: every access stays inside the reference's own range
+/// (Stacked Borrows: the retag spans `size_of_val`). It is built only from a pointer that carries
+/// the whole block's provenance ([`ScriptObject::from_block`]: `ObjRef::borrow`, `OwnedObject`,
+/// the allocators, the drop glue), with the length read from the block header there. Hot
+/// structures and ABIs keep thin handles (`ObjRef`, the header address from `ObjRef::as_ptr`),
+/// never a `&ScriptObject`.
 ///
 /// Field cells (object model R1–R3): every primitive leaf (incl. inline-struct interior
 /// primitive leaves) lives at its composed byte offset, and so does every reference: a direct
@@ -205,66 +186,66 @@ impl std::fmt::Debug for ObjMeta {
 /// `object_fields.rs`, every one an atomic cell access (`Cells`).
 #[repr(C)]
 pub struct ScriptObject {
-    /// Type descriptor shared across all instances of this class. Set before the object is
-    /// published, never changed.
+    /// The block's GC word (owned by the region; read here only for the meta bit).
+    gc: GcWord,
+    /// Type descriptor shared across all instances of this class — the block header's kind word.
+    /// Written before the object is published, never changed.
     pub type_desc: Arc<TypeDesc>,
-    /// The two cold per-instance side-fields — generic type-arguments and native backing —
-    /// in one 8 B word (see [`ObjMeta`]): a generic instance points at its instantiation's
-    /// interned [`TypeArgs`] entry (shared, nothing allocated per object); only a
-    /// native-backed object pays for a box.
-    meta: ObjMeta,
-    /// The field area. `UnsafeCell` because the cells are written through `&self` (atomic cell
-    /// stores), which a shared reference to plain bytes would forbid.
-    fields: [std::cell::UnsafeCell<u8>],
+    _pad: [std::mem::MaybeUninit<u8>; TYPE_WORD_PAD],
+    /// The payload: the field area, then the meta word if the object has one. `UnsafeCell`
+    /// because the cells are written through `&self` (atomic cell stores), which a shared
+    /// reference to plain bytes would forbid.
+    payload: [std::cell::UnsafeCell<u8>],
 }
 
-/// The sized prefix of [`ScriptObject`] — exactly its header fields, same `#[repr(C)]` order —
-/// which is what the allocators write into a fresh block and what an object's identity address
-/// (`ObjRef::as_ptr`) points at.
+/// The sized prefix of [`ScriptObject`] — exactly its header, same `#[repr(C)]` order: the object
+/// view of a block's 16 B [`GcBlockHeader`](crate::gc::var_region::GcBlockHeader). What an
+/// object's identity address (`ObjRef::as_ptr`) points at and what the type checks read
+/// (`ObjRef::header`). Never built by value: [`ObjHeader::install`] writes the type word into a
+/// fresh block.
 #[repr(C)]
 pub struct ObjHeader {
+    gc: GcWord,
     pub type_desc: Arc<TypeDesc>,
-    meta: ObjMeta,
+    _pad: [std::mem::MaybeUninit<u8>; TYPE_WORD_PAD],
 }
+
+// One 16-byte header on every target; the type word is the region's kind word.
+const _: () = assert!(std::mem::size_of::<ObjHeader>() == GcBlockHeader::DATA_OFFSET);
+const _: () = assert!(std::mem::offset_of!(ObjHeader, type_desc) == crate::gc::var_region::KIND_WORD_OFFSET);
+const _: () = assert!(std::mem::size_of::<Arc<TypeDesc>>() == std::mem::size_of::<usize>());
 
 impl ObjHeader {
-    /// The header of a fresh object of `type_desc` (no extras).
+    /// Write `type_desc` into the kind word of the fresh, unpublished object block at `header`
+    /// (the object now owns that reference; the drop glue / `OwnedObject` releases it).
+    ///
+    /// # Safety
+    /// `header` heads a block (whole-block provenance) nothing else can reach yet, whose kind word
+    /// is null.
     #[inline]
-    pub(crate) fn new(type_desc: Arc<TypeDesc>) -> Self {
-        Self { type_desc, meta: ObjMeta::NONE }
-    }
-
-    /// Per-instance generic type-arguments (see [`ScriptObject::type_args`]).
-    #[inline]
-    pub fn type_args(&self) -> &[String] {
-        self.meta.type_args()
+    pub(crate) unsafe fn install(header: NonNull<u8>, type_desc: Arc<TypeDesc>) {
+        let p = header.as_ptr().cast::<ObjHeader>();
+        // SAFETY: per the contract; a place projection on the raw pointer — no reference to the
+        // header is formed while it is being written.
+        unsafe { std::ptr::addr_of_mut!((*p).type_desc).write(type_desc) };
     }
 }
-
-/// Bytes of the object header in front of the field cells (object model R6): two pointer-sized
-/// words — 16 on 64-bit targets, 8 on 32-bit ones (wasm32 / armv7). A multiple of 8 either way,
-/// so the field cells start 8-aligned behind the 8-aligned block payload. Under `#[repr(C)]` the
-/// shared prefix puts `ScriptObject::fields` exactly here (pinned by `object_tests`).
-pub const OBJ_HEADER_BYTES: usize = std::mem::size_of::<ObjHeader>();
-#[cfg(target_pointer_width = "64")]
-const _: () = assert!(OBJ_HEADER_BYTES == 16);
-const _: () = assert!(OBJ_HEADER_BYTES % 8 == 0);
-const _: () = assert!(std::mem::align_of::<ObjHeader>() == std::mem::size_of::<usize>());
 
 /// What JIT-compiled code needs to reach an object's type and field cells from its handle without
 /// a call (64-bit targets; `jit::translate::field_ic`): `hdr = handle & HANDLE_ADDR_MASK` is the
-/// block header, the object header follows it, then the field cells — every offset below is from
-/// `hdr`. Pinned against the Rust accessors by `object_tests::jit_layout_matches_the_accessors`.
+/// block header — which is the whole object header — and the field cells follow it; every offset
+/// below is from `hdr`. Pinned against the Rust accessors by
+/// `object_tests::jit_layout_matches_the_accessors`.
 #[cfg(all(feature = "jit", target_pointer_width = "64"))]
 pub(crate) mod obj_jit_layout {
     use crate::gc::var_region::GcBlockHeader;
 
     /// Mask turning an object handle's bits into its block-header address.
     pub(crate) const HANDLE_ADDR_MASK: u64 = crate::gc::var_region::HANDLE_ADDR_MASK;
-    /// The object header's `type_desc` word (the `Arc<TypeDesc>`'s pointer to its heap block).
-    pub(crate) const TYPE_DESC_OFFSET: i32 = GcBlockHeader::DATA_OFFSET as i32;
+    /// The header's type word (the `Arc<TypeDesc>`'s pointer to its heap block).
+    pub(crate) const TYPE_DESC_OFFSET: i32 = crate::gc::var_region::KIND_WORD_OFFSET as i32;
     /// Field cell 0: a `FieldLoc::offset` is relative to this.
-    pub(crate) const FIELDS_OFFSET: i32 = (GcBlockHeader::DATA_OFFSET + super::OBJ_HEADER_BYTES) as i32;
+    pub(crate) const FIELDS_OFFSET: i32 = GcBlockHeader::DATA_OFFSET as i32;
     /// The block header's `type_tag` byte: block type, `gen_age`, remembered bit.
     pub(crate) const TYPE_TAG_OFFSET: i32 = crate::gc::var_region::HEADER_TYPE_TAG_OFFSET as i32;
     /// `gen_age` = `(type_tag >> AGE_SHIFT) & AGE_MASK` (var-region blocks: objects, strings,
@@ -290,9 +271,11 @@ pub(crate) mod obj_jit_layout {
     }
 }
 
-// SAFETY: the header's fields are `Send + Sync` (`ObjMeta`'s impls say why); the field area is
-// only ever accessed through atomic cell views (`Cells`), so sharing `&ScriptObject` across
-// threads is race-free — the `UnsafeCell`s are not a plain-memory mutation channel.
+// SAFETY: the header's fields are `Send + Sync` (the GC word is atomics, `type_desc` an `Arc`);
+// the payload is only ever accessed through atomic cell views (`Cells`) and the meta word, which
+// is written only while the object is exclusively owned (`&mut`, before publication) — so sharing
+// `&ScriptObject` across threads is race-free and the `UnsafeCell`s are not a plain-memory
+// mutation channel. What the meta word may own (`ObjExtras`) is `Send + Sync` (asserted above).
 unsafe impl Send for ScriptObject {}
 unsafe impl Sync for ScriptObject {}
 
@@ -300,45 +283,118 @@ impl std::fmt::Debug for ScriptObject {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ScriptObject")
             .field("type", &self.type_desc.name)
-            .field("meta", &self.meta)
+            .field("type_args", &self.type_args())
+            .field("native", self.native())
             .field("payload_len", &self.payload_len())
             .finish()
     }
 }
 
 impl ScriptObject {
-    /// The object stored in a block payload of `payload_size` bytes at `payload` (header + field
-    /// area), as a fat raw pointer whose metadata is the field-area length.
+    /// Release what the object owns — its type descriptor and, when its meta word holds one, the
+    /// extras box — and return the bytes the box held outside the block (the drop glue credits
+    /// them back). `ScriptObject` has no `Drop`: an object is only ever destroyed here, by the
+    /// heap's drop glue (once per dead block) or by `OwnedObject`, and this reads the meta bit
+    /// once on the sweep's hot path instead of once per step.
     ///
     /// # Safety
-    /// `payload` carries the provenance of the whole block (derived from the block's own
-    /// allocation, never from a narrower reference), `payload_size >= OBJ_HEADER_BYTES`, and the
-    /// block's capacity covers `size_of_val` of the result (`payload_size` rounded up to the
-    /// header's alignment — every size class / detached block does). The caller writes the header
-    /// before reading through the pointer.
-    #[inline(always)]
-    pub(crate) unsafe fn from_payload(payload: *mut u8, payload_size: usize) -> *mut ScriptObject {
-        debug_assert!(payload_size >= OBJ_HEADER_BYTES, "object payload shorter than its header");
-        std::ptr::slice_from_raw_parts_mut(payload, payload_size - OBJ_HEADER_BYTES) as *mut ScriptObject
+    /// `p` is a constructed object (type word installed) over its whole block, destroyed exactly
+    /// once; nothing reads it afterwards.
+    #[inline]
+    pub(crate) unsafe fn destroy(p: *mut ScriptObject) -> u64 {
+        // SAFETY: (all below) per the contract; the fields are in range of the fat pointer.
+        unsafe {
+            let mut freed = 0;
+            if let Some(m) = (*p).meta_ptr() {
+                if let Some(e) = ObjMeta(m.read_unaligned()).extras_ptr() {
+                    freed = crate::gc::footprint::malloc_size(std::mem::size_of::<ObjExtras>());
+                    drop(Box::from_raw(e));
+                }
+                m.write_unaligned(std::ptr::null());
+            }
+            std::ptr::drop_in_place(std::ptr::addr_of_mut!((*p).type_desc));
+            freed
+        }
     }
 
-    /// Payload length in bytes — the field area behind the header (a boxed primitive's scalar
-    /// width, a boxed struct's blob size, a class instance's `TypeDesc::object_bytes_len`). The
-    /// reference's own metadata: no memory read.
+    /// The object over the block at `header` whose payload is `payload_size` bytes, as a fat raw
+    /// pointer whose metadata is the payload length.
+    ///
+    /// # Safety
+    /// `header` carries the provenance of the whole block (derived from the block's own
+    /// allocation, never from a narrower reference) and the block's capacity covers
+    /// `size_of_val` of the result (`DATA_OFFSET + payload_size` rounded up to 8 — every size
+    /// class / detached block does). The caller installs the type word before reading through
+    /// the pointer.
+    #[inline(always)]
+    pub(crate) unsafe fn from_block(header: NonNull<u8>, payload_size: usize) -> *mut ScriptObject {
+        std::ptr::slice_from_raw_parts_mut(header.as_ptr(), payload_size) as *mut ScriptObject
+    }
+
+    /// Bytes of the meta word at the payload's end (0 or 8).
+    #[inline(always)]
+    fn meta_len(&self) -> usize {
+        if self.gc.has_obj_meta() { META_BYTES } else { 0 }
+    }
+
+    /// The meta word's address (unaligned), if the object has one.
+    #[inline]
+    fn meta_ptr(&self) -> Option<*mut *const ()> {
+        let m = self.meta_len();
+        // SAFETY: the meta word is the payload's last `META_BYTES` bytes, in range of `&self`.
+        (m != 0).then(|| unsafe {
+            std::cell::UnsafeCell::raw_get(self.payload.as_ptr()).add(self.payload.len() - m).cast::<*const ()>()
+        })
+    }
+
+    /// The meta word's value (`ObjMeta::NONE` when the object has none).
+    #[inline]
+    fn meta(&self) -> ObjMeta {
+        // SAFETY: see `meta_ptr`; the word is written only under `&mut self`.
+        self.meta_ptr().map_or(ObjMeta::NONE, |p| ObjMeta(unsafe { p.read_unaligned() }))
+    }
+
+    /// Rewrite the meta word.
+    ///
+    /// # Safety
+    /// Construction only: the object is not published (nothing else reads it). Takes `&self`
+    /// (the word is interior-mutable payload) so the heap can build an object in its block
+    /// without a `&mut` over the block header, which a heap walk may read concurrently (M12).
+    unsafe fn update_meta(&self, f: impl FnOnce(&mut ObjMeta)) {
+        let p = self.meta_ptr().expect(
+            "object has no meta word: allocate it with one (`OwnedObject` grows one on demand)",
+        );
+        // SAFETY: in range of `&self`, interior-mutable, and exclusive per the contract.
+        unsafe {
+            let mut m = ObjMeta(p.read_unaligned());
+            f(&mut m);
+            p.write_unaligned(m.0);
+        }
+    }
+
+    /// Whether the object carries a meta word (a generic / native-backed instance).
+    #[inline]
+    pub fn has_meta(&self) -> bool {
+        self.meta_len() != 0
+    }
+
+    /// Length of the field area in bytes (a boxed primitive's scalar width, a boxed struct's
+    /// blob size, a class instance's `TypeDesc::object_bytes_len`) — the payload without the meta
+    /// word.
     #[inline(always)]
     pub fn payload_len(&self) -> usize {
-        self.fields.len()
+        self.payload.len() - self.meta_len()
     }
 
     /// Atomic loads and stores of the field cells.
     #[inline(always)]
     pub fn cells(&self) -> Cells<'_> {
-        // SAFETY: the field area is this value's own tail (in range of `&self`), 8-aligned
-        // (block payloads are 8-aligned and the header is a multiple of 8), `fields.len()` bytes,
-        // and interior-mutable; every access to it after construction is an atomic cell access
-        // (JIT inline loads / stores are plain same-width accesses, the relaxed atomics of
-        // x86-64 / AArch64).
-        unsafe { Cells::from_raw(std::cell::UnsafeCell::raw_get(self.fields.as_ptr()), self.fields.len()) }
+        // SAFETY: the field area is the start of this value's own tail (in range of `&self`),
+        // 8-aligned (the payload starts at the 8-aligned block's `DATA_OFFSET`),
+        // `payload_len()` bytes, and interior-mutable; every access to it after construction is
+        // an atomic cell access (JIT inline loads / stores are plain same-width accesses, the
+        // relaxed atomics of x86-64 / AArch64).
+        unsafe { Cells::from_raw(std::cell::UnsafeCell::raw_get(self.payload.as_ptr()), self.payload_len()) }
     }
 
     /// An atomic snapshot of the whole field area ([`Cells::copy_out`]).
@@ -351,32 +407,52 @@ impl ScriptObject {
     /// The object's native backing (`None` for every ordinary user class).
     #[inline]
     pub fn native(&self) -> &NativeData {
-        self.meta.native()
+        const NONE: &NativeData = &NativeData::None;
+        // SAFETY: a tagged meta word owns a live `Box<ObjExtras>` that lives as long as the object.
+        self.meta().extras_ptr().map_or(NONE, |e| unsafe { &(*e).native })
     }
 
     /// Per-instance generic type-arguments; empty for non-generic instances.
     #[inline]
-    pub fn type_args(&self) -> &[String] {
-        self.meta.type_args()
+    pub fn type_args(&self) -> &'static [String] {
+        self.meta().type_args()
     }
 
     /// Install the native backing, allocating the cold extras box on first use. Construction
     /// only (`&mut self`): a published object is shared without a lock, so its extras never
-    /// change — build the object completely before it is published.
+    /// change — build the object completely before it is published. **Panics** when a real
+    /// backing is installed on an object without a meta word (allocate it with one;
+    /// [`OwnedObject::set_native`] grows one).
     #[inline]
     pub fn set_native(&mut self, native: NativeData) {
-        if matches!(native, NativeData::None) && self.meta.extras_ptr().is_none() {
+        if matches!(native, NativeData::None) && self.meta().extras_ptr().is_none() {
             return; // nothing to record — stay box-free
         }
-        self.meta.extras_or_alloc().native = native;
+        // SAFETY: `&mut self` — not shared; `extras_or_alloc` hands out the owned box.
+        unsafe { self.update_meta(|m| (*m.extras_or_alloc()).native = native) };
     }
 
     /// Install the per-instance type-arguments handle (an interned instantiation; empty
     /// for a non-generic `new`). Never allocates unless the object is native-backed.
-    /// Construction only, like [`Self::set_native`].
+    /// Construction only, like [`Self::set_native`] — and like it, a non-empty list needs the
+    /// meta word.
     #[inline]
     pub fn set_type_args(&mut self, type_args: TypeArgs) {
-        self.meta.set_type_args(type_args);
+        // SAFETY: `&mut self` — not shared.
+        unsafe { self.set_type_args_unpublished(type_args) }
+    }
+
+    /// [`Self::set_type_args`] through `&self`.
+    ///
+    /// # Safety
+    /// The object is not published yet (see `update_meta`).
+    #[inline]
+    unsafe fn set_type_args_unpublished(&self, type_args: TypeArgs) {
+        if type_args.is_empty() && !self.has_meta() {
+            return;
+        }
+        // SAFETY: per the contract.
+        unsafe { self.update_meta(|m| m.set_type_args(type_args)) };
     }
 
     /// `ObjNew`'s generic step, shared by the interpreter (heap and stack objects) and the
@@ -386,10 +462,21 @@ impl ScriptObject {
     /// implementation, so the engines and `Z42_STACKALLOC` cannot disagree on
     /// `GBox<int>().V`. No-op for an empty list.
     pub fn install_type_args(&mut self, type_args: TypeArgs) {
+        // SAFETY: `&mut self` — not shared.
+        unsafe { self.install_type_args_unpublished(type_args) }
+    }
+
+    /// [`Self::install_type_args`] through `&self` — the heap builds an object in its block this
+    /// way, without a `&mut` over the block header.
+    ///
+    /// # Safety
+    /// The object is not published yet: nothing else reads its payload.
+    pub(crate) unsafe fn install_type_args_unpublished(&self, type_args: TypeArgs) {
         if type_args.is_empty() {
             return;
         }
-        self.set_type_args(type_args);
+        // SAFETY: per the contract.
+        unsafe { self.set_type_args_unpublished(type_args) };
         for (slot, zero) in generic_field_zero_overrides(&self.type_desc, type_args.as_slice()) {
             self.set_field_value(slot, &zero);
         }
@@ -400,7 +487,7 @@ impl ScriptObject {
     /// instantiation and cost nothing here. The GC charges it to the heap footprint when the
     /// object is born and its drop glue credits it back when the block dies.
     pub fn extras_bytes(&self) -> u64 {
-        if self.meta.extras_ptr().is_some() {
+        if self.meta().extras_ptr().is_some() {
             crate::gc::footprint::malloc_size(std::mem::size_of::<ObjExtras>())
         } else {
             0
@@ -451,7 +538,7 @@ impl crate::gc::ObjRef {
     /// The object's `type_desc` (set at construction, never changed). Used by hot-path IC
     /// scans (VCallIC, FieldIC, IsInstance) and the GC mark traversal. Returns the inner
     /// `&TypeDesc` (one fewer deref at the call site than `&Arc<TypeDesc>`). Reads through the
-    /// thin header (`ObjRef::header`): no field-area length, no fat reference.
+    /// thin header (`ObjRef::header`): no payload length, no fat reference.
     #[inline]
     pub fn type_desc(&self) -> &TypeDesc {
         &self.header().type_desc
@@ -469,10 +556,11 @@ impl crate::gc::ObjRef {
 
     /// Lockless read of the object's `type_args` (generic type arguments at construction).
     /// Same write-once invariant as `type_desc`: set by `ObjNew` before the reference
-    /// escapes, never mutated after; the slice itself is an interned `'static` entry.
+    /// escapes, never mutated after; the slice itself is an interned `'static` entry. Reads the
+    /// meta word at the payload's end, so it goes through the fat reference.
     #[inline]
-    pub fn type_args(&self) -> &[String] {
-        self.header().type_args()
+    pub fn type_args(&self) -> &'static [String] {
+        self.borrow().type_args()
     }
 }
 

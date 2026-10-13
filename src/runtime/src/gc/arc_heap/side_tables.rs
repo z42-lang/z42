@@ -22,13 +22,15 @@ use crate::gc::types::FinalizerFn;
 impl crate::gc::arc_heap::ArcMagrGC {
     /// A weak reference to `obj`: its handle plus its chunk's current reuse epoch.
     pub(super) fn downgrade_object(&self, obj: &ObjRef) -> WeakObjRef {
-        let chunk = obj.var_ref().chunk_idx();
-        let epoch = if chunk == u32::MAX {
-            0
-        } else {
-            self.region_var.lock().chunk_epoch(chunk).unwrap_or(0)
-        };
-        WeakObjRef { obj: *obj, chunk, epoch }
+        let region = self.region_var.lock();
+        // A block outside every chunk (a detached / leaked object) is never reclaimed.
+        match region.chunk_of(obj.var_ref().addr()) {
+            Some(ci) => {
+                let chunk = ci as u32;
+                WeakObjRef { obj: *obj, chunk, epoch: region.chunk_epoch(chunk).unwrap_or(0) }
+            }
+            None => WeakObjRef { obj: *obj, chunk: u32::MAX, epoch: 0 },
+        }
     }
 
     /// Upgrade a weak object reference: `None` once the object died — its chunk was pooled /
