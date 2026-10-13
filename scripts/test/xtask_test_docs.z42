@@ -205,7 +205,6 @@ sealed class DocScan {
 }
 
 // 参与检查的 markdown：docs/ 全部 + 根 README + src/**/README.md + scripts/README.md。
-// 排除 docs/spec/archive/（历史记录，其链接指向的文件可能早已删除——那是留痕，不是死链）。
 string[] _docMarkdownFiles(string root) {
     string[] acc = new string[1024];
     int n = 0;
@@ -215,7 +214,7 @@ string[] _docMarkdownFiles(string root) {
     int i = 0;
     while (i < all.Length) {
         string rel = all[i].Replace("\\", "/");
-        if (rel.EndsWith(".md") && !rel.StartsWith("spec/archive/")) {
+        if (rel.EndsWith(".md")) {
             string full = Path.Join(docs, rel);
             if (File.Exists(full) && n < acc.Length) { acc[n] = full.Replace("\\", "/"); n = n + 1; }
         }

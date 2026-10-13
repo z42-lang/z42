@@ -4,7 +4,7 @@ import Foundation
 /// last-error message and the numeric `Z42HostStatus` code so callers
 /// can branch precisely.
 ///
-/// Spec: docs/spec/archive/2026-05-12-add-platform-ios/
+/// Spec: 变更 add-platform-ios/
 public enum Z42VMError: Error, CustomStringConvertible {
     case alreadyInit(String)
     case notInit(String)

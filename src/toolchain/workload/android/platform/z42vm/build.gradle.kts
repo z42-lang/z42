@@ -1,7 +1,7 @@
 // Android library module — packages the Kotlin facade + JNI bridge +
 // per-ABI Rust .so files into a single `.aar`.
 //
-// Spec: docs/spec/archive/2026-05-12-add-platform-android/
+// Spec: 变更 add-platform-android/
 
 plugins {
     id("com.android.library")
@@ -78,7 +78,7 @@ dependencies {
 
     // Instrumented test deps — drive Z42VMInstrumentedTest.kt against
     // the Pixel 6 API 37 emulator (AVD z42_pixel6_api37). Spec:
-    //   docs/spec/archive/2026-05-12-add-android-tests/specs/android-tests/spec.md
+    //   变更 add-android-tests/specs/android-tests/spec.md
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test:core:1.7.0")

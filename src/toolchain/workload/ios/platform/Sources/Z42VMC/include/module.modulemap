@@ -1,6 +1,6 @@
 // Clang module exposing z42_host.h + z42_abi.h to Swift via SwiftPM.
 //
-// Spec: docs/spec/archive/2026-05-12-add-platform-ios/
+// Spec: 变更 add-platform-ios/
 
 module Z42VMC {
     header "z42_abi.h"

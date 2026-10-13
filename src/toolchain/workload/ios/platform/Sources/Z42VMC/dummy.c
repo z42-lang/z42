@@ -3,5 +3,5 @@
  * at xcframework-creation time (build.sh). The clang module map exposes
  * z42_abi.h + z42_host.h to Swift; this file just keeps SwiftPM happy.
  *
- * Spec: docs/spec/archive/2026-05-12-add-platform-ios/
+ * Spec: 变更 add-platform-ios/
  */

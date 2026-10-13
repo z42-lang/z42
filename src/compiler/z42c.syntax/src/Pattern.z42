@@ -2,7 +2,7 @@
 // 三应用位点共用一套模式文法：switch 语句 case / switch 表达式 arm / is 表达式右侧。
 // 受限写法：class 继承 + virtual Dump()（s-expression）。绑定用裸标识符（无 var）。
 //
-// 歧义消解（详见 docs/spec/changes/add-pattern-matching-core/design.md Decision 2）：
+// 歧义消解（详见 变更 add-pattern-matching-core/design.md Decision 2）：
 //   解析期按名字形状先分流（字面量→Constant / `_`→Wildcard / 名字→Name / `(`→Positional / `{`→Property）；
 //   NamePattern 的「类型 vs 常量 vs 绑定」留 bind 期（PatternBinder）按类型表唯一定性。
 namespace Z42.Syntax;

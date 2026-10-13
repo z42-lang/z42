@@ -5,7 +5,7 @@ package io.z42.vm
  * `z42_host::Host` Rust API. Construct with an optional
  * [ZpkgResolver]; `close()` (or `use { ... }`) runs `z42_host_shutdown`.
  *
- * Spec: docs/spec/archive/2026-05-12-add-platform-android/
+ * Spec: 变更 add-platform-android/
  *       docs/design/runtime/embedding.md §6.2 (Tier 3 Android)
  *
  * **Thread safety**: v0.1 the runtime is a process singleton and

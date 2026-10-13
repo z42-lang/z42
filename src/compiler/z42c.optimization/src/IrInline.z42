@@ -1,6 +1,6 @@
 // IrInline —— 编译期函数内联 pass（add-compiler-inlining Phase 2；OptSet.Inline 位驱动）。
 //
-// 设计全文见 docs/spec/changes/add-compiler-inlining/design.md（D4 资格 / D5 展开 / D7 不动点）+
+// 设计全文见 变更 add-compiler-inlining/design.md（D4 资格 / D5 展开 / D7 不动点）+
 // docs/book/src/compiler/optimization-pipeline.md。挂载点：IrOptPipeline.Run 里、逐函数清理 pass **之前**
 // （内联靠前 → 产出更多下游 const-fold/copy-prop/dce 机会）。
 //

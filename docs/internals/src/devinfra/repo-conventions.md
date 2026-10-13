@@ -134,7 +134,20 @@ private static ThreadLocal<int> _localCounter = new ThreadLocal<int>();
 （`PascalCase` 公开 / `_camelCase` 私有），不加 `t_` 前缀；差异通过 attribute / modifier /
 类型表达。落地时需回头校验这条承诺仍成立。
 
-## 7. Deferred
+## 7. 代码注释里的「变更 `<slug>`/…」
+
+不少代码注释用「变更 `<slug>/<文件>`」（如 `变更 add-embedding-api/design.md D2`）指向当初那次变更的方案 /
+设计 / 任务文档，作为这段代码的设计溯源。这些文档曾放在 `docs/spec/{changes,archive}/`，该目录已在 #1038
+删除，原文仍在 git 历史里，从删除前的那个提交取回：
+
+```bash
+git ls-tree -r --name-only c2396a46f^ docs/spec | grep '<slug>/'     # 找到完整路径（archive 下带日期前缀）
+git show c2396a46f^:<上一步的路径>                                     # 读原文
+```
+
+现在的方案与决策记在 PR 描述里，注释里写 PR 号（`#N`）即可；长期结论在书里，以书为准。
+
+## 8. Deferred
 
 ### `Async` 后缀决策
 

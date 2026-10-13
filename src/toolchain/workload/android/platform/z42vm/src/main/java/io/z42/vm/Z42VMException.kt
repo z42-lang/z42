@@ -5,7 +5,7 @@ package io.z42.vm
  * the numeric [Z42HostStatus](../../../../../../../runtime/include/z42_host.h)
  * value (1..99); `message` is the runtime's diagnostic.
  *
- * Spec: docs/spec/archive/2026-05-12-add-platform-android/
+ * Spec: 变更 add-platform-android/
  */
 class Z42VMException(
     @JvmField val status: Int,

@@ -29,7 +29,7 @@
 //! `__process_spawn` returns `Value::I64(slot_id)`; subsequent
 //! `__process_handle_*` builtins take `slot_id` as arg 0.
 //!
-//! See [`docs/spec/changes/add-std-process/design.md`].
+//! See [`变更 add-std-process/design.md`].
 
 use super::convert::{arg_str, arg_i64, arg_bool};
 use crate::metadata::Value;

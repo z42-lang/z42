@@ -7,8 +7,8 @@
 //   test-fixtures/multi_line.zbc   — three lines "a" / "b" / "c"
 //   stdlib/*.zpkg                  — corelib + Std.IO + ... (NSPC self-describing)
 //
-// Spec: docs/spec/archive/2026-05-12-add-android-tests/specs/android-tests/spec.md
-//       docs/spec/archive/2026-05-12-define-platform-test-contract/specs/platform-test-contract/spec.md
+// Spec: 变更 add-android-tests/specs/android-tests/spec.md
+//       变更 define-platform-test-contract/specs/platform-test-contract/spec.md
 
 package io.z42.vm
 

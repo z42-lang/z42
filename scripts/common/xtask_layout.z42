@@ -29,7 +29,7 @@ using Std.Cli;   // ParseResult（`_layoutCmd`）
 // 🔴 要动它，别按直觉「在 `z42.project` 里加一版并存」——**那条实测编不出来**（同包内两套同短名类
 // 串味 `E0401`，且种子 z42c 一样如此），另立兼容包也没用（运行期按 **zpkg 文件名**解析，没有任何
 // `DEPS` 指向它）。可行形态 = **编译期 overlay + 运行期旁置**，配方与四段实测判据见
-// `docs/spec/archive/2026-09-27-rename-project-namespaces/design.md` §6.1/§6.2。
+// `变更 rename-project-namespaces/design.md` §6.1/§6.2。
 // （B3b 已按该形态一步落完，2026-09-27；那两段 CI 接线是一代过渡形态、当天即撤。）
 using Z42.Project;   // ManifestLoader / WorkspaceManifest / PathTemplate / TemplateContext
 

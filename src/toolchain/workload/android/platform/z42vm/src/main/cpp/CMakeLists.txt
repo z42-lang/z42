@@ -8,7 +8,7 @@
 #
 # Output: libz42vm_jni.so under jniLibs/<abi>/.
 #
-# Spec: docs/spec/archive/2026-05-12-add-platform-android/
+# Spec: 变更 add-platform-android/
 
 cmake_minimum_required(VERSION 3.22.1)
 

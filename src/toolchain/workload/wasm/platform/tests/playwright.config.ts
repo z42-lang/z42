@@ -4,7 +4,7 @@ import { defineConfig, devices } from '@playwright/test';
 // pkg-web/ and js/ via relative URLs. http-server with -c-1 disables
 // caching so re-running ./build.sh + ./test.sh sees fresh artifacts.
 //
-// Spec: docs/spec/archive/2026-05-12-add-wasm-tests/
+// Spec: 变更 add-wasm-tests/
 const PORT = 4242;
 
 export default defineConfig({

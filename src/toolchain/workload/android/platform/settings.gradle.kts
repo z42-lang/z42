@@ -1,6 +1,6 @@
 // SwiftPM ≅ this file for Gradle: declare what subprojects participate.
 //
-// Spec: docs/spec/archive/2026-05-12-add-platform-android/
+// Spec: 变更 add-platform-android/
 
 pluginManagement {
     repositories {

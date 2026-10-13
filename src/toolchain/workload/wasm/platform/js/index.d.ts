@@ -2,7 +2,7 @@
  * `@z42/wasm` — WebAssembly facade for the z42 embedding API.
  *
  * Spec: docs/design/runtime/embedding.md §6.2 (Tier 3 WASM)
- *       docs/spec/archive/2026-05-12-add-platform-wasm/
+ *       变更 add-platform-wasm/
  *
  * This file re-exports the wasm-bindgen-generated types from `pkg-web` /
  * `pkg-nodejs` under stable, cross-target names so user code stays the

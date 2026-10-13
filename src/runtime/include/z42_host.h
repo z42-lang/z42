@@ -7,7 +7,7 @@
  * This header covers the opposite direction: "host app drives the VM".
  *
  * Spec: docs/design/runtime/embedding.md (Tier 1 C ABI §4)
- *       docs/spec/archive/2026-05-10-add-embedding-api/
+ *       变更 add-embedding-api/
  *
  * Status: H1 scaffold — declarations + single-instance lifecycle.
  *         load_zbc / resolve_entry / invoke return ERR_INTERNAL
@@ -92,7 +92,7 @@ typedef void (*Z42WriteSink)(const char* bytes, size_t length, void* user_data);
  * The `int` return (instead of Z42HostStatus) is intentional: a resolver
  * has only hit/miss semantics, not a runtime error space.
  *
- * Spec: docs/spec/archive/2026-05-12-add-zpkg-resolver-hook/
+ * Spec: 变更 add-zpkg-resolver-hook/
  */
 typedef int (*Z42ZpkgResolverFn)(
     const char*     namespace_name,
@@ -201,7 +201,7 @@ Z42HostStatus z42_host_load_zbc(Z42HostRef host,
  * the package itself (no index file). Returns ERR_BAD_ZBC if `bytes`
  * isn't a parseable zpkg.
  *
- * Spec: docs/spec/archive/2026-06-06-drop-index-json-self-describing/
+ * Spec: 变更 drop-index-json-self-describing/
  */
 Z42HostStatus z42_zpkg_read_namespaces(const uint8_t* bytes, size_t length,
                                        Z42NamespaceVisitor visit, void* user_data);
