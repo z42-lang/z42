@@ -184,6 +184,33 @@ impl FnIdCell {
     }
 }
 
+/// Runtime-only cell on `Function`: whether the function is a pure `[Native]` forwarder
+/// and to which builtin (runtime-audit P1-8, `interp::forward`). Computed on the
+/// function's first call by either engine; `0` = not yet known, `1` = not a forwarder,
+/// `id + 2` = forwards to builtin `id`. A racing second computation stores the same
+/// value, so `Relaxed` suffices.
+#[derive(Debug, Default)]
+#[repr(transparent)]
+pub struct ForwardCell(std::sync::atomic::AtomicU32);
+
+impl ForwardCell {
+    /// `None` = not computed yet; `Some(None)` = not a forwarder.
+    #[inline(always)]
+    pub fn get(&self) -> Option<Option<u32>> {
+        match self.0.load(std::sync::atomic::Ordering::Relaxed) {
+            0 => None,
+            1 => Some(None),
+            n => Some(Some(n - 2)),
+        }
+    }
+
+    #[inline]
+    pub(crate) fn set(&self, v: Option<u32>) {
+        let raw = match v { None => 1, Some(id) => id.checked_add(2).unwrap_or(1) };
+        self.0.store(raw, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 /// P1-2 PR 6: per-site cell holding a **type-test target key** — the `is` / `as` /
 /// typed-`catch` target's identity in the `TypeId` space, resolved on first use
 /// (`interp::dispatch::isa_td`) and read back with one relaxed load afterwards.

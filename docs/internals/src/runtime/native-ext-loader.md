@@ -43,7 +43,7 @@ ext_builtin_id_of(ctx, name)          │ miss → ensure_lib_for()  │
        ↓ returns id with              │   1. builtin name → lib  │
 BUILTIN_ID_EXT_BIT (0x8000_0000) set  │      (KNOWN_EXT_LIBS)    │
        ↓                              │   2. probe each search   │
-exec_builtin_by_id checks high bit:   │      path for that file  │
+invoke_builtin checks high bit:       │      path for that file  │
   id & EXT_BIT → ext_builtins.dispatch│   3. dlopen it, resolve  │
   else         → BUILTINS[idx]        │      known symbols       │
        ↓                              │   4. register VM-side wrappers

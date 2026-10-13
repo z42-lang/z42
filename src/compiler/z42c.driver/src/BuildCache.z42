@@ -25,7 +25,7 @@ void _writeBuildCache(ProjectManifest pm, string projectDir, bool isRelease, str
         // 实测（编译器 workspace、jobs=1）这一步占总耗时 8.8%。任一文件失败照旧整体放弃本次 cache（不写 meta）。
         string[] zbcHashes = new string[srcs.Length];
         CacheZbcTask zt = new CacheZbcTask(cacheDir, projectDir, srcs, mods, prep, zbcHashes);
-        Z42.Package.ParallelFor.Run(srcs.Length, Z42.Package.ParallelConfig.Jobs(srcs.Length), zt);
+        ParallelFor.Run(srcs.Length, ParallelConfig.Jobs(srcs.Length), zt);
         if (zt.Error != "") { throw new Exception(zt.Error); }
         // meta（hash/ns/usedDepNs + D5a 残留 pool/labels）+ 包级源清单。
         IncrementalDriver.WriteMetas(cacheDir, projectDir, srcs, texts, srcHashes, srcs.Length,

@@ -118,6 +118,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 libffi     = { version = "5.1", optional = true }
 libloading = { version = "0.9", optional = true }
 z42-abi    = { path = "crates/z42-abi" }
+# `#[builtins]` / `#[builtin]` — the builtin ABI v2 (corelib/abi): typed builtins with
+# generated register-reading wrappers + descriptors. Proc macro, host-only build cost;
+# nothing of it ships in the binary. All targets (wasm too).
+z42-macros = { path = "crates/z42-macros" }
 
 # JIT backend — Cranelift (optional; enabled via `jit` feature)
 cranelift-codegen = { version = "0.135", features = ["unwind"], optional = true }

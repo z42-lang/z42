@@ -3,70 +3,7 @@ use crate::metadata::types::NativeData;
 use crate::metadata::well_known_names::int_wrapper_scalar_spec;
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
-
-/// add-primitive-value-boxing → unify Phase 2 R3（装箱统一）：把裸整数基元装箱成**堆
-/// `ScriptObject` + 引用身份**（对齐 C#），返 `Value::BoxedStruct`——与 struct 装箱同一模型。
-/// 编译器在 prim→object/接口 转换点发 `builtin __box_prim(%value, %classStr)`；arg0 = 裸整数值
-/// （`__box_prim` 只装整数，bool/char/double/string 各留 `Value` variant），arg1 = FQ wrapper 名
-/// （`Std.Int32`/`Std.Byte`/…）。已是 BoxedStruct 则原样返（幂等）。每次装箱 alloc 新盒
-/// → `object o=5; object p=5; ReferenceEquals(o,p)==false`（C# 语义）。
-pub fn builtin_box_prim(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let inner = match args.first() {
-        Some(v) => v,
-        None => bail!("__box_prim: missing value arg"),
-    };
-    // 幂等：已装箱（基元盒是 BoxedStruct）→ 原样返回，不重复 alloc。
-    if matches!(inner, Value::BoxedStruct(_)) {
-        return Ok(inner.clone());
-    }
-    // `Null` 到了装箱点 = **不变式被破**，debug 响一声、release 放行。
-    //
-    // enforce-value-type-non-null (#741) 立下的不变式是「**值类型的存储槽永不含
-    // `Value::Null`**」，配套的编译期门是 E0475（`int x = null;`）/ E0476（`int?`）/
-    // E0483（值类型与 null 比较）。⇒ 用户代码**没有任何合法写法**能把 `Null` 送到这里；
-    // 走到这条分支只可能是 **VM / 编译器自己的缺陷**。
-    //
-    // ⚠️ 这条分支原本是 fix-box-null-nullable (#717) 加的**无声放行**，理由是
-    // 「`?` 纯擦除 ⇒ `int x = null;` 能编能跑 ⇒ int 槽里装着 Null 是语言允许的状态 ⇒
-    // 装箱点分不清『用户合法赋 null』与『读到未初始化槽位』」。**那套前提已随 #741 全部作废**
-    // （上述三个诊断码），所以「分不清好坏信号」这个核心取舍也不再成立 —— 今天的信号是**明确的**。
-    //
-    // 为什么是 debug-only 而不是无条件报错（两边都掂量过）：
-    // - **debug 响**：e2e golden 语料默认跑的就是 **debug 版 z42vm**
-    //   （`scripts/test/xtask_test_vm.z42` 的 `_activeVm(root, "debug")`），
-    //   ⇒ 整个 golden 语料 + 单测在 CI 里成为这条不变式的探测器，缺陷当场炸在**发生点**，
-    //   而不是像以前那样让 `Null` 顺流而下、炸在毫不相干的地方（或者干脆静默给出错值）。
-    // - **release 放行**：万一还有本仓测试覆盖不到的路径（反射 / interop / 平台特有路径）
-    //   会送 Null 进来，用户拿到的发行版行为与 #717 之后**一字不变** —— 不拿用户的崩溃
-    //   去换我们的诊断能力。摸底（全量 `xtask test`，探针设成无条件 bail）**零命中**，
-    //   但「零命中」只说明现有语料没踩到，不等于不存在 ⇒ 保守留放行。
-    // - 若它在若干个版本里一直不响，再提升为无条件报错。
-    //
-    // 拆箱那一侧的对应决定见 make-hard-cast-fail-properly (#746)：`(int)o` 遇 null 抛
-    // `NullReferenceException`、类型不符抛 `InvalidCastException`。那边能抛**用户级异常**
-    // 是因为那是用户写的转换；这里不行 —— 这里的 `Null` 不是用户的错，报用户级异常会指错责任方。
-    if matches!(inner, Value::Null) {
-        if cfg!(debug_assertions) {
-            bail!(
-                "__box_prim received Null — 「值类型的存储槽永不含 Value::Null」这条不变式被破。\
-                 用户代码不可能合法地走到这里（E0475 / E0476 / E0483 已在编译期堵住），\
-                 所以这是 VM 或编译器的缺陷：请查这个值是从哪个槽读出来的（字段 / 数组元素 / \
-                 帧槽 / 泛型型参字段），而不是查调用方的 z42 代码。class arg = {:?}",
-                args.get(1)
-            );
-        }
-        return Ok(Value::Null);
-    }
-    let raw = match inner {
-        Value::I64(n) => *n,
-        other => bail!("__box_prim: expected integer value, got {:?}", other),
-    };
-    let class = match args.get(1) {
-        Some(Value::Str(s)) => s,
-        _ => bail!("__box_prim: missing/invalid class-name arg"),
-    };
-    box_prim_to_heap(ctx, class, raw)
-}
+use super::abi;
 
 /// unify Phase 2 R3：把整数标量装箱进堆 `ScriptObject`（D1-B：标量 LE 字节存 `struct_bytes`，
 /// 尺寸 = wrapper 标量宽度，与 struct 装箱完全同构）→ `Value::BoxedStruct`。`class` = FQ wrapper
@@ -92,29 +29,6 @@ pub(crate) fn box_prim_to_heap(ctx: &VmContext, class: &str, raw: i64) -> Result
     match ctx.heap().alloc_boxed_prim(td, struct_bytes) {
         Value::Object(gc) => Ok(Value::BoxedStruct(gc)),
         other => Ok(other), // Null under strict-OOM refusal
-    }
-}
-
-/// add-struct-object-boxing (PR2a): 把 blob 值 struct 装箱成堆 `Value::BoxedStruct`——从 arena slot 拷出
-/// `bytes` 快照 + clone `refs` + 类型名（脱离帧生命周期，修裸拷 StructRef 逃逸帧的 use-after-free）。
-/// 编译器在 struct→object/接口 转换点发 `builtin __box_struct(%structHandle)`（arg0=StructRef，装箱点
-/// struct 活、slot 有效）。类型名从 slot 直接取（FQ，`StructAlloc` 时写入），无需额外 class 参数。
-/// 已是 BoxedStruct 幂等返回；非 struct 值原样返回（保守——`BoxIfNeeded` 只对 blob struct 发本 builtin）。
-pub fn builtin_box_struct(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let v = match args.first() {
-        Some(v) => v,
-        None => bail!("__box_struct: missing value arg"),
-    };
-    match v {
-        // add-boxed-struct-identity (P4b): already a shared box → return the SAME box
-        // (reference identity preserved; re-boxing must not clone the heap object).
-        Value::BoxedStruct(_) => Ok(v.clone()),
-        Value::StructRef { idx, frame_id } => {
-            let (type_name, bytes, refs) = ctx.struct_arena.lock()
-                .with(*idx, *frame_id, |s| (s.type_name.clone(), s.bytes.clone(), s.refs.clone()))?;
-            box_struct_blob(ctx, &type_name, &bytes, &refs)
-        }
-        other => Ok(other.clone()),
     }
 }
 
@@ -156,11 +70,7 @@ pub(crate) fn box_struct_blob(
 /// 不同引用→不 Equals→哈希可碰撞）。结果 `& 0x7fffffff` 非负（`__str_hash_code` 同款，Dictionary 契约）。
 /// 值相等的 struct → 字节+refs 相同 → 同哈希（契约满足）。⚠️边角：float ±0.0 字节不同→哈希不同，而 Equals
 /// 的浮点 == 判 +0==-0 → 极少数含 ±0 float 的 struct 违反契约（pre-1.0 文档标注，与 C# 历史一致）。
-pub fn builtin_struct_hash_code(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let gc = match args.first() {
-        Some(Value::BoxedStruct(gc)) => gc,
-        _ => bail!("__struct_hash_code: expected a boxed struct"),
-    };
+pub(crate) fn struct_hash_code(gc: &crate::gc::ObjRef) -> i64 {
     // add-boxed-struct-identity (P4b): read the blob out of the shared box object.
     // The blob's reference slots hold reference words — hash the bytes with them zeroed.
     let (bytes, refs) = gc.borrow().boxed_blob();
@@ -177,7 +87,7 @@ pub fn builtin_struct_hash_code(_ctx: &VmContext, args: &[Value]) -> Result<Valu
         };
         h ^= rh; h = h.wrapping_mul(16_777_619);
     }
-    Ok(Value::I64((h & 0x7fff_ffff) as i64))
+    (h & 0x7fff_ffff) as i64
 }
 
 // ── Typed argument extractors ────────────────────────────────────────────────
@@ -417,153 +327,218 @@ pub fn value_to_str(v: &Value) -> String {
 // 全部删除 —— 全 corelib 已 migrated 到 `arg_*` 系列（零 clone / Copy / #[inline]）。
 // pre-1.0 不留兼容包袱。
 
-// ── Parse / convert builtins ─────────────────────────────────────────────────
+// ── Parse / format builtins (builtin ABI v2, runtime-audit P1-8) ─────────────
 //
-// rename-primitives-to-pascal-case (2026-05-24): builtin functions + error
-// messages now use BCL PascalCase (`Int32.Parse` instead of `int.Parse`).
-// Source keyword (`int / long / i8 / u8 / ...`) remains valid in user code
-// via C# TypeChecker alias; this Rust layer is the underlying implementation.
+// Errors follow .NET: malformed text → `FormatException`, a number outside the target
+// type → `OverflowException`, null → `ArgumentNullException`. `TryParse` never throws:
+// it writes the value (0 on failure) through its `ref` argument and returns success.
 
-pub fn builtin_int64_parse(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let s = arg_str(args, 0, "Int64.Parse")?;
-    s.trim().parse::<i64>().map(Value::I64)
-        .map_err(|_| anyhow::anyhow!("Int64.Parse: could not parse {:?} as Int64", s))
-}
-
-/// add-narrow-int-primitives (2026-05-15): parse the input as an i64, then
-/// validate that the value fits in the target's range. Out-of-range values
-/// throw OverflowException-style error (anyhow string surfaced as VM bail).
-/// Pre-2026-05-15 `int.Parse("99999999999999")` silently succeeded with a
-/// value larger than i32 could hold; this build now rejects it.
-pub fn builtin_int32_parse(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    parse_narrow_int(args, "Int32.Parse", i32::MIN as i64, i32::MAX as i64)
-}
-pub fn builtin_sbyte_parse(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    parse_narrow_int(args, "SByte.Parse", i8::MIN as i64, i8::MAX as i64)
-}
-pub fn builtin_int16_parse(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    parse_narrow_int(args, "Int16.Parse", i16::MIN as i64, i16::MAX as i64)
-}
-pub fn builtin_byte_parse(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    parse_narrow_int(args, "Byte.Parse", 0, u8::MAX as i64)
-}
-pub fn builtin_uint16_parse(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    parse_narrow_int(args, "UInt16.Parse", 0, u16::MAX as i64)
-}
-pub fn builtin_uint32_parse(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    parse_narrow_int(args, "UInt32.Parse", 0, u32::MAX as i64)
-}
-/// u64 can hold values > i64::MAX. We parse as u64 then bit-cast to i64
-/// (i.e. values above i64::MAX appear as negative under Int32.ToString — same
-/// bit-preserving semantics as `convert_from_i64` U64 cast).
-pub fn builtin_uint64_parse(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let s = arg_str(args, 0, "UInt64.Parse")?;
-    s.trim().parse::<u64>().map(|v| Value::I64(v as i64))
-        .map_err(|_| anyhow::anyhow!(
-            "UInt64.Parse: could not parse {:?} as UInt64 (range: 0..={})", s, u64::MAX))
-}
-
-fn parse_narrow_int(args: &[Value], ctx: &str, min: i64, max: i64) -> Result<Value> {
-    let s = arg_str(args, 0, ctx)?;
-    let v = s.trim().parse::<i64>()
-        .map_err(|_| anyhow::anyhow!("{}: could not parse {:?} as integer", ctx, s))?;
-    if v < min || v > max {
-        bail!("{}: value {} out of range (expected {}..={})", ctx, v, min, max);
+/// Parse `s` as an integer of the type `ty` with range `min..=max` (an unsigned 64-bit
+/// value is stored bit-preserving in the `i64`, as `Value::I64` carries every integer).
+/// Parsed through `i128`, so "-1" for an unsigned type is an overflow (as in .NET),
+/// not a format error.
+pub(crate) fn parse_int(s: &str, ty: &str, min: i128, max: i128) -> std::result::Result<i64, abi::BuiltinError> {
+    use std::num::IntErrorKind::{NegOverflow, PosOverflow};
+    match s.trim().parse::<i128>() {
+        Ok(v) if v >= min && v <= max => Ok(v as i64),
+        Ok(_) => Err(int_overflow(ty)),
+        Err(e) if matches!(e.kind(), PosOverflow | NegOverflow) => Err(int_overflow(ty)),
+        Err(_) => Err(not_a_number(ty, s)),
     }
-    Ok(Value::I64(v))
-}
-pub fn builtin_double_parse(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let s = arg_str(args, 0, "Double.Parse")?;
-    s.trim().parse::<f64>().map(Value::F64)
-        .map_err(|_| anyhow::anyhow!("Double.Parse: could not parse {:?} as Double", s))
-}
-pub fn builtin_to_str(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    Ok(Value::Str(args.first().map(value_to_str).unwrap_or_default().into()))
 }
 
-// ── L3-G4b primitive interface implementations ──────────────────────────────
-// Backing native functions for IComparable<T> / IEquatable<T> on primitive
-// receivers (Int32/Double/Boolean/Char). Dispatched by VCall when the receiver
-// is Value::I64/F64/Bool/Char and the method matches CompareTo/Equals/GetHashCode.
-// 旧 file-local require_* 已删 —— 用顶部 pub `arg_i64` / `arg_f64` / `arg_char`。
-
-// 2026-04-27 wave2-compare-to-script: builtin_int_compare_to removed.
-// `Std.Int32.CompareTo` / `Std.Int64.CompareTo` 现在是脚本（用 IR `<`/`>`）。
-
-// shrink-primitive-native-interop (2026-08-27): builtin_int32_equals /
-// builtin_int32_hash_code removed — Std.{Int32,Int16,SByte,Byte,UInt16,UInt32,
-// Int64,UInt64}.Equals/GetHashCode 现在是脚本（`this == other` / `(int)this`；
-// 64 位类型折叠高低字 `(int)(v ^ (v >> 32))`）。
-pub fn builtin_int32_to_string(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let a = arg_i64(args, 0, "Int32.ToString")?;
-    Ok(Value::Str(a.to_string().into()))
+#[cold]
+fn int_overflow(ty: &str) -> abi::BuiltinError {
+    abi::BuiltinError::Overflow(format!("{ty}.Parse: value was either too large or too small for {ty}"))
 }
 
-// 2026-04-27 wave2-compare-to-script: builtin_double_compare_to removed.
-// `Std.Double.CompareTo` / `Std.Single.CompareTo` 现在是脚本（NaN → 0 由 `<`/`>` 自然返回 false 实现）。
-
-// shrink-primitive-native-interop (2026-08-27): builtin_double_equals /
-// builtin_double_hash_code removed — Std.{Double,Single}.Equals/GetHashCode 现在
-// 是脚本（`this == other`；hash 经 BitConverter 折叠 IEEE-754 位模式）。
-/// fix-narrow-prim-instance-dispatch: `UInt64.ToString` used to borrow `__int32_to_string`,
-/// which renders the bit-preserving i64 payload — every value above i64::MAX printed as a
-/// **negative number**. Reinterpreting the payload as u64 before formatting fixes the whole
-/// upper half; round-trips with `builtin_uint64_parse`, which stores it the same way.
-///
-/// NB: this only became reachable once the compiler started dispatching narrow-primitive
-/// instance calls statically — before that, `ulong.ToString()` resolved to `Std.Int32.ToString`
-/// at runtime (`Value::I64 => Std.Int32`) and no amount of rebinding here would have been seen.
-pub fn builtin_uint64_to_string(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let a = arg_i64(args, 0, "UInt64.ToString")?;
-    Ok(Value::Str((a as u64).to_string().into()))
+#[cold]
+fn not_a_number(ty: &str, s: &str) -> abi::BuiltinError {
+    abi::BuiltinError::Format(format!("{ty}.Parse: the input string '{s}' was not in a correct format"))
 }
 
-pub fn builtin_double_to_string(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let a = arg_f64(args, 0, "Double.ToString")?;
-    Ok(Value::Str(a.to_string().into()))
+/// Parse `s` as a `Double` (surrounding whitespace allowed; `1e400` is infinity, as in .NET).
+pub(crate) fn parse_double(s: &str) -> std::result::Result<f64, abi::BuiltinError> {
+    s.trim().parse::<f64>().map_err(|_| not_a_number("Double", s))
 }
 
-// add-binary-float (2026-06-09): IEEE-754 bit reinterpretation backing
-// Std.IO.BinaryReader/Writer float serialization. z42 has no pure-script
-// `reinterpret` (the BitConverter gap), so these expose f32/f64 ↔ raw bits.
-// `__single_*` round-trips through f32 (4-byte IEEE-754) — the value rides the
-// VM as F64, but the on-wire pattern is single precision. The 32-bit pattern is
-// carried zero-extended in the i64 low word (BinaryWriter.WriteInt32* writes the
-// low 4 bytes); `as u32` on the way back recovers it regardless of sign-extension.
-pub fn builtin_single_to_bits(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let a = arg_f64(args, 0, "BitConverter.SingleToBits")?;
-    Ok(Value::I64((a as f32).to_bits() as i64))
-}
-pub fn builtin_single_from_bits(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let bits = arg_i64(args, 0, "BitConverter.SingleFromBits")?;
-    Ok(Value::F64(f32::from_bits(bits as u32) as f64))
-}
-pub fn builtin_double_to_bits(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let a = arg_f64(args, 0, "BitConverter.DoubleToBits")?;
-    Ok(Value::I64(a.to_bits() as i64))
-}
-pub fn builtin_double_from_bits(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let bits = arg_i64(args, 0, "BitConverter.DoubleFromBits")?;
-    Ok(Value::F64(f64::from_bits(bits as u64)))
+/// `TryParse` tail: store the value (0 when `s` is null or does not parse) and report success.
+fn try_store(ctx: &VmContext, out: abi::RefArg<'_>, parsed: Option<Value>, zero: Value)
+    -> std::result::Result<bool, abi::BuiltinError>
+{
+    let ok = parsed.is_some();
+    out.store(ctx, parsed.unwrap_or(zero))?;
+    Ok(ok)
 }
 
-// 2026-04-27 wave1-bool-script: 3 `builtin_bool_*` removed.
-// `Std.Boolean.Equals` / `GetHashCode` / `ToString` 现在是 z42 脚本实现。
-
-// 2026-04-27 wave2-compare-to-script: builtin_char_compare_to removed.
-// `Std.Char.CompareTo` 现在是脚本（codepoint `<`/`>` 比较）。
-
-// shrink-primitive-native-interop (2026-08-27): builtin_char_equals /
-// builtin_char_hash_code removed — Std.Char.Equals/GetHashCode 现在是脚本。
-pub fn builtin_char_to_string(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let a = arg_char(args, 0, "Char.ToString")?;
-    Ok(Value::Str(a.to_string().into()))
+fn try_int(ctx: &VmContext, s: Option<&str>, out: abi::RefArg<'_>, ty: &str, min: i128, max: i128)
+    -> std::result::Result<bool, abi::BuiltinError>
+{
+    let parsed = s.and_then(|s| parse_int(s, ty, min, max).ok()).map(Value::I64);
+    try_store(ctx, out, parsed, Value::I64(0))
 }
 
-pub fn builtin_str_compare_to(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let a = this_str(args, "CompareTo")?;
-    let b = arg_str(args, 1, "String.CompareTo")?;
-    Ok(Value::I64(a.cmp(&b) as i64))
+/// The typed convert builtins. The integer parsers differ only in range; each `[Native]`
+/// name maps to one function here.
+#[z42_macros::builtins]
+pub mod typed {
+    use super::{parse_double, parse_int, try_int, try_store, value_to_str};
+    use crate::corelib::abi::{BuiltinError, RefArg};
+    use crate::metadata::Value;
+    use crate::vm_context::VmContext;
+
+    #[builtin(name = "__int64_parse", pure)]
+    pub fn int64_parse(s: &str) -> Result<i64, BuiltinError> { parse_int(s, "Int64", i64::MIN as i128, i64::MAX as i128) }
+    #[builtin(name = "__int32_parse", pure)]
+    pub fn int32_parse(s: &str) -> Result<i64, BuiltinError> { parse_int(s, "Int32", i32::MIN as i128, i32::MAX as i128) }
+    #[builtin(name = "__int16_parse", pure)]
+    pub fn int16_parse(s: &str) -> Result<i64, BuiltinError> { parse_int(s, "Int16", i16::MIN as i128, i16::MAX as i128) }
+    #[builtin(name = "__sbyte_parse", pure)]
+    pub fn sbyte_parse(s: &str) -> Result<i64, BuiltinError> { parse_int(s, "SByte", i8::MIN as i128, i8::MAX as i128) }
+    #[builtin(name = "__byte_parse", pure)]
+    pub fn byte_parse(s: &str) -> Result<i64, BuiltinError> { parse_int(s, "Byte", 0, u8::MAX as i128) }
+    #[builtin(name = "__uint16_parse", pure)]
+    pub fn uint16_parse(s: &str) -> Result<i64, BuiltinError> { parse_int(s, "UInt16", 0, u16::MAX as i128) }
+    #[builtin(name = "__uint32_parse", pure)]
+    pub fn uint32_parse(s: &str) -> Result<i64, BuiltinError> { parse_int(s, "UInt32", 0, u32::MAX as i128) }
+    /// Values above `i64::MAX` are stored bit-preserving (they read back as negative
+    /// `long`s; `UInt64.ToString` reinterprets them).
+    #[builtin(name = "__uint64_parse", pure)]
+    pub fn uint64_parse(s: &str) -> Result<i64, BuiltinError> { parse_int(s, "UInt64", 0, u64::MAX as i128) }
+    #[builtin(name = "__double_parse", pure)]
+    pub fn double_parse(s: &str) -> Result<f64, BuiltinError> { parse_double(s) }
+
+    #[builtin(name = "__int64_try_parse")]
+    pub fn int64_try_parse(ctx: &VmContext, s: Option<&str>, v: RefArg) -> Result<bool, BuiltinError> {
+        try_int(ctx, s, v, "Int64", i64::MIN as i128, i64::MAX as i128)
+    }
+    #[builtin(name = "__int32_try_parse")]
+    pub fn int32_try_parse(ctx: &VmContext, s: Option<&str>, v: RefArg) -> Result<bool, BuiltinError> {
+        try_int(ctx, s, v, "Int32", i32::MIN as i128, i32::MAX as i128)
+    }
+    #[builtin(name = "__int16_try_parse")]
+    pub fn int16_try_parse(ctx: &VmContext, s: Option<&str>, v: RefArg) -> Result<bool, BuiltinError> {
+        try_int(ctx, s, v, "Int16", i16::MIN as i128, i16::MAX as i128)
+    }
+    #[builtin(name = "__sbyte_try_parse")]
+    pub fn sbyte_try_parse(ctx: &VmContext, s: Option<&str>, v: RefArg) -> Result<bool, BuiltinError> {
+        try_int(ctx, s, v, "SByte", i8::MIN as i128, i8::MAX as i128)
+    }
+    #[builtin(name = "__byte_try_parse")]
+    pub fn byte_try_parse(ctx: &VmContext, s: Option<&str>, v: RefArg) -> Result<bool, BuiltinError> {
+        try_int(ctx, s, v, "Byte", 0, u8::MAX as i128)
+    }
+    #[builtin(name = "__uint16_try_parse")]
+    pub fn uint16_try_parse(ctx: &VmContext, s: Option<&str>, v: RefArg) -> Result<bool, BuiltinError> {
+        try_int(ctx, s, v, "UInt16", 0, u16::MAX as i128)
+    }
+    #[builtin(name = "__uint32_try_parse")]
+    pub fn uint32_try_parse(ctx: &VmContext, s: Option<&str>, v: RefArg) -> Result<bool, BuiltinError> {
+        try_int(ctx, s, v, "UInt32", 0, u32::MAX as i128)
+    }
+    #[builtin(name = "__uint64_try_parse")]
+    pub fn uint64_try_parse(ctx: &VmContext, s: Option<&str>, v: RefArg) -> Result<bool, BuiltinError> {
+        try_int(ctx, s, v, "UInt64", 0, u64::MAX as i128)
+    }
+    #[builtin(name = "__double_try_parse")]
+    pub fn double_try_parse(ctx: &VmContext, s: Option<&str>, v: RefArg) -> Result<bool, BuiltinError> {
+        let parsed = s.and_then(|s| parse_double(s).ok()).map(Value::F64);
+        try_store(ctx, v, parsed, Value::F64(0.0))
+    }
+
+    /// `Convert.ToString(object)` and the compiler's string conversions.
+    #[builtin(name = "__to_str")]
+    pub fn to_str(v: &Value) -> String { value_to_str(v) }
+
+    #[builtin(name = "__int32_to_string", pure)]
+    pub fn int32_to_string(v: i64) -> String { v.to_string() }
+    /// `UInt64.ToString`: the payload is the bit pattern (see `__uint64_parse`), so it is
+    /// reinterpreted as `u64` before formatting.
+    #[builtin(name = "__uint64_to_string", pure)]
+    pub fn uint64_to_string(v: i64) -> String { (v as u64).to_string() }
+    #[builtin(name = "__double_to_string", pure)]
+    pub fn double_to_string(v: f64) -> String { v.to_string() }
+    #[builtin(name = "__char_to_string", pure)]
+    pub fn char_to_string(c: char) -> String { c.to_string() }
+
+    /// Ordinal comparison; a null argument sorts first (.NET: any string > null).
+    #[builtin(name = "__str_compare_to", this = "CompareTo", pure)]
+    pub fn str_compare_to(this: &str, other: Option<&str>) -> i64 {
+        match other {
+            None => 1,
+            Some(b) => this.cmp(b) as i64,
+        }
+    }
+
+    // IEEE-754 bit reinterpretation backing `BitConverter` (`Std.IO.BinaryReader/Writer`).
+    // `Single` round-trips through `f32`; its 32-bit pattern rides zero-extended in the
+    // `i64`'s low word (`as u32` on the way back recovers it regardless of sign extension).
+    #[builtin(name = "__single_to_bits", pure)]
+    pub fn single_to_bits(v: f64) -> i64 { (v as f32).to_bits() as i64 }
+    #[builtin(name = "__single_from_bits", pure)]
+    pub fn single_from_bits(bits: i64) -> f64 { f32::from_bits(bits as u32) as f64 }
+    #[builtin(name = "__double_to_bits", pure)]
+    pub fn double_to_bits(v: f64) -> i64 { v.to_bits() as i64 }
+    #[builtin(name = "__double_from_bits", pure)]
+    pub fn double_from_bits(bits: i64) -> f64 { f64::from_bits(bits as u64) }
+
+    /// Box an integer primitive into a heap `ScriptObject` with reference identity (C#
+    /// semantics: `object o = 5; object p = 5; ReferenceEquals(o, p) == false`). The
+    /// compiler emits `__box_prim(%value, "<FQ wrapper>")` at prim → object / interface
+    /// conversions; only integers come through here (bool / char / double / string keep
+    /// their own `Value` variants). An already boxed value is returned as is.
+    ///
+    /// `Null` here breaks the invariant "a value-type slot never holds `Null`" (E0475 /
+    /// E0476 / E0483 rule out every legal way to get one): a VM or compiler bug, so it
+    /// is an internal (fatal) error in debug builds — the golden corpus runs on the debug
+    /// VM and becomes a detector for it — and passes through in release, where a user
+    /// must not pay for our diagnostics.
+    #[builtin(name = "__box_prim")]
+    pub fn box_prim(ctx: &VmContext, v: &Value, class: &Value) -> Result<Value, BuiltinError> {
+        match v {
+            Value::BoxedStruct(_) => Ok(*v),
+            Value::Null if cfg!(debug_assertions) => Err(BuiltinError::Internal(format!(
+                "__box_prim received Null — 「值类型的存储槽永不含 Value::Null」这条不变式被破。\
+                 用户代码不可能合法地走到这里（E0475 / E0476 / E0483 已在编译期堵住），\
+                 所以这是 VM 或编译器的缺陷：请查这个值是从哪个槽读出来的（字段 / 数组元素 / \
+                 帧槽 / 泛型型参字段），而不是查调用方的 z42 代码。class arg = {class:?}"))),
+            Value::Null => Ok(Value::Null),
+            Value::I64(raw) => match class {
+                Value::Str(c) => super::box_prim_to_heap(ctx, c, *raw)
+                    .map_err(|e| BuiltinError::Internal(e.to_string())),
+                other => Err(BuiltinError::Internal(format!("__box_prim: class argument is {other:?}, not a type name"))),
+            },
+            other => Err(BuiltinError::Internal(format!("__box_prim: expected an integer, got {other:?}"))),
+        }
+    }
+
+    /// Box a blob value struct into a shared heap `Value::BoxedStruct`: snapshot the
+    /// bytes, references and type name out of the arena slot (the struct is live at the
+    /// boxing point), detaching it from the frame's lifetime. Emitted by the compiler at
+    /// struct → object / interface conversions. Already boxed → the same box (reference
+    /// identity); a non-struct value passes through.
+    #[builtin(name = "__box_struct")]
+    pub fn box_struct(ctx: &VmContext, v: &Value) -> Result<Value, BuiltinError> {
+        match v {
+            Value::BoxedStruct(_) => Ok(*v),
+            Value::StructRef { idx, frame_id } => {
+                let (type_name, bytes, refs) = ctx.struct_arena.lock()
+                    .with(*idx, *frame_id, |s| (s.type_name.clone(), s.bytes.clone(), s.refs.clone()))
+                    .map_err(|e| BuiltinError::Internal(e.to_string()))?;
+                super::box_struct_blob(ctx, &type_name, &bytes, &refs).map_err(|e| BuiltinError::Internal(e.to_string()))
+            }
+            other => Ok(*other),
+        }
+    }
+
+    /// `GetHashCode` of a boxed value struct (see `struct_hash_code`).
+    #[builtin(name = "__struct_hash_code", pure)]
+    pub fn struct_hash_code(v: &Value) -> Result<i64, BuiltinError> {
+        match v {
+            Value::BoxedStruct(gc) => Ok(super::struct_hash_code(gc)),
+            other => Err(BuiltinError::Internal(format!("__struct_hash_code: expected a boxed struct, got {other:?}"))),
+        }
+    }
 }
 
 #[cfg(test)]

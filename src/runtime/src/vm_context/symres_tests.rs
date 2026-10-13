@@ -38,6 +38,7 @@ fn f(param_count: usize, min_arg: u16, params_from: u8, method_flags: u8) -> Fun
         resolved: std::sync::OnceLock::new(),
         owner_init: Default::default(),
         id: Default::default(),
+        forward: Default::default(),
     }
 }
 

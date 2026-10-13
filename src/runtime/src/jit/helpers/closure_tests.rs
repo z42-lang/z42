@@ -35,6 +35,7 @@ fn func(name: &str, instructions: Vec<Instruction>) -> Function {
         resolved: std::sync::OnceLock::new(),
         owner_init: Default::default(),
         id: Default::default(),
+        forward: Default::default(),
     }
 }
 

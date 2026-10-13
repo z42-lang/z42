@@ -6,9 +6,9 @@ namespace Std.IO;
 // `System.IO.EndOfStreamException` (BCL has had it since v1.0).
 //
 // Catch this when you want to distinguish "stream ran dry" from generic
-// invalid-state errors. Existing code that catches `Exception` continues
-// to work because this still inherits Exception.
-public class EndOfStreamException : Exception {
+// invalid-state errors. Inherits `IOException` (.NET hierarchy), so
+// `catch (IOException)` and `catch (Exception)` both see it.
+public class EndOfStreamException : IOException {
     public EndOfStreamException(string message) : base(message) { }
 
     override string ToString() {

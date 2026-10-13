@@ -1,0 +1,6 @@
+namespace Std.IO;
+
+// I/O 出错的基类。镜像 .NET `System.IO.IOException`。
+public class IOException : Exception {
+    public IOException(string message) : base(message) {}
+}

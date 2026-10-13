@@ -47,41 +47,48 @@ fn thread_spawn_without_module_errors() {
         "unexpected error: {err}");
 }
 
+fn join(ctx: &VmContext, args: &[Value]) -> anyhow::Result<Value> {
+    crate::corelib::exec_builtin_value(ctx, "__thread_join", args)
+}
+
+fn typed_err(e: anyhow::Error) -> crate::corelib::abi::BuiltinError {
+    e.downcast::<crate::corelib::abi::BuiltinError>().expect("a typed builtin error")
+}
+
 #[test]
-fn thread_join_missing_arg_errors() {
+fn thread_join_missing_arg_is_an_internal_error() {
+    // Arity is fixed by the `#[builtin]` signature: a mismatch means the `[Native]`
+    // declaration and the Rust builtin disagree — a VM bug, fatal when run.
     let ctx = no_module_ctx();
-    let err = builtin_thread_join(&ctx, &[]).unwrap_err();
-    assert!(err.to_string().contains("missing slot id"),
+    let err = typed_err(join(&ctx, &[]).unwrap_err());
+    assert!(matches!(&err, crate::corelib::abi::BuiltinError::Internal(m) if m.contains("takes 1 argument")),
         "unexpected error: {err}");
 }
 
 #[test]
-fn thread_join_wrong_type_errors() {
+fn thread_join_wrong_type_is_an_invalid_cast() {
     let ctx = no_module_ctx();
-    let err = builtin_thread_join(&ctx, &[Value::Str("not an id".into())]).unwrap_err();
-    assert!(err.to_string().contains("expected i64"),
+    let err = typed_err(join(&ctx, &[Value::Str("not an id".into())]).unwrap_err());
+    assert!(matches!(&err, crate::corelib::abi::BuiltinError::InvalidCast(m) if m.contains("`slot` expects an integer")),
         "unexpected error: {err}");
+}
+
+fn discriminator(v: Value) -> Value {
+    let Value::Array(rc) = v else { panic!("expected Value::Array, got {v:?}") };
+    let b = rc.borrow();
+    assert_eq!(b.len(), 1, "unknown-slot result is a 1-elem array");
+    b.get_boxed(0)
 }
 
 #[test]
 fn thread_join_unknown_slot_returns_discriminator_2() {
     let ctx = no_module_ctx();
-    let result = builtin_thread_join(&ctx, &[Value::I64(9_999)]).unwrap();
-    let arr = match result {
-        Value::Array(rc) => rc,
-        other => panic!("expected Value::Array, got {other:?}"),
-    };
-    let borrowed = arr.borrow();
-    assert_eq!(borrowed.len(), 1, "unknown-slot result is a 1-elem array");
-    assert!(matches!(borrowed.get_boxed(0), Value::I64(2)),
-        "discriminator should be 2 (unknown slot), got {:?}", borrowed.get_boxed(0));
+    assert!(matches!(discriminator(join(&ctx, &[Value::I64(9_999)]).unwrap()), Value::I64(2)));
 }
 
 #[test]
-fn thread_join_negative_slot_errors() {
-    // i64 → u64 cast guard: negative slot IDs are nonsensical.
+fn thread_join_negative_slot_is_an_unknown_slot() {
+    // Slot ids are allocated from 1 up; a negative one names no thread.
     let ctx = no_module_ctx();
-    let err = builtin_thread_join(&ctx, &[Value::I64(-1)]).unwrap_err();
-    assert!(err.to_string().contains("expected i64 slot id"),
-        "unexpected error: {err}");
+    assert!(matches!(discriminator(join(&ctx, &[Value::I64(-1)]).unwrap()), Value::I64(2)));
 }

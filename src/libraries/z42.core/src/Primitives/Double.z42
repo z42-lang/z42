@@ -19,10 +19,7 @@ public struct Double : IComparable, IEquatable, INumber {
 
     // Non-throwing parse — see Int32.TryParse. Returns false with `v` = 0.0 on
     // malformed input (value types are never nullable → out-value goes by `ref`).
-    public static bool TryParse(string s, ref double v) {
-        try { v = Double.Parse(s); return true; }
-        catch (Exception e) { v = 0.0; return false; }
-    }
+    [Native("__double_try_parse")] public static extern bool TryParse(string s, ref double v);
 
     // IEEE-754 classification (pure script; no VM intrinsic needed).
     // NaN is the only value not equal to itself.

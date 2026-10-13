@@ -1,19 +1,9 @@
-//! `BUILTINS` 第 2 段 —— 2026-05-14 起的历次**追加**（每个 change 一节）。
+//! `BUILTINS` 旧表第 2 段（`PART2`）—— 2026-05-14 起的历次追加。整张表的拼接与 `BuiltinId` 的含义见
+//! `builtin_table.rs` 抬头。
 //!
-//! 新 builtin 一律加在**本文件末尾**：最终表 = PART1 ++ PART2，`BuiltinId` 就是拼接后的下标。
-//!
-//! 📌 **这条是约定，不是格式约束**（2026-09-26 读码核实）：zbc 里存的是**名字**
-//! （`BuiltinInsn { dst, name, args }`，见 `zbc_reader/instr_decode.rs`），`BuiltinId` 由 resolver
-//! 在**加载期**经 `builtin_id_of(name)` 填进 `Function.resolved.builtin_tokens`，AOT 也不烤它
-//! ⇒ id 是**单次运行内的派发优化令牌**，不跨进程持久化。所以「在中间插一条会让既有 zbc 错位」
-//! 这句话（本注原文）并不成立；append-only 的价值在于让按 id 做的测试/遥测保持稳定，
-//! 以及避免 review 时要重新核对一整张表。
-//!
-//! ⇒ 反过来：**槽位是可以真删的**，判据是「已发布种子里还有没有 z42 源声明这个名字」
-//! （`strings -n 3 | grep <name>`，必须先 strings；直接 grep 二进制会假缺席）。
-//!
-//! 拆成两个文件是行数硬限所迫（合并后 515 行 > 500）；切点选在历史首个
-//! 「appended to preserve BuiltinIds」边界，语义上即「原始表 ++ 追加日志」。
+//! **不再往这里加新 builtin**：新 builtin 写成 builtin ABI v2 的类型化函数（`#[builtins]` 模块，
+//! 见 `corelib/README.md`「加一个 builtin」）；本段的表项随各领域迁移删除。删表项的判据是「已发布种子
+//! 里还有没有 z42 源声明这个名字」（`strings -n 3 | grep <name>`，必须先 strings；直接 grep 二进制会假缺席）。
 
 use super::*;
 
@@ -36,7 +26,6 @@ pub(crate) const PART2: &[(&str, Native)] = &[
 
     // ── add-threading-stdlib (2026-05-20) — appended to preserve existing BuiltinIds ──
     ("__thread_spawn",        Native::Val(threading::builtin_thread_spawn)),
-    ("__thread_join",         Native::Val(threading::builtin_thread_join)),
 
     // ── add-sync-primitives (2026-05-20) ── 🪦 **已删除**（store-sync-values-in-heap 阶段 2，2026-09-26）
     //
@@ -119,9 +108,6 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     // ── add-httpclient-timeout (2026-05-27) — TCP socket read/write deadlines ──
     ("__net_tcp_socket_set_read_timeout",  Native::Val(network::builtin_net_tcp_socket_set_read_timeout)),
     ("__net_tcp_socket_set_write_timeout", Native::Val(network::builtin_net_tcp_socket_set_write_timeout)),
-
-    // ── add-thread-sleep (2026-05-27) — blocking sleep ──
-    ("__thread_sleep", Native::Void(threading::builtin_thread_sleep)),
 
     // ── add-z42-net-udp-recv-into (2026-05-27) — buffer-fill Receive variant ──
     ("__net_udp_recv_into", Native::Val(network::builtin_net_udp_recv_into)),
@@ -267,11 +253,6 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     ("__monitor_try_enter", Native::Val(monitor::builtin_monitor_try_enter)),
     ("__monitor_exit",      Native::Void(monitor::builtin_monitor_exit)),
     ("__monitor_wait",      Native::Void(monitor::builtin_monitor_wait)),
-
-    // ── fix-narrow-prim-instance-dispatch (2026-09-22) — appended to preserve existing BuiltinIds ──
-    // `UInt64.ToString` 专用：借 `__int32_to_string` 时 > i64::MAX 的值打印成负数。
-    // 载荷位不变，只是渲染时按 u64 重解释。
-    ("__uint64_to_string",  Native::Val(convert::builtin_uint64_to_string)),
 
     // ── fix-class-level-typeof (2026-09-25) — appended to preserve existing BuiltinIds ──
     // 类级 `typeof(T)`：读 receiver 的 per-instance type_args[idx] 产 `Std.Type`。

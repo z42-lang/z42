@@ -187,25 +187,21 @@ VM 的每条线程都跑 JIT 代码：主线程和 `__thread_spawn` 的 worker�
 
 ## `[Native]` 包装函数短路（`jit/forward.rs`）
 
-每个 `[Native("__x")] extern` 方法都编译成一条转发：`%d = builtin __x(%0, …); ret %d`。
-走普通调用协议，这一层包装要付一整个活动记录——池化寄存器文件、`push_frame` / `pop_frame`、
-包装函数自己的序言——只为把参数原样交给 `jit_builtin`。`s.Length` / `s[i]` / `Substring`
-这类字符串原语在循环里调用时，这个帧就是调用成本的大头（`s[i]` 还要再多一层：脚本索引器
-`get_Item` 调 `CharAt`）。
+`[Native("__x")] extern` 方法的包装函数（`%d = builtin __x(%0, …); ret %d`）在两个引擎里都按函数折叠：
+调用解析到它时直接从调用者寄存器跑 builtin，不建包装函数的帧。识别规则、为什么在 VM 链接期而不在编译器里做、
+栈回溯怎样保持不变（无帧 + 失败时现算行 / 轻帧），见 [native ABI §6.4](native-abi.md)；识别与执行的代码
+在 `interp/forward.rs`，两个引擎共用。
 
-- **识别**：编译出 `FnEntry` 时（`LazyCompiler::compile_fn` 判形状 1，`JitRuntime::resolve_slot_slow` 补判形状 2）判定两种形状，
-  把 builtin id 记进 `FnEntry::forward`：
-  1. `builtin_forward`：单块、唯一一条 `builtin`，实参恰是全部形参按序，`ret` 它的结果（或 void），
-     无异常表、非泛型，且 builtin 名能解析到 id；
-  2. `chained_forward`：单块、唯一一条对**同一类型**方法的 `call`（实参同上），而被调方是形状 1。
-     限定同一类型，是因为调用方已经为本类型过了静态构造器屏障，被跳过的那次调用不需要另一道。
-- **派发**：`jit_call` 的 `call_compiled`（模块初始化 / cctor 屏障之后）与 `jit_vcall` 的 `invoke_entry` 见到
-  `forward` 且实参个数等于形参个数（不靠默认值补位）时，直接从调用者寄存器收集实参、
-  `exec_builtin_by_id`，结果写 `dst`（void 写 `Null`，与包装函数 `ret` 的效果一致）；
-  builtin 报错按 `jit_builtin` 同一条路径包成 `Std.Exception`。调用点偏移在短路**之前**就盖到
-  调用者帧上（`set_top_frame_pc`）——包装函数那一行没了，调用者那一行就是栈顶，行号必须指向这次调用。
-- **可观察差异只有一处**：builtin 内抛出的异常，栈轨迹里少了 extern 包装函数自己那一行。
-  只有 JIT 走这条路；解释器仍按普通调用执行包装函数。
+JIT 这一侧：
+
+- **已编译的包装函数**：`JitRuntime::resolve_slot_slow` 把函数自己的折叠结果（`Function::forward`，
+  `interp::forward::forward_of`）抄进 `FnEntry::forward`；`jit_call` 的 `call_compiled`（模块初始化 /
+  cctor 屏障之后）与 `jit_vcall` 的 `invoke_entry` 见到它、且实参个数等于形参个数（不靠默认值补位）时，
+  经 `forward::call_forward` → `interp::forward::run_folded` 派发。
+- **冷的包装函数**（还没编译、走解释器的那条路：`call_interp` / `invoke_interp`）同样折叠。
+- 结果写 `dst`（void 写 `Null`，与包装函数 `ret` 的效果一致）；失败经 `abi::error::raise`（与解释器同一个出口）
+  变成异常或致命错误，`raised_into_exception` 把它挂到 pending 槽。
+- 调用点偏移在短路**之前**就盖到调用者帧上（`set_top_frame_pc`），trace 里调用者那一行指向这次调用。
 
 ## 字符串原语内联
 

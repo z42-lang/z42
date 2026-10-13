@@ -123,7 +123,7 @@ fn spawn_via_builtin_then_join_runs_action_on_worker_thread() {
     };
     assert!(slot_id > 0, "slot id should be > 0 (1-based)");
 
-    let join_result = corelib::threading::builtin_thread_join(&ctx, &[Value::I64(slot_id)])
+    let join_result = corelib::exec_builtin_value(&ctx, "__thread_join", &[Value::I64(slot_id)])
         .expect("__thread_join should not error for a known slot");
     let arr = match join_result {
         Value::Array(rc) => rc,
@@ -134,7 +134,7 @@ fn spawn_via_builtin_then_join_runs_action_on_worker_thread() {
         "expected JOIN_OK (0), got {:?}", borrowed.get_boxed(0));
 
     // Second join on the same slot → JOIN_UNKNOWN_SLOT (handle consumed).
-    let second = corelib::threading::builtin_thread_join(&ctx, &[Value::I64(slot_id)]).unwrap();
+    let second = corelib::exec_builtin_value(&ctx, "__thread_join", &[Value::I64(slot_id)]).unwrap();
     if let Value::Array(rc) = second {
         let b = rc.borrow();
         assert!(matches!(b.get_boxed(0), Value::I64(2)),
@@ -365,6 +365,7 @@ fn make_void_action_module(fn_name: &str) -> Module {
         resolved:               std::sync::OnceLock::new(),
         owner_init:               Default::default(),
         id: Default::default(),
+        forward: Default::default(),
     };
     let mut func_index = rustc_hash::FxHashMap::default();
     func_index.insert(fn_name.to_string(), 0);

@@ -310,14 +310,16 @@ public class StreamWriter {
 | `NotSupportedException` | 对不具备该能力的流调用 `Read` / `Write` / `Seek` / `Length` / `Position` |
 | `ArgumentException` | `offset` / `count` 越界、`bufferSize <= 0`、未知 `SeekOrigin`、`Seek` 结果为负 |
 | `InvalidOperationException` | 对已 `Close()` 的 `FileStream` / `BufferedStream` / 字符读写器继续操作 |
-| `EndOfStreamException` | `Stream.ReadExactly(count)` 在凑满前遇到 EOF |
+| `Std.IO.EndOfStreamException`（继承 `Std.IO.IOException`） | `Stream.ReadExactly(count)` 在凑满前遇到 EOF |
 | `Exception`（基类本身） | 文件打开 / 读写的底层失败，message 是 OS 原文，例如 `No such file or directory (os error 2)` |
 
-**没有 `IOException` 这个类型**：文件层面的失败（路径不存在、权限不足）抛的就是基类
-`Std.Exception`，只能按 message 区分。
+`Std.IO.IOException` 族（`FileNotFoundException` / `DirectoryNotFoundException` / `PathTooLongException`，
+见[异常](../language/exceptions.md)）已经存在，但文件层面的失败（路径不存在、权限不足）**目前仍抛基类
+`Std.Exception`**，只能按 message 区分——文件系统的运行期实现还没改为抛这些类型，届时 `catch (IOException)`
+才接得住它们。
 
 ```z42
-public class EndOfStreamException : Exception {
+public class EndOfStreamException : IOException {
     public EndOfStreamException(string message);
 }
 ```

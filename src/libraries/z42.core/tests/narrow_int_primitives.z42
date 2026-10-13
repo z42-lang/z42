@@ -83,53 +83,52 @@ void test_u64_parse_low_values_round_trip() {
 }
 
 // ── Range-rejection paths ────────────────────────────────────────────────────
-// Verify that out-of-range Parse calls throw a catchable `Std.Exception`
-// (make-corelib-errors-catchable, 2026-05-15). Before that fix, builtin
-// `bail!` errors aborted the VM with an uncatchable raw error.
+// Out-of-range Parse calls throw `OverflowException` (.NET), "-1" for an
+// unsigned type included.
 
 [Test]
 void test_i8_parse_rejects_out_of_range() {
-    Assert.ThrowsAny(() => SByte.Parse("128"));
-    Assert.ThrowsAny(() => SByte.Parse("-129"));
+    Assert.Throws("OverflowException", () => SByte.Parse("128"));
+    Assert.Throws("OverflowException", () => SByte.Parse("-129"));
 }
 
 [Test]
 void test_i16_parse_rejects_out_of_range() {
-    Assert.ThrowsAny(() => Int16.Parse("32768"));
-    Assert.ThrowsAny(() => Int16.Parse("-32769"));
+    Assert.Throws("OverflowException", () => Int16.Parse("32768"));
+    Assert.Throws("OverflowException", () => Int16.Parse("-32769"));
 }
 
 [Test]
 void test_u8_parse_rejects_out_of_range() {
-    Assert.ThrowsAny(() => Byte.Parse("256"));
-    Assert.ThrowsAny(() => Byte.Parse("-1"));
+    Assert.Throws("OverflowException", () => Byte.Parse("256"));
+    Assert.Throws("OverflowException", () => Byte.Parse("-1"));
 }
 
 [Test]
 void test_u16_parse_rejects_out_of_range() {
-    Assert.ThrowsAny(() => UInt16.Parse("65536"));
-    Assert.ThrowsAny(() => UInt16.Parse("-1"));
+    Assert.Throws("OverflowException", () => UInt16.Parse("65536"));
+    Assert.Throws("OverflowException", () => UInt16.Parse("-1"));
 }
 
 [Test]
 void test_u32_parse_rejects_out_of_range() {
-    Assert.ThrowsAny(() => UInt32.Parse("4294967296"));
-    Assert.ThrowsAny(() => UInt32.Parse("-1"));
+    Assert.Throws("OverflowException", () => UInt32.Parse("4294967296"));
+    Assert.Throws("OverflowException", () => UInt32.Parse("-1"));
 }
 
 [Test]
 void test_u64_parse_rejects_negative() {
-    Assert.ThrowsAny(() => UInt64.Parse("-1"));
+    Assert.Throws("OverflowException", () => UInt64.Parse("-1"));
 }
 
 [Test]
 void test_int_parse_now_rejects_overflow() {
     // Pre-2026-05-15 this silently succeeded with a value too big for i32.
-    Assert.ThrowsAny(() => int.Parse("9999999999"));
+    Assert.Throws("OverflowException", () => int.Parse("9999999999"));
 }
 
 [Test]
 void test_parse_rejects_non_numeric() {
-    Assert.ThrowsAny(() => int.Parse("abc"));
-    Assert.ThrowsAny(() => Byte.Parse("12x"));
+    Assert.Throws("FormatException", () => int.Parse("abc"));
+    Assert.Throws("FormatException", () => Byte.Parse("12x"));
 }

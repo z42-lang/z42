@@ -443,19 +443,20 @@ public Address Address;      public Address ShippingAddress;
 | `Compare*` / `Equals` | 比较 | `a.CompareTo(b)`, `a.Equals(b)` |
 | `Copy*` / `Clone*` | 复制：`Copy*` 写入目标；`Clone` 返回新实例 | `Array.Copy(src, dst, n)` |
 
-**`Try*` 的返回形状**：z42 的 `Try*` 有两种形态，**都不用 `out` 参数**：
+**`Try*` 的返回形状**：失败不抛异常，按结果是不是值类型分两种：
 
 ```z42
-public static int Parse(string s)        // 失败抛 FormatException
-public static int? TryParse(string s)    // 失败返回 null（可空返回，不是 out 参数）
+public static int Parse(string s)                   // 失败抛 FormatException / OverflowException
+public static bool TryParse(string s, ref int v)    // 值类型：bool + ref 出参（值类型永不可空）
+public static IPAddress? TryParse(string s)         // 引用类型：失败返回 null
 
-public bool TryAdd(TKey key, TValue v)   // 只需"成功与否"时返回 bool
+public bool TryAdd(TKey key, TValue v)              // 只需"成功与否"时返回 bool
 ```
 
-`Parse` / `TryParse` 应当**同时存在**，让调用方选择 throw 还是 check 风格。
+`Parse` / `TryParse` 应当**同时存在**，让调用方选择 throw 还是 check 风格。`TryParse` 不得靠
+`try { Parse } catch` 实现——失败路径要和成功路径一样便宜。
 
-> 语言里有 `out` 关键字，但 stdlib **零处**用 `out` 做 `Try*` 的出参——统一走可空返回。
-> 新 API 请跟随这个形状。
+> 语言里有 `out` 关键字，但 stdlib 的 `Try*` 出参统一用 `ref`。新 API 请跟随这个形状。
 
 ## 19. 反"否定式"命名
 

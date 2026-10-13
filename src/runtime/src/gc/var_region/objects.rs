@@ -57,6 +57,30 @@ impl VarRegion {
         });
     }
 
+    /// The object blocks a lowered promotion line has just made old: young-set members at or past
+    /// the (already lowered) [`Self::promotion_age`], not yet remembered. Adaptive promotion asks
+    /// for them (`ArcMagrGC::remember_lowered_cohort`) — they are the only objects that can hold an
+    /// old→young edge no barrier recorded.
+    ///
+    /// `O(young set)`, not `O(heap)`: the young set is exact (every alive block younger than the
+    /// old line, nothing else), so it holds the whole cohort. Outside generational mode there is no
+    /// young set; every alive old object is returned instead.
+    pub fn objects_past_lowered_line(&self) -> Vec<VarGcRef> {
+        let threshold = self.promotion_age;
+        let mut out = Vec::new();
+        let mut visit = |h: VarGcRef, header: &GcBlockHeader| {
+            if header.block_type() == BlockType::Object && header.gen_age() >= threshold && !header.is_remembered() {
+                out.push(h);
+            }
+        };
+        if self.generational {
+            self.iterate_young(&mut visit);
+        } else {
+            self.iterate_alive(&mut visit);
+        }
+        out
+    }
+
     /// Whether chunk `ci` is currently lent to a TLAB (its blocks are invisible to the region).
     pub fn is_chunk_borrowed(&self, ci: u32) -> bool {
         (ci as usize) < self.borrowed.len() && self.borrowed[ci as usize]
