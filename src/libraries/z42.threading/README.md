@@ -3,7 +3,7 @@
 ## 职责
 
 OS 线程级并发原语 — 用户层 `Thread.Start(Action) / Join()` API。底层通过
-`__thread_spawn` / `__thread_join` builtin 接入 runtime 的 `VmCore.threads`
+`__thread_spawn` / `__thread_wait` builtin 接入 runtime 的 `VmCore.threads`
 slot table。
 
 `Mutex<T>` / `RwLock<T>` / `Channel<T>` **用 z42 写在 `MonitorNative` 之上**，值 / 队列缓冲区是对象字段——

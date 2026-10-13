@@ -15,11 +15,7 @@ use super::builtin_table_ext::PART2;
 /// `BuiltinId` for the lifetime of the process — the resolver assigns ids by name.
 const PART1: &[(&str, Native)] = &[
     // ── I/O ────────────────────────────────────────────────────────────────────
-    ("__println",  Native::Void(io::builtin_println)),
-    ("__print",    Native::Void(io::builtin_print)),
-    ("__eprintln", Native::Void(io::builtin_eprintln)),
-    ("__eprint",   Native::Void(io::builtin_eprint)),
-    ("__readline", Native::Val(io::builtin_readline)),
+    // `__println` / `__print` / `__eprintln` / `__eprint` / `__readline` ── 已迁 builtin ABI v2：见 `io::typed`。
     ("__concat",   Native::Val(io::builtin_concat)),
     ("__len",      Native::Val(io::builtin_len)),
     ("__contains", Native::Val(io::builtin_contains)),
@@ -73,41 +69,8 @@ const PART1: &[(&str, Native)] = &[
     ("__math_cbrt",    Native::Val(math::builtin_math_cbrt)),
     ("__math_log2",    Native::Val(math::builtin_math_log2)),
 
-    // ── File I/O ──────────────────────────────────────────────────────────────
-    ("__file_read_text",   Native::Val(fs::builtin_file_read_text)),
-    ("__file_write_text",  Native::Void(fs::builtin_file_write_text)),
-    ("__file_append_text", Native::Void(fs::builtin_file_append_text)),
-    ("__file_exists",      Native::Val(fs::builtin_file_exists)),
-    ("__file_delete",      Native::Void(fs::builtin_file_delete)),
-    ("__file_last_write_time_ms", Native::Val(fs::builtin_file_last_write_time_ms)),
-
-    // ── Directory（add-std-io-directory，2026-05-13）──────────────────────────
-    ("__dir_exists",              Native::Val(fs::builtin_dir_exists)),
-    ("__dir_create",              Native::Void(fs::builtin_dir_create)),
-    ("__dir_delete",              Native::Void(fs::builtin_dir_delete)),
-    ("__dir_enumerate",           Native::Val(fs::builtin_dir_enumerate)),
-    ("__dir_enumerate_recursive", Native::Val(fs::builtin_dir_enumerate_recursive)),
-
-    // ── Glob + Temp（extend-z42-io-glob-temp，2026-05-16）─────────────────────
-    ("__path_glob",             Native::Val(fs::builtin_path_glob)),
-    ("__file_create_temp_dir",  Native::Val(fs::builtin_file_create_temp_dir)),
-    ("__file_create_temp_file", Native::Val(fs::builtin_file_create_temp_file)),
-
-    // ── Script helpers（extend-z42-io-script-helpers, 2026-05-16）────────────
-    ("__file_make_executable",      Native::Void(fs::builtin_file_make_executable)),
-    ("__file_link",                 Native::Void(fs::builtin_file_link)),
-    ("__file_symlink",              Native::Void(fs::builtin_file_symlink)),
-    ("__file_get_size",             Native::Val(fs::builtin_file_get_size)),
-    ("__console_is_terminal",       Native::Val(fs::builtin_console_is_terminal)),
-    ("__console_error_is_terminal", Native::Val(fs::builtin_console_error_is_terminal)),
-    ("__env_get_cwd",               Native::Val(fs::builtin_env_get_cwd)),
-    ("__env_set_cwd",               Native::Void(fs::builtin_env_set_cwd)),
-
-    // ── Environment / Process ─────────────────────────────────────────────────
-    ("__env_get",      Native::Val(fs::builtin_env_get)),
-    ("__env_args",     Native::Val(fs::builtin_env_args)),
-    ("__process_exit", Native::Void(fs::builtin_process_exit)),
-    ("__time_now_ms",  Native::Val(fs::builtin_time_now_ms)),
+    // ── File / Directory / Glob / Temp / Console tty / Environment / clock ── 已迁 builtin ABI v2：
+    //    见 `fs::typed`（FileStream 句柄、`__env_*`、`__process_exit`、`__time_now_ms` 也在那里）。
 
     // ── Object protocol ───────────────────────────────────────────────────────
     ("__obj_get_type",  Native::Val(object::builtin_obj_get_type)),
@@ -214,21 +177,17 @@ const PART1: &[(&str, Native)] = &[
     ("__gc_handle_free",     Native::Void(gc::builtin_gc_handle_free)),
     ("__gc_stats",           Native::Val(gc::builtin_gc_stats)),
 
-    // ── add-std-io-polish (2026-05-12) — appended to preserve existing BuiltinIds ──
-    ("__file_copy",  Native::Void(fs::builtin_file_copy)),
-    ("__file_move",  Native::Void(fs::builtin_file_move)),
-    ("__env_set",    Native::Void(fs::builtin_env_set)),
-
-    // ── add-std-process (2026-05-13) — appended to preserve existing BuiltinIds ──
-    ("__process_run",                 Native::Val(process::builtin_process_run)),
-    ("__process_spawn",               Native::Val(process::builtin_process_spawn)),
-    ("__process_handle_wait",         Native::Val(process::builtin_process_handle_wait)),
-    ("__process_handle_try_wait",     Native::Val(process::builtin_process_handle_try_wait)),
-    ("__process_handle_kill",         Native::Val(process::builtin_process_handle_kill)),
-    ("__process_handle_write_stdin",  Native::Val(process::builtin_process_handle_write_stdin)),
-    ("__process_handle_close_stdin",  Native::Val(process::builtin_process_handle_close_stdin)),
-    ("__process_handle_pid",          Native::Val(process::builtin_process_handle_pid)),
-    ("__process_handle_drop",         Native::Val(process::builtin_process_handle_drop)),
+    // ── add-std-process (2026-05-13) ── seed compatibility only: the stdlib calls the typed
+    //    `process::typed` builtins; these old shapes stay for the published seed (`process_legacy.rs`).
+    ("__process_run",                 Native::Val(process_legacy::builtin_process_run)),
+    ("__process_spawn",               Native::Val(process_legacy::builtin_process_spawn)),
+    ("__process_handle_wait",         Native::Val(process_legacy::builtin_process_handle_wait)),
+    ("__process_handle_try_wait",     Native::Val(process_legacy::builtin_process_handle_try_wait)),
+    ("__process_handle_kill",         Native::Val(process_legacy::builtin_process_handle_kill)),
+    ("__process_handle_write_stdin",  Native::Val(process_legacy::builtin_process_handle_write_stdin)),
+    ("__process_handle_close_stdin",  Native::Val(process_legacy::builtin_process_handle_close_stdin)),
+    ("__process_handle_pid",          Native::Val(process_legacy::builtin_process_handle_pid)),
+    ("__process_handle_drop",         Native::Val(process_legacy::builtin_process_handle_drop)),
 ];
 
 /// 完整表 = PART1 ++ PART2，**编译期**拼接：BuiltinId 就是最终下标，运行期再拼会
@@ -242,6 +201,11 @@ const TYPED: &[&[super::abi::BuiltinDesc]] = &[
     super::convert::typed::DESCS,
     super::string::typed::DESCS,
     super::threading::typed::DESCS,
+    super::fs::typed::DESCS,
+    super::fs_backend::memory::typed::DESCS,
+    super::process::typed::DESCS,
+    super::io::typed::DESCS,
+    super::repl::typed::DESCS,
     #[cfg(test)]
     super::abi::test_builtins::DESCS,
 ];
@@ -264,7 +228,7 @@ pub(crate) const LEGACY_REENTERS: &[&str] = &[
     "__field_custom_attributes", "__param_custom_attributes", "__property_custom_attributes",
     "__type_get_type", "__method_invoke", "__method_make_generic", "__method_generic_arguments",
     "__property_get_value", "__property_set_value", "__field_get_value", "__field_set_value",
-    "__activator_create", "__ctor_invoke", "__load_module", "__invoke_static", "__repl_readline",
+    "__activator_create", "__ctor_invoke", "__load_module", "__invoke_static",
     "__repl_complete_probe", "__repl_set_completer", "__repl_set_key_editor", "__repl_set_keywords",
     "__repl_member_names", "__load_bytecode_in_memory", "__enum_parse", "__enum_is_defined",
     "__type_enum_underlying", "__type_is_nested", "__type_declaring_type", "__type_nested_types",

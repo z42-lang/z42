@@ -1,3 +1,4 @@
+use crate::corelib::abi::Blocking;
 use crate::metadata::Value;
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
@@ -118,79 +119,100 @@ fn dispatch_host_sink(
     true
 }
 
-fn route_stdout(text: &str, append_newline: bool) {
-    if HOST_SINK_ACTIVE.with(|c| c.get())
-        && dispatch_host_sink(text, append_newline, &HOST_STDOUT_SINK)
-    {
-        return;
-    }
-    STDOUT_SINKS.with(|sinks| {
-        let mut s = sinks.borrow_mut();
-        if let Some(top) = s.last_mut() {
-            top.extend_from_slice(text.as_bytes());
-            if append_newline { top.push(b'\n'); }
-        } else if append_newline {
-            println!("{}", text);
-        } else {
-            print!("{}", text);
-        }
-    });
+#[derive(Clone, Copy)]
+enum Stream {
+    Stdout,
+    Stderr,
 }
 
-fn route_stderr(text: &str, append_newline: bool) {
-    if HOST_SINK_ACTIVE.with(|c| c.get())
-        && dispatch_host_sink(text, append_newline, &HOST_STDERR_SINK)
-    {
-        return;
+/// Route a `Console.Write*` text. A capture sink — the embedding host's callback (when
+/// active on this thread) or the innermost TestIO buffer — takes it right here, unparked:
+/// a buffer append does not block, and the host callback may re-enter the host API (so it
+/// must not run parked). Only a write to the process's own stdout / stderr can block — a
+/// pipe whose reader stalls fills up — and that part is returned as a [`Blocking`] write,
+/// run parked.
+fn route(stream: Stream, text: String, append_newline: bool) -> Blocking<()> {
+    let (host, sinks) = match stream {
+        Stream::Stdout => (&HOST_STDOUT_SINK, &STDOUT_SINKS),
+        Stream::Stderr => (&HOST_STDERR_SINK, &STDERR_SINKS),
+    };
+    if HOST_SINK_ACTIVE.with(|c| c.get()) && dispatch_host_sink(&text, append_newline, host) {
+        return Blocking::ready(());
     }
-    STDERR_SINKS.with(|sinks| {
-        let mut s = sinks.borrow_mut();
-        if let Some(top) = s.last_mut() {
+    let captured = sinks.with(|sinks| match sinks.borrow_mut().last_mut() {
+        Some(top) => {
             top.extend_from_slice(text.as_bytes());
             if append_newline { top.push(b'\n'); }
-        } else if append_newline {
-            eprintln!("{}", text);
-        } else {
-            eprint!("{}", text);
+            true
         }
+        None => false,
     });
+    if captured {
+        return Blocking::ready(());
+    }
+    Blocking::new(move || {
+        match (stream, append_newline) {
+            (Stream::Stdout, true)  => println!("{text}"),
+            (Stream::Stdout, false) => print!("{text}"),
+            (Stream::Stderr, true)  => eprintln!("{text}"),
+            (Stream::Stderr, false) => eprint!("{text}"),
+        }
+        Ok(())
+    })
 }
 
-/// dispatch-tostring-in-native-stringify: `Console.Write/WriteLine` 一族的实参字符串化。
+/// One line from `r` without its line terminator; `""` at end of input (the
+/// `Console.ReadLine` shape the stdlib declares — `string`, not `string?`).
+fn read_line_from(r: &mut impl std::io::BufRead) -> std::io::Result<String> {
+    let mut line = String::new();
+    r.read_line(&mut line)?;
+    Ok(line.trim_end_matches(['\n', '\r']).to_string())
+}
+
+/// `Console` builtins (builtin ABI v2).
 ///
-/// 此前四个 builtin 都签着 `_ctx` **却用无 ctx 的 `value_to_str`** ⇒ 对象一律打 `类型名{...}`，
-/// 而同一个对象经插值（`ToStr` 指令 → `obj_to_gc_str`）是对的 —— 四条字符串化路四个说法。
-/// 改走 `stringify_dispatch`：有用户 `ToString` 就派发（含装箱 struct / record 合成 / enum 成员名），
-/// 没有才回落短类型名，与插值、拼接、显式 `x.ToString()` 收敛为同一个答案。
-fn stringify_arg(ctx: &VmContext, args: &[Value]) -> Result<String> {
-    match args.first() {
-        Some(v) => crate::interp::dispatch::stringify_dispatch(ctx, v),
-        None => Ok(String::new()),
+/// `Write` / `WriteLine` stringify their argument through the user's `ToString` (z42
+/// code: `reenters`), then route it ([`route`]): the process-stream write runs parked.
+/// `ReadLine` waits for input for as long as the user likes — the whole read is parked.
+#[z42_macros::builtins]
+pub mod typed {
+    use super::{route, Stream};
+    use crate::corelib::abi::{Blocking, BuiltinError};
+    use crate::metadata::Value;
+    use crate::vm_context::VmContext;
+
+    /// dispatch-tostring-in-native-stringify: the same string interpolation / `ToString()`
+    /// produce — a user `ToString` is dispatched (boxed structs, record synthesis, enum
+    /// member names), the short type name only without one.
+    fn stringify(ctx: &VmContext, value: &Value) -> Result<String, BuiltinError> {
+        crate::interp::dispatch::stringify_dispatch(ctx, value).map_err(BuiltinError::Legacy)
     }
-}
 
-pub fn builtin_println(ctx: &VmContext, args: &[Value]) -> Result<()> {
-    let text = stringify_arg(ctx, args)?;
-    route_stdout(&text, true);
-    Ok(())
-}
+    #[builtin(name = "__println", reenters)]
+    pub fn println(ctx: &VmContext, value: &Value) -> Result<Blocking<()>, BuiltinError> {
+        Ok(route(Stream::Stdout, stringify(ctx, value)?, true))
+    }
 
-pub fn builtin_print(ctx: &VmContext, args: &[Value]) -> Result<()> {
-    let text = stringify_arg(ctx, args)?;
-    route_stdout(&text, false);
-    Ok(())
-}
+    #[builtin(name = "__print", reenters)]
+    pub fn print(ctx: &VmContext, value: &Value) -> Result<Blocking<()>, BuiltinError> {
+        Ok(route(Stream::Stdout, stringify(ctx, value)?, false))
+    }
 
-pub fn builtin_eprintln(ctx: &VmContext, args: &[Value]) -> Result<()> {
-    let text = stringify_arg(ctx, args)?;
-    route_stderr(&text, true);
-    Ok(())
-}
+    #[builtin(name = "__eprintln", reenters)]
+    pub fn eprintln(ctx: &VmContext, value: &Value) -> Result<Blocking<()>, BuiltinError> {
+        Ok(route(Stream::Stderr, stringify(ctx, value)?, true))
+    }
 
-pub fn builtin_eprint(ctx: &VmContext, args: &[Value]) -> Result<()> {
-    let text = stringify_arg(ctx, args)?;
-    route_stderr(&text, false);
-    Ok(())
+    #[builtin(name = "__eprint", reenters)]
+    pub fn eprint(ctx: &VmContext, value: &Value) -> Result<Blocking<()>, BuiltinError> {
+        Ok(route(Stream::Stderr, stringify(ctx, value)?, false))
+    }
+
+    /// `Console.ReadLine()` — one line without its terminator; `""` at end of input.
+    #[builtin(name = "__readline", blocking)]
+    pub fn readline() -> Result<String, BuiltinError> {
+        super::read_line_from(&mut std::io::stdin().lock()).map_err(BuiltinError::from)
+    }
 }
 
 pub fn builtin_test_io_install_stdout_sink(_ctx: &VmContext, _: &[Value]) -> Result<()> {
@@ -232,18 +254,6 @@ pub fn builtin_test_io_install_stderr_sink(_ctx: &VmContext, _: &[Value]) -> Res
 pub fn builtin_test_io_take_stderr_buffer(_ctx: &VmContext, _: &[Value]) -> Result<Value> {
     let bytes = STDERR_SINKS.with(|s| s.borrow_mut().pop().unwrap_or_default());
     Ok(Value::Str(String::from_utf8_lossy(&bytes).into_owned().into()))
-}
-
-pub fn builtin_readline(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    let mut line = String::new();
-    // fix-blocking-native-calls-round2：阻塞期间必须让出 GC safepoint，否则并发 GC 死锁
-    // （同 #598 的网络七处；机制见 gc/safepoint.rs 的 NativeParkGuard）。
-    // 等用户输入 —— 可以无限久。
-    {
-        let _park = crate::gc::NativeParkGuard::enter(ctx);
-        std::io::stdin().read_line(&mut line)?;
-    }
-    Ok(Value::Str(line.trim_end_matches(['\n', '\r']).to_string().into()))
 }
 
 pub fn builtin_concat(_ctx: &VmContext, args: &[Value]) -> Result<Value> {

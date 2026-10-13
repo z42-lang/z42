@@ -210,6 +210,54 @@ impl<'a> FromArg<'a> for Value {
     fn from_arg(v: &'a Value, _at: &ArgAt) -> Result<Self, BuiltinError> { Ok(*v) }
 }
 
+/// A `byte[]`, copied out (an atomic chunked snapshot of a packed array) — owned plain
+/// data, so a `blocking` builtin may take it. Elements outside `0..=255` (an unpacked
+/// array) are an `InvalidCastException`.
+impl<'a> FromArg<'a> for Vec<u8> {
+    const KIND: ParamKind = ParamKind::Bytes;
+    fn from_arg(v: &'a Value, at: &ArgAt) -> Result<Self, BuiltinError> {
+        match v {
+            Value::Array(rc) => {
+                let arr = rc.borrow();
+                if let Some(b) = arr.byte_snapshot() { return Ok(b); }
+                arr.iter_boxed().map(|e| match e {
+                    Value::I64(n) if (0..=255).contains(&n) => Ok(n as u8),
+                    other => Err(at.mismatch("a byte[]", &other)),
+                }).collect()
+            }
+            Value::Null => Err(at.null()),
+            other => Err(at.mismatch("a byte[]", other)),
+        }
+    }
+}
+
+impl<'a> FromArg<'a> for Option<Vec<u8>> {
+    const KIND: ParamKind = ParamKind::OptBytes;
+    #[inline]
+    fn from_arg(v: &'a Value, at: &ArgAt) -> Result<Self, BuiltinError> {
+        match v {
+            Value::Null => Ok(None),
+            other => <Vec<u8>>::from_arg(other, at).map(Some),
+        }
+    }
+}
+
+/// A `string[]`, copied out. A null element is an `ArgumentNullException`.
+impl<'a> FromArg<'a> for Vec<String> {
+    const KIND: ParamKind = ParamKind::StrArray;
+    fn from_arg(v: &'a Value, at: &ArgAt) -> Result<Self, BuiltinError> {
+        match v {
+            Value::Array(rc) => rc.borrow().iter_boxed().map(|e| match e {
+                Value::Str(s) => Ok(s.as_str().to_owned()),
+                Value::Null => Err(at.null()),
+                other => Err(at.mismatch("a string[]", &other)),
+            }).collect(),
+            Value::Null => Err(at.null()),
+            other => Err(at.mismatch("a string[]", other)),
+        }
+    }
+}
+
 /// A `ref` / `out` argument (the caller passed the address of a local, an array element
 /// or a field). [`RefArg::store`] writes through it, as an assignment to the parameter
 /// inside a z42 method would.
@@ -251,3 +299,6 @@ impl PlainArg for bool {}
 impl PlainArg for char {}
 impl PlainArg for String {}
 impl PlainArg for Option<String> {}
+impl PlainArg for Vec<u8> {}
+impl PlainArg for Option<Vec<u8>> {}
+impl PlainArg for Vec<String> {}

@@ -33,6 +33,6 @@ void test_set_then_get_round_trip() {
 void test_set_nonexistent_throws() {
     bool caught = false;
     try { Environment.SetCurrentDirectory("/nonexistent-z42-cwd-test-12345"); }
-    catch (Exception e) { caught = true; }
+    catch (DirectoryNotFoundException e) { caught = true; }
     Assert.True(caught);
 }

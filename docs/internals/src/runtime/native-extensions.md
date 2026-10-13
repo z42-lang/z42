@@ -141,7 +141,7 @@ extern "C" fn complete_trampoline(ctx: *mut c_void, line: *const c_char, pos) ->
 
 ### 2.5 GC 重入协议
 
-`builtin_repl_readline` 阻塞读 stdin 前先 `NativeParkGuard::enter`——把本线程**停靠**，让后台
+`__repl_readline`（`repl::typed::repl_readline`）阻塞读 stdin 前先 `NativeParkGuard::enter`——把本线程**停靠**，让后台
 prewarm 线程的 GC 能在本线程等输入时推进。但回调（`complete`/`key_edit`）会在 `readline` 中途
 重入 VM 跑 z42 代码，此时必须**临时 unpark**（trampoline 内 `NativeUnparkGuard::exit`），让回调
 作为正常 mutator 在自己的 safepoint 停靠；回调返回、`_unpark` drop 后自动重新停靠回阻塞读。

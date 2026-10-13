@@ -80,7 +80,7 @@ void test_atomic_write_to_nonexistent_directory_throws() {
     bool caught = false;
     try {
         File.WriteAllTextAtomic("/no/such/dir/x.txt", "should fail");
-    } catch (Exception e) {
+    } catch (DirectoryNotFoundException e) {
         caught = true;
     }
     Assert.True(caught);

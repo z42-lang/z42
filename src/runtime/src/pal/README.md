@@ -22,8 +22,8 @@ runtime 其余模块**零 cfg 调用** OS 服务。每个 concern 一个文件�
 
 `pal::system::hostname()` — `Option<String>`，None 在 Windows / WASM
 `pal::system::os_version()` — `String`，空字符串表示 syscall 失败
-`pal::fs::make_executable(path)` — `Result<()>`，unix 加 u+x g+x o+x；非 unix no-op
-`pal::fs::symlink(src, dst)` — `Result<()>`，unix 建符号链接；非 unix bail
+`pal::fs::make_executable(path)` — `io::Result<()>`，unix 加 u+x g+x o+x；非 unix no-op
+`pal::fs::symlink(src, dst)` — `io::Result<()>`，unix 建符号链接；非 unix 报 `Unsupported`
 `pal::signal::register_fatal_handlers(handler)` — 注册 5 fatal 信号（unix）
 `pal::signal::sigsafe::write_str(fd, bytes)` — async-signal-safe 写（unix）
 

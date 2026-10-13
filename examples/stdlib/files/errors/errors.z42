@@ -4,9 +4,15 @@ void Main() {
     // ANCHOR: missing
     try {
         File.ReadAllText("nope.txt");
-    } catch (Exception e) {
+    } catch (FileNotFoundException e) {
         Console.WriteLine("类型：" + e.GetType().Name);
         Console.WriteLine("消息：" + e.Message);
+    }
+    // 子类按 C# 的继承关系挂好：catch (IOException) 也接得住
+    try {
+        File.ReadAllBytes("nope.txt");
+    } catch (IOException e) {
+        Console.WriteLine("当 IOException 接：" + e.GetType().Name);
     }
     // ANCHOR_END: missing
 
@@ -14,7 +20,7 @@ void Main() {
     // 写文件**不会**顺手建父目录
     try {
         File.WriteAllText("out/report.txt", "x");
-    } catch (Exception e) {
+    } catch (DirectoryNotFoundException e) {
         Console.WriteLine("父目录不存在：" + e.Message);
     }
     Directory.Create("out");                  // 先建目录，再写
@@ -24,8 +30,8 @@ void Main() {
 
     // ANCHOR: tolerant
     // 「不存在」时谁抛谁不抛，各不相同
-    try { File.Delete("nope.txt"); } catch (Exception e) { Console.WriteLine("File.Delete 缺文件 → 抛"); }
-    try { Directory.Enumerate("nodir"); } catch (Exception e) { Console.WriteLine("Directory.Enumerate 缺目录 → 抛"); }
+    try { File.Delete("nope.txt"); } catch (FileNotFoundException e) { Console.WriteLine("File.Delete 缺文件 → 抛 FileNotFoundException"); }
+    try { Directory.Enumerate("nodir"); } catch (DirectoryNotFoundException e) { Console.WriteLine("Directory.Enumerate 缺目录 → 抛 DirectoryNotFoundException"); }
     Console.WriteLine("Path.Glob 缺目录 → 空数组（" + Path.Glob("nodir", "*").Length.ToString() + " 个）");
     Console.WriteLine("File.Exists 缺文件 → " + File.Exists("nope.txt").ToString());
     // ANCHOR_END: tolerant

@@ -21,10 +21,10 @@ GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / As
 | builtin 注册表 + 名称↔id 解析 + 分发 | `mod.rs` 的 `invoke_builtin`（引擎）/ `exec_builtin`（实参切片）；`builtin_table.rs` 的 `BUILTINS` 表（`TYPED` 段列出 `#[builtins]` 模块） |
 | builtin ABI v2：类型化实参 / 返回值、`BuiltinError` 与异常类、`blocking` | **`abi/`**（`args.rs` / `ret.rs` / `error.rs`；宏在 `crates/z42-macros/src/builtins_attr.rs`） |
 | 值转换 / 解析（`Parse` / `TryParse`）/ to-string / 装箱 | `convert.rs`（`typed` 模块，ABI v2） |
-| 控制台 IO（print/readline/concat/len） | `io.rs` |
+| 控制台 IO（print / readline：`typed` 模块，ABI v2；写进程 stdout / stderr 与读 stdin 都 park）/ TestIO 捕获 / concat / len | `io.rs` |
 | 字符串操作 / 字符（含 bulk 原语 `__str_to_chars` / `__str_substring` / `__str_concat_parts` / `__str_split` / `__str_join`：Substring / StringBuilder.ToString / Join / Concat / Split 的底座，一次拷贝取代逐字符 builtin 派发）| `string.rs` / `str_meta.rs` / `char.rs` |
 | 数学 | `math.rs` |
-| 文件系统 / 路径 / env / 时间（平台隔离后端） | `fs.rs` + `fs_backend/`（`native` / `memory`） |
+| 文件系统 / FileStream 句柄 / env / 时间（`typed` 模块，ABI v2：.NET 口径的 IO 异常 `fs_error`、文件 I/O 一律 park、句柄表锁外做系统调用；平台隔离后端返回 `io::Error`） | `fs.rs` + `fs_backend/`（`native` / `memory`） |
 | 对象内建（GetType / RefEq / HashCode） | `object.rs` |
 | **反射**（`Std.Type` / `Std.Reflection.*`：枚举成员、attribute、反射调用、Activator、模块加载） | **`reflection/`**（子目录，见下「核心文件」） |
 | 值类型 struct 字段布局复现（反射读写内联/装箱 struct） | `struct_reflect.rs` |
@@ -35,7 +35,7 @@ GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / As
 | 数组内建 | `array.rs` |
 | GC 控制（collect / 阈值 / 快照） | `gc.rs` |
 | 基准计时 | `bench.rs` |
-| 进程 / 平台 / 系统信息 | `process.rs` / `platform.rs` / `system.rs` |
+| 子进程（`typed` 模块，ABI v2：失败从 Rust 抛、等子进程一律 park）/ 种子兼容的旧 `__process_*` 数组形状 / 平台 / 系统信息 | `process.rs` / `process_legacy.rs` / `platform.rs` / `system.rs` |
 | 线程 / 同步原语底座 Monitor（不含值，Mutex/RwLock/Channel 由 z42 写在其上）/ 锁争用探针 | `threading.rs` / `monitor.rs` / `sync_contention.rs`；机制见 [sync-primitives.md](../../../../docs/internals/src/runtime/sync-primitives.md) |
 | 网络 / TLS / 加密 | `network.rs`（hub：KIND_* / 句柄槽）+ `network/{tcp, tcp_options, udp, wasm}.rs` / `tls.rs` / `crypto.rs` |
 | REPL 支持（求值宿主 / 行编辑 / 行编辑器 cdylib 的懒 dlopen） | `repl.rs` / `repl_editing.rs` / `repl_native.rs` |
@@ -66,7 +66,8 @@ GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / As
 3. z42 侧用 `[Native("__foo_bar")]` 声明对应外部函数（stdlib）。
 
 **改语义要换名字**：已发布种子的 stdlib 会跑在新 VM 上，同名 builtin 的签名与返回形状必须兼容
-（只把抛出的异常换成更具体的子类是兼容的）。
+（只把抛出的异常换成更具体的子类是兼容的）。z42.core 里被别的包调用的 `[Native]` 包装（`ProcessNative`、
+`ThreadNative`）同理——加新方法，不改旧方法的形状；旧名字挂 `STAGE2-DEBT`（native ABI §6.5）。
 
 **lenient 约定**：类型/反射类 builtin 对「无 handle 的合成 Type（数组 `T[]`，及 z42.core
 未加载时的 primitive 兜底）」或非预期入参一律返回空数组 / null，不 `bail!`。primitive 正常解析为真 `Std.*` 句柄（`typeof(int)` ≡ `(5).GetType()`）。

@@ -2,6 +2,12 @@ namespace Std.IO;
 
 using Std.Time;
 
+// 错误（.NET 口径，VM 直接抛；都是 `IOException` 或 `Exception` 的子类）：
+//   文件不存在 → FileNotFoundException；目录（路径的一部分）不存在 → DirectoryNotFoundException；
+//   无权限 / 把目录当文件读写 → UnauthorizedAccessException；路径过长 → PathTooLongException；
+//   其它 OS 错 → IOException（消息带路径）；null 实参 → ArgumentNullException；空路径 → ArgumentException。
+// 与 .NET 的出入：Delete 删不存在的文件抛 FileNotFoundException（.NET 静默）；Copy / Move
+// 覆盖已存在的目标（.NET 两参版本抛 IOException）。
 public static class File {
     [Native("__file_read_text")]
     public static extern string ReadAllText(string path);
@@ -17,7 +23,8 @@ public static class File {
     // `new FileStream(...)` + `try/finally` when the entire payload fits
     // in memory — they avoid slot-table allocation overhead.
 
-    /// 一次性读取整个文件为 byte 数组。文件不存在 / 无权限抛 `Std.Exception`。
+    /// 一次性读取整个文件为 byte 数组。文件不存在抛 `FileNotFoundException`、目录不存在抛
+    /// `DirectoryNotFoundException`、无权限抛 `UnauthorizedAccessException`（见类头注释）。
     [Native("__file_read_bytes")]
     public static extern byte[] ReadAllBytes(string path);
 
@@ -54,7 +61,7 @@ public static class File {
     // freshness / incremental / cache 检查的硬依赖（migrate-scripts-to-z42 标注的
     // P0 stdlib gap：build-stdlib 现用字母序绕过 mtime 是 hack）。native 返回 unix
     // epoch 毫秒，包装成 Std.Time.DateTime（z42.io 已依赖 z42.time）。比较用
-    // `DateTime.IsAfter` / `IsBefore` / `UnixMs()`。文件不存在 / 无权限抛 Std.Exception。
+    // `DateTime.IsAfter` / `IsBefore` / `UnixMs()`。文件不存在抛 FileNotFoundException。
     public static DateTime GetLastWriteTime(string path) {
         return DateTime.FromUnixMs(LastWriteTimeMs(path));
     }

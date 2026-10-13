@@ -164,7 +164,9 @@ I/O 异常位于 `Std.IO` 命名空间（`using Std.IO;`）：
 | `PathTooLongException` | `IOException` | 路径超出系统允许的长度 |
 | `EndOfStreamException`（`z42.io`） | `IOException` | 流在凑满所需字节前到达末尾 |
 
-⚠️ 文件系统操作（`File.ReadAllText` 等）的失败**目前仍抛 `Std.Exception`**，还没改为抛上面这些类型。
+文件 / 目录 / 进程操作的失败按 .NET 的口径抛这些类型（文件不存在 → `FileNotFoundException`，
+目录不存在 → `DirectoryNotFoundException`，权限不足 → `UnauthorizedAccessException`……），对照见
+[控制台与文件 · 异常](../stdlib/io-file.md#异常)与[子进程 · 异常](../stdlib/process.md#异常)。
 
 部分子类只有 ctor 转发 + 一个 `override ToString()`（返回 `"<ClassName>: <Message>"`）——
 ⚠️ 那些 override 是**冗余**的：基类已按运行期类型取名，输出一字不差。

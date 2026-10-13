@@ -1,0 +1,119 @@
+// requires-caps: process, fs
+// runtime-audit P1-8: process failures are thrown by the VM, .NET-shaped —
+// ProcessStartException : IOException, ProcessTimeoutException : TimeoutException
+// (Program / TimeoutMs filled by the VM), ProcessHandleInvalidException :
+// InvalidOperationException; stdin that was never piped → InvalidOperationException
+// (the handle stays usable).
+namespace Z42IoProcessExceptionsTests;
+
+using Std.IO;
+using Std.Test;
+
+[Test]
+void test_start_failure_is_an_io_exception() {
+    string msg = "";
+    try {
+        new Process("z42-no-such-binary-p18").Run();
+    } catch (IOException e) {
+        msg = e.Message;
+    }
+    Assert.Contains("z42-no-such-binary-p18", msg);
+    Assert.Throws("ProcessStartException", () => new Process("z42-no-such-binary-p18").Run());
+    Assert.Throws("ProcessStartException", () => new Process("z42-no-such-binary-p18").Spawn());
+}
+
+[Test]
+void test_missing_working_directory_is_a_start_failure() {
+    Assert.Throws("ProcessStartException",
+        () => new Process("true").WorkingDirectory("/z42-no-such-dir-p18").Run());
+}
+
+[Test]
+void test_timeout_is_a_timeout_exception_with_fields() {
+    long ms = -1L;
+    string prog = "";
+    try {
+        new Process("sh").Arg("-c").Arg("sleep 5").Timeout(200).Run();
+    } catch (ProcessTimeoutException e) {
+        ms = e.TimeoutMs;
+        prog = e.Program;
+    }
+    Assert.Equal(200L, ms);
+    Assert.Equal("sh", prog);
+    bool asTimeout = false;
+    try {
+        new Process("sh").Arg("-c").Arg("sleep 5").Timeout(100).Run();
+    } catch (TimeoutException e) {
+        asTimeout = true;
+    }
+    Assert.True(asTimeout);
+}
+
+[Test]
+void test_exit_codes_and_streams() {
+    var r = new Process("sh").Arg("-c").Arg("printf out; printf err >&2; exit 7").Run();
+    Assert.Equal(7, r.ExitCode);
+    Assert.Equal("out", r.Stdout);
+    Assert.Equal("err", r.Stderr);
+    Assert.Equal(3, r.StdoutBytes.Length);
+    Assert.Equal((int)'o', (int)r.StdoutBytes[0]);
+}
+
+[Test]
+void test_streaming_read_until_eof() {
+    var h = new Process("sh").Arg("-c").Arg("printf abcdef").Spawn();
+    byte[] buf = new byte[4];
+    int total = 0;
+    int n = h.ReadStdout(buf, 0, 4);
+    while (n > 0) {
+        total = total + n;
+        n = h.ReadStdout(buf, 0, 4);
+    }
+    Assert.Equal(6, total);
+    var r = h.Wait();
+    Assert.Equal(0, r.ExitCode);
+}
+
+[Test]
+void test_handle_invalid_after_wait_is_invalid_operation() {
+    var h = new Process("true").Spawn();
+    h.Wait();
+    Assert.Throws("ProcessHandleInvalidException", () => h.Pid());
+    bool asInvalidOp = false;
+    try {
+        h.Wait();
+    } catch (InvalidOperationException e) {
+        asInvalidOp = true;
+    }
+    Assert.True(asInvalidOp);
+}
+
+[Test]
+void test_write_to_unpiped_stdin_keeps_the_handle_valid() {
+    var h = new Process("true").Spawn();          // stdin = Stdio.Null()
+    Assert.Throws("InvalidOperationException", () => h.WriteStdinString("x"));
+    var r = h.Wait();                              // still a live handle
+    Assert.Equal(0, r.ExitCode);
+}
+
+[Test]
+void test_write_to_a_closed_pipe_is_io_exception() {
+    // The child closes its stdin and lingers: a payload past any pipe buffer blocks
+    // (parked) until the read end is gone, then fails with EPIPE.
+    var h = new Process("sh").Arg("-c").Arg("exec 0<&-; sleep 2").Stdin(Stdio.Pipe()).Spawn();
+    Assert.Throws("IOException", () => h.WriteStdin(new byte[1048576]));
+    h.Kill();
+    h.Wait();
+}
+
+[Test]
+void test_stdin_to_file_is_not_supported() {
+    Assert.Throws("NotSupportedException",
+        () => new Process("cat").Stdin(Stdio.ToFile("/tmp/x")).Run());
+}
+
+[Test]
+void test_stdout_to_file_in_missing_directory_is_directory_not_found() {
+    Assert.Throws("DirectoryNotFoundException",
+        () => new Process("echo").Arg("x").Stdout(Stdio.ToFile("/z42-no-such-dir-p18/out.txt")).Run());
+}
