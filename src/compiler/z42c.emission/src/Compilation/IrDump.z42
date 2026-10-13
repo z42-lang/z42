@@ -25,7 +25,7 @@ sealed class CompileCuTask : IParallelTask {
     LocalClassSet _localClasses; bool _isRelease;
     StrMap _partialMerged; int _optSet; IrModule[] _cached;
     ExportedFuncZ[] _allFuncs; int _afc; StrMap _pkgClassMap;
-    StructLayout _layouts;   // perf-layouts-once：包级预计算布局表（并行段只读共享）
+    StructLayout _layouts;   // perf-layouts-once：包级预计算布局表（并行段只读；各 CU 用 ForkView 视图）
     // complete-generic-instantiation S1：包级泛型体登记表（同 `_layouts`，并行段只读共享）。
     StrMap _pkgGenerics; StrMap _pkgGenericTypes;
     CompiledModuleZ[] _r;
@@ -224,8 +224,9 @@ public static class IrDump {
         // perf-layouts-once：struct/class 字节布局表只依赖 symbols.Classes/Interfaces（包级、此后只读——
         // AddOwnField 仅在 SymbolCollector/ImportedSymbolLoader 阶段写，Infer/Generate 不写），且 IrGen
         // 拿到的 `model.Symbols` 是 WithAliases 浅拷贝、与此处共享同一 Classes/Interfaces ⇒ 逐 CU 重建
-        // 结果恒等。故整包算一次注入（此前 count 个 CU 各重建一遍整包符号表布局）。预计算后全部访问器
-        // 只读（LayoutOf 对 _defs 内键必命中缓存，缺失键返回不入缓存的空布局）⇒ 并行段共享安全。
+        // 结果恒等。故整包算一次注入（此前 count 个 CU 各重建一遍整包符号表布局）。预计算覆盖全部
+        // 定义名；**实例化名**（`Pair$1<P>`）的布局只能在代码生成时按需算、要写缓存 ⇒ 各 CU 经
+        // `StructLayout.ForkView()` 写自己的视图（见 `CuCompile._compileCu`），本表在并行段保持只读。
         // 全 cached（增量命中）时无 CU 走 codegen → 不建，保持零开销。
         bool _anyFresh = false;
         int _cf = 0;
