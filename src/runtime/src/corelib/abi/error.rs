@@ -51,6 +51,11 @@ pub enum BuiltinError {
     /// (`Std.Threading.ThreadException`). Falls back to `Std.Exception` when the class
     /// is not loaded.
     Exception { class: &'static str, message: String },
+    /// A class with fallbacks (most specific first, as [`BuiltinError::classes`]) and
+    /// public fields besides `Message` — a package exception that carries data
+    /// (`Std.IO.ProcessTimeoutException.Program` / `TimeoutMs`). A field the class that
+    /// gets built does not declare (a fallback base class) is skipped.
+    Detailed(Box<Detailed>),
     /// An exception value already built (a z42 callback threw it) — rethrown as is.
     Thrown(Value),
     /// A VM bug / broken invariant (a `[Native]` declaration that does not match the
@@ -62,7 +67,30 @@ pub enum BuiltinError {
     Legacy(anyhow::Error),
 }
 
+/// Payload of [`BuiltinError::Detailed`].
+#[derive(Debug)]
+pub struct Detailed {
+    pub classes: &'static [&'static str],
+    pub message: String,
+    pub fields: Vec<(&'static str, FieldInit)>,
+}
+
+/// A field value of a [`Detailed`] exception (plain data; built into a `Value` when the
+/// exception is).
+#[derive(Debug, Clone)]
+pub enum FieldInit {
+    Str(String),
+    I64(i64),
+}
+
 impl BuiltinError {
+    /// A [`BuiltinError::Detailed`] exception.
+    pub fn detailed(
+        classes: &'static [&'static str], message: impl Into<String>, fields: Vec<(&'static str, FieldInit)>,
+    ) -> Self {
+        BuiltinError::Detailed(Box::new(Detailed { classes, message: message.into(), fields }))
+    }
+
     /// The argument count does not match the builtin — the `[Native]` declaration and
     /// the Rust signature disagree (a VM / stdlib bug, hence internal).
     #[cold]
@@ -95,6 +123,7 @@ impl BuiltinError {
             EndOfStream(_) => &["Std.IO.EndOfStreamException", "Std.IO.IOException"],
             UnauthorizedAccess(_) => &["Std.UnauthorizedAccessException"],
             Timeout(_) => &["Std.TimeoutException"],
+            Detailed(d) => d.classes,
             Exception { .. } | Thrown(_) | Internal(_) | Legacy(_) => &[],
         }
     }
@@ -108,6 +137,7 @@ impl BuiltinError {
             | KeyNotFound(m) | Io(m) | FileNotFound(m) | DirectoryNotFound(m) | PathTooLong(m)
             | EndOfStream(m) | UnauthorizedAccess(m) | Timeout(m) | Internal(m) => m.as_str().into(),
             Exception { message, .. } => message.as_str().into(),
+            Detailed(d) => d.message.as_str().into(),
             Thrown(_) => "".into(),
             Legacy(e) => e.to_string().into(),
         }
@@ -135,6 +165,7 @@ impl std::fmt::Display for BuiltinError {
             BuiltinError::Thrown(_) => f.write_str("exception"),
             BuiltinError::Legacy(e) => write!(f, "{e}"),
             BuiltinError::Exception { class, message } => write!(f, "{class}: {message}"),
+            BuiltinError::Detailed(d) => write!(f, "{}: {}", d.classes.first().copied().unwrap_or("Std.Exception"), d.message),
             other => write!(f, "{}: {}", other.classes()[0], other.message()),
         }
     }
@@ -144,8 +175,10 @@ impl std::error::Error for BuiltinError {}
 
 impl From<std::io::Error> for BuiltinError {
     /// .NET's mapping of OS errors: missing path → `FileNotFoundException` (a builtin that
-    /// knows it looked for a directory says `DirectoryNotFound` itself), permission →
-    /// `UnauthorizedAccessException`, timeout → `TimeoutException`, the rest → `IOException`.
+    /// knows it looked for a directory says `DirectoryNotFound` itself; path-based file
+    /// system builtins map with the path instead — `corelib::fs::fs_error`), permission →
+    /// `UnauthorizedAccessException`, timeout → `TimeoutException`, unsupported on this
+    /// platform → `NotSupportedException`, the rest → `IOException`.
     fn from(e: std::io::Error) -> Self {
         use std::io::ErrorKind::*;
         let msg = e.to_string();
@@ -154,6 +187,7 @@ impl From<std::io::Error> for BuiltinError {
             PermissionDenied => BuiltinError::UnauthorizedAccess(msg),
             TimedOut | WouldBlock => BuiltinError::Timeout(msg),
             InvalidInput => BuiltinError::Argument(msg),
+            Unsupported => BuiltinError::NotSupported(msg),
             UnexpectedEof => BuiltinError::EndOfStream(msg),
             _ => BuiltinError::Io(msg),
         }
@@ -225,6 +259,13 @@ fn build(ctx: &VmContext, module: &Module, builtin: &str, e: BuiltinError) -> Re
             },
         },
         BuiltinError::Exception { class, message } => make(ctx, module, &[class], message),
+        BuiltinError::Detailed(d) => {
+            let fields: Vec<(&str, Value)> = d.fields.iter().map(|(n, v)| (*n, match v {
+                FieldInit::Str(s) => Value::Str(s.as_str().into()),
+                FieldInit::I64(n) => Value::I64(*n),
+            })).collect();
+            make_with(ctx, module, d.classes, d.message, &fields)
+        }
         other => {
             let msg = other.message().into_owned();
             make(ctx, module, classes, msg)
@@ -234,8 +275,15 @@ fn build(ctx: &VmContext, module: &Module, builtin: &str, e: BuiltinError) -> Re
 
 /// The first loaded class of `classes`, else `Std.Exception`, with `msg`.
 fn make(ctx: &VmContext, module: &Module, classes: &[&str], msg: String) -> Result<Value, Raised> {
+    make_with(ctx, module, classes, msg, &[])
+}
+
+/// [`make`] plus extra fields (those the built class declares).
+fn make_with(
+    ctx: &VmContext, module: &Module, classes: &[&str], msg: String, fields: &[(&str, Value)],
+) -> Result<Value, Raised> {
     for class in classes.iter().copied().chain(std::iter::once("Std.Exception")) {
-        if let Ok(v) = crate::exception::make_stdlib_exception(ctx, module, class, msg.clone()) {
+        if let Ok(v) = crate::exception::make_stdlib_exception_with(ctx, module, class, msg.clone(), fields) {
             return Ok(v);
         }
     }

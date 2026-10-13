@@ -2,7 +2,7 @@
 namespace Z42TimeSpanTests;
 
 using Std.Time;
-using Std.Test;
+using Std.Harness;
 
 // ── 工厂构造 ──────────────────────────────────────────────────────────────────
 

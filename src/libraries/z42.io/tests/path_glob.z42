@@ -3,7 +3,7 @@
 namespace Z42IoPathGlobTests;
 
 using Std.IO;
-using Std.Test;
+using Std.Harness;
 
 [Test]
 void test_glob_star_extension() {

@@ -211,7 +211,7 @@ _CorpusCase[] _shardCorpus(_CorpusCase[] cases, int k, int n) {
 // Pipeline: enumerate full corpus → SELECT (shard slice OR per-category smoke
 // sample) → compile the selection. Platform capability gating is NOT done here:
 // each case's `// requires-caps:` goes into its manifest entry and the on-device
-// runner (Std.Test.BundleRunner) skips it when the target VM's Capabilities()
+// runner (Std.Harness.BundleRunner) skips it when the target VM's Capabilities()
 // lack one — the runtime is the ground truth, there is no per-rid table to drift.
 //
 // Two select modes on tier-2 (wasm/ios/android):

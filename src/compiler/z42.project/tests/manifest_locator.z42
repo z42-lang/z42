@@ -3,7 +3,7 @@ namespace Z42ProjectManifestLocatorTests;
 
 using Std.IO;
 using Z42.Project;
-using Std.Test;
+using Std.Harness;
 
 string _mkdir(string root, string rel) {
     string p = Path.Join(root, rel);

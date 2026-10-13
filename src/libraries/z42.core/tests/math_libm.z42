@@ -8,7 +8,7 @@
 // ⚠️ libm 返回 double，用 EqualApprox 断浮点容差（不用 Assert.Equal 精确）。
 namespace Z42CoreMathLibmTests;
 
-using Std.Test;
+using Std.Harness;
 
 // ── Sqrt ─────────────────────────────────────────────────────────────────
 [Test]

@@ -211,8 +211,8 @@ int _testPkgsCore(string kind, string suite, string[] dirs, string[] names, bool
     // retire-test-runner: the reflective runner is z42b (z42.builder.zpkg), run
     // via z42vm — replaces the deleted Rust z42-test-runner. z42b loads each
     // compiled test/bench artifact, discovers its [Test]/[Benchmark] functions
-    // by runtime reflection (Std.Test.TestDiscovery) and runs them (Std.Test.Runner.RunModule),
-    // exiting 0 (all passed) / 1 (any failure). Its deps (z42.test/.project/.build
+    // by runtime reflection (Std.Harness.TestDiscovery) and runs them (Std.Harness.Runner.RunModule),
+    // exiting 0 (all passed) / 1 (any failure). Its deps (z42.harness/.project/.build
     // + core) resolve from `libs`, same flat dir the test units compile against.
     // Build z42b unconditionally (even under --no-build): it's a z42c incremental
     // compile of a few small files — near-no-op when current — and it guarantees
@@ -285,7 +285,7 @@ int _testPkgsCore(string kind, string suite, string[] dirs, string[] names, bool
 //   [sources] include = ["<absolute>/<unit>/**/*.z42"]
 //   [dependencies] = parent.[dependencies] ∪ parent.[tests.dependencies]
 //   [build] output_dir = "<work>/<lib>/<unit>"  (Phase 3.1.4 forced isolation)
-// The merged deps make z42.test resolvable after Phase 4 moves it from
+// The merged deps make z42.harness resolvable after Phase 4 moves it from
 // [dependencies] to [tests.dependencies]: this xtask reads BOTH sections so
 // the migration is safe regardless of which section a parent puts a dep in.
 

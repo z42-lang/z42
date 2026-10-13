@@ -7,7 +7,7 @@ namespace Std.Collections;
 // v0 design favours simplicity; red-black tree backend is a future
 // perf upgrade for data sets that exceed ~1k elements.
 // add-collection-contract-phase1 (2026-06-03): implements IBasicCollection<T>
-// to opt into Std.Test.Contracts.BasicCollectionContract coverage.
+// to opt into Std.Harness.Contracts.BasicCollectionContract coverage.
 public class SortedSet<T> : IBasicCollection<T> where T: IComparable + IEquatable {
     T[] items;
     int count;

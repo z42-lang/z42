@@ -7,7 +7,7 @@ namespace Z42cSemanticsZbcTests;
 using Z42.IR;
 using Z42.IR.BinaryFormat;
 using Z42.Emission;
-using Std.Test;
+using Std.Harness;
 
 // 空 allocator（无本模块函数/类 → 全 import token）。
 TokenAllocator _emptyAlloc() {

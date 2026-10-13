@@ -6,7 +6,7 @@ namespace Z42cSemanticsFqnTablesTests;
 
 using Z42.Emission;
 using Z42.IR;
-using Std.Test;
+using Std.Harness;
 
 CompiledModuleZ[] fqnBuild(string[] srcs) {
     string[] files = new string[srcs.Length];

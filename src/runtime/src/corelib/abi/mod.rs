@@ -27,8 +27,8 @@ pub(crate) mod error;
 mod ret;
 
 pub use args::{ArgAt, ArgSource, FromArg, PlainArg, RefArg, RegArgs};
-pub use error::BuiltinError;
-pub use ret::{Blocking, IntoRet, PlainRet};
+pub use error::{BuiltinError, FieldInit};
+pub use ret::{Blocking, IntoRet, PlainRet, Then};
 
 use crate::metadata::Value;
 use crate::vm_context::VmContext;
@@ -49,6 +49,12 @@ pub enum ParamKind {
     OptStr,
     /// A `ref` / `out` argument ([`RefArg`]).
     Ref,
+    /// `Vec<u8>` — a non-null `byte[]`, copied out.
+    Bytes,
+    /// `Option<Vec<u8>>` — a `byte[]` or null.
+    OptBytes,
+    /// `Vec<String>` — a non-null `string[]` of non-null strings, copied out.
+    StrArray,
     /// Any value (`&Value` / `Value`).
     Any,
 }
@@ -65,6 +71,10 @@ pub enum RetKind {
     Str,
     /// A string or null.
     OptStr,
+    /// A fresh `byte[]` (`Vec<u8>`).
+    Bytes,
+    /// A fresh `string[]` (`Vec<String>`).
+    StrArray,
     /// Any value.
     Any,
 }

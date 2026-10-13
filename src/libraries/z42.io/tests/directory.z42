@@ -7,7 +7,7 @@
 namespace Z42IoDirectoryTests;
 
 using Std.IO;
-using Std.Test;
+using Std.Harness;
 
 // ── Exists ───────────────────────────────────────────────────────────────
 

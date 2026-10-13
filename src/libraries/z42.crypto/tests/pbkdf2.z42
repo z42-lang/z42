@@ -3,7 +3,7 @@ namespace Z42CryptoPbkdf2Tests;
 
 using Std.Encoding;
 using Std.Crypto;
-using Std.Test;
+using Std.Harness;
 
 // RFC 7914 §11 test vector — official PBKDF2-HMAC-SHA256 reference.
 [Test]

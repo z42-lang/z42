@@ -4,7 +4,7 @@
 
 namespace Z42YamlBench;
 
-using Std.Test;
+using Std.Harness;
 using Std.Yaml;
 
 string _doc() {

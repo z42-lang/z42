@@ -83,7 +83,7 @@ version = "0.1.0"
 - **`.` 表示层级**，通常是"组织.功能"（`z42.io` / `acme.payments` / `unity.physics`）。
 - **`-` 只在单段名内部用**（`my-utils` / `hello-world`），不要拿它当层级分隔符。
 - **不用 `_`**，不用大写字母。
-- **stdlib 命名族**是 `z42.<topic>`（`z42.core` / `z42.io` / `z42.numerics` / `z42.test` …）。
+- **stdlib 命名族**是 `z42.<topic>`（`z42.core` / `z42.io` / `z42.numerics` / `z42.harness` …）。
   `z42.*` 是官方保留前缀——它们随工具链分发、**始终可用**，`[dependencies]` 里
   **只写第三方包**（Rust-std 模型），也不要给自己的包起 `z42.` 开头的名字。
   声明 `z42.*` 是冗余、但无害：编译器不报错也不警告。
@@ -806,7 +806,7 @@ mode = "interp"
 # golden 用例（`main()` + `expected_output.txt`），**两者都长成 `<name>/source.z42`，glob 分不开**
 # （要分得靠扫目录里有没有 `[Test]` 标注，那不是 glob 能表达的）。猜错的代价是把 golden 目录
 # 当测试目标编，编不过或跑出零用例 —— 所以不猜。
-[tests.dependencies]       # 仅测试合入；release zpkg 元数据不含（z42.test 等标准库不用写，总是可用）
+[tests.dependencies]       # 仅测试合入；release zpkg 元数据不含（z42.harness 等标准库不用写，总是可用）
 "test-fixtures" = { path = "../test-fixtures" }
 
 [benches]
@@ -927,7 +927,7 @@ artifacts/build/libraries/<lib>/<profile>/
 > [错误码全表](../appendix/error-codes.md)的 WSxxx 节），由 xtask 侧独立实现（上表）。
 >
 > 「test-only dep 出现在 `[dependencies]`」**不做校验**：这类判据只能靠按名字写死的 curated set
->（`{ "z42.test" }`）加 `.test.` / `.bench.` infix 豁免，而 `z42.test` 是个普通的运行期库、
+>（`{ "z42.harness" }`）加 `.test.` / `.bench.` infix 豁免，而 `z42.harness` 是个普通的运行期库、
 > **无法自证**自己"只该在测试里出现"——机制化不了。dev-dependency 的正确表达是
 > `[tests.dependencies]` / `[benches.dependencies]`（三层合并，见上文）。
 

@@ -46,7 +46,7 @@ using Std.Collections;
 **规则**：
 
 1. `z42.core` 是唯一隐式 prelude，它提供的 `Std` 与 `Std.Runtime` 两个命名空间无需 `using`。
-2. **其它一切都必须显式 `using`**——包括 `Std.IO`、`Std.Collections`、`Std.Text`、`Std.Math`、`Std.Test` 等
+2. **其它一切都必须显式 `using`**——包括 `Std.IO`、`Std.Collections`、`Std.Text`、`Std.Math`、`Std.Harness` 等
    同样以 `Std.` 打头的 stdlib 命名空间。
 3. `using` 只管**可见性**（短名能不能直接写），不管加载哪些包：依赖包（stdlib 与清单里声明的依赖）里的
    名字随时可以被找到，名字查找第一次落到哪个包，就用哪个包。

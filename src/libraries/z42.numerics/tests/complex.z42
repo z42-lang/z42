@@ -2,7 +2,7 @@
 namespace Z42NumericsComplexTests;
 
 using Std.Numerics;
-using Std.Test;
+using Std.Harness;
 
 // Tolerance for floating-point comparisons (Sin / Sqrt / Exp don't round
 // to the exact rational value).

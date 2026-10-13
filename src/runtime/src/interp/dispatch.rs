@@ -14,7 +14,7 @@ use anyhow::{bail, Result};
 ///
 /// Name-only entry (reflection, debug assertions): finds `derived`'s descriptor (main module's
 /// `type_registry` first, then `ctx.try_lookup_type`, so lazily loaded classes such as
-/// `Std.TestFailure` in z42.test participate) and answers through the same id-keyed caches as
+/// `Std.TestFailure` in z42.harness participate) and answers through the same id-keyed caches as
 /// [`isa_td`]; the target's key is looked up by name each call (cold path).
 ///
 /// add-reflection-assignable-from: at each level the type's declared interfaces (FQ-named) are

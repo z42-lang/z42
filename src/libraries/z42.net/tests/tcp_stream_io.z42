@@ -5,7 +5,7 @@ namespace Z42NetTcpStreamIoTests;
 
 using Std.Threading;
 using Std.Net.Sockets;
-using Std.Test;
+using Std.Harness;
 
 // Helper: spawn a listener + client connected pair on loopback.
 // Returns the server-side TcpClient (the one returned by Accept).

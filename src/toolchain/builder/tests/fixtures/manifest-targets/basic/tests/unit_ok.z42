@@ -1,7 +1,7 @@
 // Explicit [[test]] harness=true target — z42b reflects these [Test] functions.
 namespace MtUnit;
 
-using Std.Test;
+using Std.Harness;
 
 [Test]
 void unit_ok_add() {

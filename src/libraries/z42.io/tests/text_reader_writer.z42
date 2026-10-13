@@ -6,7 +6,7 @@
 namespace Z42IoTextReaderWriterTests;
 
 using Std.IO;
-using Std.Test;
+using Std.Harness;
 
 // ── Minimal concrete subclass of TextReader backed by a string ──────────
 //

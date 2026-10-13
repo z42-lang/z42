@@ -29,6 +29,18 @@ public class ProcessResult {
         this.StderrBytes = stderrBytes;
     }
 
+    // The native result array `[exitCode, stdout, stderr, stdoutBytes, stderrBytes]`
+    // (`ProcessNative.RunSync` / `ChildProcessNative.Wait` / `TryWait`).
+    internal static ProcessResult FromNative(string program, object[] raw) {
+        return new ProcessResult(
+            program,
+            (int)(long)raw[0],
+            (string)raw[1],
+            (string)raw[2],
+            (byte[])raw[3],
+            (byte[])raw[4]);
+    }
+
     // Idiomatic chained "throw if failed" — returns `this` so callers can
     // write `.Run().EnsureSuccess()` in one expression.
     public ProcessResult EnsureSuccess() {

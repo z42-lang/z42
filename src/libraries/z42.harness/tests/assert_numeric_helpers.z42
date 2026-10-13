@@ -1,0 +1,194 @@
+// extend-assert-numeric-and-collection-helpers (2026-05-30) —
+// numeric ordering & range assertion coverage.
+//
+// Pattern: pass-path tests just call the assertion (no throw = pass);
+// fail-path tests use `Assert.Throws("TestFailure", () => ...)` to confirm
+// the assertion threw structured TestFailure on the violation. Edge cases
+// cover integer boundary values.
+//
+// NaN coverage: the impl carries an `actual != actual || expected != expected`
+// IEEE-754 NaN guard, but z42 doesn't currently produce a real NaN from
+// `0.0 / 0.0` (likely constant-folded / normalised), so the guard cannot be
+// triggered from z42 source today. The guard remains as a defensive measure
+// for the day a NaN literal or `Double.NaN` constant lands; tests will be
+// added then.
+
+namespace Z42TestAssertNumericHelpers;
+
+using Std.Harness;
+
+// ── Greater(long, long) ──────────────────────────────────────────────
+
+[Test]
+void test_greater_long_pass() {
+    Assert.Greater(5L, 3L);
+    Assert.Greater(1L, 0L);
+    Assert.Greater(-1L, -10L);
+}
+
+[Test]
+void test_greater_long_fail_equal() {
+    Assert.Throws("TestFailure", () => {
+        Assert.Greater(3L, 3L);
+    });
+}
+
+[Test]
+void test_greater_long_fail_lesser() {
+    Assert.Throws("TestFailure", () => {
+        Assert.Greater(3L, 5L);
+    });
+}
+
+// ── Greater(double, double) ──────────────────────────────────────────
+
+[Test]
+void test_greater_double_pass() {
+    Assert.Greater(0.1, 0.0);
+    Assert.Greater(1.0, -1.0);
+}
+
+[Test]
+void test_greater_double_fail() {
+    Assert.Throws("TestFailure", () => {
+        Assert.Greater(0.0, 0.0);
+    });
+}
+
+// ── Less ──────────────────────────────────────────────────────────────
+
+[Test]
+void test_less_long_pass() {
+    Assert.Less(3L, 5L);
+    Assert.Less(0L, 1L);
+    Assert.Less(-10L, -1L);
+}
+
+[Test]
+void test_less_long_fail_equal() {
+    Assert.Throws("TestFailure", () => {
+        Assert.Less(3L, 3L);
+    });
+}
+
+[Test]
+void test_less_double_pass() {
+    Assert.Less(0.0, 0.1);
+    Assert.Less(-1.0, 1.0);
+}
+
+[Test]
+void test_less_double_fail() {
+    Assert.Throws("TestFailure", () => {
+        Assert.Less(1.0, 0.5);
+    });
+}
+
+// ── GreaterOrEqual ────────────────────────────────────────────────────
+
+[Test]
+void test_greaterorequal_long_pass_equal_and_strict() {
+    Assert.GreaterOrEqual(3L, 3L);     // equal — passes
+    Assert.GreaterOrEqual(5L, 3L);     // strict — passes
+}
+
+[Test]
+void test_greaterorequal_long_fail() {
+    Assert.Throws("TestFailure", () => {
+        Assert.GreaterOrEqual(2L, 3L);
+    });
+}
+
+[Test]
+void test_greaterorequal_double_pass_equal_and_strict() {
+    Assert.GreaterOrEqual(0.5, 0.5);
+    Assert.GreaterOrEqual(1.0, 0.5);
+}
+
+[Test]
+void test_greaterorequal_double_fail() {
+    Assert.Throws("TestFailure", () => {
+        Assert.GreaterOrEqual(0.0, 1.0);
+    });
+}
+
+// ── LessOrEqual ───────────────────────────────────────────────────────
+
+[Test]
+void test_lessorequal_long_pass_equal_and_strict() {
+    Assert.LessOrEqual(3L, 3L);
+    Assert.LessOrEqual(2L, 3L);
+}
+
+[Test]
+void test_lessorequal_long_fail() {
+    Assert.Throws("TestFailure", () => {
+        Assert.LessOrEqual(5L, 3L);
+    });
+}
+
+[Test]
+void test_lessorequal_double_pass_equal_and_strict() {
+    Assert.LessOrEqual(0.5, 0.5);
+    Assert.LessOrEqual(0.5, 1.0);
+}
+
+[Test]
+void test_lessorequal_double_fail() {
+    Assert.Throws("TestFailure", () => {
+        Assert.LessOrEqual(1.0, 0.0);
+    });
+}
+
+// ── InRange(long, long, long) — inclusive bounds ──────────────────────
+
+[Test]
+void test_inrange_long_pass_middle() {
+    Assert.InRange(5L, 0L, 10L);
+}
+
+[Test]
+void test_inrange_long_pass_min_boundary() {
+    Assert.InRange(0L, 0L, 10L);     // inclusive min
+}
+
+[Test]
+void test_inrange_long_pass_max_boundary() {
+    Assert.InRange(10L, 0L, 10L);    // inclusive max
+}
+
+[Test]
+void test_inrange_long_fail_below() {
+    Assert.Throws("TestFailure", () => {
+        Assert.InRange(-1L, 0L, 10L);
+    });
+}
+
+[Test]
+void test_inrange_long_fail_above() {
+    Assert.Throws("TestFailure", () => {
+        Assert.InRange(11L, 0L, 10L);
+    });
+}
+
+// ── InRange(double, double, double) — NaN edges ───────────────────────
+
+[Test]
+void test_inrange_double_pass() {
+    Assert.InRange(3.14159, 3.0, 4.0);
+    Assert.InRange(3.0, 3.0, 4.0);    // inclusive
+    Assert.InRange(4.0, 3.0, 4.0);    // inclusive
+}
+
+[Test]
+void test_inrange_double_fail() {
+    Assert.Throws("TestFailure", () => {
+        Assert.InRange(5.0, 3.0, 4.0);
+    });
+}
+
+[Test]
+void test_inrange_double_pass_boundaries() {
+    Assert.InRange(3.0, 3.0, 4.0);    // inclusive min
+    Assert.InRange(4.0, 3.0, 4.0);    // inclusive max
+}

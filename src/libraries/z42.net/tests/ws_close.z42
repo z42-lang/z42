@@ -7,7 +7,7 @@ using Std.Crypto;
 using Std.Encoding;
 using Std.Net.Sockets;
 using Std.Net.WebSockets;
-using Std.Test;
+using Std.Harness;
 
 static void _handshake(NetworkStream s) {
     byte[] buf = new byte[4096];

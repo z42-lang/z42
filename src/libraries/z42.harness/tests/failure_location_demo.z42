@@ -1,0 +1,67 @@
+// surface-test-failure-source-location (2026-05-30) — in-tree e2e demo
+// proving the runtime → reader → runner chain populates and surfaces
+// `Std.Exception.StackTrace` correctly.
+//
+// The pre-spec behavior was: runtime fills `StackTrace` since 2026-05-10,
+// but the test-runner's `format_value` only read `Message`, throwing the
+// stack away. The spec rewires `runner::classify_thrown` to call
+// `format_failure_with_stack` which surfaces both. This demo verifies the
+// runtime *still* populates it (formatter-side wiring is covered by unit
+// tests in runner_tests.rs / format/*_tests).
+//
+// Strategy: catch a deliberate Assert.Equal failure inside the test, then
+// inspect the caught exception's StackTrace field directly. If the runtime
+// stopped populating it (or populated it with garbage), this test fails.
+
+namespace Z42TestFailureLocationDemo;
+
+using Std.Harness;
+
+[Test]
+void test_runtime_populates_stack_trace_on_assert_failure() {
+    // Note on the catch type: we catch `Exception`, not `TestFailure`, on
+    // purpose — the invariant under test is "the interp populates
+    // `StackTrace` on **every** Exception-subclass throw", so the broader
+    // catch is the right net. (`Assert.Equal` throws `Std.TestFailure`,
+    // which is an `Exception` subclass, so it lands here either way.)
+    //
+    // unify-assert-api (2026-09-08)：这段注释原本解释的是「裸 `Assert.Equal`
+    // 因跨包 first-wins 命中 z42.core 那份、抛裸 Exception，所以 catch Exception」。
+    // 两份 Assert 合并后只剩一个 `Std.Assert`（统一抛 `TestFailure`），那条推理
+    // 作废；catch `Exception` 依然正确，只是理由换成了上面那条。
+    bool caught = false;
+    try {
+        Assert.Equal(2, 3);
+    }
+    catch (Exception e) {
+        caught = true;
+        // The StackTrace string is built by Rust-side `format_stack_trace`
+        // (src/runtime/src/exception/mod.rs). Verified invariants:
+        //
+        //   1. Non-empty — `populate_stack_trace` ran at throw time
+        //   2. Contains "Assert" — the throwing framework frame is captured
+        //   3. Contains this test method's name — proves the user frame is
+        //      captured
+        //   4. Contains this demo's file name — proves the user frame
+        //      carries `(file:line)` shape (post fix-line-entry-file-
+        //      population, 2026-05-31; pre-fix all frames fell back to
+        //      "(line N, col M)" because LineEntry.file was sparsely
+        //      populated by the C# IR emitter)
+        Assert.NotNull(e.StackTrace);
+        if (e.StackTrace == "") {
+            Assert.Fail("StackTrace should be non-empty when populate_stack_trace ran");
+        }
+        if (!e.StackTrace.Contains("Assert")) {
+            Assert.Fail($"StackTrace should mention the throwing Assert frame; got: {e.StackTrace}");
+        }
+        if (!e.StackTrace.Contains("test_runtime_populates_stack_trace_on_assert_failure")) {
+            Assert.Fail($"StackTrace should include this test method's name; got: {e.StackTrace}");
+        }
+        if (!e.StackTrace.Contains("failure_location_demo")) {
+            Assert.Fail($"StackTrace should include this demo's file path for IDE jump-to-source; got: {e.StackTrace}");
+        }
+    }
+    if (!caught) {
+        Assert.Fail("expected to catch TestFailure from Assert.Equal(2, 3)");
+    }
+}

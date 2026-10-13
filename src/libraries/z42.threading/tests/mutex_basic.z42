@@ -10,7 +10,7 @@
 namespace Z42ThreadingMutexBasicTests;
 
 using Std.Threading;
-using Std.Test;
+using Std.Harness;
 
 public static class MutexState {
     public static long Observed;

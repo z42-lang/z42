@@ -1,4 +1,4 @@
-//! Bench helpers — minimal native primitives for `Std.Test.Bencher`.
+//! Bench helpers — minimal native primitives for `Std.Harness.Bencher`.
 //!
 //! `__time_now_mono_ns` returns nanoseconds since the first call (an internal
 //! EPOCH); used as a monotonic clock by `Bencher.iter` to time samples.

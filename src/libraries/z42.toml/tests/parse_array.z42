@@ -2,7 +2,7 @@
 namespace Z42TomlArrayTests;
 
 using Std.Toml;
-using Std.Test;
+using Std.Harness;
 
 [Test]
 void test_empty_array() {

@@ -182,7 +182,7 @@ impl VarHoleStash {
 /// Hint the CPU to fetch `p`'s cache line for writing. A no-op where there is no stable
 /// instruction for it.
 #[inline(always)]
-fn prefetch_write(p: *const u8) {
+pub(crate) fn prefetch_write(p: *const u8) {
     #[cfg(all(target_arch = "aarch64", not(miri)))]
     // SAFETY: `prfm` is a hint; it never faults, whatever the address.
     unsafe {

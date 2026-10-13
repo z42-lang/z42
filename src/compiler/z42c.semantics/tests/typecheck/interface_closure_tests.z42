@@ -7,7 +7,7 @@
 namespace Z42cSemanticsInterfaceClosureTests;
 
 using Z42.Semantics;
-using Std.Test;
+using Std.Harness;
 
 // ── 方法：一层 / 多层 / 菱形 ──────────────────────────────────────
 

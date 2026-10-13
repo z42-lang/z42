@@ -21,8 +21,6 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     ("__system_hostname",     Native::Val(system::builtin_system_hostname)),
     ("__system_cpu_count",    Native::Val(system::builtin_system_cpu_count)),
     ("__system_os_version",   Native::Val(system::builtin_system_os_version)),
-    ("__env_unset",           Native::Void(fs::builtin_env_unset)),
-    ("__env_vars",            Native::Val(fs::builtin_env_vars)),
 
     // ── add-threading-stdlib (2026-05-20) — appended to preserve existing BuiltinIds ──
     ("__thread_spawn",        Native::Val(threading::builtin_thread_spawn)),
@@ -45,19 +43,9 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     //    on wasm via the `bundled-compression` feature). Resolved through
     //    `VmCore.ext_builtins` (see corelib::ext_builtin_id_of below).
 
-    // ── add-z42-io-filestream (2026-05-24) — appended to preserve existing BuiltinIds ──
-    ("__file_open",      Native::Val(fs::builtin_file_open)),
-    ("__file_read",      Native::Val(fs::builtin_file_read)),
-    ("__file_write",     Native::Void(fs::builtin_file_write)),
-    ("__file_seek",      Native::Val(fs::builtin_file_seek)),
-    ("__file_length",    Native::Val(fs::builtin_file_length)),
-    ("__file_position",  Native::Val(fs::builtin_file_position)),
-    ("__file_flush",     Native::Void(fs::builtin_file_flush)),
-    ("__file_close",     Native::Void(fs::builtin_file_close)),
-
     // ── add-process-stream-stdio (2026-05-24) — appended to preserve existing BuiltinIds ──
-    ("__process_handle_read_stdout", Native::Val(process::builtin_process_handle_read_stdout)),
-    ("__process_handle_read_stderr", Native::Val(process::builtin_process_handle_read_stderr)),
+    ("__process_handle_read_stdout", Native::Val(process_legacy::builtin_process_handle_read_stdout)),
+    ("__process_handle_read_stderr", Native::Val(process_legacy::builtin_process_handle_read_stderr)),
 
     // ── add-z42-net K1 (2026-05-24) — appended to preserve existing BuiltinIds ──
     ("__net_tcp_connect",       Native::Val(network::builtin_net_tcp_connect)),
@@ -89,21 +77,8 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     ("__soft_handle_create", Native::Val(gc::builtin_soft_handle_create)),
     ("__soft_handle_get",    Native::Val(gc::builtin_soft_handle_get)),
 
-    // ── add-process-which (2026-05-26) — appended to preserve existing BuiltinIds ──
-    ("__process_which", Native::Val(process::builtin_process_which)),
-
     // ── add-csprng-to-crypto (2026-05-27) — OS-CSPRNG backing Std.Crypto.SecureRandom ──
     ("__crypto_random_bytes", Native::Val(crypto::builtin_crypto_random_bytes)),
-
-    // ── add-z42-io-ergonomics-bytes-glob (2026-05-27) — one-shot binary IO ──
-    ("__file_read_bytes",  Native::Val(fs::builtin_file_read_bytes)),
-    ("__vfs_mount",         Native::Val(fs_backend::memory::builtin_vfs_mount)),
-    ("__vfs_enable",        Native::Val(fs_backend::memory::builtin_vfs_enable)),
-    ("__file_write_bytes", Native::Void(fs::builtin_file_write_bytes)),
-
-    // ── add-file-atomic-write (2026-05-27) — write-fsync-rename for durable config ──
-    ("__file_write_text_atomic",  Native::Void(fs::builtin_file_write_text_atomic)),
-    ("__file_write_bytes_atomic", Native::Void(fs::builtin_file_write_bytes_atomic)),
 
     // ── add-httpclient-timeout (2026-05-27) — TCP socket read/write deadlines ──
     ("__net_tcp_socket_set_read_timeout",  Native::Val(network::builtin_net_tcp_socket_set_read_timeout)),
@@ -152,7 +127,6 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     // resolved by name at load, so removing the retired `__repl_readline_indented`
     // slot — indent now computed script-side, sink-repl-indent-to-script — shifts no
     // persisted id.)
-    ("__repl_readline",           Native::Val(repl::builtin_repl_readline)),
     ("__repl_complete_probe",     Native::Val(repl::builtin_repl_complete_probe)),
     ("__repl_set_completer",      Native::Val(repl::builtin_repl_set_completer)),
     ("__repl_set_key_editor",     Native::Val(repl_editing::builtin_repl_set_key_editor)),

@@ -3,7 +3,7 @@
 namespace Z42NetHttpAuthHelpersTests;
 
 using Std.Net.Http;
-using Std.Test;
+using Std.Harness;
 
 [Test]
 void test_basic_auth_rfc7617_aladdin_open_sesame() {

@@ -15,7 +15,7 @@ using Z42.Syntax;
 using Z42.Semantics;
 using Z42.Generators;
 using Z42.Core;
-using Std.Test;
+using Std.Harness;
 
 // ── 测试库侧 attr（供 module generator 的 typeof(T) 解析；类名带 Attribute 后缀 D8/E0444）──
 public class RouteAttribute : Attribute {

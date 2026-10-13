@@ -32,7 +32,7 @@ string _tlDocPath(string root) { return Path.Join(root, "docs/internals/src/devi
 // 故意使用未登记能力名的 fixture（相对仓库根的路径前缀）。
 string[] _tlCapFixtures() {
     return new string[]{
-        "src/libraries/z42.test/tests/skip_platform_demo.z42"   // deny-by-default 演示：故意写未知能力名
+        "src/libraries/z42.harness/tests/skip_platform_demo.z42"   // deny-by-default 演示：故意写未知能力名
     };
 }
 

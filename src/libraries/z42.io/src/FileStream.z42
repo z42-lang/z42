@@ -17,9 +17,10 @@ namespace Std.IO;
 //                                          can't influence where
 //                                          writes land)
 //
-// Construction failures (path missing in Read mode, permission denied,
-// parent dir missing in Write mode) bubble up as the underlying VM
-// IOException — no facade-level translation in v0.
+// Construction failures are thrown by the VM, .NET-shaped: file missing in
+// Read mode → FileNotFoundException, parent dir missing → DirectoryNotFoundException,
+// permission denied / a directory → UnauthorizedAccessException, other OS
+// errors → IOException. Read / Write errors are IOException.
 
 public class FileStream : Stream {
     private long _slotId;

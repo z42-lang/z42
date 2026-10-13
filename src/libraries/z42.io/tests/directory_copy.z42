@@ -6,7 +6,7 @@
 namespace Z42IoDirectoryCopyTests;
 
 using Std.IO;
-using Std.Test;
+using Std.Harness;
 
 // 固定源树：top.txt + sub/mid.txt + sub/deep/leaf.txt
 void _makeSrc(string root) {

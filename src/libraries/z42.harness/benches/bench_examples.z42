@@ -1,0 +1,95 @@
+// Real-workload micro-benchmark 用例 (2026-05-31) — dogfoods the
+// `[Benchmark]` + Bencher machinery on representative z42.core hot paths,
+// and doubles as a copy-paste template for writing benchmarks.
+//
+// Reachable workloads here are limited to z42.harness's dependencies
+// (z42.core + z42.io): String ops + arithmetic. Collection / math / json
+// benchmarks belong in those libs' own tests/ dirs (where the lib is in
+// scope). Both `[Benchmark]` signature forms are shown:
+//   - zero-arg  : construct the Bencher yourself (custom warmup/samples)
+//   - Bencher-arg: compiler desugars; uses default warmup=10 / samples=100
+//
+// Sample counts are kept modest (warmup=2, samples=20) for the zero-arg
+// cases so the correctness wave stays fast. Run just the benchmarks with:
+//   z42-test-runner <zbc> --filter bench_
+// and consume structured timings from `--format json`'s bench_stats.
+
+namespace Z42TestBenchExamples;
+
+using Std.Harness;
+
+// ── String workloads (zero-arg form, custom sample count) ─────────────
+
+[Benchmark]
+void bench_string_concat() {
+    var b = new Bencher(2, 20);
+    b.iter(() => {
+        string s = String.Concat("hello, ", "world");
+        BenchHelpers.blackBox(s);
+    });
+    b.printSummary("string_concat");
+}
+
+[Benchmark]
+void bench_string_contains() {
+    var b = new Bencher(2, 20);
+    string haystack = "the quick brown fox jumps over the lazy dog";
+    b.iter(() => {
+        bool hit = haystack.Contains("lazy");
+        BenchHelpers.blackBox(hit);
+    });
+    b.printSummary("string_contains");
+}
+
+[Benchmark]
+void bench_string_replace() {
+    var b = new Bencher(2, 20);
+    string text = "a-b-c-d-e-f-g";
+    b.iter(() => {
+        string r = text.Replace("-", "_");
+        BenchHelpers.blackBox(r);
+    });
+    b.printSummary("string_replace");
+}
+
+[Benchmark]
+void bench_string_split_join() {
+    var b = new Bencher(2, 20);
+    string csv = "alpha,beta,gamma,delta,epsilon";
+    b.iter(() => {
+        string[] parts = csv.Split(",");
+        string rejoined = String.Join("|", parts);
+        BenchHelpers.blackBox(rejoined);
+    });
+    b.printSummary("string_split_join");
+}
+
+// ── Arithmetic workload (Bencher-arg form, default 10/100 samples) ────
+
+[Benchmark]
+void bench_integer_sum_loop(Bencher b) {
+    b.iter(() => {
+        long total = 0L;
+        int i = 0;
+        while (i < 1000) {
+            total = total + i;
+            i = i + 1;
+        }
+        BenchHelpers.blackBox(total);
+    });
+}
+
+// ── Sanity test: the example benchmarks actually measured something ───
+// (Guards against a regression where the runner dispatches but the body
+//  no-ops — would leave the Bencher stats at zero.)
+
+[Test]
+void test_example_bench_bodies_run() {
+    var b = new Bencher(1, 3);
+    b.iter(() => {
+        string s = String.Concat("x", "y");
+        BenchHelpers.blackBox(s);
+    });
+    Assert.Equal(3, b.Samples);
+    Assert.True(b.TotalNs > 0L);
+}

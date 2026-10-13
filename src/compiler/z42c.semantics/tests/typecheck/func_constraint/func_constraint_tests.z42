@@ -13,7 +13,7 @@ namespace Z42cSemanticsFuncConstraintTests;
 using Z42.Semantics;
 using Z42.Syntax;
 using Z42.Core;
-using Std.Test;
+using Std.Harness;
 
 DiagnosticBag fncDiags(string src) {
     var p = new Parser(src, "t.z42");

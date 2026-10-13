@@ -642,6 +642,7 @@ mod collect;
 mod control;
 mod generational;
 mod incremental;
+mod mark_ring;
 mod pause_budget;
 mod promotion_policy;
 mod young_policy;

@@ -3,7 +3,7 @@
 namespace Z42IoStringWriterTests;
 
 using Std.IO;
-using Std.Test;
+using Std.Harness;
 
 // ── Empty / initial state ───────────────────────────────────────────────
 

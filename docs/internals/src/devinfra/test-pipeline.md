@@ -1,6 +1,6 @@
 # 测试流水线：两层模型（z42b 执行器 + xtask 编排器）
 
-> 代码：`src/toolchain/builder/core/builder_test.z42`、`builder_device*.z42`、`src/libraries/z42.test/src/BundleRunner.z42`、`scripts/test/xtask_test_embedded.z42`、`src/toolchain/workload/test/`
+> 代码：`src/toolchain/builder/core/builder_test.z42`、`builder_device*.z42`、`src/libraries/z42.harness/src/BundleRunner.z42`、`scripts/test/xtask_test_embedded.z42`、`src/toolchain/workload/test/`
 >
 > gate 由哪些 stage 组成 → [测试门禁](test-gate.md)；各层怎么单跑、用例放哪 →
 > [测试怎么跑](testing.md)。本页写**架构**：一份 test-bundle 是怎么从仓库语料走到设备上的。
@@ -30,11 +30,11 @@ xtask 组装 bundle，交 z42b 执行（host）或组装设备 deployable（devi
         （Playwright / xcodebuild-sim / gradle）
 ```
 
-## 1. 共享执行核：`Std.Test.BundleRunner`
+## 1. 共享执行核：`Std.Harness.BundleRunner`
 
-一份 test-bundle 的**执行算法**沉在 stdlib 的 `z42.test`，被两个宿主共用：on-device agent
+一份 test-bundle 的**执行算法**沉在 stdlib 的 `z42.harness`，被两个宿主共用：on-device agent
 （`Z42.TestHost.Agent`，嵌入式 z42vm，每个平台同一段字节码）与 host 上的 z42b（in-process，
-z42b 本就跑在 z42vm 上、依赖 `z42.test`）。
+z42b 本就跑在 z42vm 上、依赖 `z42.harness`）。
 
 ```
 BundleRunner.RunBundle(BundleCase[] cases, string bundleDir, string libsDir) → TestResult[]
@@ -43,7 +43,7 @@ BundleRunner.RunBundle(BundleCase[] cases, string bundleDir, string libsDir) →
     → 聚合成一份 TestResult[]（golden 先、unit 后）
 ```
 
-**关键设计**：`BundleRunner` **不吃 manifest 路径、不解析 JSON**——`z42.test` 是基础库，
+**关键设计**：`BundleRunner` **不吃 manifest 路径、不解析 JSON**——`z42.harness` 是基础库，
 `TestReport` 刻意手写 JSON 以**避免依赖 `z42.json`**。因此 `manifest.json` → `BundleCase[]` 的解析
 留在**各宿主**（agent 与 z42b 各自本就依赖 `z42.json`，各写一小段 adapter），只**共享算法**
 （golden 隔离比对 + unit 跑 + 聚合），I/O glue 按宿主分。这样一份 bundle 在 host 与设备上跑出
@@ -121,7 +121,7 @@ z42b 从**自己所在的 SDK** 解析它（`_ensureAgent`，`builder_device.z42
 
 | 问题 | 取向 |
 |---|---|
-| 执行算法放哪 | 沉进 stdlib（`z42.test`），**两个宿主共用一份**——否则 host 与设备会各写一套，报告迟早不一致 |
+| 执行算法放哪 | 沉进 stdlib（`z42.harness`），**两个宿主共用一份**——否则 host 与设备会各写一套，报告迟早不一致 |
 | manifest 解析放哪 | 留在宿主侧。基础库不能为了解析 JSON 而依赖 `z42.json`，而两个宿主本来就依赖它 |
 | 设备构建放哪 | z42b。它是「单-bundle 执行器」这个角色的自然延伸；xtask 只做 fleet 级的事 |
 | emulator / simulator 的生命周期放哪 | **不在 z42b**（android 尤其明显）。供给一台可用设备是 CI / 本地脚本的事 |

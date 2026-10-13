@@ -5,7 +5,7 @@
 
 namespace Z42TextBench;
 
-using Std.Test;
+using Std.Harness;
 using Std.Text;
 
 [Benchmark]

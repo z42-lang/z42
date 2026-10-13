@@ -10,7 +10,7 @@
 namespace Z42cSemanticsForeachProtocolTests;
 
 using Z42.Semantics;
-using Std.Test;
+using Std.Harness;
 
 // ── ① 不可迭代 → E0488 ────────────────────────────────────────────
 

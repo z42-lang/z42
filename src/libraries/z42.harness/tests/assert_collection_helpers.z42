@@ -1,0 +1,105 @@
+// extend-assert-numeric-and-collection-helpers (2026-05-30) —
+// array-collection assertion coverage.
+
+namespace Z42TestAssertCollectionHelpers;
+
+using Std.Harness;
+
+// ── Contains(object, object[]) — int element ──────────────────────────
+
+[Test]
+void test_contains_object_array_pass_int() {
+    object[] arr = new object[] { 1, 2, 3 };
+    Assert.ArrayContains(2, arr);
+}
+
+[Test]
+void test_contains_object_array_pass_string() {
+    object[] arr = new object[] { "foo", "bar", "baz" };
+    Assert.ArrayContains("bar", arr);
+}
+
+[Test]
+void test_contains_object_array_fail() {
+    object[] arr = new object[] { 1, 2, 3 };
+    Assert.Throws("TestFailure", () => {
+        Assert.ArrayContains(4, arr);
+    });
+}
+
+[Test]
+void test_contains_object_array_empty_haystack_always_fails() {
+    object[] arr = new object[] { };
+    Assert.Throws("TestFailure", () => {
+        Assert.ArrayContains(1, arr);
+    });
+}
+
+// ── DoesNotContain ────────────────────────────────────────────────────
+
+[Test]
+void test_does_not_contain_pass() {
+    object[] arr = new object[] { 1, 2, 3 };
+    Assert.ArrayDoesNotContain(4, arr);
+}
+
+[Test]
+void test_does_not_contain_fail() {
+    object[] arr = new object[] { 1, 2, 3 };
+    Assert.Throws("TestFailure", () => {
+        Assert.ArrayDoesNotContain(2, arr);
+    });
+}
+
+[Test]
+void test_does_not_contain_empty_haystack_always_passes() {
+    object[] arr = new object[] { };
+    Assert.ArrayDoesNotContain(1, arr);
+}
+
+// ── IsEmpty / IsNotEmpty ──────────────────────────────────────────────
+
+[Test]
+void test_is_empty_pass_zero_length() {
+    object[] arr = new object[] { };
+    Assert.ArrayIsEmpty(arr);
+}
+
+[Test]
+void test_is_empty_fail_one_element() {
+    object[] arr = new object[] { 1 };
+    Assert.Throws("TestFailure", () => {
+        Assert.ArrayIsEmpty(arr);
+    });
+}
+
+[Test]
+void test_is_not_empty_pass() {
+    object[] arr = new object[] { 1, 2 };
+    Assert.ArrayIsNotEmpty(arr);
+}
+
+[Test]
+void test_is_not_empty_fail() {
+    object[] arr = new object[] { };
+    Assert.Throws("TestFailure", () => {
+        Assert.ArrayIsNotEmpty(arr);
+    });
+}
+
+// ── Regression: pre-spec string Contains overload unchanged ───────────
+
+[Test]
+void test_string_contains_still_works() {
+    // 不变量：`(string, string)` 这个 overload 必须与 `Array*` 集合助手并存、
+    // 仍然可达，且缺子串时抛。
+    //
+    // 期望 `TestFailure`（unify-assert-api）：合并前有两个 Assert，裸
+    // `Assert.Contains` 因跨包 first-wins 命中 z42.core 那份、抛裸 `Exception`，
+    // 所以这里原本 catch 的是 `Exception`。两份合并后只剩一个 `Std.Assert`，
+    // 断言一律抛 `TestFailure`。
+    Assert.Contains("foo", "foobar");      // pass-path
+    Assert.Throws("TestFailure", () => {
+        Assert.Contains("baz", "foobar");  // fail-path
+    });
+}

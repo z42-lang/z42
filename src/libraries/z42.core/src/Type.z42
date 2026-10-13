@@ -29,7 +29,7 @@ using Std.Reflection;
 // global `_classes` map (MemberInfo is a same-package z42.core class).
 public sealed class Type : MemberInfo {
     // VM-written backing slots. Prefer the inherited `Name` property + `FullName`;
-    // these remain public for the low-level golden tests + `z42.test` that read
+    // these remain public for the low-level golden tests + `z42.harness` that read
     // them directly.
     public string __name;
     public string __fullName;

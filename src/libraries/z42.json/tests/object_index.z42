@@ -5,7 +5,7 @@
 namespace Z42JsonObjectIndexTests;
 
 using Std.Json;
-using Std.Test;
+using Std.Harness;
 
 [Test]
 void test_object_get_set_contains() {

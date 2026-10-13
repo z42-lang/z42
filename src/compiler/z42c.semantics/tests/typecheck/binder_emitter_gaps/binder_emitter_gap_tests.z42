@@ -17,7 +17,7 @@ namespace Z42cSemanticsBinderGapTests;
 using Z42.Semantics;
 using Z42.Syntax;
 using Z42.Core;
-using Std.Test;
+using Std.Harness;
 
 // 体内诊断（TypeChecker.Infer 产出）——与 argument_type_tests.bodyDiags 同构。
 DiagnosticBag gapDiags(string src) {

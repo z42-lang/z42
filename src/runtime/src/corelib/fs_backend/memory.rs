@@ -6,10 +6,8 @@
 //! Read/glob/exists are the compile-critical ops (DepScan). Write ops mutate the
 //! map; `write_atomic` degrades to a plain write (no fsync in-memory). Directory
 //! semantics are path-prefix derived (a dir "exists" iff some file lives under it).
-use crate::metadata::Value;
-use crate::vm_context::VmContext;
-use anyhow::{bail, Result};
 use parking_lot::RwLock;
+use std::io::{Error, ErrorKind, Result};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
@@ -31,11 +29,11 @@ pub fn read(path: &str) -> Result<Vec<u8>> {
         .read()
         .get(path)
         .cloned()
-        .ok_or_else(|| anyhow::anyhow!("vfs: `{path}` not mounted"))
+        .ok_or_else(|| Error::new(ErrorKind::NotFound, format!("vfs: `{path}` not mounted")))
 }
 pub fn read_to_string(path: &str) -> Result<String> {
     let bytes = read(path)?;
-    Ok(String::from_utf8(bytes).map_err(|e| anyhow::anyhow!("vfs: `{path}` not utf8: {e}"))?)
+    String::from_utf8(bytes).map_err(|e| Error::new(ErrorKind::InvalidData, format!("vfs: `{path}` not utf8: {e}")))
 }
 pub fn write(path: &str, bytes: &[u8]) -> Result<()> {
     store().write().insert(path.to_string(), bytes.to_vec());
@@ -123,29 +121,19 @@ pub fn write_atomic(path: &str, bytes: &[u8]) -> Result<()> {
 
 // ── builtins to populate + activate the VFS from z42 / JS ────────────────────
 
-/// `__vfs_mount(path: string, bytes: byte[])` — add a virtual file.
-pub fn builtin_vfs_mount(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let path = match args.first() {
-        Some(Value::Str(s)) => s.to_string(),
-        _ => bail!("__vfs_mount: arg 0 must be a path string"),
-    };
-    let bytes: Vec<u8> = match args.get(1) {
-        Some(Value::Array(a)) => a
-            .borrow()
-            .iter_boxed()
-            .map(|v| match v {
-                Value::I64(n) => (n & 0xff) as u8,
-                _ => 0,
-            })
-            .collect(),
-        _ => bail!("__vfs_mount: arg 1 must be byte[]"),
-    };
-    store().write().insert(path, bytes);
-    Ok(Value::Null)
-}
+/// Host-only (the wasm playground; not declared in the stdlib — `native_decl_tests`'
+/// allowlist).
+#[z42_macros::builtins]
+pub mod typed {
+    /// `__vfs_mount(path: string, bytes: byte[])` — add a virtual file.
+    #[builtin(name = "__vfs_mount")]
+    pub fn vfs_mount(path: String, bytes: Vec<u8>) {
+        super::mount(&path, bytes);
+    }
 
-/// `__vfs_enable()` — switch the active fs backend to this in-memory VFS.
-pub fn builtin_vfs_enable(_ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    super::set_backend(super::FsBackend::Memory);
-    Ok(Value::Null)
+    /// `__vfs_enable()` — switch the active fs backend to this in-memory VFS.
+    #[builtin(name = "__vfs_enable")]
+    pub fn vfs_enable() {
+        super::super::set_backend(super::super::FsBackend::Memory);
+    }
 }

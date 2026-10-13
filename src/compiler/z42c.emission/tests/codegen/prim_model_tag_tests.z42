@@ -10,7 +10,7 @@ namespace Z42cSemanticsPrimModelTagTests;
 
 using Z42.IR;
 using Z42.Semantics;
-using Std.Test;
+using Std.Harness;
 
 // 码序（与 PrimModel 的四张投影表一致）：sbyte short int long byte ushort uint ulong
 //                                       float double bool char string object

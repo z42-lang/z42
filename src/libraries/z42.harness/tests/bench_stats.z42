@@ -1,0 +1,68 @@
+// rebuild-bench-structured-output — unit coverage for `BenchStats.parse`（`TestReport`
+// 的 JSON 形状在 z42.harness/tests/test_report.z42）. These inputs are deterministic strings (not timings), so
+// the tests are stable. Mirrors the retired Rust runner's `bench_stats_*` tests.
+
+namespace Z42TestBenchStats;
+
+using Std.Harness;
+
+// ── BenchStats.parse ────────────────────────────────────────────────────────
+
+[Test]
+void test_parse_canonical() {
+    // New canonical format carries mean= / stddev= (extend-ab-bench-micro-criterion).
+    BenchStats s = BenchStats.parse(
+        "bench[addition] min=3875ns median=3958ns max=9042ns mean=4100ns stddev=250ns samples=100")
+        .Expect("the literal above is a well-formed bench line");
+    Assert.Equal("addition", s.Label);
+    Assert.Equal("3875", s.MinNs.ToString());
+    Assert.Equal("3958", s.MedianNs.ToString());
+    Assert.Equal("9042", s.MaxNs.ToString());
+    Assert.Equal("4100", s.MeanNs.ToString());
+    Assert.Equal("250", s.StdDevNs.ToString());
+    Assert.Equal("100", s.Samples.ToString());
+}
+
+[Test]
+void test_parse_legacy_line_omits_mean_stddev() {
+    // Older Bencher output (no mean/stddev) must still parse — mean/stddev = -1.
+    BenchStats s = BenchStats.parse("bench[addition] min=3875ns median=3958ns max=9042ns samples=100")
+        .Expect("the literal above is a well-formed bench line");
+    Assert.Equal("3875", s.MinNs.ToString());
+    Assert.Equal("100", s.Samples.ToString());
+    Assert.Equal("-1", s.MeanNs.ToString());
+    Assert.Equal("-1", s.StdDevNs.ToString());
+}
+
+[Test]
+void test_parse_no_bench_line_returns_null() {
+    Assert.Null(BenchStats.parse("  PASS Foo.bar"));
+    Assert.Null(BenchStats.parse(""));
+}
+
+[Test]
+void test_parse_malformed_returns_null() {
+    // missing median + samples
+    Assert.Null(BenchStats.parse("bench[x] min=1ns max=2ns"));
+    // non-integer value where a number is expected
+    Assert.Null(BenchStats.parse("bench[x] min=abc median=1ns max=2ns samples=3"));
+}
+
+[Test]
+void test_parse_multiline_picks_last() {
+    string text = "bench[first] min=1ns median=1ns max=1ns samples=1\n"
+        + "some noise\n"
+        + "bench[second] min=2ns median=2ns max=2ns samples=2";
+    BenchStats s = BenchStats.parse(text).Expect("text carries a well-formed bench line");
+    Assert.Equal("second", s.Label);
+    Assert.Equal("2", s.MinNs.ToString());
+}
+
+[Test]
+void test_parse_leading_indent() {
+    // captured stdout may carry indentation before the bench line
+    BenchStats s = BenchStats.parse("   bench[y] min=5ns median=6ns max=7ns samples=8")
+        .Expect("leading indent is tolerated");
+    Assert.Equal("y", s.Label);
+    Assert.Equal("8", s.Samples.ToString());
+}

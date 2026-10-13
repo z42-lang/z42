@@ -594,7 +594,7 @@ int _testAll(bool noBuild, string skip) {
     //
     // 为什么它必须在 GREEN gate 里（fix-bench-corpus-using-stdtest, 2026-09-08）：
     // bench 语料此前唯一的看门人是 `bench-regression`(bench-pr.yml)，而那个 job **不在
-    // 分支保护的 required 列表里**。#532 把 `Failure.z42` 搬出 z42.test，14/19 个 bench
+    // 分支保护的 required 列表里**。#532 把 `Failure.z42` 搬出 z42.harness，14/19 个 bench
     // 文件当场跑不起来（`Bencher` 解析成 `<unknown>`），门红了、PR 照合，此后连红 3 个 PR
     // 无人过问 —— **会红但不挡人的门等价于没有门**。
     // 把它提进 required 不可行：bench-pr.yml 是 path-filtered，纯文档 PR 上根本不触发 ⇒

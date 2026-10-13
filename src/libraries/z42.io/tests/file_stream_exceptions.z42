@@ -1,0 +1,73 @@
+// requires-caps: fs, process
+// runtime-audit P1-8: FileStream / File failures are .NET's exception types (thrown by
+// the VM); permission denied is `UnauthorizedAccessException`.
+namespace Z42IoFileStreamExceptionsTests;
+
+using Std.IO;
+using Std.Harness;
+
+[Test]
+void test_open_missing_file_is_file_not_found() {
+    string dir = File.CreateTempDir("z42-fs-exc");
+    Assert.Throws("FileNotFoundException", () => new FileStream(Path.Join(dir, "none.bin")));
+    Assert.Throws("DirectoryNotFoundException",
+        () => new FileStream(Path.Join(Path.Join(dir, "no"), "x.bin"), FileMode.Write));
+    bool io = false;
+    try {
+        new FileStream(Path.Join(dir, "none.bin"));
+    } catch (IOException e) {
+        io = true;
+    }
+    Assert.True(io);
+    Directory.Delete(dir, true);
+}
+
+[Test]
+void test_open_directory_for_read_is_unauthorized_access() {
+    string dir = File.CreateTempDir("z42-fs-exc");
+    Assert.Throws("UnauthorizedAccessException", () => new FileStream(dir));
+    Directory.Delete(dir, true);
+}
+
+[Test]
+void test_read_write_round_trip_outside_the_handle_table_lock() {
+    string path = File.CreateTempFile("z42-fs-exc", ".bin");
+    FileStream w = new FileStream(path, FileMode.Write);
+    byte[] data = new byte[300];
+    int i = 0;
+    while (i < 300) { data[i] = (byte)(i % 251); i = i + 1; }
+    w.Write(data, 0, 300);
+    w.Flush();
+    w.Close();
+    FileStream r = new FileStream(path);
+    byte[] back = new byte[512];
+    int n = r.Read(back, 10, 300);
+    Assert.Equal(300, n);
+    Assert.Equal(250, (int)back[10 + 250]);
+    Assert.Equal(0, r.Read(back, 0, 10));     // EOF
+    r.Close();
+    File.Delete(path);
+}
+
+[Test]
+[Skip(platform: "windows", reason: "chmod 000 is a POSIX permission model")]
+void test_permission_denied_is_unauthorized_access() {
+    string dir = File.CreateTempDir("z42-fs-perm");
+    string path = Path.Join(dir, "locked.txt");
+    File.WriteAllText(path, "secret");
+    new Process("chmod").Arg("000").Arg(path).Run().EnsureSuccess();
+    bool denied = false;
+    bool readable = false;
+    try {
+        File.ReadAllText(path);
+        readable = true;                // running as root: permission bits do not apply
+    } catch (UnauthorizedAccessException e) {
+        denied = true;
+    }
+    Assert.True(denied || readable);
+    if (denied) {
+        Assert.Throws("UnauthorizedAccessException", () => new FileStream(path));
+    }
+    new Process("chmod").Arg("600").Arg(path).Run().EnsureSuccess();
+    Directory.Delete(dir, true);
+}

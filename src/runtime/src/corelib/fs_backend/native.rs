@@ -1,17 +1,19 @@
 //! Native filesystem backend — `std::fs`. The default on all non-wasm targets.
 //! Semantics byte-identical to the pre-refactor inline `std::fs` calls (this file
 //! is a straight extraction), so native behaviour is unchanged.
-use anyhow::Result;
+//!
+//! Errors stay `std::io::Error`: the builtins (`corelib::fs`) map them to the .NET
+//! exception with the path in hand (`fs::fs_error`).
+use std::io::Result;
 
 pub fn read_to_string(path: &str) -> Result<String> {
-    Ok(std::fs::read_to_string(path)?)
+    std::fs::read_to_string(path)
 }
 pub fn read(path: &str) -> Result<Vec<u8>> {
-    Ok(std::fs::read(path)?)
+    std::fs::read(path)
 }
 pub fn write(path: &str, bytes: &[u8]) -> Result<()> {
-    std::fs::write(path, bytes)?;
-    Ok(())
+    std::fs::write(path, bytes)
 }
 pub fn append(path: &str, bytes: &[u8]) -> Result<()> {
     use std::io::Write;
@@ -26,28 +28,23 @@ pub fn is_dir(path: &str) -> bool {
     std::path::Path::new(path).is_dir()
 }
 pub fn remove_file(path: &str) -> Result<()> {
-    std::fs::remove_file(path)?;
-    Ok(())
+    std::fs::remove_file(path)
 }
 pub fn remove_dir(path: &str, recursive: bool) -> Result<()> {
     if recursive {
-        std::fs::remove_dir_all(path)?;
+        std::fs::remove_dir_all(path)
     } else {
-        std::fs::remove_dir(path)?;
+        std::fs::remove_dir(path)
     }
-    Ok(())
 }
 pub fn copy(src: &str, dst: &str) -> Result<()> {
-    std::fs::copy(src, dst)?;
-    Ok(())
+    std::fs::copy(src, dst).map(|_| ())
 }
 pub fn rename(src: &str, dst: &str) -> Result<()> {
-    std::fs::rename(src, dst)?;
-    Ok(())
+    std::fs::rename(src, dst)
 }
 pub fn create_dir_all(path: &str) -> Result<()> {
-    std::fs::create_dir_all(path)?;
-    Ok(())
+    std::fs::create_dir_all(path)
 }
 pub fn modified_ms(path: &str) -> Result<i64> {
     use std::time::UNIX_EPOCH;
@@ -60,7 +57,8 @@ pub fn modified_ms(path: &str) -> Result<i64> {
 pub fn file_len(path: &str) -> Result<u64> {
     let meta = std::fs::metadata(path)?;
     if meta.is_dir() {
-        anyhow::bail!("File.GetSize: '{}' is a directory", path);
+        // .NET `FileInfo.Length` on a directory: FileNotFoundException.
+        return Err(std::io::Error::new(std::io::ErrorKind::NotFound, format!("'{path}' is a directory")));
     }
     Ok(meta.len())
 }

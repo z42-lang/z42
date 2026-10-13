@@ -4,7 +4,7 @@ namespace Z42IoFileAtomicWriteTests;
 
 using Std.IO;
 using Std.Encoding;
-using Std.Test;
+using Std.Harness;
 
 [Test]
 void test_atomic_text_round_trip() {
@@ -80,7 +80,7 @@ void test_atomic_write_to_nonexistent_directory_throws() {
     bool caught = false;
     try {
         File.WriteAllTextAtomic("/no/such/dir/x.txt", "should fail");
-    } catch (Exception e) {
+    } catch (DirectoryNotFoundException e) {
         caught = true;
     }
     Assert.True(caught);

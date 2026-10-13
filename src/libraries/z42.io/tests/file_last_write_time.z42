@@ -7,7 +7,7 @@ namespace Z42IoFileLastWriteTimeTests;
 
 using Std.IO;
 using Std.Time;
-using Std.Test;
+using Std.Harness;
 
 [Test]
 void test_mtime_is_real_current_time() {
@@ -38,12 +38,12 @@ void test_mtime_monotonic_after_rewrite() {
 
 [Test]
 void test_missing_file_throws() {
-    // 文件不存在 → metadata() 失败 → Std.Exception（沿用本模块 IO 错误约定）。
+    // 文件不存在 → FileNotFoundException（.NET 口径）。
     string base = File.CreateTempDir("z42mtime");
     bool threw = false;
     try {
         File.GetLastWriteTime(base + "/__z42_mtime_definitely_missing_xyz__.txt");
-    } catch (Exception e) {
+    } catch (FileNotFoundException e) {
         threw = true;
     }
     Assert.True(threw);

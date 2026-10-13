@@ -1,0 +1,30 @@
+using Std.IO;
+// Test: z42.harness v0 TestRunner (add-z42-test-v0, 2026-04-27)
+//
+// 演示 imperative TestRunner 模式：Begin / try-catch / Fail / Summary。
+// 同时覆盖 pass 和 fail 路径，行为锁定在 expected_output.txt。
+
+using Std.Harness;
+
+void Main() {
+    var t = new TestRunner("DemoSuite");
+
+    // pass case 1
+    t.Begin("Addition");
+    try { Assert.Equal(4, 2 + 2); } catch (Exception e) { t.Fail(e); }
+
+    // pass case 2
+    t.Begin("Concatenation");
+    try { Assert.Equal("ab", "a" + "b"); } catch (Exception e) { t.Fail(e); }
+
+    // fail case (Assert 触发 throw → catch → Fail 标记)
+    t.Begin("DeliberateFail");
+    try { Assert.Equal(1, 2); } catch (Exception e) { t.Fail(e); }
+
+    // pass case 3 (验证 fail 后续 case 仍能继续)
+    t.Begin("AfterFail");
+    try { Assert.True(true); } catch (Exception e) { t.Fail(e); }
+
+    int failed = t.Summary();
+    Console.WriteLine($"failed = {failed}");
+}

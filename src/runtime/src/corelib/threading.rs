@@ -175,7 +175,31 @@ pub mod typed {
         std::thread::sleep(std::time::Duration::from_millis(millis.max(0) as u64));
     }
 
-    /// `__thread_join(slot)` — wait for a spawned thread; returns the discriminated
+    /// `__thread_wait(slot)` — `Thread.Join()`: wait for a spawned thread (parked, as
+    /// `__thread_join`). The outcome throws instead of coming back as an array: the
+    /// worker threw or panicked, or the thread was already joined →
+    /// `Std.Threading.ThreadException` (its message as before). .NET's `Join()` has no
+    /// failure of its own (an unhandled worker exception ends the process there), so the
+    /// z42 class stays; there is no timed join, hence no `TimeoutException`.
+    #[builtin(name = "__thread_wait")]
+    pub fn thread_wait(ctx: &VmContext, slot: i64) -> Blocking<()> {
+        let handle = ctx.core.threads.lock().remove(&(slot as u64));
+        let fail = |message: String| crate::corelib::abi::BuiltinError::Exception {
+            class: "Std.Threading.ThreadException", message,
+        };
+        Blocking::new(move || match handle {
+            None => Err(fail("thread already joined".to_string())),
+            Some(h) => match h.join() {
+                Ok(Ok(()))  => Ok(()),
+                Ok(Err(e))  => Err(fail(format!("{e}"))),
+                Err(_panic) => Err(fail("thread panicked".to_string())),
+            },
+        })
+    }
+
+    // STAGE2-DEBT(legacy-thread-join): 种子的 z42.core 不再声明 __thread_join 后删掉它与 JoinOutcome / 结果数组。
+    /// `__thread_join(slot)` — seed compatibility (the stdlib calls `__thread_wait`): wait
+    /// for a spawned thread; returns the discriminated
     /// outcome array (module docs). The handle is taken out of the registry unparked,
     /// the join itself runs parked: the joined thread may need a collection to finish,
     /// and the collector waits for every thread that is not parked — joining unparked

@@ -2,7 +2,7 @@
 namespace Z42cIrDepIndexTests;
 
 using Z42.IR;
-using Std.Test;
+using Std.Harness;
 
 IrFunction _fn(string name, int pc, bool isStatic) {
     IrBlock[] blocks = new IrBlock[0];

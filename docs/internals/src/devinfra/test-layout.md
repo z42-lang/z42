@@ -249,7 +249,7 @@ xtask test app <desktop|wasm|ios|android|all> [stage|build|assets|bundle|run] [-
 
 desktop 也是一个嵌入宿主（C ABI 宿主），与三个设备平台同一条流水线：R1–R7（分片时只在第 1 片）→ 嵌入
 bundle → 宿主构建 → 运行，最后给一张汇总表。desktop 的语料在 z42b 进程内跑（`--rid host`，与设备上 agent
-内嵌的是同一个 `Std.Test.BundleRunner`）；设备平台先把 test agent 装进 z42b 会去找的 SDK（构建树的
+内嵌的是同一个 `Std.Harness.BundleRunner`）；设备平台先把 test agent 装进 z42b 会去找的 SDK（构建树的
 `artifacts/build/runtime/runtimes/dev/workloads/test/`；xtask 调 z42b 时总把 `Z42_PORTABLE_VM` 设成跑 z42b 的那个
 VM，所以本地经 `.z42/z42` 启动也找得到）。
 
@@ -295,7 +295,7 @@ stdlib、`bundle` 组嵌入语料并放进宿主、`run` 在宿主 / 设备上�
 | ③ | `src/**/*.z42` 里的 `// requires-caps:` 与 `[Skip(feature: "…")]` 只用「已生效」的名字 | 改成已生效的名字；需要新能力就先让运行期报告它 |
 | ④ | `build/` 的一级目录、`build/{compiler,libraries,toolchain}/` 的二级目录、`intermediate/` 的一级目录，在 `src/` 下都有同名目录（不存在的跳过） | 编译产物改到 `build/` 镜像（`_buildMirror`），其余改到 `intermediate/` 镜像（`_workOut` 等）；旧布局残留按报错给的 `rm -rf` 删掉 |
 
-③ 豁免故意写未知能力名的 fixture（`_tlCapFixtures()`）：`z42.test` 的 `skip_platform_demo.z42`（deny-by-default 演示）。④ 的例外只有 `intermediate/xtask`（xtask 不在 `src/` 下）。
+③ 豁免故意写未知能力名的 fixture（`_tlCapFixtures()`）：`z42.harness` 的 `skip_platform_demo.z42`（deny-by-default 演示）。④ 的例外只有 `intermediate/xtask`（xtask 不在 `src/` 下）。
 
 | 组件 | 位置 |
 |---|---|

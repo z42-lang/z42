@@ -9,7 +9,7 @@
 namespace Z42CoreDictOpsTests;
 
 using Std.Collections;
-using Std.Test;
+using Std.Harness;
 
 [Test]
 void test_is_empty_and_clear() {

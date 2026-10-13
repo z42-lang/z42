@@ -37,37 +37,29 @@ use anyhow::{bail, Result};
 #[cfg(all(not(target_arch = "wasm32"), feature = "native-interop"))]
 use std::ffi::{c_char, c_void, CStr, CString};
 
-/// Extract argument `idx` as an owned prompt string (empty when absent/non-str).
-fn prompt_arg(args: &[Value], idx: usize) -> String {
-    match args.get(idx) {
-        Some(Value::Str(s)) => s.to_string(),
-        _ => String::new(),
-    }
-}
+/// `__repl_readline` (builtin ABI v2).
+#[z42_macros::builtins]
+pub mod typed {
+    use crate::corelib::abi::BuiltinError;
+    use crate::vm_context::VmContext;
 
-/// `__repl_readline(prompt: string, initial: string) -> string?` — read one edited
-/// whole (possibly multi-line) statement — one `readline()` spans an entire statement,
-/// with the Enter key deciding submit-vs-continue via the z42 key-editor
-/// (add-repl-multiline-editing). Returns null on Ctrl-D (EOF) / Ctrl-C (interrupt).
-pub fn builtin_repl_readline(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let prompt = prompt_arg(args, 0);
-    // add-repl-prewarm: GC-safe park for the blocking read so a background
-    // prewarm thread's GC can proceed while this thread waits on stdin. The
-    // cdylib's callbacks (completer / key-editor) un-park via
-    // `NativeUnparkGuard` in the trampolines before re-entering the VM.
-    //
-    // **fix-alloc-inside-native-park (2026-09-14)**: the park covers the read and nothing
-    // else. The line only becomes a z42 string — a GC allocation — after the guard drops;
-    // made inside the park it would not be a root for the prewarm thread's collections
-    // (`gc::safepoint::debug_assert_not_native_parked`).
-    let line = {
+    /// `__repl_readline(prompt) -> string?` — read one edited whole (possibly multi-line)
+    /// statement: one `readline()` spans an entire statement, the Enter key deciding
+    /// submit-vs-continue via the z42 key-editor. Null on Ctrl-D (EOF) / Ctrl-C.
+    ///
+    /// Not `blocking`: the editor calls back into z42 (completer / key-editor) from inside
+    /// the read, with this context (`reenters`). So the body parks itself around the read —
+    /// the callbacks unpark via `NativeUnparkGuard` in their trampolines before re-entering
+    /// the VM — and the line becomes a z42 string (a GC allocation) only after the park
+    /// ends (`gc::safepoint::debug_assert_not_native_parked`).
+    #[builtin(name = "__repl_readline", reenters)]
+    pub fn repl_readline(ctx: &VmContext, prompt: Option<&str>) -> Result<Option<String>, BuiltinError> {
         let _park = crate::gc::NativeParkGuard::enter(ctx);
-        read_one_line(ctx, &prompt)?
-    };
-    Ok(match line {
-        Some(s) => Value::Str(s.into()),
-        None => Value::Null,
-    })
+        super::read_one_line(ctx, prompt.unwrap_or("")).map_err(|e| match e.downcast::<std::io::Error>() {
+            Ok(io) => io.into(),
+            Err(e) => BuiltinError::Legacy(e),
+        })
+    }
 }
 
 /// `__repl_set_completer(fqn: string) -> void` — register the z42 completer the Tab
@@ -159,7 +151,7 @@ fn complete_via_callback(ctx: &VmContext, fqn: &str, line: Value, pos: i64) -> R
 
 /// `extern "C"` completion trampoline the cdylib calls back through
 /// `ReplCallbacks.complete` mid-`readline()`. Casts the opaque `ctx` back to
-/// `&VmContext`, un-parks GC (the outer `NativeParkGuard` from `builtin_repl_readline`
+/// `&VmContext`, un-parks GC (the outer `NativeParkGuard` from `typed::repl_readline`
 /// is active for the blocking read), invokes the registered z42 completer via
 /// `complete_via_callback`, and returns the candidates as an owned `\n`-joined C
 /// string (the cdylib splits on `\n`). Returns null on no-editor / no candidates /
@@ -287,7 +279,7 @@ fn complete_arity_check(fqn: &str, param_count: usize) -> Result<()> {
 /// Host: drive the dlopen'd `libz42_repl` editor (lazy load; plain-stdin fallback
 /// when the lib is absent or the terminal can't host an editor). See `repl_native`.
 /// `None` is EOF. Returns a Rust `String` rather than a `Value` because it runs parked —
-/// see `builtin_repl_readline`.
+/// see `typed::repl_readline`.
 #[cfg(not(target_arch = "wasm32"))]
 fn read_one_line(ctx: &VmContext, prompt: &str) -> Result<Option<String>> {
     super::repl_native::readline(ctx, prompt)

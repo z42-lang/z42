@@ -1,0 +1,116 @@
+namespace Std.Harness;
+
+
+// Per-entry outcome of a reflective test/bench run (rebuild-bench-structured-output).
+// The z42-native successor to the retired Rust `TestResult`, trimmed to what an
+// in-process runner can produce: no per-test `duration_ms` / `failure_location` /
+// `stack_trace` (no reliable source — omitted rather than fabricated).
+public class TestResult {
+    public string Name;         // fully-qualified "<FQClass>.<Method>"
+    public string Status;       // "passed" | "failed" | "skipped"
+    public bool IsBenchmark;
+    public string Reason;       // null unless failed / skipped
+    public BenchStats Stats;    // null unless a benchmark with a parsed summary line
+
+    public TestResult(string name, string status, bool isBenchmark, string reason, BenchStats stats) {
+        this.Name = name;
+        this.Status = status;
+        this.IsBenchmark = isBenchmark;
+        this.Reason = reason;
+        this.Stats = stats;
+    }
+}
+
+// JSON report serialization for the runner's `--format json` mode. z42.harness has no
+// dependencies (foundational lib), so JSON is hand-rolled rather than via z42.json.
+// Contract (rebuild-bench-structured-output):
+//
+//   { "tool":"z42b", "module":"<path>",
+//     "summary":{"total":N,"passed":P,"failed":F,"skipped":S},
+//     "results":[ {"name":..,"status":..,"is_benchmark":..[,"reason":..][,"bench_stats":..]} ] }
+//
+// NOTE: `module` is a RESERVED z42 keyword — the artifact-path parameter is named
+// `artifact` here. (Naming it `module` once desynced the parser and, with parse
+// diagnostics dropped, silently miscompiled this very file — both fixed in
+// fix-parse-diags-dropped.)
+public static class TestReport {
+    public static string toJson(string artifact, TestResult[] results) {
+        int total = results.Length;
+        int passed = 0; int failed = 0; int skipped = 0;
+        int i = 0;
+        while (i < results.Length) {
+            string st = results[i].Status;
+            if (st == "passed")       { passed = passed + 1; }
+            else if (st == "failed")  { failed = failed + 1; }
+            else                      { skipped = skipped + 1; }
+            i = i + 1;
+        }
+
+        string s = "{";
+        s = s + "\"tool\":\"z42b\",";
+        s = s + "\"module\":\"" + TestReport.esc(artifact) + "\",";
+        s = s + "\"summary\":{"
+            + "\"total\":" + total.ToString() + ","
+            + "\"passed\":" + passed.ToString() + ","
+            + "\"failed\":" + failed.ToString() + ","
+            + "\"skipped\":" + skipped.ToString() + "},";
+        s = s + "\"results\":[";
+        int j = 0;
+        while (j < results.Length) {
+            if (j > 0) { s = s + ","; }
+            s = s + TestReport.resultJson(results[j]);
+            j = j + 1;
+        }
+        s = s + "]}";
+        return s;
+    }
+
+    // Render one result object (no trailing comma; toJson joins with ",").
+    public static string resultJson(TestResult r) {
+        string s = "{";
+        s = s + "\"name\":\"" + TestReport.esc(r.Name) + "\",";
+        s = s + "\"status\":\"" + r.Status + "\",";
+        s = s + "\"is_benchmark\":" + (r.IsBenchmark ? "true" : "false");
+        if (r.Reason != null) {
+            s = s + ",\"reason\":\"" + TestReport.esc(r.Reason) + "\"";
+        }
+        if (r.Stats != null) {
+            s = s + ",\"bench_stats\":" + TestReport._statsJson(r.Stats);
+        }
+        s = s + "}";
+        return s;
+    }
+
+    static string _statsJson(BenchStats b) {
+        // mean_ns / stddev_ns (extend-ab-bench-micro-criterion): -1 when the
+        // summary line omitted them (older Bencher) → consumers treat as "no CI".
+        return "{"
+            + "\"label\":\"" + TestReport.esc(b.Label) + "\","
+            + "\"min_ns\":" + b.MinNs.ToString() + ","
+            + "\"median_ns\":" + b.MedianNs.ToString() + ","
+            + "\"max_ns\":" + b.MaxNs.ToString() + ","
+            + "\"mean_ns\":" + b.MeanNs.ToString() + ","
+            + "\"stddev_ns\":" + b.StdDevNs.ToString() + ","
+            + "\"samples\":" + b.Samples.ToString()
+            + "}";
+    }
+
+    // Minimal JSON string escaping: quote, backslash, and the common control
+    // chars that appear in exception messages / names. Sufficient for the
+    // strings this report carries (names, statuses, reason text).
+    public static string esc(string str) {
+        string outp = "";
+        int i = 0;
+        while (i < str.Length) {
+            string c = str.Substring(i, 1);
+            if (c == "\"")       { outp = outp + "\\\""; }
+            else if (c == "\\")  { outp = outp + "\\\\"; }
+            else if (c == "\n")  { outp = outp + "\\n"; }
+            else if (c == "\r")  { outp = outp + "\\r"; }
+            else if (c == "\t")  { outp = outp + "\\t"; }
+            else                 { outp = outp + c; }
+            i = i + 1;
+        }
+        return outp;
+    }
+}

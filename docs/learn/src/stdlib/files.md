@@ -233,8 +233,10 @@ bool isRegularFile = File.Exists(p) && !Directory.Exists(p);
 
 ## 出错时抛什么
 
-**这套 API 没有 `IOException`**。文件不存在、权限不足、目录非空、内容不是 UTF-8——全部抛基类
-`Std.Exception`，`Message` 是操作系统的原文：
+出错时抛的异常按 C# 的习惯分了类：文件不存在是 `FileNotFoundException`，目录（或路径中间的某一级）
+不存在是 `DirectoryNotFoundException`，权限不足是 `UnauthorizedAccessException`，其它 IO 失败是
+`IOException`。前两个都是 `IOException` 的子类，所以「只要是 IO 出错就处理」写一个
+`catch (IOException e)` 就够了：
 
 ```z42
 // examples/stdlib/files/errors/errors.z42
@@ -245,13 +247,9 @@ bool isRegularFile = File.Exists(p) && !Directory.Exists(p);
 {{#include ../../../../examples/stdlib/files/errors/run.console:missing}}
 ```
 
-所以 `catch` 只能按 `Std.Exception` 抓。上面的消息行是通配显示的，因为它**逐字取决于操作系统**
-——同一个「文件不存在」，Linux / macOS 给的是 `No such file or directory (os error 2)`，
-而 Windows 给的是 `The system cannot find the file specified. (os error 2)`；换成「父目录不存在」，
-Windows 连错误号都变成 `os error 3`。
-
-⇒ **`Message` 不能当程序逻辑的判据**。能先问就先问：用 `File.Exists` / `Directory.Exists`
-提前判断，比事后解析消息可靠——后者换个平台就失效。
+**按类型 `catch`，别解析 `Message`**：消息是给人看的（带上了出错的路径），类型才是给程序判断的。
+「不存在」这两种的消息在各平台上一致；其余 `IOException` 的消息里带着操作系统的原文，换个平台就变。
+能先问也可以先问：`File.Exists` / `Directory.Exists` 从不抛。
 
 ### 写文件不会顺手建目录
 
@@ -313,7 +311,8 @@ Windows 连错误号都变成 `os error 3`。
 - ⚠️ `File.Exists` 对目录也是 `true`；判「普通文件」要 `File.Exists(p) && !Directory.Exists(p)`。
 - `Path.Glob` / `GlobRecursive` 返回排好序的完整路径，只有 `*` 和 `?`，递归版的 `*` 跨 `/`；
   目录不存在返回空数组。
-- 出错一律 `Std.Exception` + OS 原文消息（**逐字跨平台不同，别拿它当判据**），**没有 `IOException`**；写文件不会建父目录；
+- 出错按类型分：`FileNotFoundException` / `DirectoryNotFoundException`（都是 `IOException`）、
+  `UnauthorizedAccessException`、其它 `IOException`——**按类型 `catch`，别解析消息**；写文件不会建父目录；
   `File.Delete` / `Directory.Enumerate` 对不存在的目标会抛，而 `Path.Glob` / `Exists` 不会。
 - 临时文件 / 目录用完要**自己删**。
 

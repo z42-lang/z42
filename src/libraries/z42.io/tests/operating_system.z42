@@ -2,7 +2,7 @@
 // add-platform-os-stdlib: Std.OperatingSystem tests.
 namespace Z42IoOperatingSystemTests;
 
-using Std.Test;
+using Std.Harness;
 
 [Test]
 void test_pid_positive() {

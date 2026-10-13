@@ -5,7 +5,7 @@ namespace Z42CryptoBlake3VectorsTests;
 
 using Std.Crypto;
 using Std.Encoding;
-using Std.Test;
+using Std.Harness;
 
 // ── Canonical empty + "abc" + longer inputs ─────────────────────────────
 
