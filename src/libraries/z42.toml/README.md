@@ -49,3 +49,8 @@ TomlValue.Stringify(root);                     // "version = 42\n"
 ```bash
 xtask test stdlib z42.toml    # 本库全部 [Test]
 ```
+
+## 关联文档
+
+- 用法与规则（参考手册）：[z42.toml](../../../docs/reference/src/stdlib/toml.md)
+- 设计 / 机制（实现内幕）：[标准库三层架构](../../../docs/internals/src/stdlib/architecture.md) · [包划分与 interop 归属](../../../docs/internals/src/stdlib/organization.md)

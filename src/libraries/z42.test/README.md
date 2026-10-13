@@ -94,6 +94,11 @@ xtask test stdlib mylib             # 跑某个库的 [Test]（默认 in-process
 xtask test stdlib --jobs 0 mylib    # 并行：0 = available_parallelism；N>1 走 subprocess，[Setup]/[Teardown] 不运行
 ```
 
+## 关联文档
+
+- 用法与规则（参考手册）：[测试](../../../docs/reference/src/testing.md)
+- 设计 / 机制（实现内幕）：[测试框架与 runner](../../../docs/internals/src/testing/framework.md) · [跨平台测试](../../../docs/internals/src/testing/cross-platform.md) · [测试流水线](../../../docs/internals/src/devinfra/test-pipeline.md)
+
 ## 核心文件
 
 | 文件 | 类型 | 职责 |

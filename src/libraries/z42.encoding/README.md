@@ -36,3 +36,8 @@ byte ↔ text 编码三件套：Hex / Base64 / UTF-8。纯脚本实现（无 VM 
 
 ## 待办
 - 无 streaming API（Encoder / Decoder 状态机）
+
+## 关联文档
+
+- 用法与规则（参考手册）：[z42.encoding](../../../docs/reference/src/stdlib/encoding.md)
+- 设计 / 机制（实现内幕）：[标准库三层架构](../../../docs/internals/src/stdlib/architecture.md) · [包划分与 interop 归属](../../../docs/internals/src/stdlib/organization.md)
