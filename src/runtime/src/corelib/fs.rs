@@ -227,10 +227,10 @@ pub(crate) struct FileHandleSlot {
 
 /// The open file behind `slot` (a clone of its `Arc`; the table lock is released on return).
 /// An unknown or closed slot is .NET's `ObjectDisposedException` ("Cannot access a closed
-/// file.") — an `InvalidOperationException` here (z42 has no `ObjectDisposedException`).
+/// file.", `ObjectName` null).
 fn open_file(ctx: &crate::vm_context::VmContext, slot: i64) -> Result<Arc<std::fs::File>, BuiltinError> {
     ctx.core.file_handles.with_mut(slot as u64, |s| s.file.clone()).flatten()
-        .ok_or_else(|| BuiltinError::InvalidOperation("Cannot access a closed file.".into()))
+        .ok_or_else(|| BuiltinError::object_disposed(None, "Cannot access a closed file."))
 }
 
 /// .NET `Stream.Read` / `Write` argument checks against a buffer of `len` bytes.
@@ -260,7 +260,7 @@ pub(crate) fn byte_array(v: &crate::metadata::Value, param: &str) -> Result<crat
 }
 
 /// `buf[off..off + n]` copied out (packed `byte[]`: one atomic chunked copy).
-fn read_byte_range(arr: &crate::metadata::types::ArrayObj, off: usize, n: usize) -> Result<Vec<u8>, BuiltinError> {
+pub(crate) fn read_byte_range(arr: &crate::metadata::types::ArrayObj, off: usize, n: usize) -> Result<Vec<u8>, BuiltinError> {
     if let Some(b) = arr.byte_range(off, n) { return Ok(b); }
     (off..off + n).map(|i| match arr.get_boxed(i) {
         crate::metadata::Value::I64(b) if (0..=255).contains(&b) => Ok(b as u8),

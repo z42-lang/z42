@@ -21,26 +21,40 @@ wasm32 目标上所有 socket 操作抛 `NetUnsupportedException`。
 
 ```
 Exception
-└── NetException                    // Std.Net
-    ├── NetUnsupportedException     // Std.Net            目标平台（wasm32）无 socket
-    ├── SocketException             // Std.Net.Sockets    连接失败 / IO 失败 / 超时 / DNS 失败
-    ├── SocketClosedException       // Std.Net.Sockets    对已关闭或已 Dispose 的句柄再操作
-    ├── HttpException               // Std.Net.Http
-    │   └── HttpProtocolException   // Std.Net.Http       响应不符合 HTTP/1.1 语法
-    └── WebSocketException          // Std.Net.WebSockets
-        └── WebSocketProtocolException
+├── NetException                              // Std.Net
+│   ├── SocketException                       // Std.Net.Sockets    OS 级 socket 错误（含超时、DNS 失败）
+│   ├── HttpException                         // Std.Net.Http
+│   │   └── HttpProtocolException             // Std.Net.Http       响应不符合 HTTP/1.1 语法
+│   └── WebSocketException                    // Std.Net.WebSockets
+│       └── WebSocketProtocolException
+├── InvalidOperationException                 // Std
+│   └── ObjectDisposedException               // Std
+│       └── SocketClosedException             // Std.Net.Sockets    对已关闭 / 已 Dispose 的句柄操作
+├── NotSupportedException                     // Std
+│   └── PlatformNotSupportedException         // Std
+│       └── NetUnsupportedException           // Std.Net            目标平台（wasm32）无 socket
+├── Std.IO.IOException                        // NetworkStream / TlsStream 的读写失败、TLS 握手中途断开
+└── AuthenticationException                   // Std.Security.Authentication   TLS 握手 / 证书被拒
 ```
 
-只想统一兜住网络错误时 `using Std.Net;` 后 `catch (NetException e)`。
+与 .NET 对齐：
 
-`SocketException` 的 message 带 OS 错误原文，例如
-`connect to 127.0.0.1:1 (timeout 300ms): Connection refused (os error 61)`。
-读超时表现为 `SocketException: udp recv: Resource temporarily unavailable (os error 35)`
-一类的消息，没有独立的 timeout 异常类型。
+| 情形 | 抛什么 |
+|---|---|
+| 连接被拒、连接被重置、地址已被占用、网络不可达等 OS 错误 | `SocketException`：`SocketErrorCode`（`SocketError` 枚举，取值即 .NET 的 Winsock 码，如 `ConnectionRefused` = 10061）与 `ErrorCode`（同一个值的 `int`）；`Message` 是 OS 的错误描述，connect 失败时后面带对端地址（`Connection refused 127.0.0.1:1`） |
+| socket 读写 / 连接超时（`SetReadTimeout` 等到点、`SetConnectTimeout`） | `SocketException`，`SocketErrorCode == SocketError.TimedOut`——与 .NET 的 `Socket.Receive` 一样，没有单独的 timeout 异常 |
+| DNS 解析失败（`Dns.GetHostAddresses`、按主机名 connect / bind） | `SocketException`，`SocketErrorCode == SocketError.HostNotFound`，`Message` 是解析器的原文 |
+| 在已 `Dispose` / `Close` / `Stop` 的对象上操作，或阻塞中的 accept / 读写被另一个线程关掉 | `SocketClosedException`（是 `ObjectDisposedException`，`ObjectName` 为 `Std.Net.Sockets.Socket`） |
+| `NetworkStream.Read` / `Write` 的 socket 错误（含读超时） | `IOException`（`Unable to read data from the transport connection: <原因>.`），`InnerException` 是原来的 `SocketException` |
+| 端口不在 0–65535、TTL 不在 0–255、keepalive 调参小于 1 | `ArgumentOutOfRangeException` |
+| 组播地址 / 接口地址不是 IPv4 字面量 | `FormatException`；是 IPv4 但不在组播段 → `SocketException`（`InvalidArgument`） |
+| wasm32 上的任何 socket 操作 | `NetUnsupportedException` |
 
-解析类错误（URL、IP 字面量）走 `Std.FormatException`；参数越界走
-`Std.ArgumentException`；生命周期用错（未 bind 就用、bind 后再设 pre-bind 选项）走
-`Std.InvalidOperationException`。
+只想统一兜住 socket 错误时 `catch (SocketException e)`，按 `e.SocketErrorCode` 细分；
+`catch (NetException e)` 另外兜住 HTTP / WebSocket 协议错误。
+
+解析类错误（URL、IP 字面量）走 `Std.FormatException`；生命周期用错（未 bind 就用、bind 后再设
+pre-bind 选项、重复 Connect）走 `Std.InvalidOperationException`。
 
 ---
 
@@ -149,7 +163,7 @@ public void Close()                              // Dispose 的别名
 - `host` 走 DNS 解析，直接传 IP 字面量也行。
 - `Dispose` / `Close` 幂等；之后再 `GetStream()` 抛 `SocketClosedException`。
 - keepalive 调参的生效范围依赖 OS：idle 与 interval 在 Unix / Windows 都生效，
-  probes 只在 Linux / Android / FreeBSD 生效；传 0 或负值抛 `SocketException`。
+  probes 只在 Linux / Android / FreeBSD 生效；传 0 或负值抛 `ArgumentOutOfRangeException`。
 - **没有** `SetReuseAddress`（那是 `TcpListener` 侧的能力）。
 
 ### TcpListener
@@ -173,7 +187,8 @@ public void Dispose()
 `InvalidOperationException: SetReuseAddress: TcpListener already bound — call before Bind()`。
 
 监听 socket 没有 accept 超时，也没有非阻塞 accept——想中断阻塞中的 `AcceptTcpClient`，
-只能从另一个线程 `Stop()`，被打断的 accept 会抛 `SocketException` / `SocketClosedException`。
+只能从另一个线程 `Stop()`，被打断的 accept 抛 `SocketClosedException`（至多 100 ms 内返回）。
+（.NET 在这种情况下抛 `SocketException(Interrupted)`；z42 统一按「句柄已关」报。）
 
 ### NetworkStream
 
@@ -188,12 +203,24 @@ override void Write(byte[] buffer, int offset, int count)
 override void Close()
 ```
 
-`Read` 是**部分读**——返回值可能小于 `count`，需要循环读满。
+`Read` 是**部分读**——返回值可能小于 `count`，需要循环读满。socket 错误（含读超时）包成
+`IOException` 抛出，`InnerException` 是 `SocketException`；`Close` 之后再读写抛 `SocketClosedException`。
 
 ### TlsClient / TlsStream
 
-客户端侧 TLS。证书校验**始终开启**，信任根是内置的 Mozilla 根证书集；握手或证书校验
-失败抛 `SocketException`，没有降级到明文的路径。
+客户端侧 TLS。证书校验**始终开启**，信任根是内置的 Mozilla 根证书集，没有降级到明文的路径。
+失败按 .NET `SslStream` 的口径抛：
+
+| 情形 | 抛什么 |
+|---|---|
+| 解析 / TCP 连接失败 | `SocketException`（同上表） |
+| 握手被拒：证书不受信 / 名字不符 / 过期（`The remote certificate is invalid according to the validation procedure: …`）、协议不兼容、对端不说 TLS | `Std.Security.Authentication.AuthenticationException` |
+| 握手途中连接断开或超时 | `IOException`（`Received an unexpected EOF or 0 bytes from the transport stream.` / `Unable to read data from the transport connection: …`） |
+| `TlsStream` 读写失败（含读超时） | `IOException` |
+| 主机名不能作 TLS 服务器名 | `ArgumentException` |
+| 已 `Dispose` | `SocketClosedException` |
+
+对端不发 TLS `close_notify` 就关连接时，`Read` 返回 0（流结束），与 `SslStream` 一致。
 
 ```z42
 public class TlsClient {
@@ -254,7 +281,7 @@ public void Dispose()
 public void Close()
 ```
 
-`Receive()` 每次返回一整个数据报；读超时到点抛 `SocketException`。
+`Receive()` 每次返回一整个数据报；读超时到点抛 `SocketException`（`SocketErrorCode == TimedOut`）。
 `ReceiveInto*` 的对端信息不在返回值里，要紧接着读 `LastReceiveHost()` / `LastReceivePort()`。
 
 ```z42

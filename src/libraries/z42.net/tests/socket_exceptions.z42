@@ -1,0 +1,139 @@
+// requires-caps: socket-listen
+// The exceptions z42.net throws, .NET-shaped (thrown by the VM from Rust): SocketException with
+// a structured SocketErrorCode, SocketClosedException as an ObjectDisposedException, NetworkStream
+// wrapping socket failures in IOException, ArgumentOutOfRangeException for bad arguments.
+namespace Z42NetSocketExceptionsTests;
+
+using Std.IO;
+using Std.Net;
+using Std.Net.Sockets;
+using Std.Harness;
+
+static int _freePort() {
+    var l = new TcpListener();
+    l.Bind("127.0.0.1", 0);
+    int port = l.LocalPort();
+    l.Stop();
+    return port;
+}
+
+[Test]
+void test_connect_refused_has_socket_error_code() {
+    int port = _freePort();
+    bool caught = false;
+    try {
+        var c = new TcpClient();
+        c.Connect("127.0.0.1", port);
+    } catch (SocketException e) {
+        caught = e.SocketErrorCode == SocketError.ConnectionRefused && e.ErrorCode == 10061
+            && e.Message.EndsWith("127.0.0.1:" + port.ToString());
+    }
+    Assert.True(caught);
+}
+
+[Test]
+void test_socket_exception_is_a_net_exception() {
+    int port = _freePort();
+    bool caught = false;
+    try {
+        TcpClient.ConnectTo("127.0.0.1", port);
+    } catch (NetException e) {
+        caught = e is SocketException;
+    }
+    Assert.True(caught);
+}
+
+[Test]
+void test_bind_in_use_is_address_already_in_use() {
+    var a = new TcpListener();
+    a.Bind("127.0.0.1", 0);
+    bool caught = false;
+    try {
+        var b = new TcpListener();
+        b.Bind("127.0.0.1", a.LocalPort());
+    } catch (SocketException e) {
+        caught = e.SocketErrorCode == SocketError.AddressAlreadyInUse;
+    }
+    a.Stop();
+    Assert.True(caught);
+}
+
+[Test]
+void test_accept_after_stop_is_object_disposed() {
+    var server = new TcpListener();
+    server.Bind("127.0.0.1", 0);
+    server.Stop();
+    bool caught = false;
+    try {
+        server.AcceptTcpClient();
+    } catch (ObjectDisposedException e) {
+        caught = e is SocketClosedException && e is InvalidOperationException
+            && e.ObjectName == "Std.Net.Sockets.Socket";
+    }
+    Assert.True(caught);
+}
+
+[Test]
+void test_network_stream_read_timeout_is_io_exception_wrapping_timed_out() {
+    var server = new TcpListener();
+    server.Bind("127.0.0.1", 0);
+    var c = new TcpClient();
+    c.Connect("127.0.0.1", server.LocalPort());   // the backlog completes it; nobody accepts
+    c.SetReadTimeout(100);
+    bool caught = false;
+    try {
+        byte[] buf = new byte[4];
+        c.GetStream().Read(buf, 0, 4);
+    } catch (IOException e) {
+        var inner = e.InnerException as SocketException;
+        caught = inner != null && inner.SocketErrorCode == SocketError.TimedOut
+            && e.Message.StartsWith("Unable to read data from the transport connection: ");
+    }
+    c.Dispose();
+    server.Stop();
+    Assert.True(caught);
+}
+
+[Test]
+void test_udp_receive_timeout_is_timed_out() {
+    var u = new UdpClient();
+    u.Bind("127.0.0.1", 0);
+    u.SetReadTimeout(100);
+    bool caught = false;
+    try {
+        u.Receive();
+    } catch (SocketException e) {
+        caught = e.SocketErrorCode == SocketError.TimedOut;
+    }
+    u.Dispose();
+    Assert.True(caught);
+}
+
+[Test]
+void test_out_of_range_arguments() {
+    bool port = false;
+    try {
+        var c = new TcpClient();
+        c.Connect("127.0.0.1", 70000);
+    } catch (ArgumentOutOfRangeException e) {
+        port = true;
+    }
+    Assert.True(port);
+    var u = new UdpClient();
+    u.Bind("127.0.0.1", 0);
+    bool ttl = false;
+    try {
+        u.SetTtl(300);
+    } catch (ArgumentOutOfRangeException e) {
+        ttl = true;
+    }
+    u.Dispose();
+    Assert.True(ttl);
+}
+
+[Test]
+void test_dns_resolves_numeric_hosts_offline() {
+    IPAddress[] addrs = Dns.GetHostAddresses("127.0.0.1");
+    Assert.Equal(1, addrs.Length);
+    Assert.Equal("127.0.0.1", addrs[0].ToString());
+}

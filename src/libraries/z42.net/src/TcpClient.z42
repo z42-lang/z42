@@ -27,7 +27,7 @@ public class TcpClient : IDisposable {
     private string _remoteHost;
     private int _remotePort;
     // add-net-socket-options-extended (2026-05-30): value > 0 routes the
-    // next Connect() through __net_tcp_connect_with_timeout. 0 = no preset.
+    // next Connect() through __tcp_connect (timeout > 0). 0 = no preset.
     private int _connectTimeoutMs;
 
     public TcpClient() {
@@ -62,13 +62,7 @@ public class TcpClient : IDisposable {
         }
         // add-net-socket-options-extended (2026-05-30): route through the
         // timeout-aware builtin when SetConnectTimeout(>0) was called.
-        object[] raw;
-        if (this._connectTimeoutMs > 0) {
-            raw = NetTcpNative.ConnectWithTimeout(host, port, this._connectTimeoutMs);
-        } else {
-            raw = NetTcpNative.Connect(host, port);
-        }
-        long slotId = NetTcpDecode.ToSlot(raw);
+        long slotId = TcpSocketNative.Connect(host, port, this._connectTimeoutMs);
         this._slotId     = slotId;
         this._connected  = true;
         this._remoteHost = host;
@@ -121,11 +115,7 @@ public class TcpClient : IDisposable {
         if (!this._connected) {
             throw new InvalidOperationException("TcpClient not connected — call Connect first");
         }
-        object[] raw = NetTcpNative.SocketSetReadTimeout(this._slotId, millis);
-        long kind = (long)raw[0];
-        if (kind != 0) {
-            NetTcpDecode.Throw(raw, kind);
-        }
+        TcpSocketNative.SetReadTimeout(this._slotId, millis);
     }
 
     public void SetWriteTimeout(int millis) {
@@ -135,11 +125,7 @@ public class TcpClient : IDisposable {
         if (!this._connected) {
             throw new InvalidOperationException("TcpClient not connected — call Connect first");
         }
-        object[] raw = NetTcpNative.SocketSetWriteTimeout(this._slotId, millis);
-        long kind = (long)raw[0];
-        if (kind != 0) {
-            NetTcpDecode.Throw(raw, kind);
-        }
+        TcpSocketNative.SetWriteTimeout(this._slotId, millis);
     }
 
     /// add-z42-net-socket-options (2026-05-27): TCP_NODELAY (Nagle off).
@@ -150,9 +136,7 @@ public class TcpClient : IDisposable {
         if (!this._connected) {
             throw new InvalidOperationException("TcpClient not connected — call Connect first");
         }
-        object[] raw = NetTcpNative.SocketSetNoDelay(this._slotId, enable);
-        long kind = (long)raw[0];
-        if (kind != 0) { NetTcpDecode.Throw(raw, kind); }
+        TcpSocketNative.SetNoDelay(this._slotId, enable);
     }
 
     /// add-z42-net-socket-options (2026-05-27): IP_TTL (hop limit) on the
@@ -163,9 +147,7 @@ public class TcpClient : IDisposable {
         if (!this._connected) {
             throw new InvalidOperationException("TcpClient not connected — call Connect first");
         }
-        object[] raw = NetTcpNative.SocketSetTtl(this._slotId, ttl);
-        long kind = (long)raw[0];
-        if (kind != 0) { NetTcpDecode.Throw(raw, kind); }
+        TcpSocketNative.SetTtl(this._slotId, ttl);
     }
 
     /// add-net-socket-options-extended (2026-05-30): SO_KEEPALIVE on the
@@ -177,9 +159,7 @@ public class TcpClient : IDisposable {
         if (!this._connected) {
             throw new InvalidOperationException("TcpClient not connected — call Connect first");
         }
-        object[] raw = NetTcpNative.SocketSetKeepalive(this._slotId, enable);
-        long kind = (long)raw[0];
-        if (kind != 0) { NetTcpDecode.Throw(raw, kind); }
+        TcpSocketNative.SetKeepAlive(this._slotId, enable);
     }
 
     /// add-net-keepalive-tuning (2026-06-03): SO_KEEPALIVE with per-OS
@@ -201,10 +181,8 @@ public class TcpClient : IDisposable {
         if (!this._connected) {
             throw new InvalidOperationException("TcpClient not connected — call Connect first");
         }
-        object[] raw = NetTcpNative.SocketSetKeepaliveTuned(this._slotId, enable,
-            (long)idleSecs, (long)intervalSecs, (long)probes);
-        long kind = (long)raw[0];
-        if (kind != 0) { NetTcpDecode.Throw(raw, kind); }
+        TcpSocketNative.SetKeepAliveTuned(this._slotId, enable,
+            idleSecs, intervalSecs, probes);
     }
 
     /// Close the socket and release the underlying fd. Idempotent.
@@ -216,7 +194,7 @@ public class TcpClient : IDisposable {
             this._stream.MarkClosed();
         }
         if (this._connected) {
-            NetTcpNative.SocketDrop(this._slotId);
+            TcpSocketNative.Close(this._slotId);
             this._connected = false;
         }
     }
@@ -228,7 +206,7 @@ public class TcpClient : IDisposable {
 
     // ── Internal constructor for `TcpListener.AcceptTcpClient` ───────────
     //
-    // The listener has the slot id from `__net_tcp_accept`; we just need
+    // The listener has the slot id from `__tcp_accept`; we just need
     // to wrap it in a TcpClient with `_connected = true` straight away.
     // No public-API access path — z42 has no `internal`, see NetworkStream.
     public TcpClient(long slotId, bool fromAccept) {

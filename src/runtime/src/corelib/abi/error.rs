@@ -91,6 +91,14 @@ impl BuiltinError {
         BuiltinError::Detailed(Box::new(Detailed { classes, message: message.into(), fields }))
     }
 
+    /// `Std.ObjectDisposedException : InvalidOperationException` (falls back to
+    /// `InvalidOperationException`), `ObjectName` = `object_name` (null when `None`).
+    pub fn object_disposed(object_name: Option<&str>, message: impl Into<String>) -> Self {
+        const CLASSES: &[&str] = &["Std.ObjectDisposedException", "Std.InvalidOperationException"];
+        let fields = object_name.map(|n| vec![("ObjectName", FieldInit::Str(n.into()))]).unwrap_or_default();
+        BuiltinError::detailed(CLASSES, message, fields)
+    }
+
     /// The argument count does not match the builtin — the `[Native]` declaration and
     /// the Rust signature disagree (a VM / stdlib bug, hence internal).
     #[cold]

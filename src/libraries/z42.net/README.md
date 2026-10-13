@@ -27,9 +27,10 @@ API 参考：[`docs/reference/src/stdlib/net.md`](../../../docs/reference/src/st
 | `src/UdpClient.z42` / `src/UdpReceiveResult.z42` | `UdpClient` / `UdpReceiveResult` | UDP socket（首次 Send 自动 bind）/ `Receive()` 结果 `{ Buffer, RemoteHost, RemotePort }` |
 | `src/IPAddress.z42` / `src/IPEndPoint.z42` | `IPAddress` / `IPEndPoint` | v4 / v6 地址与端点值类型（`Parse` / `ToString`） |
 | `src/Dns.z42` | `static class Dns` | 同步 DNS 解析 |
-| `src/TlsClient.z42` | `TlsClient` / `TlsStream` | TLS 客户端与流（`__net_tls_*` 的封装） |
-| `src/NetTcpNative.z42` / `src/UdpNative.z42` | `NetTcpDecode` / `UdpDecode` | `__net_tcp_*` / `__net_udp_*` builtin 的 extern 封装与解码 |
-| `src/Exceptions/` | 异常 | `NetException` 基类 + `NetUnsupportedException`（wasm32 / 未支持平台）/ `SocketException` / `SocketClosedException` |
+| `src/TlsClient.z42` | `TlsClient` / `TlsStream` | TLS 客户端与流（`TlsSocketNative` 的封装） |
+| `src/SocketError.z42` | `enum SocketError` | `SocketException.SocketErrorCode` 的取值（.NET 同名枚举，Winsock 码） |
+| `src/Exceptions/` | 异常 | `NetException` → `SocketException`（`SocketErrorCode` / `ErrorCode`）；`SocketClosedException : ObjectDisposedException`；`NetUnsupportedException : PlatformNotSupportedException`（wasm32） |
+| `src/Security/AuthenticationException.z42` | 异常 | `Std.Security.Authentication.AuthenticationException`：TLS 握手 / 证书失败 |
 | `src/Http/HttpClient.z42` | `HttpClient` | Get / Post / PostString / Send / SendStreaming；超时、重定向、cookie jar、自动解压；http 与 https |
 | `src/Http/HttpRequest.z42` / `HttpResponse.z42` / `HttpHeaders.z42` | 请求 / 响应 / 大小写不敏感 header | builder 风格请求；`IsSuccess()` / `BodyAsString()` |
 | `src/Http/HttpMethod.z42` / `HttpStatusCode.z42` / `HttpUrl.z42` | 常量 / URL 解析 | method 与常见状态码常量；scheme / host / port / path / query 解析 |
@@ -61,5 +62,7 @@ xtask test stdlib z42.net    # 本库全部 [Test]（本机 loopback，无外网
 - `z42.threading`：`HttpServer` 的 thread-per-accept
 - `z42.compression`：`HttpClient` 自动解压（Gzip / Brotli）
 
-native 后端：socket op 走 `__net_tcp_*` / `__net_udp_*` / `__net_tls_*` builtin，VM 侧实现在
-`src/runtime/src/corelib/network.rs`（+ `network/`）与 `tls.rs`，slot table 模式镜像 `Std.IO.ProcessHandle`。
+native 后端：socket op 走 z42.core 的 `TcpSocketNative` / `UdpSocketNative` / `TlsSocketNative` /
+`DnsNative.Resolve`（`__tcp_*` / `__udp_*` / `__tls_*` / `__dns_lookup`，builtin ABI v2：返回普通值、失败从 Rust 抛），
+VM 侧实现在 `src/runtime/src/corelib/network.rs`（+ `network/`）与 `tls.rs`，slot table 模式镜像 `Std.IO.ProcessHandle`。
+`NetworkStream` 把 `SocketException` 包成 `IOException`（`InnerException` 是原异常），同 .NET；`TlsStream` 的读写失败由 VM 直接抛 `IOException`。

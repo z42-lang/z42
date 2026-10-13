@@ -1,0 +1,88 @@
+// requires-caps: threads
+// Monitor（Mutex / RwLock / Channel 的底座）误用时抛的异常，按 .NET：非持有者 Exit / Wait →
+// SynchronizationLockException；不可重入锁被同线程再次 Enter → LockRecursionException；
+// 不是 Monitor 句柄的实参 → ArgumentNullException / ArgumentException。由 VM 从 Rust 抛出。
+namespace Z42ThreadingMonitorExceptionsTests;
+
+using Std.Threading;
+using Std.Harness;
+
+[Test]
+void test_exit_without_enter_is_synchronization_lock_exception() {
+    object m = MonitorNative.New();
+    bool caught = false;
+    try {
+        MonitorNative.Exit(m);
+    } catch (SynchronizationLockException e) {
+        caught = e.Message == "Object synchronization method was called from an unsynchronized block of code.";
+    }
+    Assert.True(caught);
+}
+
+[Test]
+void test_wait_without_enter_is_synchronization_lock_exception() {
+    object m = MonitorNative.New();
+    bool caught = false;
+    try {
+        MonitorNative.Wait(m);
+    } catch (SynchronizationLockException e) {
+        caught = true;
+    }
+    Assert.True(caught);
+}
+
+[Test]
+void test_reentrant_enter_is_lock_recursion_exception_and_keeps_the_lock() {
+    object m = MonitorNative.New();
+    MonitorNative.Enter(m);
+    bool caught = false;
+    try {
+        MonitorNative.Enter(m);
+    } catch (LockRecursionException e) {
+        caught = true;
+    }
+    Assert.True(caught);
+    // The failed Enter changed nothing: still held by this thread, so Exit succeeds once.
+    Assert.False(MonitorNative.TryEnter(m));
+    MonitorNative.Exit(m);
+    Assert.True(MonitorNative.TryEnter(m));
+    MonitorNative.Exit(m);
+}
+
+// Lambdas capture values (closure §4.1): the observation goes through a static field.
+public static class Obs {
+    public static bool Caught;
+}
+
+[Test]
+void test_mutex_reentrant_lock_is_lock_recursion_exception() {
+    var mu = new Mutex<long>(1);
+    Obs.Caught = false;
+    mu.Lock((long v) => {
+        try {
+            mu.Lock((long w) => w + 1);
+        } catch (LockRecursionException e) {
+            Obs.Caught = true;
+        }
+        return v;
+    });
+    Assert.True(Obs.Caught);
+}
+
+[Test]
+void test_not_a_monitor_handle_is_an_argument_exception() {
+    bool nullCaught = false;
+    try {
+        MonitorNative.Enter(null);
+    } catch (ArgumentNullException e) {
+        nullCaught = true;
+    }
+    Assert.True(nullCaught);
+    bool otherCaught = false;
+    try {
+        MonitorNative.Exit("not a monitor");
+    } catch (ArgumentException e) {
+        otherCaught = true;
+    }
+    Assert.True(otherCaught);
+}

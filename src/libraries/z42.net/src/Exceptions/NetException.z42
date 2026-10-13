@@ -1,9 +1,8 @@
 namespace Std.Net;
 
-// add-z42-net K1 (2026-05-24): z42.net 异常体系基类。
-// 镜像 .NET BCL `System.Net.Sockets.SocketException : NetworkException : Exception`。
-// 用户 try/catch 时通常捕获具体子类（`SocketException` / `SocketClosedException` /
-// `NetUnsupportedException`），但 `NetException` 提供一个 catch-all。
+// add-z42-net K1 (2026-05-24): z42.net 的网络异常基类（.NET 没有对应类）。
+// `SocketException` 继承它；`SocketClosedException` / `NetUnsupportedException` 按 .NET 分别继承
+// `ObjectDisposedException` / `PlatformNotSupportedException`，不在它之下。
 public class NetException : Exception {
     public NetException(string message) : base(message) {
     }

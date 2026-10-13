@@ -1,0 +1,8 @@
+namespace Std.Threading;
+
+// 不可重入的锁被同一线程再次获取。镜像 .NET `System.Threading.LockRecursionException`
+// （.NET 的 `ReaderWriterLockSlim` 在 NoRecursion 策略下抛它）。z42 的 Monitor 不可重入：
+// 同线程再次 `Enter` 抛它，而不是死锁。
+public class LockRecursionException : Exception {
+    public LockRecursionException(string message) : base(message) {}
+}
