@@ -48,9 +48,10 @@
 //! *unproductive* collection multiplies the growth required before trying again, capped at
 //! [`MAX_BACKOFF`]; one productive collection resets it.
 //!
-//! **Where the multiplier lands.** One generation: on the allowance — every collection there is a
-//! full one. Generational: **only on the soft cap's own trips** (near-limit, and a promoted-byte
-//! gate the cap squeezed) — never on the minor gate. The minor gate bounds one minor's pause, so
+//! **Where the multiplier lands.** Generational: **only on the soft cap's own trips** (near-limit,
+//! and a promoted-byte gate the cap squeezed) — never on the minor gate. One generation: in full on
+//! an allowance the cap squeezed, one step behind on any other (a single futile collection is what
+//! every build-up phase produces; see [`ArcMagrGC::single_generation_gate`]). The minor gate bounds one minor's pause, so
 //! multiplying it answered "nothing dies" with "scan four, sixteen, sixty-four times as much next
 //! time", and every program whose futile phase was followed by one with garbage paid for it in one
 //! long pause. Minors that do not pay are **tenured** instead — see `young_policy.rs`.
@@ -175,6 +176,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
              i.last_trip_for_cap)
         };
         if paused { return; }
+        // Entry-capped units (`entry_unit.rs`): read the allocation size before any gate is.
+        self.sample_entry_unit(used, total_reclaimed);
         let cfg = crate::config::runtime_config();
         let soft_limit = self.soft_cap();
 
@@ -245,19 +248,19 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // follow account for the pause; this one accounts for the *young set* the pause had to
         // chew through, which is decided here and nowhere else.
         crate::gc::phase_timer::note(format_args!(
-            "trip {:<5}  gate {}{}  grown {}  (last freed {})",
+            "trip {:<5}  gate {}{}  grown {}  (last freed {})  unit {} at {} B/alloc",
             match trip.kind { TripKind::Major => "major", TripKind::Minor => "minor", TripKind::Slice => "slice" },
             crate::gc::trace::human(trip.gate),
-            // Generational: the multiplier only touches the soft cap's trips (see the module note).
-            if backoff > 1 && (soft_limit.is_some()
-                || crate::gc::MagrGC::mode(self) != crate::gc::GcMode::GenerationalMarkSweep)
-            {
+            // The multiplier only touches the soft cap's trips (see the module note).
+            if backoff > 1 && soft_limit.is_some() {
                 format!(" x{backoff}")
             } else {
                 String::new()
             },
             crate::gc::trace::human(used.saturating_sub(baseline)),
             crate::gc::trace::human(reclaimed_since),
+            crate::gc::trace::human(self.allowance_unit()),
+            self.entry_unit.reading(),
         ));
         // Which kind of collection the policy is asking for. The deferred safepoint path only
         // knows "collect", so the choice is handed over through `pending_major`.
@@ -430,7 +433,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         if crate::gc::MagrGC::mode(self) != crate::gc::GcMode::GenerationalMarkSweep {
             // One generation: every collection is a full one, and the allowance is read off
             // total live bytes rather than promoted bytes.
-            let gate = allowance.saturating_mul(backoff as u64);
+            let gate = self.single_generation_gate(baseline, backoff, soft_limit);
             return (grown >= gate || near_cap)
                 .then_some(Trip { kind: TripKind::Major, gate: allowance, for_cap: near_cap && grown < gate });
         }
@@ -465,6 +468,26 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
         (active && used >= self.incremental.next_slice_at.load(Ordering::Relaxed))
             .then(|| Trip { kind: TripKind::Slice, gate: self.slice_interval(), for_cap: false })
+    }
+
+    /// One generation's growth gate: the allowance times the futility multiplier — in full when a
+    /// soft cap squeezed the allowance (the cap's own trips, as under the generational collector),
+    /// **one step behind** otherwise.
+    ///
+    /// An unsqueezed allowance already grows with the live set, so one futile collection is no
+    /// evidence that the next will be: every build-up phase produces one. Multiplying on it bet
+    /// that the phase goes on and lost at the first phase change — `13_gc_large_heap` STW collects
+    /// once while its live set is built, reclaims nothing, and the gate after the next (productive)
+    /// collection was ×4: one collection over 256 MB of churn, 60~85 ms, the run's maximum pause,
+    /// with the footprint following it to 484 MB. Two futile collections in a row are a phase that
+    /// keeps not dying (`09_alloc_ctorless`, a structure being built), and from there the multiplier
+    /// climbs as before: dropping it outright cost the 4×-length `09_alloc_ctorless` STW +47% wall.
+    fn single_generation_gate(&self, baseline: u64, backoff: u32, soft_limit: Option<SoftCap>) -> u64 {
+        let allowance = Self::collection_allowance(baseline, self.allowance_unit(), soft_limit);
+        let squeezed = soft_limit.is_some()
+            && allowance < Self::collection_allowance(baseline, self.allowance_unit(), None);
+        let multiplier = if squeezed { backoff } else { backoff / 4 };
+        allowance.saturating_mul(multiplier.max(1) as u64)
     }
 
     /// Mono SGen's allowance rule (`sgen_memgov_calculate_minor_collection_allowance`):
@@ -553,9 +576,13 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// generation four times as often": measured on `13_gc_large_heap`, the nursery going 16M → 4M
     /// took major cycles from **4 to 29** and wall time from 2.41 s to 4.40 s — almost none of it
     /// minor pause (which fell from 27.8 ms to 5.5 ms), nearly all of it extra major work.
+    ///
+    /// Entry-capped (`entry_unit.rs`): never more than `UNIT_ENTRIES` allocations of the measured
+    /// size, so smaller objects do not stretch the floor, the slice interval or the cycle target
+    /// over more objects.
     #[inline]
-    fn allowance_unit(&self) -> u64 {
-        self.allowance_unit_bytes.load(Ordering::Relaxed)
+    pub(super) fn allowance_unit(&self) -> u64 {
+        self.entry_unit.cap(self.allowance_unit_bytes.load(Ordering::Relaxed), super::entry_unit::UNIT_ENTRIES)
     }
 
     /// Set the next `used_bytes` reading at which the policy wants to be consulted.
@@ -584,9 +611,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let gate = if crate::gc::MagrGC::mode(self) == crate::gc::GcMode::GenerationalMarkSweep {
             self.minor_gate(baseline, soft_limit)
         } else {
-            Self::collection_allowance(baseline, self.allowance_unit(), soft_limit)
-                .saturating_mul(backoff.max(1) as u64)
+            self.single_generation_gate(baseline, backoff, soft_limit)
         };
+        // Until the allocation size is measured, consult no later than the probe (`entry_unit.rs`).
+        let gate = self.entry_unit.probe(gate);
         let at_gate = baseline.saturating_add(gate);
         let next = if declined && at_gate > floor { at_gate } else { at_gate.max(floor.saturating_add(gate)) };
         self.next_collect_at.store(self.with_slice_gate(next, floor), Ordering::Relaxed);
@@ -642,7 +670,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let allowance = Self::collection_allowance(live, self.allowance_unit(), soft_limit);
         if crate::gc::MagrGC::mode(self) != crate::gc::GcMode::GenerationalMarkSweep {
             self.next_collect_at
-                .store(live.saturating_add(allowance), Ordering::Relaxed);
+                .store(live.saturating_add(self.entry_unit.probe(allowance)), Ordering::Relaxed);
             return;
         }
         // The old generation may already be over its allowance — a minor cannot help with
@@ -653,7 +681,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
             // Same gate as `decide_trip` / `arm_next_collect` — see [`Self::minor_gate`]. This
             // is the arming point every *collect* path lands on, so a plain `nursery` here left
             // a bounded heap un-enforced from its very first allocation.
-            live.saturating_add(self.minor_gate(live, soft_limit))
+            live.saturating_add(self.entry_unit.probe(self.minor_gate(live, soft_limit)))
         };
         self.next_collect_at.store(self.with_slice_gate(next, live), Ordering::Relaxed);
     }

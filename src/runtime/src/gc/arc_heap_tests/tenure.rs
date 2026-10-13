@@ -169,3 +169,24 @@ fn a_major_waits_one_allowance_floor_longer_while_nothing_dies() {
     heap.observe_major_work(floor, 20_000, true);
     assert_eq!(heap.promoted_gate(allowance), allowance, "a productive major clears it");
 }
+
+/// What is promoted while a cycle runs is not that cycle's to reclaim (everything born during it is
+/// allocated black), so it must still count towards the next cycle's trigger when the cycle closes.
+/// Resetting the count to 0 there forgot every tenure that ran inside the cycle.
+#[test]
+fn promotion_during_a_cycle_carries_over_to_the_next_ones_trigger() {
+    let heap = generational_heap();
+    let before: Vec<_> = (0..40).map(|_| heap.pin_root(obj(&heap, "Before"))).collect();
+    heap.run_tenure();
+    assert!(heap.promoted_bytes_for_test() > 0);
+
+    assert!(!heap.run_major_slice_for_test(1), "the cycle opens and stays open");
+    let during: Vec<_> = (0..60).map(|_| heap.make_weak(&obj(&heap, "During")).unwrap()).collect();
+    let promoted_during = heap.run_tenure();
+    assert!(promoted_during > 0);
+    assert!(heap.finish_major_cycle_for_test());
+    assert_eq!(heap.promoted_bytes_for_test(), promoted_during,
+        "the cycle discounts what it could reclaim, not what was promoted after its snapshot");
+    assert!(during.iter().all(|w| raw_alive(&heap, w)), "born during the cycle: floating garbage");
+    drop(before);
+}

@@ -1,5 +1,5 @@
 // 前端 dump 工具：源码 → token 流 / AST s-expression（z42c 自有格式）。
-// 供 driver `--dump-tokens` / `--dump-ast` 调用 + [Test] 直接验证（纯函数，无 IO）。
+// 供 driver `--dump-tokens` / `--dump-ast` / `--dump-doc` 调用 + [Test] 直接验证（纯函数，无 IO）。
 // 注：当前为 z42c 自有 s-expr 格式，非 byte-identical 对 C# `--dump-*`（对齐留 6e）。
 namespace Z42.Syntax;
 
@@ -25,6 +25,66 @@ public static class DumpTool {
         var p = new Parser(src, "<input>");
         var u = p.ParseCompilationUnit();
         return u.Dump();
+    }
+
+    // doc 注释挂靠：每个声明一行 `<缩进><种类> <名字> = <doc 原文>`（无 doc 写 `-`，换行写成 `\n`），
+    // 文件开头的 `//!` 记作 `//! = …`，未被认领的块逐个记作 `orphan@<行> = …`。
+    public static string DumpDoc(string src) {
+        var p = new Parser(src, "<input>");
+        var u = p.ParseCompilationUnit();
+        string s = "";
+        if (u.Doc != null) { s = s + "//! = " + DumpTool._docText(u.Doc) + "\n"; }
+        int i = 0;
+        while (i < u.DeclCount) { s = s + DumpTool._declDoc(u.Decls[i], ""); i = i + 1; }
+        i = 0;
+        while (i < u.DocBlockCount) {
+            DocBlock b = u.DocBlocks[i];
+            if (!b.Claimed) { s = s + "orphan@" + b.Span.Line + " = " + DumpTool._docText(b) + "\n"; }
+            i = i + 1;
+        }
+        return s;
+    }
+
+    private static string _docText(DocBlock b) {
+        if (b == null) { return "-"; }
+        return b.Text.Replace("\n", "\\n");
+    }
+
+    private static string _declDoc(Decl d0, string ind) {
+        Decl d = d0;
+        if (d is AttributedDecl) { d = (d as AttributedDecl).Inner; }
+        string label = "";
+        string sub = "";
+        if (d is ClassDecl) {
+            ClassDecl c = d as ClassDecl;
+            label = c.Kind + " " + c.Name;
+            int i = 0;
+            while (i < c.MemberCount) { sub = sub + DumpTool._declDoc(c.Members[i], ind + "  "); i = i + 1; }
+        } else if (d is EnumDecl) {
+            EnumDecl e = d as EnumDecl;
+            label = "enum " + e.Name;
+            int j = 0;
+            while (j < e.MemberCount) {
+                sub = sub + ind + "  member " + e.Members[j].Name + " = " + DumpTool._docText(e.Members[j].Doc) + "\n";
+                j = j + 1;
+            }
+        } else if (d is ImplDecl) {
+            ImplDecl im = d as ImplDecl;
+            label = "impl";
+            int k = 0;
+            while (k < im.MethodCount) { sub = sub + DumpTool._declDoc(im.Methods[k], ind + "  "); k = k + 1; }
+        } else if (d is MethodDecl) {
+            MethodDecl m = d as MethodDecl;
+            if (m.IsCtor) { label = "ctor " + m.Name; }
+            else if (m.IsFree) { label = "func " + m.Name; }
+            else { label = "method " + m.Name; }
+        } else if (d is FieldDecl)    { label = "field " + (d as FieldDecl).Name; }
+        else if (d is PropertyDecl)   { label = "prop " + (d as PropertyDecl).Name; }
+        else if (d is IndexerDecl)    { label = "indexer"; }
+        else if (d is DelegateDecl)   { label = "delegate " + (d as DelegateDecl).Name; }
+        else if (d is AssocTypeDecl)  { label = "type " + (d as AssocTypeDecl).Name; }
+        else { return ""; }   // using / using 别名不挂 doc
+        return ind + label + " = " + DumpTool._docText(d.Doc) + "\n" + sub;
     }
 
     // 关键字表：每行一个，按 Lexer._initKeywords() 注册序。供 `z42c --dump-keywords`

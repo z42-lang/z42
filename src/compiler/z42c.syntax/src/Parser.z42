@@ -176,6 +176,68 @@ public sealed class Parser {
         cu.SuppressRegionCount = this._supCount;
     }
 
+    // ── doc 注释认领（见 DocBlock）──────────────────────────────────────────
+    // 声明入口调用：tok = 声明首个 token（前置 attribute 之前）的下标，afterAttrs = attribute 之后、修饰符
+    // 之前的下标（无 attribute 时与 tok 相同）。先认 tok 处的块（约定写法：doc 在 attribute 之前），
+    // 再认 afterAttrs 处的块。同一位置前若有多块（中间隔空行），只认最近的一块，其余留作孤立块。
+    // 回溯重解析同一位置会再次认到同一块，幂等。
+    internal DocBlock _claimDoc(int tok, int afterAttrs) {
+        DocBlock b = this._claimDocAt(tok);
+        if (b == null && afterAttrs != tok) { b = this._claimDocAt(afterAttrs); }
+        return b;
+    }
+
+    // AttributedDecl 的 doc 挂到 Inner 上：下游一律拆包后读 Decl.Doc。
+    internal void _attachDoc(Decl d, int tok, int afterAttrs) {
+        if (this._lx.DocBlockCount() == 0) { return; }
+        DocBlock b = this._claimDoc(tok, afterAttrs);
+        if (b == null) { return; }
+        if (d is AttributedDecl) { AttributedDecl ad = d as AttributedDecl; ad.Inner.Doc = b; return; }
+        d.Doc = b;
+    }
+
+    private DocBlock _claimDocAt(int tok) {
+        // NextTok 单调不减：二分找最后一个 NextTok <= tok 的块，再确认相等且为外部块。
+        int lo = 0;
+        int hi = this._lx.DocBlockCount() - 1;
+        int hit = -1;
+        while (lo <= hi) {
+            int mid = (lo + hi) / 2;
+            if (this._lx.DocBlockAt(mid).NextTok <= tok) { hit = mid; lo = mid + 1; } else { hi = mid - 1; }
+        }
+        if (hit < 0) { return null; }
+        DocBlock b = this._lx.DocBlockAt(hit);
+        if (b.NextTok != tok || b.Kind != DocBlock.Outer) { return null; }
+        b.Claimed = true;
+        return b;
+    }
+
+    // 收尾：文件开头（NextTok == 0）的 `//!` 块合成 CU 的命名空间文档；全部块挂到 CU 供孤立检查。
+    private void _finalizeDocs(CompilationUnit cu) {
+        int n = this._lx.DocBlockCount();
+        if (n == 0) { return; }
+        DocBlock[] all = new DocBlock[n];
+        int i = 0;
+        while (i < n) {
+            DocBlock b = this._lx.DocBlockAt(i);
+            all[i] = b;
+            if (b.Kind == DocBlock.Inner && b.NextTok == 0) {
+                b.Claimed = true;
+                if (cu.Doc == null) {
+                    cu.Doc = new DocBlock(DocBlock.Inner, b.Text, new Span(b.Span.Start, b.Span.End, b.Span.Line, b.Span.Column, b.Span.File), 0);
+                    cu.Doc.LineCount = b.LineCount;
+                    cu.Doc.Claimed = true;
+                } else {
+                    cu.Doc.Text = cu.Doc.Text + "\n\n" + b.Text;
+                    cu.Doc.Span.End = b.Span.End;
+                }
+            }
+            i = i + 1;
+        }
+        cu.DocBlocks = all;
+        cu.DocBlockCount = n;
+    }
+
     // 已 lex 的 token 流（add-file-level-incremental D8 性能修正，User 追认 2026-07-08）：
     // parse 时顺手捕获标识符集（增量失效边输入），消编排层的第二遍 lex。只读访问。
     public Lexer Tokens() { return this._lx; }
@@ -586,7 +648,9 @@ public sealed class Parser {
                 decls = this._declP._growDecls(decls, n); decls[n] = new UsingDecl(un, usp); n = n + 1;
                 continue;
             }
+            int docTok = this._pos;
             AttrList attrs = this._declP._parseAttributes();
+            int docAfterAttrs = this._pos;
             string mods = this._declP._parseModifiers();
             int dk = this._peek().Kind;
             // complete-class-access-control ③：顶层声明（模块作用域）不得标 private/protected——
@@ -623,6 +687,7 @@ public sealed class Parser {
             }
             if (ok) {
                 if (attrs.Count > 0) { d = new AttributedDecl(attrs.Items, attrs.Count, d, d.Span); }
+                this._attachDoc(d, docTok, docAfterAttrs);
                 decls = this._declP._growDecls(decls, n); decls[n] = d; n = n + 1;
                 sawTypeDecl = true;   // fix-multiple-file-scoped-namespaces：`namespace` 不得再出现在此后
             }
@@ -630,6 +695,7 @@ public sealed class Parser {
         int cuEnd = this._peek().Span.End;   // Eof 位置 = 未闭合抑制区的排他上界
         CompilationUnit cu = new CompilationUnit(hasNs, ns, decls, n, cusp);
         this._finalizeSuppress(cu, cuEnd);   // PR3c：未闭合 `#suppress` 延伸到 EOF，挂区间到 CU
+        this._finalizeDocs(cu);
         // fix-lexer-diags-dropped：并入 lexer 诊断（收尾，晚于 incomplete 判定）。
         this._ensureLexDiagsMerged();
         // fix-parse-diags-dropped：把 parse 诊断挂上 CU，供下游 typecheck 汇点合并上浮。

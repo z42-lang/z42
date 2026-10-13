@@ -10,13 +10,14 @@
 |------|------|
 | 词法化 | `Z42.Syntax.Lexer`：`Tokenize()` → `TokenCount()` / `TokenAt(i)` |
 | 解析表达式 / 语句 / 编译单元 | `new Parser(src, file)`：`ParseExpression()` → `Expr` / `ParseStatement()` → `Stmt` / `ParseCompilationUnit()` → `CompilationUnit`（均 `.Dump()` 出 s-expression）|
-| 前端 dump | `DumpTool.DumpTokens` / `DumpAst`（driver 的 `--dump-tokens` / `--dump-ast` 调用）|
+| 前端 dump | `DumpTool.DumpTokens` / `DumpAst` / `DumpDoc`（driver 的 `--dump-tokens` / `--dump-ast` / `--dump-doc` 调用）|
+| doc 注释 | Lexer 收集 `DocBlock`（`DocBlockCount()` / `DocBlockAt(i)`）；解析后读 `Decl.Doc` / `EnumMember.Doc` / `CompilationUnit.Doc`，孤立块 = `CompilationUnit.DocBlocks` 里 `Claimed` 为假的 |
 | 输入不完整判定 | Parser 的 `IncompleteAtEof`（REPL 续读依据）|
 | 诊断局部抑制 | `SuppressionSet`（`#suppress` 字节区间 + `[Suppress]` 声明活跃栈；analyzer 与语义层共用）|
 
 ## 如何测试验证
 ```bash
-./xtask test stdlib z42c.syntax    # tests/{lexer,decl,parser,stmt,stmt_order,using_stmt,error_recovery,feature_gates,parse_table,incomplete_at_eof,dump}.z42
+./xtask test stdlib z42c.syntax    # tests/{lexer,decl,doc,parser,stmt,stmt_order,using_stmt,error_recovery,feature_gates,parse_table,incomplete_at_eof,dump}.z42
 ```
 `xtask test compiler` 只认 `tests/<unit>/*.z42.toml` 目录单元，不覆盖本包的扁平 `tests/*.z42`。
 
@@ -34,6 +35,7 @@
 | `src/TokenKind.z42` | token 类型常量（int）|
 | `src/Token.z42` | 词法 token（Kind / Text / Span）|
 | `src/Lexer.z42` | 手写词法器：trivia 跳过 + 标识符/关键字 + 数字（十进制/hex/bin + `_` 分隔 + 小数/指数 + 后缀）+ 字符串/字符/raw `"""`/插值 `$"` + 全符号最长匹配 + EOF |
+| `src/DocBlock.z42` | doc 注释块（`///` 外部 / `//!` 内部）：词法器收进旁挂表，解析器在声明入口按 token 下标认领 |
 | `src/LexerEscapes.z42` | 字符串转义解码与校验（C 系单字符全集 `\a\b\f\n\r\t\v\0\\\"\'`；未知转义报 E0102）；`Lexer.DecodeString` 转发到此 |
 
 ### AST
@@ -63,7 +65,7 @@
 ### 其它
 | 文件 | 职责 |
 |------|------|
-| `src/DumpTool.z42` | 前端 dump 纯函数（`DumpTokens`/`DumpAst`：源码 → token 流 / AST s-expr）|
+| `src/DumpTool.z42` | 前端 dump 纯函数（`DumpTokens`/`DumpAst`/`DumpDoc`：源码 → token 流 / AST s-expr / 声明的 doc 挂靠）|
 | `src/SuppressionSet.z42` | 诊断局部抑制集：`AddRegion`（`#suppress` 区间，来自 `CompilationUnit.SuppressRegions`）/ `PushActive`·`PopActive`（`[Suppress]` 声明活跃栈）/ `IsSuppressed`；`Directive` = 指令 attribute 名。`z42c.analyzers`（analyzer 诊断）与 `z42c.semantics`（`[Deprecated]` 告警）共用 |
 
 ## 依赖关系

@@ -2,7 +2,7 @@
 // 镜像 C# z42.Syntax 的 token KINDS + 词法规则；内部用直写式扫描（非组合子框架）——
 // byte-identical 目标针对 z42c 产物，不要求 lexer 内部结构与 C# 同，只要 token 流一致。
 //
-// 覆盖：空白/换行/行注释(//)/块注释(/* */) 作 trivia 跳过；标识符+关键字（全表）；
+// 覆盖：空白/换行/行注释(//)/块注释(/* */) 作 trivia 跳过（行首 `///`·`//!` 另收进 doc 块旁挂表，见 DocBlock）；标识符+关键字（全表）；
 // 数字字面量（十进制/hex `0x`/bin `0b` + `_` 分隔 + 小数 + 指数 [eE][+-]? + 后缀 L/u/f/d/m，incr 6c-1）；
 // 字符串 "..."（含转义跳过，raw lexeme 保留引号）；字符 '...'；raw 串 """..."""；插值串 $"...{e}..."（单 token）；
 // 扫描面走 bulk `char[]`（ToCharArray 一次 native 调用）而非逐字符 CharAt+Length 两次 builtin 分发（`String.IndexOf` 的先例）；`_chars[i]`/`_len` 按 scalar 对应 `CharAt(i)`/`Length`，故 token 文本仍用 `_src.Substring` 切。
@@ -40,6 +40,10 @@ public sealed class Lexer {
     private Token[]  _toks;
     private int      _tokCount;
 
+    // doc 注释旁挂表（见 DocBlock）：行首 `///` / `//!` 按块收集，不进 token 流。
+    private DocBlock[] _docs;
+    private int        _docCount;
+
     // 当前 token 起点（_emit 用）
     private int _sPos;
     private int _sLine;
@@ -55,6 +59,8 @@ public sealed class Lexer {
         this._diags = new DiagnosticBag();
         this._toks = new Token[64];
         this._tokCount = 0;
+        this._docs = new DocBlock[0];
+        this._docCount = 0;
         this._kwNames = new string[128];
         this._kwKinds = new int[128];
         this._kwCount = 0;
@@ -76,6 +82,9 @@ public sealed class Lexer {
     public Token TokenAt(int i)  { return this._toks[i]; }
     // Tokenize() 之后 _toks 不再重分配（_growToks 只在词法期跑）——parser 缓存它，把每次 peek 的两次 z42 调用省成一次数组索引；容量 >= TokenCount()，按后者定界。
     public Token[] Tokens()      { return this._toks; }
+    // doc 注释块（按出现顺序 ⇒ NextTok 单调不减）。
+    public int      DocBlockCount()   { return this._docCount; }
+    public DocBlock DocBlockAt(int i) { return this._docs[i]; }
 
     // 关键字表只读访问器（供 DumpTool.DumpKeywords / 单测；表本体 private，注册序）。
     public int    KeywordCount()       { return this._kwCount; }
@@ -129,6 +138,7 @@ public sealed class Lexer {
                 // 行注释体不含换行 ⇒ 只推进 col
                 int q = this._pos;
                 while (q < this._len && this._chars[q] != '\n') { q = q + 1; }
+                this._noteDocLine(q);
                 this._col = this._col + (q - this._pos); this._pos = q;
             } else if (c == '/' && this._ch(this._pos + 1) == '*') {
                 this._advance(); this._advance();   // consume /*
@@ -142,6 +152,39 @@ public sealed class Lexer {
                 break;
             }
         }
+    }
+
+    // 行注释 [_pos, end) 若是行首的 `///` / `//!`（恰好三个斜杠或 `//!`），收进 doc 块：紧接上一行、
+    // 同种、中间没出 token 的续进上一块，否则另起一块。行首 = 本行还没有 token（块注释不算）。
+    private void _noteDocLine(int end) {
+        int kind = -1;
+        char c2 = this._ch(this._pos + 2);
+        if (c2 == '/' && this._ch(this._pos + 3) != '/') { kind = DocBlock.Outer; }
+        else if (c2 == '!') { kind = DocBlock.Inner; }
+        if (kind < 0) { return; }
+        if (this._tokCount > 0 && this._toks[this._tokCount - 1].Span.Line == this._line) { return; }
+        int ts = this._pos + 3;
+        if (ts < end && this._chars[ts] == ' ') { ts = ts + 1; }
+        int te = end;
+        if (te > ts && this._chars[te - 1] == '\r') { te = te - 1; }
+        string text = this._src.Substring(ts, te - ts);
+        if (this._docCount > 0) {
+            DocBlock last = this._docs[this._docCount - 1];
+            if (last.Kind == kind && last.NextTok == this._tokCount
+                && last.Span.Line + last.LineCount == this._line) {
+                last.Append(text, end);
+                return;
+            }
+        }
+        if (this._docCount == this._docs.Length) {
+            int cap = this._docs.Length * 2; if (cap == 0) { cap = 8; }
+            DocBlock[] nd = new DocBlock[cap];
+            Array.Copy(this._docs, nd, this._docCount);
+            this._docs = nd;
+        }
+        this._docs[this._docCount] = new DocBlock(kind, text,
+            new Span(this._pos, end, this._line, this._col, this._file), this._tokCount);
+        this._docCount = this._docCount + 1;
     }
 
     // ── 单 token 分派 ───────────────────────────────────────────────────────

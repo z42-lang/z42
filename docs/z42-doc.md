@@ -13,17 +13,28 @@
 | 没有任何东西比对源码签名与 reference 页 | `xtask test docs` 只查死链；`diagcodes` 只管错误码 | 漂移只能靠人工 |
 | `///` 没有格式约定 | 2.5k 行 `///`，纯散文，中英混杂；`String.z42`、`Stack.z42` 等用 `//` 写 API 说明 | 机器无法提取参数 / 异常 / 示例 |
 | `///` 里混着历史注记与实现笔记 | `/// extend-z42-random (2026-06-03): ...` | 违反 doc-system §6「不写历史」；agent 读到大量无效 token |
-| 编译器丢弃全部注释 | `Lexer.z42:121` `_skipTrivia` | 没有提取、校验、发布的基础 |
+| 编译器丢弃全部注释（P1 已改为收集） | 词法器把注释当 trivia 跳过 | 没有提取、校验、发布的基础 |
 | agent 查一个 API 要读整个源文件 | 没有符号索引 / LSP；`String.z42` 398 行只为查一个签名 | token 消耗与 API 面积成正比 |
 
 **目标（按优先级）**
 
-1. **单一事实源**：公开 API 的说明只写在源码 `///` 里；reference 的 stdlib 页、包 README 的入口清单都由工具生成或改成链接。
+1. **单一事实源**：stdlib 公开 API 的说明只写在源码 `///` / `//!` 里；`reference/src/stdlib/` 的包页与索引
+   全部由工具生成，包 README 的入口清单改成一行链接。
 2. **注释可校验**：参数名、符号链接、异常类型、示例代码都由编译器检查，错了就报警告。
-3. **agent 低成本导航**：`z42 doc <符号>` 一条命令拿到签名、摘要、`file:line`；`--members` 拿到一个类型的完整轮廓，不必读源文件。
-4. **增量迁移**：现有 2.5k 行散文 `///` 不改也能解析；按包逐步迁移，靠 ratchet 基线防倒退。
+3. **agent 低成本导航**：`z42 doc <符号>` 一条命令拿到签名、摘要、`file:line`；`--members` 拿到类型轮廓；
+   `--page <书页>` 把一页书里引用的符号一次解析成当前位置。书里引用代码只写符号、不写行号，由门禁校验。
+4. **增量迁移**：现有散文 `///` 不改也能解析；机制全部落地后再按包迁移注释。
 
-**不做**：HTML 站点主题（沿用 mdBook）；跨包「查找所有引用」（归 LSP，0.5.7）；Rust 运行时的 rustdoc（VM 内部不变）。
+**范围（User 裁决）**：
+
+| 位置 | 方式 |
+|---|---|
+| `reference/src/stdlib/*.md` + `stdlib/README.md` | 由 `z42 doc` **全部生成**，页内无手写部分 |
+| internals 全书 | **手写**，不从代码生成任何内容；其中的代码引用由检查器校验（只校验、不生成） |
+| reference 其余页（语言、工具链、错误码、旋钮、`z42.toml`） | 手写，现有检查不变 |
+
+**不做**：HTML 站点主题（沿用 mdBook）；跨包「查找所有引用」（归 LSP）；从代码生成 internals 或 reference 的
+非 stdlib 页。
 
 ## 1. 各语言取舍
 
@@ -50,8 +61,13 @@
 
 挂靠规则：
 
-- `///` 块与声明之间只允许空白和属性（`[Native(...)]`、`[Deprecated]` 等）。约定写法是 **doc 在前、属性在后**，`z42 fmt` 落地后自动归一。
-- `///` 后面不是声明（例如在方法体里，或者后面空了一行再接 `//`）时报 **W0801 孤立 doc 注释**。这条规则会迫使现有「`///` 写实现笔记」的用法改回 `//`。
+- 只认**行首**的 `///` / `//!`（本行此前没有 token）；写在代码后面的是普通注释。`////`（四个及以上斜杠）
+  也是普通注释，可用作分隔线。
+- 连续的同种行合成一块；空行、普通注释行或代码都会把块断开。每行去掉前缀及其后一个空格。
+- `///` 块挂到紧随其后的声明：块与声明之间只能有空白、普通注释和属性（与 rustdoc 相同）。约定写法是
+  **doc 在前、属性在后**；写在属性与修饰符之间也认。同一声明前若有多块（被空行隔开），只认最近的一块。
+- `//!` 块必须写在文件的第一个 token 之前（`namespace X;` 之上），挂到该文件的命名空间；多块按空行拼接。
+- 没被认领的块（方法体里的 `///`、文件中间的 `//!`、悬空的块）是**孤立块**，由文档检查报 W0801。
 - 同一个命名空间只能有一个文件写 `//!`（违反报 W0808）。约定放在包的主文件里，例如 `Random.z42`。
 
 ### 2.2 块结构
@@ -115,8 +131,8 @@
 ///     Strings.PadLeft("42", 5, '0')    // => 00042
 ```
 
-- 每个 `@example` 编译成一个独立的测试函数，`TestEntryKind.Doctest = 5` 已经在 `IrModule.z42:465`
-  和 `test_index.rs:80` 预留好了。
+- 每个 `@example` 合成为一个带 `[Test]` 的独立测试函数，由现有的反射发现（`TestDiscovery`）收集，
+  不另设测试索引。
 - 一行 `expr // => text` 的含义是断言 `expr.ToString() == "text"`。这借鉴 Elixir：比较的是输出文本，
   不需要 `Assert.Equal` 样板，也正好沿用了现有注释里 `→` 的写法习惯。
 - 模式：默认编译并运行；`no_run` 只编译；`compile_fail` 期望编译失败；`ignore` 两者都不做。
@@ -174,33 +190,37 @@ git blame）。算法常量的来源说明保留，但改成方法体里的 `//`
 4. **不写历史**：日期、spec 名、「原来是…」一律不写。W0806 会机械拦截 `(20xx-xx-xx)` 和 `add-xxx:` 这类模式。
 5. **能链接就不复述**：要说明「见 PadLeft 的规则」就写 ``[`PadLeft`]``，不要抄一遍。
 6. **覆盖范围**：stdlib 的 `public` 声明必须有 `///`（W0805，ratchet）。编译器和工具链内部代码在契约不显然时写 `///`，`z42 doc --private` 能直接查到。
-7. **语种**：见 §9 决策 D1。
+7. **语种**：中文（标识符与代码保持英文），见 §9 D1。
 
 ## 4. 架构
 
 ```mermaid
 flowchart LR
   src[".z42 源码<br/>/// //!"] --> lex["Lexer<br/>DocBlock 旁挂表"]
-  lex --> parse["Parser<br/>挂靠到声明 → Decl.Doc"]
-  parse --> sem["Semantics<br/>DocChecker：链接/参数/异常/继承<br/>W0801–W0808"]
-  sem --> emit["z42c build<br/>&lt;pkg&gt;.zdoc 旁挂文件"]
-  emit --> q["z42 doc &lt;Sym&gt;<br/>终端直查（agent 主入口）"]
+  lex --> parse["Parser<br/>声明入口认领 → Decl.Doc"]
+  parse --> idx["语法级索引<br/>签名 + 原文 + file:line"]
+  parse --> sem["DocChecker（语义 pass）<br/>链接/参数/异常/继承<br/>W0801–W0808"]
+  rs[".rs 源码"] --> ridx["Rust 索引（syn）"]
+  sem --> emit["z42c build<br/>&lt;pkg&gt;.zdoc"]
+  idx --> q["z42 doc &lt;Sym&gt; / --members / --page"]
+  ridx --> q
+  emit --> q
   emit --> md["z42 doc --format mdbook<br/>→ reference/stdlib/*.md"]
   emit --> dt["z42 test --doc<br/>doctest"]
-  emit -.-> lsp["LSP hover / REPL :doc<br/>（0.5.x）"]
+  q --> chk["xtask check doc-refs<br/>书里的符号引用"]
 ```
 
-### 4.1 词法与语法（`z42c.syntax`）
+### 4.1 词法与语法（`z42c.syntax`，P1 已实现）
 
-- `Lexer._skipTrivia`：遇到 `///` 或 `//!` 时，**不改 token 流**，而是把连续的行收进
-  `List<DocBlock>`（`{Kind: Outer|Inner, Lines, Span}`）。这和现有 `#suppress` 区间挂在
-  `CompilationUnit` 上的做法相同（`Decl.z42:421-440`）。词法器只做收集，表达式解析器完全不受影响。
-- `////`（四个及以上斜杠）按普通注释处理，与 Rust 相同，方便写分隔线。
-- 解析器在开始解析一个声明时（`AttributedDecl` 包装处，以及 `FieldDecl`、`MethodDecl`、`PropertyDecl`、
-  `ClassDecl`、`EnumDecl`、`EnumMember`、`DelegateDecl`、`IndexerDecl`），取「紧邻在前、中间只有空白和属性」
-  的那个 DocBlock，挂到 `Decl.Doc`。只保存原文和 Span，**不在这里解析 Markdown 或 tag**，编译热路径几乎零成本。
-- 解析结束后仍未被认领的 DocBlock 报 W0801。
-- `--dump-doc` 调试开关：打印每个声明挂到的 DocBlock，用于测试。
+- 词法器在跳过行注释时识别行首的 `///` / `//!`，收进 `DocBlock` 旁挂表（`Kind`、去前缀的原文、`Span`、
+  块后第一个 token 的下标 `NextTok`），**不改 token 流**——表达式与语句解析完全不受影响。
+- 解析器在三个声明入口认领：顶层声明循环、`MemberParser._parseMember`（类 / 接口 / impl 成员与嵌套类型）、
+  枚举成员循环。入口记下「前置 attribute 之前」与「attribute 之后、修饰符之前」两个 token 下标，认领
+  `NextTok` 等于其一的外部块（二分查找，幂等，回溯重解析不受影响）。`AttributedDecl` 的 doc 挂在 `Inner` 上。
+- 收尾时文件开头的 `//!` 块合成 `CompilationUnit.Doc`；全部块挂在 `CompilationUnit.DocBlocks`，未认领的即孤立块。
+- 只保存原文和 Span，**不解析 Markdown 或 tag**；文件里没有 doc 块时认领直接跳过。
+- `z42c --dump-doc <f.z42>`：每个声明一行 `<种类> <名字> = <doc>`，孤立块记作 `orphan@<行>`。
+- 新字段都不进构造函数签名（`z42c.syntax` 是编译器运行期自依赖库，见自举轴 ④ 的种子 ABI 约束）。
 
 ### 4.2 文档模型与校验（新包 `z42.doc` + `z42c.semantics` 一个 pass）
 
@@ -210,20 +230,22 @@ flowchart LR
 |---|---|
 | `DocParser.z42` | 原文 → `DocComment{Summary, Body, Tags[], Links[], Examples[]}`。只识别 tag 区和链接，正文 Markdown 原样保留，不在这里渲染 |
 | `DocId.z42` | 由符号生成 Doc ID；解析 Doc ID 或短名 |
-| `ZdocModel.z42` / `ZdocWriter.z42` / `ZdocReader.z42` | `.zdoc` 读写 |
+| `ZdocModel.z42` / `ZdocWriter.z42` / `ZdocReader.z42` | `.zdoc` 读写（语法级索引与语义级产物同一格式，`level` 字段区分） |
 
-`z42c.semantics/src/Docs/DocChecker.z42`：放在绑定完成之后、代码生成之前。**只在需要时运行**，即
+`z42c.semantics` 的 `DocChecker`：放在绑定完成之后、代码生成之前。**只在需要时运行**，即
 `[doc] emit = true`（库默认开启）或 `z42 doc`、`z42 test --doc` 驱动时。职责：
 
 - 用声明所在的作用域解析 ``[`Sym`]`` 和 `@throws` 类型（复用 binder 的名字查找）；
 - 校验 `@param`、`@typeparam` 名；
 - 计算继承文档（§2.6）、基类与接口、**反向的实现者列表**（rustdoc 的 Implementors，跨包时在 z42 doc 侧汇总）；
-- 跑 W0804～W0807 的格式类 lint。
+- 报全部 W08xx：孤立块（W0801）与重复 `//!`（W0808）也在这里报，而不是在解析器里——这样 doc 诊断只有一个
+  出口，统一走 `[lints]` 的级别决策与 `#suppress`。现状 `[lints]` 只作用于 analyzer 规则，本 pass 落地时把
+  `LintConfig` 的决策扩到编译器内建的 doc 规则。
 
 ### 4.3 `.zdoc` 旁挂文件
 
 为什么不新增 zpkg section：zbc/zpkg 是 strict-pin 版本，新增 section 要 minor bump，Rust 和 z42 两侧
-reader 都得改（`zbc.md:286-292`）。`.zsym` 已经开了「旁挂文件」的先例。文档本来就不是运行时数据，
+reader 都得改（见产物格式的版本纪律）。`.zsym` 已经开了「旁挂文件」的先例。文档本来就不是运行时数据，
 发布时也应该能整个丢掉。
 
 - 位置：与 `<pkg>.zpkg` 同目录，命名 `<pkg>.zdoc`。
@@ -265,8 +287,8 @@ reader 都得改（`zbc.md:286-292`）。`.zsym` 已经开了「旁挂文件」�
 
 ### 4.4 `z42 doc`（`z42d doc`，launcher 转发）
 
-现状：`devtools_cli.z42:43-45` 已经登记了 `doc`，但只打印 "planned"；launcher 还没有转发到 z42d 的通道。
-需要补一个 `_forwardZ42d`，写法对照 `_forwardZ42b`。
+现状：z42d 的 `devtools_cli` 已经登记了 `doc`，但只打印 "planned"，参数还是 `<project.z42.toml>`；
+launcher 没有任何转发到 z42d 的通道，需要补一个 `_forwardZ42d`，写法对照 `_forwardZ42b`。
 
 **查询模式（agent 主入口，输出刻意极简）**
 
@@ -292,10 +314,22 @@ $ z42 doc Std.Random                     # 命名空间：概述 + 类型列表
 $ z42 doc --impls Std.Collections.IEnumerable<T>   # 实现者
 $ z42 doc ... --json                     # 原样输出 .zdoc 条目
 $ z42 doc --private --pkg z42c.semantics TypeChecker --members   # 编译器内部
+$ z42 doc --page docs/internals/src/compiler/attribute-pipeline.md  # 书页里引用的符号 → 当前 file:line
+$ z42 doc HandlerRegistry.KindOf --docs  # 反查：哪些书页引用了这个符号
+$ z42 doc z42::gc::heap::Heap --members  # Rust 符号（仓库内开发用）
 ```
 
 - 名字解析：先精确匹配 Doc ID，再匹配后缀（`Random.NextIntRange`），再做模糊匹配。多个命中时列出候选（每个一行），不报错。
-- 数据来源：SDK 内的 stdlib `.zdoc`，加上当前工程 `artifacts/` 下各包的 `.zdoc`。数据过期时，提示运行 `z42 build`。
+- 数据来源（统一一种索引格式，不区分语言）：
+  1. **语法级索引**：有源码的包（当前工程与仓库内各 workspace）直接用 `z42c.syntax` 解析源码得到声明、签名、
+     原文 doc 与 `file:line`，私有成员也收录。按文件 (size, mtime) 缓存，只重解析改过的文件，所以改完代码
+     立即可查、不必先 build。
+  2. **语义级 `.zdoc`**：SDK 内的 stdlib（没有源码）与 `z42 build` 产出的 `.zdoc`，额外带解析后的链接、
+     异常类型、继承文档与实现者列表。同一符号两者都有时取语义级。
+  3. **Rust 索引**：仓库内开发用。一个基于 `syn` 的小工具扫 `src/runtime/` 各 crate，输出同一格式（`fn` /
+     `struct` / `trait` / `impl` 方法、首段 rustdoc、`file:line`）。
+- `--page`：读一页书的「代码」页头声明的范围，解析正文里每个反引号符号，逐行输出 `符号 → file:line`；
+  解析不了的标 `?`。agent 读完书页后跑一次，就能按 offset/limit 直接读实现，全程不 grep。
 - **省 token 估算**：查 `Random` 的完整 API，原来要读 257 行源码（约 3k token），`--members` 只有约 25 行（约 400 token）；查单个成员大约 5 行。拿到 `file:line` 之后，按 offset/limit 精确读实现即可。
 
 **生成模式**
@@ -309,7 +343,7 @@ $ z42 doc --format md --out <dir>                            # 普通工程用
 
 - 仍然**一包一页**（`docs/reference/src/stdlib/<pkg>.md`），文件名不变，SUMMARY 和现有链接都不受影响。
   特别大的包（如 `z42.core`）可以设置 `[doc] split = "type"`，改为一个类型一页。
-- 页面结构（满足 `book-writing.md:94-100` 的「概述 / 约定 / 逐项条目」骨架）：
+- 页面结构（满足书的写法规范里参考页的「概述 / 约定 / 逐项条目」骨架）：
   1. 标题 = 包名 —— 命名空间 `//!` 的摘要；
   2. `> 包路径 …；命名空间 …`（自动生成）+ `//!` 正文 + `@warning` 提示框；
   3. 每个类型一个 `##`：类型文档，加一个 ```` ```z42 ```` 签名总览块（保留现有页面的这种写法，也方便 grep）；
@@ -318,7 +352,10 @@ $ z42 doc --format md --out <dir>                            # 普通工程用
 - 页首写 `<!-- 由 z42 doc 生成，勿手改。源：src/libraries/z42.random/ -->`。
 - **生成的页面提交进仓库**（决策 D3）。好处：mdBook 部署流程不用改；PR diff 里直接看到 API 和文档的变化，起到 API Extractor 的作用；agent 也能直接 grep。
 - `stdlib/README.md` 的「包 → 页 → 类型」索引也改为生成。
-- 包 README 的「入口点」签名清单删除，改成一行链接到 reference 包页（`readme-writing.md:177` 本来就是这么要求的）。
+- 页面内容全部来自源码：页首简介、跨类型的用法说明、`## 不支持` 写在包主文件的 `//!` 正文；成员的取值
+  范围、边界与异常写在该成员的 `///`；用法代码块写成 `@example`（同时是 doctest）。
+- 门禁按包生效：一个包迁移完成（主文件有 `//!`）后才纳入生成与漂移检查，未迁移的包页保持手写。
+- 包 README 的「入口点」签名清单删除，改成一行链接到 reference 包页（README 写法规范本来就禁止在 README 里列签名）。
 
 ### 4.6 门禁
 
@@ -328,7 +365,8 @@ $ z42 doc --format md --out <dir>                            # 普通工程用
 | `xtask check docs-api` | 重新生成并与仓库内文件 diff，不一致即失败，并提示运行 `xtask doc gen` | `xtask check vscode-syntax` |
 | `xtask check doc-lints` | stdlib 的 W08xx 计数不得超过 `scripts/test/doc-lint-baseline.txt` 里的基线（ratchet，只降不升） | `doc-link-baseline.txt`、`diag-untested-codes.txt` |
 | `z42 test --doc` | stdlib 的 doctest 并入 GREEN gate | learn ↔ examples 重放 |
-| CI `docs-check` job | 纯文档 PR 也跑 `check docs-api` | `ci.yml:196-222` |
+| `xtask check doc-refs` | 书与 README 里的代码引用可解析、不写行号（§4.9），未解析数不得超过基线 | `doc-link-baseline.txt` |
+| CI `docs-check` job | 纯文档 PR 也跑 `check docs-api` 与 `check doc-refs` | 现有 docs-check job |
 
 改完之后，doc-system 三问的第 1 问对 stdlib 来说变成：**改 `///`，然后运行 `xtask doc gen`**。漏掉了门禁会拦下来，不再依赖人工记得。
 
@@ -345,8 +383,8 @@ $ z42 doc --format md --out <dir>                            # 普通工程用
 | W0807 | 摘要缺失或超长（>80 字） | allow / warn |
 | W0808 | 同一命名空间有多个文件写了 `//!` | warn / error |
 
-级别通过 `[lints]` 调整（`ManifestLoader.z42:102-135` 的现有机制）。stdlib 的默认级别在 stdlib 工作区
-的 toml 里统一设置。新增码按现有四步走：注册表、发出点、`error-codes.md` 行、断言测试，
+级别通过 `[lints]` 调整（需把 `LintConfig` 的决策扩到编译器内建的 doc 规则，见 §4.2）。stdlib 的默认级别在
+stdlib 工作区的 toml 里统一设置。新增码按现有四步走：注册表、发出点、`error-codes.md` 行、断言测试，
 由 `xtask check diagcodes` 双向守护。
 
 ### 4.8 `z42.toml` 的 `[doc]` 表
@@ -358,19 +396,43 @@ private = false       # 是否收录非 public 成员（编译器各包设为 tr
 split   = "package"   # mdbook 输出粒度："package" | "type"
 ```
 
-解析写法照 `_parseSyntax` / `_parseLints`：加一个 `_parseDoc` 填充函数，再给 `ProjectManifest` 加字段。
-同步更新 `reference/toolchain/z42-toml.md` 和 `manifest-schema.json`。
+解析写法照 `ManifestLoader` 里现有的 `_parseSyntax` / `_parseLints`：加一个 `_parseDoc` 填充函数，再给
+`ProjectManifest` 加字段，键登记进 `ManifestKeys`（`z42.toml` 键的唯一事实源）。同步更新
+`reference/toolchain/z42-toml.md`。新清单键要按自举纪律拆两步：先让解析器认识 `[doc]`，晚一个 nightly
+再在仓内清单里写它。
+
+### 4.9 书里的代码引用（D6）
+
+现状：internals 与 reference 里约 158 处 `file:line`，抽查约 90% 已过期；387 处只写了文件名、没有目录，其中
+29 个在仓库里不唯一；27 个 internals 页没有「代码」页头行；`xtask test docs` 先剥掉代码片段再检查，所以这些
+引用从来没被校验过。
+
+规则（书照样手写，本节只规定引用代码的写法并加门禁）：
+
+- 页头「代码」行声明作用范围：包名或目录，后接本页涉及的主要类型 / 模块，例如
+  `> 代码：z42c.semantics — HandlerRegistry, AttributeSynth`，Rust 写 crate 路径
+  `> 代码：z42 runtime — gc::heap, gc::tlab`。
+- 正文用反引号写符号短名（`` `HandlerRegistry.KindOf` ``、`` `heap::Heap::alloc` ``），检查器在页头声明的范围内
+  解析；范围内唯一即通过。
+- **禁止写行号**（`Foo.z42:57`、`:78-83`），检查器直接报错；位置由 `z42 doc --page` 现查。
+- 不是符号的反引号内容（命令、字面量、路径片段）不做解析：只解析形如 `A.B` / `a::b` 的标识符链与页头范围里
+  出现过的名字。解析失败计入基线，只降不升。
+- 代码注释里指向书页的路径（`docs/internals/src/...md`）一并检查能否解析。
+- 好处：改名或删除符号时，门禁直接指出哪些书页要同步；`z42 doc <Sym> --docs` 反查同一份数据。
 
 ## 5. agent 工作流改造（省 token 的落地点）
 
-1. 在 `docs/agent/rules/code-organization.md` 的「先读 README 再读代码」之后加一步：
-   **查符号先用 `z42 doc <Sym>` 或 `--members`，再按返回的 `file:line` 用 offset/limit 读实现**，不要整文件读取。
+1. 开工导航里「先读 README 再读书」之后加一步：**读完书页跑 `z42 doc --page <页>`，查符号用 `z42 doc <Sym>`
+   或 `--members`，再按返回的 `file:line` 用 offset/limit 读实现**，不 grep、不整文件读取。
 2. 新增 `.claude/skills/z42-doc/`：一个很薄的 skill，写清查询命令的速查表和「改 API 后运行 `xtask doc gen`」的流程。
 3. 编译器各包设置 `[doc] private = true`。之后 agent 改编译器时，可以用 `z42 doc --private --pkg z42c.semantics Binder --members`
    拿到内部类的轮廓。这对 1.8 万行 `//` 的编译器帮助最大。
 4. `z42 doc --search` 补上「不知道叫什么名字」的场景：按摘要搜，比 grep 源码噪声小得多。
 
-## 6. 现有注释迁移
+## 6. 现有注释迁移（机制全部落地之后统一进行）
+
+挂靠实测（全仓非测试源码）：现有 `///` 几乎都写在声明上，孤立块只有 2 处；主要问题是历史注记、实现笔记
+写进了 `///`，以及一部分 API 说明用 `//` 写。
 
 | 类别 | 处理 |
 |---|---|
@@ -383,41 +445,46 @@ split   = "package"   # mdbook 输出粒度："package" | "type"
 | `[Native]` extern 声明 | 文档写在 z42 侧的声明上，Rust 侧 `builtin_*` 的 rustdoc 不变 |
 
 迁移顺序：先拿 `z42.random`（小、已有现成的手写页可以对照）做试点，然后 `z42.text`、`z42.json`。
+书里的 `file:line` 与缺目录的文件名同期清理，补齐缺失的「代码」页头行。
 接着批量迁移剩下的 26 个包：一个包一个 PR，各包互相独立，可以多个 agent 并行。最后是 `z42.core`（最大，使用 `split = "type"`）。
 
 ## 7. 阶段计划
 
-每个阶段 = 一个或几个 PR，合并时都是 GREEN。**P3（查询）排在 P4（生成）之前**：先让 agent 省到 token，再解决文档重复写的问题。
+User 裁决：**先把机制全部做完（含测试与示例），最后统一迁移注释和书里的引用。** 每个阶段 = 一个或几个 PR，
+合并时都是 GREEN。
 
-| 阶段 | 内容 | 退出标准 |
+| 阶段 | 内容 | 状态 |
 |---|---|---|
-| **P0 规范** | reference `language/doc-comments.md`（§2 的语法）；`agent/rules/doc-comments.md`（§3 的写法约束）；裁定 §9 的决策 | 两页合并 |
-| **P1 挂靠** | Lexer DocBlock 旁挂表、Parser 挂靠、`Decl.Doc`、`--dump-doc`、W0801/W0808 | 编译器测试覆盖各种声明的挂靠和孤立块；stdlib 的 W0801 计数进 baseline |
-| **P2 模型与校验** | `z42.doc` 包（DocParser / DocId / Zdoc）、`DocChecker`、W0802～W0807、`[doc]` 表 | 诊断测试齐全；`diagcodes` 绿 |
-| **P3 产出与查询** | build 时产出 `.zdoc`；SDK `[component.docs]`；`z42d doc` 的查询模式；launcher 转发；agent 规则和 skill | `z42 doc Std.Random.Random --members` 在 SDK 安装环境下可用；编译器包可以 `--private` 查询 |
-| **P4 生成与门禁** | mdbook 渲染器；`xtask doc gen`；`check docs-api`、`check doc-lints`；`z42.random` 试点替换手写页 | random 页改为生成，`check docs-api` 进 GREEN gate |
-| **P5 批量迁移** | 剩余包逐个迁移；README 入口点改为链接；W0805 ratchet 逐步降到 0 | stdlib 的 reference 页全部由生成得到 |
-| **P6 doctest** | `@example` 编译成 `TestEntryKind.Doctest`；`z42 test --doc` 进 gate | stdlib 示例全部可运行 |
-| **P7 延伸** | REPL `:doc`；LSP hover 复用 `.zdoc`（0.5.7）；英文翻译层（按 Doc ID 叠加，见 D1） | 按 roadmap 排期 |
-
-P1～P3 完成，就满足 roadmap 0.4.6 的「`z42-doc` 无错」要求。
+| **P1 挂靠** | Lexer `DocBlock` 旁挂表、Parser 声明入口认领、`Decl.Doc` / `EnumMember.Doc` / `CompilationUnit.Doc`、`--dump-doc`；本文件写入裁决 | 本 PR |
+| **P2 索引与查询** | 语法级索引（z42，带缓存）+ Rust 索引（`syn`）+ `z42d doc <Sym>` / `--members` / `--search` / `--page` / `--docs`；launcher 转发 `z42 doc`；示例工程 | 待做 |
+| **P3 书引用检查** | `xtask check doc-refs`（§4.9）+ 基线；`internals/devinfra` 与 reference 工具链页记录用法 | 待做 |
+| **P4 模型与校验** | `z42.doc` 包（DocParser / DocId / Zdoc）、`DocChecker`、W0801～W0808、`LintConfig` 扩到内建 doc 规则、`[doc]` 表（两步）；reference `language/doc-comments.md` 与 agent 写法规则 | 待做 |
+| **P5 产出与生成** | build 产出 `.zdoc`；SDK `[component.docs]`；mdbook 渲染器；`xtask doc gen`；`check docs-api`（按已迁移的包生效） | 待做 |
+| **P6 doctest** | `@example` 合成 `[Test]` 方法，经反射发现；`z42 test --doc` 进 gate | 待做 |
+| **P7 迁移** | 代码注释按包迁移（先 `z42.random`）；stdlib 页改为生成；README 入口点改链接；书里引用清理；W0805 ratchet 降到 0 | 机制完成后 |
+| **P8 延伸** | REPL `:doc`；LSP hover 复用 `.zdoc`；英文翻译层（按 Doc ID 叠加） | 按 roadmap 排期 |
 
 ## 8. 风险
 
 | 风险 | 对策 |
 |---|---|
-| 解析器挂靠改动触及所有声明路径 | DocBlock 走旁挂表、不进 token 流，解析器只在声明入口按 Span 认领；回归靠全量编译器测试 |
+| 解析器挂靠改动触及所有声明路径 | DocBlock 走旁挂表、不进 token 流，解析器只在三个声明入口按 token 下标认领；回归靠全量编译器测试 |
 | 生成的页面和手写页面风格不一致 | 试点阶段并排对比 random 页，调好渲染器再批量迁移 |
+| 语法级索引查询变慢 | 按文件 (size, mtime) 缓存，只重解析改过的文件 |
 | 生成页提交进仓库，PR 可能冲突 | 一包一文件，冲突面只限同一个包；冲突时重新运行 `xtask doc gen` 即可解决 |
 | doctest 拖慢 gate | 按包增量运行（复用 `xtask test changed` 的影响面判定） |
 | `.zdoc` 格式演进 | 自带 `format` 版本号；读取方拒绝更高版本并提示升级 SDK |
 
-## 9. 待裁决
+## 9. 裁决（User 2026-10-14「按推荐」）
 
-| # | 问题 | 推荐 | 理由 |
-|---|---|---|---|
-| **D1** | doc 注释用什么语言 | **中文**（标识符和代码保持英文）；英文版后续按 Doc ID 加翻译层 | reference 书规定中文先行（doc-system §2）；如果源码用英文，生成的 reference 就会是英文，或者还得手工翻译，又回到写两遍 |
-| **D2** | 结构化信息的写法 | **单行 `@tag`**（§2.2） | 比 Rust 的 Markdown 分节省行数，比 XML 省 3～5 倍 token，解析也最简单 |
-| **D3** | 生成的 reference 页是否提交 | **提交**，加 drift 门禁 | mdBook 部署不用改；PR 里能直接看到 API diff；agent 能 grep |
-| **D4** | 文档放哪里 | **`.zdoc` 旁挂文件** | 避免 zpkg 版本 bump，运行时部署可以丢掉 |
-| **D5** | `public` 缺文档的处理 | stdlib 设为 warn + ratchet，用户工程默认 allow | 允许渐进迁移，同时不倒退 |
+| # | 问题 | 裁决 |
+|---|---|---|
+| **D1** | doc 注释用什么语言 | **中文**（标识符和代码保持英文）；英文版以后按 Doc ID 加翻译层 |
+| **D2** | 结构化信息的写法 | **单行 `@tag`**（§2.2） |
+| **D3** | 生成的 stdlib 页是否提交 | **提交**，加漂移门禁 |
+| **D4** | 文档数据放哪里 | **`.zdoc` 旁挂文件**，不动 zpkg 格式 |
+| **D5** | `public` 缺文档 | stdlib 设为 warn + ratchet，用户工程默认 allow |
+| **D6** | 书里怎么引用代码 | 页头声明范围 + 正文写短名，检查器解析；禁止行号（§4.9） |
+| **D7** | Rust 符号索引 | 基于 `syn` 的小工具，输出与 z42 侧同一格式 |
+| **D8** | 生成的边界 | 只有 reference 的 stdlib 页由 doc 生成；internals 与 reference 其余页手写 |
+| **D9** | 顺序 | 机制先行（含测试与示例），注释与书引用的迁移最后统一做 |

@@ -87,6 +87,9 @@ pub(crate) struct IncrementalState {
     pub(super) slice_interval: AtomicU64,
     /// Work units the last completed cycle took — the next cycle's estimate.
     last_cycle_units: AtomicU64,
+    /// `promoted_bytes_since_major` when the open cycle took its root snapshot. What is promoted
+    /// after that is not this cycle's to reclaim (see `close_incremental_cycle`).
+    promoted_at_open: AtomicU64,
 }
 
 #[derive(Default)]
@@ -401,6 +404,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
         };
         self.open_major_cycle();
         self.begin_alloc_black();
+        self.incremental.promoted_at_open.store(
+            self.promoted_bytes_since_major.load(Ordering::Relaxed), Ordering::Relaxed);
         let roots = self.snapshot_roots_into_mark_queue();
         self.incremental.phase.store(MARKING, Ordering::Relaxed);
         crate::gc::phase_timer::note(format_args!(
@@ -575,7 +580,15 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // No aging pass: minors kept running between the slices, and aging is theirs. The one
         // exception is a pending promotion-age switch, which needs a major under it.
         self.apply_adaptive_promotion_after_major(true);
-        self.promoted_bytes_since_major.store(0, Ordering::Relaxed);
+        // The old generation's growth since the snapshot carries over to the next cycle's gate.
+        // Everything born while the cycle ran is allocated black, so whatever of it the minors
+        // and tenures promoted in the meantime survives this cycle whether it is garbage or not
+        // — resetting the count to 0 forgot it, and the next cycle opened only after a whole
+        // further allowance on top. Tenure makes that share large: it promotes a nursery's young
+        // garbage wholesale, and on `13_gc_large_heap` most tenures run inside a cycle.
+        let since_open = self.promoted_bytes_since_major.load(Ordering::Relaxed)
+            .saturating_sub(self.incremental.promoted_at_open.load(Ordering::Relaxed));
+        self.promoted_bytes_since_major.store(since_open, Ordering::Relaxed);
         self.incremental.phase.store(IDLE, Ordering::Relaxed);
     }
 }
