@@ -4,6 +4,7 @@ namespace Z42NetHttpServerThreadedTests;
 
 using Std.Threading;
 using Std.Net.Http;
+using Std.Test;
 
 [Test]
 void test_serve_threaded_handles_concurrent_clients() {

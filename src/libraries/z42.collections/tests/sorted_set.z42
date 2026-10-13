@@ -3,6 +3,7 @@ namespace Z42CollectionsSortedSetTests;
 
 using Std.Test.Contracts;
 using Std.Collections;
+using Std.Test;
 
 // add-collection-contract-phase1 (2026-06-03): shared IBasicCollection
 // invariants on SortedSet<int>.

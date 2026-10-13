@@ -3,6 +3,7 @@
 namespace Z42IoProcessFailureTests;
 
 using Std.IO;
+using Std.Test;
 
 [Test]
 void test_nonexistent_program_throws_start_exception() {

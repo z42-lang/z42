@@ -8,6 +8,7 @@ namespace Z42cSemanticsTestAttrEnforceTests;
 using Z42.Syntax;
 using Z42.Semantics;
 using Z42.Core;
+using Std.Test;
 
 // 单 CU 收集期诊断（同 collect_tests.collectDiags；本文件自带一份避免跨文件耦合）。
 DiagnosticBag teDiags(string src) {

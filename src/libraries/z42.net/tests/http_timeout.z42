@@ -7,6 +7,7 @@ using Std.Net.Sockets;
 using Std.Net.Http;
 using Std.Time;
 using Std.Threading;
+using Std.Test;
 
 [Test]
 void test_timeout_default_is_zero() {

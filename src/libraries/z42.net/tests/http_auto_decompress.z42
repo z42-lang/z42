@@ -8,6 +8,7 @@
 namespace Z42NetHttpAutoDecompressTests;
 
 using Std.Net.Http;
+using Std.Test;
 
 [Test]
 void test_auto_decompress_default_is_off() {

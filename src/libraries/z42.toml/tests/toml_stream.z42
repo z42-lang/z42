@@ -6,6 +6,7 @@ namespace Z42TomlStreamTests;
 using Std.IO;
 using Std.Encoding;
 using Std.Toml;
+using Std.Test;
 
 byte[] _utf8(string s) { return Encoding.GetUtf8().GetBytes(s); }
 string _decode(byte[] b) { return Encoding.GetUtf8().GetString(b); }

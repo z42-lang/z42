@@ -2,6 +2,7 @@
 namespace Z42IoBinaryBasicTests;
 
 using Std.IO.Binary;
+using Std.Test;
 
 [Test]
 void test_byte_round_trip() {

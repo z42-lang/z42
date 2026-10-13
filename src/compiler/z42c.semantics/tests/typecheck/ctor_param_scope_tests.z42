@@ -10,6 +10,7 @@
 // 于是误报消失、漏报那侧反而**开始响**。
 namespace Z42cSemanticsCtorParamScopeTests;
 using Z42.Semantics;
+using Std.Test;
 
 // ── 误报侧：这些**必须零诊断**（修前 ctor 那条报 E0402）────────────────────
 

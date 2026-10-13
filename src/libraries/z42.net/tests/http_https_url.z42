@@ -9,6 +9,7 @@
 namespace Z42NetHttpsUrlTests;
 
 using Std.Net.Http;
+using Std.Test;
 
 [Test]
 void test_https_url_parses_with_default_port_443() {

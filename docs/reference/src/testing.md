@@ -1,7 +1,7 @@
 # 测试
 
 > 代码：`src/libraries/z42.test/src/`、
-> `src/libraries/z42.core/src/Assert.z42`、`src/libraries/z42.core/src/TestAttributes.z42`、`src/compiler/z42c.semantics/src/Testing/TestAttrEnforcer.z42`、
+> `src/libraries/z42.core/src/Assert.z42`、`src/libraries/z42.test/src/TestAttributes.z42`、`src/compiler/z42c.semantics/src/Testing/TestAttrEnforcer.z42`、
 > `src/toolchain/builder/core/builder_test.z42`
 >
 > 测试文件放在哪、`[tests]` / `[[test]]` / `[benches]` 怎么配、`harness = false` 是什么，
@@ -28,6 +28,7 @@ demo/
 namespace Demo.Tests;
 
 using Demo;                  // 被测代码的命名空间
+using Std.Test;              // [Test] 等测试 attribute
 
 [Test]
 void test_add_ok() {
@@ -47,8 +48,9 @@ void test_not_ready() {
 ```
 
 `z42 test` 即可。**不需要**在清单里写 `[tests.dependencies] "z42.test"`——stdlib 自动可用。
-**也不需要** `using Std;`：`Assert` / `TestFailure` / `SkipSignal` 都在 prelude 包 `z42.core` 里，
-裸写即可；`Bencher` / `TestIO` 在 `z42.test`，要 `using Std.Test;`。
+测试 attribute（`[Test]` / `[Skip]` / `[ShouldThrow<E>]` …）与 `Bencher` / `TestIO` 都在 `z42.test` 的
+`Std.Test` 命名空间，测试文件要写 `using Std.Test;`（漏写时编译器报 `E0436` 并提示补上）。
+`Assert` / `TestFailure` / `SkipSignal` 在 prelude 包 `z42.core` 里，裸写即可。
 
 > 工程里**没有** `tests/` 目录时，`z42 test` 退回编译工程自身、跑其中的 `[Test]`——
 > 「整个包就是一组测试」的独立测试工程是这个形态。

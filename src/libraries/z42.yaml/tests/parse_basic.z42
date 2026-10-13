@@ -2,6 +2,7 @@
 namespace Z42YamlParseBasicTests;
 
 using Std.Yaml;
+using Std.Test;
 
 [Test]
 void test_empty_input_yields_null() {

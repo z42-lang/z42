@@ -1,7 +1,7 @@
 # 测试框架机制（反射发现 · runner 协议 · GREEN gate）
 
 > 代码：
-> `src/libraries/z42.core/src/TestAttributes.z42`（`[Test]` 等 attribute 类）、
+> `src/libraries/z42.test/src/TestAttributes.z42`（`[Test]` 等 attribute 类）、
 > `src/libraries/z42.core/src/Runtime/ModuleLoader.z42`（加载 / 隔离运行）、
 > `src/libraries/z42.test/src/`（`TestDiscovery` · `Runner` · `BundleRunner` · `TestReport`，以及作者侧 `Bencher` · `BenchStats` · `TestIO`）、
 > `src/compiler/z42c.semantics/src/Testing/`（编译期校验）、
@@ -11,7 +11,7 @@
 > 要查 `[Test]` / `[Benchmark]` / `[Skip]` **怎么写**、`z42 test` **怎么用**、以及
 > `Assert` 方法全表 → 看 reference，不在本页。本页只写这套东西**怎么实现的**。
 
-z42 的测试发现是**运行期反射**：`[Test]` 等是 z42.core 里的普通 attribute 类，编译器像对待任何
+z42 的测试发现是**运行期反射**：`[Test]` 等是 z42.test 里的普通 attribute 类，编译器像对待任何
 attribute 一样为每处应用合成反射工厂；runner（`Std.Test.Runner`，z42 写的）把编好的测试产物并入
 当前 VM，用通用反射（`Assembly.GetFunctions()` / `Type.GetMethods()` / `GetCustomAttributes()` /
 `MethodInfo.Invoke`）找出并调用它们。测试链上**没有测试专用的元数据或 VM 能力**。读这页的时机：
@@ -31,7 +31,7 @@ attribute 一样为每处应用合成反射工厂；runner（`Std.Test.Runner`�
 
 ### 2.1 类与语义
 
-全部在 z42.core（prelude，命名空间 `Std`）——绝大多数测试文件不写 `using Std.Test;`：
+全部在 z42.test（命名空间 `Std.Test`，与 runner 同包）——测试文件写 `using Std.Test;` 才看得见：
 
 | attribute | 实例上 runner 读什么 |
 |---|---|
@@ -71,7 +71,7 @@ flowchart LR
 | ② 工厂 | 与任何 attribute 相同 | — |
 
 各码的触发条件与发射行见 [错误码参考](https://z42-lang.github.io/z42/reference/appendix/error-codes.html)
-的「E0911–E0917 测试框架」一节。编译侧与运行侧**不共享代码**，只共享 z42.core 的 attribute 类。
+的「E0911–E0917 测试框架」一节。编译侧与运行侧**不共享代码**，只共享 z42.test 的 attribute 类。
 
 ## 3. Runner 协议
 
@@ -292,7 +292,7 @@ build wave 也算一个 stage：它同样走 `_stageStart` 打 banner、同样�
 
 | 要改什么 | 改哪 |
 |---|---|
-| 加一个测试 attribute / 改它的字段 | `src/libraries/z42.core/src/TestAttributes.z42` + 发现 `src/libraries/z42.test/src/TestDiscovery.z42` + 编译期名字表 / 校验 |
+| 加一个测试 attribute / 改它的字段 | `src/libraries/z42.test/src/TestAttributes.z42` + 发现 `src/libraries/z42.test/src/TestDiscovery.z42` + 编译期名字表 / 校验 |
 | 一个 attribute 的运行期行为 | `src/libraries/z42.test/src/Runner.z42` |
 | 一个 attribute 的编译期校验 | `src/compiler/z42c.semantics/src/Testing/TestAttrEnforcer.z42`（名字表在 `Symbols/HandlerRegistry.z42`） |
 | `[Benchmark]` 的调用形状（零参 / 单个 `Bencher`） | `TestCase.Invoke` / `TakesBencher`（`TestDiscovery.z42`）**和** `TestAttrEnforcer` 的 R3，同一个 commit |

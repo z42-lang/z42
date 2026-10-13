@@ -3,6 +3,7 @@
 namespace Z42NetUdpMulticastTests;
 
 using Std.Net.Sockets;
+using Std.Test;
 
 [Test]
 void test_join_before_bind_throws() {

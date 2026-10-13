@@ -15,6 +15,7 @@
 namespace Z42cSemanticsConstraintTests;
 
 using Z42.Semantics;
+using Std.Test;
 
 // ── 接口约束：非泛型接口 ────────────────────────────────────────────────────
 

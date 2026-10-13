@@ -4,6 +4,7 @@ namespace Z42CryptoSha3VectorsTests;
 
 using Std.Crypto;
 using Std.Encoding;
+using Std.Test;
 
 // ── Empty string ────────────────────────────────────────────────────────
 

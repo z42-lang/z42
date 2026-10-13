@@ -11,6 +11,7 @@
 // 「no method」，根本不指向基表。它也是「只看症状 ① 就以为修好了」会漏掉的那格。
 namespace Z42cSemanticsQualifiedBaseNameTests;
 using Z42.Semantics;
+using Std.Test;
 
 // ── 正例：限定名应当与短名等效 ─────────────────────────────────────────────
 

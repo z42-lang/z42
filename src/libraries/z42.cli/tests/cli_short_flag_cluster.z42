@@ -3,6 +3,7 @@
 namespace Z42CliShortFlagClusterTests;
 
 using Std.Cli;
+using Std.Test;
 
 // ── Basic clusters ─────────────────────────────────────────────────────
 

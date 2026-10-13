@@ -5,6 +5,7 @@
 namespace Z42IoTests;
 
 using Std.IO;
+using Std.Test;
 
 [Test]
 void test_writeline_does_not_throw() {

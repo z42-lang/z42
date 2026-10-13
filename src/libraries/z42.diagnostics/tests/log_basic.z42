@@ -2,6 +2,7 @@
 namespace Z42DiagnosticsBasicTests;
 
 using Std.Diagnostics;
+using Std.Test;
 
 [Test]
 void test_level_constants_are_ordered() {

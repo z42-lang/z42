@@ -7,6 +7,7 @@
 // 形参位走 `CheckSubstitutedArgs` 补查——代换后的签名是诊断专用、不回灌（不变式 I1）。
 namespace Z42cSemanticsIfaceTypeArgsTests;
 using Z42.Semantics;
+using Std.Test;
 
 [Test]
 void test_iface_method_return_targ() {

@@ -4,6 +4,7 @@ namespace Z42CryptoEcdsaP256VectorsTests;
 
 using Std.Crypto;
 using Std.Encoding;
+using Std.Test;
 
 // ── RFC 6979 §A.2.5: ECDSA P-256 + SHA-256 with private key d ───────────
 //

@@ -5,6 +5,7 @@ namespace Z42NetTcpKeepaliveReuseaddrTests;
 
 using Std.Threading;
 using Std.Net.Sockets;
+using Std.Test;
 
 // ── SO_KEEPALIVE ───────────────────────────────────────────────────────
 

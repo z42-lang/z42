@@ -3,6 +3,7 @@
 namespace Z42RegexReplaceBackrefTests;
 
 using Std.Regex;
+using Std.Test;
 
 // ── $0 = whole match ────────────────────────────────────────────────────
 

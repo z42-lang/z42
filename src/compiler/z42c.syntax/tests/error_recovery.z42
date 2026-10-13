@@ -5,6 +5,7 @@
 namespace Z42cSyntaxErrorRecoveryTests;
 
 using Z42.Syntax;
+using Std.Test;
 
 int parseErrors(string src) {
     var p = new Parser(src, "t.z42");

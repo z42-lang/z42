@@ -11,6 +11,7 @@
 namespace Z42cSemanticsRefModifierTests;
 
 using Z42.Semantics;
+using Std.Test;
 
 // ── 对称：不应报错 ────────────────────────────────────────────────
 

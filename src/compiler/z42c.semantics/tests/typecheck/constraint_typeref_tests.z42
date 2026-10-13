@@ -13,6 +13,7 @@
 namespace Z42cSemanticsConstraintTypeRefTests;
 
 using Z42.Semantics;
+using Std.Test;
 
 // 公共前缀：非泛型接口 IFoo、满足者 C、违反者 D、受约束泛型 Box<T>、**无约束**泛型 Wrap<T>
 // （H2 嵌套用无约束外层——SemanticDump 单测无 stdlib，不能用 List）。

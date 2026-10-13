@@ -5,6 +5,7 @@ namespace Z42NetHttpRedirectsTests;
 using Std.Threading;
 using Std.Net.Http;
 using Std.Encoding;
+using Std.Test;
 
 [Test]
 void test_disabled_by_default() {

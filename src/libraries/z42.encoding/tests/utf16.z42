@@ -2,6 +2,7 @@
 namespace Z42EncodingUtf16Tests;
 
 using Std.Encoding;
+using Std.Test;
 
 [Test]
 void test_ascii_le_two_bytes_per_char() {

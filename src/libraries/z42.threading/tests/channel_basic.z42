@@ -4,6 +4,7 @@
 namespace Z42ThreadingChannelBasicTests;
 
 using Std.Threading;
+using Std.Test;
 
 [Test]
 void test_single_send_then_recv_same_thread() {

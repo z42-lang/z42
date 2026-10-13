@@ -2,6 +2,7 @@
 namespace Z42JsonPathTests;
 
 using Std.Json;
+using Std.Test;
 
 static JsonValue _sample() {
     return JsonValue.Parse(

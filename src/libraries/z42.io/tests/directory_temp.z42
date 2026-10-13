@@ -3,6 +3,7 @@
 namespace Z42IoDirectoryTempTests;
 
 using Std.IO;
+using Std.Test;
 
 [Test]
 void test_directory_create_temp_dir_returns_existing_path() {

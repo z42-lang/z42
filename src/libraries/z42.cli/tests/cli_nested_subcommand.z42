@@ -3,6 +3,7 @@
 namespace Z42CliNestedSubcommandTests;
 
 using Std.Cli;
+using Std.Test;
 
 // Build an xtask-like tree:
 //   xtask

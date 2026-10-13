@@ -5,6 +5,7 @@ namespace Z42CompressionZipExtractTests;
 using Std.IO;
 using Std.Archive;
 using Std.Encoding;
+using Std.Test;
 
 // Minimal PKWARE zip containing a single STORE-method entry `h.txt` with
 // content `hello\n` (6 bytes). Generated externally via `zip -X`.

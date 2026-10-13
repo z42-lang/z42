@@ -4,6 +4,7 @@
 namespace Z42NetIPAddressTryParseTests;
 
 using Std.Net.Sockets;
+using Std.Test;
 
 [Test]
 void test_tryparse_valid_ipv4() {

@@ -6,6 +6,7 @@
 namespace Z42CoreHashSetTests;
 
 using Std.Collections;
+using Std.Test;
 
 [Test]
 void test_add_dedup_and_count() {
