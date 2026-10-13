@@ -74,3 +74,8 @@ Console.WriteLine(Uri.DecodeComponent("hello%20world"));  // "hello world"
 ```bash
 xtask test stdlib z42.uri    # 本库全部 [Test]
 ```
+
+## 关联文档
+
+- 用法与规则（参考手册）：[z42.uri](../../../docs/reference/src/stdlib/uri.md)
+- 设计 / 机制（实现内幕）：[标准库三层架构](../../../docs/internals/src/stdlib/architecture.md) · [包划分与 interop 归属](../../../docs/internals/src/stdlib/organization.md)
