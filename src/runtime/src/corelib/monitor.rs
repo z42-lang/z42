@@ -33,8 +33,9 @@
 //! 2. **离开 park 之前必须先释放内部 `state` 锁。** park 的退出可能要等 STW 结束；若此时还攥着
 //!    `state`，另一个正在 `exit` 里抢 `state` 的线程（它既不在 safepoint 也没 park）就会让
 //!    GC 等它、它等我、我等 GC。闭包返回时 `state` 的 guard 已 drop，park 在闭包返回之后才结束。
-//! 3. 阻塞前先把 `Arc<Monitor>` 从句柄对象里克隆出来（[`monitor_arg`]）——阻塞期间 park 的线程
-//!    不得再碰堆（collector 可能正在处理这个对象），手里只留原生的 `Arc`。
+//! 3. 阻塞前先把 `Arc<Monitor>` 从句柄对象里克隆出来交给 park 闭包——阻塞期间 park 的线程
+//!    不得再碰堆（collector 可能正在处理这个对象），手里只留原生的 `Arc`。不阻塞的路径只借用
+//!    （[`monitor_ref`]），不克隆。
 //!
 //! 快路径（无争用）不 park：park 的进出要拿全局 phase 锁并 `notify_all`，不能每次加锁都付。
 //! `state` 只在 O(1) 临界区里被持有，短暂等它不需要 park。
@@ -213,10 +214,18 @@ impl Monitor {
 
 /// 从句柄对象里克隆出 `Arc<Monitor>`（D4 第 3 条：阻塞时只持有原生句柄）。`MonitorNative` 是公开
 /// 类，用户代码能传进任何值：null → `ArgumentNullException`，别的对象 → `ArgumentException`。
+#[cfg(test)]
 pub(crate) fn monitor_arg(h: &Value) -> Result<Arc<Monitor>, BuiltinError> {
+    monitor_ref(h).map(Arc::clone)
+}
+
+/// 句柄里的 `Arc<Monitor>`，借用而不克隆：不阻塞的路径（`exit` / `try_enter` / `enter` 的快路径）
+/// 用它，省掉一对跨线程争用同一缓存行的引用计数原子操作；要阻塞时 [`Monitor::begin_enter`] /
+/// [`Monitor::begin_wait`] 自己克隆一份交给 park 闭包（D4 第 3 条）。
+pub(crate) fn monitor_ref(h: &Value) -> Result<&Arc<Monitor>, BuiltinError> {
     match h {
         Value::Object(rc) => match rc.borrow().native() {
-            NativeData::Monitor(m) => Ok(Arc::clone(m)),
+            NativeData::Monitor(m) => Ok(m),
             _ => Err(BuiltinError::Argument("The object is not a monitor handle (MonitorNative.New). (Parameter 'monitor')".into())),
         },
         Value::Null => Err(BuiltinError::ArgumentNull("Value cannot be null. (Parameter 'monitor')".into())),
@@ -226,7 +235,7 @@ pub(crate) fn monitor_arg(h: &Value) -> Result<Arc<Monitor>, BuiltinError> {
 
 #[z42_macros::builtins]
 pub mod typed {
-    use super::{monitor_arg, monitor_handle_type_desc, Monitor};
+    use super::{monitor_handle_type_desc, monitor_ref, Monitor};
     use crate::corelib::abi::{Blocking, BuiltinError};
     use crate::metadata::types::NativeData;
     use crate::metadata::Value;
@@ -242,24 +251,24 @@ pub mod typed {
     /// 争用时 park 等（`Monitor::begin_enter`）；同线程重入 → `LockRecursionException`。
     #[builtin(name = "__monitor_enter")]
     pub fn monitor_enter(ctx: &VmContext, monitor: &Value) -> Result<Blocking<()>, BuiltinError> {
-        monitor_arg(monitor)?.begin_enter(ctx)
+        monitor_ref(monitor)?.begin_enter(ctx)
     }
 
     #[builtin(name = "__monitor_try_enter")]
     pub fn monitor_try_enter(monitor: &Value) -> Result<bool, BuiltinError> {
-        Ok(monitor_arg(monitor)?.try_enter())
+        Ok(monitor_ref(monitor)?.try_enter())
     }
 
     /// 非持有者 → `SynchronizationLockException`。
     #[builtin(name = "__monitor_exit")]
     pub fn monitor_exit(monitor: &Value) -> Result<(), BuiltinError> {
-        monitor_arg(monitor)?.exit()
+        monitor_ref(monitor)?.exit()
     }
 
     /// 非持有者 → `SynchronizationLockException`；其余整段 park。
     #[builtin(name = "__monitor_wait")]
     pub fn monitor_wait(monitor: &Value) -> Result<Blocking<()>, BuiltinError> {
-        monitor_arg(monitor)?.begin_wait()
+        monitor_ref(monitor)?.begin_wait()
     }
 }
 
