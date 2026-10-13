@@ -221,6 +221,13 @@ impl MagrGC for ArcMagrGC {
         ArcMagrGC::write_barrier_array_elem(self, arr, idx, new)
     }
 
+    /// `write_barrier_field` acts only in generational mode, for an owner at least
+    /// `promotion_age` old that is not yet remembered (`barrier.rs`).
+    #[cfg(feature = "jit")]
+    fn jit_barrier_bytes(&self) -> Option<(*const std::sync::atomic::AtomicU8, *const std::sync::atomic::AtomicU8)> {
+        Some((&self.mode, &self.promotion_age))
+    }
+
     #[cfg(test)]
     fn array_card_dirty_for_test(&self, chunk_idx: u32) -> bool {
         self.region_array.lock().is_card_dirty(chunk_idx)

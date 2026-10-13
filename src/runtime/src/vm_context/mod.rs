@@ -67,6 +67,7 @@ pub(crate) mod frame_stack;
 mod reg_pool;
 mod engine_guards;
 mod statics;
+pub(crate) mod static_table;
 mod lookup;
 pub(crate) mod isa_cache;
 // add-static-constructors：cctor 的按类型初始化状态机（含无锁 pending 门）。

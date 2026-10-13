@@ -175,10 +175,15 @@ fn static_barrier_caches_the_owner_answer_per_field_id() {
     let ctx = crate::vm_context::VmContext::new();
     // Some type with a pending static constructor keeps the global gate open.
     ctx.core.cctors.register("Other.C", "Other.C.$cctor");
-    assert!(ctx.ensure_static_owner_init("Demo.Holder.Count", Some(3)).is_ok());
-    let cache = ctx.static_owner_cache.lock();
-    assert!(matches!(cache.get(3), Some(Some(None))), "owner without a cctor is cached as exempt");
-    assert!(matches!(cache.get(2), Some(None)), "other ids stay unknown");
+    let other = ctx.resolve_static_field_id("Demo.Holder.Other");
+    let id = ctx.resolve_static_field_id("Demo.Holder.Count");
+    assert!(ctx.ensure_static_owner_init("Demo.Holder.Count", Some(id.0)).is_ok());
+    use crate::vm_context::static_table::StaticOwner;
+    let owner = |id| ctx.core.statics.cell(id).map(|c| c.owner());
+    assert!(matches!(owner(id), Some(StaticOwner::Exempt)), "owner without a cctor is cached as exempt");
+    assert!(matches!(owner(other), Some(StaticOwner::Unknown)), "other ids stay unknown");
+    ctx.core.statics.forget_owners();
+    assert!(matches!(owner(id), Some(StaticOwner::Unknown)), "a module reload forgets the answers");
 }
 
 /// 他线程在跑 cctor 时，`claim_with` 阻塞到 `finish`，被唤醒而不是轮询；每轮等待前都调了 `park`。

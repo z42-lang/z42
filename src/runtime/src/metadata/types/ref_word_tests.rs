@@ -122,6 +122,28 @@ fn null_is_the_zero_word() {
     assert!(matches!(unsafe { decode_for_trace(0) }, Value::Null));
 }
 
+/// The JIT encodes a register for a reference store as `payload | VALUE_TAG_TO_KIND[tag]` (a null's
+/// word is 0): exactly `encode`'s word for every encodable variant, and the slow path for the rest.
+#[test]
+fn the_jit_store_table_matches_encode() {
+    let heap = ArcMagrGC::new();
+    for (v, _) in one_of_each(&heap) {
+        let kind = VALUE_TAG_TO_KIND[discriminant(&v) as usize];
+        assert_ne!(kind, SLOW_PATH_KIND, "{v:?}");
+        assert_eq!(Some(payload(&v) | kind as u64), encode(&v), "{v:?}");
+    }
+    assert_eq!(VALUE_TAG_TO_KIND[discriminant(&Value::Null) as usize], 0);
+    let slow = [
+        Value::I64(1), Value::F64(1.0), Value::Bool(true), Value::Char('x'),
+        Value::FuncRef(crate::metadata::tokens::FnId(3)),
+        Value::StackObject { idx: 0, frame_id: 0 }, Value::StackArray { idx: 0, frame_id: 0 },
+        Value::StructRef { idx: 0, frame_id: 0 }, Value::Ref { idx: 0, frame_id: 0 },
+    ];
+    for v in slow {
+        assert_eq!(VALUE_TAG_TO_KIND[discriminant(&v) as usize], SLOW_PATH_KIND, "{v:?}");
+    }
+}
+
 /// The JIT decodes a word by looking its kind up in `KIND_TO_VALUE_TAG`; the table must name
 /// exactly the discriminant `decode` produces, for every kind including `null`.
 #[test]

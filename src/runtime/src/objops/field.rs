@@ -8,51 +8,71 @@
 //! - `BoxedStruct`：擦除返回位流出的值 struct 盒，按名读叶子（复用反射那一份）。
 //! - `Null` → `NullReferenceException`。
 
-use crate::metadata::resolver::{assert_field_ic_slot, field_ic_install, field_ic_lookup, FieldIC};
-use crate::metadata::types::{FieldWrite, ScriptObject, TypeDesc};
+use crate::metadata::resolver::{assert_field_ic_loc, field_ic_install, field_ic_lookup, FieldIC};
+use crate::metadata::types::{FieldAccess, FieldLoc, FieldWrite, ScriptObject};
 use crate::metadata::Value;
 use crate::vm_context::VmContext;
 
 use super::error::{OpError, OpResult};
 
-/// 解析字段槽位：IC 命中直接返回；未命中查 `field_index` 并安装。字段不存在 → `None`。
+/// 解析字段单元：IC 命中直接得到 (偏移, 种类)，不查名字、不走布局；未命中查 `field_index` + 布局，
+/// 并把结果装进 IC。字段不存在 → `None`；存在但布局里没有它的单元 → `Some(None)`（读 `Null`、写无效果）。
 #[inline(always)]
-fn slot_of(td: &TypeDesc, name: &str, ic: Option<&FieldIC>) -> Option<usize> {
-    let Some(ic) = ic else { return td.field_index.get(name).copied() };
-    let recv = td.id.0;
-    if let Some(slot) = field_ic_lookup(ic, recv) {
-        assert_field_ic_slot(td, name, slot);
-        return Some(slot as usize);
+fn resolve(o: &ScriptObject, name: &str, ic: Option<&FieldIC>) -> Option<Option<FieldAccess>> {
+    let td = &*o.type_desc;
+    if let Some(ic) = ic {
+        if let Some(loc) = field_ic_lookup(ic, td.id.0) {
+            if cfg!(debug_assertions) {
+                let expected = td.field_index.get(name).and_then(|&slot| {
+                    FieldLoc::of(&o.field_access_of(slot)?, slot)
+                });
+                assert_field_ic_loc(td, name, loc, expected);
+            }
+            return Some(o.access_at(loc));
+        }
     }
-    let slot = *td.field_index.get(name)?;
-    field_ic_install(ic, recv, slot as u32);
-    Some(slot)
+    resolve_miss(o, name, ic)
 }
 
-/// 按槽位读；字段不存在读出 `Null`（与历史行为一致）。
+/// IC 未命中（或站点没有 IC）：按名字解析，装 IC。单独成函数，命中路径保持紧凑。
+#[inline(never)]
+fn resolve_miss(o: &ScriptObject, name: &str, ic: Option<&FieldIC>) -> Option<Option<FieldAccess>> {
+    let td = &*o.type_desc;
+    let slot = *td.field_index.get(name)?;
+    let fa = o.field_access_of(slot);
+    if let (Some(ic), Some(fa)) = (ic, fa.as_ref()) {
+        if let Some(loc) = FieldLoc::of(fa, slot) {
+            field_ic_install(ic, td.id.0, loc);
+        }
+    }
+    Some(fa)
+}
+
+/// 读；字段不存在读出 `Null`（与历史行为一致）。
 #[inline(always)]
 fn load(o: &ScriptObject, name: &str, ic: Option<&FieldIC>) -> Value {
-    match slot_of(&o.type_desc, name, ic) {
-        Some(slot) => o.field_value(slot),
-        None => Value::Null,
+    match resolve(o, name, ic) {
+        Some(Some(fa)) => o.load_access(fa),
+        _ => Value::Null,
     }
 }
 
-/// 写入（不含写屏障）。返回 `Some((slot, 写了什么))`；调用方据此发屏障。
+/// 写入（不含写屏障）。返回 `Some((单元字节偏移, 写了什么))`；调用方据此发屏障。
 #[inline(always)]
 fn store(o: &ScriptObject, name: &str, v: &Value, ic: Option<&FieldIC>) -> OpResult<Option<(usize, FieldWrite)>> {
-    let Some(slot) = slot_of(&o.type_desc, name, ic) else { return Ok(None) };
-    match o.try_set_field_value(slot, v) {
-        Ok(w) => Ok(Some((slot, w))),
+    let Some(Some(fa)) = resolve(o, name, ic) else { return Ok(None) };
+    match o.store_access(fa, v) {
+        Ok(w) => Ok(Some((fa.offset as usize, w))),
         Err(_) => Err(OpError::field_store_rejected(name, v)),
     }
 }
 
 /// 引用单元写入后的屏障：只对落进单元的堆引用发（基元经擦除写进 `object` 字段时是装它的盒子）。
+/// `cell` 是被写单元的字节偏移（只给测试观察者看；分代屏障只看属主与新值）。
 #[inline(always)]
 fn barrier(ctx: &VmContext, owner: &Value, v: &Value, wrote: Option<(usize, FieldWrite)>) {
-    if let Some((slot, w)) = wrote {
-        w.with_barrier_value(v, |stored| ctx.heap().write_barrier_field(owner, slot, stored));
+    if let Some((cell, w)) = wrote {
+        w.with_barrier_value(v, |stored| ctx.heap().write_barrier_field(owner, cell, stored));
     }
 }
 
@@ -189,24 +209,9 @@ pub fn store_named(ctx: &VmContext, gc: &crate::gc::ObjRef, name: &str, v: &Valu
 ///
 /// 基元槽类型不符照 `try_set_field_value` 报错（错误留给调用方按自己的语义包装）。
 pub fn store_slot(ctx: &VmContext, gc: &crate::gc::ObjRef, slot: usize, v: &Value) -> anyhow::Result<()> {
-    let w = gc.borrow().try_set_field_value(slot, v)?;
-    barrier(ctx, &Value::Object(*gc), v, Some((slot, w)));
+    let o = gc.borrow();
+    let Some(fa) = o.field_access_of(slot) else { return Ok(()) };
+    let w = o.store_access(fa, v)?;
+    barrier(ctx, &Value::Object(*gc), v, Some((fa.offset as usize, w)));
     Ok(())
-}
-
-/// JIT 循环不变量提升：堆对象接收者的**内联基元**字段 → `(bytes 基址, 字节偏移, 宽度, tag)`。
-/// 其它一切（非对象 / null / 字段不存在 / 引用 / struct 根 / string）→ `None`，内联码回落到
-/// `field_get` / `field_set`，异常在真实访问点抛出。
-#[inline]
-pub fn inline_prim_slot(recv: &Value, name: &str) -> Option<(*const u8, u32, u32, u8)> {
-    let Value::Object(rc) = recv else { return None };
-    rc.borrow().inline_prim_field(name)
-}
-
-/// JIT 循环不变量提升：堆对象接收者的**引用字**字段（8 B 自描述字，`ref_word`）
-/// → `(bytes 基址, 字节偏移)`。其它 → `None`（回落 `field_get`）。
-#[inline]
-pub fn inline_ref_slot(recv: &Value, name: &str) -> Option<(*const u8, u32)> {
-    let Value::Object(rc) = recv else { return None };
-    rc.borrow().inline_ref_field(name)
 }

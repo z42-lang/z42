@@ -209,7 +209,7 @@ z42vm `__text` 构成（macOS arm64，共 4.97 MB），是拆 crate（阶段 2�
 ### 4.1 根因一：身份按名字（z42c 中约 25% 以上可直接消除）
 
 **现象**【确认 + 实测】：
-- **cctor 屏障**：属主判定已缓存在 `Function.owner_init`（调用屏障）和按字段槽号的 `static_owner_cache`（静态字段屏障），自由函数与无 cctor 的类型永久免检。剩下的是 JIT 仍经 helper 判定，没有在生成码里内联代际检查。
+- **cctor 屏障**：属主判定已缓存在 `Function.owner_init`（调用屏障）和静态字段单元旁的属主缓存（静态字段屏障），自由函数与无 cctor 的类型永久免检。剩下的是 JIT 仍经 helper 判定，没有在生成码里内联代际检查。
 - **惰性包函数没有整数身份**：VCallIC 载荷是入口模块 `functions` 下标，所以 Lazy 目标**永不进 PIC**。每次跨包虚调用都要重走：TypeDesc Arc clone、vtable 线性字符串比较、func_index miss、`try_lookup_function`（锁 + 哈希）；JIT 还要再查一次 `LazyTable`（全局 Mutex + SipHash）。z42c 的分派站点（Call 10252 / VCall 1245 / ObjNew 2116 / FieldGet 19539 / StaticGet 2070 / ConstStr 6231）**全部在惰性包里**。
 - **ObjNew** 每次都哈希类型名和 ctor 名（resolver 算好的 `type_tokens` 没用于派发，`exec_object.rs:13-18` 自己承认）。
 - **CallIndirect / FuncRef / 闭包**：每次 `name.to_string()` 分配 + 哈希；`LoadFn` 每次新分配一个 GC 字符串。（P1-2 PR 8 已改：创建时绑定 FnId，调用按 id。）
@@ -517,6 +517,18 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
   - 不改字节码 / 格式；行为上唯一的变化是 worker 线程跑原生码（不可翻译的入口在解释器上跑时，其调用的已编译函数也回跳原生码）。
 - 安全性逐项核对：待抛异常、safepoint 计数与慢路径、帧栈登记（`call_native` 压进本线程帧栈）、寄存器池、三个 arena、计数器分片、`isa_cache` / 查找缓存都是每线程的；静态字段（VmCore 锁）、cctor 门（Condvar + park）、调用点缓存（`Function.resolved` 里的原子单元，本就由多线程解释器共用）是共享且已同步的；槽位经 `OnceLock` release / acquire 发布，发布前 cranelift 已 mprotect + 刷 icache + `pipeline_flush_mt`；worker 的 JIT 帧经 `scan_frames_parked` 与主线程一样被扫描。
 - 实测（release z42vm，与合并基 fd500f4ac 交错，负载 9–28）：z42c 工作区构建 `--jobs 4` 10.72 → 8.63 s（−19%，7 轮中位），`--jobs 1` 13.29 → 12.99 s（持平），产物逐字节一致；`--jobs 4` 下 VM 实际编译 1144 → 2050 个函数（worker 也升层）。`06_thread_scaling`（每线程 5000 万次迭代）941 → 272 ms；01（fib 32）/ 05 / 10 单线程 0.97 / 0.96 / 0.99。
+
+**P1-4 字段访问**（🟡 已实现、待合并，分支 `perf/field-access-ic`）
+- 决定：
+  - FieldIC 载荷 = `TypeId:32 | FieldLoc`，`FieldLoc` = `offset:16 | width:8 | kind:8`（kind：基元精确 `TAG_*` / 引用字 / 型参单元 / struct 根）。命中只比 TypeId 就做一次单元访问，不查名字、不读布局；型参单元有两个坐标，载荷改存字段下标、命中时回布局取负载字偏移。偏移超过 16 位的字段不缓存。
+  - **不把 `field_access` 挪进 TypeDesc 热区**：命中路径已经不读布局（偏移和种类都在 IC 里），挪动只省未命中 / 型参单元 / GC 遍历时一次依赖 load，却要改 55 处 `TypeDesc` 字面量；留给 R8（统一头 + TypeDesc 由 arena 持有）一起做。
+  - JIT 原生单态 IC：守卫 = 寄存器 tag 是 `Object` → `hdr = payload & HANDLE_ADDR_MASK` → `load [hdr+16]`（`Arc<TypeDesc>`）→ `load32 TypeDesc::id` → 与站点 IC entry 0 的 `(TypeId, kind)` 一次比较（空 entry 的 kind 是 `0xFF`，`UNRESOLVED` 接收者也不会误中）；单元在 `hdr + 32 + offset`。只比 entry 0（多态的其余类型走 helper 的 4 槽扫描）。偏移、`Arc` 布局、块头年龄 / 记忆集位都由 `object_tests::jit_layout_matches_the_accessors` 对照 Rust 访问器钉住。
+  - JIT 引用写内联：寄存器经 `VALUE_TAG_TO_KIND` 编码（基元 / 栈句柄 / `FuncRef` → helper），SATB 标记中 → helper；分代模式下属主 `gen_age ≥ promotion_age` 且未在记忆集、值年轻（或是数组）→ helper；其余 release store（AArch64 `stlr`、x86-64 普通 store）。判定都在写之前，要屏障的写整条交给 helper，所以 old→young 边与解释器走同一个 `write_barrier_field`。两个判定字节经 `MagrGC::jit_barrier_bytes` 取址（编译期烘焙，堆与 JIT 同属 VmCore）。
+  - hoist 只给「接收者寄存器全函数不被写（catch 寄存器也算写）+ 访问在循环内」的 (接收者, 字段, 种类)：入口块内联求一次守卫，没有 helper 调用、不按名解析；删除 `jit_obj_field_slot` / `jit_obj_ref_field_slot`（z42c 剖面里 10.4%）。循环 = 回跳目标与源之间的块。
+  - 静态字段：VmCore 全局 `Mutex<Vec<Value>>` 换成 `StaticTable`（`SegVec` 里地址稳定的 16 B 型参单元 + 名字登记表），读写无锁，内存序同实例字段。**不用 seqlock**：每个静态字段的值都是一个 `Value`，型参单元协议本身保证不撕裂；值 struct 类型的静态字段由编译器装箱，单元里只有一个引用字。静态字段是 GC 根（每次回收扫一遍），写入不需要分代屏障，SATB 由单元协议记旧字。cctor 屏障的属主缓存（P0-5b）从每线程 `Mutex<Vec<..>>` 挪进单元旁（一次 acquire load），显式模块重载时清空；`ensure_module_inits` / `ensure_static_owner_init` 的稳态快路内联。
+  - 不改字节码 / 格式，用户可见行为不变（`field_ic_tests` 逐例对照解释器，含 NRE 文本）。
+- 实测（release z42vm，macOS arm64，与合并基 eb2b431a8 交错，7 次中位数，负载 3–14）：字段微基准（实例字段读写循环 + getter + 换接收者的链表遍历）jit 1117 → 748 ms（0.67×）、interp 0.97×；静态字段读写循环 jit 2211 → 1300 ms（0.59×）、interp 2503 → 2215 ms（0.88×）。bench（new / base）：jit 05 0.99、09 0.68、10 0.80、12 0.73；interp 05 0.98、09 0.95、10 0.97、12 0.94。z42c 工作区构建（5 次中位数）`--jobs 1` 11.51 → 9.94 s（0.86×）、`--jobs 4` 7.11 → 6.30 s（0.89×），产物逐字节一致；`sample` 剖面（`--jobs 1`）里字段 helper 包含时间 15.9% → 1.3%。
+- 后续：JIT 的 `StaticGet` / `StaticSet` 仍经 helper（剖面 2.1%）——要内联得先把类型初始化屏障的「已初始化」判定放进单元；型参字段与 `F32` 字段仍走 helper；原生 IC 只比 entry 0。
 
 **P1-7 GC**
 - 决定：

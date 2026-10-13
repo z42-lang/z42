@@ -12,7 +12,7 @@
 | `invoke.rs` | `call_native` / `call_entry`：唯一的原生调用序列（`push_frame` → 编译码 → `pop_frame` → 回收 `JitFrame`），返回 `NativeOutcome`。`run_fn`、调用类 helper 与 interp 的混合模式分流都经它 |
 | `forward.rs` | `[Native]` extern 包装函数短路的 JIT 一侧（识别与执行在 `interp/forward.rs`，两引擎共用）：`call_forward`（`jit_call` / `jit_vcall` 命中 `FnEntry::forward` 时直接从调用者寄存器派发 builtin）；另给翻译器提供 `ForwardLookup`（调用点目标转发到哪个 builtin）与 `StrIntrinsic` |
 | `frame.rs` | `JitFrame`（寄存器文件）、`FnEntry`（一个已编译函数） |
-| `translate/` | z42 指令 → Cranelift IR（`translate_function` 取单 `FuncId`）；`HelperIds` 重导出自 `helpers`。按职责拆为 21 个子模块：`mod.rs`（驱动：函数序言 + 逐块循环 + `TxCtx` 构造 + 按类别分发）、`ctx.rs`（`TxCtx` 每块上下文 + 6 个前置局部宏转成的方法 `ri`/`str_val`/`regs_val`/`check`/`dispatch_to_catch_or_return`/`emit_int_divrem`）、`hoist.rs`（循环不变量提升）、指令 handler `value`/`arith`/`compare`/`convert`/`call`/`array`/`object`/`structs`/`term`（各 `impl TxCtx { fn tr_* }`）、Cranelift 发射 `emit_int`/`emit_fc`、谓词 `predicates`、分析 `analysis`、寄存器变量 `reg_var`、站点缓存 `ic`、控制流 `control`、不支持指令表 `unsupported`、字符串原语内联 `str_intrinsics`（`s.Length` / `s[i]` / `CharAt` 对全 ASCII 串直接 load，慢路径即原 helper 序列；`compare` 对两个 `char` 原生比较）。语义锚：`emit_*` 以 `// SEMANTICS: semantics::<fn>` 引用 `crate::semantics` |
+| `translate/` | z42 指令 → Cranelift IR（`translate_function` 取单 `FuncId`）；`HelperIds` 重导出自 `helpers`。按职责拆为 22 个子模块：`mod.rs`（驱动：函数序言 + 逐块循环 + `TxCtx` 构造 + 按类别分发）、`ctx.rs`（`TxCtx` 每块上下文 + 6 个前置局部宏转成的方法 `ri`/`str_val`/`regs_val`/`check`/`dispatch_to_catch_or_return`/`emit_int_divrem`）、`hoist.rs`（循环不变量提升：数组数据指针；循环内、接收者不变的字段 IC 守卫）、`field_ic`（原生单态字段 IC：对站点 `FieldIC` entry 0 的内联守卫 + 单元读写，引用写内联屏障判定，未命中回落 helper）、指令 handler `value`/`arith`/`compare`/`convert`/`call`/`array`/`object`/`structs`/`term`（各 `impl TxCtx { fn tr_* }`）、Cranelift 发射 `emit_int`/`emit_fc`、谓词 `predicates`、分析 `analysis`、寄存器变量 `reg_var`、站点缓存 `ic`、控制流 `control`、不支持指令表 `unsupported`、字符串原语内联 `str_intrinsics`（`s.Length` / `s[i]` / `CharAt` 对全 ASCII 串直接 load，慢路径即原 helper 序列；`compare` 对两个 `char` 原生比较）。语义锚：`emit_*` 以 `// SEMANTICS: semantics::<fn>` 引用 `crate::semantics` |
 | `helpers/` | `extern "C"` helper 集合（按指令类别拆分；与 `interp/exec_*.rs` 命名对称）。查表统一经 `resolve_fn_*`（含惰性 hook） |
 
 ### `helpers/` 子目录
@@ -28,7 +28,7 @@
 | `object.rs` | 对象分配（类 / 构造器解析与站点缓存共用 `interp::obj_new_resolve`，ctor 按 `FnId` 走槽位）、类型检查、静态字段、`default(T)` |
 | `vcall.rs` | 虚调用的 JIT **调用侧**：PIC 命中（载荷 = `FnId`，惰性目标也在内）→ by-id tiered `FnEntry`，冷 → 按 id interp；miss → `interp::vcall_resolve::resolve_vcall`（与 interp 共用的**唯一**目标解析：装箱基元 / 装箱 struct / primitive-as-struct / vtable·层级 walk + PIC 安装）→ 编译入口或 interp 回退 |
 | `closure.rs` | L3 闭包：`load_fn` / `mk_clos` / `call_indirect` |
-| `object_field.rs` | 字段访问 helper（`objops::field` 的薄适配）：提升出循环的无抛出 field-slot 解析（`jit_obj_field_slot` / `jit_obj_ref_field_slot`）及其回退的 `jit_field_get` / `jit_field_set` |
+| `object_field.rs` | 字段访问 helper（`objops::field` 的薄适配）：原生字段 IC 未命中时的 `jit_field_get` / `jit_field_set`（解析并安装站点 IC） |
 | `struct_ops.rs` | struct 值类型指令（`struct_alloc`/`copy`/`field_get_prim`/`field_set_prim`）——桥接到共享 `struct_arena`，叶子读写走 `objops::struct_leaf`，分配 / 拷贝复用 interp `exec_struct` 的 `*_val` 核心 |
 
 ## 入口点

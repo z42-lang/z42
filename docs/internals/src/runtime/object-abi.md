@@ -252,9 +252,13 @@ ObjectHeader {
 - 名→字段下标由 `TypeDesc.field_index`（类级共享）。**继承：基类字段在前、子类追加**，子类区从 `align_up(base.size, 8)` 开始，
   基类部分的单元归属原样继承。
 - 访问 `obj.f` = 按字段下标查 `ObjectLayout.field_access[i]`（`{offset, width, tag, cell, aux}`，加载期算好），按单元读写
-  （`metadata/types/object_fields.rs`：`field_value` / `try_set_field_value`）。`Value` ↔ 单元的转换只在这里、`ref_word` 与 `tparam_cell`；
-  两个引擎经 [objops](interp-jit-semantics.md#对象操作objops) 调到它们。JIT 对基元字段的读写、对引用字的读直接按字节偏移生成原生
-  load/store（见 [jit.md](jit.md)）→ **字段偏移、宽度、引用字编码与 Value 大小是 ABI 一部分，须固化**。
+  （`metadata/types/object_fields.rs`：`load_access` / `store_access`）。站点的 `FieldIC` 把解析结果缓存成
+  `TypeId | FieldLoc`（`FieldLoc` = 单元字节偏移 16 位 + 基元宽度 + 种类：基元的精确 `TAG_*` / 引用字 / 型参单元（偏移位存字段下标）/
+  struct 根），命中只比较一次 `TypeId` 就做单元访问，不查名字、不读布局（只有型参单元回布局取第二个坐标）。`Value` ↔ 单元的转换只在这里、
+  `ref_word` 与 `tparam_cell`；两个引擎经 [objops](interp-jit-semantics.md#对象操作objops) 调到它们。JIT 生成码直接读站点 IC 的
+  entry 0，按对象头 → `TypeDesc::id` 守卫后按字节偏移原生读写基元与引用字，引用写内联屏障判定（见 [jit.md](jit.md)「字段访问：
+  原生单态字段 IC」）→ **对象块头 / 对象头 / 字段偏移、`TypeDesc::id` 的位置、引用字编码与 Value 大小是 ABI 一部分，须固化**
+  （`obj_jit_layout`，由 `object_tests::jit_layout_matches_the_accessors` 钉住）。
 - GC 只经 `ScriptObject::visit_refs`（每个非零引用字 + 型参单元标签字里的引用；装箱 struct 按 struct 布局，合成布局按型参单元）遍历一个对象的出边，标记、栈对象根扫描、保留图共用；
   清扫断边用 `clear_refs_for_sweep`。
 
@@ -363,9 +367,17 @@ ObjectHeader {
   `Std.Threading` 的 `Mutex<T>` / `RwLock<T>`，底座是对象自己的 `NativeData::Monitor`），所以去掉每对象锁不需要过渡机制。
   对任意对象加锁的语义由 R5 的 Monitor 侧表提供（首次加锁才膨胀，按对象地址索引，GC 停顿时清理）。
 
+**静态字段**用同一套单元：每个静态字段一个地址稳定的 16 B 型参单元（`vm_context/static_table.rs`，`VmCore.statics`，
+`SegVec` 分段只追加、id 即下标），读写不拿锁，内存序与实例字段相同。按名登记时不知道声明类型，型参单元什么 `Value` 都装得下：
+基元首写时认领种类、之后只改负载字；引用就是标签字；种类不符的写装箱。值 struct 类型的静态字段由编译器装箱存放，单元里只有一个
+引用字，所以不需要 seqlock。静态字段是 GC 根（每次回收扫一遍标签字），写入不需要分代屏障，SATB 由单元协议负责。单元旁边缓存
+类型初始化屏障的属主判定（免检 / 待查的 `TypeDesc`），命中一次 acquire load。
+
 后续：
 
 - JIT 的引用字内联读不覆盖型参字段（标记字按引用字查表会读成 `null`），型参字段读写仍走 helper；MIXED 数组的基元元素读也走 helper。
+- JIT 的 `StaticGet` / `StaticSet` 仍经 helper（单元访问本身无锁，但类型初始化屏障的判定还没内联进生成码）。
+- 原生字段 IC 只比 entry 0：同一站点见到多个接收者类型（继承字段经基类方法访问）时，其余类型走 helper 的 4 槽扫描。
 - 对象是变长区里的一块（R6），但仍有两个头：16 B 块头 + 16 B 对象头；R8 合成一个 16 B 头。小对象所在的半活 chunk 里的空洞
   目前只有锁路径的 free list 会复用，TLAB 只认领整块空 chunk（M12）。
 

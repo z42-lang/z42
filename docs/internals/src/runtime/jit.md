@@ -259,7 +259,7 @@ CharAt → (u64)i < len ? dst = Char(hdr.data[i]) : helper   // 负下标按无�
 330 → 95 ms、`s[i]` 327 → 94 ms；`str_builder`（100 万次 Append ×3 + 逐字符扫描）1012 → 547 ms，其中扫描段
 493 → 63 ms，拼接段 537 → 480 ms（`Append` 读 `value.Length`）；采样里字符串成员的派发从 34% 降到 4%。
 z42c 自举整工作区构建（`--jobs 1`）13.38 → 13.01 s，产物逐字节相同。剩下的成本在 `Append` 本身——脚本方法调用的
-帧、入口处的字段 hoist、`string[]` 的写屏障与扩容拷贝——以及 GC，不在字符串原语里。
+帧、`string[]` 的写屏障与扩容拷贝——以及 GC，不在字符串原语里。
 单测 `jit/translate/str_intrinsics_tests.rs` 逐例比对 interp / jit 并断言走了哪条路径；
 golden `src/tests/strings/str_intrinsics_jit` 覆盖真实编译器与标准库下的同一组成员。
 
@@ -415,7 +415,7 @@ flowchart TD
   循环够热就升级」；per-function 累加会误触发「多次调用、每次循环几下」的函数（那是 call-count 的活）。
   复用已有的 `target <= block_idx` 回边检测点（原本给 GC safepoint 用），前向跳转零开销。
 - **OSR 编译**（`translate_function(osr_entry: Some(K))`）：新建一个专用入口 cranelift block，跑
-  正常 prologue（safepoint + `regs_base` + 数组指针 hoist——都是需支配全函数的 SSA 值），然后
+  正常 prologue（safepoint + `regs_base` + 数组指针 / 字段守卫 hoist——都是需支配全函数的 SSA 值），然后
   `jump cl_blocks[K]`。block `0..K` 变不可达，`seal_all_blocks` 时被 DCE。**非 OSR 路径（`None`）
   字节不变**——专用入口块只在 `Some` 时创建。
 - **跳过 prologue 的正确性**：带 `ref` 形参的帧（`Frame.ref_writebacks` 非空）**不 OSR**——解释器在
@@ -445,99 +445,78 @@ flowchart TD
 
 三者合起来：分层真正按「热度 = 实际执行工作量」决策，不多编一个、不漏编一个。
 
-## 字段访问快路径：对象原语字段原生字节内联
+## 字段访问：原生单态字段 IC
 
-> `jit/translate.rs`（`field_prim_kind` / FieldGet·FieldSet emit / hoist）+
-> `jit/helpers/object.rs`（`jit_obj_field_slot`）+ `metadata/types.rs`（`ScriptObject::inline_prim_field`）。
-> 前置：对象字节布局统一（`object-abi.md`，字段按 `FieldAccess{offset,width,tag,ref_slot}` 打包进
-> `ScriptObject::bytes`）。
+> `jit/translate/field_ic.rs`（守卫、读写、引用写的屏障判定）+ `jit/translate/hoist.rs`（循环内的守卫 hoist）+
+> `metadata/resolver/ic.rs`（`FieldIC` 载荷）+ `metadata/types/object.rs`（`obj_jit_layout`）+
+> `metadata/types/ref_word.rs`（种类表）。慢路径：`jit/helpers/object_field.rs`（`jit_field_get` / `jit_field_set`，
+> 经 [objops](interp-jit-semantics.md#对象操作objops) 与解释器同一份语义）。
 
 ### 为什么
 
-统一对象布局把 JIT 寄存器文件压到 16B tagged `Value`，但**字段读写仍 100% 走运行时 helper**
-（`jit_field_get`/`jit_field_set`）：每次访问 = 一次 native→Rust 调用 + `RefCell` borrow +
-`FieldIC` 查表 + `field_value`/`set_field_value` 里的 tag 分派。字段密集热循环里这层桥是主开销——
-实测「非可提升的原语字段读+写热循环」JIT 仅 **1.09×** interp（几乎白 JIT）。
+字段读写若每次走 helper，就是一次 native→Rust 调用 + 名字 / IC 解析 + 单元分派；字段密集的代码（z42c 的语义分析、
+对象图遍历）里这层桥是 JIT 的主开销。站点的 `FieldIC` 本来就缓存了「这个类型的这个字段在哪」，生成码直接读它即可。
 
-### 机制：编译期定形 + 运行期只 hoist 基址
+### IC 载荷
 
-关键切分——**宽度/符号性/寄存器 tag 全在编译期定死**（避免运行时按 width 分支），
-**只有对象的 `bytes` 基址 + 字段字节 offset 运行期解析一次**：
+`FieldIC` 每个 entry 是一个 `AtomicU64`：高 32 位接收者的 `TypeId`，低 32 位 `FieldLoc` = `offset:16 | width:8 | kind:8`。
+`kind` 是基元的精确 `TAG_*`（宽度随之确定）、`KIND_REF`（8 B 引用字）、`KIND_TPARAM`（型参单元，`offset` 存字段下标——
+它有两个坐标）或 `KIND_STRUCT`（内联 struct 根）；空 entry 的 kind 字节是 `KIND_NONE`（0xFF）。一次安装、一次读取，
+(TypeId, 载荷) 永远成对。解释器与 helper 共用同一组 entry：命中直接得到单元，不查名字、不走布局；未命中按名字解析、
+装 IC（`objops::field::resolve`）。偏移超过 16 位的字段不缓存，照旧按名字。
 
-1. **编译期分类器** `field_prim_kind(func, reg)`：读该寄存器的静态 `IrType`（带完整符号性
-   I8..U64/F64），映射出 `{load_ty, ext(Sext/Uext/Keep/Float), reg_tag, width, field_tag}`。
-   仅 `I8..U64 + F64` 内联；`F32/Bool/Char/Str/Ref` → `None` 回落 helper。
-   - `reg_tag` 是 **`Value` 判别 tag**（int 全存 `Value::I64`=0，float=`Value::F64`=1），**≠**
-     字段的 `TAG_*` wire tag——两套 tag 别混。
-2. **入口块 hoist**（每个从不被重赋值的对象寄存器 + 固定字段名，如 `this.f`，一次）：调
-   非抛异常的 `jit_obj_field_slot`，它经 `ScriptObject::inline_prim_field` 解析：字段是**纯内联标量**
-   （`FieldAccess::cell() == Prim`）且运行时 `(width,tag)` 与编译期期望一致
-   → 写回 `(bytes.as_ptr(), offset)`；否则写 `off=-1`。非移动 GC + `bytes` 定分配 + 对象被持活
-   ⇒ 该指针整帧有效。
-3. **每访问 inline**：`brif off<0` → helper 兜底；否则 native——
-   - FieldGet：`load(load_ty)` at `bytes_ptr+off` → `sextend`/`uextend`/直存（镜像 `decode_prim`）→ 写
-     寄存器 `tag`+`payload`。
-   - FieldSet：`ireduce` 到 `width` 存 `bytes_ptr+off`（镜像 `encode_prim` 的 `as uN` 截断）；
-     **无 tag、无 write barrier**（原语非堆引用）。
+### 内联序列（每个访问）
 
-### 边界（必留 helper，回落即等价改前）
+编译期按站点寄存器的静态类型定出期望的单元种类（`InlineCell::of_reg`）：`dst`（读）/ `val`（写）是 `I8..U64` /
+`F64` / `Bool` / `Char` → 该基元的 `TAG_*`；是 `Ref` / `Str` → `KIND_REF`；其余（`F32`、擦除的 `T`、`Unknown`）只走 helper。
 
-`off=-1` 回落 `jit_field_get`/`jit_field_set` 的情形，与无快路径时逐字等价：
-**非 `Value::Object` receiver**（含逃逸分析的 `StackObject`）、引用字段（写要 barrier）、
-byte-inline 的 object/array 引用、内联 struct 叶、`object`/`interface` 多态擦除字段、
-`Str.Length`/`Array.Length` 内建伪字段、null-throw。故快路径只覆盖 **具体对象的原语字段**。
+```text
+  tag(regs[obj]) == Object ?                          ─ 否 → helper（null、string、栈对象……）
+  hdr  = payload & HANDLE_ADDR_MASK                     对象块头
+  tid  = load32 [load64 [hdr + 16] + type_id_offset]    对象头的 Arc<TypeDesc> → TypeDesc::id
+  e    = load64 [ic]                                    站点 FieldIC 的 entry 0
+  (e & GUARD_MASK) == tid << 32 | kind ?              ─ 否 → helper（别的类型 / 种类、空 entry）
+  cell = hdr + 32 + (e >> 16 & 0xFFFF)                  字段单元
+```
+
+- **读**：基元按宽度普通 load（x86-64 / AArch64 上即 relaxed 原子）后按符号性扩展进寄存器；引用字 `atomic_load`（acquire），
+  `KIND_TO_VALUE_TAG[raw & 7]` 打 tag，种类 7（装箱值）回落 helper。
+- **基元写**：截断到字段宽度普通 store，无屏障。
+- **引用写**：`VALUE_TAG_TO_KIND[tag]` 编码寄存器（`null` 的字是 0；基元、栈句柄、`FuncRef` → helper），然后：
+  SATB 标记进行中（`satb::marking_heaps_addr` 的计数非 0）→ helper，被覆盖的旧字要记；否则若堆是分代模式、属主的
+  `gen_age ≥ promotion_age` 且未在记忆集里、值是堆引用且年轻（或是数组——年龄在另一种头里）→ helper，由它写入并把
+  属主加入记忆集；其余情况内联 release store（AArch64 `stlr`，x86-64 普通 store）。判定全部发生在写之前，所以要屏障的写
+  整条走 helper，与解释器同一路径。两个判定字节的地址来自 `MagrGC::jit_barrier_bytes`（GC 模式、晋升年龄，随堆存活）。
+
+entry 0 是站点第一次见到的类型；多态站点的其它类型走 helper，helper 扫完 4 个 entry 仍不按名字查。站点没有 IC
+（函数没有解析表）时整条走 helper。只支持 64 位目标（`obj_jit_layout` 按 64 位句柄写）。
+
+### hoist：只给循环内、接收者不变的访问
+
+接收者寄存器在整个函数里没有任何指令写它（异常处理的 catch 寄存器也算写），且访问位于循环内（某条回跳的目标与源之间的块，
+`loop_blocks`）时，入口块对每个 (接收者, 字段, 种类) 把上面的守卫内联求一次，得到 `(hdr, off)`——entry 0 当时还对不上就是
+`off = -1`。之后每个访问 `off ≥ 0` 直接进单元访问，否则走自己的守卫。hoist 不调任何 helper，所以 IC 还冷的第一次激活只多
+几次 load；不在循环里的访问（getter）不 hoist。指针在整个激活期有效：接收者被帧寄存器持活，对象块不移动。
 
 ### 正确性靠的不变式
 
-`width`/符号性取自 `reg_types[dst/val]`（FieldGet dst / FieldSet val 的静态类型），而 z42
-**无隐式窄化** ⇒ 该静态类型恒等于字段声明类型 ⇒ 等于 packed 字段宽度；`jit_obj_field_slot` 再用编译期
-`(width,tag)` 运行时校验兜底，对不上就回落。对齐：`bytes` 字段自然对齐（布局 `_alignUp` + 分配器
-≥16B），三目标 ISA（x86-64/aarch64/wasm32）标量访问不 trap，故 `MemFlags::trusted()` 成立。
+- 句柄位逐位等于寄存器 payload；对象块头 + 对象头 + 字段的偏移、`TypeDesc::id` 经 `Arc` 的偏移、块头里年龄 / 记忆集位的位置
+  都由 `object_tests::jit_layout_matches_the_accessors` 对照 Rust 访问器钉住；两张种类表由 `ref_word_tests` 钉住。
+- 一个 `TypeId` 只对应一种布局（继承 fixup 出的描述符同 id 同布局；`assert_field_ic_loc` 在 debug 构建的每次 IC 命中复核）。
+- load / store 与守卫之间没有 safepoint。
+- 解释器与 JIT 的值、异常文本逐条一致（`field_ic_tests` 对照解释器；屏障测试证明内联写入的老→新边在下一次 minor 后仍在，
+  并以不发屏障的同一条边会丢作反证）。
 
 ### 效果佐证
 
-字段密集热循环 JIT **5.42s→2.59s（JIT 自身 2.09×）**、jit-vs-interp **1.09×→2.26×**（σ 极小）。
-正确性：全类型测（sbyte/short/int/long/byte/ushort/uint/double 含 wraparound 验 sext/uext/float）
-interp==jit；且 **z42c 自举 5/5 gen1==gen2 逐字节**（z42c 海量字段访问跑在原生路径上仍字节复现）是
-最强回归保证。
-
-## 字段访问快路径：对象引用字段 GET 原生内联
-
-> `jit/translate/hoist.rs`（`hoisted_ref_fields`）+ `jit/translate/object.rs`（FieldGet emit）+
-> `jit/helpers/object_field.rs`（`jit_obj_ref_field_slot`）+ `metadata/types/object_fields.rs`
-> （`ScriptObject::inline_ref_field`）+ `metadata/types/ref_word.rs`（种类表）。
-> 原语字段内联的**引用侧对偶**：上节内联原语字段读写，本节内联**引用字段的 GET**。
-
-### 为什么
-
-引用字段（`string` / 类 / 数组 / 接口 / `object` / 委托）的 FieldGet 若走 `jit_field_get` helper，
-就是一层 native→Rust 调用 + 对象锁 + `FieldIC` 桥；引用字段密集的热循环（对象图遍历、反复读子对象 /
-名字串）因此 JIT≈interp。引用在对象里是 8 B 自描述字（[object-abi.md](object-abi.md)「字段存储布局」），
-寄存器里的 `Value` 是 `{tag, 8 B 句柄}`，两者只差「种类 → tag」一次查表。
-
-### 机制：acquire-load 8 B 字 + 查表
-
-1. **入口块 hoist**（从不被重赋值的对象寄存器 + 固定字段名，一次）：调非抛异常
-   `jit_obj_ref_field_slot`，经 `ScriptObject::inline_ref_field` 解析——字段是引用字单元 →
-   写回 `(bytes.as_ptr(), offset)`；否则写 `off=-1`。
-2. **每访问 inline**：`brif off<0` → `jit_field_get` 兜底；否则 native——
-   `raw = atomic_load i64` at `bytes_ptr+off`（acquire；AArch64 上是 `ldar`）；
-   `tag = KIND_TO_VALUE_TAG[raw & 7]`；`tag == 0xFF`（种类 7，装箱的基元）→ 同一个兜底块；
-   否则 `store_tagged(tag, raw & !7)`。`null` 字是 0 ⇒ 种类 0 ⇒ `Null`、负载 0，不需要单独分支。
-   **只读、无 write barrier**。
-
-> 编译期 gate = `reg_types[dst]` 是 `IrType::Ref` 或 `IrType::Str`。寄存器旧值无需 drop（`Value` 是 `Copy`）。
-
-### 边界（必留 helper，回落即等价改前）
-
-`off=-1` 回落 `jit_field_get`：**非 `Value::Object` receiver**（含 OSR 下的 `StackObject`）、
-型参字段（`T F;` 的 16 B 型参单元：标签字可能是基元标记，按引用字查表会读成 `null`；合成布局的引用字段也是型参单元）、struct 根、字段未找到/null-throw、`Str.Length`/`Array.Length`；种类 7 回落同一 helper。
-**无 FieldSet 对偶**——引用 store 要 GC write barrier（与装箱逃生口），故引用 SET 仍走 helper。原语 XOR 引用，故
-本 hoist 与原语字段的 `hoisted_fields` 永不重叠。
+release z42vm、macOS arm64，与合并基交错 7 次中位数：字段密集微基准（实例字段读写循环、getter 调用、换接收者的链表遍历）
+JIT 1117 → 748 ms（0.67×），静态字段读写循环 JIT 2211 → 1300 ms（0.59×）；bench 09 0.68×、10 0.80×、12 0.73×、05 持平。
+z42c 工作区构建（5 次中位数）`--jobs 1` 11.51 → 9.94 s（0.86×）、`--jobs 4` 7.11 → 6.30 s（0.89×），产物逐字节一致；
+剖面里字段 helper（含按名解析的旧入口 hoist）的包含时间 15.9% → 1.3%。
 
 ### 数组元素的引用读（REF / MIXED 数组）
 
-同一套「acquire-load + 查表」用于 `ArrayGet`：`dst` 是整 `Value` 寄存器（`IrType::Ref` / `Str` / `Unknown`，即擦除的 `T`）
+字段引用读的同一套「acquire-load + 查表」也用于 `ArrayGet`：`dst` 是整 `Value` 寄存器（`IrType::Ref` / `Str` / `Unknown`，即擦除的 `T`）
 且数组寄存器从不被重赋值时，入口块调一次 `jit_array_ref_data_opt` 给出 `(基址, 长度, 步长)`（`hoisted_ref_arrays`）——
 REF 数组步长 8（每元素一个引用字）、MIXED 数组步长 16（型参单元，标签字在前）、其它数组（含按基元实参零值分配的
 MIXED 数组）步长 0。不 hoist 的访问（`List<T>` 里每次重新取的 `this.items`）直接走 `jit_array_get`：每次访问再调一次
@@ -545,18 +524,6 @@ MIXED 数组）步长 0。不 hoist 的访问（`List<T>` 里每次重新取的 
 `raw = atomic_load(基址 + i·步长)`，按 `KIND_TO_VALUE_TAG[raw & 7]` 打 tag；种类 7 盒子与 MIXED 的基元标记字
 （低 3 位 0、整字非 0：`PRIM(k)` / `NULL(k)`）回落同一 helper。数组元素写一律走 `jit_array_set`（要写屏障），
 PRIM 数组的读写内联（`packed_data`）不变。
-
-### 正确性靠的不变式
-
-句柄的原始位（`GcRef::to_tagged_bits` / `VarGcRef::to_bits`）在硬件上**逐位等于**寄存器里对应 `Value` 的 payload
-（provenance exposure 是运行期 no-op），低 3 位恒为 0；`KIND_TO_VALUE_TAG` 与 `ref_word::decode` 给出的判别值逐项一致
-（`ref_word_tests::the_jit_kind_table_matches_decode` 钉住）。故「原生 load + 查表 + 打 tag」= helper 路径
-`ref_word::decode` 逐字节同结果。load 与 store 之间无 safepoint → 期间无 GC 回收（且非移动 GC + 对象持活 ⇒ 指针整帧有效）。
-
-### 效果佐证
-
-引用字段读+写热循环 JIT **1.48s→0.90s（JIT 自身 1.64×）**、jit-vs-interp **1.05×→1.71×**。
-正确性：object/array/null/循环内改写 混合场景 interp==jit==jit-OSR 逐字节；且 **z42c 自举 gen1==gen2 逐字节**是最强回归保证。
 
 ## 寄存器访问汇点：`reg_access`
 
@@ -580,7 +547,7 @@ Value 布局知识就散落十几处（漂移风险），且**任何"把热标�
    `store_const_tag(tag_u8,payload)` / `store_tag_const(tag_u8)` / `store_payload`（写）。所有
    emitter（含字段臂、packed 数组臂、BrCond bool 读）一律经此，**无一处再直接算 `regs_base+off`
    或直发 `load/store`**（唯二例外：prologue 建立 `regs_base` 本身、以及数组/字段的 **数据指针**
-   `bytes_ptr+off`/`data_ptr+idx*width`——那些不是寄存器槽访问）。
+   `hdr+32+off`/`data_ptr+idx*width`——那些不是寄存器槽访问）。
 
 净效果：Value 布局单一真相。
 

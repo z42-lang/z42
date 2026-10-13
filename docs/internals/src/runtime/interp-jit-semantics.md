@@ -148,11 +148,10 @@ JIT helpers/* (extern C) ┘                       └ Err(OpError) → 引擎�
 退化为字符串异常（helper 没有别的出口）。stdlib 异常类没加载时（裸模块的 Rust 单测）两侧都得到同一条
 `<类名>: <消息>` 文本。
 
-**快路不自带语义**。JIT 的循环不变量提升（`jit_obj_field_slot` / `jit_obj_ref_field_slot` /
-`jit_array_data_opt`）只向 objops 要「存储地址」（`field::inline_prim_slot` / `inline_ref_slot`、
-`array::packed_data`），**从不抛**：拿不到快路（null、非打包数组、栈数组、引用字段……）就回落到慢路 helper，
-异常在真实访问点由 objops 给出。逐访问取打包数组数据也用同一个不抛的 helper。interp 的 FieldIC 命中路径
-同样在 objops 里（`field::slot_of`），两引擎共用同一个站点 IC。
+**快路不自带语义**。JIT 的原生字段 IC 只读站点 `FieldIC` 已缓存的单元位置（守卫不过——null、非对象、别的类型或
+单元种类——就调慢路 helper），数组的循环不变量提升（`jit_array_data_opt`）只向 objops 要「存储地址」
+（`array::packed_data`），**都从不抛**：拿不到快路就回落到慢路 helper，异常在真实访问点由 objops 给出。逐访问取
+打包数组数据也用同一个不抛的 helper。FieldIC 的解析与安装在 objops 里（`field::resolve`），两引擎共用同一个站点 IC。
 
 > **改存储表示只改 objops**。对象模型改造（`docs/runtime-audit.md` §7「对象模型（M10 + M11）已定方案」，
 > R1–R9：原子单元格、8 B 自描述引用、数组模式、去掉每对象 Mutex……）以本层为前提：引擎里不得再出现

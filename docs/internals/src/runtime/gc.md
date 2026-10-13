@@ -22,7 +22,7 @@ Ruby / RustPython 的事实标准 GC 抽象）。trait 在单文件内按"能力
 | 10. Profiler | `set_alloc_sampler` / `take_snapshot` / `iterate_live_objects` | 分配采样 + 堆快照 + 存活遍历 |
 | 11. Stats | `stats` | HeapStats 快照（8 字段）|
 
-`VmContext` 持有 `Box<dyn MagrGC>`（与 `static_fields` / `lazy_loader` 同 ownership
+`VmContext` 持有 `Box<dyn MagrGC>`（与 `statics` / `lazy_loader` 同 ownership
 模型）；所有脚本驱动分配走 `ctx.heap().alloc_*(...)`；JIT helper 通过
 `vm_ctx_ref(ctx).heap().alloc_*(...)` 调用同一接口；嵌入 host 通过同一
 `heap()` 入口访问 root / observer / profiler 等所有能力。

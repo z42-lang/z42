@@ -164,6 +164,91 @@ impl FieldAccess {
     pub fn cell(&self) -> FieldCell {
         self.cell
     }
+
+    /// The access of a resolved [`FieldLoc`] — the inverse of [`FieldLoc::of`]. A type-parameter
+    /// cell's second coordinate is not in the locator (it carries the field slot instead), so it is
+    /// read from `slot_access` (`ScriptObject`'s layout lookup).
+    #[inline(always)]
+    pub fn of_loc(loc: FieldLoc, slot_access: impl FnOnce(usize) -> Option<FieldAccess>) -> Option<FieldAccess> {
+        let off = loc.offset as u32;
+        match loc.kind {
+            FieldLoc::KIND_REF => Some(FieldAccess::ref_word(off, TAG_OBJECT)),
+            FieldLoc::KIND_TPARAM => slot_access(loc.offset as usize),
+            FieldLoc::KIND_STRUCT => Some(FieldAccess::struct_root(off, 0)),
+            tag => Some(FieldAccess::prim(off, loc.width as u32, tag)),
+        }
+    }
+}
+
+/// A direct field's cell, resolved to what a field access needs: the cell's byte offset in the
+/// field area and its kind — what a `FieldIC` entry caches next to the receiver's `TypeId`
+/// (`metadata::resolver::ic`). A cache hit is one compare and one cell access: no name lookup, no
+/// layout walk.
+///
+/// `kind` is the primitive's exact `ty::TAG_*` (`TAG_BOOL ..= TAG_CHAR`, its byte width in `width`) or
+/// one of the `KIND_*` codes (`width` 8). A type-parameter cell has two coordinates (tag word, payload word), so its
+/// locator carries the **field slot** in `offset` and the access is looked up from the layout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FieldLoc {
+    pub offset: u16,
+    pub width: u8,
+    pub kind: u8,
+}
+
+impl FieldLoc {
+    /// An 8 B reference word at `offset`.
+    pub const KIND_REF: u8 = 0x40;
+    /// A type-parameter cell; `offset` is the field slot.
+    pub const KIND_TPARAM: u8 = 0x41;
+    /// An inline value-struct root (`FieldGet` reads `null`, `FieldSet` ignores it).
+    pub const KIND_STRUCT: u8 = 0x42;
+    /// The kind byte of an empty IC entry (`UNRESOLVED` payload) — never a real kind.
+    pub const KIND_NONE: u8 = 0xFF;
+    /// Bit position of `offset` in the packed form (`kind` is the low byte, `width` the next).
+    pub const OFFSET_SHIFT: u32 = 16;
+
+    /// The locator of field `slot` whose access is `fa`; `None` when its coordinate does not fit
+    /// 16 bits (a field area past 64 KiB — such a site just stays uncached).
+    #[inline]
+    pub fn of(fa: &FieldAccess, slot: usize) -> Option<FieldLoc> {
+        let (coord, kind) = match fa.cell {
+            FieldCell::Prim => (fa.offset as usize, fa.tag),
+            FieldCell::Ref => (fa.offset as usize, Self::KIND_REF),
+            FieldCell::TypeParam => (slot, Self::KIND_TPARAM),
+            FieldCell::Struct => (0, Self::KIND_STRUCT),
+        };
+        let width = match fa.cell {
+            // A layout whose width disagrees with its tag stays on the layout path.
+            FieldCell::Prim if prim_cell_width(fa.tag) != Some(fa.width) => return None,
+            FieldCell::Prim => fa.width as u8,
+            _ => 8,
+        };
+        Some(FieldLoc { offset: u16::try_from(coord).ok()?, width, kind })
+    }
+
+    /// Packed into the 32-bit IC payload: `offset << 16 | width << 8 | kind`.
+    #[inline(always)]
+    pub const fn to_bits(self) -> u32 {
+        ((self.offset as u32) << Self::OFFSET_SHIFT) | ((self.width as u32) << 8) | self.kind as u32
+    }
+
+    #[inline(always)]
+    pub const fn from_bits(bits: u32) -> FieldLoc {
+        FieldLoc { offset: (bits >> Self::OFFSET_SHIFT) as u16, width: (bits >> 8) as u8, kind: bits as u8 }
+    }
+}
+
+/// Byte width of a primitive cell of exact tag `tag`; `None` for a non-primitive tag. The
+/// infallible twin of `codec::prim_width` for the field-access hot path.
+#[inline(always)]
+pub const fn prim_cell_width(tag: u8) -> Option<u32> {
+    Some(match tag {
+        TAG_BOOL | TAG_I8 | TAG_U8 => 1,
+        TAG_I16 | TAG_U16 => 2,
+        TAG_I32 | TAG_U32 | TAG_F32 | TAG_CHAR => 4,
+        TAG_I64 | TAG_U64 | TAG_F64 => 8,
+        _ => return None,
+    })
 }
 
 /// unify-object-byte-layout (PR-2): map a field's declared `type_tag` string to its

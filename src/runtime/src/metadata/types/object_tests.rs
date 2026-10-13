@@ -99,3 +99,30 @@ fn the_dst_fields_start_right_after_the_sized_header_prefix() {
     let odd = OwnedObject::new(td("Odd"), 4);
     assert!(std::mem::size_of_val(&*odd) <= OBJ_HEADER_BYTES + 8, "rounded up to 8 only");
 }
+
+/// What compiled field access reads off a handle (`obj_jit_layout`): the TypeId through the
+/// header's `Arc<TypeDesc>`, the field cells, and the age / remembered bits of the block header.
+#[cfg(all(feature = "jit", target_pointer_width = "64"))]
+#[test]
+fn jit_layout_matches_the_accessors() {
+    use super::obj_jit_layout as ol;
+    let mut d = (*td("Demo.Pin")).clone();
+    d.id = crate::metadata::tokens::TypeId(0x5151_0001);
+    let r = crate::gc::ObjRef::leak(OwnedObject::new(Arc::new(d), 16));
+    let hdr = (r.to_tagged_bits() & ol::HANDLE_ADDR_MASK) as *const u8;
+    unsafe {
+        let td_word = std::ptr::read(hdr.add(ol::TYPE_DESC_OFFSET as usize) as *const usize);
+        let tid = std::ptr::read((td_word as *const u8).add(ol::type_id_offset() as usize) as *const u32);
+        assert_eq!(tid, r.type_desc().id.0);
+        assert_eq!(hdr.add(ol::FIELDS_OFFSET as usize), r.borrow().cells().base_ptr());
+        let tt = || *hdr.add(ol::TYPE_TAG_OFFSET as usize) as i64;
+        for age in 1..=crate::gc::var_region::MAX_GEN_AGE {
+            r.var_ref().raise_gen_age_to(age);
+            assert_eq!((tt() >> ol::AGE_SHIFT) & ol::AGE_MASK, crate::gc::ObjRef::gen_age(&r) as i64);
+        }
+        assert_eq!(tt() & ol::REMEMBERED_BIT, 0);
+        assert!(r.var_ref().try_set_remembered());
+        assert_ne!(tt() & ol::REMEMBERED_BIT, 0);
+        assert_eq!((tt() >> ol::AGE_SHIFT) & ol::AGE_MASK, crate::gc::var_region::MAX_GEN_AGE as i64);
+    }
+}

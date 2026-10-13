@@ -537,35 +537,34 @@ impl crate::vm_context::VmContext {
     /// 热路径代价 = 一次 relaxed load：`any_cctor_pending()` 在「程序里没有静态构造器」
     /// 和「所有静态构造器都已跑完」两种情况下都为假，也就是绝大多数时间。
     ///
-    /// `field_id`（已解析的静态字段槽号）可用时，属主判定按槽号缓存在本线程的
-    /// `static_owner_cache` 里：第一次照旧按名推属主（可能加载属主所在的包——跨包读静态
-    /// 字段时它确实可能还没加载），之后命中缓存；无 cctor 的属主记为免检，已初始化的类型
-    /// 在锁内判定后直接返回。
+    /// `field_id`（已解析的静态字段槽号）可用时，属主判定缓存在该字段的静态单元里
+    /// （`static_table::StaticCell::owner`，整个 VM 共享、读无锁）：第一次照旧按名推属主（可能加载
+    /// 属主所在的包——跨包读静态字段时它确实可能还没加载），之后一次 acquire load 命中；无 cctor 的
+    /// 属主记为免检，有 cctor 的交给 `ensure_type_init`（已初始化的类型在那里两次 relaxed load 返回）。
+    #[inline]
     pub fn ensure_static_owner_init(&self, field: &str, field_id: Option<u32>) -> Result<(), String> {
+        use super::static_table::StaticOwner;
+        use crate::metadata::tokens::StaticFieldId;
         if !self.core.cctors.any_pending() { return Ok(()); }
-        if let Some(id) = field_id {
-            let gen = self.core.cctors.generation();
-            let cached = {
-                let cache = self.static_owner_cache.lock();
-                match cache.get(id as usize) {
-                    Some(Some(None)) => return Ok(()),
-                    Some(Some(Some(td))) if td.init_done_in(gen) => return Ok(()),
-                    Some(Some(Some(td))) => Some(Arc::clone(td)),
-                    _ => None,
-                }
-            };
-            if let Some(td) = cached {
-                return self.ensure_type_init(&td);
+        if let Some(cell) = field_id.and_then(|id| self.core.statics.cell(StaticFieldId(id))) {
+            match cell.owner() {
+                StaticOwner::Exempt => return Ok(()),
+                StaticOwner::Check(td) => return self.ensure_type_init(td),
+                StaticOwner::Unknown => {}
             }
         }
+        self.resolve_static_owner_init(field, field_id)
+    }
+
+    /// The owner answer is not cached yet: derive it from the name, cache it, apply it.
+    #[inline(never)]
+    fn resolve_static_owner_init(&self, field: &str, field_id: Option<u32>) -> Result<(), String> {
+        use crate::metadata::tokens::StaticFieldId;
         let owner = self.static_field_owner(field);
         if let Some(id) = field_id {
             // 基类链未合并的类型不缓存（加载器要 `Arc::get_mut` 原地补布局）。
             if !owner.as_ref().is_some_and(|td| td.base_unmerged()) {
-                let mut cache = self.static_owner_cache.lock();
-                let i = id as usize;
-                if cache.len() <= i { cache.resize(i + 1, None); }
-                cache[i] = Some(owner.clone());
+                self.core.statics.set_owner(StaticFieldId(id), owner.clone());
             }
         }
         match owner {
@@ -616,7 +615,18 @@ impl crate::vm_context::VmContext {
     /// 实际是抓到了、然后在 handler 里被一条无关调用重新抛出。
     /// 文档（`docs/reference/src/language/module-initializers.md`）一直写的是
     /// 「之后每一次**触达**都会再抛一次」——本实现现在才与之相符。
+    #[inline(always)]
     pub fn ensure_module_inits(&self, sym_fq: Option<&str>) -> Result<(), String> {
+        let cc = &self.core.cctors;
+        // 稳态：两次 relaxed load 就返回，不进下面那个大函数（它的帧建立比这两次 load 贵）。
+        if !cc.any_module_init_pending() && !cc.any_module_init_failed() {
+            return Ok(());
+        }
+        self.ensure_module_inits_slow(sym_fq)
+    }
+
+    #[inline(never)]
+    fn ensure_module_inits_slow(&self, sym_fq: Option<&str>) -> Result<(), String> {
         let cc = &self.core.cctors;
         if cc.any_module_init_pending() {
             let list = cc.module_init_snapshot();

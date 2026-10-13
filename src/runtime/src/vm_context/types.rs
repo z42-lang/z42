@@ -10,9 +10,8 @@ use super::*;
 /// stays directly on [`VmContext`], which references this struct through
 /// `Arc<VmCore>`.
 ///
-/// Phase 1 (this commit): only `static_fields` + `static_field_index` are
-/// here. Subsequent phases move `lazy_loader` / `native_types` /
-/// `native_libs` / `pinned_owned_buffers` / `processes` / `gc heap` in.
+/// It also holds the VM's lazy loader, cctor registry, native interop registry,
+/// GC heap and resource tables.
 ///
 /// `VmCore` will become `Send + Sync` once `GcRef<T>` backing switches to
 /// `Arc<...>` (Phase 3 of the spec). Until then, `Mutex` is wrapped around
@@ -20,12 +19,10 @@ use super::*;
 /// the current `GcRef` backing), so the API surface is already stable —
 /// Send-safety completes at Phase 3 without further VmCore API changes.
 pub struct VmCore {
-    /// Static field storage indexed by `StaticFieldId.0` (introduce-method-token,
-    /// 2026-05-08). Slot 0 reserved? No; ids start at 0 (allocation order).
-    pub(crate) static_fields:      Mutex<Vec<Value>>,
-    /// FQN → slot id map. Lazy-allocated on first access; cross-zpkg lazy
-    /// fields can be encountered in any order.
-    pub(crate) static_field_index: Mutex<FxHashMap<String, u32>>,
+    /// Static fields: one stable-address cell per `StaticFieldId` (read / written without a
+    /// lock), plus the FQN → id registration (lazy, first use; cross-zpkg fields can be met in
+    /// any order). See `vm_context::static_table`.
+    pub(crate) statics: super::static_table::StaticTable,
     /// On-demand zpkg loader. `None` until `install_lazy_loader[_with_deps]`
     /// is called (typically from `bootstrap.rs`). Shared across threads
     /// since zpkg resolution + module loading is a process-global operation.
@@ -484,11 +481,6 @@ pub struct VmContext {
     /// explicit module (re)load (REPL redefinition).
     pub(crate) type_lookup_cache: Mutex<FxHashMap<Box<str>, std::sync::Arc<crate::metadata::TypeDesc>>>,
     pub(crate) fn_lookup_cache:   Mutex<FxHashMap<Box<str>, std::sync::Arc<crate::metadata::Function>>>,
-    /// The cctor-owner answer per static field id (`ensure_static_owner_init`):
-    /// `None` = not looked up yet, `Some(None)` = exempt (no owner type, or one
-    /// without a static constructor), `Some(Some(t))` = check `t`. Per thread,
-    /// so the lock is uncontended. Cleared with `type_lookup_cache`.
-    pub(crate) static_owner_cache: Mutex<Vec<Option<Option<std::sync::Arc<crate::metadata::TypeDesc>>>>>,
     /// **add-vmcontext-registry (2026-05-20)**: marks `VmContext: !Unpin`,
     /// so callers cannot `mem::swap` / move out of the `Pin<Box<VmContext>>`
     /// returned by [`new`]. Required so the raw pointer registered in
