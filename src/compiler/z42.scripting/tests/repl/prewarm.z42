@@ -1,0 +1,18 @@
+// 预热（add-repl-prewarm）：Script.Prewarm 显式构建依赖世界后，后续 Eval 命中已建缓存，结果与惰性路径等价；
+// 重复 Prewarm 幂等。REPL 里这份 Prewarm 由后台线程跑，这里单线程直接调用，只验「预热 + 消费」的结果。
+namespace Z42ScriptingTests;
+
+using Std.Scripting;
+using Std.Harness;
+
+[Test]
+void test_prewarm() {
+    ScriptState s = Script.Create();
+    Script.Prewarm(s);
+    Assert.NotNull(s.CachedScan);
+    Assert.Equal("3", _step(s, "1 + 2"));
+    Script.Eval(s, "var y = 20");
+    Assert.Equal("42", _step(s, "y + 22"));
+    Script.Prewarm(s);
+    Assert.NotNull(s.CachedScan);
+}

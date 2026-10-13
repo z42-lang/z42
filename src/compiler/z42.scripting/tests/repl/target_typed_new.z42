@@ -1,0 +1,19 @@
+// target-typed new 在 REPL 声明里：无参 / 带实参 / 对象初始化器；`var` 无法推断目标 → E0437。
+namespace Z42ScriptingTests;
+
+using Std.Scripting;
+using Std.Harness;
+
+[Test]
+void test_target_typed_new() {
+    ScriptState s = Script.Create();
+    Assert.Equal("ok", _step(s, "class Pt { public int x; public int y; public Pt() {} public Pt(int a, int b) { this.x = a; this.y = b; } }"));
+    Assert.Equal("Pt", _step(s, "Pt p0 = new();"));
+    Assert.Equal("0", _step(s, "p0.x"));
+    Assert.Equal("Pt", _step(s, "Pt p = new(3, 4);"));
+    Assert.Equal("3", _step(s, "p.x"));
+    Assert.Equal("4", _step(s, "p.y"));
+    Assert.Equal("Pt", _step(s, "Pt q = new() { x = 9 };"));
+    Assert.Equal("9", _step(s, "q.x"));
+    Assert.Equal("E0437: target-typed `new` requires a known target type here", _step(s, "var bad = new();"));
+}

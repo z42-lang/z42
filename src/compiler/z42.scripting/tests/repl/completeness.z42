@@ -1,0 +1,36 @@
+// 输入完整性探针（add-repl-parser-completeness）与续行缩进（sink-repl-indent-to-script）。
+namespace Z42ScriptingTests;
+
+using Std.Scripting;
+using Std.Harness;
+
+// 类型声明缺正文、自由函数缺正文、悬挂运算符、未闭合括号 / 语句块 → 续读。
+[Test]
+void test_completeness_incomplete() {
+    string[] inputs = new string[]{ "class B", "class B {", "void foo()", "enum Color", "1 +", "f(1,", "if (x > 0) {" };
+    foreach (var src in inputs) { Assert.Equal(src + " => incomplete", _completeness(src)); }
+}
+
+// 完整声明 / 表达式 / 语句 → 交求值；真语法错但当前非 EOF → complete（交 Eval 报错，不误当续读）。
+[Test]
+void test_completeness_complete() {
+    string[] inputs = new string[]{ "class B {}", "1 + 2", "void foo() {}", "var n = 10;", "42", "class 1" };
+    foreach (var src in inputs) { Assert.Equal(src + " => complete", _completeness(src)); }
+}
+
+// ContinuationIndent = 未闭合括号层数 × 4 空格：平衡 / 嵌套 / 负数钳零 / 串内·注释内括号不计。
+[Test]
+void test_continuation_indent() {
+    Assert.Equal(0, Completeness.ContinuationIndent("1 + 2").Length);
+    Assert.Equal(4, Completeness.ContinuationIndent("int f() {").Length);
+    Assert.Equal(8, Completeness.ContinuationIndent("class A { int f() {").Length);
+    Assert.Equal(8, Completeness.ContinuationIndent("f(g(").Length);
+    Assert.Equal(0, Completeness.ContinuationIndent("f() {}").Length);
+    Assert.Equal(0, Completeness.ContinuationIndent("}}").Length);
+    Assert.Equal(0, Completeness.ContinuationIndent("s = \"{[(\"").Length);
+    Assert.Equal(0, Completeness.ContinuationIndent("x() // {").Length);
+}
+
+string _completeness(string src) {
+    return src + (Completeness.IsIncomplete(src) ? " => incomplete" : " => complete");
+}

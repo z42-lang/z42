@@ -15,7 +15,7 @@ REPL / 脚本场景的**跨平台编译+执行内核**（scripting-charter Form 
 | 会话变量 live 值成员名反射（补全用）| `Engine.MemberNames`（`__repl_member_names`）|
 | 会话状态 / 结果 | `ScriptState.z42`（含 `DeclNames`/`DeclTypeNames`/`DeclNamespaces`）/ `EvalResult.z42` |
 | 输入分类（using/var/顶层声明/表达式/语句；类型 vs 自由函数）| `Classifier.z42`（`Classify` + `ParsedInput.IsTypeDecl`；`_typeRefEnd` 跳完整类型引用——限定名/泛型/数组/可空，识别 `List<int> a = new()` 等多 token 类型声明）|
-| 编译+执行编排 | `Script.z42`（`Create` / `Eval`；编译经 `IReplCompiler.CompileRound`）。**求值期错误恢复**：编译错误及运行异常（用户 `throw` / 除零 / 越界 / `__box_prim` 类型不符）均被捕获、作失败 `EvalResult` 返回、会话不推进，异常不逃逸终止 REPL；异常轮仍前进 `Counter`（本轮模块已加载进 VM，重用轮号会让旧抛出函数「粘住」）|
+| 编译+执行编排 | `Script.z42`（`Create` / `Eval`；编译经 `IReplCompiler.CompileRound`）。**求值期错误恢复**：编译错误及运行异常（用户 `throw` / 除零 / 越界 / `__box_prim` 类型不符）均被捕获、作失败 `EvalResult` 返回、会话不推进，异常不逃逸终止 REPL；轮次号进程级单调、只在本轮模块加载进 VM 后前进（重用轮号会让已加载的旧函数胜出：异常「粘住」、`.reset` 后的新会话拿到旧结果）|
 | 编译器组件运行期注入 | `ReplCompilerHost.Get()`：`ModuleLoader.Load` z42c.pipeline.zpkg → 反射 `Z42cReplCompiler` → `as IReplCompiler`；缺失兜底 `NoReplCompiler` |
 | 启动预热（后台线程建依赖世界）| `Script.Prewarm`（REPL 启动 spawn worker 跑；`_ensureWarm` 首次 Eval 前 Join 汇合）+ `ScriptState.PrewarmThread`；GC-safe park 见 z42vm `corelib/repl.rs` + `gc/safepoint.rs` |
 | 函数/类型声明累积（跨轮）| `Script._evalDecl`——声明入 `Repl.R{N}` ns，`ExtendWithPackage` + `using` 供后续轮解析；重定义报 ERROR；类型名记 `DeclTypeNames`（`.types`）；缺省未写可见性的类型声明自动补 `public`（`Classifier.HasVisibility`），避开每轮独立 package 下 internal 类的 `E0441`/`E0404` |
@@ -36,16 +36,13 @@ EvalResult r2 = Script.Eval(s, "add(4, 5)");       // 跨轮裸调 → r2.Value 
 本库随编译器 workspace 构建，`tests/` 由 stdlib 跑测器枚举（`xtask test stdlib` 认 `src/compiler/` 与 `src/libraries/` 两个根）：
 ```bash
 ./xtask build compiler                 # 含本库；产物 artifacts/build/compiler/z42.scripting/release/dist/z42.scripting.zpkg
-./xtask test stdlib z42.scripting      # 枚举本包 tests/
+./xtask test stdlib z42.scripting      # tests/repl/：直接驱动 Script.Eval / Completeness / Completer 的 [Test]（不经行编辑，免 tty）
 ./xtask build toolchain                # 编 z42.repl / z42.interactive，验证下游可链接
 ```
 
 ## 关联文档
 - 设计 / 机制：[repl.md](../../../docs/internals/src/toolchain/repl.md)（含输入完整性判定：parser 权威 / 探针解耦 / 裸 parse）
 - 终端行编辑 / 键位（tier1）：[z42.repl](../../toolchain/interactive/repl/)
-
-## 待办
-- `tests/<case>/` 下 11 个 `driver.z42` + `expected_output.txt` 目录既无 `source.z42` 也无 `*.z42.toml`，尚未接成 `[Test]` 单元；跑测器每轮对其报孤儿源提示
 
 ## 核心文件
 | 文件 | 职责 |

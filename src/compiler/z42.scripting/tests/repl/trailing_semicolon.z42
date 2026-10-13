@@ -1,0 +1,20 @@
+// 尾随 `;`：方法调用无值成功且副作用生效；多语句单行只剥尾随那个；赋值不撞 `;;`；裸表达式仍打印值。
+namespace Z42ScriptingTests;
+
+using Std.Scripting;
+using Std.Harness;
+
+[Test]
+void test_trailing_semicolon() {
+    ScriptState s = Script.Create();
+    Assert.Equal("List", _step(s, "var l = new List<int>();"));
+    Assert.Equal("ok", _step(s, "l.Add(5);"));
+    Assert.Equal("1", _step(s, "l.Count"));
+    Assert.Equal("ok", _step(s, "l.Add(6); l.Add(7);"));
+    Assert.Equal("3", _step(s, "l.Count"));
+    Assert.Equal("1", _step(s, "var n = 1;"));
+    Assert.Equal("ok", _step(s, "n = 5;"));
+    Assert.Equal("5", _step(s, "n"));
+    Assert.Equal("7", _step(s, "n + 2;"));
+    Assert.Equal("10", _step(s, "n * 2"));
+}

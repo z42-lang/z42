@@ -130,10 +130,14 @@ E0401，见 §8）。成功后三件事：`IReplCompiler.ExtendWorld` 把刚编�
 
 ### 2.5 错误恢复：两类失败，两种处理
 
+轮次号 N 是**进程**级单调的（`Script._lastLoadedRound` + 1），不归会话：已加载的 `Repl.R{N}` 模块留在进程里，
+同名新模块加载后旧函数仍胜出。号若被另一个会话重用（`.reset` 后的新会话、同进程里第二个 `Script.Create()`），
+求值会**静默**跑旧轮的函数、拿到旧结果。所以号只在本轮模块真加载进 VM 后才前进，与哪个会话无关。
+
 | 失败 | 会话怎么走 | 为什么 |
 |---|---|---|
-| **编译错误** | `Success=false`，`Counter` **不**前进，`State` = 传入的原状态 | 本轮什么都没加载进 VM，轮号可以重用 |
-| **求值期运行异常**（`throw` / 除零 / 越界 / `int x = "s"` 之类的装箱类型不符） | `Success=false`，但 `Counter` **必须**前进；不 `ExtendWorld`、不推进 `VarsRound`/`VarNames` | 本轮模块 `Repl.R{N}`（含那个抛出的 `Eval{N}`）**已经 LoadBytes 进 VM 了**。不前进轮号 → 下轮重编同名 `Eval{N}` 覆盖不掉 VM 里的旧函数 → 异常"粘住"，后续每条输入都复现它 |
+| **编译错误** | `Success=false`，轮次号**不**前进，`State` = 传入的原状态 | 本轮什么都没加载进 VM，轮号可以重用 |
+| **求值期运行异常**（`throw` / 除零 / 越界 / `int x = "s"` 之类的装箱类型不符） | `Success=false`，轮次号已前进；不 `ExtendWorld`、不推进 `VarsRound`/`VarNames` | 本轮模块 `Repl.R{N}`（含那个抛出的 `Eval{N}`）**已经 LoadBytes 进 VM 了**。重用轮号 → 下轮重编同名 `Eval{N}` 覆盖不掉 VM 里的旧函数 → 异常"粘住"，后续每条输入都复现它 |
 
 异常在 `Engine.Invoke` 外层 catch 住、绝不逃逸终止 REPL。`ExtendWorld` 放在 Invoke **成功之后**：
 本轮 Invoke 只依赖已 LoadBytes 的模块，不需要先扩世界；失败轮就不并入，编译世界不被污染。
