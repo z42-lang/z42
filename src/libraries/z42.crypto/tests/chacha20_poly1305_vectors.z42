@@ -4,6 +4,7 @@ namespace Z42CryptoChaCha20Poly1305VectorsTests;
 
 using Std.Crypto;
 using Std.Encoding;
+using Std.Test;
 
 // ── RFC 8439 §2.8.2: canonical AEAD test vector ─────────────────────────
 //

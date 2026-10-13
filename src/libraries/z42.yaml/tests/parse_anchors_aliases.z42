@@ -3,6 +3,7 @@
 namespace Z42YamlParseAnchorsAliasesTests;
 
 using Std.Yaml;
+using Std.Test;
 
 // ── Inline scalar anchor + alias ────────────────────────────────────────
 

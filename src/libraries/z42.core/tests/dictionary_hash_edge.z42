@@ -6,6 +6,7 @@
 namespace Z42CoreDictHashEdgeTests;
 
 using Std.Collections;
+using Std.Test;
 
 // GetHashCode() == int.MinValue (built as -2147483647 - 1 to avoid relying on
 // an overflowing i32 literal). IEquatable is required by Dictionary<TKey,_>.

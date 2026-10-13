@@ -3,6 +3,7 @@
 namespace Z42ProjectRoundtripTests;
 
 using Z42.Project;
+using Std.Test;
 
 [Test]
 void test_project_manifest_roundtrip() {

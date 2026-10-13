@@ -8,6 +8,7 @@
 namespace Z42cSemanticsRefLvalueTests;
 
 using Z42.Semantics;
+using Std.Test;
 
 // ── 合法形态：不应报错 ────────────────────────────────────────────
 

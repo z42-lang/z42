@@ -3,6 +3,7 @@
 namespace Z42NumericsBigIntArithmeticTests;
 
 using Std.Numerics;
+using Std.Test;
 
 [Test]
 void test_add_small() {

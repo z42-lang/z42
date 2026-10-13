@@ -8,6 +8,7 @@
 namespace Z42cSemanticsValueTypeNullTests;
 
 using Z42.Semantics;
+using Std.Test;
 
 // ── 应报 E0483 ────────────────────────────────────────────────────
 

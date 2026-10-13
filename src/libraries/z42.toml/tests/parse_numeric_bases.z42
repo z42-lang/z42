@@ -4,6 +4,7 @@
 namespace Z42TomlParseNumericBasesTests;
 
 using Std.Toml;
+using Std.Test;
 
 // ── Hex literals ────────────────────────────────────────────────────────
 

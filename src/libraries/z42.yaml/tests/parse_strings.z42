@@ -2,6 +2,7 @@
 namespace Z42YamlParseStringsTests;
 
 using Std.Yaml;
+using Std.Test;
 
 [Test]
 void test_double_quoted_basic() {

@@ -8,6 +8,7 @@
 namespace Z42NetHttpUrlSchemeErrorsTests;
 
 using Std.Net.Http;
+using Std.Test;
 
 [Test]
 void test_malformed_url_throws_format() {

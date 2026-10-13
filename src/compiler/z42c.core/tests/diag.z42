@@ -3,6 +3,7 @@
 namespace Z42cCoreDiagTests;
 
 using Z42.Core;
+using Std.Test;
 
 [Test]
 void test_span_fields() {

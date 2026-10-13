@@ -16,6 +16,7 @@ namespace Z42cSemanticsTypeRefBindTests;
 using Z42.Syntax;
 using Z42.Semantics;
 using Z42.Emission;
+using Std.Test;
 
 // A5b-2c：返回**本 CU 作用域**的视图 —— 下面的用例按短名（`"Foo"` / `"IA"`）断言名义关系，而短名只在作用域内
 // 可解析（裸名回落已删）。视图与根表共享同一批表与类型对象，绑定 / intern 的结果完全相同。

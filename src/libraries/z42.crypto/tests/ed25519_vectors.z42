@@ -3,6 +3,7 @@ namespace Z42CryptoEd25519VectorsTests;
 
 using Std.Crypto;
 using Std.Encoding;
+using Std.Test;
 
 // ── RFC 8032 §7.1 Test 1: empty message ─────────────────────────────────
 // Secret:    9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60

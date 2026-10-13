@@ -10,6 +10,7 @@
 namespace Z42NetWebSocketServerTests;
 
 using Std.Net.WebSockets;
+using Std.Test;
 
 [Test]
 void test_server_construct_initial_not_bound() {

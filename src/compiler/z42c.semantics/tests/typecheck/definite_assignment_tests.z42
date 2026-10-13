@@ -9,6 +9,7 @@
 namespace Z42cSemanticsDefiniteAssignmentTests;
 
 using Z42.Semantics;
+using Std.Test;
 
 // ── 基础 ──────────────────────────────────────────────────────────
 

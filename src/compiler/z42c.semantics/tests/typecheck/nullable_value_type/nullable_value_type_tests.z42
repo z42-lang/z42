@@ -4,6 +4,7 @@
 namespace Z42cSemanticsNullableValueTypeTests;
 
 using Z42.Semantics;
+using Std.Test;
 
 int nvtCount(string src) {
     FrontEndResult fe = FrontEnd.Check(src, "t.z42", null);

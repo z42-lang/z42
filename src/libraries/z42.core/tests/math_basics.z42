@@ -12,6 +12,8 @@
 //   cargo run -p z42-test-runner -- /tmp/math.zbc
 namespace Z42MathTests;
 
+using Std.Test;
+
 // ── Abs (int via AbsInt / double via Abs) ───────────────────────────────
 
 [Test]

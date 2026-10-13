@@ -10,6 +10,7 @@ namespace Z42CollectionsQueueTests;
 
 using Std.Test.Contracts;
 using Std.Collections;
+using Std.Test;
 
 // add-collection-contract-phase2 (2026-06-11): drive the shared collection
 // contract (empty → AddOne ×3 distinct → Count==3 → Clear → empty) against a

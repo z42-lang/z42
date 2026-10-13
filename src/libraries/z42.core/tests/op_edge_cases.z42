@@ -3,6 +3,8 @@
 // char comparison (fix-char-comparison, 2026-05-24).
 namespace Z42CoreOpEdgeCasesTests;
 
+using Std.Test;
+
 // ── Division by zero ─────────────────────────────────────────────────────
 
 [Test]

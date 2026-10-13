@@ -2,6 +2,7 @@
 namespace Z42CryptoSha256VectorsTests;
 
 using Std.Crypto;
+using Std.Test;
 
 [Test]
 void test_empty_string() {

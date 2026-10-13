@@ -3,6 +3,7 @@
 namespace Z42NetHttpCookieParseTests;
 
 using Std.Net.Http;
+using Std.Test;
 
 [Test]
 void test_parse_simple_name_value() {

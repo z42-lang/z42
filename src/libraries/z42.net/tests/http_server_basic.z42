@@ -4,6 +4,7 @@ namespace Z42NetHttpServerBasicTests;
 
 using Std.Threading;
 using Std.Net.Http;
+using Std.Test;
 
 [Test]
 void test_server_handles_get_with_text_response() {

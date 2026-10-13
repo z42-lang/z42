@@ -2,6 +2,7 @@
 namespace Z42UriResolveTests;
 
 using Std.Uri;
+using Std.Test;
 
 [Test]
 void test_resolve_dotdot_climbs_one_segment() {

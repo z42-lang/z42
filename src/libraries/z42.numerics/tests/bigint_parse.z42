@@ -3,6 +3,7 @@
 namespace Z42NumericsBigIntParseTests;
 
 using Std.Numerics;
+using Std.Test;
 
 [Test]
 void test_parse_zero_one_neg_one() {

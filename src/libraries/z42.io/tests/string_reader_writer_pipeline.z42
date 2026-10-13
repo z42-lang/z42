@@ -4,6 +4,7 @@
 namespace Z42IoStringReaderWriterPipelineTests;
 
 using Std.IO;
+using Std.Test;
 
 [Test]
 void test_writer_to_reader_round_trip_lines() {

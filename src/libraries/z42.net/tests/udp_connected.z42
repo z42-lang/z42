@@ -4,6 +4,7 @@ namespace Z42NetUdpConnectedTests;
 
 using Std.Net.Sockets;
 using Std.Encoding;
+using Std.Test;
 
 [Test]
 void test_default_not_connected() {

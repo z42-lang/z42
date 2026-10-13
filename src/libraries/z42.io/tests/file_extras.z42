@@ -4,6 +4,7 @@
 namespace Z42IoFileExtrasTests;
 
 using Std.IO;
+using Std.Test;
 
 // ── File.Copy ─────────────────────────────────────────────────────────────
 

@@ -2,6 +2,7 @@
 namespace Z42TextLevenshteinTests;
 
 using Std.Text;
+using Std.Test;
 
 [Test]
 void test_distance_identical_is_zero() {

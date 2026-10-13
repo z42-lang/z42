@@ -4,6 +4,7 @@ namespace Z42NumericsBigIntPrimeTests;
 
 using Std.Numerics;
 using Std.Random;
+using Std.Test;
 
 // Use a seeded RNG in every test so results are deterministic; the
 // `IsProbablyPrime(int)` overload (which constructs `new Random()` with

@@ -21,6 +21,7 @@
 namespace Z42cSemanticsPrimMemberTests;
 
 using Z42.Semantics;
+using Std.Test;
 
 // 成员表完整的包装类模型：真实 Int32/String 有一批方法，这里给够即可。
 string _wrappers() {

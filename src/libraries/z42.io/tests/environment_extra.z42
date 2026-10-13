@@ -3,6 +3,7 @@
 namespace Z42IoEnvironmentExtraTests;
 
 using Std.IO;
+using Std.Test;
 
 [Test]
 void test_unset_after_set_returns_null() {

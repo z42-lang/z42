@@ -9,6 +9,7 @@ namespace Z42CompressionStreamingDecodeTests;
 
 using Std.IO;
 using Std.Compression;
+using Std.Test;
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 

@@ -5,6 +5,7 @@ namespace Z42CliEnvFallbackMutexTests;
 
 using Std.IO;
 using Std.Cli;
+using Std.Test;
 
 // ── env-var fallback ──────────────────────────────────────────────────────
 

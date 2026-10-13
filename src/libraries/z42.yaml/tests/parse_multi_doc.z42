@@ -2,6 +2,7 @@
 namespace Z42YamlParseMultiDocTests;
 
 using Std.Yaml;
+using Std.Test;
 
 // ── Basic 2-doc ─────────────────────────────────────────────────────────
 

@@ -9,6 +9,7 @@
 namespace Z42cSemanticsMethodOfTests;
 
 using Z42.Semantics;
+using Std.Test;
 
 // 两个重载 + 一个独苗，供各用例复用。
 string _src(string expr) {

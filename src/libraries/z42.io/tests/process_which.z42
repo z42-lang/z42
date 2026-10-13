@@ -7,6 +7,7 @@
 namespace Z42IoProcessWhichTests;
 
 using Std.IO;
+using Std.Test;
 
 [Test]
 void test_which_finds_common_shell() {

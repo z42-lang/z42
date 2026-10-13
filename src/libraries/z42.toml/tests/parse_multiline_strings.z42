@@ -3,6 +3,7 @@
 namespace Z42TomlParseMultilineStringsTests;
 
 using Std.Toml;
+using Std.Test;
 
 // ── Basic multi-line string ─────────────────────────────────────────────
 

@@ -5,6 +5,7 @@
 namespace Z42IoStreamBaseTests;
 
 using Std.IO;
+using Std.Test;
 
 [Test]
 void test_base_capability_flags_default_false() {

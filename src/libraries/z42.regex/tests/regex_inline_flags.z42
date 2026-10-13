@@ -3,6 +3,7 @@
 namespace Z42RegexInlineFlagsTests;
 
 using Std.Regex;
+using Std.Test;
 
 // ── Literal matching ───────────────────────────────────────────────────
 
