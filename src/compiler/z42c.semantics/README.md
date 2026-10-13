@@ -25,7 +25,7 @@
 |------|------|
 | `src/Symbols/` | 符号表与收集：`SymbolTable`（4 碎片）、`SymbolCollector` 及各簇 pass、继承解析、导入符号加载、命名空间作用域、attribute handler 注册表、声明修饰符助手 `DeclFacts` |
 | `src/Types/` | 类型模型：`Z42Type`、类型代换、转换分类、基元模型、泛型约束、类型实参推断、struct 布局 |
-| `src/BoundTree/` | Bound 树节点（表达式 / 语句 / 模式）、`SemanticModel` |
+| `src/BoundTree/` | Bound 树节点（表达式 / 语句 / 模式）、visitor 接口（`IBound*Visitor<R, D>`、`Unit`）、`SemanticModel` |
 | `src/Binding/` | 绑定 + 类型检查：`TypeChecker`、各 `*Typer`、`MemberResolver`（9 碎片）、重载决议、语句 / 声明 / 模式绑定、访问检查、穷尽检查、常量求值与常量 blob、编译期宏 |
 | `src/Validation/` | 声明期约束（`DeclEnforcer`）、流分析（`FlowAnalyzer`）、声明位类型引用补录、跨包依赖收集（`DepUseCollector`）、多余 `using` 告警、`[ModuleInit]` 校验 |
 | `src/Exports/` | 导出签名（TSIG）提取 |
@@ -60,7 +60,7 @@
 | `src/Symbols/MemberCollector.z42` | Pass B 成员填充簇：字段/方法/属性/索引器签名 + regKey mangle+ **const 收集** + **转换运算符**（op_Implicit/op_Explicit RegKey 附 `$to$<ret>` 消歧 + 声明期冲突 E0440） |
 | `src/Symbols/InheritanceResolver.z42` | 基链解析簇（成员填充后）：override regKey 对齐+ **sealed 语义强制**（继承 sealed 类 E0427 / override sealed E0428 / 无基 virtual E0429，`sealed`==`sealed override` 简写）+ 继承字段合并 + impl-block 合并 |
 | `src/Validation/DeclEnforcer.z42` | 声明良构约束簇：**D8 类名后缀强制**（attribute E0444 / analyzer E0445 / generator E0447）+ **partial 类型/方法校验**（全标 partial / Kind 一致 / 嵌套 partial / method 配对，E0430–E0435） |
-| `src/BoundTree/BoundExpr.z42` | Bound 树**主/取值表达式节点**：base `BoundExpr` + 字面量 / 插值 / ident / func-ref / 成员·索引访问 / static-get / 捕获 / default / error，virtual Dump 出含类型注解 s-expr |
+| `src/BoundTree/BoundExpr.z42` | Bound 树**主/取值表达式节点**：抽象 base `BoundExpr`（`Type()` / `Accept`）+ 字面量 / 插值 / ident / func-ref / 成员·索引访问 / static-get / 捕获 / default / error，virtual Dump 出含类型注解 s-expr |
 | `src/BoundTree/BoundExprOp.z42` | Bound 树**运算/调用/转换/构造表达式节点**：switch-expr / seq / assign / binary·unary / conditional / call·method-group·indirect-call / new / ref-arg / cast·convert·box·is·typeof / array-new·lit / lambda |
 | `src/BoundTree/BoundStmt.z42` | Bound 树**语句节点**：base `BoundStmt` + decl / return / expr-stmt / local-fn / block / if / try·catch·finally / throw / while·do-while / switch / for / foreach / break / continue；BoundSwitchCase/BoundSwitchArm 持 BoundPattern + Guard |
 | `src/BoundTree/BoundPattern.z42` | Bound 树**模式节点**：base `BoundPattern` + Wildcard/Constant/Type/Binding/Positional(record 解构)/Property；携 resolved 类型 + 字段名/类型 + 绑定名 |
@@ -72,6 +72,7 @@
 | `src/Binding/AccessChecker.z42` | 访问权限强制：`CheckAccess` 对 private/protected/internal 成员访问 emit E0404；机制见 [book](../../../docs/internals/src/compiler/access-control.md) |
 | `src/Types/GenericConstraint.z42` | 泛型约束模型：ConstraintBundle（单型参）+ ConstraintSet（一类全型参，按声明序对齐 TypeArgs） |
 | `src/Types/ConstraintChecker.z42` | 泛型 where 约束：Resolve（声明期 where→ConstraintSet）+ Check（call-site `new Box<int>()` 校验）。隔离自 TypeChecker |
+| `src/BoundTree/BoundVisitor.z42` | Bound 树 visitor 接口 `IBoundExprVisitor<R, D>` / `IBoundStmtVisitor<R, D>` / `IBoundPatternVisitor<R, D>`（每个节点类一个 Visit 方法，节点经抽象 `Accept<R, D>(v, d)` 分派）+ 占位类型 `Unit` |
 | `src/BoundTree/SemanticModel.z42` | 类型检查产物：符号表 + 各方法/函数体 Bound 树（key="Class.Method"/func 名） |
 | `src/Compilation/FrontEnd.z42` | 单文件前端的唯一口径：parse → `RunAst` → `CollectAll` → 诊断按相位合并 → `Infer`。`--emit-zbc` / `--dump-ir`（`IrDump.BuildModuleDOpt`）、IR dump 单测、`SemanticDump`、`ExtractExports`（源 → TSIG，`Collect` 后调 `ExportedTypeExtractor.Extract`）共用 |
 | `src/Compilation/SemanticDump.z42` | 纯函数工具：源 → bound s-expr / 诊断计数（[Test] + driver `--dump-bound`） |
@@ -80,7 +81,7 @@
 | `src/Symbols/DepRef.z42` | 依赖引用条目编码 `ns` / `ns#pkg` / `ns#pkg#sym`：`UsedDepNs` 的每一项；带 `#pkg` = 符号实际来自的包，DEPS 只记它；`#sym` = 被引用的类型 / 自由函数全名（`SymKey` 归一），进 DEPS 符号表供运行期精确路由。编进字符串是为了让增量 meta 经 driver 原样搬运、driver 零改动 |
 | `src/Validation/DeclTypeUses.z42` | 声明位类型引用的补录：`Infer` 末尾把本文件全部声明里的 TypeExpr 在挂了记录器的视图上再解析一遍（成员签名 / 基类列表 / 接口 / delegate / 约束 / impl），只记录、不发诊断 |
 | `src/Validation/NullableValueTypes.z42` | E0476 的语义半边：类型写法里 `X?` 的 X 解析成 struct / enum ⇒ 报错（基元关键字由解析器报）；挂在 `ChkAmbiguousBareNameT`（方法体类型位）与 `DeclTypeUses`（声明位） |
-| `src/Validation/DepUseCollector.z42` | 绑定树上的跨包依赖收集（穷举 walker，登记在 walkers 门）：补「接收者类型没写出来」的导入实例调用；与绑定期 `NoteDepUse` 合并成文件依赖集（`CuCompile.DepRefsOf`，DEPS / E0436 / W0607 的判据），不经代码生成 |
+| `src/Validation/DepUseCollector.z42` | 绑定树上的跨包依赖收集（bound visitor，完备性由编译器保证）：补「接收者类型没写出来」的导入实例调用；与绑定期 `NoteDepUse` 合并成文件依赖集（`CuCompile.DepRefsOf`，DEPS / E0436 / W0607 的判据），不经代码生成 |
 | `src/Validation/UsingLint.z42` | 多余 `using` 告警：W0607 不必要（没用到 / prelude / 外围）、W0608 重复（同文件 / 已有 global using）；判据与 E0436 同一份用法集合 |
 | `src/Binding/ConstValue.z42` | **编译期常量值**：`ConstValue{Kind, IntVal, StrVal}`，Kind 区分 `Int/Bool/Char/Float(bits)/Str/Null`——供 codegen 把 const 引用替换成对应字面量指令时选对指令 |
 | `src/Binding/ConstEval.z42` | **常量表达式求值器**：AST `Expr` + 已定义 const 环境(`StrMap`) → `ConstValue`（非常量返回 null，调用方报诊断）。覆盖字面量 + 一元/二元 算术·比较·逻辑·位·串接 + 已定义 const 引用（镜像 `IrGenFacts._foldBinary` 语义） |

@@ -6,8 +6,9 @@ namespace Z42.Semantics;
 using Z42.Core;
 using Z42.Syntax;
 
-public class BoundStmt {
+public abstract class BoundStmt {
     public Span Span;
+    public abstract R Accept<R, D>(IBoundStmtVisitor<R, D> v, D d);
     public virtual string Dump() { return "?bstmt"; }
 }
 
@@ -20,6 +21,7 @@ public sealed class BoundVarDeclStmt : BoundStmt {
     public BoundVarDeclStmt(string name, Z42Type varType, BoundExpr init, Span span) { this.Span = span;
         this.Name = name; this.VarType = varType; this.Init = init; this.IsConst = false; this.ConstVal = null;
     }
+    public override R Accept<R, D>(IBoundStmtVisitor<R, D> v, D d) { return v.VisitVarDecl(this, d); }
     public override string Dump() {
         string i = "_"; if (this.Init != null) { i = this.Init.Dump(); }   // G8：无 init → "_"
         return "(decl " + this.Name + " :" + this.VarType.Name() + " " + i + ")";
@@ -32,6 +34,7 @@ public sealed class BoundDeconstructDeclStmt : BoundStmt {
     public BoundPattern Pat;
     public BoundExpr    Init;
     public BoundDeconstructDeclStmt(BoundPattern pat, BoundExpr init, Span span) { this.Span = span; this.Pat = pat; this.Init = init; }
+    public override R Accept<R, D>(IBoundStmtVisitor<R, D> v, D d) { return v.VisitDeconstructDecl(this, d); }
     public override string Dump() { return "(destructure " + this.Pat.Dump() + " " + this.Init.Dump() + ")"; }
 }
 
@@ -39,6 +42,7 @@ public sealed class BoundReturn : BoundStmt {
     public bool      HasValue;
     public BoundExpr Value;     // 仅 HasValue
     public BoundReturn(bool hasValue, BoundExpr value, Span span) { this.Span = span; this.HasValue = hasValue; this.Value = value; }
+    public override R Accept<R, D>(IBoundStmtVisitor<R, D> v, D d) { return v.VisitReturn(this, d); }
     public override string Dump() {
         if (this.HasValue) { return "(return " + this.Value.Dump() + ")"; }
         return "(return)";
@@ -48,6 +52,7 @@ public sealed class BoundReturn : BoundStmt {
 public sealed class BoundExprStmt : BoundStmt {
     public BoundExpr E;
     public BoundExprStmt(BoundExpr e, Span span) { this.Span = span; this.E = e; }
+    public override R Accept<R, D>(IBoundStmtVisitor<R, D> v, D d) { return v.VisitExprStmt(this, d); }
     public override string Dump() { return "(expr " + this.E.Dump() + ")"; }
 }
 
@@ -62,6 +67,7 @@ public sealed class BoundLocalFunction : BoundStmt {
         this.Span = span; this.Name = name; this.Decl = decl; this.Body = body;
         this.Captures = captures; this.CaptureCount = captureCount;
     }
+    public override R Accept<R, D>(IBoundStmtVisitor<R, D> v, D d) { return v.VisitLocalFunction(this, d); }
     public override string Dump() { return "(localfn " + this.Name + " " + this.Body.Dump() + ")"; }
 }
 
@@ -69,6 +75,7 @@ public sealed class BoundBlock : BoundStmt {
     public BoundStmt[] Stmts;
     public int         Count;
     public BoundBlock(BoundStmt[] stmts, int count, Span span) { this.Span = span; this.Stmts = stmts; this.Count = count; }
+    public override R Accept<R, D>(IBoundStmtVisitor<R, D> v, D d) { return v.VisitBlock(this, d); }
     public override string Dump() {
         string s = "(block";
         int i = 0;
@@ -86,6 +93,7 @@ public sealed class BoundIf : BoundStmt {
     public BoundIf(BoundExpr cond, BoundStmt then, bool hasElse, BoundStmt els, Span span) { this.Span = span;
         this.Cond = cond; this.Then = then; this.HasElse = hasElse; this.Else = els;
     }
+    public override R Accept<R, D>(IBoundStmtVisitor<R, D> v, D d) { return v.VisitIf(this, d); }
     public override string Dump() {
         if (this.HasElse) {
             return "(if " + this.Cond.Dump() + " " + this.Then.Dump() + " " + this.Else.Dump() + ")";
@@ -127,6 +135,7 @@ public sealed class BoundTry : BoundStmt {
         this.Span = span; this.TryBody = tryBody; this.Catches = catches; this.CatchCount = catchCount;
         this.HasFinally = hasFinally; this.Finally = finallyBody;
     }
+    public override R Accept<R, D>(IBoundStmtVisitor<R, D> v, D d) { return v.VisitTry(this, d); }
     public override string Dump() {
         string s = "(try " + this.TryBody.Dump();
         int i = 0;
@@ -139,6 +148,7 @@ public sealed class BoundTry : BoundStmt {
 public sealed class BoundThrow : BoundStmt {
     public BoundExpr E;
     public BoundThrow(BoundExpr e, Span span) { this.Span = span; this.E = e; }
+    public override R Accept<R, D>(IBoundStmtVisitor<R, D> v, D d) { return v.VisitThrow(this, d); }
     public override string Dump() { return "(throw " + this.E.Dump() + ")"; }
 }
 
@@ -146,6 +156,7 @@ public sealed class BoundWhile : BoundStmt {
     public BoundExpr Cond;
     public BoundStmt Body;
     public BoundWhile(BoundExpr cond, BoundStmt body, Span span) { this.Span = span; this.Cond = cond; this.Body = body; }
+    public override R Accept<R, D>(IBoundStmtVisitor<R, D> v, D d) { return v.VisitWhile(this, d); }
     public override string Dump() {
         return "(while " + this.Cond.Dump() + " " + this.Body.Dump() + ")";
     }
@@ -156,6 +167,7 @@ public sealed class BoundDoWhile : BoundStmt {
     public BoundStmt Body;
     public BoundExpr Cond;
     public BoundDoWhile(BoundStmt body, BoundExpr cond, Span span) { this.Span = span; this.Body = body; this.Cond = cond; }
+    public override R Accept<R, D>(IBoundStmtVisitor<R, D> v, D d) { return v.VisitDoWhile(this, d); }
     public override string Dump() {
         return "(do-while " + this.Body.Dump() + " " + this.Cond.Dump() + ")";
     }
@@ -181,6 +193,7 @@ public sealed class BoundSwitch : BoundStmt {
     public BoundSwitch(BoundExpr subject, BoundSwitchCase[] cases, int caseCount, Span span) { this.Span = span;
         this.Subject = subject; this.Cases = cases; this.CaseCount = caseCount;
     }
+    public override R Accept<R, D>(IBoundStmtVisitor<R, D> v, D d) { return v.VisitSwitch(this, d); }
     public override string Dump() {
         string s = "(switch " + this.Subject.Dump();
         int i = 0;
@@ -207,6 +220,7 @@ public sealed class BoundFor : BoundStmt {
         this.HasIncr = hasIncr; this.Incr = incr;
         this.Body = body;
     }
+    public override R Accept<R, D>(IBoundStmtVisitor<R, D> v, D d) { return v.VisitFor(this, d); }
     public override string Dump() { return "(for)"; }
 }
 
@@ -234,15 +248,18 @@ public sealed class BoundForeach : BoundStmt {
         this.IsClassIter = isClassIter; this.CountIsField = countIsField;
         this.CountMember = countMember;
     }
+    public override R Accept<R, D>(IBoundStmtVisitor<R, D> v, D d) { return v.VisitForeach(this, d); }
     public override string Dump() { return "(foreach " + this.VarName + ")"; }
 }
 
 public sealed class BoundBreak : BoundStmt {
     public BoundBreak(Span span) { this.Span = span;}
+    public override R Accept<R, D>(IBoundStmtVisitor<R, D> v, D d) { return v.VisitBreak(this, d); }
     public override string Dump() { return "(break)"; }
 }
 
 public sealed class BoundContinue : BoundStmt {
     public BoundContinue(Span span) { this.Span = span;}
+    public override R Accept<R, D>(IBoundStmtVisitor<R, D> v, D d) { return v.VisitContinue(this, d); }
     public override string Dump() { return "(continue)"; }
 }

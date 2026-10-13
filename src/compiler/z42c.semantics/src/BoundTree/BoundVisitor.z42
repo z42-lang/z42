@@ -1,0 +1,84 @@
+// Bound 树的 visitor 接口：每个节点类一个 Visit 方法，节点经 `Accept<R, D>(v, d)` 双分派到它。
+//
+// 形状 `R Accept<R, D>(IBoundXVisitor<R, D> v, D d)`：R = 结果，D = 自上而下传的数据（发射上下文、
+// 模式的成功 / 失败标签等），二者没有时都填 `Unit`。新增节点类必须覆写抽象的 `Accept`，也就得在这里
+// 加一个 Visit 方法，于是每个实现了该接口的 visitor 都编不过、直到处理它——完备性由编译器保证。
+namespace Z42.Semantics;
+
+// 「没有值」的占位类型（visitor 的 R / D 用不上时填它）。引用类型单例：按值类型擦除会逐次装箱。
+public sealed class Unit {
+    public static Unit Value = new Unit();
+}
+
+public interface IBoundExprVisitor<R, D> {
+    R VisitLitInt(BoundLitInt n, D d);
+    R VisitLitChar(BoundLitChar n, D d);
+    R VisitLitFloat(BoundLitFloat n, D d);
+    R VisitLitStr(BoundLitStr n, D d);
+    R VisitLitBool(BoundLitBool n, D d);
+    R VisitInterpolatedStr(BoundInterpolatedStr n, D d);
+    R VisitLitNull(BoundLitNull n, D d);
+    R VisitIdent(BoundIdent n, D d);
+    R VisitFuncRef(BoundFuncRef n, D d);
+    R VisitMember(BoundMember n, D d);
+    R VisitIndex(BoundIndex n, D d);
+    R VisitStaticGet(BoundStaticGet n, D d);
+    R VisitCapturedIdent(BoundCapturedIdent n, D d);
+    R VisitDefault(BoundDefault n, D d);
+    R VisitExpect(BoundExpect n, D d);
+    R VisitError(BoundError n, D d);
+    R VisitSwitchExpr(BoundSwitchExpr n, D d);
+    R VisitSeqExpr(BoundSeqExpr n, D d);
+    R VisitAssign(BoundAssign n, D d);
+    R VisitMethodGroup(BoundMethodGroup n, D d);
+    R VisitCall(BoundCall n, D d);
+    R VisitBinary(BoundBinary n, D d);
+    R VisitUnary(BoundUnary n, D d);
+    R VisitConditional(BoundConditional n, D d);
+    R VisitIsExpr(BoundIsExpr n, D d);
+    R VisitIsPatternExpr(BoundIsPatternExpr n, D d);
+    R VisitTypeof(BoundTypeof n, D d);
+    R VisitMethodOf(BoundMethodOf n, D d);
+    R VisitCast(BoundCast n, D d);
+    R VisitConvert(BoundConvert n, D d);
+    R VisitBox(BoundBox n, D d);
+    R VisitNew(BoundNew n, D d);
+    R VisitRefArg(BoundRefArg n, D d);
+    R VisitArrayNew(BoundArrayNew n, D d);
+    R VisitArrayLit(BoundArrayLit n, D d);
+    R VisitLambda(BoundLambda n, D d);
+    R VisitIndirectCall(BoundIndirectCall n, D d);
+    R VisitSymAvailable(BoundSymAvailable n, D d);
+}
+
+public interface IBoundStmtVisitor<R, D> {
+    R VisitVarDecl(BoundVarDeclStmt n, D d);
+    R VisitDeconstructDecl(BoundDeconstructDeclStmt n, D d);
+    R VisitReturn(BoundReturn n, D d);
+    R VisitExprStmt(BoundExprStmt n, D d);
+    R VisitLocalFunction(BoundLocalFunction n, D d);
+    R VisitBlock(BoundBlock n, D d);
+    R VisitIf(BoundIf n, D d);
+    R VisitTry(BoundTry n, D d);
+    R VisitThrow(BoundThrow n, D d);
+    R VisitWhile(BoundWhile n, D d);
+    R VisitDoWhile(BoundDoWhile n, D d);
+    R VisitSwitch(BoundSwitch n, D d);
+    R VisitFor(BoundFor n, D d);
+    R VisitForeach(BoundForeach n, D d);
+    R VisitBreak(BoundBreak n, D d);
+    R VisitContinue(BoundContinue n, D d);
+}
+
+public interface IBoundPatternVisitor<R, D> {
+    R VisitWildcardPattern(BoundWildcardPattern n, D d);
+    R VisitConstantPattern(BoundConstantPattern n, D d);
+    R VisitTypePattern(BoundTypePattern n, D d);
+    R VisitBindingPattern(BoundBindingPattern n, D d);
+    R VisitPositionalPattern(BoundPositionalPattern n, D d);
+    R VisitPropertyPattern(BoundPropertyPattern n, D d);
+    R VisitOrPattern(BoundOrPattern n, D d);
+    R VisitAtPattern(BoundAtPattern n, D d);
+    R VisitRangePattern(BoundRangePattern n, D d);
+    R VisitRelationalPattern(BoundRelationalPattern n, D d);
+}
