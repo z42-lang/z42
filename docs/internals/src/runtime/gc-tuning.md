@@ -73,7 +73,9 @@ z42-gc: Minor used 99.1M -> 99.1M  freed 0B  pause 1.6ms  (cycle 64)
 ```
 
 major 打的是另一组名字：`full mark` / `sweep` 的四个半程 +
-`sweep/var` + `sweep/chunk reclaim` / `age survivors`。
+`sweep/var` + `sweep/chunk reclaim` / `age survivors`。降晋升线的那次 major 在 `promotion  age 3 -> 2` 之后
+还有一行 `promotion/remember cohort`：新线刚划成老的对象里持有年轻孩子的补进记忆集，条目数是这批对象的个数
+（`O(年轻集合)`，见 [GC · 对象的记忆集](gc.md#对象的记忆集对象模型-r6)）。
 
 **怎么读这些行**——耗时单独看没有意义，要看它和**条目数的比值**：
 
