@@ -93,6 +93,7 @@ pub(crate) use chunk::{class_for, class_for_with_limit, OVERSIZED_CLASS};
 pub use chunk::{loh_bytes, set_loh_bytes};
 pub use chunk::{VarChunkClaim, VarChunkReclaim};
 pub use holes::VarHoleStash;
+pub(crate) use holes::prefetch_write;
 pub use var_ref::VarGcRef;
 
 use chunk::{Chunk, FreeEntry, FreeSlot, NUM_CLASSES};

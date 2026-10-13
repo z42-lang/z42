@@ -39,7 +39,20 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // (`run_cycle_collection_stw`) — which is what whitens the heap; there is no reset pass.
         let kind = self.major_mark();
         let mut newly_marked = 0usize;
-        while let Some(v) = queue.pop() {
+        // Each value waits in the prefetching ring (`mark_ring`) before it is marked and traced,
+        // so `RING` header misses are in flight at a time.
+        let mut ring = super::mark_ring::MarkRing::new();
+        loop {
+            let v = match queue.pop() {
+                Some(v) => match ring.push(v) {
+                    Some(v) => v,
+                    None => continue,
+                },
+                None => match ring.pop_oldest() {
+                    Some(v) => v,
+                    None => break,
+                },
+            };
             // Mark the allocation backing this Value; if already marked (or not a heap
             // allocation at all, e.g. a primitive), skip.
             if !Self::mark_if_unmarked(&v, kind) { continue; }
@@ -84,6 +97,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
     pub(super) fn drain_mark_queue(&self) -> usize {
         let kind = self.major_mark();
         let mut traced = 0usize;
+        // Children wait in the prefetching ring (`mark_ring`) before they are marked, so `RING`
+        // header misses are in flight at a time; what is left in it is marked at the end of the
+        // round.
+        let mut ring = super::mark_ring::MarkRing::new();
         loop {
             // Take ownership of the current queue contents in one swap;
             // tracing below pushes newly-marked children for the next round.
@@ -91,14 +108,26 @@ impl crate::gc::arc_heap::ArcMagrGC {
             if local.is_empty() {
                 break;
             }
+            let mut grey = Vec::new();
             for v in &local {
                 traced += 1;
                 v.trace_children(kind, &mut |child| {
-                    if Self::mark_if_unmarked(child, kind) {
-                        self.mark_queue.lock().push(child.clone());
+                    if !child.is_heap_ref() {
+                        return;
+                    }
+                    if let Some(c) = ring.push(*child) {
+                        if Self::mark_if_unmarked(&c, kind) {
+                            grey.push(c);
+                        }
                     }
                 });
             }
+            while let Some(c) = ring.pop_oldest() {
+                if Self::mark_if_unmarked(&c, kind) {
+                    grey.push(c);
+                }
+            }
+            self.mark_queue.lock().append(&mut grey);
             // `local` drops here; any heap-ref values it held that are
             // also reachable elsewhere stay alive via those other refs.
         }
