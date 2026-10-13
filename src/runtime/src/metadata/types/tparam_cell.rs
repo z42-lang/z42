@@ -46,7 +46,8 @@ use super::ref_word::{self, KIND_MASK, RK_BOXED_VALUE};
 use super::{ArrayObj, Cells, FieldWrite, Value};
 use crate::gc::GcRef;
 
-const NULL_FLAG: u64 = 8;
+/// Marker bit of `NULL(k)` (the JIT's static-field read tests it).
+pub const NULL_FLAG: u64 = 8;
 const K_I64: u64 = 1;
 const K_F64: u64 = 2;
 const K_BOOL: u64 = 3;

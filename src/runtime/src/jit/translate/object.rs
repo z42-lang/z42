@@ -76,30 +76,10 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     self.builder.ins().call(self.hr_as_cast, &[self.frame_val, self.ctx_val, d, o, cp, cl, kp]);
                 }
 
-                // Static fields
-                // formalize-jit-method-token Phase 2 (2026-05-08): emit
-                // pre-resolved StaticFieldId directly. make-vm-loading-lazy: a
-                // lazily-loaded fn has no resolved table → id is UNRESOLVED and
-                // the helper resolves the field by NAME (passed as self.ptr+len).
-                Instruction::StaticGet(insn) => {
-                    let StaticGetInsn { dst, field } = &**insn;
-                    let d = self.ri(*dst);
-                    let (fp, fl) = self.str_val(field);
-                    let field_id = static_field_id_at(self.func, self.block_idx, self.instr_idx);
-                    let id_val = self.builder.ins().iconst(types::I32, field_id as i64);
-                    // add-static-constructors：helper 现在可能因 cctor 抛异常而返回 1。
-                    let inst = self.builder.ins().call(self.hr_static_get, &[self.frame_val, self.ctx_val, d, id_val, fp, fl]);
-                    let ret = self.builder.inst_results(inst)[0]; self.check(ret);
-                }
-                Instruction::StaticSet(insn) => {
-                    let StaticSetInsn { field, val } = &**insn;
-                    let v = self.ri(*val);
-                    let (fp, fl) = self.str_val(field);
-                    let field_id = static_field_id_at(self.func, self.block_idx, self.instr_idx);
-                    let id_val = self.builder.ins().iconst(types::I32, field_id as i64);
-                    let inst = self.builder.ins().call(self.hr_static_set, &[self.frame_val, self.ctx_val, id_val, v, fp, fl]);
-                    let ret = self.builder.inst_results(inst)[0]; self.check(ret);
-                }
+                // Static fields: the barrier's steady-state check + one cell access, the helper
+                // otherwise — see `static_field`.
+                Instruction::StaticGet(insn) => self.emit_static_get(insn),
+                Instruction::StaticSet(insn) => self.emit_static_set(insn),
 
                 // C1 native interop scaffold: JIT translation lands in
                 // L3.M16. Refuse to compile a function that contains these

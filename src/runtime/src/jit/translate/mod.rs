@@ -43,6 +43,7 @@ mod structs;
 mod term;
 mod str_intrinsics;
 mod field_ic;
+mod static_field;
 
 // refactor-jit-translate-split (H2): leaf emit/predicate/analysis helpers
 mod unsupported;

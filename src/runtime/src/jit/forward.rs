@@ -14,6 +14,7 @@ use crate::metadata::Value;
 use super::frame::JitFrame;
 use super::runtime::JitRuntime;
 use crate::vm_context::VmContext;
+use crate::vm_context::static_table::StaticCell;
 use super::helpers::vm_ctx_ref;
 
 pub(crate) use crate::interp::forward::{builtin_forward, chained_forward};
@@ -78,6 +79,12 @@ pub(crate) trait ForwardLookup {
     fn barrier_bytes(&self) -> Option<(*const std::sync::atomic::AtomicU8, *const std::sync::atomic::AtomicU8)> {
         None
     }
+    /// The cell of static field `id` and the cctor registry's barrier epoch
+    /// (`VmContext::jit_static_cell`) that compiled `StaticGet` / `StaticSet` read; `None` keeps the
+    /// access on the helper.
+    fn static_cell(&self, _id: u32) -> Option<(*const StaticCell, *const std::sync::atomic::AtomicU32)> {
+        None
+    }
     /// The builtin the function under JIT id `id` forwards to (shape 1 or 2),
     /// provided a static call of it needs no type-init barrier (its owner type is
     /// loaded and has no static constructor).
@@ -135,6 +142,11 @@ impl ForwardLookup for CompileLookup<'_> {
     /// for as long as the compiled code can run.
     fn barrier_bytes(&self) -> Option<(*const std::sync::atomic::AtomicU8, *const std::sync::atomic::AtomicU8)> {
         self.vm.heap().jit_barrier_bytes()
+    }
+
+    /// The static table and the cctor registry belong to the core too (cells never move).
+    fn static_cell(&self, id: u32) -> Option<(*const StaticCell, *const std::sync::atomic::AtomicU32)> {
+        self.vm.jit_static_cell(id)
     }
 }
 

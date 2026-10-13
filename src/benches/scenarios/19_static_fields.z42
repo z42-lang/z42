@@ -1,0 +1,46 @@
+// Static-field read/write loop: every iteration reads six static fields and writes four —
+// `long` / `int` / `double` primitives, a `string` reference, and a field of a type with a static
+// constructor (so the type-initialization barrier is on every access). The loop body is otherwise
+// trivial, so the per-access StaticGet / StaticSet cost dominates.
+//
+// Expected output (deterministic): 100000000, then a
+//
+// tier: full — 隔离静态字段访问（StaticGet / StaticSet + 类型初始化屏障）的单项微基准
+namespace Bench.StaticFields;
+
+using Std.IO;
+
+class Counter {
+    public static long Total;
+    public static int Step;
+    public static double Scale;
+    public static string Tag;
+    public static string Other;
+}
+
+class Init {
+    public static long Base;
+    static Init() { Init.Base = 3L; }
+}
+
+long Drive(long n) {
+    long i = 0L;
+    while (i < n) {
+        Counter.Total = Counter.Total + (long)Counter.Step + Init.Base;
+        Counter.Scale = Counter.Scale + 0.5;
+        string t = Counter.Tag;
+        Counter.Tag = Counter.Other;
+        Counter.Other = t;
+        i = i + 1L;
+    }
+    return Counter.Total;
+}
+
+void Main() {
+    Counter.Step = 2;
+    Counter.Tag = "a";
+    Counter.Other = "b";
+    long result = Drive(20000000L);
+    Console.WriteLine(result.ToString());
+    Console.WriteLine(Counter.Tag);
+}

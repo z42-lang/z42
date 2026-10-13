@@ -236,3 +236,63 @@ fn gc_pause_does_not_wait_for_a_thread_waiting_on_a_cctor() {
     collector.core.cctors.finish("A.C", None);
     assert_eq!(waiter.join().unwrap(), Ok(None));
 }
+
+/// Every event that can make a passing static-field barrier act again moves the barrier epoch; the
+/// events that only make barriers cheaper (a type finishing) and idempotent re-registrations do not.
+#[test]
+fn barrier_epoch_moves_on_every_invalidating_event() {
+    let r = CctorRegistry::default();
+    let moved = |f: &dyn Fn()| { let e = r.barrier_epoch(); f(); r.barrier_epoch() != e };
+    assert!(moved(&|| r.register("A.C", "A.C.$cctor")), "a static constructor registered");
+    assert!(!moved(&|| r.register("A.C", "A.C.$cctor")), "re-registering is a no-op");
+    assert!(r.claim("A.C").unwrap().is_some());
+    assert!(!moved(&|| r.finish("A.C", None)), "a type finishing only makes barriers cheaper");
+    assert!(moved(&|| r.reset_for_rerun()), "a re-run generation");
+    let m = Arc::new(crate::metadata::TypeDesc {
+        class_flags: 0, visibility: 0, name: "Demo.$Module".to_string(), base_name: None,
+        fields: Vec::new(), field_index: crate::metadata::NameIndex::new(), vtable: Vec::new(),
+        vtable_index: crate::metadata::NameIndex::new(), cold: None,
+        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+    });
+    assert!(moved(&|| r.register_module_init(&m, FxHashSet::default())), "a package initializer registered");
+    r.register("Demo.$Module", "Demo.$Module.$init");
+    assert!(r.claim("Demo.$Module").unwrap().is_some());
+    r.finish("Demo.$Module", Some("boom".to_string()));
+    assert!(moved(&|| r.refresh_module_pending()), "a package initializer failed");
+    assert!(!moved(&|| r.refresh_module_pending()), "nothing changed since");
+}
+
+/// The barrier records its verdict in the field's cell only once it keeps passing for every thread.
+#[test]
+fn static_field_barrier_records_only_a_settled_verdict() {
+    let ctx = crate::vm_context::VmContext::new();
+    let id = ctx.resolve_static_field_id("Demo.Holder.Count");
+    let cell = || ctx.core.statics.cell(id).unwrap();
+    // No static constructor pending at all: settled.
+    assert!(ctx.ensure_static_field_init("Demo.Holder.Count", Some(id.0)).is_ok());
+    assert!(cell().barrier_ready(ctx.core.cctors.barrier_epoch()));
+    // A constructor registered elsewhere invalidates the record; the owner (no cctor) is exempt.
+    ctx.core.cctors.register("Other.C", "Other.C.$cctor");
+    assert!(!cell().barrier_ready(ctx.core.cctors.barrier_epoch()));
+    assert!(ctx.ensure_static_field_init("Demo.Holder.Count", Some(id.0)).is_ok());
+    assert!(cell().barrier_ready(ctx.core.cctors.barrier_epoch()));
+    // An explicit module (re)load forgets owners and verdicts.
+    ctx.forget_static_owners();
+    assert!(!cell().barrier_ready(ctx.core.cctors.barrier_epoch()));
+    // A site without a resolved id passes and records nothing.
+    assert!(ctx.ensure_static_field_init("Demo.Holder.Count", None).is_ok());
+    assert!(!cell().barrier_ready(ctx.core.cctors.barrier_epoch()));
+    // A package initializer still to run (here: running on this thread, so the barrier passes
+    // re-entrantly) is not settled.
+    let m = Arc::new(crate::metadata::TypeDesc {
+        class_flags: 0, visibility: 0, name: "Demo.$Module".to_string(), base_name: None,
+        fields: Vec::new(), field_index: crate::metadata::NameIndex::new(), vtable: Vec::new(),
+        vtable_index: crate::metadata::NameIndex::new(), cold: None,
+        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+    });
+    ctx.core.cctors.register_module_init(&m, FxHashSet::default());
+    ctx.core.cctors.register("Demo.$Module", "Demo.$Module.$init");
+    assert!(ctx.core.cctors.claim("Demo.$Module").unwrap().is_some());
+    assert!(ctx.ensure_static_field_init("Demo.Holder.Count", Some(id.0)).is_ok());
+    assert!(!cell().barrier_ready(ctx.core.cctors.barrier_epoch()), "re-entrant pass is not settled");
+}

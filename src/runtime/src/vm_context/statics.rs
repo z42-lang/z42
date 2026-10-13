@@ -50,6 +50,83 @@ impl VmContext {
         self.core.statics.set(id, &val)
     }
 
+    /// **The static-field barrier** — package initializers, then the owner type's static constructor —
+    /// for an access to `field` (`field_id` = its resolved id, `None` = a site without one). The one
+    /// implementation: the interpreter and the JIT helper call it, and JIT-compiled code inlines its
+    /// first line (`jit::translate::static_field`).
+    ///
+    /// Steady state: the field's cell records the barrier epoch at which the barrier was last found
+    /// a no-op (`StaticCell::barrier_ready`) — one relaxed load of the epoch plus one acquire load of
+    /// the cell. Any event that can make a passing barrier act again (a static constructor or package
+    /// initializer registered, a package initializer failing, a re-run generation, an explicit module
+    /// (re)load) moves the epoch on, and the next access re-runs the full barrier.
+    #[inline]
+    pub fn ensure_static_field_init(&self, field: &str, field_id: Option<u32>) -> Result<(), String> {
+        let cell = field_id.and_then(|id| self.core.statics.cell(crate::metadata::tokens::StaticFieldId(id)));
+        if let Some(c) = cell {
+            if c.barrier_ready(self.core.cctors.barrier_epoch()) {
+                return Ok(());
+            }
+        }
+        self.ensure_static_field_init_slow(field, field_id, cell)
+    }
+
+    #[inline(never)]
+    fn ensure_static_field_init_slow(
+        &self, field: &str, field_id: Option<u32>, cell: Option<&super::static_table::StaticCell>,
+    ) -> Result<(), String> {
+        // Read before the barrier runs (acquire: an invalidating event published before this epoch
+        // is visible below), so an event while it runs leaves the record stale instead of wrong.
+        let epoch = self.core.cctors.barrier_epoch_acquire();
+        // Reading / writing a cross-package static may have just loaded that package: package
+        // initializers run before the type initializer.
+        self.ensure_module_inits(Some(field))?;
+        self.ensure_static_owner_init(field, field_id)?;
+        if let Some(c) = cell {
+            if self.static_barrier_settled(c) {
+                c.mark_barrier_ready(epoch);
+            }
+        }
+        Ok(())
+    }
+
+    /// The barrier just passed for `cell`'s field and keeps passing, on every thread, until the epoch
+    /// moves: no package initializer left to run (one running on this thread re-entrantly passes but
+    /// is not settled), and no static constructor pending at all, or the owner is exempt, or its
+    /// initializer is done in the current generation (a re-entrant one passes but is not done).
+    fn static_barrier_settled(&self, cell: &super::static_table::StaticCell) -> bool {
+        use super::static_table::StaticOwner;
+        let cc = &self.core.cctors;
+        if cc.any_module_init_pending() {
+            return false;
+        }
+        if !cc.any_pending() {
+            return true;
+        }
+        match cell.owner() {
+            StaticOwner::Exempt => true,
+            StaticOwner::Check(td) => td.init_done_in(cc.generation()),
+            StaticOwner::Unknown => false,
+        }
+    }
+
+    /// Drop every cached static-field owner answer and barrier verdict (an explicit module (re)load
+    /// can redefine a type).
+    pub(crate) fn forget_static_owners(&self) {
+        self.core.statics.forget_owners();
+        self.core.cctors.invalidate_barriers();
+    }
+
+    /// What JIT-compiled code bakes for an access to static field `id`: the cell's address (stable —
+    /// `SegVec` never moves a cell) and the barrier epoch's. `None` for an id without a cell.
+    #[cfg(feature = "jit")]
+    pub(crate) fn jit_static_cell(
+        &self, id: u32,
+    ) -> Option<(*const super::static_table::StaticCell, *const std::sync::atomic::AtomicU32)> {
+        let cell = self.core.statics.cell(crate::metadata::tokens::StaticFieldId(id))?;
+        Some((cell as *const _, self.core.cctors.barrier_epoch_ptr()))
+    }
+
     /// Drop all static fields (used by `run_with_static_init` to ensure a
     /// clean slate before each entry-point run). Resets values to Null but
     /// **keeps the index** so previously-allocated `StaticFieldId`s stay

@@ -188,6 +188,11 @@ pub struct CctorRegistry {
     /// 与它毫无关系的调用也会被判成「触达」。文档一直写的是「之后每一次**触达**都会再抛」
     /// （`docs/reference/src/language/module-initializers.md`），实现却做成了「每一次调用」。
     module_failed: AtomicUsize,
+    /// 屏障纪元：一次「放行过的屏障可能不再放行」的事件就加一（从 1 起，单元的 0 = 从未放行）。
+    /// 事件 = 登记一个静态构造器 / 包初始化器、包初始化失败、重跑代际递增、显式模块（重）加载清空属主缓存。
+    /// 静态字段单元记下它放行时的纪元（`static_table::StaticCell::barrier_ready`），相等即整个屏障是空操作——
+    /// interp 与 JIT 内联快路读的是同一对字。只在上述冷事件里递增（每次都伴随加载或失败），不会回绕。
+    barrier_epoch: AtomicU32,
 }
 
 impl Default for CctorRegistry {
@@ -200,6 +205,7 @@ impl Default for CctorRegistry {
             module_inits: Mutex::default(),
             module_pending: AtomicUsize::new(0),
             module_failed: AtomicUsize::new(0),
+            barrier_epoch: AtomicU32::new(1),
         }
     }
 }
@@ -211,6 +217,25 @@ impl CctorRegistry {
     pub(crate) const MODULE_PENDING_OFFSET: usize = std::mem::offset_of!(CctorRegistry, module_pending);
     #[cfg(feature = "jit")]
     pub(crate) const MODULE_FAILED_OFFSET: usize = std::mem::offset_of!(CctorRegistry, module_failed);
+
+    /// 当前屏障纪元（见字段注释）；一次 relaxed load。
+    #[inline(always)]
+    pub(crate) fn barrier_epoch(&self) -> u32 { self.barrier_epoch.load(Ordering::Relaxed) }
+
+    /// [`Self::barrier_epoch`] for a slow path about to record a verdict under it: acquire, so every
+    /// state change published before the epoch moved is visible to the barrier that follows.
+    #[inline]
+    pub(crate) fn barrier_epoch_acquire(&self) -> u32 { self.barrier_epoch.load(Ordering::Acquire) }
+
+    /// 纪元字的地址：JIT 内联的静态字段快路把它烘焙进生成码（registry 与 JIT 同属 VmCore）。
+    #[cfg(feature = "jit")]
+    pub(crate) fn barrier_epoch_ptr(&self) -> *const AtomicU32 { &self.barrier_epoch }
+
+    /// 让所有已记下的「屏障已放行」失效。在引发它的状态变化**之后**调用（release）：读到新纪元的线程
+    /// 也看得到那次变化，于是不会拿旧结论记新纪元。
+    pub(crate) fn invalidate_barriers(&self) {
+        self.barrier_epoch.fetch_add(1, Ordering::Release);
+    }
 
     /// 当前初始化代际。快路比对用；一次 relaxed load。
     #[inline(always)]
@@ -238,6 +263,7 @@ impl CctorRegistry {
         // 否则一个曾 `Failed` 的 `$Module` 被复位成 `NotRun`，`module_pending` 却仍是 0，
         // 屏障不会再去跑它（`module_failed` 则停在 1，白走慢路）。锁已在上面的作用域里释放。
         self.refresh_module_pending();
+        self.invalidate_barriers();
     }
 
     /// 热路径的门。`false` ⇒ 全程序没有任何待初始化的 cctor，屏障可直接跳过。
@@ -273,6 +299,7 @@ impl CctorRegistry {
         }
         v.push(ModuleInitEntry { desc: Arc::clone(desc), owned });
         self.module_pending.fetch_add(1, Ordering::Release);
+        self.invalidate_barriers();
     }
 
     /// 当前登记的全部包初始化伪类型（快照；遍历时不持锁，避免初始化器重入时自锁）。
@@ -308,8 +335,12 @@ impl CctorRegistry {
                 _                           => remaining += 1,
             }
         }
-        self.module_pending.store(remaining, Ordering::Release);
-        self.module_failed.store(failed, Ordering::Release);
+        let was_remaining = self.module_pending.swap(remaining, Ordering::Release);
+        let was_failed = self.module_failed.swap(failed, Ordering::Release);
+        // 新出现的失败 / 又有待跑的初始化器：之前放行的屏障可能不再放行。
+        if failed != was_failed || remaining > was_remaining {
+            self.invalidate_barriers();
+        }
     }
 
     /// 热路径的门（失败侧）。`false` ⇒ 没有任何包处于初始化失败终态。
@@ -368,6 +399,7 @@ impl CctorRegistry {
         );
         // 计数在插入的同一把锁下自增，与它镜像的 map 内容保持一致。
         self.pending.fetch_add(1, Ordering::Release);
+        self.invalidate_barriers();
     }
 
     /// 认领一个类型的初始化权。返回：
@@ -527,15 +559,16 @@ impl crate::vm_context::VmContext {
             .is_some_and(|td| td.cctor_func().is_none())
     }
 
-    /// **静态字段访问的 cctor 屏障**（interp 与 JIT **共用同一实现**）。
+    /// **静态字段访问的 cctor 屏障**（interp 与 JIT **共用同一实现**）：静态字段屏障
+    /// （`VmContext::ensure_static_field_init`）在单元里没有当前纪元的放行记录时调它。
     ///
     /// 两个后端共用一份，是因为「两后端语义一致」正是这个特性最容易出错的地方——
     /// 各写一份迟早漂移。JIT 侧此前完全没有屏障，导致默认模式下静态构造器根本不跑
     /// （`__static_init__` 被强制走解释器，而用户代码走 JIT，两条路走的不是同一个
     /// StaticGet 实现），实测才发现。
     ///
-    /// 热路径代价 = 一次 relaxed load：`any_cctor_pending()` 在「程序里没有静态构造器」
-    /// 和「所有静态构造器都已跑完」两种情况下都为假，也就是绝大多数时间。
+    /// 代价 = 一次 relaxed load：`any_cctor_pending()` 在「程序里没有静态构造器」
+    /// 和「所有静态构造器都已跑完」两种情况下都为假。
     ///
     /// `field_id`（已解析的静态字段槽号）可用时，属主判定缓存在该字段的静态单元里
     /// （`static_table::StaticCell::owner`，整个 VM 共享、读无锁）：第一次照旧按名推属主（可能加载
