@@ -284,6 +284,10 @@ pub(crate) fn run_to_end(
         cmd.process_group(0);
     }
     let mut child = cmd.spawn().map_err(RunFail::Start)?;
+    // Windows has no process groups to signal: put the child in a job object instead, so a
+    // run-timeout terminates the whole tree (`TerminateJobObject`) — killing only `sh.exe`
+    // leaves a grandchild holding the inherited pipes and the reader joins below block.
+    let tree = TreeKill::for_child(&child, own_process_group);
 
     // Optional one-shot stdin payload (Pipe mode + .StdinBytes / .StdinString).
     if let Some(bytes) = stdin_bytes {
@@ -298,7 +302,7 @@ pub(crate) fn run_to_end(
     let stdout_h = child.stdout.take().map(|r| std::thread::spawn(move || read_all(r)));
     let stderr_h = child.stderr.take().map(|r| std::thread::spawn(move || read_all(r)));
 
-    let (status, timed_out) = wait_with_optional_timeout(&mut child, timeout_ms, own_process_group)
+    let (status, timed_out) = wait_with_optional_timeout(&mut child, timeout_ms, own_process_group, &tree)
         .map_err(|e| RunFail::Other(e.into()))?;
     let stdout = stdout_h.map(|h| h.join().unwrap_or_default()).unwrap_or_default();
     let stderr = stderr_h.map(|h| h.join().unwrap_or_default()).unwrap_or_default();
@@ -324,7 +328,7 @@ fn read_all(mut r: impl Read) -> Vec<u8> {
 /// child within one tick. No condvar / signal: stdlib-only path keeps
 /// the implementation portable.
 pub(crate) fn wait_with_optional_timeout(
-    child: &mut Child, timeout_ms: i64, own_process_group: bool,
+    child: &mut Child, timeout_ms: i64, own_process_group: bool, tree: &TreeKill,
 ) -> std::io::Result<(ExitStatus, bool)> {
     if timeout_ms < 0 {
         return Ok((child.wait()?, false));
@@ -334,7 +338,7 @@ pub(crate) fn wait_with_optional_timeout(
     loop {
         if let Some(s) = child.try_wait()? { return Ok((s, false)); }
         if start.elapsed() >= timeout {
-            kill_process_tree(child, own_process_group);
+            kill_process_tree(child, own_process_group, tree);
             let status = child.wait()?;
             return Ok((status, true));
         }
@@ -347,7 +351,10 @@ pub(crate) fn wait_with_optional_timeout(
 /// is the same flag that gated `process_group(0)` at spawn: only when the child was
 /// put in its OWN group (pgid == child pid) is `kill(-pid)` safe — otherwise a
 /// negative-pid kill would target the *caller's* group.
-fn kill_process_tree(child: &mut Child, own_process_group: bool) {
+///
+/// Windows: the child's job object (see [`TreeKill`]) is terminated, which ends every process
+/// in it — the grandchildren included.
+fn kill_process_tree(child: &mut Child, own_process_group: bool, tree: &TreeKill) {
     #[cfg(unix)]
     if own_process_group {
         // Safe: kill(2) on a negative pid targets the process group; a stale/no-such
@@ -357,7 +364,86 @@ fn kill_process_tree(child: &mut Child, own_process_group: bool) {
     }
     #[cfg(not(unix))]
     let _ = own_process_group;
+    tree.terminate();
     let _ = child.kill();
+}
+
+/// What a run-timeout kills besides the direct child. Unix: nothing extra — the child leads
+/// its own process group and `kill(-pid)` reaches the tree. Windows: a job object the child
+/// was assigned to right after spawn (`own_process_group` only, like the unix group), so
+/// `TerminateJobObject` ends the grandchildren too. A grandchild forked in the few
+/// microseconds before the assignment escapes the job — `sh` / `cmd` start far slower.
+pub(crate) struct TreeKill {
+    #[cfg(windows)]
+    job: Option<win_job::Job>,
+}
+
+impl TreeKill {
+    fn for_child(child: &Child, own_process_group: bool) -> Self {
+        #[cfg(windows)]
+        {
+            Self { job: if own_process_group { win_job::Job::for_child(child) } else { None } }
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = (child, own_process_group);
+            Self {}
+        }
+    }
+
+    fn terminate(&self) {
+        #[cfg(windows)]
+        if let Some(job) = &self.job {
+            job.terminate();
+        }
+    }
+}
+
+#[cfg(windows)]
+mod win_job {
+    use std::os::windows::io::AsRawHandle;
+
+    type Handle = *mut core::ffi::c_void;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn CreateJobObjectW(attributes: *mut core::ffi::c_void, name: *const u16) -> Handle;
+        fn AssignProcessToJobObject(job: Handle, process: Handle) -> i32;
+        fn TerminateJobObject(job: Handle, exit_code: u32) -> i32;
+        fn CloseHandle(handle: Handle) -> i32;
+    }
+
+    /// An unnamed job object owning one child's process tree; closed on drop.
+    pub(super) struct Job(Handle);
+
+    impl Job {
+        /// A fresh job with `child` assigned to it, or `None` if either call fails (the
+        /// timeout then falls back to killing the direct child only).
+        pub(super) fn for_child(child: &std::process::Child) -> Option<Job> {
+            // SAFETY: no security attributes, no name — creates a private job object.
+            let handle = unsafe { CreateJobObjectW(std::ptr::null_mut(), std::ptr::null()) };
+            if handle.is_null() {
+                return None;
+            }
+            let job = Job(handle);
+            // SAFETY: both handles are valid for the duration of the call; `child` owns its.
+            let ok = unsafe { AssignProcessToJobObject(job.0, child.as_raw_handle() as Handle) };
+            (ok != 0).then_some(job)
+        }
+
+        pub(super) fn terminate(&self) {
+            // SAFETY: `self.0` is a live job handle owned by this value.
+            unsafe { TerminateJobObject(self.0, 1) };
+        }
+    }
+
+    impl Drop for Job {
+        fn drop(&mut self) {
+            // SAFETY: closed exactly once; processes in the job keep running (no
+            // KILL_ON_JOB_CLOSE limit) — only a timeout terminates them.
+            unsafe { CloseHandle(self.0) };
+        }
+    }
 }
 
 /// Wait for a spawned child and drain its pipes. Both pipes piped → read them on

@@ -245,7 +245,7 @@ public class ProcessHandleInvalidException : InvalidOperationException {
 |---|---|---|
 | `ProcessStartException` | 子进程**根本没启动**（可执行文件找不到、`WorkingDirectory` 不存在、权限不足、fork/exec 失败）。`Run()` 与 `Spawn()` 都会抛 | `foo: No such file or directory (os error 2) (kind: NotFound)` |
 | `ProcessExitException` | **只有** `ProcessResult.EnsureSuccess()` 在退出码非零时抛 | ``process `sh` exited with code 7`` ，非空 stderr 时再跟一行 `stderr: <前 1024 字节，超出加 “…<truncated>”>` |
-| `ProcessTimeoutException` | `Run()` 超过 `Timeout(ms)`。子进程（连同它的进程组）已被杀并回收，调用方不需要再清理；`Program` / `TimeoutMs` 已填好 | ``process `sh` did not finish within 300ms`` |
+| `ProcessTimeoutException` | `Run()` 超过 `Timeout(ms)`。子进程连同它派生的整棵进程树已被杀并回收（Unix 上杀它的进程组，Windows 上终止它所在的 job object），调用方不需要再清理；`Program` / `TimeoutMs` 已填好 | ``process `sh` did not finish within 300ms`` |
 | `ProcessHandleInvalidException` | 对已 `Wait` / `TryWait`（有结果）/ `Dispose` 的句柄再操作 | ``process handle for `cat` is no longer valid (already waited, killed, or disposed)`` |
 | `InvalidOperationException` | 写一个没有 `Stdio.Pipe()`（或已关闭）的 stdin | `StandardIn has not been redirected (or was already closed).` |
 | `IOException` | 管道读写的底层失败（如写一个已关闭的 stdin：`Broken pipe (os error 32)`） | OS 原文 |

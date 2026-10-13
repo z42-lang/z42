@@ -12,12 +12,6 @@
 //!   - `run_argv_array_passes_args_literally`  (Git Bash `printf` handles
 //!     `%s\n` differently — emits no trailing newline)
 //!   - `run_working_directory_takes_effect`    (hardcoded `/tmp`)
-//!   - `run_timeout_fires_for_long_running_child`
-//!     (Real Windows process-tree kill defect: `child.kill()` on the
-//!     `sh.exe` parent does NOT propagate to the grandchild `sleep 5`;
-//!     the inherited pipe handle keeps stdout-reader thread blocked.
-//!     TODO: switch to `taskkill /T /F` or job-object-based kill on
-//!     Windows so timeouts terminate the whole tree.)
 
 use super::*;
 use crate::corelib::process::{STDIO_FILE, STDIO_NULL, STDIO_PIPE};
@@ -387,7 +381,6 @@ fn handle_invalid_after_drop() {
 
 // ── Phase 4: timeout ────────────────────────────────────────────────────
 
-#[cfg(unix)]
 #[test]
 fn run_timeout_fires_for_long_running_child() {
     let ctx = VmContext::new();
