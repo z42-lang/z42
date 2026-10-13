@@ -554,8 +554,8 @@ fn builtin_table_join_preserves_order_and_has_no_holes() {
     // 没有被填充值漏下来的空洞（padding 的名字是空串）。
     assert!(BUILTINS.iter().all(|(n, _)| !n.is_empty()),
         "a padding slot leaked into BUILTINS — the const join left a hole");
-    // 第一条仍是历史上的 BuiltinId 0。
-    assert_eq!(BUILTINS[0].0, "__println", "BuiltinId 0 must stay stable");
+    // 旧表在前、类型化 builtin（`TYPED`）在后。
+    assert!(matches!(BUILTINS[0].1, super::Native::Val(_) | super::Native::Void(_)), "the old table comes first");
     // 名字唯一——重复会让 name→id 索引静默丢掉一个实现。
     let mut names: Vec<&str> = BUILTINS.iter().map(|(n, _)| *n).collect();
     let total = names.len();

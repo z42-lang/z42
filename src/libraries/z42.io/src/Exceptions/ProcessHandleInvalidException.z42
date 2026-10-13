@@ -2,8 +2,9 @@ namespace Std.IO;
 
 // 2026-05-13 add-std-process: 在 `ProcessHandle` 已 `Wait` / `Dispose` /
 // `Kill+wait reaped` 之后调用任何方法时抛出。也包括 slot id 在 VM 侧
-// 找不到的边界情况（通常意味着 user-after-free 误用）。
-public class ProcessHandleInvalidException : Exception {
+// 找不到的边界情况（通常意味着 user-after-free 误用）。继承 InvalidOperationException（.NET 对
+// 没有关联进程的 Process 抛的就是它）。
+public class ProcessHandleInvalidException : InvalidOperationException {
     public string Program;
 
     public ProcessHandleInvalidException(string program)

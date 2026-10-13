@@ -6,7 +6,7 @@
 //! this file, so `corelib/fs.rs` carries zero `#[cfg(...)]` for these ops
 //! (mirrors the Phase 1 `pal/system.rs` shape).
 
-use anyhow::Result;
+use std::io::Result;
 
 /// Add execute permission (`u+x,g+x,o+x`) to `path`. No-op on platforms where
 /// executability isn't a permission bit — NTFS decides by file extension, not
@@ -30,14 +30,12 @@ fn make_executable_impl(path: &str) -> Result<()> {
     let mut perms = std::fs::metadata(path)?.permissions();
     let mode = perms.mode() | 0o111;
     perms.set_mode(mode);
-    std::fs::set_permissions(path, perms)?;
-    Ok(())
+    std::fs::set_permissions(path, perms)
 }
 
 #[cfg(unix)]
 fn symlink_impl(src: &str, dst: &str) -> Result<()> {
-    std::os::unix::fs::symlink(src, dst)?;
-    Ok(())
+    std::os::unix::fs::symlink(src, dst)
 }
 
 // ── non-unix impls (windows / wasm today) ─────────────────────────────────────
@@ -51,7 +49,7 @@ fn make_executable_impl(path: &str) -> Result<()> {
 #[cfg(not(unix))]
 fn symlink_impl(src: &str, dst: &str) -> Result<()> {
     let _ = (src, dst);
-    anyhow::bail!("File.SymLink: not implemented on this platform")
+    Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "File.SymLink: not implemented on this platform"))
 }
 
 #[cfg(test)]

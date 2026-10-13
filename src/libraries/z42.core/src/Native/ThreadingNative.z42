@@ -10,7 +10,7 @@
 // 声明在 core 不影响按需加载（见 organization.md 澄清段）。
 namespace Std.Threading;
 
-// __thread_spawn / __thread_sleep / __thread_join（Thread 应用层用）。
+// __thread_spawn / __thread_sleep / __thread_wait（Thread 应用层用）。
 public static class ThreadNative {
     [Native("__thread_spawn")]
     public static extern long Spawn(object action);
@@ -19,6 +19,12 @@ public static class ThreadNative {
     [Native("__thread_sleep")]
     public static extern void Sleep(long millis);
 
+    // worker 抛过异常 / panic / 重复 Join → VM 直接抛 Std.Threading.ThreadException。
+    [Native("__thread_wait")]
+    public static extern void Wait(long slotId);
+
+    // STAGE2-DEBT(legacy-thread-join-decl): 种子的 z42.threading 不再调 ThreadNative.Join 后删掉它（连同 VM 的 __thread_join）。
+    // 种子兼容：返回 [KIND, msg] 判别数组；已发布种子的 z42.threading 仍调它。
     [Native("__thread_join")]
     public static extern object[] Join(long slotId);
 }

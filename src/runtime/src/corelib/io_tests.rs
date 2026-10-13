@@ -17,6 +17,16 @@ fn ctx() -> std::pin::Pin<Box<VmContext>> {
     VmContext::new()
 }
 
+fn builtin_println(c: &VmContext, args: &[Value]) -> anyhow::Result<()> {
+    crate::corelib::exec_builtin(c, "__println", args).map(|_| ())
+}
+fn builtin_print(c: &VmContext, args: &[Value]) -> anyhow::Result<()> {
+    crate::corelib::exec_builtin(c, "__print", args).map(|_| ())
+}
+fn builtin_eprintln(c: &VmContext, args: &[Value]) -> anyhow::Result<()> {
+    crate::corelib::exec_builtin(c, "__eprintln", args).map(|_| ())
+}
+
 fn s(text: &str) -> Value {
     Value::Str(text.to_string().into())
 }
@@ -118,4 +128,28 @@ fn take_on_empty_stack_returns_empty_string() {
     // Defensive: should not panic on extra take.
     let s = take_stdout();
     assert_eq!(s, "");
+}
+
+// `Console.ReadLine` reads one line without its terminator and answers "" at end of
+// input (the stdlib declares `string`, not `string?`).
+#[test]
+fn read_line_strips_the_terminator_and_is_empty_at_eof() {
+    let mut r = std::io::Cursor::new(b"first\r\nsecond\nlast".to_vec());
+    assert_eq!(read_line_from(&mut r).unwrap(), "first");
+    assert_eq!(read_line_from(&mut r).unwrap(), "second");
+    assert_eq!(read_line_from(&mut r).unwrap(), "last");
+    assert_eq!(read_line_from(&mut r).unwrap(), "");
+    assert_eq!(read_line_from(&mut r).unwrap(), "", "EOF stays EOF");
+    let mut bad = std::io::Cursor::new(vec![0xff, b'\n']);
+    assert!(read_line_from(&mut bad).is_err(), "invalid UTF-8 is an error (IOException)");
+}
+
+// A write to the process stdout runs parked; a capture sink takes the text unparked.
+#[test]
+fn console_write_to_a_capture_sink_does_not_park() {
+    let c = ctx();
+    install_stdout();
+    builtin_println(&c, &[s("captured")]).unwrap();
+    assert_eq!(take_stdout(), "captured\n");
+    assert_eq!(c.core.parked_count.load(std::sync::atomic::Ordering::Acquire), 0);
 }

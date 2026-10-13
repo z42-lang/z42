@@ -122,8 +122,10 @@ public class Process {
 
     // ── Run / Spawn ──────────────────────────────────────────────────────
 
+    // 启动失败抛 ProcessStartException、超时抛 ProcessTimeoutException（VM 直接抛，见
+    // z42.core 的 ProcessNative）。退出码非 0 不抛——要 fail-fast 就调 EnsureSuccess()。
     public ProcessResult Run() {
-        object[] raw = ProcessNative.Run(
+        object[] raw = ProcessNative.RunSync(
             this._program,
             Trim(this._args,      this._argCount),
             Trim(this._envKeys,   this._envCount),
@@ -139,27 +141,7 @@ public class Process {
             this._stderr.GetMode() == Stdio.ModeFile ? this._stderr.GetPath() : null,
             this._timeoutMs,
             this._ownProcessGroup);
-
-        long kind = (long)raw[0];
-        if (kind == 1) {
-            // ProcessStartException — program not found / permission denied / etc.
-            string prog = (string)raw[1];
-            string err  = (string)raw[2];
-            throw new ProcessStartException(prog + ": " + err);
-        }
-        if (kind == 2) {
-            string prog = (string)raw[1];
-            long   ms   = (long)raw[2];
-            throw new ProcessTimeoutException(prog, ms);
-        }
-        // kind == 0 (ok)
-        return new ProcessResult(
-            this._program,
-            (int)(long)raw[1],
-            (string)raw[2],
-            (string)raw[3],
-            (byte[])raw[4],
-            (byte[])raw[5]);
+        return ProcessResult.FromNative(this._program, raw);
     }
 
     // ── Static helpers ───────────────────────────────────────────────────
@@ -179,8 +161,9 @@ public class Process {
         return ProcessNative.Which(name);
     }
 
+    // 启动失败抛 ProcessStartException。
     public ProcessHandle Spawn() {
-        object[] raw = ProcessNative.Spawn(
+        long slotId = ProcessNative.Start(
             this._program,
             Trim(this._args,      this._argCount),
             Trim(this._envKeys,   this._envCount),
@@ -189,18 +172,10 @@ public class Process {
             this._envClear,
             this._hasCwd ? this._cwd : null,
             this._stdin.GetMode(),
-            null,   // stdin_bytes — Spawn streams via handle, not one-shot
             this._stdout.GetMode(),
             this._stdout.GetMode() == Stdio.ModeFile ? this._stdout.GetPath() : null,
             this._stderr.GetMode(),
             this._stderr.GetMode() == Stdio.ModeFile ? this._stderr.GetPath() : null);
-
-        long kind = (long)raw[0];
-        if (kind == 1) {
-            throw new ProcessStartException((string)raw[1] + ": " + (string)raw[2]);
-        }
-        // kind == 0 (ok): raw[1] is the slot id.
-        long slotId = (long)raw[1];
         return new ProcessHandle(this._program, slotId);
     }
 

@@ -1,178 +1,173 @@
-//! `Std.IO.Process` builtins — cross-platform command execution.
+//! `Std.IO.Process` builtins — cross-platform command execution (builtin ABI v2).
 //!
-//! All Windows / macOS / Linux differences (PATH lookup, PATHEXT,
-//! CreateProcess vs fork-exec, signals vs TerminateProcess) are
-//! delegated to `std::process::Command`. This module is a thin marshal
-//! layer between z42 `Value`s and Rust's process API.
+//! All Windows / macOS / Linux differences (PATH lookup, PATHEXT, CreateProcess vs
+//! fork-exec, signals vs TerminateProcess) are delegated to `std::process::Command`.
 //!
 //! ## Architecture
 //!
-//! z42 `Process` is a pure facade: builder methods accumulate fields,
-//! `Run()` / `Spawn()` make a single `[Native("__process_*")]` call
-//! that decodes the field bundle into `std::process::Command`. Live
-//! children launched by `Spawn` are kept in [`VmContext.processes`]
-//! keyed by a monotonic slot id; the z42 `ProcessHandle` holds only
-//! that id.
+//! z42 `Process` is a pure facade: builder methods accumulate fields, `Run()` / `Spawn()`
+//! make a single `[Native]` call that decodes the field bundle ([`CommandSpec`]) into a
+//! `Command`. Live children launched by `Spawn` are kept in `VmCore.processes` keyed by a
+//! monotonic slot id; the z42 `ProcessHandle` holds only that id.
 //!
-//! ## Return shape (`__process_run`)
+//! - **Failures throw from Rust** (the `typed` module) — no `[KIND, …]` arrays. The
+//!   mapping is .NET-shaped; `Process.Start`'s `Win32Exception` does not exist in z42, so
+//!   `ProcessStartException` takes its place under `IOException`:
 //!
-//! Heterogeneous `Value::Array` with leading discriminator so the z42
-//! facade can route ok / start-failure / timeout uniformly:
+//!   | failure | exception (fallback when `z42.io` is not loaded) |
+//!   |---|---|
+//!   | the child could not be started (missing executable / cwd, permission, fork / exec) | `Std.IO.ProcessStartException : IOException` |
+//!   | `Run()` exceeded `Timeout(ms)` (the child was killed and reaped) | `Std.IO.ProcessTimeoutException : TimeoutException`, `Program` / `TimeoutMs` set |
+//!   | a handle already waited / disposed, or an unknown slot | `Std.IO.ProcessHandleInvalidException : InvalidOperationException` |
+//!   | writing stdin that is not `Stdio.Pipe()` (or was closed) | `InvalidOperationException` (.NET: `StandardIn has not been redirected.`) |
+//!   | `Stdio.ToFile` on stdin | `NotSupportedException` |
+//!   | a `Stdio.ToFile` target cannot be created | the file-system mapping (`fs::fs_error`) |
+//!   | an I/O error on a pipe (a dead child's stdin: `EPIPE`) | `IOException` |
+//!   | a malformed field bundle (mode out of range, env keys / values of different length) | `ArgumentOutOfRangeException` / `ArgumentException` |
 //!
-//! ```text
-//! [I64(0), I64(exit_code), Str(stdout), Str(stderr),
-//!  Array(stdout_bytes_as_i64), Array(stderr_bytes_as_i64)]   // ok
-//! [I64(1), Str(program), Str(os_error_message)]              // start failure
-//! [I64(2), Str(program), I64(timeout_ms)]                    // timeout (Phase 4)
-//! ```
+//! - **Every call that waits on the child runs parked** — spawn, the one-shot stdin write,
+//!   wait, drain, streaming reads and writes, the reap in `Dispose`. Pipes have their own
+//!   locks ([`Pipe`]): a call clones the pipe out under the table lock and does the I/O
+//!   after dropping it.
 //!
-//! `__process_spawn` returns `Value::I64(slot_id)`; subsequent
-//! `__process_handle_*` builtins take `slot_id` as arg 0.
-//!
-//! See [`变更 add-std-process/design.md`].
+//! The older builtins (`__process_run` / `__process_spawn` / `__process_handle_*`, which
+//! return discriminated arrays) live in `process_legacy.rs` — the published seed's stdlib
+//! still calls them. They share the helpers here.
 
-use super::convert::{arg_str, arg_i64, arg_bool};
+use crate::corelib::abi::{BuiltinError, CallResult, FieldInit, IntoRet, PlainRet, RetKind};
 use crate::metadata::Value;
 use crate::vm_context::VmContext;
-use anyhow::{anyhow, bail, Result};
-use std::io::Write;
-use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
+use std::io::{Read, Write};
+use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus, Stdio};
 
-const STDIO_NULL:    i64 = 0;
-const STDIO_INHERIT: i64 = 1;
-const STDIO_PIPE:    i64 = 2;
-const STDIO_FILE:    i64 = 3;
-
-const KIND_OK:        i64 = 0;
-const KIND_START_ERR: i64 = 1;
-const KIND_TIMEOUT:   i64 = 2;
+pub(crate) const STDIO_NULL:    i64 = 0;
+pub(crate) const STDIO_INHERIT: i64 = 1;
+pub(crate) const STDIO_PIPE:    i64 = 2;
+pub(crate) const STDIO_FILE:    i64 = 3;
 
 /// One live spawned child plus optionally-captured stdio handles.
 ///
-/// `child` is `Option` so methods that move the child out (`wait`,
-/// `kill` followed by reap) can leave the slot in a consumed state
-/// without removing it from the map — the next operation observes
-/// `None` and reports `ProcessHandleInvalidException`.
+/// `child` is `Option` so methods that move the child out can leave the slot in a
+/// consumed state; the next operation observes `None` and reports an invalid handle.
 ///
 /// **fix-park-blocking-natives (2026-09-14)**: each pipe has its own lock. A streaming
 /// read / stdin write blocks for as long as the child likes, and it must do so parked and
 /// *outside* the process-table lock — any thread waiting on that shared lock is unparked,
 /// so one blocked read would stall every collection. Callers clone the `Arc` under the
-/// table lock, drop it, then lock the pipe inside a `NativeParkGuard`.
+/// table lock, drop it, then lock the pipe parked.
 pub struct ProcessSlot {
+    /// The program the slot was spawned from (exception messages / `Program` fields).
+    pub program:       String,
     pub child:         Option<Child>,
     pub stdin_writer:  Option<Pipe<ChildStdin>>,
     pub stdout_reader: Option<Pipe<ChildStdout>>,
     pub stderr_reader: Option<Pipe<ChildStderr>>,
-    /// Total wall-clock timeout for `__process_run` paths; `None` for
-    /// `__process_spawn` (timeouts apply only to the synchronous Run).
+    /// Total wall-clock timeout for run paths; `None` for spawned children (timeouts
+    /// apply only to the synchronous Run).
     pub timeout:       Option<std::time::Duration>,
 }
 
 pub type Pipe<T> = std::sync::Arc<parking_lot::Mutex<T>>;
 
-fn pipe<T>(end: Option<T>) -> Option<Pipe<T>> {
+pub(crate) fn pipe<T>(end: Option<T>) -> Option<Pipe<T>> {
     end.map(|e| std::sync::Arc::new(parking_lot::Mutex::new(e)))
 }
 
-// ── arg-parsing helpers ──────────────────────────────────────────────────
-//
-// `arg_str` / `arg_i64` / `arg_bool` come from convert.rs (refactor-corelib-
-// typed-extractors, 2026-05-17). File-local helpers below cover the shapes
-// not in the shared layer: Vec<String> (env_keys / argv) and Option<String>
-// (cwd null-or-set).
-
-/// Accept `Value::Str` or `Value::Null` — null means "not set, fall through".
-fn optional_str(args: &[Value], idx: usize, ctx: &str) -> Result<Option<String>> {
-    match args.get(idx) {
-        Some(Value::Str(s)) => Ok(Some(s.to_string())),
-        Some(Value::Null)   => Ok(None),
-        Some(other) => bail!("{}: arg {} expected string or null, got {:?}", ctx, idx, other),
-        None        => bail!("{}: missing arg {}", ctx, idx),
-    }
-}
-
-fn require_str_array(args: &[Value], idx: usize, ctx: &str) -> Result<Vec<String>> {
-    match args.get(idx) {
-        Some(Value::Array(rc)) => {
-            let borrowed = rc.borrow();
-            let mut out = Vec::with_capacity(borrowed.len());
-            for (i, v) in borrowed.iter_boxed().enumerate() {
-                match v {
-                    Value::Str(s) => out.push(s.to_string()),
-                    other => bail!("{}: arg {} element {} expected string, got {:?}", ctx, idx, i, other),
-                }
-            }
-            Ok(out)
+impl ProcessSlot {
+    /// A freshly spawned child, its pipes moved into their own locks.
+    pub(crate) fn spawned(program: String, mut child: Child) -> Self {
+        ProcessSlot {
+            program,
+            stdin_writer:  pipe(child.stdin.take()),
+            stdout_reader: pipe(child.stdout.take()),
+            stderr_reader: pipe(child.stderr.take()),
+            child:         Some(child),
+            timeout:       None,
         }
-        Some(other) => bail!("{}: arg {} expected string array, got {:?}", ctx, idx, other),
-        None        => bail!("{}: missing arg {}", ctx, idx),
     }
 }
 
-/// Accept `Value::Array<u8-as-i64>` or `Value::Null`.
-fn optional_byte_array(args: &[Value], idx: usize, ctx: &str) -> Result<Option<Vec<u8>>> {
-    match args.get(idx) {
-        Some(Value::Null) => Ok(None),
-        Some(Value::Array(rc)) => {
-            let borrowed = rc.borrow();
-            let mut out = Vec::with_capacity(borrowed.len());
-            for (i, v) in borrowed.iter_boxed().enumerate() {
-                match v {
-                    Value::I64(n) if (0..=255).contains(&n) => out.push(n as u8),
-                    other => bail!(
-                        "{}: arg {} byte {} not a u8 in 0..=255: {:?}",
-                        ctx, idx, i, other),
-                }
-            }
-            Ok(Some(out))
+// ── the command ──────────────────────────────────────────────────────────
+
+/// The field bundle a z42 `Process` builder passes (`Process.Run` / `Spawn`).
+pub(crate) struct CommandSpec {
+    pub program:     String,
+    pub argv:        Vec<String>,
+    pub env_keys:    Vec<String>,
+    pub env_vals:    Vec<String>,
+    pub env_remove:  Vec<String>,
+    pub env_clear:   bool,
+    pub cwd:         Option<String>,
+    pub stdin_mode:  i64,
+    pub stdout_mode: i64,
+    pub stdout_path: Option<String>,
+    pub stderr_mode: i64,
+    pub stderr_path: Option<String>,
+}
+
+impl CommandSpec {
+    /// The `Command`. Opens `Stdio.ToFile` targets — file I/O, so callers run it parked.
+    pub(crate) fn command(&self) -> Result<Command, BuiltinError> {
+        if self.env_keys.len() != self.env_vals.len() {
+            return Err(BuiltinError::Argument(format!(
+                "env keys / values length mismatch ({} vs {})", self.env_keys.len(), self.env_vals.len())));
         }
-        Some(other) => bail!("{}: arg {} expected byte array or null, got {:?}", ctx, idx, other),
-        None        => bail!("{}: missing arg {}", ctx, idx),
+        let mut cmd = Command::new(&self.program);
+        cmd.args(&self.argv);
+        if self.env_clear { cmd.env_clear(); }
+        for (k, v) in self.env_keys.iter().zip(self.env_vals.iter()) {
+            cmd.env(k, v);
+        }
+        for k in &self.env_remove {
+            cmd.env_remove(k);
+        }
+        if let Some(d) = &self.cwd {
+            cmd.current_dir(d);
+        }
+        cmd.stdin(stdio_for_input(self.stdin_mode)?);
+        cmd.stdout(stdio_for_output(self.stdout_mode, self.stdout_path.as_deref(), "stdout")?);
+        cmd.stderr(stdio_for_output(self.stderr_mode, self.stderr_path.as_deref(), "stderr")?);
+        Ok(cmd)
     }
 }
 
-// ── stdio configuration ─────────────────────────────────────────────────
+fn mode_out_of_range(which: &str, mode: i64) -> BuiltinError {
+    BuiltinError::ArgumentOutOfRange(format!(
+        "{which} mode {mode} is out of range (0 = Null, 1 = Inherit, 2 = Pipe, 3 = ToFile)"))
+}
 
-fn stdio_for_input(mode: i64, path: Option<&str>) -> Result<Stdio> {
+fn stdio_for_input(mode: i64) -> Result<Stdio, BuiltinError> {
+    match mode {
+        STDIO_NULL    => Ok(Stdio::null()),
+        STDIO_INHERIT => Ok(Stdio::inherit()),
+        STDIO_PIPE    => Ok(Stdio::piped()),
+        STDIO_FILE    => Err(BuiltinError::NotSupported(
+            "Stdio.ToFile is not supported for stdin; read the file and pass it with StdinBytes".into())),
+        _ => Err(mode_out_of_range("stdin", mode)),
+    }
+}
+
+fn stdio_for_output(mode: i64, path: Option<&str>, which: &str) -> Result<Stdio, BuiltinError> {
     match mode {
         STDIO_NULL    => Ok(Stdio::null()),
         STDIO_INHERIT => Ok(Stdio::inherit()),
         STDIO_PIPE    => Ok(Stdio::piped()),
         STDIO_FILE    => {
-            let p = path.ok_or_else(|| anyhow!("stdin Stdio.ToFile missing path"))?;
-            Ok(Stdio::from(std::fs::File::open(p)?))
+            let p = path.ok_or_else(|| BuiltinError::ArgumentNull(format!(
+                "Value cannot be null. (Parameter '{which}Path')")))?;
+            std::fs::OpenOptions::new().write(true).create(true).truncate(true).open(p)
+                .map(Stdio::from)
+                .map_err(|e| super::fs::fs_error(e, p, super::fs::PathRole::Create))
         }
-        _ => bail!("invalid stdin mode {}", mode),
+        _ => Err(mode_out_of_range(which, mode)),
     }
 }
 
-fn stdio_for_output(mode: i64, path: Option<&str>) -> Result<Stdio> {
-    match mode {
-        STDIO_NULL    => Ok(Stdio::null()),
-        STDIO_INHERIT => Ok(Stdio::inherit()),
-        STDIO_PIPE    => Ok(Stdio::piped()),
-        STDIO_FILE    => {
-            let p = path.ok_or_else(|| anyhow!("stdout/stderr Stdio.ToFile missing path"))?;
-            Ok(Stdio::from(std::fs::OpenOptions::new()
-                .write(true).create(true).truncate(true).open(p)?))
-        }
-        _ => bail!("invalid stdout/stderr mode {}", mode),
-    }
-}
+// ── outcomes ─────────────────────────────────────────────────────────────
 
-// ── result encoding ──────────────────────────────────────────────────────
-
-fn bytes_to_value_array(ctx: &VmContext, bytes: Vec<u8>) -> Value {
-    let elems: Vec<Value> = bytes.into_iter().map(|b| Value::I64(b as i64)).collect();
-    ctx.heap().alloc_array(elems)
-}
-
-fn ok_result(ctx: &VmContext, status: std::process::ExitStatus,
-             stdout_bytes: Vec<u8>, stderr_bytes: Vec<u8>) -> Value {
-    // Unix: killed by signal → code() is None; encode as 128 + signal
-    // (matches sh convention). Windows: code() is always Some.
-    let exit_code: i64 = match status.code() {
+/// Unix: killed by signal → `code()` is `None`; encode as 128 + signal (the sh convention).
+pub(crate) fn exit_code_of(status: ExitStatus) -> i64 {
+    match status.code() {
         Some(c) => c as i64,
         None => {
             #[cfg(unix)]
@@ -183,174 +178,154 @@ fn ok_result(ctx: &VmContext, status: std::process::ExitStatus,
             #[cfg(not(unix))]
             { -1 }
         }
+    }
+}
+
+/// An exited child's status and captured output — plain data, built into the result
+/// array `[exitCode, stdout, stderr, stdoutBytes, stderrBytes]` only after unparking.
+pub struct RunOutput {
+    pub status: ExitStatus,
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
+}
+
+impl IntoRet for RunOutput {
+    const KIND: RetKind = RetKind::Any;
+    fn into_ret(self, ctx: &VmContext) -> CallResult {
+        let out = Value::Str(String::from_utf8_lossy(&self.stdout).into_owned().into());
+        let err = Value::Str(String::from_utf8_lossy(&self.stderr).into_owned().into());
+        let out_bytes = ctx.heap().alloc_bytes(self.stdout);
+        let err_bytes = ctx.heap().alloc_bytes(self.stderr);
+        let code = Value::I64(exit_code_of(self.status));
+        Ok(Some(ctx.heap().alloc_array(vec![code, out, err, out_bytes, err_bytes])))
+    }
+}
+impl PlainRet for RunOutput {}
+
+/// `TryWait`: `None` = still running (→ null).
+pub struct MaybeExited(pub Option<RunOutput>);
+
+impl IntoRet for MaybeExited {
+    const KIND: RetKind = RetKind::Any;
+    fn into_ret(self, ctx: &VmContext) -> CallResult {
+        match self.0 {
+            None => Ok(Some(Value::Null)),
+            Some(out) => out.into_ret(ctx),
+        }
+    }
+}
+impl PlainRet for MaybeExited {}
+
+/// Why a synchronous run produced no output.
+pub(crate) enum RunFail {
+    /// `Command::spawn` failed — the child never ran.
+    Start(std::io::Error),
+    /// The timeout fired; the child was killed and reaped.
+    TimedOut,
+    Other(BuiltinError),
+}
+
+impl From<BuiltinError> for RunFail {
+    fn from(e: BuiltinError) -> Self { RunFail::Other(e) }
+}
+
+/// The start-failure text: `<program>: <OS error> (kind: <ErrorKind>)`.
+pub(crate) fn start_message(program: &str, e: &std::io::Error) -> String {
+    format!("{program}: {e} (kind: {:?})", e.kind())
+}
+
+pub(crate) fn start_error(program: &str, e: &std::io::Error) -> BuiltinError {
+    BuiltinError::detailed(
+        &["Std.IO.ProcessStartException", "Std.IO.IOException"], start_message(program, e), vec![])
+}
+
+pub(crate) fn timeout_error(program: &str, timeout_ms: i64) -> BuiltinError {
+    BuiltinError::detailed(
+        &["Std.IO.ProcessTimeoutException", "Std.TimeoutException"],
+        format!("process `{program}` did not finish within {timeout_ms}ms"),
+        vec![("Program", FieldInit::Str(program.to_string())), ("TimeoutMs", FieldInit::I64(timeout_ms))])
+}
+
+/// The handle has no child any more (already waited / disposed), or the slot is unknown.
+pub(crate) fn handle_invalid(program: Option<&str>, slot: i64) -> BuiltinError {
+    let (message, fields) = match program {
+        Some(p) => (format!("process handle for `{p}` is no longer valid (already waited, killed, or disposed)"),
+                    vec![("Program", FieldInit::Str(p.to_string()))]),
+        None => (format!("process handle #{slot} is no longer valid (already waited, killed, or disposed)"), vec![]),
     };
-    let stdout_str = String::from_utf8_lossy(&stdout_bytes).into_owned();
-    let stderr_str = String::from_utf8_lossy(&stderr_bytes).into_owned();
-    let stdout_arr = bytes_to_value_array(ctx, stdout_bytes);
-    let stderr_arr = bytes_to_value_array(ctx, stderr_bytes);
-    ctx.heap().alloc_array(vec![
-        Value::I64(KIND_OK),
-        Value::I64(exit_code),
-        Value::Str(stdout_str.into()),
-        Value::Str(stderr_str.into()),
-        stdout_arr,
-        stderr_arr,
-    ])
+    BuiltinError::detailed(
+        &["Std.IO.ProcessHandleInvalidException", "Std.InvalidOperationException"], message, fields)
 }
 
-fn start_err_result(ctx: &VmContext, program: &str, err: &std::io::Error) -> Value {
-    ctx.heap().alloc_array(vec![
-        Value::I64(KIND_START_ERR),
-        Value::Str(program.to_string().into()),
-        Value::Str(format!("{} (kind: {:?})", err, err.kind()).into()),
-    ])
-}
+// ── running ──────────────────────────────────────────────────────────────
 
-fn timeout_result(ctx: &VmContext, program: &str, timeout_ms: i64) -> Value {
-    ctx.heap().alloc_array(vec![
-        Value::I64(KIND_TIMEOUT),
-        Value::Str(program.to_string().into()),
-        Value::I64(timeout_ms),
-    ])
-}
-
-// ── __process_run ────────────────────────────────────────────────────────
-
-/// Synchronous run: spawn, optionally feed stdin bytes, wait_with_output,
-/// return result tuple. Timeout (`timeout_ms >= 0`) lands in Phase 4 —
-/// for now arg 13 is parsed but only -1 (no timeout) is honoured; any
-/// other value yields a Phase 4 placeholder error.
-pub fn builtin_process_run(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    const NAME: &str = "__process_run";
-
-    let program     = arg_str(args, 0, NAME)?;
-    let argv        = require_str_array(args, 1, NAME)?;
-    let env_keys    = require_str_array(args, 2, NAME)?;
-    let env_vals    = require_str_array(args, 3, NAME)?;
-    let env_remove  = require_str_array(args, 4, NAME)?;
-    let env_clear   = arg_bool(args, 5, NAME)?;
-    let cwd         = optional_str(args, 6, NAME)?;
-    let stdin_mode  = arg_i64(args, 7, NAME)?;
-    let stdin_bytes = optional_byte_array(args, 8, NAME)?;
-    let stdout_mode = arg_i64(args, 9, NAME)?;
-    let stdout_path = optional_str(args, 10, NAME)?;
-    let stderr_mode = arg_i64(args, 11, NAME)?;
-    let stderr_path = optional_str(args, 12, NAME)?;
-    let timeout_ms  = arg_i64(args, 13, NAME)?;
-    // arg 14 (own_process_group): `true`/absent → child gets its OWN process group
-    // (the default, so a run-timeout can tree-kill it — see below). `false` → child
-    // stays in the caller's process group, needed when it must join the caller's
-    // terminal job-control (e.g. `z42 repl` forwarding an interactive REPL that drives
-    // the tty). Read defensively (absent → true) so old zpkgs that pass only 14 args
-    // keep working on a new VM and vice-versa — no arity/two-nightly coupling.
-    let own_process_group = match args.get(14) {
-        Some(Value::Bool(b)) => *b,
-        _ => true,
-    };
-
-    if env_keys.len() != env_vals.len() {
-        bail!("{}: env_keys / env_vals length mismatch ({} vs {})",
-              NAME, env_keys.len(), env_vals.len());
-    }
-
-    let mut cmd = Command::new(&program);
-    cmd.args(&argv);
-
-    if env_clear { cmd.env_clear(); }
-    for (k, v) in env_keys.iter().zip(env_vals.iter()) {
-        cmd.env(k, v);
-    }
-    for k in &env_remove {
-        cmd.env_remove(k);
-    }
-    if let Some(d) = &cwd {
-        cmd.current_dir(d);
-    }
-
-    cmd.stdin (stdio_for_input (stdin_mode,  None)?);
-    cmd.stdout(stdio_for_output(stdout_mode, stdout_path.as_deref())?);
-    cmd.stderr(stdio_for_output(stderr_mode, stderr_path.as_deref())?);
-
+/// Synchronous run: spawn, feed the optional one-shot stdin payload, wait (with the
+/// optional timeout), collect piped output. Blocks for as long as the child runs — the
+/// caller is parked.
+pub(crate) fn run_to_end(
+    spec: &CommandSpec, stdin_bytes: Option<Vec<u8>>, timeout_ms: i64, own_process_group: bool,
+) -> Result<RunOutput, RunFail> {
+    let mut cmd = spec.command()?;
     // Put the child in its own process group (pgid == child pid) so a run-timeout
     // can kill the WHOLE tree, not just the direct child. Without this, `sh -c
     // "sleep 5"` that forks a `sleep` grandchild leaves the orphaned grandchild
     // holding the inherited stdout/stderr pipe write-ends open — the reader-thread
-    // join below then blocks until the grandchild exits naturally (the timeout is
-    // detected correctly but the call returns ~5s late). See wait_with_optional_timeout.
+    // join below then blocks until the grandchild exits naturally.
     //
     // Opt-out (own_process_group == false): keep the child in the caller's process
     // group. Required for an interactive passthrough child that must control the tty
     // — a fresh process group is a *background* group for the controlling terminal, so
     // the child can't grab the tty (line editor fails) and its tty reads stop on SIGTTIN.
-    // `z42 repl` forwards the interactive REPL this way; there is never a run-timeout on
-    // an interactive Inherit-stdin child, so the tree-kill rationale above does not apply.
+    // There is never a run-timeout on an interactive Inherit-stdin child, so the
+    // tree-kill rationale above does not apply.
     #[cfg(unix)]
     if own_process_group {
         use std::os::unix::process::CommandExt;
         cmd.process_group(0);
     }
-
-    let mut child = match cmd.spawn() {
-        Ok(c)  => c,
-        Err(e) => return Ok(start_err_result(ctx, &program, &e)),
-    };
+    let mut child = cmd.spawn().map_err(RunFail::Start)?;
 
     // Optional one-shot stdin payload (Pipe mode + .StdinBytes / .StdinString).
-    // Blocks once the payload outgrows the pipe buffer and the child isn't reading ⇒ parked.
     if let Some(bytes) = stdin_bytes {
         if let Some(mut sin) = child.stdin.take() {
-            let _park = crate::gc::NativeParkGuard::enter(ctx);
-            sin.write_all(&bytes)?;
+            sin.write_all(&bytes).map_err(|e| RunFail::Other(e.into()))?;
             drop(sin); // EOF for the child
         }
     }
 
     // Concurrent reader threads drain piped stdout / stderr so a chatty
     // child can't deadlock on a full pipe while we poll wait().
-    let stdout_h = child.stdout.take().map(|r| std::thread::spawn(move || {
-        use std::io::Read;
-        let mut buf = Vec::new();
-        let _ = std::io::BufReader::new(r).read_to_end(&mut buf);
-        buf
-    }));
-    let stderr_h = child.stderr.take().map(|r| std::thread::spawn(move || {
-        use std::io::Read;
-        let mut buf = Vec::new();
-        let _ = std::io::BufReader::new(r).read_to_end(&mut buf);
-        buf
-    }));
+    let stdout_h = child.stdout.take().map(|r| std::thread::spawn(move || read_all(r)));
+    let stderr_h = child.stderr.take().map(|r| std::thread::spawn(move || read_all(r)));
 
-    // fix-blocking-native-calls-round2：等子进程期间让出 GC safepoint —— 子进程跑多久就阻塞多久，
-    // 不 park 的话另一个线程发起 GC 会永远等不到本线程（同 #598 的网络七处）。
-    // xtask / z42b 一直在 spawn 子进程并等待，是这条最密集的使用者。
-    // 两个读线程的 join 同样是阻塞的，一并纳入 park 区间；park 在回到 VM（会分配）之前结束。
-    let (status, timed_out, out, err) = {
-        let _park = crate::gc::NativeParkGuard::enter(ctx);
-        let (status, timed_out) =
-            wait_with_optional_timeout(&mut child, timeout_ms, own_process_group)?;
-        let out = stdout_h.map(|h| h.join().unwrap_or_default()).unwrap_or_default();
-        let err = stderr_h.map(|h| h.join().unwrap_or_default()).unwrap_or_default();
-        (status, timed_out, out, err)
-    };
-
+    let (status, timed_out) = wait_with_optional_timeout(&mut child, timeout_ms, own_process_group)
+        .map_err(|e| RunFail::Other(e.into()))?;
+    let stdout = stdout_h.map(|h| h.join().unwrap_or_default()).unwrap_or_default();
+    let stderr = stderr_h.map(|h| h.join().unwrap_or_default()).unwrap_or_default();
     if timed_out {
-        return Ok(timeout_result(ctx, &program, timeout_ms));
+        return Err(RunFail::TimedOut);
     }
-    Ok(ok_result(ctx, status, out, err))
+    Ok(RunOutput { status, stdout, stderr })
+}
+
+fn read_all(mut r: impl Read) -> Vec<u8> {
+    let mut buf = Vec::new();
+    let _ = r.read_to_end(&mut buf);
+    buf
 }
 
 /// Poll-loop wait — `timeout_ms < 0` means "no timeout, block forever".
 /// On timeout the child is `kill`'d and the post-kill `wait` is reaped
 /// to release zombie state; the returned `bool` reports whether we hit
-/// the timeout (caller maps to `ProcessTimeoutException`).
+/// the timeout.
 ///
 /// 20ms poll interval is a compromise between latency and CPU: a
 /// 5-second timeout polls 250 times; a 50ms timeout still sees the
 /// child within one tick. No condvar / signal: stdlib-only path keeps
 /// the implementation portable.
-fn wait_with_optional_timeout(
+pub(crate) fn wait_with_optional_timeout(
     child: &mut Child, timeout_ms: i64, own_process_group: bool,
-) -> Result<(std::process::ExitStatus, bool)> {
+) -> std::io::Result<(ExitStatus, bool)> {
     if timeout_ms < 0 {
         return Ok((child.wait()?, false));
     }
@@ -371,10 +346,7 @@ fn wait_with_optional_timeout(
 /// forked-grandchild tree (e.g. `sh -c "sleep 5"`) is reaped too. `own_process_group`
 /// is the same flag that gated `process_group(0)` at spawn: only when the child was
 /// put in its OWN group (pgid == child pid) is `kill(-pid)` safe — otherwise a
-/// negative-pid kill would target the *caller's* group. When it shares the caller's
-/// group (interactive passthrough) we kill just the direct child. Without the group
-/// kill, orphaned grandchildren keep the inherited stdout/stderr pipe write-ends open,
-/// blocking the caller's reader-thread joins until they exit naturally.
+/// negative-pid kill would target the *caller's* group.
 fn kill_process_tree(child: &mut Child, own_process_group: bool) {
     #[cfg(unix)]
     if own_process_group {
@@ -383,107 +355,37 @@ fn kill_process_tree(child: &mut Child, own_process_group: bool) {
         let pid = child.id() as i32;
         unsafe { libc::kill(-pid, libc::SIGKILL); }
     }
+    #[cfg(not(unix))]
+    let _ = own_process_group;
     let _ = child.kill();
 }
 
-// ── __process_spawn ──────────────────────────────────────────────────────
-
-/// Spawn the configured Command and stash the live child + captured
-/// stdio handles in `VmContext.processes`. Returns
-/// `[I64(0), I64(slot_id)]` on success or `[I64(1), program, err]` on
-/// start failure. Stdin one-shot bytes are *not* honoured here — the
-/// z42 facade enforces "Pipe stdin in Spawn means stream via handle";
-/// any leftover `stdin_bytes` value passed is silently ignored.
-pub fn builtin_process_spawn(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    const NAME: &str = "__process_spawn";
-
-    let program     = arg_str(args, 0, NAME)?;
-    let argv        = require_str_array(args, 1, NAME)?;
-    let env_keys    = require_str_array(args, 2, NAME)?;
-    let env_vals    = require_str_array(args, 3, NAME)?;
-    let env_remove  = require_str_array(args, 4, NAME)?;
-    let env_clear   = arg_bool(args, 5, NAME)?;
-    let cwd         = optional_str(args, 6, NAME)?;
-    let stdin_mode  = arg_i64(args, 7, NAME)?;
-    let _stdin_bytes_unused = optional_byte_array(args, 8, NAME)?; // see doc above
-    let stdout_mode = arg_i64(args, 9, NAME)?;
-    let stdout_path = optional_str(args, 10, NAME)?;
-    let stderr_mode = arg_i64(args, 11, NAME)?;
-    let stderr_path = optional_str(args, 12, NAME)?;
-
-    if env_keys.len() != env_vals.len() {
-        bail!("{}: env_keys / env_vals length mismatch", NAME);
+/// Wait for a spawned child and drain its pipes. Both pipes piped → read them on
+/// background threads while waiting (a chatty child cannot deadlock on a full pipe);
+/// otherwise read after the wait. Blocks until every writer closes the pipes (an exited
+/// child's grandchildren may still hold them), so callers run it parked.
+pub(crate) fn wait_and_drain(
+    mut child: Child, stdout: Option<Pipe<ChildStdout>>, stderr: Option<Pipe<ChildStderr>>,
+) -> Result<RunOutput, BuiltinError> {
+    match (stdout, stderr) {
+        (Some(o), Some(e)) => {
+            let h_o = std::thread::spawn(move || read_all(&mut *o.lock()));
+            let h_e = std::thread::spawn(move || read_all(&mut *e.lock()));
+            let status = child.wait()?;
+            Ok(RunOutput { status, stdout: h_o.join().unwrap_or_default(), stderr: h_e.join().unwrap_or_default() })
+        }
+        (o, e) => {
+            let status = child.wait()?;
+            let (stdout, stderr) = drain_readers(o, e)?;
+            Ok(RunOutput { status, stdout, stderr })
+        }
     }
-
-    let mut cmd = Command::new(&program);
-    cmd.args(&argv);
-    if env_clear { cmd.env_clear(); }
-    for (k, v) in env_keys.iter().zip(env_vals.iter()) {
-        cmd.env(k, v);
-    }
-    for k in &env_remove {
-        cmd.env_remove(k);
-    }
-    if let Some(d) = &cwd {
-        cmd.current_dir(d);
-    }
-    cmd.stdin (stdio_for_input (stdin_mode,  None)?);
-    cmd.stdout(stdio_for_output(stdout_mode, stdout_path.as_deref())?);
-    cmd.stderr(stdio_for_output(stderr_mode, stderr_path.as_deref())?);
-
-    let mut child = match cmd.spawn() {
-        Ok(c)  => c,
-        Err(e) => return Ok(start_err_result(ctx, &program, &e)),
-    };
-
-    let stdin_writer  = pipe(child.stdin.take());
-    let stdout_reader = pipe(child.stdout.take());
-    let stderr_reader = pipe(child.stderr.take());
-
-    let slot = ProcessSlot {
-        child:         Some(child),
-        stdin_writer,
-        stdout_reader,
-        stderr_reader,
-        timeout:       None,
-    };
-    let slot_id = ctx.alloc_process_slot(slot);
-
-    Ok(ctx.heap().alloc_array(vec![
-        Value::I64(KIND_OK),
-        Value::I64(slot_id as i64),
-    ]))
 }
 
-// ── handle operations ────────────────────────────────────────────────────
-
-/// `[I64(3), I64(slot_id)]` — slot doesn't exist or child already
-/// consumed. z42 facade translates to `ProcessHandleInvalidException`.
-const KIND_HANDLE_INVALID: i64 = 3;
-
-fn handle_invalid_result(ctx: &VmContext, slot_id: i64) -> Value {
-    ctx.heap().alloc_array(vec![
-        Value::I64(KIND_HANDLE_INVALID),
-        Value::I64(slot_id),
-    ])
-}
-
-fn require_slot_id(args: &[Value], idx: usize, ctx: &str) -> Result<u64> {
-    let n = arg_i64(args, idx, ctx)?;
-    if n < 0 {
-        bail!("{}: slot id must be non-negative, got {}", ctx, n);
-    }
-    Ok(n as u64)
-}
-
-/// Drain the (currently held) stdout / stderr readers into byte vecs.
-/// Helper for `wait` / `try_wait` post-exit drain.
-/// Blocks until every writer closes the pipe (an exited child's grandchildren may still hold
-/// it), so callers run it parked.
-fn drain_readers(
-    stdout: Option<Pipe<ChildStdout>>,
-    stderr: Option<Pipe<ChildStderr>>,
-) -> Result<(Vec<u8>, Vec<u8>)> {
+/// Drain the stdout / stderr readers into byte vecs (after the child exited).
+pub(crate) fn drain_readers(
+    stdout: Option<Pipe<ChildStdout>>, stderr: Option<Pipe<ChildStderr>>,
+) -> std::io::Result<(Vec<u8>, Vec<u8>)> {
     let mut out = Vec::new();
     let mut err = Vec::new();
     if let Some(r) = stdout { r.lock().read_to_end(&mut out)?; }
@@ -491,275 +393,188 @@ fn drain_readers(
     Ok((out, err))
 }
 
-/// `__process_handle_wait(slot_id)` — blocking wait + drain stdio.
-/// Returns the same ok-result shape as `__process_run`, or
-/// handle-invalid discriminator. Always consumes the slot.
-pub fn builtin_process_handle_wait(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    const NAME: &str = "__process_handle_wait";
-    let slot_id = require_slot_id(args, 0, NAME)?;
-
-    let Some(mut slot) = ctx.take_process_slot(slot_id) else {
-        return Ok(handle_invalid_result(ctx, slot_id as i64));
-    };
-    let Some(mut child) = slot.child.take() else {
-        return Ok(handle_invalid_result(ctx, slot_id as i64));
-    };
-
-    // Drop the writer before reading — otherwise a child waiting on its
-    // own stdin will deadlock us.
-    drop(slot.stdin_writer.take());
-
-    let stdout = slot.stdout_reader.take();
-    let stderr = slot.stderr_reader.take();
-
-    // Read concurrently on background threads to avoid pipe-full
-    // deadlocks while we block in wait(). One-or-zero pipes can stay
-    // synchronous (read after wait).
-    // fix-blocking-native-calls-round2：整段（wait + 两个读线程 join）都在阻塞，全部让出 safepoint。
-    let _park = crate::gc::NativeParkGuard::enter(ctx);
-    let (status, out, err) = match (stdout, stderr) {
-        (Some(o), Some(e)) => {
-            let h_o = std::thread::spawn(move || {
-                let mut buf = Vec::new();
-                let _ = o.lock().read_to_end(&mut buf);
-                buf
-            });
-            let h_e = std::thread::spawn(move || {
-                let mut buf = Vec::new();
-                let _ = e.lock().read_to_end(&mut buf);
-                buf
-            });
-            let status = child.wait()?;
-            let out = h_o.join().unwrap_or_default();
-            let err = h_e.join().unwrap_or_default();
-            (status, out, err)
-        }
-        (o, e) => {
-            let status = child.wait()?;
-            let (out, err) = drain_readers(o, e)?;
-            (status, out, err)
-        }
-    };
-    // park 必须在回到 VM（会分配）之前结束 —— parked 期间不得 mutate 根 / 分配。
-    drop(_park);
-    Ok(ok_result(ctx, status, out, err))
-}
-
-/// `__process_handle_try_wait(slot_id)` — non-blocking. Returns:
-/// - `Value::Null` if still running
-/// - ok-result tuple if exited (and consumes the slot)
-/// - handle-invalid tuple if slot missing
-pub fn builtin_process_handle_try_wait(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    const NAME: &str = "__process_handle_try_wait";
-    let slot_id = require_slot_id(args, 0, NAME)?;
-
-    // First peek: see if child has exited. Hold the slot if not.
-    let status_opt = ctx.with_process_slot(slot_id, |slot| -> Result<Option<std::process::ExitStatus>> {
-        let Some(child) = slot.child.as_mut() else {
-            return Ok(None); // already consumed; caller will see invalid below
-        };
-        Ok(child.try_wait()?)
-    });
-
-    let status = match status_opt {
-        None              => return Ok(handle_invalid_result(ctx, slot_id as i64)),
-        Some(Err(e))      => return Err(e),
-        Some(Ok(None))    => return Ok(Value::Null),    // still running
-        Some(Ok(Some(s))) => s,
-    };
-
-    // Exited — take the slot to drain stdio.
-    let Some(mut slot) = ctx.take_process_slot(slot_id) else {
-        return Ok(handle_invalid_result(ctx, slot_id as i64));
-    };
-    drop(slot.stdin_writer.take());
-    let (out, err) = {
-        let _park = crate::gc::NativeParkGuard::enter(ctx);
-        drain_readers(slot.stdout_reader.take(), slot.stderr_reader.take())?
-    };
-    Ok(ok_result(ctx, status, out, err))
-}
-
-/// `__process_handle_kill(slot_id, force)` — send SIGKILL / TerminateProcess.
-/// `force` is currently a no-op in both branches: `std::process::Child::kill`
-/// is unconditionally SIGKILL on Unix and TerminateProcess on Windows; a
-/// polite-SIGTERM variant needs `libc` and is a follow-up. Returns
-/// `Value::Null` on success or handle-invalid tuple.
-pub fn builtin_process_handle_kill(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    const NAME: &str = "__process_handle_kill";
-    let slot_id  = require_slot_id(args, 0, NAME)?;
-    let _force   = arg_bool(args, 1, NAME)?;
-
-    let killed = ctx.with_process_slot(slot_id, |slot| -> Result<bool> {
-        let Some(child) = slot.child.as_mut() else { return Ok(false) };
-        // Ignore InvalidInput (already-exited): kill is idempotent enough.
-        match child.kill() {
-            Ok(())                                                       => Ok(true),
-            Err(e) if e.kind() == std::io::ErrorKind::InvalidInput        => Ok(true),
-            Err(e)                                                       => Err(e.into()),
-        }
-    });
-    match killed {
-        None             => Ok(handle_invalid_result(ctx, slot_id as i64)),
-        Some(Err(e))     => Err(e),
-        Some(Ok(false))  => Ok(handle_invalid_result(ctx, slot_id as i64)),
-        Some(Ok(true))   => Ok(Value::Null),
-    }
-}
-
-/// `__process_handle_write_stdin(slot_id, bytes)` — write bytes to the
-/// child's piped stdin. No-op if the slot was spawned without
-/// `Stdio.Pipe` stdin (writer is `None`).
-pub fn builtin_process_handle_write_stdin(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    const NAME: &str = "__process_handle_write_stdin";
-    let slot_id = require_slot_id(args, 0, NAME)?;
-    let bytes   = optional_byte_array(args, 1, NAME)?
-        .ok_or_else(|| anyhow!("{}: bytes arg must not be null", NAME))?;
-
-    // A full pipe blocks the write ⇒ parked, outside the table lock (see `ProcessSlot`).
-    let writer = match ctx.with_process_slot(slot_id, |slot| slot.stdin_writer.clone()) {
-        Some(Some(w)) => w,
-        None | Some(None) => return Ok(handle_invalid_result(ctx, slot_id as i64)),
-    };
-    {
-        let _park = crate::gc::NativeParkGuard::enter(ctx);
-        writer.lock().write_all(&bytes)?;
-    }
-    Ok(Value::Null)
-}
-
-/// `__process_handle_close_stdin(slot_id)` — close the writer so the
-/// child sees EOF. Idempotent (no-op if writer already closed).
-pub fn builtin_process_handle_close_stdin(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    const NAME: &str = "__process_handle_close_stdin";
-    let slot_id = require_slot_id(args, 0, NAME)?;
-
-    let r = ctx.with_process_slot(slot_id, |slot| {
-        drop(slot.stdin_writer.take()); // dropping the writer closes the fd
-    });
-    match r {
-        None    => Ok(handle_invalid_result(ctx, slot_id as i64)),
-        Some(()) => Ok(Value::Null),
-    }
-}
-
-/// `__process_handle_pid(slot_id)` — return the OS pid (u32 widened to
-/// i64) or handle-invalid tuple. After consumption the slot has no
-/// child, so this returns invalid.
-pub fn builtin_process_handle_pid(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    const NAME: &str = "__process_handle_pid";
-    let slot_id = require_slot_id(args, 0, NAME)?;
-
-    let pid = ctx.with_process_slot(slot_id, |slot| {
-        slot.child.as_ref().map(|c| c.id() as i64)
-    });
-    match pid {
-        None | Some(None) => Ok(handle_invalid_result(ctx, slot_id as i64)),
-        Some(Some(p))     => Ok(Value::I64(p)),
-    }
-}
-
-/// `__process_handle_drop(slot_id)` — explicit dispose. If child is
-/// still alive, kill + wait to reap; then drop slot. Idempotent: a
-/// missing slot is silent success (since GC may have already triggered).
-pub fn builtin_process_handle_drop(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    const NAME: &str = "__process_handle_drop";
-    let slot_id = require_slot_id(args, 0, NAME)?;
-
-    if let Some(mut slot) = ctx.take_process_slot(slot_id) {
-        if let Some(mut child) = slot.child.take() {
-            // Best-effort reap.
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-        drop(slot);
-    }
-    Ok(Value::Null)
-}
-
-// ── add-process-stream-stdio (2026-05-24) — streaming reads from child pipes ──
-//
-// Mirrors `__file_read`'s buffer-fill shape (slot, buf, offset, count -> int;
-// 0 = EOF) so callers can plug a z42-side `ProcessOutputStream` straight into
-// the `Std.IO.Stream` ecosystem alongside `FileStream` / `MemoryStream`.
-//
-// A single `Read` call reads up-to-`count` bytes (whatever the OS pipe
-// surfaces in one go) — we deliberately do NOT loop to fill the buffer;
-// that's the `Read` contract everywhere in the stream API. Blocking
-// behaviour: the underlying `ChildStdout::read` blocks until at least
-// one byte is available OR the child closes the pipe (EOF).
-//
-// Reader-already-consumed-by-Wait case: `slot.stdout_reader` becomes
-// `None` after Wait/TryWait drained it. We treat None as EOF (`Ok(0)`)
-// rather than handle-invalid — the z42 facade's `CanRead()` defends
-// against the typical misuse; if a caller still drives Read post-Wait
-// they'll just see EOF, matching .NET behaviour on a closed stream.
-
-use std::io::Read;
-
-/// Common impl for stdout / stderr — picks the reader off the slot,
-/// reads up to `count` bytes into a scratch Vec<u8>, then copies into
-/// the user's z42 `byte[]`.
-fn process_handle_read_impl<R: Read>(
-    ctx: &VmContext,
-    args: &[Value],
-    name: &'static str,
+/// Read up to `count` bytes of a child's stdout / stderr into `buffer[offset..]`: the pipe
+/// is cloned out under the table lock, read parked, copied into the `byte[]` unparked.
+/// A pipe that was never piped (or was drained by a wait) reads as EOF.
+fn read_pipe<R: Read + Send + 'static>(
+    ctx: &VmContext, slot: i64, buffer: Value, offset: i64, count: i64,
     pick: fn(&ProcessSlot) -> Option<Pipe<R>>,
-) -> Result<Value> {
-    let slot_id = require_slot_id(args, 0, name)?;
-    let buf_value = args.get(1).cloned()
-        .ok_or_else(|| anyhow!("{}: missing arg 1 (buf)", name))?;
-    let buf_arr = match &buf_value {
-        Value::Array(rc) => rc.clone(),
-        other => bail!("{}: arg 1 expected byte array, got {:?}", name, other),
+) -> Result<crate::corelib::abi::Then<i64>, BuiltinError> {
+    use crate::corelib::abi::Blocking;
+    let arr = super::fs::byte_array(&buffer, "buffer")?;
+    let (off, n) = super::fs::check_buffer_range(offset, count, arr.borrow().len())?;
+    let reader = ctx.with_process_slot(slot as u64, |s| pick(s)).ok_or_else(|| handle_invalid(None, slot))?;
+    let read = match reader {
+        Some(r) if n > 0 => Blocking::new(move || {
+            let mut tmp = vec![0u8; n];
+            let got = r.lock().read(&mut tmp)?;
+            tmp.truncate(got);
+            Ok(tmp)
+        }),
+        _ => Blocking::ready(Vec::new()),
     };
-    let offset  = arg_i64(args, 2, name)? as usize;
-    let count   = arg_i64(args, 3, name)? as usize;
+    Ok(read.then(move |_ctx: &VmContext, bytes: Vec<u8>| {
+        super::fs::write_byte_range(&arr.borrow(), off, &bytes);
+        Ok(bytes.len() as i64)
+    }))
+}
 
-    let buf_len = buf_arr.borrow().len();
-    if offset + count > buf_len {
-        bail!("{}: offset {} + count {} exceeds buf length {}", name, offset, count, buf_len);
+/// The process builtins (builtin ABI v2): failures throw (module docs), waits run parked.
+#[z42_macros::builtins]
+pub mod typed {
+    use super::{handle_invalid, start_error, timeout_error, CommandSpec, MaybeExited, ProcessSlot, RunFail, RunOutput};
+    use crate::corelib::abi::{Blocking, BuiltinError, Then};
+    use crate::metadata::Value;
+    use crate::vm_context::VmContext;
+    use std::io::Write;
+
+    /// `Process.Run()`: spawn, feed, wait, collect — the whole call parked. Returns
+    /// `[exitCode, stdout, stderr, stdoutBytes, stderrBytes]`.
+    #[allow(clippy::too_many_arguments)]
+    #[builtin(name = "__process_run_sync", blocking)]
+    pub fn process_run_sync(
+        program: String, args: Vec<String>, env_keys: Vec<String>, env_vals: Vec<String>,
+        env_remove: Vec<String>, env_clear: bool, cwd: Option<String>, stdin_mode: i64,
+        stdin_bytes: Option<Vec<u8>>, stdout_mode: i64, stdout_path: Option<String>,
+        stderr_mode: i64, stderr_path: Option<String>, timeout_ms: i64, own_process_group: bool,
+    ) -> Result<RunOutput, BuiltinError> {
+        let spec = CommandSpec {
+            program, argv: args, env_keys, env_vals, env_remove, env_clear, cwd,
+            stdin_mode, stdout_mode, stdout_path, stderr_mode, stderr_path,
+        };
+        super::run_to_end(&spec, stdin_bytes, timeout_ms, own_process_group).map_err(|f| match f {
+            RunFail::Start(e) => start_error(&spec.program, &e),
+            RunFail::TimedOut => timeout_error(&spec.program, timeout_ms),
+            RunFail::Other(e) => e,
+        })
     }
-    if count == 0 { return Ok(Value::I64(0)); }
 
-    // Clone the pipe out under the table lock, then do the blocking read parked and outside
-    // that lock (see `ProcessSlot`); the park ends before the heap is touched.
-    let mut tmp = vec![0u8; count];
-    let n = match ctx.with_process_slot(slot_id, |slot| pick(slot)) {
-        // Slot missing: facade translates Value::Null →
-        // ProcessHandleInvalidException. Distinct from EOF (Value::I64(0)).
-        None          => return Ok(Value::Null),
-        Some(None)    => 0,       // pipe never piped → EOF
-        Some(Some(r)) => {
-            let _park = crate::gc::NativeParkGuard::enter(ctx);
-            r.lock().read(&mut tmp)?
+    /// `Process.Spawn()` → slot id. The spawn (it may open `ToFile` targets) runs parked;
+    /// the slot is registered after unparking.
+    #[allow(clippy::too_many_arguments)]
+    #[builtin(name = "__process_start")]
+    pub fn process_start(
+        program: String, args: Vec<String>, env_keys: Vec<String>, env_vals: Vec<String>,
+        env_remove: Vec<String>, env_clear: bool, cwd: Option<String>, stdin_mode: i64,
+        stdout_mode: i64, stdout_path: Option<String>, stderr_mode: i64, stderr_path: Option<String>,
+    ) -> Then<i64> {
+        let spec = CommandSpec {
+            program, argv: args, env_keys, env_vals, env_remove, env_clear, cwd,
+            stdin_mode, stdout_mode, stdout_path, stderr_mode, stderr_path,
+        };
+        Blocking::new(move || {
+            let child = spec.command()?.spawn().map_err(|e| start_error(&spec.program, &e))?;
+            Ok(ProcessSlot::spawned(spec.program, child))
+        }).then(|ctx: &VmContext, slot| Ok(ctx.alloc_process_slot(slot) as i64))
+    }
+
+    /// `ProcessHandle.Wait()` — consumes the slot; the wait + drain run parked.
+    #[builtin(name = "__process_wait")]
+    pub fn process_wait(ctx: &VmContext, slot: i64) -> Result<Blocking<RunOutput>, BuiltinError> {
+        let mut s = ctx.take_process_slot(slot as u64).ok_or_else(|| handle_invalid(None, slot))?;
+        let child = s.child.take().ok_or_else(|| handle_invalid(Some(&s.program), slot))?;
+        // Close our stdin end first — a child reading its stdin to EOF would deadlock us.
+        drop(s.stdin_writer.take());
+        let (out, err) = (s.stdout_reader.take(), s.stderr_reader.take());
+        Ok(Blocking::new(move || super::wait_and_drain(child, out, err)))
+    }
+
+    /// `TryWait()` — null while the child runs; once it exited, consumes the slot.
+    #[builtin(name = "__process_try_wait")]
+    pub fn process_try_wait(ctx: &VmContext, slot: i64) -> Result<Blocking<MaybeExited>, BuiltinError> {
+        let polled = ctx.with_process_slot(slot as u64, |s| match s.child.as_mut() {
+            None => Err(handle_invalid(Some(&s.program), slot)),
+            Some(c) => c.try_wait().map_err(BuiltinError::from),
+        }).ok_or_else(|| handle_invalid(None, slot))??;
+        let Some(status) = polled else { return Ok(Blocking::ready(MaybeExited(None))) };
+        let mut s = ctx.take_process_slot(slot as u64).ok_or_else(|| handle_invalid(None, slot))?;
+        drop(s.stdin_writer.take());
+        let (out, err) = (s.stdout_reader.take(), s.stderr_reader.take());
+        Ok(Blocking::new(move || {
+            let (stdout, stderr) = super::drain_readers(out, err)?;
+            Ok(MaybeExited(Some(RunOutput { status, stdout, stderr })))
+        }))
+    }
+
+    /// `Kill()` / `KillForce()` — both SIGKILL / TerminateProcess today (`force` is reserved).
+    #[builtin(name = "__process_kill")]
+    pub fn process_kill(ctx: &VmContext, slot: i64, force: bool) -> Result<(), BuiltinError> {
+        let _ = force;
+        ctx.with_process_slot(slot as u64, |s| match s.child.as_mut() {
+            None => Err(handle_invalid(Some(&s.program), slot)),
+            Some(c) => match c.kill() {
+                // Already exited (`InvalidInput`): kill is idempotent enough.
+                Err(e) if e.kind() != std::io::ErrorKind::InvalidInput => Err(e.into()),
+                _ => Ok(()),
+            },
+        }).unwrap_or_else(|| Err(handle_invalid(None, slot)))
+    }
+
+    /// Write to the child's stdin (parked: a full pipe blocks). Stdin not piped, or
+    /// already closed → `InvalidOperationException` (the handle stays valid).
+    #[builtin(name = "__process_stdin_write")]
+    pub fn process_stdin_write(ctx: &VmContext, slot: i64, bytes: Vec<u8>) -> Result<Blocking<()>, BuiltinError> {
+        let writer = ctx.with_process_slot(slot as u64, |s| s.stdin_writer.clone())
+            .ok_or_else(|| handle_invalid(None, slot))?
+            .ok_or_else(|| BuiltinError::InvalidOperation(
+                "StandardIn has not been redirected (or was already closed).".into()))?;
+        Ok(Blocking::new(move || writer.lock().write_all(&bytes).map_err(BuiltinError::from)))
+    }
+
+    /// Close our end of the child's stdin (the child sees EOF). Idempotent.
+    #[builtin(name = "__process_stdin_close")]
+    pub fn process_stdin_close(ctx: &VmContext, slot: i64) -> Result<(), BuiltinError> {
+        let writer = ctx.with_process_slot(slot as u64, |s| s.stdin_writer.take())
+            .ok_or_else(|| handle_invalid(None, slot))?;
+        // The descriptor closes outside the table lock, once no in-flight write holds a clone.
+        drop(writer);
+        Ok(())
+    }
+
+    #[builtin(name = "__process_pid")]
+    pub fn process_pid(ctx: &VmContext, slot: i64) -> Result<i64, BuiltinError> {
+        ctx.with_process_slot(slot as u64, |s| match &s.child {
+            Some(c) => Ok(c.id() as i64),
+            None => Err(handle_invalid(Some(&s.program), slot)),
+        }).unwrap_or_else(|| Err(handle_invalid(None, slot)))
+    }
+
+    /// `Dispose()` — idempotent; a live child is killed and reaped (parked).
+    #[builtin(name = "__process_close")]
+    pub fn process_close(ctx: &VmContext, slot: i64) -> Blocking<()> {
+        match ctx.take_process_slot(slot as u64).and_then(|mut s| s.child.take()) {
+            None => Blocking::ready(()),
+            Some(mut child) => Blocking::new(move || {
+                let _ = child.kill();
+                let _ = child.wait();
+                Ok(())
+            }),
         }
-    };
-
-    let borrowed = buf_arr.borrow();
-    for i in 0..n {
-        borrowed.set_boxed(offset + i, Value::I64(tmp[i] as i64));
     }
-    Ok(Value::I64(n as i64))
+
+    /// `ReadStdout(buffer, offset, count) -> int` — 0 = EOF.
+    #[builtin(name = "__process_stdout_read")]
+    pub fn process_stdout_read(ctx: &VmContext, slot: i64, buffer: Value, offset: i64, count: i64) -> Result<Then<i64>, BuiltinError> {
+        super::read_pipe(ctx, slot, buffer, offset, count, |s| s.stdout_reader.clone())
+    }
+
+    #[builtin(name = "__process_stderr_read")]
+    pub fn process_stderr_read(ctx: &VmContext, slot: i64, buffer: Value, offset: i64, count: i64) -> Result<Then<i64>, BuiltinError> {
+        super::read_pipe(ctx, slot, buffer, offset, count, |s| s.stderr_reader.clone())
+    }
+
+    /// `Process.Which(name)` — the resolved path, or null (rules at `resolve_executable`).
+    /// Stat-only (one `stat` per `PATH` entry): unparked, like `File.Exists`.
+    #[builtin(name = "__process_which")]
+    pub fn process_which(name: &str) -> Option<String> {
+        super::resolve_executable(name)
+    }
 }
 
-/// `__process_handle_read_stdout(slot, buf, off, count) -> int`
-pub fn builtin_process_handle_read_stdout(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    process_handle_read_impl(ctx, args, "__process_handle_read_stdout", |s| s.stdout_reader.clone())
-}
-
-/// `__process_handle_read_stderr(slot, buf, off, count) -> int`
-pub fn builtin_process_handle_read_stderr(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    process_handle_read_impl(ctx, args, "__process_handle_read_stderr", |s| s.stderr_reader.clone())
-}
-
-// ── __process_which ──────────────────────────────────────────────────────
+// ── executable lookup (`Process.Which`) ──────────────────────────────────
 //
-// `Process.Which(name)` — locate an executable on `$PATH`, matching the
-// semantics of POSIX `command -v` and Windows `where`. Returns the full
-// resolved path or `Value::Null` when not found.
-//
-// Resolution rules:
+// Locate an executable on `$PATH`, matching the semantics of POSIX `command -v` and
+// Windows `where`:
 //   - Names containing a path separator (Unix `/`, Windows `/` or `\`) are
 //     treated as direct paths: stat the file and return if it exists and
 //     is executable, otherwise null. PATH lookup is skipped — matches
@@ -774,16 +589,7 @@ pub fn builtin_process_handle_read_stderr(ctx: &VmContext, args: &[Value]) -> Re
 //     each `PATHEXT` suffix (`.COM;.EXE;.BAT;.CMD;...`); when it already
 //     has an extension, match it literally.
 
-pub fn builtin_process_which(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    const NAME: &str = "__process_which";
-    let name = arg_str(args, 0, NAME)?;
-    Ok(match resolve_executable(&name) {
-        Some(path) => Value::Str(path.into()),
-        None       => Value::Null,
-    })
-}
-
-fn resolve_executable(name: &str) -> Option<String> {
+pub(crate) fn resolve_executable(name: &str) -> Option<String> {
     if name.is_empty() {
         return None;
     }

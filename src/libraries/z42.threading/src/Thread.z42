@@ -3,7 +3,7 @@ namespace Std.Threading;
 
 // 2026-05-20 add-threading-stdlib: OS-thread spawn / join facade.
 //
-// Backed by `__thread_spawn` / `__thread_join` builtins which keep the
+// Backed by `__thread_spawn` / `__thread_wait` builtins which keep the
 // `std::thread::JoinHandle` in `VmCore.threads` keyed by a monotonic
 // slot id. This class carries only the slot id, mirroring the pattern
 // of [ProcessHandle](../../z42.io/src/ProcessHandle.z42).
@@ -44,16 +44,7 @@ public class Thread {
     //   - Worker threw → throws `Std.Threading.ThreadException`
     //   - Already joined → throws `Std.Threading.ThreadException("thread already joined")`
     public void Join() {
-        object[] result = ThreadNative.Join(this._slot);
-        long kind = (long)result[0];
-        if (kind == 1) {
-            string msg = (string)result[1];
-            throw new ThreadException(msg);
-        }
-        if (kind == 2) {
-            throw new ThreadException("thread already joined");
-        }
-        // kind == 0 — worker completed normally; nothing to return.
+        ThreadNative.Wait(this._slot);   // the VM throws ThreadException (see above)
     }
 
     // The internal slot id — exposed read-only for diagnostics. Users

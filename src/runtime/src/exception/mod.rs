@@ -368,6 +368,15 @@ pub fn read_message(value: &Value, ctx: &VmContext, module: &Module) -> Option<S
 pub fn make_stdlib_exception(
     ctx: &VmContext, module: &Module, type_fq: &str, message: String,
 ) -> Result<Value> {
+    make_stdlib_exception_with(ctx, module, type_fq, message, &[])
+}
+
+/// [`make_stdlib_exception`] plus public fields besides `Message` (a package exception's
+/// own data, `ProcessTimeoutException.TimeoutMs`). A field the class does not declare is
+/// skipped — the caller may be building a fallback base class.
+pub fn make_stdlib_exception_with(
+    ctx: &VmContext, module: &Module, type_fq: &str, message: String, fields: &[(&str, Value)],
+) -> Result<Value> {
     let type_desc = module
         .type_registry
         .get(type_fq)
@@ -388,6 +397,11 @@ pub fn make_stdlib_exception(
         .ok_or_else(|| anyhow!("stdlib type `{type_fq}` has no `Message` field"))?;
     if let Some(slot) = slots.get_mut(msg_slot) {
         *slot = Value::Str(message.into());
+    }
+    for (name, v) in fields {
+        if let Some(slot) = type_desc.field_index.get(*name).and_then(|&i| slots.get_mut(i)) {
+            *slot = *v;
+        }
     }
 
     Ok(ctx.heap().alloc_object(type_desc, slots, NativeData::None))

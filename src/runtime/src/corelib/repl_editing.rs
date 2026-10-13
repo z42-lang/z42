@@ -125,7 +125,7 @@ fn key_edit_arity_check(fqn: &str, param_count: usize) -> Result<()> {
 /// `extern "C"` key-edit trampoline the cdylib calls back through
 /// `ReplCallbacks.key_edit` on each controlled key (Backspace / Tab / Enter). Casts
 /// the opaque `ctx` back to `&VmContext`, un-parks GC (the outer `NativeParkGuard`
-/// from `builtin_repl_readline` is active), runs the z42 key-editor via
+/// from `repl::typed::repl_readline` is active), runs the z42 key-editor via
 /// `key_edit_via_callback`, and returns the action string as an owned C string.
 /// Returns null on no-editor / empty action / error → the cdylib performs the key's
 /// default (preserving the old "throw becomes a no-op" semantics). The returned

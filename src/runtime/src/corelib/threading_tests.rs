@@ -92,3 +92,18 @@ fn thread_join_negative_slot_is_an_unknown_slot() {
     let ctx = no_module_ctx();
     assert!(matches!(discriminator(join(&ctx, &[Value::I64(-1)]).unwrap()), Value::I64(2)));
 }
+
+// `__thread_wait` (the throwing join the stdlib calls): an unknown / already-joined slot
+// throws `Std.Threading.ThreadException` instead of returning a discriminator.
+#[test]
+fn thread_wait_unknown_slot_throws_thread_exception() {
+    let ctx = no_module_ctx();
+    let e = typed_err(crate::corelib::exec_builtin(&ctx, "__thread_wait", &[Value::I64(999_999)]).unwrap_err());
+    match e {
+        crate::corelib::abi::BuiltinError::Exception { class, message } => {
+            assert_eq!(class, "Std.Threading.ThreadException");
+            assert_eq!(message, "thread already joined");
+        }
+        other => panic!("{other:?}"),
+    }
+}

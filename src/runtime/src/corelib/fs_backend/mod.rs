@@ -10,7 +10,10 @@
 //! overrides at runtime — so the VFS↔disk consistency test runs on native, and
 //! wasm can later swap Memory ↔ a JS-callback backend. fs is I/O-bound and
 //! low-frequency, so the one `match` per call is free.
-use anyhow::Result;
+//!
+//! Every op returns `std::io::Result`: the builtins map the error with the path in
+//! hand to the .NET exception (`corelib::fs::fs_error`), the same for both backends.
+use std::io::Result;
 use std::sync::atomic::{AtomicU8, Ordering};
 
 pub mod memory;

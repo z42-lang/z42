@@ -4,7 +4,8 @@ namespace Std.IO;
 // fork-exec / CreateProcess 失败等）。**与 ProcessExitException 区别**：
 // 这个表示**子进程根本没启动**；如果启动成功但 exit != 0，会用
 // `ProcessExitException`（仅在 `.EnsureSuccess()` 时抛出）。
-public class ProcessStartException : Exception {
+// 继承 IOException：.NET 的 `Process.Start` 此时抛 `Win32Exception`（OS 错误），z42 没有该类。
+public class ProcessStartException : IOException {
     public ProcessStartException(string message) : base(message) {}
 
     override string ToString() {

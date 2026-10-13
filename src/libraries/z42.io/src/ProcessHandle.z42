@@ -27,48 +27,45 @@ public class ProcessHandle : IDisposable {
         this._disposed = false;
     }
 
+    // 句柄失效（已 Wait / Dispose）时 VM 抛 ProcessHandleInvalidException。
     public long Pid() {
         this.EnsureLive();
-        object pidObj = ProcessHandleNative.Pid(this._slotId);
-        if (pidObj == null) {
-            throw new ProcessHandleInvalidException(this._program);
-        }
-        return (long)pidObj;
+        return ChildProcessNative.Pid(this._slotId);
     }
 
+    // Wait 无论成败都消耗 VM 侧的槽：先把本地句柄标为失效。
     public ProcessResult Wait() {
         this.EnsureLive();
-        object[] raw = ProcessHandleNative.Wait(this._slotId);
-        return this.HandleWaitResult(raw);
+        this._disposed = true;
+        return ProcessResult.FromNative(this._program, ChildProcessNative.Wait(this._slotId));
     }
 
     // Returns null if the child is still running, ProcessResult if exited.
     public ProcessResult? TryWait() {
         this.EnsureLive();
-        object resObj = ProcessHandleNative.TryWait(this._slotId);
+        object resObj = ChildProcessNative.TryWait(this._slotId);
         if (resObj == null) {
             return null;
         }
-        object[] raw = (object[])resObj;
-        return this.HandleWaitResult(raw);
+        this._disposed = true;   // exited: the VM consumed the slot
+        return ProcessResult.FromNative(this._program, (object[])resObj);
     }
 
     public void Kill() {
         this.EnsureLive();
-        object res = ProcessHandleNative.Kill(this._slotId, false);
-        this.CheckHandleResponse(res);
+        ChildProcessNative.Kill(this._slotId, false);
     }
 
     public void KillForce() {
         this.EnsureLive();
-        object res = ProcessHandleNative.Kill(this._slotId, true);
-        this.CheckHandleResponse(res);
+        ChildProcessNative.Kill(this._slotId, true);
     }
 
+    // 没配 Stdin(Stdio.Pipe())（或已 CloseStdin）→ InvalidOperationException，句柄仍有效；
+    // 子进程已退出（管道断开）→ IOException。
     public void WriteStdin(byte[] bytes) {
         this.EnsureLive();
-        object res = ProcessHandleNative.WriteStdin(this._slotId, bytes);
-        this.CheckHandleResponse(res);
+        ChildProcessNative.WriteStdin(this._slotId, bytes);
     }
 
     // add-process-write-stdin-string (2026-05-27): UTF-8 string convenience.
@@ -84,8 +81,7 @@ public class ProcessHandle : IDisposable {
 
     public void CloseStdin() {
         this.EnsureLive();
-        object res = ProcessHandleNative.CloseStdin(this._slotId);
-        this.CheckHandleResponse(res);
+        ChildProcessNative.CloseStdin(this._slotId);
     }
 
     // ── add-process-stream-stdio (2026-05-24): streaming read API ────────
@@ -101,14 +97,12 @@ public class ProcessHandle : IDisposable {
 
     public int ReadStdout(byte[] buffer, int offset, int count) {
         this.EnsureLive();
-        object res = ProcessHandleNative.ReadStdout(this._slotId, buffer, offset, count);
-        return this.CheckReadResponse(res);
+        return ChildProcessNative.ReadStdout(this._slotId, buffer, offset, count);
     }
 
     public int ReadStderr(byte[] buffer, int offset, int count) {
         this.EnsureLive();
-        object res = ProcessHandleNative.ReadStderr(this._slotId, buffer, offset, count);
-        return this.CheckReadResponse(res);
+        return ChildProcessNative.ReadStderr(this._slotId, buffer, offset, count);
     }
 
     // ── add-process-stream-stdio (2026-05-24): Stream accessors ──────────
@@ -145,7 +139,7 @@ public class ProcessHandle : IDisposable {
     public void Dispose() {
         if (this._disposed) return;
         this._disposed = true;
-        ProcessHandleNative.Drop(this._slotId);
+        ChildProcessNative.Close(this._slotId);
     }
 
     // ── internals ────────────────────────────────────────────────────────
@@ -154,45 +148,6 @@ public class ProcessHandle : IDisposable {
         if (this._disposed) {
             throw new ProcessHandleInvalidException(this._program);
         }
-    }
-
-    private ProcessResult HandleWaitResult(object[] raw) {
-        long kind = (long)raw[0];
-        if (kind == 3) {
-            // KIND_HANDLE_INVALID
-            this._disposed = true;
-            throw new ProcessHandleInvalidException(this._program);
-        }
-        // kind == 0 (ok). Wait + TryWait consume the slot on the Native
-        // side, so flag local as disposed for future calls.
-        this._disposed = true;
-        return new ProcessResult(
-            this._program,
-            (int)(long)raw[1],
-            (string)raw[2],
-            (string)raw[3],
-            (byte[])raw[4],
-            (byte[])raw[5]);
-    }
-
-    // For ops that return either Value.Null (success) or a kind-tuple
-    // (handle invalid). Used by Kill / WriteStdin / CloseStdin.
-    private void CheckHandleResponse(object res) {
-        if (res == null) return;          // success
-        // It's an Array — invalid handle.
-        this._disposed = true;
-        throw new ProcessHandleInvalidException(this._program);
-    }
-
-    // For Read{Stdout,Stderr}: Native returns either Value::I64(n)
-    // (success; n=0 means EOF) or Value::Null (slot missing / handle
-    // invalid). Z42 sees these as `long` and `null` respectively.
-    private int CheckReadResponse(object res) {
-        if (res == null) {
-            this._disposed = true;
-            throw new ProcessHandleInvalidException(this._program);
-        }
-        return (int)(long)res;
     }
 }
 

@@ -13,8 +13,9 @@ namespace Std.IO;
 //
 // 顺序不保证（OS-dependent）。如需稳定顺序，调用方自己 sort。
 //
-// 错误处理：底层 IO 错（permission denied / disk full / not found）以
-// `Std.Exception` 抛出（runtime 把 anyhow::Error 包装为 z42 Exception）。
+// 错误处理（.NET 口径，VM 直接抛）：目录不存在 → `DirectoryNotFoundException`；无权限 →
+// `UnauthorizedAccessException`；非递归删非空目录 / 路径上已有同名文件 / 其它 OS 错 →
+// `IOException`（均在 `Std.IO`，`UnauthorizedAccessException` 在 `Std`）；空路径 → `ArgumentException`。
 
 public static class Directory {
     [Native("__dir_exists")]

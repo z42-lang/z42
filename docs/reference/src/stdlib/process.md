@@ -1,6 +1,6 @@
 # z42.io —— 子进程与终端着色
 
-> 包路径 `src/libraries/z42.io/`；命名空间 `Std.IO`（异常类型在 `Std`）
+> 包路径 `src/libraries/z42.io/`；命名空间 `Std.IO`
 
 `Process` 是 builder 形态的子进程执行入口：argv 数组进出、**不经过 shell**、
 stdio 三路各自可配。同步跑完拿结果用 `Run()`，要一边跑一边喂 / 读用 `Spawn()`。
@@ -148,8 +148,10 @@ public sealed class Stdio {
 默认值：**stdin = `Null()`，stdout = `Pipe()`，stderr = `Pipe()`**。
 
 ⚠ **`Stdio.ToFile(path)` 目前只能用在 stdout / stderr 上**。用在 stdin 上会抛
-`Std.Exception`（`stdin Stdio.ToFile missing path`）——路径没有被传到下层。要从文件喂
-stdin，先 `File.ReadAllBytes` 再 `Stdin(Stdio.Pipe()).StdinBytes(...)`。
+`NotSupportedException`。要从文件喂 stdin，先 `File.ReadAllBytes` 再
+`Stdin(Stdio.Pipe()).StdinBytes(...)`。stdout / stderr 的目标文件建不出来时按文件系统的口径抛
+（目录不存在 `DirectoryNotFoundException`、无权限 `UnauthorizedAccessException`，见
+[控制台与文件 · 异常](io-file.md#异常)）。
 
 ## ProcessHandle
 
@@ -186,7 +188,7 @@ public class ProcessHandle : IDisposable {
 | `Wait()` | 阻塞到子进程结束，返回 `ProcessResult`。**调用之后句柄即失效** |
 | `TryWait()` | 还在跑返回 `null`；已结束返回 `ProcessResult` 并**使句柄失效** |
 | `Kill()` / `KillForce()` | 两者当前**行为相同**（都是不可捕获的强制终止，Unix 上 `SIGKILL`）。被杀的子进程 `ExitCode` 是 `137` |
-| `WriteStdin` / `WriteStdinString` | 写子进程 stdin；管道写满时阻塞 |
+| `WriteStdin` / `WriteStdinString` | 写子进程 stdin；管道写满时阻塞。子进程已关掉 stdin（或已退出）时抛 `IOException`（`Broken pipe`） |
 | `CloseStdin()` | 关闭 stdin，子进程读到 EOF。幂等 |
 | `ReadStdout` / `ReadStderr` | 阻塞读，返回实际读到的字节数，**`0` 表示 EOF** |
 | `GetXxxStream()` | 返回 `Std.IO.Stream` 包装，**惰性构造并缓存**：重复调用返回同一个对象 |
@@ -195,20 +197,32 @@ public class ProcessHandle : IDisposable {
 **句柄是一次性的**。`Wait()` / `TryWait()`（返回了结果时）/ `Dispose()` 之后再调任何方法，
 抛 `ProcessHandleInvalidException`。
 
-⚠ **对没有配 `Stdin(Stdio.Pipe())` 的句柄写 stdin 会连带作废整个句柄**：`WriteStdin` 抛
-`ProcessHandleInvalidException`，并且**本地句柄同时被标记为已失效**，之后连 `Wait()` 都
-抛同一个异常，尽管子进程其实还活着（进程本身仍由运行时负责回收）。要喂 stdin，spawn 时就
-写上 `.Stdin(Stdio.Pipe())`。
+对没有配 `Stdin(Stdio.Pipe())`（或已 `CloseStdin()`）的句柄写 stdin 抛
+`InvalidOperationException`（`StandardIn has not been redirected …`，同 C#），句柄仍然有效，
+之后照常 `Wait()`。要喂 stdin，spawn 时就写上 `.Stdin(Stdio.Pipe())`。
 
 三个 Stream 包装（`ProcessStdinStream` / `ProcessOutputStream`）的 `Stream` 侧行为——
 能力谓词、`Close()` 的边界、越界参数——见[流](io-stream.md#子进程管道流)。
 
 ## 异常
 
-四个异常都在 `Std.IO` 命名空间，都继承 `Std.Exception`。
+都由运行时直接抛出；进程相关的四个类在 `Std.IO`，并挂在 C# 对应的基类下（C# 的 `Process.Start`
+启动失败抛 `Win32Exception`，z42 没有这个类，`ProcessStartException` 取其「OS 错误」语义归到
+`IOException` 下）：
+
+```text
+Exception
+├── IOException
+│   └── ProcessStartException            子进程没能启动
+├── TimeoutException
+│   └── ProcessTimeoutException          Run() 超过 Timeout(ms)
+├── InvalidOperationException
+│   └── ProcessHandleInvalidException    句柄已 Wait / Dispose
+└── ProcessExitException                 EnsureSuccess() 遇到非零退出码
+```
 
 ```z42
-public class ProcessStartException : Exception {
+public class ProcessStartException : IOException {
     public ProcessStartException(string message);
 }
 
@@ -217,22 +231,25 @@ public class ProcessExitException : Exception {
     public string Program;
 }
 
-public class ProcessTimeoutException : Exception {
+public class ProcessTimeoutException : TimeoutException {
     public string Program;
     public long   TimeoutMs;
 }
 
-public class ProcessHandleInvalidException : Exception {
+public class ProcessHandleInvalidException : InvalidOperationException {
     public string Program;
 }
 ```
 
 | 类型 | 何时抛 | `Message` 形状 |
 |---|---|---|
-| `ProcessStartException` | 子进程**根本没启动**（可执行文件找不到、权限不足、fork/exec 失败）。`Run()` 与 `Spawn()` 都会抛 | `foo: No such file or directory (os error 2) (kind: NotFound)` |
+| `ProcessStartException` | 子进程**根本没启动**（可执行文件找不到、`WorkingDirectory` 不存在、权限不足、fork/exec 失败）。`Run()` 与 `Spawn()` 都会抛 | `foo: No such file or directory (os error 2) (kind: NotFound)` |
 | `ProcessExitException` | **只有** `ProcessResult.EnsureSuccess()` 在退出码非零时抛 | ``process `sh` exited with code 7`` ，非空 stderr 时再跟一行 `stderr: <前 1024 字节，超出加 “…<truncated>”>` |
-| `ProcessTimeoutException` | `Run()` 超过 `Timeout(ms)`。子进程已被杀并回收，调用方不需要再清理 | ``process `sh` did not finish within 300ms`` |
-| `ProcessHandleInvalidException` | 对已 `Wait` / `TryWait`（有结果）/ `Dispose` 的句柄再操作；或对没有 pipe stdin 的句柄写 stdin | ``process handle for `cat` is no longer valid (already waited, killed, or disposed)`` |
+| `ProcessTimeoutException` | `Run()` 超过 `Timeout(ms)`。子进程（连同它的进程组）已被杀并回收，调用方不需要再清理；`Program` / `TimeoutMs` 已填好 | ``process `sh` did not finish within 300ms`` |
+| `ProcessHandleInvalidException` | 对已 `Wait` / `TryWait`（有结果）/ `Dispose` 的句柄再操作 | ``process handle for `cat` is no longer valid (already waited, killed, or disposed)`` |
+| `InvalidOperationException` | 写一个没有 `Stdio.Pipe()`（或已关闭）的 stdin | `StandardIn has not been redirected (or was already closed).` |
+| `IOException` | 管道读写的底层失败（如写一个已关闭的 stdin：`Broken pipe (os error 32)`） | OS 原文 |
+| `NotSupportedException` | `Stdin(Stdio.ToFile(...))` | |
 
 「启动失败」与「退出码非零」是两件事：前者是 `ProcessStartException` 且**总是**抛出，
 后者是 `ProcessExitException` 且**只在你要求时**抛出。
@@ -346,7 +363,7 @@ void Main() {
 - **`Timeout(...)` 只管 `Run()`**：`Spawn()` 出来的句柄没有超时，要自己 `TryWait()` 轮询再 `Kill()`。
 - **`Kill()` 与 `KillForce()` 当前没有区别**，都是不可捕获的强制终止；没有「先礼后兵」的
   `SIGTERM` 入口，也没有发送任意信号的 API。
-- **`Stdio.ToFile` 不能用于 stdin**（会抛 `Std.Exception`）；也没有「追加到文件」的模式。
+- **`Stdio.ToFile` 不能用于 stdin**（会抛 `NotSupportedException`）；也没有「追加到文件」的模式。
 - **`Spawn()` 忽略 `StdinBytes` 与 `ShareProcessGroup`**。
 - ~~没有 `using (...)` 语句~~ **已可用**：`ProcessHandle` 实现 `Std.IDisposable` ⇒
   `using (var p = Process.Spawn(...)) { ... }` 即可，任一退出路径都终结句柄。

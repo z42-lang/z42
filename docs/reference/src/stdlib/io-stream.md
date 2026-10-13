@@ -125,9 +125,9 @@ public class FileStream : Stream {
 | `FileMode.Write` | 创建或截断；原有内容丢失 | `false` | `true` | `true` |
 | `FileMode.Append` | 不存在则创建，写入永远落在文件末尾 | `false` | `true` | `false` |
 
-- `mode` 不是这三个值时构造抛 `ArgumentException`；打开失败（路径不存在、权限不足、
-  父目录缺失）抛基类 `Std.Exception`，message 是 OS 原文（`No such file or directory
-  (os error 2)`），不做二次包装。
+- `mode` 不是这三个值时构造抛 `ArgumentException`；打开失败按 .NET 的口径抛：`Read` 模式下文件不存在
+  `FileNotFoundException`，父目录（或路径的一部分）不存在 `DirectoryNotFoundException`，权限不足或路径是
+  目录 `UnauthorizedAccessException`，其它 OS 错误 `IOException`（对照表见[控制台与文件 · 异常](io-file.md#异常)）。
 - `Append` 模式下 `CanSeek()` 是 `false` 且 `Seek` 抛 `NotSupportedException`——
   POSIX `O_APPEND` 会把每次写强制拉到 EOF，报告可定位会误导调用方。
 - `Close()` 幂等；关闭后 `Read` / `Write` / `Length` / `Position` / `Seek` 抛
@@ -173,8 +173,8 @@ public class ProcessOutputStream : Stream {
 
 - `ProcessStdinStream`：只写（`CanWrite` 在 `Close()` 前为 `true`，另两个能力恒 `false`）。
   `Close()` 关闭子进程的 stdin，让子进程读到 EOF；**不回收进程句柄**，仍需 `Wait()`。
-  如果进程不是用 `Stdio.Pipe()` 启动的 stdin，首次 `Write` 抛
-  `Std.IO.ProcessHandleInvalidException`。
+  如果进程不是用 `Stdio.Pipe()` 启动的 stdin，`Write` 抛 `InvalidOperationException`（句柄本身仍有效）；
+  子进程已经关掉 stdin 时写满管道后抛 `IOException`（`Broken pipe`）。
 - `ProcessOutputStream`：只读。`Read` 阻塞到至少有一个字节或管道关闭（EOF 返回 0）。
   `fd` 不是 1 / 2 时构造抛 `ArgumentException`。`Close()` 只是本侧逻辑关闭，
   底层管道由 `ProcessHandle` 负责。
@@ -311,12 +311,8 @@ public class StreamWriter {
 | `ArgumentException` | `offset` / `count` 越界、`bufferSize <= 0`、未知 `SeekOrigin`、`Seek` 结果为负 |
 | `InvalidOperationException` | 对已 `Close()` 的 `FileStream` / `BufferedStream` / 字符读写器继续操作 |
 | `Std.IO.EndOfStreamException`（继承 `Std.IO.IOException`） | `Stream.ReadExactly(count)` 在凑满前遇到 EOF |
-| `Exception`（基类本身） | 文件打开 / 读写的底层失败，message 是 OS 原文，例如 `No such file or directory (os error 2)` |
-
-`Std.IO.IOException` 族（`FileNotFoundException` / `DirectoryNotFoundException` / `PathTooLongException`，
-见[异常](../language/exceptions.md)）已经存在，但文件层面的失败（路径不存在、权限不足）**目前仍抛基类
-`Std.Exception`**，只能按 message 区分——文件系统的运行期实现还没改为抛这些类型，届时 `catch (IOException)`
-才接得住它们。
+| `Std.IO.FileNotFoundException` / `DirectoryNotFoundException`（继承 `IOException`）、`UnauthorizedAccessException` | `FileStream` 打开失败，见上 |
+| `Std.IO.IOException` | 文件 / 管道读写的底层失败，message 是 OS 原文 |
 
 ```z42
 public class EndOfStreamException : IOException {

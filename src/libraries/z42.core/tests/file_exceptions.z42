@@ -1,0 +1,140 @@
+// requires-caps: fs
+// runtime-audit P1-8: file-system builtins throw .NET's exception types — a missing
+// file → `FileNotFoundException`, a missing directory (or a missing part of the path)
+// → `DirectoryNotFoundException` (both `IOException`), a directory where a file is
+// expected → `UnauthorizedAccessException`, other OS errors → `IOException` with the
+// path; an empty path → `ArgumentException`.
+namespace Z42CoreFileExceptionsTests;
+
+using Std.IO;
+using Std.Test;
+
+string _tmp() { return File.CreateTempDir("z42-file-exc"); }
+
+[Test]
+void test_missing_file_is_file_not_found() {
+    string dir = _tmp();
+    string path = Path.Join(dir, "nope.txt");
+    Assert.Throws("FileNotFoundException", () => File.ReadAllText(path));
+    Assert.Throws("FileNotFoundException", () => File.ReadAllBytes(path));
+    Assert.Throws("FileNotFoundException", () => File.GetSize(path));
+    Assert.Throws("FileNotFoundException", () => File.GetLastWriteTime(path));
+    Assert.Throws("FileNotFoundException", () => File.Copy(path, Path.Join(dir, "b.txt")));
+    Assert.Throws("FileNotFoundException", () => File.Delete(path));
+    Directory.Delete(dir, true);
+}
+
+[Test]
+void test_file_not_found_is_catchable_as_io_exception_and_exception() {
+    string dir = _tmp();
+    string path = Path.Join(dir, "missing.bin");
+    string msg = "";
+    try {
+        File.ReadAllText(path);
+    } catch (IOException e) {
+        msg = e.Message;
+    }
+    Assert.True(msg.Contains("Could not find file"));
+    Assert.True(msg.Contains(path));
+    bool caught = false;
+    try {
+        File.ReadAllBytes(path);
+    } catch (Exception e) {
+        caught = true;
+    }
+    Assert.True(caught);
+    Directory.Delete(dir, true);
+}
+
+[Test]
+void test_missing_directory_is_directory_not_found() {
+    string dir = _tmp();
+    string inMissing = Path.Join(Path.Join(dir, "no-such-dir"), "f.txt");
+    Assert.Throws("DirectoryNotFoundException", () => File.ReadAllText(inMissing));
+    Assert.Throws("DirectoryNotFoundException", () => File.WriteAllText(inMissing, "x"));
+    Assert.Throws("DirectoryNotFoundException", () => File.AppendAllText(inMissing, "x"));
+    Assert.Throws("DirectoryNotFoundException", () => File.WriteAllTextAtomic(inMissing, "x"));
+    string missingDir = Path.Join(dir, "gone");
+    Assert.Throws("DirectoryNotFoundException", () => Directory.Enumerate(missingDir));
+    Assert.Throws("DirectoryNotFoundException", () => Directory.EnumerateRecursive(missingDir));
+    Assert.Throws("DirectoryNotFoundException", () => Directory.Delete(missingDir, false));
+    bool io = false;
+    try {
+        Directory.Enumerate(missingDir);
+    } catch (IOException e) {
+        io = true;
+    }
+    Assert.True(io);
+    Directory.Delete(dir, true);
+}
+
+[Test]
+void test_copy_into_missing_directory_blames_the_destination() {
+    string dir = _tmp();
+    string src = Path.Join(dir, "a.txt");
+    File.WriteAllText(src, "hi");
+    Assert.Throws("DirectoryNotFoundException",
+        () => File.Copy(src, Path.Join(Path.Join(dir, "missing"), "a.txt")));
+    Directory.Delete(dir, true);
+}
+
+[Test]
+void test_directory_as_file_is_unauthorized_access() {
+    string dir = _tmp();
+    Assert.Throws("UnauthorizedAccessException", () => File.ReadAllText(dir));
+    Assert.Throws("UnauthorizedAccessException", () => File.WriteAllText(dir, "x"));
+    // .NET `FileInfo.Length` of a directory.
+    Assert.Throws("FileNotFoundException", () => File.GetSize(dir));
+    Directory.Delete(dir, true);
+}
+
+[Test]
+void test_non_empty_directory_delete_is_io_exception() {
+    string dir = _tmp();
+    File.WriteAllText(Path.Join(dir, "keep.txt"), "x");
+    Assert.Throws("IOException", () => Directory.Delete(dir, false));
+    Assert.True(Directory.Exists(dir));
+    Directory.Delete(dir, true);
+    Assert.False(Directory.Exists(dir));
+}
+
+[Test]
+void test_create_directory_over_a_file_is_io_exception() {
+    string dir = _tmp();
+    string file = Path.Join(dir, "f");
+    File.WriteAllText(file, "x");
+    Assert.Throws("IOException", () => Directory.Create(file));
+    Directory.Delete(dir, true);
+}
+
+[Test]
+void test_empty_path_is_argument_exception() {
+    Assert.Throws("ArgumentException", () => File.ReadAllText(""));
+    Assert.Throws("ArgumentException", () => File.WriteAllText("", "x"));
+    Assert.Throws("ArgumentException", () => Directory.Enumerate(""));
+    // The existence probes answer false instead (.NET).
+    Assert.False(File.Exists(""));
+    Assert.False(Directory.Exists(""));
+}
+
+[Test]
+void test_null_path_is_argument_null_exception() {
+    string p = null;
+    Assert.Throws("ArgumentNullException", () => File.ReadAllText(p));
+}
+
+[Test]
+void test_success_paths_still_work() {
+    string dir = _tmp();
+    string path = Path.Join(dir, "ok.txt");
+    File.WriteAllText(path, "one");
+    File.AppendAllText(path, "two");
+    Assert.Equal("onetwo", File.ReadAllText(path));
+    Assert.Equal(6L, File.GetSize(path));
+    string[] names = Directory.Enumerate(dir);
+    Assert.Equal(1, names.Length);
+    Assert.Equal("ok.txt", names[0]);
+    File.Delete(path);
+    Assert.False(File.Exists(path));
+    Directory.Delete(dir, true);
+}

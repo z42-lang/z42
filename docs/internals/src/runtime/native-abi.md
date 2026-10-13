@@ -318,8 +318,8 @@ pub mod typed {
 | 位置 | 能写什么 | 说明 |
 |---|---|---|
 | 首参 | `ctx: &VmContext`（可选） | 不算 z42 实参 |
-| 参数 | `&str` / `String` / `&Str`、`Option<&str>` / `Option<String>`、`i64`、`f64`、`bool`、`char`、`&Value` / `Value`、`RefArg` | 每种一个 `FromArg` impl：null / 类型检查在这里，失败是类型化错误 |
-| 返回 | `T` 或 `Result<T, BuiltinError>`，`T` ∈ `()`、`i64`、`f64`、`bool`、`char`、`String`、`&str`、`Option<String>`、`Value`、`Blocking<R>` | 每种一个 `IntoRet` impl；`()` = void |
+| 参数 | `&str` / `String` / `&Str`、`Option<&str>` / `Option<String>`、`i64`、`f64`、`bool`、`char`、`&Value` / `Value`、`RefArg`、`Vec<u8>` / `Option<Vec<u8>>`（`byte[]`，拷出）、`Vec<String>`（`string[]`，拷出） | 每种一个 `FromArg` impl：null / 类型检查在这里，失败是类型化错误 |
+| 返回 | `T` 或 `Result<T, BuiltinError>`，`T` ∈ `()`、`i64`、`f64`、`bool`、`char`、`String`、`&str`、`Option<String>`、`Value`、`Vec<u8>`（新的打包 `byte[]`）、`Vec<String>`（`string[]`）、`Blocking<R>`、`Then<V>`，或领域自己的 `IntoRet` 类型（`process::RunOutput` 建结果数组） | 每种一个 `IntoRet` impl；`()` = void |
 | 属性 | `name = "__x"`（必填）、`pure`、`blocking`、`reenters`、`this = "Member"` | 见下 |
 
 - **实参错误**：非空参数收到 null → `ArgumentNullException("Value cannot be null. (Parameter 's')")`
@@ -345,7 +345,15 @@ GC 等不到它到达 safepoint（规则见 runtime-rust.md「阻塞的 native �
   转成 `Value`（`String` 结果是一次 GC 分配）。函数体拿不到堆，就不可能在 park 期间分配。
 - 需要先用 ctx 准备（从 registry 取出句柄）的 builtin 不加 `blocking`，而是返回 `Blocking::new(move || …)`：
   准备阶段 unpark 运行，闭包在 park 状态下运行，结果同样 unpark 之后才转换。闭包要求 `Send + 'static`
-  ——借不到 `&VmContext`，也借不到调用方栈上的任何东西。`__thread_join` 是这一形态的样板。
+  ——借不到 `&VmContext`，也借不到调用方栈上的任何东西。`__thread_wait` / `__process_wait` 是这一形态的样板。
+- `Blocking::ready(r)`：答案不用等（零长度读、已关闭的管道）——不 park。
+- `Blocking::new(..).then(|ctx, r| …)` → `Then<V>`：parked 部分产出的不是 `PlainRet`（打开的 `File`、spawn 出的
+  `Child`、要拷进调用方 `byte[]` 的字节），`then` 在 **unpark 之后**拿着 ctx 收尾——把句柄登记进表、写 GC 数组、
+  分配。`__file_open` / `__file_read` / `__process_start` / `__process_stdout_read` 是样板。
+- 函数体自己 park 的只剩一种：执行期间要以本 ctx 回调 z42 的（`__repl_readline`：行编辑器在读的中途回调补全器，
+  回调里 `NativeUnparkGuard` 暂离 park）。它标 `reenters`、函数体显式 `NativeParkGuard`，结果在 park 结束后才分配。
+- 资源表（`file_handles` / `processes`）的锁下**只取 / 克隆句柄**（`Arc<File>`、每条管道自己的锁），系统调用在
+  锁外做：一个阻塞在读上的线程既不占表锁，也不挡回收。
 
 单测照 `abi_tests::a_blocking_builtin_lets_a_collection_run_while_it_waits` 写：阻塞线程 `parked_count == 1`，
 另一线程此时能发起并完成一次全堆回收，结束后回到 0。debug 构建下 park 期间分配会被
@@ -364,12 +372,17 @@ GC 等不到它到达 safepoint（规则见 runtime-rust.md「阻塞的 native �
 | `Io` / `FileNotFound` / `DirectoryNotFound` / `PathTooLong` / `EndOfStream` | `Std.IO.IOException` 及其同名子类（`EndOfStreamException` 在 `z42.io`） |
 | `UnauthorizedAccess` / `Timeout` | `Std.UnauthorizedAccessException` / `Std.TimeoutException` |
 | `Exception { class, message }` | 任意类（包级异常，如 `Std.Threading.ThreadException`） |
+| `Detailed { classes, message, fields }` | 按序取第一个已加载的类，另外填公开字段（`Std.IO.ProcessTimeoutException` 的 `Program` / `TimeoutMs`，退到基类时跳过它没有的字段） |
 | `Thrown(Value)` | 已构造好的异常值，原样抛（回调里 z42 代码抛的） |
 | `Internal(String)` | **致命错误**，不可 catch |
 | `Legacy(anyhow::Error)` | 旧表 builtin 的错误：沿用旧映射（`objops::Throw` 按其类，其余 `Std.Exception`） |
 
 `From<std::io::Error>` 按 .NET 的口径映射 OS 错误（不存在 → `FileNotFound`，无权限 →
-`UnauthorizedAccess`，超时 → `Timeout`，提前 EOF → `EndOfStream`，其余 → `Io`）；`From<OpError>` 接 objops。
+`UnauthorizedAccess`，超时 → `Timeout`，提前 EOF → `EndOfStream`，平台不支持 → `NotSupported`，其余 → `Io`）；
+`From<OpError>` 接 objops。**按路径操作的文件系统 builtin 不用它**，而用 `corelib::fs::fs_error(e, path, role)`：
+手里有路径、知道要找的是文件还是目录，才分得出 `FileNotFound`（文件所在的目录存在）与 `DirectoryNotFound`，
+消息也是 .NET 的原文（`Could not find file '<path>'.`）——完整对照在该函数的文档与
+[reference · 控制台与文件](../../../reference/src/stdlib/io-file.md)。进程的对照在 `corelib/process.rs` 抬头。
 
 **唯一的出口** `corelib::abi::error::raise`，两个引擎共用（interp `exec_call::builtin` / 折叠调用，
 JIT `jit_builtin` / `call_forward`），判定顺序：
@@ -433,7 +446,9 @@ JIT `jit_builtin` / `call_forward`），判定顺序：
 | `file` | `Std.IO.File` 静态方法 | `__file_read_text` |
 | `env` | 环境 / 进程 | `__env_get`、`__env_args` |
 | `time` | 时钟 / 计时 | `__time_now_ms` |
-| `process` | 宿主进程控制 | `__process_exit` |
+| `process` | 宿主进程控制、子进程（`Std.IO.Process`） | `__process_exit`、`__process_run_sync`、`__process_wait` |
+| `thread` | `Std.Threading.Thread` | `__thread_spawn`、`__thread_wait` |
+| `dir` | `Std.IO.Directory` 静态方法 | `__dir_enumerate` |
 
 新领域 → 往这张表里加一行，再挑一个短单词。
 
@@ -441,7 +456,15 @@ JIT `jit_builtin` / `call_forward`），判定顺序：
 `__to_str` / `__time_now_ms` / `__process_exit`）不遵守该约定，**不要再加新的**。
 
 **改语义要换名字**：已发布的种子 stdlib 跑在新 VM 上（冷启动自举），同名 builtin 的签名与返回形状
-必须保持兼容（只把抛出的异常换成更具体的子类是兼容的）。要改形状就起新名字、旧名字随 STAGE2 清理删除。
+必须保持兼容（只把抛出的异常换成更具体的子类是兼容的）。要改形状就起新名字（`__process_run` →
+`__process_run_sync`、`__process_handle_*` → `__process_*`、`__thread_join` → `__thread_wait`：旧的返回
+`[KIND, …]` 判别数组，新的从 Rust 抛），旧名字挂 `STAGE2-DEBT` 留到种子不再声明它为止。
+
+**z42.core 里的 `[Native]` 包装同样不能改形状**：`ProcessNative` / `ThreadNative` 这类 core 静态类被别的包
+（`z42.io` / `z42.threading`）调用，而 z42.core 总按当前源预建、别的包可能还是种子带来的旧版——同一个 libs
+目录里新 core + 旧 io。改 `ThreadNative.Join` 的返回类型，旧 `Thread.Join` 就会把 `void` 当数组读。做法：
+core 里**加新方法**（`ThreadNative.Wait`、`ProcessNative.RunSync` / `Start`、`ChildProcessNative.*`），新的
+z42.io / z42.threading 改调新方法，旧方法与旧 builtin 一起挂债。
 
 ### 6.6 与 ext 表的关系
 

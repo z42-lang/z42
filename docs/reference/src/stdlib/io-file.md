@@ -11,9 +11,9 @@
 子进程与终端着色（`Process` / `Ansi`）也在 `z42.io`，见[子进程与终端](process.md)。
 `z42.io` 的类型在**单文件 `z42 run` 下同样可用**（`new FileStream(path)` 直接能写）——随 SDK 发布的库都解析得到。工程里同样自动可用，清单 `[dependencies]` 不需要声明（声明了会报 [W0610](../appendix/error-codes.md)）。
 
-失败行为有一条贯穿全页的规则：**这里没有 `IOException` 类型**。文件 / 目录 / 环境类的底层
-失败一律抛基类 `Std.Exception`，`Message` 是 OS 原文（`No such file or directory (os error 2)`
-之类），只能按 message 区分。
+失败按 .NET 的口径抛细分的异常类型：文件不存在是 `FileNotFoundException`，目录（或路径的一部分）
+不存在是 `DirectoryNotFoundException`，权限不足是 `UnauthorizedAccessException`……完整对照见
+[异常](#异常)。它们都是 `IOException` 或 `Exception` 的子类，`catch (Exception e)` 照样接得住。
 
 ## Console / ConsoleError
 
@@ -102,15 +102,15 @@ public static class File {
 
 | 成员 | 说明 |
 |---|---|
-| `ReadAllText(path)` | 整读为 `string`（`path` 是目录时抛 `Is a directory`），**严格 UTF-8**：内容不是合法 UTF-8 时抛 `Std.Exception`，message `stream did not contain valid UTF-8`（不做 lossy 替换） |
-| `WriteAllText(path, content)` | 覆盖写；文件不存在则创建。UTF-8 编码。⚠ **不会创建父目录**（父目录缺失时抛 `No such file or directory`）——先 `Directory.Create`。`path` 已是目录时抛 `Is a directory` |
+| `ReadAllText(path)` | 整读为 `string`（`path` 是目录时抛 `UnauthorizedAccessException`），**严格 UTF-8**：内容不是合法 UTF-8 时抛 `IOException`，message `stream did not contain valid UTF-8 : '<path>'`（不做 lossy 替换） |
+| `WriteAllText(path, content)` | 覆盖写；文件不存在则创建。UTF-8 编码。⚠ **不会创建父目录**（父目录缺失时抛 `DirectoryNotFoundException`）——先 `Directory.Create`。`path` 已是目录时抛 `UnauthorizedAccessException` |
 | `AppendAllText(path, content)` | 追加写；文件不存在则创建 |
 | `WriteAllTextAtomic` / `WriteAllBytesAtomic` | 崩溃安全写：外部观察到的要么是旧内容要么是新内容，不会是半截。代价是每次多一次同步落盘（Apple 上是只保证先后顺序的 `F_BARRIERFSYNC`，Linux 上是 `fdatasync`），比普通写慢，只对关键文件用 |
 | `ReadAllBytes` / `WriteAllBytes` | 字节版，不做任何编码校验 |
 | `Exists(path)` | ⚠ **目录也返回 `true`**（见下） |
-| `Delete(path)` | 删文件。⚠ **目标不存在时抛** `Std.Exception`（`No such file or directory`）——与 C# 的静默成功不同，「有就删」要自己先 `Exists` |
-| `Copy(src, dst)` / `Move(src, dst)` | `dst` 已存在时**静默覆盖**，不抛错；`src` 不存在时抛 |
-| `GetSize(path)` | 字节数。`path` 是目录时抛 `Std.Exception`，message 形如 `File.GetSize: '<path>' is a directory` |
+| `Delete(path)` | 删文件。⚠ **目标不存在时抛** `FileNotFoundException`——与 C# 的静默成功不同，「有就删」要自己先 `Exists` |
+| `Copy(src, dst)` / `Move(src, dst)` | `dst` 已存在时**静默覆盖**，不抛错（C# 的两参版本此时抛 `IOException`）；`src` 不存在抛 `FileNotFoundException`，`dst` 的目录不存在抛 `DirectoryNotFoundException` |
+| `GetSize(path)` | 字节数。`path` 是目录时抛 `FileNotFoundException`（与 C# `FileInfo.Length` 一致） |
 | `GetLastWriteTime(path)` | mtime，包装成 [`Std.Time.DateTime`](time.md)；比较用 `IsAfter` / `IsBefore` / `UnixMs()` |
 | `CreateTempDir(prefix)` | 在系统临时根下建唯一目录，返回全路径。basename 形如 `<prefix>.<16 位十六进制>.<pid>.<序号>` |
 | `CreateTempFile(prefix, suffix)` | 建唯一空文件，返回全路径；basename 是上面的形式再加 `suffix`（可传 `""`） |
@@ -144,9 +144,9 @@ public static class Directory {
 | 成员 | 说明 |
 |---|---|
 | `Exists(path)` | 只有「存在**且是目录**」才 `true`；路径是普通文件时 `false` |
-| `Create(path)` | 等价 `mkdir -p`：递归建中间目录，**目录已存在不报错**。但路径上已有同名**文件**时抛 `Std.Exception`（`File exists (os error 17)`） |
-| `Delete(path, recursive)` | 目录不存在时**抛**（`recursive=true` 也不容忍，不同于 `rm -rf`）。`recursive=false` 只能删空目录，非空时抛 `Std.Exception`（`Directory not empty (os error 66)`）；`recursive=true` 相当于 `rm -rf` |
-| `Enumerate(path)` | **只列直接子项**，含文件和子目录，返回 **basename**（不是全路径）。⚠ 目录不存在时**抛**——与 `Path.Glob`（返回空数组）不对称 |
+| `Create(path)` | 等价 `mkdir -p`：递归建中间目录，**目录已存在不报错**。但路径上已有同名**文件**时抛 `IOException`（`The file '<path>' already exists.`） |
+| `Delete(path, recursive)` | 目录不存在时抛 `DirectoryNotFoundException`（`recursive=true` 也不容忍，不同于 `rm -rf`）。`recursive=false` 只能删空目录，非空时抛 `IOException`（`Directory not empty (os error 66) : '<path>'`）；`recursive=true` 相当于 `rm -rf` |
+| `Enumerate(path)` | **只列直接子项**，含文件和子目录，返回 **basename**（不是全路径）。⚠ 目录不存在时抛 `DirectoryNotFoundException`——与 `Path.Glob`（返回空数组）不对称 |
 | `EnumerateRecursive(path)` | 深度全展开，返回**相对 `path` 的子路径**（`n1/n2/deep.txt`）。**中间目录本身也是一条**（`n1`、`n1/n2` 都会出现） |
 | `CreateTempDir(prefix)` | 与 `File.CreateTempDir` 同义 |
 | `Copy(src, dst, recursive)` | 递归拷贝。`dst` 不存在则创建；`recursive=false` 时跳过子目录只拷文件 |
@@ -305,7 +305,7 @@ public static class Environment {
 | `GetEnvironmentVariables()` | 平铺的 `string[]`，每项形如 `"KEY=VALUE"`；调用方自己按**第一个** `=` 切分（没有 `Map<string,string>` 形态） |
 | `GetCommandLineArgs()` | 见下 |
 | `GetCurrentDirectory()` | `pwd` |
-| `SetCurrentDirectory(path)` | `cd`；路径不存在 / 无权限抛 `Std.Exception` |
+| `SetCurrentDirectory(path)` | `cd`；目录不存在抛 `DirectoryNotFoundException`，无权限抛 `UnauthorizedAccessException` |
 | `Exit(code)` | 立即以 `code` 退出进程，之后的语句不执行；已写出的输出会刷出 |
 | `GetCurrentTimeMs()` | 墙钟 Unix 毫秒 |
 
@@ -325,25 +325,41 @@ flag / option 解析，用 [`z42.cli` 的 `ArgParser`](cli.md)。
 
 ## 异常
 
-| 类型 | 抛出场景 |
-|---|---|
-| `Std.Exception`（基类本身） | 本页**全部**的 IO 失败：文件不存在、权限不足、目录非空、不是 UTF-8、`cd` 到不存在的路径…… `Message` 是 OS 原文 |
+本页的文件 / 目录 / 环境类失败按 .NET 的口径抛下面这些类型。`IOException` 一族在 `Std.IO`，
+`UnauthorizedAccessException` / `ArgumentException` 一族在 `Std`。
 
-没有 `IOException` / `FileNotFoundException` / `DirectoryNotFoundException` /
-`UnauthorizedAccessException` 这类细分类型，也没有错误码字段。要区分只能匹配 `Message`：
+```text
+Exception
+├── IOException                      其它 OS 错误（目录非空、路径上已有同名文件、不是合法 UTF-8 …）
+│   ├── FileNotFoundException        要读 / 删 / 查的文件不存在（它所在的目录存在）
+│   ├── DirectoryNotFoundException   目录不存在，或路径中间的某一级不存在（含写文件时父目录缺失）
+│   └── PathTooLongException         路径或其中一段超过系统上限
+├── UnauthorizedAccessException      权限不足；把目录当文件读写
+└── ArgumentException                空路径
+    └── ArgumentNullException        `null` 路径
+```
+
+| 失败 | 类型 | `Message` |
+|---|---|---|
+| 文件不存在 | `FileNotFoundException` | `Could not find file '<path>'.` |
+| 目录 / 路径的一部分不存在 | `DirectoryNotFoundException` | `Could not find a part of the path '<path>'.` |
+| 权限不足、目录当文件 | `UnauthorizedAccessException` | `Access to the path '<path>' is denied.` |
+| 路径过长 | `PathTooLongException` | `The path '<path>' is too long, or a component of the specified path is too long.` |
+| 已存在 | `IOException` | `The file '<path>' already exists.` |
+| 其它 OS 错误 | `IOException` | `<OS 原文> : '<path>'` |
+| 空路径 | `ArgumentException` | `The value cannot be an empty string. (Parameter 'path')` |
+
+`File.Exists` / `Directory.Exists` 从不抛：空路径、权限不足都答 `false`。
 
 ```z42
 try {
     string s = File.ReadAllText(p);
-} catch (Exception e) {
-    if (e.Message.Contains("os error 2")) {
-        // 文件不存在
-    }
-    throw;
+} catch (FileNotFoundException e) {
+    // 文件不存在
+} catch (IOException e) {
+    // 其它 IO 失败（含目录不存在）
 }
 ```
-
-更稳的做法是**先探再读**（`File.Exists` / `Directory.Exists`），把异常留给真正的意外。
 
 ## 用法
 
@@ -385,11 +401,12 @@ void Main() {
 
 ## 不支持
 
-- **没有 `IOException` 及其家族**：一切文件 / 目录失败都是基类 `Std.Exception`，靠 message 区分。
 - **`Console.ReadLine()` 区分不出 EOF**：EOF 与空行都返回 `""`，没有 `null` 也没有别的信号。
 - **`Console` 没有颜色 / 光标 / 清屏 / 窗口尺寸**：着色在 `z42.io` 的 `Ansi`（见[子进程与终端](process.md)）。
-- **`Console.Write` / `WriteLine` 不调用 `ToString()` 覆写**，也没有 `Write(format, args...)` 重载；
-  要格式化就自己用字符串插值。
+- **`Console.Write` / `WriteLine` 没有 `Write(format, args...)` 重载**（实参按 `ToString()` 字符串化，
+  与字符串插值同一个结果）；要格式化就自己用字符串插值。
+- **异常没有错误码字段**（没有 `HResult` / `NativeErrorCode`），也没有 `FileNotFoundException.FileName`
+  这类属性；路径只在 `Message` 里。
 - **没有 `Console.In` / `Console.Out` / `Console.Error` 这类 `TextWriter` 属性**，
   也不能把标准流重定向到自己的流对象；stderr 的入口是并列的 `ConsoleError` 静态类。
 - **`Path` 不解析实际文件系统**：没有 `GetFullPath` / `GetRelativePath` / `realpath`，

@@ -1,645 +1,202 @@
-//! `Std.IO.Process` Rust-side unit tests.
+//! Unit tests of the typed process builtins (`process::typed`): results, the .NET-shaped
+//! exceptions thrown from Rust, and parking while a call waits on the child.
 //!
-//! Tests exercise the builtin directly with `Value`-encoded args, so they
-//! verify marshalling + `std::process::Command` plumbing without going
-//! through z42 facade or the IR dispatcher.
-//!
-//! Platform skip: tests assume POSIX coreutils (`echo` / `printf` / `cat`
-//! / `pwd` / `env` / `false` / `true`). Git Bash on windows-latest CI
-//! provides most of these — 489/492 pass — but a few cases fall over on
-//! genuine cross-platform gaps and are gated `#[cfg(unix)]`:
-//!   - `run_argv_array_passes_args_literally`  (Git Bash `printf` handles
-//!     `%s\n` differently — emits no trailing newline)
-//!   - `run_working_directory_takes_effect`    (hardcoded `/tmp`)
-//!   - `run_timeout_fires_for_long_running_child`
-//!     (Real Windows process-tree kill defect: `child.kill()` on the
-//!     `sh.exe` parent does NOT propagate to the grandchild `sleep 5`;
-//!     the inherited pipe handle keeps stdout-reader thread blocked.
-//!     TODO: switch to `taskkill /T /F` or job-object-based kill on
-//!     Windows so timeouts terminate the whole tree.)
+//! POSIX coreutils assumed (`sh` / `true` / `cat` / `sleep`), like `process_legacy_tests`.
 
 use super::*;
-use crate::metadata::Value;
-use crate::vm_context::VmContext;
-
-/// Serialize tests that read or mutate the process-global `PATH` env var.
-/// Without this, parallel tests like `which_finds_in_custom_path` (sets
-/// PATH to a temp dir) race with tests like `run_working_directory_takes_effect`
-/// (spawns `pwd` — PATH lookup) and the latter intermittently fails because
-/// `pwd` can't be found in the temp PATH.
-static PATH_ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+use crate::corelib::abi::{BuiltinError, FieldInit};
+use crate::corelib::{exec_builtin, exec_builtin_value};
 
 fn s(v: &str) -> Value { Value::Str(v.into()) }
-fn i(n: i64) -> Value  { Value::I64(n) }
-fn b(v: bool) -> Value { Value::Bool(v) }
-fn nul() -> Value      { Value::Null }
+fn i(n: i64) -> Value { Value::I64(n) }
 
-fn empty_str_arr(ctx: &VmContext) -> Value { ctx.heap().alloc_array(vec![]) }
-fn str_arr(ctx: &VmContext, xs: &[&str]) -> Value {
+fn strs(ctx: &VmContext, xs: &[&str]) -> Value {
     ctx.heap().alloc_array(xs.iter().map(|x| s(x)).collect())
 }
 
-/// Build the 14-arg run tuple with sensible defaults (Run shape: stdin
-/// Null, stdout/stderr Pipe). Pass `extra` closures to override.
+/// `__process_run_sync` arguments: stdin Null, stdout / stderr Pipe, no timeout.
 fn run_args(ctx: &VmContext, program: &str, argv: &[&str]) -> Vec<Value> {
     vec![
-        s(program),                 // 0  program
-        str_arr(ctx, argv),         // 1  args
-        empty_str_arr(ctx),         // 2  env_keys
-        empty_str_arr(ctx),         // 3  env_vals
-        empty_str_arr(ctx),         // 4  env_remove
-        b(false),                   // 5  env_clear
-        nul(),                      // 6  cwd
-        i(STDIO_NULL),              // 7  stdin_mode
-        nul(),                      // 8  stdin_bytes
-        i(STDIO_PIPE),              // 9  stdout_mode
-        nul(),                      // 10 stdout_path
-        i(STDIO_PIPE),              // 11 stderr_mode
-        nul(),                      // 12 stderr_path
-        i(-1),                      // 13 timeout_ms
+        s(program), strs(ctx, argv), strs(ctx, &[]), strs(ctx, &[]), strs(ctx, &[]), Value::Bool(false),
+        Value::Null, i(STDIO_NULL), Value::Null, i(STDIO_PIPE), Value::Null, i(STDIO_PIPE), Value::Null,
+        i(-1), Value::Bool(true),
     ]
 }
 
-/// Helper: read the result Array discriminator + element by index.
-fn result_kind(v: &Value) -> i64 {
-    let Value::Array(rc) = v else { panic!("expected Array, got {v:?}") };
-    let borrowed = rc.borrow();
-    let Value::I64(k) = borrowed.get_boxed(0) else { panic!("kind not I64") };
-    k
+/// `__process_start` arguments (no one-shot stdin, no timeout / process-group flag).
+fn start_args(ctx: &VmContext, program: &str, argv: &[&str], stdin_mode: i64) -> Vec<Value> {
+    vec![
+        s(program), strs(ctx, argv), strs(ctx, &[]), strs(ctx, &[]), strs(ctx, &[]), Value::Bool(false),
+        Value::Null, i(stdin_mode), i(STDIO_PIPE), Value::Null, i(STDIO_PIPE), Value::Null,
+    ]
 }
 
-fn result_at(v: &Value, idx: usize) -> Value {
-    let Value::Array(rc) = v else { panic!("expected Array") };
-    rc.borrow().get_boxed(idx).clone()
+fn fail(ctx: &VmContext, name: &str, args: &[Value]) -> BuiltinError {
+    let e = exec_builtin_value(ctx, name, args).expect_err(name);
+    match e.downcast::<BuiltinError>() {
+        Ok(b) => b,
+        Err(e) => panic!("{name}: not a typed error: {e}"),
+    }
 }
 
-/// Spawn args: 13-element shape (no timeout).
-fn spawn_args(ctx: &VmContext, program: &str, argv: &[&str]) -> Vec<Value> {
-    let mut a = run_args(ctx, program, argv);
-    a.pop();  // drop timeout
-    a
+fn at(v: &Value, k: usize) -> Value {
+    let Value::Array(a) = v else { panic!("expected an array, got {v:?}") };
+    a.borrow().get_boxed(k)
 }
 
-// ── ok path ──────────────────────────────────────────────────────────────
+fn start(ctx: &VmContext, program: &str, argv: &[&str], stdin_mode: i64) -> i64 {
+    match exec_builtin_value(ctx, "__process_start", &start_args(ctx, program, argv, stdin_mode)).unwrap() {
+        Value::I64(slot) => slot,
+        other => panic!("__process_start returned {other:?}"),
+    }
+}
 
 #[test]
-fn run_echo_captures_stdout_and_exit_zero() {
+fn run_sync_returns_exit_code_and_both_streams() {
     let ctx = VmContext::new();
-    let args = run_args(&ctx, "echo", &["hello"]);
-    let r = builtin_process_run(&ctx, &args).unwrap();
-
-    assert_eq!(result_kind(&r), KIND_OK);
-    assert_eq!(result_at(&r, 1), i(0));                       // ExitCode
-    let Value::Str(out) = result_at(&r, 2) else { panic!() }; // Stdout
-    assert_eq!(out, "hello\n".into());
-    assert_eq!(result_at(&r, 3), s(""));                      // Stderr empty
+    let r = exec_builtin_value(&ctx, "__process_run_sync", &run_args(&ctx, "sh", &["-c", "printf out; printf err >&2; exit 3"])).unwrap();
+    assert_eq!(at(&r, 0), i(3));
+    assert_eq!(at(&r, 1), s("out"));
+    assert_eq!(at(&r, 2), s("err"));
+    let Value::Array(bytes) = at(&r, 3) else { panic!() };
+    assert_eq!(bytes.borrow().byte_snapshot().unwrap(), b"out".to_vec(), "stdout bytes are a packed byte[]");
 }
 
-#[cfg(unix)]
 #[test]
-fn run_argv_array_passes_args_literally() {
-    // Multi-word argv element must reach the child as ONE arg, not
-    // shell-split into two.
+fn start_failure_is_a_process_start_exception() {
     let ctx = VmContext::new();
-    let args = run_args(&ctx, "printf", &["%s\n", "a b c"]);
-    let r = builtin_process_run(&ctx, &args).unwrap();
-    let Value::Str(out) = result_at(&r, 2) else { panic!() };
-    assert_eq!(out, "a b c\n".into());
+    for name in ["__process_run_sync", "__process_start"] {
+        let args = if name == "__process_start" {
+            start_args(&ctx, "z42-no-such-binary-p18", &[], STDIO_NULL)
+        } else {
+            run_args(&ctx, "z42-no-such-binary-p18", &[])
+        };
+        let e = fail(&ctx, name, &args);
+        assert_eq!(e.classes(), ["Std.IO.ProcessStartException", "Std.IO.IOException"], "{name}");
+        assert!(e.message().starts_with("z42-no-such-binary-p18: "), "{name}: {}", e.message());
+        assert!(e.message().contains("(kind: NotFound)"), "{name}: {}", e.message());
+    }
 }
 
 #[test]
-fn run_nonzero_exit_reaches_caller() {
-    let ctx = VmContext::new();
-    let args = run_args(&ctx, "false", &[]);
-    let r = builtin_process_run(&ctx, &args).unwrap();
-    assert_eq!(result_kind(&r), KIND_OK);
-    let Value::I64(code) = result_at(&r, 1) else { panic!() };
-    assert_ne!(code, 0);
-}
-
-// ── start failure path ──────────────────────────────────────────────────
-
-#[test]
-fn run_nonexistent_program_returns_start_err() {
-    let ctx = VmContext::new();
-    let args = run_args(&ctx, "definitely-not-a-real-binary-xyzzy-42", &[]);
-    let r = builtin_process_run(&ctx, &args).unwrap();
-    assert_eq!(result_kind(&r), KIND_START_ERR);
-    let Value::Str(prog) = result_at(&r, 1) else { panic!() };
-    assert_eq!(prog, "definitely-not-a-real-binary-xyzzy-42".into());
-    let Value::Str(msg) = result_at(&r, 2) else { panic!() };
-    assert!(msg.contains("NotFound") || msg.to_lowercase().contains("no such"));
-}
-
-// ── env ─────────────────────────────────────────────────────────────────
-
-#[test]
-fn run_env_override_visible_to_child() {
-    let ctx = VmContext::new();
-    let mut args = run_args(&ctx, "sh", &["-c", "echo $Z42_TEST_VAR"]);
-    args[2] = str_arr(&ctx, &["Z42_TEST_VAR"]);
-    args[3] = str_arr(&ctx, &["hello-from-test"]);
-    let r = builtin_process_run(&ctx, &args).unwrap();
-    let Value::Str(out) = result_at(&r, 2) else { panic!() };
-    assert_eq!(out, "hello-from-test\n".into());
-}
-
-#[test]
-fn run_env_clear_strips_parent_env() {
-    let ctx = VmContext::new();
-    // Set a known env var on the parent so we can prove it's absent.
-    std::env::set_var("Z42_CLEAR_TEST", "parent-visible");
-    let mut args = run_args(&ctx, "sh", &["-c", "echo ${Z42_CLEAR_TEST:-empty}"]);
-    args[5] = b(true); // env_clear
-    let r = builtin_process_run(&ctx, &args).unwrap();
-    let Value::Str(out) = result_at(&r, 2) else { panic!() };
-    assert_eq!(out, "empty\n".into());
-}
-
-// ── cwd ─────────────────────────────────────────────────────────────────
-
-#[cfg(unix)]
-#[test]
-fn run_working_directory_takes_effect() {
-    let _path_guard = PATH_ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
-    let ctx = VmContext::new();
-    let mut args = run_args(&ctx, "pwd", &[]);
-    args[6] = s("/tmp");
-    let r = builtin_process_run(&ctx, &args).unwrap();
-    let Value::Str(out) = result_at(&r, 2) else { panic!() };
-    // macOS resolves /tmp to /private/tmp via symlink; either is fine.
-    let trimmed = out.trim();
-    assert!(trimmed == "/tmp" || trimmed == "/private/tmp", "got {trimmed:?}");
-}
-
-// ── stdin bytes ─────────────────────────────────────────────────────────
-
-#[test]
-fn run_stdin_bytes_feeds_child() {
-    let ctx = VmContext::new();
-    let mut args = run_args(&ctx, "cat", &[]);
-    args[7] = i(STDIO_PIPE);
-    let bytes = ctx.heap().alloc_array(
-        b"hello\n".iter().map(|x| i(*x as i64)).collect()
-    );
-    args[8] = bytes;
-    let r = builtin_process_run(&ctx, &args).unwrap();
-    let Value::Str(out) = result_at(&r, 2) else { panic!() };
-    assert_eq!(out, "hello\n".into());
-}
-
-// ── stdio modes ─────────────────────────────────────────────────────────
-
-#[test]
-fn run_stdout_null_drops_output() {
-    let ctx = VmContext::new();
-    let mut args = run_args(&ctx, "echo", &["should-be-discarded"]);
-    args[9] = i(STDIO_NULL); // stdout_mode
-    let r = builtin_process_run(&ctx, &args).unwrap();
-    let Value::Str(out) = result_at(&r, 2) else { panic!() };
-    assert_eq!(out, "".into());
-}
-
-#[test]
-fn run_stdout_to_file() {
-    let ctx = VmContext::new();
-    let tmp_dir = std::env::temp_dir();
-    let path = tmp_dir.join("z42-process-stdout-test.log");
-    let _ = std::fs::remove_file(&path);
-
-    let mut args = run_args(&ctx, "echo", &["redirected"]);
-    args[9]  = i(STDIO_FILE);
-    args[10] = s(path.to_str().unwrap());
-
-    let r = builtin_process_run(&ctx, &args).unwrap();
-    assert_eq!(result_kind(&r), KIND_OK);
-    let Value::Str(captured) = result_at(&r, 2) else { panic!() };
-    assert_eq!(captured, "".into()); // not captured — redirected
-
-    let on_disk = std::fs::read_to_string(&path).unwrap();
-    assert_eq!(on_disk, "redirected\n");
-    let _ = std::fs::remove_file(&path);
-}
-
-// ── bytes / lossy decode ────────────────────────────────────────────────
-
-#[test]
-fn run_invalid_utf8_in_stdout_becomes_replacement_char() {
-    // `printf '\xff'` is non-portable (BSD vs GNU printf differ on
-    // hex escapes), so pre-stage the invalid bytes in a temp file and
-    // have `cat` emit them — every POSIX `cat` is byte-transparent.
-    let ctx = VmContext::new();
-    let tmp = std::env::temp_dir().join("z42-process-bad-utf8.bin");
-    std::fs::write(&tmp, [0xff_u8, 0xfe_u8]).unwrap();
-
-    let args = run_args(&ctx, "cat", &[tmp.to_str().unwrap()]);
-    let r = builtin_process_run(&ctx, &args).unwrap();
-
-    let Value::Str(out) = result_at(&r, 2) else { panic!() };
-    assert!(out.contains('\u{FFFD}'),
-        "expected replacement char, got bytes {:?}", out.as_bytes());
-
-    // Raw bytes round-trip unchanged via StdoutBytes path.
-    let Value::Array(rc) = result_at(&r, 4) else { panic!() };
-    let bytes = rc.borrow();
-    assert_eq!(bytes.len(), 2);
-    assert_eq!(bytes.get_boxed(0), i(0xff));
-    assert_eq!(bytes.get_boxed(1), i(0xfe));
-
-    let _ = std::fs::remove_file(&tmp);
-}
-
-// ── Phase 3: spawn + handle ops ─────────────────────────────────────────
-
-fn slot_id_from(v: &Value) -> u64 {
-    assert_eq!(result_kind(v), KIND_OK);
-    let Value::I64(id) = result_at(v, 1) else { panic!("slot id not I64") };
-    id as u64
-}
-
-#[test]
-fn spawn_then_wait_returns_ok_result() {
-    let ctx = VmContext::new();
-    let args = spawn_args(&ctx, "echo", &["spawned"]);
-    let spawn_r = builtin_process_spawn(&ctx, &args).unwrap();
-    let slot = slot_id_from(&spawn_r);
-
-    assert_eq!(ctx.process_slot_count(), 1);
-
-    let wait_r = builtin_process_handle_wait(&ctx, &[i(slot as i64)]).unwrap();
-    assert_eq!(result_kind(&wait_r), KIND_OK);
-    assert_eq!(result_at(&wait_r, 1), i(0));
-    let Value::Str(out) = result_at(&wait_r, 2) else { panic!() };
-    assert_eq!(out, "spawned\n".into());
-
-    // Slot consumed after wait.
-    assert_eq!(ctx.process_slot_count(), 0);
-}
-
-#[test]
-fn spawn_nonexistent_program_returns_start_err() {
-    let ctx = VmContext::new();
-    let args = spawn_args(&ctx, "definitely-not-a-real-binary-xyzzy-99", &[]);
-    let r = builtin_process_spawn(&ctx, &args).unwrap();
-    assert_eq!(result_kind(&r), KIND_START_ERR);
-    assert_eq!(ctx.process_slot_count(), 0);
-}
-
-#[test]
-fn try_wait_returns_null_while_running_then_result_after() {
-    let ctx = VmContext::new();
-    // Long enough that even a slow CI's `sh` startup + first try_wait still
-    // observes "running" before the child's `sleep` returns. Was 0.15s →
-    // intermittent on Windows/macOS CI where sh + spawn overhead could
-    // push first try_wait past the child's exit window.
-    let args = spawn_args(&ctx, "sh", &["-c", "sleep 1; echo done"]);
-    let spawn_r = builtin_process_spawn(&ctx, &args).unwrap();
-    let slot = slot_id_from(&spawn_r);
-
-    // First poll: still running.
-    let first = builtin_process_handle_try_wait(&ctx, &[i(slot as i64)]).unwrap();
-    assert!(matches!(first, Value::Null), "expected Null, got {first:?}");
-    assert_eq!(ctx.process_slot_count(), 1);
-
-    // Poll-loop until child reaps (avoid a fixed sleep that could time out
-    // on heavily-loaded CI). Capped at 5 s.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    let second = loop {
-        let r = builtin_process_handle_try_wait(&ctx, &[i(slot as i64)]).unwrap();
-        if !matches!(r, Value::Null) { break r; }
-        if std::time::Instant::now() >= deadline {
-            panic!("try_wait did not observe child exit within 5 s");
-        }
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    };
-    assert_eq!(result_kind(&second), KIND_OK);
-    let Value::Str(out) = result_at(&second, 2) else { panic!() };
-    assert_eq!(out, "done\n".into());
-    assert_eq!(ctx.process_slot_count(), 0);
-}
-
-#[test]
-fn kill_terminates_long_running_child() {
-    let ctx = VmContext::new();
-    let args = spawn_args(&ctx, "sh", &["-c", "sleep 30"]);
-    let slot = slot_id_from(&builtin_process_spawn(&ctx, &args).unwrap());
-
-    let r = builtin_process_handle_kill(&ctx, &[i(slot as i64), b(false)]).unwrap();
-    assert!(matches!(r, Value::Null));
-
-    // After kill we can still wait — child should reap quickly.
-    let wait_r = builtin_process_handle_wait(&ctx, &[i(slot as i64)]).unwrap();
-    assert_eq!(result_kind(&wait_r), KIND_OK);
-    let Value::I64(code) = result_at(&wait_r, 1) else { panic!() };
-    assert_ne!(code, 0); // killed → non-zero (128+SIGKILL=137 on unix)
-}
-
-#[test]
-fn write_stdin_then_close_then_wait() {
-    let ctx = VmContext::new();
-    let mut args = spawn_args(&ctx, "cat", &[]);
-    args[7] = i(STDIO_PIPE);  // stdin = Pipe
-    let slot = slot_id_from(&builtin_process_spawn(&ctx, &args).unwrap());
-
-    let payload = ctx.heap().alloc_array(b"hi\n".iter().map(|x| i(*x as i64)).collect());
-    let r = builtin_process_handle_write_stdin(&ctx, &[i(slot as i64), payload]).unwrap();
-    assert!(matches!(r, Value::Null));
-
-    let r = builtin_process_handle_close_stdin(&ctx, &[i(slot as i64)]).unwrap();
-    assert!(matches!(r, Value::Null));
-
-    let wait_r = builtin_process_handle_wait(&ctx, &[i(slot as i64)]).unwrap();
-    let Value::Str(out) = result_at(&wait_r, 2) else { panic!() };
-    assert_eq!(out, "hi\n".into());
-}
-
-#[test]
-fn pid_returns_positive_int() {
-    let ctx = VmContext::new();
-    let args = spawn_args(&ctx, "sh", &["-c", "sleep 0.1"]);
-    let slot = slot_id_from(&builtin_process_spawn(&ctx, &args).unwrap());
-
-    let pid_v = builtin_process_handle_pid(&ctx, &[i(slot as i64)]).unwrap();
-    let Value::I64(pid) = pid_v else { panic!("pid not I64") };
-    assert!(pid > 0);
-
-    let _ = builtin_process_handle_wait(&ctx, &[i(slot as i64)]).unwrap();
-}
-
-#[test]
-fn handle_invalid_after_drop() {
-    let ctx = VmContext::new();
-    let args = spawn_args(&ctx, "sh", &["-c", "sleep 30"]);
-    let slot = slot_id_from(&builtin_process_spawn(&ctx, &args).unwrap());
-
-    // Drop reaps the child and frees the slot.
-    let _ = builtin_process_handle_drop(&ctx, &[i(slot as i64)]).unwrap();
-    assert_eq!(ctx.process_slot_count(), 0);
-
-    // Subsequent ops on the freed slot id are KIND_HANDLE_INVALID.
-    let r = builtin_process_handle_wait(&ctx, &[i(slot as i64)]).unwrap();
-    let Value::Array(rc) = r else { panic!() };
-    let Value::I64(kind) = rc.borrow().get_boxed(0) else { panic!() };
-    assert_eq!(kind, 3 /* KIND_HANDLE_INVALID */);
-}
-
-// ── Phase 4: timeout ────────────────────────────────────────────────────
-
-#[cfg(unix)]
-#[test]
-fn run_timeout_fires_for_long_running_child() {
+fn run_timeout_is_a_process_timeout_exception_with_its_fields() {
     let ctx = VmContext::new();
     let mut args = run_args(&ctx, "sh", &["-c", "sleep 5"]);
-    args[13] = i(150); // 150ms timeout
-    let start = std::time::Instant::now();
-    let r = builtin_process_run(&ctx, &args).unwrap();
-    let elapsed = start.elapsed();
-
-    assert_eq!(result_kind(&r), KIND_TIMEOUT);
-    let Value::Str(prog) = result_at(&r, 1) else { panic!() };
-    assert_eq!(prog, "sh".into());
-    let Value::I64(ms) = result_at(&r, 2) else { panic!() };
-    assert_eq!(ms, 150);
-    // Should return well before the 5-second sleep would have finished.
-    assert!(elapsed.as_secs() < 2, "elapsed {:?} should be << 5s", elapsed);
-}
-
-#[test]
-fn run_timeout_does_not_fire_if_child_exits_quickly() {
-    let ctx = VmContext::new();
-    let mut args = run_args(&ctx, "echo", &["fast"]);
-    args[13] = i(5000); // 5s timeout
-    let r = builtin_process_run(&ctx, &args).unwrap();
-    assert_eq!(result_kind(&r), KIND_OK);
-    let Value::Str(out) = result_at(&r, 2) else { panic!() };
-    assert_eq!(out, "fast\n".into());
-}
-
-#[test]
-fn slot_ids_are_monotonic_unique() {
-    let ctx = VmContext::new();
-    let a1 = spawn_args(&ctx, "true", &[]);
-    let a2 = spawn_args(&ctx, "true", &[]);
-    let s1 = slot_id_from(&builtin_process_spawn(&ctx, &a1).unwrap());
-    let s2 = slot_id_from(&builtin_process_spawn(&ctx, &a2).unwrap());
-    assert_ne!(s1, s2);
-    assert!(s2 > s1, "{s2} should be > {s1}");
-
-    let _ = builtin_process_handle_wait(&ctx, &[i(s1 as i64)]);
-    let _ = builtin_process_handle_wait(&ctx, &[i(s2 as i64)]);
-}
-
-// ── __process_which (add-process-which 2026-05-26) ───────────────────────
-
-#[test]
-fn which_returns_null_for_empty_name() {
-    let ctx = VmContext::new();
-    let r = builtin_process_which(&ctx, &[s("")]).unwrap();
-    assert!(matches!(r, Value::Null), "empty name → null, got {r:?}");
-}
-
-#[test]
-fn which_returns_null_for_nonexistent_command() {
-    let ctx = VmContext::new();
-    let r = builtin_process_which(&ctx, &[s("__z42_definitely_no_such_cmd__")]).unwrap();
-    assert!(matches!(r, Value::Null), "missing command → null, got {r:?}");
-}
-
-#[cfg(unix)]
-#[test]
-fn which_finds_in_custom_path() {
-    use std::os::unix::fs::PermissionsExt;
-    let _path_guard = PATH_ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
-    let ctx = VmContext::new();
-    let tmp = tempdir_unique("z42-which-test");
-    std::fs::create_dir_all(&tmp).unwrap();
-    let stub = tmp.join("zwhich_stub");
-    std::fs::write(&stub, "#!/bin/sh\necho hi\n").unwrap();
-    let mut perm = std::fs::metadata(&stub).unwrap().permissions();
-    perm.set_mode(0o755);
-    std::fs::set_permissions(&stub, perm).unwrap();
-
-    let prev = std::env::var("PATH").ok();
-    std::env::set_var("PATH", &tmp);
-    let r = builtin_process_which(&ctx, &[s("zwhich_stub")]).unwrap();
-    if let Some(p) = prev { std::env::set_var("PATH", p); } else { std::env::remove_var("PATH"); }
-
-    let Value::Str(found) = r else { panic!("expected Str, got {r:?}") };
-    assert_eq!(found, stub.to_string_lossy().into());
-    let _ = std::fs::remove_dir_all(&tmp);
-}
-
-#[cfg(unix)]
-#[test]
-fn which_skips_non_executable_files() {
-    let _path_guard = PATH_ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
-    let ctx = VmContext::new();
-    let tmp = tempdir_unique("z42-which-noexec");
-    std::fs::create_dir_all(&tmp).unwrap();
-    let plain = tmp.join("notexec");
-    std::fs::write(&plain, "data").unwrap();
-    // No chmod +x.
-
-    let prev = std::env::var("PATH").ok();
-    std::env::set_var("PATH", &tmp);
-    let r = builtin_process_which(&ctx, &[s("notexec")]).unwrap();
-    if let Some(p) = prev { std::env::set_var("PATH", p); } else { std::env::remove_var("PATH"); }
-
-    assert!(matches!(r, Value::Null), "non-executable should not resolve, got {r:?}");
-    let _ = std::fs::remove_dir_all(&tmp);
-}
-
-#[cfg(unix)]
-#[test]
-fn which_passthrough_for_path_with_separator() {
-    let ctx = VmContext::new();
-    // /bin/sh is POSIX-mandated and executable.
-    let r = builtin_process_which(&ctx, &[s("/bin/sh")]).unwrap();
-    let Value::Str(found) = r else { panic!("expected Str, got {r:?}") };
-    assert_eq!(found, "/bin/sh".into());
-}
-
-#[cfg(unix)]
-#[test]
-fn which_passthrough_returns_null_when_path_missing() {
-    let ctx = VmContext::new();
-    let r = builtin_process_which(&ctx, &[s("/nonexistent/dir/no_such_bin")]).unwrap();
-    assert!(matches!(r, Value::Null), "missing absolute path → null, got {r:?}");
-}
-
-#[cfg(unix)]
-fn tempdir_unique(prefix: &str) -> std::path::PathBuf {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-    std::env::temp_dir().join(format!("{}.{}.{}", prefix, std::process::id(), nanos))
-}
-
-// ── process group (arg 14: own_process_group) — fix-repl-launcher-process-group ──
-
-/// Run a child that prints its own process-group id, returning that pgid. `$$` is
-/// the child sh's pid; `ps -o pgid=` prints its pgid header-less.
-#[cfg(unix)]
-fn child_pgid(ctx: &VmContext, args: &[Value]) -> i32 {
-    let r = builtin_process_run(ctx, args).unwrap();
-    assert_eq!(result_kind(&r), KIND_OK);
-    let Value::Str(out) = result_at(&r, 2) else { panic!("stdout not Str") };
-    out.trim().parse().expect("child pgid")
-}
-
-#[cfg(unix)]
-#[test]
-fn run_own_process_group_puts_child_in_fresh_group() {
-    // own_process_group=true (arg 14) → child leads its OWN group; its pgid differs
-    // from ours (so a run-timeout can tree-kill it).
-    let ctx = VmContext::new();
-    let mut args = run_args(&ctx, "sh", &["-c", "ps -o pgid= -p $$"]);
-    args.push(b(true));   // 14 own_process_group
-    let our_pgid = unsafe { libc::getpgrp() };
-    assert_ne!(child_pgid(&ctx, &args), our_pgid, "own-group child must not share our pgid");
-}
-
-#[cfg(unix)]
-#[test]
-fn run_share_process_group_keeps_child_in_caller_group() {
-    // own_process_group=false (Process.ShareProcessGroup) → child STAYS in our group,
-    // so it can join the caller's terminal job-control (interactive `z42 repl`). Its
-    // pgid equals ours.
-    let ctx = VmContext::new();
-    let mut args = run_args(&ctx, "sh", &["-c", "ps -o pgid= -p $$"]);
-    args.push(b(false));  // 14 own_process_group
-    let our_pgid = unsafe { libc::getpgrp() };
-    assert_eq!(child_pgid(&ctx, &args), our_pgid, "shared-group child must share our pgid");
-}
-
-#[cfg(unix)]
-#[test]
-fn run_absent_process_group_arg_defaults_to_own_group() {
-    // A 14-arg call (no arg 14) behaves as own_process_group=true — the defensive read
-    // keeps old zpkgs working on a new VM and vice-versa (no arity / two-nightly coupling).
-    let ctx = VmContext::new();
-    let args = run_args(&ctx, "sh", &["-c", "ps -o pgid= -p $$"]);  // 14 args, no flag
-    let our_pgid = unsafe { libc::getpgrp() };
-    assert_ne!(child_pgid(&ctx, &args), our_pgid);
-}
-
-// ── fix-park-blocking-natives (2026-09-14): blocking pipe I/O is parked ──────
-//
-// A thread stuck in a pipe read / write never reaches a bytecode safepoint, so unless it is
-// parked every collection waits on it forever. The pipe calls also used to block while
-// holding the process-table lock, which every other thread's process builtin then queued on
-// *unparked* — the same stall one hop removed. Each case blocks a registered worker,
-// asserts the park (and the free table), then unblocks it deterministically.
-
-fn wait_until(deadline: std::time::Duration, mut cond: impl FnMut() -> bool) -> bool {
+    args[13] = i(150);
     let t0 = std::time::Instant::now();
-    while t0.elapsed() < deadline {
-        if cond() {
-            return true;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(2));
+    let BuiltinError::Detailed(d) = fail(&ctx, "__process_run_sync", &args) else { panic!("not detailed") };
+    assert!(t0.elapsed() < std::time::Duration::from_secs(3), "the tree is killed on timeout");
+    assert_eq!(d.classes, ["Std.IO.ProcessTimeoutException", "Std.TimeoutException"]);
+    assert_eq!(d.message, "process `sh` did not finish within 150ms");
+    assert!(matches!(&d.fields[..], [("Program", FieldInit::Str(p)), ("TimeoutMs", FieldInit::I64(150))] if p == "sh"));
+}
+
+#[test]
+fn a_consumed_or_unknown_handle_is_handle_invalid() {
+    let ctx = VmContext::new();
+    let slot = start(&ctx, "true", &[], STDIO_NULL);
+    let r = exec_builtin_value(&ctx, "__process_wait", &[i(slot)]).unwrap();
+    assert_eq!(at(&r, 0), i(0));
+    for name in ["__process_wait", "__process_pid", "__process_try_wait", "__process_stdin_close"] {
+        let e = fail(&ctx, name, &[i(slot)]);
+        assert_eq!(e.classes(), ["Std.IO.ProcessHandleInvalidException", "Std.InvalidOperationException"], "{name}");
     }
-    cond()
+    exec_builtin(&ctx, "__process_close", &[i(slot)]).unwrap();   // idempotent
+}
+
+#[test]
+fn stdin_write_without_a_pipe_is_invalid_operation_and_keeps_the_handle() {
+    let ctx = VmContext::new();
+    let slot = start(&ctx, "true", &[], STDIO_NULL);
+    let bytes = ctx.heap().alloc_bytes(b"x".to_vec());
+    assert!(matches!(fail(&ctx, "__process_stdin_write", &[i(slot), bytes]), BuiltinError::InvalidOperation(_)));
+    assert!(matches!(exec_builtin_value(&ctx, "__process_pid", &[i(slot)]).unwrap(), Value::I64(p) if p > 0));
+    let r = exec_builtin_value(&ctx, "__process_wait", &[i(slot)]).unwrap();
+    assert_eq!(at(&r, 0), i(0));
+}
+
+#[test]
+fn malformed_bundles_are_argument_errors() {
+    let ctx = VmContext::new();
+    let mut args = run_args(&ctx, "true", &[]);
+    args[7] = i(STDIO_FILE);
+    assert!(matches!(fail(&ctx, "__process_run_sync", &args), BuiltinError::NotSupported(_)), "Stdio.ToFile on stdin");
+    let mut args = run_args(&ctx, "true", &[]);
+    args[9] = i(9);
+    assert!(matches!(fail(&ctx, "__process_run_sync", &args), BuiltinError::ArgumentOutOfRange(_)));
+    let mut args = run_args(&ctx, "true", &[]);
+    args[2] = strs(&ctx, &["K"]);
+    assert!(matches!(fail(&ctx, "__process_run_sync", &args), BuiltinError::Argument(_)));
+    let mut args = run_args(&ctx, "echo", &["x"]);
+    args[9] = i(STDIO_FILE);
+    args[10] = s("/z42-no-such-dir-p18/out.txt");
+    assert!(matches!(fail(&ctx, "__process_run_sync", &args), BuiltinError::DirectoryNotFound(_)));
+}
+
+#[test]
+fn streaming_reads_until_eof_then_try_wait() {
+    let ctx = VmContext::new();
+    let slot = start(&ctx, "sh", &["-c", "printf abcdef"], STDIO_NULL);
+    let buf = ctx.heap().alloc_bytes(vec![0; 8]);
+    let mut got = Vec::new();
+    loop {
+        let Value::I64(n) = exec_builtin_value(&ctx, "__process_stdout_read", &[i(slot), buf, i(2), i(4)]).unwrap()
+            else { panic!() };
+        if n == 0 { break; }
+        let Value::Array(a) = buf else { panic!() };
+        got.extend(a.borrow().byte_range(2, n as usize).unwrap());
+    }
+    assert_eq!(got, b"abcdef");
+    let mut r = Value::Null;
+    for _ in 0..500 {
+        r = exec_builtin_value(&ctx, "__process_try_wait", &[i(slot)]).unwrap();
+        if r != Value::Null { break; }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert_eq!(at(&r, 0), i(0));
 }
 
 fn parked(ctx: &VmContext) -> usize {
     ctx.core.parked_count.load(std::sync::atomic::Ordering::Acquire) as usize
 }
 
-#[test]
-fn blocked_stdout_read_is_parked_and_leaves_the_process_table_free() {
-    let ctx = VmContext::new();
-    let mut args = spawn_args(&ctx, "cat", &[]);
-    args[7] = i(STDIO_PIPE);  // cat waits on an open stdin ⇒ its stdout stays silent
-    let slot = slot_id_from(&builtin_process_spawn(&ctx, &args).unwrap()) as i64;
-
-    let core = std::sync::Arc::clone(&ctx.core);
-    let reader = std::thread::spawn(move || {
-        let w = VmContext::new_with_core(core);
-        let buf = w.heap().alloc_array(vec![i(0); 8]);
-        match builtin_process_handle_read_stdout(&w, &[i(slot), buf, i(0), i(8)]).unwrap() {
-            Value::I64(n) => n,
-            other => panic!("read returned {other:?}"),
-        }
-    });
-    assert!(wait_until(std::time::Duration::from_secs(5), || parked(&ctx) == 1),
-            "a thread blocked reading a child's stdout must be parked");
-
-    let core = std::sync::Arc::clone(&ctx.core);
-    let probed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let probed2 = std::sync::Arc::clone(&probed);
-    std::thread::spawn(move || {
-        let w = VmContext::new_with_core(core);
-        let _ = builtin_process_handle_pid(&w, &[i(slot)]);
-        probed2.store(true, std::sync::atomic::Ordering::SeqCst);
-    });
-    assert!(wait_until(std::time::Duration::from_secs(5), || probed.load(std::sync::atomic::Ordering::SeqCst)),
-            "another thread's process builtin must not queue behind a blocked pipe read");
-
-    builtin_process_handle_close_stdin(&ctx, &[i(slot)]).unwrap();  // cat exits ⇒ EOF
-    assert_eq!(reader.join().unwrap(), 0);
-    assert_eq!(parked(&ctx), 0, "park must be released");
-    builtin_process_handle_drop(&ctx, &[i(slot)]).unwrap();
+fn wait_until(mut cond: impl FnMut() -> bool) -> bool {
+    let t0 = std::time::Instant::now();
+    while t0.elapsed() < std::time::Duration::from_secs(5) {
+        if cond() { return true; }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    cond()
 }
 
+/// A thread waiting on a child (`Wait`, and a whole `Run`) is parked: another thread can
+/// run a full collection meanwhile.
 #[test]
-fn stdin_write_into_a_full_pipe_is_parked() {
-    let ctx = VmContext::new();
-    let mut args = spawn_args(&ctx, "sleep", &["30"]);  // never reads stdin
-    args[7] = i(STDIO_PIPE);
-    let slot = slot_id_from(&builtin_process_spawn(&ctx, &args).unwrap()) as i64;
-
-    let core = std::sync::Arc::clone(&ctx.core);
-    let writer = std::thread::spawn(move || {
-        let w = VmContext::new_with_core(core);
-        // Well past any OS pipe buffer (64 KiB on Linux / macOS).
-        let payload = w.heap().alloc_array(vec![i(b'x' as i64); 1 << 20]);
-        builtin_process_handle_write_stdin(&w, &[i(slot), payload]).is_err()
-    });
-    assert!(wait_until(std::time::Duration::from_secs(5), || parked(&ctx) == 1),
-            "a thread blocked writing a child's stdin must be parked");
-
-    builtin_process_handle_kill(&ctx, &[i(slot), b(true)]).unwrap();  // reader end closes ⇒ EPIPE
-    assert!(writer.join().unwrap(), "write into a dead child's stdin must fail");
-    assert_eq!(parked(&ctx), 0, "park must be released");
-    builtin_process_handle_drop(&ctx, &[i(slot)]).unwrap();
+fn a_collection_completes_while_a_thread_waits_on_a_child() {
+    for name in ["__process_wait", "__process_run_sync"] {
+        let ctx = VmContext::new();
+        let slot = start(&ctx, "sleep", &["1"], STDIO_NULL);
+        let core = std::sync::Arc::clone(&ctx.core);
+        let waiter = std::thread::spawn(move || {
+            let w = VmContext::new_with_core(core);
+            let r = if name == "__process_wait" {
+                exec_builtin_value(&w, name, &[i(slot)]).unwrap()
+            } else {
+                exec_builtin_value(&w, name, &run_args(&w, "sleep", &["1"])).unwrap()
+            };
+            match at(&r, 0) { Value::I64(code) => code, other => panic!("{other:?}") }
+        });
+        assert!(wait_until(|| parked(&ctx) == 1), "{name}: the waiting thread is parked");
+        let t0 = std::time::Instant::now();
+        {
+            let pause = crate::gc::safepoint::request_gc_pause(&ctx);
+            assert!(pause.is_some(), "{name}: this thread becomes the collector");
+            ctx.heap().collect_full();
+        }
+        assert!(t0.elapsed() < std::time::Duration::from_millis(700),
+            "{name}: the collection did not wait for the child ({:?})", t0.elapsed());
+        assert_eq!(waiter.join().unwrap(), 0);
+        assert_eq!(parked(&ctx), 0, "{name}: the park is released");
+        exec_builtin(&ctx, "__process_close", &[i(slot)]).unwrap();
+    }
 }
