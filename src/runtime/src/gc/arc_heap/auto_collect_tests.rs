@@ -263,3 +263,25 @@ fn generational_collects_more_often_than_stw_on_the_same_workload() {
          (generational {gen} vs stw {stw})"
     );
 }
+
+/// One generation: the futility multiplier lands in full on an allowance a soft cap squeezed, and
+/// one step behind on any other — a single futile collection (a live set being built) must not
+/// make the next productive phase sweep ×4 in one pause (`13_gc_large_heap` STW: 256 MB, the run's
+/// maximum pause); a second one in a row does back off (`09_alloc_ctorless`).
+#[test]
+fn one_generation_backs_off_an_unsqueezed_allowance_one_step_behind() {
+    use super::super::footprint::SoftCap;
+    let heap = ArcMagrGC::new();
+    heap.set_mode(crate::gc::GcMode::StwMarkSweep);
+    heap.set_nursery_bytes_for_test(1024 * 1024); // floor: 4 MB
+    let live = 64 * 1024 * 1024;
+    let free = ArcMagrGC::collection_allowance(live, heap.allowance_unit(), None);
+    assert_eq!(heap.single_generation_gate(live, 4, None), free, "one futile collection: not multiplied");
+    assert_eq!(heap.single_generation_gate(live, 16, None), free * 4, "two in a row: multiplied");
+    let roomy = SoftCap { footprint: 1 << 40, used: 1 << 40 };
+    assert_eq!(heap.single_generation_gate(live, 4, Some(roomy)), free, "a cap that does not squeeze: same");
+    let tight = SoftCap { footprint: live + 8 * 1024 * 1024, used: live + 8 * 1024 * 1024 };
+    let squeezed = ArcMagrGC::collection_allowance(live, heap.allowance_unit(), Some(tight));
+    assert!(squeezed < free);
+    assert_eq!(heap.single_generation_gate(live, 4, Some(tight)), squeezed * 4, "the cap's own trips: in full");
+}

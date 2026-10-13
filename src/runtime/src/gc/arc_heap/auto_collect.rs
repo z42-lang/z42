@@ -48,9 +48,10 @@
 //! *unproductive* collection multiplies the growth required before trying again, capped at
 //! [`MAX_BACKOFF`]; one productive collection resets it.
 //!
-//! **Where the multiplier lands.** One generation: on the allowance — every collection there is a
-//! full one. Generational: **only on the soft cap's own trips** (near-limit, and a promoted-byte
-//! gate the cap squeezed) — never on the minor gate. The minor gate bounds one minor's pause, so
+//! **Where the multiplier lands.** Generational: **only on the soft cap's own trips** (near-limit,
+//! and a promoted-byte gate the cap squeezed) — never on the minor gate. One generation: in full on
+//! an allowance the cap squeezed, one step behind on any other (a single futile collection is what
+//! every build-up phase produces; see [`ArcMagrGC::single_generation_gate`]). The minor gate bounds one minor's pause, so
 //! multiplying it answered "nothing dies" with "scan four, sixteen, sixty-four times as much next
 //! time", and every program whose futile phase was followed by one with garbage paid for it in one
 //! long pause. Minors that do not pay are **tenured** instead — see `young_policy.rs`.
@@ -248,10 +249,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
             "trip {:<5}  gate {}{}  grown {}  (last freed {})",
             match trip.kind { TripKind::Major => "major", TripKind::Minor => "minor", TripKind::Slice => "slice" },
             crate::gc::trace::human(trip.gate),
-            // Generational: the multiplier only touches the soft cap's trips (see the module note).
-            if backoff > 1 && (soft_limit.is_some()
-                || crate::gc::MagrGC::mode(self) != crate::gc::GcMode::GenerationalMarkSweep)
-            {
+            // The multiplier only touches the soft cap's trips (see the module note).
+            if backoff > 1 && soft_limit.is_some() {
                 format!(" x{backoff}")
             } else {
                 String::new()
@@ -430,7 +429,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         if crate::gc::MagrGC::mode(self) != crate::gc::GcMode::GenerationalMarkSweep {
             // One generation: every collection is a full one, and the allowance is read off
             // total live bytes rather than promoted bytes.
-            let gate = allowance.saturating_mul(backoff as u64);
+            let gate = self.single_generation_gate(baseline, backoff, soft_limit);
             return (grown >= gate || near_cap)
                 .then_some(Trip { kind: TripKind::Major, gate: allowance, for_cap: near_cap && grown < gate });
         }
@@ -465,6 +464,26 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
         (active && used >= self.incremental.next_slice_at.load(Ordering::Relaxed))
             .then(|| Trip { kind: TripKind::Slice, gate: self.slice_interval(), for_cap: false })
+    }
+
+    /// One generation's growth gate: the allowance times the futility multiplier — in full when a
+    /// soft cap squeezed the allowance (the cap's own trips, as under the generational collector),
+    /// **one step behind** otherwise.
+    ///
+    /// An unsqueezed allowance already grows with the live set, so one futile collection is no
+    /// evidence that the next will be: every build-up phase produces one. Multiplying on it bet
+    /// that the phase goes on and lost at the first phase change — `13_gc_large_heap` STW collects
+    /// once while its live set is built, reclaims nothing, and the gate after the next (productive)
+    /// collection was ×4: one collection over 256 MB of churn, 60~85 ms, the run's maximum pause,
+    /// with the footprint following it to 484 MB. Two futile collections in a row are a phase that
+    /// keeps not dying (`09_alloc_ctorless`, a structure being built), and from there the multiplier
+    /// climbs as before: dropping it outright cost the 4×-length `09_alloc_ctorless` STW +47% wall.
+    fn single_generation_gate(&self, baseline: u64, backoff: u32, soft_limit: Option<SoftCap>) -> u64 {
+        let allowance = Self::collection_allowance(baseline, self.allowance_unit(), soft_limit);
+        let squeezed = soft_limit.is_some()
+            && allowance < Self::collection_allowance(baseline, self.allowance_unit(), None);
+        let multiplier = if squeezed { backoff } else { backoff / 4 };
+        allowance.saturating_mul(multiplier.max(1) as u64)
     }
 
     /// Mono SGen's allowance rule (`sgen_memgov_calculate_minor_collection_allowance`):
@@ -554,7 +573,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// took major cycles from **4 to 29** and wall time from 2.41 s to 4.40 s — almost none of it
     /// minor pause (which fell from 27.8 ms to 5.5 ms), nearly all of it extra major work.
     #[inline]
-    fn allowance_unit(&self) -> u64 {
+    pub(super) fn allowance_unit(&self) -> u64 {
         self.allowance_unit_bytes.load(Ordering::Relaxed)
     }
 
@@ -584,8 +603,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let gate = if crate::gc::MagrGC::mode(self) == crate::gc::GcMode::GenerationalMarkSweep {
             self.minor_gate(baseline, soft_limit)
         } else {
-            Self::collection_allowance(baseline, self.allowance_unit(), soft_limit)
-                .saturating_mul(backoff.max(1) as u64)
+            self.single_generation_gate(baseline, backoff, soft_limit)
         };
         let at_gate = baseline.saturating_add(gate);
         let next = if declined && at_gate > floor { at_gate } else { at_gate.max(floor.saturating_add(gate)) };
