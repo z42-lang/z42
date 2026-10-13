@@ -21,13 +21,36 @@
 //! # The rule
 //!
 //! ```text
-//!  after every real minor:  unproductive = freed < gate / FUTILE_DIVISOR
+//!  after every real minor:  unproductive = freed < gate / FUTILE_DIVISOR                      (Futile, bytes)
+//!                                        || reclaimed entries < scanned / FUTILE_DIVISOR      (Futile, entries)
+//!                                        || survivors ≥ pause budget in entries               (OverBudget)
 //!                                        || freed / pause  <  (major freed / major pause) / MAJOR_YIELD_MARGIN
 //!                           unproductive → run = clamp(2 × run, 1, MAX_TENURE_RUN); the next `run` trips tenure
 //!                           productive   → run = 0
 //!  at a minor trip:         a tenure turn left → **tenure** (promote the young set, no mark)
 //!                           else              → a real minor (which is also the probe)
 //! ```
+//!
+//! **Entries as well as bytes.** The futility bar is read both ways — bytes freed against the
+//! gate, entries reclaimed against entries scanned — so that the same program makes the same
+//! call whatever its objects weigh: an object model that packs a field-less object into 16 B
+//! instead of 32 B halves every byte figure, and a byte-only rule then shifts where in the
+//! program's phases each verdict lands.
+//!
+//! **Over budget.** The pause budget (`pause_budget.rs`) knows what one young entry costs a minor,
+//! how many entries the pause target buys, and how many fresh entries the nursery it just chose
+//! will add. When the survivors this minor leaves listed reach what is left of the budget after
+//! those — the model already moved the nursery as far as it may (at most halving it, never under
+//! the floor) — the next minor busts the target re-marking what this one just marked. The nursery
+//! cannot help further (it bounds only the fresh entries), and those survivors stay listed until
+//! they have aged `promotion_age` minors; they also have to be at least half of what this minor
+//! scanned, so a minor whose per-entry cost is inflated by its fixed part keeps running. That is the same "minors stop
+//! paying" situation as the two shapes above, judged by measured cost rather than by yield, and it
+//! gets the same answer: tenure. Measured shape (`13_gc_large_heap` with a denser object layout):
+//! a minor reclaimed 5.2 MB (productive by bytes and by entries) but left 675 k survivors while
+//! the budget (714 k entries at 14 ns) minus the 4.5 MB floor nursery's 87 k fresh entries left
+//! them 627 k, and the next minor re-scanned 765 k entries for 16–19 ms where the byte-only rule's
+//! tenure had kept it at 12 ms.
 //!
 //! **Yield per unit of pause, against the major's.** A byte of young garbage can be reclaimed
 //! by a minor now, or tenured and reclaimed by the next major. Tenuring adds it to the old
@@ -63,6 +86,10 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 /// one-generation backoff uses (see there for why 1/16).
 use super::auto_collect::FUTILE_DIVISOR;
 
+/// The futility bar in entries: a minor that reclaimed fewer than `scanned / this` of the entries
+/// it scanned freed essentially nothing — the entry twin of `FUTILE_DIVISOR`.
+const FUTILE_DIVISOR_ENTRIES: u32 = 16;
+
 /// A minor is outyielded when its bytes-per-pause is below the last major's divided by this.
 pub(super) const MAJOR_YIELD_MARGIN: u64 = 4;
 
@@ -74,18 +101,35 @@ pub(super) const MAX_TENURE_RUN: u32 = 8;
 pub(crate) struct MinorYield {
     pub(crate) freed: u64,
     pub(crate) pause_us: u64,
-    /// The minor gate in force — the futility bar is read off it.
+    /// The minor gate in force — the byte futility bar is read off it.
     pub(crate) gate: u64,
+    /// Young entries the minor scanned, the ones it reclaimed, and the ones it left listed.
+    pub(crate) scanned: u64,
+    pub(crate) reclaimed: u64,
+    pub(crate) survivors: u64,
+    /// The part of the next minor's pause budget, in entries, left for the survivors this one
+    /// leaves listed (`PauseBudget::survivor_budget`), if measured.
+    pub(crate) survivor_budget: Option<u64>,
 }
 
 /// Why the policy judged a minor the way it did (diagnostics and tests).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Verdict {
     Productive,
-    /// Freed essentially nothing.
+    /// Freed essentially nothing (by bytes or by entries).
     Futile,
+    /// Its survivors alone fill the next minor's pause budget.
+    OverBudget,
     /// Freed something, but far less per unit of pause than the last major.
     Outyielded,
+}
+
+/// The entry counts of one real minor, as the collector measured them.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct MinorEntries {
+    pub(crate) scanned: u64,
+    pub(crate) reclaimed: u64,
+    pub(crate) survivors: u64,
 }
 
 #[derive(Debug)]
@@ -141,8 +185,16 @@ impl YoungPolicy {
     }
 
     fn judge(&self, m: MinorYield) -> Verdict {
-        if m.freed < m.gate / FUTILE_DIVISOR {
+        if m.freed < m.gate / FUTILE_DIVISOR
+            || (m.scanned > 0 && m.reclaimed < m.scanned / u64::from(FUTILE_DIVISOR_ENTRIES))
+        {
             return Verdict::Futile;
+        }
+        // The inheritance must also be most of what this minor paid for: a minor whose cost per
+        // entry is inflated by its fixed part (card scan, a cycle's grey queue) with few survivors
+        // is not helped by tenuring them.
+        if m.survivors.saturating_mul(2) >= m.scanned && m.survivor_budget.is_some_and(|b| m.survivors >= b) {
+            return Verdict::OverBudget;
         }
         let (mf, mp) = (self.major_freed.load(Ordering::Relaxed), self.major_pause_us.load(Ordering::Relaxed));
         if self.timed && mf > 0 && mp > 0 && m.pause_us > 0 {
@@ -214,9 +266,17 @@ impl YoungPolicy {
 impl crate::gc::arc_heap::ArcMagrGC {
     /// Judge the real minor that just ran (`live_after`: where it left the heap — the minor gate
     /// is read off it, the same gate the next trip will use).
-    pub(super) fn observe_minor_yield(&self, freed: u64, pause_us: u64, live_after: u64) {
+    pub(super) fn observe_minor_yield(&self, freed: u64, pause_us: u64, live_after: u64, entries: MinorEntries) {
         let gate = self.minor_gate(live_after, self.soft_cap());
-        let verdict = self.young_policy.observe_minor(MinorYield { freed, pause_us, gate });
+        let verdict = self.young_policy.observe_minor(MinorYield {
+            freed,
+            pause_us,
+            gate,
+            scanned: entries.scanned,
+            reclaimed: entries.reclaimed,
+            survivors: entries.survivors,
+            survivor_budget: self.pause_budget.survivor_budget(self.nursery_bytes.load(Ordering::Relaxed)),
+        });
         if verdict != Verdict::Productive {
             let (mf, mp) = self.young_policy.major_reference();
             crate::gc::phase_timer::note(format_args!(
