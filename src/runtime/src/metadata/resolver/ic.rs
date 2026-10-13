@@ -69,7 +69,7 @@ impl Default for VCallIC {
 }
 
 /// Single Field PIC entry — (TypeId, [`FieldLoc`]) packed into **one** atomic
-/// （理由同 [`VCallICEntry`]）：高 32 位 TypeId，低 32 位 `offset:16 | spare:8 | kind:8`
+/// （理由同 [`VCallICEntry`]）：高 32 位 TypeId，低 32 位 `offset:16 | width:8 | kind:8`
 /// （`FieldLoc::to_bits`）。命中即知单元的字节偏移与种类，不查名字、不走布局。
 ///
 /// JIT 生成码直接读 `entries[0]`（单态内联 IC，`jit::translate::field_ic`）：按

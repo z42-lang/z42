@@ -43,7 +43,7 @@ fn field_ic_default_all_slots_unresolved() {
 
 /// A distinct primitive-cell locator per `n` (offset `n`, kind `TAG_I64`).
 fn loc(n: u32) -> crate::metadata::types::FieldLoc {
-    crate::metadata::types::FieldLoc { offset: n as u16, kind: crate::metadata::types::TAG_I64 }
+    crate::metadata::types::FieldLoc { offset: n as u16, width: 8, kind: crate::metadata::types::TAG_I64 }
 }
 
 #[test]
@@ -96,7 +96,7 @@ fn field_ic_guard_word_matches_only_installed_pairs() {
     for kind in [FieldLoc::KIND_REF, crate::metadata::types::TAG_I64, crate::metadata::types::TAG_BOOL] {
         assert_ne!(empty & FIELD_IC_GUARD_MASK, want(UNRESOLVED, kind));
     }
-    let l = FieldLoc { offset: 0x1234, kind: crate::metadata::types::TAG_I32 };
+    let l = FieldLoc { offset: 0x1234, width: 4, kind: crate::metadata::types::TAG_I32 };
     field_ic_install(&ic, 42, l);
     let e = ic.entries[0].packed.load(Ordering::Relaxed);
     assert_eq!(e & FIELD_IC_GUARD_MASK, want(42, l.kind));

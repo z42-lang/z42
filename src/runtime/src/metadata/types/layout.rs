@@ -175,7 +175,7 @@ impl FieldAccess {
             FieldLoc::KIND_REF => Some(FieldAccess::ref_word(off, TAG_OBJECT)),
             FieldLoc::KIND_TPARAM => slot_access(loc.offset as usize),
             FieldLoc::KIND_STRUCT => Some(FieldAccess::struct_root(off, 0)),
-            tag => Some(FieldAccess::prim(off, prim_cell_width(tag)?, tag)),
+            tag => Some(FieldAccess::prim(off, loc.width as u32, tag)),
         }
     }
 }
@@ -185,12 +185,13 @@ impl FieldAccess {
 /// (`metadata::resolver::ic`). A cache hit is one compare and one cell access: no name lookup, no
 /// layout walk.
 ///
-/// `kind` is the primitive's exact `ty::TAG_*` (`TAG_BOOL ..= TAG_CHAR`, width implied) or one of
-/// the `KIND_*` codes. A type-parameter cell has two coordinates (tag word, payload word), so its
+/// `kind` is the primitive's exact `ty::TAG_*` (`TAG_BOOL ..= TAG_CHAR`, its byte width in `width`) or
+/// one of the `KIND_*` codes (`width` 8). A type-parameter cell has two coordinates (tag word, payload word), so its
 /// locator carries the **field slot** in `offset` and the access is looked up from the layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FieldLoc {
     pub offset: u16,
+    pub width: u8,
     pub kind: u8,
 }
 
@@ -203,7 +204,7 @@ impl FieldLoc {
     pub const KIND_STRUCT: u8 = 0x42;
     /// The kind byte of an empty IC entry (`UNRESOLVED` payload) — never a real kind.
     pub const KIND_NONE: u8 = 0xFF;
-    /// Bit position of `offset` in the packed form (`kind` is the low byte).
+    /// Bit position of `offset` in the packed form (`kind` is the low byte, `width` the next).
     pub const OFFSET_SHIFT: u32 = 16;
 
     /// The locator of field `slot` whose access is `fa`; `None` when its coordinate does not fit
@@ -216,21 +217,24 @@ impl FieldLoc {
             FieldCell::TypeParam => (slot, Self::KIND_TPARAM),
             FieldCell::Struct => (0, Self::KIND_STRUCT),
         };
-        if fa.cell == FieldCell::Prim && prim_cell_width(fa.tag) != Some(fa.width) {
-            return None; // a layout whose width disagrees with its tag stays on the layout path
-        }
-        Some(FieldLoc { offset: u16::try_from(coord).ok()?, kind })
+        let width = match fa.cell {
+            // A layout whose width disagrees with its tag stays on the layout path.
+            FieldCell::Prim if prim_cell_width(fa.tag) != Some(fa.width) => return None,
+            FieldCell::Prim => fa.width as u8,
+            _ => 8,
+        };
+        Some(FieldLoc { offset: u16::try_from(coord).ok()?, width, kind })
     }
 
-    /// Packed into the 32-bit IC payload: `offset << 16 | kind`.
+    /// Packed into the 32-bit IC payload: `offset << 16 | width << 8 | kind`.
     #[inline(always)]
     pub const fn to_bits(self) -> u32 {
-        ((self.offset as u32) << Self::OFFSET_SHIFT) | self.kind as u32
+        ((self.offset as u32) << Self::OFFSET_SHIFT) | ((self.width as u32) << 8) | self.kind as u32
     }
 
     #[inline(always)]
     pub const fn from_bits(bits: u32) -> FieldLoc {
-        FieldLoc { offset: (bits >> Self::OFFSET_SHIFT) as u16, kind: bits as u8 }
+        FieldLoc { offset: (bits >> Self::OFFSET_SHIFT) as u16, width: (bits >> 8) as u8, kind: bits as u8 }
     }
 }
 
