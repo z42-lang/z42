@@ -85,7 +85,7 @@ public static class GenTopo {
         return false;
     }
 
-    // 本层 applied generator 子集，按 AppliedName 稳定序（选择排序，规模小；common-pitfalls §1）。
+    // 本层 applied generator 子集，按 AppliedName 稳定序（选择排序，规模小；加载顺序确定性规则）。
     public static Generator[] LevelApplied(GenNode[] nodes, int n, Generator[] gens, int lvl) {
         int cnt = 0;
         int i = 0;

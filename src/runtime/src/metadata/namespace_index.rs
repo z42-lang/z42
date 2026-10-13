@@ -12,7 +12,7 @@
 //! loaded / *when* to release lives entirely in `lazy_loader`. This module is
 //! the boundary: parse here, lifecycle there.
 //!
-//! common-pitfalls.md §1: filenames within a dir are sorted before reading, so
+//! load-order determinism rule: filenames within a dir are sorted before reading, so
 //! the candidate order is deterministic across platforms (read_dir order is not).
 
 use std::path::{Path, PathBuf};
@@ -95,7 +95,7 @@ fn backend_is_file(path: &Path) -> bool {
 /// Returns owned candidates; the caller filters by its own match policy
 /// (exact for `resolve_namespace`, prefix for `candidates_for_namespace`) and
 /// keeps or drops the result. Filenames within a dir are sorted first
-/// (common-pitfalls §1) so the output order is deterministic.
+/// (load-order determinism rule) so the output order is deterministic.
 pub fn scan_zpkg_candidates(dirs: &[PathBuf]) -> Vec<ZpkgCandidate> {
     let backend = fs_backend::active();
     let mut out = Vec::new();

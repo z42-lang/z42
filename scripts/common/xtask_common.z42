@@ -185,7 +185,7 @@ string _z42vm() {
 
 /// Non-mutating sort: copy then sort the copy in place via `_sortStrings`
 /// (xtask_golden.z42) — one sort algorithm shared by both entry points.
-/// Deterministic ascending (common-pitfalls.md §1); n is small (≤ ~64 entries).
+/// Deterministic ascending (load-order determinism rule); n is small (≤ ~64 entries).
 string[] _sortedStrings(string[] src) {
     int n = src.Length;
     string[] arr = new string[n];

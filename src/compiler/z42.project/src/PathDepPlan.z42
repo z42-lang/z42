@@ -82,7 +82,7 @@ public static class PathDepPlan {
             }
             d = d + 1;
         }
-        // 按 name 选择排序 → 稳定发射序（common-pitfalls §1：禁依赖声明/FS 碰巧序）。
+        // 按 name 选择排序 → 稳定发射序（加载顺序确定性规则：禁依赖声明/FS 碰巧序）。
         int p = 0;
         while (p < dc) {
             int min = p; int q = p + 1;

@@ -285,7 +285,7 @@ trace 里每帧的函数名携带参数类型签名（`at MyApp.Greeter.greet(Gr
 
 Strict-pin，与 zbc 同政策；zpkg 版本与 zbc 版本强耦合，bump 联动。同步清单见[格式 bump：清单与本地验证](../devinfra/format-bump.md)。
 
-> 📌 **本页不维护逐 minor 的 changelog 表**（zbc 那边有一张）。zpkg 的 minor 历史写在写端常量旁 ——
+> 📌 **本页不记版本历史**。zpkg 的逐 minor 记录写在写端常量旁 ——
 > `src/compiler/z42.package/src/ZpkgWriter.z42` 的 `ZpkgWriterZ.Minor` 注释，那里逐条记着
 > 「这一版内嵌哪个 zbc、outer 布局有没有变」。bump 时更新的是那条注释，本页不写当前版本号。
 

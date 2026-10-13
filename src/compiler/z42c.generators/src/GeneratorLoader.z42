@@ -43,7 +43,7 @@ public sealed class LoadedGenerators {
 
 public static class GeneratorLoader {
     // 发现 + 实例化给定 zpkg 路径里所有 `: Generator` / `: ModuleGenerator` 类型。路径先按 Ordinal 排序
-    // （common-pitfalls §1，确定序）。返回按发现序（同一 zpkg 内按 Assembly.GetTypes 的 FQ 名序）的实例。
+    // （加载顺序确定性规则，确定序）。返回按发现序（同一 zpkg 内按 Assembly.GetTypes 的 FQ 名序）的实例。
     public static LoadedGenerators Load(string[] zpkgPaths, int count) {
         string[] sorted = GeneratorLoader._sortedCopy(zpkgPaths, count);
         Generator[] apps = new Generator[4];

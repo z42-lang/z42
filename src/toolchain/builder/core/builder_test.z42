@@ -378,7 +378,7 @@ bool _isDeviceRid(string rid) {
 // Stage destDir/{app,libs,bundle}: the test-agent app.zpkg, all flat stdlib zpkgs,
 // and the bundle (manifest + case files). For wasm, also emit files.json (a sorted
 // {vfs,url} list of every staged file — the browser fetch-list). Deterministic:
-// libs/bundle enumerations are sorted before staging (common-pitfalls §1).
+// libs/bundle enumerations are sorted before staging (load-order determinism rule).
 int _stageDeployable(string bundleDir, string agent, string libs, string destDir, bool wasm) {
     if (Directory.Exists(destDir)) { Directory.Delete(destDir, true); }
     Directory.Create(destDir);

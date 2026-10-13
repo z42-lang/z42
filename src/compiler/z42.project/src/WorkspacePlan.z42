@@ -204,7 +204,7 @@ public static class WorkspacePlan {
     //   · 展开：段内 `*` / `?` 通配（逐段匹配子目录）；显式路径（无通配）必须存在且恰有一份清单，否则抛；
     //     通配展开出的目录没有清单就跳过（`members = ["*"]` 会扫到 artifacts/ 之类）。清单有歧义一律抛（WS005）。
     //   · `exclude`：按成员相对 wsDir 的路径做段级 glob（`PathGlob`）。
-    //   · 去重 + Ordinal 排序（确定性，common-pitfalls §1）。
+    //   · 去重 + Ordinal 排序（确定性，加载顺序确定性规则）。
     public static WorkspaceMembers DiscoverMembers(string wsDir, WorkspaceManifest ws) {
         string[] pats = ws.Members;
         int patN = ws.MemberCount;

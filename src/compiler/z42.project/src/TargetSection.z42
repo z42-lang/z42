@@ -2,7 +2,7 @@ namespace Z42.Project;
 
 /// `[tests]` / `[bench]` / `[example]` 段配置（约定扫描 + dev-deps 隔离）。
 ///
-/// - `Include` / `Exclude`：约定发现的 glob 集（发现方扫描前须按稳定键 sort，见 common-pitfalls §1）。
+/// - `Include` / `Exclude`：约定发现的 glob 集（发现方扫描前须按稳定键 sort，见加载顺序确定性规则）。
 ///   段缺失或无 `include` 键时回落到 kind 专属默认（见 ManifestLoader._parseTargetSection）。
 /// - `Auto == true`（默认）：启用约定扫描；`false` → 只认显式 `[[target]]`，不扫 glob。
 /// - `Deps`：该 kind 的 dev-dependencies（`[tests.dependencies]` 等）；仅编译 test/bench/example

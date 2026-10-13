@@ -1,6 +1,6 @@
 // zpkg 路径确定性枚举 + 排序（refactor-depscan-concern-split：从 DepScan 拆出）。
 // 多目录合并 + prelude-first + Ordinal 排序 + 同名去重 + DepIndex 准入判定
-// （common-pitfalls §1：加载顺序确定性的落点）。
+// （加载顺序确定性规则的落点）。
 namespace Z42.Pipeline;
 
 using Std.IO;

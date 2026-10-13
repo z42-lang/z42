@@ -277,7 +277,7 @@ void _cmdWorkloadUninstall(ParseResult r) {
 
 // Recursive directory copy (stdlib has no Directory.Copy yet). Copy order is
 // irrelevant for correctness (every entry is copied — not a first-wins register,
-// so common-pitfalls §1 sort-before-iterate doesn't apply).
+// so load-order determinism rule sort-before-iterate doesn't apply).
 void _copyTree(string src, string dst) {
     Directory.Create(dst);
     foreach (var name in Directory.Enumerate(src)) {

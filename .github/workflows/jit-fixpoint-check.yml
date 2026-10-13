@@ -10,7 +10,7 @@ name: JIT Fixpoint Check (experimental)
 # cross-platform data (macos-arm64 already verified locally 2026-07-11). A red here
 # means JIT diverges from interp on that platform → do NOT switch z42c to JIT until
 # the divergence is root-caused (cranelift is a separate codegen path; arch/memory-
-# ordering-sensitive corners can differ — common-pitfalls §1).
+# ordering-sensitive corners can differ — load-order determinism rule).
 
 on:
   workflow_dispatch:

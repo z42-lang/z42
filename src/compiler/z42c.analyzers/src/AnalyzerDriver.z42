@@ -78,7 +78,7 @@ public sealed class DiagSinkImpl : DiagSink, FixSink {
 
 public static class AnalyzerDriver {
     // 对一组 analyzer 跑一遍：逐个遍历 CU、对命中 ObservedKinds 的节点调 OnSyntaxNode。诊断汇入同一
-    // bag。analyzer 顺序 = 调用方给定（外部加载时按 zpkg 稳定键 sort，common-pitfalls §1）。
+    // bag。analyzer 顺序 = 调用方给定（外部加载时按 zpkg 稳定键 sort，加载顺序确定性规则）。
     // cfg = [lints] 决策器（severity 覆盖 + EnabledByDefault 门 + WAE）；null → LintConfig.Empty()
     // （无覆盖、无 WAE，仅按规则 EnabledByDefault + DefaultSeverity）。
     // attribute-handler-registry PR7-wire —— `--fix` 接线本体（support 阶段此重载是空转桩，现填入实逻辑）。

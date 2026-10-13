@@ -29,7 +29,7 @@ public sealed class TypeChecker {
     // fix-ns-qualified-static-call（欠债表 bug B7）：本 CU 的 `using` 命名空间集（含 global using）。
     // `Std.IO.Console.WriteLine(...)` 这类**ns 限定静态调用**要判「点串前缀是不是一个命名空间」，
     // 唯一可靠依据就是本文件 import 了哪些 ns（与 DependencyIndex.GetStaticScoped 的活跃 ns 集同思路，
-    // 见 common-pitfalls §1 的根治说明）。语义内构造 → F2 安全。
+    // 见加载顺序确定性规则的根治说明）。语义内构造 → F2 安全。
     public string[] _currentUsings; public int _currentUsingCount;
     public string _curMemberName;           // PR6b：当前 enclosing 成员名（DeclBinder._bindMethodBody 设）；caller_member!() 注入源。语义内、F2 安全
     // fix-generic-operator-constraint-dispatch：当前正在绑体的方法声明（DeclBinder._bindMethodBody 设）。

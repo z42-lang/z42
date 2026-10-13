@@ -106,7 +106,7 @@ pub fn builtin_type_constructors(ctx: &VmContext, args: &[Value]) -> Result<Valu
     };
     let module = module_arc.as_ref();
     // Collect (key, func-index) for constructor-named entries, sorted by key for a
-    // stable order (common-pitfalls §1: never rely on HashMap iteration order).
+    // stable order (load-order determinism rule: never rely on HashMap iteration order).
     let mut ctor_keys: Vec<(&String, usize)> = module
         .func_index
         .iter()

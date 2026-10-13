@@ -1,5 +1,5 @@
 // 非泛型 string→object 哈希表（编译器各成员共用的唯一一份；semantics 原有副本已并入这里）。
-// port-z42c-import CI-2：DependencyIndex 键表用。+TryAdd（first-wins 语义，common-pitfalls §1 的消费端）。
+// port-z42c-import CI-2：DependencyIndex 键表用。+TryAdd（first-wins 语义，加载顺序确定性规则的消费端）。
 // ⚠ 无 Remove（开放寻址线性探测删除需墓碑）——需要"剔除"时重建新表。
 namespace Z42.IR;
 
@@ -135,7 +135,7 @@ public sealed class StrMap {
     // ── 无分配槽位遍历（perf-compiler-lookup-tables）────────────────────────────────
     // 调用方按 0..Capacity()-1 扫 UsedAt(i) 为 true 的槽读 KeyAt/ValAt，取代「Keys() 分配整表 + 逐键 Get 再哈希」
     // 的热点写法（重载候选枚举 / 用户转换查找）。槽序 = 哈希布局序，**非确定性迭代序**——只可用于
-    // 「过滤后按稳定键再排」或「结果与顺序无关」的场景（common-pitfalls §1）；需要确定序仍用 Keys()。
+    // 「过滤后按稳定键再排」或「结果与顺序无关」的场景（加载顺序确定性规则）；需要确定序仍用 Keys()。
     public int    Capacity()      { return this._cap; }
     public bool   UsedAt(int i)   { return this._used[i]; }
     public string KeyAt(int i)    { return this._keys[i]; }

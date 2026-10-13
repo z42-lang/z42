@@ -89,7 +89,7 @@ int _bench(ParseResult r) {
     int count = 0;
     // Sort before iterating: filesystem enumeration order is non-deterministic
     // across OSes, and both --quick's "first 2" selection and the benchmarks
-    // array order depend on it (common-pitfalls §1).
+    // array order depend on it (load-order determinism rule).
     foreach (var f in _sortedStrings(Directory.Enumerate(scenDir))) {
         if (!f.EndsWith(".z42")) { continue; }
         if (quick && count >= 2) { break; }
@@ -484,7 +484,7 @@ int _benchAb(ParseResult r) {
 
     string items = "";
     int nb = 0; int count = 0; int regr = 0; int toolErr = 0;
-    // Sort — filesystem order is non-deterministic (common-pitfalls §1).
+    // Sort — filesystem order is non-deterministic (load-order determinism rule).
     foreach (var f in _sortedStrings(Directory.Enumerate(scenDir))) {
         if (!f.EndsWith(".z42")) { continue; }
         if (quick && count >= 2) { break; }

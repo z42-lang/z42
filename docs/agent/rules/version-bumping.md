@@ -9,7 +9,7 @@
 ## 格式 bump（必须遵守）
 
 1. **writer 与 reader 的版本号同一个提交一起改**。pre-1.0 是 strict-pin：版本不匹配直接拒读，没有兼容回退。
-2. **改了 wire 格式就必须 bump minor**，并在同一提交里重生入库的字节基线、同步两端 changelog。
+2. **改了 wire 格式就必须 bump minor**，并在同一提交里重生入库的字节基线、同步两端版本常量旁的说明注释。
    旧产物随之全部失效是预期行为，不写任何兼容代码（见 [philosophy.md 不为旧版本提供兼容](philosophy.md#不为旧版本提供兼容)）。
 3. **只修 reader / writer 的非格式 bug（不改 wire 布局）→ 不 bump**。
 4. **改完必须跑清单里的自检**——其中一部分不在 `xtask test` 里（只在 CI 跑），别等 CI 才发现。

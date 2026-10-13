@@ -49,7 +49,7 @@ bool _dtMatches(string name, string nameFilter, string substrFilter) {
 ///   ② 段级 glob `[tests] include` / `[bench] include` —— 整段作为**一个**目标
 ///      （名字用段名；「一文件一单元」的细分留给后续，见 design Open Questions）；
 ///   ③ nameFilter 非空 → 只留同名者。
-/// 返回按名字**稳定排序**（common-pitfalls §1：任何按名注册/迭代都要确定序）。
+/// 返回按名字**稳定排序**（加载顺序确定性规则：任何按名注册/迭代都要确定序）。
 DevTarget[] _resolveDevTargets(ProjectManifest m, string kind, string nameFilter, string sourceDir) {
     return _resolveDevTargets(m, kind, nameFilter, "", sourceDir);
 }
@@ -90,7 +90,7 @@ DevTarget[] _resolveDevTargets(ProjectManifest m, string kind, string nameFilter
     if (sec != null && sec.Auto && sec.IncCount > 0) {
         string[] files = SourceDiscovery.DiscoverWithExclude(sourceDir, sec.Include, sec.IncCount,
                                                              sec.Exclude, sec.ExcCount);
-        _dtSort(files, files.Length);   // 确定序（common-pitfalls §1）
+        _dtSort(files, files.Length);   // 确定序（加载顺序确定性规则）
         int rootDepth = _dtRootDepth(sec.Include, sec.IncCount);
         int f = 0;
         while (f < files.Length) {

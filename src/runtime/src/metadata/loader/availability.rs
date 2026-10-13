@@ -195,7 +195,7 @@ enum ProbeKind { Method, Type }
 fn probe_declared(declared: &[(String, ZpkgCandidate)], fq: &str, kind: ProbeKind) -> bool {
     let Some(ns) = namespace_of(fq) else { return false };
 
-    // 稳定序 + 去重：候选来自文件系统枚举，顺序不确定（common-pitfalls §1）。probe 只回答
+    // 稳定序 + 去重：候选来自文件系统枚举，顺序不确定（加载顺序确定性规则）。probe 只回答
     // yes/no，顺序不影响结果，但**遍历顺序确定**能让 trace 与失败复现稳定。
     let mut files: Vec<&ZpkgCandidate> = declared
         .iter()

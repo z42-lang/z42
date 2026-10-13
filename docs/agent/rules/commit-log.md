@@ -61,11 +61,10 @@ type(scope): 描述
 ## 示例
 
 ```
-feat(compiler): packages.toml 解析模块 + include 名解析
+feat(compiler): <做了什么，动词开头>
 
-3.2/3.4a 阶段：新增 toml 段解析与 include 名到 zpkg 路径的解析，
-接通 4.1b 的 packages.toml 组装引擎。
+<为什么这么改：要解决的问题、取舍；不复述 diff>
 ```
 ```
-docs: 确立文档体系总纲，新建 book 骨架
+docs(<scope>): <做了什么>
 ```

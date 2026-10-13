@@ -28,7 +28,7 @@ compression 等是**运行时横切库**（跨平台、随 SDK 走、不属任�
   `<exe>/../native/` SDK 布局 → `<exe>/native/` → `<exe>/` dev 直放），对每个 `libz42_*` 反解出
   `<name>`（`parse_z42_lib_name`）并 `dlopen` 注册已知符号集。**这是目录级盲扫**——扫到什么就
   `dlopen` 什么，未知库只会喷一条 `ignoring unknown lib <name>` WARN。
-- **确定序**：扫描前必须 `sort`（common-pitfalls §1：`read_dir` 顺序依赖 OS/FS，first-wins 注册
+- **确定序**：扫描前必须 `sort`（加载顺序确定性规则：`read_dir` 顺序依赖 OS/FS，first-wins 注册
   会非确定）。
 
 急切盲扫对「随 SDK 分发的一小撮已知横切库」够用，但它是 repl WARN 污染的来源（§2 讲为什么 repl 不走这条路径）。

@@ -249,7 +249,7 @@ string _sdkHome() {
 }
 
 // Scan <home>/runtimes/<ver>/workloads/test/z42.testagent.zpkg for any installed
-// version. Versions sorted (common-pitfalls §1: deterministic first-match, no
+// version. Versions sorted (load-order determinism rule: deterministic first-match, no
 // reliance on FS enumeration order). "" if none installed.
 string _findInstalledAgent(string home) {
     string runtimes = Path.Join(home, "runtimes");

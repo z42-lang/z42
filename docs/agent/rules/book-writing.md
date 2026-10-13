@@ -50,11 +50,11 @@ H1 下固定一个引用块。**不写「对齐」日期**——页面描述的�
 - **待办**（可选）：本页已知缺口的一行摘要，没有就整行省掉——不带「待办」的页意思是「目前没有已知缺口」。
   它与正文「边界与限制」/「Deferred」的分工见 [doc-system.md 防漂移](doc-system.md) 第 3 条
 - **状态**（只用于还没实施的设计页）：`状态: 设计已定 / 未实施`。**已经做完的事不标状态**——
-  `✅ 已实现（0.3.x）` 是「不写历史」禁止的过程叙述
+  `✅ 已实现（<版本>）` 是「不写历史」禁止的过程叙述
 
 ```markdown
 > 代码：`src/runtime/src/gc/`
-> 待办：增量 major 的 remembered set 尚未按 card 粒度收敛；大堆 RSS 比 STW 高 30%
+> 待办：<还没做的事>；<已知缺口>
 ```
 
 ## 三、机制页固定骨架（强制：H2 名称与顺序不可变）
@@ -201,8 +201,8 @@ H1 下固定一个引用块。**不写「对齐」日期**——页面描述的�
 
 ````markdown
 ```z42
-// examples/basics/operators/arith/basic.z42
-{{#include ../../../../examples/basics/operators/arith/basic.z42:code}}
+// examples/<part>/<chapter>/<file>.z42
+{{#include ../../../../examples/<part>/<chapter>/<file>.z42:code}}
 ```
 ````
 
