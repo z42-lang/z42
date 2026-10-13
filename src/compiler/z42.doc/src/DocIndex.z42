@@ -27,8 +27,8 @@ public sealed class DocIndex {
 
     // 名字解析，命中即停：
     //   1. Id 完全相等（含参数表）；
-    //   2. 限定名（去掉参数表的 Id）等于 query，或以 `.query` / `+query` 结尾——`Random.NextIntRange`、
-    //      `NextIntRange` 都能命中；query 自带参数表时按完整 Id 的后缀比；
+    //   2. 限定名（去掉参数表的 Id）等于 query，或以 `.query` / `+query` / `::query` 结尾——`Random.NextIntRange`、
+    //      `NextIntRange` 都能命中；query 自带参数表时按完整 Id 的后缀比；Rust 条目把 query 里的 `.` 当 `::`；
     //   3. 同 2，忽略大小写；
     //   4. 短名包含 query（忽略大小写）。
     // 重载、同名类型都会一起返回，由调用方决定列候选还是展开。
@@ -78,15 +78,20 @@ public sealed class DocIndex {
         int n = 0;
         string lq = query.ToLower();
         bool withParams = query.IndexOf("(") >= 0 || query.IndexOf("[") >= 0;
+        // Rust 条目的路径用 `::` 分隔；查询写成 `Heap.alloc` 也能命中 `…::Heap::alloc`。
+        string rq = query.Replace(".", "::");
+        string lrq = lq.Replace(".", "::");
         int i = 0;
         while (i < this._count) {
             DocItem it = this._items[i];
             bool hit = false;
             if (level == 1) { hit = it.Id == query; }
-            else if (level == 2) { hit = DocIndex._suffixMatch(withParams ? it.Id : it.QualifiedName(), query); }
-            else if (level == 3) {
-                string k = withParams ? it.Id : it.QualifiedName();
-                hit = DocIndex._suffixMatch(k.ToLower(), lq);
+            else if (level == 2) {
+                string k2 = withParams ? it.Id : it.QualifiedName();
+                hit = DocIndex._suffixMatch(k2, query) || (DocIndex._isRust(it) && DocIndex._suffixMatch(k2, rq));
+            } else if (level == 3) {
+                string k = (withParams ? it.Id : it.QualifiedName()).ToLower();
+                hit = DocIndex._suffixMatch(k, lq) || (DocIndex._isRust(it) && DocIndex._suffixMatch(k, lrq));
             } else { hit = it.Name.ToLower().Contains(lq); }
             if (hit) { acc = DocIndex._push(acc, n, it); n = n + 1; }
             i = i + 1;
@@ -98,8 +103,10 @@ public sealed class DocIndex {
         if (key == q) { return true; }
         if (!key.EndsWith(q) || key.Length <= q.Length) { return false; }
         char sep = key.CharAt(key.Length - q.Length - 1);
-        return sep == '.' || sep == '+';
+        return sep == '.' || sep == '+' || sep == ':';
     }
+
+    private static bool _isRust(DocItem it) { return it.Id.IndexOf("::") >= 0; }
 
     private static DocItem[] _push(DocItem[] a, int n, DocItem it) {
         DocItem[] b = a;

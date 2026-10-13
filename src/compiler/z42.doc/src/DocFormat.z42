@@ -155,9 +155,14 @@ public static class DocFormat {
 
     public static string Loc(DocItem it) { return it.File + ":" + it.Line.ToString(); }
 
-    // 轮廓里的签名去掉访问修饰符（可见性已经用一个字符标出）。
+    // 轮廓里的签名去掉访问修饰符（可见性已经用一个字符标出）；Rust 的 `pub` / `pub(crate)` 同理。
     private static string _shortSig(DocItem m) {
         string s = m.Sig;
+        if (s.StartsWith("pub(")) {
+            int close = s.IndexOf(") ");
+            if (close > 0) { return s.Substring(close + 2); }
+        }
+        if (s.StartsWith("pub "))       { return s.Substring(4); }
         if (s.StartsWith("public "))    { return s.Substring(7); }
         if (s.StartsWith("private "))   { return s.Substring(8); }
         if (s.StartsWith("protected ")) { return s.Substring(10); }

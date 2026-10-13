@@ -2,6 +2,7 @@
 // z42d 只负责解析命令行和打印，便于单测。
 namespace Z42.Doc;
 
+using Std.IO;
 
 public sealed class DocQueryOptions {
     public string Query;     // 符号名（Doc ID、限定名后缀或短名）
@@ -31,6 +32,14 @@ public static class DocQuery {
             return new DocQueryResult("", "z42 doc: give a symbol name or --search <text>", 2);
         }
         DocIndex ix = DocQuery.BuildIndex(o.Root, o.Pkg, o.CachePath);
+        // 外部索引（仓库里 Rust 运行时的条目）放在索引根的 artifacts/doc/ 下；过期提示随结果一起给出。
+        string warn = ExternalIndex.LoadDir(o.Root, Path.Join(o.Root, "artifacts/doc"), o.Pkg, ix);
+        DocQueryResult r = DocQuery._answer(o, ix);
+        if (warn.Length > 0) { r.Err = (r.Err.Length > 0) ? warn + r.Err : warn.TrimEnd(); }
+        return r;
+    }
+
+    private static DocQueryResult _answer(DocQueryOptions o, DocIndex ix) {
         if (o.Search.Length > 0) {
             DocItem[] hits = DocQuery._visible(ix.Search(o.Search), o.Private);
             if (hits.Length == 0) { return DocQuery._none(o.Search); }
@@ -81,7 +90,7 @@ public static class DocQuery {
         int i = 0;
         while (i < ix.Count()) {
             DocItem it = ix.At(i);
-            if (it.Kind == DocKind.Namespace && it.Id == q) { return it; }
+            if ((it.Kind == DocKind.Namespace || it.Kind == DocKind.Module) && it.Id == q) { return it; }
             if (first == null && it.Parent == q && (it.IsType() || it.Kind == DocKind.Func)) { first = it; }
             i = i + 1;
         }
@@ -92,12 +101,12 @@ public static class DocQuery {
         return h;
     }
 
-    // --members 的对象：命中里唯一的类型（同名的类型与成员并存时取类型）。
+    // --members 的对象：命中里唯一的容器（类型 / 命名空间 / Rust 模块；同名的容器与成员并存时取容器）。
     private static DocItem _singleContainer(DocItem[] m) {
         DocItem found = null;
         int i = 0;
         while (i < m.Length) {
-            if (m[i].IsType()) {
+            if (m[i].IsContainer()) {
                 if (found != null && found.Id != m[i].Id) { return null; }
                 found = m[i];
             }

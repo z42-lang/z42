@@ -1,6 +1,7 @@
 # 文档索引与 `z42 doc`
 
 > 代码：`src/compiler/z42.doc/src/`（引擎，含 `DocParser.z42`）、`src/toolchain/devtools/core/doc_cmd.z42`（`DocCommand`）、
+> `src/toolchain/devtools/rust-index/`（Rust 索引器）、`scripts/build/xtask_doc.z42`（`xtask doc gen` / `doc index`）、
 > `src/toolchain/launcher/core/launcher_cli.z42`（`_forwardZ42d`）、`src/compiler/z42c.syntax/src/DocBlock.z42`（doc 挂靠）
 >
 > 要查**怎么用**（旗标、输出、名字怎么写）→ 语言与库参考的 `z42` 命令页与 doc 注释页。
@@ -17,6 +18,7 @@ z42 doc <args>                      launcher：`doc` 原样转发
             └─ DocQuery.Run         z42.doc：建索引 → 解析名字 → 选输出形态（纯函数，有单测）
                  ├─ SourceTree      找根、遍历 .z42、按最近的清单归包
                  ├─ IndexCache      按文件增量：未变的文件抄缓存，变了的交给 SyntaxIndexer
+                 ├─ ExternalIndex   并入 <根>/artifacts/doc/*.idx（Rust 运行时的条目）
                  ├─ SyntaxIndexer   Parser → AST → DocItem（doc 原文来自 Decl.Doc）
                  ├─ DocParser       doc 原文 → DocComment（摘要 / 正文 / tag / 链接 / 示例）
                  ├─ DocIndex        名字解析 / 成员 / 搜索
@@ -80,10 +82,32 @@ z42 doc <args>                      launcher：`doc` 原样转发
 `z42d doc --format mdbook --out <dir> --pkg <name>` 渲染一个包到 `<dir>/<name>.md`（生成不写共享索引缓存）。
 `xtask doc gen` / `xtask check docs-api` 据此重新生成 stdlib 页并与仓库内文件对账。
 
-## 6. 边界与限制
+## 6. Rust 条目（外部索引）
 
-- 只索引 z42 源码；Rust 运行时的符号索引还没有。
+仓库里的 Rust 运行时不归 `z42.doc` 解析，而是由 `xtask doc index` 先产出一份外部索引，`z42 doc` 查询时并入：
+
+```
+xtask doc index
+  └─ cargo build src/toolchain/devtools/rust-index      （与 apphost 同一 cargo 配置）
+  └─ z42-rust-index --root . --out artifacts/doc/rust.idx --regen "xtask doc index" z42=src/runtime/src/lib.rs …
+       从每个 crate 根文件沿 `mod` 声明走模块树（`#[path]` 照认，`#[cfg(test)]` 跳过）→ syn 解析 → 条目行
+```
+
+- **格式**：表头 `z42doc-items 1` 加可选的重建命令，之后是 `F`（文件、crate）与 `I`（条目）行，条目行与本地
+  缓存同一格式，读取复用 `IndexCache.ReadItem`。条目 id 是 Rust 路径（`z42::gc::ambient::HeapGuard::enter`）；
+  名字解析在段边界上同样认 `::`，查询里写 `.` 也当 `::`。
+- **种类**：`module` / `struct` / `enum` / `enum-member` / `trait` / `func` / `method` / `field` / `const` / `static`
+  / `type` / `macro`。`module`、`trait` 与类型一样能列轮廓；查模块名得到模块本身的轮廓。
+- **签名**按源码原样截取（可见性起到签名末尾，空白折叠）；doc 取 `///` / `//!` 编译成的 `#[doc]`。
+- **可见性**：`pub` → public，`pub(crate)` 等 → internal，不写 → private；trait 里的方法与 trait impl 的方法记 public。
+- **`impl` 方法**挂在 impl 所在模块里的同名类型下；跨模块的 impl 会挂到一个不存在的父条目，方法本身仍能按名字查到。
+- **过期**：外部索引不会自己更新。加载时逐个比对源文件与索引文件的修改时间，有源文件更新或已删除就在 stderr
+  提示重跑表头记的命令，查询照常进行。
+
+## 7. 边界与限制
+
 - 只有语法级：没有继承文档、实现者列表；`@tag` 已解析，但链接校验、`@param` 名校验还没有。
+- Rust 索引需要手动 `xtask doc index` 刷新（过期会提示）。
 - 还没有书页反查（`--page` / `--docs`）与书里代码引用的门禁。
 
 以上后续阶段见仓库根 `docs/z42-doc.md`。

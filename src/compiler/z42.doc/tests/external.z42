@@ -1,0 +1,105 @@
+// z42.doc 外部索引单测：读 `z42doc-items` 文件、Rust 路径的名字解析、模块轮廓、过期提示。
+namespace Z42DocExternalTests;
+
+using Std.IO;
+using Z42.Doc;
+using Std.Harness;
+
+// 字符串断言：不等时把两边原样报出来。
+void _eq(string expected, string actual) {
+    if (expected != actual) { Assert.Fail("expected <" + expected + ">\n     got <" + actual + ">"); }
+}
+
+string _ids(DocItem[] items) {
+    string s = "";
+    int i = 0;
+    while (i < items.Length) { if (i > 0) { s = s + " | "; } s = s + items[i].Id; i = i + 1; }
+    return s;
+}
+
+// 临时根：一个 Rust 源文件 + artifacts/doc/rust.idx（手写的外部索引）。
+string _tree() {
+    string root = Directory.CreateTempDir("z42doc-ext");
+    Directory.Create(Path.Join(root, "rt/src"));
+    Directory.Create(Path.Join(root, "artifacts/doc"));
+    File.WriteAllText(Path.Join(root, "rt/src/heap.rs"), "pub struct Heap;\n");
+    File.WriteAllText(Path.Join(root, "artifacts/doc/rust.idx"),
+        "z42doc-items 1\txtask doc index\n"
+        + "F\trt/src/heap.rs\trt\n"
+        + "I\trt::gc\tmodule\tgc\trt\tmod gc\t1\tpublic\t垃圾回收。\n"
+        + "I\trt::gc::Heap\tstruct\tHeap\trt::gc\tpub struct Heap\t1\tpublic\t托管堆。\n"
+        + "I\trt::gc::Heap::alloc\tmethod\talloc\trt::gc::Heap\tpub fn alloc(&mut self, n: usize) -> *mut u8\t5\tpublic\t分配 n 字节。\\n\\n失败时返回空指针。\n"
+        + "I\trt::gc::Heap::grow\tmethod\tgrow\trt::gc::Heap\tfn grow(&mut self)\t9\tprivate\t\n");
+    return root;
+}
+
+[Test]
+void test_rust_paths_resolve() {
+    string root = _tree();
+    DocIndex ix = new DocIndex();
+    _eq("", ExternalIndex.LoadDir(root, Path.Join(root, "artifacts/doc"), "", ix));
+    Assert.Equal(4, ix.Count());
+    _eq("rt::gc::Heap::alloc", _ids(ix.Find("Heap::alloc")));
+    _eq("rt::gc::Heap::alloc", _ids(ix.Find("Heap.alloc")));   // `.` 当 `::`
+    _eq("rt::gc::Heap::alloc", _ids(ix.Find("gc::heap::ALLOC")));   // 忽略大小写
+    _eq("", _ids(ix.Find("eap::alloc")));                       // 只在段边界上匹配
+    DocItem a = ix.Find("alloc")[0];
+    _eq("rt/src/heap.rs", a.File);
+    _eq("rt", a.Pkg);
+    _eq("分配 n 字节。\n\n失败时返回空指针。", a.Doc);
+    Directory.Delete(root, true);
+}
+
+[Test]
+void test_query_merges_external_index() {
+    string root = _tree();
+    DocQueryOptions o = new DocQueryOptions();
+    o.Root = root;
+    o.Query = "Heap"; o.Members = true;
+    _eq("struct rt::gc::Heap    rt/src/heap.rs:1\n  托管堆。\n"
+        + "  +fn alloc(&mut self, n: usize) -> *mut u8  分配 n 字节。  :5\n", DocQuery.Run(o).Out);
+    o.Private = true;
+    Assert.True(DocQuery.Run(o).Out.Contains("-fn grow(&mut self)"));
+    // 模块：查名字得到轮廓头是模块本身（不是合成的命名空间）。
+    o.Members = false; o.Private = false; o.Query = "rt::gc";
+    _eq("module rt::gc    rt/src/heap.rs:1\n  垃圾回收。\n  +struct Heap  托管堆。  :1\n", DocQuery.Run(o).Out);
+    // --pkg 只收该包。
+    o.Query = "Heap"; o.Pkg = "other";
+    Assert.Equal(1, DocQuery.Run(o).Exit);
+    Directory.Delete(root, true);
+}
+
+[Test]
+void test_stale_index_warns() {
+    string root = _tree();
+    // 源文件比索引新 ⇒ 提示重建，查询照常。
+    string src = Path.Join(root, "rt/src/heap.rs");
+    // 修改时间是毫秒粒度：重写到它确实晚于索引为止（时钟总会前进）。
+    long idx = File.GetLastWriteTime(Path.Join(root, "artifacts/doc/rust.idx")).UnixMs();
+    int n = 0;
+    File.WriteAllText(src, "pub struct Heap; // changed\n");
+    while (File.GetLastWriteTime(src).UnixMs() <= idx) {
+        n = n + 1;
+        File.WriteAllText(src, "pub struct Heap; // changed " + n.ToString() + "\n");
+    }
+    DocQueryOptions o = new DocQueryOptions();
+    o.Root = root; o.Query = "Heap::alloc";
+    DocQueryResult r = DocQuery.Run(o);
+    Assert.Equal(0, r.Exit);
+    _eq("z42 doc: rust.idx is older than 1 of its source file(s) — rebuild it with `xtask doc index`", r.Err);
+    // 删掉源文件同样算过期。
+    File.Delete(src);
+    Assert.True(DocQuery.Run(o).Err.Contains("older than 1"));
+    Directory.Delete(root, true);
+}
+
+[Test]
+void test_bad_header_is_skipped() {
+    string root = Directory.CreateTempDir("z42doc-bad");
+    Directory.Create(Path.Join(root, "artifacts/doc"));
+    File.WriteAllText(Path.Join(root, "artifacts/doc/x.idx"), "something else\nI\ta\tfunc\ta\t\tf()\t1\tpublic\t\n");
+    DocIndex ix = new DocIndex();
+    _eq("z42 doc: skipped x.idx (not a `z42doc-items 1` file)\n", ExternalIndex.LoadDir(root, Path.Join(root, "artifacts/doc"), "", ix));
+    Assert.Equal(0, ix.Count());
+    Directory.Delete(root, true);
+}

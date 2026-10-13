@@ -1,0 +1,61 @@
+// 外部索引：别的工具产出的条目文件（目前是仓库里 Rust 运行时的索引），与语法级索引合在一起查。
+//
+//   z42doc-items 1[\t<重建命令>]
+//   F <相对索引根的文件> <包名>
+//   I <id> <kind> <name> <parent> <sig> <line> <vis> <doc>      （条目行与 IndexCache 同一格式）
+//
+// 外部索引不会自己更新：加载时逐个比对源文件与索引文件的修改时间，源文件更新（或已删除）就提示重建。
+namespace Z42.Doc;
+
+using Std.IO;
+
+public static class ExternalIndex {
+    public static string Header = "z42doc-items 1";
+
+    // 目录下全部 `*.idx` 并入 ix（pkg 非空时只收该包）；返回给用户的提示（过期 / 格式不符），没有为 ""。
+    public static string LoadDir(string root, string dir, string pkg, DocIndex ix) {
+        if (!Directory.Exists(dir)) { return ""; }
+        string warn = "";
+        string[] files = Path.Glob(dir, "*.idx");
+        int i = 0;
+        while (i < files.Length) {
+            string w = ExternalIndex.Load(root, files[i], pkg, ix);
+            if (w.Length > 0) { warn = warn + w + "\n"; }
+            i = i + 1;
+        }
+        return warn;
+    }
+
+    public static string Load(string root, string path, string pkg, DocIndex ix) {
+        string[] lines = File.ReadAllText(path).Split("\n");
+        string[] head = lines[0].Split("\t");
+        string name = Path.GetFileName(path);
+        if (head[0] != ExternalIndex.Header) {
+            return "z42 doc: skipped " + name + " (not a `" + ExternalIndex.Header + "` file)";
+        }
+        long built = File.GetLastWriteTime(path).UnixMs();
+        int stale = 0;
+        string file = "";
+        string filePkg = "";
+        bool keep = false;
+        int i = 1;
+        while (i < lines.Length) {
+            string l = lines[i];
+            if (l.StartsWith("F\t")) {
+                string[] fs = l.Split("\t");
+                file = IndexCache.Unesc(fs[1]);
+                filePkg = fs.Length > 2 ? IndexCache.Unesc(fs[2]) : "";
+                keep = pkg.Length == 0 || filePkg == pkg;
+                string abs = Path.Join(root, file);
+                if (!File.Exists(abs) || File.GetLastWriteTime(abs).UnixMs() > built) { stale = stale + 1; }
+            } else if (keep && l.StartsWith("I\t")) {
+                ix.Add(IndexCache.ReadItem(l, file, filePkg));
+            }
+            i = i + 1;
+        }
+        if (stale == 0) { return ""; }
+        string w = "z42 doc: " + name + " is older than " + stale.ToString() + " of its source file(s)";
+        if (head.Length > 1 && head[1].Length > 0) { w = w + " — rebuild it with `" + head[1] + "`"; }
+        return w;
+    }
+}

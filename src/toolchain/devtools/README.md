@@ -78,6 +78,7 @@ xtask check vscode-syntax    # 编辑器 grammar 一致性
 | `core/editor_install.z42` | `z42d install <target>`：把 `<sdk>/editors/vscode/` 拷到 `~/.vscode/extensions/z42.z42-lang/` |
 | `core/z42.devtools.z42.toml` | 包清单（exe / pack / apphost；依赖 z42.package / z42.project，path 依赖 z42.doc）|
 | `vscode/` | VSCode 编辑器资产包（见其 README）|
+| `rust-index/` | 仓库开发用的 Rust 索引器（独立 Cargo 工程，`xtask doc index` 构建并运行，不进 SDK）：Rust 条目 + rustdoc → `artifacts/doc/rust.idx`，供 `z42 doc` 查 Rust 符号 |
 
 ## 依赖关系
 

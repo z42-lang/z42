@@ -45,7 +45,7 @@ public static class IndexCache {
                     outSb.Append(lines[start]).Append("\n");
                     int k = start + 1;
                     while (k < end) {
-                        ix.Add(IndexCache._readItem(lines[k], f));
+                        ix.Add(IndexCache.ReadItem(lines[k], f.Rel, f.Pkg));
                         outSb.Append(lines[k]).Append("\n");
                         k = k + 1;
                     }
@@ -126,18 +126,21 @@ public static class IndexCache {
             .Append(it.Vis).Append("\t").Append(IndexCache._esc(it.Doc)).Append("\n");
     }
 
-    private static DocItem _readItem(string line, SourceFile f) {
+    // 一行 `I …` → 条目（外部索引与本缓存同一种条目行）。
+    public static DocItem ReadItem(string line, string file, string pkg) {
         string[] fs = line.Split("\t");
         DocItem it = new DocItem(IndexCache._unesc(fs[1]), fs[2], IndexCache._unesc(fs[3]), IndexCache._unesc(fs[4]),
             IndexCache._unesc(fs[5]), Convert.ToInt32(fs[6]), fs[7], IndexCache._unesc(fs[8]));
-        it.File = f.Rel;
-        it.Pkg = f.Pkg;
+        it.File = file;
+        it.Pkg = pkg;
         return it;
     }
 
     private static string _esc(string s) {
         return s.Replace("\\", "\\\\").Replace("\t", "\\t").Replace("\n", "\\n");
     }
+
+    public static string Unesc(string s) { return IndexCache._unesc(s); }
 
     private static string _unesc(string s) {
         if (s.IndexOf("\\") < 0) { return s; }

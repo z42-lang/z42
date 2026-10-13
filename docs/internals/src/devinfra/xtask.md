@@ -22,6 +22,7 @@
 | `bench` | 基准；裸 `bench` = e2e 场景（见[性能基准与回归门禁](benchmarking.md)）|
 | `setup` | 准备本机：裸 `setup [--os android\|ios\|wasm] [--force]` = 安装，`setup vscode` = 编辑器扩展，`setup check` = 只读在场校验（见 §6）|
 | `profile` | 对单个 `.z42` 脚本做 cpu / heap / threads / e2e 剖析 |
+| `doc` | `z42 doc` 的索引：`doc index` 把 Rust 运行时各 crate 的条目与 rustdoc 写进 `artifacts/doc/rust.idx`，`z42 doc` 由此也能查 Rust 符号（见[文档索引与 `z42 doc`](../toolchain/doc.md)）|
 | `clean` | 删构建产物（`tests` / `bench` / `intermediate` / `all`，默认删生产 cache/dist；各自删什么见[产物目录布局](artifacts-layout.md) §4）|
 | `layout` | 打印产物布局路径：无参列出全部 `key  path`，`layout <key>` 只打印一条（给 CI / 脚本查询，见[产物目录布局](artifacts-layout.md)）|
 | `run` | 把参数原样透传给 **PATH 上的 `z42` launcher**（找不到 launcher 即报错退出）|

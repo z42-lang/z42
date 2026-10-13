@@ -1,0 +1,19 @@
+# z42-rust-index —— 仓库开发用：把 Rust 源码（运行时各 crate）的条目与 rustdoc 写成 `z42 doc` 能读的索引，
+# 让 `z42 doc` 一并查 Rust 符号。由 `xtask doc index` 构建并运行，不进 SDK。
+[package]
+name = "z42-rust-index"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Index Rust items + rustdoc into the z42 doc item format (repository dev tool)."
+
+[[bin]]
+name = "z42-rust-index"
+path = "src/main.rs"
+
+[dependencies]
+syn         = { version = "2", features = ["full", "extra-traits"] }   # Rust 源码解析：条目、属性、可见性、span
+proc-macro2 = { version = "1", features = ["span-locations"] }      # proc-macro 之外拿 span 的行列号
+
+[profile.release]
+opt-level = 3

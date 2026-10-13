@@ -1,9 +1,13 @@
-// xtask — `doc gen` / `check docs-api`：用 z42.doc 的 DocMd 渲染器重新生成 reference/stdlib 包页，
-// 并与仓库内文件对账（漂移门禁）。只对写了 `//!` 的包（已迁移）生效，未迁移的包页保持手写。
-// z42.core / z42.io 的多页拆分归迁移期。
+// xtask — `doc` 命令族的两块引擎：
+//   ① `doc gen` / `check docs-api`：用 z42.doc 的 DocMd 渲染器重新生成 reference/stdlib 包页，
+//      并与仓库内文件对账（漂移门禁）。只对写了 `//!` 的包（已迁移）生效，未迁移的包页保持手写。
+//   ② `doc index`：把 Rust 运行时各 crate 的条目与 rustdoc 写成 `z42 doc` 的外部索引
+//      （artifacts/doc/rust.idx），让 `z42 doc` 一并查 Rust 符号。索引器是
+//      src/toolchain/devtools/rust-index（syn 解析，沿 mod 声明走模块树，测试模块不进索引）。
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Time;
 using Z42.Doc;
 
 // 包名 → 页名：z42.<domain> → <domain>（z42.core 的多页拆分归迁移期，这里先当单页）。
@@ -59,4 +63,40 @@ int _checkDocsApi() {
     }
     Console.WriteLine("check docs-api: ✓ 已迁移包的页面与源码一致");
     return 0;
+}
+
+int _docIndex() {
+    string root = _root();
+    Stopwatch sw = _procStart("doc index (Rust crates → artifacts/doc/rust.idx)");
+    int c = _exec(_cargoRelease(_runtimeCargoConfig())
+        .Arg("--manifest-path").Arg("src/toolchain/devtools/rust-index/Cargo.toml"));
+    if (c != 0) { ConsoleError.WriteLine("  ✗ rust-index cargo build failed"); return c; }
+    string bin = Path.Join(_cargoOutFor(root, _detectHostRid(), "release"),
+        Platform.IsWindows() ? "z42-rust-index.exe" : "z42-rust-index");
+    Process p = new Process(bin).Arg("--root").Arg(root)
+        .Arg("--out").Arg(Path.Join(_docIndexDir(root), "rust.idx"))
+        .Arg("--regen").Arg("xtask doc index");
+    string[] crates = _docRustCrates(root);
+    int i = 0;
+    while (i < crates.Length) { p = p.Arg(crates[i]); i = i + 1; }
+    c = _exec(p);
+    if (c != 0) { ConsoleError.WriteLine("  ✗ rust-index failed"); return c; }
+    _procEnd("doc index", sw);
+    return 0;
+}
+
+// 要索引的 crate：`<crate 名>=<相对仓库根的 crate 根文件>`。运行时主 crate（lib + z42vm 二进制）加
+// src/runtime/crates/ 下每个带 src/lib.rs 的子 crate（目录名的 `-` 换成 `_`，与 Rust 里引用它的写法一致）。
+string[] _docRustCrates(string root) {
+    string[] acc = new string[32];
+    int n = 0;
+    acc[n] = "z42=src/runtime/src/lib.rs"; n = n + 1;
+    acc[n] = "z42vm=src/runtime/src/main.rs"; n = n + 1;
+    foreach (var d in Directory.Enumerate(Path.Join(root, "src/runtime/crates"))) {
+        string lib = "src/runtime/crates/" + d + "/src/lib.rs";
+        if (n < acc.Length && File.Exists(Path.Join(root, lib))) { acc[n] = d.Replace("-", "_") + "=" + lib; n = n + 1; }
+    }
+    string[] r = new string[n];
+    Array.Copy(acc, r, n);
+    return r;
 }

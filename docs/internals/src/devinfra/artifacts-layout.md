@@ -18,6 +18,7 @@
 | `tools/` | 构建**下载**的第三方工具（`node`、`android-sdk`、`playwright-browsers`）| `xtask setup` 与按需自动安装 |
 | `reports/` | 给人与 CI 看的**结果**，按种类分子目录：`tests/<platform>/junit.xml`（平台测试）、`bench/`（`e2e.json` / `ab.json` / `micro-*.json`）、`profile/<script>/`（火焰图、dhat 报告、counter 摘要、`report.md`）| `xtask test app *` / z42b 设备驱动、`xtask bench`、`xtask profile` |
 | `.z42` | `xtask package dev-sdk` 默认组装出的 SDK 布局（`programs/` + `libs/` + `bin/`）| `xtask package dev-sdk` |
+| `doc/` | `z42 doc` 的外部索引（`rust.idx`：Rust 运行时的条目与 rustdoc）。`z42 doc` 在索引根的 `artifacts/doc/` 里找 `*.idx` | `xtask doc index` |
 
 划分的判据只有一句：`build/` = 「我们**编**出来的」，`packages/` = 「我们要**发**的」，
 `intermediate/` = 「为了编、为了测而**摆**出来的」，`tools/` = 「别人给我们的」；`reports/` 是跑出来给人看的结果，
