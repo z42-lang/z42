@@ -49,12 +49,40 @@ interp / JIT 语义漂移（这是本仓最易出错的一维）。
 | 裁决 | 条件 | 动作 |
 |------|------|------|
 | `Ok` | 字段已声明且是引用型，或基类链没走通 | 照常返回 `Null` |
-| `Default(v)` | 字段已声明且是**值类型**，槽位却停在 `Null` | 按声明类型补零值，并**回写槽位** |
+| `Default(v)` | 字段已声明且是**值类型**，槽位却停在 `Null` | 按声明类型补零值，**装入槽位**（先到者胜） |
 | `Missing(exc)` | 属主类型解析不出来，或字段不在声明里 | 抛 |
 
-`Default` 这一支是顺带修掉的另一个静默错误：值类型静态字段无初始化器时槽位停在 `Null`
-（`resize_with(|| Value::Null)` 只填 `Null`，没人按声明类型零初始化），`static int N;` 一读
-就崩在 `__box_prim: expected integer value, got Null`。回写让后续读不再走这条路。
+`Default` 这一支是静态存储的**默认初始化**：静态字段的单元按名字惰性登记、登记时不知道声明类型，
+从未写过就是 `Null`；值类型静态字段没有初始化器时，第一次读走到这里，由 VM 按声明类型补上
+C# 的 `default(T)`（`symres::static_zero_value`）：
+
+| 声明类型 | 零值 |
+|---|---|
+| 基元 | 标量零 |
+| 枚举 | `I64(0)`（枚举一律以 i64 承载） |
+| 值 struct（含泛型 struct 实例化） | 一个**新分配的全零装箱 struct**——编译器把 struct 静态字段存成盒子（`_boxIfStaticStruct`），整读 `AsCast` 拆箱、叶子读写 `S.P.X` 就地改这个盒子 |
+| 引用类型 / 数组 / 委托 / 擦除定义上未代换的型参 | 不补（`Null` 就是零值），裁决为 `Ok` |
+
+这是**读漏斗**（`objops::statics::static_get`，interp 与 JIT helper 共用）上的一次性装入，不是消费端兜底：
+装入之后槽位里就是那个零值，`StructCopy` / `AsCast` / 算术永远见不到值类型静态字段的 `Null`。
+写不需要它——整写直接替换，叶子写经 `StaticGet` 取根盒子，同样先过这里。
+
+几个容易做错的点：
+
+- **装入必须是「仍未写过才写」**（`StaticTable::init_default` → `tparam_cell::init_if_unwritten`，标签字从
+  `0` CAS）。普通写会盖掉并发的真实赋值；对 struct 更糟：两个并发首读各分配一个盒子、各自写回，
+  经输家盒子做的叶子写就悄悄丢了。CAS 失败者返回单元里的赢家。
+- **只对可能是值类型的名字查类型。** 字段类型名可能在别的包里（惰性加载由这次查询触发，它是字段的声明类型，
+  编译期解析过）；但一个**解析不到**的名字会让加载器走 Fallback B 把所有包装一遍。所以数组、`unknown`
+  哨兵、委托签名不查；泛型实例化先查**定义**，定义是 struct 才按实例化名查（`List<int>` 从不按实例化名查）；
+  擦除定义上的 `static T V` 认作型参，不把 `T` 当类型名。
+- **字段类型拼写不是类型身份名。** TYPE 段的字段类型是源码口径，实参间带空格（`Demo.Pair<int, long>`），
+  身份名（读方 `AsCast` 用的名字、实例化描述符的名字）没有——按去空白后的名字查，盒子才是读方认的那个类型。
+- 泛型类实例化（`Demo.Holder<int>`）的描述符里，静态字段的 tag 已代换成实参，`static T V` 读作 `0`。
+
+钉它的是 `src/tests/structs/static_value_default.z42`（单包，interp + JIT）与 cross-zpkg
+`static_struct_default_cross_pkg`（字段类型声明在依赖包里），单测在 `vm_context/symres_tests.rs` /
+`static_table_tests.rs`。
 
 ### 构造器 —— `missing_ctor_exception`，判据是编译期的**正向位**
 

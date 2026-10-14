@@ -180,6 +180,43 @@ pub fn store_or_zero(st: &Cells, w0_off: usize, w1_off: usize, v: &Value, zero: 
     store_transition(st, w0_off, w1_off, v, prim, w0)
 }
 
+/// Write `v` only into a cell **never written** (tag word `0`); returns the value the cell holds
+/// afterwards — `v` when it went in, otherwise whatever the cell already had (a racing write won).
+///
+/// For lazy default-initialisation (static fields: `StaticTable::init_default`): a plain [`store`]
+/// of the zero would overwrite a real value another thread wrote in the meantime, and for a boxed
+/// struct zero the loser's box would silently swallow the leaf writes made through it.
+///
+/// A cell caught mid-claim by another writer (`NULL(k)`, its value not published yet) reads as
+/// `null`; that answers `v` — the zero is what the cell held before that write lands.
+pub fn init_if_unwritten(st: &Cells, w0_off: usize, w1_off: usize, v: &Value) -> anyhow::Result<Value> {
+    let won = match prim_parts(v) {
+        // Claim the variant out of `0`, then publish (same order as `store_transition`).
+        Some((k, bits)) => match st.cas_word(w0_off, 0, null_word(k)) {
+            Ok(_) => {
+                st.store_word(w1_off, bits, Ordering::Relaxed);
+                publish(st, w0_off, prim_word(k));
+                true
+            }
+            Err(_) => false,
+        },
+        None => {
+            let Some(w) = ref_word::encode(v) else {
+                anyhow::bail!("init_if_unwritten: a {v:?} cannot be a cell's initial value");
+            };
+            // Out of `0` nothing is replaced, so there is nothing for SATB.
+            w != 0 && st.cas_word(w0_off, 0, w).is_ok()
+        }
+    };
+    if won {
+        return Ok(*v);
+    }
+    Ok(match load(st, w0_off, w1_off) {
+        Value::Null => *v,
+        cur => cur,
+    })
+}
+
 /// Every write that changes the tag word.
 #[inline(never)]
 fn store_transition(

@@ -93,6 +93,12 @@ impl StaticCell {
         tparam_cell::store(&self.cells(), W0, W1, v).map(|_| ())
     }
 
+    /// Install `v` if the cell was never written; the value the cell holds afterwards
+    /// (`tparam_cell::init_if_unwritten`).
+    pub(crate) fn init_if_unwritten(&self, v: &Value) -> anyhow::Result<Value> {
+        tparam_cell::init_if_unwritten(&self.cells(), W0, W1, v)
+    }
+
     /// The cached type-init owner answer (one acquire load; `Check` adds one relaxed load).
     #[inline(always)]
     pub(crate) fn owner(&self) -> StaticOwner<'_> {
@@ -179,6 +185,17 @@ impl StaticTable {
         match self.cell(id) {
             Some(c) => c.store(v),
             None => self.grown(id).store(v),
+        }
+    }
+
+    /// Lazy default-initialisation of `id`: install `zero` (the declared type's zero value) only if
+    /// the field was never written, and return what the field holds afterwards. First writer wins —
+    /// a racing assignment is never overwritten by the zero, and two racing first reads agree on one
+    /// value (for a boxed struct, one box).
+    pub(crate) fn init_default(&self, id: StaticFieldId, zero: &Value) -> anyhow::Result<Value> {
+        match self.cell(id) {
+            Some(c) => c.init_if_unwritten(zero),
+            None => self.grown(id).init_if_unwritten(zero),
         }
     }
 

@@ -1,0 +1,9 @@
+// 生产方：值 struct / 枚举类型，以及一个持有这些类型静态字段（无初始化器）的类。
+namespace Demo.Geo;
+
+public struct Vec { public int X; public int Y; }
+public enum Mode { Off, On }
+
+public class Origin {
+    public static Vec At;
+}

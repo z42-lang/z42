@@ -85,6 +85,7 @@ zpkg colocate 进 main dist，而惰性加载器**先搜 entry zpkg 同目录**�
 | `ctorless_objnew_skew` / `_present` / `_absent` | **零实参**的构造器缺失同样抛异常（`argc == 0` 不留缝隙）。`_absent` 是**过度收紧守卫**：真·零构造器跨包类不得误报 | 装配期 `CtorKnownFixup` 置 `ObjNew.ctor_known` → `symres::missing_ctor_exception`（`skew-replace.txt` + `oldtarget/`）|
 | `static_ctor_crosspkg_static_call` | 依赖包类型的**第一次使用是调静态方法**（含不碰静态字段的方法）时静态 ctor 照常执行，结果与调用顺序无关；未使用的类型不执行 | `LazyLoader::insert_type` 入表即登记 cctor → `ensure_callee_owner_init` / `ensure_static_owner_init` 屏障 |
 | `static_ctor_crosspkg_field_first` | 守卫：依赖包类型的第一次使用是**直接读静态字段**时静态 ctor 照常执行（登记点从 `try_lookup_type` 挪到加载器入表处后不退化） | 静态字段名预解析 → 依赖包加载 → `LazyLoader::insert_type` 登记 → `ensure_static_owner_init` |
+| `static_struct_default_cross_pkg` | 值类型静态字段（struct / 枚举）的**声明类型在依赖包里**、赋值前就读 = 零值（全零 struct / 第一个枚举值），叶子写进惰性装入的那个盒子；属主与字段类型都在依赖包里同样成立 | `objops::statics::static_get` → `symres::static_zero_value`（按声明类型惰性解析、触发依赖包加载）→ `StaticTable::init_default` |
 | `inherited_ctor_cross_pkg` | 构造器继承与隐式 `base()` 跨包 / 同包跨文件：主包类继承依赖包基类构造器（含默认值）、依赖包内继承并导出、依赖包基类只有初始化器、继承 stdlib `Exception` | `CtorInheritance`（收集期合成 ctor 符号 → TSIG 导出）→ `DeclBinder` 隐式 `base()` |
 | `ctor_init_cross_pkg` | 零实参 `: base()` 指向**依赖包**基类时照常调用（该调用不得被丢弃）；依赖包里「静态 ctor + 无参实例 ctor」的类 `new` 时仍选中实例 ctor（守卫） | `DeclBinder._bindMethodBody`（`HasCtorInit` 门）→ `OverloadBinder._ctorKey`（排除静态 ctor） |
 | `crosspkg_ctor_default` | **跨包构造器**省略可选实参 → 注入作者声明的默认值（缺失时会读到零值） | `ConstructTyper._bindNew` → `OverloadBinder._crossPkgDefault`（`$Default` ConstBlob 解码） |

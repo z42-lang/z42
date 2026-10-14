@@ -179,3 +179,64 @@ fn jit_layout_matches_the_accessors() {
     let reg = &ctx.core.cctors;
     assert_eq!(unsafe { (*reg.barrier_epoch_ptr()).load(Ordering::Relaxed) }, reg.barrier_epoch());
 }
+
+// ── Lazy default-initialisation (`init_default`): first writer wins ──────────────────────────
+
+#[test]
+fn init_default_installs_only_into_a_never_written_field() {
+    let t = StaticTable::default();
+    let id = t.resolve("D.n");
+    // Never written: the zero goes in and is what the field holds from now on.
+    assert_eq!(t.init_default(id, &Value::I64(0)).unwrap(), Value::I64(0));
+    assert_eq!(t.get(id), Value::I64(0));
+    t.set(id, &Value::I64(5)).unwrap();
+    // Written since: the zero must not overwrite the real value (a plain store would).
+    assert_eq!(t.init_default(id, &Value::I64(0)).unwrap(), Value::I64(5));
+    assert_eq!(t.get(id), Value::I64(5));
+
+    // A reference zero (what a boxed struct static gets): the first one installed is kept.
+    let r = t.resolve("D.r");
+    let (first, second) = (Value::Str("first".into()), Value::Str("second".into()));
+    assert_eq!(t.init_default(r, &first).unwrap(), first);
+    assert_eq!(t.init_default(r, &second).unwrap(), first, "a later zero loses to the installed one");
+    assert_eq!(t.get(r), first);
+
+    // An id handed out without a cell grows the table, like `set`.
+    assert_eq!(t.init_default(StaticFieldId(40), &Value::Bool(false)).unwrap(), Value::Bool(false));
+    assert_eq!(t.get(StaticFieldId(40)), Value::Bool(false));
+}
+
+#[test]
+fn init_default_after_clear_installs_again() {
+    let ctx = VmContext::new();
+    let id = ctx.resolve_static_field_id("D.c");
+    assert_eq!(ctx.static_init_default("D.c", Some(id), &Value::F64(0.0)).unwrap(), Value::F64(0.0));
+    ctx.static_set_by_id(id, Value::F64(1.5)).unwrap();
+    ctx.static_fields_clear();
+    // Re-initialisation puts the cell back to never-written: the zero is installable again.
+    assert_eq!(ctx.static_init_default("D.c", None, &Value::F64(0.0)).unwrap(), Value::F64(0.0));
+    assert_eq!(ctx.static_get_by_id(id), Value::F64(0.0));
+}
+
+/// Racing first reads of a never-written value-type static each bring their own zero (for a struct
+/// static: a freshly allocated box). They must all come back with the **same** value — the one that
+/// was installed — or leaf writes made through a loser's box would be lost.
+#[test]
+fn racing_first_reads_agree_on_one_installed_zero() {
+    const THREADS: usize = 8;
+    for round in 0..50 {
+        let t = Arc::new(StaticTable::default());
+        let id = t.resolve("D.race");
+        let barrier = Arc::new(std::sync::Barrier::new(THREADS));
+        let seen: Vec<Value> = (0..THREADS).map(|i| {
+            let (t, barrier) = (Arc::clone(&t), Arc::clone(&barrier));
+            std::thread::spawn(move || {
+                let mine = Value::Str(format!("zero-{round}-{i}").into());
+                barrier.wait();
+                t.init_default(id, &mine).unwrap()
+            })
+        }).collect::<Vec<_>>().into_iter().map(|h| h.join().expect("racer")).collect();
+        let installed = t.get(id);
+        assert!(seen.iter().all(|v| *v == installed), "round {round}: {seen:?} vs {installed:?}");
+    }
+}
