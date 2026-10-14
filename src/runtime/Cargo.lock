@@ -2212,7 +2212,7 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 
 [[package]]
 name = "z42"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -2251,7 +2251,7 @@ dependencies = [
 
 [[package]]
 name = "z42-abi"
-version = "0.6.0"
+version = "0.7.0"
 
 [[package]]
 name = "z42-compression"
@@ -2274,7 +2274,7 @@ dependencies = [
 
 [[package]]
 name = "z42-macros"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "convert_case",
  "proc-macro2",
@@ -2292,7 +2292,7 @@ dependencies = [
 
 [[package]]
 name = "z42-rs"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "z42-abi",
  "z42-macros",
