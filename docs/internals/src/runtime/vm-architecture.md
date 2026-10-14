@@ -1029,7 +1029,7 @@ match callee_value {
   PR 7 的每线程函数名驻留表（`fn_name_cache`）随之删除。`Value` 仍是 16 B。线程 `spawn` 把 id 原样交给 worker
   （同一个 `FuncTable`）。
 
-`MkClos` 恒堆分配：env 是 GC 数组，`ClosureData` 在 GC var region。callee 直接拿到已有的 env `GcRef`
+`MkClos` 恒堆分配：env 是 GC 数组，`ClosureData` 在 GC var region。callee 直接拿到已有的 env `ArrRef`
 （不拷贝）。没有栈闭包变体，帧里也没有闭包 env arena——见[逃逸分析](escape-analysis.md)末节「闭包：一律堆分配」。
 
 ## interp vs JIT 分发
@@ -1386,7 +1386,7 @@ builtin 按功能分 submodule：`string.rs` / `io.rs` / `math.rs` / `fs.rs` 等
 ### Value 的表示：16B `Copy` + GC 句柄
 
 - **GC 模型**：z42 是 GC 语言，对象/数组/字符串/闭包都在自有 GC 堆（`gc/`）里；`Value` 里只放 8B 句柄
-  （`GcRef<T>` 标记指针、`Str` 细指针、`VarGcRef`），无引用计数、无运行时 borrow check。
+  （`ObjRef` / `ArrRef` 标记指针、`Str` 细指针、`VarGcRef`），无引用计数、无运行时 borrow check。
 - **`Value` 是 `Copy` 的 16B POD**（`#[repr(C, u8)]`，tag + 8B payload，`size_of::<Value>() == 16` 编译期断言）：
   clone = memcpy，`Vec<Value>` 无 Drop glue。瞬态变体（`Ref` / `PinnedView` / `StructRefHeap`）
   只带 `{idx, frame_id}` 句柄，载荷在 per-thread `transient_arena`。
@@ -1443,7 +1443,7 @@ ConstStr 索引相对自己 pool。合并时若不重映射，懒加载函数里
 ## GC 子系统 —— MagrGC
 
 详细 GC 设计（接口形状、phase 路线、`GcMode` opt-in 模式、增量 major、自定义
-allocator、分代 GC、card marking、finalizer 契约、迭代规划等）已抽取到独立文档：
+allocator、分代 GC、记忆集、finalizer 契约、迭代规划等）已抽取到独立文档：
 
 - 📄 [`docs/internals/src/runtime/gc.md`](gc.md)
 
@@ -1451,15 +1451,15 @@ allocator、分代 GC、card marking、finalizer 契约、迭代规划等）已�
 
 - **核心 trait**：[`crate::gc::MagrGC`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/heap.rs) ——
   对齐 [MMTk](https://www.mmtk.io/) `VMBinding` porting contract
-- **Backing**：[`Region<T>`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/region.rs) chunked
-  allocator + 8B `GcRef` 句柄（标记指针指向 `RegionEntry`）
+- **Backing**：[`VarRegion`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/var_region.rs) 变长块
+  allocator（对象、数组、字符串、闭包各是一块）+ 8B 句柄（`ObjRef` / `ArrRef` / `VarGcRef`，标记指针指向块头）
 - **两种 mode 可选**（`GcMode` enum + `Z42_GC_MODE` / `--set gc-mode=`）:
-  - `GenerationalMarkSweep` (default) — minor GC 扫 young + dirty cards
+  - `GenerationalMarkSweep` (default) — minor GC 扫 young + 记忆集
     (~4× faster minor pause vs full STW)；major GC 全堆扫描，默认拆成增量切片
   - `StwMarkSweep` (opt-in，`stw`) — stop-the-world mark + sweep
 - **Write barriers**：interp + JIT 5 个 FieldSet / ArraySet 写入点全 wired；
   call-site 通过 `Value::is_heap_ref()` 过滤 primitive；trait override 由
-  generational 模式实现（cross-gen card marking）；SATB 删除屏障在写原语里
+  generational 模式实现（老属主进记忆集）；SATB 删除屏障在写原语里
 - **Finalizer**：sweep 时触发 + `Std.GC.Finalize(x)` 显式 API
   
 - **Safepoint**：counter-throttled fast path + multi-collector arbitration

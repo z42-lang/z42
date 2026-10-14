@@ -4,7 +4,7 @@
 //! idempotency on re-snapshot, primitive roots ignored.
 
 use super::*;
-use crate::gc::{GcMode, GcRef, MagrGC};
+use crate::gc::{GcMode, MagrGC};
 
 #[test]
 fn snapshot_roots_marks_and_enqueues_pinned_roots() {

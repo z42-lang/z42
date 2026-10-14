@@ -1,6 +1,6 @@
 //! `ArcMagrGC` —— 默认 GC backend（接口完整 + Trial-deletion 环回收器）。
 //!
-//! 通过 [`GcRef<T>`] 句柄抽象走 `Rc<GcAllocation<T>>` backing（GcAllocation
+//! 通过 GC 句柄抽象走 `Rc<GcAllocation<T>>` backing（GcAllocation
 //! 含 `inner: RefCell<T>` + `finalizer: RefCell<Option<FinalizerFn>>` + 自定义
 //! `Drop`，Phase 3e 起 Drop 时自动触发 finalizer），同时实现 MMTk porting
 //! contract 形状的全部 host-side 嵌入接口（roots / observers / profiler /
@@ -9,7 +9,7 @@
 //! **Phase 3a/3b/3c/3d/3d.1/3f/3e/3f-2/3-OOM 后已知限制**：（无）
 //!
 //! GC 子系统主功能至此完整。所有原始限制已解决：
-//! - 接口（trait + GcRef + heap registry）✅
+//! - 接口（trait + 句柄 + heap registry）✅
 //! - 环回收（trial-deletion）✅
 //! - Finalizer（drop-time + cycle collect 双路径）✅
 //! - 自动 collect（内存压力）✅
@@ -29,7 +29,7 @@
 //!   `FrameGuard` RAII 把 `frame.regs` Vec 指针注册到 `VmContext.exec_stack`，
 //!   scanner 闭包遍历喂给 mark 阶段。修复脚本执行中调 GC 时
 //!   "outer 在 reg + outer.slot → inner 间接可达 → inner 被误清" 的 bug
-//! - Phase 3e（add-drop-time-finalizer）：`GcRef<T>` backing 升级为
+//! - Phase 3e（add-drop-time-finalizer）：GC 句柄 backing 升级为
 //!   `Rc<GcAllocation<T>>`，wrapper 含 `finalizer: RefCell<Option<FinalizerFn>>`
 //!   + 自定义 `Drop`。**所有 Rc Drop 路径**（含纯链式 drop / cycle 断环
 //!   后 alive_vec drop / 普通 scope 退出）都自动触发已注册 finalizer，
@@ -52,8 +52,8 @@ use crate::metadata::{ScriptObject, Value};
 use crate::metadata::types::ArrayObj;
 
 use super::obj_ref::{ObjRef, WeakObjRef};
-use super::refs::{GcRef, WeakGcRef};
-use super::var_region::{BlockType, VarRegion};
+use super::arr_ref::{ArrRef, WeakArrRef};
+use super::var_region::{BlockType, VarGcRef, VarRegion};
 use super::types::{
     AllocSamplerFn, GcHandleKind, GcObserver, HeapStats, ObserverId, RootHandle,
 };
@@ -70,14 +70,14 @@ use super::types::{
 #[derive(Clone)]
 enum HandleEntry {
     StrongObject(ObjRef),
-    StrongArray(GcRef<ArrayObj>),
+    StrongArray(ArrRef),
     /// Atomic Value clone (I64 / F64 / Str / Bool / Char / FuncRef / ...).
     /// Strong-only — AllocWeak on atomics rejects at the alloc layer.
     StrongAtomic(Value),
-    /// Object model R6: upgraded by the heap (`ArcMagrGC::upgrade_weak_object`), which reads
-    /// the chunk epoch the reference recorded.
+    /// Object model R6 / R9: upgraded by the heap (`ArcMagrGC::upgrade_weak_object` /
+    /// `upgrade_weak_array`), which reads the chunk epoch the reference recorded.
     WeakObject(WeakObjRef),
-    WeakArray(WeakGcRef<ArrayObj>),
+    WeakArray(WeakArrRef),
 }
 
 impl HandleEntry {
@@ -96,10 +96,10 @@ impl HandleEntry {
     fn target(&self, heap: &ArcMagrGC) -> Option<Value> {
         match self {
             HandleEntry::StrongObject(g) => Some(Value::Object(*g)),
-            HandleEntry::StrongArray(g)  => Some(Value::Array(g.clone())),
+            HandleEntry::StrongArray(g)  => Some(Value::Array(*g)),
             HandleEntry::StrongAtomic(v) => Some(v.clone()),
             HandleEntry::WeakObject(w)   => heap.upgrade_weak_object(w).map(Value::Object),
-            HandleEntry::WeakArray(w)    => w.upgrade().map(Value::Array),
+            HandleEntry::WeakArray(w)    => heap.upgrade_weak_array(w).map(Value::Array),
         }
     }
 }
@@ -139,7 +139,7 @@ impl HandleSlab {
     fn strong_targets(&self) -> impl Iterator<Item = Value> + '_ {
         self.entries.iter().flatten().filter_map(|e| match e {
             HandleEntry::StrongObject(g) => Some(Value::Object(*g)),
-            HandleEntry::StrongArray(g)  => Some(Value::Array(g.clone())),
+            HandleEntry::StrongArray(g)  => Some(Value::Array(*g)),
             HandleEntry::StrongAtomic(v) => Some(v.clone()),
             HandleEntry::WeakObject(_) | HandleEntry::WeakArray(_) => None,
         })
@@ -175,9 +175,8 @@ struct RcHeapInner {
     /// 防止 NearHeapLimit 事件刷屏（Phase 3d 后 collect_cycles 完成且使用降到
     /// 阈值以下时会自动 reset，下次跨阈值能再发事件）。
     near_limit_warned: bool,
-    /// **add-custom-allocator P1 (2026-05-22)**: heap_registry deleted.
-    /// Authoritative liveness store is now `ArcMagrGC.region_var` (objects) +
-    /// `region_array`. Sweep + iterate walk the regions directly.
+    /// The authoritative liveness store is `ArcMagrGC.region_var` (every object, array, string
+    /// and closure is one of its blocks); sweep and iteration walk it directly.
     /// **Phase 3d**: 上次 auto-collect 触发时的 `used_bytes`，用于 throttle
     /// 自动 collect —— 仅当当前 used 距上次增长 >= 10% limit 才再次自动触发。
     last_auto_collect_used: u64,
@@ -203,7 +202,7 @@ struct RcHeapInner {
     handle_slab: HandleSlab,
     // **Phase 3e**: finalizers 不再集中存 HashMap；改存到每个 GcAllocation 的
     // finalizer Cell 上。Drop 时自动 take + fire（含 cycle 断环后 alive_vec
-    // drop 链）。register_finalizer / cancel_finalizer 走 GcRef 方法。
+    // drop 链）。register_finalizer / cancel_finalizer 走 ArrRef 方法。
     // finalizers_pending 由 stats() 即时遍历 registry 重算。
 
     /// **add-gc-softref (2026-05-26)**: registry of all active soft
@@ -212,9 +211,9 @@ struct RcHeapInner {
     /// iterates this to re-mark alive targets when heap pressure is below
     /// the soft threshold.
     soft_registry: super::soft_registry::SoftRegistry,
-    /// Object model R6: finalizers registered on objects, keyed by block-header address. The
-    /// block carries `SIDE_BIT`, so its death reaches the heap through the region's flagged-dead
-    /// list (`ArcMagrGC::process_flagged_dead`), which fires and removes the entry.
+    /// Object model R6 / R9: finalizers registered on objects and arrays, keyed by block-header
+    /// address. The block carries `SIDE_BIT`, so its death reaches the heap through the region's
+    /// flagged-dead list (`ArcMagrGC::process_flagged_dead`), which fires and removes the entry.
     obj_finalizers: HashMap<usize, super::types::FinalizerFn>,
 }
 
@@ -279,7 +278,8 @@ fn value_heap_ptr(v: &Value) -> Option<usize> {
         Value::Object(gc) => Some(ObjRef::as_ptr(gc) as usize),
         // add-boxed-struct-identity (P4b): boxed struct is a heap object (an object block).
         Value::BoxedStruct(gc) => Some(ObjRef::as_ptr(gc) as usize),
-        Value::Array(gc) => Some(gc.borrow() as *const _ as usize),
+        // Object model R9: an array is a block too — the header address.
+        Value::Array(gc) => Some(ArrRef::as_ptr(gc) as usize),
         // unify-gc-heap PR-2: the closure is itself a heap object (region_var block) — its own
         // block address is its identity.
         Value::Closure(c) => Some(c.addr()),
@@ -292,44 +292,30 @@ fn value_heap_ptr(v: &Value) -> Option<usize> {
     }
 }
 
-/// **unify-gc-heap PR-2/PR-3/PR-5**: payload finalizer for the variable-length region, dispatched
-/// by block type. Injected into the region so `var_region.rs` stays a pure byte allocator (no
-/// `metadata::types` dependency). Only blocks whose payload owns non-POD data need a drop:
-/// - `ArrayValue` → `size / size_of::<Value>()` inline `Value`s (a `Boxed` array's elements or a
-///   `struct[]`'s reference side-table). Since PR-4 `Value::Str` is itself a GC handle (no
-///   refcount), so these Values are all trivially droppable. The arm is retained for an
-///   embedding whose `Value` is not — but in *this* one it never runs, because `Value: Copy`
-///   makes `needs_drop::<Value>()` false and [`var_payload_drop_glue`] then installs nothing.
-/// - `Str` / `ArrayPrim` / `ArrayStruct` (packed bytes) / `Closure` → POD leaves, nothing to drop.
-///   PR-5 migrated `ClosureData.fn_name` `String` → GC `Str` (P1-2 PR 8: a `FnId`), so a
-///   `ClosureData` owns no heap outside the GC (`env: GcRef` + the id are no-op/`Copy` drops) →
-///   the former `Closure` drop-glue arm is gone.
+/// The payload finalizer injected into the variable-length region (which stays a pure byte
+/// allocator with no `metadata::types` dependency), dispatched by block type, and the mask of the
+/// block types it runs for (`drop_type_bit`) — the region checks the mask before the indirect call,
+/// so a reclaimed POD block costs one branch:
 ///
-/// # Safety
-/// Called once per block reclaim with a valid pointer to that block's initialized `size`-byte
-/// payload (upheld by `VarRegion`).
-/// The glue to install in the var region, or `None` when no block type's payload actually
-/// needs dropping — see [`var_drop_glue`] for the per-type reasoning.
-///
-/// **perf-skip-pod-drop-glue (2026-09-13)**: `ArrayValue` is the only arm with a body, and
-/// `Value` is `Copy` (`make-value-copy`), so `drop_in_place` on it is statically a no-op and
-/// the whole function is empty. It is still *called* per reclaimed block, though — through a
-/// fn pointer, which the optimizer cannot see into — so the empty body cost 1.6 ms a build
-/// (see `VarRegion::finalize_payload`). `needs_drop` is the guard rather than a plain `false`
-/// so that the day a droppable variant joins `Value`, the glue comes back on its own.
-///
-/// **Object model R6**: object blocks always need the glue — the header owns an
-/// `Arc<TypeDesc>` and, for a native-backed object, the extras box — so the region is built with
-/// it, and the type mask (`drop_type_bit`) keeps the indirect call off every other kind of block.
+/// - `Object` — the header owns an `Arc<TypeDesc>` and, for a native-backed object, the extras box
+///   (object model R6 / R8);
+/// - `ArrayStruct` — a value-struct array owns its element layout (`Arc<StructTypeLayout>`, the
+///   payload's first word; object model R9);
+/// - `ArrayValue` — `Value`s, which own nothing while `Value: Copy` (`needs_drop` keeps the arm
+///   out of the mask; it comes back on its own the day a droppable variant joins `Value`);
+/// - every other block (strings, closures, packed / REF / MIXED arrays) is POD.
 fn var_payload_drop_glue() -> Option<(crate::gc::var_region::PayloadDropGlue, u8)> {
     use crate::gc::var_region::drop_type_bit;
-    let mut types = drop_type_bit(BlockType::Object);
+    let mut types = drop_type_bit(BlockType::Object) | drop_type_bit(BlockType::ArrayStruct);
     if std::mem::needs_drop::<Value>() {
         types |= drop_type_bit(BlockType::ArrayValue);
     }
     Some((var_drop_glue as crate::gc::var_region::PayloadDropGlue, types))
 }
 
+/// # Safety
+/// Called once per block reclaim with this block's header (whole-block provenance) and its
+/// initialized `size`-byte payload (upheld by `VarRegion`).
 unsafe fn var_drop_glue(bt: BlockType, header: std::ptr::NonNull<crate::gc::var_region::GcBlockHeader>, size: usize) -> u64 {
     match bt {
         BlockType::Object => {
@@ -350,6 +336,17 @@ unsafe fn var_drop_glue(bt: BlockType, header: std::ptr::NonNull<crate::gc::var_
                 freed
             }
         }
+        BlockType::ArrayStruct => {
+            // SAFETY: as above; a STRUCT array's layout word is null until installed.
+            unsafe {
+                if header.as_ref().kind_word().is_null() {
+                    return 0;
+                }
+                ArrayObj::destroy_struct(ArrayObj::from_block(header.cast(), size));
+                header.as_ref().clear_kind_word();
+            }
+            0
+        }
         BlockType::ArrayValue => {
             let n = size / std::mem::size_of::<Value>();
             // SAFETY: the payload follows the header in the same allocation.
@@ -360,9 +357,7 @@ unsafe fn var_drop_glue(bt: BlockType, header: std::ptr::NonNull<crate::gc::var_
             }
             0
         }
-        // Str / ArrayPrim / ArrayStruct (packed bytes) / Closure (POD since PR-5) / ArrayRef /
-        // ArrayCell (raw words): nothing to drop.
-        BlockType::Str | BlockType::ArrayPrim | BlockType::ArrayStruct | BlockType::Closure
+        BlockType::Str | BlockType::ArrayPrim | BlockType::Closure
         | BlockType::ArrayRef | BlockType::ArrayCell => 0,
     }
 }
@@ -387,22 +382,19 @@ pub struct ArcMagrGC {
     /// `GcMode::from_env()` so `Z42_GC_MODE` selects the mode at
     /// process start.
     mode: std::sync::atomic::AtomicU8,
-    /// **add-custom-allocator P1 (2026-05-22)**: chunked region for
-    /// `Value::Array` storage (heap-allocated `Vec<Value>`).
-    region_array: Mutex<super::region::Region<ArrayObj>>,
-    /// **unify-gc-heap PR-2/3/4/5**: variable-length GC block region for the managed payloads that
-    /// don't fit the fixed-size `Region<T>` — `ClosureData` (`Value::Closure`), array backings
-    /// (`Value::Array`), and strings (`Value::Str`). **Object model R6**: objects
-    /// (`Value::Object` / `Value::BoxedStruct`) too — header and fields in one block. Constructed
-    /// with `var_drop_glue` (object blocks drop their header; closures/strings/packed arrays are
-    /// POD leaves). Swept alongside `region_array`.
+    /// The heap: one variable-length GC block region holding every managed value — objects
+    /// (`Value::Object` / `Value::BoxedStruct`, object model R6), arrays (`Value::Array`, R9),
+    /// strings and closures, each one block (16 B header + payload). Constructed with
+    /// `var_drop_glue` (object and value-struct-array blocks release what their header owns; the
+    /// rest are POD).
     region_var: Mutex<VarRegion>,
-    /// **Object model R6**: the remembered set — old objects that may hold a young reference,
-    /// each with `REMEMBERED_BIT` set on its block (the bit makes a push happen once per object).
-    /// The var region has no card table; this list is the object half of what the minor re-roots
-    /// from (`seed_from_remembered`). Pushed by the write barrier (mutators, only when the bit
-    /// was clear) and by promotion; trimmed by every minor and when a remembered object dies.
-    remembered: Mutex<Vec<ObjRef>>,
+    /// **Object model R6 / R9**: the remembered set — old objects and arrays that may hold a young
+    /// reference, each with `REMEMBERED_BIT` set on its block (the bit makes a push happen once
+    /// per block). The region has no card table; this list is what the minor re-roots the old
+    /// generation from (`seed_from_remembered`). Pushed by the write barrier (mutators, only when
+    /// the bit was clear) and by promotion; trimmed by every minor and when a remembered block
+    /// dies.
+    remembered: Mutex<Vec<VarGcRef>>,
     /// **adaptive-promotion (2026-09-12)**: whether a survivor one tier short of promotion
     /// should be promoted now rather than spend another collection being re-marked. Decided
     /// per minor from the survival rate of the tier it would skip — see

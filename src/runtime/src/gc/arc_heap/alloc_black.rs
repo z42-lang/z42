@@ -20,21 +20,17 @@
 //!
 //! ## Cost
 //!
-//! One `Relaxed` load per allocation, at the five allocation chokepoints
-//! (`finish_alloc` and `alloc_array_obj`, each with a TLAB and an ambient path,
-//! plus `acquire_var_block` for every `region_var` block — strings, closures and
-//! array backings are mark-swept by `VarRegion::sweep` just like region entries).
+//! One `Relaxed` load per allocation, at the one allocation chokepoint every block passes —
+//! `acquire_var_block` (objects, arrays, strings, closures), on both its TLAB and its locked path.
 //! The flag is `false` whenever no incremental cycle is open.
 //!
-//! ## Why shading *after* publishing the entry is sound
+//! ## Why shading a block the region already lists is sound
 //!
-//! The ambient (non-TLAB) paths publish the region entry and only then shade it.
+//! The locked path carves the block (visible to region walks) and only then shades it.
 //! Sweep runs only with this thread parked, and a thread that is running has by
 //! definition not parked, so the collector cannot be sweeping in that gap. On the
-//! TLAB paths the question does not arise at all: a TLAB entry is invisible to the
+//! TLAB paths the question does not arise at all: a TLAB block is invisible to the
 //! collector until the owning thread retires its chunk, which happens at park.
-
-use crate::metadata::Value;
 
 impl crate::gc::arc_heap::ArcMagrGC {
     /// Open the window. Called when an incremental major cycle opens.
@@ -53,18 +49,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
         self.alloc_black.load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    /// Shade a freshly allocated region-entry value if the window is open.
-    /// Returns the value so call sites stay expression-shaped.
-    #[inline]
-    pub(super) fn shade_newborn(&self, value: Value) -> Value {
-        if self.allocating_black() {
-            Self::mark_if_unmarked(&value, self.major_mark());
-        }
-        value
-    }
-
-    /// `shade_newborn` for a `region_var` block (string / closure / array
-    /// backing). Same one-cycle retention.
+    /// Shade a freshly allocated block (object / array / string / closure) if the window is
+    /// open: it is born with the cycle's mark (one-cycle retention).
     #[inline]
     pub(super) fn shade_var_newborn(
         &self,

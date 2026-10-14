@@ -189,7 +189,7 @@ pub struct ObjectLayoutDesc {
 pub struct StructFieldEntry {
     pub offset: u32,
     pub size: u32,
-    /// `StructLeafKind`: 0=Prim / 1=ArcString / 2=GcRef / 3=Struct / 4=GcRefArray / 5=GcRefClosure.
+    /// `StructLeafKind`: 0=Prim / 1=ArcString / 2=ArrRef / 3=Struct / 4=GcRefArray / 5=GcRefClosure.
     pub kind: u8,
 }
 

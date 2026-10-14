@@ -1,9 +1,9 @@
-//! fix-missing-write-barriers：`verify_card_invariant`——卡表不变量（老对象持有年轻引用 ⇒ 所在卡必脏）
-//! 的从头核对。它是 `Z42_GC_VERIFY_CARDS` 的实体，也是 VM 层写屏障回归测试的判据
+//! fix-missing-write-barriers：`verify_card_invariant`——分代不变量（老对象 / 老数组持有年轻引用 ⇒
+//! 它在记忆集里）的从头核对。它是 `Z42_GC_VERIFY_CARDS` 的实体，也是 VM 层写屏障回归测试的判据
 //! （`objops/write_barrier_tests.rs`），所以这里钉住它两个方向都判得对：漏屏障必报、有屏障不误报。
 
 use super::*;
-use crate::gc::region::PROMOTION_THRESHOLD;
+use crate::gc::PROMOTION_THRESHOLD;
 use crate::gc::{GcMode, MagrGC};
 
 fn gen_heap() -> ArcMagrGC {
@@ -56,7 +56,7 @@ fn an_unbarriered_old_to_young_array_store_is_reported() {
     g.borrow().set_boxed(2, Value::Str(young));
 
     let err = heap.verify_card_invariant().expect_err("a missing card must be reported");
-    assert!(err.contains("old array (len 3)") && err.contains("string"), "{err}");
+    assert!(err.contains("old array `[3]`") && err.contains("string"), "{err}");
 
     heap.write_barrier_array_elem(&arr, 2, &Value::Str(young));
     assert_eq!(heap.verify_card_invariant(), Ok(()));
@@ -95,21 +95,21 @@ fn non_generational_modes_always_pass() {
 
 /// Object model R3: the verifier walks every array mode through `ArrayObj::visit_refs` — REF
 /// reference words, MIXED type-parameter cells and `struct[]` reference leaves inside the blob.
-/// Each mode on its own heap (neighbouring entries share a card): an unbarriered old→young store
-/// is reported, the barrier for what landed satisfies it.
+/// Each mode on its own heap: an unbarriered old→young store is reported, the barrier for what
+/// landed satisfies it.
 #[test]
 fn every_array_mode_is_checked() {
     use crate::metadata::types::{ArrayObj, ElemKind, ElemType, StructTypeLayout, STRUCT_REF_GCREF};
     for mode in ["REF", "MIXED", "STRUCT"] {
         let heap = gen_heap();
         let a = match mode {
-            "REF" => ArrayObj::filled(&heap, ElemType::intern("object"), ElemKind::Ref, 2, Value::Null),
-            "MIXED" => ArrayObj::filled(&heap, ElemType::intern("T"), ElemKind::Mixed, 2, Value::Null),
-            _ => ArrayObj::struct_backed(&heap, ElemType::intern("Demo.S"), 2, std::sync::Arc::new(StructTypeLayout {
+            "REF" => ArrayObj::alloc_filled(&heap, ElemType::intern("object"), ElemKind::Ref, 2, Value::Null),
+            "MIXED" => ArrayObj::alloc_filled(&heap, ElemType::intern("T"), ElemKind::Mixed, 2, Value::Null),
+            _ => ArrayObj::alloc_struct(&heap, ElemType::intern("Demo.S"), 2, std::sync::Arc::new(StructTypeLayout {
                 size: 16, ref_offsets: Box::new([8]), ref_kinds: Box::new([STRUCT_REF_GCREF]), fields: Box::new([]),
             })),
         };
-        let arr = heap.alloc_array_obj(a);
+        let arr = a;
         let _pin = heap.pin_root(arr.clone());
         promote(&heap, &arr);
         let young = heap.alloc_object(dummy_type_desc("Young"), vec![], NativeData::None);
@@ -122,7 +122,7 @@ fn every_array_mode_is_checked() {
             wrote.with_barrier_value(&young, |v| landed.push(*v));
         }
         let err = heap.verify_card_invariant().expect_err(&format!("{mode}: a missing card must be reported"));
-        assert!(err.contains("old array (len 2)"), "{mode}: {err}");
+        assert!(err.contains("[2]` holds young") && err.contains("not remembered"), "{mode}: {err}");
         for v in &landed {
             heap.write_barrier_array_elem(&arr, 1, v);
         }
@@ -138,7 +138,7 @@ fn a_mixed_cells_kind7_box_is_checked() {
     use crate::metadata::types::{ArrayObj, ElemKind, ElemType};
     let heap = gen_heap();
     let _g = crate::gc::ambient::HeapGuard::enter(&heap); // the box is allocated on the ambient heap
-    let arr = heap.alloc_array_obj(ArrayObj::filled(&heap, ElemType::intern("T"), ElemKind::Mixed, 1, Value::Null));
+    let arr = ArrayObj::alloc_filled(&heap, ElemType::intern("T"), ElemKind::Mixed, 1, Value::Null);
     let _pin = heap.pin_root(arr.clone());
     let Value::Array(g) = &arr else { panic!() };
     let _ = g.borrow().set_boxed(0, Value::I64(7));

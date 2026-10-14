@@ -5,7 +5,7 @@
 //! (`OwnedObject`) form used by stack objects.
 
 use super::*;
-use crate::gc::region::PROMOTION_THRESHOLD;
+use crate::gc::PROMOTION_THRESHOLD;
 use crate::gc::var_region::{class_for, BlockType, GcBlockHeader};
 use crate::gc::{GcMode, ObjRef};
 use crate::metadata::types::{OwnedObject, ScriptObject};

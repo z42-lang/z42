@@ -3,7 +3,7 @@
 //! `Ref` / `PinnedView` / `StructRefHeap`.
 //!
 //! # Why
-//! Those were the only `Box` variants left in `Value`; together with `GcRef`'s
+//! Those were the only `Box` variants left in `Value`; together with `ArrRef`'s
 //! explicit no-op `Drop` they forced `Value: !Copy`, which made `Value::clone` a
 //! discriminant-dispatched deep clone (profile #1 leaf, 11.4%) and `Vec<Value>`
 //! drop a per-element drop-glue loop (`drop_in_place<Frame>`, 6.0%). Moving each
@@ -22,7 +22,7 @@
 //!
 //! # GC
 //! The arena is a GC **root** (`scan_roots` wired into the context root scanners),
-//! so every `GcRef` a live payload holds (a `Ref`'s `RefKind::Array/Field` target,
+//! so every `ArrRef` a live payload holds (a `Ref`'s `RefKind::Array/Field` target,
 //! a `StructRefHeap`'s backing array) stays marked without tracing *through* the
 //! handle — `Value::visit_gc_children` / `mark_if_unmarked` are therefore no-ops for
 //! these variants (exactly like `StructRef` / `StackObject`). No write barrier: the
@@ -40,7 +40,7 @@ pub(crate) enum TransientPayload {
     Ref(RefKind),
     /// `Value::PinnedView` FFI view (raw ptr + len; no GC leaf).
     PinView(PinnedViewData),
-    /// `Value::StructRefHeap` — a `struct[]` element identity (holds the backing array `GcRef`).
+    /// `Value::StructRefHeap` — a `struct[]` element identity (holds the backing array `ArrRef`).
     StructElem(StructArrayElem),
 }
 
@@ -104,7 +104,7 @@ impl TransientArena {
     }
 
     /// Clone the `StructArrayElem` behind a `Value::StructRefHeap` handle (cheap:
-    /// `{GcRef(Copy), u32}`), releasing the arena lock before touching the array.
+    /// `{ArrRef(Copy), u32}`), releasing the arena lock before touching the array.
     pub fn struct_elem(&self, idx: u32, frame_id: u32) -> Result<StructArrayElem> {
         self.with(idx, frame_id, |p| match p {
             TransientPayload::StructElem(e) => Ok(e.clone()),

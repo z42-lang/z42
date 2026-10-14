@@ -104,13 +104,19 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 });
             });
         }
-        // Array region → each array's heap-ref elements become reverse edges.
+        // Arrays (object model R9: blocks too) → each array's heap-ref elements become reverse
+        // edges.
         {
-            let region = self.region_array.lock();
-            region.iterate_alive(|_h, entry| {
-                let self_ptr = &entry.value as *const _ as usize;
-                let arr = &entry.value;
-                let type_name = format!("{}[]", &*arr.element_type);
+            let region = self.region_var.lock();
+            region.iterate_alive(|h, header| {
+                let bt = header.block_type();
+                if bt == crate::gc::var_region::BlockType::Object || !bt.is_object_or_array() {
+                    return;
+                }
+                let handle = crate::gc::ArrRef::from_var(h);
+                let self_ptr = crate::gc::ArrRef::as_ptr(&handle) as usize;
+                let arr = handle.borrow();
+                let type_name = format!("{}[]", &*arr.element_type());
                 // `visit_refs`: the array's reference edges (elements / struct[] reference leaves).
                 arr.visit_refs(&mut |elem: &Value| {
                     if let Some(child) = value_heap_ptr(elem) {

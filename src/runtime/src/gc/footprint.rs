@@ -1,27 +1,25 @@
 //! True-footprint accounting: the memory a heap actually holds, kept as it changes.
 //!
-//! `used_bytes` is a per-object **estimate** of live payload; it leaves out the GC's own
-//! per-object metadata (the `RegionEntry` around every object), allocator rounding, dead
-//! payloads still waiting for their slot to be reused, empty chunks, and the side tables. On
+//! `used_bytes` is the allocation charge of the live blocks (header + payload); it leaves out the
+//! size-class rounding, dead blocks still waiting for their slot to be reused, empty chunks, and
+//! the side tables. On
 //! dense workloads RSS ran 1.7–2× `used`, on churn 8×. [`Footprint`] counts the real thing,
 //! incrementally, so reading it is one atomic load:
 //!
 //! | what | charged | credited |
 //! |---|---|---|
-//! | region chunk (slot array + per-chunk tables and slot bitmaps) | chunk grow | never (chunks are not freed) |
 //! | var-region chunk (bump or dedicated) | chunk push | dedicated chunk freed |
-//! | array-header payload outside the slot (element-type name) | slot filled | slot's dead entry dropped (slot reuse) |
-//! | an object's extras box (object model R6: fields live in the object's var block) | object allocated | its block tombstoned (drop glue) |
-//! | variable-size side tables (chunk lists, var free lists, var young bitmaps) | re-measured at every sweep tail | same |
+//! | an object's extras box (object model R6: fields live in the object's block) | object allocated | its block tombstoned (drop glue) |
+//! | variable-size side tables (chunk lists, free lists, young bitmaps) | re-measured at every sweep tail | same |
 //!
-//! `pooled` is the part of `committed` sitting in fully-dead chunks in a region's chunk pool:
+//! `pooled` is the part of `committed` sitting in fully-dead chunks in the region's chunk pool:
 //! memory the heap holds but can refill without growing. The soft cap is judged against
 //! [`Footprint::occupied`] (= committed − pooled): collecting cannot shrink the pool, only an
 //! allocation that misses it grows the footprint.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// One heap's footprint, shared by its three regions (`Arc`). All `Relaxed`: a heuristic
+/// One heap's footprint, shared with its region (`Arc`). All `Relaxed`: a heuristic
 /// reading for the collection policy and `--stats`, not synchronization.
 #[derive(Debug, Default)]
 pub struct Footprint {
@@ -104,12 +102,7 @@ pub(crate) fn malloc_size(n: usize) -> u64 {
     n.next_multiple_of(step) as u64
 }
 
-/// Per-chunk side tables a region grows alongside every chunk: the three slot bitmaps
-/// (constructed / young / free, 32 B each) and the per-chunk words of the parallel tables
-/// (chunk pointer, census, card word, generation floor, flags, young-summary bit), rounded up.
-pub(crate) const REGION_CHUNK_TABLES: u64 = 128;
-
-/// The same for a var-region chunk: `Chunk` itself, its entry in the address index
+/// Per-chunk side tables the region grows alongside every chunk: `Chunk` itself, its entry in the address index
 /// (`VarRegion::chunk_of`, a B-tree node share), its young-bitmap box header and the per-chunk
 /// words (borrowed / reuse_gen / pool_epoch / census / high-water mark / young count). The young
 /// bitmap's words are re-measured with the other variable-size tables.

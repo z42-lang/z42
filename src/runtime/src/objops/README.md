@@ -77,4 +77,4 @@ match objops::field::field_get(vm_ctx_ref(ctx), recv, name, ic) {
 | `struct_leaf.rs` | 值 struct 叶子与快照 |
 | `objops_tests.rs` | 单测 |
 | `array_bulk_tests.rs` | `array_bulk` 单测（含老 struct[] 收年轻叶子的 minor 存活对照） |
-| `write_barrier_tests.rs` | VM 自己的写入点（throw 点 `StackTrace`、反射 `SetValue`、装箱 struct 拷进 `struct[]`）往老对象写年轻引用后卡表不变量成立、年轻对象熬过 minor |
+| `write_barrier_tests.rs` | VM 自己的写入点（throw 点 `StackTrace`、反射 `SetValue`、装箱 struct 拷进 `struct[]`）往老对象 / 老数组写年轻引用后记忆集不变量成立、年轻对象熬过 minor |

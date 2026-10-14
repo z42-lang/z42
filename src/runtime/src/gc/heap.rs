@@ -83,31 +83,39 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
         self.alloc_object(type_desc, Vec::new(), NativeData::None)
     }
 
-    /// 分配一个 `Vec<Value>` 数组并以 `Value::Array` 返回（元素类型未知）。
-    fn alloc_array(&self, elems: Vec<Value>) -> Value;
+    /// 分配一个 `Vec<Value>` 数组并以 `Value::Array` 返回（元素类型未知，MIXED）。
+    fn alloc_array(&self, elems: Vec<Value>) -> Value {
+        crate::metadata::types::ArrayObj::alloc_untyped(self.as_dyn(), elems)
+    }
 
     /// add-reflection-array-element-type: 分配携带元素类型 FQ 名的数组（来自
     /// `ArrayNew` / `ArrayNewLit`），使 `arr.GetType().GetElementType()` 不擦除。
-    /// 默认丢弃元素类型退化为 `alloc_array`（测试 mock 不反射，无碍）。
-    fn alloc_array_typed(&self, _element_type: &str, elems: Vec<Value>) -> Value {
-        self.alloc_array(elems)
-    }
-
-    /// add-struct-array-codegen (P3b follow-up): allocate a **pre-built** `ArrayObj`
-    /// (e.g. a value-struct `Point[]` with `StructBytes` backing that carries packed
-    /// bytes + a reference side-table). Default funnels its boxed elements through
-    /// `alloc_array` (mock heaps don't preserve packed backings; harmless for tests).
-    /// `ArcHeap` overrides to region-alloc the `ArrayObj` in place, keeping the backing.
-    fn alloc_array_obj(&self, obj: crate::metadata::types::ArrayObj) -> Value {
-        self.alloc_array(obj.to_boxed_vec())
+    fn alloc_array_typed(&self, element_type: &str, elems: Vec<Value>) -> Value {
+        crate::metadata::types::ArrayObj::alloc_typed(self.as_dyn(), element_type, elems)
     }
 
     /// packed-primitive-arrays Step 3: allocate a packed `byte[]` directly from
-    /// an owned `Vec<u8>` (FFI return path — no per-byte boxing). Default boxes
-    /// for mock heaps; `ArcHeap` overrides to build a `Bytes` backing in place.
+    /// an owned `Vec<u8>` (FFI return path — no per-byte boxing).
     fn alloc_bytes(&self, bytes: Vec<u8>) -> Value {
-        self.alloc_array_typed("byte", bytes.into_iter().map(|b| Value::I64(b as i64)).collect())
+        crate::metadata::types::ArrayObj::alloc_bytes(self.as_dyn(), &bytes)
     }
+
+    /// Object model R9 — the one array allocation path (`metadata::types::ArrayObj`'s constructors
+    /// funnel here): a block for `len` elements of `desc` (`layout`: a value-struct array's element
+    /// layout, owned by the array), zeroed — every mode's default — with the descriptor installed;
+    /// `init` writes the elements into the still unpublished array; then the array is published
+    /// and the allocation recorded. `Value::Null` when the heap refuses it (strict OOM, or a
+    /// payload past the block size limit).
+    fn alloc_array_with(
+        &self,
+        desc: &'static crate::metadata::types::ArrayDesc,
+        len: usize,
+        layout: Option<Arc<crate::metadata::types::StructTypeLayout>>,
+        init: &mut dyn FnMut(&crate::metadata::types::ArrayObj),
+    ) -> Value;
+
+    /// `self` as a trait object (the array constructors take `&dyn MagrGC`).
+    fn as_dyn(&self) -> &dyn MagrGC;
 
     /// fix-wasm-string-ops: a process-unique, monotonically-increasing identifier for this
     /// heap's address space. Never reused across heaps (even if a new heap's backing memory is
@@ -117,20 +125,6 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     /// gen-0 entry from a torn-down heap. Mock/test heaps return `0` (they never churn heaps).
     fn heap_epoch(&self) -> u64 {
         0
-    }
-
-    /// unify-gc-heap PR-3: allocate a raw variable-length GC block of `payload` bytes with the
-    /// given block type, returning its handle. Used to place array element storage (and closure
-    /// data) in the single GC heap. Only `ArcMagrGC` implements a real variable-length region;
-    /// the default panics (mock heaps never allocate GC blocks — they degrade array/closure
-    /// paths to boxed `Vec`s).
-    fn alloc_var_block(
-        &self,
-        payload: usize,
-        block_type: crate::gc::var_region::BlockType,
-    ) -> crate::gc::var_region::VarGcRef {
-        let _ = (payload, block_type);
-        unreachable!("alloc_var_block requires a variable-length GC region (ArcMagrGC)")
     }
 
     /// unify-gc-heap PR-2: allocate a capturing closure's [`ClosureData`](crate::metadata::types::ClosureData)
@@ -302,13 +296,13 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
         None
     }
 
-    /// Whether the array region's card covering `chunk_idx` is dirty (tests only).
+    /// Whether `owner` (an object or an array) is in the remembered set (tests only).
     #[cfg(test)]
-    fn array_card_dirty_for_test(&self, _chunk_idx: u32) -> bool { false }
+    fn is_remembered_for_test(&self, _owner: &Value) -> bool { false }
 
-    /// Re-derive the card-table invariant (every old entry holding a young reference sits on a
-    /// dirty card) and report the owners that break it — i.e. reference stores that skipped the
-    /// write barrier. `Ok` for backends without cards. O(old heap): for tests and the
+    /// Re-derive the generational invariant (every old owner holding a young reference is in the
+    /// remembered set) and report the owners that break it — i.e. reference stores that skipped
+    /// the write barrier. `Ok` for non-generational backends. O(old heap): for tests and the
     /// `Z42_GC_VERIFY_CARDS` debug knob, never a hot path.
     fn verify_card_invariant(&self) -> Result<(), String> { Ok(()) }
 

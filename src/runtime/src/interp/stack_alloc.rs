@@ -28,7 +28,7 @@
 //! bypasses stack allocation at runtime (heap everything) for triage without a
 //! recompile; `=stats` prints hit counts.
 
-use crate::metadata::types::{ArrayObj, OwnedObject, ScriptObject, Value};
+use crate::metadata::types::{OwnedObject, ScriptObject, Value};
 use anyhow::Result;
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -43,7 +43,45 @@ pub(crate) struct StackObjSlot {
 /// One stack-allocated array; `frame_id` = creating frame's id.
 pub(crate) struct StackArrSlot {
     pub frame_id: u32,
-    pub arr: ArrayObj,
+    pub arr: StackArray,
+}
+
+/// An escape-analysis **stack array**: its elements are plain `Value`s in an arena-owned `Vec`
+/// (not the GC heap), scanned directly as GC roots by [`StackArena::scan_roots`] and reached only
+/// under the arena's lock — so, unlike a heap array (`ArrayObj`), it needs no cell encoding and
+/// stores take `&mut`.
+pub(crate) struct StackArray {
+    elems: Vec<Value>,
+}
+
+impl StackArray {
+    pub(crate) fn new(elems: Vec<Value>) -> Self {
+        Self { elems }
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.elems.len()
+    }
+
+    /// Element `i` (caller bounds-checks).
+    #[inline]
+    pub fn get_boxed(&self, i: usize) -> Value {
+        self.elems[i]
+    }
+
+    /// Store element `i` (caller bounds-checks). No write barrier: the array is a root.
+    #[inline]
+    pub fn set(&mut self, i: usize, v: Value) {
+        self.elems[i] = v;
+    }
+
+    /// Every element (GC root scan).
+    pub fn visit_refs(&self, visit: &mut dyn FnMut(&Value)) {
+        for v in &self.elems {
+            visit(v);
+        }
+    }
 }
 
 /// Per-`VmContext` stack-allocation arena. Guarded by a `Mutex` on the context
@@ -86,7 +124,7 @@ impl StackArena {
     }
 
     #[inline]
-    pub fn alloc_arr(&mut self, frame_id: u32, arr: ArrayObj) -> u32 {
+    pub fn alloc_arr(&mut self, frame_id: u32, arr: StackArray) -> u32 {
         let idx = self.arrs.len() as u32;
         self.arrs.push(StackArrSlot { frame_id, arr });
         self.arr_allocs += 1;
@@ -113,7 +151,7 @@ impl StackArena {
         Ok(f(&mut slot.obj))
     }
 
-    pub fn with_arr<R>(&self, idx: u32, frame_id: u32, f: impl FnOnce(&ArrayObj) -> R) -> Result<R> {
+    pub fn with_arr<R>(&self, idx: u32, frame_id: u32, f: impl FnOnce(&StackArray) -> R) -> Result<R> {
         let slot = self.arrs.get(idx as usize)
             .ok_or_else(|| stack_stale_err("array", idx, frame_id))?;
         if slot.frame_id != frame_id {
@@ -122,7 +160,7 @@ impl StackArena {
         Ok(f(&slot.arr))
     }
 
-    pub fn with_arr_mut<R>(&mut self, idx: u32, frame_id: u32, f: impl FnOnce(&mut ArrayObj) -> R) -> Result<R> {
+    pub fn with_arr_mut<R>(&mut self, idx: u32, frame_id: u32, f: impl FnOnce(&mut StackArray) -> R) -> Result<R> {
         let slot = self.arrs.get_mut(idx as usize)
             .ok_or_else(|| stack_stale_err("array", idx, frame_id))?;
         if slot.frame_id != frame_id {
@@ -132,7 +170,7 @@ impl StackArena {
     }
 
     /// GC root scan: visit every heap `Value` reachable from live stack objects /
-    /// arrays (their slots/elements may hold `GcRef`s to heap objects that must
+    /// arrays (their slots/elements may hold `ArrRef`s to heap objects that must
     /// stay marked).
     pub fn scan_roots(&self, visit: &mut dyn FnMut(&Value)) {
         for s in &self.objs {

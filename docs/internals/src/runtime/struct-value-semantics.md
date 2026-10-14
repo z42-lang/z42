@@ -14,7 +14,7 @@ b.x = 99;       // 只改 b
 // a 仍是 (1,2)  —— 引用语义下 a.x 会跟着变成 99
 ```
 
-若 `struct` 与 class 同为 `Value::Object(GcRef)`，`b=a` 克隆句柄会串味。故
+若 `struct` 与 class 同为 `Value::Object(ObjRef)`，`b=a` 克隆句柄会串味。故
 **多字段复合 struct** 用内联字节 blob 值语义。
 
 ## 布局：字节精确
@@ -24,7 +24,7 @@ b.x = 99;       // 只改 b
 
 - 基元字节精确：`i8/u8/bool=1`、`i16/u16=2`、`i32/u32/f32/char=4`、`i64/u64/f64=8`（`char`=4B
   Unicode 标量）。
-- 引用叶子（`string` / object / array 字段）= 16B 托管句柄，进**引用位图**（种类 ArcString / GcRef）。
+- 引用叶子（`string` / object / array 字段）= 16B 托管句柄，进**引用位图**（种类 ArcString / 堆句柄）。
 - `Point{x:int,y:int}` → `size=8, {x:@0, y:@4}`，引用位图空。
 
 ## 运行时：per-context 字节 arena + 侧表引用叶子
@@ -37,7 +37,7 @@ b.x = 99;       // 只改 b
 | 部分 | 存什么 | 为什么分开 |
 |------|--------|-----------|
 | `bytes: Box<[u8]>` | 基元叶子，**字节打包**在布局偏移处 | γ 密度：逼近 C# 内存密度 |
-| `refs: Box<[Value]>` | 引用叶子（`string`/object/array），作**真 `Value`** | Rust 内存安全：`Arc<str>`/`GcRef` 的裸字节写进 `[u8]` 会漏引用计数（泄漏/double-free）、moving GC 也无法改写；侧表由 `Value` 的 clone/drop 正确托管 |
+| `refs: Box<[Value]>` | 引用叶子（`string`/object/array），作**真 `Value`** | Rust 内存安全：`Arc<str>`/堆句柄的裸字节写进 `[u8]` 会漏引用计数（泄漏/double-free）、moving GC 也无法改写；侧表由 `Value` 的 clone/drop 正确托管 |
 
 `refs` 按引用位图（`ref_offsets`）排序；字段访问按 byte offset 映射到 `refs` 槽。
 
@@ -489,25 +489,24 @@ writer 侧 `ClassDescBuilder` 用 `StructLayout.InlineLayoutOf`（`BuildFromSymb
 根（内联字段根 = 对象句柄 / reg0）→ 叶子 `c.pt.x`/`pt.x` 复用嵌套链发 `StructFieldGetPrim/SetPrim`；整字段读
 （`Point p = c.pt`）→ `StructAlloc` + `_copyRegion` 拷出（值副本）；整字段写（`c.pt = q`）→ `_copyRegion` 拷入。
 
-### `struct[]` 字节 backing
+### `struct[]`：STRUCT 数组
 
-`ArrayBacking::StructBytes{len, block, layout}`（C# inline `struct[]`：`len` 个元素 blob 紧凑排在一个块里，
-每个元素就是独立 blob 的布局，引用叶子是元素内的引用字）。`arr[i]` 元素 offset 运行期定 → 需**堆 base 句柄**
+STRUCT 模式的数组（C# inline `struct[]`）：一个块里先是元素布局字（计数的 `Arc<StructTypeLayout>`），再是 `len` 个元素
+blob 紧凑排列，每个元素就是独立 blob 的布局，引用叶子是元素内的引用字（数组块的形状见 [object-abi.md](object-abi.md)「数组元素」）。`arr[i]` 元素 offset 运行期定 → 需**堆 base 句柄**
 `Value::StructRefHeap{idx, frame_id}`（指向 `VmContext::transient_arena` 里的 `StructArrayElem{arr, index}`；arena `StructRef` 热路径不动；仅数组需句柄）。GC：
 `ArrayObj::visit_refs` 逐元素解码引用叶子供扫描；元素引用叶子写触发 `write_barrier_array_elem`，
 整元素写与批量写之后按 `elem_ref_slots` 对每个引用叶子发屏障。
 
-- **创建**：`array_new`/`array_new_lit` 对 **blob 值 struct 元素**（`try_struct_backed`：`TypeDesc.fields≥2` +
-  `struct_layout`，匹配编译期 `IsBlobStruct`）造 `StructBytes` backing（`ArrayObj::struct_backed`，经
-  `Heap::alloc_array_obj` region-alloc 保 backing）；字面量经 `pack_struct_elem` 把各元素（`StructRef` 经 arena /
+- **创建**：`array_new`/`array_new_lit` 对 **blob 值 struct 元素**（`elem_mode` 的 STRUCT 分支：`TypeDesc.fields≥1` +
+  `struct_layout`，匹配编译期 `IsBlobStruct`）造 STRUCT 数组（`ArrayObj::alloc_struct`）；字面量经 `pack_struct_elem` 把各元素（`StructRef` 经 arena /
   `BoxedStruct`）字节+引用叶子拷进元素槽。
   - **泛型值 struct 数组的类型查找按擦除裸名**：`array_new` 携带的元素类型名
     是**非擦除全名**（`Kv<string, int>`，供 `arr.GetType().GetElementType()` 反射），但泛型是**类型擦除**——
-    一个泛型定义只注册**裸名** `Kv` 的单一 `TypeDesc`。故 `try_struct_backed` 查类型前须 `element_type.split('<')`
+    一个泛型定义只注册**裸名** `Kv` 的单一 `TypeDesc`。故 `elem_mode` 查类型前须 `element_type.split('<')`
     剥泛型实参、用裸名 `try_lookup_type`，否则用全名查会 miss → 数组退化成**引用背衬**（元素 `Null`）→
     `StructFieldSetPrim` 崩 `expected StructRef, got Null`（`KeyValuePair<K,V>[]` = `Dictionary.Entries()` 的返回，
-    正是此路径）。全名仍传给 `struct_backed` 以保元素反射。该处理覆盖 interp/jit/数组字面量三条创建路径。
-- **取值**：`array_get` 对 `StructBytes` backing 产 `StructRefHeap` 元素句柄（有 array `GcRef`，替代 `get_boxed`）。
+    正是此路径）。全名仍进数组的描述符以保元素反射。该处理覆盖 interp/jit/数组字面量三条创建路径。
+- **取值**：`array_get` 对 STRUCT 数组产 `StructRefHeap` 元素句柄（持数组的 `ArrRef`，替代 `get_boxed`）。
 - **codegen（AccessEmitter）**：`_emitArrayElemHandle`（ArrayGet 直发句柄不拷贝）；`_emitIndex` 对 struct[] 出
   `StructAlloc`+`_copyRegion` 拷出（standalone `arr[i]` 值副本）；`_structChainRoot` 对 BoundIndex struct[] 根=句柄
   （`arr[i].x` 原地叶子读写复用嵌套链发 `StructFieldGetPrim/SetPrim`）；`arr[i] = p` 走句柄+`_copyRegion` 拷入。**无新 opcode、格式中立。**
@@ -529,10 +528,10 @@ writer 侧 `ClassDescBuilder` 用 `StructLayout.InlineLayoutOf`（`BuildFromSymb
 - **对象内联 struct 字段反射**：反射 `GetValue/SetValue` 读写
   `class C { Point pt; }` 的内联 struct 字段（复刻类级内联布局，见下同名节）。
 - **`Std.Array` 的无类型 / 批量原生**（`objops/array_bulk.rs`）：`get_boxed` / `set_boxed` 没有堆、对
-  `StructBytes` 只有断言，所以这几个原生按两侧 backing 选路——同一 struct 的两个数组之间 `CopyRange` 逐元素拷 blob
+  STRUCT 数组只有断言，所以这几个原生按两侧的模式选路——同一 struct 的两个数组之间 `CopyRange` 逐元素拷 blob
   （引用叶子经引用字写原语，同数组按 memmove 方向）；struct[] → 引用数组逐元素 `box_struct_blob`；引用数组 → struct[] 先整段校验是该
   struct 的装箱再逐元素拷入；`GetValue` 装箱元素快照；`SetValue` 只收该 struct 的装箱；`CreateInstance` 走
-  `try_struct_backed`。类型不符照 C#：数组类型不兼容 `ArrayTypeMismatchException`、元素转不过去
+  `elem_mode`。类型不符照 C#：数组类型不兼容 `ArrayTypeMismatchException`、元素转不过去
   `InvalidCastException`，目的数组不动。写入后对区间里每个引用叶子发 `write_barrier_array_elem`
   （`barrier_after_range_store`）。golden `types/struct_array_natives.z42`。
 
@@ -601,7 +600,7 @@ is-a / `GetType` / vcall。
 | `bool` / `char` / `float` / `double` | ❌ 不装箱 | 各有自己的 `Value` 变体，自带身份 |
 | `string` | ❌ 不装箱 | 引用类型 |
 | **值 struct**（含泛型实例化 struct）| ✅ `__box_struct`，目标还包括**泛型形参** | 非 blob（零字段 / 自引用空布局 / scalar wrapper）struct 的 `BoundBox` 在 codegen 退化为透传 |
-| class / record / 数组 / 接口 | ❌ 恒等上转 | 本就是带 TypeDesc 的 GcRef |
+| class / record / 数组 / 接口 | ❌ 恒等上转 | 本就是带 TypeDesc 的堆句柄 |
 
 > ⚠️ 「基元装箱」在 z42 里**只覆盖整数与 enum**。非整数标量不进盒这件事决定了：
 > `((object)1.5).GetType()` 答 `Double` 不是靠盒，而是靠 `vcall_resolve` 阶梯第 3 级的
@@ -665,8 +664,8 @@ callee，零 per-site 改动。**OSR 例外**：`from_interp_regs` 续接同一�
 
 ### 补齐：struct[] 数组 + 装箱拆箱
 
-- **`jit_array_new`/`jit_array_new_lit`** 对 value-struct 元素造 `ArrayBacking::StructBytes` backing（复用
-  interp `try_struct_backed`/`pack_struct_elem`），**`jit_array_get`** 对 StructBytes backing 产
+- **`jit_array_new`/`jit_array_new_lit`** 对 value-struct 元素造 STRUCT 数组（复用
+  `objops::array` 的 `elem_mode`/`pack_struct_elem`），**`jit_array_get`** 对 STRUCT 数组产
   `StructRefHeap` 句柄（非 `get_boxed` BoxedStruct 快照）——接通 JIT 下 `new Point[]` + `arr[i].x` +
   `foreach(P p in arr)`（元素拷出走 `copy_array_elem_out`）。
 - **`jit_as_cast`** 对 `BoxedStruct` 精确匹配**拆箱**到当前帧 arena `StructRef`（`(Point)o`），镜像 interp
@@ -732,7 +731,7 @@ z42c.semantics 依赖它作跨包 API。给它加新 `IsStruct` 字段并在 z42
   `struct_layout`（size + ref_count），使 `alloc_object` 为盒分配正确大小的 blob 区。装箱经
   `corelib::convert::box_struct_blob`（`__box_struct` 复用它），拆箱 `unbox_struct` 读对象 blob → 当前帧 arena。
 - **复用对象块 + 全部 GC 机制，零 GC 核心改动**：GC 的 mark / gen-age / trace / scan_object_refs /
-  size / 跨代写屏障（`maybe_mark_cross_gen_card` 的 owner+new 两侧）的 `BoxedStruct` 臂与 `Value::Object` **同路**
+  size / 跨代写屏障（`maybe_remember_owner` 的 owner+new 两侧）的 `BoxedStruct` 臂与 `Value::Object` **同路**
   （底层同为 `ObjRef`）。`is/as/GetType/vcall/Equals` 保持 boxed 值类型特判，只改「读盒」经对象
   `type_desc.name`/`struct_bytes`/`struct_refs`。
 - **收益**：`object b = a` 别名同盒、传参改盒可见、反射 `SetValue` 写穿——达成 C# 引用身份。
@@ -807,7 +806,7 @@ z42c.semantics 依赖它作跨包 API。给它加新 `IsStruct` 字段并在 z42
 
 - struct 恒内联，**不走** `ObjNew`→堆/`StackObject` arena；逃逸 arena 是**引用类型**的
   分配优化，struct 内联是**值类型**的语言语义——两套机制。
-- 字节 blob 地基与 packed 基元数组的字节 `ArrayBacking` 收敛（`struct[]` 字节 backing）。
+- 字节 blob 地基与 packed 基元数组收敛：都是数组块里紧排的字节（`struct[]` 是 STRUCT 模式）。
 
 ## 泛型实例化与 struct 布局
 
@@ -1036,7 +1035,7 @@ InstNeedsOwnBody(inst) = Layouts.InstDiffersFromDef(inst)      // ① 布局不�
 **`Std.Array` 的泛型算法在 struct[] 上**：`Fill` / `Clear` / `Reverse` / `Resize` / `Sort` / `IndexOf` / `Find` 等是
 z42.core 里的脚本泛型，跨包不特化，擦除体里 `a[i]` 拿到的是 `StructRefHeap` **元素句柄**（别名、帧作用域）而不是值：
 `T t = a[lo]` 之后改 `a[lo]` 会改到 `t`、`return a[i]` 让句柄逃出帧、`a[i].Equals(x)` 对句柄 VCall 失败，
-`a[i] = default(T)` / `a[i] = <StructRef>` 进 `StructBytes` 也没有对应的写入臂；`new T[n]`（方法级型参）仍造擦除的引用数组。
+`a[i] = default(T)` / `a[i] = <StructRef>` 进 STRUCT 数组也没有对应的写入臂；`new T[n]`（方法级型参）仍造擦除的引用数组。
 单补写入臂只会把今天的断言 / 报错换成静默错值（`Reverse` 的交换会复制出重复元素），所以要整体解决：擦除代码读 `T[]`
 元素时取值副本（编译器在擦除读点装箱，或 VM 侧给擦除帧另一种读法），再配写入臂与 struct 型参的 `new T[n]`。
 只读元素的谓词算法（`ForEach` / `Exists` / `TrueForAll` / `FindIndex` / `ConvertAll` 到非 struct）今天可用。

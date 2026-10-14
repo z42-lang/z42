@@ -6,7 +6,7 @@
 //! flat array lengths matching node/edge counts, string dedup).
 
 use super::*;
-use crate::gc::{ArcMagrGC, GcRef, MagrGC};
+use crate::gc::{ArcMagrGC, MagrGC};
 use crate::metadata::{NativeData, ScriptObject, TypeDesc, Value};
 use std::sync::Arc;
 
@@ -301,7 +301,6 @@ fn root_edge_count_matches_pinned_root_count() {
 
     // Touch ScriptObject import so it's not flagged as unused.
     let _ = std::mem::size_of::<&ScriptObject>();
-    let _ = GcRef::<Vec<Value>>::clone;
 }
 
 // ── add-gc-snapshot-streaming (2026-05-25) ───────────────────────────────────

@@ -196,7 +196,7 @@ arena 索引在子帧里无意义。**per-thread（per-`VmContext`）arena** 任
 - **句柄**：`Value::StackObject { idx, frame_id }` / `Value::StackArray { idx, frame_id }`（各 8B 内联，
   不撑大 24B `Value`）。`idx` 索引 `VmContext::stack_arena`（`Mutex<StackArena>`：owner 无竞争、GC 扫描在
   safepoint）。
-- **分配**：`obj_new`/`array_new`(stack) 构造 `ScriptObject`/`ArrayObj` push 进 arena、返回句柄。ctor 照常在
+- **分配**：`obj_new`/`array_new`(stack) 构造 `OwnedObject`（与堆对象同形的脱离块）/ `StackArray`（`Vec<Value>`，堆数组的块表示不用于栈数组）push 进 arena、返回句柄。ctor 照常在
   栈对象上跑（`this` = 句柄，FieldGet/Set 经 arena 解）。
 - **访问**：FieldGet/Set、ArrayGet/Set/Len 识别栈句柄 → `ctx.stack_arena` 校验访问。栈对象字段存堆引用
   **不发 GC 写屏障**（栈对象非堆槽；其堆字段由根扫描保活）。
@@ -228,12 +228,12 @@ arena 索引在子帧里无意义。**per-thread（per-`VmContext`）arena** 任
 - **生命期（LIFO 截断）**：帧入栈 `push_frame` 记录 arena 长度基线（`VmFrame::stack_obj_base/arr_base`）；
   帧退出 `pop_frame` 截断回基线，bulk-free 该帧的栈分配。嵌套（对象 ctor 里再 `new`）自然 LIFO 正确。
 - **GC**：`Value` 的 `trace_children` 视栈句柄为叶；外部根扫描器在 safepoint 扫 `ctx.stack_arena` 每个栈
-  对象的字段 / 栈数组的 elems 作根（它们可能持堆 GcRef，必须保活）。arena 锁从不跨 GC 触发持有 → 不死锁。
+  对象的字段 / 栈数组的元素作根（它们可能持堆句柄，必须保活）。arena 锁从不跨 GC 触发持有 → 不死锁。
   > ⚠️ **「栈对象的字段」是两半，缺一即悬垂**：
   > **引用字段**（含内联 struct 的引用叶子）存在 `bytes` 里的 8 B 引用字或型参单元的标签字。堆一侧与 `StackArena::scan_roots` 都经
   > `ScriptObject::visit_refs` 同时读两半；若某处只读 `refs`——**一个不逃逸对象的数组字段
   > 就不被任何根覆盖**：minor 在其 owner 还活着时就把它扫了，槽位复用后旧句柄静默解析到新住户
-  > （`GcRef::entry_ref` 的 generation/alive 守卫报 `use-after-finalize` panic；该守卫无条件生效，
+  > （`ObjRef::borrow` / `ArrRef::borrow` 的 generation 守卫报 `use-after-finalize` panic；该守卫无条件生效，
   > debug 与 release 均 panic）。**新增任何「对象引用存放位置」的表示，必须同时更新堆遍历与每个
   > arena 根扫描**——两者是同一条不变量的两个端点。
 - **JIT（新分配）**：读得进新 zbc 的 `StackAlloc` 标志但**忽略**——`ObjNew`/`ArrayNew` 照常堆分配

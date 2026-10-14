@@ -129,13 +129,13 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // Coupled with zpkg 0.39.
 //
 // 2026-08-14 unify-object-byte-layout PR-3 chunk 2a: bumped to 1.35 — TYPE object
-// block **direct-field FieldKinds refinement**: the coarse `GcRef` (=2) is split into
+// block **direct-field FieldKinds refinement**: the coarse `ArrRef` (=2) is split into
 // `GcRefArray` (=4, array `T[]`) and `GcRefClosure` (=5, delegate/func/unresolved) so
 // the runtime (chunk 2b) can safely inline object/array refs as 8B pointers while
-// keeping non-GcRef refs (Value::Closure/FuncRef) in the side-table. Only the object
+// keeping non-ArrRef refs (Value::Closure/FuncRef) in the side-table. Only the object
 // block's direct-field `field_kinds` bytes change; size/align/ref-bitmap/struct block
 // are byte-identical. Runtime is dormant (compose_object_layout maps 4/5 to the coarse
-// GcRef side-table path); chunk 2b consumes it. Coupled with zpkg 0.40. See design D17.
+// ArrRef side-table path); chunk 2b consumes it. Coupled with zpkg 0.40. See design D17.
 //
 // 2026-08-21 add-generic-methods: bumped to 1.36 — method-level generic type_args.
 // New opcodes: MethodTypeArg (0xB2), MethodDefault (0xB3), CallGeneric (0xB4),
@@ -305,7 +305,7 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // (TYPE full object field layout block for normal reference classes). Outer zpkg
 // layout unchanged; the bump triggers ci-bootstrap's version-diff two-gen self-host.
 // 2026-08-14 unify-object-byte-layout PR-3 chunk 2a: bumped to 0.40, coupled inner zbc
-// 1.35 (TYPE object-block direct-field FieldKinds refinement: coarse GcRef split into
+// 1.35 (TYPE object-block direct-field FieldKinds refinement: coarse ArrRef split into
 // GcRefArray/GcRefClosure so the runtime can safely inline object/array refs in chunk
 // 2b). Outer zpkg layout unchanged; the bump triggers ci-bootstrap's version-diff
 // two-gen self-host.

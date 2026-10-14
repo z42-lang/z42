@@ -5,7 +5,7 @@
 //! and P3 makes it the primary path.
 
 use super::*;
-use crate::gc::{GcRef, ArcMagrGC};
+use crate::gc::{ArrRef, ArcMagrGC};
 
 /// Mark phase visits every object pinned as a root + their transitive
 /// children. Sibling allocations not reachable from any root stay
@@ -83,7 +83,7 @@ fn mark_phase_handles_array_children() {
     let Value::Array(arr_gc)  = &arr  else { panic!() };
     let Value::Object(e1_gc) = &elem1 else { panic!() };
     let Value::Object(e2_gc) = &elem2 else { panic!() };
-    assert!(GcRef::is_marked(arr_gc, heap.major_mark_for_test()));
+    assert!(ArrRef::is_marked(arr_gc, heap.major_mark_for_test()));
     assert!(crate::gc::ObjRef::is_marked(e1_gc, heap.major_mark_for_test()));
     assert!(crate::gc::ObjRef::is_marked(e2_gc, heap.major_mark_for_test()));
     heap.reset_marks_for_test();

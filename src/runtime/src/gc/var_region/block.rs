@@ -7,24 +7,26 @@ use std::sync::atomic::{AtomicPtr, AtomicU16, AtomicU32, AtomicU8, Ordering};
 
 /// Payload kind of a variable-length GC block. Since a `VarRegion` mixes payload types in
 /// one allocator, the block header records which kind it holds so the GC tracer knows how to
-/// scan the payload (leaf bytes vs. inline `Value`s vs. closure fields). PR-1 only tags them;
-/// the actual per-kind tracing lands with each payload migration (PR-2…PR-4).
+/// scan the payload. Every array is one block (object model R9: the header's kind word holds the
+/// array's descriptor, the elements follow); its block type is its mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum BlockType {
-    /// UTF-8 string bytes (immutable leaf — no outgoing references). PR-2.
+    /// UTF-8 string bytes (immutable leaf — no outgoing references).
     Str = 0,
-    /// `[Value; n]` reference-array elements (each element is a traced edge). PR-4.
+    /// A FROZEN array: `[Value; n]`, written once before publication (closure environments, the
+    /// reference-word kind-7 value box) — each element a traced edge.
     ArrayValue = 1,
-    /// Packed primitive array bytes (leaf — no references). PR-4.
+    /// A PRIM array: packed primitive elements (leaf — no references).
     ArrayPrim = 2,
-    /// `struct[]` inline bytes + reference-leaf bitmap (mixed). PR-4.
+    /// A STRUCT array: the element layout word, then value-struct blobs whose reference leaves are
+    /// reference words. Owns its `Arc<StructTypeLayout>`, so the heap's drop glue runs for it.
     ArrayStruct = 3,
-    /// `ClosureData` fields (env edge + target `FnId`, P1-2 PR 8). PR-3.
+    /// `ClosureData` fields (env edge + target `FnId`).
     Closure = 4,
-    /// REF array elements: 8 B self-describing reference words (`ref_word`). Object model R3.
+    /// A REF array: 8 B self-describing reference words (`ref_word`). Object model R3.
     ArrayRef = 5,
-    /// MIXED array elements: 16 B type-parameter cells (`tparam_cell`). Object model R3.
+    /// A MIXED array: 16 B type-parameter cells (`tparam_cell`). Object model R3.
     ArrayCell = 6,
     /// A managed object (`Value::Object` / `Value::BoxedStruct`, `metadata::types::ScriptObject`):
     /// the header's kind word holds the type descriptor, the payload is the field cells (plus a
@@ -34,6 +36,21 @@ pub enum BlockType {
 }
 
 impl BlockType {
+    /// An object or an array — the blocks that count as allocation units of the generational
+    /// policy (the promotion policy's survival sample, the promoted-byte budget).
+    #[inline]
+    pub fn is_object_or_array(self) -> bool {
+        !matches!(self, Self::Str | Self::Closure)
+    }
+
+    /// An owner the remembered set can hold: an object or an array that can hold references
+    /// (every array mode but PRIM). Strings are leaves, and a closure's only edge is its
+    /// environment array, which is never younger than the closure.
+    #[inline]
+    pub fn may_be_remembered(self) -> bool {
+        !matches!(self, Self::Str | Self::Closure | Self::ArrayPrim)
+    }
+
     /// Reconstruct from the tag bits of a header's `type_tag` byte. Returns `None` on an
     /// unknown tag (corruption guard — a valid block always carries one of the variants
     /// above). Callers pass the already-masked low [`TAG_BITS`]; all eight values are in use.
@@ -69,11 +86,11 @@ const AGE_MASK: u8 = 0b11;
 /// preserve it.
 pub(crate) const ASCII_STR_BIT: u8 = 1 << 6;
 
-/// `BlockType::Object` only: the object is in the heap's **remembered set** — it is old and a
-/// write barrier (or promotion) saw it receive a young reference, so the next minor re-roots
-/// from it (object model R6; the var region has no card table). Set by a CAS on the mutator
-/// path (`try_set_remembered`), cleared by the collector when the object no longer reaches
-/// anything young.
+/// Objects and arrays ([`BlockType::may_be_remembered`]): the block is in the heap's
+/// **remembered set** — it is old and a write barrier (or promotion) saw it receive a young
+/// reference, so the next minor re-roots from it (object model R6 / R9; the region has no card
+/// table). Set by an atomic or on the mutator path (`try_set_remembered`), cleared by the
+/// collector when the owner no longer reaches anything young.
 pub(crate) const REMEMBERED_BIT: u8 = 1 << 5;
 
 /// The heap keeps side-table state keyed by this block's address (a finalizer, a soft
@@ -88,7 +105,7 @@ const KEEP_MASK: u8 = TAG_MASK | ASCII_STR_BIT | REMEMBERED_BIT | SIDE_BIT;
 
 /// Largest `gen_age` a block header can represent (see [`AGE_MASK`]).
 ///
-/// **retune-gc-nursery-and-promotion-age (2026-09-11)**: `region::PROMOTION_THRESHOLD` is
+/// **retune-gc-nursery-and-promotion-age (2026-09-11)**: `gc::PROMOTION_THRESHOLD` is
 /// now **3**, i.e. exactly this ceiling — the spare bits are full. `Z42_GC_PROMOTION_AGE`
 /// can still be lowered but no longer raised; a higher age needs a bit the 16-byte header no
 /// longer has (object model R8 spent the last spare bytes on the object's type word).
@@ -96,7 +113,7 @@ pub const MAX_GEN_AGE: u8 = AGE_MASK;
 
 /// `BlockType::Object` only: the payload ends in the object's 8-byte meta word (generic
 /// type-arguments / native backing, `metadata::types::ScriptObject`). Same bit as
-/// [`ASCII_STR_BIT`] — the two never meet on one block. Set before the block is published,
+/// [`ASCII_STR_BIT`] — the two never meet on one block (arrays use neither). Set before the block is published,
 /// never changed; age updates preserve it.
 pub(crate) const OBJ_META_BIT: u8 = ASCII_STR_BIT;
 
@@ -155,9 +172,10 @@ pub struct GcWord {
 pub struct GcBlockHeader {
     pub(super) word: GcWord,
     /// Per-kind word, owned by the payload layer: an object's type descriptor (an
-    /// `Arc<TypeDesc>`'s pointer, written before the block is published, released by the drop
-    /// glue, which leaves it null again). Null in every other kind of block. The region writes
-    /// it null when it carves a block and never reads it.
+    /// `Arc<TypeDesc>`'s pointer, released by the drop glue, which leaves it null again), an
+    /// array's interned descriptor (`metadata::types::ArrayDesc`, object model R9). Written before
+    /// the block is published; null in strings and closures. The region writes it null when it
+    /// carves a block and never reads it.
     pub(super) kind_word: AtomicPtr<()>,
 }
 
@@ -183,7 +201,8 @@ pub(crate) const HEADER_SIZE_OFFSET: usize = std::mem::offset_of!(GcWord, size);
 /// [`HEADER_SIZE_OFFSET`].
 #[cfg(feature = "jit")]
 pub(crate) const HEADER_TYPE_TAG_OFFSET: usize = std::mem::offset_of!(GcWord, type_tag);
-/// Byte offset of [`GcBlockHeader::kind_word`] (an object's type descriptor).
+/// Byte offset of [`GcBlockHeader::kind_word`] (an object's type descriptor, an array's
+/// descriptor).
 pub(crate) const KIND_WORD_OFFSET: usize = std::mem::offset_of!(GcBlockHeader, kind_word);
 
 impl GcBlockHeader {
@@ -267,8 +286,7 @@ impl GcWord {
     /// **fix-primitives-count-as-young (2026-09-11)**: raise `gen_age` to at least `age`
     /// (never lowers it). **STW only**, same as [`Self::bump_gen_age`].
     ///
-    /// Used to keep an array's element-storage block from being *younger than the array
-    /// header that owns it* — see `ArcMagrGC::age_backing_with_owner`.
+    /// Used by tenure (every young block straight to the promotion age) and tests.
     #[inline]
     pub fn raise_gen_age_to(&self, age: u8) {
         let cur = self.type_tag.load(Ordering::Relaxed);

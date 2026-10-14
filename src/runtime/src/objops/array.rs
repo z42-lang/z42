@@ -1,13 +1,13 @@
 //! 数组：分配、元素读写、长度的唯一实现，外加 ref 解引用与 JIT 打包快路用的原语。
 //!
-//! 数组形态：堆数组 `Array`（REF / MIXED / PRIM / STRUCT / FROZEN，见 `metadata::types::array`）、
-//! 栈数组 `StackArray`（逃逸分析，经 per-context 栈 arena）。模式在分配时由元素类型定
+//! 数组形态：堆数组 `Array`（变长区里的一块：头 + 元素；REF / MIXED / PRIM / STRUCT / FROZEN，见
+//! `metadata::types::array`）、栈数组 `StackArray`（逃逸分析，经 per-context 栈 arena）。模式在分配时由元素类型定
 //! （[`elem_mode`]）。`Null` → `NullReferenceException`；
 //! 下标越界（含负数）→ `IndexOutOfRangeException`；长度为负 → `OverflowException`。
 
-use crate::metadata::types::{default_value_for_tag, ArrayBacking, ArrayObj, ElemKind, ElemType, FieldWrite, StructArrayElem};
+use crate::metadata::types::{default_value_for_tag, ArrayMode, ArrayObj, ElemKind, ElemType, FieldWrite, StructArrayElem, StructTypeLayout};
 use crate::metadata::Value;
-use crate::gc::GcRef;
+use crate::gc::ArrRef;
 use crate::interp::transient_arena::TransientPayload;
 use crate::vm_context::VmContext;
 
@@ -33,14 +33,14 @@ fn not_an_array(op: ArrayOp, v: &Value) -> OpError {
     }
 }
 
-/// `ArrayGet`。值 struct 数组（`StructBytes`）的元素以 `StructRefHeap` 句柄返回（指向数组字节，
+/// `ArrayGet`。值 struct 数组（STRUCT）的元素以 `StructRefHeap` 句柄返回（指向数组字节，
 /// 支持原地 `arr[i].x`），句柄载荷进 transient arena，`frame_id` 按需取（惰性分配）。
 #[inline(always)]
 pub fn array_get<F: FnOnce() -> u32>(ctx: &VmContext, arr: &Value, idx: &Value, frame_id: F) -> OpResult<Value> {
     if let Value::Array(rc) = arr {
         let a = rc.borrow();
         let i = checked_index(ArrayOp::Get, idx, a.len())?;
-        if !matches!(&a.backing, ArrayBacking::StructBytes { .. }) {
+        if a.mode() != ArrayMode::Struct {
             return Ok(a.get_boxed(i));   // 打包基元在这里装回 Value
         }
         return Ok(struct_elem_handle(ctx, *rc, i, frame_id()));
@@ -50,7 +50,7 @@ pub fn array_get<F: FnOnce() -> u32>(ctx: &VmContext, arr: &Value, idx: &Value, 
 
 /// 值 struct 数组元素的 `StructRefHeap` 句柄：载荷进 transient arena，盖上当前帧号。
 #[inline(never)]
-fn struct_elem_handle(ctx: &VmContext, arr: GcRef<ArrayObj>, i: usize, fid: u32) -> Value {
+fn struct_elem_handle(ctx: &VmContext, arr: ArrRef, i: usize, fid: u32) -> Value {
     let hidx = ctx.transient_alloc(fid, TransientPayload::StructElem(StructArrayElem { arr, index: i as u32 }));
     Value::StructRefHeap { idx: hidx, frame_id: fid }
 }
@@ -88,7 +88,7 @@ fn array_set_rare(ctx: &VmContext, arr: &Value, idx: &Value, v: &Value) -> OpRes
     match arr {
         Value::StackArray { idx: aidx, frame_id } => {
             ctx.stack_arena.lock().with_arr_mut(*aidx, *frame_id, |a| {
-                checked_index(ArrayOp::Set, idx, a.len()).map(|i| { a.set_boxed_exclusive(i, *v); })
+                checked_index(ArrayOp::Set, idx, a.len()).map(|i| a.set(i, *v))
             })?
         }
         other => Err(not_an_array(ArrayOp::Set, other)),
@@ -115,10 +115,7 @@ pub fn array_len(ctx: &VmContext, arr: &Value) -> OpResult<i64> {
 #[inline]
 pub fn packed_data(arr: &Value) -> (*const u8, i64, i64) {
     match arr {
-        Value::Array(rc) => {
-            let a = rc.borrow();
-            (a.packed_num_ptr().unwrap_or(std::ptr::null()), a.len() as i64, a.packed_elem_width())
-        }
+        Value::Array(rc) => rc.borrow().jit_packed(),
         _ => (std::ptr::null(), 0, 0),
     }
 }
@@ -129,19 +126,13 @@ pub fn packed_data(arr: &Value) -> (*const u8, i64, i64) {
 #[inline]
 pub fn ref_data(arr: &Value) -> (*const u8, i64, i64) {
     match arr {
-        Value::Array(rc) => {
-            let a = rc.borrow();
-            match a.ref_elem_data() {
-                Some((p, stride, zero)) => (p, a.len() as i64, stride | (zero as i64) << 8),
-                None => (std::ptr::null(), 0, 0),
-            }
-        }
+        Value::Array(rc) => rc.borrow().jit_refs(),
         _ => (std::ptr::null(), 0, 0),
     }
 }
 
 /// `LoadElemAddr` 的检查：只有堆数组能取元素地址，下标此刻就校验（与读写同一规则）。
-pub fn check_elem_addr(arr: &Value, idx: &Value) -> OpResult<(GcRef<ArrayObj>, usize)> {
+pub fn check_elem_addr(arr: &Value, idx: &Value) -> OpResult<(ArrRef, usize)> {
     match arr {
         Value::Array(rc) => {
             let i = checked_index(ArrayOp::Addr, idx, rc.borrow().len())?;
@@ -152,14 +143,14 @@ pub fn check_elem_addr(arr: &Value, idx: &Value) -> OpResult<(GcRef<ArrayObj>, u
 }
 
 /// 经 `ref` 读元素（`RefKind::Array`）。
-pub fn elem_load(gc: &GcRef<ArrayObj>, i: usize) -> OpResult<Value> {
+pub fn elem_load(gc: &ArrRef, i: usize) -> OpResult<Value> {
     let a = gc.borrow();
     if i >= a.len() { return Err(OpError::index_out_of_range(i as i64, a.len())); }
     Ok(a.get_boxed(i))
 }
 
 /// 经 `ref` 写元素：与 `ArraySet` 同一条写入 + 写屏障规则。
-pub fn elem_store(ctx: &VmContext, gc: &GcRef<ArrayObj>, i: usize, v: &Value) -> OpResult<()> {
+pub fn elem_store(ctx: &VmContext, gc: &ArrRef, i: usize, v: &Value) -> OpResult<()> {
     let wrote = {
         let a = gc.borrow();
         if i >= a.len() { return Err(OpError::index_out_of_range(i as i64, a.len())); }
@@ -177,7 +168,7 @@ pub fn elem_store(ctx: &VmContext, gc: &GcRef<ArrayObj>, i: usize, v: &Value) ->
 /// 不是盒子。拿盒子判龄的话，老盒子、年轻叶子就漏了卡（叶子此后只靠数组可达，下一次 minor 把它扫掉），
 /// 所以这种写入对元素的每个引用叶子发屏障（`array_bulk::barrier_after_range_store`）。
 #[inline]
-pub fn barrier_elem(ctx: &VmContext, arr: &GcRef<ArrayObj>, i: usize, wrote: FieldWrite, v: &Value) {
+pub fn barrier_elem(ctx: &VmContext, arr: &ArrRef, i: usize, wrote: FieldWrite, v: &Value) {
     if matches!(v, Value::BoxedStruct(_)) && arr.borrow().struct_layout().is_some() {
         return super::array_bulk::barrier_after_range_store(ctx, arr, i, 1);
     }
@@ -198,7 +189,7 @@ pub fn array_size(len: &Value) -> OpResult<usize> {
 
 /// `ArrayNew`：`len` 个元素的数组。
 ///
-/// - 元素是 blob 值 struct → `StructBytes` 堆数组（不走栈分配）。
+/// - 元素是 blob 值 struct → STRUCT 堆数组（不走栈分配）。
 /// - `prim_zero`：泛型型参在运行期解析成基元值类型时的零值（只有 interp 会给，JIT 不翻译这种站点）；
 ///   否则按 `elem_tag` 取默认值。
 /// - `stack`：编译器证明不逃逸且运行期允许时给出栈帧号，数组进栈 arena。
@@ -207,37 +198,41 @@ pub fn array_new<F: FnOnce() -> u32>(
     type_param: bool, prim_zero: Option<Value>, stack: Option<F>,
 ) -> OpResult<Value> {
     let n = array_size(len)?;
-    let kind = match elem_mode(ctx, element_type, type_param, n) {
-        ElemMode::Struct(sb) => return alloc(ctx, sb, || format!("struct array[{n}]")),
+    let kind = match elem_mode(ctx, element_type, type_param) {
+        ElemMode::Struct(layout) =>
+            return alloc(ArrayObj::alloc_struct(ctx.heap(), element_type, n, layout), || format!("struct array[{n}]")),
         ElemMode::Kind(k) => k,
     };
     let default = prim_zero.unwrap_or_else(|| default_value_for_tag(elem_tag));
     if let Some(frame_id) = stack {
-        return Ok(stack_array(ctx, frame_id(), element_type, vec![default; n]));
+        return Ok(stack_array(ctx, frame_id(), vec![default; n]));
     }
     // 默认值直接填进 GC 块，不经 `vec![default; n]` 中转。
-    let heap = ctx.heap();
-    alloc(ctx, ArrayObj::filled(heap, element_type, kind, n, default), || format!("array[{n}]"))
+    alloc(ArrayObj::alloc_filled(ctx.heap(), element_type, kind, n, default), || format!("array[{n}]"))
 }
 
-/// `ArrayNewLit`：由 `elems` 构成的数组（blob 值 struct 字面量逐个打包进 `StructBytes`）。
+/// `ArrayNewLit`：由 `elems` 构成的数组（blob 值 struct 字面量逐个打包进 STRUCT 数组）。
 /// 元素按需从迭代器取，堆数组直接打包进 GC 块，不经中转 `Vec`。
 pub fn array_new_lit<F: FnOnce() -> u32>(
     ctx: &VmContext, elems: impl ExactSizeIterator<Item = Value>, element_type: ElemType, stack: Option<F>,
 ) -> OpResult<Value> {
     let n = elems.len();
-    let kind = match elem_mode(ctx, element_type, false, n) {
-        ElemMode::Struct(mut sb) => {
-            for (i, v) in elems.enumerate() { pack_struct_elem(ctx, &mut sb, i, &v)?; }
-            return alloc(ctx, sb, || format!("struct array literal[{n}]"));
+    let kind = match elem_mode(ctx, element_type, false) {
+        ElemMode::Struct(layout) => {
+            let arr = alloc(ArrayObj::alloc_struct(ctx.heap(), element_type, n, layout), || format!("struct array literal[{n}]"))?;
+            if let Value::Array(a) = &arr {
+                // A fresh array, not yet in any register (no safepoint before it is): packing the
+                // elements needs no barrier.
+                for (i, v) in elems.enumerate() { pack_struct_elem(ctx, a.borrow(), i, &v)?; }
+            }
+            return Ok(arr);
         }
         ElemMode::Kind(k) => k,
     };
     if let Some(frame_id) = stack {
-        return Ok(stack_array(ctx, frame_id(), element_type, elems.collect()));
+        return Ok(stack_array(ctx, frame_id(), elems.collect()));
     }
-    let heap = ctx.heap();
-    alloc(ctx, ArrayObj::from_iter_kind(heap, element_type, kind, n, elems), || format!("array literal[{n}]"))
+    alloc(ArrayObj::alloc_from_iter(ctx.heap(), element_type, kind, n, elems), || format!("array literal[{n}]"))
 }
 
 /// 类级泛型型参 `T`（`new T[n]`，`T` 是接收者类的型参）：接收者（reg 0）的实例型参解析成基元值类型时，
@@ -249,20 +244,21 @@ pub fn class_type_param_zero(receiver: Option<&Value>, index: usize) -> Option<V
     (!matches!(d, Value::Null)).then_some(d)
 }
 
-fn alloc(ctx: &VmContext, a: ArrayObj, what: impl FnOnce() -> String) -> OpResult<Value> {
-    let arr = ctx.heap().alloc_array_obj(a);
+/// An allocation's result: `Null` (the heap refused — strict OOM, or a payload past the block
+/// limit) → `OutOfMemoryException` naming `what`.
+fn alloc(arr: Value, what: impl FnOnce() -> String) -> OpResult<Value> {
     if matches!(arr, Value::Null) { return Err(OpError::oom(what())); }
     Ok(arr)
 }
 
-fn stack_array(ctx: &VmContext, frame_id: u32, element_type: ElemType, elems: Vec<Value>) -> Value {
-    let idx = ctx.stack_alloc_arr(frame_id, ArrayObj::stack_typed(element_type, elems));
+fn stack_array(ctx: &VmContext, frame_id: u32, elems: Vec<Value>) -> Value {
+    let idx = ctx.stack_alloc_arr(frame_id, crate::interp::stack_alloc::StackArray::new(elems));
     Value::StackArray { idx, frame_id }
 }
 
-/// 数组的模式：STRUCT（已建好的 `struct[]`），或交给构造器的 [`ElemKind`]。
+/// 数组的模式：STRUCT（元素布局），或交给构造器的 [`ElemKind`]。
 pub enum ElemMode {
-    Struct(ArrayObj),
+    Struct(std::sync::Arc<StructTypeLayout>),
     Kind(ElemKind),
 }
 
@@ -275,7 +271,7 @@ pub enum ElemMode {
 ///
 /// 泛型类型先按完整实例名查（编译器为特化实例交付的合成描述符），再按擦除基名查；`element_type`
 /// 原样传给 backing，反射拿到的是实例化后的元素类型。这次查表本来就在建数组的路上（判 struct）。
-pub fn elem_mode(ctx: &VmContext, element_type: ElemType, type_param: bool, len: usize) -> ElemMode {
+pub fn elem_mode(ctx: &VmContext, element_type: ElemType, type_param: bool) -> ElemMode {
     let kind = element_type.kind();
     if kind != ElemKind::Mixed || type_param {
         return ElemMode::Kind(kind);
@@ -292,7 +288,7 @@ pub fn elem_mode(ctx: &VmContext, element_type: ElemType, type_param: bool, len:
         // 闸门与编译器 `StructLayout.IsBlobStruct` 必须逐字一致（FieldCount >= 1）；全 VM 唯一一份镜像。
         if let (false, Some(layout)) = (td.fields.is_empty(), td.struct_layout()) {
             if layout.size != 0 {
-                return ElemMode::Struct(ArrayObj::struct_backed(ctx.heap(), element_type, len, layout));
+                return ElemMode::Struct(layout);
             }
         }
         return ElemMode::Kind(ElemKind::Mixed);
@@ -303,18 +299,9 @@ pub fn elem_mode(ctx: &VmContext, element_type: ElemType, type_param: bool, len:
     ElemMode::Kind(ElemKind::Ref)
 }
 
-/// 元素类型是 blob 值 struct 时建 `len` 个零初始化元素的 `StructBytes` 数组；否则 `None`
-/// （[`elem_mode`] 的 STRUCT 分支）。
-pub fn try_struct_backed(ctx: &VmContext, element_type: ElemType, len: usize) -> Option<ArrayObj> {
-    match elem_mode(ctx, element_type, false, len) {
-        ElemMode::Struct(a) => Some(a),
-        ElemMode::Kind(_) => None,
-    }
-}
-
-/// 把一个 struct 值打包进 `StructBytes` 数组的第 `i` 个元素（`new P[]{ p1, p2 }`）。
+/// 把一个 struct 值打包进刚分配的 `struct[]` 的第 `i` 个元素（`new P[]{ p1, p2 }`）。
 /// 源是 arena `StructRef` 或装箱 `BoxedStruct`；`Null` = 默认值（元素保持零初始化）。
-pub fn pack_struct_elem(ctx: &VmContext, arr: &mut ArrayObj, i: usize, v: &Value) -> OpResult<()> {
+pub fn pack_struct_elem(ctx: &VmContext, arr: &ArrayObj, i: usize, v: &Value) -> OpResult<()> {
     let (src_bytes, src_refs): (Vec<u8>, Vec<Value>) = match v {
         Value::BoxedStruct(b) => b.borrow().boxed_blob(),
         Value::StructRef { idx, frame_id } =>
@@ -323,7 +310,7 @@ pub fn pack_struct_elem(ctx: &VmContext, arr: &mut ArrayObj, i: usize, v: &Value
         other => return Err(OpError::internal(format!(
             "struct array literal element must be a struct value, got {other:?}"))),
     };
-    // A fresh array (unreachable until its header exists): no barrier owed.
+    // A fresh, young array not yet reachable from any register: no barrier owed.
     arr.write_struct_elem(i, &src_bytes, &src_refs, &mut |_| {})?;
     Ok(())
 }

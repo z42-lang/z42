@@ -5,16 +5,16 @@
 use super::*;
 use std::sync::Arc;
 use crate::metadata::vstr::Str;
-use crate::gc::GcRef;
+use crate::gc::ArrRef;
 use crate::gc::var_region::{BlockType, VarGcRef};
 use crate::gc::heap::MagrGC;
 
 /// add-struct-heap-inline (P3b): payload of [`Value::StructRefHeap`] — a value-struct
-/// array element identity (`arr[index]`). Holds the array `GcRef` (so the handle keeps
+/// array element identity (`arr[index]`). Holds the array `ArrRef` (so the handle keeps
 /// the array alive + GC can reach the element's reference leaves) + the element index.
 #[derive(Debug, Clone)]
 pub struct StructArrayElem {
-    pub arr: GcRef<ArrayObj>,
+    pub arr: ArrRef,
     pub index: u32,
 }
 
@@ -33,8 +33,8 @@ pub enum RefKind {
     /// 指向 caller 调用栈第 `frame_idx` 层 frame 的 reg[`slot`]。
     /// `frame_idx` 是 `VmContext.frame_state_at` 列表索引。
     Stack { frame_idx: u32, slot: u32 },
-    /// 指向 caller 数组对象的 `idx` 元素。GcRef 持有数组，让 GC 跟随。
-    Array { gc_ref: GcRef<ArrayObj>, idx: usize },
+    /// 指向 caller 数组对象的 `idx` 元素。ArrRef 持有数组，让 GC 跟随。
+    Array { gc_ref: ArrRef, idx: usize },
     /// 指向 caller 对象的命名字段。
     Field { gc_ref: crate::gc::ObjRef, field_name: String },
 }
@@ -74,7 +74,7 @@ pub struct PinnedViewData {
 /// reflection (`__delegate_fn_name`) and display comes from the function the id names.
 #[derive(Debug, Clone)]
 pub struct ClosureData {
-    pub env: GcRef<ArrayObj>,
+    pub env: ArrRef,
     pub fn_id: crate::metadata::tokens::FnId,
 }
 

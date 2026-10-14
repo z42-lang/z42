@@ -8,7 +8,6 @@
 use super::array::{array_get, array_len, array_new, array_new_lit, array_set, packed_data};
 use super::field::{field_get, field_set};
 use super::{OpError, Throw};
-use crate::gc::GcRef;
 use crate::metadata::types::{
     ArrayObj, FieldAccess, ObjectLayout, ScriptObject, TypeDesc, TypeDescCold,
     STRUCT_LEAF_PRIM, TAG_I32, TAG_STR,
@@ -232,7 +231,7 @@ fn packed_data_never_throws() {
     for v in [Value::Null, Value::I64(1), Value::Str("s".into())] {
         assert_eq!(packed_data(&v).2, 0, "非打包数组 → 宽度 0（无快路）");
     }
-    let boxed = Value::Array(GcRef::new(ArrayObj::new_leaked(vec![Value::Null])));
+    let boxed = Value::Array(ArrayObj::leaked(vec![Value::Null]));
     assert_eq!(packed_data(&boxed).2, 0);
 }
 

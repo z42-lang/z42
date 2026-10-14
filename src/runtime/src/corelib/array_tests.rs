@@ -1,5 +1,5 @@
 use super::*;
-use crate::gc::GcRef;
+use crate::gc::ArrRef;
 use crate::metadata::Value;
 use crate::vm_context::VmContext;
 
@@ -10,14 +10,14 @@ fn ctx() -> std::pin::Pin<Box<VmContext>> {
 #[test]
 fn clone_primitives_independent() {
     let ctx = ctx();
-    let original = Value::Array(GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![Value::I64(1), Value::I64(2), Value::I64(3)])));
+    let original = Value::Array(crate::metadata::types::ArrayObj::leaked(vec![Value::I64(1), Value::I64(2), Value::I64(3)]));
     let cloned = builtin_array_clone(&ctx, std::slice::from_ref(&original)).expect("clone ok");
 
     let (orig_rc, copy_rc) = match (&original, &cloned) {
         (Value::Array(o), Value::Array(c)) => (o, c),
         _ => panic!("expected arrays"),
     };
-    assert!(!GcRef::ptr_eq(orig_rc, copy_rc), "clone returns a distinct array reference");
+    assert!(!ArrRef::ptr_eq(orig_rc, copy_rc), "clone returns a distinct array reference");
     assert_eq!(copy_rc.borrow().len(), 3);
 
     copy_rc.borrow().set_boxed(0, Value::I64(99));
@@ -28,8 +28,8 @@ fn clone_primitives_independent() {
 #[test]
 fn clone_shares_reference_elements() {
     let ctx = ctx();
-    let inner = Value::Array(GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![Value::I64(7)])));
-    let original = Value::Array(GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![inner.clone()])));
+    let inner = Value::Array(crate::metadata::types::ArrayObj::leaked(vec![Value::I64(7)]));
+    let original = Value::Array(crate::metadata::types::ArrayObj::leaked(vec![inner.clone()]));
     let cloned = builtin_array_clone(&ctx, std::slice::from_ref(&original)).expect("clone ok");
 
     let (orig_rc, copy_rc) = match (&original, &cloned) {
@@ -39,7 +39,7 @@ fn clone_shares_reference_elements() {
     let orig_inner = orig_rc.borrow().get_boxed(0).clone();
     let copy_inner = copy_rc.borrow().get_boxed(0).clone();
     match (orig_inner, copy_inner) {
-        (Value::Array(a), Value::Array(b)) => assert!(GcRef::ptr_eq(&a, &b),
+        (Value::Array(a), Value::Array(b)) => assert!(ArrRef::ptr_eq(&a, &b),
             "shallow clone shares reference-type elements"),
         _ => panic!("expected nested arrays"),
     }
@@ -48,7 +48,7 @@ fn clone_shares_reference_elements() {
 #[test]
 fn clone_empty_array() {
     let ctx = ctx();
-    let empty = Value::Array(GcRef::new(crate::metadata::types::ArrayObj::new_leaked(Vec::new())));
+    let empty = Value::Array(crate::metadata::types::ArrayObj::leaked(Vec::new()));
     let cloned = builtin_array_clone(&ctx, std::slice::from_ref(&empty)).expect("clone ok");
 
     let (orig_rc, copy_rc) = match (&empty, &cloned) {
@@ -56,7 +56,7 @@ fn clone_empty_array() {
         _ => panic!("expected arrays"),
     };
     assert_eq!(copy_rc.borrow().len(), 0);
-    assert!(!GcRef::ptr_eq(orig_rc, copy_rc));
+    assert!(!ArrRef::ptr_eq(orig_rc, copy_rc));
 }
 
 #[test]
@@ -76,9 +76,9 @@ fn clone_rejects_null() {
 // ── __array_copy (perf-bulk-array-copy) ──────────────────────────────────────
 
 fn ints(v: &[i64]) -> Value {
-    Value::Array(GcRef::new(crate::metadata::types::ArrayObj::new_leaked(
+    Value::Array(crate::metadata::types::ArrayObj::leaked(
         v.iter().map(|n| Value::I64(*n)).collect(),
-    )))
+    ))
 }
 
 fn read(v: &Value) -> Vec<i64> {
@@ -172,7 +172,7 @@ fn copy_rejects_non_arrays_and_negative_indices() {
 // ── fix-missing-array-write-barriers (2026-09-10) ────────────────────────────
 
 /// Storing a reference into an array is a heap write, and an **old** array receiving a
-/// **young** element must dirty its card or the next minor will not re-root it.
+/// **young** element must be remembered or the next minor will not re-root it.
 ///
 /// The interpreter's `ArraySet` and the JIT's array-store helper have always fired the
 /// barrier; these `Std.Array` builtins never did. `perf-bulk-array-copy` is the sharpest
@@ -181,43 +181,38 @@ fn copy_rejects_non_arrays_and_negative_indices() {
 /// is indistinguishable from the loop it replaces".
 mod write_barriers {
     use super::*;
-    use crate::gc::{GcMode, MagrGC};
+    use crate::gc::GcMode;
 
-    /// Allocate an array through the heap (so it has a region entry with a card), and age it
-    /// past the promotion threshold so a young element written into it is a cross-gen edge.
+    /// Allocate an array through the heap, and age it past the promotion threshold so a young
+    /// element written into it is a cross-gen edge.
     fn old_array(ctx: &VmContext, len: usize) -> Value {
         let v = ctx.heap().alloc_array(vec![Value::Null; len]);
         let Value::Array(gc) = &v else { panic!() };
-        for _ in 0..crate::gc::region::PROMOTION_THRESHOLD {
-            // SAFETY: fresh entry from this heap; ageing it is what a surviving minor does.
-            let e = unsafe { gc.entry_ptr().as_ref() };
-            e.gen_age.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        }
+        // Ageing it is what surviving minors do.
+        gc.var_ref().raise_gen_age_to(crate::gc::PROMOTION_THRESHOLD);
         v
     }
 
-    fn card_dirty(ctx: &VmContext, arr: &Value) -> bool {
-        let Value::Array(gc) = arr else { panic!() };
-        // SAFETY: live handle from this heap.
-        let (ci, _) = unsafe { gc.entry_ptr().as_ref() }.location();
-        ctx.heap().array_card_dirty_for_test(ci)
+    /// Whether the old array was remembered (the barrier's record of an old→young edge).
+    fn remembered(ctx: &VmContext, arr: &Value) -> bool {
+        ctx.heap().is_remembered_for_test(arr)
     }
 
     #[test]
-    fn array_set_value_dirties_the_card() {
+    fn array_set_value_remembers_the_array() {
         let ctx = ctx();
         ctx.heap().set_mode(GcMode::GenerationalMarkSweep);
         let dst = old_array(&ctx, 4);
         let young = ctx.heap().alloc_array(vec![Value::I64(7)]);
-        assert!(!card_dirty(&ctx, &dst), "test setup: card starts clean");
+        assert!(!remembered(&ctx, &dst), "test setup: not remembered yet");
 
         builtin_array_set(&ctx, &[dst.clone(), young, Value::I64(0)]).expect("set ok");
 
-        assert!(card_dirty(&ctx, &dst), "Array.SetValue must fire the write barrier");
+        assert!(remembered(&ctx, &dst), "Array.SetValue must fire the write barrier");
     }
 
     #[test]
-    fn array_copy_dirties_the_card() {
+    fn array_copy_remembers_the_array() {
         let ctx = ctx();
         ctx.heap().set_mode(GcMode::GenerationalMarkSweep);
         let dst = old_array(&ctx, 4);
@@ -227,7 +222,7 @@ mod write_barriers {
             let young = ctx.heap().alloc_array(vec![Value::I64(1)]);
             s.borrow().set_boxed(0, young);
         }
-        assert!(!card_dirty(&ctx, &dst), "test setup: card starts clean");
+        assert!(!remembered(&ctx, &dst), "test setup: not remembered yet");
 
         builtin_array_copy(
             &ctx,
@@ -235,7 +230,7 @@ mod write_barriers {
         )
         .expect("copy ok");
 
-        assert!(card_dirty(&ctx, &dst), "Array.Copy must fire the write barrier");
+        assert!(remembered(&ctx, &dst), "Array.Copy must fire the write barrier");
     }
 
     /// A copy that moves no references must not dirty anything — the barrier is precise, not
@@ -253,7 +248,7 @@ mod write_barriers {
         )
         .expect("copy ok");
 
-        assert!(!card_dirty(&ctx, &dst), "a primitive copy has no cross-gen edge to record");
+        assert!(!remembered(&ctx, &dst), "a primitive copy has no cross-gen edge to record");
     }
 }
 
@@ -427,7 +422,7 @@ fn typed_filled_every_slot_reads_back_the_fill() {
         for n in [0usize, 1, 5, 1000] {
             let heap = ctx.heap();
             let et = crate::metadata::types::ElemType::intern(ty);
-            let arr = heap.alloc_array_obj(ArrayObj::typed_filled(heap, et, n, fill.clone()));
+            let arr = ArrayObj::alloc_typed_filled(heap, et, n, fill.clone());
             let Value::Array(gc) = arr else { panic!("expected an array") };
             let a = gc.borrow();
             assert_eq!(a.len(), n);
@@ -453,14 +448,14 @@ fn typed_iter_packs_each_element_in_place() {
     let ctx = ctx();
     let heap = ctx.heap();
     let src = [3i64, -1, 70000, 0];
-    let arr = heap.alloc_array_obj(ArrayObj::typed_iter(heap, crate::metadata::types::ElemType::intern("int"), src.len(), src.iter().map(|&n| Value::I64(n))));
+    let arr = ArrayObj::alloc_typed_iter(heap, crate::metadata::types::ElemType::intern("int"), src.len(), src.iter().map(|&n| Value::I64(n)));
     let Value::Array(gc) = arr else { panic!("expected an array") };
     assert_eq!(gc.borrow().prim_backing_kind(), Some("int[]"));
     for (i, &n) in src.iter().enumerate() {
         assert!(matches!(gc.borrow().get_boxed(i), Value::I64(v) if v == n));
     }
-    let strs = heap.alloc_array_obj(ArrayObj::typed_iter(heap, crate::metadata::types::ElemType::intern("string"), 2,
-        [Value::Str("a".into()), Value::Null].into_iter()));
+    let strs = ArrayObj::alloc_typed_iter(heap, crate::metadata::types::ElemType::intern("string"), 2,
+        [Value::Str("a".into()), Value::Null].into_iter());
     let Value::Array(gc) = strs else { panic!("expected an array") };
     assert!(matches!(gc.borrow().get_boxed(0), Value::Str(s) if s.as_str() == "a"));
     assert!(matches!(gc.borrow().get_boxed(1), Value::Null));

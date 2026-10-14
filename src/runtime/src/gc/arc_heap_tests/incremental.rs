@@ -12,7 +12,6 @@
 
 use super::*;
 use crate::gc::GcMode;
-use crate::gc::refs::GcRef;
 
 /// Binds the test thread's SATB records to `heap` for the scope (what `VmContext::new` does).
 struct Bound;
@@ -342,7 +341,7 @@ fn run_struct_copy_over_live_leaf(barrier_on: bool, within: bool) -> bool {
     let layout = std::sync::Arc::new(StructTypeLayout {
         size: 16, ref_offsets: Box::new([8]), ref_kinds: Box::new([STRUCT_REF_GCREF]), fields: Box::new([]),
     });
-    let new_arr = |len| heap.alloc_array_obj(ArrayObj::struct_backed(&heap, ElemType::intern("Demo.S"), len, layout.clone()));
+    let new_arr = |len| ArrayObj::alloc_struct(&heap, ElemType::intern("Demo.S"), len, layout.clone());
     let x = heap.alloc_object(dummy_type_desc("X"), vec![], NativeData::None);
     let dst = new_arr(2);
     let src = new_arr(2);
@@ -403,9 +402,9 @@ fn obj(heap: &ArcMagrGC, name: &str) -> Value {
 
 fn raw_alive(heap: &ArcMagrGC, weak: &crate::gc::WeakRef) -> bool {
     match &weak.inner {
-        // Object model R6: an object's weak reference is upgraded by the heap (chunk epoch).
+        // Object model R6 / R9: a weak reference is upgraded by the heap (chunk epoch).
         crate::gc::types::WeakRefInner::Object(w) => heap.upgrade_weak_object(w).is_some(),
-        crate::gc::types::WeakRefInner::Array(w) => w.upgrade().is_some(),
+        crate::gc::types::WeakRefInner::Array(w) => heap.upgrade_weak_array(w).is_some(),
     }
 }
 
@@ -424,7 +423,8 @@ fn an_incremental_cycle_spans_several_slices_and_collects_garbage() {
         chain.push(heap.make_weak(&next).unwrap());
         tail = next;
     }
-    let garbage: Vec<_> = (0..600).map(|_| heap.make_weak(&obj(&heap, "G")).unwrap()).collect();
+    // A slice is charged per chunk swept, so the garbage spans several 64 KB chunks.
+    let garbage: Vec<_> = (0..8_000).map(|_| heap.make_weak(&obj(&heap, "G")).unwrap()).collect();
 
     let mut slices = 1;
     while !heap.run_major_slice_for_test(16) {
@@ -479,8 +479,8 @@ fn objects_born_while_marking_or_sweeping_survive_their_cycle() {
     let heap = generational_heap();
     let keep = obj(&heap, "Keep");
     let _pin = heap.pin_root(keep);
-    for _ in 0..1400 {
-        obj(&heap, "G"); // enough garbage for a sweep that spans slices
+    for _ in 0..12_000 {
+        obj(&heap, "G"); // enough garbage for a sweep that spans slices (chunks are charged each)
     }
     assert!(!heap.run_major_slice_for_test(1));
     assert!(heap.major_cycle_marking_for_test());
@@ -503,7 +503,7 @@ fn a_doomed_object_is_not_handed_out_while_the_sweep_has_not_reached_it() {
     let heap = generational_heap();
     let keep = obj(&heap, "Keep");
     let _pin = heap.pin_root(keep);
-    let garbage: Vec<_> = (0..1400).map(|_| heap.make_weak(&obj(&heap, "G")).unwrap()).collect();
+    let garbage: Vec<_> = (0..12_000).map(|_| heap.make_weak(&obj(&heap, "G")).unwrap()).collect();
 
     assert!(!heap.run_major_slice_for_test(300));
     assert!(heap.major_cycle_sweeping_for_test());
@@ -580,7 +580,8 @@ fn slots_freed_by_an_incremental_sweep_are_safe_to_reuse_before_the_next_minor()
 #[test]
 fn an_explicit_collection_finishes_the_open_cycle() {
     let heap = generational_heap();
-    let garbage: Vec<_> = (0..300).map(|_| heap.make_weak(&obj(&heap, "G")).unwrap()).collect();
+    // More than one chunk of garbage, so a one-unit slice cannot finish the sweep.
+    let garbage: Vec<_> = (0..3_000).map(|_| heap.make_weak(&obj(&heap, "G")).unwrap()).collect();
     assert!(!heap.run_major_slice_for_test(1));
     assert!(heap.finish_major_cycle_for_test());
     assert!(!heap.major_cycle_active());
@@ -603,8 +604,8 @@ fn the_pause_does_what_the_policy_asked_for() {
     s.pending_slice.store(true, Relaxed);
     assert_eq!(heap.choose_generational_work(false), GenWork::Minor,
         "a slice request with no cycle open is stale and opens nothing");
-    // A cycle open.
-    obj(&heap, "G");
+    // A cycle open (more than one chunk to sweep, so a one-unit slice leaves it open).
+    for _ in 0..3_000 { obj(&heap, "G"); }
     assert!(!heap.run_major_slice_for_test(1));
     s.pending_minor.store(true, Relaxed);
     assert_eq!(heap.choose_generational_work(false), GenWork::Minor);
@@ -620,7 +621,7 @@ fn the_pause_does_what_the_policy_asked_for() {
 
 /// Random writes, register moves, minors and tiny slices, interleaved for several cycles. Every
 /// object reachable from the roots at the end must still be dereferenceable (a dangling handle
-/// panics in `GcRef::entry_ref` under debug assertions), and the heap invariants must hold.
+/// panics in `ArrRef::borrow`), and the heap invariants must hold.
 #[test]
 fn incremental_cycles_interleaved_with_writes_and_minors_keep_the_graph_intact() {
     const SLOTS: usize = 48;
@@ -702,27 +703,36 @@ fn incremental_cycles_interleaved_with_writes_and_minors_keep_the_graph_intact()
     heap.debug_validate_invariants();
 }
 
-/// The doomed-entry hazard in a minor's card seeding. An old object `d` in a dirty card points at a
-/// young `y`; both become garbage. The incremental sweep reaches `y`'s chunk first and reclaims it,
-/// the slot is reused, and a minor runs before the sweep reaches `d`. Tracing `d` through its card
+/// The doomed-owner hazard in a minor's remembered-set seeding. A remembered old object `d` points
+/// at a young `y`; both become garbage. The incremental sweep reaches `y`'s chunk first and reclaims it,
+/// the slot is reused, and a minor runs before the sweep reaches `d`. Tracing `d` from the set
 /// would follow a dangling edge into the new object.
 #[test]
-fn a_minor_during_the_sweep_does_not_trace_through_a_doomed_card_entry() {
+fn a_minor_during_the_sweep_does_not_trace_through_a_doomed_remembered_owner() {
     let heap = generational_heap();
+    let chunk_of = |v: &Value| {
+        let Value::Object(o) = v else { panic!() };
+        heap.region_var_for_test().lock().chunk_of(o.var_ref().addr())
+    };
     // Chunk 0: garbage fillers plus a few survivors (so the chunk is not pooled and its free
-    // slots are reused in place).
-    let fillers: Vec<Value> = (0..250).map(|_| obj(&heap, "Filler")).collect();
-    let keepers: Vec<_> = (0..6).map(|_| heap.pin_root(obj(&heap, "Keeper"))).collect();
+    // slots are reused in place). Fill it exactly: the first object that lands past it is `d`.
+    let mut fillers: Vec<Value> = Vec::new();
+    let d = loop {
+        let v = obj(&heap, "Filler");
+        if chunk_of(&v) != chunk_of(fillers.first().unwrap_or(&v)) { break v; }
+        fillers.push(v);
+    };
+    let keepers: Vec<_> = fillers.split_off(fillers.len() - 6).into_iter().map(|v| heap.pin_root(v)).collect();
     drop(fillers);
     // Chunk 1: `d`, made old by three minors.
-    let d = obj(&heap, "Old");
     let d_pin = heap.pin_root(d.clone());
     for _ in 0..3 {
         heap.run_cycle_collection_minor();
     }
     assert!(ArcMagrGC::gen_age_of(&d) >= heap.promotion_age(), "d must be old");
-    // `y` reuses a filler slot in chunk 0; `d.f0 = y` dirties d's card.
+    // `y` reuses a filler slot in chunk 0; `d.f0 = y` remembers d.
     let y = obj(&heap, "Young");
+    assert!(chunk_of(&y) < chunk_of(&d), "test setup: the sweep must reach y's chunk first");
     let Value::Object(d_gc) = &d else { panic!() };
     d_gc.borrow().set_field_value(0, &y);
     heap.write_barrier_field(&d, 0, &y);
@@ -730,8 +740,9 @@ fn a_minor_during_the_sweep_does_not_trace_through_a_doomed_card_entry() {
     heap.unpin_root(d_pin);
     std::mem::forget(d);
 
-    // Mark the 6 keepers, then sweep exactly chunk 0 (y reclaimed; d doomed, unswept).
-    assert!(!heap.run_major_slice_for_test(200));
+    // Mark the 6 keepers, then sweep exactly chunk 0 (y reclaimed; d doomed, unswept): a chunk
+    // costs 64 units, so the budget runs out right after the first one.
+    assert!(!heap.run_major_slice_for_test(64));
     assert!(heap.major_cycle_sweeping_for_test());
     // Refill chunk 0's free slots — one of them is y's.
     let refill: Vec<_> = (0..256).map(|_| heap.pin_root(obj(&heap, "Refill"))).collect();
