@@ -6,11 +6,11 @@
 // 只有 emission 的 VCall 兜底才记 —— 依赖集因此绑在代码生成上，有错时也就没法跳过代码生成。
 // 这一遍在绑定树上补齐这类，判据是接收者的静态类型（绑定器已解析出 FQN），不依赖 emission 的短名表。
 //
-// ⚠️ 穷举遍历：新增 Bound 节点类时 walkers 门（`xtask test walkers`）会要求这里也处理它。
+// 实现三个 bound visitor 接口：新增 Bound 节点类时这里编不过、直到处理它。
 namespace Z42.Semantics;
 
-
-public sealed class DepUseCollector {
+public sealed class DepUseCollector : IBoundExprVisitor<Unit, Unit>, IBoundStmtVisitor<Unit, Unit>,
+                                      IBoundPatternVisitor<Unit, Unit> {
     private SymbolTable _symbols;
     private string[] _items;
     private int _count;
@@ -72,6 +72,10 @@ public sealed class DepUseCollector {
         this._note(dot < 0 ? "" : fqn.Substring(0, dot), pkg, fqn);
     }
 
+    private void _expr(BoundExpr e) { if (e != null) { e.Accept<Unit, Unit>(this, Unit.Value); } }
+    private void _stmt(BoundStmt s) { if (s != null) { s.Accept<Unit, Unit>(this, Unit.Value); } }
+    private void _pat(BoundPattern p) { if (p != null) { p.Accept<Unit, Unit>(this, Unit.Value); } }
+
     private void _exprs(BoundExpr[] es, int n) {
         int i = 0;
         while (i < n) { this._expr(es[i]); i = i + 1; }
@@ -82,168 +86,130 @@ public sealed class DepUseCollector {
         while (i < n) { this._stmt(ss[i]); i = i + 1; }
     }
 
-    private void _expr(BoundExpr e) {
-        if (e == null) { return; }
-        if (e is BoundCall) {
-            BoundCall c = e as BoundCall;
-            if (c.Kind == "instance" && c.HasReceiver && c.Receiver != null) { this._noteType(c.Receiver.Type()); }
-            if (c.Kind == "free" && c.FreeImported && c.FreeNs != null) {
-                this._note(c.FreeNs, this._symbols.ImportedFuncPkgOf(c.MethodName, c.FreeNs), SymbolTable.QualOf(c.FreeNs, c.MethodName));
-            }
-            this._expr(c.Receiver);
-            this._exprs(c.Args, c.ArgCount);
-        } else if (e is BoundFuncRef) {
-            BoundFuncRef fr = e as BoundFuncRef;
-            if (fr.FuncImported && fr.FuncNs != null) { this._note(fr.FuncNs, this._symbols.ImportedFuncPkgOf(fr.FuncName, fr.FuncNs), SymbolTable.QualOf(fr.FuncNs, fr.FuncName)); }
-        } else if (e is BoundMethodGroup) {
-            BoundMethodGroup mg = e as BoundMethodGroup;
-            if (mg.Receiver != null) { this._noteType(mg.Receiver.Type()); }
-            this._expr(mg.Receiver);
-        } else if (e is BoundInterpolatedStr) {
-            BoundInterpolatedStr isr = e as BoundInterpolatedStr;
-            int i = 0;
-            while (i < isr.PartCount) {
-                if (isr.Parts[i] is BoundInterpHole) { this._expr((isr.Parts[i] as BoundInterpHole).Inner); }
-                i = i + 1;
-            }
-        } else if (e is BoundMember) {
-            this._expr((e as BoundMember).Target);
-        } else if (e is BoundIndex) {
-            BoundIndex ix = e as BoundIndex;
-            this._expr(ix.Target); this._expr(ix.Index);
-        } else if (e is BoundExpect) {
-            this._expr((e as BoundExpect).Target);
-        } else if (e is BoundSwitchExpr) {
-            BoundSwitchExpr sw = e as BoundSwitchExpr;
-            this._expr(sw.Subject);
-            int a = 0;
-            while (a < sw.ArmCount) {
-                BoundSwitchArm arm = sw.Arms[a];
-                if (arm.HasPattern) { this._pat(arm.Pattern); }
-                this._expr(arm.Guard); this._expr(arm.Body);
-                a = a + 1;
-            }
-        } else if (e is BoundSeqExpr) {
-            BoundSeqExpr sq = e as BoundSeqExpr;
-            this._stmts(sq.Prelude, sq.PreludeCount); this._expr(sq.Value);
-        } else if (e is BoundAssign) {
-            BoundAssign asg = e as BoundAssign;
-            this._expr(asg.Target); this._expr(asg.Value);
-        } else if (e is BoundBinary) {
-            BoundBinary b = e as BoundBinary;
-            this._expr(b.Left); this._expr(b.Right);
-        } else if (e is BoundUnary) {
-            this._expr((e as BoundUnary).Operand);
-        } else if (e is BoundConditional) {
-            BoundConditional cd = e as BoundConditional;
-            this._expr(cd.Cond); this._expr(cd.Then); this._expr(cd.Else);
-        } else if (e is BoundIsExpr) {
-            this._expr((e as BoundIsExpr).E);
-        } else if (e is BoundIsPatternExpr) {
-            BoundIsPatternExpr ip = e as BoundIsPatternExpr;
-            this._expr(ip.E); this._pat(ip.Pat);
-        } else if (e is BoundCast) {
-            this._expr((e as BoundCast).E);
-        } else if (e is BoundConvert) {
-            this._expr((e as BoundConvert).E);
-        } else if (e is BoundBox) {
-            this._expr((e as BoundBox).E);
-        } else if (e is BoundNew) {
-            BoundNew nw = e as BoundNew;
-            this._exprs(nw.Args, nw.ArgCount);
-        } else if (e is BoundRefArg) {
-            this._expr((e as BoundRefArg).Inner);
-        } else if (e is BoundArrayNew) {
-            this._expr((e as BoundArrayNew).Size);
-        } else if (e is BoundArrayLit) {
-            BoundArrayLit al = e as BoundArrayLit;
-            this._exprs(al.Elems, al.ElemCount);
-        } else if (e is BoundLambda) {
-            BoundLambda lm = e as BoundLambda;
-            if (lm.HasBlock) { this._stmt(lm.BlockBody); } else { this._expr(lm.ExprBody); }
-        } else if (e is BoundIndirectCall) {
-            BoundIndirectCall ic = e as BoundIndirectCall;
-            this._expr(ic.Callee); this._exprs(ic.Args, ic.ArgCount);
-        }
-        // 叶子（无子节点、不引用导入符号的接收者）：BoundLitInt / BoundLitChar / BoundLitFloat / BoundLitStr /
-        // BoundLitBool / BoundLitNull / BoundIdent / BoundStaticGet / BoundCapturedIdent / BoundDefault /
-        // BoundError / BoundTypeof / BoundMethodOf / BoundSymAvailable。静态成员与类型引用由绑定期记录。
+    private void _pats(BoundPattern[] ps, int n) {
+        int i = 0;
+        while (i < n) { this._pat(ps[i]); i = i + 1; }
     }
 
-    private void _pat(BoundPattern p) {
-        if (p == null) { return; }
-        if (p is BoundConstantPattern) {
-            this._expr((p as BoundConstantPattern).Value);
-        } else if (p is BoundPositionalPattern) {
-            BoundPositionalPattern pp = p as BoundPositionalPattern;
-            int i = 0; while (i < pp.ElemCount) { this._pat(pp.Elems[i]); i = i + 1; }
-        } else if (p is BoundPropertyPattern) {
-            BoundPropertyPattern pr = p as BoundPropertyPattern;
-            int i = 0; while (i < pr.FieldCount) { this._pat(pr.Pats[i]); i = i + 1; }
-        } else if (p is BoundOrPattern) {
-            BoundOrPattern op = p as BoundOrPattern;
-            int i = 0; while (i < op.Count) { this._pat(op.Alts[i]); i = i + 1; }
-        } else if (p is BoundAtPattern) {
-            this._pat((p as BoundAtPattern).Sub);
-        } else if (p is BoundRangePattern) {
-            BoundRangePattern rp = p as BoundRangePattern;
-            this._expr(rp.Lo); this._expr(rp.Hi);
-        } else if (p is BoundRelationalPattern) {
-            this._expr((p as BoundRelationalPattern).Value);
+    // ── 表达式 ──
+    public Unit VisitCall(BoundCall c, Unit d) {
+        if (c.Kind == "instance" && c.HasReceiver && c.Receiver != null) { this._noteType(c.Receiver.Type()); }
+        if (c.Kind == "free" && c.FreeImported && c.FreeNs != null) {
+            this._note(c.FreeNs, this._symbols.ImportedFuncPkgOf(c.MethodName, c.FreeNs), SymbolTable.QualOf(c.FreeNs, c.MethodName));
         }
-        // 叶子：BoundWildcardPattern / BoundTypePattern / BoundBindingPattern。
+        this._expr(c.Receiver);
+        this._exprs(c.Args, c.ArgCount);
+        return d;
     }
+    public Unit VisitFuncRef(BoundFuncRef fr, Unit d) {
+        if (fr.FuncImported && fr.FuncNs != null) { this._note(fr.FuncNs, this._symbols.ImportedFuncPkgOf(fr.FuncName, fr.FuncNs), SymbolTable.QualOf(fr.FuncNs, fr.FuncName)); }
+        return d;
+    }
+    public Unit VisitMethodGroup(BoundMethodGroup mg, Unit d) {
+        if (mg.Receiver != null) { this._noteType(mg.Receiver.Type()); }
+        this._expr(mg.Receiver);
+        return d;
+    }
+    public Unit VisitInterpolatedStr(BoundInterpolatedStr isr, Unit d) {
+        int i = 0;
+        while (i < isr.PartCount) {
+            if (isr.Parts[i] is BoundInterpHole) { this._expr((isr.Parts[i] as BoundInterpHole).Inner); }
+            i = i + 1;
+        }
+        return d;
+    }
+    public Unit VisitMember(BoundMember n, Unit d) { this._expr(n.Target); return d; }
+    public Unit VisitIndex(BoundIndex n, Unit d) { this._expr(n.Target); this._expr(n.Index); return d; }
+    public Unit VisitExpect(BoundExpect n, Unit d) { this._expr(n.Target); return d; }
+    public Unit VisitSwitchExpr(BoundSwitchExpr sw, Unit d) {
+        this._expr(sw.Subject);
+        int a = 0;
+        while (a < sw.ArmCount) {
+            BoundSwitchArm arm = sw.Arms[a];
+            if (arm.HasPattern) { this._pat(arm.Pattern); }
+            this._expr(arm.Guard); this._expr(arm.Body);
+            a = a + 1;
+        }
+        return d;
+    }
+    public Unit VisitSeqExpr(BoundSeqExpr n, Unit d) { this._stmts(n.Prelude, n.PreludeCount); this._expr(n.Value); return d; }
+    public Unit VisitAssign(BoundAssign n, Unit d) { this._expr(n.Target); this._expr(n.Value); return d; }
+    public Unit VisitBinary(BoundBinary n, Unit d) { this._expr(n.Left); this._expr(n.Right); return d; }
+    public Unit VisitUnary(BoundUnary n, Unit d) { this._expr(n.Operand); return d; }
+    public Unit VisitConditional(BoundConditional n, Unit d) { this._expr(n.Cond); this._expr(n.Then); this._expr(n.Else); return d; }
+    public Unit VisitIsExpr(BoundIsExpr n, Unit d) { this._expr(n.E); return d; }
+    public Unit VisitIsPatternExpr(BoundIsPatternExpr n, Unit d) { this._expr(n.E); this._pat(n.Pat); return d; }
+    public Unit VisitCast(BoundCast n, Unit d) { this._expr(n.E); return d; }
+    public Unit VisitConvert(BoundConvert n, Unit d) { this._expr(n.E); return d; }
+    public Unit VisitBox(BoundBox n, Unit d) { this._expr(n.E); return d; }
+    public Unit VisitNew(BoundNew n, Unit d) { this._exprs(n.Args, n.ArgCount); return d; }
+    public Unit VisitRefArg(BoundRefArg n, Unit d) { this._expr(n.Inner); return d; }
+    public Unit VisitArrayNew(BoundArrayNew n, Unit d) { this._expr(n.Size); return d; }
+    public Unit VisitArrayLit(BoundArrayLit n, Unit d) { this._exprs(n.Elems, n.ElemCount); return d; }
+    public Unit VisitLambda(BoundLambda n, Unit d) {
+        if (n.HasBlock) { this._stmt(n.BlockBody); } else { this._expr(n.ExprBody); }
+        return d;
+    }
+    public Unit VisitIndirectCall(BoundIndirectCall n, Unit d) { this._expr(n.Callee); this._exprs(n.Args, n.ArgCount); return d; }
+    // 叶子：无子节点，也不以「接收者类型」引用导入符号（静态成员与类型引用由绑定期记录）。
+    public Unit VisitLitInt(BoundLitInt n, Unit d) { return d; }
+    public Unit VisitLitChar(BoundLitChar n, Unit d) { return d; }
+    public Unit VisitLitFloat(BoundLitFloat n, Unit d) { return d; }
+    public Unit VisitLitStr(BoundLitStr n, Unit d) { return d; }
+    public Unit VisitLitBool(BoundLitBool n, Unit d) { return d; }
+    public Unit VisitLitNull(BoundLitNull n, Unit d) { return d; }
+    public Unit VisitIdent(BoundIdent n, Unit d) { return d; }
+    public Unit VisitStaticGet(BoundStaticGet n, Unit d) { return d; }
+    public Unit VisitCapturedIdent(BoundCapturedIdent n, Unit d) { return d; }
+    public Unit VisitDefault(BoundDefault n, Unit d) { return d; }
+    public Unit VisitError(BoundError n, Unit d) { return d; }
+    public Unit VisitTypeof(BoundTypeof n, Unit d) { return d; }
+    public Unit VisitMethodOf(BoundMethodOf n, Unit d) { return d; }
+    public Unit VisitSymAvailable(BoundSymAvailable n, Unit d) { return d; }
 
-    private void _stmt(BoundStmt s) {
-        if (s == null) { return; }
-        if (s is BoundVarDeclStmt) {
-            this._expr((s as BoundVarDeclStmt).Init);
-        } else if (s is BoundDeconstructDeclStmt) {
-            BoundDeconstructDeclStmt dd = s as BoundDeconstructDeclStmt;
-            this._pat(dd.Pat); this._expr(dd.Init);
-        } else if (s is BoundReturn) {
-            this._expr((s as BoundReturn).Value);
-        } else if (s is BoundExprStmt) {
-            this._expr((s as BoundExprStmt).E);
-        } else if (s is BoundLocalFunction) {
-            this._stmt((s as BoundLocalFunction).Body);
-        } else if (s is BoundBlock) {
-            BoundBlock bl = s as BoundBlock;
-            this._stmts(bl.Stmts, bl.Count);
-        } else if (s is BoundIf) {
-            BoundIf bi = s as BoundIf;
-            this._expr(bi.Cond); this._stmt(bi.Then); this._stmt(bi.Else);
-        } else if (s is BoundTry) {
-            BoundTry bt = s as BoundTry;
-            this._stmt(bt.TryBody);
-            int i = 0; while (i < bt.CatchCount) { this._stmt(bt.Catches[i].Body); i = i + 1; }
-            this._stmt(bt.Finally);
-        } else if (s is BoundThrow) {
-            this._expr((s as BoundThrow).E);
-        } else if (s is BoundWhile) {
-            BoundWhile bw = s as BoundWhile;
-            this._expr(bw.Cond); this._stmt(bw.Body);
-        } else if (s is BoundDoWhile) {
-            BoundDoWhile bd = s as BoundDoWhile;
-            this._stmt(bd.Body); this._expr(bd.Cond);
-        } else if (s is BoundSwitch) {
-            BoundSwitch sw = s as BoundSwitch;
-            this._expr(sw.Subject);
-            int c = 0;
-            while (c < sw.CaseCount) {
-                BoundSwitchCase cs = sw.Cases[c];
-                if (cs.HasPattern) { this._pat(cs.Pattern); }
-                this._expr(cs.Guard);
-                this._stmts(cs.Body, cs.BodyCount);
-                c = c + 1;
-            }
-        } else if (s is BoundFor) {
-            BoundFor bf = s as BoundFor;
-            this._stmt(bf.Init); this._expr(bf.Cond); this._expr(bf.Incr); this._stmt(bf.Body);
-        } else if (s is BoundForeach) {
-            BoundForeach fe = s as BoundForeach;
-            this._expr(fe.Collection); this._stmt(fe.Body);
-        }
-        // 叶子：BoundBreak / BoundContinue。
+    // ── 模式 ──
+    public Unit VisitConstantPattern(BoundConstantPattern n, Unit d) { this._expr(n.Value); return d; }
+    public Unit VisitPositionalPattern(BoundPositionalPattern n, Unit d) { this._pats(n.Elems, n.ElemCount); return d; }
+    public Unit VisitPropertyPattern(BoundPropertyPattern n, Unit d) { this._pats(n.Pats, n.FieldCount); return d; }
+    public Unit VisitOrPattern(BoundOrPattern n, Unit d) { this._pats(n.Alts, n.Count); return d; }
+    public Unit VisitAtPattern(BoundAtPattern n, Unit d) { this._pat(n.Sub); return d; }
+    public Unit VisitRangePattern(BoundRangePattern n, Unit d) { this._expr(n.Lo); this._expr(n.Hi); return d; }
+    public Unit VisitRelationalPattern(BoundRelationalPattern n, Unit d) { this._expr(n.Value); return d; }
+    public Unit VisitWildcardPattern(BoundWildcardPattern n, Unit d) { return d; }
+    public Unit VisitTypePattern(BoundTypePattern n, Unit d) { return d; }
+    public Unit VisitBindingPattern(BoundBindingPattern n, Unit d) { return d; }
+
+    // ── 语句 ──
+    public Unit VisitVarDecl(BoundVarDeclStmt n, Unit d) { this._expr(n.Init); return d; }
+    public Unit VisitDeconstructDecl(BoundDeconstructDeclStmt n, Unit d) { this._pat(n.Pat); this._expr(n.Init); return d; }
+    public Unit VisitReturn(BoundReturn n, Unit d) { this._expr(n.Value); return d; }
+    public Unit VisitExprStmt(BoundExprStmt n, Unit d) { this._expr(n.E); return d; }
+    public Unit VisitLocalFunction(BoundLocalFunction n, Unit d) { this._stmt(n.Body); return d; }
+    public Unit VisitBlock(BoundBlock n, Unit d) { this._stmts(n.Stmts, n.Count); return d; }
+    public Unit VisitIf(BoundIf n, Unit d) { this._expr(n.Cond); this._stmt(n.Then); this._stmt(n.Else); return d; }
+    public Unit VisitTry(BoundTry n, Unit d) {
+        this._stmt(n.TryBody);
+        int i = 0; while (i < n.CatchCount) { this._stmt(n.Catches[i].Body); i = i + 1; }
+        this._stmt(n.Finally);
+        return d;
     }
+    public Unit VisitThrow(BoundThrow n, Unit d) { this._expr(n.E); return d; }
+    public Unit VisitWhile(BoundWhile n, Unit d) { this._expr(n.Cond); this._stmt(n.Body); return d; }
+    public Unit VisitDoWhile(BoundDoWhile n, Unit d) { this._stmt(n.Body); this._expr(n.Cond); return d; }
+    public Unit VisitSwitch(BoundSwitch sw, Unit d) {
+        this._expr(sw.Subject);
+        int c = 0;
+        while (c < sw.CaseCount) {
+            BoundSwitchCase cs = sw.Cases[c];
+            if (cs.HasPattern) { this._pat(cs.Pattern); }
+            this._expr(cs.Guard);
+            this._stmts(cs.Body, cs.BodyCount);
+            c = c + 1;
+        }
+        return d;
+    }
+    public Unit VisitFor(BoundFor n, Unit d) { this._stmt(n.Init); this._expr(n.Cond); this._expr(n.Incr); this._stmt(n.Body); return d; }
+    public Unit VisitForeach(BoundForeach n, Unit d) { this._expr(n.Collection); this._stmt(n.Body); return d; }
+    public Unit VisitBreak(BoundBreak n, Unit d) { return d; }
+    public Unit VisitContinue(BoundContinue n, Unit d) { return d; }
 }

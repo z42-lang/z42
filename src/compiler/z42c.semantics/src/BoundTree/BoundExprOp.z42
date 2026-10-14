@@ -27,6 +27,7 @@ public sealed class BoundSwitchExpr : BoundExpr {
         this.Subject = subject; this.Arms = arms; this.ArmCount = armCount; this._type = type;
     }
     public override Z42Type Type() { return this._type; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitSwitchExpr(this, d); }
     public override string Dump() { return "(switch-expr :" + this._type.Name() + ")"; }
 }
 
@@ -41,6 +42,7 @@ public sealed class BoundSeqExpr : BoundExpr {
         this.Prelude = prelude; this.PreludeCount = preludeCount; this.Value = value; this._type = type;
     }
     public override Z42Type Type() { return this._type; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitSeqExpr(this, d); }
     public override string Dump() { return "(seq-expr :" + this._type.Name() + ")"; }
 }
 
@@ -52,6 +54,7 @@ public sealed class BoundAssign : BoundExpr {
         this.Target = target; this.Value = value; this._type = type;
     }
     public override Z42Type Type() { return this._type; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitAssign(this, d); }
     public override string  Dump() {
         return "(assign " + this.Target.Dump() + " " + this.Value.Dump() + " :" + this._type.Name() + ")";
     }
@@ -71,6 +74,7 @@ public sealed class BoundMethodGroup : BoundExpr {
         this.OwnerCt = null;
     }
     public override Z42Type Type() { return this._type; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitMethodGroup(this, d); }
     public override string Dump() { return "(method-group " + this.ClassName + "." + this.MethodName + ")"; }
 }
 
@@ -149,6 +153,7 @@ public sealed class BoundCall : BoundExpr {
         return bc;
     }
     public override Z42Type Type() { return this._retType; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitCall(this, d); }
     public override string  Dump() {
         string head = "(call " + this.MethodName;
         if (this.Kind == "instance") { head = "(call-inst " + this.Receiver.Dump() + " " + this.MethodName; }
@@ -170,6 +175,7 @@ public sealed class BoundBinary : BoundExpr {
         this.Op = op; this.Left = left; this.Right = right; this._type = type;
     }
     public override Z42Type Type() { return this._type; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitBinary(this, d); }
     public override string  Dump() {
         return "(bin " + this.Op + " " + this.Left.Dump() + " " + this.Right.Dump() + " :" + this._type.Name() + ")";
     }
@@ -184,6 +190,7 @@ public sealed class BoundUnary : BoundExpr {
         this.Op = op; this.Operand = operand; this._type = type;
     }
     public override Z42Type Type() { return this._type; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitUnary(this, d); }
     public override string  Dump() {
         return "(unary " + this.Op + " " + this.Operand.Dump() + " :" + this._type.Name() + ")";
     }
@@ -199,6 +206,7 @@ public sealed class BoundConditional : BoundExpr {
         this.Cond = cond; this.Then = then; this.Else = els; this._type = type;
     }
     public override Z42Type Type() { return this._type; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitConditional(this, d); }
     public override string  Dump() {
         return "(cond " + this.Cond.Dump() + " " + this.Then.Dump() + " " + this.Else.Dump() + " :" + this._type.Name() + ")";
     }
@@ -219,6 +227,7 @@ public sealed class BoundIsExpr : BoundExpr {
     private Z42Type _type;
     public BoundIsExpr(BoundExpr e, string typeName, string bindName, Span span) { this.Span = span; this.E = e; this.TypeName = typeName; this.BindName = bindName; this._type = Z42ClassType.Builtin("bool"); this.TargetType = null; }
     public override Z42Type Type() { return this._type; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitIsExpr(this, d); }
     public override string  Dump() { return "(is " + this.E.Dump() + " " + this.TypeName + " :bool)"; }
 }
 
@@ -229,6 +238,7 @@ public sealed class BoundIsPatternExpr : BoundExpr {
     private Z42Type _type;
     public BoundIsPatternExpr(BoundExpr e, BoundPattern pat, Span span) { this.Span = span; this.E = e; this.Pat = pat; this._type = Z42ClassType.Builtin("bool"); }
     public override Z42Type Type() { return this._type; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitIsPatternExpr(this, d); }
     public override string  Dump() { return "(is-pat " + this.E.Dump() + " :bool)"; }
 }
 
@@ -258,6 +268,7 @@ public sealed class BoundTypeof : BoundExpr {
     private Z42Type _t;
     public BoundTypeof(Z42Type target, string targetName, Z42Type t, Span span) { this.Span = span; this.Target = target; this.TargetName = targetName; this._t = t; this.IsMethodLevel = false; this.MethodParamIndex = -1; this.IsClassLevel = false; this.ClassParamIndex = -1; }
     public override Z42Type Type() { return this._t; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitTypeof(this, d); }
     public override string Dump() { return "(typeof " + this.Target.Name() + " :" + this._t.Name() + ")"; }
 }
 
@@ -286,6 +297,7 @@ public sealed class BoundMethodOf : BoundExpr {
         this.MethodKey = methodKey; this.Method = method; this._t = t;
     }
     public override Z42Type Type() { return this._t; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitMethodOf(this, d); }
     public override string Dump() { return "(methodof " + this.OwnerName + "." + this.MethodKey + " :" + this._t.Name() + ")"; }
 }
 
@@ -300,6 +312,7 @@ public sealed class BoundCast : BoundExpr {
         this.Span = span; this.E = e; this._type = type; this.TypeName = typeName;
     }
     public override Z42Type Type() { return this._type; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitCast(this, d); }
     public override string  Dump() { return "(cast " + this.E.Dump() + " :" + this._type.Name() + ")"; }
 }
 
@@ -317,6 +330,7 @@ public sealed class BoundConvert : BoundExpr {
     private Z42Type _type;
     public BoundConvert(BoundExpr e, Z42Type type, Span span) { this.Span = span; this.E = e; this._type = type; this.CheckedRefCast = false; }
     public override Z42Type Type() { return this._type; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitConvert(this, d); }
     public override string  Dump() { return "(convert " + this.E.Dump() + " :" + this._type.Name() + ")"; }
 }
 
@@ -331,6 +345,7 @@ public sealed class BoundBox : BoundExpr {
         this.Span = span; this.E = e; this.PrimFQ = primFQ; this._type = type;
     }
     public override Z42Type Type() { return this._type; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitBox(this, d); }
     public override string  Dump() { return "(box " + this.E.Dump() + " :" + this.PrimFQ + ")"; }
 }
 
@@ -351,6 +366,7 @@ public sealed class BoundNew : BoundExpr {
         this.IsMethodTypeParam = false; this.MethodParamIndex = -1;
     }
     public override Z42Type Type() { return this._type; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitNew(this, d); }
     public override string  Dump() {
         string s = "(new " + this.TypeName;
         int i = 0;
@@ -368,6 +384,7 @@ public sealed class BoundRefArg : BoundExpr {
     public bool IsDiscard;   // simplify-ref-parameters：`ref _`（隐藏零值槽，用户引用不到）
     public BoundRefArg(BoundExpr inner, Z42Type t, Span span) { this.Span = span; this.Inner = inner; this._t = t; this.IsVarDecl = false; this.VarName = ""; this.IsDiscard = false; }
     public override Z42Type Type() { return this._t; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitRefArg(this, d); }
     public override string Dump() { return "(ref-arg " + this.Inner.Dump() + " :" + this._t.Name() + ")"; }
 }
 
@@ -385,6 +402,7 @@ public sealed class BoundArrayNew : BoundExpr {
         this.TypeParamIndex = -1; this.IsMethodLevel = false;
     }
     public override Z42Type Type() { return this._t; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitArrayNew(this, d); }
     public override string Dump() { return "(array-new " + this.ElemName + " " + this.Size.Dump() + " :" + this._t.Name() + ")"; }
 }
 
@@ -397,6 +415,7 @@ public sealed class BoundArrayLit : BoundExpr {
         this.Span = span; this.Elems = elems; this.ElemCount = elemCount; this.ElemName = elemName; this._t = t;
     }
     public override Z42Type Type() { return this._t; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitArrayLit(this, d); }
     public override string Dump() { return "(array-lit " + this.ElemName + " " + this.ElemCount.ToString() + " :" + this._t.Name() + ")"; }
 }
 
@@ -420,6 +439,7 @@ public sealed class BoundLambda : BoundExpr {
         this.Captures = captures; this.CaptureCount = captureCount; this._t = t;
     }
     public override Z42Type Type() { return this._t; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitLambda(this, d); }
     public override string Dump() {
         string s = "(lambda";
         int i = 0;
@@ -439,6 +459,7 @@ public sealed class BoundIndirectCall : BoundExpr {
         this.Span = span; this.Callee = callee; this.Args = args; this.ArgCount = argCount; this._t = t;
     }
     public override Z42Type Type() { return this._t; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitIndirectCall(this, d); }
     public override string Dump() { return "(call-ind " + this.Callee.Dump() + " :" + this._t.Name() + ")"; }
 }
 
@@ -462,6 +483,7 @@ public sealed class BoundSymAvailable : BoundExpr {
     }
     public static BoundSymAvailable WithOwner(BoundSymAvailable s, Z42ClassType owner) { s.OwnerCt = owner; return s; }
     public override Z42Type Type() { return this._t; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitSymAvailable(this, d); }
     public override string Dump() {
         string s = "(sym-available " + this.Kind + ":" + this.Owner;
         if (this.Member != "") { s = s + "." + this.Member; }

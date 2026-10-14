@@ -5,14 +5,12 @@ namespace Z42.Semantics;
 
 using Z42.Core;
 
-public class BoundExpr {
+public abstract class BoundExpr {
     public Span Span;
-    // 每个 Bound 表达式节点都必须覆写 Type()（fix-bound-type-default）。此前默认返回 Unknown，而 Unknown 在
-    // Conversion 里是「吸收」（防级联）⇒ 新增节点忘了覆写时，涉及它的**所有**类型错误被静默放行。
-    // 现有 38 个子类全部已覆写；这里改成抛，让下一个漏写的在第一次被定型时当场暴露。
-    public virtual Z42Type Type() {
-        throw new Exception("z42c internal: bound node `" + this.Dump() + "` does not override BoundExpr.Type()");
-    }
+    // 每个 Bound 表达式节点都必须给出 Type()：没有默认值——Unknown 在 Conversion 里是「吸收」（防级联），
+    // 漏写的节点若默认返回它，涉及它的**所有**类型错误都会被静默放行。
+    public abstract Z42Type Type();
+    public abstract R Accept<R, D>(IBoundExprVisitor<R, D> v, D d);
     public virtual string  Dump() { return "?bexpr"; }
 }
 
@@ -27,6 +25,7 @@ public sealed class BoundLitInt : BoundExpr {
     public string EnumTypeName;
     public BoundLitInt(string text, Z42Type type, Span span) { this.Span = span; this.Text = text; this._type = type; this.EnumTypeName = ""; }
     public override Z42Type Type() { return this._type; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitLitInt(this, d); }
     public override string  Dump() { return "(lit-int " + this.Text + " :" + this._type.Name() + ")"; }
 }
 
@@ -35,6 +34,7 @@ public sealed class BoundLitChar : BoundExpr {
     private Z42Type _t;
     public BoundLitChar(char value, Z42Type t, Span span) { this.Span = span; this.Value = value; this._t = t; }
     public override Z42Type Type() { return this._t; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitLitChar(this, d); }
     public override string Dump() { return "(lit-char " + this.Value.ToString() + " :" + this._t.Name() + ")"; }
 }
 
@@ -43,6 +43,7 @@ public sealed class BoundLitFloat : BoundExpr {
     private Z42Type _type;
     public BoundLitFloat(string text, Z42Type type, Span span) { this.Span = span; this.Text = text; this._type = type; }
     public override Z42Type Type() { return this._type; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitLitFloat(this, d); }
     public override string  Dump() { return "(lit-float " + this.Text + " :" + this._type.Name() + ")"; }
 }
 
@@ -51,6 +52,7 @@ public sealed class BoundLitStr : BoundExpr {
     private Z42Type _type;
     public BoundLitStr(string raw, Z42Type type, Span span) { this.Span = span; this.Raw = raw; this._type = type; }
     public override Z42Type Type() { return this._type; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitLitStr(this, d); }
     public override string  Dump() { return "(lit-str " + this.Raw + " :" + this._type.Name() + ")"; }
 }
 
@@ -59,6 +61,7 @@ public sealed class BoundLitBool : BoundExpr {
     private Z42Type _type;
     public BoundLitBool(bool value, Z42Type type, Span span) { this.Span = span; this.Value = value; this._type = type; }
     public override Z42Type Type() { return this._type; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitLitBool(this, d); }
     public override string  Dump() {
         string v = "false"; if (this.Value) { v = "true"; }
         return "(lit-bool " + v + " :" + this._type.Name() + ")";
@@ -83,6 +86,7 @@ public sealed class BoundInterpolatedStr : BoundExpr {
         this.Span = span; this.Parts = parts; this.PartCount = partCount; this._t = t;
     }
     public override Z42Type Type() { return this._t; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitInterpolatedStr(this, d); }
     public override string Dump() { return "(interp-str " + this.PartCount.ToString() + " :string)"; }
 }
 
@@ -90,6 +94,7 @@ public sealed class BoundLitNull : BoundExpr {
     private Z42Type _type;
     public BoundLitNull(Z42Type type, Span span) { this.Span = span; this._type = type; }
     public override Z42Type Type() { return this._type; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitLitNull(this, d); }
     public override string  Dump() { return "(lit-null :" + this._type.Name() + ")"; }
 }
 
@@ -98,6 +103,7 @@ public sealed class BoundIdent : BoundExpr {
     private Z42Type _type;
     public BoundIdent(string name, Z42Type type, Span span) { this.Span = span; this.Name = name; this._type = type; }
     public override Z42Type Type() { return this._type; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitIdent(this, d); }
     public override string  Dump() { return "(ident " + this.Name + " :" + this._type.Name() + ")"; }
 }
 
@@ -115,6 +121,7 @@ public sealed class BoundFuncRef : BoundExpr {
         this.Span = span; this.FuncName = funcName; this.FuncNs = funcNs; this.FuncImported = funcImported; this._type = type; this.RegKey = regKey;
     }
     public override Z42Type Type() { return this._type; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitFuncRef(this, d); }
     public override string Dump() { return "(func-ref " + this.FuncName + ")"; }
 }
 
@@ -127,6 +134,7 @@ public sealed class BoundMember : BoundExpr {
         this.Target = target; this.MemberName = memberName; this._type = type;
     }
     public override Z42Type Type() { return this._type; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitMember(this, d); }
     public override string  Dump() {
         return "(member " + this.Target.Dump() + " " + this.MemberName + " :" + this._type.Name() + ")";
     }
@@ -141,6 +149,7 @@ public sealed class BoundIndex : BoundExpr {
         this.Target = target; this.Index = index; this._type = type;
     }
     public override Z42Type Type() { return this._type; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitIndex(this, d); }
     public override string  Dump() {
         return "(index " + this.Target.Dump() + " " + this.Index.Dump() + " :" + this._type.Name() + ")";
     }
@@ -171,6 +180,7 @@ public sealed class BoundStaticGet : BoundExpr {
         this.IsProp = false; this.PropSetter = ""; this.PropBacking = ""; this.OwnerType = null; this.OwnerCt = null;
     }
     public override Z42Type Type() { return this._t; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitStaticGet(this, d); }
     public override string Dump() { return "(static-get " + this.ClassName + "." + this.FieldName + " :" + this._t.Name() + ")"; }
 }
 
@@ -188,6 +198,7 @@ public sealed class BoundCapturedIdent : BoundExpr {
         this.Span = span; this.Name = name; this.CaptureIdx = captureIdx; this._t = t;
     }
     public override Z42Type Type() { return this._t; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitCapturedIdent(this, d); }
     public override string Dump() { return "(cap-ident " + this.Name + " #" + this.CaptureIdx.ToString() + " :" + this._t.Name() + ")"; }
 }
 
@@ -200,6 +211,7 @@ public sealed class BoundDefault : BoundExpr {
     private Z42Type _type;
     public BoundDefault(Z42Type type, int paramIndex, Span span) { this.Span = span; this._type = type; this.ParamIndex = paramIndex; this.IsMethodLevel = false; }
     public override Z42Type Type() { return this._type; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitDefault(this, d); }
     public override string  Dump() { return "(default :" + this._type.Name() + ")"; }
 }
 
@@ -221,6 +233,7 @@ public sealed class BoundExpect : BoundExpr {
         this.Span = span; this.Target = target; this.Reason = reason; this._type = type;
     }
     public override Z42Type Type() { return this._type; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitExpect(this, d); }
     public override string  Dump() { return "(expect " + this.Target.Dump() + ")"; }
 }
 
@@ -229,5 +242,6 @@ public sealed class BoundError : BoundExpr {
     private Z42Type _type;
     public BoundError(string message, Z42Type type, Span span) { this.Span = span; this.Message = message; this._type = type; }
     public override Z42Type Type() { return this._type; }
+    public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitError(this, d); }
     public override string  Dump() { return "(error :" + this._type.Name() + ")"; }
 }

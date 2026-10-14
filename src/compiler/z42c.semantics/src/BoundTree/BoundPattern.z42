@@ -5,14 +5,16 @@ namespace Z42.Semantics;
 
 using Z42.Core;
 
-public class BoundPattern {
+public abstract class BoundPattern {
     public Span Span;
+    public abstract R Accept<R, D>(IBoundPatternVisitor<R, D> v, D d);
     public virtual string Dump() { return "?bpat"; }
 }
 
 // 通配 `_`：恒匹配、不绑定。
 public sealed class BoundWildcardPattern : BoundPattern {
     public BoundWildcardPattern(Span span) { this.Span = span; }
+    public override R Accept<R, D>(IBoundPatternVisitor<R, D> v, D d) { return v.VisitWildcardPattern(this, d); }
     public override string Dump() { return "_"; }
 }
 
@@ -20,6 +22,7 @@ public sealed class BoundWildcardPattern : BoundPattern {
 public sealed class BoundConstantPattern : BoundPattern {
     public BoundExpr Value;
     public BoundConstantPattern(BoundExpr value, Span span) { this.Span = span; this.Value = value; }
+    public override R Accept<R, D>(IBoundPatternVisitor<R, D> v, D d) { return v.VisitConstantPattern(this, d); }
     public override string Dump() { return this.Value.Dump(); }
 }
 
@@ -31,6 +34,7 @@ public sealed class BoundTypePattern : BoundPattern {
     public BoundTypePattern(string typeName, string bind, Z42Type boundType, Span span) { this.Span = span;
         this.TypeName = typeName; this.Bind = bind; this.BoundType = boundType;
     }
+    public override R Accept<R, D>(IBoundPatternVisitor<R, D> v, D d) { return v.VisitTypePattern(this, d); }
     public override string Dump() {
         if (this.Bind.Length > 0) { return "(type " + this.TypeName + " " + this.Bind + ")"; }
         return "(type " + this.TypeName + ")";
@@ -42,6 +46,7 @@ public sealed class BoundBindingPattern : BoundPattern {
     public string  Name;
     public Z42Type Type;
     public BoundBindingPattern(string name, Z42Type type, Span span) { this.Span = span; this.Name = name; this.Type = type; }
+    public override R Accept<R, D>(IBoundPatternVisitor<R, D> v, D d) { return v.VisitBindingPattern(this, d); }
     public override string Dump() { return "(bind " + this.Name + ")"; }
 }
 
@@ -58,6 +63,7 @@ public sealed class BoundPositionalPattern : BoundPattern {
     public BoundPositionalPattern(string typeName, Z42Type type, string[] fieldNames, Z42Type[] fieldTypes, BoundPattern[] elems, int elemCount, Span span) { this.Span = span;
         this.TypeName = typeName; this.Type = type; this.FieldNames = fieldNames; this.FieldTypes = fieldTypes; this.Elems = elems; this.ElemCount = elemCount;
     }
+    public override R Accept<R, D>(IBoundPatternVisitor<R, D> v, D d) { return v.VisitPositionalPattern(this, d); }
     public override string Dump() {
         string s = "(pos " + this.TypeName;
         int i = 0;
@@ -79,6 +85,7 @@ public sealed class BoundPropertyPattern : BoundPattern {
     public BoundPropertyPattern(bool hasType, string typeName, Z42Type type, string[] fieldNames, Z42Type[] fieldTypes, BoundPattern[] pats, int fieldCount, Span span) { this.Span = span;
         this.HasType = hasType; this.TypeName = typeName; this.Type = type; this.FieldNames = fieldNames; this.FieldTypes = fieldTypes; this.Pats = pats; this.FieldCount = fieldCount;
     }
+    public override R Accept<R, D>(IBoundPatternVisitor<R, D> v, D d) { return v.VisitPropertyPattern(this, d); }
     public override string Dump() {
         string s = "(prop";
         if (this.HasType) { s = s + " " + this.TypeName; }
@@ -101,6 +108,7 @@ public sealed class BoundOrPattern : BoundPattern {
     public BoundOrPattern(BoundPattern[] alts, int count, string[] bindNames, Z42Type[] bindTypes, int bindCount, Span span) { this.Span = span;
         this.Alts = alts; this.Count = count; this.BindNames = bindNames; this.BindTypes = bindTypes; this.BindCount = bindCount;
     }
+    public override R Accept<R, D>(IBoundPatternVisitor<R, D> v, D d) { return v.VisitOrPattern(this, d); }
     public override string Dump() {
         string s = "(or";
         int i = 0;
@@ -119,6 +127,7 @@ public sealed class BoundAtPattern : BoundPattern {
     public BoundAtPattern(string name, Z42Type type, BoundPattern sub, Span span) { this.Span = span; this.Name = name; this.Type = type; this.Sub = sub;
         this.TypeName = ""; this.Narrowed = false;
     }
+    public override R Accept<R, D>(IBoundPatternVisitor<R, D> v, D d) { return v.VisitAtPattern(this, d); }
     public override string Dump() { return "(at " + this.Name + " " + this.Sub.Dump() + ")"; }
 }
 
@@ -127,6 +136,7 @@ public sealed class BoundRangePattern : BoundPattern {
     public BoundExpr Lo;
     public BoundExpr Hi;
     public BoundRangePattern(BoundExpr lo, BoundExpr hi, Span span) { this.Span = span; this.Lo = lo; this.Hi = hi; }
+    public override R Accept<R, D>(IBoundPatternVisitor<R, D> v, D d) { return v.VisitRangePattern(this, d); }
     public override string Dump() { return "(range " + this.Lo.Dump() + " ..= " + this.Hi.Dump() + ")"; }
 }
 
@@ -135,5 +145,6 @@ public sealed class BoundRelationalPattern : BoundPattern {
     public int       Op;
     public BoundExpr Value;
     public BoundRelationalPattern(int op, BoundExpr value, Span span) { this.Span = span; this.Op = op; this.Value = value; }
+    public override R Accept<R, D>(IBoundPatternVisitor<R, D> v, D d) { return v.VisitRelationalPattern(this, d); }
     public override string Dump() { return "(rel " + this.Op.ToString() + " " + this.Value.Dump() + ")"; }
 }
