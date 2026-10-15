@@ -21,23 +21,10 @@ public sealed class DocItem {
         this.Line = line; this.Vis = vis; this.Doc = doc; this.Pkg = ""; this.File = "";
     }
 
-    // 摘要 = 首段（遇空行或首个 `@tag` 行即止），多行合成一行。
+    // 摘要 = 首段（遇空行或首个 `@tag` 行即止），多行合成一行。逻辑在 DocParser.Summary，这里只转发。
     public string Summary() { return DocItem.SummaryOf(this.Doc); }
 
-    public static string SummaryOf(string doc) {
-        if (doc.Length == 0) { return ""; }
-        string[] lines = doc.Split("\n");
-        string s = "";
-        int i = 0;
-        while (i < lines.Length) {
-            string t = lines[i].Trim();
-            if (t.Length == 0 || t.StartsWith("@")) { break; }
-            if (s.Length > 0) { s = s + " "; }
-            s = s + t;
-            i = i + 1;
-        }
-        return s;
-    }
+    public static string SummaryOf(string doc) { return DocParser.Summary(doc); }
 
     // 不带参数表的限定名（`Ns.Type.Method`），名字匹配用。
     public string QualifiedName() {

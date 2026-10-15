@@ -1,0 +1,246 @@
+// doc 注释解析：把挂到声明上的 doc 原文解析成结构化模型（摘要 / 正文 / tag / 链接 / 示例）。
+// 只做文本解析：正文 Markdown 原样保留；链接是否可解析、@param 名是否存在、异常类型是否合法，
+// 由语义层的 DocChecker 报 W08xx，不在这里处理。`z42 doc` 的正文与 tag 展示、mdbook 渲染都从
+// 这个模型取，不再各自手解析。
+namespace Z42.Doc;
+
+// 一条单行 tag（@param / @typeparam / @returns / @throws / @see / @warning / @hidden）。
+// @hidden 不落 Tags，只在 DocComment.Hidden 置位；@example 是多行块，单独进 Examples。
+public sealed class DocTag {
+    public string Tag;    // param / typeparam / returns / throws / see / warning；未知 tag 原样小写
+    public string Name;   // 第一段（@param 名 / @typeparam 名 / @throws 类型）；其余 ""
+    public string Text;   // 说明 / when / 链接目标；@returns / @see / @warning 里就是全部文本
+    public DocTag(string tag, string name, string text) { this.Tag = tag; this.Name = name; this.Text = text; }
+}
+
+// 一个 @example 块：合成 doctest 用的代码 + 运行模式。
+public sealed class DocExample {
+    public string Mode;   // run（默认）/ no_run / compile_fail / ignore
+    public string Code;   // 去掉公共缩进后的代码，行间以 \n 连接
+    public DocExample(string mode, string code) { this.Mode = mode; this.Code = code; }
+}
+
+// doc 注释的结构化模型：`z42 doc` 与 mdbook 渲染的唯一输入，来源只认 DocParser。
+public sealed class DocComment {
+    public string Summary;       // 首段，多行合成一行
+    public string Body;          // 摘要之后、tag 区之前的正文，Markdown 原样（无首尾空行）
+    public DocTag[] Tags;        // 单行 tag，按源码顺序（不含 @example / @hidden）
+    public DocExample[] Examples;
+    public string[] Links;       // [`Sym`] 链接目标（摘要与正文里出现过的，按出现顺序，可重复）
+    public bool Hidden;          // @hidden
+
+    public DocComment() {
+        this.Summary = ""; this.Body = "";
+        this.Tags = new DocTag[0]; this.Examples = new DocExample[0]; this.Links = new string[0];
+        this.Hidden = false;
+    }
+}
+
+public static class DocParser {
+    // 摘要 = 首段（遇空行或首个 @ 行即止），多行合成一行。DocItem.Summary 也走这里，保持一份实现。
+    public static string Summary(string doc) {
+        if (doc.Length == 0) { return ""; }
+        string[] lines = doc.Split("\n");
+        string s = "";
+        int i = 0;
+        while (i < lines.Length) {
+            string t = lines[i].Trim();
+            if (t.Length == 0 || t.StartsWith("@")) { break; }
+            if (s.Length > 0) { s = s + " "; }
+            s = s + t;
+            i = i + 1;
+        }
+        return s;
+    }
+
+    public static DocComment Parse(string doc) {
+        DocComment c = new DocComment();
+        if (doc.Length == 0) { return c; }
+        string[] lines = doc.Split("\n");
+
+        // 摘要：首段，遇空行或 @ 行即止。
+        int sumEnd = 0;
+        while (sumEnd < lines.Length) {
+            string t = lines[sumEnd].Trim();
+            if (t.Length == 0 || t.StartsWith("@")) { break; }
+            sumEnd = sumEnd + 1;
+        }
+        c.Summary = DocParser._joinLines(lines, 0, sumEnd, " ");
+
+        // 正文：摘要之后、tag 区之前的原文（保留段落与缩进），去掉首尾空行。
+        int tagStart = sumEnd;
+        while (tagStart < lines.Length && !lines[tagStart].Trim().StartsWith("@")) { tagStart = tagStart + 1; }
+        c.Body = DocParser._rawJoin(lines, sumEnd, tagStart).Trim();
+
+        // 链接：只从摘要与正文里抽 [`Sym`]（@see 里的目标在 tag.Text 原样保留，语义层再校验）。
+        c.Links = DocParser._links(c.Summary + "\n" + c.Body);
+
+        // tag 区：一次扫描。@example 收进 Examples，@hidden 置位，其余收进 Tags。
+        DocTag[] tags = new DocTag[4];
+        int tn = 0;
+        DocExample[] exs = new DocExample[2];
+        int en = 0;
+        int j = tagStart;
+        while (j < lines.Length) {
+            string t = lines[j].Trim();
+            if (!t.StartsWith("@")) { j = j + 1; continue; }   // 续行（缩进 ≥2）暂不并入上一条
+            string header = t.Substring(1);
+            string word = DocParser._word(header);
+            string tag = word.ToLower();
+            string rest = header.Substring(word.Length).Trim();
+            if (tag == "example") {
+                string mode = DocParser._word(rest);
+                if (mode.Length == 0) { mode = "run"; }
+                j = j + 1;
+                string[] cb = new string[8];
+                int cn = 0;
+                while (j < lines.Length && !lines[j].Trim().StartsWith("@")) {
+                    cb = DocParser._pushS(cb, cn, lines[j]); cn = cn + 1;
+                    j = j + 1;
+                }
+                string code = DocParser._dedent(DocParser._trimS(cb, cn));
+                exs = DocParser._pushEx(exs, en, new DocExample(mode, code)); en = en + 1;
+                continue;
+            }
+            if (tag == "hidden") { c.Hidden = true; j = j + 1; continue; }
+            string name = "";
+            string text = rest;
+            if (tag == "param" || tag == "typeparam" || tag == "throws") {
+                name = DocParser._word(rest);
+                text = rest.Substring(name.Length).Trim();
+            }
+            // 续行（缩进 ≥2 空格、非 @ 行）并入本条 tag 的文本，用空格连接。@example 已单独吞掉代码，
+            // 不会走到这里。
+            j = j + 1;
+            while (j < lines.Length && !lines[j].Trim().StartsWith("@")) {
+                string cl = lines[j].Trim();
+                if (cl.Length > 0) {
+                    if (text.Length > 0) { text = text + " "; }
+                    text = text + cl;
+                }
+                j = j + 1;
+            }
+            tags = DocParser._pushTag(tags, tn, new DocTag(tag, name, text)); tn = tn + 1;
+        }
+        c.Tags = DocParser._trimTag(tags, tn);
+        c.Examples = DocParser._trimEx(exs, en);
+        return c;
+    }
+
+    // ── 文本小工具 ──
+
+    // lines[from, to) 每行 Trim 后按 sep 连接（摘要用空格，正文不进这里）。
+    private static string _joinLines(string[] lines, int from, int to, string sep) {
+        string s = "";
+        int i = from;
+        while (i < to) {
+            if (s.Length > 0) { s = s + sep; }
+            s = s + lines[i].Trim();
+            i = i + 1;
+        }
+        return s;
+    }
+
+    // lines[from, to) 原文按 \n 连接（正文保留空行与缩进）。
+    private static string _rawJoin(string[] lines, int from, int to) {
+        string s = "";
+        int i = from;
+        while (i < to) {
+            if (s.Length > 0) { s = s + "\n"; }
+            s = s + lines[i];
+            i = i + 1;
+        }
+        return s;
+    }
+
+    // 第一个空白分隔的词（入参须已去前导空白）。
+    private static string _word(string s) {
+        int i = 0;
+        while (i < s.Length && s.CharAt(i) != ' ' && s.CharAt(i) != '\t') { i = i + 1; }
+        return s.Substring(0, i);
+    }
+
+    // 去掉一组代码行的公共前导空格（只按非空行算），并去掉首尾空行。
+    private static string _dedent(string[] block) {
+        int min = 1000000;
+        int i = 0;
+        while (i < block.Length) {
+            if (block[i].Trim().Length > 0) {
+                int s = 0;
+                while (s < block[i].Length && block[i].CharAt(s) == ' ') { s = s + 1; }
+                if (s < min) { min = s; }
+            }
+            i = i + 1;
+        }
+        if (min == 1000000) { min = 0; }
+        string result = "";
+        i = 0;
+        while (i < block.Length) {
+            string t = block[i];
+            if (t.Length >= min) { t = t.Substring(min); }
+            if (result.Length > 0) { result = result + "\n"; }
+            result = result + t;
+            i = i + 1;
+        }
+        return result.Trim();
+    }
+
+    // 从文本里抽 [`Sym`] 链接目标。
+    private static string[] _links(string text) {
+        string[] acc = new string[4];
+        int n = 0;
+        int i = 0;
+        while (i < text.Length) {
+            int open = text.Substring(i).IndexOf("[`");
+            if (open < 0) { break; }
+            int ro = i + open;
+            int close = text.Substring(ro + 2).IndexOf("`]");
+            if (close < 0) { break; }
+            string sym = text.Substring(ro + 2, close);
+            if (sym.Length > 0) { acc = DocParser._pushS(acc, n, sym); n = n + 1; }
+            i = ro + 2 + close + 2;
+        }
+        return DocParser._trimS(acc, n);
+    }
+
+    // ── 增长数组 ──
+
+    private static string[] _pushS(string[] a, int n, string v) {
+        string[] b = a;
+        if (n == a.Length) { b = new string[a.Length * 2]; Array.Copy(a, b, n); }
+        b[n] = v;
+        return b;
+    }
+
+    private static string[] _trimS(string[] a, int n) {
+        string[] r = new string[n];
+        Array.Copy(a, r, n);
+        return r;
+    }
+
+    private static DocTag[] _pushTag(DocTag[] a, int n, DocTag v) {
+        DocTag[] b = a;
+        if (n == a.Length) { b = new DocTag[a.Length * 2]; Array.Copy(a, b, n); }
+        b[n] = v;
+        return b;
+    }
+
+    private static DocTag[] _trimTag(DocTag[] a, int n) {
+        DocTag[] r = new DocTag[n];
+        Array.Copy(a, r, n);
+        return r;
+    }
+
+    private static DocExample[] _pushEx(DocExample[] a, int n, DocExample v) {
+        DocExample[] b = a;
+        if (n == a.Length) { b = new DocExample[a.Length * 2]; Array.Copy(a, b, n); }
+        b[n] = v;
+        return b;
+    }
+
+    private static DocExample[] _trimEx(DocExample[] a, int n) {
+        DocExample[] r = new DocExample[n];
+        Array.Copy(a, r, n);
+        return r;
+    }
+}

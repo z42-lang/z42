@@ -1,6 +1,6 @@
 # doc 注释
 
-> 代码：`src/compiler/z42c.syntax/src/DocBlock.z42`（收集与挂靠）、`src/compiler/z42.doc/src/`（`z42 doc` 查询）
+> 代码：`src/compiler/z42c.syntax/src/DocBlock.z42`（收集与挂靠）、`src/compiler/z42.doc/src/DocParser.z42`（标记解析）、`src/compiler/z42.doc/src/`（`z42 doc` 查询）
 
 doc 注释是写给 API **调用者**的说明：它挂在声明上，`z42 doc` 按名字查到的就是它。写给维护者的实现笔记
 用普通注释 `//`。
@@ -44,12 +44,41 @@ public class Circle {
 ## 摘要
 
 doc 的**第一段**（到第一个空行，或第一个以 `@` 开头的行为止）是摘要，用在 `z42 doc` 的成员轮廓与搜索结果里。
-写成一句话。
+写成一句话。摘要之后、tag 区之前是正文（Markdown）。
+
+## 标记（tag）
+
+tag 区从第一个行首 `@` 开始，每个 tag 独占一行，续行缩进 ≥2 个空格。tag 是闭集，只有下面 8 个：
+
+| tag | 写法 | 写什么 |
+|---|---|---|
+| `@param` | `@param 名 说明` | 签名表达不了的形参说明：取值范围、单位、所有权、边界行为 |
+| `@typeparam` | `@typeparam T 说明` | 类型参数的约束与语义 |
+| `@returns` | `@returns 说明` | 返回值说明 |
+| `@throws` | `@throws 类型 何时` | 抛出的异常类型与触发条件 |
+| `@see` | `@see [`符号`]` | 关联符号 |
+| `@warning` | `@warning 说明` | 醒目提示（线程安全、非 CSPRNG 之类） |
+| `@example` | `@example [run\|no_run\|compile_fail\|ignore]`，下一行起缩进 4 格写代码 | 示例；同时是 doctest（`z42 test --doc`） |
+| `@hidden` | `@hidden` | public 但不进文档（跨包用的内部入口） |
+
+全部 tag 都可选。只为签名表达不了的东西写，不为每个参数都补 `@param`。写了就会校验：`@param` 名必须是
+真实形参、`@throws` 类型与符号链接必须能解析、未知 tag 报错（W08xx，见下）。
+
+```z42
+/// 返回 `[min, max)` 内的整数。
+///
+/// 用取模映射，不做 rejection sampling。
+/// @param min 下界（含）
+/// @param max 上界（不含）
+/// @throws ArgumentException `max <= min`
+public int NextIntRange(int min, int max) { ... }
+```
 
 ## 不支持
 
 - `/** */` 块形式的 doc 注释。
-- `@param` / `@throws` 等标记目前原样显示，不做解析和校验；符号链接 ``[`Sym`]`` 也不解析。
+- 标记与链接目前**解析但不校验**：`@param` 名是否存在、`@throws` 类型与 ``[`Sym`]`` 链接能否解析、
+  `@example` 是否可编译运行（doctest）都还没接上。
 
 ## 关联页面
 
