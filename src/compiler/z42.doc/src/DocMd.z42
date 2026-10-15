@@ -58,6 +58,16 @@ public static class DocMd {
         return "";
     }
 
+    // 包是否写了 `//!`（命名空间概述）：迁移完成的信号，`xtask doc gen` 据此决定生成还是保留手写页。
+    public static bool HasNamespaceDoc(DocIndex ix) {
+        int i = 0;
+        while (i < ix.Count()) {
+            if (ix.At(i).Kind == DocKind.Namespace && ix.At(i).Doc.Length > 0) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+
     // 没有 `//!` 时，从第一个顶层成员的 Parent 反推命名空间 Id。
     private static string _inferNamespace(DocIndex ix) {
         int i = 0;

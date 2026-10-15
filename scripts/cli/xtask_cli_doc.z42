@@ -1,0 +1,17 @@
+// xtask CLI — `doc` 命令族：reference stdlib 包页的生成与漂移门禁。
+namespace Z42Xtask;
+
+using Std.Cli;
+
+SubcommandRouter _docRouter() {
+    SubcommandRouter d = new SubcommandRouter("xtask doc", "generate reference stdlib pages from doc comments");
+    d.Add("gen", "regenerate reference stdlib pages (only packages with a //! doc)",
+        new ArgParser("xtask doc gen", "regenerate reference stdlib pages from source doc comments"));
+    return d;
+}
+
+int _dispatchDoc(string[] p, ParseResult r) {
+    string sub = p.Length > 1 ? p[1] : "";
+    if (sub == "gen") { return _docGen(); }
+    return 2;
+}
