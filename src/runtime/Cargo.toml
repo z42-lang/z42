@@ -14,7 +14,7 @@ default-members = [".", "crates/z42-compression"]
 
 [workspace.package]
 # mirror of versions.toml [project].version — drift enforced by `xtask check versions`
-version = "0.6.0"
+version = "0.7.0"
 
 [package]
 name = "z42"
