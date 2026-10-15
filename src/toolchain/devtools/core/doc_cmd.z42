@@ -9,13 +9,7 @@ using Z42.Project;   // UserCache
 
 public static class DocCommand {
     public static int Run(ParseResult pr) {
-        DocQueryOptions o = new DocQueryOptions();
-        o.Query   = pr.GetPositional(0);
-        o.Search  = pr.GetOption("search");
-        o.Members = pr.GetFlag("members");
-        o.Json    = pr.GetFlag("json");
-        o.Private = pr.GetFlag("private");
-        o.Pkg     = pr.GetOption("pkg");
+        string format = pr.GetOption("format");
         string root = pr.GetOption("root");
         if (root.Length == 0) { root = SourceTree.FindRoot(Environment.GetCurrentDirectory()); }
         else if (!Path.IsRooted(root)) { root = Path.Normalize(Path.Join(Environment.GetCurrentDirectory(), root)); }
@@ -23,12 +17,43 @@ public static class DocCommand {
             ConsoleError.WriteLine("z42 doc: --root is not a directory: " + root);
             return 2;
         }
-        o.Root = root;
+        if (format.Length > 0) { return DocCommand._generate(pr, root, format); }
+
+        DocQueryOptions o = new DocQueryOptions();
+        o.Query   = pr.GetPositional(0);
+        o.Search  = pr.GetOption("search");
+        o.Members = pr.GetFlag("members");
+        o.Json    = pr.GetFlag("json");
+        o.Private = pr.GetFlag("private");
+        o.Pkg     = pr.GetOption("pkg");
+        o.Root    = root;
         o.CachePath = DocCommand._cachePath(root);
         DocQueryResult r = DocQuery.Run(o);
         if (r.Out.Length > 0) { Console.Write(r.Out); }
         if (r.Err.Length > 0) { ConsoleError.WriteLine(r.Err); }
         return r.Exit;
+    }
+
+    // 生成模式：`--format mdbook --out <dir> --pkg <name>` 渲染一个包的 reference 页。
+    private static int _generate(ParseResult pr, string root, string format) {
+        string outDir = pr.GetOption("out");
+        string pkg = pr.GetOption("pkg");
+        if (format != "mdbook") {
+            ConsoleError.WriteLine("z42 doc: unknown --format `" + format + "` (only `mdbook`)");
+            return 2;
+        }
+        if (outDir.Length == 0) { ConsoleError.WriteLine("z42 doc: --format mdbook needs --out <dir>"); return 2; }
+        if (pkg.Length == 0) { ConsoleError.WriteLine("z42 doc: --format mdbook needs --pkg <name>"); return 2; }
+        if (!Directory.Exists(outDir)) { Directory.Create(outDir); }
+        DocIndex ix = DocQuery.BuildIndex(root, pkg, "");   // 生成不写共享缓存
+        if (ix.Count() == 0) {
+            ConsoleError.WriteLine("z42 doc: no symbols in package `" + pkg + "`");
+            return 1;
+        }
+        string page = DocMd.PackagePage(pkg, DocMd.PkgDir(ix), ix);
+        File.WriteAllText(Path.Join(outDir, pkg + ".md"), page);
+        Console.WriteLine("wrote " + Path.Join(outDir, pkg + ".md"));
+        return 0;
     }
 
     // `<用户缓存根>/doc/<根路径的 key>.idx`；取不到缓存根就不缓存。
