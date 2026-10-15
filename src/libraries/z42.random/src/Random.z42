@@ -1,54 +1,64 @@
+//! 确定性伪随机数：给同一个 seed 得到同一串数。
+//!
+//! 适合测试 fixture、模拟、洗牌、临时 ID、UI 抖动。
+//!
+//! ## 不支持
+//!
+//! - 没有从 OS 熵源取 seed 的入口：`Random()` 只能拿墙钟毫秒，可被猜测。需要强 seed 请直接用
+//!   [`Std.Crypto.SecureRandom`]，不要给 `Random` 喂熵。
+//! - 没有 `SampleLong`：`Shuffle` 有 `Int` / `Long` / `String` 三个版本，`Sample` 只有 `Int` / `String`。
+//! - 没有泛型 / 对象数组版本：`Shuffle` 与 `Sample` 只接受这三种元素类型的数组，`T[]` / `object[]` 不支持。
+//! - 没有状态的保存与恢复：内部状态不可读写，无法在两次运行之间续跑同一条序列（只能记住 seed 加抽取次数重放）。
+//! - 没有 `NextBytes(byte[])`：要随机字节请自己从 `NextInt()` 拆，或用 [`Std.Crypto.SecureRandom.GetBytes`]。
+//! - 分布只有正态与指数：泊松 / 二项 / 伽马等未提供。
+//! - 不做线程同步：并发调用同一实例会撕裂内部状态，结果无定义。
+//!
+//! @warning **不是 CSPRNG。** 输出可预测——观察到少量输出即可反推内部状态。session token、CSRF nonce、
+//! 密钥、盐、密码等任何「不可预测性」有安全含义的场景，一律用 [`Std.Crypto.SecureRandom`]。
+//! @warning **非线程安全。** 一个 `Random` 实例不能被多个线程共用。多线程请每线程一个实例，并用不同的
+//! `streamId` 保证序列互不重叠。
 namespace Std.Random;
 using Std.Time;
 
-// add-z42-random (2026-05-15)：通用伪随机数（PCG-XSH-RR 64→32 输出）。
-//
-// **不是 CSPRNG**：仅作 deterministic 测试 / fixture / 临时 ID 用。
-// 安全场景请等 z42.crypto。
-//
-// 算法：PCG (Permuted Congruential Generator) — 状态 64-bit，
-// 输出 32-bit by xor-shift-high + rotate-right。Wikipedia / pcg-random.org
-// 参考实现等价。
+/// PCG-XSH-RR 伪随机数发生器。
 public class Random {
     private long _state;
 
-    // extend-z42-random (2026-06-03): per-instance increment for PCG
-    // stream selection. Must be odd. Default 1442695040888963407 | 1
-    // matches the historical hard-coded value, so a `Random(seed)`
-    // built before this spec produces the same sequence.
+    // PCG 增量必须是奇数（`| 1`）。默认值 1442695040888963407 | 1 与历史硬编码一致，
+    // 保证 `Random(seed)` 与旧代码产生同一序列。
     private long _inc;
 
+    /// 用墙钟时间作 seed。每次运行结果不同，**不可复现**。
     public Random() {
         // wall-clock seed — 同 C# new Random() default behaviour。
         long ms = DateTime.UtcNow().UnixMs();
         this.Init(ms, 1442695040888963407 | 1);
     }
 
+    /// 固定 seed：相同 seed ⇒ 逐位相同的序列。
     public Random(long seed) {
         this.Init(seed, 1442695040888963407 | 1);
     }
 
-    /// extend-z42-random (2026-06-03): pick an independent PCG stream.
-    /// `streamId | 1` becomes the per-instance increment. Two
-    /// instances with the same seed but different streamId produce
-    /// strictly disjoint sequences (PCG correctness guarantee).
+    /// 固定 seed 并选一条独立的流。
+    ///
+    /// seed 相同、`streamId` 不同的两个实例，产生的序列互不重叠。
+    /// @param streamId 内部取 `streamId | 1` 作为 PCG 增量
     public Random(long seed, long streamId) {
         this.Init(seed, streamId | 1);
     }
 
+    // PCG 种子步：状态从 0 开始，增量 + 步进一次，混入用户 seed。等价于 pcg32_srandom_r(rng, seed, seq)。
     private void Init(long seed, long inc) {
         this._inc = inc;
-        // PCG seed step: state starts as 0, increment + step once with the
-        // user seed mixed in. Equivalent to pcg32_srandom_r(rng, seed, seq).
         this._state = 0;
         this.Step();
         this._state = this._state + seed;
         this.Step();
     }
 
-    /// One PCG round: state advances; return 32-bit output (masked into low
-    /// bits of a `long` since z42 has no `uint`). The full XSH-RR output
-    /// fits in 32 bits but we keep it in i64 storage to make masking explicit.
+    // 一轮 PCG：状态前进，返回 32 位输出（掩码到 long 的低位，因为 z42 没有 uint）。
+    // XSH-RR 输出本身只有 32 位，但为了把掩码写清楚，存在 i64 里。
     private long Step() {
         long oldState = this._state;
         // Multiplier from L'Ecuyer 1999 (PCG paper constant).
@@ -71,14 +81,14 @@ public class Random {
         return result;
     }
 
-    /// Full 64-bit random. Composed from two 32-bit steps.
+    /// 返回整个 i64 范围（含负数）的随机数。
     public long NextLong() {
         long high = this.Step();
         long low  = this.Step();
         return (high << 32) | low;
     }
 
-    /// Random 32-bit int (returned as z42 i32; high bit may be set → negative).
+    /// 返回整个 i32 范围（含负数）的随机数。
     public int NextInt() {
         long raw32 = this.Step();
         long signBit = 2147483648;        // 0x80000000
@@ -90,7 +100,10 @@ public class Random {
         return (int)raw32;
     }
 
-    /// Uniformly distributed long in [min, max). Throws if max <= min.
+    /// 返回 `[min, max)` 内的整数。
+    ///
+    /// 用取模映射，不做 rejection sampling：span 不整除 2⁶³ 时存在微小偏差。
+    /// @throws ArgumentException `max <= min`
     public long NextLongRange(long min, long max) {
         if (max <= min) {
             throw new ArgumentException("NextLongRange: max must be > min");
@@ -103,7 +116,12 @@ public class Random {
         return min + (raw % span);
     }
 
-    /// Uniformly distributed int in [min, max). Throws if max <= min.
+    /// 返回 `[min, max)` 内的整数。
+    ///
+    /// 用取模映射，不做 rejection sampling：span 不整除 2³² 时存在微小偏差。
+    /// @throws ArgumentException `max <= min`
+    /// @example
+    ///     new Random(42).NextIntRange(5, 6)    // => 5
     public int NextIntRange(int min, int max) {
         if (max <= min) {
             throw new ArgumentException("NextIntRange: max must be > min");
@@ -114,7 +132,7 @@ public class Random {
         return min + (int)(raw % (long)span);
     }
 
-    /// Uniformly distributed double in [0.0, 1.0).
+    /// 返回 `[0.0, 1.0)` 内的随机数，取 53 位尾数精度。
     public double NextDouble() {
         // Use top 53 bits (double mantissa width) for full precision.
         // shift right 11 to drop low bits AND clear sign — but `>>` in z42
@@ -125,22 +143,15 @@ public class Random {
         return (double)unsigned53 / 9007199254740992.0;     // 1 / 2^53
     }
 
-    /// Coin flip — true with probability 0.5.
+    /// 各 1/2 概率返回 true。
     public bool NextBool() {
         return (this.Step() & 1) == 1;
     }
 
-    // add-random-shuffle-sample (2026-05-27): collection helpers.
-    //
-    // `Shuffle` is in-place Fisher–Yates. `Sample` reservoir-style — picks
-    // `k` items without replacement. For sequences whose length is unknown
-    // ahead of time the standard reservoir algorithm; here we know
-    // `arr.Length` so we use partial Fisher–Yates (O(k) swaps) which is
-    // simpler + still uniform.
+    // `Shuffle` 是原地 Fisher–Yates。`Sample` 用 partial Fisher–Yates（O(k) 次交换）：
+    // 长度已知时比标准 reservoir 更简单，且同样均匀。
 
-    /// In-place Fisher–Yates shuffle. Mutates `arr`. Empty / single-element
-    /// arrays are no-ops. Distribution is uniform over the n! permutations
-    /// (modulo the PCG output's modulo bias — negligible for n < 2^32).
+    /// 原地 Fisher–Yates 洗牌。长度 0 / 1 是 no-op。
     public void ShuffleInt(int[] arr) {
         int n = arr.Length;
         int i = n - 1;
@@ -153,6 +164,7 @@ public class Random {
         }
     }
 
+    /// 原地 Fisher–Yates 洗牌。长度 0 / 1 是 no-op。
     public void ShuffleLong(long[] arr) {
         int n = arr.Length;
         int i = n - 1;
@@ -165,6 +177,7 @@ public class Random {
         }
     }
 
+    /// 原地 Fisher–Yates 洗牌。长度 0 / 1 是 no-op。
     public void ShuffleString(string[] arr) {
         int n = arr.Length;
         int i = n - 1;
@@ -177,9 +190,8 @@ public class Random {
         }
     }
 
-    /// Sample `k` distinct elements from `arr` (without replacement).
-    /// Throws if `k > arr.Length` or `k < 0`. Order in result is shuffle
-    /// order (i.e., uniformly random); `arr` is not mutated.
+    /// 不放回抽 `k` 个，不改动 `arr`，返回新数组。结果本身已是随机顺序。
+    /// @throws ArgumentException `k < 0` 或 `k > arr.Length`
     public int[] SampleInt(int[] arr, int k) {
         if (k < 0) throw new ArgumentException("SampleInt: k must be >= 0");
         if (k > arr.Length) throw new ArgumentException("SampleInt: k > arr.Length");
@@ -204,6 +216,8 @@ public class Random {
         return result;
     }
 
+    /// 不放回抽 `k` 个，不改动 `arr`，返回新数组。结果本身已是随机顺序。
+    /// @throws ArgumentException `k < 0` 或 `k > arr.Length`
     public string[] SampleString(string[] arr, int k) {
         if (k < 0) throw new ArgumentException("SampleString: k must be >= 0");
         if (k > arr.Length) throw new ArgumentException("SampleString: k > arr.Length");
@@ -225,12 +239,7 @@ public class Random {
         return result;
     }
 
-    // ── Distributions (extend-z42-random, 2026-06-03) ────────────────
-
-    /// Normal / Gaussian sample via Box-Muller. Two uniform draws
-    /// → one normal draw with the requested mean + standard deviation.
-    /// The second normal draw from the same pair is discarded; for
-    /// hot loops a future spec could cache it (`_gaussianPaired`).
+    /// 正态分布采样（Box–Muller）。一对均匀数只产出一个正态数。
     public double NextGaussian(double mean, double stddev) {
         double u = this.NextDouble();
         // Avoid log(0) — re-draw the rare zero (open-interval semantics).
@@ -241,9 +250,8 @@ public class Random {
         return mean + stddev * z;
     }
 
-    /// Exponential sample via inverse CDF. `lambda` is the rate
-    /// parameter (`mean == 1 / lambda`). Throws `ArgumentException`
-    /// for `lambda <= 0`.
+    /// 指数分布采样，`lambda` 是速率参数（均值 = `1 / lambda`）。
+    /// @throws ArgumentException `lambda <= 0`
     public double NextExponential(double lambda) {
         if (lambda <= 0.0) {
             throw new ArgumentException(

@@ -12,16 +12,7 @@ Deterministic 伪随机数生成器（PCG-XSH-RR 64→32 输出）。Seed 后输
 | `src/Random.z42` | `Std.Random.Random` 类，PCG-XSH-RR 实现 + range / double / bool helpers + `ShuffleInt/Long/String` / `SampleInt/String` 集合操作 + `NextGaussian` / `NextExponential` 分布 |
 
 ## 入口点
-- `Std.Random.Random()` — 用 wall-clock seed
-- `Std.Random.Random(long seed)` — 显式 seed（同 seed → 同序列）
-- `Std.Random.Random(long seed, long streamId)` — 同 seed 下选独立 PCG 流
-- `NextInt()` — i32 全范围
-- `NextLong()` — i64 全范围
-- `NextIntRange(int min, int max)` — `[min, max)`，max exclusive
-- `NextLongRange(long min, long max)` — `[min, max)`
-- `NextDouble()` — `[0.0, 1.0)`，53-bit 精度
-- `NextBool()` — 公平硬币
-- `NextGaussian(mean, stddev)` / `NextExponential(lambda)` — 正态 / 指数分布
+公开 API 的完整签名见 [reference 包页](../../../docs/reference/src/stdlib/random.md)（由源码 doc 注释生成）。
 
 ## 用法
 
