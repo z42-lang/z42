@@ -5,6 +5,7 @@ namespace Z42.Doc;
 public sealed class DocItem {
     // Doc ID：全工具链共用的符号身份。`Ns.Type`、`Ns.Type.Member`、`Ns.Type.Method(int,string)`、
     // `Ns.Type.ctor(long)`、`Ns.Type.this[int]`；嵌套类型用 `Outer+Inner`。语法级的参数类型按源码写法记。
+    // Rust 条目用 Rust 路径：`crate::module::Type::method`。
     public string Id;
     public string Kind;     // DocKind.*
     public string Name;     // 短名（ctor 记类型名）
@@ -26,7 +27,7 @@ public sealed class DocItem {
 
     public static string SummaryOf(string doc) { return DocParser.Summary(doc); }
 
-    // 不带参数表的限定名（`Ns.Type.Method`），名字匹配用。
+    // 不带参数表的限定名（`Ns.Type.Method`；Rust 条目本来就没有参数表），名字匹配用。
     public string QualifiedName() {
         int p = this.Id.IndexOf("(");
         int b = this.Id.IndexOf("[");
@@ -37,7 +38,12 @@ public sealed class DocItem {
 
     public bool IsType() {
         return this.Kind == DocKind.Class || this.Kind == DocKind.Struct || this.Kind == DocKind.Interface
-            || this.Kind == DocKind.Enum || this.Kind == DocKind.Delegate;
+            || this.Kind == DocKind.Enum || this.Kind == DocKind.Delegate || this.Kind == DocKind.Trait;
+    }
+
+    // 能列成员轮廓的条目：类型、命名空间与 Rust 模块。
+    public bool IsContainer() {
+        return this.IsType() || this.Kind == DocKind.Namespace || this.Kind == DocKind.Module;
     }
 }
 
@@ -56,4 +62,10 @@ public static class DocKind {
     public static string Property   = "property";
     public static string Indexer    = "indexer";
     public static string AssocType  = "type";
+    // Rust 条目（外部索引）另有的种类；struct / enum / enum-member / method / field / func / type 与上面共用。
+    public static string Trait      = "trait";
+    public static string Module     = "module";
+    public static string Const      = "const";
+    public static string Static     = "static";
+    public static string Macro      = "macro";
 }

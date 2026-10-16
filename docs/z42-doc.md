@@ -457,7 +457,7 @@ User 裁决：**先把机制全部做完（含测试与示例），最后统一�
 |---|---|---|
 | **P1 挂靠** | Lexer `DocBlock` 旁挂表、Parser 声明入口认领、`Decl.Doc` / `EnumMember.Doc` / `CompilationUnit.Doc`、`--dump-doc`；本文件写入裁决 | ✅ #1276 |
 | **P2a z42 索引与查询** | `z42.doc` 包（语法级索引、增量缓存、名字解析、输出）+ `z42d doc <Sym>` / `--members` / `--search` / `--private` / `--pkg` / `--json`；launcher 转发 `z42 doc`；示例工程；reference / internals / README 同步 | ✅ #1278 |
-| **P2b Rust 索引** | 基于 `syn` 的索引工具输出同一条目格式，`z42 doc` 一并查 Rust 符号 | 待做 |
+| **P2b Rust 索引** | `src/toolchain/devtools/rust-index`（syn）+ `xtask doc index` → `artifacts/doc/rust.idx`；`z42.doc` 的 `ExternalIndex` 并入、`::` 名字解析、模块 / trait 轮廓、过期提示 | 本 PR |
 | **P3 书引用检查** | `z42 doc --page` / `--docs`；`xtask check doc-refs`（§4.9）+ 基线；`internals/devinfra` 与 reference 工具链页记录用法 | 待做 |
 | **P4 模型与校验** | `z42.doc` 包（DocParser / DocId / Zdoc）、`DocChecker`、W0801～W0808、`LintConfig` 扩到内建 doc 规则、`[doc]` 表（两步）；reference `language/doc-comments.md` 与 agent 写法规则 | 🟡 进行中：DocParser（`@tag`/链接解析 + `DocComment` 模型 + `z42 doc` 结构化展示）已落地；DocId / Zdoc / DocChecker / W08xx / `[doc]` 表待做 |
 | **P5 产出与生成** | build 产出 `.zdoc`；SDK `[component.docs]`；mdbook 渲染器；`xtask doc gen`；`check docs-api`（按已迁移的包生效） | 🟡 进行中：mdbook 渲染器（`z42 doc --format mdbook`）+ `xtask doc gen` / `check docs-api` 已落地；`.zdoc` 产出与 SDK `[component.docs]` 待做 |

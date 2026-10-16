@@ -295,6 +295,9 @@ string _packagesDir(string root) { return Path.Join(_artifactsDir(root), "packag
 string _legacyReleaseDir(string root) { return Path.Join(_artifactsDir(root), "release"); }
 string _legacyArchivesDir(string root) { return Path.Join(_packagesDir(root), "archives"); }
 
+// artifacts/doc — `z42 doc` 的外部索引（`xtask doc index` 写的 rust.idx；`z42 doc` 在索引根的这个目录里找 *.idx）。
+string _docIndexDir(string root) { return Path.Join(_artifactsDir(root), "doc"); }
+
 // artifacts/reports — 给人与 CI 看的**结果**（不是构建产物，`clean all` 也不删）：一个桶、按种类分子目录。
 string _reportsDir(string root) { return Path.Join(_artifactsDir(root), "reports"); }
 
@@ -391,6 +394,8 @@ LayoutEntriesZ _layoutEntries(string root) {
     e.Add(sdk, sdk, 0, "dev SDK（package dev-sdk）", _devSdkDir(root));
     string pk = _layoutRel(root, _packagesDir(root), true);
     e.Add(pk, pk, 0, "组装好的发行包 + 发布归档（--archive）+ SHA256SUMS / release-index.json", _packagesDir(root));
+    string dx = _layoutRel(root, _docIndexDir(root), true);
+    e.Add(dx, dx, 0, "z42 doc 的外部索引（xtask doc index 写的 rust.idx）", _docIndexDir(root));
     string tl = _layoutRel(root, _toolsDir(root), true);
     e.Add(tl, tl, 0, "下载的第三方工具（node / android-sdk / playwright-browsers …）", _toolsDir(root));
     string rp = _layoutRel(root, _reportsDir(root), true);

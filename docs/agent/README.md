@@ -22,7 +22,8 @@
    读某目录的代码前必须先读它的 README（如果存在），再决定读哪些文件。
 3. **进书**：要理解机制、决策、在哪改 → internals 对应页（页头「代码」行回指源码）；
    要确认对外行为（语法、API、CLI、诊断）→ reference 对应页。
-4. **定位 z42 符号用 `z42 doc`，不 grep**：`z42 doc <名字>` 给签名、doc 与 `file:line`，`--members` 给类型轮廓，
+4. **定位符号用 `z42 doc`，不 grep**（z42 与 Rust 都行；Rust 先跑过 `xtask doc index`，过期它会提示）：
+   `z42 doc <名字>` 给签名、doc 与 `file:line`，`--members` 给类型 / 模块轮廓，
    `--search` 按名字与摘要找；拿到行号后按 offset/limit 只读那一段。仓库里跑种子 SDK 的 `.z42/z42 doc …`
    （要当前源码的版本：`xtask package dev-sdk` 后用 `artifacts/.z42/z42`）。用法见
    [`z42 doc`](../reference/src/toolchain/cli-z42.md)。

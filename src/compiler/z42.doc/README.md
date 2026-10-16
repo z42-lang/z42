@@ -2,7 +2,8 @@
 
 ## 职责
 `z42 doc` 的引擎：从源码的 doc 注释建符号索引，按名字查签名、文档与 `file:line`。命名空间 `Z42.Doc`。
-语法级索引只解析不做语义分析（含私有成员），按文件增量缓存。命令行与打印在 z42d（`src/toolchain/devtools`）。
+语法级索引只解析不做语义分析（含私有成员），按文件增量缓存；索引根下 `artifacts/doc/*.idx` 的外部条目（仓库里
+Rust 运行时的索引）一并并入。命令行与打印在 z42d（`src/toolchain/devtools`）。
 
 ## 功能索引
 | 功能 | 入口 |
@@ -15,10 +16,12 @@
 | 输出形态 | `DocFormat.Show` / `Outline` / `Candidates` / `SearchResults` / `Json` |
 | 索引根与源文件发现 | `SourceTree.FindRoot` / `Collect` |
 | 增量缓存 | `IndexCache.Build(root, files, cachePath)` |
+| 外部索引（Rust 运行时条目） | `ExternalIndex.LoadDir(root, <根>/artifacts/doc, pkg, ix)` |
 
 ## 如何测试验证
 ```bash
 ./xtask test stdlib z42.doc    # tests/index.z42（Doc ID / 签名 / 可见性 / 摘要）+ tests/query.z42（解析顺序 / 轮廓 / 缓存 / 示例工程）
+                               # + tests/external.z42（外部索引 / Rust 路径解析 / 过期提示）
 ```
 `tests/fixtures/sample/` 是示例工程：演示 doc 注释写法，也是端到端查询的夹具。
 
@@ -37,7 +40,8 @@
 | `src/DocIndex.z42` | 条目集合与查询：四级名字解析、成员、搜索 |
 | `src/DocFormat.z42` | 文本 / JSON 输出 |
 | `src/SourceTree.z42` | 索引根定位、源文件遍历、按最近的清单归包 |
-| `src/IndexCache.z42` | 增量缓存（按文件大小 + 修改时间失效） |
+| `src/IndexCache.z42` | 增量缓存（按文件大小 + 修改时间失效）；条目行读写（外部索引复用） |
+| `src/ExternalIndex.z42` | 读 `artifacts/doc/*.idx`（Rust 运行时条目，`xtask doc index` 产出）并检查过期 |
 | `src/DocQuery.z42` | 查询编排 |
 
 ## 依赖关系

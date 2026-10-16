@@ -429,6 +429,8 @@ class Sample.Shapes.Circle    src/Shapes/Shape.z42:13
 
 **索引范围**：索引根下全部 `.z42` 源文件，跳过隐藏目录与 `artifacts` `target` `node_modules` `tests` `benches`
 `examples` `fixtures`。索引按文件缓存在用户缓存目录（`Z42_CACHE_DIR` 可覆盖）的 `doc/` 下，只重新解析改过的文件。
+索引根下 `artifacts/doc/*.idx` 里的外部条目（例如别的工具为 Rust 代码产出的索引）一并可查；外部索引比它的源文件旧时，
+stderr 提示重建，查询照常进行。
 
 退出码：`0` 找到；`1` 没有匹配；`2` 用法错误（既没给名字也没给 `--search`，或 `--root` 不是目录）。
 
@@ -437,7 +439,7 @@ class Sample.Shapes.Circle    src/Shapes/Shape.z42:13
 参数表与异常条目，private 成员不进页。仓库内批量重生成由 `xtask doc gen` 驱动。
 
 **还不支持**：只看源码语法，参数类型按源码写法显示、不做全限定；没有继承来的文档；标记与链接只解析、
-不校验；不索引 Rust 运行时。
+不校验。
 
 ## `z42 publish [options] [<manifest>]`
 
