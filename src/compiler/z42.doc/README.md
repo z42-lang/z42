@@ -9,6 +9,8 @@
 |------|------|
 | 一次查询（选项 → 输出文本 + 退出码） | `DocQuery.Run(DocQueryOptions)` |
 | 源文件 → 条目 | `SyntaxIndexer.IndexSource(src, file)` |
+| doc 原文 → 结构化模型 | `DocParser.Parse(doc)` |
+| 包索引 → reference 包页 markdown | `DocMd.PackagePage(pkgName, pkgPath, ix)` |
 | 名字解析 / 成员 / 搜索 | `DocIndex.Find` / `Members` / `Search` |
 | 输出形态 | `DocFormat.Show` / `Outline` / `Candidates` / `SearchResults` / `Json` |
 | 索引根与源文件发现 | `SourceTree.FindRoot` / `Collect` |
@@ -28,6 +30,8 @@
 | 文件 | 职责 |
 |------|------|
 | `src/DocItem.z42` | 索引条目（Doc ID / 种类 / 签名 / 位置 / 可见性 / doc 原文）与 `DocKind` |
+| `src/DocParser.z42` | doc 原文 → `DocComment`（摘要 / 正文 / `@tag` / 链接 / 示例），`DocComment` / `DocTag` / `DocExample` 模型 |
+| `src/DocMd.z42` | 包索引 → reference 包页 markdown（页首 / 标题 / 签名总览块 / 成员参数表 / 异常 / 示例） |
 | `src/SyntaxIndexer.z42` | AST → 条目：Doc ID、默认可见性、impl 方法并入目标类型 |
 | `src/DocSig.z42` | 声明 → 单行签名（含默认值的源码写法） |
 | `src/DocIndex.z42` | 条目集合与查询：四级名字解析、成员、搜索 |

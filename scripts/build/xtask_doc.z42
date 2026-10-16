@@ -1,0 +1,62 @@
+// xtask — `doc gen` / `check docs-api`：用 z42.doc 的 DocMd 渲染器重新生成 reference/stdlib 包页，
+// 并与仓库内文件对账（漂移门禁）。只对写了 `//!` 的包（已迁移）生效，未迁移的包页保持手写。
+// z42.core / z42.io 的多页拆分归迁移期。
+namespace Z42Xtask;
+
+using Std.IO;
+using Z42.Doc;
+
+// 包名 → 页名：z42.<domain> → <domain>（z42.core 的多页拆分归迁移期，这里先当单页）。
+string _docPageName(string pkg) {
+    if (pkg.StartsWith("z42.")) { return pkg.Substring(4); }
+    return pkg;
+}
+
+// 生成全部已迁移包（写了 `//!`）的 reference 页到 docs/reference/src/stdlib/。返回写了几个。
+int _docGen() {
+    string root = _root();
+    string outDir = Path.Join(root, "docs/reference/src/stdlib");
+    string[] libs = _stdlibList(root);
+    int n = 0;
+    int i = 0;
+    while (i < libs.Length) {
+        string pkg = libs[i];
+        DocIndex ix = DocQuery.BuildIndex(root, pkg, "");
+        if (DocMd.HasNamespaceDoc(ix)) {
+            string page = DocMd.PackagePage(pkg, DocMd.PkgDir(ix), ix);
+            File.WriteAllText(Path.Join(outDir, _docPageName(pkg) + ".md"), page);
+            n = n + 1;
+        }
+        i = i + 1;
+    }
+    Console.WriteLine("doc gen: wrote " + n.ToString() + " package page(s)");
+    return 0;
+}
+
+// 漂移门禁：重新生成并与仓库内文件 diff，不一致即失败并提示 `xtask doc gen`。
+int _checkDocsApi() {
+    string root = _root();
+    string outDir = Path.Join(root, "docs/reference/src/stdlib");
+    string[] libs = _stdlibList(root);
+    string failed = "";
+    int i = 0;
+    while (i < libs.Length) {
+        string pkg = libs[i];
+        DocIndex ix = DocQuery.BuildIndex(root, pkg, "");
+        if (!DocMd.HasNamespaceDoc(ix)) { i = i + 1; continue; }
+        string page = DocMd.PackagePage(pkg, DocMd.PkgDir(ix), ix);
+        string path = Path.Join(outDir, _docPageName(pkg) + ".md");
+        string committed = File.Exists(path) ? File.ReadAllText(path) : "";
+        if (committed != page) {
+            if (failed.Length > 0) { failed = failed + ", "; }
+            failed = failed + _docPageName(pkg);
+        }
+        i = i + 1;
+    }
+    if (failed.Length > 0) {
+        ConsoleError.WriteLine("check docs-api: 生成的页面与仓库内文件不一致（" + failed + "）。运行 `xtask doc gen` 重新生成。");
+        return 1;
+    }
+    Console.WriteLine("check docs-api: ✓ 已迁移包的页面与源码一致");
+    return 0;
+}

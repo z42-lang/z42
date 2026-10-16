@@ -1,0 +1,92 @@
+// z42.doc DocMd 单测：reference 包页的 markdown 渲染（页首 / 标题 / 包路径 / //! 正文 / warning /
+// 类型签名总览块 / 成员参数表 / 异常 / 示例）。
+namespace Z42DocMdTests;
+
+using Z42.Doc;
+using Std.Harness;
+
+DocIndex _index(string src) {
+    DocIndex ix = new DocIndex();
+    ix.AddAll(SyntaxIndexer.IndexSource(src, "Random.z42"));
+    return ix;
+}
+
+[Test]
+void test_package_page_structure() {
+    DocIndex ix = _index(
+        "//! 伪随机数：给同一个 seed 得到同一串数。\n"
+        + "//!\n"
+        + "//! 适合测试 fixture。\n"
+        + "//! @warning 不是 CSPRNG\n"
+        + "namespace Std.Random;\n"
+        + "\n"
+        + "/// PCG 伪随机数发生器。\n"
+        + "public class Random {\n"
+        + "    /// 固定 seed。\n"
+        + "    /// @param seed 种子\n"
+        + "    public Random(long seed) { }\n"
+        + "\n"
+        + "    /// 返回 [min, max) 内的整数。\n"
+        + "    /// @param min 下界\n"
+        + "    /// @param max 上界\n"
+        + "    /// @throws ArgumentException `max <= min`\n"
+        + "    public int NextIntRange(int min, int max) { return min; }\n"
+        + "}\n");
+    string page = DocMd.PackagePage("z42.random", "src/libraries/z42.random", ix);
+
+    // 页首注释 + 标题 + 包路径行。
+    Assert.Contains("<!-- 由 z42 doc 生成，勿手改。源：src/libraries/z42.random/ -->", page);
+    Assert.Contains("# z42.random —— 伪随机数：给同一个 seed 得到同一串数。", page);
+    Assert.Contains("> 包路径 `src/libraries/z42.random/`；命名空间 `Std.Random`", page);
+    // //! 正文 + warning。
+    Assert.Contains("适合测试 fixture。", page);
+    Assert.Contains("> ⚠️ 不是 CSPRNG", page);
+    // 类型标题 + 类型文档 + 签名总览块。
+    Assert.Contains("## Random", page);
+    Assert.Contains("PCG 伪随机数发生器。", page);
+    Assert.Contains("public class Random {", page);
+    Assert.Contains("Random(long seed)", page);
+    Assert.Contains("int NextIntRange(int min, int max)", page);
+    // 成员标题 + 参数表 + 异常。
+    Assert.Contains("### Random(long seed)", page);
+    Assert.Contains("| `seed` | 种子 |", page);
+    Assert.Contains("### int NextIntRange(int min, int max)", page);
+    Assert.Contains("| `min` | 下界 |", page);
+    Assert.Contains("| `max` | 上界 |", page);
+    Assert.Contains("抛 `ArgumentException`：`max <= min`", page);
+}
+
+[Test]
+void test_private_members_excluded() {
+    // reference 页是公开 API：private 成员不进签名总览块、也不单独成节。
+    DocIndex ix = _index(
+        "namespace App;\n"
+        + "/// 类。\npublic class C {\n"
+        + "    /// 公开方法。\n    public void Pub() { }\n"
+        + "    private int _secret;\n"
+        + "    private void Hidden() { }\n"
+        + "}\n");
+    string page = DocMd.PackagePage("p", "src", ix);
+    Assert.Contains("### void Pub()", page);
+    Assert.True(!page.Contains("_secret"));
+    Assert.True(!page.Contains("Hidden"));
+}
+
+[Test]
+void test_package_page_delegate_and_enum() {
+    // 委托只有签名（无体）；枚举成员进总览块、不单独成节。
+    DocIndex ix = _index(
+        "namespace App;\n"
+        + "/// 回调。\npublic delegate void Handler(int code);\n"
+        + "/// 种类。\npublic enum Kind {\n"
+        + "    /// 圆形。\n    Round,\n"
+        + "    Polygon\n"
+        + "}\n");
+    string page = DocMd.PackagePage("z42.shapes", "src", ix);
+    Assert.Contains("```z42\npublic delegate void Handler(int code)\n```", page);
+    Assert.Contains("public enum Kind {", page);
+    Assert.Contains("Round", page);
+    Assert.Contains("Polygon", page);
+    // 枚举成员不单独成 ### 节。
+    Assert.True(!page.Contains("### Round"));
+}

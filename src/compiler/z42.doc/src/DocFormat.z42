@@ -5,19 +5,64 @@ namespace Z42.Doc;
 using Std.Text;
 
 public static class DocFormat {
-    // 单个符号：签名 + 所属 + 完整 doc + 位置。
+    // 单个符号：签名 + 所属 + 结构化 doc（摘要 / 正文 / tag / 示例）+ 位置。
     public static string Show(DocItem it) {
         StringBuilder sb = new StringBuilder();
         sb.Append(it.Sig);
         if (it.Parent.Length > 0) { sb.Append("    ").Append(it.Parent); }
         sb.Append("\n");
-        if (it.Doc.Length > 0) {
-            string[] lines = it.Doc.Split("\n");
-            int i = 0;
-            while (i < lines.Length) { sb.Append("  ").Append(lines[i]).Append("\n"); i = i + 1; }
-        }
+        sb.Append(DocFormat.ShowDoc(it.Doc));
         sb.Append("  @ ").Append(DocFormat.Loc(it)).Append("\n");
         return sb.ToString();
+    }
+
+    // doc 原文 → 结构化文本：摘要一行、正文逐行、单行 tag 各一行、示例另起。@hidden 条目由
+    // 调用方过滤，这里不特判。
+    public static string ShowDoc(string doc) {
+        DocComment c = DocParser.Parse(doc);
+        StringBuilder sb = new StringBuilder();
+        if (c.Summary.Length > 0) { sb.Append("  ").Append(c.Summary).Append("\n"); }
+        if (c.Body.Length > 0) {
+            string[] bl = c.Body.Split("\n");
+            int i = 0;
+            while (i < bl.Length) {
+                string t = bl[i].Trim();
+                if (t.Length == 0) { sb.Append("\n"); }
+                else { sb.Append("  ").Append(t).Append("\n"); }
+                i = i + 1;
+            }
+        }
+        int j = 0;
+        while (j < c.Tags.Length) {
+            sb.Append("  ").Append(DocFormat._tagLine(c.Tags[j])).Append("\n");
+            j = j + 1;
+        }
+        int k = 0;
+        while (k < c.Examples.Length) {
+            DocExample ex = c.Examples[k];
+            string mode = ex.Mode == "run" ? "" : "[" + ex.Mode + "]";
+            sb.Append("  example").Append(mode).Append(":\n");
+            string[] cl = ex.Code.Split("\n");
+            int m = 0;
+            while (m < cl.Length) { sb.Append("      ").Append(cl[m]).Append("\n"); m = m + 1; }
+            k = k + 1;
+        }
+        return sb.ToString();
+    }
+
+    // 一条单行 tag → `tag Name  Text`（throws / param / typeparam 带名字，returns / see / warning 不带）。
+    private static string _tagLine(DocTag t) {
+        if (t.Tag == "throws")   { return DocFormat._named(t, "throws"); }
+        if (t.Tag == "param")    { return DocFormat._named(t, "param"); }
+        if (t.Tag == "typeparam") { return DocFormat._named(t, "typeparam"); }
+        if (t.Tag == "returns")  { return "returns " + t.Text; }
+        if (t.Tag == "see")      { return "see " + t.Text; }
+        if (t.Tag == "warning")  { return "warning: " + t.Text; }
+        return t.Tag + (t.Name.Length > 0 ? " " + t.Name : "") + (t.Text.Length > 0 ? "  " + t.Text : "");
+    }
+
+    private static string _named(DocTag t, string tag) {
+        return tag + " " + t.Name + (t.Text.Length > 0 ? "  " + t.Text : "");
     }
 
     // 类型 / 命名空间轮廓：头一行 + 摘要，然后每个成员一行 `<可见性><签名>  <摘要>  :<行>`。

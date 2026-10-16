@@ -1,6 +1,6 @@
 # 文档索引与 `z42 doc`
 
-> 代码：`src/compiler/z42.doc/src/`（引擎）、`src/toolchain/devtools/core/doc_cmd.z42`（`DocCommand`）、
+> 代码：`src/compiler/z42.doc/src/`（引擎，含 `DocParser.z42`）、`src/toolchain/devtools/core/doc_cmd.z42`（`DocCommand`）、
 > `src/toolchain/launcher/core/launcher_cli.z42`（`_forwardZ42d`）、`src/compiler/z42c.syntax/src/DocBlock.z42`（doc 挂靠）
 >
 > 要查**怎么用**（旗标、输出、名字怎么写）→ 语言与库参考的 `z42` 命令页与 doc 注释页。
@@ -18,8 +18,10 @@ z42 doc <args>                      launcher：`doc` 原样转发
                  ├─ SourceTree      找根、遍历 .z42、按最近的清单归包
                  ├─ IndexCache      按文件增量：未变的文件抄缓存，变了的交给 SyntaxIndexer
                  ├─ SyntaxIndexer   Parser → AST → DocItem（doc 原文来自 Decl.Doc）
+                 ├─ DocParser       doc 原文 → DocComment（摘要 / 正文 / tag / 链接 / 示例）
                  ├─ DocIndex        名字解析 / 成员 / 搜索
-                 └─ DocFormat       文本或 JSON
+                 ├─ DocMd           --format mdbook：包索引 → reference 包页 markdown
+                 └─ DocFormat       文本或 JSON（正文与 tag 经 DocParser 结构化渲染）
 ```
 
 逻辑都在编译器域的 `z42.doc` 包里，z42d 只做薄胶水：工具链目录没有测试基础设施，而编译器包的扁平
@@ -37,6 +39,10 @@ z42 doc <args>                      launcher：`doc` 原样转发
 - **可见性**：显式修饰符优先；否则接口成员 public、命名空间级 internal、类成员 private；枚举成员随枚举。
 - 签名只用 AST 渲染；参数默认值只写出字面量、负数字面量、名字与成员链，其余记 `…`。
 - 摘要 = doc 首段，遇空行或首个 `@` 行即止。
+- `DocParser.Parse` 把 doc 原文拆成 `DocComment{Summary, Body, Tags[], Links[], Examples[], Hidden}`：
+  只做文本解析，正文 Markdown 原样保留；`@param` / `@typeparam` / `@throws` 拆出第一段作名字，`@example`
+  收进 Examples 并去公共缩进，`@hidden` 置 Hidden 位，``[`Sym`]`` 抽进 Links。校验（名字是否存在、类型与
+  链接能否解析）留给语义层。
 
 ## 3. 名字解析
 
@@ -64,10 +70,20 @@ z42 doc <args>                      launcher：`doc` 原样转发
   版本或根路径不同）整份作废。写缓存失败只损失速度。
 - 实测：本仓库全量冷建约 8 秒，热查询约 0.4 秒，缓存约 2 MB。
 
-## 5. 边界与限制
+## 5. mdbook 渲染（`z42 doc --format mdbook`）
+
+`DocMd.PackagePage` 把一个包的语法级索引渲染成 `reference/stdlib/<pkg>.md`：页首「由 z42 doc 生成」
+注释、标题（包名 —— `//!` 摘要）、包路径与命名空间行、`//!` 正文与 `@warning`、每个类型一个 `##`
+（类型文档 + ```` ```z42 ```` 签名总览块）、每个 public 成员一个 `###`（正文、`@param` 表、`@throws`、
+`@example`）。private 成员不进参考页；跨页锚点（Doc ID slug）与嵌套类型展开归迁移期。
+
+`z42d doc --format mdbook --out <dir> --pkg <name>` 渲染一个包到 `<dir>/<name>.md`（生成不写共享索引缓存）。
+`xtask doc gen` / `xtask check docs-api` 据此重新生成 stdlib 页并与仓库内文件对账。
+
+## 6. 边界与限制
 
 - 只索引 z42 源码；Rust 运行时的符号索引还没有。
-- 只有语法级：没有继承文档、实现者列表、`@tag` 解析与链接校验。
+- 只有语法级：没有继承文档、实现者列表；`@tag` 已解析，但链接校验、`@param` 名校验还没有。
 - 还没有书页反查（`--page` / `--docs`）与书里代码引用的门禁。
 
 以上后续阶段见仓库根 `docs/z42-doc.md`。

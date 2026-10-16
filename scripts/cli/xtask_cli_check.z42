@@ -13,7 +13,7 @@ using Std.Cli;
 
 // 名字 → 说明。顺序即 `xtask check` 全跑的顺序（= GREEN gate 里的顺序）。
 string[] _checkNames() {
-    return new string[]{ "vscode-syntax", "lines", "walkers", "diagcodes", "stage2", "ci-shell", "proc-env", "layout", "versions" };
+    return new string[]{ "vscode-syntax", "lines", "walkers", "diagcodes", "stage2", "ci-shell", "proc-env", "layout", "versions", "docs-api" };
 }
 
 string _checkDesc(string name) {
@@ -26,6 +26,7 @@ string _checkDesc(string name) {
     if (name == "proc-env")      { return "Z42_LIBS / Z42_PROBING_PATHS are set only via _z42Proc / _z42bProc"; }
     if (name == "layout")        { return "test layout spec: src/tests categories, capability vocabulary, artifacts mirror"; }
     if (name == "versions")      { return "versions.toml ↔ its projections (Cargo.toml / build.gradle.kts / Package.swift) agree"; }
+    if (name == "docs-api")      { return "generated reference stdlib pages match the source doc comments (run `xtask doc gen` to regenerate)"; }
     return "";
 }
 
@@ -82,5 +83,6 @@ int _checkOne(string name, bool update) {
     if (name == "ci-shell")      { return _testCiShell(); }
     if (name == "proc-env")      { return _testProcEnv(); }
     if (name == "versions")      { return _checkVersions(); }
+    if (name == "docs-api")      { return _checkDocsApi(); }
     return _testLayout();
 }

@@ -1,0 +1,177 @@
+// mdbook 渲染器：把一个包的语法级索引渲染成 `reference/stdlib/<pkg>.md` 的 markdown。
+// 只读语法级索引 + DocParser，不碰语义级 `.zdoc`；跨页锚点（Doc ID slug）与嵌套类型展开归迁移期。
+// 页面结构见 docs/reference/src/stdlib/（参考页骨架：概述 / 约定 / 逐项条目）。
+namespace Z42.Doc;
+
+using Std.Text;
+
+public static class DocMd {
+    // 一包一页。pkgPath 相对索引根（如 "src/libraries/z42.random"），写进页首注释与包路径行。
+    // pkgName 是分发单元名（"z42.random"）；命名空间 Id 从 `//!` 条目或顶层成员的 Parent 取。
+    public static string PackagePage(string pkgName, string pkgPath, DocIndex ix) {
+        StringBuilder sb = new StringBuilder();
+        DocItem ns = DocMd._namespaceItem(ix);
+        DocComment nd = (ns != null) ? DocParser.Parse(ns.Doc) : new DocComment();
+        string nsId = (ns != null) ? ns.Id : DocMd._inferNamespace(ix);
+
+        sb.Append("<!-- 由 z42 doc 生成，勿手改。源：").Append(pkgPath).Append("/ -->\n\n");
+        sb.Append("# ").Append(pkgName);
+        if (nd.Summary.Length > 0) { sb.Append(" —— ").Append(nd.Summary); }
+        sb.Append("\n\n");
+        sb.Append("> 包路径 `").Append(pkgPath).Append("/`；命名空间 `").Append(nsId).Append("`\n");
+        if (nd.Body.Length > 0) { sb.Append("\n").Append(nd.Body).Append("\n"); }
+        DocMd._warnings(sb, nd);
+        sb.Append("\n");
+
+        DocItem[] tops = ix.Members(nsId);
+        int i = 0;
+        while (i < tops.Length) {
+            if (tops[i].IsType()) { DocMd._type(sb, ix, tops[i]); }
+            i = i + 1;
+        }
+        return sb.ToString();
+    }
+
+    private static DocItem _namespaceItem(DocIndex ix) {
+        int i = 0;
+        while (i < ix.Count()) {
+            if (ix.At(i).Kind == DocKind.Namespace) { return ix.At(i); }
+            i = i + 1;
+        }
+        return null;
+    }
+
+    // 从条目反推包根目录（相对索引根）：取第一个有 File 的条目，去掉末尾的 /src 或 /tests。
+    // 只用于页首「源：<目录>/」注释，不求精确。
+    public static string PkgDir(DocIndex ix) {
+        int i = 0;
+        while (i < ix.Count()) {
+            string f = ix.At(i).File;
+            if (f.Length > 0) {
+                int slash = f.LastIndexOf('/');
+                string dir = (slash >= 0) ? f.Substring(0, slash) : "";
+                if (dir.EndsWith("/src") || dir.EndsWith("/tests")) { dir = dir.Substring(0, dir.Length - 4); }
+                return dir;
+            }
+            i = i + 1;
+        }
+        return "";
+    }
+
+    // 包是否写了 `//!`（命名空间概述）：迁移完成的信号，`xtask doc gen` 据此决定生成还是保留手写页。
+    public static bool HasNamespaceDoc(DocIndex ix) {
+        int i = 0;
+        while (i < ix.Count()) {
+            if (ix.At(i).Kind == DocKind.Namespace && ix.At(i).Doc.Length > 0) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    // 没有 `//!` 时，从第一个顶层成员的 Parent 反推命名空间 Id。
+    private static string _inferNamespace(DocIndex ix) {
+        int i = 0;
+        while (i < ix.Count()) {
+            DocItem it = ix.At(i);
+            if (it.Parent.Length > 0 && (it.IsType() || it.Kind == DocKind.Func)) { return it.Parent; }
+            i = i + 1;
+        }
+        return "";
+    }
+
+    // 一个类型一节：`##` + 类型文档 + 签名总览块 + 每个成员 `###`。
+    private static void _type(StringBuilder sb, DocIndex ix, DocItem t) {
+        DocComment d = DocParser.Parse(t.Doc);
+        sb.Append("## ").Append(t.Name).Append("\n\n");
+        if (d.Summary.Length > 0) { sb.Append(d.Summary).Append("\n"); }
+        if (d.Body.Length > 0) { sb.Append("\n").Append(d.Body).Append("\n"); }
+        DocMd._warnings(sb, d);
+        sb.Append("\n");
+
+        DocItem[] ms = ix.Members(t.Id);
+        // 签名总览块：类型签名 + 每成员一行（只列 public；委托没有体，只写签名）。
+        if (t.Kind == DocKind.Delegate) {
+            sb.Append("```z42\n").Append(t.Sig).Append("\n```\n\n");
+        } else {
+            sb.Append("```z42\n").Append(t.Sig).Append(" {\n");
+            int i = 0;
+            while (i < ms.Length) {
+                if (ms[i].Vis == "public") { sb.Append("    ").Append(DocMd._memberSig(ms[i])).Append("\n"); }
+                i = i + 1;
+            }
+            sb.Append("}\n```\n\n");
+        }
+
+        // 每个 public 成员一节；枚举成员只进总览块，嵌套类型归迁移期展开。
+        int j = 0;
+        while (j < ms.Length) {
+            if (ms[j].Vis == "public" && !ms[j].IsType() && ms[j].Kind != DocKind.EnumMember) { DocMd._member(sb, ms[j]); }
+            j = j + 1;
+        }
+    }
+
+    // 一个成员一节：`###` + 签名 + 正文 + @param 表 + @throws + @example。
+    private static void _member(StringBuilder sb, DocItem m) {
+        DocComment d = DocParser.Parse(m.Doc);
+        sb.Append("### ").Append(DocMd._memberSig(m)).Append("\n\n");
+        if (d.Summary.Length > 0) { sb.Append(d.Summary).Append("\n"); }
+        if (d.Body.Length > 0) { sb.Append("\n").Append(d.Body).Append("\n"); }
+        DocMd._warnings(sb, d);
+        DocTag[] ps = DocMd._tags(d, "param");
+        if (ps.Length > 0) {
+            sb.Append("\n| 参数 | 说明 |\n|---|---|\n");
+            int i = 0;
+            while (i < ps.Length) { sb.Append("| `").Append(ps[i].Name).Append("` | ").Append(ps[i].Text).Append(" |\n"); i = i + 1; }
+        }
+        DocTag[] th = DocMd._tags(d, "throws");
+        int j = 0;
+        while (j < th.Length) {
+            sb.Append("\n抛 `").Append(th[j].Name).Append("`：").Append(th[j].Text).Append("\n");
+            j = j + 1;
+        }
+        int k = 0;
+        while (k < d.Examples.Length) {
+            sb.Append("\n```z42\n").Append(d.Examples[k].Code).Append("\n```\n");
+            k = k + 1;
+        }
+        sb.Append("\n");
+    }
+
+    // 去掉访问修饰符（可见性在参考页里由上下文自明）。
+    private static string _memberSig(DocItem m) {
+        string s = m.Sig;
+        if (s.StartsWith("public "))    { return s.Substring(7); }
+        if (s.StartsWith("private "))   { return s.Substring(8); }
+        if (s.StartsWith("protected ")) { return s.Substring(10); }
+        if (s.StartsWith("internal "))  { return s.Substring(9); }
+        return s;
+    }
+
+    private static void _warnings(StringBuilder sb, DocComment d) {
+        int i = 0;
+        while (i < d.Tags.Length) {
+            if (d.Tags[i].Tag == "warning") { sb.Append("\n> ⚠️ ").Append(d.Tags[i].Text).Append("\n"); }
+            i = i + 1;
+        }
+    }
+
+    private static DocTag[] _tags(DocComment d, string tag) {
+        DocTag[] acc = new DocTag[4];
+        int n = 0;
+        int i = 0;
+        while (i < d.Tags.Length) {
+            if (d.Tags[i].Tag == tag) { acc = DocMd._pushTag(acc, n, d.Tags[i]); n = n + 1; }
+            i = i + 1;
+        }
+        DocTag[] r = new DocTag[n];
+        Array.Copy(acc, r, n);
+        return r;
+    }
+
+    private static DocTag[] _pushTag(DocTag[] a, int n, DocTag v) {
+        DocTag[] b = a;
+        if (n == a.Length) { b = new DocTag[a.Length * 2]; Array.Copy(a, b, n); }
+        b[n] = v;
+        return b;
+    }
+}

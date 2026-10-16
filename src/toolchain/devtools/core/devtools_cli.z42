@@ -46,6 +46,8 @@ SubcommandRouter _devtoolsRoot() {
     doc.AddOption("pkg", "", "only index this package", "");
     doc.AddOption("root", "", "index root (default: enclosing git repository, else nearest project)", "");
     doc.AddFlag("json", "", "print matching entries as JSON");
+    doc.AddOption("format", "", "render markdown instead of querying (mdbook)", "");
+    doc.AddOption("out", "", "output directory for --format", "");
     root.Add("doc", "look up symbols and their documentation", doc);
 
     // dbg — debugger（planned；前端在本目录 + VM 断点/单步钩子住 runtime/，DAP 0.8.x）。

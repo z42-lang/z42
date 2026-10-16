@@ -1,0 +1,171 @@
+// z42.doc DocParser 单测：摘要 / 正文切分、单行 tag 解析、@example 去缩进、@hidden、链接抽取，
+// 以及 DocFormat 的结构化输出。
+namespace Z42DocParserTests;
+
+using Z42.Doc;
+using Std.Harness;
+
+void _eq(string expected, string actual) {
+    if (expected != actual) { Assert.Fail("expected <" + expected + ">\n     got <" + actual + ">"); }
+}
+
+string _tags(DocComment c) {
+    string s = "";
+    int i = 0;
+    while (i < c.Tags.Length) {
+        if (i > 0) { s = s + " | "; }
+        s = s + c.Tags[i].Tag + "[" + c.Tags[i].Name + "]=" + c.Tags[i].Text;
+        i = i + 1;
+    }
+    return s;
+}
+
+string _links(DocComment c) {
+    string s = "";
+    int i = 0;
+    while (i < c.Links.Length) { if (i > 0) { s = s + " | "; } s = s + c.Links[i]; i = i + 1; }
+    return s;
+}
+
+[Test]
+void test_summary_and_body() {
+    DocComment c = DocParser.Parse("返回面积 πr²。");
+    _eq("返回面积 πr²。", c.Summary);
+    _eq("", c.Body);
+    Assert.Equal(0, c.Tags.Length);
+
+    c = DocParser.Parse("摘要一句。\n\n正文一段。\n\n正文二段。");
+    _eq("摘要一句。", c.Summary);
+    _eq("正文一段。\n\n正文二段。", c.Body);
+    Assert.Equal(0, c.Tags.Length);
+
+    // 没有空行分隔时，tag 区之前的文字都算摘要（首段）。
+    c = DocParser.Parse("第一行。\n第二行。");
+    _eq("第一行。 第二行。", c.Summary);
+    _eq("", c.Body);
+}
+
+[Test]
+void test_tags() {
+    DocComment c = DocParser.Parse(
+        "摘要。\n\n"
+        + "@param min 最小值\n"
+        + "@typeparam T 元素类型\n"
+        + "@returns 说明\n"
+        + "@throws ArgumentException `max <= min`\n"
+        + "@see [`PadLeft`]\n"
+        + "@warning 非线程安全");
+    _eq("摘要。", c.Summary);
+    _eq("param[min]=最小值 | typeparam[T]=元素类型 | returns[]=说明 | throws[ArgumentException]=`max <= min` | see[]=[`PadLeft`] | warning[]=非线程安全",
+        _tags(c));
+    Assert.False(c.Hidden);
+}
+
+[Test]
+void test_example() {
+    DocComment c = DocParser.Parse("造随机数。\n\n@example\n    var r = new Random(42);\n    r.NextIntRange(5, 6)    // => 5");
+    _eq("造随机数。", c.Summary);
+    Assert.Equal(1, c.Examples.Length);
+    _eq("run", c.Examples[0].Mode);
+    _eq("var r = new Random(42);\nr.NextIntRange(5, 6)    // => 5", c.Examples[0].Code);
+
+    c = DocParser.Parse("@example no_run\n    f();");
+    Assert.Equal(1, c.Examples.Length);
+    _eq("no_run", c.Examples[0].Mode);
+    _eq("f();", c.Examples[0].Code);
+
+    // 示例代码里嵌套缩进保留（只去掉公共的 4 格）。
+    c = DocParser.Parse("@example\n    if (x) {\n        f();\n    }");
+    _eq("if (x) {\n    f();\n}", c.Examples[0].Code);
+}
+
+[Test]
+void test_hidden_and_links() {
+    DocComment c = DocParser.Parse("隐藏的内部入口。\n@hidden");
+    Assert.True(c.Hidden);
+    Assert.Equal(0, c.Tags.Length);   // @hidden 不落 Tags
+
+    c = DocParser.Parse("见 [`PadLeft`] 与 [`Random.NextIntRange`]。");
+    _eq("PadLeft | Random.NextIntRange", _links(c));
+}
+
+[Test]
+void test_showdoc() {
+    _eq("  返回面积。\n  throws ArgumentException  `max <= min`\n",
+        DocFormat.ShowDoc("返回面积。\n@throws ArgumentException `max <= min`"));
+    _eq("  固定 seed：相同 seed ⇒ 逐位相同的序列。\n  warning: 非线程安全\n",
+        DocFormat.ShowDoc("固定 seed：相同 seed ⇒ 逐位相同的序列。\n@warning 非线程安全"));
+}
+
+[Test]
+void test_show_with_tags() {
+    DocIndex ix = new DocIndex();
+    ix.AddAll(SyntaxIndexer.IndexSource(
+        "namespace App;\n"
+        + "/// 区间整数。\n"
+        + "/// @throws ArgumentException `max <= min`\n"
+        + "public int NextIntRange(int min, int max) { return min; }\n",
+        "a.z42"));
+    _eq("public int NextIntRange(int min, int max)    App\n"
+        + "  区间整数。\n"
+        + "  throws ArgumentException  `max <= min`\n"
+        + "  @ a.z42:4\n",
+        DocFormat.Show(ix.Find("NextIntRange")[0]));
+}
+
+[Test]
+void test_continuation_lines() {
+    // §2.2 续行（缩进 ≥2 空格）并入本条 tag 的文本，用空格连接。
+    DocComment c = DocParser.Parse(
+        "@param seed 种子\n"
+        + "    相同 seed 得到相同序列\n"
+        + "    取值范围任意\n"
+        + "@returns 结果");
+    _eq("param[seed]=种子 相同 seed 得到相同序列 取值范围任意 | returns[]=结果", _tags(c));
+}
+
+[Test]
+void test_example_modes_and_multiple() {
+    DocComment c = DocParser.Parse("@example compile_fail\n    x = 1;\n@example ignore\n    skip();");
+    Assert.Equal(2, c.Examples.Length);
+    _eq("compile_fail", c.Examples[0].Mode);
+    _eq("x = 1;", c.Examples[0].Code);
+    _eq("ignore", c.Examples[1].Mode);
+    _eq("skip();", c.Examples[1].Code);
+}
+
+[Test]
+void test_empty_and_tags_only() {
+    DocComment c = DocParser.Parse("");
+    _eq("", c.Summary);
+    _eq("", c.Body);
+    Assert.Equal(0, c.Tags.Length);
+    Assert.Equal(0, c.Examples.Length);
+    Assert.Equal(0, c.Links.Length);
+    Assert.False(c.Hidden);
+
+    c = DocParser.Parse("@hidden");
+    _eq("", c.Summary);
+    Assert.True(c.Hidden);
+    Assert.Equal(0, c.Tags.Length);
+}
+
+[Test]
+void test_unknown_tag() {
+    // 未知 tag 也原样收进 Tags（小写 tag 名），报错 W0804 是 DocChecker 的事，这里只解析。
+    DocComment c = DocParser.Parse("@since 1.0");
+    _eq("since[]=1.0", _tags(c));
+}
+
+[Test]
+void test_link_edge_cases() {
+    _eq("", _links(DocParser.Parse("没有链接。")));
+    _eq("PadLeft", _links(DocParser.Parse("[`PadLeft`]")));
+    _eq("PadLeft | PadRight", _links(DocParser.Parse("[`PadLeft`] [`PadRight`]")));
+}
+
+[Test]
+void test_param_empty_and_fqn_throws() {
+    DocComment c = DocParser.Parse("@param seed\n@throws Std.ArgumentException 越界");
+    _eq("param[seed]= | throws[Std.ArgumentException]=越界", _tags(c));
+}
