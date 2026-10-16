@@ -16,15 +16,7 @@ build-driver `versions.toml` 解析需要的所有语法。
 | `src/TomlWriter.z42` | 内部 stringifier（canonical TOML，sort 后输出） |
 
 ## 入口点
-- `Std.Toml.TomlValue.Parse(text)` → `TomlValue` (root table)
-- `Std.Toml.TomlValue.Stringify(root)` → `string`
-- `Std.Toml.TomlValue.{OfString, OfLong, OfDouble, OfBool, OfArray, OfTable}` 构造器
-- `Std.Toml.TomlValue.{IsString, IsLong, IsDouble, IsBool, IsArray, IsTable, KindName}` 谓词
-- `Std.Toml.TomlValue.{AsString, AsLong, AsDouble, AsBool}` 解构（错类型抛 `TomlException`）
-- `Std.Toml.TomlValue.{Get, TryGet, TryGetValue<T>, Set, ContainsKey, Keys, Count}` 表操作
-- `Std.Toml.TomlValue.{ParseStream, WriteTo}` Stream 重载
-- `Std.Toml.TomlValue.{Length, At, Add, Count}` 数组操作
-- `Std.TomlException` 异常类（`Line` / `Column` 字段）
+公开 API 的完整签名见 [reference 包页](../../../docs/reference/src/stdlib/toml.md)（由源码 doc 注释生成）。
 
 ## 用法
 

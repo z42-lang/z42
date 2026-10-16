@@ -1,51 +1,60 @@
+//! 把 TOML 1.0 文本解析成值树（[`TomlValue`]），或把值树写回 canonical TOML 文本。
+//!
+//! z42 自己的工程清单 `*.z42.toml` 与 `versions.toml` 就用它读。覆盖 TOML 1.0 的绝大部分语法，
+//! 唯一缺的大块是 4 种 datetime 类型——碰到日期字面量会报解析错误，不会静默当字符串吞掉。整份文档
+//! 一次读进内存，解析 fail-fast（抛第一个错误）。
+//!
+//! ## 不支持
+//!
+//! - **datetime（TOML 1.0 的 4 种日期时间类型）**：`d = 1979-05-27T07:32:00Z` 与 `d = 1979-05-27`
+//!   都在 `1979` 之后报 `expected newline or EOF after value`。需要日期就先按字符串存
+//!   （`d = "1979-05-27"`），读出来自己解析。
+//! - **注释保留 / 原格式保留**：解析丢掉注释与空行，`Stringify` 不还原。
+//! - **输出格式可调**：只有一种 canonical 形态，没有缩进 / 数组换行 / pretty 选项。
+//! - **Schema 校验**、默认值填充、类型强制。
+//! - **删除键**：`TomlValue` 只有 `Set`，没有 remove；要去键就重建表。
+//! - **多错误聚合**：解析在第一个错误处抛出，不返回错误列表。
+//! - **`nan` 的 round-trip**：`nan` 能解析，但 `Stringify` 写出的是 `NaN.0`，再解析会失败。有 NaN 的
+//!   值树别指望写回去还能读。（`inf` / `-inf` 的 round-trip 正常。）
 namespace Std.Toml;
 
 using Std.IO;
 
-// add-z42-toml (2026-05-14)：TOML 值的运行时表示。
-//
-// z42 暂无 ADT，用 discriminated-union 模式：单 int kind + 多个 typed 槽位。
-// API 用 `Is*()` / `As*()` 方法访问 —— 不暴露 KIND_* int 常量
-// （静态字段 read-path 当前返回 0 default，参 Stdio.z42 同类 workaround）。
-//
-// 整数与浮点分两个槽位（不统一为 f64）—— TOML 整数是 i64，浮点是 f64，
-// 分开存避免 2^53+ 整数精度丢失。
-//
-// 内部存储用 raw `TomlValue[]` 和并行 `string[]` / `TomlValue[]`（parallel arrays）
-// 代替 `List<T>` / `Dictionary<K,V>` —— z42 暂不支持类字段带泛型参数（field
-// declarations like `private List<TomlValue> x;` 的类型参数被 parser 静默丢弃）。
-// 同 Process.z42 中 `string[] _args + int _argCount` 模式。
+/// 值树的唯一节点类型，同时是包的入口点。
+///
+/// 6 种 kind：String / Long / Double / Bool / Array / Table；用 `Is*()` / `As*()` 访问。
 public class TomlValue {
-    // Kind codes (private — exposed via Is*() predicate methods).
-    // 0=String 1=Long 2=Double 3=Bool 4=Array 5=Table
+    // z42 暂无 ADT，用 discriminated-union 模式：单 int kind + 多个 typed 槽位，不暴露 KIND_* int 常量。
+    // 整数与浮点分两个槽位（不统一为 f64）——TOML 整数是 i64、浮点是 f64，分开存避免 2^53+ 整数精度丢失。
+    // 内部存储用 raw `TomlValue[]` 与并行 `string[]` / `TomlValue[]`（parallel arrays）代替
+    // `List<T>` / `Dictionary<K,V>`——z42 暂不支持类字段带泛型参数。
+    // Kind 编码（私有，通过 Is*() 谓词暴露）。0=String 1=Long 2=Double 3=Bool 4=Array 5=Table
     private int _kind;
     private string _str;
     private long _long;
     private double _double;
     private bool _bool;
 
-    // Array storage (when kind == 4)
+    // 数组存储（kind == 4）。
     private TomlValue[] _arrayItems;
     private int _arrayCount;
 
-    // Table storage as parallel key/value arrays (when kind == 5)
+    // 表存储：并行 key/value 数组（kind == 5）。
     private string[] _tableKeys;
     private TomlValue[] _tableValues;
     private int _tableCount;
 
-    // ── Public entry points (parse / stringify) ──────────────────────────
+    // ── 入口点（parse / stringify）──────────────────────────────────────
 
-    /// Parse TOML text → root table. Throws TomlException with line/column
-    /// on syntax error. Empty input yields an empty table.
+    /// 解析 TOML 文本为根 table。语法错误抛带行列的 `TomlException`；空输入得到空 table。
     public static TomlValue Parse(string text) {
         TomlParser parser = new TomlParser(text);
         return (TomlValue)parser.ParseDocument();
     }
 
-    /// Serialise a TOML value tree to canonical TOML text. `root` must be a
-    /// table (throws TomlException otherwise). Keys emit in **insertion order**
-    /// (= parse order for a parsed tree) so a round-trip is git-diff-friendly
-    /// (add-toml-key-order, 2026-06-09); comments are not preserved.
+    /// 把值树序列化为 canonical TOML 文本。`root` 必须是 table，否则抛 `TomlException`。
+    ///
+    /// 键按**插入顺序**输出（解析出来的树即文件顺序），round-trip 不重排、diff 友好；注释不保留。
     public static string Stringify(TomlValue root) {
         if (!root.IsTable()) {
             throw new TomlException("Stringify root must be a table, got " + root.KindName());
@@ -54,14 +63,11 @@ public class TomlValue {
         return w.Write(root);
     }
 
-    // ── Stream overloads (add-stream-overloads-to-format-parsers, 2026-05-24) ──
+    // ── Stream 重载 ─────────────────────────────────────────────────────
     //
-    // Thin wrappers over the string variants. Neither closes the
-    // underlying Stream — caller owns its lifecycle.
+    // 字符串版本的薄封装。两者都不关闭底层 Stream——生命周期归调用方。
 
-    /// Parse TOML from a UTF-8 byte Stream. Distinct name from
-    /// `Parse(string)` (not an overload) — see JsonValue.ParseStream
-    /// comment for the z42 overload-resolution rationale.
+    /// 从 UTF-8 字节流解析 TOML，读到 EOF，不关闭流。独立命名（非 `Parse` 重载）。
     public static TomlValue ParseStream(Stream source) {
         StreamReader r = new StreamReader(source);
         string text = r.ReadToEnd();
@@ -69,16 +75,16 @@ public class TomlValue {
         return (TomlValue)parser.ParseDocument();
     }
 
-    /// Serialise canonical TOML to a Stream as UTF-8 bytes. Does NOT
-    /// close `dest`. `root` must be a table (throws TomlException).
+    /// 把 canonical TOML 以 UTF-8 写入流，不关闭 `dest`。`root` 必须是 table。
     public static void WriteTo(Stream dest, TomlValue root) {
         StreamWriter w = new StreamWriter(dest);
         w.Write(TomlValue.Stringify(root));
         w.Flush();
     }
 
-    // ── Factories ────────────────────────────────────────────────────────
+    // ── 构造 ────────────────────────────────────────────────────────────
 
+    /// 构造 String 节点。
     public static TomlValue OfString(string s) {
         TomlValue v = new TomlValue();
         v._kind = 0;
@@ -86,6 +92,7 @@ public class TomlValue {
         return v;
     }
 
+    /// 构造 Long 节点。
     public static TomlValue OfLong(long n) {
         TomlValue v = new TomlValue();
         v._kind = 1;
@@ -93,6 +100,7 @@ public class TomlValue {
         return v;
     }
 
+    /// 构造 Double 节点。
     public static TomlValue OfDouble(double d) {
         TomlValue v = new TomlValue();
         v._kind = 2;
@@ -100,6 +108,7 @@ public class TomlValue {
         return v;
     }
 
+    /// 构造 Bool 节点。
     public static TomlValue OfBool(bool b) {
         TomlValue v = new TomlValue();
         v._kind = 3;
@@ -107,6 +116,7 @@ public class TomlValue {
         return v;
     }
 
+    /// 构造空数组，用 `Add` 填充。
     public static TomlValue OfArray() {
         TomlValue v = new TomlValue();
         v._kind = 4;
@@ -115,6 +125,7 @@ public class TomlValue {
         return v;
     }
 
+    /// 构造空表，用 `Set` 填充。
     public static TomlValue OfTable() {
         TomlValue v = new TomlValue();
         v._kind = 5;
@@ -124,16 +135,22 @@ public class TomlValue {
         return v;
     }
 
-    // ── Predicates ───────────────────────────────────────────────────────
+    // ── 谓词 ────────────────────────────────────────────────────────────
 
+    /// kind 是否为 String。
     public bool IsString() { return this._kind == 0; }
+    /// kind 是否为 Long。
     public bool IsLong()   { return this._kind == 1; }
+    /// kind 是否为 Double。
     public bool IsDouble() { return this._kind == 2; }
+    /// kind 是否为 Bool。
     public bool IsBool()   { return this._kind == 3; }
+    /// kind 是否为 Array。
     public bool IsArray()  { return this._kind == 4; }
+    /// kind 是否为 Table。
     public bool IsTable()  { return this._kind == 5; }
 
-    /// Type tag name for diagnostics.
+    /// 返回类型标签名（`"string"` / `"long"` / `"double"` / `"bool"` / `"array"` / `"table"`），用于诊断。
     public string KindName() {
         int k = this._kind;
         if (k == 0) return "string";
@@ -145,8 +162,9 @@ public class TomlValue {
         return "unknown";
     }
 
-    // ── Accessors (throw TomlException on wrong kind) ────────────────────
+    // ── 取值（kind 不符抛 TomlException）────────────────────────────────
 
+    /// 取 String 值；kind 不符抛 `TomlException("expected string, got …")`。
     public string AsString() {
         if (this._kind != 0) {
             throw new TomlException("expected string, got " + this.KindName());
@@ -154,6 +172,7 @@ public class TomlValue {
         return this._str;
     }
 
+    /// 取 Long 值；kind 不符抛 `TomlException`。
     public long AsLong() {
         if (this._kind != 1) {
             throw new TomlException("expected integer, got " + this.KindName());
@@ -161,6 +180,7 @@ public class TomlValue {
         return this._long;
     }
 
+    /// 取 Double 值；kind 不符抛 `TomlException`。不接受 Long（整数值要先自己转）。
     public double AsDouble() {
         if (this._kind != 2) {
             throw new TomlException("expected double, got " + this.KindName());
@@ -168,6 +188,7 @@ public class TomlValue {
         return this._double;
     }
 
+    /// 取 Bool 值；kind 不符抛 `TomlException`。
     public bool AsBool() {
         if (this._kind != 3) {
             throw new TomlException("expected bool, got " + this.KindName());
@@ -175,8 +196,9 @@ public class TomlValue {
         return this._bool;
     }
 
-    // ── Table operations (only valid when IsTable()) ─────────────────────
+    // ── 表操作（仅 IsTable() 时有效）────────────────────────────────────
 
+    /// 表是否含该键；非表值返回 false，不抛。
     public bool ContainsKey(string key) {
         if (this._kind != 5) { return false; }
         int i = 0;
@@ -187,6 +209,7 @@ public class TomlValue {
         return false;
     }
 
+    /// 取表值；键不存在抛 `TomlException("key not found: k")`。
     public TomlValue Get(string key) {
         if (this._kind != 5) {
             throw new TomlException("Get on non-table value (" + this.KindName() + ")");
@@ -199,7 +222,7 @@ public class TomlValue {
         throw new TomlException("key not found: " + key);
     }
 
-    // ── 取即检查（取值与存在性测试合成一次）──────────────────────────
+    // ── 取即检查（取值与存在性测试合成一次）────────────────────────────
     //
     // 为什么要这一对：`ContainsKey(k)` + `Get(k)` 是**两次独立调用**，
     // 「ContainsKey 为真 ⇒ Get 不抛」是调用方手里的不变式，**编译器原理上看不见**
@@ -207,8 +230,8 @@ public class TomlValue {
     // （改一处漏一处 ⇒ 编译零诊断、运行期才抛）、同一个表线性扫两遍、
     // 以及「在不在」这件事没有任何编译期表示。
     //
-    // 签名取 `bool TryX(ref T)` —— 与 `Int32.TryParse` 那套全仓统一（simplify-ref-parameters
-    // 之后值类型永不可空，可空返回这条路对 `long` / `bool` 走不通，见 E0476）。
+    // 签名取 `bool TryX(ref T)` —— 与 `Int32.TryParse` 那套全仓统一（值类型永不可空，
+    // 可空返回这条路对 `long` / `bool` 走不通，见 E0476）。
 
     /// 取即检查：命中则写入 `value` 并返回 true；未命中返回 false 且**不动** `value`。
     ///
@@ -254,6 +277,7 @@ public class TomlValue {
             + "use string / long / double / bool / TomlValue");
     }
 
+    /// 写入键值；覆盖已有键时保持原位置（round-trip 不重排）。
     public void Set(string key, TomlValue v) {
         if (this._kind != 5) {
             throw new TomlException("Set on non-table value (" + this.KindName() + ")");
@@ -266,7 +290,7 @@ public class TomlValue {
             }
             i = i + 1;
         }
-        // Append; grow if needed.
+        // 追加；容量不足时扩容。
         if (this._tableCount == this._tableKeys.Length) {
             int newCap = this._tableKeys.Length * 2;
             if (newCap < 4) { newCap = 4; }
@@ -286,7 +310,7 @@ public class TomlValue {
         this._tableCount = this._tableCount + 1;
     }
 
-    /// Snapshot of current table keys (insertion order).
+    /// 当前表键的插入顺序快照。
     public string[] Keys() {
         if (this._kind != 5) {
             throw new TomlException("Keys() on non-table value (" + this.KindName() + ")");
@@ -300,14 +324,16 @@ public class TomlValue {
         return result;
     }
 
+    /// 表键数（数组则为元素数）；其余 kind 抛 `TomlException`。
     public int Count() {
         if (this._kind == 4) { return this._arrayCount; }
         if (this._kind == 5) { return this._tableCount; }
         throw new TomlException("Count() on non-collection value (" + this.KindName() + ")");
     }
 
-    // ── Array operations (only valid when IsArray()) ─────────────────────
+    // ── 数组操作（仅 IsArray() 时有效）──────────────────────────────────
 
+    /// 数组元素数；非数组抛 `TomlException`。
     public int Length() {
         if (this._kind != 4) {
             throw new TomlException("Length() on non-array value (" + this.KindName() + ")");
@@ -315,6 +341,7 @@ public class TomlValue {
         return this._arrayCount;
     }
 
+    /// 取数组元素；越界抛 `TomlException`（不是 VM abort）。
     public TomlValue At(int i) {
         if (this._kind != 4) {
             throw new TomlException("At() on non-array value (" + this.KindName() + ")");
@@ -325,6 +352,7 @@ public class TomlValue {
         return this._arrayItems[i];
     }
 
+    /// 追加元素到数组末尾。
     public void Add(TomlValue v) {
         if (this._kind != 4) {
             throw new TomlException("Add() on non-array value (" + this.KindName() + ")");

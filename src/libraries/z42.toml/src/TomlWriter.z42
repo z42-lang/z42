@@ -1,29 +1,25 @@
 namespace Std.Toml;
 using Std.Text;
 
-// add-z42-toml (2026-05-14)：值树 → TOML 文本。
-//
-// 输出策略：
-//   1. root 表的非 table 值（k = v）先输出，按 key 字典序
-//   2. 然后每个 sub-table 按 key 字典序输出，递归（FQ path 如 [a.b]）
-//   3. 数组按 `[v, v, v]` 单行（无换行；若元素是 table 用 [[aot]] 形式）
-//
-// 不保留：原始 key 顺序、注释、空行。
+/// 值树 → TOML 文本的序列化器；日常用 `TomlValue.Stringify` 即可，通常不直接构造。
 public sealed class TomlWriter {
+    // 输出策略：root 表的非 table 值先按插入顺序输出，随后逐个子表 / 表数组输出 `[a.b]` / `[[aot]]` 段；
+    // 数组单行 `[v, v, v]`。注释、空行、原始引号风格不保留。
     private StringBuilder _sb;
 
+    /// 构造一个空 writer。
     public TomlWriter() {
         this._sb = new StringBuilder();
     }
 
+    /// 把值树序列化为 TOML 文本。
     public string Write(TomlValue root) {
         // root table key/value 先输出（非 table 值）
         this.WriteTableBody(root, "");
         return this._sb.ToString();
     }
 
-    /// Write keys whose value is NOT a table or AoT (those go under section headers).
-    /// `path` = FQ section path prefix (empty for root).
+    // 输出值为非 table / 非 AoT 的键（table / AoT 走 section 头）。`path` = FQ section 路径前缀（root 为空）。
     private void WriteTableBody(TomlValue table, string path) {
         string[] keys = this.OrderedKeys(table);
 
@@ -67,7 +63,7 @@ public sealed class TomlWriter {
         }
     }
 
-    /// Array of tables? (every element is a table.) Empty array is NOT AoT.
+    // 是否为表数组（每个元素都是 table）；空数组不算 AoT。
     private bool IsAotArray(TomlValue v) {
         if (!v.IsArray()) { return false; }
         if (v.Length() == 0) { return false; }
@@ -79,11 +75,8 @@ public sealed class TomlWriter {
         return true;
     }
 
-    // add-toml-key-order (2026-06-09): preserve insertion order (= parse order
-    // for parsed TOML) so round-trip Stringify is git-diff-friendly, instead of
-    // re-sorting keys alphabetically. `TomlValue.Keys()` already returns keys in
-    // insertion order (parallel-array backed: `Set` appends new keys at the
-    // tail, updates existing in place), so the output is deterministic.
+    // 保持插入顺序（解析出来的树即文件顺序）输出，round-trip 不重排、diff 友好，而不是按字母重排。
+    // `TomlValue.Keys()` 已按插入顺序返回（parallel-array 实现：`Set` 新键追加到尾部、已有键原地更新）。
     private string[] OrderedKeys(TomlValue table) {
         return table.Keys();
     }

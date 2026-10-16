@@ -1,23 +1,25 @@
 namespace Std.Toml;
 
-// add-z42-toml (2026-05-14)：TOML 解析 / 序列化错误。
-//
-// 携带 1-based 行 / 列号，方便定位 manifest 中的语法错误。
-// `Line == 0` 表示位置不可用（如 stringify 阶段错误）。
+/// TOML 解析 / 序列化错误，携带 1-based 行 / 列号，方便定位 manifest 中的语法错误。
 public class TomlException : Exception {
+    /// 1-based 行号；0 = 位置不可用（如 stringify 阶段错误）。
     public int Line;
+    /// 1-based 列号；0 = 位置不可用（如 stringify 阶段错误）。
     public int Column;
 
+    /// 不带位置的构造；`Line` / `Column` 置 0。
     public TomlException(string message) : base(message) {
         this.Line = 0;
         this.Column = 0;
     }
 
+    /// 带 1-based 行 / 列号的构造。
     public TomlException(string message, int line, int column) : base(message) {
         this.Line = line;
         this.Column = column;
     }
 
+    /// 形如 `"TomlException at 2:6: duplicate key: k"`；位置不可用时省略行列。
     override string ToString() {
         if (this.Line > 0) {
             return "TomlException at " + this.Line.ToString() + ":" + this.Column.ToString() + ": " + this.Message;
