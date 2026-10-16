@@ -15,14 +15,7 @@ opaque URI。
 | `src/UriException.z42` | `Std.UriException`（malformed input / bad percent escape） |
 
 ## 入口点
-- `Uri.Parse(string text)` — 字符串 → `Uri` 实例；失败抛 `UriException`
-- `Uri.EncodeComponent(string s)` — `A-Za-z0-9_.~-` 保留，其它 → `%XX`（UTF-8 多字节）
-- `Uri.DecodeComponent(string s)` — `%XX` → bytes → UTF-8 string
-- Accessors: `GetScheme() / GetUserInfo() / GetHost() / GetPort() / GetPath() / GetQuery() / GetFragment()`
-- Has-checks: `HasAuthority() / HasUserInfo() / HasHost() / HasPort() / HasQuery() / HasFragment()`
-- `Uri.Resolve(base, reference)` — RFC 3986 §5.3 相对引用解析
-- `GetHostName()` / `IsIPv6Literal()` — IPv6 去括号 host / 判定；`EffectivePort()` / `Uri.DefaultPortFor(scheme)` — 默认端口查询
-- `override string ToString()` — canonical 重组（round-trip 保证）
+公开 API 的完整签名见 [reference 包页](../../../docs/reference/src/stdlib/uri.md)（由源码 doc 注释生成）。
 
 ## 用法
 

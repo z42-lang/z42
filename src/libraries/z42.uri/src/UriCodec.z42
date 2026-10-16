@@ -1,12 +1,11 @@
 namespace Std.Uri;
 using Std.Text;
-// percent-encode/decode 辅助（从 Uri.z42 拆出，review §1.8/§6）。
 
-// ── Percent-encode / decode helpers ─────────────────────────────────────
-
+/// percent 编解码辅助：`Uri.EncodeComponent` / `Uri.DecodeComponent` 就是它的转发入口，行为完全一致。
 public static class UriCodec {
     private static string _hex = "0123456789ABCDEF";
 
+    /// 只保留 RFC 3986 §2.3 的 unreserved 集合，其余一律 `%XX`（大写十六进制）；非 ASCII 先 UTF-8 再逐字节编码。
     public static string Encode(string s) {
         StringBuilder sb = new StringBuilder();
         int i = 0;
@@ -47,6 +46,9 @@ public static class UriCodec {
         return sb.ToString();
     }
 
+    /// `%XX` → 字节 → UTF-8 字符串；裸 `+` 解码成空格。
+    ///
+    /// @throws UriException `%` 后不足两位、非十六进制数字、裸非 ASCII 字符或非法 UTF-8 时
     public static string Decode(string s) {
         // Pass 1: collect bytes (treating non-%XX chars as raw ASCII bytes).
         byte[] buf = new byte[s.Length];
@@ -96,8 +98,7 @@ public static class UriCodec {
         return -1;
     }
 
-    /// Encode a single Unicode codepoint to UTF-8 bytes (1 - 4 bytes).
-    /// Caller must ensure cp ≤ 0x10FFFF.
+    // 把单个 Unicode 码点编码成 UTF-8 字节（1–4 字节）。调用方需保证 cp ≤ 0x10FFFF。
     private static byte[] Utf8Encode(int cp) {
         if (cp < 0x80) {
             byte[] r = new byte[1];
@@ -125,8 +126,7 @@ public static class UriCodec {
         return r;
     }
 
-    /// UTF-8 decode bytes → string. Bare-bones implementation; assumes valid
-    /// input (defers strict validation to z42.encoding.Utf8 if user wants).
+    // UTF-8 字节 → 字符串。极简实现，假定输入合法（严格校验交给 z42.encoding.Utf8）。
     private static string Utf8DecodeString(byte[] bytes) {
         StringBuilder sb = new StringBuilder();
         int i = 0;

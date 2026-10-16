@@ -1,17 +1,17 @@
 namespace Std.Uri;
-// RFC 3986 子集 URI 解析器（从 Uri.z42 拆出，review §1.8/§6：单文件多类型 + 超 500 行）。
 
-// ── Parser ──────────────────────────────────────────────────────────────
-
+/// 一次性 URI 解析器：`ParseUri()` 只能对一个实例调用一次（内部游标不重置）。
 public sealed class UriParser {
     private string _src;
     private int _pos;
 
+    /// 构造解析器，绑定待解析的源字符串。
     public UriParser(string src) {
         this._src = src;
         this._pos = 0;
     }
 
+    /// 解析为 Uri（只能对一个实例调用一次）。
     public Uri ParseUri() {
         // RFC 3986 §3: URI = scheme ":" hier-part [ "?" query ] [ "#" fragment ]
         string scheme = this.ParseScheme();
@@ -35,11 +35,9 @@ public sealed class UriParser {
                 this._pos = atIdx + 1;
             }
             int hostStart = this._pos;
-            // add-uri-ipv6-host (2026-06-09): IPv6 / IPvFuture literal hosts are
-            // bracketed (`[::1]`) so their inner ':' separators aren't confused
-            // with the port delimiter (RFC 3986 §3.2.2). Consume through ']'
-            // before the host-terminator scan; the `[...]` (brackets kept) is
-            // the host, and a following ':' is the port.
+            // IPv6 / IPvFuture 字面量 host 用括号（`[::1]`）包裹，避免内部 `:` 被误当端口分隔符
+            // （RFC 3986 §3.2.2）。先消费到 `]`，再做 host 终止符扫描；`[...]`（含括号）即 host，
+            // 其后若有 `:` 才是端口。
             if (this.Peek() == '[') {
                 this.Advance(); // '['
                 while (!this.Eof() && this.Peek() != ']') { this.Advance(); }
@@ -132,11 +130,9 @@ public sealed class UriParser {
         return this._src.Substring(start, this._pos - start);
     }
 
-    /// Find the LAST `@` between current pos and the end of authority
-    /// component (which ends at first `/`, `?`, `#`, or EOF). RFC 3986 says
-    /// userinfo `@` is at the very end of userinfo, but inside it `@` may
-    /// be percent-encoded as `%40`. We use last-`@` since unencoded `@` in
-    /// userinfo is invalid.
+    // 在当前游标到 authority 结尾（第一个 `/`、`?`、`#` 或 EOF）之间找最后一个 `@`。
+    // RFC 3986 中 userinfo 的 `@` 位于末尾，但 userinfo 内部 `@` 可能被 percent 编码成 `%40`；
+    // 用最后一个 `@` 是因为未编码的 `@` 在 userinfo 中非法。
     private int FindInAuthority(char target) {
         int p = this._pos;
         int lastAt = -1;
