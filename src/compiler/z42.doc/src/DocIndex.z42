@@ -5,7 +5,7 @@ public sealed class DocIndex {
     private DocItem[] _items;
     private int       _count;
 
-    public DocIndex() { this._items = new DocItem[64]; this._count = 0; }
+    public DocIndex() { this._items = new DocItem[64]; this._count = 0; this._nameKeys = null; this._nameIdx = null; this._nameBuilt = 0; }
 
     public int     Count()   { return this._count; }
     public DocItem At(int i) { return this._items[i]; }
@@ -27,17 +27,60 @@ public sealed class DocIndex {
 
     // 名字解析，命中即停：
     //   1. Id 完全相等（含参数表）；
-    //   2. 限定名（去掉参数表的 Id）等于 query，或以 `.query` / `+query` / `::query` 结尾——`Random.NextIntRange`、
-    //      `NextIntRange` 都能命中；query 自带参数表时按完整 Id 的后缀比；Rust 条目把 query 里的 `.` 当 `::`；
+    //   2. 匹配键（限定名去掉参数表与泛型实参）等于 query，或以 `.query` / `+query` / `::query` 结尾——
+    //      `Random.NextIntRange`、`NextIntRange`、`List.Add` 都能命中；query 自带参数表时按完整 Id 的后缀比；
+    //      Rust 条目把 query 里的 `.` 当 `::`；
     //   3. 同 2，忽略大小写；
     //   4. 短名包含 query（忽略大小写）。
     // 重载、同名类型都会一起返回，由调用方决定列候选还是展开。
     public DocItem[] Find(string query) {
-        DocItem[] r = this._filter(query, 1);
-        if (r.Length == 0) { r = this._filter(query, 2); }
-        if (r.Length == 0) { r = this._filter(query, 3); }
-        if (r.Length == 0) { r = this._filter(query, 4); }
+        DocItem[] r = this.Resolve(query);
+        if (r.Length == 0) { r = this._contains(query); }
         return r;
+    }
+
+    // 只做前三级（精确的名字解析，不做模糊包含）：书里的代码引用按它判「能不能解析」。
+    public DocItem[] Resolve(string query) {
+        this._ensureNameIndex();
+        bool withParams = query.IndexOf("(") >= 0 || query.IndexOf("[") >= 0;
+        string qk = DocItem.StripGenerics(DocIndex._stripParams(query));
+        int[] cands = this._byLastSegment(DocItem.LastSegment(qk).ToLower());
+        string qg = DocItem.StripGenerics(query);   // 带参数表的比较也去掉泛型实参（两边一致）
+        string lq = qg.ToLower();
+        string rq = qg.Replace(".", "::");
+        string lrq = lq.Replace(".", "::");
+        string qkl = qk.ToLower();
+        string rqk = qk.Replace(".", "::");
+        string rqkl = qkl.Replace(".", "::");
+        int level = 1;
+        while (level <= 3) {
+            DocItem[] acc = new DocItem[4];
+            int n = 0;
+            int i = 0;
+            while (i < cands.Length) {
+                DocItem it = this._items[cands[i]];
+                bool rust = DocIndex._isRust(it);
+                bool hit = false;
+                if (level == 1) { hit = it.Id == query; }
+                else if (withParams) {
+                    string ig = DocItem.StripGenerics(it.Id);
+                    string k = (level == 3) ? ig.ToLower() : ig;
+                    string q = (level == 3) ? lq : qg;
+                    string r = (level == 3) ? lrq : rq;
+                    hit = DocIndex._suffixMatch(k, q) || (rust && DocIndex._suffixMatch(k, r));
+                } else {
+                    string k = (level == 3) ? it.MatchKey().ToLower() : it.MatchKey();
+                    string q = (level == 3) ? qkl : qk;
+                    string r = (level == 3) ? rqkl : rqk;
+                    hit = DocIndex._suffixMatch(k, q) || (rust && DocIndex._suffixMatch(k, r));
+                }
+                if (hit) { acc = DocIndex._push(acc, n, it); n = n + 1; }
+                i = i + 1;
+            }
+            if (n > 0) { return DocIndex._trim(acc, n); }
+            level = level + 1;
+        }
+        return new DocItem[0];
     }
 
     // 直接成员（Parent == id），按源码顺序。
@@ -73,30 +116,63 @@ public sealed class DocIndex {
         return r;
     }
 
-    private DocItem[] _filter(string query, int level) {
+    // 第 4 级：短名包含 query（忽略大小写）。
+    private DocItem[] _contains(string query) {
+        string lq = query.ToLower();
         DocItem[] acc = new DocItem[4];
         int n = 0;
-        string lq = query.ToLower();
-        bool withParams = query.IndexOf("(") >= 0 || query.IndexOf("[") >= 0;
-        // Rust 条目的路径用 `::` 分隔；查询写成 `Heap.alloc` 也能命中 `…::Heap::alloc`。
-        string rq = query.Replace(".", "::");
-        string lrq = lq.Replace(".", "::");
         int i = 0;
         while (i < this._count) {
-            DocItem it = this._items[i];
-            bool hit = false;
-            if (level == 1) { hit = it.Id == query; }
-            else if (level == 2) {
-                string k2 = withParams ? it.Id : it.QualifiedName();
-                hit = DocIndex._suffixMatch(k2, query) || (DocIndex._isRust(it) && DocIndex._suffixMatch(k2, rq));
-            } else if (level == 3) {
-                string k = (withParams ? it.Id : it.QualifiedName()).ToLower();
-                hit = DocIndex._suffixMatch(k, lq) || (DocIndex._isRust(it) && DocIndex._suffixMatch(k, lrq));
-            } else { hit = it.Name.ToLower().Contains(lq); }
-            if (hit) { acc = DocIndex._push(acc, n, it); n = n + 1; }
+            if (this._items[i].Name.ToLower().Contains(lq)) { acc = DocIndex._push(acc, n, this._items[i]); n = n + 1; }
             i = i + 1;
         }
         return DocIndex._trim(acc, n);
+    }
+
+    // 名字索引：按匹配键末段（小写）排序的并行数组，二分取一个桶。条目有增减时重建。
+    private string[] _nameKeys;
+    private int[]    _nameIdx;
+    private int      _nameBuilt;
+
+    private void _ensureNameIndex() {
+        if (this._nameKeys != null && this._nameBuilt == this._count) { return; }
+        string[] keys = new string[this._count];
+        int[] idx = new int[this._count];
+        int i = 0;
+        while (i < this._count) {
+            keys[i] = DocItem.LastSegment(this._items[i].MatchKey()).ToLower();
+            idx[i] = i;
+            i = i + 1;
+        }
+        Array.Sort(keys, idx);
+        this._nameKeys = keys;
+        this._nameIdx = idx;
+        this._nameBuilt = this._count;
+    }
+
+    // 桶内下标按原顺序（源码顺序）返回。
+    private int[] _byLastSegment(string seg) {
+        int lo = 0;
+        int hi = this._nameKeys.Length;
+        while (lo < hi) {
+            int mid = (lo + hi) / 2;
+            if (this._nameKeys[mid].CompareTo(seg) < 0) { lo = mid + 1; } else { hi = mid; }
+        }
+        int end = lo;
+        while (end < this._nameKeys.Length && this._nameKeys[end] == seg) { end = end + 1; }
+        int[] r = new int[end - lo];
+        int i = lo;
+        while (i < end) { r[i - lo] = this._nameIdx[i]; i = i + 1; }
+        Array.Sort(r);
+        return r;
+    }
+
+    private static string _stripParams(string q) {
+        int p = q.IndexOf("(");
+        int b = q.IndexOf("[");
+        if (b >= 0 && (p < 0 || b < p)) { p = b; }
+        if (p < 0) { return q; }
+        return q.Substring(0, p);
     }
 
     private static bool _suffixMatch(string key, string q) {
