@@ -403,6 +403,8 @@ removed ./artifacts
 | `--json` | 以 JSON 输出命中的条目 |
 | `--format mdbook` | 生成 reference 包页（配合 `--out` 与 `--pkg`） |
 | `--out <目录>` | `--format` 的输出目录 |
+| `--page <md>` | 解析一页书里引用的符号，逐行输出 `符号 → file:line` |
+| `--docs <符号>` | 反查：哪些书页 / README 引用了这个符号 |
 
 **名字怎么写**：完整 ID（`Sample.Shapes.Circle.Scale(int)`）、限定名的后缀（`Circle.Scale`）或短名（`Scale`）
 都行，按这个顺序匹配，再不行就忽略大小写，最后按短名包含。重载一起列出；命中多个不同的符号时每个一行列候选。
@@ -437,6 +439,10 @@ stderr 提示重建，查询照常进行。
 **生成 reference 包页**：`z42 doc --format mdbook --out <目录> --pkg <包名>` 把该包渲染成
 `<目录>/<包名>.md`（页面结构见[标准库](../stdlib/README.md)各页）。`@param` / `@throws` 等标记会渲染成
 参数表与异常条目，private 成员不进页。仓库内批量重生成由 `xtask doc gen` 驱动。
+
+**书里的代码引用**：`z42 doc --page <页.md>` 读该页页头声明的「代码」范围，把正文里每个反引号符号解析成
+当前位置，逐行输出 `符号 → file:line`；`--docs <符号>` 反查哪些书页 / README 引用了它。书里不写行号
+（`Foo.z42:57` 这类会被标 ✗），位置交给 `--page` 现查。
 
 **还不支持**：只看源码语法，参数类型按源码写法显示、不做全限定；没有继承来的文档；标记与链接只解析、
 不校验。

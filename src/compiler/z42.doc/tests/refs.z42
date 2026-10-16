@@ -1,0 +1,81 @@
+// z42.doc DocRefs 单测：书页范围提取、反引号引用分类、行号拦截、解析与报告、`--page` 查询。
+namespace Z42DocRefsTests;
+
+using Std.IO;
+using Z42.Doc;
+using Std.Harness;
+
+void _eq(string expected, string actual) {
+    if (expected != actual) { Assert.Fail("expected <" + expected + ">\n     got <" + actual + ">"); }
+}
+
+DocIndex _index(string src) {
+    DocIndex ix = new DocIndex();
+    ix.AddAll(SyntaxIndexer.IndexSource(src, "lib/src/A.z42"));
+    return ix;
+}
+
+[Test]
+void test_extract_scope_and_classify() {
+    string md = "# 页\n"
+        + "\n"
+        + "> 代码：`src/libraries/z42.random` — Random\n"
+        + "\n"
+        + "正文 `Random.NextIntRange`、文件 `Random.z42`、行号 `Random.z42:57`、区间 `:78-83`。\n"
+        + "单词 `int` 不算符号。\n"
+        + "\n"
+        + "```z42\n"
+        + "代码块里的 `Random` 不算\n"
+        + "```\n";
+    DocPage page = DocRefs.Extract(md);
+    Assert.Equal(1, page.Scope.Length);
+    _eq("src/libraries/z42.random", page.Scope[0]);
+    // 引用：符号链、行号 ×2、单名（int 是单段符号，Multi=false）；文件 `Random.z42` 与代码块里的不算。
+    Assert.Equal(4, page.Refs.Length);
+    _eq("Random.NextIntRange", page.Refs[0].Text);
+    Assert.Equal(DocRef.Symbol, page.Refs[0].Kind);
+    Assert.True(page.Refs[0].Multi);
+    _eq("Random.z42:57", page.Refs[1].Text);
+    Assert.Equal(DocRef.LineNo, page.Refs[1].Kind);
+    _eq(":78-83", page.Refs[2].Text);
+    Assert.Equal(DocRef.LineNo, page.Refs[2].Kind);
+    _eq("int", page.Refs[3].Text);
+    Assert.False(page.Refs[3].Multi);
+    // 未解析时：两个行号 + 一个多段符号链（int 是单段，不算问题）。
+    Assert.Equal(3, DocRefs.ProblemCount(page));
+}
+
+[Test]
+void test_resolve_and_report() {
+    DocIndex ix = _index(
+        "namespace App;\n"
+        + "/// 随机。\npublic class Random {\n"
+        + "    /// 区间。\n    public int NextIntRange(int min, int max) { return min; }\n"
+        + "}\n");
+    DocPage page = DocRefs.Extract("> 代码：`lib/src`\n\n看 `Random.NextIntRange` 与 `App.Random`。\n");
+    DocRefs.Resolve(page, ix);
+    _eq("lib/src", page.Scope[0]);
+    Assert.True(page.Refs[0].Target != null);
+    _eq("App.Random.NextIntRange(int,int)", page.Refs[0].Target.Id);
+    Assert.True(page.Refs[1].Target != null);
+    _eq("App.Random", page.Refs[1].Target.Id);
+    string rep = DocRefs.Report(page);
+    Assert.Contains("→ lib/src/A.z42:5", rep);
+    Assert.Contains("→ lib/src/A.z42:3", rep);
+}
+
+[Test]
+void test_query_page() {
+    string root = Directory.CreateTempDir("z42docrefs");
+    Directory.Create(Path.Join(root, "lib"));
+    Directory.Create(Path.Join(root, "lib/src"));
+    File.WriteAllText(Path.Join(root, "lib/mylib.z42.toml"), "[project]\nname = \"mylib\"\n");
+    File.WriteAllText(Path.Join(root, "lib/src/A.z42"), "namespace App;\npublic class C {\n    public void M() { }\n}\n");
+    File.WriteAllText(Path.Join(root, "page.md"), "# 页\n\n> 代码：`lib/src`\n\n看 `C.M`。\n");
+    DocQueryOptions o = new DocQueryOptions();
+    o.Root = root; o.Page = "page.md"; o.CachePath = "";
+    DocQueryResult r = DocQuery.Run(o);
+    Assert.Equal(0, r.Exit);
+    Assert.Contains("→ lib/src/A.z42:3", r.Out);
+    Directory.Delete(root, true);
+}

@@ -26,6 +26,8 @@ public static class DocCommand {
         o.Json    = pr.GetFlag("json");
         o.Private = pr.GetFlag("private");
         o.Pkg     = pr.GetOption("pkg");
+        o.Page    = pr.GetOption("page");
+        o.Docs    = pr.GetOption("docs");
         o.Root    = root;
         o.CachePath = DocCommand._cachePath(root);
         DocQueryResult r = DocQuery.Run(o);

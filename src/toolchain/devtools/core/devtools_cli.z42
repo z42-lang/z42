@@ -48,6 +48,8 @@ SubcommandRouter _devtoolsRoot() {
     doc.AddFlag("json", "", "print matching entries as JSON");
     doc.AddOption("format", "", "render markdown instead of querying (mdbook)", "");
     doc.AddOption("out", "", "output directory for --format", "");
+    doc.AddOption("page", "", "resolve the code references in a book page (markdown) to file:line", "");
+    doc.AddOption("docs", "", "reverse lookup: which book pages / READMEs reference this symbol", "");
     root.Add("doc", "look up symbols and their documentation", doc);
 
     // dbg — debugger（planned；前端在本目录 + VM 断点/单步钩子住 runtime/，DAP 0.8.x）。
