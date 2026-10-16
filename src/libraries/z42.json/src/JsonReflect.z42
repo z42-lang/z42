@@ -1,14 +1,12 @@
 namespace Std.Json;
 using Std.Reflection;
 
-// add-json-serde (2026-08-22)：serde 反射底座。
+// serde 反射底座。
 //
-// add-array-property-reflection-api (2026-08-24)：反射式数组建/读写与属性 attribute 已**下沉**为
-// `Std.Array`（静态 `CreateInstance` + 实例 `GetValue`/`SetValue`/`.Length`）与
-// `Std.Reflection.PropertyInfo`（`GetCustomAttributes`/`GetAttribute`）的公开反射 API，本库不再自带
-// 对应 extern（原 `__array_*` / `__property_custom_attributes` 声明已删，调用点改用公开 API）。此处仅保留
-// **集合反射辅助**——它们封装的是已公开的反射 API（`GetGenericArguments`/`Activator`/`MethodInfo.Invoke`/
-// `FieldInfo.GetValue`），z42 反射尚无 `GetMethod(name)`/`GetField(name)` 故本库以「遍历按名取首个匹配」补齐。
+// 反射式数组建/读写与属性 attribute 已下沉为 `Std.Array` 与 `Std.Reflection.PropertyInfo` 的
+// 公开反射 API，本库不再自带对应 extern；此处仅保留**集合反射辅助**——它们封装的是已公开的
+// 反射 API（`GetGenericArguments` / `Activator` / `MethodInfo.Invoke` / `FieldInfo.GetValue`），
+// z42 反射尚无 `GetMethod(name)` / `GetField(name)`，故本库以「遍历按名取首个匹配」补齐。
 internal static class JsonReflect {
     // ── 集合反射（List<T> / Dictionary<string,V>，add-collection-serde）─────────────
     // 反射-only：复用既有反射 native（GetGenericArguments / Activator / MethodInfo.Invoke /

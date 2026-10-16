@@ -1,13 +1,12 @@
 namespace Std.Json;
 
-// JSON serialisation (compact or pretty).
-//
-// Output pieces are collected in a private `string[]` and joined once with
-// `String.ConcatParts` — the same scheme as `StringBuilder`, minus a method call
-// and a length update per piece. Values are read straight from JsonValue's
-// (package-internal) representation instead of through `Is*` / `As*` / `Keys()` /
-// `Get(key)` calls per value.
+/// JSON 序列化器（紧凑或缩进）。
 public sealed class JsonWriter {
+    // Output pieces are collected in a private `string[]` and joined once with
+    // `String.ConcatParts` — the same scheme as `StringBuilder`, minus a method call
+    // and a length update per piece. Values are read straight from JsonValue's
+    // (package-internal) representation instead of through `Is*` / `As*` / `Keys()` /
+    // `Get(key)` calls per value.
     private string[] _parts;
     private int _n;
     private bool _pretty;
@@ -95,10 +94,10 @@ public sealed class JsonWriter {
         for (int i = 0; i < this._depth; i++) { this.Put("  "); }
     }
 
-    /// `"s"` with JSON string escapes: control chars and `"` / `\`. Non-ASCII
-    /// passes through as raw UTF-8 (RFC 8259 §7 allows this). A string with
-    /// nothing to escape (the usual case) is emitted as-is between the quotes;
-    /// otherwise ordinary runs are flushed as bulk Substrings between escapes.
+    // `"s"` with JSON string escapes: control chars and `"` / `\`. Non-ASCII
+    // passes through as raw UTF-8 (RFC 8259 §7 allows this). A string with
+    // nothing to escape (the usual case) is emitted as-is between the quotes;
+    // otherwise ordinary runs are flushed as bulk Substrings between escapes.
     private void PutQuoted(string s) {
         this.Put("\"");
         char[] cs = s.ToCharArray();

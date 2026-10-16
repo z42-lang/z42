@@ -1,11 +1,11 @@
 namespace Std.Json;
 using Std.Reflection;
 
-// add-json-serde (2026-08-22)：反序列化反射核。`FromJson(Type, JsonValue)` 按**目标 Type**
-// 递归分派（而非 JSON kind），故 JSON 的整数/浮点能正确落到 int/long/double 目标成员。
-// 构造模型：有无参 ctor（或无 ctor）→ Activator + 按名 SetValue；否则选参数最多的 ctor 按
-// 参数名映射 JSON 键 Invoke（覆盖 record / 只读 auto-prop），再补齐剩余可写成员。
-// 类型覆盖：基元 (int/long/double/bool/string) + 嵌套对象 + 定长数组 T[]。集合/enum/nullable 见 Deferred。
+/// 反序列化反射核：按目标 Type 递归把 JSON 绑定为对象，故 JSON 的整数 / 浮点能正确落到
+/// int / long / double 目标成员。
+///
+/// 构造模型：有无参构造器（或无构造器）→ Activator + 按名赋值；否则选参数最多的构造器按
+/// 参数名匹配 JSON 键调用，再补齐剩余可写成员。类型覆盖基元 + 嵌套对象 + 定长数组 T[]。
 public static class JsonBinder {
     public static object FromJson(Type t, JsonValue v) {
         if (v.IsNull()) { return null; }
