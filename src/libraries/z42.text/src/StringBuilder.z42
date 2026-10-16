@@ -1,24 +1,34 @@
+//! 字符串构建与文本工具。
+//!
+//! 三个类型：可变字符串缓冲 [`StringBuilder`]、字符串 shaping 静态工具 [`Strings`]、编辑距离静态工具
+//! [`Levenshtein`]。`string` 本身的方法（`Substring` / `Split` / `Replace` / `IndexOf` / `CharAt` …）
+//! 在 prelude 的 `Std.String` 上，不需要导入本包；正则表达式在 [`Std.Regex.Regex`]，不在本包。
+//!
+//! ## 不支持
+//!
+//! - `StringBuilder.Length` 没有 setter（不能用 `sb.Length = 0` 截断 / 补 `'\0'`）；截断用
+//!   `Remove(n, Length - n)`，清空用 `Clear()`。
+//! - `StringBuilder` 没有容量构造器与 `Capacity` / `EnsureCapacity` / `MaxCapacity`，只有无参构造器。
+//! - `StringBuilder` 没有区间重载：`Append(string, start, count)`、`Replace(old, new, start, count)`、
+//!   `ToString(start, length)`、`CopyTo` 都没有；也没有 `Replace(char, char)`。
+//! - `StringBuilder` 不支持 `foreach`（无 `GetEnumerator()`）。要逐字符处理，先把 `ToCharArray()`
+//!   存进局部变量再遍历（直接写在 `foreach` 的 `in` 位置会取到 `null`）。
+//! - `Strings` 没有默认 `fill`：`PadLeft` / `PadRight` 必须显式给填充字符。
+//! - `Strings` 没有 `TrimStart` / `TrimEnd` / `LastIndexOfAny` / `Join` / `Split` 系列。
+//! - `Levenshtein` 没有距离上限剪枝参数，也没有 Damerau–Levenshtein（相邻换位不算一次编辑）。
 namespace Std.Text;
 
-
-// Mutable string builder — Script-First 实现，基于 z42.core 原语
-// (`string[]` + manual grow + `String.FromChars`).
-//
-// 内部把 Append 的字符串收集到 `string[]` buffer（按 2× 扩容），ToString
-// 时一次性合并到 char[] 再 String.FromChars 出来，避免每次 Append 都拼接
-// 的 O(n²) 开销。
-//
-// 不用 `List<string>` 是因为 stdlib 字段类型暂不支持泛型实例化语法
-// (`List<string> _parts;` 在 parser 当前实现下被误识别为 method header)。
-//
-// 2026-04-26 script-first-stringbuilder：从 5 个 VM extern intrinsic 迁移
-// 到纯脚本实现，符合 z42.text "no VM extern" + Script-First 规则。
+// Mutable string builder —— Script-First 实现，基于 z42.core 原语（`string[]` + 手动扩容 +
+// `String.FromChars`）。Append 收集进 `string[]` buffer（2× 扩容），ToString 时一次性合并成 char[]
+// 再 FromChars，避免每次 Append 都拼接的 O(n²) 开销。不用 `List<string>` 是因为 stdlib 字段类型暂不
+// 支持泛型实例化语法。
 public class StringBuilder {
     string[] _parts;
     int _count;
     int _capacity;
     int _length;
 
+    /// 无参构造，初始容量 4。
     public StringBuilder() {
         this._capacity = 4;
         this._parts = new string[4];
@@ -26,12 +36,9 @@ public class StringBuilder {
         this._length = 0;
     }
 
-    // Append a string directly — the fast path. Skips the `Convert.ToString`
-    // virtual dispatch + object boxing that `Append(object)` incurs. This is
-    // what the JSON/TOML/YAML run-flush parsers append (whole `Substring` runs),
-    // so keeping the `string[]` parts buffer (store-by-reference, single copy at
-    // ToString) is optimal for that pattern — a char[] accumulator would copy
-    // each run twice.
+    // 追加字符串的快速路径：跳过 `Append(object)` 的 `Convert.ToString` 虚分派与装箱。JSON/TOML/YAML
+    // 的 run-flush 解析器就是整段 `Substring` 追加，所以按引用存 `string[]`、ToString 时只拷一次最省。
+    /// 追加一个字符串。
     public StringBuilder Append(string value) {
         if (this._count == this._capacity) {
             this.Grow();
@@ -42,59 +49,47 @@ public class StringBuilder {
         return this;
     }
 
-    // Append a single char. Rare on the run-flush path (escape chars only), so a
-    // per-call 1-char string is acceptable; avoids the Append(object) boxing.
+    // 追加单个字符：run-flush 路径上很少见（只有转义字符），每次分配 1 字符串可接受。
+    /// 追加一个字符。
     public StringBuilder Append(char value) {
         char[] one = new char[1];
         one[0] = value;
         return this.Append(String.FromChars(one));
     }
 
-    // Append value (any type) and return this for chaining. Non-string/char
-    // values route through Convert.ToString then the string fast path.
+    /// 追加任意值，经 `Convert.ToString` 转成字符串再追加。
     public StringBuilder Append(object value) {
         return this.Append(Convert.ToString(value));
     }
 
-    // Append value followed by a newline.
+    /// 追加 `value` 再追加一个换行。
     public StringBuilder AppendLine(object value) {
         this.Append(value);
         return this.Append("\n");
     }
 
-    // Append only a newline.
+    /// 只追加一个换行。
     public StringBuilder AppendLine() {
         return this.Append("\n");
     }
 
-    // Number of characters currently in the buffer.
+    /// 当前字符数。
     public int GetLength() {
         return this._length;
     }
 
-    // ── C# System.Text.StringBuilder parity (corelib alignment) ───────────────
-    //
-    // Random-access reads and in-place edits (indexer / Length setter / Insert /
-    // Remove / Replace) don't map onto the `string[]` parts buffer directly, so
-    // they collapse the buffer to a single materialized string first via
-    // ToString(), then reset it to one part with `_setSingle`. O(n) per edit,
-    // which fits StringBuilder's "many Appends, occasional edits" usage picture.
+    // ── C# System.Text.StringBuilder 对齐（corelib alignment）────────────────
+    // 随机访问与原地编辑（indexer / Insert / Remove / Replace）不直接映射到 `string[]` parts buffer，
+    // 所以先 ToString() 物化成单串，再用 _setSingle 重置。每次编辑 O(n)，符合 StringBuilder
+    // 「大量 Append、偶尔编辑」的用法。
 
-    // Number of characters currently in the buffer (C# `Length` property, read).
-    // Computed getter mirrors GetLength() and gives the idiomatic `sb.Length`.
-    //
-    // The C# `Length` *setter* (truncate / '\0'-extend) is NOT provided: z42
-    // named properties only support a computed getter body — full get+set
-    // accessor bodies parse for indexers (GS5) but not named properties. Use
-    // `Clear()` for `Length = 0` and `Remove(n, Length - n)` to truncate.
+    /// 当前字符数（只读属性）。
     public int Length {
         get { return this._length; }
     }
 
-    // Random-access char by absolute index. The GS5 indexer parser only accepts
-    // single-expression get/set bodies, so both delegate to helper methods (same
-    // idiom as List/Dictionary). Getter walks the parts buffer (O(count)); setter
-    // collapses + rewrites the single char.
+    // 按绝对下标随机访问字符。indexer 的 get/set 体只接受单表达式，故委托给 _charAt / _setCharAt。
+    /// 按字符位置读写。越界抛 `Exception`。
     public char this[int index] {
         get { return this._charAt(index); }
         set { this._setCharAt(index, value); }
@@ -121,22 +116,21 @@ public class StringBuilder {
         this._setSingle(String.FromChars(chars));
     }
 
-    // Reset the buffer to a single logical part `s`. `_capacity` is always ≥ 4,
-    // so slot 0 is valid without a grow.
+    // 重置为单个逻辑部分 `s`。`_capacity` 恒 ≥ 4，槽 0 无需扩容即可写。
     void _setSingle(string s) {
         this._parts[0] = s;
         this._count = 1;
         this._length = s.Length;
     }
 
-    // Remove all characters (keeps allocated capacity). Returns this for chaining.
+    /// 清空（`Length` 归 0），保留已分配的容量。
     public StringBuilder Clear() {
         this._count = 0;
         this._length = 0;
         return this;
     }
 
-    // Insert `value` at char position `index`. index == Length appends.
+    /// 在字符位置 `index` 插入；`index == Length` 等同追加。
     public StringBuilder Insert(int index, string value) {
         string cur = this.ToString();
         string result = String.Concat(cur.Substring(0, index), value, cur.Substring(index));
@@ -144,19 +138,19 @@ public class StringBuilder {
         return this;
     }
 
-    // Insert a single char at `index`.
+    /// 在字符位置 `index` 插入一个字符。
     public StringBuilder Insert(int index, char value) {
         char[] one = new char[1];
         one[0] = value;
         return this.Insert(index, String.FromChars(one));
     }
 
-    // Insert any value (routed through Convert.ToString) at `index`.
+    /// 在字符位置 `index` 插入任意值（经 `Convert.ToString`）。
     public StringBuilder Insert(int index, object value) {
         return this.Insert(index, Convert.ToString(value));
     }
 
-    // Remove `length` chars starting at `startIndex`. Bounds enforced by Substring.
+    /// 删除 `[startIndex, startIndex + length)` 区间的字符。
     public StringBuilder Remove(int startIndex, int length) {
         string cur = this.ToString();
         string result = String.Concat(cur.Substring(0, startIndex), cur.Substring(startIndex + length));
@@ -164,26 +158,26 @@ public class StringBuilder {
         return this;
     }
 
-    // Replace all occurrences of `oldValue` with `newValue`.
+    /// 替换缓冲里全部出现的 `oldValue`。
     public StringBuilder Replace(string oldValue, string newValue) {
         this._setSingle(this.ToString().Replace(oldValue, newValue));
         return this;
     }
 
-    // Append `format` with `{0}`-style placeholders filled from `args`.
+    /// 追加 `String.Format(format, args)` 的结果，占位符是 `{0}` / `{1}` 风格。
+    /// @param format 含 `{0}` 风格占位符的格式串
+    /// @param args 填入占位符的值
     public StringBuilder AppendFormat(string format, params object[] args) {
         return this.Append(String.Format(format, args));
     }
 
-    // Materialize the accumulated string. One native bulk concat of the parts
-    // (perf-stdlib-hot-paths: was a per-char CharAt copy into a char[] — one builtin
-    // dispatch per output character — then FromChars).
+    /// 物化出当前字符串。空缓冲返回 `""`。
     override string ToString() {
         if (this._length == 0) return "";
         return String.ConcatParts(this._parts, this._count);
     }
 
-    // 2× capacity grow strategy (mirrors List<T>.Grow).
+    // 2× 容量增长（与 List<T>.Grow 一致）。
     void Grow() {
         int newCap = this._capacity * 2;
         string[] bigger = new string[newCap];

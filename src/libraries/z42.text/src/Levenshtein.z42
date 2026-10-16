@@ -1,39 +1,26 @@
 namespace Std.Text;
 
-
-// add-text-levenshtein (2026-05-27): Levenshtein edit distance + ratio.
-//
-// `Distance(a, b)` counts the minimum number of single-character insertions,
-// deletions, or substitutions to transform `a` into `b`. O(|a|·|b|) time,
-// O(min(|a|,|b|)) space via the two-row dynamic programming trick.
-//
-// `SimilarityRatio(a, b)` normalises to [0.0, 1.0] — `1.0 - distance / max(|a|,|b|)`.
-// Two empty strings produce 1.0 (defined; matches Python `difflib` ratio
-// convention for empty inputs).
-//
-// Use cases: fuzzy command suggestion ("did you mean: status?"), spell-
-// check, typo-tolerant config-key lookup.
+// Levenshtein 编辑距离 + 相似度。O(|a|·|b|) 时间、O(min(|a|,|b|)) 空间（两行 DP）。
+// 用途：命令拼写纠正（"did you mean: status?"）、拼写检查、配置键的容错查找。
 public static class Levenshtein {
-    /// Minimum edit distance between `a` and `b`. Symmetric. Returns 0 on
-    /// equal strings, `max(|a|,|b|)` on completely different.
+    /// `a` 变成 `b` 所需的单字符插入 / 删除 / 替换的最少次数。对称；相同字符串返回 `0`，一侧为空时返回另一侧长度。
     public static int Distance(string a, string b) {
         int la = a.Length;
         int lb = b.Length;
         if (la == 0) return lb;
         if (lb == 0) return la;
-        // Ensure the SHORTER string drives the row width to minimise allocation.
+        // 用较短串驱动行宽，最小化分配。
         string s; string t;
         if (la <= lb) { s = a; t = b; } else { s = b; t = a; }
         int ls = s.Length;     // smaller
         int lt = t.Length;     // larger
 
-        // Materialise both strings once: the inner DP loop reads s[k-1] O(ls·lt)
-        // times, so a per-read `CharAt` builtin call would dominate. Array
-        // indexing (ArrayGet) is a single opcode.
+        // 两个串各物化一次：内层 DP 循环读 s[k-1] O(ls·lt) 次，逐字符 CharAt 会支配开销，
+        // 数组下标（ArrayGet）是单指令。
         char[] sarr = s.ToCharArray();
         char[] tarr = t.ToCharArray();
 
-        // Two rows: previous and current. Indexes 0..ls.
+        // 两行：上一行与当前行，下标 0..ls。
         int[] prev = new int[ls + 1];
         int[] cur  = new int[ls + 1];
         int j = 0;
@@ -65,9 +52,7 @@ public static class Levenshtein {
         return prev[ls];
     }
 
-    /// Similarity in [0.0, 1.0]: 1.0 means identical, 0.0 means
-    /// every character must change (or one string is empty + the other
-    /// fully populated). Two empty strings → 1.0.
+    /// 相似度，落在 `[0.0, 1.0]`：`1.0 - Distance(a, b) / max(len(a), len(b))`。两个空串返回 `1.0`。
     public static double SimilarityRatio(string a, string b) {
         int la = a.Length;
         int lb = b.Length;
