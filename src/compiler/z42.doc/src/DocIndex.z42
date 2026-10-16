@@ -144,10 +144,36 @@ public sealed class DocIndex {
             idx[i] = i;
             i = i + 1;
         }
-        Array.Sort(keys, idx);
+        DocIndex._sortKeys(keys, idx);
         this._nameKeys = keys;
         this._nameIdx = idx;
         this._nameBuilt = this._count;
+    }
+
+    // 按 key 排序（插入排序，索引并行交换）。名字数量不大，不必快排。
+    private static void _sortKeys(string[] keys, int[] idx) {
+        int i = 1;
+        while (i < keys.Length) {
+            string k = keys[i];
+            int v = idx[i];
+            int j = i - 1;
+            while (j >= 0 && keys[j].CompareTo(k) > 0) { keys[j + 1] = keys[j]; idx[j + 1] = idx[j]; j = j - 1; }
+            keys[j + 1] = k;
+            idx[j + 1] = v;
+            i = i + 1;
+        }
+    }
+
+    // 桶内下标按原顺序排序。
+    private static void _sortInts(int[] a) {
+        int i = 1;
+        while (i < a.Length) {
+            int v = a[i];
+            int j = i - 1;
+            while (j >= 0 && a[j] > v) { a[j + 1] = a[j]; j = j - 1; }
+            a[j + 1] = v;
+            i = i + 1;
+        }
     }
 
     // 桶内下标按原顺序（源码顺序）返回。
@@ -163,7 +189,7 @@ public sealed class DocIndex {
         int[] r = new int[end - lo];
         int i = lo;
         while (i < end) { r[i - lo] = this._nameIdx[i]; i = i + 1; }
-        Array.Sort(r);
+        DocIndex._sortInts(r);
         return r;
     }
 

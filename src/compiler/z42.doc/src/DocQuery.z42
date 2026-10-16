@@ -3,6 +3,7 @@
 namespace Z42.Doc;
 
 using Std.IO;
+using Std.Text;
 
 public sealed class DocQueryOptions {
     public string Query;     // 符号名（Doc ID、限定名后缀或短名）
@@ -13,9 +14,11 @@ public sealed class DocQueryOptions {
     public string Pkg;       // 非空 = 只看这个包
     public string Root;      // 索引根（绝对路径）
     public string CachePath; // "" = 不用缓存
+    public string Page;      // 非空 = 书页路径：解析页里引用的符号，输出 `符号 → file:line`
+    public string Docs;      // 非空 = 反查：哪些书页 / README 引用了这个符号
     public DocQueryOptions() {
         this.Query = ""; this.Search = ""; this.Members = false; this.Json = false; this.Private = false;
-        this.Pkg = ""; this.Root = ""; this.CachePath = "";
+        this.Pkg = ""; this.Root = ""; this.CachePath = ""; this.Page = ""; this.Docs = "";
     }
 }
 
@@ -28,8 +31,8 @@ public sealed class DocQueryResult {
 
 public static class DocQuery {
     public static DocQueryResult Run(DocQueryOptions o) {
-        if (o.Query.Length == 0 && o.Search.Length == 0) {
-            return new DocQueryResult("", "z42 doc: give a symbol name or --search <text>", 2);
+        if (o.Query.Length == 0 && o.Search.Length == 0 && o.Page.Length == 0 && o.Docs.Length == 0) {
+            return new DocQueryResult("", "z42 doc: give a symbol name, --search <text>, --page <md>, or --docs <sym>", 2);
         }
         DocIndex ix = DocQuery.BuildIndex(o.Root, o.Pkg, o.CachePath);
         // 外部索引（仓库里 Rust 运行时的条目）放在索引根的 artifacts/doc/ 下；过期提示随结果一起给出。
@@ -39,7 +42,99 @@ public static class DocQuery {
         return r;
     }
 
+    // 一页书里的符号引用 → 当前位置。读页头声明的范围，解析每个反引号符号，逐行输出 `符号 → file:line`。
+    private static DocQueryResult _page(DocQueryOptions o, DocIndex ix) {
+        string path = o.Page;
+        if (!Path.IsRooted(path)) { path = Path.Join(o.Root, path); }
+        if (!File.Exists(path)) { return new DocQueryResult("", "z42 doc: --page not found: " + o.Page, 2); }
+        DocPage page = DocRefs.Extract(File.ReadAllText(path));
+        DocRefs.Resolve(page, ix);
+        return DocQuery._ok(DocRefs.Report(page));
+    }
+
+    // 反查：扫 docs/**/*.md 与 src/**/README.md，列出引用给定符号的页与行。
+    private static DocQueryResult _docs(DocQueryOptions o, DocIndex ix) {
+        string[] pages = DocQuery._bookPages(o.Root);
+        StringBuilder sb = new StringBuilder();
+        int n = 0;
+        int i = 0;
+        while (i < pages.Length) {
+            DocPage page = DocRefs.Extract(File.ReadAllText(pages[i]));
+            DocRefs.Resolve(page, ix);
+            int j = 0;
+            while (j < page.Refs.Length) {
+                DocRef r = page.Refs[j];
+                if (r.Target != null && DocQuery._matches(r.Target, o.Docs)) {
+                    sb.Append(DocQuery._rel(o.Root, pages[i])).Append(":").Append(r.Line.ToString()).Append("  ").Append(r.Text).Append("\n");
+                    n = n + 1;
+                }
+                j = j + 1;
+            }
+            i = i + 1;
+        }
+        if (n == 0) { return DocQuery._none(o.Docs); }
+        return DocQuery._ok(sb.ToString());
+    }
+
+    // 反查的命中判定：Id 或限定名等于查询，或以 `.查询` / `::查询` 结尾。
+    private static bool _matches(DocItem it, string q) {
+        if (it.Id == q || it.QualifiedName() == q) { return true; }
+        return it.Id.EndsWith("." + q) || it.Id.EndsWith("::" + q) || it.Id.EndsWith("+" + q);
+    }
+
+    // 仓库相对路径（`/` 分隔）。
+    private static string _rel(string root, string abs) {
+        if (abs.StartsWith(root + "/")) { return abs.Substring(root.Length + 1); }
+        return abs;
+    }
+
+    // 书页清单：docs/**/*.md 全收，src/**/README.md 全收。
+    private static string[] _bookPages(string root) {
+        DocQuery._StrAcc acc = new DocQuery._StrAcc();
+        string docs = Path.Join(root, "docs");
+        if (Directory.Exists(docs)) { DocQuery._mdWalk(docs, acc); }
+        string src = Path.Join(root, "src");
+        if (Directory.Exists(src)) { DocQuery._readmeWalk(src, acc); }
+        string[] r = new string[acc.N];
+        Array.Copy(acc.Items, r, acc.N);
+        return r;
+    }
+
+    private static void _mdWalk(string dir, DocQuery._StrAcc acc) {
+        string[] names = Directory.Enumerate(dir);
+        int i = 0;
+        while (i < names.Length) {
+            string abs = Path.Join(dir, names[i]);
+            if (Directory.Exists(abs)) { if (!names[i].StartsWith(".")) { DocQuery._mdWalk(abs, acc); } }
+            else if (names[i].EndsWith(".md")) { acc.Add(abs); }
+            i = i + 1;
+        }
+    }
+
+    private static void _readmeWalk(string dir, DocQuery._StrAcc acc) {
+        string[] names = Directory.Enumerate(dir);
+        int i = 0;
+        while (i < names.Length) {
+            string abs = Path.Join(dir, names[i]);
+            if (Directory.Exists(abs)) { if (!names[i].StartsWith(".")) { DocQuery._readmeWalk(abs, acc); } }
+            else if (names[i] == "README.md") { acc.Add(abs); }
+            i = i + 1;
+        }
+    }
+
+    private sealed class _StrAcc {
+        public string[] Items;
+        public int N;
+        public _StrAcc() { this.Items = new string[64]; this.N = 0; }
+        public void Add(string s) {
+            if (this.N == this.Items.Length) { string[] g = new string[this.Items.Length * 2]; Array.Copy(this.Items, g, this.N); this.Items = g; }
+            this.Items[this.N] = s; this.N = this.N + 1;
+        }
+    }
+
     private static DocQueryResult _answer(DocQueryOptions o, DocIndex ix) {
+        if (o.Page.Length > 0) { return DocQuery._page(o, ix); }
+        if (o.Docs.Length > 0) { return DocQuery._docs(o, ix); }
         if (o.Search.Length > 0) {
             DocItem[] hits = DocQuery._visible(ix.Search(o.Search), o.Private);
             if (hits.Length == 0) { return DocQuery._none(o.Search); }
