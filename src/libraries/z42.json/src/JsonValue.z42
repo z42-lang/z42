@@ -1,15 +1,36 @@
+//! JSON 读写与对象序列化。
+//!
+//! 两层 API，按需取用：DOM 层（[`JsonValue`]）把 JSON 文本解析成值树，逐键 / 逐下标访问，
+//! 也可手工搭树再输出；serde 层（[`JsonSerializer`]）经反射在用户对象与 JSON 文本之间直转，
+//! 不用写 DOM 代码。
+//!
+//! 整份文档一次性读进内存：没有增量 / 流式 reader，超大 JSON 需自行分块。解析失败一律
+//! fail-fast，抛第一个错误，不聚合错误列表。
+//!
+//! ## 不支持
+//!
+//! - 增量 / 流式解析：`ParseStream` 只是「读到 EOF 再整体解析」，不是逐 token 的流式 reader。
+//! - 注释保留：relaxed 模式解析掉的注释不进值树，也不会被 `Stringify` 写回。
+//! - JSON Schema 校验、自定义命名策略、自定义转换器。
+//! - `Stringify` 的两个非法输出（读进来能原样写回去不成立的场景）：
+//!   - `NaN` / `Infinity` 写出为 `NaN` / `inf` / `-inf`——不是合法 JSON，连 `ParseRelaxed`
+//!     也读不回来（relaxed 只认 `NaN` / `Infinity` 拼写）。要 round-trip 得自己先检出这些值。
+//!   - 整值 double（`42.0`）写出为 `42`，再解析回来 kind 变 Long。
+//! - 数组下标 / 键缺失不返回默认值：`At` / `Get` 越界或缺键一律抛异常，需要容错就先
+//!   `ContainsKey` / `Length`，或改用 `JsonPath.Select`（走不通返回 `null`）。
+
 namespace Std.Json;
 using Std.IO;
 using Std.Collections;
 
-// add-z42-json (2026-05-14)：JSON 值的运行时表示 + 入口点。
-//
-// 与 Std.Toml.TomlValue 同款 discriminated-union 设计：单 int kind +
-// 多个 typed 槽位 + Is*/As* 谓词访问。详见 docs/reference/src/stdlib/json.md。
-//
-// kind 0=Null 1=Bool 2=Long 3=Double 4=String 5=Array 6=Object
-//   （注意 Null 在 JSON 中是 first-class value，与 TOML 不同 —— TOML 无 null）
+/// 值树的唯一节点类型与包的入口点：一个 `JsonValue` 属于 Null / Bool / Long / Double /
+/// String / Array / Object 七种 kind 之一。
 public class JsonValue {
+    // 与 Std.Toml.TomlValue 同款 discriminated-union 设计：单 int kind + 多个 typed 槽位 +
+    // Is*/As* 谓词访问。详见 docs/reference/src/stdlib/json.md。
+    //
+    // kind 0=Null 1=Bool 2=Long 3=Double 4=String 5=Array 6=Object
+    //   （注意 Null 在 JSON 中是 first-class value，与 TOML 不同 —— TOML 无 null）
     // `internal` (not `private`) so the same-package JsonWriter reads the
     // representation directly instead of through a method call per value.
     internal int _kind;
@@ -36,54 +57,42 @@ public class JsonValue {
 
     // ── Public entry points ──────────────────────────────────────────────
 
-    /// Parse JSON text → root value. Throws JsonException with line/column
-    /// on syntax error. Empty input is invalid per RFC 8259.
+    /// 严格按 RFC 8259 解析 JSON 文本为根值；语法错误抛带行 / 列的 `JsonException`，
+    /// 空输入按 RFC 8259 视为非法。
     public static JsonValue Parse(string text) {
         JsonParser p = new JsonParser(text);
         return (JsonValue)p.ParseDocument();
     }
 
-    /// Relaxed (JSON5-style) parse — accepts `//` line comments,
-    /// `/* */` block comments, and trailing commas in arrays/objects.
-    /// Useful for tooling configs (`tsconfig.json`, `.vscode/settings.json`,
-    /// Docker `compose.json`). Other JSON5 features (unquoted keys / hex
-    /// literals / single-quoted strings) deferred.
-    /// add-json-relaxed (2026-05-25).
+    /// 宽松（JSON5 风格）解析：额外接受 `//` 行注释、`/* */` 块注释与数组 / 对象尾逗号，
+    /// 适合工具配置（`tsconfig.json`、`.vscode/settings.json`、Docker `compose.json`）。
     public static JsonValue ParseRelaxed(string text) {
         JsonParser p = JsonParser.Relaxed(text);
         return (JsonValue)p.ParseDocument();
     }
 
-    /// Serialise to canonical compact JSON (no whitespace).
+    /// 序列化为紧凑 JSON（无空白）。
     public static string Stringify(JsonValue v) {
         JsonWriter w = new JsonWriter(false);
         return w.Write(v);
     }
 
-    /// Serialise to pretty-printed JSON (2-space indent + newlines).
+    /// 序列化为缩进 JSON（2 空格缩进 + 换行）。
     public static string StringifyPretty(JsonValue v) {
         JsonWriter w = new JsonWriter(true);
         return w.Write(v);
     }
 
-    // ── Stream overloads (add-stream-overloads-to-format-parsers, 2026-05-24) ──
+    // ── Stream 重载 ──
     //
-    // Thin wrappers over the string variants — Parse(Stream) drains the
-    // source via StreamReader (UTF-8), WriteTo(Stream, v) emits via
-    // StreamWriter (UTF-8). Neither closes the underlying Stream —
-    // caller owns its lifecycle (matches the rest of the Stream
-    // ecosystem's convention).
+    // 字符串变体的薄封装：ParseStream 经 StreamReader（UTF-8）读空源，
+    // WriteTo 经 StreamWriter（UTF-8）写出。两者都不关闭底层 Stream——
+    // 生命周期归调用方（与其余 Stream 生态的约定一致）。
 
-    /// Parse JSON from a UTF-8 byte Stream. Equivalent to
-    /// `Parse(new StreamReader(s).ReadToEnd())` but spares the caller
-    /// the boilerplate. The source Stream is read to EOF; not closed.
-    ///
-    /// NOTE: distinct name from `Parse(string)` (not an overload) to
-    /// sidestep z42's overload-resolution limitation — the compiler
-    /// can't reliably pick between `Parse(string)` and `Parse(Stream)`
-    /// for callers passing a `string` (it picks the Stream variant
-    /// and complains about type mismatch). Rename can be lifted once
-    /// the compiler handles two-different-type-arity-1 overloads.
+    /// 从 UTF-8 字节流解析 JSON；读至 EOF，不关闭传入的流。
+    // 独立命名 `ParseStream`（而非 `Parse(Stream)` 重载）以规避 z42 重载解析的限制：
+    // 编译器无法可靠区分 `Parse(string)` 与 `Parse(Stream)`。等编译器能处理两个不同
+    // 类型、arity-1 的重载后可改回重载。
     public static JsonValue ParseStream(Stream source) {
         StreamReader r = new StreamReader(source);
         string text = r.ReadToEnd();
@@ -91,8 +100,7 @@ public class JsonValue {
         return (JsonValue)p.ParseDocument();
     }
 
-    /// Relaxed JSON parse from a UTF-8 byte Stream. Same JSON5-style
-    /// liberties as `ParseRelaxed(string)`. add-json-relaxed (2026-05-25).
+    /// 从 UTF-8 字节流宽松解析 JSON，宽松项与 `ParseRelaxed(string)` 相同。
     public static JsonValue ParseRelaxedStream(Stream source) {
         StreamReader r = new StreamReader(source);
         string text = r.ReadToEnd();
@@ -100,17 +108,14 @@ public class JsonValue {
         return (JsonValue)p.ParseDocument();
     }
 
-    /// Serialise compact JSON to a Stream as UTF-8 bytes. Does NOT
-    /// close `dest` — caller owns its lifecycle. For pretty output use
-    /// `WriteToPretty`.
+    /// 以 UTF-8 字节写出紧凑 JSON；不关闭 `dest`（生命周期归调用方）。缩进输出用 `WriteToPretty`。
     public static void WriteTo(Stream dest, JsonValue v) {
         StreamWriter w = new StreamWriter(dest);
         w.Write(JsonValue.Stringify(v));
         w.Flush();
     }
 
-    /// Serialise pretty-printed JSON to a Stream as UTF-8 bytes. See
-    /// `WriteTo` for lifecycle semantics.
+    /// 以 UTF-8 字节写出缩进 JSON；生命周期语义见 `WriteTo`。
     public static void WriteToPretty(Stream dest, JsonValue v) {
         StreamWriter w = new StreamWriter(dest);
         w.Write(JsonValue.StringifyPretty(v));

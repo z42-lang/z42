@@ -1,15 +1,14 @@
 namespace Std.Json;
 using Std.Text;
 
-// RFC 8259 JSON parser (recursive descent).
-//
-// Hot-path shape: the cursor scans the bulk-materialised `_chars` with **local**
-// loops (`char[] cs = this._chars; int p = this._pos; … this._pos = p;`) instead of a
-// `Peek()` / `Advance()` / `Eof()` call per character — each of those was a method
-// call plus a `_src.Length` call, i.e. several calls per input character. Line /
-// column are not tracked while scanning; `Err` derives them from `_pos` (count the
-// `\n` before it) only when an error is actually raised.
+/// 递归下降的 RFC 8259 JSON 解析器。
 public sealed class JsonParser {
+    // Hot-path shape: the cursor scans the bulk-materialised `_chars` with **local**
+    // loops (`char[] cs = this._chars; int p = this._pos; … this._pos = p;`) instead of a
+    // `Peek()` / `Advance()` / `Eof()` call per character — each of those was a method
+    // call plus a `_src.Length` call, i.e. several calls per input character. Line /
+    // column are not tracked while scanning; `Err` derives them from `_pos` (count the
+    // `\n` before it) only when an error is actually raised.
     private string _src;
     // Bulk-materialised source chars (one `ToCharArray()`): per-char reads are array
     // indexing. `_src` is kept for `Substring`.
@@ -32,9 +31,7 @@ public sealed class JsonParser {
         this._depth = 0;
     }
 
-    /// Relaxed-mode parser — JSON5-style `//` / `/* */` comments and
-    /// trailing commas in arrays and objects accepted. Unquoted keys /
-    /// hex literals / single-quoted strings stay deferred.
+    /// 构建宽松模式解析器：接受 JSON5 风格的 `//` / `/* */` 注释与数组 / 对象尾逗号。
     public static JsonParser Relaxed(string src) {
         JsonParser p = new JsonParser(src);
         p._relaxed = true;
@@ -61,8 +58,8 @@ public sealed class JsonParser {
         return this._chars[this._pos];
     }
 
-    /// Error at the current position. Line / column (1-based) are derived from
-    /// `_pos`: line = 1 + newlines before it, column = chars since the last one.
+    // Error at the current position. Line / column (1-based) are derived from
+    // `_pos`: line = 1 + newlines before it, column = chars since the last one.
     private JsonException Err(string msg) {
         char[] cs = this._chars;
         int end = this._pos;
@@ -99,9 +96,9 @@ public sealed class JsonParser {
         this._pos = p;
     }
 
-    /// Skip a `//` or `/* */` comment if one starts at `_pos` (the caller has
-    /// peeked the leading `/`); otherwise leave `_pos` unchanged. Throws on an
-    /// unterminated block comment.
+    // Skip a `//` or `/* */` comment if one starts at `_pos` (the caller has
+    // peeked the leading `/`); otherwise leave `_pos` unchanged. Throws on an
+    // unterminated block comment.
     private void SkipCommentOrBail() {
         char[] cs = this._chars;
         int n = this._len;
@@ -163,9 +160,9 @@ public sealed class JsonParser {
         return v;
     }
 
-    /// JSON5-style special float literals (`NaN`, `Infinity`, signed forms).
-    /// Returns null when the current position is not one of those tokens — the
-    /// caller falls through to standard `ParseNumber`.
+    // JSON5-style special float literals (`NaN`, `Infinity`, signed forms).
+    // Returns null when the current position is not one of those tokens — the
+    // caller falls through to standard `ParseNumber`.
     private JsonValue TryParseSpecialFloat() {
         bool neg = false;
         int savedPos = this._pos;
@@ -266,8 +263,8 @@ public sealed class JsonParser {
         throw this.Err("unterminated string");
     }
 
-    /// Parse 4-digit hex, return a 1-char string. Handles surrogate pairs
-    /// (😀 → single supplementary codepoint).
+    // Parse 4-digit hex, return a 1-char string. Handles surrogate pairs
+    // (😀 → single supplementary codepoint).
     private string ParseUnicodeEscape() {
         int v = this.ReadHex4();
         // High surrogate? Look for low surrogate \uDxxx pair.

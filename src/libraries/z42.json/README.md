@@ -28,15 +28,7 @@ JSON RFC 8259 reader / writer + **对象 ↔ JSON serde**（`JsonSerializer`）�
 | `src/JsonPropertyAttribute.z42` / `src/JsonIgnoreAttribute.z42` | `[JsonProperty("name")]` / `[JsonIgnore]` |
 
 ## 入口点
-- `Std.Json.JsonValue.Parse(text)` → `JsonValue` (any root value)
-- `Std.Json.JsonValue.Stringify(v)` → `string` (compact)
-- `Std.Json.JsonValue.StringifyPretty(v)` → `string` (2-space indent)
-- `Std.Json.JsonValue.{OfNull, OfBool, OfLong, OfDouble, OfString, OfArray, OfObject}` 构造器
-- `Std.Json.JsonValue.{IsNull, IsBool, IsLong, IsDouble, IsString, IsArray, IsObject, KindName}` 谓词
-- `Std.Json.JsonValue.{AsBool, AsLong, AsDouble, AsString}` 解构
-- `Std.Json.JsonValue.{Get, Set, ContainsKey, Keys}` 对象操作
-- `Std.Json.JsonValue.{Length, At, Add, Count}` 数组操作
-- `Std.JsonException` 异常类（`Line` / `Column` 字段）
+公开 API 的完整签名见 [reference 包页](../../../docs/reference/src/stdlib/json.md)（由源码 doc 注释生成）。
 
 ## 用法
 

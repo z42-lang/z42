@@ -1,8 +1,6 @@
 namespace Std.Json;
 
-// add-z42-json (2026-05-14)：JSON 解析 / 序列化错误。
-//
-// 携带 1-based 行 / 列号（0 = 不可用，e.g. stringify-time errors）。
+/// JSON 解析 / 序列化错误；携带 1-based 行 / 列号（0 = 不可用，如 stringify 阶段错误）。
 public class JsonException : Exception {
     public int Line;
     public int Column;

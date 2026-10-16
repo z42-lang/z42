@@ -1,31 +1,19 @@
 namespace Std.Json;
 
 
-// add-json-selectpath (2026-05-27): minimal JSONPath subset for nested
-// access. Use case: scripts pulling deep config (`obj["api"]["users"][3]
-// ["name"]` becomes `obj.SelectPath("$.api.users[3].name")`).
-//
-// **Supported syntax**:
-//   `$`            — root anchor (optional; omitted same as starting at root)
-//   `.<name>`      — object key access; `<name>` is ASCII identifier
-//                    (`[A-Za-z_][A-Za-z0-9_]*`)
-//   `["<name>"]`   — object key with arbitrary string (handles keys
-//                    containing `.`, brackets, unicode)
-//   `[<n>]`        — array index (non-negative integer)
-//
-// **Not supported (return null / throw on encounter)**:
-//   `..` recursive descent, `*` wildcard, `?(...)` filter, `[start:end]`
-//   slice, function calls. These are JSONPath spec extensions; v0 keeps
-//   surface minimal. Future spec can add as `JsonPathStrict.Select`
-//   without breaking this method.
-//
-// **Return semantics**: returns the addressed `JsonValue` or `null` if any
-// step of the path doesn't resolve (missing key, out-of-range index,
-// wrong kind). Throws `JsonException` only on malformed path syntax.
+/// 单值 JSONPath 子集：按路径在 JSON 值树中取单个值。
+///
+/// 支持的路径语法：`$` 根锚点（可省略）、`.name` 对象键、`["name"]` / `['name']` 对象键、
+/// `[n]` 数组下标（非负十进制），段间空格 / 制表符容忍。
+///
+/// 不支持：`..` 递归下降、`*` 通配（显式抛异常，不静默返回 null）、`?(...)` 过滤、
+/// `[start:end]` 切片、函数调用。
+///
+/// 路径任一步走不通（键缺失、下标越界、kind 不符）返回 `null`；仅路径语法本身非法才抛
+/// `JsonException`。
 public static class JsonPath {
 
-    /// Walk `root` per `path` and return the value at the path, or null
-    /// if the path doesn't resolve.
+    /// 按 `path` 遍历 `root`，返回路径上的值；路径走不通（键缺失、下标越界、kind 不符）返回 null。
     public static JsonValue? Select(JsonValue root, string path) {
         if (root == null) return null;
         JsonValue cur = root;
