@@ -1,18 +1,14 @@
 namespace Std.Toml;
 using Std.Text;
 
-// add-z42-toml (2026-05-14)：TOML 1.0 subset parser（tokenizer + 递归下降）。
-//
-// 状态：
-//   _root   全文档 root TomlValue（Table）
-//   _active 当前活跃 table —— `[a.b]` / `[[c]]` 改变它的指向
-//   _src    源字符串
-//   _pos    当前字符索引
-//   _line/_col 1-based 行 / 列号（用于报错）
-//
-// 不实现：datetime / multiline string / hex/oct/bin int / 下划线分隔符。
-// 见 docs/reference/src/stdlib/toml.md「不支持」节。
+/// TOML 1.0 子集解析器（tokenizer + 递归下降）；日常用 `TomlValue.Parse` 即可，通常不直接构造。
 public sealed partial class TomlParser {
+    // 解析状态：
+    //   _root   全文档 root TomlValue（Table）
+    //   _active 当前活跃 table —— `[a.b]` / `[[c]]` 改变它的指向
+    //   _src    源字符串
+    //   _pos    当前字符索引
+    //   _line/_col 1-based 行 / 列号（用于报错）
     private string _src;
     // Bulk-materialised source chars (one `ToCharArray()`) so per-char cursor
     // reads are O(1) array indexing instead of a `CharAt` builtin call each.
@@ -35,6 +31,7 @@ public sealed partial class TomlParser {
     // VM stack. Capped in ParseValue.
     private int _depth;
 
+    /// 用源文本构造解析器。
     public TomlParser(string src) {
         this._src = src;
         this._chars = src.ToCharArray();
@@ -92,6 +89,7 @@ public sealed partial class TomlParser {
 
     // ── Public entry ─────────────────────────────────────────────────────
 
+    /// 解析整份文档，返回根 table。
     public TomlValue ParseDocument() {
         while (this._pos < this._src.Length) {
             this.SkipWhitespaceAndComments(true);
@@ -158,7 +156,7 @@ public sealed partial class TomlParser {
 
     // ── Whitespace + comments ────────────────────────────────────────────
 
-    /// Skip spaces / tabs (+ optional newlines + comments).
+    // 跳过空格 / tab（可选换行 + 注释）。
     private void SkipWhitespaceAndComments(bool includeNewlines) {
         while (!this.Eof()) {
             char c = this.Peek();
@@ -199,8 +197,7 @@ public sealed partial class TomlParser {
             if (!this.Eof() && this.Peek() == '\n') { this.Advance(); }
             return;
         }
-        // fix-toml-datetime-hint：`-`/`:` 紧跟数字 = 日期/时间字面量（判据收窄的理由 + 三条阴性
-        // 对照见 tests/parse_errors.z42 的 datetime 组）。
+        // `-`/`:` 紧跟数字 = 日期/时间字面量（判据收窄的理由 + 三条阴性对照见 tests/parse_errors.z42 的 datetime 组）。
         if ((c == '-' || c == ':') && this._pos + 1 < this._src.Length
             && this.IsDigitChar(this._src.CharAt(this._pos + 1), 10)) {
             throw this.Err("expected newline or EOF after value — TOML's 4 datetime types (offset/local date-time, local date, local time) are not supported yet; quote it as a string if you just need to carry the text");
@@ -266,8 +263,7 @@ public sealed partial class TomlParser {
         this._active = elem;
     }
 
-    /// Parse a dotted key path: `a.b.c` → ["a", "b", "c"]. Each segment
-    /// may be an unquoted bare key or a quoted "string" / 'literal' key.
+    // 解析点分键路径：`a.b.c` → ["a", "b", "c"]。每段可为裸键或引号 "string" / 'literal' 键。
     private string[] ParseKeyPath() {
         string[] segs = new string[4];
         int count = 0;
@@ -288,7 +284,7 @@ public sealed partial class TomlParser {
         return tight;
     }
 
-    /// Grow-on-overflow append. Returns same array or a doubled-capacity copy.
+    // 满则翻倍扩容地追加；返回原数组或翻倍副本。
     private string[] AppendStr(string[] arr, int count, string v) {
         if (count < arr.Length) {
             arr[count] = v;
@@ -340,7 +336,7 @@ public sealed partial class TomlParser {
         return s;
     }
 
-    /// Walk path creating intermediate tables; return the FINAL table.
+    // 沿路径创建中间表，返回最终 table。
     private TomlValue EnsureTablePath(TomlValue root, string[] path) {
         TomlValue cur = root;
         int i = 0;
@@ -370,8 +366,7 @@ public sealed partial class TomlParser {
         return cur;
     }
 
-    /// Walk all-but-last segments, returning the parent table (where the
-    /// final key will be created/looked-up). Used by AoT header.
+    // 沿除末段外的路径返回父 table（末段键将在此创建 / 查找），供 AoT 表头使用。
     private TomlValue EnsurePathParent(TomlValue root, string[] path) {
         if (path.Length <= 1) { return root; }
         string[] parentPath = new string[path.Length - 1];
@@ -459,8 +454,7 @@ public sealed partial class TomlParser {
         }
     }
 
-    /// True if the next three characters at `_pos` are all `q`.
-    /// add-toml-multiline-string (2026-05-25).
+    // `_pos` 起的下三个字符是否都是 `q`。
     private bool PeekTriple(char q) {
         if (this._pos + 2 >= this._src.Length) { return false; }
         return this._chars[this._pos]     == q
@@ -565,10 +559,7 @@ public sealed partial class TomlParser {
         throw this.Err("unterminated literal string");
     }
 
-    /// TOML 1.0 multi-line basic string `"""…"""`. Escapes work as in
-    /// single-line basic strings, plus `\<newline>` line continuation
-    /// (`\` at EOL + whitespace folds to empty). Newline immediately
-    /// after opening `"""` is trimmed. add-toml-multiline-string (2026-05-25).
+    // TOML 1.0 多行基本字符串 `"""…"""`：转义同单行，另支持 `\<newline>` 行尾续行折叠；紧跟开引号的换行被裁掉。
     private string ParseMultiLineBasicString() {
         // Consume opening triple.
         this.Advance(); this.Advance(); this.Advance();
@@ -655,9 +646,7 @@ public sealed partial class TomlParser {
         throw this.Err("unterminated multi-line basic string");
     }
 
-    /// TOML 1.0 multi-line literal string `'''…'''`. No escapes — content
-    /// is verbatim. Newline immediately after opening triple is trimmed.
-    /// add-toml-multiline-string (2026-05-25).
+    // TOML 1.0 多行字面字符串 `'''…'''`：完全逐字，无转义；紧跟开引号的换行被裁掉。
     private string ParseMultiLineLiteralString() {
         this.Advance(); this.Advance(); this.Advance();
         if (!this.Eof() && this.Peek() == '\r') { this.Advance(); }
@@ -682,9 +671,7 @@ public sealed partial class TomlParser {
         throw this.Err("unterminated multi-line literal string");
     }
 
-    /// Parse N hex digits and return the resulting Unicode codepoint as a 1-char string.
-    /// (BMP only — codepoints above 0xFFFF require surrogate pair encoding,
-    /// which z42's char type stores as a single primitive. Errors above U+10FFFF.)
+    // 解析 N 位十六进制，返回对应 Unicode 码点的一字符串（z42 的 32-bit char 直接存增补平面码点）；超过 U+10FFFF 报错。
     private string ParseUnicodeEscape(int width) {
         int v = 0;
         int i = 0;

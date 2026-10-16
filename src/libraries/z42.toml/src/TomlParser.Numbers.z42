@@ -6,16 +6,15 @@ namespace Std.Toml;
 // 下划线必须夹在数字之间 `ValidateUnderscoreBetweenDigits`）、下划线剥离、基数判位
 // （`IsDigitChar`）、非十进制字面量（`ParseNonDecimalInt`）。
 //
-// 这里也是**日期/时间字面量的两个落点**（fix-toml-datetime-hint）：TOML 的 4 种 datetime
+// 这里也是**日期/时间字面量的两个落点**：TOML 的 4 种 datetime
 // 尚不支持，而 `d = 1979-05-27` 会先被当成整数 `1979`、`t = 07:32:00` 会先撞上「前导零」
 // ⇒ 裸消息说不出真正原因。判据与三条阴性对照见 `tests/parse_errors.z42` 的 datetime 组。
 
 public sealed partial class TomlParser {
     // ── Number parsing ───────────────────────────────────────────────────
 
-    /// Scan a numeric token and dispatch to int vs float by content.
-    /// Handles: optional `+`/`-`, decimal digits, `.`, `eE` exponent,
-    /// `nan` / `inf` literals.
+    // 扫描一个数字 token，按内容分派到整数 / 浮点。
+    // 处理：可选 `+`/`-`、十进制数字、`.`、`eE` 指数、`nan` / `inf` 字面量。
     private TomlValue ParseNumber() {
         int start = this._pos;
         bool isFloat = false;
@@ -54,10 +53,8 @@ public sealed partial class TomlParser {
             }
         }
 
-        // TOML 1.0 non-decimal int prefixes (add-toml-numeric-bases-and-underscores,
-        // 2026-05-25). `0x` / `0o` / `0b` must appear with no leading sign and at
-        // the absolute start of the number token. We already consumed any sign
-        // above for the standard decimal / float path; non-decimal disallows it.
+        // TOML 1.0 非十进制整数前缀。`0x` / `0o` / `0b` 必须无前导符号且出现在数字 token 的最开始；
+        // 上面的标准十进制 / 浮点路径已消费符号，非十进制不允许带符号。
         if (this._pos == start
                 && this._pos + 1 < this._src.Length
                 && this._chars[this._pos] == '0') {
@@ -115,9 +112,8 @@ public sealed partial class TomlParser {
         }
     }
 
-    /// Reject a decimal number whose integer part has a redundant leading zero
-    /// (TOML 1.0 §Integer / §Float). `s` is the underscore-stripped token,
-    /// possibly signed. `0`, `0.x`, `0ex` are allowed; `042` / `01.5` are not.
+    // 拒绝整数部分带冗余前导零的十进制数（TOML 1.0 §Integer / §Float）。`s` 是去下划线后的 token，
+    // 可能带符号。`0`、`0.x`、`0ex` 允许；`042` / `01.5` 不允许。
     private void RejectLeadingZeros(string s) {
         string mag = s;
         if (mag.Length > 0) {
@@ -131,7 +127,7 @@ public sealed partial class TomlParser {
             ip = ip + 1;
         }
         if (ip > 1 && mag.CharAt(0) == '0') {
-            // fix-toml-datetime-hint（第二格）：`07:32:00` 先撞「前导零」；`_pos` 停在 token 之后。
+            // （第二格）`07:32:00` 先撞「前导零」；`_pos` 停在 token 之后。
             if (!this.Eof() && this.Peek() == ':') {
                 throw this.Err("TOML's 4 datetime types (offset/local date-time, local date, local time) are not supported yet; quote it as a string if you just need to carry the text");
             }
@@ -139,8 +135,7 @@ public sealed partial class TomlParser {
         }
     }
 
-    /// Validate the underscore at `_pos` has a digit before and after.
-    /// add-toml-numeric-bases-and-underscores (2026-05-25).
+    // 校验 `_pos` 处的下划线前后都是数字。
     private void ValidateUnderscoreBetweenDigits() {
         if (this._pos == 0) {
             throw this.Err("underscore separator must follow a digit");
@@ -160,7 +155,7 @@ public sealed partial class TomlParser {
         }
     }
 
-    /// Strip all `_` from a number literal. Validation already ran during scan.
+    // 去掉数字字面量里所有的 `_`（扫描阶段已校验）。
     private string StripUnderscores(string raw) {
         // Fast path: no underscores → return as-is.
         bool hasUnderscore = false;
@@ -188,7 +183,7 @@ public sealed partial class TomlParser {
         return String.FromChars(tight);
     }
 
-    /// True if `c` is a valid digit in base `radix` (radix ∈ {2, 8, 10, 16}).
+    // `c` 是否为 base `radix` 下的合法数字（radix ∈ {2, 8, 10, 16}）。
     private bool IsDigitChar(char c, int radix) {
         int code = (int)c;
         if (radix == 2)  { return code == 48 || code == 49; }
@@ -201,9 +196,8 @@ public sealed partial class TomlParser {
         return false;
     }
 
-    /// Parse digits of a hex/octal/binary literal starting at the current
-    /// position (after the `0x` / `0o` / `0b` prefix has been consumed).
-    /// Underscores allowed between digits. add-toml-numeric-bases-and-underscores.
+    // 解析十六进制 / 八进制 / 二进制字面量的数字（当前 `_pos` 已越过 `0x` / `0o` / `0b` 前缀）；
+    // 数字之间允许下划线。
     private TomlValue ParseNonDecimalInt(int radix) {
         int digitStart = this._pos;
         bool prevWasUnderscore = true;   // disallow leading `_`
