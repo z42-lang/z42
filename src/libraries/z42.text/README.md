@@ -5,13 +5,17 @@
 z42 文本处理类型。**纯脚本实现** —— 严格遵循 [`src/libraries/README.md`](../README.md)
 "VM 接口集中在 z42.core" 规则，本包不声明任何 `[Native(...)] extern` 方法。
 
+## 入口点
+
+公开 API 的完整签名见 [reference 包页](../../../docs/reference/src/stdlib/text.md)（由源码 doc 注释生成）。
+
 ## src/ 核心文件
 
 | 文件 | 类型 | 说明 |
 |------|------|------|
-| `StringBuilder.z42` | `StringBuilder` | 字符串拼接缓冲区 — Script-First 实现，基于 `string[]` 收集片段，`ToString` 走 `String.ConcatParts` 单次原生拼接。API：`Append`/`AppendLine`/`AppendFormat`、`Insert`/`Remove`/`Replace`/`Clear`、索引器 `this[int]`、`Length { get; set; }`、`GetLength`/`ToString` |
-| `Levenshtein.z42`   | `Levenshtein` static class | 编辑距离 `Distance(a, b)` + 归一化相似度 `SimilarityRatio(a, b) ∈ [0,1]`（fuzzy search / 拼写纠错） |
-| `Strings.z42`       | `Strings` static class | 字符串 shaping helpers：`PadLeft / PadRight / Repeat / IndexOfAny / TrimChars` |
+| `StringBuilder.z42` | `StringBuilder` | 可变字符串缓冲（Script-First，`string[]` 收集片段 + `String.ConcatParts` 单次原生拼接） |
+| `Levenshtein.z42`   | `Levenshtein` static class | 编辑距离 + 归一化相似度（fuzzy search / 拼写纠错） |
+| `Strings.z42`       | `Strings` static class | 字符串 shaping 静态工具 |
 
 > 正则在 [`z42.regex`](../z42.regex/)，不在本包。
 

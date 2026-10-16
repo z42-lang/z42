@@ -1,34 +1,13 @@
 namespace Std.Text;
 
-// `Std.Text.Strings` — small static helper set for the most common string
-// shaping operations that aren't on the prelude `Std.String` itself.
-// review.md S3 / S5 Phase 1 (2026-06-03, expand-z42-text-strings) — first
-// expansion of z42.text beyond StringBuilder + Levenshtein.
-//
-// Why a static class in z42.text (not new methods on z42.core `String`):
-// `Std.String` is part of the prelude — every method there pollutes
-// every script's namespace. These helpers are useful but not so universal
-// that scripts which never `using Std.Text` should see them. Keeping
-// them in `Std.Text.Strings` matches the BCL pattern (`StringValues` etc.)
-// and lets z42.text accumulate richer text shaping (Format / Tokenize /
-// Splitter — independent specs) under the same opt-in import.
-//
-// Complexity note: every helper here loops via `s.CharAt(i)`, which is
-// O(n) UTF-8 decode per call — so a "single walk" through a string of
-// length n is O(n²) chars-touched. Acceptable for normal-size strings;
-// hot paths (KB+ strings in inner loops) should reach for
-// `StringBuilder` or wait for the upcoming O(1) char-index pass on
-// `Std.String` itself (independent perf spec).
+// `Std.Text.Strings` —— `Std.String` 上没有的常见字符串 shaping 静态工具。放在 z42.text 而不是 prelude
+// 的 `Std.String` 上，是因为 prelude 的每个方法都会进所有脚本的命名空间；这些工具有用但不够通用，按需
+// `using Std.Text` 才看到更合适。
 public static class Strings {
 
-    /// Pad `s` on the left with `fill` characters until its length is
-    /// `width`. If `s` is already at least `width` long, returns `s`
-    /// unchanged (no truncation — caller's job to decide whether to
-    /// `Substring` first).
+    /// 左侧补 `fill` 到长度 `width`。`s` 已够长时原样返回，**不截断**。
     ///
-    /// Examples:
-    ///   `PadLeft("42", 5, '0')` → `"00042"`
-    ///   `PadLeft("hello", 3, '*')` → `"hello"` (already wider)
+    /// 例：`PadLeft("42", 5, '0')` → `"00042"`；`PadLeft("hello", 3, '*')` → `"hello"`。
     public static string PadLeft(string s, int width, char fill) {
         int len = s.Length;
         if (len >= width) return s;
@@ -43,10 +22,9 @@ public static class Strings {
         return string.FromChars(buf);
     }
 
-    /// Pad `s` on the right with `fill` until its length is `width`.
-    /// No truncation; see `PadLeft` for the no-op-when-wider rationale.
+    /// 右侧补 `fill` 到长度 `width`。`s` 已够长时原样返回，不截断。
     ///
-    /// Example: `PadRight("hi", 5, '.')` → `"hi..."`
+    /// 例：`PadRight("hi", 5, '.')` → `"hi..."`。
     public static string PadRight(string s, int width, char fill) {
         int len = s.Length;
         if (len >= width) return s;
@@ -60,9 +38,9 @@ public static class Strings {
         return string.FromChars(buf);
     }
 
-    /// Repeat `s` `count` times. `count <= 0` or empty `s` → `""`.
+    /// 重复 `s` `count` 次。`count <= 0` 或空 `s` → `""`。
     ///
-    /// Example: `Repeat("ab", 3)` → `"ababab"`
+    /// 例：`Repeat("ab", 3)` → `"ababab"`。
     public static string Repeat(string s, int count) {
         if (count <= 0) {
             return "";
@@ -82,11 +60,9 @@ public static class Strings {
         return string.FromChars(buf);
     }
 
-    /// Find the index of the first character in `s` that matches any
-    /// character in `chars`. Returns `-1` if no match. Empty `chars`
-    /// always returns `-1` (no character can match the empty set).
+    /// `s` 中第一个出现在 `chars` 里的字符的下标；无匹配返回 `-1`。`chars` 为空数组恒返回 `-1`。
     ///
-    /// Example: `IndexOfAny("hello", new char[]{'l', 'x'})` → `2`
+    /// 例：`IndexOfAny("hello", new char[]{'l', 'x'})` → `2`。
     public static int IndexOfAny(string s, char[] chars) {
         int sLen = s.Length;
         int cLen = chars.Length;
@@ -101,11 +77,9 @@ public static class Strings {
         return -1;
     }
 
-    /// Trim every character in `chars` from both ends of `s`. Empty `chars`
-    /// → `s` unchanged. Symmetric trim — to trim only one side, see
-    /// `Substring` + `IndexOfAny`.
+    /// 从**两端**去掉所有属于 `chars` 的字符。`chars` 为空数组时原样返回。
     ///
-    /// Example: `TrimChars("***hi***", new char[]{'*'})` → `"hi"`
+    /// 例：`TrimChars("***hi***", new char[]{'*'})` → `"hi"`。
     public static string TrimChars(string s, char[] chars) {
         int len = s.Length;
         int cLen = chars.Length;
@@ -126,7 +100,7 @@ public static class Strings {
         return s.Substring(start, end - start);
     }
 
-    // ── Private helpers ──────────────────────────────────────────────────────
+    // ── 私有辅助 ────────────────────────────────────────────────────────────
 
     private static bool ContainsChar(char[] chars, char c) {
         int n = chars.Length;
