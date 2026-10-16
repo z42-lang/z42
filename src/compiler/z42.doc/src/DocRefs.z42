@@ -1,0 +1,259 @@
+// 书页（markdown）里的代码引用：提取、按页头声明的范围解析、报告。`z42 doc --page` 与 `--docs` 用它，
+// 书里代码引用的门禁也用它。
+//
+// 规则：
+//   - 页头「代码」行（`> 代码：…` 及其后连续的 `>` 行）里的反引号路径是本页的**范围**：解析时先在这些
+//     文件 / 目录里找，找不到再全局找。
+//   - 正文里单反引号的内容若是符号链（`A.B`、`a::b`、`Outer+Inner`，可带尾部 `()` 或参数表）就当作代码引用；
+//     多段的链必须能解析，单个名字只在能解析时才算（`int`、`true` 这类词不报）。
+//   - 末段是文件扩展名的（`Foo.z42`、`z42.toml`）是文件名，不当符号；写成 `文件:行号` 或 `:行号` 的是
+//     **行号引用**，一律报出——行号随代码漂移，位置交给 `z42 doc --page` 现查。
+//   - 代码块（``` 围起来的）里的内容不算。
+namespace Z42.Doc;
+
+using Std.Text;
+
+public sealed class DocRef {
+    public static int Symbol = 0;   // 符号链
+    public static int LineNo = 1;   // `文件:行号` / `:行号`
+
+    public string  Text;      // 反引号里的原文
+    public string  Query;     // 用来解析的名字（去掉尾部的 `()`）
+    public int     Line;      // 在页里的行号
+    public int     Kind;
+    public bool    Multi;     // 多段的链（必须能解析）
+    public DocItem Target;    // 解析结果（null = 没解析出来）
+    public DocRef(string text, string query, int line, int kind, bool multi) {
+        this.Text = text; this.Query = query; this.Line = line; this.Kind = kind; this.Multi = multi; this.Target = null;
+    }
+
+    // 该报给作者的：行号引用，以及解析不了的多段链。
+    public bool IsProblem() { return this.Kind == DocRef.LineNo || (this.Multi && this.Target == null); }
+}
+
+public sealed class DocPage {
+    public string[] Scope;     // 页头声明的路径（相对仓库根，或某段路径）
+    public DocRef[] Refs;
+    public DocPage(string[] scope, DocRef[] refs) { this.Scope = scope; this.Refs = refs; }
+}
+
+public static class DocRefs {
+    // 提取一页的范围与引用（不解析）。
+    public static DocPage Extract(string md) {
+        string[] lines = md.Split("\n");
+        string[] scope = new string[8];
+        int sc = 0;
+        DocRef[] refs = new DocRef[16];
+        int rc = 0;
+        bool fence = false;
+        bool inHeader = false;
+        int i = 0;
+        while (i < lines.Length) {
+            string l = lines[i];
+            string t = l.TrimStart();
+            if (t.StartsWith("```")) { fence = !fence; inHeader = false; i = i + 1; continue; }
+            if (fence) { i = i + 1; continue; }
+            if (t.StartsWith("> 代码") || t.StartsWith("> **代码**") || t.IndexOf("**代码**") >= 0) { inHeader = true; }
+            else if (!t.StartsWith(">") || t == ">") { inHeader = false; }
+            string[] spans = DocRefs._codeSpans(l);
+            int k = 0;
+            while (k < spans.Length) {
+                string s = spans[k].Trim();
+                if (inHeader && DocRefs._isPath(s)) {
+                    if (sc == scope.Length) { string[] g = new string[sc * 2]; Array.Copy(scope, g, sc); scope = g; }
+                    scope[sc] = DocRefs._trimSlash(s); sc = sc + 1;
+                } else {
+                    DocRef r = DocRefs._classify(s, i + 1);
+                    if (r != null) {
+                        if (rc == refs.Length) { DocRef[] g2 = new DocRef[rc * 2]; Array.Copy(refs, g2, rc); refs = g2; }
+                        refs[rc] = r; rc = rc + 1;
+                    }
+                }
+                k = k + 1;
+            }
+            i = i + 1;
+        }
+        string[] so = new string[sc];
+        Array.Copy(scope, so, sc);
+        DocRef[] ro = new DocRef[rc];
+        Array.Copy(refs, ro, rc);
+        return new DocPage(so, ro);
+    }
+
+    // 逐个解析：先在范围内的文件里找，再全局找；命中多个取第一个（源码顺序）。
+    public static void Resolve(DocPage page, DocIndex ix) {
+        int i = 0;
+        while (i < page.Refs.Length) {
+            DocRef r = page.Refs[i];
+            if (r.Kind == DocRef.Symbol) {
+                DocItem[] m = ix.Resolve(r.Query);
+                if (m.Length > 0) { r.Target = DocRefs._preferScope(m, page.Scope); }
+                else if (r.Multi) { r.Target = DocRefs._namespace(ix, r.Query); }
+            }
+            i = i + 1;
+        }
+    }
+
+    // `z42 doc --page`：每条引用一行。解析到的写位置，解析不了的多段链标 `?`，行号引用标 `✗`；
+    // 解析不了的单个名字不列（多半不是符号）。
+    public static string Report(DocPage page) {
+        StringBuilder sb = new StringBuilder();
+        int i = 0;
+        while (i < page.Refs.Length) {
+            DocRef r = page.Refs[i];
+            string head = ":" + r.Line.ToString() + "  " + r.Text;
+            if (r.Kind == DocRef.LineNo) {
+                sb.Append(head).Append("  ✗ line number — cite the symbol instead\n");
+            } else if (r.Target != null) {
+                sb.Append(head).Append("  → ").Append(DocRefs._loc(r.Target)).Append("\n");
+            } else if (r.Multi) {
+                sb.Append(head).Append("  ?\n");
+            }
+            i = i + 1;
+        }
+        return sb.ToString();
+    }
+
+    public static int ProblemCount(DocPage page) {
+        int n = 0;
+        int i = 0;
+        while (i < page.Refs.Length) { if (page.Refs[i].IsProblem()) { n = n + 1; } i = i + 1; }
+        return n;
+    }
+
+    private static string _loc(DocItem it) {
+        if (it.File.Length == 0) { return it.Id; }
+        return DocFormat.Loc(it);
+    }
+
+    // 单反引号的代码片段（双反引号的片段整个跳过）。
+    private static string[] _codeSpans(string l) {
+        string[] acc = new string[4];
+        int n = 0;
+        int i = 0;
+        while (i < l.Length) {
+            if (l.CharAt(i) != '`') { i = i + 1; continue; }
+            if (i + 1 < l.Length && l.CharAt(i + 1) == '`') {
+                int close2 = l.Substring(i + 2).IndexOf("``");
+                if (close2 < 0) { break; }
+                i = i + 2 + close2 + 2;
+                continue;
+            }
+            int j = i + 1;
+            while (j < l.Length && l.CharAt(j) != '`') { j = j + 1; }
+            if (j >= l.Length) { break; }
+            if (n == acc.Length) { string[] g = new string[n * 2]; Array.Copy(acc, g, n); acc = g; }
+            acc[n] = l.Substring(i + 1, j - i - 1); n = n + 1;
+            i = j + 1;
+        }
+        string[] r = new string[n];
+        Array.Copy(acc, r, n);
+        return r;
+    }
+
+    // 一个片段 → 引用（不是代码引用返回 null）。
+    private static DocRef _classify(string s, int line) {
+        if (s.Length == 0) { return null; }
+        if (DocRefs._isLineRef(s)) { return new DocRef(s, "", line, DocRef.LineNo, true); }
+        string q = s;
+        if (q.EndsWith("()")) { q = q.Substring(0, q.Length - 2); }
+        int p = q.IndexOf("(");
+        if (p >= 0 && !q.EndsWith(")")) { return null; }
+        string head = (p >= 0) ? q.Substring(0, p) : q;
+        string[] segs = DocRefs._segments(head);
+        if (segs.Length == 0) { return null; }
+        int k = 0;
+        while (k < segs.Length) { if (!DocRefs._isIdent(segs[k])) { return null; } k = k + 1; }
+        if (segs.Length > 1 && DocRefs._isFileExt(segs[segs.Length - 1])) { return null; }
+        return new DocRef(s, q, line, DocRef.Symbol, segs.Length > 1);
+    }
+
+    // `Foo.z42:57`、`Foo.rs:57-61`、`:78-83`、`a/b.z42:12:3`。
+    private static bool _isLineRef(string s) {
+        if (s.IndexOf("::") >= 0 || s.IndexOf(" ") >= 0) { return false; }
+        int c = s.IndexOf(":");
+        if (c < 0) { return false; }
+        string tail = s.Substring(c + 1);
+        if (tail.Length == 0 || !DocRefs._isDigit(tail.CharAt(0))) { return false; }
+        int i = 0;
+        while (i < tail.Length) {
+            char ch = tail.CharAt(i);
+            if (!DocRefs._isDigit(ch) && ch != '-' && ch != ':' && ch != ',') { return false; }
+            i = i + 1;
+        }
+        string file = s.Substring(0, c);
+        return file.Length == 0 || file.IndexOf(".") > 0;
+    }
+
+    // 按 `.` `::` `+` 切段；含其它分隔符（空格、`/`、`<`…）的不是符号链。
+    private static string[] _segments(string s) {
+        string t = s.Replace("::", ".").Replace("+", ".");
+        if (t.StartsWith(".") || t.EndsWith(".") || t.IndexOf("..") >= 0) { return new string[0]; }
+        return t.Split(".");
+    }
+
+    private static bool _isIdent(string s) {
+        if (s.Length == 0) { return false; }
+        char c0 = s.CharAt(0);
+        if (!((c0 >= 'a' && c0 <= 'z') || (c0 >= 'A' && c0 <= 'Z') || c0 == '_')) { return false; }
+        int i = 1;
+        while (i < s.Length) {
+            char c = s.CharAt(i);
+            if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || DocRefs._isDigit(c))) { return false; }
+            i = i + 1;
+        }
+        return true;
+    }
+
+    private static bool _isDigit(char c) { return c >= '0' && c <= '9'; }
+
+    private static bool _isFileExt(string e) {
+        return e == "z42" || e == "rs" || e == "md" || e == "toml" || e == "json" || e == "zpkg" || e == "zbc"
+            || e == "zsym" || e == "zdoc" || e == "idx" || e == "txt" || e == "sh" || e == "yml" || e == "yaml"
+            || e == "lock" || e == "h" || e == "c" || e == "py" || e == "html" || e == "js" || e == "ts";
+    }
+
+    // 页头里的路径：含 `/`，或是带扩展名的文件名。
+    private static bool _isPath(string s) {
+        if (s.IndexOf(" ") >= 0) { return false; }
+        if (s.IndexOf("/") >= 0) { return true; }
+        int d = s.LastIndexOf(".");
+        return d > 0 && DocRefs._isFileExt(s.Substring(d + 1));
+    }
+
+    private static string _trimSlash(string s) {
+        if (s.EndsWith("/")) { return s.Substring(0, s.Length - 1); }
+        return s;
+    }
+
+    // 命中里优先取文件落在范围内的：范围项是仓库相对路径（前缀匹配）或某段路径（包含匹配）。
+    private static DocItem _preferScope(DocItem[] m, string[] scope) {
+        int i = 0;
+        while (i < m.Length) {
+            string f = m[i].File;
+            int k = 0;
+            while (k < scope.Length) {
+                string sp = scope[k];
+                if (f == sp || f.StartsWith(sp + "/") || f.EndsWith("/" + sp) || f.IndexOf("/" + sp + "/") >= 0) { return m[i]; }
+                k = k + 1;
+            }
+            i = i + 1;
+        }
+        return m[0];
+    }
+
+    // 命名空间 / 模块名：没有条目但有条目挂在它下面（Id 以 `q.` 或 `q::` 开头）也算解析成功。
+    private static DocItem _namespace(DocIndex ix, string q) {
+        string a = q + ".";
+        string b = q + "::";
+        int i = 0;
+        while (i < ix.Count()) {
+            DocItem it = ix.At(i);
+            if (it.Id.StartsWith(a) || it.Id.StartsWith(b)) {
+                return new DocItem(q, DocKind.Namespace, q, "", "namespace " + q, 0, "public", "");
+            }
+            i = i + 1;
+        }
+        return null;
+    }
+}

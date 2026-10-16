@@ -24,7 +24,8 @@
    要确认对外行为（语法、API、CLI、诊断）→ reference 对应页。
 4. **定位符号用 `z42 doc`，不 grep**（z42 与 Rust 都行；Rust 先跑过 `xtask doc index`，过期它会提示）：
    `z42 doc <名字>` 给签名、doc 与 `file:line`，`--members` 给类型 / 模块轮廓，
-   `--search` 按名字与摘要找；拿到行号后按 offset/limit 只读那一段。仓库里跑种子 SDK 的 `.z42/z42 doc …`
+   `--search` 按名字与摘要找；读完一页书后跑 `z42 doc --page <页.md>` 把页里引用的符号一次解析成当前位置
+   （反查用 `--docs <符号>`）；拿到行号后按 offset/limit 只读那一段。仓库里跑种子 SDK 的 `.z42/z42 doc …`
    （要当前源码的版本：`xtask package dev-sdk` 后用 `artifacts/.z42/z42`）。用法见
    [`z42 doc`](../reference/src/toolchain/cli-z42.md)。
 5. **构建 / 测试 / 调试命令** → [internals · 开发基础设施](../internals/src/devinfra/README.md)
