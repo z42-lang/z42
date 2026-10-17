@@ -1,17 +1,13 @@
 namespace Std;
 
-// 双参数比较器契约（Wave 3 2026-04-26）。
-//
-// 与 IComparable 的"自比"模式区分：
-//   - IComparable<T>.CompareTo(other) — 实例知道如何比自己与另一个
-//   - IComparer<T>.Compare(x, y)       — 比较器接收两个外部对象
-//
-// 用于 stdlib Sort overload / SortedDictionary 的自定义排序契约。
-//
-// Compare(x, y) 返回:
-//   < 0  →  x 排在 y 之前
-//   = 0  →  x 与 y 等价
-//   > 0  →  x 排在 y 之后
+/// 外部比较器契约：接收两个对象做大小比较。
+///
+/// 与 IComparable 的「自比」模式区分：
+///   - IComparable.CompareTo(other) — 实例知道如何与自己比另一个
+///   - IComparer<T>.Compare(x, y)   — 比较器接收两个外部对象
+///
+/// 用于 stdlib Sort 重载 / SortedDictionary 的自定义排序契约。
 public interface IComparer<T> {
+    /// 比较 x 与 y：负表示 x 排在 y 之前，0 表示等价，正表示 x 排在 y 之后。
     int Compare(T x, T y);
 }

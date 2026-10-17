@@ -1,39 +1,41 @@
 namespace Std;
 
-// rename-primitives-to-pascal-case (2026-05-24): primitive struct now named
-// `Byte` per BCL convention; source keyword `byte` is preserved as alias.
-//
-// add-narrow-int-primitives (2026-05-15): `byte` (unsigned 8-bit,
-// 0..=255). Underlying runtime Value is i64; Parse range-checks input.
-// Equals / GetHashCode / ToString share `__int32_*` builtins (Value::I64 storage).
+/// 内置 `byte` 类型（8 位无符号整数）的包装结构体，实现 IComparable / IEquatable / INumber。
 public struct Byte : IComparable, IEquatable, INumber {
-    // C# BCL parity. `static` (read via the __static_init__ pass) — scalar
-    // primitive structs resolve static members through the wrapper type.
+    /// 最大值：255。
     public static byte MaxValue = 255;
+    /// 最小值：0。
     public static byte MinValue = 0;
 
+    /// 解析无符号整数字符串；格式错误抛 FormatException，越界抛 OverflowException，null 抛 ArgumentNullException。
     [Native("__byte_parse")]       public static extern byte Parse(string s);
+    // 共用 __int32_* builtin（运行时 Value 存为 i64）。
+    /// 返回十进制字符串表示。
     [Native("__int32_to_string")]  public extern string ToString();
 
-    // symmetrize-primitive-api：非抛出解析。成功写回 `v` 并返回 true；任何格式
-    // 错误/越界返回 false 且 `v` 置零（与 Int32/Int64/Double.TryParse 同款）。
-    // ⚠️ 出参走 `ref` 而非可空返回：**值类型永不可空**（`int?` 报 E0476，见
-    // define-null-check-marks），C# 的 `out` / 可空返回范式搬不过来。
+    /// 非抛出解析：成功把值写入 `v` 并返回 true；格式错误 / 越界 / null 返回 false 且 `v` 置 0。
     [Native("__byte_try_parse")] public static extern bool TryParse(string s, ref byte v);
 
-    // shrink-primitive-native-interop (2026-08-27): Equals/GetHashCode 迁纯脚本。
+    /// 值相等比较。
     public bool Equals(byte other) { return this == other; }
+    /// 返回哈希码。
     public int GetHashCode() { return (int)this; }
 
+    /// 比较大小，返回负 / 0 / 正。
     public int CompareTo(byte other) {
         if (this < other) return -1;
         if (this > other) return 1;
         return 0;
     }
 
+    /// 加法。
     public static override byte op_Add(byte a, byte b)      { return (byte)(a + b); }
+    /// 减法。
     public static override byte op_Subtract(byte a, byte b) { return (byte)(a - b); }
+    /// 乘法。
     public static override byte op_Multiply(byte a, byte b) { return (byte)(a * b); }
+    /// 除法。
     public static override byte op_Divide(byte a, byte b)   { return (byte)(a / b); }
+    /// 取模。
     public static override byte op_Modulo(byte a, byte b)   { return (byte)(a % b); }
 }

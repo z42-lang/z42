@@ -1,43 +1,26 @@
 namespace Std;
 
-// 2026-05-03 fix-delegate-reference-equality (D-5)：delegate 引用相等 API。
-//
-// z42 类型系统中 `Action<T>` / `Func<T,R>` / `Predicate<T>` 等 delegate
-// 类型在运行时是 `Z42FuncType` 值（VM `Value::FuncRef` / `Value::Closure`
-// 二者之一）。本类暴露 reference equality 判断，用于
-// `MulticastAction.Unsubscribe(handler)` 等 by-handler 场景以及未来
-// `event` 关键字 `-=` desugar。
-//
-// 两个 Value 变体按各自身份语义比较：
-//   FuncRef(fnId)            —— 目标函数相同（VM 在创建时把名字绑成 FnId）
-//   Closure(env, fnId)       —— 目标函数相同 + env GC ptr_eq
-//   （闭包恒堆分配，没有第三种变体）
-// 跨变体不等；非 delegate 值返回 false 不报错。
-//
-// 命名独立于 `Std.Object` —— SymbolTable.cs:111 跳过 Object 跨 CU 导出
-// （synthetic stub），其他 stdlib 文件无法 `Object.X` 调用 static 方法。
+// 命名独立于 Std.Object：SymbolTable 跳过 Object 跨 CU 导出（synthetic stub），其他 stdlib
+// 文件无法用 Object.X 调静态方法。
+/// 委托引用相等与拆解工具。
+///
+/// 运行时 Action<T> / Func<T,R> / Predicate<T> 等委托是 Z42FuncType 值（VM 的 Value::FuncRef /
+/// Value::Closure 二者之一）。ReferenceEquals 按各自身份比较：FuncRef 看目标函数相同；
+/// Closure 看目标函数相同 + env 的 GC ptr_eq；跨变体不等；非委托值返回 false 不报错。
 public static class DelegateOps {
+    /// 判断两个委托值是否引用相等。
     [Native("__delegate_eq")]
     public static extern bool ReferenceEquals(object a, object b);
 
-    // 2026-05-04 D-1b：从 delegate 提取 captured target（receiver 对象）。
-    // 用于 `Std.WeakRef<TD>` 在 ctor 时拿到 target 后做 `WeakHandle.MakeWeak`。
-    //
-    // - Closure with env=[obj, ...] where obj is Object/Array → 返回 obj
-    // - Closure with env=[] / env[0] 非 Object → null
-    // - FuncRef / 非 delegate → null（lenient）
+    /// 从委托提取捕获的目标对象（receiver）；无可提取目标返回 null。
     [Native("__delegate_target")]
     public static extern object GetTarget(object delegateValue);
 
-    // 2026-05-04 D-1b：提取 delegate 的 fn_name（thunk 函数全限定名）。
-    // 与 GetTarget + MakeClosure 配套：WeakRef 不强持原 handler（那会反向锁住
-    // receiver，weak 无效），而是存 (WeakHandle, fnName)，Get 时重建 Closure。
+    /// 提取委托的 thunk 函数全限定名。
     [Native("__delegate_fn_name")]
     public static extern string GetFnName(object delegateValue);
 
-    // 2026-05-04 D-1b：用 fn_name + env 数组重建 Closure。
-    // env[0] 通常是 receiver 对象（与 instance method group conversion 的
-    // thunk 协议一致：reg 0 = env，env[0] = receiver）。
+    /// 用函数名 + 环境数组重建闭包；env[0] 通常是 receiver 对象。
     [Native("__make_closure")]
     public static extern object MakeClosure(string fnName, object[] env);
 }

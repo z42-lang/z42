@@ -26,20 +26,20 @@ public static class DocMd {
         DocItem[] tops = ix.Members(nsId);
         int i = 0;
         while (i < tops.Length) {
-            if (tops[i].IsType()) { DocMd._type(sb, ix, tops[i], "## "); }
+            if (tops[i].IsType() && tops[i].Vis == "public") { DocMd._type(sb, ix, tops[i], "## "); }
             i = i + 1;
         }
         return sb.ToString();
     }
 
-    // 顶层 public 类型：`split = "type"` 的拆分单位（每个类型一页）。
+    // 顶层 public 类型：`split = "type"` 的候选（未分组；分组见 TopLevelTypeGroups）。
     public static DocItem[] TopLevelTypes(DocIndex ix, string nsId) {
         DocItem[] all = ix.Members(nsId);
         DocItem[] acc = new DocItem[all.Length];
         int n = 0;
         int i = 0;
         while (i < all.Length) {
-            if (all[i].IsType()) { acc[n] = all[i]; n = n + 1; }
+            if (all[i].IsType() && all[i].Vis == "public") { acc[n] = all[i]; n = n + 1; }
             i = i + 1;
         }
         DocItem[] r = new DocItem[n];
@@ -47,13 +47,46 @@ public static class DocMd {
         return r;
     }
 
-    // 一个类型一页（`split = "type"`）：标题 = `<pkg>.<Type>`，类型是页内一级标题。
-    public static string TypePage(string pkgName, string pkgPath, string nsId, DocItem t, DocIndex ix) {
+    // 顶层 public 类型按名字分组（`split = "type"` 一个名字一页）：
+    // 同 Id 的多次声明（partial 跨文件）并为一个代表——成员本就按 Id 聚合，代表优先取写了 `///` 的
+    // （通常是主声明，签名也带基类列表）；同名不同 Id（泛型委托各元数、`MulticastException` /
+    // `<TResult>`）逐个收进同组，合并渲染。页名 `<短名>.<Type>.md` 依赖同包各命名空间无同名类型。
+    public static TypeGroup[] TopLevelTypeGroups(DocIndex ix, string nsId) {
+        DocItem[] tops = DocMd.TopLevelTypes(ix, nsId);
+        TypeGroup[] groups = new TypeGroup[tops.Length];
+        int n = 0;
+        int i = 0;
+        while (i < tops.Length) {
+            DocItem t = tops[i];
+            int g = -1;
+            int j = 0;
+            while (j < n) { if (groups[j].Name == t.Name) { g = j; break; } j = j + 1; }
+            if (g < 0) { groups[n] = new TypeGroup(t); n = n + 1; }
+            else if (groups[g].Decls[0].Id == t.Id) {
+                if (groups[g].Decls[0].Doc.Length == 0 && t.Doc.Length > 0) { groups[g].Decls[0] = t; }
+            } else { groups[g].Add(t); }
+            i = i + 1;
+        }
+        TypeGroup[] r = new TypeGroup[n];
+        Array.Copy(groups, r, n);
+        return r;
+    }
+
+    // 一个同名组一页（`split = "type"`）：标题 `<pkg>.<Type>` 只写一次。单声明直接渲染；
+    // 多声明每个一个 `##` 节，节题带泛型参数（`Action<T1,T2>`）以示区分。
+    public static string TypePage(string pkgName, string pkgPath, string nsId, TypeGroup g, DocIndex ix) {
         StringBuilder sb = new StringBuilder();
         sb.Append("<!-- 由 z42 doc 生成，勿手改。源：").Append(pkgPath).Append("/ -->\n\n");
-        sb.Append("# ").Append(pkgName).Append(".").Append(t.Name).Append("\n\n");
+        sb.Append("# ").Append(pkgName).Append(".").Append(g.Name).Append("\n\n");
         sb.Append("> 包路径 `").Append(pkgPath).Append("/`；命名空间 `").Append(nsId).Append("`\n\n");
-        DocMd._type(sb, ix, t, "# ");
+        int i = 0;
+        while (i < g.Decls.Length) {
+            if (g.Decls.Length > 1) { sb.Append("## ").Append(DocMd._declName(g.Decls[i])).Append("\n\n"); }
+            DocMd._loc(sb, g.Decls[i]);
+            DocMd._typeDoc(sb, g.Decls[i]);
+            DocMd._typeBody(sb, ix, g.Decls[i]);
+            i = i + 1;
+        }
         return sb.ToString();
     }
 
@@ -115,10 +148,10 @@ public static class DocMd {
         string[] nss = DocMd.Namespaces(ix);
         int i = 0;
         while (i < nss.Length) {
-            DocItem[] tops = DocMd.TopLevelTypes(ix, nss[i]);
+            TypeGroup[] groups = DocMd.TopLevelTypeGroups(ix, nss[i]);
             int j = 0;
-            while (j < tops.Length) {
-                sb.Append("- [").Append(tops[j].Name).Append("](").Append(shortName).Append(".").Append(tops[j].Name).Append(".md)\n");
+            while (j < groups.Length) {
+                sb.Append("- [").Append(groups[j].Name).Append("](").Append(shortName).Append(".").Append(groups[j].Name).Append(".md)\n");
                 j = j + 1;
             }
             i = i + 1;
@@ -174,15 +207,48 @@ public static class DocMd {
         return "";
     }
 
-    // 一个类型一节：heading（`## ` 或 `# `）+ 类型文档 + 签名总览块 + 每个成员 `###`。
+    // 一个类型一节：heading（`## `）+ 源码位置 + 类型文档 + 签名总览块 + 每个成员 `###`。
     private static void _type(StringBuilder sb, DocIndex ix, DocItem t, string heading) {
-        DocComment d = DocParser.Parse(t.Doc);
         sb.Append(heading).Append(t.Name).Append("\n\n");
+        DocMd._loc(sb, t);
+        DocMd._typeDoc(sb, t);
+        DocMd._typeBody(sb, ix, t);
+    }
+
+    // 源码位置行：`file:line`（相对仓库根，与 `z42 doc` 输出的 `@` 行同一来源）。
+    // 只在生成页里出现——每次 `xtask doc gen` 重写，行号不会过期；手写书页仍禁行号（doc-system）。
+    private static void _loc(StringBuilder sb, DocItem it) {
+        if (it.File.Length > 0) {
+            sb.Append("`").Append(it.File).Append(":").Append(it.Line.ToString()).Append("`\n\n");
+        }
+    }
+
+    // 类型文档（摘要 / 正文 / warning），不含标题；包页与 split=type 页共用。
+    private static void _typeDoc(StringBuilder sb, DocItem t) {
+        DocComment d = DocParser.Parse(t.Doc);
         if (d.Summary.Length > 0) { sb.Append(d.Summary).Append("\n"); }
         if (d.Body.Length > 0) { sb.Append("\n").Append(d.Body).Append("\n"); }
         DocMd._warnings(sb, d);
         sb.Append("\n");
+    }
 
+    // 声明名（带泛型参数）：从签名截取 `Name<...>`，到首个 `(` / `:` / `{` / 空格为止，
+    // 如 `Action<T1,T2>`、`MulticastException<TResult>`。合并页的节题用它区分同名声明。
+    private static string _declName(DocItem t) {
+        string sig = t.Sig;
+        int at = sig.IndexOf(t.Name);
+        if (at < 0) { return t.Name; }
+        int end = at + t.Name.Length;
+        while (end < sig.Length) {
+            char c = sig[end];
+            if (c == '(' || c == ':' || c == '{' || c == ' ') { break; }
+            end = end + 1;
+        }
+        return sig.Substring(at, end - at);
+    }
+
+    // 类型主体：签名总览块 + 每个成员 `###`（不含标题与类型文档）。重载委托/partial 类的合并页复用。
+    private static void _typeBody(StringBuilder sb, DocIndex ix, DocItem t) {
         DocItem[] ms = ix.Members(t.Id);
         // 签名总览块：类型签名 + 每成员一行（只列 public；委托没有体，只写签名）。
         if (t.Kind == DocKind.Delegate) {
@@ -205,10 +271,11 @@ public static class DocMd {
         }
     }
 
-    // 一个成员一节：`###` + 签名 + 正文 + @param 表 + @throws + @example。
+    // 一个成员一节：`###` + 源码位置 + 签名 + 正文 + @param 表 + @throws + @example。
     private static void _member(StringBuilder sb, DocItem m) {
         DocComment d = DocParser.Parse(m.Doc);
         sb.Append("### ").Append(DocMd._memberSig(m)).Append("\n\n");
+        DocMd._loc(sb, m);
         if (d.Summary.Length > 0) { sb.Append(d.Summary).Append("\n"); }
         if (d.Body.Length > 0) { sb.Append("\n").Append(d.Body).Append("\n"); }
         DocMd._warnings(sb, d);
@@ -268,5 +335,26 @@ public static class DocMd {
         if (n == a.Length) { b = new DocTag[a.Length * 2]; Array.Copy(a, b, n); }
         b[n] = v;
         return b;
+    }
+}
+
+// 同名类型组：`split = "type"` 的拆分单位（一个名字一页）。z42 无交错数组，用包装类装一组声明。
+// 组内要么是一个声明（常态），要么是同名不同 Id 的多个声明（泛型委托各元数等）；partial 的
+// 多次声明在 TopLevelTypeGroups 里已并为一个代表，不会进同组。
+public sealed class TypeGroup {
+    public string Name;
+    public DocItem[] Decls;
+
+    public TypeGroup(DocItem first) {
+        this.Name = first.Name;
+        this.Decls = new DocItem[1];
+        this.Decls[0] = first;
+    }
+
+    public void Add(DocItem t) {
+        DocItem[] grown = new DocItem[this.Decls.Length + 1];
+        Array.Copy(this.Decls, grown, this.Decls.Length);
+        grown[this.Decls.Length] = t;
+        this.Decls = grown;
     }
 }

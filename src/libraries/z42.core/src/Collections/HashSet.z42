@@ -1,19 +1,21 @@
 namespace Std.Collections;
 
-// `HashSet<T>` — 插入有序的紧凑哈希集合（与 `Dictionary<TKey, TValue>` 同一布局，共用操作见
-// `HashIndex.z42`），只存元素、不存值：摊还 O(1) 平均 Add / Remove / Contains。
-// `ToArray()` 按**插入顺序**产出；已存在元素再 `Add` 不改变位置；`Remove` 后再加入排到末尾。
-// 约束：T 必须 hashable + equatable（primitive 走 VM builtin，用户类型实现
-// IEquatable），与 Dictionary 的 TKey 约束一致。
-//
-// 迭代：用 `ToArray()` 取快照后 foreach（专用 enumerator 见 Deferred）。
+/// 插入有序的泛型哈希集合（与 `Dictionary<TKey, TValue>` 同一布局，共用操作见
+/// `HashIndex.z42`）：摊还 O(1) 平均 Add / Remove / Contains。`ToArray()` 按**插入顺序**产出；
+/// 已存在元素再 `Add` 不改变位置；`Remove` 后再加入排到末尾。`T` 必须 hashable + equatable
+/// （primitive 走 VM builtin，用户类型实现 `IEquatable`），与 Dictionary 的 TKey 约束一致。
+///
+/// 没有 `GetEnumerator()`，不能直接 `foreach` —— 用 `ToArray()` 取快照后再遍历。
 public class HashSet<T> where T: IEquatable {
     int[] _index;       // 索引表：0 = 空，-1 = 已删，否则 entry 下标 + 1；长度 = entries 容量 × 2
     int[] _hashes;      // entries：规整后的 hash（≥ 0）；-1 = tombstone
     T[] _elems;
     int _used;          // entries 已用槽数（含 tombstone）
+
+    /// 元素个数（公开字段，可读可写）。
     public int Count;
 
+    /// 新建空集合。
     public HashSet() { this._alloc(8); }
 
     void _alloc(int cap) {
@@ -24,9 +26,10 @@ public class HashSet<T> where T: IEquatable {
         this.Count = 0;
     }
 
+    /// 是否为空。
     public bool IsEmpty() { return this.Count == 0; }
 
-    // 加入元素；已存在返回 false（不重复、位置不变），新增返回 true 并追加到末尾。语义同 C# HashSet<T>.Add。
+    /// 加入元素；已存在返回 false（不重复、位置不变），新增返回 true 并追加到末尾。
     public bool Add(T item) {
         long hl = (long)item.GetHashCode();
         int h = (int)((hl ^ (hl >> 31)) & 0x7FFFFFFFL);
@@ -59,6 +62,7 @@ public class HashSet<T> where T: IEquatable {
         return true;
     }
 
+    /// 是否含元素。
     public bool Contains(T item) {
         long hl = (long)item.GetHashCode();
         int h = (int)((hl ^ (hl >> 31)) & 0x7FFFFFFFL);
@@ -77,7 +81,8 @@ public class HashSet<T> where T: IEquatable {
         return false;
     }
 
-    // 删除：索引槽改成 dummy（-1），entry 置 tombstone（其余元素原位不动，相对顺序不变）。
+    /// 删除元素；删掉返回 true，不存在返回 false。其余元素相对顺序不变。
+    // 实现：索引槽改成 dummy（-1），entry 置 tombstone。
     public bool Remove(T item) {
         int s = this._slotOf(item, HashIndex.Mix(item.GetHashCode()));
         int e = this._index[s];
@@ -90,10 +95,11 @@ public class HashSet<T> where T: IEquatable {
         return true;
     }
 
-    // 保留容量：换一组同容量的新数组（VM 原生零初始化）。
+    /// 清空集合，保留容量。
+    // 实现：换一组同容量的新数组（VM 原生零初始化）。
     public void Clear() { this._alloc(this._hashes.Length); }
 
-    // 元素快照数组，按插入顺序。
+    /// 元素快照数组，按插入顺序。
     public T[] ToArray() {
         T[] result = new T[this.Count];
         int[] hs = this._hashes;
@@ -112,14 +118,14 @@ public class HashSet<T> where T: IEquatable {
         return result;
     }
 
-    // ── Set 运算（C# HashSet<T> 常用变体；接收数组，见 Deferred 关于 IEnumerable）──
+    // ── Set 运算（接收 T[]，不接受另一个 HashSet<T>）──
 
-    // 并入 items 的全部元素（等价 C# UnionWith）：新元素按 items 顺序追加。
+    /// 并入 items 的全部元素（并集，等价 C# UnionWith）：新元素按 items 顺序追加。
     public void UnionWith(T[] items) {
         for (int i = 0; i < items.Length; i++) this.Add(items[i]);
     }
 
-    // 只保留同时存在于 items 的元素（等价 C# IntersectWith）；保留下来的元素顺序不变。
+    /// 只保留同时存在于 items 的元素（交集，等价 C# IntersectWith）；保留下来的元素顺序不变。
     public void IntersectWith(T[] items) {
         HashSet<T> other = new HashSet<T>();
         other.UnionWith(items);
@@ -129,7 +135,7 @@ public class HashSet<T> where T: IEquatable {
         }
     }
 
-    // 移除 items 中出现的元素（等价 C# ExceptWith）。
+    /// 移除 items 中出现的元素（差集，等价 C# ExceptWith）。
     public void ExceptWith(T[] items) {
         for (int i = 0; i < items.Length; i++) this.Remove(items[i]);
     }

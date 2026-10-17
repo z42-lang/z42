@@ -1,16 +1,11 @@
 namespace Std;
 
-// retire-z-codes (2026-05-11): 取代原 Z0908 编号。
-// 当 z42 值无法 marshal 为 native ABI 类型时抛出（contract violation）。
-//
-// 常见原因：
-// - z42 string 含 interior NUL，作 `*const c_char` 传递（C 消费者无法区分终止符）
-// - PinnedView 字段访问超出 {ptr, len}
-// - `pinned p = expr { ... }` 的源类型不支持（当前仅 string / Array<u8>）
-//
-// 避免方式：跨 native 边界前过滤输入，或换用保留二进制内容的 marshal 路径
-// （如定长 byte array 传二进制数据）。
+/// z42 值无法 marshal 为 native ABI 类型时抛出（contract violation）。
+///
+/// 常见原因：z42 string 含 interior NUL 作 `*const c_char` 传递；PinnedView 字段访问超出
+/// {ptr, len}；`pinned p = expr { ... }` 的源类型不支持（当前仅 string / Array<u8>）。
 public class InvalidMarshalException : Exception {
+    /// 用消息构造。
     public InvalidMarshalException(string message) : base(message) {}
 
     override string ToString() {

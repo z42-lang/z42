@@ -1,100 +1,54 @@
 namespace Std;
 using Std.Reflection;
 
-// Runtime type descriptor returned by `Object.GetType()`.
-//
-// Carries a native handle (`NativeData::TypeHandle`) to the real VM `TypeDesc`,
-// so the reflection methods below can enumerate members. Cannot be constructed
-// from user code — the VM creates instances via `__obj_get_type` and the
-// reflection builtins, writing `__name` / `__fullName` directly.
-//
-// Primitives (`int` / `long` / `bool` / …) resolve to their real `Std.*` wrapper
-// struct handle — `typeof(int)` **equals** `(5).GetType()` (C#
-// `typeof(int) == 5.GetType()`): Name `Int32`, FullName `Std.Int32`, IsValueType
-// true, members enumerable. Only arrays (`T[]`) return a handle-less synthetic
-// (Name/FullName populated, member queries empty). fix-type-reflection-names.
-//
-// ⚠️ 「equals」是**值相等**（按 `FullName`，见下方 `op_Equality`），不是同一个对象 ——
-// 每次 `typeof` / `GetType()` 都新建，`ReferenceEquals` 恒为假。
-// 📜 本段原先写的是「is the *same* Type as」，那在 `add-reflection-value-equality` 之前
-// **是一句假断言**：当时 `Type` 连值相等都没有，`typeof(int) == 5.GetType()` 实测为 `false`。
-//
-// Mirrors C# `System.Type`. Runtime generic instantiation via `MakeGenericType`
-// (plan-generic-reflection G1); z42's reified type-erasure means this needs no
-// monomorphization. Generic-method `Invoke` / `MakeGenericMethod` land in G2.
-// align-type-memberinfo-hierarchy (2026-06-11): `Type : MemberInfo` — Type IS-A
-// reflection member (mirrors .NET `System.Type : MemberInfo`), so `typeof(C) is
-// MemberInfo` holds and `Name` comes from the shared `MemberInfo` base (one
-// mechanism, not Type's old `[Native]` getter). Short-name base resolves via the
-// global `_classes` map (MemberInfo is a same-package z42.core class).
+/// 运行期类型描述符，由 `Object.GetType()` 返回（C# System.Type 对标）。
+///
+/// 携带 native 句柄指向真实 VM `TypeDesc`；基元（int / long / bool / …）解析到其真实
+/// `Std.*` 包装结构体句柄——`typeof(int)` 与 `(5).GetType()` **值相等**（按 FullName，见
+/// `operator ==`），Name 为 `Int32`、FullName 为 `Std.Int32`、IsValueType true、成员可枚举。
+/// 只有数组返回无句柄的合成体（Name/FullName 已填，成员查询为空）。不能从用户代码构造。
+///
+/// 注：「相等」是值相等（按 FullName），不是同一个对象——每次 typeof / GetType() 都新建，
+/// `ReferenceEquals` 恒为假。
 public sealed class Type : MemberInfo {
-    // VM-written backing slots. Prefer the inherited `Name` property + `FullName`;
-    // these remain public for the low-level golden tests + `z42.harness` that read
-    // them directly.
+    /// VM 写入的短名（优先用继承的 `Name` 属性；此处保留给底层 golden 测试与 z42.harness 直读）。
     public string __name;
+    /// VM 写入的全限定名（优先用 `FullName` 属性）。
     public string __fullName;
 
-    // add-reflection-array-element-type (2026-06-11): VM-written. `IsArray` is
-    // true for an array type (`typeof(int[])`, array field/param types, and
-    // `arr.GetType()` — arrays carry their element type at runtime, non-erased).
-    // `__elementName` holds the element type's FQ name ("" for non-arrays);
-    // `GetElementType()` resolves it to a `Type` (null when absent).
+    /// VM 写入：数组类型（`typeof(int[])`、数组字段/参数类型、`arr.GetType()`）为 true。
+    /// `__elementName` 存元素类型的 FQ 名；`GetElementType()` 解析为 `Type`（缺省 null）。
     public bool IsArray;
+    /// 数组元素类型的 FQ 名（非数组为 ""）。
     public string __elementName;
 
-    // add-load-context-model (2026-07-30): VM-written. The AssemblyId of the
-    // assembly defining this type (0 = root). Stamped by `Assembly.GetTypes()`;
-    // left unset (→ root) by `typeof(T)` / `obj.GetType()`. Backs
-    // `IsCollectible` / `Assembly` — internal (`__`-prefixed), not user-read.
+    /// VM 写入：定义该类型的 assembly 的 AssemblyId（0 = root）。内部（`__` 前缀），非用户读取。
     public long __asmId;
 
-    // add-reflection-generic-type-definition (2026-06-16): VM-written. For a
-    // *constructed* generic type (`typeof(Box<int>)`) this holds the resolved
-    // instantiation arguments as `Type`s (`[typeof(int)]`); null for the open
-    // definition and non-generic types. A non-null value marks the type as
-    // constructed, so `IsGenericTypeDefinition` is false and
-    // `GetGenericArguments()` returns these.
+    /// VM 写入：构造泛型（`typeof(Box<int>)`）的实参 `Type[]`；开放定义与非泛型为 null。
+    /// 非 null 标记该类型为构造类型，故 `IsGenericTypeDefinition` false、
+    /// `GetGenericArguments()` 返回这些。
     public Type[] __typeArgs;
 
-    // `Name` (unqualified class name, e.g. "Circle") is inherited from
-    // `MemberInfo` — the VM writes it into the inherited field slot when it
-    // constructs a Type instance (build_type), same as FieldInfo/MethodInfo.
-
-    // Resolve a Type by fully-qualified name (e.g. "Demo.Point"); null if unknown.
-    // Complements typeof(T) / obj.GetType() for reflection-driven lookup
-    // (add-method-invoke-non-generic, 0.3.12). Static — no receiver.
+    /// 按全限定名解析 Type（如 `"Demo.Point"`）；未知返回 null。补足 typeof(T) / obj.GetType()
+    /// 之外的反射查找路径。
     [Native("__type_get_type")]
     public static extern Type GetType(string fqn);
 
-    // Element type of an array type (e.g. `typeof(int[]).GetElementType()` →
-    // `typeof(int)`); null for a non-array type.
+    /// 数组类型的元素类型（`typeof(int[]).GetElementType()` → `typeof(int)`）；非数组为 null。
     [Native("__type_element")]
     public extern Type GetElementType();
 
-    // Fully-qualified name including namespace, e.g. "geometry.Circle".
+    /// 含命名空间的全限定名，如 `"geometry.Circle"`。
     [Native("__type_full_name")]
     public extern string FullName { get; }
 
-    // ── 值相等（add-reflection-value-equality）────────────────────────────────
+    // ── 值相等 ────────────────────────────────────────────────────────────────
     //
-    // 🔴 修前 `typeof(int) == typeof(int)` 是 **false**：`Type` 没有任何相等成员，`==` 落引用
-    // 比较，而每次 `typeof` / `GetType()` 都新建一个对象。于是**一切按 `typeof` 分派的代码都
-    // 静默走错分支** —— 序列化器的招牌写法 `if (typeof(T) == typeof(int))` 恒不命中，零诊断。
-    // 与泛型无关：非泛型的 `typeof(int) == typeof(int)` 就已经是 false。
-    //
-    // 身份判据 = **`FullName`**。`Type` 在 z42 里的身份就是 FQ 名：`typeof(int)` 与
-    // `(5).GetType()` 都得 `Std.Int32`（`fix-type-reflection-names` 起如此），数组等无句柄的
-    // 合成体也有填好的 `FullName`。
-    //
-    // ⚠️ **不是对象驻留**：`ReferenceEquals(typeof(int), typeof(int))` 仍为假，本 change 也不
-    // 打算让它为真。C# 的 `typeof(int)==typeof(int)` 为真靠的同样是值相等，不是缓存
-    // —— `methodof.md` 原先把两者混为一谈，已一并订正。
-    //
-    // ⚠️ **null 两侧都要处理**：`t == null` 今天是引用比较、恒可写，补了运算符之后它会派发到
-    // 这里，漏判就会变成空引用崩。
-    //
-    // 🔴 **判空必须用 `Object.ReferenceEquals`，不能写 `a == null`** —— 那会**递归派发回本运算符**，
-    // 直接栈溢出。（C# 里同款陷阱，惯用解法也是 `ReferenceEquals` / `(object)a == null`。）
+    // 身份判据 = FullName。`Type` 在 z42 里的身份就是 FQ 名；数组等无句柄的合成体也有填好的
+    // FullName。判空用 Object.ReferenceEquals 而非 `a == null`，否则会递归派发回本运算符。
+
+    /// 按 FullName 比较相等（两侧皆 null 才相等；一侧 null 为不等）。
     public static bool operator ==(Type a, Type b) {
         bool an = Object.ReferenceEquals(a, null);
         bool bn = Object.ReferenceEquals(b, null);
@@ -102,6 +56,7 @@ public sealed class Type : MemberInfo {
         return a.FullName == b.FullName;
     }
 
+    /// 按 FullName 判断不等。
     public static bool operator !=(Type a, Type b) {
         bool an = Object.ReferenceEquals(a, null);
         bool bn = Object.ReferenceEquals(b, null);
@@ -109,183 +64,153 @@ public sealed class Type : MemberInfo {
         return a.FullName != b.FullName;
     }
 
-    // `Equals` / `GetHashCode` 与 `==` 同一判据 —— 三者口径必须一致，否则把 Type 当字典键
-    // 会得到「`==` 说相等、字典说不是同一个键」这种最难查的不一致。
+    /// 与 `==` 同一判据（FullName），保证与 GetHashCode 口径一致。
     public override bool Equals(object other) {
         Type t = other as Type;
         if (t == null) { return false; }
         return this.FullName == t.FullName;
     }
 
+    /// FullName 的哈希码。
     public override int GetHashCode() { return this.FullName.GetHashCode(); }
 
-    // Base class type; `Std.Object` for classes with no explicit base; `null`
-    // for `Std.Object` itself and for handle-less Types (primitives/arrays).
+    /// 基类类型；无显式基类的类为 `Std.Object`；`Std.Object` 自身与无句柄 Type（基元/数组）为 null。
     [Native("__type_base")]
     public extern Type BaseType { get; }
 
-    // True if the type was declared `abstract`. False for non-abstract classes
-    // and handle-less Types (primitives / arrays). (add-reflection-type-flags)
+    /// 是否为 `abstract` 类型。非 abstract 类与无句柄 Type（基元/数组）为 false。
     [Native("__type_is_abstract")]
     public extern bool IsAbstract { get; }
 
-    // True if the type was declared `sealed`. False otherwise / handle-less.
+    /// 是否为 `sealed` 类型。否则 / 无句柄为 false。
     [Native("__type_is_sealed")]
     public extern bool IsSealed { get; }
 
-    // True for a value type (`struct`). (add-reflection-value-record-flags)
+    /// 是否为值类型（`struct`）。
     [Native("__type_is_value_type")]
     public extern bool IsValueType { get; }
 
-    // True if the type was declared `record`.
+    /// 是否为 `record` 类型。
     [Native("__type_is_record")]
     public extern bool IsRecord { get; }
 
-    // True if the reflected type is an `interface`. False for class/struct/record/
-    // enum/primitive/array. (add-reflection-interface-class-predicates)
+    /// 是否为 `interface`。class / struct / record / enum / 基元 / 数组为 false。
     [Native("__type_is_interface")]
     public extern bool IsInterface { get; }
 
-    // True if this type was declared `enum`. Backed by CLASS_FLAG_ENUM in the
-    // TYPE-section flags byte. (add-enum-type-metadata / unify-type-metadata P1-a)
+    /// 是否为 `enum`。
     [Native("__type_is_enum")]
     public extern bool IsEnum { get; }
 
-    // enum 的底层整型。z42 一律以 i64（long）背书 enum（值存 i64、GetValues 返 long[]、
-    // 声明的 `: byte` 当前被忽略）→ 恒返 typeof(long)。非 enum 抛 Std.Exception（镜像 C#）。
-    // add-enum-underlying-type。
+    /// enum 的底层整型。z42 一律以 i64（long）背书 enum → 恒返 typeof(long)。
+    /// 非 enum 抛 Std.Exception（镜像 C#）。
     [Native("__type_enum_underlying")]
     public extern Type GetEnumUnderlyingType();
 
-    // ── Nested types (add-nested-types) ──────────────────────────────────────
-    // 源码写 `Outer.Inner`；元数据 FQ 名用 `+`（`Ns.Outer+Inner`）承载嵌套关系，
-    // 反射纯字符串派生（无 format bump）。Name=简单名 `Inner`、FullName=`Ns.Outer+Inner`。
+    // ── 嵌套类型 ──────────────────────────────────────────────────────────────
+    // 源码写 `Outer.Inner`；元数据 FQ 名用 `+`（`Ns.Outer+Inner`）承载嵌套关系，反射纯
+    // 字符串派生。Name=简单名 `Inner`、FullName=`Ns.Outer+Inner`。
 
-    // True if this type is nested inside another type (its FQ 名含 `+`)。
+    /// 是否嵌套于另一类型（其 FQ 名含 `+`）。
     [Native("__type_is_nested")]
     public extern bool IsNested { get; }
 
-    // 直接外层类型（嵌套时），否则 null。`typeof(Outer.Inner).GetDeclaringType()` → typeof(Outer)。
+    /// 直接外层类型（嵌套时），否则 null。`typeof(Outer.Inner).GetDeclaringType()` → typeof(Outer)。
     [Native("__type_declaring_type")]
     public extern Type GetDeclaringType();
 
-    // 直接嵌套于本类型的类型（不含更深层 / 继承的嵌套），镜像 C# GetNestedTypes()。有序。
+    /// 直接嵌套于本类型的类型（不含更深层 / 继承），有序。
     [Native("__type_nested_types")]
     public extern Type[] GetNestedTypes();
 
-    // True for a `delegate` type（delegate-as-class TYPE 条目，class_flags bit6）。
-    // 签名经 GetMethods() 的合成 Invoke 反射。(add-delegate-metadata / unify P1-e)
+    /// 是否为 `delegate` 类型（签名经 GetMethods() 的合成 Invoke 反射）。
     [Native("__type_is_delegate")]
     public extern bool IsDelegate { get; }
 
-    // True for a reference class type (incl. `record`). Mirrors C# Type.IsClass:
-    // a real type that is neither a value type (`struct`) nor an interface.
-    // Primitives / arrays / enums → false. (add-reflection-interface-class-predicates)
+    /// 是否为引用类类型（含 `record`）。既非值类型（struct）也非接口；基元/数组/enum 为 false。
     [Native("__type_is_class")]
     public extern bool IsClass { get; }
 
-    // True for a generic type (has type parameters, e.g. `Box<T>`).
-    // (add-reflection-generic-predicates)
+    /// 是否为泛型类型（含类型参数，如 `Box<T>`）。
     [Native("__type_is_generic")]
     public extern bool IsGenericType { get; }
 
-    // True iff this is a generic *type definition* (open `Box<>`) rather than a
-    // constructed instantiation (`Box<int>`). `typeof(Box<int>)` → false; its
-    // `GetGenericTypeDefinition()` → true. False for non-generic types.
-    // (add-reflection-generic-type-definition)
+    /// 是否为泛型**定义**（开放 `Box<>`）而非构造实例化（`Box<int>`）。非泛型为 false。
     [Native("__type_is_generic_definition")]
     public extern bool IsGenericTypeDefinition { get; }
 
-    // True if the type is a primitive (int/long/bool/char/float/double/...).
-    // `string` is not a primitive.
+    /// 是否为基元类型（int / long / bool / char / float / double / ...）。`string` 不是基元。
     [Native("__type_is_primitive")]
     public extern bool IsPrimitive { get; }
 
-    // ── Declaration visibility (complete-class-access-control) ────────────────
-    // The type's declared access level (public / private / protected / internal),
-    // from the zbc 1.33 class-visibility byte. Pair with `IsNested` (above) to tell
-    // top-level from nested, e.g. `Visibility == TypeVisibility.Public && !IsNested`
-    // for a top-level public type. Handle-less Types (primitive / array) → Public.
+    // ── 声明可见性 ────────────────────────────────────────────────────────────
+    // 类型的声明访问级，取自 zbc 1.33 class-visibility 字节。与 IsNested 组合区分顶层与嵌套；
+    // 无句柄 Type（基元/数组）→ Public。
+
+    /// 类型的声明访问级（public / private / protected / internal）。无句柄 Type → Public。
     [Native("__type_visibility")]
     public extern TypeVisibility Visibility { get; }
 
-    // ── C# 对齐的可见性谓词 (computed properties over Visibility × IsNested) ──
-    // 完全对齐 C# `System.Type` 的 6 个 bool 属性：顶层 vs 嵌套由 `IsNested` 正交，
-    // 四档访问级由 `Visibility` 给出。native interop 只用一个 `__type_visibility`，
-    // 这 6 个纯脚本层派生（PR1 add-property-getter 让命名属性支持计算 getter）。
-    // handle-less 基元/数组 → Visibility=Public、IsNested=false → IsPublic=true（同 C#）。
+    // ── C# 对齐的可见性谓词（Visibility × IsNested 的计算属性）─────────────────
+    // 完全对齐 C# System.Type 的 6 个 bool 属性；native interop 只用 `__type_visibility`，
+    // 这 6 个在纯脚本层派生。
 
-    // 顶层 public 类型（非嵌套且 public）。
+    /// 顶层 public 类型（非嵌套且 public）。
     public bool IsPublic         { get { return this.Visibility == TypeVisibility.Public   && !this.IsNested; } }
-    // 顶层非 public 类型（非嵌套且非 public，即顶层 internal）。
+    /// 顶层非 public 类型（非嵌套且非 public，即顶层 internal）。
     public bool IsNotPublic      { get { return this.Visibility != TypeVisibility.Public   && !this.IsNested; } }
-    // 嵌套 public。
+    /// 嵌套 public。
     public bool IsNestedPublic   { get { return this.Visibility == TypeVisibility.Public   &&  this.IsNested; } }
-    // 嵌套 private。
+    /// 嵌套 private。
     public bool IsNestedPrivate  { get { return this.Visibility == TypeVisibility.Private  &&  this.IsNested; } }
-    // 嵌套 protected（C# "family"）。
+    /// 嵌套 protected（C# "family"）。
     public bool IsNestedFamily   { get { return this.Visibility == TypeVisibility.Protected && this.IsNested; } }
-    // 嵌套 internal（C# "assembly"）。
+    /// 嵌套 internal（C# "assembly"）。
     public bool IsNestedAssembly { get { return this.Visibility == TypeVisibility.Internal &&  this.IsNested; } }
 
-    // Public instance fields (including inherited; base-first). Empty for
-    // primitives / arrays.
+    /// 公开实例字段（含继承；基类在前）。基元 / 数组为空。
     [Native("__type_fields")]
     public extern Std.Reflection.FieldInfo[] GetFields();
 
-    // Methods (including inherited / virtual).
+    /// 方法（含继承 / 虚方法）。
     [Native("__type_methods")]
     public extern Std.Reflection.MethodInfo[] GetMethods();
 
-    // Constructors declared on this type (add-reflective-invoke). Each
-    // ConstructorInfo.Invoke(args) allocates + constructs a new instance. Empty for
-    // primitives / arrays / interfaces. Overload selection by parameter types
-    // (GetConstructor(Type[])) is deferred — enumerate + inspect GetParameters().
+    /// 本类型声明的构造器。每个 ConstructorInfo.Invoke(args) 分配并构造新实例。基元 / 数组 /
+    /// 接口为空。按参数类型的重载选择（GetConstructor(Type[])）未实现——枚举后自行查参数。
     [Native("__type_constructors")]
     public extern Std.Reflection.ConstructorInfo[] GetConstructors();
 
-    // Fields and methods together.
+    /// 字段与方法合在一起。
     [Native("__type_members")]
     public extern Std.Reflection.MemberInfo[] GetMembers();
 
-    // Properties (auto-properties + extern getters), derived from the
-    // `get_<X>` / `set_<X>` accessor convention. Includes inherited. Empty for
-    // primitives / arrays. Accessor methods still appear in GetMethods() too
-    // (C# parity); this is the additive property view.
+    /// 属性（auto-property + extern getter），由 `get_<X>` / `set_<X>` 访问器约定派生，含继承。
+    /// 基元 / 数组为空。访问器方法仍出现在 GetMethods() 中（C# 对齐）；这是附加的属性视图。
     [Native("__type_properties")]
     public extern Std.Reflection.PropertyInfo[] GetProperties();
 
-    // Generic type arguments of a constructed generic (`typeof(Box<int>)` -> [int]).
-    // Empty for the open definition and non-generic types.
+    /// 构造泛型的实参（`typeof(Box<int>)` → [int]）。开放定义与非泛型为空。
     [Native("__type_generic_args")]
     public extern Type[] GetGenericArguments();
 
-    // The open generic definition of a constructed type
-    // (`typeof(Box<int>).GetGenericTypeDefinition()` -> `Box<>`). Throws for a
-    // non-generic type (mirrors C# InvalidOperationException).
-    // (add-reflection-generic-type-definition)
+    /// 构造类型的开放泛型定义（`typeof(Box<int>).GetGenericTypeDefinition()` → `Box<>`）。
+    /// 非泛型抛异常（镜像 C# InvalidOperationException）。
     [Native("__type_generic_definition")]
     public extern Type GetGenericTypeDefinition();
 
-    // Construct a generic type at runtime from this open definition + type
-    // arguments (`typeof(List<>).MakeGenericType(typeof(int))` -> `List<int>`).
-    // Validates argument count and `where` constraints, throwing `Std.Exception`
-    // on violation (reflection is the escape hatch past compile-time constraint
-    // checking, so it self-polices). Reuses the reified-erasure model — no
-    // monomorphization. (plan-generic-reflection G1)
+    /// 由开放定义 + 实参在运行期构造泛型（`typeof(List<>).MakeGenericType(typeof(int))` →
+    /// `List<int>`）。校验实参个数与 `where` 约束，违反抛 Std.Exception（反射是绕过编译期
+    /// 约束检查的逃生门，故自行把关）。
     [Native("__type_make_generic")]
     public extern Type MakeGenericType(params Type[] typeArgs);
 
-    // Interfaces this type implements (own declared + inherited from base chain,
-    // deduped by name). add-reflection-assignable-from: the interface block now
-    // stores FQ names, so each returned Type is a real interface handle
-    // (IsInterface / FullName usable). Transitive interface implementation
-    // (interface-extends-interface) is not yet included.
+    /// 本类型实现的接口（自身声明 + 基类链继承，按名去重）。返回真实接口句柄
+    /// （IsInterface / FullName 可用）。接口的传递继承（接口继承接口）尚未包含。
     [Native("__type_interfaces")]
     public extern Type[] GetInterfaces();
 
-    // The interface implemented by this type with the given (simple) name, or
-    // null if none. Convenience over GetInterfaces(). (add-reflection-assignable-from)
+    /// 本类型实现的、给定（简单）名的接口，否则 null。GetInterfaces() 的便利封装。
     public Type? GetInterface(string name) {
         Type[] ifaces = this.GetInterfaces();
         int i = 0;
@@ -299,41 +224,33 @@ public sealed class Type : MemberInfo {
         return null;
     }
 
-    // True if an instance of `c` is assignable to a variable of this type:
-    // `c` is this, derives from this, or implements interface `this`. Reflection
-    // form of `is`. Compares real type identity in the VM (not strings).
-    // null → false. (add-reflection-assignable-from)
+    /// `c` 的实例能否赋给本类型变量：`c` 是 this、派生自 this、或实现接口 `this`。
+    /// 反射形式的 `is`；VM 里比真实类型身份（非字符串）。null → false。
     [Native("__type_is_assignable_from")]
     public extern bool IsAssignableFrom(Type c);
 
-    // ── Load context (add-load-context-model) ───────────────────────────────
+    // ── Load context ──────────────────────────────────────────────────────────
 
-    // True if this type was loaded into a collectible AssemblyLoadContext (mirrors .NET
-    // Type.IsCollectible). Types in the永驻 root context (all core/stdlib/main
-    // program types, and primitive/array synthetic Types) → false.
+    /// 是否加载进可回收的 AssemblyLoadContext（镜像 .NET Type.IsCollectible）。
+    /// 常驻 root context 的类型（core/stdlib/main 与基元/数组合成体）→ false。
     [Native("__type_is_collectible")]
     public extern bool IsCollectible { get; }
 
-    // The assembly (zpkg runtime projection) that defines this type. Mirrors
-    // .NET Type.Assembly. Root types report the synthetic root assembly.
+    /// 定义此类型的 assembly（zpkg 运行期投影，镜像 .NET Type.Assembly）。root 类型报合成 root。
     [Native("__type_assembly")]
     public extern Std.Reflection.Assembly Assembly { get; }
 
-    // ── Custom attributes (C3 add-attribute-reflection) ─────────────────────
+    // ── 自定义 attribute ──────────────────────────────────────────────────────
 
-    // Lazily-built cache of this type's attribute instances. Null until the
-    // first GetCustomAttributes() call; thereafter the same array (and thus the
-    // same instances) is returned — C# allocates fresh on every call, z42 does
-    // not (improvement #3 + immutable instances #4).
+    /// 本类型 attribute 实例的惰性缓存：首次 GetCustomAttributes() 前为 null，之后同一数组
+    /// （同一批实例）复用（C# 每次调用都新分配，z42 不）。
     public Attribute[] __attrCache;
 
-    // VM-built live attribute instances (one per applied attribute, in
-    // application order). The VM invokes each compiler-synthesized factory.
+    /// VM 构建的活 attribute 实例（每个应用一次，按应用顺序）。VM 调用各自编译器合成工厂。
     [Native("__type_custom_attributes")]
     public extern Attribute[] __customAttributes();
 
-    // User attributes applied to this type, as live instances. Cached: the
-    // first call materializes them, repeated calls return the same instances.
+    /// 应用于本类型的用户 attribute（活实例）。缓存：首次调用物化，重复调用返回同一批实例。
     public Attribute[] GetCustomAttributes() {
         if (this.__attrCache != null) {
             return this.__attrCache;
@@ -342,8 +259,8 @@ public sealed class Type : MemberInfo {
         return this.__attrCache;
     }
 
-    // The single attribute of the given type, or null if absent. Compares by
-    // the instance's runtime type (FullName), so subclass attributes match too.
+    /// 给定类型的单个 attribute，否则 null。按实例运行时类型（FullName）比较，子类 attribute
+    /// 也命中。
     public Attribute? GetAttribute(Type attributeType) {
         Attribute[] all = this.GetCustomAttributes();
         int i = 0;

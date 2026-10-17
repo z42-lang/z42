@@ -1,7 +1,8 @@
 namespace Std;
 
-// 解引用 null（字段访问 / 方法调用 receiver 为 null）。
+/// 解引用 null（字段访问 / 方法调用 receiver 为 null）。
 public class NullReferenceException : Exception {
+    /// 用消息构造。
     public NullReferenceException(string message) : base(message) {}
 
     override string ToString() {

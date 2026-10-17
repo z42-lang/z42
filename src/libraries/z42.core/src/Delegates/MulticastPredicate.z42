@@ -1,15 +1,11 @@
 namespace Std;
 
-// 2026-05-03 add-multicast-func-predicate (D2d-1):
-// 多播 Predicate —— 一次注册多个 `Predicate<T>` handler，Invoke 收集所有
-// 返回值进 `bool[]`。FIFO（注册顺序 = 调用顺序）。`All(T)` / `Any(T)` 短路
-// 求值（K10 LINQ 习惯）。
-//
-// 双 vec 通道（同 MulticastAction / MulticastFunc 模式）。
-// fail-fast 默认；`continueOnException=true`（2026-05-07
-// switch-multicast-funcpredicate-to-generic-exception 落地）：失败位置占
-// `default(bool) = false`，多失败聚合抛 `MulticastException<bool>`。
-
+/// 多播 Predicate：一次注册多个 `Predicate<T>` handler，Invoke 收集所有返回值进
+/// `bool[]`（FIFO）。`All(T)` / `Any(T)` 短路求值。
+///
+/// 双 vec 通道（同 MulticastAction / MulticastFunc）。Invoke 默认 fail-fast；
+/// `continueOnException = true` 时失败位置占 default(bool) = false，多失败聚合抛
+/// MulticastException<bool>。
 public sealed class MulticastPredicate<T> {
     Predicate<T>[] strong;
     bool[] strongAlive;
@@ -21,6 +17,7 @@ public sealed class MulticastPredicate<T> {
     int advancedCount;
     int advancedCapacity;
 
+    /// 构造空的多播 Predicate。
     public MulticastPredicate() {
         this.strongCapacity = 4;
         this.strong = new Predicate<T>[4];
@@ -33,6 +30,7 @@ public sealed class MulticastPredicate<T> {
         this.advancedCount = 0;
     }
 
+    /// 裸 handler 订阅 → strong 快路径（零包装开销）。
     public IDisposable Subscribe(Predicate<T> handler) {
         if (this.strongCount == this.strongCapacity) this.GrowStrong();
         int idx = this.strongCount;
@@ -42,6 +40,7 @@ public sealed class MulticastPredicate<T> {
         return new MulticastPredicateSubscription<T>(this, idx, false);
     }
 
+    /// ISubscription 包装器订阅 → advanced 慢路径（OnceRef / CompositeRef / 用户自定义包装器）。
     public IDisposable SubscribeAdvanced(ISubscription<Predicate<T>> wrapper) {
         if (this.advancedCount == this.advancedCapacity) this.GrowAdvanced();
         int idx = this.advancedCount;
@@ -51,6 +50,7 @@ public sealed class MulticastPredicate<T> {
         return new MulticastPredicateSubscription<T>(this, idx, true);
     }
 
+    /// 当前活跃订阅总数（strong + advanced）。
     public int Count() {
         int c = 0;
         int i = 0;
@@ -66,8 +66,11 @@ public sealed class MulticastPredicate<T> {
         return c;
     }
 
-    // 2026-05-04 fix-default-param-cross-cu (D-9) 修复后回归 default param
-    // 单签名形式（先前临时拆 1-arg/2-arg overload 已退回）。
+    /// 触发所有活跃 handler，收集返回值进 bool[]（strong-first / advanced-after 顺序）。
+    ///
+    /// `continueOnException = false`（默认）走 fail-fast：首个抛出的异常直接传播。
+    /// `continueOnException = true` 时失败位置占 default(bool) = false，多失败聚合抛
+    /// MulticastException<bool>。
     public bool[] Invoke(T arg, bool continueOnException = false) {
         int sn = this.strongCount;
         Predicate<T>[] snapStrong = new Predicate<T>[sn];
@@ -129,7 +132,7 @@ public sealed class MulticastPredicate<T> {
             return result;
         }
 
-        // ── continueOnException=true 路径（2026-05-07 K8 完整语义）──
+        // ── continueOnException=true 路径 ──
         // 失败位置占 default(bool) = false；多失败聚合抛 MulticastException<bool>。
         Exception[] failExns = new Exception[8];
         int[] failIdx = new int[8];
@@ -213,8 +216,8 @@ public sealed class MulticastPredicate<T> {
         return result;
     }
 
-    // `All(arg)` —— 一旦遇 false 立即返回 false（短路），后续 handler 不调用。
-    // 空 bus 返回 true（vacuous truth）。
+    /// 所有活跃 handler 都返回 true 时返回 true；一旦遇 false 立即返回 false（短路），
+    /// 后续 handler 不调用。空 bus 返回 true（vacuous truth）。
     public bool All(T arg) {
         int sn = this.strongCount;
         Predicate<T>[] snapStrong = new Predicate<T>[sn];
@@ -257,8 +260,8 @@ public sealed class MulticastPredicate<T> {
         return true;
     }
 
-    // `Any(arg)` —— 一旦遇 true 立即返回 true（短路）。
-    // 空 bus 返回 false（vacuous existential）。
+    /// 任一活跃 handler 返回 true 时返回 true；一旦遇 true 立即返回 true（短路）。
+    /// 空 bus 返回 false（vacuous existential）。
     public bool Any(T arg) {
         int sn = this.strongCount;
         Predicate<T>[] snapStrong = new Predicate<T>[sn];
@@ -301,6 +304,7 @@ public sealed class MulticastPredicate<T> {
         return false;
     }
 
+    /// 按 handler 取消订阅（仅扫 strong 通道；advanced 通道用 token-based dispose）。
     public void Unsubscribe(Predicate<T> handler) {
         int i = 0;
         while (i < this.strongCount) {
@@ -313,6 +317,7 @@ public sealed class MulticastPredicate<T> {
         }
     }
 
+    /// 内部：dispose token 入口，把对应通道的 alive[idx] 置 false。
     public void RemoveAt(int idx, bool isAdvanced) {
         if (isAdvanced) {
             if (idx >= 0 && idx < this.advancedCount) {
@@ -356,17 +361,20 @@ public sealed class MulticastPredicate<T> {
     }
 }
 
+/// 内部订阅 token —— Subscribe 返回它，Dispose 把 alive[idx] 置 false。
 public sealed class MulticastPredicateSubscription<T> : IDisposable {
     MulticastPredicate<T> bus;
     int idx;
     bool isAdvanced;
 
+    /// 构造订阅 token。
     public MulticastPredicateSubscription(MulticastPredicate<T> bus, int idx, bool isAdvanced) {
         this.bus = bus;
         this.idx = idx;
         this.isAdvanced = isAdvanced;
     }
 
+    /// 取消订阅：把对应通道的 alive[idx] 置 false。
     public void Dispose() {
         if (this.idx >= 0) {
             this.bus.RemoveAt(this.idx, this.isAdvanced);

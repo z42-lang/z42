@@ -1,22 +1,14 @@
 namespace Std;
 
-// 2026-05-03 add-multicast-func-predicate (D2d-1):
-// 多播 Func —— 一次注册多个 `Func<TArg, TResult>` handler，Invoke 收集所有返回值
-// 入 `TResult[]`。FIFO（注册顺序 = 调用顺序）。与单播 `Func<TArg, TResult>` 类型分离
-// （delegates-events.md K2/K8）。
-//
-// 双 vec 通道（同 MulticastAction 模式）：
-//   • strong vec —— 直接持 Func<TArg,TResult>，invoke fast loop 无 wrapper 检查；裸
-//     handler `Subscribe(Func<TArg,TResult>)` 走此路径。
-//   • advanced vec —— 持 `ISubscription<Func<TArg,TResult>>` wrapper（OnceRef /
-//     CompositeRef / 自定义）。invoke slow loop 走 IsAlive + Get + OnInvoked。
-//
-// COW snapshot —— Invoke 时拷贝当前数组遍历副本。
-// fail-fast 路径（continueOnException 默认 false；handler 抛异常直接传播）。
-// `continueOnException=true`（2026-05-07 switch-multicast-funcpredicate-to-generic-exception
-// 落地）：全跑完后失败位置占 `default(TResult)`，多失败聚合抛 `MulticastException<TResult>`，
-// 携带 Results: TResult[] 与失败索引 / 异常并行数组。
-
+/// 多播 Func：一次注册多个 `Func<TArg, TResult>` handler，Invoke 收集所有返回值进
+/// `TResult[]`（FIFO，注册顺序 = 调用顺序）。与单播 `Func<TArg, TResult>` 分离。
+///
+/// 双 vec 通道：
+///   - strong 通道 —— 直接持 Func<TArg, TResult>，裸 handler `Subscribe(...)` 走此路径。
+///   - advanced 通道 —— 持 ISubscription<Func<TArg, TResult>> 包装器（OnceRef / CompositeRef /
+///     自定义），invoke 慢路径走 IsAlive + Get + OnInvoked。
+///
+/// Invoke 时拷贝当前数组遍历副本（COW snapshot）。
 public sealed class MulticastFunc<TArg, TResult> {
     // ── strong fast path ──
     Func<TArg, TResult>[] strong;
@@ -30,6 +22,7 @@ public sealed class MulticastFunc<TArg, TResult> {
     int advancedCount;
     int advancedCapacity;
 
+    /// 构造空的多播 Func。
     public MulticastFunc() {
         this.strongCapacity = 4;
         this.strong = new Func<TArg, TResult>[4];
@@ -42,6 +35,7 @@ public sealed class MulticastFunc<TArg, TResult> {
         this.advancedCount = 0;
     }
 
+    /// 裸 handler 订阅 → strong 快路径（零包装开销）。
     public IDisposable Subscribe(Func<TArg, TResult> handler) {
         if (this.strongCount == this.strongCapacity) this.GrowStrong();
         int idx = this.strongCount;
@@ -51,6 +45,7 @@ public sealed class MulticastFunc<TArg, TResult> {
         return new MulticastFuncSubscription<TArg, TResult>(this, idx, false);
     }
 
+    /// ISubscription 包装器订阅 → advanced 慢路径（OnceRef / CompositeRef / 用户自定义包装器）。
     public IDisposable SubscribeAdvanced(ISubscription<Func<TArg, TResult>> wrapper) {
         if (this.advancedCount == this.advancedCapacity) this.GrowAdvanced();
         int idx = this.advancedCount;
@@ -60,6 +55,7 @@ public sealed class MulticastFunc<TArg, TResult> {
         return new MulticastFuncSubscription<TArg, TResult>(this, idx, true);
     }
 
+    /// 当前活跃订阅总数（strong + advanced）。
     public int Count() {
         int c = 0;
         int i = 0;
@@ -75,10 +71,11 @@ public sealed class MulticastFunc<TArg, TResult> {
         return c;
     }
 
-    // 2026-05-04 fix-default-param-cross-cu (D-9) 修复后回归 default param
-    // 单签名形式（先前临时拆 1-arg/2-arg overload 已退回）。
-    // Invoke 收集所有活跃 handler 返回值进 TResult[]，按 strong-first / advanced-after
-    // 顺序累加。失败抛原异常（D2d-2 加聚合）。
+    /// 触发所有活跃 handler，收集返回值进 TResult[]（strong-first / advanced-after 顺序）。
+    ///
+    /// `continueOnException = false`（默认）走 fail-fast：首个抛出的异常直接传播。
+    /// `continueOnException = true` 时失败位置占 default(TResult)，多失败聚合抛
+    /// MulticastException<TResult>（携带 Results 与失败索引 / 异常并行数组）。
     public TResult[] Invoke(TArg arg, bool continueOnException = false) {
         // ── strong snapshot + fast loop ──
         int sn = this.strongCount;
@@ -226,6 +223,7 @@ public sealed class MulticastFunc<TArg, TResult> {
         return result;
     }
 
+    /// 按 handler 取消订阅（仅扫 strong 通道；advanced 通道用 token-based dispose）。
     public void Unsubscribe(Func<TArg, TResult> handler) {
         int i = 0;
         while (i < this.strongCount) {
@@ -238,6 +236,7 @@ public sealed class MulticastFunc<TArg, TResult> {
         }
     }
 
+    /// 内部：dispose token 入口，把对应通道的 alive[idx] 置 false。
     public void RemoveAt(int idx, bool isAdvanced) {
         if (isAdvanced) {
             if (idx >= 0 && idx < this.advancedCount) {
@@ -281,18 +280,20 @@ public sealed class MulticastFunc<TArg, TResult> {
     }
 }
 
-// 内部订阅 token —— SubscribeXxx 返回它，Dispose 把 alive[idx] 置 false。
+/// 内部订阅 token —— Subscribe 返回它，Dispose 把 alive[idx] 置 false。
 public sealed class MulticastFuncSubscription<TArg, TResult> : IDisposable {
     MulticastFunc<TArg, TResult> bus;
     int idx;
     bool isAdvanced;
 
+    /// 构造订阅 token。
     public MulticastFuncSubscription(MulticastFunc<TArg, TResult> bus, int idx, bool isAdvanced) {
         this.bus = bus;
         this.idx = idx;
         this.isAdvanced = isAdvanced;
     }
 
+    /// 取消订阅：把对应通道的 alive[idx] 置 false。
     public void Dispose() {
         if (this.idx >= 0) {
             this.bus.RemoveAt(this.idx, this.isAdvanced);

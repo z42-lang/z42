@@ -124,7 +124,7 @@ foreach (PropertyInfo p in t.GetProperties()) { p.GetCustomAttributes(); }
 > 脱糖出来的那个私有 backing 字段上的 attribute；**计算属性**（写了 `get { ... }` 体、没有
 > backing 字段）永远返回空数组。
 
-> 顶层（自由）函数上的 attribute 经 [`Assembly.GetFunctions()`](../stdlib/reflection.md#stdreflectionassembly)
+> 顶层（自由）函数上的 attribute 经 [`Assembly.GetFunctions()`](../stdlib/core.Assembly.md)
 > 读回：它列出一个包的自由函数（`MethodInfo`），在其上 `GetCustomAttributes()` / `Invoke` 照常可用。
 > [`methodof`](methodof.md) 语法上强制带 owner 类型，拿不到自由函数。
 

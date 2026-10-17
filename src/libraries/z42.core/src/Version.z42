@@ -1,16 +1,16 @@
 namespace Std;
 
-// add-guid-lazy-version (2026-09-03): C# System.Version parity — a
-// dotted-quad version number (major.minor[.build[.revision]]). Build and
-// revision are optional; an unset component is stored as -1 and omitted from
-// ToString, exactly like the BCL. Ordered by the four components in sequence
-// (an unset -1 sorts below any real 0+ component, matching C#).
+/// 点分四段版本号 `major.minor[.build[.revision]]`（C# System.Version 对标）。
+///
+/// build / revision 可选；未提供时存 -1 且 ToString 省略。按四段依次比较排序
+/// （未设置的 -1 排在任意真实 0+ 之前，同 C#）。
 public sealed class Version {
     private int _major;
     private int _minor;
     private int _build;
     private int _revision;
 
+    /// 以 major + minor 构造（build / revision 视为未设置）。
     public Version(int major, int minor) {
         Version._checkNonNeg(major);
         Version._checkNonNeg(minor);
@@ -20,6 +20,7 @@ public sealed class Version {
         _revision = -1;
     }
 
+    /// 以 major + minor + build 构造（revision 视为未设置）。
     public Version(int major, int minor, int build) {
         Version._checkNonNeg(major);
         Version._checkNonNeg(minor);
@@ -30,6 +31,7 @@ public sealed class Version {
         _revision = -1;
     }
 
+    /// 以四段全量构造。
     public Version(int major, int minor, int build, int revision) {
         Version._checkNonNeg(major);
         Version._checkNonNeg(minor);
@@ -48,18 +50,21 @@ public sealed class Version {
     }
 
     // ── 访问器 ────────────────────────────────────────────────────────────────
-    // Build / Revision return -1 when the component was not supplied (BCL parity).
+    // Build / Revision 在未提供该段时返回 -1（BCL 对齐）。
 
+    /// 主版本号。
     public int Major    { get { return _major; } }
+    /// 次版本号。
     public int Minor    { get { return _minor; } }
+    /// 构建号（未设置时为 -1）。
     public int Build    { get { return _build; } }
+    /// 修订号（未设置时为 -1）。
     public int Revision { get { return _revision; } }
 
     // ── 解析 ──────────────────────────────────────────────────────────────────
 
-    // Parse "major.minor", "major.minor.build" or "major.minor.build.revision".
-    // Throws FormatException on the wrong component count or a non-integer /
-    // negative component.
+    /// 解析 `"major.minor"` / `"major.minor.build"` / `"major.minor.build.revision"`。
+    /// 段数不对或某段非整数 / 为负抛 FormatException。
     public static Version Parse(string s) {
         string[] parts = s.Split(".");
         int n = parts.Length;
@@ -90,7 +95,7 @@ public sealed class Version {
         return iv;
     }
 
-    // Non-throwing parse: the Version on success, null on any malformed input.
+    /// 不抛异常的解析：成功返回 Version，任何非法输入返回 null。
     public static Version? TryParse(string s) {
         try {
             return Version.Parse(s);
@@ -101,7 +106,7 @@ public sealed class Version {
 
     // ── 比较 ──────────────────────────────────────────────────────────────────
 
-    // Lexicographic over (major, minor, build, revision). Returns -1 / 0 / 1.
+    /// 按 (major, minor, build, revision) 字典序比较，返回 -1 / 0 / 1。
     public int CompareTo(Version other) {
         if (_major != other.Major)       { return Version._cmpInt(_major, other.Major); }
         if (_minor != other.Minor)       { return Version._cmpInt(_minor, other.Minor); }
@@ -116,6 +121,7 @@ public sealed class Version {
         return 0;
     }
 
+    /// 四段全等比较。
     public bool Equals(Version other) {
         return _major == other.Major
             && _minor == other.Minor
@@ -123,6 +129,7 @@ public sealed class Version {
             && _revision == other.Revision;
     }
 
+    /// 内容哈希码。
     public int GetHashCode() {
         int h = _major;
         h = h * 31 + _minor;
@@ -133,7 +140,7 @@ public sealed class Version {
 
     // ── 格式化 ────────────────────────────────────────────────────────────────
 
-    // "major.minor[.build[.revision]]" — trailing unset (-1) components omitted.
+    /// `"major.minor[.build[.revision]]"` —— 未设置的尾部段（-1）省略。
     public override string ToString() {
         string s = _major.ToString() + "." + _minor.ToString();
         if (_build >= 0) {

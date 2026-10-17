@@ -1,7 +1,8 @@
 namespace Std;
 
-// 字符串解析失败（int.Parse / 格式化 / 模板）。
+/// 字符串解析失败（int.Parse / 格式化 / 模板）。
 public class FormatException : Exception {
+    /// 用消息构造。
     public FormatException(string message) : base(message) {}
 
     override string ToString() {

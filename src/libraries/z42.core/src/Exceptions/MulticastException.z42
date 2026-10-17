@@ -1,16 +1,17 @@
 namespace Std;
 
-// 2026-05-03 add-multicast-exception-aggregate (D2d-2)：
-// MulticastAction.Invoke(continueOnException=true) 时聚合所有 handler
-// 抛出的异常。Failures + FailureIndices 并行数组（避开 Dictionary 依赖）。
-//
-// 索引计数：strong-first / advanced-after 统一 0-based。total = strong
-// 活跃数 + advanced 活跃数。
+/// `MulticastAction.Invoke(continueOnException=true)` 时聚合所有 handler 抛出的异常。
+///
+/// `Failures` 与 `FailureIndices` 是并行数组；索引统一 0-based。
 public class MulticastException : AggregateException {
+    /// 各 handler 抛出的异常。
     public Exception[] Failures;
+    /// 与 Failures 并行的失败下标。
     public int[] FailureIndices;
+    /// 参与调用的 handler 总数。
     public int TotalHandlers;
 
+    /// 用失败异常、失败下标与 handler 总数构造。
     public MulticastException(Exception[] failures, int[] indices, int totalHandlers)
         : base("multicast invoke aggregate", failures) {
         this.Failures = failures;
@@ -18,6 +19,7 @@ public class MulticastException : AggregateException {
         this.TotalHandlers = totalHandlers;
     }
 
+    /// 成功的 handler 数（= TotalHandlers - Failures.Length）。
     public int SuccessCount() {
         return this.TotalHandlers - this.Failures.Length;
     }
@@ -28,20 +30,12 @@ public class MulticastException : AggregateException {
     }
 }
 
-// 2026-05-07 add-multicast-exception-generic (D-8b-1)：
-// 泛型版本，携带 Results: TResult[]。与非泛型 MulticastException 共存通过
-// add-class-arity-overloading 的 shadow-only mangling 路径（IrName=
-// "MulticastException$1"）。
-//
-// design.md K8：MulticastFunc<T,TResult>.Invoke(continueOnException=true) 全跑完后
-// 返回 TResult[]（失败位置占位 default(TResult)）；多失败聚合抛 `MulticastException<TResult>`，
-// Results 字段 = 与 TResult[] 等长（成功 = 真值，失败 = default(TResult)）。
-//
-// 当前 MulticastFunc/Predicate 仍抛非泛型 base 版本；切换到本类需
-// D-8b-3 Phase 2 generic-T `default(TResult)` 支持，留作独立 follow-up。
+/// 泛型版本，额外携带 `Results: TResult[]`：与 handler 结果等长，失败位置占位 `default(TResult)`。
 public class MulticastException<TResult> : MulticastException {
+    /// 各 handler 的结果（失败位置占位 `default(TResult)`）。
     public TResult[] Results;
 
+    /// 用失败异常、失败下标、handler 总数与结果数组构造。
     public MulticastException(Exception[] failures, int[] indices, int totalHandlers, TResult[] results)
         : base(failures, indices, totalHandlers) {
         this.Results = results;

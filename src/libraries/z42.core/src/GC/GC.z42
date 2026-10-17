@@ -1,133 +1,67 @@
 namespace Std;
 
-// `Std.GC` —— 让 z42 脚本显式控制 GC（环检测 + 堆使用量查询）。
-//
-// MagrGC Phase 3d.2（expose-gc-to-scripts）暴露给脚本端。底层走 corelib::gc
-// builtins → ctx.heap().collect_cycles() / used_bytes() / force_collect()。
-//
-// 用法：
-//   Std.GC.Collect();             // 触发环检测（建议性，paused 时跳过）
-//   long bytes = Std.GC.UsedBytes(); // 当前堆 used_bytes
-//   long freed = Std.GC.ForceCollect(); // 强制完整 collect，返回释放字节数
-//
-// 注意：collect_cycles 当前只扫 pinned roots + VmContext.static_fields +
-// pending_exception，interp/JIT 栈帧 regs 暂未对接（Phase 3f）。但 Rc strong
-// count 自动包含栈帧引用，所以即使脚本在执行中调用，trial-deletion 算法仍
-// 安全（活的对象 tentative > 0 不会被错误断环）。
+/// 让 z42 脚本显式控制 GC（触发回收、读堆用量、设上限、取停顿数据、导快照）。
+// 实现笔记：底层走 corelib::gc builtins → ctx.heap()。trial-deletion 算法在脚本执行中
+// 调用也安全（活对象 tentative > 0 不会被错误断环）。
 
 public static class GC {
-    /// 触发环检测与回收（基于 Bacon-Rajan trial-deletion）。
-    /// 当 GC 被 pause 时本调用是 no-op。
+    /// 触发环检测与回收（基于 Bacon-Rajan trial-deletion）。GC 被 pause 时本调用是 no-op。
     [Native("__gc_collect")]
     public static extern void Collect();
 
-    /// 当前堆 used_bytes（alloc 累加，collect 减去释放量）。
-    /// RC 模式下普通 Drop 不更新此计数（Phase 3e wrapper backing 后精确）。
+    /// 当前堆 used_bytes 估算值。
+    // RC 模式下普通 Drop 不更新此计数。
     [Native("__gc_used_bytes")]
     public static extern long UsedBytes();
 
-    /// 强制完整 collect 并返回估算的 freed_bytes。与 Collect() 不同，
-    /// 不被 pause 跳过（除非 GC 实现明确文档化）。
+    /// 强制完整 collect 并返回估算的 freed_bytes。与 Collect() 不同，不被 pause 跳过。
     [Native("__gc_force_collect")]
     public static extern long ForceCollect();
 
-    /// 当前 heap 全字段 stats 快照。返回 `Std.HeapStats` 实例。
-    /// `MaxBytes` 用 `-1` 表示 unlimited（z42 当前无 `Optional<T>`）。
-    /// 详见 `docs/design/runtime/gc-handle.md`。
+    /// 当前 heap 全字段 stats 快照，返回 `Std.HeapStats` 实例。`MaxBytes` 用 `-1` 表示 unlimited。
     [Native("__gc_stats")]
     public static extern HeapStats GetStats();
 
-    /// **add-custom-allocator P2 (2026-05-22)**: 显式触发对象的 finalizer
-    /// + 立即 tombstone 槽位，用于 RAII 风格的资源即时释放（文件 handle /
-    /// 网络 socket / 原生 FFI handle 等）。
-    ///
-    /// 默认 finalizer 在 GC sweep 时才触发（"finalizer-at-sweep" 契约）；
-    /// 若需要立即关闭资源，调用 `Std.GC.Finalize(handle)`：finalizer 同步
-    /// 执行，槽位被 tombstone（其他 strong reference 之后 borrow 会 panic
-    /// "use-after-finalize"；weak reference upgrade 返回 null）。
-    ///
-    /// 返回值：true 表示 finalizer 真触发了；false 表示对象没注册 finalizer、
-    /// 不是堆引用类型，或已被 tombstone。null 参数返回 false。
-    ///
-    /// 与 .NET `IDisposable.Dispose()` / Java `AutoCloseable.close()` 语义对齐：
-    /// 用户主动释放资源；GC sweep 是兜底（防泄漏，但时机不可控）。
+    /// 显式触发 `target` 的 finalizer 并立即作废该对象（RAII 风格即时释放，对齐 .NET
+    /// `IDisposable.Dispose()` / Java `AutoCloseable.close()`）。返回 true 表示 finalizer 真触发；
+    /// false 表示对象没注册 finalizer、非堆引用类型、已释放或 null。**调用之后对象不可再用**。
     [Native("__gc_finalize")]
     public static extern bool Finalize(Object target);
 
-    /// **add-gc-pause-histogram (2026-05-22)**: 返回 8 元素 `long[]`，
-    /// 元素 `i` 是落入第 `i` 桶的 collect 数量。桶边界（半开区间 `[lower,
-    /// upper)`，微秒）：
-    ///
-    /// | i | 范围                |
-    /// |---|---------------------|
-    /// | 0 | `[0, 10) µs`        |
-    /// | 1 | `[10, 100) µs`      |
-    /// | 2 | `[100 µs, 1 ms)`    |
-    /// | 3 | `[1, 10) ms`        |
-    /// | 4 | `[10, 100) ms`      |
-    /// | 5 | `[100 ms, 1 s)`     |
-    /// | 6 | `[1, 10) s`         |
-    /// | 7 | `[10 s, ∞)`         |
-    ///
-    /// 直方图自 heap 创建起累积，跨 GcMode 切换保留（不重置）。
+    /// 返回 8 元素 `long[]`，第 `i` 项是落入第 `i` 桶的 collect 次数。桶边界（半开区间 `[lower, upper)`，
+    /// 微秒）：0 `[0, 10)` · 1 `[10, 100)` · 2 `[100 µs, 1 ms)` · 3 `[1, 10) ms` · 4 `[10, 100) ms` ·
+    /// 5 `[100 ms, 1 s)` · 6 `[1, 10) s` · 7 `[10 s, ∞)`。自 heap 创建起累积，跨 GcMode 切换保留（不重置）。
     [Native("__gc_pause_histogram")]
     public static extern long[] PauseHistogram();
 
-    /// **add-gc-pause-histogram (2026-05-22)**: 返回 4 元素 `long[]`：
-    /// `[min_us, max_us, total_us, count]`。当尚未发生任何 collect 时，
-    /// `min_us == long.MaxValue`（sentinel），其余三项为 0。读 `min_us`
-    /// 前先检查 `count == 0`。
+    /// 返回 4 元素 `long[]`：`[min_us, max_us, total_us, count]`。`count == 0` 时
+    /// `min_us` 是哨兵 `-1`，其余三项为 0；读 `min_us` 前先判 `count`。
     [Native("__gc_pause_stats_raw")]
     public static extern long[] PauseStatsRaw();
 
-    /// **add-gc-heap-snapshot-export (2026-05-24)**: 把当前堆的对象
-    /// 引用图导出到 `path` 指定的文件（V8 `.heapsnapshot` JSON 格式）。
-    /// 返回写入的字节数。
-    ///
-    /// 生成的 `.heapsnapshot` 文件可直接被 Chrome DevTools (Memory →
-    /// Load) / [speedscope](https://www.speedscope.app) /
-    /// [heapviewer.com](https://heapviewer.com) 加载查看 retainer 图、
-    /// dominator 树、shortest-path-to-root。
-    ///
-    /// **节点映射**：`Value::Object` → V8 `object`，`Value::Array` →
-    /// V8 `array`，pinned root 集合 → 合成 V8 `synthetic` "(GC roots)"
-    /// 节点。
-    ///
-    /// **边映射**：object slot → `property` 边（name = field 名）；
-    /// array elem → `element` 边（name = 数字下标）；root → object
-    /// → `shortcut` 边。
-    ///
-    /// **v1 局限**：不输出 allocation-site stack trace（需要 IR site
-    /// id 支持）；不 stream 大堆（in-memory build → 一次 write）；
-    /// weak refs 跳过（不视为 retention）。
-    ///
-    /// **抛出**：路径不可写时通过 VM `anyhow` 抛 host-error。
+    /// 把当前堆的对象引用图写成 V8 `.heapsnapshot` JSON 文件，返回写入字节数。文件可被
+    /// Chrome DevTools（Memory → Load）加载看 retainer 图 / dominator 树 / 到根最短路径。
+    /// 路径不可写时抛异常。
+    // v1 局限：无 allocation-site 栈回溯；不 stream 大堆（in-memory 一次写）；weak refs 不进图。
     [Native("__gc_write_heap_snapshot")]
     public static extern long WriteHeapSnapshot(string path);
 
-    /// **add-gc-pause-window (2026-05-24)**: 返回 rolling window
-    /// 内的所有 pause 样本（µs），chronological order（oldest first）。
-    /// 长度 ≤ `PauseWindowCapacity()`；空 heap 返长度 0。给长跑 server
-    /// 看"最近 N 次 collect"分布，弥补累积 histogram 看不到近期趋势。
+    /// 返回 rolling window 内的所有 pause 样本（µs），按时间从旧到新。
+    /// 长度 ≤ `PauseWindowCapacity()`。
     [Native("__gc_recent_pauses")]
     public static extern long[] RecentPauses();
 
-    /// **add-gc-pause-window (2026-05-24)**: 返回 rolling window 的
-    /// 容量（`Z42_GC_PAUSE_WINDOW` env 决定，默认 1024，clamp 到
-    /// `[1, 65536]`）。Script 比对 `RecentPauses().Length` 判定
-    /// "只跑了 N 次"还是"window 已饱和到 cap"。
+    /// 返回 rolling window 的容量（`Z42_GC_PAUSE_WINDOW` 决定，默认 1024，clamp 到 [1, 65536]）。
     [Native("__gc_pause_window_capacity")]
     public static extern long PauseWindowCapacity();
 
-    /// **add-gc-oom-exception (2026-05-25)**: 设置堆上限（bytes）。
-    /// 传 0 或负数则清除上限（无界）。strict OOM 开启时，超过上限的 alloc
-    /// 触发 `Std.OutOfMemoryException`。主要用于测试和嵌入场景。
+    /// 设置堆上限（bytes）。传 0 或负数则清除上限（无界）。strict OOM 开启时，超过上限的 alloc
+    /// 抛 `Std.OutOfMemoryException`。
     [Native("__gc_set_max_heap_bytes")]
     public static extern void SetMaxHeapBytes(long bytes);
 
-    /// **add-gc-oom-exception (2026-05-25)**: 开启/关闭 strict OOM 模式。
-    /// true = alloc 越过 max_heap_bytes 时 throw OutOfMemoryException；
-    /// false（默认）= 无限制（已有 OOM observer 事件不受影响）。
+    /// 开启 / 关闭 strict OOM 模式。true = alloc 越过 max_heap_bytes 时抛 OutOfMemoryException；
+    /// false（默认）= 无限制。
     [Native("__gc_set_strict_oom")]
     public static extern void SetStrictOOM(bool enabled);
 }

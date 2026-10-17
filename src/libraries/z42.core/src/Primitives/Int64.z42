@@ -1,40 +1,42 @@
 namespace Std;
 
-// rename-primitives-to-pascal-case (2026-05-24): primitive struct now named
-// `Int64` per BCL convention; source keyword `long` is preserved as alias.
-//
-// L3 primitive-as-struct: `long` (64-bit integer) with arithmetic + comparison.
-// ToString shares the `__int32_*` builtin because the VM stores both `int` and
-// `long` as Value::I64 — the underlying i64 routine works for both wrapper types.
+/// 内置 `long` 类型（64 位有符号整数）的包装结构体，实现 IComparable / IEquatable / INumber。
 public struct Int64 : IComparable, IEquatable, INumber {
-    // C# BCL parity. `static` (read via the __static_init__ pass) — scalar
-    // primitive structs resolve static members through the wrapper type.
+    /// 最大值：9223372036854775807。
     public static long MaxValue = 9223372036854775807;
+    /// 最小值：-9223372036854775808。
     public static long MinValue = -9223372036854775807 - 1;
 
+    /// 解析整数字符串；格式错误抛 FormatException，越界抛 OverflowException，null 抛 ArgumentNullException。
     [Native("__int64_parse")]      public static extern long Parse(string s);
+    // 共用 __int32_* builtin：VM 把 int 与 long 同存为 Value::I64。
+    /// 返回十进制字符串表示。
     [Native("__int32_to_string")]  public extern string ToString();
 
-    // Non-throwing parse — see Int32.TryParse. Returns false with `v` = 0 on
-    // malformed input (value types are never nullable → out-value goes by `ref`).
+    /// 非抛出解析：成功把值写入 `v` 并返回 true；格式错误 / 越界 / null 返回 false 且 `v` 置 0。
+    // 出参走 `ref` 而非可空返回：值类型永不可空（`int?` 报 E0476），C# 的 out / 可空返回范式不适用。
     [Native("__int64_try_parse")] public static extern bool TryParse(string s, ref long v);
 
-    // Equals / GetHashCode 是纯脚本。hash 折叠高低 32 位（同 C# Int64.GetHashCode）：
-    // `(int)` 只留低 32 位，只在高位不同的键（如 `i << 32`）若不折叠会全撞同一个 hash。
+    /// 值相等比较。
     public bool Equals(long other) { return this == other; }
+    /// 返回哈希码（折叠高低 32 位，避免仅高位不同的键全撞同一哈希）。
     public int GetHashCode() { return (int)(this ^ (this >> 32)); }
 
-    // 2026-04-27 wave2-compare-to-script: 脚本实现。
+    /// 比较大小，返回负 / 0 / 正。
     public int CompareTo(long other) {
         if (this < other) return -1;
         if (this > other) return 1;
         return 0;
     }
 
-    // INumber static override.
+    /// 加法。
     public static override long op_Add(long a, long b)      { return a + b; }
+    /// 减法。
     public static override long op_Subtract(long a, long b) { return a - b; }
+    /// 乘法。
     public static override long op_Multiply(long a, long b) { return a * b; }
+    /// 除法。
     public static override long op_Divide(long a, long b)   { return a / b; }
+    /// 取模。
     public static override long op_Modulo(long a, long b)   { return a % b; }
 }

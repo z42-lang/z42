@@ -1,6 +1,7 @@
 namespace Std.IO;
 
-// 路径中的目录不存在。镜像 .NET `System.IO.DirectoryNotFoundException`。
+/// 路径中的目录不存在。镜像 .NET `System.IO.DirectoryNotFoundException`。
 public class DirectoryNotFoundException : IOException {
+    /// 用消息构造。
     public DirectoryNotFoundException(string message) : base(message) {}
 }

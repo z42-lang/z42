@@ -1,10 +1,10 @@
 namespace Std;
 
-// Resource cleanup contract — types holding unmanaged / external resources
-// implement Dispose() for deterministic release.
-//
-// Used by L2/L3 stdlib types (FileStream, RegexEngine, etc.) and as a base
-// of IEnumerator<T> so foreach can release iterator state.
+/// 资源释放契约：持有非托管 / 外部资源的类型实现 Dispose() 做确定性释放。
+///
+/// 供 FileStream / RegexEngine 等 stdlib 类型使用，并作为 IEnumerator<T> 的基接口，
+/// 使 foreach 能释放迭代器状态。
 public interface IDisposable {
+    /// 释放资源；调用后对象不再可用。
     void Dispose();
 }

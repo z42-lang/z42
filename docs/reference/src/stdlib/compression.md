@@ -35,6 +35,8 @@ deflate / zstd 另外提供把任意 `Std.IO.Stream` 包起来的流式 API。
 
 ## Brotli
 
+`src/libraries/z42.compression/src/Brotli.z42:4`
+
 RFC 7932 Brotli 压缩/解压（HTTP `Content-Encoding: br`）。纯 Rust 实现，仅一次性 API。
 
 ```z42
@@ -47,17 +49,25 @@ public static class Brotli {
 
 ### static byte[] Compress(byte[] data)
 
+`src/libraries/z42.compression/src/Brotli.z42:12`
+
 用默认等级（4）把 `data` 压缩成 Brotli 字节。
 
 ### static byte[] Compress(byte[] data, int level)
+
+`src/libraries/z42.compression/src/Brotli.z42:17`
 
 用给定等级（0 最快 .. 11 最优）把 `data` 压缩成 Brotli 字节。
 
 ### static byte[] Decompress(byte[] data)
 
+`src/libraries/z42.compression/src/Brotli.z42:22`
+
 解压 Brotli 字节为明文。
 
 ## Compression
+
+`src/libraries/z42.compression/src/Compression.z42:34`
 
 各压缩算法的等级（level）常量。
 
@@ -77,41 +87,61 @@ public static class Compression {
 
 ### static int Fastest
 
+`src/libraries/z42.compression/src/Compression.z42:36`
+
 deflate / zlib / gzip 的最快等级（1）。
 
 ### static int Default
+
+`src/libraries/z42.compression/src/Compression.z42:38`
 
 deflate / zlib / gzip 的默认等级（6）。
 
 ### static int Best
 
+`src/libraries/z42.compression/src/Compression.z42:40`
+
 deflate / zlib / gzip 的最优压缩等级（9）。
 
 ### static int ZstdFastest
+
+`src/libraries/z42.compression/src/Compression.z42:43`
 
 Zstd 的最快等级（1）。
 
 ### static int ZstdDefault
 
+`src/libraries/z42.compression/src/Compression.z42:45`
+
 Zstd 的默认等级（3），与 libzstd 默认一致。
 
 ### static int ZstdBest
+
+`src/libraries/z42.compression/src/Compression.z42:47`
 
 Zstd 的最优压缩等级（22）。
 
 ### static int BrotliFastest
 
+`src/libraries/z42.compression/src/Compression.z42:50`
+
 Brotli 的最快等级（0）。
 
 ### static int BrotliDefault
+
+`src/libraries/z42.compression/src/Compression.z42:52`
 
 Brotli 的默认等级（4）。
 
 ### static int BrotliBest
 
+`src/libraries/z42.compression/src/Compression.z42:54`
+
 Brotli 的最优压缩等级（11）；小输入上也可能耗时以秒计。
 
 ## AlgoId
+
+`src/libraries/z42.compression/src/Compression.z42:59`
 
 算法 ID 常量；只在直接构造流类时需要，走 `Gzip.WrapWrite(...)` 等门面时用不到。
 
@@ -128,29 +158,43 @@ public static class AlgoId {
 
 ### static int DeflateRaw
 
+`src/libraries/z42.compression/src/Compression.z42:61`
+
 裸 deflate（RFC 1951）。
 
 ### static int Zlib
+
+`src/libraries/z42.compression/src/Compression.z42:63`
 
 zlib（RFC 1950）。
 
 ### static int Gzip
 
+`src/libraries/z42.compression/src/Compression.z42:65`
+
 gzip（RFC 1952）。
 
 ### static int Zstd
+
+`src/libraries/z42.compression/src/Compression.z42:67`
 
 Zstandard。
 
 ### static int Brotli
 
+`src/libraries/z42.compression/src/Compression.z42:69`
+
 Brotli（RFC 7932）。
 
 ### static int Lz4
 
+`src/libraries/z42.compression/src/Compression.z42:71`
+
 LZ4 frame。
 
 ## CompressionDecoderStream
+
+`src/libraries/z42.compression/src/CompressionDecoderStream.z42:10`
 
 拉模式压缩解码流：调用方从返回流读明文，解码流按需从被包装的 `src` 拉取压缩字节。 对应 `Gzip.WrapRead(...)` 等门面的返回类型，也可直接构造。
 
@@ -165,9 +209,13 @@ public sealed class CompressionDecoderStream : Stream {
 
 ### CompressionDecoderStream(Stream src, int algo)
 
+`src/libraries/z42.compression/src/CompressionDecoderStream.z42:21`
+
 用给定算法 `algo` 把 `src` 包成解码流；`src` 不可读时抛 `ArgumentException`。
 
 ## CompressionEncoderStream
+
+`src/libraries/z42.compression/src/CompressionEncoderStream.z42:11`
 
 写通式压缩编码流：调用方写入明文，流即时压缩并转发给被包装的 `dest`。对应 `Gzip.WrapWrite(...)` 等门面的返回类型，也可直接构造。
 
@@ -183,9 +231,13 @@ public sealed class CompressionEncoderStream : Stream {
 
 ### CompressionEncoderStream(Stream dest, int algo, int level)
 
+`src/libraries/z42.compression/src/CompressionEncoderStream.z42:18`
+
 用给定算法 `algo` 与等级 `level` 把 `dest` 包成编码流；`dest` 不可写时抛 `ArgumentException`。
 
 ## CompressionException
+
+`src/libraries/z42.compression/src/CompressionException.z42:5`
 
 压缩异常类型，继承 `Exception`。该类型存在，但标准库自身不抛它——压缩/解压的失败路径 当前不可捕获。
 
@@ -197,9 +249,13 @@ public class CompressionException : Exception {
 
 ### CompressionException(string message)
 
+`src/libraries/z42.compression/src/CompressionException.z42:7`
+
 用 `message` 构造压缩异常。
 
 ## Deflate
+
+`src/libraries/z42.compression/src/Deflate.z42:6`
 
 裸 DEFLATE（RFC 1951）：无帧头、无校验和；一次性 `byte[]` 压缩/解压及流式封装。
 
@@ -216,29 +272,43 @@ public static class Deflate {
 
 ### static byte[] Compress(byte[] data)
 
+`src/libraries/z42.compression/src/Deflate.z42:14`
+
 用默认等级（6）把 `data` 压缩成裸 deflate 字节。
 
 ### static byte[] Compress(byte[] data, int level)
+
+`src/libraries/z42.compression/src/Deflate.z42:19`
 
 用给定等级（1..9）把 `data` 压缩成裸 deflate 字节。
 
 ### static byte[] Decompress(byte[] data)
 
+`src/libraries/z42.compression/src/Deflate.z42:24`
+
 解压裸 deflate 字节为明文。
 
 ### static Stream WrapWrite(Stream dest)
+
+`src/libraries/z42.compression/src/Deflate.z42:29`
 
 把 `dest` 包装成裸 deflate 编码流（默认等级）。
 
 ### static Stream WrapWrite(Stream dest, int level)
 
+`src/libraries/z42.compression/src/Deflate.z42:34`
+
 把 `dest` 包装成裸 deflate 编码流（给定等级 1..9）。
 
 ### static Stream WrapRead(Stream src)
 
+`src/libraries/z42.compression/src/Deflate.z42:39`
+
 把 `src` 包装成裸 deflate 解码流。
 
 ## Gzip
+
+`src/libraries/z42.compression/src/Gzip.z42:6`
 
 RFC 1952 gzip 容器：一次性 `byte[]` 压缩/解压，以及 `Std.IO.Stream` 流式封装。
 
@@ -255,29 +325,43 @@ public static class Gzip {
 
 ### static byte[] Compress(byte[] data)
 
+`src/libraries/z42.compression/src/Gzip.z42:18`
+
 用默认等级（6）把 `data` 压缩成 gzip 字节。
 
 ### static byte[] Compress(byte[] data, int level)
+
+`src/libraries/z42.compression/src/Gzip.z42:23`
 
 用给定等级（1..9）把 `data` 压缩成 gzip 字节。
 
 ### static byte[] Decompress(byte[] data)
 
+`src/libraries/z42.compression/src/Gzip.z42:28`
+
 解压 gzip 字节为明文。
 
 ### static Stream WrapWrite(Stream dest)
+
+`src/libraries/z42.compression/src/Gzip.z42:37`
 
 把 `dest` 包装成 gzip 编码流：写入返回流的字节会被压缩（默认等级）并转发给 `dest`。 调用方必须对返回流调用 `Close()` 以写出 gzip 尾；否则输出被截断。`dest` 不会被 编码流关闭——其生命周期归调用方。
 
 ### static Stream WrapWrite(Stream dest, int level)
 
+`src/libraries/z42.compression/src/Gzip.z42:42`
+
 把 `dest` 包装成 gzip 编码流，使用给定等级（1..9）。
 
 ### static Stream WrapRead(Stream src)
 
+`src/libraries/z42.compression/src/Gzip.z42:48`
+
 把 `src` 包装成 gzip 解码流：从返回流读出的字节，是从 `src` 拉取的 gzip 字节 解压后的明文。`src` 不会被解码流关闭——其生命周期归调用方。
 
 ## Lz4
+
+`src/libraries/z42.compression/src/Lz4.z42:4`
 
 LZ4 frame（`.lz4`）压缩/解压：速度优先，仅一次性 API。
 
@@ -291,17 +375,25 @@ public static class Lz4 {
 
 ### static byte[] Compress(byte[] data)
 
+`src/libraries/z42.compression/src/Lz4.z42:12`
+
 把 `data` 压缩成 `.lz4` frame 字节。
 
 ### static byte[] Compress(byte[] data, int level)
+
+`src/libraries/z42.compression/src/Lz4.z42:18`
 
 `level` 为与其他算法保持形参对称而接受，但被忽略——LZ4 基础格式没有等级旋钮； 需要压缩比调节时用 Brotli / Zstd。
 
 ### static byte[] Decompress(byte[] data)
 
+`src/libraries/z42.compression/src/Lz4.z42:23`
+
 解压 `.lz4` frame 字节为明文。
 
 ## Zlib
+
+`src/libraries/z42.compression/src/Zlib.z42:6`
 
 RFC 1950 zlib 容器：一次性 `byte[]` 压缩/解压，以及 `Std.IO.Stream` 流式封装。
 
@@ -318,29 +410,43 @@ public static class Zlib {
 
 ### static byte[] Compress(byte[] data)
 
+`src/libraries/z42.compression/src/Zlib.z42:14`
+
 用默认等级（6）把 `data` 压缩成 zlib 字节。
 
 ### static byte[] Compress(byte[] data, int level)
+
+`src/libraries/z42.compression/src/Zlib.z42:19`
 
 用给定等级（1..9）把 `data` 压缩成 zlib 字节。
 
 ### static byte[] Decompress(byte[] data)
 
+`src/libraries/z42.compression/src/Zlib.z42:24`
+
 解压 zlib 字节为明文。
 
 ### static Stream WrapWrite(Stream dest)
+
+`src/libraries/z42.compression/src/Zlib.z42:29`
 
 把 `dest` 包装成 zlib 编码流（默认等级）。
 
 ### static Stream WrapWrite(Stream dest, int level)
 
+`src/libraries/z42.compression/src/Zlib.z42:34`
+
 把 `dest` 包装成 zlib 编码流（给定等级 1..9）。
 
 ### static Stream WrapRead(Stream src)
 
+`src/libraries/z42.compression/src/Zlib.z42:39`
+
 把 `src` 包装成 zlib 解码流。
 
 ## Zstd
+
+`src/libraries/z42.compression/src/Zstd.z42:6`
 
 Zstandard（RFC 8878）压缩/解压：一次性 `byte[]` API 及 `Std.IO.Stream` 流式封装。
 
@@ -357,25 +463,37 @@ public static class Zstd {
 
 ### static byte[] Compress(byte[] data)
 
+`src/libraries/z42.compression/src/Zstd.z42:14`
+
 用默认等级（3）把 `data` 压缩成 Zstandard 字节。
 
 ### static byte[] Compress(byte[] data, int level)
+
+`src/libraries/z42.compression/src/Zstd.z42:19`
 
 用给定等级（1..22）把 `data` 压缩成 Zstandard 字节。
 
 ### static byte[] Decompress(byte[] data)
 
+`src/libraries/z42.compression/src/Zstd.z42:24`
+
 解压 Zstandard 字节为明文。
 
 ### static Stream WrapWrite(Stream dest)
+
+`src/libraries/z42.compression/src/Zstd.z42:29`
 
 把 `dest` 包装成 Zstandard 编码流（默认等级）。
 
 ### static Stream WrapWrite(Stream dest, int level)
 
+`src/libraries/z42.compression/src/Zstd.z42:34`
+
 把 `dest` 包装成 Zstandard 编码流（给定等级 1..22）。
 
 ### static Stream WrapRead(Stream src)
+
+`src/libraries/z42.compression/src/Zstd.z42:39`
 
 把 `src` 包装成 Zstandard 解码流。
 

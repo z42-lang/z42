@@ -41,9 +41,10 @@ void test_package_page_structure() {
     // //! 正文 + warning。
     Assert.Contains("适合测试 fixture。", page);
     Assert.Contains("> ⚠️ 不是 CSPRNG", page);
-    // 类型标题 + 类型文档 + 签名总览块。
+    // 类型标题 + 类型文档 + 源码位置 + 签名总览块。
     Assert.Contains("## Random", page);
     Assert.Contains("PCG 伪随机数发生器。", page);
+    Assert.Contains("`Random.z42:", page);
     Assert.Contains("public class Random {", page);
     Assert.Contains("Random(long seed)", page);
     Assert.Contains("int NextIntRange(int min, int max)", page);
@@ -98,12 +99,15 @@ void test_type_split_pages() {
     _eq("Math", tops[0].Name);
     _eq("Text", tops[1].Name);
 
-    // 类型页：标题 = pkg.Type，类型是一级标题，成员是 ###。
-    string tp = DocMd.TypePage("z42.core", "src/libraries/z42.core", "Std", tops[0], ix);
+    // 类型页：标题 = pkg.Type（只写一次，不重复类型名标题），成员是 ###。
+    TypeGroup[] groups = DocMd.TopLevelTypeGroups(ix, "Std");
+    Assert.Equal(2, groups.Length);
+    string tp = DocMd.TypePage("z42.core", "src/libraries/z42.core", "Std", groups[0], ix);
     Assert.Contains("# z42.core.Math", tp);
     Assert.Contains("> 包路径 `src/libraries/z42.core/`；命名空间 `Std`", tp);
-    Assert.Contains("# Math", tp);
+    Assert.True(!tp.Contains("\n# Math"));
     Assert.Contains("数学工具。", tp);
+    Assert.Contains("`Random.z42:", tp);
     Assert.Contains("### int Abs(int x)", tp);
     Assert.Contains("| `x` | 输入 |", tp);
 
@@ -113,6 +117,64 @@ void test_type_split_pages() {
     Assert.Contains("分类型拆页。", ti);
     Assert.Contains("- [Math](core.Math.md)", ti);
     Assert.Contains("- [Text](core.Text.md)", ti);
+}
+
+[Test]
+void test_type_split_same_name_groups() {
+    // 同名声明分组：泛型委托各元数合并成一页（每个声明一个 `##` 节，节题带泛型参数）；
+    // partial 跨文件的同 Id 声明并为一个代表（成员按 Id 聚合，不重复渲染）。
+    DocIndex ix = _index(
+        "namespace Std;\n"
+        + "/// 一参数。\n"
+        + "public delegate void Action<T>(T a);\n"
+        + "/// 两参数。\n"
+        + "public delegate void Action<T1,T2>(T1 a, T2 b);\n"
+        + "\n"
+        + "/// 列表。\n"
+        + "public partial class List<T> {\n"
+        + "    /// 加元素。\n    public void Add(T item) { }\n"
+        + "}\n"
+        + "\n"
+        + "public partial class List<T> {\n"
+        + "    /// 个数。\n    public int Count() { return 0; }\n"
+        + "}\n");
+    TypeGroup[] groups = DocMd.TopLevelTypeGroups(ix, "Std");
+    Assert.Equal(2, groups.Length);
+    _eq("Action", groups[0].Name);
+    Assert.Equal(2, groups[0].Decls.Length);
+    _eq("List", groups[1].Name);
+    Assert.Equal(1, groups[1].Decls.Length);
+
+    // 合并页：页标题一次，两个声明各一节，节题带元数；索引页只链接一次。
+    string ap = DocMd.TypePage("z42.core", "src/libraries/z42.core", "Std", groups[0], ix);
+    Assert.Contains("# z42.core.Action", ap);
+    Assert.Contains("## Action<T>", ap);
+    Assert.Contains("## Action<T1,T2>", ap);
+    Assert.Contains("一参数。", ap);
+    Assert.Contains("两参数。", ap);
+
+    // partial 去重：两个文件的成员都在同一节里，类型文档取有 /// 的代表。
+    string lp = DocMd.TypePage("z42.core", "src/libraries/z42.core", "Std", groups[1], ix);
+    Assert.Contains("列表。", lp);
+    Assert.Contains("### void Add(T item)", lp);
+    Assert.Contains("### int Count()", lp);
+
+    string ti = DocMd.TypeIndex("z42.core", "src", ix);
+    Assert.Equal(1, _count(ti, "- [Action](core.Action.md)"));
+    Assert.Equal(1, _count(ti, "- [List](core.List.md)"));
+}
+
+int _count(string haystack, string needle) {
+    // z42 的 IndexOf 无 (string, int) 起点重载，用剩余片段迭代。
+    int n = 0;
+    string rest = haystack;
+    int at = rest.IndexOf(needle);
+    while (at >= 0) {
+        n = n + 1;
+        rest = rest.Substring(at + needle.Length);
+        at = rest.IndexOf(needle);
+    }
+    return n;
 }
 
 [Test]

@@ -1,56 +1,61 @@
 namespace Std;
 
-// 2026-05-14 add-platform-os-stdlib: cross-platform OS / architecture
-// identity. Two parallel forms:
-//   - String constants (Rust-style, matches std::env::consts values)
-//   - Kind int + predicates (.NET-style, type-safe)
-//
-// Both are backed by the same VM builtin; pick whichever fits your code.
-//
-// 用法：
-//   if (Platform.IsMacOS()) { ... }                    // .NET-style
-//   if (Platform.OS() == "linux") { ... }              // Rust-style
-//   int k = Platform.OSKindValue();                    // for switch-like
-//   if (k == OSKind.Windows) { ... }
+/// 跨平台 OS / 架构标识与运行时能力查询。
+///
+/// 同一件事有两种形态：字符串（`OS()` / `Arch()` / `Family()`）与整数 kind + 谓词
+/// （`OSKindValue()` / `IsMacOS()`）；两者读同一来源。能力查询（`Capabilities()` /
+/// `ExecModes()`）报告**这个 z42vm 二进制编进了什么**，不是从平台名猜的。
 public static class Platform {
-    // String form (matches Rust std::env::consts::OS / ARCH / FAMILY values).
+    /// OS 名：`"linux"` / `"macos"` / `"windows"` / `"android"` / `"ios"` / `"wasm"` /
+    /// `"freebsd"`，或目标三元组里的其它 OS 名。
     [Native("__platform_os")]
     public static extern string OS();
+    /// 架构名：`"x86_64"` / `"aarch64"` / `"wasm32"` / `"x86"`，或目标三元组里的其它架构名。
     [Native("__platform_arch")]
     public static extern string Arch();
+    /// Unix 系为 `"unix"`，Windows 为 `"windows"`。
     [Native("__platform_family")]
     public static extern string Family();
 
-    // Enum form. Kind values are listed in OSKind / ArchKind static classes
-    // below and must stay in lockstep with src/runtime/src/corelib/platform.rs.
+    /// OS 的整数 kind（常量见 `OSKind`）。
     [Native("__platform_os_kind")]
     public static extern int OSKindValue();
+    /// 架构的整数 kind（常量见 `ArchKind`）。
     [Native("__platform_arch_kind")]
     public static extern int ArchKindValue();
 
-    // Convenience predicates (.NET OperatingSystem.IsXxx style).
-    // Each routes through OSKindValue() once — callers can cache locally.
+    // ── OS 谓词 ───────────────────────────────────────────────────────────────
+    // 前七个互斥（至多一个为真），IsUnix() 与它们重叠。
+
+    /// 是否 Linux。
     public static bool IsLinux() {
         return OSKindValue() == OSKind.Linux;
     }
+    /// 是否 macOS。
     public static bool IsMacOS() {
         return OSKindValue() == OSKind.MacOS;
     }
+    /// 是否 Windows。
     public static bool IsWindows() {
         return OSKindValue() == OSKind.Windows;
     }
+    /// 是否 Android。
     public static bool IsAndroid() {
         return OSKindValue() == OSKind.Android;
     }
+    /// 是否 iOS。
     public static bool IsIos() {
         return OSKindValue() == OSKind.Ios;
     }
+    /// 是否 wasm。
     public static bool IsWasm() {
         return OSKindValue() == OSKind.Wasm;
     }
+    /// 是否 FreeBSD。
     public static bool IsFreeBSD() {
         return OSKindValue() == OSKind.FreeBSD;
     }
+    /// 是否 Unix 系（Linux / MacOS / Ios / Android / FreeBSD 任一）。
     public static bool IsUnix() {
         int k = OSKindValue();
         return k == OSKind.Linux
@@ -60,41 +65,34 @@ public static class Platform {
             || k == OSKind.FreeBSD;
     }
 
-    // ── add-exec-profile-matrix (2026-07-31) — runtime capability query ──
-    //
-    // Capabilities THIS VM binary was compiled with — the ground truth of
-    // "what this binary can do", queried at runtime (not guessed from the
-    // platform). The exec-profile bench/test harness probes the *target* VM
-    // binary with these so each measurement carries its real caps. Backed by
-    // __platform_caps / __platform_exec_modes (corelib/platform.rs), which read
-    // the same cfg flags used elsewhere.
+    // ── 运行时能力查询 ────────────────────────────────────────────────────────
+    // 本二进制编进了什么（运行期查询，非平台名猜测）。
 
-    // Capability set: "jit" / "native-interop" / "bundled-compression" (cargo
-    // features) + "threads" (real OS-thread support, present wherever
-    // std::thread exists — everywhere except wasm; not a build feature).
+    /// 本二进制编进的能力集，如 `["jit", "native-interop", "threads", "socket", "fs", ...]`。
+    /// 元素顺序稳定，可直接打印做诊断。
     [Native("__platform_caps")]
     public static extern string[] Capabilities();
 
-    // Execution backends this binary can dispatch: always includes "interp",
-    // plus "jit" / "aot" when those features are compiled in.
-    // NOTE: an aot-feature build lists "aot" even though AOT execution is still
-    // a stub (roadmap M9) — this reports "compiled in", not "runnable".
+    /// 本二进制可派发的执行后端：恒含 `"interp"`，编进 JIT / AOT 时再加 `"jit"` / `"aot"`。
+    /// 注意 `"aot"` 是「编进来了」，不是「能跑」。
     [Native("__platform_exec_modes")]
     public static extern string[] ExecModes();
 
-    // Convenience predicates (mirror the IsLinux() style). Each scans the array
-    // once — callers doing repeated checks can cache Capabilities()/ExecModes().
+    // 谓词是对两个数组的一次线性扫描；反复判断时自己缓存数组。
+
+    /// 是否编进 JIT 后端（`Capabilities()` 含 `"jit"`）。
     public static bool HasJit() {
         return _contains(Capabilities(), "jit");
     }
+    /// 是否编进 native FFI（`Capabilities()` 含 `"native-interop"`）。
     public static bool HasNativeInterop() {
         return _contains(Capabilities(), "native-interop");
     }
+    /// 是否有真实 OS 线程（`Capabilities()` 含 `"threads"`）。
     public static bool HasThreads() {
         return _contains(Capabilities(), "threads");
     }
-    // Whether the AOT backend is compiled in. AOT execution itself is not
-    // implemented yet (M9) — this is "compiled in", not "runnable".
+    /// 是否编进 AOT 后端（`ExecModes()` 含 `"aot"`）。编进 ≠ 能跑。
     public static bool HasAot() {
         return _contains(ExecModes(), "aot");
     }
@@ -107,29 +105,38 @@ public static class Platform {
     }
 }
 
-// OSKind / ArchKind integer constants. Values must match the int returned by
-// __platform_os_kind / __platform_arch_kind in
-// src/runtime/src/corelib/platform.rs.
+/// OS 的整数 kind 常量（与 `Platform.OSKindValue()` 返回值一致）。不是 enum，可直接参与
+/// `==` 与 `switch`。
 public static class OSKind {
+    /// 未识别（0）。
     public static int Unknown = 0;
+    /// Linux（1）。
     public static int Linux   = 1;
+    /// macOS（2）。
     public static int MacOS   = 2;
+    /// Windows（3）。
     public static int Windows = 3;
+    /// Android（4）。
     public static int Android = 4;
+    /// iOS（5）。
     public static int Ios     = 5;
+    /// wasm（6）。
     public static int Wasm    = 6;
+    /// FreeBSD（7）。
     public static int FreeBSD = 7;
 }
 
-// .NET-style architecture names (System.Runtime.InteropServices.Architecture).
-// Underscore-digit identifiers like `X86_64` confuse the z42 lexer when used
-// inside a class body, so we mirror .NET's `X64` / `Arm64` / `Wasm` / `X86`
-// names — they are also shorter and more recognisable than the Rust-style
-// triple components.
+/// 架构的整数 kind 常量（与 `Platform.ArchKindValue()` 返回值一致）。命名对齐 .NET 的
+/// `X64` / `Arm64` / `Wasm` / `X86`。
 public static class ArchKind {
+    /// 未识别（0）。
     public static int Unknown = 0;
+    /// x86_64（1）。
     public static int X64     = 1;
+    /// aarch64（2）。
     public static int Arm64   = 2;
+    /// wasm32（3）。
     public static int Wasm    = 3;
+    /// x86（4）。
     public static int X86     = 4;
 }

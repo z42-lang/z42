@@ -1,7 +1,8 @@
 namespace Std;
 
-// 字典 / Map 查找的键不存在。
+/// 字典 / Map 查找的键不存在。
 public class KeyNotFoundException : Exception {
+    /// 用消息构造。
     public KeyNotFoundException(string message) : base(message) {}
 
     override string ToString() {

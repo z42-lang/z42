@@ -1,6 +1,7 @@
 namespace Std.IO;
 
-// 要访问的文件不存在。镜像 .NET `System.IO.FileNotFoundException`。
+/// 要访问的文件不存在。镜像 .NET `System.IO.FileNotFoundException`。
 public class FileNotFoundException : IOException {
+    /// 用消息构造。
     public FileNotFoundException(string message) : base(message) {}
 }

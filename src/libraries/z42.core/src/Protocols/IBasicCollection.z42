@@ -1,30 +1,20 @@
 namespace Std;
 
-// "基础集合契约" — 集合类型实现此接口表明它有标准的"大小 + 清空"操作。
-//
-// review.md S2.4 Phase 1（add-collection-contract-phase1, 2026-06-03）落地的
-// 第一个 trait-based test commons 基石。`Std.Harness.Contracts.
-// BasicCollectionContract` 接收 `Func<IBasicCollection<int>>` 工厂跑通用
-// 断言，5 个 z42.collections 类（Queue/Stack/LinkedList/SortedSet/
-// PriorityQueue）实现该接口即可"零行加"获得契约覆盖。
-//
-// 字段说明：
-//   - `Count()` — 元素数；`int` 而非 `long` 与现有 collection API 对齐
-//   - `IsEmpty()` — 等价于 `Count() == 0` 的语义快捷
-//   - `Clear()` — 清空所有元素；幂等
-//
-// 为什么 Phase 1 不放具体 `Add(T)`：5 个集合的"添加"语义命名不同（Push /
-// Enqueue / AddLast / Add），且语义本身不同（LIFO vs FIFO vs sorted vs heap）。
-//
-// add-collection-contract-phase2 (2026-06-11)：加 `AddOne(T)` —— 契约层的
-// **最小公共插入**（"把一个元素放进集合"）。各集合委托其自然 add（Enqueue /
-// Push / AddLast / Add），返回 void（自然 add 的 bool/node 返回值丢弃）。这不是
-// 机械别名替代自然 API，而是给契约一个统一入口断言"加元素后 Count 增长、Clear
-// 后回空"——这些不变量不依赖顺序/去重策略，对全部集合普适。
+/// 基础集合契约：集合类型实现此接口表明它有标准的「大小 + 清空」操作。
+///
+/// 成员说明：
+///   - `Count()` — 元素数
+///   - `IsEmpty()` — 等价于 `Count() == 0` 的快捷方式
+///   - `Clear()` — 清空所有元素；幂等
+///   - `AddOne(T)` — 契约层的统一单元素插入，各集合委托其自然 add（Enqueue / Push /
+///     AddLast / Add），顺序 / 去重策略由实现决定
 public interface IBasicCollection<T> {
+    /// 元素数。
     int Count();
+    /// 是否为空（等价于 `Count() == 0`）。
     bool IsEmpty();
+    /// 清空所有元素；幂等。
     void Clear();
-    // 契约用统一单元素插入；顺序/去重策略由实现决定（见上）。
+    /// 插入一个元素；顺序 / 去重策略由实现决定。
     void AddOne(T item);
 }

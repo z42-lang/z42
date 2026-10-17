@@ -1,22 +1,18 @@
 namespace Std;
 
-// add-string-split-options (2026-05-27): bitwise option flags for
-// `String.Split(separator, options)` — mirrors BCL `StringSplitOptions`.
-//
-// z42 has no `enum` keyword yet; following the `SeekOrigin` / `FileMode`
-// / `AlgoId` pattern, the values are exposed as int constants so callers
-// can write `String.Split(sep, SplitOptions.RemoveEmptyEntries | SplitOptions.TrimEntries)`.
+// `String.Split(separator, options)` 的按位选项标志，对标 BCL `StringSplitOptions`。
+// z42 尚无 `enum` 关键字，沿用 `SeekOrigin` / `FileMode` / `AlgoId` 的惯例，以 int
+// 常量暴露，可写 `SplitOptions.RemoveEmptyEntries | SplitOptions.TrimEntries`。
+
+/// `String.Split(separator, options)` 的按位选项标志。
 public static class SplitOptions {
-    /// No post-processing (equivalent to single-arg `Split(separator)`).
+    /// 不后处理（等价单参 `Split(separator)`）。
     public static int None = 0;
 
-    /// Drop segments whose length is 0 after splitting.
-    /// Useful for tokenising lines / fields where leading / trailing /
-    /// consecutive separators would otherwise produce empty entries.
+    /// 丢弃长度为 0 的段。适合分隔符相邻/首尾会导致空段的分行、分字段场景。
     public static int RemoveEmptyEntries = 1;
 
-    /// Apply `Trim()` to each segment (leading + trailing whitespace).
-    /// Combine with `RemoveEmptyEntries` to also drop segments that
-    /// become empty after trimming.
+    /// 对每段做 `Trim()`（去首尾空白）。可与 `RemoveEmptyEntries` 组合，一并丢弃
+    /// trim 后变空的段。
     public static int TrimEntries = 2;
 }

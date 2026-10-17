@@ -110,7 +110,7 @@ benchmark），别这么写。
 
 ### `[Skip(platform:)]` 的取值
 
-比对的是 [`Std.Platform.OS()`](stdlib/platform.md) 的返回值（字符串**全等**，大小写敏感）：
+比对的是 [`Std.Platform.OS()`](stdlib/core.Platform.md) 的返回值（字符串**全等**，大小写敏感）：
 
 | 值 | 宿主 |
 |---|---|
@@ -126,7 +126,7 @@ benchmark），别这么写。
 
 ### `[Skip(feature:)]` 的取值
 
-比对的是 [`Std.Platform.Capabilities()`](stdlib/platform.md) 报告的能力集；**合法的能力名就是那张表里列出的元素**
+比对的是 [`Std.Platform.Capabilities()`](stdlib/core.Platform.md) 报告的能力集；**合法的能力名就是那张表里列出的元素**
 （JIT、native interop、线程、网络、文件系统、时钟、熵源、子进程、终端、进程环境……各平台有哪些也在那里）。
 
 > 🔴 **deny-by-default：能力名拼错不报错，判为「缺失」⇒ 测试被静默跳过。**
@@ -457,7 +457,7 @@ bench[addition] min=375ns median=417ns max=3583ns mean=432ns stddev=109ns sample
 - [`z42` 命令面](toolchain/cli-z42.md)——`z42 test` / `z42 bench` 的旗标全表、产物位置、通用退出码
 - [工程清单 z42.toml](toolchain/z42-toml.md)——`[tests]` / `[[test]]` / `[benches]` 字段、
   `harness = false` 的退出码目标、三层依赖合并
-- [平台与宿主信息](stdlib/platform.md)——`Platform.OS()` / `Capabilities()` 的完整取值与谓词
+- [平台与宿主信息](stdlib/core.Platform.md)——`Platform.OS()` / `Capabilities()` 的完整取值与谓词
 - [闭包与捕获](language/closures.md)——lambda 按值快照捕获的完整规则
 - [异常](language/exceptions.md)——`Exception` 层次与 `catch` 语义
 - [自定义 Attribute 与反射](language/attributes.md)——自己写 attribute。本页这些也是普通 attribute 类（在 z42.core 里，无需 `using`），可以用反射读回

@@ -1,6 +1,7 @@
 namespace Std;
 
-// 操作系统拒绝访问（文件 / 目录权限不足）。镜像 .NET `System.UnauthorizedAccessException`。
+/// 操作系统拒绝访问（文件 / 目录权限不足）。镜像 .NET `System.UnauthorizedAccessException`。
 public class UnauthorizedAccessException : Exception {
+    /// 用消息构造。
     public UnauthorizedAccessException(string message) : base(message) {}
 }

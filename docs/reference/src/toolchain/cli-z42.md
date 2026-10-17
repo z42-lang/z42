@@ -124,7 +124,7 @@ $ z42 run app.z42 -- a b --flag
 Environment.GetCommandLineArgs()   // == ["a", "b", "--flag"]，Length 3
 ```
 
-细节见[控制台与文件](../stdlib/io-file.md)的 `GetCommandLineArgs()` 一节。
+细节见[Environment](../stdlib/core.Environment.md)的 `GetCommandLineArgs()` 一节。
 
 ### SDK 根目录
 

@@ -1,8 +1,8 @@
 namespace Std.Threading;
 
-// 调用方要求持有锁、却没有持有（非持有者 `Exit` / `Wait`）。镜像 .NET
-// `System.Threading.SynchronizationLockException`（.NET 继承 SystemException，z42 没有这一层）。
-// VM 的 Monitor（`MonitorNative`，Mutex / RwLock / Channel 的底座）从 Rust 抛它。
+/// 调用方要求持有锁、却没有持有（非持有者 `Exit` / `Wait`）。镜像 .NET
+/// `System.Threading.SynchronizationLockException`。
 public class SynchronizationLockException : Exception {
+    /// 用消息构造。
     public SynchronizationLockException(string message) : base(message) {}
 }

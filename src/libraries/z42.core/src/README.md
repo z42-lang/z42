@@ -19,7 +19,7 @@ z42 隐式 prelude 的源码。VM 启动时无条件加载；用户项目**不�
 | `Collections/` | 基础泛型集合：`List<T>`（`List.z42` + `List.Query.z42`）/ `Dictionary<K,V>` / `HashSet<T>` / `ReadOnlyCollection<T>` / `KeyValuePair<K,V>` + 对应 Enumerator；`HashIndex.z42` 是 `Dictionary` / `HashSet` 共用的插入有序紧凑哈希表骨架（布局见其头注释） |
 | `Exceptions/` | `Exception` 基类 + 标准子类（`ArgumentException` / `InvalidOperationException` / `AggregateException` / `MulticastException` 等） |
 | `Delegates/` | callable + multicast + 订阅策略（详见 `docs/reference/src/language/delegates-events.md`）：`Delegates.z42` / `DelegateOps.z42`（Action / Func / Predicate + `==`）、`Multicast*.z42`、`ISubscription.z42` + `SubscriptionRefs.z42` |
-| `Reflection/` | 反射成员对象：`MemberInfo` / `FieldInfo` / `MethodInfo` / `PropertyInfo` / `ConstructorInfo` / `MethodBase` / `ParameterInfo` / `Activator` / `Assembly`（详见 `docs/reference/src/stdlib/reflection.md`）；`Attribute.z42` / `ForwardAttribute.z42` / `Enum.z42` 在顶层 |
+| `Reflection/` | 反射成员对象：`MemberInfo` / `FieldInfo` / `MethodInfo` / `PropertyInfo` / `ConstructorInfo` / `MethodBase` / `ParameterInfo` / `Activator` / `Assembly`（详见 `docs/reference/src/stdlib/core.Type.md` 等类型页）；`Attribute.z42` / `ForwardAttribute.z42` / `Enum.z42` 在顶层 |
 | `Runtime/` | `AppProperties` / `RuntimeConfig`（只读配置面）/ `AssemblyLoadContext`（反射投影）/ `ModuleLoader`（把 zpkg 并入当前 VM 可执行 + 按 FQN 调用 / 实例化；组件注入的唯一入口）/ `ModuleSearch`；顶层 `Runtime.z42` 为 `Std.Runtime` 动态加载入口（`LoadZpkg` / `CallStatic`） |
 | `Time/` | `DateTime` / `DateTimeOffset` / `TimeSpan` / `Stopwatch` / `TimeZone` |
 | `IO/` | 控制台 / 文件 / 目录 / 路径 / 环境 / 进程的 native 语义层（`Console` / `File` / `Directory` / `Path` / `Environment` / `FileStreamNative` / `ProcessNative`） |

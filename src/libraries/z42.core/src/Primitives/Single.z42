@@ -1,28 +1,26 @@
 namespace Std;
 
-// rename-primitives-to-pascal-case (2026-05-24): primitive struct now named
-// `Single` per BCL convention; source keyword `float` is preserved as alias.
-//
-// L3 primitive-as-struct: `float` (32-bit floating point) with arithmetic + comparison.
-// VM represents both float and double as Value::F64 at runtime; builtin names reuse
-// the `__double_*` implementations.
+/// 内置 `float` 类型（32 位 IEEE-754 浮点）的包装结构体，实现 IComparable / IEquatable / INumber。
 public struct Single : IComparable, IEquatable, INumber {
-    // C# BCL parity. 特殊值走 IEEE-754 单精度位模式（__static_init__ 可调 BitConverter，
-    // 不像 const 折叠那样只能吃字面量）。symmetrize-primitive-api：补齐 NaN/±Infinity —— 此前
-    // 注释写着「deferred」，于是 Single 在判定 API 上比 Double 少一整套。
+    /// 最大有限值。
     public static float MaxValue = 3.40282347E+38F;
+    /// 最小有限值。
     public static float MinValue = -3.40282347E+38F;
+    /// 最小正数。
     public static float Epsilon  = 1.401298464324817E-45F;
+    // 特殊值经 IEEE-754 位模式构造（__static_init__ 可调 BitConverter，const 折叠不行）。
+    /// 非数值（NaN）。
     public static float NaN              = (float)BitConverter.SingleFromBits(0x7FC00000);
+    /// 正无穷。
     public static float PositiveInfinity = (float)BitConverter.SingleFromBits(0x7F800000);
     // 0xFF800000 超出 int 正区间（会被当 long 字面量），用等值的有符号十进制写。
+    /// 负无穷。
     public static float NegativeInfinity = (float)BitConverter.SingleFromBits(-8388608);
 
-    // symmetrize-primitive-api：Single 此前**连 Parse 都没有**（只有 Convert.ToSingle 绕一圈）。
-    // VM 把 float/double 同存 Value::F64，故解析走 double 再窄化 —— 与 Convert.ToSingle 同实现，
-    // 现在以 `Single.Parse` 为单一出处，Convert.ToSingle 改为委托它。
+    /// 解析浮点字符串（经 double 解析后窄化为 float）；失败抛异常，语义同 Double.Parse。
     public static float Parse(string s) { return (float)Double.Parse(s); }
 
+    /// 非抛出解析：成功把值写入 `v` 并返回 true；失败返回 false 且 `v` 置 0.0f。
     public static bool TryParse(string s, ref float v) {
         double d = 0.0;
         bool ok = Double.TryParse(s, ref d);
@@ -30,29 +28,31 @@ public struct Single : IComparable, IEquatable, INumber {
         return ok;
     }
 
-    // IEEE-754 分类（纯脚本，与 Double 逐条同款）。NaN 是唯一不等于自身的值。
+    /// v 是否为 NaN（NaN 是唯一不等于自身的值）。
     public static bool IsNaN(float v) { return v != v; }
-    // ±∞ 的 `v - v` 是 NaN（≠ 0）；任何有限 v 恒为 0。NaN 本身已被 IsNaN 守卫排除。
+    /// v 是否为正无穷或负无穷。
+    // ±∞ 的 v - v 是 NaN（≠ 0）；有限 v 的 v - v 恰为 0。NaN 已被 IsNaN 守卫排除。
     public static bool IsInfinity(float v) {
         return !Single.IsNaN(v) && (v - v) != 0.0f;
     }
+    /// v 是否为正无穷。
     public static bool IsPositiveInfinity(float v) { return Single.IsInfinity(v) && v > 0.0f; }
+    /// v 是否为负无穷。
     public static bool IsNegativeInfinity(float v) { return Single.IsInfinity(v) && v < 0.0f; }
+    /// v 是否为有限值（非 NaN 且非无穷）。
     public static bool IsFinite(float v) { return !Single.IsNaN(v) && !Single.IsInfinity(v); }
 
+    /// 返回字符串表示。
     [Native("__double_to_string")]  public extern string ToString();
 
-    // shrink-primitive-native-interop (2026-08-27): Equals/GetHashCode 迁纯脚本。
-    // Equals 原生 `==`；hash 用 32 位 IEEE-754 位模式（对齐 C# Single.GetHashCode）。
+    /// 值相等比较（NaN != NaN）。
     public bool Equals(float other) { return this == other; }
+    /// 返回哈希码（IEEE-754 位模式的 32 位值）。
     public int GetHashCode() { return BitConverter.SingleToBits(this); }
 
-    // 2026-04-27 wave2-compare-to-script。symmetrize-primitive-api：**补上 NaN 全序**——
-    // 此前注释写着「与 Double.CompareTo 同语义」，实际 Double 有 NaN 全序分支而这里没有，
-    // 于是 `List<float>` 里含 NaN 时排序行为与 `List<double>` 不一致（NaN 的 `<`/`>` 都是
-    // false ⇒ 塌成 0 ⇒ 与所有值「相等」⇒ 排序被污染）。现与 Double 逐条一致：
-    // NaN 只等于自己，且排在所有非 NaN 之前。
+    /// 比较大小，返回负 / 0 / 正。
     public int CompareTo(float other) {
+        // 全序（同 Double）：NaN 只等于自己，且排在所有非 NaN 之前。
         bool thisNaN  = (this != this);
         bool otherNaN = (other != other);
         if (thisNaN || otherNaN) {
@@ -65,10 +65,14 @@ public struct Single : IComparable, IEquatable, INumber {
         return 0;
     }
 
-    // INumber static override.
+    /// 加法。
     public static override float op_Add(float a, float b)      { return a + b; }
+    /// 减法。
     public static override float op_Subtract(float a, float b) { return a - b; }
+    /// 乘法。
     public static override float op_Multiply(float a, float b) { return a * b; }
+    /// 除法。
     public static override float op_Divide(float a, float b)   { return a / b; }
+    /// 取模。
     public static override float op_Modulo(float a, float b)   { return a % b; }
 }

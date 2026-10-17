@@ -6,7 +6,7 @@
 >
 > 命令行怎么设见 [`z42` 命令面](cli-z42.md)（`z42 run --set` / `--config` / `--mode`）；
 > 在 z42 代码里读生效值见
-> [`Std.Runtime.RuntimeConfig`](../stdlib/runtime-config.md)。
+> [`Std.Runtime.RuntimeConfig`](../stdlib/core.RuntimeConfig.md)。
 
 z42vm 的行为由一组**旋钮**控制：GC 算法、执行模式、日志过滤、采样频率、模块搜索路径……
 本页给出旋钮清单、每个旋钮的取值语义与默认值，以及查询它们的三个命令。
@@ -332,7 +332,7 @@ mode = "interp"
 那会让子 app 拿到别人的侧车。要表达「这台机器上都这样」请用 `Z42_CONFIG`（用户层）。
 
 侧车的另一半 `[properties]` 表装的是应用自己的配置，VM 原样搬运、不校验，运行时经
-[`Std.Runtime.AppProperties`](../stdlib/app-properties.md) 只读。
+[`Std.Runtime.AppProperties`](../stdlib/core.AppProperties.md) 只读。
 
 ## 诊断输出
 

@@ -1,7 +1,8 @@
 namespace Std;
 
-// 对象当前状态不允许此操作（如对空 Queue 调 Dequeue、对已 Dispose 对象操作）。
+/// 对象当前状态不允许此操作（如对空 Queue 调 Dequeue、对已 Dispose 对象操作）。
 public class InvalidOperationException : Exception {
+    /// 用消息构造。
     public InvalidOperationException(string message) : base(message) {}
 
     override string ToString() {

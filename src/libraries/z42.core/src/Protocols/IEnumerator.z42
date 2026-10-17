@@ -1,17 +1,18 @@
 namespace Std;
 
-// Forward iterator contract (C# 风格).
-//
-// Pattern:
-//     while (it.MoveNext()) {
-//         var x = it.Current;
-//         ...
-//     }
-//     it.Dispose();
-//
-// Inherits IDisposable so foreach 升级路径（未来 codegen）可统一调
-// Dispose 释放迭代状态。
+/// 前向迭代器契约（C# 风格）。
+///
+/// 典型用法：
+///     while (it.MoveNext()) {
+///         var x = it.Current;
+///         ...
+///     }
+///     it.Dispose();
+///
+/// 继承 IDisposable，使 foreach 升级路径可统一调 Dispose 释放迭代状态。
 public interface IEnumerator<T> : IDisposable {
+    /// 推进到下一元素；成功返回 true，越过末尾返回 false。
     bool MoveNext();
+    /// 当前元素；仅在最近一次 MoveNext 返回 true 后有效。
     T Current { get; }
 }
