@@ -9,6 +9,8 @@
 完整引用链（堆诊断 L3）；并发探针 / 采样 profiler。
 
 ## 功能索引
+公开 API 的完整签名见 [reference 包页](../../../docs/reference/src/stdlib/diagnostics.md)（由源码 doc 注释生成）。
+
 | 功能 | 入口 / 文件 |
 |------|-----------|
 | 全局日志（TRACE…ERROR + level filter + logfmt 字段） | `Log.z42` 的 `Log.Info(...)` / `Log.*(msg, LogFields)` |

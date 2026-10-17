@@ -1,27 +1,13 @@
 namespace Std.Diagnostics;
 
-
-// add-log-structured-fields (2026-05-27): chainable key=value attachment
-// for `Log.Info/Warn/Error/...`. Renders as logfmt — `[LEVEL ts] msg
-// key1="v1" key2="v2"` — so grep / awk / `lnav` consumers parse cleanly.
-//
-// Usage:
-//     Log.Info("started", new LogFields()
-//         .Add("port", port.ToString())
-//         .Add("env",  "prod"));
-//
-// → stderr:
-//     [INFO 1747327200000] started port="8080" env="prod"
-//
-// Values are always double-quoted; `"` and `\` inside the value are
-// backslash-escaped (logfmt convention). Keys are emitted verbatim —
-// callers shouldn't put `=` or spaces in keys.
+/// logfmt 风格的键值附件，链式 `Add`。
 public sealed class LogFields {
     string[] _keys;
     string[] _vals;
     int _count;
     int _capacity;
 
+    /// 构造一个空的字段集。
     public LogFields() {
         this._capacity = 4;
         this._keys = new string[4];
@@ -29,7 +15,7 @@ public sealed class LogFields {
         this._count = 0;
     }
 
-    /// Append a key/value pair. Returns `this` for chaining.
+    /// 追加一个键值对，返回 `this` 以便链式调用。
     public LogFields Add(string key, string value) {
         if (this._count == this._capacity) this._grow();
         this._keys[this._count] = key;
@@ -38,10 +24,10 @@ public sealed class LogFields {
         return this;
     }
 
+    /// 返回已添加的字段数量。
     public int Count() { return this._count; }
 
-    /// Format as ` key1="v1" key2="v2"` (leading space if non-empty). Empty
-    /// when no fields have been added. Used by `Log.Write*` internals.
+    /// 格式化为 ` key1="v1" key2="v2"`（非空时带前导空格），无字段时返回空字符串。
     public string Format() {
         if (this._count == 0) return "";
         string out_ = "";

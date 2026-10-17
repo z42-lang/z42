@@ -1,13 +1,13 @@
-// 一个直接引用 target 的堆对象（`Std.Diagnostics.Heap.DirectReferrers` 的元素）。
-// 字段由 VM 写入；不可用户构造。add-heap-retention-diagnostics。
 namespace Std.Diagnostics;
 
+/// 直接引用 target 的堆对象（`Heap.DirectReferrers` 的元素，字段由 VM 写入）。
 public sealed class Retainer {
-    // 引用者的 FQ 类型名（数组以 "[]" 结尾，如 "int[]"）。VM-written。
+    /// 引用者类型名（数组以 "[]" 结尾，如 "int[]"）。
     public string TypeName;
-    // 引用者的堆身份（稳定 id，用于区分同类型的不同实例）。VM-written。
+    /// 引用者的堆身份（稳定 id，用于区分同类型的不同实例）。
     public long Id;
 
+    /// 返回 "TypeName#Id"，如 "Holder#5794552168528"。
     override string ToString() {
         return this.TypeName + "#" + this.Id.ToString();
     }

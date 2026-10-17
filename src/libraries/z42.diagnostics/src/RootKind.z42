@@ -1,9 +1,11 @@
-// GC 根类别（add-heap-retention-diagnostics）。i64 背书，值与 Rust `RootKind` repr 对齐
-// （StaticField=0 … Pinned=2），供 `RootRef.Kind`。
 namespace Std.Diagnostics;
 
+/// GC 根类别。
 public enum RootKind {
-    StaticField,   // = 0：某 static 字段（直接或经引用链）
-    StackFrame,    // = 1：某线程调用栈帧的局部/求值栈/栈上分配 arena
-    Pinned,        // = 2：宿主 pin / 帧 pin（GC 内部固定根）
+    /// 某 static 字段（直接或经引用链）。
+    StaticField,
+    /// 某线程调用栈帧的局部 / 求值栈 / 栈上分配 arena。
+    StackFrame,
+    /// 宿主 pin / 帧 pin。
+    Pinned,
 }
