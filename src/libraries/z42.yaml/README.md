@@ -6,19 +6,10 @@ YAML 1.2 子集 reader / writer，纯脚本实现，形态对齐 `z42.toml` 与 
 不做：复杂 key（`? sequence-as-key`）、序列项下的多行嵌套映射等（见 `docs/reference/src/stdlib/yaml.md`「不支持」节）。
 
 ## 功能索引
-
-| 功能 | 入口 |
-|------|------|
-| 解析单文档 / 多文档 | `YamlValue.Parse(text)` / `YamlValue.ParseAll(text)`（`---` 分隔，`...` 结束） |
-| 序列化（block-style） | `YamlValue.Stringify(root)` |
-| Stream 重载 | `YamlValue.ParseStream` / `ParseAllStream` / `WriteTo` |
-| 构造值 | `YamlValue.OfNull` / `OfBool` / `OfInt` / `OfFloat` / `OfString` / `OfTimestamp` / `OfSequence` / `OfMapping` |
-| 访问 | `Is*()` 谓词 / `As*()` 取值 / `Get` / `At` / `Add` / `Set` / `Length` |
-| 异常 | `Std.YamlException` |
+公开 API 的完整签名见 [reference 包页](../../../docs/reference/src/stdlib/yaml.md)（由源码 doc 注释生成）。
 
 语法覆盖：block / flow 映射与序列；plain / 单双引号字符串（含转义）；`null` / bool / int（含 `0xFF` / `0o755`）/ float / timestamp；
 block scalar `|` / `>`（含 chomping 与缩进指示）；注释；anchor `&` / alias `*`；`!!str` 等显式 tag；merge key `<<: *anchor`。
-完整语法与边界见 [docs/reference/src/stdlib/yaml.md](../../../docs/reference/src/stdlib/yaml.md)。
 
 ## 基础用法
 
