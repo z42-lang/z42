@@ -1,37 +1,23 @@
 namespace Std.Threading;
 
 
-// 2026-05-20 add-sync-primitives: exclusive critical section primitive.
-//
-// store-sync-values-in-heap (2026-09-14): the value lives in `_value`, an ordinary
-// field — visible to the GC like any other object reference. The runtime only
-// provides the lock (`MonitorNative`), never the storage. (The previous
-// implementation kept the value inside a Rust-side `parking_lot::Mutex<Value>`
-// that no GC root covered, so a value held only by the Mutex was collected.)
-//
-// `Lock` wraps the body in try/finally: if the callback throws, the assignment
-// is skipped (the stored value stays unchanged) and the lock is still released.
-//
-// Non-reentrant: calling `Lock` again on the same instance from inside its own
-// body throws (the monitor rejects re-entry by its holder) instead of
-// deadlocking. Restructure the code rather than relying on reentrancy.
-//
-// Usage:
-//   var counter = new Mutex<long>(0);
-//   counter.Lock((v) => v + 1);
+/// 锁包着数据的互斥原语：被保护的值放在 Mutex<T> 内部，只有 Lock 的回调体能碰到它。
+/// 没有 Acquire / Release，Lock 自己配对；不可重入，重入抛 LockRecursionException。
 public class Mutex<T> {
     private object _mon;
+    // 值存在普通字段 _value 里（对 GC 可见）；运行时只提供锁（MonitorNative），不存值。
     private T _value;
 
+    /// 用 initial 作为初始被保护值。
     public Mutex(T initial) {
         this._mon = MonitorNative.New();
         this._value = initial;
     }
 
-    // Acquire the lock, invoke `body` with the current stored value, write
-    // back its return value, then release the lock — atomically with
-    // respect to other threads' Lock calls on the same Mutex.
+    /// 取锁 → 用当前值调用 body → 把 body 的返回值写回 → 放锁。整段对其他线程的 Lock 是原子的。
+    /// 没有返回值：想把锁内读到的值带出来，在 body 里写静态字段或 1 元数组单元。
     public void Lock(Func<T, T> body) {
+        // try/finally：body 抛异常时写回被跳过（值不变），锁照样释放。
         MonitorNative.Enter(this._mon);
         try {
             this._value = body(this._value);

@@ -23,6 +23,7 @@ GC 可见、随对象回收。原生层只提供不含值的 Monitor。机制见
 | `ChannelDisconnectedException.z42` | `Std.ChannelDisconnectedException` | 所有 sender 关闭且队列空时 `Recv()` 抛出 |
 
 ## 入口点
+公开 API 的完整签名见 [reference 包页](../../../docs/reference/src/stdlib/threading.md)（由源码 doc 注释生成）。
 
 ```z42
 using Std.Threading;

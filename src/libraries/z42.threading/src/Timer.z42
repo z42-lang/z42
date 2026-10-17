@@ -2,48 +2,18 @@ namespace Std.Threading;
 
 using Std.Diagnostics;
 
-// add-z42-threading-timer (2026-05-30): periodic + one-shot background
-// callback scheduler. Pure-script over `Std.Threading.Thread` +
-// `Thread.Sleep` — no new VM builtin.
-//
-// API mirrors BCL `System.Threading.Timer` with a more z42-idiomatic
-// shape (static factories instead of overloaded constructors; explicit
-// `StartPeriodic` vs `StartOnce`).
-//
-// Lifecycle:
-//   var t = Timer.StartPeriodic(1000, () => DoHeartbeat());
-//   // ... eventually ...
-//   t.StopAndJoin();   // signal + wait for current callback to finish
-//
-// Stop signal:
-//   - Background thread polls the `_stopped[0]` cell at 100ms granularity,
-//     so Stop() takes effect within ≤ 100ms regardless of intervalMs.
-//   - The `bool[1]` cell pattern is W0604-clean (closure.md §4.4) — a
-//     plain `bool` would be captured by snapshot and the thread's write
-//     would never reach the outer scope.
-//
-// Callback safety:
-//   - Exceptions thrown by `_callback` are swallowed and logged via
-//     `Log.Error` so one bad fire never kills the Timer thread. Periodic
-//     timers keep firing on subsequent ticks.
-//   - Callbacks are NEVER overlapped: each fire completes before the next
-//     sleep window begins (matches BCL `Timer` with `AutoReset=true`).
-//
-// Implementation note: the Thread.Start lambda captures `this` (a class
-// reference — ReferenceShare per closure.md §4.2) and invokes the loop
-// method on it. Capturing the `Action callback` parameter directly in
-// the static factory's lambda hits z42's parameter-capture limitation
-// ("undefined variable callback" at TypeCheck), so we route everything
-// through instance fields.
+/// 后台回调调度器，一次性或周期性，跑在自己的 OS 线程上。sealed，只能用两个静态工厂创建。
 public sealed class Timer {
     private Thread _thread;
-    // bool[1] cell so the background thread's `_stopped[0] = true` write
-    // is visible to the outer scope (W0604).
+    // bool[1] 单元：后台线程写 _stopped[0] = true 对外层可见（W0604）；用普通 bool 会被按快照
+    // 捕获，线程里的写回不到外层。后台线程以 100ms 粒度轮询该单元，所以 Stop 在 ≤100ms 内生效。
     private bool[] _stopped;
     private Action _callback;
     private long _intervalMs;
     private bool _periodic;
 
+    // Thread.Start 的 lambda 捕获 this（类引用）再调循环方法；直接把 callback 参数捕获进
+    // 静态工厂的 lambda 会触发 z42 的参数捕获限制，所以统一经实例字段中转。
     private Timer(bool[] stopped, Action callback, long intervalMs, bool periodic) {
         this._stopped    = stopped;
         this._callback   = callback;
@@ -52,9 +22,8 @@ public sealed class Timer {
         this._thread     = null;
     }
 
-    /// Fire `callback` every `intervalMs` until `Stop()` is called. First
-    /// fire is at +intervalMs (not immediate). Each callback runs to
-    /// completion before the next sleep starts.
+    /// 每 intervalMs 毫秒触发一次 callback，首次触发在 +interval（不是立刻）。一次回调跑完才开始下一轮等待。
+    /// @throws ArgumentException intervalMs <= 0 时。
     public static Timer StartPeriodic(long intervalMs, Action callback) {
         if (intervalMs <= 0) {
             throw new ArgumentException("Timer.StartPeriodic: intervalMs must be > 0");
@@ -67,8 +36,8 @@ public sealed class Timer {
         return t;
     }
 
-    /// Fire `callback` once after `delayMs`, then auto-stop. Calling
-    /// `Stop()` before the delay elapses cancels the fire.
+    /// delayMs 之后触发一次 callback 然后自动停。delayMs < 0 抛 ArgumentException；0 合法（尽快触发）。
+    /// @throws ArgumentException delayMs < 0 时。
     public static Timer StartOnce(long delayMs, Action callback) {
         if (delayMs < 0) {
             throw new ArgumentException("Timer.StartOnce: delayMs must be >= 0");
@@ -81,40 +50,36 @@ public sealed class Timer {
         return t;
     }
 
-    /// Signal the Timer thread to exit. Returns immediately; the current
-    /// callback (if mid-flight) keeps running to completion. Use
-    /// `StopAndJoin` if you need to wait. Idempotent.
+    /// 只发停止信号立刻返回，幂等；正在跑的回调会跑完。
     public void Stop() {
         this._stopped[0] = true;
     }
 
-    /// Signal stop and wait for the Timer thread to exit. If a callback
-    /// is currently running, this blocks until it returns. Safe to call
-    /// before disposing resources the callback touches.
+    /// 发信号并等后台线程退出。不可重复调用——第二次抛 ThreadException("thread already joined")。
+    /// @throws ThreadException 第二次调用时。
     public void StopAndJoin() {
         this._stopped[0] = true;
         this._thread.Join();
     }
 
-    /// `false` once `Stop` / `StopAndJoin` has been called, or after a
-    /// `StartOnce` Timer has fired its single callback.
+    /// Stop / StopAndJoin 调过之后为 false；StartOnce 触发过之后也是 false。
     public bool IsRunning() {
         return !this._stopped[0];
     }
 
-    // ── Background thread bodies ──────────────────────────────────────────
+    // ── 后台线程体 ──────────────────────────────────────────────────────
 
     private void _runPeriodic() {
         while (!this._stopped[0]) {
             Timer._chunkSleep(this._intervalMs, this._stopped);
             if (this._stopped[0]) break;
             try {
-                // z42 doesn't support `this.field()` direct delegate
-                // invocation (see Std.Disposable.Dispose for the same
-                // pattern); hoist to a local first.
+                // z42 不支持 this.field() 直接委托调用（见 Std.Disposable.Dispose 同样的写法）；
+                // 先提升到局部变量。
                 var cb = this._callback;
                 cb();
             } catch (Exception e) {
+                // 回调异常被吞掉，只打一行日志；周期定时器继续按下一拍触发。
                 Log.Error("Timer.StartPeriodic: callback threw: " + e.Message);
             }
         }
@@ -124,22 +89,20 @@ public sealed class Timer {
         Timer._chunkSleep(this._intervalMs, this._stopped);
         if (!this._stopped[0]) {
             try {
-                // z42 doesn't support `this.field()` direct delegate
-                // invocation (see Std.Disposable.Dispose for the same
-                // pattern); hoist to a local first.
+                // z42 不支持 this.field() 直接委托调用（见 Std.Disposable.Dispose 同样的写法）；
+                // 先提升到局部变量。
                 var cb = this._callback;
                 cb();
             } catch (Exception e) {
                 Log.Error("Timer.StartOnce: callback threw: " + e.Message);
             }
         }
-        // Self-stop so IsRunning reflects "done".
+        // 自停，让 IsRunning 反映「已跑完」。
         this._stopped[0] = true;
     }
 
-    /// Sleep `totalMs` in 100ms chunks, returning early as soon as
-    /// `stopped[0]` becomes true. The 100ms granularity keeps `Stop()`
-    /// responsive even for long-interval timers (e.g. 60s heartbeat).
+    // 把 totalMs 拆成 100ms 的块来睡，stopped[0] 一旦为 true 就提前返回。100ms 粒度让 Stop()
+    // 即使在长周期定时器（如 60s 心跳）下也能及时响应。
     private static void _chunkSleep(long totalMs, bool[] stopped) {
         long remaining = totalMs;
         while (remaining > 0 && !stopped[0]) {

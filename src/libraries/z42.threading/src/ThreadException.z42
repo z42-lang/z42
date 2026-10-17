@@ -1,20 +1,12 @@
 namespace Std.Threading;
 
-// 2026-05-20 add-threading-stdlib: cross-thread exception envelope.
-//
-// Thrown by `Std.Threading.Thread.Join()` when the worker:
-//   - threw a z42 exception (Message carries the worker's exception text)
-//   - hit a Rust-level panic (Message = "thread panicked")
-//   - is being joined a second time (Message = "thread already joined")
-//
-// The worker's original exception type and stack trace do **not** cross
-// the thread boundary in v0 — only the formatted Message string. Restoring
-// type / trace fidelity is deferred to a follow-up (`add-sync-primitives`
-// or its successor); the Message keeps the diagnostic usable in the
-// meantime.
+/// 由 Thread.Join()（以及 Timer.StopAndJoin，它内部就是 Join）抛出的跨线程异常。
+/// worker 的原始异常类型与栈不跨线程——只能 catch (ThreadException)，拿到 Message 原文。
 public class ThreadException : Exception {
+    /// @param message 触发消息（worker 异常原文 / "thread panicked" / "thread already joined"）。
     public ThreadException(string message) : base(message) {}
 
+    /// 返回 "ThreadException: <message>"。
     override string ToString() {
         return "ThreadException: " + this.Message;
     }

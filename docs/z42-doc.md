@@ -462,7 +462,7 @@ User 裁决：**先把机制全部做完（含测试与示例），最后统一�
 | **P4 模型与校验** | `z42.doc` 包（DocParser / DocId / Zdoc）、`DocChecker`、W0801～W0808、`LintConfig` 扩到内建 doc 规则、`[doc]` 表（两步）；reference `language/doc-comments.md` 与 agent 写法规则 | 🟡 进行中：DocParser（`@tag`/链接解析 + `DocComment` 模型 + `z42 doc` 结构化展示）已落地；DocId / Zdoc / DocChecker / W08xx / `[doc]` 表待做 |
 | **P5 产出与生成** | build 产出 `.zdoc`；SDK `[component.docs]`；mdbook 渲染器；`xtask doc gen`；`check docs-api`（按已迁移的包生效） | 🟡 进行中：mdbook 渲染器（`z42 doc --format mdbook`）+ `xtask doc gen` / `check docs-api` 已落地；`.zdoc` 产出与 SDK `[component.docs]` 待做 |
 | **P6 doctest** | `@example` 合成 `[Test]` 方法，经反射发现；`z42 test --doc` 进 gate | 待做 |
-| **P7 迁移** | 代码注释按包迁移（先 `z42.random`）；stdlib 页改为生成；README 入口点改链接；书里引用清理；W0805 ratchet 降到 0 | 🟡 进行中：`z42.random`、`z42.text`、`z42.json`、`z42.toml`、`z42.uri` 已迁移（中文 `//!` + `///` + `@tag`、删历史注记），对应包页改为生成，README 入口点改链接；其余包待迁移 |
+| **P7 迁移** | 代码注释按包迁移（先 `z42.random`）；stdlib 页改为生成；README 入口点改链接；书里引用清理；W0805 ratchet 降到 0 | 🟡 进行中：`z42.random`、`z42.text`、`z42.json`、`z42.toml`、`z42.uri`、`z42.threading` 已迁移（中文 `//!` + `///` + `@tag`、删历史注记），对应包页改为生成，README 入口点改链接；其余包待迁移 |
 | **P8 延伸** | REPL `:doc`；LSP hover 复用 `.zdoc`；英文翻译层（按 Doc ID 叠加） | 按 roadmap 排期 |
 
 ## 8. 风险

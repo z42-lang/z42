@@ -1,45 +1,19 @@
 namespace Std.Threading;
 
 
-// 2026-05-20 add-sync-primitives-rwlock: multi-reader / single-writer lock.
-//
-// Two RAII callback methods mirroring `Mutex<T>.Lock(Func<T,T>)`:
-//   - `Read(Action<T>)` lets multiple threads see a snapshot of the
-//     current value concurrently. Mutations inside the body do NOT
-//     propagate to the stored value (closure §4.1 value-snapshot capture).
-//     Export observations through static fields / shared objects like Mutex.
-//   - `Write(Func<T,T>)` acquires exclusively (blocks all readers + other
-//     writers); body returns the new stored value.
-//
-// store-sync-values-in-heap (2026-09-14): written in z42 on top of `MonitorNative`.
-// The value is the `_value` field (GC-visible); the runtime holds no value.
-//
-//   - A reader holds the monitor only while it bumps `_readers` in and out —
-//     the body runs without it, so readers run concurrently.
-//   - A writer holds the monitor for its whole body, after waiting for the
-//     active readers to drain. Readers arriving meanwhile block on the monitor.
-//   - Write-preferring: while a writer is waiting (`_writersWaiting > 0`), new
-//     readers wait too, so a read-heavy load cannot starve writers.
-//
-// Reentrancy on the same thread:
-//   - `Write` inside `Write`, or `Read` inside `Write` → throws (the monitor
-//     rejects re-entry by its holder).
-//   - `Write` inside `Read` waits for its own read to finish, and `Read` inside
-//     `Read` waits if a writer queued up in between — both self-deadlock, as
-//     with any read-write lock. Do not nest acquisitions of the same RwLock.
-//
-// Usage:
-//   var config = new RwLock<long>(0);
-//   // 50 readers in parallel:
-//   config.Read((long v) => { Stats.Last = v; });
-//   // Occasional update:
-//   config.Write((long v) => v + 1);
+/// 多读单写的读写锁，同样是「锁包着数据」的回调形态。读者并发跑，写者独占，写者优先。
+///
+/// 不可重入：Write 里套 Write、Write 里套 Read 抛 LockRecursionException；Read 里套 Write、
+/// 以及夹在写者后面的 Read 里套 Read 会自死锁——不要在同一个 RwLock 上嵌套获取。
 public class RwLock<T> {
+    // 读者只在进出增减 _readers 时短暂持锁，回调体不持锁 → 读者并发跑；写者等读者归零后独占；
+    // 有写者排队（_writersWaiting > 0）时新读者也等，避免读多写少饿死写者。
     private object _mon;
     private T _value;
     private int _readers;
     private int _writersWaiting;
 
+    /// 用 initial 作为初始被保护值。
     public RwLock(T initial) {
         this._mon = MonitorNative.New();
         this._value = initial;
@@ -47,7 +21,7 @@ public class RwLock<T> {
         this._writersWaiting = 0;
     }
 
-    // Multi-reader. Body sees a snapshot of the current value.
+    /// 共享获取：body 拿到当前值的一份快照。body 没有返回值，改不了存储的值。
     public void Read(Action<T> body) {
         MonitorNative.Enter(this._mon);
         T snapshot;
@@ -67,7 +41,7 @@ public class RwLock<T> {
         }
     }
 
-    // Exclusive writer. body returns the new value to store.
+    /// 独占获取（挡住所有读者和其他写者）：body 的返回值成为新的存储值。
     public void Write(Func<T, T> body) {
         MonitorNative.Enter(this._mon);
         try {
@@ -85,10 +59,7 @@ public class RwLock<T> {
         }
     }
 
-    // 2026-05-20 add-sync-primitives-try-variants: non-blocking shared
-    // acquire. If a writer holds or is waiting for the lock, returns false
-    // and body is NOT invoked. On success returns true and body has already
-    // run + the read released.
+    /// 非阻塞共享获取：拿不到就返回 false 且不调用 body；成功时 body 已跑完、读已释放，返回 true。
     public bool TryRead(Action<T> body) {
         if (!MonitorNative.TryEnter(this._mon)) {
             return false;
@@ -115,10 +86,7 @@ public class RwLock<T> {
         return true;
     }
 
-    // 2026-05-20 add-sync-primitives-try-variants: non-blocking exclusive
-    // acquire. If any reader OR writer holds the lock, returns false and
-    // body is NOT invoked. On success runs the body, stores its return,
-    // releases the lock, returns true.
+    /// 非阻塞独占获取：有任何读者或写者占着就返回 false 且不调用 body；成功时返回 true，值已写回。
     public bool TryWrite(Func<T, T> body) {
         if (!MonitorNative.TryEnter(this._mon)) {
             return false;
@@ -140,7 +108,7 @@ public class RwLock<T> {
         try {
             this._readers = this._readers - 1;
         } finally {
-            MonitorNative.Exit(this._mon);    // wakes a writer waiting for readers to drain
+            MonitorNative.Exit(this._mon);    // 唤醒一个等待读者归零的写者
         }
     }
 }

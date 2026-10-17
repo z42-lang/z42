@@ -1,44 +1,26 @@
 namespace Std.Threading;
 
 
-// 2026-05-20 add-sync-primitives: multi-producer / multi-consumer FIFO channel.
-//
-// When the channel is closed (`Close()`) AND the queue is drained, subsequent
-// `Recv()` raises `Std.Threading.ChannelDisconnectedException`.
-//
-// Usage:
-//   var c = new Channel<long>();
-//   Thread.Start(() => { c.Send(42); c.Close(); });
-//   long v = c.Recv();  // 42
-//
-// store-sync-values-in-heap (2026-09-14): written in z42 on top of `MonitorNative`.
-// The queue is `_buf`, an ordinary ring-buffer field — every queued value is
-// GC-visible. (The previous implementation queued values in a Rust-side mpsc
-// channel that no GC root covered, so a value in flight between two threads
-// was collected.) Every operation below holds the monitor only for O(1) work;
-// blocking is always `while (!condition) MonitorNative.Wait(_mon)`.
+/// 多生产者 / 多消费者 FIFO 队列。三种容量形态（无界 / 有界 / 会合）由构造器决定，之后不能改。
 public class Channel<T> {
     private object _mon;
-    private T[] _buf;          // ring buffer; live items are _buf[(_head + i) % _buf.Length], i < _count
+    private T[] _buf;          // 环形缓冲；存活项是 _buf[(_head + i) % _buf.Length]，i < _count
     private int _head;
     private int _count;
-    private int _cap;          // -1 = unbounded; > 0 = bounded; 0 = rendezvous
+    private int _cap;          // -1 = 无界；> 0 = 有界；0 = 会合
     private bool _closed;
-    private long _sent;        // items ever enqueued
-    private long _taken;       // items ever dequeued (rendezvous senders wait for theirs)
-    private int _recvWaiting;  // receivers blocked in Recv (rendezvous TrySend hands off only to one)
+    private long _sent;        // 已入队总数
+    private long _taken;       // 已出队总数（会合通道的发送者等自己的值被取走）
+    private int _recvWaiting;  // 阻塞在 Recv 里的接收者数（会合通道 TrySend 只交接给一个）
 
-    // Unbounded constructor (default). The queue grows without limit;
-    // for back-pressure use the `int capacity` overload instead.
+    /// 无界构造器（默认）。队列按需扩容，没有上限；要背压用有界构造器。
     public Channel() {
         this._init(-1, 16);
     }
 
-    // 2026-05-20 add-sync-primitives-bounded-channel: bounded constructor.
-    // `Send` blocks the caller when the queue contains `capacity` values
-    // until a `Recv` makes room (back-pressure). When `capacity == 0` you
-    // get a rendezvous channel — every `Send` blocks until its value has been
-    // taken by a `Recv` on another thread.
+    /// 有界构造器。capacity > 0 有界（Send 在队列满时阻塞直到腾出位置）；capacity == 0 会合
+    /// （每个 Send 阻塞直到这个值被另一条线程取走）。
+    /// @throws ArgumentException capacity < 0 时。
     public Channel(int capacity) {
         if (capacity < 0) {
             throw new ArgumentException("Channel: capacity must be >= 0, got " + capacity.ToString());
@@ -60,10 +42,8 @@ public class Channel<T> {
         this._recvWaiting = 0;
     }
 
-    // Send `v` on the channel. Blocks while a bounded channel is full, and a
-    // rendezvous send blocks until `v` has been received. Throws
-    // ChannelDisconnectedException if the channel is (or becomes, while
-    // waiting for room) closed.
+    /// 按容量形态阻塞地发送 v。通道已关闭、或等待期间被关闭 → 抛 ChannelDisconnectedException("channel closed")。
+    /// @throws ChannelDisconnectedException 通道已关闭或等待期间被关闭时。
     public void Send(T v) {
         MonitorNative.Enter(this._mon);
         try {
@@ -87,8 +67,9 @@ public class Channel<T> {
         }
     }
 
-    // Block until a value is available. Throws ChannelDisconnectedException
-    // when the channel is closed AND the queue is empty.
+    /// 阻塞到有值可取。通道已关闭且队列已空时抛 ChannelDisconnectedException("channel disconnected")；
+    /// 队列里还有值就照常取，关闭不丢数据。
+    /// @throws ChannelDisconnectedException 通道已关闭且队列已空时。
     public T Recv() {
         T v;
         MonitorNative.Enter(this._mon);
@@ -111,13 +92,8 @@ public class Channel<T> {
         return v;
     }
 
-    // Non-blocking. Returns a 1- or 2-element discriminated array:
-    //   [0, value]  → ok
-    //   [1]         → empty (no value pending; not disconnected)
-    //   [2]         → disconnected (closed AND queue empty)
-    //
-    // Returning the raw discriminator lets callers distinguish "empty"
-    // from "disconnected" without exceptions — useful for polling.
+    /// 不阻塞。返回判别式数组：[0, value]（取到值）/ [1]（暂时没值）/ [2]（已关闭且空）。
+    /// 判别位是 long，用 (long)r[0] 取。
     public object[] TryRecv() {
         object[] result;
         MonitorNative.Enter(this._mon);
@@ -139,9 +115,7 @@ public class Channel<T> {
         return result;
     }
 
-    // Close the channel. Any subsequent Send throws; values already in the
-    // queue remain receivable until drained; after that Recv throws
-    // ChannelDisconnectedException. Wakes every blocked Send / Recv.
+    /// 幂等关闭通道，不可撤销。已入队的值仍可取完；唤醒阻塞中的 Recv 和等位置的 Send。
     public void Close() {
         MonitorNative.Enter(this._mon);
         try {
@@ -151,11 +125,8 @@ public class Channel<T> {
         }
     }
 
-    // 2026-05-20 add-sync-primitives-try-variants: non-blocking Send.
-    // Returns true on success; false if the bounded buffer is full OR the
-    // channel was previously closed. Unbounded channels return true unless
-    // closed. A rendezvous channel succeeds only when a receiver is already
-    // blocked in Recv to take the value. Does NOT throw.
+    /// 不阻塞发送，不抛异常。有界满、通道已关闭返回 false；会合通道只有在已有接收者阻塞在
+    /// Recv 上时才返回 true。
     public bool TrySend(T v) {
         bool ok = false;
         MonitorNative.Enter(this._mon);
@@ -172,15 +143,14 @@ public class Channel<T> {
         return ok;
     }
 
-    // ── internals: caller holds the monitor ──────────────────────────────────
+    // ── 内部实现：调用方已持有 monitor ──────────────────────────────────
 
     private bool _isFull() {
         if (this._cap < 0) { return false; }
         return this._count >= this._buf.Length;
     }
 
-    // Enqueue `v` (growing an unbounded buffer if needed). Returns its 1-based
-    // sequence number.
+    // 入队 v（无界缓冲满时扩容）。返回其 1-based 序号。
     private long _enqueue(T v) {
         if (this._count == this._buf.Length) {
             this._grow();
@@ -194,7 +164,7 @@ public class Channel<T> {
 
     private T _dequeue() {
         T v = this._buf[this._head];
-        // Clear the slot so a dequeued value is not kept alive by the buffer.
+        // 清空该槽位，避免已出队的值被缓冲继续持有。
         this._buf[this._head] = default(T);
         this._head = (this._head + 1) % this._buf.Length;
         this._count = this._count - 1;
