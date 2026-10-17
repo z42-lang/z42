@@ -10,10 +10,49 @@ using Std.IO;
 using Std.Time;
 using Z42.Doc;
 
-// 包名 → 页名：z42.<domain> → <domain>（z42.core 的多页拆分归迁移期，这里先当单页）。
+// 包名 → 页名：z42.<domain> → <domain>。
 string _docPageName(string pkg) {
     if (pkg.StartsWith("z42.")) { return pkg.Substring(4); }
     return pkg;
+}
+
+// type-split 包（一个类型一页）：z42.core 太大。硬编码清单，等 `[doc] split` 清单解析就绪后改读清单。
+bool _isTypeSplit(string pkg) {
+    string[] ts = new string[1];
+    ts[0] = "z42.core";
+    int i = 0;
+    while (i < ts.Length) { if (ts[i] == pkg) { return true; } i = i + 1; }
+    return false;
+}
+
+// 一个 type-split 包的产出：索引页 `<short>.md` + 每个类型 `<short>.<Type>.md`。
+sealed class _GenFile {
+    public string Name;
+    public string Content;
+    public _GenFile(string n, string c) { this.Name = n; this.Content = c; }
+}
+
+_GenFile[] _typeSplitFiles(string pkg, string shortName, DocIndex ix) {
+    string pkgDir = DocMd.PkgDir(ix);
+    _GenFile[] acc = new _GenFile[16];
+    int n = 0;
+    acc[n] = new _GenFile(shortName + ".md", DocMd.TypeIndex(pkg, pkgDir, ix)); n = n + 1;
+    string[] nss = DocMd.Namespaces(ix);
+    int i = 0;
+    while (i < nss.Length) {
+        DocItem[] tops = DocMd.TopLevelTypes(ix, nss[i]);
+        int j = 0;
+        while (j < tops.Length) {
+            if (n == acc.Length) { _GenFile[] g = new _GenFile[n * 2]; Array.Copy(acc, g, n); acc = g; }
+            acc[n] = new _GenFile(shortName + "." + tops[j].Name + ".md", DocMd.TypePage(pkg, pkgDir, nss[i], tops[j], ix));
+            n = n + 1;
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    _GenFile[] r = new _GenFile[n];
+    Array.Copy(acc, r, n);
+    return r;
 }
 
 // 生成全部已迁移包（写了 `//!`）的 reference 页到 docs/reference/src/stdlib/。返回写了几个。
@@ -27,9 +66,16 @@ int _docGen() {
         string pkg = libs[i];
         DocIndex ix = DocQuery.BuildIndex(root, pkg, "");
         if (DocMd.HasNamespaceDoc(ix)) {
-            string page = DocMd.PackagePage(pkg, DocMd.PkgDir(ix), ix);
-            File.WriteAllText(Path.Join(outDir, _docPageName(pkg) + ".md"), page);
-            n = n + 1;
+            if (_isTypeSplit(pkg)) {
+                _GenFile[] fs = _typeSplitFiles(pkg, _docPageName(pkg), ix);
+                int j = 0;
+                while (j < fs.Length) { File.WriteAllText(Path.Join(outDir, fs[j].Name), fs[j].Content); j = j + 1; }
+                n = n + fs.Length;
+            } else {
+                string page = DocMd.PackagePage(pkg, DocMd.PkgDir(ix), ix);
+                File.WriteAllText(Path.Join(outDir, _docPageName(pkg) + ".md"), page);
+                n = n + 1;
+            }
         }
         i = i + 1;
     }
@@ -48,12 +94,26 @@ int _checkDocsApi() {
         string pkg = libs[i];
         DocIndex ix = DocQuery.BuildIndex(root, pkg, "");
         if (!DocMd.HasNamespaceDoc(ix)) { i = i + 1; continue; }
-        string page = DocMd.PackagePage(pkg, DocMd.PkgDir(ix), ix);
-        string path = Path.Join(outDir, _docPageName(pkg) + ".md");
-        string committed = File.Exists(path) ? File.ReadAllText(path) : "";
-        if (committed != page) {
-            if (failed.Length > 0) { failed = failed + ", "; }
-            failed = failed + _docPageName(pkg);
+        if (_isTypeSplit(pkg)) {
+            _GenFile[] fs = _typeSplitFiles(pkg, _docPageName(pkg), ix);
+            int j = 0;
+            while (j < fs.Length) {
+                string path = Path.Join(outDir, fs[j].Name);
+                string committed = File.Exists(path) ? File.ReadAllText(path) : "";
+                if (committed != fs[j].Content) {
+                    if (failed.Length > 0) { failed = failed + ", "; }
+                    failed = failed + fs[j].Name;
+                }
+                j = j + 1;
+            }
+        } else {
+            string page = DocMd.PackagePage(pkg, DocMd.PkgDir(ix), ix);
+            string path = Path.Join(outDir, _docPageName(pkg) + ".md");
+            string committed = File.Exists(path) ? File.ReadAllText(path) : "";
+            if (committed != page) {
+                if (failed.Length > 0) { failed = failed + ", "; }
+                failed = failed + _docPageName(pkg);
+            }
         }
         i = i + 1;
     }
