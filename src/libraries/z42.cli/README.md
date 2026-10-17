@@ -16,6 +16,7 @@ CLI argv 解析器 — flag / option / positional + auto `-h/--help` 文本生�
 | `src/CommandResolution.z42` | `Std.Cli.CommandResolution` — `Resolve` 的三态结果（`IsMatch`/`IsHelp`/`IsUnknown` + `Path`/`Result`/`HelpText`/`ErrorMessage`）|
 
 ## 入口点
+公开 API 的完整签名见 [reference 包页](../../../docs/reference/src/stdlib/cli.md)（由源码 doc 注释生成）。
 
 ```z42
 using Std.Cli;

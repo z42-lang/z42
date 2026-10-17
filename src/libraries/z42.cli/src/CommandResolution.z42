@@ -1,23 +1,6 @@
 namespace Std.Cli;
 
-
-// add-cli-nested-subcommands (2026-06-10): outcome of
-// `SubcommandRouter.Resolve` over a (possibly nested) command tree.
-// Split out of SubcommandRouter.z42 to keep that file under the 300-line
-// soft limit. See SubcommandRouter.Resolve for the routing algorithm.
-
-/// Outcome of `SubcommandRouter.Resolve`. Exactly one of IsMatch / IsHelp /
-/// IsUnknown is true.
-///
-/// Consumer pattern:
-///
-///   CommandResolution res = root.Resolve(argv);
-///   if (res.IsHelp())    { Console.WriteLine(res.HelpText()); Environment.Exit(0); }
-///   if (res.IsUnknown()) { ConsoleError.WriteLine(res.ErrorMessage());
-///                          Console.WriteLine(res.HelpText()); Environment.Exit(2); }
-///   // IsMatch:
-///   string[] path = res.Path();      // e.g. ["build", "package"]
-///   ParseResult r = res.Result();
+/// SubcommandRouter.Resolve 的结果：IsMatch / IsHelp / IsUnknown 恰好一个为真。
 public sealed class CommandResolution {
     // 0 = match, 1 = help, 2 = unknown.
     int _kind;
@@ -26,6 +9,7 @@ public sealed class CommandResolution {
     string      _helpText;
     string      _errorMessage;
 
+    /// 创建一个 CommandResolution（kind 0=match / 1=help / 2=unknown）。
     public CommandResolution(int kind, string[] path, ParseResult result,
                              string helpText, string errorMessage) {
         this._kind         = kind;
@@ -35,39 +19,43 @@ public sealed class CommandResolution {
         this._errorMessage = errorMessage;
     }
 
-    /// A leaf command resolved without a help request.
+    /// 命中叶子命令且未请求 help。
     public static CommandResolution Match(ParseResult result) {
         return new CommandResolution(0, new string[0], result, "", "");
     }
 
-    /// Help requested at some level — `helpText` is that level's help.
+    /// 某层请求了 help；`helpText` 是该层的帮助文本。
     public static CommandResolution Help(string helpText) {
         return new CommandResolution(1, new string[0], null, helpText, "");
     }
 
-    /// Unrecognised token at some router level.
+    /// 某 router 层遇到不认识的 token。
     public static CommandResolution Unknown(string errorMessage, string helpText) {
         return new CommandResolution(2, new string[0], null, helpText, errorMessage);
     }
 
+    /// 是否命中叶子命令（未请求 help）。
     public bool IsMatch()   { return this._kind == 0; }
+
+    /// 是否在任一层遇到 `-h` / `--help`（或某层无剩余 token，或叶子 ShowHelp() 为真）。
     public bool IsHelp()    { return this._kind == 1; }
+
+    /// 是否在某 router 层遇到不认识的 token。
     public bool IsUnknown() { return this._kind == 2; }
 
-    /// The matched subcommand chain so far (e.g. `["build", "package"]`).
+    /// 已走过的命中链，如 `["build", "package"]`。
     public string[] Path() { return this._path; }
 
-    /// Leaf parse result — valid only when IsMatch().
+    /// 叶子的 ParseResult；仅在 IsMatch() 时有效。
     public ParseResult Result() { return this._result; }
 
-    /// Help text for the relevant level — valid when IsHelp() / IsUnknown().
+    /// 相应层的帮助文本；仅在 IsHelp() / IsUnknown() 时有效。
     public string HelpText() { return this._helpText; }
 
-    /// Error message — valid only when IsUnknown().
+    /// 错误消息；仅在 IsUnknown() 时有效。
     public string ErrorMessage() { return this._errorMessage; }
 
-    /// Prepend an ancestor subcommand name to the path as the recursion
-    /// unwinds. Mutates + returns `this` for chaining. Internal to Resolve.
+    /// 递归回卷时在 path 头部前插祖先子命令名；原地修改并返回 this 以便链式调用（Resolve 内部使用）。
     public CommandResolution Prepend(string name) {
         string[] np = new string[this._path.Length + 1];
         np[0] = name;
