@@ -1,36 +1,46 @@
 namespace Std;
 
-// Type conversion helpers.
-// Native bindings delegate to VM intrinsics.
+/// 字符串 ↔ 数值 / 布尔 / 字符等类型之间的转换。
+///
+/// 核心转换（ToInt32 / ToInt64 / ToDouble / ToString）是 VM intrinsics 的 native 绑定；
+/// 其余窄化数值 / 布尔 / 字符转换委托到对应基元的 `Parse`，让范围判定只有一处。
 public static class Convert {
+    /// 解析为 `int`。
     [Native("__int32_parse")]
     public static extern int ToInt32(string s);
 
+    /// 解析为 `long`。
     [Native("__int64_parse")]
     public static extern long ToInt64(string s);
 
+    /// 解析为 `double`。
     [Native("__double_parse")]
     public static extern double ToDouble(string s);
 
+    /// 任意值转字符串。
     [Native("__to_str")]
     public static extern string ToString(object value);
 
-    // ── String → narrow numeric / bool / char (library-review PR-D) ───────────
-    // Delegate to the primitive Parse facades so range checks stay in one place.
+    // ── String → 窄化数值 / bool / char ───────────────────────────────────────
+    // 委托到对应基元的 Parse，范围判定与基元保持一致。
 
-    // symmetrize-primitive-api：整数族**八个全给齐**（此前只有 Byte/Int16 两个，
-    // 缺 SByte/UInt16/UInt32/UInt64 —— 同一族 API 一半在一半不在）。
+    /// 解析为 `sbyte`。
     public static sbyte  ToSByte(string s)  { return SByte.Parse(s); }
+    /// 解析为 `byte`。
     public static byte   ToByte(string s)   { return Byte.Parse(s); }
+    /// 解析为 `short`。
     public static short  ToInt16(string s)  { return Int16.Parse(s); }
+    /// 解析为 `ushort`。
     public static ushort ToUInt16(string s) { return UInt16.Parse(s); }
+    /// 解析为 `uint`。
     public static uint   ToUInt32(string s) { return UInt32.Parse(s); }
+    /// 解析为 `ulong`。
     public static ulong  ToUInt64(string s) { return UInt64.Parse(s); }
 
-    // symmetrize-primitive-api：下面三个改为**委托到对应基元的 Parse**，让判定只有一处。
-    // 此前 Boolean/Char 的解析逻辑只存在于 Convert 里，而 Boolean/Char 自己没有 Parse ——
-    // 与其它基元「X.Parse 为主、Convert.ToX 委托」的形状正好相反。
+    /// 解析为 `float`。
     public static float ToSingle(string s)  { return Single.Parse(s); }
+    /// 解析为 `bool`。
     public static bool  ToBoolean(string s) { return Boolean.Parse(s); }
+    /// 解析为 `char`。
     public static char  ToChar(string s)    { return Char.Parse(s); }
 }

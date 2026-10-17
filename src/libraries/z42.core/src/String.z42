@@ -1,93 +1,83 @@
+//! 核心类型与预导入工具。
+//!
+//! Std 命名空间随每个脚本隐式可用（隐式 prelude）：根目录的 String / Math / Array /
+//! Convert / Guid / Version / Object / Type 等核心类型，以及子目录的 Primitives
+//! （Int32 / Double 等）、Delegates（Func / Action 等）、Protocols（IComparable 等）。
+//! String 的索引与长度按 Unicode 标量（char）计；数值与位运算走 Math / BitConverter；
+//! 反射走 Type / Enum；平台与运行时能力查询走 Platform / OperatingSystem。
+//!
+//! 一部分成员是 VM 内建 extern intrinsic（标 `[Native]`，如 String.Length / Math.Sqrt /
+//! Platform.OS），其余是纯 z42 脚本（如 String.Contains / Math.Abs / Array.Sort）。
+//! 本命名空间没有统一的不支持列表；各类型的边界见其成员注释与 stdlib 文档页。
 namespace Std;
 
-// String class — wraps the built-in `string` primitive type.
+// String 类分为三个 partial 碎片（本文件 + String.Split.z42 + String.Edit.z42），
+// 以守住单文件行数上限。
 //
-// Minimal intrinsic core (extern): Length / CharAt / FromChars / Equals /
-// CompareTo / GetHashCode / ToString / Split / Join / Concat / Format.
-// All other methods (Contains / StartsWith / EndsWith / IndexOf / Replace /
-// Substring / ToLower / ToUpper / Trim* / IsNullOr*) are pure z42 scripts
-// that loop via CharAt + primitive char operations, mirroring the C# BCL
-// pattern where `string.Length` and `string[i]` are intrinsics and the rest
-// is managed code.
-//
-// 2026-04-24 simplify-string-stdlib: migrated 11 methods from Rust builtins to
-// scripts. Index / length / slice semantics uniformly use Unicode scalar (char)
-// count — no UTF-8 byte offsets exposed.
-// fix-static-class-instance-members (2026-09-01): 曾误标 `static class`——但 String
-// 是 primitive `string` 的包装，`s.Length` / `s.Contains(...)` 皆为实例调用，且实现
-// IComparable/IEquatable（实例契约）。`static` 与实例成员/接口矛盾（旧 z42c 静默忽略
-// class 上的 `static`）。对齐 C# `sealed class System.String`：sealed（禁继承 + 去虚化）。
-//
-// augment-string-prelude (2026-09-04)：声明 `partial`，拆成三个碎片以守住 500 行硬限——
-// 本文件（核心）/ `String.Split.z42`（Split/Join/Concat/Format）/ `String.Edit.z42`
-// （Insert/Remove/Pad*）。同期补齐了 char-based BCL 方法（IndexOf(char)/LastIndexOf/
-// Trim 家族 char 重载/Split(char[])/Insert/Remove/PadLeft/PadRight）。
-//
-// ⚠️ 碎片归属规则：**同名方法组必须整组落在同一碎片**。方法注册键的 primary 判定
-// （MemberCollector 的 `emittedInst`，见 stabilize-instance-dispatch-keys）是**每-碎片**
-// 的局部状态——「声明序首个同名 → 裸键，其余 → 全签名键」里的「首个」只在本碎片内计数。
-// 同名方法分处两碎片时，两边都认为自己是首个而取同一个裸键，后合并者在 `ct.Methods` 里
-// **静默覆盖**前者（签名不同，不触发 E0433），调用方随之派发到错误重载。
-// 故：`IndexOf`×2 / `LastIndexOf`×2 / `Trim`×3 / `TrimStart`×3 / `TrimEnd`×3 / `Substring`×2 /
-// `Equals`×2 全在本碎片；`Split`×3 全在 String.Split.z42；`Remove`×2 / `PadLeft`×2 /
-// `PadRight`×2 全在 String.Edit.z42。（该限制是 partial v1 的 Deferred 项，见
-// language/partial-types.md「边界与限制」。）
+// ⚠️ 碎片归属规则：**同名方法组必须整组落在同一碎片**。方法注册键的 primary 判定是
+// 每-碎片的局部状态——「声明序首个同名 → 裸键，其余 → 全签名键」里的「首个」只在
+// 本碎片内计数。同名方法分处两碎片时，两边都认为自己是首个而取同一个裸键，后合并者
+// 会静默覆盖前者（签名不同，不触发重载冲突），调用方随之派发到错误重载。
+// 故 IndexOf×2 / LastIndexOf×2 / Trim×3 / TrimStart×3 / TrimEnd×3 / Substring×2 /
+// Equals×2 全在本碎片；Split×3 全在 String.Split.z42；Remove×2 / PadLeft×2 /
+// PadRight×2 全在 String.Edit.z42。
 //
 // 另一条纪律：**新重载必须追加在同名既有重载之后**——primary（= 裸键 = seed 与跨包既有
 // 调用的锚点）取声明序首个，插到前面会让 primary 易主、把既有裸键挪走。
+
+/// 内置 `string` 类型的包装类：写 `string s` 声明的值，方法都派发到这里。
+///
+/// 不可变；索引与长度按 Unicode 标量（`char`）计（字节数用 `ByteLength`）；越界与
+/// 非法实参抛可 catch 的 `Std.Exception`。sealed partial，实现 `IComparable` /
+/// `IEquatable`。
 public sealed partial class String : IComparable, IEquatable {
     // ── Intrinsic core (extern) ──────────────────────────────────────────────
 
-    // Number of Unicode scalar values (characters) in this string. O(n) —
-    // walks UTF-8 bytes. Use `ByteLength` when you need O(1) and byte
-    // semantics suffice. review.md C11.1 (2026-05-27).
+    /// 字符数（Unicode 标量个数），O(n)。需要 O(1) 的字节尺寸用 ByteLength。
     [Native("__str_length")]      public extern int Length     { get; }
 
-    // Number of UTF-8 bytes in this string. O(1). Differs from `Length`
-    // for non-ASCII strings (`"你好".Length == 2`, `"你好".ByteLength == 6`).
-    // Pick `ByteLength` for hot-path size queries (allocation sizing,
-    // network framing, hashing); pick `Length` when the count must match
-    // user-visible character grouping.
+    /// UTF-8 字节数，O(1)。非 ASCII 串与 Length 不同（`"你好".Length == 2`，
+    /// `"你好".ByteLength == 6`）。热路径尺寸查询用本属性。
     [Native("__str_byte_length")] public extern int ByteLength { get; }
 
-    // Returns the char at the given scalar index. Traps on out-of-range.
+    /// 第 `index` 个字符（`s[index]` 同）。越界（含负数）抛 IndexOutOfRangeException。
     [Native("__str_char_at")]   public extern char CharAt(int index);
 
-    // `s[i]` — sugar over CharAt, mirroring C#'s `string[i]`. Also what makes
-    // `foreach (char c in s)` iterate without materialising a char[]: it lowers
-    // to the same Length + get_Item pair any indexable class uses.
+    /// 索引器：等价于 `CharAt(index)`。`foreach (char c in s)` 也经此迭代。
     public char this[int index] { get { return this.CharAt(index); } }
 
-    // Builds a string from a char[] array. Empty array → empty string.
+    /// 由 `char[]` 建串。空数组 → 空串。
     [Native("__str_from_chars")] public static extern string FromChars(char[] chars);
 
-    // ── Object protocol overrides ────────────────────────────────────────────
+    // ── Object 协议覆盖 ───────────────────────────────────────────────────────
 
-    // shrink-primitive-native-interop (2026-08-27): ToString 迁纯脚本 —— 旧
-    // __str_to_string 只是原样返回自身（`s.to_owned()`）。Equals(object?) 保留
-    // [Native]：__str_equals 是类型宽容的（处理 null / 非 string 装箱值），纯脚本
-    // 表达不划算。
+    /// 返回自身。
     public string ToString() { return this; }
+
+    /// 值相等比较。
     [Native("__str_equals")]    public extern bool   Equals(object? other);
+    /// 值相等比较。
     [Native("__str_equals")]    public extern bool   Equals(string other);
+    /// 序数比较，返回负 / 0 / 正。
     [Native("__str_compare_to")] public extern int   CompareTo(string other);
+    /// 内容哈希码。
     [Native("__str_hash_code")] public extern int    GetHashCode();
 
-    // ── Script-side methods (loop via CharAt) ────────────────────────────────
+    // ── 脚本侧方法（经 CharAt 循环实现）────────────────────────────────────────
 
-    // True when the string contains no characters.
-    // Note: 当前 z42 auto-property 仅支持 `{ get; [set;] }` 形式（无 body）。
-    // 自定义 body property 推迟，按方法形式 surface。
+    /// `Length == 0`。
+    // 注：当前 auto-property 仅支持 `{ get; [set;] }` 形式（无 body），自定义 body 的
+    // property 尚未支持，故按方法形式暴露。
     public bool IsEmpty() {
         return this.Length == 0;
     }
 
-    // True iff `value` occurs anywhere in `this`.
+    /// `value` 是否出现在本串中（等价 `IndexOf(value) >= 0`）。
     public bool Contains(string value) {
         return this.IndexOf(value) >= 0;
     }
 
-    // True iff `this` starts with `prefix`. Empty prefix → always true.
+    /// 是否以 `prefix` 开头。空前缀恒 true。
     public bool StartsWith(string prefix) {
         int pn = prefix.Length;
         if (pn == 0) return true;
@@ -98,7 +88,7 @@ public sealed partial class String : IComparable, IEquatable {
         return true;
     }
 
-    // True iff `this` ends with `suffix`. Empty suffix → always true.
+    /// 是否以 `suffix` 结尾。空后缀恒 true。
     public bool EndsWith(string suffix) {
         int sn = suffix.Length;
         int tn = this.Length;
@@ -111,13 +101,9 @@ public sealed partial class String : IComparable, IEquatable {
         return true;
     }
 
-    // First index of `value` (scalar units), or -1 if not found.
-    // Scalar (char-index) IndexOf. Naive O(n·m) two-pointer scan, but over a
-    // bulk-materialised char[] (ToCharArray → one __str_to_chars native call)
-    // scanned with the ArrayGet opcode — ~9× faster than the old per-char
-    // CharAt(builtin) scan (measured: charAt 2128ms → charArr 237ms, interp).
-    // Script-first: one array-view primitive, the algorithm stays in script.
-    // Contains = IndexOf >= 0 auto-benefits.
+    /// `value` 首次出现的索引（标量单位），未命中 -1；`IndexOf("")` → 0。
+    // 实现：物化整串 char[] 后朴素 O(n·m) 两指针扫描，ArrayGet 取字符比逐字符
+    // CharAt（builtin 派发）快。
     public int IndexOf(string value) {
         char[] h = this.ToCharArray();
         char[] n = value.ToCharArray();
@@ -136,11 +122,7 @@ public sealed partial class String : IComparable, IEquatable {
         return -1;
     }
 
-    // First index of `value` (char), or -1 if not found. char 版兄弟重载——单字符
-    // 查找不必把 needle 也物化成 char[]，直接在 bulk 视图上单层扫描。
-    // stabilize-instance-dispatch-keys 后加重载是纯增量：`IndexOf(string)` 作为
-    // 声明序首个仍持裸键 `IndexOf`（seed / 跨包既有调用的锚点不动），本重载取全
-    // 签名键 `IndexOf$1$char`。**新重载必须追加在既有重载之后**，否则 primary 易主。
+    /// `value` 首次出现的索引，未命中 -1。
     public int IndexOf(char value) {
         char[] h = this.ToCharArray();
         int n = h.Length;
@@ -150,10 +132,7 @@ public sealed partial class String : IComparable, IEquatable {
         return -1;
     }
 
-    // Last index of `value` (scalar units), or -1 if not found.
-    // 与 IndexOf(string) 同构（同一 char[] bulk 视图 + 朴素 O(n·m) 比对），只是
-    // 起点从右端开始向左走。空 needle → Length（"空串匹配在末尾"，与
-    // `IndexOf("") == 0` 对称；对齐 .NET Core 的 `"abc".LastIndexOf("") == 3`）。
+    /// `value` 最后一次出现的索引（标量单位），未命中 -1；`LastIndexOf("")` → Length。
     public int LastIndexOf(string value) {
         char[] h = this.ToCharArray();
         char[] n = value.ToCharArray();
@@ -171,7 +150,7 @@ public sealed partial class String : IComparable, IEquatable {
         return -1;
     }
 
-    // Last index of `value` (char), or -1 if not found.
+    /// `value` 最后一次出现的索引，未命中 -1。
     public int LastIndexOf(char value) {
         char[] h = this.ToCharArray();
         for (int i = h.Length - 1; i >= 0; i--) {
@@ -180,22 +159,19 @@ public sealed partial class String : IComparable, IEquatable {
         return -1;
     }
 
-    // Replace all occurrences of `oldValue` with `newValue`.
-    // Throws Exception when oldValue is empty (aligns with C# ArgumentException).
+    /// 替换全部出现的 `oldValue` 为 `newValue`。`oldValue` 为空串抛异常。
     public string Replace(string oldValue, string newValue) {
         if (oldValue.Length == 0) {
             throw new Exception("Replace: oldValue cannot be empty");
         }
-        // char[]-script: bulk-materialise once, scan/build over ArrayGet (whole-
-        // string two-pass scan → materialisation amortised; ~9× vs per-char CharAt).
+        // 一次物化 char[]，在 ArrayGet 视图上两遍扫描（先计数后构建），分摊物化开销。
         char[] t = this.ToCharArray();
         char[] o = oldValue.ToCharArray();
         char[] nw = newValue.ToCharArray();
         int tn = t.Length;
         int on = o.Length;
         int nn = nw.Length;
-        // Pass 1: count matches to compute result length (no List<T> available:
-        // List<T> lives in z42.collections which depends on z42.core).
+        // 第一遍：数匹配数算结果长度（core 无 List<T>，不能边扫边追加）。
         int matches = 0;
         int i = 0;
         while (i <= tn - on) {
@@ -208,7 +184,7 @@ public sealed partial class String : IComparable, IEquatable {
         }
         int resultLen = tn + matches * (nn - on);
         char[] result = new char[resultLen];
-        // Pass 2: copy, substituting on hit.
+        // 第二遍：命中则替换，否则原样拷贝。
         int r = 0;
         int k = 0;
         while (k < tn) {
@@ -231,15 +207,15 @@ public sealed partial class String : IComparable, IEquatable {
         return String.FromChars(result);
     }
 
-    // Substring(start): [start, Length).
+    /// 截取 `[start, Length)`。
     public string Substring(int start) {
         return this.Substring(start, this.Length - start);
     }
 
-    // Substring(start, length): [start, start+length).
+    /// 截取 `[start, start+length)`；`start`/`length` 为负或越界抛异常。
     public string Substring(int start, int length) {
-        // Bounds check: negative start/length or a range past the end used to
-        // trap (new char[-1] / CharAt out of range) instead of reporting cleanly.
+        // 边界检查：负 start/length 或越过末尾原本会 trap（new char[-1] / CharAt 越界），
+        // 这里显式抛出可读的异常。
         int n = this.Length;
         if (start < 0 || length < 0 || start > n - length) {
             throw new Exception($"Substring: out of range (start={start}, length={length}, Length={n})");
@@ -248,8 +224,7 @@ public sealed partial class String : IComparable, IEquatable {
         return this._substringRaw(start, length);
     }
 
-    // ASCII-rule lowercase conversion. Non-ASCII letters are unchanged.
-    // Locale-sensitive casing deferred to L3 CultureInfo.
+    /// ASCII 小写转换，非 ASCII 字母原样保留。
     public string ToLower() {
         int n = this.Length;
         char[] result = new char[n];
@@ -259,7 +234,7 @@ public sealed partial class String : IComparable, IEquatable {
         return String.FromChars(result);
     }
 
-    // ASCII-rule uppercase conversion.
+    /// ASCII 大写转换，非 ASCII 字母原样保留。
     public string ToUpper() {
         int n = this.Length;
         char[] result = new char[n];
@@ -269,27 +244,19 @@ public sealed partial class String : IComparable, IEquatable {
         return String.FromChars(result);
     }
 
-    // add-string-tochararray (review §2.6): inverse of FromChars. Materialise
-    // the scalar array once and index it O(1) instead of repeated O(n) CharAt
-    // walks. Empty string → empty array.
-    //
-    // Now a BULK native primitive (__str_to_chars): one call collects the whole
-    // char[] in Rust, vs the old per-char CharAt loop (N builtin dispatches).
-    // This is THE array-view primitive that lets string algorithms (IndexOf,
-    // …) run in script over `arr[i]` (ArrayGet opcode) — the C#/Rust "string
-    // ops over a char buffer" model — without a native extern per operation.
+    /// 物化成 `char[]`；空串 → 空数组。
+    // 一次性 bulk native 原语：一次调用收集整串 char[]，取代逐字符 CharAt（N 次 builtin
+    // 派发）。这是让 IndexOf 等算法在脚本里走 arr[i]（ArrayGet）的数组视图原语。
     [Native("__str_to_chars")] public extern char[] ToCharArray();
 
-    // perf-stdlib-hot-paths：Substring 的原生 bulk 路径——UTF-8 上一次 slice 拷贝（字符索引经 str_meta 的
-    // char→byte 表 O(1)），取代此前逐字符 CharAt + FromChars（每字符一次 builtin 派发 + Vec 分配）。
-    // 越界由 Rust 侧 bail；脚本侧 Substring 先做同样的边界检查以保留原诊断文案。
+    // Substring 的原生 bulk 路径：UTF-8 上一次 slice 拷贝；越界由 Rust 侧 bail，
+    // 脚本侧 Substring 先做同样的边界检查以保留原诊断文案。
     [Native("__str_substring")] extern string _substringRaw(int start, int length);
 
-    // perf-stdlib-hot-paths：把 parts[0..count) 一次拼接（Rust 侧按字节 memcpy），StringBuilder.ToString /
-    // Join 的底座——取代逐字符 CharAt 复制。count 越界 / 元素非 string 由 Rust 侧 bail。
+    /// 把 `parts[0..count)` 一次拼接；`count` 越界或元素非 string 由 VM 报错。
     [Native("__str_concat_parts")] public static extern string ConcatParts(string[] parts, int count);
 
-    // Trim leading + trailing whitespace.
+    /// 裁掉首尾空白。
     public string Trim() {
         int n = this.Length;
         int s = 0;
@@ -300,6 +267,7 @@ public sealed partial class String : IComparable, IEquatable {
         return this.Substring(s, e - s + 1);
     }
 
+    /// 裁掉前导空白。
     public string TrimStart() {
         int n = this.Length;
         int s = 0;
@@ -307,6 +275,7 @@ public sealed partial class String : IComparable, IEquatable {
         return this.Substring(s, n - s);
     }
 
+    /// 裁掉尾随空白。
     public string TrimEnd() {
         int n = this.Length;
         if (n == 0) return "";
@@ -316,12 +285,11 @@ public sealed partial class String : IComparable, IEquatable {
     }
 
     // ── Trim 家族的 char / char[] 重载 ───────────────────────────────────────
-    // 三组同名重载（Trim / TrimStart / TrimEnd）必须与上面的无参版同碎片，
-    // 且**追加在其后**——无参版是 primary（裸键，seed 锚点），char / char[]
-    // 版取全签名键。空集合退化为按空白裁剪，对齐 C# `Trim(char[])`。
+    // 三组同名重载（Trim / TrimStart / TrimEnd）必须与上面的无参版同碎片，且追加在其后——
+    // 无参版是 primary（裸键，seed 锚点），char / char[] 版取全签名键。
 
-    // Trim 家族的 char-set 成员判定。集合都很小（典型 1–4 个字符），线性扫描比
-    // 建哈希集便宜；且 z42.core 不能依赖 z42.collections（后者依赖前者）。
+    // 判断字符是否在集合中。集合都很小（典型 1–4 个字符），线性扫描比建哈希集便宜；
+    // 且 core 不能依赖 z42.collections（后者依赖前者）。
     private static bool _inSet(char[] set, char c) {
         int n = set.Length;
         for (int i = 0; i < n; i++) {
@@ -330,14 +298,14 @@ public sealed partial class String : IComparable, IEquatable {
         return false;
     }
 
-    // Trim leading + trailing occurrences of `trimChar`.
+    /// 裁掉首尾 `trimChar`。
     public string Trim(char trimChar) {
         char[] set = new char[1];
         set[0] = trimChar;
         return this.Trim(set);
     }
 
-    // Trim leading + trailing occurrences of any char in `trimChars`.
+    /// 裁掉首尾 `trimChars` 中任一字符；空数组按空白裁。
     public string Trim(char[] trimChars) {
         if (trimChars.Length == 0) return this.Trim();
         char[] t = this.ToCharArray();
@@ -350,12 +318,14 @@ public sealed partial class String : IComparable, IEquatable {
         return this.Substring(s, e - s + 1);
     }
 
+    /// 裁掉前导 `trimChar`。
     public string TrimStart(char trimChar) {
         char[] set = new char[1];
         set[0] = trimChar;
         return this.TrimStart(set);
     }
 
+    /// 裁掉前导 `trimChars` 中任一字符；空数组按空白裁。
     public string TrimStart(char[] trimChars) {
         if (trimChars.Length == 0) return this.TrimStart();
         char[] t = this.ToCharArray();
@@ -365,12 +335,14 @@ public sealed partial class String : IComparable, IEquatable {
         return this.Substring(s, n - s);
     }
 
+    /// 裁掉尾随 `trimChar`。
     public string TrimEnd(char trimChar) {
         char[] set = new char[1];
         set[0] = trimChar;
         return this.TrimEnd(set);
     }
 
+    /// 裁掉尾随 `trimChars` 中任一字符；空数组按空白裁。
     public string TrimEnd(char[] trimChars) {
         if (trimChars.Length == 0) return this.TrimEnd();
         char[] t = this.ToCharArray();
@@ -381,12 +353,14 @@ public sealed partial class String : IComparable, IEquatable {
         return this.Substring(0, e + 1);
     }
 
-    // ── Static helpers (script-side) ─────────────────────────────────────────
+    // ── 静态辅助（脚本侧）────────────────────────────────────────────────────
 
+    /// `value` 为 null 或空串时为 true。
     public static bool IsNullOrEmpty(string? value) {
         return value == null || value.Length == 0;
     }
 
+    /// `value` 为 null 或全空白时为 true。
     public static bool IsNullOrWhiteSpace(string? value) {
         if (value == null) return true;
         int n = value.Length;

@@ -2,29 +2,28 @@ namespace Std.IO;
 
 using Std.Time;
 
-// 错误（.NET 口径，VM 直接抛；都是 `IOException` 或 `Exception` 的子类）：
-//   文件不存在 → FileNotFoundException；目录（路径的一部分）不存在 → DirectoryNotFoundException；
-//   无权限 / 把目录当文件读写 → UnauthorizedAccessException；路径过长 → PathTooLongException；
-//   其它 OS 错 → IOException（消息带路径）；null 实参 → ArgumentNullException；空路径 → ArgumentException。
-// 与 .NET 的出入：Delete 删不存在的文件抛 FileNotFoundException（.NET 静默）；Copy / Move
-// 覆盖已存在的目标（.NET 两参版本抛 IOException）。
+/// 一次性（whole-file）文件操作；需要按块读写时用 z42.io 的 `FileStream`。
+///
+/// 失败按 .NET 口径抛（都是 `IOException` 或 `Exception` 的子类）：文件不存在 →
+/// `FileNotFoundException`；目录（路径的一部分）不存在 → `DirectoryNotFoundException`；
+/// 无权限 / 把目录当文件读写 → `UnauthorizedAccessException`；路径过长 → `PathTooLongException`；
+/// 其它 OS 错 → `IOException`（消息带路径）；null 实参 → `ArgumentNullException`；空路径 →
+/// `ArgumentException`。与 .NET 的出入：`Delete` 删不存在的文件抛 `FileNotFoundException`
+/// （.NET 静默）；`Copy` / `Move` 覆盖已存在的目标（.NET 两参版本抛 `IOException`）。
 public static class File {
+    /// 整读为 `string`（严格 UTF-8）。
     [Native("__file_read_text")]
     public static extern string ReadAllText(string path);
 
+    /// 覆盖写；文件不存在则创建。
     [Native("__file_write_text")]
     public static extern void WriteAllText(string path, string content);
 
+    /// 追加写；文件不存在则创建。
     [Native("__file_append_text")]
     public static extern void AppendAllText(string path, string content);
 
-    // add-z42-io-ergonomics-bytes-glob (2026-05-27): one-shot binary IO
-    // mirroring `ReadAllText / WriteAllText`. Use these instead of
-    // `new FileStream(...)` + `try/finally` when the entire payload fits
-    // in memory — they avoid slot-table allocation overhead.
-
-    /// 一次性读取整个文件为 byte 数组。文件不存在抛 `FileNotFoundException`、目录不存在抛
-    /// `DirectoryNotFoundException`、无权限抛 `UnauthorizedAccessException`（见类头注释）。
+    /// 一次性读取整个文件为 byte 数组。
     [Native("__file_read_bytes")]
     public static extern byte[] ReadAllBytes(string path);
 
@@ -32,12 +31,9 @@ public static class File {
     [Native("__file_write_bytes")]
     public static extern void WriteAllBytes(string path, byte[] data);
 
-    // add-file-atomic-write (2026-05-27): 崩溃安全写入。先写到同目录 tmp 文件，
-    // `fsync` 持久化到 disk，再 POSIX `rename` 覆盖目标。崩溃后只可能看到旧内容
-    // 或新内容，绝不会看到半写。比 `WriteAllText`/`WriteAllBytes` 慢 ~10×（额外
-    // 一次 fsync）；仅对关键配置文件（versions.toml / manifest.toml 等）使用。
-
-    /// 原子写文本 —— write→fsync→rename 三步保证崩溃安全。
+    /// 原子写文本 —— 崩溃安全：外部观察到的是旧内容或新内容，不会是半截。
+    // 实现：先写同目录 tmp 文件，fsync 落盘后 rename 覆盖。比普通写慢（多一次 fsync），
+    // 仅关键配置文件使用。
     [Native("__file_write_text_atomic")]
     public static extern void WriteAllTextAtomic(string path, string content);
 
@@ -45,23 +41,24 @@ public static class File {
     [Native("__file_write_bytes_atomic")]
     public static extern void WriteAllBytesAtomic(string path, byte[] data);
 
+    /// 路径上是否有东西（目录也返回 true）。
     [Native("__file_exists")]
     public static extern bool Exists(string path);
 
+    /// 删文件；不存在抛 `FileNotFoundException`。
     [Native("__file_delete")]
     public static extern void Delete(string path);
 
+    /// 拷贝文件；dst 已存在时覆盖。
     [Native("__file_copy")]
     public static extern void Copy(string src, string dst);
 
+    /// 移动文件；dst 已存在时覆盖。
     [Native("__file_move")]
     public static extern void Move(string src, string dst);
 
-    // add-file-last-write-time (2026-06-09): 文件最后修改时间（mtime）。这是
-    // freshness / incremental / cache 检查的硬依赖（migrate-scripts-to-z42 标注的
-    // P0 stdlib gap：build-stdlib 现用字母序绕过 mtime 是 hack）。native 返回 unix
-    // epoch 毫秒，包装成 Std.Time.DateTime（z42.io 已依赖 z42.time）。比较用
-    // `DateTime.IsAfter` / `IsBefore` / `UnixMs()`。文件不存在抛 FileNotFoundException。
+    /// 文件最后修改时间（mtime），包装成 `Std.Time.DateTime`。比较用
+    /// `IsAfter` / `IsBefore` / `UnixMs()`。文件不存在抛 `FileNotFoundException`。
     public static DateTime GetLastWriteTime(string path) {
         return DateTime.FromUnixMs(LastWriteTimeMs(path));
     }
@@ -69,14 +66,9 @@ public static class File {
     [Native("__file_last_write_time_ms")]
     private static extern long LastWriteTimeMs(string path);
 
-    // extend-z42-io-glob-temp (2026-05-16)：临时文件 / 临时目录。
-    //
-    // 在 system temp root（mac /var/folders、linux /tmp、win %TEMP%）创建
-    // 唯一命名的文件 / 目录，返回全路径。命名包含 nanos + pid + counter
-    // 避免并发冲突。
-    //
-    // **手动 cleanup**：z42 无 RAII / finalizer 保证，调用方负责 `File.Delete`
-    // / `Directory.Delete(path, true)`。
+    // 在 system temp root（mac /var/folders、linux /tmp、win %TEMP%）创建，命名含
+    // nanos + pid + counter 避免并发冲突。**无 RAII / finalizer，调用方自己清理**
+    // （`File.Delete` / `Directory.Delete(path, true)`）。
 
     /// 创建唯一临时目录，返回全路径（`<sysTemp>/prefix.<nanos>.<pid>.<bump>`）。
     [Native("__file_create_temp_dir")]
@@ -86,8 +78,6 @@ public static class File {
     /// suffix 可为 ""（无扩展名）。
     [Native("__file_create_temp_file")]
     public static extern string CreateTempFile(string prefix, string suffix);
-
-    // extend-z42-io-script-helpers (2026-05-16)：脚本常用 file 操作。
 
     /// Unix: `chmod u+x,g+x,o+x`；Windows: no-op（NTFS 由扩展名决定）。
     [Native("__file_make_executable")]

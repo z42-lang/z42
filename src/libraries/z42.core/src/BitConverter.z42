@@ -1,21 +1,25 @@
 namespace Std;
 
-// IEEE-754 bit reinterpretation between floating-point and integer bit patterns.
-// The single declaration site for the __*_to_bits / __*_from_bits VM intrinsics
-// (consolidate-core-intrinsics, A1) — z42.io.binary and z42.package delegate here
-// rather than re-declaring the externs (rule: 单一声明点).
+// 单一声明点：__*_to_bits / __*_from_bits 这些 VM intrinsics 只在这里声明，
+// z42.io.binary 与 z42.package 都委托到这里，而不是重复声明 extern。
 //
-// Distinct from Convert (string↔numeric): these are value-preserving bit casts.
+// 与 Convert（字符串↔数值）不同，这些是保值的位级转换。
+
+/// 浮点与整数位模式之间的 IEEE-754 位重解释。
 public static class BitConverter {
+    /// `float` 值的位模式（作为 `int`）。
     [Native("__single_to_bits")]
     public static extern int SingleToBits(double v);
 
+    /// 由位模式还原 `float` 值。
     [Native("__single_from_bits")]
     public static extern double SingleFromBits(int bits);
 
+    /// `double` 值的位模式（作为 `long`）。
     [Native("__double_to_bits")]
     public static extern long DoubleToBits(double v);
 
+    /// 由位模式还原 `double` 值。
     [Native("__double_from_bits")]
     public static extern double DoubleFromBits(long bits);
 }

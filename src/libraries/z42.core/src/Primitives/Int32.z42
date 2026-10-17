@@ -1,50 +1,43 @@
 namespace Std;
 
-// rename-primitives-to-pascal-case (2026-05-24): primitive struct now named
-// `Int32` per BCL convention; source keyword `int` is preserved as alias.
-//
-// L3-G4b primitive-as-struct: `int` declared as struct `Int32` (C# BCL parity).
-// Semantic type system still uses Z42PrimType("int") for identity; this struct
-// is consulted by TypeChecker to answer "does int satisfy IComparable?"
-// and by the VM to dispatch methods on Value::I64 receivers.
+/// 内置 `int` 类型（32 位有符号整数）的包装结构体，实现 IComparable / IEquatable / INumber。
 public struct Int32 : IComparable, IEquatable, INumber {
-    // C# BCL parity. `static` (read via the __static_init__ pass) — scalar
-    // primitive structs resolve static members through the wrapper type.
+    /// 最大值：2147483647。
     public static int MaxValue = 2147483647;
+    /// 最小值：-2147483648。
     public static int MinValue = -2147483647 - 1;
 
+    /// 解析十进制整数字符串；格式错误抛 FormatException，越界抛 OverflowException，
+    /// null 抛 ArgumentNullException。
     [Native("__int32_parse")]      public static extern int Parse(string s);
+    /// 返回十进制字符串表示。
     [Native("__int32_to_string")]  public extern string ToString();
 
-    // `Parse` throws like .NET: `FormatException` for malformed text,
-    // `OverflowException` outside the range, `ArgumentNullException` for null.
-    //
-    // Non-throwing parse: writes the value into `v` and returns true; on any
-    // malformed, out-of-range or null input returns false with `v` set to 0 —
-    // without raising anything (the builtin reports failure, no try/catch).
-    // ⚠️ The out-value travels by `ref`, NOT by a nullable return: value types
-    // are never nullable in z42 (`int?` is E0476, define-null-check-marks), so
-    // C#'s `out` / nullable-return idiom does not carry over.
+    /// 非抛出解析：成功把值写入 `v` 并返回 true；格式错误 / 越界 / null 返回 false 且 `v` 置 0。
+    // 出参走 `ref` 而非可空返回：值类型永不可空（`int?` 报 E0476），C# 的 out / 可空返回范式不适用。
     [Native("__int32_try_parse")] public static extern bool TryParse(string s, ref int v);
 
-    // shrink-primitive-native-interop (2026-08-27): Equals/GetHashCode 从 [Native]
-    // 迁纯脚本（对齐 wave1-bool-script）。`==` 走 IR eq 指令；int 的 hash 是恒等值
-    // （C# Int32.GetHashCode 返回自身）。
+    /// 值相等比较。
     public bool Equals(int other) { return this == other; }
+    /// 返回哈希码（int 的哈希是自身）。
     public int GetHashCode() { return this; }
 
-    // 2026-04-27 wave2-compare-to-script: 脚本实现，用 IR 自带 lt/gt 指令。
+    /// 比较大小，返回负 / 0 / 正。
     public int CompareTo(int other) {
         if (this < other) return -1;
         if (this > other) return 1;
         return 0;
     }
 
-    // INumber static override (C# 11 static abstract). VCall passes
-    // (receiver, extra) as (a, b); `a + b` is primitive add (skip-overload fast path).
+    // INumber 静态运算符覆盖：VCall 以 (a, b) 传入，a + b 走基元加法快路径。
+    /// 加法。
     public static override int op_Add(int a, int b)      { return a + b; }
+    /// 减法。
     public static override int op_Subtract(int a, int b) { return a - b; }
+    /// 乘法。
     public static override int op_Multiply(int a, int b) { return a * b; }
+    /// 除法。
     public static override int op_Divide(int a, int b)   { return a / b; }
+    /// 取模。
     public static override int op_Modulo(int a, int b)   { return a % b; }
 }

@@ -1,38 +1,36 @@
 namespace Std.IO;
 
-// All methods accept `object` — the type system's universal assignability to
-// object (primitives auto-box at the VM level via value_to_str) means user code
-// can pass any type: Console.WriteLine(42), Console.Write(true), etc.
+/// 标准输出。所有方法都收 `object`——任何类型都能直接传（`Console.WriteLine(42)`、
+/// `Console.Write(true)` 等，primitive 在 VM 层自动装箱）。
 public static class Console {
+    /// 写 `value` 并换行。
     [Native("__println")]
     public static extern void WriteLine(object value);
 
+    /// 写 `value`，不换行。
     [Native("__print")]
     public static extern void Write(object value);
 
+    /// 从 stdin 读一行（去掉行尾的 `\n` / `\r`）。EOF 与空行都返回 ""。
     [Native("__readline")]
     public static extern string ReadLine();
 
-    // extend-z42-io-script-helpers (2026-05-16)：stdout 是否连接 tty。
-    // 颜色 / 进度条决策用：重定向到管道或文件时返回 false。
+    /// stdout 是否连接 tty（重定向到管道或文件时 false）。
     [Native("__console_is_terminal")]
     public static extern bool IsTerminal();
 }
 
-// `ConsoleError` mirrors C#'s `Console.Error` (sibling class because z42 has
-// no nested static classes; semantics identical).
-//
-// 2026-05-05 R2 完整版：runner-side TestIO sink dispatch routes stderr to
-// its own capture buffer, distinct from stdout. Until now z42 had no
-// user-facing way to write to stderr; tests can use this directly.
+/// 标准错误。与 `Console` 并列的静态类（等价 C# 的 `Console.Error`，语义相同）。
 public static class ConsoleError {
+    /// 写 `value` 到 stderr 并换行。
     [Native("__eprintln")]
     public static extern void WriteLine(object value);
 
+    /// 写 `value` 到 stderr，不换行。
     [Native("__eprint")]
     public static extern void Write(object value);
 
-    // extend-z42-io-script-helpers (2026-05-16)：stderr 是否连接 tty。
+    /// stderr 是否连接 tty（重定向到管道或文件时 false）。
     [Native("__console_error_is_terminal")]
     public static extern bool IsTerminal();
 }

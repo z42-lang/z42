@@ -1,6 +1,7 @@
 namespace Std;
 
-// 参数值超出方法允许的范围。镜像 .NET `System.ArgumentOutOfRangeException`。
+/// 参数值超出方法允许的范围。镜像 .NET `System.ArgumentOutOfRangeException`。
 public class ArgumentOutOfRangeException : ArgumentException {
+    /// 用消息构造。
     public ArgumentOutOfRangeException(string message) : base(message) {}
 }

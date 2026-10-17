@@ -1,18 +1,17 @@
 namespace Std;
 
-// rename-primitives-to-pascal-case (2026-05-24): primitive struct now named `Char`
-// per BCL convention; source keyword `char` is preserved as alias.
-//
-// L3-G4b primitive-as-struct: declares Char's interface conformance.
+/// 内置 `char` 类型（32 位 Unicode 标量值）的包装结构体，实现 IComparable / IEquatable。
+///
+/// 与 C# 的差异（有意）：z42 的 `char` 是 32 位 Unicode 标量值，上界 0x10FFFF；而 C# 的
+/// `char` 是 16 位 UTF-16 码元（`Char.MaxValue == '\uFFFF'`）。
 public struct Char : IComparable, IEquatable {
-    // symmetrize-primitive-api。**与 C# 的差异（有意）**：C# `char` 是 16 位 UTF-16 码元，
-    // `Char.MaxValue == '\uFFFF'`；z42 的 `char` 是 32 位 **Unicode 标量值**，故上界取
-    // 0x10FFFF。写成 `(char)` 转换而非字面量转义，避免依赖 `\u{...}` 语法。
+    // 用 (char) 转换而非字面量转义，避免依赖 \u{...} 语法。
+    /// 最小值：'\0'（0）。
     public static char MinValue = (char)0;
+    /// 最大值：0x10FFFF（Unicode 标量上界）。
     public static char MaxValue = (char)1114111;
 
-    // symmetrize-primitive-api：此前只有 `Convert.ToChar`，`Char` 自己没有 Parse/TryParse。
-    // 语义对齐 C# `Char.Parse`：**恰好一个字符**的字符串，其余抛 FormatException。
+    /// 解析恰含一个字符的字符串为 char；长度不为 1 抛 FormatException，null 抛 ArgumentNullException。
     public static char Parse(string s) {
         if (s == null) throw new ArgumentNullException("Value cannot be null. (Parameter 's')");
         if (s.Length != 1) {
@@ -21,75 +20,71 @@ public struct Char : IComparable, IEquatable {
         return s.CharAt(0);
     }
 
-    // 非抛出：null / 长度不为 1 返回 false 且 `v` = '\0'（不经 try/catch）。
+    /// 非抛出解析：null / 长度不为 1 返回 false 且 `v` 置 '\0'。
     public static bool TryParse(string s, ref char v) {
         if (s == null || s.Length != 1) { v = '\0'; return false; }
         v = s.CharAt(0);
         return true;
     }
 
+    /// 返回单字符字符串表示。
     [Native("__char_to_string")]      public extern string ToString();
 
-    // shrink-primitive-native-interop (2026-08-27): Equals/GetHashCode 迁纯脚本。
+    /// 值相等比较。
     public bool Equals(char other) { return this == other; }
+    /// 返回哈希码（char 的码位值）。
     public int GetHashCode() { return (int)this; }
 
-    // 2026-04-27 wave2-compare-to-script + add-char-comparison：直接用 char `<`/`>`。
+    /// 比较大小，返回负 / 0 / 正。
     public int CompareTo(char other) {
         if (this < other) return -1;
         if (this > other) return 1;
         return 0;
     }
 
-    // 2026-04-24 simplify-string-stdlib: primitive helper that backs script-side
-    // string operations (Trim). IsWhiteSpace keeps [Native]: Rust
-    // `char::is_whitespace()` is genuine Unicode classification (unlike casing
-    // below, which is ASCII-only) — a pure-script ASCII version would change
-    // Trim's behavior on Unicode whitespace.
+    // IsWhiteSpace 保持 [Native]：Rust char::is_whitespace 是真正的 Unicode 分类（区别于下面
+    // ASCII-only 的大小写），纯脚本 ASCII 版会改变 Trim 对 Unicode 空白的行为。
+    /// 是否为 Unicode 空白字符。
     [Native("__char_is_whitespace")]  public extern bool IsWhiteSpace();
 
-    // shrink-primitive-native-interop (2026-08-27): ToLower/ToUpper 迁纯脚本。
-    // 旧 __char_to_lower/upper 实为 Rust `to_ascii_lowercase/uppercase`（纯 ASCII），
-    // 脚本按 ASCII 规则等价——非 ASCII 字符原样返回，locale-sensitive casing
-    // (Turkish I 等) 仍 defer 到 L3 CultureInfo。
+    // ToLower/ToUpper 纯脚本按 ASCII 规则实现；非 ASCII 字符原样返回，locale 敏感的大小写
+    // （如 Turkish I）仍交给 CultureInfo。
+    /// 转小写（纯 ASCII；非 ASCII 字符原样返回）。
     public char ToLower() {
         if (!(this < 'A') && !(this > 'Z')) return (char)((int)this + 32);
         return this;
     }
+    /// 转大写（纯 ASCII；非 ASCII 字符原样返回）。
     public char ToUpper() {
         if (!(this < 'a') && !(this > 'z')) return (char)((int)this - 32);
         return this;
     }
 
-    // add-char-isdigit-isletter (review §2.6): ASCII classification helpers so
-    // callers stop hand-rolling `(int)ch < 48 || (int)ch > 57` (BigInt.Parse,
-    // Decimal.Parse). ASCII rules only — locale-sensitive classification is
-    // deferred to L3 CultureInfo, matching ToLower/ToUpper. Expressed with the
-    // supported char `<` / `>` operators (see CompareTo).
+    // 以下 ASCII 分类仅覆盖 ASCII；locale 敏感的分类交给 CultureInfo。
+    /// 是否为十进制数字 '0'..'9'（纯 ASCII）。
     public bool IsDigit() {
         return !(this < '0') && !(this > '9');
     }
+    /// 是否为字母 a..z 或 A..Z（纯 ASCII）。
     public bool IsLetter() {
         bool lower = !(this < 'a') && !(this > 'z');
         bool upper = !(this < 'A') && !(this > 'Z');
         return lower || upper;
     }
 
-    // augment-corelib-parity (2026-09-02, backlog #10): more ASCII classifiers
-    // rounding out System.Char parity. Same ASCII-only rules / L3-CultureInfo
-    // deferral as IsDigit/IsLetter/ToLower above.
+    /// 是否为字母或数字（纯 ASCII）。
     public bool IsLetterOrDigit() {
         return this.IsLetter() || this.IsDigit();
     }
+    /// 是否为大写字母 A..Z（纯 ASCII）。
     public bool IsUpper() {
         return !(this < 'A') && !(this > 'Z');
     }
+    /// 是否为小写字母 a..z（纯 ASCII）。
     public bool IsLower() {
         return !(this < 'a') && !(this > 'z');
     }
-    // ASCII punctuation per Unicode P* categories (matches .NET char.IsPunctuation
-    // over U+0000–U+007F): the ASCII symbol chars $ + < = > ^ ` | ~ are category S,
-    // NOT punctuation, so they return false.
+    /// 是否为标点（Unicode P* 分类在 U+0000–U+007F 的 ASCII 标点；$ + < = > ^ ` | ~ 属符号 S 类，返回 false）。
     public bool IsPunctuation() {
         int c = (int)this;
         if (c >= 33 && c <= 47) return c != 36 && c != 43; // ! " # % & ' ( ) * , - . /  (excl. $ +)
@@ -100,15 +95,23 @@ public struct Char : IComparable, IEquatable {
         return c == 123 || c == 125;                       // { }
     }
 
-    // Static forms mirror the C# System.Char static API (`char.IsDigit(c)` etc.);
-    // z42's type-based mangling lets them coexist with the instance methods above.
+    // 静态形式镜像 C# System.Char 的静态 API；类型化 mangle 让它们与上面的实例方法共存。
+    /// 静态形式：`Char.IsDigit(c)`。
     public static bool IsDigit(char c)         { return c.IsDigit(); }
+    /// 静态形式：`Char.IsLetter(c)`。
     public static bool IsLetter(char c)        { return c.IsLetter(); }
+    /// 静态形式：`Char.IsLetterOrDigit(c)`。
     public static bool IsLetterOrDigit(char c) { return c.IsLetterOrDigit(); }
+    /// 静态形式：`Char.IsWhiteSpace(c)`。
     public static bool IsWhiteSpace(char c)    { return c.IsWhiteSpace(); }
+    /// 静态形式：`Char.IsUpper(c)`。
     public static bool IsUpper(char c)         { return c.IsUpper(); }
+    /// 静态形式：`Char.IsLower(c)`。
     public static bool IsLower(char c)         { return c.IsLower(); }
+    /// 静态形式：`Char.IsPunctuation(c)`。
     public static bool IsPunctuation(char c)   { return c.IsPunctuation(); }
+    /// 静态形式：`Char.ToUpper(c)`。
     public static char ToUpper(char c)         { return c.ToUpper(); }
+    /// 静态形式：`Char.ToLower(c)`。
     public static char ToLower(char c)         { return c.ToLower(); }
 }

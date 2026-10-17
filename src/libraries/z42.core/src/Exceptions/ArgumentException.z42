@@ -1,7 +1,8 @@
 namespace Std;
 
-// 参数非法（值或参数组合不符合方法要求）。
+/// 参数非法（值或参数组合不符合方法要求）。
 public class ArgumentException : Exception {
+    /// 用消息构造。
     public ArgumentException(string message) : base(message) {}
 
     override string ToString() {

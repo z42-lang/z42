@@ -1,10 +1,8 @@
 namespace Std.Time;
 
-// 日历换算 / ISO 解析·格式化 的纯静态辅助（从 DateTime.z42 拆出，review §6：文件超 500 行）。
-// 注：z42.time 曾有包内 E0402（新文件引用兄弟跨文件类型），本会话编译器重构已修复（probe 验证）。
+// 日历换算 / ISO 解析·格式化 的纯静态辅助（从 DateTime.z42 拆出）。
 public static class _DateTimeHelpers {
-    // Inverse of `_civilFromDays`: convert (y, m, d) → days since 1970-01-01.
-    // Howard Hinnant's `days_from_civil` (matches sibling algorithm).
+    // (y, m, d) → 1970-01-01 起的天数（Howard Hinnant 的 days_from_civil）。
     public static long _daysFromCivil(long y, long m, long d) {
         if (m <= 2L) { y = y - 1L; }
         long era;
@@ -52,8 +50,7 @@ public static class _DateTimeHelpers {
         buf[0] = c;
         return String.FromChars(buf);
     }
-    // Howard Hinnant `civil_from_days` (well-known algorithm; supports negative days).
-    // 输入：days since 1970-01-01；输出：[year, month, day] 其中 month ∈ [1,12], day ∈ [1,31]。
+    // days since 1970-01-01 → [year, month, day]（Howard Hinnant 的 civil_from_days）。
     public static long[] _civilFromDays(long days) {
         long z = days + 719468L;
         long era;

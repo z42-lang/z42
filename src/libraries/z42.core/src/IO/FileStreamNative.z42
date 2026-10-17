@@ -1,33 +1,39 @@
-// FileStream 的 native 语义层（slot-based 文件句柄原语）。
-//
-// 归属规则见 docs/internals/src/stdlib/organization.md「native 语义层 → core」（2026-08-27）：
-// FileStream 应用层（Stream 状态机）留 z42.io，其 __file_* 原语上移 core。原为
-// FileStream 内 `private static extern`，抽出后为 public（供 z42.io 的 FileStream 调）。
-// 命名空间保持 Std.IO 不变。native 实现镜像 src/runtime/src/corelib/fs.rs。
+// FileStream 的 native 语义层（slot-based 文件句柄原语）。FileStream 应用层（Stream 状态机）
+// 留 z42.io，其 __file_* 原语上移 core（原为 FileStream 内 private static extern，抽出后
+// public 供 z42.io 调用）。命名空间保持 Std.IO 不变。native 实现镜像 src/runtime/src/corelib/fs.rs。
 namespace Std.IO;
 
+/// 文件句柄的 native 原语，供 z42.io 的 `FileStream` 调用。
 public static class FileStreamNative {
+    /// 打开文件，返回 slot 句柄。
     [Native("__file_open")]
     public static extern long _FileOpen(string path, int mode);
 
+    /// 读入 `buffer[offset, offset+count)`，返回读到的字节数。
     [Native("__file_read")]
     public static extern int _FileRead(long slotId, byte[] buffer, int offset, int count);
 
+    /// 写出 `buffer[offset, offset+count)`。
     [Native("__file_write")]
     public static extern void _FileWrite(long slotId, byte[] buffer, int offset, int count);
 
+    /// 按 origin 定位，返回新位置。
     [Native("__file_seek")]
     public static extern long _FileSeek(long slotId, long offset, int origin);
 
+    /// 文件字节长度。
     [Native("__file_length")]
     public static extern long _FileLength(long slotId);
 
+    /// 当前读写位置。
     [Native("__file_position")]
     public static extern long _FilePosition(long slotId);
 
+    /// 刷出缓冲。
     [Native("__file_flush")]
     public static extern void _FileFlush(long slotId);
 
+    /// 关闭 slot。
     [Native("__file_close")]
     public static extern void _FileClose(long slotId);
 }

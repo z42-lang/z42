@@ -10,7 +10,7 @@
 //!    还活着、被谁钉住」。
 //!
 //! 没有 tracing / span、没有 metrics 导出、没有计时器（计时用 `Std.Time.Stopwatch`，见
-//! [time](time.md)）。
+//! [Stopwatch](core.Stopwatch.md)）。
 //!
 //! ## 不支持
 //!

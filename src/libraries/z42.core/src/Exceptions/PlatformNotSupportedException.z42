@@ -1,7 +1,8 @@
 namespace Std;
 
-// 功能在当前平台上不可用（如 wasm32 上的 socket）。镜像 .NET
-// `System.PlatformNotSupportedException : NotSupportedException`。
+/// 功能在当前平台上不可用（如 wasm32 上的 socket）。镜像 .NET
+/// `System.PlatformNotSupportedException : NotSupportedException`。
 public class PlatformNotSupportedException : NotSupportedException {
+    /// 用消息构造。
     public PlatformNotSupportedException(string message) : base(message) {}
 }

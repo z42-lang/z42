@@ -1,19 +1,8 @@
 namespace Std.Time;
 
 
-// add-timezone-basics (2026-05-27): fixed-offset timezone representation +
-// short-code lookup table. **No DST**, **no IANA tzdata** — just
-// `(offsetMinutes, abbreviation)` pairs and helpers for rendering
-// ISO-8601 datetimes in a chosen offset.
-//
-// Covers the dominant scripting use case: "format this UTC timestamp in
-// Tokyo time for the log line". For DST-aware "America/New_York" style
-// IANA zones you still need full tzdata (deferred — see
-// `time.md` Deferred → TimeZone-IANA-tzdata).
-//
-// Lookup table is hand-maintained for common short codes (UTC/GMT plus
-// ~20 frequent civilian zones). Codes are case-insensitive. Construct
-// arbitrary fixed offsets via `TimeZone.FromOffsetMinutes(n)`.
+/// 固定偏移时区：一个带符号的分钟偏移加一个名字。没有 DST、没有 IANA tzdata。
+/// 短代码大小写不敏感；任意固定偏移用 `FromOffsetMinutes`。私有构造，只能走工厂。
 public sealed class TimeZone {
     int _offsetMinutes;     // signed; e.g. JST = +540, PST = -480
     string _name;           // short code (e.g. "JST") or "+05:30" rendering
@@ -23,13 +12,12 @@ public sealed class TimeZone {
         this._name = name;
     }
 
-    // ── Factories ────────────────────────────────────────────────────────────
+    // ── 工厂 ────────────────────────────────────────────────────────────────
 
+    /// UTC（+00:00）。
     public static TimeZone Utc() { return new TimeZone(0, "UTC"); }
 
-    /// Build a zone with arbitrary fixed offset (in minutes east of UTC).
-    /// `offsetMinutes` is signed: +330 = IST (UTC+5:30), -300 = EST.
-    /// Throws `ArgumentException` outside ±840 (any real zone fits in ±14h).
+    /// 由任意固定偏移构造（分钟，东正西负，+330 = UTC+5:30）。超出 ±840 抛 `ArgumentException`。
     public static TimeZone FromOffsetMinutes(int offsetMinutes) {
         if (offsetMinutes < -840 || offsetMinutes > 840) {
             throw new ArgumentException(
@@ -39,14 +27,9 @@ public sealed class TimeZone {
         return new TimeZone(offsetMinutes, TimeZone._formatOffset(offsetMinutes));
     }
 
-    /// Look up a known short code (case-insensitive). Returns null on
-    /// unknown code so callers can decide between fallback / error.
-    /// Supported codes:
-    ///   UTC, GMT, Z         → +00:00
-    ///   EST/EDT/CST/CDT/MST/MDT/PST/PDT (US civil zones, NO DST swap —
-    ///                                    pick the right one yourself)
-    ///   CET/CEST/EET/EEST   (European)
-    ///   JST/KST/IST/ICT/AEST/AEDT/NZST/NZDT  (Asia / Oceania)
+    /// 按短代码查找（大小写不敏感），未知代码返回 null。支持的代码：UTC / GMT / Z；
+    /// 美洲 EST/EDT/CST/CDT/MST/MDT/PST/PDT（标准时与夏令时分开列，调用方按日期自己挑）；
+    /// 欧洲 CET/CEST/EET/EEST；亚洲 / 大洋洲 JST/KST/IST/ICT/AEST/AEDT/NZST/NZDT。
     public static TimeZone? FromName(string code) {
         string upper = code.ToUpper();
         int offset = TimeZone._lookupOffset(upper);
@@ -54,23 +37,25 @@ public sealed class TimeZone {
         return new TimeZone(offset, upper);
     }
 
-    // ── Accessors ────────────────────────────────────────────────────────────
+    // ── 访问器 ──────────────────────────────────────────────────────────────
 
+    /// 分钟偏移（东正西负）。
     public int OffsetMinutes() { return this._offsetMinutes; }
+    /// 短代码或 `"+05:30"` 偏移串。
     public string Name() { return this._name; }
 
-    /// Render as `±HH:MM` (`Z` when offset is 0). Used as ISO-8601 suffix.
+    /// 渲染为 `±HH:MM`（偏移为 0 时是 `"Z"`）。
     public string ToOffsetString() {
         if (this._offsetMinutes == 0) return "Z";
         return TimeZone._formatOffset(this._offsetMinutes);
     }
 
-    // ── Lookup table ─────────────────────────────────────────────────────────
+    // ── 查找表 ──────────────────────────────────────────────────────────────
 
     static int _UNKNOWN = -99999;
 
     static int _lookupOffset(string code) {
-        // UTC / GMT family
+        // UTC / GMT 族
         if (code == "UTC") return 0;
         if (code == "GMT") return 0;
         if (code == "Z")   return 0;
@@ -83,13 +68,13 @@ public sealed class TimeZone {
         if (code == "MDT") return -360;    // Mountain Daylight
         if (code == "PST") return -480;    // Pacific Standard
         if (code == "PDT") return -420;    // Pacific Daylight
-        // European
+        // 欧洲
         if (code == "CET")  return 60;     // Central European
         if (code == "CEST") return 120;    // Central European Summer
         if (code == "EET")  return 120;    // Eastern European
         if (code == "EEST") return 180;    // Eastern European Summer
         if (code == "BST")  return 60;     // British Summer Time (also = Bangladesh Standard, ambiguous; pick UK)
-        // Asia / Oceania
+        // 亚洲 / 大洋洲
         if (code == "JST")  return 540;    // Japan
         if (code == "KST")  return 540;    // Korea
         if (code == "IST")  return 330;    // India (also = Israel +120, Irish +60 — pick India, most common)

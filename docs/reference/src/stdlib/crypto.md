@@ -33,6 +33,8 @@
 
 ## Aes
 
+`src/libraries/z42.crypto/src/Aes.z42:7`
+
 
 ```z42
 public static class Aes {
@@ -51,45 +53,67 @@ public static class Aes {
 
 ### static byte[] EncryptBlock(byte[] key, byte[] plaintext)
 
+`src/libraries/z42.crypto/src/Aes.z42:15`
+
 加密一个 16 字节块。`key` 为 16 / 24 / 32 字节，分别选择 AES-128 / 192 / 256； key 尺寸或明文非 16 字节时抛 `ArgumentException`。
 
 ### static byte[] DecryptBlock(byte[] key, byte[] ciphertext)
+
+`src/libraries/z42.crypto/src/Aes.z42:38`
 
 解密一个 16 字节块。key 尺寸规则同 EncryptBlock。
 
 ### static byte[] EncryptCtr(byte[] key, byte[] nonce, byte[] data)
 
+`src/libraries/z42.crypto/src/Aes.z42:63`
+
 AES-CTR 加解密（CTR 模式下加密与解密同操作——与密钥流 XOR）。 IV 布局：8 字节 nonce || 8 字节大端 counter（从 0 起），逐块递增。同一 key + nonce 解密时传相同参数即可（密钥流确定）。
 
 ### static byte[] DecryptCtr(byte[] key, byte[] nonce, byte[] data)
+
+`src/libraries/z42.crypto/src/Aes.z42:101`
 
 CTR 是对称的——解密与加密相同。
 
 ### static byte[] EncryptCbcPkcs7(byte[] key, byte[] iv, byte[] data)
 
+`src/libraries/z42.crypto/src/Aes.z42:107`
+
 AES-CBC 加密，PKCS#7 填充（RFC 5652 §6.3——补到下一个 16 字节边界，已对齐也追加一整块填充）。 `iv` 必须 16 字节；输出长度恒为 ((data.Length / 16) + 1) * 16。
 
 ### static byte[] DecryptCbcPkcs7(byte[] key, byte[] iv, byte[] data)
+
+`src/libraries/z42.crypto/src/Aes.z42:144`
 
 AES-CBC 解密并校验 / 剥离 PKCS#7 填充。输入非 16 的倍数或填充非法抛 `ArgumentException` （通常表示 key / IV 错误或密文损坏）。
 
 ### static byte[] EncryptCcm(byte[] key, byte[] nonce, byte[] aad, byte[] plaintext, int tagLen)
 
+`src/libraries/z42.crypto/src/Aes.z42:201`
+
 AES-CCM 加密 + 认证。`nonce` 长度决定载荷上限，`tagLen` 控制认证 tag 截断。
 
 ### static byte[] DecryptCcm(byte[] key, byte[] nonce, byte[] aad, byte[] ctAndTag, int tagLen)
+
+`src/libraries/z42.crypto/src/Aes.z42:226`
 
 AES-CCM 解密 + 校验。输入 = ciphertext || encTag（tagLen 字节）； tag 不匹配抛 `ArgumentException`（勿吞——篡改信号）。
 
 ### static byte[] EncryptGcm(byte[] key, byte[] iv, byte[] aad, byte[] plaintext)
 
+`src/libraries/z42.crypto/src/Aes.z42:432`
+
 加密 + 认证。输出 = ciphertext（与 `plaintext` 等长）|| tag（16 字节）。 IV 12 字节（96 位）走快路径 J0 = IV || 0x00000001；其它长度按 NIST SP 800-38D §7.1 走 GHASH 推导。IV.Length == 0 拒绝（全零 J0 是安全隐患——同 key 多消息会复用同一 counter 流）。
 
 ### static byte[] DecryptGcm(byte[] key, byte[] iv, byte[] aad, byte[] ctAndTag)
 
+`src/libraries/z42.crypto/src/Aes.z42:456`
+
 解密 + 校验。输入 = ciphertext || 16 字节 tag；tag 不匹配抛 `ArgumentException` （勿吞——tag 失败意味着密文或 AAD 被篡改）。
 
 ## Blake2b
+
+`src/libraries/z42.crypto/src/Blake2b.z42:10`
 
 
 ```z42
@@ -108,41 +132,61 @@ public static class Blake2b {
 
 ### static byte[] Hash(byte[] data)
 
+`src/libraries/z42.crypto/src/Blake2b.z42:14`
+
 计算默认 64 字节（512 位）BLAKE2b 摘要。
 
 ### static byte[] HashString(string s)
+
+`src/libraries/z42.crypto/src/Blake2b.z42:18`
 
 对 UTF-8 字符串计算 BLAKE2b 摘要。
 
 ### static string HashHex(byte[] data)
 
+`src/libraries/z42.crypto/src/Blake2b.z42:20`
+
 计算 BLAKE2b 摘要并输出小写十六进制。
 
 ### static string HashStringHex(string s)
+
+`src/libraries/z42.crypto/src/Blake2b.z42:22`
 
 对 UTF-8 字符串计算 BLAKE2b 摘要并输出小写十六进制。
 
 ### static byte[] Hash256(byte[] data)
 
+`src/libraries/z42.crypto/src/Blake2b.z42:25`
+
 计算 32 字节（256 位）BLAKE2b 摘要（常用于 IPFS / 区块链等内容寻址）。
 
 ### static byte[] Hash256String(string s)
+
+`src/libraries/z42.crypto/src/Blake2b.z42:29`
 
 对 UTF-8 字符串计算 256 位 BLAKE2b 摘要。
 
 ### static string Hash256Hex(byte[] data)
 
+`src/libraries/z42.crypto/src/Blake2b.z42:31`
+
 计算 256 位 BLAKE2b 摘要并输出小写十六进制。
 
 ### static string Hash256StringHex(string s)
+
+`src/libraries/z42.crypto/src/Blake2b.z42:33`
 
 对 UTF-8 字符串计算 256 位 BLAKE2b 摘要并输出小写十六进制。
 
 ### static byte[] HashLen(byte[] data, byte[] key, int outLen)
 
+`src/libraries/z42.crypto/src/Blake2b.z42:36`
+
 BLAKE2b 变长 + keyed（MAC）模式：`key.Length` ∈ [0, 64]、`outLen` ∈ [1, 64]，无 key 传 `new byte[0]`。
 
 ## Blake2s
+
+`src/libraries/z42.crypto/src/Blake2s.z42:10`
 
 
 ```z42
@@ -157,25 +201,37 @@ public static class Blake2s {
 
 ### static byte[] Hash(byte[] data)
 
+`src/libraries/z42.crypto/src/Blake2s.z42:14`
+
 计算默认 32 字节（256 位）BLAKE2s 摘要。
 
 ### static byte[] HashString(string s)
+
+`src/libraries/z42.crypto/src/Blake2s.z42:18`
 
 对 UTF-8 字符串计算 BLAKE2s 摘要。
 
 ### static string HashHex(byte[] data)
 
+`src/libraries/z42.crypto/src/Blake2s.z42:20`
+
 计算 BLAKE2s 摘要并输出小写十六进制。
 
 ### static string HashStringHex(string s)
+
+`src/libraries/z42.crypto/src/Blake2s.z42:22`
 
 对 UTF-8 字符串计算 BLAKE2s 摘要并输出小写十六进制。
 
 ### static byte[] HashLen(byte[] data, byte[] key, int outLen)
 
+`src/libraries/z42.crypto/src/Blake2s.z42:25`
+
 BLAKE2s 变长 + keyed（MAC）模式：`key.Length` ∈ [0, 32]、`outLen` ∈ [1, 32]，无 key 传 `new byte[0]`。
 
 ## Blake3
+
+`src/libraries/z42.crypto/src/Blake3.z42:12`
 
 
 ```z42
@@ -191,29 +247,43 @@ public static class Blake3 {
 
 ### static byte[] Hash(byte[] data)
 
+`src/libraries/z42.crypto/src/Blake3.z42:27`
+
 计算 BLAKE3 摘要（默认 32 字节）。
 
 ### static byte[] Hash256(byte[] data)
+
+`src/libraries/z42.crypto/src/Blake3.z42:32`
 
 `Hash` 的同义方法，返回 32 字节 BLAKE3 摘要。
 
 ### static byte[] HashString(string s)
 
+`src/libraries/z42.crypto/src/Blake3.z42:37`
+
 对 UTF-8 字符串计算 BLAKE3 摘要。
 
 ### static string HashHex(byte[] data)
+
+`src/libraries/z42.crypto/src/Blake3.z42:39`
 
 计算 BLAKE3 摘要并输出小写十六进制。
 
 ### static string HashStringHex(string s)
 
+`src/libraries/z42.crypto/src/Blake3.z42:41`
+
 对 UTF-8 字符串计算 BLAKE3 摘要并输出小写十六进制。
 
 ### static byte[] HashLen(byte[] data, int outLen)
 
+`src/libraries/z42.crypto/src/Blake3.z42:44`
+
 BLAKE3 可扩展输出（XOF）：`outLen` ≥ 0，前 N 字节与更长输出的前 N 字节一致。
 
 ## ChaCha20
+
+`src/libraries/z42.crypto/src/ChaCha20.z42:11`
 
 
 ```z42
@@ -227,21 +297,31 @@ public static class ChaCha20 {
 
 ### static byte[] Crypt(byte[] key, byte[] nonce, int counter, byte[] data)
 
+`src/libraries/z42.crypto/src/ChaCha20.z42:16`
+
 加密 / 解密（对称，与密钥流 XOR）。独立使用时 `counter` 从 1 起（RFC 8439 §2.4）； 仅派生 Poly1305 一次性 key 时传 0。
 
 ### static byte[] Encrypt(byte[] key, byte[] nonce, byte[] data)
+
+`src/libraries/z42.crypto/src/ChaCha20.z42:42`
 
 便捷形式，默认 counter=1（RFC 8439 独立使用）。
 
 ### static byte[] Decrypt(byte[] key, byte[] nonce, byte[] data)
 
+`src/libraries/z42.crypto/src/ChaCha20.z42:47`
+
 解密——与加密同义。
 
 ### static byte[] Block(byte[] key, byte[] nonce, int counter)
 
+`src/libraries/z42.crypto/src/ChaCha20.z42:52`
+
 产生 (key, nonce, counter) 的一个 64 字节密钥流块，供 Poly1305 key 派生（counter=0 路径）使用。
 
 ## ChaCha20Poly1305
+
+`src/libraries/z42.crypto/src/ChaCha20Poly1305.z42:10`
 
 
 ```z42
@@ -253,13 +333,19 @@ public static class ChaCha20Poly1305 {
 
 ### static byte[] Encrypt(byte[] key, byte[] nonce, byte[] aad, byte[] plaintext)
 
+`src/libraries/z42.crypto/src/ChaCha20Poly1305.z42:12`
+
 加密 + 认证。输出 = ciphertext（与 `plaintext` 等长）|| tag（16 字节）。
 
 ### static byte[] Decrypt(byte[] key, byte[] nonce, byte[] aad, byte[] ctAndTag)
 
+`src/libraries/z42.crypto/src/ChaCha20Poly1305.z42:39`
+
 解密 + 校验。输入 = ciphertext || 16 字节 tag；tag 不匹配抛 `ArgumentException` （勿吞——表示密文或 AAD 被篡改）。
 
 ## ConstantTime
+
+`src/libraries/z42.crypto/src/ConstantTime.z42:7`
 
 
 ```z42
@@ -270,9 +356,13 @@ public static class ConstantTime {
 
 ### static bool Equals(byte[] a, byte[] b)
 
+`src/libraries/z42.crypto/src/ConstantTime.z42:10`
+
 无提前退出的字节数组比较，运行时间只依赖长度（非秘密），从不依赖首个差异位置。 长度不同立即返回 false（只泄漏长度）；长度相同时始终逐字节检查，累计差异决定结果。
 
 ## EcdsaP256
+
+`src/libraries/z42.crypto/src/EcdsaP256.z42:11`
 
 
 ```z42
@@ -285,17 +375,25 @@ public static class EcdsaP256 {
 
 ### static byte[] GeneratePublicKey(byte[] privateScalar)
 
+`src/libraries/z42.crypto/src/EcdsaP256.z42:15`
+
 从 32 字节私钥标量派生 64 字节未压缩公钥（X ‖ Y）。
 
 ### static byte[] Sign(byte[] privateScalar, byte[] message)
+
+`src/libraries/z42.crypto/src/EcdsaP256.z42:34`
 
 用 32 字节私钥标量对 `message` 签名（RFC 6979 确定性），返回 64 字节（r ‖ s，各 32 字节大端）。
 
 ### static bool Verify(byte[] publicKey, byte[] message, byte[] signature)
 
+`src/libraries/z42.crypto/src/EcdsaP256.z42:73`
+
 校验 64 字节签名；无效签名 / 非曲线上点 / 越界 r、s 返回 `false`，仅公钥非 64 字节抛 `ArgumentException`。
 
 ## EcdsaSecp256k1
+
+`src/libraries/z42.crypto/src/EcdsaSecp256k1.z42:10`
 
 
 ```z42
@@ -308,17 +406,25 @@ public static class EcdsaSecp256k1 {
 
 ### static byte[] GeneratePublicKey(byte[] privateScalar)
 
+`src/libraries/z42.crypto/src/EcdsaSecp256k1.z42:14`
+
 从 32 字节私钥标量派生 64 字节未压缩公钥（X ‖ Y）。
 
 ### static byte[] Sign(byte[] privateScalar, byte[] message)
+
+`src/libraries/z42.crypto/src/EcdsaSecp256k1.z42:33`
 
 用 32 字节私钥标量对 `message` 签名（RFC 6979 确定性），返回 64 字节（r ‖ s，各 32 字节大端）。
 
 ### static bool Verify(byte[] publicKey, byte[] message, byte[] signature)
 
+`src/libraries/z42.crypto/src/EcdsaSecp256k1.z42:72`
+
 校验 64 字节签名；无效签名 / 非曲线上点 / 越界 r、s 返回 `false`，仅公钥非 64 字节抛 `ArgumentException`。
 
 ## Ed25519
+
+`src/libraries/z42.crypto/src/Ed25519.z42:10`
 
 
 ```z42
@@ -331,17 +437,25 @@ public static class Ed25519 {
 
 ### static byte[] GeneratePublicKey(byte[] secretKey)
 
+`src/libraries/z42.crypto/src/Ed25519.z42:14`
+
 从 32 字节私钥派生 32 字节 Ed25519 公钥。
 
 ### static byte[] Sign(byte[] secretKey, byte[] message)
+
+`src/libraries/z42.crypto/src/Ed25519.z42:26`
 
 用 32 字节私钥对 `message` 签名，输出 64 字节 `R || S`（RFC 8032 §5.1.6）。
 
 ### static bool Verify(byte[] publicKey, byte[] message, byte[] signature)
 
+`src/libraries/z42.crypto/src/Ed25519.z42:64`
+
 用 32 字节公钥校验 64 字节签名；有效返回 `true`。签名内容错误返回 `false`（仅长度错误抛 `ArgumentException`）。
 
 ## HkdfSha256
+
+`src/libraries/z42.crypto/src/Hkdf.z42:8`
 
 
 ```z42
@@ -355,21 +469,31 @@ public static class HkdfSha256 {
 
 ### static byte[] Derive(byte[] salt, byte[] ikm, byte[] info, int length)
 
+`src/libraries/z42.crypto/src/Hkdf.z42:14`
+
 一次性 Extract + Expand。两阶段单独暴露（`Extract` / `Expand`）， 供需要在其间穿插其他状态（如 TLS 1.3 密钥表）的调用方使用。
 
 ### static byte[] Extract(byte[] salt, byte[] ikm)
+
+`src/libraries/z42.crypto/src/Hkdf.z42:24`
 
 HKDF-Extract（RFC 5869 §2.2）：PRK = HMAC-Hash(salt, IKM)。空 salt → 32 个零字节，输出 32 字节。
 
 ### static byte[] Expand(byte[] prk, byte[] info, int length)
 
+`src/libraries/z42.crypto/src/Hkdf.z42:35`
+
 HKDF-Expand（RFC 5869 §2.3）：把 PRK 扩展成 `length` 字节输出密钥材料，`info` 作上下文绑定。
 
 ### static string DeriveHex(byte[] salt, byte[] ikm, byte[] info, int length)
 
+`src/libraries/z42.crypto/src/Hkdf.z42:76`
+
 十六进制便捷变体，用于文档 / 调试。
 
 ## HkdfSha512
+
+`src/libraries/z42.crypto/src/Hkdf.z42:82`
 
 
 ```z42
@@ -383,21 +507,31 @@ public static class HkdfSha512 {
 
 ### static byte[] Derive(byte[] salt, byte[] ikm, byte[] info, int length)
 
+`src/libraries/z42.crypto/src/Hkdf.z42:87`
+
 一次性 Extract + Expand（HKDF-SHA-512，HashLen 64 字节）。
 
 ### static byte[] Extract(byte[] salt, byte[] ikm)
+
+`src/libraries/z42.crypto/src/Hkdf.z42:97`
 
 HKDF-Extract：PRK = HMAC-SHA512(salt, IKM)，输出 64 字节。
 
 ### static byte[] Expand(byte[] prk, byte[] info, int length)
 
+`src/libraries/z42.crypto/src/Hkdf.z42:108`
+
 HKDF-Expand：把 PRK 扩展成 `length` 字节输出密钥材料。
 
 ### static string DeriveHex(byte[] salt, byte[] ikm, byte[] info, int length)
 
+`src/libraries/z42.crypto/src/Hkdf.z42:142`
+
 十六进制便捷变体。
 
 ## HkdfSha1
+
+`src/libraries/z42.crypto/src/Hkdf.z42:150`
 
 
 ```z42
@@ -411,21 +545,31 @@ public static class HkdfSha1 {
 
 ### static byte[] Derive(byte[] salt, byte[] ikm, byte[] info, int length)
 
+`src/libraries/z42.crypto/src/Hkdf.z42:155`
+
 一次性 Extract + Expand（HKDF-SHA-1，HashLen 20 字节）。
 
 ### static byte[] Extract(byte[] salt, byte[] ikm)
+
+`src/libraries/z42.crypto/src/Hkdf.z42:165`
 
 HKDF-Extract：PRK = HMAC-SHA1(salt, IKM)，输出 20 字节。
 
 ### static byte[] Expand(byte[] prk, byte[] info, int length)
 
+`src/libraries/z42.crypto/src/Hkdf.z42:176`
+
 HKDF-Expand：把 PRK 扩展成 `length` 字节输出密钥材料。
 
 ### static string DeriveHex(byte[] salt, byte[] ikm, byte[] info, int length)
 
+`src/libraries/z42.crypto/src/Hkdf.z42:210`
+
 十六进制便捷变体。
 
 ## HmacSha256
+
+`src/libraries/z42.crypto/src/Hmac.z42:7`
 
 
 ```z42
@@ -439,21 +583,31 @@ public static class HmacSha256 {
 
 ### static byte[] Compute(byte[] key, byte[] message)
 
+`src/libraries/z42.crypto/src/Hmac.z42:11`
+
 计算 `message` 在 `key` 下的 HMAC-SHA256，返回 32 字节摘要。
 
 ### static byte[] ComputeString(string key, string message)
+
+`src/libraries/z42.crypto/src/Hmac.z42:44`
 
 对 UTF-8 编码的字符串 key / message 计算 HMAC-SHA256（返回 32 字节）。
 
 ### static string ComputeHex(byte[] key, byte[] message)
 
+`src/libraries/z42.crypto/src/Hmac.z42:51`
+
 计算 HMAC-SHA256 并输出小写十六进制（64 字符）。
 
 ### static string ComputeStringHex(string key, string message)
 
+`src/libraries/z42.crypto/src/Hmac.z42:56`
+
 对 UTF-8 字符串 key / message 计算 HMAC-SHA256 并输出小写十六进制。
 
 ## HmacSha1
+
+`src/libraries/z42.crypto/src/Hmac.z42:90`
 
 
 ```z42
@@ -467,21 +621,31 @@ public static class HmacSha1 {
 
 ### static byte[] Compute(byte[] key, byte[] message)
 
+`src/libraries/z42.crypto/src/Hmac.z42:92`
+
 计算 `message` 在 `key` 下的 HMAC-SHA1，返回 20 字节摘要。
 
 ### static byte[] ComputeString(string key, string message)
+
+`src/libraries/z42.crypto/src/Hmac.z42:129`
 
 对 UTF-8 字符串 key / message 计算 HMAC-SHA1。
 
 ### static string ComputeHex(byte[] key, byte[] message)
 
+`src/libraries/z42.crypto/src/Hmac.z42:136`
+
 计算 HMAC-SHA1 并输出小写十六进制。
 
 ### static string ComputeStringHex(string key, string message)
 
+`src/libraries/z42.crypto/src/Hmac.z42:141`
+
 对 UTF-8 字符串 key / message 计算 HMAC-SHA1 并输出小写十六进制。
 
 ## HmacSha512
+
+`src/libraries/z42.crypto/src/Hmac.z42:169`
 
 
 ```z42
@@ -495,21 +659,31 @@ public static class HmacSha512 {
 
 ### static byte[] Compute(byte[] key, byte[] message)
 
+`src/libraries/z42.crypto/src/Hmac.z42:171`
+
 计算 `message` 在 `key` 下的 HMAC-SHA512，返回 64 字节摘要。
 
 ### static byte[] ComputeString(string key, string message)
+
+`src/libraries/z42.crypto/src/Hmac.z42:208`
 
 对 UTF-8 字符串 key / message 计算 HMAC-SHA512。
 
 ### static string ComputeHex(byte[] key, byte[] message)
 
+`src/libraries/z42.crypto/src/Hmac.z42:215`
+
 计算 HMAC-SHA512 并输出小写十六进制。
 
 ### static string ComputeStringHex(string key, string message)
 
+`src/libraries/z42.crypto/src/Hmac.z42:220`
+
 对 UTF-8 字符串 key / message 计算 HMAC-SHA512 并输出小写十六进制。
 
 ## HmacSha384
+
+`src/libraries/z42.crypto/src/Hmac.z42:249`
 
 
 ```z42
@@ -523,21 +697,31 @@ public static class HmacSha384 {
 
 ### static byte[] Compute(byte[] key, byte[] message)
 
+`src/libraries/z42.crypto/src/Hmac.z42:251`
+
 计算 `message` 在 `key` 下的 HMAC-SHA384，返回 48 字节摘要。
 
 ### static byte[] ComputeString(string key, string message)
+
+`src/libraries/z42.crypto/src/Hmac.z42:287`
 
 对 UTF-8 字符串 key / message 计算 HMAC-SHA384。
 
 ### static string ComputeHex(byte[] key, byte[] message)
 
+`src/libraries/z42.crypto/src/Hmac.z42:294`
+
 计算 HMAC-SHA384 并输出小写十六进制。
 
 ### static string ComputeStringHex(string key, string message)
 
+`src/libraries/z42.crypto/src/Hmac.z42:299`
+
 对 UTF-8 字符串 key / message 计算 HMAC-SHA384 并输出小写十六进制。
 
 ## HmacMd5
+
+`src/libraries/z42.crypto/src/Hmac.z42:329`
 
 
 ```z42
@@ -551,21 +735,31 @@ public static class HmacMd5 {
 
 ### static byte[] Compute(byte[] key, byte[] message)
 
+`src/libraries/z42.crypto/src/Hmac.z42:331`
+
 计算 `message` 在 `key` 下的 HMAC-MD5，返回 16 字节摘要。
 
 ### static byte[] ComputeString(string key, string message)
+
+`src/libraries/z42.crypto/src/Hmac.z42:368`
 
 对 UTF-8 字符串 key / message 计算 HMAC-MD5。
 
 ### static string ComputeHex(byte[] key, byte[] message)
 
+`src/libraries/z42.crypto/src/Hmac.z42:375`
+
 计算 HMAC-MD5 并输出小写十六进制。
 
 ### static string ComputeStringHex(string key, string message)
 
+`src/libraries/z42.crypto/src/Hmac.z42:380`
+
 对 UTF-8 字符串 key / message 计算 HMAC-MD5 并输出小写十六进制。
 
 ## Md5
+
+`src/libraries/z42.crypto/src/Md5.z42:9`
 
 
 ```z42
@@ -579,21 +773,31 @@ public static class Md5 {
 
 ### static byte[] Hash(byte[] data)
 
+`src/libraries/z42.crypto/src/Md5.z42:13`
+
 计算 MD5 原始摘要（16 字节）。
 
 ### static byte[] HashString(string s)
+
+`src/libraries/z42.crypto/src/Md5.z42:37`
 
 对 UTF-8 编码后的字符串计算 MD5 摘要。
 
 ### static string HashHex(byte[] data)
 
+`src/libraries/z42.crypto/src/Md5.z42:42`
+
 计算 MD5 摘要并输出小写十六进制。
 
 ### static string HashStringHex(string s)
 
+`src/libraries/z42.crypto/src/Md5.z42:47`
+
 对 UTF-8 字符串计算 MD5 摘要并输出小写十六进制。
 
 ## Pbkdf2
+
+`src/libraries/z42.crypto/src/Pbkdf2.z42:9`
 
 
 ```z42
@@ -607,21 +811,31 @@ public static class Pbkdf2 {
 
 ### static byte[] DeriveKey(byte[] password, byte[] salt, int iterations, int dkLen)
 
+`src/libraries/z42.crypto/src/Pbkdf2.z42:13`
+
 PBKDF2-HMAC-SHA256 派生，返回 `dkLen` 字节。`iterations < 1` 或 `dkLen < 1` 抛 `ArgumentException`。
 
 ### static byte[] DeriveKeyString(string password, string salt, int iterations, int dkLen)
+
+`src/libraries/z42.crypto/src/Pbkdf2.z42:49`
 
 字符串 password / salt 便捷形式，按 UTF-8 编码。
 
 ### static string DeriveKeyHex(byte[] password, byte[] salt, int iterations, int dkLen)
 
+`src/libraries/z42.crypto/src/Pbkdf2.z42:55`
+
 派生并输出小写十六进制（长度 2 × dkLen）。
 
 ### static string DeriveKeyStringHex(string password, string salt, int iterations, int dkLen)
 
+`src/libraries/z42.crypto/src/Pbkdf2.z42:61`
+
 对字符串 password / salt 派生并输出小写十六进制。
 
 ## Poly1305
+
+`src/libraries/z42.crypto/src/Poly1305.z42:13`
 
 
 ```z42
@@ -633,13 +847,19 @@ public static class Poly1305 {
 
 ### static byte[] Mac(byte[] key, byte[] message)
 
+`src/libraries/z42.crypto/src/Poly1305.z42:15`
+
 在 32 字节一次性 key 下计算 `message` 的 16 字节认证 tag，key 长度错误抛 `ArgumentException`。
 
 ### static string MacHex(byte[] key, byte[] message)
 
+`src/libraries/z42.crypto/src/Poly1305.z42:70`
+
 计算 tag 并输出十六进制。
 
 ## RsaPublicKey
+
+`src/libraries/z42.crypto/src/Rsa.z42:11`
 
 RSA 公钥（模数 + 公钥指数）。
 
@@ -653,17 +873,25 @@ public class RsaPublicKey {
 
 ### BigInt n
 
+`src/libraries/z42.crypto/src/Rsa.z42:13`
+
 模数。
 
 ### BigInt e
+
+`src/libraries/z42.crypto/src/Rsa.z42:15`
 
 公钥指数。
 
 ### RsaPublicKey(BigInt n, BigInt e)
 
+`src/libraries/z42.crypto/src/Rsa.z42:17`
+
 用模数 n 与公钥指数 e 构造。
 
 ## RsaPrivateKey
+
+`src/libraries/z42.crypto/src/Rsa.z42:24`
 
 RSA 私钥（模数 + 私钥指数）。保留公钥指数以便派生匹配的 `RsaPublicKey` 而无需单独跟踪 e。
 
@@ -679,25 +907,37 @@ public class RsaPrivateKey {
 
 ### BigInt n
 
+`src/libraries/z42.crypto/src/Rsa.z42:26`
+
 模数。
 
 ### BigInt e
+
+`src/libraries/z42.crypto/src/Rsa.z42:28`
 
 公钥指数。
 
 ### BigInt d
 
+`src/libraries/z42.crypto/src/Rsa.z42:30`
+
 私钥指数。
 
 ### RsaPrivateKey(BigInt n, BigInt e, BigInt d)
+
+`src/libraries/z42.crypto/src/Rsa.z42:32`
 
 用模数 n、公钥指数 e、私钥指数 d 构造。
 
 ### RsaPublicKey GetPublicKey()
 
+`src/libraries/z42.crypto/src/Rsa.z42:39`
+
 派生匹配的公钥。
 
 ## Rsa
+
+`src/libraries/z42.crypto/src/Rsa.z42:44`
 
 
 ```z42
@@ -715,37 +955,55 @@ public static class Rsa {
 
 ### static byte[] SignPkcs1v15Sha256(RsaPrivateKey privateKey, byte[] message)
 
+`src/libraries/z42.crypto/src/Rsa.z42:58`
+
 用 SHA-256 + PKCS#1 v1.5 填充对 `message` 签名，输出恰好 `n.byteLength()` 字节。
 
 ### static bool VerifyPkcs1v15Sha256(RsaPublicKey publicKey, byte[] message, byte[] signature)
+
+`src/libraries/z42.crypto/src/Rsa.z42:68`
 
 校验 SHA-256(message) 的 PKCS#1 v1.5 签名；有效返回 true。签名内容错误返回 false（仅长度错误抛异常）。
 
 ### static byte[] SignPssSha256(RsaPrivateKey privateKey, byte[] message, byte[] salt)
 
+`src/libraries/z42.crypto/src/Rsa.z42:137`
+
 RSASSA-PSS / SHA-256 / MGF1-SHA-256 签名，`salt` 长度由调用方定（推荐 32 字节），输出 n 的字节长度。
 
 ### static bool VerifyPssSha256(RsaPublicKey publicKey, byte[] message, byte[] signature, int saltLen)
+
+`src/libraries/z42.crypto/src/Rsa.z42:161`
 
 校验 RSASSA-PSS / SHA-256 签名，`saltLen` 必须与签名时一致（RFC 8017 §9.1.2 步骤 11——验签方知道 salt 长度而非 salt 本身）。
 
 ### static byte[] EncryptOaepSha256(RsaPublicKey publicKey, byte[] message, byte[] label, byte[] seed)
 
+`src/libraries/z42.crypto/src/Rsa.z42:301`
+
 RSA-OAEP / SHA-256 / MGF1-SHA-256 加密。`label` 可为空（用于上下文绑定），`seed` 必须 32 字节。
 
 ### static byte[] DecryptOaepSha256(RsaPrivateKey privateKey, byte[] ciphertext, byte[] label)
+
+`src/libraries/z42.crypto/src/Rsa.z42:350`
 
 RSA-OAEP / SHA-256 / MGF1-SHA-256 解密，返回明文。填充非法抛 `ArgumentException` （勿在调用层区分错误——区分 padding 错误与值错误的计时泄漏风险正是 OAEP 要缓解的）。
 
 ### static byte[] RawPublicOp(RsaPublicKey publicKey, byte[] message)
 
+`src/libraries/z42.crypto/src/Rsa.z42:458`
+
 裸 `message^e mod n` 模幂（RSAEP，RFC 8017 §5.1.1），无 padding。输入须在 [0, n)，返回 n.byteLength() 字节。
 
 ### static byte[] RawPrivateOp(RsaPrivateKey privateKey, byte[] ciphertext)
 
+`src/libraries/z42.crypto/src/Rsa.z42:469`
+
 裸 `ciphertext^d mod n`（RSADP，RFC 8017 §5.1.2），无 padding 剥离，输入约束同 RawPublicOp。
 
 ## Scrypt
+
+`src/libraries/z42.crypto/src/Scrypt.z42:8`
 
 
 ```z42
@@ -756,9 +1014,13 @@ public static class Scrypt {
 
 ### static byte[] Derive(byte[] password, byte[] salt, int n, int r, int p, int dkLen)
 
+`src/libraries/z42.crypto/src/Scrypt.z42:11`
+
 用 scrypt(N, r, p) 从 `password` + `salt` 派生 `dkLen` 字节。 约束：N 为 2 的幂且 ≥ 2，r ≥ 1，p ≥ 1，r × p < 2^30，dkLen ≥ 0。
 
 ## SecureRandom
+
+`src/libraries/z42.crypto/src/SecureRandom.z42:10`
 
 
 ```z42
@@ -772,21 +1034,31 @@ public static class SecureRandom {
 
 ### static byte[] GetBytes(int n)
 
+`src/libraries/z42.crypto/src/SecureRandom.z42:12`
+
 从 OS CSPRNG 填充 n 字节（n ≥ 0）。
 
 ### static int NextInt()
+
+`src/libraries/z42.crypto/src/SecureRandom.z42:20`
 
 整个 i32 范围均匀分布的随机 int（含负数）。由 4 个 CSPRNG 字节大端构建。
 
 ### static long NextLong()
 
+`src/libraries/z42.crypto/src/SecureRandom.z42:30`
+
 整个 i64 范围均匀分布的随机 long，由 8 个 CSPRNG 字节大端构建。
 
 ### static int NextU32Bounded(int bound)
 
+`src/libraries/z42.crypto/src/SecureRandom.z42:42`
+
 [0, bound) 均匀分布的随机 int，用 rejection sampling 避免模偏差；bound ≤ 0 抛 `ArgumentException`。
 
 ## Sha1
+
+`src/libraries/z42.crypto/src/Sha1.z42:9`
 
 
 ```z42
@@ -800,21 +1072,31 @@ public static class Sha1 {
 
 ### static byte[] Hash(byte[] data)
 
+`src/libraries/z42.crypto/src/Sha1.z42:13`
+
 计算 SHA-1 原始摘要（20 字节）。
 
 ### static byte[] HashString(string s)
+
+`src/libraries/z42.crypto/src/Sha1.z42:36`
 
 对 UTF-8 编码后的字符串计算 SHA-1 摘要。
 
 ### static string HashHex(byte[] data)
 
+`src/libraries/z42.crypto/src/Sha1.z42:41`
+
 计算 SHA-1 摘要并输出小写十六进制。
 
 ### static string HashStringHex(string s)
 
+`src/libraries/z42.crypto/src/Sha1.z42:46`
+
 对 UTF-8 字符串计算 SHA-1 摘要并输出小写十六进制。
 
 ## Sha256
+
+`src/libraries/z42.crypto/src/Sha256.z42:35`
 
 
 ```z42
@@ -828,21 +1110,31 @@ public static class Sha256 {
 
 ### static byte[] Hash(byte[] data)
 
+`src/libraries/z42.crypto/src/Sha256.z42:39`
+
 计算 SHA-256 原始摘要（32 字节）。
 
 ### static byte[] HashString(string s)
+
+`src/libraries/z42.crypto/src/Sha256.z42:62`
 
 对 UTF-8 编码后的字符串计算 SHA-256 摘要。
 
 ### static string HashHex(byte[] data)
 
+`src/libraries/z42.crypto/src/Sha256.z42:67`
+
 计算 SHA-256 摘要并输出小写十六进制。
 
 ### static string HashStringHex(string s)
 
+`src/libraries/z42.crypto/src/Sha256.z42:72`
+
 对 UTF-8 字符串计算 SHA-256 摘要并输出小写十六进制。
 
 ## Sha3
+
+`src/libraries/z42.crypto/src/Sha3.z42:14`
 
 
 ```z42
@@ -884,133 +1176,199 @@ public static class Sha3 {
 
 ### static byte[] Hash224(byte[] data)
 
+`src/libraries/z42.crypto/src/Sha3.z42:18`
+
 计算 SHA3-224 原始摘要（28 字节）。
 
 ### static byte[] Hash256(byte[] data)
+
+`src/libraries/z42.crypto/src/Sha3.z42:20`
 
 计算 SHA3-256 原始摘要（32 字节）。
 
 ### static byte[] Hash384(byte[] data)
 
+`src/libraries/z42.crypto/src/Sha3.z42:22`
+
 计算 SHA3-384 原始摘要（48 字节）。
 
 ### static byte[] Hash512(byte[] data)
+
+`src/libraries/z42.crypto/src/Sha3.z42:24`
 
 计算 SHA3-512 原始摘要（64 字节）。
 
 ### static byte[] Hash224String(string s)
 
+`src/libraries/z42.crypto/src/Sha3.z42:27`
+
 对 UTF-8 字符串计算 SHA3-224 摘要。
 
 ### static byte[] Hash256String(string s)
+
+`src/libraries/z42.crypto/src/Sha3.z42:29`
 
 对 UTF-8 字符串计算 SHA3-256 摘要。
 
 ### static byte[] Hash384String(string s)
 
+`src/libraries/z42.crypto/src/Sha3.z42:31`
+
 对 UTF-8 字符串计算 SHA3-384 摘要。
 
 ### static byte[] Hash512String(string s)
+
+`src/libraries/z42.crypto/src/Sha3.z42:33`
 
 对 UTF-8 字符串计算 SHA3-512 摘要。
 
 ### static string Hash224Hex(byte[] data)
 
+`src/libraries/z42.crypto/src/Sha3.z42:36`
+
 计算 SHA3-224 摘要并输出小写十六进制。
 
 ### static string Hash256Hex(byte[] data)
+
+`src/libraries/z42.crypto/src/Sha3.z42:38`
 
 计算 SHA3-256 摘要并输出小写十六进制。
 
 ### static string Hash384Hex(byte[] data)
 
+`src/libraries/z42.crypto/src/Sha3.z42:40`
+
 计算 SHA3-384 摘要并输出小写十六进制。
 
 ### static string Hash512Hex(byte[] data)
+
+`src/libraries/z42.crypto/src/Sha3.z42:42`
 
 计算 SHA3-512 摘要并输出小写十六进制。
 
 ### static string Hash224StringHex(string s)
 
+`src/libraries/z42.crypto/src/Sha3.z42:45`
+
 对 UTF-8 字符串计算 SHA3-224 摘要并输出小写十六进制。
 
 ### static string Hash256StringHex(string s)
+
+`src/libraries/z42.crypto/src/Sha3.z42:47`
 
 对 UTF-8 字符串计算 SHA3-256 摘要并输出小写十六进制。
 
 ### static string Hash384StringHex(string s)
 
+`src/libraries/z42.crypto/src/Sha3.z42:49`
+
 对 UTF-8 字符串计算 SHA3-384 摘要并输出小写十六进制。
 
 ### static string Hash512StringHex(string s)
+
+`src/libraries/z42.crypto/src/Sha3.z42:51`
 
 对 UTF-8 字符串计算 SHA3-512 摘要并输出小写十六进制。
 
 ### static byte[] KeccakLegacy256(byte[] data)
 
+`src/libraries/z42.crypto/src/Sha3.z42:60`
+
 计算 legacy Keccak-256 原始摘要（32 字节，域分隔字节 0x01）。
 
 ### static byte[] KeccakLegacy512(byte[] data)
+
+`src/libraries/z42.crypto/src/Sha3.z42:62`
 
 计算 legacy Keccak-512 原始摘要（64 字节，域分隔字节 0x01）。
 
 ### static byte[] KeccakLegacy256String(string s)
 
+`src/libraries/z42.crypto/src/Sha3.z42:64`
+
 对 UTF-8 字符串计算 legacy Keccak-256 摘要。
 
 ### static byte[] KeccakLegacy512String(string s)
+
+`src/libraries/z42.crypto/src/Sha3.z42:66`
 
 对 UTF-8 字符串计算 legacy Keccak-512 摘要。
 
 ### static string KeccakLegacy256Hex(byte[] data)
 
+`src/libraries/z42.crypto/src/Sha3.z42:68`
+
 计算 legacy Keccak-256 摘要并输出小写十六进制。
 
 ### static string KeccakLegacy512Hex(byte[] data)
+
+`src/libraries/z42.crypto/src/Sha3.z42:70`
 
 计算 legacy Keccak-512 摘要并输出小写十六进制。
 
 ### static string KeccakLegacy256StringHex(string s)
 
+`src/libraries/z42.crypto/src/Sha3.z42:72`
+
 对 UTF-8 字符串计算 legacy Keccak-256 摘要并输出小写十六进制。
 
 ### static string KeccakLegacy512StringHex(string s)
+
+`src/libraries/z42.crypto/src/Sha3.z42:74`
 
 对 UTF-8 字符串计算 legacy Keccak-512 摘要并输出小写十六进制。
 
 ### static byte[] Shake128(byte[] data, int outputLen)
 
+`src/libraries/z42.crypto/src/Sha3.z42:83`
+
 SHAKE128 可扩展输出（`outputLen` ≥ 0）。
 
 ### static byte[] Shake256(byte[] data, int outputLen)
+
+`src/libraries/z42.crypto/src/Sha3.z42:90`
 
 SHAKE256 可扩展输出（`outputLen` ≥ 0）。
 
 ### static byte[] Shake128String(string s, int outputLen)
 
+`src/libraries/z42.crypto/src/Sha3.z42:97`
+
 对 UTF-8 字符串做 SHAKE128 可扩展输出。
 
 ### static byte[] Shake256String(string s, int outputLen)
+
+`src/libraries/z42.crypto/src/Sha3.z42:99`
 
 对 UTF-8 字符串做 SHAKE256 可扩展输出。
 
 ### static string Shake128Hex(byte[] data, int outputLen)
 
+`src/libraries/z42.crypto/src/Sha3.z42:101`
+
 SHAKE128 可扩展输出并输出小写十六进制。
 
 ### static string Shake256Hex(byte[] data, int outputLen)
+
+`src/libraries/z42.crypto/src/Sha3.z42:103`
 
 SHAKE256 可扩展输出并输出小写十六进制。
 
 ### static string Shake128StringHex(string s, int outputLen)
 
+`src/libraries/z42.crypto/src/Sha3.z42:105`
+
 对 UTF-8 字符串做 SHAKE128 可扩展输出并输出小写十六进制。
 
 ### static string Shake256StringHex(string s, int outputLen)
 
+`src/libraries/z42.crypto/src/Sha3.z42:107`
+
 对 UTF-8 字符串做 SHAKE256 可扩展输出并输出小写十六进制。
 
 ## Sha384
+
+`src/libraries/z42.crypto/src/Sha384.z42:7`
 
 
 ```z42
@@ -1024,21 +1382,31 @@ public static class Sha384 {
 
 ### static byte[] Hash(byte[] data)
 
+`src/libraries/z42.crypto/src/Sha384.z42:9`
+
 计算 SHA-384 原始摘要（48 字节）。
 
 ### static byte[] HashString(string s)
+
+`src/libraries/z42.crypto/src/Sha384.z42:29`
 
 对 UTF-8 编码后的字符串计算 SHA-384 摘要。
 
 ### static string HashHex(byte[] data)
 
+`src/libraries/z42.crypto/src/Sha384.z42:31`
+
 计算 SHA-384 摘要并输出小写十六进制。
 
 ### static string HashStringHex(string s)
 
+`src/libraries/z42.crypto/src/Sha384.z42:33`
+
 对 UTF-8 字符串计算 SHA-384 摘要并输出小写十六进制。
 
 ## Sha512
+
+`src/libraries/z42.crypto/src/Sha512.z42:9`
 
 
 ```z42
@@ -1059,42 +1427,66 @@ public static class Sha512 {
 
 ### static byte[] Hash(byte[] data)
 
+`src/libraries/z42.crypto/src/Sha512.z42:13`
+
 计算 SHA-512 原始摘要（64 字节）。
 
 ### static byte[] HashString(string s)
+
+`src/libraries/z42.crypto/src/Sha512.z42:32`
 
 对 UTF-8 编码后的字符串计算 SHA-512 摘要。
 
 ### static string HashHex(byte[] data)
 
+`src/libraries/z42.crypto/src/Sha512.z42:34`
+
 计算 SHA-512 摘要并输出小写十六进制。
 
 ### static string HashStringHex(string s)
+
+`src/libraries/z42.crypto/src/Sha512.z42:36`
 
 对 UTF-8 字符串计算 SHA-512 摘要并输出小写十六进制。
 
 ### static long[] _initialHash()
 
+`src/libraries/z42.crypto/src/Sha512.z42:43`
+
 
 ### static byte[] _pad(byte[] data)
+
+`src/libraries/z42.crypto/src/Sha512.z42:102`
 
 
 ### static void _compressBlock(long[] h, byte[] block, int offset)
 
+`src/libraries/z42.crypto/src/Sha512.z42:121`
+
 
 ### static long _lshr64(long x, int n)
+
+`src/libraries/z42.crypto/src/Sha512.z42:184`
 
 
 ### static long _rotr64(long x, int n)
 
+`src/libraries/z42.crypto/src/Sha512.z42:191`
+
 
 ### static long _readBE64(byte[] data, int offset)
+
+`src/libraries/z42.crypto/src/Sha512.z42:197`
 
 
 ### static void _writeBE64(byte[] data, int offset, long v)
 
+`src/libraries/z42.crypto/src/Sha512.z42:210`
+
 
 ## X25519
+
+`src/libraries/z42.crypto/src/X25519.z42:11`
 
 
 ```z42
@@ -1108,17 +1500,25 @@ public static class X25519 {
 
 ### static int U_BASE
 
+`src/libraries/z42.crypto/src/X25519.z42:15`
+
 Curve25519 基点 u 坐标（RFC 7748 §4.1）。
 
 ### static byte[] Clamp(byte[] scalar)
+
+`src/libraries/z42.crypto/src/X25519.z42:21`
 
 按 RFC 7748 §5 clamp 32 字节标量：清 byte0 低 3 位、清 byte31 最高位、置 byte31 次高位， 返回新的 clamp 副本（不改入参）。
 
 ### static byte[] ScalarMult(byte[] scalar, byte[] point)
 
+`src/libraries/z42.crypto/src/X25519.z42:37`
+
 X25519 标量乘：`scalar × point`（各 32 字节小端编码）。`scalar` 内部自动 clamp（RFC 7748 §5）， 调用方不必预 clamp。
 
 ### static byte[] ScalarMultBase(byte[] scalar)
+
+`src/libraries/z42.crypto/src/X25519.z42:60`
 
 便捷形式：`scalar × 基点`（u=9），即由私钥派生公钥。
 

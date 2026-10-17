@@ -14,7 +14,7 @@
    还活着、被谁钉住」。
 
 没有 tracing / span、没有 metrics 导出、没有计时器（计时用 `Std.Time.Stopwatch`，见
-[time](time.md)）。
+[Stopwatch](core.Stopwatch.md)）。
 
 ## 不支持
 
@@ -31,6 +31,8 @@
 
 ## Heap
 
+`src/libraries/z42.diagnostics/src/Heap.z42:4`
+
 堆保留诊断：回答「某对象为什么没被回收、被谁钉住」。
 
 ```z42
@@ -42,13 +44,19 @@ public static class Heap {
 
 ### static extern Retainer[] DirectReferrers(object target)
 
+`src/libraries/z42.diagnostics/src/Heap.z42:7`
+
 直接持有 `target` 引用的堆对象（object / array）列表；非堆对象返回空。
 
 ### static extern RootRef[] RetainingRoots(object target)
 
+`src/libraries/z42.diagnostics/src/Heap.z42:11`
+
 从 `target` 反向可达的 GC 根（类别级，去重）；非堆对象返回空。
 
 ## Log
+
+`src/libraries/z42.diagnostics/src/Log.z42:32`
 
 全局单例日志门面，无 named logger、无 sink 配置。
 
@@ -73,61 +81,91 @@ public static class Log {
 
 ### static void SetMinLevel(int level)
 
+`src/libraries/z42.diagnostics/src/Log.z42:36`
+
 设置全局最低输出级别，低于该级别的调用被整条丢弃。
 
 ### static int GetMinLevel()
+
+`src/libraries/z42.diagnostics/src/Log.z42:41`
 
 返回全局最低输出级别。
 
 ### static bool IsEnabled(int level)
 
+`src/libraries/z42.diagnostics/src/Log.z42:46`
+
 该级别当前是否会输出；构造昂贵的 message 前先问一句。
 
 ### static void Trace(string msg)
+
+`src/libraries/z42.diagnostics/src/Log.z42:51`
 
 输出一条 TRACE 级别日志。
 
 ### static void Debug(string msg)
 
+`src/libraries/z42.diagnostics/src/Log.z42:53`
+
 输出一条 DEBUG 级别日志。
 
 ### static void Info(string msg)
+
+`src/libraries/z42.diagnostics/src/Log.z42:55`
 
 输出一条 INFO 级别日志。
 
 ### static void Warn(string msg)
 
+`src/libraries/z42.diagnostics/src/Log.z42:57`
+
 输出一条 WARN 级别日志。
 
 ### static void Error(string msg)
+
+`src/libraries/z42.diagnostics/src/Log.z42:59`
 
 输出一条 ERROR 级别日志。
 
 ### static void Trace(string msg, LogFields fields)
 
+`src/libraries/z42.diagnostics/src/Log.z42:62`
+
 输出一条 TRACE 级别日志，可附加结构化字段（`fields` 为 null 等同不带字段）。
 
 ### static void Debug(string msg, LogFields fields)
+
+`src/libraries/z42.diagnostics/src/Log.z42:64`
 
 输出一条 DEBUG 级别日志，可附加结构化字段（`fields` 为 null 等同不带字段）。
 
 ### static void Info(string msg, LogFields fields)
 
+`src/libraries/z42.diagnostics/src/Log.z42:66`
+
 输出一条 INFO 级别日志，可附加结构化字段（`fields` 为 null 等同不带字段）。
 
 ### static void Warn(string msg, LogFields fields)
+
+`src/libraries/z42.diagnostics/src/Log.z42:68`
 
 输出一条 WARN 级别日志，可附加结构化字段（`fields` 为 null 等同不带字段）。
 
 ### static void Error(string msg, LogFields fields)
 
+`src/libraries/z42.diagnostics/src/Log.z42:70`
+
 输出一条 ERROR 级别日志，可附加结构化字段（`fields` 为 null 等同不带字段）。
 
 ### static string FormatHeader(int level, DateTime now)
 
+`src/libraries/z42.diagnostics/src/Log.z42:87`
+
 单独生成 `[LEVEL 时间戳]` 头，供调用方 / 测试探查格式而不必绕 stderr。
 
 ## LogFields
+
+`src/libraries/z42.diagnostics/src/LogFields.z42:4`
 
 logfmt 风格的键值附件，链式 `Add`。
 
@@ -142,21 +180,31 @@ public sealed class LogFields {
 
 ### LogFields()
 
+`src/libraries/z42.diagnostics/src/LogFields.z42:11`
+
 构造一个空的字段集。
 
 ### LogFields Add(string key, string value)
+
+`src/libraries/z42.diagnostics/src/LogFields.z42:19`
 
 追加一个键值对，返回 `this` 以便链式调用。
 
 ### int Count()
 
+`src/libraries/z42.diagnostics/src/LogFields.z42:28`
+
 返回已添加的字段数量。
 
 ### string Format()
 
+`src/libraries/z42.diagnostics/src/LogFields.z42:31`
+
 格式化为 ` key1="v1" key2="v2"`（非空时带前导空格），无字段时返回空字符串。
 
 ## LogLevel
+
+`src/libraries/z42.diagnostics/src/LogLevel.z42:4`
 
 日志级别：普通 int 常量（非 enum），越大越严重。
 
@@ -173,29 +221,43 @@ public static class LogLevel {
 
 ### static int Trace
 
+`src/libraries/z42.diagnostics/src/LogLevel.z42:6`
+
 TRACE 级别常量（0，最低）。
 
 ### static int Debug
+
+`src/libraries/z42.diagnostics/src/LogLevel.z42:8`
 
 DEBUG 级别常量（1）。
 
 ### static int Info
 
+`src/libraries/z42.diagnostics/src/LogLevel.z42:10`
+
 INFO 级别常量（2，默认最低输出级别）。
 
 ### static int Warn
+
+`src/libraries/z42.diagnostics/src/LogLevel.z42:12`
 
 WARN 级别常量（3）。
 
 ### static int Error
 
+`src/libraries/z42.diagnostics/src/LogLevel.z42:14`
+
 ERROR 级别常量（4，最高）。
 
 ### static string Name(int level)
 
+`src/libraries/z42.diagnostics/src/LogLevel.z42:18`
+
 返回 level 的大写名字。未知 level 返回 "LEVEL<n>"。 返回值保留 SCREAMING_SNAKE 作业界 log 格式约定；与字段大小写无关。
 
 ## Retainer
+
+`src/libraries/z42.diagnostics/src/Retainer.z42:4`
 
 直接引用 target 的堆对象（`Heap.DirectReferrers` 的元素，字段由 VM 写入）。
 
@@ -208,13 +270,19 @@ public sealed class Retainer {
 
 ### string TypeName
 
+`src/libraries/z42.diagnostics/src/Retainer.z42:6`
+
 引用者类型名（数组以 "[]" 结尾，如 "int[]"）。
 
 ### long Id
 
+`src/libraries/z42.diagnostics/src/Retainer.z42:8`
+
 引用者的堆身份（稳定 id，用于区分同类型的不同实例）。
 
 ## RootKind
+
+`src/libraries/z42.diagnostics/src/RootKind.z42:4`
 
 GC 根类别。
 
@@ -228,6 +296,8 @@ public enum RootKind {
 
 ## RootRef
 
+`src/libraries/z42.diagnostics/src/RootRef.z42:4`
+
 保留 target 的 GC 根（类别级；`Heap.RetainingRoots` 的元素）。
 
 ```z42
@@ -238,9 +308,13 @@ public sealed class RootRef {
 
 ### RootKind Kind
 
+`src/libraries/z42.diagnostics/src/RootRef.z42:6`
+
 根类别（由 VM 写入）。
 
 ## RuntimeCounters
+
+`src/libraries/z42.diagnostics/src/RuntimeCounters.z42:4`
 
 VM 运行时累计计数快照（由 VM 直接填充，用户不能 new）。
 
@@ -262,49 +336,73 @@ public class RuntimeCounters {
 
 ### long BuiltinCalls { get; }
 
+`src/libraries/z42.diagnostics/src/RuntimeCounters.z42:8`
+
 调用的 builtin 函数次数（`__str_length` / `__print` / …）。
 
 ### long NativeCalls { get; }
+
+`src/libraries/z42.diagnostics/src/RuntimeCounters.z42:11`
 
 派发的 native FFI 调用次数（用户 `[Native]` extern 方法）。
 
 ### long JitMethodsCompiled { get; }
 
+`src/libraries/z42.diagnostics/src/RuntimeCounters.z42:14`
+
 JIT 编译的方法数（tier-up 编译触发）。
 
 ### long JitCompileUsTotal { get; }
+
+`src/libraries/z42.diagnostics/src/RuntimeCounters.z42:17`
 
 累计 JIT 编译墙钟时间（微秒）；per-compile span 计时未接线时为 0。
 
 ### long JitNativeFromInterp { get; }
 
+`src/libraries/z42.diagnostics/src/RuntimeCounters.z42:20`
+
 mixed-mode：interp 帧把已编译 callee 路由到其 native code 的次数（>0 = mixed-mode 生效）。
 
 ### long ExceptionsThrown { get; }
+
+`src/libraries/z42.diagnostics/src/RuntimeCounters.z42:23`
 
 抛出的用户异常数（`throw` + VM 抬升的算术/类型错误）。
 
 ### long ExceptionsCaught { get; }
 
+`src/libraries/z42.diagnostics/src/RuntimeCounters.z42:26`
+
 被 `try/catch` 捕获的异常数。
 
 ### long Allocations { get; }
+
+`src/libraries/z42.diagnostics/src/RuntimeCounters.z42:31`
 
 自堆创建以来累计的对象 alloc 次数（HeapStats.allocations SoT）。
 
 ### long MinorCollections { get; }
 
+`src/libraries/z42.diagnostics/src/RuntimeCounters.z42:34`
+
 generational minor（young-gen）回收次数。
 
 ### long MajorCollections { get; }
+
+`src/libraries/z42.diagnostics/src/RuntimeCounters.z42:37`
 
 major（whole-heap）回收次数。
 
 ### long ReclaimedBytes { get; }
 
+`src/libraries/z42.diagnostics/src/RuntimeCounters.z42:40`
+
 累计回收字节数。
 
 ## RuntimeStats
+
+`src/libraries/z42.diagnostics/src/RuntimeStats.z42:4`
 
 读取 VM 自身累计运行计数（alloc / GC / 异常 / JIT）的第一方入口。
 
@@ -315,6 +413,8 @@ public static class RuntimeStats {
 ```
 
 ### static extern RuntimeCounters Counters()
+
+`src/libraries/z42.diagnostics/src/RuntimeStats.z42:7`
 
 读取自 VM 启动以来的累计计数快照（各计数独立读取，彼此有微小 skew）。
 

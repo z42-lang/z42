@@ -1,21 +1,17 @@
 namespace Std;
 
-// Declaration visibility of a reflected `Type`, as recorded in the zbc 1.33
-// class-visibility byte (complete-class-access-control). Mirrors the four access
-// levels a type declaration can carry. Read via `Type.Visibility`.
-//
-// Top-level types only ever carry `Public` or `Internal` (E0442 rejects a
-// top-level `private` / `protected`); nested types may carry any of the four.
-// Pair `Type.Visibility` with `Type.IsNested` to reconstruct C#'s IsPublic /
-// IsNestedPrivate / … distinctions, e.g.:
-//   bool topLevelPublic = t.Visibility == TypeVisibility.Public && !t.IsNested;
-//   bool nestedPrivate  = t.Visibility == TypeVisibility.Private &&  t.IsNested;
-//
-// Handle-less Types (primitive / array) report `Public` — they behave as public
-// top-level types, mirroring C#.
+// 记录在 zbc 1.33 class-visibility 字节里的类型声明可见性。顶层类型只能是 Public 或
+// Internal（E0442 拒绝顶层 private / protected）；嵌套类型可取四种任一。
+
+/// 反射 `Type` 的声明可见性。经 `Type.Visibility` 读取；无句柄 Type（基元/数组）报 `Public`。
+/// 顶层类型只有 `Public` / `Internal`；嵌套类型可取四种任一。
 public enum TypeVisibility {
-    Public,     // = 0  `public`
-    Private,    // = 1  `private`   (nested only)
-    Protected,  // = 2  `protected` (nested only; C# "family")
-    Internal,   // = 3  `internal`  (C# "assembly")
+    /// = 0 `public`
+    Public,
+    /// = 1 `private`（仅嵌套）
+    Private,
+    /// = 2 `protected`（仅嵌套；C# "family"）
+    Protected,
+    /// = 3 `internal`（C# "assembly"）
+    Internal,
 }

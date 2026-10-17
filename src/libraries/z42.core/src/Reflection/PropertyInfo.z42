@@ -1,60 +1,43 @@
 namespace Std.Reflection;
 
-// Reflected property. Populated by `Type.GetProperties()` (`__type_properties`).
-// Mirrors C# `System.Reflection.PropertyInfo`. GetValue / SetValue read and write
-// the value by reflectively invoking the `get_<X>` / `set_<X>` accessors through
-// the non-generic invoke path (add-method-invoke-non-generic) — no generic
-// instantiation required.
-//
-// Derived purely at runtime from the `get_<X>` / `set_<X>` accessor-method
-// convention (auto-properties desugar to a field + get_/set_ methods): a getter
-// makes the property readable, a setter writable; getter + setter for the same
-// name merge into one PropertyInfo. No persisted property metadata and no
-// wire-format change — the accessor names live in the type's method table and
-// the property type comes from the accessor signature.
+/// 反射属性，对标 C# `System.Reflection.PropertyInfo`，由 `Type.GetProperties()` 填充。
+///
+/// 由 `get_<X>` / `set_<X>` 访问器方法约定在运行时派生（auto-property 降解为字段 + get_/set_ 方法）：
+/// getter 使其可读、setter 使其可写，同名 getter + setter 合并为一条。`GetValue` / `SetValue` 经非泛型
+/// invoke 路径反射调用访问器。
 public class PropertyInfo : MemberInfo {
-    // Property type — the getter's return type, or the setter's value-parameter
-    // type for write-only properties. Written by the VM.
+    /// 属性类型——getter 的返回类型；只写属性取 setter 的值形参类型。
     public Std.Type PropertyType;
 
-    // True if the property has a getter (`get_<Name>`).
+    /// 是否有 getter（`get_<Name>`）。
     public bool CanRead;
 
-    // True if the property has a setter (`set_<Name>`).
+    /// 是否有 setter（`set_<Name>`）。
     public bool CanWrite;
 
-    // Qualified names of the accessor functions, stamped by the VM in
-    // `__type_properties`. Null when the property lacks that accessor. Used by
-    // GetValue / SetValue to resolve the function to invoke.
+    // 访问器函数的全限定名（VM 在 __type_properties 里盖章）；缺该访问器时为 null。GetValue / SetValue 据此解析要调的函数。
     public string __getterQualified;
     public string __setterQualified;
 
-    // Read this property's value off `obj` by invoking its getter. Throws
-    // `Std.Exception` for a write-only property (no getter).
+    /// 经 getter 从 `obj` 读出本属性值。只写属性（无 getter）抛 `Std.Exception`。
     [Native("__property_get_value")]
     public extern object GetValue(object obj);
 
-    // Write `value` to this property on `obj` by invoking its setter. Throws
-    // `Std.Exception` for a read-only property (no setter).
+    /// 经 setter 把 `value` 写入 `obj` 上的本属性。只读属性（无 setter）抛 `Std.Exception`。
     [Native("__property_set_value")]
     public extern void SetValue(object obj, object value);
 
-    // ── Custom attributes (add-array-property-reflection-api) ────────────────
-    // Mirrors FieldInfo's attr API. An auto-property desugars to a private backing
-    // field `__prop_<Name>`; the compiler attaches the property's attributes to that
-    // field, so the native resolves them from the accessor-qualified name (stripping
-    // the get_/set_ prefix → the backing field) — no persisted property metadata and
-    // no wire-format change. Computed properties (no backing field) carry none.
+    // ── 自定义 attribute ─────────────────────────────────────────────────────
+    // auto-property 降解为私有后备字段 `__prop_<Name>`，编译器把属性上的 attribute 挂到该字段，故 native
+    // 从访问器全限定名（剥掉 get_/set_ 前缀 → 后备字段）解析。纯计算属性（无后备字段）没有 attribute。
 
-    // Cached attribute instances (see FieldInfo.GetCustomAttributes for rationale).
+    // 缓存的 attribute 实例（缓存理由见 FieldInfo.GetCustomAttributes）。
     public Std.Attribute[] __attrCache;
 
     [Native("__property_custom_attributes")]
     public extern Std.Attribute[] __customAttributes(string qualified);
 
-    // User attributes applied to this property, as live instances. Cached. Uses the
-    // accessor-qualified name (getter preferred, else setter) — avoids depending on a
-    // VM-written property-qualified field the bootstrap seed may lack.
+    /// 本属性上应用的 attribute，以活实例返回；首次调用后缓存。用访问器全限定名（getter 优先，否则 setter）解析。
     public Std.Attribute[] GetCustomAttributes() {
         if (this.__attrCache != null) {
             return this.__attrCache;
@@ -69,8 +52,7 @@ public class PropertyInfo : MemberInfo {
         return this.__attrCache;
     }
 
-    // The single attribute of the given type, or null if absent. Compares by the
-    // instance's runtime type (FullName), so subclass attributes match too.
+    /// 指定类型的单个 attribute，无则返回 null。按实例运行期类型的 FullName 比较，子类 attribute 也匹配。
     public Std.Attribute? GetAttribute(Std.Type attributeType) {
         Std.Attribute[] all = this.GetCustomAttributes();
         int i = 0;

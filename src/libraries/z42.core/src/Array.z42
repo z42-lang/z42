@@ -2,73 +2,58 @@ namespace Std;
 
 using Std.Collections;
 
-// 2026-05-07 add-array-base-class (P4-Array v1):
-// 所有 T[] 在运行时是 `Std.Array` 的实例。编译器特殊处理 is-a：`Z42ArrayType`
-// 视作 `Z42ClassType("Std.Array")` 的子类型；VM 端 `Value::Array` 不携带
-// TypeDesc 引用，VCall 通过 `primitive_class_name` 路由到 `Std.Array.<method>`
-// 直查 func_index（与 Std.Int32 / Std.String 同款）。
+// 所有 `T[]` 在运行时是 `Std.Array` 的实例：编译器把数组类型视作 `Std.Array` 的子类型，
+// VM 端 `Value::Array` 不携带 TypeDesc 引用，VCall 按 `Std.Array.<method>` 直查 func_index
+// （与 Std.Int32 / Std.String 同款）。
 //
-// 用户不能 `new Array()` —— `T[]` 通过 `array_new` IR 指令构造。
-// 用户不能继承 Array —— `sealed` 阻止派生。
+// 用户不能 `new Array()`（`T[]` 经 `array_new` IR 指令构造），也不能继承（`sealed`）。
 //
-// v1 暴露：Length（IR `array_len` 快路径）+ Clone。
-//
-// Object 协议成员（GetType / Equals / GetHashCode / ToString）**不在此显式声明**：
-// 数组接收者在 TypeChecker 走 loose-bind（`Z42ArrayType` 不匹配任何成员解析分支，
-// 方法名原样 emit），运行期 VCall 的 primitive/array 派发先查 `Std.Array.<method>`、
-// miss 后兜底 `Std.Object.<method>`（interp/exec_vcall.rs + jit/helpers/vcall.rs）。
-// 这四个协议方法与 `Std.Object` 绑定同一批 `__obj_*` builtin、无任何数组专属行为，
-// 故直接继承基类实现即可（与 Std.Int32 等基元类同款——它们也不重声明这些）。
-//
-// 后续 spec：静态算法（Sort/IndexOf/...） / IEnumerable 接入 / 协变 /
-// 元素类型反射元数据。
+// Object 协议成员（GetType / Equals / GetHashCode / ToString）不在此显式声明：数组接收者
+// 走 loose-bind，运行期 VCall 先查 `Std.Array.<method>`、miss 后兜底 `Std.Object.<method>`。
+// 这四个协议方法与 `Std.Object` 绑定同一批 `__obj_*` builtin、无数组专属行为，直接继承基类
+// 即可（与 Std.Int32 等基元类同款）。
+
+/// 所有 `T[]` 的运行时基类。元素读写、克隆与静态算法（Sort / IndexOf / Find / ...）
+/// 都经此类；用户不能 `new Array()`，也不能继承。
 public sealed class Array {
-    // 字段占位 —— 实际值由 IR `array_len` 直读；TypeChecker 看到 `arr.Length`
-    // 时仍 emit FieldGet（VM `Value::Array` 已 hardcoded "Length" 分支返
-    // i64 Length）。
+    /// 元素个数。实际值由 IR `array_len` 直读，此字段仅为类型检查占位。
     public int Length;
 
-    // 浅拷贝。元素是引用类型 → 共享引用；与 C# `System.Array.Clone()` 语义一致。
+    /// 浅拷贝。元素是引用类型时共享引用（同 C# `System.Array.Clone()`）。
     [Native("__array_clone")]
     public extern Object Clone();
 
-    // ── 反射式建/读写（add-array-property-reflection-api）─────────────────────
+    // ── 反射式建/读写 ─────────────────────────────────────────────────────────
     // 照搬 C# System.Array：以运行期 Type 建数组、以实例方法读写元素，供反射式
     // (de)serialization 在编译期不知元素类型时操作数组。native 绑既有 builtin。
 
-    // C# `Array.CreateInstance(Type, int)`：以元素类型 + 长度建一维数组（元素为该类型默认值）。
+    /// 以元素类型 + 长度建一维数组（元素为该类型默认值）。
     [Native("__array_create")]
     public static extern Array CreateInstance(Type elementType, int length);
 
-    // C# `object GetValue(int)`：读元素 index（基元装箱为对应包装类，引用元素原样）。
+    /// 读元素 `index`（基元装箱为对应包装类，引用元素原样）。
     [Native("__array_get")]
     public extern Object GetValue(int index);
 
-    // C# `void SetValue(object value, int index)`：写 value 到元素 index（value 在前，
-    // 与 C# 原生签名一致；native `__array_set` 按 (array, value, index) 读取）。
+    /// 写 `value` 到元素 `index`（`value` 在前，与 C# 原生签名一致）。
     [Native("__array_set")]
     public extern void SetValue(Object value, int index);
 
-    // perf-bulk-array-copy：区间批量拷贝原语（对标 C# 非泛型
-    // `System.Array.Copy(Array, int, Array, int, int)`）。下面的泛型 `Copy<T>` 只做参数
-    // 校验，搬运本身落到这一次 native 调用 —— 原来每个元素都要一次解释执行的
-    // ArrayGet + ArraySet。同一数组内区间重叠按 memmove 语义处理。
-    // script-first：这是**一个** bulk 原语（同 `__str_to_chars` / `__str_substring`），
-    // 算法（校验、边界、重叠方向的语义约定）仍在 script。
+    /// 区间批量拷贝原语：`destination[destinationIndex..] = source[sourceIndex..]`（`length` 个）。
+    // 脚本侧的泛型 `Copy<T>` 只做参数校验，搬运落到这一次 native 调用；同一数组内区间
+    // 重叠按 memmove 语义处理。
     [Native("__array_copy")]
     public static extern void CopyRange(Array source, int sourceIndex, Array destination, int destinationIndex, int length);
 
-    // `Sort()` 的基元快路径：`array[0, count)` 全是同一种基元（int 系 / double / char / string）
-    // 时原生稳定排序并返回 true —— 次序与元素自身 `CompareTo` 逐位一致（基元是 sealed，
-    // 那次虚调用的目标是确定的）；否则原样不动返回 false，调用方照常跑脚本归并排序。
+    // `Sort()` 的基元快路径：`array[0, count)` 全是同一种基元时原生稳定排序并返回 true；
+    // 否则原样不动返回 false，调用方照常跑脚本归并排序。
     [Native("__array_sort_prims")]
     internal static extern bool SortPrimitives(Array array, int count);
 
-    // ── Static algorithms (library-review PR-D, 2026-08-31) ───────────────────
-    // 兑现本类顶部注释里预告的「静态算法 Sort/IndexOf/...」。C# `System.Array.*`
-    // 对标，纯脚本泛型（同 List<T> 的 CompareTo / Func 比较器模型）。
+    // ── 静态算法 ─────────────────────────────────────────────────────────────
+    // C# `System.Array.*` 对标，纯脚本泛型（同 List<T> 的 CompareTo / Func 比较器模型）。
 
-    // First index of `value` (by `.Equals`), or -1. Mirrors List<T>.IndexOf.
+    /// `value` 首次出现的索引（按 `.Equals`），未命中 -1。
     public static int IndexOf<T>(T[] array, T value) {
         int n = array.Length;
         for (int i = 0; i < n; i++) {
@@ -77,8 +62,7 @@ public sealed class Array {
         return -1;
     }
 
-    // Copy the first `length` elements of `source` into `destination` (both
-    // start at 0). Throws when `length` exceeds either array.
+    /// 把 `source` 前 `length` 个元素拷入 `destination`（都从 0 起）。越界抛异常。
     public static void Copy<T>(T[] source, T[] destination, int length) {
         if (length < 0 || length > source.Length || length > destination.Length) {
             throw new Exception($"Array.Copy: length {length} out of range (src={source.Length}, dst={destination.Length})");
@@ -86,13 +70,13 @@ public sealed class Array {
         Array.CopyRange(source, 0, destination, 0, length);
     }
 
-    // Set every element to `value`.
+    /// 把每个元素都设为 `value`。
     public static void Fill<T>(T[] array, T value) {
         int n = array.Length;
         for (int i = 0; i < n; i++) { array[i] = value; }
     }
 
-    // Reverse the elements in place.
+    /// 原地反转元素顺序。
     public static void Reverse<T>(T[] array) {
         int lo = 0;
         int hi = array.Length - 1;
@@ -105,9 +89,8 @@ public sealed class Array {
         }
     }
 
-    // Stable ascending sort by the element's own `CompareTo` (same top-down
-    // merge sort as List<T>.Sort — one scratch buffer, O(n log n)).
-    public static void Sort<T>(T[] array) where T : IComparable {   // check-bare-type-param-member-access：`CompareTo` 由约束提供（此前靠松绑，裸 T 上零诊断）
+    /// 按元素自身 `CompareTo` 稳定升序排序（自顶向下归并，O(n log n)）。
+    public static void Sort<T>(T[] array) where T : IComparable {
         int n = array.Length;
         if (n < 2) return;
         if (Array.SortPrimitives(array, n)) return;
@@ -134,8 +117,7 @@ public sealed class Array {
         while (t < hi) { a[t] = scratch[t]; t = t + 1; }
     }
 
-    // Stable ascending sort under a caller-supplied comparator (< 0 ⇒ a before b),
-    // mirroring List<T>.Sort(Func<T,T,int>).
+    /// 按调用方提供的比较器（< 0 ⇒ a 在 b 前）稳定升序排序。
     public static void Sort<T>(T[] array, Func<T, T, int> comparison) {
         int n = array.Length;
         if (n < 2) return;
@@ -143,8 +125,7 @@ public sealed class Array {
         Array._mergeSortCmp<T>(array, scratch, 0, n, comparison);
     }
 
-    // Paired sort (C# System.Array.Sort<TKey,TValue>): sort `keys` ascending by
-    // CompareTo, applying the same permutation to `items` in parallel.
+    /// 成对排序：`keys` 按 `CompareTo` 升序，`items` 同步应用同一置换。
     public static void Sort<TKey, TValue>(TKey[] keys, TValue[] items) where TKey : IComparable {
         int n = keys.Length;
         if (n < 2) return;
@@ -189,12 +170,12 @@ public sealed class Array {
         while (t < hi) { a[t] = scratch[t]; t = t + 1; }
     }
 
-    // ── C# System.Array parity: predicate search / binary search / transform ──
-    // (add-array-csharp-algorithms, 2026-09-02) 纯脚本泛型；委托用 Std.Delegates
-    // 的 Predicate<T> / Func<T,R> / Action<T>。真原语（GetValue/SetValue/Clone/
-    // CreateInstance/Length）仍 native——这些算法只在其之上组合。
+    // ── C# System.Array 对齐：谓词查找 / 二分 / 变换 ──────────────────────────
+    // 纯脚本泛型；委托用 Std.Delegates 的 Predicate<T> / Func<T,R> / Action<T>。
+    // 真原语（GetValue/SetValue/Clone/CreateInstance/Length）仍 native——这些算法只在
+    // 其之上组合。
 
-    // First element matching `match`, or default(T). Mirrors System.Array.Find.
+    /// 第一个命中 `match` 的元素，未命中返回 default(T)。
     public static T Find<T>(T[] array, Predicate<T> match) {
         int n = array.Length;
         for (int i = 0; i < n; i++) {
@@ -203,7 +184,7 @@ public sealed class Array {
         return default(T);
     }
 
-    // Last element matching `match`, or default(T).
+    /// 最后一个命中 `match` 的元素，未命中返回 default(T)。
     public static T FindLast<T>(T[] array, Predicate<T> match) {
         int i = array.Length - 1;
         while (i >= 0) {
@@ -213,7 +194,7 @@ public sealed class Array {
         return default(T);
     }
 
-    // Index of first element matching `match`, or -1.
+    /// 第一个命中 `match` 的元素下标，未命中 -1。
     public static int FindIndex<T>(T[] array, Predicate<T> match) {
         int n = array.Length;
         for (int i = 0; i < n; i++) {
@@ -222,7 +203,7 @@ public sealed class Array {
         return -1;
     }
 
-    // Index of last element matching `match`, or -1.
+    /// 最后一个命中 `match` 的元素下标，未命中 -1。
     public static int FindLastIndex<T>(T[] array, Predicate<T> match) {
         int i = array.Length - 1;
         while (i >= 0) {
@@ -232,7 +213,7 @@ public sealed class Array {
         return -1;
     }
 
-    // All elements matching `match`, in order, as a right-sized new array.
+    /// 所有命中 `match` 的元素（按序，新数组，尺寸恰好）。
     public static T[] FindAll<T>(T[] array, Predicate<T> match) {
         int n = array.Length;
         T[] tmp = new T[n];
@@ -245,7 +226,7 @@ public sealed class Array {
         return result;
     }
 
-    // True iff any element matches `match`.
+    /// 是否存在任一元素命中 `match`。
     public static bool Exists<T>(T[] array, Predicate<T> match) {
         int n = array.Length;
         for (int i = 0; i < n; i++) {
@@ -254,7 +235,7 @@ public sealed class Array {
         return false;
     }
 
-    // True iff every element matches `match` (vacuously true for empty).
+    /// 是否每个元素都命中 `match`（空数组恒 true）。
     public static bool TrueForAll<T>(T[] array, Predicate<T> match) {
         int n = array.Length;
         for (int i = 0; i < n; i++) {
@@ -263,10 +244,8 @@ public sealed class Array {
         return true;
     }
 
-    // Binary search a `CompareTo`-ascending array. Returns the index of `value`
-    // if found; otherwise `~insertionPoint` (a negative value whose bitwise
-    // complement is where `value` should go to keep the array sorted) — C#
-    // System.Array.BinarySearch semantics.
+    /// 在按 `CompareTo` 升序的数组中二分查找。命中返回下标；否则返回 `~insertionPoint`
+    /// （其按位取反即保持有序的插入位置）。
     public static int BinarySearch<T>(T[] array, T value) where T : IComparable {
         int lo = 0;
         int hi = array.Length - 1;
@@ -280,12 +259,12 @@ public sealed class Array {
         return ~lo;
     }
 
-    // True iff `value` occurs in `array` (by `.Equals`).
+    /// `value` 是否出现在 `array` 中（按 `.Equals`）。
     public static bool Contains<T>(T[] array, T value) {
         return Array.IndexOf<T>(array, value) >= 0;
     }
 
-    // Last index of `value` (by `.Equals`), or -1.
+    /// `value` 最后一次出现的下标（按 `.Equals`），未命中 -1。
     public static int LastIndexOf<T>(T[] array, T value) {
         int i = array.Length - 1;
         while (i >= 0) {
@@ -295,7 +274,7 @@ public sealed class Array {
         return -1;
     }
 
-    // Project each element through `converter` into a new same-length array.
+    /// 把每个元素经 `converter` 投影到等长新数组。
     public static U[] ConvertAll<T, U>(T[] array, Func<T, U> converter) {
         int n = array.Length;
         U[] result = new U[n];
@@ -303,13 +282,13 @@ public sealed class Array {
         return result;
     }
 
-    // Invoke `action` on each element in order.
+    /// 对每个元素按序执行 `action`。
     public static void ForEach<T>(T[] array, Action<T> action) {
         int n = array.Length;
         for (int i = 0; i < n; i++) { action(array[i]); }
     }
 
-    // Set `array[index .. index+length)` to default(T). Throws on out-of-range.
+    /// 把 `[index, index+length)` 置为 default(T)。越界抛异常。
     public static void Clear<T>(T[] array, int index, int length) {
         if (index < 0 || length < 0 || index + length > array.Length) {
             throw new Exception($"Array.Clear: range [{index}, {index + length}) out of bounds (len={array.Length})");
@@ -317,9 +296,8 @@ public sealed class Array {
         for (int i = 0; i < length; i++) { array[index + i] = default(T); }
     }
 
-    // Return a new array of length `newSize`: prefix copied from `array`, any
-    // tail filled with default(T); a smaller `newSize` truncates. `array` itself
-    // is unchanged (C# uses `ref T[]`; here you assign the result back).
+    /// 返回长度为 `newSize` 的新数组：前缀拷自 `array`，尾部填 default(T)；`newSize` 更小时
+    /// 截断。原数组不变（C# 用 `ref T[]`，这里把结果赋回）。
     public static T[] Resize<T>(T[] array, int newSize) {
         if (newSize < 0) {
             throw new Exception($"Array.Resize: newSize {newSize} is negative");
@@ -328,29 +306,24 @@ public sealed class Array {
         int copy = array.Length;
         if (newSize < copy) { copy = newSize; }
         for (int i = 0; i < copy; i++) { result[i] = array[i]; }
-        // fix-generic-array-value-zero-init（方案 C）：泛型 `new T[newSize]` 现在对值类型 T 自动零
-        // 初始化尾部（VM 据 ArrayNew 的 type-param 操作数查 type_args 产零值），无需再显式填 default(T)。
         return result;
     }
 
-    // An empty (zero-length) T[].
+    /// 一个空（零长）的 `T[]`。
     public static T[] Empty<T>() {
         return new T[0];
     }
 
-    // ── Range / offset / paired overloads (C# System.Array parity) ────────────
+    // ── 区间 / 偏移 / 成对重载（C# System.Array 对齐）────────────────────────
 
-    // Shared bounds check for range overloads: throws when [index, index+length)
-    // escapes [0, array.Length).
+    // 区间重载共用的边界检查：`[index, index+length)` 越界即抛。
     static void _checkRange<T>(T[] array, int index, int length) {
         if (index < 0 || length < 0 || index + length > array.Length) {
             throw new Exception($"Array: range [{index}, {index + length}) out of bounds (length={array.Length})");
         }
     }
 
-    // Stable ascending sort of the sub-range [index, index+length) by CompareTo.
-    // Reuses _mergeSort (already parameterised on absolute [lo, hi)); scratch is
-    // full-length so absolute indices line up.
+    /// 按 `CompareTo` 稳定升序排序子区间 `[index, index+length)`。
     public static void Sort<T>(T[] array, int index, int length) where T : IComparable {
         Array._checkRange<T>(array, index, length);
         if (length < 2) return;
@@ -358,7 +331,7 @@ public sealed class Array {
         Array._mergeSort<T>(array, scratch, index, index + length);
     }
 
-    // Reverse the sub-range [index, index+length) in place.
+    /// 原地反转子区间 `[index, index+length)`。
     public static void Reverse<T>(T[] array, int index, int length) {
         Array._checkRange<T>(array, index, length);
         int lo = index;
@@ -372,17 +345,15 @@ public sealed class Array {
         }
     }
 
-    // Set `array[startIndex .. startIndex+count)` to `value`.
+    /// 把 `[startIndex, startIndex+count)` 置为 `value`。
     public static void Fill<T>(T[] array, T value, int startIndex, int count) {
         Array._checkRange<T>(array, startIndex, count);
         int end = startIndex + count;
         for (int i = startIndex; i < end; i++) { array[i] = value; }
     }
 
-    // Copy `length` elements from `source[sourceIndex..]` to
-    // `destination[destinationIndex..]`. Handles overlapping ranges within the
-    // same array (copies backward when moving toward higher indices), mirroring
-    // C# System.Array.Copy.
+    /// 从 `source[sourceIndex..]` 拷 `length` 个元素到 `destination[destinationIndex..]`。
+    /// 同一数组内重叠区间按 memmove 语义（向高索引移动时反向拷贝）。
     public static void Copy<T>(T[] source, int sourceIndex, T[] destination, int destinationIndex, int length) {
         if (length < 0 || sourceIndex < 0 || destinationIndex < 0
             || sourceIndex + length > source.Length
@@ -392,7 +363,7 @@ public sealed class Array {
         Array.CopyRange(source, sourceIndex, destination, destinationIndex, length);
     }
 
-    // First index of `value` at or after `startIndex` (by `.Equals`), or -1.
+    /// `value` 在 `startIndex` 及其后首次出现的下标（按 `.Equals`），未命中 -1。
     public static int IndexOf<T>(T[] array, T value, int startIndex) {
         int n = array.Length;
         for (int i = startIndex; i < n; i++) {
@@ -401,7 +372,7 @@ public sealed class Array {
         return -1;
     }
 
-    // First index of `value` within [startIndex, startIndex+count) (by `.Equals`), or -1.
+    /// `value` 在 `[startIndex, startIndex+count)` 内首次出现的下标（按 `.Equals`），未命中 -1。
     public static int IndexOf<T>(T[] array, T value, int startIndex, int count) {
         int end = startIndex + count;
         if (end > array.Length) { end = array.Length; }
@@ -411,7 +382,7 @@ public sealed class Array {
         return -1;
     }
 
-    // Last index of `value` at or before `startIndex`, searching backward (by `.Equals`), or -1.
+    /// 从 `startIndex` 起向前找 `value` 最后一次出现的下标（按 `.Equals`），未命中 -1。
     public static int LastIndexOf<T>(T[] array, T value, int startIndex) {
         int i = startIndex;
         while (i >= 0) {
@@ -421,8 +392,8 @@ public sealed class Array {
         return -1;
     }
 
-    // Binary search for `value` within the sorted sub-range [index, index+length)
-    // by CompareTo. Returns the element index, or ~insertionPoint when absent.
+    /// 在有序子区间 `[index, index+length)` 内按 `CompareTo` 二分查找 `value`。
+    /// 命中返回下标，否则返回 `~insertionPoint`。
     public static int BinarySearch<T>(T[] array, int index, int length, T value) where T : IComparable {
         int lo = index;
         int hi = index + length - 1;
@@ -436,9 +407,8 @@ public sealed class Array {
         return ~lo;
     }
 
-    // Binary search for `value` over the whole array under a caller-supplied
-    // comparator (`comparison(element, value)` < 0 ⇒ element before value).
-    // Returns the element index, or ~insertionPoint when absent.
+    /// 在调用方比较器（`comparison(element, value)` < 0 ⇒ element 在 value 前）下对全数组
+    /// 二分查找。命中返回下标，否则返回 `~insertionPoint`。
     public static int BinarySearch<T>(T[] array, T value, Func<T, T, int> comparison) {
         int lo = 0;
         int hi = array.Length - 1;
@@ -452,8 +422,7 @@ public sealed class Array {
         return ~lo;
     }
 
-    // Wrap `array` in a read-only view (对标 C# System.Array.AsReadOnly)。视图按引用包装，
-    // 不复制；对底层数组的读通过视图可见，但视图不提供任何变更操作。
+    /// 把 `array` 包装成只读视图（不复制，按引用包装；视图不提供任何变更操作）。
     public static ReadOnlyCollection<T> AsReadOnly<T>(T[] array) {
         return new ReadOnlyCollection<T>(array);
     }

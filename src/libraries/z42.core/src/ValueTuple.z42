@@ -1,29 +1,34 @@
 namespace Std;
 
-// Value tuples — the runtime carrier for tuple types / literals / patterns `(a, b, ...)`.
-// The surface syntax `(T1, ..., Tn)` desugars (in z42c) to `Std.ValueTupleN<T1, ..., Tn>`,
-// tuple literals `(a, b)` to `new Std.ValueTupleN<...>(a, b)`, and tuple patterns `(x, y)`
-// to positional destructuring of the corresponding struct fields Item1..ItemN.
+// 值元组——元组类型 / 字面量 / 模式 `(a, b, ...)` 的运行时载体。表面语法 `(T1, ..., Tn)`
+// 在 z42c 脱糖为 `Std.ValueTupleN<T1, ..., Tn>`，元组字面量 `(a, b)` 脱糖为
+// `new Std.ValueTupleN<...>(a, b)`，元组模式 `(x, y)` 脱糖为对应字段 Item1..ItemN 的
+// 位置解构。
 //
-// These are `[Record] struct` value types: heap-free blob layout (uniform 8-byte slots,
-// type-erased generics), value equality / hashing / ToString synthesised by the compiler.
-// Aligned with C# System.ValueTuple (struct value tuples, not the deprecated reference Tuple<>).
-// Arities 2..8 (a 1-element `(x)` is a parenthesised expression, not a tuple).
+// 这些是 `[Record] struct` 值类型：无堆 blob 布局（统一 8 字节槽、类型擦除泛型），
+// 值相等 / 哈希 / ToString 由编译器合成。对齐 C# System.ValueTuple（而非已废弃的引用
+// Tuple<>）。元数 2..8（单元素 `(x)` 是括号表达式，不是元组）。
+//
+// 必须 `public`：`(a, b)` 的脱糖目标由用户工程代码引用，默认 internal 会让 z42.core
+// 之外的任何包写元组就撞 E0404。
 
-// 必须 `public`：`(a, b)` 的脱糖目标由**用户工程**的代码引用，默认 internal 会让
-// 任何 z42.core 之外的包写元组就撞 E0404（欠债表 bug B2）。编译器脱糖引用的其余类型
-// （Attribute / Dictionary / List / Type / IDisposable / InvalidOperationException / Bencher）
-// 早已 public，只漏了这一组。
+/// 二元值元组（`(a, b)` 的运行时载体）。
 [Record] public struct ValueTuple2<T1, T2>(T1 Item1, T2 Item2);
 
+/// 三元值元组（`(a, b, c)` 的运行时载体）。
 [Record] public struct ValueTuple3<T1, T2, T3>(T1 Item1, T2 Item2, T3 Item3);
 
+/// 四元值元组（`(a, b, c, d)` 的运行时载体）。
 [Record] public struct ValueTuple4<T1, T2, T3, T4>(T1 Item1, T2 Item2, T3 Item3, T4 Item4);
 
+/// 五元值元组（`(a, b, c, d, e)` 的运行时载体）。
 [Record] public struct ValueTuple5<T1, T2, T3, T4, T5>(T1 Item1, T2 Item2, T3 Item3, T4 Item4, T5 Item5);
 
+/// 六元值元组（`(a, ..., f)` 的运行时载体）。
 [Record] public struct ValueTuple6<T1, T2, T3, T4, T5, T6>(T1 Item1, T2 Item2, T3 Item3, T4 Item4, T5 Item5, T6 Item6);
 
+/// 七元值元组（`(a, ..., g)` 的运行时载体）。
 [Record] public struct ValueTuple7<T1, T2, T3, T4, T5, T6, T7>(T1 Item1, T2 Item2, T3 Item3, T4 Item4, T5 Item5, T6 Item6, T7 Item7);
 
+/// 八元值元组（`(a, ..., h)` 的运行时载体）。
 [Record] public struct ValueTuple8<T1, T2, T3, T4, T5, T6, T7, T8>(T1 Item1, T2 Item2, T3 Item3, T4 Item4, T5 Item5, T6 Item6, T7 Item7, T8 Item8);

@@ -25,6 +25,8 @@
 
 ## Base32
 
+`src/libraries/z42.encoding/src/Base32.z42:9`
+
 Base32 编解码（RFC 4648 §6 标准变体）。
 
 字母表 `A-Z2-7`（严格大写），尾部用 `=` 补齐到 8 的倍数；`Decode` 只接受大写。
@@ -39,13 +41,19 @@ public static class Base32 {
 
 ### static string Encode(byte[] bytes)
 
+`src/libraries/z42.encoding/src/Base32.z42:13`
+
 把字节编码为 Base32 字符串（字母表 `A-Z2-7`，带 `=` padding）。
 
 ### static byte[] Decode(string s)
 
+`src/libraries/z42.encoding/src/Base32.z42:78`
+
 把 Base32 字符串解码为字节；只接受大写，严格校验。
 
 ## Base32Crockford
+
+`src/libraries/z42.encoding/src/Base32Crockford.z42:9`
 
 Crockford Base32 编解码。
 
@@ -61,13 +69,19 @@ public static class Base32Crockford {
 
 ### static string Encode(byte[] bytes)
 
+`src/libraries/z42.encoding/src/Base32Crockford.z42:13`
+
 把字节编码为 Crockford Base32 字符串（无 padding）。
 
 ### static byte[] Decode(string s)
 
+`src/libraries/z42.encoding/src/Base32Crockford.z42:72`
+
 解码 Crockford Base32 字符串；大小写不敏感，`-` 丢弃，`I`/`L`→`1`、`O`→`0`。
 
 ## Base32Hex
+
+`src/libraries/z42.encoding/src/Base32Hex.z42:9`
 
 Base32Hex 编解码（RFC 4648 §7）。
 
@@ -83,13 +97,19 @@ public static class Base32Hex {
 
 ### static string Encode(byte[] bytes)
 
+`src/libraries/z42.encoding/src/Base32Hex.z42:13`
+
 把字节编码为 Base32Hex 字符串（字母表 `0-9A-V`，带 `=` padding）。
 
 ### static byte[] Decode(string s)
 
+`src/libraries/z42.encoding/src/Base32Hex.z42:70`
+
 把 Base32Hex 字符串解码为字节；只接受大写，严格校验。
 
 ## Base64
+
+`src/libraries/z42.encoding/src/Base64.z42:8`
 
 Base64 编解码（RFC 4648 §4 标准变体）。
 
@@ -105,13 +125,19 @@ public static class Base64 {
 
 ### static string Encode(byte[] bytes)
 
+`src/libraries/z42.encoding/src/Base64.z42:13`
+
 把字节编码为标准 Base64 字符串（带 `=` padding）。
 
 ### static byte[] Decode(string s)
 
+`src/libraries/z42.encoding/src/Base64.z42:53`
+
 把标准 Base64 字符串解码为字节，严格校验。
 
 ## Base64Url
+
+`src/libraries/z42.encoding/src/Base64Url.z42:9`
 
 URL 与文件名安全 Base64（RFC 4648 §5）。
 
@@ -127,13 +153,19 @@ public static class Base64Url {
 
 ### static string Encode(byte[] bytes)
 
+`src/libraries/z42.encoding/src/Base64Url.z42:12`
+
 用 RFC 4648 §5 字母表（`+/` → `-_`）编码字节，输出不带 `=` padding。
 
 ### static byte[] Decode(string s)
 
+`src/libraries/z42.encoding/src/Base64Url.z42:28`
+
 解码 Base64URL 字符串；接受带或不带 padding，遇到 `+` / `/` 报错并提示改用 `Base64`。
 
 ## Encoding
+
+`src/libraries/z42.encoding/src/Encoding.z42:24`
 
 实例编码门面；当前只有 UTF-8 一种实现。
 
@@ -149,25 +181,37 @@ public class Encoding {
 
 ### Encoding(int kind)
 
+`src/libraries/z42.encoding/src/Encoding.z42:30`
+
 构造编码实例；`kind` 参数当前不影响行为（始终 UTF-8），请用 `Encoding.GetUtf8()` 而非手动 new。
 
 ### static Encoding GetUtf8()
+
+`src/libraries/z42.encoding/src/Encoding.z42:37`
 
 返回规范的 UTF-8 编码实例；同一 VM 生命周期内多次调用返回同一实例。
 
 ### byte[] GetBytes(string s)
 
+`src/libraries/z42.encoding/src/Encoding.z42:44`
+
 按当前编码把 `s` 编码为字节；等价于 `Utf8.GetBytes(s)`。
 
 ### string GetString(byte[] bytes)
+
+`src/libraries/z42.encoding/src/Encoding.z42:49`
 
 按当前编码把 `bytes` 解码为字符串，严格校验；等价于 `Utf8.GetString(bytes)`。
 
 ### string GetString(byte[] bytes, int offset, int count)
 
+`src/libraries/z42.encoding/src/Encoding.z42:54`
+
 解码切片 `bytes[offset..offset+count]`；`count == 0` 返回 `""`，越界抛 `ArgumentException`。
 
 ## EncodingSingletons
+
+`src/libraries/z42.encoding/src/Encoding.z42:73`
 
 通过静态缓存实现懒初始化的 UTF-8 单例持有类。
 
@@ -179,9 +223,13 @@ public static class EncodingSingletons {
 
 ### static Encoding Utf8()
 
+`src/libraries/z42.encoding/src/Encoding.z42:77`
+
 返回缓存的 UTF-8 编码实例（懒初始化）。
 
 ## Hex
+
+`src/libraries/z42.encoding/src/Hex.z42:8`
 
 Hex 编解码。
 
@@ -198,17 +246,25 @@ public static class Hex {
 
 ### static string Encode(byte[] bytes)
 
+`src/libraries/z42.encoding/src/Hex.z42:13`
+
 把字节编码为小写十六进制字符串。
 
 ### static string EncodeUpper(byte[] bytes)
+
+`src/libraries/z42.encoding/src/Hex.z42:18`
 
 把字节编码为大写十六进制字符串。
 
 ### static byte[] Decode(string hex)
 
+`src/libraries/z42.encoding/src/Hex.z42:36`
+
 把十六进制字符串解码为字节；接受混合大小写，严格校验。
 
 ## Utf16
+
+`src/libraries/z42.encoding/src/Utf16.z42:10`
 
 UTF-16 编解码（RFC 2781）。
 
@@ -228,21 +284,31 @@ public static class Utf16 {
 
 ### static byte[] GetBytesLE(string s)
 
+`src/libraries/z42.encoding/src/Utf16.z42:14`
+
 以小端字节序把 `s` 编码为 UTF-16 字节。
 
 ### static byte[] GetBytesBE(string s)
+
+`src/libraries/z42.encoding/src/Utf16.z42:16`
 
 以大端字节序把 `s` 编码为 UTF-16 字节。
 
 ### static string GetStringLE(byte[] bytes)
 
+`src/libraries/z42.encoding/src/Utf16.z42:71`
+
 以小端字节序把 UTF-16 字节解码为字符串。
 
 ### static string GetStringBE(byte[] bytes)
 
+`src/libraries/z42.encoding/src/Utf16.z42:73`
+
 以大端字节序把 UTF-16 字节解码为字符串。
 
 ## Utf32
+
+`src/libraries/z42.encoding/src/Utf32.z42:9`
 
 UTF-32 编解码（ISO/IEC 10646）。
 
@@ -261,21 +327,31 @@ public static class Utf32 {
 
 ### static byte[] GetBytesLE(string s)
 
+`src/libraries/z42.encoding/src/Utf32.z42:13`
+
 以小端字节序把 `s` 编码为 UTF-32 字节。
 
 ### static byte[] GetBytesBE(string s)
+
+`src/libraries/z42.encoding/src/Utf32.z42:15`
 
 以大端字节序把 `s` 编码为 UTF-32 字节。
 
 ### static string GetStringLE(byte[] bytes)
 
+`src/libraries/z42.encoding/src/Utf32.z42:55`
+
 以小端字节序把 UTF-32 字节解码为字符串。
 
 ### static string GetStringBE(byte[] bytes)
 
+`src/libraries/z42.encoding/src/Utf32.z42:57`
+
 以大端字节序把 UTF-32 字节解码为字符串。
 
 ## Utf8
+
+`src/libraries/z42.encoding/src/Utf8.z42:8`
 
 UTF-8 编解码：`string` ↔ `byte[]` 双向显式转换。
 
@@ -291,9 +367,13 @@ public static class Utf8 {
 
 ### static byte[] GetBytes(string s)
 
+`src/libraries/z42.encoding/src/Utf8.z42:10`
+
 把字符串编码为 UTF-8 字节。
 
 ### static string GetString(byte[] bytes)
+
+`src/libraries/z42.encoding/src/Utf8.z42:52`
 
 把 UTF-8 字节解码为字符串，严格校验。
 

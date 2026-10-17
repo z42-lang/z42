@@ -42,7 +42,7 @@ xtask test e2e --file std_assert                # 本库的 Main-based golden �
 
 ## 关联文档
 
-- 用法与规则（参考手册）：[标准库总览](../../../docs/reference/src/stdlib/README.md) · [字符串](../../../docs/reference/src/stdlib/string.md) · [反射](../../../docs/reference/src/stdlib/reflection.md)
+- 用法与规则（参考手册）：[标准库总览](../../../docs/reference/src/stdlib/README.md) · [字符串](../../../docs/reference/src/stdlib/core.String.md) · [反射](../../../docs/reference/src/stdlib/core.Type.md)
 - 设计 / 机制（实现内幕）：[标准库三层架构](../../../docs/internals/src/stdlib/architecture.md) · [包划分与 interop 归属](../../../docs/internals/src/stdlib/organization.md) · [平台识别的脚本表面](../../../docs/internals/src/runtime/stdlib-platform.md) · [GC 句柄表](../../../docs/internals/src/runtime/gc-handle.md) · [委托与事件的实现](../../../docs/internals/src/runtime/delegates-events.md)
 
 ## 设计要点

@@ -1,39 +1,26 @@
 namespace Std;
 
-// 2026-05-04 add-singlecast-event-idisposable-token (D-7-residual):
-// 通用 IDisposable 实现 + From(Action) 工厂。
-//
-// 设计意图：把"释放时调一段无参回调"的常见模式封装成稳定 API，避免每个调用方
-// 自定义 IDisposable 子类。**单播 event 合成的 add_X** 用此工厂返回 token：
-//
-//   public IDisposable add_OnKey(Action<int> h) {
-//       if (this._OnKey != null) throw new InvalidOperationException(...);
-//       this._OnKey = h;
-//       return Disposable.From(() => this.remove_OnKey(h));
-//   }
-//
-// 与 D-7 主体的 `remove_X` 等价；用户拿到 token 后 `token.Dispose()` 自动 cleanup。
-//
-// 设计选择（vs 嵌套 sealed token 类）：z42 当前不支持嵌套 class（仅嵌套 delegate），
-// 用 stdlib 工厂 + lambda 捕获 owner+handler 是 scope-fit 的解。
-//
-// 幂等：多次 Dispose() 安全，仅第一次触发 onDispose；之后是 noop。
-
+/// 通用 `IDisposable` 实现 + `From(Action)` 工厂：把「释放时调一段无参回调」的常见模式
+/// 封装成稳定 API，避免每个调用方自定义 IDisposable 子类。
+///
+/// 幂等：多次 `Dispose()` 安全，仅第一次触发 `onDispose`，之后 noop。
 public sealed class Disposable : IDisposable {
     private Action onDispose;
     private bool disposed;
 
+    /// 以释放回调构造。
     public Disposable(Action onDispose) {
         this.onDispose = onDispose;
         this.disposed = false;
     }
 
-    // 工厂：常见用法 `Disposable.From(() => ...)`，比直接 `new Disposable(...)`
-    // 表达更接近"创建一个一次性 dispose 句柄"的意图。
+    /// 工厂：`Disposable.From(() => ...)`，比直接 `new Disposable(...)` 更贴近「创建一个
+    /// 一次性 dispose 句柄」的意图。
     public static IDisposable From(Action onDispose) {
         return new Disposable(onDispose);
     }
 
+    /// 触发 `onDispose`（仅第一次；幂等）。
     public void Dispose() {
         if (this.disposed) return;
         this.disposed = true;

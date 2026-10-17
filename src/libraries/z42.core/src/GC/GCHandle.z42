@@ -1,38 +1,31 @@
 namespace Std;
 
-// reorganize-gc-stdlib (2026-05-07)：z42 端的统一 GC 句柄，对齐 C#
-// `System.Runtime.InteropServices.GCHandle`（IntPtr → CLR handle table）。
-//
-// `GCHandle` 是 struct，单字段 `_slot: long` —— corelib `HandleTable` 中的
-// slot id（0 = 未分配 sentinel）。拷贝 GCHandle 共享同一 slot：
-//
-//     var h1 = GCHandle.AllocStrong(target);
-//     var h2 = h1;          // 值拷贝；_slot 相同 → 共享 corelib slot
-//     h1.Free();            // h2.IsAllocated 也变 false（同一 slot 已释放）
-//
-// 与 `Std.WeakHandle`（轻量、自动回收、无 Free）的区别：GCHandle 双模
-// （Strong / Weak）+ 显式 Free，适合需要"anchor 目标到指定 scope 后再
-// 释放"或"切换 strong/weak"的场景；只想要简单弱引用用 WeakHandle。
-//
-// 原子值（int / string / bool / FuncRef / Closure / Null 等）：
-// - AllocStrong：slot 持 value clone（仍可 anchor）
-// - AllocWeak：返回 _slot=0 的 handle（IsAllocated=false；原子值不可弱化）
-
+/// GC 句柄模式：Weak = 弱引用（目标可被回收，Target 返回 null）；Strong = 强引用（anchor 目标直到 Free()）。
 public enum GCHandleType {
     Weak,    // = 0：弱引用，目标可被回收，Target 返回 null
     Strong,  // = 1：强引用，anchor 目标直到 Free()
 }
 
+// 实现笔记：`GCHandle` 是 struct，单字段 `_slot: long`（corelib HandleTable 的 slot id，0 = 未分配）。
+// 拷贝 GCHandle 共享同一 slot：任意副本 Free() 后所有副本一起失效。
+
+/// 统一 GC 句柄，对齐 C# `System.Runtime.InteropServices.GCHandle`。与 `Std.WeakHandle`
+/// （轻量、自动回收、无 Free）的区别：GCHandle 双模（Strong / Weak）+ 显式 Free。
+/// 原子值（int / string / bool / 委托 / null 等）只能 `AllocStrong`（slot 持值拷贝）；
+/// `AllocWeak` 得到未分配句柄（`IsAllocated` = false，原子值不可弱化）。
 public struct GCHandle {
     private long _slot;
 
+    /// 占一个槽位并返回句柄。
     [Native("__gc_handle_alloc")]
     public static extern GCHandle Alloc(object target, GCHandleType type);
 
+    /// 分配弱引用句柄。
     public static GCHandle AllocWeak(object target) {
         return GCHandle.Alloc(target, GCHandleType.Weak);
     }
 
+    /// 分配强引用句柄。
     public static GCHandle AllocStrong(object target) {
         return GCHandle.Alloc(target, GCHandleType.Strong);
     }
@@ -50,7 +43,7 @@ public struct GCHandle {
     [Native("__gc_handle_kind")]
     public extern GCHandleType Kind { get; }
 
-    /// 释放 slot；之后所有共享 _slot 的 handle alias 同步失效。idempotent。
+    /// 释放 slot；之后所有共享 _slot 的 handle alias 同步失效。幂等。
     [Native("__gc_handle_free")]
     public extern void Free();
 }

@@ -1,8 +1,8 @@
 namespace Std;
 
-// 堆内存不足（strict OOM 模式下 alloc 超过 max_heap_bytes）。
-// interp 在 ObjNew / ArrayNew / MkClos env alloc 失败时自动 throw。
+/// 堆内存不足（strict OOM 模式下 alloc 超过 max_heap_bytes）。
 public class OutOfMemoryException : Exception {
+    /// 用消息构造。
     public OutOfMemoryException(string message) : base(message) {}
 
     override string ToString() {

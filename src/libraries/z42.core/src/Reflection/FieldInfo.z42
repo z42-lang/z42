@@ -1,43 +1,41 @@
 namespace Std.Reflection;
 
-// Reflected field. Populated by `Type.GetFields()` (`__type_fields`).
-// Mirrors C# `System.Reflection.FieldInfo`. GetValue / SetValue read and write
-// an instance field's slot directly (a field IS a slot — no accessor), powering
-// reflective (de)serialization onto plain public fields.
+/// 反射字段，对标 C# `System.Reflection.FieldInfo`，由 `Type.GetFields()` 填充。
+///
+/// `GetValue` / `SetValue` 直接读写实例字段的槽（字段即槽、无访问器），是反射式（反）序列化落到
+/// 公开字段上的通路。
 public class FieldInfo : MemberInfo {
-    // The field's declared type, e.g. typeof(int). Written by the VM.
+    /// 字段的声明类型，如 `typeof(int)`。VM 写入。
     public Std.Type FieldType;
 
-    // True for static fields, false for instance. (add-reflection-static-fields)
+    /// 是否为静态字段。
     public bool IsStatic;
 
-    // Read this instance field's value off `obj`.
+    /// 从 `obj` 读出本实例字段的值。
     [Native("__field_get_value")]
     public extern object GetValue(object obj);
 
-    // Write `value` to this instance field on `obj`.
+    /// 把 `value` 写入 `obj` 上的本实例字段。
     [Native("__field_set_value")]
     public extern void SetValue(object obj, object value);
 
-    // Member visibility (add-member-visibility, unify P1-b). Written by the VM
-    // from the field's declared modifier. A `protected` field reports neither
-    // (IsPublic == IsPrivate == false), mirroring C# `IsPublic` / `IsPrivate`.
+    /// 声明为 public。
     public bool IsPublic;
+    /// 声明为 private。`protected` 字段两者皆 false（镜像 C#）。
     public bool IsPrivate;
 
-    // ── Custom attributes (add-field-attribute-reflection) ──────────────────
+    // ── 自定义 attribute ─────────────────────────────────────────────────────
 
-    // Qualified field name (VM-written, "<Class>.<Field>"), used to resolve
-    // this field's attribute factories.
+    // 字段的全限定名（VM 写入，形如 "<Class>.<Field>"），用于解析本字段的 attribute 工厂。
     public string __qualified;
 
-    // Cached attribute instances (see Type.GetCustomAttributes for rationale).
+    // 缓存的 attribute 实例（缓存理由见 Type.GetCustomAttributes）。
     public Std.Attribute[] __attrCache;
 
     [Native("__field_custom_attributes")]
     public extern Std.Attribute[] __customAttributes(string qualified);
 
-    // User attributes applied to this field, as live instances. Cached.
+    /// 本字段上应用的 attribute，以活实例返回；首次调用后缓存。
     public Std.Attribute[] GetCustomAttributes() {
         if (this.__attrCache != null) {
             return this.__attrCache;
@@ -46,8 +44,7 @@ public class FieldInfo : MemberInfo {
         return this.__attrCache;
     }
 
-    // The single attribute of the given type, or null if absent. Compares by
-    // the instance's runtime type (FullName), so subclass attributes match too.
+    /// 指定类型的单个 attribute，无则返回 null。按实例运行期类型的 FullName 比较，子类 attribute 也匹配。
     public Std.Attribute? GetAttribute(Std.Type attributeType) {
         Std.Attribute[] all = this.GetCustomAttributes();
         int i = 0;

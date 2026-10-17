@@ -1,16 +1,15 @@
-// 执行基座 native 语义层：子进程 spawn / wait / kill / stdio 原语。
-//
-// 归属规则见 docs/internals/src/stdlib/organization.md「native 语义层 → core」（2026-08-27）。
-// 应用层 Process / ProcessHandle（编排、超时、stdio 流）留 z42.io、调这里的 *Native 原语。
-// 命名空间保持 Std.IO 不变。native 实现镜像 src/runtime/src/corelib/process.rs。
-//
-// 失败一律由 VM 直接抛（.NET 口径）：启动失败 → ProcessStartException（: IOException），
-// 超时 → ProcessTimeoutException（: TimeoutException），句柄已失效 → ProcessHandleInvalidException
-// （: InvalidOperationException），未重定向的 stdin → InvalidOperationException，
-// 管道 I/O 错 → IOException。成功结果数组：[exitCode, stdout, stderr, stdoutBytes, stderrBytes]。
+// 执行基座 native 语义层：子进程 spawn / wait / kill / stdio 原语。应用层 Process / ProcessHandle
+// （编排、超时、stdio 流）留 z42.io、调这里的 *Native 原语。命名空间保持 Std.IO 不变。
+// native 实现镜像 src/runtime/src/corelib/process.rs。
 namespace Std.IO;
 
+/// 子进程 spawn / wait / kill / stdio 的 native 原语，供 z42.io 的 Process 应用层调用。
+/// 失败一律由 VM 直接抛（.NET 口径）：启动失败 → ProcessStartException（: IOException），
+/// 超时 → ProcessTimeoutException（: TimeoutException），句柄已失效 → ProcessHandleInvalidException
+/// （: InvalidOperationException），未重定向的 stdin → InvalidOperationException，管道 I/O 错 →
+/// IOException。成功结果数组：[exitCode, stdout, stderr, stdoutBytes, stderrBytes]。
 public static class ProcessNative {
+    /// 同步运行子进程，返回结果数组。
     [Native("__process_run_sync")]
     public static extern object[] RunSync(
         string program,
@@ -29,7 +28,7 @@ public static class ProcessNative {
         long timeoutMs,
         bool ownProcessGroup);   // false → child stays in caller's process group（交互式 tty 透传，见 Process.ShareProcessGroup）
 
-    // 返回句柄槽号。
+    /// 启动子进程，返回句柄槽号。
     [Native("__process_start")]
     public static extern long Start(
         string program,
@@ -45,13 +44,14 @@ public static class ProcessNative {
         int stderrMode,
         string? stderrPath);
 
+    /// 按 PATH 解析程序全路径；找不到返回 null。
     [Native("__process_which")]
     public static extern string? Which(string name);
 
     // ── 种子兼容（返回 [KIND, …] 判别数组，由调用方翻成异常）──────────────────
-    // STAGE2-DEBT(legacy-process-decls): 种子的 z42.io 不再调 ProcessNative.Run / Spawn 与 ProcessHandleNative 后删掉这两组声明（连同 VM 的 corelib/process_legacy.rs）。
-    // 已发布种子的 z42.io 仍调这些；z42.core 总是按当前源预建，与种子的 z42.io 同处一个 libs 目录。
+    // 已发布种子的 z42.io 仍调这些旧形状声明。
 
+    /// （种子兼容，旧形状）运行子进程，返回判别数组。
     [Native("__process_run")]
     public static extern object[] Run(
         string program,
@@ -70,6 +70,7 @@ public static class ProcessNative {
         long timeoutMs,
         bool ownProcessGroup);
 
+    /// （种子兼容，旧形状）启动子进程，返回判别数组。
     [Native("__process_spawn")]
     public static extern object[] Spawn(
         string program,
@@ -87,67 +88,80 @@ public static class ProcessNative {
         string? stderrPath);
 }
 
-// `Spawn()` 出来的子进程句柄（槽号）上的操作。
+/// `Spawn()` 出来的子进程句柄（槽号）上的操作。
 public static class ChildProcessNative {
-    // 消耗句柄（之后再用即 ProcessHandleInvalidException）。
+    /// 等待退出并返回结果数组（消耗句柄）。
     [Native("__process_wait")]
     public static extern object[] Wait(long slotId);
 
-    // 还在跑 → null；已退出 → 结果数组（并消耗句柄）。
+    /// 还在跑 → null；已退出 → 结果数组（并消耗句柄）。
     [Native("__process_try_wait")]
     public static extern object TryWait(long slotId);
 
+    /// 终止子进程（force 决定 SIGKILL 还是 SIGTERM）。
     [Native("__process_kill")]
     public static extern void Kill(long slotId, bool force);
 
+    /// 写子进程 stdin。
     [Native("__process_stdin_write")]
     public static extern void WriteStdin(long slotId, byte[] bytes);
 
+    /// 关闭子进程 stdin。
     [Native("__process_stdin_close")]
     public static extern void CloseStdin(long slotId);
 
+    /// 子进程 pid。
     [Native("__process_pid")]
     public static extern long Pid(long slotId);
 
-    // 幂等；子进程仍活着时 kill + reap。
+    /// 幂等；子进程仍活着时 kill + reap。
     [Native("__process_close")]
     public static extern void Close(long slotId);
 
-    // 流式读管道（0 = EOF）。
+    /// 流式读 stdout（0 = EOF）。
     [Native("__process_stdout_read")]
     public static extern int ReadStdout(long slotId, byte[] buffer, int offset, int count);
 
+    /// 流式读 stderr（0 = EOF）。
     [Native("__process_stderr_read")]
     public static extern int ReadStderr(long slotId, byte[] buffer, int offset, int count);
 }
 
-// 种子兼容（见上方 legacy-process-decls 欠账）。
+/// 种子兼容（旧形状）：子进程句柄操作，返回判别数组。
 public static class ProcessHandleNative {
+    /// （种子兼容）等待退出。
     [Native("__process_handle_wait")]
     public static extern object[] Wait(long slotId);
 
+    /// （种子兼容）非阻塞等待。
     [Native("__process_handle_try_wait")]
     public static extern object TryWait(long slotId);
 
+    /// （种子兼容）终止子进程。
     [Native("__process_handle_kill")]
     public static extern object Kill(long slotId, bool force);
 
+    /// （种子兼容）写 stdin。
     [Native("__process_handle_write_stdin")]
     public static extern object WriteStdin(long slotId, byte[] bytes);
 
+    /// （种子兼容）关闭 stdin。
     [Native("__process_handle_close_stdin")]
     public static extern object CloseStdin(long slotId);
 
+    /// （种子兼容）子进程 pid。
     [Native("__process_handle_pid")]
     public static extern object Pid(long slotId);
 
+    /// （种子兼容）释放句柄。
     [Native("__process_handle_drop")]
     public static extern object Drop(long slotId);
 
-    // add-process-stream-stdio (2026-05-24): streaming pipe reads.
+    /// （种子兼容）流式读 stdout。
     [Native("__process_handle_read_stdout")]
     public static extern object ReadStdout(long slotId, byte[] buffer, int offset, int count);
 
+    /// （种子兼容）流式读 stderr。
     [Native("__process_handle_read_stderr")]
     public static extern object ReadStderr(long slotId, byte[] buffer, int offset, int count);
 }

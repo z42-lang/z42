@@ -1,26 +1,14 @@
 namespace Std;
 
-// 2026-05-02 add-multicast-action (D2a) + 2026-05-03 add-isubscription-wrapper (D2b):
-// 多播 Action —— 一次注册多个 `Action<T>` handler，Invoke 时全部触发。与
-// 单播 `Action<T>` 类型分离（delegates-events.md K1）。
-//
-// 双 vec 通道（D2b 优化 A）：
-//   • strong vec —— 直接持 Action<T>，invoke fast loop 无 wrapper 检查；裸
-//     handler `Subscribe(Action<T>)` 走此路径，零 wrapper 开销。
-//   • advanced vec —— 持 `ISubscription<Action<T>>` 接口（含 OnceRef /
-//     CompositeRef / 用户自定义 wrapper）。invoke slow loop 走 IsAlive +
-//     Get + OnInvoked 路径。
-//
-// COW snapshot —— Invoke 时拷贝当前数组遍历副本，触发期间 Subscribe /
-// Dispose 影响下次触发不影响本次。
-// fail-fast 路径（continueOnException 默认 false；handler 抛异常直接传播）。
-//
-// 解封历史：D2b 阶段 2 实施时发现 z42 generic 类型系统三处缺陷阻塞
-// `ISubscription<Action<T>>[]` 字段表达。前置 spec 已修齐：
-//   • fix-nested-generic-parsing (`>>` token splitting)
-//   • fix-z42type-structural-equality (record IReadOnlyList element-wise)
-//   • fix-generic-member-substitution (INVESTIGATED — Bug 1+3 下游症状)
-
+/// 多播 Action：一次注册多个 `Action<T>` handler，Invoke 时全部触发（与单播 `Action<T>` 分离）。
+///
+/// 双 vec 通道：
+///   - strong 通道 —— 直接持 Action<T>，裸 handler `Subscribe(Action<T>)` 走此路径，零包装开销。
+///   - advanced 通道 —— 持 ISubscription<Action<T>> 接口（含 OnceRef / CompositeRef / 用户自定义
+///     包装器），invoke 慢路径走 IsAlive + Get + OnInvoked。
+///
+/// Invoke 时拷贝当前数组遍历副本（COW snapshot）：触发期间 Subscribe / Dispose 影响下次触发，
+/// 不影响本次。
 public sealed class MulticastAction<T> {
     // ── strong fast path ──
     Action<T>[] strong;
@@ -28,7 +16,7 @@ public sealed class MulticastAction<T> {
     int strongCount;
     int strongCapacity;
 
-    // ── advanced slow path（D2b 阶段 2） ──
+    // ── advanced slow path ──
     // 持 ISubscription<Action<T>> 接口数组；用户传入 OnceRef / CompositeRef /
     // 自定义 wrapper class : ISubscription<Action<T>> 都能 plug in。
     ISubscription<Action<T>>[] advanced;
@@ -36,6 +24,7 @@ public sealed class MulticastAction<T> {
     int advancedCount;
     int advancedCapacity;
 
+    /// 构造空的多播 Action。
     public MulticastAction() {
         this.strongCapacity = 4;
         this.strong = new Action<T>[4];
@@ -48,7 +37,7 @@ public sealed class MulticastAction<T> {
         this.advancedCount = 0;
     }
 
-    // 裸 handler 订阅 → strong fast path（零 wrapper 开销）。
+    /// 裸 handler 订阅 → strong 快路径（零包装开销）。
     public IDisposable Subscribe(Action<T> handler) {
         if (this.strongCount == this.strongCapacity) this.GrowStrong();
         int idx = this.strongCount;
@@ -58,8 +47,7 @@ public sealed class MulticastAction<T> {
         return new MulticastSubscription<T>(this, idx, false);
     }
 
-    // ISubscription wrapper 订阅 → advanced slow path（OnceRef / CompositeRef /
-    // 用户自定义 wrapper）。
+    /// ISubscription 包装器订阅 → advanced 慢路径（OnceRef / CompositeRef / 用户自定义包装器）。
     public IDisposable SubscribeAdvanced(ISubscription<Action<T>> wrapper) {
         if (this.advancedCount == this.advancedCapacity) this.GrowAdvanced();
         int idx = this.advancedCount;
@@ -69,7 +57,7 @@ public sealed class MulticastAction<T> {
         return new MulticastSubscription<T>(this, idx, true);
     }
 
-    // 当前活跃订阅总数（strong + advanced）。
+    /// 当前活跃订阅总数（strong + advanced）。
     public int Count() {
         int c = 0;
         int i = 0;
@@ -85,14 +73,11 @@ public sealed class MulticastAction<T> {
         return c;
     }
 
-    // 2026-05-03 add-multicast-exception-aggregate (D2d-2) +
-    // 2026-05-04 fix-default-param-cross-cu (D-9)：
-    // continueOnException=true 时所有 handler 均尝试调用，失败者收入
-    // Failures 数组，最终抛 MulticastException 聚合诊断；continueOnException=false
-    // 保持 D2a 的 fail-fast 路径（首抛即停，原异常传播）。
-    //
-    // D-9 修复后回归 default param 单签名形式（先前 D-9 workaround 临时拆
-    // 1-arg/2-arg overload 已退回）。
+    /// 触发所有活跃 handler。
+    ///
+    /// `continueOnException = false`（默认）走 fail-fast：首个抛出的异常直接传播。
+    /// `continueOnException = true` 时所有 handler 均尝试调用，失败者收入 Failures 数组，
+    /// 最终抛 MulticastException 聚合诊断。
     public void Invoke(T arg, bool continueOnException = false) {
         // ── strong snapshot ──
         int sn = this.strongCount;
@@ -116,7 +101,7 @@ public sealed class MulticastAction<T> {
         }
 
         if (!continueOnException) {
-            // fail-fast 路径（D2a 行为保持）
+            // fail-fast 路径
             i = 0;
             while (i < sn) {
                 if (snapStrongAlive[i]) snapStrong[i](arg);
@@ -217,14 +202,10 @@ public sealed class MulticastAction<T> {
         }
     }
 
-    // 2026-05-03 fix-delegate-reference-equality (D-5)：by-handler 取消订阅。
-    // 仅扫 strong 通道；advanced 通道用 token-based dispose（wrapper 持有
-    // 自身引用，by-handler 比较语义不同）。
-    //
-    // 行为：linear scan strong[]，每个 alive 槽用 `Object.DelegateReferenceEquals`
-    // 与 handler 比较，命中置 alive=false。**不 break** —— 同 handler 多次
-    // Subscribe 一次 Unsubscribe 全清（list 语义，与 `obj.X -= h` 用户预期
-    // "h 不再被通知"对齐）。未订阅 handler 是 no-op。
+    /// 按 handler 取消订阅（仅扫 strong 通道；advanced 通道用 token-based dispose）。
+    ///
+    /// 线性扫描 strong[]，每个 alive 槽与 handler 比较，命中置 alive=false；不 break ——
+    /// 同 handler 多次 Subscribe 一次 Unsubscribe 全清。未订阅 handler 是 no-op。
     public void Unsubscribe(Action<T> handler) {
         int i = 0;
         while (i < this.strongCount) {
@@ -237,7 +218,7 @@ public sealed class MulticastAction<T> {
         }
     }
 
-    // Internal: dispose token 入口。`isAdvanced` 决定 alive 数组归属。
+    /// 内部：dispose token 入口，把对应通道的 alive[idx] 置 false。
     public void RemoveAt(int idx, bool isAdvanced) {
         if (isAdvanced) {
             if (idx >= 0 && idx < this.advancedCount) {
@@ -281,19 +262,20 @@ public sealed class MulticastAction<T> {
     }
 }
 
-// 内部订阅 token —— Subscribe 返回它，Dispose 把对应通道的 alive[idx] 置 false。
-// `isAdvanced` 区分 strong vs advanced 通道。
+/// 内部订阅 token —— Subscribe 返回它，Dispose 把对应通道的 alive[idx] 置 false。
 public sealed class MulticastSubscription<T> : IDisposable {
     MulticastAction<T> bus;
     int idx;
     bool isAdvanced;
 
+    /// 构造订阅 token。
     public MulticastSubscription(MulticastAction<T> bus, int idx, bool isAdvanced) {
         this.bus = bus;
         this.idx = idx;
         this.isAdvanced = isAdvanced;
     }
 
+    /// 取消订阅：把对应通道的 alive[idx] 置 false。
     public void Dispose() {
         if (this.idx >= 0) {
             this.bus.RemoveAt(this.idx, this.isAdvanced);

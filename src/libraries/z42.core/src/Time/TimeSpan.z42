@@ -1,69 +1,87 @@
 namespace Std.Time;
 
-// TimeSpan — 时间段值，内部单位 ns（i64）。
-// 支持亚毫秒精度，范围 ±292 年。
-// add-z42-time (2026-05-14)
+/// 时间段值，内部单位纳秒（i64），范围约 ±292 年。不可变：算术方法返回新对象。
 public sealed class TimeSpan {
     private long _ns;
 
+    /// 由纳秒构造。
     public TimeSpan(long nanoseconds) {
         _ns = nanoseconds;
     }
 
+    /// 零时长。
     public static TimeSpan Zero() { return new TimeSpan(0); }
 
     // ── 工厂方法 ──────────────────────────────────────────────────────────────
 
+    /// 由纳秒构造。
     public static TimeSpan FromNanoseconds(long ns) {
         return new TimeSpan(ns);
     }
 
+    /// 由毫秒构造。
     public static TimeSpan FromMilliseconds(long ms) {
         return new TimeSpan(ms * 1000000);
     }
 
+    /// 由秒构造（double）。
     public static TimeSpan FromSeconds(double sec) {
         return new TimeSpan((long)(sec * 1000000000.0));
     }
 
+    /// 由分钟构造（double）。
     public static TimeSpan FromMinutes(double min) {
         return new TimeSpan((long)(min * 60.0 * 1000000000.0));
     }
 
+    /// 由小时构造（double）。
     public static TimeSpan FromHours(double hrs) {
         return new TimeSpan((long)(hrs * 3600.0 * 1000000000.0));
     }
 
     // ── 访问器 ────────────────────────────────────────────────────────────────
 
+    /// 总纳秒。
     public long TotalNanoseconds() { return _ns; }
 
+    /// 总毫秒（整数除法，向零截断）。
     public long TotalMilliseconds() { return _ns / 1000000; }
 
+    /// 总秒（double）。
     public double TotalSeconds() { return (double)_ns / 1000000000.0; }
 
+    /// 总分钟（double）。
     public double TotalMinutes() { return this.TotalSeconds() / 60.0; }
 
+    /// 总小时（double）。
     public double TotalHours() { return this.TotalSeconds() / 3600.0; }
 
     // ── 算术 ──────────────────────────────────────────────────────────────────
 
+    /// 加 `other`。
     public TimeSpan Add(TimeSpan other) {
         return new TimeSpan(_ns + other.TotalNanoseconds());
     }
 
+    /// 减 `other`。
     public TimeSpan Subtract(TimeSpan other) {
         return new TimeSpan(_ns - other.TotalNanoseconds());
     }
 
     // ── 比较 ──────────────────────────────────────────────────────────────────
 
+    /// 是否小于 `other`。
     public bool IsLessThan(TimeSpan other)     { return _ns <  other.TotalNanoseconds(); }
+    /// 是否小于等于 `other`。
     public bool IsLessEqual(TimeSpan other)    { return _ns <= other.TotalNanoseconds(); }
+    /// 是否大于 `other`。
     public bool IsGreaterThan(TimeSpan other)  { return _ns >  other.TotalNanoseconds(); }
+    /// 是否大于等于 `other`。
     public bool IsGreaterEqual(TimeSpan other) { return _ns >= other.TotalNanoseconds(); }
+    /// 是否相等。
     public bool Equals(TimeSpan other)         { return _ns == other.TotalNanoseconds(); }
 
+    /// 形如 `"1500000000ns"`。
     public override string ToString() {
         return _ns.ToString() + "ns";
     }

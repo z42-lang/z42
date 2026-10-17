@@ -1,28 +1,27 @@
 namespace Std;
 
-// Base object protocol — every z42 reference type implicitly inherits these members.
-// Struct types do NOT inherit Object; the compiler synthesises value-semantic
-// Equals/GetHashCode/ToString for them directly (no boxing, no vtable).
+/// 对象协议基类：每个 z42 引用类型都隐式继承这些成员。
+///
+/// 结构体类型**不**继承 Object——编译器直接为其合成值语义的 Equals / GetHashCode / ToString
+/// （无装箱、无 vtable）。
 public class Object {
-    // Returns the runtime type descriptor for this object.
+    /// 返回本对象的运行时类型描述符。
     [Native("__obj_get_type")]
     public extern Type GetType();
 
-    // Returns true iff a and b are the same heap object (or both null).
+    /// `a` 与 `b` 是否为同一堆对象（或同为 null）。
     [Native("__obj_ref_eq")]
     public static extern bool ReferenceEquals(Object? a, Object? b);
 
-    // Value equality — defaults to reference equality.
-    // Override together with GetHashCode() when the type has value semantics.
+    /// 值相等——默认退化为引用相等。类型有值语义时与 GetHashCode() 一起覆盖。
     [Native("__obj_equals")]
     public virtual extern bool Equals(Object? other);
 
-    // Identity-based hash code by default.
-    // Must be overridden whenever Equals() is overridden.
+    /// 默认基于身份的哈希码。覆盖 Equals() 时必须一并覆盖。
     [Native("__obj_hash_code")]
     public virtual extern int GetHashCode();
 
-    // Human-readable representation — defaults to the unqualified type name.
+    /// 人类可读表示——默认为未限定的类型名。
     [Native("__obj_to_str")]
     public virtual extern string ToString();
 }
