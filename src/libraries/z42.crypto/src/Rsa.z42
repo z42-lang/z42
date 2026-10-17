@@ -2,55 +2,40 @@ namespace Std.Crypto;
 
 using Std.Numerics;
 
-// add-rsa (2026-05-28): RSA primitive (RFC 8017 / PKCS#1 v2.2).
-//
-// Pure-script over `Std.Numerics.BigInt.ModPow` (which uses Montgomery's
-// binary square-and-multiply ladder — the same `ModPow` that already
-// covers `bigint-future-modpow`).
-//
-// v0 scope:
-//   - RsaPublicKey / RsaPrivateKey value types (raw `n` + `e` / `d`)
-//   - RSASSA-PKCS1-v1_5 sign + verify with SHA-256 (RFC 8017 §8.2)
-//   - Encrypt-with-public (raw modular exponentiation; for full RSAES-PKCS1
-//     callers should use the AEAD primitives instead)
-//
-// Out of scope (deferred):
-//   - DER / PEM / PKCS#1 / PKCS#8 key parsing — callers convert externally
-//     and pass raw `n`/`e`/`d` BigInts (via `Hex.Decode` + `BigInt.Parse`)
-//   - RSA-OAEP encryption padding (`rsa-future-oaep`)
-//   - RSA-PSS signature padding (`rsa-future-pss`)
-//   - SHA-1 / SHA-384 / SHA-512 sign/verify variants (`rsa-future-other-hashes`)
-//   - CRT decrypt fast path using p, q, dp, dq, qInv (`rsa-future-crt`)
-//   - Constant-time RSA blinding (`rsa-future-blinding`)
-//
-// Performance note: pure-script RSA-2048 sign is ~2-5 seconds (2048-bit
-// exponent ModPow); verify is fast (e=65537 has only 17 bits → 17
-// modular multiplications). Adequate for low-rate JWT verification /
-// per-request signature checks. Bulk signing wants the cdylib follow-up.
+// RSA 原语（RFC 8017 / PKCS#1 v2.2），纯脚本实现于 `Std.Numerics.BigInt.ModPow`。密钥用原始 n / e / d
+// 的 BigInt 构造，字段公开可写。支持：RSASSA-PKCS1-v1_5 与 RSASSA-PSS 签名验签（SHA-256）、
+// RSAES-OAEP 加解密（SHA-256）、以及裸模幂 RawPublicOp / RawPrivateOp。纯脚本 RSA-2048 签名约数秒级，
+// 验签快（e=65537 仅 17 位）。
 
-/// RSA public key (modulus + public exponent).
+/// RSA 公钥（模数 + 公钥指数）。
 public class RsaPublicKey {
+    /// 模数。
     public BigInt n;
+    /// 公钥指数。
     public BigInt e;
+    /// 用模数 n 与公钥指数 e 构造。
     public RsaPublicKey(BigInt n, BigInt e) {
         this.n = n;
         this.e = e;
     }
 }
 
-/// RSA private key (modulus + private exponent). The public exponent
-/// isn't strictly needed for signing but kept here so callers can derive
-/// the matching `RsaPublicKey` without separately tracking `e`.
+/// RSA 私钥（模数 + 私钥指数）。保留公钥指数以便派生匹配的 `RsaPublicKey` 而无需单独跟踪 e。
 public class RsaPrivateKey {
+    /// 模数。
     public BigInt n;
+    /// 公钥指数。
     public BigInt e;
+    /// 私钥指数。
     public BigInt d;
+    /// 用模数 n、公钥指数 e、私钥指数 d 构造。
     public RsaPrivateKey(BigInt n, BigInt e, BigInt d) {
         this.n = n;
         this.e = e;
         this.d = d;
     }
 
+    /// 派生匹配的公钥。
     public RsaPublicKey GetPublicKey() {
         return new RsaPublicKey(this.n, this.e);
     }
@@ -69,8 +54,7 @@ public static class Rsa {
     // The DER prefix for SHA-256 is 19 bytes:
     //   30 31 30 0d 06 09 60 86 48 01 65 03 04 02 01 05 00 04 20
 
-    /// Sign `message` with SHA-256 + PKCS#1 v1.5 padding under
-    /// `privateKey`. Output is exactly `n.byteLength()` bytes.
+    /// 用 SHA-256 + PKCS#1 v1.5 填充对 `message` 签名，输出恰好 `n.byteLength()` 字节。
     public static byte[] SignPkcs1v15Sha256(RsaPrivateKey privateKey, byte[] message) {
         byte[] hash = Sha256.Hash(message);
         int k = Rsa._modulusByteLength(privateKey.n);
@@ -80,9 +64,7 @@ public static class Rsa {
         return Rsa._writeBEBigInt(sInt, k);
     }
 
-    /// Verify `signature` against SHA-256(`message`) under `publicKey`.
-    /// Returns `true` iff the signature is valid. NEVER throws on bad
-    /// signature — only on malformed lengths.
+    /// 校验 SHA-256(message) 的 PKCS#1 v1.5 签名；有效返回 true。签名内容错误返回 false（仅长度错误抛异常）。
     public static bool VerifyPkcs1v15Sha256(RsaPublicKey publicKey, byte[] message, byte[] signature) {
         int k = Rsa._modulusByteLength(publicKey.n);
         if (signature.Length != k) { return false; }
@@ -98,10 +80,8 @@ public static class Rsa {
         return ConstantTime.Equals(em, expected);
     }
 
-    /// EMSA-PKCS1-v1_5 encoding for a SHA-256 hash. Returns the `k`-byte
-    /// encoded message ready for modular exponentiation.
-    /// Throws `ArgumentException` if `k` is too small for the encoding
-    /// (RFC 8017 §9.2.1 requires `k ≥ tLen + 11`; for SHA-256, k ≥ 62).
+    // 对 SHA-256 哈希做 EMSA-PKCS1-v1_5 编码，返回 k 字节编码消息供模幂使用。
+    // k 太小抛 `ArgumentException`（RFC 8017 §9.2.1 要求 k ≥ tLen + 11，SHA-256 即 k ≥ 62）。
     static byte[] _emsaPkcs1v15Sha256(byte[] hash, int k) {
         // DigestInfo DER prefix for SHA-256 (RFC 8017 §9.2 note 1).
         int[] derPrefix = new int[19];
@@ -135,10 +115,7 @@ public static class Rsa {
 
     // ── RSASSA-PSS sign / verify with SHA-256 (RFC 8017 §8.1) ────────────────
     //
-    // add-rsa-pss (2026-05-28): probabilistic signature scheme. Same hash
-    // (SHA-256) but with secure padding — PSS is the recommended modern
-    // signature scheme. JWT PS256, X.509 with rsassaPss, IETF EdDSA-Edition
-    // alternative.
+    // RSASSA-PSS 概率签名方案：同样 SHA-256，但带安全填充——推荐的现代签名方案（JWT PS256、rsassaPss 等）。
     //
     // EMSA-PSS-encoded message (RFC 8017 §9.1.1):
     //   EM = maskedDB || H || 0xBC
@@ -156,9 +133,7 @@ public static class Rsa {
     // with RFC 8017 §A.2.3 fixed-salt vectors). For real-world use callers
     // should pass `Std.Crypto.SecureRandom.GetBytes(32)` for the salt.
 
-    /// Sign with RSASSA-PSS / SHA-256 / MGF1-SHA-256. `salt` length is
-    /// caller's choice (32 bytes recommended). Output length = byte length
-    /// of n.
+    /// RSASSA-PSS / SHA-256 / MGF1-SHA-256 签名，`salt` 长度由调用方定（推荐 32 字节），输出 n 的字节长度。
     public static byte[] SignPssSha256(RsaPrivateKey privateKey, byte[] message, byte[] salt) {
         byte[] mHash = Sha256.Hash(message);
         int k = Rsa._modulusByteLength(privateKey.n);
@@ -182,9 +157,7 @@ public static class Rsa {
         return Rsa._writeBEBigInt(sInt, k);
     }
 
-    /// Verify RSASSA-PSS / SHA-256 signature. `saltLen` must match what
-    /// the signer used (RFC 8017 §9.1.2 step 11 — verifier knows the
-    /// salt length, not the salt itself).
+    /// 校验 RSASSA-PSS / SHA-256 签名，`saltLen` 必须与签名时一致（RFC 8017 §9.1.2 步骤 11——验签方知道 salt 长度而非 salt 本身）。
     public static bool VerifyPssSha256(RsaPublicKey publicKey, byte[] message, byte[] signature, int saltLen) {
         int k = Rsa._modulusByteLength(publicKey.n);
         if (signature.Length != k) { return false; }
@@ -208,8 +181,7 @@ public static class Rsa {
         return Rsa._emsaPssVerify(mHash, em, saltLen, emBits);
     }
 
-    /// EMSA-PSS encoding (RFC 8017 §9.1.1). `salt.Length` determines
-    /// saltLen. Throws if emLen too small for the encoding.
+    // EMSA-PSS 编码（RFC 8017 §9.1.1）。`salt.Length` 决定 saltLen；emLen 太小抛异常。
     static byte[] _emsaPssEncode(byte[] mHash, byte[] salt, int emLen, int emBits) {
         int hLen = 32;
         int sLen = salt.Length;
@@ -254,8 +226,7 @@ public static class Rsa {
         return em;
     }
 
-    /// EMSA-PSS verification (RFC 8017 §9.1.2). Returns true iff the
-    /// encoded message is valid for the given mHash + saltLen + emBits.
+    // EMSA-PSS 校验（RFC 8017 §9.1.2），编码消息对给定 mHash + saltLen + emBits 有效时返回 true。
     static bool _emsaPssVerify(byte[] mHash, byte[] em, int sLen, int emBits) {
         int hLen = 32;
         int emLen = em.Length;
@@ -312,8 +283,7 @@ public static class Rsa {
 
     // ── RSAES-OAEP encrypt / decrypt with SHA-256 (RFC 8017 §7.1) ────────────
     //
-    // add-rsa-oaep (2026-05-28): probabilistic encryption. Secure
-    // alternative to PKCS#1 v1.5 for actual RSA encryption use.
+    // RSAES-OAEP 概率加密：实际 RSA 加密用途下比 PKCS#1 v1.5 更安全。
     //
     // EME-OAEP-encoded message (RFC 8017 §7.1.1):
     //   EM = 0x00 || maskedSeed || maskedDB
@@ -327,9 +297,7 @@ public static class Rsa {
     //   seedMask = MGF1(maskedDB, hLen)
     //   maskedSeed = seed XOR seedMask
 
-    /// Encrypt with RSA-OAEP / SHA-256 / MGF1-SHA-256. `label` may be
-    /// empty (typical) — used for context binding. `seed` length must
-    /// be 32 (SHA-256 output size).
+    /// RSA-OAEP / SHA-256 / MGF1-SHA-256 加密。`label` 可为空（用于上下文绑定），`seed` 必须 32 字节。
     public static byte[] EncryptOaepSha256(RsaPublicKey publicKey, byte[] message, byte[] label, byte[] seed) {
         if (seed.Length != 32) {
             throw new ArgumentException(
@@ -377,12 +345,8 @@ public static class Rsa {
         return Rsa._writeBEBigInt(cInt, k);
     }
 
-    /// Decrypt RSA-OAEP / SHA-256 / MGF1-SHA-256. Returns plaintext.
-    /// Throws `ArgumentException` on malformed padding (likely indicates
-    /// tampered ciphertext — DO NOT differentiate from other errors at
-    /// the caller layer; the timing-leak risk of distinguishing
-    /// padding-error from value-error is exactly what OAEP was designed
-    /// to mitigate).
+    /// RSA-OAEP / SHA-256 / MGF1-SHA-256 解密，返回明文。填充非法抛 `ArgumentException`
+    /// （勿在调用层区分错误——区分 padding 错误与值错误的计时泄漏风险正是 OAEP 要缓解的）。
     public static byte[] DecryptOaepSha256(RsaPrivateKey privateKey, byte[] ciphertext, byte[] label) {
         int k = Rsa._modulusByteLength(privateKey.n);
         int hLen = 32;
@@ -458,8 +422,7 @@ public static class Rsa {
 
     // ── MGF1 (RFC 8017 §B.2.1) with SHA-256 ──────────────────────────────────
 
-    /// MGF1 mask generation function. Output = hash(seed || ctr) for
-    /// ctr = 0, 1, 2, ... concatenated and truncated to `maskLen` bytes.
+    // MGF1 掩码生成函数：输出 = hash(seed || ctr)（ctr = 0,1,2,...）拼接并截断到 `maskLen` 字节。
     static byte[] _mgf1Sha256(byte[] seed, int maskLen) {
         int hLen = 32;
         int blocks = (maskLen + hLen - 1) / hLen;
@@ -491,9 +454,7 @@ public static class Rsa {
     // ChaCha20-Poly1305) instead — RSA encryption is mostly a legacy /
     // interop concern. Exposed here for completeness + protocol interop.
 
-    /// Raw `message^e mod n` modular exponentiation (RSAEP per RFC 8017
-    /// §5.1.1). Input message must be in `[0, n)`. Returns `n.byteLength()`
-    /// bytes. No padding applied — pad-then-call for actual encryption.
+    /// 裸 `message^e mod n` 模幂（RSAEP，RFC 8017 §5.1.1），无 padding。输入须在 [0, n)，返回 n.byteLength() 字节。
     public static byte[] RawPublicOp(RsaPublicKey publicKey, byte[] message) {
         int k = Rsa._modulusByteLength(publicKey.n);
         BigInt mInt = Rsa._readBEBigInt(message);
@@ -504,8 +465,7 @@ public static class Rsa {
         return Rsa._writeBEBigInt(cInt, k);
     }
 
-    /// Raw `ciphertext^d mod n` (RSADP per RFC 8017 §5.1.2). Same input
-    /// constraints as RawPublicOp; no padding stripping.
+    /// 裸 `ciphertext^d mod n`（RSADP，RFC 8017 §5.1.2），无 padding 剥离，输入约束同 RawPublicOp。
     public static byte[] RawPrivateOp(RsaPrivateKey privateKey, byte[] ciphertext) {
         int k = Rsa._modulusByteLength(privateKey.n);
         BigInt cInt = Rsa._readBEBigInt(ciphertext);
@@ -518,14 +478,13 @@ public static class Rsa {
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    /// Byte length of a non-negative BigInt's big-endian encoding.
-    /// `_modulusByteLength(n) = ⌈BitLength(n) / 8⌉`.
+    // 非负 BigInt 大端编码的字节长度：⌈BitLength(n) / 8⌉。
     static int _modulusByteLength(BigInt n) {
         int bitLen = n.BitLength();
         return (bitLen + 7) / 8;
     }
 
-    /// Read big-endian byte array as a non-negative BigInt.
+    // 把大端字节数组读作非负 BigInt。
     static BigInt _readBEBigInt(byte[] bytes) {
         BigInt acc = BigInt.Zero;
         int i = 0;
@@ -536,8 +495,7 @@ public static class Rsa {
         return acc;
     }
 
-    /// Write non-negative BigInt as `n`-byte big-endian, zero-padded on
-    /// the left. Throws if the value's natural encoding exceeds `n` bytes.
+    // 把非负 BigInt 写作 n 字节大端（左补零）；自然编码超过 n 字节抛异常。
     static byte[] _writeBEBigInt(BigInt v, int n) {
         byte[] out_ = new byte[n];
         BigInt mask8 = new BigInt(255L);

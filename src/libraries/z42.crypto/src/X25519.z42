@@ -1,45 +1,23 @@
 namespace Std.Crypto;
 
 
-// add-x25519 (2026-05-28): X25519 elliptic-curve Diffie-Hellman (RFC 7748).
-//
-// Scalar multiplication on Curve25519 (Montgomery curve y² = x³ + 486662x² + x
-// over GF(p), p = 2^255 - 19). Used for key agreement in TLS 1.3, WireGuard,
-// Signal, age, SSH (curve25519-sha256), Tor.
-//
-// API surface:
-//   - Clamp(scalar) — per RFC 7748 §5; ensures the scalar lies in the
-//     prime-order subgroup, returns a normalised 32-byte scalar.
-//   - ScalarMult(scalar, point) — X25519 point-multiplication, 32-byte
-//     scalar × 32-byte u-coordinate → 32-byte u-coordinate of result.
-//   - ScalarMultBase(scalar) — convenience: scalar × generator (u=9), useful
-//     for deriving the public key from a private key.
-//
-// Algorithm: Montgomery ladder per RFC 7748 §5. Constant-time conditional
-// swaps (`_cswap`) defend against scalar timing leaks. Field arithmetic
-// over GF(2^255 - 19) implemented via `Std.Numerics.BigInt.ModInverse` /
-// `Add` / `Multiply` / `Mod`.
-//
-// Performance note: BigInt-backed pure-script is several orders of magnitude
-// slower than C-with-AVX2 implementations (~150 ms per ScalarMult vs
-// ~50 μs). Adequate for low-rate use (one handshake per TCP connection,
-// one DH per session); bulk ECDH wants the cdylib follow-up.
+// X25519 椭圆曲线 Diffie-Hellman（RFC 7748）：在 Curve25519（Montgomery 曲线 y² = x³ + 486662x² + x
+// 于 GF(p)，p = 2^255 - 19）上做标量乘，用于 TLS 1.3、WireGuard、Signal、age、SSH、Tor 的密钥协商。
+// 算法：RFC 7748 §5 的 Montgomery ladder，常数时间条件交换防标量计时泄漏；域算术基于
+// `Std.Numerics.BigInt`（ModInverse / Add / Multiply / Mod）。
 
 using Std.Numerics;
 
 public static class X25519 {
     // ── Constants ────────────────────────────────────────────────────────────
 
-    /// Curve25519 base point u-coordinate (RFC 7748 §4.1).
+    /// Curve25519 基点 u 坐标（RFC 7748 §4.1）。
     public static int U_BASE = 9;
 
     // ── Public API ───────────────────────────────────────────────────────────
 
-    /// Clamp a 32-byte scalar per RFC 7748 §5: clear the bottom 3 bits of
-    /// byte 0 (force the scalar into the subgroup of order 2^252+...),
-    /// clear the top bit of byte 31, and set the second-to-top bit of
-    /// byte 31 (force the high bit pattern needed by the Montgomery
-    /// ladder). Returns a fresh clamped copy — input is not mutated.
+    /// 按 RFC 7748 §5 clamp 32 字节标量：清 byte0 低 3 位、清 byte31 最高位、置 byte31 次高位，
+    /// 返回新的 clamp 副本（不改入参）。
     public static byte[] Clamp(byte[] scalar) {
         if (scalar.Length != 32) {
             throw new ArgumentException(
@@ -54,9 +32,8 @@ public static class X25519 {
         return k;
     }
 
-    /// X25519 scalar multiplication: `scalar × point`, both as 32-byte
-    /// little-endian encodings. `scalar` is clamped internally per RFC
-    /// 7748 §5 — caller need not pre-clamp.
+    /// X25519 标量乘：`scalar × point`（各 32 字节小端编码）。`scalar` 内部自动 clamp（RFC 7748 §5），
+    /// 调用方不必预 clamp。
     public static byte[] ScalarMult(byte[] scalar, byte[] point) {
         if (scalar.Length != 32) {
             throw new ArgumentException(
@@ -79,8 +56,7 @@ public static class X25519 {
         return X25519._writeLEBigInt(resultU, 32);
     }
 
-    /// Convenience: derive public key from private scalar by computing
-    /// `scalar × base_point` where the base point has u = 9.
+    /// 便捷形式：`scalar × 基点`（u=9），即由私钥派生公钥。
     public static byte[] ScalarMultBase(byte[] scalar) {
         byte[] basePt = new byte[32];
         basePt[0] = (byte)X25519.U_BASE;
@@ -89,9 +65,8 @@ public static class X25519 {
 
     // ── Internal: Montgomery ladder (RFC 7748 §5) ────────────────────────────
 
-    /// Constant-time Montgomery ladder for X25519. Iterates bits of the
-    /// clamped scalar MSB-first; maintains the projective `(x2, z2)` and
-    /// `(x3, z3)` for the "doubled" and "added" candidates respectively.
+    // 常数时间 Montgomery ladder。按 MSB 优先迭代 clamp 后标量的位，维护「加倍」与「相加」候选的
+    // 射影 (x2, z2) 与 (x3, z3)。
     static BigInt _montgomeryLadder(byte[] kBytes, BigInt u, BigInt p) {
         BigInt a24 = new BigInt(121665L);   // (486662 - 2) / 4
         BigInt x1 = u;
@@ -149,21 +124,19 @@ public static class X25519 {
 
     // ── Field helpers ────────────────────────────────────────────────────────
 
-    /// Curve25519 field prime p = 2^255 - 19.
+    // Curve25519 域素数 p = 2^255 - 19。
     static BigInt _primeP() {
         return BigInt.One.ShiftLeft(255).Subtract(new BigInt(19L));
     }
 
-    /// `(a mod p)` — wraps `BigInt.Mod` and normalises negative results to
-    /// `[0, p)`. BigInt.Mod follows dividend sign so a < 0 produces a
-    /// negative remainder; we add p.
+    // `(a mod p)`——包装 BigInt.Mod 并把负结果归一化到 [0, p)（BigInt.Mod 随被除数符号，a<0 得负余数，需加 p）。
     static BigInt _mod(BigInt a, BigInt p) {
         BigInt r = a.Mod(p);
         if (r._sign < 0) { r = r.Add(p); }
         return r;
     }
 
-    /// `(a - b) mod p` — common enough in the ladder to inline.
+    // `(a - b) mod p`——ladder 里够常用，内联。
     static BigInt _modSub(BigInt a, BigInt b, BigInt p) {
         return X25519._mod(a.Subtract(b), p);
     }

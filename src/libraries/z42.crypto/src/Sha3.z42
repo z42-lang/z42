@@ -2,114 +2,114 @@ namespace Std.Crypto;
 
 using Std.Encoding;
 
-// add-sha3 (2026-05-27): SHA-3 (FIPS 202) hash family — Keccak-f[1600].
-//
-// Pure-script implementation. SHA-3 is sponge-based (vs SHA-2's
-// Merkle-Damgård) — a 1600-bit (25 × 64-bit) state permuted by
-// Keccak-f, then "absorb" XOR-mixes input into the rate portion and
-// "squeeze" reads output bytes from the same rate portion.
-//
-// State layout: flat `long[25]` indexed as `state[x + 5*y]`, where
-// x, y in 0..4 are the FIPS 202 §3.1.2 column/row coordinates.
-//
-// Variants (FIPS 202 §6.1) — all share Keccak-f[1600], differ only in
-// the rate `r` (and thus output length):
-//   SHA3-224 : r=1152 bits (144 bytes), d=28 bytes
-//   SHA3-256 : r=1088 bits (136 bytes), d=32 bytes
-//   SHA3-384 : r= 832 bits (104 bytes), d=48 bytes
-//   SHA3-512 : r= 576 bits ( 72 bytes), d=64 bytes
-//
-// Domain separation byte = 0x06 (SHA-3 prefix `01` + start of multirate
-// padding `1`). Last byte of padding has high bit set (`0x80`).
-//
-// Note: this implements *FIPS 202 SHA-3*, not the legacy Keccak used by
-// Ethereum (which differs only in the domain-separation byte: 0x01 vs
-// 0x06). A `Keccak256.HashEthereum` variant is `sha3-future-keccak-legacy`.
-//
-// Tested against NIST FIPS 202 §A.5 sample test vectors for all four
-// output lengths.
+// SHA-3（FIPS 202）哈希族，基于 Keccak-f[1600] 的纯脚本实现。SHA-3 是海绵结构
+// （区别于 SHA-2 的 Merkle-Damgård）：1600 位（25 × 64 位）状态经 Keccak-f 置换，
+// 「吸收」阶段把输入 XOR 进 rate 部分，「挤压」阶段从同一 rate 部分读出输出字节。
+// 状态布局为扁平 `long[25]`，索引 `state[x + 5*y]`，x、y ∈ 0..4 为 FIPS 202 §3.1.2
+// 的列/行坐标。四个变体（FIPS 202 §6.1）共用 Keccak-f[1600]，仅 rate `r` 不同：
+// SHA3-224（r=144 字节）、SHA3-256（136）、SHA3-384（104）、SHA3-512（72）。
+// 域分隔字节 = 0x06；填充最后一字节高位（0x80）置位。注意本实现是 FIPS 202 SHA-3，
+// 不是以太坊用的 legacy Keccak（后者域分隔字节为 0x01）。
 
 public static class Sha3 {
     // ── Public API ───────────────────────────────────────────────────────────
 
+    /// 计算 SHA3-224 原始摘要（28 字节）。
     public static byte[] Hash224(byte[] data) { return Sha3._sponge(data, 144, 28, 0x06); }
+    /// 计算 SHA3-256 原始摘要（32 字节）。
     public static byte[] Hash256(byte[] data) { return Sha3._sponge(data, 136, 32, 0x06); }
+    /// 计算 SHA3-384 原始摘要（48 字节）。
     public static byte[] Hash384(byte[] data) { return Sha3._sponge(data, 104, 48, 0x06); }
+    /// 计算 SHA3-512 原始摘要（64 字节）。
     public static byte[] Hash512(byte[] data) { return Sha3._sponge(data,  72, 64, 0x06); }
 
+    /// 对 UTF-8 字符串计算 SHA3-224 摘要。
     public static byte[] Hash224String(string s) { return Sha3.Hash224(Utf8.GetBytes(s)); }
+    /// 对 UTF-8 字符串计算 SHA3-256 摘要。
     public static byte[] Hash256String(string s) { return Sha3.Hash256(Utf8.GetBytes(s)); }
+    /// 对 UTF-8 字符串计算 SHA3-384 摘要。
     public static byte[] Hash384String(string s) { return Sha3.Hash384(Utf8.GetBytes(s)); }
+    /// 对 UTF-8 字符串计算 SHA3-512 摘要。
     public static byte[] Hash512String(string s) { return Sha3.Hash512(Utf8.GetBytes(s)); }
 
+    /// 计算 SHA3-224 摘要并输出小写十六进制。
     public static string Hash224Hex(byte[] data) { return Hex.Encode(Sha3.Hash224(data)); }
+    /// 计算 SHA3-256 摘要并输出小写十六进制。
     public static string Hash256Hex(byte[] data) { return Hex.Encode(Sha3.Hash256(data)); }
+    /// 计算 SHA3-384 摘要并输出小写十六进制。
     public static string Hash384Hex(byte[] data) { return Hex.Encode(Sha3.Hash384(data)); }
+    /// 计算 SHA3-512 摘要并输出小写十六进制。
     public static string Hash512Hex(byte[] data) { return Hex.Encode(Sha3.Hash512(data)); }
 
+    /// 对 UTF-8 字符串计算 SHA3-224 摘要并输出小写十六进制。
     public static string Hash224StringHex(string s) { return Hex.Encode(Sha3.Hash224String(s)); }
+    /// 对 UTF-8 字符串计算 SHA3-256 摘要并输出小写十六进制。
     public static string Hash256StringHex(string s) { return Hex.Encode(Sha3.Hash256String(s)); }
+    /// 对 UTF-8 字符串计算 SHA3-384 摘要并输出小写十六进制。
     public static string Hash384StringHex(string s) { return Hex.Encode(Sha3.Hash384String(s)); }
+    /// 对 UTF-8 字符串计算 SHA3-512 摘要并输出小写十六进制。
     public static string Hash512StringHex(string s) { return Hex.Encode(Sha3.Hash512String(s)); }
 
-    // ── Legacy Keccak (pre-FIPS-202, Ethereum / Solidity) ────────────────────
+    // ── Legacy Keccak（FIPS 202 之前的以太坊 / Solidity 变体） ───────────────
     //
-    // add-sha3-keccak-legacy (2026-05-27): Ethereum's `keccak256` predates
-    // FIPS 202 and uses domain-separation byte `0x01` instead of `0x06`.
-    // The permutation, state size, and rates are identical — only the
-    // suffix byte differs. Use these variants for:
-    //   - Ethereum address derivation (right-truncated keccak256 of pubkey)
-    //   - Solidity `keccak256(bytes)` compatibility
-    //   - Bitcoin Cash address / SHA3SUM legacy tools
-    //
-    // FIPS-202 SHA-3 callers must keep using `Hash{224,256,384,512}` above —
-    // mixing the two will produce different hashes for the same input.
+    // 以太坊的 `keccak256` 早于 FIPS 202，域分隔字节用 0x01 而非 0x06；置换、状态大小、
+    // rate 都相同，只有后缀字节不同。用于以太坊地址派生、Solidity `keccak256(bytes)` 等。
+    // FIPS 202 调用方必须继续使用上面的 `Hash{224,256,384,512}`——两者对同一输入结果不同。
 
+    /// 计算 legacy Keccak-256 原始摘要（32 字节，域分隔字节 0x01）。
     public static byte[] KeccakLegacy256(byte[] data)        { return Sha3._sponge(data, 136, 32, 0x01); }
+    /// 计算 legacy Keccak-512 原始摘要（64 字节，域分隔字节 0x01）。
     public static byte[] KeccakLegacy512(byte[] data)        { return Sha3._sponge(data,  72, 64, 0x01); }
+    /// 对 UTF-8 字符串计算 legacy Keccak-256 摘要。
     public static byte[] KeccakLegacy256String(string s)     { return Sha3.KeccakLegacy256(Utf8.GetBytes(s)); }
+    /// 对 UTF-8 字符串计算 legacy Keccak-512 摘要。
     public static byte[] KeccakLegacy512String(string s)     { return Sha3.KeccakLegacy512(Utf8.GetBytes(s)); }
+    /// 计算 legacy Keccak-256 摘要并输出小写十六进制。
     public static string KeccakLegacy256Hex(byte[] data)     { return Hex.Encode(Sha3.KeccakLegacy256(data)); }
+    /// 计算 legacy Keccak-512 摘要并输出小写十六进制。
     public static string KeccakLegacy512Hex(byte[] data)     { return Hex.Encode(Sha3.KeccakLegacy512(data)); }
+    /// 对 UTF-8 字符串计算 legacy Keccak-256 摘要并输出小写十六进制。
     public static string KeccakLegacy256StringHex(string s)  { return Hex.Encode(Sha3.KeccakLegacy256String(s)); }
+    /// 对 UTF-8 字符串计算 legacy Keccak-512 摘要并输出小写十六进制。
     public static string KeccakLegacy512StringHex(string s)  { return Hex.Encode(Sha3.KeccakLegacy512String(s)); }
 
-    // ── SHAKE128 / SHAKE256: extendable-output functions (FIPS 202 §6.2) ─────
+    // ── SHAKE128 / SHAKE256：可扩展输出函数（FIPS 202 §6.2） ─────────────────
     //
-    // add-sha3-shake (2026-05-27): unlike fixed-length SHA-3, SHAKE
-    // produces arbitrary-length output. Rate / capacity:
-    //   SHAKE128 : r = 168 bytes (1344 bits), capacity 256 bits → 128-bit security
-    //   SHAKE256 : r = 136 bytes (1088 bits), capacity 512 bits → 256-bit security
-    // Domain-separation byte = 0x1F (`1111` SHAKE suffix + start of
-    // multirate padding `1`).
-    //
-    // Use cases: stream cipher / DRBG seed expansion / arbitrary-length
-    // hashing for protocol IDs / hash-based signatures (SPHINCS+).
+    // 与固定长度 SHA-3 不同，SHAKE 可产出任意长度输出。rate：SHAKE128 为 168 字节
+    // （capacity 256 位，128 位安全性）；SHAKE256 为 136 字节（capacity 512 位，256 位安全性）。
+    // 域分隔字节 = 0x1F。用于流密码、DRBG 种子扩展、协议 ID 的任意长度哈希、哈希签名（SPHINCS+）。
 
+    /// SHAKE128 可扩展输出（`outputLen` ≥ 0）。
     public static byte[] Shake128(byte[] data, int outputLen) {
         if (outputLen < 0) {
             throw new ArgumentException("Sha3.Shake128: outputLen must be ≥ 0, got " + outputLen.ToString());
         }
         return Sha3._sponge(data, 168, outputLen, 0x1F);
     }
+    /// SHAKE256 可扩展输出（`outputLen` ≥ 0）。
     public static byte[] Shake256(byte[] data, int outputLen) {
         if (outputLen < 0) {
             throw new ArgumentException("Sha3.Shake256: outputLen must be ≥ 0, got " + outputLen.ToString());
         }
         return Sha3._sponge(data, 136, outputLen, 0x1F);
     }
+    /// 对 UTF-8 字符串做 SHAKE128 可扩展输出。
     public static byte[] Shake128String(string s, int outputLen) { return Sha3.Shake128(Utf8.GetBytes(s), outputLen); }
+    /// 对 UTF-8 字符串做 SHAKE256 可扩展输出。
     public static byte[] Shake256String(string s, int outputLen) { return Sha3.Shake256(Utf8.GetBytes(s), outputLen); }
+    /// SHAKE128 可扩展输出并输出小写十六进制。
     public static string Shake128Hex(byte[] data, int outputLen) { return Hex.Encode(Sha3.Shake128(data, outputLen)); }
+    /// SHAKE256 可扩展输出并输出小写十六进制。
     public static string Shake256Hex(byte[] data, int outputLen) { return Hex.Encode(Sha3.Shake256(data, outputLen)); }
+    /// 对 UTF-8 字符串做 SHAKE128 可扩展输出并输出小写十六进制。
     public static string Shake128StringHex(string s, int outputLen) { return Hex.Encode(Sha3.Shake128String(s, outputLen)); }
+    /// 对 UTF-8 字符串做 SHAKE256 可扩展输出并输出小写十六进制。
     public static string Shake256StringHex(string s, int outputLen) { return Hex.Encode(Sha3.Shake256String(s, outputLen)); }
 
     // ── Sponge: absorb + squeeze ─────────────────────────────────────────────
 
-    /// Sponge construction with rate `r` bytes, output length `d` bytes,
-    /// and domain-separation byte `dsByte` (0x06 for FIPS 202 SHA-3,
-    /// 0x01 for legacy Keccak).
+    // 海绵构造：rate 为 `r` 字节，输出长度 `d` 字节，域分隔字节 `dsByte`
+    // （FIPS 202 SHA-3 用 0x06，legacy Keccak 用 0x01）。
     static byte[] _sponge(byte[] data, int r, int d, int dsByte) {
         long[] state = new long[25];
         // Absorb full-rate blocks.
@@ -150,8 +150,7 @@ public static class Sha3 {
         return out_;
     }
 
-    /// XOR an r-byte block (interpreted as `r/8` little-endian 64-bit lanes)
-    /// into the rate portion of the state.
+    // 把一个 r 字节块（按 `r/8` 个小端 64 位 lane 解释）XOR 进状态的 rate 部分。
     static void _absorbBlock(long[] state, byte[] data, int offset, int r) {
         int lanes = r / 8;
         int i = 0;
@@ -163,7 +162,7 @@ public static class Sha3 {
 
     // ── Keccak-f[1600] permutation (FIPS 202 §3.2) ───────────────────────────
 
-    /// Apply 24 rounds of Keccak-f[1600] in place.
+    // 原地执行 24 轮 Keccak-f[1600]。
     static void _keccakF(long[] state) {
         long[] rc = Sha3._roundConstants();
         int[] rho = Sha3._rotationOffsets();
@@ -225,8 +224,7 @@ public static class Sha3 {
         }
     }
 
-    /// Keccak-f rotation offsets ρ[x, y] (FIPS 202 Table 2).
-    /// Indexed as `rho[x + 5*y]` — same layout as the state.
+    // Keccak-f 旋转偏移 ρ[x, y]（FIPS 202 表 2），按 `rho[x + 5*y]` 索引，与状态布局一致。
     static int[] _rotationOffsets() {
         int[] r = new int[25];
         // Row y=0: x=0..4
@@ -242,7 +240,7 @@ public static class Sha3 {
         return r;
     }
 
-    /// Keccak-f[1600] round constants RC[0..23] (FIPS 202 §3.2.5).
+    // Keccak-f[1600] 轮常量 RC[0..23]（FIPS 202 §3.2.5）。
     static long[] _roundConstants() {
         long[] rc = new long[24];
         rc[0]  = 0x0000000000000001L; rc[1]  = 0x0000000000008082L;
@@ -262,15 +260,14 @@ public static class Sha3 {
 
     // ── 64-bit bit-twiddling helpers ─────────────────────────────────────────
 
-    /// Logical right shift on i64. Arithmetic `>>` sign-extends negative
-    /// values; mask off the introduced 1s.
+    // i64 逻辑右移。算术 `>>` 对负数会符号扩展；掩掉引入的 1。
     static long _lshr64(long x, int n) {
         if (n == 0) return x;
         if (x >= 0L) return x >> n;
         return (x >> n) ^ ((-1L) << (64 - n));
     }
 
-    /// Left rotation by n bits on i64 (n in [0, 63]).
+    // i64 循环左移 n 位（n ∈ [0, 63]）。
     static long _rotl64(long x, int n) {
         if (n == 0) return x;
         return (x << n) | Sha3._lshr64(x, 64 - n);

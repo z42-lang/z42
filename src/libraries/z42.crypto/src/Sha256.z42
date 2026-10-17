@@ -1,17 +1,41 @@
+//! 加密原语。
+//!
+//! 摘要、MAC、密钥派生、对称加密与 AEAD、公钥签名与密钥协商、OS CSPRNG。全部是静态类，
+//! 按算法一个类，不需要实例化（RSA 的密钥对象除外）。
+//!
+//! 所有算法都是纯 z42 脚本实现，不链接 OpenSSL / libcrypto。唯一走 OS 的是
+//! `SecureRandom` 的熵源。参数校验失败、tag 校验失败、padding 非法都抛
+//! `Std.ArgumentException`。
+//!
+//! ## 不支持
+//!
+//! - **没有流式 / 增量接口**：所有摘要、MAC、加密都是一次性 `byte[]` 进、`byte[]` 出，不能分块
+//!   `Update` / `Final`。大文件必须整个读进内存。
+//! - **没有密钥格式解析**：DER / PEM / PKCS#1 / PKCS#8 / JWK / x509 都不支持。RSA 密钥要自己把
+//!   `n` / `e` / `d` 转成 `BigInt` 再构造；ECDSA / Ed25519 / X25519 只接受裸字节。
+//! - **没有密钥生成**：`GeneratePublicKey` 只从既有私钥推公钥；RSA 没有 `GenerateKeyPair`。
+//!   私钥请用 `SecureRandom.GetBytes` 自行生成。
+//! - **RSA 只有 SHA-256 一种摘要**：没有 SHA-1 / SHA-384 / SHA-512 的签名验签变体；也没有 CRT
+//!   解密快路径与 blinding。
+//! - **ECDSA 公钥只有未压缩形态**：64 字节 `X ‖ Y`，不接受 33 字节压缩点，也不带 `0x04` 前缀。
+//! - **AES 没有硬件加速**：无 AES-NI / ARMv8 Crypto Extensions 路径；也没有 Key Wrap（RFC 3394）。
+//! - **AES-GCM 的 tag 不可截断**：固定 16 字节（CCM 才能选 `tagLen`）。
+//! - **BLAKE3 只有默认模式**：没有 keyed hash、没有 `DeriveKey(context, …)`、没有增量或并行分块。
+//! - **没有 Argon2 / bcrypt**：口令哈希只有 `Pbkdf2` 与 `Scrypt`。
+//! - **没有证书 / TLS / JWT 的上层封装**：这里只有原语。
+//! - **wasm32 上没有 CSPRNG**：`SecureRandom` 的所有入口都会抛 `NotSupportedException`。
+//!
+//! @warning `Md5` / `Sha1` 只用于协议强制的旧系统互操作，新设计一律用 SHA-256 及以上。
 namespace Std.Crypto;
 
 using Std.Encoding;
 
-// add-z42-crypto (2026-05-17): SHA-256 hash (FIPS 180-4).
-//
-// Pure-script implementation. State held as `long` (i64), masked to 32
-// bits at every op boundary — z42 `int` is signed i32, overflows on the
-// schedule additions.
-//
-// Tested against NIST FIPS 180-2 test vectors (see tests/sha256_vectors.z42).
+// SHA-256 哈希（FIPS 180-4），纯脚本实现。状态用 `long`（i64）保存，每一步运算边界
+// 都掩码到 32 位——z42 的 `int` 是有符号 i32，消息表加法会溢出。
 public static class Sha256 {
     // ── Public API ───────────────────────────────────────────────────────────
 
+    /// 计算 SHA-256 原始摘要（32 字节）。
     public static byte[] Hash(byte[] data) {
         byte[] padded = _pad(data);
         long[] h = _initialHash();
@@ -34,14 +58,17 @@ public static class Sha256 {
         return digest;
     }
 
+    /// 对 UTF-8 编码后的字符串计算 SHA-256 摘要。
     public static byte[] HashString(string s) {
         return Hash(Utf8.GetBytes(s));
     }
 
+    /// 计算 SHA-256 摘要并输出小写十六进制。
     public static string HashHex(byte[] data) {
         return Hex.Encode(Hash(data));
     }
 
+    /// 对 UTF-8 字符串计算 SHA-256 摘要并输出小写十六进制。
     public static string HashStringHex(string s) {
         if (s.Length == 0) return Hex.Encode(Hash(new byte[0]));
         return Hex.Encode(Hash(Utf8.GetBytes(s)));

@@ -2,36 +2,15 @@ namespace Std.Crypto;
 
 using Std.Numerics;
 
-// add-ecdsa-secp256k1 (2026-05-28): ECDSA over the secp256k1 curve per
-// SEC2 + RFC 6979 deterministic nonce. Used by Bitcoin, Ethereum,
-// Lightning Network, most blockchain protocols.
-//
-// optimize-ecdsa-jacobian-coords (2026-06-05): scalar multiplication now
-// runs in Jacobian coordinates (Z=1 lift on entry, single ModInverse on
-// exit), eliminating the ~384 ModInverses/scalarMult that the old affine
-// double-and-add paid. Curve constants `p` / `n` are parsed once per
-// public entry and threaded down, replacing per-op `_curvePrime()` /
-// `_curveOrder()` calls that re-decoded a 64-hex-char string ~768× per
-// scalar mult. Output is byte-identical to the affine version — all
-// existing test vectors pass unchanged (the Jacobian rep is purely
-// internal and converted back to affine before any byte serialisation).
-//
-// Curve: short Weierstrass `y² = x³ + 7 mod p`, a = 0 (Bitcoin chose this
-// "Koblitz" form for endomorphism-based fast scalar mul, not used here).
-//   p  = FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
-//   b  = 7
-//   Gx = 79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798
-//   Gy = 483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8
-//   n  = FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
-//
-// API surface mirrors `EcdsaP256` exactly — only the curve constants
-// + the doubling formula differ (a = 0 simplifies M = 3X²).
-//
-// Tested against well-known Bitcoin/Ethereum reference vectors.
+// secp256k1 曲线上的 ECDSA（SEC2 + RFC 6979 确定性 nonce），用于 Bitcoin、Ethereum、Lightning
+// 等区块链协议。曲线为短 Weierstrass `y² = x³ + 7 mod p`（a = 0，Bitcoin 选的 "Koblitz" 形式）。
+// 接口与 `EcdsaP256` 完全相同，仅曲线常数与加倍公式不同（a = 0 使 M = 3X²）。标量乘用 Jacobian
+// 坐标（入口 Z=1 抬升、出口单次 ModInverse），曲线常数 p / n 每次公共入口解析一次。
 
 public static class EcdsaSecp256k1 {
     // ── Public API ───────────────────────────────────────────────────────────
 
+    /// 从 32 字节私钥标量派生 64 字节未压缩公钥（X ‖ Y）。
     public static byte[] GeneratePublicKey(byte[] privateScalar) {
         if (privateScalar.Length != 32) {
             throw new ArgumentException(
@@ -50,6 +29,7 @@ public static class EcdsaSecp256k1 {
         return EcdsaSecp256k1._pointToBytes(Q);
     }
 
+    /// 用 32 字节私钥标量对 `message` 签名（RFC 6979 确定性），返回 64 字节（r ‖ s，各 32 字节大端）。
     public static byte[] Sign(byte[] privateScalar, byte[] message) {
         if (privateScalar.Length != 32) {
             throw new ArgumentException(
@@ -88,6 +68,7 @@ public static class EcdsaSecp256k1 {
             "EcdsaSecp256k1.Sign: RFC 6979 candidate exhaustion (astronomically improbable)");
     }
 
+    /// 校验 64 字节签名；无效签名 / 非曲线上点 / 越界 r、s 返回 `false`，仅公钥非 64 字节抛 `ArgumentException`。
     public static bool Verify(byte[] publicKey, byte[] message, byte[] signature) {
         if (publicKey.Length != 64) {
             throw new ArgumentException(
@@ -158,7 +139,7 @@ public static class EcdsaSecp256k1 {
         return r;
     }
 
-    /// `(x, y)` lies on `y² = x³ + 7 mod p` (a = 0, b = 7).
+    // (x, y) 在曲线 y² = x³ + 7 mod p 上（a = 0，b = 7）。
     static bool _isOnCurve(BigInt[] P, BigInt p) {
         if (P == null) { return false; }
         BigInt x = P[0]; BigInt y = P[1];
@@ -178,7 +159,7 @@ public static class EcdsaSecp256k1 {
     // twice per Verify max — not on the hot scalar-mult path). Internal
     // scalar mult goes through Jacobian.
 
-    /// Affine doubling specialised for a = 0 — λ = 3x² / (2y), no `-3` term.
+    // 仿射加倍（a = 0 特化）——λ = 3x² / (2y)，无 `-3` 项。
     static BigInt[] _pointDouble(BigInt[] P, BigInt p) {
         if (P == null) { return null; }
         BigInt y = P[1];
@@ -195,7 +176,7 @@ public static class EcdsaSecp256k1 {
         return R;
     }
 
-    /// Affine point addition. Same formula as P-256 (curve `a` doesn't appear).
+    // 仿射点加。公式与 P-256 相同（曲线 `a` 不出现在加法公式）。
     static BigInt[] _pointAdd(BigInt[] P, BigInt[] Q, BigInt p) {
         if (P == null) { return Q; }
         if (Q == null) { return P; }
@@ -221,13 +202,10 @@ public static class EcdsaSecp256k1 {
     // `Z = 0` represents the point at infinity. All field arithmetic stays
     // mod p; the single ModInverse is paid at `_jacToAffine` exit.
 
-    /// Jacobian doubling, a = 0 specialisation:
-    ///   S  = 4 X Y²
-    ///   M  = 3 X²              ← a = 0 drops the `+ a·Z⁴` term
-    ///   X' = M² − 2 S
-    ///   Y' = M (S − X') − 8 Y⁴
-    ///   Z' = 2 Y Z
-    /// Infinity (Z=0) and y=0 both produce Z'=0 → identity.
+    // Jacobian 加倍（a = 0 特化）：
+    //   S = 4 X Y²; M = 3 X²（a = 0 去掉 `+ a·Z⁴` 项）
+    //   X' = M² − 2 S; Y' = M (S − X') − 8 Y⁴; Z' = 2 Y Z
+    // 无穷远（Z=0）与 y=0 都使 Z'=0 → 单位元。
     static BigInt[] _jacDouble(BigInt[] J, BigInt p) {
         BigInt Y = J[1];
         BigInt Z = J[2];
@@ -255,14 +233,11 @@ public static class EcdsaSecp256k1 {
         return R;
     }
 
-    /// Jacobian addition, generic short-Weierstrass:
-    ///   U1 = X1 Z2², U2 = X2 Z1²
-    ///   S1 = Y1 Z2³, S2 = Y2 Z1³
-    ///   if U1 == U2: S1 == S2 → doubling; else → infinity
-    ///   H = U2 − U1; R = S2 − S1
-    ///   X3 = R² − H³ − 2 U1 H²
-    ///   Y3 = R (U1 H² − X3) − S1 H³
-    ///   Z3 = H Z1 Z2
+    // Jacobian 加法（通用短 Weierstrass）：
+    //   U1 = X1 Z2², U2 = X2 Z1²; S1 = Y1 Z2³, S2 = Y2 Z1³
+    //   若 U1 == U2：S1 == S2 → 加倍；否则 → 无穷远
+    //   H = U2 − U1; R = S2 − S1
+    //   X3 = R² − H³ − 2 U1 H²; Y3 = R (U1 H² − X3) − S1 H³; Z3 = H Z1 Z2
     static BigInt[] _jacAdd(BigInt[] J1, BigInt[] J2, BigInt p) {
         if (J1[2].IsZero()) { return J2; }
         if (J2[2].IsZero()) { return J1; }
@@ -299,10 +274,8 @@ public static class EcdsaSecp256k1 {
         return Rr;
     }
 
-    /// Convert Jacobian `[X, Y, Z]` back to affine `(x, y) = (X·Z⁻², Y·Z⁻³)`.
-    /// Returns `null` (affine identity convention) when `Z == 0`.
-    /// This is the ONLY ModInverse per scalar mult — was ~384 inversions in
-    /// the affine version (one per double / add inside the loop).
+    // 把 Jacobian [X, Y, Z] 转回仿射 (x, y) = (X·Z⁻², Y·Z⁻³)；Z == 0 返回 null（仿射无穷远约定）。
+    // 这是每次标量乘唯一的一次 ModInverse（旧仿射版约 384 次求逆，循环内每加倍 / 相加各一次）。
     static BigInt[] _jacToAffine(BigInt[] J, BigInt p) {
         if (J[2].IsZero()) { return null; }
         BigInt Zinv  = J[2].ModInverse(p);
@@ -315,14 +288,9 @@ public static class EcdsaSecp256k1 {
         return R;
     }
 
-    /// Scalar multiplication via Jacobian double-and-add (LSB-first). Lifts
-    /// affine `P` to Jacobian `(X, Y, 1)`, runs the loop in Jacobian coords
-    /// (zero ModInverse per iteration), then converts back to affine for the
-    /// caller — preserving the old null-or-affine return convention.
-    ///
-    /// Not constant-time — adequate for verify-side public scalars; the
-    /// sign-side scalar comes from RFC 6979 deterministic derivation so the
-    /// leak surface is bounded to that mix.
+    // LSB 优先的 Jacobian double-and-add 标量乘：把仿射 P 抬升为 Jacobian (X, Y, 1)，
+    // 在 Jacobian 坐标下循环（每轮零 ModInverse），最后转回仿射返回。
+    // 非常数时间——够用于验签侧的公开标量；签名侧标量来自 RFC 6979 确定性派生，泄漏面受限。
     static BigInt[] _scalarMult(BigInt k, BigInt[] P, BigInt p) {
         BigInt[] R = new BigInt[3];
         R[0] = BigInt.One; R[1] = BigInt.One; R[2] = BigInt.Zero;   // Jacobian identity

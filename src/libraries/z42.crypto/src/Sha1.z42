@@ -2,22 +2,14 @@ namespace Std.Crypto;
 
 using Std.Encoding;
 
-// add-sha1-to-crypto (2026-05-25): SHA-1 hash (FIPS 180-4 §6.1).
-//
-// Pure-script implementation mirroring `Sha256`. State held as `long` (i64)
-// masked to 32 bits at every op boundary — z42 `int` is signed i32 and
-// overflows on the message schedule additions.
-//
-// ⚠️ SHA-1 is broken for collision-resistant uses since SHAttered (2017).
-// Use cases acceptable today: HMAC-SHA1 (HMAC compromise is not the
-// underlying hash collision), git object hash compat, WebSocket
-// Sec-WebSocket-Accept (RFC 6455 §4.2.2 specifies SHA-1), legacy protocol
-// interop. Do NOT use for new content addressing / signature schemes.
-//
-// Tested against FIPS 180-2 §B + NIST CAVP test vectors.
+// SHA-1 哈希（FIPS 180-4 §6.1），纯脚本实现，结构与 `Sha256` 相同。状态用 `long`（i64）
+// 保存，每一步运算边界掩码到 32 位——z42 的 `int` 是有符号 i32，消息表加法会溢出。
+// ⚠️ SHA-1 自 SHAttered（2017）起碰撞已破：仅用于 HMAC-SHA1、git 对象哈希、
+// Sec-WebSocket-Accept（RFC 6455 §4.2.2）等既有协议互操作，勿用于新设计。
 public static class Sha1 {
     // ── Public API ───────────────────────────────────────────────────────
 
+    /// 计算 SHA-1 原始摘要（20 字节）。
     public static byte[] Hash(byte[] data) {
         byte[] padded = _pad(data);
         long[] h = _initialHash();
@@ -40,14 +32,17 @@ public static class Sha1 {
         return digest;
     }
 
+    /// 对 UTF-8 编码后的字符串计算 SHA-1 摘要。
     public static byte[] HashString(string s) {
         return Hash(Utf8.GetBytes(s));
     }
 
+    /// 计算 SHA-1 摘要并输出小写十六进制。
     public static string HashHex(byte[] data) {
         return Hex.Encode(Hash(data));
     }
 
+    /// 对 UTF-8 字符串计算 SHA-1 摘要并输出小写十六进制。
     public static string HashStringHex(string s) {
         if (s.Length == 0) return Hex.Encode(Hash(new byte[0]));
         return Hex.Encode(Hash(Utf8.GetBytes(s)));
@@ -148,7 +143,7 @@ public static class Sha1 {
         h[4] = (h[4] + e) & 0xFFFFFFFFL;
     }
 
-    /// 32-bit rotate-left. `x` is treated as the low 32 bits of a `long`.
+    // 32 位循环左移，`x` 只取 `long` 的低 32 位。
     static long _rotl(long x, int n) {
         long masked = x & 0xFFFFFFFFL;
         return ((masked << n) | (masked >> (32 - n))) & 0xFFFFFFFFL;

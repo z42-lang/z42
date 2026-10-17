@@ -2,25 +2,14 @@ namespace Std.Crypto;
 
 using Std.Encoding;
 
-// add-sha512-to-crypto (2026-05-27): SHA-512 hash (FIPS 180-4).
-//
-// Pure-script implementation. State held as `long` (i64) — SHA-512 words
-// are 64-bit so z42's signed i64 fits naturally; the only friction is
-// that `>>` on negative values sign-extends, so we use `_lshr64` for
-// logical right shift wherever the high bit may be set.
-//
-// Block size 128 bytes (16 × 64-bit words). Output 64 bytes.
-// 80 rounds (vs SHA-256's 64).
-//
-// SHA-384 (Sha384.z42) shares the compression function via the
-// `_compressBlock` helper exposed here; only the IV and output
-// truncation differ.
-//
-// Tested against NIST FIPS 180-2 test vectors + RFC 4231 §4 vectors
-// for HMAC-SHA-384 / HMAC-SHA-512 (transitively).
+// SHA-512 哈希（FIPS 180-4），纯脚本实现。状态用 `long`（i64）保存——SHA-512 的字长 64 位，
+// 天然契合 z42 的有符号 i64；唯一麻烦是负数 `>>` 会符号扩展，所以高位可能置 1 处用 `_lshr64`
+// 做逻辑右移。块大小 128 字节（16 × 64 位字），输出 64 字节，80 轮（SHA-256 为 64 轮）。
+// SHA-384（Sha384.z42）通过暴露的 `_compressBlock` 共用压缩函数，仅 IV 与输出截断不同。
 public static class Sha512 {
     // ── Public API ───────────────────────────────────────────────────────────
 
+    /// 计算 SHA-512 原始摘要（64 字节）。
     public static byte[] Hash(byte[] data) {
         byte[] padded = Sha512._pad(data);
         long[] h = Sha512._initialHash();
@@ -39,8 +28,11 @@ public static class Sha512 {
         return digest;
     }
 
+    /// 对 UTF-8 编码后的字符串计算 SHA-512 摘要。
     public static byte[] HashString(string s) { return Sha512.Hash(Utf8.GetBytes(s)); }
+    /// 计算 SHA-512 摘要并输出小写十六进制。
     public static string HashHex(byte[] data) { return Hex.Encode(Sha512.Hash(data)); }
+    /// 对 UTF-8 字符串计算 SHA-512 摘要并输出小写十六进制。
     public static string HashStringHex(string s) {
         if (s.Length == 0) return Hex.Encode(Sha512.Hash(new byte[0]));
         return Hex.Encode(Sha512.Hash(Utf8.GetBytes(s)));
@@ -57,8 +49,7 @@ public static class Sha512 {
         return h;
     }
 
-    /// SHA-512 round constants K[0..79] — first 64 bits of the fractional
-    /// parts of the cube roots of the first 80 primes (FIPS 180-4 §4.2.3).
+    // SHA-512 轮常量 K[0..79]：前 80 个素数立方根小数部分的前 64 位（FIPS 180-4 §4.2.3）。
     static long[] _roundConstants() {
         long[] k = new long[80];
         k[0]  = 0x428A2F98D728AE22L; k[1]  = 0x7137449123EF65CDL;
@@ -106,9 +97,8 @@ public static class Sha512 {
 
     // ── Pre-processing: pad + length-encode ──────────────────────────────────
 
-    /// Public for Sha384 reuse. Padding rule mirrors SHA-256 but with
-    /// block size 128 and length field 16 bytes (we use upper 8 = 0
-    /// since z42 byte-length × 8 always fits in i64).
+    // 供 Sha384 复用的公开填充函数。填充规则与 SHA-256 相同，但块大小为 128、长度字段 16 字节
+    // （高 8 字节恒为 0，因为 z42 的字节长度 × 8 总能用 i64 表示）。
     public static byte[] _pad(byte[] data) {
         long bitLen = (long)data.Length * 8L;
         int padZeros = (112 - (data.Length + 1) % 128 + 128) % 128;
@@ -127,8 +117,7 @@ public static class Sha512 {
 
     // ── Per-block compression (shared with Sha384) ───────────────────────────
 
-    /// Compress one 128-byte block into h[0..7]. Exposed (`_` prefix
-    /// signals internal) so Sha384 can reuse with its own IV.
+    // 把一个 128 字节块压缩进 h[0..7]。用 `_` 前缀表示内部接口，供 Sha384 携带自己的 IV 复用。
     public static void _compressBlock(long[] h, byte[] block, int offset) {
         long[] k = Sha512._roundConstants();
         long[] w = new long[80];
@@ -191,16 +180,14 @@ public static class Sha512 {
 
     // ── 64-bit shift / rotate helpers ────────────────────────────────────────
 
-    /// Logical right shift on i64. Arithmetic `>>` sign-extends negative
-    /// values; XOR off the introduced 1s using the same mask that was
-    /// added (`-1L << (64-n)`).
+    // i64 逻辑右移。算术 `>>` 对负数会符号扩展；用同样的掩码（`-1L << (64-n)`）XOR 掉引入的 1。
     public static long _lshr64(long x, int n) {
         if (n == 0) return x;
         if (x >= 0L) return x >> n;
         return (x >> n) ^ ((-1L) << (64 - n));
     }
 
-    /// Right rotation by n bits on i64 (n in [1, 63]).
+    // i64 循环右移 n 位（n ∈ [1, 63]）。
     public static long _rotr64(long x, int n) {
         return Sha512._lshr64(x, n) | (x << (64 - n));
     }

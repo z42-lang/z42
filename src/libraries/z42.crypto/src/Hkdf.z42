@@ -2,34 +2,15 @@ namespace Std.Crypto;
 
 using Std.Encoding;
 
-// add-hkdf (2026-05-27): HKDF (RFC 5869) — Extract-then-Expand HMAC-based
-// Key Derivation Function. Industry-standard KDF used by TLS 1.3,
-// Signal, Noise protocols, JWT, etc.
-//
-// Pure-script over the existing HmacSha256 / HmacSha512 (which themselves
-// are pure-script over Sha256 / Sha512). No FFI, no native deps.
-//
-// Naming follows the rest of z42.crypto: distinct named methods per
-// hash flavor (HkdfSha256.Derive / HkdfSha512.Derive). The two flavours
-// share helpers via internal `_extract*` / `_expand*` functions.
-//
-// API shape mirrors Python's `cryptography.hazmat.primitives.kdf.hkdf` +
-// .NET 5+ `System.Security.Cryptography.HKDF`:
-//
-//   byte[] okm = HkdfSha256.Derive(salt, ikm, info, length);
-//
-// where `salt` may be empty (substituted with HashLen zero bytes per
-// RFC 5869 §2.2), `info` may be empty (no context binding), and
-// `length` must be ≤ 255 × HashLen.
-//
-// Tested against RFC 5869 §A.1-A.3 + a SHA-512 vector pair.
+// HKDF（RFC 5869）——基于 HMAC 的 Extract-then-Expand 密钥派生函数，用于 TLS 1.3、Signal、
+// Noise、JWT 等。纯脚本实现于 HmacSha256 / HmacSha512 / HmacSha1 之上。`salt` 可为空
+// （按 RFC 5869 §2.2 替换为 HashLen 个零字节），`info` 可为空，`length` ≤ 255 × HashLen。
 public static class HkdfSha256 {
     static int HashLen = 32;
     static int MaxLength = 255 * 32;  // 8160
 
-    /// One-shot Extract + Expand. The two phases are separately exposed
-    /// (`Extract` / `Expand`) for callers (e.g. TLS 1.3 key schedule)
-    /// that interleave with other state between them.
+    /// 一次性 Extract + Expand。两阶段单独暴露（`Extract` / `Expand`），
+    /// 供需要在其间穿插其他状态（如 TLS 1.3 密钥表）的调用方使用。
     public static byte[] Derive(byte[] salt, byte[] ikm, byte[] info, int length) {
         if (length < 0 || length > HkdfSha256.MaxLength) {
             throw new ArgumentException(
@@ -39,8 +20,7 @@ public static class HkdfSha256 {
         return HkdfSha256.Expand(prk, info, length);
     }
 
-    /// HKDF-Extract (RFC 5869 §2.2): PRK = HMAC-Hash(salt, IKM).
-    /// Empty salt → 32 zero bytes. Output is HashLen (32) bytes.
+    /// HKDF-Extract（RFC 5869 §2.2）：PRK = HMAC-Hash(salt, IKM)。空 salt → 32 个零字节，输出 32 字节。
     public static byte[] Extract(byte[] salt, byte[] ikm) {
         byte[] key;
         if (salt == null || salt.Length == 0) {
@@ -51,8 +31,7 @@ public static class HkdfSha256 {
         return HmacSha256.Compute(key, ikm);
     }
 
-    /// HKDF-Expand (RFC 5869 §2.3): expand PRK into `length` bytes of
-    /// output keying material using `info` as context binding.
+    /// HKDF-Expand（RFC 5869 §2.3）：把 PRK 扩展成 `length` 字节输出密钥材料，`info` 作上下文绑定。
     public static byte[] Expand(byte[] prk, byte[] info, int length) {
         if (length < 0 || length > HkdfSha256.MaxLength) {
             throw new ArgumentException(
@@ -93,17 +72,18 @@ public static class HkdfSha256 {
         return okm;
     }
 
-    /// Convenience hex variant for documentation / debugging.
+    /// 十六进制便捷变体，用于文档 / 调试。
     public static string DeriveHex(byte[] salt, byte[] ikm, byte[] info, int length) {
         return Hex.Encode(HkdfSha256.Derive(salt, ikm, info, length));
     }
 }
 
-// HKDF-SHA-512 — same algorithm, 64-byte HashLen.
+// HKDF-SHA-512——同算法，HashLen 64 字节。
 public static class HkdfSha512 {
     static int HashLen = 64;
     static int MaxLength = 255 * 64;  // 16320
 
+    /// 一次性 Extract + Expand（HKDF-SHA-512，HashLen 64 字节）。
     public static byte[] Derive(byte[] salt, byte[] ikm, byte[] info, int length) {
         if (length < 0 || length > HkdfSha512.MaxLength) {
             throw new ArgumentException(
@@ -113,6 +93,7 @@ public static class HkdfSha512 {
         return HkdfSha512.Expand(prk, info, length);
     }
 
+    /// HKDF-Extract：PRK = HMAC-SHA512(salt, IKM)，输出 64 字节。
     public static byte[] Extract(byte[] salt, byte[] ikm) {
         byte[] key;
         if (salt == null || salt.Length == 0) {
@@ -123,6 +104,7 @@ public static class HkdfSha512 {
         return HmacSha512.Compute(key, ikm);
     }
 
+    /// HKDF-Expand：把 PRK 扩展成 `length` 字节输出密钥材料。
     public static byte[] Expand(byte[] prk, byte[] info, int length) {
         if (length < 0 || length > HkdfSha512.MaxLength) {
             throw new ArgumentException(
@@ -156,21 +138,20 @@ public static class HkdfSha512 {
         return okm;
     }
 
+    /// 十六进制便捷变体。
     public static string DeriveHex(byte[] salt, byte[] ikm, byte[] info, int length) {
         return Hex.Encode(HkdfSha512.Derive(salt, ikm, info, length));
     }
 }
 
-// add-hkdf-sha1 (2026-05-28): HKDF-SHA-1 — same algorithm, 20-byte
-// HashLen. Used by legacy / IoT protocols where SHA-1 is still on the
-// wire (TLS 1.2 PRF in some cipher suites; older mobile-device key
-// derivation; IETF KDF-1 / KDF-2 ANSI X9.63). New designs should use
-// HkdfSha256 or HkdfSha512 — SHA-1's collision resistance is broken,
-// but HKDF derivations only need PRF security which SHA-1 still has.
+// HKDF-SHA-1——同算法，HashLen 20 字节。用于 SHA-1 仍在线上的旧协议 / IoT（部分 TLS 1.2 PRF、
+// 旧移动端密钥派生、ANSI X9.63 KDF-1/2）。新设计用 HkdfSha256 / HkdfSha512——SHA-1 碰撞抵抗已破，
+// 但 HKDF 派生只需 PRF 安全性（SHA-1 仍具备）。
 public static class HkdfSha1 {
     static int HashLen = 20;
     static int MaxLength = 255 * 20;  // 5100
 
+    /// 一次性 Extract + Expand（HKDF-SHA-1，HashLen 20 字节）。
     public static byte[] Derive(byte[] salt, byte[] ikm, byte[] info, int length) {
         if (length < 0 || length > HkdfSha1.MaxLength) {
             throw new ArgumentException(
@@ -180,6 +161,7 @@ public static class HkdfSha1 {
         return HkdfSha1.Expand(prk, info, length);
     }
 
+    /// HKDF-Extract：PRK = HMAC-SHA1(salt, IKM)，输出 20 字节。
     public static byte[] Extract(byte[] salt, byte[] ikm) {
         byte[] key;
         if (salt == null || salt.Length == 0) {
@@ -190,6 +172,7 @@ public static class HkdfSha1 {
         return HmacSha1.Compute(key, ikm);
     }
 
+    /// HKDF-Expand：把 PRK 扩展成 `length` 字节输出密钥材料。
     public static byte[] Expand(byte[] prk, byte[] info, int length) {
         if (length < 0 || length > HkdfSha1.MaxLength) {
             throw new ArgumentException(
@@ -223,6 +206,7 @@ public static class HkdfSha1 {
         return okm;
     }
 
+    /// 十六进制便捷变体。
     public static string DeriveHex(byte[] salt, byte[] ikm, byte[] info, int length) {
         return Hex.Encode(HkdfSha1.Derive(salt, ikm, info, length));
     }

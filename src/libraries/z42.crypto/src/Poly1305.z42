@@ -3,33 +3,15 @@ namespace Std.Crypto;
 using Std.Encoding;
 using Std.Numerics;
 
-// add-poly1305 (2026-05-27): Poly1305 one-time MAC (RFC 8439 §2.5).
-//
-// Authenticator over GF(2^130 - 5). Daniel Bernstein's MAC, used in
-// the ChaCha20-Poly1305 AEAD construction (RFC 8439) and in NaCl /
-// libsodium. Designed for one-time use: the 32-byte key MUST be
-// fresh for each message — reusing the key across messages leaks
-// the polynomial coefficient and breaks security entirely. In the
-// ChaCha20-Poly1305 AEAD, the key is derived per-message via
-// ChaCha20(key, nonce, counter=0)[0..32].
-//
-// Algorithm:
-//   key  = r (16 bytes, clamped) || s (16 bytes)
-//   acc  = 0
-//   for each 17-byte block of (message || 0x01 padding):
-//       acc = ((acc + block) * r) mod (2^130 - 5)
-//   tag  = (acc + s) mod 2^128  (LSB-first 16-byte output)
-//
-// Implemented over `Std.Numerics.BigInt` — z42 has no native 128/160-bit
-// integer type, and BigInt's `ModPow` / `Mod` already cover the
-// reduction step. Bench overhead is acceptable for low-rate use
-// (tokens, single-message AEAD); bulk MAC throughput is gated on the
-// cdylib follow-up (`poly1305-future-hw-accel`).
+// Poly1305 一次性 MAC（RFC 8439 §2.5），GF(2^130 - 5) 上的认证器，用于 ChaCha20-Poly1305 AEAD
+// 与 NaCl / libsodium。⚠️ 一次性：32 字节 key 对每条消息必须全新——复用会泄漏多项式系数、彻底
+// 失去安全性；AEAD 中 key 每消息由 ChaCha20(key, nonce, counter=0)[0..32] 派生。算法：
+// key = r（16 字节，clamp）|| s（16 字节）；对 (message || 0x01 填充) 的每个 17 字节块，
+// acc = ((acc + block) * r) mod (2^130 - 5)；tag = (acc + s) mod 2^128（16 字节小端输出）。
+// 基于 `Std.Numerics.BigInt` 实现（z42 无原生 128/160 位整数）。
 
 public static class Poly1305 {
-    /// Compute the 16-byte authentication tag for `message` under the
-    /// 32-byte one-time key. Throws `ArgumentException` if the key
-    /// length is wrong.
+    /// 在 32 字节一次性 key 下计算 `message` 的 16 字节认证 tag，key 长度错误抛 `ArgumentException`。
     public static byte[] Mac(byte[] key, byte[] message) {
         if (key.Length != 32) {
             throw new ArgumentException("Poly1305: key must be 32 bytes, got " + key.Length.ToString());
@@ -84,15 +66,14 @@ public static class Poly1305 {
         return Poly1305._writeLEBytes(tag, 16);
     }
 
-    /// Convenience: hex-encoded tag.
+    /// 计算 tag 并输出十六进制。
     public static string MacHex(byte[] key, byte[] message) {
         return Hex.Encode(Poly1305.Mac(key, message));
     }
 
     // ── BigInt LE byte I/O ──────────────────────────────────────────────────
 
-    /// Interpret `n` bytes starting at `offset` as a little-endian
-    /// non-negative integer, returned as BigInt.
+    // 把从 `offset` 起的 `n` 字节解释为小端非负整数，返回 BigInt。
     static BigInt _readLEBytes(byte[] data, int offset, int n) {
         // Build via repeated `acc + (byte * 2^(8*i))`. Avoid leading
         // shift-on-each-iter cost by accumulating into BigInt limbs;
@@ -108,8 +89,7 @@ public static class Poly1305 {
         return acc;
     }
 
-    /// Emit `n` little-endian bytes of a non-negative BigInt. Higher-order
-    /// bytes silently truncated if BigInt exceeds 2^(8n).
+    // 输出非负 BigInt 的 `n` 个小端字节；若 BigInt 超过 2^(8n)，高位字节静默截断。
     static byte[] _writeLEBytes(BigInt v, int n) {
         byte[] out_ = new byte[n];
         BigInt mask8 = new BigInt(255L);

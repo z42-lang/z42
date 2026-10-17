@@ -2,40 +2,26 @@ namespace Std.Crypto;
 
 using Std.Encoding;
 
-// add-blake2s (2026-05-28): BLAKE2s hash (RFC 7693 §B).
-//
-// 32-bit BLAKE2 variant. Same algorithm as BLAKE2b but with 32-bit
-// words, 64-byte block, 10 rounds (vs BLAKE2b's 64-bit / 128-byte / 12).
-// Output length 1..32 bytes; key length 0..32 bytes (keyed-MAC mode).
-//
-// Use cases: Argon2i / Argon2id inner compression (low-memory hardware
-// or 32-bit-friendly paths use BLAKE2s instead of BLAKE2b), constrained
-// embedded contexts where 64-bit ops are expensive.
-//
-// Storage: state uses `int[8]` (i32) for h, working vector `int[16]`,
-// message `int[16]`. z42 `int` is signed i32 with wrap-on-overflow —
-// same semantics as Java `int` so all 32-bit arithmetic just works
-// without sign masking (until the byte-emit step which masks to u8).
-//
-// IV[0..7] = SHA-256 H[0..7] (first 32 bits of fractional parts of sqrt
-// of first 8 primes).
-//
-// SIGMA permutation: first 10 rows of the same table BLAKE2b uses (the
-// 12-round BLAKE2b cycles through 12; the 10-round BLAKE2s uses 10).
+// BLAKE2s 哈希（RFC 7693 §B）：BLAKE2 的 32 位字变体，算法与 BLAKE2b 相同，但用 32 位字、
+// 64 字节块、10 轮（BLAKE2b 为 64 位 / 128 字节 / 12 轮）。输出 1..32 字节，key 0..32 字节
+// （keyed-MAC 模式）。用于 Argon2i / Argon2id 内层压缩等 32 位友好场景。状态用 `int[8]`
+// （i32），工作向量 `int[16]`；z42 的 `int` 是有符号 i32 且溢出回绕，32 位算术直接成立。
 
 public static class Blake2s {
     // ── Public API ───────────────────────────────────────────────────────────
 
-    /// Default 32-byte (256-bit) digest.
+    /// 计算默认 32 字节（256 位）BLAKE2s 摘要。
     public static byte[] Hash(byte[] data) {
         return Blake2s.HashLen(data, new byte[0], 32);
     }
+    /// 对 UTF-8 字符串计算 BLAKE2s 摘要。
     public static byte[] HashString(string s) { return Blake2s.Hash(Utf8.GetBytes(s)); }
+    /// 计算 BLAKE2s 摘要并输出小写十六进制。
     public static string HashHex(byte[] data) { return Hex.Encode(Blake2s.Hash(data)); }
+    /// 对 UTF-8 字符串计算 BLAKE2s 摘要并输出小写十六进制。
     public static string HashStringHex(string s) { return Hex.Encode(Blake2s.HashString(s)); }
 
-    /// Keyed hash with variable output. `key.Length` in `[0, 32]`,
-    /// `outLen` in `[1, 32]`. Pass `key = new byte[0]` for unkeyed.
+    /// BLAKE2s 变长 + keyed（MAC）模式：`key.Length` ∈ [0, 32]、`outLen` ∈ [1, 32]，无 key 传 `new byte[0]`。
     public static byte[] HashLen(byte[] data, byte[] key, int outLen) {
         if (outLen < 1 || outLen > 32) {
             throw new ArgumentException(
@@ -92,10 +78,8 @@ public static class Blake2s {
 
     // ── Initialisation ───────────────────────────────────────────────────────
 
-    /// IV[0..7] = SHA-256 H[0..7]. Values that exceed signed-i32 range
-    /// are written as `(int)<u32>L` casts since z42's int literal parser
-    /// rejects out-of-range hex (and `0xBB67AE85` in signed-i32 == sign-bit-set
-    /// = -1150833723).
+    // IV[0..7] = SHA-256 H[0..7]。超出有符号 i32 范围的值写作 `(int)<u32>L` 强制转换，
+    // 因为 z42 的整数字面量解析器拒绝越界十六进制。
     static int[] _iv() {
         int[] iv = new int[8];
         iv[0] = 0x6A09E667;          iv[1] = (int)0xBB67AE85L;
@@ -105,7 +89,7 @@ public static class Blake2s {
         return iv;
     }
 
-    /// h[0] ^= 0x0101_kk_nn (RFC 7693 §B.1 — parameter block).
+    // h[0] ^= 0x0101_kk_nn（RFC 7693 §B.1 参数块）。
     static int[] _initHash(int keyLen, int outLen) {
         int[] h = Blake2s._iv();
         int param = 0x01010000 | ((keyLen & 0xFF) << 8) | (outLen & 0xFF);
@@ -154,11 +138,11 @@ public static class Blake2s {
         while (k < 8) { h[k] = h[k] ^ v[k] ^ v[k + 8]; k = k + 1; }
     }
 
-    /// G mixer with BLAKE2s rotation constants (RFC 7693 §B.2.1):
-    ///   a = a + b + x; d = rotr32(d ^ a, 16);
-    ///   c = c + d;     b = rotr32(b ^ c, 12);
-    ///   a = a + b + y; d = rotr32(d ^ a,  8);
-    ///   c = c + d;     b = rotr32(b ^ c,  7);
+    // 使用 BLAKE2s 旋转常量的 G 混合器（RFC 7693 §B.2.1）：
+    //   a = a + b + x; d = rotr32(d ^ a, 16);
+    //   c = c + d;     b = rotr32(b ^ c, 12);
+    //   a = a + b + y; d = rotr32(d ^ a,  8);
+    //   c = c + d;     b = rotr32(b ^ c,  7);
     static void _G(int[] v, int ai, int bi, int ci, int di, int x, int y) {
         int a = v[ai]; int b = v[bi]; int c = v[ci]; int d = v[di];
         a = a + b + x;   d = Blake2s._rotr32(d ^ a, 16);
@@ -168,18 +152,16 @@ public static class Blake2s {
         v[ai] = a; v[bi] = b; v[ci] = c; v[di] = d;
     }
 
-    /// 32-bit logical right rotation. z42 `int` is signed i32; `>>`
-    /// arithmetic-extends so we cast through long + mask for the LSR
-    /// half, then OR with the LSL shift.
+    // 32 位逻辑循环右移。z42 的 `int` 是有符号 i32，`>>` 会算术扩展，所以经 long 转换加掩码做
+    // 逻辑右移半边，再与左移半边做 OR。
     static int _rotr32(int x, int n) {
         long lx = ((long)x) & 0xFFFFFFFFL;
         long shifted = ((lx >> n) | (lx << (32 - n))) & 0xFFFFFFFFL;
         return (int)shifted;
     }
 
-    /// SIGMA permutation — first 10 rows of the same table BLAKE2b uses
-    /// (RFC 7693 §2.7 / §A.4). BLAKE2s cycles through 10 rounds exactly,
-    /// so no mod-10 indexing needed.
+    // SIGMA 置换：BLAKE2b 用同一张表的前 10 行（RFC 7693 §2.7 / §A.4）。BLAKE2s 恰好循环 10 轮，
+    // 无需对 10 取模。
     static int[] _sigma() {
         int[] s = new int[160];
         s[0]=0;   s[1]=1;   s[2]=2;   s[3]=3;   s[4]=4;   s[5]=5;   s[6]=6;   s[7]=7;

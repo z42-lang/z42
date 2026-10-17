@@ -2,29 +2,14 @@ namespace Std.Crypto;
 
 using Std.Encoding;
 
-// add-md5-to-crypto (2026-05-31): MD5 hash (RFC 1321).
-//
-// ⚠️ MD5 is COMPROMISED for collision-resistant uses (Wang et al 2004;
-// chosen-prefix collision Stevens 2007). Do NOT use MD5 for any new
-// content addressing, signing, or password storage. The function exists
-// in stdlib only for legacy-interop scenarios where the protocol or
-// data format mandates it:
-//
-//   - HTTP Digest authentication (RFC 2617 / RFC 7616 algorithm=MD5)
-//   - HTTP ETag headers compatible with Apache / nginx defaults
-//   - Git "dumb HTTP" protocol pack object IDs
-//   - MySQL `OLD_PASSWORD()`, APR1, CRAM-MD5 SASL legacy auth
-//   - Torrent .info hashes (BitTorrent v1)
-//
-// Pure-script implementation mirroring `Sha1`. State held as `long` (i64)
-// masked to 32 bits at every op boundary — z42 `int` is signed i32 and
-// overflows on the message schedule additions. Byte order is
-// little-endian throughout (RFC 1321 §3.4) — opposite of SHA-1.
-//
-// Tested against RFC 1321 §A.5 + NIST CAVP `MD5LongMsg` vectors.
+// MD5 哈希（RFC 1321），纯脚本实现，结构与 `Sha1` 相同。状态用 `long`（i64）保存，
+// 每一步运算边界掩码到 32 位；全程小端字节序（RFC 1321 §3.4，与 SHA-1 相反）。
+// ⚠️ MD5 碰撞已破（Wang et al 2004；前缀碰撞 Stevens 2007），勿用于新设计。仅用于
+// HTTP Digest 认证、ETag、CRAM-MD5、BitTorrent v1 等协议强制的旧格式互操作。
 public static class Md5 {
     // ── Public API ───────────────────────────────────────────────────────
 
+    /// 计算 MD5 原始摘要（16 字节）。
     public static byte[] Hash(byte[] data) {
         byte[] padded = _pad(data);
         long[] h = _initialHash();
@@ -48,14 +33,17 @@ public static class Md5 {
         return digest;
     }
 
+    /// 对 UTF-8 编码后的字符串计算 MD5 摘要。
     public static byte[] HashString(string s) {
         return Hash(Utf8.GetBytes(s));
     }
 
+    /// 计算 MD5 摘要并输出小写十六进制。
     public static string HashHex(byte[] data) {
         return Hex.Encode(Hash(data));
     }
 
+    /// 对 UTF-8 字符串计算 MD5 摘要并输出小写十六进制。
     public static string HashStringHex(string s) {
         if (s.Length == 0) return Hex.Encode(Hash(new byte[0]));
         return Hex.Encode(Hash(Utf8.GetBytes(s)));
@@ -203,7 +191,7 @@ public static class Md5 {
         h[3] = (h[3] + d) & 0xFFFFFFFFL;
     }
 
-    /// 32-bit rotate-left. `x` is treated as the low 32 bits of a `long`.
+    // 32 位循环左移，`x` 只取 `long` 的低 32 位。
     static long _rotl(long x, int n) {
         long masked = x & 0xFFFFFFFFL;
         return ((masked << n) | (masked >> (32 - n))) & 0xFFFFFFFFL;
