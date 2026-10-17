@@ -1,47 +1,31 @@
 namespace Std.IO;
 
 
-// add-textwriter-base (2026-05-28): unified char-oriented writer base.
-//
-// Concrete base + throw-stubs pattern matching `Std.IO.Stream`.
-// Single-arity-per-name virtual methods only (z42's override resolver
-// doesn't disambiguate overloads in the v-table). The bulk
-// `Write(char[], int, int)` / `WriteLine` / `Write(char)` are NON-
-// virtual default impls composed on `Write(string)`; concrete
-// subclasses with bulk-optimised paths expose their own overloads of
-// the same names on the concrete type directly.
-//
-// Polymorphic surface a caller can rely on against `TextWriter`:
-//   - Write(string)             — virtual core
-//   - WriteCharsBase / WriteCharBase / WriteLineBase — default impls
-//   - Flush() / Close() / Dispose()
-//
-// Line-ending convention: `WriteLineBase()` / `WriteLineBase(string)`
-// emit `\n` regardless of platform. Callers wanting CRLF should write
-// `"line\r\n"` explicitly.
-
+/// 供自定义字符目标继承的写入器基类；核心方法抛桩，带 Base 后缀的是组合在 Write(string) 上的默认实现。
 public class TextWriter : IDisposable {
-    // ── Core (subclasses override) ──────────────────────────────────────────
+    // ── 核心（子类覆写）──────────────────────────────────────
 
+    /// 写字符串；基类抛 NotSupportedException。
     public virtual void Write(string s) {
         throw new NotSupportedException("Write not supported on this TextWriter");
     }
 
+    /// 基类无缓冲状态，默认空操作。
     public virtual void Flush() {
-        // Base class default: no buffered state. Subclasses override.
     }
 
+    /// 基类无资源持有，默认空操作。
     public virtual void Close() {
-        // Base class default: no resources held. Subclasses override.
     }
 
-    /// Alias for `Close()` — mirrors the future `IDisposable` shape.
+    /// 等价 Close()。
     public virtual void Dispose() {
         this.Close();
     }
 
-    // ── Default-impl helpers (NON-virtual; compose on Write(string)) ────────
+    // ── 默认实现（非虚；组合在 Write(string) 上）──────────────
 
+    /// 默认批量写字符：写 buffer[offset..offset+count]。
     public void WriteCharsBase(char[] buffer, int offset, int count) {
         if (offset < 0 || count < 0 || offset + count > buffer.Length) {
             throw new ArgumentException("WriteCharsBase: buffer / offset / count out of range");
@@ -58,16 +42,19 @@ public class TextWriter : IDisposable {
         this.Write(String.FromChars(slice));
     }
 
+    /// 默认写单个字符。
     public void WriteCharBase(char c) {
         char[] buf = new char[1];
         buf[0] = c;
         this.Write(String.FromChars(buf));
     }
 
+    /// 写 "\n"（不分平台）。
     public void WriteLineBase() {
         this.Write("\n");
     }
 
+    /// 写 s + "\n"（不分平台）。
     public void WriteLineBase(string s) {
         this.Write(s + "\n");
     }

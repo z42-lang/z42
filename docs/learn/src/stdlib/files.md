@@ -76,7 +76,7 @@
 
 > 这一整套都是**整读整写**：一次把文件全部装进内存。文件很大、或者要边读边处理时需要
 > **流**（`new FileStream(path)` 那一套，在 `z42.io` 包里）。本手册不展开，用法见参考手册的
-> [流](https://z42-lang.github.io/z42/reference/stdlib/io-stream.html)。
+> [流](https://z42-lang.github.io/z42/reference/stdlib/io.html)。
 
 ## 拼路径：`Path`
 

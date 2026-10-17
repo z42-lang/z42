@@ -1,14 +1,11 @@
 namespace Std.IO;
 
-// add-z42-io-stream (2026-05-24): Seek `origin` parameter values.
-//
-// z42 has no `enum` keyword yet; following the Std.Compression.AlgoId /
-// Std.OperatingSystem.PlatformOS pattern of "static class + int constants".
-// Names mirror .NET `System.IO.SeekOrigin` (Begin / Current / End) so
-// users coming from C# / Java / etc. read it without surprise.
-
+/// Seek 的 origin 参数常量（int 常量而非 enum）。
 public static class SeekOrigin {
-    public static int Begin   = 0;  // offset is from the start of the stream
-    public static int Current = 1;  // offset is from the current position
-    public static int End     = 2;  // offset is from the end (negative seeks back)
+    /// 偏移相对流的开头。
+    public static int Begin   = 0;
+    /// 偏移相对当前位置。
+    public static int Current = 1;
+    /// 偏移相对流的末尾（负值往回定位）。
+    public static int End     = 2;
 }

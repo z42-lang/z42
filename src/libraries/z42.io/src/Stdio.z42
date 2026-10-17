@@ -1,41 +1,41 @@
 namespace Std.IO;
 
-// 2026-05-13 add-std-process: cross-platform stdio configuration for
-// `Std.IO.Process`. Each instance carries an integer mode tag (Null /
-// Inherit / Pipe / File) plus an optional path for the File case.
-//
-// z42 当前 enum 只是命名整数常量（L1/L2 阶段不引入 ADT），所以 File 的
-// path payload 用专门的 `ToFile(path)` 静态工厂而非 enum 关联值。
-// 详见 [add-std-process design.md Decision 1].
+/// 子进程三路标准流各自的配置：四个模式常量（Null / Inherit / Pipe / File）+ 可选路径，不是 enum。
 public sealed class Stdio {
-    // Mode constants — kept in sync with src/runtime/src/corelib/process.rs
-    // (STDIO_NULL / STDIO_INHERIT / STDIO_PIPE / STDIO_FILE).
+    // 模式常量 —— 与 src/runtime/src/corelib/process.rs 保持一致。
+    /// 丢弃（/dev/null）。
     public static int ModeNull    = 0;
+    /// 直接继承调用方的 fd。
     public static int ModeInherit = 1;
+    /// 建管道（stdout / stderr 捕获，stdin 可喂数据）。
     public static int ModePipe    = 2;
+    /// 重定向到文件。
     public static int ModeFile    = 3;
 
     private int mode;
-    private string path;     // empty string when mode != File
+    private string path;     // mode != File 时为空串
 
+    /// 由静态工厂内部构造。
     public Stdio(int mode, string path) {
         this.mode = mode;
         this.path = path;
     }
 
-    // Allocate a fresh instance every call — Stdio is a tiny value-like
-    // class so allocation cost is negligible vs. the spawn it parameterises.
-    // A `static Stdio INHERIT = new Stdio(1, "")` style cached singleton
-    // is a possible future optimisation (now feasible after the 2026-05-15
-    // unique __static_init__ fix) — see roadmap.
+    // 每次调用分配新实例 —— Stdio 是轻量值类，分配成本相对 spawn 可忽略。
+    /// 直接继承调用方的那个 fd。
     public static Stdio Inherit() { return new Stdio(Stdio.ModeInherit, ""); }
+    /// 建管道。
     public static Stdio Pipe()    { return new Stdio(Stdio.ModePipe,    ""); }
+    /// 丢弃（stdin 立刻 EOF，输出丢弃）。
     public static Stdio Null()    { return new Stdio(Stdio.ModeNull,    ""); }
 
+    /// 重定向到文件（只能用于 stdout / stderr）。
     public static Stdio ToFile(string path) {
         return new Stdio(Stdio.ModeFile, path);
     }
 
+    /// 返回模式常量。
     public int GetMode() { return this.mode; }
+    /// 返回路径；非 File 模式返回 ""。
     public string GetPath() { return this.path; }
 }

@@ -2,41 +2,29 @@ namespace Std.IO;
 
 using Std.Encoding;
 
-// add-encoding-and-stream-text (2026-05-24): char-oriented writer
-// over a byte `Stream` via an `Encoding`. Each `Write` encodes its
-// argument immediately and pushes bytes through to the destination.
-//
-// Why encode-on-write (vs buffer-and-flush): the underlying byte
-// `Stream` already has whatever buffering it wants (MemoryStream
-// grows in-memory; FileStream goes through OS page cache;
-// CompressionEncoderStream batches into its codec). Layering another
-// char-buffer on top would be redundant. `Flush()` just propagates
-// to the dest Stream's `Flush()` so caller can force codec-window
-// drains etc.
-//
-// Lifecycle: `Close()` calls `Flush()` then leaves the dest Stream
-// open. Matches `CompressionEncoderStream` / Process*Stream
-// conventions — safer for pipeline composition.
-
+/// 字节流 ↔ 字符的桥；每次 Write 立即编码并推给目标流，默认 UTF-8。
 public class StreamWriter {
     private Stream   _dest;
     private Encoding _encoding;
     private bool     _closed;
 
+    /// 默认 UTF-8 编码。
     public StreamWriter(Stream dest) {
         this._dest     = dest;
         this._encoding = Encoding.GetUtf8();
         this._closed   = false;
     }
 
+    /// 指定编码。
     public StreamWriter(Stream dest, Encoding encoding) {
         this._dest     = dest;
         this._encoding = encoding;
         this._closed   = false;
     }
 
-    // ── Write ───────────────────────────────────────────────────────────
+    // ── 写 ───────────────────────────────────────────────────
 
+    /// 编码并写入字符串。
     public void Write(string s) {
         this.EnsureOpen();
         if (s.Length == 0) { return; }
@@ -44,14 +32,14 @@ public class StreamWriter {
         this._dest.Write(bytes, 0, bytes.Length);
     }
 
+    /// 编码并写入字符区间 buffer[offset..offset+count]。
     public void Write(char[] buffer, int offset, int count) {
         this.EnsureOpen();
         if (offset < 0 || count < 0 || offset + count > buffer.Length) {
             throw new ArgumentException("Write: buffer / offset / count out of range");
         }
         if (count == 0) { return; }
-        // Materialise the slice as a string once, then delegate to the
-        // string overload. Avoids per-char FromChars + Append overhead.
+        // 先把切片物化成 string，再委托给字符串重载，避免逐字符拼接开销。
         char[] slice;
         if (offset == 0 && count == buffer.Length) {
             slice = buffer;
@@ -66,40 +54,37 @@ public class StreamWriter {
         this.Write(String.FromChars(slice));
     }
 
-    // ── WriteLine ───────────────────────────────────────────────────────
+    // ── WriteLine ────────────────────────────────────────────
 
+    /// 写 "\n"。
     public void WriteLine() {
         this.Write("\n");
     }
 
+    /// 写 s + "\n"。
     public void WriteLine(string s) {
         this.EnsureOpen();
-        // Combine encode in one call (cheaper than two Writes) for the
-        // common log-line / line-emitter pattern.
+        // 一次编码（比两次 Write 更省）以服务常见的日志行输出。
         byte[] bytes = this._encoding.GetBytes(s + "\n");
         this._dest.Write(bytes, 0, bytes.Length);
     }
 
-    // ── Flush / Close ───────────────────────────────────────────────────
+    // ── Flush / Close ────────────────────────────────────────
 
-    /// Propagate to dest Stream — gives byte-side buffering layers a
-    /// chance to drain (compression codec window, eventual
-    /// BufferedStream). Encoder side is already byte-flushed since we
-    /// encode-on-write.
+    /// 转发给 dest.Flush()。
     public void Flush() {
         if (this._closed) { return; }
         this._dest.Flush();
     }
 
-    /// Flush then mark closed. Does NOT close the dest Stream — caller
-    /// owns its lifecycle.
+    /// 先 Flush 再标记关闭；不关闭被包装的目标流。
     public void Close() {
         if (this._closed) { return; }
         this.Flush();
         this._closed = true;
     }
 
-    // ── Internal ────────────────────────────────────────────────────────
+    // ── 内部 ────────────────────────────────────────────────
 
     private void EnsureOpen() {
         if (this._closed) {

@@ -2,117 +2,93 @@ namespace Std.IO;
 
 using Std.Encoding;
 
-// 2026-05-13 add-std-process: handle to a live spawned child process.
-// Returned by `Process.Spawn()`. The handle carries an opaque slot id
-// pointing at VM-managed state in `VmContext.processes`; all operations
-// dispatch through `__process_handle_*` builtins.
-//
-// 必须 `.Dispose()` 或 GC 时让 Native runtime 回收子进程（仍 alive 时
-// 走 kill + reap，避免僵尸进程）。z42 `IDisposable` 协议保证两种调用都
-// 路由到 `__process_handle_drop`。
+/// Spawn() 返回的活子进程句柄；实现 Std.IDisposable，一次性的（Wait / Dispose 后即失效）。
 public class ProcessHandle : IDisposable {
     private string _program;
     private long _slotId;
     private bool _disposed;
-    // add-process-stream-stdio (2026-05-24): cached Stream wrappers
-    // so repeated `GetXxxStream()` returns the same object (callers
-    // can `==`/identity-compare; matches .NET `Process.StandardOutput`).
+    // 缓存的 Stream 包装，使重复 GetXxxStream() 返回同一个对象。
     private ProcessStdinStream  _stdinStream;
     private ProcessOutputStream _stdoutStream;
     private ProcessOutputStream _stderrStream;
 
+    /// 由 Process.Spawn() 内部构造。
     public ProcessHandle(string program, long slotId) {
         this._program  = program;
         this._slotId   = slotId;
         this._disposed = false;
     }
 
-    // 句柄失效（已 Wait / Dispose）时 VM 抛 ProcessHandleInvalidException。
+    /// OS 进程号。
     public long Pid() {
         this.EnsureLive();
         return ChildProcessNative.Pid(this._slotId);
     }
 
-    // Wait 无论成败都消耗 VM 侧的槽：先把本地句柄标为失效。
+    /// 阻塞到子进程结束，返回 ProcessResult；调用之后句柄即失效。
     public ProcessResult Wait() {
         this.EnsureLive();
         this._disposed = true;
         return ProcessResult.FromNative(this._program, ChildProcessNative.Wait(this._slotId));
     }
 
-    // Returns null if the child is still running, ProcessResult if exited.
+    /// 还在跑返回 null，已结束返回 ProcessResult 并使句柄失效。
     public ProcessResult? TryWait() {
         this.EnsureLive();
         object resObj = ChildProcessNative.TryWait(this._slotId);
         if (resObj == null) {
             return null;
         }
-        this._disposed = true;   // exited: the VM consumed the slot
+        this._disposed = true;   // 已退出：VM 已消耗槽位
         return ProcessResult.FromNative(this._program, (object[])resObj);
     }
 
+    /// 强制终止子进程（当前与 KillForce 行为相同）。
     public void Kill() {
         this.EnsureLive();
         ChildProcessNative.Kill(this._slotId, false);
     }
 
+    /// 强制终止子进程（当前与 Kill 行为相同）。
     public void KillForce() {
         this.EnsureLive();
         ChildProcessNative.Kill(this._slotId, true);
     }
 
-    // 没配 Stdin(Stdio.Pipe())（或已 CloseStdin）→ InvalidOperationException，句柄仍有效；
-    // 子进程已退出（管道断开）→ IOException。
+    /// 写子进程 stdin；管道写满阻塞，子进程已关 stdin 抛 IOException。
     public void WriteStdin(byte[] bytes) {
         this.EnsureLive();
         ChildProcessNative.WriteStdin(this._slotId, bytes);
     }
 
-    // add-process-write-stdin-string (2026-05-27): UTF-8 string convenience.
-    // Equivalent to `WriteStdin(Utf8.GetBytes(s))` — saves the boilerplate
-    // for line-oriented stdin (printf-style commands, echo replacements).
-    //
-    // Named `WriteStdinString` rather than overloading `WriteStdin(string)`
-    // because z42's compiler doesn't yet resolve overloads by parameter
-    // type (tracked as `compiler-future-typed-overload-resolution`).
+    /// 等价 WriteStdin(Utf8.GetBytes(s))。
     public void WriteStdinString(string s) {
         this.WriteStdin(Utf8.GetBytes(s));
     }
 
+    /// 关闭 stdin，子进程读到 EOF；幂等。
     public void CloseStdin() {
         this.EnsureLive();
         ChildProcessNative.CloseStdin(this._slotId);
     }
 
-    // ── add-process-stream-stdio (2026-05-24): streaming read API ────────
-    //
-    // Blocking reads from the child's stdout / stderr pipe. Returns
-    // number of bytes actually placed in `buffer[offset..offset+count]`;
-    // 0 = EOF (child closed the pipe or already-consumed by Wait).
-    //
-    // Designed for the `ProcessOutputStream` Stream wrapper —
-    // direct callers are welcome but the Stream API composes more
-    // cleanly with other `Std.IO.Stream` consumers (pipelines,
-    // ReadAllBytes, etc.).
+    // ── 流式读 ───────────────────────────────────────────────
 
+    /// 阻塞读子进程 stdout，返回实际读到的字节数，0 = EOF。
     public int ReadStdout(byte[] buffer, int offset, int count) {
         this.EnsureLive();
         return ChildProcessNative.ReadStdout(this._slotId, buffer, offset, count);
     }
 
+    /// 阻塞读子进程 stderr，返回实际读到的字节数，0 = EOF。
     public int ReadStderr(byte[] buffer, int offset, int count) {
         this.EnsureLive();
         return ChildProcessNative.ReadStderr(this._slotId, buffer, offset, count);
     }
 
-    // ── add-process-stream-stdio (2026-05-24): Stream accessors ──────────
-    //
-    // Lazy + cached: first call constructs, subsequent calls return
-    // the same instance. Lets callers store the Stream once and re-use
-    // it across loop iterations without paying for per-call construction
-    // or accidentally creating multiple "views" with divergent _closed
-    // bits.
+    // ── Stream 访问器（惰性构造并缓存）───────────────────────
 
+    /// 返回 stdin 的 Stream 包装；重复调用返回同一对象。
     public ProcessStdinStream GetStdinStream() {
         if (this._stdinStream == null) {
             this._stdinStream = new ProcessStdinStream(this);
@@ -120,6 +96,7 @@ public class ProcessHandle : IDisposable {
         return this._stdinStream;
     }
 
+    /// 返回 stdout 的 Stream 包装；重复调用返回同一对象。
     public ProcessOutputStream GetStdoutStream() {
         if (this._stdoutStream == null) {
             this._stdoutStream = new ProcessOutputStream(this, ProcessOutputStream.Stdout);
@@ -127,6 +104,7 @@ public class ProcessHandle : IDisposable {
         return this._stdoutStream;
     }
 
+    /// 返回 stderr 的 Stream 包装；重复调用返回同一对象。
     public ProcessOutputStream GetStderrStream() {
         if (this._stderrStream == null) {
             this._stderrStream = new ProcessOutputStream(this, ProcessOutputStream.Stderr);
@@ -134,15 +112,14 @@ public class ProcessHandle : IDisposable {
         return this._stderrStream;
     }
 
-    // 实现 IDisposable — 幂等。Dispose 后所有方法抛
-    // ProcessHandleInvalidException，子进程在 Native 侧被 kill + reap。
+    /// 幂等；子进程仍活着时会被 kill + reap（不留僵尸）。
     public void Dispose() {
         if (this._disposed) return;
         this._disposed = true;
         ChildProcessNative.Close(this._slotId);
     }
 
-    // ── internals ────────────────────────────────────────────────────────
+    // ── 内部 ────────────────────────────────────────────────
 
     private void EnsureLive() {
         if (this._disposed) {
@@ -150,5 +127,3 @@ public class ProcessHandle : IDisposable {
         }
     }
 }
-
-// (native 语义层已上移 z42.core: src/IO/ProcessNative.z42 —— organization.md「native 语义层 → core」2026-08-27)

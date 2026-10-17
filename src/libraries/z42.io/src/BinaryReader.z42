@@ -1,53 +1,28 @@
 namespace Std.IO.Binary;
 using Std.Encoding;
 
-// add-z42-io-binary (2026-05-15)：低层级二进制流读取。
-// refactor-binary-reader-stream (2026-05-24)：内部存储 `byte[] + int` → `Stream`。
-// `BinaryReader(byte[] data)` 仍可用 — 内部委托 `new MemoryStream(data)`。
-// `BinaryReader(Stream src)` — 新增，让 BinaryReader 自然 sit on top of
-// `MemoryStream` / `Gzip.WrapRead(...)` / 未来 `FileStream` / `NetworkStream`。
-//
-// 字节序：LE / BE 两种显式后缀（不依赖平台默认）。Int16 sign-extends 到 int
-// 返回（z42 暂无 short 公开类型）。
-//
-// 越界 read → throws `BinaryException`（wrap underlying Stream's
-// `InvalidOperationException` from `ReadExactly` for caller-friendly message）。
-// Position 操作要求 underlying stream `CanSeek()`；非 seekable stream
-// （如 future NetworkStream）调 Seek/GetPosition/GetLength 会 throw
-// `BinaryException` wrap `NotSupportedException`。
+/// 在 Std.IO.Stream 之上提供定长整数、IEEE-754 浮点、varint 与 UTF-8 字符串的显式字节序读取。
 public class BinaryReader {
     private Stream _stream;
 
-    /// Construct over a `byte[]` — wraps `data` in a read-only
-    /// `MemoryStream` internally. Most common case (in-memory bytes
-    /// from anywhere: file read, network payload, hex decode, etc.).
+    /// 包一层只读 MemoryStream 读取，不复制 data。
     public BinaryReader(byte[] data) {
         this._stream = new MemoryStream(data);
     }
 
-    /// Construct over an existing `Stream`. Static factory because
-    /// z42's overload resolution picks the FIRST declared ctor when
-    /// multiple candidates have single arity-1 signatures regardless of
-    /// arg type — having `(Stream)` as a normal ctor would route
-    /// `BinaryReader(byte[])` to the Stream branch (or vice versa
-    /// depending on declaration order) and break one of the call
-    /// patterns. Factory shape sidesteps the ambiguity entirely.
-    ///
-    /// `src` must be `CanRead() == true`; if `src.CanSeek() == false`
-    /// the position-tracking methods (`GetPosition / GetLength / Seek
-    /// / Skip / EndOfStream`) throw `BinaryException` but the read
-    /// methods themselves still work.
+    /// 在已有可读 Stream 上读取（静态工厂）；src 不可读时抛 BinaryException。
     public static BinaryReader OverStream(Stream src) {
         if (!src.CanRead()) {
             throw new BinaryException("BinaryReader: src stream is not readable");
         }
-        BinaryReader r = new BinaryReader(new byte[0]);  // dummy bootstrap
+        BinaryReader r = new BinaryReader(new byte[0]);  // 占位引导
         r._stream = src;
         return r;
     }
 
-    // ── Cursor (capability-gated on seekability) ──────────────────────────
+    // ── 游标（要求底层 Stream 可定位）────────────────────────
 
+    /// 当前游标位置（int）；底层不可定位抛 BinaryException。
     public int GetPosition() {
         try {
             return (int)this._stream.Position();
@@ -56,6 +31,7 @@ public class BinaryReader {
         }
     }
 
+    /// 长度（int）；底层不可定位抛 BinaryException。
     public int GetLength() {
         try {
             return (int)this._stream.Length();
@@ -64,6 +40,7 @@ public class BinaryReader {
         }
     }
 
+    /// 是否到达末尾（Position >= Length）。
     public bool EndOfStream() {
         try {
             return this._stream.Position() >= this._stream.Length();
@@ -72,6 +49,7 @@ public class BinaryReader {
         }
     }
 
+    /// 绝对定位；pos 落在 [0, Length] 之外抛 BinaryException。
     public void Seek(int pos) {
         int len = 0;
         try {
@@ -90,14 +68,14 @@ public class BinaryReader {
         }
     }
 
+    /// 等价 Seek(GetPosition() + count)，count 可为负。
     public void Skip(int count) {
         this.Seek(this.GetPosition() + count);
     }
 
-    // ── Bytes ─────────────────────────────────────────────────────────────
+    // ── 字节 ─────────────────────────────────────────────────
 
-    /// 读取 1 个字节，返回 0-255 的 int（z42 当前 stdlib 不直接传递 byte 参数 / 返回值，
-    /// 调用方拿到 int 可显式 `(byte)x` cast 回去）。
+    /// 读 1 个字节，返回 0..255 的 int；EOF 抛 BinaryException。
     public int ReadByte() {
         byte[] buf = new byte[1];
         int n = this._stream.Read(buf, 0, 1);
@@ -107,6 +85,7 @@ public class BinaryReader {
         return (int)buf[0];
     }
 
+    /// 读 count 个字节；count < 0 抛 BinaryException，字节不够抛 EndOfStreamException。
     public byte[] ReadBytes(int count) {
         if (count < 0) {
             throw new BinaryException("ReadBytes count must be >= 0, got " + count.ToString());
@@ -117,26 +96,25 @@ public class BinaryReader {
         try {
             return this._stream.ReadExactly(count);
         } catch (InvalidOperationException e) {
-            // Stream.ReadExactly throws InvalidOperationException with
-            // a "ReadExactly: unexpected EOF after N of M bytes" message;
-            // re-wrap as BinaryException so callers see the consistent
-            // io-binary error type.
+            // 把底层异常重包装为 BinaryException，保持 io-binary 的错误类型一致。
             throw new BinaryException("ReadBytes: " + e.Message);
         }
     }
 
-    // ── Int16 (sign-extended to int) ──────────────────────────────────────
+    // ── Int16（符号扩展到 int）───────────────────────────────
 
+    /// 读 2 字节小端 int16，符号扩展到 int。
     public int ReadInt16LE() {
         byte[] b = this.ReadBytes(2);
         int b0 = (int)b[0];
         int b1 = (int)b[1];
         int raw = b0 | (b1 << 8);
-        // sign-extend from 16 bits
+        // 从 16 位符号扩展。
         if ((raw & 0x8000) != 0) { return raw - 0x10000; }
         return raw;
     }
 
+    /// 读 2 字节大端 int16，符号扩展到 int。
     public int ReadInt16BE() {
         byte[] b = this.ReadBytes(2);
         int b0 = (int)b[0];
@@ -146,8 +124,9 @@ public class BinaryReader {
         return raw;
     }
 
-    // ── Int32 ─────────────────────────────────────────────────────────────
+    // ── Int32 ────────────────────────────────────────────────
 
+    /// 读 4 字节小端 int32。
     public int ReadInt32LE() {
         byte[] b = this.ReadBytes(4);
         long b0 = (long)b[0];
@@ -155,12 +134,12 @@ public class BinaryReader {
         long b2 = (long)b[2];
         long b3 = (long)b[3];
         long raw = b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
-        // sign-extend from bit 31 (z42 int is i32 view of i64; without this the
-        // returned value would be 2^32 too high for negative inputs).
+        // 从第 31 位符号扩展（z42 int 是 i64 的 i32 视图）。
         if ((raw & 2147483648L) != 0L) { raw = raw - 4294967296L; }
         return (int)raw;
     }
 
+    /// 读 4 字节大端 int32。
     public int ReadInt32BE() {
         byte[] b = this.ReadBytes(4);
         long b0 = (long)b[0];
@@ -172,39 +151,37 @@ public class BinaryReader {
         return (int)raw;
     }
 
-    // ── Int64 ─────────────────────────────────────────────────────────────
+    // ── Int64 ────────────────────────────────────────────────
 
+    /// 读 8 字节小端 int64。
     public long ReadInt64LE() {
         long lo = (long)this.ReadInt32LE() & 4294967295L;
         long hi = (long)this.ReadInt32LE();
         return lo | (hi << 32);
     }
 
+    /// 读 8 字节大端 int64。
     public long ReadInt64BE() {
         long hi = (long)this.ReadInt32BE();
         long lo = (long)this.ReadInt32BE() & 4294967295L;
         return (hi << 32) | lo;
     }
 
-    // ── Float (IEEE-754; add-binary-float 2026-06-09) ─────────────────────
-    //
-    // Inverse of BinaryWriter.Write{Single,Double}{LE,BE}: read the 4/8-byte
-    // integer pattern then reinterpret via BitConverter-style natives. Single
-    // widens f32→f64 on the way out.
+    // ── 浮点（IEEE-754）──────────────────────────────────────
 
-    // Single returns `double` (widened from the 4-byte f32) — mirrors
-    // ReadInt16LE returning `int`.
+    // 线上 4 字节 f32，返回时加宽成 double。
+    /// 读 4 字节小端 f32，加宽为 double。
     public double ReadSingleLE() { return BitConverter.SingleFromBits(this.ReadInt32LE()); }
+    /// 读 4 字节大端 f32，加宽为 double。
     public double ReadSingleBE() { return BitConverter.SingleFromBits(this.ReadInt32BE()); }
+    /// 读 8 字节小端 f64。
     public double ReadDoubleLE() { return BitConverter.DoubleFromBits(this.ReadInt64LE()); }
+    /// 读 8 字节大端 f64。
     public double ReadDoubleBE() { return BitConverter.DoubleFromBits(this.ReadInt64BE()); }
-    // consolidate-core-intrinsics (A1): 位转换 extern 唯一声明在 Std.BitConverter。
 
-    // ── Varint (protobuf-style 7-bit; add-io-binary-varint 2026-05-26) ────
+    // ── Varint（protobuf 式 7 位）────────────────────────────
 
-    /// Read a varint-encoded i64. Reads bytes until one is encountered
-    /// with the high bit clear (or 10 bytes consumed, whichever first).
-    /// add-io-binary-varint (2026-05-26).
+    /// 读 varint 编码的 i64；超过 10 字节仍未结束抛 BinaryException。
     public long ReadVarInt64() {
         long result = 0L;
         int  shift  = 0;
@@ -223,14 +200,13 @@ public class BinaryReader {
         throw new BinaryException("varint too long (>10 bytes)");
     }
 
-    /// Read a ZigZag-encoded i64 (compact small-magnitude negatives).
-    /// Inverse of `WriteVarSInt64`.
+    /// 读 ZigZag 编码的 i64（小数值负数保持紧凑）。
     public long ReadVarSInt64() {
         long u = this.ReadVarInt64();
-        // ZigZag decode: (u >> 1) XOR (-(u & 1))
+        // ZigZag 解码：(u >> 1) XOR (-(u & 1))
         long half = 0L;
         if (u < 0L) {
-            // Same unsigned-shift trick as WriteVarInt64.
+            // 同 WriteVarInt64 的无符号右移技巧。
             half = (u >> 1) & 9223372036854775807L;   // (1<<63) - 1
         } else {
             half = u >> 1;
@@ -240,9 +216,9 @@ public class BinaryReader {
         return half ^ signMask;
     }
 
-    // ── String (UTF-8) ────────────────────────────────────────────────────
+    // ── 字符串（UTF-8）──────────────────────────────────────
 
-    /// 读取 byteCount 个字节并按 UTF-8 解码为 string。
+    /// 读 byteCount 个字节并按 UTF-8 解码为 string。
     public string ReadString(int byteCount) {
         byte[] bytes = this.ReadBytes(byteCount);
         return Utf8.GetString(bytes);

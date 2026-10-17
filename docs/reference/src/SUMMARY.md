@@ -108,9 +108,7 @@
 # 标准库 · 系统与 IO
 
 - [控制台与文件](stdlib/io-file.md)
-- [子进程与终端](stdlib/process.md)
-- [流](stdlib/io-stream.md)
-- [二进制读写](stdlib/io-binary.md)
+- [流式 I/O 与子进程](stdlib/io.md)
 - [网络](stdlib/net.md)
 - [并发](stdlib/threading.md)
 - [压缩](stdlib/compression.md)

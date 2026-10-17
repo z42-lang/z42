@@ -1,37 +1,16 @@
 namespace Std.IO;
 
 
-// add-z42-io-string-reader-writer (2026-05-24): char-oriented reader
-// over an in-memory string. Mirrors .NET `System.IO.StringReader` and
-// Python `io.StringIO` for read-only consumers.
-//
-// Char vs byte: this reader operates on **characters** (`int` code
-// points / `char` values), not bytes — it does NOT extend
-// `Std.IO.Stream` which is byte-oriented. For text over a byte
-// stream (file / network / decompressed) use the future
-// `StreamReader(Stream, Encoding)` once an Encoding type lands.
-//
-// Lifecycle: `Close()` releases the source string reference and
-// flips a `_closed` flag; subsequent operations throw
-// `InvalidOperationException`. There's no resource to release on the
-// OS side — `Close` is purely a "no more reads" marker mirroring the
-// .NET API.
-//
-// EOF protocol:
-//   Peek() / Read() → -1 = EOF (matches .NET)
-//   Read(buf, off, n) → returns 0 = EOF (matches Stream.Read contract)
-//   ReadLine() → returns null on pre-existing EOF; empty string for a
-//                blank line ("" between two `\n`)
-
+/// 在一个 string 上做游标式字符读取（char 粒度，不是 Stream 的子类）。
 public class StringReader {
     private string _source;
-    // Bulk-materialised source chars (one `ToCharArray()`) so per-char reads are
-    // O(1) array indexing instead of a `CharAt` builtin call each. `_source` is
-    // kept for `.Length` / `.Substring`.
+    // 一次性物化源字符（一次 ToCharArray()）使逐字符读取是 O(1) 数组索引；
+    // _source 保留用于 .Length / .Substring。
     private char[] _chars;
     private int    _pos;
     private bool   _closed;
 
+    /// 在 source 上构造游标式读取器。
     public StringReader(string source) {
         this._source = source;
         this._chars  = source.ToCharArray();
@@ -39,16 +18,16 @@ public class StringReader {
         this._closed = false;
     }
 
-    // ── Peek / Read single char ─────────────────────────────────────────
+    // ── Peek / 单字符 Read ───────────────────────────────────
 
-    /// Peek next char as int code; -1 on EOF. Does NOT advance cursor.
+    /// 窥视下一个字符码，不前进游标；EOF 返回 -1。
     public int Peek() {
         this.EnsureOpen();
         if (this._pos >= this._source.Length) { return -1; }
         return (int)this._chars[this._pos];
     }
 
-    /// Consume next char as int code; -1 on EOF (cursor unchanged on EOF).
+    /// 消费下一个字符码；EOF 返回 -1（游标不变）。
     public int Read() {
         this.EnsureOpen();
         if (this._pos >= this._source.Length) { return -1; }
@@ -57,11 +36,9 @@ public class StringReader {
         return code;
     }
 
-    // ── Bulk read ───────────────────────────────────────────────────────
+    // ── 批量读 ───────────────────────────────────────────────
 
-    /// Fill `buffer[offset..offset+count]` with up to `count` chars.
-    /// Returns the count actually placed; 0 = EOF. Mirrors the
-    /// buffer-fill shape of `Stream.Read` for byte streams.
+    /// 填充 buffer[offset..offset+count]，返回实际填入数，0 = EOF。
     public int Read(char[] buffer, int offset, int count) {
         this.EnsureOpen();
         if (offset < 0 || count < 0 || offset + count > buffer.Length) {
@@ -81,13 +58,9 @@ public class StringReader {
         return n;
     }
 
-    // ── Line-oriented ───────────────────────────────────────────────────
+    // ── 行读取 ───────────────────────────────────────────────
 
-    /// Read up to (but not including) the next line terminator
-    /// (`\n` or `\r\n`), advancing past the terminator. Returns:
-    ///   * the line content as a string (may be empty for a blank line)
-    ///   * `null` if the cursor is already at EOF before this call
-    /// A final line without trailing terminator is returned in full.
+    /// 读一行（不含终止符）；\n / \r\n / 单独 \r 都终止一行，游标已在 EOF 时返回 null。
     public string? ReadLine() {
         this.EnsureOpen();
         int len = this._source.Length;
@@ -103,7 +76,7 @@ public class StringReader {
             }
             if (c == '\r') {
                 string line = this._source.Substring(start, i - start);
-                // Consume optional \n after \r (CRLF).
+                // 消费 \r 之后可选的 \n（CRLF）。
                 if (i + 1 < len && this._chars[i + 1] == '\n') {
                     this._pos = i + 2;
                 } else {
@@ -113,16 +86,15 @@ public class StringReader {
             }
             i = i + 1;
         }
-        // No terminator before EOF — return remainder.
+        // EOF 前没有终止符 —— 返回剩余内容。
         string tail = this._source.Substring(start);
         this._pos = len;
         return tail;
     }
 
-    // ── ReadToEnd ───────────────────────────────────────────────────────
+    // ── ReadToEnd ────────────────────────────────────────────
 
-    /// Return everything from the current cursor to the end of the
-    /// source as one string; subsequent Read* return EOF immediately.
+    /// 返回从当前游标到末尾的剩余内容；EOF 返回 ""。
     public string ReadToEnd() {
         this.EnsureOpen();
         if (this._pos >= this._source.Length) { return ""; }
@@ -131,19 +103,18 @@ public class StringReader {
         return rest;
     }
 
-    // ── Lifecycle ───────────────────────────────────────────────────────
+    // ── 生命周期 ─────────────────────────────────────────────
 
-    /// Mark the reader closed; subsequent ops throw. Idempotent.
+    /// 标记关闭（幂等）；关闭后任何读操作抛 InvalidOperationException。
     public void Close() {
         if (this._closed) { return; }
         this._closed = true;
-        // Drop the source refs so the GC can reclaim them if the caller
-        // didn't hold an outside reference.
+        // 丢弃源引用以便 GC 回收。
         this._source = "";
         this._chars = new char[0];
     }
 
-    // ── Internal ────────────────────────────────────────────────────────
+    // ── 内部 ────────────────────────────────────────────────
 
     private void EnsureOpen() {
         if (this._closed) {

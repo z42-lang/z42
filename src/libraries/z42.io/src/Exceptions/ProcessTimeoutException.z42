@@ -1,12 +1,13 @@
 namespace Std.IO;
 
-// 2026-05-13 add-std-process: 子进程在 `.Timeout(...)` 设定时限内未结束。
-// VM 已经发了 `kill` 并 reap，子进程已死亡——本异常不需要 caller 再清理。
-// 继承 TimeoutException；由 VM 直接抛出并填好 Program / TimeoutMs。
+/// Run() 超过 Timeout(ms) 时抛出；子进程连同派生进程树已被杀并回收，无需调用方再清理。
 public class ProcessTimeoutException : TimeoutException {
+    /// 被执行的程序。
     public string Program;
+    /// 超时上限（毫秒）。
     public long TimeoutMs;
 
+    /// 用程序名与超时上限构造。
     public ProcessTimeoutException(string program, long timeoutMs)
         : base("process `" + program + "` did not finish within " + timeoutMs + "ms")
     {
@@ -14,6 +15,7 @@ public class ProcessTimeoutException : TimeoutException {
         this.TimeoutMs = timeoutMs;
     }
 
+    /// 返回带类型前缀的消息字符串。
     override string ToString() {
         return "ProcessTimeoutException: " + this.Message;
     }

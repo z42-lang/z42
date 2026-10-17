@@ -1,18 +1,18 @@
 namespace Std.IO;
 
-// 2026-05-13 add-std-process: 在 `ProcessHandle` 已 `Wait` / `Dispose` /
-// `Kill+wait reaped` 之后调用任何方法时抛出。也包括 slot id 在 VM 侧
-// 找不到的边界情况（通常意味着 user-after-free 误用）。继承 InvalidOperationException（.NET 对
-// 没有关联进程的 Process 抛的就是它）。
+/// 对已 Wait / TryWait（有结果）/ Dispose 的 ProcessHandle 再操作时抛出；继承 InvalidOperationException。
 public class ProcessHandleInvalidException : InvalidOperationException {
+    /// 被执行的程序。
     public string Program;
 
+    /// 用程序名构造。
     public ProcessHandleInvalidException(string program)
         : base("process handle for `" + program + "` is no longer valid (already waited, killed, or disposed)")
     {
         this.Program = program;
     }
 
+    /// 返回带类型前缀的消息字符串。
     override string ToString() {
         return "ProcessHandleInvalidException: " + this.Message;
     }

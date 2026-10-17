@@ -1,26 +1,9 @@
 namespace Std.IO;
 
 
-// add-buffered-stream (2026-05-24): Std.IO.Stream wrapper that
-// batches small Reads / Writes into larger underlying operations.
-// Mirrors .NET `System.IO.BufferedStream` (single shared buffer that
-// serves either read OR write at any moment, never both
-// simultaneously — direction-switch flushes/discards the buffer).
-//
-// Why single-buffer (vs separate read/write): the common case is
-// open-for-read OR open-for-write, not both interleaved on the same
-// stream. The single-buffer pattern matches .NET / Java / Rust and
-// avoids the bookkeeping cost of two parallel buffers. If a future
-// use case needs concurrent bidirectional buffering, the class can
-// be split (the API stays unchanged).
-//
-// Lifecycle: `Close()` calls `Flush()` then releases the inner
-// reference but does NOT close the inner Stream — caller owns its
-// lifecycle (matches CompressionEncoderStream / StreamWriter
-// conventions).
-
+/// 把小的读 / 写批量化成对内层流大操作的 Stream 包装；单缓冲，同一时刻只服务读或写。
 public class BufferedStream : Stream {
-    // Mode tag — single buffer can only be in one mode at a time.
+    // 单缓冲同一时刻只能处于一种模式。
     private static int MODE_IDLE    = 0;
     private static int MODE_READING = 1;
     private static int MODE_WRITING = 2;
@@ -28,17 +11,14 @@ public class BufferedStream : Stream {
     private Stream _inner;
     private byte[] _buf;
     private int    _mode;
-    // For Reading: _readPos = first unconsumed byte; _readLen = total
-    //               bytes in buffer.
-    // For Writing: _writeLen = bytes pending push to inner (always
-    //               starts at 0 of buffer).
+    // 读模式：_readPos = 第一个未消费字节，_readLen = 缓冲内总字节数。
+    // 写模式：_writeLen = 待推给内层流的字节数（总是从缓冲 0 起）。
     private int  _readPos;
     private int  _readLen;
     private int  _writeLen;
     private bool _closed;
 
-    /// 4 KB default — matches .NET. Two-block on most filesystems'
-    /// page sizes.
+    /// 用默认 4 KB 缓冲包装内层流。
     public BufferedStream(Stream inner) {
         this._inner    = inner;
         this._buf      = new byte[4096];
@@ -49,6 +29,7 @@ public class BufferedStream : Stream {
         this._closed   = false;
     }
 
+    /// 用指定大小的缓冲包装内层流；bufferSize <= 0 抛 ArgumentException。
     public BufferedStream(Stream inner, int bufferSize) {
         if (bufferSize <= 0) {
             throw new ArgumentException("BufferedStream: bufferSize must be > 0");
@@ -62,32 +43,36 @@ public class BufferedStream : Stream {
         this._closed   = false;
     }
 
-    // ── Capability — delegate to inner ──────────────────────────────────
+    // ── 能力 ── 转发给内层流 ───────────────────────────────────
 
+    /// 是否可读；关闭后为 false，否则转发给内层流。
     public override bool CanRead() {
         if (this._closed) { return false; }
         return this._inner.CanRead();
     }
 
+    /// 是否可写；关闭后为 false，否则转发给内层流。
     public override bool CanWrite() {
         if (this._closed) { return false; }
         return this._inner.CanWrite();
     }
 
+    /// 是否可定位；关闭后为 false，否则转发给内层流。
     public override bool CanSeek() {
         if (this._closed) { return false; }
         return this._inner.CanSeek();
     }
 
-    // ── Read ────────────────────────────────────────────────────────────
+    // ── 读 ────────────────────────────────────────────────────
 
+    /// 缓冲读；从写切到读会先 flush 待写字节。
     public override int Read(byte[] buffer, int offset, int count) {
         this.EnsureOpen();
         if (offset < 0 || count < 0 || offset + count > buffer.Length) {
             throw new ArgumentException("Read: buffer / offset / count out of range");
         }
         if (count == 0) { return 0; }
-        // Switch to Reading mode — flush any pending writes.
+        // 切到读模式 —— 先 flush 待写字节。
         if (this._mode == 2) {  // MODE_WRITING
             this.FlushWriteBuffer();
         }
@@ -95,11 +80,8 @@ public class BufferedStream : Stream {
 
         int available = this._readLen - this._readPos;
         if (available <= 0) {
-            // Refill from inner.
-            // Optimization: if the caller's request is at least as big
-            // as our buffer, skip the buffer entirely and let them
-            // read direct (one syscall instead of two: one to fill
-            // our buffer, one to copy out).
+            // 从内层流重新填充。
+            // 优化：请求不小于缓冲大小时直接绕过缓冲直读（一次系统调用而不是两次）。
             if (count >= this._buf.Length) {
                 this._readPos = 0;
                 this._readLen = 0;
@@ -122,31 +104,23 @@ public class BufferedStream : Stream {
         return take;
     }
 
-    // ── Write ───────────────────────────────────────────────────────────
+    // ── 写 ────────────────────────────────────────────────────
 
+    /// 缓冲写；从读切到写会丢弃未消费的读缓冲。
     public override void Write(byte[] buffer, int offset, int count) {
         this.EnsureOpen();
         if (offset < 0 || count < 0 || offset + count > buffer.Length) {
             throw new ArgumentException("Write: buffer / offset / count out of range");
         }
         if (count == 0) { return; }
-        // Switch to Writing mode — discard read buffer (caller is
-        // overwriting; positional consistency is their responsibility
-        // when using Seek).
+        // 切到写模式 —— 丢弃读缓冲（调用方正在覆盖；位置一致性是调用方使用 Seek 时的责任）。
         if (this._mode == 1) {  // MODE_READING
-            // Note: if the caller was mid-stream-read and switches to
-            // write without seeking, the unconsumed read buffer is
-            // discarded. This matches .NET BufferedStream's
-            // FlushRead() behaviour — it's the price of single-buffer
-            // bidirectional state. Document via Seek as the proper
-            // remedy.
             this._readPos = 0;
             this._readLen = 0;
         }
         this._mode = 2;  // MODE_WRITING
 
-        // Pass-through: large writes bypass the buffer entirely (also
-        // flush any pending small writes first to preserve order).
+        // 直通：大写绕过缓冲（先 flush 已积压的小写以保持顺序）。
         if (count >= this._buf.Length) {
             if (this._writeLen > 0) {
                 this.FlushWriteBuffer();
@@ -155,8 +129,7 @@ public class BufferedStream : Stream {
             return;
         }
 
-        // If incoming bytes won't fit in the remaining buffer slack,
-        // flush first.
+        // 剩余缓冲放不下时先 flush。
         if (this._writeLen + count > this._buf.Length) {
             this.FlushWriteBuffer();
         }
@@ -168,19 +141,17 @@ public class BufferedStream : Stream {
         this._writeLen = this._writeLen + count;
     }
 
-    // ── Position / Length / Seek — delegate after flushing ──────────────
+    // ── 位置 / 长度 / 定位 ── flush 后转发 ────────────────────
 
+    /// 长度；关闭后抛 InvalidOperationException，否则转发给内层流。
     public override long Length() {
         this.EnsureOpen();
         return this._inner.Length();
     }
 
+    /// 修正后的当前位置：读模式减去未消费缓冲，写模式加上待写字节。
     public override long Position() {
         this.EnsureOpen();
-        // Mid-Reading: inner's reported position is past our
-        // unconsumed buffer; correct by subtracting what's left.
-        // Mid-Writing: inner hasn't seen the pending bytes yet; add
-        // them on.
         long innerPos = this._inner.Position();
         if (this._mode == 1) {  // MODE_READING
             return innerPos - (long)(this._readLen - this._readPos);
@@ -191,9 +162,9 @@ public class BufferedStream : Stream {
         return innerPos;
     }
 
+    /// 先 flush 待写数据、丢弃读缓冲，再转发给内层流定位。
     public override long Seek(long offset, int origin) {
         this.EnsureOpen();
-        // Discard any state — seeking invalidates buffered bytes.
         if (this._mode == 2) {  // MODE_WRITING
             this.FlushWriteBuffer();
         }
@@ -203,8 +174,9 @@ public class BufferedStream : Stream {
         return this._inner.Seek(offset, origin);
     }
 
-    // ── Flush / Close ───────────────────────────────────────────────────
+    // ── Flush / Close ─────────────────────────────────────────
 
+    /// flush 待写数据并转发给内层流 Flush。
     public override void Flush() {
         if (this._closed) { return; }
         if (this._mode == 2) {  // MODE_WRITING
@@ -213,20 +185,17 @@ public class BufferedStream : Stream {
         this._inner.Flush();
     }
 
+    /// 先 flush 待写数据再关闭，但不关闭内层流（生命周期归调用方）。
     public override void Close() {
         if (this._closed) { return; }
-        // Best-effort flush — Close shouldn't silently drop pending
-        // bytes. If inner's Write throws here, the exception
-        // propagates (caller's responsibility to surface or wrap).
         if (this._mode == 2) {  // MODE_WRITING
             this.FlushWriteBuffer();
         }
         this._closed = true;
-        // Intentionally do NOT call this._inner.Close() — caller owns
-        // its lifecycle.
+        // 故意不调用 this._inner.Close() —— 内层流生命周期归调用方。
     }
 
-    // ── Internal ────────────────────────────────────────────────────────
+    // ── 内部 ─────────────────────────────────────────────────
 
     private void EnsureOpen() {
         if (this._closed) {

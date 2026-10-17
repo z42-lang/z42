@@ -1,67 +1,46 @@
+//! 流式 I/O、二进制读写与子进程。
+//!
+//! `Std.IO` 提供统一的字节流抽象（Stream / MemoryStream / FileStream / BufferedStream）、字符读写器
+//! （TextReader / TextWriter / StringReader / StringWriter / StreamReader / StreamWriter）、子进程执行
+//! （Process / ProcessHandle / Stdio）与终端 ANSI 着色（Ansi）；`Std.IO.Binary` 提供带显式字节序的
+//! 二进制数值读写（BinaryReader / BinaryWriter）。
+//!
+//! ## 不支持
+//!
+//! - 没有 async：不存在 ReadAsync / WriteAsync 等异步读写。
+//! - Stream 本身不实现 Std.IDisposable（只有 Close()）；TextReader / TextWriter 名义实现了 Std.IDisposable。
+//! - 没有超时旋钮：ReadTimeout / WriteTimeout 不存在。
+//! - BinaryReader / BinaryWriter 没有无符号读写，也没有 Close() / Dispose()，生命周期归底层 Stream。
+//! - 子进程不经 shell，Timeout 只管 Run()，Stdio.ToFile 不能用于 stdin。
+//! - Ansi 没有 256 色 / truecolor / 背景色，也没有光标定位 / 清屏的生成接口。
 namespace Std.IO;
 
 
-// add-z42-io-stream (2026-05-24): unified flow-style I/O base class.
-//
-// Concrete base + throw stubs pattern (z42 has no `abstract` keyword
-// yet). Subclasses override capability predicates (`CanRead` /
-// `CanWrite` / `CanSeek`) and the corresponding core methods. The
-// position API (`Length` / `Position` / `Seek`) is optional — base
-// class throws `NotSupportedException`; seekable subclasses
-// (`MemoryStream`, future `FileStream`) override.
-//
-// Convenience helpers (`ReadAllBytes` / `WriteAllBytes` / `ReadExactly`)
-// are implemented in terms of the core `Read` / `Write` so subclasses
-// don't have to reimplement them.
-//
-// EOF protocol: `Read` returns 0 (.NET / Java / Go convention) when
-// no more bytes are available. `ReadExactly` translates "fewer than N
-// bytes" into an exception for callers who need exactly N.
-//
-// Lifecycle: `Close()` releases resources. Calling other methods after
-// `Close()` is undefined per-subclass (most concretes throw).
-//
-// Not supported (see docs/reference/src/stdlib/io-stream.md):
-//   * `CopyTo(Stream)` — manual loop is one-liner in v0
-//   * `BeginRead` / async — gated on L3 async/await
-//   * `Dispose` pattern — this base class only has `Close()`; `Std.IDisposable` **does exist**
-//     (z42.core/src/Protocols/IDisposable.z42) and `using` works on types that declare it.
-//     Stream itself declaring it is a separate item (it would add a public member). ⚠️ the old
-//     comment here claimed "z42 has no IDisposable yet" — that was false for a long time.
-//   * `Timeout` / `ReadTimeout` / `WriteTimeout` — needs concrete
-//     subclass with timer (NetworkStream)
-
+/// 所有字节流的统一基类；是具体类不是抽象类，能力谓词默认 false、核心方法抛 NotSupportedException。
 public class Stream {
-    // ── Capability predicates ────────────────────────────────────────────
-    //
-    // Subclasses override to return true for the capabilities they
-    // implement. Default false so a "Stream that can't do anything" is
-    // semantically valid (defensive programming: caller checks before
-    // attempting).
+    // ── 能力谓词 ────────────────────────────────────────────
+    // 子类按实现覆写返回 true；基类默认 false。
 
+    /// 是否可读；基类返回 false。
     public virtual bool CanRead()  { return false; }
+    /// 是否可写；基类返回 false。
     public virtual bool CanWrite() { return false; }
+    /// 是否可定位；基类返回 false。
     public virtual bool CanSeek()  { return false; }
 
-    // ── Core I/O ─────────────────────────────────────────────────────────
-    //
-    // Both Read and Write take (buffer, offset, count) so callers can
-    // reuse a single buffer across many calls (zero allocation in the
-    // hot path — same model as .NET / Java). Read returns the number
-    // of bytes actually placed into the buffer (0..=count); 0 = EOF.
+    // ── 核心读写 ────────────────────────────────────────────
 
+    /// 填充 buffer[offset..offset+count]，返回实际写入的字节数（0..count），0 = EOF。
     public virtual int Read(byte[] buffer, int offset, int count) {
         throw new NotSupportedException("Read not supported on this stream");
     }
 
+    /// 写 buffer[offset..offset+count]。
     public virtual void Write(byte[] buffer, int offset, int count) {
         throw new NotSupportedException("Write not supported on this stream");
     }
 
-    // add-stream-readbyte-writebyte (review §2.6): single-byte convenience over
-    // Read/Write so callers stop hand-rolling `new byte[1]` (BinaryReader). The
-    // default allocates a 1-byte scratch; subclasses may override for a hot path.
-    // ReadByte returns 0..255, or -1 at end of stream.
+    /// 读一个字节，返回 0..255；EOF 返回 -1。
     public virtual int ReadByte() {
         byte[] one = new byte[1];
         int n = this.Read(one, 0, 1);
@@ -69,59 +48,55 @@ public class Stream {
         return (int)one[0] & 0xFF;
     }
 
+    /// 写一个字节。
     public virtual void WriteByte(byte b) {
         byte[] one = new byte[1];
         one[0] = b;
         this.Write(one, 0, 1);
     }
 
-    // ── Lifecycle ────────────────────────────────────────────────────────
+    // ── 生命周期 ────────────────────────────────────────────
 
+    /// 刷新缓冲；基类无缓冲状态，默认空操作。
     public virtual void Flush() {
-        // Base class default: no buffered state to flush, so no-op.
-        // Writable streams with internal buffering override.
     }
 
+    /// 释放资源；基类无资源持有，默认空操作。
     public virtual void Close() {
-        // Base class default: no resources held. Subclasses that own
-        // file descriptors / native handles / slot ids override.
     }
 
-    // ── Position / seek (optional capability) ────────────────────────────
+    // ── 位置 / 定位（可选能力）──────────────────────────────
 
+    /// 流的字节长度；基类抛 NotSupportedException。
     public virtual long Length() {
         throw new NotSupportedException("Length not supported on this stream");
     }
 
+    /// 当前读写位置；基类抛 NotSupportedException。
     public virtual long Position() {
         throw new NotSupportedException("Position not supported on this stream");
     }
 
-    /// Move the cursor to `offset` bytes relative to `origin`
-    /// (`SeekOrigin.Begin` / `.Current` / `.End`). Returns the new
-    /// absolute position. Throws `NotSupportedException` if the stream
-    /// isn't seekable.
+    /// 把游标移到相对 origin（SeekOrigin.Begin / Current / End）偏移 offset 处，返回新的绝对位置。
     public virtual long Seek(long offset, int origin) {
         throw new NotSupportedException("Seek not supported on this stream");
     }
 
-    // ── Convenience helpers (composed on Read / Write) ──────────────────
+    // ── 便利方法（组合在 Read / Write 之上）─────────────────
 
-    /// Read the entire remaining content of the stream into a single
-    /// byte[]. For unbounded streams (sockets etc.) this reads until
-    /// EOF. Internally chunks in 4 KB blocks.
+    /// 读到 EOF 为止，返回精确长度的新 byte[]（内部按 4 KB 分块累积）。
     public byte[] ReadAllBytes() {
         if (!this.CanRead()) {
             throw new NotSupportedException("ReadAllBytes: stream not readable");
         }
         byte[] buf = new byte[4096];
         int    total = 0;
-        // Accumulate into a growable buffer (geometric grow factor 2x).
+        // 累积到可增长缓冲（2 倍几何增长）。
         byte[] acc = new byte[4096];
         while (true) {
             int n = this.Read(buf, 0, buf.Length);
             if (n <= 0) { break; }
-            // Grow acc if needed.
+            // 需要时扩展累积缓冲。
             if (total + n > acc.Length) {
                 int newCap = acc.Length * 2;
                 while (newCap < total + n) { newCap = newCap * 2; }
@@ -137,7 +112,7 @@ public class Stream {
             }
             total = total + n;
         }
-        // Snapshot to exact-size return.
+        // 截取为精确大小的返回数组。
         byte[] result = new byte[total];
         int k = 0;
         while (k < total) {
@@ -147,9 +122,7 @@ public class Stream {
         return result;
     }
 
-    /// Write `data` to the stream in one logical operation (may be
-    /// split across multiple `Write` calls internally; v0 single
-    /// call). Equivalent to `Write(data, 0, data.Length)`.
+    /// 等价 Write(data, 0, data.Length)。
     public void WriteAllBytes(byte[] data) {
         if (!this.CanWrite()) {
             throw new NotSupportedException("WriteAllBytes: stream not writable");
@@ -157,8 +130,7 @@ public class Stream {
         this.Write(data, 0, data.Length);
     }
 
-    /// Read exactly `count` bytes and return them as a new byte[].
-    /// Throws if EOF arrives before `count` bytes are available.
+    /// 必须凑满 count 字节并作为新 byte[] 返回，否则抛 Std.IO.EndOfStreamException。
     public byte[] ReadExactly(int count) {
         if (!this.CanRead()) {
             throw new NotSupportedException("ReadExactly: stream not readable");
@@ -179,17 +151,12 @@ public class Stream {
         return result;
     }
 
-    /// add-stream-copy-to (2026-05-24): pipe everything from `this`
-    /// into `dest` until `this` reports EOF. Uses a 4 KB intermediate
-    /// buffer. Does NOT close either stream — caller owns lifecycles
-    /// (matches CompressionEncoderStream / StreamWriter / Process*Stream
-    /// convention).
+    /// 把剩余内容全部灌入 dest（默认 4 KB 中转缓冲），两端都不关闭。
     public void CopyTo(Stream dest) {
         this.CopyTo(dest, 4096);
     }
 
-    /// `bufferSize`-controlled variant. Useful when the source / dest
-    /// has a known natural chunk size (e.g. network MTU, codec window).
+    /// 用指定 bufferSize 的中转缓冲拷贝；bufferSize <= 0 抛 ArgumentException。
     public void CopyTo(Stream dest, int bufferSize) {
         if (!this.CanRead()) {
             throw new NotSupportedException("CopyTo: source stream is not readable");

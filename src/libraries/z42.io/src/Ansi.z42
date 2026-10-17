@@ -2,39 +2,20 @@ namespace Std.IO;
 
 using Std.Text;
 
-// add-console-ansi-color (2026-06-01): ANSI SGR (Select Graphic
-// Rendition) helpers for terminal output. Each wrapper produces
-// `ESC [ <code> m … ESC [ 0 m` when enabled, or returns the input
-// string unchanged when not. Auto-detect at first use:
-// `Console.IsTerminal()` AND the `NO_COLOR` env var is not set
-// (no-color.org convention). Callers can override with `SetEnabled`.
-//
-// Usage:
-//     Console.WriteLine(Ansi.Red("error: file not found"));
-//     Console.WriteLine(Ansi.BrightGreen("ok"));
-//     Console.WriteLine(Ansi.Bold(Ansi.Yellow("WARN")));
-//
-// Composition is nesting-safe: terminals interpret repeated `ESC[0m`
-// resets as no-ops after the first.
+/// 终端 ANSI SGR 着色；启用时把文本包成 ESC[<code>m … ESC[0m，未启用时原样返回输入。
 public static class Ansi {
-    // Lazy-init flags. `_detected` is true after the first auto-detect
-    // run. `_manual` is true after any explicit `SetEnabled` call —
-    // once manual, auto-detect is bypassed for the life of the process.
+    // 惰性初始化标志：_detected 在首次自动检测后为 true；_manual 在调用过 SetEnabled 后为 true，
+    // 一旦手动设置，本进程内自动检测永久失效。
     private static bool _detected = false;
     private static bool _manual   = false;
     private static bool _enabled  = false;
 
-    // Cached escape strings — built once on first use to avoid
-    // rebuilding the `char[]` → string each wrap call.
+    // 缓存的转义串 —— 首次使用时构建一次，避免每次包装都重建。
     private static string _csi   = "";   // "ESC ["
     private static string _reset = "";   // "ESC [ 0 m"
     private static bool   _cached = false;
 
-    /// True iff colour output is enabled for this run.
-    ///
-    /// First call performs auto-detect:
-    ///   `Console.IsTerminal()` AND `NO_COLOR` env var unset/empty
-    /// Subsequent calls return the cached / manually-set value.
+    /// 是否启用着色；首次调用自动检测（Console.IsTerminal() 且 NO_COLOR 未设置或为空），之后返回缓存值。
     public static bool Enabled() {
         if (Ansi._manual) { return Ansi._enabled; }
         if (Ansi._detected) { return Ansi._enabled; }
@@ -46,50 +27,61 @@ public static class Ansi {
         return Ansi._enabled;
     }
 
-    /// Explicit override — bypasses TTY / NO_COLOR auto-detect.
-    /// Useful for scripts that want unconditional colour (piped into
-    /// `less -R`) or unconditional disable (CI logs with parsers
-    /// that choke on escape codes).
+    /// 显式覆盖；调用过后自动检测对本进程永久失效。
     public static void SetEnabled(bool b) {
         Ansi._manual = true;
         Ansi._enabled = b;
     }
 
-    // ── Foreground colours (codes 30–37) ─────────────────────────────
+    // ── 前景色（代码 30–37）─────────────────────────────────
+    /// 黑色前景。
     public static string Black  (string s) { return Ansi._Wrap(30, s); }
+    /// 红色前景。
     public static string Red    (string s) { return Ansi._Wrap(31, s); }
+    /// 绿色前景。
     public static string Green  (string s) { return Ansi._Wrap(32, s); }
+    /// 黄色前景。
     public static string Yellow (string s) { return Ansi._Wrap(33, s); }
+    /// 蓝色前景。
     public static string Blue   (string s) { return Ansi._Wrap(34, s); }
+    /// 品红前景。
     public static string Magenta(string s) { return Ansi._Wrap(35, s); }
+    /// 青色前景。
     public static string Cyan   (string s) { return Ansi._Wrap(36, s); }
+    /// 白色前景。
     public static string White  (string s) { return Ansi._Wrap(37, s); }
 
-    // ── Bright foreground (codes 90–97) ──────────────────────────────
+    // ── 亮色前景（代码 90–97）───────────────────────────────
+    /// 亮黑前景。
     public static string BrightBlack  (string s) { return Ansi._Wrap(90, s); }
+    /// 亮红前景。
     public static string BrightRed    (string s) { return Ansi._Wrap(91, s); }
+    /// 亮绿前景。
     public static string BrightGreen  (string s) { return Ansi._Wrap(92, s); }
+    /// 亮黄前景。
     public static string BrightYellow (string s) { return Ansi._Wrap(93, s); }
+    /// 亮蓝前景。
     public static string BrightBlue   (string s) { return Ansi._Wrap(94, s); }
+    /// 亮品红前景。
     public static string BrightMagenta(string s) { return Ansi._Wrap(95, s); }
+    /// 亮青前景。
     public static string BrightCyan   (string s) { return Ansi._Wrap(96, s); }
+    /// 亮白前景。
     public static string BrightWhite  (string s) { return Ansi._Wrap(97, s); }
 
-    // ── Styles (codes 1 / 2 / 3 / 4 / 7) ─────────────────────────────
+    // ── 样式（代码 1 / 2 / 3 / 4 / 7）───────────────────────
+    /// 加粗。
     public static string Bold     (string s) { return Ansi._Wrap(1, s); }
+    /// 暗淡。
     public static string Dim      (string s) { return Ansi._Wrap(2, s); }
+    /// 斜体。
     public static string Italic   (string s) { return Ansi._Wrap(3, s); }
+    /// 下划线。
     public static string Underline(string s) { return Ansi._Wrap(4, s); }
+    /// 反显。
     public static string Reverse  (string s) { return Ansi._Wrap(7, s); }
 
-    /// Strip ANSI CSI escape sequences (`ESC [ … <final-byte>`) from
-    /// `s`. Useful when a caller needs to compute the display width
-    /// of a coloured string or write a copy to a log without colour.
-    ///
-    /// Removes any sequence starting with `ESC [` and ending at the
-    /// next byte in the CSI final-byte range `0x40 .. 0x7E`. SGR codes
-    /// (`m`) are the common case; cursor-move codes (`H`, `J`, `K`)
-    /// and others also stripped.
+    /// 移除所有 CSI 转义序列（ESC [ 到 0x40..0x7E 范围内的终结字节）。
     public static string Strip(string s) {
         StringBuilder sb = new StringBuilder();
         char esc = (char)0x1B;
@@ -98,14 +90,14 @@ public static class Ansi {
         while (i < n) {
             char c = s.CharAt(i);
             if (c == esc && i + 1 < n && s.CharAt(i + 1) == '[') {
-                // Scan past parameters / intermediates to a final byte.
+                // 扫描参数 / 中间字节直到终结字节。
                 int j = i + 2;
                 while (j < n) {
                     char f = s.CharAt(j);
                     if (f >= (char)0x40 && f <= (char)0x7E) { break; }
                     j = j + 1;
                 }
-                // Skip the whole CSI sequence including the final byte.
+                // 跳过整个 CSI 序列（含终结字节）。
                 if (j < n) { i = j + 1; } else { i = n; }
             } else {
                 char[] one = new char[1];
@@ -117,7 +109,7 @@ public static class Ansi {
         return sb.ToString();
     }
 
-    // ── Internals ────────────────────────────────────────────────────
+    // ── 内部 ────────────────────────────────────────────────
 
     private static void _BuildCache() {
         if (Ansi._cached) { return; }

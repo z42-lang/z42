@@ -1,16 +1,11 @@
 namespace Std.IO;
 
-// add-end-of-stream-exception (2026-05-27): dedicated exception for
-// premature stream EOF, replacing v0's reuse of `InvalidOperationException`
-// on `Stream.ReadExactly` underflow. Mirrors .NET
-// `System.IO.EndOfStreamException` (BCL has had it since v1.0).
-//
-// Catch this when you want to distinguish "stream ran dry" from generic
-// invalid-state errors. Inherits `IOException` (.NET hierarchy), so
-// `catch (IOException)` and `catch (Exception)` both see it.
+/// 流在凑满所需字节前就到达 EOF（如 Stream.ReadExactly 不足）时抛出；继承 IOException。
 public class EndOfStreamException : IOException {
+    /// 用指定消息构造。
     public EndOfStreamException(string message) : base(message) { }
 
+    /// 返回带类型前缀的消息字符串。
     override string ToString() {
         return "EndOfStreamException: " + this.Message;
     }

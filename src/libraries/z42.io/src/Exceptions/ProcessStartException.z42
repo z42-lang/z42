@@ -1,13 +1,11 @@
 namespace Std.IO;
 
-// 2026-05-13 add-std-process: 进程启动失败（可执行文件未找到 / 权限不足 /
-// fork-exec / CreateProcess 失败等）。**与 ProcessExitException 区别**：
-// 这个表示**子进程根本没启动**；如果启动成功但 exit != 0，会用
-// `ProcessExitException`（仅在 `.EnsureSuccess()` 时抛出）。
-// 继承 IOException：.NET 的 `Process.Start` 此时抛 `Win32Exception`（OS 错误），z42 没有该类。
+/// 子进程根本没启动（可执行文件找不到、权限不足、fork/exec 失败等）时抛出；继承 IOException。
 public class ProcessStartException : IOException {
+    /// 用指定消息构造。
     public ProcessStartException(string message) : base(message) {}
 
+    /// 返回带类型前缀的消息字符串。
     override string ToString() {
         return "ProcessStartException: " + this.Message;
     }

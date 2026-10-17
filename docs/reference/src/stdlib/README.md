@@ -42,9 +42,7 @@ z42 标准库各包的公开 API。每页覆盖一个包：类型、方法签名
 | 页 | 包 | 覆盖 |
 |---|---|---|
 | [控制台与文件](io-file.md) | `z42.core` | `Console` `ConsoleError` `File` `Directory` `Path` `Environment` |
-| [子进程与终端](process.md) | `z42.io` | `Process` `ProcessHandle` `ProcessResult` `Stdio` `Ansi` |
-| [流](io-stream.md) | `z42.io` | `Stream` 家族、文件流、文本读写器 |
-| [二进制读写](io-binary.md) | `z42.io` | `BinaryReader` / `BinaryWriter` |
+| [流式 I/O 与子进程](io.md) | `z42.io` | `Stream` 家族、文件流、文本/二进制读写器、`Process` / `Ansi` |
 | [网络](net.md) | `z42.net` | TCP / UDP / HTTP / TLS / WebSocket / `IPAddress` / DNS |
 | [并发](threading.md) | `z42.threading` | `Thread` `Channel<T>` `Mutex<T>` `RwLock<T>` `Timer` |
 | [压缩](compression.md) | `z42.compression` | Gzip / Zlib / Deflate / Zstd / Brotli / Tar / Zip |

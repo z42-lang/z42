@@ -1,10 +1,11 @@
 namespace Std.IO.Binary;
 
-// add-z42-io-binary (2026-05-15)：BinaryReader / Writer 出错时抛出。
-// 覆盖：越界 read、越界 seek、Writer 内部一致性。
+/// BinaryReader / BinaryWriter 自己发现的错误（不可定位、越界、能力不符、varint 过长等）统一抛出的异常。
 public class BinaryException : Exception {
+    /// 用指定消息构造。
     public BinaryException(string message) : base(message) {}
 
+    /// 返回带类型前缀的消息字符串。
     override string ToString() {
         return "BinaryException: " + this.Message;
     }

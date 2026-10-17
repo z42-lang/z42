@@ -1,30 +1,18 @@
 namespace Std.IO;
 
 
-// add-process-stream-stdio (2026-05-24): read-only Std.IO.Stream
-// wrapper over a live ProcessHandle's stdout OR stderr pipe.
-//
-// Single class parameterised by `_fd` (1 = stdout, 2 = stderr) — same
-// shape as `FileStream` which serves Read / Write / Append via a
-// single `_mode` field. Avoids two near-identical classes.
-//
-// Reading blocks until at least one byte arrives or the child closes
-// the pipe (EOF → returns 0). Once the underlying handle's `Wait()` /
-// `Dispose()` consumes the slot, subsequent Reads observe the
-// drained-pipe state and return 0 (EOF) — see Native-side
-// `process_handle_read_impl` for the precise semantics.
-//
-// `Close()` is a logical close on the z42 side (CanRead → false). It
-// does NOT close the OS reader — that's the ProcessHandle's job.
-
+/// 对活子进程 stdout / stderr 管道的只读 Stream 包装（fd 1 = stdout，2 = stderr）。
 public class ProcessOutputStream : Stream {
+    /// stdout 的文件描述符编号。
     public static int Stdout = 1;
+    /// stderr 的文件描述符编号。
     public static int Stderr = 2;
 
     private ProcessHandle _handle;
     private int           _fd;
     private bool          _closed;
 
+    /// 构造指定 fd 的只读包装；fd 只能是 1 或 2。
     public ProcessOutputStream(ProcessHandle handle, int fd) {
         if (fd != 1 && fd != 2) {
             throw new ArgumentException("ProcessOutputStream: fd must be 1 (stdout) or 2 (stderr)");
@@ -34,14 +22,18 @@ public class ProcessOutputStream : Stream {
         this._closed = false;
     }
 
-    // ── Capability ───────────────────────────────────────────────────────
+    // ── 能力 ───────────────────────────────────────────────────
 
+    /// 是否可读；关闭前为 true。
     public override bool CanRead()  { return !this._closed; }
+    /// 是否可写；恒为 false。
     public override bool CanWrite() { return false; }
+    /// 是否可定位；恒为 false。
     public override bool CanSeek()  { return false; }
 
-    // ── Read ─────────────────────────────────────────────────────────────
+    // ── 读 ─────────────────────────────────────────────────────
 
+    /// 阻塞读，直到至少一个字节或管道关闭（EOF 返回 0）。
     public override int Read(byte[] buffer, int offset, int count) {
         if (this._closed) {
             throw new InvalidOperationException("ProcessOutputStream: stream is closed");
@@ -56,17 +48,14 @@ public class ProcessOutputStream : Stream {
         return this._handle.ReadStderr(buffer, offset, count);
     }
 
-    // ── Flush / Close ────────────────────────────────────────────────────
+    // ── Flush / Close ─────────────────────────────────────────
 
+    /// 只读流无缓冲，空操作。
     public override void Flush() {
-        // Read-only stream — nothing buffered.
     }
 
+    /// 仅本侧逻辑关闭；底层管道由 ProcessHandle 负责。
     public override void Close() {
-        // Logical close only — underlying ChildStdout / ChildStderr is
-        // owned by the ProcessHandle's slot. Setting `_closed` makes
-        // subsequent Read throw InvalidOperationException locally
-        // rather than racing with handle teardown.
         this._closed = true;
     }
 }
