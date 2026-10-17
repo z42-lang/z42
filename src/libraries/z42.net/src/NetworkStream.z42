@@ -2,17 +2,7 @@ namespace Std.Net.Sockets;
 
 using Std.IO;
 
-// add-z42-net K1 (2026-05-24): byte-oriented Stream over a TCP socket.
-//
-// Read/write 路径转发到 `__tcp_*` builtin。Read 返回 0 = peer
-// 关闭 (EOF)。Write throw on broken pipe / connection reset。
-//
-// Lifecycle 由 owning `TcpClient` 管理 — `NetworkStream.Close()` 仅标记
-// 本对象 _closed；底层 fd 在 `TcpClient.Dispose()` 时通过
-// `__tcp_close` 关闭。多次 Close / Dispose 幂等。
-//
-// Capability：CanRead = true / CanWrite = true / CanSeek = false。
-// Seek 调用走 base Stream 默认 throw NotSupportedException。
+/// TCP socket 之上的字节流，`Std.IO.Stream` 的子类，由 `TcpClient.GetStream()` 给出。
 public class NetworkStream : Stream {
     private long _slotId;
     private bool _closed;
@@ -24,26 +14,28 @@ public class NetworkStream : Stream {
 
     // ── Capability overrides ─────────────────────────────────────────────
 
+    /// 始终可读（关闭后为 false）。
     override bool CanRead() {
         return !this._closed;
     }
 
+    /// 始终可写（关闭后为 false）。
     override bool CanWrite() {
         return !this._closed;
     }
 
+    /// 恒为 false。
     override bool CanSeek() {
         return false;
     }
 
     // ── Core I/O ─────────────────────────────────────────────────────────
 
+    /// 部分读：返回读到的字节数，0 表示对端关闭；socket 错误包成 `IOException`。
     override int Read(byte[] buffer, int offset, int count) {
         this.EnsureOpen();
         if (count == 0) return 0;
-        // .NET: a socket failure under a NetworkStream surfaces as IOException with the
-        // SocketException as InnerException (a closed socket stays SocketClosedException,
-        // .NET's ObjectDisposedException).
+        // socket 失败以 IOException 抛出，InnerException 为原 SocketException。
         try {
             return TcpSocketNative.Read(this._slotId, buffer, offset, count);
         } catch (SocketException e) {
@@ -51,10 +43,10 @@ public class NetworkStream : Stream {
         }
     }
 
+    /// 阻塞写，全部字节写出后返回。
     override void Write(byte[] buffer, int offset, int count) {
         this.EnsureOpen();
         if (count == 0) return;
-        // Blocking write — returns once all bytes went out (write_all on the Rust side).
         try {
             TcpSocketNative.Write(this._slotId, buffer, offset, count);
         } catch (SocketException e) {
@@ -64,17 +56,15 @@ public class NetworkStream : Stream {
 
     // ── Lifecycle ────────────────────────────────────────────────────────
 
+    /// 标记本流已关闭；幂等。底层 fd 由 `TcpClient.Dispose()` 释放。
     override void Close() {
-        // Idempotent. Subsequent Read/Write throw SocketClosedException via
-        // EnsureOpen. Underlying fd close happens in TcpClient.Dispose.
+        // 幂等；之后 Read/Write 经 EnsureOpen 抛 SocketClosedException。
         this._closed = true;
     }
 
     // ── Internal accessor for owning TcpClient ───────────────────────────
 
-    // Called by `TcpClient.Dispose` so it can flip the Stream's _closed bit
-    // even if the user is still holding the cached reference. Not for general
-    // user code — z42 has no `internal` visibility yet, treat as package-private.
+    // 供 `TcpClient.Dispose` 调用：即使用户仍持有缓存引用，也能翻转流的 _closed 位。
     public void MarkClosed() {
         this._closed = true;
     }

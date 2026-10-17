@@ -1,9 +1,6 @@
 namespace Std.Net;
 
-// add-z42-net K1 (2026-05-24): 网络 API 在当前 target 不支持时抛出。
-// 主要场景：wasm32 —— std::net 不可用，网络 builtin 直接从 Rust 抛本异常。允许 wasm host
-// 用 try/catch 探测能力 + 退路到 JS interop fallback。.NET 对平台不支持的功能抛
-// `PlatformNotSupportedException`，故继承它。
+/// 网络 API 在当前目标平台（如 wasm32）不受支持时抛出；继承 `PlatformNotSupportedException`。
 public class NetUnsupportedException : PlatformNotSupportedException {
     public NetUnsupportedException()
         : base("network sockets are not supported on this target (e.g. wasm32)") {

@@ -1,18 +1,17 @@
 namespace Std.Net.Sockets;
 
 
-// add-ipendpoint-wrapper (2026-06-02): minimal BCL-aligned wrapper of
-// `(IPAddress, port)` as a single value. Surfaces the canonical
-// `addr:port` (IPv4) / `[addr]:port` (IPv6) URL-authority syntax for
-// parse + display. The bracket convention disambiguates the port colon
-// from the address colons in IPv6.
+/// `(IPAddress, port)` 的值对象，支持 canonical `addr:port` / `[addr]:port` 解析与显示。
 public sealed class IPEndPoint {
+    /// 最小端口值。
     public static int MinPort = 0;
+    /// 最大端口值。
     public static int MaxPort = 65535;
 
     private IPAddress _address;
     private int       _port;
 
+    /// 以地址和端口构造；port 越界抛 `ArgumentException`。
     public IPEndPoint(IPAddress address, int port) {
         if (address == null) {
             throw new ArgumentNullException("IPEndPoint: address must not be null");
@@ -25,12 +24,12 @@ public sealed class IPEndPoint {
         this._port    = port;
     }
 
+    /// 返回地址。
     public IPAddress Address() { return this._address; }
+    /// 返回端口。
     public int       Port()    { return this._port;    }
 
-    /// Canonical form: IPv4 → `addr:port`; IPv6 → `[addr]:port`.
-    /// Brackets disambiguate the port colon from IPv6 group colons.
-    /// Round-trips with `Parse`.
+    /// 规范形式：IPv4 → `addr:port`；IPv6 → `[addr]:port`。
     public override string ToString() {
         if (this._address.IsIPv6()) {
             return "[" + this._address.ToString() + "]:" + this._port.ToString();
@@ -38,16 +37,13 @@ public sealed class IPEndPoint {
         return this._address.ToString() + ":" + this._port.ToString();
     }
 
-    /// Parse the canonical `addr:port` (IPv4) or `[addr]:port` (IPv6)
-    /// form. Bracketed form is mandatory for IPv6 — `::1:80` is
-    /// ambiguous (is the port 80 with addr `::1` or addr `::1:80`?)
-    /// so we reject it as a FormatException pointing at the bracket.
+    /// 解析 `addr:port`（IPv4）或 `[addr]:port`（IPv6）形式；失败抛 `FormatException`。
     public static IPEndPoint Parse(string s) {
         if (s == null || s.Length == 0) {
             throw new FormatException("IPEndPoint.Parse: empty input");
         }
         if (s.CharAt(0) == '[') {
-            // Bracketed IPv6 form: find the matching `]`, then `:port`.
+            // 带方括号的 IPv6 形式：找匹配的 `]`，再是 `:port`。
             int rb = -1;
             int i = 1;
             while (i < s.Length) {
@@ -61,7 +57,7 @@ public sealed class IPEndPoint {
                 throw new FormatException("IPEndPoint.Parse: empty brackets in '" + s + "'");
             }
             string addrStr = IPEndPoint._slice(s, 1, rb);
-            // Expect `:port` after the closing bracket.
+            // 闭括号后应为 `:port`。
             if (rb + 1 >= s.Length || s.CharAt(rb + 1) != ':') {
                 throw new FormatException("IPEndPoint.Parse: expected `:port` after `]` in '" + s + "'");
             }
@@ -70,9 +66,7 @@ public sealed class IPEndPoint {
             int port = IPEndPoint._parsePort(portStr, s);
             return new IPEndPoint(addr, port);
         }
-        // Plain form: split on the LAST `:`. For IPv4 there's exactly
-        // one colon; for an unbracketed IPv6 there'd be multiple, which
-        // is ambiguous and rejected.
+        // 普通形式：按最后一个 `:` 切分；多个冒号（未加方括号的 IPv6）判为歧义并拒绝。
         int lastColon = -1;
         int colonCount = 0;
         int j = 0;
@@ -87,7 +81,7 @@ public sealed class IPEndPoint {
             throw new FormatException("IPEndPoint.Parse: missing `:port` in '" + s + "'");
         }
         if (colonCount > 1) {
-            // Likely an unbracketed IPv6 — point at the bracket convention.
+            // 很可能是未加方括号的 IPv6 —— 提示方括号约定。
             throw new FormatException("IPEndPoint.Parse: unbracketed IPv6 is ambiguous in '"
                 + s + "' (use `[addr]:port`)");
         }
@@ -98,6 +92,7 @@ public sealed class IPEndPoint {
         return new IPEndPoint(addr2, port2);
     }
 
+    /// 与另一个 IPEndPoint 比较是否相等。
     public bool Equals(IPEndPoint other) {
         if (other == null) return false;
         if (this._port != other._port) return false;

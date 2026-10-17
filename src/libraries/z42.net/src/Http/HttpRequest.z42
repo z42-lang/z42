@@ -2,22 +2,19 @@ namespace Std.Net.Http;
 
 using Std.Encoding;
 
-// add-z42-net-http K3 (2026-05-25): outgoing HTTP request container.
-//
-// Builder-style API — construct with method+url then mutate headers / body
-// before passing to `HttpClient.Send`. Body is `byte[]` (null = no body).
-// Body 完全提前完成的 v0；streaming body 是 `add-z42-net-http-stream-body`
-// follow-up.
+/// 待发送的 HTTP 请求容器（builder 风格）。
 public class HttpRequest {
-    public string      Method;     // HttpMethod.Get / Post / ... or custom verb
-    public string      Url;        // full absolute URL, http:// only in v0
+    /// HTTP 方法（`HttpMethod` 常量或自定义动词）。
+    public string      Method;
+    /// 完整绝对 URL（客户端侧）。
+    public string      Url;
+    /// 请求头。
     public HttpHeaders Headers;
-    public byte[]      Body;       // null if no body
-    // add-z42-net-http-digest-auth (2026-05-31): Digest credentials kept
-    // off-band — the Authorization header is computed by HttpClient only
-    // after the server returns its 401 challenge with realm + nonce.
-    // Empty strings ⇒ no Digest auth on this request.
+    /// 请求体字节（无 body 时为 null）。
+    public byte[]      Body;
+    /// Digest 认证用户名（空串表示不用 Digest）。
     public string DigestUser;
+    /// Digest 认证密码（空串表示不用 Digest）。
     public string DigestPassword;
 
     public HttpRequest(string method, string url) {
@@ -29,30 +26,25 @@ public class HttpRequest {
         this.DigestPassword = "";
     }
 
-    /// Convenience header setter (no-arg builder pattern).
+    /// 设置头（覆盖同名）；返回 this 支持链式调用。
     public HttpRequest SetHeader(string name, string value) {
         this.Headers.Set(name, value);
         return this;
     }
 
+    /// 追加头（允许同名多条）；返回 this。
     public HttpRequest AddHeader(string name, string value) {
         this.Headers.Add(name, value);
         return this;
     }
 
-    /// Set request body. Caller is responsible for Content-Type (use
-    /// `SetHeader("Content-Type", ...)`). Content-Length is auto-emitted
-    /// by `HttpClient.Send`.
+    /// 设置请求体；Content-Length 由 `HttpClient.Send` 自动补。
     public HttpRequest SetBody(byte[] body) {
         this.Body = body;
         return this;
     }
 
-    /// add-z42-net-http-auth (2026-05-27): RFC 7617 HTTP Basic auth.
-    ///   Authorization: Basic base64(user:password)
-    /// Overwrites any existing Authorization header. NOTE: Basic transmits
-    /// credentials in plaintext (base64 is encoding, not encryption) — only
-    /// use over TLS / HTTPS, or on trusted internal networks.
+    /// 写 `Authorization: Basic base64(user:password)`（覆盖同名头）；仅建议在 TLS 上使用。
     public HttpRequest WithBasicAuth(string user, string password) {
         string creds = user + ":" + password;
         byte[] credBytes = Utf8.GetBytes(creds);
@@ -61,22 +53,13 @@ public class HttpRequest {
         return this;
     }
 
-    /// add-z42-net-http-auth (2026-05-27): RFC 6750 §2.1 Bearer token auth.
-    ///   Authorization: Bearer <token>
-    /// Used by OAuth 2.0 access tokens, GitHub PATs, JWT-based APIs, etc.
-    /// Overwrites any existing Authorization header.
+    /// 写 `Authorization: Bearer <token>`（覆盖同名头）。
     public HttpRequest WithBearerToken(string token) {
         this.Headers.Set("Authorization", "Bearer " + token);
         return this;
     }
 
-    /// add-z42-net-http-digest-auth (2026-05-31): RFC 7616 / RFC 2617 Digest.
-    /// Records credentials for `HttpClient` to use ONLY after the server
-    /// returns a 401 with a `WWW-Authenticate: Digest ...` challenge; the
-    /// first request goes out without an Authorization header. Supports
-    /// `algorithm=MD5` (default) and `algorithm=SHA-256`, `qop=auth`.
-    /// Auth-int, MD5-sess, SHA-256-sess, SHA-512-256, userhash, stale,
-    /// proxy Digest are all v0-out-of-scope.
+    /// 记录 Digest 凭据（不立即写头）；等 `HttpClient` 收到 401 challenge 后自动计算并重试。
     public HttpRequest WithDigestAuth(string user, string password) {
         this.DigestUser     = user;
         this.DigestPassword = password;

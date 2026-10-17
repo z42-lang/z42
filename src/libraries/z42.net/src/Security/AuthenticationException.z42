@@ -1,9 +1,6 @@
 namespace Std.Security.Authentication;
 
-// TLS 认证（握手）失败：证书不受信 / 名字不符 / 过期、协议不兼容、对端发来的不是 TLS。
-// 镜像 .NET `System.Security.Authentication.AuthenticationException`（.NET 继承
-// SystemException，z42 没有那一层）。`TlsClient.Connect` 的握手失败由 VM 从 Rust 抛它；
-// 握手途中的传输错误（连接被关、超时）是 `IOException`，同 .NET 的 `SslStream`。
+/// TLS 认证（握手）失败：证书不受信 / 名字不符 / 过期、协议不兼容、对端发来的不是 TLS。
 public class AuthenticationException : Exception {
     public AuthenticationException(string message) : base(message) {}
 }

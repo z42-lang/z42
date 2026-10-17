@@ -2,36 +2,9 @@ namespace Std.Net.WebSockets;
 
 using Std.IO;
 
-// add-z42-net-websocket K4 (2026-05-25): RFC 6455 §5 frame codec.
-//
-// Frame layout (network byte order — big-endian payload length):
-//
-//   0                   1                   2                   3
-//   0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-//  +-+-+-+-+-------+-+-------------+-------------------------------+
-//  |F|R|R|R| opcode|M| Payload len |    Extended payload length    |
-//  |I|S|S|S|  (4)  |A|     (7)     |             (16/64)           |
-//  |N|V|V|V|       |S|             |   (if payload len==126/127)   |
-//  | |1|2|3|       |K|             |                               |
-//  +-+-+-+-+-------+-+-------------+ - - - - - - - - - - - - - - - +
-//  |     Extended payload length continued, if payload len == 127  |
-//  + - - - - - - - - - - - - - - - +-------------------------------+
-//  |                               |Masking-key, if MASK set to 1  |
-//  +-------------------------------+-------------------------------+
-//  | Masking-key (continued)       |          Payload Data         |
-//  +-------------------------------- - - - - - - - - - - - - - - - +
-//  :                     Payload Data continued ...                :
-//  + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - +
-//  |                     Payload Data continued ...                |
-//  +---------------------------------------------------------------+
-//
-// Client-side rules:
-// - Client MUST mask every outgoing frame (`MASK = 1`)
-// - Server MUST NOT mask (any masked server frame = protocol violation)
-// - 7-bit payload length 0-125 inline; 126 ⇒ next 2 bytes = u16; 127 ⇒ next 8 bytes = u64
-//
-// V0 outgoing always single-frame (FIN=1, no fragmentation). Incoming
-// handles fragmentation via opcode 0 (continuation) — caller assembles.
+// RFC 6455 §5 帧编解码器（内部）。
+// 帧头布局（网络字节序）：FIN/RSV/opcode、MASK + 7 位长度，必要时扩展长度（16/64 位），
+// 客户端出站必须带掩码（MASK=1），服务端出站不得带掩码；7 位长度 0-125 内联，126/127 走扩展长度。
 public static class _FrameCodec {
 
     // ── Opcodes (RFC 6455 §5.2) ──────────────────────────────────────────
@@ -42,17 +15,12 @@ public static class _FrameCodec {
     public static int OpPing         = 9;
     public static int OpPong         = 10;
 
-    /// Encode a single frame (FIN=1, no fragmentation) with client masking
-    /// to a wire byte[]. Caller writes this directly to the TCP stream.
-    /// `maskingKey` is a 4-byte random value (caller-supplied so tests can
-    /// pin it). RSV1 stays cleared — see `EncodeFrameRsv1` for the
-    /// per-message-deflate-compressed-frame variant.
+    // 编码单帧（FIN=1、无分片、客户端掩码）；RSV1 保持清零，见 EncodeFrameRsv1。
     public static byte[] EncodeFrame(int opcode, byte[] payload, int payloadLen, byte[] maskingKey) {
         return _FrameCodec._encodeFrameInternal(opcode, payload, payloadLen, maskingKey, false);
     }
 
-    /// add-z42-net-websocket-deflate (2026-05-28): client→server compressed
-    /// frame — same wire format but RSV1 bit set. RFC 7692 §7.2.3.
+    // 客户端→服务端压缩帧：同 EncodeFrame 但置 RSV1（RFC 7692 §7.2.3）。
     public static byte[] EncodeFrameRsv1(int opcode, byte[] payload, int payloadLen, byte[] maskingKey) {
         return _FrameCodec._encodeFrameInternal(opcode, payload, payloadLen, maskingKey, true);
     }
@@ -61,9 +29,9 @@ public static class _FrameCodec {
         if (maskingKey == null || maskingKey.Length != 4) {
             throw new WebSocketProtocolException("masking key must be 4 bytes");
         }
-        // Header size: 2 (base) + 0/2/8 (extended length) + 4 (mask) = 6/8/14
+        // 头大小：2（基础）+ 0/2/8（扩展长度）+ 4（掩码）= 6/8/14
         int extLenBytes;
-        int hdrLen2;   // bytes used for 7-bit / 16-bit / 64-bit length field
+        int hdrLen2;   // 7 位 / 16 位 / 64 位长度字段用到的字节
         if (payloadLen < 126) {
             extLenBytes = 0;
             hdrLen2     = payloadLen;
@@ -76,11 +44,11 @@ public static class _FrameCodec {
         }
         int totalLen = 2 + extLenBytes + 4 + payloadLen;
         byte[] frame = new byte[totalLen];
-        // Byte 0: FIN=1 + RSV1 (optional) + RSV2/3=0 + opcode (4 bits)
+        // 字节 0：FIN=1 + RSV1（可选）+ RSV2/3=0 + opcode（4 位）
         int b0 = 0x80 | (opcode & 0x0F);
         if (rsv1) { b0 = b0 | 0x40; }
         frame[0] = (byte)b0;
-        // Byte 1: MASK=1 + 7-bit length field
+        // 字节 1：MASK=1 + 7 位长度字段
         frame[1] = (byte)(0x80 | hdrLen2);
         int off = 2;
         if (extLenBytes == 2) {
@@ -88,8 +56,7 @@ public static class _FrameCodec {
             frame[off + 1] = (byte)(payloadLen & 0xFF);
             off = off + 2;
         } else if (extLenBytes == 8) {
-            // 64-bit big-endian length. z42 int = i32 max 2^31-1, so high
-            // 4 bytes are always 0 in practice. Layout: 8 bytes, BE.
+            // 64 位大端长度；z42 int = i32 最大 2^31-1，故高 4 字节恒为 0。
             int i = 0;
             while (i < 4) {
                 frame[off + i] = (byte)0;
@@ -101,13 +68,13 @@ public static class _FrameCodec {
             frame[off + 7] = (byte)(payloadLen & 0xFF);
             off = off + 8;
         }
-        // Masking key
+        // 掩码键
         frame[off]     = maskingKey[0];
         frame[off + 1] = maskingKey[1];
         frame[off + 2] = maskingKey[2];
         frame[off + 3] = maskingKey[3];
         off = off + 4;
-        // Masked payload
+        // 掩码后的 payload
         int j = 0;
         while (j < payloadLen) {
             byte raw    = payload[j];
@@ -118,18 +85,12 @@ public static class _FrameCodec {
         return frame;
     }
 
-    /// add-z42-net-websocket-server (2026-05-27): server-side frame
-    /// encoder. RFC 6455 §5.1: "A server MUST NOT mask any frames that
-    /// it sends to the client." Same wire layout as `EncodeFrame` but
-    /// MASK bit cleared, no 4-byte masking key, payload written
-    /// unmodified. RSV1 stays cleared — see `EncodeServerFrameRsv1`
-    /// for the per-message-deflate-compressed variant.
+    // 服务端帧编码器：RFC 6455 §5.1 要求服务端出站不得掩码；布局同 EncodeFrame 但 MASK 清零。
     public static byte[] EncodeServerFrame(int opcode, byte[] payload, int payloadLen) {
         return _FrameCodec._encodeServerFrameInternal(opcode, payload, payloadLen, false);
     }
 
-    /// add-z42-net-websocket-deflate (2026-05-28): server→client compressed
-    /// frame — same wire format but RSV1 bit set. RFC 7692 §7.2.3.
+    // 服务端→客户端压缩帧：同 EncodeServerFrame 但置 RSV1（RFC 7692 §7.2.3）。
     public static byte[] EncodeServerFrameRsv1(int opcode, byte[] payload, int payloadLen) {
         return _FrameCodec._encodeServerFrameInternal(opcode, payload, payloadLen, true);
     }
@@ -149,11 +110,11 @@ public static class _FrameCodec {
         }
         int totalLen = 2 + extLenBytes + payloadLen;
         byte[] frame = new byte[totalLen];
-        // Byte 0: FIN=1 + RSV1 (optional) + RSV2/3=0 + opcode (4 bits)
+        // 字节 0：FIN=1 + RSV1（可选）+ RSV2/3=0 + opcode（4 位）
         int b0 = 0x80 | (opcode & 0x0F);
         if (rsv1) { b0 = b0 | 0x40; }
         frame[0] = (byte)b0;
-        // Byte 1: MASK=0 + 7-bit length field
+        // 字节 1：MASK=0 + 7 位长度字段
         frame[1] = (byte)(hdrLen2);
         int off = 2;
         if (extLenBytes == 2) {
@@ -169,7 +130,7 @@ public static class _FrameCodec {
             frame[off + 7] = (byte)(payloadLen & 0xFF);
             off = off + 8;
         }
-        // Payload written unmasked.
+        // payload 不掩码直接写。
         int j = 0;
         while (j < payloadLen) {
             frame[off + j] = payload[j];
@@ -178,11 +139,9 @@ public static class _FrameCodec {
         return frame;
     }
 
-    /// Decoded inbound frame fields. RSV1 is surfaced for per-message-
-    /// deflate; v0 doesn't care about RSV2/RSV3 (their use is reserved
-    /// for future extensions).
+    // 解码入站帧；带掩码的服务端帧按 RFC §5.1 抛协议违规。
     public static _DecodedFrame ReadFrame(Stream stream) {
-        // Read 2 base bytes
+        // 读 2 个基础字节
         byte[] hdr = _FrameCodec._readExactly(stream, 2);
         int b0 = (int)hdr[0] & 0xFF;
         int b1 = (int)hdr[1] & 0xFF;
@@ -191,7 +150,7 @@ public static class _FrameCodec {
         int  opcode = b0 & 0x0F;
         bool mask   = (b1 & 0x80) != 0;
         int  len7   = b1 & 0x7F;
-        // Servers MUST NOT mask outgoing (RFC §5.1)
+        // 服务端出站不得掩码（RFC §5.1）
         if (mask) {
             throw new WebSocketProtocolException("server frame is masked (RFC 6455 §5.1 violation)");
         }
@@ -211,7 +170,7 @@ public static class _FrameCodec {
             }
         }
         if (payloadLen < 0L || payloadLen > 2147483640L) {
-            // Cap to fit z42 i32 length; oversize payloads not supported v0.
+            // 上限到 z42 i32 长度；超大 payload v0 不支持。
             throw new WebSocketProtocolException("frame payload too large for v0");
         }
         int payLen32 = (int)payloadLen;
@@ -234,14 +193,12 @@ public static class _FrameCodec {
     }
 }
 
-// add-z42-net-websocket K4 (2026-05-25): decoded inbound frame view.
-// Returned by `_FrameCodec.ReadFrame`. Internal data carrier — `public`
-// fields per stdlib convention (z42 has no `internal` modifier).
+// 解码后的入站帧视图（内部），由 _FrameCodec.ReadFrame 返回。
 public class _DecodedFrame {
     public bool   Fin;
     public int    Opcode;
     public byte[] Payload;
-    public bool   Rsv1;     // per-message-deflate compressed-payload flag
+    public bool   Rsv1;     // per-message-deflate 压缩 payload 标志
 
     public _DecodedFrame(bool fin, int opcode, byte[] payload, bool rsv1) {
         this.Fin     = fin;

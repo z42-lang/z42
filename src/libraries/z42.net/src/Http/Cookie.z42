@@ -1,19 +1,21 @@
 namespace Std.Net.Http;
 
 
-// add-z42-net-http-cookies (2026-05-26): HTTP cookie value record.
-//
-// Subset of RFC 6265 §5.3 cookie model — name/value plus attributes the
-// client cares about for storage and matching. SameSite is parsed but
-// not enforced (v0 doesn't have a cross-origin model in HttpClient).
+/// HTTP cookie 值记录（RFC 6265 §5.3 的子集）。
 public class Cookie {
+    /// 名称。
     public string Name;
+    /// 值。
     public string Value;
+    /// 域。
     public string Domain;
+    /// 路径。
     public string Path;
+    /// 是否仅 HTTPS 发送。
     public bool   Secure;
+    /// 是否 HttpOnly。
     public bool   HttpOnly;
-    /// Absolute expiry as unix-seconds. 0 = session cookie (cleared on jar reset).
+    /// 绝对过期时间（Unix 秒）；0 = 会话 cookie。
     public long   ExpiresUnixSec;
 
     public Cookie(string name, string value) {
@@ -26,23 +28,21 @@ public class Cookie {
         this.ExpiresUnixSec = 0L;
     }
 
-    /// True if this cookie has expired at `nowUnixSec`. Session cookies
-    /// (ExpiresUnixSec == 0) never report expired by time.
+    /// 在 `nowUnixSec` 时是否已过期；会话 cookie（ExpiresUnixSec == 0）永不按时间过期。
     public bool IsExpired(long nowUnixSec) {
         if (this.ExpiresUnixSec == 0L) return false;
         return this.ExpiresUnixSec <= nowUnixSec;
     }
 
-    /// True if this cookie should be sent on a request to (host, path, scheme).
-    /// Implements RFC 6265 §5.4 with simplifications (no Public Suffix List).
+    /// 是否应随对 (host, path, scheme) 的请求发送（RFC 6265 §5.4，含简化）。
     public bool Matches(string host, string path, bool isSecure) {
-        // Secure-flag rule
+        // Secure 标志规则
         if (this.Secure && !isSecure) return false;
-        // Domain match — cookie domain matches request host as suffix.
+        // 域匹配 —— cookie 域作为后缀匹配请求主机。
         if (this.Domain.Length > 0) {
             string h = host.ToLower();
             string d = this.Domain.ToLower();
-            // Leading "." per legacy convention — strip for compare.
+            // 传统约定的前导 "." —— 去掉再比较。
             if (d.CharAt(0) == '.') {
                 d = Cookie._substringFrom(d, 1);
             }
@@ -50,7 +50,7 @@ public class Cookie {
                 return false;
             }
         }
-        // Path match — request path starts with cookie path.
+        // 路径匹配 —— 请求路径以 cookie 路径开头。
         if (!Cookie._pathMatches(path, this.Path)) return false;
         return true;
     }
@@ -58,11 +58,10 @@ public class Cookie {
     // ── String helpers ───────────────────────────────────────────────────
 
     static bool _pathMatches(string requestPath, string cookiePath) {
-        // RFC 6265 §5.1.4: request path matches cookie path if:
-        //   - equal, OR
-        //   - cookie path is "/", OR
-        //   - request starts with cookie path AND (request continues with "/"
-        //     OR cookie path itself ends with "/")
+        // RFC 6265 §5.1.4：请求路径匹配 cookie 路径当且仅当：
+        //   - 相等，或
+        //   - cookie 路径为 "/"，或
+        //   - 请求以 cookie 路径开头 且（请求继续处是 "/" 或 cookie 路径本身以 "/" 结尾）
         if (cookiePath == "/") return true;
         if (requestPath == cookiePath) return true;
         if (Cookie._startsWith(requestPath, cookiePath)) {

@@ -6,34 +6,21 @@ using Std.Crypto;
 using Std.Encoding;
 using Std.Net.Sockets;
 
-// add-z42-net-http K3 (2026-05-25): HTTP/1.1 client over TCP, plus TLS.
-//
-// Pure-script over `Std.Net.Sockets.TcpClient` (K1) for http:// and
-// `Std.Net.Sockets.TlsClient` (add-z42-net-tls, 2026-06-03) for https://.
-// `_sendOnce` branches once on scheme; the https path buffers the body
-// (no keep-alive pool, fresh connection per request). `SendStreaming`
-// over https is a follow-up (the streaming body owns its transport as a
-// `TcpClient`) and throws `NotSupportedException` for now.
-//
-// Connection: close 单 request per TCP connection (keep-alive is
-// `add-z42-net-http-keepalive` follow-up). Body 一次性读到 byte[]
-// (streaming-body is `add-z42-net-http-stream-body` follow-up).
-//
-// Chunked transfer encoding: incoming supported (servers commonly use it);
-// outgoing always Content-Length.
+/// HTTP/1.1 客户端（基于 TCP，https 走 TLS）；支持 keep-alive、超时、重定向、自动解压与 cookie。
 public class HttpClient : IDisposable {
     private string    _userAgent;
     private CookieJar _cookieJar;
     private int       _maxRedirects;
     private int       _timeoutMs;
     private bool      _autoDecompress;
-    // add-z42-net-http-keepalive (2026-05-28): TCP connection reuse pool.
+    // TCP 连接复用池。
     private bool         _keepAlive;
     private string[]     _poolKeys;
     private TcpClient[]  _poolClients;
     private int          _poolCount;
     private int          _poolCapacity;
 
+    /// 构造默认配置的客户端（所有开关默认关闭）。
     public HttpClient() {
         this._userAgent      = "z42-http/0.1";
         this._cookieJar      = null;
@@ -47,24 +34,16 @@ public class HttpClient : IDisposable {
         this._poolCount      = 0;
     }
 
-    /// Enable TCP connection reuse (HTTP/1.1 keep-alive). When on,
-    /// requests carry `Connection: keep-alive`; successful responses
-    /// whose `Connection` header doesn't say "close" return the socket
-    /// to a pool keyed by `host:port`. Subsequent requests to the same
-    /// host first try the pooled socket — with one silent retry on
-    /// stale-connection failure (servers may close idle keep-alive
-    /// sockets unilaterally). Pool capped at 8 host:port entries
-    /// (oldest evicted on overflow).
+    /// 启用 TCP 连接复用（HTTP/1.1 keep-alive）；按 host:port 缓存连接（上限 8 条），陈旧连接失败静默重试一次。
     public void SetKeepAlive(bool enable) {
         this._keepAlive = enable;
         if (!enable) { this._closeAllPooled(); }
     }
 
+    /// 是否启用 keep-alive。
     public bool GetKeepAlive() { return this._keepAlive; }
 
-    /// Release all pooled connections. Idempotent. After this the
-    /// client may still be used — subsequent requests just open fresh
-    /// sockets (or repopulate the pool if keep-alive stays enabled).
+    /// 释放所有池化连接；幂等。之后仍可继续使用（后续请求另开新 socket）。
     public void Dispose() { this._closeAllPooled(); }
 
     private void _closeAllPooled() {
@@ -126,79 +105,58 @@ public class HttpClient : IDisposable {
         this._poolCount = this._poolCount + 1;
     }
 
-    /// add-z42-net-http-compression (2026-05-27): transparent gzip handling.
-    /// add-z42-net-http-brotli   (2026-05-30): same flag now also drives
-    /// brotli — `Accept-Encoding: gzip, br` is advertised, and either
-    /// encoding is auto-decoded into `HttpResponse.Body` (header preserved
-    /// for inspection). Opt-in to keep default raw-body semantics unchanged.
+    /// 启用透明解压：发 `Accept-Encoding: gzip, br`，并把 gzip / brotli 响应体解进 `Body`。
     public void SetAutoDecompress(bool enable) {
         this._autoDecompress = enable;
     }
 
+    /// 是否启用自动解压。
     public bool GetAutoDecompress() {
         return this._autoDecompress;
     }
 
-    // add-httpclient-timeout (2026-05-27): per-request read + write timeout.
-    // `millis <= 0` disables (default — BCL ships 100s default but z42 keeps
-    // existing zero-timeout behaviour so opt-in is required). Applied at the
-    // TCP layer after `Connect` returns; covers all bytes of request write
-    // and response read. Connect-phase timeout is the OS default (macOS 75s
-    // / Linux ~127s) — non-blocking connect is future spec.
+    /// 设置读写超时（毫秒）；`millis <= 0` 禁用（默认 0 = 不超时）。
     public void SetTimeout(int millis) {
         this._timeoutMs = millis;
     }
 
+    /// 返回当前超时（毫秒）。
     public int GetTimeout() {
         return this._timeoutMs;
     }
 
-    /// Enable auto-follow of 3xx responses. `maxRedirects` is the hop limit
-    /// (typical: 10); 0 disables auto-follow. Exceeding the limit throws
-    /// `HttpException`. Each hop runs through full `Send` semantics
-    /// including cookie auto-handling if a jar is attached.
-    ///
-    /// add-z42-net-http-redirects (2026-05-26). Status codes followed:
-    ///   - 301 Moved Permanently / 302 Found / 303 See Other → GET (RFC 7231 §6.4)
-    ///   - 307 Temporary Redirect / 308 Permanent Redirect → preserve method + body
-    /// 304 Not Modified / others not followed.
+    /// 启用 3xx 自动跟随；`maxRedirects` 为跳数上限，0 禁用。301/302/303 转 GET，307/308 保留方法与 body。
     public void SetMaxRedirects(int maxRedirects) {
         this._maxRedirects = maxRedirects;
     }
 
+    /// 返回重定向上限。
     public int GetMaxRedirects() {
         return this._maxRedirects;
     }
 
-    /// Set the User-Agent header value added to outgoing requests.
+    /// 设置加到出站请求上的 User-Agent 头。
     public void SetUserAgent(string userAgent) {
         this._userAgent = userAgent;
     }
 
-    /// Enable automatic cookie handling — Set-Cookie headers in responses
-    /// are ingested into the jar; subsequent requests auto-emit a `Cookie:`
-    /// header with applicable cookies. Pass `null` to disable (default).
-    ///
-    /// `add-z42-net-http-cookies-auto` (2026-05-26): yesterday's
-    /// `add-z42-net-http-cookies` shipped Cookie + CookieJar requiring
-    /// manual `IngestFromResponse` / `CookieHeaderFor` calls; this lifts
-    /// that into HttpClient.
+    /// 挂载 cookie jar，自动吃 Set-Cookie 并自动带 Cookie 头；传 null 禁用（默认）。
     public void SetCookieJar(CookieJar jar) {
         this._cookieJar = jar;
     }
 
-    /// Current cookie jar (or null if none set).
+    /// 返回当前 cookie jar（未设置为 null）。
     public CookieJar? GetCookieJar() {
         return this._cookieJar;
     }
 
-    /// Convenience GET.
+    /// 便捷 GET。
     public HttpResponse Get(string url) {
         var req = new HttpRequest(HttpMethod.Get, url);
         return this.Send(req);
     }
 
-    /// Convenience POST with byte[] body and explicit Content-Type.
+    /// 便捷 POST（byte[] body + 显式 Content-Type）。
     public HttpResponse Post(string url, byte[] body, string contentType) {
         var req = new HttpRequest(HttpMethod.Post, url);
         req.SetHeader("Content-Type", contentType);
@@ -206,40 +164,29 @@ public class HttpClient : IDisposable {
         return this.Send(req);
     }
 
-    /// Convenience POST with string body (UTF-8) and explicit Content-Type.
+    /// 便捷 POST（string body，UTF-8 编码 + 显式 Content-Type）。
     public HttpResponse PostString(string url, string body, string contentType) {
         return this.Post(url, Utf8.GetBytes(body), contentType);
     }
 
-    /// Send an arbitrary `HttpRequest`. Returns parsed `HttpResponse`.
-    /// If `SetMaxRedirects(n > 0)` has been called, 3xx responses are
-    /// auto-followed up to `n` hops; exceeding the limit throws
-    /// `HttpException`. Throws `SocketException` on network failure,
-    /// `HttpProtocolException` on malformed wire, `NotSupportedException`
-    /// on https:// URLs.
+    /// 发送任意 `HttpRequest`，返回解析后的 `HttpResponse`。
+    /// 设置了 `SetMaxRedirects(n > 0)` 时会自动跟随 3xx 至多 n 跳。
     public HttpResponse Send(HttpRequest request) {
         HttpRequest cur = request;
         int hops = 0;
-        // add-z42-net-http-digest-auth (2026-05-31): one-shot Digest 401
-        // retry per outer Send call. Tracked here (not on HttpClient) so
-        // concurrent calls don't clobber each other's flag.
+        // 每次外层 Send 只做一次 Digest 401 重试；计数放这里避免并发调用互相覆盖。
         int digestAttempts = 0;
         while (true) {
             HttpResponse resp = this._sendOnce(cur);
-            // Digest auth: handle 401 challenge BEFORE redirect logic.
-            // Only attempt once — a second 401 from the server means our
-            // credentials are wrong (or the realm/nonce was rejected),
-            // so propagate the 401 to the caller instead of looping.
+            // Digest 认证：在重定向逻辑之前处理 401 challenge。
+            // 只尝试一次 —— 第二次 401 说明凭据错（或 realm/nonce 被拒），直接把 401 交给调用方。
             if (resp.StatusCode == 401
                 && cur.DigestUser.Length > 0
                 && digestAttempts < 2) {
                 string challenge = resp.Headers.Get("WWW-Authenticate");
                 string digestPart = HttpClient._extractDigestChallenge(challenge);
                 if (digestPart != null) {
-                    // add-digest-auth-int-and-stale (2026-06-03): on the
-                    // 2nd 401, only retry if the server explicitly signals
-                    // `stale=true`. Otherwise the credentials are wrong
-                    // and looping is pointless.
+                    // 第二次 401 时，只在服务器显式 stale=true 才重试；否则凭据错误，重试无意义。
                     if (digestAttempts >= 1) {
                         if (!HttpClient._digestChallengeIsStale(digestPart)) {
                             return resp;
@@ -315,10 +262,7 @@ public class HttpClient : IDisposable {
         return null;
     }
 
-    /// Resolve a redirect Location relative to the current request URL.
-    /// Supports absolute URL ("http://...") and absolute-path ("/foo")
-    /// forms; relative-path forms ("foo") are resolved against the current
-    /// request's path-prefix.
+    // 把重定向 Location 相对当前请求 URL 解析为绝对 URL（支持绝对 URL、绝对路径与相对路径）。
     static string _resolveRedirectUrl(string currentUrl, string location) {
         if (HttpClient._startsWithStr(location, "http://")
             || HttpClient._startsWithStr(location, "https://")) {
@@ -364,17 +308,10 @@ public class HttpClient : IDisposable {
         return true;
     }
 
-    // ── add-z42-net-http-digest-auth (2026-05-31) ─────────────────────────
-    // RFC 7616 / RFC 2617 Digest challenge parsing + response building.
+    // ── Digest 认证（RFC 7616 / RFC 2617）───────────────────────────────
+    // challenge 解析 + 响应构造。
 
-    /// Extract the `Digest <params>` portion from a `WWW-Authenticate`
-    /// header value. Returns `null` if no Digest scheme is present (header
-    /// missing entirely, or only Basic / Negotiate / ... offered).
-    ///
-    /// RFC 7235 lets `WWW-Authenticate` carry multiple comma-separated
-    /// challenges; we just pick the first one whose scheme is `Digest`
-    /// (case-insensitive). Inside the Digest part we keep the rest of the
-    /// header as-is — the per-param tokeniser handles quoted commas.
+    // 从 WWW-Authenticate 头里取 `Digest <params>` 部分；没有 Digest scheme 返回 null。
     static string _extractDigestChallenge(string header) {
         if (header == null) { return null; }
         // Trim leading whitespace; find "Digest " token (case-insensitive).
@@ -400,11 +337,7 @@ public class HttpClient : IDisposable {
         return header.Substring(p, header.Length - p);
     }
 
-    /// Tokenise a Digest param list ("realm=\"x\", nonce=\"y\", qop=auth")
-    /// into parallel `names` / `values` arrays. Quoted values strip the
-    /// outer quotes; unquoted values are taken verbatim up to the next
-    /// comma (RFC 7235 ABNF). Returns `[names, values]` packaged as a
-    /// 2-element object[] so the caller can pull both out.
+    // 把 Digest 参数列表 tokenize 成并行的 names / values 数组（引号值去外引号）。
     static object[] _parseDigestParams(string params_) {
         string[] names  = new string[16];
         string[] values = new string[16];
@@ -485,7 +418,7 @@ public class HttpClient : IDisposable {
         return pair;
     }
 
-    /// Lookup a param name (case-insensitive); return "" if absent.
+    // 按名字（大小写不敏感）查参数；缺省返回 ""。
     static string _digestParamGet(string[] names, string[] values, string key) {
         string lower = key.ToLower();
         int i = 0;
@@ -496,8 +429,7 @@ public class HttpClient : IDisposable {
         return "";
     }
 
-    /// Hash via the configured algorithm.
-    /// `algo` is one of "md5" / "sha-256" (lowercase, normalised by caller).
+    // 按配置算法做 hex 哈希；algo 为 "md5" 或 "sha-256"。
     static string _digestHashHex(string algo, string input) {
         if (algo == "sha-256") {
             return Sha256.HashStringHex(input);
@@ -506,11 +438,7 @@ public class HttpClient : IDisposable {
         return Md5.HashStringHex(input);
     }
 
-    /// True iff the parsed challenge contains `stale=true` (case-
-    /// insensitive). Server-issued signal that the prior nonce is
-    /// rotated and the client should retry with the fresh one without
-    /// re-prompting the user. RFC 7616 §3.3. add-digest-auth-int-and-
-    /// stale (2026-06-03).
+    // 解析后的 challenge 是否含 stale=true（大小写不敏感）；表示旧 nonce 已轮换、应换新值重试。
     static bool _digestChallengeIsStale(string challengeParams) {
         object[] parsed = HttpClient._parseDigestParams(challengeParams);
         string[] names  = (string[])parsed[0];
@@ -519,11 +447,7 @@ public class HttpClient : IDisposable {
         return stale == "true";
     }
 
-    /// Bytes variant for the body hash in qop=auth-int. Empty byte[]
-    /// hashes via the documented "empty input" convention for each
-    /// algorithm — MD5("") = d41d8cd98f00b204e9800998ecf8427e and
-    /// SHA-256("") = e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855.
-    /// add-digest-auth-int-and-stale (2026-06-03).
+    // qop=auth-int 时对 body 做字节级哈希的变体（空字节[]按各算法的"空输入"约定哈希）。
     static string _digestHashHexBytes(string algo, byte[] input) {
         if (algo == "sha-256") {
             return Hex.Encode(Sha256.Hash(input));
@@ -531,12 +455,8 @@ public class HttpClient : IDisposable {
         return Hex.Encode(Md5.Hash(input));
     }
 
-    /// Build the `Authorization: Digest ...` header value for the given
-    /// challenge + request method + path + body. Throws
-    /// `HttpProtocolException` for unsupported variants (algorithm).
-    /// add-digest-auth-int-and-stale (2026-06-03): body bytes feed
-    /// `HA2 = H(method:uri:H(body))` when the server's qop offering
-    /// includes `auth-int` and not `auth`.
+    // 构造 `Authorization: Digest ...` 头值；不支持的算法抛 HttpProtocolException。
+    // 服务器 qop 只含 auth-int 时，body 参与 HA2 = H(method:uri:H(body))。
     static string _buildDigestAuthHeader(
             string challengeParams,
             string method,
@@ -650,7 +570,7 @@ public class HttpClient : IDisposable {
         return h;
     }
 
-    /// Substring search starting at `from`. Returns -1 if not found.
+    // 从 from 开始的子串查找；未找到返回 -1。
     static int _indexOfStr(string s, string needle, int from) {
         if (needle.Length == 0) return from;
         int limit = s.Length - needle.Length;
@@ -668,23 +588,11 @@ public class HttpClient : IDisposable {
         return -1;
     }
 
-    /// add-z42-net-http-stream-body (2026-05-28): send a request and
-    /// return a response with body still pending in `BodyStream`. Caller
-    /// MUST eventually `Close()` the stream (or fully drain it) to
-    /// release the underlying socket — the streaming path doesn't pool
-    /// the connection back even when keep-alive is enabled.
-    ///
-    /// Use case: large downloads where `Send`'s drain-to-byte[] would
-    /// OOM. Caller can incrementally read from `response.BodyStream`
-    /// into a file / processor pipeline. Auto-decompress and auto-
-    /// follow-redirect are bypassed (callers wanting compressed bodies
-    /// can wrap the stream via `Gzip.WrapRead(response.BodyStream)`).
+    /// 发送请求并以流式返回响应（body 留在 `BodyStream`，不缓冲）；只支持 http://。
     public HttpResponse SendStreaming(HttpRequest request) {
         HttpUrl url = HttpUrl.Parse(request.Url);
-        // add-z42-net-tls (2026-06-03): streaming-over-TLS is a follow-up —
-        // _HttpBodyStream owns its transport as a `TcpClient` for disposal,
-        // so an https streaming body can't be framed yet. Fail fast with a
-        // clear message rather than plaintext-connecting to port 443.
+        // 流式 over TLS 尚未支持；_HttpBodyStream 持有 TcpClient 负责释放，
+        // https 流式 body 还无法成帧，直接失败而不是明文连到 443。
         if (url.Scheme == "https") {
             throw new NotSupportedException(
                 "SendStreaming over https is not supported yet (TLS streaming-body is a follow-up); use Send/Get which buffers the body, or fetch over http://");
@@ -738,7 +646,7 @@ public class HttpClient : IDisposable {
         return _HttpBodyStream.OfEof(client, stream, lr);
     }
 
-    /// One-shot send (no redirect handling). Used by `Send` and tests.
+    // 单次发送（不含重定向处理），供 Send 与测试使用。
     private HttpResponse _sendOnce(HttpRequest request) {
         HttpUrl url = HttpUrl.Parse(request.Url);
 
@@ -757,8 +665,7 @@ public class HttpClient : IDisposable {
             }
         }
         if (this._autoDecompress && !request.Headers.Contains("Accept-Encoding")) {
-            // add-z42-net-http-brotli (2026-05-30): advertise both — server
-            // picks; equal quality means brotli when supported (better ratio).
+            // 广告两种编码，由服务器挑选；同质量时支持 brotli 则用 brotli。
             request.Headers.Set("Accept-Encoding", "gzip, br");
         }
         if (request.Body != null) {
@@ -778,10 +685,7 @@ public class HttpClient : IDisposable {
         // Serialise request → byte[]
         byte[] reqBytes = HttpClient._serialiseRequest(request, url);
 
-        // add-z42-net-tls (2026-06-03): https goes over a TLS transport. The
-        // body is fully buffered (like the TCP path), so the connection is
-        // opened fresh per request and disposed afterwards — no keep-alive
-        // pool for TLS in v1 (the pool array is typed `TcpClient[]`).
+        // https 走 TLS 传输；body 完全缓冲（与 TCP 路径一致），每次请求新开连接、用完即弃。
         if (url.Scheme == "https") {
             return this._sendOverTls(url, reqBytes);
         }
@@ -836,16 +740,9 @@ public class HttpClient : IDisposable {
         return resp;
     }
 
-    /// Shared response post-processing for both the TCP (`_sendOnce`) and
-    /// TLS (`_sendOverTls`) buffered paths: auto-decompress the body and
-    /// ingest Set-Cookie headers into the attached jar. Mutates `resp.Body`
-    /// in place. add-z42-net-tls (2026-06-03) extracted this so the https
-    /// path gets identical gzip/brotli + cookie behaviour.
+    // TCP 与 TLS 两条缓冲路径共用的响应后处理：自动解压 body、把 Set-Cookie 吃进 jar。
     private void _postProcessResponse(HttpResponse resp, HttpUrl url) {
-        // add-z42-net-http-compression (2026-05-27): auto-decode gzip
-        // response body before cookies / downstream observers see it.
-        // add-z42-net-http-brotli (2026-05-30): same path also decodes
-        // brotli (`Content-Encoding: br`).
+        // 自动解压：在 cookie / 下游观察者看到 body 之前解 gzip；同一路径也解 brotli。
         if (this._autoDecompress) {
             // HttpHeaders.Get returns null when header absent — a server
             // that ignored our Accept-Encoding sends back identity bytes
@@ -898,11 +795,7 @@ public class HttpClient : IDisposable {
         }
     }
 
-    /// add-z42-net-tls (2026-06-03): buffered https send. Opens a fresh TLS
-    /// connection (cert verified against bundled roots, SNI = host), writes
-    /// the serialised request, reads the full response, then disposes the
-    /// connection. No keep-alive pool (the pool is `TcpClient[]`); no
-    /// stale-connection retry needed since the socket is always fresh.
+    // 缓冲式 https 发送：新开 TLS 连接、写序列化请求、读完整响应后释放连接。
     private HttpResponse _sendOverTls(HttpUrl url, byte[] reqBytes) {
         var client = new TlsClient();
         client.Connect(url.Host, url.Port, this._timeoutMs);
@@ -924,9 +817,7 @@ public class HttpClient : IDisposable {
         return resp;
     }
 
-    /// Value for the `Host` request header: bare host, with `:port` appended
-    /// only when the port is non-default for the scheme (80 for http, 443
-    /// for https). add-z42-net-tls (2026-06-03).
+    // `Host` 请求头的值：仅当端口非 scheme 默认（http 80 / https 443）时才带 :port。
     static string _hostHeaderFor(HttpUrl url) {
         bool nonDefault;
         if (url.Scheme == "https") {
@@ -940,18 +831,13 @@ public class HttpClient : IDisposable {
         return url.Host;
     }
 
-    /// Stub for `var resp = ...` initializer — z42 var inference needs
-    /// a same-file expression to bind the type token correctly.
+    // `var resp = ...` 初始化占位：z42 的 var 推断需要同文件表达式来正确绑定类型 token。
     static HttpResponse _initialResp() {
         return new HttpResponse(0, "", new HttpHeaders(), new byte[0]);
     }
 
-    /// Unix-seconds for cookie expiry math. Delegates to core
-    /// `Clock.WallMillis` by FQN (not `using Std.Time;`) — that
-    /// import would pull `Std.Time.Stopwatch.Stop` into scope and collide with
-    /// `HttpServer.Stop()` under z42's name-only method resolution
-    /// (`compiler-future-typed-overload-resolution` Deferred). The FQN call
-    /// sidesteps the import; __time_now_ms is declared once in core (A1).
+    // 取 Unix 毫秒；用 FQN Clock.WallMillis 而非 `using Std.Time;`，避免把
+    // Stopwatch.Stop 引入作用域与 HttpServer.Stop 在名称解析下冲突。
     static long _timeNowMs() { return Clock.WallMillis(); }
 
     static long _unixNow() {
@@ -1112,9 +998,7 @@ public class HttpClient : IDisposable {
         return new HttpResponse(statusCode, reason, headers, body);
     }
 
-    /// Chunked body decoder. Accumulates into a single growing byte[] —
-    /// z42 当前不允许 `List<byte[]>` field types so the obvious "collect
-    /// list of chunks" approach doesn't fly; grow-then-finalise instead.
+    // chunked body 解码：累进到一个可增长的 byte[]（z42 不支持 List<byte[]> 字段类型）。
     static byte[] _readChunkedBody(Stream stream, _LineReader lr) {
         byte[] body  = new byte[4096];
         int    used  = 0;
@@ -1169,8 +1053,7 @@ public class HttpClient : IDisposable {
         return result;
     }
 
-    /// Read exactly `n` bytes from `stream` (after considering any buffered
-    /// bytes in `lr`). Throws HttpProtocolException on premature EOF.
+    // 从 stream 精确读 n 字节（先取 lr 里已缓冲的字节）；过早 EOF 抛 HttpProtocolException。
     static byte[] _readExactly(Stream stream, _LineReader lr, int n) {
         byte[] buf = new byte[n];
         int filled = 0;
@@ -1187,8 +1070,7 @@ public class HttpClient : IDisposable {
         return buf;
     }
 
-    /// Read until EOF — used for responses without Content-Length or
-    /// Transfer-Encoding (rare; HTTP/1.0 servers).
+    // 读到 EOF —— 用于既无 Content-Length 也无 Transfer-Encoding 的响应。
     static byte[] _readToEnd(Stream stream, _LineReader lr) {
         // Start with whatever is buffered in lr + grow.
         byte[] buf = new byte[4096];
@@ -1283,13 +1165,10 @@ public class HttpClient : IDisposable {
     }
 }
 
-// ── Response-head carrier (internal) ────────────────────────────────────
+// ── 响应头载体（内部）───────────────────────────────────────────────────
 //
-// add-z42-net-http-stream-body (2026-05-28): tuple-shaped return for
-// `_readResponseHead` so SendStreaming can take the line-reader and
-// hand its buffered bytes to `_HttpBodyStream`. z42 has no tuple
-// literals; a `public class` is the standard carrier shape (matches
-// `_DecodedFrame`, `_MagDivModResult`, etc).
+// `_readResponseHead` 的类元组返回值，让 SendStreaming 能把 line-reader
+// 及其缓冲字节交给 `_HttpBodyStream`；z42 无元组字面量，用 public class 作载体。
 
 public class _HttpResponseHead {
     public int         StatusCode;
@@ -1305,14 +1184,10 @@ public class _HttpResponseHead {
     }
 }
 
-// ── Line reader (internal) ──────────────────────────────────────────────
+// ── 行读取器（内部）─────────────────────────────────────────────────────
 //
-// Reads CRLF-terminated lines from a byte Stream, buffering excess bytes
-// for the next call. After header parsing finishes, callers can use
-// `DrainBuffered` to retrieve any body bytes already pulled from the
-// socket (the read-ahead inevitable when reading line-by-line).
-//
-// Plain LF (just \n) is tolerated to be forgiving of non-compliant servers.
+// 从字节流读 CRLF 结尾的行，多余字节缓冲到下一次调用。头解析完后，调用方可用
+// `DrainBuffered` 取回已从 socket 读入的 body 字节。容忍纯 LF 结尾。
 
 public class _LineReader {
     private Stream _stream;
@@ -1333,8 +1208,7 @@ public class _LineReader {
         this._lineLen  = 0;
     }
 
-    /// Read a single line up to and excluding CRLF (or LF). Returns null
-    /// on EOF before any byte. Empty string for empty line (just CRLF).
+    // 读一行（不含 CRLF/LF）；EOF 无字节返回 null，空行返回空串。
     public string ReadLine() {
         this._lineLen = 0;
         bool any = false;
@@ -1372,9 +1246,7 @@ public class _LineReader {
         return this._finishLine();
     }
 
-    /// Copy up to `count` already-buffered bytes (read-ahead by ReadLine)
-    /// into `dest[offset..]`. Returns number copied. Bytes returned are
-    /// not also returned by ReadLine — buffer is consumed.
+    // 把已缓冲（ReadLine 预读）的至多 count 字节拷到 dest[offset..]，返回拷贝数。
     public int DrainBuffered(byte[] dest, int offset, int count) {
         int available = this._bufEnd - this._bufStart;
         int toCopy;

@@ -1,26 +1,12 @@
 namespace Std.Net.Sockets;
 
 
-// add-z42-net-dns (2026-05-27): synchronous DNS lookup.
-//
-// v0 surface mirrors .NET BCL `System.Net.Dns.GetHostAddresses(host)`:
-// returns `IPAddress[]` resolved from `host`. Blocks the calling thread
-// for the duration of `getaddrinfo`. Mixed IPv4 + IPv6 results in the
-// order the OS resolver hands them back (typically v6 first on modern
-// dual-stack systems); caller can filter via `IsIPv4()` / `IsIPv6()`.
-//
-// Not in scope for v0 (deferred follow-ups):
-//   * SRV / MX / TXT / PTR record lookups (need a real DNS protocol
-//     parser rather than getaddrinfo)
-//   * Async / cancellable lookup (L3 async/await)
-//   * Per-query timeout (relies on OS-default resolver timeout)
+/// 同步阻塞的 DNS 查询（getaddrinfo）。
 public static class Dns {
-    /// Resolve `host` to one-or-more IPAddresses. Throws `SocketException`
-    /// on resolver failure (NXDOMAIN, no network, timeout). Numeric input
-    /// (e.g. `"127.0.0.1"`, `"::1"`) round-trips back as a single-element
-    /// array without hitting the network.
+    /// 把主机名解析为 IPAddress 数组；解析失败抛 `SocketException`。
+    /// 数字字面量（如 "127.0.0.1" / "::1"）原样返回，不走网络。
     public static IPAddress[] GetHostAddresses(string host) {
-        // Resolver failure → SocketException(HostNotFound), thrown by the VM.
+        // 解析失败 → SocketException(HostNotFound)，由 VM 抛出。
         string[] strs = DnsNative.Resolve(host);
         IPAddress[] result = new IPAddress[strs.Length];
         int i = 0;
@@ -31,5 +17,3 @@ public static class Dns {
         return result;
     }
 }
-
-// (native 语义层已上移 z42.core: src/Native/NetNative.z42 —— organization.md「native 语义层 → core」2026-08-27)

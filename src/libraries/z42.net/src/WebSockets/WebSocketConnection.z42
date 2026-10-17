@@ -5,32 +5,15 @@ using Std.Encoding;
 using Std.Compression;
 using Std.Net.Sockets;
 
-// add-z42-net-websocket-server (2026-05-27): per-client connection
-// handle handed back by `WebSocketServer.Accept`. Mirrors
-// `WebSocketClient`'s public surface (`SendText` / `SendBinary` /
-// `SendPing` / `Receive` / `Close`) but skips the client's
-// connect-time handshake (already done by Accept) and uses the
-// unmasked `_FrameCodec.EncodeServerFrame` for outgoing frames per
-// RFC 6455 §5.1.
-//
-// Lifecycle: caller can Send / Receive freely; the connection ends
-// when either side sends a Close frame (or the underlying TCP socket
-// closes / errors). `Dispose` releases the TCP socket; `Close(code,
-// reason)` sends a Close control frame first then disposes.
+/// 每个客户端的连接句柄，由 `WebSocketServer.Accept` 返回；提供与 `WebSocketClient` 对称的帧收发 API。
 public class WebSocketConnection : IDisposable {
     private TcpClient _tcp;
     private Stream    _stream;
     private int       _state;
-    // add-z42-net-websocket-deflate (2026-05-28): per-message-deflate flag.
-    // When true, outgoing Text/Binary frames are compressed (raw deflate,
-    // trailing 00-00-FF-FF stripped) and RSV1 set; inbound frames with RSV1
-    // are decompressed (00-00-FF-FF re-appended before inflate). Each
-    // message is independent (`*_no_context_takeover` — no LZ77 state
-    // carried across messages; simpler + the safe default).
+    // per-message-deflate 开关：开启时出站 Text/Binary 帧压缩（raw deflate 去尾 00-00-FF-FF）并置 RSV1。
     private bool      _permessageDeflate;
 
-    /// Constructed by `WebSocketServer.Accept` — not part of the public
-    /// API for direct instantiation (handshake must have already run).
+    /// 由 `WebSocketServer.Accept` 构造（握手已完成）。
     public WebSocketConnection(TcpClient tcp, Stream stream) {
         this._tcp                = tcp;
         this._stream             = stream;
@@ -38,18 +21,16 @@ public class WebSocketConnection : IDisposable {
         this._permessageDeflate  = false;
     }
 
+    /// 返回当前连接状态。
     public int State() { return this._state; }
 
-    /// Enable / disable per-message-deflate (RFC 7692). In real WebSocket
-    /// use this is set by the server after handshake negotiation succeeds
-    /// (`Sec-WebSocket-Extensions: permessage-deflate; ...`). For
-    /// programmatic use callers can toggle it directly; both peers MUST
-    /// agree, otherwise the other side will reject frames with RSV1 set
-    /// per RFC 6455 §5.2.
+    /// 启用 / 禁用 per-message-deflate（RFC 7692）；双方必须一致，否则对端会拒绝带 RSV1 的帧。
     public void SetPermessageDeflate(bool enable) { this._permessageDeflate = enable; }
+
+    /// 是否启用 per-message-deflate。
     public bool GetPermessageDeflate() { return this._permessageDeflate; }
 
-    /// Send a UTF-8 text frame.
+    /// 发送 UTF-8 文本帧。
     public void SendText(string text) {
         this._ensureOpen();
         byte[] payload = Utf8.GetBytes(text);
@@ -65,7 +46,7 @@ public class WebSocketConnection : IDisposable {
         }
     }
 
-    /// Send a binary frame of `length` bytes from `data[0..length]`.
+    /// 发送 `data[0..length]` 的二进制帧。
     public void SendBinary(byte[] data, int length) {
         this._ensureOpen();
         if (this._permessageDeflate) {
@@ -88,8 +69,7 @@ public class WebSocketConnection : IDisposable {
         }
     }
 
-    /// Send a ping control frame with the given payload (≤ 125 bytes per
-    /// RFC §5.5).
+    /// 发送 ping 控制帧（payload 需 ≤ 125 字节，RFC §5.5）。
     public void SendPing(byte[] payload, int length) {
         this._ensureOpen();
         if (length > 125) {
@@ -101,11 +81,7 @@ public class WebSocketConnection : IDisposable {
         this._stream.Write(frame, 0, frame.Length);
     }
 
-    /// Block on the next inbound message. Control frames (Ping / Close)
-    /// are handled internally: Ping returns a Pong automatically; Close
-    /// transitions state and returns a Close-typed WebSocketMessage so
-    /// callers can react. Returns `null` when the underlying TCP closes
-    /// without a clean Close frame.
+    /// 阻塞读下一个入站消息；Ping 自动回 Pong，Close 切状态并返回 Close 类型消息。
     public WebSocketMessage Receive() {
         if (this._state == WebSocketState.Closed) {
             throw new InvalidOperationException("WebSocketConnection already closed");
@@ -136,32 +112,28 @@ public class WebSocketConnection : IDisposable {
                 return new WebSocketMessage(WebSocketMessageType.Binary, payload);
             }
             if (op == _FrameCodec.OpPing) {
-                // Auto-Pong with the same payload (RFC §5.5.3).
+                // 自动回同 payload 的 Pong（RFC §5.5.3）。
                 byte[] pong = _FrameCodec.EncodeServerFrame(_FrameCodec.OpPong,
                                                             f.Payload, f.Payload.Length);
                 this._stream.Write(pong, 0, pong.Length);
                 continue;
             }
             if (op == _FrameCodec.OpPong) {
-                // Ignore unsolicited pongs (RFC §5.5.3). Continue the loop.
+                // 忽略主动发来的 pong（RFC §5.5.3），继续循环。
                 continue;
             }
             if (op == _FrameCodec.OpClose) {
                 this._state = WebSocketState.Closed;
                 return new WebSocketMessage(WebSocketMessageType.Close, f.Payload);
             }
-            // Reserved / unknown control frame.
+            // 保留 / 未知控制帧。
             throw new WebSocketProtocolException(
                 "received unsupported opcode " + op.ToString());
         }
         return null;  // unreachable
     }
 
-    /// Send a Close control frame with the given status code (e.g. 1000
-    /// for normal closure) + UTF-8 reason; the wire payload is
-    /// status-code (2 bytes big-endian) || UTF-8 reason. After Close
-    /// the connection is considered closed locally; Receive on a fully
-    /// closed connection throws.
+    /// 发带状态码（如 1000 正常关闭）+ UTF-8 reason 的 Close 控制帧；之后本地视为已关闭。
     public void Close(int statusCode, string reason) {
         if (this._state == WebSocketState.Closed) return;
         byte[] reasonBytes = Utf8.GetBytes(reason);
@@ -179,7 +151,7 @@ public class WebSocketConnection : IDisposable {
         this._state = WebSocketState.Closed;
     }
 
-    /// Release the underlying TCP socket. Idempotent.
+    /// 释放底层 TCP socket；幂等。
     public void Dispose() {
         if (this._state != WebSocketState.Closed) {
             this._state = WebSocketState.Closed;
@@ -198,17 +170,12 @@ public class WebSocketConnection : IDisposable {
 
     // ── per-message-deflate helpers (RFC 7692 §7.2.1 / §7.2.2) ───────────────
     //
-    // The wire format for compressed frames is RFC 1951 raw deflate with
-    // the synchronization-flush trailer `00 00 FF FF` REMOVED on the
-    // sender side (it's a constant 4-byte tail that every deflate empty
-    // BTYPE-0 block produces). The receiver re-appends it before inflate.
+    // 压缩帧的线上格式是 RFC 1951 raw deflate，发送方去掉同步刷新尾 00 00 FF FF，
+    // 接收方在 inflate 前把它补回。
 
     static byte[] _deflateStripTail(byte[] data) {
         byte[] compressed = Deflate.Compress(data);
-        // The trailing 4 bytes 00 00 FF FF MUST be present for stripping;
-        // if for some reason they're not (e.g. caller compressed via a
-        // non-flushing path) we still emit what we have — receiver would
-        // then fail to inflate, surfacing the issue cleanly.
+        // 尾 4 字节 00 00 FF FF 存在才剥；否则按原样发出（接收方 inflate 会干净地报错）。
         if (compressed.Length >= 4
             && (int)compressed[compressed.Length - 4] == 0
             && (int)compressed[compressed.Length - 3] == 0

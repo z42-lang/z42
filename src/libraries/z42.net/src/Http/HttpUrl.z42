@@ -1,21 +1,18 @@
 namespace Std.Net.Http;
 
 
-// add-z42-net-http K3 (2026-05-25): minimal URL parser for HTTP requests.
-//
-// Subset of RFC 3986 enough for HTTP: scheme + host + port + path + query.
-// Fragment (`#frag`) parsed but not used wire-side (it's client-only state).
-// Userinfo (`user:pass@host`) is rejected — http_auth follow-up adds Authorization
-// header handling.
-//
-// z42.uri 包提供 generic URI parsing. K3 用内联 parser 避免 cross-package 依赖
-// 噪声 + 让 HTTP 语义边界紧凑。后续如果 z42.uri API 稳定，可迁。
+/// HTTP 请求用的最小 URL 解析器（scheme + host + port + path + query）。
 public class HttpUrl {
-    public string Scheme;     // "http" or "https"
-    public string Host;       // hostname or IPv4 literal; IPv6 not supported v0
-    public int    Port;       // explicit or scheme default (80 / 443)
-    public string Path;       // includes leading "/"; "/" if absent
-    public string Query;      // includes leading "?"; "" if absent
+    /// "http" 或 "https"。
+    public string Scheme;
+    /// 主机名或 IPv4 字面量（不支持 IPv6 字面量）。
+    public string Host;
+    /// 显式端口或 scheme 默认端口（80 / 443）。
+    public int    Port;
+    /// 带前导 "/" 的路径；缺省为 "/"。
+    public string Path;
+    /// 带前导 "?" 的查询串；无则空串。
+    public string Query;
 
     public HttpUrl(string scheme, string host, int port, string path, string query) {
         this.Scheme = scheme;
@@ -25,20 +22,17 @@ public class HttpUrl {
         this.Query  = query;
     }
 
-    /// `Path + Query` — what goes after METHOD on the request line.
+    /// `Path + Query`，即请求行里 METHOD 之后的部分。
     public string PathAndQuery() {
         return this.Path + this.Query;
     }
 
-    /// Parse an absolute URL. Throws `FormatException` on malformed input
-    /// (unknown scheme, bad port, empty host/authority). Both `http://`
-    /// (default port 80) and `https://` (default port 443) are accepted —
-    /// add-z42-net-tls (2026-06-03) wired the TLS transport.
+    /// 解析绝对 URL；只收 `http://` 与 `https://`，其它 scheme 抛 `FormatException`。
     public static HttpUrl Parse(string url) {
         if (url == null || url.Length == 0) {
             throw new FormatException("HttpUrl.Parse: empty URL");
         }
-        // Scheme: chars up to "://"
+        // Scheme: 到 "://" 为止的字符
         int schemeEnd = HttpUrl._indexOf(url, "://", 0);
         if (schemeEnd < 0) {
             throw new FormatException("HttpUrl.Parse: missing scheme (no '://') in '" + url + "'");
@@ -47,7 +41,7 @@ public class HttpUrl {
         if (scheme != "http" && scheme != "https") {
             throw new FormatException("HttpUrl.Parse: only http:// and https:// are supported, got scheme '" + scheme + "'");
         }
-        // add-z42-net-tls (2026-06-03): scheme-default port — http→80, https→443.
+        // scheme 默认端口：http→80、https→443。
         int defaultPort;
         if (scheme == "https") {
             defaultPort = 443;
@@ -55,7 +49,7 @@ public class HttpUrl {
             defaultPort = 80;
         }
         int authStart = schemeEnd + 3;
-        // Find path / query start (first '/' or '?' or end)
+        // 找 path / query 的起点（首个 '/' 或 '?' 或结尾）
         int pathStart = HttpUrl._indexOfAnyAfter(url, '/', '?', authStart);
         int authEnd;
         if (pathStart < 0) {
@@ -77,7 +71,7 @@ public class HttpUrl {
         int colonAt = HttpUrl._indexOf(authority, ":", 0);
         if (colonAt < 0) {
             host = authority;
-            port = defaultPort;   // scheme default (80 / 443)
+            port = defaultPort;   // scheme 默认（80 / 443）
         } else {
             host = HttpUrl._substring(authority, 0, colonAt);
             string portStr = HttpUrl._substring(authority, colonAt + 1, authority.Length);

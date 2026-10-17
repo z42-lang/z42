@@ -1,24 +1,36 @@
+//! 同步阻塞的网络类型。
+//!
+//! 网络栈：原始 socket（TCP / UDP）、TLS 客户端、HTTP/1.1 客户端与服务端、
+//! WebSocket 客户端与服务端、DNS 解析、`IPAddress` / `IPEndPoint`。全部是同步阻塞
+//! API——没有 async/await，没有非阻塞 socket，没有 selector；并发靠
+//! `Std.Threading.Thread`（`HttpServer` 自带线程化与线程池两个入口）。超时以
+//! `SetReadTimeout` / `SetWriteTimeout` / `SetConnectTimeout` 这类毫秒级 setter 表达，
+//! 不是每次调用的参数；`millis <= 0` 表示清除超时（回到无限阻塞）。
+//!
+//! wasm32 目标上所有 socket 操作抛 `NetUnsupportedException`。
+//!
+//! ## 不支持
+//!
+//! - async/await、非阻塞 socket、selector/epoll：一切都是阻塞调用 + 线程
+//! - HTTP/2、HTTP/3：只有 HTTP/1.1
+//! - 服务端 TLS：`HttpServer` 只跑明文 http；没有 `TlsListener`
+//! - `wss://`：WebSocket 客户端只接 `ws://`
+//! - WebSocket 服务端收消息：客户端帧带掩码，服务端解析不支持
+//! - HTTPS 的流式响应体：`SendStreaming` 遇 `https://` 抛 `NotSupportedException`
+//! - HTTPS 连接池：keep-alive 池只覆盖明文连接
+//! - 客户端证书 / 自定义证书校验 / 系统信任库：只信内置 Mozilla 根集
+//! - URL 里的 IPv6 字面量：`http://[::1]/` 解析失败
+//! - URL 里的 userinfo：`http://u:p@h/` 抛 `NotSupportedException`
+//! - IPv6 zone id：`fe80::1%en0` 解析失败
+//! - `IPEndPoint` 作为 socket 参数：所有 socket API 收的是 `(host, port)`
+//! - DNS 的记录类型查询与超时控制：只有 `GetHostAddresses`
+//! - HTTP 服务端的路由、keep-alive、流式请求体、WebSocket upgrade
+//! - 代理（HTTP_PROXY / SOCKS）
+//! - wasm32 上的任何 socket：抛 `NetUnsupportedException`
 namespace Std.Net.Sockets;
 
 
-// add-z42-net K1 (2026-05-24): sync blocking TCP client.
-//
-// Lifecycle:
-//   var c = new TcpClient();
-//   c.Connect("example.com", 80);     // blocks until TCP handshake complete
-//   var s = c.GetStream();            // returns cached NetworkStream
-//   s.Write(req, 0, req.Length);
-//   var n = s.Read(buf, 0, buf.Length);
-//   c.Dispose();                      // closes fd
-//
-// Connect can be deferred (default constructor creates an unconnected client)
-// or eager via `new TcpClient(host, port)`. Mirrors .NET BCL.
-//
-// IDisposable: 本类型**名义实现** `Std.IDisposable`（add-using-statement 批 3 补上 ——
-// 此前这里写的是「z42 没有正式的 IDisposable protocol」，那是**假话**：接口一直在
-// `z42.core/src/Protocols/IDisposable.z42`，同包的 `ProcessHandle` 早就在实现它）。
-// ⇒ 现在可以 `using (var c = new TcpClient(host, port)) { … }`，退出任一路径都释放 fd。
-// 手工 `Dispose()` 仍然可用；GC fallback 只是保险。
+/// 同步阻塞的 TCP 客户端，对应 .NET 的 `TcpClient`。
 public class TcpClient : IDisposable {
     private long _slotId;
     private bool _connected;
@@ -26,8 +38,7 @@ public class TcpClient : IDisposable {
     private NetworkStream _stream;
     private string _remoteHost;
     private int _remotePort;
-    // add-net-socket-options-extended (2026-05-30): value > 0 routes the
-    // next Connect() through __tcp_connect (timeout > 0). 0 = no preset.
+    // _connectTimeoutMs > 0 时下一次 Connect 走带超时的 builtin；0 = 无预设。
     private int _connectTimeoutMs;
 
     public TcpClient() {
@@ -40,19 +51,15 @@ public class TcpClient : IDisposable {
         this._connectTimeoutMs = 0;
     }
 
-    /// Static factory equivalent to `new TcpClient()` + `.Connect(host, port)`.
-    /// Static method rather than 2-param ctor because z42 当前 constructor
-    /// 重载解析对多个 2-param ctor 冲突 — accept-side wrapper 用 `_fromAcceptedSlot`
-    /// (long, bool) 占用了 $2 slot。
+    /// 等价于 `new TcpClient()` 后再 `Connect(host, port)` 的静态工厂。
     public static TcpClient ConnectTo(string host, int port) {
         var c = new TcpClient();
         c.Connect(host, port);
         return c;
     }
 
-    /// Establish TCP connection to `host:port`. Blocks until handshake
-    /// completes or fails. Throws `SocketException` on connection refused
-    /// / DNS failure / network unreachable.
+    /// 建立到 `host:port` 的 TCP 连接，阻塞直到握手完成或失败。
+    /// 连接被拒 / DNS 失败 / 网络不可达抛 `SocketException`。
     public void Connect(string host, int port) {
         if (this._disposed) {
             throw new SocketClosedException();
@@ -60,8 +67,7 @@ public class TcpClient : IDisposable {
         if (this._connected) {
             throw new InvalidOperationException("TcpClient already connected");
         }
-        // add-net-socket-options-extended (2026-05-30): route through the
-        // timeout-aware builtin when SetConnectTimeout(>0) was called.
+        // 调过 SetConnectTimeout(>0) 后走带超时的 builtin。
         long slotId = TcpSocketNative.Connect(host, port, this._connectTimeoutMs);
         this._slotId     = slotId;
         this._connected  = true;
@@ -69,18 +75,13 @@ public class TcpClient : IDisposable {
         this._remotePort = port;
     }
 
-    /// add-net-socket-options-extended (2026-05-30): cap how long the next
-    /// `Connect()` will wait for the TCP handshake before throwing
-    /// `SocketException`. `millis <= 0` clears the preset (= blocking).
-    /// Call before `Connect` — applies to the NEXT Connect call only; the
-    /// value persists across re-connects on the same TcpClient instance.
+    /// 设置下一次 `Connect` 的超时（毫秒）；`millis <= 0` 清除超时。
+    /// 只作用于紧随其后的一次 Connect；该值在同一实例上跨重连持续有效。
     public void SetConnectTimeout(int millis) {
         this._connectTimeoutMs = millis;
     }
 
-    /// Get the byte-oriented NetworkStream over this socket. Lazy + cached:
-    /// repeat calls return the same instance, so callers can `==`-compare and
-    /// closing one closes all.
+    /// 返回该连接的字节流 `NetworkStream`；惰性创建并缓存，重复调用返回同一实例。
     public NetworkStream GetStream() {
         if (this._disposed) {
             throw new SocketClosedException();
@@ -94,20 +95,17 @@ public class TcpClient : IDisposable {
         return this._stream;
     }
 
-    /// Host this client was Connected to (or constructed with). Useful for
-    /// error messages and logging.
+    /// 返回连接的远端主机。
     public string RemoteHost() {
         return this._remoteHost;
     }
 
+    /// 返回连接的远端端口。
     public int RemotePort() {
         return this._remotePort;
     }
 
-    // add-httpclient-timeout (2026-05-27): per-socket read/write deadlines.
-    // `millis <= 0` clears the deadline (back to blocking). Throws
-    // `SocketException` if the OS rejects (rare; e.g. bad ms value).
-
+    /// 设置读超时（毫秒）；`millis <= 0` 清除超时。
     public void SetReadTimeout(int millis) {
         if (this._disposed) {
             throw new SocketClosedException();
@@ -118,6 +116,7 @@ public class TcpClient : IDisposable {
         TcpSocketNative.SetReadTimeout(this._slotId, millis);
     }
 
+    /// 设置写超时（毫秒）；`millis <= 0` 清除超时。
     public void SetWriteTimeout(int millis) {
         if (this._disposed) {
             throw new SocketClosedException();
@@ -128,9 +127,7 @@ public class TcpClient : IDisposable {
         TcpSocketNative.SetWriteTimeout(this._slotId, millis);
     }
 
-    /// add-z42-net-socket-options (2026-05-27): TCP_NODELAY (Nagle off).
-    /// Default off batches small writes for throughput; on sends
-    /// immediately for latency-sensitive protocols (HTTP/2, gaming, RPC).
+    /// 设置 TCP_NODELAY（禁用 Nagle 算法）。
     public void SetNoDelay(bool enable) {
         if (this._disposed) { throw new SocketClosedException(); }
         if (!this._connected) {
@@ -139,9 +136,7 @@ public class TcpClient : IDisposable {
         TcpSocketNative.SetNoDelay(this._slotId, enable);
     }
 
-    /// add-z42-net-socket-options (2026-05-27): IP_TTL (hop limit) on the
-    /// connected socket. `ttl` ∈ [1, 255] typical (255 = unrestricted,
-    /// 1 = link-local only).
+    /// 设置 IP_TTL（跳数限制），`ttl` 通常在 [1, 255]。
     public void SetTtl(int ttl) {
         if (this._disposed) { throw new SocketClosedException(); }
         if (!this._connected) {
@@ -150,10 +145,7 @@ public class TcpClient : IDisposable {
         TcpSocketNative.SetTtl(this._slotId, ttl);
     }
 
-    /// add-net-socket-options-extended (2026-05-30): SO_KEEPALIVE on the
-    /// connected socket. Uses OS default idle / interval / probe-count.
-    /// Use the 4-arg overload for fine-grained tuning.
-    /// Must be called AFTER `Connect()` — pre-connect there's no socket.
+    /// 开启或关闭 SO_KEEPALIVE（使用系统默认的 idle / interval / probe 参数）。
     public void SetKeepAlive(bool enable) {
         if (this._disposed) { throw new SocketClosedException(); }
         if (!this._connected) {
@@ -162,20 +154,7 @@ public class TcpClient : IDisposable {
         TcpSocketNative.SetKeepAlive(this._slotId, enable);
     }
 
-    /// add-net-keepalive-tuning (2026-06-03): SO_KEEPALIVE with per-OS
-    /// idle / interval / probe tuning. Same socket / lifecycle rules
-    /// as the 1-arg overload. All three tuning values must be `>= 1`
-    /// when `enable == true`; `enable == false` ignores them and just
-    /// disables keepalive.
-    ///
-    /// Per-OS field support (silently ignored when unsupported):
-    ///   - `idleSecs`     — all Unix + Windows
-    ///   - `intervalSecs` — all Unix + Windows (via WSAIoctl on Windows)
-    ///   - `probes`       — Android / DragonFly / FreeBSD / Fuchsia /
-    ///                      illumos / iOS / Linux / macOS / NetBSD /
-    ///                      tvOS / visionOS / watchOS / Cygwin
-    ///                      (silently ignored on Windows and the few
-    ///                      platforms where socket2 omits the option)
+    /// 带调参的 SO_KEEPALIVE；`enable == true` 时三个调参值都必须 >= 1。
     public void SetKeepAlive(bool enable, int idleSecs, int intervalSecs, int probes) {
         if (this._disposed) { throw new SocketClosedException(); }
         if (!this._connected) {
@@ -185,8 +164,7 @@ public class TcpClient : IDisposable {
             idleSecs, intervalSecs, probes);
     }
 
-    /// Close the socket and release the underlying fd. Idempotent.
-    /// Subsequent operations throw `SocketClosedException`.
+    /// 关闭 socket 并释放底层 fd；幂等。之后的操作抛 `SocketClosedException`。
     public void Dispose() {
         if (this._disposed) return;
         this._disposed = true;
@@ -199,16 +177,13 @@ public class TcpClient : IDisposable {
         }
     }
 
-    /// Alias for `Dispose()` matching .NET BCL `TcpClient.Close()`.
+    /// `Dispose()` 的别名，对齐 .NET 的 `TcpClient.Close()`。
     public void Close() {
         this.Dispose();
     }
 
-    // ── Internal constructor for `TcpListener.AcceptTcpClient` ───────────
-    //
-    // The listener has the slot id from `__tcp_accept`; we just need
-    // to wrap it in a TcpClient with `_connected = true` straight away.
-    // No public-API access path — z42 has no `internal`, see NetworkStream.
+    // 供 `TcpListener.AcceptTcpClient` 使用的内部构造：listener 已从
+    // __tcp_accept 拿到 slot id，直接包成已连接的 TcpClient。
     public TcpClient(long slotId, bool fromAccept) {
         this._slotId    = slotId;
         this._connected = true;

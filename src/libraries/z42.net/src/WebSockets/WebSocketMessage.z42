@@ -2,20 +2,11 @@ namespace Std.Net.WebSockets;
 using Std.Encoding;
 
 
-// add-z42-net-websocket K4 (2026-05-25): incoming WebSocket message carrier.
-//
-// `WebSocketClient.Receive()` returns this. `MessageType` is one of
-// `WebSocketMessageType.{Text, Binary, Close}` (Ping / Pong are auto-handled
-// internally and never surfaced to user code).
-//
-// `Buffer` is the raw payload bytes. For text messages, use
-// `AsString()` to UTF-8 decode.
-//
-// For close messages: `Buffer` is the close payload (2-byte big-endian
-// status code followed by optional UTF-8 reason). Use `CloseStatus()` /
-// `CloseReason()` helpers.
+/// 收到的 WebSocket 消息载体；`WebSocketClient.Receive()` / `WebSocketConnection.Receive()` 返回它。
 public class WebSocketMessage {
+    /// 消息类型（`WebSocketMessageType.{Text, Binary, Close}` 之一）。
     public int    MessageType;
+    /// 原始 payload 字节。
     public byte[] Buffer;
 
     public WebSocketMessage(int messageType, byte[] buffer) {
@@ -23,29 +14,27 @@ public class WebSocketMessage {
         this.Buffer      = buffer;
     }
 
-    /// True if this is a text message (UTF-8 encoded body).
+    /// 是否文本消息（UTF-8 编码）。
     public bool IsText() {
         return this.MessageType == WebSocketMessageType.Text;
     }
 
-    /// True if this is a binary message.
+    /// 是否二进制消息。
     public bool IsBinary() {
         return this.MessageType == WebSocketMessageType.Binary;
     }
 
-    /// True if this is a close-frame notification.
+    /// 是否关闭帧通知。
     public bool IsClose() {
         return this.MessageType == WebSocketMessageType.Close;
     }
 
-    /// Decode body as UTF-8 string. For text messages (RFC requires UTF-8);
-    /// also works on close-frame reason text.
+    /// 把 payload 按 UTF-8 解码为字符串（文本消息 / 关闭帧 reason 均适用）。
     public string AsString() {
         return Utf8.GetString(this.Buffer);
     }
 
-    /// For close messages: parse the 2-byte big-endian status code.
-    /// Returns 1005 (no status received) if buffer is empty.
+    /// 关闭消息：解析 2 字节大端状态码；buffer 为空返回 1005（未收到状态）。
     public int CloseStatus() {
         if (this.Buffer.Length < 2) return 1005;
         int hi = (int)this.Buffer[0] & 0xFF;
@@ -53,8 +42,7 @@ public class WebSocketMessage {
         return (hi << 8) | lo;
     }
 
-    /// For close messages: parse the optional UTF-8 reason text (bytes 2+).
-    /// Returns empty string if no reason.
+    /// 关闭消息：解析可选的 UTF-8 reason（第 2 字节之后）；无则返回空串。
     public string CloseReason() {
         if (this.Buffer.Length <= 2) return "";
         byte[] reason = new byte[this.Buffer.Length - 2];

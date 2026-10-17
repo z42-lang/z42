@@ -1,8 +1,6 @@
 namespace Std.Net.WebSockets;
 
-// add-z42-net-websocket K4 (2026-05-25): RFC 6455 wire violation —
-// malformed frame header, invalid opcode, masked server frame, oversized
-// payload, missing required handshake header, etc.
+/// RFC 6455 线上格式违规：坏帧头、非法 opcode、带掩码的服务端帧、超大 payload、缺握手头等。
 public class WebSocketProtocolException : WebSocketException {
     public WebSocketProtocolException(string message) : base(message) {}
 

@@ -1,16 +1,11 @@
 namespace Std.Net.Sockets;
 
-// socket 操作（connect / bind / accept / send / receive / 选项 / DNS）因系统错误失败。
-// 镜像 .NET `System.Net.Sockets.SocketException`：`SocketErrorCode` 是结构化的错误码
-// （`SocketError`，Winsock 取值），`ErrorCode` 是同一个值的 int；`Message` 是 OS 的错误描述
-// （connect 失败时后缀对端地址，同 .NET）。.NET 里它继承 `Win32Exception`，z42 没有那一层，
-// 沿用 z42.net 的 `NetException` 作基类。
-//
-// 超时也是它（`SocketErrorCode == SocketError.TimedOut`），与 .NET 的 `Socket.Receive` /
-// `Connect` 一致——.NET 只在更高层（HttpClient）才换成 TimeoutException 一族。
-// VM 的网络 builtin 从 Rust 抛它并填好这两个字段。
+/// socket 操作（connect / bind / accept / send / receive / 选项 / DNS）因系统错误失败时抛出。
+/// 超时也是它（`SocketErrorCode == SocketError.TimedOut`），与 .NET 的 `Socket.Receive` 一致。
 public class SocketException : NetException {
+    /// 结构化错误码（`SocketError`，Winsock 取值）。
     public SocketError SocketErrorCode;
+    /// 与 `SocketErrorCode` 同一个值的 int。
     public int ErrorCode;
 
     public SocketException(string message) : base(message) {

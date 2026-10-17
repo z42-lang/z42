@@ -1,14 +1,19 @@
 namespace Std.Net.Http;
 
-// add-z42-net-http K3 (2026-05-25): HTTP method string constants.
-// z42 当前无 enum keyword (`add-language-enums` 是 follow-up)；用 static
-// class fields 等价表达。值就是 wire-format method name 大写。
+/// HTTP 方法的字符串常量集（非 enum），取值即 wire 格式的大写方法名。
 public static class HttpMethod {
+    /// GET。
     public static string Get     = "GET";
+    /// POST。
     public static string Post    = "POST";
+    /// PUT。
     public static string Put     = "PUT";
+    /// DELETE。
     public static string Delete  = "DELETE";
+    /// PATCH。
     public static string Patch   = "PATCH";
+    /// HEAD。
     public static string Head    = "HEAD";
+    /// OPTIONS。
     public static string Options = "OPTIONS";
 }

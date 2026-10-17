@@ -3,19 +3,9 @@ namespace Std.Net.Http;
 using Std.IO;
 using Std.Net.Sockets;
 
-// add-z42-net-http-stream-body (2026-05-28): framing-aware body stream
-// returned by `HttpClient.SendStreaming`. Implements the `Stream` Read
-// contract, decoding chunked transfer encoding (RFC 7230 §4.1) and
-// honouring Content-Length / connection-close framing as appropriate.
-//
-// Lifecycle: the stream owns the underlying TcpClient + _LineReader.
-// `Close()` disposes the socket. Reading past the framing terminator
-// returns 0 (EOF) cleanly.
-//
-// Three framing modes (set at construction):
-//   - MODE_LENGTH:  read exactly `_remaining` bytes from the socket
-//   - MODE_CHUNKED: chunked decoding with current-chunk-bytes-left counter
-//   - MODE_EOF:     read until socket EOF (HTTP/1.0 close-delimited body)
+// 由 HttpClient.SendStreaming 返回的按帧感知 body 流（内部）。
+// 实现 Stream.Read 契约，按 Content-Length / chunked / 读到 EOF 三种方式解帧；
+// 流持有底层 TcpClient + _LineReader，Close() 释放 socket。
 
 public class _HttpBodyStream : Stream {
     static int MODE_LENGTH  = 0;
@@ -37,7 +27,7 @@ public class _HttpBodyStream : Stream {
     private bool        _atEof;
     private bool        _closed;
 
-    /// Content-Length mode constructor.
+    // Content-Length 模式构造。
     public static _HttpBodyStream OfLength(object tcp, Stream stream, object lr, int length) {
         var s = new _HttpBodyStream(tcp, stream, lr);
         s._mode = _HttpBodyStream.MODE_LENGTH;
@@ -46,7 +36,7 @@ public class _HttpBodyStream : Stream {
         return s;
     }
 
-    /// Chunked-encoding mode constructor.
+    // chunked 编码模式构造。
     public static _HttpBodyStream OfChunked(object tcp, Stream stream, object lr) {
         var s = new _HttpBodyStream(tcp, stream, lr);
         s._mode = _HttpBodyStream.MODE_CHUNKED;
@@ -55,7 +45,7 @@ public class _HttpBodyStream : Stream {
         return s;
     }
 
-    /// Read-until-EOF mode (HTTP/1.0 close-delimited).
+    // 读到 EOF 模式（HTTP/1.0 关闭定界）。
     public static _HttpBodyStream OfEof(object tcp, Stream stream, object lr) {
         var s = new _HttpBodyStream(tcp, stream, lr);
         s._mode = _HttpBodyStream.MODE_EOF;
@@ -176,9 +166,7 @@ public class _HttpBodyStream : Stream {
         return got;
     }
 
-    /// Fill `buffer[offset..]` with up to `count` bytes — drain the
-    /// _LineReader's read-ahead buffer first, then read from the
-    /// underlying socket Stream.
+    // 先排干 _LineReader 的预读缓冲，再从底层 socket 流读，最多 count 字节。
     private int _fillFromBufferThenStream(byte[] buffer, int offset, int count) {
         _LineReader lr = (_LineReader)this._lr;
         int filled = lr.DrainBuffered(buffer, offset, count);

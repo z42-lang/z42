@@ -5,25 +5,7 @@ using Std.IO;
 using Std.Threading;
 using Std.Net.Sockets;
 
-// add-z42-net-http-server (2026-05-25): single-threaded HTTP/1.1 server.
-//
-// Pure-script over K1 `TcpListener`. Pattern:
-//   var server = new HttpServer();
-//   server.Bind("127.0.0.1", 0);
-//   int port = server.LocalPort();
-//   server.Serve((ctx) => {
-//       ctx.SendText(200, "Hello, world!");
-//   });
-//
-// V0 limits:
-// - Single-connection serial: one request fully processed before next accept
-// - Connection: close after each response (no keep-alive)
-// - No streaming request body (parser reads full body upfront)
-// - No WebSocket upgrade handling (would need handler to bypass response emit)
-// - HTTP only (https:// via `add-z42-net-tls`)
-//
-// Multi-threaded variant is `add-z42-net-http-server-threaded` follow-up:
-// dispatch each `AcceptTcpClient` to a `Std.Threading.Thread` worker.
+/// HTTP/1.1 服务端（纯脚本，基于 `TcpListener`）；提供串行、每连接一线程、线程池三种入口。
 public class HttpServer : IDisposable {
     private TcpListener _listener;
     private bool        _stopped;
@@ -37,8 +19,7 @@ public class HttpServer : IDisposable {
         this._bindHost  = "";
     }
 
-    /// Bind to `host:port` (port 0 → OS-assigned ephemeral). Discover the
-    /// chosen port via `LocalPort()` after bind.
+    /// 绑定到 `host:port`（port 0 由 OS 分配临时端口）；事后用 `LocalPort()` 查询。
     public void Bind(string host, int port) {
         if (this._stopped) {
             throw new SocketClosedException();
@@ -53,6 +34,7 @@ public class HttpServer : IDisposable {
         this._bindHost  = host;
     }
 
+    /// 本地绑定端口（需先 Bind）。
     public int LocalPort() {
         if (this._listener == null) {
             throw new InvalidOperationException("HttpServer not bound");
@@ -60,13 +42,12 @@ public class HttpServer : IDisposable {
         return this._localPort;
     }
 
+    /// 绑定主机。
     public string BindHost() {
         return this._bindHost;
     }
 
-    /// Handle exactly one incoming request — blocks until a client connects,
-    /// then dispatches to the handler. Useful for tests + careful control flow.
-    /// Returns after the response is sent and the connection closed.
+    /// 只处理一个请求：阻塞直到有客户端连接，分发给 handler，发完响应并关连接后返回。
     public void HandleNext(Action<HttpServerContext> handler) {
         if (this._listener == null) {
             throw new InvalidOperationException("HttpServer not bound");
@@ -75,28 +56,19 @@ public class HttpServer : IDisposable {
             throw new SocketClosedException();
         }
         TcpClient peer = this._listener.AcceptTcpClient();
-        // Stop() 可能与这次 accept 并发：accept 在置位前刚好收下一个真实连接。丢弃并退出。
-        // ⚠️ 这里**不用 `using`**：它不是资源作用域，而是「丢弃这个连接」的单点释放
-        //（本文件另有三处同形态：`ServeThreaded` / `ServeWithPool` 的竞态丢弃与队列满丢弃）。
-        // `using` 只解决「块的任一退出路径都要释放」，这四处没有块。
+        // Stop() 可能与这次 accept 并发：accept 在置位前刚好收下一个真实连接，此时丢弃并退出。
         if (this._stopped) {
             try { peer.Dispose(); } catch (Exception e) { }
             throw new SocketClosedException();
         }
-        // add-using-statement 批 4：`using` 取代「try + 正常路径 Dispose + catch 里再 Dispose +
-        // 手工 throw e」那四行。除了短，还修掉一个真问题：`throw e` 是**手工重抛**、会把抛出点
-        // 换成这一行；`using` 让原异常**原样传播**，栈指回 `_dispatchOne` 里真正出错的地方。
-        // ⚠️ 一处刻意的行为变化：原代码在异常路径上**吞掉 `Dispose` 自己的异常**，`using` 不吞。
-        // `TcpClient.Dispose()` 幂等、只调一次 native drop，那个 catch 是预防性的；
-        // 「`Dispose` 抛异常时怎么与主异常合并」是独立一条（本 change 的 Non-goal）。
+        // 用 `using` 让原异常原样传播，栈指回真正出错的地方（而非手工重抛的那一行）。
         using (peer) {
             NetworkStream stream = peer.GetStream();
             this._dispatchOne(stream, handler);
         }
     }
 
-    // Parse one request and invoke the handler. Uses `var` inference on the
-    // ReadRequest return to avoid E0402 cross-class type-object mismatch.
+    // 解析一个请求并调用 handler；用 var 推断 ReadRequest 的返回类型，避免跨类类型对象不匹配。
     private void _dispatchOne(NetworkStream stream, Action<HttpServerContext> handler) {
         HttpServerContext ctx = null;
         bool parsed = false;
@@ -120,37 +92,23 @@ public class HttpServer : IDisposable {
         }
     }
 
-    /// Loop forever (until `Stop()` called from another thread) handling
-    /// one request at a time. V0 single-connection serial.
+    /// 串行循环：一次处理一个请求，直到另一个线程调用 `Stop()`。
     public void Serve(Action<HttpServerContext> handler) {
         while (!this._stopped) {
             try {
                 this.HandleNext(handler);
             } catch (SocketClosedException e) {
-                // Stop() called — listener closed mid-accept. Normal exit path.
+                // Stop() 已调用 —— listener 在 accept 中被关，正常退出路径。
                 return;
             } catch (Exception e) {
-                // Per-iteration error — log and continue.
+                // 单次迭代错误 —— 记录并继续。
                 ConsoleError.WriteLine("HttpServer.Serve: error: " + e.Message);
             }
         }
     }
 
-    /// Accept-loop with thread-per-connection. Each accepted TcpClient is
-    /// handed to a fresh `Std.Threading.Thread` running the handler; the
-    /// main accept loop continues immediately without waiting.
-    ///
-    /// Worker threads are fire-and-forget (no Join) — they drain when their
-    /// request completes. Handler MUST be thread-safe (avoid shared mutable
-    /// state or guard it).
-    ///
-    /// `Stop()` closes the listener which causes the next AcceptTcpClient
-    /// to throw; in-flight workers continue but are not joined on Stop. For
-    /// graceful shutdown, application should drain via cooperation.
-    ///
-    /// Trade-off: unbounded thread spawn. A request spike spawns a thread
-    /// per concurrent connection. Workload-bounded variant is
-    /// `add-z42-net-http-server-pool` follow-up.
+    /// 每连接一线程的 accept 循环；主循环立即继续 accept 而不等待 worker。
+    /// handler 必须线程安全；`Stop()` 只关 listener，不 join 在途 worker。
     public void ServeThreaded(Action<HttpServerContext> handler) {
         while (!this._stopped) {
             if (this._listener == null) return;
@@ -163,15 +121,12 @@ public class HttpServer : IDisposable {
                 ConsoleError.WriteLine("HttpServer.ServeThreaded: accept error: " + e.Message);
                 continue;
             }
-            // Stop() 与 accept 之间仍有竞态窗口：accept 可能在 Stop() 置位前
-            // 刚好收下一个真实连接。此时直接丢弃并退出。
+            // Stop() 与 accept 之间仍有竞态窗口：accept 可能在置位前刚好收下一个连接，丢弃并退出。
             if (this._stopped) {
                 try { peer.Dispose(); } catch (Exception e) { }
                 return;
             }
-            // Dispatch this peer to a worker thread; main loop continues.
-            // Capture `peer` and `handler` (handler is the outer parameter,
-            // shared by all workers — must be thread-safe per docstring).
+            // 把 peer 交给 worker 线程，主循环继续。
             TcpClient workerPeer = peer;
             Thread.Start(() => {
                 this._workerHandle(workerPeer, handler);
@@ -179,28 +134,8 @@ public class HttpServer : IDisposable {
         }
     }
 
-    /// add-z42-net-http-server-pool (2026-05-28): accept-loop with
-    /// bounded worker pool. Pre-spawns `workerCount` worker threads
-    /// reading from a bounded `Channel<TcpClient>` of capacity
-    /// `queueSize`. When the queue is full, the accept loop drops the
-    /// connection (immediately Disposes the TcpClient — caller sees a
-    /// connection-reset rather than a delayed processing).
-    ///
-    /// Trade-off vs ServeThreaded:
-    ///   - ServeThreaded: unbounded thread spawn. Spikes can OOM the
-    ///     process (each Thread carries a stack — easy to spawn 10k+
-    ///     during a flood).
-    ///   - ServeWithPool: bounded concurrency, predictable resource
-    ///     footprint. Excess connections are dropped early instead of
-    ///     queuing → backpressure-friendly + DoS-resistant.
-    ///
-    /// `workerCount`: typically 2-4× CPU cores. Each worker is a
-    /// `Std.Threading.Thread` consuming from the channel.
-    /// `queueSize`: how many accepted connections can wait for a free
-    /// worker. Larger absorbs spikes; smaller drops earlier under load.
-    ///
-    /// `Stop()` closes the channel; workers drain pending work then
-    /// exit on the next `Recv` (which throws `ChannelDisconnectedException`).
+    /// 带有限 worker 池的 accept 循环：预起 `workerCount` 个 worker，从容量 `queueSize`
+    /// 的有界通道取连接；队列满时 accept 循环直接丢弃连接（立即 Dispose）。`Stop()` 关闭通道。
     public void ServeWithPool(Action<HttpServerContext> handler, int workerCount, int queueSize) {
         if (workerCount < 1) {
             throw new ArgumentException(
@@ -211,8 +146,7 @@ public class HttpServer : IDisposable {
                 "HttpServer.ServeWithPool: queueSize must be ≥ 1, got " + queueSize.ToString());
         }
         var queue = new Channel<TcpClient>(queueSize);
-        // Spawn worker pool. Each worker loops Recv → handle until the
-        // channel is closed (Stop() path).
+        // 起 worker 池：每个 worker 循环 Recv → handle，直到通道被关（Stop 路径）。
         int w = 0;
         while (w < workerCount) {
             Thread.Start(() => {
@@ -233,8 +167,7 @@ public class HttpServer : IDisposable {
             });
             w = w + 1;
         }
-        // Accept loop on the calling thread. Enqueues peers; drops if
-        // the pool is saturated.
+        // 调用线程上跑 accept 循环：入队；池饱和时丢弃。
         while (!this._stopped) {
             if (this._listener == null) {
                 queue.Close();
@@ -255,10 +188,7 @@ public class HttpServer : IDisposable {
                 queue.Close();
                 return;
             }
-            // TrySend instead of Send so the accept loop doesn't block
-            // when the pool is saturated — drops the connection instead.
-            // The DoS-resistance trade-off rationale lives in the
-            // docstring above.
+            // 用 TrySend 而非 Send：池饱和时 accept 循环不阻塞，直接丢弃连接。
             bool enqueued = queue.TrySend(peer);
             if (!enqueued) {
                 try { peer.Dispose(); } catch (Exception e) { }
@@ -267,51 +197,35 @@ public class HttpServer : IDisposable {
         queue.Close();
     }
 
-    /// Signal the serve loop to exit + close the listener. Idempotent.
-    ///
-    /// fix-accept-not-interruptible (2026-09-17)：关掉 listener 就足以唤醒另一个线程里
-    /// 阻塞中的 `AcceptTcpClient`（它会抛 `SocketClosedException`，三个 serve 循环都在
-    /// catch 它）。此前这里连一个**一次性自连探针**来唤醒 accept，因为运行期的
-    /// `accept` 会把 listener 从表里摘走、`Stop()` 退化成空操作；而那个探针
-    /// **连上就立刻 Dispose**，只要 accept 还没把它从 backlog 取走，连接被 RST 后就从
-    /// 队列里消失 ⇒ accept 永不返回 ⇒ `srv.Join()` 永久挂起（实测整包测试挂过 44 小时）。
-    /// 现在 accept 是非阻塞 + 轮询关闭标志，探针这套已无必要，整段删除。
+    /// 通知 serve 循环退出并关掉 listener；幂等。
+    /// 关掉 listener 就足以唤醒另一线程里阻塞的 AcceptTcpClient（它抛 SocketClosedException，
+    /// 三个 serve 循环都 catch 它）。此前用一次性自连探针唤醒 accept，现已无必要，整段删除。
     public void Stop() {
         if (this._stopped) return;
         this._stopped = true;
         if (this._listener != null) {
-            // Field-access dispatch on `.Stop()` hits z42's name-only
-            // method resolver and may route to Stopwatch.Stop instead of
-            // TcpListener.Stop. Force the resolver via an explicitly-typed
-            // local plus a same-arity rename: TcpListener exposes
-            // `StopListening()` as a non-colliding alias of `Stop()` (the
-            // `Stop` symbol stays for source compat).
+            // 用显式类型的局部变量规避名称解析冲突，确保路由到 TcpListener.Stop。
             TcpListener lst = this._listener;
             lst.Stop();
             this._listener = null;
         }
     }
 
+    /// `Stop()` 的别名；释放 listener。
     public void Dispose() {
         this.Stop();
     }
 
     // ── Internal helpers ─────────────────────────────────────────────────
 
-    /// Worker body for `ServeThreaded` — handles one accepted connection
-    /// then drops it. Pulled out of the spawning lambda because the IR
-    /// verifier doesn't accept nested try/catch with no-op handlers in
-    /// thread-spawn closures (register-flow check tripped on empty catch
-    /// blocks).
+    // worker 主体：处理一个已接受的连接后丢弃；用 `using` 释放连接，内层 catch 只管不让错误外溢。
     private void _workerHandle(TcpClient workerPeer, Action<HttpServerContext> handler) {
-        // add-using-statement 批 4：释放交给 `using`，内层 catch 只管「per-worker 错误不外溢」
-        // 这一件事（原来它同时兼着「别让异常绕过下面那次 Dispose」—— 那是 try/finally 的活）。
         using (workerPeer) {
             try {
                 NetworkStream stream = workerPeer.GetStream();
                 this._dispatchOne(stream, handler);
             } catch (Exception e) {
-                // Per-worker error — swallow; logging would race other workers.
+                // 单 worker 错误 —— 吞掉；记录会与其他 worker 竞争。
             }
         }
     }
@@ -328,7 +242,7 @@ public class HttpServer : IDisposable {
             byte[] bb = Utf8.GetBytes(body);
             stream.Write(bb, 0, bb.Length);
         } catch (Exception e) {
-            // Best-effort — connection may already be broken.
+            // 尽力而为 —— 连接可能已断开。
         }
     }
 }

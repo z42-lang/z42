@@ -3,12 +3,11 @@ using Std.Encoding;
 
 using Std.Net.Sockets;
 
-// add-z42-net-http-server (2026-05-25): per-request context handed to the
-// handler. Carries `Request` (parsed) + provides `Send*` methods to emit
-// the response. Tracks `ResponseSent` so server loop can detect handlers
-// that forgot to respond.
+/// 每个请求的上下文，交给 handler；携带解析后的请求并提供 `Send*` 方法发响应。
 public class HttpServerContext {
+    /// 解析后的请求。
     public HttpRequest  Request;
+    /// 是否已发送响应。
     public bool         ResponseSent;
     private NetworkStream _stream;
 
@@ -18,17 +17,17 @@ public class HttpServerContext {
         this._stream      = stream;
     }
 
-    /// Emit an arbitrary HttpResponse on the wire.
+    /// 把任意 HttpResponse 写到线上。
     public void Send(HttpResponse response) {
         if (this.ResponseSent) {
             throw new InvalidOperationException(
                 "HttpServerContext: response already sent");
         }
-        // Wire format: "HTTP/1.1 STATUS REASON\r\nheaders\r\n\r\n" + body
+        // 线上格式："HTTP/1.1 STATUS REASON\r\nheaders\r\n\r\n" + body
         string statusLine = "HTTP/1.1 " + Int32.ToString(response.StatusCode)
             + " " + response.ReasonPhrase + "\r\n";
         string head = statusLine;
-        // Ensure required headers exist
+        // 确保必需的头存在
         if (!response.Headers.Contains("Content-Length")) {
             int bodyLen;
             if (response.Body == null) { bodyLen = 0; }
@@ -53,27 +52,26 @@ public class HttpServerContext {
         this.ResponseSent = true;
     }
 
-    /// Convenience: build + send a response from primitive fields.
+    /// 用基础字段构造并发送响应（指定 Content-Type）。
     public void SendBytes(int statusCode, string reasonPhrase, byte[] body, string contentType) {
         var resp = new HttpResponse(statusCode, reasonPhrase, new HttpHeaders(), body);
         resp.Headers.Set("Content-Type", contentType);
         this.Send(resp);
     }
 
-    /// Convenience: send a UTF-8 text body with text/plain content type and
-    /// default reason phrase from status code.
+    /// 发送 UTF-8 文本响应（text/plain; charset=utf-8）。
     public void SendText(int statusCode, string text) {
         byte[] body = Utf8.GetBytes(text);
         this.SendBytes(statusCode, _reasonFor(statusCode), body, "text/plain; charset=utf-8");
     }
 
-    /// Convenience: send a JSON body. Caller responsible for the body being valid JSON.
+    /// 发送 JSON 响应（application/json; charset=utf-8）；调用方负责 body 是合法 JSON。
     public void SendJson(int statusCode, string jsonBody) {
         byte[] body = Utf8.GetBytes(jsonBody);
         this.SendBytes(statusCode, _reasonFor(statusCode), body, "application/json; charset=utf-8");
     }
 
-    /// Convenience: send an empty body with status only.
+    /// 发送空 body 的状态响应。
     public void SendStatus(int statusCode) {
         this.SendBytes(statusCode, _reasonFor(statusCode), new byte[0], "text/plain");
     }
