@@ -1,65 +1,58 @@
 namespace Std.Collections;
 
-// Generic doubly-linked list (L3-G4d — stdlib generic export, 2026-04-28).
-//
-// O(1) AddFirst / AddLast / RemoveFirst / RemoveLast / First / Last; O(n)
-// Find / Contains. Each node carries `prev` / `next` references; the list
-// keeps `head` / `tail` / `count` for constant-time end operations.
-//
-// Constraint:
-//   T: IEquatable   — for Find / Contains equality check (mirrors
-//                     Std.Collections.List<T>).
-// Primitive types (int / long / double / char / string) auto-satisfy via
-// stdlib `struct int : IEquatable` etc. (L3-G4b primitive-as-struct).
+/// 双向链表节点，持有可读可写的 Value 字段。
 public class LinkedListNode<T> {
+    /// 节点值（可读可写字段）。
     public T Value;
 
-    // Links accessed via Next() / Previous() / SetNext() / SetPrevious().
-    // Owning `LinkedList<T>` mutates them during splicing; user code should
-    // treat the setters as "package-internal" by convention (z42 has no
-    // `internal` cross-class visibility primitive yet — see
-    // `docs/reference/src/language/access-control.md`).
-    //
-    // Reference-type fields default to null in Phase 1 (no `?` suffix needed).
+    // 链接由 LinkedList<T> 在接合时维护；外部调用 SetNext / SetPrevious
+    // 会破坏链表的 Count 与端点不变式（按约定视为包内方法）。
     LinkedListNode<T> next;
     LinkedListNode<T> prev;
 
+    /// 创建持有 value 的节点。
     public LinkedListNode(T value) {
         this.Value = value;
         this.next = null;
         this.prev = null;
     }
 
+    /// 后继节点；尾节点返回 null。
     public LinkedListNode<T>? Next()     { return this.next; }
+    /// 前驱节点；头节点返回 null。
     public LinkedListNode<T>? Previous() { return this.prev; }
 
+    /// 设置后继节点（通常由 LinkedList<T> 维护）。
     public void SetNext(LinkedListNode<T> n)     { this.next = n; }
+    /// 设置前驱节点（通常由 LinkedList<T> 维护）。
     public void SetPrevious(LinkedListNode<T> p) { this.prev = p; }
 }
 
-// add-collection-contract-phase1 (2026-06-03): implements IBasicCollection<T>
-// to opt into Std.Harness.Contracts.BasicCollectionContract coverage.
+/// 双向链表：O(1) 的两端插入/删除与端点访问，O(n) 的按值查找。
+/// where T: IEquatable（Find / Contains / Remove 需要比较相等）。
 public class LinkedList<T> : IBasicCollection<T> where T: IEquatable {
     LinkedListNode<T> head;
     LinkedListNode<T> tail;
     int count;
 
+    /// 创建空链表。
     public LinkedList() {
         this.head = null;
         this.tail = null;
         this.count = 0;
     }
 
+    /// 返回元素个数（方法，不是字段）。
     public int Count() { return this.count; }
+    /// 是否为空。
     public bool IsEmpty() { return this.count == 0; }
 
-    // Front / back accessors — return null on empty list (idiomatic for
-    // a query method; throwers are RemoveFirst / RemoveLast below).
+    /// 头节点；空链表返回 null（不抛）。
     public LinkedListNode<T>? First() { return this.head; }
+    /// 尾节点；空链表返回 null（不抛）。
     public LinkedListNode<T>? Last()  { return this.tail; }
 
-    // add-collection-toarray (review §2.6): snapshot head → tail without
-    // modifying the list (nodes stay linked; user gets a plain array to iterate).
+    /// 头 → 尾顺序的快照数组；不改动链表。
     public T[] ToArray() {
         T[] result = new T[this.count];
         var node = this.head;
@@ -72,12 +65,13 @@ public class LinkedList<T> : IBasicCollection<T> where T: IEquatable {
         return result;
     }
 
-    // ── Insertions ──────────────────────────────────────────────────────────
+    // ── 插入 ────────────────────────────────────────────────────────────
 
+    /// 头插，返回新建的节点。
     public LinkedListNode<T> AddFirst(T value) {
         var node = new LinkedListNode<T>(value);
         if (this.head == null) {
-            // Empty list — node becomes both head and tail.
+            // 空链表 —— 节点既是头也是尾。
             this.head = node;
             this.tail = node;
         } else {
@@ -89,6 +83,7 @@ public class LinkedList<T> : IBasicCollection<T> where T: IEquatable {
         return node;
     }
 
+    /// 尾插，返回新建的节点。
     public LinkedListNode<T> AddLast(T value) {
         var node = new LinkedListNode<T>(value);
         if (this.tail == null) {
@@ -103,12 +98,12 @@ public class LinkedList<T> : IBasicCollection<T> where T: IEquatable {
         return node;
     }
 
-    // IBasicCollection contract entry (add-collection-contract-phase2): append
-    // at tail (discard the returned node).
+    /// IBasicCollection 契约的统一插入入口，委托给 AddLast。
     public void AddOne(T item) { this.AddLast(item); }
 
-    // ── Removals ────────────────────────────────────────────────────────────
+    // ── 删除 ────────────────────────────────────────────────────────────
 
+    /// 摘掉头节点并返回其 Value；空链表抛 Exception。
     public T RemoveFirst() {
         var node = this.head;
         if (node == null) {
@@ -125,6 +120,7 @@ public class LinkedList<T> : IBasicCollection<T> where T: IEquatable {
         return v;
     }
 
+    /// 摘掉尾节点并返回其 Value；空链表抛 Exception。
     public T RemoveLast() {
         var node = this.tail;
         if (node == null) {
@@ -141,7 +137,7 @@ public class LinkedList<T> : IBasicCollection<T> where T: IEquatable {
         return v;
     }
 
-    // Remove the first node whose value equals `value`. Returns true on success.
+    /// 删除第一个值相等的节点；删掉返回 true，没找到返回 false。
     public bool Remove(T value) {
         var cur = this.head;
         while (cur != null) {
@@ -166,16 +162,19 @@ public class LinkedList<T> : IBasicCollection<T> where T: IEquatable {
         return false;
     }
 
+    /// 清空（幂等）。
     public void Clear() {
         this.head = null;
         this.tail = null;
         this.count = 0;
     }
 
-    // ── Search ──────────────────────────────────────────────────────────────
+    // ── 查找 ────────────────────────────────────────────────────────────
 
+    /// 是否存在值相等的节点，等价 Find(value) != null。
     public bool Contains(T value) { return this.Find(value) != null; }
 
+    /// 第一个值相等的节点；没找到返回 null。
     public LinkedListNode<T>? Find(T value) {
         var cur = this.head;
         while (cur != null) {

@@ -1,33 +1,55 @@
+//! 进阶集合容器。
+//!
+//! Stack（LIFO）/ Queue（FIFO）/ LinkedList / LinkedListNode（双向链表）、
+//! PriorityQueue（最小堆）、SortedSet（有序去重集合）。
+//! 最基础的 List / Dictionary / HashSet 不在本包，它们随 z42.core 隐式可用。
+//! 本包的五个类型共用同一个 Std.Collections 命名空间，但要显式声明包依赖才能用。
+//!
+//! ## 不支持
+//!
+//! - 五个类型都不能直接 foreach（都没有 GetEnumerator()，也没有索引器）。
+//!   写了能通过编译，但运行期以 ArrayLen: expected array, got Object(...) 终止。
+//!   Stack / Queue / LinkedList / SortedSet 请用 ToArray()；PriorityQueue 连 ToArray() 都没有。
+//! - 没有预分配容量的构造器：五个类型都只有无参构造器。
+//! - 不能从既有集合 / 数组构造：没有 new Queue<T>(items) 这类构造器，只能逐个加。
+//! - 没有自定义比较器：顺序固定由元素的 CompareTo（PriorityQueue / SortedSet）、
+//!   相等固定由 Equals（LinkedList / SortedSet）决定，构造器不接受比较器。
+//! - SortedSet<T> 没有区间视图（GetViewBetween / Reverse() / 前驱后继查询）。
+//! - 没有 SortedDictionary<K,V>、没有并发集合、没有 Deque 两端队列。
+//! - Grow()（Stack / Queue / SortedSet）虽然是 public，属于容量管理入口，正常使用不需要调用。
 namespace Std.Collections;
 
 
-// Generic LIFO stack (L3-G4d — stdlib generic export).
-// Backing T[] with amortised O(1) Push/Pop and exponential growth.
-// add-collection-contract-phase1 (2026-06-03): implements IBasicCollection<T>
-// to opt into Std.Harness.Contracts.BasicCollectionContract coverage.
+/// 后进先出栈，摊还 O(1) 的 Push / Pop。对 T 无约束。
 public class Stack<T> : IBasicCollection<T> {
+    // 底层用 T[] 存储，指数扩容保证摊还 O(1) Push/Pop。
     T[] items;
     int count;
     int capacity;
 
+    /// 创建空栈。
     public Stack() {
         this.capacity = 4;
         this.items = new T[4];
         this.count = 0;
     }
 
+    /// 返回元素个数（方法，不是字段）。
     public int Count() { return this.count; }
+    /// 是否为空。
     public bool IsEmpty() { return this.count == 0; }
 
+    /// 压栈。
     public void Push(T item) {
         if (this.count == this.capacity) this.Grow();
         this.items[this.count] = item;
         this.count = this.count + 1;
     }
 
-    // IBasicCollection contract entry (add-collection-contract-phase2): LIFO add.
+    /// IBasicCollection 契约的统一插入入口，委托给 Push。
     public void AddOne(T item) { this.Push(item); }
 
+    /// 弹出并返回栈顶；空栈抛 Exception。
     public T Pop() {
         if (this.count == 0) {
             throw new Exception("Stack.Pop: stack is empty");
@@ -36,6 +58,7 @@ public class Stack<T> : IBasicCollection<T> {
         return this.items[this.count];
     }
 
+    /// 只看栈顶不弹出；空栈抛 Exception。
     public T Peek() {
         if (this.count == 0) {
             throw new Exception("Stack.Peek: stack is empty");
@@ -43,12 +66,12 @@ public class Stack<T> : IBasicCollection<T> {
         return this.items[this.count - 1];
     }
 
+    /// 清空（幂等）。
     public void Clear() {
         this.count = 0;
     }
 
-    // add-collection-toarray (review §2.6): snapshot with the top of the stack
-    // first (LIFO order, matching C# Stack<T>.ToArray). Does not modify the stack.
+    /// 快照数组，栈顶在前（LIFO 顺序）；不改动栈本身。
     public T[] ToArray() {
         T[] result = new T[this.count];
         int i = 0;
@@ -59,6 +82,7 @@ public class Stack<T> : IBasicCollection<T> {
         return result;
     }
 
+    /// 扩容容量（容量管理入口，正常使用无需调用）。
     public void Grow() {
         int newCap = this.capacity * 2;
         T[] bigger = new T[newCap];

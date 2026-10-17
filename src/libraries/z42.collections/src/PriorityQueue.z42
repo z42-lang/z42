@@ -1,37 +1,29 @@
 namespace Std.Collections;
 
 
-// add-priority-queue (2026-05-27): generic min-heap priority queue.
-//
-// O(log n) `Enqueue` / `Dequeue`, O(1) `Peek` / `Count`. Smaller element
-// (per `T.CompareTo`) has higher priority — pops first. Callers wanting
-// max-heap semantics negate their comparison key or wrap T in a class
-// inverting `CompareTo`.
-//
-// Constraint:
-//   T : IComparable — for sift-up / sift-down ordering.
-//
-// Single-param shape (T = priority key) matches Rust `BinaryHeap<T>` and
-// pre-.NET-6 `PriorityQueue`. The newer .NET 6+ split-key form
-// `PriorityQueue<TElement, TPriority>` is deferred — wait for a concrete
-// use case that needs the indirection.
-// add-collection-contract-phase1 (2026-06-03): implements IBasicCollection<T>
-// to opt into Std.Harness.Contracts.BasicCollectionContract coverage.
+/// 最小堆优先队列：O(log n) 的 Enqueue / Dequeue，O(1) 的 Peek。
+/// where T: IComparable —— CompareTo 小的先出队。
+///
+/// 只有最小堆形态；要最大堆请把排序键取负，或用反向 CompareTo 的包装类型。
+/// 单类型形参：优先级就是元素本身，没有独立的 TPriority。
 public class PriorityQueue<T> : IBasicCollection<T> where T: IComparable {
     T[] items;
     int count;
     int capacity;
 
+    /// 创建空优先队列。
     public PriorityQueue() {
         this.capacity = 4;
         this.items = new T[4];
         this.count = 0;
     }
 
+    /// 返回元素个数（方法，不是字段）。
     public int Count() { return this.count; }
+    /// 是否为空。
     public bool IsEmpty() { return this.count == 0; }
 
-    /// Add `item` to the queue. O(log n) amortised.
+    /// 入堆，O(log n)。
     public void Enqueue(T item) {
         if (this.count == this.capacity) this.Grow();
         this.items[this.count] = item;
@@ -39,10 +31,10 @@ public class PriorityQueue<T> : IBasicCollection<T> where T: IComparable {
         this.SiftUp(this.count - 1);
     }
 
-    // IBasicCollection contract entry (add-collection-contract-phase2): heap add.
+    /// IBasicCollection 契约的统一插入入口，委托给 Enqueue。
     public void AddOne(T item) { this.Enqueue(item); }
 
-    /// Remove and return the smallest element. Throws if empty. O(log n).
+    /// 取出并返回最小元素；空队列抛 Exception。O(log n)。
     public T Dequeue() {
         if (this.count == 0) {
             throw new Exception("PriorityQueue.Dequeue: queue is empty");
@@ -56,7 +48,7 @@ public class PriorityQueue<T> : IBasicCollection<T> where T: IComparable {
         return root;
     }
 
-    /// Return the smallest element without removing it. Throws if empty. O(1).
+    /// 只看最小元素不取出；空队列抛 Exception。O(1)。
     public T Peek() {
         if (this.count == 0) {
             throw new Exception("PriorityQueue.Peek: queue is empty");
@@ -64,10 +56,10 @@ public class PriorityQueue<T> : IBasicCollection<T> where T: IComparable {
         return this.items[0];
     }
 
-    /// Remove all elements; keep allocated capacity.
+    /// 清空所有元素，保留已分配容量。
     public void Clear() { this.count = 0; }
 
-    // ── Internals ────────────────────────────────────────────────────────────
+    // ── 内部实现 ──────────────────────────────────────────────────────────
 
     void SiftUp(int idx) {
         int i = idx;
