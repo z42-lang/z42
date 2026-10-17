@@ -1,12 +1,26 @@
+//! 正则表达式编译与匹配。
+//!
+//! 把 pattern 字符串编译成 `Regex` 对象，再做匹配 / 查找 / 替换 / 切分。语法是常见正则的
+//! 子集——够用于日志行解析、字段抽取、简单校验；不够用于需要 lookaround、backreference
+//! 或 Unicode 属性类的场景。
+//!
+//! ## 不支持
+//!
+//! - **lookaround**：`(?=)` `(?!)` `(?<=)` `(?<!)`——编译报错
+//! - **backreference**：pattern 里的 `\1`（静默退化成字面量）；replacement 里的 `$1` 是支持的
+//! - **Unicode 属性类**：`\p{L}` / `\p{Greek}`；`\w` `\s` `\b` 全是 ASCII 定义
+//! - **字符类内的转义类**：`[\d]` `[\w]` `[\s]`（静默退化成字面量）
+//! - **`(?s)` / `(?x)` / 作用域 flag / pattern 中途改 flag**
+//! - **占有量词**与**原子组**
+//! - **`{,m}` 量词写法**
+//! - **`\x` / `\u` 数值转义**（静默退化成字面量）
+//! - **线性时间保证**：引擎是回溯式的，没有 ReDoS 防护，也没有步数 / 超时上限
+//! - **并发复用同一个 `Regex`**：匹配状态存在实例字段上，多线程共享会互相踩
 namespace Std.Regex;
 
-// add-z42-regex (2026-05-16)：编译后的 regex + 匹配/搜索/替换 API。
-//
-// Compile：`Regex.Compile(pattern)` 解析为 AST，存 _seq + _seqCount + _groupCount。
-//
-// 引擎：backtracking NFA。同 Python `re` / Java / JavaScript / .NET 默认引擎。
-// 简单实现、覆盖 90% 用例；pathological 模式（`a*a*a*...`）下指数时间风险
-// documented（design doc Deferred 段建议未来切到 Thompson NFA simulation）。
+/// 编译后的 pattern：解析为 AST，提供匹配 / 查找 / 替换 / 切分方法。
+///
+/// 线程内复用；同一个 `Regex` 实例不要跨线程并发调用（匹配过程写实例字段）。
 public class Regex {
     private RegexNode[] _seq;
     private int _seqCount;
@@ -23,20 +37,16 @@ public class Regex {
     private int[] _gStarts;
     private int[] _gEnds;
 
-    // add-regex-named-groups (2026-05-26): parallel arrays mapping group
-    // name → 1-based capture index. Empty arrays when no `(?<name>...)`
-    // appears in the pattern. Names are case-sensitive and must be
-    // unique per pattern (parser rejects duplicates).
+    // 命名组名 → 1-based 捕获下标 的并行数组；pattern 里没有 `(?<name>…)` 时为空数组。
+    // 名字区分大小写，且每个 pattern 内必须唯一（parser 拒绝重名）。
     private string[] _groupNames;
     private int[]    _groupIndices;
     private int      _namedGroupCount;
-    // add-regex-inline-flags (2026-05-26): case-insensitive matching when
-    // pattern starts with `(?i)`. Pattern-wide; mid-pattern scope changes
-    // not yet supported.
+    // pattern 以 `(?i)` 开头时开启大小写不敏感匹配；作用于整个 pattern，
+    // 暂不支持中途改 flag。
     private bool _caseInsensitive;
-    // add-regex-word-boundary-multiline (2026-05-30): multiline mode when
-    // pattern starts with `(?m)` (or combined `(?im)` / `(?mi)`).
-    // Changes `^` / `$` to also match after / before `\n`.
+    // pattern 以 `(?m)`（或组合 `(?im)` / `(?mi)`）开头时开启 multiline；
+    // `^` / `$` 也匹配 `\n` 之后 / 之前。
     private bool _multiline;
 
     private Regex(RegexNode[] seq, int seqCount, int groupCount,
@@ -52,14 +62,11 @@ public class Regex {
         this._multiline       = multiline;
     }
 
+    /// 解析 pattern 并预处理开头的内联 flag；语法错误在此抛 RegexException，而不是匹配时。
     public static Regex Compile(string pattern) {
-        // Inline flag stripper: leading `(?[im]+)` enables case-insensitive
-        // / multiline matching for the whole pattern. Stripped before
-        // handing the remainder to RegexParser.
-        // add-regex-word-boundary-multiline (2026-05-30) generalises the
-        // 2026-05-26 `(?i)`-only path to accept any combination of `i` / `m`
-        // flag chars in any order, with repetition tolerated (matches .NET
-        // RegexOptions semantics).
+        // 内联 flag 剥离：开头的 `(?[im]+)` 为整个 pattern 开启大小写不敏感 / multiline，
+        // 剥离后把剩余部分交给 RegexParser。接受 `i` / `m` 任意组合、任意顺序，重复容忍
+        // （对齐 .NET RegexOptions 语义）。
         bool caseInsensitive = false;
         bool multiline       = false;
         string body          = pattern;
@@ -91,24 +98,20 @@ public class Regex {
                          caseInsensitive, multiline);
     }
 
-    /// ASCII case fold (A-Z → a-z); other chars unchanged. Used by the
-    /// case-insensitive matcher path. add-regex-inline-flags (2026-05-26).
+    // ASCII 大小写折叠（A-Z → a-z），其余字符不变；供大小写不敏感匹配路径使用。
     static int _fold(int ch) {
         if (ch >= 65 && ch <= 90) { return ch + 32; }
         return ch;
     }
 
-    /// ASCII case swap: A-Z ↔ a-z. Used to test charset matches under
-    /// case-insensitive mode by probing both cases of the input char.
+    // ASCII 大小写互换（A-Z ↔ a-z）：大小写不敏感模式下用输入字符的两种大小写去试 charset。
     static int _swapCase(int ch) {
         if (ch >= 65 && ch <= 90)  { return ch + 32; }
         if (ch >= 97 && ch <= 122) { return ch - 32; }
         return ch;
     }
 
-    /// Lookup table for `Match.Group(string name)` resolution.
-    /// Returns -1 if `name` is not a declared capture group name.
-    /// add-regex-named-groups (2026-05-26).
+    /// 命名组名 → 1-based 下标；未声明返回 -1。
     public int GroupIndexOf(string name) {
         int i = 0;
         while (i < this._namedGroupCount) {
@@ -120,21 +123,22 @@ public class Regex {
         return -1;
     }
 
+    /// 捕获组个数，不含 group 0。
     public int GroupCount() { return this._groupCount - 1; }
 
     // ── Public API ────────────────────────────────────────────────────────
 
+    /// 是否匹配；等价于 Find(input) != null。
     public bool IsMatch(string input) {
         return this.Find(input) != null;
     }
 
-    /// 第一个 match 或 null。anchored pattern (^...) 仅尝试 pos=0；否则扫描每个 pos。
+    /// 返回第一个 match；无匹配返回 null。`^` 开头（且未开 `(?m)`）时只尝试位置 0。
     public Match Find(string input) {
         return this.FindFrom(input, 0);
     }
 
-    /// 所有非重叠 match。返回 Match[] + count via parallel arrays?  v0 用一个
-    /// helper class FindAllResult；但为减少表面积，先用 Match[] + Length 表示。
+    /// 返回所有非重叠 match（可能为空数组）；空匹配也计入，每遇空匹配起点前进一格。
     public Match[] FindAll(string input) {
         Match[] buf = new Match[8];
         int n = 0;
@@ -160,14 +164,12 @@ public class Regex {
         return result;
     }
 
-    /// 用 replacement 替换所有非重叠 match。replacement 当前不支持 $1 backreference。
+    /// 替换所有非重叠 match；replacement 支持 `$0` / `$1`…`$9` 占位符与 `$$`（字面 `$`）。
     public string Replace(string input, string replacement) {
         Match[] matches = this.FindAll(input);
         if (matches.Length == 0) { return input; }
-        // add-regex-replace-backreference (2026-05-26): replacement string
-        // may contain `$0`/`$1`/.../`$9` placeholders (whole match / group N)
-        // and `$$` for a literal `$`. Without `$`, output equals the
-        // replacement literal (legacy v0 behaviour preserved).
+        // replacement 可含 `$0`/`$1`/.../`$9` 占位符（整个 match / 组 N）与 `$$`（字面 `$`）；
+        // 不含 `$` 时输出即 replacement 字面量。
         string acc = "";
         int cursor = 0;
         int i = 0;
@@ -182,11 +184,8 @@ public class Regex {
         return acc;
     }
 
-    /// Substitute `$N` placeholders in `replacement` with `m.Group(N)`.
-    /// `$0` → whole match; `$1`..`$9` → capture group N; `$$` → `$`.
-    /// `$` followed by any other char is emitted literally as `$X` (matches
-    /// .NET behaviour; avoids surprising callers who use `$` in plain text).
-    /// add-regex-replace-backreference (2026-05-26).
+    // 把 replacement 里的 `$N` 替换为 m.Group(N)：`$0` → 整个 match；`$1`..`$9` → 捕获组 N；
+    // `$$` → 字面 `$`。`$` 后跟其他字符按字面 `$X` 原样输出（对齐 .NET 行为，避免误伤纯文本里的 `$`）。
     private string _ExpandReplacement(string replacement, Match m) {
         // Fast path: no `$` anywhere → literal.
         int probe = 0;
@@ -236,7 +235,7 @@ public class Regex {
         return acc;
     }
 
-    /// 按 match 分隔。empty input → [""]；no match → [input]。
+    /// 按 match 切分；无匹配返回 [input]，空输入返回 [""]。
     public string[] Split(string input) {
         Match[] matches = this.FindAll(input);
         if (matches.Length == 0) {
@@ -260,10 +259,8 @@ public class Regex {
     // ── Engine ────────────────────────────────────────────────────────────
 
     private Match FindFrom(string input, int startPos) {
-        // ^ anchored 优化：若第一个 atom 是 ANCHOR_START，仅尝试 startPos == 0
-        // add-regex-word-boundary-multiline (2026-05-30): under `(?m)`,
-        // `^` also matches after `\n`, so this fast-fail bail is unsafe —
-        // disable the optimisation entirely when multiline is on.
+        // ^ anchored 优化：若第一个 atom 是 ANCHOR_START，仅尝试 startPos == 0。
+        // 但 multiline 下 `^` 也匹配 `\n` 之后，这个快速失败优化不安全——multiline 时整体关闭。
         bool anchoredStart = (this._seqCount > 0 && this._seq[0]._kind == 4)
                           && !this._multiline;
         int from = startPos;
@@ -352,8 +349,7 @@ public class Regex {
         }
         if (k == 4) {  // ANCHOR_START
             if (pos == 0) { return this.Match(seq, count, idx + 1, pos); }
-            // add-regex-word-boundary-multiline (2026-05-30): under `(?m)`,
-            // `^` additionally matches just after any `\n`.
+            // multiline 下 `^` 也匹配任意 `\n` 之后。
             if (this._multiline && pos > 0
                 && (int)this._chars[pos - 1] == 10) {
                 return this.Match(seq, count, idx + 1, pos);
@@ -362,8 +358,7 @@ public class Regex {
         }
         if (k == 5) {  // ANCHOR_END
             if (pos == this._input.Length) { return this.Match(seq, count, idx + 1, pos); }
-            // add-regex-word-boundary-multiline (2026-05-30): under `(?m)`,
-            // `$` additionally matches immediately before any `\n`.
+            // multiline 下 `$` 也匹配任意 `\n` 之前。
             if (this._multiline && pos < this._input.Length
                 && (int)this._chars[pos] == 10) {
                 return this.Match(seq, count, idx + 1, pos);
@@ -397,8 +392,7 @@ public class Regex {
             int[] savE = this.SnapshotEnds();
             int gp = this.Match(node._childSeq, node._childCount, 0, pos);
             if (gp >= 0) {
-                // _groupIndex == -1 marks a non-capturing group `(?:…)` —
-                // no slot write (add-regex-non-capturing-group, 2026-05-26).
+                // _groupIndex == -1 标记非捕获组 `(?:…)`——不写捕获槽位。
                 if (node._groupIndex >= 0) {
                     this._gStarts[node._groupIndex] = pos;
                     this._gEnds[node._groupIndex]   = gp;
@@ -410,8 +404,7 @@ public class Regex {
             this.RestoreEnds(savE);
             return -1;
         }
-        // add-regex-word-boundary-multiline (2026-05-30): zero-width
-        // `\b` (WORD_BOUNDARY) / `\B` (WORD_NON_BOUNDARY) assertions.
+        // 零宽 `\b`（WORD_BOUNDARY）/ `\B`（WORD_NON_BOUNDARY）断言。
         if (k == 9) {
             if (this._AtWordBoundary(pos)) { return this.Match(seq, count, idx + 1, pos); }
             return -1;
@@ -423,11 +416,8 @@ public class Regex {
         return -1;
     }
 
-    /// True iff position `pos` lies between an ASCII word char and a
-    /// non-word char (or the input boundary on the non-word side). Input
-    /// endpoints count as non-word, so `\b` matches at pos 0 / Length when
-    /// the adjacent char is a word char.
-    /// add-regex-word-boundary-multiline (2026-05-30).
+    // 位置 pos 恰好夹在一个 ASCII 词字符与非词字符（或非词一侧的输入边界）之间时为真。
+    // 输入端点算非词，所以 pos 0 / Length 处若相邻字符是词字符，`\b` 也匹配。
     private bool _AtWordBoundary(int pos) {
         bool leftWord  = pos > 0
                       && Regex._IsWordChar((int)this._chars[pos - 1]);
@@ -436,8 +426,7 @@ public class Regex {
         return leftWord != rightWord;
     }
 
-    /// ASCII `\w` membership: `[A-Za-z0-9_]`. Case-insensitive flag has
-    /// no effect (both cases are already in the set).
+    // ASCII `\w` 成员判定：`[A-Za-z0-9_]`。大小写不敏感 flag 无影响（两种大小写都已在集合内）。
     private static bool _IsWordChar(int ch) {
         return (ch >= 48 && ch <= 57)    // 0-9
             || (ch >= 65 && ch <= 90)    // A-Z
@@ -481,9 +470,8 @@ public class Regex {
             this.RestoreEnds(savE);
             return -1;
         }
-        // Greedy: try longest count first (posCount-1) down to min.
-        // Lazy (non-greedy): try min first up to longest.
-        // add-regex-non-greedy (2026-05-26).
+        // 贪婪：先试最长（posCount-1）递减到 min。
+        // 惰性（非贪婪）：先试 min 递增到最长。
         int start;
         int stop;
         int step;

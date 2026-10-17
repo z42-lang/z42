@@ -1,28 +1,21 @@
 namespace Std.Regex;
 
-// add-z42-regex (2026-05-16)：regex AST 节点。
-//
-// 用 _kind: int + 各 field 表示 discriminated union（z42 无 ADT；同 TomlValue /
-// JsonValue 模式）。
-//
-// 顶层 pattern 是 RegexNode[]（concat 隐式 — 顺序即 concat）；ALT / QUANT /
-// GROUP 的 child 同样是 RegexNode[]。
-//
-// 序列存储：raw `RegexNode[]` + 显式 count 字段（z42 stdlib 不用 List<T>，
-// 类型参数 dropping bug；同 TomlValue._arrayItems 模式）。
-//
-// Kinds:
-//   1 = LIT          字符字面（_ch）
-//   2 = ANY          `.`（match 任意单字符；v0 包括换行）
-//   3 = CHARSET      `[...]`（_negated, _rangeStarts/_rangeEnds 配对成区间）
-//   4 = ANCHOR_START `^`（`(?m)` 下 `\n` 后也匹配）
-//   5 = ANCHOR_END   `$`（`(?m)` 下 `\n` 前也匹配）
-//   6 = ALT          `a|b`（_leftSeq/_leftCount, _rightSeq/_rightCount）
-//   7 = QUANT        `?`/`*`/`+`/`{n,m}`（_childSeq/_childCount, _min, _max；_max=-1 unbounded）
-//   8 = GROUP        capturing `()`（_childSeq/_childCount, _groupIndex 1-based）
-//   9 = WORD_BOUNDARY      `\b`（零宽，两侧 word-ness 不同时匹配）
-//  10 = WORD_NON_BOUNDARY  `\B`（零宽，两侧 word-ness 相同时匹配）
+/// 正则 AST 节点：用 `_kind` + 各 field 表示 discriminated union（z42 无 ADT）。
+///
+/// 顶层 pattern 是 RegexNode[]（顺序即 concat）；ALT / QUANT / GROUP 的 child 同样是
+/// RegexNode[]。序列用 raw `RegexNode[]` + 显式 count 字段存储。属引擎内部结构，不构成稳定 API。
 public class RegexNode {
+    // Kinds（实现笔记）：
+    //   1 = LIT          字符字面（_ch）
+    //   2 = ANY          `.`（匹配任意单字符；v0 包括换行）
+    //   3 = CHARSET      `[...]`（_negated, _rangeStarts/_rangeEnds 配对成区间）
+    //   4 = ANCHOR_START `^`（`(?m)` 下 `\n` 后也匹配）
+    //   5 = ANCHOR_END   `$`（`(?m)` 下 `\n` 前也匹配）
+    //   6 = ALT          `a|b`（_leftSeq/_leftCount, _rightSeq/_rightCount）
+    //   7 = QUANT        `?`/`*`/`+`/`{n,m}`（_childSeq/_childCount, _min, _max；_max=-1 unbounded）
+    //   8 = GROUP        capturing `()`（_childSeq/_childCount, _groupIndex 1-based）
+    //   9 = WORD_BOUNDARY      `\b`（零宽，两侧 word-ness 不同时匹配）
+    //  10 = WORD_NON_BOUNDARY  `\B`（零宽，两侧 word-ness 相同时匹配）
     public int _kind;
     public int _ch;                    // LIT — codepoint
 
@@ -44,6 +37,7 @@ public class RegexNode {
 
     public int _groupIndex;            // GROUP (1-based)
 
+    /// 构造指定 kind 的节点（各 field 初始化为默认值）。
     public RegexNode(int kind) {
         this._kind        = kind;
         this._ch          = 0;
@@ -63,16 +57,19 @@ public class RegexNode {
         this._groupIndex  = 0;
     }
 
+    /// 构造字符字面节点。
     public static RegexNode Lit(int ch) {
         var n = new RegexNode(1);
         n._ch = ch;
         return n;
     }
 
+    /// 构造 `.` 节点（匹配任意单字符）。
     public static RegexNode Any() {
         return new RegexNode(2);
     }
 
+    /// 构造字符类 `[...]` 节点。
     public static RegexNode Charset(bool negated, int[] starts, int[] ends, int count) {
         var n = new RegexNode(3);
         n._negated     = negated;
@@ -82,18 +79,18 @@ public class RegexNode {
         return n;
     }
 
+    /// 构造 `^` 锚节点。
     public static RegexNode AnchorStart() { return new RegexNode(4); }
+    /// 构造 `$` 锚节点。
     public static RegexNode AnchorEnd()   { return new RegexNode(5); }
 
-    /// `\b` — zero-width word boundary: matches when one side of `pos` is
-    /// an ASCII word char (`[A-Za-z0-9_]`) and the other is not (or absent).
-    /// add-regex-word-boundary-multiline (2026-05-30).
+    /// 构造 `\b` 零宽词边界节点：两侧 word-ness 不同时匹配。
     public static RegexNode WordBoundary()    { return new RegexNode(9); }
 
-    /// `\B` — inverse of `\b`: matches when both sides have the same
-    /// word-ness (both word, both non-word, or both absent).
+    /// 构造 `\B` 零宽非词边界节点：两侧 word-ness 相同时匹配。
     public static RegexNode WordNonBoundary() { return new RegexNode(10); }
 
+    /// 构造交替 `a|b` 节点。
     public static RegexNode Alt(RegexNode[] left, int leftCount,
                                 RegexNode[] right, int rightCount) {
         var n = new RegexNode(6);
@@ -104,6 +101,7 @@ public class RegexNode {
         return n;
     }
 
+    /// 构造贪婪量词节点。
     public static RegexNode Quant(RegexNode[] child, int childCount, int min, int max) {
         var n = new RegexNode(7);
         n._childSeq   = child;
@@ -114,9 +112,7 @@ public class RegexNode {
         return n;
     }
 
-    /// Non-greedy quantifier (`*?`, `+?`, `??`, `{n,m}?`) — same min/max
-    /// bounds as the greedy form but `MatchQuant` tries the shortest count
-    /// first. add-regex-non-greedy (2026-05-26).
+    /// 构造惰性（非贪婪）量词节点（`*?`、`+?`、`??`、`{n,m}?`）：先试最短 count。
     public static RegexNode QuantLazy(RegexNode[] child, int childCount, int min, int max) {
         var n = new RegexNode(7);
         n._childSeq   = child;
@@ -127,6 +123,7 @@ public class RegexNode {
         return n;
     }
 
+    /// 构造捕获组节点。
     public static RegexNode Group(RegexNode[] child, int childCount, int groupIndex) {
         var n = new RegexNode(8);
         n._childSeq   = child;

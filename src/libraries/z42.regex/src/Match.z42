@@ -1,9 +1,9 @@
 namespace Std.Regex;
 
-// add-z42-regex (2026-05-16)：单次 match 的结果。
-//
-// Group 0 = 整个 match；Group i (1-based) = 第 i 个 capturing `()`。
-// 未匹配的 group（如 alt 未走中的 group）start == -1。
+/// 一次匹配的结果：由 `Find` / `FindAll` 返回。
+///
+/// Group 0 = 整个 match；Group i（1-based）= 第 i 个捕获组。没参与本次匹配的组
+/// 返回空字符串 `""`（不是 null）。
 public class Match {
     private string _input;
     private int _start;
@@ -11,12 +11,10 @@ public class Match {
     private int[] _groupStarts;
     private int[] _groupEnds;
     private int _groupCount;        // total count incl. group 0
-    // add-regex-named-groups (2026-05-26): back-reference to compiled Regex
-    // so `Group(string name)` can resolve via `_owner.GroupIndexOf(name)`.
-    // Older signature without _owner kept as a fallback constructor for any
-    // direct callers; the engine always uses the new 7-arg variant.
+    // 回指编译出的 Regex，供 GroupByName 解析命名组。
     private Regex _owner;
 
+    /// 构造一次匹配结果（记录输入、起止下标与各组捕获区间）。
     public Match(string input, int start, int end, int[] groupStarts, int[] groupEnds, int groupCount, Regex owner) {
         this._input       = input;
         this._start       = start;
@@ -27,16 +25,21 @@ public class Match {
         this._owner       = owner;
     }
 
+    /// 起始下标（含）。
     public int    Start()  { return this._start; }
+    /// 结束下标（不含）。
     public int    End()    { return this._end; }
+    /// End() - Start()。
     public int    Length() { return this._end - this._start; }
 
+    /// 整个 match 的子串，等价 Group(0)。
     public string Value() {
         return this._input.Substring(this._start, this._end - this._start);
     }
 
-    /// 返回 capturing group index (0 = entire match, 1..GroupCount = capturing groups)。
-    /// 未匹配的 group 返回空字符串。out-of-range 抛 RegexException。
+    /// 返回第 index 个捕获组（0 = 整个 match，1..GroupCount = 捕获组）。
+    ///
+    /// 没参与本次匹配的组返回空字符串；越界抛 RegexException。
     public string Group(int index) {
         if (index == 0) { return this.Value(); }
         if (index < 0 || index >= this._groupCount) {
@@ -49,9 +52,7 @@ public class Match {
         return this._input.Substring(s, e - s);
     }
 
-    /// Look up a named capture group by name. Returns the empty string when
-    /// the named group didn't participate in this match; throws when the
-    /// name isn't a declared group. add-regex-named-groups (2026-05-26).
+    /// 按名字查捕获组；没参与本次匹配返回空字符串，名字未声明则抛 RegexException。
     public string GroupByName(string name) {
         int idx = this._owner.GroupIndexOf(name);
         if (idx < 0) {
@@ -60,6 +61,6 @@ public class Match {
         return this.Group(idx);
     }
 
-    /// 不含 group 0。
+    /// 捕获组个数，不含 group 0。
     public int GroupCount() { return this._groupCount - 1; }
 }
