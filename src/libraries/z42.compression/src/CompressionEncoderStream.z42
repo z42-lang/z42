@@ -2,30 +2,19 @@ namespace Std.Compression;
 
 using Std.IO;
 
-// refactor-compression-stream-on-iostream (2026-05-24): write-through
-// encoder Stream — caller writes plaintext, encoder compresses on the
-// fly via the cdylib slot table and forwards compressed bytes to the
-// wrapped destination Stream.
-//
-// Lifecycle:
-//   * Construct → `__compressor_begin(algo, level, is_decompress=false)`
-//     allocates a slot in libz42_compression's internal handle table
-//   * Each `Write(buf, off, n)` calls `__compressor_feed` once and
-//     forwards whatever output bytes the codec produced to `_dest`
-//   * `Close()` calls `__compressor_finish` to flush remaining state
-//     + emit the footer (gzip CRC32 / zstd checksum / etc.) and
-//     forwards those bytes too. Idempotent — second Close is a no-op.
-//
-// Does NOT close the wrapped destination Stream — caller owns its
-// lifecycle. (Mirrors .NET `GZipStream(dest, mode, leaveOpen=true)`
-// semantics; safer default for pipeline composition where the same
-// dest may receive multiple compressed payloads back-to-back.)
-
+/// 写通式压缩编码流：调用方写入明文，流即时压缩并转发给被包装的 `dest`。对应
+/// `Gzip.WrapWrite(...)` 等门面的返回类型，也可直接构造。
+///
+/// 收尾字节（gzip CRC32 尾、zstd 校验等）在 `Close()` 时才写出，不关闭就是一个被截断、
+/// 解不开的输出；`Close()` 幂等。`Flush()` 是空操作。不关闭被包装的 `dest`——其生命周期
+/// 归调用方。
 public sealed class CompressionEncoderStream : Stream {
     private Stream _dest;
     private long   _slotId;
     private bool   _closed;
 
+    /// 用给定算法 `algo` 与等级 `level` 把 `dest` 包成编码流；`dest` 不可写时抛
+    /// `ArgumentException`。
     public CompressionEncoderStream(Stream dest, int algo, int level) {
         if (!dest.CanWrite()) {
             throw new ArgumentException("CompressionEncoderStream: dest Stream is not writable");
@@ -37,12 +26,16 @@ public sealed class CompressionEncoderStream : Stream {
 
     // ── Capability ───────────────────────────────────────────────────────
 
+    /// `Close()` 前为 `true`，关闭后为 `false`。
     override bool CanWrite() { return !this._closed; }
+    /// 编码流不可读。
     override bool CanRead()  { return false; }
+    /// 编码流不可定位。
     override bool CanSeek()  { return false; }
 
     // ── Write — feed plaintext, forward compressed bytes to dest ─────────
 
+    /// 写入明文；压缩后即时转发给 `dest`。
     override void Write(byte[] buffer, int offset, int count) {
         if (this._closed) {
             throw new InvalidOperationException("CompressionEncoderStream: stream is closed");
@@ -71,6 +64,7 @@ public sealed class CompressionEncoderStream : Stream {
         }
     }
 
+    /// 空操作：待压缩状态只能由 `Close()` 释放。
     override void Flush() {
         // DEFLATE / zstd don't expose a stable mid-stream flush in the
         // v0 cdylib API. Caller-side `Flush()` is a no-op; the actual
@@ -78,6 +72,7 @@ public sealed class CompressionEncoderStream : Stream {
         // Tracked in compression.md Deferred → `compression-future-mid-stream-flush`.
     }
 
+    /// 写出收尾字节并释放槽位；幂等。不关闭 `dest`。
     override void Close() {
         if (this._closed) { return; }
         // Drain and emit the codec's footer / final flush bytes.

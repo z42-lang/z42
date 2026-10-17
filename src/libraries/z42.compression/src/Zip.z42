@@ -3,30 +3,16 @@ namespace Std.Archive;
 using Std.IO;
 using Std.Compression;
 
-// add-z42-compression (2026-05-22): Zip archive reader (PKWARE
-// APPNOTE.TXT v6.3.x). Pure z42 parsing of the local file header /
-// central directory / EOCD; per-entry payload decompression goes
-// through `Std.Compression.Deflate` for method=8 (DEFLATE) entries.
-// method=0 (STORE) is also supported.
-//
-// v0 scope:
-//   - Read-side only (Write deferred to `add-z42-compression-zip-write`
-//     follow-up — needs `byte[][]` array-of-array support in z42 to
-//     express the natural implementation; v0 ships the high-impact
-//     extraction use case for the former `setup-tools.sh` NDK/SDK unzipping)
-//   - methods 0 (STORE) and 8 (DEFLATE) only
-//   - no encryption (method 99 / strong encryption)
-//   - no ZIP64 extra fields (archives < 4 GB, fewer than 65 535 entries)
-//   - filenames assumed UTF-8 (general purpose bit 11 set; older
-//     CP437/GBK archives produce mojibake names — pax exception left
-//     to v1)
-//   - no central directory comments
-
+/// zip 归档中的单个条目。
 public class ZipEntry {
+    /// 条目名。
     public string Name;
+    /// 条目内容（始终是解压后的明文）。
     public byte[] Content;
-    public int    CompressionMethod;  // 0 = STORE, 8 = DEFLATE
+    /// 压缩方法：0 = STORE，8 = DEFLATE。
+    public int    CompressionMethod;
 
+    /// 用名字、内容与压缩方法构造条目。
     public ZipEntry(string name, byte[] content, int compressionMethod) {
         this.Name              = name;
         this.Content           = content;
@@ -34,6 +20,8 @@ public class ZipEntry {
     }
 }
 
+/// zip（PKWARE APPNOTE.TXT）归档的读写与解包。纯 z42 实现，per-entry 解压走
+/// `Std.Compression.Deflate`。
 public static class Zip {
     // PKWARE signatures
     private static int _sigLocalFileHeader  = 0x04034b50;  // "PK\x03\x04"
@@ -44,6 +32,8 @@ public static class Zip {
 
     // ── Read ────────────────────────────────────────────────────────
 
+    /// 解析 zip 字节为条目数组（`Content` 已解压）。输入短于 22 字节（EOCD 最小长度）抛
+    /// `ArchiveException`。
     public static ZipEntry[] Read(byte[] zipBytes) {
         if (zipBytes.Length < 22) {
             throw new ArchiveException("zip archive too small (< 22 bytes EOCD)");
@@ -106,29 +96,10 @@ public static class Zip {
         return result;
     }
 
-    // ── Write (add-zip-write 2026-05-27) ────────────────────────────────
-    //
-    // Build a `.zip` archive byte[] from in-memory entries. Each entry's
-    // `CompressionMethod` field selects STORE (0, no compression) or
-    // DEFLATE (8, via `Std.Compression.Deflate.Compress`).
-    //
-    // Single-buffer layout (the "2-pass workaround" alternative to
-    // `byte[][]`): one growable buffer accumulates LFH+name+data per
-    // entry while we record offsets; then we append the central
-    // directory entries; then the EOCD. The "2-pass" name is historical
-    // — actually it's a one-pass write with parallel arrays tracking
-    // per-entry offsets / sizes / CRCs.
-    //
-    // v0 scope:
-    //   - Methods 0 (STORE) and 8 (DEFLATE) only — matches Read
-    //   - General-purpose-bit-flag UTF-8 marker (bit 11) always set —
-    //     names assumed UTF-8 to match Read
-    //   - DOS modification time = 1980-01-01 00:00:00 (Zip's epoch);
-    //     mtime preservation is a follow-up
-    //   - No ZIP64 (< 4 GB archive, < 65 535 entries)
-    //   - No encryption / extra fields / comments
-    //
-    // CRC-32: polynomial 0xEDB88320 (reflected), table-driven.
+    // ── Write ────────────────────────────────────────────────────────
+
+    /// 逐条按 `CompressionMethod` 打包成 zip 字节；method 不是 0 / 8 抛 `ArchiveException`。
+    /// 空条目表产出 22 字节（只有 EOCD）的合法空归档。时间戳固定为 1980-01-01。
     public static byte[] Write(ZipEntry[] entries) {
         // Pass 1: precompute per-entry compressed data + CRC + offsets.
         // Aggregate written-so-far counter is the LFH offset.
@@ -306,6 +277,7 @@ public static class Zip {
         return r;
     }
 
+    /// 按名字精确匹配取出条目内容；找不到抛 `ArchiveException`。
     public static byte[] ExtractFile(byte[] zipBytes, string name) {
         ZipEntry[] entries = Read(zipBytes);
         int i = 0;
@@ -318,14 +290,8 @@ public static class Zip {
         throw new ArchiveException("zip: entry '" + name + "' not found");
     }
 
-    // add-zip-extractall (2026-05-27): extract every entry to destDir.
-    // Mirrors `Tar.ExtractTo`. Entry names ending in `/` are directories
-    // (created but no file written). Zip-Slip prevention identical:
-    // reject names with absolute paths or `..` segments. Returns number
-    // of files written (directory entries don't count).
-    //
-    // Companion `CreateFromDirectory` is deferred — requires `Zip.Write`
-    // which is itself deferred (`compression-future-zip-write`).
+    /// 解包到 `destDir`，返回写出的文件数；名字以 `/` 结尾的条目当目录处理（建目录、不计数）。
+    /// 同样有 Zip-Slip 防御。
     public static int ExtractAllTo(byte[] zipBytes, string destDir) {
         Directory.Create(destDir);
         ZipEntry[] entries = Zip.Read(zipBytes);
@@ -400,11 +366,9 @@ public static class Zip {
     }
 
     private static string _ReadStr(byte[] bytes, int offset, int len) {
-        // add-zip-extractall (2026-05-27): `new string(chars)` returns a
-        // GcRef-wrapped namespace-local "Std.Archive.string" type rather
-        // than the primitive `Std.String`, breaking downstream CharAt /
-        // Length / Split calls. Switch to documented `String.FromChars`
-        // intrinsic. (Same latent bug Tar._ReadStr had until 2026-05-26.)
+        // `new string(chars)` 返回的是 GcRef 包装的命名空间局部 "Std.Archive.string"
+        // 类型而非原始 `Std.String`，会破坏下游 CharAt / Length / Split 调用；
+        // 改用 `String.FromChars`。
         char[] chars = new char[len];
         int i = 0;
         while (i < len) {
@@ -415,28 +379,28 @@ public static class Zip {
     }
 }
 
-// add-zip-write (2026-05-27): grow-on-append byte buffer used by
-// `Zip.Write` to assemble the archive in a single pass. Keeps the
-// implementation self-contained (no dependency on z42.io's
-// MemoryStream or any other List-style abstraction); doubles capacity
-// on overflow.
+/// 供 `Zip.Write` 使用的可增长字节缓冲，单趟组装归档；容量不足时翻倍。
 public class _GrowBuf {
     private byte[] _buf;
     private int    _count;
 
+    /// 构造初始容量为 256 字节的缓冲。
     public _GrowBuf() {
         this._buf = new byte[256];
         this._count = 0;
     }
 
+    /// 返回已累积的字节数。
     public int Count() { return this._count; }
 
+    /// 追加一个字节。
     public void AppendU8(int v) {
         this._ensure(1);
         this._buf[this._count] = (byte)(v & 0xFF);
         this._count = this._count + 1;
     }
 
+    /// 以小端序追加 16 位无符号整数。
     public void AppendU16LE(int v) {
         this._ensure(2);
         this._buf[this._count]     = (byte)(v & 0xFF);
@@ -444,9 +408,8 @@ public class _GrowBuf {
         this._count = this._count + 2;
     }
 
-    /// `long` argument keeps the high-bit semantics clean for full u32
-    /// range (CRC-32 of 0xFFFF_FFFF etc.). Caller passes the value as
-    /// long; low 32 bits get emitted little-endian.
+    /// 以小端序追加 32 位无符号整数。`long` 参数让高位处于干净的语义内（如 0xFFFF_FFFF
+    /// 的 CRC-32 等），低 32 位被写出。
     public void AppendU32LE(long v) {
         this._ensure(4);
         this._buf[this._count]     = (byte)(v & 0xFFL);
@@ -456,6 +419,7 @@ public class _GrowBuf {
         this._count = this._count + 4;
     }
 
+    /// 追加一段字节。
     public void AppendBytes(byte[] data) {
         this._ensure(data.Length);
         int i = 0;
@@ -466,7 +430,7 @@ public class _GrowBuf {
         this._count = this._count + data.Length;
     }
 
-    /// Return a tightly-sized copy of the accumulated bytes.
+    /// 返回已累积字节的紧凑副本。
     public byte[] Finish() {
         byte[] r = new byte[this._count];
         int i = 0;

@@ -2,13 +2,7 @@ namespace Std.Compression;
 
 using Std.IO;
 
-// add-z42-compression (2026-05-22): Zstandard (RFC 8478 / RFC 8878).
-// Better compression ratio than gzip at similar speed; the modern
-// default for cargo, NPM, Arch, Debian etc.
-//
-// refactor-compression-stream-on-iostream (2026-05-24): see Gzip.z42
-// for the API shape rationale.
-
+/// Zstandard（RFC 8878）压缩/解压：一次性 `byte[]` API 及 `Std.IO.Stream` 流式封装。
 public static class Zstd {
     [Native(lib = "z42_compression", entry = "__zstd_compress")]
     private static extern byte[] _CompressRaw(byte[] data, int level);
@@ -16,26 +10,32 @@ public static class Zstd {
     [Native(lib = "z42_compression", entry = "__zstd_decompress")]
     private static extern byte[] _DecompressRaw(byte[] data);
 
+    /// 用默认等级（3）把 `data` 压缩成 Zstandard 字节。
     public static byte[] Compress(byte[] data) {
         return _CompressRaw(data, Compression.ZstdDefault);
     }
 
+    /// 用给定等级（1..22）把 `data` 压缩成 Zstandard 字节。
     public static byte[] Compress(byte[] data, int level) {
         return _CompressRaw(data, level);
     }
 
+    /// 解压 Zstandard 字节为明文。
     public static byte[] Decompress(byte[] data) {
         return _DecompressRaw(data);
     }
 
+    /// 把 `dest` 包装成 Zstandard 编码流（默认等级）。
     public static Stream WrapWrite(Stream dest) {
         return new CompressionEncoderStream(dest, AlgoId.Zstd, Compression.ZstdDefault);
     }
 
+    /// 把 `dest` 包装成 Zstandard 编码流（给定等级 1..22）。
     public static Stream WrapWrite(Stream dest, int level) {
         return new CompressionEncoderStream(dest, AlgoId.Zstd, level);
     }
 
+    /// 把 `src` 包装成 Zstandard 解码流。
     public static Stream WrapRead(Stream src) {
         return new CompressionDecoderStream(src, AlgoId.Zstd);
     }

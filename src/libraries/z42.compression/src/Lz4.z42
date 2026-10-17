@@ -1,19 +1,6 @@
 namespace Std.Compression;
 
-
-// add-z42-compression-lz4 (2026-05-27): LZ4 frame format (the standard
-// `.lz4` file format wrapping raw LZ4 block compression — magic +
-// descriptor + blocks + EndMark). Pure-Rust `lz4_flex` backend works
-// on every target including wasm32.
-//
-// LZ4 is the speed-over-ratio algorithm: 2-3× faster than deflate at
-// similar speed-tier ratios; common for hot-path workloads (Kafka
-// message compression, ClickHouse columnar storage, MongoDB WiredTiger,
-// game-asset packing). For ratio-critical workloads pick Zstd or Brotli.
-//
-// LZ4 has no compression-level dial in the base algorithm — the API
-// accepts a level arg for symmetry with other algos but ignores it.
-// (The "LZ4 HC" variant lives in separate crates; deferred.)
+/// LZ4 frame（`.lz4`）压缩/解压：速度优先，仅一次性 API。
 public static class Lz4 {
     [Native(lib = "z42_compression", entry = "__lz4_compress")]
     private static extern byte[] _CompressRaw(byte[] data, int level);
@@ -21,18 +8,18 @@ public static class Lz4 {
     [Native(lib = "z42_compression", entry = "__lz4_decompress")]
     private static extern byte[] _DecompressRaw(byte[] data);
 
+    /// 把 `data` 压缩成 `.lz4` frame 字节。
     public static byte[] Compress(byte[] data) {
         return _CompressRaw(data, 0);
     }
 
-    /// Level is accepted for API parity but ignored — LZ4 base format
-    /// has no level knob. Use Brotli / Zstd if you need a ratio dial.
+    /// `level` 为与其他算法保持形参对称而接受，但被忽略——LZ4 基础格式没有等级旋钮；
+    /// 需要压缩比调节时用 Brotli / Zstd。
     public static byte[] Compress(byte[] data, int level) {
         return _CompressRaw(data, level);
     }
 
-    /// Decompress a `.lz4` frame-format byte stream.
-    /// Throws `CompressionException` on malformed input.
+    /// 解压 `.lz4` frame 字节为明文。
     public static byte[] Decompress(byte[] data) {
         return _DecompressRaw(data);
     }

@@ -2,29 +2,16 @@ namespace Std.Archive;
 
 using Std.IO;
 
-// add-z42-compression (2026-05-22): ustar archive (POSIX 1003.1-1988).
-// Pure z42 — no FFI dependency. Tar is an archive format only (no
-// compression); pair with `Std.Compression.Gzip` / `Zstd` etc. when
-// you want `.tar.gz` / `.tar.zst`.
-//
-// v0 scope: ustar format (the modern GNU tar / bsdtar default).
-//   - regular files (typeflag '0' or '\0')
-//   - 100-byte name + 155-byte prefix (long-name handling via prefix
-//     concatenation)
-//   - pax extended headers（'x' 逐条目：`path` 覆盖下一个条目的名字，其余键如 xattr 忽略；'g' 全局头跳过）
-//     与 GNU 长名（'L'：payload 即下一个条目的名字）——macOS bsdtar、新版 GNU tar 默认就会写它们
-//   - octal sizes / modes
-//   - 512-byte blocks with NUL padding
-//   - 2 × 512 NUL trailer marks EOF
-//
-// Out of scope (deferred): sparse files, symlinks with content, hard links, device files. Bytes of
-// an unsupported entry type produce an `ArchiveException`.
-
+/// tar 归档中的单个条目。
 public class TarEntry {
+    /// 条目名（含路径）。
     public string Name;
+    /// 条目内容字节。
     public byte[] Content;
+    /// POSIX 权限位。
     public int    Mode;
 
+    /// 用名字、内容与权限位构造条目。
     public TarEntry(string name, byte[] content, int mode) {
         this.Name    = name;
         this.Content = content;
@@ -32,9 +19,12 @@ public class TarEntry {
     }
 }
 
+/// ustar（POSIX 1003.1-1988）tar 归档的读写与解包。纯 z42 实现，无 FFI 依赖。
 public static class Tar {
     // ── Read ────────────────────────────────────────────────────────
 
+    /// 解析 tar 字节为条目数组。空输入返回 0 条；长度不是 512 的倍数、或遇到非普通文件
+    /// 条目时抛 `ArchiveException`。
     public static TarEntry[] Read(byte[] tarBytes) {
         if (tarBytes.Length == 0) {
             return new TarEntry[0];
@@ -131,6 +121,7 @@ public static class Tar {
 
     // ── Write ───────────────────────────────────────────────────────
 
+    /// 把条目序列化成完整归档字节。名字写入 100 字节 name 字段，不使用 ustar 的 prefix 扩展。
     public static byte[] Write(TarEntry[] entries) {
         // Compute total output size: 512 header + padded payload per
         // entry + 2*512 zero trailer.
@@ -164,24 +155,9 @@ public static class Tar {
         return result;
     }
 
-    // ── WriteStream (add-tar-write-stream 2026-05-27) ───────────────
-    //
-    // Streaming variant of `Write`: serialise entries directly to a
-    // Stream instead of returning a byte[]. Symmetric with
-    // `ExtractStream` on the read side. Working set is one 512-byte
-    // header buffer + the current entry's content; the dest Stream
-    // can forward to a Gzip/Zstd encoder for `.tar.gz` / `.tar.zst`
-    // pipelines without ever materialising the whole archive:
-    //
-    //   var outFs = new FileStream(tgzPath, FileMode.Write);
-    //   try {
-    //       Stream gz = Gzip.WrapWrite(outFs);
-    //       try { Tar.WriteStream(entries, gz); }
-    //       finally { gz.Close(); }  // flushes gzip footer
-    //   } finally { outFs.Close(); }
-    //
-    // Does NOT close `dest` — caller owns its lifecycle (matches
-    // CompressionEncoderStream / StreamWriter convention).
+    // ── WriteStream ──────────────────────────────────────────────────
+
+    /// 同 `Write` 但直接把条目序列化写进 `dest`，不在内存里攒完整归档；不关闭 `dest`。
     public static void WriteStream(TarEntry[] entries, Stream dest) {
         byte[] header = new byte[512];
         byte[] pad    = new byte[512];  // reusable scratch for tail-padding
@@ -211,20 +187,10 @@ public static class Tar {
         dest.Write(pad, 0, 512);
     }
 
-    // ── Extract (add-tar-extract-to 2026-05-26) ─────────────────────
-    //
-    // Decode `tarBytes`, write every regular-file entry to `destDir`
-    // (creating intermediate directories as needed), and set the
-    // executable bit when any of u/g/o exec bits are set in the entry
-    // mode. Returns the number of entries extracted.
-    //
-    // 用于把 bash `tar -xzf foo.tar.gz -C dest` 移植成 z42：
-    //   byte[] tarBytes = Gzip.Decompress(File.ReadAllBytes(tgzPath));
-    //   int n = Tar.ExtractTo(tarBytes, destDir);
-    //
-    // 安全：拒绝 entry name 含 `..` segment 或绝对路径（Zip Slip CVE
-    // 防御）。不安全模式留 backlog；当前所有调用都走严格路径。
+    // ── Extract ──────────────────────────────────────────────────────
 
+    /// 解包到 `destDir`（自动建目录），返回写出的文件数；`Mode` 带任一执行位时给目标文件
+    /// 加可执行位。
     public static int ExtractTo(byte[] tarBytes, string destDir) {
         Directory.Create(destDir);
         TarEntry[] entries = Tar.Read(tarBytes);
@@ -257,24 +223,9 @@ public static class Tar {
         }
     }
 
-    // ── ExtractStream (add-tar-extract-stream 2026-05-27) ───────────────
-    //
-    // Streaming variant of ExtractTo: reads tar blocks from `src` 512
-    // bytes at a time instead of requiring the entire archive in memory.
-    // Pairs naturally with the now-streaming `Gzip.WrapRead` for
-    // `.tar.gz` extraction:
-    //
-    //   FileStream tgz = new FileStream(path, FileMode.Read);
-    //   try { Tar.ExtractStream(Gzip.WrapRead(tgz), destDir); }
-    //   finally { tgz.Close(); }
-    //
-    // Avoids the ~250 MB peak working set that `ExtractTo` produces on
-    // 30 MB tarballs (whole archive + per-entry Content byte[] all live
-    // at once).
-    //
-    // Same Zip-Slip protection as `ExtractTo`. Returns number of entries
-    // extracted. Throws `ArchiveException` on truncated input / unsupported
-    // typeflag, `IOException` on stream read failure.
+    // ── ExtractStream ────────────────────────────────────────────────
+
+    /// 边读边解，适合大归档；除普通文件外还接受目录条目；缺结尾全零块时按正常结束处理。
     public static int ExtractStream(Stream src, string destDir) {
         Directory.Create(destDir);
         byte[] header = new byte[512];
@@ -407,11 +358,8 @@ public static class Tar {
         return found;
     }
 
-    /// Read exactly `count` bytes from `s` into `buf[offset..]`, looping
-    /// over short reads. Returns the number actually read (less than
-    /// count only at EOF). Mirrors `Stream.ReadExactly` semantics but
-    /// returns the count instead of throwing on EOF — caller decides if
-    /// short = error or clean stop.
+    // 精确读 `count` 字节到 `buf[offset..]`，循环处理短读；返回实际读到的字节数
+    // （仅在 EOF 时可能小于 count）。不抛异常，由调用方决定短读是错误还是正常结束。
     private static int _ReadFull(Stream s, byte[] buf, int offset, int count) {
         int total = 0;
         while (total < count) {
@@ -463,9 +411,8 @@ public static class Tar {
             }
             end = end + 1;
         }
-        // add-tar-extract-to (2026-05-26): `new string(chars)` returned Null
-        // for empty char arrays in z42; switch to documented `String.FromChars`
-        // intrinsic. Affected all-NUL prefix fields (typical ustar headers).
+        // `new string(chars)` 对空 char 数组会返回 Null；改用 `String.FromChars`。
+        // 影响全 NUL 的 prefix 字段（典型的 ustar 头）。
         char[] chars = new char[end];
         int i = 0;
         while (i < end) {
