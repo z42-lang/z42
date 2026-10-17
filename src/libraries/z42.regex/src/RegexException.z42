@@ -1,10 +1,11 @@
 namespace Std.Regex;
 
-// add-z42-regex (2026-05-16)：Regex compile / match 错误。
-//
-// 主要用于 Regex.Compile 阶段（非法 pattern）；运行时 Match 引擎不抛此异常
-// （internal errors 走通用 InvalidOperationException）。
+/// Regex 编译 / 匹配错误。
+///
+/// 由 Regex.Compile（非法 pattern）和 Match.Group / Match.GroupByName（下标越界 /
+/// 名字未声明）抛出。匹配过程本身不抛这个异常。
 public class RegexException : Exception {
+    /// 用错误信息构造异常。
     public RegexException(string message) : base(message) {}
 
     override string ToString() {

@@ -16,6 +16,7 @@ pathological pattern（`(a+)+x` 类）下可能指数时间 — 详 `docs/refere
 | `src/RegexException.z42` | `Std.RegexException`（compile-time errors） |
 
 ## 入口点
+公开 API 的完整签名见 [reference 包页](../../../docs/reference/src/stdlib/regex.md)（由源码 doc 注释生成）。
 
 ```z42
 using Std.Regex;

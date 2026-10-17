@@ -1,30 +1,29 @@
 namespace Std.Regex;
 
-// add-z42-regex (2026-05-16)：pattern string → RegexNode[] AST。
-//
-// 手写递归下降 parser，cursor 风格。Grammar:
-//
-//   pattern := alt
-//   alt     := concat ('|' concat)*
-//   concat  := quantified*
-//   quantified := atom ('?' | '*' | '+' | '{' n '}' | '{' n ',' m? '}')?
-//   atom    := '(' alt ')' | '[' charset ']' | '.' | '^' | '$' | escape | literal
-//   escape  := '\' (metachar | 'n' | 't' | 'r' | 'd' | 'D' | 'w' | 'W' | 's' | 'S')
-//
-// 失败抛 `Std.Regex.RegexException`。capturing group 编号从 1 开始，按 '(' 出现顺序分配。
+/// 手写递归下降 parser：把 pattern 字符串解析为 RegexNode[] AST。
+///
+/// 语法错误抛 `Std.Regex.RegexException`；capturing group 编号从 1 开始，
+/// 按 `(` 出现顺序分配。属引擎内部结构，不构成稳定 API。
 public class RegexParser {
+    // 手写递归下降，cursor 风格。Grammar（实现笔记）：
+    //   pattern    := alt
+    //   alt        := concat ('|' concat)*
+    //   concat     := quantified*
+    //   quantified := atom ('?' | '*' | '+' | '{' n '}' | '{' n ',' m? '}')?
+    //   atom       := '(' alt ')' | '[' charset ']' | '.' | '^' | '$' | escape | literal
+    //   escape     := '\' (metachar | 'n' | 't' | 'r' | 'd' | 'D' | 'w' | 'W' | 's' | 'S')
     private string _src;
     private int _pos;
     private int _nextGroup;
-    public int GroupCount;       // 解析完成后 = 已分配的 group 数（不含 group 0 = 整个 match）
+    /// 解析完成后 = 已分配的 group 数（不含 group 0 = 整个 match）。
+    public int GroupCount;
 
-    // add-regex-named-groups (2026-05-26): parallel arrays mapping declared
-    // name → 1-based capture index, exposed for Regex.Compile to forward
-    // into the compiled Regex.
+    /// 命名组名 → 1-based 捕获下标 的并行数组；供 Regex.Compile 转发进编译结果。
     public string[] GroupNames;
     public int[]    GroupIndices;
     public int      NamedGroupCount;
 
+    /// 用待解析的 pattern 字符串构造 parser。
     public RegexParser(string src) {
         this._src            = src;
         this._pos            = 0;
@@ -62,11 +61,12 @@ public class RegexParser {
         this.NamedGroupCount = this.NamedGroupCount + 1;
     }
 
-    /// 入口：parse 完整 pattern，返回 RegexNode[] + 实际 count（通过 _resultCount 字段）。
-    /// 调用方先 ParsePattern，再读 ResultNodes / ResultCount / GroupCount。
+    /// 解析结果：RegexNode[] AST，配合 ResultCount 使用。
     public RegexNode[] ResultNodes;
+    /// 实际节点数（与 ResultNodes 配对）。
     public int ResultCount;
 
+    /// 入口：解析完整 pattern；调用后读 ResultNodes / ResultCount / GroupCount。
     public void ParsePattern() {
         this.ParseAlt(false);
         if (this._pos < this._src.Length) {
@@ -81,7 +81,7 @@ public class RegexParser {
         // _parseConcat 直接写 ResultNodes/ResultCount（z42 array reassignment 不
         // 跨方法调用栈传递 — pass-by-value 引用槽位；早期版本用 `buf` 参数 +
         // return count，结果 grow 后的新 array 丢在 callee local 里，导致大 pattern
-        // 触发 array index OOB（fix-regex-parser-buffer-grow, 2026-05-16）。
+        // 触发数组越界）。
         this.ParseConcat(inGroup);
         RegexNode[] leftBuf = this.ResultNodes;
         int leftN = this.ResultCount;
@@ -151,8 +151,7 @@ public class RegexParser {
             isQuant = true;
         }
         if (!isQuant) { return atom; }
-        // Non-greedy marker: `?` after a quantifier (`*?`, `+?`, `??`,
-        // `{n,m}?`). add-regex-non-greedy (2026-05-26).
+        // 惰性标记：量词后的 `?`（`*?`、`+?`、`??`、`{n,m}?`）。
         bool greedy = true;
         if (!this.Eof() && this.Peek() == '?') {
             greedy = false;
@@ -195,9 +194,8 @@ public class RegexParser {
                     this.Advance();
                     nonCapturing = true;
                 } else if (!this.Eof() && this.Peek() == '<') {
-                    // `(?<name>…)` named capturing group — add-regex-named-
-                    // groups (2026-05-26). Name chars: ASCII alphanumerics +
-                    // `_`; must start with non-digit; must be unique in pattern.
+                    // `(?<name>…)` 命名捕获组。名字字符：ASCII 字母数字 + `_`；
+                    // 必须以非数字开头，且 pattern 内唯一。
                     this.Advance();
                     int nameStart = this._pos;
                     if (this.Eof()) {
@@ -293,9 +291,7 @@ public class RegexParser {
             s[3] = 13; f[3] = 13;   // \r
             return RegexNode.Charset(e == 'S', s, f, 4);
         }
-        // add-regex-word-boundary-multiline (2026-05-30): zero-width word
-        // boundary assertions. Inside `[...]` the parser still routes
-        // through ParseCharsetChar where `\b` remains literal `b`.
+        // 零宽词边界断言。`[...]` 内仍走 ParseCharsetChar，`\b` 保持字面 `b`。
         if (e == 'b') { return RegexNode.WordBoundary(); }
         if (e == 'B') { return RegexNode.WordNonBoundary(); }
         // metachar literal escape：\. \\ \* 等
