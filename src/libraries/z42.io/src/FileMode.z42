@@ -1,23 +1,11 @@
 namespace Std.IO;
 
-// add-z42-io-filestream (2026-05-24): how `FileStream(path, mode)`
-// opens the underlying OS handle.
-//
-// Names mirror .NET `System.IO.FileMode` but the set is intentionally
-// minimal — only the three modes the v0 VM-side `__file_open` accepts.
-// Future modes (Create, OpenOrCreate, Truncate) trigger a corelib
-// builtin extension before being added here.
-//
-// Semantics:
-//   * Read   — open existing for read; missing file → FileNotFoundException,
-//              missing directory → DirectoryNotFoundException (both IOException)
-//   * Write  — create-or-truncate for write; existing content lost
-//   * Append — create-if-missing, writes always at EOF (O_APPEND on
-//              POSIX); seek is a no-op on the write path so the
-//              `FileStream` facade reports `CanSeek() == false`
-
+/// FileStream(path, mode) 的打开模式常量。
 public static class FileMode {
+    /// 打开已有文件读。
     public static int Read   = 0;
+    /// 创建或截断写入。
     public static int Write  = 1;
+    /// 不存在则创建，写入永远落在文件末尾。
     public static int Append = 2;
 }

@@ -1,38 +1,24 @@
 namespace Std.IO;
 
-// 2026-05-13 add-std-process: cross-platform command execution.
-//
-// Builder-style API mirrors `std::process::Command` and
-// `System.Diagnostics.Process` — argv数组进出，不走 shell，stdio 三态
-// 用 [Stdio](Stdio.z42)。 详见 [add-std-process design.md].
-//
-// 用法：
-//   var r = new Process("cargo").Arg("build").Arg("--release")
-//       .WorkingDirectory("src/runtime")
-//       .Env("RUSTFLAGS", "-C opt-level=3")
-//       .Run();
-//   r.EnsureSuccess();
-// Generic class fields with `List<string>` are not supported by the
-// current parser, so we accumulate argv / env via grow-on-append
-// string[] pairs. Argv lengths are tiny (< 100 typical), so the
-// O(n²) cost is negligible.
+/// builder 形态的子进程执行入口：argv 数组进出、不经 shell，stdio 三路各自可配。
 public class Process {
     private string _program;
     private string[] _args;        private int _argCount;
     private string[] _envKeys;     private int _envCount;
-    private string[] _envVals;     // grows in lockstep with _envKeys
+    private string[] _envVals;     // 与 _envKeys 同步增长
     private string[] _envRemove;   private int _envRemoveCount;
     private bool _envClear;
-    private string _cwd;          // empty string when _hasCwd == false
+    private string _cwd;          // _hasCwd == false 时为空串
     private bool _hasCwd;
     private Stdio _stdin;
     private Stdio _stdout;
     private Stdio _stderr;
-    private byte[] _stdinBytes;   // null = no one-shot stdin
+    private byte[] _stdinBytes;   // null = 无一次性 stdin
     private bool _hasStdinBytes;
-    private long _timeoutMs;      // -1 = no timeout
-    private bool _ownProcessGroup; // true = child gets its own process group (default; enables run-timeout tree-kill)
+    private long _timeoutMs;      // -1 = 不限时
+    private bool _ownProcessGroup; // true = 子进程获得自己的进程组（默认，支持运行时超时树杀）
 
+    /// 指定可执行文件名或路径；名字不含分隔符时按 $PATH 查找。
     public Process(string program) {
         this._program        = program;
         this._args           = new string[4];
@@ -53,12 +39,14 @@ public class Process {
         this._ownProcessGroup = true;
     }
 
+    /// 追加一个 argv；不经 shell，特殊字符不会被展开。
     public Process Arg(string a) {
         this._args = AppendString(this._args, this._argCount, a);
         this._argCount = this._argCount + 1;
         return this;
     }
 
+    /// 批量追加 argv。
     public Process Args(string[] xs) {
         int i = 0;
         while (i < xs.Length) {
@@ -69,12 +57,14 @@ public class Process {
         return this;
     }
 
+    /// 设置子进程工作目录；不设则继承调用方。
     public Process WorkingDirectory(string d) {
         this._cwd = d;
         this._hasCwd = true;
         return this;
     }
 
+    /// 在继承的环境之上覆盖 / 新增一项。
     public Process Env(string k, string v) {
         this._envKeys = AppendString(this._envKeys, this._envCount, k);
         this._envVals = AppendString(this._envVals, this._envCount, v);
@@ -82,48 +72,45 @@ public class Process {
         return this;
     }
 
+    /// 从继承的环境里删掉一项。
     public Process EnvRemove(string k) {
         this._envRemove = AppendString(this._envRemove, this._envRemoveCount, k);
         this._envRemoveCount = this._envRemoveCount + 1;
         return this;
     }
+
+    /// 完全不继承调用方环境。
     public Process ClearEnv() { this._envClear = true; return this; }
 
+    /// 配置 stdin；默认 Null()。
     public Process Stdin(Stdio s)  { this._stdin = s;  return this; }
+    /// 配置 stdout；默认 Pipe()。
     public Process Stdout(Stdio s) { this._stdout = s; return this; }
+    /// 配置 stderr；默认 Pipe()。
     public Process Stderr(Stdio s) { this._stderr = s; return this; }
 
+    /// 一次性喂给子进程 stdin 的负载，写完即关；必须配 Stdin(Stdio.Pipe()) 才生效。
     public Process StdinBytes(byte[] b) {
         this._stdinBytes = b;
         this._hasStdinBytes = true;
         return this;
     }
 
-    // Milliseconds. -1 disables the timeout. `Std.Time.TimeSpan` overload
-    // arrives once z42.time lands (currently待 add-z42-time spec).
+    /// 设置超时（毫秒，-1 不限时）；超时抛 ProcessTimeoutException，只对 Run() 生效。
     public Process Timeout(long milliseconds) {
         this._timeoutMs = milliseconds;
         return this;
     }
 
-    // Run the child in the CALLER's process group instead of a fresh one of its own.
-    // Needed when the child must join the caller's terminal job-control — an interactive
-    // passthrough child (`Stdin(Stdio.Inherit())`) that drives the tty. A fresh process
-    // group is a *background* group for the controlling terminal, so the child cannot
-    // grab the tty (a line editor / rustyline REPL fails to init) and its tty reads stop
-    // on SIGTTIN. `z42 repl` forwarding the interactive REPL uses this. Trade-off: the
-    // run-timeout tree-kill can no longer group-kill grandchildren — fine for an
-    // interactive child, which never carries a timeout. Only affects `Run()` (Spawn is
-    // never a tty passthrough). Default: own process group (tree-kill preserved).
+    /// 让子进程留在调用方的进程组里；仅交互式 tty 透传时需要。
     public Process ShareProcessGroup() {
         this._ownProcessGroup = false;
         return this;
     }
 
-    // ── Run / Spawn ──────────────────────────────────────────────────────
+    // ── Run / Spawn ──────────────────────────────────────────
 
-    // 启动失败抛 ProcessStartException、超时抛 ProcessTimeoutException（VM 直接抛，见
-    // z42.core 的 ProcessNative）。退出码非 0 不抛——要 fail-fast 就调 EnsureSuccess()。
+    /// 同步跑到结束，返回 ProcessResult；退出码非 0 不抛（要 fail-fast 调 EnsureSuccess()）。
     public ProcessResult Run() {
         object[] raw = ProcessNative.RunSync(
             this._program,
@@ -144,24 +131,14 @@ public class Process {
         return ProcessResult.FromNative(this._program, raw);
     }
 
-    // ── Static helpers ───────────────────────────────────────────────────
+    // ── 静态辅助 ─────────────────────────────────────────────
 
-    // add-process-which (2026-05-26): locate an executable on `$PATH`.
-    //
-    // Returns the absolute or relative path actually resolved (matches the
-    // form stored in $PATH), or `null` when not found. Mirrors POSIX
-    // `command -v` and Windows `where` — names containing a path separator
-    // bypass PATH and stat the file directly; otherwise each PATH entry
-    // (and on Windows each `PATHEXT` suffix) is tried in order, first hit
-    // wins.
-    //
-    // Use case: setup-tools / test-all 风格脚本里 gate 命令存在性，例如
-    //   if (Process.Which("cargo") == null) { ... install ... }
+    /// 按 $PATH（Windows 上还按 PATHEXT）定位可执行文件，返回解析到的路径，找不到返回 null。
     public static string? Which(string name) {
         return ProcessNative.Which(name);
     }
 
-    // 启动失败抛 ProcessStartException。
+    /// 立刻返回 ProcessHandle，子进程在后台跑；启动失败抛 ProcessStartException。
     public ProcessHandle Spawn() {
         long slotId = ProcessNative.Start(
             this._program,
@@ -179,11 +156,9 @@ public class Process {
         return new ProcessHandle(this._program, slotId);
     }
 
-    // ── internals ────────────────────────────────────────────────────────
+    // ── 内部 ────────────────────────────────────────────────
 
-    // Grow-on-overflow append: caller owns the count separately. Returns
-    // either the same array (when there is spare capacity) or a new
-    // doubled-capacity copy.
+    // 溢出时增长的追加：调用方单独维护 count；返回原数组或新的双倍容量副本。
     private static string[] AppendString(string[] arr, int count, string v) {
         if (count < arr.Length) {
             arr[count] = v;
@@ -198,8 +173,7 @@ public class Process {
         return bigger;
     }
 
-    // Slice an over-allocated array to exactly `count` elements so the
-    // native call sees a tight view (no trailing nulls).
+    // 把过度分配的数组裁到恰好 count 个元素，使 native 调用看到紧凑视图（无尾部 null）。
     private static string[] Trim(string[] arr, int count) {
         if (count == arr.Length) { return arr; }
         string[] tight = new string[count];
@@ -208,9 +182,3 @@ public class Process {
         return tight;
     }
 }
-
-// Native binding sink — keeps the [Native] extern signatures isolated so
-// the public `Process` class stays free of cross-cutting `extern`
-// declarations. Mirrors the `__process_run` / `__process_spawn`
-// contract in src/runtime/src/corelib/process.rs.
-// (native 语义层已上移 z42.core: src/IO/ProcessNative.z42 —— organization.md「native 语义层 → core」2026-08-27)

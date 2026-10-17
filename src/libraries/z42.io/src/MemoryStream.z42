@@ -1,30 +1,14 @@
 namespace Std.IO;
 
 
-// add-z42-io-stream (2026-05-24): `byte[]`-backed concrete Stream.
-//
-// Two construction modes:
-//   * `MemoryStream()` — empty, writable, growable (geometric grow
-//     from initial 16 bytes to fit Writes); Reads from current
-//     position
-//   * `MemoryStream(byte[] data)` — read-only view; Writes throw
-//     NotSupportedException; suitable for parsing already-loaded
-//     bytes via the same Stream API a NetworkStream / FileStream
-//     consumer expects
-//
-// The internal buffer is sized to capacity (`_buffer.Length`) which
-// may exceed the "logical length" (`_length`) when growth occurs;
-// `ToArray()` snapshots the logical-length prefix into a fresh
-// byte[] so callers can't accidentally mutate or observe the slack.
-
+/// byte[] 支撑的内存流，支持「空且可增长可写」与「对已有数组的只读视图」两种构造模式。
 public class MemoryStream : Stream {
     private byte[] _buffer;
     private int    _length;
     private int    _position;
     private bool   _writable;
 
-    /// Empty + writable + growable. Initial capacity 16; grows
-    /// geometrically (2×) on overflow.
+    /// 构造空、可写、可增长的内存流（初始容量 16，超出时 2× 增长）。
     public MemoryStream() {
         this._buffer   = new byte[16];
         this._length   = 0;
@@ -32,9 +16,7 @@ public class MemoryStream : Stream {
         this._writable = true;
     }
 
-    /// Read-only view over `data`. The constructor does NOT copy — the
-    /// MemoryStream and the original byte[] share backing until the
-    /// caller calls `ToArray()` (which snapshots).
+    /// 构造 data 的只读视图，不复制原数组；修改原数组会反映到流中。
     public MemoryStream(byte[] data) {
         this._buffer   = data;
         this._length   = data.Length;
@@ -42,14 +24,18 @@ public class MemoryStream : Stream {
         this._writable = false;
     }
 
-    // ── Capability ───────────────────────────────────────────────────────
+    // ── 能力 ───────────────────────────────────────────────────
 
+    /// 是否可读；恒为 true。
     public override bool CanRead()  { return true; }
+    /// 是否可写；只读视图为 false。
     public override bool CanWrite() { return this._writable; }
+    /// 是否可定位；恒为 true。
     public override bool CanSeek()  { return true; }
 
-    // ── Read ─────────────────────────────────────────────────────────────
+    // ── 读 ─────────────────────────────────────────────────────
 
+    /// 从当前位置填充 buffer[offset..offset+count]，返回实际读到的字节数，0 = EOF。
     public override int Read(byte[] buffer, int offset, int count) {
         if (offset < 0 || count < 0 || offset + count > buffer.Length) {
             throw new ArgumentException("Read: buffer / offset / count out of range");
@@ -67,8 +53,9 @@ public class MemoryStream : Stream {
         return n;
     }
 
-    // ── Write ────────────────────────────────────────────────────────────
+    // ── 写 ─────────────────────────────────────────────────────
 
+    /// 从当前位置写入 buffer[offset..offset+count]；只读视图抛 NotSupportedException。
     public override void Write(byte[] buffer, int offset, int count) {
         if (!this._writable) {
             throw new NotSupportedException("Write: MemoryStream is read-only");
@@ -91,16 +78,19 @@ public class MemoryStream : Stream {
         }
     }
 
-    // ── Seek / Length / Position ─────────────────────────────────────────
+    // ── 定位 / 长度 / 位置 ─────────────────────────────────────
 
+    /// 当前内容的字节长度。
     public override long Length() {
         return (long)this._length;
     }
 
+    /// 当前读写位置。
     public override long Position() {
         return (long)this._position;
     }
 
+    /// 相对 origin 定位；结果位置为负或超过 int 上限时抛 ArgumentException。
     public override long Seek(long offset, int origin) {
         long basePos;
         if (origin == SeekOrigin.Begin) {
@@ -116,40 +106,29 @@ public class MemoryStream : Stream {
         if (newPos < 0L) {
             throw new ArgumentException("Seek: resulting position would be negative");
         }
-        // The position is stored as i32; a target past int.MaxValue would wrap
-        // to a negative on the `(int)` cast and silently corrupt the stream.
-        // Reject it instead (2147483647 = int.MaxValue; no Int32.MaxValue const yet).
+        // 位置以 32 位存储；超过 int 上限会在 (int) 转换时回绕损坏流，直接拒绝（2147483647 = int.MaxValue）。
         if (newPos > 2147483647L) {
             throw new ArgumentException("Seek: resulting position exceeds Int32 max: " + newPos.ToString());
         }
-        // Seeking past Length is allowed for writable streams (gap
-        // fills with 0 on next Write); for read-only that just lands
-        // at EOF. v0 matches .NET: allow it, no eager grow.
+        // 允许定位到 Length 之后：可写流下次写入时用 0 填充空洞，只读流则落在 EOF。
         this._position = (int)newPos;
         return newPos;
     }
 
-    // ── Flush / Close ────────────────────────────────────────────────────
+    // ── Flush / Close ─────────────────────────────────────────
 
+    /// 内存流无缓冲，空操作。
     public override void Flush() {
-        // In-memory only; nothing to flush.
     }
 
+    /// 关闭并释放内部缓冲引用；此后读写将抛错。
     public override void Close() {
-        // Drop the buffer ref so the GC can reclaim. Subsequent
-        // Read / Write will throw via the standard null-deref path
-        // (v0 doesn't track a separate `_closed` flag — the buffer
-        // = null + ArgumentException equivalent is enough signal).
-        // (Future: add a _closed bool + clearer ObjectDisposedException
-        //  message — gated on a polished IDisposable story.)
+        // 丢弃缓冲引用以便 GC 回收；后续读写通过标准空引用路径抛错。
     }
 
-    // ── MemoryStream-specific extensions ────────────────────────────────
+    // ── MemoryStream 专属扩展 ────────────────────────────────
 
-    /// Snapshot the logical-length prefix of the backing buffer into a
-    /// fresh byte[]. The returned array is independent of the
-    /// MemoryStream's internal storage — subsequent Writes don't show
-    /// up in the snapshot and vice versa.
+    /// 返回当前 [0, Length) 内容的独立副本，与内部存储互不影响。
     public byte[] ToArray() {
         byte[] result = new byte[this._length];
         int i = 0;
@@ -160,7 +139,7 @@ public class MemoryStream : Stream {
         return result;
     }
 
-    // ── Internal ────────────────────────────────────────────────────────
+    // ── 内部 ─────────────────────────────────────────────────
 
     private void _EnsureCapacity(int needed) {
         if (this._buffer.Length >= needed) { return; }

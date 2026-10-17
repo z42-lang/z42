@@ -7,16 +7,10 @@
 `z42.core/src/IO/`（prelude，无需声明依赖）；本包在其上提供流抽象与进程子系统。
 
 ## 功能索引
+公开 API 的完整签名见 [reference 包页](../../../docs/reference/src/stdlib/io.md)（由源码 doc 注释生成）。
 
-| 功能 | 入口 |
-|------|------|
-| 字节流抽象与实现 | `Stream` / `MemoryStream` / `FileStream` / `BufferedStream`（`Std.IO`） |
-| 字符读写 | `TextReader` / `TextWriter` 基类；`StringReader` / `StringWriter`；`StreamReader` / `StreamWriter`（经 `Encoding` 编解码） |
-| 二进制读写 | `Std.IO.Binary.BinaryReader` / `BinaryWriter`（LE / BE 显式后缀 + varint + float/double） |
-| 子进程 | `Process`（启动 / 等待 / kill / stdin 写入）+ `ProcessHandle` / `ProcessResult` / `Stdio`；`Process.Which(name)`；`ShareProcessGroup()` |
-| ANSI 着色 | `Ansi.Red(s)` / `Bold` / `BrightGreen` …，自动检测 TTY + `NO_COLOR`，`Strip(s)` 去 escape |
-
-二进制读写的设计要点见 `docs/reference/src/stdlib/io-binary.md`。
+流 / 文本 / 二进制 / 子进程 / ANSI 的入口分别是 `Stream` 家族、`TextReader`/`TextWriter` 体系、
+`Std.IO.Binary.BinaryReader`/`BinaryWriter`、`Process`/`ProcessHandle`/`Stdio`、`Ansi`。
 
 ## 核心文件
 
@@ -47,7 +41,7 @@ xtask test stdlib z42.io    # 本库全部 [Test]（含 core/IO 门面的 consol
 
 ## 关联文档
 
-- 用法与规则（参考手册）：[文件](../../../docs/reference/src/stdlib/io-file.md) · [流](../../../docs/reference/src/stdlib/io-stream.md) · [二进制读写](../../../docs/reference/src/stdlib/io-binary.md)
+- 用法与规则（参考手册）：[文件（z42.core）](../../../docs/reference/src/stdlib/io-file.md) · [流式 I/O 与子进程（z42.io）](../../../docs/reference/src/stdlib/io.md)
 - 设计 / 机制（实现内幕）：[标准库三层架构](../../../docs/internals/src/stdlib/architecture.md) · [包划分与 interop 归属](../../../docs/internals/src/stdlib/organization.md) · [API 准则](../../../docs/internals/src/stdlib/api-guidelines.md)
 
 ## 依赖关系

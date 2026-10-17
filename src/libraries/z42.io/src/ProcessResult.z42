@@ -1,22 +1,21 @@
 namespace Std.IO;
 
-// 2026-05-13 add-std-process: the result object returned by
-// `Process.Run()` / `ProcessHandle.Wait()`. Holds both UTF-8 lossy
-// `Stdout` / `Stderr` strings and the raw `StdoutBytes` / `StderrBytes`
-// for callers that need byte-exact access (binary protocols, non-UTF-8
-// tool output, etc.).
-//
-// Use `.EnsureSuccess()` to convert non-zero exits into a
-// `ProcessExitException` for fail-fast scripting; without it the
-// caller is expected to inspect `ExitCode` manually.
+/// Run() 与 Wait() / TryWait() 的返回值；字段是公开可写的普通字段。
 public class ProcessResult {
+    /// 被执行的程序。
     public string Program;
+    /// 退出码；被信号杀死时为 128 + 信号号。
     public int    ExitCode;
+    /// stdout 的 UTF-8 lossy 解码。
     public string Stdout;
+    /// stderr 的 UTF-8 lossy 解码。
     public string Stderr;
+    /// stdout 原始字节。
     public byte[] StdoutBytes;
+    /// stderr 原始字节。
     public byte[] StderrBytes;
 
+    /// 用各字段构造。
     public ProcessResult(
         string program, int exitCode, string stdout, string stderr,
         byte[] stdoutBytes, byte[] stderrBytes
@@ -29,8 +28,7 @@ public class ProcessResult {
         this.StderrBytes = stderrBytes;
     }
 
-    // The native result array `[exitCode, stdout, stderr, stdoutBytes, stderrBytes]`
-    // (`ProcessNative.RunSync` / `ChildProcessNative.Wait` / `TryWait`).
+    // native 结果数组 [exitCode, stdout, stderr, stdoutBytes, stderrBytes]。
     internal static ProcessResult FromNative(string program, object[] raw) {
         return new ProcessResult(
             program,
@@ -41,8 +39,7 @@ public class ProcessResult {
             (byte[])raw[4]);
     }
 
-    // Idiomatic chained "throw if failed" — returns `this` so callers can
-    // write `.Run().EnsureSuccess()` in one expression.
+    /// ExitCode != 0 时抛 ProcessExitException，否则返回 this（可链式 .Run().EnsureSuccess()）。
     public ProcessResult EnsureSuccess() {
         if (this.ExitCode != 0) {
             throw new ProcessExitException(this.Program, this.ExitCode, this.Stderr);

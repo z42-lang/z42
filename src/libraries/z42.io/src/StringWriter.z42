@@ -2,55 +2,35 @@ namespace Std.IO;
 
 using Std.Text;
 
-// add-z42-io-string-reader-writer (2026-05-24): char-oriented writer
-// that accumulates into an in-memory string. Mirrors .NET
-// `System.IO.StringWriter` and Python `io.StringIO` for write-only
-// producers.
-//
-// Backed by `Std.Text.StringBuilder` (already a chunked-list O(n)
-// builder) so appends are O(1) amortised regardless of how many small
-// Writes the caller does.
-//
-// Char vs byte: this writer operates on **characters**, not bytes —
-// it does NOT extend `Std.IO.Stream`. For text → byte stream use the
-// future `StreamWriter(Stream, Encoding)` once an Encoding type lands.
-//
-// `WriteLine` uses `\n` (Unix LF). Mirrors Python `print()`'s default
-// and the prevailing convention in source-code generation / config
-// emission. Callers needing CRLF can `Write("\r\n")` explicitly.
-
+/// 累积到内部 Std.Text.StringBuilder 的字符写入器。
 public class StringWriter {
     private StringBuilder _buf;
     private bool          _closed;
 
+    /// 构造空写入器。
     public StringWriter() {
         this._buf    = new StringBuilder();
         this._closed = false;
     }
 
-    /// `initialCapacity` is a hint; v0 `StringBuilder` doesn't accept
-    /// one, so this overload is purely API-shape-compatibility for
-    /// callers porting from .NET. Future: thread through once
-    /// `StringBuilder(int)` exists.
+    /// initialCapacity 仅为 API 形状兼容的提示，当前被忽略。
     public StringWriter(int initialCapacity) {
         this._buf    = new StringBuilder();
         this._closed = false;
     }
 
-    // ── Write ───────────────────────────────────────────────────────────
+    // ── 写 ───────────────────────────────────────────────────
 
+    /// 追加字符串。
     public void Write(string s) {
         this.EnsureOpen();
         this._buf.Append(s);
     }
 
-    // Note: no `Write(char)` overload — z42 overload resolution
-    // currently confuses single-arg `string` vs `char` (compiler picks
-    // the wrong one). Callers wanting to append a single char should
-    // either `Write(c.ToString())` or use the bulk `Write(char[], 0, 1)`
-    // shape. The same applies to `WriteLine(string)` vs `WriteLine(char)`
-    // — the char overload is omitted.
+    // 没有 Write(char) 重载 —— z42 重载决议目前会混淆单参 string / char；
+    // 追加单字符用 Write(c.ToString()) 或 Write(chars, 0, 1)。
 
+    /// 追加字符区间 buffer[offset..offset+count]。
     public void Write(char[] buffer, int offset, int count) {
         this.EnsureOpen();
         if (offset < 0 || count < 0 || offset + count > buffer.Length) {
@@ -71,45 +51,44 @@ public class StringWriter {
         this._buf.Append(String.FromChars(slice));
     }
 
-    // ── WriteLine ───────────────────────────────────────────────────────
+    // ── WriteLine ────────────────────────────────────────────
 
+    /// 写 "\n"。
     public void WriteLine() {
         this.EnsureOpen();
         this._buf.Append("\n");
     }
 
+    /// 写 s + "\n"。
     public void WriteLine(string s) {
         this.EnsureOpen();
         this._buf.Append(s);
         this._buf.Append("\n");
     }
-    // No `WriteLine(char)` — see comment above on Write overloads.
+    // 没有 WriteLine(char) 重载 —— 原因同上面的 Write 重载。
 
-    // ── Snapshot / reset ────────────────────────────────────────────────
+    // ── 快照 / 复位 ──────────────────────────────────────────
 
-    /// Materialise the current buffer contents as one string. The
-    /// returned string is independent of subsequent Writes.
+    /// 返回当前内容快照，与后续写入无关。
     override string ToString() {
         return this._buf.ToString();
     }
 
-    /// Reset to an empty buffer; subsequent Writes start fresh. Cheap
-    /// — `StringBuilder` is replaced wholesale rather than mutated.
+    /// 清空，后续写入从头开始。
     public void Clear() {
         this.EnsureOpen();
         this._buf = new StringBuilder();
     }
 
-    // ── Lifecycle ───────────────────────────────────────────────────────
+    // ── 生命周期 ─────────────────────────────────────────────
 
-    /// Mark the writer closed; subsequent Writes throw. Idempotent.
-    /// In-memory only — no OS resource to release.
+    /// 标记关闭（幂等）；关闭后 Write / WriteLine / Clear 抛 InvalidOperationException，ToString() 仍可用。
     public void Close() {
         if (this._closed) { return; }
         this._closed = true;
     }
 
-    // ── Internal ────────────────────────────────────────────────────────
+    // ── 内部 ────────────────────────────────────────────────
 
     private void EnsureOpen() {
         if (this._closed) {

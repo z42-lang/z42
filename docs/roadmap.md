@@ -480,9 +480,9 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | Brotli / xz / LZ4 | z42.compression v0 算法之外 | [stdlib/compression.md](reference/src/stdlib/compression.md) |
 | wasm zstd | 需 WASI SDK 或 ruzstd | [stdlib/compression.md](reference/src/stdlib/compression.md) |
 | YAML ~~anchors~~ ✅ / ~~tags~~ ✅ / ~~multi-line~~ ✅ / ~~multi-doc~~ ✅ / ~~timestamps~~ ✅ / ~~hex-octal~~ ✅ / ~~merge-keys~~ ✅ / complex-keys | **anchors / tags / multi-line / multi-doc / timestamps / numeric-bases / merge-keys 全部已落地** (2026-05-25 → 2026-06-01)；仅 `yaml-future-complex-keys` (`? key` 语法) 仍延后 — rare in practice | [stdlib/yaml.md](reference/src/stdlib/yaml.md) |
-| ~~FileStream~~ ✅ + ~~TextReader~~ ✅ + ~~BufferedStream~~ ✅ + async streams | **`FileStream` 已落地 2026-05-24**；**TextReader/TextWriter 已落地 2026-05-28** (`e80f0311`)；**BufferedStream 已落地 2026-05-24**；仅 **async streams**（需 L3 async）仍延后 | [stdlib/io-stream.md](reference/src/stdlib/io-stream.md) |
-| ~~Refactor CompressionStream to Stream~~ | **✅ 已落地 2026-05-24** — CompressionStream → `WrapWrite/WrapRead` 返回 `Std.IO.Stream` | [stdlib/io-stream.md](reference/src/stdlib/io-stream.md) |
-| ~~Refactor BinaryReader/Writer to accept Stream~~ | **✅ 已落地 2026-05-24** — `(Stream)` 构造器；byte[] 构造保留作 sugar | [stdlib/io-stream.md](reference/src/stdlib/io-stream.md) |
+| ~~FileStream~~ ✅ + ~~TextReader~~ ✅ + ~~BufferedStream~~ ✅ + async streams | **`FileStream` 已落地 2026-05-24**；**TextReader/TextWriter 已落地 2026-05-28** (`e80f0311`)；**BufferedStream 已落地 2026-05-24**；仅 **async streams**（需 L3 async）仍延后 | [stdlib/io.md](reference/src/stdlib/io.md) |
+| ~~Refactor CompressionStream to Stream~~ | **✅ 已落地 2026-05-24** — CompressionStream → `WrapWrite/WrapRead` 返回 `Std.IO.Stream` | [stdlib/io.md](reference/src/stdlib/io.md) |
+| ~~Refactor BinaryReader/Writer to accept Stream~~ | **✅ 已落地 2026-05-24** — `(Stream)` 构造器；byte[] 构造保留作 sugar | [stdlib/io.md](reference/src/stdlib/io.md) |
 | libdeflate batch | 1.5× DEFLATE 快通道；bench 驱动 | [stdlib/compression.md](reference/src/stdlib/compression.md) |
 | Migrate existing stdlib natives to ext loader | crypto / 等可选移出 z42vm | [runtime/native-ext-loader.md](internals/src/runtime/native-ext-loader.md#migration-of-existing-stdlib-natives) |
 | ~~reader-writer-asymmetry (zbc+zpkg)~~ | ✅ 已修复 align-zbc-reader-writer-asymmetry (zbc 1.7 / zpkg 0.8, 2026-05-27)；SIGS / TYPE 在 u8 TypeTag 之后加 u32 type_str_idx 作权威类型名；ReadWriteRoundTrip CI 启用 | — |

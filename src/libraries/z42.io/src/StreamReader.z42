@@ -2,40 +2,15 @@ namespace Std.IO;
 
 using Std.Encoding;
 
-// add-encoding-and-stream-text (2026-05-24): char-oriented reader
-// over a byte `Stream` via an `Encoding`. Bridges the Stream
-// ecosystem (byte) with the StringReader / StringWriter ecosystem
-// (char) so text can flow through the same pipeline as bytes —
-// file, network, compressed, etc.
-//
-// v0 implementation: drain-and-decode. On first read, slurp all
-// bytes from the source via `Stream.ReadAllBytes()`, decode to a
-// `string` via the Encoding, hand off subsequent operations to an
-// internal `StringReader`. Trade-offs:
-//
-//   * Correct UTF-8 boundary handling for free — we decode the full
-//     byte array at once, so multi-byte sequences can't split across
-//     chunks (because there are no chunks at this layer)
-//   * Simple — ~30 LOC instead of the ~300 LOC a stateful Decoder
-//     state-machine would need
-//   * Cost — the entire source is materialised before the first Read
-//     returns. Fine for "load this UTF-8 config" / "parse this 50 KB
-//     log line-by-line" workloads; not for "tail a 10 GB log" which
-//     should wait for the deferred `io-stream-future-streamreader-chunked`
-//
-// `Close()` releases the cached string ref + marks closed. It does
-// NOT close the source Stream — caller owns its lifecycle (matches
-// `CompressionEncoderStream(leaveOpen=true)` and Process*Stream
-// conventions).
-
+/// 字节流 ↔ 字符的桥；首次读时一次性抽干源流并整体解码，默认 UTF-8，行为与 StringReader 一致。
 public class StreamReader {
     private Stream       _source;
     private Encoding     _encoding;
-    private StringReader _inner;     // built lazily on first read
+    private StringReader _inner;     // 首次读时惰性构建
     private bool         _drained;
     private bool         _closed;
 
-    /// UTF-8 default — matches .NET / Python.
+    /// 默认 UTF-8 编码。
     public StreamReader(Stream source) {
         this._source   = source;
         this._encoding = Encoding.GetUtf8();
@@ -43,6 +18,7 @@ public class StreamReader {
         this._closed   = false;
     }
 
+    /// 指定编码。
     public StreamReader(Stream source, Encoding encoding) {
         this._source   = source;
         this._encoding = encoding;
@@ -50,51 +26,50 @@ public class StreamReader {
         this._closed   = false;
     }
 
-    // ── Single char ─────────────────────────────────────────────────────
+    // ── 单字符 ───────────────────────────────────────────────
 
+    /// 窥视下一个字符码；EOF 返回 -1。
     public int Peek() {
         this.EnsureOpen();
         this.EnsureDrained();
         return this._inner.Peek();
     }
 
+    /// 消费一个字符码；EOF 返回 -1。
     public int Read() {
         this.EnsureOpen();
         this.EnsureDrained();
         return this._inner.Read();
     }
 
-    // ── Bulk read ───────────────────────────────────────────────────────
+    // ── 批量读 ───────────────────────────────────────────────
 
+    /// 填充 buffer[offset..offset+count]，返回实际填入数，0 = EOF。
     public int Read(char[] buffer, int offset, int count) {
         this.EnsureOpen();
         this.EnsureDrained();
         return this._inner.Read(buffer, offset, count);
     }
 
-    // ── Line-oriented ───────────────────────────────────────────────────
+    // ── 行读取 ───────────────────────────────────────────────
 
-    /// Read one line (terminator stripped); null on EOF. Behaviour
-    /// matches `StringReader.ReadLine` — see that file for the
-    /// `\n` / `\r\n` / lone `\r` rules.
+    /// 读一行（不含终止符），EOF 返回 null。
     public string? ReadLine() {
         this.EnsureOpen();
         this.EnsureDrained();
         return this._inner.ReadLine();
     }
 
-    /// Return everything remaining as one string; subsequent Read*
-    /// observe EOF.
+    /// 返回剩余全部内容；EOF 返回 ""。
     public string ReadToEnd() {
         this.EnsureOpen();
         this.EnsureDrained();
         return this._inner.ReadToEnd();
     }
 
-    // ── Lifecycle ───────────────────────────────────────────────────────
+    // ── 生命周期 ─────────────────────────────────────────────
 
-    /// Mark closed. Releases the cached string; subsequent ops throw.
-    /// Does NOT close the source Stream.
+    /// 标记关闭并释放缓存字符串；不关闭被包装的源流。
     public void Close() {
         if (this._closed) { return; }
         this._closed = true;
@@ -104,7 +79,7 @@ public class StreamReader {
         }
     }
 
-    // ── Internal ────────────────────────────────────────────────────────
+    // ── 内部 ────────────────────────────────────────────────
 
     private void EnsureOpen() {
         if (this._closed) {
@@ -112,7 +87,7 @@ public class StreamReader {
         }
     }
 
-    /// Lazy first-call drain. Subsequent calls are O(1).
+    // 首次调用时一次性抽干源流并整体解码；后续调用 O(1)。
     private void EnsureDrained() {
         if (this._drained) { return; }
         byte[] all = this._source.ReadAllBytes();

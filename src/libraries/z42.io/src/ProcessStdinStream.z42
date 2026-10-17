@@ -1,38 +1,29 @@
 namespace Std.IO;
 
 
-// add-process-stream-stdio (2026-05-24): write-only Std.IO.Stream
-// wrapper over a live ProcessHandle's stdin pipe.
-//
-// Owned by the ProcessHandle that produced it — `Close()` closes the
-// child's stdin (so the child sees EOF) but does NOT dispose the
-// handle. Caller still must `handle.Wait()` (or `Dispose()`) to reap
-// the child.
-//
-// Construction failure: if the underlying handle was spawned without
-// `Stdin(Stdio.Pipe())` the writer is `None` on the Native side and
-// the first Write will surface `ProcessHandleInvalidException` via
-// the existing `__process_handle_write_stdin` handle-invalid path.
-// Cheap defensive check before the FFI roundtrip: callers can
-// inspect `CanWrite()` (always true until `Close()`).
-
+/// 对活子进程 stdin 管道的只写 Stream 包装。
 public class ProcessStdinStream : Stream {
     private ProcessHandle _handle;
     private bool          _closed;
 
+    /// 由 ProcessHandle.GetStdinStream() 构造。
     public ProcessStdinStream(ProcessHandle handle) {
         this._handle = handle;
         this._closed = false;
     }
 
-    // ── Capability ───────────────────────────────────────────────────────
+    // ── 能力 ───────────────────────────────────────────────────
 
+    /// 是否可写；关闭前为 true。
     public override bool CanWrite() { return !this._closed; }
+    /// 是否可读；恒为 false。
     public override bool CanRead()  { return false; }
+    /// 是否可定位；恒为 false。
     public override bool CanSeek()  { return false; }
 
-    // ── Write ────────────────────────────────────────────────────────────
+    // ── 写 ─────────────────────────────────────────────────────
 
+    /// 写子进程 stdin；未配 Stdin(Stdio.Pipe()) 或子进程已关 stdin 时抛相应异常。
     public override void Write(byte[] buffer, int offset, int count) {
         if (this._closed) {
             throw new InvalidOperationException("ProcessStdinStream: stream is closed");
@@ -41,10 +32,7 @@ public class ProcessStdinStream : Stream {
             throw new ArgumentException("Write: buffer / offset / count out of range");
         }
         if (count == 0) { return; }
-        // Slice into a tight byte[] so the FFI sees exactly the
-        // payload (existing __process_handle_write_stdin takes a
-        // whole-array, no offset/count). Future: extend FFI to
-        // accept slice params — minor optimisation, deferred.
+        // 裁成紧凑 byte[] 使 FFI 恰好看到负载（底层按整数组、无 offset/count）。
         byte[] chunk;
         if (offset == 0 && count == buffer.Length) {
             chunk = buffer;
@@ -59,13 +47,13 @@ public class ProcessStdinStream : Stream {
         this._handle.WriteStdin(chunk);
     }
 
-    // ── Flush / Close ────────────────────────────────────────────────────
+    // ── Flush / Close ─────────────────────────────────────────
 
+    /// 本侧管道写无缓冲，空操作。
     public override void Flush() {
-        // OS pipe writes are unbuffered on our side — `WriteStdin`
-        // already called `write_all` synchronously. No-op.
     }
 
+    /// 关闭子进程的 stdin（子进程读到 EOF）；不回收进程句柄，仍需 Wait()。
     public override void Close() {
         if (this._closed) { return; }
         this._closed = true;

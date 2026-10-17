@@ -7,8 +7,8 @@
 它们属于 `z42.core`，**隐式加载**，单文件 `z42 run x.z42` 里直接 `using Std.IO;` 就能用。
 
 `Std.IO` 这个命名空间跨两个包：本页是 `z42.core` 那一半。同命名空间下的流体系
-（`Stream` / `FileStream` / `MemoryStream` / 字符读写器）在 `z42.io`，见[流](io-stream.md)；
-子进程与终端着色（`Process` / `Ansi`）也在 `z42.io`，见[子进程与终端](process.md)。
+（`Stream` / `FileStream` / `MemoryStream` / 字符读写器）在 `z42.io`，见[流](io.md)；
+子进程与终端着色（`Process` / `Ansi`）也在 `z42.io`，见[子进程与终端](io.md)。
 `z42.io` 的类型在**单文件 `z42 run` 下同样可用**（`new FileStream(path)` 直接能写）——随 SDK 发布的库都解析得到。工程里同样自动可用，清单 `[dependencies]` 不需要声明（声明了会报 [W0610](../appendix/error-codes.md)）。
 
 失败按 .NET 的口径抛细分的异常类型：文件不存在是 `FileNotFoundException`，目录（或路径的一部分）
@@ -54,17 +54,17 @@ public static class ConsoleError {
 `ReadLine()` 的返回类型是**非 nullable 的 `string`**，**EOF 返回 `""` 而不是 `null`**。
 空行同样是 `""`，所以**无法区分「读到一个空行」和「输入已经结束」**。stdin 关闭后再读仍然
 一直返回 `""`，用 `while (Console.ReadLine() != null)` 写的循环不会停。需要判 EOF 时，
-只能自己按协议（行数、哨兵行）收敛，或者改用[流](io-stream.md)侧的读取器。
+只能自己按协议（行数、哨兵行）收敛，或者改用[流](io.md)侧的读取器。
 
 ### 颜色与光标
 
 `Console` 本身**没有**颜色 / 光标 / 清屏 API。ANSI 着色由 `z42.io` 的 `Ansi`
-提供，见[子进程与终端](process.md#ansi)。`Console.IsTerminal()` 正是 `Ansi` 自动
+提供，见[子进程与终端](io.md)。`Console.IsTerminal()` 正是 `Ansi` 自动
 检测所依赖的那个判断，你也可以自己拿它来决定要不要输出转义序列。
 
 ## File
 
-一次性（whole-file）文件操作。需要按块读写或定位时用[流](io-stream.md)的 `FileStream`。
+一次性（whole-file）文件操作。需要按块读写或定位时用[流](io.md)的 `FileStream`。
 
 ```z42
 public static class File {
@@ -402,7 +402,7 @@ void Main() {
 ## 不支持
 
 - **`Console.ReadLine()` 区分不出 EOF**：EOF 与空行都返回 `""`，没有 `null` 也没有别的信号。
-- **`Console` 没有颜色 / 光标 / 清屏 / 窗口尺寸**：着色在 `z42.io` 的 `Ansi`（见[子进程与终端](process.md)）。
+- **`Console` 没有颜色 / 光标 / 清屏 / 窗口尺寸**：着色在 `z42.io` 的 `Ansi`（见[子进程与终端](io.md)）。
 - **`Console.Write` / `WriteLine` 没有 `Write(format, args...)` 重载**（实参按 `ToString()` 字符串化，
   与字符串插值同一个结果）；要格式化就自己用字符串插值。
 - **异常没有错误码字段**（没有 `HResult` / `NativeErrorCode`），也没有 `FileNotFoundException.FileName`

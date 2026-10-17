@@ -1,59 +1,34 @@
 namespace Std.IO;
 
 
-// add-textreader-base (2026-05-28): unified char-oriented reader base.
-//
-// Concrete base + throw-stubs pattern matching `Std.IO.Stream`
-// (z42 still has no `abstract` keyword). Single-arity-per-name virtual
-// methods (z42's current method-resolution doesn't disambiguate
-// overloads in the v-table; see `compiler-future-typed-overload-
-// resolution`), so the bulk `Read(char[], int, int)` and `ReadLine` /
-// `ReadToEnd` are NON-virtual default impls composed on `Read()` —
-// subclasses with a faster bulk path declare their own `Read(char[],
-// int, int)` that callers reach via the concrete type (StringReader,
-// StreamReader).
-//
-// Polymorphic surface a caller can rely on against `TextReader`:
-//   - Peek() / Read()           — virtual core
-//   - ReadLineBase()            — line read using Read() + Peek
-//   - ReadToEndBase()           — drain using Read()
-//   - Close() / Dispose()       — lifecycle
-//
-// Concrete subclasses (StringReader, StreamReader) typically expose
-// their own ReadLine / ReadToEnd / Read(buf, ...) with the same shape
-// for direct-typed callers — the "Base" suffix here lets polymorphic
-// callers reach the default-impl variants when needed.
-
+/// 供自定义字符源继承的读取器基类；核心方法抛桩，带 Base 后缀的是组合在 Read() 上的默认实现。
 public class TextReader : IDisposable {
-    // ── Core (subclasses override) ──────────────────────────────────────────
+    // ── 核心（子类覆写）──────────────────────────────────────
 
+    /// 窥视下一个字符码；基类抛 NotSupportedException。
     public virtual int Peek() {
         throw new NotSupportedException("Peek not supported on this TextReader");
     }
 
+    /// 读一个字符码；基类抛 NotSupportedException。
     public virtual int Read() {
         throw new NotSupportedException("Read not supported on this TextReader");
     }
 
+    /// 基类无资源持有，默认空操作。
     public virtual void Close() {
-        // Base class default: no resources held. Subclasses override.
     }
 
-    /// Alias for `Close()` — mirrors the future `IDisposable` shape.
+    /// 等价 Close()。
     public virtual void Dispose() {
         this.Close();
     }
 
-    // ── Default-impl helpers (NON-virtual; compose on Read()) ───────────────
-    //
-    // These are NOT virtual because z42's current override resolver doesn't
-    // disambiguate same-name overloads across inheritance. Concrete subclasses
-    // with bulk-optimised paths expose their own `Read(char[], int, int)` /
-    // `ReadLine` / `ReadToEnd` directly on the concrete type instead of
-    // overriding here.
+    // ── 默认实现（非虚；组合在 Read() 上）────────────────────
+    // 非虚是因为 z42 当前的覆写决议不能跨继承区分同名重载；有批量优化路径的具体
+    // 子类直接在具体类型上声明自己的 Read(char[], int, int) / ReadLine / ReadToEnd。
 
-    /// Default bulk read: loops over `Read()`. Returns count actually placed
-    /// (0 = EOF).
+    /// 默认批量读：循环 Read()，返回实际填入数（0 = EOF）。
     public int ReadBufferBase(char[] buffer, int offset, int count) {
         if (offset < 0 || count < 0 || offset + count > buffer.Length) {
             throw new ArgumentException("ReadBufferBase: buffer / offset / count out of range");
@@ -69,10 +44,7 @@ public class TextReader : IDisposable {
         return got;
     }
 
-    /// Default line read using `Read()` + `Peek()`. Returns:
-    ///   - line content (may be empty for a blank line)
-    ///   - `null` at EOF
-    /// `\n`, `\r\n`, and lone `\r` all terminate a line.
+    /// 默认行读取：\n、\r\n 与单独 \r 都终止一行，空行返回 ""，EOF 返回 null。
     public string? ReadLineBase() {
         char[] buf = new char[128];
         int len = 0;
@@ -86,11 +58,11 @@ public class TextReader : IDisposable {
             any = true;
             if (c == 10) { return TextReader._finish(buf, len); }
             if (c == 13) {
-                // Try to skip a following LF via Peek if subclass supports it.
+                // 若子类支持 Peek，尝试跳过紧随其后的 LF。
                 int next = -1;
                 bool peeked = false;
                 try { next = this.Peek(); peeked = true; }
-                catch (NotSupportedException e) { /* fall through */ }
+                catch (NotSupportedException e) { /* 忽略 */ }
                 if (peeked && next == 10) { this.Read(); }
                 return TextReader._finish(buf, len);
             }
@@ -106,7 +78,7 @@ public class TextReader : IDisposable {
         return TextReader._finish(buf, len);
     }
 
-    /// Default drain using `Read()`. Returns everything remaining.
+    /// 默认读剩余全部：循环 Read() 直到 EOF。
     public string ReadToEndBase() {
         char[] buf = new char[256];
         int len = 0;
@@ -125,7 +97,7 @@ public class TextReader : IDisposable {
         return TextReader._finish(buf, len);
     }
 
-    // ── Internal helper ──────────────────────────────────────────────────────
+    // ── 内部辅助 ─────────────────────────────────────────────
 
     static string _finish(char[] buf, int len) {
         if (len == 0) { return ""; }
