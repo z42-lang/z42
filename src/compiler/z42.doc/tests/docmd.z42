@@ -73,6 +73,72 @@ void test_private_members_excluded() {
 }
 
 [Test]
+void test_type_split_pages() {
+    // split = "type"：每个顶层类型一页，索引页列链接清单。
+    DocIndex ix = _index(
+        "//! 核心类型。\n"
+        + "//!\n"
+        + "//! 分类型拆页。\n"
+        + "namespace Std;\n"
+        + "\n"
+        + "/// 数学工具。\n"
+        + "public class Math {\n"
+        + "    /// 取绝对值。\n"
+        + "    /// @param x 输入\n"
+        + "    public int Abs(int x) { return x; }\n"
+        + "}\n"
+        + "\n"
+        + "/// 文本。\n"
+        + "public class Text {\n"
+        + "    /// 转大写。\n"
+        + "    public string Upper(string s) { return s; }\n"
+        + "}\n");
+    DocItem[] tops = DocMd.TopLevelTypes(ix, "Std");
+    Assert.Equal(2, tops.Length);
+    _eq("Math", tops[0].Name);
+    _eq("Text", tops[1].Name);
+
+    // 类型页：标题 = pkg.Type，类型是一级标题，成员是 ###。
+    string tp = DocMd.TypePage("z42.core", "src/libraries/z42.core", "Std", tops[0], ix);
+    Assert.Contains("# z42.core.Math", tp);
+    Assert.Contains("> 包路径 `src/libraries/z42.core/`；命名空间 `Std`", tp);
+    Assert.Contains("# Math", tp);
+    Assert.Contains("数学工具。", tp);
+    Assert.Contains("### int Abs(int x)", tp);
+    Assert.Contains("| `x` | 输入 |", tp);
+
+    // 索引页：//! 概述 + 类型链接清单。
+    string ti = DocMd.TypeIndex("z42.core", "src/libraries/z42.core", ix);
+    Assert.Contains("# z42.core —— 核心类型。", ti);
+    Assert.Contains("分类型拆页。", ti);
+    Assert.Contains("- [Math](core.Math.md)", ti);
+    Assert.Contains("- [Text](core.Text.md)", ti);
+}
+
+[Test]
+void test_type_split_multi_namespace() {
+    // 多命名空间包：Namespaces 列全、TypeIndex 链接清单覆盖所有命名空间的类型（跨文件，每文件一个 namespace）。
+    DocIndex ix = new DocIndex();
+    ix.AddAll(SyntaxIndexer.IndexSource(
+        "//! 核心。\nnamespace Std;\n"
+        + "/// 数学。\npublic class Math { public int Abs(int x) { return x; } }\n", "A.z42"));
+    ix.AddAll(SyntaxIndexer.IndexSource(
+        "namespace Std.IO;\n"
+        + "/// 控制台。\npublic class Console { public void Write(string s) { } }\n", "B.z42"));
+    string[] nss = DocMd.Namespaces(ix);
+    Assert.Equal(2, nss.Length);
+    _eq("Std", nss[0]);
+    _eq("Std.IO", nss[1]);
+    string ti = DocMd.TypeIndex("z42.core", "src", ix);
+    Assert.Contains("- [Math](core.Math.md)", ti);
+    Assert.Contains("- [Console](core.Console.md)", ti);
+}
+
+void _eq(string expected, string actual) {
+    if (expected != actual) { Assert.Fail("expected <" + expected + ">\n     got <" + actual + ">"); }
+}
+
+[Test]
 void test_package_page_delegate_and_enum() {
     // 委托只有签名（无体）；枚举成员进总览块、不单独成节。
     DocIndex ix = _index(
