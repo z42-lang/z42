@@ -5,6 +5,8 @@ read / write. First stdlib package whose native code lives **outside**
 z42vm — built as a separate `cdylib` (`libz42_compression.{so,dylib,
 dll}`) loaded via the native ext loader.
 
+公开 API 的完整签名见 [reference 包页](../../../docs/reference/src/stdlib/compression.md)（由源码 doc 注释生成）。
+
 ## One-shot
 
 ```z42

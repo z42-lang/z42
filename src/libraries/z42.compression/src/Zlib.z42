@@ -2,13 +2,7 @@ namespace Std.Compression;
 
 using Std.IO;
 
-// add-z42-compression (2026-05-22): RFC 1950 zlib container. Same
-// DEFLATE engine as Gzip / Deflate, different framing (2-byte CMF/FLG
-// header + adler32 footer).
-//
-// refactor-compression-stream-on-iostream (2026-05-24): see Gzip.z42
-// for the API shape rationale.
-
+/// RFC 1950 zlib 容器：一次性 `byte[]` 压缩/解压，以及 `Std.IO.Stream` 流式封装。
 public static class Zlib {
     [Native(lib = "z42_compression", entry = "__deflate_compress")]
     private static extern byte[] _CompressRaw(byte[] data, int level, int mode);
@@ -16,26 +10,32 @@ public static class Zlib {
     [Native(lib = "z42_compression", entry = "__deflate_decompress")]
     private static extern byte[] _DecompressRaw(byte[] data, int mode);
 
+    /// 用默认等级（6）把 `data` 压缩成 zlib 字节。
     public static byte[] Compress(byte[] data) {
         return _CompressRaw(data, Compression.Default, AlgoId.Zlib);
     }
 
+    /// 用给定等级（1..9）把 `data` 压缩成 zlib 字节。
     public static byte[] Compress(byte[] data, int level) {
         return _CompressRaw(data, level, AlgoId.Zlib);
     }
 
+    /// 解压 zlib 字节为明文。
     public static byte[] Decompress(byte[] data) {
         return _DecompressRaw(data, AlgoId.Zlib);
     }
 
+    /// 把 `dest` 包装成 zlib 编码流（默认等级）。
     public static Stream WrapWrite(Stream dest) {
         return new CompressionEncoderStream(dest, AlgoId.Zlib, Compression.Default);
     }
 
+    /// 把 `dest` 包装成 zlib 编码流（给定等级 1..9）。
     public static Stream WrapWrite(Stream dest, int level) {
         return new CompressionEncoderStream(dest, AlgoId.Zlib, level);
     }
 
+    /// 把 `src` 包装成 zlib 解码流。
     public static Stream WrapRead(Stream src) {
         return new CompressionDecoderStream(src, AlgoId.Zlib);
     }

@@ -1,7 +1,7 @@
 namespace Std.Archive;
 
-// `Std.Archive.*`（tar / zip）门面抛出的用户可见异常。继承 z42.core 的 `Exception`。
-
+/// tar / zip 的归档异常：格式错误、不支持的条目类型或压缩方法、条目找不到、Zip-Slip 拦截。
 public class ArchiveException : Exception {
+    /// 用 `message` 构造归档异常。
     public ArchiveException(string message) : base(message) { }
 }

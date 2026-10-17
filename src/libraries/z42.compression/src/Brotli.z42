@@ -1,17 +1,6 @@
 namespace Std.Compression;
 
-
-// add-z42-compression-brotli (2026-05-27): Brotli (RFC 7932) — the
-// HTTP `Content-Encoding: br` algorithm; typically 15-25% better ratio
-// than gzip on web text at similar speed (better at high levels).
-//
-// Backed by pure-Rust `brotli` crate (no C deps), so the same code
-// path works on every target including wasm32 — unlike Zstd which
-// excludes wasm.
-//
-// v0 scope: one-shot Compress / Decompress only. Streaming (slot-based
-// like Gzip / Zstd) deferred to follow-up; current users (HTTP response
-// decoding) consume whole payloads at once.
+/// RFC 7932 Brotli 压缩/解压（HTTP `Content-Encoding: br`）。纯 Rust 实现，仅一次性 API。
 public static class Brotli {
     [Native(lib = "z42_compression", entry = "__brotli_compress")]
     private static extern byte[] _CompressRaw(byte[] data, int level);
@@ -19,18 +8,17 @@ public static class Brotli {
     [Native(lib = "z42_compression", entry = "__brotli_decompress")]
     private static extern byte[] _DecompressRaw(byte[] data);
 
-    /// Compress at level 11 (best ratio — brotli reference default).
+    /// 用默认等级（4）把 `data` 压缩成 Brotli 字节。
     public static byte[] Compress(byte[] data) {
         return _CompressRaw(data, Compression.BrotliDefault);
     }
 
-    /// Compress at the given level (0 fastest .. 11 best).
+    /// 用给定等级（0 最快 .. 11 最优）把 `data` 压缩成 Brotli 字节。
     public static byte[] Compress(byte[] data, int level) {
         return _CompressRaw(data, level);
     }
 
-    /// Decompress a brotli-encoded byte stream.
-    /// Throws `CompressionException` on malformed input.
+    /// 解压 Brotli 字节为明文。
     public static byte[] Decompress(byte[] data) {
         return _DecompressRaw(data);
     }

@@ -2,22 +2,10 @@ namespace Std.Compression;
 
 using Std.IO;
 
-// add-z42-compression (2026-05-22): RFC 1952 gzip container backed by
-// the `z42-compression` cdylib via the `[Native(lib="z42_compression",
-// entry=...)]` short form. The cdylib is dlopened by z42vm at startup
-// from the SDK native search path (Z42_NATIVE_PATH env override + default
-// <exec_dir>/../native/ fallback); the entries below resolve through
-// the VM's ext_builtins registry.
-//
-// refactor-compression-stream-on-iostream (2026-05-24): streaming API
-// replaced — bespoke `CompressStream() / DecompressStream()` factories
-// removed in favour of `WrapWrite(Stream) / WrapRead(Stream)` returning
-// a `Std.IO.Stream`. Composes naturally with `MemoryStream` (today) and
-// future `FileStream` / `NetworkStream`.
-
+/// RFC 1952 gzip 容器：一次性 `byte[]` 压缩/解压，以及 `Std.IO.Stream` 流式封装。
 public static class Gzip {
-    // mode = 2 → gzip (RFC 1952). Algorithm shared with Zlib (mode=1) and
-    // Deflate (mode=0) — same builtin entries, different mode param.
+    // mode = 2 → gzip（RFC 1952）；与 Zlib（mode=1）、Deflate（mode=0）共用同一套
+    // 内置入口，只是 mode 参数不同。
     [Native(lib = "z42_compression", entry = "__deflate_compress")]
     private static extern byte[] _CompressRaw(byte[] data, int level, int mode);
 
@@ -26,37 +14,37 @@ public static class Gzip {
 
     // ── One-shot (byte[] in / byte[] out) ────────────────────────────────
 
+    /// 用默认等级（6）把 `data` 压缩成 gzip 字节。
     public static byte[] Compress(byte[] data) {
         return _CompressRaw(data, Compression.Default, AlgoId.Gzip);
     }
 
+    /// 用给定等级（1..9）把 `data` 压缩成 gzip 字节。
     public static byte[] Compress(byte[] data, int level) {
         return _CompressRaw(data, level, AlgoId.Gzip);
     }
 
+    /// 解压 gzip 字节为明文。
     public static byte[] Decompress(byte[] data) {
         return _DecompressRaw(data, AlgoId.Gzip);
     }
 
     // ── Stream pipeline (write to dest / read from src) ──────────────────
 
-    /// Wrap `dest` so that bytes written to the returned Stream are
-    /// gzip-compressed (default level) and forwarded to `dest`. Caller
-    /// MUST call `Close()` on the returned Stream to flush the gzip
-    /// footer; otherwise the output is truncated. `dest` is not closed
-    /// by the encoder — caller owns its lifecycle.
+    /// 把 `dest` 包装成 gzip 编码流：写入返回流的字节会被压缩（默认等级）并转发给 `dest`。
+    /// 调用方必须对返回流调用 `Close()` 以写出 gzip 尾；否则输出被截断。`dest` 不会被
+    /// 编码流关闭——其生命周期归调用方。
     public static Stream WrapWrite(Stream dest) {
         return new CompressionEncoderStream(dest, AlgoId.Gzip, Compression.Default);
     }
 
+    /// 把 `dest` 包装成 gzip 编码流，使用给定等级（1..9）。
     public static Stream WrapWrite(Stream dest, int level) {
         return new CompressionEncoderStream(dest, AlgoId.Gzip, level);
     }
 
-    /// Wrap `src` so that reads from the returned Stream pull
-    /// gzip-compressed bytes from `src` and yield decompressed plaintext.
-    /// See `CompressionDecoderStream` for the v0 "lazy bulk decode"
-    /// memory caveat.
+    /// 把 `src` 包装成 gzip 解码流：从返回流读出的字节，是从 `src` 拉取的 gzip 字节
+    /// 解压后的明文。`src` 不会被解码流关闭——其生命周期归调用方。
     public static Stream WrapRead(Stream src) {
         return new CompressionDecoderStream(src, AlgoId.Gzip);
     }
