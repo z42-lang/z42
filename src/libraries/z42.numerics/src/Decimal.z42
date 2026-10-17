@@ -1,32 +1,15 @@
 namespace Std.Numerics;
 
 
-// add-numerics-decimal (2026-05-27): arbitrary-precision base-10 fixed-point
-// decimal value type. Backed by `BigInt` mantissa + `int` scale so the
-// representation is `mantissa * 10^-scale`.
-//
-// Unlike .NET BCL `System.Decimal` (28-29 digits, 96-bit mantissa),
-// z42's Decimal has no precision ceiling — multiplication of two N-digit
-// decimals produces a 2N-digit result, and division takes an explicit
-// precision argument so the caller controls scale growth.
-//
-// Naming follows the BigInt convention used by sibling Numerics types:
-// distinct named methods, not operator overloads (deferred to L3).
-//
-// Examples:
-//   var price = Decimal.Parse("19.99");
-//   var qty   = new Decimal(3);
-//   price.Multiply(qty)                       // 59.97
-//   Decimal.Parse("1.00").Subtract(price.Multiply(Decimal.FromInt(0)))
-//                                              // 1.00
-//   Decimal.Parse("10").Divide(Decimal.Parse("3"), 4)
-//                                              // 3.3333
+/// 任意精度十进制定点：`BigInt` 尾数 + 非负十进制 `scale`，表示 `mantissa * 10^-scale`。
+/// 没有精度上限（乘法得 2N 位结果，除法显式指定结果位数）。按不可变使用，每个运算返回新对象。
 public sealed class Decimal {
     // Value = _mantissa * 10^-_scale. Scale >= 0 (negative scale would
     // model trailing-zero-ranges; we normalise into mantissa).
     public BigInt _mantissa;
     public int    _scale;
 
+    /// 用尾数与 scale 构造定点数（`scale >= 0`）。
     public Decimal(BigInt mantissa, int scale) {
         if (scale < 0) {
             throw new ArgumentException("Decimal scale must be non-negative");
@@ -35,7 +18,7 @@ public sealed class Decimal {
         this._scale    = scale;
     }
 
-    /// Integer factory — no decimal point.
+    /// 用整数构造定点数（scale 为 0）。
     public Decimal(int value) {
         this._mantissa = new BigInt((long)value);
         this._scale    = 0;
@@ -43,25 +26,27 @@ public sealed class Decimal {
 
     // ── Factories ──────────────────────────────────────────────────────
 
+    /// 零值定点数（0，scale 0）。
     public static Decimal Zero() {
         return new Decimal(BigInt.Zero, 0);
     }
 
+    /// 一值定点数（1，scale 0）。
     public static Decimal One() {
         return new Decimal(BigInt.One, 0);
     }
 
+    /// 从 `int` 构造定点数。
     public static Decimal FromInt(int value) {
         return new Decimal(new BigInt((long)value), 0);
     }
 
+    /// 从 `long` 构造定点数。
     public static Decimal FromLong(long value) {
         return new Decimal(new BigInt(value), 0);
     }
 
-    /// Parse a decimal literal: `[-]?digit+([.]digit+)?`. No exponent /
-    /// thousands-separator support in v0 (caller pre-strips). Throws
-    /// `FormatException` on malformed input.
+    /// 解析十进制字面量 `[-]?digit+([.]digit+)?`（不支持指数/千分位）。非法输入抛 `FormatException`。
     public static Decimal Parse(string s) {
         if (s == null || s.Length == 0) {
             throw new FormatException("Decimal.Parse: empty input");
@@ -112,22 +97,27 @@ public sealed class Decimal {
 
     // ── Predicates / accessors ─────────────────────────────────────────
 
+    /// 是否为零。
     public bool IsZero() {
         return this._mantissa.IsZero();
     }
 
+    /// 是否为负。
     public bool IsNegative() {
         return this._mantissa.IsNegative();
     }
 
+    /// 符号：-1 / 0 / +1。
     public int Sign() {
         return this._mantissa.Sign();
     }
 
+    /// 返回尾数（`BigInt`）。
     public BigInt Mantissa() {
         return this._mantissa;
     }
 
+    /// 返回 scale（小数位数）。
     public int Scale() {
         return this._scale;
     }
@@ -156,6 +146,7 @@ public sealed class Decimal {
 
     // ── Arithmetic ─────────────────────────────────────────────────────
 
+    /// 加法（结果 scale 取两边较大者）。
     public Decimal Add(Decimal other) {
         int s = this._scale > other._scale ? this._scale : other._scale;
         BigInt a = Decimal._rescaleMantissa(this, s);
@@ -163,6 +154,7 @@ public sealed class Decimal {
         return new Decimal(a.Add(b), s);
     }
 
+    /// 减法（结果 scale 取两边较大者）。
     public Decimal Subtract(Decimal other) {
         int s = this._scale > other._scale ? this._scale : other._scale;
         BigInt a = Decimal._rescaleMantissa(this, s);
@@ -170,23 +162,18 @@ public sealed class Decimal {
         return new Decimal(a.Subtract(b), s);
     }
 
+    /// 乘法（结果 scale 为两边之和）。
     public Decimal Multiply(Decimal other) {
         // (m1 * 10^-s1) * (m2 * 10^-s2) = (m1 * m2) * 10^-(s1 + s2)
         return new Decimal(this._mantissa.Multiply(other._mantissa),
                            this._scale + other._scale);
     }
 
-    /// Divide with caller-specified result scale (digits after the point).
-    /// Algorithm: pre-multiply dividend mantissa by 10^(divisor_scale +
-    /// result_scale) so the integer divide produces the desired number of
-    /// fractional digits. Truncated toward zero (no banker's rounding in
-    /// v0 — `numerics-future-decimal-rounding-modes` follow-up).
-    ///
-    /// Named `DivideBy` rather than `Divide` because z42's method resolver
-    /// dispatches by name only (not receiver type) — `BigInt.Divide` and
-    /// `Decimal.Divide` collide and the call sites inside this method that
-    /// route to `BigInt.Divide` get mis-resolved to the 2-arg form. Follow-up
-    /// `compiler-future-typed-overload-resolution` lifts this.
+    /// 除法，显式指定结果位数（`resultScale` 位小数）。向零截断，无舍入模式。
+    //
+    // 命名 `DivideBy` 而非 `Divide`：z42 方法解析按名字派发，`BigInt.Divide` 与
+    // `Decimal.Divide` 会撞名。算法先把被除数尾数乘 10^(divisor_scale + result_scale)
+    // 再做整数除法，得到目标位数的小数。
     public Decimal DivideBy(Decimal other, int resultScale) {
         if (other.IsZero()) {
             throw new ArgumentException("Decimal.Divide: divisor is zero");
@@ -216,17 +203,19 @@ public sealed class Decimal {
         return new Decimal(dividend.Divide(other._mantissa), resultScale);
     }
 
+    /// 取相反数。
     public Decimal Negate() {
         return new Decimal(this._mantissa.Negate(), this._scale);
     }
 
+    /// 取绝对值。
     public Decimal Abs() {
         return new Decimal(this._mantissa.Abs(), this._scale);
     }
 
     // ── Comparison ─────────────────────────────────────────────────────
 
-    /// Same-scale-aware compare: returns -1 / 0 / +1.
+    /// 比较（跨 scale 对齐后比较，返回 -1 / 0 / +1）。
     public int CompareTo(Decimal other) {
         int s = this._scale > other._scale ? this._scale : other._scale;
         BigInt a = Decimal._rescaleMantissa(this, s);
@@ -234,15 +223,14 @@ public sealed class Decimal {
         return a.CompareTo(b);
     }
 
+    /// 按数值比较，跨 scale 相等（`Parse("19.99").Equals(Parse("19.990")) == true`）。
     public bool Equals(Decimal other) {
         return this.CompareTo(other) == 0;
     }
 
     // ── Display ────────────────────────────────────────────────────────
 
-    /// Render with the stored scale's worth of fractional digits — so
-    /// `Parse("1.00").ToString() == "1.00"` (preserves trailing zeros
-    /// the user wrote). Negative values get a leading `-`.
+    /// 十进制字符串，保留存储的 scale（`Parse("1.00").ToString() == "1.00"`），负数带 `-`。
     public override string ToString() {
         if (this._scale == 0) {
             return this._mantissa.ToString();

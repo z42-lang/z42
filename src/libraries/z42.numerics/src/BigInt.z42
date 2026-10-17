@@ -1,24 +1,37 @@
+//! 任意精度整数 / 十进制定点 / 复数。
+//!
+//! 三个互不依赖的数值类型，都是引用类型，按不可变使用——每个运算返回新对象，
+//! 从不改动接收者：
+//!
+//! - `BigInt`：任意精度整数。溢出 `long` 的算术、模幂 / 模逆 / GCD / 素性检测。
+//! - `Decimal`：任意精度十进制定点（`BigInt` 尾数 + 十进制 scale）。金额等不能用二进制浮点的场合。
+//! - `Complex`：`double` 实部 + 虚部的复数。
+//!
+//! 没有运算符重载——一律走方法调用（`a.Add(b)` 而不是 `a + b`）。也没有
+//! `Vector<T>` / SIMD 类型。`BigInt` 的素性检测依赖 `z42.random`，包清单里会一并拉入。
+//!
+//! ## 不支持
+//!
+//! - **运算符重载**：`a + b` / `a * b` / `a == b` 对这三个类型都不成立，一律用方法
+//! - **`Vector<T>` / SIMD**：本包没有向量类型
+//! - **`BigInt` 的算术右移**：`ShiftRight` 是幅值移位，没有向 -∞ 取整的变体
+//! - **`Decimal` 的舍入模式**：`DivideBy` 只有向零截断，没有 banker's rounding 之类的选项；也没有不指定结果位数的除法
+//! - **`Decimal` 的科学计数法解析**：`Parse("1e5")` 不接受
+//! - **`Complex` 的其余超越函数**：`Tan` / 反三角 / 双曲函数
+//! - **格式化**：没有 `ToString(format)` / 千分位 / 定宽补零；`BigInt` 换进制只有 `ToBase(radix)`，`Decimal` / `Complex` 只有固定形态的 `ToString()`
 namespace Std.Numerics;
 
 using Std.Random;
 
-// add-z42-numerics-bigint (2026-05-24): arbitrary-precision integer.
-//
-// Internal representation:
-//   _mag  — int[] magnitude as little-endian 31-bit limbs (each in [0, 2^31))
-//   _sign — int: -1 (negative), 0 (zero — _mag.Length == 0), +1 (positive)
-//   normalised: no trailing-zero limbs (_mag.Length == 0 iff _sign == 0)
+// 内部表示：
+//   _mag  — int[] magnitude，31-bit little-endian limbs (each in [0, 2^31))
+//   _sign — int: -1 (负), 0 (零 — _mag.Length == 0), +1 (正)
+//   规范化：无尾随零 limb (_mag.Length == 0 iff _sign == 0)
 //
 // 31-bit limb 选型理由：z42 `int` 是 signed i32 (max 2^31-1)；用 31-bit 限
 // 单 limb 后两 limb 乘积 = 62 bits，fit i64 + 留 1 bit 给 carry。Carry
 // chain 不需要任何 wrap-around 处理，纯算术 / 比较即可。trade-off：单
 // limb 容量 4.6% 损失 (vs 32-bit)。
-//
-// v0 scope (per docs/reference/src/stdlib/numerics.md):
-//   Add / Sub / Mul (schoolbook) / Div / Mod / Pow / Negate / Abs
-//   Parse(decimal + hex) / ToString / ToHex / ToInt32 / ToInt64
-//   CompareTo / Equals / GetHashCode + Zero/One/MinusOne constants
-// Out of scope (follow-up): bit ops / ModPow / Gcd / Karatsuba / FFT.
 
 // Helper carrier — z42 当前不支持 int[][] (jagged 2D arrays)。把 q + r 包成
 // 一个 class 透传比 sentinel-pack 更显式。
@@ -35,8 +48,11 @@ public class BigInt {
 
     // ── Constants ────────────────────────────────────────────────────────
 
+    /// 零。
     public static BigInt Zero     = BigInt._fromMagSign(new int[0], 0);
+    /// 一。
     public static BigInt One      = BigInt._fromMagSign(BigInt._oneMag(), 1);
+    /// 负一。
     public static BigInt MinusOne = BigInt._fromMagSign(BigInt._oneMag(), -1);
 
     // ── Constants on limb size ──────────────────────────────────────────
@@ -54,16 +70,7 @@ public class BigInt {
 
     // ── Public constructors ─────────────────────────────────────────────
 
-    // fix-bigint-int-long-overload-collision (2026-05-25): the previous
-    // `BigInt(int value)` overload was silently dropped at symbol
-    // collection (mangling `BigInt$1` collided with `BigInt(long)`,
-    // see `compiler-future-typed-overload-resolution` Deferred). All
-    // existing `new BigInt(intLiteral)` callsites already routed through
-    // `BigInt(long)` via int→long widening — and the dropped `int`
-    // overload's body was functionally identical (it just `(long)`-cast
-    // and called `_magFromLongAbs` the same way). So removing it is a
-    // no-op for behavior, but unmasks the "phantom signature" so docs
-    // / tools reflect what actually runs.
+    /// 用 `long` 构造任意精度整数（`int` 实参走 int→long 隐式加宽）。
     public BigInt(long value) {
         if (value == 0L) {
             this._mag  = new int[0];
@@ -75,7 +82,7 @@ public class BigInt {
             // Long.MinValue: negating overflows i64. Build magnitude directly.
             // |Long.MinValue| = 2^63 = limb representation [0, 0, 4] (since 2^63 = 4 * 2^62 = 4 << 62)
             // Compute via magFromLongAbs((value + 1) → -9223372036854775807) then +1.
-            int[] magPart = BigInt._magFromLongAbs(9223372036854775807L);   // add-partial-types：`partial` 现为关键字，改名
+            int[] magPart = BigInt._magFromLongAbs(9223372036854775807L);
             this._mag  = BigInt._magAdd(magPart, BigInt._oneMag());
             this._sign = -1;
         } else {
@@ -86,8 +93,7 @@ public class BigInt {
 
     // ── Static factories (parse) ────────────────────────────────────────
 
-    /// Parse decimal representation; optional leading "-". Empty string or
-    /// non-digit char throws FormatException. Leading "+" tolerated.
+    /// 解析十进制表示，允许前导 `+` / `-`。空串或非法字符抛 `FormatException`。
     public static BigInt Parse(string s) {
         if (s == null || s.Length == 0) {
             throw new FormatException("BigInt.Parse: empty input");
@@ -134,8 +140,7 @@ public class BigInt {
         return result;
     }
 
-    /// Parse hex (case-insensitive). Optional "-" sign + optional "0x"/"0X"
-    /// prefix. Empty string or non-hex char throws FormatException.
+    /// 解析十六进制（大小写不敏感），允许 `0x` 前缀与 `-`。非法输入抛 `FormatException`。
     public static BigInt ParseHex(string s) {
         if (s == null || s.Length == 0) {
             throw new FormatException("BigInt.ParseHex: empty input");
@@ -176,27 +181,31 @@ public class BigInt {
 
     // ── Inspection ──────────────────────────────────────────────────────
 
+    /// 是否为零。
     public bool IsZero() {
         return this._sign == 0;
     }
 
+    /// 是否为一。
     public bool IsOne() {
         if (this._sign != 1) return false;
         if (this._mag.Length != 1) return false;
         return this._mag[0] == 1;
     }
 
+    /// 是否为负。
     public bool IsNegative() {
         return this._sign < 0;
     }
 
+    /// 符号：-1 / 0 / +1。
     public int Sign() {
         return this._sign;
     }
 
     // ── Conversion ──────────────────────────────────────────────────────
 
-    /// Returns the value as int. Throws OverflowException if out of i32 range.
+    /// 转为 `int`，超出 i32 范围抛 `OverflowException`。
     public int ToInt32() {
         long v = this.ToInt64();
         if (v < -2147483648L || v > 2147483647L) {
@@ -205,7 +214,7 @@ public class BigInt {
         return (int)v;
     }
 
-    /// Returns the value as long. Throws OverflowException if out of i64 range.
+    /// 转为 `long`，超出 i64 范围抛 `OverflowException`。
     public long ToInt64() {
         if (this._sign == 0) return 0L;
         // Max positive: 2^63 - 1 = 9223372036854775807
@@ -245,7 +254,7 @@ public class BigInt {
         return magnitude;
     }
 
-    /// Decimal string representation. "0" for Zero, "-N" for negative.
+    /// 十进制字符串：零为 `"0"`，负数带 `-`。
     override string ToString() {
         if (this._sign == 0) return "0";
         // Repeatedly divmod-by-1_000_000_000 (largest power of 10 below BASE-ish)
@@ -291,18 +300,11 @@ public class BigInt {
         return String.FromChars(outc);
     }
 
-    // add-bigint-tobase (2026-05-27): arbitrary-radix string output.
+    /// 转成 `radix` 进制字符串（`radix` ∈ [2, 36]，小写字母，负数带 `-`）。
     //
-    // `radix ∈ [2, 36]` — digits are `0`–`9`, `a`–`z` (lowercase). Mirrors
-    // BCL `Convert.ToString(int, base)` (which only supports 2/8/10/16) but
-    // generalised. Negative numbers prefix `-`. Implementation is the same
-    // divmod-by-radix loop as `ToString()` / `ToHex()`; just emits one digit
-    // per limb step. For radix 16 the dedicated `ToHex()` is ~7× faster
-    // (it amortises divisor cost over 7 hex chars at a time) — prefer it.
-    //
-    // Named `ToBase` rather than `ToString(int)` because z42 doesn't yet
-    // permit overloading a `override` method by arity (see
-    // `compiler-future-typed-overload-resolution` deferred entry).
+    // 实现与 `ToString()` / `ToHex()` 相同的 divmod-by-radix 循环，逐 digit 输出；
+    // radix 16 时专用 `ToHex()` 约快 7×（一次摊销 7 个 hex 字符的除数成本）。
+    // 命名 `ToBase` 而非 `ToString(int)`：z42 尚不允许按 arity 重载 `override` 方法。
     public string ToBase(int radix) {
         if (radix < 2 || radix > 36) {
             throw new ArgumentException(
@@ -349,12 +351,11 @@ public class BigInt {
         return String.FromChars(outc);
     }
 
-    /// Lowercase hex, no "0x" prefix. "0" for Zero, "-..." for negative.
-    ///
-    /// 31-bit limbs don't align with hex 4-bit boundaries, so we can't simply
-    /// concatenate per-limb hex. Instead, divmod-by-16^7 = 0x10000000 (which
-    /// fits in 31 bits — 16^7 = 2^28 < 2^31) and emit 7-hex-char chunks.
-    /// Top chunk no zero-pad; lower chunks zero-padded to 7.
+    /// 小写十六进制，无 `0x` 前缀；零为 `"0"`，负数带 `-`。
+    //
+    // 31-bit limb 与 4-bit hex 边界不对齐，不能逐 limb 拼接；改为 divmod-by-16^7
+    // = 0x10000000（16^7 = 2^28 < 2^31），每次输出 7 个 hex 字符。
+    // 最高 chunk 不补零，低位 chunk 补零到 7。
     public string ToHex() {
         if (this._sign == 0) return "0";
         BigInt acc = this.Abs();
@@ -398,6 +399,7 @@ public class BigInt {
 
     // ── Arithmetic ──────────────────────────────────────────────────────
 
+    /// 加法。
     public BigInt Add(BigInt other) {
         if (this._sign == 0)  return other;
         if (other._sign == 0) return this;
@@ -417,10 +419,12 @@ public class BigInt {
         return BigInt._fromMagSign(mag, other._sign);
     }
 
+    /// 减法。
     public BigInt Subtract(BigInt other) {
         return this.Add(other.Negate());
     }
 
+    /// 乘法。
     public BigInt Multiply(BigInt other) {
         if (this._sign == 0 || other._sign == 0) return BigInt.Zero;
         int[] mag = BigInt._magMul(this._mag, other._mag);
@@ -428,11 +432,13 @@ public class BigInt {
         return BigInt._fromMagSign(mag, sign);
     }
 
+    /// 除法，向零截断。
     public BigInt Divide(BigInt other) {
         BigInt[] dm = this._divMod(other);
         return dm[0];
     }
 
+    /// 取模，余数符号跟被除数。
     public BigInt Mod(BigInt other) {
         BigInt[] dm = this._divMod(other);
         return dm[1];
@@ -476,18 +482,19 @@ public class BigInt {
         return dm;
     }
 
+    /// 取相反数。
     public BigInt Negate() {
         if (this._sign == 0) return BigInt.Zero;
         return BigInt._fromMagSign(this._mag, -this._sign);
     }
 
+    /// 取绝对值。
     public BigInt Abs() {
         if (this._sign >= 0) return this;
         return BigInt._fromMagSign(this._mag, 1);
     }
 
-    /// Integer power. `exponent >= 0`. Uses repeated squaring (O(log exp)
-    /// multiplications). Negative exponent throws ArgumentException.
+    /// 整数幂（`exponent >= 0`），用重复平方（O(log exp) 次乘法）。负指数抛 `ArgumentException`。
     public BigInt Pow(int exponent) {
         if (exponent < 0) {
             throw new ArgumentException("BigInt.Pow: negative exponent not supported");
@@ -509,17 +516,13 @@ public class BigInt {
         return result;
     }
 
-    // ── Bit operations (add-bigint-bitops, 2026-05-25) ──────────────────
+    // ── 位运算 ─────────────────────────────────────────────────────────
     //
-    // add-bigint-bitops-twoscomp (2026-05-27): AND / OR / XOR / NOT /
-    // TestBit on negative operands via infinite-precision two's-complement.
-    // ShiftLeft / ShiftRight remain magnitude shifts (callers wanting
-    // arithmetic shift-right toward -∞ should use `Divide(2^k)` until a
-    // dedicated `ArithmeticShiftRight` ships).
+    // 负数操作数按无限精度 two's-complement 处理 AND / OR / XOR / NOT / TestBit。
+    // ShiftLeft / ShiftRight 仍是幅值移位（要算术右移请用 Divide(2^k)）。
     //
-    // Limb mask = (1 << 31) - 1 = 0x7FFFFFFF. Two's-comp of -x at length
-    // n_limbs = invert_per_limb(|x| padded to n_limbs) + 1, with leading
-    // limbs = LIMB_MASK (all-1) for sign extension.
+    // Limb mask = (1 << 31) - 1 = 0x7FFFFFFF。-x 在 n_limbs 长度下的 two's-comp
+    // = 按 limb 取反(|x| 补齐到 n_limbs) + 1，高位 limb = LIMB_MASK (全 1) 作符号扩展。
 
     static int LIMB_MASK = 0x7FFFFFFF;
 
@@ -724,12 +727,10 @@ public class BigInt {
         return BigInt._fromMagSign(mag, this._sign);
     }
 
-    /// 测试 bit `n` (n >= 0) 是否 set。
-    /// add-bigint-bitops-twoscomp (2026-05-27): supports negative receivers
-    /// via infinite-precision two's-complement view. `TestBit(i)` on a
-    /// negative value matches Python `(n >> i) & 1` semantics — for
-    /// `(-1).TestBit(i) == true` at every `i` (sign-extended ones).
-    /// `n` beyond the magnitude returns the lead bit (0 for non-neg, 1 for neg).
+    /// 测试第 `n` 位（`n >= 0`）是否为 1；`n` 为负抛 `ArgumentException`。
+    ///
+    /// 负数按无限精度 two's-complement 解释（同 Python `(n >> i) & 1`）：
+    /// `(-1).TestBit(i)` 对任意 `i` 都为 true（符号扩展的 1）。
     public bool TestBit(int n) {
         if (n < 0) {
             throw new ArgumentException("BigInt.TestBit: negative bit index");
@@ -764,9 +765,7 @@ public class BigInt {
         return topIdx * 31 + topBits;
     }
 
-    // ── Modular exponentiation (add-bigint-modpow, 2026-05-25) ──────────
-
-    // ── 模幂 / 模逆 / 素性检测：算法体在 BigIntModular / BigIntPrimality / BigIntBpsw（refactor-split-bigint）──
+    // ── 模运算与数论 ───────────────────────────────────────────────────
 
     /// Modular exponentiation `this^exp mod modulus`（负指数经 ModInverse；奇模数走 Montgomery REDC）。见 BigIntModular。
     public BigInt ModPow(BigInt exp, BigInt modulus) { return BigIntModular.ModPow(this, exp, modulus); }
@@ -774,9 +773,7 @@ public class BigInt {
     /// Modular multiplicative inverse in `[0, modulus)`（扩展欧几里得）。见 BigIntModular。
     public BigInt ModInverse(BigInt modulus) { return BigIntModular.ModInverse(this, modulus); }
 
-    /// Miller-Rabin probabilistic primality test with a default RNG
-    /// (wall-clock seeded). Use the `(int, Random)` overload for
-    /// deterministic / reproducible witnesses.
+    /// Miller-Rabin 概率素性检测，用挂钟播种的默认 RNG（结果不可复现）。要可复现就用 `(int, Random)` 重载。
     public bool IsProbablyPrime(int rounds) {
         Random rng = new Random();
         return this.IsProbablyPrime(rounds, rng);
@@ -795,45 +792,21 @@ public class BigInt {
     public bool IsBpswPrime() { return BigIntBpsw.IsBpswPrime(this); }
 
 
-    // ── Montgomery REDC fast path (RSA / ECC ModPow) ─────────────────────────
-    //
-    // add-bigint-modpow-montgomery (2026-05-28): k = mod._mag.Length limbs.
-    // R = 2^(31*k); R > modulus always (since mod's top limb is non-zero).
-    // R^(-1), n' = -n[0]^(-1) mod 2^31, R^2 mod n precomputed once.
-    //
-    // Montgomery form a' = a*R mod n. Multiplication in Montgomery form:
-    //   MontMul(a', b') = a'*b'*R^(-1) mod n = (ab)*R mod n
-    // Convert in: MontMul(a, R^2 mod n) = a*R mod n = a'.
-    // Convert out: MontMul(a', 1) = a*R*R^(-1) mod n = a.
 
 
 
 
 
-    /// Greatest common divisor of |this| and |other|. Always returns a
-    /// non-negative result (sign of operands ignored).
+    /// `|this|` 与 `|other|` 的最大公约数，结果非负（`gcd(0,0)==0`，`gcd(a,0)==|a|`）。
     ///
-    /// Conventions (match .NET BigInteger / Python math.gcd):
-    ///   * `gcd(0, 0) = 0`
-    ///   * `gcd(a, 0) = |a|`, `gcd(0, b) = |b|`
+    /// 用 Stein 二进制 GCD：每步是移位 + 比较 + 减法，而非完整 divmod，对加密规模
+    /// 操作数约快 3-5×（BigInt.Divide 是 O(n*m)，ShiftRight 是 O(n)，Subtract 是 O(max(n,m))）。
     ///
-    /// Algorithm: Stein's binary GCD (add-bigint-gcd-binary 2026-05-27).
-    /// Replaces the prior Euclidean `gcd(a, b) = gcd(b, a mod b)` impl —
-    /// each step is now a shift + compare + subtract instead of a full
-    /// divmod, which is ~3-5× faster on cryptographic-size operands
-    /// because z42's BigInt Divide is O(n*m) limb-by-limb while
-    /// ShiftRight is O(n) and Subtract is O(max(n, m)).
-    ///
-    /// Iterative form (no recursion, bounded stack):
-    ///   1. Strip common factors of 2: `a, b ← a/2, b/2` while both even;
-    ///      remember the shift count `k` so the final result re-multiplies
-    ///      by 2^k.
-    ///   2. Strip remaining 2s from `a` until odd.
-    ///   3. Main loop: keep `b` odd by shifting out 2s, then ensure
-    ///      `a ≤ b`, set `b ← b - a` (both odd → difference is even, so
-    ///      the next iteration strips at least one 2 from `b`). Loop
-    ///      until `b == 0`.
-    ///   4. Return `a << k`.
+    /// 迭代形式（无递归）：
+    ///   1. 提出公共因子 2：两者同偶时 `a, b ← a/2, b/2`，记移位次数 k，最后乘回 2^k。
+    ///   2. 剥掉 a 剩余因子 2 直到 a 为奇。
+    ///   3. 主循环：b 剥 2 到奇，保证 `a ≤ b`，令 `b ← b - a`（奇-奇=偶，下一轮至少再剥一个 2），直到 `b == 0`。
+    ///   4. 返回 `a << k`。
     public BigInt Gcd(BigInt other) {
         BigInt a = this.Abs();
         BigInt b = other.Abs();
@@ -871,9 +844,7 @@ public class BigInt {
         return a.ShiftLeft(k);
     }
 
-    /// Least common multiple of |this| and |other|. Always non-negative.
-    /// `lcm(0, _) = 0` (matches the identity `lcm(a, b) * gcd(a, b) = |a*b|`
-    /// extended by continuity; avoids division-by-zero).
+    /// `|this|` 与 `|other|` 的最小公倍数，结果非负；`lcm(0, _) == 0`。
     public BigInt Lcm(BigInt other) {
         if (this.IsZero() || other.IsZero()) return BigInt.Zero;
         BigInt g       = this.Gcd(other);
@@ -883,45 +854,9 @@ public class BigInt {
     }
 
 
-    // ── Probabilistic primality (add-bigint-prime, 2026-05-25) ──────────
-
-
-
-
-
-
-    // ── Deterministic primality (add-bigint-prime-deterministic, 2026-06-02) ──
-    //
-    // Miller-Rabin with the OEIS A014233 witness sets — known sufficient
-    // witnesses giving a deterministic prime/composite verdict for any
-    // n < 3,317,044,064,679,887,385,961,981 (~3.317×10^24, fits in 82
-    // bits). Same witness tables used by sympy.isprime / Java
-    // BigInteger / Go math/big in their deterministic regimes.
-
-
-
-
-
-
-
-
-
-
-    // ── BPSW primality (add-bigint-bpsw, 2026-06-03) ─────────────────
-    //
-    // Baillie–Pomerance–Selfridge–Wagstaff: strong Miller-Rabin base 2
-    // composed with a strong Lucas pseudoprime test (parameters via
-    // Selfridge's method). No known counterexample since 1980; verified
-    // exhaustively up to 2^64 (Feitsma & Galway, 2017). The standard
-    // "practically deterministic" answer beyond IsPrime()'s
-    // ~3.317×10^24 hard ceiling.
-
-
-
-
-
     // ── Comparison ──────────────────────────────────────────────────────
 
+    /// 与另一个 BigInt 比较，返回 -1 / 0 / +1。
     public int CompareTo(BigInt other) {
         if (this._sign != other._sign) {
             return this._sign - other._sign;
@@ -932,6 +867,7 @@ public class BigInt {
         return magCmp;
     }
 
+    /// 相等比较：类型不符（如 `Equals("x")`）返回 `false`，不抛异常。
     override bool Equals(object other) {
         // Type-check before comparing: an unchecked `(BigInt)other` cast traps
         // when other is a different type (e.g. bigint.Equals("x")); Equals must
@@ -943,6 +879,7 @@ public class BigInt {
         return false;
     }
 
+    /// 哈希码（跨 limbs + sign 累加）。
     override int GetHashCode() {
         // FNV-1a style accumulator across limbs + sign. The classic FNV offset basis
         // 2166136261 (= 0x811C9DC5) overflows i32 — z42 `int` 是 signed i32，最大
@@ -1138,11 +1075,8 @@ public class BigInt {
         return BigInt._trim(r);
     }
 
-    /// Magnitude schoolbook multiplication. O(n*m).
-    /// Threshold (in limbs) below which schoolbook multiplication wins
-    /// over Karatsuba — empirically ~30 for 31-bit limbs. Lower thresholds
-    /// pay too much recursion overhead; higher thresholds miss the
-    /// asymptotic win. add-bigint-karatsuba (2026-05-25).
+    // 幅值乘法分派阈值（limb 数）：低于此用 schoolbook（常数因子更小），高于此走
+    // Karatsuba（亚平方）。经验值 ~30（31-bit limb）：过低递归开销大，过高错过渐近收益。
     static int KARATSUBA_THRESHOLD = 32;
 
     /// Magnitude multiplication. Dispatches to schoolbook below
@@ -1159,11 +1093,8 @@ public class BigInt {
         return BigInt._magMulKaratsuba(a, b);
     }
 
-    /// Schoolbook (long) multiplication — O(n*m). Fast on small operands
-    /// thanks to cache-friendly tight inner loop and zero allocation past
-    /// the result array. add-bigint-karatsuba (2026-05-25): extracted from
-    /// the old `_magMul` so Karatsuba can fall back to it at the recursion
-    /// base case.
+    // Schoolbook (long) 乘法，O(n*m)。小操作数上因缓存友好、紧内层循环、零额外分配而更快；
+    // 作为 Karatsuba 递归基例的 fallback。
     static int[] _magMulSchool(int[] a, int[] b) {
         int la = a.Length;
         int lb = b.Length;
@@ -1193,14 +1124,12 @@ public class BigInt {
         return BigInt._trim(r);
     }
 
-    /// Karatsuba multiplication — O(n^log2(3)) ≈ O(n^1.585).
-    /// Algorithm: split each operand into low (m limbs) + high parts
-    /// where m = max(la, lb) / 2. Compute three sub-products:
-    ///   z0 = aLow  * bLow
-    ///   z2 = aHigh * bHigh
-    ///   z1 = (aLow + aHigh) * (bLow + bHigh) - z0 - z2
-    /// Combine: result = z0 + (z1 << m*31) + (z2 << 2m*31).
-    /// add-bigint-karatsuba (2026-05-25).
+    // Karatsuba 乘法 O(n^log2(3)) ≈ O(n^1.585)。把每个操作数按 m = max(la,lb)/2
+    // 拆成低位 + 高位，算三个子积：
+    //   z0 = aLow  * bLow
+    //   z2 = aHigh * bHigh
+    //   z1 = (aLow + aHigh) * (bLow + bHigh) - z0 - z2
+    // 合并：result = z0 + (z1 << m*31) + (z2 << 2m*31)。
     static int[] _magMulKaratsuba(int[] a, int[] b) {
         int la = a.Length;
         int lb = b.Length;
@@ -1234,9 +1163,7 @@ public class BigInt {
         return BigInt._trim(result);
     }
 
-    /// Extract `mag[from..to)` into a fresh limb array. Out-of-range
-    /// indices clamp; trims trailing zeros via `_trim` so callers get
-    /// a normalised slice. add-bigint-karatsuba (2026-05-25).
+    // 取 `mag[from..to)` 到新 limb 数组；越界 clamp，尾随零经 `_trim` 裁掉。
     static int[] _magSlice(int[] mag, int from, int to) {
         int srcLen = mag.Length;
         int hi = to;
@@ -1252,9 +1179,7 @@ public class BigInt {
         return BigInt._trim(r);
     }
 
-    /// Shift magnitude left by `n` full limbs (equivalent to multiplying
-    /// by `BASE^n`). Used to compose Karatsuba sub-products at their
-    /// correct positions. add-bigint-karatsuba (2026-05-25).
+    // 幅值左移 n 个完整 limb（等价乘 BASE^n），用于把 Karatsuba 子积摆到正确位置。
     static int[] _magShiftByLimbs(int[] mag, int n) {
         if (mag.Length == 0 || n == 0) { return mag; }
         int[] r = new int[mag.Length + n];
@@ -1293,22 +1218,12 @@ public class BigInt {
         return new _MagDivModResult(BigInt._trim(q), BigInt._trim(rArr));
     }
 
-    /// General multi-limb divisor. Knuth Algorithm D adapted for 31-bit limbs.
-    /// Returns `[quotient, remainder]`.
-    ///
-    /// add-bigint-divmod-normalised (2026-05-27): the original "simple
-    /// estimator + linear-decrement" path had a pathology on divisors with
-    /// small top limbs (e.g. Poly1305's `2^130 - 5` which has top limb 64
-    /// in 31-bit form) — the estimate ran wildly off and the linear
-    /// decrement loop could either hang or trip a downstream arithmetic
-    /// edge case. Switched to proper Knuth D normalisation:
-    ///   1. Shift divisor left by `s` until its top limb's bit 30 is set
-    ///      (i.e. top limb ≥ 2^30). Apply the same shift to the dividend.
-    ///   2. The estimator `q̂ = min(BASE-1, top2(rem) / top1(div))` is then
-    ///      provably ≤ true quotient digit + 2 (Knuth TAOCP vol 2 §4.3.1
-    ///      theorem B), so the decrement loop terminates in O(1) steps.
-    ///   3. After collecting the quotient, shift the remainder right by `s`
-    ///      to undo the normalisation.
+    // 通用多 limb 除法，Knuth 算法 D（适配 31-bit limb），返回 `[商, 余]`。
+    // 步骤：
+    //   1. 把除数左移 `s` 直到最高 limb 的 bit 30 置位（最高 limb ≥ 2^30），被除数同移。
+    //   2. 估计器 `q̂ = min(BASE-1, top2(rem) / top1(div))` 至多比真商大 2
+    //      （Knuth TAOCP vol 2 §4.3.1 定理 B），减量循环 O(1) 步收敛。
+    //   3. 收集商后，把余数右移 `s` 还原归一化。
     static _MagDivModResult _magDivModGeneral(int[] dividend, int[] divisor) {
         // Step 1: determine normalisation shift `s` so divisor's top limb
         //   has bit 30 set (the highest bit of a 31-bit limb).

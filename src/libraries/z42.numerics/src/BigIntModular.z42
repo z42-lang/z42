@@ -1,6 +1,4 @@
-// BigIntModular —— 模幂（含 Montgomery REDC 快路径）与模逆（refactor-split-bigint，2026-09-03）。
-// 自 2234 行的 BigInt.z42 按职责提出：BigInt 保留同名公开方法作薄委托（API 不变），算法体逐字搬移，
-// 仅把 `this` 改为显式 `this` 参数、跨类调用改为 `BigIntXxx._helper(...)`。
+// BigInt 的模幂（含 Montgomery REDC 快路径）与模逆实现。
 namespace Std.Numerics;
 
 
@@ -24,9 +22,8 @@ internal static class BigIntModular {
         if (modulus._sign <= 0) {
             throw new ArgumentException("BigInt.ModPow: modulus must be > 0");
         }
-        // add-bigint-modpow-negexp (2026-05-25): route negative exponent
-        // through ModInverse (`a^(-n) mod m == (a^-1 mod m)^n mod m`).
-        // Requires gcd(this, modulus) == 1 — ModInverse handles the check.
+        // 负指数经 ModInverse 处理：`a^(-n) mod m == (a^-1 mod m)^n mod m`，
+        // 要求 gcd(this, modulus) == 1（ModInverse 内部检查）。
         if (exp._sign < 0) {
             BigInt inv = BigIntModular.ModInverse(self, modulus);
             BigInt absExp = exp.Abs();
@@ -34,17 +31,11 @@ internal static class BigIntModular {
         }
         if (modulus.IsOne()) return BigInt.Zero;
         if (exp.IsZero())    return BigInt.One;
-        // add-bigint-modpow-montgomery (2026-05-28): for odd modulus we
-        // route through Montgomery REDC — replaces each per-step divmod
-        // (O(n*m) limb ops) with a single multi-limb add-and-shift
-        // reduction (O(n) limb ops). Setup cost is one Mod for R^2 mod n
-        // plus a single-limb modular inverse, amortised over typically
-        // 2*bitLength(exp) modular multiplications — net 2-3× speedup
-        // on the cryptographic-size moduli (RSA, X25519, Ed25519, ECDSA)
-        // that dominate ModPow callers.
-        //
-        // Even modulus keeps the legacy square-and-multiply path because
-        // Montgomery requires gcd(R, n) = 1 (n must be odd for R = 2^k).
+        // 奇模数走 Montgomery REDC：把每次的 divmod（O(n*m) limb 操作）换成
+        // 单次多 limb 加减移位归约（O(n)）。setup 一次 R^2 mod n 与单 limb 模逆，
+        // 摊到约 2*bitLength(exp) 次模乘上，对 RSA/X25519/Ed25519/ECDSA 这类
+        // 加密规模模数净快 2-3×。偶模数保留传统 square-and-multiply 路径：
+        // Montgomery 要求 gcd(R, n) = 1（R = 2^k 时 n 必须为奇）。
         if (modulus._mag.Length > 0 && (modulus._mag[0] & 1) == 1) {
             return BigIntModular._modPowMontgomery(self, exp, modulus);
         }

@@ -1,6 +1,4 @@
-// BigIntBpsw —— BPSW 素性检测：强 Lucas 伪素数测试 + Jacobi 符号（refactor-split-bigint，2026-09-03）。
-// 自 2234 行的 BigInt.z42 按职责提出：BigInt 保留同名公开方法作薄委托（API 不变），算法体逐字搬移，
-// 仅把 `this` 改为显式 `this` 参数、跨类调用改为 `BigIntXxx._helper(...)`。
+// BigInt 的 BPSW 素性检测实现：强 Lucas 伪素数测试 + Jacobi 符号。
 namespace Std.Numerics;
 
 
