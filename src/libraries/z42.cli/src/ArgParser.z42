@@ -1,23 +1,39 @@
+//! 命令行参数解析。
+//!
+//! 把 `string[] argv` 解析成 flag / option / positional 三类参数，并自动生成
+//! `-h/--help` 文本。`SubcommandRouter` 在其上叠一层 `git` / `cargo` 风格的
+//! （可嵌套的）子命令路由。
+//!
+//! 参数值一律先当 `string` 拿；需要 `int` / `long` / `double` / `bool` 时在
+//! **取值处**转换（`ParseResult.GetIntOption` 等），声明期不区分类型。
+//!
+//! argv 从 `Std.IO.Environment.GetCommandLineArgs()` 取，**不含 program name**，
+//! 直接传给 `Parse`。
+//!
+//! ## 不支持
+//!
+//! - **`--` 结束选项**：`--` 不是分隔符，会当成未知 option 报 `unknown option '--'`。
+//! - **负数 / 以 `-` 开头的值作 positional**：`-1` 会走 short 解析路径报
+//!   `unknown option '-1'`；单个 `-` 长度不足 2，反而被当作 positional。
+//! - **紧贴形式 `-pvalue`**：不支持，会落进 short flag 簇路径，报
+//!   `contains option '-p' that requires a value`。
+//! - **变长 positional（`args...`）**：不支持；用可重复 option（`-D k=v`）或调用方
+//!   自己切 `Extras()` 替代。
+//! - **声明期类型**：没有 `AddIntOption` 之类；一律 `AddOption`，在 `GetIntOption`
+//!   等取值方法里转换。
+//! - **重名检测**：重复注册同一个 long name 不报错，查找取**先声明**的那条。
+//! - **子命令别名 / 跨子命令全局 flag**：没有；共享 flag 要在每个叶子 `ArgParser`
+//!   里各注册一遍。
+//! - **拼写纠正**：未知子命令只给 `unknown command '<token>'`，没有 "did you mean" 建议。
+//! - **`Match` 不认嵌套**：`AddRouter` 注册的名字用 `Match` 去命中会撞上空的叶子 parser
+//!   而崩溃；嵌套树只能用 `Resolve`。
+//! - **`AllowExtras` 与 short flag 簇互斥**：开启 extras 后不再走簇解析，`-abc`
+//!   整个 token 进 `Extras()`。
 namespace Std.Cli;
 using Std.Text;
 using Std.IO;
 
-// add-z42-cli (2026-05-16)：CLI argv 解析器。最小子集 — flag + option + positional。
-//
-// 用法：
-//   var p = new ArgParser("build-stdlib", "Compile z42 stdlib workspace");
-//   p.AddFlag("verbose", "v", "verbose output");
-//   p.AddOption("profile", "p", "build profile", "release");
-//   p.AddPositional("target", "build target directory");
-//
-//   ParseResult r = p.Parse(Environment.GetCommandLineArgs());
-//   if (r.ShowHelp()) { Console.WriteLine(p.HelpText()); Environment.Exit(0); }
-//   bool verbose = r.GetFlag("verbose");
-//   string prof  = r.GetOption("profile");
-//   string tgt   = r.GetPositional(0);
-//
-// 不支持（v0）：subcommand、required option、type-converted parse（int/float）、
-// `-nvalue`（紧贴形式）。详 design doc Deferred。
+/// 声明参数并解析 argv。所有 Add* 方法按调用顺序记录；Parse 可对同一 parser 重复调用。
 public class ArgParser {
     private string _programName;
     private string _description;
@@ -33,38 +49,32 @@ public class ArgParser {
     private string[] _optionShorts;
     private string[] _optionHelps;
     private string[] _optionDefaults;
-    // add-cli-required-option (2026-05-26): parallel `_optionRequired` array.
-    // When true, Parse throws if the option wasn't seen on the command line.
+    // 并行数组 `_optionRequired`：为 true 时，Parse 在 argv 未出现该 option 时抛异常。
     private bool[]   _optionRequired;
-    // add-cli-repeated-option (2026-05-26): when true, the option may be
-    // passed multiple times; values are collected into a list.
+    // 并行数组 `_optionRepeated`：为 true 时该 option 可多次出现，值收集进列表。
     private bool[]   _optionRepeated;
-    // add-cli-env-fallback (2026-05-26): per-option fallback env-var name.
-    // Empty string when no env fallback. Lookup precedence: argv > env > default.
+    // 每个 option 的环境变量后备名；无后备时为空串。取值优先级：argv > env > default。
     private string[] _optionEnvVars;
     private int      _optionCount;
 
-    // add-cli-strict-vs-extras (2026-05-26): when true, unknown flags /
-    // options go into `ParseResult.Extras()` instead of throwing.
+    // 为 true 时，未知 flag / option 进 `ParseResult.Extras()` 而非抛异常。
     private bool _allowExtras;
 
-    // add-cli-mutually-exclusive (2026-05-26): each entry is a group of
-    // option long-names where at most one may be set on the command line.
-    // Stored as parallel arrays: per-group flat-string list + per-group
-    // count. Internal `_MutexGroup` wrapper avoids string[][] which z42
-    // doesn't natively support.
+    // 互斥组：每组是一串 option long-name，argv 中至多出现一个。用并行数组存储
+    // （每组扁平字符串列表 + 每组合计数）。内部 `_MutexGroup` 包装是为了绕开
+    // z42 不原生支持的 string[][]。
     private _MutexGroup[] _mutexGroups;
     private int           _mutexGroupCount;
 
     // Declared positionals (in order)
     private string[] _positionalNames;
     private string[] _positionalHelps;
-    // add-cli-optional-positional (2026-06-10): per-positional optional flag.
-    // Optional positionals must follow all required ones (enforced in
-    // AddPositional). Missing optional → GetPositional returns "".
+    // 每个 positional 的可选标记。可选 positional 必须排在所有必填之后
+    // （AddPositional 中强制）；缺省可选时 GetPositional 返回 ""。
     private bool[]   _positionalOptional;
     private int      _positionalCount;
 
+    /// 用 programName 与 description 创建一个参数解析器。
     public ArgParser(string programName, string description) {
         this._programName     = programName;
         this._description     = description;
@@ -91,8 +101,7 @@ public class ArgParser {
 
     // ── Declaration API ──────────────────────────────────────────────────
 
-    /// 注册 boolean flag。shortName 可为 ""（无短名）。
-    /// `-h` / `--help` 是 auto-registered，无需手加。
+    /// 布尔开关：出现即 true。shortName 传 "" 表示无短名；`-h` / `--help` 自动注册，无需手加。
     public void AddFlag(string longName, string shortName, string help) {
         this.EnsureFlagCap();
         this._flagLongs[this._flagCount]  = longName;
@@ -101,7 +110,7 @@ public class ArgParser {
         this._flagCount = this._flagCount + 1;
     }
 
-    /// 注册带值的 option（`--name value` / `--name=value`）。
+    /// 注册带值 option（`--name value` 或 `--name=value`）；未出现时取 defaultValue。
     public void AddOption(string longName, string shortName, string help, string defaultValue) {
         this.EnsureOptionCap();
         this._optionLongs[this._optionCount]    = longName;
@@ -114,10 +123,8 @@ public class ArgParser {
         this._optionCount = this._optionCount + 1;
     }
 
-    /// 注册带 env 后备 default 的 option — 解析优先级为 argv > envVar > defaultValue.
-    /// Empty/missing env var falls through to defaultValue. Typical use:
-    /// `AddOptionWithEnv("api-key", "k", "API token", "", "API_TOKEN")`.
-    /// add-cli-env-fallback (2026-05-26).
+    /// 注册带环境变量后备的 option。取值优先级 argv > 环境变量 > defaultValue；
+    /// 环境变量不存在或为空串时落到 defaultValue；help 自动追加 " (env: $NAME)"。
     public void AddOptionWithEnv(string longName, string shortName, string help,
                                   string defaultValue, string envVarName) {
         this.EnsureOptionCap();
@@ -131,10 +138,7 @@ public class ArgParser {
         this._optionCount = this._optionCount + 1;
     }
 
-    /// Declare that AT MOST ONE of `names` may be set on the command line.
-    /// Validated at the end of Parse — multiple set → CliException listing
-    /// the conflict. Each name must already be a registered option (long
-    /// name). add-cli-mutually-exclusive (2026-05-26).
+    /// 声明一组 option long-name，argv 中至多出现一个；名字必须已注册，否则当场抛 CliException。
     public void AddMutuallyExclusive(string[] names) {
         // Validate every name is registered up-front so the user gets a
         // declaration-time error rather than a confusing Parse-time one.
@@ -157,7 +161,7 @@ public class ArgParser {
         this._mutexGroupCount = this._mutexGroupCount + 1;
     }
 
-    /// Find an option by long name; returns -1 if not registered.
+    // 按 long name 查 option 下标；未注册返回 -1。
     private int FindOptionLongIndex(string longName) {
         int i = 0;
         while (i < this._optionCount) {
@@ -167,11 +171,8 @@ public class ArgParser {
         return -1;
     }
 
-    /// 注册可重复 option — argv 中每次出现都 append 而非覆盖。Retrieved via
-    /// `ParseResult.GetRepeatedOption(name) → string[]`. Typical use:
-    /// `-D NAME=VALUE -D OTHER=VALUE`. `GetOption(name)` returns the LAST
-    /// value (matches the implicit repeated-option semantics).
-    /// add-cli-repeated-option (2026-05-26).
+    /// 注册可重复 option：每次出现都追加；用 `GetRepeatedOption` 取全部，`GetOption` 取最后一个。
+    /// 默认值固定 ""，help 自动追加 " (repeatable)"。
     public void AddRepeatedOption(string longName, string shortName, string help) {
         this.EnsureOptionCap();
         this._optionLongs[this._optionCount]    = longName;
@@ -184,20 +185,13 @@ public class ArgParser {
         this._optionCount = this._optionCount + 1;
     }
 
-    /// Enable pass-through mode: unknown flags / options go into
-    /// `ParseResult.Extras()` instead of throwing `CliException`.
-    /// Useful for wrapper / pass-through tools. add-cli-strict-vs-extras
-    /// (2026-05-26).
+    /// 一次性开关：开启后未知 flag / option 进 `ParseResult.Extras()` 而不抛异常。
     public void AllowExtras() {
         this._allowExtras = true;
     }
 
-    /// 注册必填 option — Parse 在 argv 中没看到该 option 时抛 CliException
-    /// (`required option '--name' missing`). `defaultValue` is unused but
-    /// kept in the parallel array for storage uniformity. The presence-tracking
-    /// uses a sentinel: the option's slot stays at `_optionDefaults[i]` (i.e.,
-    /// `""` for required options) until argv writes a value; Parse then checks
-    /// each required slot still equals `""`. add-cli-required-option (2026-05-26).
+    /// 注册必填 option：argv 里没写时 Parse 抛 CliException。默认值固定 ""，
+    /// help 自动追加 " (required)"。
     public void AddRequiredOption(string longName, string shortName, string help) {
         this.EnsureOptionCap();
         this._optionLongs[this._optionCount]    = longName;
@@ -210,10 +204,9 @@ public class ArgParser {
         this._optionCount = this._optionCount + 1;
     }
 
-    /// 注册 positional 参数（按声明顺序匹配 argv 中非 flag/option 的部分）。
+    /// 注册必填 positional，按声明顺序匹配 argv 中非 flag/option 的部分。
     public void AddPositional(string name, string help) {
-        // add-cli-optional-positional: required positionals must precede all
-        // optional ones (so the missing-required check is a simple count).
+        // 必填 positional 必须排在所有可选之前（这样缺失校验只需一个计数）。
         if (this._positionalCount > 0 && this._positionalOptional[this._positionalCount - 1]) {
             throw new CliException("required positional '" + name +
                 "' cannot follow an optional positional");
@@ -225,9 +218,8 @@ public class ArgParser {
         this._positionalCount = this._positionalCount + 1;
     }
 
-    /// 注册可选 positional —— 未提供时 `GetPositional(i)` 返回 ""，且不触发
-    /// "缺 positional" 报错。必须在所有必填 positional 之后声明（否则报错）。
-    /// help 中渲染为 `[name]`。add-cli-optional-positional (2026-06-10).
+    /// 注册可选 positional：缺省时 `GetPositional(i)` 返回 ""。必须在所有必填 positional
+    /// 之后声明，否则 `AddPositional` 抛 CliException。help 中渲染为 `[name]`。
     public void AddOptionalPositional(string name, string help) {
         this.EnsurePositionalCap();
         this._positionalNames[this._positionalCount] = name;
@@ -238,7 +230,7 @@ public class ArgParser {
 
     // ── Parse ────────────────────────────────────────────────────────────
 
-    /// 解析 argv（不含 program name）。返回 ParseResult。
+    /// 解析 argv（不含 program name），返回 ParseResult；失败抛 CliException。
     public ParseResult Parse(string[] argv) {
         var r = new ParseResult();
         // 初始化 flag results = 全部 false
@@ -261,10 +253,8 @@ public class ArgParser {
         int j = 0;
         while (j < this._optionCount) {
             r._optionLongs[j]      = this._optionLongs[j];
-            // Resolution precedence: env-var fallback applied at init time
-            // (so default → env-var value if set); argv parse later
-            // overwrites with `_optionWasSet = true`. add-cli-env-fallback
-            // (2026-05-26).
+            // 取值优先级：init 时应用 env 后备（默认值 → 若 env 有值则用 env）；
+            // 后续 argv 解析再覆盖，并置 `_optionWasSet = true`。
             string initVal = this._optionDefaults[j];
             string envName = this._optionEnvVars[j];
             if (envName.Length > 0) {
@@ -286,8 +276,7 @@ public class ArgParser {
             }
             j = j + 1;
         }
-        // Extras list (only populated when AllowExtras was called).
-        // add-cli-strict-vs-extras (2026-05-26).
+        // Extras 列表（仅当调用过 AllowExtras 时才会填充）。
         r._extras = new string[4];
         r._extrasCount = 0;
         r._allowExtras = this._allowExtras;
@@ -330,8 +319,7 @@ public class ArgParser {
         }
 
         // positional 数量校验（ShowHelp 时跳过）—— 只对必填 positional。
-        // 必填全在前（AddPositional 排序约束），requiredCount = leading 必填数。
-        // add-cli-optional-positional: 缺可选不报错。
+        // 必填全在前（AddPositional 排序约束），requiredCount = 前导必填数；缺可选不报错。
         int requiredCount = 0;
         while (requiredCount < this._positionalCount && !this._positionalOptional[requiredCount]) {
             requiredCount = requiredCount + 1;
@@ -341,8 +329,7 @@ public class ArgParser {
                 this._positionalNames[r._positionalCount] + "'");
         }
 
-        // Required-option validation — add-cli-required-option (2026-05-26).
-        // Skip when --help requested (so callers can print help with no args).
+        // 必填 option 校验。请求 --help 时跳过（便于无参数打印帮助）。
         if (!r._showHelp) {
             int m = 0;
             while (m < this._optionCount) {
@@ -353,8 +340,7 @@ public class ArgParser {
                 m = m + 1;
             }
         }
-        // Mutually-exclusive group validation — add-cli-mutually-exclusive
-        // (2026-05-26). Skip when --help requested.
+        // 互斥组校验。请求 --help 时跳过。
         if (!r._showHelp) {
             int g = 0;
             while (g < this._mutexGroupCount) {
@@ -436,8 +422,7 @@ public class ArgParser {
         throw new CliException("unknown option '--" + name + "'");
     }
 
-    /// Push a token into ParseResult._extras (grow on demand).
-    /// add-cli-strict-vs-extras (2026-05-26).
+    // 把 token 追加进 ParseResult._extras（按需扩容）。
     static void _AppendExtra(ParseResult r, string token) {
         if (r._extrasCount >= r._extras.Length) {
             int n = r._extras.Length * 2;
@@ -470,13 +455,10 @@ public class ArgParser {
             }
             return idx + 2;
         }
-        // GNU-style short-flag cluster `-abc` = `-a -b -c` (boolean flags only).
-        // Only entered when the token isn't a registered single short. Each
-        // char must be a registered flag's short name; if ANY char is an
-        // option-short, throws because clustering doesn't compose with values.
-        // add-cli-short-flag-cluster (2026-05-26).
-        // Skip cluster path entirely when `_allowExtras` is on — the whole
-        // token goes to extras instead.
+        // GNU 风格 short-flag 簇 `-abc` = `-a -b -c`（仅布尔 flag）。
+        // 仅当 token 不是已注册的单个 short 时进入。每个字符都必须是已注册 flag
+        // 的短名；任一个字符是 option 短名即抛异常（簇无法与取值组合）。
+        // 开启 `_allowExtras` 时跳过簇解析——整个 token 进 extras。
         if (name.Length > 1 && !this._allowExtras) {
             // First pass: validate every char is a known flag short.
             int p = 0;
@@ -513,7 +495,7 @@ public class ArgParser {
 
     // ── HelpText ─────────────────────────────────────────────────────────
 
-    /// 自动生成的 help 文本（Usage + 选项列表）。
+    /// 生成 USAGE / FLAGS / OPTIONS / ARGS 四段帮助文本。
     public string HelpText() {
         StringBuilder sb = new StringBuilder();
         sb.Append(this._programName);

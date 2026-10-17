@@ -1,54 +1,21 @@
 namespace Std.Cli;
 
-
-// add-cli-subcommand (2026-05-27): git/cargo-style subcommand router.
-//
-// Wraps a top-level set of `(name, description, ArgParser)` triples and
-// dispatches the first argv element to the matching child parser. v0
-// keeps the design narrow: no nested subcommands, no aliases, no global
-// flags that apply across subcommands. The top-level parser is the
-// child you picked — there is no separate "root" parser that owns
-// shared options. Add those flags to each subcommand if you need them.
-//
-// Usage:
-//
-//   var commit = new ArgParser("git commit", "record changes");
-//   commit.AddOption("message", "m", "commit message", "");
-//
-//   var status = new ArgParser("git status", "show working tree");
-//   status.AddFlag("short", "s", "short format");
-//
-//   var router = new SubcommandRouter("git", "the stupid content tracker");
-//   router.Add("commit", "record changes", commit);
-//   router.Add("status", "show working tree", status);
-//
-//   SubcommandMatch m = router.Match(argv);
-//   if (m == null) {
-//       Console.WriteLine(router.HelpText());
-//       Environment.Exit(2);
-//   }
-//   if (m.Name() == "commit") {
-//       string msg = m.Result().GetOption("message");
-//       ...
-//   }
-//
-// `Match` returns `null` when the first arg is unrecognised (or argv is
-// empty). Use `HelpText()` to print the subcommand list.
+/// 子命令路由：每个子命令要么是叶子 ArgParser，要么是嵌套 SubcommandRouter。
+/// 同名重复注册会覆盖先前那条（叶子与嵌套可互相覆盖）。
 public sealed class SubcommandRouter {
     string _programName;
     string _description;
     string[] _names;
     string[] _descs;
     ArgParser[] _parsers;
-    // add-cli-nested-subcommands (2026-06-10): a slot is either a leaf
-    // (`_parsers[i]`, `_isRouter[i]==false`) or a nested router
-    // (`_childRouters[i]`, `_isRouter[i]==true`). Parallel arrays mirror the
-    // existing `_optionRequired`-style storage pattern in this library.
+    // 每个槽位要么是叶子（`_parsers[i]`，`_isRouter[i]==false`），要么是嵌套路由
+    // （`_childRouters[i]`，`_isRouter[i]==true`）。沿用本库 `_optionRequired` 风格的并行数组。
     SubcommandRouter[] _childRouters;
     bool[] _isRouter;
     int _count;
     int _capacity;
 
+    /// 用 programName 与 description 创建一个子命令路由。
     public SubcommandRouter(string programName, string description) {
         this._programName = programName;
         this._description = description;
@@ -61,8 +28,7 @@ public sealed class SubcommandRouter {
         this._count = 0;
     }
 
-    /// Register a leaf subcommand (its args parsed by `parser`).
-    /// Re-registering the same name overwrites.
+    /// 注册叶子子命令（其参数由 `parser` 解析）；同名重复注册会覆盖。
     public void Add(string name, string description, ArgParser parser) {
         // Check existing — overwrite if present.
         int i = 0;
@@ -85,10 +51,8 @@ public sealed class SubcommandRouter {
         this._count = this._count + 1;
     }
 
-    /// Register a NESTED subcommand router (`prog build package …`).
-    /// `child` handles the tokens after this name. Re-registering the same
-    /// name overwrites (leaf → router or router → router).
-    /// add-cli-nested-subcommands (2026-06-10).
+    /// 注册嵌套子命令路由（`prog build package …`）；`child` 处理该名字之后的 token。
+    /// 同名重复注册会覆盖（叶子 → 路由或路由 → 路由）。
     public void AddRouter(string name, string description, SubcommandRouter child) {
         int i = 0;
         while (i < this._count) {
@@ -110,11 +74,8 @@ public sealed class SubcommandRouter {
         this._count = this._count + 1;
     }
 
-    /// Attempt to route `argv`. Returns `SubcommandMatch` on hit or null
-    /// when:
-    ///   - argv is empty
-    ///   - argv[0] is `--help` / `-h` (caller should print HelpText)
-    ///   - argv[0] doesn't match any registered subcommand
+    /// 单层 sugar：只看 argv[0]。命中叶子返回 `SubcommandMatch`；其余情形（argv 为空 /
+    /// argv[0] 是 `--help` / `-h` / 名字不认识）一律返回 null。不处理嵌套子命令。
     public SubcommandMatch? Match(string[] argv) {
         if (argv.Length == 0) return null;
         string first = argv[0];
@@ -135,18 +96,9 @@ public sealed class SubcommandRouter {
         return null;
     }
 
-    /// Recursively route `argv` through the (possibly nested) command tree.
-    /// Returns a `CommandResolution` in exactly one of three states:
-    ///   - IsMatch():   a leaf command resolved (no help requested) — Result()
-    ///                  holds its ParseResult, Path() the matched chain.
-    ///   - IsHelp():    `-h`/`--help` (or no token at a router level, or a leaf
-    ///                  ArgParser's ShowHelp()) — HelpText() holds that level's
-    ///                  help, Path() the chain walked so far.
-    ///   - IsUnknown(): an unrecognised token at some router level —
-    ///                  ErrorMessage() + that level's HelpText().
-    /// Leaf `ArgParser.Parse` option-level errors (unknown flag / missing value
-    /// / missing positional) propagate as `CliException`; Resolve only routes
-    /// and splits help vs unknown-subcommand. add-cli-nested-subcommands.
+    /// 推荐入口：递归下钻整棵命令树，返回三态互斥的 `CommandResolution`
+    /// （IsMatch / IsHelp / IsUnknown 恰好一个为真）。叶子 `ArgParser.Parse` 的
+    /// option 级错误（未知 flag / 缺值 / 缺 positional）以 `CliException` 向上透传。
     public CommandResolution Resolve(string[] argv) {
         if (argv.Length == 0) { return CommandResolution.Help(this.HelpText()); }
         string first = argv[0];
@@ -180,7 +132,7 @@ public sealed class SubcommandRouter {
         return CommandResolution.Unknown(msg, this.HelpText());
     }
 
-    /// Render top-level help: program description + subcommand list.
+    /// 渲染顶层帮助：programName - description + 一段 SUBCOMMANDS: 列表。
     public string HelpText() {
         string s = this._programName;
         if (this._description.Length > 0) {
@@ -195,9 +147,10 @@ public sealed class SubcommandRouter {
         return s;
     }
 
+    /// 已注册的子命令个数。
     public int Count() { return this._count; }
 
-    /// True iff `name` is a registered subcommand.
+    /// 指定名字是否已注册为子命令。
     public bool Has(string name) {
         int i = 0;
         while (i < this._count) {
@@ -243,16 +196,20 @@ public sealed class SubcommandRouter {
     }
 }
 
-/// Result of a successful subcommand dispatch.
+/// 单层子命令命中的结果：名字 + 叶子 ParseResult。
 public sealed class SubcommandMatch {
     string _name;
     ParseResult _result;
 
+    /// 用命中的子命令名与解析结果创建匹配对象。
     public SubcommandMatch(string name, ParseResult result) {
         this._name = name;
         this._result = result;
     }
 
+    /// 命中的子命令名。
     public string Name() { return this._name; }
+
+    /// 命中的叶子 ParseResult。
     public ParseResult Result() { return this._result; }
 }

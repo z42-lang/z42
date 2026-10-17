@@ -1,8 +1,7 @@
 namespace Std.Cli;
 
-// Internal wrapper for repeated-option storage. z42 doesn't have native
-// `string[][]` so a per-option `_RepeatedList` holds the appended values.
-// add-cli-repeated-option (2026-05-26).
+// 可重复 option 存储的内部包装：z42 没有原生 `string[][]`，所以每个 option 用
+// `_RepeatedList` 存追加的值。
 public class _RepeatedList {
     public string[] _values;
     public int      _count;
@@ -32,10 +31,8 @@ public class _RepeatedList {
     }
 }
 
-// Internal wrapper for mutually-exclusive option group declarations.
-// Same shape as `_RepeatedList` but semantically tracks "at most one of
-// these option long-names may be set on the command line".
-// add-cli-mutually-exclusive (2026-05-26).
+// 互斥 option 组声明的内部包装，形状同 `_RepeatedList`，语义上是「这些 long-name
+// 至多能在命令行出现一个」。
 public class _MutexGroup {
     public string[] _names;
     public int      _count;
@@ -46,9 +43,7 @@ public class _MutexGroup {
     }
 }
 
-// add-z42-cli (2026-05-16)：ArgParser.Parse 的返回值。
-//
-// 内部存储与 ArgParser 共享 longName index（parallel arrays）。string 默认 "".
+/// Parse 的返回值。取值方法一律按 long name 查找；名字未注册抛 CliException。
 public class ParseResult {
     // Flag results (parallel arrays with ArgParser._flagLongs)
     public string[] _flagLongs;
@@ -58,19 +53,15 @@ public class ParseResult {
     // Option results
     public string[] _optionLongs;
     public string[] _optionValues;
-    // add-cli-required-option (2026-05-26): marks options whose value was
-    // actually written from argv (vs left at the default). Used by required-
-    // option validation; also lets callers tell "user provided default value"
-    // apart from "default was implicit".
+    // 标记 option 的值是否真的写自 argv（区别于默认值兜底）；用于必填校验，
+    // 也让调用方能区分「用户显式传了默认值」和「默认值隐式生效」。
     public bool[]            _optionWasSet;
-    // add-cli-repeated-option (2026-05-26): mirror of declaration-side flag
-    // + per-option list of appended values. Null entries when not repeated.
+    // 声明侧 repeated 标志的镜像 + 每个 option 追加的值列表；非 repeated 时条目为 null。
     public bool[]            _optionRepeated;
     public _RepeatedList[]   _optionLists;
     public int               _optionCount;
 
-    // add-cli-strict-vs-extras (2026-05-26): pass-through list of unknown
-    // flags / options. Only populated when ArgParser.AllowExtras was called.
+    // 未知 flag / option 的透传列表；仅当调用过 ArgParser.AllowExtras 时才填充。
     public string[] _extras;
     public int      _extrasCount;
     public bool     _allowExtras;
@@ -101,7 +92,7 @@ public class ParseResult {
         this._showHelp         = false;
     }
 
-    /// 返回指定 long-name flag 的值。Flag 未注册抛 CliException。
+    /// 返回指定 long-name flag 是否出现过。
     public bool GetFlag(string longName) {
         int i = 0;
         while (i < this._flagCount) {
@@ -111,7 +102,7 @@ public class ParseResult {
         throw new CliException("flag '" + longName + "' not registered");
     }
 
-    /// 返回指定 long-name option 的值。未设置返回 default value（已在 Parse 阶段写入）。
+    /// 返回 option 的最终值（argv → env → default 三级解析后的结果）。
     public string GetOption(string longName) {
         int i = 0;
         while (i < this._optionCount) {
@@ -121,9 +112,8 @@ public class ParseResult {
         throw new CliException("option '" + longName + "' not registered");
     }
 
-    /// True iff the option was explicitly written from argv (vs left at its
-    /// default). Useful for "did the user actually pass `--verbose=false`?"
-    /// add-cli-required-option (2026-05-26).
+    /// 该 option 是否真的写在 argv 里（区分「用户显式传了默认值」和「默认值兜底」）。
+    /// env 后备命中时仍是 false。
     public bool WasOptionSet(string longName) {
         int i = 0;
         while (i < this._optionCount) {
@@ -133,10 +123,8 @@ public class ParseResult {
         throw new CliException("option '" + longName + "' not registered");
     }
 
-    /// Snapshot of all values passed for a repeated option (in argv order).
-    /// Empty array when the option was registered but never passed. Throws
-    /// `CliException` when the option isn't registered or wasn't declared
-    /// as repeated. add-cli-repeated-option (2026-05-26).
+    /// 按 argv 顺序返回重复 option 的全部值；未传过返回空数组。
+    /// 对非 `AddRepeatedOption` 声明的 option 抛 `CliException`。
     public string[] GetRepeatedOption(string longName) {
         int i = 0;
         while (i < this._optionCount) {
@@ -151,9 +139,7 @@ public class ParseResult {
         throw new CliException("option '" + longName + "' not registered");
     }
 
-    /// Returns the unknown argv tokens collected when `AllowExtras` was set
-    /// on the parser. Empty array otherwise. add-cli-strict-vs-extras
-    /// (2026-05-26).
+    /// 返回 AllowExtras 收集到的未知 argv token；未开启时返回空数组。
     public string[] Extras() {
         string[] result = new string[this._extrasCount];
         int i = 0;
@@ -164,15 +150,15 @@ public class ParseResult {
         return result;
     }
 
+    /// AllowExtras 收集到的未知 token 个数；未开启时为 0。
     public int ExtrasCount() { return this._extrasCount; }
 
-    // ── Typed option getters (add-cli-type-conversion, 2026-05-26) ────────
+    // ── 类型化 option 取值 ────────────────────────────────────────────────
     //
-    // Same lookup as `GetOption(name)` plus parse of the value string into the
-    // requested type. Parse failures throw CliException with the option name +
-    // offending value — easier to surface to the user than a low-level
-    // FormatException stack.
+    // 与 `GetOption(name)` 同查，再把值字符串解析成请求的类型。解析失败抛
+    // CliException（带 option 名 + 出错值），比底层 FormatException 更易呈现给用户。
 
+    /// 取值后走 int.Parse；失败抛 CliException。
     public int GetIntOption(string longName) {
         string s = this.GetOption(longName);
         try { return int.Parse(s); }
@@ -181,6 +167,7 @@ public class ParseResult {
         }
     }
 
+    /// 取值后走 long.Parse；失败抛 CliException。
     public long GetLongOption(string longName) {
         string s = this.GetOption(longName);
         try { return long.Parse(s); }
@@ -189,6 +176,7 @@ public class ParseResult {
         }
     }
 
+    /// 取值后走 double.Parse；失败抛 CliException。
     public double GetDoubleOption(string longName) {
         string s = this.GetOption(longName);
         try { return double.Parse(s); }
@@ -197,9 +185,8 @@ public class ParseResult {
         }
     }
 
-    /// Recognises `true` / `false` (case-insensitive); throws on anything
-    /// else. Distinguished from `GetFlag` — that's for `--verbose` (presence
-    /// = true), this is for `--enabled=true`.
+    /// 只认 `true` / `false`（ASCII 大小写不敏感），其它值抛 CliException。
+    /// 用于 `--enabled=true` 这种显式布尔 option，与 `GetFlag` 的「出现即真」不同。
     public bool GetBoolOption(string longName) {
         string s = this.GetOption(longName);
         // ASCII-fold for tolerance.
@@ -218,10 +205,8 @@ public class ParseResult {
         throw new CliException("option '--" + longName + "' value '" + s + "' is not a valid bool (expected 'true' or 'false')");
     }
 
-    /// 返回第 index 个 positional（0-based）。越界抛 CliException。
     /// 返回第 index 个 positional（0-based）。边界为**声明总数**（非已提供数）：
-    /// 已声明但未提供的可选 positional 返回 ""（其槽位默认空串）。index 超出
-    /// 声明总数抛 CliException。add-cli-optional-positional (2026-06-10)。
+    /// 已声明但未提供的可选 positional 返回 ""；index 超出声明总数抛 CliException。
     public string GetPositional(int index) {
         if (index < 0 || index >= this._positionalValues.Length) {
             throw new CliException("positional index " + index.ToString() +
@@ -230,9 +215,9 @@ public class ParseResult {
         return this._positionalValues[index];
     }
 
+    /// argv 里实际提供的 positional 个数。
     public int PositionalCount() { return this._positionalCount; }
 
-    /// `-h` / `--help` 被传入时返回 true。Parse 会在此情况下跳过 positional 校验
-    /// （便于打印 help 后正常 exit 0）。
+    /// argv 里出现过 `-h` / `--help`。
     public bool ShowHelp() { return this._showHelp; }
 }
