@@ -1,27 +1,8 @@
 namespace Std.Crypto;
 
 
-// add-aes (2026-05-27): AES (FIPS 197) — Rijndael 128-bit block, 128 /
-// 192 / 256-bit keys. Pure-script implementation (no FFI), matching the
-// rest of z42.crypto. Tested against FIPS 197 Appendix C vectors +
-// NIST SP 800-38A §F.5.1 CTR-mode vector.
-//
-// v0 scope:
-//   - Single-block encrypt / decrypt (ECB primitive)
-//   - CTR mode (RFC 3686-style: nonce || counter, counter starts at 0)
-//
-// Out of scope (separate follow-ups):
-//   - CBC mode (caller can compose from EncryptBlock + XOR; native CBC
-//     wrapper deferred to `aes-future-cbc`)
-//   - GCM / AEAD (GHASH polynomial mul in pure-script is slow; native
-//     cdylib path deferred to `aes-future-gcm`)
-//   - Key Wrap (RFC 3394)
-//   - HW-accelerated path (AES-NI / ARMv8 Crypto Extensions) — would
-//     require cdylib backend (`aes-future-hw-accel`)
-//
-// Performance note: pure-script AES at z42-interp speeds is fine for
-// low-rate use (token decryption, small-payload AEAD, protocol-message
-// envelopes). Bulk encryption (>1 MB) wants the cdylib follow-up.
+// AES（FIPS 197）——Rijndael 128 位块、128 / 192 / 256 位 key 的纯脚本实现（无 FFI）。
+// key 长度决定变体：16 字节 = AES-128，24 字节 = AES-192，32 字节 = AES-256。
 
 public static class Aes {
     // perf-stdlib-hot-paths：S-box / 逆 S-box 只建一次（此前每轮 SubBytes / 每次密钥扩展都 new int[256] + 256 次赋值）。
@@ -29,9 +10,8 @@ public static class Aes {
     static int[] _INV_SBOX = Aes._invSbox();
     // ── Public API ───────────────────────────────────────────────────────
 
-    /// Encrypt one 16-byte block. `key` is 16, 24, or 32 bytes selecting
-    /// AES-128 / AES-192 / AES-256. Throws `ArgumentException` on
-    /// wrong-size key or non-16-byte plaintext.
+    /// 加密一个 16 字节块。`key` 为 16 / 24 / 32 字节，分别选择 AES-128 / 192 / 256；
+    /// key 尺寸或明文非 16 字节时抛 `ArgumentException`。
     public static byte[] EncryptBlock(byte[] key, byte[] plaintext) {
         if (plaintext.Length != 16) {
             throw new ArgumentException("AES.EncryptBlock: plaintext must be 16 bytes");
@@ -54,7 +34,7 @@ public static class Aes {
         return Aes._stateToBytes(state);
     }
 
-    /// Decrypt one 16-byte block. Same key sizing as EncryptBlock.
+    /// 解密一个 16 字节块。key 尺寸规则同 EncryptBlock。
     public static byte[] DecryptBlock(byte[] key, byte[] ciphertext) {
         if (ciphertext.Length != 16) {
             throw new ArgumentException("AES.DecryptBlock: ciphertext must be 16 bytes");
@@ -77,16 +57,9 @@ public static class Aes {
         return Aes._stateToBytes(state);
     }
 
-    /// AES-CTR encrypt/decrypt (the same operation in CTR mode — XOR
-    /// with the keystream).
-    ///
-    /// IV layout: 8-byte nonce || 8-byte big-endian counter starting at 0.
-    /// Each block of plaintext is XOR'd with `AES(key, nonce||counter)`,
-    /// counter increments per block. Total plaintext length ≤ 2^64 × 16
-    /// bytes (i.e. effectively unbounded).
-    ///
-    /// Pass the same `nonce` and `key` for decrypt — the keystream is
-    /// deterministic.
+    /// AES-CTR 加解密（CTR 模式下加密与解密同操作——与密钥流 XOR）。
+    /// IV 布局：8 字节 nonce || 8 字节大端 counter（从 0 起），逐块递增。同一 key + nonce
+    /// 解密时传相同参数即可（密钥流确定）。
     public static byte[] EncryptCtr(byte[] key, byte[] nonce, byte[] data) {
         if (nonce.Length != 8) {
             throw new ArgumentException("AES.EncryptCtr: nonce must be 8 bytes");
@@ -124,17 +97,13 @@ public static class Aes {
         return out_;
     }
 
-    /// CTR is symmetric — decrypt is the same as encrypt.
+    /// CTR 是对称的——解密与加密相同。
     public static byte[] DecryptCtr(byte[] key, byte[] nonce, byte[] data) {
         return Aes.EncryptCtr(key, nonce, data);
     }
 
-    /// AES-CBC encrypt with PKCS#7 padding (RFC 5652 §6.3 — pad to next
-    /// 16-byte boundary; if input already aligned, append a full 16-byte
-    /// padding block so unpad is always unambiguous).
-    ///
-    /// `iv` must be exactly 16 bytes. Output length is always
-    /// `((data.Length / 16) + 1) * 16` due to mandatory padding.
+    /// AES-CBC 加密，PKCS#7 填充（RFC 5652 §6.3——补到下一个 16 字节边界，已对齐也追加一整块填充）。
+    /// `iv` 必须 16 字节；输出长度恒为 ((data.Length / 16) + 1) * 16。
     public static byte[] EncryptCbcPkcs7(byte[] key, byte[] iv, byte[] data) {
         if (iv.Length != 16) {
             throw new ArgumentException("AES.EncryptCbcPkcs7: IV must be 16 bytes");
@@ -170,9 +139,8 @@ public static class Aes {
         return out_;
     }
 
-    /// AES-CBC decrypt with PKCS#7 unpadding. Throws `ArgumentException`
-    /// if input length isn't a multiple of 16, or if padding is malformed
-    /// (likely indicating wrong key / IV / corrupted ciphertext).
+    /// AES-CBC 解密并校验 / 剥离 PKCS#7 填充。输入非 16 的倍数或填充非法抛 `ArgumentException`
+    /// （通常表示 key / IV 错误或密文损坏）。
     public static byte[] DecryptCbcPkcs7(byte[] key, byte[] iv, byte[] data) {
         if (iv.Length != 16) {
             throw new ArgumentException("AES.DecryptCbcPkcs7: IV must be 16 bytes");
@@ -222,32 +190,14 @@ public static class Aes {
         return out_;
     }
 
-    // ── AES-CCM AEAD (NIST SP 800-38C / RFC 3610) ────────────────────────
+    // ── AES-CCM AEAD（NIST SP 800-38C / RFC 3610） ────────────────────────
     //
-    // add-aes-ccm (2026-05-28): authenticated encryption with associated
-    // data using CTR mode + CBC-MAC over a structured authentication
-    // header. The "Counter with CBC-MAC" name describes the two-piece
-    // construction.
-    //
-    // Used in: WPA2-CCMP (Wi-Fi link encryption), Bluetooth LE Secure
-    // Connections, Zigbee, IEEE 802.15.4, TLS_PSK_WITH_AES_128_CCM_8,
-    // many constrained-device protocols. Simpler than GCM (no GHASH
-    // polynomial — uses standard CBC-MAC) which makes it more attractive
-    // for resource-constrained hardware.
-    //
-    // Parameters:
-    //   nonce   — N bytes, N in [7..13]. Length N determines max
-    //             payload size: 2^(8*(15-N)) - 1 bytes
-    //             (e.g. 13-byte nonce → max 65535 bytes payload).
-    //   tagLen  — M bytes, M in {4, 6, 8, 10, 12, 14, 16}. RFC 3610
-    //             permits these even values only.
-    //   aad     — associated data of any length (authenticated, not
-    //             encrypted).
-    //
-    // Output = ciphertext (len(plaintext) bytes) || tag (tagLen bytes).
+    // CTR 模式 + 结构化认证头上的 CBC-MAC 构成的带关联数据认证加密。用于 WPA2-CCMP、Bluetooth LE
+    // Secure Connections、Zigbee、IEEE 802.15.4 等受限设备协议（比 GCM 简单，无 GHASH 多项式）。
+    // 参数：nonce 7..13 字节（长度决定载荷上限 2^(8*(15-N))-1）；tagLen ∈ {4,6,8,10,12,14,16}；
+    // aad 任意长度（只认证不加密）。输出 = ciphertext || tag（tagLen 字节）。
 
-    /// Encrypt + authenticate via AES-CCM. `nonce` length determines
-    /// max payload size; `tagLen` controls auth-tag truncation.
+    /// AES-CCM 加密 + 认证。`nonce` 长度决定载荷上限，`tagLen` 控制认证 tag 截断。
     public static byte[] EncryptCcm(byte[] key, byte[] nonce, byte[] aad, byte[] plaintext, int tagLen) {
         Aes._ccmValidate(nonce, tagLen, plaintext.Length, aad.Length);
         byte[] tag = Aes._ccmComputeTag(key, nonce, aad, plaintext, tagLen);
@@ -271,9 +221,8 @@ public static class Aes {
         return out_;
     }
 
-    /// Decrypt + verify via AES-CCM. Input = `ciphertext || encTag`
-    /// where encTag is tagLen bytes. Throws `ArgumentException` on
-    /// tag mismatch (do NOT swallow — tampering signal).
+    /// AES-CCM 解密 + 校验。输入 = ciphertext || encTag（tagLen 字节）；
+    /// tag 不匹配抛 `ArgumentException`（勿吞——篡改信号）。
     public static byte[] DecryptCcm(byte[] key, byte[] nonce, byte[] aad, byte[] ctAndTag, int tagLen) {
         if (ctAndTag.Length < tagLen) {
             throw new ArgumentException("AES.DecryptCcm: input shorter than tag");
@@ -307,8 +256,7 @@ public static class Aes {
         return plaintext;
     }
 
-    /// Input validation. nonce in [7..13]; tagLen in {4,6,8,10,12,14,16}.
-    /// Plaintext-length cap = 2^(8 * (15 - nonceLen)) - 1.
+    // 参数校验：nonce ∈ [7..13]；tagLen ∈ {4,6,8,10,12,14,16}；载荷上限 = 2^(8*(15-nonceLen)) - 1。
     static void _ccmValidate(byte[] nonce, int tagLen, int ptLen, int aadLen) {
         int nLen = nonce.Length;
         if (nLen < 7 || nLen > 13) {
@@ -334,9 +282,8 @@ public static class Aes {
         }
     }
 
-    /// Build counter block: 1-byte flags || nonce || counter (qBytes BE).
-    /// Flags byte for counters (RFC 3610 §2.3): top 3 bits 0; bottom 3 bits
-    /// = qBytes - 1 (length-of-length-of-payload field).
+    // 构建 counter 块：1 字节 flags || nonce || counter（qBytes 大端）。
+    // counter 的 flags 字节（RFC 3610 §2.3）：高 3 位为 0，低 3 位 = qBytes - 1（载荷长度字段的长度）。
     static byte[] _ccmCounterBlock(byte[] nonce, int counter) {
         int nLen  = nonce.Length;
         int qLen  = 15 - nLen;
@@ -356,8 +303,7 @@ public static class Aes {
         return cb;
     }
 
-    /// CTR encryption / decryption with the CCM counter format.
-    /// Counter starts at 1 (counter 0 is reserved for tag encryption).
+    // 用 CCM counter 格式做 CTR 加解密。counter 从 1 起（counter 0 留给 tag 加密）。
     static byte[] _ccmCtrEncrypt(byte[] key, byte[] nonce, byte[] data) {
         byte[] out_ = new byte[data.Length];
         int blocks = (data.Length + 15) / 16;
@@ -378,9 +324,7 @@ public static class Aes {
         return out_;
     }
 
-    /// Compute the un-encrypted CCM authentication tag via CBC-MAC over
-    /// the formatted authentication blocks (B_0 || L(aad) || aad ||
-    /// pad || plaintext || pad).
+    // 对格式化认证块（B_0 || L(aad) || aad || pad || plaintext || pad）做 CBC-MAC，计算未加密的 CCM 认证 tag。
     static byte[] _ccmComputeTag(byte[] key, byte[] nonce, byte[] aad, byte[] plaintext, int tagLen) {
         int nLen = nonce.Length;
         int qLen = 15 - nLen;
@@ -442,8 +386,7 @@ public static class Aes {
         return tag;
     }
 
-    /// Format AAD with length prefix per RFC 3610 §2.2, then pad to
-    /// 16-byte boundary. Returns the padded block array.
+    // 按 RFC 3610 §2.2 给 AAD 加长度前缀，再补零到 16 字节边界，返回填充后的块数组。
     static byte[] _ccmFormatAad(byte[] aad) {
         int aLen = aad.Length;
         int prefixLen;
@@ -477,35 +420,15 @@ public static class Aes {
         return out_;
     }
 
-    // ── AES-GCM AEAD (NIST SP 800-38D) ───────────────────────────────────
+    // ── AES-GCM AEAD（NIST SP 800-38D） ───────────────────────────────────
     //
-    // add-aes-gcm (2026-05-27): authenticated encryption with associated
-    // data. Tag length fixed at 16 bytes (NIST recommends ≥ 12; we don't
-    // expose shorter tags to dodge the truncation footguns documented in
-    // RFC 5116 §5.3).
-    //
-    // IV: 12 bytes recommended (96-bit IV path of NIST SP 800-38D §7.1 —
-    // a single AES block J0 = IV || 0x00000001 with the bottom 32 bits
-    // serving as the counter). Other IV lengths route through the GHASH
-    // derivation but the 96-bit path is the only "fast" and widely-used
-    // form so v0 hard-requires it; callers wanting non-96-bit IV should
-    // wait for the cdylib backend (aes-future-hw-accel) or compose
-    // manually via GHASH + EncryptBlock.
-    //
-    // Pure-script GHASH (bit-by-bit, no PCLMUL) is slow — bulk encryption
-    // (> tens of KB) wants the cdylib follow-up. For low-rate use (token
-    // envelopes, single-message AEAD, protocol headers) pure-script
-    // throughput is adequate.
+    // 带关联数据的认证加密，tag 固定 16 字节（不暴露更短 tag 以规避 RFC 5116 §5.3 的截断隐患）。
+    // IV 推荐 12 字节（96 位快路径，J0 = IV || 0x00000001，低 32 位作 counter）；其它长度走
+    // GHASH 推导。纯脚本 GHASH（逐位，无 PCLMUL）较慢，大块加密需 cdylib 后端。
 
-    /// Encrypt + authenticate. Output = ciphertext (same length as
-    /// `plaintext`) || tag (16 bytes appended at the end).
-    ///
-    /// IV length: 12 bytes (96-bit) is the recommended common case and
-    /// gets the fast J0 = IV || 0x00000001 path. Other IV lengths route
-    /// through the GHASH-derived J0 formula per NIST SP 800-38D §7.1 —
-    /// adds 1 extra GHASH chain pass over the IV. IV.Length == 0 is
-    /// rejected (the all-zero J0 case is a security pitfall — same key
-    /// across messages would all use the same counter stream).
+    /// 加密 + 认证。输出 = ciphertext（与 `plaintext` 等长）|| tag（16 字节）。
+    /// IV 12 字节（96 位）走快路径 J0 = IV || 0x00000001；其它长度按 NIST SP 800-38D §7.1 走
+    /// GHASH 推导。IV.Length == 0 拒绝（全零 J0 是安全隐患——同 key 多消息会复用同一 counter 流）。
     public static byte[] EncryptGcm(byte[] key, byte[] iv, byte[] aad, byte[] plaintext) {
         if (iv.Length == 0) {
             throw new ArgumentException("AES.EncryptGcm: IV must be non-empty");
@@ -528,9 +451,8 @@ public static class Aes {
         return out_;
     }
 
-    /// Decrypt + verify. Input = ciphertext || 16-byte tag. Throws
-    /// `ArgumentException` if the tag mismatches (DO NOT swallow this —
-    /// a tag failure means the ciphertext or AAD was tampered with).
+    /// 解密 + 校验。输入 = ciphertext || 16 字节 tag；tag 不匹配抛 `ArgumentException`
+    /// （勿吞——tag 失败意味着密文或 AAD 被篡改）。
     public static byte[] DecryptGcm(byte[] key, byte[] iv, byte[] aad, byte[] ctAndTag) {
         if (iv.Length == 0) {
             throw new ArgumentException("AES.DecryptGcm: IV must be non-empty");
@@ -563,11 +485,8 @@ public static class Aes {
         return Aes._gcmCtr(key, counter, ciphertext);
     }
 
-    /// Derive J0 from a variable-length IV per NIST SP 800-38D §7.1.
-    /// 96-bit IV (12 bytes): fast path J0 = IV || 0x00000001.
-    /// Other lengths: J0 = GHASH_H(IV || pad-zeros || len(IV)_64-bit-BE
-    /// in bits). The GHASH-derived path adds one extra chain pass over
-    /// the IV but otherwise composes with the same downstream code.
+    // 按 NIST SP 800-38D §7.1 从变长 IV 推导 J0。96 位 IV（12 字节）快路径 J0 = IV || 0x00000001；
+    // 其它长度 J0 = GHASH_H(IV || 补零 || len(IV)_64 位大端位计数)，多一趟 GHASH 链。
     static byte[] _gcmDeriveJ0(byte[] h, byte[] iv) {
         if (iv.Length == 12) {
             byte[] j0 = new byte[16];
@@ -603,8 +522,7 @@ public static class Aes {
         return Aes._gcmLongsToBytes(y);
     }
 
-    /// 32-bit big-endian increment of the last 4 bytes of `block`.
-    /// Wraps modulo 2^32 (NIST SP 800-38D §6.2).
+    // 对 `block` 最后 4 字节做 32 位大端自增，模 2^32 回绕（NIST SP 800-38D §6.2）。
     static void _gcmInc32(byte[] block) {
         long c = ((long)((int)block[12] & 0xFF) << 24)
                | ((long)((int)block[13] & 0xFF) << 16)
@@ -617,8 +535,7 @@ public static class Aes {
         block[15] = (byte)( c        & 0xFFL);
     }
 
-    /// GCTR with explicit starting counter (`counter` is the FIRST counter
-    /// used — not J0, but the post-inc32(J0) value for AEAD).
+    // 显式起始 counter 的 GCTR（`counter` 是首个使用的 counter——非 J0，而是 AEAD 中 inc32(J0) 之后的值）。
     static byte[] _gcmCtr(byte[] key, byte[] counter, byte[] data) {
         byte[] out_ = new byte[data.Length];
         byte[] cb = new byte[16];
@@ -642,10 +559,8 @@ public static class Aes {
         return out_;
     }
 
-    /// Compute GCM authentication tag:
-    ///   S = GHASH_H(AAD || 0^v || C || 0^u || len(AAD) || len(C))
-    ///   T = AES_K(J0) XOR S
-    /// Lengths are encoded as 64-bit big-endian *bit* counts.
+    // 计算 GCM 认证 tag：S = GHASH_H(AAD || 0^v || C || 0^u || len(AAD) || len(C))；
+    // T = AES_K(J0) XOR S。长度按 64 位大端「位」计数编码。
     static byte[] _gcmComputeTag(byte[] key, byte[] h, byte[] j0, byte[] aad, byte[] ciphertext) {
         // Build the GHASH input — AAD padded to 16 + ciphertext padded to
         // 16 + length-field block (8 bytes AAD bits BE, 8 bytes CT bits BE).
@@ -690,13 +605,9 @@ public static class Aes {
         return tag;
     }
 
-    /// GHASH polynomial multiplication in GF(2^128) with reduction by
-    /// `x^128 + x^7 + x^2 + x + 1`. NIST SP 800-38D §6.3. Bit-by-bit —
-    /// slow but correct; cdylib path (PCLMUL) is `aes-future-hw-accel`.
-    ///
-    /// Convention: x[0] is the MS 64 bits (bit 127 is x[0]'s top bit),
-    /// x[1] is the LS 64 bits. Shifting toward LSB corresponds to
-    /// dividing by `x` in the field; reduction polynomial R = 0xE1 << 120.
+    // GF(2^128) 上的 GHASH 多项式乘法，用 x^128 + x^7 + x^2 + x + 1 约减（NIST SP 800-38D §6.3），
+    // 逐位实现（慢但正确）。约定：x[0] 是高 64 位（bit 127 是 x[0] 最高位），x[1] 是低 64 位；
+    // 向 LSB 移位相当于除以 `x`，约减多项式 R = 0xE1 << 120。
     static long[] _gcmGfMul(long[] x, long[] y) {
         long z0 = 0L;
         long z1 = 0L;
@@ -732,14 +643,14 @@ public static class Aes {
         return out_;
     }
 
-    /// Logical right shift on long (`>>` arithmetic-extends for negative).
+    // long 的逻辑右移（`>>` 对负数算术扩展）。
     static long _lshr64(long x, int n) {
         if (n == 0) return x;
         if (x >= 0L) return x >> n;
         return (x >> n) ^ ((-1L) << (64 - n));
     }
 
-    /// 16-byte block → (hi64, lo64) big-endian.
+    // 16 字节块 → (hi64, lo64) 大端。
     static long[] _gcmBytesToLongs(byte[] b) {
         long[] out_ = new long[2];
         out_[0] = Aes._gcmReadBE64(b, 0);
@@ -787,10 +698,8 @@ public static class Aes {
 
     // ── Key Expansion (FIPS 197 §5.2) ────────────────────────────────────
 
-    /// Returns flat int[] of (Nr+1) * 16 bytes — round key R occupies
-    /// indices [R*16 .. R*16+15]. z42 lacks `int[][]` jagged arrays, so
-    /// we flatten and let callers index by round number.
-    /// Nr = 10 for AES-128, 12 for AES-192, 14 for AES-256.
+    // 返回扁平 int[]，共 (Nr+1) × 16 字节——第 R 轮轮密钥占据 [R*16 .. R*16+15]。
+    // z42 没有 `int[][]` 交错数组，所以压平、由调用方按轮号索引。Nr：AES-128=10、AES-192=12、AES-256=14。
     static int[] _keyExpansion(byte[] key) {
         int nk;
         int nr;
@@ -857,8 +766,7 @@ public static class Aes {
 
     // ── State transforms (FIPS 197 §5.1) ─────────────────────────────────
 
-    /// State is 16 ints (0..255 each), column-major: state[c*4 + r] is
-    /// the byte at row r, column c. Matches FIPS 197's diagram.
+    // 状态是 16 个 int（各 0..255），列主序：state[c*4 + r] 是第 r 行第 c 列的字节，与 FIPS 197 图一致。
     static int[] _bytesToState(byte[] input) {
         int[] s = new int[16];
         int i = 0;
@@ -896,9 +804,7 @@ public static class Aes {
         while (i < 16) { state[i] = isb[state[i]]; i = i + 1; }
     }
 
-    /// ShiftRows: row r is cyclically shifted left by r positions
-    /// (over the 4 columns). FIPS 197 §5.1.2.
-    /// State indexing: state[c*4 + r] is (row r, column c).
+    // ShiftRows：第 r 行在 4 列上循环左移 r 位（FIPS 197 §5.1.2）。索引 state[c*4 + r] 即（行 r，列 c）。
     static void _shiftRows(int[] state) {
         // Row 1: shift left by 1 → (1,0)←(1,1), (1,1)←(1,2), ...
         int t = state[0*4 + 1];
@@ -935,8 +841,7 @@ public static class Aes {
         state[3*4 + 3] = t;
     }
 
-    /// MixColumns: per column c, multiply the 4-byte vector by the
-    /// matrix [[2,3,1,1],[1,2,3,1],[1,1,2,3],[3,1,1,2]] over GF(2^8).
+    // MixColumns：对每一列 c，把 4 字节向量乘以 GF(2^8) 上的矩阵 [[2,3,1,1],[1,2,3,1],[1,1,2,3],[3,1,1,2]]。
     static void _mixColumns(int[] state) {
         int c = 0;
         while (c < 4) {
@@ -952,8 +857,7 @@ public static class Aes {
         }
     }
 
-    /// Inverse MixColumns: matrix [[14,11,13,9],[9,14,11,13],[13,9,14,11],
-    /// [11,13,9,14]] over GF(2^8).
+    // 逆 MixColumns：GF(2^8) 上的矩阵 [[14,11,13,9],[9,14,11,13],[13,9,14,11],[11,13,9,14]]。
     static void _invMixColumns(int[] state) {
         int c = 0;
         while (c < 4) {
@@ -971,15 +875,14 @@ public static class Aes {
 
     // ── GF(2^8) helpers ──────────────────────────────────────────────────
 
-    /// xtime: multiply by 2 in GF(2^8) with reduction by AES polynomial
-    /// x^8 + x^4 + x^3 + x + 1 (0x11B). If high bit set, XOR 0x1B after shift.
+    // xtime：GF(2^8) 上乘 2，用 AES 多项式 x^8 + x^4 + x^3 + x + 1（0x11B）约减；高位若置位则移位后 XOR 0x1B。
     static int _xtime(int b) {
         int shifted = (b << 1) & 0xFF;
         if ((b & 0x80) != 0) { return shifted ^ 0x1B; }
         return shifted;
     }
 
-    /// Russian-peasant multiplication in GF(2^8) (FIPS 197 §4.2.1).
+    // GF(2^8) 上的俄式乘法（FIPS 197 §4.2.1）。
     static int _gmul(int a, int b) {
         int result = 0;
         int aa = a;
@@ -996,8 +899,8 @@ public static class Aes {
 
     // ── Tables ───────────────────────────────────────────────────────────
 
-    /// AES S-box (FIPS 197 Table 4).
-    // internal（非 private）：静态字段初始化器在合成的 __static_init__ 中求值，私有成员访问检查会拒绝（镜像 Sha256._roundConstants）。
+    // AES S-box（FIPS 197 表 4）。
+    // internal（非 private）：静态字段初始化器在合成的 __static_init__ 中求值，私有成员访问检查会拒绝。
     internal static int[] _sbox() {
         int[] s = new int[256];
         // Row 0
@@ -1036,7 +939,7 @@ public static class Aes {
         return s;
     }
 
-    /// Inverse S-box (FIPS 197 Table 6).
+    // 逆 S-box（FIPS 197 表 6）。
     internal static int[] _invSbox() {
         int[] s = new int[256];
         s[0x00]=0x52; s[0x01]=0x09; s[0x02]=0x6a; s[0x03]=0xd5; s[0x04]=0x30; s[0x05]=0x36; s[0x06]=0xa5; s[0x07]=0x38;
@@ -1074,8 +977,7 @@ public static class Aes {
         return s;
     }
 
-    /// Rcon table — high byte of each round constant word.
-    /// rcon[i] = 2^(i-1) in GF(2^8) for i >= 1; rcon[0] unused.
+    // Rcon 表——每个轮常数字的高字节。rcon[i] = GF(2^8) 上的 2^(i-1)（i ≥ 1）；rcon[0] 未用。
     static int[] _rconTable() {
         // For AES-128/192/256, max needed Rcon index is 10 (AES-128 uses
         // up to rcon[10]). Compute up to 11 to be safe.

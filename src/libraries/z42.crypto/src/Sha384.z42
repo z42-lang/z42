@@ -2,12 +2,10 @@ namespace Std.Crypto;
 
 using Std.Encoding;
 
-// add-sha512-to-crypto (2026-05-27): SHA-384 hash (FIPS 180-4 §6.5).
-//
-// SHA-384 = SHA-512 with different initial hash + output truncated to
-// the first 48 bytes (the first six 64-bit words of the final state).
-// Shares the compression function with Sha512 via `Sha512._compressBlock`.
+// SHA-384 哈希（FIPS 180-4 §6.5）：即 SHA-512 换用不同的初始哈希值，并把输出截断为
+// 前 48 字节（最终状态的前 6 个 64 位字）。压缩函数通过 `Sha512._compressBlock` 与 Sha512 共用。
 public static class Sha384 {
+    /// 计算 SHA-384 原始摘要（48 字节）。
     public static byte[] Hash(byte[] data) {
         byte[] padded = Sha512._pad(data);
         long[] h = Sha384._initialHash();
@@ -27,16 +25,18 @@ public static class Sha384 {
         return digest;
     }
 
+    /// 对 UTF-8 编码后的字符串计算 SHA-384 摘要。
     public static byte[] HashString(string s) { return Sha384.Hash(Utf8.GetBytes(s)); }
+    /// 计算 SHA-384 摘要并输出小写十六进制。
     public static string HashHex(byte[] data) { return Hex.Encode(Sha384.Hash(data)); }
+    /// 对 UTF-8 字符串计算 SHA-384 摘要并输出小写十六进制。
     public static string HashStringHex(string s) {
         if (s.Length == 0) return Hex.Encode(Sha384.Hash(new byte[0]));
         return Hex.Encode(Sha384.Hash(Utf8.GetBytes(s)));
     }
 
-    /// SHA-384 IV — first 64 bits of fractional parts of square roots of
-    /// the 9th-16th primes (FIPS 180-4 §5.3.4). Distinct from SHA-512's
-    /// IV so the same compression function produces different output.
+    // SHA-384 初始哈希值（IV）：第 9~16 个素数平方根小数部分的前 64 位（FIPS 180-4 §5.3.4）。
+    // 与 SHA-512 的 IV 不同，从而同一压缩函数产出不同结果。
     static long[] _initialHash() {
         long[] h = new long[8];
         h[0] = 0xCBBB9D5DC1059ED8L; h[1] = 0x629A292A367CD507L;

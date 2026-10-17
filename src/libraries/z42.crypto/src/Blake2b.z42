@@ -2,56 +2,37 @@ namespace Std.Crypto;
 
 using Std.Encoding;
 
-// add-blake2b (2026-05-28): BLAKE2b hash function (RFC 7693).
-//
-// Daniel Bernstein et al's successor to SHA-3 candidate BLAKE, designed
-// for software speed: simpler than SHA-2 / SHA-3, parallel-friendly,
-// configurable output length (1..64 bytes), keyed mode (MAC), personali-
-// sation / salt for domain separation.
-//
-// Used by: Argon2 (the password hash; BLAKE2b is its inner compression),
-// IPFS (default CID hash), WireGuard handshake, Zcash blockchain, NaCl
-// libsodium (`crypto_generichash`).
-//
-// 12 rounds of `G` mixer over a 16-word (1024-bit) working vector,
-// keyed by 8-word state. 128-byte block size, 64-bit words (z42 `long`
-// natural fit; logical right shift via `_lshr64` to dodge `>>` sign-
-// extension just like Sha512).
-//
-// v0 scope:
-//   - Unkeyed hash with configurable output length (1..64 bytes)
-//   - Keyed hash (MAC) with 0..64-byte key
-//   - Block-API + one-shot Hash / HashString / HashHex / HashStringHex
-//   - 256-bit default output (`Hash256`) and 512-bit default (`Hash512`)
-//     convenience entries
-//
-// Out of scope (separate follow-ups):
-//   - BLAKE2s (32-bit word variant for constrained / 32-bit platforms)
-//   - Tree hashing parameters (depth / fanout / leaf-length)
-//   - BLAKE3 (Merkle-tree successor)
+// BLAKE2b 哈希（RFC 7693），为软件速度设计的 SHA-3 候选 BLAKE 后继：比 SHA-2 / SHA-3 更简单、
+// 可并行，输出长度可配置（1..64 字节），支持 keyed 模式（MAC）。用于 Argon2、IPFS、WireGuard、
+// Zcash、libsodium（`crypto_generichash`）等。16 字（1024 位）工作向量上做 12 轮 `G` 混合，
+// 由 8 字状态做 key；块大小 128 字节、64 位字（z42 的 `long` 天然契合，逻辑右移用 `_lshr64`）。
 
 public static class Blake2b {
     // ── Public API ───────────────────────────────────────────────────────────
 
-    /// Default 64-byte (512-bit) digest.
+    /// 计算默认 64 字节（512 位）BLAKE2b 摘要。
     public static byte[] Hash(byte[] data) {
         return Blake2b.HashLen(data, new byte[0], 64);
     }
+    /// 对 UTF-8 字符串计算 BLAKE2b 摘要。
     public static byte[] HashString(string s) { return Blake2b.Hash(Utf8.GetBytes(s)); }
+    /// 计算 BLAKE2b 摘要并输出小写十六进制。
     public static string HashHex(byte[] data) { return Hex.Encode(Blake2b.Hash(data)); }
+    /// 对 UTF-8 字符串计算 BLAKE2b 摘要并输出小写十六进制。
     public static string HashStringHex(string s) { return Hex.Encode(Blake2b.HashString(s)); }
 
-    /// 32-byte (256-bit) digest — common preference for high-throughput
-    /// content-addressing (IPFS / blockchain) where 512 bits is overkill.
+    /// 计算 32 字节（256 位）BLAKE2b 摘要（常用于 IPFS / 区块链等内容寻址）。
     public static byte[] Hash256(byte[] data) {
         return Blake2b.HashLen(data, new byte[0], 32);
     }
+    /// 对 UTF-8 字符串计算 256 位 BLAKE2b 摘要。
     public static byte[] Hash256String(string s) { return Blake2b.Hash256(Utf8.GetBytes(s)); }
+    /// 计算 256 位 BLAKE2b 摘要并输出小写十六进制。
     public static string Hash256Hex(byte[] data) { return Hex.Encode(Blake2b.Hash256(data)); }
+    /// 对 UTF-8 字符串计算 256 位 BLAKE2b 摘要并输出小写十六进制。
     public static string Hash256StringHex(string s) { return Hex.Encode(Blake2b.Hash256String(s)); }
 
-    /// Keyed hash (MAC). `key.Length` must be in `[0, 64]`. Output length
-    /// `outLen` must be in `[1, 64]`. Pass `key = new byte[0]` for unkeyed.
+    /// BLAKE2b 变长 + keyed（MAC）模式：`key.Length` ∈ [0, 64]、`outLen` ∈ [1, 64]，无 key 传 `new byte[0]`。
     public static byte[] HashLen(byte[] data, byte[] key, int outLen) {
         if (outLen < 1 || outLen > 64) {
             throw new ArgumentException(
@@ -121,8 +102,7 @@ public static class Blake2b {
 
     // ── Initialisation ───────────────────────────────────────────────────────
 
-    /// IV[0..7] = first 64 bits of fractional parts of sqrt of first 8
-    /// primes (same as SHA-512 H[0..7]).
+    // IV[0..7] = 前 8 个素数平方根小数部分的前 64 位（与 SHA-512 的 H[0..7] 相同）。
     static long[] _iv() {
         long[] iv = new long[8];
         iv[0] = 0x6A09E667F3BCC908L; iv[1] = 0xBB67AE8584CAA73BL;
@@ -132,9 +112,8 @@ public static class Blake2b {
         return iv;
     }
 
-    /// Initial state h[0..7] = IV[0..7] with h[0] XORed by the parameter
-    /// block (encoded as 0x0101kknn for digest length nn + key length kk
-    /// + fanout 1 + depth 1; salt + personal + leaf params all zero).
+    // 初始状态 h[0..7] = IV[0..7]，其中 h[0] XOR 参数块（编码为 0x0101kknn，nn 为摘要长度、
+    // kk 为 key 长度，fanout=1、depth=1；salt / personal / leaf 参数全为 0）。
     static long[] _initHash(int keyLen, int outLen) {
         long[] h = Blake2b._iv();
         long param = 0x01010000L | (((long)keyLen & 0xFFL) << 8) | ((long)outLen & 0xFFL);
@@ -144,9 +123,8 @@ public static class Blake2b {
 
     // ── Compress function (RFC 7693 §3.2) ────────────────────────────────────
 
-    /// Mix one 128-byte block into the state. `counterLo` is the byte
-    /// count up to and including this block. `isLast` triggers the
-    /// finalisation flag (f0 = ~0; f1 stays 0 — no tree mode in v0).
+    // 把一个 128 字节块混入状态。`counterLo` 是截至（含）本块的字节计数。`isLast` 触发
+    // 终结标志（f0 = ~0；f1 恒为 0——无树模式）。
     static void _compress(long[] h, byte[] block, int offset, long counterLo, bool isLast) {
         // Working vector v[0..15] = h[0..7] || IV[0..7] (with counter +
         // finalisation flag XORed into v[12]..v[15]).
@@ -190,11 +168,11 @@ public static class Blake2b {
         while (k < 8) { h[k] = h[k] ^ v[k] ^ v[k + 8]; k = k + 1; }
     }
 
-    /// G mixer (RFC 7693 §3.1):
-    ///   a = a + b + x; d = rotr64(d ^ a, 32);
-    ///   c = c + d;     b = rotr64(b ^ c, 24);
-    ///   a = a + b + y; d = rotr64(d ^ a, 16);
-    ///   c = c + d;     b = rotr64(b ^ c, 63);
+    // G 混合器（RFC 7693 §3.1）：
+    //   a = a + b + x; d = rotr64(d ^ a, 32);
+    //   c = c + d;     b = rotr64(b ^ c, 24);
+    //   a = a + b + y; d = rotr64(d ^ a, 16);
+    //   c = c + d;     b = rotr64(b ^ c, 63);
     static void _G(long[] v, int ai, int bi, int ci, int di, long x, long y) {
         long a = v[ai]; long b = v[bi]; long c = v[ci]; long d = v[di];
         a = a + b + x;  d = Blake2b._rotr64(d ^ a, 32);
@@ -204,9 +182,7 @@ public static class Blake2b {
         v[ai] = a; v[bi] = b; v[ci] = c; v[di] = d;
     }
 
-    /// SIGMA permutation table for 10 rounds (RFC 7693 §2.7); rounds 10
-    /// and 11 reuse rounds 0 and 1's permutations (the round index loops
-    /// mod 10).
+    // SIGMA 置换表（10 轮，RFC 7693 §2.7）；第 10、11 轮复用第 0、1 轮的置换（轮索引对 10 取模）。
     static int[] _sigma() {
         int[] s = new int[160];
         // Round 0: 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15

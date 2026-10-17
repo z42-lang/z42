@@ -1,38 +1,18 @@
 namespace Std.Crypto;
 
 
-// add-chacha20 (2026-05-27): ChaCha20 stream cipher (RFC 8439).
-//
-// Daniel Bernstein's 20-round refinement of Salsa20 — used in TLS 1.3,
-// WireGuard, age, Signal as the AES alternative for environments
-// without AES-NI hardware acceleration (or for higher confidence in
-// the cipher's design).
-//
-// Inputs:
-//   key      — 32 bytes (256-bit)
-//   nonce    — 12 bytes (96-bit per RFC 8439; the original ChaCha20
-//              had 8-byte nonce + 8-byte counter, but RFC 8439
-//              standardised on 12+4 to align with AES-GCM)
-//   counter  — 32-bit; starts at 1 in RFC 8439 §2.4 (counter=0 is
-//              reserved for the Poly1305 one-time key derivation in
-//              the AEAD construction)
-//
-// State layout (4x4 matrix of 32-bit words):
-//   [const0 const1 const2 const3]    constants "expand 32-byte k"
-//   [key0   key1   key2   key3  ]    key as 8 little-endian words
-//   [key4   key5   key6   key7  ]
-//   [counter nonce0 nonce1 nonce2]
-//
-// 20 rounds = 10 column-rounds + 10 diagonal-rounds, each round being
-// 4 quarter-rounds. Final keystream block = working_state + original_state
-// (mod 2^32 per word), serialised little-endian → 64 bytes.
+// ChaCha20 流密码（RFC 8439），Daniel Bernstein 对 Salsa20 的 20 轮改进，用于 TLS 1.3、WireGuard、
+// age、Signal（无 AES-NI 环境下的 AES 替代）。key 32 字节、nonce 12 字节（96 位，RFC 8439 将
+// 8 字节 nonce + 8 字节 counter 改为 12+4 以对齐 AES-GCM）。counter 32 位，RFC 8439 §2.4 从 1 起
+// （counter=0 留给 AEAD 里 Poly1305 一次性 key 派生）。状态为 4×4 的 32 位字矩阵：常量
+// "expand 32-byte k"、8 个小端 key 字、counter + 3 个 nonce 字。20 轮 = 10 列轮 + 10 对角轮，
+// 每轮 4 个 quarter-round；最终密钥流块 = working_state + original_state（逐字模 2^32），小端 64 字节。
 
 public static class ChaCha20 {
     // ── Public API ───────────────────────────────────────────────────────────
 
-    /// Encrypt / decrypt (symmetric — XOR with the keystream).
-    /// `counter` starts at 1 per RFC 8439 §2.4 for standalone use;
-    /// pass 0 only when deriving a Poly1305 one-time key.
+    /// 加密 / 解密（对称，与密钥流 XOR）。独立使用时 `counter` 从 1 起（RFC 8439 §2.4）；
+    /// 仅派生 Poly1305 一次性 key 时传 0。
     public static byte[] Crypt(byte[] key, byte[] nonce, int counter, byte[] data) {
         if (key.Length != 32) {
             throw new ArgumentException("ChaCha20: key must be 32 bytes, got " + key.Length.ToString());
@@ -58,19 +38,17 @@ public static class ChaCha20 {
         return out_;
     }
 
-    /// Convenience: default counter=1 (RFC 8439 standalone use).
+    /// 便捷形式，默认 counter=1（RFC 8439 独立使用）。
     public static byte[] Encrypt(byte[] key, byte[] nonce, byte[] data) {
         return ChaCha20.Crypt(key, nonce, 1, data);
     }
 
-    /// Decrypt — same as encrypt.
+    /// 解密——与加密同义。
     public static byte[] Decrypt(byte[] key, byte[] nonce, byte[] data) {
         return ChaCha20.Crypt(key, nonce, 1, data);
     }
 
-    /// Produce one 64-byte keystream block for (key, nonce, counter).
-    /// Exposed for Poly1305-key derivation (counter=0 path of the
-    /// ChaCha20-Poly1305 AEAD construction).
+    /// 产生 (key, nonce, counter) 的一个 64 字节密钥流块，供 Poly1305 key 派生（counter=0 路径）使用。
     public static byte[] Block(byte[] key, byte[] nonce, int counter) {
         return ChaCha20._block(key, nonce, counter);
     }
@@ -108,11 +86,11 @@ public static class ChaCha20 {
         return out_;
     }
 
-    /// ChaCha20 quarter-round (RFC 8439 §2.1).
-    /// a += b; d ^= a; d <<<= 16
-    /// c += d; b ^= c; b <<<= 12
-    /// a += b; d ^= a; d <<<=  8
-    /// c += d; b ^= c; b <<<=  7
+    // ChaCha20 quarter-round（RFC 8439 §2.1）：
+    //   a += b; d ^= a; d <<<= 16
+    //   c += d; b ^= c; b <<<= 12
+    //   a += b; d ^= a; d <<<=  8
+    //   c += d; b ^= c; b <<<=  7
     static void _qround(int[] s, int ai, int bi, int ci, int di) {
         int a = s[ai]; int b = s[bi]; int c = s[ci]; int d = s[di];
         a = a + b;        d = d ^ a;   d = ChaCha20._rotl32(d, 16);
@@ -122,17 +100,15 @@ public static class ChaCha20 {
         s[ai] = a; s[bi] = b; s[ci] = c; s[di] = d;
     }
 
-    /// 32-bit left rotation. z42 `int` is signed i32; arithmetic `>>`
-    /// sign-extends so we mask via `& 0xFFFFFFFF` after the cast through
-    /// long. Inputs / outputs treated as unsigned bit patterns.
+    // 32 位循环左移。z42 的 `int` 是有符号 i32，算术 `>>` 会符号扩展，所以经 long 转换后
+    // 用 `& 0xFFFFFFFF` 掩码。输入 / 输出按无符号位模式处理。
     static int _rotl32(int x, int n) {
         long lx = ((long)x) & 0xFFFFFFFFL;
         long shifted = ((lx << n) | (lx >> (32 - n))) & 0xFFFFFFFFL;
         return (int)shifted;
     }
 
-    /// Build the 16-word initial state from key (32 bytes) + counter +
-    /// nonce (12 bytes), all little-endian per RFC 8439 §2.3.
+    // 由 key（32 字节）+ counter + nonce（12 字节）构建 16 字初始状态，全部小端（RFC 8439 §2.3）。
     static int[] _initState(byte[] key, byte[] nonce, int counter) {
         int[] s = new int[16];
         // Constants "expand 32-byte k" — ASCII split into 4 LE words.

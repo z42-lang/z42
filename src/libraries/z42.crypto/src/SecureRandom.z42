@@ -1,24 +1,14 @@
 namespace Std.Crypto;
 
 
-// add-csprng-to-crypto (2026-05-26): OS-backed cryptographically secure
-// random number generator. The raw entropy tap `__crypto_random_bytes` was
-// re-homed to core `Std.Runtime.Entropy` as a cross-cutting primitive
-// (reclassify-os-entropy-to-core, 2026-09-03) so core's Guid.NewGuid can use
-// it too; SecureRandom now delegates there (rule: 单一声明点). This class stays
-// the security-framed façade (rejection sampling, bounded ints) in the
-// pluggable z42.crypto library.
-//
-// **Use this for** session tokens, CSRF nonces, KDF salts, masking keys,
-// password generation, anything where unpredictability matters.
-//
-// **Do NOT use `Std.Random`** (PCG) for any security purpose — it's a
-// deterministic PRNG for fixtures / simulation / temporary IDs.
-//
-// wasm32 throws `Std.NotSupportedException` (wasm-bridge to browser
-// crypto.getRandomValues / WASI is `add-csprng-wasm-bridge` follow-up).
+// OS 支撑的密码学安全随机数发生器。原始熵抽头 `__crypto_random_bytes` 已迁移到核心
+// `Std.Runtime.Entropy`（跨切面原语，供 core 的 Guid.NewGuid 复用）；SecureRandom 委托到那里
+// （单一声明点），本类保持安全语义门面（rejection sampling、有界整数）。
+// **用这里生成** session token、CSRF nonce、KDF salt、掩码密钥、口令等一切需要不可预测性的场合。
+// **勿用 `Std.Random`**（PCG，确定性 PRNG，用于 fixture / 仿真 / 临时 ID）做安全用途。
+// wasm32 抛 `Std.NotSupportedException`。
 public static class SecureRandom {
-    /// Fill `n` bytes from OS CSPRNG. `n` must be ≥ 0.
+    /// 从 OS CSPRNG 填充 n 字节（n ≥ 0）。
     public static byte[] GetBytes(int n) {
         if (n < 0) {
             throw new ArgumentException("n must be non-negative, got " + n.ToString());
@@ -26,10 +16,7 @@ public static class SecureRandom {
         return Entropy.GetBytes(n);
     }
 
-    /// Random `int` uniformly distributed over the full i32 range
-    /// (including negatives). Built from 4 CSPRNG bytes, big-endian.
-    /// Computed in i64 to preserve bit pattern when the high bit is set;
-    /// final (int) cast truncates to the low 32 bits (sign-aware).
+    /// 整个 i32 范围均匀分布的随机 int（含负数）。由 4 个 CSPRNG 字节大端构建。
     public static int NextInt() {
         byte[] b = GetBytes(4);
         long r = (((long)b[0] & 0xFFL) << 24)
@@ -39,8 +26,7 @@ public static class SecureRandom {
         return (int)r;
     }
 
-    /// Random `long` uniformly distributed over the full i64 range.
-    /// Built from 8 CSPRNG bytes, big-endian.
+    /// 整个 i64 范围均匀分布的随机 long，由 8 个 CSPRNG 字节大端构建。
     public static long NextLong() {
         byte[] b = GetBytes(8);
         long r = 0L;
@@ -52,10 +38,7 @@ public static class SecureRandom {
         return r;
     }
 
-    /// Random `int` in `[0, bound)`, uniformly distributed.
-    /// Uses rejection sampling to avoid modulo bias.
-    ///
-    /// Throws ArgumentException if `bound <= 0`.
+    /// [0, bound) 均匀分布的随机 int，用 rejection sampling 避免模偏差；bound ≤ 0 抛 `ArgumentException`。
     public static int NextU32Bounded(int bound) {
         if (bound <= 0) {
             throw new ArgumentException("bound must be positive, got " + bound.ToString());

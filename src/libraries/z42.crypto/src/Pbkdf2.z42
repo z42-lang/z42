@@ -2,27 +2,14 @@ namespace Std.Crypto;
 
 using Std.Encoding;
 
-// add-crypto-pbkdf2 (2026-05-27): PBKDF2-HMAC-SHA256 (RFC 8018 §5.2).
-//
-// 用于密码哈希 / KDF 场景。比 SHA-256 直接哈希慢约 `iterations` 倍 —
-// 典型生产值 100 000；本实现 pure-z42 over `HmacSha256`，比 Rust 原生 ~20×
-// 慢，但对 password verification 100 ms 级别完全够用。
-//
-// API mirror BCL `Rfc2898DeriveBytes` (但 z42 不引入对应类型，直接用 static
-// 方法 + byte[] in/out)。
-//
-// Algorithm (RFC 8018):
-//   T(i) = U1 XOR U2 XOR ... XOR Uc      (c = iterations)
-//     U1 = HMAC(P, S || INT(i))           (INT is 4-byte big-endian)
-//     U2 = HMAC(P, U1) ... Uc = HMAC(P, Uc-1)
-//   DK = T(1) || T(2) || ... || T(l)      (l = ceil(dkLen / hLen))
-//
-// Output truncated to `dkLen` bytes.
+// PBKDF2-HMAC-SHA256（RFC 8018 §5.2），用于密码哈希 / KDF。比直接 SHA-256 慢约 `iterations` 倍，
+// 典型生产值 100000。算法（RFC 8018）：T(i) = U1 XOR U2 XOR ... XOR Uc（c = iterations），
+// U1 = HMAC(P, S || INT(i))（INT 为 4 字节大端），Uj = HMAC(P, Uj-1)；DK = T(1) || T(2) || ...，
+// 截断到 `dkLen` 字节。
 public static class Pbkdf2 {
     // ── Public API ───────────────────────────────────────────────────────────
 
-    /// PBKDF2-HMAC-SHA256. Returns `dkLen` derived bytes.
-    /// Throws `ArgumentException` for `iterations < 1` or `dkLen < 1`.
+    /// PBKDF2-HMAC-SHA256 派生，返回 `dkLen` 字节。`iterations < 1` 或 `dkLen < 1` 抛 `ArgumentException`。
     public static byte[] DeriveKey(byte[] password, byte[] salt, int iterations, int dkLen) {
         if (iterations < 1) {
             throw new ArgumentException(
@@ -58,18 +45,19 @@ public static class Pbkdf2 {
         return result;
     }
 
-    /// String-password / string-salt convenience. Encodes as UTF-8.
+    /// 字符串 password / salt 便捷形式，按 UTF-8 编码。
     public static byte[] DeriveKeyString(
         string password, string salt, int iterations, int dkLen) {
         return DeriveKey(Utf8.GetBytes(password), Utf8.GetBytes(salt), iterations, dkLen);
     }
 
-    /// Returns lowercase hex (length = 2 * dkLen).
+    /// 派生并输出小写十六进制（长度 2 × dkLen）。
     public static string DeriveKeyHex(
         byte[] password, byte[] salt, int iterations, int dkLen) {
         return Hex.Encode(DeriveKey(password, salt, iterations, dkLen));
     }
 
+    /// 对字符串 password / salt 派生并输出小写十六进制。
     public static string DeriveKeyStringHex(
         string password, string salt, int iterations, int dkLen) {
         return Hex.Encode(DeriveKeyString(password, salt, iterations, dkLen));

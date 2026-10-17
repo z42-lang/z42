@@ -2,41 +2,12 @@ namespace Std.Crypto;
 
 using Std.Encoding;
 
-// add-blake3 (2026-05-28): BLAKE3 hash function.
-//
-// Merkle-tree successor to BLAKE2 designed for parallel hardware
-// (SIMD / multi-core). The serial pure-script implementation here
-// produces byte-identical output to the canonical Rust impl, but
-// without the parallelism speedups (the algorithm's main win on
-// modern hardware is gone in an interpreter). Useful for:
-//
-//   - Cargo crate verification (Cargo uses BLAKE3 since 2021)
-//   - IPFS content-addressing
-//   - age file format integrity
-//   - Modern hash-tree protocols
-//
-// Algorithm structure (per the BLAKE3 spec):
-//   - Input is split into 1024-byte chunks.
-//   - Each chunk is compressed into a 32-byte chaining value (CV) by
-//     iterating the compression function over 16 sub-blocks of 64 bytes.
-//   - Chunk CVs combine in a binary Merkle tree (parent CVs from pairs).
-//   - The root node, marked with the ROOT flag, produces the final
-//     output (32 bytes default; arbitrary length via the XOF mode).
-//
-// Compression function: same shape as BLAKE2s (32-bit words, G mixer
-// over a 16-word working vector) but reduced to 7 rounds and with a
-// different SIGMA permutation schedule + counter / flags injection.
-//
-// v0 scope:
-//   - Hash(byte[]) → byte[32]   (unkeyed, default 32-byte output)
-//   - Hash256 alias, HashString, HashHex, HashStringHex helpers
-//   - HashLen(data, outLen)     (XOF mode for arbitrary output length)
-//
-// Out of scope for v0:
-//   - Keyed hash mode (`KEYED_HASH` flag)
-//   - `DeriveKey(context, key_material, len)` (DERIVE_KEY_* flags)
-//   - Streaming / incremental hash API
-//   - Parallel chunk hashing (would need a thread pool)
+// BLAKE3 哈希函数：BLAKE2 的 Merkle 树后继，面向并行硬件（SIMD / 多核）设计。此串行纯脚本实现
+// 与官方 Rust 实现逐字节一致，但没有并行加速（用于 Cargo crate 校验、IPFS 内容寻址等）。结构：
+// 输入按 1024 字节分 chunk，每个 chunk 经 16 个 64 字节子块的压缩函数迭代成 32 字节链值（CV），
+// chunk CV 按二叉树两两合并，根节点带 ROOT 标志产出最终输出（默认 32 字节，XOF 模式任意长）。
+// 压缩函数与 BLAKE2s 同形（32 位字、16 字工作向量上的 G 混合），但减为 7 轮、换用不同 SIGMA
+// 置换表并注入 counter / flags。
 
 public static class Blake3 {
     // ── Constants ────────────────────────────────────────────────────────────
@@ -52,21 +23,24 @@ public static class Blake3 {
 
     // ── Public API ───────────────────────────────────────────────────────────
 
+    /// 计算 BLAKE3 摘要（默认 32 字节）。
     public static byte[] Hash(byte[] data) {
         return Blake3.HashLen(data, 32);
     }
 
+    /// `Hash` 的同义方法，返回 32 字节 BLAKE3 摘要。
     public static byte[] Hash256(byte[] data) {
         return Blake3.HashLen(data, 32);
     }
 
+    /// 对 UTF-8 字符串计算 BLAKE3 摘要。
     public static byte[] HashString(string s) { return Blake3.Hash(Utf8.GetBytes(s)); }
+    /// 计算 BLAKE3 摘要并输出小写十六进制。
     public static string HashHex(byte[] data) { return Hex.Encode(Blake3.Hash(data)); }
+    /// 对 UTF-8 字符串计算 BLAKE3 摘要并输出小写十六进制。
     public static string HashStringHex(string s) { return Hex.Encode(Blake3.HashString(s)); }
 
-    /// XOF mode — arbitrary output length up to (2^64 - 1) × 64 bytes
-    /// (effectively unbounded). Larger than 64 bytes yields fresh output
-    /// blocks by incrementing the output counter on each squeeze.
+    /// BLAKE3 可扩展输出（XOF）：`outLen` ≥ 0，前 N 字节与更长输出的前 N 字节一致。
     public static byte[] HashLen(byte[] data, int outLen) {
         if (outLen < 0) {
             throw new ArgumentException("Blake3.HashLen: outLen must be ≥ 0, got " + outLen.ToString());
@@ -111,9 +85,8 @@ public static class Blake3 {
         return Blake3._reduceParents(cvList, totalChunks);
     }
 
-    /// Reduce a flat list of `n` CVs (8 words each) into the final output
-    /// state. The last parent compression carries the ROOT flag and
-    /// returns its full output state (not just CV).
+    // 把 `n` 个扁平 CV（各 8 字）归并为最终输出状态。最后一次父节点压缩带 ROOT 标志，
+    // 返回完整输出状态（而非仅 CV）。
     static int[] _reduceParents(int[] cvList, int n) {
         if (n == 1) {
             // Defensive: shouldn't reach here (single chunk handled above).
@@ -156,24 +129,20 @@ public static class Blake3 {
         return Blake3._parentOutputState(cvList, 0, cvList, 8);
     }
 
-    /// Chunk → 32-byte CV (8 i32 words). `chunkIndex` is the chunk's
-    /// position counter (0 for first chunk).
+    // Chunk → 32 字节 CV（8 个 i32 字）。`chunkIndex` 是 chunk 的位置计数（首个为 0）。
     static int[] _chunkCV(byte[] data, int offset, int length, long chunkIndex) {
         int[] state = Blake3._chunkToOutputState(data, offset, length, chunkIndex, false);
-        // CV = 压缩输出前 8 word **直接取**——`_compress` 已做 feed-forward
-        // （state[i] ^= state[i+8]），CV 即 output[0..7]。再 XOR state[i]^state[i+8] = 二次
-        // feed-forward（fix-blake3-multichunk-root-flag, 2026-06-22：原 XOR 破坏所有 multi-chunk
-        // CV；单 chunk 不经此路径故小向量测不到）。
+        // CV = 压缩输出前 8 字直接取——`_compress` 已做 feed-forward（state[i] ^= state[i+8]），
+        // CV 即 output[0..7]。曾再 XOR state[i]^state[i+8] 造成二次 feed-forward，破坏了所有
+        // multi-chunk CV（单 chunk 不经此路径，故小向量测不到）。
         int[] cv = new int[8];
         int i = 0;
         while (i < 8) { cv[i] = state[i]; i = i + 1; }
         return cv;
     }
 
-    /// Chunk → output state. `isRoot` set on the final compression of a
-    /// single-chunk input (so the chunk's last block carries CHUNK_END
-    /// | ROOT). For multi-chunk inputs, chunks compress without ROOT
-    /// (their CV combines via parents that get ROOT later).
+    // Chunk → 输出状态。单 chunk 输入的末次压缩置 `isRoot`（其最后一块带 CHUNK_END | ROOT）；
+    // 多 chunk 输入时 chunk 压缩不带 ROOT（CV 经后续带 ROOT 的父节点合并）。
     static int[] _chunkToOutputState(byte[] data, int offset, int length, long chunkIndex, bool isRoot) {
         int[] cv = Blake3._iv();
         // Iterate over 64-byte blocks within the chunk.
@@ -223,13 +192,10 @@ public static class Blake3 {
         return outputState;
     }
 
-    /// Intermediate parent compression → 8-word CV. `left`/`right` are 8-word
-    /// CVs at the given offsets. Flags = PARENT **without ROOT** — only the
-    /// topmost parent (`_parentOutputState`, root) carries ROOT. (fix-blake3-
-    /// multichunk-root-flag, 2026-06-22: previously delegated to
-    /// `_parentOutputState`, which sets PARENT|ROOT, so every intermediate
-    /// parent in a ≥3-chunk tree was wrongly flagged ROOT → non-standard hash
-    /// for inputs >2048 bytes. Small (≤1-chunk) vectors never exercised this.)
+    // 中间父节点压缩 → 8 字 CV。`left`/`right` 是指定偏移处的 8 字 CV。Flags = PARENT 且
+    // **不带 ROOT**——只有最顶层父节点（`_parentOutputState`，root）带 ROOT。曾误用
+    // `_parentOutputState`（它置 PARENT|ROOT），导致 ≥3 chunk 树中每个中间父节点都被错标 ROOT，
+    // 使 >2048 字节输入产生非标准哈希（≤1 chunk 的小向量测不到）。
     static int[] _parentCV(int[] leftArr, int leftOff, int[] rightArr, int rightOff) {
         byte[] block = new byte[Blake3.BLOCK_SIZE];
         int i = 0;
@@ -247,7 +213,7 @@ public static class Blake3 {
         return cv;
     }
 
-    /// Parent output state with ROOT flag (for the topmost parent only).
+    // 带 ROOT 标志的父节点输出状态（仅用于最顶层父节点）。
     static int[] _parentOutputState(int[] leftArr, int leftOff, int[] rightArr, int rightOff) {
         // Build the 64-byte block from left || right CVs.
         byte[] block = new byte[Blake3.BLOCK_SIZE];
@@ -277,10 +243,8 @@ public static class Blake3 {
         return outputState;
     }
 
-    /// XOF squeeze: produce `outLen` output bytes by incrementing the
-    /// output counter (= words[32]/[33] sentinels) and re-running the
-    /// compression on the buffered block. The first 64 bytes come from
-    /// counter=0; subsequent 64-byte chunks bump the counter.
+    // XOF 挤压：递增输出计数器（即 words[32]/[33] 哨兵）并对缓冲块重跑压缩，产出 `outLen` 字节。
+    // 前 64 字节来自 counter=0；后续每个 64 字节块递增计数器。
     static byte[] _squeezeOutput(int[] outputState, int outLen) {
         byte[] out_ = new byte[outLen];
         // Extract the per-output-block fields.
@@ -339,7 +303,7 @@ public static class Blake3 {
 
     // ── Compression function (BLAKE3 spec §3) ────────────────────────────────
 
-    /// IV[0..7] = same as BLAKE2s / SHA-256 H[0..7].
+    // IV[0..7] = 与 BLAKE2s / SHA-256 的 H[0..7] 相同。
     static int[] _iv() {
         int[] iv = new int[8];
         iv[0] = 0x6A09E667;          iv[1] = (int)0xBB67AE85L;
@@ -349,10 +313,8 @@ public static class Blake3 {
         return iv;
     }
 
-    /// Compress one 64-byte block. Returns 16-word output state.
-    /// `cv` = current chaining value (8 words); `block` = 64-byte input;
-    /// `counter` = chunk index (or 0 for parent / output blocks);
-    /// `blockLen` = bytes of this block (1..64); `flags` = combined flags.
+    // 压缩一个 64 字节块，返回 16 字输出状态。`cv` = 当前链值（8 字）；`block` = 64 字节输入；
+    // `counter` = chunk 索引（父节点 / 输出块为 0）；`blockLen` = 本块字节数（1..64）；`flags` = 组合标志。
     static int[] _compress(int[] cv, byte[] block, long counter, int blockLen, int flags) {
         int[] state = new int[16];
         state[0] = cv[0]; state[1] = cv[1]; state[2] = cv[2]; state[3] = cv[3];
@@ -405,7 +367,7 @@ public static class Blake3 {
         return state;
     }
 
-    /// G mixer — same rotation constants as BLAKE2s.
+    // G 混合器——旋转常量与 BLAKE2s 相同。
     static void _G(int[] v, int a, int b, int c, int d, int x, int y) {
         int va = v[a]; int vb = v[b]; int vc = v[c]; int vd = v[d];
         va = va + vb + x;     vd = Blake3._rotr32(vd ^ va, 16);
@@ -415,14 +377,10 @@ public static class Blake3 {
         v[a] = va; v[b] = vb; v[c] = vc; v[d] = vd;
     }
 
-    /// BLAKE3 SIGMA permutation table — 7 rounds. Row 0 is the identity
-    /// permutation; rows 1-6 derive from row 0 by applying the BLAKE3
-    /// permutation `P` repeatedly.
-    /// P = [2, 6, 3, 10, 7, 0, 4, 13, 1, 11, 12, 5, 9, 14, 15, 8]
-    // perf: the SIGMA permutation is a compile-time constant — build once at static
-    // init and read the shared array each compress round (was: rebuilt via nested
-    // permutation-derivation loops + several int[16] allocs on every _compress,
-    // ~64× over a 4KB input). sigma is read-only in the round loop.
+    // BLAKE3 SIGMA 置换表——7 轮。第 0 行是恒等置换；第 1~6 行由第 0 行反复施加 BLAKE3 置换 `P` 得到。
+    // P = [2, 6, 3, 10, 7, 0, 4, 13, 1, 11, 12, 5, 9, 14, 15, 8]
+    // perf：SIGMA 置换是编译期常量——静态初始化时构建一次，之后每轮压缩读取共享数组
+    // （此前每次 _compress 都重建，4KB 输入上约 64× 开销）。sigma 在轮循环中只读。
     static int[] _SIGMA = Blake3._sigma();
 
     internal static int[] _sigma() {

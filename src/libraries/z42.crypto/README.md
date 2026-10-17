@@ -10,17 +10,7 @@ z42 标准库的加密算法包：摘要 / MAC / 密钥派生 / 对称加密与 
 API 参考：[`docs/reference/src/stdlib/crypto.md`](../../../docs/reference/src/stdlib/crypto.md)。
 
 ## 功能索引
-
-按能力分组，全部是 `Std.Crypto` 下的 `static class`（RSA 另有两个密钥类）。
-
-| 能力 | 入口 / 文件 |
-|------|-----------|
-| 摘要 | `Sha1.z42`（legacy）/ `Sha256.z42` / `Sha384.z42` / `Sha512.z42` / `Sha3.z42` / `Md5.z42`（legacy）/ `Blake2b.z42` / `Blake2s.z42` / `Blake3.z42` |
-| MAC | `Hmac.z42`（`HmacSha256` / `HmacSha1` / `HmacSha512` 等）/ `Poly1305.z42` |
-| 密钥派生 | `Pbkdf2.z42`（HMAC-SHA-256）/ `Hkdf.z42`（`HkdfSha256` / `HkdfSha512` / `HkdfSha1`）/ `Scrypt.z42` |
-| 对称加密 / AEAD | `Aes.z42` / `ChaCha20.z42` / `ChaCha20Poly1305.z42` |
-| 签名 / 密钥交换 | `Ed25519.z42` / `X25519.z42` / `EcdsaP256.z42` / `EcdsaSecp256k1.z42` / `Rsa.z42`（`Rsa` + `RsaPublicKey` / `RsaPrivateKey`） |
-| 随机 / 常数时间比较 | `SecureRandom.z42`（CSPRNG）/ `ConstantTime.z42`（`Equals(byte[], byte[])`，防 MAC 时序侧信道） |
+公开 API 的完整签名见 [reference 包页](../../../docs/reference/src/stdlib/crypto.md)（由源码 doc 注释生成）。
 
 ## 基础用法
 

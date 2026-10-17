@@ -2,28 +2,12 @@ namespace Std.Crypto;
 
 using Std.Encoding;
 
-// add-hmac-sha256 (2026-05-24): HMAC-SHA256 (RFC 2104).
-//
-// Pure-script over `Sha256`. Naming mirrors `Sha256` convention exactly —
-// distinct method names per parameter type rather than overloads (z42 当前
-// overload 解析对 byte[] vs string 有 ambiguity，参考 BinaryWriter /
-// JsonValue.Parse 同一坑；与 Sha256 / HashString / HashHex / HashStringHex
-// 命名风格一致是 stdlib 既定方向）。
-//
-// Algorithm (RFC 2104):
-//   K'    = if len(K) > 64 then SHA256(K) else K right-padded with 0x00 to 64
-//   inner = SHA256( (K' XOR 0x36 repeated 64) || msg )
-//   HMAC  = SHA256( (K' XOR 0x5C repeated 64) || inner )
-//
-// Class name mirrors .NET BCL `HMACSHA256`. Future SHA-384/512 variants
-// land as `HmacSha384` / `HmacSha512` sibling classes.
-//
-// Tested against RFC 4231 §4.2-4.4, §4.5, §4.7, §4.8 test vectors. §4.6
-// (truncation HMAC-SHA-256-128) skipped — users can `result[:16]` if needed.
+// HMAC-SHA256（RFC 2104），纯脚本实现于 `Sha256` 之上。算法：K' = len(K)>64 时 SHA256(K)，
+// 否则 K 右补 0x00 到 64 字节；inner = SHA256((K' XOR 0x36×64) || msg)；HMAC = SHA256((K' XOR 0x5C×64) || inner)。
 public static class HmacSha256 {
     // ── Public API ───────────────────────────────────────────────────────────
 
-    /// HMAC-SHA256 of `message` keyed by `key`. Returns 32-byte digest.
+    /// 计算 `message` 在 `key` 下的 HMAC-SHA256，返回 32 字节摘要。
     public static byte[] Compute(byte[] key, byte[] message) {
         byte[] paddedKey = _padKey(key);
 
@@ -56,19 +40,19 @@ public static class HmacSha256 {
         return Sha256.Hash(outer);
     }
 
-    /// HMAC-SHA256 with string key + string message (UTF-8 encoded). Returns 32 bytes.
+    /// 对 UTF-8 编码的字符串 key / message 计算 HMAC-SHA256（返回 32 字节）。
     public static byte[] ComputeString(string key, string message) {
         byte[] keyBytes = Utf8.GetBytes(key);
         byte[] msgBytes = Utf8.GetBytes(message);
         return Compute(keyBytes, msgBytes);
     }
 
-    /// HMAC-SHA256 returning lowercase hex (64 chars).
+    /// 计算 HMAC-SHA256 并输出小写十六进制（64 字符）。
     public static string ComputeHex(byte[] key, byte[] message) {
         return Hex.Encode(Compute(key, message));
     }
 
-    /// HMAC-SHA256 with string key + message, returning lowercase hex.
+    /// 对 UTF-8 字符串 key / message 计算 HMAC-SHA256 并输出小写十六进制。
     public static string ComputeStringHex(string key, string message) {
         byte[] keyBytes = Utf8.GetBytes(key);
         byte[] msgBytes = Utf8.GetBytes(message);
@@ -77,10 +61,8 @@ public static class HmacSha256 {
 
     // ── Internals ────────────────────────────────────────────────────────────
 
-    /// Normalise key to exactly 64 bytes (SHA-256 block size):
-    /// - longer  → SHA-256 the key first (32 bytes), then 0x00-pad to 64
-    /// - shorter → right-pad with 0x00
-    /// - exact   → copy (defensive — XOR pad will mutate the buffer)
+    // 把 key 归一化为 64 字节（SHA-256 块大小）：更长 → 先 SHA-256（32 字节）再补 0x00 到 64；
+    // 更短 → 右补 0x00；恰好 → 防御性拷贝（XOR 填充会改动缓冲区）。
     static byte[] _padKey(byte[] key) {
         byte[] padded = new byte[64];
         if (key.Length > 64) {
@@ -103,13 +85,10 @@ public static class HmacSha256 {
     }
 }
 
-// add-sha1-to-crypto (2026-05-25): HMAC-SHA-1 (RFC 2104) — mirrors
-// HmacSha256 layout exactly. Block size 64 same as SHA-256; digest 20 bytes.
-//
-// ⚠️ Use HMAC-SHA-1 only when interoperability with legacy systems requires
-// it (TOTP RFC 6238 default, AWS Signature V2, etc.). Prefer HMAC-SHA-256
-// for new designs — see Sha1.z42 SHAttered note.
+// HMAC-SHA-1（RFC 2104），布局与 HmacSha256 相同。块大小 64（与 SHA-256 同），摘要 20 字节。
+// ⚠️ 仅当旧系统互操作要求时使用（TOTP RFC 6238 默认、AWS Signature V2 等），新设计用 HMAC-SHA-256。
 public static class HmacSha1 {
+    /// 计算 `message` 在 `key` 下的 HMAC-SHA1，返回 20 字节摘要。
     public static byte[] Compute(byte[] key, byte[] message) {
         return _computeCore(key, message);
     }
@@ -146,24 +125,26 @@ public static class HmacSha1 {
         return Sha1.Hash(outer);
     }
 
+    /// 对 UTF-8 字符串 key / message 计算 HMAC-SHA1。
     public static byte[] ComputeString(string key, string message) {
         byte[] keyBytes = Utf8.GetBytes(key);
         byte[] msgBytes = Utf8.GetBytes(message);
         return _computeCore(keyBytes, msgBytes);
     }
 
+    /// 计算 HMAC-SHA1 并输出小写十六进制。
     public static string ComputeHex(byte[] key, byte[] message) {
         return Hex.Encode(_computeCore(key, message));
     }
 
+    /// 对 UTF-8 字符串 key / message 计算 HMAC-SHA1 并输出小写十六进制。
     public static string ComputeStringHex(string key, string message) {
         byte[] keyBytes = Utf8.GetBytes(key);
         byte[] msgBytes = Utf8.GetBytes(message);
         return Hex.Encode(_computeCore(keyBytes, msgBytes));
     }
 
-    /// Normalise key to 64 bytes — longer hash via SHA-1 (20 bytes) then
-    /// zero-pad to 64; shorter right-pad with 0x00.
+    // 把 key 归一化为 64 字节：更长 → 先 SHA-1（20 字节）再补 0x00 到 64；更短 → 右补 0x00。
     static byte[] _padKey(byte[] key) {
         byte[] padded = new byte[64];
         if (key.Length > 64) {
@@ -184,14 +165,9 @@ public static class HmacSha1 {
     }
 }
 
-// add-hmac-sha512-sha384 (2026-05-27): HMAC-SHA-512 (RFC 2104).
-//
-// Block size 128 (vs SHA-256's 64); digest 64 bytes. Same naming
-// convention as HmacSha256 — distinct method names per param-type to
-// dodge z42's name-only overload resolution.
-//
-// Tested against RFC 4231 §4.2-4.8 test vectors.
+// HMAC-SHA-512（RFC 2104）。块大小 128（SHA-256 为 64），摘要 64 字节。
 public static class HmacSha512 {
+    /// 计算 `message` 在 `key` 下的 HMAC-SHA512，返回 64 字节摘要。
     public static byte[] Compute(byte[] key, byte[] message) {
         return HmacSha512._computeCore(key, message);
     }
@@ -228,25 +204,27 @@ public static class HmacSha512 {
         return Sha512.Hash(outer);
     }
 
+    /// 对 UTF-8 字符串 key / message 计算 HMAC-SHA512。
     public static byte[] ComputeString(string key, string message) {
         byte[] keyBytes = Utf8.GetBytes(key);
         byte[] msgBytes = Utf8.GetBytes(message);
         return HmacSha512._computeCore(keyBytes, msgBytes);
     }
 
+    /// 计算 HMAC-SHA512 并输出小写十六进制。
     public static string ComputeHex(byte[] key, byte[] message) {
         return Hex.Encode(HmacSha512._computeCore(key, message));
     }
 
+    /// 对 UTF-8 字符串 key / message 计算 HMAC-SHA512 并输出小写十六进制。
     public static string ComputeStringHex(string key, string message) {
         byte[] keyBytes = Utf8.GetBytes(key);
         byte[] msgBytes = Utf8.GetBytes(message);
         return Hex.Encode(HmacSha512._computeCore(keyBytes, msgBytes));
     }
 
-    /// Normalise key to 128 bytes (SHA-512 block size):
-    /// - longer (> 128) → SHA-512 the key (64 bytes), zero-pad to 128
-    /// - shorter → right-pad with 0x00
+    // 把 key 归一化为 128 字节（SHA-512 块大小）：更长（>128）→ 先 SHA-512（64 字节）再补 0 到 128；
+    // 更短 → 右补 0x00。
     static byte[] _padKey(byte[] key) {
         byte[] padded = new byte[128];
         if (key.Length > 128) {
@@ -267,12 +245,9 @@ public static class HmacSha512 {
     }
 }
 
-// add-hmac-sha512-sha384 (2026-05-27): HMAC-SHA-384 (RFC 2104).
-//
-// Same block size (128 bytes) as HMAC-SHA-512 — SHA-384 shares the
-// compression function. Inner / outer hashes use SHA-384 so the digest
-// is 48 bytes instead of 64.
+// HMAC-SHA-384（RFC 2104）。块大小 128（与 HMAC-SHA-512 同），内部用 SHA-384 所以摘要 48 字节。
 public static class HmacSha384 {
+    /// 计算 `message` 在 `key` 下的 HMAC-SHA384，返回 48 字节摘要。
     public static byte[] Compute(byte[] key, byte[] message) {
         return HmacSha384._computeCore(key, message);
     }
@@ -308,24 +283,26 @@ public static class HmacSha384 {
         return Sha384.Hash(outer);
     }
 
+    /// 对 UTF-8 字符串 key / message 计算 HMAC-SHA384。
     public static byte[] ComputeString(string key, string message) {
         byte[] keyBytes = Utf8.GetBytes(key);
         byte[] msgBytes = Utf8.GetBytes(message);
         return HmacSha384._computeCore(keyBytes, msgBytes);
     }
 
+    /// 计算 HMAC-SHA384 并输出小写十六进制。
     public static string ComputeHex(byte[] key, byte[] message) {
         return Hex.Encode(HmacSha384._computeCore(key, message));
     }
 
+    /// 对 UTF-8 字符串 key / message 计算 HMAC-SHA384 并输出小写十六进制。
     public static string ComputeStringHex(string key, string message) {
         byte[] keyBytes = Utf8.GetBytes(key);
         byte[] msgBytes = Utf8.GetBytes(message);
         return Hex.Encode(HmacSha384._computeCore(keyBytes, msgBytes));
     }
 
-    /// Same 128-byte block as HMAC-SHA-512; long key hashed via SHA-384
-    /// (48 bytes) then zero-padded.
+    // 与 HMAC-SHA-512 同用 128 字节块；长 key 先经 SHA-384（48 字节）再补 0。
     static byte[] _padKey(byte[] key) {
         byte[] padded = new byte[128];
         if (key.Length > 128) {
@@ -346,18 +323,11 @@ public static class HmacSha384 {
     }
 }
 
-// add-md5-to-crypto (2026-05-31): HMAC-MD5 (RFC 2104). Pure-script
-// mirror of HmacSha1 — same 64-byte block, MD5 digest is 16 bytes.
-//
-// ⚠️ HMAC-MD5 is still cryptographically reasonable as a MAC (Wang's
-// collision attack does NOT directly extend to HMAC because the outer
-// key randomises the H state — see Bellare 2006). But MD5 itself is
-// broken; use HMAC-MD5 only when the protocol you're interoperating
-// with mandates it (HTTP Digest-MD5 / CRAM-MD5 / APR1 / legacy SASL).
-// Prefer HMAC-SHA-256 for new designs.
-//
-// Tested against RFC 2202 §2 test cases 1-7.
+// HMAC-MD5（RFC 2104），HmacSha1 的纯脚本镜像——同为 64 字节块，MD5 摘要 16 字节。
+// ⚠️ HMAC-MD5 作为 MAC 仍基本可用（Wang 碰撞攻击不直接扩展到 HMAC，外层 key 随机化了 H 状态），
+// 但仅当协议强制（HTTP Digest-MD5 / CRAM-MD5 / APR1 / legacy SASL）时使用；新设计用 HMAC-SHA-256。
 public static class HmacMd5 {
+    /// 计算 `message` 在 `key` 下的 HMAC-MD5，返回 16 字节摘要。
     public static byte[] Compute(byte[] key, byte[] message) {
         return HmacMd5._computeCore(key, message);
     }
@@ -394,25 +364,26 @@ public static class HmacMd5 {
         return Md5.Hash(outer);
     }
 
+    /// 对 UTF-8 字符串 key / message 计算 HMAC-MD5。
     public static byte[] ComputeString(string key, string message) {
         byte[] keyBytes = Utf8.GetBytes(key);
         byte[] msgBytes = Utf8.GetBytes(message);
         return HmacMd5._computeCore(keyBytes, msgBytes);
     }
 
+    /// 计算 HMAC-MD5 并输出小写十六进制。
     public static string ComputeHex(byte[] key, byte[] message) {
         return Hex.Encode(HmacMd5._computeCore(key, message));
     }
 
+    /// 对 UTF-8 字符串 key / message 计算 HMAC-MD5 并输出小写十六进制。
     public static string ComputeStringHex(string key, string message) {
         byte[] keyBytes = Utf8.GetBytes(key);
         byte[] msgBytes = Utf8.GetBytes(message);
         return Hex.Encode(HmacMd5._computeCore(keyBytes, msgBytes));
     }
 
-    /// Normalise key to 64 bytes (MD5 block size):
-    /// - longer  → Md5(key) (16 bytes) then zero-pad to 64
-    /// - shorter → right-pad with 0x00
+    // 把 key 归一化为 64 字节（MD5 块大小）：更长 → Md5(key)（16 字节）再补 0 到 64；更短 → 右补 0x00。
     static byte[] _padKey(byte[] key) {
         byte[] padded = new byte[64];
         if (key.Length > 64) {

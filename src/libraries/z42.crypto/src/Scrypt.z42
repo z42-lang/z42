@@ -1,37 +1,13 @@
 namespace Std.Crypto;
 
 
-// add-scrypt (2026-05-27): scrypt password-hash KDF (RFC 7914 / Colin
-// Percival 2009). Memory-hard alternative to PBKDF2 — designed so a
-// brute-forcer needs O(N × r) memory per attempt, which makes GPU /
-// ASIC attacks fundamentally more expensive than parallelism alone.
-//
-// Pipeline:
-//   1. PBKDF2-HMAC-SHA256(password, salt, 1, p × 128 × r) → B[0..p-1]
-//      (each B[i] = 128r bytes)
-//   2. For each i: B[i] = ROMix(B[i], N) — the memory-hard step
-//   3. PBKDF2-HMAC-SHA256(password, concat(B[0..p-1]), 1, dkLen) → DK
-//
-// ROMix(B, N):
-//   X = B
-//   for j in 0..N:     V[j] = X; X = BlockMix(X)        # fill
-//   for j in 0..N:     X = BlockMix(X XOR V[Integerify(X) mod N])  # mix
-//   return X
-//
-// BlockMix uses Salsa20/8 (8-round variant) as the mixing primitive
-// per RFC 7914 §3.
-//
-// Tested against RFC 7914 §11 vector #1 (N=16, r=1, p=1) — the only
-// small-enough vector for pure-script execution; the larger vectors
-// (N=1024 / N=16384) are too slow to include in CI but the algorithm
-// is dominated by the same ROMix kernel either way.
+// scrypt 口令哈希 KDF（RFC 7914 / Colin Percival 2009），PBKDF2 的内存硬替代：暴力破解每次尝试
+// 需 O(N × r) 内存，令 GPU / ASIC 攻击远比单纯并行昂贵。流程：① PBKDF2-HMAC-SHA256(password, salt,
+// 1, p × 128 × r) → B[0..p-1]；② 每个 B[i] 做 ROMix(B[i], N)（内存硬步骤）；③ 再做 PBKDF2 得 DK。
+// ROMix 中 BlockMix 用 Salsa20/8（8 轮变体）作混合原语（RFC 7914 §3）。
 public static class Scrypt {
-    /// Derive `dkLen` bytes from `password` + `salt` using scrypt(N, r, p).
-    /// Constraints (per RFC 7914 §6):
-    ///   - N must be a power of 2 ≥ 2
-    ///   - r * p must be < 2^30 (overflow guard on the inner PBKDF2 output)
-    ///   - dkLen ≤ (2^32 - 1) * 32 (PBKDF2 length cap; effectively unbounded
-    ///     for any realistic call)
+    /// 用 scrypt(N, r, p) 从 `password` + `salt` 派生 `dkLen` 字节。
+    /// 约束：N 为 2 的幂且 ≥ 2，r ≥ 1，p ≥ 1，r × p < 2^30，dkLen ≥ 0。
     public static byte[] Derive(byte[] password, byte[] salt,
                                 int n, int r, int p, int dkLen) {
         Scrypt._validate(n, r, p, dkLen);
@@ -126,10 +102,8 @@ public static class Scrypt {
         return x;
     }
 
-    /// "Integerify" picks the low 32 bits of the LAST 64-byte sub-block
-    /// of X (RFC 7914 §4 step 6) as a little-endian uint, used as the
-    /// V-index. Returns int — since N is a power of 2 ≤ ~2^30, mod-N
-    /// can be done via `& (N - 1)` cleanly.
+    // 「Integerify」取 X 最后一个 64 字节子块的低 32 位（小端 uint，RFC 7914 §4 步骤 6）作 V 索引。
+    // 返回 int——N 是 ≤ ~2^30 的 2 的幂，取模可用 `& (N - 1)`。
     static int _integerify(byte[] x, int r) {
         // Last 64-byte sub-block starts at offset (2r - 1) * 64.
         int off = (2 * r - 1) * 64;
@@ -142,8 +116,7 @@ public static class Scrypt {
 
     // ── BlockMix (RFC 7914 §3) ─────────────────────────────────────────
 
-    /// BlockMix(B[0..2r-1]) where each B[i] is 64 bytes.
-    /// Output is permuted: Y[0], Y[2], ..., Y[2r-2], Y[1], Y[3], ..., Y[2r-1].
+    // BlockMix(B[0..2r-1])，每个 B[i] 64 字节。输出重排为 Y[0], Y[2], ..., Y[2r-2], Y[1], Y[3], ..., Y[2r-1]。
     static byte[] _blockMix(byte[] b, int r) {
         int twoR = 2 * r;
         // X = B[2r-1] (the last 64-byte block)
@@ -197,9 +170,8 @@ public static class Scrypt {
 
     // ── Salsa20/8 core (RFC 7914 §3 / Bernstein 2007) ──────────────────
 
-    /// Salsa20 core reduced to 8 rounds (4 double-rounds). Operates on a
-    /// 64-byte input parsed as 16 × little-endian u32, then sums the
-    /// transformed state with the input modulo 2^32.
+    // Salsa20 核心减到 8 轮（4 个双轮）。把 64 字节输入解析为 16 个小端 u32，
+    // 变换后与输入状态模 2^32 相加。
     static byte[] _salsa20_8(byte[] input) {
         // Parse input into 16 u32 (use long to avoid signed-int overflow).
         long[] x = new long[16];
@@ -281,9 +253,7 @@ public static class Scrypt {
         return out_;
     }
 
-    /// 32-bit left rotation. Input may be any long (we mask to 32 bits
-    /// before rotating so callers can pass the result of `a + b` without
-    /// pre-masking).
+    // 32 位循环左移。输入可为任意 long（旋转前先掩到 32 位，调用方可直接传 a+b 而无需预掩码）。
     static long _rotl32(long x, int n) {
         long masked = x & 0xFFFFFFFFL;
         return ((masked << n) | (masked >> (32 - n))) & 0xFFFFFFFFL;
