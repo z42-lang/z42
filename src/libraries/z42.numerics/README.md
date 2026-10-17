@@ -14,8 +14,7 @@ z42 任意精度 + 扩展数值类型：`BigInt`（任意精度整数）/ `Compl
 | `Decimal.z42` | `Decimal` | 十进制定点数 |
 
 ## 入口点
-
-- `Std.Numerics.BigInt` / `Complex` / `Decimal`
+公开 API 的完整签名见 [reference 包页](../../../docs/reference/src/stdlib/numerics.md)（由源码 doc 注释生成）。
 
 ## 依赖关系
 

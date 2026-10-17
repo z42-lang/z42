@@ -1,25 +1,14 @@
 namespace Std.Numerics;
 
 
-// add-numerics-complex (2026-05-27): immutable complex number value type
-// over `double` real + imaginary parts. Mirrors .NET BCL
-// `System.Numerics.Complex` API surface, naming convention, and
-// edge-case behaviour (Inf / NaN propagation per IEEE 754).
-//
-// Method naming follows the stdlib convention used by `BigInt`: distinct
-// method names rather than operator overloads (z42 generic op overloads
-// are deferred to L3). `a.Add(b)` instead of `a + b`.
-//
-// Examples:
-//   var z = new Complex(3.0, 4.0);          // 3 + 4i
-//   z.Magnitude()                            // 5.0
-//   z.Phase()                                // atan2(4, 3) ≈ 0.927
-//   z.Add(Complex.One).ToString()            // "(4, 4)"
-//   Complex.Exp(new Complex(0.0, Math.PI))   // ≈ -1 + 0i (Euler's identity)
+/// 复数：`double` 实部 + 虚部。所有运算返回新对象。
 public sealed class Complex {
+    /// 实部（公开字段）。
     public double Real;
+    /// 虚部（公开字段）。
     public double Imaginary;
 
+    /// 用实部与虚部构造复数。
     public Complex(double real, double imaginary) {
         this.Real      = real;
         this.Imaginary = imaginary;
@@ -29,70 +18,76 @@ public sealed class Complex {
     //    init isn't run lazily so a stale process-shared instance would
     //    suffer the same write-issue as a static `final` would) ─────────
 
+    /// 零（0 + 0i）。
     public static Complex Zero() {
         return new Complex(0.0, 0.0);
     }
 
+    /// 一（1 + 0i）。
     public static Complex One() {
         return new Complex(1.0, 0.0);
     }
 
+    /// 虚数单位（0 + 1i）。
     public static Complex ImaginaryOne() {
         return new Complex(0.0, 1.0);
     }
 
     // ── Polar / Cartesian conversion ────────────────────────────────────
 
-    /// Construct from polar (magnitude, phase-radians).
-    /// `magnitude < 0` is accepted (rotates the phase by π).
+    /// 由极坐标（模、相位弧度）构造；`magnitude < 0` 会被接受（相位旋转 π）。
     public static Complex FromPolar(double magnitude, double phase) {
         return new Complex(magnitude * Math.Cos(phase),
                            magnitude * Math.Sin(phase));
     }
 
-    /// |z| — the Euclidean norm: sqrt(real² + imag²).
-    /// Uses naive form (no scaling guard); for crypto-size values where
-    /// real² overflows, scale operands first.
+    /// 模 `|z| = sqrt(real² + imag²)`。
     public double Magnitude() {
         return Math.Sqrt(this.Real * this.Real + this.Imaginary * this.Imaginary);
     }
 
-    /// Argument of z in radians, in (-π, π]. atan2(imag, real).
+    /// 辐角（弧度），范围 (-π, π]，即 atan2(imag, real)。
     public double Phase() {
         return Math.Atan2(this.Imaginary, this.Real);
     }
 
     // ── Equality / classification ──────────────────────────────────────
 
+    /// 是否为零。
     public bool IsZero() {
         return this.Real == 0.0 && this.Imaginary == 0.0;
     }
 
+    /// 是否为实数（虚部为 0）。
     public bool IsReal() {
         return this.Imaginary == 0.0;
     }
 
+    /// 是否为纯虚数（实部为 0 且虚部非 0）。
     public bool IsImaginary() {
         return this.Real == 0.0 && this.Imaginary != 0.0;
     }
 
+    /// 精确的 `double` 相等比较。
     public bool Equals(Complex other) {
         return this.Real == other.Real && this.Imaginary == other.Imaginary;
     }
 
     // ── Field operations ────────────────────────────────────────────────
 
+    /// 复数加法。
     public Complex Add(Complex other) {
         return new Complex(this.Real + other.Real,
                            this.Imaginary + other.Imaginary);
     }
 
+    /// 复数减法。
     public Complex Subtract(Complex other) {
         return new Complex(this.Real - other.Real,
                            this.Imaginary - other.Imaginary);
     }
 
-    /// (a + bi)(c + di) = (ac - bd) + (ad + bc)i
+    /// 复数乘法：`(a + bi)(c + di) = (ac - bd) + (ad + bc)i`。
     public Complex Multiply(Complex other) {
         double a = this.Real;
         double b = this.Imaginary;
@@ -101,14 +96,13 @@ public sealed class Complex {
         return new Complex(a * c - b * d, a * d + b * c);
     }
 
-    /// Scalar multiply by a real (avoids constructing `Complex(s, 0)`).
+    /// 乘以实数标量（避免构造 `Complex(s, 0)`）。
     public Complex MultiplyReal(double s) {
         return new Complex(this.Real * s, this.Imaginary * s);
     }
 
-    /// (a + bi) / (c + di) = ((ac + bd) + (bc - ad)i) / (c² + d²)
-    /// Smith's algorithm chooses the larger of |c|, |d| to scale and
-    /// avoid intermediate overflow on near-magnitude operands.
+    /// 复数除法。除以零不抛异常，按 IEEE 浮点规则得 (NaN, NaN)。
+    /// 用 Smith 算法取 |c|、|d| 较大者缩放，避免中间溢出。
     public Complex Divide(Complex other) {
         double a = this.Real;
         double b = this.Imaginary;
@@ -132,17 +126,17 @@ public sealed class Complex {
                            (b * r - a) / denom);
     }
 
-    /// Additive inverse: -(a + bi) = -a - bi
+    /// 相反数：`-(a + bi) = -a - bi`。
     public Complex Negate() {
         return new Complex(-this.Real, -this.Imaginary);
     }
 
-    /// Complex conjugate: (a + bi)* = a - bi
+    /// 共轭：`(a + bi)* = a - bi`。
     public Complex Conjugate() {
         return new Complex(this.Real, -this.Imaginary);
     }
 
-    /// Multiplicative inverse: 1 / z = z* / |z|²
+    /// 倒数：`1 / z = z* / |z|²`（`0` 的倒数返回 `Zero()`）。
     public Complex Reciprocal() {
         if (this.IsZero()) {
             // BCL returns Zero for 0.Reciprocal — we match for consistency.
@@ -154,20 +148,19 @@ public sealed class Complex {
 
     // ── Transcendentals ────────────────────────────────────────────────
 
-    /// e^z = e^Real * (cos(Imag) + i*sin(Imag))  — Euler's formula.
+    /// 指数：`e^z = e^Real * (cos(Imag) + i*sin(Imag))`。
     public static Complex Exp(Complex z) {
         double er = Math.Exp(z.Real);
         return new Complex(er * Math.Cos(z.Imaginary),
                            er * Math.Sin(z.Imaginary));
     }
 
-    /// Principal branch of natural log: ln(z) = ln|z| + i*arg(z).
-    /// `ln(0)` returns NaN per IEEE.
+    /// 自然对数主支：`ln(z) = ln|z| + i*arg(z)`（`ln(0)` 按 IEEE 返回 NaN）。
     public static Complex Log(Complex z) {
         return new Complex(Math.Log(z.Magnitude()), z.Phase());
     }
 
-    /// Principal square root: sqrt(re^iθ) = sqrt(r) * e^(iθ/2)
+    /// 主平方根：`sqrt(r·e^(iθ)) = sqrt(r) · e^(iθ/2)`。
     public static Complex Sqrt(Complex z) {
         if (z.IsZero()) { return Complex.Zero(); }
         double r = z.Magnitude();
@@ -177,7 +170,7 @@ public sealed class Complex {
                            sqrtR * Math.Sin(halfPhase));
     }
 
-    /// sin(a + bi) = sin(a)*cosh(b) + i*cos(a)*sinh(b)
+    /// 正弦：`sin(a + bi) = sin(a)·cosh(b) + i·cos(a)·sinh(b)`。
     public static Complex Sin(Complex z) {
         double a = z.Real;
         double b = z.Imaginary;
@@ -185,7 +178,7 @@ public sealed class Complex {
                            Math.Cos(a) * _sinh(b));
     }
 
-    /// cos(a + bi) = cos(a)*cosh(b) - i*sin(a)*sinh(b)
+    /// 余弦：`cos(a + bi) = cos(a)·cosh(b) - i·sin(a)·sinh(b)`。
     public static Complex Cos(Complex z) {
         double a = z.Real;
         double b = z.Imaginary;
@@ -193,7 +186,7 @@ public sealed class Complex {
                            -Math.Sin(a) * _sinh(b));
     }
 
-    /// z^w = exp(w * ln(z)). 0^0 → 1 (BCL convention).
+    /// 幂：`z^w = exp(w · ln(z))`（`0^0` → 1）。
     public static Complex Pow(Complex z, Complex w) {
         if (z.IsZero()) {
             if (w.IsZero()) { return Complex.One(); }
@@ -204,6 +197,7 @@ public sealed class Complex {
 
     // ── Display ────────────────────────────────────────────────────────
 
+    /// 字符串形式 `"(real, imag)"`。
     public override string ToString() {
         return "(" + this.Real.ToString() + ", " + this.Imaginary.ToString() + ")";
     }

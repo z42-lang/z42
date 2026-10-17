@@ -1,6 +1,4 @@
-// BigIntPrimality —— Miller-Rabin（随机见证 / OEIS A014233 确定性见证集）、NextPrime 轮转与小素数试除（refactor-split-bigint，2026-09-03）。
-// 自 2234 行的 BigInt.z42 按职责提出：BigInt 保留同名公开方法作薄委托（API 不变），算法体逐字搬移，
-// 仅把 `this` 改为显式 `this` 参数、跨类调用改为 `BigIntXxx._helper(...)`。
+// BigInt 的素性检测实现：Miller-Rabin（随机见证 / OEIS A014233 确定性见证集）、NextPrime 轮转与小素数试除。
 namespace Std.Numerics;
 
 using Std.Random;
@@ -88,7 +86,7 @@ internal static class BigIntPrimality {
     /// `(this < 2).NextPrime() == 2`; otherwise stepping uses a 2-3 wheel
     /// (only candidates coprime to 6, i.e. `6k±1`) plus a small-prime trial
     /// division early-reject (primes 3..31) to short-circuit before invoking
-    /// the heavier Miller-Rabin path. add-bigint-prime-sieve (2026-05-25).
+    /// the heavier Miller-Rabin path.
     internal static BigInt NextPrime(BigInt self) {
         BigInt two   = new BigInt(2L);
         BigInt three = new BigInt(3L);
