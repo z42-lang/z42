@@ -1,22 +1,15 @@
 namespace Std.Encoding;
 
 
-// Crockford Base32 编解码 (https://www.crockford.com/base32.html)。
-//   字母表 = 0123456789ABCDEFGHJKMNPQRSTVWXYZ  (32 chars; 去 I L O U)
-//   无 padding（输出长度 = ceil(input_bits / 5)）
-//   Decode 大小写不敏感；输入支持 lenient 字符别名：
-//     'I' / 'i' / 'L' / 'l' → 1
-//     'O' / 'o'             → 0
-//     '-' (人类可读分隔符) → 直接跳过
-//
-// 用例：ULID / Stripe ID / Better-by-human-typing 标识符。
-// 与 RFC 4648 §6 Base32 不同字母表 (无关系) — 不是 padding 差别。
+/// Crockford Base32 编解码。
+///
+/// 字母表 `0123456789ABCDEFGHJKMNPQRSTVWXYZ`（剔除 `I` `L` `O` `U`），与 RFC 4648 §6 非同一张表。
+/// `Encode` 无 padding；`Decode` 大小写不敏感，`I`/`L`→`1`、`O`→`0`，`-` 分隔符丢弃。典型用途：ULID。
 
 public static class Base32Crockford {
     private static string _alpha = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
-    /// Base32-Crockford encode `bytes`. No padding; output length is
-    /// `ceil(bytes.Length * 8 / 5)` characters. ULID and Stripe ID style.
+    /// 把字节编码为 Crockford Base32 字符串（无 padding）。
     public static string Encode(byte[] bytes) {
         if (bytes.Length == 0) return "";
         string alpha = Base32Crockford._alpha;
@@ -75,9 +68,7 @@ public static class Base32Crockford {
         return String.FromChars(result);
     }
 
-    /// Decode a Crockford Base32 string. Case-insensitive; accepts `-`
-    /// separators (silently dropped); accepts I/L → 1 and O → 0 normalisation
-    /// per Crockford spec.
+    /// 解码 Crockford Base32 字符串；大小写不敏感，`-` 丢弃，`I`/`L`→`1`、`O`→`0`。
     public static byte[] Decode(string s) {
         if (s.Length == 0) return new byte[0];
         // First pass: count valid chars (skipping `-`).

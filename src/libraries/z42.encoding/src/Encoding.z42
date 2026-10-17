@@ -1,53 +1,56 @@
+//! 字节与文本的编解码。
+//!
+//! `byte[]` ↔ `string` 的两类转换：**文本编码**（UTF-8 / UTF-16 / UTF-32，把字符串变成字节）
+//! 与 **二进制转文本编码**（Hex / Base64 / Base32 的四种变体，把任意字节变成可打印字符）。
+//! 全部是静态类，不需要实例化。
+//!
+//! 所有格式错误统一抛 `Std.FormatException`；只有 `Encoding.GetString` 的越界切片抛
+//! `Std.ArgumentException`。解码一律**严格 fail-fast**，不会静默替换成 U+FFFD。
+//!
+//! ## 不支持
+//!
+//! - **只有一次性全量转换**：没有 streaming 的 `Encoder` / `Decoder` 状态机，输入必须整个 `byte[]` / `string` 在手。
+//! - **没有宽松解码**：所有解码器遇到非法输入都抛异常，没有「替换成 U+FFFD 继续」的 overload。
+//! - **UTF-8 之外的单字节编码没有**：Latin-1 / ASCII / GBK 等都不提供；`Encoding` 类目前只包 UTF-8 一种实现。
+//! - **不处理 BOM**：`Utf16` / `Utf32` 既不写入也不识别 BOM，字节序只由方法名决定。
+//! - **Base32 / Base32Hex 只接受大写**：小写输入报错，需要容错请先自行 `ToUpper`。
+//! - **没有 Base85 / ASCII85**。
+//! - **Crockford 的 check-digit 扩展（`*~$=U`）不支持**。
+//! - **Base64 不支持换行折行**：既不输出 MIME 76 列折行，解码也不跳过 `\r` / `\n`。
+//! - **Hex 无分隔符形态**：不产生也不接受 `de:ad:be:ef` 这类带分隔符的 hex。
 namespace Std.Encoding;
 
-
-// add-encoding-and-stream-text (2026-05-24): concrete Encoding class
-// wrapping the existing Utf8 static codec.
-//
-// v0 ships only UTF-8; the class is single-concrete because z42 has
-// no `abstract` keyword yet. When more encodings land (Latin-1 /
-// UTF-16 / ASCII), extract a base class or interface and migrate
-// existing call sites — caller-facing API is forward-compatible
-// (consumers already write `Encoding e = Encoding.GetUtf8()`).
-//
-// Static singleton via `GetUtf8()` method (not a `public static
-// Encoding UTF8 = new Encoding()` field) — class-init ordering for
-// static fields holding instance-typed values is brittle in z42's
-// current static-initializer story; method-call form sidesteps the
-// edge cases.
-
+/// 实例编码门面；当前只有 UTF-8 一种实现。
 public class Encoding {
     // Encoding "kind" tag — v0 only has UTF-8 (= 1). Reserved for
     // forward use; consumers don't read this directly.
     private int _kind;
 
+    /// 构造编码实例；`kind` 参数当前不影响行为（始终 UTF-8），请用 `Encoding.GetUtf8()` 而非手动 new。
     public Encoding(int kind) {
         this._kind = kind;
     }
 
     // ── Singletons ──────────────────────────────────────────────────────
 
-    /// Return the canonical UTF-8 Encoding instance. Idempotent —
-    /// returns the same instance on every call within a VM lifetime.
+    /// 返回规范的 UTF-8 编码实例；同一 VM 生命周期内多次调用返回同一实例。
     public static Encoding GetUtf8() {
         return EncodingSingletons.Utf8();
     }
 
     // ── String ↔ bytes ──────────────────────────────────────────────────
 
-    /// Encode `s` to bytes per this encoding.
+    /// 按当前编码把 `s` 编码为字节；等价于 `Utf8.GetBytes(s)`。
     public byte[] GetBytes(string s) {
         return Utf8.GetBytes(s);
     }
 
-    /// Decode `bytes` to a string per this encoding. Bytes are
-    /// strict-validated; invalid input throws `FormatException`.
+    /// 按当前编码把 `bytes` 解码为字符串，严格校验；等价于 `Utf8.GetString(bytes)`。
     public string GetString(byte[] bytes) {
         return Utf8.GetString(bytes);
     }
 
-    /// Decode the slice `bytes[offset..offset+count]`. Returns "" for
-    /// count == 0. Throws ArgumentException on out-of-range offset/count.
+    /// 解码切片 `bytes[offset..offset+count]`；`count == 0` 返回 `""`，越界抛 `ArgumentException`。
     public string GetString(byte[] bytes, int offset, int count) {
         if (offset < 0 || count < 0 || offset + count > bytes.Length) {
             throw new ArgumentException("Encoding.GetString: offset / count out of range");
@@ -66,13 +69,11 @@ public class Encoding {
     }
 }
 
-// Singleton holder — lazy-init pattern via a static cache class.
-// Separated to keep `Encoding`'s API surface focused and to allow
-// future encodings (`Latin1()`, `Utf16()`) to live alongside without
-// cluttering the main type.
+/// 通过静态缓存实现懒初始化的 UTF-8 单例持有类。
 public static class EncodingSingletons {
     private static Encoding _utf8;
 
+    /// 返回缓存的 UTF-8 编码实例（懒初始化）。
     public static Encoding Utf8() {
         if (EncodingSingletons._utf8 == null) {
             EncodingSingletons._utf8 = new Encoding(1);

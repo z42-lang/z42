@@ -1,4 +1,6 @@
-# z42.encoding —— 字节与文本的编解码
+<!-- 由 z42 doc 生成，勿手改。源：src/libraries/z42.encoding/ -->
+
+# z42.encoding —— 字节与文本的编解码。
 
 > 包路径 `src/libraries/z42.encoding/`；命名空间 `Std.Encoding`
 
@@ -9,210 +11,289 @@
 所有格式错误统一抛 `Std.FormatException`；只有 `Encoding.GetString` 的越界切片抛
 `Std.ArgumentException`。解码一律**严格 fail-fast**，不会静默替换成 U+FFFD。
 
-## 二进制转文本
-
-### Hex
-
-```z42
-public static class Hex {
-    public static string Encode(byte[] bytes)        // 小写
-    public static string EncodeUpper(byte[] bytes)   // 大写
-    public static byte[] Decode(string hex)
-}
-```
-
-`Decode` 接受混合大小写。奇数长度抛 `FormatException("odd-length hex string")`，
-非 `[0-9a-fA-F]` 字符抛 `invalid hex character '<c>'`。空串 ↔ 空数组。
-
-### Base64（RFC 4648 §4）
-
-```z42
-public static class Base64 {
-    public static string Encode(byte[] bytes)
-    public static byte[] Decode(string s)
-}
-```
-
-标准字母表（`+` / `/`），输出**带 `=` padding**。`Decode` 严格：长度不是 4 的倍数抛
-`invalid base64 length (must be multiple of 4)`，padding 超过 2 个抛
-`too much padding in base64 input`，非字母表字符抛 `invalid base64 character '<c>'`。
-
-### Base64Url（RFC 4648 §5）
-
-```z42
-public static class Base64Url {
-    public static string Encode(byte[] bytes)
-    public static byte[] Decode(string s)
-}
-```
-
-URL-safe 字母表（`-` / `_`），**编码输出不带 padding**（JWT / RFC 7515 Appendix C 形态）。
-`Decode` 宽松接受带或不带 padding 的输入，但**遇到标准变体的 `+` / `/` 立即报错**并提示改用
-`Base64`；长度 mod 4 == 1 也直接报错。
-
-### Base32（RFC 4648 §6）
-
-```z42
-public static class Base32 {
-    public static string Encode(byte[] bytes)
-    public static byte[] Decode(string s)
-}
-```
-
-字母表 `A-Z2-7`。每 5 字节 → 8 字符，尾部用 `=` 补齐到 8 的倍数。`Decode` **只接受大写**，
-长度必须是 8 的倍数，padding 个数必须属于 `{0, 1, 3, 4, 6}`。典型用途：TOTP / HOTP 密钥。
-
-### Base32Hex（RFC 4648 §7）
-
-```z42
-public static class Base32Hex {
-    public static string Encode(byte[] bytes)
-    public static byte[] Decode(string s)
-}
-```
-
-字母表 `0-9A-V`（A=10 … V=31），打包与 padding 规则同 `Base32`。字母表本身按序，因此
-**编码串的字典序与原字节的自然序一致**——排序后仍能还原顺序的场景（如 DNS NSEC3）用它。
-`Decode` 同样只接受大写。
-
-### Base32Crockford
-
-```z42
-public static class Base32Crockford {
-    public static string Encode(byte[] bytes)
-    public static byte[] Decode(string s)
-}
-```
-
-字母表 `0123456789ABCDEFGHJKMNPQRSTVWXYZ`（剔除 `I` `L` `O` `U` 以降低人工抄写歧义），
-与 RFC 4648 §6 **完全不是同一张表**，两者不能互解。
-
-- `Encode` **无 padding**，输出长度 = `ceil(输入位数 / 5)`。
-- `Decode` 大小写不敏感；`I` / `L` / `i` / `l` 归一成 `1`，`O` / `o` 归一成 `0`；
-  `-` 分隔符被直接丢弃。
-- 有效字符数（去掉 `-` 后）对 8 取模不能是 `1` / `3` / `6`——这三个余数不可能由任何字节数
-  产生，会抛 `FormatException`。
-- `U` 不在字母表内，出现即报错。
-
-典型用途：ULID、面向人类的短 ID。
-
-## 文本编码
-
-### Utf8
-
-```z42
-public static class Utf8 {
-    public static byte[] GetBytes(string s)
-    public static string GetString(byte[] bytes)
-}
-```
-
-`GetString` 严格校验并拒绝：截断序列、非法 continuation 字节、overlong 编码（2/3/4 字节
-各自判断）、surrogate 码点（U+D800–U+DFFF）、超出 U+10FFFF、非法首字节。
-
-### Utf16（RFC 2781）/ Utf32
-
-```z42
-public static class Utf16 {
-    public static byte[] GetBytesLE(string s)
-    public static byte[] GetBytesBE(string s)
-    public static string GetStringLE(byte[] bytes)
-    public static string GetStringBE(byte[] bytes)
-}
-
-public static class Utf32 {
-    public static byte[] GetBytesLE(string s)
-    public static byte[] GetBytesBE(string s)
-    public static string GetStringLE(byte[] bytes)
-    public static string GetStringBE(byte[] bytes)
-}
-```
-
-字节序必须在方法名上选定，**没有不带 LE / BE 的重载**，也不读写 BOM。
-
-- UTF-16：BMP 码点 2 字节，增补平面 4 字节（代理对）。解码校验代理对配对，拒绝孤立高/低代理
-  与截断输入；字节长度不是 2 的倍数即报错。
-- UTF-32：定长 4 字节一个码点。编解码两侧都拒绝孤立 surrogate 与 > U+10FFFF；字节长度不是
-  4 的倍数即报错。
-
-### Encoding（实例门面）
-
-```z42
-public class Encoding {
-    public Encoding(int kind)
-    public static Encoding GetUtf8()
-
-    public byte[] GetBytes(string s)
-    public string GetString(byte[] bytes)
-    public string GetString(byte[] bytes, int offset, int count)
-}
-
-public static class EncodingSingletons {
-    public static Encoding Utf8()
-}
-```
-
-给需要「接受任意编码」的调用方（例如 `Std.IO` 的 `StreamReader` / `StreamWriter`）用的实例
-门面。`GetUtf8()` 在一次 VM 生命周期内返回同一个实例；`EncodingSingletons.Utf8()` 返回的是
-同一个对象。
-
-| 成员 | 说明 |
-|---|---|
-| `GetBytes(s)` | 等价 `Utf8.GetBytes(s)` |
-| `GetString(bytes)` | 等价 `Utf8.GetString(bytes)`，同样严格校验 |
-| `GetString(bytes, offset, count)` | 解码切片 `bytes[offset .. offset+count)`。`count == 0` 返回 `""`；`offset < 0`、`count < 0` 或 `offset + count > bytes.Length` 抛 `ArgumentException` |
-
-> **当前只有 UTF-8 一种编码。** 公开构造器 `Encoding(int kind)` 的 `kind` 参数目前不影响任何
-> 行为——无论传什么值，编解码都走 UTF-8。请用 `Encoding.GetUtf8()`，不要自己 `new`。
-
-## 用法
-
-```z42
-using Std;
-using Std.IO;
-using Std.Encoding;
-
-void Main() {
-    byte[] data = Utf8.GetBytes("foobar");
-
-    Console.WriteLine(Hex.Encode(data));               // 666f6f626172
-    Console.WriteLine(Base64.Encode(data));            // Zm9vYmFy
-    Console.WriteLine(Base32.Encode(data));            // MZXW6YTBOI======
-    Console.WriteLine(Base32Hex.Encode(data));         // CPNMUOJ1E8======
-    Console.WriteLine(Base32Crockford.Encode(data));   // CSQPYRK1E8（无 padding）
-
-    // Crockford 解码：大小写不敏感 + `-` 丢弃
-    Console.WriteLine(Utf8.GetString(Base32Crockford.Decode("csqpy-rk1e8")));  // foobar
-
-    // UTF-16 / UTF-32 必须选字节序
-    string s = "a中😀";
-    Console.WriteLine(Utf16.GetBytesLE(s).Length);      // 8
-    Console.WriteLine(Utf32.GetBytesLE(s).Length);      // 12
-    Console.WriteLine(Utf16.GetStringBE(Utf16.GetBytesBE(s)));  // a中😀
-
-    // 实例门面 + 切片解码
-    Encoding e = Encoding.GetUtf8();
-    Console.WriteLine(e.GetString(Utf8.GetBytes("hello"), 1, 3));   // ell
-
-    try {
-        Base64Url.Decode("a+b=");
-    } catch (FormatException ex) {
-        // invalid base64url character '+' — use Std.Encoding.Base64 for standard variant
-        Console.WriteLine(ex.Message);
-    }
-}
-```
-
 ## 不支持
 
-- **只有一次性全量转换**：没有 streaming 的 `Encoder` / `Decoder` 状态机，输入必须整个
-  `byte[]` / `string` 在手。
+- **只有一次性全量转换**：没有 streaming 的 `Encoder` / `Decoder` 状态机，输入必须整个 `byte[]` / `string` 在手。
 - **没有宽松解码**：所有解码器遇到非法输入都抛异常，没有「替换成 U+FFFD 继续」的 overload。
-- **UTF-8 之外的单字节编码没有**：Latin-1 / ASCII / GBK 等都不提供；`Encoding` 类目前只包
-  UTF-8 一种实现。
+- **UTF-8 之外的单字节编码没有**：Latin-1 / ASCII / GBK 等都不提供；`Encoding` 类目前只包 UTF-8 一种实现。
 - **不处理 BOM**：`Utf16` / `Utf32` 既不写入也不识别 BOM，字节序只由方法名决定。
 - **Base32 / Base32Hex 只接受大写**：小写输入报错，需要容错请先自行 `ToUpper`。
 - **没有 Base85 / ASCII85**。
 - **Crockford 的 check-digit 扩展（`*~$=U`）不支持**。
 - **Base64 不支持换行折行**：既不输出 MIME 76 列折行，解码也不跳过 `\r` / `\n`。
 - **Hex 无分隔符形态**：不产生也不接受 `de:ad:be:ef` 这类带分隔符的 hex。
+
+## Base32
+
+Base32 编解码（RFC 4648 §6 标准变体）。
+
+字母表 `A-Z2-7`（严格大写），尾部用 `=` 补齐到 8 的倍数；`Decode` 只接受大写。
+长度必须是 8 的倍数，padding 个数必须属于 `{0, 1, 3, 4, 6}`。典型用途：TOTP / HOTP 密钥。
+
+```z42
+public static class Base32 {
+    static string Encode(byte[] bytes)
+    static byte[] Decode(string s)
+}
+```
+
+### static string Encode(byte[] bytes)
+
+把字节编码为 Base32 字符串（字母表 `A-Z2-7`，带 `=` padding）。
+
+### static byte[] Decode(string s)
+
+把 Base32 字符串解码为字节；只接受大写，严格校验。
+
+## Base32Crockford
+
+Crockford Base32 编解码。
+
+字母表 `0123456789ABCDEFGHJKMNPQRSTVWXYZ`（剔除 `I` `L` `O` `U`），与 RFC 4648 §6 非同一张表。
+`Encode` 无 padding；`Decode` 大小写不敏感，`I`/`L`→`1`、`O`→`0`，`-` 分隔符丢弃。典型用途：ULID。
+
+```z42
+public static class Base32Crockford {
+    static string Encode(byte[] bytes)
+    static byte[] Decode(string s)
+}
+```
+
+### static string Encode(byte[] bytes)
+
+把字节编码为 Crockford Base32 字符串（无 padding）。
+
+### static byte[] Decode(string s)
+
+解码 Crockford Base32 字符串；大小写不敏感，`-` 丢弃，`I`/`L`→`1`、`O`→`0`。
+
+## Base32Hex
+
+Base32Hex 编解码（RFC 4648 §7）。
+
+字母表 `0-9A-V`（A=10 … V=31），打包与 padding 规则同 `Base32`。字母表按序，
+因此编码串字典序与原字节自然序一致——如 DNS NSEC3 场景适用。`Decode` 只接受大写。
+
+```z42
+public static class Base32Hex {
+    static string Encode(byte[] bytes)
+    static byte[] Decode(string s)
+}
+```
+
+### static string Encode(byte[] bytes)
+
+把字节编码为 Base32Hex 字符串（字母表 `0-9A-V`，带 `=` padding）。
+
+### static byte[] Decode(string s)
+
+把 Base32Hex 字符串解码为字节；只接受大写，严格校验。
+
+## Base64
+
+Base64 编解码（RFC 4648 §4 标准变体）。
+
+字母表 `A-Z a-z 0-9 + /`，输出带 `=` padding（长度始终是 4 的倍数）。
+严格校验：非法字符 / 长度非 4 倍数 / padding 超过 2 个抛 `Std.FormatException`。
+
+```z42
+public static class Base64 {
+    static string Encode(byte[] bytes)
+    static byte[] Decode(string s)
+}
+```
+
+### static string Encode(byte[] bytes)
+
+把字节编码为标准 Base64 字符串（带 `=` padding）。
+
+### static byte[] Decode(string s)
+
+把标准 Base64 字符串解码为字节，严格校验。
+
+## Base64Url
+
+URL 与文件名安全 Base64（RFC 4648 §5）。
+
+字母表 `A-Z a-z 0-9 - _`（`+/` → `-_`），编码输出不带 `=` padding（JWT / RFC 7515 Appendix C）。
+`Decode` 宽松接受带或不带 padding，但遇到标准变体的 `+` / `/` 立即报错并提示改用 `Base64`。
+
+```z42
+public static class Base64Url {
+    static string Encode(byte[] bytes)
+    static byte[] Decode(string s)
+}
+```
+
+### static string Encode(byte[] bytes)
+
+用 RFC 4648 §5 字母表（`+/` → `-_`）编码字节，输出不带 `=` padding。
+
+### static byte[] Decode(string s)
+
+解码 Base64URL 字符串；接受带或不带 padding，遇到 `+` / `/` 报错并提示改用 `Base64`。
+
+## Encoding
+
+实例编码门面；当前只有 UTF-8 一种实现。
+
+```z42
+public class Encoding {
+    Encoding(int kind)
+    static Encoding GetUtf8()
+    byte[] GetBytes(string s)
+    string GetString(byte[] bytes)
+    string GetString(byte[] bytes, int offset, int count)
+}
+```
+
+### Encoding(int kind)
+
+构造编码实例；`kind` 参数当前不影响行为（始终 UTF-8），请用 `Encoding.GetUtf8()` 而非手动 new。
+
+### static Encoding GetUtf8()
+
+返回规范的 UTF-8 编码实例；同一 VM 生命周期内多次调用返回同一实例。
+
+### byte[] GetBytes(string s)
+
+按当前编码把 `s` 编码为字节；等价于 `Utf8.GetBytes(s)`。
+
+### string GetString(byte[] bytes)
+
+按当前编码把 `bytes` 解码为字符串，严格校验；等价于 `Utf8.GetString(bytes)`。
+
+### string GetString(byte[] bytes, int offset, int count)
+
+解码切片 `bytes[offset..offset+count]`；`count == 0` 返回 `""`，越界抛 `ArgumentException`。
+
+## EncodingSingletons
+
+通过静态缓存实现懒初始化的 UTF-8 单例持有类。
+
+```z42
+public static class EncodingSingletons {
+    static Encoding Utf8()
+}
+```
+
+### static Encoding Utf8()
+
+返回缓存的 UTF-8 编码实例（懒初始化）。
+
+## Hex
+
+Hex 编解码。
+
+`Encode` 输出小写，`EncodeUpper` 输出大写；`Decode` 接受混合大小写。
+奇数长度抛 `FormatException("odd-length hex string")`，非 `[0-9a-fA-F]` 字符抛 `invalid hex character '<c>'`。
+
+```z42
+public static class Hex {
+    static string Encode(byte[] bytes)
+    static string EncodeUpper(byte[] bytes)
+    static byte[] Decode(string hex)
+}
+```
+
+### static string Encode(byte[] bytes)
+
+把字节编码为小写十六进制字符串。
+
+### static string EncodeUpper(byte[] bytes)
+
+把字节编码为大写十六进制字符串。
+
+### static byte[] Decode(string hex)
+
+把十六进制字符串解码为字节；接受混合大小写，严格校验。
+
+## Utf16
+
+UTF-16 编解码（RFC 2781）。
+
+`LE` = 小端（低字节在前），`BE` = 大端（高字节在前）；字节序由方法名选定，不读写 BOM。
+
+BMP 码点 2 字节，增补平面走代理对 4 字节。解码严格校验代理对配对，拒绝孤立高/低代理
+与截断输入；字节长度不是 2 的倍数即报错。
+
+```z42
+public static class Utf16 {
+    static byte[] GetBytesLE(string s)
+    static byte[] GetBytesBE(string s)
+    static string GetStringLE(byte[] bytes)
+    static string GetStringBE(byte[] bytes)
+}
+```
+
+### static byte[] GetBytesLE(string s)
+
+以小端字节序把 `s` 编码为 UTF-16 字节。
+
+### static byte[] GetBytesBE(string s)
+
+以大端字节序把 `s` 编码为 UTF-16 字节。
+
+### static string GetStringLE(byte[] bytes)
+
+以小端字节序把 UTF-16 字节解码为字符串。
+
+### static string GetStringBE(byte[] bytes)
+
+以大端字节序把 UTF-16 字节解码为字符串。
+
+## Utf32
+
+UTF-32 编解码（ISO/IEC 10646）。
+
+定长 4 字节一个码点；`LE` / `BE` 选择字节序，不读写 BOM。
+
+编解码两侧都拒绝孤立 surrogate (U+D800–U+DFFF) 与 >U+10FFFF；字节长度不是 4 的倍数即报错。
+
+```z42
+public static class Utf32 {
+    static byte[] GetBytesLE(string s)
+    static byte[] GetBytesBE(string s)
+    static string GetStringLE(byte[] bytes)
+    static string GetStringBE(byte[] bytes)
+}
+```
+
+### static byte[] GetBytesLE(string s)
+
+以小端字节序把 `s` 编码为 UTF-32 字节。
+
+### static byte[] GetBytesBE(string s)
+
+以大端字节序把 `s` 编码为 UTF-32 字节。
+
+### static string GetStringLE(byte[] bytes)
+
+以小端字节序把 UTF-32 字节解码为字符串。
+
+### static string GetStringBE(byte[] bytes)
+
+以大端字节序把 UTF-32 字节解码为字符串。
+
+## Utf8
+
+UTF-8 编解码：`string` ↔ `byte[]` 双向显式转换。
+
+`GetString` 严格校验并拒绝：overlong / surrogate (U+D800–U+DFFF) /
+超界 (>U+10FFFF) / 截断 / 非法首字节 → `Std.FormatException`。
+
+```z42
+public static class Utf8 {
+    static byte[] GetBytes(string s)
+    static string GetString(byte[] bytes)
+}
+```
+
+### static byte[] GetBytes(string s)
+
+把字符串编码为 UTF-8 字节。
+
+### static string GetString(byte[] bytes)
+
+把 UTF-8 字节解码为字符串，严格校验。
+

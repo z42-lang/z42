@@ -1,12 +1,12 @@
 namespace Std.Encoding;
 
-// UTF-8 编解码。z42 string 内部 UTF-8 存储，char = Unicode scalar；
-// 本类提供 string ↔ byte[] 双向显式转换。
-//
-// 严格校验：overlong / surrogate (U+D800-U+DFFF) / 超界 (>U+10FFFF) /
-// 截断 / 非法首字节 → `Std.FormatException`。
+/// UTF-8 编解码：`string` ↔ `byte[]` 双向显式转换。
+///
+/// `GetString` 严格校验并拒绝：overlong / surrogate (U+D800–U+DFFF) /
+/// 超界 (>U+10FFFF) / 截断 / 非法首字节 → `Std.FormatException`。
 
 public static class Utf8 {
+    /// 把字符串编码为 UTF-8 字节。
     public static byte[] GetBytes(string s) {
         // perf：原来两趟循环，每趟每字符都吃 `s.Length` + `s.CharAt(i)` 两次 builtin
         // 分发（合计 4n 次）。现在两次 native 就够：
@@ -48,6 +48,7 @@ public static class Utf8 {
         return result;
     }
 
+    /// 把 UTF-8 字节解码为字符串，严格校验。
     public static string GetString(byte[] bytes) {
         if (bytes.Length == 0) return "";
 

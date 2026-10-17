@@ -1,16 +1,15 @@
 namespace Std.Encoding;
 
-// Base64 编解码（RFC 4648 §4 标准变体）：
-//   字母表 = A-Z a-z 0-9 + /
-//   padding = `=`，输出长度始终是 4 的倍数
-//   严格校验：非法字符 / 长度非 4 倍数 / 内部 padding 抛 `Std.FormatException`
-//
-// 不含 URL-safe (§5) 变体 — 留 follow-up。
+/// Base64 编解码（RFC 4648 §4 标准变体）。
+///
+/// 字母表 `A-Z a-z 0-9 + /`，输出带 `=` padding（长度始终是 4 的倍数）。
+/// 严格校验：非法字符 / 长度非 4 倍数 / padding 超过 2 个抛 `Std.FormatException`。
 
 public static class Base64 {
     private static string _alpha =
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
+    /// 把字节编码为标准 Base64 字符串（带 `=` padding）。
     public static string Encode(byte[] bytes) {
         if (bytes.Length == 0) return "";
         string alpha = Base64._alpha;
@@ -50,6 +49,7 @@ public static class Base64 {
         return String.FromChars(result);
     }
 
+    /// 把标准 Base64 字符串解码为字节，严格校验。
     public static byte[] Decode(string s) {
         if (s.Length == 0) return new byte[0];
         if ((s.Length & 3) != 0) {

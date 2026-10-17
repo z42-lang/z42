@@ -18,10 +18,7 @@ byte ↔ text 编码三件套：Hex / Base64 / UTF-8。纯脚本实现（无 VM 
 | `src/Encoding.z42` | `Std.Encoding.Encoding` — 编码对象（目前仅 UTF-8，`StreamReader` / `StreamWriter` 按它编解码） |
 
 ## 入口点
-
-- `Hex.Encode(bytes)` / `Hex.EncodeUpper(bytes)` / `Hex.Decode(s)`
-- `Base64.Encode(bytes)` / `Base64.Decode(s)`
-- `Utf8.GetBytes(s)` / `Utf8.GetString(bytes)`
+公开 API 的完整签名见 [reference 包页](../../../docs/reference/src/stdlib/encoding.md)（由源码 doc 注释生成）。
 
 ## 依赖关系
 

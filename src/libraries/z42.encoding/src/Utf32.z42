@@ -1,19 +1,17 @@
 namespace Std.Encoding;
 
 
-// add-encoding-utf32 (2026-05-27): UTF-32 encode / decode (ISO/IEC 10646).
-//
-// Fixed-width 4 bytes per codepoint. Standalone surrogates (0xD800-
-// 0xDFFF) and out-of-range (>U+10FFFF) are rejected on both encode and
-// decode with `FormatException`. `LE` / `BE` choose byte order.
-//
-// Use case: Windows wide-string APIs that take `wchar_t*` of 32-bit
-// chars (rare; usually UTF-16), and conversion between z42 strings and
-// linear arrays of Unicode scalars without surrogate pair complexity.
+/// UTF-32 编解码（ISO/IEC 10646）。
+///
+/// 定长 4 字节一个码点；`LE` / `BE` 选择字节序，不读写 BOM。
+///
+/// 编解码两侧都拒绝孤立 surrogate (U+D800–U+DFFF) 与 >U+10FFFF；字节长度不是 4 的倍数即报错。
 public static class Utf32 {
     // ── Encode ───────────────────────────────────────────────────────────────
 
+    /// 以小端字节序把 `s` 编码为 UTF-32 字节。
     public static byte[] GetBytesLE(string s) { return _encode(s, true); }
+    /// 以大端字节序把 `s` 编码为 UTF-32 字节。
     public static byte[] GetBytesBE(string s) { return _encode(s, false); }
 
     static byte[] _encode(string s, bool le) {
@@ -53,7 +51,9 @@ public static class Utf32 {
 
     // ── Decode ───────────────────────────────────────────────────────────────
 
+    /// 以小端字节序把 UTF-32 字节解码为字符串。
     public static string GetStringLE(byte[] bytes) { return _decode(bytes, true); }
+    /// 以大端字节序把 UTF-32 字节解码为字符串。
     public static string GetStringBE(byte[] bytes) { return _decode(bytes, false); }
 
     static string _decode(byte[] bytes, bool le) {

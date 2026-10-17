@@ -1,18 +1,15 @@
 namespace Std.Encoding;
 
 
-// Base32 编解码（RFC 4648 §6 标准变体）。
-//   字母表 = A-Z 2-7  (32 chars; 严格大写)
-//   padding = `=`；按 RFC §6 表对齐
-//   5 byte 输入 → 8 char 输出；尾部 1/2/3/4 byte → 2/4/5/7 char + 6/4/3/1 个 `=`
-//   严格校验：长度非 8 倍数 / padding 数非 {0,1,3,4,6} / 非法字符 抛 Std.FormatException
-//
-// 用例：TOTP / HOTP 密钥 (RFC 6238 / 4226) / Bitcoin 部分协议 / Tor v3 onion address.
-// 不含 RFC §7 hex 变体 (`0-9A-V`) / Crockford Base32 — follow-up specs。
+/// Base32 编解码（RFC 4648 §6 标准变体）。
+///
+/// 字母表 `A-Z2-7`（严格大写），尾部用 `=` 补齐到 8 的倍数；`Decode` 只接受大写。
+/// 长度必须是 8 的倍数，padding 个数必须属于 `{0, 1, 3, 4, 6}`。典型用途：TOTP / HOTP 密钥。
 
 public static class Base32 {
     private static string _alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
+    /// 把字节编码为 Base32 字符串（字母表 `A-Z2-7`，带 `=` padding）。
     public static string Encode(byte[] bytes) {
         if (bytes.Length == 0) return "";
         string alpha = Base32._alpha;
@@ -77,6 +74,7 @@ public static class Base32 {
         return String.FromChars(result);
     }
 
+    /// 把 Base32 字符串解码为字节；只接受大写，严格校验。
     public static byte[] Decode(string s) {
         if (s.Length == 0) return new byte[0];
         if ((s.Length % 8) != 0) {
