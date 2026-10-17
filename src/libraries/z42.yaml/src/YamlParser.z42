@@ -2,7 +2,7 @@ namespace Std.Yaml;
 
 using Std.Text;
 
-// add-z42-yaml (2026-05-24): YAML 1.2 subset parser.
+// YAML 1.2 subset parser.
 //
 // Algorithm: single-pass recursive descent. Each block recursion tracks
 // the required parent-indent; child lines must indent strictly more.
@@ -29,6 +29,7 @@ using Std.Text;
 // Not supported (raise YamlException → see yaml.md Deferred):
 //   complex keys (`? key` syntax) / YAML 1.1 yes-no-on-off bool quirks.
 
+/// YAML 1.2 子集解析器；`YamlValue.Parse*` 的底层载体，日常代码用 `YamlValue` 即可。
 public sealed class YamlParser {
     private string _src;
     // Bulk-materialised source chars — one `ToCharArray()` up front so the
@@ -40,26 +41,23 @@ public sealed class YamlParser {
     private int    _col;
 
     // Anchor table (per document — reset between docs in ParseAllDocuments).
-    // Parallel arrays: anchor name → value. add-yaml-anchors-aliases (2026-05-25).
+    // Parallel arrays: anchor name → value.
     private string[]    _anchorNames;
     private YamlValue[] _anchorValues;
     private int         _anchorCount;
 
-    // add-yaml-merge-keys (2026-06-01): the most recent mapping/flow key was
-    // produced from a quoted string literal (`"<<"` / `'<<'`). The merge-key
-    // dispatcher only fires on an unquoted plain `<<`, so quoted keys remain
-    // literal — the documented escape hatch for users who genuinely need
-    // `<<` as data. Set by _ParseMappingKey / _ParseFlowKey on every call.
+    // The most recent mapping/flow key was produced from a quoted string literal
+    // (`"<<"` / `'<<'`). The merge-key dispatcher only fires on an unquoted plain `<<`,
+    // so quoted keys remain literal — the documented escape hatch for users who
+    // genuinely need `<<` as data. Set by _ParseMappingKey / _ParseFlowKey on every call.
     private bool _lastKeyQuoted;
 
-    // add-yaml-merge-keys (2026-06-01): per-mapping table of keys that were
-    // inserted via a `<<:` merge rather than an explicit entry. Used by the
-    // mapping parsers so an explicit key can overwrite a merged value,
-    // while explicit-vs-explicit collisions still throw. Saved + restored
-    // around any recursive descent into a nested mapping. z42's `ref`
-    // modifier is compile-time only at runtime (parameter-modifiers.md),
-    // so a per-parser field with save/restore is cleaner than tuple
-    // returns or array re-assignment across helpers.
+    // Per-mapping table of keys that were inserted via a `<<:` merge rather than an
+    // explicit entry. Used by the mapping parsers so an explicit key can overwrite a
+    // merged value, while explicit-vs-explicit collisions still throw. Saved + restored
+    // around any recursive descent into a nested mapping. z42's `ref` modifier is
+    // compile-time only at runtime (parameter-modifiers.md), so a per-parser field with
+    // save/restore is cleaner than tuple returns or array re-assignment across helpers.
     private string[] _mergedKeys;
     private int      _mergedCount;
     // Recursion-depth guard shared by the block (_ParseBlockValue) and flow
@@ -67,6 +65,7 @@ public sealed class YamlParser {
     // `[[[…]]]` / `{{{…}}}`) would otherwise blow the VM stack. Capped at 256.
     private int _depth;
 
+    /// 构造解析器（绑定源文本）。
     public YamlParser(string src) {
         this._src  = src;
         this._chars = src.ToCharArray();
@@ -84,11 +83,11 @@ public sealed class YamlParser {
 
     // ── Public entry ─────────────────────────────────────────────────────
 
+    /// 解析单个文档；文档后有多余尾随内容（第二个文档）抛 YamlException。
     public YamlValue ParseDocument() {
         YamlValue root = this._ParseOneDocBody();
         // Leftover (beyond a trailing `...` + blanks) = a second document or junk; strict
-        // single-doc mode rejects both, naming the **public** entry `YamlValue.ParseAll`
-        // (fix-yaml-multidoc-hint: it used to name this parser's internal `ParseAllDocuments`).
+        // single-doc mode rejects both, naming the **public** entry `YamlValue.ParseAll`.
         this._SkipBlankLines();
         if (this._pos < this._src.Length && this._PeekLineIs("...")) {
             this._ConsumeRestOfLine();
@@ -100,8 +99,7 @@ public sealed class YamlParser {
         return root;
     }
 
-    /// Multi-document entry: returns every `---`-separated document in
-    /// order. Empty / blank input → empty array. add-yaml-multi-doc (2026-05-25).
+    /// 多文档入口：按序返回每个 `---` 分隔的文档。空 / 全空白输入返回空数组。
     public YamlValue[] ParseAllDocuments() {
         YamlValue[] docs = new YamlValue[8];
         int count = 0;
@@ -252,9 +250,8 @@ public sealed class YamlParser {
 
     private YamlValue _ParseBlockMapping(int indent) {
         YamlValue m = YamlValue.OfMapping();
-        // add-yaml-merge-keys (2026-06-01): save outer mapping's merged-key
-        // table so nested mappings don't clobber it; reset for this
-        // mapping; restore on every return path.
+        // Save outer mapping's merged-key table so nested mappings don't clobber
+        // it; reset for this mapping; restore on every return path.
         string[] savedMergedKeys = this._mergedKeys;
         int      savedMergedCount = this._mergedCount;
         this._mergedKeys  = new string[8];
@@ -321,15 +318,10 @@ public sealed class YamlParser {
                     } else if (nextIndent == indent
                             && nextIndent < this._src.Length - this._pos
                             && this._chars[this._pos + nextIndent] == '-') {
-                        // fix-yaml-quoted-strings (2026-05-24): YAML allows a
-                        // mapping value to be a block sequence at the SAME
-                        // indent as the mapping key — `key:\n- item`. The
-                        // YamlWriter emits sequences this way (see writer
-                        // line 110 "sequence keeps mapping's indent for -").
-                        // Pre-fix, we treated it as `key: null` then bailed
-                        // on the unexpected `-` as trailing content.
-                        // Confirm it's a real sequence dash (followed by WS
-                        // or EOL) before committing.
+                        // YAML allows a mapping value to be a block sequence at the SAME
+                        // indent as the mapping key — `key:\n- item`. The YamlWriter emits
+                        // sequences this way. Confirm it's a real sequence dash (followed
+                        // by WS or EOL) before committing.
                         int dashNext = this._pos + nextIndent + 1;
                         bool isDash = dashNext >= this._src.Length
                             || this._chars[dashNext] == ' '
@@ -369,9 +361,8 @@ public sealed class YamlParser {
                 }
             }
 
-            // add-yaml-merge-keys (2026-06-01): unquoted plain `<<` is a
-            // merge directive; quoted `"<<"` / `'<<'` keeps its literal
-            // string-key meaning (escape hatch).
+            // Unquoted plain `<<` is a merge directive; quoted `"<<"` / `'<<'` keeps
+            // its literal string-key meaning (escape hatch).
             if (key == "<<" && !keyQuoted) {
                 this._ApplyMerge(m, val);
             } else if (m.ContainsKey(key)) {
@@ -601,8 +592,8 @@ public sealed class YamlParser {
             this._Advance();
             return m;
         }
-        // add-yaml-merge-keys (2026-06-01): save outer merged-key table;
-        // restore on every return path (mirrors _ParseBlockMapping).
+        // Save outer merged-key table; restore on every return path
+        // (mirrors _ParseBlockMapping).
         string[] savedMergedKeys = this._mergedKeys;
         int      savedMergedCount = this._mergedCount;
         this._mergedKeys  = new string[8];
@@ -692,14 +683,12 @@ public sealed class YamlParser {
         if (c == '[' || c == '{') { return this._ParseFlow(); }
         if (c == '"') { return YamlValue.OfString(this._ParseDoubleQuotedString()); }
         if (c == '\'') { return YamlValue.OfString(this._ParseSingleQuotedString()); }
-        // add-yaml-merge-keys (2026-06-01): inline `*alias` inside a flow
-        // value. Block contexts already resolve aliases via
-        // _TryParseAnchorOrAlias, which also consumes the rest of the line —
-        // wrong for flow contexts where the alias is bounded by `,` / `]` /
-        // `}`. Here we parse the alias by hand and let the surrounding flow
-        // parser handle trailing whitespace via _SkipFlowWS. (`&anchor`
-        // declarations in flow context remain a pre-existing gap; add when
-        // there's demand.)
+        // Inline `*alias` inside a flow value. Block contexts already resolve aliases
+        // via _TryParseAnchorOrAlias, which also consumes the rest of the line — wrong
+        // for flow contexts where the alias is bounded by `,` / `]` / `}`. Here we parse
+        // the alias by hand and let the surrounding flow parser handle trailing whitespace
+        // via _SkipFlowWS. (`&anchor` declarations in flow context remain a pre-existing
+        // gap; add when there's demand.)
         if (c == '*') {
             this._Advance();
             string name = this._ParseAnchorName();
@@ -817,17 +806,10 @@ public sealed class YamlParser {
         throw this._Err("unterminated single-quoted string");
     }
 
-    /// fix-yaml-quoted-strings (2026-05-24): single entry point for
-    /// "scalar value at the current cursor in block context" — handles
-    /// `"..."` / `'...'` quoted strings before falling back to plain
-    /// scalar reading + type detection. Pre-fix, block-context scalar
-    /// paths (top-level value, mapping value, sequence item) called
-    /// `_ConsumeLinePlainScalar` directly which slurped the quotes as
-    /// literal characters, then `_ParseScalarLiteral` returned the
-    /// raw `"hello"` as a string (with the quotes).
-    ///
-    /// Caller is responsible for `_ConsumeRestOfLine()` after — this
-    /// helper only consumes up to the end of the scalar token.
+    // Single entry point for "scalar value at the current cursor in block context" —
+    // handles `"..."` / `'...'` quoted strings before falling back to plain scalar
+    // reading + type detection. Caller is responsible for `_ConsumeRestOfLine()` after —
+    // this helper only consumes up to the end of the scalar token.
     private YamlValue _ParseBlockScalarValue() {
         if (this._pos < this._src.Length) {
             char first = this._chars[this._pos];
@@ -842,12 +824,11 @@ public sealed class YamlParser {
         return this._ParseScalarLiteral(raw);
     }
 
-    /// Try to parse a YAML tag (`!!str`, `!!int`, etc.) at current position.
-    /// Returns the type-coerced YamlValue if a tag was found; null otherwise.
-    /// Supports the YAML 1.2 universal type tags `!!str` / `!!int` / `!!float`
-    /// / `!!bool` / `!!null`. Unknown / local tags (e.g. `!myTag`) silently
-    /// fall back to plain-scalar type inference (z42 v0 has no user tag
-    /// registry). add-yaml-tags (2026-05-25).
+    // Try to parse a YAML tag (`!!str`, `!!int`, etc.) at current position.
+    // Returns the type-coerced YamlValue if a tag was found; null otherwise.
+    // Supports the YAML 1.2 universal type tags `!!str` / `!!int` / `!!float`
+    // / `!!bool` / `!!null`. Unknown / local tags (e.g. `!myTag`) silently
+    // fall back to plain-scalar type inference (z42 v0 has no user tag registry).
     private YamlValue _TryParseTag(int parentIndent) {
         if (this._pos >= this._src.Length) { return null; }
         if (this._chars[this._pos] != '!') { return null; }
@@ -947,11 +928,11 @@ public sealed class YamlParser {
         return this._ParseScalarLiteral(s.Trim());
     }
 
-    /// Try to parse an anchor declaration (`&name`) or alias reference
-    /// (`*name`) at the current position. Returns the resulting YamlValue
-    /// if either was found, `null` otherwise. `parentIndent` is the indent
-    /// of the line containing the indicator; needed when the anchored value
-    /// is a block at deeper indent. add-yaml-anchors-aliases (2026-05-25).
+    // Try to parse an anchor declaration (`&name`) or alias reference
+    // (`*name`) at the current position. Returns the resulting YamlValue
+    // if either was found, `null` otherwise. `parentIndent` is the indent
+    // of the line containing the indicator; needed when the anchored value
+    // is a block at deeper indent.
     private YamlValue _TryParseAnchorOrAlias(int parentIndent) {
         if (this._pos >= this._src.Length) { return null; }
         char c = this._chars[this._pos];
@@ -1071,20 +1052,19 @@ public sealed class YamlParser {
 
     // ── Merge keys (`<<: *anchor`) ───────────────────────────────────────
     //
-    // add-yaml-merge-keys (2026-06-01): YAML 1.1 merge-key extension
-    // (`tag:yaml.org,2002:merge`). Dispatched by _ParseBlockMapping /
-    // _ParseFlowMapping when an unquoted plain `<<` key is parsed. The
-    // value must resolve to a mapping or a sequence of mappings; each
-    // source mapping contributes (k, v.DeepClone()) entries except for
-    // keys already present in the destination. Earlier sources override
-    // later ones (spec). Explicit keys override merged keys regardless of
-    // source position — the parser tracks "this key came from a merge" in
-    // `_mergedKeys` and lets an explicit Set() overwrite.
+    // YAML 1.1 merge-key extension (`tag:yaml.org,2002:merge`). Dispatched by
+    // _ParseBlockMapping / _ParseFlowMapping when an unquoted plain `<<` key is
+    // parsed. The value must resolve to a mapping or a sequence of mappings; each
+    // source mapping contributes (k, v.DeepClone()) entries except for keys already
+    // present in the destination. Earlier sources override later ones (spec).
+    // Explicit keys override merged keys regardless of source position — the parser
+    // tracks "this key came from a merge" in `_mergedKeys` and lets an explicit
+    // Set() overwrite.
     //
-    // _mergedKeys is per-mapping state. Each mapping parser saves the
-    // outer state to locals, resets, runs, then restores before return.
-    // Recursion via _ParseBlockValue → _ParseBlockMapping / _ParseFlow
-    // is safe because the nested parser does its own save/restore.
+    // _mergedKeys is per-mapping state. Each mapping parser saves the outer state to
+    // locals, resets, runs, then restores before return. Recursion via _ParseBlockValue
+    // → _ParseBlockMapping / _ParseFlow is safe because the nested parser does its own
+    // save/restore.
 
     /// Merge `mergeVal` into `dst`. `mergeVal` must be a mapping or a
     /// sequence whose every item is a mapping; anything else throws.
@@ -1161,12 +1141,12 @@ public sealed class YamlParser {
         this._mergedKeys[this._mergedCount] = "";
     }
 
-    /// Try to parse a block-scalar indicator (`|` literal or `>` folded)
-    /// at the current position. Returns the resulting string YamlValue if
-    /// a block scalar starts here; `null` otherwise (caller falls through
-    /// to the inline-scalar path). `parentIndent` is the indent of the
-    /// line containing the indicator; content lines must indent strictly
-    /// more than this. add-yaml-multiline-strings (2026-05-25).
+    // Try to parse a block-scalar indicator (`|` literal or `>` folded)
+    // at the current position. Returns the resulting string YamlValue if
+    // a block scalar starts here; `null` otherwise (caller falls through
+    // to the inline-scalar path). `parentIndent` is the indent of the
+    // line containing the indicator; content lines must indent strictly
+    // more than this.
     private YamlValue _TryParseBlockScalar(int parentIndent) {
         if (this._pos >= this._src.Length) { return null; }
         char first = this._chars[this._pos];
@@ -1356,19 +1336,18 @@ public sealed class YamlParser {
         if (raw == "false")       { return YamlValue.OfBool(false); }
         if (raw == "False")       { return YamlValue.OfBool(false); }
         if (raw == "FALSE")       { return YamlValue.OfBool(false); }
-        // YAML 1.2 hex / octal literals (add-yaml-numeric-bases, 2026-05-25).
-        // Checked before decimal so `0xFF` / `0o755` aren't matched as string.
+        // YAML 1.2 hex / octal literals. Checked before decimal so `0xFF` / `0o755`
+        // aren't matched as string.
         if (this._LooksLikeHex(raw)) {
             return YamlValue.OfInt(this._ParseHex(raw));
         }
         if (this._LooksLikeOctal(raw)) {
             return YamlValue.OfInt(this._ParseOctal(raw));
         }
-        // add-yaml-timestamps (2026-05-27): ISO 8601 timestamp before
-        // numeric inference. `YYYY-...` shape doesn't overlap int/float
-        // lexical patterns so there's no false positive on numeric input.
-        // Parse failure falls through to numeric / string for graceful
-        // degradation of "almost-but-not-quite" date-shaped strings.
+        // ISO 8601 timestamp before numeric inference. `YYYY-...` shape doesn't overlap
+        // int/float lexical patterns so there's no false positive on numeric input. Parse
+        // failure falls through to numeric / string for graceful degradation of
+        // "almost-but-not-quite" date-shaped strings.
         if (this._LooksLikeTimestamp(raw)) {
             try { return YamlValue.OfTimestampString(raw); }
             catch (Exception e) { /* fall through */ }

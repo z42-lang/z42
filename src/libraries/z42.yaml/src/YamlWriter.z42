@@ -2,7 +2,7 @@ namespace Std.Yaml;
 
 using Std.Text;
 
-// add-z42-yaml (2026-05-24): YAML block-style stringifier.
+// YAML block-style stringifier.
 //
 // Output rules:
 //   * 2-space indent per nesting level
@@ -24,7 +24,9 @@ using Std.Text;
 //   * comment preservation
 //   * canonical key ordering (we emit insertion order)
 
+/// YAML 块风格序列化器；`YamlValue.Stringify` / `WriteTo` 的底层载体，日常代码用 `YamlValue` 即可。
 public sealed class YamlWriter {
+    /// 把值树序列化为块风格 YAML 文本。
     public string Write(YamlValue root) {
         StringBuilder sb = new StringBuilder();
         this._WriteValue(sb, root, 0, false);
@@ -144,9 +146,8 @@ public sealed class YamlWriter {
             return s;
         }
         if (v.IsTimestamp()) {
-            // add-yaml-timestamps (2026-05-27): prefer raw lexeme for
-            // round-trip fidelity; fall back to canonical UTC ISO when
-            // constructed via `OfTimestamp(DateTime)`.
+            // Prefer raw lexeme for round-trip fidelity; fall back to canonical UTC
+            // ISO when constructed via `OfTimestamp(DateTime)`.
             string raw = v.AsTimestampRaw();
             if (raw.Length > 0) { return raw; }
             return v.AsTimestamp().ToIso8601();

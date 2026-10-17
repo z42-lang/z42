@@ -1,9 +1,36 @@
+//! YAML 读写。
+//!
+//! 把 [YAML 1.2](https://yaml.org/spec/1.2.2/) 文本解析成值树（`YamlValue`），或把值树写成块风格
+//! YAML。覆盖 Docker Compose / kubectl / Helm 这类配置日常用到的子集：块映射与块序列、flow 风格、
+//! 块标量、锚点与别名、merge key、类型 tag、多文档流、时间戳。
+//!
+//! 两条最容易踩的边界：
+//!
+//! 1. `- ` 序列项下面跟多行的嵌套映射不支持（`- name: bob` 换行后再写 `age: 3` 会报错）；
+//!    写成 `-` 单独一行 + 下一层缩进的映射即可。
+//! 2. 复杂键（`? key` 语法）与 `%YAML` 指令不支持。
+//!
+//! 整份文档一次读进内存，解析 fail-fast（抛第一个错误）。
+//!
+//! ## 不支持
+//!
+//! - 序列项下的多行嵌套映射——最常踩的一条：每个 `- ` 只支持同一行内的一对 `k: v`；多字段写法是让
+//!   `-` 单独占一行。同理 `- - 1` 这种同行嵌套序列也不支持，得换成 `-` 单独一行 + 下一层的块序列。
+//! - 复杂键（`? key` 后跟 `: value` 的语法）：映射键只能是字符串。
+//! - `%YAML` / `%TAG` 指令：指令行会被当成文档内容，导致解析报错。
+//! - flow 上下文里的锚点声明：`[*alias]` 可以用，`[&a 1, *a]` 里的 `&a 1` 会被当成普通标量，
+//!   随后引用它的别名报 `undefined anchor`。
+//! - Stringify 的 flow 风格 / 注释保留 / 锚点回写：输出恒为块风格的展开形态。
+//! - Schema 校验、对象 ↔ YAML 的 serde（只有 `z42.json` 提供 serde 层）。
+//! - 增量 / 流式解析：`ParseStream` 只是「读到 EOF 再整体解析」。
+//! - 多错误聚合：解析在第一个错误处抛出，不返回错误列表。
+
 namespace Std.Yaml;
 
 using Std.IO;
 using Std.Time;
 
-// add-z42-yaml (2026-05-24): YAML 值的运行时表示。
+// YAML 值的运行时表示。
 //
 // Mirror of `Std.Toml.TomlValue` / `Std.Json.JsonValue` — single int
 // kind discriminator + typed slots + parallel arrays for sequence /
@@ -16,24 +43,24 @@ using Std.Time;
 // TomlValue.
 //
 // Kind discriminator (0..=7):
-//   0 = Null    (YAML `~` or empty)
-//   1 = Bool    (YAML 1.2: `true` / `false` only — no `yes`/`on` foot-gun)
-//   2 = Int     (decimal i64; octal / hex deferred — yaml-future-numeric-bases)
-//   3 = Float   (f64; `1.5e10` exponent form supported)
-//   4 = String  (UTF-8)
+//   0 = Null     (YAML `~` or empty)
+//   1 = Bool     (YAML 1.2: `true` / `false` only — no `yes`/`on` foot-gun)
+//   2 = Int      (decimal i64; octal / hex supported)
+//   3 = Float    (f64; `1.5e10` exponent form supported)
+//   4 = String   (UTF-8)
 //   5 = Sequence (ordered list)
-//   6 = Mapping  (ordered key→value, string keys only in v0)
-//   7 = Timestamp (ISO 8601; add-yaml-timestamps 2026-05-27)
+//   6 = Mapping  (ordered key→value, string keys only)
+//   7 = Timestamp (ISO 8601)
 
+/// 值树的唯一节点类型，也是包的入口点；8 种 kind：Null / Bool / Int / Float / String / Sequence / Mapping / Timestamp。
 public class YamlValue {
     private int _kind;
     private bool _bool;
     private long _int;
     private double _float;
     private string _str;
-    // Timestamp slot (kind == 7) — add-yaml-timestamps (2026-05-27).
-    // Stores both parsed DateTime + raw lexeme so Stringify can reproduce
-    // the original offset / precision the parser saw.
+    // Timestamp slot (kind == 7). Stores both parsed DateTime + raw lexeme so
+    // Stringify can reproduce the original offset / precision the parser saw.
     private DateTime _ts;
     private string _tsRaw;
 
@@ -48,38 +75,31 @@ public class YamlValue {
 
     // ── Public entry points (parse / stringify) ──────────────────────────
 
-    /// Parse YAML text → root value. Throws YamlException with line/column
-    /// on syntax error. Empty input yields a null value. Multi-document
-    /// input (`---` separator) is rejected — use `ParseAll` instead.
+    /// 解析 YAML 文本为根值。语法错误抛 YamlException（消息含 行:列）；空输入返回 Null 值；
+    /// 多文档输入（`---` 分隔）报错，请用 `ParseAll`。
     public static YamlValue Parse(string text) {
         YamlParser parser = new YamlParser(text);
         return (YamlValue)parser.ParseDocument();
     }
 
-    /// Parse `---`-separated multi-document YAML into an array of values
-    /// (kubectl / helm manifest-style). Empty / blank input → empty array.
-    /// add-yaml-multi-doc (2026-05-25).
+    /// 解析 `---` 分隔的多文档 YAML 为值数组（kubectl / helm 清单风格）。空 / 全空白输入返回空数组。
     public static YamlValue[] ParseAll(string text) {
         YamlParser parser = new YamlParser(text);
         return (YamlValue[])parser.ParseAllDocuments();
     }
 
-    /// Serialise a YAML value tree to canonical YAML text (block style).
-    /// The output is reasonable for human reading; it is NOT byte-identical
-    /// to the original input (comment / quoting style not preserved).
+    /// 把值树序列化为块风格 YAML 文本。输出便于人读，但并非与输入逐字节一致（不保留注释 / 引号风格）。
     public static string Stringify(YamlValue root) {
         YamlWriter w = new YamlWriter();
         return w.Write(root);
     }
 
-    // ── Stream overloads (add-stream-overloads-to-format-parsers, 2026-05-24) ──
+    // ── Stream overloads ─────────────────────────────────────────────────
     //
     // Thin wrappers over the string variants. Neither closes the
     // underlying Stream — caller owns its lifecycle.
 
-    /// Parse YAML from a UTF-8 byte Stream. Distinct name from
-    /// `Parse(string)` (not an overload) — see JsonValue.ParseStream
-    /// comment for the z42 overload-resolution rationale.
+    /// 从 UTF-8 字节流解析 YAML。独立命名（非 `Parse` 的重载），不关闭传入的流。
     public static YamlValue ParseStream(Stream source) {
         StreamReader r = new StreamReader(source);
         string text = r.ReadToEnd();
@@ -87,8 +107,7 @@ public class YamlValue {
         return (YamlValue)parser.ParseDocument();
     }
 
-    /// Parse multi-document YAML from a UTF-8 byte Stream.
-    /// add-yaml-multi-doc (2026-05-25).
+    /// 从 UTF-8 字节流解析多文档 YAML 为值数组。不关闭传入的流。
     public static YamlValue[] ParseAllStream(Stream source) {
         StreamReader r = new StreamReader(source);
         string text = r.ReadToEnd();
@@ -96,8 +115,7 @@ public class YamlValue {
         return (YamlValue[])parser.ParseAllDocuments();
     }
 
-    /// Serialise canonical YAML to a Stream as UTF-8 bytes. Does NOT
-    /// close `dest`.
+    /// 把值树序列化为 UTF-8 字节写入 `dest`。不关闭 `dest`。
     public static void WriteTo(Stream dest, YamlValue root) {
         StreamWriter w = new StreamWriter(dest);
         w.Write(YamlValue.Stringify(root));
@@ -106,12 +124,14 @@ public class YamlValue {
 
     // ── Factories ────────────────────────────────────────────────────────
 
+    /// 构造 Null 值。
     public static YamlValue OfNull() {
         YamlValue v = new YamlValue();
         v._kind = 0;
         return v;
     }
 
+    /// 构造 Bool 值。
     public static YamlValue OfBool(bool b) {
         YamlValue v = new YamlValue();
         v._kind = 1;
@@ -119,6 +139,7 @@ public class YamlValue {
         return v;
     }
 
+    /// 构造 Int 值。
     public static YamlValue OfInt(long n) {
         YamlValue v = new YamlValue();
         v._kind = 2;
@@ -126,6 +147,7 @@ public class YamlValue {
         return v;
     }
 
+    /// 构造 Float 值。
     public static YamlValue OfFloat(double d) {
         YamlValue v = new YamlValue();
         v._kind = 3;
@@ -133,6 +155,7 @@ public class YamlValue {
         return v;
     }
 
+    /// 构造 String 值。
     public static YamlValue OfString(string s) {
         YamlValue v = new YamlValue();
         v._kind = 4;
@@ -140,10 +163,8 @@ public class YamlValue {
         return v;
     }
 
-    /// add-yaml-timestamps (2026-05-27): YAML timestamp scalar from DateTime.
-    /// `Stringify` will emit `dt.ToIso8601()` (UTC + 3-digit ms). For
-    /// round-trip preservation of non-UTC offset / different precision,
-    /// use `OfTimestampString(raw)`.
+    /// 从 DateTime 构造时间戳；`Stringify` 输出规范 UTC ISO 8601。
+    /// 如需保留非 UTC 偏移 / 不同精度，用 `OfTimestampString(raw)`。
     public static YamlValue OfTimestamp(DateTime dt) {
         YamlValue v = new YamlValue();
         v._kind = 7;
@@ -152,9 +173,7 @@ public class YamlValue {
         return v;
     }
 
-    /// add-yaml-timestamps (2026-05-27): construct from ISO 8601 string,
-    /// preserving the raw lexeme for round-trip fidelity. Throws
-    /// ArgumentException (from DateTime.ParseIso8601) on malformed input.
+    /// 从 ISO 8601 串构造时间戳，保留原词法串以便往返保真。非法输入抛 ArgumentException。
     public static YamlValue OfTimestampString(string iso) {
         YamlValue v = new YamlValue();
         v._kind = 7;
@@ -163,6 +182,7 @@ public class YamlValue {
         return v;
     }
 
+    /// 构造空序列（用 `Add` 填充）。
     public static YamlValue OfSequence() {
         YamlValue v = new YamlValue();
         v._kind = 5;
@@ -171,6 +191,7 @@ public class YamlValue {
         return v;
     }
 
+    /// 构造空映射（用 `Set` 填充）。
     public static YamlValue OfMapping() {
         YamlValue v = new YamlValue();
         v._kind = 6;
@@ -182,16 +203,24 @@ public class YamlValue {
 
     // ── Predicates ───────────────────────────────────────────────────────
 
+    /// 是否为 Null。
     public bool IsNull()      { return this._kind == 0; }
+    /// 是否为 Bool。
     public bool IsBool()      { return this._kind == 1; }
+    /// 是否为 Int。
     public bool IsInt()       { return this._kind == 2; }
+    /// 是否为 Float。
     public bool IsFloat()     { return this._kind == 3; }
+    /// 是否为 String。
     public bool IsString()    { return this._kind == 4; }
+    /// 是否为 Sequence。
     public bool IsSequence()  { return this._kind == 5; }
+    /// 是否为 Mapping。
     public bool IsMapping()   { return this._kind == 6; }
+    /// 是否为 Timestamp。
     public bool IsTimestamp() { return this._kind == 7; }
 
-    /// Type tag name for diagnostics.
+    /// 返回 kind 的类型名（用于诊断）。
     public string KindName() {
         int k = this._kind;
         if (k == 0) return "null";
@@ -207,6 +236,7 @@ public class YamlValue {
 
     // ── Accessors (throw YamlException on wrong kind) ────────────────────
 
+    /// 取 Bool；kind 不符抛 YamlException。
     public bool AsBool() {
         if (this._kind != 1) {
             throw new YamlException("expected bool, got " + this.KindName());
@@ -214,6 +244,7 @@ public class YamlValue {
         return this._bool;
     }
 
+    /// 取 Int（long）；不接受 Float。
     public long AsInt() {
         if (this._kind != 2) {
             throw new YamlException("expected int, got " + this.KindName());
@@ -221,6 +252,7 @@ public class YamlValue {
         return this._int;
     }
 
+    /// 取 Float（double）；不接受 Int。
     public double AsFloat() {
         if (this._kind != 3) {
             throw new YamlException("expected float, got " + this.KindName());
@@ -228,6 +260,7 @@ public class YamlValue {
         return this._float;
     }
 
+    /// 取 String。
     public string AsString() {
         if (this._kind != 4) {
             throw new YamlException("expected string, got " + this.KindName());
@@ -235,7 +268,7 @@ public class YamlValue {
         return this._str;
     }
 
-    /// add-yaml-timestamps (2026-05-27): DateTime accessor for kind 7.
+    /// 取 Timestamp 的 DateTime。
     public DateTime AsTimestamp() {
         if (this._kind != 7) {
             throw new YamlException("expected timestamp, got " + this.KindName());
@@ -243,8 +276,7 @@ public class YamlValue {
         return this._ts;
     }
 
-    /// Raw lexeme of a parsed timestamp (empty when constructed from a
-    /// DateTime via `OfTimestamp`). Useful for round-trip preservation.
+    /// 取解析得来的原词法串（由 `OfTimestamp` 构造时为空串），便于往返保真。
     public string AsTimestampRaw() {
         if (this._kind != 7) {
             throw new YamlException("expected timestamp, got " + this.KindName());
@@ -254,6 +286,7 @@ public class YamlValue {
 
     // ── Sequence operations (only valid when IsSequence()) ──────────────
 
+    /// 序列元素数；非序列抛 YamlException。
     public int Length() {
         if (this._kind != 5) {
             throw new YamlException("Length() on non-sequence value (" + this.KindName() + ")");
@@ -261,6 +294,7 @@ public class YamlValue {
         return this._seqCount;
     }
 
+    /// 取第 i 个元素；越界抛 YamlException（不是 VM abort）。
     public YamlValue At(int i) {
         if (this._kind != 5) {
             throw new YamlException("At() on non-sequence value (" + this.KindName() + ")");
@@ -271,6 +305,7 @@ public class YamlValue {
         return this._seqItems[i];
     }
 
+    /// 追加元素到序列末尾。
     public void Add(YamlValue v) {
         if (this._kind != 5) {
             throw new YamlException("Add() on non-sequence value (" + this.KindName() + ")");
@@ -289,6 +324,7 @@ public class YamlValue {
 
     // ── Mapping operations (only valid when IsMapping()) ────────────────
 
+    /// 是否含键；非映射值返回 false，不抛。
     public bool ContainsKey(string key) {
         if (this._kind != 6) { return false; }
         int i = 0;
@@ -299,6 +335,7 @@ public class YamlValue {
         return false;
     }
 
+    /// 取键对应值；键不存在抛 YamlException("key not found: k")。
     public YamlValue Get(string key) {
         if (this._kind != 6) {
             throw new YamlException("Get on non-mapping value (" + this.KindName() + ")");
@@ -358,6 +395,7 @@ public class YamlValue {
             + "use string / long / double / bool / DateTime / YamlValue");
     }
 
+    /// 写键值对（键已存在则覆盖）。
     public void Set(string key, YamlValue v) {
         if (this._kind != 6) {
             throw new YamlException("Set on non-mapping value (" + this.KindName() + ")");
@@ -389,7 +427,7 @@ public class YamlValue {
         this._mapCount = this._mapCount + 1;
     }
 
-    /// Snapshot of current mapping keys (insertion order).
+    /// 当前映射键的插入顺序快照。
     public string[] Keys() {
         if (this._kind != 6) {
             throw new YamlException("Keys() on non-mapping value (" + this.KindName() + ")");
@@ -403,17 +441,14 @@ public class YamlValue {
         return result;
     }
 
+    /// 序列元素数 / 映射键数；其余 kind 抛 YamlException。
     public int Count() {
         if (this._kind == 5) { return this._seqCount; }
         if (this._kind == 6) { return this._mapCount; }
         throw new YamlException("Count() on non-collection value (" + this.KindName() + ")");
     }
 
-    /// Recursively copy `this`. Scalars are immutable so the same instance
-    /// could safely be shared, but to keep clone semantics uniform we always
-    /// produce a fresh YamlValue. Used by anchor / alias resolution where
-    /// mutation of one alias must not leak to others. add-yaml-anchors-aliases
-    /// (2026-05-25).
+    /// 递归复制整棵子树。别名（`*name`）解析出的值就是锚点值的 DeepClone。
     public YamlValue DeepClone() {
         if (this._kind == 0) { return YamlValue.OfNull(); }
         if (this._kind == 1) { return YamlValue.OfBool(this._bool); }
