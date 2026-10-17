@@ -1,53 +1,49 @@
 namespace Std.IO;
 
+/// 读命令行参数与环境变量、当前工作目录、进程退出等。
 public static class Environment {
+    /// 取环境变量；变量不存在返回 null。
     [Native("__env_get")]
     public static extern string? GetEnvironmentVariable(string name);
 
-    /// 取环境变量；没设置（或设了个空串）时返回 `fallback`。
-    ///
-    /// define-null-check-marks：`??` 移除前，全仓 **70 处**写的都是
-    /// `GetEnvironmentVariable("X") ?? ""` —— 也就是说「取不到就用默认值」才是这个 API
-    /// 的实际用法，返回 `string?` 让每个调用点都得自己收尾。把收尾放进库里，
-    /// 调用点就退回一行，且**结果不带 `?`** ⇒ 不再有空检查义务。
-    ///
-    /// 需要区分「没设置」与「设成了空串」的调用点，继续用上面那个带 `?` 的重载。
+    /// 取环境变量；没设置（或设了个空串）时返回 `fallback`。需要区分「没设置」与
+    /// 「设成了空串」的调用点，用上面那个返回 `string?` 的重载。
     public static string GetEnvironmentVariable(string name, string fallback) {
         string? v = Environment.GetEnvironmentVariable(name);
         if (v == null) { return fallback; }
         return v;
     }
 
+    /// 设置本进程的环境变量（会被之后 spawn 的子进程继承）。
     [Native("__env_set")]
     public static extern void SetEnvironmentVariable(string name, string value);
 
+    /// 程序自己的命令行参数（不含程序名）。
     [Native("__env_args")]
     public static extern string[] GetCommandLineArgs();
 
+    /// 立即以 `code` 退出进程。
     [Native("__process_exit")]
     public static extern void Exit(int code);
 
-    // consolidate-core-intrinsics (A1): __time_now_ms 唯一声明在 Std.Runtime.Clock。
+    /// 墙钟 Unix 毫秒。
+    // 委托 Std.Runtime.Clock.WallMillis()（__time_now_ms 唯一声明点）。
     public static long GetCurrentTimeMs() { return Clock.WallMillis(); }
 
-    // 2026-05-14 add-platform-os-stdlib: removal + enumeration of env vars.
+    /// 删除环境变量。
     [Native("__env_unset")]
     public static extern void UnsetEnvironmentVariable(string name);
 
-    // Returns a flat string[] of "KEY=VALUE" entries. Callers split on the
-    // first '=' to recover the pair; z42 currently has no stable
-    // Map<string,string> marshal path so the flat form is what stdlib
-    // exposes (similar shape to /proc/self/environ).
+    /// 平铺的 `"KEY=VALUE"` 数组；调用方按**第一个** `=` 切分。
     [Native("__env_vars")]
     public static extern string[] GetEnvironmentVariables();
 
-    // extend-z42-io-script-helpers (2026-05-16)：当前工作目录。
-
-    /// `pwd` / `$PWD`。
+    /// 当前工作目录（`pwd`）。
     [Native("__env_get_cwd")]
     public static extern string GetCurrentDirectory();
 
-    /// `cd path`。目录不存在抛 `DirectoryNotFoundException`，无权限抛 `UnauthorizedAccessException`。
+    /// 改变当前工作目录（`cd path`）。目录不存在抛 `DirectoryNotFoundException`，
+    /// 无权限抛 `UnauthorizedAccessException`。
     [Native("__env_set_cwd")]
     public static extern void SetCurrentDirectory(string path);
 }

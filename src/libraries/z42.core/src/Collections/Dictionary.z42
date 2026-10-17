@@ -1,13 +1,13 @@
 namespace Std.Collections;
 
-// `Dictionary<TKey, TValue>` — 插入有序的紧凑哈希表（布局与共用操作见 `HashIndex.z42`）。
-//
-// 遍历（`foreach` / `GetEnumerator` / `Keys()` / `Values()` / `Entries()`）按**插入顺序**：
-// 覆盖已有键不改变其位置；`Remove` 后再插入同一键，它排到末尾。摊还 O(1) 平均操作。
-// 枚举期间新增键 / `Clear` ⇒ 下一次 `MoveNext` 抛 `InvalidOperationException`；
-// 覆盖已有键与 `Remove` 不影响进行中的枚举。
-// 约束：TKey 必须 hashable + equatable。primitive TKey 通过 VM builtin 路由 GetHashCode / Equals；
-// 用户自定义 TKey 必须实现 IEquatable —— GetHashCode 走 Object 协议。
+// 实现笔记：插入有序的紧凑哈希表，布局与共用操作见 `HashIndex.z42`。
+// 摊还 O(1) 平均读写；枚举期间新增键 / `Clear` ⇒ 下一次 `MoveNext` 抛
+// `InvalidOperationException`；覆盖已有键与 `Remove` 不影响进行中的枚举。
+
+/// 插入有序的泛型哈希映射：摊还 O(1) 平均读写，遍历（`foreach` / `GetEnumerator` /
+/// `Keys()` / `Values()` / `Entries()`）按**插入顺序**。覆盖已有键不改变其位置；
+/// `Remove` 后再插入同一键排到末尾。`TKey` 必须 hashable + equatable（primitive 走 VM
+/// builtin 路由 GetHashCode / Equals；自定义类型实现 `IEquatable`）。
 public class Dictionary<TKey, TValue> where TKey: IEquatable {
     internal int[] _index;      // 索引表：0 = 空，-1 = 已删，否则 entry 下标 + 1；长度 = entries 容量 × 2
     internal int[] _hashes;     // entries：规整后的 hash（≥ 0）；-1 = tombstone
@@ -15,8 +15,11 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable {
     internal TValue[] _values;
     internal int _used;         // entries 已用槽数（含 tombstone）
     internal int _version;      // 新增键 / Clear / 压实时递增，枚举器据此检测修改
+
+    /// 元素个数（公开字段，可读可写）。
     public int Count;
 
+    /// 新建空字典。
     public Dictionary() { this._alloc(8); }
 
     void _alloc(int cap) {
@@ -28,13 +31,18 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable {
         this.Count = 0;
     }
 
+    /// 是否为空。
     public bool IsEmpty() { return this.Count == 0; }
 
+    /// 返回按插入顺序遍历的枚举器。
     public DictionaryEnumerator<TKey, TValue> GetEnumerator() { return new DictionaryEnumerator<TKey, TValue>(this); }
 
     // 热路径（索引器读写、ContainsKey）把 hash 规整（= `HashIndex.Mix`）与探测循环就地展开，
     // 不经 `_slotOf`：每层调用的建帧 / 回收成本比探测本身还贵。探测跳过 dummy（e < 0），
     // 先比存储的 hash，不等即跳过 `.Equals()` 派发。
+
+    /// 读写 `key` 对应的值。getter 键不存在时返回 default(TValue)；setter 覆盖式写入，
+    /// 覆盖不改变该键的插入位置。
     public TValue this[TKey key] {
         get {
             // 不存在时返回 default (null)；调用方应先 ContainsKey。
@@ -92,15 +100,16 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable {
         }
     }
 
+    /// 覆盖式写入（等价索引器 setter）。
     public void Set(TKey key, TValue value) { this[key] = value; }
 
+    /// 取 `key` 对应的值；不存在返回 default(TValue)。
     public TValue Get(TKey key) { return this[key]; }
 
     // 注：TryGetValue 依赖 `out`，而 out→tuple 迁移正在进行（ref-borrow 程序），
     // 故暂不引入；GetValueOrDefault 覆盖其绝大多数无异常查找场景。
 
-    // 仅当 key 不存在时插入（追加到末尾），返回是否成功插入（已存在则不覆盖、返回 false）。
-    // 对标 C# `Dictionary.TryAdd`。
+    /// 仅当 key 不存在时插入（追加到末尾），返回是否成功插入（已存在则不覆盖、返回 false）。
     public bool TryAdd(TKey key, TValue value) {
         int h = HashIndex.Mix(key.GetHashCode());
         int s = this._slotOf(key, h);
@@ -109,18 +118,17 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable {
         return true;
     }
 
-    // 返回 key 对应的值，不存在则返回 default(TValue)。对标 C#
-    // `Dictionary.GetValueOrDefault(key)` —— 一次探测，无异常。
+    /// 返回 key 对应的值，不存在则返回 default(TValue)。
     public TValue GetValueOrDefault(TKey key) { return this.GetValueOrDefault(key, default(TValue)); }
 
-    // 返回 key 对应的值，不存在则返回调用方给定的 `defaultValue`。对标 C#
-    // `Dictionary.GetValueOrDefault(key, defaultValue)`。
+    /// 返回 key 对应的值，不存在则返回调用方给定的 `defaultValue`。
     public TValue GetValueOrDefault(TKey key, TValue defaultValue) {
         int e = this._index[this.FindSlot(key)];
         if (e > 0) return this._values[e - 1];
         return defaultValue;
     }
 
+    /// 是否含 key。
     public bool ContainsKey(TKey key) {
         long hl = (long)key.GetHashCode();
         int h = (int)((hl ^ (hl >> 31)) & 0x7FFFFFFFL);
@@ -139,8 +147,9 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable {
         return false;
     }
 
-    // 删除：索引槽改成 dummy（-1），entry 置 tombstone 并清掉 key/value 引用（被删对象不再被 GC
-    // 视为可达）；其余 entries 原位不动，故相对顺序不变。槽位到下次压实时回收。
+    /// 删除 key；删掉返回 true，键不存在返回 false。其余键相对顺序不变。
+    // 实现：索引槽改成 dummy（-1），entry 置 tombstone 并清掉 key/value 引用（被删对象不再被 GC
+    // 视为可达）；槽位到下次压实时回收。
     public bool Remove(TKey key) {
         int s = this.FindSlot(key);
         int e = this._index[s];
@@ -154,7 +163,8 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable {
         return true;
     }
 
-    // 保留容量：换一组同容量的新数组（VM 原生零初始化，免逐槽清引用）。
+    /// 清空所有键值对，保留容量。
+    // 实现：换一组同容量的新数组（VM 原生零初始化，免逐槽清引用）。
     public void Clear() {
         this._alloc(this._hashes.Length);
         this._version = this._version + 1;
@@ -162,7 +172,7 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable {
 
     // ── 遍历面：全部按 entries 顺序（= 插入顺序）产出，跳过 tombstone ──
 
-    // 返回长度为 Count 的快照数组（每次调用新建）。无 tombstone 时整段原生拷贝。
+    /// 返回长度为 Count 的键快照数组（每次调用新建），按插入顺序。
     public TKey[] Keys() {
         TKey[] result = new TKey[this.Count];
         int[] hs = this._hashes;
@@ -181,6 +191,7 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable {
         return result;
     }
 
+    /// 返回长度为 Count 的值快照数组（每次调用新建），按插入顺序。
     public TValue[] Values() {
         TValue[] result = new TValue[this.Count];
         int[] hs = this._hashes;
@@ -199,6 +210,7 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable {
         return result;
     }
 
+    /// 返回键值对快照数组（每次调用新建），按插入顺序。
     public KeyValuePair<TKey, TValue>[] Entries() {
         KeyValuePair<TKey, TValue>[] result = new KeyValuePair<TKey, TValue>[this.Count];
         int[] hs = this._hashes;
@@ -213,8 +225,8 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable {
         return result;
     }
 
-    // 返回 key 在索引表中的槽：若 key 存在，该槽指向它的 entry；否则是探测序列上的第一个空槽
-    //（即新键应放入的槽）。
+    /// 返回 key 在索引表中的槽：若 key 存在，该槽指向它的 entry；否则是探测序列上的第一个空槽
+    ///（即新键应放入的槽）。容量 / 槽位管理入口，正常使用无需调用。
     public int FindSlot(TKey key) {
         return this._slotOf(key, HashIndex.Mix(key.GetHashCode()));
     }
@@ -234,7 +246,7 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable {
         return s;
     }
 
-    // entries 容量翻倍（索引表随之翻倍）。
+    /// entries 容量翻倍（索引表随之翻倍）。容量管理入口，正常使用无需调用。
     public void Grow() { this._resize(this._hashes.Length * 2); }
 
     // 新键追加到 entries 末尾；s 为探测得到的空索引槽。entries 满则先扩容 / 压实再重新找槽。

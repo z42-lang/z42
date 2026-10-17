@@ -1,9 +1,10 @@
 namespace Std.IO;
 
-// I/O 出错的基类。镜像 .NET `System.IO.IOException`。
+/// I/O 出错的基类。镜像 .NET `System.IO.IOException`。
 public class IOException : Exception {
+    /// 用消息构造。
     public IOException(string message) : base(message) {}
 
-    // 包住底层原因（`NetworkStream` 把 `SocketException` 包成 IOException，同 .NET）。
+    /// 用消息与底层原因构造（`NetworkStream` 把 `SocketException` 包成 IOException，同 .NET）。
     public IOException(string message, Exception inner) : base(message, inner) {}
 }

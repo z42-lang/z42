@@ -1,37 +1,28 @@
 namespace Std.Collections;
 
 
-// `List<T>` — 纯源码级泛型动态数组（L3-G4h step 3：取代 pseudo-class 实现）。
-//
-// 摊还 O(1) Add / indexer，O(n) RemoveAt / Insert / Contains / IndexOf / Remove。
-// Sort 为自顶向下归并排序（stable，O(n log n)，一次性分配 scratch 缓冲）；元素全是同一种
-// 基元（int 系 / double / char / string）时 `Sort()` 交给原生稳定排序（`Array.SortPrimitives`，同序）。
-//
-// 无类型约束（stdlib-structure-batch，对齐 C# `System.Collections.Generic.List<T>`）：
-//   Contains / IndexOf / Remove 用 `Equals`（Object 协议，任意 T 可用）；Sort() 用 `CompareTo`，
-//   与 C# 一样是**运行期**要求——元素不可比较时在 Sort 处失败，而非在类型上一刀切。此前的
-//   `where T: IEquatable + IComparable` 使 `List<JsonValue>` 等 stdlib 自身用法都不满足约束
-//   （编译器暂未校验接口约束才没暴露），故移除。
-// add-list-dict-lookup-family (2026-09-02): the C#-parity query/predicate
-// surface (Find* / Exists / TrueForAll / RemoveAll / FindAll / GetRange /
-// LastIndexOf / BinarySearch) lives in the `List.Query.z42` partial to keep each
-// file small. NOTE: the type as a whole intentionally exceeds the 200-line
-// type-size guideline — `List<T>` mirrors C# `System.Collections.Generic.List<T>`
-// and its parity surface is inherently large; the split keeps files readable
-// while the two parts share one type. See this dir's README「List<T> 尺寸例外」.
+// 实现笔记：Sort 为自顶向下归并排序（stable，O(n log n)，一次性分配 scratch 缓冲）；
+// 元素全是同一种基元（int 系 / double / char / string）时 `Sort()` 交给原生稳定排序
+// （`Array.SortPrimitives`，同序）。
+
+/// 纯源码级泛型动态数组：摊还 O(1) Add / 随机访问，O(n) RemoveAt / Insert / Contains /
+/// IndexOf / Remove。对 `T` 无类型约束——相等与比较是**运行期**要求：Contains / IndexOf /
+/// Remove 用 `Equals`，`Sort()` 用 `CompareTo`（元素不可比较时在 Sort 处失败）。
 public partial class List<T> : IEnumerable<T> {
     T[] items;
+
+    /// 元素个数（公开字段，可读可写）。
     public int Count;
     int capacity;
 
+    /// 新建空列表。
     public List() {
         this.capacity = 4;
         this.items = new T[4];
         this.Count = 0;
     }
 
-    // Pre-size for a known element count, avoiding repeated 2× Grow reallocs
-    // when the final size is known up front. `capacity < 1` falls back to 1.
+    /// 按预期元素数预分配容量，避免后续反复 2× Grow 再分配。`capacity < 1` 视作 1。
     public List(int capacity) {
         int cap = capacity;
         if (cap < 1) cap = 1;
@@ -40,27 +31,29 @@ public partial class List<T> : IEnumerable<T> {
         this.Count = 0;
     }
 
+    /// 是否为空。
     public bool IsEmpty() { return this.Count == 0; }
 
-    // add-foreach-ienumerable（Decision 8：pattern-based 无装箱）：返回**具体** `ListEnumerator<T>` struct
-    // （非 `IEnumerator<T>` 接口），供以接口静态类型 / 泛型约束 / foreach（若走接口 path）迭代。List 自身
-    // foreach 走索引快路径（Count+get_Item），不经此。
+    /// 返回**具体** `ListEnumerator<T>` struct（非 `IEnumerator<T>` 接口）。List 自身
+    /// foreach 走索引快路径（Count + get_Item），不经此；本方法服务以接口静态类型 /
+    /// 泛型约束持有的调用点。
     public ListEnumerator<T> GetEnumerator() { return new ListEnumerator<T>(this); }
 
+    /// 读写第 `i` 个元素。
     public T this[int i] {
         get { return this.items[i]; }
         set { this.items[i] = value; }
     }
 
+    /// 追加元素。
     public void Add(T item) {
         if (this.Count == this.capacity) this.Grow();
         this.items[this.Count] = item;
         this.Count = this.Count + 1;
     }
 
-    // add-list-toarray-addrange (review §2.6): append a whole array in order.
-    // Pre-grows once to the final size instead of triggering a chain of 2× Grow
-    // reallocs through per-element Add.
+    /// 按数组顺序追加整个 `T[]`。
+    // 实现：一次性预扩容到最终大小，避免逐元素 Add 触发一串 2× Grow。
     public void AddRange(T[] items) {
         int n = items.Length;
         this.EnsureCapacity(this.Count + n);
@@ -72,8 +65,7 @@ public partial class List<T> : IEnumerable<T> {
         }
     }
 
-    // Ensure `items` can hold at least `min` elements, reallocating once (grow
-    // to the max of 2× current capacity and `min`) if needed.
+    // 确保 `items` 至少能容纳 `min` 个元素；不够则一次再分配（新容量 = max(2×当前容量, min)）。
     void EnsureCapacity(int min) {
         if (min <= this.capacity) return;
         int newCap = this.capacity * 2;
@@ -84,13 +76,14 @@ public partial class List<T> : IEnumerable<T> {
         this.capacity = newCap;
     }
 
-    // Snapshot copy of the list's elements (a fresh array, safe to mutate).
+    /// 返回长度为 Count 的新数组快照（改它不影响原列表）。
     public T[] ToArray() {
         T[] result = new T[this.Count];
         Array.Copy(this.items, result, this.Count);
         return result;
     }
 
+    /// 在 `index` 处插入，其后元素右移。
     public void Insert(int index, T item) {
         if (this.Count == this.capacity) this.Grow();
         Array.Copy(this.items, index, this.items, index + 1, this.Count - index);
@@ -98,12 +91,14 @@ public partial class List<T> : IEnumerable<T> {
         this.Count = this.Count + 1;
     }
 
+    /// 删除 `index` 处元素，其后元素左移。
     public void RemoveAt(int index) {
         Array.Copy(this.items, index + 1, this.items, index, this.Count - index - 1);
         this.Count = this.Count - 1;
-        this.items[this.Count] = default(T);   // perf-stdlib-hot-paths：清尾槽引用（镜像 C# List.RemoveAt）
+        this.items[this.Count] = default(T);   // 清尾槽引用（镜像 C# List.RemoveAt）
     }
 
+    /// 删除第一个等于 `item` 的元素；删掉返回 true，找不到返回 false。
     public bool Remove(T item) {
         int i = this.IndexOf(item);
         if (i < 0) return false;
@@ -111,8 +106,10 @@ public partial class List<T> : IEnumerable<T> {
         return true;
     }
 
+    /// 是否含 `item`（线性查找）。
     public bool Contains(T item) { return this.IndexOf(item) >= 0; }
 
+    /// 首个等于 `item` 的下标，未命中 -1。
     public int IndexOf(T item) {
         int i = 0;
         while (i < this.Count) {
@@ -122,31 +119,31 @@ public partial class List<T> : IEnumerable<T> {
         return -1;
     }
 
-    // perf-stdlib-hot-paths：清引用（镜像 C# List.Clear 的 Array.Clear），否则已移除对象在槽被覆盖前仍被 GC 视为可达。
+    /// 清空列表（Count 归零）。
+    // 实现：逐槽清引用（镜像 C# List.Clear 的 Array.Clear），否则已移除对象在槽被覆盖前
+    // 仍被 GC 视为可达。
     public void Clear() {
         int i = 0;
         while (i < this.Count) { this.items[i] = default(T); i = i + 1; }
         this.Count = 0;
     }
 
-    // Top-down merge sort — stable, O(n log n). One scratch buffer allocated
-    // up front and reused across every merge (recursion only splits index
-    // ranges, never allocates).
-    public void Sort() where T : IComparable {   // check-bare-type-param-member-access：`CompareTo` 由方法级 where 细化类级 T 提供（此前靠松绑）
+    /// 升序稳定排序；基元元素走原生稳定排序。
+    public void Sort() where T : IComparable {   // `CompareTo` 由方法级 where 细化类级 T 提供
         if (this.Count < 2) return;
         if (Array.SortPrimitives(this.items, this.Count)) return;   // 基元元素：原生稳定排序，同序
         T[] scratch = new T[this.Count];
         this.MergeSort(scratch, 0, this.Count);
     }
 
-    // Sort items[lo, hi) into ascending order using `scratch` as merge staging.
+    // 用 `scratch` 作合并暂存，把 items[lo, hi) 排为升序。
     void MergeSort(T[] scratch, int lo, int hi) where T : IComparable {
         if (hi - lo < 2) return;
         int mid = lo + (hi - lo) / 2;
         this.MergeSort(scratch, lo, mid);
         this.MergeSort(scratch, mid, hi);
-        // Merge the two sorted runs items[lo,mid) + items[mid,hi) into scratch,
-        // then copy back. Ties take the left run first → stable.
+        // 把两段已排序 run items[lo,mid) + items[mid,hi) 合入 scratch 再拷回；
+        // 相等时取左 run 在前 → 稳定。
         int i = lo;
         int j = mid;
         int k = lo;
@@ -166,20 +163,14 @@ public partial class List<T> : IEnumerable<T> {
         while (t < hi) { this.items[t] = scratch[t]; t = t + 1; }
     }
 
-    // add-list-sort-comparison: sort using a caller-supplied comparator instead
-    // of the element's own `CompareTo`. Same stable top-down merge sort as
-    // `Sort()`; the ordering criterion is `comparison(a, b)` (< 0 ⇒ a before b).
-    // Lets callers pick the sort key at the call site (e.g. descending, by a
-    // secondary field) without baking it into the type's IComparable.
+    /// 用调用方给定的比较函数排序：`comparison(a, b) < 0` ⇒ a 排在 b 前。同样稳定。
     public void Sort(Func<T, T, int> comparison) {
         if (this.Count < 2) return;
         T[] scratch = new T[this.Count];
         this.MergeSortCmp(scratch, 0, this.Count, comparison);
     }
 
-    // Sort items[lo, hi) ascending under `cmp`, mirroring `MergeSort` but with
-    // the three-way delegate as the comparator. Ties take the left run first
-    // → stable (identical merge shape to the CompareTo version).
+    // 在 `cmp` 下把 items[lo, hi) 排为升序（与 `MergeSort` 同形，比较器换为三元委托）。
     void MergeSortCmp(T[] scratch, int lo, int hi, Func<T, T, int> cmp) {
         if (hi - lo < 2) return;
         int mid = lo + (hi - lo) / 2;
@@ -204,6 +195,7 @@ public partial class List<T> : IEnumerable<T> {
         while (t < hi) { this.items[t] = scratch[t]; t = t + 1; }
     }
 
+    /// 原地反转。
     public void Reverse() {
         int i = 0;
         int j = this.Count - 1;
@@ -216,6 +208,7 @@ public partial class List<T> : IEnumerable<T> {
         }
     }
 
+    /// 容量翻倍。容量管理入口，正常使用无需调用。
     public void Grow() {
         int newCap = this.capacity * 2;
         T[] bigger = new T[newCap];

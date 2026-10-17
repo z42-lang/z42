@@ -1,18 +1,15 @@
 namespace Std.Runtime;
 
-// The single declaration site for the VM's clock intrinsics
-// (consolidate-core-intrinsics, A1). z42.io / z42.net / z42.harness
-// delegate here rather than re-declaring the externs (rule: 单一声明点).
-//
-// Minimal by design: only the two raw primitives. Semantic wrappers
-// (DateTime / TimeSpan / Stopwatch) live in core src/Time/（refine-interop-
-// native-separation：z42.time 纯脚本类型下沉 core，2026-08-27）.
+// VM 时钟原语的唯一声明点（z42.io / z42.net / z42.harness 都委托到这里，不重复声明 extern）。
+// 刻意保持最小：只有两个裸原语，语义包装（DateTime / TimeSpan / Stopwatch）在 Std.Time。
+
+/// VM 时钟原语的唯一声明点。只在需要裸数值时直接用它；语义包装在 `Std.Time`。
 public static class Clock {
-    // Wall-clock time as Unix milliseconds (may jump; for timestamps).
+    /// 挂钟时间，Unix 毫秒（可能跳变；用于时间戳）。
     [Native("__time_now_ms")]
     public static extern long WallMillis();
 
-    // Monotonic high-resolution nanoseconds (never jumps; for durations).
+    /// 单调高精度纳秒（不跳变；用于测时长）。
     [Native("__time_now_mono_ns")]
     public static extern long MonoNanos();
 }

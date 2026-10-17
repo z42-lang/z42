@@ -491,7 +491,7 @@ api-endpoint = "http://localhost:8080"
 | 子表 | 内容 | 详见 |
 |------|------|------|
 | `[profile.<n>.runtime]` | VM 运行时旋钮；构建期按 VM 登记表校验名字，未知名只警告 | [运行时设置 · 应用侧车](runtime-settings.md#应用侧车) |
-| `[profile.<n>.properties]` | 应用属性，运行时经 `Std.Runtime.AppProperties` 只读 | [AppProperties](../stdlib/app-properties.md) |
+| `[profile.<n>.properties]` | 应用属性，运行时经 `Std.Runtime.AppProperties` 只读 | [AppProperties](../stdlib/core.AppProperties.md) |
 
 在 `[profile.<n>]` 下直接写键（`mode` / `optimize` / `debug` / `strip` / `pack` …）是**致命的构建错误**，
 报错会指向该放进哪个子表。优化开关写 [`[optimize]`](#l5d--optimize--syntax逐项具名旋钮)；`pack` 写

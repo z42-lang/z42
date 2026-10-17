@@ -1,33 +1,31 @@
-// Std.Reflection.Assembly — 一个 zpkg 的运行时反射投影（mirrors .NET System.Reflection.Assembly）。
-//
-// z42 运行时以往把所有 zpkg merge 成一个扁平 Module，zpkg 身份被销毁。加载上下文模型
-// （add-load-context-model）把载入 collectible 上下文的 zpkg 身份保留为 Assembly，可反射
-// 其类型、查其所属 AssemblyLoadContext、判其是否可回收。
-//
-// native 句柄（AssemblyId）存于 VM 的 NativeData；本类无数据字段。不可用户构造——由
-// AssemblyLoadContext.Load / Type.Assembly / AssemblyLoadContext.GetAssemblies 产出。
 namespace Std.Reflection;
 
+/// 一个 zpkg 的运行时投影，对标 .NET `System.Reflection.Assembly`。
+///
+/// 载入 collectible 上下文的 zpkg 身份被保留为 Assembly，可反射其类型、查所属
+/// `AssemblyLoadContext`、判其是否可回收。不可用户构造——由 `AssemblyLoadContext.Load` /
+/// `Type.Assembly` / `AssemblyLoadContext.GetAssemblies` 产出。
 public sealed class Assembly {
-    // zpkg 的逻辑名。
+    /// zpkg 的逻辑名。
     [Native("__asm_name")]
     public extern string Name { get; }
 
-    // 是否在可回收上下文（== 其 AssemblyLoadContext.IsCollectible）。
+    /// 是否在可回收上下文（等于其 AssemblyLoadContext.IsCollectible）。
     [Native("__asm_is_collectible")]
     public extern bool IsCollectible { get; }
 
-    // 所属加载上下文。
+    /// 所属加载上下文。
     [Native("__asm_loadcontext")]
     public extern Std.Runtime.AssemblyLoadContext LoadContext { get; }
 
-    // 本 assembly 定义的类型（按 FQ 名有序）。
+    /// 本 assembly 定义的类型，按全限定名有序。
     [Native("__asm_get_types")]
     public extern Std.Type[] GetTypes();
 
-    // 本 assembly 定义的自由（顶层）函数（按全限定名有序），编译器合成的函数（lambda、attribute 工厂等）不在内。
-    // 返回的 MethodInfo 按全限定名在**当前 VM** 里解析：要读 attribute / 签名或 Invoke，该包须已经
-    // `Std.Runtime.ModuleLoader.Load` 并入；纯反射投影只保证名字可枚举。
+    /// 本 assembly 定义的自由（顶层）函数，按全限定名有序；编译器合成的函数（lambda、attribute 工厂等）不在内。
+    ///
+    /// 返回的 MethodInfo 按全限定名在当前 VM 解析：要读 attribute、签名或 Invoke，该包须已
+    /// `Std.Runtime.ModuleLoader.Load` 并入；纯反射投影只保证名字可枚举。
     [Native("__asm_get_functions")]
     public extern Std.Reflection.MethodInfo[] GetFunctions();
 }

@@ -1,21 +1,12 @@
 namespace Std;
 
-// 2026-05-03 add-isubscription-wrapper (D2b): 多播订阅策略 wrapper 协议。
-// MulticastAction<T>.Subscribe(ISubscription<Action<T>>) 走 advanced path；
-// 用户可实现自己的 wrapper 加新策略（throttle / debounce / dispatcher / ...）。
-//
-// `where TD : Delegate` 约束在 z42 当前类型系统暂不支持（delegate 不是统一基类）；
-// v1 无约束；用户错误地 `ISubscription<int>` 在 wrapper 构造期间 fail-fast。
-//
-// `WeakRef<TD>` / `AsWeak()` 在 v1 不实现 —— GC 弱引用 builtin 未暴露 corelib，
-// 详见 docs/deferred.md D-1。
+/// 多播订阅策略包装器协议：`MulticastAction<T>.Subscribe(ISubscription<Action<T>>)` 走
+/// advanced 路径；用户可实现自己的包装器加入新策略（throttle / debounce / dispatcher 等）。
 public interface ISubscription<TD> {
-    // 返回 wrapped delegate；仅当 IsAlive()=true 时定义；调用方先检查 IsAlive。
+    /// 返回被包装的委托；仅在 IsAlive() 为 true 时有定义，调用方先检查 IsAlive。
     TD Get();
-    // 是否仍活跃；invoke loop 短路检查。
-    // v1 用方法而非 property（property getter 实现端语法在 stdlib 待验证）。
+    /// 是否仍活跃；invoke 循环据此短路。
     bool IsAlive();
-    // 每次 invoke 后调；wrapper 用此更新自身 latch 状态。
-    // StrongRef / 无状态 wrapper 此方法是 nop（优化 C 短路）。
+    /// 每次 invoke 后调用；包装器用它更新自身 latch 状态（无状态包装器为 nop）。
     void OnInvoked();
 }

@@ -1,13 +1,7 @@
 namespace Std;
 
-// reorganize-gc-stdlib (2026-05-07)：`Std.GC.GetStats()` 返回类型，1:1 投影
-// Rust `gc::types::HeapStats` 全 7 字段。
-//
-// `MaxBytes` 用 `-1` 表示 unlimited（z42 当前无 `Optional<T>`）。Phase 3
-// 引入 `Optional<long>` 后再迁移到 nullable 形态。
-//
-// 实例由 corelib `__gc_stats` builtin 直接 emit；用户不通过 `new HeapStats(...)`
-// 构造（不暴露 ctor），保证字段值与 GC 实时状态一致。
+/// `Std.GC.GetStats()` 的返回类型，1:1 投影 GC 的 7 个统计字段。实例由 corelib
+/// `__gc_stats` builtin 直接产出（不暴露 ctor），保证字段值与 GC 实时状态一致。
 
 public class HeapStats {
     /// 自堆创建以来累计的 alloc 次数。
@@ -16,7 +10,7 @@ public class HeapStats {
     /// `collect_cycles` / `force_collect` 触发次数。
     public long GcCycles          { get; }
 
-    /// 估计活字节（RC 模式：`Rc<T>` Drop 不更新，单调增；Phase 3 trace 后精确）。
+    /// 估计活字节（RC 模式下 `Rc<T>` Drop 不更新，单调增）。
     public long UsedBytes         { get; }
 
     /// 堆字节上限；`-1` 表示 unlimited。
@@ -25,7 +19,7 @@ public class HeapStats {
     /// 当前 pinned root 数量（host pin_root 计数 + frame pins）。
     public long RootsPinned       { get; }
 
-    /// 等待 finalizer 触发的注册数（Phase 1：永远不调用）。
+    /// 等待 finalizer 触发的注册数。
     public long FinalizersPending { get; }
 
     /// 活动 GC 事件 observer 数。

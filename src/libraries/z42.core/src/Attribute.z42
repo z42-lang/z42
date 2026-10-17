@@ -1,28 +1,11 @@
 namespace Std;
 
-// Base class for all user-defined attributes (spec: add-attribute-reflection, C3).
-//
-// A user attribute is an ordinary class deriving from `Attribute` whose name
-// MUST end with the `Attribute` suffix (D8 convention, enforced as E0444):
-//
-//     class RouteAttribute : Attribute {
-//         public string Path;
-//         public RouteAttribute(string path) { this.Path = path; }
-//     }
-//
-// applied with the suffix stripped from the use-name (`[Route]`, defined as
-// `RouteAttribute`):
-//
-//     [Route("/users")] class UsersController { }
-//
-// and read back via reflection — `Type.GetCustomAttributes()` /
-// `MethodInfo.GetCustomAttributes()` return live instances (the same cached
-// instance on repeated calls). The compiler synthesizes a parameterless factory
-// per application, so no runtime `Activator`/`Invoke` is involved.
-//
-// Mirrors C# `System.Attribute`: same `[Use]` ↔ `UseAttribute` suffix mapping,
-// but z42 makes the suffix mandatory (hard error, vs C#'s optional CA1710
-// warning). Single constructor init path, cached immutable instances. See
-// docs/reference/src/language/attributes.md and the attribute-handler-registry design.
+/// 所有用户自定义 attribute 的基类。
+///
+/// 用户 attribute 是派生自 `Attribute` 的普通类，类名必须以 `Attribute` 后缀结尾
+/// （E0444 强制）：`class RouteAttribute : Attribute`，使用时写去后缀的 `[Route]`。
+/// 经反射读回——`Type.GetCustomAttributes()` / `MethodInfo.GetCustomAttributes()` 返回活实例
+/// （重复调用同一缓存实例）。对标 C# `System.Attribute`，但 z42 把后缀设为强制（硬错误，
+/// 而非 C# 的可选 CA1710 警告）。
 public class Attribute {
 }

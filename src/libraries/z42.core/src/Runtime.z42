@@ -1,43 +1,26 @@
-// Std.Runtime — VM runtime entry points for dynamic zpkg loading and static dispatch.
+// Std.Runtime —— VM 运行期入口：动态 zpkg 加载与静态派发。
 //
-// These two builtins form the ground layer for on-demand workload dispatch: the launcher
-// names a workload (e.g. "z42.workload.ios"), the VM resolves and loads it via its
-// registered ZpkgResolver, then CallStatic drives its fixed-signature entry point.
+// 这两个 builtin 构成按需工作负载派发的底层：launcher 命名 workload（如
+// "z42.workload.ios"），VM 经注册的 ZpkgResolver 解析加载，CallStatic 驱动其固定签名入口点。
 //
-// Resolution is platform-transparent: the embedding apphost registers a resolver at VM
-// startup appropriate to its platform (filesystem search, Android AssetManager, iOS bundle,
-// etc.). z42 code always refers to zpkgs by logical name only.
+// 解析是平台透明的：嵌入的 apphost 在 VM 启动时注册适合其平台的 resolver（文件系统搜索、
+// Android AssetManager、iOS bundle 等）。z42 代码永远只按逻辑名引用 zpkg。
 //
-// Implementation status: DEFERRED — builtins __load_zpkg / __call_static are not yet
-// registered in the VM corelib. Implementation gate: reflection MVP + compiler self-hosting
-// complete. See 变更 runtime-dynamic-load-call/.
+// @warning 实现状态：DEFERRED——`__load_zpkg` / `__call_static` 尚未在 VM corelib 注册。
 namespace Std.Runtime;
 
+/// VM 运行期入口：按逻辑名动态加载 zpkg，并按全限定名静态派发固定签名入口点。
 public static class Runtime {
-    // Load a z42 package by logical name into the VM's type and function registry.
-    // Idempotent: loading the same name twice is a no-op.
-    //
-    // Resolution order (VM-internal, configured by the embedding apphost):
-    //   1. Already-loaded cache                             → no-op
-    //   2. Apphost-registered ZpkgResolver (if set)        → platform-specific (asset / bundle / custom)
-    //   3. Default filesystem search (priority order):
-    //        <repo>/.z42/workloads/<name>.zpkg             → project-local (highest)
-    //        $Z42_HOME/runtimes/<ver>/workloads/<name>/    → version-scoped workload dir
-    //        $Z42_HOME/workloads/<name>.zpkg               → global fallback
-    //
-    // Throws RuntimeException if the name cannot be resolved, the file is not a valid
-    // zpkg, or the zbc version is incompatible with the running VM.
+    /// 按逻辑名把 z42 包加载进 VM 的类型与函数注册表。幂等：同名重复加载是 no-op。
+    /// 名称无法解析、文件非合法 zpkg 或 zbc 版本与运行 VM 不兼容时抛 RuntimeException。
+    // 解析顺序（VM 内部，由嵌入 apphost 配置）：已加载缓存 → apphost 注册的 ZpkgResolver
+    // → 默认文件系统搜索（<repo>/.z42/workloads/<name>.zpkg → $Z42_HOME/runtimes/<ver>/... →
+    // $Z42_HOME/workloads/<name>.zpkg）。
     [Native("__load_zpkg")]
     public static extern void LoadZpkg(string name);
 
-    // Call a public static function by fully-qualified name.  The target function must
-    // have the exact signature (string[])->int; any mismatch throws RuntimeException.
-    //
-    // Typical use: after LoadZpkg registers a workload package, CallStatic drives its
-    // entry point and returns the process exit code.
-    //   int rc = Runtime.CallStatic("Z42.Workload.Ios.IosExport.Run", args);
-    //
-    // Throws RuntimeException if the FQN is not found or the signature does not match.
+    /// 按全限定名调用 public static 函数，目标必须是精确签名 `(string[])->int`；
+    /// 不匹配抛 RuntimeException。典型用于 LoadZpkg 后驱动 workload 入口并返回退出码。
     [Native("__call_static")]
     public static extern int CallStatic(string fqn, string[] args);
 }

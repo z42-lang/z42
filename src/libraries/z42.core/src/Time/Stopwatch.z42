@@ -1,48 +1,53 @@
 namespace Std.Time;
 
-// Stopwatch — 单调时钟，匹配 C# System.Diagnostics.Stopwatch 行为。
-// 内部使用 __time_now_mono_ns（单调高精度时钟）。
-// add-z42-time (2026-05-14) / rename-bench-now-ns-to-time-mono (2026-06-03)
+/// 单调时钟计时器（测耗时），匹配 C# `System.Diagnostics.Stopwatch`。挂钟跳变（NTP 调时）不影响它。
 public sealed class Stopwatch {
     private long _startNs;
     private long _elapsedNs;
     private bool _running;
 
-    // consolidate-core-intrinsics (A1): __time_now_mono_ns 唯一声明在 Std.Runtime.Clock。
+    // 委托 Std.Runtime.Clock.MonoNanos()（__time_now_mono_ns 唯一声明点）。
     private static long MonoNs() { return Clock.MonoNanos(); }
 
+    /// 新建，未启动，`Elapsed()` 为 0。
     public Stopwatch() {
         _startNs = 0;
         _elapsedNs = 0;
         _running = false;
     }
 
+    /// 新建并立即启动。
     public static Stopwatch StartNew() {
         Stopwatch sw = new Stopwatch();
         sw.Start();
         return sw;
     }
 
+    /// 是否在跑。
     public bool IsRunning() { return _running; }
 
+    /// 已在跑则无操作；否则从当前时刻继续累计。
     public void Start() {
         if (_running) return;
         _startNs = MonoNs();
         _running = true;
     }
 
+    /// 未在跑则无操作；否则把本段累加进总量。
     public void Stop() {
         if (!_running) return;
         _elapsedNs = _elapsedNs + (MonoNs() - _startNs);
         _running = false;
     }
 
+    /// 清零并重新计时。
     public void Restart() {
         _elapsedNs = 0;
         _startNs = MonoNs();
         _running = true;
     }
 
+    /// 累计时长（跑着时每次调用都变大）。
     public TimeSpan Elapsed() {
         long ns = _elapsedNs;
         if (_running) {

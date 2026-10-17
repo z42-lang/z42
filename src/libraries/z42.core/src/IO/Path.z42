@@ -1,24 +1,15 @@
 namespace Std.IO;
 
-// Path manipulation — pure string operations on `/`-separated paths.
-//
-// 2026-04-27 wave1-path-script: 5 个方法从 [Native] 迁纯脚本（BCL/Rust 对标 —
-// `System.IO.Path` / `std::path::Path` 都是字符串扫描）。
-//
-// **分隔符**：内部统一用 `/`（Windows 原生 API 也接受 `/`）。`IsRooted`/`Join`
-// 额外识别 Windows 根（盘符 `X:\`/`X:/` 与反斜杠），因为自举编译器 z42c 现在要在
-// Windows 上跑——`Environment.GetCurrentDirectory()` 返回 `D:\...`，若 rooted 检测
-// 漏判会被二次拼接成 `…/D:\…`（中间 `:`）→ 原生 create_dir 报 error 123。
+// 实现笔记：纯字符串操作，不碰文件系统。内部统一用 `/`；`IsRooted` / `Join` 额外识别
+// Windows 根（盘符 `X:\`/`X:/` 与反斜杠），否则 rooted 检测漏判会被二次拼接成
+// `…/D:\…`（中间 `:`）→ 原生 create_dir 报 error 123。
+
+/// 纯字符串的路径拼接与解析（`/` 分隔）。不解析符号链接、不要求路径存在。
 public static class Path {
-    // 平台分隔符常量（对应 BCL `Path.DirectorySeparatorChar`）。
-    // L1 硬编码 `/`；L3+ 引入 Windows 支持时，可改由 platform HAL 注入。
-    //
-    // 2026-04-27 add-path-separator: fix-static-field-access 之前导入静态字段
-    // 不可用，本常量引入被推迟；现在 `Math.PI` 等已能访问，路径打通。
+    /// 平台分隔符常量（恒为 '/'，对应 BCL `Path.DirectorySeparatorChar`）。
     public static char Separator = '/';
 
-    // 返回路径是否为绝对路径：Unix `/` 开头，或 Windows 根
-    // （盘符 `X:\`/`X:/`/`X:` 与反斜杠 `\` 开头的 UNC/当前盘根）。
+    /// 是否为绝对路径：Unix `/` 开头，或 Windows 根（盘符 `X:\`/`X:/`/`X:` 与 `\` 开头）。
     public static bool IsRooted(string path) {
         if (path.Length == 0) { return false; }
         char c0 = path.CharAt(0);
@@ -31,18 +22,9 @@ public static class Path {
         return false;
     }
 
-    // 词法规范化：折叠重复分隔符、去掉 `.` 段、抵消 `..` 段、去掉尾随 `/`。
-    //
-    // **纯词法**，不碰文件系统（不解析符号链接、不要求路径存在）——与 Rust
-    // `path-clean` / Go `filepath.Clean` 同口径，而非 `realpath(3)`。
-    //
-    // 为什么需要：`Join` 是纯拼接（见下），`Join(cwd, ".")` 得到 `<cwd>/.`，这个 `.` 段会一路
-    // 渗进用它派生的所有路径。实测后果：`z42 build` 打出
-    // `cache -> /Users/me/proj/./artifacts/debug/.cache`。**不在 `Join` 里顺手规范化**——
-    // 它是热路径且契约就是「纯词法拼接」，需要规范化的调用方显式调本方法。
-    //
-    // 边界：越过根的 `..`（`/a/../..`）在根处停住（与 Go/Rust 一致）；相对路径开头保留不了的
-    // `..`（`../a`）原样保留；结果为空时返回 `.`（相对）或 `/`（绝对）。
+    /// 词法规范化：折叠重复分隔符、去掉 `.` 段、抵消 `..` 段、去掉尾随 `/`，并把 `\` 统一换成
+    /// `/`。纯词法不碰文件系统（不解析符号链接、不要求路径存在）。越过根的 `..` 在根处停住；
+    /// 相对路径开头保留不了的 `..` 原样保留；结果为空时返回 `.`（相对）或 `/`（绝对）。
     public static string Normalize(string path) {
         if (path.Length == 0) { return "."; }
         string s = path.Replace("\\", "/");
@@ -83,8 +65,7 @@ public static class Path {
         return prefix + body;
     }
 
-    // 拼接两段路径。如果 b 是绝对路径（Unix `/` 或 Windows 根）则替换 a；
-    // 否则用 `/` 分隔（a 已有尾随 `/` 或 `\` 时不重复）。
+    /// 拼接两段路径：b 是绝对路径则替换 a；否则用 `/` 分隔（a 已有尾随分隔符时不重复）。
     // 保留 2-arg 重载：热路径 + params 的 normal-form 直传目标（非 params 精确 arity 重载优先）。
     public static string Join(string a, string b) {
         if (b.Length == 0) return a;
@@ -95,9 +76,7 @@ public static class Path {
         return a + "/" + b;
     }
 
-    // 多段路径拼接（stabilize-dispatch-keys 落地 params）。逐段左折叠复用 2-arg 语义
-    // （绝对段替换、尾分隔去重）。取代此前 `Path.Join(Path.Join(a,b),c)` 的嵌套写法。
-    // 决议：`Join(x, y)`→2-arg（非 params 精确 arity 优先）；`Join(a,b,c)`→打包；`Join(arr)`→直传。
+    /// 多段路径拼接：逐段左折叠复用 2-arg 语义（绝对段替换、尾分隔去重）。
     public static string Join(params string[] parts) {
         if (parts.Length == 0) { return ""; }
         string r = parts[0];
@@ -109,13 +88,11 @@ public static class Path {
         return r;
     }
 
-    // 目录分隔符判定：`/`（POSIX）与 `\`（Windows）都算。GetDirectoryName/GetFileName
-    // 解析路径段时须两者兼认——否则 Windows 反斜杠绝对路径（如 Z42_PORTABLE_VM=
-    // `C:\z42\bin\z42vm.exe`）会被当成「无分隔符」，父目录解析失败（fix-repl-sdk-layout）。
+    // 目录分隔符判定：`/`（POSIX）与 `\`（Windows）都算——否则 Windows 反斜杠绝对路径
+    // 会被当成「无分隔符」，父目录解析失败。
     private static bool _isSep(char c) { return c == '/' || c == '\\'; }
 
-    // 返回路径最后一段（filename）。末尾分隔符（`/` 或 `\`）视为目录分隔符，被跳过。
-    // 路径全是分隔符时返回 ""。
+    /// 返回路径最后一段（filename）。末尾分隔符被跳过；路径全是分隔符时返回 ""。
     public static string GetFileName(string path) {
         int n = path.Length;
         if (n == 0) return "";
@@ -131,8 +108,7 @@ public static class Path {
         return Path.Slice(path, start, end);
     }
 
-    // 返回 filename 中最后一个 `.` 之后的部分（不含 `.`）。
-    // ".bashrc" / "foo" / "" → ""（leading dot 不算扩展名）
+    /// 返回 filename 中最后一个 `.` 之后的部分（不含 `.`）。`.bashrc` / `foo` / "" → ""。
     public static string GetExtension(string path) {
         string name = Path.GetFileName(path);
         int n = name.Length;
@@ -147,7 +123,7 @@ public static class Path {
         return Path.Slice(name, dot + 1, n);
     }
 
-    // 返回 filename 去除最后扩展名（保留 leading dot 的整体名）。
+    /// 返回 filename 去除最后扩展名（保留 leading dot 的整体名）。
     public static string GetFileNameWithoutExtension(string path) {
         string name = Path.GetFileName(path);
         int n = name.Length;
@@ -162,7 +138,7 @@ public static class Path {
         return Path.Slice(name, 0, dot);
     }
 
-    // 返回路径父目录。无分隔符（`/` 或 `\`）时返回 ""；以分隔符开头时根目录返回其分隔符段。
+    /// 返回路径父目录。无分隔符时返回 ""；根目录返回其分隔符段。
     public static string GetDirectoryName(string path) {
         int n = path.Length;
         if (n == 0) return "";
@@ -184,39 +160,17 @@ public static class Path {
         return Path.Slice(path, 0, dirEnd);
     }
 
-    // extend-z42-io-glob-temp (2026-05-16)：Glob 匹配。
-    //
-    // 直接子项（不递归）。pattern 支持 `*`（任意序列）和 `?`（单字符），
-    // 大小写敏感。pattern 不应含 `/`。返回 sorted 全路径数组。
-    //
-    // 示例：
-    //   Path.Glob("/tmp/build", "*.zpkg")  → ["/tmp/build/a.zpkg", "/tmp/build/b.zpkg"]
-    //   Path.Glob("/tmp/build", "z42.?")   → ["/tmp/build/z42.a", "/tmp/build/z42.b"]
-    //
-    // 递归 glob（`**`）留 follow-up；当前用 `Directory.EnumerateRecursive` +
-    // 调用方 filter 等价。
+    /// 在 dir 下匹配直接子项（不递归）。pattern 支持 `*`（任意序列）与 `?`（单字符），
+    /// 大小写敏感，不应含 `/`。返回排好序的全路径数组。
     [Native("__path_glob")]
     public static extern string[] Glob(string dir, string pattern);
 
-    // add-z42-io-ergonomics-bytes-glob (2026-05-27): 递归 glob 便利方法。
-    //
-    // 在 `dir` 下递归找所有匹配 `pattern` 的文件，返回**绝对路径**排序数组。
-    // pattern 支持：
-    //   - `*` 匹配除 `/` 外任意字符序列
-    //   - `?` 匹配单字符
-    //   - 不带 `/` 时只匹配 basename（如 `*.z42` = 所有 .z42 文件）
-    //   - 带 `/` 时匹配相对 dir 的完整子路径（如 `tests/*.z42` = 名为
-    //     tests 的子目录下的 .z42 文件）
-    //
-    // 示例：
-    //   GlobRecursive("src/libraries", "*.z42") → 所有 stdlib 源文件
-    //   GlobRecursive("src/tests", "source.z42") → 所有 golden test 入口
-    //
-    // 不支持 `**` 显式 wildcard —— 递归本身就是"全展开"，再加 `**` 语义重复。
+    /// 在 dir 下递归找所有匹配 pattern 的文件，返回绝对路径排序数组。pattern 支持 `*`（跨 `/`）
+    /// 与 `?`；不带 `/` 时只匹配 basename，带 `/` 时匹配相对 dir 的完整子路径。不支持 `**`。
     public static string[] GlobRecursive(string dir, string pattern) {
         if (!Directory.Exists(dir)) return new string[0];
         string[] rels = Directory.EnumerateRecursive(dir);
-        // First pass: count matches
+        // 第一遍：计数。
         int n = 0;
         bool patternHasSlash = _containsChar(pattern, '/');
         int i = 0;
@@ -226,7 +180,7 @@ public static class Path {
             }
             i = i + 1;
         }
-        // Second pass: collect absolute paths
+        // 第二遍：收集绝对路径。
         string[] hits = new string[n];
         int j = 0;
         i = 0;
@@ -237,13 +191,12 @@ public static class Path {
             }
             i = i + 1;
         }
-        // Sort for determinism (EnumerateRecursive order is OS-dependent:
-        // filesystem enumeration is never guaranteed alphabetical).
+        // 排序保证确定性（EnumerateRecursive 顺序 OS-dependent）。
         _sortStrings(hits);
         return hits;
     }
 
-    // Glob matcher: pattern over either full relative path or just basename.
+    // Glob 匹配：pattern 作用于完整相对路径或仅 basename。
     static bool _matchesGlob(string rel, string pattern, bool patternHasSlash) {
         string target;
         if (patternHasSlash) {
@@ -254,20 +207,17 @@ public static class Path {
         return _globMatch(target, 0, pattern, 0);
     }
 
-    // Recursive glob match — `*` matches any (except `/` would, but we
-    // already split). `?` matches one char. Simple backtracking suffices
-    // for stdlib script-level use; not a hot path.
+    // 递归 glob 匹配：`*` 匹配任意序列，`?` 匹配单字符；简单回溯即可，非热路径。
     static bool _globMatch(string s, int si, string p, int pi) {
         while (pi < p.Length) {
             char pc = p.CharAt(pi);
             if (pc == '*') {
-                // Skip consecutive *s
+                // 跳过连续的 *。
                 while (pi < p.Length && p.CharAt(pi) == '*') {
                     pi = pi + 1;
                 }
-                if (pi == p.Length) return true;  // trailing * matches anything
-                // Try every possible position for `s[si..]` to start the
-                // remaining pattern.
+                if (pi == p.Length) return true;  // 尾部 * 匹配任意
+                // 尝试 s[si..] 的每个位置作为剩余 pattern 的起点。
                 while (si <= s.Length) {
                     if (_globMatch(s, si, p, pi)) return true;
                     si = si + 1;
@@ -294,8 +244,7 @@ public static class Path {
         return false;
     }
 
-    // Simple insertion sort (z42.collections has no public Sort yet;
-    // glob result sets are small — typical < 200 paths).
+    // 简单插入排序（glob 结果集很小，典型 < 200 条）。
     static void _sortStrings(string[] arr) {
         int i = 1;
         while (i < arr.Length) {

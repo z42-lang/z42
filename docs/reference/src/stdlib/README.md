@@ -15,14 +15,7 @@ z42 标准库各包的公开 API。每页覆盖一个包：类型、方法签名
 
 | 页 | 覆盖 |
 |---|---|
-| [集合](collections-core.md) | `List<T>` `Dictionary<TKey,TValue>` `HashSet<T>` `KeyValuePair<K,V>` `ReadOnlyCollection<T>` |
-| [字符串方法](string.md) | `string` 的实例方法与静态方法全表 |
-| [日期与时间](time.md) | `DateTime` `TimeSpan` `DateTimeOffset` `Stopwatch` |
-| [反射](reflection.md) | `Type` `typeof` 元数据查询、特性读取 |
-| [运行时设置查询](runtime-config.md) | `Std.Runtime.RuntimeConfig`——只读查询生效的运行时旋钮 |
-| [应用自定义配置](app-properties.md) | `Std.Runtime.AppProperties`——清单 `[properties]` 表的运行时读取 |
-| [平台与宿主信息](platform.md) | `Std.Platform`（OS / 架构 / 能力查询）`Std.OperatingSystem` `OSKind` `ArchKind` |
-| [GC 与句柄](gc.md) | `Std.GC` `HeapStats` `GCHandle` / `GCHandleType` `WeakHandle` `SoftHandle` |
+| [类型总览](core.md) | 一个类型一页（`Array` `String` `Math` `Type` `GC` `DateTime` 等 150+）；入口页列全部类型的链接 |
 
 ### 数据与文本
 
@@ -41,7 +34,6 @@ z42 标准库各包的公开 API。每页覆盖一个包：类型、方法签名
 
 | 页 | 包 | 覆盖 |
 |---|---|---|
-| [控制台与文件](io-file.md) | `z42.core` | `Console` `ConsoleError` `File` `Directory` `Path` `Environment` |
 | [流式 I/O 与子进程](io.md) | `z42.io` | `Stream` 家族、文件流、文本/二进制读写器、`Process` / `Ansi` |
 | [网络](net.md) | `z42.net` | TCP / UDP / HTTP / TLS / WebSocket / `IPAddress` / DNS |
 | [并发](threading.md) | `z42.threading` | `Thread` `Channel<T>` `Mutex<T>` `RwLock<T>` `Timer` |

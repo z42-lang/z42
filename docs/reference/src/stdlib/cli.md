@@ -36,6 +36,8 @@ argv 从 `Std.IO.Environment.GetCommandLineArgs()` 取，**不含 program name**
 
 ## ArgParser
 
+`src/libraries/z42.cli/src/ArgParser.z42:37`
+
 声明参数并解析 argv。所有 Add* 方法按调用顺序记录；Parse 可对同一 parser 重复调用。
 
 ```z42
@@ -57,53 +59,79 @@ public class ArgParser {
 
 ### ArgParser(string programName, string description)
 
+`src/libraries/z42.cli/src/ArgParser.z42:78`
+
 用 programName 与 description 创建一个参数解析器。
 
 ### void AddFlag(string longName, string shortName, string help)
+
+`src/libraries/z42.cli/src/ArgParser.z42:105`
 
 布尔开关：出现即 true。shortName 传 "" 表示无短名；`-h` / `--help` 自动注册，无需手加。
 
 ### void AddOption(string longName, string shortName, string help, string defaultValue)
 
+`src/libraries/z42.cli/src/ArgParser.z42:114`
+
 注册带值 option（`--name value` 或 `--name=value`）；未出现时取 defaultValue。
 
 ### void AddOptionWithEnv(string longName, string shortName, string help, string defaultValue, string envVarName)
+
+`src/libraries/z42.cli/src/ArgParser.z42:128`
 
 注册带环境变量后备的 option。取值优先级 argv > 环境变量 > defaultValue； 环境变量不存在或为空串时落到 defaultValue；help 自动追加 " (env: $NAME)"。
 
 ### void AddMutuallyExclusive(string[] names)
 
+`src/libraries/z42.cli/src/ArgParser.z42:142`
+
 声明一组 option long-name，argv 中至多出现一个；名字必须已注册，否则当场抛 CliException。
 
 ### void AddRepeatedOption(string longName, string shortName, string help)
+
+`src/libraries/z42.cli/src/ArgParser.z42:176`
 
 注册可重复 option：每次出现都追加；用 `GetRepeatedOption` 取全部，`GetOption` 取最后一个。 默认值固定 ""，help 自动追加 " (repeatable)"。
 
 ### void AllowExtras()
 
+`src/libraries/z42.cli/src/ArgParser.z42:189`
+
 一次性开关：开启后未知 flag / option 进 `ParseResult.Extras()` 而不抛异常。
 
 ### void AddRequiredOption(string longName, string shortName, string help)
+
+`src/libraries/z42.cli/src/ArgParser.z42:195`
 
 注册必填 option：argv 里没写时 Parse 抛 CliException。默认值固定 ""， help 自动追加 " (required)"。
 
 ### void AddPositional(string name, string help)
 
+`src/libraries/z42.cli/src/ArgParser.z42:208`
+
 注册必填 positional，按声明顺序匹配 argv 中非 flag/option 的部分。
 
 ### void AddOptionalPositional(string name, string help)
+
+`src/libraries/z42.cli/src/ArgParser.z42:223`
 
 注册可选 positional：缺省时 `GetPositional(i)` 返回 ""。必须在所有必填 positional 之后声明，否则 `AddPositional` 抛 CliException。help 中渲染为 `[name]`。
 
 ### ParseResult Parse(string[] argv)
 
+`src/libraries/z42.cli/src/ArgParser.z42:234`
+
 解析 argv（不含 program name），返回 ParseResult；失败抛 CliException。
 
 ### string HelpText()
 
+`src/libraries/z42.cli/src/ArgParser.z42:499`
+
 生成 USAGE / FLAGS / OPTIONS / ARGS 四段帮助文本。
 
 ## CliException
+
+`src/libraries/z42.cli/src/CliException.z42:4`
 
 CLI 声明期、解析期、取值期错误的统一异常；ToString() 输出 "CliException: <message>"。
 
@@ -115,9 +143,13 @@ public class CliException : Exception {
 
 ### CliException(string message)
 
+`src/libraries/z42.cli/src/CliException.z42:6`
+
 用 message 创建异常。
 
 ## CommandResolution
+
+`src/libraries/z42.cli/src/CommandResolution.z42:4`
 
 SubcommandRouter.Resolve 的结果：IsMatch / IsHelp / IsUnknown 恰好一个为真。
 
@@ -140,53 +172,79 @@ public sealed class CommandResolution {
 
 ### CommandResolution(int kind, string[] path, ParseResult result, string helpText, string errorMessage)
 
+`src/libraries/z42.cli/src/CommandResolution.z42:13`
+
 创建一个 CommandResolution（kind 0=match / 1=help / 2=unknown）。
 
 ### static CommandResolution Match(ParseResult result)
+
+`src/libraries/z42.cli/src/CommandResolution.z42:23`
 
 命中叶子命令且未请求 help。
 
 ### static CommandResolution Help(string helpText)
 
+`src/libraries/z42.cli/src/CommandResolution.z42:28`
+
 某层请求了 help；`helpText` 是该层的帮助文本。
 
 ### static CommandResolution Unknown(string errorMessage, string helpText)
+
+`src/libraries/z42.cli/src/CommandResolution.z42:33`
 
 某 router 层遇到不认识的 token。
 
 ### bool IsMatch()
 
+`src/libraries/z42.cli/src/CommandResolution.z42:38`
+
 是否命中叶子命令（未请求 help）。
 
 ### bool IsHelp()
+
+`src/libraries/z42.cli/src/CommandResolution.z42:41`
 
 是否在任一层遇到 `-h` / `--help`（或某层无剩余 token，或叶子 ShowHelp() 为真）。
 
 ### bool IsUnknown()
 
+`src/libraries/z42.cli/src/CommandResolution.z42:44`
+
 是否在某 router 层遇到不认识的 token。
 
 ### string[] Path()
+
+`src/libraries/z42.cli/src/CommandResolution.z42:47`
 
 已走过的命中链，如 `["build", "package"]`。
 
 ### ParseResult Result()
 
+`src/libraries/z42.cli/src/CommandResolution.z42:50`
+
 叶子的 ParseResult；仅在 IsMatch() 时有效。
 
 ### string HelpText()
+
+`src/libraries/z42.cli/src/CommandResolution.z42:53`
 
 相应层的帮助文本；仅在 IsHelp() / IsUnknown() 时有效。
 
 ### string ErrorMessage()
 
+`src/libraries/z42.cli/src/CommandResolution.z42:56`
+
 错误消息；仅在 IsUnknown() 时有效。
 
 ### CommandResolution Prepend(string name)
 
+`src/libraries/z42.cli/src/CommandResolution.z42:59`
+
 递归回卷时在 path 头部前插祖先子命令名；原地修改并返回 this 以便链式调用（Resolve 内部使用）。
 
 ## _RepeatedList
+
+`src/libraries/z42.cli/src/ParseResult.z42:5`
 
 
 ```z42
@@ -201,20 +259,32 @@ public class _RepeatedList {
 
 ### string[] _values
 
+`src/libraries/z42.cli/src/ParseResult.z42:6`
+
 
 ### int _count
+
+`src/libraries/z42.cli/src/ParseResult.z42:7`
 
 
 ### _RepeatedList()
 
+`src/libraries/z42.cli/src/ParseResult.z42:9`
+
 
 ### void Append(string v)
+
+`src/libraries/z42.cli/src/ParseResult.z42:14`
 
 
 ### string[] Snapshot()
 
+`src/libraries/z42.cli/src/ParseResult.z42:26`
+
 
 ## _MutexGroup
+
+`src/libraries/z42.cli/src/ParseResult.z42:36`
 
 
 ```z42
@@ -227,14 +297,22 @@ public class _MutexGroup {
 
 ### string[] _names
 
+`src/libraries/z42.cli/src/ParseResult.z42:37`
+
 
 ### int _count
+
+`src/libraries/z42.cli/src/ParseResult.z42:38`
 
 
 ### _MutexGroup(string[] names)
 
+`src/libraries/z42.cli/src/ParseResult.z42:40`
+
 
 ## ParseResult
+
+`src/libraries/z42.cli/src/ParseResult.z42:47`
 
 Parse 的返回值。取值方法一律按 long name 查找；名字未注册抛 CliException。
 
@@ -275,108 +353,170 @@ public class ParseResult {
 
 ### string[] _flagLongs
 
+`src/libraries/z42.cli/src/ParseResult.z42:49`
+
 
 ### bool[] _flagValues
+
+`src/libraries/z42.cli/src/ParseResult.z42:50`
 
 
 ### int _flagCount
 
+`src/libraries/z42.cli/src/ParseResult.z42:51`
+
 
 ### string[] _optionLongs
+
+`src/libraries/z42.cli/src/ParseResult.z42:54`
 
 
 ### string[] _optionValues
 
+`src/libraries/z42.cli/src/ParseResult.z42:55`
+
 
 ### bool[] _optionWasSet
+
+`src/libraries/z42.cli/src/ParseResult.z42:58`
 
 
 ### bool[] _optionRepeated
 
+`src/libraries/z42.cli/src/ParseResult.z42:60`
+
 
 ### _RepeatedList[] _optionLists
+
+`src/libraries/z42.cli/src/ParseResult.z42:61`
 
 
 ### int _optionCount
 
+`src/libraries/z42.cli/src/ParseResult.z42:62`
+
 
 ### string[] _extras
+
+`src/libraries/z42.cli/src/ParseResult.z42:65`
 
 
 ### int _extrasCount
 
+`src/libraries/z42.cli/src/ParseResult.z42:66`
+
 
 ### bool _allowExtras
+
+`src/libraries/z42.cli/src/ParseResult.z42:67`
 
 
 ### string[] _positionalNames
 
+`src/libraries/z42.cli/src/ParseResult.z42:70`
+
 
 ### string[] _positionalValues
+
+`src/libraries/z42.cli/src/ParseResult.z42:71`
 
 
 ### int _positionalCount
 
+`src/libraries/z42.cli/src/ParseResult.z42:72`
+
 
 ### bool _showHelp
+
+`src/libraries/z42.cli/src/ParseResult.z42:74`
 
 
 ### ParseResult()
 
+`src/libraries/z42.cli/src/ParseResult.z42:76`
+
 
 ### bool GetFlag(string longName)
+
+`src/libraries/z42.cli/src/ParseResult.z42:96`
 
 返回指定 long-name flag 是否出现过。
 
 ### string GetOption(string longName)
 
+`src/libraries/z42.cli/src/ParseResult.z42:106`
+
 返回 option 的最终值（argv → env → default 三级解析后的结果）。
 
 ### bool WasOptionSet(string longName)
+
+`src/libraries/z42.cli/src/ParseResult.z42:117`
 
 该 option 是否真的写在 argv 里（区分「用户显式传了默认值」和「默认值兜底」）。 env 后备命中时仍是 false。
 
 ### string[] GetRepeatedOption(string longName)
 
+`src/libraries/z42.cli/src/ParseResult.z42:128`
+
 按 argv 顺序返回重复 option 的全部值；未传过返回空数组。 对非 `AddRepeatedOption` 声明的 option 抛 `CliException`。
 
 ### string[] Extras()
+
+`src/libraries/z42.cli/src/ParseResult.z42:143`
 
 返回 AllowExtras 收集到的未知 argv token；未开启时返回空数组。
 
 ### int ExtrasCount()
 
+`src/libraries/z42.cli/src/ParseResult.z42:154`
+
 AllowExtras 收集到的未知 token 个数；未开启时为 0。
 
 ### int GetIntOption(string longName)
+
+`src/libraries/z42.cli/src/ParseResult.z42:162`
 
 取值后走 int.Parse；失败抛 CliException。
 
 ### long GetLongOption(string longName)
 
+`src/libraries/z42.cli/src/ParseResult.z42:171`
+
 取值后走 long.Parse；失败抛 CliException。
 
 ### double GetDoubleOption(string longName)
+
+`src/libraries/z42.cli/src/ParseResult.z42:180`
 
 取值后走 double.Parse；失败抛 CliException。
 
 ### bool GetBoolOption(string longName)
 
+`src/libraries/z42.cli/src/ParseResult.z42:190`
+
 只认 `true` / `false`（ASCII 大小写不敏感），其它值抛 CliException。 用于 `--enabled=true` 这种显式布尔 option，与 `GetFlag` 的「出现即真」不同。
 
 ### string GetPositional(int index)
+
+`src/libraries/z42.cli/src/ParseResult.z42:210`
 
 返回第 index 个 positional（0-based）。边界为**声明总数**（非已提供数）： 已声明但未提供的可选 positional 返回 ""；index 超出声明总数抛 CliException。
 
 ### int PositionalCount()
 
+`src/libraries/z42.cli/src/ParseResult.z42:219`
+
 argv 里实际提供的 positional 个数。
 
 ### bool ShowHelp()
 
+`src/libraries/z42.cli/src/ParseResult.z42:222`
+
 argv 里出现过 `-h` / `--help`。
 
 ## SubcommandRouter
+
+`src/libraries/z42.cli/src/SubcommandRouter.z42:5`
 
 子命令路由：每个子命令要么是叶子 ArgParser，要么是嵌套 SubcommandRouter。 同名重复注册会覆盖先前那条（叶子与嵌套可互相覆盖）。
 
@@ -395,37 +535,55 @@ public sealed class SubcommandRouter {
 
 ### SubcommandRouter(string programName, string description)
 
+`src/libraries/z42.cli/src/SubcommandRouter.z42:19`
+
 用 programName 与 description 创建一个子命令路由。
 
 ### void Add(string name, string description, ArgParser parser)
+
+`src/libraries/z42.cli/src/SubcommandRouter.z42:32`
 
 注册叶子子命令（其参数由 `parser` 解析）；同名重复注册会覆盖。
 
 ### void AddRouter(string name, string description, SubcommandRouter child)
 
+`src/libraries/z42.cli/src/SubcommandRouter.z42:56`
+
 注册嵌套子命令路由（`prog build package …`）；`child` 处理该名字之后的 token。 同名重复注册会覆盖（叶子 → 路由或路由 → 路由）。
 
 ### SubcommandMatch? Match(string[] argv)
+
+`src/libraries/z42.cli/src/SubcommandRouter.z42:79`
 
 单层 sugar：只看 argv[0]。命中叶子返回 `SubcommandMatch`；其余情形（argv 为空 / argv[0] 是 `--help` / `-h` / 名字不认识）一律返回 null。不处理嵌套子命令。
 
 ### CommandResolution Resolve(string[] argv)
 
+`src/libraries/z42.cli/src/SubcommandRouter.z42:102`
+
 推荐入口：递归下钻整棵命令树，返回三态互斥的 `CommandResolution` （IsMatch / IsHelp / IsUnknown 恰好一个为真）。叶子 `ArgParser.Parse` 的 option 级错误（未知 flag / 缺值 / 缺 positional）以 `CliException` 向上透传。
 
 ### string HelpText()
+
+`src/libraries/z42.cli/src/SubcommandRouter.z42:136`
 
 渲染顶层帮助：programName - description + 一段 SUBCOMMANDS: 列表。
 
 ### int Count()
 
+`src/libraries/z42.cli/src/SubcommandRouter.z42:151`
+
 已注册的子命令个数。
 
 ### bool Has(string name)
 
+`src/libraries/z42.cli/src/SubcommandRouter.z42:154`
+
 指定名字是否已注册为子命令。
 
 ## SubcommandMatch
+
+`src/libraries/z42.cli/src/SubcommandRouter.z42:200`
 
 单层子命令命中的结果：名字 + 叶子 ParseResult。
 
@@ -439,13 +597,19 @@ public sealed class SubcommandMatch {
 
 ### SubcommandMatch(string name, ParseResult result)
 
+`src/libraries/z42.cli/src/SubcommandRouter.z42:205`
+
 用命中的子命令名与解析结果创建匹配对象。
 
 ### string Name()
 
+`src/libraries/z42.cli/src/SubcommandRouter.z42:211`
+
 命中的子命令名。
 
 ### ParseResult Result()
+
+`src/libraries/z42.cli/src/SubcommandRouter.z42:214`
 
 命中的叶子 ParseResult。
 

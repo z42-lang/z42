@@ -1,95 +1,89 @@
 namespace Std.Time;
 
-// DateTime — UTC 时刻值，内部单位 Unix epoch ms（i64）。
-// 直接镜像 __time_now_ms；DateTime - DateTime 返回 TimeSpan（ms × 1_000_000 = ns）。
-// add-z42-time (2026-05-14)
+/// UTC 时刻值，内部单位 Unix epoch 毫秒（i64）。不可变：算术方法返回新对象。
+/// `ToString()` 返回 Unix 毫秒数字串；可读输出用 `ToIso8601()`。
 public sealed class DateTime {
     private long _unixMs;
 
+    /// 由 Unix 毫秒构造。
     public DateTime(long unixMs) {
         _unixMs = unixMs;
     }
 
-    // consolidate-core-intrinsics (A1): __time_now_ms 唯一声明在 Std.Runtime.Clock。
+    // 委托 Std.Runtime.Clock.WallMillis()（__time_now_ms 唯一声明点）。
     private static long NowMs() { return Clock.WallMillis(); }
 
     // ── 工厂方法 ──────────────────────────────────────────────────────────────
 
+    /// 当前 UTC 时刻。
     public static DateTime UtcNow() { return new DateTime(NowMs()); }
 
+    /// 由 Unix 毫秒构造。
     public static DateTime FromUnixMs(long unixMs) {
         return new DateTime(unixMs);
     }
 
+    /// Unix 纪元（1970-01-01T00:00:00Z）。
     public static DateTime UnixEpoch() { return new DateTime(0); }
 
     // ── 访问器 ────────────────────────────────────────────────────────────────
 
+    /// Unix 毫秒。
     public long UnixMs() { return _unixMs; }
 
-    // ── 日历分解 (add-datetime-calendar 2026-05-28) ──────────────────────────
-    //
-    // 公开 `_civilFromDays` / `_daysFromCivil` 暗藏的日历能力 — Year /
-    // Month / Day 访问器、time-of-day 分解、闰年判定、给定年月的天数、
-    // 显式日历分量的 UTC 构造器、月/年加法（month-end 截断匹配 .NET /
-    // Python `dateutil.relativedelta`）。
-    //
-    // 所有访问器均按 UTC 取值。本地时间需要先 `ToIso8601With(tz)` 投影；
-    // 计算 `LocalYear()` 等便利方法等待 timezone-future API 演进。
+    // ── 日历分解 ─────────────────────────────────────────────────────────────
+    // 所有访问器均按 UTC 取值；本地时间先 `ToIso8601With(tz)` 投影。
 
-    /// Year (Gregorian, including BCE — returns negative ints for years
-    /// before year 1; year 0 doesn't exist in Gregorian, see Howard
-    /// Hinnant's `civil_from_days`).
+    /// 年份（Gregorian，含公元前返回负数；公历没有 0 年）。
     public int Year() {
         long days = _DateTimeHelpers._floorDiv(_unixMs, 86400000L);
         long[] ymd = _DateTimeHelpers._civilFromDays(days);
         return (int)ymd[0];
     }
 
-    /// Month, 1..12.
+    /// 月份，1..12。
     public int Month() {
         long days = _DateTimeHelpers._floorDiv(_unixMs, 86400000L);
         long[] ymd = _DateTimeHelpers._civilFromDays(days);
         return (int)ymd[1];
     }
 
-    /// Day of month, 1..31.
+    /// 日，1..31。
     public int Day() {
         long days = _DateTimeHelpers._floorDiv(_unixMs, 86400000L);
         long[] ymd = _DateTimeHelpers._civilFromDays(days);
         return (int)ymd[2];
     }
 
-    /// Hour of day, 0..23 (UTC).
+    /// 时，0..23（UTC）。
     public int Hour() {
         return (int)(_DateTimeHelpers._floorMod(_unixMs, 86400000L) / 3600000L);
     }
 
-    /// Minute of hour, 0..59 (UTC).
+    /// 分，0..59（UTC）。
     public int Minute() {
         return (int)((_DateTimeHelpers._floorMod(_unixMs, 86400000L) / 60000L) % 60L);
     }
 
-    /// Second of minute, 0..59 (UTC).
+    /// 秒，0..59（UTC）。
     public int Second() {
         return (int)((_DateTimeHelpers._floorMod(_unixMs, 86400000L) / 1000L) % 60L);
     }
 
-    /// Millisecond of second, 0..999.
+    /// 毫秒，0..999。
     public int Millisecond() {
         return (int)(_DateTimeHelpers._floorMod(_unixMs, 1000L));
     }
 
-    /// Day of week, 0=Sunday .. 6=Saturday (matches .NET / JS `getDay()`).
-    /// 1970-01-01 was a Thursday → days mod 7 → 0=Thursday; shift by 4 to
-    /// land Sunday at 0.
+    /// 星期几，0=Sunday .. 6=Saturday（对齐 .NET / JS `getDay()`）。
+    // 实现：1970-01-01 是周四 → days mod 7 得 0=Thursday，加 4 归到 Sunday=0。
     public int DayOfWeek() {
         long days = _DateTimeHelpers._floorDiv(_unixMs, 86400000L);
         long shifted = _DateTimeHelpers._floorMod(days + 4L, 7L);
         return (int)shifted;
     }
 
-    /// Day of year, 1..366 (366 only on leap-year inputs).
+    /// 一年中的第几天，1..366。
     public int DayOfYear() {
         int y = this.Year();
         long startOfYear = _DateTimeHelpers._daysFromCivil((long)y, 1L, 1L);
@@ -97,16 +91,14 @@ public sealed class DateTime {
         return (int)(thisDay - startOfYear + 1L);
     }
 
-    /// Gregorian leap-year predicate: year is leap iff divisible by 4
-    /// AND (not divisible by 100 OR divisible by 400).
+    /// 是否闰年：能被 4 整除且（不能被 100 整除或能被 400 整除）。
     public static bool IsLeapYear(int year) {
         if (year % 4 != 0) { return false; }
         if (year % 100 != 0) { return true; }
         return year % 400 == 0;
     }
 
-    /// Days in month for a given year. Month 1..12; year affects only
-    /// February. Throws `ArgumentException` on out-of-range month.
+    /// 给定年月的天数。Month 1..12；越界抛 `ArgumentException`。
     public static int DaysInMonth(int year, int month) {
         if (month < 1 || month > 12) {
             throw new ArgumentException(
@@ -116,13 +108,12 @@ public sealed class DateTime {
             if (DateTime.IsLeapYear(year)) { return 29; }
             return 28;
         }
-        // April, June, September, November = 30; rest 31.
+        // 4、6、9、11 月 = 30 天；其余 31。
         if (month == 4 || month == 6 || month == 9 || month == 11) { return 30; }
         return 31;
     }
 
-    /// Construct a DateTime from explicit calendar components (UTC).
-    /// Throws `ArgumentException` on out-of-range components.
+    /// 由显式日历分量构造 UTC 时刻。越界抛 `ArgumentException`。
     public static DateTime Utc(int year, int month, int day, int hour, int minute, int second, int millis) {
         if (month < 1 || month > 12) {
             throw new ArgumentException("DateTime.Utc: month must be 1..12, got " + month.ToString());
@@ -153,43 +144,44 @@ public sealed class DateTime {
         return new DateTime(ms);
     }
 
-    /// Convenience: midnight UTC of the given date.
+    /// 给定日期的 UTC 零点。
     public static DateTime UtcDate(int year, int month, int day) {
         return DateTime.Utc(year, month, day, 0, 0, 0, 0);
     }
 
-    /// Add `days` days. Negative values supported. Calendar-aware via
-    /// the underlying millisecond arithmetic.
+    /// 加 `days` 天（可为负）。
     public DateTime AddDays(int days) {
         return new DateTime(_unixMs + (long)days * 86400000L);
     }
 
+    /// 加 `hours` 小时。
     public DateTime AddHours(int hours) {
         return new DateTime(_unixMs + (long)hours * 3600000L);
     }
 
+    /// 加 `minutes` 分钟。
     public DateTime AddMinutes(int minutes) {
         return new DateTime(_unixMs + (long)minutes * 60000L);
     }
 
+    /// 加 `seconds` 秒。
     public DateTime AddSeconds(int seconds) {
         return new DateTime(_unixMs + (long)seconds * 1000L);
     }
 
+    /// 加 `millis` 毫秒。
     public DateTime AddMilliseconds(long millis) {
         return new DateTime(_unixMs + millis);
     }
 
-    /// Add `months` calendar months. The day-of-month clamps to the last
-    /// day of the target month (March 31 + 1 month = April 30, not May 1).
-    /// Matches .NET `DateTime.AddMonths` / Python `dateutil.relativedelta`.
-    /// Time-of-day preserved verbatim.
+    /// 加 `months` 个日历月；日号截断到目标月最后一天（1 月 31 日 + 1 月 = 2 月 28/29 日）。
+    /// 时分秒毫秒原样保留。
     public DateTime AddMonths(int months) {
         int y = this.Year();
         int m = this.Month();
         int d = this.Day();
         int totalMonth = m - 1 + months;   // 0-indexed
-        // Floor-divide totalMonth by 12 for the year delta (handles negative).
+        // totalMonth 对 12 向下取整得年增量（处理负数）。
         int yearDelta;
         int newMonthIdx;
         if (totalMonth >= 0) {
@@ -208,60 +200,55 @@ public sealed class DateTime {
                             this.Hour(), this.Minute(), this.Second(), this.Millisecond());
     }
 
-    /// Add `years` years. Feb 29 + 1 year in a non-leap year becomes
-    /// Feb 28 (clamped to last day of month).
+    /// 加 `years` 年；闰年 2 月 29 日在非闰年截断为 2 月 28 日。
     public DateTime AddYears(int years) {
         return this.AddMonths(years * 12);
     }
 
     // ── 算术 ──────────────────────────────────────────────────────────────────
 
+    /// 与 `other` 的差值（TimeSpan）。
     public TimeSpan Subtract(DateTime other) {
         return TimeSpan.FromNanoseconds((_unixMs - other.UnixMs()) * 1000000);
     }
 
+    /// 加 TimeSpan。
     public DateTime Add(TimeSpan span) {
         return new DateTime(_unixMs + span.TotalMilliseconds());
     }
 
+    /// 减 TimeSpan。
     public DateTime SubtractSpan(TimeSpan span) {
         return new DateTime(_unixMs - span.TotalMilliseconds());
     }
 
     // ── 比较 ──────────────────────────────────────────────────────────────────
 
+    /// 是否晚于 `other`。
     public bool IsAfter(DateTime other)  { return _unixMs >  other.UnixMs(); }
+    /// 是否早于 `other`。
     public bool IsBefore(DateTime other) { return _unixMs <  other.UnixMs(); }
+    /// 是否同一时刻。
     public bool Equals(DateTime other)   { return _unixMs == other.UnixMs(); }
 
+    /// 返回 Unix 毫秒数字串。
     public override string ToString() {
         return _unixMs.ToString();
     }
 
-    // ── ISO-8601 格式化 (add-datetime-iso8601 2026-05-26) ────────────────────
+    // ── ISO-8601 格式化 ─────────────────────────────────────────────────────
 
-    // "YYYY-MM-DDTHH:MM:SS.sssZ" — 4-digit year, zero-padded fields, 毫秒 3 位，UTC `Z`。
-    // 等价 bash `date -u +%Y-%m-%dT%H:%M:%S.%3NZ`。
+    /// 格式化为 `"YYYY-MM-DDTHH:MM:SS.sssZ"`（毫秒 3 位，UTC `Z`）。
     public string ToIso8601() {
         return this._formatIsoDate() + "T" + this._formatIsoTimeOfDay(true);
     }
 
-    // "YYYY-MM-DDTHH:MM:SSZ" — 不带毫秒。等价 bash `date -u +%Y-%m-%dT%H:%M:%SZ`
-    // （`scripts/_lib/package_helpers.sh::pkg_emit_manifest` 用法）。
+    /// 格式化为 `"YYYY-MM-DDTHH:MM:SSZ"`（不带毫秒）。
     public string ToIso8601Basic() {
         return this._formatIsoDate() + "T" + this._formatIsoTimeOfDay(false);
     }
 
-    // add-timezone-basics (2026-05-27): render this UTC moment in the
-    // given timezone's local clock. Suffix is `±HH:MM` (or `Z` for UTC).
-    //
-    //   var jst = TimeZone.FromName("JST");
-    //   DateTime.FromUnixMs(1700000000000).ToIso8601With(jst)
-    //   → "2023-11-15T07:13:20.000+09:00"
-    //
-    // Always emits milliseconds — symmetric with `ToIso8601`. Pass a
-    // `TimeZone.Utc()` to get the same output as `ToIso8601()` modulo the
-    // offset rendering (`+00:00` vs `Z`).
+    /// 以给定固定偏移时区渲染本地墙钟时刻，后缀 `±HH:MM`（UTC 为 `Z`）。总是带毫秒。
     public string ToIso8601With(TimeZone tz) {
         long shifted = _unixMs + (long)tz.OffsetMinutes() * 60000L;
         long days = _DateTimeHelpers._floorDiv(shifted, 86400000L);
@@ -276,27 +263,16 @@ public sealed class DateTime {
             + "." + _DateTimeHelpers._pad3(ms) + tz.ToOffsetString();
     }
 
-    // ── ISO-8601 解析 (add-datetime-iso8601-parse 2026-05-27) ───────────────
+    // ── ISO-8601 解析 ────────────────────────────────────────────────────────
 
-    // Inverse of ToIso8601 / ToIso8601With — accepts a calendar-date prefix
-    // optionally followed by a time-of-day, optional fractional seconds,
-    // and an optional timezone offset. Returns the resulting moment as
-    // unix-epoch UTC.
-    //
-    // Accepted shapes (RFC 3339 / ISO 8601 subset):
-    //   YYYY-MM-DD                              → midnight UTC of that date
-    //   YYYY-MM-DDTHH:MM:SS                     → assume UTC (no suffix)
-    //   YYYY-MM-DDTHH:MM:SSZ                    → UTC explicit
-    //   YYYY-MM-DDTHH:MM:SS.sss                 → millis (1-9 frac digits, truncated to ms)
-    //   YYYY-MM-DDTHH:MM:SS.sssZ
-    //   YYYY-MM-DDTHH:MM:SS+HH:MM               → with offset (RFC 3339)
-    //   YYYY-MM-DDTHH:MM:SS-HH:MM
-    //   YYYY-MM-DDTHH:MM:SS.sss±HH:MM
-    //   "T" separator may also be a single space (RFC 3339 §5.6 NOTE).
-    //
-    // Throws `ArgumentException` with the offending span on any malformed
-    // input. Missing timezone suffix is treated as UTC (matches the
-    // round-trip with `ToIso8601()` whose output ends in `Z`).
+    /// 解析 RFC 3339 / ISO 8601 子集，返回 UTC 时刻。缺时区后缀按 UTC 处理；畸形输入抛
+    /// `ArgumentException`。接受的形状：
+    ///   YYYY-MM-DD                  → 当天 UTC 零点
+    ///   YYYY-MM-DDTHH:MM:SS         → 无后缀按 UTC
+    ///   YYYY-MM-DDTHH:MM:SSZ        → UTC 显式
+    ///   YYYY-MM-DDTHH:MM:SS.sss     → 1~9 位小数秒，截断到毫秒
+    ///   YYYY-MM-DDTHH:MM:SS±HH:MM   → 带偏移
+    ///   分隔符 `T` 也可以是单个空格。
     public static DateTime ParseIso8601(string s) {
         if (s == null || s.Length < 10) {
             string shown = "";
@@ -312,8 +288,7 @@ public sealed class DateTime {
         if (month < 1 || month > 12) {
             throw new ArgumentException("ParseIso8601: month out of range: " + month.ToString());
         }
-        // Validate day against the actual length of the month (mirrors
-        // DateTime.Utc) — "2026-02-31" must be rejected, not silently rolled.
+        // 按该月实际天数校验（同 DateTime.Utc）——"2 月 31 日"这种不存在的日期必须被拒，而不是静默滚到下月。
         int dim = DateTime.DaysInMonth(year, month);
         if (day < 1 || day > dim) {
             throw new ArgumentException(
@@ -325,10 +300,10 @@ public sealed class DateTime {
         long unixMs = days * 86400000L;
 
         if (s.Length == 10) {
-            // Date-only — midnight UTC.
+            // 只有日期——当天 UTC 零点。
             return new DateTime(unixMs);
         }
-        // Expect 'T' or space separator at position 10.
+        // 位置 10 应为 'T' 或空格分隔符。
         char sep = s.CharAt(10);
         if (sep != 'T' && sep != 't' && sep != ' ') {
             throw new ArgumentException(
@@ -347,7 +322,7 @@ public sealed class DateTime {
                 "ParseIso8601: time out of range " + hour.ToString() + ":"
                 + minute.ToString() + ":" + second.ToString());
         }
-        // Cap second at 59 — leap seconds (60) are accepted but bucketed.
+        // 秒归到 59——闰秒（60）接受但归入。
         if (second == 60) { second = 59; }
         unixMs = unixMs
             + (long)hour * 3600000L
@@ -356,7 +331,7 @@ public sealed class DateTime {
 
         int pos = 19;
 
-        // Optional fractional seconds: "." then 1-9 digits → ms (truncated).
+        // 可选小数秒："." 后 1~9 位 → 毫秒（截断）。
         if (pos < s.Length && s.CharAt(pos) == '.') {
             pos = pos + 1;
             int fracStart = pos;
@@ -365,8 +340,7 @@ public sealed class DateTime {
             if (fracLen == 0) {
                 throw new ArgumentException("ParseIso8601: '.' not followed by fractional digits");
             }
-            // Read up to 3 digits as ms; truncate longer (microsecond /
-            // nanosecond precision is lost — DateTime is ms-resolution).
+            // 最多取 3 位作毫秒；更长截断（DateTime 是毫秒分辨率）。
             long ms = 0L;
             int i = 0;
             while (i < 3) {
@@ -380,10 +354,9 @@ public sealed class DateTime {
             unixMs = unixMs + ms;
         }
 
-        // Optional timezone suffix: Z | ±HH:MM | ±HHMM | ±HH
+        // 可选时区后缀：Z | ±HH:MM | ±HHMM | ±HH
         if (pos >= s.Length) {
-            // No suffix — treat as UTC (round-trips with our own ToIso8601
-            // which always emits Z, but be lenient on input).
+            // 无后缀——按 UTC 处理。
             return new DateTime(unixMs);
         }
         char tz = s.CharAt(pos);
@@ -409,7 +382,7 @@ public sealed class DateTime {
         pos = pos + 2;
         int offMinutes = 0;
         if (pos < s.Length) {
-            // Optional ':' then minutes.
+            // 可选 ':' 然后分钟。
             if (s.CharAt(pos) == ':') { pos = pos + 1; }
             if (pos + 2 > s.Length) {
                 throw new ArgumentException("ParseIso8601: offset minutes truncated");
@@ -428,7 +401,7 @@ public sealed class DateTime {
                 + offHours.ToString() + ":" + offMinutes.ToString());
         }
         long offsetMs = (long)sign * ((long)offHours * 3600000L + (long)offMinutes * 60000L);
-        // Local time at offset = UTC + offset, so UTC = local - offset.
+        // 本地时间 = UTC + offset，故 UTC = 本地 - offset。
         return new DateTime(unixMs - offsetMs);
     }
 

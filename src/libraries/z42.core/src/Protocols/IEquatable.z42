@@ -1,13 +1,13 @@
 namespace Std;
 
-// Self-equality interface (L3-G2).
-// Pairs Equals with GetHashCode — types implementing IEquatable must provide both
-// so they can be used as dictionary keys / hash-set entries (L3-G4g HashMap<K,V>).
-//
-// `Self` 指代实现方自己，故本接口非泛型：约束位写 `where T : IEquatable` 即可，
-// 不必再写 F-bounded 样板 `where T : IEquatable<T>`。
-// 要比较**两个不同类型**，用 IEqualityComparer<T>（外部比较器形态）——那正是它与本接口的分工。
+/// 自相等接口：实现方提供 `Equals(Self)` 与 `GetHashCode()`，使其可作为字典键 / 哈希集合元素。
+///
+/// `Self` 指实现方自身，故本接口非泛型：约束位写 `where T : IEquatable` 即可，不必
+/// 再写 F-bounded 样板 `where T : IEquatable<T>`。
+/// 要比较两个不同类型，用 IEqualityComparer<T>（外部比较器形态）——那正是它与本接口的分工。
 public interface IEquatable {
+    /// 与另一个同类值做相等比较。
     bool Equals(Self other);
+    /// 返回哈希码，与 Equals 保持一致（相等对象哈希码必须相同）。
     int GetHashCode();
 }

@@ -40,11 +40,11 @@ _GenFile[] _typeSplitFiles(string pkg, string shortName, DocIndex ix) {
     string[] nss = DocMd.Namespaces(ix);
     int i = 0;
     while (i < nss.Length) {
-        DocItem[] tops = DocMd.TopLevelTypes(ix, nss[i]);
+        TypeGroup[] groups = DocMd.TopLevelTypeGroups(ix, nss[i]);
         int j = 0;
-        while (j < tops.Length) {
+        while (j < groups.Length) {
             if (n == acc.Length) { _GenFile[] g = new _GenFile[n * 2]; Array.Copy(acc, g, n); acc = g; }
-            acc[n] = new _GenFile(shortName + "." + tops[j].Name + ".md", DocMd.TypePage(pkg, pkgDir, nss[i], tops[j], ix));
+            acc[n] = new _GenFile(shortName + "." + groups[j].Name + ".md", DocMd.TypePage(pkg, pkgDir, nss[i], groups[j], ix));
             n = n + 1;
             j = j + 1;
         }
@@ -53,6 +53,53 @@ _GenFile[] _typeSplitFiles(string pkg, string shortName, DocIndex ix) {
     _GenFile[] r = new _GenFile[n];
     Array.Copy(acc, r, n);
     return r;
+}
+
+// SUMMARY.md 里 type-split 包的页清单区段：mdBook 只构建 SUMMARY 列出的页，上百个类型页
+// 手写必然漂移，这段由 doc gen / check docs-api 同步维护（标记注释夹住，区段外不许生成改动）。
+string _summaryBegin(string shortName) { return "<!-- z42-doc:summary:" + shortName + "-begin（xtask doc gen 维护，勿手改） -->"; }
+string _summaryEnd(string shortName)   { return "<!-- z42-doc:summary:" + shortName + "-end -->"; }
+
+string _summaryBlock(string shortName, DocIndex ix) {
+    string s = _summaryBegin(shortName) + "\n";
+    s = s + "- [类型总览](stdlib/" + shortName + ".md)\n";
+    string[] nss = DocMd.Namespaces(ix);
+    int i = 0;
+    while (i < nss.Length) {
+        TypeGroup[] groups = DocMd.TopLevelTypeGroups(ix, nss[i]);
+        int j = 0;
+        while (j < groups.Length) {
+            s = s + "  - [" + groups[j].Name + "](stdlib/" + shortName + "." + groups[j].Name + ".md)\n";
+            j = j + 1;
+        }
+        i = i + 1;
+    }
+    s = s + _summaryEnd(shortName);
+    return s;
+}
+
+// 把 SUMMARY.md 里 shortName 的区段换成 / 对账生成内容。check=false 重写文件，check=true 只比对。
+int _syncSummary(string root, string shortName, DocIndex ix, bool check) {
+    string path = Path.Join(root, "docs/reference/src/SUMMARY.md");
+    string text = File.ReadAllText(path);
+    string begin = _summaryBegin(shortName);
+    string end = _summaryEnd(shortName);
+    int b = text.IndexOf(begin);
+    int e = text.IndexOf(end);
+    if (b < 0 || e < 0 || e < b) {
+        ConsoleError.WriteLine("summary: " + path + " 缺少 " + begin + " … " + end + " 区段标记");
+        return 1;
+    }
+    string want = text.Substring(0, b) + _summaryBlock(shortName, ix) + text.Substring(e + end.Length);
+    if (check) {
+        if (want != text) {
+            ConsoleError.WriteLine("check docs-api: SUMMARY.md 的 " + shortName + " 区段与生成结果不一致。运行 `xtask doc gen`。");
+            return 1;
+        }
+        return 0;
+    }
+    File.WriteAllText(path, want);
+    return 0;
 }
 
 // 生成全部已迁移包（写了 `//!`）的 reference 页到 docs/reference/src/stdlib/。返回写了几个。
@@ -70,6 +117,8 @@ int _docGen() {
                 _GenFile[] fs = _typeSplitFiles(pkg, _docPageName(pkg), ix);
                 int j = 0;
                 while (j < fs.Length) { File.WriteAllText(Path.Join(outDir, fs[j].Name), fs[j].Content); j = j + 1; }
+                int rc = _syncSummary(root, _docPageName(pkg), ix, false);
+                if (rc != 0) { return rc; }
                 n = n + fs.Length;
             } else {
                 string page = DocMd.PackagePage(pkg, DocMd.PkgDir(ix), ix);
@@ -106,6 +155,7 @@ int _checkDocsApi() {
                 }
                 j = j + 1;
             }
+            if (_syncSummary(root, _docPageName(pkg), ix, true) != 0) { return 1; }
         } else {
             string page = DocMd.PackagePage(pkg, DocMd.PkgDir(ix), ix);
             string path = Path.Join(outDir, _docPageName(pkg) + ".md");

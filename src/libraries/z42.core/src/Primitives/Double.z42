@@ -1,54 +1,56 @@
 namespace Std;
 
-// rename-primitives-to-pascal-case (2026-05-24): primitive struct now named `Double`
-// per BCL convention; source keyword `double` is preserved as alias.
-//
-// L3-G4b primitive-as-struct: `double` declared as a struct (C# BCL parity).
+/// 内置 `double` 类型（64 位 IEEE-754 浮点）的包装结构体，实现 IComparable / IEquatable / INumber。
 public struct Double : IComparable, IEquatable, INumber {
-    // C# BCL parity. Special values via IEEE-754 bit patterns (runtime
-    // __static_init__ can call BitConverter, unlike a const-folded literal).
+    /// 最大有限值。
     public static double MaxValue = 1.7976931348623157E+308;
+    /// 最小有限值。
     public static double MinValue = -1.7976931348623157E+308;
+    /// 最小正数（最小可表示的正规 / 次正规差值）。
     public static double Epsilon  = 4.9406564584124654E-324;
+    // 特殊值经 IEEE-754 位模式构造（__static_init__ 可调 BitConverter，const 折叠不行）。
+    /// 非数值（NaN）。
     public static double NaN              = BitConverter.DoubleFromBits(0x7FF8000000000000);
+    /// 正无穷。
     public static double PositiveInfinity = BitConverter.DoubleFromBits(0x7FF0000000000000);
+    /// 负无穷。
     public static double NegativeInfinity = BitConverter.DoubleFromBits(0xFFF0000000000000);
 
+    /// 解析浮点字符串；格式错误抛 FormatException，越界抛 OverflowException，null 抛 ArgumentNullException。
     [Native("__double_parse")]      public static extern double Parse(string s);
+    /// 返回字符串表示。
     [Native("__double_to_string")]  public extern string ToString();
 
-    // Non-throwing parse — see Int32.TryParse. Returns false with `v` = 0.0 on
-    // malformed input (value types are never nullable → out-value goes by `ref`).
+    /// 非抛出解析：成功把值写入 `v` 并返回 true；格式错误 / 越界 / null 返回 false 且 `v` 置 0.0。
+    // 出参走 `ref` 而非可空返回：值类型永不可空。
     [Native("__double_try_parse")] public static extern bool TryParse(string s, ref double v);
 
-    // IEEE-754 classification (pure script; no VM intrinsic needed).
-    // NaN is the only value not equal to itself.
+    /// v 是否为 NaN（NaN 是唯一不等于自身的值）。
     public static bool IsNaN(double v) { return v != v; }
-    // For ±∞, `v - v` is NaN (≠ 0); for any finite v it is exactly 0. NaN itself
-    // is excluded by the IsNaN guard. Avoids needing an ∞ constant (1.0/0.0 may throw).
+    /// v 是否为正无穷或负无穷。
+    // ±∞ 的 v - v 是 NaN（≠ 0）；有限 v 的 v - v 恰为 0。NaN 已被 IsNaN 守卫排除。
     public static bool IsInfinity(double v) {
         return !Double.IsNaN(v) && (v - v) != 0.0;
     }
+    /// v 是否为正无穷。
     public static bool IsPositiveInfinity(double v) { return Double.IsInfinity(v) && v > 0.0; }
+    /// v 是否为负无穷。
     public static bool IsNegativeInfinity(double v) { return Double.IsInfinity(v) && v < 0.0; }
+    /// v 是否为有限值（非 NaN 且非无穷）。
     public static bool IsFinite(double v) { return !Double.IsNaN(v) && !Double.IsInfinity(v); }
 
-    // shrink-primitive-native-interop (2026-08-27): Equals/GetHashCode 迁纯脚本。
-    // Equals 是原生 `==`（NaN != NaN，与旧 __double_equals 一致）；hash 折叠 IEEE-754
-    // 位模式高低 32 位（对齐 C# Double.GetHashCode），位重解释借 BitConverter native。
+    /// 值相等比较（NaN != NaN）。
     public bool Equals(double other) { return this == other; }
+    /// 返回哈希码（折叠 IEEE-754 位模式高低 32 位）。
     public int GetHashCode() {
         long bits = BitConverter.DoubleToBits(this);
         return (int)(bits ^ (bits >> 32));
     }
 
-    // 2026-04-27 wave2-compare-to-script: NaN 自动落到 return 0
-    // (`<` / `>` 对 NaN 都返回 false)，与 Rust `partial_cmp.unwrap_or(0)` 等价。
+    /// 比较大小，返回负 / 0 / 正。
     public int CompareTo(double other) {
-        // Total order (C# semantics) so a List<double> with NaN has a defined
-        // Sort: NaN is the only value not equal to itself; it sorts before every
-        // non-NaN and compares equal to itself. Plain < / > both return false for
-        // NaN, which would otherwise collapse to 0 (== everything) and corrupt sorts.
+        // 全序（C# 语义）：NaN 只等于自己，且排在所有非 NaN 之前，保证含 NaN 的
+        // List<double> 排序有定义。单纯 < / > 对 NaN 都返回 false，会塌成 0 破坏排序。
         bool thisNaN  = (this != this);
         bool otherNaN = (other != other);
         if (thisNaN || otherNaN) {
@@ -61,10 +63,14 @@ public struct Double : IComparable, IEquatable, INumber {
         return 0;
     }
 
-    // INumber static override — primitive float add/sub/mul/div/rem.
+    /// 加法。
     public static override double op_Add(double a, double b)      { return a + b; }
+    /// 减法。
     public static override double op_Subtract(double a, double b) { return a - b; }
+    /// 乘法。
     public static override double op_Multiply(double a, double b) { return a * b; }
+    /// 除法。
     public static override double op_Divide(double a, double b)   { return a / b; }
+    /// 取模。
     public static override double op_Modulo(double a, double b)   { return a % b; }
 }

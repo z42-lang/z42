@@ -65,6 +65,8 @@
 
 ## Channel
 
+`src/libraries/z42.threading/src/Channel.z42:5`
+
 多生产者 / 多消费者 FIFO 队列。三种容量形态（无界 / 有界 / 会合）由构造器决定，之后不能改。
 
 ```z42
@@ -81,9 +83,13 @@ public class Channel<T> {
 
 ### Channel()
 
+`src/libraries/z42.threading/src/Channel.z42:17`
+
 无界构造器（默认）。队列按需扩容，没有上限；要背压用有界构造器。
 
 ### Channel(int capacity)
+
+`src/libraries/z42.threading/src/Channel.z42:24`
 
 有界构造器。capacity > 0 有界（Send 在队列满时阻塞直到腾出位置）；capacity == 0 会合 （每个 Send 阻塞直到这个值被另一条线程取走）。
 
@@ -91,11 +97,15 @@ public class Channel<T> {
 
 ### void Send(T v)
 
+`src/libraries/z42.threading/src/Channel.z42:47`
+
 按容量形态阻塞地发送 v。通道已关闭、或等待期间被关闭 → 抛 ChannelDisconnectedException("channel closed")。
 
 抛 `ChannelDisconnectedException`：通道已关闭或等待期间被关闭时。
 
 ### T Recv()
+
+`src/libraries/z42.threading/src/Channel.z42:73`
 
 阻塞到有值可取。通道已关闭且队列已空时抛 ChannelDisconnectedException("channel disconnected")； 队列里还有值就照常取，关闭不丢数据。
 
@@ -103,17 +113,25 @@ public class Channel<T> {
 
 ### object[] TryRecv()
 
+`src/libraries/z42.threading/src/Channel.z42:97`
+
 不阻塞。返回判别式数组：[0, value]（取到值）/ [1]（暂时没值）/ [2]（已关闭且空）。 判别位是 long，用 (long)r[0] 取。
 
 ### void Close()
+
+`src/libraries/z42.threading/src/Channel.z42:119`
 
 幂等关闭通道，不可撤销。已入队的值仍可取完；唤醒阻塞中的 Recv 和等位置的 Send。
 
 ### bool TrySend(T v)
 
+`src/libraries/z42.threading/src/Channel.z42:130`
+
 不阻塞发送，不抛异常。有界满、通道已关闭返回 false；会合通道只有在已有接收者阻塞在 Recv 上时才返回 true。
 
 ## ChannelDisconnectedException
+
+`src/libraries/z42.threading/src/ChannelDisconnectedException.z42:5`
 
 通道断开异常：对已关闭（或等待期间被关闭）的通道 Send，或通道已关闭且队列已空时 Recv。 TrySend / TryRecv 永远不抛这个异常，用返回值表达同样的状态。
 
@@ -125,12 +143,16 @@ public class ChannelDisconnectedException : Exception {
 
 ### ChannelDisconnectedException(string message)
 
+`src/libraries/z42.threading/src/ChannelDisconnectedException.z42:7`
+
 
 | 参数 | 说明 |
 |---|---|
 | `message` | 触发消息（"channel closed" / "channel disconnected"）。 |
 
 ## Mutex
+
+`src/libraries/z42.threading/src/Mutex.z42:6`
 
 锁包着数据的互斥原语：被保护的值放在 Mutex<T> 内部，只有 Lock 的回调体能碰到它。 没有 Acquire / Release，Lock 自己配对；不可重入，重入抛 LockRecursionException。
 
@@ -143,13 +165,19 @@ public class Mutex<T> {
 
 ### Mutex(T initial)
 
+`src/libraries/z42.threading/src/Mutex.z42:12`
+
 用 initial 作为初始被保护值。
 
 ### void Lock(Func<T,T> body)
 
+`src/libraries/z42.threading/src/Mutex.z42:19`
+
 取锁 → 用当前值调用 body → 把 body 的返回值写回 → 放锁。整段对其他线程的 Lock 是原子的。 没有返回值：想把锁内读到的值带出来，在 body 里写静态字段或 1 元数组单元。
 
 ## RwLock
+
+`src/libraries/z42.threading/src/RwLock.z42:8`
 
 多读单写的读写锁，同样是「锁包着数据」的回调形态。读者并发跑，写者独占，写者优先。
 
@@ -168,25 +196,37 @@ public class RwLock<T> {
 
 ### RwLock(T initial)
 
+`src/libraries/z42.threading/src/RwLock.z42:17`
+
 用 initial 作为初始被保护值。
 
 ### void Read(Action<T> body)
+
+`src/libraries/z42.threading/src/RwLock.z42:25`
 
 共享获取：body 拿到当前值的一份快照。body 没有返回值，改不了存储的值。
 
 ### void Write(Func<T,T> body)
 
+`src/libraries/z42.threading/src/RwLock.z42:45`
+
 独占获取（挡住所有读者和其他写者）：body 的返回值成为新的存储值。
 
 ### bool TryRead(Action<T> body)
+
+`src/libraries/z42.threading/src/RwLock.z42:63`
 
 非阻塞共享获取：拿不到就返回 false 且不调用 body；成功时 body 已跑完、读已释放，返回 true。
 
 ### bool TryWrite(Func<T,T> body)
 
+`src/libraries/z42.threading/src/RwLock.z42:90`
+
 非阻塞独占获取：有任何读者或写者占着就返回 false 且不调用 body；成功时返回 true，值已写回。
 
 ## Thread
+
+`src/libraries/z42.threading/src/Thread.z42:65`
 
 OS 线程句柄。只能用静态工厂 Start 创建（构造器私有），句柄本身只带一个 slot id。
 
@@ -201,6 +241,8 @@ public class Thread {
 
 ### static Thread Start(Action action)
 
+`src/libraries/z42.threading/src/Thread.z42:75`
+
 立刻开一条 OS 线程跑 action 并返回句柄。
 
 | 参数 | 说明 |
@@ -209,15 +251,21 @@ public class Thread {
 
 ### void Join()
 
+`src/libraries/z42.threading/src/Thread.z42:82`
+
 阻塞直到 worker 结束。
 
 抛 `ThreadException`：worker 抛过异常、或对同一个 Thread 第二次 Join 时。
 
 ### long SlotId()
 
+`src/libraries/z42.threading/src/Thread.z42:87`
+
 进程内单调递增的诊断用编号（第一条线程是 1）。不要依赖具体数值。
 
 ### static void Sleep(long millis)
+
+`src/libraries/z42.threading/src/Thread.z42:93`
 
 阻塞当前线程 millis 毫秒。毫秒精度；负数按 0 处理。
 
@@ -226,6 +274,8 @@ public class Thread {
 | `millis` | 要阻塞的毫秒数；负数按 0 处理。 |
 
 ## ThreadException
+
+`src/libraries/z42.threading/src/ThreadException.z42:5`
 
 由 Thread.Join()（以及 Timer.StopAndJoin，它内部就是 Join）抛出的跨线程异常。 worker 的原始异常类型与栈不跨线程——只能 catch (ThreadException)，拿到 Message 原文。
 
@@ -237,12 +287,16 @@ public class ThreadException : Exception {
 
 ### ThreadException(string message)
 
+`src/libraries/z42.threading/src/ThreadException.z42:7`
+
 
 | 参数 | 说明 |
 |---|---|
 | `message` | 触发消息（worker 异常原文 / "thread panicked" / "thread already joined"）。 |
 
 ## Timer
+
+`src/libraries/z42.threading/src/Timer.z42:6`
 
 后台回调调度器，一次性或周期性，跑在自己的 OS 线程上。sealed，只能用两个静态工厂创建。
 
@@ -258,11 +312,15 @@ public sealed class Timer {
 
 ### static Timer StartPeriodic(long intervalMs, Action callback)
 
+`src/libraries/z42.threading/src/Timer.z42:27`
+
 每 intervalMs 毫秒触发一次 callback，首次触发在 +interval（不是立刻）。一次回调跑完才开始下一轮等待。
 
 抛 `ArgumentException`：intervalMs <= 0 时。
 
 ### static Timer StartOnce(long delayMs, Action callback)
+
+`src/libraries/z42.threading/src/Timer.z42:41`
 
 delayMs 之后触发一次 callback 然后自动停。delayMs < 0 抛 ArgumentException；0 合法（尽快触发）。
 
@@ -270,15 +328,21 @@ delayMs 之后触发一次 callback 然后自动停。delayMs < 0 抛 ArgumentEx
 
 ### void Stop()
 
+`src/libraries/z42.threading/src/Timer.z42:54`
+
 只发停止信号立刻返回，幂等；正在跑的回调会跑完。
 
 ### void StopAndJoin()
+
+`src/libraries/z42.threading/src/Timer.z42:60`
 
 发信号并等后台线程退出。不可重复调用——第二次抛 ThreadException("thread already joined")。
 
 抛 `ThreadException`：第二次调用时。
 
 ### bool IsRunning()
+
+`src/libraries/z42.threading/src/Timer.z42:66`
 
 Stop / StopAndJoin 调过之后为 false；StartOnce 触发过之后也是 false。
 

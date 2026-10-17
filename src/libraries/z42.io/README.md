@@ -41,7 +41,7 @@ xtask test stdlib z42.io    # 本库全部 [Test]（含 core/IO 门面的 consol
 
 ## 关联文档
 
-- 用法与规则（参考手册）：[文件（z42.core）](../../../docs/reference/src/stdlib/io-file.md) · [流式 I/O 与子进程（z42.io）](../../../docs/reference/src/stdlib/io.md)
+- 用法与规则（参考手册）：[文件与控制台（z42.core）](../../../docs/reference/src/stdlib/core.File.md) · [流式 I/O 与子进程（z42.io）](../../../docs/reference/src/stdlib/io.md)
 - 设计 / 机制（实现内幕）：[标准库三层架构](../../../docs/internals/src/stdlib/architecture.md) · [包划分与 interop 归属](../../../docs/internals/src/stdlib/organization.md) · [API 准则](../../../docs/internals/src/stdlib/api-guidelines.md)
 
 ## 依赖关系

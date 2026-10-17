@@ -1,16 +1,18 @@
 namespace Std;
 
-// 双参数相等性 + 哈希契约（Wave 3 2026-04-26）。
-//
-// 与 IEquatable 的"自比"模式区分：
-//   - IEquatable<T>.Equals(other) / GetHashCode() — 实例自身相等性 + hash
-//   - IEqualityComparer<T>.Equals(x, y) / GetHashCode(obj) — 比较器对外部对象
-//
-// 用于 stdlib Dictionary / HashSet 自定义键比较器（如大小写不敏感的字符串
-// 字典、按结构相等比较的对象集合等）。
-//
-// 实现者必须保证：Equals(x, y) == true ⟹ GetHashCode(x) == GetHashCode(y)。
+/// 外部相等性 + 哈希契约：比较器对外部对象判等并算哈希。
+///
+/// 与 IEquatable 的「自比」模式区分：
+///   - IEquatable.Equals(other) / GetHashCode() — 实例自身相等性 + hash
+///   - IEqualityComparer<T>.Equals(x, y) / GetHashCode(obj) — 比较器对外部对象
+///
+/// 用于 Dictionary / HashSet 的自定义键比较器（如大小写不敏感的字符串字典、
+/// 按结构相等比较的对象集合等）。
+///
+/// 实现者必须保证：Equals(x, y) == true ⟹ GetHashCode(x) == GetHashCode(y)。
 public interface IEqualityComparer<T> {
+    /// 比较 x 与 y 是否相等。
     bool Equals(T x, T y);
+    /// 返回 obj 的哈希码，与 Equals 保持一致。
     int  GetHashCode(T obj);
 }

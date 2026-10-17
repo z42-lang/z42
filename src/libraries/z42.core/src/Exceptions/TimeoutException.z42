@@ -1,6 +1,7 @@
 namespace Std;
 
-// 操作在给定时限内没有完成。镜像 .NET `System.TimeoutException`。
+/// 操作在给定时限内没有完成。镜像 .NET `System.TimeoutException`。
 public class TimeoutException : Exception {
+    /// 用消息构造。
     public TimeoutException(string message) : base(message) {}
 }

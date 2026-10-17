@@ -1,23 +1,21 @@
 namespace Std.Reflection;
 
-// Common base of MethodInfo and ConstructorInfo (mirrors C#
-// `System.Reflection.MethodBase`). Holds the members shared by methods and
-// constructors — static-ness, the qualified backing-function name, and the
-// parameter list. `Invoke` is defined by each subclass: `MethodInfo.Invoke`
-// calls the method; `ConstructorInfo.Invoke` allocates and constructs an instance.
-// Read-only by convention — populated only by the VM reflection builtins.
+/// `MethodInfo` 与 `ConstructorInfo` 的公共基类，对标 C# `System.Reflection.MethodBase`。
+///
+/// 持有方法与构造器共享的成员——静态性、限定后备函数名、参数列表。`Invoke` 由各子类定义：
+/// `MethodInfo.Invoke` 调方法，`ConstructorInfo.Invoke` 分配并构造实例。按约定只读，仅由 VM
+/// 反射内建填充。
 public class MethodBase : MemberInfo {
-    // True for static methods (no implicit `this`). Constructors are never static.
+    /// 是否为静态方法（无隐式 `this`）。构造器永不静态。
     public bool IsStatic;
 
-    // Qualified backing-function name (VM-written), used for reflective invocation
-    // and (on MethodInfo) attribute-factory resolution.
+    // 限定后备函数名（VM 写入），用于反射调用及（MethodInfo 上）attribute 工厂解析。
     public string __qualified;
 
-    // Backing parameter array written by the VM; exposed via GetParameters().
+    // VM 写入的后备参数数组，经 GetParameters() 暴露。
     public ParameterInfo[] __parameters;
 
-    // The parameters, in declaration order (excludes the implicit `this`).
+    /// 参数列表，按声明序（不含隐式 `this`）。
     public ParameterInfo[] GetParameters() {
         return this.__parameters;
     }

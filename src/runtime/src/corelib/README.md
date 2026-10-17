@@ -97,7 +97,7 @@ xtask test stdlib
 
 ## 关联文档
 
-- 设计/机制（深入层）：[反射机制](../../../../docs/reference/src/stdlib/reflection.md)、
+- 设计/机制（深入层）：[反射机制](../../../../docs/reference/src/stdlib/core.Type.md)、
   [运行时 IR](../../../../docs/internals/src/formats/ir.md)
 - 反射能力的引入/演进：`git log -- src/runtime/src/corelib/`（需求↔迭代可追溯）
 

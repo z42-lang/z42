@@ -1,48 +1,36 @@
-// Std.Runtime.AssemblyLoadContext — z42 的加载上下文（dotnet System.Runtime.Loader.AssemblyLoadContext 对标）。
-//
-// 把 zpkg 载入可界定边界的**上下文**：root（core/stdlib/主程序所在，永驻不可回收）
-// + collectible（按需创建，各自独立 arena，日后可卸载 / 热重载）。
-//
-// **Phase 1（add-load-context-model）：只建边界 + 反射身份**。collectible 上下文
-// 载入的 zpkg 反射可见（GetTypes / Assembly / Type.IsCollectible），但**暂不可
-// 跨上下文调用其函数**，`Unload()` 也**尚未实现**（抛 NotSupportedException，回收
-// 机制留待后续 change）。
-//
-// native 句柄（ContextId）存于 VM 的 NativeData；本类无数据字段。
-// 设计见 变更 add-load-context-model/design.md。
+// 实现笔记：native 句柄（ContextId）存于 VM 的 NativeData；本类无数据字段。
 namespace Std.Runtime;
 
+/// z42 的加载上下文（对标 dotnet `AssemblyLoadContext`）。把 zpkg 载入可界定边界的上下文：
+/// root（core / stdlib / 主程序所在，永驻不可回收）+ collectible（按需创建，可卸载）。
 public sealed class AssemblyLoadContext {
-    // 永驻 root 上下文（core / stdlib / 主程序所在）。IsCollectible == false。
-    // 注：z42 stdlib 无静态属性先例，静态成员一律 extern 方法（与 Std.GC 一致）。
+    /// 永驻 root 上下文（core / stdlib / 主程序所在），IsCollectible == false。
+    // z42 stdlib 无静态属性先例，静态成员一律 extern 方法。
     [Native("__lctx_default")]
     public static extern AssemblyLoadContext Default();
 
-    // 创建一个可回收（collectible）上下文。载入其中的代码日后可整体卸载 / 回收。
+    /// 创建一个可回收（collectible）上下文。
     [Native("__lctx_create_collectible")]
     public static extern AssemblyLoadContext CreateCollectible(string name);
 
-    // 上下文名字（root 恒为 "root"）。
+    /// 上下文名字（root 恒为 "root"）。
     [Native("__lctx_name")]
     public extern string Name { get; }
 
-    // 是否可回收。root → false；CreateCollectible 建的 → true。
+    /// 是否可回收。root → false；CreateCollectible 建的 → true。
     [Native("__lctx_is_collectible")]
     public extern bool IsCollectible { get; }
 
-    // 把一个 zpkg 载入本上下文，返回其运行时 Assembly 投影。
-    // Phase 1：反射可见；其函数尚不可跨上下文调用（后续 change）。
+    /// 把一个 zpkg 载入本上下文，返回其运行时 Assembly 投影。
     [Native("__lctx_load")]
     public extern Std.Reflection.Assembly Load(string zpkgPath);
 
-    // 本上下文已载入的 assembly 列表。
+    /// 本上下文已载入的 assembly 列表。
     [Native("__lctx_assemblies")]
     public extern Std.Reflection.Assembly[] GetAssemblies();
 
-    // 卸载本上下文：标记为 Unloading，由 GC 惰性回收其内存（无活实例/反射引用时
-    // 确定性 free arena；有引用则等它们自然死，Erlang current/old 语义，无 tombstone）。
-    // root 永驻不可卸载 → 抛 InvalidOperationException。fire-and-forget（void，卸载惰性，
-    // 不保证立即回收）。add-lazy-context-unload（Phase 2）。
+    /// 卸载本上下文：标记为 Unloading，由 GC 惰性回收。root 永驻不可卸载 → 抛
+    /// `InvalidOperationException`。fire-and-forget（卸载惰性，不保证立即回收）。
     public void Unload() {
         if (!this.IsCollectible) {
             throw new Std.InvalidOperationException(

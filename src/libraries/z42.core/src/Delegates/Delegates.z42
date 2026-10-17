@@ -1,27 +1,29 @@
 namespace Std;
 
-// 2026-05-02 add-generic-delegates (D1c): stdlib named delegate types.
-// Replaces the SymbolCollector hardcoded `Action`/`Func` desugar paths.
-// Coverage: 0–4 arity for Action / Func; 1 arity for Predicate.
-// >4 arity defers to follow-up (script generation post-bootstrap; per
-// docs/reference/src/language/delegates-events.md §3.4).
-
-// ── Action: void return ──────────────────────────────────────────────────────
+// ── Action：无返回值 ────────────────────────────────────────────────────────
+/// 无参、无返回值。
 public delegate void Action();
+/// 单参数、无返回值。
 public delegate void Action<T>(T arg);
+/// 双参数、无返回值。
 public delegate void Action<T1, T2>(T1 a, T2 b);
+/// 三参数、无返回值。
 public delegate void Action<T1, T2, T3>(T1 a, T2 b, T3 c);
+/// 四参数、无返回值。
 public delegate void Action<T1, T2, T3, T4>(T1 a, T2 b, T3 c, T4 d);
 
-// ── Func: typed return ──────────────────────────────────────────────────────
-// add-collection-contract-phase1 (2026-06-03): added the 0-arity `Func<R>()`
-// to match the documented "0–4 arity" coverage above — it was the one
-// missing arity in the original stdlib drop.
+// ── Func：带返回值 ──────────────────────────────────────────────────────────
+/// 无参、返回 R。
 public delegate R Func<R>();
+/// 单参数、返回 R。
 public delegate R Func<T, R>(T arg);
+/// 双参数、返回 R。
 public delegate R Func<T1, T2, R>(T1 a, T2 b);
+/// 三参数、返回 R。
 public delegate R Func<T1, T2, T3, R>(T1 a, T2 b, T3 c);
+/// 四参数、返回 R。
 public delegate R Func<T1, T2, T3, T4, R>(T1 a, T2 b, T3 c, T4 d);
 
-// ── Predicate: bool return ──────────────────────────────────────────────────
+// ── Predicate：返回 bool ────────────────────────────────────────────────────
+/// 单参数、返回 bool。
 public delegate bool Predicate<T>(T arg);

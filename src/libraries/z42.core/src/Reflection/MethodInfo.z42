@@ -1,47 +1,36 @@
 namespace Std.Reflection;
 
-// Reflected method. Populated by `Type.GetMethods()` (`__type_methods`).
-// Mirrors C# `System.Reflection.MethodInfo`. Non-generic `Invoke` lands 0.3.12
-// (add-method-invoke-non-generic); generic-method Invoke waits on generic
-// instantiation (0.4.x G).
+/// 反射方法，对标 C# `System.Reflection.MethodInfo`，由 `Type.GetMethods()` 填充。
+///
+/// 泛型方法从泛型定义（`Foo<T>()`）反射时是「定义」（IsGenericMethodDefinition == true）；
+/// `MakeGenericMethod` 绑定类型实参后返回「构造后」的 MethodInfo。构造后 Invoke 时方法体内的
+/// `typeof(T)` / `new T()` / `default(T)` 与直接写 `Foo<Arg>()` 完全一致。
 public class MethodInfo : MethodBase {
-    // Return type, e.g. typeof(int) / typeof(void). Written by the VM.
+    /// 返回类型，如 `typeof(int)` / `typeof(void)`。VM 写入。
     public Std.Type ReturnType;
 
-    // IsStatic is inherited from MethodBase.
+    // IsStatic 继承自 MethodBase。
 
-    // True for virtual / override / abstract methods (add-method-modifiers, unify
-    // P1-c: now authoritative from the declared modifier, not a vtable heuristic).
+    /// 是否为 virtual / override / abstract 方法（三者都走虚派发）。
     public bool IsVirtual;
 
-    // True for abstract methods (add-method-modifiers, unify P1-c). Abstract
-    // methods are also virtual (IsVirtual == true).
+    /// 是否为 abstract 方法（同时 IsVirtual == true）。
     public bool IsAbstract;
 
-    // True for a `sealed override` (or the shorthand `sealed`) method — no further
-    // override permitted (impl-sealed-semantics-devirt). Sealed methods are also
-    // virtual (IsVirtual == true). Written by the VM from METHOD_FLAG_SEALED.
+    /// 是否为 `sealed override`（或简写 `sealed`）方法——不允许再 override（同时 IsVirtual == true）。
     public bool IsSealed;
 
-    // Member visibility (add-member-visibility, unify P1-b). Written by the VM
-    // from the method's declared modifier. A `protected` method reports neither
-    // (IsPublic == IsPrivate == false), mirroring C# `IsPublic` / `IsPrivate`.
+    /// 声明为 public。
     public bool IsPublic;
+    /// 声明为 private。`protected` 方法两者皆 false（镜像 C#）。
     public bool IsPrivate;
 
-    // __parameters / GetParameters() and __qualified are inherited from MethodBase.
+    // __parameters / GetParameters() / __qualified 继承自 MethodBase。
 
-    // ── 值相等（add-reflection-value-equality）────────────────────────────────
-    //
-    // 与 `Std.Type` 同一刀：修前 `methodof(X.M) == methodof(X.M)` 是 **false**（无相等成员 ⇒
-    // `==` 落引用比较，而每次求值新建对象）。身份判据 = **`__qualified`**（FQ 方法名，
-    // 重载决议后已定，是这个 `MethodInfo` 指代谁的唯一真相）。
-    //
-    // 🔴 **必须与 `Type` 一起做**：`methodof.md` 明写「单给一边加……会让两个号称对称的特性
-    // 行为不一致」。只给 `Type` 补值相等就正好制造出它警告的那种不对称。
-    //
-    // 🔴 判空用 `Object.ReferenceEquals`，写 `a == null` 会递归派发回本运算符（栈溢出）。
-    // ⚠️ 不做对象驻留：`ReferenceEquals(methodof(X.M), methodof(X.M))` 仍为假。
+    // ── 值相等 ────────────────────────────────────────────────────────────────
+    // 身份判据是 __qualified（全限定方法名，重载决议后已定）。判空必须用 Object.ReferenceEquals：
+    // 写 `a == null` 会递归派发回本运算符（栈溢出）。不驻留：`ReferenceEquals(methodof(X.M), methodof(X.M))` 仍为假。
+    /// 按 `__qualified`（全限定方法名）判断两个 `MethodInfo` 是否指向同一方法。
     public static bool operator ==(MethodInfo a, MethodInfo b) {
         bool an = Object.ReferenceEquals(a, null);
         bool bn = Object.ReferenceEquals(b, null);
@@ -49,6 +38,7 @@ public class MethodInfo : MethodBase {
         return a.__qualified == b.__qualified;
     }
 
+    /// 不等运算符，等价于 `!(a == b)`。
     public static bool operator !=(MethodInfo a, MethodInfo b) {
         bool an = Object.ReferenceEquals(a, null);
         bool bn = Object.ReferenceEquals(b, null);
@@ -64,15 +54,15 @@ public class MethodInfo : MethodBase {
 
     public override int GetHashCode() { return this.__qualified.GetHashCode(); }
 
-    // ── Custom attributes (C3b add-attribute-reflection-methods) ────────────
+    // ── 自定义 attribute ─────────────────────────────────────────────────────
 
-    // Cached attribute instances (see Type.GetCustomAttributes for rationale).
+    // 缓存的 attribute 实例（缓存理由见 Type.GetCustomAttributes）。
     public Std.Attribute[] __attrCache;
 
     [Native("__method_custom_attributes")]
     public extern Std.Attribute[] __customAttributes(string qualified);
 
-    // User attributes applied to this method, as live instances. Cached.
+    /// 本方法上应用的 attribute，以活实例返回；首次调用后缓存。
     public Std.Attribute[] GetCustomAttributes() {
         if (this.__attrCache != null) {
             return this.__attrCache;
@@ -81,8 +71,7 @@ public class MethodInfo : MethodBase {
         return this.__attrCache;
     }
 
-    // The single attribute of the given type, or null if absent. Compares by
-    // the instance's runtime type (FullName), so subclass attributes match too.
+    /// 指定类型的单个 attribute，无则返回 null。按实例运行期类型的 FullName 比较，子类 attribute 也匹配。
     public Std.Attribute? GetAttribute(Std.Type attributeType) {
         Std.Attribute[] all = this.GetCustomAttributes();
         int i = 0;
@@ -97,48 +86,32 @@ public class MethodInfo : MethodBase {
         return null;
     }
 
-    // ── Reflective invocation (add-method-invoke-non-generic, 0.3.12) ───────
-    // Invoke this method: `obj` is the receiver for instance methods (ignored —
-    // pass null — for static methods); `args` map to the parameters in order.
-    // Returns the method's return value (void → null). A `throw` inside the
-    // invoked method propagates with its original type (catchable). Non-generic
-    // only. The VM reads __qualified / IsStatic from this MethodInfo.
+    /// 调用本方法：实例方法 `obj` 是接收者（静态方法传 `null` 即可）；`args` 按声明序映射形参。
+    ///
+    /// 返回方法返回值（`void` → null）；被调方法内的 `throw` 以原类型传播。仅限非泛型方法。
     [Native("__method_invoke")]
     public extern object Invoke(object obj, object[] args);
 
-    // ── Generic-method reflection (add-reflective-invoke, G2) ───────────────
-    // Mirrors C# `MethodInfo.{IsGenericMethod,IsGenericMethodDefinition,
-    // GetGenericArguments,MakeGenericMethod}`. A method reflected from a generic
-    // definition (`Foo<T>()`) is a *definition* (IsGenericMethodDefinition == true);
-    // `MakeGenericMethod` binds type arguments and returns a *constructed* MethodInfo
-    // (same type, no separate subtype — C# semantics), on which
-    // IsGenericMethodDefinition == false and GetGenericArguments() returns the bound
-    // arguments. Constructed-MethodInfo.Invoke materializes typeof(T)/new T()/default(T)
-    // exactly as a direct `Foo<Arg>()` call.
+    // ── 泛型方法反射 ─────────────────────────────────────────────────────────
 
-    // True when this method declares type parameters (definition or constructed).
-    // Written by the VM (definition) / MakeGenericMethod (constructed).
+    /// 方法是否声明了类型参数（定义或已构造均为 true）。
     public bool IsGenericMethod;
 
-    // True for an unbound generic method definition; false once type arguments are
-    // bound via MakeGenericMethod.
+    /// 是否为未绑定的泛型方法定义；经 `MakeGenericMethod` 绑定实参后为 false。
     public bool IsGenericMethodDefinition;
 
-    // Declared type-parameter names (e.g. ["T","U"]); VM-written. Backs
-    // GetGenericArguments() for the definition (placeholder Types from these names).
+    // 声明的类型参数名（如 ["T","U"]），VM 写入；定义上 GetGenericArguments() 据此生成占位 Type。
     public string[] __typeParamNames;
 
-    // Bound type arguments (Type[]) set by MakeGenericMethod on the constructed
-    // MethodInfo; null on a definition. Threaded into the callee frame by Invoke.
+    // 构造后 MethodInfo 上由 MakeGenericMethod 绑定的类型实参（Type[]）；定义上为 null。Invoke 时传入被调帧。
     public Std.Type[] __typeArgs;
 
-    // The method's type parameters (definition) or bound type arguments (constructed).
+    /// 方法的类型参数（定义上）或绑定的类型实参（构造后）。
     [Native("__method_generic_arguments")]
     public extern Std.Type[] GetGenericArguments();
 
-    // Bind type arguments to a generic method definition, returning the constructed
-    // MethodInfo. Throws Std.Exception if this method is not a generic definition or
-    // the argument count differs from the declared type-parameter count.
+    /// 给泛型方法定义绑定类型实参，返回构造后的 MethodInfo。本方法非泛型定义或实参个数不符时抛
+    /// `Std.Exception`。
     [Native("__method_make_generic")]
     public extern MethodInfo MakeGenericMethod(params Std.Type[] typeArgs);
 }

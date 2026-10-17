@@ -1,11 +1,12 @@
 namespace Std.Time;
 
-// DateTimeOffset — 带 UTC 偏移的时刻（从 DateTime.z42 拆出，review §6/§1.8：单文件多类型 + 超 500 行）。
-
+/// UTC 时刻与固定偏移时区的配对（等价 C# `DateTimeOffset`）。九个日历访问器取的是
+/// **本地**（已加偏移）字段。
 public sealed class DateTimeOffset {
     private DateTime _utc;
     private TimeZone _tz;
 
+    /// 以 UTC 时刻 + 时区构造；任一参数为 null 抛 `ArgumentNullException`。
     public DateTimeOffset(DateTime utc, TimeZone tz) {
         if (utc == null) {
             throw new ArgumentNullException("DateTimeOffset: utc must not be null");
@@ -17,10 +18,12 @@ public sealed class DateTimeOffset {
         this._tz  = tz;
     }
 
+    /// 当前时刻在 `tz` 下的 DateTimeOffset。
     public static DateTimeOffset Now(TimeZone tz) {
         return new DateTimeOffset(DateTime.UtcNow(), tz);
     }
 
+    /// 由本地日历分量 + 时区构造；`tz` 为 null 抛 `ArgumentNullException`。
     public static DateTimeOffset FromLocal(int year, int month, int day,
                                            int hour, int minute, int second,
                                            int millisecond, TimeZone tz) {
@@ -32,8 +35,8 @@ public sealed class DateTimeOffset {
         return new DateTimeOffset(utc, tz);
     }
 
-    /// Parse ISO 8601 with mandatory offset suffix (`Z` / `±HH:MM` /
-    /// `±HHMM`). Throws `FormatException` on missing suffix.
+    /// 解析带**必须**偏移后缀（`Z` / `±HH:MM` / `±HHMM` / `±HH`）的 ISO 8601；
+    /// 缺后缀抛 `FormatException`。
     public static DateTimeOffset Parse(string s) {
         if (s == null || s.Length == 0) {
             throw new FormatException("DateTimeOffset.Parse: empty input");
@@ -89,57 +92,75 @@ public sealed class DateTimeOffset {
         return new DateTimeOffset(utc, tz);
     }
 
+    /// 底层 UTC 时刻。
     public DateTime UtcDateTime() { return this._utc; }
 
+    /// 本地墙钟读数（不带偏移信息，塞进一个 DateTime）。
     public DateTime LocalDateTime() {
         return this._utc.AddMinutes(this._tz.OffsetMinutes());
     }
 
+    /// 时区（偏移）。
     public TimeZone Offset() { return this._tz; }
 
+    /// 本地年份。
     public int Year()        { return this.LocalDateTime().Year();        }
+    /// 本地月份。
     public int Month()       { return this.LocalDateTime().Month();       }
+    /// 本地日。
     public int Day()         { return this.LocalDateTime().Day();         }
+    /// 本地时。
     public int Hour()        { return this.LocalDateTime().Hour();        }
+    /// 本地分。
     public int Minute()      { return this.LocalDateTime().Minute();      }
+    /// 本地秒。
     public int Second()      { return this.LocalDateTime().Second();      }
+    /// 本地毫秒。
     public int Millisecond() { return this.LocalDateTime().Millisecond(); }
+    /// 本地星期几。
     public int DayOfWeek()   { return this.LocalDateTime().DayOfWeek();   }
+    /// 本地一年中的第几天。
     public int DayOfYear()   { return this.LocalDateTime().DayOfYear();   }
 
+    /// 带偏移后缀的 ISO 8601 渲染。
     public string ToIso8601() {
         return this._utc.ToIso8601With(this._tz);
     }
 
+    /// 同 `ToIso8601()`。
     public override string ToString() {
         return this.ToIso8601();
     }
 
-    /// UTC-only equality — same instant, possibly authored in different
-    /// zones (matches BCL `Equals(DateTimeOffset)`).
+    /// 只比 UTC 时刻（忽略偏移）。
     public bool Equals(DateTimeOffset other) {
         if (other == null) return false;
         return this._utc.Equals(other._utc);
     }
 
-    /// UTC AND offset both match (matches BCL `EqualsExact`).
+    /// UTC 时刻 + 偏移都相同。
     public bool EqualsExact(DateTimeOffset other) {
         if (other == null) return false;
         if (this._utc.UnixMs() != other._utc.UnixMs()) return false;
         return this._tz.OffsetMinutes() == other._tz.OffsetMinutes();
     }
 
+    /// 是否晚于 `other`。
     public bool IsAfter(DateTimeOffset other)  { return this._utc.IsAfter(other._utc);  }
+    /// 是否早于 `other`。
     public bool IsBefore(DateTimeOffset other) { return this._utc.IsBefore(other._utc); }
 
+    /// 与 `other` 的差值。
     public TimeSpan Subtract(DateTimeOffset other) {
         return this._utc.Subtract(other._utc);
     }
 
+    /// 加 TimeSpan。
     public DateTimeOffset Add(TimeSpan span) {
         return new DateTimeOffset(this._utc.Add(span), this._tz);
     }
 
+    /// 减 TimeSpan。
     public DateTimeOffset SubtractSpan(TimeSpan span) {
         return new DateTimeOffset(this._utc.SubtractSpan(span), this._tz);
     }

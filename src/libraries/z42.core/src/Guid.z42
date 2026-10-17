@@ -1,26 +1,19 @@
 namespace Std;
 
+// 由 16 个原始字节背书，值不可变。字节→十六进制布局是顺序的（非 C# 前三组混合端序），
+// 但可经 Parse/ToString 往返，且是合法的规范 GUID 串。
 
-// add-guid-lazy-version (2026-09-03): C# System.Guid parity — a 128-bit
-// globally-unique identifier. `NewGuid()` produces an RFC 4122 version-4
-// (random) GUID from OS entropy (Std.Runtime.Entropy, re-homed to core so this
-// prelude type can reach it — see reclassify-os-entropy-to-core).
-//
-// Backed by 16 raw bytes. The value is immutable. String form is the canonical
-// 8-4-4-4-12 lowercase hex ("D"); "N" is the 32-char un-hyphenated form. The
-// byte→hex layout is sequential (not C#'s mixed-endian first-three-groups), but
-// round-trips through Parse/ToString and is a valid canonical GUID string.
-//
-// ⚠️ z42 struct-default limitation: `default(Guid)` yields a Null value (no
-// zero-struct materialization for a struct with a reference field), so — unlike
-// C# where default(Guid) == Guid.Empty — you must call `Guid.Empty()` for the
-// all-zero GUID. Attempting a method call on `default(Guid)` traps. A pure-value
-// (two-i64) representation would fix this but currently hits a separate
-// StructCopy-on-blob-struct bug; deferred (see change proposal).
+/// 128 位全局唯一标识符（C# System.Guid 对标）。
+///
+/// 值不可变；字符串形式为规范 8-4-4-4-12 小写十六进制（"D"），"N" 为 32 位无连字符形式。
+/// `NewGuid()` 生成 RFC 4122 v4（随机）GUID，熵来自 OS。
+///
+/// @warning z42 struct-default 限制：`default(Guid)` 得 null 值（不是零值），所以必须用
+/// `Guid.Empty()` 取全零 GUID；对 `default(Guid)` 调方法会 trap。
 public struct Guid {
     private byte[] _bytes;
 
-    // Construct from exactly 16 bytes (copied defensively).
+    /// 由恰好 16 字节构造（防御性拷贝）。
     public Guid(byte[] b) {
         if (b.Length != 16) {
             throw new ArgumentException("Guid requires exactly 16 bytes, got " + b.Length.ToString());
@@ -34,15 +27,15 @@ public struct Guid {
         _bytes = c;
     }
 
-    // The all-zero GUID (00000000-0000-0000-0000-000000000000).
+    /// 全零 GUID（`00000000-0000-0000-0000-000000000000`）。
     public static Guid Empty() {
         return new Guid(new byte[16]);
     }
 
-    // A fresh RFC 4122 v4 (random) GUID from OS entropy.
+    /// 生成一个 RFC 4122 v4（随机）GUID，熵来自 OS。
     public static Guid NewGuid() {
         byte[] b = Entropy.GetBytes(16);
-        // version 4 in the high nibble of byte 6; variant '10x' in byte 8.
+        // 字节 6 高四位设 version 4；字节 8 设 variant '10x'。
         b[6] = (byte)(((int)b[6] & 0x0F) | 0x40);
         b[8] = (byte)(((int)b[8] & 0x3F) | 0x80);
         return new Guid(b);
@@ -50,8 +43,8 @@ public struct Guid {
 
     // ── 解析 ──────────────────────────────────────────────────────────────────
 
-    // Parse the canonical "D" form (36 chars, hyphenated) or the "N" form
-    // (32 hex chars). Throws FormatException on any other length or a bad char.
+    /// 解析规范 "D" 形式（36 字符，带连字符）或 "N" 形式（32 个十六进制字符）。
+    /// 其它长度或非法字符抛 FormatException。
     public static Guid Parse(string s) {
         int len = s.Length;
         byte[] outb = new byte[16];
@@ -65,9 +58,8 @@ public struct Guid {
         return new Guid(outb);
     }
 
-    // Non-throwing parse: writes the Guid into `v` and returns true; on malformed
-    // input returns false with `v` = Guid.Empty(). `Guid` is a struct ⇒ never
-    // nullable (see Int32.TryParse), so the out-value goes by `ref`.
+    /// 不抛异常的解析：成功时写入 `v` 并返回 true；非法输入返回 false 且 `v` 为
+    /// `Guid.Empty()`。`Guid` 是 struct ⇒ 不可空，故 out 值走 `ref`。
     public static bool TryParse(string s, ref Guid v) {
         try {
             v = Guid.Parse(s);
@@ -105,6 +97,7 @@ public struct Guid {
 
     // ── 相等 ──────────────────────────────────────────────────────────────────
 
+    /// 按 16 字节值比较相等。
     public bool Equals(Guid other) {
         byte[] a = _bytes;
         byte[] b = other._rawBytes();
@@ -120,6 +113,7 @@ public struct Guid {
 
     private byte[] _rawBytes() { return _bytes; }
 
+    /// 内容哈希码。
     public int GetHashCode() {
         int h = 0;
         int i = 0;
@@ -132,12 +126,13 @@ public struct Guid {
 
     // ── 格式化 ────────────────────────────────────────────────────────────────
 
-    // Canonical hyphenated lowercase form, e.g. "0f8fad5b-d9cb-469f-a165-70867728950e".
+    /// 规范带连字符的小写形式，如 `"0f8fad5b-d9cb-469f-a165-70867728950e"`。
     public override string ToString() {
         return this._toHex(true);
     }
 
-    // "D" (hyphenated, default) or "N" (32 hex, no hyphens); case-insensitive.
+    /// 按格式串输出："D"（带连字符，默认）或 "N"（32 位无连字符）；大小写不敏感。
+    /// 其它格式抛 FormatException。
     public string ToString(string format) {
         if (format == "N" || format == "n") {
             return this._toHex(false);

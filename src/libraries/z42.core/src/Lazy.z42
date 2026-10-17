@@ -1,30 +1,26 @@
 namespace Std;
 
-// add-guid-lazy-version (2026-09-03): C# System.Lazy<T> parity — deferred,
-// memoized one-time initialization. Wraps a Func<T> factory; the first Value
-// read runs the factory and caches the result, subsequent reads return the
-// cached value without re-invoking.
-//
-// Single-thread memoize only (matches C# LazyThreadSafetyMode.None); a
-// thread-safe publication mode defers to L3 once the threading story lands.
+/// 延迟的一次性初始化容器（C# System.Lazy<T> 对标）。
+///
+/// 包装 `Func<T>` 工厂；首次读 `Value` 才运行工厂并缓存，之后返回缓存值。仅单线程
+/// memoize（对应 C# LazyThreadSafetyMode.None）。
 public sealed class Lazy<T> {
     private Func<T> _factory;
     private T _value;
     private bool _created;
 
+    /// 以工厂构造。
     public Lazy(Func<T> factory) {
         _factory = factory;
         _created = false;
     }
 
-    // True once Value has been materialized.
+    /// 值是否已被物化。
     public bool IsValueCreated {
         get { return _created; }
     }
 
-    // The lazily-computed value. The first read invokes the factory and caches
-    // it; later reads return the cache. The mutating memoize lives in _force()
-    // so the accessor body stays a single expression.
+    /// 延迟计算的值。首次读调用工厂并缓存，之后返回缓存。
     public T Value {
         get { return this._force(); }
     }

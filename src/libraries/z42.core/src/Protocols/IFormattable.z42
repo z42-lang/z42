@@ -1,13 +1,14 @@
 namespace Std;
 
-// 自定义格式化契约（Wave 3 2026-04-26）。
-//
-// 与 Object.ToString() (无参) 通过 method overload by arity 共存：
-//   - obj.ToString()      —— Object 协议（默认表示）
-//   - obj.ToString(fmt)   —— IFormattable 协议（带格式参数）
-//
-// format 字符串的语义由 implementer 决定（无统一格式语法）。例如数值
-// 类型可能识别 "X8" 表示 8 位 hex；日期类型可能识别 "yyyy-MM-dd" 等。
+/// 自定义格式化契约：用格式串生成字符串表示。
+///
+/// 与 Object.ToString()（无参）通过 arity 重载共存：
+///   - obj.ToString()    —— Object 协议（默认表示）
+///   - obj.ToString(fmt) —— IFormattable 协议（带格式参数）
+///
+/// format 字符串的语义由实现者决定（无统一格式语法）。例如数值类型可能识别
+/// "X8" 表示 8 位 hex；日期类型可能识别 "yyyy-MM-dd" 等。
 public interface IFormattable {
+    /// 按 format 格式串返回字符串表示。
     string ToString(string format);
 }

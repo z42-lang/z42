@@ -1,18 +1,9 @@
 namespace Std;
 
-// rename-primitives-to-pascal-case (2026-05-24): primitive struct now named
-// `Boolean` per BCL convention; source keyword `bool` is preserved as alias.
-//
-// 2026-04-27 wave1-bool-script: 3 个方法从 [Native] 迁纯脚本（BCL/Rust 对标 —
-// `bool::Display` / `bool.GetHashCode` 都是常量返回）。`ToString` 输出小写
-// `"true" / "false"` 与 Rust 一致（与 BCL `"True"/"False"` 不同）。
+/// 内置 `bool` 类型的包装结构体，实现 IEquatable。
 public struct Boolean : IEquatable {
-    // symmetrize-primitive-api：Boolean 此前既无 Parse 也无 TryParse —— 唯一入口是
-    // `Convert.ToBoolean`，与其它基元「X.Parse 为主、Convert.ToX 委托它」的形状相反。
-    // 现在把判定搬到这里，`Convert.ToBoolean` 改为委托，单一出处。
-    //
-    // 语义对齐 C# `Boolean.Parse`：去首尾空白、大小写不敏感的 "true"/"false"；其余抛
-    // FormatException（严格契约，不把任意非空串当 true）。
+    /// 解析布尔字符串：去首尾空白、大小写不敏感的 "true" / "false"；其余抛
+    /// FormatException，null 抛 ArgumentNullException。
     public static bool Parse(string s) {
         bool v = false;
         if (Boolean.TryParse(s, ref v)) return v;
@@ -20,7 +11,7 @@ public struct Boolean : IEquatable {
         throw new FormatException($"Boolean.Parse: '{s}' is not a valid Boolean");
     }
 
-    // 非抛出：null / 不认识的文本返回 false 且 `v` = false（不经 try/catch）。
+    /// 非抛出解析：null / 不认识的文本返回 false 且 `v` 置 false。
     public static bool TryParse(string s, ref bool v) {
         v = false;
         if (s == null) return false;
@@ -29,14 +20,17 @@ public struct Boolean : IEquatable {
         return t == "false";
     }
 
+    /// 值相等比较。
     public bool Equals(bool other) {
         return this == other;
     }
 
+    /// 返回哈希码（true → 1，false → 0）。
     public int GetHashCode() {
         return this ? 1 : 0;
     }
 
+    /// 返回小写字符串表示（"true" / "false"，与 BCL 的 "True" / "False" 不同）。
     public string ToString() {
         return this ? "true" : "false";
     }
