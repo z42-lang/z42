@@ -1,48 +1,72 @@
+//! 日志与运行时自省。
+//!
+//! 三组互不相干的能力：
+//!
+//! 1. **日志**（`Log` / `LogLevel` / `LogFields`）—— 全局静态门面，按最低级别过滤，
+//!    写 **stderr**，logfmt 风格的结构化字段可选。
+//! 2. **运行时计数**（`RuntimeStats` / `RuntimeCounters`）—— 在脚本里读 VM 的 alloc / GC /
+//!    异常 / JIT 累计计数快照。
+//! 3. **堆保留诊断**（`Heap` / `Retainer` / `RootRef` / `RootKind`）—— 回答「这个对象为什么
+//!    还活着、被谁钉住」。
+//!
+//! 没有 tracing / span、没有 metrics 导出、没有计时器（计时用 `Std.Time.Stopwatch`，见
+//! [time](time.md)）。
+//!
+//! ## 不支持
+//!
+//! - **named logger**：只有一个全局 `Log`，没有 `Log.Get("module.x")`、没有按模块独立的
+//!   最低级别。要分模块就自己在 message 或 `LogFields` 里带前缀。
+//! - **可插拔 sink**：目的地硬编码 stderr，不能加文件 / 网络 / OTel collector。
+//! - **JSON 日志**：输出是人类可读文本 + logfmt 字段，没有整行 JSON 模式。
+//! - **自定义格式 / 时间戳格式**：`[LEVEL ISO8601] msg` 固定，只能通过 `FormatHeader`
+//!   自己拼一行再写 stderr。
+//! - **异步 / 批量缓冲**：每条直接写 stderr。
+//! - **tracing / span / metrics**：没有。计时用 `Std.Time.Stopwatch`。
+//! - **完整引用链**：`RetainingRoots` 只给根的**类别**，不给「哪个 static 字段 / 哪个局部」
+//!   的名字，也不给 target → root 的整条路径。
 namespace Std.Diagnostics;
 using Std.IO;
 using Std.Time;
 
-// add-z42-diagnostics (2026-05-15)：global Log facade，输出到 stderr。
-//
-// Format: `[LEVEL ms] message`，例：
-//     [INFO 1747327200000] connecting to api.example.com
-//     [ERROR 1747327201234] timeout after 1000ms
-//
-// 写入 ConsoleError（stderr），不污染 Console.WriteLine 的 stdout 主用途。
-//
-// 默认 min level = INFO（TRACE / DEBUG 不输出）；调用方可 SetMinLevel 调整。
+/// 全局单例日志门面，无 named logger、无 sink 配置。
 public static class Log {
     private static int _minLevel = 2;  // LogLevel.Info；static initializer 顺序避免 forward-ref
 
-    /// 设置全局最低输出级别。 < 该级别的调用被丢弃。
+    /// 设置全局最低输出级别，低于该级别的调用被整条丢弃。
     public static void SetMinLevel(int level) {
         Log._minLevel = level;
     }
 
+    /// 返回全局最低输出级别。
     public static int GetMinLevel() {
         return Log._minLevel;
     }
 
-    /// 是否当前 level 会被输出。expensive log message 构造前先 check：
-    ///     if (Log.IsEnabled(LogLevel.Debug)) { Log.Debug("expensive: " + ...); }
+    /// 该级别当前是否会输出；构造昂贵的 message 前先问一句。
     public static bool IsEnabled(int level) {
         return level >= Log._minLevel;
     }
 
+    /// 输出一条 TRACE 级别日志。
     public static void Trace(string msg) { Log.Write(LogLevel.Trace, msg); }
+    /// 输出一条 DEBUG 级别日志。
     public static void Debug(string msg) { Log.Write(LogLevel.Debug, msg); }
+    /// 输出一条 INFO 级别日志。
     public static void Info(string msg)  { Log.Write(LogLevel.Info,  msg); }
+    /// 输出一条 WARN 级别日志。
     public static void Warn(string msg)  { Log.Write(LogLevel.Warn,  msg); }
+    /// 输出一条 ERROR 级别日志。
     public static void Error(string msg) { Log.Write(LogLevel.Error, msg); }
 
-    // add-log-structured-fields (2026-05-27): logfmt-style structured
-    // attachments. Each method gets a `(msg, LogFields)` overload that
-    // appends ` key="val"` pairs after the message; null fields treated
-    // as no fields. See `LogFields` for format / escape rules.
+    /// 输出一条 TRACE 级别日志，可附加结构化字段（`fields` 为 null 等同不带字段）。
     public static void Trace(string msg, LogFields fields) { Log.WriteF(LogLevel.Trace, msg, fields); }
+    /// 输出一条 DEBUG 级别日志，可附加结构化字段（`fields` 为 null 等同不带字段）。
     public static void Debug(string msg, LogFields fields) { Log.WriteF(LogLevel.Debug, msg, fields); }
+    /// 输出一条 INFO 级别日志，可附加结构化字段（`fields` 为 null 等同不带字段）。
     public static void Info(string msg, LogFields fields)  { Log.WriteF(LogLevel.Info,  msg, fields); }
+    /// 输出一条 WARN 级别日志，可附加结构化字段（`fields` 为 null 等同不带字段）。
     public static void Warn(string msg, LogFields fields)  { Log.WriteF(LogLevel.Warn,  msg, fields); }
+    /// 输出一条 ERROR 级别日志，可附加结构化字段（`fields` 为 null 等同不带字段）。
     public static void Error(string msg, LogFields fields) { Log.WriteF(LogLevel.Error, msg, fields); }
 
     private static void Write(int level, string msg) {
@@ -59,12 +83,7 @@ public static class Log {
         ConsoleError.WriteLine(Log.FormatHeader(level, now) + " " + msg + suffix);
     }
 
-    /// add-log-iso8601-and-color (2026-06-03): build the
-    /// `[LEVEL ISO8601]` header. Level token is wrapped in ANSI color
-    /// when `Ansi.Enabled()` is true (auto-detect via
-    /// `Console.IsTerminal()` + `NO_COLOR`). Public so callers and
-    /// tests can probe the format without round-tripping through
-    /// stderr.
+    /// 单独生成 `[LEVEL 时间戳]` 头，供调用方 / 测试探查格式而不必绕 stderr。
     public static string FormatHeader(int level, DateTime now) {
         string name  = LogLevel.Name(level);
         string token = Log._colorLevel(level, name);

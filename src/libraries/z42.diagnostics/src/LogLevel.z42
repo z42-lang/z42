@@ -1,14 +1,16 @@
 namespace Std.Diagnostics;
 
-// add-z42-diagnostics (2026-05-15)：日志级别整数常量 + 名字反查。
-//
-// 工业惯例：TRACE < DEBUG < INFO < WARN < ERROR。Level 越大越严重；过滤
-// 时 `level >= minLevel` 通过。
+/// 日志级别：普通 int 常量（非 enum），越大越严重。
 public static class LogLevel {
+    /// TRACE 级别常量（0，最低）。
     public static int Trace = 0;
+    /// DEBUG 级别常量（1）。
     public static int Debug = 1;
+    /// INFO 级别常量（2，默认最低输出级别）。
     public static int Info  = 2;
+    /// WARN 级别常量（3）。
     public static int Warn  = 3;
+    /// ERROR 级别常量（4，最高）。
     public static int Error = 4;
 
     /// 返回 level 的大写名字。未知 level 返回 "LEVEL<n>"。

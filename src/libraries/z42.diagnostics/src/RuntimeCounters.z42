@@ -1,16 +1,6 @@
-// Std.Diagnostics.RuntimeStats.Counters() 的返回类型 —— 运行时可观测计数的一个快照。
-//
-// 字段由 VM 的 `__diag_counters` builtin 直接 emit（不暴露 ctor，用户不 `new`），
-// 保证值与运行时实时状态一致。expose-diagnostics-counters（脚本性能分析 P1c，2026-08-23）。
-//
-// 全景 = 7 个运行时 counter（来自 counters.rs `RuntimeCounters::snapshot`）+ 堆派生的
-// `Allocations` + 3 个分代 GC 字段（来自 gc::HeapStats）。与 `--print-stats-on-exit`
-// 的 `z42vm_counters` JSON 同两个来源，故脚本内读值与退出 JSON 语义一致。
-//
-// 注：z42.core 的 `Std.HeapStats`（GC.GetStats 返回）保持精简 7 字段；本类型是运行时
-// 全景入口，含 counter + 分代堆信息。
 namespace Std.Diagnostics;
 
+/// VM 运行时累计计数快照（由 VM 直接填充，用户不能 new）。
 public class RuntimeCounters {
     // ── 运行时 counter（counters.rs RuntimeCounters） ──
 
