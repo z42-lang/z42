@@ -1,16 +1,12 @@
 namespace Std.Threading;
 
-// 2026-05-20 add-sync-primitives: raised by `Std.Threading.Channel<T>.Recv()`
-// when all senders have closed AND the queue is empty (i.e., no more
-// values will ever arrive). The underlying Rust `mpsc::RecvError` is
-// surfaced as this typed exception by the native runtime's
-// `ChannelDisconnectedException` bail string + the z42 facade.
-//
-// Distinct from a generic Exception so callers can `catch (ChannelDisconnectedException e)`
-// without false positives.
+/// 通道断开异常：对已关闭（或等待期间被关闭）的通道 Send，或通道已关闭且队列已空时 Recv。
+/// TrySend / TryRecv 永远不抛这个异常，用返回值表达同样的状态。
 public class ChannelDisconnectedException : Exception {
+    /// @param message 触发消息（"channel closed" / "channel disconnected"）。
     public ChannelDisconnectedException(string message) : base(message) {}
 
+    /// 返回 "ChannelDisconnectedException: <message>"。
     override string ToString() {
         return "ChannelDisconnectedException: " + this.Message;
     }

@@ -1,66 +1,96 @@
+//! OS 线程与同步原语。
+//!
+//! 真 OS 线程的并发原语：`Thread` 起停、`Channel<T>` 传值、`Mutex<T>` / `RwLock<T>` 护住共享
+//! 状态、`Timer` 跑后台周期任务。线程之间共享 GC 堆与静态字段，但 lambda 捕获的是值快照
+//! ——跨线程传值只能走静态字段、共享对象、数组单元或 `Channel<T>`。
+//!
+//! 这是 z42 唯一的并发设施：没有 async / await、没有 Task、没有线程池。每次 `Thread.Start`
+//! 都真的开一条 OS 线程，成本按 OS 线程算。
+//!
+//! 本包随工具链分发、自动可用，工程清单里不需要声明依赖（声明了会报 W0610）。
+//!
+//! ## 不支持
+//!
+//! 线程：
+//!
+//! - 没有线程池、没有 async / await / Task：`Thread.Start` 就是一条真 OS 线程。
+//! - `Action` 之外的入口形态都没有：worker 不能带参数、不能返回值。要回传结果得走静态字段、
+//!   共享对象或 `Channel<T>`。
+//! - 没有线程名、优先级、IsAlive、Thread.CurrentThread、线程 id 查询（`SlotId()` 只是
+//!   句柄自己的诊断编号，不是「当前线程是谁」）。
+//! - 不能取消、不能中断、不能强杀：`Thread` 上没有 Cancel / Interrupt / Abort。协作式
+//!   取消要自己用共享的 bool[1] 单元或 Channel 实现。
+//! - `Join` 没有超时重载，也没有 TryJoin；`Join` 一旦开始等就只能等到 worker 结束。
+//! - 没有守护线程 / detach 语义：进程随主线程返回而结束，未 Join 的线程被直接终止。
+//! - 没人 `Join` 的 worker 异常被静默吞掉，没有任何全局「未捕获异常」钩子。
+//! - 异常不保真：跨线程只带 Message 字符串，原类型与栈丢失。
+//! - `Thread.Sleep` 是毫秒精度，没有纳秒 / Yield / 自旋提示。
+//!
+//! 同步：
+//!
+//! - 语言没有 lock 语句，也没有面向任意对象的裸锁用户 API——临界区一律经
+//!   `Mutex<T>` / `RwLock<T>` 的回调体。（`using Std.Threading` 还会带进 `ThreadNative` /
+//!   `MonitorNative` 两个名字，它们是 `z42.core` 的 extern 声明层，不是本包的用户 API。）
+//! - 没有 Interlocked / 原子类型 / volatile：一个 long 的原子自增也得用 Mutex<long>。
+//! - 没有信号量、条件变量、屏障、倒计时事件、ManualResetEvent、读写升级锁。
+//! - `Mutex<T>` 没有 TryLock（`RwLock<T>` 有 TryRead / TryWrite，Mutex 没有对应物）。
+//! - 没有带超时的获取：Try* 只有「立刻成功或立刻失败」两态。
+//! - 不可重入：重入抛 LockRecursionException，不是递归计数。
+//! - Lock / Read / Write 都没有返回值：读出来的值必须靠静态字段或数组单元带出回调体。
+//! - `RwLock<T>.Read` 的「只读」不由类型系统保证：T 是引用类型时，读体里改字段会真的改到共享值。
+//!
+//! 通道：
+//!
+//! - 没有带超时的 Recv，也没有 Recv 的取消。要么阻塞到底，要么用 TryRecv + Sleep 轮询。
+//! - 没有 select / 多路复用：无法同时等多个通道。
+//! - 没有 Count / IsClosed / Capacity 查询，也不能 foreach 遍历通道。
+//! - 没有 sender / receiver 分离句柄：谁拿到通道谁都能收发，也就没有「最后一个 sender 析构
+//!   即自动断开」——只有显式 Close() 能让接收方收工。
+//! - 无界通道没有内存上限：生产快于消费就一直扩容。要背压就用有界构造器。
+//! - 会合通道（capacity == 0）上已经阻塞的 Send 不会被 Close() 唤醒：那个值必须被某个
+//!   接收者取走，Send 才会返回，否则该线程一直挂着。关闭会合通道前要先确保在途的值有人接。
+//!
+//! 定时器：
+//!
+//! - 没有 dueTime + period 的组合：StartPeriodic 的首次触发固定在 +interval；想要「立刻
+//!   跑一次再周期跑」得自己先调一次回调。
+//! - 没有 Change / 重启 / 改周期：停了就得重新 Start。
+//! - 没有 state 参数，回调是无参 Action，上下文靠闭包捕获的对象带。
+//! - StopAndJoin 不幂等：第二次调用抛 ThreadException("thread already joined")。
+//! - 回调异常不会上报给调用方，只有一行 Log.Error。
 namespace Std.Threading;
 
 
-// 2026-05-20 add-threading-stdlib: OS-thread spawn / join facade.
-//
-// Backed by `__thread_spawn` / `__thread_wait` builtins which keep the
-// `std::thread::JoinHandle` in `VmCore.threads` keyed by a monotonic
-// slot id. This class carries only the slot id, mirroring the pattern
-// of [ProcessHandle](../../z42.io/src/ProcessHandle.z42).
-//
-// Usage:
-//   var t = Thread.Start(() => {
-//       Console.WriteLine("hello from worker");
-//   });
-//   t.Join();
-//
-// Errors:
-//   - Worker `throw new SomethingException(...)` → `Join()` raises
-//     `Std.Threading.ThreadException` whose `Message` carries the worker's
-//     formatted exception text
-//   - Rust panic in the worker → `Join()` raises `ThreadException("thread panicked")`
-//   - Second `Join()` on the same Thread → `ThreadException("thread already joined")`
+/// OS 线程句柄。只能用静态工厂 Start 创建（构造器私有），句柄本身只带一个 slot id。
 public class Thread {
     private long _slot;
 
-    // Constructor is private — users go through `Start(...)`. The slot id
-    // is allocated by `__thread_spawn` and only the runtime knows it.
+    // 构造器私有——用户只能经 Start 创建；slot id 由 __thread_spawn 分配，只有运行时知道。
     private Thread(long slot) {
         this._slot = slot;
     }
 
-    // Spawn a worker thread running `action`. Returns a Thread handle whose
-    // `Join()` waits for the worker to finish. The Action runs with a
-    // fresh per-thread `pending_exception` / `call_stack`
-    // but shares the parent's static fields, GC heap, lazy-loaded zpkgs,
-    // and native libraries (`VmCore`).
+    /// 立刻开一条 OS 线程跑 action 并返回句柄。
+    /// @param action 只能是无参无返回的 Action——不能带参数、不能返回值。
     public static Thread Start(Action action) {
         long slot = ThreadNative.Spawn(action);
         return new Thread(slot);
     }
 
-    // Block until the worker finishes. Idempotence:
-    //   - Worker returned normally → returns void
-    //   - Worker threw → throws `Std.Threading.ThreadException`
-    //   - Already joined → throws `Std.Threading.ThreadException("thread already joined")`
+    /// 阻塞直到 worker 结束。
+    /// @throws ThreadException worker 抛过异常、或对同一个 Thread 第二次 Join 时。
     public void Join() {
-        ThreadNative.Wait(this._slot);   // the VM throws ThreadException (see above)
+        ThreadNative.Wait(this._slot);   // VM 会抛出 ThreadException（见上）
     }
 
-    // The internal slot id — exposed read-only for diagnostics. Users
-    // should not depend on the numeric value.
+    /// 进程内单调递增的诊断用编号（第一条线程是 1）。不要依赖具体数值。
     public long SlotId() {
         return this._slot;
     }
 
-    // add-thread-sleep (2026-05-27): block the current thread for `millis`
-    // milliseconds. Negative values saturate to 0 (BCL convention). For
-    // CPU-friendly polling / simple delays. POSIX `nanosleep` underneath,
-    // ms precision.
+    /// 阻塞当前线程 millis 毫秒。毫秒精度；负数按 0 处理。
+    /// @param millis 要阻塞的毫秒数；负数按 0 处理。
     public static void Sleep(long millis) {
         ThreadNative.Sleep(millis);
     }
 }
-
-// ThreadNative（native 语义层）已上移 z42.core（src/Native/ThreadingNative.z42）——
-// 见 organization.md「native 语义层 → core」（2026-08-27）。此处仅保留纯脚本应用层。
