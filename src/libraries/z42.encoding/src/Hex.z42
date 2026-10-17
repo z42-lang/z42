@@ -1,18 +1,20 @@
 namespace Std.Encoding;
 
-// Hex 编解码（RFC 4648 §8 大致语义；本实现不强制小写或大写，Decode 接受混合
-// 大小写，Encode 默认小写，提供 `EncodeUpper` 变体）。
-//
-// 错误：奇数长度 / 非 [0-9a-fA-F] 字符 → `Std.FormatException`。
+/// Hex 编解码。
+///
+/// `Encode` 输出小写，`EncodeUpper` 输出大写；`Decode` 接受混合大小写。
+/// 奇数长度抛 `FormatException("odd-length hex string")`，非 `[0-9a-fA-F]` 字符抛 `invalid hex character '<c>'`。
 
 public static class Hex {
     private static string _alphaLower = "0123456789abcdef";
     private static string _alphaUpper = "0123456789ABCDEF";
 
+    /// 把字节编码为小写十六进制字符串。
     public static string Encode(byte[] bytes) {
         return EncodeWith(bytes, Hex._alphaLower);
     }
 
+    /// 把字节编码为大写十六进制字符串。
     public static string EncodeUpper(byte[] bytes) {
         return EncodeWith(bytes, Hex._alphaUpper);
     }
@@ -30,6 +32,7 @@ public static class Hex {
         return String.FromChars(result);
     }
 
+    /// 把十六进制字符串解码为字节；接受混合大小写，严格校验。
     public static byte[] Decode(string hex) {
         if (hex.Length == 0) return new byte[0];
         if ((hex.Length & 1) != 0) {

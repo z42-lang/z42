@@ -1,19 +1,15 @@
 namespace Std.Encoding;
 
 
-// RFC 4648 §7 "Base32 hex" variant — same bit packing as standard Base32
-// (5-byte input → 8-char output, padding to multiple of 8 with `=`) but
-// the alphabet is `0-9A-V` so the natural ordering of encoded strings
-// preserves the natural ordering of decoded byte values. Most notable
-// real-world use: DNS NSEC3 (RFC 5155) hashed owner-name encoding.
-//
-// Alphabet: 0123456789ABCDEFGHIJKLMNOPQRSTUV  (32 chars; A=10..V=31)
-// Padding count rules identical to standard Base32: {0, 1, 3, 4, 6}.
-// Strict uppercase; lowercase rejected (use s.ToUpper() to normalise).
+/// Base32Hex 编解码（RFC 4648 §7）。
+///
+/// 字母表 `0-9A-V`（A=10 … V=31），打包与 padding 规则同 `Base32`。字母表按序，
+/// 因此编码串字典序与原字节自然序一致——如 DNS NSEC3 场景适用。`Decode` 只接受大写。
 
 public static class Base32Hex {
     private static string _alpha = "0123456789ABCDEFGHIJKLMNOPQRSTUV";
 
+    /// 把字节编码为 Base32Hex 字符串（字母表 `0-9A-V`，带 `=` padding）。
     public static string Encode(byte[] bytes) {
         if (bytes.Length == 0) return "";
         string alpha = Base32Hex._alpha;
@@ -70,6 +66,7 @@ public static class Base32Hex {
         return String.FromChars(result);
     }
 
+    /// 把 Base32Hex 字符串解码为字节；只接受大写，严格校验。
     public static byte[] Decode(string s) {
         if (s.Length == 0) return new byte[0];
         if ((s.Length % 8) != 0) {

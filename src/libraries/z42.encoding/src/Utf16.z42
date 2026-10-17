@@ -1,21 +1,18 @@
 namespace Std.Encoding;
 
 
-// add-encoding-utf16 (2026-05-27): UTF-16 encode / decode (RFC 2781).
-//
-// `LE` = little-endian (low byte first; default on x86/ARM, the wire
-// format Windows PE / .NET interop expects). `BE` = big-endian
-// (high byte first; PDF / Java serialisation default).
-//
-// Codepoints 0–0xFFFF (BMP) → 2 bytes; 0x10000–0x10FFFF → surrogate
-// pair (4 bytes). Standalone surrogates (0xD800–0xDFFF) in input
-// strings are rejected. `GetString*` validates surrogate pairing and
-// rejects truncated / overlong / out-of-range input with
-// `FormatException`.
+/// UTF-16 编解码（RFC 2781）。
+///
+/// `LE` = 小端（低字节在前），`BE` = 大端（高字节在前）；字节序由方法名选定，不读写 BOM。
+///
+/// BMP 码点 2 字节，增补平面走代理对 4 字节。解码严格校验代理对配对，拒绝孤立高/低代理
+/// 与截断输入；字节长度不是 2 的倍数即报错。
 public static class Utf16 {
     // ── Encode ───────────────────────────────────────────────────────────────
 
+    /// 以小端字节序把 `s` 编码为 UTF-16 字节。
     public static byte[] GetBytesLE(string s) { return _encode(s, true); }
+    /// 以大端字节序把 `s` 编码为 UTF-16 字节。
     public static byte[] GetBytesBE(string s) { return _encode(s, false); }
 
     static byte[] _encode(string s, bool le) {
@@ -70,7 +67,9 @@ public static class Utf16 {
 
     // ── Decode ───────────────────────────────────────────────────────────────
 
+    /// 以小端字节序把 UTF-16 字节解码为字符串。
     public static string GetStringLE(byte[] bytes) { return _decode(bytes, true); }
+    /// 以大端字节序把 UTF-16 字节解码为字符串。
     public static string GetStringBE(byte[] bytes) { return _decode(bytes, false); }
 
     static string _decode(byte[] bytes, bool le) {

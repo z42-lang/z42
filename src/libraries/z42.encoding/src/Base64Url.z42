@@ -1,20 +1,14 @@
 namespace Std.Encoding;
 
 
-// RFC 4648 §5: URL- and Filename-safe Base64.
-//   字母表 = A-Z a-z 0-9 - _      (`+/` → `-_`)
-//   padding = `=`，但默认输出 unpadded（RFC 4648 §3.2 允许；JWT / RFC 7515
-//             Appendix C 强制要求 unpadded）
-//   Decode 接受 padded 和 unpadded 两种输入（用户拿到的可能任一）
-//   严格拒绝标准 base64 字符（`+/`）— 提示用 `Std.Encoding.Base64`
-//
-// 实现策略：复用 `Std.Encoding.Base64` 的核心算法，只在边界做 char-table 翻译
-// + padding 处理。比重复 100 行算法清晰；perf 开销在 stdlib 用例下可忽略。
+/// URL 与文件名安全 Base64（RFC 4648 §5）。
+///
+/// 字母表 `A-Z a-z 0-9 - _`（`+/` → `-_`），编码输出不带 `=` padding（JWT / RFC 7515 Appendix C）。
+/// `Decode` 宽松接受带或不带 padding，但遇到标准变体的 `+` / `/` 立即报错并提示改用 `Base64`。
 
 public static class Base64Url {
 
-    /// Base64-URL encode `bytes` using RFC 4648 §5 alphabet (`+/` → `-_`)
-    /// without trailing `=` padding. JWT / RFC 7515 Appendix C 兼容。
+    /// 用 RFC 4648 §5 字母表（`+/` → `-_`）编码字节，输出不带 `=` padding。
     public static string Encode(byte[] bytes) {
         // Reuse standard encoder, then char-translate + strip padding.
         string std    = Base64.Encode(bytes);
@@ -30,9 +24,7 @@ public static class Base64Url {
         return noSlsh.Substring(0, stripped);
     }
 
-    /// Decode a Base64-URL string back to bytes. Accepts both padded and
-    /// unpadded input. Rejects characters `+` / `/` (those belong to the
-    /// standard variant — caller should use `Std.Encoding.Base64`).
+    /// 解码 Base64URL 字符串；接受带或不带 padding，遇到 `+` / `/` 报错并提示改用 `Base64`。
     public static byte[] Decode(string s) {
         if (s.Length == 0) return new byte[0];
         // Validate that no `+` / `/` appears (catches wrong-variant usage early).
