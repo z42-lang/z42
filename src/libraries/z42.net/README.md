@@ -7,15 +7,7 @@ HTTP 与 WebSocket 为纯脚本，构建在 `TcpClient` / `TcpListener`（https 
 不含 async I/O。
 
 ## 功能索引
-
-| 命名空间 | 公开类型 |
-|---------|---------|
-| `Std.Net.Sockets` | `TcpClient` / `TcpListener` / `NetworkStream`、`UdpClient` / `UdpReceiveResult`、`IPAddress` / `IPEndPoint`、`Dns`、`TlsClient` / `TlsStream` |
-| `Std.Net.Http` | `HttpClient` / `HttpRequest` / `HttpResponse` / `HttpHeaders` / `HttpMethod` / `HttpStatusCode` / `HttpUrl`、`Cookie` / `CookieJar`、`HttpServer` / `HttpServerContext` |
-| `Std.Net.WebSockets` | `WebSocketClient` / `WebSocketServer` / `WebSocketConnection` / `WebSocketMessage` / `WebSocketMessageType` / `WebSocketState` |
-| `Std` | `NetException` / `NetUnsupportedException` / `SocketException` / `SocketClosedException` / `HttpException` / `HttpProtocolException` / `WebSocketException` / `WebSocketProtocolException` |
-
-API 参考：[`docs/reference/src/stdlib/net.md`](../../../docs/reference/src/stdlib/net.md)。
+公开 API 的完整签名见 [reference 包页](../../../docs/reference/src/stdlib/net.md)（由源码 doc 注释生成）。
 
 ## 核心文件
 

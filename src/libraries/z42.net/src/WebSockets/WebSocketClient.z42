@@ -6,33 +6,14 @@ using Std.Encoding;
 using Std.Random;
 using Std.Net.Sockets;
 
-// add-z42-net-websocket K4 (2026-05-25): RFC 6455 WebSocket client over TCP.
-//
-// Pure-script over `Std.Net.Sockets.TcpClient` (K1). No new VM builtin.
-// ws:// only — wss:// throws `NotSupportedException` pending
-// `add-z42-net-tls`.
-//
-// Lifecycle:
-//   var ws = new WebSocketClient();
-//   ws.Connect("ws://example.com:8080/echo");
-//   ws.SendText("hello");
-//   WebSocketMessage rx = ws.Receive();   // blocks until message
-//   ws.Close(1000, "bye");
-//
-// V0 limits:
-//   - Outgoing always single-frame (FIN=1, no fragmentation send)
-//   - Incoming fragmentation: assembled into one message
-//   - Ping (server) → auto-Pong (client) inside `Receive`
-//   - No Sec-WebSocket-Accept verification (status 101 + Upgrade header
-//     sufficient v0; SHA-1 validation is `add-z42-net-websocket-accept-validate`
-//     follow-up since z42.crypto lacks SHA-1)
-//   - No per-message-deflate, no subprotocol negotiation
+/// RFC 6455 WebSocket 客户端（纯脚本，基于 TcpClient）；只支持 ws://。
 public class WebSocketClient : IDisposable {
     private TcpClient     _tcp;
     private NetworkStream _stream;
     private int           _state;
     private Random        _rng;
 
+    /// 构造未连接的客户端（初始状态为 Closed）。
     public WebSocketClient() {
         this._tcp    = null;
         this._stream = null;
@@ -40,12 +21,12 @@ public class WebSocketClient : IDisposable {
         this._rng    = new Random();
     }
 
+    /// 返回当前连接状态（WebSocketState 常量）。
     public int State() {
         return this._state;
     }
 
-    /// Establish a WebSocket connection. URL must be `ws://host[:port][/path]`.
-    /// `wss://` throws `NotSupportedException` pending TLS support.
+    /// 建立 WebSocket 连接；URL 必须是 `ws://host[:port][/path]`，`wss://` 抛 `NotSupportedException`。
     public void Connect(string url) {
         if (this._state != WebSocketState.Closed) {
             throw new InvalidOperationException("WebSocketClient already connected");
@@ -80,41 +61,33 @@ public class WebSocketClient : IDisposable {
         byte[] reqBytes = Utf8.GetBytes(req);
         stream.Write(reqBytes, 0, reqBytes.Length);
 
-        // ── Read response. Must be 101 Switching Protocols + Upgrade: websocket.
-        //    Sec-WebSocket-Accept also verified against base64(SHA-1(key + magic))
-        //    per RFC 6455 §4.2.2 (add-sha1-to-crypto 2026-05-25 unblock).
+        // ── 读响应：必须是 101 Switching Protocols + Upgrade: websocket，
+        //    Sec-WebSocket-Accept 按 RFC 6455 §4.2.2 校验。
         WebSocketClient._verifyHandshakeResponse(stream, key);
 
         this._state = WebSocketState.Open;
     }
 
-    /// Send a text message (UTF-8 encoded). Single frame, FIN=1.
+    /// 发送 UTF-8 文本消息（单帧，FIN=1）。
     public void SendText(string text) {
         this._ensureOpen();
         byte[] payload = Utf8.GetBytes(text);
         this._sendFrame(_FrameCodec.OpText, payload, payload.Length);
     }
 
-    /// Send a binary message. `length` allows passing a slice (uses `data[0..length]`).
+    /// 发送二进制消息；`length` 允许传 `data[0..length]` 切片。
     public void SendBinary(byte[] data, int length) {
         this._ensureOpen();
         this._sendFrame(_FrameCodec.OpBinary, data, length);
     }
 
-    /// Send an unsolicited ping. Server should reply with pong (auto-handled
-    /// in this client's Receive).
+    /// 发送主动 ping；服务端应以 pong 回复（在本客户端的 Receive 里自动处理）。
     public void SendPing(byte[] payload, int length) {
         this._ensureOpen();
         this._sendFrame(_FrameCodec.OpPing, payload, length);
     }
 
-    /// Block until a text / binary / close message arrives. Ping frames
-    /// from the server are auto-acknowledged with Pong frames and the
-    /// receive loop continues. Pong frames are silently dropped.
-    ///
-    /// Returns a `WebSocketMessage`; for close frames, the message type is
-    /// `Close` and the caller should `Close()` the client (or accept the
-    /// connection has ended).
+    /// 阻塞直到收到文本 / 二进制 / 关闭消息；服务端 Ping 自动回 Pong，Pong 静默丢弃。
     public WebSocketMessage Receive() {
         if (this._state == WebSocketState.Closed) {
             throw new InvalidOperationException("WebSocketClient is closed");
@@ -177,8 +150,7 @@ public class WebSocketClient : IDisposable {
         throw new WebSocketProtocolException("receive loop terminated unexpectedly");
     }
 
-    /// Close the connection with a status code and optional reason text.
-    /// Status code 1000 = normal closure (RFC 6455 §7.4).
+    /// 以状态码（1000 = 正常关闭）和可选 reason 文本关闭连接。
     public void Close(int statusCode, string reason) {
         if (this._state == WebSocketState.Closed) return;
         // Close payload: 2-byte BE status + UTF-8 reason
@@ -202,8 +174,7 @@ public class WebSocketClient : IDisposable {
         this.Dispose();
     }
 
-    /// Immediately tear down the TCP connection without a graceful close.
-    /// Idempotent.
+    /// 立即断开 TCP 连接（不做优雅关闭）；幂等。
     public void Dispose() {
         if (this._tcp != null) {
             this._tcp.Dispose();
@@ -332,8 +303,7 @@ public class WebSocketClient : IDisposable {
         }
     }
 
-    /// Compute the expected `Sec-WebSocket-Accept` value for a given client
-    /// `Sec-WebSocket-Key` per RFC 6455 §4.2.2.
+    // 按 RFC 6455 §4.2.2 计算给定 Sec-WebSocket-Key 对应的期望 Sec-WebSocket-Accept。
     static string _computeExpectedAccept(string clientKey) {
         string magic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
         string combined = clientKey + magic;
@@ -441,8 +411,7 @@ public class WebSocketClient : IDisposable {
     }
 }
 
-// Internal value carrier — z42 has no out params / tuples, so the URL parser
-// returns this 3-field record.
+// 内部值载体 —— z42 无 out 参数 / 元组，URL 解析器返回这个三字段记录。
 public class _WsUrl {
     public string Host;
     public int    Port;
@@ -455,28 +424,8 @@ public class _WsUrl {
     }
 }
 
-// Internal line reader for handshake response (minimal copy of HttpClient's
-// `_LineReader` — kept inline to avoid Http ↔ WebSockets cross-coupling).
-// fix-ws-line-reader-overread (2026-05-30): the previous implementation
-// kept a 1024-byte buffer and refilled with `stream.Read(buf, 0, 1024)`.
-// On any TCP transport that may coalesce the server's HTTP/1.1 101
-// response with the first websocket data frame (loopback under low load
-// is the common case; the Nagle algorithm + small writes will pack the
-// 101 + headers + opening frames into a single TCP segment), the refill
-// would happily slurp bytes BEYOND the `\r\n\r\n` end-of-headers boundary
-// into the line reader's private buffer. ReadLine stopped at the empty
-// line and returned; the post-handshake `Receive` then read directly
-// from the raw socket — but those frame bytes were sitting in the line
-// reader's buffer, now dropped on the floor when the reader went out of
-// scope, and Receive consequently parsed garbage / mid-frame opcode 0
-// continuation and threw `WebSocketProtocolException`. Reproducible with
-// ~40-50% rate on ws_fragmentation locally, near-100% on slower CI
-// runners where Nagle has more time to coalesce.
-//
-// The byte-at-a-time read here is the simple-and-correct fix: HTTP
-// headers are at most a few hundred bytes per response so the per-read
-// syscall overhead is negligible; in exchange we guarantee zero
-// over-read past the headers terminator.
+// 内部行读取器（HttpClient._LineReader 的极简内联版，避免 Http ↔ WebSockets 交叉耦合）。
+// 逐字节读保证绝不越过 \r\n\r\n 头边界多读（避免把 101 响应之后的首帧字节吸进私有缓冲）。
 public class _WsLineReader {
     private Stream _stream;
     private byte[] _one;

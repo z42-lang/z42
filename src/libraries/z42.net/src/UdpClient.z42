@@ -1,42 +1,18 @@
 namespace Std.Net.Sockets;
 
 
-// add-z42-net-udp K2 (2026-05-25): sync blocking UDP (datagram) socket.
-//
-// Lifecycle:
-//   var u = new UdpClient();
-//   u.Bind("0.0.0.0", 0);                          // bind for receive (port 0 = OS-assigned)
-//   int port = u.LocalPort();
-//   u.Send(data, data.Length, "127.0.0.1", 9000);  // send to remote
-//   var rx = u.Receive();                           // blocks; rx.Buffer / RemoteHost / RemotePort
-//   u.Dispose();
-//
-// Each Send/Receive is a discrete datagram (vs TCP's stream). Receive
-// blocks until a datagram arrives. No connection state in v0; remote
-// address always explicit per Send (Connect+default-remote is follow-up
-// `add-z42-net-udp-connected`).
-//
-// **Auto-bind**: if `Send` is called before `Bind`, we auto-bind to
-// `("0.0.0.0", 0)` (OS-assigned ephemeral port). This matches BCL
-// `UdpClient.Send` behavior. Caller can then `LocalPort()` to discover
-// the assigned port.
+/// 同步阻塞的 UDP（数据报）socket，对应 .NET 的 `UdpClient`。
 public class UdpClient : IDisposable {
     private long   _slotId;
     private bool   _bound;
     private bool   _disposed;
     private int    _localPort;
     private string _bindHost;
-    // add-z42-net-udp-connected (2026-05-27): default remote for the bare
-    // SendConnected / SendConnectedString helpers. Kept independent of the
-    // OS-level UDP connect() — z42 still uses bare `sendto`/`recvfrom`
-    // under the hood (no kernel-level connected state), the "connection"
-    // is purely a stored default address in this object.
+    // 连接模式的默认远端地址（存于对象内，底层仍用 sendto/recvfrom，无内核级 connected 状态）。
     private bool   _connected;
     private string _remoteHost;
     private int    _remotePort;
-    // add-z42-net-udp-recv-into (2026-05-27): sender address of the most
-    // recent ReceiveInto call (Receive() returns its own tuple so no
-    // shared state needed; ReceiveInto returns just bytesWritten).
+    // 最近一次 ReceiveInto 的对端地址（Receive 自带返回值，无需共享状态）。
     private string _lastRxHost;
     private int    _lastRxPort;
 
@@ -53,8 +29,7 @@ public class UdpClient : IDisposable {
         this._lastRxPort = 0;
     }
 
-    /// Bind to `host:port`. Use port 0 to let the OS pick an available
-    /// ephemeral port; query `LocalPort()` afterwards to discover.
+    /// 绑定到 `host:port`；port 0 由 OS 分配临时端口（事后用 `LocalPort()` 查询）。
     public void Bind(string host, int port) {
         if (this._disposed) {
             throw new SocketClosedException();
@@ -69,24 +44,20 @@ public class UdpClient : IDisposable {
         this._bound     = true;
     }
 
-    /// Send a datagram of `length` bytes (from `data[0..length]`) to
-    /// `remoteHost:remotePort`. Returns the number of bytes sent (always
-    /// `length` for normal-sized datagrams; OS may fragment larger).
-    ///
-    /// If the client hasn't `Bind`ed yet, auto-binds to `("0.0.0.0", 0)`
-    /// (ephemeral port). Discover the chosen port with `LocalPort()`.
+    /// 向 `remoteHost:remotePort` 发送 `data[0..length]` 的数据报，返回发送字节数。
+    /// 若尚未 Bind，则自动绑定到 ("0.0.0.0", 0)。
     public int Send(byte[] data, int length, string remoteHost, int remotePort) {
         if (this._disposed) {
             throw new SocketClosedException();
         }
         if (!this._bound) {
-            // Auto-bind to ephemeral on first Send.
+            // 首次 Send 自动绑定到临时端口。
             this.Bind("0.0.0.0", 0);
         }
         return UdpSocketNative.Send(this._slotId, data, 0, length, remoteHost, remotePort);
     }
 
-    /// Block until a datagram arrives; return it plus the sender's address.
+    /// 阻塞直到收到一个数据报，返回数据报及其发送方地址。
     public UdpReceiveResult Receive() {
         if (this._disposed) {
             throw new SocketClosedException();
@@ -95,24 +66,15 @@ public class UdpClient : IDisposable {
             throw new InvalidOperationException("UdpClient.Receive() called before Bind()");
         }
         object[] raw = UdpSocketNative.Receive(this._slotId);
-        // Note: `new UdpReceiveResult(...)` must be invoked in the same file as
-        // the declared return type or z42's cross-file type resolver produces
-        // two different type tokens for the same class (manifests as
-        // "expected UdpReceiveResult, got UdpReceiveResult"). Filed as
-        // a follow-up of `compiler-future-typed-overload-resolution`.
+        // `new UdpReceiveResult(...)` 必须与返回类型声明在同一文件里，
+        // 否则 z42 的跨文件类型解析会产生两个不同的类 token。
         byte[] buf  = (byte[])raw[0];
         string host = (string)raw[1];
         int    port = (int)(long)raw[2];
         return new UdpReceiveResult(buf, host, port);
     }
 
-    /// add-z42-net-udp-connected (2026-05-27): set a default remote
-    /// address so subsequent `SendConnected` / `SendConnectedString` calls
-    /// don't need to repeat it. Does not actually call OS `connect(2)` on
-    /// the socket — under the hood we still use `sendto` with the stored
-    /// address, matching BCL `UdpClient.Connect` semantics (informational
-    /// default, not a kernel filter). Connect may be called multiple times
-    /// to retarget; reusing the same UdpClient across remotes is fine.
+    /// 设置默认远端地址，供后续 `SendConnected` 使用；不调用 OS 的 connect(2)。
     public void Connect(string remoteHost, int remotePort) {
         if (this._disposed) {
             throw new SocketClosedException();
@@ -122,23 +84,19 @@ public class UdpClient : IDisposable {
         this._connected  = true;
     }
 
-    /// Clear the connected default. Subsequent `SendConnected` will throw.
-    /// `Connect` again to retarget. Idempotent.
+    /// 清除默认远端地址；幂等。
     public void Disconnect() {
         this._connected  = false;
         this._remoteHost = "";
         this._remotePort = 0;
     }
 
-    /// True if `Connect` has been called and not subsequently `Disconnect`-ed.
+    /// 是否已 Connect 且未 Disconnect。
     public bool IsConnected() {
         return this._connected;
     }
 
-    /// Send `length` bytes of `data` to the address previously set via
-    /// `Connect`. Throws `InvalidOperationException` if not connected.
-    /// Auto-binds to ephemeral `("0.0.0.0", 0)` on first send (same as
-    /// the addressed `Send` variant).
+    /// 向 `Connect` 设置的远端发送 `data[0..length]`；未 Connect 抛 `InvalidOperationException`。
     public int SendConnected(byte[] data, int length) {
         if (this._disposed) {
             throw new SocketClosedException();
@@ -150,20 +108,13 @@ public class UdpClient : IDisposable {
         return this.Send(data, length, this._remoteHost, this._remotePort);
     }
 
-    /// Convenience: send the entire `data` array to the connected remote.
+    /// 向已连接的远端发送整个 `data` 数组。
     public int SendConnected(byte[] data) {
         return this.SendConnected(data, data.Length);
     }
 
-    /// add-z42-net-udp-recv-into (2026-05-27): receive a datagram into the
-    /// caller's pre-allocated buffer at `[offset, offset + count)`. Avoids
-    /// the per-call allocation of `Receive()`. Returns the number of bytes
-    /// written (clamped to `count` — over-large datagrams are truncated to
-    /// fit; caller can pre-size the buffer to MTU-style limits if needed).
-    /// Remote sender address is exposed via `LastReceiveHost` / `LastReceivePort`
-    /// helpers since z42's overload resolver can't disambiguate two `Receive`
-    /// shapes by arg-type alone — the array overload chose a different
-    /// disposition for the address pair.
+    /// 把数据报收进调用方缓冲 `buf[offset..offset+count)`，省一次分配；返回写入字节数。
+    /// 对端地址通过 `LastReceiveHost` / `LastReceivePort` 读取。
     public int ReceiveInto(byte[] buf, int offset, int count) {
         if (this._disposed) {
             throw new SocketClosedException();
@@ -178,28 +129,20 @@ public class UdpClient : IDisposable {
         return n;
     }
 
-    /// Convenience: fill the entire `buf` (offset 0, count buf.Length).
-    /// Named distinctly (not an overload of `ReceiveInto`) because z42's
-    /// arity-based overload resolution proved fragile under cross-file
-    /// method tables here — keep an explicit name until
-    /// `compiler-future-typed-overload-resolution` lands.
+    /// 把数据报收满整个 `buf`（offset 0、count buf.Length）。
     public int ReceiveIntoFull(byte[] buf) {
         return this.ReceiveInto(buf, 0, buf.Length);
     }
 
-    /// Sender address of the most recent `ReceiveInto` call (empty / 0 before
-    /// any successful receive).
+    /// 最近一次 `ReceiveInto*` 的对端主机（成功接收前为空）。
     public string LastReceiveHost() { return this._lastRxHost; }
+
+    /// 最近一次 `ReceiveInto*` 的对端端口（成功接收前为 0）。
     public int    LastReceivePort() { return this._lastRxPort; }
 
-    // ── Multicast (add-z42-net-udp-multicast 2026-05-27) ────────────────
+    // ── 组播 ────────────────────────────────────────────────────────────
 
-    /// Join an IPv4 multicast group. `groupIp` must be in the multicast
-    /// range (224.0.0.0/4); call after `Bind` (typically `Bind("0.0.0.0",
-    /// port)` so the kernel can deliver group traffic to your port).
-    /// `ifaceIp` of `"0.0.0.0"` defers interface selection to the OS.
-    /// Calling multiple times with different groups subscribes to all of
-    /// them on the same socket.
+    /// 加入 IPv4 组播组；`ifaceIp` 传 "0.0.0.0" 表示由 OS 选择接口。
     public void JoinMulticastGroup(string groupIp, string ifaceIp) {
         if (this._disposed) { throw new SocketClosedException(); }
         if (!this._bound) {
@@ -208,14 +151,12 @@ public class UdpClient : IDisposable {
         UdpSocketNative.JoinMulticast(this._slotId, groupIp, ifaceIp);
     }
 
-    /// Convenience: defer interface to the OS (`0.0.0.0`).
+    /// 加入 IPv4 组播组，接口交给 OS（0.0.0.0）。
     public void JoinMulticastGroup(string groupIp) {
         this.JoinMulticastGroup(groupIp, "0.0.0.0");
     }
 
-    /// Leave a previously joined IPv4 multicast group. Idempotent at the
-    /// kernel level — re-leaving a group not currently joined errors as
-    /// `SocketException`. Caller responsible for symmetric Join/Leave.
+    /// 离开之前加入的 IPv4 组播组。
     public void LeaveMulticastGroup(string groupIp, string ifaceIp) {
         if (this._disposed) { throw new SocketClosedException(); }
         if (!this._bound) {
@@ -224,25 +165,12 @@ public class UdpClient : IDisposable {
         UdpSocketNative.LeaveMulticast(this._slotId, groupIp, ifaceIp);
     }
 
+    /// 离开 IPv4 组播组，接口交给 OS（0.0.0.0）。
     public void LeaveMulticastGroup(string groupIp) {
         this.LeaveMulticastGroup(groupIp, "0.0.0.0");
     }
 
-    /// IP_MULTICAST_LOOP — controls whether multicasts sent on this socket
-    /// loop back to the local host. Default = true (matches BSD socket
-    /// default). Disabling can save a recv per send for senders that
-    /// don't need to consume their own output.
-    /// add-z42-net-socket-options (2026-05-27): IP_TTL for unicast sends.
-    /// (Multicast TTL is `set_multicast_ttl_v4` — separate follow-up if
-    /// a caller needs it.)
-    public void SetTtl(int ttl) {
-        if (this._disposed) { throw new SocketClosedException(); }
-        if (!this._bound) {
-            throw new InvalidOperationException("SetTtl before Bind");
-        }
-        UdpSocketNative.SetTtl(this._slotId, ttl);
-    }
-
+    /// 设置 IP_MULTICAST_LOOP（本 socket 发出的组播是否回环到本机）。
     public void SetMulticastLoop(bool enable) {
         if (this._disposed) { throw new SocketClosedException(); }
         if (!this._bound) {
@@ -251,10 +179,16 @@ public class UdpClient : IDisposable {
         UdpSocketNative.SetMulticastLoop(this._slotId, enable);
     }
 
-    /// add-net-socket-options-extended (2026-05-30): UDP recv timeout.
-    /// `millis <= 0` clears the timeout (blocking forever). Throws
-    /// `InvalidOperationException` if called before Bind — the socket
-    /// option is per-fd, so there's no socket to set the option on yet.
+    /// 设置单播发送的 IP_TTL。
+    public void SetTtl(int ttl) {
+        if (this._disposed) { throw new SocketClosedException(); }
+        if (!this._bound) {
+            throw new InvalidOperationException("SetTtl before Bind");
+        }
+        UdpSocketNative.SetTtl(this._slotId, ttl);
+    }
+
+    /// 设置读超时（毫秒）；`millis <= 0` 清除超时。需先 Bind。
     public void SetReadTimeout(int millis) {
         if (this._disposed) { throw new SocketClosedException(); }
         if (!this._bound) {
@@ -263,6 +197,7 @@ public class UdpClient : IDisposable {
         UdpSocketNative.SetReadTimeout(this._slotId, millis);
     }
 
+    /// 设置写超时（毫秒）；`millis <= 0` 清除超时。需先 Bind。
     public void SetWriteTimeout(int millis) {
         if (this._disposed) { throw new SocketClosedException(); }
         if (!this._bound) {
@@ -271,8 +206,7 @@ public class UdpClient : IDisposable {
         UdpSocketNative.SetWriteTimeout(this._slotId, millis);
     }
 
-    /// Local bound port — useful after `Bind(host, 0)` to discover the
-    /// OS-assigned port. Throws `InvalidOperationException` if not bound.
+    /// 本地绑定端口（用 port 0 绑定时查询 OS 分配到的端口）。
     public int LocalPort() {
         if (this._disposed) {
             throw new SocketClosedException();
@@ -283,11 +217,12 @@ public class UdpClient : IDisposable {
         return this._localPort;
     }
 
+    /// 返回绑定主机。
     public string BindHost() {
         return this._bindHost;
     }
 
-    /// Close the socket. Idempotent. Subsequent ops throw `SocketClosedException`.
+    /// 关闭 socket；幂等。之后的操作抛 `SocketClosedException`。
     public void Dispose() {
         if (this._disposed) return;
         this._disposed = true;
@@ -297,7 +232,7 @@ public class UdpClient : IDisposable {
         }
     }
 
-    /// Alias for `Dispose()` matching .NET BCL `UdpClient.Close()`.
+    /// `Dispose()` 的别名，对齐 .NET 的 `UdpClient.Close()`。
     public void Close() {
         this.Dispose();
     }

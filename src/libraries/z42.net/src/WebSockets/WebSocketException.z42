@@ -1,8 +1,6 @@
 namespace Std.Net.WebSockets;
 
-// add-z42-net-websocket K4 (2026-05-25): base WebSocket exception. Subclassed
-// by `WebSocketProtocolException` for RFC 6455 wire violations. Caller can
-// catch this for catch-all WS error handling.
+/// WebSocket 异常基类，继承 `NetException`；`WebSocketProtocolException` 继承它。
 public class WebSocketException : NetException {
     public WebSocketException(string message) : base(message) {}
 

@@ -3,22 +3,17 @@ using Std.Encoding;
 
 using Std.IO;
 
-// add-z42-net-http K3 (2026-05-25): incoming HTTP response container.
-//
-// Constructed by `HttpClient.Send` (drained body in `Body: byte[]`) or
-// `HttpClient.SendStreaming` (lazy body in `BodyStream: Stream`; `Body`
-// stays empty). Callers using SendStreaming MUST eventually
-// `BodyStream.Close()` or fully drain the stream to release the
-// underlying TCP socket.
+/// 收到的 HTTP 响应容器。
 public class HttpResponse {
+    /// 状态码。
     public int         StatusCode;
+    /// 原因短语。
     public string      ReasonPhrase;
+    /// 响应头。
     public HttpHeaders Headers;
-    public byte[]      Body;            // empty array if streaming (use BodyStream)
-    // add-z42-net-http-stream-body (2026-05-28): non-null when caller
-    // used HttpClient.SendStreaming; null for the traditional drained-
-    // body path. Mutually exclusive with `Body` (Body is empty when
-    // BodyStream is set).
+    /// 响应体（流式下为空数组）。
+    public byte[]      Body;
+    /// 仅 `SendStreaming` 下非 null 的流式响应体。
     public Stream      BodyStream;
 
     public HttpResponse(int statusCode, string reasonPhrase, HttpHeaders headers, byte[] body) {
@@ -29,14 +24,12 @@ public class HttpResponse {
         this.BodyStream   = null;
     }
 
-    /// True if status is in [200, 300) range — typical client success check.
+    /// 状态码是否在 [200, 300)（2xx 成功）。
     public bool IsSuccess() {
         return this.StatusCode >= 200 && this.StatusCode < 300;
     }
 
-    /// Decode body as UTF-8 string. Convenience for text APIs. For
-    /// streaming responses this returns the empty string — drain the
-    /// `BodyStream` and decode yourself.
+    /// 把响应体按 UTF-8 解码为字符串。
     public string BodyAsString() {
         return Utf8.GetString(this.Body);
     }

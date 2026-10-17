@@ -1,8 +1,6 @@
 namespace Std.Net.Http;
 
-// add-z42-net-http K3 (2026-05-25): common HTTP status code int constants.
-// Subset of IANA registry — add as use cases require. Code lookup by int
-// matches the wire value.
+/// 常用 HTTP 状态码的 int 常量集（非 enum），取值即 wire 值。
 public static class HttpStatusCode {
     // 1xx Informational
     public static int Continue          = 100;

@@ -1,17 +1,13 @@
 namespace Std.Net.Sockets;
 
 
-// add-z42-net-udp K2 (2026-05-25): result carrier for `UdpClient.Receive()`.
-//
-// z42 has no out-params / tuple return; `UdpClient.Receive()` must surface
-// THREE things atomically: datagram bytes + sender IP + sender port. Wrap
-// in a small read-after-construct class with public fields (no setters —
-// stdlib convention for immutable-by-discipline value carriers).
-//
-// Mirror .NET BCL `System.Net.Sockets.UdpReceiveResult`.
+/// `UdpClient.Receive()` 的返回载体：数据报字节 + 发送方 IP + 发送方端口。
 public class UdpReceiveResult {
+    /// 数据报字节。
     public byte[] Buffer;
+    /// 发送方主机。
     public string RemoteHost;
+    /// 发送方端口。
     public int    RemotePort;
 
     public UdpReceiveResult(byte[] buffer, string remoteHost, int remotePort) {

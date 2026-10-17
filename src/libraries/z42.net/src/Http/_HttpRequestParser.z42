@@ -2,23 +2,11 @@ namespace Std.Net.Http;
 
 using Std.IO;
 
-// add-z42-net-http-server (2026-05-25): server-side HTTP/1.1 request parser.
-//
-// Symmetric to `HttpClient._readResponse` but for the request side: status
-// line is "METHOD path_and_query HTTP/1.x" instead of "HTTP/1.x code reason",
-// otherwise same headers + body strategy (Content-Length OR chunked OR
-// no-body).
-//
-// Returns the parsed `HttpRequest` with `Url` set to the request-target
-// (path+query). Caller (HttpServer) prepends the host header for full URL
-// re-construction if needed.
-//
-// Internal — `_`-prefix indicates "package-private; do not consume from
-// outside z42.net.Http".
+// 服务端 HTTP/1.1 请求解析器（内部）。与 HttpClient._readResponse 对称，
+// 请求行是 "METHOD path_and_query HTTP/1.x"；返回的 HttpRequest.Url 为请求目标。
 public static class _HttpRequestParser {
 
-    /// Parse a complete request off the stream. Throws
-    /// `HttpProtocolException` on malformed wire / EOF mid-request.
+    // 从流解析完整请求；线上格式错误 / 中途 EOF 抛 HttpProtocolException。
     public static HttpRequest ReadRequest(Stream stream) {
         var lr = new _ReqLineReader(stream);
         string requestLine = lr.ReadLine();
@@ -228,8 +216,7 @@ public static class _HttpRequestParser {
     }
 }
 
-// Internal CRLF/LF-tolerant line reader. Same shape as HttpClient's
-// _LineReader (kept inline to avoid cross-file class-token issues).
+// 内部 CRLF/LF 容忍行读取器；与 HttpClient 的 _LineReader 同形（内联避免跨文件类 token 问题）。
 public class _ReqLineReader {
     private Stream _stream;
     private byte[] _buf;

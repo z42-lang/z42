@@ -1,8 +1,6 @@
 namespace Std.Net.Http;
 
-// add-z42-net-http K3 (2026-05-25): base HTTP exception. Subclassed by
-// `HttpProtocolException` (malformed wire / unexpected EOF) and may be
-// extended for auth / redirect-exhaustion / status-as-error (follow-up).
+/// HTTP 异常基类，继承 `NetException`；`HttpProtocolException` 继承它。
 public class HttpException : NetException {
     public HttpException(string message) : base(message) {}
 

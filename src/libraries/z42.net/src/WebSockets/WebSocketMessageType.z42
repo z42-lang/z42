@@ -1,11 +1,15 @@
 namespace Std.Net.WebSockets;
 
-// add-z42-net-websocket K4 (2026-05-25): WebSocket message kinds.
-// Values match RFC 6455 §5.2 opcodes for direct interop.
+/// WebSocket 消息类型常量（值即 RFC 6455 §5.2 opcode）。
 public static class WebSocketMessageType {
-    public static int Text   = 1;   // 0x1
-    public static int Binary = 2;   // 0x2
-    public static int Close  = 8;   // 0x8
-    public static int Ping   = 9;   // 0x9
-    public static int Pong   = 10;  // 0xA
+    /// 文本消息（0x1）。
+    public static int Text   = 1;
+    /// 二进制消息（0x2）。
+    public static int Binary = 2;
+    /// 关闭帧（0x8）。
+    public static int Close  = 8;
+    /// Ping（0x9）。
+    public static int Ping   = 9;
+    /// Pong（0xA）。
+    public static int Pong   = 10;
 }

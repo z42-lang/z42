@@ -1,29 +1,17 @@
 namespace Std.Net.Sockets;
 
 
-// add-net-ipaddress (2026-05-27): strong-typed IP address with parsing,
-// family detection, and byte access. v0 supports:
-//   * IPv4 dotted-quad: "1.2.3.4"
-//   * IPv6 full-form:   "2001:0db8:0000:0000:0000:0000:0000:0001"
-//   * IPv6 `::` shorthand for one zero-run: "::1", "::", "2001:db8::1"
-//   * IPv4-in-IPv6 dotted (RFC 4291 §2.5.5): "::ffff:192.0.2.1" (v4-mapped),
-//     "::192.0.2.1" (v4-compatible), "64:ff9b::1.2.3.4" (NAT64)
-//     — add-ipaddress-v4mapped, 2026-06-09
-//   * `TryParse(string) → IPAddress?` non-throwing variant (null on malformed)
-//     — add-ipaddress-tryparse, 2026-06-09
-//
-// Not in scope for v0 (deferred to follow-up):
-//   * IPv6 zone identifier suffix ("fe80::1%en0")
+/// 强类型 IP 地址：解析、族判断与字节访问（IPv4 / IPv6）。
 public sealed class IPAddress {
-    /// AddressFamily-style constant — 4 for IPv4, 6 for IPv6. (No enum
-    /// yet — z42 enums are L1 named ints which would collide with
-    /// `Ipv4` / `Ipv6` constants in the global namespace.)
+    /// IPv4 的 family 常量值。
     public static int FamilyIPv4 = 4;
+    /// IPv6 的 family 常量值。
     public static int FamilyIPv6 = 6;
 
-    private int    _family;   // 4 or 6
-    private byte[] _bytes;    // 4 or 16 bytes, network byte order
+    private int    _family;   // 4 或 6
+    private byte[] _bytes;    // 4 或 16 字节，网络字节序
 
+    /// 以 family（4 或 6）与字节数组构造；family 4 需 4 字节、6 需 16 字节。
     public IPAddress(int family, byte[] bytes) {
         if (family == 4) {
             if (bytes.Length != 4) {
@@ -42,35 +30,33 @@ public sealed class IPAddress {
 
     // ── Factories ──────────────────────────────────────────────────────
 
-    /// IPv4 loopback (127.0.0.1).
+    /// IPv4 回环地址（127.0.0.1）。
     public static IPAddress Loopback() {
         byte[] b = new byte[4];
         b[0] = (byte)127; b[1] = (byte)0; b[2] = (byte)0; b[3] = (byte)1;
         return new IPAddress(4, b);
     }
 
-    /// IPv4 any (0.0.0.0).
+    /// IPv4 任意地址（0.0.0.0）。
     public static IPAddress Any() {
         return new IPAddress(4, new byte[4]);
     }
 
-    /// IPv6 loopback (::1).
+    /// IPv6 回环地址（::1）。
     public static IPAddress IPv6Loopback() {
         byte[] b = new byte[16];
         b[15] = (byte)1;
         return new IPAddress(6, b);
     }
 
-    /// IPv6 any (::).
+    /// IPv6 任意地址（::）。
     public static IPAddress IPv6Any() {
         return new IPAddress(6, new byte[16]);
     }
 
     // ── Parsing ────────────────────────────────────────────────────────
 
-    /// Parse a string into an IPAddress. Try IPv4 first (`.` separator),
-    /// fall back to IPv6 (`:` separator). Throws `FormatException` on
-    /// malformed input.
+    /// 把字符串解析为 IPAddress；失败抛 `FormatException`。
     public static IPAddress Parse(string s) {
         if (s == null || s.Length == 0) {
             throw new FormatException("IPAddress.Parse: empty input");
@@ -84,11 +70,7 @@ public sealed class IPAddress {
         throw new FormatException("IPAddress.Parse: no '.' or ':' in '" + s + "'");
     }
 
-    /// add-ipaddress-tryparse (2026-06-09): non-throwing parse. Returns the
-    /// parsed address, or `null` if `s` is not a valid IPv4 / IPv6 literal —
-    /// for untrusted input (config / user / network) where malformed values are
-    /// expected and an exception per reject is undesirable. Same grammar as
-    /// `Parse`.
+    /// 非抛异常解析；不是合法的 IPv4 / IPv6 字面量时返回 null。
     public static IPAddress? TryParse(string s) {
         try {
             return IPAddress.Parse(s);
@@ -99,12 +81,15 @@ public sealed class IPAddress {
 
     // ── Inspect ────────────────────────────────────────────────────────
 
+    /// 返回地址族（4 或 6）。
     public int Family() { return this._family; }
 
+    /// 是否 IPv4 地址。
     public bool IsIPv4() { return this._family == 4; }
+    /// 是否 IPv6 地址。
     public bool IsIPv6() { return this._family == 6; }
 
-    /// Return a copy of the raw bytes (4 for IPv4, 16 for IPv6).
+    /// 返回原始字节的副本（IPv4 为 4 字节、IPv6 为 16 字节）。
     public byte[] GetAddressBytes() {
         byte[] copy = new byte[this._bytes.Length];
         int i = 0;
@@ -112,12 +97,12 @@ public sealed class IPAddress {
         return copy;
     }
 
-    /// True for 127.0.0.0/8 (IPv4) or ::1 (IPv6).
+    /// 是否回环地址（IPv4 的 127.0.0.0/8 或 IPv6 的 ::1）。
     public bool IsLoopback() {
         if (this._family == 4) {
             return (int)this._bytes[0] == 127;
         }
-        // IPv6: ::1 → bytes[0..14] all 0, bytes[15] == 1.
+        // IPv6: ::1 → bytes[0..14] 全 0，bytes[15] == 1。
         int i = 0;
         while (i < 15) {
             if ((int)this._bytes[i] != 0) return false;
@@ -126,7 +111,7 @@ public sealed class IPAddress {
         return (int)this._bytes[15] == 1;
     }
 
-    /// True for 0.0.0.0 (IPv4) or :: (IPv6).
+    /// 是否任意地址（IPv4 的 0.0.0.0 或 IPv6 的 ::）。
     public bool IsAny() {
         int i = 0;
         while (i < this._bytes.Length) {
@@ -136,7 +121,7 @@ public sealed class IPAddress {
         return true;
     }
 
-    /// True for 224.0.0.0/4 (IPv4) or ff00::/8 (IPv6).
+    /// 是否组播地址（IPv4 的 224.0.0.0/4 或 IPv6 的 ff00::/8）。
     public bool IsMulticast() {
         if (this._family == 4) {
             int b0 = (int)this._bytes[0] & 0xF0;
@@ -147,9 +132,7 @@ public sealed class IPAddress {
 
     // ── Display ────────────────────────────────────────────────────────
 
-    /// Canonical string. IPv4 uses dotted-quad; IPv6 uses the longest
-    /// zero-run elision (`::`), lower-case hex, no leading zeros within
-    /// a group. Round-trips with `Parse`.
+    /// 规范字符串；IPv4 用点分十进制，IPv6 用最长零段折叠（小写 hex）。
     public override string ToString() {
         if (this._family == 4) {
             return ((int)this._bytes[0]).ToString() + "."
@@ -160,6 +143,7 @@ public sealed class IPAddress {
         return IPAddress._formatIPv6(this._bytes);
     }
 
+    /// 与另一个 IPAddress 比较是否相等。
     public bool Equals(IPAddress other) {
         if (other == null) return false;
         if (this._family != other._family) return false;
@@ -178,8 +162,7 @@ public sealed class IPAddress {
         return new IPAddress(4, IPAddress._parseV4Bytes(s));
     }
 
-    /// Parse a dotted-quad into 4 network-order bytes (shared by `_parseIPv4`
-    /// and the IPv4-in-IPv6 embedded tail in `_rewriteEmbeddedV4`).
+    // 解析点分十进制为 4 字节网络序（供 _parseIPv4 与内嵌 IPv4 尾复用）。
     static byte[] _parseV4Bytes(string s) {
         byte[] bytes = new byte[4];
         int octet = 0;
@@ -219,18 +202,14 @@ public sealed class IPAddress {
 
     // ── Internal: IPv6 parse ───────────────────────────────────────────
 
-    /// IPv6 parse — handles `::` shorthand (at most one). Each group is
-    /// 1-4 hex digits. Total 8 groups when expanded; `::` fills the gap.
+    // IPv6 解析，处理 `::` 简写（至多一处）；每组 1-4 位 hex，展开后共 8 组。
     static IPAddress _parseIPv6(string s) {
-        // add-ipaddress-v4mapped (2026-06-09): a trailing dotted-quad
-        // (RFC 4291 §2.5.5 — `::ffff:a.b.c.d` v4-mapped, `::a.b.c.d` v4-compatible,
-        // `64:ff9b::a.b.c.d` NAT64) occupies the last 32 bits. Rewrite the
-        // `…:a.b.c.d` tail to two hex groups `…:HHHH:HHHH` so the `::` elision +
-        // group assembly below stay unchanged.
+        // 尾部 dotted-quad（v4-mapped / v4-compatible / NAT64）占低 32 位，
+        // 先重写为两个 hex 组，使后续的 :: 省略 + 组装配逻辑保持不变。
         if (IPAddress._containsChar(s, '.')) {
             s = IPAddress._rewriteEmbeddedV4(s);
         }
-        // Split into pre / post halves around `::` if present.
+        // 按 `::` 拆成前后两半。
         int dcPos = IPAddress._findDoubleColon(s);
         string preStr;
         string postStr;
@@ -241,7 +220,7 @@ public sealed class IPAddress {
             preStr  = IPAddress._slice(s, 0, dcPos);
             postStr = IPAddress._slice(s, dcPos + 2, s.Length);
         }
-        // Parse each half into a list of u16 groups.
+        // 每半解析成 u16 组列表。
         int[] pre  = IPAddress._splitColonGroups(preStr, s);
         int[] post = IPAddress._splitColonGroups(postStr, s);
         int total = pre.Length + post.Length;
@@ -254,7 +233,7 @@ public sealed class IPAddress {
                 throw new FormatException("IPv6: `::` would elide zero groups in '" + s + "'");
             }
         }
-        // Assemble 16 bytes.
+        // 装配 16 字节。
         byte[] bytes = new byte[16];
         int idx = 0;
         int i = 0;
@@ -264,7 +243,7 @@ public sealed class IPAddress {
             idx = idx + 2;
             i = i + 1;
         }
-        // Skip the zero-run (already zero-initialised).
+        // 跳过零段（已是零初始化）。
         if (dcPos >= 0) {
             int zeroGroups = 8 - total;
             idx = idx + zeroGroups * 2;
@@ -279,10 +258,7 @@ public sealed class IPAddress {
         return new IPAddress(6, bytes);
     }
 
-    // add-ipaddress-v4mapped (2026-06-09): rewrite a `…:a.b.c.d` IPv6 string to
-    // pure-hex `…:HHHH:HHHH`. The dotted-quad after the last ':' is the low 32
-    // bits; it's validated by reusing the IPv4 parser, then its 4 bytes become
-    // two hex groups. Callers guard with `_containsChar(s, '.')`.
+    // 把 `…:a.b.c.d` 的 IPv6 串重写为纯 hex `…:HHHH:HHHH`；dotted-quad 复用 IPv4 解析器校验。
     static string _rewriteEmbeddedV4(string s) {
         int lastColon = -1;
         int i = 0;
@@ -293,16 +269,16 @@ public sealed class IPAddress {
         if (lastColon < 0) {
             throw new FormatException("IPv6: embedded IPv4 in '" + s + "' needs a preceding ':'");
         }
-        string prefix = IPAddress._slice(s, 0, lastColon + 1);   // includes trailing ':'
+        string prefix = IPAddress._slice(s, 0, lastColon + 1);   // 含末尾 ':'
         string v4     = IPAddress._slice(s, lastColon + 1, s.Length);
-        byte[] b = IPAddress._parseV4Bytes(v4);                  // validates dotted-quad
+        byte[] b = IPAddress._parseV4Bytes(v4);                  // 校验 dotted-quad
         return prefix
             + IPAddress._hex2((int)b[0]) + IPAddress._hex2((int)b[1])
             + ":"
             + IPAddress._hex2((int)b[2]) + IPAddress._hex2((int)b[3]);
     }
 
-    /// Format a byte (0-255) as two lower-case hex digits.
+    // 把 0-255 格式化为两位小写 hex。
     static string _hex2(int b) {
         string hex = "0123456789abcdef";
         return IPAddress._charStr(hex.CharAt((b >> 4) & 0xF))
@@ -313,7 +289,7 @@ public sealed class IPAddress {
         int i = 0;
         while (i + 1 < s.Length) {
             if (s.CharAt(i) == ':' && s.CharAt(i + 1) == ':') {
-                // Verify only one `::` in the whole string.
+                // 校验整个串里只有一处 `::`。
                 int j = i + 2;
                 while (j + 1 < s.Length) {
                     if (s.CharAt(j) == ':' && s.CharAt(j + 1) == ':') {
@@ -328,11 +304,10 @@ public sealed class IPAddress {
         return -1;
     }
 
-    /// Parse a colon-separated list of hex groups. Empty input → empty array.
-    /// Each group must be 1-4 hex digits.
+    // 解析冒号分隔的 hex 组列表；空输入返回空数组，每组必须 1-4 位 hex。
     static int[] _splitColonGroups(string s, string original) {
         if (s.Length == 0) { return new int[0]; }
-        // Count groups (= colons + 1).
+        // 组数 = 冒号数 + 1。
         int n = 1;
         int i = 0;
         while (i < s.Length) {
@@ -382,16 +357,16 @@ public sealed class IPAddress {
 
     // ── Internal: IPv6 format ──────────────────────────────────────────
 
-    /// Format 16-byte IPv6 to canonical string with longest-zero-run elision.
+    // 把 16 字节 IPv6 格式化为最长零段折叠的规范串。
     static string _formatIPv6(byte[] bytes) {
-        // Decompose into 8 u16 groups.
+        // 拆成 8 个 u16 组。
         int[] groups = new int[8];
         int i = 0;
         while (i < 8) {
             groups[i] = ((int)bytes[i * 2] << 8) | (int)bytes[i * 2 + 1];
             i = i + 1;
         }
-        // Find longest run of zeros (>= 2) to compress.
+        // 找最长（>= 2）的连续零段压缩。
         int bestStart = -1;
         int bestLen = 0;
         int curStart = -1;
@@ -407,25 +382,20 @@ public sealed class IPAddress {
             }
             i = i + 1;
         }
-        if (bestLen < 2) { bestStart = -1; }  // Don't compress single-zero runs.
+        if (bestLen < 2) { bestStart = -1; }  // 单个零段不压缩。
 
         string result = "";
         i = 0;
         while (i < 8) {
             if (i == bestStart) {
-                // At the zero-run gap, emit `::` regardless of position so
-                // the result has two colons here (one is the trailing
-                // separator of the previous group, one is the leading
-                // separator of the next group). The next-group branch
-                // skips its leading separator via `justAfterEllipsis`.
+                // 零段处输出 `::`；下一组分支跳过其前导分隔符。
                 if (i == 0) { result = "::"; }
                 else { result = result + "::"; }
                 i = i + bestLen;
                 continue;
             }
             if (i > 0 && (bestStart < 0 || i != bestStart + bestLen || true)) {
-                // Separator before each non-leading group, unless we just
-                // emitted `::` which already includes the trailing `:`.
+                // 每个非首组前加分隔符，除非刚输出了 `::`（已含末尾冒号）。
                 bool justAfterEllipsis = (bestStart >= 0 && i == bestStart + bestLen);
                 if (!justAfterEllipsis) {
                     result = result + ":";
@@ -437,7 +407,7 @@ public sealed class IPAddress {
         return result;
     }
 
-    /// 1-4 lowercase hex digits, no leading zeros.
+    // 输出 1-4 位小写 hex，无前导零。
     static string _hexGroupStr(int v) {
         if (v == 0) { return "0"; }
         string s = "";

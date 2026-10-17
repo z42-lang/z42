@@ -3,13 +3,7 @@ namespace Std.Net.Http;
 using Std.IO;
 using Std.Text;
 
-// add-z42-net-http-cookies (2026-05-26): cookie storage + Set-Cookie parsing.
-//
-// Subset of RFC 6265 §5.2 (parsing) + §5.3 (storage) + §5.4 (matching).
-// Storage: parallel `Cookie[]` array (no field generic types in z42).
-//
-// V0 limits: no auto-jar on HttpClient (user calls IngestFromResponse +
-// CookieHeaderFor manually); no SameSite enforcement; no Public Suffix List.
+/// cookie 存储 + Set-Cookie 解析（RFC 6265 §5.2 / §5.3 / §5.4 的子集）。
 public class CookieJar {
     private Cookie[] _cookies;
     private int      _count;
@@ -21,8 +15,7 @@ public class CookieJar {
         this._count   = 0;
     }
 
-    /// Number of stored cookies (excluding ones that would be removed by
-    /// expiry cleanup at `nowUnixSec`). Pass `0` to count all incl expired.
+    /// 存活的 cookie 数（在 `nowUnixSec` 尚未过期）；传 0 表示含过期的一起数。
     public int LiveCount(long nowUnixSec) {
         if (nowUnixSec == 0L) return this._count;
         int alive = 0;
@@ -34,9 +27,9 @@ public class CookieJar {
         return alive;
     }
 
-    /// Add or replace a cookie matching (Name, Domain, Path) tuple.
+    /// 添加或替换 (Name, Domain, Path) 三元组相同的 cookie。
     public void Add(Cookie cookie) {
-        // Replace existing matching tuple
+        // 替换已有的同三元组
         int i = 0;
         while (i < this._count) {
             Cookie c = this._cookies[i];
@@ -48,7 +41,7 @@ public class CookieJar {
             }
             i = i + 1;
         }
-        // Grow if needed
+        // 需要时扩容
         if (this._count == this._cap) {
             int newCap = this._cap * 2;
             Cookie[] grown = new Cookie[newCap];
@@ -64,19 +57,12 @@ public class CookieJar {
         this._count = this._count + 1;
     }
 
-    /// Parse all `Set-Cookie:` headers in a response and add to jar. Uses
-    /// `responseHost`/`responsePath` as defaults for cookies missing
-    /// Domain/Path. Cookies with `Max-Age` or `Expires` set their absolute
-    /// expiry from `nowUnixSec`.
+    /// 解析响应里所有 Set-Cookie 头并加入 jar；缺 Domain/Path 时用 responseHost/responsePath 作默认。
     public void IngestFromResponse(HttpResponse response, string responseHost, string responsePath, long nowUnixSec) {
         this.IngestSetCookieHeaders(response.Headers, responseHost, responsePath, nowUnixSec);
     }
 
-    /// Variant taking `HttpHeaders` directly — used by `HttpClient` to avoid
-    /// z42 cross-file class-token mismatch on `HttpResponse` (the same class
-    /// referenced from CookieJar.z42 vs HttpClient.z42 produces two type
-    /// tokens; `HttpHeaders` is referenced from a single file (HttpHeaders.z42)
-    /// and threads correctly).
+    /// 直接吃 HttpHeaders 里的 Set-Cookie 头（HttpClient 用，避免跨文件类 token 不匹配）。
     public void IngestSetCookieHeaders(HttpHeaders headers, string responseHost, string responsePath, long nowUnixSec) {
         int n = headers.Count();
         int i = 0;
@@ -93,12 +79,7 @@ public class CookieJar {
         }
     }
 
-    /// add-cookie-jar-persist (2026-05-27): save jar to Netscape "cookies.txt"
-    /// format — the de-facto interchange shared with curl / wget / browsers.
-    /// Each line is tab-separated:
-    ///   domain<TAB>HostOnly<TAB>path<TAB>Secure<TAB>ExpiresUnixSec<TAB>Name<TAB>Value
-    /// HttpOnly cookies prefix domain with `#HttpOnly_` (curl convention).
-    /// Header comments retained for tool compatibility.
+    /// 把 jar 存成 Netscape "cookies.txt" 格式（与 curl / wget / 浏览器互通的约定格式）。
     public void SaveToFile(string path) {
         StringBuilder sb = new StringBuilder();
         sb.Append("# Netscape HTTP Cookie File\n");
@@ -109,10 +90,8 @@ public class CookieJar {
             Cookie c = this._cookies[i];
             string dom = c.Domain;
             if (c.HttpOnly) { dom = "#HttpOnly_" + dom; }
-            // HostOnly: leading "." in domain = subdomain match (FALSE); no
-            // leading "." = exact host match (TRUE). v0 stored domains
-            // already stripped of leading ".", so default to FALSE (subdomain-OK)
-            // which matches the input we were originally fed.
+            // HostOnly：域带前导 "." 表示子域匹配（FALSE）；无前导 "." 表示精确主机匹配（TRUE）。
+            // v0 存的域已去前导 "."，故默认 FALSE（子域可匹配），与当初喂入的输入一致。
             string hostOnly = "FALSE";
             string secure = c.Secure ? "TRUE" : "FALSE";
             sb.Append(dom);          sb.Append("\t");
@@ -127,11 +106,7 @@ public class CookieJar {
         File.WriteAllTextAtomic(path, sb.ToString());
     }
 
-    /// add-cookie-jar-persist (2026-05-27): hydrate jar from a previously
-    /// saved Netscape-format file. Returns the count of cookies loaded.
-    /// Skips comment lines (`#`) and `#HttpOnly_` prefix is decoded to set
-    /// `HttpOnly = true`. Malformed lines are silently skipped (best-effort
-    /// matches curl / wget behaviour).
+    /// 从之前保存的 Netscape 格式文件载入，返回载入条数；坏行静默跳过。
     public int LoadFromFile(string path) {
         string content = File.ReadAllText(path);
         int loaded = 0;
@@ -142,12 +117,12 @@ public class CookieJar {
             string line = CookieJar._substring(content, pos, eol);
             pos = eol + 1;
             if (line.Length == 0) continue;
-            // Trim trailing '\r' for CRLF files.
+            // 去掉 CRLF 的尾部 '\r'。
             if (line.CharAt(line.Length - 1) == '\r') {
                 line = CookieJar._substring(line, 0, line.Length - 1);
             }
             if (line.Length == 0) continue;
-            // Skip comments, EXCEPT the #HttpOnly_ marker.
+            // 跳过注释行，但 #HttpOnly_ 标记除外。
             bool httpOnly = false;
             if (line.CharAt(0) == '#') {
                 if (CookieJar._startsWith(line, "#HttpOnly_")) {
@@ -157,11 +132,11 @@ public class CookieJar {
                     continue;
                 }
             }
-            // 7 tab-separated fields.
+            // 7 个 tab 分隔字段。
             string[] fields = CookieJar._splitTab(line);
             if (fields.Length < 7) continue;
             string domain    = fields[0];
-            // fields[1] = HostOnly (ignored — v0 doesn't model it)
+            // fields[1] = HostOnly（忽略 —— v0 不建模）
             string p         = fields[2];
             bool   secure    = fields[3] == "TRUE";
             long   expiresUS = CookieJar._tryParseLong(fields[4]);
@@ -180,8 +155,7 @@ public class CookieJar {
         return loaded;
     }
 
-    /// Returns wire-format `Cookie:` header value (`name1=value1; name2=value2`)
-    /// for cookies matching (host, path, isSecure). Empty string if none match.
+    /// 返回匹配 (host, path, isSecure) 的 cookie 组成的线上 `Cookie:` 头值；无匹配返回空串。
     public string CookieHeaderFor(string host, string path, bool isSecure, long nowUnixSec) {
         string result = "";
         int matched = 0;
@@ -200,12 +174,9 @@ public class CookieJar {
 
     // ── Set-Cookie parser ────────────────────────────────────────────────
 
-    /// Parse a single Set-Cookie header value. Returns null on malformed
-    /// input (no "name=value" prefix). Best-effort: unrecognised attributes
-    /// are silently ignored; Expires that fails to parse falls back to
-    /// session cookie.
+    // 解析单个 Set-Cookie 头值；坏输入（无 name=value 前缀）返回 null。
     public static Cookie _parseSetCookie(string raw, string responseHost, string responsePath, long nowUnixSec) {
-        // First segment: NAME=VALUE
+        // 首段：NAME=VALUE
         int semi = CookieJar._indexOfChar(raw, ';', 0);
         string firstSeg;
         if (semi < 0) {
@@ -223,7 +194,7 @@ public class CookieJar {
         c.Domain = responseHost.ToLower();
         c.Path   = CookieJar._defaultPath(responsePath);
 
-        // Parse remaining attributes
+        // 解析其余属性
         if (semi < 0) return c;
         int pos = semi + 1;
         while (pos < raw.Length) {
@@ -263,20 +234,16 @@ public class CookieJar {
             if (delta >= 0) {
                 c.ExpiresUnixSec = nowUnixSec + (long)delta;
             } else if (delta == -2) {
-                // negative — expire immediately per RFC §5.2.2
+                // 负值 —— 按 RFC §5.2.2 立即过期
                 c.ExpiresUnixSec = 1L;
             }
         } else if (name == "expires") {
-            // V0: not parsing HTTP-date format. If Max-Age was set first or
-            // gets set later, that takes precedence. If only Expires present,
-            // treat as session cookie (won't expire on time). Real Expires
-            // date parsing is `add-z42-net-http-cookies-expires-date` follow-up.
+            // V0 不解析 HTTP-date；若只出现 Expires 则当作会话 cookie（不按时间过期）。
         }
-        // SameSite, Comment, Version etc. silently ignored (v0).
+        // SameSite、Comment、Version 等静默忽略（v0）。
     }
 
-    /// Default-path derivation per RFC 6265 §5.1.4.
-    /// "/foo/bar" → "/foo"; "/foo" → "/"; "/" → "/"
+    // 默认路径推导（RFC 6265 §5.1.4）："/foo/bar" → "/foo"；"/foo" → "/"；"/" → "/"
     static string _defaultPath(string requestPath) {
         if (requestPath.Length == 0 || requestPath.CharAt(0) != '/') return "/";
         int lastSlash = -1;
@@ -325,9 +292,7 @@ public class CookieJar {
         return CookieJar._substring(s, start, end);
     }
 
-    /// add-cookie-jar-persist (2026-05-27): split on TAB. No empty-field
-    /// elision (matches Netscape format columns); returns string[] sized
-    /// to actual delimiter count + 1.
+    // 按 TAB 切分，无空字段省略（与 Netscape 格式列一致）；返回定长数组。
     static string[] _splitTab(string s) {
         int count = 1;
         int i = 0;
@@ -360,9 +325,7 @@ public class CookieJar {
         return true;
     }
 
-    /// Parse a long (signed). Returns 0 on parse error — caller decides if
-    /// 0 is meaningful (for ExpiresUnixSec it means session cookie, which
-    /// is the right fallback for malformed timestamps).
+    // 解析有符号 long；失败返回 0（对 ExpiresUnixSec 而言 0 即会话 cookie，是正确的回退）。
     static long _tryParseLong(string s) {
         if (s.Length == 0) return 0L;
         long sign = 1L;
@@ -380,9 +343,7 @@ public class CookieJar {
         return n * sign;
     }
 
-    /// Returns parsed value, -2 if string parses but is negative, -1 if
-    /// non-numeric. (Distinguished because RFC has special semantics for
-    /// negative Max-Age.)
+    // 返回解析值；能解析但为负返回 -2，非数字返回 -1（RFC 对负 Max-Age 有特殊语义）。
     static int _tryParseInt(string s) {
         if (s.Length == 0) return -1;
         int sign = 1;

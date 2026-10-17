@@ -1,31 +1,14 @@
 namespace Std.Net.Sockets;
 
 
-// add-z42-net K1 (2026-05-24): sync blocking TCP server.
-//
-// Lifecycle:
-//   var server = new TcpListener();
-//   server.Bind("127.0.0.1", 0);          // OS-assigned port
-//   int port = server.LocalPort();         // discover bound port
-//   var client = server.AcceptTcpClient(); // blocks until peer connects
-//   var s = client.GetStream();
-//   ...handle client...
-//   client.Dispose();
-//   server.Stop();
-//
-// `Bind` performs the bind + listen in one step (Rust `TcpListener::bind`
-// does both). `Start()` is provided as a BCL-compat no-op for code
-// migrating from .NET.
+/// 同步阻塞的 TCP 服务端，对应 .NET 的 `TcpListener`。
 public class TcpListener : IDisposable {
     private long _slotId;
     private bool _started;
     private bool _stopped;
     private int  _localPort;
     private string _bindHost;
-    // add-net-socket-options-extended (2026-05-30): pre-bind SO_REUSEADDR
-    // toggle. POSIX requires the option to be set on the socket BEFORE bind,
-    // so the value is recorded here and consumed when Bind() runs. Setting
-    // after Bind throws InvalidOperationException.
+    // 预 bind 的 SO_REUSEADDR 开关：POSIX 要求在 bind 前设置，故先记录、Bind 时再消费。
     private bool _reuseAddress;
 
     public TcpListener() {
@@ -37,19 +20,14 @@ public class TcpListener : IDisposable {
         this._reuseAddress = false;
     }
 
-    // add-tcplistener-create-factory (2026-05-27): static convenience
-    // factory equivalent to `new TcpListener() + Bind(host, port)`. Mirrors
-    // BCL `TcpListener.Create(port)` / `TcpClient.ConnectTo` style. Test
-    // helpers commonly use port 0 to let the OS pick.
+    /// 等价于 `new TcpListener()` 后 `Bind(host, port)` 的静态工厂。
     public static TcpListener Create(string host, int port) {
         var l = new TcpListener();
         l.Bind(host, port);
         return l;
     }
 
-    /// Bind to `host:port` and start listening. Use port 0 to let the OS
-    /// pick an available port (typical for test code) — query `LocalPort()`
-    /// after Bind to discover the chosen port.
+    /// 绑定到 `host:port` 并开始监听；port 0 表示由 OS 分配端口（事后用 `LocalPort()` 查询）。
     public void Bind(string host, int port) {
         if (this._stopped) {
             throw new SocketClosedException();
@@ -57,8 +35,7 @@ public class TcpListener : IDisposable {
         if (this._started) {
             throw new InvalidOperationException("TcpListener already bound");
         }
-        // add-net-socket-options-extended (2026-05-30): route through the
-        // options-aware builtin only when the user opted into REUSEADDR.
+        // 只有用户启用了 REUSEADDR 才走带选项的 builtin。
         long slotId = TcpSocketNative.Listen(host, port, this._reuseAddress);
         this._slotId    = slotId;
         this._localPort = TcpSocketNative.ListenerPort(slotId);
@@ -66,11 +43,7 @@ public class TcpListener : IDisposable {
         this._started   = true;
     }
 
-    /// add-net-socket-options-extended (2026-05-30): record SO_REUSEADDR
-    /// to be applied on the next `Bind()`. POSIX requires REUSEADDR be set
-    /// pre-bind, so calling after Bind throws `InvalidOperationException`
-    /// rather than silently no-op'ing (mirrors BCL `ExclusiveAddressUse`
-    /// pre-Start enforcement).
+    /// 设置 SO_REUSEADDR（只能在 `Bind` 之前调用）；Bind 之后再调抛 `InvalidOperationException`。
     public void SetReuseAddress(bool enable) {
         if (this._started) {
             throw new InvalidOperationException(
@@ -79,19 +52,15 @@ public class TcpListener : IDisposable {
         this._reuseAddress = enable;
     }
 
-    /// BCL-compat no-op. Rust `TcpListener::bind` already starts listening,
-    /// so there's nothing to do here. Provided for code migrating from .NET
-    /// where `Bind` then `Start()` is the idiom.
+    /// BCL 兼容的空操作；`Bind` 已经原子地完成了 bind + listen。
     public void Start() {
         if (!this._started) {
             throw new InvalidOperationException("Start() called before Bind()");
         }
-        // Intentionally empty — bind+listen happen atomically in `Bind`.
+        // 故意留空 —— bind+listen 在 Bind 里原子完成。
     }
 
-    /// Block until a peer connects. Returns a `TcpClient` wrapping the
-    /// accepted socket. Throws `SocketClosedException` if the listener has
-    /// been Stop'd / Dispose'd.
+    /// 阻塞直到有对端连接，返回包装已接受 socket 的 `TcpClient`。
     public TcpClient AcceptTcpClient() {
         if (this._stopped) {
             throw new SocketClosedException();
@@ -103,20 +72,17 @@ public class TcpListener : IDisposable {
         return new TcpClient(sockSlot, true);
     }
 
-    /// Local bound port — useful when Bind was called with port 0 to query
-    /// the OS-assigned port number.
+    /// 本地绑定端口 —— 用 port 0 绑定时查询 OS 分配到的端口。
     public int LocalPort() {
         return this._localPort;
     }
 
+    /// 返回绑定主机。
     public string BindHost() {
         return this._bindHost;
     }
 
-    /// add-z42-net-socket-options (2026-05-27): IP_TTL on the listening
-    /// socket. Affects TTL on TCP responses (SYN-ACK) before connections
-    /// are accepted; accepted child sockets inherit the OS default unless
-    /// `TcpClient.SetTtl` is called on each.
+    /// 设置监听 socket 的 IP_TTL（Bind 之后调用）。
     public void SetTtl(int ttl) {
         if (this._stopped) { throw new SocketClosedException(); }
         if (!this._started) {
@@ -125,12 +91,12 @@ public class TcpListener : IDisposable {
         TcpSocketNative.ListenerSetTtl(this._slotId, ttl);
     }
 
-    /// Stop accepting and release the listening socket. Idempotent. Once
-    /// stopped, subsequent AcceptTcpClient throws SocketClosedException.
+    /// 停止接受并释放监听 socket；幂等。
     public void Stop() {
         this.Dispose();
     }
 
+    /// 释放监听 socket；幂等。
     public void Dispose() {
         if (this._stopped) return;
         this._stopped = true;

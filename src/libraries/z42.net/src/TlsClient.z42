@@ -2,28 +2,7 @@ namespace Std.Net.Sockets;
 
 using Std.IO;
 
-// add-z42-net-tls (2026-06-03): TLS client over the `__tls_*` VM builtins
-// (corelib/tls.rs, `TlsSocketNative`). Failures throw from the VM, as .NET's
-// SslStream: handshake → AuthenticationException, transport during the handshake
-// and stream read / write → IOException, closed → SocketClosedException.
-// (native 语义层已上移 z42.core: src/Native/NetNative.z42 —— organization.md「native 语义层 → core」2026-08-27)
-
-// add-z42-net-tls (2026-06-03): byte-oriented Stream over a rustls client TLS
-// session — the TLS analogue of `NetworkStream`. Read/Write forward to
-// `__tls_*`, which encrypt/decrypt on the wire. Read returns 0 =
-// peer closed the TLS session (EOF); Write throws on broken pipe / reset.
-//
-// Co-located with TlsClient in this one file ON PURPOSE: z42's class-symbol
-// collection is file-order-sensitive, so a forward reference from
-// `TlsClient` (sorts before `TlsStream`) to a separate `TlsStream.z42` bound
-// a stub token distinct from the real class (E0402 "cannot assign TlsStream
-// to TlsStream"). Keeping the pair in one file removes the forward ref.
-// `NetworkStream` avoids this only by alphabetical luck (sorts before
-// `TcpClient`). `TlsClient.GetStream()` additionally returns the base
-// `Std.IO.Stream` so `HttpClient` (another file) never names `TlsStream`.
-//
-// Lifecycle owned by TlsClient: Close() only marks _closed; the fd + TLS
-// state are released in TlsClient.Dispose() via `__tls_close`.
+/// TLS 会话之上的字节流（rustls 客户端侧），`NetworkStream` 的 TLS 版。
 public class TlsStream : Stream {
     private long _slotId;
     private bool _closed;
@@ -33,39 +12,42 @@ public class TlsStream : Stream {
         this._closed = false;
     }
 
+    /// 关闭后为 false，否则 true。
     override bool CanRead() {
         return !this._closed;
     }
 
+    /// 关闭后为 false，否则 true。
     override bool CanWrite() {
         return !this._closed;
     }
 
+    /// 恒为 false。
     override bool CanSeek() {
         return false;
     }
 
+    /// 从 TLS 会话读字节；0 表示对端关闭。
     override int Read(byte[] buffer, int offset, int count) {
         this.EnsureOpen();
         if (count == 0) return 0;
         return TlsSocketNative.Read(this._slotId, buffer, offset, count);
     }
 
+    /// 阻塞写，全部字节加密并刷出后返回。
     override void Write(byte[] buffer, int offset, int count) {
         this.EnsureOpen();
         if (count == 0) return;
-        // Blocking write — returns once every byte was encrypted + flushed
-        // (Rust side does write_all + flush); short writes are impossible.
-        // Failures are `IOException` from the VM (as .NET's SslStream).
+        // 阻塞写：每字节都加密 + flush 后才返回；失败由 VM 抛 IOException。
         TlsSocketNative.Write(this._slotId, buffer, offset, count);
     }
 
+    /// 标记本流已关闭；幂等。
     override void Close() {
         this._closed = true;
     }
 
-    // Package-private (z42 has no `internal`): TlsClient.Dispose flips _closed
-    // even if the user holds a cached reference.
+    // 供 TlsClient.Dispose 调用：即使用户仍持有缓存引用，也翻转 _closed 位。
     public void MarkClosed() {
         this._closed = true;
     }
@@ -77,22 +59,7 @@ public class TlsStream : Stream {
     }
 }
 
-// add-z42-net-tls (2026-06-03): sync blocking TLS client — the TLS analogue
-// of `TcpClient`. Certificate verification is always on (rustls + bundled
-// Mozilla roots, server name = the connect host for SNI). There is no
-// plaintext fallback: a handshake / cert failure throws `SocketException`.
-//
-// Lifecycle mirrors TcpClient:
-//   var c = new TlsClient();
-//   c.Connect("example.com", 443, 0);   // TCP connect + TLS handshake
-//   var s = c.GetStream();              // cached TlsStream
-//   s.Write(req, 0, req.Length);
-//   var n = s.Read(buf, 0, buf.Length);
-//   c.Dispose();                        // closes fd + TLS session
-//
-// Unlike TcpClient this has no listener/accept side (TLS server is a future
-// follow-up) and no connection pool — `HttpClient` opens a fresh TLS
-// connection per https request in v1 (keep-alive pooling is TCP-only).
+/// 同步阻塞的 TLS 客户端；证书校验始终开启（rustls + 内置 Mozilla 根集，SNI = 连接主机）。
 public class TlsClient : IDisposable {
     private long      _slotId;
     private bool      _connected;
@@ -110,12 +77,7 @@ public class TlsClient : IDisposable {
         this._remotePort = 0;
     }
 
-    /// Establish a TCP connection to `host:port` and complete a TLS
-    /// handshake (SNI = `host`, certificate verified against the bundled
-    /// roots). Blocks until the handshake finishes or fails. `timeoutMs > 0`
-    /// bounds both the TCP connect and the handshake; `<= 0` blocks.
-    /// Throws `SocketException` on connection refused / DNS failure /
-    /// certificate rejection / handshake error.
+    /// 建立到 `host:port` 的 TCP 连接并完成 TLS 握手；`timeoutMs > 0` 同时约束两者。
     public void Connect(string host, int port, int timeoutMs) {
         if (this._disposed) {
             throw new SocketClosedException();
@@ -130,10 +92,7 @@ public class TlsClient : IDisposable {
         this._remotePort = port;
     }
 
-    /// Get the byte-oriented stream over this session. Lazy + cached: repeat
-    /// calls return the same instance. Returns the base `Std.IO.Stream` (the
-    /// concrete type is `TlsStream`) so callers in other files never name
-    /// `TlsStream` across the file boundary — see the file-order note above.
+    /// 返回该会话的字节流（具体类型为 `TlsStream`）；惰性创建并缓存。
     public Stream GetStream() {
         if (this._disposed) {
             throw new SocketClosedException();
@@ -147,18 +106,17 @@ public class TlsClient : IDisposable {
         return this._stream;
     }
 
-    /// Host this client connected to. Useful for error messages / logging.
+    /// 返回连接的远端主机。
     public string RemoteHost() {
         return this._remoteHost;
     }
 
+    /// 返回连接的远端端口。
     public int RemotePort() {
         return this._remotePort;
     }
 
-    /// Per-session read deadline on the underlying socket. `millis <= 0`
-    /// clears it (back to blocking). Throws `SocketException` if the OS
-    /// rejects the value.
+    /// 设置读超时（毫秒）；`millis <= 0` 清除超时。
     public void SetReadTimeout(int millis) {
         if (this._disposed) {
             throw new SocketClosedException();
@@ -169,6 +127,7 @@ public class TlsClient : IDisposable {
         TlsSocketNative.SetReadTimeout(this._slotId, millis);
     }
 
+    /// 设置写超时（毫秒）；`millis <= 0` 清除超时。
     public void SetWriteTimeout(int millis) {
         if (this._disposed) {
             throw new SocketClosedException();
@@ -179,8 +138,7 @@ public class TlsClient : IDisposable {
         TlsSocketNative.SetWriteTimeout(this._slotId, millis);
     }
 
-    /// Close the session and release the underlying fd. Idempotent.
-    /// Subsequent operations throw `SocketClosedException`.
+    /// 关闭会话并释放底层 fd；幂等。
     public void Dispose() {
         if (this._disposed) return;
         this._disposed = true;
@@ -193,7 +151,7 @@ public class TlsClient : IDisposable {
         }
     }
 
-    /// Alias for `Dispose()` matching `TcpClient.Close()`.
+    /// `Dispose()` 的别名，对齐 `TcpClient.Close()`。
     public void Close() {
         this.Dispose();
     }

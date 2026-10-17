@@ -1,21 +1,11 @@
 namespace Std.Net.Http;
 
 
-// add-z42-net-http K3 (2026-05-25): case-insensitive header dictionary.
-//
-// HTTP headers are case-insensitive per RFC 7230 §3.2. `Get("content-type")`
-// and `Get("Content-Type")` return the same value.
-//
-// Storage: parallel `string[]` arrays + `_count` length (z42 当前不支持
-// 类字段带泛型 — `List<string> _keys;` 的类型参数被 parser 丢弃；用 raw
-// 数组 + 容量手动管理，与 `Std.Toml.TomlValue` 同 pattern)。
-//
-// V0 不去重 multi-value headers (e.g. Set-Cookie can repeat) — `Add` always
-// appends. `Get(name)` returns first match.
+/// 大小写不敏感的多值 HTTP 头集合，保留插入顺序。
 public class HttpHeaders {
-    private string[] _keys;        // original-case for emit
+    private string[] _keys;        // 原始大小写，用于输出
     private string[] _values;
-    private string[] _lowerKeys;   // lowercase for lookup
+    private string[] _lowerKeys;   // 小写，用于查找
     private int _count;
     private int _cap;
 
@@ -27,8 +17,7 @@ public class HttpHeaders {
         this._count     = 0;
     }
 
-    /// Append a header (multi-value safe — `Add("Set-Cookie", ...)` twice
-    /// stores both).
+    /// 追加一个头（允许同名多条）。
     public void Add(string name, string value) {
         if (this._count == this._cap) {
             this._grow();
@@ -39,16 +28,13 @@ public class HttpHeaders {
         this._count = this._count + 1;
     }
 
-    /// Set a header — removes all existing entries with same name (case-
-    /// insensitive) and adds one new. Use for headers that should appear
-    /// once like Content-Length.
+    /// 覆盖同名头（先删同名再追加一条）。
     public void Set(string name, string value) {
         this.Remove(name);
         this.Add(name, value);
     }
 
-    /// Get the FIRST value for `name` (case-insensitive). Returns null if
-    /// no such header.
+    /// 返回 `name` 的首个值（大小写不敏感）；没有则返回 null。
     public string? Get(string name) {
         string lower = name.ToLower();
         int i = 0;
@@ -61,13 +47,12 @@ public class HttpHeaders {
         return null;
     }
 
-    /// True if a header with this name exists.
+    /// 是否存在该名字的头。
     public bool Contains(string name) {
         return this.Get(name) != null;
     }
 
-    /// Remove all entries with `name` (case-insensitive). Returns the
-    /// number removed.
+    /// 删除所有同名头，返回删除条数。
     public int Remove(string name) {
         string lower = name.ToLower();
         int removed = 0;
@@ -90,16 +75,17 @@ public class HttpHeaders {
         return removed;
     }
 
+    /// 条目总数（同名多条各算一条）。
     public int Count() {
         return this._count;
     }
 
-    /// Iterate-friendly accessors — returns `(name, value)` pair lists in
-    /// insertion order. Used by request serialiser to emit headers.
+    /// 第 index 条的名字（原始大小写）。
     public string GetNameAt(int index) {
         return this._keys[index];
     }
 
+    /// 第 index 条的值。
     public string GetValueAt(int index) {
         return this._values[index];
     }
