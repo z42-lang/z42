@@ -1,28 +1,26 @@
 namespace Std.Collections;
 
-// extend-z42-collections (2026-05-17): sorted unique-element set.
-//
-// Backed by a sorted `T[]`, binary-search for Contains/Remove (O(log n))
-// and binary-search-insert for Add (O(log n) lookup + O(n) shift).
-// v0 design favours simplicity; red-black tree backend is a future
-// perf upgrade for data sets that exceed ~1k elements.
-// add-collection-contract-phase1 (2026-06-03): implements IBasicCollection<T>
-// to opt into Std.Harness.Contracts.BasicCollectionContract coverage.
+/// 按升序维护的去重集合：O(log n) 查找，Add / Remove 的元素搬移是 O(n)。
+/// where T: IComparable + IEquatable。
 public class SortedSet<T> : IBasicCollection<T> where T: IComparable + IEquatable {
+    // 底层用有序 T[] 存储，Contains/Remove 二分查找，Add 二分定位 + O(n) 搬移。
     T[] items;
     int count;
     int capacity;
 
+    /// 创建空集合。
     public SortedSet() {
         this.capacity = 4;
         this.items = new T[4];
         this.count = 0;
     }
 
+    /// 返回元素个数（方法，不是字段）。
     public int Count() { return this.count; }
+    /// 是否为空。
     public bool IsEmpty() { return this.count == 0; }
 
-    // Returns true if the item was newly added; false if already present.
+    /// 新元素返回 true；已存在返回 false 且不改变集合。
     public bool Add(T item) {
         int idx = this.LowerBound(item);
         if (idx < this.count && this.items[idx].Equals(item)) {
@@ -39,15 +37,16 @@ public class SortedSet<T> : IBasicCollection<T> where T: IComparable + IEquatabl
         return true;
     }
 
-    // IBasicCollection contract entry (add-collection-contract-phase2): sorted
-    // insert (discard the returned bool; dedups, so contract uses distinct elems).
+    /// IBasicCollection 契约的统一插入入口，委托给 Add。
     public void AddOne(T item) { this.Add(item); }
 
+    /// 二分查找是否存在。
     public bool Contains(T item) {
         int idx = this.LowerBound(item);
         return idx < this.count && this.items[idx].Equals(item);
     }
 
+    /// 删除并返回 true；本就不在返回 false。
     public bool Remove(T item) {
         int idx = this.LowerBound(item);
         if (idx >= this.count || !this.items[idx].Equals(item)) {
@@ -62,28 +61,31 @@ public class SortedSet<T> : IBasicCollection<T> where T: IComparable + IEquatabl
         return true;
     }
 
+    /// 最小元素；空集合抛 Exception。
     public T Min() {
         if (this.count == 0) throw new Exception("SortedSet: empty");
         return this.items[0];
     }
 
+    /// 最大元素；空集合抛 Exception。
     public T Max() {
         if (this.count == 0) throw new Exception("SortedSet: empty");
         return this.items[this.count - 1];
     }
 
+    /// 升序快照数组。
     public T[] ToArray() {
         T[] result = new T[this.count];
         Array.Copy(this.items, result, this.count);
         return result;
     }
 
+    /// 清空（幂等）。
     public void Clear() {
         this.count = 0;
     }
 
-    // First index `i` in 0..count such that items[i] >= item (returns count
-    // if all items < item). Standard lower_bound semantics.
+    /// 第一个 >= item 的元素下标；全都小于 item 时返回 Count()。
     public int LowerBound(T item) {
         int lo = 0;
         int hi = this.count;
@@ -98,6 +100,7 @@ public class SortedSet<T> : IBasicCollection<T> where T: IComparable + IEquatabl
         return lo;
     }
 
+    /// 扩容容量（容量管理入口，正常使用无需调用）。
     public void Grow() {
         int newCap = this.capacity * 2;
         T[] bigger = new T[newCap];

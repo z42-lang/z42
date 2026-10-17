@@ -8,6 +8,9 @@ z42 **次级集合类型**（FIFO / LIFO / 有序 / 专用场景容器）。
 > [`z42.core/src/Collections/`](../z42.core/src/Collections/)，与核心类型共享隐式 prelude 包；本包专注
 > 于"需要显式 `using Std.Collections;` 触发加载"的进阶容器。
 
+## 入口点
+公开 API 的完整签名见 [reference 包页](../../../docs/reference/src/stdlib/collections.md)（由源码 doc 注释生成）。
+
 ## src/ 核心文件
 
 | 文件 | 类型 | 说明 |
