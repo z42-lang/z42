@@ -1,17 +1,29 @@
+//! URI 解析与 percent 编解码。
+//!
+//! 把 URI / URL 字符串拆成结构化组件（scheme / userInfo / host / port / path / query /
+//! fragment），并提供 percent-encoding 编解码与 RFC 3986 §5 相对引用解析。解析遵循
+//! RFC 3986 的一个子集：必须有 scheme，authority 内的 IPv6 字面量按 `[::1]` 括号形式
+//! 识别，其余按分隔符切分，不做 WHATWG URL 的宽松归一化。
+//!
+//! ## 不支持
+//!
+//! - 相对引用不能单独 `Parse`：`Uri.Parse` 要求输入自带 scheme，`../w` / `/y` / `//host/x`
+//!   都会抛 `UriException`。相对形态只能作为 `Resolve` 的第二个参数。
+//! - 无 builder / mutator：没有 `WithHost` / `WithPort` 之类。改一个组件的办法是拼串重新
+//!   `Parse`，或用八参数构造器逐字段重建。
+//! - 不做规范化：`ToString` 原样重组——不折叠 percent 编码的大小写、不小写化 scheme 与
+//!   host、不剔除与默认端口相同的显式端口、也不在 `Parse` 阶段做 dot-segment 归约
+//!   （只有 `Resolve` 会归约路径）。
+//! - IRI / IDN 不支持：非 ASCII 域名不做 punycode（`xn--`）转换，也不做 Unicode NFC 归一化。
+//! - opaque URI 不细分：`mailto:` / `urn:` 这类无 `//` 的 URI 只填 scheme + path，
+//!   path 就是 `:` 之后的整段（`mailto:foo@bar.com` 的 path 是 `foo@bar.com`）。
+//! - IPv6 不拆分量：host 原样保留括号形态，不拆成 16-bit 组件；需要数值形态请把
+//!   `GetHostName()` 交给 `Std.Net.IPAddress.Parse`。
+//! - `Resolve` 的 `..` 越界被静默夹紧：`/x/../../y` 归约成 `/y`，不报错。
+//! - `Decode` 不区分 query 与 path 语境：任何位置的裸 `+` 都变成空格。
 namespace Std.Uri;
 using Std.Text;
 
-// add-z42-uri (2026-05-15)：RFC 3986 子集 URI/URL parser + percent-encode/decode。
-//
-// Components (per RFC 3986 §3):
-//     scheme://userinfo@host:port/path?query#fragment
-//
-// 简化决策：
-// - URN / opaque URIs (mailto:, urn:) 只保留 scheme + path（不细分）
-// - 不做相对 URI 解析（resolve(base, ref)），future work
-// - IPv6 字面量 host 按 RFC 3986 §3.2.2 的 `[::1]` bracket 形式解析（内部 ':'
-//   不被误当端口分隔符）；host 保留括号供 ToString 重组。拆为 16-bit 组件交
-//   `Std.Net.IPAddress.Parse`，Uri 提供 `GetHostName()`（剥括号）/ `IsIPv6Literal()` 桥接。
 public class Uri {
     private string _scheme;        // "" 表示无（不应出现 — Parse 拒绝）
     private bool   _hasAuthority;  // true when URI had `//` after scheme
@@ -22,6 +34,7 @@ public class Uri {
     private string _query;         // 不含 leading `?`
     private string _fragment;      // 不含 leading `#`
 
+    /// 八参数构造器：逐字段直接构造（不做校验）。
     public Uri(string scheme, bool hasAuthority, string userInfo, string host, int port,
                string path, string query, string fragment) {
         this._scheme       = scheme;
@@ -36,39 +49,46 @@ public class Uri {
 
     // ── Accessors ────────────────────────────────────────────────────────
 
+    /// 返回 scheme 组件。
     public string GetScheme()   { return this._scheme; }
+    /// 返回 userInfo 组件；缺省时返回空串。
     public string GetUserInfo() { return this._userInfo; }
+    /// 返回 host 组件；IPv6 字面量保留方括号（`[::1]`）；缺省返回空串。
     public string GetHost()     { return this._host; }
+    /// 返回显式端口；未显式写端口时返回 -1。
     public int    GetPort()     { return this._port; }
+    /// 返回 path 组件。
     public string GetPath()     { return this._path; }
+    /// 返回 query 组件，不含前导 `?`；缺省返回空串。
     public string GetQuery()    { return this._query; }
+    /// 返回 fragment 组件，不含前导 `#`；缺省返回空串。
     public string GetFragment() { return this._fragment; }
 
+    /// userInfo 非空串时为 true。
     public bool HasUserInfo()  { return this._userInfo.Length > 0; }
+    /// host 非空串时为 true。
     public bool HasHost()      { return this._host.Length > 0; }
+    /// URI 在 scheme 后带 `//` 时为 true（与 host 是否为空无关）。
     public bool HasAuthority() { return this._hasAuthority; }
+    /// 即 `GetPort() >= 0`。
     public bool HasPort()      { return this._port >= 0; }
+    /// query 非空串时为 true。
     public bool HasQuery()     { return this._query.Length > 0; }
+    /// fragment 非空串时为 true。
     public bool HasFragment()  { return this._fragment.Length > 0; }
 
-    // add-uri-ipv6-host (2026-06-09): IPv6 literal host bridge. `GetHost()`
-    // keeps the RFC 3986 §3.2.2 bracket form (`[::1]`) needed to round-trip
-    // via `ToString`; these expose the bracket-stripped form so a caller can
-    // feed it to `Std.Net.IPAddress.Parse` (which already decodes IPv6
-    // full-form + `::` shorthand) or DNS resolution. z42.uri stays free of a
-    // z42.net dependency — the IPAddress hand-off is the caller's.
+    // IPv6 literal host 桥接：`GetHost()` 保留 RFC 3986 §3.2.2 的括号形态（`[::1]`），
+    // 供 `ToString` 原样重组；`GetHostName()` 剥掉括号，便于交给 `Std.Net.IPAddress.Parse`
+    // （已支持 IPv6 全写 + `::` 简写）或 DNS。z42.uri 不依赖 z42.net——IPAddress 的交接由调用方负责。
 
-    /// True if the host is an IPv6 (or IPvFuture) literal in bracket form `[...]`.
+    /// host 是否以 `[` 开头、`]` 结尾且长度 ≥ 2（即括号形式的 IPv6 字面量）。
     public bool IsIPv6Literal() {
         return this._host.Length >= 2
             && this._host.StartsWith("[")
             && this._host.EndsWith("]");
     }
 
-    /// Host with IPv6 literal brackets stripped — the form suitable for
-    /// `Std.Net.IPAddress.Parse` / DNS. For a registered name or IPv4 host this
-    /// equals `GetHost()`; for `[::1]` it returns `::1`. (Mirrors the
-    /// bracket-stripping aspect of BCL `Uri.DnsSafeHost`.)
+    /// 剥掉 IPv6 方括号后的 host（`[::1]` → `::1`）；普通域名 / IPv4 与 `GetHost()` 相同。
     public string GetHostName() {
         if (this.IsIPv6Literal()) {
             return this._host.Substring(1, this._host.Length - 2);
@@ -76,19 +96,13 @@ public class Uri {
         return this._host;
     }
 
-    /// Effective port — returns the explicit `_port` if present, otherwise
-    /// the IANA default for the scheme (`http` → 80, `https` → 443, etc.).
-    /// Returns -1 for unknown schemes with no explicit port.
-    /// add-uri-default-port (2026-05-26).
+    /// 返回生效端口：有显式端口就返回它，否则返回 scheme 的 IANA 默认端口；两者都没有返回 -1。
     public int EffectivePort() {
         if (this._port >= 0) { return this._port; }
         return Uri.DefaultPortFor(this._scheme);
     }
 
-    /// IANA default port for a scheme (case-insensitive). Covers the
-    /// common Internet protocols; returns -1 for unknown schemes.
-    /// Static helper so callers can query default ports without
-    /// constructing a Uri first. add-uri-default-port (2026-05-26).
+    /// 返回 scheme 对应的 IANA 默认端口（scheme 大小写不敏感）；未收录的 scheme 返回 -1。
     public static int DefaultPortFor(string scheme) {
         // ASCII-lowercase the scheme so callers can pass any case.
         string s = Uri._asciiLower(scheme);
@@ -121,8 +135,7 @@ public class Uri {
         return -1;
     }
 
-    /// ASCII-lowercase a string (avoids depending on z42.text for a tiny
-    /// case-fold). Non-ASCII chars unchanged.
+    // 把字符串里的 ASCII 大写字母转小写（避免为这点小 case-fold 依赖 z42.text）；非 ASCII 字符不变。
     static string _asciiLower(string s) {
         char[] buf = new char[s.Length];
         int i = 0;
@@ -141,41 +154,32 @@ public class Uri {
 
     // ── Public entries ───────────────────────────────────────────────────
 
+    /// 解析绝对 URI。
+    ///
+    /// @param text 待解析的 URI 字符串，必须自带 scheme
+    /// @throws UriException 语法不合法时
     public static Uri Parse(string text) {
         UriParser p = new UriParser(text);
         return (Uri)p.ParseUri();
     }
 
-    /// Percent-encode all unreserved-EXCEPT chars (`A-Za-z0-9 _.~-` are
-    /// kept literal; everything else becomes `%XX`). Per RFC 3986 §2.3
-    /// unreserved set + the obvious URI delimiters get encoded — caller's
-    /// responsibility to NOT encode `/` if it's a path separator.
+    /// percent 编码组件：只保留 RFC 3986 §2.3 的 unreserved 集合，其余一律 `%XX`（大写十六进制）。
     public static string EncodeComponent(string s) {
         return UriCodec.Encode(s);
     }
 
-    /// `%XX` sequences → UTF-8 bytes → string. Throws UriException on bad
-    /// hex or short input.
+    /// percent 解码组件：`%XX` → 字节 → UTF-8 字符串；裸 `+` 解码成空格。
+    ///
+    /// @throws UriException `%` 后不足两位或非十六进制数字等非法输入时
     public static string DecodeComponent(string s) {
         return UriCodec.Decode(s);
     }
 
-    // add-uri-resolve (2026-05-27): RFC 3986 §5.3 reference resolution.
-    //
-    // Given a base URI and a (possibly relative) reference, compute the
-    // target absolute URI. Examples:
-    //
-    //   Resolve("http://a.com/x/y/z", "../w")  → "http://a.com/x/w"
-    //   Resolve("http://a.com/x/",   "y")      → "http://a.com/x/y"
-    //   Resolve("http://a.com/x",    "/y")     → "http://a.com/y"
-    //   Resolve("http://a.com/x",    "//b.com/y") → "http://b.com/y"
-    //   Resolve("http://a.com/x",    "?q=1")   → "http://a.com/x?q=1"
-    //   Resolve("http://a.com/x",    "https://x") → "https://x"
-    //
-    // Reference may be parseable as an absolute URI (scheme present) or a
-    // relative reference. For relative form, we accept the raw string and
-    // pick it apart locally — full relative-reference grammar is not
-    // exposed by `UriParser` (which requires a scheme).
+    /// 按 RFC 3986 §5.3 把相对引用 reference 相对 base_ 解析成绝对 URI。
+    ///
+    /// @param base_ 基 URI
+    /// @param reference 相对或绝对引用；自带 scheme 时直接当绝对 URI（仍做 dot-segment 归约）；空串返回 base 并清空 fragment
+    /// @throws UriException 当 reference 解析为绝对 URI 且语法不合法时
     public static Uri Resolve(Uri base_, string reference) {
         if (reference.Length == 0) {
             // Empty reference → return base (with fragment cleared per RFC).
@@ -396,8 +400,7 @@ public class Uri {
         return s.Substring(start, end - start);
     }
 
-    /// Reconstruct canonical URI text:
-    ///   scheme:[//[userinfo@]host[:port]]path[?query][#fragment]
+    /// 按 `scheme:[//[userInfo@]host[:port]]path[?query][#fragment]` 重组 URI 文本。
     override string ToString() {
         StringBuilder sb = new StringBuilder();
         sb.Append(this._scheme);

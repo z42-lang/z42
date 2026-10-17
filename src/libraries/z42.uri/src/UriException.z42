@@ -1,9 +1,11 @@
 namespace Std.Uri;
 
-// add-z42-uri (2026-05-15)：URI 解析 / 编解码错误。
+/// URI 解析 / 编解码错误；`Parse` / `Resolve` / `DecodeComponent` 的所有失败都抛这一种异常。
 public class UriException : Exception {
+    /// 用给定消息构造异常。
     public UriException(string message) : base(message) {}
 
+    /// 返回 `UriException: ` 前缀 + 消息文本。
     override string ToString() {
         return "UriException: " + this.Message;
     }
