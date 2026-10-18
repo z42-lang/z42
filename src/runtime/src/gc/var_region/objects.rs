@@ -1,8 +1,8 @@
-//! Object model R6: what the variable-length region does for **object** blocks
-//! (`BlockType::Object`) beyond plain byte allocation — the flagged-dead list the heap drains
-//! for its side tables, the per-chunk epoch weak references check, iteration by block type, the
-//! minor-sweep report the heap needs (promotion-policy samples, newly-old objects) and detached
-//! blocks (an object laid out exactly like a heap one, owned outside any region).
+//! Object model R6 / R9: what the variable-length region does for **object and array** blocks
+//! beyond plain byte allocation — the flagged-dead list the heap drains for its side tables, the
+//! per-chunk epoch weak references check, iteration by block type, the minor-sweep report the heap
+//! needs (promotion-policy samples, newly-old owners) and detached blocks (an object laid out
+//! exactly like a heap one, owned outside any region).
 //!
 //! The allocator itself stays type-agnostic: nothing here reads an object's payload.
 
@@ -13,8 +13,8 @@ use super::block::{payload_ptr_of, BlockType, GcBlockHeader, FIRST_GEN};
 use super::chunk::{class_for, CHUNK_ALIGN};
 use super::{VarGcRef, VarRegion};
 
-/// What a minor sweep of the region ([`VarRegion::sweep_young_with`]) did, with the object
-/// details the heap's generational bookkeeping needs.
+/// What a minor sweep of the region ([`VarRegion::sweep_young_with`]) did, with the details the
+/// heap's generational bookkeeping needs.
 #[derive(Debug, Default)]
 pub struct VarMinorSweep {
     /// Blocks tombstoned.
@@ -22,11 +22,13 @@ pub struct VarMinorSweep {
     /// `used_bytes` the tombstoned blocks were charged at allocation (see
     /// `VarRegion::alloc_charge_bytes`).
     pub credited: u64,
-    /// Object blocks that crossed the promotion age in this sweep — old objects that may still
-    /// point at young ones, so the heap decides whether to remember them.
-    pub newly_old_objects: Vec<VarGcRef>,
-    /// Bytes those objects carry into the old generation (their allocation charge).
-    pub promoted_object_bytes: u64,
+    /// Owners ([`BlockType::may_be_remembered`]) that crossed the promotion age in this sweep —
+    /// old objects / arrays that may still point at young ones, so the heap decides whether to
+    /// remember them.
+    pub newly_old: Vec<VarGcRef>,
+    /// Bytes the objects and arrays that crossed the line carry into the old generation (their
+    /// allocation charge).
+    pub promoted_bytes: u64,
 }
 
 impl VarRegion {
@@ -56,19 +58,19 @@ impl VarRegion {
         });
     }
 
-    /// The object blocks a lowered promotion line has just made old: young-set members at or past
-    /// the (already lowered) [`Self::promotion_age`], not yet remembered. Adaptive promotion asks
-    /// for them (`ArcMagrGC::remember_lowered_cohort`) — they are the only objects that can hold an
-    /// old→young edge no barrier recorded.
+    /// The owners a lowered promotion line has just made old: young-set objects / arrays
+    /// ([`BlockType::may_be_remembered`]) at or past the (already lowered) [`Self::promotion_age`],
+    /// not yet remembered. Adaptive promotion asks for them (`ArcMagrGC::remember_lowered_cohort`)
+    /// — they are the only owners that can hold an old→young edge no barrier recorded.
     ///
     /// `O(young set)`, not `O(heap)`: the young set is exact (every alive block younger than the
     /// old line, nothing else), so it holds the whole cohort. Outside generational mode there is no
-    /// young set; every alive old object is returned instead.
-    pub fn objects_past_lowered_line(&self) -> Vec<VarGcRef> {
+    /// young set; every alive old owner is returned instead.
+    pub fn owners_past_lowered_line(&self) -> Vec<VarGcRef> {
         let threshold = self.promotion_age;
         let mut out = Vec::new();
         let mut visit = |h: VarGcRef, header: &GcBlockHeader| {
-            if header.block_type() == BlockType::Object && header.gen_age() >= threshold && !header.is_remembered() {
+            if header.block_type().may_be_remembered() && header.gen_age() >= threshold && !header.is_remembered() {
                 out.push(h);
             }
         };

@@ -9,7 +9,7 @@
 //! everything that stores a handle: an object reference word (`ref_word` kinds 1 / 6) and the
 //! JIT's `Value` payload are the handle's raw bits.
 //!
-//! The method set mirrors `GcRef<T>` (`borrow` / `ptr_eq` / `as_ptr` / tagged bits / marks /
+//! The method set is the one every handle has (`borrow` / `ptr_eq` / `as_ptr` / tagged bits / marks /
 //! age), so code that handles an object did not have to learn a new vocabulary. Weak references
 //! are the exception: a var-region address can be re-carved (a pooled chunk is re-bumped from
 //! offset 0, a dedicated chunk is freed), so a weak handle also records its chunk's reuse epoch

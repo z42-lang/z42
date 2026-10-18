@@ -137,8 +137,8 @@ pub(crate) fn snapshot_elem(e: &StructArrayElem) -> Result<(Vec<u8>, Vec<Value>,
     let layout = arr.struct_layout()
         .ok_or_else(|| anyhow::anyhow!("as-cast on a non-value-struct array element"))?;
     let (bytes, refs) = arr.struct_elem(e.index as usize)
-        .ok_or_else(|| anyhow::anyhow!("struct array element without a StructBytes backing"))?;
-    Ok((bytes, refs, layout, arr.element_type.arc()))
+        .ok_or_else(|| anyhow::anyhow!("struct array element on a non-value-struct array"))?;
+    Ok((bytes, refs, layout, arr.element_type().arc()))
 }
 
 pub(crate) fn as_struct_ref(v: &Value, what: &str) -> Result<(u32, u32)> {

@@ -2,7 +2,7 @@
 //! natively (and, for values, on the interpreter), and checks which accesses left the native path
 //! through the helper counter (`helpers::object_field::HELPER_CALLS`).
 
-use crate::gc::region::PROMOTION_THRESHOLD;
+use crate::gc::PROMOTION_THRESHOLD;
 use crate::gc::GcMode;
 use crate::jit::forward::ForwardLookup;
 use crate::jit::frame::JitFrame;

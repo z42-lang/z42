@@ -18,27 +18,27 @@ fn layout() -> Arc<StructTypeLayout> {
     })
 }
 
-fn struct_arr(ctx: &VmContext, elem: &str, len: usize) -> GcRef<ArrayObj> {
+fn struct_arr(ctx: &VmContext, elem: &str, len: usize) -> ArrRef {
     let heap = ctx.heap();
-    let a = ArrayObj::struct_backed(heap, ElemType::intern(elem), len, layout());
-    let Value::Array(gc) = heap.alloc_array_obj(a) else { panic!("alloc") };
+    let a = ArrayObj::alloc_struct(heap, ElemType::intern(elem), len, layout());
+    let Value::Array(gc) = a else { panic!("alloc") };
     gc
 }
 
 /// 元素 `i` ← `{ N = n, O = o }`。
-fn put(arr: &GcRef<ArrayObj>, i: usize, n: i32, o: Value) {
+fn put(arr: &ArrRef, i: usize, n: i32, o: Value) {
     let mut bytes = [0u8; 16];
     bytes[..4].copy_from_slice(&n.to_le_bytes());
     arr.borrow().write_struct_elem(i, &bytes, &[o], &mut |_| {}).unwrap();
 }
 
-fn n_of(arr: &GcRef<ArrayObj>, i: usize) -> i32 {
+fn n_of(arr: &ArrRef, i: usize) -> i32 {
     let a = arr.borrow();
     let (b, _) = a.struct_elem(i).expect("struct[]");
     i32::from_le_bytes(b[..4].try_into().unwrap())
 }
 
-fn o_of(arr: &GcRef<ArrayObj>, i: usize) -> Value {
+fn o_of(arr: &ArrRef, i: usize) -> Value {
     arr.borrow().struct_elem(i).expect("struct[]").1[0]
 }
 
@@ -59,7 +59,7 @@ fn thrown(e: OpError) -> Throw {
 }
 
 /// 源 `[0..len)` 元素 `{N = 10*i, O = marker(i)}`。
-fn filled(ctx: &VmContext, elem: &str, len: usize) -> GcRef<ArrayObj> {
+fn filled(ctx: &VmContext, elem: &str, len: usize) -> ArrRef {
     let a = struct_arr(ctx, elem, len);
     for i in 0..len { put(&a, i, 10 * i as i32, marker(ctx, i as i64)); }
     a
@@ -79,7 +79,7 @@ fn struct_copy_moves_bytes_and_reference_leaves() {
     assert_eq!(marker_val(&o_of(&dst, 3)), 2);
     // A reference leaf is copied shallowly (the same object), the bytes by value.
     let (Value::Array(a), Value::Array(b)) = (o_of(&src, 1), o_of(&dst, 2)) else { panic!() };
-    assert!(GcRef::ptr_eq(&a, &b));
+    assert!(ArrRef::ptr_eq(&a, &b));
     put(&dst, 2, 99, Value::Null);
     assert_eq!(n_of(&src, 1), 10, "the source element is independent of the copy");
 }
@@ -147,11 +147,11 @@ fn copy_range_out_of_bounds_is_an_argument_exception() {
 
 /// 一个已晋升（老年代）的 `Demo.S[4]`：钉住熬过足够多次 minor，再**解钉**——此后它不是根，minor 也不扫
 /// 老条目，所以它的引用叶子只能靠卡表被 minor 看见（真实场景：老数组挂在老对象图上）。
-fn old_struct_arr(ctx: &VmContext) -> GcRef<ArrayObj> {
+fn old_struct_arr(ctx: &VmContext) -> ArrRef {
     let dst = struct_arr(ctx, "Demo.S", 4);
     let pin = ctx.heap().pin_root(Value::Array(dst));
-    for _ in 0..crate::gc::region::PROMOTION_THRESHOLD { ctx.heap().force_collect(); }
-    assert!(GcRef::gen_age(&dst) >= crate::gc::region::PROMOTION_THRESHOLD, "setup: destination is old");
+    for _ in 0..crate::gc::PROMOTION_THRESHOLD { ctx.heap().force_collect(); }
+    assert!(ArrRef::gen_age(&dst) >= crate::gc::PROMOTION_THRESHOLD, "setup: destination is old");
     ctx.heap().unpin_root(pin);
     dst
 }
@@ -191,19 +191,17 @@ fn without_the_barrier_the_same_copy_loses_them() {
     assert!(!young_leaves_survive_a_minor(false), "control: the barrier is what keeps them");
 }
 
-/// 同一数组内的挪动也是写入：挪到老数组别的位置的年轻叶子同样要有卡。
+/// 同一数组内的挪动也是写入：挪到老数组别的位置的年轻叶子同样要让数组进记忆集。
 #[test]
-fn a_struct_copy_within_an_old_array_dirties_its_card() {
+fn a_struct_copy_within_an_old_array_remembers_it() {
     let ctx = VmContext::new();
     ctx.heap().set_mode(GcMode::GenerationalMarkSweep);
     let dst = old_struct_arr(&ctx);
     let young = marker(&ctx, 1);
-    put(&dst, 0, 1, young);   // raw write: no card yet
-    let Value::Array(owner) = Value::Array(dst) else { unreachable!() };
-    // SAFETY: live handle from this heap.
-    let (ci, _) = unsafe { owner.entry_ptr().as_ref() }.location();
-    assert!(!ctx.heap().array_card_dirty_for_test(ci), "setup: card starts clean");
+    put(&dst, 0, 1, young);   // raw write: no barrier yet
+    let owner = Value::Array(dst);
+    assert!(!ctx.heap().is_remembered_for_test(&owner), "setup: not remembered yet");
     copy_range(&ctx, &dst, 0, &dst, 2, 1).expect("copy");
-    assert!(ctx.heap().array_card_dirty_for_test(ci), "the moved young leaf must dirty the card");
+    assert!(ctx.heap().is_remembered_for_test(&owner), "the moved young leaf must remember the array");
 }
 

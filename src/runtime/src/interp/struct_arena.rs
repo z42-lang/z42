@@ -17,7 +17,7 @@
 //! in `StructSlot::bytes` at their layout offset — this is the γ byte-density
 //! goal. Reference leaves (`string` / object / array fields) are **not** stored
 //! as raw handle bytes inside the `[u8]` blob (that would be memory-unsafe in
-//! Rust: an `Arc<str>` / `GcRef` is a managed value whose refcount the byte Vec
+//! Rust: an `Arc<str>` / `ArrRef` is a managed value whose refcount the byte Vec
 //! could not clone/drop, and a moving GC could not rewrite). Instead they live as
 //! real `Value`s in a parallel [`StructSlot::refs`] side-slice, ordered by the
 //! type's reference bitmap ([`StructTypeLayout::ref_offsets`]). This gives:

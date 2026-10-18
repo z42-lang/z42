@@ -230,7 +230,7 @@ fn apply(op: Op, heap: &ArcMagrGC, state: &mut State, rng: &mut Rng) {
             // Per the add-mark-sweep-collector contract: Rust-local
             // `Value` strong refs are NOT roots. After sweep, any
             // unpinned entry in `state.objects` is tombstoned and its
-            // GcRef is stale (use-after-finalize panics on access).
+            // ArrRef is stale (use-after-finalize panics on access).
             // Rebuild `state.objects` from the heap's authoritative
             // alive-set so subsequent ops don't touch dead handles.
             state.objects.clear();
@@ -354,8 +354,8 @@ fn stress_seeded_generational_short() {
 }
 
 #[test]
-#[ignore = "stale-mark race under mode-switching: the `GcRef::entry_ref` generation guard \
-            (refs.rs) flakily fired on CI (windows / linux-arm64 / macos-arm64; passes locally) \
+#[ignore = "stale-mark race under mode-switching: the array handle's generation guard \
+            flakily fired on CI (windows / linux-arm64 / macos-arm64; passes locally) \
             while the mode set still had a concurrent-mark mode. Not re-validated on CI runners \
             since; the single-mode variants (stw / generational) are stable and stay gated."]
 fn stress_seeded_mode_switching_short() {

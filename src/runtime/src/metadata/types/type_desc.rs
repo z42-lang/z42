@@ -5,7 +5,7 @@
 use super::*;
 use std::sync::Arc;
 use crate::metadata::vstr::Str;
-use crate::gc::GcRef;
+use crate::gc::ArrRef;
 use crate::gc::var_region::{BlockType, VarGcRef};
 use crate::gc::heap::MagrGC;
 
@@ -261,7 +261,7 @@ impl TypeDesc {
     /// number, same as C#.
     ///
     /// Lives on `TypeDesc`, not `ScriptObject`, so the hot callers reach it straight
-    /// through `GcRef::type_desc()`.
+    /// through `ArrRef::type_desc()`.
     pub fn enum_member_name(&self, raw: i64) -> Option<String> {
         if self.class_flags & crate::metadata::bytecode::CLASS_FLAG_ENUM == 0 {
             return None;

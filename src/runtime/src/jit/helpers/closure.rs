@@ -87,7 +87,7 @@ pub unsafe extern "C" fn jit_mk_clos(
         .collect();
 
     // Allocate env via the GC heap so it's tracked as a managed array.
-    let env_val = crate::metadata::types::ArrayObj::alloc_frozen_value(vm_ctx_ref(ctx).heap(), env_vec);
+    let env_val = crate::metadata::types::ArrayObj::alloc_frozen(vm_ctx_ref(ctx).heap(), &env_vec);
     let env = match env_val {
         Value::Array(rc) => rc,
         _ => unreachable!("alloc_array must return Value::Array"),
@@ -117,9 +117,9 @@ pub unsafe extern "C" fn jit_call_indirect(
 
     // 1) Callee Value → (target id, optional env).
     // JIT-S3 (perf, mirrors interp exec_call S3): `Value::Closure` 直接复用已有
-    // env GcRef（Arc +1），不再 `to_boxed_vec()` 深拷 + `alloc_array` 重分配。
+    // env ArrRef（Arc +1），不再 `to_boxed_vec()` 深拷 + `alloc_array` 重分配。
     // 安全性同 interp S3：env 数组 MkClos 时写一次、体内只 array_get 读（编译器
-    // _emitAssign 无 BoundCapturedIdent 写回分支）→ 跨调用共享 GcRef 字节等价。
+    // _emitAssign 无 BoundCapturedIdent 写回分支）→ 跨调用共享 ArrRef 字节等价。
     // P1-2 PR 8: the value carries its target's id (bound at creation) — a JIT id, the
     // index of the JIT runtime's slot table, for entry and lazily loaded targets alike.
     let (id, env_val_opt): (FnId, Option<Value>) = match &frame_ref.regs[callee as usize] {

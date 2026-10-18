@@ -71,7 +71,7 @@ pub fn builtin_load_bytecode_in_memory(ctx: &VmContext, args: &[Value]) -> Resul
 /// threads with DISJOINT VmContexts (P2): each golden's heap/static-fields are
 /// its own and stdout capture is thread-local (`STDOUT_SINKS`), so parallel runs
 /// don't interfere and there is no global GC lock to serialize them. The only
-/// invariant — never share a `Value`/`GcRef` across contexts — holds because
+/// invariant — never share a `Value`/`ArrRef` across contexts — holds because
 /// workers exchange only Rust `String`s; `Value`s are built in the caller's heap
 /// AFTER join. `jobs <= 0` → auto (available cores); `1` → sequential. Order is
 /// preserved. On a run error the captured stdout gets a `<z42-run-error: …>`

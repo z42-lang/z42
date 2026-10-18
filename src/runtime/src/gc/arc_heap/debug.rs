@@ -3,8 +3,6 @@
 
 use parking_lot::Mutex;
 use crate::metadata::Value;
-use crate::metadata::types::{ArrayObj};
-use crate::gc::refs::{GcRef};
 
 impl crate::gc::arc_heap::ArcMagrGC {
     /// Test-only entry point to `snapshot_roots_into_mark_queue` (whose
@@ -41,14 +39,6 @@ impl crate::gc::arc_heap::ArcMagrGC {
         self.major_mark()
     }
 
-    /// **add-generational-gc P1 (2026-05-22)**: test-only accessors
-    /// for the region locks (needed by `arc_heap_tests::generational`
-    /// to peek at card_dirty state without going through MagrGC trait).
-    #[cfg(test)]
-    pub(crate) fn region_array_for_test(&self) -> &Mutex<crate::gc::region::Region<ArrayObj>> {
-        &self.region_array
-    }
-
     /// **add-gc-tlab stage 3**: test-only handle to the variable-length region
     /// (var TLAB chunk-count / pool assertions).
     #[cfg(test)]
@@ -64,29 +54,19 @@ impl crate::gc::arc_heap::ArcMagrGC {
         Self::minor_escalation_threshold()
     }
 
-    /// **add-gc-debug-invariants P1 (2026-05-22)**: post-collect
-    /// invariant check. Validates both regions + heap-wide invariants.
-    /// Panics on first violation with a descriptive message. Release
-    /// builds compile this method body out entirely via the cfg gate
-    /// at the call site.
+    /// **add-gc-debug-invariants P1 (2026-05-22)**: post-collect invariant check. Panics on the
+    /// first violation with a descriptive message. Release builds compile the call out (cfg gate
+    /// at the call site).
     ///
     /// Invariants checked:
-    /// - `region_array`: see
-    ///   [`crate::gc::region::Region::validate`]
-    /// - `mark_queue` is empty post-collect (a major's mark drains it
-    ///   to empty before sweep)
-    /// - No alive entry has `marked == 1` (sweep clears marks on
-    ///   survivors; orphaned mark bit = bug)
+    /// - `mark_queue` is empty post-collect (a major's mark drains it to empty before sweep)
+    /// - no alive object / array carries a stale mark (sweep clears minor marks on survivors; an
+    ///   orphaned mark = bug)
     #[cfg(debug_assertions)]
     pub(crate) fn debug_validate_invariants(&self) {
-        // 1. Per-region invariants.
-        if let Err(v) = self.region_array.lock().validate() {
-            panic!("region_array invariant violation: {}", v);
-        }
-
         // add-incremental-major-gc M2b: between the slices of an open cycle the grey queue holds
-        // work in progress, and alive entries legitimately carry the previous epoch (not yet
-        // re-marked) or are doomed (not yet swept). The region invariants above still hold.
+        // work in progress, and alive blocks legitimately carry the previous epoch (not yet
+        // re-marked) or are doomed (not yet swept).
         if self.major_cycle_active() {
             return;
         }
@@ -94,8 +74,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // 2. mark_queue must be empty post-collect.
         //
         // diag-mark-queue-stale (2026-05-30): on failure, dump each
-        // stale entry's kind + (for heap refs) the GcRef pointer + the
-        // marked bit — without the dump the assertion is opaque.
+        // stale entry's kind (+ a detail for heap refs) — without the dump the assertion is
+        // opaque.
         let stale: Vec<Value> = self.mark_queue.lock().clone();
         if !stale.is_empty() {
             let summary: Vec<String> = stale.iter().take(8).map(|v| {
@@ -141,33 +121,21 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // object is the freshly-allocated `Leaf` from the stress
         // worker loop (race: barrier ran post-sweep) vs an `Owner` /
         // older object (race: something re-marked it during STW).
-        // Object model R6: objects are var blocks.
-        let mut stale_obj: Option<(usize, String, usize)> = None;
-        self.region_var.lock().iterate_alive_of(crate::gc::var_region::BlockType::Object, |h, header| {
-            if stale_obj.is_some() { return; }
+        // Object model R6 / R9: objects and arrays are var blocks.
+        let mut stale_blk: Option<(usize, String, usize)> = None;
+        self.region_var.lock().iterate_alive(|h, header| {
+            if stale_blk.is_some() || !header.block_type().is_object_or_array() { return; }
             if stale(header.is_marked(crate::gc::refs::MarkKind::Minor), header.major_epoch()) {
-                let obj = crate::gc::ObjRef::from_var(h);
-                let obj = obj.borrow();
-                stale_obj = Some((h.addr(), obj.type_desc.name.clone(), obj.payload_len()));
+                let what = if header.block_type() == crate::gc::var_region::BlockType::Object {
+                    crate::gc::ObjRef::from_var(h).borrow().type_desc.name.clone()
+                } else {
+                    format!("{}[]", crate::gc::ArrRef::from_var(h).borrow().element_type())
+                };
+                stale_blk = Some((h.addr(), what, header.size()));
             }
         });
-        if let Some((addr, ty, n)) = stale_obj {
-            panic!("stale mark bit on an object after sweep: block={addr:#x}, type={ty}, payload={n} B");
-        }
-        let region_array = self.region_array.lock();
-        let mut stale_arr: Option<(u32, u32, usize)> = None;
-        region_array.iterate_alive(|h, e| {
-            if stale_arr.is_some() { return; }
-            if stale(e.is_marked(crate::gc::refs::MarkKind::Minor), e.major_epoch()) {
-                let arr = &e.value;
-                stale_arr = Some((h.chunk_idx as u32, h.entry_idx as u32, arr.len()));
-            }
-        });
-        drop(region_array);
-        if let Some((c, i, len)) = stale_arr {
-            panic!(
-                "stale mark bit in region_array after sweep: chunk={c}, entry={i}, array_len={len}"
-            );
+        if let Some((addr, ty, n)) = stale_blk {
+            panic!("stale mark bit after sweep: block={addr:#x}, type={ty}, payload={n} B");
         }
     }
 

@@ -284,7 +284,7 @@ fn a_collection_leaves_a_foreign_stash_alone() {
     let all: Vec<VarGcRef> = (0..8).map(|_| r.alloc(PAYLOAD, BlockType::Object)).collect();
     for h in all.iter().skip(1).step_by(2) {
         // The previous occupants were old: their headers keep the age after the tombstone.
-        h.raise_gen_age_to(crate::gc::region::PROMOTION_THRESHOLD);
+        h.raise_gen_age_to(crate::gc::PROMOTION_THRESHOLD);
         assert!(r.tombstone(*h));
     }
     let mut stash = VarHoleStash::new();

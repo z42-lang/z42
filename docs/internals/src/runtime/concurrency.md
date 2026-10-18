@@ -16,14 +16,14 @@
 ## Runtime foundation 现状
 
 - **VmCore / VmContext 类型层划分**：共享 8 字段 (`Arc<VmCore>`) + per-thread 4 字段（VmContext 持 `Arc<VmCore>` 加自己的 Arc<Mutex<>> 字段）
-- **GcRef 是 8 B 标记指针**：指向 region 里的 `RegionEntry<T>`，`borrow()` 给 `&T`、不加锁（对象跨线程共享，字段 / 元素是原子单元，见 [object-abi.md](object-abi.md) §3）
+- **句柄是 8 B 标记指针**（`ObjRef` / `ArrRef` / `VarGcRef`）：指向变长区里的块头，`borrow()` 给 `&T`、不加锁（对象跨线程共享，字段 / 元素是原子单元，见 [object-abi.md](object-abi.md) §3）
 - **MagrGC trait 带 Send + Sync 边界**：实施 backend `ArcMagrGC` 满足
 - **6 个编译期 Send+Sync assertion**（[src/runtime/src/gc/arc_heap_tests/send_sync.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/gc/arc_heap_tests/send_sync.rs)）+ 3 个 cross-thread 集成测试（[src/runtime/tests/cross_thread_smoke.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/tests/cross_thread_smoke.rs)）钉死不可回归
 
 | 现状 | 描述 |
 |------|------|
-| ✅ Rust 类型层 Send+Sync | `VmContext` / `VmCore` / `GcRef` / `Value` / `Box<dyn MagrGC>` 全 Send+Sync |
-| ✅ 跨线程 read 共享 GC | `Arc<VmCore>` 可跨线程；GcRef 可跨线程 move / clone / borrow |
+| ✅ Rust 类型层 Send+Sync | `VmContext` / `VmCore` / `ObjRef` / `ArrRef` / `Value` / `Box<dyn MagrGC>` 全 Send+Sync |
+| ✅ 跨线程 read 共享 GC | `Arc<VmCore>` 可跨线程；句柄可跨线程 move / clone / borrow |
 | ✅ 多 VmContext 共享 GC heap | VmCore `vm_contexts` 注册表 + `Pin<Box<VmContext>>` 地址稳定 + scanner walk registry |
 | ✅ 用户层线程 API | `Std.Threading.Thread.Start(Action)` / `.Join()` + `Std.Threading.ThreadException`。底层 `__thread_spawn` / `__thread_wait` builtin 接 `VmCore.threads: Mutex<HashMap<u64, JoinHandle>>` slot table。worker 走 `VmContext::new_with_core(Arc::clone(core))` 共享父 VmCore |
 | ✅ 同步原语 | `Std.Threading.Mutex<T>` / `Channel<T>` + `Std.Threading.ChannelDisconnectedException`。Mutex 走 `parking_lot::Mutex<Value>` + thread-local guard parking（`__mutex_lock_acquire` / `__mutex_store` / `__mutex_unlock`，z42 facade 暴露 RAII `Lock(Func<T,T>)`）；Channel 走 `std::sync::mpsc` unbounded MPSC（`__channel_send` / `__channel_recv` / `__channel_try_recv` / `__channel_close`）。两 worker 并发读写同一对象的字段是逐单元原子访问，不加锁 |

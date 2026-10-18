@@ -13,18 +13,24 @@
 //! 指令解码时（`instr_decode.rs`）就把名字驻留进 `ArrayNewInsn::element_type`，所以
 //! interp / JIT 的建数组热路径连查表都没有；其余 Rust 侧调用点走 [`ElemType::intern`]
 //! （读锁 + FxHash 查表）。
+//!
+//! 条目还缓存这个元素类型的**数组描述符**（[`ArrayDesc`]，每种模式一个，首次用到时建、进程生命期）：
+//! 数组块头的种类字就是它的指针，建数组只读一次槽位（对象模型 R9）。
 
+use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
 
 use rustc_hash::FxHashMap;
 
-use super::ElemKind;
+use super::{ArrayDesc, ArrayMode, ElemKind};
 
 /// 一个驻留条目（进程生命期，泄漏）。
 #[derive(Debug)]
 pub struct ElemTypeInfo {
     name: Arc<str>,
     kind: ElemKind,
+    /// 各模式的数组描述符（[`ArrayDesc::slot`] 下标；空 = 还没建过）。
+    descs: [AtomicPtr<ArrayDesc>; ArrayDesc::SLOTS],
 }
 
 /// 驻留的数组元素类型名：8 B 细指针，`Copy`。`Deref<Target = str>`，所以既有的
@@ -48,8 +54,11 @@ impl ElemType {
         if let Some(t) = w.get(name) {
             return *t;
         }
-        let info: &'static ElemTypeInfo =
-            Box::leak(Box::new(ElemTypeInfo { name: Arc::from(name), kind: ElemKind::of(name) }));
+        let info: &'static ElemTypeInfo = Box::leak(Box::new(ElemTypeInfo {
+            name: Arc::from(name),
+            kind: ElemKind::of(name),
+            descs: std::array::from_fn(|_| AtomicPtr::new(std::ptr::null_mut())),
+        }));
         // SAFETY-free: `info` is leaked ⇒ its `name` buffer lives for the process, so a
         // `&'static str` view of it is sound as the map key.
         let key: &'static str = &info.name;
@@ -85,6 +94,35 @@ impl ElemType {
     #[inline]
     pub fn kind(self) -> ElemKind {
         self.0.kind
+    }
+
+    /// 这个元素类型在模式 `mode`（MIXED 带零种类 `zero`，其余模式传 0）下的数组描述符——数组块头的
+    /// 种类字。命中是一次 acquire 读；首次建一个泄漏的描述符，CAS 发布（输家丢掉自己那份）。
+    #[inline]
+    pub fn array_desc(self, mode: ArrayMode, zero: u8) -> &'static ArrayDesc {
+        let slot = &self.0.descs[ArrayDesc::slot(mode, zero)];
+        let p = slot.load(Ordering::Acquire);
+        if !p.is_null() {
+            // SAFETY: a published slot holds a leaked, never-freed descriptor.
+            return unsafe { &*p };
+        }
+        self.array_desc_slow(slot, mode, zero)
+    }
+
+    #[cold]
+    fn array_desc_slow(self, slot: &AtomicPtr<ArrayDesc>, mode: ArrayMode, zero: u8) -> &'static ArrayDesc {
+        let fresh = Box::into_raw(Box::new(ArrayDesc::new(self, mode, zero)));
+        match slot.compare_exchange(std::ptr::null_mut(), fresh, Ordering::AcqRel, Ordering::Acquire) {
+            // SAFETY: published now, never freed.
+            Ok(_) => unsafe { &*fresh },
+            Err(won) => {
+                // SAFETY: `fresh` was never published; `won` is a leaked, published descriptor.
+                unsafe {
+                    drop(Box::from_raw(fresh));
+                    &*won
+                }
+            }
+        }
     }
 
     /// 名字的 `Arc<str>`（引用计数 +1，不分配）。

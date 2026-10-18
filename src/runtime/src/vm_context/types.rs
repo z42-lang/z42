@@ -13,10 +13,10 @@ use super::*;
 /// It also holds the VM's lazy loader, cctor registry, native interop registry,
 /// GC heap and resource tables.
 ///
-/// `VmCore` will become `Send + Sync` once `GcRef<T>` backing switches to
+/// `VmCore` will become `Send + Sync` once the GC handle backing switches to
 /// `Arc<...>` (Phase 3 of the spec). Until then, `Mutex` is wrapped around
 /// fields that hold `Value` (which transitively contains `Rc<RefCell>` via
-/// the current `GcRef` backing), so the API surface is already stable —
+/// the current `ArrRef` backing), so the API surface is already stable —
 /// Send-safety completes at Phase 3 without further VmCore API changes.
 pub struct VmCore {
     /// Static fields: one stable-address cell per `StaticFieldId` (read / written without a
@@ -420,7 +420,7 @@ pub struct VmContext {
     /// add-escape-analysis-stack-alloc: per-thread arena holding escape-analysis
     /// stack-allocated objects/arrays (`Value::StackObject`/`StackArray` index it).
     /// LIFO-truncated by `pop_frame` to each frame's stamped base. Scanned as GC
-    /// roots at safepoint (its slots may hold heap `GcRef`s). Mutex: owner-thread
+    /// roots at safepoint (its slots may hold heap `ArrRef`s). Mutex: owner-thread
     /// accesses uncontended; GC scanner is the only cross-thread reader.
     pub(crate) stack_arena:       Arc<Mutex<crate::interp::stack_alloc::StackArena>>,
     /// add-struct-value-semantics: per-thread byte arena holding value-struct blobs

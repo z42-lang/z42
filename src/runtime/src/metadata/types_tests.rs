@@ -48,7 +48,6 @@ fn default_for_ref_tags_is_null() {
 // ── is_heap_ref (add-write-barriers, 2026-05-21) ────────────────────────────
 
 use std::sync::Arc;
-use crate::gc::GcRef;
 
 fn dummy_type_desc(name: &str) -> Arc<TypeDesc> {
     Arc::new(TypeDesc {
@@ -73,7 +72,7 @@ fn is_heap_ref_true_for_object() {
 
 #[test]
 fn is_heap_ref_true_for_array() {
-    let v = Value::Array(GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![Value::I64(1), Value::I64(2)])));
+    let v = Value::Array(crate::metadata::types::ArrayObj::leaked(vec![Value::I64(1), Value::I64(2)]));
     assert!(v.is_heap_ref());
 }
 
@@ -81,7 +80,7 @@ fn is_heap_ref_true_for_array() {
 fn is_heap_ref_true_for_closure() {
     let v = Value::Closure(crate::gc::var_region::VarGcRef::leak_for_test(
         ClosureData {
-            env:     GcRef::new(crate::metadata::types::ArrayObj::new_leaked(vec![Value::I64(42)])),
+            env:     crate::metadata::types::ArrayObj::leaked(vec![Value::I64(42)]),
             fn_id:   crate::metadata::tokens::FnId(0),
         },
         crate::gc::var_region::BlockType::Closure,
@@ -92,7 +91,7 @@ fn is_heap_ref_true_for_closure() {
 #[test]
 fn is_heap_ref_false_for_ref_handle() {
     // make-value-copy: a `Ref` is now an 8B transient-arena handle (payload — incl. the
-    // Array/Field target GcRef — lives in the arena, kept marked by its root scan). The
+    // Array/Field target ArrRef — lives in the arena, kept marked by its root scan). The
     // handle itself never escapes into a heap slot, so it is NOT a heap edge here (matches
     // `StructRef` / `StackObject`). Only the arena root scan keeps the target alive.
     let v = Value::Ref { idx: 0, frame_id: 1 };
@@ -304,18 +303,19 @@ fn struct_array_backing_roundtrip_and_traced_leaves() {
     });
     // Heap-less test: a leaked block; element blobs written through `write_struct_elem`, read
     // back through `struct_elem` / `visit_refs`.
-    let mut arr = ArrayObj::struct_backed_leaked("Demo.P", 2, layout.clone());
+    let arr_ref = ArrayObj::struct_leaked("Demo.P", 2, layout.clone());
+    let arr = arr_ref.borrow();
     assert_eq!(arr.len(), 2, "2 elements of 16 bytes each");
     assert_eq!(arr.elem_storage_bytes(), 32, "one block: the reference leaf is an 8 B word inside the blob");
 
-    let write = |arr: &mut ArrayObj, i: usize, x: i32, y: i32, tag: &str| {
+    let write = |arr: &ArrayObj, i: usize, x: i32, y: i32, tag: &str| {
         let mut b = [0u8; 16];
         b[0..4].copy_from_slice(&x.to_le_bytes());
         b[4..8].copy_from_slice(&y.to_le_bytes());
         arr.write_struct_elem(i, &b, std::slice::from_ref(&Value::Str(tag.into())), &mut |_| {}).unwrap();
     };
-    write(&mut arr, 0, 5, 6, "a");
-    write(&mut arr, 1, 7, 8, "b");
+    write(arr, 0, 5, 6, "a");
+    write(arr, 1, 7, 8, "b");
 
     // Element bytes are stored + independent across elements; reference slots read as zero.
     let (b0, r0) = arr.struct_elem(0).expect("StructBytes backing");
@@ -419,7 +419,7 @@ fn value_size_observed() {
     // Value shrunk 48 B → 24 B. Max-payload variant was
     // Str(Arc<str>) = 16 B → +1 B tag + 7 B align = 24 B.
     //
-    // 2026-08-15 unify-object-byte-layout PR-3/4/5: GcRef 16→8 B (PR-3),
+    // 2026-08-15 unify-object-byte-layout PR-3/4/5: ArrRef 16→8 B (PR-3),
     // Str Arc<str> 16→8 B thin (PR-4), FuncRef Box<str> 16→8 B thin (PR-5).
     // Every payload is now ≤ 8 B → tag(1 B, padded to 8) + 8 B = 16 B.
     // This is also enforced at compile time by the `const _: () = assert!`
@@ -437,7 +437,7 @@ fn value_size_observed() {
 //
 // Pinned layout (x86-64 / aarch64, alignment 8):
 //   * offset 0  — u8 discriminant (explicit assignments in Value enum)
-//   * offset 8  — payload (max 8 B since PR-3/4/5: GcRef / Str / FuncRef
+//   * offset 8  — payload (max 8 B since PR-3/4/5: ArrRef / Str / FuncRef
 //     are all thin 8 B pointers → Value is 16 B, see `value_size_observed`)
 
 #[test]
@@ -451,10 +451,10 @@ fn value_discriminants_pinned() {
     assert_eq!(tag(&Value::Char('\0')),                        3, "Char tag");
     assert_eq!(tag(&Value::Str(crate::metadata::vstr::Str::from(""))),     4, "Str tag");
     assert_eq!(tag(&Value::Null),                              5, "Null tag");
-    // Heap variants (Array/Object tags 6/7) need a GcRef — skip cheap test.
+    // Heap variants (Array/Object tags 6/7) need a ArrRef — skip cheap test.
     assert_eq!(tag(&Value::PinnedView { idx: 0, frame_id: 1 }), 8, "PinnedView tag");
     assert_eq!(tag(&Value::FuncRef(crate::metadata::tokens::FnId(0))), 9, "FuncRef tag");
-    // Closure tag 10 — needs GcRef, skip.
+    // Closure tag 10 — needs ArrRef, skip.
     // 11 retired (was StackClosure).
     assert_eq!(tag(&Value::Ref { idx: 0, frame_id: 1 }), 12, "Ref tag");
 }
@@ -539,7 +539,7 @@ fn compose_object_layout_root_is_identity() {
         size: 24,
         field_offsets: Box::new([0, 8, 16]),
         field_sizes:   Box::new([8, 8, 8]),
-        field_kinds:   Box::new([0, 1, 2]), // Prim @0, ArcString @8, GcRef(object) @16
+        field_kinds:   Box::new([0, 1, 2]), // Prim @0, ArcString @8, ArrRef(object) @16
         ref_offsets:   Box::new([8, 16]),
         ref_kinds:     Box::new([1, 2]),
     };

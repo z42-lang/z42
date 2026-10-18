@@ -16,7 +16,6 @@ use crate::metadata::types::{
     FieldAccess, ObjectLayout, ScriptObject, TypeDesc, TypeDescCold, Value,
     STRUCT_LEAF_PRIM, TAG_I32, TAG_STR,
 };
-use crate::gc::GcRef;
 use crate::vm_context::VmContext;
 use std::sync::Arc;
 

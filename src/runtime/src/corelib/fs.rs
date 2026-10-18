@@ -250,7 +250,7 @@ pub(crate) fn check_buffer_range(offset: i64, count: i64, len: usize) -> Result<
     Ok((off, n))
 }
 
-pub(crate) fn byte_array(v: &crate::metadata::Value, param: &str) -> Result<crate::gc::GcRef<crate::metadata::types::ArrayObj>, BuiltinError> {
+pub(crate) fn byte_array(v: &crate::metadata::Value, param: &str) -> Result<crate::gc::ArrRef, BuiltinError> {
     match v {
         crate::metadata::Value::Array(rc) => Ok(*rc),
         crate::metadata::Value::Null => Err(BuiltinError::ArgumentNull(format!("Value cannot be null. (Parameter '{param}')"))),

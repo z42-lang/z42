@@ -26,9 +26,9 @@ fn link(from: &Value, to: &Value) {
 
 fn raw_alive(heap: &ArcMagrGC, weak: &crate::gc::WeakRef) -> bool {
     match &weak.inner {
-        // Object model R6: an object's weak reference is upgraded by the heap (chunk epoch).
+        // Object model R6 / R9: a weak reference is upgraded by the heap (chunk epoch).
         crate::gc::types::WeakRefInner::Object(w) => heap.upgrade_weak_object(w).is_some(),
-        crate::gc::types::WeakRefInner::Array(w) => w.upgrade().is_some(),
+        crate::gc::types::WeakRefInner::Array(w) => heap.upgrade_weak_array(w).is_some(),
     }
 }
 
@@ -110,7 +110,9 @@ fn a_tenure_while_sweeping_leaves_the_doomed_young_for_the_sweep() {
     let heap = generational_heap();
     let keep = obj(&heap, "Keep");
     let _pin = heap.pin_root(keep);
-    let garbage: Vec<_> = (0..1400).map(|_| heap.make_weak(&obj(&heap, "G")).unwrap()).collect();
+    // Enough garbage for a sweep that spans slices: a slice is charged per chunk swept, so the
+    // garbage has to fill well over 300 units' worth of 64 KB chunks.
+    let garbage: Vec<_> = (0..12_000).map(|_| heap.make_weak(&obj(&heap, "G")).unwrap()).collect();
 
     assert!(!heap.run_major_slice_for_test(300));
     assert!(heap.major_cycle_sweeping_for_test());

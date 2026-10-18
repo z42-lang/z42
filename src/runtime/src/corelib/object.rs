@@ -36,7 +36,7 @@ pub fn builtin_obj_get_type(ctx: &VmContext, args: &[Value]) -> Result<Value> {
             // element type (non-erased). `<elem>[]` routes through
             // make_type_from_name's `[]` path → array Type with IsArray + element.
             // Empty element ("") → IsArray true, GetElementType() null.
-            let element = rc.borrow().element_type.to_string();
+            let element = rc.borrow().element_type().to_string();
             Ok(make_type_from_name(ctx, &format!("{element}[]")))
         }
         Some(Value::Str(_)) => {
@@ -158,10 +158,10 @@ pub fn builtin_make_closure(ctx: &VmContext, args: &[Value]) -> Result<Value> {
             bail!("__make_closure: cannot bind `{}`", &*fn_name);
         }
     };
-    // 把 Array 里的元素拷贝到 Vec<Value>，再走 heap.alloc_array 拿到新的 GcRef。
-    // 与 jit_mk_clos 同款路径：env 是 GC 管理的 Array → Closure 持其 GcRef。
+    // 把 Array 里的元素拷贝到 Vec<Value>，再走 heap.alloc_array 拿到新的 ArrRef。
+    // 与 jit_mk_clos 同款路径：env 是 GC 管理的 Array → Closure 持其 ArrRef。
     let env_vec: Vec<Value> = env_arr.borrow().iter_boxed().collect();
-    let env_val = crate::metadata::types::ArrayObj::alloc_frozen_value(ctx.heap(), env_vec);
+    let env_val = crate::metadata::types::ArrayObj::alloc_frozen(ctx.heap(), &env_vec);
     let env = match env_val {
         Value::Array(rc) => rc,
         _ => return Ok(Value::Null),  // unreachable but lenient
@@ -212,7 +212,7 @@ fn weak_handle_type_desc() -> Arc<TypeDesc> {
 ///
 /// 语义参见 `delegates-events.md` 与本 spec design.md：
 /// - `FuncRef(id)` —— 目标 `FnId` 相等（P1-2 PR 8 起；一个函数一个 id，等价于此前的名字相等）
-/// - `Closure { env, fn_id }` —— fn_id 相等且 env GcRef::ptr_eq
+/// - `Closure { env, fn_id }` —— fn_id 相等且 env ArrRef::ptr_eq
 pub fn builtin_delegate_eq(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let result = match (args.first(), args.get(1)) {
         // fix-delegate-equality-operator: FuncRef / Closure identity now lives in
@@ -230,11 +230,19 @@ pub fn builtin_delegate_eq(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
 /// Identity hash of a heap address: non-negative 31 bits, stable because the
 /// GC never moves objects. The address itself is a poor hash — allocations
 /// are aligned, so its low bits are constant, and `Dictionary` picks the
-/// bucket from the low bits (`h & mask`). A Fibonacci multiply spreads every
-/// address bit into the high half, which is what we keep.
+/// bucket from the low bits (`h & mask`). The 64-bit finalizer of MurmurHash3
+/// (`fmix64`) lets every address bit reach every result bit: a single Fibonacci
+/// multiply kept only the top bits of the product, whose lowest few barely move
+/// when consecutive blocks sit a small power of two apart (16 / 32 B — what the
+/// smallest objects and arrays are).
 pub(crate) fn identity_hash(addr: usize) -> i64 {
-    let mixed = (addr as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
-    ((mixed >> 33) & 0x7fff_ffff) as i64
+    let mut x = addr as u64;
+    x ^= x >> 33;
+    x = x.wrapping_mul(0xff51_afd7_ed55_8ccd);
+    x ^= x >> 33;
+    x = x.wrapping_mul(0xc4ce_b9fe_1a85_ec53);
+    x ^= x >> 33;
+    (x & 0x7fff_ffff) as i64
 }
 
 /// Identity-based hash code derived from the object's address.
@@ -246,7 +254,7 @@ pub fn builtin_obj_hash_code(_ctx: &VmContext, args: &[Value]) -> Result<Value> 
         }
         // 2026-05-07 add-array-base-class: identity hash for Value::Array
         Some(Value::Array(gc)) => {
-            let addr = crate::gc::GcRef::as_ptr(gc) as *const _ as *const u8 as usize;
+            let addr = crate::gc::ArrRef::as_ptr(gc) as *const _ as *const u8 as usize;
             Ok(Value::I64(identity_hash(addr)))
         }
         Some(Value::Null) => Ok(Value::I64(0)),
@@ -260,7 +268,7 @@ pub fn builtin_obj_equals(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let result = match (args.first(), args.get(1)) {
         (Some(Value::Object(a)), Some(Value::Object(b))) => crate::gc::ObjRef::ptr_eq(a, b),
         // 2026-05-07 add-array-base-class: reference-equality for arrays (mirror Object)
-        (Some(Value::Array(a)),  Some(Value::Array(b)))  => crate::gc::GcRef::ptr_eq(a, b),
+        (Some(Value::Array(a)),  Some(Value::Array(b)))  => crate::gc::ArrRef::ptr_eq(a, b),
         (Some(Value::Null), Some(Value::Null))           => true,
         (Some(Value::Null), _) | (_, Some(Value::Null)) => false,
         _                                                => false,

@@ -3,8 +3,8 @@
 //! # 当前状态（至 Phase 3-OOM 完成 2026-04-29，**主功能完整可投产**）
 //!
 //! - [`MagrGC`] —— GC 抽象 trait，对齐 MMTk porting contract（10 个能力组 / ~30 方法）
-//! - [`GcRef<T>`] / [`WeakGcRef<T>`] —— 堆引用不透明句柄（隐藏 backing 实现）
-//! - [`ArcMagrGC`] —— 默认后端，`GcRef` backing 是 `Rc<GcAllocation<T>>`（含 finalizer Cell + 自定义 Drop）
+//! - [`ObjRef`] / [`ArrRef`] —— 对象 / 数组句柄（变长区块的 8 B 标记指针），弱引用 [`WeakObjRef`] / [`WeakArrRef`]
+//! - [`ArcMagrGC`] —— 默认后端：对象、数组、字符串、闭包都是变长区（`var_region`）里的块
 //!   + 完整 host-side 嵌入接口（alloc / roots / write barriers / object model /
 //!   collection control / heap config / finalization / weak refs / observers /
 //!   profiler / stats）
@@ -17,13 +17,13 @@
 //! | 1（扩展）| trait 全面对齐 MMTk porting contract（10 能力组）+ host-side 嵌入接口完整 | ✅ |
 //! | 1.5 | corelib NativeFn 签名带 `&VmContext` + 剩余 Rc::new 迁移 | ✅ |
 //! | 2 | （**跳过**）—— 直奔 Phase 3 mark-sweep | ⏭ |
-//! | 3a | `GcRef<T>` 不透明句柄抽象（backing 仍 Rc<RefCell<T>>，行为零变化）| ✅ |
+//! | 3a | GC 句柄抽象（backing 仍 Rc<RefCell<T>>，行为零变化）| ✅ |
 //! | 3b | Heap registry + snapshot/iterate Full coverage | ✅ |
 //! | 3c | **Trial-deletion 环回收器** —— `collect_cycles` 真实回收环引用 | ✅ |
 //! | 3d | Finalizer 真触发（collect 时调度）+ 内存压力自动 collect | ✅ |
 //! | 3d.1 | External root scanner（VmContext static_fields 自动暴露给 GC，修复漏扫 bug）| ✅ |
 //! | 3d.2 | `Std.GC.Collect()` / `UsedBytes()` / `ForceCollect()` 暴露给 z42 脚本 + 端到端 golden test | ✅ |
-//! | 3e | GcRef backing → `Rc<GcAllocation<T>>` wrapper + Drop 自动触发 finalizer（含纯 Rc Drop 路径）| ✅ |
+//! | 3e | ArrRef backing → `Rc<GcAllocation<T>>` wrapper + Drop 自动触发 finalizer（含纯 Rc Drop 路径）| ✅ |
 //! | 3f | interp 栈扫描（FrameGuard RAII 把 frame.regs 暴露给 scanner，修复 transitive bug）| ✅ |
 //! | 3f-2 | JIT JitFrame.regs 对接（6 callsites push/pop frame.regs 到 exec_stack）| ✅ |
 //! | 3-OOM | strict OOM 模式（trait `set_strict_oom`；启用后 alloc 越限返 Null 不进 registry/stats）| ✅ |
@@ -36,6 +36,7 @@
 //! D MMTk 集成（终极方向）。
 
 pub mod ambient;
+pub mod arr_ref;
 pub mod heap;
 pub mod arc_heap;
 pub mod mode;
@@ -45,7 +46,6 @@ pub(crate) mod os_mem;
 pub mod phase_timer;
 pub mod refs;
 pub mod satb;
-pub mod region;
 pub(crate) mod side_bits;
 pub mod tlab;
 pub mod var_region;
@@ -62,7 +62,7 @@ pub use sampler::Sampler;
 pub use arc_heap::ArcMagrGC;
 pub use mode::GcMode;
 pub use obj_ref::{ObjRef, WeakObjRef};
-pub use refs::{GcRef, WeakGcRef};
+pub use arr_ref::{ArrRef, WeakArrRef};
 pub use safepoint::{
     check_safepoint, request_gc_pause, GcPauseGuard, GcPhase, NativeParkGuard, NativeUnparkGuard,
 };
@@ -75,8 +75,13 @@ pub use types::{
     ObserverId, RootHandle, SnapshotCoverage, WeakRef,
 };
 
+/// Minor collections a block must survive before it is promoted (old). The age is packed into two
+/// bits of the block header's `type_tag`, so this default sits at the top of what fits
+/// (`var_region::MAX_GEN_AGE`); `Z42_GC_PROMOTION_AGE` can lower it.
+pub const PROMOTION_THRESHOLD: u8 = 3;
+
 /// **add-promotion-age-knob (2026-09-08)**: resolve `Z42_GC_PROMOTION_AGE` for a heap being
-/// constructed. Unset → [`region::PROMOTION_THRESHOLD`] (2).
+/// constructed. Unset → [`PROMOTION_THRESHOLD`].
 ///
 /// Clamped to `1..=MAX_GEN_AGE`: 0 would promote everything on its first minor (there would
 /// be no young generation left to collect), and the age is packed into two spare bits of
@@ -86,7 +91,7 @@ pub use types::{
 pub fn promotion_age_from_config() -> u8 {
     let want = crate::config::runtime_config()
         .gc_promotion_age
-        .unwrap_or(region::PROMOTION_THRESHOLD);
+        .unwrap_or(PROMOTION_THRESHOLD);
     let max = var_region::MAX_GEN_AGE;
     if want < 1 || want > max {
         let clamped = want.clamp(1, max);

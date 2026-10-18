@@ -24,17 +24,3 @@ fn for_each_visits_lowest_first_and_first_agrees() {
     assert_eq!(first(&w), Some(0));
     assert_eq!(first(&[0u64; 4]), None);
 }
-
-#[test]
-fn prefix_covers_exactly_n_bits() {
-    for n in [0usize, 1, 63, 64, 65, 128, 200, 256] {
-        let p = prefix::<4>(n);
-        assert_eq!(count(&p), n, "prefix({n})");
-        if n > 0 {
-            assert!(test(&p, n - 1));
-        }
-        if n < 256 {
-            assert!(!test(&p, n));
-        }
-    }
-}

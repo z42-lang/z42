@@ -3,7 +3,7 @@
 //!
 //! The other GC unit tests drive `ArcMagrGC` from an **unarmed** thread (no
 //! `VmContext`), so they exercise the ambient locked allocation path. These
-//! tests explicitly `arm()` the thread so `finish_alloc` / `alloc_array_obj`
+//! tests explicitly `arm()` the thread so `acquire_var_block`
 //! take the TLAB fast path (borrow chunk → lock-free bump-fill → retire), and
 //! verify it is behavior-equivalent to the locked path: cross-chunk growth,
 //! generation-preserving reuse, chunk-level reclaim, strict-OOM degradation,
@@ -187,20 +187,21 @@ fn tlab_chunk_reclaim_bounds_growth() {
     );
 }
 
-/// Arrays go through the TLAB array-region fast path too.
+/// Arrays go through the TLAB fast path too (object model R9: one var block each).
 #[test]
 fn tlab_arrays_cross_chunk_alive() {
     let heap = ArcMagrGC::new();
     let _g = ArmGuard::new(&heap);
     let mut pins = Vec::new();
+    // `object[256]`: 16 + 2048 B blocks, ~31 to a 64 KB chunk.
     for _ in 0..300 {
-        let v = heap.alloc_array(vec![Value::Null; 2]);
+        let v = heap.alloc_array(vec![Value::Null; 128]);
         pins.push(heap.pin_root(v));
     }
     assert_eq!(alive_count(&heap), 300);
     assert!(
-        heap.region_array_for_test().lock().chunks_count_for_test() >= 2,
-        "300 arrays span >= 2 array chunks"
+        heap.region_var_for_test().lock().chunk_count() >= 2,
+        "300 arrays span >= 2 chunks"
     );
 }
 

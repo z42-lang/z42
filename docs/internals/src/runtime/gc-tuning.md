@@ -48,14 +48,14 @@ GC 的「何时自动回收」由几个**比率魔数**决定（near-limit 90%�
 |------|------|--------|
 | `Z42_GC_TRACE` | 每次回收一行：种类（这次停顿**实际做的工作**：`Minor` / `Slice`（增量 major 的一个切片）/ `Major`（整堆回收做完：STW、一次性 major、或同步做完的增量周期）——不按入口命名，分代下的 `GC.Collect()` 通常就是 `Minor`）、堆 used 前后、回收字节、停顿 ms、第几个周期；外加近上限 / 超预算两条边沿。关掉时连 observer 都不装 | `gc/trace.rs` |
 | `Z42_GC_PHASES` | 把那一行停顿**拆开**：每个阶段一行耗时 + 处理条目数，外加一行「这次回收是被哪个闸门触发的」 | `gc/phase_timer.rs` |
-| `Z42_GC_VERIFY_CARDS` | **分代专用**：每次 minor 开始前从头核对卡表不变量（老对象持有年轻引用 ⇒ 所在卡必脏），不成立就 panic 并报出属主——漏写屏障在第一次 minor 就现形，而不是几次回收后的 UAF。O(老年代)/次，只用于排障与压力测试。见 [GC · 卡表不变量核对](gc.md#卡表不变量核对z42_gc_verify_cards) | `gc/arc_heap/card_verify.rs` |
+| `Z42_GC_VERIFY_CARDS` | **分代专用**：每次 minor 开始前从头核对记忆集不变量（老对象 / 老数组持有年轻引用 ⇒ 它在记忆集里），不成立就 panic 并报出属主——漏写屏障在第一次 minor 就现形，而不是几次回收后的 UAF。O(老年代)/次，只用于排障与压力测试。见 [GC · 记忆集不变量核对](gc.md#记忆集不变量核对z42_gc_verify_cards) | `gc/arc_heap/card_verify.rs` |
 
 `Z42_GC_PHASES=1` 的一次 minor、和随后被年轻代策略换成的一次 tenure，长这样（`z42c` 工作区构建）：
 
 ```text
 z42-gc:   trip minor  gate 10.6M  grown 10.6M  (last freed 13.7M)  unit 16.0M at 139 B/alloc
 z42-gc:     minor roots  pinned+handles 0, satb 0 (skipped old 0), grey 0 (skipped old 0)
-z42-gc:     card seed  25495 old entries, 4696 cards cleaned
+z42-gc:     remembered seed  2394 blocks
 z42-gc:     minor bfs  popped 248865 (old 2397), children 580083, marked 231140
 z42-gc:   minor mark                     9.730 ms  (231140)
 z42-gc:   minor/sweep objects            1.706 ms  (64865)
@@ -75,9 +75,9 @@ z42-gc: Minor used 99.1M -> 99.1M  freed 0B  pause 1.6ms  (cycle 64)
 major 打的是另一组名字：`full mark` / `sweep` 的四个半程 +
 `sweep/var` + `sweep/chunk reclaim` / `age survivors`。自适应晋升降线的那次停顿多一行：没有周期开着时，
 是定下降线的那次 minor 本身——`promotion  age 3 -> 2 after a minor  (cohort: …)` 与 `promotion/lower after minor`
-（新线刚划成老的那批条目摘出年轻集合，持有年轻孩子的数组置卡、对象进记忆集，条目数是这批的个数）；周期开着时，
+（新线刚划成老的那批块摘出年轻集合，持有年轻孩子的对象 / 数组进记忆集，条目数是这批的个数）；周期开着时，
 降线等到周期收尾，那次切片在 `promotion  age 3 -> 2` 之后有 `promotion/remember cohort`（`O(年轻集合)`，见
-[GC · 对象的记忆集](gc.md#对象的记忆集对象模型-r6)）。
+[GC · 记忆集](gc.md#记忆集对象模型-r6--r9)）。
 
 **怎么读这些行**——耗时单独看没有意义，要看它和**条目数的比值**：
 
@@ -132,11 +132,11 @@ nursery 是**测出来的量**、不是常量：每次 minor 结束时
 ### nursery 买不到的那部分
 
 一次 minor 里有相当一部分工作**与年轻代大小无关**，它给停顿设了一个 nursery 够不到的地板。
-`Z42_GC_PHASES` 会把两个主要来源打出来（`minor roots` / `card seed` / `minor bfs` 三行）：
+`Z42_GC_PHASES` 会把两个主要来源打出来（`minor roots` / `remembered seed` / `minor bfs` 三行）：
 
 | 来源 | 量级（实测） | 为什么与 nursery 无关 |
 |---|---|---|
-| 卡表扫描 | `z42c.semantics` 最坏一次 minor 扫 **280 382** 个老年代条目 | O(老年代)，找跨代引用 |
+| 记忆集穿透 | 每个记着的老属主（含大数组）整个穿过一遍 | 与老年代里持有年轻引用的属主成比例 |
 | 增量 major 的 grey 队列 | `13_gc_large_heap --large` 上 **108 142** 个老条目，**每次** minor 都重新遍历 | 周期开着就一直是 minor 的根 |
 
 所以模型不会收敛到目标值，而是停在这个地板上：目标设 10 ms 时，`z42c.semantics` 落在
@@ -188,7 +188,7 @@ major 下界 = 4 × unit；切片间隔 ≤ unit / 4；周期增长目标 = allo
   闸门与纯字节时**逐字节相同**；只有小对象程序的闸门在字节上变小、在对象数上相等。按内存说话的量不动：
   allowance 的 `live × 0.33`、软上限、`MAX_NURSERY`。
 - **按分配，不按年轻条目**：`allocations` 是每条分配路径本来就在加的无锁计数，采样只在本来就拿堆锁的慢路径多读两个
-  原子；一个数组算一次（数组头和元素块是一次分配，字节也是一起记的）。`13_gc_large_heap` 每次分配 82–86 B（节点 +
+  原子；一个数组算一次（数组是一个块）。`13_gc_large_heap` 每次分配 82–86 B（节点 +
   `long[8]`），所以它的闸门不变；`12_gc_churn` 41–43 B，unit 约 10.5M。
 - **探针**：读数出来之前不知道对象多大，首次询问就武装在 256 Ki × 16 B（最小块）= 4M —— 任何布局都不可能在那之前
   越过条目界；在那里的询问采样、再武装到真正的闸门。
@@ -200,10 +200,10 @@ major 下界 = 4 × unit；切片间隔 ≤ unit / 4；周期增长目标 = allo
 
 ## 年轻代策略：按收益判定 minor，不划算就 tenure
 
-> 代码：`gc/arc_heap/young_policy.rs`（判定 + `run_tenure`）、`region/generation.rs` /
+> 代码：`gc/arc_heap/young_policy.rs`（判定 + `run_tenure`）、
 > `var_region/generation.rs`（`tenure_young`）、`incremental.rs`（`GenWork::Tenure`）。
 
-一次 minor 的代价是它标记的年轻代 + 一块固定成本（卡表扫描是 O(老年代)），只有年轻代**大部分是垃圾**
+一次 minor 的代价是它标记的年轻代 + 一块固定成本（记忆集与周期的 grey 队列），只有年轻代**大部分是垃圾**
 时才值。两种形状打破它：
 
 | 形状 | 实测 | 一次 minor |
@@ -232,7 +232,7 @@ minor trip：       还有 tenure 名额 → tenure；否则真 minor（它同�
 不低于下限），下一次 minor 仍然会超目标、把停顿花在重标这一次刚标过的东西上 —— nursery 只管新分配的条目，
 而幸存者要熬够 `promotion_age` 次 minor 才离开年轻代。这与上面两种形状是同一件事（minor 不再划算），
 只是按实测代价判出来，于是给同一个答案：tenure。另要求幸存者至少占这次扫描的一半：一次 minor 的每条代价
-若被固定部分（卡表扫描、周期的 grey 队列）抬高、幸存者却不多，tenure 它们帮不上忙。
+若被固定部分（记忆集、周期的 grey 队列）抬高、幸存者却不多，tenure 它们帮不上忙。
 实测形状：`13_gc_large_heap` 换成更紧凑的对象布局后，首个 major 之后有一次 minor 回收了 5.2 MB（按字节、
 按条目都不算徒劳），留下 67.5 万个幸存者，而预算（14 ns/条 → 71.4 万条）减去下限 nursery 的 8.7 万个新条目
 只剩 62.7 万；下一次 minor 扫 76.5 万条、停 16–19 ms，而布局不变时那里是一次 tenure、最大停顿 12 ms。
@@ -253,15 +253,15 @@ minor 的价钱是 `1 / minor 收益`。两者同单位（字节 / 微秒停顿�
 
 ### tenure：整个年轻代晋升，不标记
 
-`run_tenure` 把两个 region 的 young 表各走一遍，每个条目的年龄设成晋升年龄、清空 young 表：
-**不追踪、不扫卡、不清扫** —— 实测是它替下的那次 minor 的约十分之一（`z42c` 15 ms → 1.6 ms），
+`run_tenure` 把年轻集合走一遍，每个块的年龄设成晋升年龄、清空年轻集合：
+**不追踪、不扫记忆集、不清扫** —— 实测是它替下的那次 minor 的约十分之一（`z42c` 15 ms → 1.6 ms），
 且不随这个阶段持续多久而变大。闸门仍是停顿预算算出的 nursery，所以年轻代永远不超过一个 nursery，
 下一次真 minor 的代价与平常一样。tenure 不喂停顿预算模型（它不是 minor 代价的样本），只把模型的
 增长基线挪到当前水位。
 
 **正确性**（模型 D 覆盖，见 [增量 major](gc-incremental-major.md#周期期间的-minor年轻代归-minor-管)）：
 
-- **不需要任何卡**：卡表不变量是「老条目指着年轻的就必须有脏卡」，tenure 之后没有年轻条目了 ——
+- **不需要记任何东西**：记忆集不变量是「老属主指着年轻的就必须在记忆集里」，tenure 之后没有年轻块了 ——
   除了下一条那种，而它们是垃圾、没有活对象指着。之后的老→年轻写照常走写屏障。
 - **周期在清扫期**：标记已完成，不带本周期 epoch 的年轻条目是清扫游标还没走到的垃圾（已走过的
   chunk 里的早被回收了），它们**留在 young 表**、由清扫回收；于是 tenure 晋升的每个条目都带 epoch，
@@ -500,7 +500,7 @@ z42-gc-probe: STORING A DEAD VALUE at FieldSet: owner=Object[Z42.Syntax.Token]
 | pinned roots | `RcHeapInner::roots`（`pin_root`） |
 | **strong GC handles** | `RcHeapInner::handle_slab` 的 strong 槽 |
 | external scanner | `VmContext` 的静态字段 / 调用栈帧 / 三个 arena / 内插字符串缓存等 |
-| 脏卡（**仅 minor**） | 老条目里可能指向年轻对象的那些 |
+| 记忆集（**仅 minor**） | 可能指向年轻对象的老属主 |
 
 ⚠️ **`GCHandle.AllocStrong` 必须锚住目标**：strong 槽是 mark root（见上表）。
 若 mark 阶段不扫 `handle_slab`，Strong 与 Weak 的唯一可观察差别就只剩「能不能 `downgrade`」——而 `HandleEntry` 的
@@ -513,8 +513,8 @@ z42-gc-probe: STORING A DEAD VALUE at FieldSet: owner=Object[Z42.Syntax.Token]
 
 ## 分代 minor 的标记不变量：**minor 不给老对象留标记**
 
-`mark_phase_minor` 的根 = 固定根 + external scanner + **脏卡里的每一条**。脏卡的根天然是
-**老**对象（写屏障只在 owner 是老、被写值是年轻时才置脏），而 minor 从不清扫老对象。
+`mark_phase_minor` 的根 = 固定根 + external scanner + **记忆集里的每个属主**。这些根天然是
+**老**的（写屏障只在 owner 是老、被写值是年轻时才记），而 minor 从不清扫老对象。
 于是有一条不变量：
 
 > **一次 minor 结束时，堆里不应留下任何被置位的 mark。**
@@ -524,9 +524,9 @@ z42-gc-probe: STORING A DEAD VALUE at FieldSet: owner=Object[Z42.Syntax.Token]
 违反它的后果不是「多留点浮动垃圾」，而是**把还被引用的对象扫掉**：
 
 ```
-minor N    : 老 owner 作为脏卡根出队 → mark_if_unmarked 置位 → 追踪它的孩子 ✓
+minor N    : 老 owner 作为跨代根出队 → mark_if_unmarked 置位 → 追踪它的孩子 ✓
 （sweep_phase_young_only 只清年轻幸存者的位；老 owner 的位留着）
-minor N+1  : 同一个脏卡再次把它入队 → mark_if_unmarked 撞见旧位 → 返回 false
+minor N+1  : 同一个 owner 再次入队 → mark_if_unmarked 撞见旧位 → 返回 false
              → 循环 `continue` → **它的孩子一个都没被追踪**
              → 只经由它可达的年轻对象全部未标记 → 当场清掉
 ```
@@ -546,7 +546,7 @@ minor N+1  : 同一个脏卡再次把它入队 → mark_if_unmarked 撞见旧位
 
 ## minor 位与 major epoch 同字节分治
 
-每个 GC 槽（`RegionEntry` / `GcBlockHeader`）的 `marked` 字节拆成两段，由 `gc::refs::MarkKind` 统一读写：
+每个块头（`GcBlockHeader`）的 `marked` 字节拆成两段，由 `gc::refs::MarkKind` 统一读写：
 
 ```
 bit 0      minor 标记    —— minor BFS 置位，minor sweep 清位
@@ -565,11 +565,9 @@ epoch 两者都不是（127 之后回绕到 1，同样成立）。
 
 1. **epoch 按堆、且初值是 1。** 进程级计数器会被别的堆推着回绕到本堆上一轮的值。初值若是 0 再「读作 1」，
    就会与第一个周期的 epoch 撞车：第一次回收前打下的标记会被当成「本轮已标记」，子节点不追、
-   活数组的 backing 被扫掉。
-2. **minor 穿透老对象时不许顺手标记。** `trace_children(kind, …)` 会给数组的 backing 打同种标记；minor 穿透老
-   对象（见上一节）必须用不标记的 `visit_gc_children(None, …)`，否则老数组的（同样老的）backing 被置上 minor 位，
-   而 major 周期不再有逐条 reset 替它擦掉。`refers_to_young` 只做检查，同样用 `None`。major sweep 对幸存者顺带清
-   minor 位作兜底。
+   仅经它们可达的对象被扫掉。
+2. **minor 穿透老对象时不许顺手标记。** minor 穿透老属主（见上一节）只追不标；`refers_to_young` 只做检查，
+   用不标记的 `visit_gc_children(None, …)`。major sweep 对幸存者顺带清 minor 位作兜底。
 
 `debug_validate_invariants` 的第 3 条相应改成：**alive ⇒ minor 位为 0，且 epoch ∈ {当前, 0}**。
 
@@ -615,8 +613,8 @@ gate 里因此有一个 stage 用高频回收重编 `z42c.semantics`。
 
 ⚠️ **callee-entry safepoint 缺陷不要误记为「1M nursery 下分代仍会丢对象」。它跟分代无关** ——
 STW 模式压到 `Z42_GC_MAX_BYTES=8M`（199 次回收）同样丢对象。定位它的关键一步是一个
-A/B：让 minor 的标记**穿透老对象**（不靠卡表），结果与对照组**逐字节相同** ——
-卡表是清白的，问题在根集合。
+A/B：让 minor 的标记**穿透老对象**（不靠老→年轻的记录），结果与对照组**逐字节相同** ——
+跨代记录是清白的，问题在根集合。
 
 ### 数组写屏障的覆盖面
 
@@ -629,9 +627,9 @@ helper 发；下面三处也必须发：
 | **`Array.Copy`** | 最尖锐的一处：bulk 原语替代脚本侧的 `ArraySet` 循环，而**循环每次迭代都发屏障**，bulk 版也必须发 |
 | 经 `ref` 写数组元素 | `RefKind::Array` 的写回 |
 
-屏障的卡键在**数组头自己的条目**上、与元素下标无关；但并发模式要逐个染色新值，所以 bulk copy
+屏障记的是**数组块本身**（进记忆集）、与元素下标无关；但并发模式要逐个染色新值，所以 bulk copy
 对写入区间的**每个**引用槽各发一次（引用数组是元素，struct[] 是元素的每个引用叶子——拿装箱或元素
-整体判龄会漏掉老元素里的年轻叶子）。纯基元的拷贝**不置脏**（有测试盯着——屏障要精确，不能退化成
+整体判龄会漏掉老元素里的年轻叶子）。纯基元的拷贝**不记**（有测试盯着——屏障要精确，不能退化成
 「这个数组被写过」）。
 
 ## 自动回收的触发：**每一个阈值都是相对量**（照 Mono SGen）
@@ -696,7 +694,7 @@ helper 发；下面三处也必须发：
 
 ## 真实占用记账与软上限
 
-`used_bytes` 是逐对象的**活字节估算**（对象按整块计：块头 + 对象头 + 字段；数组头不含外面那层 `RegionEntry`）：
+`used_bytes` 是逐块的**活字节**（每个对象 / 数组 / 字符串 / 闭包按整块计：16 B 头 + payload）：
 不含分配器的尺寸级取整、整块空出的 chunk、以及 GC 自己的侧表。
 实测稠密负载 RSS 是它的 1.7–2 倍，流失负载 8 倍 —— 拿它判软上限，`gc-max-bytes=256M` 根本框不住
 RSS。所以软上限按 `gc::footprint::Footprint` 判，这是一份**随变随记**的真实占用（读一次 = 一次原子
@@ -704,20 +702,13 @@ load，`HeapStats::committed_bytes` / `--stats` 的 `gc_committed_bytes` 就是�
 
 | 记什么 | 何时记入 | 何时扣除 |
 |---|---|---|
-| region chunk（槽数组 + 三张槽位图 + 逐 chunk 表项，`Region::CHUNK_FOOTPRINT`） | chunk 增长 | 不扣（chunk 不释放） |
 | 变长 chunk（bump 64K / dedicated 按分配器取整） | `push_chunk` | dedicated chunk `free_in_place` |
-| 数组头槽外 payload（元素类型名 `Arc<str>`，按分配器取整） | 槽被填（`Region::alloc` / TLAB `fill`） | **死数组头的槽被复用时**（旧 entry 被 drop 那一刻） |
 | 对象的 extras 盒子（只有带原生底座的对象有；字段在对象块里，算在变长 chunk 中） | 对象分配时（`alloc_object_block`） | 对象块被 tombstone 时（drop glue 返回盒子字节数，变长区扣回） |
 | 变长侧表（chunk 列表、变长区的年轻位图与 size-class free list；[侧表的形状](gc-tlab.md#侧表位图与高水位)） | 每次 sweep 尾部重量（`refresh_side_tables`，O(chunks)） | 同左 |
-| 池中 chunk 被 decommit（[GC TLAB · 池中空 chunk 的 decommit](gc-tlab.md#池中空-chunk-的-decommit)） | 复用时重新记入 | decommit 时扣除（定长区连同 drop 掉的死 payload） |
+| 池中 chunk 被 decommit（[GC TLAB · 池中空 chunk 的 decommit](gc-tlab.md#池中空-chunk-的-decommit)） | 复用时重新记入 | decommit 时扣除 |
 
-两个 region（数组头、变长块）共用同一个 `Arc<Footprint>`（建堆时 `attach_footprint` 挂上）。TLAB `fill` 不碰共享
-状态：payload 增减先攒在 `ChunkClaim::payload_delta`，`retire_chunk` 时一次记入，所以读数最多落后
-每线程一个 chunk 的 payload。
-
-⚠️ **数组头的 payload 在 sweep 时不扣**：死数组头的元素类型名要到它的槽被复用、旧 entry 被 drop
-时才真正 free，账就记到那一刻。整块死掉进池的 chunk 也一样 —— 池里的死 entry 还拿着各自的 payload，
-直到 chunk 被重新借出、逐槽覆盖。对象没有这层滞后：字段在块里，extras 随块 tombstone 当场释放。
+region 与堆共用同一个 `Arc<Footprint>`（建堆时 `attach_footprint` 挂上）。块的字节全在 chunk 里，extras 随块 tombstone
+当场释放，所以没有「死了但账还没扣」的滞后。
 
 **`occupied` 与 `pooled`**：`pooled` 是 `committed` 里躺在 chunk 池（整块死透、可直接复用）的那部分。
 软上限判的是 `occupied = committed − pooled`：池里的 chunk 下一次分配就能直接用、不会让占用增长，
@@ -750,7 +741,7 @@ load，`HeapStats::committed_bytes` / `--stats` 的 `gc_committed_bytes` 就是�
 | 前提 | 它解掉的那一环 |
 |---|---|
 | 增量 chunk 回收 | minor 的 `O(堆)` 那一趟从停顿里拿掉（中位 −57%） |
-| 一 chunk 32 张卡 + 扫过即清 | 脏卡根集缩 32×（分代中位再 −29%） |
+| 跨代记录细粒度 + 扫过即清 | 跨代根集缩一个数量级（分代中位再 −29%） |
 | CI 覆盖分代 | 堵上「丢对象缺陷活了几个月」的那个洞 |
 | 被调函数入口 safepoint | 唯一剩下的丢对象缺陷 —— **而且它根本不是分代的** |
 
@@ -801,9 +792,8 @@ if Self::gen_age_of(child) < threshold { … }   // Value::Null 也满足！
 
 后果按严重程度排：
 
-1. **`refers_to_young` 恒为真** —— 它是 `dirty_cards_for_newly_old_*`（晋升时）和
-   `rebuild_card_table`（major 后）共同的判据。只要条目有**一个空槽或一个基元字段**
-   就算「指着年轻的东西」⇒ **每张卡都被置脏、而且再也清不掉**
+1. **`refers_to_young` 恒为真** —— 它是晋升时（当时还有 major 后的重建）记录老→年轻边的判据。只要条目有
+   **一个空槽或一个基元字段**就算「指着年轻的东西」⇒ **每个属主都被记下、而且再也清不掉**
    （「扫过即清」救不了：扫的时候它照样报告「有年轻的」）。
    实测稳态：**33 001 张脏卡、每次 minor 重扫 203 884 条目，只为找到约 100 个年轻对象。**
 2. **标记队列被基元淹没** —— 每次 minor 推入 1 254 097 个值，其中 **1 254 047 个是基元/Null**
@@ -815,36 +805,9 @@ if Self::gen_age_of(child) < threshold { … }   // Value::Null 也满足！
 
 #### 🔑 去掉一个「几乎总是真」的判据，会暴露所有搭它便车的缺陷
 
-**数组的元素存储块（`region_var` 里的 backing）只靠 `mark_backing()` 活着，而那是
-「trace 这个数组」的副作用。** 它不是数组的任何一个 `Value` 孩子，所以任何遍历孩子的检查
-都看不见它年不年轻；而 minor 只在卡脏时才 trace 一个老数组。
-
-「卡永远脏」意外保证了每个老数组每次 minor 都被 trace。判据改诚实的那一刻，
-**young backing 开始在活着的老数组底下被扫掉** —— 症状不是崩溃，而是**自举字节不动点断裂**
-（gen1≠gen2，差 167 B），**单测一个都没红**。
-
-⚠️ **这类「把一个近似判据改准」的改动必须连自举不动点一起跑**——单测覆盖不到这种形状。
-
-##### 修法：backing 跟随宿主数组升龄（而不是为它多置一张卡）
-
-两种修法都试过、都量过：
-
-| 修法 | 中位停顿 | RSS | `z42.text.levenshtein` |
-|---|---|---|---|
-| 让 `refers_to_young` / `seed_card_entry` 也看 backing 年龄 | −33% | −3.4% | **+28%（CI 判红）** |
-| **backing 跟随宿主升龄** ← 采用 | **−37%** | +1.6% | +1.6% |
-
-**为什么前者那么贵**：`int[]` / `char[]` 这类基元数组**根本没有 `Value` 孩子**，所以本来就
-不置脏卡；加上 backing 检查后它们**开始**置脏卡，还要等 backing 自己熬过 `PROMOTION_AGE`
-次 minor 才清得掉。`levenshtein` 每次调用分配 4 个基元数组。
-
-**后者为什么更对**：数组头**独占**它的 backing，两者生命周期完全一致，年龄本就该一致。
-在「头被晋升」的那一刻把 backing 抬到同龄，这个洞**从构造上不存在**，不用为它付一张卡。
-正确性依据：晋升 ⇒ 本轮被标记过（`iterate_young` 只晋升 marked 的）⇒ 被 trace 过 ⇒
-`mark_backing` 已跑过 ⇒ 块是 marked 的，而 `sweep_young` 在同一次 sweep 里**更晚**执行，
-会把它升出 young 表而不是回收掉。
-
-**代价**：backing 提前进老年代、只能等 major 回收 ⇒ **RSS +1.6%（+13 MB）**，换 −37% 中位停顿。
+「每个属主永远被记着」意外保证了每个老属主每次 minor 都被追一遍；判据改诚实的那一刻，任何「只靠被追到才活着」
+却不是 `Value` 孩子的东西就开始在活着的属主底下被扫掉——症状不是崩溃，而是**自举字节不动点断裂**
+（gen1≠gen2），**单测一个都没红**。⚠️ **这类「把一个近似判据改准」的改动必须连自举不动点一起跑**——单测覆盖不到这种形状。
 
 ### 一个周期跑 minor **或** major，绝不两个都跑
 
@@ -875,8 +838,7 @@ if Self::gen_age_of(child) < threshold { … }   // Value::Null 也满足！
 直接重标全堆 —— 实测 1 498 866 条、192.6 ms，本该只有一个 nursery 那么多。
 
 语义上这也更对：**熬过一次 major 和熬过一次 minor 是同样强的长寿证据**。
-`age_survivors_after_major` 放在 `rebuild_card_table` **之前**：晋升产生 old→young 边，
-而 rebuild 负责记录它们。
+`age_survivors_after_major` 让新变老的属主经 `remember_newly_old` 记下它们的 old→young 边。
 
 ### 徒劳退避：「白干一场」比「回收得不够」退得更狠
 
@@ -951,87 +913,60 @@ tombstone 掉进 free list，却一块 chunk 都不还 —— 而 TLAB 是**整�
 nursery 旋钮（128M 预算）：8M → 27 周期 / 最大停顿 78.5 ms / RSS 609.2 MB；
 64M → 8 周期 / 最大停顿 127.8 ms / RSS 679.8 MB。停顿与 RSS 朝相反方向单调走。
 
-## 卡的粒度与寿命：32 张 / chunk，扫过即清
+## 记忆集的粒度与寿命：按属主，穿过即清
 
-`mark_phase_minor` 是 minor 里最大的一段（~25 ms）。给它的播种与 BFS 分别计时：
+minor 的跨代根是**记忆集**（见 [GC · 记忆集](gc.md#记忆集对象模型-r6--r9)）：老对象 / 老数组收到年轻引用就进集，
+每个属主一次（块头 `REMEMBERED_BIT`）。两条规则让它保持小：
 
-| minor | 固定根 | **脏卡根** | BFS | **最终标记数** |
-|---|---|---|---|---|
-| 早期 | 2 040 | 27 608 | 9.3 ms | 292 062 |
-| **后期** | 2 955 | **518 530** | 20.1 ms | **76** |
+- **按属主，不按区域**。一次跨代写只让写入的那个属主成根，不会把邻居拉进来（按 chunk 记的卡表一张卡盖住
+  一片条目，一次跨代写就把它们全变成根——实测后期的 minor 播了 51.8 万个卡根，只为找到 76 个年轻对象）。
+- **穿过即清**。记录的含义是「这个属主**可能**有跨代边」，不是事实；minor 穿过它时顺便判断它是否还够得到年轻对象，
+  够不到就清位出集。安全性来自下一节三处破口都有人负责。
 
-**后期的 minor 播了 51.8 万个脏卡根，只为了找到 76 个年轻对象。** 两个原因叠加：
+播种时**老属主直接穿透**（追它、把年轻孩子入队），不推进 BFS 再出队重来一遍——BFS 对老条目本来就只做这件事，
+挪到播种处省一次 push/pop，并且让「它还够不够得到年轻的东西」有地方可判。
 
-**① 一张卡盖住整个 chunk 的 256 条** —— 一次跨代写就把 256 条全变成根。
-修法：`card_dirty` 一直是 `Vec<u32>` 却**只用了 bit 0**，所以 32 张卡 × 每张 8 条
-（`CHUNK_SIZE / 32`，整除）**不花一分钱内存**。这是在「已经付过钱的空间」
-里找位置（另一例：`chunk_idx` 塞进块头的 `align(8)` padding）——
-**先问「现有字段还有空位吗」，往往比加字段快也便宜。**
+⚠️ 记着的**年轻**属主（tenure / 降线前后留下的）照样当根入队：它按理不是根，但去掉它改的是「收什么」，
+要单独立项、单独拿证据（按 chunk 卡表时代试过去掉，停顿没多赚、小 nursery 档 RSS +6%）。
 
-**② 卡在 major 之前从来不清** —— 而写屏障**和晋升**（`dirty_cards_for_newly_old_*`）都在往里加，脏集单调滚到活堆的约 65%。
-修法：**扫过即清**。卡的含义是「这里**可能**有跨代边」，不是事实；minor 扫一张卡时
-顺便判断它是否还够得到年轻对象，够不到就清掉。安全性来自上一节那三条破口都有人负责：
-**写**（写屏障）、**晋升**（`dirty_cards_for_newly_old_*`，与清扫在同一个 STW 窗口里、
-在它之后跑）、**major 清卡**（`rebuild_card_table`）。
-
-顺带：播种时**老条目直接穿透**（追踪它、把年轻孩子入队），不再推进 BFS 再出队重来一遍
-—— BFS 对老条目本来就只做这件事，挪到播种处省一次 push/pop，
-**并且让「这张卡还够不够得到年轻的东西」有地方可判**（BFS 里卡的归属已经丢了）。
-
-**实测**（同 seed）：分代默认 nursery 中位停顿 31.2 → **22.2 ms（−29%）**，RSS 持平；
-**STW 一分不动**（57.9 → 57.9 ms）—— 它没有代、不用卡表，这正是改动作用面的证明。
-
-⚠️ **试过并放弃的一版**：把「脏卡里的**年轻**条目」从根里去掉（它按理不是根 ——
-那是 chunk 粒度时代的产物）。结果停顿没再多赚，而小 nursery 档 RSS +6%。
-对照实验（保留原播种、只改粒度与清扫）与本版的 **`gc_reclaimed_bytes` 逐字节相同** ——
-**回收的是同一批对象**，差别只是标记顺序影响了后续的槽位复用与整块回收，即**分配局部性**。
-去掉年轻根是一次**语义**改动（改的是「收什么」），要单独立项、单独拿证据。
-
-## 卡表的不变量：老条目指着年轻的，卡就必须是脏的
+## 记忆集的不变量：老属主指着年轻的，它就必须在记忆集里
 
 分代 minor 的正确性完全压在这一句上：
 
-> **一个存活的老条目，只要还指着任何年轻的东西，它所在 chunk 的卡就必须是脏的。**
+> **一个存活的老对象 / 老数组，只要还指着任何年轻的东西，它就必须在记忆集里。**
 
-因为 minor 的标记只从三种种子出发（固定根 / external scanner / **脏卡里的活条目**），
-而老的孩子从不入队。老对象若既不是根、卡又是干净的，它的年轻孩子就没有任何人去标记
+因为 minor 的标记只从三种种子出发（固定根 / external scanner / **记忆集里的属主**），
+而老的孩子从不入队。老属主若既不是根、又不在记忆集里，它的年轻孩子就没有任何人去标记
 —— 当场被扫，而它还被引用着。
 
 这句话有**三个**可能被破坏的时刻，缺一处就丢对象：
 
 | # | 时刻 | 谁负责 |
 |---|---|---|
-| 1 | 往老对象里**写**一个年轻引用 | 写屏障 `maybe_mark_cross_gen_card` |
-| 2 | 一个持有年轻引用的对象**被晋升成老的** | minor sweep 的 `dirty_cards_for_newly_old_*` |
-| 3 | major **清空**卡表，而 old→young 边还在 | `rebuild_card_table` |
+| 1 | 往老属主里**写**一个年轻引用 | 写屏障 `maybe_remember_owner` |
+| 2 | 一个持有年轻引用的属主**被晋升成老的** | minor sweep / major 后老化的 `remember_newly_old` |
+| 3 | 自适应晋升**降线**，一批属主一下子变成老的 | `lower_line_after_minor` / `remember_lowered_cohort` |
 
 **破口 2（晋升造边）**：父对象比子对象先分配 → 先老。它跨过 `PROMOTION_THRESHOLD` 的
 那一瞬间就成了「老对象持有年轻对象」，而当初那次写是 young→young，屏障正确地什么都没做。
 实测形状：老的 `Z42.IR.StrMap`（age 2）持有它后来才扩容出来的桶数组（age 1），
 数组被 minor 扫掉，`ContainsKey` 读到 `Null`。
-补法 = 晋升时补做屏障的活：**只检查真正跨阈值的条目**，且**只有确实还指着年轻对象的才置脏**
-—— 卡是 **chunk 粒度**的（256 条一格），无条件置脏会把下一次 minor 变成全堆扫描。
+补法 = 晋升时补做屏障的活：**只检查真正跨阈值的属主**，且**只有确实还指着年轻对象的才入集**。
 
-**破口 3（major 清卡）**：major 扫完全堆后把卡全清。可 major **不做晋升**（只 mark + sweep），
-所以扫完之后年轻对象仍然年轻、老对象仍然指着它们 —— 卡却没了。
-补法 = 清完之后按存活的图**重建**（一次 major 一遍，换之后 10–20 次 minor 的最小脏集）。
-不清也是正确的，但脏集只增不减，minor 会一路退化成全堆扫描。
+major 不清空记忆集（它本就是 major 之后仍成立的那张表的超集，minor 会自己排空它），所以 major 不是破口。
 
 ⚠️ **固定根上的老对象不踩破口 2** —— minor 会「穿透」老根去追踪它的孩子（见上一节）。
-只有**图中间**的老对象（既不是根、又只靠卡）才会。**写这类回归测试时 owner 必须藏在一个
+只有**图中间**的老属主（既不是根、又只靠记忆集）才会。**写这类回归测试时 owner 必须藏在一个
 root 后面，直接 pin owner 的测试是空转的。**
 
-变长区不需要同样的处理，这是论证过的、不是遗漏：变长块里唯一有出边且自身 `gen_age`
-参与追踪判定的是 `Closure`，而 `ClosureData` **创建后不可变**、`env` 数组必然先于闭包块存在
-—— 闭包块永远不会比它的 `env` 老，「老父亲 → 年轻儿子」这个方向构造不出来。
-`Str` / `ArrayPrim` 是叶子；`ArrayValue` / `ArrayStruct` 走的是数组**头**的年龄，
-由上面那两个 helper 覆盖。
+其余块不需要同样的处理，这是论证过的、不是遗漏：`Str` / PRIM 数组是叶子；`Closure` 的 `ClosureData`
+**创建后不可变**、`env` 数组必然先于闭包块存在 —— 闭包块永远不会比它的 `env` 老，「老父亲 → 年轻儿子」这个方向构造不出来。
 
 ## `PROMOTION_THRESHOLD` 怎么变成旋钮的：构造期读取，不是热路径读取
 
 晋升阈值**不做成热路径读取**的 knob，两条理由：
 
-1. **热路径成本**：它被 `gc/arc_heap/generational.rs::maybe_mark_cross_gen_card`
+1. **热路径成本**：它被 `gc/arc_heap/barrier.rs::maybe_remember_owner`
    —— 即**写屏障** —— 每次堆引用写读取。改成 `runtime_config()` 读取会给每次引用写
    注入一次全局查找。
 2. **约 20 处测试**以 `for _ in 0..PROMOTION_THRESHOLD` 的形式把它当编译期常量硬编码。
@@ -1040,7 +975,7 @@ root 后面，直接 pin owner 的测试是空转的。**
 而不是 write-barrier 的运行时读。
 
 - `Z42_GC_PROMOTION_AGE` 在**建堆时读一次**（`gc::promotion_age_from_config`），
-  值分发给 `ArcMagrGC` / `Region<T>` / `VarRegion` 各存一份 `promotion_age: u8`；
+  值分发给 `ArcMagrGC` / `VarRegion` 各存一份 `promotion_age`；
 - 写屏障读的是 `self.promotion_age` —— 一个**普通字段**，不是原子、不是全局，
   热路径成本为零；
 - `PROMOTION_THRESHOLD` 常量**保留**，语义从「值」变成「默认值」，

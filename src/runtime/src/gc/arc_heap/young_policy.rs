@@ -292,29 +292,24 @@ impl crate::gc::arc_heap::ArcMagrGC {
         self.young_policy.observe_major_work(freed, pause_us, finished, bar);
     }
 
-    /// **Tenure** the young generation: every young entry and block becomes old at the promotion
-    /// age, with no mark, no card scan and no sweep. The caller holds the pause. Returns the bytes
+    /// **Tenure** the young generation: every young block becomes old at the promotion age, with
+    /// no mark, no remembered-set scan and no sweep. The caller holds the pause. Returns the bytes
     /// moved into the old generation (counted towards the next major's trigger).
     ///
-    /// Why nothing needs a card afterwards: the write barrier and promotion keep "an old entry
-    /// pointing at a young one has a dirty card", and after a tenure no young entry is left —
-    /// except, while a cycle sweeps, entries without its epoch, which are garbage (marking is
+    /// Why nothing needs remembering afterwards: the write barrier and promotion keep "an old owner
+    /// pointing at a young block is remembered", and after a tenure no young block is left —
+    /// except, while a cycle sweeps, blocks without its epoch, which are garbage (marking is
     /// complete) and so are pointed at by nothing live.
     pub(super) fn run_tenure(&self) -> u64 {
         // Same as a minor: merge this thread's TLAB so its entries are listed (every other mutator
         // retired at its park).
         self.retire_thread_tlab();
         let doomed_unless = self.doomed_unless_marked();
-        let (arrs, arr_bytes) = self
-            .region_array
-            .lock()
-            .tenure_young(doomed_unless, |e| Self::array_size_estimate(&e.value));
-        // Object model R6: objects are var blocks; the var tenure reports their bytes.
-        let (blocks, obj_bytes) = self.region_var.lock().tenure_young(doomed_unless);
-        let promoted = obj_bytes + arr_bytes;
+        // The tenure reports the bytes of the objects and arrays it moved.
+        let (blocks, promoted) = self.region_var.lock().tenure_young(doomed_unless);
         self.promoted_bytes_since_major.fetch_add(promoted, Ordering::Relaxed);
         crate::gc::phase_timer::note(format_args!(
-            "tenure  arrays {arrs}  var blocks (objects included) {blocks}  -> old {}  (run {})",
+            "tenure  blocks {blocks}  -> old {}  (run {})",
             crate::gc::trace::human(promoted), self.young_policy.run()));
         promoted
     }

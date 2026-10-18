@@ -220,7 +220,7 @@ impl Frame {
 /// Spec impl-ref-out-in-runtime: dereference a `Value::Ref { kind }` into
 /// the underlying value. Stack kind looks up `ctx.frame_state_at(frame_idx)`
 /// (raw pointer, safe under design Decision 9: refs don't escape call
-/// stack). Array/Field kinds borrow the held GcRef and read.
+/// stack). Array/Field kinds borrow the held ArrRef and read.
 pub(crate) fn deref_ref(
     kind: &crate::metadata::types::RefKind, ctx: &VmContext,
 ) -> Result<Value> {

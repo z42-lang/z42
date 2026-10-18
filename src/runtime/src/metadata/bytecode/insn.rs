@@ -257,7 +257,7 @@ pub struct StructFieldSetInsn {
 #[derive(Debug)]
 pub struct LoadFieldAddrInsn {
     pub dst: Reg,
-    /// Reg holding the object (must be `Value::Object(GcRef<...>)`).
+    /// Reg holding the object (must be `Value::Object`).
     pub obj: Reg,
     pub field_name: String,
 }

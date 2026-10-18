@@ -13,12 +13,11 @@ use super::convert::{arg_str, arg_usize, this_str};
 /// call) — the C# "string ops in managed code over a char buffer" model.
 pub fn builtin_str_to_chars(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let s = this_str(args, "ToCharArray")?;
-    // unify-gc-heap PR-3: region-alloc the `char[]` (packed `Chars` block in the GC heap)
-    // via the heap, not the leaking `GcRef::new` path. perf-array-alloc-direct: decode
-    // straight into the packed block (no staging `Vec<Value>`).
+    // One PRIM `char[]` block, decoded straight into it (perf-array-alloc-direct: no staging
+    // `Vec<Value>`).
     let n = s.chars().count();
     let heap = ctx.heap();
-    Ok(heap.alloc_array_obj(crate::metadata::types::ArrayObj::typed_iter(heap, crate::metadata::types::ElemType::char(), n, s.chars().map(Value::Char))))
+    Ok(crate::metadata::types::ArrayObj::alloc_typed_iter(heap, crate::metadata::types::ElemType::char(), n, s.chars().map(Value::Char)))
 }
 
 /// Returns the number of UTF-8 bytes in the string. O(1).

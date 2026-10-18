@@ -1,11 +1,7 @@
 //! `VarRegion` —— variable-length GC block allocator (unify-gc-heap PR-1).
 //!
-//! **Why this exists**: the fixed-size `Region<T>` (`region.rs`) can only store one
-//! `size_of::<RegionEntry<T>>()`-wide slot per type `T`, so variable-length payloads —
-//! string bytes, array element buffers, closure data — currently live *outside* the GC
-//! (Arc<str>, Box<ClosureData>, Vec<…>). This module adds the **variable-length block
-//! allocator** the unify-gc-heap program needs so those payloads can move into a single
-//! managed heap (design direction **A'**, User-confirmed 2026-08-15).
+//! The heap's only region: every managed value — object, array, string, closure — is one
+//! variable-length block (a 16 B header, then the payload), and this is their allocator.
 //!
 //! # Block model
 //!
@@ -16,8 +12,9 @@
 //!   ┌──────────────────────────────────────────┬────────────────────────────────┐
 //!   │ GcBlockHeader (16 B, align 8)            │ inline payload (size bytes)     │
 //!   │  GcWord: generation(+alive) / marked /   │  Object: field cells [+ meta]   │
-//!   │          type_tag / size                 │  Str: UTF-8 bytes               │
-//!   │  kind word: object → Arc<TypeDesc>       │  Array<Value>: [Value; n] …     │
+//!   │          type_tag / size                 │  Array: elements (per mode)     │
+//!   │  kind word: object → Arc<TypeDesc>,      │  Str: UTF-8 bytes               │
+//!   │             array → &ArrayDesc           │  Closure: ClosureData           │
 //!   └──────────────────────────────────────────┴────────────────────────────────┘
 //!     ↑ payload starts at DATA_OFFSET = 16 (8-aligned)
 //! ```
@@ -29,7 +26,7 @@
 //!
 //! A [`VarGcRef`] handle is a single 8-byte tagged `NonNull<GcBlockHeader>` (low 48 bits =
 //! header address, high 16 bits = narrow generation snapshot) — the same path-A tagged
-//! pointer used by `GcRef` (`refs.rs`), but **type-erased**: variable-length blocks mix
+//! pointer used by `ArrRef` (`refs.rs`), but **type-erased**: variable-length blocks mix
 //! payload types, so the block's `type_tag` (not a static `T`) tells the GC how to scan it.
 //!
 //! # Allocation model
@@ -54,16 +51,10 @@
 //! (alive=false + generation bump + push to the size-class free list). The young set is a
 //! per-chunk bitmap of block starts (`generation.rs`).
 //!
-//! # PR-1 scope (inert)
-//!
-//! This module is **not yet wired to any payload**: `Value::Str`/`Closure`/array backings
-//! still use their Arc/Box/Vec representations. PR-1 lands the allocator + unit tests
-//! (Miri/ASAN-sensitive) only; PR-2…PR-4 migrate the three payload kinds onto it.
-//!
 //! # Concurrency
 //!
 //! `VarRegion` holds raw chunk pointers, so it is `!Send` by default; callers wrap it in
-//! `parking_lot::Mutex<VarRegion>` exactly like `Region<T>`. The `unsafe impl Send` is sound
+//! `parking_lot::Mutex<VarRegion>`. The `unsafe impl Send` is sound
 //! because every access goes through that mutex and the chunk memory is owned solely by the
 //! region (freed only in `Drop`).
 //!
@@ -110,7 +101,7 @@ use chunk::{Chunk, FreeEntry, FreeSlot, NUM_CLASSES};
 // promotion age has to fit in it. `Z42_GC_PROMOTION_AGE` is clamped to the same ceiling at
 // construction (`gc::promotion_age_from_config`); this guards the compile-time default.
 const _: () = assert!(
-    crate::gc::region::PROMOTION_THRESHOLD <= block::MAX_GEN_AGE,
+    crate::gc::PROMOTION_THRESHOLD <= block::MAX_GEN_AGE,
     "PROMOTION_THRESHOLD exceeds the gen_age bits packed into GcBlockHeader::type_tag"
 );
 pub use block::MAX_GEN_AGE;
@@ -194,9 +185,7 @@ pub struct VarRegion {
     /// `GcMode::GenerationalMarkSweep`, so under any other mode the bitmaps are not allocated
     /// and alloc / tombstone skip them.
     ///
-    /// Same shape and same reason as `Region<T>::generational` (#524) — flipped by
-    /// [`Self::set_generational`], which `ArcMagrGC::set_mode` calls alongside the fixed
-    /// regions'.
+    /// Flipped by [`Self::set_generational`], which `ArcMagrGC::set_mode` calls.
     generational: bool,
     /// Count of live (alive=true) blocks, for diagnostics + auto-collect heuristics.
     live_count: usize,
@@ -236,8 +225,7 @@ pub struct VarRegion {
     /// every generation any block in the chunk reached** (`reuse_gen + max_span + 1`, mod 2^16), so
     /// a fresh re-bump can never mint a `(address, generation)` pair that collides with a stale
     /// `VarGcRef` minted in the epoch before — the ABA guard for variable-size chunk reuse
-    /// (fixed-slot `Region<T>` preserves per-slot generation instead; var blocks don't re-align
-    /// on reuse so a per-chunk base is used).
+    /// (blocks don't re-align on reuse, so a per-chunk base is used).
     reuse_gen: Vec<u16>,
     /// **lazy-var-free-list (2026-09-12)**: how many times chunk `ci` has been pooled. Stamped
     /// onto every [`Self::free_lists`] entry at push and re-checked at pop; that is the whole
@@ -281,9 +269,9 @@ pub struct VarRegion {
     pool_decommitted: usize,
 }
 
-// SAFETY: all state is reached only through a `Mutex<VarRegion>` (the heap wraps it exactly
-// like `Region<T>`), and the raw chunk memory is owned solely by this region (freed in Drop),
-// so it is sound to move the region across threads. Matches `Region<T>`'s use behind a mutex.
+// SAFETY: all state is reached only through a `Mutex<VarRegion>` (the heap's), and the raw chunk
+// memory is owned solely by this region (freed in Drop), so it is sound to move the region
+// across threads.
 unsafe impl Send for VarRegion {}
 
 impl Default for VarRegion {
@@ -301,8 +289,8 @@ impl Default for VarRegion {
             young_per_chunk: Vec::new(),
             young_chunks: Vec::new(),
             young_len: 0,
-            // Matches `Region<T>`'s default: a bare `VarRegion::new()` (unit tests, mock
-            // heaps) maintains the young set; the heap narrows it via `set_generational`.
+            // A bare `VarRegion::new()` (unit tests) maintains the young set; the heap narrows it
+            // via `set_generational`.
             generational: true,
             live_count: 0,
             #[cfg(debug_assertions)]
@@ -314,7 +302,7 @@ impl Default for VarRegion {
             var_free_chunk_pool: Vec::new(),
             reuse_gen: Vec::new(),
             pool_epoch: Vec::new(),
-            promotion_age: crate::gc::region::PROMOTION_THRESHOLD,
+            promotion_age: crate::gc::PROMOTION_THRESHOLD,
             free_chunk_slots: Vec::new(),
             blocks_per_chunk: Vec::new(),
             live_per_chunk: Vec::new(),
@@ -333,7 +321,7 @@ impl VarRegion {
 
     /// Construct a region whose non-POD payloads are finalized by `glue` on reclaim, with
     /// young-list maintenance set for `generational` (see [`Self::generational`]). Used by
-    /// the heap, which knows its mode at construction. Mirrors `Region::new_for_mode`.
+    /// the heap, which knows its mode at construction.
     ///
     /// **perf-skip-pod-drop-glue (2026-09-13)**: `glue` is optional because an embedding whose
     /// payloads are all POD has nothing for it to do, and a `None` here is what removes the
@@ -657,7 +645,7 @@ impl VarRegion {
     /// **add-incremental-major-gc M2b**: [`Self::sweep`] over at most `max_buckets` chunks
     /// starting at chunk `from`. Returns `(reclaimed, credited bytes, next chunk)`; `next ==
     /// bucket_count()` means done. Resumable across STW slices for the same reason as
-    /// `Region::sweep_chunks`: blocks allocated between slices carry the cycle's epoch.
+    /// the cycle's epoch: blocks allocated between slices carry it.
     pub fn sweep_buckets(&mut self, major: crate::gc::refs::MarkKind, from: usize, max_buckets: usize) -> (usize, u64, usize) {
         let mut reclaimed = 0;
         let mut credited: u64 = 0;
@@ -691,25 +679,12 @@ impl VarRegion {
         self.chunks.len()
     }
 
-    /// The number of `used_bytes` a block of this kind added when it was allocated — the
-    /// only figure sweep may credit back.
-    ///
-    /// - `Str` / `Closure` / `Object` — `alloc_str_in_region` / `alloc_closure_in_region` /
-    ///   the object allocator charge `DATA_OFFSET + payload` (an object's payload is its 16 B
-    ///   header plus its fields), so that is what comes back.
-    /// - `ArrayValue` / `ArrayPrim` / `ArrayStruct` / `ArrayRef` / `ArrayCell` — **zero**. `alloc_var_block` records
-    ///   no stats at all (by design); the owning array header charged the element storage
-    ///   through `object_size_bytes`, and `array_size_estimate` credits it back when the
-    ///   header is tombstoned. Crediting the block here as well would refund it twice.
+    /// The number of `used_bytes` a block added when it was allocated — the only figure sweep
+    /// may credit back: `DATA_OFFSET + payload` for every kind (each allocator — strings,
+    /// closures, objects, arrays — charges exactly its block's header and payload).
     #[inline]
     pub(crate) fn alloc_charge_bytes(header: &GcBlockHeader) -> u64 {
-        match header.block_type() {
-            BlockType::Str | BlockType::Closure | BlockType::Object => {
-                (GcBlockHeader::DATA_OFFSET + header.size()) as u64
-            }
-            BlockType::ArrayValue | BlockType::ArrayPrim | BlockType::ArrayStruct
-            | BlockType::ArrayRef | BlockType::ArrayCell => 0,
-        }
+        (GcBlockHeader::DATA_OFFSET + header.size()) as u64
     }
 
     /// Number of live blocks (diagnostics).

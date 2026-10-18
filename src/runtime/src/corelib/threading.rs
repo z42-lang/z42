@@ -103,7 +103,7 @@ pub fn builtin_thread_spawn(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     // which is exactly as long as the environment can be live.
     let env_root = env_vec.as_ref().map(|env| SpawnedEnvRoot {
         core:   Arc::clone(&ctx.core),
-        handle: ctx.heap().pin_root(crate::metadata::types::ArrayObj::alloc_frozen_value(ctx.heap(), env.clone())),
+        handle: ctx.heap().pin_root(crate::metadata::types::ArrayObj::alloc_frozen(ctx.heap(), &env)),
     });
 
     // runtime-audit P0-4: z42 calls recurse on the native stack and running out
@@ -253,7 +253,7 @@ fn run_spawned_action(
     let arg_vals: Vec<Value> = match env_vec {
         None => Vec::new(),
         Some(env) => {
-            let env_val = crate::metadata::types::ArrayObj::alloc_frozen_value(thread_ctx.heap(), env);
+            let env_val = crate::metadata::types::ArrayObj::alloc_frozen(thread_ctx.heap(), &env);
             vec![env_val]
         }
     };

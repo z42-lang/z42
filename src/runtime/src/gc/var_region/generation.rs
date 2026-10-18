@@ -1,6 +1,5 @@
 //! `VarRegion`'s generational half — the young set and everything that walks it. Split out of
-//! `var_region.rs` into the same shape as `region/generation.rs` holds `Region<T>`'s: the
-//! generational logic is a distinct concern from the allocator.
+//! `var_region.rs`: the generational logic is a distinct concern from the allocator.
 //!
 //! The young set is a bitmap per chunk with one bit per 8-byte granule, set at a block's start
 //! (see `VarRegion::young_bits`), plus a per-chunk count and a one-bit-per-chunk summary so a
@@ -11,8 +10,8 @@ use super::*;
 use crate::gc::side_bits;
 
 impl VarRegion {
-    /// **adaptive-promotion (2026-09-12)**: re-point the region at a new promotion age.
-    /// Same window as `Region::set_promotion_age` — inside the minor sweep, after its mark.
+    /// **adaptive-promotion (2026-09-12)**: re-point the region at a new promotion age (at the end
+    /// of a major, right before the aging pass — see `ArcMagrGC::apply_promotion_age`).
     pub fn set_promotion_age(&mut self, age: u8) {
         self.promotion_age = age;
     }
@@ -27,8 +26,7 @@ impl VarRegion {
         }
     }
 
-    /// Flip young-set maintenance, bringing the set in line with the new setting. Mirrors
-    /// `Region<T>::set_generational` (#524).
+    /// Flip young-set maintenance, bringing the set in line with the new setting (#524).
     ///
     /// Turning it **on** allocates the bitmaps and rebuilds the set from every live young
     /// block, so a heap switched to `GenerationalMarkSweep` after it has already allocated still
@@ -189,19 +187,19 @@ impl VarRegion {
     ///   it was charged at alloc.
     ///
     /// Old blocks are never visited — that is the definition of a minor collection. They are
-    /// reachable as minor roots only through the dirty-card set.
+    /// reachable as minor roots only through the remembered set.
     /// Only what this minor marked survives, whatever epoch a block carries; `promote_black` is
-    /// the debug check of `Region::sweep_young_in_one_pass`.
+    /// the debug check that whatever leaves the set while a major cycle sweeps carries its epoch.
     pub fn sweep_young(&mut self, promote_black: Option<crate::gc::refs::MarkKind>) -> (usize, u64) {
         let out = self.sweep_young_with(promote_black, u8::MAX, |_| {});
         (out.reclaimed, out.credited)
     }
 
     /// [`Self::sweep_young`] with what the heap's generational bookkeeping needs about the
-    /// **object** blocks among them (object model R6): `observe(marked)` for every young object
-    /// at `observed_age` before it is aged (the adaptive promotion policy's survival sample —
-    /// the same one `Region::sweep_young_in_one_pass` takes), and the objects that cross the
-    /// promotion age in this sweep.
+    /// **object and array** blocks among them (object model R6 / R9): `observe(marked)` for every
+    /// young one at `observed_age` before it is aged (the adaptive promotion policy's survival
+    /// sample), the owners that cross the promotion age in this sweep (they may need
+    /// remembering), and the bytes objects and arrays carry into the old generation.
     pub fn sweep_young_with(
         &mut self,
         promote_black: Option<crate::gc::refs::MarkKind>,
@@ -216,25 +214,19 @@ impl VarRegion {
             // **fix-old-block-left-in-young-list (2026-09-12)**: a young-set block can already
             // be past the line, and a minor must never reclaim an old block.
             //
-            // Two things age a block without taking it out of the set: `age_backing_with_owner`
-            // raises an array's element storage to its owner's age (the invariant that the
-            // backing is never younger than what owns it), and `adaptive-promotion` can lower
-            // the line itself. Such a block is then old — the mark phase skips it as old —
-            // while still in the set, so the next sweep would find it unmarked and tombstone
-            // storage that is very much alive.
-            //
-            // It has to be this check rather than a removal at the raise site: this region has
-            // no card table, so a raised backing's only claim to being marked is its owner being
-            // traced, and the owner stops being traced the moment its card is cleaned — which is
-            // exactly what happens when owner and elements go old together.
+            // `adaptive-promotion` can lower the line itself without taking blocks out of the
+            // set. Such a block is then old — the mark phase skips it as old — while still in
+            // the set, so the sweep would find it unmarked and tombstone a block that may be very
+            // much alive.
             if header.gen_age() >= threshold {
                 header.clear_minor_mark();
                 r.remove_young(ptr, ci);
                 return;
             }
-            let is_object = header.block_type() == BlockType::Object;
+            let bt = header.block_type();
+            let unit = bt.is_object_or_array();
             let marked = header.is_marked(crate::gc::refs::MarkKind::Minor);
-            if is_object && header.gen_age() == observed_age {
+            if unit && header.gen_age() == observed_age {
                 observe(marked);
             }
             if marked {
@@ -245,9 +237,11 @@ impl VarRegion {
                         "var block promoted while the cycle sweeps, without its epoch"
                     );
                     r.remove_young(ptr, ci);
-                    if is_object {
-                        out.newly_old_objects.push(VarGcRef::pack(ptr, header.generation()));
-                        out.promoted_object_bytes += Self::alloc_charge_bytes(header);
+                    if unit {
+                        out.promoted_bytes += Self::alloc_charge_bytes(header);
+                    }
+                    if bt.may_be_remembered() {
+                        out.newly_old.push(VarGcRef::pack(ptr, header.generation()));
                     }
                 }
             } else {
@@ -261,11 +255,11 @@ impl VarRegion {
         out
     }
 
-    /// **Tenure** — the var-region twin of `Region::tenure_young`: every young block leaves the
-    /// set at the promotion age, without a mark. While the open cycle sweeps, a block without
-    /// its epoch is garbage the sweep has not reached yet and stays young. Returns how many
-    /// blocks left, and the allocation charge of the **objects** among them (object model R6:
-    /// objects count towards the heap's promoted-byte budget, other var blocks never did).
+    /// **Tenure**: every young block leaves the set at the promotion age, without a mark. While
+    /// the open cycle sweeps, a block without its epoch is garbage the sweep has not reached yet
+    /// and stays young. Returns how many blocks left, and the allocation charge of the **objects
+    /// and arrays** among them (they count towards the heap's promoted-byte budget; strings and
+    /// closures never did).
     pub fn tenure_young(&mut self, doomed_unless: Option<crate::gc::refs::MarkKind>) -> (usize, u64) {
         let threshold = self.promotion_age;
         let (mut tenured, mut object_bytes) = (0usize, 0u64);
@@ -278,16 +272,16 @@ impl VarRegion {
             header.raise_gen_age_to(threshold);
             r.remove_young(ptr, ci);
             tenured += 1;
-            if header.block_type() == BlockType::Object {
+            if header.block_type().is_object_or_array() {
                 object_bytes += Self::alloc_charge_bytes(header);
             }
         });
         (tenured, object_bytes)
     }
 
-    /// [`Region::delist_past_line`](crate::gc::region::Region) for this region: take every young
-    /// block the lowered line makes old out of the set, without aging anything. Returns the
-    /// **object** blocks among them (the heap remembers those with a young child).
+    /// The promotion line was just lowered **between collections** (`ArcMagrGC::lower_line_after_minor`):
+    /// take every young block the new line makes old out of the set, without aging anything.
+    /// Returns the objects and arrays among them (the heap remembers those with a young child).
     pub fn delist_past_line(&mut self) -> Vec<VarGcRef> {
         let threshold = self.promotion_age;
         let mut newly_old = Vec::new();
@@ -296,7 +290,7 @@ impl VarRegion {
             let header = unsafe { ptr.as_ref() };
             if header.gen_age() >= threshold {
                 r.remove_young(ptr, ci);
-                if header.block_type() == BlockType::Object {
+                if header.block_type().may_be_remembered() {
                     newly_old.push(VarGcRef::pack(ptr, header.generation()));
                 }
             }
@@ -312,7 +306,7 @@ impl VarRegion {
     /// aging is what drains the young set. Without this a major leaves every live block young,
     /// and the *next* minor re-marks the entire heap. The blocks were already swept by
     /// [`Self::sweep`] (which took the dead out of the set); this only walks the survivors' ages.
-    /// Returns the **object** blocks that crossed the line (the heap may have to remember them).
+    /// Returns the objects and arrays that crossed the line (the heap may have to remember them).
     pub fn age_young_survivors(&mut self) -> Vec<VarGcRef> {
         let threshold = self.promotion_age;
         let mut newly_old = Vec::new();
@@ -321,7 +315,7 @@ impl VarRegion {
             let header = unsafe { ptr.as_ref() };
             if header.bump_gen_age() >= threshold {
                 r.remove_young(ptr, ci);
-                if header.block_type() == BlockType::Object {
+                if header.block_type().may_be_remembered() {
                     newly_old.push(VarGcRef::pack(ptr, header.generation()));
                 }
             }

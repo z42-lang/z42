@@ -235,7 +235,7 @@ pub enum Instruction {
     },
     LoadElemAddr {
         dst: Reg,
-        /// Reg holding the array (must be `Value::Array(GcRef<...>)`).
+        /// Reg holding the array (must be `Value::Array`).
         arr: Reg,
         /// Reg holding the index (must be `Value::I64`).
         idx: Reg,

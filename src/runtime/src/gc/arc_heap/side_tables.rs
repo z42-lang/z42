@@ -1,9 +1,9 @@
-//! Object model R6: per-object GC state that does not fit in an object's block header — weak
-//! references, finalizers, soft references — and the one path that retires it when an object
-//! dies.
+//! Object model R6 / R9: per-block GC state that does not fit in an object's or array's block
+//! header — weak references, finalizers, soft references — and the one path that retires it when
+//! the block dies.
 //!
-//! An object block has no finalizer slot or soft-ref counter (the fixed-size `RegionEntry` had
-//! both, 12 bytes on every object for capabilities almost none use). Instead:
+//! A block has no finalizer slot or soft-ref counter (12 bytes on every object and array for
+//! capabilities almost none use). Instead:
 //!
 //! - **finalizers** live in `RcHeapInner::obj_finalizers`, keyed by block-header address;
 //! - **soft references** are registry entries keyed the same way (`soft_registry`);
@@ -16,52 +16,84 @@
 //! - **weak references** record the owning chunk's reuse epoch (`WeakObjRef`), so an upgrade
 //!   never reads memory that was re-carved or handed back to the allocator.
 
+use crate::gc::arr_ref::{ArrRef, WeakArrRef};
 use crate::gc::obj_ref::{ObjRef, WeakObjRef};
 use crate::gc::types::FinalizerFn;
+use crate::gc::var_region::VarGcRef;
+use crate::metadata::Value;
 
 impl crate::gc::arc_heap::ArcMagrGC {
-    /// A weak reference to `obj`: its handle plus its chunk's current reuse epoch.
-    pub(super) fn downgrade_object(&self, obj: &ObjRef) -> WeakObjRef {
-        let region = self.region_var.lock();
-        // A block outside every chunk (a detached / leaked object) is never reclaimed.
-        match region.chunk_of(obj.var_ref().addr()) {
-            Some(ci) => {
-                let chunk = ci as u32;
-                WeakObjRef { obj: *obj, chunk, epoch: region.chunk_epoch(chunk).unwrap_or(0) }
-            }
-            None => WeakObjRef { obj: *obj, chunk: u32::MAX, epoch: 0 },
+    /// The block of an object or array `Value` — what side tables and the remembered set key on.
+    #[inline]
+    pub(super) fn owner_block(v: &Value) -> Option<VarGcRef> {
+        match v {
+            Value::Object(o) | Value::BoxedStruct(o) => Some(o.var_ref()),
+            Value::Array(a) => Some(a.var_ref()),
+            _ => None,
         }
     }
 
-    /// Upgrade a weak object reference: `None` once the object died — its chunk was pooled /
-    /// freed since (epoch moved: the address may now be the middle of another block, or not
-    /// mapped at all), or its block was tombstoned or reused (generation guard). Takes the
-    /// variable-length region's lock; never call it with `inner` held.
-    pub(crate) fn upgrade_weak_object(&self, w: &WeakObjRef) -> Option<ObjRef> {
-        if w.chunk != u32::MAX {
+    /// `(chunk, epoch)` a weak reference to `b` records: its chunk and that chunk's current reuse
+    /// epoch. A block outside every chunk (a detached / leaked one) is never reclaimed.
+    fn weak_stamp(&self, b: VarGcRef) -> (u32, u32) {
+        let region = self.region_var.lock();
+        match region.chunk_of(b.addr()) {
+            Some(ci) => (ci as u32, region.chunk_epoch(ci as u32).unwrap_or(0)),
+            None => (u32::MAX, 0),
+        }
+    }
+
+    /// Whether the block a weak reference recorded as `(chunk, epoch)` is still alive: its chunk
+    /// was not pooled / freed since (epoch moved: the address may now be the middle of another
+    /// block, or not mapped at all), and the block was not tombstoned or reused (generation
+    /// guard). Takes the variable-length region's lock; never call it with `inner` held.
+    fn weak_alive(&self, b: VarGcRef, chunk: u32, epoch: u32) -> bool {
+        if chunk != u32::MAX {
             let region = self.region_var.lock();
-            if region.chunk_epoch(w.chunk) != Some(w.epoch) {
-                return None;
+            if region.chunk_epoch(chunk) != Some(epoch) {
+                return false;
             }
             // Under the lock the chunk cannot be pooled or freed, so the header read is sound.
-            return w.obj.var_ref().is_live().then_some(w.obj);
+            return b.is_live();
         }
-        w.obj.var_ref().is_live().then_some(w.obj)
+        b.is_live()
     }
 
-    /// Register `fin` for `obj` (replacing any previous one).
-    pub(super) fn set_object_finalizer(&self, obj: &ObjRef, fin: FinalizerFn) {
-        obj.var_ref().set_side();
-        self.inner.lock().obj_finalizers.insert(obj.var_ref().addr(), fin);
+    /// A weak reference to `obj`: its handle plus its chunk's current reuse epoch.
+    pub(super) fn downgrade_object(&self, obj: &ObjRef) -> WeakObjRef {
+        let (chunk, epoch) = self.weak_stamp(obj.var_ref());
+        WeakObjRef { obj: *obj, chunk, epoch }
     }
 
-    /// Remove and return `obj`'s finalizer.
-    pub(super) fn take_object_finalizer(&self, obj: &ObjRef) -> Option<FinalizerFn> {
-        self.inner.lock().obj_finalizers.remove(&obj.var_ref().addr())
+    /// Upgrade a weak object reference: `None` once the object died (see [`Self::weak_alive`]).
+    pub(crate) fn upgrade_weak_object(&self, w: &WeakObjRef) -> Option<ObjRef> {
+        self.weak_alive(w.obj.var_ref(), w.chunk, w.epoch).then_some(w.obj)
     }
 
-    /// Drain the region's flagged-dead list: fire the finalizers of the objects that died, drop
-    /// their soft-registry entries, and take them out of the remembered set. Every sweep tail
+    /// A weak reference to `arr` (object model R9 — same rule as objects).
+    pub(super) fn downgrade_array(&self, arr: &ArrRef) -> WeakArrRef {
+        let (chunk, epoch) = self.weak_stamp(arr.var_ref());
+        WeakArrRef { arr: *arr, chunk, epoch }
+    }
+
+    /// Upgrade a weak array reference: `None` once the array died.
+    pub(crate) fn upgrade_weak_array(&self, w: &WeakArrRef) -> Option<ArrRef> {
+        self.weak_alive(w.arr.var_ref(), w.chunk, w.epoch).then_some(w.arr)
+    }
+
+    /// Register `fin` for the object / array block `b` (replacing any previous one).
+    pub(super) fn set_block_finalizer(&self, b: VarGcRef, fin: FinalizerFn) {
+        b.set_side();
+        self.inner.lock().obj_finalizers.insert(b.addr(), fin);
+    }
+
+    /// Remove and return `b`'s finalizer.
+    pub(super) fn take_block_finalizer(&self, b: VarGcRef) -> Option<FinalizerFn> {
+        self.inner.lock().obj_finalizers.remove(&b.addr())
+    }
+
+    /// Drain the region's flagged-dead list: fire the finalizers of the objects and arrays that
+    /// died, drop their soft-registry entries, and take them out of the remembered set. Every sweep tail
     /// calls it before reclaiming chunks (`reclaim_dead_chunks_and_measure`), and so do the
     /// incremental sweep slices and `finalize_now` so finalizers fire promptly.
     pub(crate) fn process_flagged_dead(&self) {
@@ -87,9 +119,9 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
     }
 
-    /// Objects with a registered finalizer that are still alive — `HeapStats::finalizers_pending`.
-    /// An object an incremental sweep has already judged dead is not counted (`admit_resurrected`
-    /// would refuse it).
+    /// Objects and arrays with a registered finalizer that are still alive —
+    /// `HeapStats::finalizers_pending`. A block an incremental sweep has already judged dead is not
+    /// counted (`admit_resurrected` would refuse it).
     pub(super) fn count_object_finalizers(&self) -> u64 {
         let keys: std::collections::HashSet<usize> =
             self.inner.lock().obj_finalizers.keys().copied().collect();
@@ -99,7 +131,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let doomed = self.doomed_unless_marked();
         let region = self.region_var.lock();
         let mut n = 0u64;
-        region.iterate_alive_of(crate::gc::var_region::BlockType::Object, |h, _| {
+        region.iterate_alive(|h, _| {
             if keys.contains(&h.addr()) && doomed.is_none_or(|k| h.is_marked(k)) {
                 n += 1;
             }

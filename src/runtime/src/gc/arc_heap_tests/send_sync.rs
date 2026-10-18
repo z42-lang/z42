@@ -9,7 +9,7 @@
 
 use std::sync::Arc;
 
-use crate::gc::{GcRef, MagrGC, ArcMagrGC};
+use crate::gc::{ArrRef, MagrGC, ArcMagrGC};
 use crate::metadata::Value;
 use crate::vm_context::{VmContext, VmContextPtr, VmCore};
 
@@ -30,8 +30,8 @@ fn vm_context_is_send_sync() {
 
 #[test]
 fn gc_ref_value_types_are_send_sync() {
-    // The two concrete GcRef instantiations that appear in Value variants.
-    assert_send_sync::<GcRef<Vec<Value>>>();
+    // The array handle that appears in `Value::Array`.
+    assert_send_sync::<ArrRef>();
     // ScriptObject path checked via Value enum below — separate explicit
     // crate::gc::ObjRef assertion requires re-exporting ScriptObject so
     // is covered indirectly through `Value`.

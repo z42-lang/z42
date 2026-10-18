@@ -5,7 +5,7 @@
 use super::*;
 use std::sync::Arc;
 use crate::metadata::vstr::Str;
-use crate::gc::GcRef;
+use crate::gc::ArrRef;
 use crate::gc::var_region::{BlockType, VarGcRef};
 use crate::gc::heap::MagrGC;
 
@@ -62,7 +62,7 @@ pub struct StructFieldLayout {
     pub offset: u32,
     /// 字节宽。
     pub size: u32,
-    /// `StructLeafKind`：0=Prim / 1=ArcString / 2=GcRef / 3=Struct / 4=GcRefArray / 5=GcRefClosure。
+    /// `StructLeafKind`：0=Prim / 1=ArcString / 2=ArrRef / 3=Struct / 4=GcRefArray / 5=GcRefClosure。
     pub kind: u8,
 }
 

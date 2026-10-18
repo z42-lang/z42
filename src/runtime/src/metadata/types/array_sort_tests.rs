@@ -1,6 +1,9 @@
 use super::*;
 
-fn arr(elems: Vec<Value>) -> ArrayObj { ArrayObj::new_leaked(elems) }
+fn arr(elems: Vec<Value>) -> &'static ArrayObj {
+    let r: &'static crate::gc::ArrRef = Box::leak(Box::new(ArrayObj::leaked(elems)));
+    r.borrow()
+}
 
 fn ints(a: &ArrayObj) -> Vec<i64> {
     a.iter_boxed().map(|v| match v { Value::I64(x) => x, other => panic!("not int: {other:?}") }).collect()
