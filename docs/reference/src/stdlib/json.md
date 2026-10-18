@@ -25,7 +25,7 @@ fail-fast，抛第一个错误，不聚合错误列表。
 
 ## JsonBinder
 
-`src/libraries/z42.json/src/JsonBinder.z42:9`
+[`src/libraries/z42.json/src/JsonBinder.z42:9`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonBinder.z42#L9)
 
 反序列化反射核：按目标 Type 递归把 JSON 绑定为对象，故 JSON 的整数 / 浮点能正确落到 int / long / double 目标成员。
 
@@ -38,14 +38,17 @@ public static class JsonBinder {
 }
 ```
 
+成员：[`FromJson`](#Std.Json.JsonBinder.FromJson(Type,JsonValue))
+
+<a id="Std.Json.JsonBinder.FromJson(Type,JsonValue)"></a>
 ### static object FromJson(Type t, JsonValue v)
 
-`src/libraries/z42.json/src/JsonBinder.z42:10`
+[`src/libraries/z42.json/src/JsonBinder.z42:10`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonBinder.z42#L10)
 
 
 ## JsonException
 
-`src/libraries/z42.json/src/JsonException.z42:4`
+[`src/libraries/z42.json/src/JsonException.z42:4`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonException.z42#L4)
 
 JSON 解析 / 序列化错误；携带 1-based 行 / 列号（0 = 不可用，如 stringify 阶段错误）。
 
@@ -58,29 +61,35 @@ public class JsonException : Exception {
 }
 ```
 
+成员：[`Line`](#Std.Json.JsonException.Line) · [`Column`](#Std.Json.JsonException.Column) · [`JsonException`](#Std.Json.JsonException.ctor(string)) · [`JsonException`](#Std.Json.JsonException.ctor(string,int,int))
+
+<a id="Std.Json.JsonException.Line"></a>
 ### int Line
 
-`src/libraries/z42.json/src/JsonException.z42:5`
+[`src/libraries/z42.json/src/JsonException.z42:5`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonException.z42#L5)
 
 
+<a id="Std.Json.JsonException.Column"></a>
 ### int Column
 
-`src/libraries/z42.json/src/JsonException.z42:6`
+[`src/libraries/z42.json/src/JsonException.z42:6`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonException.z42#L6)
 
 
+<a id="Std.Json.JsonException.ctor(string)"></a>
 ### JsonException(string message)
 
-`src/libraries/z42.json/src/JsonException.z42:8`
+[`src/libraries/z42.json/src/JsonException.z42:8`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonException.z42#L8)
 
 
+<a id="Std.Json.JsonException.ctor(string,int,int)"></a>
 ### JsonException(string message, int line, int column)
 
-`src/libraries/z42.json/src/JsonException.z42:13`
+[`src/libraries/z42.json/src/JsonException.z42:13`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonException.z42#L13)
 
 
 ## JsonIgnoreAttribute
 
-`src/libraries/z42.json/src/JsonIgnoreAttribute.z42:4`
+[`src/libraries/z42.json/src/JsonIgnoreAttribute.z42:4`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonIgnoreAttribute.z42#L4)
 
 标注成员在序列化 / 反序列化时被跳过。用法 `[JsonIgnore]`，可标注字段或属性。
 
@@ -91,7 +100,7 @@ public class JsonIgnoreAttribute : Attribute {
 
 ## JsonMember
 
-`src/libraries/z42.json/src/JsonMember.z42:8`
+[`src/libraries/z42.json/src/JsonMember.z42:8`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonMember.z42#L8)
 
 统一「可序列化成员」抽象：封装字段 (FieldInfo) 或属性 (PropertyInfo)，携带解析后的 JSON 键名、成员类型、读写能力；序列化 / 反序列化引擎按这层统一遍历，无需区分字段与属性。
 
@@ -110,53 +119,63 @@ public class JsonMember {
 }
 ```
 
+成员：[`JsonKey`](#Std.Json.JsonMember.JsonKey) · [`MemberType`](#Std.Json.JsonMember.MemberType) · [`CanRead`](#Std.Json.JsonMember.CanRead) · [`CanWrite`](#Std.Json.JsonMember.CanWrite) · [`Get`](#Std.Json.JsonMember.Get(object)) · [`Set`](#Std.Json.JsonMember.Set(object,object)) · [`OfField`](#Std.Json.JsonMember.OfField(FieldInfo,string)) · [`OfProperty`](#Std.Json.JsonMember.OfProperty(PropertyInfo,string))
+
+<a id="Std.Json.JsonMember.JsonKey"></a>
 ### string JsonKey
 
-`src/libraries/z42.json/src/JsonMember.z42:14`
+[`src/libraries/z42.json/src/JsonMember.z42:14`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonMember.z42#L14)
 
 JSON 键名（[JsonProperty] 覆盖或成员名）。
 
+<a id="Std.Json.JsonMember.MemberType"></a>
 ### Type MemberType
 
-`src/libraries/z42.json/src/JsonMember.z42:16`
+[`src/libraries/z42.json/src/JsonMember.z42:16`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonMember.z42#L16)
 
 成员的静态类型。
 
+<a id="Std.Json.JsonMember.CanRead"></a>
 ### bool CanRead
 
-`src/libraries/z42.json/src/JsonMember.z42:18`
+[`src/libraries/z42.json/src/JsonMember.z42:18`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonMember.z42#L18)
 
 可读（序列化）。
 
+<a id="Std.Json.JsonMember.CanWrite"></a>
 ### bool CanWrite
 
-`src/libraries/z42.json/src/JsonMember.z42:20`
+[`src/libraries/z42.json/src/JsonMember.z42:20`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonMember.z42#L20)
 
 可写（反序列化）。
 
+<a id="Std.Json.JsonMember.Get(object)"></a>
 ### object Get(object target)
 
-`src/libraries/z42.json/src/JsonMember.z42:22`
+[`src/libraries/z42.json/src/JsonMember.z42:22`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonMember.z42#L22)
 
 
+<a id="Std.Json.JsonMember.Set(object,object)"></a>
 ### void Set(object target, object value)
 
-`src/libraries/z42.json/src/JsonMember.z42:27`
+[`src/libraries/z42.json/src/JsonMember.z42:27`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonMember.z42#L27)
 
 
+<a id="Std.Json.JsonMember.OfField(FieldInfo,string)"></a>
 ### static JsonMember OfField(FieldInfo f, string key)
 
-`src/libraries/z42.json/src/JsonMember.z42:32`
+[`src/libraries/z42.json/src/JsonMember.z42:32`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonMember.z42#L32)
 
 
+<a id="Std.Json.JsonMember.OfProperty(PropertyInfo,string)"></a>
 ### static JsonMember OfProperty(PropertyInfo p, string key)
 
-`src/libraries/z42.json/src/JsonMember.z42:42`
+[`src/libraries/z42.json/src/JsonMember.z42:42`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonMember.z42#L42)
 
 
 ## JsonMembers
 
-`src/libraries/z42.json/src/JsonMember.z42:52`
+[`src/libraries/z42.json/src/JsonMember.z42:52`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonMember.z42#L52)
 
 成员集合构建：从 Type 收集 public 实例字段 + public 属性，解析键名 / 忽略。
 
@@ -166,15 +185,18 @@ public static class JsonMembers {
 }
 ```
 
+成员：[`For`](#Std.Json.JsonMembers.For(Type))
+
+<a id="Std.Json.JsonMembers.For(Type)"></a>
 ### static JsonMember[] For(Type t)
 
-`src/libraries/z42.json/src/JsonMember.z42:54`
+[`src/libraries/z42.json/src/JsonMember.z42:54`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonMember.z42#L54)
 
 收集 t 的可序列化成员（public 非 static 字段 + 属性；[JsonIgnore] 排除）。
 
 ## JsonParser
 
-`src/libraries/z42.json/src/JsonParser.z42:5`
+[`src/libraries/z42.json/src/JsonParser.z42:5`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonParser.z42#L5)
 
 递归下降的 RFC 8259 JSON 解析器。
 
@@ -186,25 +208,30 @@ public sealed class JsonParser {
 }
 ```
 
+成员：[`JsonParser`](#Std.Json.JsonParser.ctor(string)) · [`Relaxed`](#Std.Json.JsonParser.Relaxed(string)) · [`ParseDocument`](#Std.Json.JsonParser.ParseDocument())
+
+<a id="Std.Json.JsonParser.ctor(string)"></a>
 ### JsonParser(string src)
 
-`src/libraries/z42.json/src/JsonParser.z42:25`
+[`src/libraries/z42.json/src/JsonParser.z42:25`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonParser.z42#L25)
 
 
+<a id="Std.Json.JsonParser.Relaxed(string)"></a>
 ### static JsonParser Relaxed(string src)
 
-`src/libraries/z42.json/src/JsonParser.z42:35`
+[`src/libraries/z42.json/src/JsonParser.z42:35`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonParser.z42#L35)
 
 构建宽松模式解析器：接受 JSON5 风格的 `//` / `/* */` 注释与数组 / 对象尾逗号。
 
+<a id="Std.Json.JsonParser.ParseDocument()"></a>
 ### JsonValue ParseDocument()
 
-`src/libraries/z42.json/src/JsonParser.z42:41`
+[`src/libraries/z42.json/src/JsonParser.z42:41`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonParser.z42#L41)
 
 
 ## JsonPath
 
-`src/libraries/z42.json/src/JsonPath.z42:14`
+[`src/libraries/z42.json/src/JsonPath.z42:14`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonPath.z42#L14)
 
 单值 JSONPath 子集：按路径在 JSON 值树中取单个值。
 
@@ -223,15 +250,18 @@ public static class JsonPath {
 }
 ```
 
+成员：[`Select`](#Std.Json.JsonPath.Select(JsonValue,string))
+
+<a id="Std.Json.JsonPath.Select(JsonValue,string)"></a>
 ### static JsonValue? Select(JsonValue root, string path)
 
-`src/libraries/z42.json/src/JsonPath.z42:17`
+[`src/libraries/z42.json/src/JsonPath.z42:17`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonPath.z42#L17)
 
 按 `path` 遍历 `root`，返回路径上的值；路径走不通（键缺失、下标越界、kind 不符）返回 null。
 
 ## JsonPropertyAttribute
 
-`src/libraries/z42.json/src/JsonPropertyAttribute.z42:5`
+[`src/libraries/z42.json/src/JsonPropertyAttribute.z42:5`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonPropertyAttribute.z42#L5)
 
 显式指定成员的 JSON 键名，serde 引擎按名映射时以此覆盖默认成员名。 用法 `[JsonProperty("json_name")]`，可标注字段或 auto-property。
 
@@ -242,20 +272,24 @@ public class JsonPropertyAttribute : Attribute {
 }
 ```
 
+成员：[`Name`](#Std.Json.JsonPropertyAttribute.Name) · [`JsonPropertyAttribute`](#Std.Json.JsonPropertyAttribute.ctor(string))
+
+<a id="Std.Json.JsonPropertyAttribute.Name"></a>
 ### string Name
 
-`src/libraries/z42.json/src/JsonPropertyAttribute.z42:7`
+[`src/libraries/z42.json/src/JsonPropertyAttribute.z42:7`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonPropertyAttribute.z42#L7)
 
 JSON 中使用的键名。
 
+<a id="Std.Json.JsonPropertyAttribute.ctor(string)"></a>
 ### JsonPropertyAttribute(string name)
 
-`src/libraries/z42.json/src/JsonPropertyAttribute.z42:9`
+[`src/libraries/z42.json/src/JsonPropertyAttribute.z42:9`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonPropertyAttribute.z42#L9)
 
 
 ## JsonSerializer
 
-`src/libraries/z42.json/src/JsonSerializer.z42:7`
+[`src/libraries/z42.json/src/JsonSerializer.z42:7`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonSerializer.z42#L7)
 
 对象 ↔ JSON 序列化：经反射在用户对象与 JSON 文本之间直转。
 
@@ -271,29 +305,35 @@ public static class JsonSerializer {
 }
 ```
 
+成员：[`Serialize`](#Std.Json.JsonSerializer.Serialize(object)) · [`SerializePretty`](#Std.Json.JsonSerializer.SerializePretty(object)) · [`Deserialize`](#Std.Json.JsonSerializer.Deserialize%3CT%3E(string)) · [`Deserialize`](#Std.Json.JsonSerializer.Deserialize(Type,string))
+
+<a id="Std.Json.JsonSerializer.Serialize(object)"></a>
 ### static string Serialize(object value)
 
-`src/libraries/z42.json/src/JsonSerializer.z42:8`
+[`src/libraries/z42.json/src/JsonSerializer.z42:8`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonSerializer.z42#L8)
 
 
+<a id="Std.Json.JsonSerializer.SerializePretty(object)"></a>
 ### static string SerializePretty(object value)
 
-`src/libraries/z42.json/src/JsonSerializer.z42:12`
+[`src/libraries/z42.json/src/JsonSerializer.z42:12`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonSerializer.z42#L12)
 
 
+<a id="Std.Json.JsonSerializer.Deserialize<T>(string)"></a>
 ### static T Deserialize<T>(string json)
 
-`src/libraries/z42.json/src/JsonSerializer.z42:16`
+[`src/libraries/z42.json/src/JsonSerializer.z42:16`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonSerializer.z42#L16)
 
 
+<a id="Std.Json.JsonSerializer.Deserialize(Type,string)"></a>
 ### static object Deserialize(Type type, string json)
 
-`src/libraries/z42.json/src/JsonSerializer.z42:20`
+[`src/libraries/z42.json/src/JsonSerializer.z42:20`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonSerializer.z42#L20)
 
 
 ## JsonValue
 
-`src/libraries/z42.json/src/JsonValue.z42:28`
+[`src/libraries/z42.json/src/JsonValue.z42:28`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L28)
 
 值树的唯一节点类型与包的入口点：一个 `JsonValue` 属于 Null / Bool / Long / Double / String / Array / Object 七种 kind 之一。
 
@@ -339,168 +379,201 @@ public class JsonValue {
 }
 ```
 
+成员：[`Parse`](#Std.Json.JsonValue.Parse(string)) · [`ParseRelaxed`](#Std.Json.JsonValue.ParseRelaxed(string)) · [`Stringify`](#Std.Json.JsonValue.Stringify(JsonValue)) · [`StringifyPretty`](#Std.Json.JsonValue.StringifyPretty(JsonValue)) · [`ParseStream`](#Std.Json.JsonValue.ParseStream(Stream)) · [`ParseRelaxedStream`](#Std.Json.JsonValue.ParseRelaxedStream(Stream)) · [`WriteTo`](#Std.Json.JsonValue.WriteTo(Stream,JsonValue)) · [`WriteToPretty`](#Std.Json.JsonValue.WriteToPretty(Stream,JsonValue)) · [`OfNull`](#Std.Json.JsonValue.OfNull()) · [`OfBool`](#Std.Json.JsonValue.OfBool(bool)) · [`OfLong`](#Std.Json.JsonValue.OfLong(long)) · [`OfDouble`](#Std.Json.JsonValue.OfDouble(double)) · [`OfString`](#Std.Json.JsonValue.OfString(string)) · [`OfArray`](#Std.Json.JsonValue.OfArray()) · [`OfObject`](#Std.Json.JsonValue.OfObject()) · [`IsNull`](#Std.Json.JsonValue.IsNull()) · [`IsBool`](#Std.Json.JsonValue.IsBool()) · [`IsLong`](#Std.Json.JsonValue.IsLong()) · [`IsDouble`](#Std.Json.JsonValue.IsDouble()) · [`IsString`](#Std.Json.JsonValue.IsString()) · [`IsArray`](#Std.Json.JsonValue.IsArray()) · [`IsObject`](#Std.Json.JsonValue.IsObject()) · [`KindName`](#Std.Json.JsonValue.KindName()) · [`AsBool`](#Std.Json.JsonValue.AsBool()) · [`AsLong`](#Std.Json.JsonValue.AsLong()) · [`AsDouble`](#Std.Json.JsonValue.AsDouble()) · [`AsString`](#Std.Json.JsonValue.AsString()) · [`ContainsKey`](#Std.Json.JsonValue.ContainsKey(string)) · [`Get`](#Std.Json.JsonValue.Get(string)) · [`TryGet`](#Std.Json.JsonValue.TryGet(string,JsonValue)) · [`TryGetValue`](#Std.Json.JsonValue.TryGetValue%3CT%3E(string,T)) · [`Set`](#Std.Json.JsonValue.Set(string,JsonValue)) · [`Keys`](#Std.Json.JsonValue.Keys()) · [`Count`](#Std.Json.JsonValue.Count()) · [`Length`](#Std.Json.JsonValue.Length()) · [`At`](#Std.Json.JsonValue.At(int)) · [`Add`](#Std.Json.JsonValue.Add(JsonValue))
+
+<a id="Std.Json.JsonValue.Parse(string)"></a>
 ### static JsonValue Parse(string text)
 
-`src/libraries/z42.json/src/JsonValue.z42:62`
+[`src/libraries/z42.json/src/JsonValue.z42:62`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L62)
 
 严格按 RFC 8259 解析 JSON 文本为根值；语法错误抛带行 / 列的 `JsonException`， 空输入按 RFC 8259 视为非法。
 
+<a id="Std.Json.JsonValue.ParseRelaxed(string)"></a>
 ### static JsonValue ParseRelaxed(string text)
 
-`src/libraries/z42.json/src/JsonValue.z42:69`
+[`src/libraries/z42.json/src/JsonValue.z42:69`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L69)
 
 宽松（JSON5 风格）解析：额外接受 `//` 行注释、`/* */` 块注释与数组 / 对象尾逗号， 适合工具配置（`tsconfig.json`、`.vscode/settings.json`、Docker `compose.json`）。
 
+<a id="Std.Json.JsonValue.Stringify(JsonValue)"></a>
 ### static string Stringify(JsonValue v)
 
-`src/libraries/z42.json/src/JsonValue.z42:75`
+[`src/libraries/z42.json/src/JsonValue.z42:75`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L75)
 
 序列化为紧凑 JSON（无空白）。
 
+<a id="Std.Json.JsonValue.StringifyPretty(JsonValue)"></a>
 ### static string StringifyPretty(JsonValue v)
 
-`src/libraries/z42.json/src/JsonValue.z42:81`
+[`src/libraries/z42.json/src/JsonValue.z42:81`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L81)
 
 序列化为缩进 JSON（2 空格缩进 + 换行）。
 
+<a id="Std.Json.JsonValue.ParseStream(Stream)"></a>
 ### static JsonValue ParseStream(Stream source)
 
-`src/libraries/z42.json/src/JsonValue.z42:96`
+[`src/libraries/z42.json/src/JsonValue.z42:96`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L96)
 
 从 UTF-8 字节流解析 JSON；读至 EOF，不关闭传入的流。
 
+<a id="Std.Json.JsonValue.ParseRelaxedStream(Stream)"></a>
 ### static JsonValue ParseRelaxedStream(Stream source)
 
-`src/libraries/z42.json/src/JsonValue.z42:104`
+[`src/libraries/z42.json/src/JsonValue.z42:104`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L104)
 
 从 UTF-8 字节流宽松解析 JSON，宽松项与 `ParseRelaxed(string)` 相同。
 
+<a id="Std.Json.JsonValue.WriteTo(Stream,JsonValue)"></a>
 ### static void WriteTo(Stream dest, JsonValue v)
 
-`src/libraries/z42.json/src/JsonValue.z42:112`
+[`src/libraries/z42.json/src/JsonValue.z42:112`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L112)
 
 以 UTF-8 字节写出紧凑 JSON；不关闭 `dest`（生命周期归调用方）。缩进输出用 `WriteToPretty`。
 
+<a id="Std.Json.JsonValue.WriteToPretty(Stream,JsonValue)"></a>
 ### static void WriteToPretty(Stream dest, JsonValue v)
 
-`src/libraries/z42.json/src/JsonValue.z42:119`
+[`src/libraries/z42.json/src/JsonValue.z42:119`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L119)
 
 以 UTF-8 字节写出缩进 JSON；生命周期语义见 `WriteTo`。
 
+<a id="Std.Json.JsonValue.OfNull()"></a>
 ### static JsonValue OfNull()
 
-`src/libraries/z42.json/src/JsonValue.z42:127`
+[`src/libraries/z42.json/src/JsonValue.z42:127`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L127)
 
 
+<a id="Std.Json.JsonValue.OfBool(bool)"></a>
 ### static JsonValue OfBool(bool b)
 
-`src/libraries/z42.json/src/JsonValue.z42:128`
+[`src/libraries/z42.json/src/JsonValue.z42:128`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L128)
 
 
+<a id="Std.Json.JsonValue.OfLong(long)"></a>
 ### static JsonValue OfLong(long n)
 
-`src/libraries/z42.json/src/JsonValue.z42:129`
+[`src/libraries/z42.json/src/JsonValue.z42:129`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L129)
 
 
+<a id="Std.Json.JsonValue.OfDouble(double)"></a>
 ### static JsonValue OfDouble(double d)
 
-`src/libraries/z42.json/src/JsonValue.z42:130`
+[`src/libraries/z42.json/src/JsonValue.z42:130`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L130)
 
 
+<a id="Std.Json.JsonValue.OfString(string)"></a>
 ### static JsonValue OfString(string s)
 
-`src/libraries/z42.json/src/JsonValue.z42:131`
+[`src/libraries/z42.json/src/JsonValue.z42:131`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L131)
 
 
+<a id="Std.Json.JsonValue.OfArray()"></a>
 ### static JsonValue OfArray()
 
-`src/libraries/z42.json/src/JsonValue.z42:132`
+[`src/libraries/z42.json/src/JsonValue.z42:132`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L132)
 
 
+<a id="Std.Json.JsonValue.OfObject()"></a>
 ### static JsonValue OfObject()
 
-`src/libraries/z42.json/src/JsonValue.z42:139`
+[`src/libraries/z42.json/src/JsonValue.z42:139`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L139)
 
 
+<a id="Std.Json.JsonValue.IsNull()"></a>
 ### bool IsNull()
 
-`src/libraries/z42.json/src/JsonValue.z42:151`
+[`src/libraries/z42.json/src/JsonValue.z42:151`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L151)
 
 
+<a id="Std.Json.JsonValue.IsBool()"></a>
 ### bool IsBool()
 
-`src/libraries/z42.json/src/JsonValue.z42:152`
+[`src/libraries/z42.json/src/JsonValue.z42:152`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L152)
 
 
+<a id="Std.Json.JsonValue.IsLong()"></a>
 ### bool IsLong()
 
-`src/libraries/z42.json/src/JsonValue.z42:153`
+[`src/libraries/z42.json/src/JsonValue.z42:153`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L153)
 
 
+<a id="Std.Json.JsonValue.IsDouble()"></a>
 ### bool IsDouble()
 
-`src/libraries/z42.json/src/JsonValue.z42:154`
+[`src/libraries/z42.json/src/JsonValue.z42:154`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L154)
 
 
+<a id="Std.Json.JsonValue.IsString()"></a>
 ### bool IsString()
 
-`src/libraries/z42.json/src/JsonValue.z42:155`
+[`src/libraries/z42.json/src/JsonValue.z42:155`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L155)
 
 
+<a id="Std.Json.JsonValue.IsArray()"></a>
 ### bool IsArray()
 
-`src/libraries/z42.json/src/JsonValue.z42:156`
+[`src/libraries/z42.json/src/JsonValue.z42:156`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L156)
 
 
+<a id="Std.Json.JsonValue.IsObject()"></a>
 ### bool IsObject()
 
-`src/libraries/z42.json/src/JsonValue.z42:157`
+[`src/libraries/z42.json/src/JsonValue.z42:157`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L157)
 
 
+<a id="Std.Json.JsonValue.KindName()"></a>
 ### string KindName()
 
-`src/libraries/z42.json/src/JsonValue.z42:159`
+[`src/libraries/z42.json/src/JsonValue.z42:159`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L159)
 
 
+<a id="Std.Json.JsonValue.AsBool()"></a>
 ### bool AsBool()
 
-`src/libraries/z42.json/src/JsonValue.z42:173`
+[`src/libraries/z42.json/src/JsonValue.z42:173`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L173)
 
 
+<a id="Std.Json.JsonValue.AsLong()"></a>
 ### long AsLong()
 
-`src/libraries/z42.json/src/JsonValue.z42:177`
+[`src/libraries/z42.json/src/JsonValue.z42:177`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L177)
 
 
+<a id="Std.Json.JsonValue.AsDouble()"></a>
 ### double AsDouble()
 
-`src/libraries/z42.json/src/JsonValue.z42:181`
+[`src/libraries/z42.json/src/JsonValue.z42:181`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L181)
 
 
+<a id="Std.Json.JsonValue.AsString()"></a>
 ### string AsString()
 
-`src/libraries/z42.json/src/JsonValue.z42:186`
+[`src/libraries/z42.json/src/JsonValue.z42:186`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L186)
 
 
+<a id="Std.Json.JsonValue.ContainsKey(string)"></a>
 ### bool ContainsKey(string key)
 
-`src/libraries/z42.json/src/JsonValue.z42:193`
+[`src/libraries/z42.json/src/JsonValue.z42:193`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L193)
 
 
+<a id="Std.Json.JsonValue.Get(string)"></a>
 ### JsonValue Get(string key)
 
-`src/libraries/z42.json/src/JsonValue.z42:198`
+[`src/libraries/z42.json/src/JsonValue.z42:198`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L198)
 
 
+<a id="Std.Json.JsonValue.TryGet(string,JsonValue)"></a>
 ### bool TryGet(string key, ref JsonValue value)
 
-`src/libraries/z42.json/src/JsonValue.z42:236`
+[`src/libraries/z42.json/src/JsonValue.z42:236`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L236)
 
 取即检查：命中则写入 `value` 并返回 true；未命中返回 false 且**不动** `value`。 本值不是 object 时返回 false 而**不抛** —— 与 `ContainsKey` 一致。
 
+<a id="Std.Json.JsonValue.TryGetValue<T>(string,T)"></a>
 ### bool TryGetValue<T>(string key, ref T value)
 
-`src/libraries/z42.json/src/JsonValue.z42:252`
+[`src/libraries/z42.json/src/JsonValue.z42:252`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L252)
 
 取即检查 + 取标量：命中则按 `T` 取值写入 `value` 并返回 true；未命中返回 false 且 **不动** `value`（「有就覆盖默认值」一行写完）。
 
@@ -510,39 +583,45 @@ public class JsonValue {
 支持的 `T`：`string` / `long` / `double` / `bool` / `JsonValue`（原样取子树）。
 其它 `T` 抛异常：那是**调用方写错了代码**，返回 false 会把它伪装成「键不在」。
 
+<a id="Std.Json.JsonValue.Set(string,JsonValue)"></a>
 ### void Set(string key, JsonValue v)
 
-`src/libraries/z42.json/src/JsonValue.z42:265`
+[`src/libraries/z42.json/src/JsonValue.z42:265`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L265)
 
 
+<a id="Std.Json.JsonValue.Keys()"></a>
 ### string[] Keys()
 
-`src/libraries/z42.json/src/JsonValue.z42:299`
+[`src/libraries/z42.json/src/JsonValue.z42:299`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L299)
 
 
+<a id="Std.Json.JsonValue.Count()"></a>
 ### int Count()
 
-`src/libraries/z42.json/src/JsonValue.z42:312`
+[`src/libraries/z42.json/src/JsonValue.z42:312`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L312)
 
 
+<a id="Std.Json.JsonValue.Length()"></a>
 ### int Length()
 
-`src/libraries/z42.json/src/JsonValue.z42:320`
+[`src/libraries/z42.json/src/JsonValue.z42:320`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L320)
 
 
+<a id="Std.Json.JsonValue.At(int)"></a>
 ### JsonValue At(int i)
 
-`src/libraries/z42.json/src/JsonValue.z42:327`
+[`src/libraries/z42.json/src/JsonValue.z42:327`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L327)
 
 
+<a id="Std.Json.JsonValue.Add(JsonValue)"></a>
 ### void Add(JsonValue v)
 
-`src/libraries/z42.json/src/JsonValue.z42:337`
+[`src/libraries/z42.json/src/JsonValue.z42:337`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonValue.z42#L337)
 
 
 ## JsonWriter
 
-`src/libraries/z42.json/src/JsonWriter.z42:4`
+[`src/libraries/z42.json/src/JsonWriter.z42:4`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonWriter.z42#L4)
 
 JSON 序列化器（紧凑或缩进）。
 
@@ -553,13 +632,17 @@ public sealed class JsonWriter {
 }
 ```
 
+成员：[`JsonWriter`](#Std.Json.JsonWriter.ctor(bool)) · [`Write`](#Std.Json.JsonWriter.Write(JsonValue))
+
+<a id="Std.Json.JsonWriter.ctor(bool)"></a>
 ### JsonWriter(bool pretty)
 
-`src/libraries/z42.json/src/JsonWriter.z42:15`
+[`src/libraries/z42.json/src/JsonWriter.z42:15`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonWriter.z42#L15)
 
 
+<a id="Std.Json.JsonWriter.Write(JsonValue)"></a>
 ### string Write(JsonValue v)
 
-`src/libraries/z42.json/src/JsonWriter.z42:22`
+[`src/libraries/z42.json/src/JsonWriter.z42:22`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonWriter.z42#L22)
 
 

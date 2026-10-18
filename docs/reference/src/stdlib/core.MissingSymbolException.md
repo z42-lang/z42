@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`
 
-`src/libraries/z42.core/src/Exceptions/MissingSymbolException.z42:8`
+[`src/libraries/z42.core/src/Exceptions/MissingSymbolException.z42:8`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Exceptions/MissingSymbolException.z42#L8)
 
 运行时解析不到某个符号（函数 / 类型 / 字段 / 构造器）——通常意味着依赖版本 skew： 编译时依赖新版，运行时加载到的却是缺该符号的旧版。
 
@@ -17,9 +17,12 @@ public class MissingSymbolException : Exception {
 }
 ```
 
+成员：[`MissingSymbolException`](#Std.MissingSymbolException.ctor(string))
+
+<a id="Std.MissingSymbolException.ctor(string)"></a>
 ### MissingSymbolException(string message)
 
-`src/libraries/z42.core/src/Exceptions/MissingSymbolException.z42:10`
+[`src/libraries/z42.core/src/Exceptions/MissingSymbolException.z42:10`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Exceptions/MissingSymbolException.z42#L10)
 
 用消息构造。
 

@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`
 
-`src/libraries/z42.core/src/Exceptions/InvalidCastException.z42:6`
+[`src/libraries/z42.core/src/Exceptions/InvalidCastException.z42:6`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Exceptions/InvalidCastException.z42#L6)
 
 硬转换 `(T)x` 失败：`x` 非 null 但不是 `T`（也不是 `T` 的子类型 / 未实现 `T`）。
 
@@ -16,9 +16,12 @@ public class InvalidCastException : Exception {
 }
 ```
 
+成员：[`InvalidCastException`](#Std.InvalidCastException.ctor(string))
+
+<a id="Std.InvalidCastException.ctor(string)"></a>
 ### InvalidCastException(string message)
 
-`src/libraries/z42.core/src/Exceptions/InvalidCastException.z42:8`
+[`src/libraries/z42.core/src/Exceptions/InvalidCastException.z42:8`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Exceptions/InvalidCastException.z42#L8)
 
 用消息构造。
 

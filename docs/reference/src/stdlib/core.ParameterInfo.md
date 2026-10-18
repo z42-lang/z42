@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std.Reflection`
 
-`src/libraries/z42.core/src/Reflection/ParameterInfo.z42:5`
+[`src/libraries/z42.core/src/Reflection/ParameterInfo.z42:5`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/ParameterInfo.z42#L5)
 
 反射方法参数，对标 C# `System.Reflection.ParameterInfo`（只读子集），由 `MethodInfo.GetParameters()` 填充。
 
@@ -24,68 +24,81 @@ public class ParameterInfo {
 }
 ```
 
+成员：[`Name`](#Std.Reflection.ParameterInfo.Name) · [`ParameterType`](#Std.Reflection.ParameterInfo.ParameterType) · [`Position`](#Std.Reflection.ParameterInfo.Position) · [`IsOptional`](#Std.Reflection.ParameterInfo.IsOptional) · [`IsParams`](#Std.Reflection.ParameterInfo.IsParams) · [`DefaultValue`](#Std.Reflection.ParameterInfo.DefaultValue) · [`__qualified`](#Std.Reflection.ParameterInfo.__qualified) · [`__attrCache`](#Std.Reflection.ParameterInfo.__attrCache) · [`__customAttributes`](#Std.Reflection.ParameterInfo.__customAttributes(string,int)) · [`GetCustomAttributes`](#Std.Reflection.ParameterInfo.GetCustomAttributes()) · [`GetAttribute`](#Std.Reflection.ParameterInfo.GetAttribute(Std.Type))
+
+<a id="Std.Reflection.ParameterInfo.Name"></a>
 ### string Name
 
-`src/libraries/z42.core/src/Reflection/ParameterInfo.z42:7`
+[`src/libraries/z42.core/src/Reflection/ParameterInfo.z42:7`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/ParameterInfo.z42#L7)
 
 参数名。
 
+<a id="Std.Reflection.ParameterInfo.ParameterType"></a>
 ### Std.Type ParameterType
 
-`src/libraries/z42.core/src/Reflection/ParameterInfo.z42:10`
+[`src/libraries/z42.core/src/Reflection/ParameterInfo.z42:10`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/ParameterInfo.z42#L10)
 
 参数的声明类型，如 `typeof(int)`。
 
+<a id="Std.Reflection.ParameterInfo.Position"></a>
 ### int Position
 
-`src/libraries/z42.core/src/Reflection/ParameterInfo.z42:13`
+[`src/libraries/z42.core/src/Reflection/ParameterInfo.z42:13`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/ParameterInfo.z42#L13)
 
 在参数列表中的 0 基位置（不含隐式 `this`）。
 
+<a id="Std.Reflection.ParameterInfo.IsOptional"></a>
 ### bool IsOptional
 
-`src/libraries/z42.core/src/Reflection/ParameterInfo.z42:16`
+[`src/libraries/z42.core/src/Reflection/ParameterInfo.z42:16`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/ParameterInfo.z42#L16)
 
 该参数是否有默认值。
 
+<a id="Std.Reflection.ParameterInfo.IsParams"></a>
 ### bool IsParams
 
-`src/libraries/z42.core/src/Reflection/ParameterInfo.z42:18`
+[`src/libraries/z42.core/src/Reflection/ParameterInfo.z42:18`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/ParameterInfo.z42#L18)
 
 该参数是否为 `params` 变长参数。
 
+<a id="Std.Reflection.ParameterInfo.DefaultValue"></a>
 ### object? DefaultValue
 
-`src/libraries/z42.core/src/Reflection/ParameterInfo.z42:22`
+[`src/libraries/z42.core/src/Reflection/ParameterInfo.z42:22`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/ParameterInfo.z42#L22)
 
 折出的常量默认值（字面量与常量表达式）；折不出的为 null。
 
 注意：`DefaultValue == null` 不代表没有默认值，判有无看 `IsOptional`。
 
+<a id="Std.Reflection.ParameterInfo.__qualified"></a>
 ### string __qualified
 
-`src/libraries/z42.core/src/Reflection/ParameterInfo.z42:27`
+[`src/libraries/z42.core/src/Reflection/ParameterInfo.z42:27`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/ParameterInfo.z42#L27)
 
 
+<a id="Std.Reflection.ParameterInfo.__attrCache"></a>
 ### Std.Attribute[] __attrCache
 
-`src/libraries/z42.core/src/Reflection/ParameterInfo.z42:30`
+[`src/libraries/z42.core/src/Reflection/ParameterInfo.z42:30`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/ParameterInfo.z42#L30)
 
 
+<a id="Std.Reflection.ParameterInfo.__customAttributes(string,int)"></a>
 ### extern Std.Attribute[] __customAttributes(string qualified, int position)
 
-`src/libraries/z42.core/src/Reflection/ParameterInfo.z42:33`
+[`src/libraries/z42.core/src/Reflection/ParameterInfo.z42:33`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/ParameterInfo.z42#L33)
 
 
+<a id="Std.Reflection.ParameterInfo.GetCustomAttributes()"></a>
 ### Std.Attribute[] GetCustomAttributes()
 
-`src/libraries/z42.core/src/Reflection/ParameterInfo.z42:36`
+[`src/libraries/z42.core/src/Reflection/ParameterInfo.z42:36`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/ParameterInfo.z42#L36)
 
 本参数上应用的 attribute，以活实例返回；首次调用后缓存。
 
+<a id="Std.Reflection.ParameterInfo.GetAttribute(Std.Type)"></a>
 ### Std.Attribute? GetAttribute(Std.Type attributeType)
 
-`src/libraries/z42.core/src/Reflection/ParameterInfo.z42:45`
+[`src/libraries/z42.core/src/Reflection/ParameterInfo.z42:45`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/ParameterInfo.z42#L45)
 
 指定类型的单个 attribute，无则返回 null。按实例运行期类型的 FullName 比较，子类 attribute 也匹配。
 

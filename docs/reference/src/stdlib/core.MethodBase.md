@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std.Reflection`
 
-`src/libraries/z42.core/src/Reflection/MethodBase.z42:8`
+[`src/libraries/z42.core/src/Reflection/MethodBase.z42:8`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodBase.z42#L8)
 
 `MethodInfo` 与 `ConstructorInfo` 的公共基类，对标 C# `System.Reflection.MethodBase`。
 
@@ -21,25 +21,31 @@ public class MethodBase : MemberInfo {
 }
 ```
 
+成员：[`IsStatic`](#Std.Reflection.MethodBase.IsStatic) · [`__qualified`](#Std.Reflection.MethodBase.__qualified) · [`__parameters`](#Std.Reflection.MethodBase.__parameters) · [`GetParameters`](#Std.Reflection.MethodBase.GetParameters())
+
+<a id="Std.Reflection.MethodBase.IsStatic"></a>
 ### bool IsStatic
 
-`src/libraries/z42.core/src/Reflection/MethodBase.z42:10`
+[`src/libraries/z42.core/src/Reflection/MethodBase.z42:10`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodBase.z42#L10)
 
 是否为静态方法（无隐式 `this`）。构造器永不静态。
 
+<a id="Std.Reflection.MethodBase.__qualified"></a>
 ### string __qualified
 
-`src/libraries/z42.core/src/Reflection/MethodBase.z42:13`
+[`src/libraries/z42.core/src/Reflection/MethodBase.z42:13`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodBase.z42#L13)
 
 
+<a id="Std.Reflection.MethodBase.__parameters"></a>
 ### ParameterInfo[] __parameters
 
-`src/libraries/z42.core/src/Reflection/MethodBase.z42:16`
+[`src/libraries/z42.core/src/Reflection/MethodBase.z42:16`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodBase.z42#L16)
 
 
+<a id="Std.Reflection.MethodBase.GetParameters()"></a>
 ### ParameterInfo[] GetParameters()
 
-`src/libraries/z42.core/src/Reflection/MethodBase.z42:19`
+[`src/libraries/z42.core/src/Reflection/MethodBase.z42:19`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodBase.z42#L19)
 
 参数列表，按声明序（不含隐式 `this`）。
 

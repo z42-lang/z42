@@ -65,7 +65,7 @@
 
 ## Channel
 
-`src/libraries/z42.threading/src/Channel.z42:5`
+[`src/libraries/z42.threading/src/Channel.z42:5`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/Channel.z42#L5)
 
 多生产者 / 多消费者 FIFO 队列。三种容量形态（无界 / 有界 / 会合）由构造器决定，之后不能改。
 
@@ -81,57 +81,66 @@ public class Channel<T> {
 }
 ```
 
+成员：[`Channel`](#Std.Threading.Channel%3CT%3E.ctor()) · [`Channel`](#Std.Threading.Channel%3CT%3E.ctor(int)) · [`Send`](#Std.Threading.Channel%3CT%3E.Send(T)) · [`Recv`](#Std.Threading.Channel%3CT%3E.Recv()) · [`TryRecv`](#Std.Threading.Channel%3CT%3E.TryRecv()) · [`Close`](#Std.Threading.Channel%3CT%3E.Close()) · [`TrySend`](#Std.Threading.Channel%3CT%3E.TrySend(T))
+
+<a id="Std.Threading.Channel<T>.ctor()"></a>
 ### Channel()
 
-`src/libraries/z42.threading/src/Channel.z42:17`
+[`src/libraries/z42.threading/src/Channel.z42:17`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/Channel.z42#L17)
 
 无界构造器（默认）。队列按需扩容，没有上限；要背压用有界构造器。
 
+<a id="Std.Threading.Channel<T>.ctor(int)"></a>
 ### Channel(int capacity)
 
-`src/libraries/z42.threading/src/Channel.z42:24`
+[`src/libraries/z42.threading/src/Channel.z42:24`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/Channel.z42#L24)
 
 有界构造器。capacity > 0 有界（Send 在队列满时阻塞直到腾出位置）；capacity == 0 会合 （每个 Send 阻塞直到这个值被另一条线程取走）。
 
 抛 `ArgumentException`：capacity < 0 时。
 
+<a id="Std.Threading.Channel<T>.Send(T)"></a>
 ### void Send(T v)
 
-`src/libraries/z42.threading/src/Channel.z42:47`
+[`src/libraries/z42.threading/src/Channel.z42:47`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/Channel.z42#L47)
 
 按容量形态阻塞地发送 v。通道已关闭、或等待期间被关闭 → 抛 ChannelDisconnectedException("channel closed")。
 
 抛 `ChannelDisconnectedException`：通道已关闭或等待期间被关闭时。
 
+<a id="Std.Threading.Channel<T>.Recv()"></a>
 ### T Recv()
 
-`src/libraries/z42.threading/src/Channel.z42:73`
+[`src/libraries/z42.threading/src/Channel.z42:73`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/Channel.z42#L73)
 
 阻塞到有值可取。通道已关闭且队列已空时抛 ChannelDisconnectedException("channel disconnected")； 队列里还有值就照常取，关闭不丢数据。
 
 抛 `ChannelDisconnectedException`：通道已关闭且队列已空时。
 
+<a id="Std.Threading.Channel<T>.TryRecv()"></a>
 ### object[] TryRecv()
 
-`src/libraries/z42.threading/src/Channel.z42:97`
+[`src/libraries/z42.threading/src/Channel.z42:97`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/Channel.z42#L97)
 
 不阻塞。返回判别式数组：[0, value]（取到值）/ [1]（暂时没值）/ [2]（已关闭且空）。 判别位是 long，用 (long)r[0] 取。
 
+<a id="Std.Threading.Channel<T>.Close()"></a>
 ### void Close()
 
-`src/libraries/z42.threading/src/Channel.z42:119`
+[`src/libraries/z42.threading/src/Channel.z42:119`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/Channel.z42#L119)
 
 幂等关闭通道，不可撤销。已入队的值仍可取完；唤醒阻塞中的 Recv 和等位置的 Send。
 
+<a id="Std.Threading.Channel<T>.TrySend(T)"></a>
 ### bool TrySend(T v)
 
-`src/libraries/z42.threading/src/Channel.z42:130`
+[`src/libraries/z42.threading/src/Channel.z42:130`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/Channel.z42#L130)
 
 不阻塞发送，不抛异常。有界满、通道已关闭返回 false；会合通道只有在已有接收者阻塞在 Recv 上时才返回 true。
 
 ## ChannelDisconnectedException
 
-`src/libraries/z42.threading/src/ChannelDisconnectedException.z42:5`
+[`src/libraries/z42.threading/src/ChannelDisconnectedException.z42:5`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/ChannelDisconnectedException.z42#L5)
 
 通道断开异常：对已关闭（或等待期间被关闭）的通道 Send，或通道已关闭且队列已空时 Recv。 TrySend / TryRecv 永远不抛这个异常，用返回值表达同样的状态。
 
@@ -141,9 +150,12 @@ public class ChannelDisconnectedException : Exception {
 }
 ```
 
+成员：[`ChannelDisconnectedException`](#Std.Threading.ChannelDisconnectedException.ctor(string))
+
+<a id="Std.Threading.ChannelDisconnectedException.ctor(string)"></a>
 ### ChannelDisconnectedException(string message)
 
-`src/libraries/z42.threading/src/ChannelDisconnectedException.z42:7`
+[`src/libraries/z42.threading/src/ChannelDisconnectedException.z42:7`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/ChannelDisconnectedException.z42#L7)
 
 
 | 参数 | 说明 |
@@ -152,7 +164,7 @@ public class ChannelDisconnectedException : Exception {
 
 ## Mutex
 
-`src/libraries/z42.threading/src/Mutex.z42:6`
+[`src/libraries/z42.threading/src/Mutex.z42:6`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/Mutex.z42#L6)
 
 锁包着数据的互斥原语：被保护的值放在 Mutex<T> 内部，只有 Lock 的回调体能碰到它。 没有 Acquire / Release，Lock 自己配对；不可重入，重入抛 LockRecursionException。
 
@@ -163,21 +175,25 @@ public class Mutex<T> {
 }
 ```
 
+成员：[`Mutex`](#Std.Threading.Mutex%3CT%3E.ctor(T)) · [`Lock`](#Std.Threading.Mutex%3CT%3E.Lock(Func%3CT,T%3E))
+
+<a id="Std.Threading.Mutex<T>.ctor(T)"></a>
 ### Mutex(T initial)
 
-`src/libraries/z42.threading/src/Mutex.z42:12`
+[`src/libraries/z42.threading/src/Mutex.z42:12`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/Mutex.z42#L12)
 
 用 initial 作为初始被保护值。
 
+<a id="Std.Threading.Mutex<T>.Lock(Func<T,T>)"></a>
 ### void Lock(Func<T,T> body)
 
-`src/libraries/z42.threading/src/Mutex.z42:19`
+[`src/libraries/z42.threading/src/Mutex.z42:19`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/Mutex.z42#L19)
 
 取锁 → 用当前值调用 body → 把 body 的返回值写回 → 放锁。整段对其他线程的 Lock 是原子的。 没有返回值：想把锁内读到的值带出来，在 body 里写静态字段或 1 元数组单元。
 
 ## RwLock
 
-`src/libraries/z42.threading/src/RwLock.z42:8`
+[`src/libraries/z42.threading/src/RwLock.z42:8`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/RwLock.z42#L8)
 
 多读单写的读写锁，同样是「锁包着数据」的回调形态。读者并发跑，写者独占，写者优先。
 
@@ -194,39 +210,46 @@ public class RwLock<T> {
 }
 ```
 
+成员：[`RwLock`](#Std.Threading.RwLock%3CT%3E.ctor(T)) · [`Read`](#Std.Threading.RwLock%3CT%3E.Read(Action%3CT%3E)) · [`Write`](#Std.Threading.RwLock%3CT%3E.Write(Func%3CT,T%3E)) · [`TryRead`](#Std.Threading.RwLock%3CT%3E.TryRead(Action%3CT%3E)) · [`TryWrite`](#Std.Threading.RwLock%3CT%3E.TryWrite(Func%3CT,T%3E))
+
+<a id="Std.Threading.RwLock<T>.ctor(T)"></a>
 ### RwLock(T initial)
 
-`src/libraries/z42.threading/src/RwLock.z42:17`
+[`src/libraries/z42.threading/src/RwLock.z42:17`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/RwLock.z42#L17)
 
 用 initial 作为初始被保护值。
 
+<a id="Std.Threading.RwLock<T>.Read(Action<T>)"></a>
 ### void Read(Action<T> body)
 
-`src/libraries/z42.threading/src/RwLock.z42:25`
+[`src/libraries/z42.threading/src/RwLock.z42:25`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/RwLock.z42#L25)
 
 共享获取：body 拿到当前值的一份快照。body 没有返回值，改不了存储的值。
 
+<a id="Std.Threading.RwLock<T>.Write(Func<T,T>)"></a>
 ### void Write(Func<T,T> body)
 
-`src/libraries/z42.threading/src/RwLock.z42:45`
+[`src/libraries/z42.threading/src/RwLock.z42:45`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/RwLock.z42#L45)
 
 独占获取（挡住所有读者和其他写者）：body 的返回值成为新的存储值。
 
+<a id="Std.Threading.RwLock<T>.TryRead(Action<T>)"></a>
 ### bool TryRead(Action<T> body)
 
-`src/libraries/z42.threading/src/RwLock.z42:63`
+[`src/libraries/z42.threading/src/RwLock.z42:63`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/RwLock.z42#L63)
 
 非阻塞共享获取：拿不到就返回 false 且不调用 body；成功时 body 已跑完、读已释放，返回 true。
 
+<a id="Std.Threading.RwLock<T>.TryWrite(Func<T,T>)"></a>
 ### bool TryWrite(Func<T,T> body)
 
-`src/libraries/z42.threading/src/RwLock.z42:90`
+[`src/libraries/z42.threading/src/RwLock.z42:90`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/RwLock.z42#L90)
 
 非阻塞独占获取：有任何读者或写者占着就返回 false 且不调用 body；成功时返回 true，值已写回。
 
 ## Thread
 
-`src/libraries/z42.threading/src/Thread.z42:65`
+[`src/libraries/z42.threading/src/Thread.z42:65`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/Thread.z42#L65)
 
 OS 线程句柄。只能用静态工厂 Start 创建（构造器私有），句柄本身只带一个 slot id。
 
@@ -239,9 +262,12 @@ public class Thread {
 }
 ```
 
+成员：[`Start`](#Std.Threading.Thread.Start(Action)) · [`Join`](#Std.Threading.Thread.Join()) · [`SlotId`](#Std.Threading.Thread.SlotId()) · [`Sleep`](#Std.Threading.Thread.Sleep(long))
+
+<a id="Std.Threading.Thread.Start(Action)"></a>
 ### static Thread Start(Action action)
 
-`src/libraries/z42.threading/src/Thread.z42:75`
+[`src/libraries/z42.threading/src/Thread.z42:75`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/Thread.z42#L75)
 
 立刻开一条 OS 线程跑 action 并返回句柄。
 
@@ -249,23 +275,26 @@ public class Thread {
 |---|---|
 | `action` | 只能是无参无返回的 Action——不能带参数、不能返回值。 |
 
+<a id="Std.Threading.Thread.Join()"></a>
 ### void Join()
 
-`src/libraries/z42.threading/src/Thread.z42:82`
+[`src/libraries/z42.threading/src/Thread.z42:82`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/Thread.z42#L82)
 
 阻塞直到 worker 结束。
 
 抛 `ThreadException`：worker 抛过异常、或对同一个 Thread 第二次 Join 时。
 
+<a id="Std.Threading.Thread.SlotId()"></a>
 ### long SlotId()
 
-`src/libraries/z42.threading/src/Thread.z42:87`
+[`src/libraries/z42.threading/src/Thread.z42:87`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/Thread.z42#L87)
 
 进程内单调递增的诊断用编号（第一条线程是 1）。不要依赖具体数值。
 
+<a id="Std.Threading.Thread.Sleep(long)"></a>
 ### static void Sleep(long millis)
 
-`src/libraries/z42.threading/src/Thread.z42:93`
+[`src/libraries/z42.threading/src/Thread.z42:93`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/Thread.z42#L93)
 
 阻塞当前线程 millis 毫秒。毫秒精度；负数按 0 处理。
 
@@ -275,7 +304,7 @@ public class Thread {
 
 ## ThreadException
 
-`src/libraries/z42.threading/src/ThreadException.z42:5`
+[`src/libraries/z42.threading/src/ThreadException.z42:5`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/ThreadException.z42#L5)
 
 由 Thread.Join()（以及 Timer.StopAndJoin，它内部就是 Join）抛出的跨线程异常。 worker 的原始异常类型与栈不跨线程——只能 catch (ThreadException)，拿到 Message 原文。
 
@@ -285,9 +314,12 @@ public class ThreadException : Exception {
 }
 ```
 
+成员：[`ThreadException`](#Std.Threading.ThreadException.ctor(string))
+
+<a id="Std.Threading.ThreadException.ctor(string)"></a>
 ### ThreadException(string message)
 
-`src/libraries/z42.threading/src/ThreadException.z42:7`
+[`src/libraries/z42.threading/src/ThreadException.z42:7`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/ThreadException.z42#L7)
 
 
 | 参数 | 说明 |
@@ -296,7 +328,7 @@ public class ThreadException : Exception {
 
 ## Timer
 
-`src/libraries/z42.threading/src/Timer.z42:6`
+[`src/libraries/z42.threading/src/Timer.z42:6`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/Timer.z42#L6)
 
 后台回调调度器，一次性或周期性，跑在自己的 OS 线程上。sealed，只能用两个静态工厂创建。
 
@@ -310,39 +342,46 @@ public sealed class Timer {
 }
 ```
 
+成员：[`StartPeriodic`](#Std.Threading.Timer.StartPeriodic(long,Action)) · [`StartOnce`](#Std.Threading.Timer.StartOnce(long,Action)) · [`Stop`](#Std.Threading.Timer.Stop()) · [`StopAndJoin`](#Std.Threading.Timer.StopAndJoin()) · [`IsRunning`](#Std.Threading.Timer.IsRunning())
+
+<a id="Std.Threading.Timer.StartPeriodic(long,Action)"></a>
 ### static Timer StartPeriodic(long intervalMs, Action callback)
 
-`src/libraries/z42.threading/src/Timer.z42:27`
+[`src/libraries/z42.threading/src/Timer.z42:27`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/Timer.z42#L27)
 
 每 intervalMs 毫秒触发一次 callback，首次触发在 +interval（不是立刻）。一次回调跑完才开始下一轮等待。
 
 抛 `ArgumentException`：intervalMs <= 0 时。
 
+<a id="Std.Threading.Timer.StartOnce(long,Action)"></a>
 ### static Timer StartOnce(long delayMs, Action callback)
 
-`src/libraries/z42.threading/src/Timer.z42:41`
+[`src/libraries/z42.threading/src/Timer.z42:41`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/Timer.z42#L41)
 
 delayMs 之后触发一次 callback 然后自动停。delayMs < 0 抛 ArgumentException；0 合法（尽快触发）。
 
 抛 `ArgumentException`：delayMs < 0 时。
 
+<a id="Std.Threading.Timer.Stop()"></a>
 ### void Stop()
 
-`src/libraries/z42.threading/src/Timer.z42:54`
+[`src/libraries/z42.threading/src/Timer.z42:54`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/Timer.z42#L54)
 
 只发停止信号立刻返回，幂等；正在跑的回调会跑完。
 
+<a id="Std.Threading.Timer.StopAndJoin()"></a>
 ### void StopAndJoin()
 
-`src/libraries/z42.threading/src/Timer.z42:60`
+[`src/libraries/z42.threading/src/Timer.z42:60`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/Timer.z42#L60)
 
 发信号并等后台线程退出。不可重复调用——第二次抛 ThreadException("thread already joined")。
 
 抛 `ThreadException`：第二次调用时。
 
+<a id="Std.Threading.Timer.IsRunning()"></a>
 ### bool IsRunning()
 
-`src/libraries/z42.threading/src/Timer.z42:66`
+[`src/libraries/z42.threading/src/Timer.z42:66`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.threading/src/Timer.z42#L66)
 
 Stop / StopAndJoin 调过之后为 false；StartOnce 触发过之后也是 false。
 

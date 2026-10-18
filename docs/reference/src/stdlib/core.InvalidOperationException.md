@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`
 
-`src/libraries/z42.core/src/Exceptions/InvalidOperationException.z42:4`
+[`src/libraries/z42.core/src/Exceptions/InvalidOperationException.z42:4`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Exceptions/InvalidOperationException.z42#L4)
 
 对象当前状态不允许此操作（如对空 Queue 调 Dequeue、对已 Dispose 对象操作）。
 
@@ -14,9 +14,12 @@ public class InvalidOperationException : Exception {
 }
 ```
 
+成员：[`InvalidOperationException`](#Std.InvalidOperationException.ctor(string))
+
+<a id="Std.InvalidOperationException.ctor(string)"></a>
 ### InvalidOperationException(string message)
 
-`src/libraries/z42.core/src/Exceptions/InvalidOperationException.z42:6`
+[`src/libraries/z42.core/src/Exceptions/InvalidOperationException.z42:6`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Exceptions/InvalidOperationException.z42#L6)
 
 用消息构造。
 

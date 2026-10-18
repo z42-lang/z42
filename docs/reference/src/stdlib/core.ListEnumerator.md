@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std.Collections`
 
-`src/libraries/z42.core/src/Collections/ListEnumerator.z42:10`
+[`src/libraries/z42.core/src/Collections/ListEnumerator.z42:10`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Collections/ListEnumerator.z42#L10)
 
 `List<T>` 的前向迭代器。`[Record] struct` 值类型：无堆分配，对齐 C# `List<T>.Enumerator`。
 
@@ -24,31 +24,38 @@ public struct ListEnumerator<T> : IEnumerator<T> {
 }
 ```
 
+成员：[`_list`](#Std.Collections.ListEnumerator%3CT%3E._list) · [`ListEnumerator`](#Std.Collections.ListEnumerator%3CT%3E.ctor(List%3CT%3E)) · [`MoveNext`](#Std.Collections.ListEnumerator%3CT%3E.MoveNext()) · [`Current`](#Std.Collections.ListEnumerator%3CT%3E.Current) · [`Dispose`](#Std.Collections.ListEnumerator%3CT%3E.Dispose())
+
+<a id="Std.Collections.ListEnumerator<T>._list"></a>
 ### List<T> _list
 
-`src/libraries/z42.core/src/Collections/ListEnumerator.z42:10`
+[`src/libraries/z42.core/src/Collections/ListEnumerator.z42:10`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Collections/ListEnumerator.z42#L10)
 
 
+<a id="Std.Collections.ListEnumerator<T>.ctor(List<T>)"></a>
 ### ListEnumerator(List<T> _list)
 
-`src/libraries/z42.core/src/Collections/ListEnumerator.z42:10`
+[`src/libraries/z42.core/src/Collections/ListEnumerator.z42:10`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Collections/ListEnumerator.z42#L10)
 
 
+<a id="Std.Collections.ListEnumerator<T>.MoveNext()"></a>
 ### bool MoveNext()
 
-`src/libraries/z42.core/src/Collections/ListEnumerator.z42:14`
+[`src/libraries/z42.core/src/Collections/ListEnumerator.z42:14`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Collections/ListEnumerator.z42#L14)
 
 前进到下一个元素；无更多返回 false。
 
+<a id="Std.Collections.ListEnumerator<T>.Current"></a>
 ### T Current { get; }
 
-`src/libraries/z42.core/src/Collections/ListEnumerator.z42:23`
+[`src/libraries/z42.core/src/Collections/ListEnumerator.z42:23`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Collections/ListEnumerator.z42#L23)
 
 当前元素。
 
+<a id="Std.Collections.ListEnumerator<T>.Dispose()"></a>
 ### void Dispose()
 
-`src/libraries/z42.core/src/Collections/ListEnumerator.z42:28`
+[`src/libraries/z42.core/src/Collections/ListEnumerator.z42:28`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Collections/ListEnumerator.z42#L28)
 
 无操作（值类型枚举器，无资源）。
 

@@ -25,7 +25,7 @@
 
 ## Base32
 
-`src/libraries/z42.encoding/src/Base32.z42:9`
+[`src/libraries/z42.encoding/src/Base32.z42:9`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Base32.z42#L9)
 
 Base32 编解码（RFC 4648 §6 标准变体）。
 
@@ -39,21 +39,25 @@ public static class Base32 {
 }
 ```
 
+成员：[`Encode`](#Std.Encoding.Base32.Encode(byte[])) · [`Decode`](#Std.Encoding.Base32.Decode(string))
+
+<a id="Std.Encoding.Base32.Encode(byte[])"></a>
 ### static string Encode(byte[] bytes)
 
-`src/libraries/z42.encoding/src/Base32.z42:13`
+[`src/libraries/z42.encoding/src/Base32.z42:13`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Base32.z42#L13)
 
 把字节编码为 Base32 字符串（字母表 `A-Z2-7`，带 `=` padding）。
 
+<a id="Std.Encoding.Base32.Decode(string)"></a>
 ### static byte[] Decode(string s)
 
-`src/libraries/z42.encoding/src/Base32.z42:78`
+[`src/libraries/z42.encoding/src/Base32.z42:78`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Base32.z42#L78)
 
 把 Base32 字符串解码为字节；只接受大写，严格校验。
 
 ## Base32Crockford
 
-`src/libraries/z42.encoding/src/Base32Crockford.z42:9`
+[`src/libraries/z42.encoding/src/Base32Crockford.z42:9`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Base32Crockford.z42#L9)
 
 Crockford Base32 编解码。
 
@@ -67,21 +71,25 @@ public static class Base32Crockford {
 }
 ```
 
+成员：[`Encode`](#Std.Encoding.Base32Crockford.Encode(byte[])) · [`Decode`](#Std.Encoding.Base32Crockford.Decode(string))
+
+<a id="Std.Encoding.Base32Crockford.Encode(byte[])"></a>
 ### static string Encode(byte[] bytes)
 
-`src/libraries/z42.encoding/src/Base32Crockford.z42:13`
+[`src/libraries/z42.encoding/src/Base32Crockford.z42:13`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Base32Crockford.z42#L13)
 
 把字节编码为 Crockford Base32 字符串（无 padding）。
 
+<a id="Std.Encoding.Base32Crockford.Decode(string)"></a>
 ### static byte[] Decode(string s)
 
-`src/libraries/z42.encoding/src/Base32Crockford.z42:72`
+[`src/libraries/z42.encoding/src/Base32Crockford.z42:72`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Base32Crockford.z42#L72)
 
 解码 Crockford Base32 字符串；大小写不敏感，`-` 丢弃，`I`/`L`→`1`、`O`→`0`。
 
 ## Base32Hex
 
-`src/libraries/z42.encoding/src/Base32Hex.z42:9`
+[`src/libraries/z42.encoding/src/Base32Hex.z42:9`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Base32Hex.z42#L9)
 
 Base32Hex 编解码（RFC 4648 §7）。
 
@@ -95,21 +103,25 @@ public static class Base32Hex {
 }
 ```
 
+成员：[`Encode`](#Std.Encoding.Base32Hex.Encode(byte[])) · [`Decode`](#Std.Encoding.Base32Hex.Decode(string))
+
+<a id="Std.Encoding.Base32Hex.Encode(byte[])"></a>
 ### static string Encode(byte[] bytes)
 
-`src/libraries/z42.encoding/src/Base32Hex.z42:13`
+[`src/libraries/z42.encoding/src/Base32Hex.z42:13`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Base32Hex.z42#L13)
 
 把字节编码为 Base32Hex 字符串（字母表 `0-9A-V`，带 `=` padding）。
 
+<a id="Std.Encoding.Base32Hex.Decode(string)"></a>
 ### static byte[] Decode(string s)
 
-`src/libraries/z42.encoding/src/Base32Hex.z42:70`
+[`src/libraries/z42.encoding/src/Base32Hex.z42:70`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Base32Hex.z42#L70)
 
 把 Base32Hex 字符串解码为字节；只接受大写，严格校验。
 
 ## Base64
 
-`src/libraries/z42.encoding/src/Base64.z42:8`
+[`src/libraries/z42.encoding/src/Base64.z42:8`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Base64.z42#L8)
 
 Base64 编解码（RFC 4648 §4 标准变体）。
 
@@ -123,21 +135,25 @@ public static class Base64 {
 }
 ```
 
+成员：[`Encode`](#Std.Encoding.Base64.Encode(byte[])) · [`Decode`](#Std.Encoding.Base64.Decode(string))
+
+<a id="Std.Encoding.Base64.Encode(byte[])"></a>
 ### static string Encode(byte[] bytes)
 
-`src/libraries/z42.encoding/src/Base64.z42:13`
+[`src/libraries/z42.encoding/src/Base64.z42:13`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Base64.z42#L13)
 
 把字节编码为标准 Base64 字符串（带 `=` padding）。
 
+<a id="Std.Encoding.Base64.Decode(string)"></a>
 ### static byte[] Decode(string s)
 
-`src/libraries/z42.encoding/src/Base64.z42:53`
+[`src/libraries/z42.encoding/src/Base64.z42:53`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Base64.z42#L53)
 
 把标准 Base64 字符串解码为字节，严格校验。
 
 ## Base64Url
 
-`src/libraries/z42.encoding/src/Base64Url.z42:9`
+[`src/libraries/z42.encoding/src/Base64Url.z42:9`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Base64Url.z42#L9)
 
 URL 与文件名安全 Base64（RFC 4648 §5）。
 
@@ -151,21 +167,25 @@ public static class Base64Url {
 }
 ```
 
+成员：[`Encode`](#Std.Encoding.Base64Url.Encode(byte[])) · [`Decode`](#Std.Encoding.Base64Url.Decode(string))
+
+<a id="Std.Encoding.Base64Url.Encode(byte[])"></a>
 ### static string Encode(byte[] bytes)
 
-`src/libraries/z42.encoding/src/Base64Url.z42:12`
+[`src/libraries/z42.encoding/src/Base64Url.z42:12`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Base64Url.z42#L12)
 
 用 RFC 4648 §5 字母表（`+/` → `-_`）编码字节，输出不带 `=` padding。
 
+<a id="Std.Encoding.Base64Url.Decode(string)"></a>
 ### static byte[] Decode(string s)
 
-`src/libraries/z42.encoding/src/Base64Url.z42:28`
+[`src/libraries/z42.encoding/src/Base64Url.z42:28`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Base64Url.z42#L28)
 
 解码 Base64URL 字符串；接受带或不带 padding，遇到 `+` / `/` 报错并提示改用 `Base64`。
 
 ## Encoding
 
-`src/libraries/z42.encoding/src/Encoding.z42:24`
+[`src/libraries/z42.encoding/src/Encoding.z42:24`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Encoding.z42#L24)
 
 实例编码门面；当前只有 UTF-8 一种实现。
 
@@ -179,39 +199,46 @@ public class Encoding {
 }
 ```
 
+成员：[`Encoding`](#Std.Encoding.Encoding.ctor(int)) · [`GetUtf8`](#Std.Encoding.Encoding.GetUtf8()) · [`GetBytes`](#Std.Encoding.Encoding.GetBytes(string)) · [`GetString`](#Std.Encoding.Encoding.GetString(byte[])) · [`GetString`](#Std.Encoding.Encoding.GetString(byte[],int,int))
+
+<a id="Std.Encoding.Encoding.ctor(int)"></a>
 ### Encoding(int kind)
 
-`src/libraries/z42.encoding/src/Encoding.z42:30`
+[`src/libraries/z42.encoding/src/Encoding.z42:30`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Encoding.z42#L30)
 
 构造编码实例；`kind` 参数当前不影响行为（始终 UTF-8），请用 `Encoding.GetUtf8()` 而非手动 new。
 
+<a id="Std.Encoding.Encoding.GetUtf8()"></a>
 ### static Encoding GetUtf8()
 
-`src/libraries/z42.encoding/src/Encoding.z42:37`
+[`src/libraries/z42.encoding/src/Encoding.z42:37`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Encoding.z42#L37)
 
 返回规范的 UTF-8 编码实例；同一 VM 生命周期内多次调用返回同一实例。
 
+<a id="Std.Encoding.Encoding.GetBytes(string)"></a>
 ### byte[] GetBytes(string s)
 
-`src/libraries/z42.encoding/src/Encoding.z42:44`
+[`src/libraries/z42.encoding/src/Encoding.z42:44`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Encoding.z42#L44)
 
 按当前编码把 `s` 编码为字节；等价于 `Utf8.GetBytes(s)`。
 
+<a id="Std.Encoding.Encoding.GetString(byte[])"></a>
 ### string GetString(byte[] bytes)
 
-`src/libraries/z42.encoding/src/Encoding.z42:49`
+[`src/libraries/z42.encoding/src/Encoding.z42:49`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Encoding.z42#L49)
 
 按当前编码把 `bytes` 解码为字符串，严格校验；等价于 `Utf8.GetString(bytes)`。
 
+<a id="Std.Encoding.Encoding.GetString(byte[],int,int)"></a>
 ### string GetString(byte[] bytes, int offset, int count)
 
-`src/libraries/z42.encoding/src/Encoding.z42:54`
+[`src/libraries/z42.encoding/src/Encoding.z42:54`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Encoding.z42#L54)
 
 解码切片 `bytes[offset..offset+count]`；`count == 0` 返回 `""`，越界抛 `ArgumentException`。
 
 ## EncodingSingletons
 
-`src/libraries/z42.encoding/src/Encoding.z42:73`
+[`src/libraries/z42.encoding/src/Encoding.z42:73`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Encoding.z42#L73)
 
 通过静态缓存实现懒初始化的 UTF-8 单例持有类。
 
@@ -221,15 +248,18 @@ public static class EncodingSingletons {
 }
 ```
 
+成员：[`Utf8`](#Std.Encoding.EncodingSingletons.Utf8())
+
+<a id="Std.Encoding.EncodingSingletons.Utf8()"></a>
 ### static Encoding Utf8()
 
-`src/libraries/z42.encoding/src/Encoding.z42:77`
+[`src/libraries/z42.encoding/src/Encoding.z42:77`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Encoding.z42#L77)
 
 返回缓存的 UTF-8 编码实例（懒初始化）。
 
 ## Hex
 
-`src/libraries/z42.encoding/src/Hex.z42:8`
+[`src/libraries/z42.encoding/src/Hex.z42:8`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Hex.z42#L8)
 
 Hex 编解码。
 
@@ -244,27 +274,32 @@ public static class Hex {
 }
 ```
 
+成员：[`Encode`](#Std.Encoding.Hex.Encode(byte[])) · [`EncodeUpper`](#Std.Encoding.Hex.EncodeUpper(byte[])) · [`Decode`](#Std.Encoding.Hex.Decode(string))
+
+<a id="Std.Encoding.Hex.Encode(byte[])"></a>
 ### static string Encode(byte[] bytes)
 
-`src/libraries/z42.encoding/src/Hex.z42:13`
+[`src/libraries/z42.encoding/src/Hex.z42:13`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Hex.z42#L13)
 
 把字节编码为小写十六进制字符串。
 
+<a id="Std.Encoding.Hex.EncodeUpper(byte[])"></a>
 ### static string EncodeUpper(byte[] bytes)
 
-`src/libraries/z42.encoding/src/Hex.z42:18`
+[`src/libraries/z42.encoding/src/Hex.z42:18`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Hex.z42#L18)
 
 把字节编码为大写十六进制字符串。
 
+<a id="Std.Encoding.Hex.Decode(string)"></a>
 ### static byte[] Decode(string hex)
 
-`src/libraries/z42.encoding/src/Hex.z42:36`
+[`src/libraries/z42.encoding/src/Hex.z42:36`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Hex.z42#L36)
 
 把十六进制字符串解码为字节；接受混合大小写，严格校验。
 
 ## Utf16
 
-`src/libraries/z42.encoding/src/Utf16.z42:10`
+[`src/libraries/z42.encoding/src/Utf16.z42:10`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Utf16.z42#L10)
 
 UTF-16 编解码（RFC 2781）。
 
@@ -282,33 +317,39 @@ public static class Utf16 {
 }
 ```
 
+成员：[`GetBytesLE`](#Std.Encoding.Utf16.GetBytesLE(string)) · [`GetBytesBE`](#Std.Encoding.Utf16.GetBytesBE(string)) · [`GetStringLE`](#Std.Encoding.Utf16.GetStringLE(byte[])) · [`GetStringBE`](#Std.Encoding.Utf16.GetStringBE(byte[]))
+
+<a id="Std.Encoding.Utf16.GetBytesLE(string)"></a>
 ### static byte[] GetBytesLE(string s)
 
-`src/libraries/z42.encoding/src/Utf16.z42:14`
+[`src/libraries/z42.encoding/src/Utf16.z42:14`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Utf16.z42#L14)
 
 以小端字节序把 `s` 编码为 UTF-16 字节。
 
+<a id="Std.Encoding.Utf16.GetBytesBE(string)"></a>
 ### static byte[] GetBytesBE(string s)
 
-`src/libraries/z42.encoding/src/Utf16.z42:16`
+[`src/libraries/z42.encoding/src/Utf16.z42:16`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Utf16.z42#L16)
 
 以大端字节序把 `s` 编码为 UTF-16 字节。
 
+<a id="Std.Encoding.Utf16.GetStringLE(byte[])"></a>
 ### static string GetStringLE(byte[] bytes)
 
-`src/libraries/z42.encoding/src/Utf16.z42:71`
+[`src/libraries/z42.encoding/src/Utf16.z42:71`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Utf16.z42#L71)
 
 以小端字节序把 UTF-16 字节解码为字符串。
 
+<a id="Std.Encoding.Utf16.GetStringBE(byte[])"></a>
 ### static string GetStringBE(byte[] bytes)
 
-`src/libraries/z42.encoding/src/Utf16.z42:73`
+[`src/libraries/z42.encoding/src/Utf16.z42:73`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Utf16.z42#L73)
 
 以大端字节序把 UTF-16 字节解码为字符串。
 
 ## Utf32
 
-`src/libraries/z42.encoding/src/Utf32.z42:9`
+[`src/libraries/z42.encoding/src/Utf32.z42:9`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Utf32.z42#L9)
 
 UTF-32 编解码（ISO/IEC 10646）。
 
@@ -325,33 +366,39 @@ public static class Utf32 {
 }
 ```
 
+成员：[`GetBytesLE`](#Std.Encoding.Utf32.GetBytesLE(string)) · [`GetBytesBE`](#Std.Encoding.Utf32.GetBytesBE(string)) · [`GetStringLE`](#Std.Encoding.Utf32.GetStringLE(byte[])) · [`GetStringBE`](#Std.Encoding.Utf32.GetStringBE(byte[]))
+
+<a id="Std.Encoding.Utf32.GetBytesLE(string)"></a>
 ### static byte[] GetBytesLE(string s)
 
-`src/libraries/z42.encoding/src/Utf32.z42:13`
+[`src/libraries/z42.encoding/src/Utf32.z42:13`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Utf32.z42#L13)
 
 以小端字节序把 `s` 编码为 UTF-32 字节。
 
+<a id="Std.Encoding.Utf32.GetBytesBE(string)"></a>
 ### static byte[] GetBytesBE(string s)
 
-`src/libraries/z42.encoding/src/Utf32.z42:15`
+[`src/libraries/z42.encoding/src/Utf32.z42:15`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Utf32.z42#L15)
 
 以大端字节序把 `s` 编码为 UTF-32 字节。
 
+<a id="Std.Encoding.Utf32.GetStringLE(byte[])"></a>
 ### static string GetStringLE(byte[] bytes)
 
-`src/libraries/z42.encoding/src/Utf32.z42:55`
+[`src/libraries/z42.encoding/src/Utf32.z42:55`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Utf32.z42#L55)
 
 以小端字节序把 UTF-32 字节解码为字符串。
 
+<a id="Std.Encoding.Utf32.GetStringBE(byte[])"></a>
 ### static string GetStringBE(byte[] bytes)
 
-`src/libraries/z42.encoding/src/Utf32.z42:57`
+[`src/libraries/z42.encoding/src/Utf32.z42:57`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Utf32.z42#L57)
 
 以大端字节序把 UTF-32 字节解码为字符串。
 
 ## Utf8
 
-`src/libraries/z42.encoding/src/Utf8.z42:8`
+[`src/libraries/z42.encoding/src/Utf8.z42:8`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Utf8.z42#L8)
 
 UTF-8 编解码：`string` ↔ `byte[]` 双向显式转换。
 
@@ -365,15 +412,19 @@ public static class Utf8 {
 }
 ```
 
+成员：[`GetBytes`](#Std.Encoding.Utf8.GetBytes(string)) · [`GetString`](#Std.Encoding.Utf8.GetString(byte[]))
+
+<a id="Std.Encoding.Utf8.GetBytes(string)"></a>
 ### static byte[] GetBytes(string s)
 
-`src/libraries/z42.encoding/src/Utf8.z42:10`
+[`src/libraries/z42.encoding/src/Utf8.z42:10`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Utf8.z42#L10)
 
 把字符串编码为 UTF-8 字节。
 
+<a id="Std.Encoding.Utf8.GetString(byte[])"></a>
 ### static string GetString(byte[] bytes)
 
-`src/libraries/z42.encoding/src/Utf8.z42:52`
+[`src/libraries/z42.encoding/src/Utf8.z42:52`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Utf8.z42#L52)
 
 把 UTF-8 字节解码为字符串，严格校验。
 

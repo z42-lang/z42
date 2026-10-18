@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`
 
-`src/libraries/z42.core/src/Attribute.z42:10`
+[`src/libraries/z42.core/src/Attribute.z42:10`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Attribute.z42#L10)
 
 所有用户自定义 attribute 的基类。
 

@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`
 
-`src/libraries/z42.core/src/Delegates/Delegates.z42:29`
+[`src/libraries/z42.core/src/Delegates/Delegates.z42:29`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/Delegates.z42#L29)
 
 单参数、返回 bool。
 

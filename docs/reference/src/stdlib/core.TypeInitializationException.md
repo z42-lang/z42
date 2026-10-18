@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`
 
-`src/libraries/z42.core/src/Exceptions/TypeInitializationException.z42:7`
+[`src/libraries/z42.core/src/Exceptions/TypeInitializationException.z42:7`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Exceptions/TypeInitializationException.z42#L7)
 
 类型的静态构造器抛出了异常，对标 C# `System.TypeInitializationException`。
 
@@ -17,9 +17,12 @@ public class TypeInitializationException : Exception {
 }
 ```
 
+成员：[`TypeInitializationException`](#Std.TypeInitializationException.ctor(string))
+
+<a id="Std.TypeInitializationException.ctor(string)"></a>
 ### TypeInitializationException(string message)
 
-`src/libraries/z42.core/src/Exceptions/TypeInitializationException.z42:9`
+[`src/libraries/z42.core/src/Exceptions/TypeInitializationException.z42:9`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Exceptions/TypeInitializationException.z42#L9)
 
 用消息构造。
 

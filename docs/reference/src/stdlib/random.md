@@ -23,7 +23,7 @@
 
 ## Random
 
-`src/libraries/z42.random/src/Random.z42:24`
+[`src/libraries/z42.random/src/Random.z42:24`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.random/src/Random.z42#L24)
 
 PCG-XSH-RR 伪随机数发生器。
 
@@ -48,21 +48,26 @@ public class Random {
 }
 ```
 
+成员：[`Random`](#Std.Random.Random.ctor()) · [`Random`](#Std.Random.Random.ctor(long)) · [`Random`](#Std.Random.Random.ctor(long,long)) · [`NextLong`](#Std.Random.Random.NextLong()) · [`NextInt`](#Std.Random.Random.NextInt()) · [`NextLongRange`](#Std.Random.Random.NextLongRange(long,long)) · [`NextIntRange`](#Std.Random.Random.NextIntRange(int,int)) · [`NextDouble`](#Std.Random.Random.NextDouble()) · [`NextBool`](#Std.Random.Random.NextBool()) · [`ShuffleInt`](#Std.Random.Random.ShuffleInt(int[])) · [`ShuffleLong`](#Std.Random.Random.ShuffleLong(long[])) · [`ShuffleString`](#Std.Random.Random.ShuffleString(string[])) · [`SampleInt`](#Std.Random.Random.SampleInt(int[],int)) · [`SampleString`](#Std.Random.Random.SampleString(string[],int)) · [`NextGaussian`](#Std.Random.Random.NextGaussian(double,double)) · [`NextExponential`](#Std.Random.Random.NextExponential(double))
+
+<a id="Std.Random.Random.ctor()"></a>
 ### Random()
 
-`src/libraries/z42.random/src/Random.z42:32`
+[`src/libraries/z42.random/src/Random.z42:32`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.random/src/Random.z42#L32)
 
 用墙钟时间作 seed。每次运行结果不同，**不可复现**。
 
+<a id="Std.Random.Random.ctor(long)"></a>
 ### Random(long seed)
 
-`src/libraries/z42.random/src/Random.z42:39`
+[`src/libraries/z42.random/src/Random.z42:39`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.random/src/Random.z42#L39)
 
 固定 seed：相同 seed ⇒ 逐位相同的序列。
 
+<a id="Std.Random.Random.ctor(long,long)"></a>
 ### Random(long seed, long streamId)
 
-`src/libraries/z42.random/src/Random.z42:47`
+[`src/libraries/z42.random/src/Random.z42:47`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.random/src/Random.z42#L47)
 
 固定 seed 并选一条独立的流。
 
@@ -72,21 +77,24 @@ seed 相同、`streamId` 不同的两个实例，产生的序列互不重叠。
 |---|---|
 | `streamId` | 内部取 `streamId | 1` 作为 PCG 增量 |
 
+<a id="Std.Random.Random.NextLong()"></a>
 ### long NextLong()
 
-`src/libraries/z42.random/src/Random.z42:85`
+[`src/libraries/z42.random/src/Random.z42:85`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.random/src/Random.z42#L85)
 
 返回整个 i64 范围（含负数）的随机数。
 
+<a id="Std.Random.Random.NextInt()"></a>
 ### int NextInt()
 
-`src/libraries/z42.random/src/Random.z42:92`
+[`src/libraries/z42.random/src/Random.z42:92`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.random/src/Random.z42#L92)
 
 返回整个 i32 范围（含负数）的随机数。
 
+<a id="Std.Random.Random.NextLongRange(long,long)"></a>
 ### long NextLongRange(long min, long max)
 
-`src/libraries/z42.random/src/Random.z42:107`
+[`src/libraries/z42.random/src/Random.z42:107`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.random/src/Random.z42#L107)
 
 返回 `[min, max)` 内的整数。
 
@@ -94,9 +102,10 @@ seed 相同、`streamId` 不同的两个实例，产生的序列互不重叠。
 
 抛 `ArgumentException`：`max <= min`
 
+<a id="Std.Random.Random.NextIntRange(int,int)"></a>
 ### int NextIntRange(int min, int max)
 
-`src/libraries/z42.random/src/Random.z42:125`
+[`src/libraries/z42.random/src/Random.z42:125`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.random/src/Random.z42#L125)
 
 返回 `[min, max)` 内的整数。
 
@@ -108,61 +117,70 @@ seed 相同、`streamId` 不同的两个实例，产生的序列互不重叠。
 new Random(42).NextIntRange(5, 6)    // => 5
 ```
 
+<a id="Std.Random.Random.NextDouble()"></a>
 ### double NextDouble()
 
-`src/libraries/z42.random/src/Random.z42:136`
+[`src/libraries/z42.random/src/Random.z42:136`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.random/src/Random.z42#L136)
 
 返回 `[0.0, 1.0)` 内的随机数，取 53 位尾数精度。
 
+<a id="Std.Random.Random.NextBool()"></a>
 ### bool NextBool()
 
-`src/libraries/z42.random/src/Random.z42:147`
+[`src/libraries/z42.random/src/Random.z42:147`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.random/src/Random.z42#L147)
 
 各 1/2 概率返回 true。
 
+<a id="Std.Random.Random.ShuffleInt(int[])"></a>
 ### void ShuffleInt(int[] arr)
 
-`src/libraries/z42.random/src/Random.z42:155`
+[`src/libraries/z42.random/src/Random.z42:155`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.random/src/Random.z42#L155)
 
 原地 Fisher–Yates 洗牌。长度 0 / 1 是 no-op。
 
+<a id="Std.Random.Random.ShuffleLong(long[])"></a>
 ### void ShuffleLong(long[] arr)
 
-`src/libraries/z42.random/src/Random.z42:168`
+[`src/libraries/z42.random/src/Random.z42:168`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.random/src/Random.z42#L168)
 
 原地 Fisher–Yates 洗牌。长度 0 / 1 是 no-op。
 
+<a id="Std.Random.Random.ShuffleString(string[])"></a>
 ### void ShuffleString(string[] arr)
 
-`src/libraries/z42.random/src/Random.z42:181`
+[`src/libraries/z42.random/src/Random.z42:181`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.random/src/Random.z42#L181)
 
 原地 Fisher–Yates 洗牌。长度 0 / 1 是 no-op。
 
+<a id="Std.Random.Random.SampleInt(int[],int)"></a>
 ### int[] SampleInt(int[] arr, int k)
 
-`src/libraries/z42.random/src/Random.z42:195`
+[`src/libraries/z42.random/src/Random.z42:195`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.random/src/Random.z42#L195)
 
 不放回抽 `k` 个，不改动 `arr`，返回新数组。结果本身已是随机顺序。
 
 抛 `ArgumentException`：`k < 0` 或 `k > arr.Length`
 
+<a id="Std.Random.Random.SampleString(string[],int)"></a>
 ### string[] SampleString(string[] arr, int k)
 
-`src/libraries/z42.random/src/Random.z42:221`
+[`src/libraries/z42.random/src/Random.z42:221`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.random/src/Random.z42#L221)
 
 不放回抽 `k` 个，不改动 `arr`，返回新数组。结果本身已是随机顺序。
 
 抛 `ArgumentException`：`k < 0` 或 `k > arr.Length`
 
+<a id="Std.Random.Random.NextGaussian(double,double)"></a>
 ### double NextGaussian(double mean, double stddev)
 
-`src/libraries/z42.random/src/Random.z42:243`
+[`src/libraries/z42.random/src/Random.z42:243`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.random/src/Random.z42#L243)
 
 正态分布采样（Box–Muller）。一对均匀数只产出一个正态数。
 
+<a id="Std.Random.Random.NextExponential(double)"></a>
 ### double NextExponential(double lambda)
 
-`src/libraries/z42.random/src/Random.z42:255`
+[`src/libraries/z42.random/src/Random.z42:255`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.random/src/Random.z42#L255)
 
 指数分布采样，`lambda` 是速率参数（均值 = `1 / lambda`）。
 

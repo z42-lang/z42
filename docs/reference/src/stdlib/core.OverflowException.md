@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`
 
-`src/libraries/z42.core/src/Exceptions/OverflowException.z42:5`
+[`src/libraries/z42.core/src/Exceptions/OverflowException.z42:5`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Exceptions/OverflowException.z42#L5)
 
 数值运算结果超出目标类型容量（如 `BigInt.ToInt32()` 超出 i32、`Int32.Parse` 数字过大、 checked arithmetic 溢出）。镜像 .NET BCL `System.OverflowException`。
 
@@ -14,9 +14,12 @@ public class OverflowException : ArithmeticException {
 }
 ```
 
+成员：[`OverflowException`](#Std.OverflowException.ctor(string))
+
+<a id="Std.OverflowException.ctor(string)"></a>
 ### OverflowException(string message)
 
-`src/libraries/z42.core/src/Exceptions/OverflowException.z42:7`
+[`src/libraries/z42.core/src/Exceptions/OverflowException.z42:7`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Exceptions/OverflowException.z42#L7)
 
 用消息构造。
 

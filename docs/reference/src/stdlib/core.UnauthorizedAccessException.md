@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`
 
-`src/libraries/z42.core/src/Exceptions/UnauthorizedAccessException.z42:4`
+[`src/libraries/z42.core/src/Exceptions/UnauthorizedAccessException.z42:4`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Exceptions/UnauthorizedAccessException.z42#L4)
 
 操作系统拒绝访问（文件 / 目录权限不足）。镜像 .NET `System.UnauthorizedAccessException`。
 
@@ -14,9 +14,12 @@ public class UnauthorizedAccessException : Exception {
 }
 ```
 
+成员：[`UnauthorizedAccessException`](#Std.UnauthorizedAccessException.ctor(string))
+
+<a id="Std.UnauthorizedAccessException.ctor(string)"></a>
 ### UnauthorizedAccessException(string message)
 
-`src/libraries/z42.core/src/Exceptions/UnauthorizedAccessException.z42:6`
+[`src/libraries/z42.core/src/Exceptions/UnauthorizedAccessException.z42:6`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Exceptions/UnauthorizedAccessException.z42#L6)
 
 用消息构造。
 

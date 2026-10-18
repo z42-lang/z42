@@ -63,14 +63,20 @@ string _summaryEnd(string shortName)   { return "<!-- z42-doc:summary:" + shortN
 string _summaryBlock(string shortName, DocIndex ix) {
     string s = _summaryBegin(shortName) + "\n";
     s = s + "- [类型总览](stdlib/" + shortName + ".md)\n";
+    // 命名空间一层草稿章（mdBook 草稿章无目标页、只作可展开的分组），类型挂其下；
+    // 配 book.toml 的 [output.html.fold]（level=0：默认收起、当前页祖先自动展开）。
+    // 成员级不进侧边栏——mdBook SUMMARY 不支持锚点条目；成员导航在类型页内（成员索引行 + <a id>）。
     string[] nss = DocMd.Namespaces(ix);
     int i = 0;
     while (i < nss.Length) {
         TypeGroup[] groups = DocMd.TopLevelTypeGroups(ix, nss[i]);
-        int j = 0;
-        while (j < groups.Length) {
-            s = s + "  - [" + groups[j].Name + "](stdlib/" + shortName + "." + groups[j].Name + ".md)\n";
-            j = j + 1;
+        if (groups.Length > 0) {
+            s = s + "    - [" + nss[i] + "]()\n";
+            int j = 0;
+            while (j < groups.Length) {
+                s = s + "        - [" + groups[j].Name + "](stdlib/" + shortName + "." + groups[j].Name + ".md)\n";
+                j = j + 1;
+            }
         }
         i = i + 1;
     }
@@ -102,11 +108,20 @@ int _syncSummary(string root, string shortName, DocIndex ix, bool check) {
     return 0;
 }
 
+// 生成页源码链接的基址：取 book.toml 的 git-repository-url 口径（blob/main）。
+// Z42_DOC_SOURCE_BASE 可覆盖（本地预览 / 镜像）。gen 与 check 同值，否则漂移门禁误报。
+string _docSourceBase() {
+    string env = Environment.GetEnvironmentVariable("Z42_DOC_SOURCE_BASE", "");
+    if (env.Length > 0) { return env; }
+    return "https://github.com/z42-lang/z42/blob/main";
+}
+
 // 生成全部已迁移包（写了 `//!`）的 reference 页到 docs/reference/src/stdlib/。返回写了几个。
 int _docGen() {
     string root = _root();
     string outDir = Path.Join(root, "docs/reference/src/stdlib");
     string[] libs = _stdlibList(root);
+    DocMd.SourceBase = _docSourceBase();
     int n = 0;
     int i = 0;
     while (i < libs.Length) {
@@ -137,6 +152,7 @@ int _checkDocsApi() {
     string root = _root();
     string outDir = Path.Join(root, "docs/reference/src/stdlib");
     string[] libs = _stdlibList(root);
+    DocMd.SourceBase = _docSourceBase();
     string failed = "";
     int i = 0;
     while (i < libs.Length) {

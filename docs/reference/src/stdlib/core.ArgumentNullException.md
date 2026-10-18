@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`
 
-`src/libraries/z42.core/src/Exceptions/ArgumentNullException.z42:4`
+[`src/libraries/z42.core/src/Exceptions/ArgumentNullException.z42:4`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Exceptions/ArgumentNullException.z42#L4)
 
 参数为 null，但方法要求非空。继承 ArgumentException（C# BCL 对齐）。
 
@@ -14,9 +14,12 @@ public class ArgumentNullException : ArgumentException {
 }
 ```
 
+成员：[`ArgumentNullException`](#Std.ArgumentNullException.ctor(string))
+
+<a id="Std.ArgumentNullException.ctor(string)"></a>
 ### ArgumentNullException(string message)
 
-`src/libraries/z42.core/src/Exceptions/ArgumentNullException.z42:6`
+[`src/libraries/z42.core/src/Exceptions/ArgumentNullException.z42:6`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Exceptions/ArgumentNullException.z42#L6)
 
 用消息构造。
 

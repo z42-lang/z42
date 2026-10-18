@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`
 
-`src/libraries/z42.core/src/Protocols/INumber.z42:12`
+[`src/libraries/z42.core/src/Protocols/INumber.z42:12`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Protocols/INumber.z42#L12)
 
 数值接口（对齐 C# 11 static abstract）：声明 5 个二元算术运算符为 `static abstract`。
 
@@ -26,33 +26,40 @@ public interface INumber {
 }
 ```
 
+成员：[`op_Add`](#Std.INumber.op_Add(Self,Self)) · [`op_Subtract`](#Std.INumber.op_Subtract(Self,Self)) · [`op_Multiply`](#Std.INumber.op_Multiply(Self,Self)) · [`op_Divide`](#Std.INumber.op_Divide(Self,Self)) · [`op_Modulo`](#Std.INumber.op_Modulo(Self,Self))
+
+<a id="Std.INumber.op_Add(Self,Self)"></a>
 ### static abstract Self op_Add(Self a, Self b)
 
-`src/libraries/z42.core/src/Protocols/INumber.z42:14`
+[`src/libraries/z42.core/src/Protocols/INumber.z42:14`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Protocols/INumber.z42#L14)
 
 加法。
 
+<a id="Std.INumber.op_Subtract(Self,Self)"></a>
 ### static abstract Self op_Subtract(Self a, Self b)
 
-`src/libraries/z42.core/src/Protocols/INumber.z42:16`
+[`src/libraries/z42.core/src/Protocols/INumber.z42:16`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Protocols/INumber.z42#L16)
 
 减法。
 
+<a id="Std.INumber.op_Multiply(Self,Self)"></a>
 ### static abstract Self op_Multiply(Self a, Self b)
 
-`src/libraries/z42.core/src/Protocols/INumber.z42:18`
+[`src/libraries/z42.core/src/Protocols/INumber.z42:18`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Protocols/INumber.z42#L18)
 
 乘法。
 
+<a id="Std.INumber.op_Divide(Self,Self)"></a>
 ### static abstract Self op_Divide(Self a, Self b)
 
-`src/libraries/z42.core/src/Protocols/INumber.z42:20`
+[`src/libraries/z42.core/src/Protocols/INumber.z42:20`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Protocols/INumber.z42#L20)
 
 除法。
 
+<a id="Std.INumber.op_Modulo(Self,Self)"></a>
 ### static abstract Self op_Modulo(Self a, Self b)
 
-`src/libraries/z42.core/src/Protocols/INumber.z42:22`
+[`src/libraries/z42.core/src/Protocols/INumber.z42:22`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Protocols/INumber.z42#L22)
 
 取模。
 

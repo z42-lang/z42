@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`
 
-`src/libraries/z42.core/src/Protocols/IEqualityComparer.z42:13`
+[`src/libraries/z42.core/src/Protocols/IEqualityComparer.z42:13`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Protocols/IEqualityComparer.z42#L13)
 
 外部相等性 + 哈希契约：比较器对外部对象判等并算哈希。
 
@@ -24,15 +24,19 @@ public interface IEqualityComparer<T> {
 }
 ```
 
+成员：[`Equals`](#Std.IEqualityComparer%3CT%3E.Equals(T,T)) · [`GetHashCode`](#Std.IEqualityComparer%3CT%3E.GetHashCode(T))
+
+<a id="Std.IEqualityComparer<T>.Equals(T,T)"></a>
 ### bool Equals(T x, T y)
 
-`src/libraries/z42.core/src/Protocols/IEqualityComparer.z42:15`
+[`src/libraries/z42.core/src/Protocols/IEqualityComparer.z42:15`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Protocols/IEqualityComparer.z42#L15)
 
 比较 x 与 y 是否相等。
 
+<a id="Std.IEqualityComparer<T>.GetHashCode(T)"></a>
 ### int GetHashCode(T obj)
 
-`src/libraries/z42.core/src/Protocols/IEqualityComparer.z42:17`
+[`src/libraries/z42.core/src/Protocols/IEqualityComparer.z42:17`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Protocols/IEqualityComparer.z42#L17)
 
 返回 obj 的哈希码，与 Equals 保持一致。
 

@@ -74,6 +74,46 @@ void test_private_members_excluded() {
 }
 
 [Test]
+void test_source_links_and_member_anchors() {
+    // SourceBase 非空：位置行变链接（显示文本不变，目标 <base>/<file>#L<line>）。
+    // 成员节带 <a id="DocId"> 锚点；总览块后跟成员索引行（锚点链接，页内直达成员小节）。
+    DocIndex ix = _index(
+        "namespace Std.Random;\n"
+        + "/// 发生器。\n"
+        + "public class Random {\n"
+        + "    /// 返回 [min, max) 内的整数。\n"
+        + "    public int NextIntRange(int min, int max) { return min; }\n"
+        + "}\n");
+
+    DocMd.SourceBase = "https://github.com/z42-lang/z42/blob/main";
+    string page = DocMd.PackagePage("z42.random", "src", ix);
+    Assert.Contains("[`Random.z42:5`](https://github.com/z42-lang/z42/blob/main/Random.z42#L5)", page);
+    Assert.Contains("<a id=\"Std.Random.Random.NextIntRange(int,int)\"></a>", page);
+    Assert.Contains("成员：[`NextIntRange`](#Std.Random.Random.NextIntRange(int,int))", page);
+    DocMd.SourceBase = "";
+
+    // SourceBase 为空：退回纯文本位置行（显示与 grep 行为不变）。
+    string plain = DocMd.PackagePage("z42.random", "src", ix);
+    Assert.Contains("`Random.z42:5`", plain);
+    Assert.True(!plain.Contains("](https://"));
+}
+
+[Test]
+void test_member_anchor_generic_href_encoding() {
+    // Doc ID 里的 <T> 在 href 里百分号编码；<a id> 保持原文（浏览器解码 fragment 后匹配）。
+    DocIndex ix = _index(
+        "namespace Std.Collections;\n"
+        + "/// 列表。\n"
+        + "public class List<T> {\n"
+        + "    /// 加元素。\n"
+        + "    public void Add(T item) { }\n"
+        + "}\n");
+    string page = DocMd.PackagePage("z42.collections", "src", ix);
+    Assert.Contains("<a id=\"Std.Collections.List<T>.Add(T)\"></a>", page);
+    Assert.Contains("成员：[`Add`](#Std.Collections.List%3CT%3E.Add(T))", page);
+}
+
+[Test]
 void test_type_split_pages() {
     // split = "type"：每个顶层类型一页，索引页列链接清单。
     DocIndex ix = _index(

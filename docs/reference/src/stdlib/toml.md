@@ -23,7 +23,7 @@ z42 自己的工程清单 `*.z42.toml` 与 `versions.toml` 就用它读。覆盖
 
 ## TomlException
 
-`src/libraries/z42.toml/src/TomlException.z42:4`
+[`src/libraries/z42.toml/src/TomlException.z42:4`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlException.z42#L4)
 
 TOML 解析 / 序列化错误，携带 1-based 行 / 列号，方便定位 manifest 中的语法错误。
 
@@ -36,33 +36,39 @@ public class TomlException : Exception {
 }
 ```
 
+成员：[`Line`](#Std.Toml.TomlException.Line) · [`Column`](#Std.Toml.TomlException.Column) · [`TomlException`](#Std.Toml.TomlException.ctor(string)) · [`TomlException`](#Std.Toml.TomlException.ctor(string,int,int))
+
+<a id="Std.Toml.TomlException.Line"></a>
 ### int Line
 
-`src/libraries/z42.toml/src/TomlException.z42:6`
+[`src/libraries/z42.toml/src/TomlException.z42:6`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlException.z42#L6)
 
 1-based 行号；0 = 位置不可用（如 stringify 阶段错误）。
 
+<a id="Std.Toml.TomlException.Column"></a>
 ### int Column
 
-`src/libraries/z42.toml/src/TomlException.z42:8`
+[`src/libraries/z42.toml/src/TomlException.z42:8`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlException.z42#L8)
 
 1-based 列号；0 = 位置不可用（如 stringify 阶段错误）。
 
+<a id="Std.Toml.TomlException.ctor(string)"></a>
 ### TomlException(string message)
 
-`src/libraries/z42.toml/src/TomlException.z42:11`
+[`src/libraries/z42.toml/src/TomlException.z42:11`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlException.z42#L11)
 
 不带位置的构造；`Line` / `Column` 置 0。
 
+<a id="Std.Toml.TomlException.ctor(string,int,int)"></a>
 ### TomlException(string message, int line, int column)
 
-`src/libraries/z42.toml/src/TomlException.z42:17`
+[`src/libraries/z42.toml/src/TomlException.z42:17`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlException.z42#L17)
 
 带 1-based 行 / 列号的构造。
 
 ## TomlParser
 
-`src/libraries/z42.toml/src/TomlParser.Numbers.z42:13`
+[`src/libraries/z42.toml/src/TomlParser.Numbers.z42:13`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlParser.Numbers.z42#L13)
 
 
 ```z42
@@ -72,21 +78,25 @@ public sealed partial class TomlParser {
 }
 ```
 
+成员：[`TomlParser`](#Std.Toml.TomlParser.ctor(string)) · [`ParseDocument`](#Std.Toml.TomlParser.ParseDocument())
+
+<a id="Std.Toml.TomlParser.ctor(string)"></a>
 ### TomlParser(string src)
 
-`src/libraries/z42.toml/src/TomlParser.z42:35`
+[`src/libraries/z42.toml/src/TomlParser.z42:35`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlParser.z42#L35)
 
 用源文本构造解析器。
 
+<a id="Std.Toml.TomlParser.ParseDocument()"></a>
 ### TomlValue ParseDocument()
 
-`src/libraries/z42.toml/src/TomlParser.z42:93`
+[`src/libraries/z42.toml/src/TomlParser.z42:93`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlParser.z42#L93)
 
 解析整份文档，返回根 table。
 
 ## TomlParser
 
-`src/libraries/z42.toml/src/TomlParser.z42:5`
+[`src/libraries/z42.toml/src/TomlParser.z42:5`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlParser.z42#L5)
 
 TOML 1.0 子集解析器（tokenizer + 递归下降）；日常用 `TomlValue.Parse` 即可，通常不直接构造。
 
@@ -97,21 +107,25 @@ public sealed partial class TomlParser {
 }
 ```
 
+成员：[`TomlParser`](#Std.Toml.TomlParser.ctor(string)) · [`ParseDocument`](#Std.Toml.TomlParser.ParseDocument())
+
+<a id="Std.Toml.TomlParser.ctor(string)"></a>
 ### TomlParser(string src)
 
-`src/libraries/z42.toml/src/TomlParser.z42:35`
+[`src/libraries/z42.toml/src/TomlParser.z42:35`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlParser.z42#L35)
 
 用源文本构造解析器。
 
+<a id="Std.Toml.TomlParser.ParseDocument()"></a>
 ### TomlValue ParseDocument()
 
-`src/libraries/z42.toml/src/TomlParser.z42:93`
+[`src/libraries/z42.toml/src/TomlParser.z42:93`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlParser.z42#L93)
 
 解析整份文档，返回根 table。
 
 ## TomlValue
 
-`src/libraries/z42.toml/src/TomlValue.z42:26`
+[`src/libraries/z42.toml/src/TomlValue.z42:26`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L26)
 
 值树的唯一节点类型，同时是包的入口点。
 
@@ -153,158 +167,185 @@ public class TomlValue {
 }
 ```
 
+成员：[`Parse`](#Std.Toml.TomlValue.Parse(string)) · [`Stringify`](#Std.Toml.TomlValue.Stringify(TomlValue)) · [`ParseStream`](#Std.Toml.TomlValue.ParseStream(Stream)) · [`WriteTo`](#Std.Toml.TomlValue.WriteTo(Stream,TomlValue)) · [`OfString`](#Std.Toml.TomlValue.OfString(string)) · [`OfLong`](#Std.Toml.TomlValue.OfLong(long)) · [`OfDouble`](#Std.Toml.TomlValue.OfDouble(double)) · [`OfBool`](#Std.Toml.TomlValue.OfBool(bool)) · [`OfArray`](#Std.Toml.TomlValue.OfArray()) · [`OfTable`](#Std.Toml.TomlValue.OfTable()) · [`IsString`](#Std.Toml.TomlValue.IsString()) · [`IsLong`](#Std.Toml.TomlValue.IsLong()) · [`IsDouble`](#Std.Toml.TomlValue.IsDouble()) · [`IsBool`](#Std.Toml.TomlValue.IsBool()) · [`IsArray`](#Std.Toml.TomlValue.IsArray()) · [`IsTable`](#Std.Toml.TomlValue.IsTable()) · [`KindName`](#Std.Toml.TomlValue.KindName()) · [`AsString`](#Std.Toml.TomlValue.AsString()) · [`AsLong`](#Std.Toml.TomlValue.AsLong()) · [`AsDouble`](#Std.Toml.TomlValue.AsDouble()) · [`AsBool`](#Std.Toml.TomlValue.AsBool()) · [`ContainsKey`](#Std.Toml.TomlValue.ContainsKey(string)) · [`Get`](#Std.Toml.TomlValue.Get(string)) · [`TryGet`](#Std.Toml.TomlValue.TryGet(string,TomlValue)) · [`TryGetValue`](#Std.Toml.TomlValue.TryGetValue%3CT%3E(string,T)) · [`Set`](#Std.Toml.TomlValue.Set(string,TomlValue)) · [`Keys`](#Std.Toml.TomlValue.Keys()) · [`Count`](#Std.Toml.TomlValue.Count()) · [`Length`](#Std.Toml.TomlValue.Length()) · [`At`](#Std.Toml.TomlValue.At(int)) · [`Add`](#Std.Toml.TomlValue.Add(TomlValue))
+
+<a id="Std.Toml.TomlValue.Parse(string)"></a>
 ### static TomlValue Parse(string text)
 
-`src/libraries/z42.toml/src/TomlValue.z42:50`
+[`src/libraries/z42.toml/src/TomlValue.z42:50`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L50)
 
 解析 TOML 文本为根 table。语法错误抛带行列的 `TomlException`；空输入得到空 table。
 
+<a id="Std.Toml.TomlValue.Stringify(TomlValue)"></a>
 ### static string Stringify(TomlValue root)
 
-`src/libraries/z42.toml/src/TomlValue.z42:58`
+[`src/libraries/z42.toml/src/TomlValue.z42:58`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L58)
 
 把值树序列化为 canonical TOML 文本。`root` 必须是 table，否则抛 `TomlException`。
 
 键按**插入顺序**输出（解析出来的树即文件顺序），round-trip 不重排、diff 友好；注释不保留。
 
+<a id="Std.Toml.TomlValue.ParseStream(Stream)"></a>
 ### static TomlValue ParseStream(Stream source)
 
-`src/libraries/z42.toml/src/TomlValue.z42:71`
+[`src/libraries/z42.toml/src/TomlValue.z42:71`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L71)
 
 从 UTF-8 字节流解析 TOML，读到 EOF，不关闭流。独立命名（非 `Parse` 重载）。
 
+<a id="Std.Toml.TomlValue.WriteTo(Stream,TomlValue)"></a>
 ### static void WriteTo(Stream dest, TomlValue root)
 
-`src/libraries/z42.toml/src/TomlValue.z42:79`
+[`src/libraries/z42.toml/src/TomlValue.z42:79`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L79)
 
 把 canonical TOML 以 UTF-8 写入流，不关闭 `dest`。`root` 必须是 table。
 
+<a id="Std.Toml.TomlValue.OfString(string)"></a>
 ### static TomlValue OfString(string s)
 
-`src/libraries/z42.toml/src/TomlValue.z42:88`
+[`src/libraries/z42.toml/src/TomlValue.z42:88`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L88)
 
 构造 String 节点。
 
+<a id="Std.Toml.TomlValue.OfLong(long)"></a>
 ### static TomlValue OfLong(long n)
 
-`src/libraries/z42.toml/src/TomlValue.z42:96`
+[`src/libraries/z42.toml/src/TomlValue.z42:96`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L96)
 
 构造 Long 节点。
 
+<a id="Std.Toml.TomlValue.OfDouble(double)"></a>
 ### static TomlValue OfDouble(double d)
 
-`src/libraries/z42.toml/src/TomlValue.z42:104`
+[`src/libraries/z42.toml/src/TomlValue.z42:104`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L104)
 
 构造 Double 节点。
 
+<a id="Std.Toml.TomlValue.OfBool(bool)"></a>
 ### static TomlValue OfBool(bool b)
 
-`src/libraries/z42.toml/src/TomlValue.z42:112`
+[`src/libraries/z42.toml/src/TomlValue.z42:112`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L112)
 
 构造 Bool 节点。
 
+<a id="Std.Toml.TomlValue.OfArray()"></a>
 ### static TomlValue OfArray()
 
-`src/libraries/z42.toml/src/TomlValue.z42:120`
+[`src/libraries/z42.toml/src/TomlValue.z42:120`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L120)
 
 构造空数组，用 `Add` 填充。
 
+<a id="Std.Toml.TomlValue.OfTable()"></a>
 ### static TomlValue OfTable()
 
-`src/libraries/z42.toml/src/TomlValue.z42:129`
+[`src/libraries/z42.toml/src/TomlValue.z42:129`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L129)
 
 构造空表，用 `Set` 填充。
 
+<a id="Std.Toml.TomlValue.IsString()"></a>
 ### bool IsString()
 
-`src/libraries/z42.toml/src/TomlValue.z42:141`
+[`src/libraries/z42.toml/src/TomlValue.z42:141`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L141)
 
 kind 是否为 String。
 
+<a id="Std.Toml.TomlValue.IsLong()"></a>
 ### bool IsLong()
 
-`src/libraries/z42.toml/src/TomlValue.z42:143`
+[`src/libraries/z42.toml/src/TomlValue.z42:143`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L143)
 
 kind 是否为 Long。
 
+<a id="Std.Toml.TomlValue.IsDouble()"></a>
 ### bool IsDouble()
 
-`src/libraries/z42.toml/src/TomlValue.z42:145`
+[`src/libraries/z42.toml/src/TomlValue.z42:145`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L145)
 
 kind 是否为 Double。
 
+<a id="Std.Toml.TomlValue.IsBool()"></a>
 ### bool IsBool()
 
-`src/libraries/z42.toml/src/TomlValue.z42:147`
+[`src/libraries/z42.toml/src/TomlValue.z42:147`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L147)
 
 kind 是否为 Bool。
 
+<a id="Std.Toml.TomlValue.IsArray()"></a>
 ### bool IsArray()
 
-`src/libraries/z42.toml/src/TomlValue.z42:149`
+[`src/libraries/z42.toml/src/TomlValue.z42:149`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L149)
 
 kind 是否为 Array。
 
+<a id="Std.Toml.TomlValue.IsTable()"></a>
 ### bool IsTable()
 
-`src/libraries/z42.toml/src/TomlValue.z42:151`
+[`src/libraries/z42.toml/src/TomlValue.z42:151`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L151)
 
 kind 是否为 Table。
 
+<a id="Std.Toml.TomlValue.KindName()"></a>
 ### string KindName()
 
-`src/libraries/z42.toml/src/TomlValue.z42:154`
+[`src/libraries/z42.toml/src/TomlValue.z42:154`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L154)
 
 返回类型标签名（`"string"` / `"long"` / `"double"` / `"bool"` / `"array"` / `"table"`），用于诊断。
 
+<a id="Std.Toml.TomlValue.AsString()"></a>
 ### string AsString()
 
-`src/libraries/z42.toml/src/TomlValue.z42:168`
+[`src/libraries/z42.toml/src/TomlValue.z42:168`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L168)
 
 取 String 值；kind 不符抛 `TomlException("expected string, got …")`。
 
+<a id="Std.Toml.TomlValue.AsLong()"></a>
 ### long AsLong()
 
-`src/libraries/z42.toml/src/TomlValue.z42:176`
+[`src/libraries/z42.toml/src/TomlValue.z42:176`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L176)
 
 取 Long 值；kind 不符抛 `TomlException`。
 
+<a id="Std.Toml.TomlValue.AsDouble()"></a>
 ### double AsDouble()
 
-`src/libraries/z42.toml/src/TomlValue.z42:184`
+[`src/libraries/z42.toml/src/TomlValue.z42:184`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L184)
 
 取 Double 值；kind 不符抛 `TomlException`。不接受 Long（整数值要先自己转）。
 
+<a id="Std.Toml.TomlValue.AsBool()"></a>
 ### bool AsBool()
 
-`src/libraries/z42.toml/src/TomlValue.z42:192`
+[`src/libraries/z42.toml/src/TomlValue.z42:192`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L192)
 
 取 Bool 值；kind 不符抛 `TomlException`。
 
+<a id="Std.Toml.TomlValue.ContainsKey(string)"></a>
 ### bool ContainsKey(string key)
 
-`src/libraries/z42.toml/src/TomlValue.z42:202`
+[`src/libraries/z42.toml/src/TomlValue.z42:202`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L202)
 
 表是否含该键；非表值返回 false，不抛。
 
+<a id="Std.Toml.TomlValue.Get(string)"></a>
 ### TomlValue Get(string key)
 
-`src/libraries/z42.toml/src/TomlValue.z42:213`
+[`src/libraries/z42.toml/src/TomlValue.z42:213`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L213)
 
 取表值；键不存在抛 `TomlException("key not found: k")`。
 
+<a id="Std.Toml.TomlValue.TryGet(string,TomlValue)"></a>
 ### bool TryGet(string key, ref TomlValue value)
 
-`src/libraries/z42.toml/src/TomlValue.z42:240`
+[`src/libraries/z42.toml/src/TomlValue.z42:240`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L240)
 
 取即检查：命中则写入 `value` 并返回 true；未命中返回 false 且**不动** `value`。
 
 本值不是 table 时返回 false 而**不抛** —— 与 `ContainsKey` 一致（它对非 table 也返回
 false），于是 `if (t.ContainsKey(k)) { … t.Get(k) … }` 换成 `TryGet` 是逐字等价的重写。
 
+<a id="Std.Toml.TomlValue.TryGetValue<T>(string,T)"></a>
 ### bool TryGetValue<T>(string key, ref T value)
 
-`src/libraries/z42.toml/src/TomlValue.z42:261`
+[`src/libraries/z42.toml/src/TomlValue.z42:261`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L261)
 
 取即检查 + 取标量：命中则按 `T` 取出值写入 `value` 并返回 true； 未命中返回 false 且**不动** `value` —— 所以「有就覆盖默认值」能一行写完： `t.TryGetValue<string>("name", ref name);`
 
@@ -316,45 +357,51 @@ false），于是 `if (t.ContainsKey(k)) { … t.Get(k) … }` 换成 `TryGet` �
 等价于 `TryGet`，供泛型调用点写法统一）。其它 `T` 抛异常 —— 那是**调用方写错了代码**，
 不是数据的问题，返回 false 会把它伪装成「键不在」。
 
+<a id="Std.Toml.TomlValue.Set(string,TomlValue)"></a>
 ### void Set(string key, TomlValue v)
 
-`src/libraries/z42.toml/src/TomlValue.z42:281`
+[`src/libraries/z42.toml/src/TomlValue.z42:281`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L281)
 
 写入键值；覆盖已有键时保持原位置（round-trip 不重排）。
 
+<a id="Std.Toml.TomlValue.Keys()"></a>
 ### string[] Keys()
 
-`src/libraries/z42.toml/src/TomlValue.z42:314`
+[`src/libraries/z42.toml/src/TomlValue.z42:314`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L314)
 
 当前表键的插入顺序快照。
 
+<a id="Std.Toml.TomlValue.Count()"></a>
 ### int Count()
 
-`src/libraries/z42.toml/src/TomlValue.z42:328`
+[`src/libraries/z42.toml/src/TomlValue.z42:328`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L328)
 
 表键数（数组则为元素数）；其余 kind 抛 `TomlException`。
 
+<a id="Std.Toml.TomlValue.Length()"></a>
 ### int Length()
 
-`src/libraries/z42.toml/src/TomlValue.z42:337`
+[`src/libraries/z42.toml/src/TomlValue.z42:337`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L337)
 
 数组元素数；非数组抛 `TomlException`。
 
+<a id="Std.Toml.TomlValue.At(int)"></a>
 ### TomlValue At(int i)
 
-`src/libraries/z42.toml/src/TomlValue.z42:345`
+[`src/libraries/z42.toml/src/TomlValue.z42:345`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L345)
 
 取数组元素；越界抛 `TomlException`（不是 VM abort）。
 
+<a id="Std.Toml.TomlValue.Add(TomlValue)"></a>
 ### void Add(TomlValue v)
 
-`src/libraries/z42.toml/src/TomlValue.z42:356`
+[`src/libraries/z42.toml/src/TomlValue.z42:356`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L356)
 
 追加元素到数组末尾。
 
 ## TomlWriter
 
-`src/libraries/z42.toml/src/TomlWriter.z42:5`
+[`src/libraries/z42.toml/src/TomlWriter.z42:5`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlWriter.z42#L5)
 
 值树 → TOML 文本的序列化器；日常用 `TomlValue.Stringify` 即可，通常不直接构造。
 
@@ -365,15 +412,19 @@ public sealed class TomlWriter {
 }
 ```
 
+成员：[`TomlWriter`](#Std.Toml.TomlWriter.ctor()) · [`Write`](#Std.Toml.TomlWriter.Write(TomlValue))
+
+<a id="Std.Toml.TomlWriter.ctor()"></a>
 ### TomlWriter()
 
-`src/libraries/z42.toml/src/TomlWriter.z42:11`
+[`src/libraries/z42.toml/src/TomlWriter.z42:11`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlWriter.z42#L11)
 
 构造一个空 writer。
 
+<a id="Std.Toml.TomlWriter.Write(TomlValue)"></a>
 ### string Write(TomlValue root)
 
-`src/libraries/z42.toml/src/TomlWriter.z42:16`
+[`src/libraries/z42.toml/src/TomlWriter.z42:16`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlWriter.z42#L16)
 
 把值树序列化为 TOML 文本。
 

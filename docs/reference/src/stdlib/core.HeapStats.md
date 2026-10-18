@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`
 
-`src/libraries/z42.core/src/GC/HeapStats.z42:6`
+[`src/libraries/z42.core/src/GC/HeapStats.z42:6`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/GC/HeapStats.z42#L6)
 
 `Std.GC.GetStats()` 的返回类型，1:1 投影 GC 的 7 个统计字段。实例由 corelib `__gc_stats` builtin 直接产出（不暴露 ctor），保证字段值与 GC 实时状态一致。
 
@@ -20,45 +20,54 @@ public class HeapStats {
 }
 ```
 
+成员：[`Allocations`](#Std.HeapStats.Allocations) · [`GcCycles`](#Std.HeapStats.GcCycles) · [`UsedBytes`](#Std.HeapStats.UsedBytes) · [`MaxBytes`](#Std.HeapStats.MaxBytes) · [`RootsPinned`](#Std.HeapStats.RootsPinned) · [`FinalizersPending`](#Std.HeapStats.FinalizersPending) · [`Observers`](#Std.HeapStats.Observers)
+
+<a id="Std.HeapStats.Allocations"></a>
 ### long Allocations { get; }
 
-`src/libraries/z42.core/src/GC/HeapStats.z42:8`
+[`src/libraries/z42.core/src/GC/HeapStats.z42:8`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/GC/HeapStats.z42#L8)
 
 自堆创建以来累计的 alloc 次数。
 
+<a id="Std.HeapStats.GcCycles"></a>
 ### long GcCycles { get; }
 
-`src/libraries/z42.core/src/GC/HeapStats.z42:11`
+[`src/libraries/z42.core/src/GC/HeapStats.z42:11`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/GC/HeapStats.z42#L11)
 
 `collect_cycles` / `force_collect` 触发次数。
 
+<a id="Std.HeapStats.UsedBytes"></a>
 ### long UsedBytes { get; }
 
-`src/libraries/z42.core/src/GC/HeapStats.z42:14`
+[`src/libraries/z42.core/src/GC/HeapStats.z42:14`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/GC/HeapStats.z42#L14)
 
 估计活字节（RC 模式下 `Rc<T>` Drop 不更新，单调增）。
 
+<a id="Std.HeapStats.MaxBytes"></a>
 ### long MaxBytes { get; }
 
-`src/libraries/z42.core/src/GC/HeapStats.z42:17`
+[`src/libraries/z42.core/src/GC/HeapStats.z42:17`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/GC/HeapStats.z42#L17)
 
 堆字节上限；`-1` 表示 unlimited。
 
+<a id="Std.HeapStats.RootsPinned"></a>
 ### long RootsPinned { get; }
 
-`src/libraries/z42.core/src/GC/HeapStats.z42:20`
+[`src/libraries/z42.core/src/GC/HeapStats.z42:20`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/GC/HeapStats.z42#L20)
 
 当前 pinned root 数量（host pin_root 计数 + frame pins）。
 
+<a id="Std.HeapStats.FinalizersPending"></a>
 ### long FinalizersPending { get; }
 
-`src/libraries/z42.core/src/GC/HeapStats.z42:23`
+[`src/libraries/z42.core/src/GC/HeapStats.z42:23`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/GC/HeapStats.z42#L23)
 
 等待 finalizer 触发的注册数。
 
+<a id="Std.HeapStats.Observers"></a>
 ### long Observers { get; }
 
-`src/libraries/z42.core/src/GC/HeapStats.z42:26`
+[`src/libraries/z42.core/src/GC/HeapStats.z42:26`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/GC/HeapStats.z42#L26)
 
 活动 GC 事件 observer 数。
 
