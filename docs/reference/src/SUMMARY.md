@@ -270,6 +270,7 @@
 - [随机数](stdlib/random.md)
 - [密码学](stdlib/crypto.md)
 - [大数与数值类型](stdlib/numerics.md)
+- [测试与基准](stdlib/harness.md)
 
 # 工具链
 

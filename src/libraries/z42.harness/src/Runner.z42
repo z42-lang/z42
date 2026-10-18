@@ -1,20 +1,35 @@
-// 反射式测试 runner：并入一个编好的测试 / bench 产物，经 TestDiscovery（运行期反射）找出
-// `[Test]` / `[Benchmark]` / `[Setup]` / `[Teardown]`，逐条执行并归类 pass / fail / skip
-// （`[Skip]` 平台 / 能力门、`[Ignore]`、`[ShouldThrow<E>]` 按类型可赋值判定）。
-//
-// 测试函数是零参、无接收者的自由函数或静态方法，经 `MethodInfo.Invoke` 调用。
-//
-// 每条 [Test] 的生命周期：同命名空间（或同类型）的 [Setup] → 测试 → [Teardown]（总会执行）。
-// 退出码：0 = 全过；1 = 有失败，或一条可跑的测试都没发现。
-//
-// 输出格式：`format` 为 "pretty"（缺省，PASS/FAIL/SKIP 行 + Result 汇总）或 "json"（单个结构化
-// `TestReport`，benchmark 条目带从其输出解析出的 `bench_stats`）。
+//! 测试框架：声明（attribute）、发现（反射）、运行与报告。
+//!
+//! 写法：零参的自由函数或静态方法贴 `[Test]`，工具链编译后由本包的 [`Runner`] 反射
+//! 发现并逐条执行；`[Benchmark]` 基准、`[Setup]` / `[Teardown]` 夹具、`[Skip]` /
+//! `[Ignore]` 跳过、`[ShouldThrow<E>]` 期望异常。断言用 `Assert`——它在 z42.core 的
+//! prelude 里（`Assert` / `TestFailure` 不在本包），测试文件不用为本包额外 using 之外的
+//! 断言引任何依赖。
+//!
+//! 组成：
+//!
+//! - 声明：`TestAttributes.z42` 的 attribute 族（作者与 runner 共享的契约）；
+//! - 发现：[`TestDiscovery`]——`Assembly.GetFunctions()` + 各类型静态方法，只读 attribute
+//!   活实例，不依赖产物里的测试专用元数据或 VM 测试能力；
+//! - 运行：[`Runner`]（pretty / json 两种输出；`RunModuleResults` 供跨模块聚合）；
+//! - 基准：[`Bencher`] 计时采样与摘要行，`BenchStats` 把摘要行解析成结构化数据；
+//! - 输出捕获：`TestIO`——捕获被测代码的 stdout / stderr，嵌套按栈组合；
+//! - 无反射的命令式 runner：`TestRunner`（Begin / Fail / Summary 三段式）。
+//!
+//! ## 不支持
+//!
+//! - 没有并行测试：条目按全限定名排序顺序执行。
+//! - `[Timeout]` 只做编译期校验（毫秒必须为正），运行期不强制超时。
+//! - 没有 parameterized / 数据驱动测试：`[Test]` 必须零参，参数化要自己写循环。
+//! - `[Setup]` / `[Teardown]` 按命名空间（或同一类型）成组，没有共享实例的类级夹具。
+//! - `TestResult` 没有 duration / 失败位置 / 栈：运行期没有可靠来源，略去而不是编造。
+//! - 报告 JSON 由 `TestReport` 手写（本包零依赖、不引 z42.json），schema 见该类文档。
 namespace Std.Harness;
 
 using Std.IO;
 
-// Internal invoke outcome (z42 has no out-params). Carries thrown state + the
-// benchmark's captured stdout (json mode only; "" otherwise / on throw).
+/// 一次调用的结果（z42 无 out 参数，用字段带出）。`Captured` 只在 json 模式下
+/// 捕获被测函数的 stdout（供基准摘要行解析），其余情况为 `""`。
 public class InvokeOutcome {
     public bool Threw;
     public Type? Thrown;      // 抛出的异常的运行期类型（[ShouldThrow<E>] 判定用）
@@ -26,10 +41,12 @@ public class InvokeOutcome {
     }
 }
 
+/// 反射式测试 runner：并入一个编好的测试 / bench 产物，经 [`TestDiscovery`] 找出
+/// `[Test]` / `[Benchmark]` / `[Setup]` / `[Teardown]`，逐条执行并归类 pass / fail / skip。
 public static class Runner {
-    // Load + run every [Test] / [Benchmark] in the compiled module at `path`,
-    // rendering output in `format` ("pretty" | "json"). Returns a process exit
-    // code (0 = no failures, 1 = at least one failure).
+    /// 并入 `path` 处的产物并跑其中每条 `[Test]` / `[Benchmark]`，按 `format`
+    /// （`"pretty"` | `"json"`）输出。返回进程退出码：0 = 全过；1 = 有失败，或一条
+    /// 可跑的测试都没发现（拼错 attribute、glob 漏文件都算事故，不与「全过」等价）。
     public static int RunModule(string path, string format) {
         bool json = (format == "json");
         TestCase[] entries = TestDiscovery.Discover(path);
@@ -82,22 +99,16 @@ public static class Runner {
         return Runner.ExitCodeFor(runnable, failed);
     }
 
-    // 退出码决策（抽成纯函数以便直接单测；RunModule 里那段是 I/O，决策在这里）。
-    //   runnable == 0 → 1：**「测试没跑」不得与「测试全过」在退出码上等价**。
-    //     能触发它的都是真事故：attribute 拼错（[Tests]/[test]）、[sources] glob 漏掉文件、
-    //     测试函数被改名/误删、或调用方把一个根本没有测试的目录当成了测试单元。
-    //   failed > 0  → 1：有失败。
-    //   否则        → 0。
+    /// 退出码决策（纯函数，可直接单测）：一条可跑的测试都没有 → 1（「测试没跑」
+    /// 不得与「全过」等价）；有失败 → 1；否则 0。
     public static int ExitCodeFor(int runnable, int failed) {
         if (runnable == 0) { return 1; }
         if (failed > 0) { return 1; }
         return 0;
     }
 
-    // Run every [Test]/[Benchmark] in the module at `path`, RETURNING the results
-    // without printing. For aggregating across a bundle of modules (embedded
-    // test-host, wire-embedded-testhost): the caller collects results from many
-    // modules and renders one combined TestReport.
+    /// 跑 `path` 处产物里的每条 `[Test]` / `[Benchmark]`，**只返回结果、不打印**。
+    /// 供跨模块聚合：调用方收集多个模块的结果后统一渲染一份合并报告。
     public static TestResult[] RunModuleResults(string path) {
         TestCase[] entries = TestDiscovery.Discover(path);
         int runnable = 0;

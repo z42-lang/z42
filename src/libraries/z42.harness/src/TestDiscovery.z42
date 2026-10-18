@@ -1,29 +1,21 @@
-// 运行期反射发现测试：把编好的测试 / bench 产物并入当前 VM，经反射找出贴了 `[Test]` / `[Benchmark]` /
-// `[Setup]` / `[Teardown]` 的函数，连同 `[Skip]` / `[Ignore]` / `[ShouldThrow<E>]` 一起读成 `TestCase`。
-//
-// 发现面 = 包的自由函数（`Assembly.GetFunctions()`）+ 包内各类型的静态方法（`Type.GetMethods()`）。
-// attribute 是本包的普通 attribute 类（`TestAttributes.z42`），这里只读它们的活实例——不依赖任何
-// 编译器写进产物的测试专用元数据，也不依赖测试专用的 VM 能力。
-//
-// 顺序：按全限定名排序（与 cargo test 一致；同输入同输出，便于比对报告）。
 namespace Std.Harness;
 
 using Std.Reflection;   // Assembly / MethodInfo
 
-// 一条被发现的测试 / bench / 生命周期函数。
+/// 一条被发现的测试 / bench / 生命周期函数。
 public class TestCase {
-    // 报告用的名字：`<命名空间或类型>.<函数名>`。
+    /// 报告用的名字：`<命名空间或类型>.<函数名>`。
     public string Qualified;
-    // 1=Test, 2=Benchmark, 3=Setup, 4=Teardown.
+    /// 1=Test, 2=Benchmark, 3=Setup, 4=Teardown.
     public int Kind;
     public MethodInfo Method;
     public bool Skipped;
     public bool Ignored;
-    // `[Skip]` 的三个实参；没给的为 null。
+    /// `[Skip]` 的三个实参；没给的为 null。
     public string? SkipReason;
     public string? SkipPlatform;
     public string? SkipFeature;
-    // `[ShouldThrow<E>]`：贴了即 true；`Expected` 为 E（漏写类型实参时为 null）。
+    /// `[ShouldThrow<E>]`：贴了即 true；`Expected` 为 E（漏写类型实参时为 null）。
     public bool ShouldThrow;
     public Type? Expected;
 
@@ -42,17 +34,18 @@ public class TestCase {
     public bool IsIgnored()   { return this.Ignored; }
     public bool HasShouldThrow() { return this.ShouldThrow; }
 
-    // 所属命名空间（自由函数）或类型（静态方法）的全限定名——`[Setup]` / `[Teardown]` 按它成组。
+    /// 所属命名空间（自由函数）或类型（静态方法）的全限定名——`[Setup]` / `[Teardown]` 按它成组。
     public string DeclaringType() {
         int i = this.Qualified.LastIndexOf('.');
         if (i < 0) { return ""; }
         return this.Qualified.Substring(0, i);
     }
 
-    // 调用（无接收者）。被调函数里抛出的异常按原类型传出。
-    //   - 零参：直接调（`[Test]` / `[Setup]` / `[Teardown]`，以及自建 Bencher 的 `[Benchmark]`）。
-    //   - `[Benchmark] void f(Bencher b)`：runner 建 Bencher 传入，跑完按函数名打摘要
-    //     （`bench[f] …`，与自建形式手写 `b.printSummary("f")` 同一行）。
+    /// 调用（无接收者）。被调函数里抛出的异常按原类型传出。
+    ///
+    /// 零参形态直接调（`[Test]` / `[Setup]` / `[Teardown]` 及自建 [`Bencher`] 的
+    /// `[Benchmark]`）；`[Benchmark] void f(Bencher b)` 形态由这里建 [`Bencher`] 传入，
+    /// 跑完按函数名打摘要行（与自建形态手写 `b.printSummary("f")` 输出同一行）。
     public void Invoke() {
         if (this.TakesBencher()) {
             Bencher b = new Bencher();
@@ -65,7 +58,7 @@ public class TestCase {
         this.Method.Invoke(null, new object[0]);
     }
 
-    // 恰好一个 `Std.Harness.Bencher` 形参（编译期 E0912 已保证 `[Benchmark]` 只有零参与这一种形状）。
+    /// 恰好一个 `Std.Harness.Bencher` 形参（编译期 E0912 已保证 `[Benchmark]` 只有零参与这一种形状）。
     public bool TakesBencher() {
         ParameterInfo[] ps = this.Method.GetParameters();
         if (ps.Length != 1) { return false; }
@@ -75,8 +68,15 @@ public class TestCase {
     }
 }
 
+/// 运行期反射发现测试：把编好的测试 / bench 产物并入当前 VM，经反射找出贴了
+/// `[Test]` / `[Benchmark]` / `[Setup]` / `[Teardown]` 的函数，连同 `[Skip]` / `[Ignore]` /
+/// `[ShouldThrow<E>]` 一起读成 [`TestCase`]。
+///
+/// 发现面 = 产物的自由函数（`Assembly.GetFunctions()`）+ 各类型的静态方法（`Type.GetMethods()`）；
+/// 只读 attribute 活实例，不依赖编译器写进产物的测试专用元数据，也不依赖测试专用的 VM 能力。
+/// 结果按全限定名排序：同输入同输出，便于比对报告。
 public static class TestDiscovery {
-    // 并入 `path`（.zpkg / .zbc）并发现其中的测试。加载失败抛异常。
+    /// 并入 `path`（.zpkg / .zbc）并发现其中的测试。加载失败抛异常。
     public static TestCase[] Discover(string path) {
         ModuleLoader.Load(path);                                       // 可执行
         Assembly asm = AssemblyLoadContext.Default().Load(path);       // 反射视图（枚举）
