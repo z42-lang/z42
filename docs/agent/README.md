@@ -17,7 +17,7 @@
 
 **读代码前，先按这个顺序找资料**——README 是入口，书是细节，别从源码盲搜：
 
-1. **定位目录**：查下表，或根 [README](../../README.md#repository-layout) 的 Repository Layout。
+1. **定位目录**：查下表，或根 [README](../../README.md#repository-structure) 的 Repository Structure。
 2. **读目录 README（必须）**：「功能索引」找入口，「如何测试验证」拿验证命令，「关联文档」指向书里的深入页。
    读某目录的代码前必须先读它的 README（如果存在），再决定读哪些文件。
 3. **进书**：要理解机制、决策、在哪改 → internals 对应页（页头「代码」行回指源码）；
