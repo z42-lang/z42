@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`
 
-`src/libraries/z42.core/src/Protocols/IEnumerable.z42:11`
+[`src/libraries/z42.core/src/Protocols/IEnumerable.z42:11`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Protocols/IEnumerable.z42#L11)
 
 可迭代契约：实现此接口表明类型能产出 IEnumerator<T>。
 
@@ -21,9 +21,12 @@ public interface IEnumerable<T> {
 }
 ```
 
+成员：[`GetEnumerator`](#Std.IEnumerable%3CT%3E.GetEnumerator())
+
+<a id="Std.IEnumerable<T>.GetEnumerator()"></a>
 ### IEnumerator<T> GetEnumerator()
 
-`src/libraries/z42.core/src/Protocols/IEnumerable.z42:13`
+[`src/libraries/z42.core/src/Protocols/IEnumerable.z42:13`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Protocols/IEnumerable.z42#L13)
 
 返回迭代器。
 

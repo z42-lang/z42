@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`
 
-`src/libraries/z42.core/src/Exceptions/SwitchExpressionException.z42:7`
+[`src/libraries/z42.core/src/Exceptions/SwitchExpressionException.z42:7`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Exceptions/SwitchExpressionException.z42#L7)
 
 `switch` 表达式求值时没有任何臂匹配（含模式匹配了但守卫为假）。
 
@@ -17,9 +17,12 @@ public class SwitchExpressionException : Exception {
 }
 ```
 
+成员：[`SwitchExpressionException`](#Std.SwitchExpressionException.ctor(string))
+
+<a id="Std.SwitchExpressionException.ctor(string)"></a>
 ### SwitchExpressionException(string message)
 
-`src/libraries/z42.core/src/Exceptions/SwitchExpressionException.z42:9`
+[`src/libraries/z42.core/src/Exceptions/SwitchExpressionException.z42:9`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Exceptions/SwitchExpressionException.z42#L9)
 
 用消息构造。
 

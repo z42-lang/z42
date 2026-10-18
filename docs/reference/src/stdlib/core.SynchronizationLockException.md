@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std.Threading`
 
-`src/libraries/z42.core/src/Exceptions/SynchronizationLockException.z42:5`
+[`src/libraries/z42.core/src/Exceptions/SynchronizationLockException.z42:5`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Exceptions/SynchronizationLockException.z42#L5)
 
 调用方要求持有锁、却没有持有（非持有者 `Exit` / `Wait`）。镜像 .NET `System.Threading.SynchronizationLockException`。
 
@@ -14,9 +14,12 @@ public class SynchronizationLockException : Exception {
 }
 ```
 
+成员：[`SynchronizationLockException`](#Std.Threading.SynchronizationLockException.ctor(string))
+
+<a id="Std.Threading.SynchronizationLockException.ctor(string)"></a>
 ### SynchronizationLockException(string message)
 
-`src/libraries/z42.core/src/Exceptions/SynchronizationLockException.z42:7`
+[`src/libraries/z42.core/src/Exceptions/SynchronizationLockException.z42:7`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Exceptions/SynchronizationLockException.z42#L7)
 
 用消息构造。
 

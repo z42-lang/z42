@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`
 
-`src/libraries/z42.core/src/ForwardAttribute.z42:11`
+[`src/libraries/z42.core/src/ForwardAttribute.z42:11`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ForwardAttribute.z42#L11)
 
 `[Forward]` —— 成员转发：贴在**字段**上，让外层类把该字段的部分成员面提升上来， 用组合替代 z42 不支持的多继承。
 
@@ -22,21 +22,26 @@ public class ForwardAttribute : Attribute {
 }
 ```
 
+成员：[`Target`](#Std.ForwardAttribute.Target) · [`ForwardAttribute`](#Std.ForwardAttribute.ctor()) · [`ForwardAttribute`](#Std.ForwardAttribute.ctor(object))
+
+<a id="Std.ForwardAttribute.Target"></a>
 ### object Target
 
-`src/libraries/z42.core/src/ForwardAttribute.z42:13`
+[`src/libraries/z42.core/src/ForwardAttribute.z42:13`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ForwardAttribute.z42#L13)
 
 转发目标（`Type` / `MethodInfo` / null，按档位）。
 
+<a id="Std.ForwardAttribute.ctor()"></a>
 ### ForwardAttribute()
 
-`src/libraries/z42.core/src/ForwardAttribute.z42:15`
+[`src/libraries/z42.core/src/ForwardAttribute.z42:15`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ForwardAttribute.z42#L15)
 
 无参构造（配 `partial` 声明档）。
 
+<a id="Std.ForwardAttribute.ctor(object)"></a>
 ### ForwardAttribute(object target)
 
-`src/libraries/z42.core/src/ForwardAttribute.z42:17`
+[`src/libraries/z42.core/src/ForwardAttribute.z42:17`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ForwardAttribute.z42#L17)
 
 带目标构造（接口面 / 逐个点名档）。
 

@@ -6,6 +6,12 @@ namespace Z42.Doc;
 using Std.Text;
 
 public static class DocMd {
+    // 源码链接基址（如 "https://github.com/z42-lang/z42/blob/main"，取自 book.toml 的
+    // git-repository-url 口径）。空 → 位置行是纯 `file:line` 文本；非空 → 渲染成链接，
+    // 显示文本仍是 file:line（可 grep），目标 <base>/<file>#L<line>。由 xtask doc gen 设置，
+    // 生成与对账（check docs-api）必须同值，否则门禁误报。
+    public static string SourceBase = "";
+
     // 一包一页。pkgPath 相对索引根（如 "src/libraries/z42.random"），写进页首注释与包路径行。
     // pkgName 是分发单元名（"z42.random"）；命名空间 Id 从 `//!` 条目或顶层成员的 Parent 取。
     public static string PackagePage(string pkgName, string pkgPath, DocIndex ix) {
@@ -217,8 +223,13 @@ public static class DocMd {
 
     // 源码位置行：`file:line`（相对仓库根，与 `z42 doc` 输出的 `@` 行同一来源）。
     // 只在生成页里出现——每次 `xtask doc gen` 重写，行号不会过期；手写书页仍禁行号（doc-system）。
+    // SourceBase 非空时是链接（网页点击直达源码行），显示文本不变。
     private static void _loc(StringBuilder sb, DocItem it) {
-        if (it.File.Length > 0) {
+        if (it.File.Length == 0) { return; }
+        if (DocMd.SourceBase.Length > 0) {
+            sb.Append("[`").Append(it.File).Append(":").Append(it.Line.ToString()).Append("`](")
+              .Append(DocMd.SourceBase).Append("/").Append(it.File).Append("#L").Append(it.Line.ToString()).Append(")\n\n");
+        } else {
             sb.Append("`").Append(it.File).Append(":").Append(it.Line.ToString()).Append("`\n\n");
         }
     }
@@ -247,7 +258,8 @@ public static class DocMd {
         return sig.Substring(at, end - at);
     }
 
-    // 类型主体：签名总览块 + 每个成员 `###`（不含标题与类型文档）。重载委托/partial 类的合并页复用。
+    // 类型主体：签名总览块 + 成员索引行 + 每个成员 `###`（不含标题与类型文档）。
+    // 重载委托/partial 类的合并页复用。
     private static void _typeBody(StringBuilder sb, DocIndex ix, DocItem t) {
         DocItem[] ms = ix.Members(t.Id);
         // 签名总览块：类型签名 + 每成员一行（只列 public；委托没有体，只写签名）。
@@ -261,6 +273,7 @@ public static class DocMd {
                 i = i + 1;
             }
             sb.Append("}\n```\n\n");
+            DocMd._memberIndex(sb, ms);
         }
 
         // 每个 public 成员一节；枚举成员只进总览块，嵌套类型归迁移期展开。
@@ -271,9 +284,44 @@ public static class DocMd {
         }
     }
 
-    // 一个成员一节：`###` + 源码位置 + 签名 + 正文 + @param 表 + @throws + @example。
+    // 成员索引行：一串锚点链接（`[Length](#DocId) · …`），页内点击直达成员小节。
+    // mdBook 的 SUMMARY 不支持锚点条目，侧边栏到类型为止；成员级导航由这里补。
+    private static void _memberIndex(StringBuilder sb, DocItem[] ms) {
+        string s = "";
+        int i = 0;
+        while (i < ms.Length) {
+            DocItem m = ms[i];
+            if (m.Vis == "public" && !m.IsType() && m.Kind != DocKind.EnumMember) {
+                if (s.Length > 0) { s = s + " · "; }
+                s = s + "[`" + m.Name + "`](#" + DocMd._anchorHref(m) + ")";
+            }
+            i = i + 1;
+        }
+        if (s.Length > 0) { sb.Append("成员：").Append(s).Append("\n\n"); }
+    }
+
+    // 锚点 href：Doc ID 里的 `<` `>` 空格百分号编码（浏览器解码后与 <a id> 的原文匹配）。
+    // Doc ID 按构造不含其他需编码字符：`+` `.` `,` `()` `[]` 在 fragment 里按字面匹配。
+    private static string _anchorHref(DocItem m) {
+        string id = m.Id;
+        string r = "";
+        int i = 0;
+        while (i < id.Length) {
+            char c = id.CharAt(i);
+            if (c == '<')       { r = r + "%3C"; }
+            else if (c == '>')  { r = r + "%3E"; }
+            else if (c == ' ')  { r = r + "%20"; }
+            else                { r = r + c.ToString(); }
+            i = i + 1;
+        }
+        return r;
+    }
+
+    // 一个成员一节：`<a id>` 锚点（Doc ID，跨页符号链接将来也指向它）+ `###` + 源码位置 +
+    // 签名 + 正文 + @param 表 + @throws + @example。
     private static void _member(StringBuilder sb, DocItem m) {
         DocComment d = DocParser.Parse(m.Doc);
+        sb.Append("<a id=\"").Append(m.Id).Append("\"></a>\n");
         sb.Append("### ").Append(DocMd._memberSig(m)).Append("\n\n");
         DocMd._loc(sb, m);
         if (d.Summary.Length > 0) { sb.Append(d.Summary).Append("\n"); }
