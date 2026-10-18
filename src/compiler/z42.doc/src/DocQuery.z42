@@ -54,7 +54,7 @@ public static class DocQuery {
 
     // 反查：扫 docs/**/*.md 与 src/**/README.md，列出引用给定符号的页与行。
     private static DocQueryResult _docs(DocQueryOptions o, DocIndex ix) {
-        string[] pages = DocQuery._bookPages(o.Root);
+        string[] pages = DocQuery.BookPages(o.Root);
         StringBuilder sb = new StringBuilder();
         int n = 0;
         int i = 0;
@@ -88,8 +88,8 @@ public static class DocQuery {
         return abs;
     }
 
-    // 书页清单：docs/**/*.md 全收，src/**/README.md 全收。
-    private static string[] _bookPages(string root) {
+    // 书页清单（docs/**/*.md + src/**/README.md）。`check doc-refs` 门禁复用同一份口径。
+    public static string[] BookPages(string root) {
         DocQuery._StrAcc acc = new DocQuery._StrAcc();
         string docs = Path.Join(root, "docs");
         if (Directory.Exists(docs)) { DocQuery._mdWalk(docs, acc); }
