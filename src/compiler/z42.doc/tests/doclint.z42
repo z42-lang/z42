@@ -1,0 +1,172 @@
+// z42.doc DocLint 单测：W08xx 语法级检查的命中与不误报。
+namespace Z42DocLintTests;
+
+using Z42.Doc;
+using Std.Harness;
+using Std.IO;
+
+bool _has(DocLintFinding[] fs, string code) {
+    int i = 0;
+    while (i < fs.Length) { if (fs[i].Code == code) { return true; } i = i + 1; }
+    return false;
+}
+
+int _count(DocLintFinding[] fs, string code) {
+    int n = 0;
+    int i = 0;
+    while (i < fs.Length) { if (fs[i].Code == code) { n = n + 1; } i = i + 1; }
+    return n;
+}
+
+string _long(int n) {
+    string s = "";
+    int i = 0;
+    while (i < n) { s = s + "字"; i = i + 1; }
+    return s;
+}
+
+[Test]
+void test_w0801_orphan_block() {
+    DocLintFinding[] fs = DocLint.CheckSource(
+        "namespace App;\n"
+        + "/// 类。\n"
+        + "public class C {\n"
+        + "    /// 挂在成员上。\n"
+        + "    public void F() { }\n"
+        + "    public void G() {\n"
+        + "        /// 方法体里的 /// 没有声明可挂。\n"
+        + "    }\n"
+        + "}\n"
+        + "/// 文件末尾悬空的块。\n", "A.z42");
+    Assert.Equal(2, _count(fs, "W0801"));   // 方法体里一个 + 文件末尾一个
+}
+
+[Test]
+void test_w0802_param_and_typeparam_names() {
+    DocLintFinding[] fs = DocLint.CheckSource(
+        "namespace App;\n"
+        + "/// 类。\n"
+        + "public class C {\n"
+        + "    /// 方法。\n"
+        + "    /// @param x 输入\n"
+        + "    /// @param y 不存在\n"
+        + "    public void F(int x) { }\n"
+        + "    /// 泛型方法。\n"
+        + "    /// @typeparam T 元素\n"
+        + "    /// @typeparam U 不存在\n"
+        + "    public void G<T>(T t) { }\n"
+        + "}\n", "A.z42");
+    Assert.Equal(2, _count(fs, "W0802"));
+}
+
+[Test]
+void test_w0804_unknown_tag() {
+    DocLintFinding[] fs = DocLint.CheckSource(
+        "namespace App;\n"
+        + "/// 类。\n"
+        + "public class C {\n"
+        + "    /// 方法。\n"
+        + "    /// @deprecated 用别的\n"
+        + "    public void F() { }\n"
+        + "}\n", "A.z42");
+    Assert.Equal(1, _count(fs, "W0804"));
+    DocLintFinding[] ok = DocLint.CheckSource(
+        "namespace App;\n"
+        + "/// 类。\n"
+        + "public class C {\n"
+        + "    /// 方法。\n"
+        + "    /// @param a 输入\n"
+        + "    /// @returns 无\n"
+        + "    /// @throws Exception 不会\n"
+        + "    /// @warning 注意\n"
+        + "    /// @see [`C`]\n"
+        + "    /// @hidden\n"
+        + "    public void F(int a) { }\n"
+        + "}\n", "A.z42");
+    Assert.True(!_has(ok, "W0804"));
+}
+
+[Test]
+void test_w0805_public_missing_doc() {
+    DocLintFinding[] fs = DocLint.CheckSource(
+        "namespace App;\n"
+        + "/// 类。\n"
+        + "public class C {\n"
+        + "    public void F() { }\n"
+        + "    /// 私有也写了，无妨。\n"
+        + "    private int _x;\n"
+        + "}\n"
+        + "class D { }\n",
+        "A.z42");
+    Assert.Equal(1, _count(fs, "W0805"));
+    DocLintFinding[] en = DocLint.CheckSource(
+        "namespace App;\n"
+        + "/// 种类。\n"
+        + "public enum E {\n"
+        + "    A,\n"
+        + "    B\n"
+        + "}\n", "A.z42");
+    Assert.True(!_has(en, "W0805"));
+}
+
+[Test]
+void test_w0806_history_notes() {
+    DocLintFinding[] fs = DocLint.CheckSource(
+        "namespace App;\n"
+        + "/// 类。add-benchmark-runner: 引入。\n"
+        + "public class C {\n"
+        + "    /// 方法。\n"
+        + "    public void F() { }\n"
+        + "    /// 另一个。2026-05-31 加的。\n"
+        + "    public void G() { }\n"
+        + "    /// 散文里的 add-on 不是 spec 名。\n"
+        + "    public void H() { }\n"
+        + "}\n", "A.z42");
+    Assert.Equal(2, _count(fs, "W0806"));
+}
+
+[Test]
+void test_w0807_summary_rules() {
+    DocLintFinding[] fs = DocLint.CheckSource(
+        "namespace App;\n"
+        + "/// 类。\n"
+        + "public class C {\n"
+        + "    ///\n"
+        + "    /// 空首行——首段为空，报摘要缺失。\n"
+        + "    public void F() { }\n"
+        + "    /// " + _long(100) + "\n"
+        + "    public void G() { }\n"
+        + "}\n", "A.z42");
+    Assert.Equal(2, _count(fs, "W0807"));   // F 摘要缺失 + G 超长
+}
+
+[Test]
+void test_w0808_duplicate_namespace_doc() {
+    string dir = "artifacts/doclint-w0808";
+    Directory.Create(dir);
+    File.WriteAllText(dir + "/a.z42",
+        "//! 第一份。\nnamespace App;\n/// 类。\npublic class A { }\n");
+    File.WriteAllText(dir + "/b.z42",
+        "//! 第二份，违反。\nnamespace App;\n/// 类。\npublic class B { }\n");
+    File.WriteAllText(dir + "/c.z42",
+        "//! 别的命名空间，没问题。\nnamespace Other;\n/// 类。\npublic class C { }\n");
+    DocLintFinding[] fs = DocLint.CheckPaths(new string[]{ dir + "/a.z42", dir + "/b.z42", dir + "/c.z42" });
+    Assert.Equal(1, _count(fs, "W0808"));
+}
+
+[Test]
+void test_clean_source_no_findings() {
+    DocLintFinding[] fs = DocLint.CheckSource(
+        "//! 概述。\n"
+        + "namespace App;\n"
+        + "\n"
+        + "/// 类。\n"
+        + "public class C {\n"
+        + "    /// 方法。\n"
+        + "    /// @param x 输入\n"
+        + "    /// @example\n"
+        + "    ///     C.F(1)\n"
+        + "    public static void F(int x) { }\n"
+        + "}\n", "A.z42");
+    Assert.Equal(0, fs.Length);
+}
