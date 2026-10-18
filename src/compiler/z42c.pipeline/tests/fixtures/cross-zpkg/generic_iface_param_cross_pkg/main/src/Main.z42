@@ -1,0 +1,16 @@
+namespace Demo.IfpApp;
+
+using Std.IO;
+using Demo.Ifp;
+
+public sealed class AddOne : IVisitor<int, string> {
+    public int Visit(int n, string d) { return n + 1; }
+}
+
+void Main() {
+    Node node = new ConcreteNode();
+    AddOne v = new AddOne();
+    int explicitCall = node.Accept<int, string>(v, "x");
+    int inferredCall = node.Accept(v, "y");
+    Console.WriteLine(explicitCall.ToString() + " " + inferredCall.ToString());
+}

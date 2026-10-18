@@ -1,0 +1,8 @@
+[project]
+name    = "demo.ifpapp"
+version = "0.1.0"
+kind    = "exe"
+pack    = true
+
+[dependencies]
+"demo.ifp" = "0.1.0"
