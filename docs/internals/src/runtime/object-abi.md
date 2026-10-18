@@ -335,11 +335,18 @@ MIXED 的零种类（3 位）：读写元素、求长度、JIT 取元素基址�
   名字就能定的先定（`ElemKind::of`：基元 → PRIM；`string` / `object` / `X[]` → REF）；元素是型参（指令的 `type_param_kind`）→ MIXED；
   其余查类型表：blob 值 struct → STRUCT，enum 与非 blob struct → MIXED，类 / 接口 / 委托 → REF，查不到 → MIXED。
   这次查表本来就在建数组的路上（判 struct）。
+- **型参在运行期解析成基元实参时按该宽度打包（M13）**：`new T[n]` 的分配点先于 `elem_mode` 解析型参——
+  类级（`List<T>` 的成员体）经接收者 meta 字里的驻留 `TypeArgs`（条目上预算了每个实参的打包种类，一次数组读），
+  方法级经 `frame.method_type_args`（只有 interp，这种站点 JIT 拒译）；`ElemKind::of_type_param` 与
+  `default_value_for` 同词汇（字段关键字 / 签名 tag / FQ 包装名三套拼写都认，反射 `MakeGenericMethod(typeof(int))`
+  与直写的 `List<int>` 选同一种打包）。解析出基元 → PRIM 块（`List<int>` 每元素 4 B），数组头的 `element_type`
+  名字保持擦除的 `T`、反射输出不变；引用 / struct 实参与未解析站点 → MIXED（原路径）。
+  `ArrayNewLit` 不带型参载荷，字面量站点维持 MIXED。
 - **MIXED 复用型参单元协议，不用分片锁**：擦除的 `T[]` 编译期不知道元素种类，16 B 是必须的；型参单元的
   「负载字一生只装一种基元、种类由唯一一次 CAS 认领」保证 16 B 元素读永不撕裂（与型参字段同一个证明），
-  没有每对象锁也不需要任何锁。实参是基元时（`new T[n]` 的 `class_type_param_zero`，如 `List<int>` 的底层数组），
-  描述符记下该基元种类（`ArrayDesc::zero`，MIXED 的描述符按零种类各驻留一份）、不写任何字：从未写过的单元（标签字 `0`）读作这个零值，第一次写才认领——
-  预留容量的页面从不被碰。`List<string>` 的单元里引用就是标签字本身，负载字不用。不符的写（同一个单元先后放不同种类的基元）装箱成种类 7，对用户透明。
+  没有每对象锁也不需要任何锁。仍留在 MIXED 的基元实参数组（`ArrayNewLit` 字面量与未解析站点——M13 的打包只接
+  `ArrayNew`），描述符记下该基元种类（`ArrayDesc::zero`，MIXED 的描述符按零种类各驻留一份）、不写任何字：
+  从未写过的单元（标签字 `0`）读作这个零值，第一次写才认领——预留容量的页面从不被碰。`List<string>` 的单元里引用就是标签字本身，负载字不用。不符的写（同一个单元先后放不同种类的基元）装箱成种类 7，对用户透明。
 - **写屏障**：元素写返回 `FieldWrite`，屏障拿的是真正落进单元的引用（装箱时是盒子）；整元素 `struct[]` 写与批量写
   （`Array.Copy` / 排序）之后按 `elem_ref_slots` 对区间内每个引用槽发 `write_barrier_array_elem`（`objops::array_bulk`）。
   被覆盖的旧引用由各写原语交给 SATB。

@@ -98,7 +98,7 @@ pub type JitFn = unsafe extern "C" fn(frame: *mut JitFrame, ctx: *const VmContex
 - 不可翻译的指令集中在 `translate/unsupported.rs`（`CallNative`、`PinPtr`、`LoadLocalAddr` 等地址类指令、
   方法级泛型的 `MethodTypeArg`、泛型调用、方法级形参的 `new T[n]` 等）。含这些指令的函数在编译前就被拒绝，留在解释器上。
   类级形参的 `new T[n]` 可以编译：实参在 reg 0 接收者的 `type_args` 上，翻译时把形参下标传给 `jit_array_new`，
-  由 `objops::array::class_type_param_zero` 解析出基元 T 的零值作为每槽默认值（与解释器 `array_new` 同一实现）——
+  由 `objops::array::class_type_param_elem` 解析出基元 T 的打包宽度与零值（M13：数组按该宽度打包；与解释器 `array_new` 同一实现）——
   否则 `Dictionary.Grow` 这类含 `new TKey[n]` 的扩容循环整段留在解释器里。
 
 ## 异常
