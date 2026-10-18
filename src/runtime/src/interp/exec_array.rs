@@ -7,7 +7,7 @@
 /// `IndexOutOfRangeException` / `OverflowException` / `OutOfMemoryException`),
 /// `Err` = internal VM error.
 
-use crate::metadata::types::{default_value_for, ElemType};
+use crate::metadata::types::{default_value_for, ElemKind, ElemType};
 use crate::metadata::{Module, Value};
 use crate::objops;
 use crate::vm_context::VmContext;
@@ -29,33 +29,37 @@ pub(super) fn array_new(
     type_param_kind: u8, type_param_index: i32,
 ) -> Result<Option<Value>> {
     let len = *frame.get(size)?;
-    let prim_zero = generic_prim_zero(frame, type_param_kind, type_param_index);
+    let tp_prim = generic_prim_elem(frame, type_param_kind, type_param_index);
     let r = objops::array::array_new(
-        ctx, &len, elem_tag, element_type, type_param_kind != 0, prim_zero, stack_frame(ctx, frame, stack_alloc));
+        ctx, &len, elem_tag, element_type, type_param_kind != 0, tp_prim, stack_frame(ctx, frame, stack_alloc));
     match r {
         Ok(arr) => { frame.set(dst, arr); Ok(None) }
         Err(e) => raise(ctx, module, e),
     }
 }
 
-/// fix-generic-array-value-zero-init (方案 C): `new T[n]` with `T` a generic type
-/// parameter — resolve `T` at runtime (method-level → `frame.method_type_args`,
-/// class-level → receiver `type_args`, same as `default(T)`); if it is a **primitive
-/// value type**, its zero is the per-slot default instead of `Null`.
+/// `new T[n]` with `T` a generic type parameter — resolve `T` at runtime (method-level →
+/// `frame.method_type_args`, class-level → receiver `type_args`, same as `default(T)`); if it is a
+/// **primitive value type**, M13 packs the array at its width: `(ElemKind, zero)` per slot.
 ///
-/// Deliberately narrow: struct / reference params keep the erased reference-backed array
-/// (generic containers store structs by reference). The class-level resolution is shared
-/// with the JIT (`objops::array::class_type_param_zero`); a method-level site never JITs
-/// (`unsupported_reason`: the JIT frame has no `method_type_args`).
-fn generic_prim_zero(frame: &Frame, kind: u8, index: i32) -> Option<Value> {
+/// Reference / struct params and unresolvable sites keep the erased cell-backed array (generic
+/// containers store structs by reference; a reference `T` is `Mixed` by [`ElemKind::of_type_param`]).
+/// The class-level resolution is shared with the JIT (`objops::array::class_type_param_elem`); a
+/// method-level site never JITs (`unsupported_reason`: the JIT frame has no `method_type_args`).
+/// Method-level names are not interned — the match runs per allocation; the sites are generic
+/// static methods (`Array.Sort<T>`'s scratch), low-rate by construction.
+fn generic_prim_elem(frame: &Frame, kind: u8, index: i32) -> Option<objops::array::TypeParamElem> {
     if index < 0 { return None; }
     let idx = index as usize;
     match kind {
         1 => {
-            let d = default_value_for(frame.method_type_args.get(idx)?);
-            (!matches!(d, Value::Null)).then_some(d)
+            let name = frame.method_type_args.get(idx)?;
+            let k = ElemKind::of_type_param(name);
+            if !k.is_prim() { return None; }
+            let zero = default_value_for(name);
+            (!matches!(zero, Value::Null)).then_some(objops::array::TypeParamElem { kind: k, zero })
         }
-        2 => objops::array::class_type_param_zero(frame.get(0).ok(), idx),
+        2 => objops::array::class_type_param_elem(frame.get(0).ok(), idx),
         _ => None,
     }
 }

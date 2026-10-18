@@ -99,15 +99,21 @@ impl ObjMeta {
 
     #[inline]
     fn type_args(self) -> &'static [String] {
+        self.type_args_handle().as_slice()
+    }
+
+    /// The interned handle itself (both word shapes keep one).
+    #[inline]
+    fn type_args_handle(self) -> TypeArgs {
         if self.0.is_null() {
-            return &[];
+            return TypeArgs::empty();
         }
         match self.extras_ptr() {
             // SAFETY: a tagged word is an owned, live `Box<ObjExtras>`; its `type_args` is an
             // interned `'static` entry.
-            Some(e) => unsafe { (*e).type_args.as_slice() },
+            Some(e) => unsafe { (*e).type_args },
             // SAFETY: an untagged non-null word came from `TypeArgs::as_raw`.
-            None => unsafe { TypeArgs::from_raw(self.0 as *const TypeArgsInfo) }.as_slice(),
+            None => unsafe { TypeArgs::from_raw(self.0 as *const TypeArgsInfo) },
         }
     }
 
@@ -416,6 +422,13 @@ impl ScriptObject {
     #[inline]
     pub fn type_args(&self) -> &'static [String] {
         self.meta().type_args()
+    }
+
+    /// The type-arguments **handle** (the interned entry itself — M13: its per-argument packed
+    /// kinds are computed once at intern time). Empty for non-generic instances.
+    #[inline]
+    pub fn type_args_handle(&self) -> super::TypeArgs {
+        self.meta().type_args_handle()
     }
 
     /// Install the native backing, allocating the cold extras box on first use. Construction

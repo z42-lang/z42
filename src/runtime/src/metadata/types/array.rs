@@ -610,6 +610,28 @@ impl ElemKind {
     pub fn is_prim(self) -> bool {
         !matches!(self, Self::Ref | Self::Mixed)
     }
+
+    /// A **type parameter's resolved argument name** → the packed kind it selects (M13: `new T[n]`
+    /// with `T` bound to a primitive packs the array). The name vocabulary is `default_value_for`'s
+    /// (field keywords, signature tags, and the FQ wrapper names reflection threads through), so a
+    /// reflective `MakeGenericMethod(typeof(int))` and a direct `new T[n]` in `List<int>` pick the
+    /// same packing; the width grouping follows [`Self::of`] (`sbyte`/`u16` fit i32, `uint`/`u32`
+    /// i64). Everything else — reference, struct, or an open parameter's own literal name — is
+    /// `Mixed` and the array stays erased (cells).
+    #[inline]
+    pub fn of_type_param(name: &str) -> Self {
+        match name {
+            "byte" | "u8" | "Std.Byte" => Self::Bytes,
+            "sbyte" | "i8" | "short" | "i16" | "int" | "i32" | "ushort" | "u16"
+            | "Std.SByte" | "Std.Int16" | "Std.Int32" | "Std.UInt16" => Self::I32,
+            "long" | "i64" | "uint" | "u32" | "ulong" | "u64" | "isize" | "usize"
+            | "Std.UInt32" | "Std.Int64" | "Std.UInt64" => Self::I64,
+            "char" | "Std.Char" => Self::Chars,
+            "bool" | "Std.Boolean" => Self::Bool,
+            "double" | "float" | "f32" | "f64" | "Std.Double" | "Std.Single" => Self::F64,
+            _ => Self::Mixed,
+        }
+    }
 }
 
 #[cfg(test)]
