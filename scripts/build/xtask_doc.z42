@@ -263,6 +263,119 @@ void _sortCounts(string[] codes, int[] counts, int n) {
     }
 }
 
+// 书页代码引用棘轮（z42-doc §4.6/§4.9）：internals / reference 书页与 README 里的反引号符号
+// 引用要能解析（引擎 = z42.doc 的 DocRefs，与 `z42 doc --page` 同一套），行号引用（`Foo.z42:57`）
+// 与解析不了的多段链计入 scripts/test/doc-refs-baseline.txt，只降不升；--update 重写。
+// 生成页（页首「由 z42 doc 生成」标记）自带 file:line 位置行、随 gen 重写不腐，不查；
+// learn 的引用对象在 examples/（不进符号索引），由 learn↔examples 检查管，不在此列。
+int _checkDocRefs(bool update) {
+    string root = _root();
+    // Rust 外部索引：门禁每次重建——不止「缺失才建」：rust.idx 过期时新引入的 Rust 符号查不到，
+    // 刚合并的运行时改动会被误报成书页失同步（#1310 的 M13 符号就撞过）。cargo 增量，代价秒级。
+    string rustIdx = Path.Join(root, "artifacts/doc/rust.idx");
+    int rc = _docIndex();
+    if (rc != 0 || !File.Exists(rustIdx)) {
+        ConsoleError.WriteLine("check doc-refs: rust.idx 生成失败——先手动跑 `xtask doc index`");
+        return 1;
+    }
+    DocIndex ix = DocQuery.BuildIndex(root, "", "");
+    ExternalIndex.LoadDir(root, Path.Join(root, "artifacts/doc"), "", ix);
+
+    // 分区域：internals / reference / readme（根 README + src/**/README.md）。其余页跳过。
+    string[] pages = DocQuery.BookPages(root);
+    string[] all = new string[pages.Length + 1];
+    int an = 0;
+    int pi = 0;
+    while (pi < pages.Length) { all[an] = pages[pi]; an = an + 1; pi = pi + 1; }
+    if (File.Exists(Path.Join(root, "README.md"))) { all[an] = Path.Join(root, "README.md"); an = an + 1; }
+
+    string[] groups = new string[an];
+    int[] lineNos = new int[an];
+    int[] unresolved = new int[an];
+    int gn = 0;
+    string[] worstPage = new string[an];
+    int[] worstCnt = new int[an];
+    int printed = 0;
+    int i = 0;
+    while (i < an) {
+        string p = all[i];
+        i = i + 1;
+        string rel = p.Substring(root.Length + 1);
+        string group = "";
+        if (rel.EndsWith("README.md")) { group = "readme"; }
+        else if (rel.StartsWith("docs/internals/src/")) { group = "internals"; }
+        else if (rel.StartsWith("docs/reference/src/")) { group = "reference"; }
+        else { continue; }
+        string md = File.ReadAllText(p);
+        if (md.IndexOf("由 z42 doc 生成") >= 0) { continue; }   // 生成页：位置行随 gen 重写
+        if (rel.EndsWith("SUMMARY.md")) { continue; }           // 纯链接清单
+        int g = _groupAt(groups, gn, group);
+        if (g < 0) { groups[gn] = group; g = gn; gn = gn + 1; }
+        DocPage page = DocRefs.Extract(md);
+        DocRefs.Resolve(page, ix);
+        int r = 0;
+        while (r < page.Refs.Length) {
+            DocRef rf = page.Refs[r];
+            if (rf.Kind == DocRef.LineNo) {
+                lineNos[g] = lineNos[g] + 1;
+                if (printed < 15) { ConsoleError.WriteLine("  " + rel + ":" + rf.Line.ToString() + ": 行号引用 " + rf.Text + " —— 写符号，位置用 z42 doc --page 现查"); printed = printed + 1; }
+            } else if (rf.Multi && rf.Target == null) {
+                unresolved[g] = unresolved[g] + 1;
+            }
+            r = r + 1;
+        }
+        int cnt = DocRefs.ProblemCount(page);
+        if (cnt > worstCnt[g]) { worstCnt[g] = cnt; worstPage[g] = rel; }
+    }
+
+    string baselinePath = Path.Join(root, "scripts/test/doc-refs-baseline.txt");
+    if (update) {
+        string outp = "# 书页代码引用棘轮基线（xtask check doc-refs --update 重写）。\n"
+            + "# 每区域两数：行号引用（要清零，之后变成硬指标）、解析不了的多段链（只降不升）。\n"
+            + "# 生成页（z42 doc 生成）与 learn 不查（learn 的对象在 examples/，归 learn↔examples 检查）。\n";
+        int w = 0;
+        while (w < gn) { outp = outp + groups[w] + " " + lineNos[w].ToString() + " " + unresolved[w].ToString() + "\n"; w = w + 1; }
+        File.WriteAllText(baselinePath, outp);
+        Console.WriteLine("check doc-refs: ↻ 基线重写 → " + baselinePath);
+        return 0;
+    }
+
+    string[] lines = File.ReadAllText(baselinePath).Split("\n");
+    string fail = "";
+    int li = 0;
+    while (li < lines.Length) {
+        string t = lines[li].Trim();
+        li = li + 1;
+        if (t.Length == 0 || t.StartsWith("#")) { continue; }
+        string[] parts = t.Split(" ");
+        if (parts.Length < 3) { continue; }
+        string g = parts[0];
+        int bl = int.Parse(parts[1]);
+        int bu = int.Parse(parts[2]);
+        int nowL = 0; int nowU = 0;
+        int q = 0;
+        while (q < gn) { if (groups[q] == g) { nowL = lineNos[q]; nowU = unresolved[q]; break; } q = q + 1; }
+        if (nowL > bl || nowU > bu) {
+            fail = fail + "\n  " + g + ": 行号 " + nowL.ToString() + "/" + bl.ToString() + "、未解析 " + nowU.ToString() + "/" + bu.ToString()
+                + "（最差页 " + worstPage[q] + "）";
+        } else if (nowL < bl || nowU < bu) {
+            Console.WriteLine("  " + g + ": 行号 " + bl.ToString() + " → " + nowL.ToString() + "、未解析 " + bu.ToString() + " → " + nowU.ToString() + "（可收紧基线）");
+        }
+    }
+    if (fail.Length > 0) {
+        ConsoleError.WriteLine("check doc-refs: 超出基线：" + fail);
+        return 1;
+    }
+    Console.WriteLine("check doc-refs: ✓ 各区域引用在基线内（" + Path.GetFileName(baselinePath) + "）");
+    return 0;
+}
+
+int _groupAt(string[] groups, int n, string g) {
+    int i = 0;
+    while (i < n) { if (groups[i] == g) { return i; } i = i + 1; }
+    return -1;
+}
+
 // 漂移门禁：重新生成并与仓库内文件 diff，不一致即失败并提示 `xtask doc gen`。
 int _checkDocsApi() {
     string root = _root();
