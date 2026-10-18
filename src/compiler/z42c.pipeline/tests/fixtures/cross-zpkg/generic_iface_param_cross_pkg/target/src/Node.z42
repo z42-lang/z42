@@ -1,0 +1,16 @@
+namespace Demo.Ifp;
+
+// 形状刻意复刻 bound visitor：泛型方法的参数是「本包接口的实例化 + 方法自己的型参」。
+// TSIG 导出侧（TypeNameResolver._hybridTypeName）把它写成裸名时，消费包按 FQN 表解析这个
+// 参数类型 miss → 垃圾伪类 → 调用点实参 E0402（visitor 2/3 的前置修复盯的就是这个）。
+public interface IVisitor<R, D> {
+    R Visit(int n, D d);
+}
+
+public abstract class Node {
+    public abstract R Accept<R, D>(IVisitor<R, D> v, D d);
+}
+
+public class ConcreteNode : Node {
+    public override R Accept<R, D>(IVisitor<R, D> v, D d) { return v.Visit(41, d); }
+}

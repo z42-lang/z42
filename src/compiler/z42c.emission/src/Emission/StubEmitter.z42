@@ -125,7 +125,11 @@ public sealed class StubEmitter {
         int totalParams = md.ParamCount + 1;   // 实例 → +this
         // RetType 是 TypeExpr（非 string）→ 必须解析为类型名字符串（同 EmitFunction），否则
         // NamedType 对象被当串塞进 SIGS/池 → STRS 池污染崩溃。
-        string retName = this._resolvedSpell(this._g._symbols.ResolveType(md.RetType));
+        // visitor 2/3 前置修复：参数/返回写真拼写（源结构 + FQ 名成分，与 `EmitFunction._sigTypeName`
+        // 同文法；`R` 等方法级型参照源名）。此前恒写 "?"——TSIG 段已删（unify P3），跨包签名由
+        // `TsigReconcile` 从 SIGS 桩重建，"?" 会让抽象方法在消费包里带全 "?" 参数 + 丢方法级型参
+        // ⇒ 跨包调它的泛型调用点实参补查 E0402（`generic_iface_param_cross_pkg` fixture 盯这个）。
+        string retName = this._typeSpell(md.RetType);
         bool isVoid = retName == "void";
         TypedReg dst = new TypedReg(totalParams, isVoid ? IrType.Void : IrType.Ref);
         IrInstr[] instrs;
@@ -140,13 +144,21 @@ public sealed class StubEmitter {
         }
         IrBlock[] blocks = new IrBlock[1];
         blocks[0] = new IrBlock("entry", instrs, instrs.Length, term, true);
-        // ParamTypes 与 ParamCount 对齐（"?" 占位；SIGS writer 亦以 "?" 兜底缺失）。
+        // ParamTypes 与 ParamCount 对齐（this 槽 "?" 占位——reconcile 读参数跳它；真参写源拼写）。
         string[] ptypes = new string[totalParams];
-        int pk = 0;
-        while (pk < totalParams) { ptypes[pk] = "?"; pk = pk + 1; }
-        return new IrFunction(name, totalParams, retName, false, blocks, 1, totalParams + 1,
+        ptypes[0] = "?";
+        int pk = 1;
+        while (pk < totalParams) { ptypes[pk] = this._typeSpell(md.Params[pk - 1].Type); pk = pk + 1; }
+        IrFunction stub = new IrFunction(name, totalParams, retName, false, blocks, 1, totalParams + 1,
                               "Interp", ptypes, totalParams, new int[0], 0,
                               new IrLineEntry[0], 0, new IrLocalVarEntry[0], 0);
+        // 方法级泛型形参名（同 EmitFunction 的 add-reflective-invoke）：reconcile 据此给跨包
+        // 调用点建型参上下文（`Accept<R, D>` 的 R/D 替换才有据）。
+        if (md.TypeParams.Count > 0) {
+            stub.TypeParams = md.TypeParams.Names;
+            stub.TypeParamCount = md.TypeParams.Count;
+        }
+        return stub;
     }
 
     // fix-native-stub-sret：`_emitNativeStub` 的 blob-返回变体（见那里的注释）。
