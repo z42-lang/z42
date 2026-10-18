@@ -138,16 +138,10 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     ("__load_bytecode_in_memory", Native::Val(reflection::builtin_load_bytecode_in_memory)),
 
     // ── add-enum-parse-isdefined (2026-07-24) — appended to preserve BuiltinIds ──
-    ("__enum_parse",              Native::Val(reflection::builtin_enum_parse)),
-    ("__enum_is_defined",         Native::Val(reflection::builtin_enum_is_defined)),
 
     // ── add-enum-underlying-type (2026-07-25) — appended to preserve BuiltinIds ──
-    ("__type_enum_underlying",    Native::Val(reflection::builtin_type_enum_underlying)),
 
     // ── add-nested-types (2026-07-25) — appended to preserve BuiltinIds ──
-    ("__type_is_nested",          Native::Val(reflection::builtin_type_is_nested)),
-    ("__type_declaring_type",     Native::Val(reflection::builtin_type_declaring_type)),
-    ("__type_nested_types",       Native::Val(reflection::builtin_type_nested_types)),
 
     // ── complete-class-access-control — class visibility reflection (appended) ──
     // Single visibility-byte accessor; z42 `Type.Visibility` wraps it in the
@@ -155,7 +149,6 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     // vs nested distinction (no per-predicate builtin surface). BuiltinIds resolve
     // by name at load (resolver.rs), so collapsing the earlier 6 predicate builtins
     // to this one is safe — nothing bakes a positional BuiltinId across a build.
-    ("__type_visibility",          Native::Val(reflection::builtin_type_visibility)),
 
     // ── add-load-context-model (2026-07-30) — appended to preserve BuiltinIds ──
     ("__lctx_default",            Native::Val(assemblyloadcontext::builtin_lctx_default)),

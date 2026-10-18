@@ -19,17 +19,14 @@ const PART1: &[(&str, Native)] = &[
     ("__concat",   Native::Val(io::builtin_concat)),
     ("__len",      Native::Val(io::builtin_len)),
     ("__contains", Native::Val(io::builtin_contains)),
-
     // ── TestIO sinks (R2 完整版) ──────────────────────────────────────────────
     ("__test_io_install_stdout_sink", Native::Void(io::builtin_test_io_install_stdout_sink)),
     ("__test_io_take_stdout_buffer",  Native::Val(io::builtin_test_io_take_stdout_buffer)),
     ("__test_io_install_stderr_sink", Native::Void(io::builtin_test_io_install_stderr_sink)),
     ("__test_io_take_stderr_buffer",  Native::Val(io::builtin_test_io_take_stderr_buffer)),
-
     // ── Time + bencher helpers ──────────────────────────────────────────────
     ("__time_now_mono_ns", Native::Val(bench::builtin_time_now_mono_ns)),
     ("__bench_black_box",  Native::Val(bench::builtin_bench_black_box)),
-
     // ── String (minimal intrinsic core; most methods are script-side now) ────
     ("__str_byte_length", Native::Val(string::builtin_str_byte_length)),
     ("__str_to_chars",    Native::Val(string::builtin_str_to_chars)),
@@ -38,12 +35,10 @@ const PART1: &[(&str, Native)] = &[
     // Std.String.ToString 现在是脚本 `return this;`。
     ("__str_equals",     Native::Val(string::builtin_str_equals)),
     ("__str_hash_code",  Native::Val(string::builtin_str_hash_code)),
-
     // ── Char ──────────────────────────────────────────────────────────────────
     // shrink-primitive-native-interop (2026-08-27): __char_to_lower/__char_to_upper
     // removed — ASCII-only casing 迁纯脚本。IsWhiteSpace 保留（真 Unicode）。
     ("__char_is_whitespace", Native::Val(char::builtin_char_is_whitespace)),
-
     // ── Parse / convert / primitive ToString / BitConverter ── 已迁 builtin ABI v2：
     //    见 `convert::typed`（`#[builtins]` 模块，经下方 `TYPED` 登记）。
 
@@ -68,7 +63,6 @@ const PART1: &[(&str, Native)] = &[
     ("__math_tanh",    Native::Val(math::builtin_math_tanh)),
     ("__math_cbrt",    Native::Val(math::builtin_math_cbrt)),
     ("__math_log2",    Native::Val(math::builtin_math_log2)),
-
     // ── File / Directory / Glob / Temp / Console tty / Environment / clock ── 已迁 builtin ABI v2：
     //    见 `fs::typed`（FileStream 句柄、`__env_*`、`__process_exit`、`__time_now_ms` 也在那里）。
 
@@ -87,38 +81,16 @@ const PART1: &[(&str, Native)] = &[
     // ── Reflection (add-reflection-mvp, 2026-06-08) ─────────────────────────────
     // align-type-memberinfo-hierarchy: `__type_name` removed — Type.Name inherits
     // from MemberInfo (build_type populates the field), no native getter.
-    ("__type_full_name",     Native::Val(reflection::builtin_type_full_name)),
-    ("__type_element",       Native::Val(reflection::builtin_type_element)),
     ("__type_fields",        Native::Val(reflection::builtin_type_fields)),
     ("__type_methods",       Native::Val(reflection::builtin_type_methods)),
     // add-reflective-invoke: constructor reflection (ConstructorInfo enumeration).
     ("__type_constructors",  Native::Val(reflection::builtin_type_constructors)),
-    ("__type_base",          Native::Val(reflection::builtin_type_base)),
-    ("__type_generic_args",  Native::Val(reflection::builtin_type_generic_args)),
-    ("__type_interfaces",    Native::Val(reflection::builtin_type_interfaces)),
-    ("__type_members",       Native::Val(reflection::builtin_type_members)),
     ("__type_properties",    Native::Val(reflection::builtin_type_properties)),
-    ("__type_is_abstract",   Native::Val(reflection::builtin_type_is_abstract)),
-    ("__type_is_sealed",     Native::Val(reflection::builtin_type_is_sealed)),
-    ("__type_is_value_type", Native::Val(reflection::builtin_type_is_value_type)),
-    ("__type_is_record",     Native::Val(reflection::builtin_type_is_record)),
-    ("__type_is_generic",    Native::Val(reflection::builtin_type_is_generic)),
-    ("__type_is_primitive",  Native::Val(reflection::builtin_type_is_primitive)),
-    ("__type_is_generic_definition", Native::Val(reflection::builtin_type_is_generic_definition)),
-    ("__type_generic_definition",    Native::Val(reflection::builtin_type_generic_definition)),
     // plan-generic-reflection G1: runtime generic instantiation (MakeGenericType,
     // constraint-validated). Constructed CreateInstance is handled in the existing
     // __activator_create builtin (reifies __typeArgs onto the new instance).
     ("__type_make_generic",          Native::Val(reflection::builtin_type_make_generic)),
-    ("__type_is_interface",  Native::Val(reflection::builtin_type_is_interface)),
     // add-enum-type-metadata (unify-type-metadata P1-a): enum reflection.
-    ("__type_is_enum",       Native::Val(reflection::builtin_type_is_enum)),
-    ("__type_is_delegate",   Native::Val(reflection::builtin_type_is_delegate)),
-    ("__enum_names",         Native::Val(reflection::builtin_enum_names)),
-    ("__enum_values",        Native::Val(reflection::builtin_enum_values)),
-    ("__enum_name",          Native::Val(reflection::builtin_enum_name)),
-    ("__type_is_class",      Native::Val(reflection::builtin_type_is_class)),
-    ("__type_is_assignable_from", Native::Val(reflection::builtin_type_is_assignable_from)),
     ("__type_custom_attributes", Native::Val(reflection::builtin_type_custom_attributes)),
     ("__method_custom_attributes", Native::Val(reflection::builtin_method_custom_attributes)),
     ("__field_custom_attributes", Native::Val(reflection::builtin_field_custom_attributes)),
@@ -161,14 +133,12 @@ const PART1: &[(&str, Native)] = &[
     ("__array_create", Native::Val(array::builtin_array_create)),
     ("__array_get",    Native::Val(array::builtin_array_get)),
     ("__array_set",    Native::Void(array::builtin_array_set)),
-
     // ── GC control（Phase 3d.2 expose-gc-to-scripts） ────────────────────────
     ("__gc_collect",       Native::Void(gc::builtin_gc_collect)),
     ("__gc_used_bytes",    Native::Val(gc::builtin_gc_used_bytes)),
     ("__gc_force_collect", Native::Val(gc::builtin_gc_force_collect)),
     // ── add-custom-allocator P2 (2026-05-22) ─────────────────────────────
     ("__gc_finalize",      Native::Val(gc::builtin_gc_finalize)),
-
     // ── GCHandle struct + HeapStats（reorganize-gc-stdlib，2026-05-07）───────
     ("__gc_handle_alloc",    Native::Val(gc::builtin_gc_handle_alloc)),
     ("__gc_handle_target",   Native::Val(gc::builtin_gc_handle_target)),
@@ -176,7 +146,6 @@ const PART1: &[(&str, Native)] = &[
     ("__gc_handle_kind",     Native::Val(gc::builtin_gc_handle_kind)),
     ("__gc_handle_free",     Native::Void(gc::builtin_gc_handle_free)),
     ("__gc_stats",           Native::Val(gc::builtin_gc_stats)),
-
     // ── add-std-process (2026-05-13) ── seed compatibility only: the stdlib calls the typed
     //    `process::typed` builtins; these old shapes stay for the published seed (`process_legacy.rs`).
     ("__process_run",                 Native::Val(process_legacy::builtin_process_run)),
@@ -200,6 +169,8 @@ const PART1: &[(&str, Native)] = &[
 const TYPED: &[&[super::abi::BuiltinDesc]] = &[
     super::convert::typed::DESCS,
     super::string::typed::DESCS,
+    super::reflection::enums::typed::DESCS,
+    super::reflection::type_query::typed::DESCS,
     super::threading::typed::DESCS,
     super::fs::typed::DESCS,
     super::fs_backend::memory::typed::DESCS,
@@ -227,21 +198,18 @@ const TYPED: &[&[super::abi::BuiltinDesc]] = &[
 /// builtin. Typed builtins say it themselves (`#[builtin(reenters)]`); this list only
 /// shrinks, as those areas migrate.
 pub(crate) const LEGACY_REENTERS: &[&str] = &[
-    "__type_full_name", "__type_element", "__type_fields", "__type_methods", "__type_constructors",
-    "__type_base", "__type_generic_args", "__type_interfaces", "__type_members",
-    "__type_properties", "__type_is_abstract", "__type_is_sealed", "__type_is_value_type",
-    "__type_is_record", "__type_is_generic", "__type_is_primitive", "__type_is_generic_definition",
-    "__type_generic_definition", "__type_make_generic", "__type_is_interface", "__type_is_enum",
-    "__type_is_delegate", "__enum_names", "__enum_values", "__enum_name", "__type_is_class",
-    "__type_is_assignable_from", "__type_custom_attributes", "__method_custom_attributes",
+    "__type_fields", "__type_methods", "__type_constructors",
+    "__type_properties",
+    "__type_make_generic",
+    "__type_is_class",
+    "__type_custom_attributes", "__method_custom_attributes",
     "__field_custom_attributes", "__param_custom_attributes", "__property_custom_attributes",
     "__type_get_type", "__method_invoke", "__method_make_generic", "__method_generic_arguments",
     "__property_get_value", "__property_set_value", "__field_get_value", "__field_set_value",
     "__activator_create", "__ctor_invoke", "__load_module", "__invoke_static",
     "__repl_complete_probe", "__repl_set_completer", "__repl_set_key_editor", "__repl_set_keywords",
-    "__repl_member_names", "__load_bytecode_in_memory", "__enum_parse", "__enum_is_defined",
-    "__type_enum_underlying", "__type_is_nested", "__type_declaring_type", "__type_nested_types",
-    "__type_visibility", "__lctx_default", "__lctx_create_collectible", "__lctx_load",
+    "__repl_member_names", "__load_bytecode_in_memory",
+    "__lctx_default", "__lctx_create_collectible", "__lctx_load",
     "__lctx_name", "__lctx_is_collectible", "__lctx_assemblies", "__asm_name",
     "__asm_is_collectible", "__asm_loadcontext", "__asm_get_types", "__type_is_collectible",
     "__type_assembly", "__lctx_unload", "__run_goldens_isolated", "__methodof", "__class_type_arg",
