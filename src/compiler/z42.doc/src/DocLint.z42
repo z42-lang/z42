@@ -1,0 +1,262 @@
+// doc 注释的机械检查（z42-doc §4.7 的 W08xx，语法级首批）：`xtask check doc-lints` 的引擎。
+// 走语法树 + DocParser，不进编译器诊断管线——编译器内建 DocChecker pass（含 W0803 链接解析、
+// [lints] 级别决策）是下一步；这层先把 19 个已迁移包的注释质量从人工目检变成棘轮保证。
+// 码以字面量发射（分阶段引入纪律：注册表常量与跨包引用不能同 PR，见 diag-literal-emitters.txt）。
+//
+//   W0801 孤立的 ///（后面没有声明认领）
+//   W0802 @param / @typeparam 名不在签名里
+//   W0804 未知 tag（闭集：param typeparam returns throws see warning example hidden）
+//   W0805 显式 public 声明缺 ///（枚举成员除外——只进签名总览块）
+//   W0806 历史注记（日期 `(20xx-xx-xx)`、spec 名 `add-xxx:` 等）
+//   W0807 摘要缺失（写了 /// 但首段为空）或超长（>80 字）
+//   W0808 同一命名空间有多个文件写了 //!（按本次输入的文件集合判，stdlib 按包跑）
+namespace Z42.Doc;
+
+using Z42.Syntax;
+using Std.IO;
+
+// 结果累加器：扩容对调用方透明（数组重新分配后引用要跟着走，直接传数组会 alias 丢条目）。
+sealed class LintAcc {
+    public DocLintFinding[] Items = new DocLintFinding[16];
+    public int N;
+    public void Push(DocLintFinding v) {
+        if (this.N == this.Items.Length) {
+            DocLintFinding[] g = new DocLintFinding[this.Items.Length * 2];
+            Array.Copy(this.Items, g, this.N);
+            this.Items = g;
+        }
+        this.Items[this.N] = v;
+        this.N = this.N + 1;
+    }
+    public DocLintFinding[] Take() {
+        DocLintFinding[] r = new DocLintFinding[this.N];
+        Array.Copy(this.Items, r, this.N);
+        return r;
+    }
+}
+
+// 一条检查结果。file 是调用方传入的路径原样；行号 1-based。
+public sealed class DocLintFinding {
+    public string Code;
+    public string File;
+    public int    Line;
+    public string Msg;
+    public DocLintFinding(string code, string file, int line, string msg) {
+        this.Code = code; this.File = file; this.Line = line; this.Msg = msg;
+    }
+}
+
+public static class DocLint {
+    private static int MaxSummary = 80;
+
+    // 单文件检查（无 W0808——它要跨文件）。测试与 CheckPaths 共用。
+    public static DocLintFinding[] CheckSource(string src, string file) {
+        LintAcc acc = new LintAcc();
+        Parser p = new Parser(src, file);
+        CompilationUnit cu = p.ParseCompilationUnit();
+        // W0801：未被认领的 doc 块（方法体里的 ///、悬空块）。
+        int i = 0;
+        while (i < cu.DocBlockCount) {
+            DocBlock b = cu.DocBlocks[i];
+            if (!b.Claimed) {
+                string kind = (b.Kind == DocBlock.Inner) ? "//!" : "///";
+                acc.Push(new DocLintFinding("W0801", file, b.Span.Line,
+                    "孤立的 " + kind + " 块——后面没有声明认领它"));
+            }
+            i = i + 1;
+        }
+        int d = 0;
+        while (d < cu.DeclCount) { DocLint._decl(acc, cu.Decls[d], file); d = d + 1; }
+        return acc.Take();
+    }
+
+    // 多文件检查：逐文件 + W0808（同一命名空间多个文件写 //!）。顺序即输入顺序，首个视为正主。
+    public static DocLintFinding[] CheckPaths(string[] paths) {
+        LintAcc acc = new LintAcc();
+        string[] ns = new string[paths.Length];    // 已写 //! 的命名空间 → 首个文件
+        string[] at = new string[paths.Length];
+        int nsN = 0;
+        int i = 0;
+        while (i < paths.Length) {
+            string src = File.ReadAllText(paths[i]);
+            DocLintFinding[] one = DocLint.CheckSource(src, paths[i]);
+            int k = 0;
+            while (k < one.Length) { acc.Push(one[k]); k = k + 1; }
+            Parser p = new Parser(src, paths[i]);
+            CompilationUnit cu = p.ParseCompilationUnit();
+            if (cu.Doc != null && cu.HasNamespace) {
+                int hit = DocLint._nsFind(ns, nsN, cu.Namespace);
+                if (hit < 0) { ns[nsN] = cu.Namespace; at[nsN] = paths[i]; nsN = nsN + 1; }
+                else {
+                    acc.Push(new DocLintFinding("W0808", paths[i], cu.Doc.Span.Line,
+                        "命名空间 " + cu.Namespace + " 的 //! 已写在 " + at[hit] + " —— 一个命名空间只留一份（主文件）"));
+                }
+            }
+            i = i + 1;
+        }
+        return acc.Take();
+    }
+
+    // 一个声明（递归成员）：W0805 缺 ///；有 /// 时 W0802 / W0804 / W0806 / W0807。
+    private static void _decl(LintAcc acc, Decl d0, string file) {
+        Decl d = (d0 is AttributedDecl) ? (d0 as AttributedDecl).Inner : d0;
+        if (d is ClassDecl) {
+            ClassDecl c = d as ClassDecl;
+            DocLint._checkOne(acc, c, c.Name, c.TypeParams, null, 0, c.ModFlags, file);
+            int i = 0;
+            while (i < c.MemberCount) { DocLint._decl(acc, c.Members[i], file); i = i + 1; }
+        }
+        if (d is EnumDecl) {
+            EnumDecl e = d as EnumDecl;
+            DocLint._checkOne(acc, e, e.Name, null, null, 0, e.ModFlags, file);
+            int j = 0;
+            while (j < e.MemberCount) {
+                EnumMember m = e.Members[j];
+                // 枚举成员不查 W0805（隐式 public、只进签名总览块）；文本检查照做。
+                if (m.Doc != null) { DocLint._text(acc, m.Doc, m.Name, file); }
+                j = j + 1;
+            }
+        }
+        if (d is DelegateDecl) {
+            DelegateDecl dg = d as DelegateDecl;
+            DocLint._checkOne(acc, dg, dg.Name, dg.TypeParams, dg.Params, dg.ParamCount, dg.ModFlags, file);
+        }
+        if (d is ImplDecl) {
+            ImplDecl im = d as ImplDecl;
+            int k = 0;
+            while (k < im.MethodCount) { DocLint._decl(acc, im.Methods[k], file); k = k + 1; }
+        }
+        if (d is MethodDecl) {
+            MethodDecl md = d as MethodDecl;
+            DocLint._checkOne(acc, md, md.Name, md.TypeParams, md.Params, md.ParamCount, md.ModFlags, file);
+        }
+        if (d is FieldDecl)    { FieldDecl f = d as FieldDecl;       DocLint._checkOne(acc, f, f.Name, null, null, 0, f.ModFlags, file); return; }
+        if (d is PropertyDecl) { PropertyDecl pr = d as PropertyDecl; DocLint._checkOne(acc, pr, pr.Name, null, null, 0, pr.ModFlags, file); return; }
+        if (d is IndexerDecl)  { IndexerDecl ix = d as IndexerDecl;   DocLint._checkOne(acc, ix, "this", null, null, 0, ix.ModFlags, file); return; }
+    }
+
+    // 一个声明的全套检查。tp / ps 为 null 表示该声明没有对应结构（@param 恒不匹配）。
+    private static void _checkOne(LintAcc acc, Decl d, string name, TypeParamList tp,
+                                   Param[] ps, int pc, int modFlags, string file) {
+        if (d.Doc == null) {
+            // W0805：显式 public 而无 ///。接口成员 / 枚举成员的隐式 public 不算。
+            if (Mod.Has(modFlags, Mod.Public)) {
+                acc.Push(new DocLintFinding("W0805", file, d.Span.Line,
+                    "public `" + name + "` 缺 /// 文档"));
+            }
+            return;
+        }
+        DocComment c = DocParser.Parse(d.Doc.Text);
+        // W0804：闭集之外（DocComment.Tags 不含 example/hidden——它们进 Examples / Hidden）。
+        int t = 0;
+        while (t < c.Tags.Length) {
+            if (!DocLint._knownTag(c.Tags[t].Tag)) {
+                acc.Push(new DocLintFinding("W0804", file, d.Doc.Span.Line,
+                    "`" + name + "` 的未知 tag @" + c.Tags[t].Tag));
+            }
+            t = t + 1;
+        }
+        // W0802：@param 名 ∈ 形参；@typeparam 名 ∈ 类型形参。
+        t = 0;
+        while (t < c.Tags.Length) {
+            DocTag tag = c.Tags[t];
+            if (tag.Tag == "param") {
+                if (!DocLint._paramHas(ps, pc, tag.Name)) {
+                    acc.Push(new DocLintFinding("W0802", file, d.Doc.Span.Line,
+                        "`" + name + "` 的 @param " + tag.Name + " 不在签名里"));
+                }
+            } else if (tag.Tag == "typeparam") {
+                if (!DocLint._tpHas(tp, tag.Name)) {
+                    acc.Push(new DocLintFinding("W0802", file, d.Doc.Span.Line,
+                        "`" + name + "` 的 @typeparam " + tag.Name + " 不在签名里"));
+                }
+            }
+            t = t + 1;
+        }
+        DocLint._text(acc, d.Doc, name, file);
+    }
+
+    // 文本级（挂靠不关心声明形状）：W0806 历史注记、W0807 摘要。
+    private static void _text(LintAcc acc, DocBlock doc, string name, string file) {
+        string text = doc.Text;
+        if (DocLint._hasHistory(text)) {
+            acc.Push(new DocLintFinding("W0806", file, doc.Span.Line,
+                "`" + name + "` 的文档里有历史注记（日期 / spec 名）——历史归 git blame"));
+        }
+        string summary = DocParser.Summary(text);
+        if (summary.Length == 0) {
+            acc.Push(new DocLintFinding("W0807", file, doc.Span.Line,
+                "`" + name + "` 的摘要缺失（首段为空）"));
+        } else if (summary.Length > DocLint.MaxSummary) {
+            acc.Push(new DocLintFinding("W0807", file, doc.Span.Line,
+                "`" + name + "` 的摘要 " + summary.Length.ToString() + " 字，超过 " + DocLint.MaxSummary.ToString() + "——细节挪正文"));
+        }
+    }
+
+    // 历史注记的机械模式（§3.4）：四位年份日期；`add-xxx:` / `fix-xxx:` 等 spec 名带冒号。
+    // z42 的 IndexOf 无起点重载，spec 扫描用剩余片段迭代。
+    private static bool _hasHistory(string text) {
+        int i = 0;
+        while (i + 9 < text.Length) {
+            if (DocLint._digitAt(text, i) && DocLint._digitAt(text, i + 1) && DocLint._digitAt(text, i + 2) && DocLint._digitAt(text, i + 3)
+                && text.CharAt(i + 4) == '-' && DocLint._digitAt(text, i + 5) && DocLint._digitAt(text, i + 6)
+                && text.CharAt(i + 7) == '-' && DocLint._digitAt(text, i + 8) && DocLint._digitAt(text, i + 9)) {
+                return true;
+            }
+            i = i + 1;
+        }
+        string[] specs = new string[6];
+        specs[0] = "add-"; specs[1] = "fix-"; specs[2] = "extend-"; specs[3] = "remove-"; specs[4] = "wire-"; specs[5] = "unify-";
+        int s = 0;
+        while (s < specs.Length) {
+            string seg = text;
+            int at = seg.IndexOf(specs[s]);
+            while (at >= 0) {
+                // 后随小写串再跟 `:`（`add-benchmark-runner:` 命中；散文 “add-” 不命中）。
+                int j = at + specs[s].Length;
+                int letters = 0;
+                while (j < seg.Length) {
+                    char ch = seg.CharAt(j);
+                    bool kebab = (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-';
+                    if (!kebab) { break; }
+                    j = j + 1; letters = letters + 1;
+                }
+                if (letters >= 3 && j < seg.Length && seg.CharAt(j) == ':') { return true; }
+                seg = seg.Substring(at + specs[s].Length);
+                at = seg.IndexOf(specs[s]);
+            }
+            s = s + 1;
+        }
+        return false;
+    }
+
+    private static bool _digitAt(string s, int i) {
+        return i < s.Length && s.CharAt(i) >= '0' && s.CharAt(i) <= '9';
+    }
+
+    private static bool _knownTag(string tag) {
+        return tag == "param" || tag == "typeparam" || tag == "returns" || tag == "throws"
+            || tag == "see" || tag == "warning" || tag == "example" || tag == "hidden";
+    }
+
+    private static bool _paramHas(Param[] ps, int pc, string name) {
+        if (ps == null) { return false; }
+        int i = 0;
+        while (i < pc) { if (ps[i].Name == name) { return true; } i = i + 1; }
+        return false;
+    }
+
+    private static bool _tpHas(TypeParamList tp, string name) {
+        if (tp == null) { return false; }
+        int i = 0;
+        while (i < tp.Count) { if (tp.Names[i] == name) { return true; } i = i + 1; }
+        return false;
+    }
+
+    private static int _nsFind(string[] ns, int n, string v) {
+        int i = 0;
+        while (i < n) { if (ns[i] == v) { return i; } i = i + 1; }
+        return -1;
+    }
+
+}
