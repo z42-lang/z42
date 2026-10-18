@@ -48,6 +48,7 @@ z42 标准库各包的公开 API。每页覆盖一个包：类型、方法签名
 | [随机数](random.md) | `z42.random` | `Random`——确定性 PRNG（**不是** CSPRNG） |
 | [密码学](crypto.md) | `z42.crypto` | 摘要 / HMAC / 对称加密 / 签名 / KDF / `SecureRandom` |
 | [大数与数值类型](numerics.md) | `z42.numerics` | `BigInt` / `Decimal` / `Complex` |
+| [测试与基准](harness.md) | `z42.harness` | `[Test]` / `[Benchmark]` attribute、`Runner`、`Bencher`、`TestIO` |
 
 ## 不在本部分
 

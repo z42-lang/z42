@@ -1,16 +1,18 @@
 namespace Std.Harness;
 
 
-// Per-entry outcome of a reflective test/bench run (rebuild-bench-structured-output).
-// The z42-native successor to the retired Rust `TestResult`, trimmed to what an
-// in-process runner can produce: no per-test `duration_ms` / `failure_location` /
-// `stack_trace` (no reliable source — omitted rather than fabricated).
+/// 一条测试 / 基准的运行结果。没有 duration / 失败位置 / 栈字段：进程内 runner
+/// 没有可靠来源，略去而不是编造。
 public class TestResult {
-    public string Name;         // fully-qualified "<FQClass>.<Method>"
-    public string Status;       // "passed" | "failed" | "skipped"
+    /// 全限定名：`<命名空间或类型>.<函数名>`。
+    public string Name;
+    /// `"passed"` | `"failed"` | `"skipped"`。
+    public string Status;
     public bool IsBenchmark;
-    public string Reason;       // null unless failed / skipped
-    public BenchStats Stats;    // null unless a benchmark with a parsed summary line
+    /// 仅失败 / 跳过时非 null。
+    public string Reason;
+    /// 仅基准且摘要行解析成功时非 null。
+    public BenchStats Stats;
 
     public TestResult(string name, string status, bool isBenchmark, string reason, BenchStats stats) {
         this.Name = name;
@@ -21,19 +23,14 @@ public class TestResult {
     }
 }
 
-// JSON report serialization for the runner's `--format json` mode. z42.harness has no
-// dependencies (foundational lib), so JSON is hand-rolled rather than via z42.json.
-// Contract (rebuild-bench-structured-output):
-//
-//   { "tool":"z42b", "module":"<path>",
-//     "summary":{"total":N,"passed":P,"failed":F,"skipped":S},
-//     "results":[ {"name":..,"status":..,"is_benchmark":..[,"reason":..][,"bench_stats":..]} ] }
-//
-// NOTE: `module` is a RESERVED z42 keyword — the artifact-path parameter is named
-// `artifact` here. (Naming it `module` once desynced the parser and, with parse
-// diagnostics dropped, silently miscompiled this very file — both fixed in
-// fix-parse-diags-dropped.)
+/// runner `--format json` 模式的报告序列化。本包零依赖，JSON 手写而非经 z42.json。
+/// schema：
+///
+///     { "tool":"z42b", "module":"<path>",
+///       "summary":{"total":N,"passed":P,"failed":F,"skipped":S},
+///       "results":[ {"name":..,"status":..,"is_benchmark":..[,"reason":..][,"bench_stats":..]} ] }
 public static class TestReport {
+    /// 渲染一份 JSON 报告。形参名是 `artifact` 而非 `module`——`module` 是 z42 保留字。
     public static string toJson(string artifact, TestResult[] results) {
         int total = results.Length;
         int passed = 0; int failed = 0; int skipped = 0;
