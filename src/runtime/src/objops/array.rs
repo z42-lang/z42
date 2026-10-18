@@ -190,20 +190,24 @@ pub fn array_size(len: &Value) -> OpResult<usize> {
 /// `ArrayNew`：`len` 个元素的数组。
 ///
 /// - 元素是 blob 值 struct → STRUCT 堆数组（不走栈分配）。
-/// - `prim_zero`：泛型型参在运行期解析成基元值类型时的零值（只有 interp 会给，JIT 不翻译这种站点）；
-///   否则按 `elem_tag` 取默认值。
+/// - `tp_prim`：泛型型参在运行期解析成**基元**实参时的（打包种类, 零值）——数组按该宽度打包
+///   （M13;`List<int>` 的 backing 每元素 4 B）。引用 / struct / 未解析的型参 → `None`，
+///   擦除 MIXED（现状）。方法级型参只有 interp 会解析（JIT 不翻译这种站点）。
 /// - `stack`：编译器证明不逃逸且运行期允许时给出栈帧号，数组进栈 arena。
 pub fn array_new<F: FnOnce() -> u32>(
     ctx: &VmContext, len: &Value, elem_tag: u8, element_type: ElemType,
-    type_param: bool, prim_zero: Option<Value>, stack: Option<F>,
+    type_param: bool, tp_prim: Option<TypeParamElem>, stack: Option<F>,
 ) -> OpResult<Value> {
     let n = array_size(len)?;
-    let kind = match elem_mode(ctx, element_type, type_param) {
-        ElemMode::Struct(layout) =>
-            return alloc(ArrayObj::alloc_struct(ctx.heap(), element_type, n, layout), || format!("struct array[{n}]")),
-        ElemMode::Kind(k) => k,
+    let kind = match tp_prim {
+        Some(p) => p.kind, // M13: 基元实参按其宽度打包,element_type 名字保持擦除（反射读 "T"）
+        None => match elem_mode(ctx, element_type, type_param) {
+            ElemMode::Struct(layout) =>
+                return alloc(ArrayObj::alloc_struct(ctx.heap(), element_type, n, layout), || format!("struct array[{n}]")),
+            ElemMode::Kind(k) => k,
+        },
     };
-    let default = prim_zero.unwrap_or_else(|| default_value_for_tag(elem_tag));
+    let default = tp_prim.map(|p| p.zero).unwrap_or_else(|| default_value_for_tag(elem_tag));
     if let Some(frame_id) = stack {
         return Ok(stack_array(ctx, frame_id(), vec![default; n]));
     }
@@ -235,13 +239,24 @@ pub fn array_new_lit<F: FnOnce() -> u32>(
     alloc(ArrayObj::alloc_from_iter(ctx.heap(), element_type, kind, n, elems), || format!("array literal[{n}]"))
 }
 
-/// 类级泛型型参 `T`（`new T[n]`，`T` 是接收者类的型参）：接收者（reg 0）的实例型参解析成基元值类型时，
-/// 返回它的零值作为每个元素的默认值；引用 / struct 型参、非对象接收者 → `None`（擦除数组，元素 Null）。
-/// interp 与 JIT 共用（方法级型参只有 interp 的帧带着，见 `interp::exec_array`）。
-pub fn class_type_param_zero(receiver: Option<&Value>, index: usize) -> Option<Value> {
+/// 类级泛型型参 `T`（`new T[n]`，`T` 是接收者类的型参）在运行期解析成**基元**实参时的
+/// 打包种类与零值（M13）。引用 / struct 实参、非对象接收者、越界下标 → `None`
+/// （擦除 MIXED 数组，元素零值按 `elem_tag`）。interp 与 JIT 共用（方法级型参只有 interp
+/// 的帧带着，见 `interp::exec_array`）。
+pub fn class_type_param_elem(receiver: Option<&Value>, index: usize) -> Option<TypeParamElem> {
     let Some(Value::Object(rc)) = receiver else { return None };
-    let d = crate::metadata::types::default_value_for(rc.borrow().type_args().get(index)?);
-    (!matches!(d, Value::Null)).then_some(d)
+    let ta = rc.borrow().type_args_handle();
+    let kind = ta.elem_kind(index);
+    if !kind.is_prim() { return None; }
+    let zero = crate::metadata::types::default_value_for(ta.get(index)?);
+    (!matches!(zero, Value::Null)).then_some(TypeParamElem { kind, zero })
+}
+
+/// 一个解析成基元实参的型参（M13）：数组按 `kind` 的宽度打包，`zero` 是每个元素的默认值。
+#[derive(Clone, Copy)]
+pub struct TypeParamElem {
+    pub kind: ElemKind,
+    pub zero: Value,
 }
 
 /// An allocation's result: `Null` (the heap refused — strict OOM, or a payload past the block
@@ -265,7 +280,9 @@ pub enum ElemMode {
 /// 按元素类型定数组模式——分配时一次定下，之后不变：
 ///
 /// - 名字就能定的（[`ElemKind::of`]）：基元 → PRIM；`string` / `object` / 数组类型 → REF。
-/// - 型参元素（`new T[n]`，`type_param`）→ MIXED（擦除的 `T[]`，M13 之前元素种类编译期不知道）。
+/// - 型参元素（`new T[n]`，`type_param`）→ MIXED（擦除的 `T[]`）。**例外（M13）**：分配点已把
+///   型参解析成基元实参时（[`TypeParamElem`]），[`array_new`] 跳过这里直接按解析宽度打包，
+///   不进本函数。
 /// - 其余查类型表：**blob 值 struct** → STRUCT；类 / 接口 / 委托 → REF；enum（值是裸整数）、
 ///   非 blob 的 struct、查不到的名字 → MIXED（什么都装得下）。
 ///

@@ -19,10 +19,15 @@ use std::sync::{OnceLock, RwLock};
 
 use rustc_hash::FxHashMap;
 
+use super::ElemKind;
+
 /// 一个驻留条目（进程生命期，泄漏）。对齐 ≥ 8，`ScriptObject` 的元信息字借它的低位做标签。
 #[derive(Debug)]
 pub struct TypeArgsInfo {
     args: Box<[String]>,
+    /// M13: 每个实参名按 [`ElemKind::of_type_param`] 折好的打包种类（基元宽度或 `Mixed`），
+    /// 驻留时算一次——`new T[n]` 的分配点读它，不重复字符串 match。
+    kinds: Box<[ElemKind]>,
 }
 
 /// 驻留的类型实参列表：8 B 细指针，`Copy`。`Deref<Target = [String]>`，所以既有的
@@ -50,8 +55,10 @@ impl TypeArgs {
         if let Some(t) = w.get(args) {
             return *t;
         }
-        let info: &'static TypeArgsInfo =
-            Box::leak(Box::new(TypeArgsInfo { args: args.to_vec().into_boxed_slice() }));
+        let info: &'static TypeArgsInfo = Box::leak(Box::new(TypeArgsInfo {
+            args: args.to_vec().into_boxed_slice(),
+            kinds: args.iter().map(|n| ElemKind::of_type_param(n)).collect(),
+        }));
         // `info` is leaked ⇒ its slice lives for the process, so a `&'static [String]`
         // view of it is sound as the map key.
         let key: &'static [String] = &info.args;
@@ -63,12 +70,23 @@ impl TypeArgs {
     /// 空实参列表（非泛型 / 未实例化）。
     pub fn empty() -> Self {
         static E: OnceLock<TypeArgs> = OnceLock::new();
-        *E.get_or_init(|| TypeArgs(Box::leak(Box::new(TypeArgsInfo { args: Box::new([]) }))))
+        *E.get_or_init(|| {
+            TypeArgs(Box::leak(Box::new(TypeArgsInfo {
+                args: Box::new([]),
+                kinds: Box::new([]),
+            })))
+        })
     }
 
     #[inline]
     pub fn as_slice(self) -> &'static [String] {
         &self.0.args
+    }
+
+    /// 第 `i` 个实参的打包种类（M13;越界 → `Mixed`）。驻留时算好,分配点一次数组读。
+    #[inline]
+    pub fn elem_kind(self, i: usize) -> ElemKind {
+        self.0.kinds.get(i).copied().unwrap_or(ElemKind::Mixed)
     }
 
     /// JIT 把句柄当一个指针常量烤进代码；helper 用 [`Self::from_raw`] 还原。

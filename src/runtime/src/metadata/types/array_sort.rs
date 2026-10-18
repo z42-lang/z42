@@ -50,7 +50,10 @@ impl ArrayObj {
     /// MIXED array had fixed another primitive kind — the permutation itself only moves
     /// references the array already held).
     pub fn sort_prims_prefix(&self, n: usize) -> Option<Vec<Value>> {
-        if !matches!(self.mode(), ArrayMode::Ref | ArrayMode::Mixed) || n > self.len() {
+        // Packed primitive backings sort through the same element cells (M13: a `T[]` whose
+        // argument resolved to a primitive packs; `get_boxed` widens, `set_boxed` narrows).
+        let m = self.mode();
+        if !(matches!(m, ArrayMode::Ref | ArrayMode::Mixed) || m.is_prim()) || n > self.len() {
             return None;
         }
         let mut elems: Vec<Value> = (0..n).map(|i| self.get_boxed(i)).collect();
