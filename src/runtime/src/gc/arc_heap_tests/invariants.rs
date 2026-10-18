@@ -8,7 +8,7 @@
 //! skip these test bodies (validate is no-op).
 
 use super::*;
-use crate::gc::{GcMode, GcRef};
+use crate::gc::GcMode;
 
 // ── Healthy paths: validation passes after collect ─────────────────────────
 
@@ -89,7 +89,7 @@ fn validation_detects_stale_mark_queue() {
 }
 
 #[test]
-#[should_panic(expected = "stale mark bit on an object")]
+#[should_panic(expected = "stale mark bit after sweep")]
 fn validation_detects_stale_mark_on_an_object() {
     let heap = ArcMagrGC::new();
     let v = heap.alloc_object(dummy_type_desc("MarkLeak"), vec![], NativeData::None);
@@ -108,7 +108,7 @@ fn validation_detects_stale_mark_on_an_object() {
 /// add-incremental-major-gc M1: a leftover **minor** bit is stale too — the next minor would skip
 /// tracing the entry's children.
 #[test]
-#[should_panic(expected = "stale mark bit on an object")]
+#[should_panic(expected = "stale mark bit after sweep")]
 fn validation_detects_stale_minor_mark_on_an_object() {
     let heap = ArcMagrGC::new();
     let v = heap.alloc_object(dummy_type_desc("MinorLeak"), vec![], NativeData::None);
@@ -128,26 +128,4 @@ fn validation_accepts_current_epoch() {
     let Value::Object(gc) = &v else { panic!() };
     crate::gc::ObjRef::mark(gc, heap.major_mark_for_test());
     heap.debug_validate_invariants();
-}
-
-#[test]
-#[should_panic(expected = "invariant violation")]
-fn validation_detects_region_corruption() {
-    let heap = ArcMagrGC::new();
-    // fix-young-list-only-when-generational: `young_list` is maintained — and so
-    // the "alive young entry must be listed" invariant only holds — in
-    // generational mode. Arm it before corrupting the list.
-    heap.set_mode(crate::gc::GcMode::GenerationalMarkSweep);
-    // Object model R6: objects are var blocks; the fixed-size region left is the arrays'.
-    let v = heap.alloc_array(vec![Value::Null]);
-    let _pin = heap.pin_root(v.clone());
-
-    // Corrupt: clear young_list directly. The entry is still alive
-    // young → not in list → YoungEntryNotInList violation.
-    {
-        let mut r = heap.region_array_for_test().lock();
-        r.clear_young_set_for_test();
-    }
-
-    heap.debug_validate_invariants();  // expected panic
 }

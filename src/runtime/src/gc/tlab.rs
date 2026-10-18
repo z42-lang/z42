@@ -15,7 +15,7 @@
 //!
 //! The [`Tlab`] lives in a `thread_local!` cell, so it is inherently
 //! per-OS-thread and every access point runs **on the owning thread**:
-//! - allocation fast path (`acquire_var_block` / `alloc_array_obj`),
+//! - allocation fast path (`acquire_var_block`),
 //! - retire-on-park at a GC safepoint (the mutator parks *itself*),
 //! - retire at `VmContext::drop` (runs on the owner thread).
 //!
@@ -36,18 +36,13 @@
 
 use std::cell::UnsafeCell;
 
-use super::region::ChunkClaim;
 use super::var_region::{VarChunkClaim, VarHoleStash};
-use crate::metadata::types::ArrayObj;
 
-/// Per-thread allocation buffer: one borrowed chunk claim per region the fast path
-/// serves — the fixed-size array region and the variable-length region (`region_var`:
-/// objects, strings, closures, array backings).
+/// Per-thread allocation buffer: a borrowed chunk claim on the heap's variable-length region
+/// (`region_var`: objects, arrays, strings, closures) plus the dead slots taken for reuse.
 pub(crate) struct Tlab {
-    /// Active claim on `region_array` (`Value::Array`).
-    pub(crate) arr: Option<ChunkClaim<ArrayObj>>,
-    /// **stage 3**: active claim on `region_var` (`Value::Object` / `BoxedStruct` / `Str` /
-    /// `Closure` / var blocks).
+    /// Active claim on `region_var` (`Value::Object` / `BoxedStruct` / `Array` / `Str` /
+    /// `Closure`).
     pub(crate) var: Option<VarChunkClaim>,
     /// **M12**: dead slots of `region_var` taken for reuse, per size class
     /// (`var_region::holes`). Inline so the fast path's class test is one load away; its per-class
@@ -59,13 +54,13 @@ pub(crate) struct Tlab {
 
 impl Tlab {
     const fn empty() -> Self {
-        Self { arr: None, var: None, holes: VarHoleStash::new(), heap_epoch: 0 }
+        Self { var: None, holes: VarHoleStash::new(), heap_epoch: 0 }
     }
 
     /// True when the TLAB holds no live claims (safe to (re)bind to any heap).
     #[inline]
     pub(crate) fn is_unbound(&self) -> bool {
-        self.arr.is_none() && self.var.is_none() && !self.holes.holds_slots()
+        self.var.is_none() && !self.holes.holds_slots()
     }
 }
 
@@ -74,7 +69,6 @@ impl Tlab {
 /// them after the call) unless a collection begins meanwhile — then the collector retires
 /// them on the parked thread's behalf, exactly as the thread would have at a safepoint park.
 pub(crate) struct ParkedTlab {
-    pub(crate) arr: Option<ChunkClaim<ArrayObj>>,
     pub(crate) var: Option<VarChunkClaim>,
     /// M12: the dead slots this thread took (counted live + young at take time). Retired with
     /// the claims (`VarRegion::retire_holes`: unused ones back on the free list), so a collection

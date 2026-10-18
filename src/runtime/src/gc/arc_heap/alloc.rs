@@ -3,7 +3,6 @@
 
 use crate::metadata::Value;
 use crate::metadata::types::ClosureData;
-use crate::gc::refs::{GcRef};
 use crate::gc::var_region::{BlockType, GcBlockHeader};
 use crate::gc::types::{AllocKind, AllocSample, GcEvent};
 
@@ -113,42 +112,6 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
     }
 
-    /// **add-gc-tlab (stage 2)**: array-region fast path. Bump-fills the calling thread's TLAB
-    /// array claim lock-free; borrows a fresh chunk (retiring the full one) when needed. Returns
-    /// `Err(obj)` — handing the array back for the ambient locked path — only when this thread's
-    /// TLAB still holds claims bound to a *different* heap (multi-heap test edge).
-    pub(super) fn tlab_alloc_array(
-        &self,
-        obj: crate::metadata::types::ArrayObj,
-    ) -> Result<Value, crate::metadata::types::ArrayObj> {
-        let elem_count = obj.len();
-        // Fill inside the TLAB borrow; record OUTSIDE it (see `record_alloc_fast`).
-        let value = match crate::gc::tlab::with_current_tlab(|tlab| {
-            if tlab.heap_epoch != self.epoch {
-                if tlab.is_unbound() {
-                    tlab.heap_epoch = self.epoch;
-                } else {
-                    return Err(obj);
-                }
-            }
-            if tlab.arr.as_ref().map_or(true, |c| !c.has_room()) {
-                if let Some(full) = tlab.arr.take() {
-                    self.region_array.lock().retire_chunk(&full);
-                }
-                tlab.arr = Some(self.region_array.lock().borrow_chunk());
-            }
-            let (entry_ptr, generation) = tlab.arr.as_mut().unwrap().fill(obj).unwrap();
-            let gc = unsafe { GcRef::from_region_entry(entry_ptr, generation) };
-            Ok(Value::Array(gc))
-        }) {
-            Ok(v) => v,
-            Err(o) => return Err(o),
-        };
-        let size = self.object_size_bytes(&value);
-        self.record_alloc_fast(|| AllocKind::Array { elem_count }, size);
-        Ok(value)
-    }
-
     /// **add-gc-tlab (stage 3)**: variable-length region fast path (strings /
     /// closures / var blocks). Bump-fills the calling thread's TLAB var claim
     /// lock-free; borrows a fresh chunk (retiring the full one) when needed.
@@ -234,9 +197,6 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 // Not bound to this heap (or already unbound) → nothing of ours.
                 return;
             }
-            if let Some(claim) = tlab.arr.take() {
-                self.region_array.lock().retire_chunk(&claim);
-            }
             let claim = tlab.var.take();
             let holes = Some(&mut tlab.holes).filter(|h| !h.is_empty());
             if claim.is_some() || holes.is_some() {
@@ -262,7 +222,6 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let parked = crate::gc::tlab::with_current_tlab(|tlab| {
             if tlab.heap_epoch != self.epoch || (tlab.is_unbound() && tlab.holes.is_empty()) { return None; }
             let p = crate::gc::tlab::ParkedTlab {
-                arr: tlab.arr.take(),
                 var: tlab.var.take(),
                 holes: std::mem::take(&mut tlab.holes),
                 heap_epoch: tlab.heap_epoch,
@@ -285,7 +244,6 @@ impl crate::gc::arc_heap::ArcMagrGC {
         if p.heap_epoch != self.epoch { return self.retire_claims(p); }
         let back = crate::gc::tlab::with_current_tlab(|tlab| {
             if !tlab.is_unbound() || !tlab.holes.is_empty() { return Some(p); }
-            tlab.arr = p.arr;
             tlab.var = p.var;
             tlab.holes = p.holes;
             tlab.heap_epoch = p.heap_epoch;
@@ -298,9 +256,6 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// claims merged, unused stashed slots back on the free list (`retire_holes`), all under
     /// the same region-lock order as there.
     pub(super) fn retire_claims(&self, mut p: crate::gc::tlab::ParkedTlab) {
-        if let Some(claim) = p.arr.take() {
-            self.region_array.lock().retire_chunk(&claim);
-        }
         let claim = p.var.take();
         if claim.is_some() || !p.holes.is_empty() {
             let mut region = self.region_var.lock();
@@ -311,16 +266,6 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 region.retire_holes(&mut p.holes);
             }
         }
-    }
-
-    /// Size estimate of an array header for sweep_phase (the `RegionEntry` slot header is not
-    /// part of the estimate).
-    pub(super) fn array_size_estimate(arr: &crate::metadata::types::ArrayObj) -> u64 {
-        use std::mem::size_of;
-        // packed-primitive-arrays: `elem_storage_bytes` is per-backing (byte[] 1B
-        // vs Boxed 24B/elem), so packed arrays report their true smaller size.
-        (size_of::<Value>() + size_of::<crate::metadata::types::ArrayObj>()
-            + arr.elem_storage_bytes()) as u64
     }
 
     /// **Phase 3-OOM**: 检查在当前 used_bytes 基础上再分配 `size` 字节是否会
@@ -391,7 +336,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
 
     /// unify-gc-heap PR-2: allocate a capturing closure's [`ClosureData`] into the
     /// variable-length GC region (`region_var`) and return a `Value::Closure` handle. The
-    /// block is a POD leaf (env `GcRef` + target `FnId`). Mirrors `alloc_object_block`'s
+    /// block is a POD leaf (env `ArrRef` + target `FnId`). Mirrors `alloc_object_block`'s
     /// record + auto-collect tail (no strict-OOM refund path — closure blocks are tiny and the
     /// env array's own alloc already went through the OOM gate). Exposed via the `MagrGC` trait
     /// (`alloc_closure`) so `ctx.heap()` callers reach it through `&dyn MagrGC`.
@@ -470,43 +415,48 @@ impl crate::gc::arc_heap::ArcMagrGC {
         crate::metadata::vstr::Str::from_var_ref(vref)
     }
 
-    /// add-reflection-array-element-type: shared array allocation over an
-    /// `ArrayObj` (element type + elems). Both `alloc_array` (untyped) and
-    /// `alloc_array_typed` funnel through here.
-    pub(super) fn alloc_array_obj(&self, obj: crate::metadata::types::ArrayObj) -> Value {
-        let elem_count = obj.len();
-        // **add-gc-tlab (stage 2)**: TLAB fast path — armed thread + non-strict (D6).
-        let obj = if crate::gc::tlab::is_armed()
-            && !self.strict_oom_atomic.load(std::sync::atomic::Ordering::Relaxed)
-        {
-            match self.tlab_alloc_array(obj) {
-                Ok(value) => return self.shade_newborn(value), // 3.2 allocate-black
-                Err(o) => o,
-            }
-        } else {
-            obj
+    /// The array allocation funnel (object model R9 — `MagrGC::alloc_array_with`): one block of
+    /// `desc.payload_bytes(len, layout)` bytes through the TLAB / locked paths every block takes
+    /// (`acquire_var_block`), the descriptor (and a value-struct array's layout word) installed in
+    /// the zeroed block, `init` run on the **unpublished** array, then published and recorded —
+    /// the object funnel's shape (`alloc_object_block`). `init` may allocate (a box for an element
+    /// that does not fit its cell); the array is unreachable until it returns, and nothing but an
+    /// unwired unit-test heap collects inside an allocation. `Value::Null` when a strict-OOM heap
+    /// refuses, or the payload is past the block size limit (`u32` bytes).
+    pub(super) fn alloc_array_block(
+        &self,
+        desc: &'static crate::metadata::types::ArrayDesc,
+        len: usize,
+        layout: Option<std::sync::Arc<crate::metadata::types::StructTypeLayout>>,
+        init: &mut dyn FnMut(&crate::metadata::types::ArrayObj),
+    ) -> Value {
+        let Some(payload) = desc.payload_bytes(len, layout.as_deref()) else {
+            let requested = (len as u64).saturating_mul(desc.width() as u64);
+            self.fire_event(GcEvent::OutOfMemory { requested_bytes: requested, limit_bytes: u32::MAX as u64 });
+            return Value::Null;
         };
-        let (entry_ptr, generation, handle) = {
-            let mut region = self.region_array.lock();
-            let handle = region.alloc(obj);
-            let entry: std::ptr::NonNull<crate::gc::region::RegionEntry<crate::metadata::types::ArrayObj>> =
-                std::ptr::NonNull::from(region.resolve(handle));
-            (entry, handle.generation, handle)
-        };
-        let gc = unsafe { GcRef::from_region_entry(entry_ptr, generation) };
-        let value = self.shade_newborn(Value::Array(gc)); // 3.2 allocate-black
-
-        let size = self.object_size_bytes(&value);
+        let (vref, fast) = self.acquire_var_block(payload, desc.block_type());
+        // SAFETY: a fresh, zeroed block of exactly `payload` bytes nothing else can reach.
+        let arr = unsafe { crate::metadata::types::ArrayObj::install(vref.header_raw(), payload, desc, layout) };
+        init(arr);
+        // Built: from here a heap walk may see it (M12 — a reused slot is born not alive).
+        vref.publish();
+        let value = Value::Array(crate::gc::ArrRef::from_var(vref));
+        let size = GcBlockHeader::DATA_OFFSET + payload;
+        let kind = || AllocKind::Array { elem_count: len };
+        if fast {
+            self.record_alloc_fast(kind, size);
+            return value;
+        }
+        // Phase 3-OOM: a strict heap refunds an allocation that would cross its limit.
         let (would_oom, limit) = self.would_oom_after_alloc(size as u64);
         if would_oom {
-            self.region_array.lock().tombstone(handle);
-            self.fire_event(GcEvent::OutOfMemory {
-                requested_bytes: size as u64,
-                limit_bytes: limit,
-            });
+            // No finalizer / side entry can exist yet; tombstoning runs the drop glue (layout).
+            self.region_var.lock().tombstone(vref);
+            self.fire_event(GcEvent::OutOfMemory { requested_bytes: size as u64, limit_bytes: limit });
             return Value::Null;
         }
-        self.record_alloc(&value, || AllocKind::Array { elem_count }, size);
+        self.record_alloc(&value, kind, size);
         self.maybe_auto_collect();
         value
     }
@@ -517,31 +467,16 @@ impl crate::gc::arc_heap::ArcMagrGC {
             Value::Null | Value::Bool(_) | Value::Char(_)
             | Value::I64(_) | Value::F64(_) => size_of::<Value>(),
             Value::Str(s) => size_of::<Value>() + s.len(),
-            Value::Array(rc) => {
-                // fix-var-sweep-accounting: charge the header at `size_of::<ArrayObj>()`,
-                // the same figure `array_size_estimate` credits back at sweep. It used to
-                // charge `size_of::<Vec<Value>>()` — a leftover from before the element
-                // buffer moved into `region_var` — so every array credited more than it
-                // ever charged.
-                size_of::<Value>() + size_of::<crate::metadata::types::ArrayObj>()
-                    + rc.borrow().elem_storage_bytes()
-            }
-            // Object model R6 / R8: the object's whole block — header, fields, meta word — the
-            // figure its allocation charged and its sweep credits (`alloc_charge_bytes`).
+            // Object model R6 / R8 / R9: an object's or array's whole block — header and payload —
+            // the figure its allocation charged and its sweep credits (`alloc_charge_bytes`).
+            Value::Array(rc) => GcBlockHeader::DATA_OFFSET + rc.var_ref().payload_size(),
             Value::Object(rc) | Value::BoxedStruct(rc) => {
                 GcBlockHeader::DATA_OFFSET + rc.var_ref().payload_size()
             }
             // impl-lambda-l2 / P1-2 PR 8: FuncRef holds a `FnId` — no heap allocation.
             Value::FuncRef(_) => size_of::<Value>(),
-            // impl-closure-l3-core: Closure carries a heap-allocated env (Vec<Value>);
-            // its size is the env's storage (the target is a `FnId`, P1-2 PR 8).
-            Value::Closure(c) => {
-                let data = crate::metadata::types::closure_data_of(c);
-                size_of::<Value>()
-                    + size_of::<crate::metadata::ClosureData>()
-                    + size_of::<Vec<Value>>()
-                    + data.env.borrow().elem_storage_bytes()
-            }
+            // The closure's own block (its env array is a block of its own).
+            Value::Closure(c) => GcBlockHeader::DATA_OFFSET + c.payload_size(),
             // make-value-copy: `Ref` / `StructRefHeap` are now
             // transient-arena handles (payload owned by the per-context arena, freed by
             // frame-exit truncation, not the GC heap) — the handle in a Value is just an

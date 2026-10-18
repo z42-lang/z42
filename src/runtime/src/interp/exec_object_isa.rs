@@ -73,7 +73,7 @@ pub(crate) fn as_cast(
         frame.set(dst, out);
         return Ok(());
     }
-    // add-struct-foreach (P3b follow-up): a `StructBytes`-array element handle (`arr[i]` in a
+    // add-struct-foreach (P3b follow-up): a value-struct-array element handle (`arr[i]` in a
     // value context — e.g. `foreach (P p in arr)`) → copy the element out to a fresh current-frame
     // arena `StructRef` (value-semantics snapshot; the loop var must not alias the array).
     if let Value::StructRefHeap { idx, frame_id } = &val {

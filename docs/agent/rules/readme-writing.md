@@ -12,7 +12,7 @@
 
 ## 一、定位与角色
 
-根 `README.md` 是文档体系里的**仓库门面 / 人的瘦入口**——与各 AI 工具的入口文件（如 `.claude/CLAUDE.md`，大模型的
+根 `README.md` 是文档体系里的**仓库门面 / 人的瘦入口**——与 AI 工具的统一入口文件（根 `AGENTS.md`，大模型的
 瘦入口，只引用 [`docs/agent/README.md`](../README.md)）对称的一层。它不承载知识，只做三件事：**定位**（z42 是什么、当前处于什么阶段）、
 **上手**（最短可跑路径）、**索引**（把用户与开发者分流到三本书 / rules / roadmap）。
 
@@ -37,7 +37,7 @@
 | 2 | Why z42 | 价值主张 + 能力要点合一（维度 → 一句话表） | 一格一句，不展开论证；性能等硬指标类主张须有设计文档落点，链接兑现 |
 | 3 | Quick Start | **最短**可跑路径（clone → install → run） | 完整步骤链 `docs/internals/src/devinfra/dev-setup.md` |
 | 4 | Documentation | "我想做 X → 读 Y" 索引表 | Y 指向具体页，**不复制**其内容（见 §四） |
-| 5 | Repository Layout | 目录树 + 每行一句话 | 与目录 README 呼应，不抄其内容 |
+| 5 | Repository Structure | 目录树 + 每行一句话 | 与目录 README 呼应，不抄其内容 |
 | 6 | License | 许可证 | — |
 
 > 实现进度不在门面设段——迭代状态由段 1 的状态提示传达，详情由 Documentation 的
@@ -77,7 +77,7 @@ README 是入口、书是细节（[doc-system.md 内容归属](doc-system.md)）
 |---------|-----------------|
 | 新增顶层特性 / 能力 | Why z42 + Documentation 索引 |
 | 三本书新增部分 | Documentation 索引加行 |
-| 顶层目录结构变动 | Repository Layout |
+| 顶层目录结构变动 | Repository Structure |
 | Quick Start 涉及的命令变动 | Quick Start（只留最短路径，与 `devinfra/dev-setup.md` 对齐） |
 
 改动落在上表任一行，**当次迭代内同步 README 对应段**，与三本书的同步同一触发点完成。

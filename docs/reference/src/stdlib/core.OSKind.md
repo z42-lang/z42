@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`
 
-`src/libraries/z42.core/src/Platform.z42:110`
+[`src/libraries/z42.core/src/Platform.z42:110`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L110)
 
 OS 的整数 kind 常量（与 `Platform.OSKindValue()` 返回值一致）。不是 enum，可直接参与 `==` 与 `switch`。
 
@@ -21,51 +21,61 @@ public static class OSKind {
 }
 ```
 
+成员：[`Unknown`](#Std.OSKind.Unknown) · [`Linux`](#Std.OSKind.Linux) · [`MacOS`](#Std.OSKind.MacOS) · [`Windows`](#Std.OSKind.Windows) · [`Android`](#Std.OSKind.Android) · [`Ios`](#Std.OSKind.Ios) · [`Wasm`](#Std.OSKind.Wasm) · [`FreeBSD`](#Std.OSKind.FreeBSD)
+
+<a id="Std.OSKind.Unknown"></a>
 ### static int Unknown
 
-`src/libraries/z42.core/src/Platform.z42:112`
+[`src/libraries/z42.core/src/Platform.z42:112`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L112)
 
 未识别（0）。
 
+<a id="Std.OSKind.Linux"></a>
 ### static int Linux
 
-`src/libraries/z42.core/src/Platform.z42:114`
+[`src/libraries/z42.core/src/Platform.z42:114`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L114)
 
 Linux（1）。
 
+<a id="Std.OSKind.MacOS"></a>
 ### static int MacOS
 
-`src/libraries/z42.core/src/Platform.z42:116`
+[`src/libraries/z42.core/src/Platform.z42:116`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L116)
 
 macOS（2）。
 
+<a id="Std.OSKind.Windows"></a>
 ### static int Windows
 
-`src/libraries/z42.core/src/Platform.z42:118`
+[`src/libraries/z42.core/src/Platform.z42:118`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L118)
 
 Windows（3）。
 
+<a id="Std.OSKind.Android"></a>
 ### static int Android
 
-`src/libraries/z42.core/src/Platform.z42:120`
+[`src/libraries/z42.core/src/Platform.z42:120`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L120)
 
 Android（4）。
 
+<a id="Std.OSKind.Ios"></a>
 ### static int Ios
 
-`src/libraries/z42.core/src/Platform.z42:122`
+[`src/libraries/z42.core/src/Platform.z42:122`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L122)
 
 iOS（5）。
 
+<a id="Std.OSKind.Wasm"></a>
 ### static int Wasm
 
-`src/libraries/z42.core/src/Platform.z42:124`
+[`src/libraries/z42.core/src/Platform.z42:124`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L124)
 
 wasm（6）。
 
+<a id="Std.OSKind.FreeBSD"></a>
 ### static int FreeBSD
 
-`src/libraries/z42.core/src/Platform.z42:126`
+[`src/libraries/z42.core/src/Platform.z42:126`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L126)
 
 FreeBSD（7）。
 

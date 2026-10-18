@@ -29,7 +29,7 @@ impl VmContext {
     }
 
     /// Allocate a stack array; publishes the new `arrs` length. See `stack_arr_len`.
-    pub(crate) fn stack_alloc_arr(&self, frame_id: u32, arr: crate::metadata::types::ArrayObj) -> u32 {
+    pub(crate) fn stack_alloc_arr(&self, frame_id: u32, arr: crate::interp::stack_alloc::StackArray) -> u32 {
         use std::sync::atomic::Ordering::Relaxed;
         let mut a = self.stack_arena.lock();
         let idx = a.alloc_arr(frame_id, arr);

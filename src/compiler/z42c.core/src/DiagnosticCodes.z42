@@ -212,7 +212,18 @@ public static class DiagnosticCodes {
     public static string PossibleNullReturn = "E0479";  // 把「可能为 null」的值 `return` 给**未标 `?`** 的返回类型。未标的返回类型意味着「调用方不必检查」，所以放行就等于凭空造了一个洞——标记体系被洗穿。修法两条（诊断里都给）：给返回类型加 `?`（把义务传给调用方），或在这里先检查。⚠️ 只认**确定性**来源（标 `?` 的名字 / 标 `?` 的调用结果）；`return null;` 字面量本身不报——那是反向推导（design D8），是「建议加 `?`」而非「这里有错」，留给后续 PR。
     public static string DereferenceOfNullMarked = "E0478";  // 解引用一个标了 `?` 的形参而未先检查空值。`?` 的语义是「**请编译器在这里强制检查**」，**缺席 = 不强制**（不是「保证非空」）⇒ 未标的代码一行不用改，零迁移成本。逃生口只有窄化：`if (s != null) { … }` 或早返回守卫 `if (s == null) { return; }`——**不提供 `!` 那样的「我保证」后缀**，那正是 User 要避开的「让问题逃掉」的口子。本 PR 只覆盖**裸名**解引用（字段/属性要先定快照规则）与**形参**标记（返回值标记要在调用点拿被调方签名，`BoundCall` 有 46 个构造点，留给后续）。
     public static string NullableFieldNotSnapshotted = "E0484";  // 直接解引用一个标了 `?` 的**字段/属性**，而没有先快照到局部。与形参（E0478）分成两码，是因为**修法不同**：形参就地 `if (s != null)` 就够，字段不行。字段不是一个「值」，是一个**每次读都重新求值的位置**——`if (this.F != null) { this.F.M(); }` 里的两个 `this.F` 是两次独立的读：别的线程能在中间写；`F` 若是属性还是两次真调用，返回值可以不同。所以字段**永不就地窄化**，修法是 `var v = this.F; if (v != null) { … }`（局部是个值，检查一次就永远成立）。⚠️ 跨包暂不携带标记（字段的 TSIG 拼写走 `SurfaceTypeName`，`?` 已擦除）⇒ 导入字段一律视为未标，**漏报**方向。
-    public static string DeconstructShadowsMember = "W0701"; // 【Warning】解构声明的绑定名遮蔽了当前类的字段 / 属性：`(A, B) = (a, b);`（花括号体里）声明的是两个**新局部**，随即离开作用域，一个成员都没动。局部遮蔽字段本身合法（`int A = 5;` 照旧放行），单看语法挑不出毛病——只能靠「遮蔽了同名成员」这个信号拦。仅在有 `this` 的上下文里查（静态体内无成员可遮蔽）。表达式位置的同一写法由 **E0482** 直接报错。
+    public static string DeconstructShadowsMember = "W0701";
+    // ── W08xx doc 注释（z42-doc §4.7；首批发射点在 z42.doc 的 DocLint.z42——xtask 门禁
+    //    `check doc-lints` 的引擎，字面量发射见 diag-literal-emitters.txt；编译器内建
+    //    DocChecker pass（W0803 + [lints] 级别决策）是后续 PR）─────────────────────────
+    public static string DocOrphanBlock          = "W0801";   // 孤立的 /// / //!（后面没有声明认领）
+    public static string DocParamName            = "W0802";   // @param / @typeparam 名不在签名里
+    public static string DocUnresolvedLink       = "W0803";   // 文档链接或 @throws 类型无法解析（零发射：归语义 pass）
+    public static string DocUnknownTag           = "W0804";   // 未知 tag（闭集之外）
+    public static string DocPublicMissingDoc     = "W0805";   // public 声明缺 ///（ratchet）
+    public static string DocHistoryNote          = "W0806";   // 文档里的历史注记（日期 / spec 名）
+    public static string DocSummaryLength        = "W0807";   // 摘要缺失或超长（>80 字）
+    public static string DocDuplicateNamespaceDoc = "W0808";  // 同一命名空间多个文件写 //! // 【Warning】解构声明的绑定名遮蔽了当前类的字段 / 属性：`(A, B) = (a, b);`（花括号体里）声明的是两个**新局部**，随即离开作用域，一个成员都没动。局部遮蔽字段本身合法（`int A = 5;` 照旧放行），单看语法挑不出毛病——只能靠「遮蔽了同名成员」这个信号拦。仅在有 `this` 的上下文里查（静态体内无成员可遮蔽）。表达式位置的同一写法由 **E0482** 直接报错。
 
     // ── ref/out/in 参数契约（simplify-ref-parameters）──────────────────────────
     public static string RefArgNotAddressable    = "E0470";  // `ref` 实参不是可取址的左值（属性 / 索引器 / 静态字段 / 值 struct 的字段 / 字面量 / 调用结果 / 数组虚成员）。这些形态此前编译通过但**写回静默丢失**——取的是承载读出值的临时寄存器的地址。⚠️ 比 E0482（赋值左值）严得多：那条只要「有存储」，这条要「可取址」。

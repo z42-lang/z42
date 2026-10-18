@@ -407,13 +407,13 @@ pub(super) fn call_indirect(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
     dst: u32, callee: u32, args: &[u32],
 ) -> Result<Option<Value>> {
-    // env 解码：FuncRef → 无 env；Closure → 复用已有 heap GcRef。
+    // env 解码：FuncRef → 无 env；Closure → 复用已有 heap ArrRef。
     //
-    // S3 (perf-interp-hot-paths): `Value::Closure` 直接把已有 `c.env` GcRef 交给
+    // S3 (perf-interp-hot-paths): `Value::Closure` 直接把已有 `c.env` ArrRef 交给
     // callee（Arc 引用计数 +1），不再 `elems.clone()` 深拷 + `alloc_array` 重分配。
     // 安全性：env 数组是 MkClos 时**写一次**、体内只 `array_get` **读**（编译器
     // `_emitAssign` 无 BoundCapturedIdent 写回分支 → env 槽永不被 array_set 改写），
-    // 故跨调用共享 GcRef 与旧的"每次深拷+新 GcRef"行为字节等价，省 O(env) 拷贝 + 一次 GC 分配。
+    // 故跨调用共享 ArrRef 与旧的"每次深拷+新 ArrRef"行为字节等价，省 O(env) 拷贝 + 一次 GC 分配。
     let (id, env_val_opt): (FnId, Option<Value>) = match frame.get(callee)? {
         Value::FuncRef(id) => (*id, None),
         Value::Closure(c)    => {
@@ -475,7 +475,7 @@ pub(super) fn mk_clos(
     for r in captures {
         env_vec.push(frame.get(*r)?.clone());
     }
-    let env_val = crate::metadata::types::ArrayObj::alloc_frozen_value(ctx.heap(), env_vec);
+    let env_val = crate::metadata::types::ArrayObj::alloc_frozen(ctx.heap(), &env_vec);
     // add-gc-oom-exception: alloc_array returns Null only under strict OOM
     if matches!(env_val, Value::Null) {
         return Ok(Some(crate::exception::make_oom_exception(

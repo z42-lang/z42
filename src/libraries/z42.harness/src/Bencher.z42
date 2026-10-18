@@ -2,48 +2,19 @@ namespace Std.Harness;
 
 using Std.IO;
 
-// `Std.Harness.Bencher` — measure elapsed nanoseconds of a code segment (R2 完整版).
-//
-// Usage:
-//
-//   var b = new Bencher();              // warmup=10, samples=100
-//   b.iter(() => doWork());
-//   b.printSummary("doWork");           // bench[doWork] min=... median=... max=...
-//
-// add-benchmark-runner-dispatch (2026-05-31): `[Benchmark]` runner mode
-// ships. Two signature forms, both dispatched alongside `[Test]` (pretty
-// output labels as `bench:<name>`):
-//
-//   // form 1 — zero-arg: construct the Bencher yourself
-//   [Benchmark]
-//   void bench_addition() {
-//       var b = new Bencher();
-//       b.iter(() => 1 + 2 + 3);
-//       b.printSummary("addition");
-//   }
-//
-//   // form 2 — Bencher-arg (add-benchmark-bencher-arg-trampoline,
-//   // 2026-05-31): the compiler desugars this into form 1, constructing
-//   // the Bencher + calling printSummary("bench_add") for you.
-//   [Benchmark]
-//   void bench_add(Bencher b) {
-//       b.iter(() => 1 + 2 + 3);
-//   }
-//
-// blackBox: identity wrapper to opt out of dead-code elimination. Interp
-// path is no-op today; JIT path will hook here once cranelift learns to
-// elide pure expressions. Safe to use unconditionally.
-//
-// Adaptive sampling (extend-ab-bench-micro-criterion, Part A): the DEFAULT
-// constructor `new Bencher()` now samples ADAPTIVELY — a short pilot estimates
-// per-iteration cost, then the sample count `n` is chosen to fill a ~50ms
-// measurement budget (bounded to [20, 2000]). Fast benchmarks therefore
-// collect many samples (tight CI); slow ones collect few (bounded wall time).
-// The explicit 2-arg `new Bencher(W, S)` keeps a FIXED sample count S (no
-// adaptivity) — existing tuned benchmarks are byte-for-behaviour unchanged.
-// After `iter`, `Samples` reflects the ACTUAL n used, and `MeanNs` / `StdDevNs`
-// (added here) feed the same-runner A/B gate's SEM propagation (`_abVerdict`).
-
+/// 一段代码的耗时采样器：预热后采样，给出 min / median / max / mean / stddev / total。
+///
+/// 用法：
+///
+///     var b = new Bencher();              // 自适应采样
+///     b.iter(() => doWork());
+///     b.printSummary("doWork");           // bench[doWork] min=... median=... max=...
+///
+/// `[Benchmark]` 基准两种签名等价：零参（自己 new Bencher + printSummary），
+/// 或唯一形参 `Bencher`（runner 传入并在跑完时按函数名自动打摘要行）。
+///
+/// @warning 计时是单线程墙钟（`Clock.MonoNanos()`），不是 CPU 时间；被并发干扰的
+///     基准会反映为 max 偏大，而不是报错。
 public class Bencher {
     public int WarmupIters { get; private set; }
     public int Samples { get; private set; }   // actual n after iter() (adaptive: chosen; fixed: S)
@@ -56,7 +27,9 @@ public class Bencher {
 
     bool _adaptive;   // true → estimate n to fill the time budget; false → fixed Samples
 
-    // Default: adaptive sampling, warmup=10.
+    /// 自适应采样：预热 10 次；先用一小段 pilot 估出单次耗时，再按约 50ms 的测量
+    /// 预算选采样数（夹在 [20, 2000]）。快的基准采得多（置信区间紧），慢的采得少
+    /// （墙钟时间有上界）。`iter` 之后 `Samples` 是实际用的 n。
     public Bencher() {
         this.WarmupIters = 10;
         this.Samples = 0;          // filled by iter() once n is chosen
@@ -64,7 +37,7 @@ public class Bencher {
         this._initZero();
     }
 
-    // Explicit: fixed warmup + fixed sample count (no adaptivity).
+    /// 固定采样：预热 `warmupIters` 次、计时 `sampleIters` 次，不做自适应。
     public Bencher(int warmupIters, int sampleIters) {
         this.WarmupIters = warmupIters;
         this.Samples = sampleIters;
@@ -77,9 +50,11 @@ public class Bencher {
         this.MeanNs = 0; this.StdDevNs = 0; this.TotalNs = 0;
     }
 
-    // Run `body` `WarmupIters` times un-timed, then `n` times timed (n fixed or
-    // adaptively chosen). After return, Min/Median/Max/Mean/StdDev/Total/Samples
-    // reflect the sample run.
+    /// 预热 `WarmupIters` 次（不计时），再采样 n 次（n 固定或自适应）。返回后
+    /// `MinNs` / `MedianNs` / `MaxNs` / `MeanNs` / `StdDevNs` / `TotalNs` / `Samples`
+    /// 反映这次采样。
+    ///
+    /// @param body 被测代码；每次采样独立计时
     public void iter(Action body) {
         // ── warmup ───────────────────────────────────────────────────────
         int w = 0;
@@ -157,22 +132,12 @@ public class Bencher {
         return (int)need;
     }
 
-    // Human-readable single-line summary.
-    //
-    // **The output format is part of the runner contract** — `Std.Harness.Runner`
-    // (json mode) captures this line out of a benchmark's stdout and parses it
-    // via `BenchStats.parse` into `TestResult.bench_stats`
-    // (rebuild-bench-structured-output; the z42-native successor to the retired
-    // Rust `extract_bench_stats_from_stdout`). Format:
-    //
-    //   `bench[<label>] min=<n>ns median=<n>ns max=<n>ns mean=<n>ns stddev=<n>ns samples=<n>`
-    //
-    // `BenchStats.parse` reads these fields by key (`ns` suffix stripped from the
-    // time fields). `mean=`/`stddev=` (extend-ab-bench-micro-criterion) are
-    // appended AFTER `max=` — older summary lines lacking them still parse
-    // (missing → -1). If you change this format, update `BenchStats.parse`
-    // (`src/libraries/z42.harness/src/BenchStats.z42`) in the same commit — the unit
-    // tests in `tests/bench_stats.z42` will catch a mismatch.
+    /// 打一行人类可读的摘要，格式是 runner 契约的一部分（json 模式下 runner 捕获这行
+    /// 并经 `BenchStats.parse` 解析成 `TestResult.bench_stats`）：
+    ///
+    ///     bench[<label>] min=<n>ns median=<n>ns max=<n>ns mean=<n>ns stddev=<n>ns samples=<n>
+    ///
+    /// @param label 摘要行里的名字；`[Benchmark] void f(Bencher b)` 形态由 runner 按函数名传入
     public void printSummary(string label) {
         Console.WriteLine($"bench[{label}] min={this.MinNs}ns median={this.MedianNs}ns max={this.MaxNs}ns mean={this.MeanNs}ns stddev={this.StdDevNs}ns samples={this.Samples}");
     }
@@ -200,18 +165,12 @@ public class Bencher {
 }
 
 public static class BenchHelpers {
-    // Identity wrapper marking "do not optimise this away" — cf. criterion
-    // black_box / std::hint::black_box. Currently a no-op (interp does not
-    // eliminate dead code); shape preserved so user code stays portable to
-    // future JIT optimisations.
-    //
-    // **Type 仍是 object 而非 generic <T>**：
-    // - 2026-05-05 fix-method-typeparams 修好了 **in-CU** method-level generic
-    //   参数推断（`SymbolCollector.Classes` 把 method.TypeParams 加进
-    //   `_activeTypeParams` 池）
-    // - 但**跨 zpkg** 还需要 TSIG 二进制格式 bump（`ExportedMethodDef` 加
-    //   method-level TypeParams 字段，writer + reader 同步），独立 spec 处理
-    // - 在那之前，本 API 用 object 形态保证从 dogfood 等下游 CU 调用可用
+    /// 「别把这次计算优化掉」的恒等包装（对应 criterion 的 black_box）。目前解释器
+    /// 不做死代码消除，恒等返回；留着这个形口，用户代码在 JIT 学会消除纯表达式后
+    /// 无需改动。可无条件使用。
+    ///
+    /// @warning 形参是 `object` 而非 `<T>`：跨 zpkg 的方法级泛型实参推断尚未就绪，
+    ///     装箱开销由调用方自负。
     [Native("__bench_black_box")]
     public static extern object blackBox(object value);
 }

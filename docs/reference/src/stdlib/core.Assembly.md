@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std.Reflection`
 
-`src/libraries/z42.core/src/Reflection/Assembly.z42:8`
+[`src/libraries/z42.core/src/Reflection/Assembly.z42:8`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/Assembly.z42#L8)
 
 一个 zpkg 的运行时投影，对标 .NET `System.Reflection.Assembly`。
 
@@ -22,33 +22,40 @@ public sealed class Assembly {
 }
 ```
 
+成员：[`Name`](#Std.Reflection.Assembly.Name) · [`IsCollectible`](#Std.Reflection.Assembly.IsCollectible) · [`LoadContext`](#Std.Reflection.Assembly.LoadContext) · [`GetTypes`](#Std.Reflection.Assembly.GetTypes()) · [`GetFunctions`](#Std.Reflection.Assembly.GetFunctions())
+
+<a id="Std.Reflection.Assembly.Name"></a>
 ### extern string Name { get; }
 
-`src/libraries/z42.core/src/Reflection/Assembly.z42:11`
+[`src/libraries/z42.core/src/Reflection/Assembly.z42:11`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/Assembly.z42#L11)
 
 zpkg 的逻辑名。
 
+<a id="Std.Reflection.Assembly.IsCollectible"></a>
 ### extern bool IsCollectible { get; }
 
-`src/libraries/z42.core/src/Reflection/Assembly.z42:15`
+[`src/libraries/z42.core/src/Reflection/Assembly.z42:15`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/Assembly.z42#L15)
 
 是否在可回收上下文（等于其 AssemblyLoadContext.IsCollectible）。
 
+<a id="Std.Reflection.Assembly.LoadContext"></a>
 ### extern Std.Runtime.AssemblyLoadContext LoadContext { get; }
 
-`src/libraries/z42.core/src/Reflection/Assembly.z42:19`
+[`src/libraries/z42.core/src/Reflection/Assembly.z42:19`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/Assembly.z42#L19)
 
 所属加载上下文。
 
+<a id="Std.Reflection.Assembly.GetTypes()"></a>
 ### extern Std.Type[] GetTypes()
 
-`src/libraries/z42.core/src/Reflection/Assembly.z42:23`
+[`src/libraries/z42.core/src/Reflection/Assembly.z42:23`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/Assembly.z42#L23)
 
 本 assembly 定义的类型，按全限定名有序。
 
+<a id="Std.Reflection.Assembly.GetFunctions()"></a>
 ### extern Std.Reflection.MethodInfo[] GetFunctions()
 
-`src/libraries/z42.core/src/Reflection/Assembly.z42:30`
+[`src/libraries/z42.core/src/Reflection/Assembly.z42:30`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/Assembly.z42#L30)
 
 本 assembly 定义的自由（顶层）函数，按全限定名有序；编译器合成的函数（lambda、attribute 工厂等）不在内。
 

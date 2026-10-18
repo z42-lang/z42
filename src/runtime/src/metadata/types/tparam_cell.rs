@@ -43,8 +43,8 @@
 use std::sync::atomic::Ordering;
 
 use super::ref_word::{self, KIND_MASK, RK_BOXED_VALUE};
-use super::{ArrayObj, Cells, FieldWrite, Value};
-use crate::gc::GcRef;
+use super::{Cells, FieldWrite, Value};
+use crate::gc::ArrRef;
 
 /// Marker bit of `NULL(k)` (the JIT's static-field read tests it).
 pub const NULL_FLAG: u64 = 8;
@@ -124,7 +124,7 @@ fn decode_words(w0: u64, w1: u64) -> Value {
 }
 
 /// 读单元；标签字为 `0`（从未写过）时读作种类 `zero` 的基元零值（`zero == 0` = `null`）——
-/// MIXED 数组按实参零值分配时不写任何字（`ArrayBacking::Cells::zero`）。
+/// MIXED 数组按实参零值分配时不写任何字（`ArrayDesc::zero`）。
 #[inline]
 pub fn load_or_zero(st: &Cells, w0_off: usize, w1_off: usize, zero: u8) -> Value {
     let (w0, w1) = st.load_tparam(w0_off, w1_off);
@@ -312,7 +312,7 @@ fn store_boxed(st: &Cells, w0_off: usize, v: &Value) -> anyhow::Result<FieldWrit
 
 #[cold]
 #[inline(never)]
-fn box_value(v: &Value) -> anyhow::Result<GcRef<ArrayObj>> {
+fn box_value(v: &Value) -> anyhow::Result<ArrRef> {
     #[cfg(test)]
     tparam_cell_tests::count_box();
     ref_word::alloc_box_ambient(v)

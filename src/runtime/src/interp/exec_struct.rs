@@ -103,7 +103,7 @@ pub(crate) fn unbox_struct(
     Ok(Value::StructRef { idx, frame_id })
 }
 
-/// add-struct-foreach (P3b follow-up): copy a `StructBytes`-array element out to a fresh
+/// add-struct-foreach (P3b follow-up): copy a value-struct-array element out to a fresh
 /// **current-frame** arena `StructRef` (a value-semantics snapshot). Used by `as_cast` when
 /// a `foreach (P p in arr)` loop var (or any value-context read) receives a `StructRefHeap`
 /// element handle — the loop var must be an independent copy, not an alias into the array.

@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`
 
-`src/libraries/z42.core/src/Protocols/IBasicCollection.z42:11`
+[`src/libraries/z42.core/src/Protocols/IBasicCollection.z42:11`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Protocols/IBasicCollection.z42#L11)
 
 基础集合契约：集合类型实现此接口表明它有标准的「大小 + 清空」操作。
 
@@ -24,27 +24,33 @@ public interface IBasicCollection<T> {
 }
 ```
 
+成员：[`Count`](#Std.IBasicCollection%3CT%3E.Count()) · [`IsEmpty`](#Std.IBasicCollection%3CT%3E.IsEmpty()) · [`Clear`](#Std.IBasicCollection%3CT%3E.Clear()) · [`AddOne`](#Std.IBasicCollection%3CT%3E.AddOne(T))
+
+<a id="Std.IBasicCollection<T>.Count()"></a>
 ### int Count()
 
-`src/libraries/z42.core/src/Protocols/IBasicCollection.z42:13`
+[`src/libraries/z42.core/src/Protocols/IBasicCollection.z42:13`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Protocols/IBasicCollection.z42#L13)
 
 元素数。
 
+<a id="Std.IBasicCollection<T>.IsEmpty()"></a>
 ### bool IsEmpty()
 
-`src/libraries/z42.core/src/Protocols/IBasicCollection.z42:15`
+[`src/libraries/z42.core/src/Protocols/IBasicCollection.z42:15`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Protocols/IBasicCollection.z42#L15)
 
 是否为空（等价于 `Count() == 0`）。
 
+<a id="Std.IBasicCollection<T>.Clear()"></a>
 ### void Clear()
 
-`src/libraries/z42.core/src/Protocols/IBasicCollection.z42:17`
+[`src/libraries/z42.core/src/Protocols/IBasicCollection.z42:17`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Protocols/IBasicCollection.z42#L17)
 
 清空所有元素；幂等。
 
+<a id="Std.IBasicCollection<T>.AddOne(T)"></a>
 ### void AddOne(T item)
 
-`src/libraries/z42.core/src/Protocols/IBasicCollection.z42:19`
+[`src/libraries/z42.core/src/Protocols/IBasicCollection.z42:19`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Protocols/IBasicCollection.z42#L19)
 
 插入一个元素；顺序 / 去重策略由实现决定。
 

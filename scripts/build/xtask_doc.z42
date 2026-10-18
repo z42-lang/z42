@@ -63,14 +63,20 @@ string _summaryEnd(string shortName)   { return "<!-- z42-doc:summary:" + shortN
 string _summaryBlock(string shortName, DocIndex ix) {
     string s = _summaryBegin(shortName) + "\n";
     s = s + "- [类型总览](stdlib/" + shortName + ".md)\n";
+    // 命名空间一层草稿章（mdBook 草稿章无目标页、只作可展开的分组），类型挂其下；
+    // 配 book.toml 的 [output.html.fold]（level=0：默认收起、当前页祖先自动展开）。
+    // 成员级不进侧边栏——mdBook SUMMARY 不支持锚点条目；成员导航在类型页内（成员索引行 + <a id>）。
     string[] nss = DocMd.Namespaces(ix);
     int i = 0;
     while (i < nss.Length) {
         TypeGroup[] groups = DocMd.TopLevelTypeGroups(ix, nss[i]);
-        int j = 0;
-        while (j < groups.Length) {
-            s = s + "  - [" + groups[j].Name + "](stdlib/" + shortName + "." + groups[j].Name + ".md)\n";
-            j = j + 1;
+        if (groups.Length > 0) {
+            s = s + "    - [" + nss[i] + "]()\n";
+            int j = 0;
+            while (j < groups.Length) {
+                s = s + "        - [" + groups[j].Name + "](stdlib/" + shortName + "." + groups[j].Name + ".md)\n";
+                j = j + 1;
+            }
         }
         i = i + 1;
     }
@@ -102,11 +108,20 @@ int _syncSummary(string root, string shortName, DocIndex ix, bool check) {
     return 0;
 }
 
+// 生成页源码链接的基址：取 book.toml 的 git-repository-url 口径（blob/main）。
+// Z42_DOC_SOURCE_BASE 可覆盖（本地预览 / 镜像）。gen 与 check 同值，否则漂移门禁误报。
+string _docSourceBase() {
+    string env = Environment.GetEnvironmentVariable("Z42_DOC_SOURCE_BASE", "");
+    if (env.Length > 0) { return env; }
+    return "https://github.com/z42-lang/z42/blob/main";
+}
+
 // 生成全部已迁移包（写了 `//!`）的 reference 页到 docs/reference/src/stdlib/。返回写了几个。
 int _docGen() {
     string root = _root();
     string outDir = Path.Join(root, "docs/reference/src/stdlib");
     string[] libs = _stdlibList(root);
+    DocMd.SourceBase = _docSourceBase();
     int n = 0;
     int i = 0;
     while (i < libs.Length) {
@@ -132,11 +147,128 @@ int _docGen() {
     return 0;
 }
 
+// doc 注释棘轮（z42-doc §4.6）：stdlib 各包跑 DocLint（W08xx 语法级检查），计数不得超过
+// scripts/test/doc-lint-baseline.txt（只降不升）。--update 重写基线。W0803（链接 / @throws
+// 类型解析）需要语义信息，归编译器 DocChecker pass，不在此列。
+int _checkDocLints(bool update) {
+    string root = _root();
+    SourceFile[] all = SourceTree.Collect(root);
+    DocLintFinding[] fs = new DocLintFinding[64];
+    int n = 0;
+    // 按包分组跑（W0808 的「同一命名空间一份 //!」按包判），再合并计数。
+    // 范围 = stdlib（src/libraries/）：编译器域（z42c.* / z42.doc）的注释按 doc-system
+    // §3.6「契约不显然时写」，不适用 W0805 全覆盖棘轮。
+    int i = 0;
+    while (i < all.Length) {
+        string pkg = all[i].Pkg;
+        if (pkg.Length == 0 || !all[i].Rel.StartsWith("src/libraries/")) { i = i + 1; continue; }
+        string[] paths = new string[all.Length];
+        int m = 0;
+        while (i < all.Length && all[i].Pkg == pkg) { paths[m] = all[i].Abs; m = m + 1; i = i + 1; }
+        string[] one = new string[m];
+        int c = 0;
+        while (c < m) { one[c] = paths[c]; c = c + 1; }
+        DocLintFinding[] found = DocLint.CheckPaths(one);
+        int k = 0;
+        while (k < found.Length) {
+            if (n == fs.Length) { DocLintFinding[] g = new DocLintFinding[n * 2]; Array.Copy(fs, g, n); fs = g; }
+            fs[n] = found[k]; n = n + 1; k = k + 1;
+        }
+    }
+
+    // 每码计数（码升序打印，便于人工比对）。
+    string[] codes = new string[n];
+    int[] counts = new int[n];
+    int cn = 0;
+    int j = 0;
+    while (j < n) {
+        int at = -1;
+        int q = 0;
+        while (q < cn) { if (codes[q] == fs[j].Code) { at = q; break; } q = q + 1; }
+        if (at < 0) { codes[cn] = fs[j].Code; counts[cn] = 1; cn = cn + 1; }
+        else { counts[at] = counts[at] + 1; }
+        j = j + 1;
+    }
+    _sortCounts(codes, counts, cn);
+
+    string baselinePath = Path.Join(root, "scripts/test/doc-lint-baseline.txt");
+    if (update) {
+        string outp = "# stdlib doc 注释棘轮基线（xtask check doc-lints --update 重写）。\n"
+            + "# 只降不升：清零一条就从这里删掉那行；计数下降时随手更新。W0803 归编译器 pass，不在此列。\n";
+        int w = 0;
+        while (w < cn) { outp = outp + codes[w] + " " + counts[w].ToString() + "\n"; w = w + 1; }
+        File.WriteAllText(baselinePath, outp);
+        Console.WriteLine("check doc-lints: ↻ 基线重写（" + n.ToString() + " 条）→ " + baselinePath);
+        return 0;
+    }
+
+    // 对账：超出基线 → 失败；基线里有而实际为零 → 提示收紧。
+    string[] lines = File.ReadAllText(baselinePath).Split("\n");
+    string fail = "";
+    int printed = 0;
+    int li = 0;
+    while (li < lines.Length) {
+        string line = lines[li].Trim();
+        li = li + 1;
+        if (line.Length == 0 || line.StartsWith("#")) { continue; }
+        int sp = line.IndexOf(" ");
+        if (sp < 0) { continue; }
+        string code = line.Substring(0, sp);
+        int base = int.Parse(line.Substring(sp + 1));
+        int now = 0;
+        int q = 0;
+        while (q < cn) { if (codes[q] == code) { now = counts[q]; break; } q = q + 1; }
+        if (now > base) {
+            fail = fail + "\n  " + code + ": " + now.ToString() + " > 基线 " + base.ToString();
+            int f = 0;
+            while (f < n && printed < 15) {
+                if (fs[f].Code == code) { ConsoleError.WriteLine("  " + fs[f].File + ":" + fs[f].Line.ToString() + ": " + fs[f].Code + " " + fs[f].Msg); printed = printed + 1; }
+                f = f + 1;
+            }
+        } else if (now < base) {
+            Console.WriteLine("  " + code + ": " + base.ToString() + " → " + now.ToString() + "（可收紧基线）");
+        }
+    }
+    // 基线里没有的码：新出现的违规。
+    int q2 = 0;
+    while (q2 < cn) {
+        string code = codes[q2];
+        bool known = false;
+        int li2 = 0;
+        while (li2 < lines.Length) {
+            string t = lines[li2].Trim();
+            li2 = li2 + 1;
+            if (t.StartsWith(code + " ")) { known = true; break; }
+        }
+        if (!known) { fail = fail + "\n  " + code + ": " + counts[q2].ToString() + " 条（基线外新违规）"; }
+        q2 = q2 + 1;
+    }
+    if (fail.Length > 0) {
+        ConsoleError.WriteLine("check doc-lints: 超出基线：" + fail);
+        return 1;
+    }
+    Console.WriteLine("check doc-lints: ✓ " + n.ToString() + " 条在基线内（" + Path.GetFileName(baselinePath) + "）");
+    return 0;
+}
+
+// 检查码按字典序排（W0801 < W0802 < …，字典序即数值序）。
+void _sortCounts(string[] codes, int[] counts, int n) {
+    int i = 1;
+    while (i < n) {
+        string c = codes[i]; int v = counts[i];
+        int j = i - 1;
+        while (j >= 0 && codes[j].CompareTo(c) > 0) { codes[j + 1] = codes[j]; counts[j + 1] = counts[j]; j = j - 1; }
+        codes[j + 1] = c; counts[j + 1] = v;
+        i = i + 1;
+    }
+}
+
 // 漂移门禁：重新生成并与仓库内文件 diff，不一致即失败并提示 `xtask doc gen`。
 int _checkDocsApi() {
     string root = _root();
     string outDir = Path.Join(root, "docs/reference/src/stdlib");
     string[] libs = _stdlibList(root);
+    DocMd.SourceBase = _docSourceBase();
     string failed = "";
     int i = 0;
     while (i < libs.Length) {

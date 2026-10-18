@@ -3,9 +3,8 @@
 
 use crate::gc::refs::MarkKind;
 use crate::metadata::Value;
-use crate::gc::refs::{GcRef};
+use crate::gc::ArrRef;
 use crate::gc::obj_ref::ObjRef;
-use crate::gc::types::{FinalizerFn};
 use crate::gc::phase_timer::PhaseTimer;
 
 impl crate::gc::arc_heap::ArcMagrGC {
@@ -14,7 +13,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     ///
     /// BFS from roots (pinned + external scanner) → sets `marked = 1` on
     /// every reachable `GcAllocation`. Idempotent within one cycle: the
-    /// `GcRef::mark` CAS guarantees each object enqueues children exactly
+    /// `ArrRef::mark` CAS guarantees each object enqueues children exactly
     /// once even under root reuse. [`sweep_phase`](Self::sweep_phase)
     /// consumes the bit and resets marks on survivors.
     ///
@@ -74,7 +73,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     pub(super) fn mark_if_unmarked(v: &Value, kind: MarkKind) -> bool {
         match v {
             Value::Object(gc) => ObjRef::mark(gc, kind),
-            Value::Array(gc)  => GcRef::mark(gc, kind),
+            Value::Array(gc)  => ArrRef::mark(gc, kind),
             // unify-gc-heap PR-2: mark the closure block (region_var); env marked via trace.
             Value::Closure(c) => c.mark(kind),
             // unify-gc-heap PR-4: mark the string block (leaf).
@@ -139,17 +138,11 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// **add-mark-sweep-collector P3 (2026-05-21)**: original
     /// implementation walked the Arc-backed `heap_registry` snapshot.
     ///
-    /// **add-custom-allocator P1 (2026-05-22)**: rewritten to walk
-    /// regions directly:
-    /// 1. For each alive entry in `region_array` (and each block of `region_var`):
-    ///    - `marked == 1` → reset to 0 (next cycle ready), retain
-    ///    - `marked == 0` → fire registered finalizer (one-shot take),
-    ///      tombstone the entry (alive=false, generation++, push slot
-    ///      to free list); break inner refs so any cyclic references
-    ///      no longer count toward "iterate_live_objects" reachability
+    /// Walks the region directly: every alive block without this cycle's epoch is tombstoned (its
+    /// finalizer, if any, fires through the flagged-dead list before any chunk is reclaimed);
+    /// marked blocks keep their epoch (the next cycle's advance whitens them).
     ///
-    /// Returns estimated `freed_bytes` (sum of `object_size_bytes` for
-    /// tombstoned entries).
+    /// Returns the freed bytes (the allocation charge of the tombstoned blocks).
     ///
     /// Finalizer-timing contract (D3): firings happen here only. The
     /// `Std.GC.Finalize(x)` builtin (added by P2) provides a separate
@@ -163,30 +156,14 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let mut freed_bytes: u64 = 0;
         let major = self.major_mark();
 
-        // Array region — **one-pass-major-sweep (2026-09-13)**: scan and tombstone in a single
-        // walk (see `Region::sweep_all_in_one_pass`).
-        let sweep_arrays = PhaseTimer::start("sweep/arrays");
-        let (arr_freed, arr_reclaimed) = {
-            let mut region = self.region_array.lock();
-            region.sweep_all_in_one_pass(major, Self::prepare_dead_array)
-        };
-        sweep_arrays.count(arr_reclaimed);
-        freed_bytes += arr_freed;
-        drop(sweep_arrays);
-
-        // Variable-length region — objects (object model R6), strings, closures, array element
-        // storage. `VarRegion::sweep` mark-checks + tombstones every unmarked live block
-        // internally, running the injected drop-glue (an object block drops its header; the
-        // other kinds are POD leaves). Flagged dead objects (finalizers, soft refs, remembered)
-        // are handed to `process_flagged_dead` by the chunk reclaim below.
+        // The variable-length region — objects, arrays, strings, closures. `VarRegion::sweep`
+        // mark-checks + tombstones every unmarked live block, running the injected drop glue (an
+        // object block drops its header, a struct array its layout; the rest are POD). Flagged
+        // dead blocks (finalizers, soft refs, remembered) are handed to `process_flagged_dead` by
+        // the chunk reclaim below.
         {
-            // fix-var-sweep-accounting: `sweep` returns the bytes that were actually
-            // charged to `used_bytes` when these blocks were allocated (variable-length
-            // Str payloads at their true length; array element blocks at zero, since the
-            // owning array header both charged and credits them). The old estimate —
-            // reclaimed_count × sizeof(ClosureData) — was a constant applied to
-            // variable-length blocks and double-counted array storage, so `freed` could
-            // exceed `used_before` and the auto-collect budget read low.
+            // fix-var-sweep-accounting: `sweep` returns the bytes that were actually charged to
+            // `used_bytes` when these blocks were allocated (`VarRegion::alloc_charge_bytes`).
             let t = PhaseTimer::start("sweep/var");
             let (reclaimed, credited) = self.region_var.lock().sweep(major);
             t.count(reclaimed);
@@ -194,7 +171,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
 
         // **add-gc-tlab (stage 2, D7)**: chunk-level reclaim — move every
-        // fully-dead chunk into its region's `free_chunk_pool` so `borrow_chunk`
+        // fully-dead chunk into the region's free chunk pool so `borrow_chunk`
         // recycles it (short-lived-object workloads like the compiler otherwise
         // grow chunks unboundedly, since the TLAB path bypasses slot-level
         // free_list reuse). Runs under STW at the sweep tail, after tombstoning.
@@ -204,19 +181,6 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
 
         freed_bytes
-    }
-
-    /// A major sweep's business with a dying array header: its size estimate and its finalizer.
-    /// Shared by the one-shot and the incremental sweep.
-    pub(super) fn prepare_dead_array(
-        entry: &crate::gc::region::RegionEntry<crate::metadata::types::ArrayObj>,
-    ) -> (Option<FinalizerFn>, u64) {
-        let size = Self::array_size_estimate(&entry.value);
-        // unify-gc-heap PR-3: no eager element drop here — the array's element storage lives
-        // in a `region_var` block (uniquely owned by this header), reclaimed by the var sweep
-        // (drop-glue drops the boxed Values) in the same cycle. Tombstoning the header just
-        // releases the slot.
-        (entry.take_finalizer(), size)
     }
 
     /// **add-gc-softref (2026-05-26)**: after mark_phase, re-mark alive
@@ -235,17 +199,12 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // revive_pass on snapshot — no lock held; only atomic field access.
         //
         // Reviving marks each surviving soft target, but we MUST also trace its
-        // children: a field / array-backing block reachable only through the
+        // children: an object / array reachable only through the
         // target is still unmarked after `mark_phase`, so the following
         // `sweep_phase` would reclaim it out from under the live target →
-        // dangling `GcRef` → UAF (release) / `generation/alive mismatch` panic
-        // (debug). Collect the revived targets and drain them through the mark
-        // queue, exactly as the incremental major path does in
-        // `revive_soft_refs_into`. (Regression source: #701 added the
-        // `on_revived` callback but wired it only into the incremental path,
-        // leaving this STW / one-shot-major path with an empty `|_| {}` — array
-        // backings live in `region_var` and are marked solely via the target's
-        // `trace_children`, so even a primitive array's block leaked here.)
+        // dangling handle → UAF (release) / generation-mismatch panic (debug). Collect the
+        // revived targets and drain them through the mark queue, exactly as the incremental
+        // major path does in `revive_soft_refs_into` (#701).
         let kind = self.major_mark();
         let mut revived: Vec<Value> = Vec::new();
         let _ = crate::gc::soft_registry::SoftRegistry::revive_snapshot(
@@ -266,7 +225,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     pub(crate) fn is_marked_value(v: &Value, kind: MarkKind) -> bool {
         match v {
             Value::Object(gc) | Value::BoxedStruct(gc) => ObjRef::is_marked(gc, kind),
-            Value::Array(gc) => GcRef::is_marked(gc, kind),
+            Value::Array(gc) => ArrRef::is_marked(gc, kind),
             Value::Closure(c) => c.is_marked(kind),
             Value::Str(s) => s.is_marked(kind),
             _ => true,
@@ -344,14 +303,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
         MarkKind::Major(self.mark_epoch.load(std::sync::atomic::Ordering::Relaxed))
     }
 
-    /// Snapshot all alive Values across the heap's regions. Order:
-    /// objects (variable-length region) first, then the array region. Each entry visited
-    /// exactly once (no de-dup required — regions are the authoritative
-    /// store, every entry there represents one allocation).
-    ///
-    /// **add-custom-allocator P1 (2026-05-22)**: replaces the
-    /// heap_registry-walking version. No more `Weak::upgrade` per
-    /// entry; just a linear chunks walk with an alive-bit check.
+    /// Snapshot every alive object and array (one walk of the region, each block once — the
+    /// region is the authoritative store).
     pub(super) fn snapshot_live_from_registry(&self) -> Vec<Value> {
         // add-gc-tlab (stage 2): retire the calling thread's TLAB so its own
         // freshly-allocated (still-borrowed) objects are merged and visible in
@@ -361,21 +314,13 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // out of a non-STW diagnostic snapshot, which is acceptable.)
         self.retire_thread_tlab();
         let mut alive: Vec<Value> = Vec::new();
-        {
-            // Object model R6: objects are the variable-length region's object blocks.
-            let region = self.region_var.lock();
-            region.iterate_alive_of(crate::gc::var_region::BlockType::Object, |h, _| {
-                alive.push(Value::Object(ObjRef::from_var(h)));
-            });
-        }
-        {
-            let region = self.region_array.lock();
-            region.iterate_alive(|h, entry| {
-                let entry_ptr = std::ptr::NonNull::from(entry);
-                let gc = unsafe { GcRef::from_region_entry(entry_ptr, h.generation) };
-                alive.push(Value::Array(gc));
-            });
-        }
+        self.region_var.lock().iterate_alive(|h, header| {
+            match header.block_type() {
+                crate::gc::var_region::BlockType::Object => alive.push(Value::Object(ObjRef::from_var(h))),
+                bt if bt.is_object_or_array() => alive.push(Value::Array(ArrRef::from_var(h))),
+                _ => {}
+            }
+        });
         // add-incremental-major-gc M2b: this hands out every alive entry, including ones an
         // incremental cycle has already judged dead (still alive until its sweep reaches them).
         alive.retain(|v| self.admit_resurrected(v));

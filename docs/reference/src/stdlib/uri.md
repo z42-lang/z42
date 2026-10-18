@@ -28,7 +28,7 @@ RFC 3986 的一个子集：必须有 scheme，authority 内的 IPv6 字面量按
 
 ## Uri
 
-`src/libraries/z42.uri/src/Uri.z42:27`
+[`src/libraries/z42.uri/src/Uri.z42:27`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L27)
 
 
 ```z42
@@ -58,117 +58,138 @@ public class Uri {
 }
 ```
 
+成员：[`Uri`](#Std.Uri.Uri.ctor(string,bool,string,string,int,string,string,string)) · [`GetScheme`](#Std.Uri.Uri.GetScheme()) · [`GetUserInfo`](#Std.Uri.Uri.GetUserInfo()) · [`GetHost`](#Std.Uri.Uri.GetHost()) · [`GetPort`](#Std.Uri.Uri.GetPort()) · [`GetPath`](#Std.Uri.Uri.GetPath()) · [`GetQuery`](#Std.Uri.Uri.GetQuery()) · [`GetFragment`](#Std.Uri.Uri.GetFragment()) · [`HasUserInfo`](#Std.Uri.Uri.HasUserInfo()) · [`HasHost`](#Std.Uri.Uri.HasHost()) · [`HasAuthority`](#Std.Uri.Uri.HasAuthority()) · [`HasPort`](#Std.Uri.Uri.HasPort()) · [`HasQuery`](#Std.Uri.Uri.HasQuery()) · [`HasFragment`](#Std.Uri.Uri.HasFragment()) · [`IsIPv6Literal`](#Std.Uri.Uri.IsIPv6Literal()) · [`GetHostName`](#Std.Uri.Uri.GetHostName()) · [`EffectivePort`](#Std.Uri.Uri.EffectivePort()) · [`DefaultPortFor`](#Std.Uri.Uri.DefaultPortFor(string)) · [`Parse`](#Std.Uri.Uri.Parse(string)) · [`EncodeComponent`](#Std.Uri.Uri.EncodeComponent(string)) · [`DecodeComponent`](#Std.Uri.Uri.DecodeComponent(string)) · [`Resolve`](#Std.Uri.Uri.Resolve(Uri,string))
+
+<a id="Std.Uri.Uri.ctor(string,bool,string,string,int,string,string,string)"></a>
 ### Uri(string scheme, bool hasAuthority, string userInfo, string host, int port, string path, string query, string fragment)
 
-`src/libraries/z42.uri/src/Uri.z42:38`
+[`src/libraries/z42.uri/src/Uri.z42:38`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L38)
 
 八参数构造器：逐字段直接构造（不做校验）。
 
+<a id="Std.Uri.Uri.GetScheme()"></a>
 ### string GetScheme()
 
-`src/libraries/z42.uri/src/Uri.z42:53`
+[`src/libraries/z42.uri/src/Uri.z42:53`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L53)
 
 返回 scheme 组件。
 
+<a id="Std.Uri.Uri.GetUserInfo()"></a>
 ### string GetUserInfo()
 
-`src/libraries/z42.uri/src/Uri.z42:55`
+[`src/libraries/z42.uri/src/Uri.z42:55`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L55)
 
 返回 userInfo 组件；缺省时返回空串。
 
+<a id="Std.Uri.Uri.GetHost()"></a>
 ### string GetHost()
 
-`src/libraries/z42.uri/src/Uri.z42:57`
+[`src/libraries/z42.uri/src/Uri.z42:57`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L57)
 
 返回 host 组件；IPv6 字面量保留方括号（`[::1]`）；缺省返回空串。
 
+<a id="Std.Uri.Uri.GetPort()"></a>
 ### int GetPort()
 
-`src/libraries/z42.uri/src/Uri.z42:59`
+[`src/libraries/z42.uri/src/Uri.z42:59`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L59)
 
 返回显式端口；未显式写端口时返回 -1。
 
+<a id="Std.Uri.Uri.GetPath()"></a>
 ### string GetPath()
 
-`src/libraries/z42.uri/src/Uri.z42:61`
+[`src/libraries/z42.uri/src/Uri.z42:61`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L61)
 
 返回 path 组件。
 
+<a id="Std.Uri.Uri.GetQuery()"></a>
 ### string GetQuery()
 
-`src/libraries/z42.uri/src/Uri.z42:63`
+[`src/libraries/z42.uri/src/Uri.z42:63`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L63)
 
 返回 query 组件，不含前导 `?`；缺省返回空串。
 
+<a id="Std.Uri.Uri.GetFragment()"></a>
 ### string GetFragment()
 
-`src/libraries/z42.uri/src/Uri.z42:65`
+[`src/libraries/z42.uri/src/Uri.z42:65`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L65)
 
 返回 fragment 组件，不含前导 `#`；缺省返回空串。
 
+<a id="Std.Uri.Uri.HasUserInfo()"></a>
 ### bool HasUserInfo()
 
-`src/libraries/z42.uri/src/Uri.z42:68`
+[`src/libraries/z42.uri/src/Uri.z42:68`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L68)
 
 userInfo 非空串时为 true。
 
+<a id="Std.Uri.Uri.HasHost()"></a>
 ### bool HasHost()
 
-`src/libraries/z42.uri/src/Uri.z42:70`
+[`src/libraries/z42.uri/src/Uri.z42:70`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L70)
 
 host 非空串时为 true。
 
+<a id="Std.Uri.Uri.HasAuthority()"></a>
 ### bool HasAuthority()
 
-`src/libraries/z42.uri/src/Uri.z42:72`
+[`src/libraries/z42.uri/src/Uri.z42:72`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L72)
 
 URI 在 scheme 后带 `//` 时为 true（与 host 是否为空无关）。
 
+<a id="Std.Uri.Uri.HasPort()"></a>
 ### bool HasPort()
 
-`src/libraries/z42.uri/src/Uri.z42:74`
+[`src/libraries/z42.uri/src/Uri.z42:74`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L74)
 
 即 `GetPort() >= 0`。
 
+<a id="Std.Uri.Uri.HasQuery()"></a>
 ### bool HasQuery()
 
-`src/libraries/z42.uri/src/Uri.z42:76`
+[`src/libraries/z42.uri/src/Uri.z42:76`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L76)
 
 query 非空串时为 true。
 
+<a id="Std.Uri.Uri.HasFragment()"></a>
 ### bool HasFragment()
 
-`src/libraries/z42.uri/src/Uri.z42:78`
+[`src/libraries/z42.uri/src/Uri.z42:78`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L78)
 
 fragment 非空串时为 true。
 
+<a id="Std.Uri.Uri.IsIPv6Literal()"></a>
 ### bool IsIPv6Literal()
 
-`src/libraries/z42.uri/src/Uri.z42:85`
+[`src/libraries/z42.uri/src/Uri.z42:85`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L85)
 
 host 是否以 `[` 开头、`]` 结尾且长度 ≥ 2（即括号形式的 IPv6 字面量）。
 
+<a id="Std.Uri.Uri.GetHostName()"></a>
 ### string GetHostName()
 
-`src/libraries/z42.uri/src/Uri.z42:92`
+[`src/libraries/z42.uri/src/Uri.z42:92`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L92)
 
 剥掉 IPv6 方括号后的 host（`[::1]` → `::1`）；普通域名 / IPv4 与 `GetHost()` 相同。
 
+<a id="Std.Uri.Uri.EffectivePort()"></a>
 ### int EffectivePort()
 
-`src/libraries/z42.uri/src/Uri.z42:100`
+[`src/libraries/z42.uri/src/Uri.z42:100`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L100)
 
 返回生效端口：有显式端口就返回它，否则返回 scheme 的 IANA 默认端口；两者都没有返回 -1。
 
+<a id="Std.Uri.Uri.DefaultPortFor(string)"></a>
 ### static int DefaultPortFor(string scheme)
 
-`src/libraries/z42.uri/src/Uri.z42:106`
+[`src/libraries/z42.uri/src/Uri.z42:106`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L106)
 
 返回 scheme 对应的 IANA 默认端口（scheme 大小写不敏感）；未收录的 scheme 返回 -1。
 
+<a id="Std.Uri.Uri.Parse(string)"></a>
 ### static Uri Parse(string text)
 
-`src/libraries/z42.uri/src/Uri.z42:161`
+[`src/libraries/z42.uri/src/Uri.z42:161`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L161)
 
 解析绝对 URI。
 
@@ -178,23 +199,26 @@ host 是否以 `[` 开头、`]` 结尾且长度 ≥ 2（即括号形式的 IPv6 
 
 抛 `UriException`：语法不合法时
 
+<a id="Std.Uri.Uri.EncodeComponent(string)"></a>
 ### static string EncodeComponent(string s)
 
-`src/libraries/z42.uri/src/Uri.z42:167`
+[`src/libraries/z42.uri/src/Uri.z42:167`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L167)
 
 percent 编码组件：只保留 RFC 3986 §2.3 的 unreserved 集合，其余一律 `%XX`（大写十六进制）。
 
+<a id="Std.Uri.Uri.DecodeComponent(string)"></a>
 ### static string DecodeComponent(string s)
 
-`src/libraries/z42.uri/src/Uri.z42:174`
+[`src/libraries/z42.uri/src/Uri.z42:174`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L174)
 
 percent 解码组件：`%XX` → 字节 → UTF-8 字符串；裸 `+` 解码成空格。
 
 抛 `UriException`：`%` 后不足两位或非十六进制数字等非法输入时
 
+<a id="Std.Uri.Uri.Resolve(Uri,string)"></a>
 ### static Uri Resolve(Uri base_, string reference)
 
-`src/libraries/z42.uri/src/Uri.z42:183`
+[`src/libraries/z42.uri/src/Uri.z42:183`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L183)
 
 按 RFC 3986 §5.3 把相对引用 reference 相对 base_ 解析成绝对 URI。
 
@@ -207,7 +231,7 @@ percent 解码组件：`%XX` → 字节 → UTF-8 字符串；裸 `+` 解码成�
 
 ## UriCodec
 
-`src/libraries/z42.uri/src/UriCodec.z42:5`
+[`src/libraries/z42.uri/src/UriCodec.z42:5`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/UriCodec.z42#L5)
 
 percent 编解码辅助：`Uri.EncodeComponent` / `Uri.DecodeComponent` 就是它的转发入口，行为完全一致。
 
@@ -218,15 +242,19 @@ public static class UriCodec {
 }
 ```
 
+成员：[`Encode`](#Std.Uri.UriCodec.Encode(string)) · [`Decode`](#Std.Uri.UriCodec.Decode(string))
+
+<a id="Std.Uri.UriCodec.Encode(string)"></a>
 ### static string Encode(string s)
 
-`src/libraries/z42.uri/src/UriCodec.z42:9`
+[`src/libraries/z42.uri/src/UriCodec.z42:9`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/UriCodec.z42#L9)
 
 只保留 RFC 3986 §2.3 的 unreserved 集合，其余一律 `%XX`（大写十六进制）；非 ASCII 先 UTF-8 再逐字节编码。
 
+<a id="Std.Uri.UriCodec.Decode(string)"></a>
 ### static string Decode(string s)
 
-`src/libraries/z42.uri/src/UriCodec.z42:52`
+[`src/libraries/z42.uri/src/UriCodec.z42:52`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/UriCodec.z42#L52)
 
 `%XX` → 字节 → UTF-8 字符串；裸 `+` 解码成空格。
 
@@ -234,7 +262,7 @@ public static class UriCodec {
 
 ## UriException
 
-`src/libraries/z42.uri/src/UriException.z42:4`
+[`src/libraries/z42.uri/src/UriException.z42:4`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/UriException.z42#L4)
 
 URI 解析 / 编解码错误；`Parse` / `Resolve` / `DecodeComponent` 的所有失败都抛这一种异常。
 
@@ -244,15 +272,18 @@ public class UriException : Exception {
 }
 ```
 
+成员：[`UriException`](#Std.Uri.UriException.ctor(string))
+
+<a id="Std.Uri.UriException.ctor(string)"></a>
 ### UriException(string message)
 
-`src/libraries/z42.uri/src/UriException.z42:6`
+[`src/libraries/z42.uri/src/UriException.z42:6`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/UriException.z42#L6)
 
 用给定消息构造异常。
 
 ## UriParser
 
-`src/libraries/z42.uri/src/UriParser.z42:4`
+[`src/libraries/z42.uri/src/UriParser.z42:4`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/UriParser.z42#L4)
 
 一次性 URI 解析器：`ParseUri()` 只能对一个实例调用一次（内部游标不重置）。
 
@@ -263,15 +294,19 @@ public sealed class UriParser {
 }
 ```
 
+成员：[`UriParser`](#Std.Uri.UriParser.ctor(string)) · [`ParseUri`](#Std.Uri.UriParser.ParseUri())
+
+<a id="Std.Uri.UriParser.ctor(string)"></a>
 ### UriParser(string src)
 
-`src/libraries/z42.uri/src/UriParser.z42:9`
+[`src/libraries/z42.uri/src/UriParser.z42:9`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/UriParser.z42#L9)
 
 构造解析器，绑定待解析的源字符串。
 
+<a id="Std.Uri.UriParser.ParseUri()"></a>
 ### Uri ParseUri()
 
-`src/libraries/z42.uri/src/UriParser.z42:15`
+[`src/libraries/z42.uri/src/UriParser.z42:15`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/UriParser.z42#L15)
 
 解析为 Uri（只能对一个实例调用一次）。
 

@@ -1,20 +1,20 @@
 # GC TLAB：线程本地分配（chunk 独占）
 
-> 代码：`gc/tlab.rs`（Tlab + thread-local + arm 门）、`gc/region.rs`（`ChunkClaim` + borrow/retire/reclaim，定长数组头）、
-> `gc/var_region.rs`（`VarChunkClaim` + borrow/retire/reclaim，变长块：对象、字符串、闭包、数组元素）、
+> 代码：`gc/tlab.rs`（Tlab + thread-local + arm 门）、
+> `gc/var_region.rs`（`VarChunkClaim` + borrow/retire/reclaim，变长块：对象、数组、字符串、闭包）、
 > `gc/arc_heap/alloc.rs`（fast path）、`gc/safepoint.rs`（retire-on-park）。
 
 ## 为什么
 
 `ArcMagrGC` 是**单一共享堆**，所有 mutator 线程共用一个 `Arc<VmCore>` → 一个堆。无 TLAB 时分配热路径
-（`new` / `Str::new` / …）每个对象都要抢**进程级 region 锁**（`region_array`/`region_var`
-各一把 `Mutex`）。N 个线程并行分配 → 全在这几把锁上排队，并行编译**越多线程越慢**。
+（`new` / `Str::new` / …）每个块都要抢**进程级 region 锁**（`region_var` 的
+`Mutex`）。N 个线程并行分配 → 全在这把锁上排队，并行编译**越多线程越慢**。
 
 **TLAB（Thread-Local Allocation Buffer）= chunk 独占**：每个 mutator 线程从共享 region **借用一整块
 chunk 的写权**，在里面本地 bump 填对象（**零锁**）；chunk 填满就 retire（把已填部分的元数据批量并回
 共享 region）+ 再借一块。
 
-**关键不变式：仍是同一个共享堆、同一套 region。** GC 遍历 / 分代 / card table / sweep **全部零改动**——
+**关键不变式：仍是同一个共享堆、同一个 region。** GC 遍历 / 分代 / 记忆集 / sweep **全部零改动**——
 borrow 来的 chunk 内存和元数据始终归属共享 region，retire 后就是普通已分配槽。
 
 ## 架构
@@ -22,15 +22,14 @@ borrow 来的 chunk 内存和元数据始终归属共享 region，retire 后就�
 ```mermaid
 flowchart TB
   subgraph Heap["ArcMagrGC（共享单堆单 GC）"]
-    RA["region_array : Mutex&lt;Region&lt;ArrayObj&gt;&gt;"]
-    RV["region_var   : Mutex&lt;VarRegion&gt;（object/string/closure/数组元素）"]
-    POOL["free_chunk_pool / var_free_chunk_pool（全死 chunk 回收池）"]
+    RV["region_var : Mutex&lt;VarRegion&gt;（object / array / string / closure）"]
+    POOL["var_free_chunk_pool（全死 chunk 回收池）"]
   end
   subgraph A["VmContext A（线程 A）"]
-    TA["Tlab { arr, var }（thread-local）"]
+    TA["Tlab { var, holes }（thread-local）"]
   end
   subgraph B["VmContext B（线程 B）"]
-    TB["Tlab { arr, var }"]
+    TB["Tlab { var, holes }"]
   end
   TA -- "borrow_chunk（锁一次）" --> RV
   TA -. "本地 bump 填对象（零锁）" .-> TA
@@ -40,42 +39,27 @@ flowchart TB
   POOL -- "borrow 优先复用" --> RV
 ```
 
-- **TLAB** = per-`VmContext` 持有（挂 thread-local，见「arm 门」）的两个「借来的活跃 chunk 句柄」
-  （arr/var 各一；对象是 var 块，与字符串、闭包共用 var 那一块）。
-- **分配**（零锁）：在活跃 chunk 的下一个槽 / bump 偏移写对象，`GcRef`/`VarGcRef` 从槽指针直接建。
-- **retire**（借新 / safepoint 时，锁一次）：把 chunk 已填部分一次性并回共享 region（定长：构造位图、
-  年轻位图各一次按字 OR；变长：发布高水位、把 claim 的块起点位图 OR 进年轻位图、`live_count`）。
-- **GC 侧**：`iterate_alive`/`iterate_young`/sweep 全不变——定长靠 `borrowed[ci]` 标志跳过在借 chunk，
-  变长靠「未 retire 的 chunk 高水位为 0」天然不可见。
+- **TLAB** = per-`VmContext` 持有（挂 thread-local，见「arm 门」）的一个「借来的活跃 chunk 句柄」加一个空洞暂存
+  （对象、数组、字符串、闭包都是块，共用这一块 chunk）。
+- **分配**（零锁）：在活跃 chunk 的 bump 偏移（或认领来的空洞）写块，`VarGcRef` 从块头指针直接建。
+- **retire**（借新 / safepoint 时，锁一次）：把 chunk 已填部分一次性并回共享 region（发布高水位、把 claim 的块起点位图
+  OR 进年轻位图、`live_count`），没用上的空洞还回 free list。
+- **GC 侧**：`iterate_alive`/`iterate_young`/sweep 全不变——「未 retire 的 chunk 高水位为 0」天然不可见。
 
 ## borrow / retire / reclaim 契约
 
-### 定长 `Region<T>`（数组头）
+### `VarRegion`（对象 / 数组 / 字符串 / 闭包）
 
-- **`borrow_chunk() -> ChunkClaim<T>`**（锁下）：从 `free_chunk_pool` 取一块全死 chunk 或 grow 新块，
-  标 `borrowed[ci]=true`，返回 `{chunk_idx, slots 裸指针, init（构造位图的拷贝）, next, cap}`。
-  拷贝而不是指针：在借期间没有任何路径改这个 chunk 的构造位，而位图住在会扩容的 `Vec` 里。
-- **`ChunkClaim::fill(value)`**（**零锁**）：`slots[next]` 写 `RegionEntry`；`next += 1`；返回
-  `(entry_ptr, generation)`。**按 `init` 的第 `next` 位逐槽选写模式**：未初始化槽 → fresh 写（gen 0）；
-  已初始化槽（池化 chunk 的死条目）→ **读旧 generation、drop 旧条目、保留 generation 写新条目**
-  （ABA 守卫，同 free_list 复用纪律）。
-- **`retire_chunk(claim)`**（锁下）：构造位图与年轻位图各 OR 上 `[0, next)` 的前缀掩码；
-  清 `borrowed`。局部未填的尾部槽被放弃（每 safepoint retire ≤ CHUNK_SIZE-1，chunk 全死后整体回收）。
-- **ambient 路径**：strict-OOM / 无 VmContext 线程走**锁下**的 `Region::alloc`（`ambient_cur` 独立
-  游标，只 grow 全新 chunk，永不碰在借 chunk 的索引——避免 `next_bump` 的 `ci >= chunks.len()`
-  grow 与 borrow 追加同一 `chunks` Vec 的**索引撞车**）。
-
-### 变长 `VarRegion`（对象 / 字符串 / 闭包 / 数组元素）
-
-- 结构类似，但块是**变长** bump（64KB chunk 内按 footprint 前移 `off`），claim 记
+- **`borrow_chunk()`**（锁下）：从池里取一块全死 chunk 或 grow 新块，标 `borrowed[ci]=true`。块是**变长** bump（64KB chunk 内按 footprint 前移 `off`），claim 记
   `{base 裸指针, off, starts（块起点位图，每 8 字节一位）, filled}`；`fill` 只多置一位。
   retire 把 `hwm[ci]` 设为 `off`（块从此对所有遍历可见）、把 `starts` OR 进该 chunk 的年轻位图。
-- **oversized 块**（> chunk）走锁路径（低频，不进 TLAB）。
+- **oversized 块**（> chunk，大数组、长字符串）走锁路径，独占一块按大小切的专用 chunk（低频，不进 TLAB）。
+- **ambient 路径**：strict-OOM / 无 VmContext 线程走**锁下**的 `VarRegion::alloc`（同 class 的 free list，再 bump）。
 - 半活 chunk 里的死槽由 TLAB 按 size class 成批认领、无锁填回（见下「空洞复用」）；bump 只在本 class 没有
   死槽可用时才走。
-- 对象块与其它块一样从 TLAB 里分配：`fill` 写好块头的 GC 字、payload 清零，堆随后写类型字（块头的种类字）、跑泛型一步，
-  建完才发布（`gc/arc_heap/alloc_object.rs`）。bump 出来的块在 chunk retire 之前对任何遍历都不可见；
-  填进空洞的块所在 chunk 早已发布，靠 generation 保持偶数（= 不活）到建完才写成奇数来做到同一件事。所以没人看得到建到一半的对象。
+- 对象与数组块与其它块一样从 TLAB 里分配：`fill` 写好块头的 GC 字、payload 清零，堆随后写种类字（对象的类型、
+  数组的描述符）、跑泛型一步 / 写元素，建完才发布（`gc/arc_heap/alloc_object.rs`、`alloc.rs` 的 `alloc_array_block`）。bump 出来的块在 chunk retire 之前对任何遍历都不可见；
+  填进空洞的块所在 chunk 早已发布，靠 generation 保持偶数（= 不活）到建完才写成奇数来做到同一件事。所以没人看得到建到一半的对象或数组。
 
 ### 空洞复用：TLAB 按 size class 成批认领死槽（M12）
 
@@ -148,7 +132,7 @@ retire，所以 sweep / chunk 回收看到的永远是没有 stash 的 region；
 **代价。** 快路径多两次 class 位测试（什么都不释放的负载只付这个）；取一批锁一次 region、不读块头，
 逐槽置年轻位、按 chunk 成串记账（bump claim 在 retire 时按字 OR 起点位图，没有这一项）。剩下的是
 **局部性**：一起分配的块落进各自 class 找到的空洞，而不是背靠背——`13_gc_large_heap` 的链表节点、它的
-`long[8]` 元素块、每轮的临时 `Node` 分属三个 class（56 / 80 / 48 B），新链散在旧链和临时对象留下的洞里，
+`long[8]` 数组、每轮的临时 `Node` 分属不同的 class，新链散在旧链和临时对象留下的洞里，
 `ChainSum` 与标记都多付缓存缺失；minor 每条目耗时随之上升，自适应 nursery 收小，多出 tenure 与 major。
 z42c 构建上同一件事表现为指令数几乎不变、cycles 多 2%。payload 在块内之前（对象 payload 单独 malloc）
 这一步还要当场 free 旧 payload，所以那时做不划算；现在填空洞只写块头与清零 payload。
@@ -192,9 +176,8 @@ z42c 产物逐字节一致。固定 nursery（16M）并关掉自适应晋升时�
 
 ### 变长区的分代
 
-minor GC 同时扫变长区 `region_var`——它占 RSS 约 45%，
-不能只等 major。注意数组头 tombstone 时把 `array_size_estimate`（含 `elem_storage_bytes()`）
-计进 `freed_bytes`，那些字节却住在变长块里、这一轮并没被回收：须防**账退了、内存没退**。
+minor GC 扫的就是 `region_var` 的年轻集合——整个堆都在这里。每个块的分配记账与回收退账是同一个数
+（`VarRegion::alloc_charge_bytes` = 头 + payload），账与内存一起走。
 
 **年龄塞在哪。** `GcBlockHeader` 被 `assert!(size_of == 16)` 钉死（对象的类型字占了后 8 字节，
 GC 字只有 8 字节：generation 16 位 + mark + `type_tag` + 32 位长度），所以年龄挤进 `type_tag` 的空闲位：
@@ -203,10 +186,10 @@ GC 字只有 8 字节：generation 16 位 + mark + `type_tag` + 32 位长度）�
 type_tag: AtomicU8
   bit 0..2  BlockType（8 个变体，3 位用满）
   bit 3..4  gen_age（2 位 → 上限 3；默认晋升年龄 3 正好用满）
-  bit 5     REMEMBERED_BIT（仅 Object 块：在记忆集里）
+  bit 5     REMEMBERED_BIT（对象 / 能持引用的数组：在记忆集里）
   bit 6     ASCII_STR_BIT（仅 Str 块：字节全为 ASCII）/ OBJ_META_BIT（仅 Object 块：payload 末尾有 meta 字）；
             年龄的 STW 读改写保留它
-  bit 7     SIDE_BIT（仅 Object 块：堆按地址记着 finalizer / 软引用）
+  bit 7     SIDE_BIT（对象 / 数组：堆按地址记着 finalizer / 软引用）
 ```
 年轻集合的成员关系在 region 的位图里，不在块头。
 
@@ -250,13 +233,10 @@ TLAB 成批取槽（`take_holes`，见上「空洞复用」）走的是同一个
 墙钟 −1.3%。压缩**不做** `shrink_to_fit`：这些表有好几 MB，归还容量要在旧缓冲还活着时
 先分配新的，实测那个尖峰比它还回来的还多。
 
-⚠️ **年轻位图只在分代模式下分配和维护**（`set_generational`，与 `Region<T>` 同款），
-非分代模式下 alloc / tombstone 不碰它。
+⚠️ **年轻位图只在分代模式下分配和维护**（`set_generational`），非分代模式下 alloc / tombstone 不碰它。
 
-**不需要卡表。** 变长块不产生跨代写：`Str` / `ArrayPrim` 是叶子；
-`ArrayValue` / `ArrayStruct` 只经 `Value::Array` owner 写入，已被 `region_array` 的卡覆盖；
-`ClosureData` **创建后不可变**。老数组头经脏卡重新入根后，`trace_children` 里的
-`arr.mark_backing()` 会标记它的元素块——标记覆盖早就完整。
+**没有卡表。** 跨代写只能落在对象与数组上，它们用记忆集（见 [gc.md](gc.md)「记忆集」）；
+`Str` / `ArrayPrim` 是叶子，`ClosureData` **创建后不可变**。
 
 ### ⚠️ 陈旧 mark 位会导致 use-after-free
 
@@ -271,13 +251,10 @@ minor #2: c.mark() CAS 失败 → just_marked = false → children 不再被追
         → 闭包还引用着的数组被提前释放
 ```
 
-`Str` / `ArrayPrim` 是叶子，陈旧 mark 只造成一轮浮动垃圾；`Value::Array` 走头节点、
-mark 位被正常清理。**这条只打在 `Closure` 上**——唯一「自身是变长块又有出边」的类型。
+`Str` / `ArrayPrim` 是叶子，陈旧 mark 只造成一轮浮动垃圾。对象与数组的年龄从来都是块自己的；
+**这条打在 `Closure` 上**——它的年龄曾被读成 env 的。
 两处缺一不可：`sweep_young` 清 survivor 的 mark 位，`gen_age_of` 读真实年龄（老块不再被推入）。
 回归测试 `closure_env_survives_repeated_minors` 锁住它：不修则第 2 轮必红。
-
-**残留（已知、有界）**：从脏卡以老数组头入根时 `mark_backing()` 仍会标记一个**老**元素块，
-minor 不清老块的 mark，该块若随后成为垃圾会多活一个 major 周期。是浮动垃圾，不是正确性问题。
 
 **minor 不做 chunk 级回收**——`reclaim_dead_chunks` / `reclaim_dead_var_chunks` 只在
 `run_cycle_collection_stw`（major）里调。所以 minor 释放的槽只进 free-list 供复用，
@@ -295,27 +272,22 @@ sweep 尾（STW）扫全死 chunk（所有已初始化槽 dead）→ 移入 `fre
 `chunks`，收尾清理块表 / `free_lists` 时又对每块线性扫一遍被回收的区间——两个
 `O(块数 × chunk 数)` 项，且 chunk 数只增不减。实测 `z42c.semantics` 配 128MB 预算，
 `reclaim_dead_var_chunks` 一处占每次停顿的 **92–98%**，并逐周期翻倍（494ms → 975ms →
-1490ms → 3072ms），同期 mark 加两个定长 region 的 sweep 合计只有 15–45ms。
+1490ms → 3072ms），同期 mark 与 sweep 合计只有 15–45ms。
 
 做法是每次回收先按 base 地址排一份 chunk 区间表，之后按块二分（`partition_point`）；
-「是否属于被回收的 chunk」也改成查下标位表而非扫区间。同一形状的平方项在定长 region
-上也出现过——**「按块线性扫另一个只增不减的表」是这套 region 代码的惯犯，
+「是否属于被回收的 chunk」也改成查下标位表而非扫区间。**「按块线性扫另一个只增不减的表」是 region 代码的惯犯，
 新增每块一次的查找时先问它是不是 O(1)/O(log n)**。
-
-定长 `Region<T>` 的 `reclaim_dead_chunks` 没有这个问题：槽定长，chunk 归属是下标除法。
 
 ### per-chunk 普查：「这个 chunk 全死了吗」必须是 O(1)
 
 chunk 回收对每个 chunk 只问两件事：**它有过块吗**、**它还有活块吗**。这两个问题若靠
-**扫描**回答 —— 定长区逐槽扫（`O(chunk 数 × 256)`），变长区逐块扫并对每块
-**二分查找**归属（`O(块数 × log chunk 数)`）——代价太高。
+**扫描**回答 —— 逐块扫并对每块**二分查找**归属（`O(块数 × log chunk 数)`）——代价太高。
 
 实测（`z42c.semantics`，分代模式，后几次大堆 minor，给各段套 `Instant`）：
 
 | 段 | 扫描 | 计数器 |
 |---|---|---|
 | `reclaim_dead_var_chunks` | **45–59 ms** | **6–10 ms** |
-| `reclaim_dead_chunks` ×2（定长） | ~6.5 ms | **0.44 ms** |
 | `mark_phase_minor` | ~23 ms | ~25 ms（未动） |
 
 扫描方案下变长区那一个函数占 sweep 的 **85%**、整个停顿的约 **60%**。
@@ -341,23 +313,15 @@ TLAB claim、空洞批（每个槽连同 chunk 下标一起存）、free list �
 
 ⚠️ **维护点必须穷举**，漏一处就是**把还有活块的 chunk 回收掉**（比慢严重得多）：
 alloc（bump / dedicated / 自由链复用）、`retire_chunk`、`tombstone`、入池、释放、
-`push_chunk` 复用墓碑槽位。两个坑：
+`push_chunk` 复用墓碑槽位、空洞认领 / 退还。
 
-- **`retire_chunk` 对复用的 chunk 是幂等写**（构造位可能本来就置着），
-  只能数**跃迁**（`popcount(新位 & !旧位)`），不能数填充数；
-- **入池的 chunk 保留「曾构造」计数** —— 它的槽仍是构造好的（`ChunkClaim::fill` 靠这个
-  保留每槽的 tombstone generation，即 ABA 守卫），所以「已在池中」那道 guard 不能删。
-
-⚠️ **顺带一条规律**：普查之后定长区若仍扫描还剩 5–9 ms，全是
-`already_pooled: HashSet` 的构建 + `free_list.retain` 里**每条一次哈希查找**
-（free_list 有几十万条）。换成 `vec![false; chunks.len()]` 之后 **→ 0.44 ms**。
-**GC 里凡是「每元素查一次集合」、而键是 chunk 下标的地方，都该是标志表而不是 HashSet。**
+⚠️ **顺带一条规律**：GC 里凡是「每元素查一次集合」、而键是 chunk 下标的地方，都该是标志表而不是 HashSet
+（一次「每条 free list 条目查一次 `HashSet`」实测 5–9 ms，换成 `vec![false; chunks.len()]` 后 0.44 ms）。
 
 **结果**：minor 中位停顿 76.1 → **32.5 ms（−57%）**，最大 152.9 → **88.7 ms（−42%）**；
 STW 98.7 → **58.8 ms（−40%）**。RSS 一分不差（回收的**判定**没变，只是变快了）。
 nursery 终于开始买停顿了（分代中位：32M → 32.5 ms、8M → 27.3 ms、4M → 24.3 ms），
-新的地板是 `mark_phase_minor` 的 ~25 ms —— **卡是 chunk 粒度的，一个脏 chunk 里
-256 条活条目全部当根**，那是下一个杠杆。
+新的地板当时是 `mark_phase_minor` 的 ~25 ms（脏卡整卡当根，后来换成按属主的记忆集）。
 
 ### chunk 的三种归宿
 
@@ -411,88 +375,52 @@ bump chunk 的回收只**还给池子**，不 `dealloc`。池子超过阈值的�
 `z42c` 自举构建后段三个池合计 330 MB）。每次 sweep 尾（`ArcMagrGC::trim_chunk_pools`，STW）：
 池里**已提交**的字节超过 `max(64 MB, occupied / 4)` 的部分被 decommit；设了软上限时阈值再压到
 `cap − occupied`，让池子不把真实占用带过上限（软上限本身不计池子，见
-[GC 调参 · 真实占用记账](gc-tuning.md#真实占用记账与软上限)）。先变长区（整块 64 KB），再数组头。
-
-| | 定长 `Region<T>`（`region/decommit.rs`） | 变长 `VarRegion`（`var_region/chunk.rs`） |
-|---|---|---|
-| decommit 前 | **drop 每个已构造的死 entry**（连带它的 payload），构造位图清零，记 **generation 下限** | 什么都不用做：块全 tombstone，drop glue 已跑过，复用时从 offset 0 重新 bump、`reuse_gen` 已抬高 |
-| 交还哪些页 | 同一 slab 内**相邻已 decommit chunk 连成的 run** 里的整页 | chunk 内的整页（64 KB 无论落在哪，至少含 3 个 16 KB 页） |
-| 复用时 | `borrow_chunk` 弹到它 → `MADV_FREE_REUSE`（macOS）+ 记账；`fill` 把每槽 generation 起点设为下限 | 同左（无下限，`reuse_gen` 已是守卫） |
+[GC 调参 · 真实占用记账](gc-tuning.md#真实占用记账与软上限)）。交还的是 chunk 内的整页（64 KB 无论落在哪，至少含 3 个 16 KB 页）；
+decommit 前什么都不用做：块全 tombstone，drop glue 已跑过，复用时从 offset 0 重新 bump、`reuse_gen` 已抬高。
+`borrow_chunk` 弹到它时 `MADV_FREE_REUSE`（macOS）+ 记账。
 
 池是栈（`borrow_chunk` 从顶弹），decommit 从**底**取（最老的），`pool_decommitted` 记底部有几块是
 decommit 过的 —— 弹到它们之前先用完已提交的，少吃缺页。
 
-**为什么定长区要 slab**（`region/slab.rs`）：chunk 是 256 × 槽大小（数组头 16 384 B），
-槽大小随 `T` 变，一般不是 16 KB 页的整数倍。逐块 `Box` 落在分配器给的任意地址上，大多数 chunk 里**一个完整页都没有**，decommit 什么也还
-不回去。改成从页对齐的 slab（32 个 chunk、整页大小，unix 上 `mmap`）里按下标顺序切，chunk `ci`
-的地址可算，相邻的空 chunk 连成 run 就能把 run 里的页全还掉；一个页只要还碰到在用的 chunk 就不动它。
-
-⚠️ **为什么要 drop 并记下限，而不是只 madvise**：池化 chunk 的槽是**构造好的死 entry**，`fill` 靠读
-它的 tombstone generation 做 ABA 守卫（上文 D7）。decommit 过的页再读可能是全零 —— 既不是可 drop
-的 `RegionEntry`，generation 也归零，指向前一个占用者的陈旧句柄（`gen16` 比较）就可能对上新对象。
-所以先把死 entry drop 掉（payload 顺带释放）、构造位图清零让所有读者跳过，再记下这个 chunk
-所有槽到过的最大 generation：陈旧句柄的 generation 必然**小于**它那个槽的当前值（tombstone 会 +1），
-于是小于下限；复用时每个槽从下限起步，新旧不会相等。下限只增不减，chunk 再次入池、再被填满也一直有效。
-
-定长区的弱引用安全靠「chunk 永不 unmap」：decommit 的页仍映射着，读到的是全零或旧字节，`alive` 都是 false。
-变长区的弱引用（对象）不读池中 chunk：进池时 epoch 已变，见上「对象（R6）的大块同样会被释放」。
+弱引用不读池中 chunk：进池时 epoch 已变，见上「对象（R6）的大块同样会被释放」。
 
 平台：macOS / iOS 用 `MADV_FREE_REUSABLE`（复用前 `MADV_FREE_REUSE`）—— 这一对才会立即把页移出
 进程的 footprint，普通 `MADV_FREE` 在 Darwin 上不会（mimalloc 的 purge 也是这么做的）；Linux / Android
 用 `MADV_FREE`，内核不支持时退到 `MADV_DONTNEED`；Windows / wasm 不 decommit（`os_mem::CAN_DECOMMIT`）。
 每次 major 之后还会调一次 `mi_collect(false)`（mimalloc 为全局分配器时，µs 级），让 mimalloc 把缓存
-的空闲页还掉 —— 堆外的那部分（extras 盒子、元素类型名、被释放的大块 chunk）。
+的空闲页还掉 —— 堆外的那部分（extras 盒子、被释放的大块 chunk）。
 
 ## 侧表：位图与高水位
 
-槽本身之外，region 还要回答每个槽的三个问题 —— 构造过没有、是不是年轻、能不能复用 —— 以及每个
-chunk 的一个问题：里面有没有年轻的。这些答案全是**每 chunk 固定大小的位图**（`gc/side_bits.rs`），
-而不是按对象增长的表：占用与对象数无关，稀疏集合的遍历是「每 64 槽一次 load + 每个命中一次
-`trailing_zeros`」。
+块本身之外，region 还要回答两个问题 —— 一个块是不是年轻、一个 chunk 里有没有年轻的 —— 外加「哪些死槽能复用」。
+这些答案是**每 chunk 固定大小的位图**（`gc/side_bits.rs`）与按 size class 的 free list，而不是按对象增长的表：
+占用与对象数无关，稀疏集合的遍历是「每 64 位一次 load + 每个命中一次 `trailing_zeros`」。
 
-| | 定长 `Region<T>`（每 chunk 256 槽） | 变长 `VarRegion`（每 chunk 64 KB） |
-|---|---|---|
-| 构造过的槽 | `init_bits[ci]`：4 个字（32 B） | 不需要：`hwm[ci]`（4 B）以内全是连续的块 |
-| 年轻集合 | `young_bits[ci]`：4 个字 | `young_bits[ci]`：每 8 字节一位，bump chunk 128 个字（1 KB），dedicated chunk 按长度几个字；只在分代模式下分配 |
-| 空闲槽 | `free_bits[ci]`：4 个字 + `free_chunks`（有空闲槽的 chunk 下标） | 按 size class 的 free list（只为死槽存在，不随活对象增长） |
-| chunk 摘要 | `young_chunks`：每 chunk 一位 | `young_chunks` 每 chunk 一位 + `young_per_chunk` 计数 |
+| 问题 | 结构 |
+|---|---|
+| 切出过的块 | 不需要表：`hwm[ci]`（4 B）以内全是连续的块 |
+| 年轻集合 | `young_bits[ci]`：每 8 字节一位，bump chunk 128 个字（1 KB），dedicated chunk 按长度几个字；只在分代模式下分配 |
+| 空闲槽 | 按 size class 的 free list（只为死槽存在，不随活对象增长） |
+| chunk 摘要 | `young_chunks` 每 chunk 一位 + `young_per_chunk` 计数 |
 
-**变长区没有块索引。** 块在 chunk 里背靠背切出，复用的槽保持原 size class，所以 `[0, hwm)` 是一串
+**没有块索引。** 块在 chunk 里背靠背切出，复用的槽保持原 size class，所以 `[0, hwm)` 是一串
 「块头 + 该 class 的 footprint」：从 offset 0 起按块头 `size` 的 class footprint 跳（`payload_footprint`）就能走完整个
 chunk（`for_each_block_in`）。dedicated chunk 只有 offset 0 一个块。
 `hwm` 由 `bump`（每次切块后）、`alloc_dedicated`、`retire_chunk` 设置，chunk 入池 / 释放时归零 ——
 所以在借的 chunk（高水位未发布）、池里的 chunk（可能已 decommit、页读出来是零）永远不会被走到。
 
 **年轻集合是精确的。** alloc / retire 置位，晋升和 tombstone 清位（`O(1)`：块地址减 chunk 基址
-就是位号），所以集合里永远只有活着且年轻的条目；`young_count` 是精确值。minor 按摘要字找有年轻
-条目的 chunk、按字拷贝该 chunk 的位再逐位访问 —— 回调里可以随意摘位（sweep 正是边走边摘）。
-代价与年轻集合成比例：摘要一字覆盖 64 个 chunk，一个只剩一个年轻块的变长 chunk 多读 1 KB 位图。
-
-**`validate` 逐槽核对**（定长区）：年轻位 ⇒ 已构造、活着、年龄在线下；活着的年轻条目 ⇒ 年轻位；
-空闲位 ⇒ 已构造、已死；摘要位 ⇔ 该 chunk 有年轻位；`young_len` / `free_len` 等于位数。
-
-**字节账**（分代模式，1M 小对象 / 1M 短字符串常驻，峰值 RSS 增量除以 N）：
-
-| | 对象 | 字符串 |
-|---|---|---|
-| 每对象 / 块的表项 | 年轻表 8 B（`(u32, u16)`）+ 槽里的回指下标 4 B | 块表 8 B + 年轻表 8 B（都是指针） |
-| 改成位图后 | 每 chunk 96 B 位图（每槽 0.4 B）；槽头 72 → 64 B | 1 KB 年轻位图 / 64 KB chunk（每 32 B 块 0.5 B） |
-| 实测 | 98.2 → 80.9 B/对象 | 114.9 → 89.0 B/字符串 |
-
-槽头变小是位置字段压出来的：`RegionEntry` 的值之外原有 32 B 元数据（finalizer 指针 8 + generation 4
-+ 软引用计数 4 + 位置 `(u32, u16)` 8 + 三个字节标志 + 回指下标 4，补齐到 8 的倍数）；去掉回指下标、
-位置拆成 `u32` + `u8`（chunk 只有 256 槽）后正好 24 B，`RegionEntry<ScriptObject>` 72 → 64 B、
-`RegionEntry<ArrayObj>` 104 → 96 B。
-
-对象在 R6 离开了定长区（变长块，见 [gc.md](gc.md)「GC heap backing」）；定长区今天只装数组头（64 B 槽，chunk 恰好一个 16 KB 页）。
+就是位号），所以集合里永远只有活着且年轻的块（外加 hole stash 里还没填的槽，见「空洞复用」）；`young_count` 是精确值。
+minor 按摘要字找有年轻块的 chunk、按字拷贝该 chunk 的位再逐位访问 —— 回调里可以随意摘位（sweep 正是边走边摘）。
+代价与年轻集合成比例：摘要一字覆盖 64 个 chunk，一个只剩一个年轻块的 chunk 多读 1 KB 位图。
 
 ## ⚠️ 变长块复用的 ABA：per-chunk `reuse_gen`
 
-`GcRef`/`VarGcRef` 是**地址+16 位 generation 快照**的标记指针；身份靠地址，ABA 靠 generation 守。
+`ObjRef` / `ArrRef` / `VarGcRef` 是**地址+16 位 generation 快照**的标记指针；身份靠地址，ABA 靠 generation 守。
 
-- **定长 `Region<T>`**：槽定长、复用重对齐 → fill **逐槽保留** generation（读旧写新同 gen），
+- 同 size class 填回的空洞（free list / M12）原址复用 → **逐槽保留** generation（tombstone +1，复用再 +1），
   stale 句柄 gen 不匹配 → 安全。
-- **变长 `VarRegion`**：块变长、chunk 复用后新块**不重对齐**旧块边界 → 无法逐槽保留。改用
+- chunk 整块回收后重新 bump，新块**不重对齐**旧块边界 → 无法逐槽保留。改用
   **per-chunk `reuse_gen`**（奇数，块头 generation 是 16 位、最低位是存活位）：一个 epoch 里块的 generation 都落在
   `reuse_gen ..= reuse_gen + max_span`（按 2^16 取模，`max_span_per_chunk` 在 tombstone 时更新），回收时把 `reuse_gen[ci]`
   移到 `reuse_gen + max_span + 1`，fresh 再 bump 的块一律取此 gen → 不与本 epoch 铸出的 stale 句柄撞 `(addr, gen)`；
@@ -574,8 +502,6 @@ thread-local `TlabCell { armed: u32, tlab }`（`UnsafeCell`，owner 独占 + all
 
 ## Deferred / Future Work
 
-- **定长区（数组头）的空洞复用**（P1-7 A2）：`Region<ArrayObj>` 的 TLAB 仍只认领整块空 chunk，半活 chunk 的
-  死槽只有锁路径按 `free_bits` 复用。做法可照变长区：按槽的空闲位图成批认领。
 - **复用的局部性**：变长区的空洞按 size class 各自取，一起分配的不同 class 的块不相邻（见「空洞复用」的代价）。
   可以试按 chunk 成批认领（同一 chunk 的各 class 死槽一起进 stash）——需要一张每 chunk 的死槽位图，
   否则认领时要读该 chunk 的全部块头，实测比局部性省下的还多。

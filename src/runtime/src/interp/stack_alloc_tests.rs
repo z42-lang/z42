@@ -2,13 +2,13 @@
 //! stack-alloc). These exercise the arena's core logic — allocation, validated
 //! access, frame_id staleness diagnostics, and LIFO truncation — directly,
 //! without needing full z42 e2e (which is CI-gated behind the format bump).
-//! Arrays (`ArrayObj::typed`) suffice: the arena logic is element-type-agnostic.
+//! Arrays (`StackArray`) suffice: the arena logic is element-type-agnostic.
 
-use super::StackArena;
-use crate::metadata::types::{ArrayObj, Value};
+use super::{StackArena, StackArray};
+use crate::metadata::types::Value;
 
-fn arr(vals: &[i64]) -> ArrayObj {
-    ArrayObj::stack_typed(crate::metadata::types::ElemType::intern("Std.Int64"), vals.iter().map(|&n| Value::I64(n)).collect())
+fn arr(vals: &[i64]) -> StackArray {
+    StackArray::new(vals.iter().map(|&n| Value::I64(n)).collect())
 }
 
 #[test]
@@ -27,7 +27,7 @@ fn alloc_and_read_back() {
 fn mutate_through_arena() {
     let mut a = StackArena::default();
     let idx = a.alloc_arr(3, arr(&[1, 2, 3]));
-    a.with_arr_mut(idx, 3, |x| x.set_boxed_exclusive(0, Value::I64(99))).unwrap();
+    a.with_arr_mut(idx, 3, |x| x.set(0, Value::I64(99))).unwrap();
     let v = a.with_arr(idx, 3, |x| x.get_boxed(0)).unwrap();
     assert_eq!(v, Value::I64(99));
 }
@@ -113,7 +113,6 @@ fn reused_slot_rejects_old_handle() {
 #[test]
 fn scan_roots_visits_object_inlined_refs() {
     use std::sync::Arc;
-    use crate::gc::GcRef;
     use crate::metadata::types::{
         FieldAccess, ObjectLayout, ScriptObject, TypeDesc, TypeDescCold,
         STRUCT_LEAF_GCREF, TAG_OBJECT,

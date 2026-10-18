@@ -140,7 +140,7 @@ fn a_finalized_objects_slot_is_reused_only_after_its_finalizer_ran() {
     let successor = (0..64).map(|_| obj(&heap, "Victim")).find(|v| addr_of(v) == victim_addr)
         .expect("the finalized object's slot is reused");
     let Value::Object(s) = &successor else { unreachable!() };
-    assert!(heap.take_object_finalizer(s).is_none(), "the successor inherits no finalizer");
+    assert!(heap.take_block_finalizer(s.var_ref()).is_none(), "the successor inherits no finalizer");
     let _pin = heap.pin_root(successor.clone());
     heap.force_collect();
     assert_eq!(fired.load(std::sync::atomic::Ordering::SeqCst), 1, "fired once, for the dead object only");
@@ -236,4 +236,37 @@ fn a_collection_during_a_native_park_retires_the_parked_hole_stash() {
     census_is_exact(&heap);
     #[cfg(debug_assertions)]
     heap.debug_validate_invariants();
+}
+
+/// Object model R9: a dead array's slot is reused by a block of another kind (here a string of
+/// the same size class) — the array's descriptor word left in the dead header must not survive
+/// into the new occupant, and the reused array slot reads as the new array.
+#[test]
+fn an_array_hole_is_reused_by_another_kind_of_block() {
+    let heap = ArcMagrGC::new();
+    let _g = Armed::new(&heap);
+    // An untyped (MIXED) `[2]`: a 32 B payload, the same size class as a 32-byte string.
+    let mut pins = Vec::new();
+    let mut dead = HashSet::new();
+    for i in 0..scaled(2000) {
+        let v = heap.alloc_array(vec![Value::Null, Value::Null]);
+        let Value::Array(a) = &v else { panic!() };
+        if i % 2 == 0 { pins.push(heap.pin_root(v)); } else { dead.insert(a.var_ref().addr()); }
+    }
+    heap.force_collect();
+    let strs: Vec<_> = (0..dead.len()).map(|_| heap.alloc_str("0123456789abcdef0123456789abcdef")).collect();
+    let reused = strs.iter().filter(|s| dead.contains(&s.var_ref().addr())).count();
+    assert!(reused > 0, "the strings land in the dead arrays' slots");
+    assert!(strs.iter().all(|s| &**s == "0123456789abcdef0123456789abcdef"));
+    // And back: arrays into the strings' slots once those die.
+    drop(strs);
+    heap.force_collect();
+    let arrs: Vec<_> = (0..dead.len()).map(|_| heap.alloc_array(vec![Value::I64(7), Value::Null])).collect();
+    for a in &arrs {
+        let Value::Array(a) = a else { panic!() };
+        assert_eq!(a.borrow().get_boxed(0), Value::I64(7));
+    }
+    #[cfg(debug_assertions)]
+    heap.debug_validate_invariants();
+    drop(pins);
 }

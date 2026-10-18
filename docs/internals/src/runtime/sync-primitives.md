@@ -14,10 +14,10 @@ static 字段、各线程帧寄存器和几个 arena，**看不见这些容器**
 就会出问题：一个值一旦**只被原语持有**，下一次回收就会被收掉。单线程即可确定性复现——往 `Channel<Box>`
 发几个对象、分配一批垃圾、`GC.ForceCollect()`、再收回来：
 
-| 运行方式 | 结果 |
+| 读到的是 | 结果（release / debug 相同） |
 |---|---|
-| release（interp / JIT） | 字段读成 `null`，或者**读到另一个对象**（槽位已被复用） |
-| debug VM | `panic: GcRef::entry_ref: generation/alive mismatch — use-after-finalize` |
+| 对象 | `panic: ObjRef::borrow: generation mismatch — use-after-finalize` |
+| 数组 | `panic: ArrRef::borrow: generation mismatch — use-after-finalize` |
 
 这正是多线程代码里「本该有值处读到 `Null`」（`VCall: expected object, got Null`、`BrCond expects bool, got Null`）
 的一类成因：`z42.net` 的 `HttpServer.ServeWithPool` 经 `Channel<TcpClient>` 把连接交给工作线程，

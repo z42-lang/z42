@@ -17,7 +17,7 @@
 #![allow(unused_imports)]
 use super::*;
 use super::{ref_word, struct_blob, tparam_cell};
-use crate::gc::GcRef;
+use crate::gc::ArrRef;
 
 /// What [`ScriptObject::try_set_field_value`] wrote — what the caller's write barrier needs.
 #[derive(Debug, Clone, Copy)]
@@ -30,7 +30,7 @@ pub enum FieldWrite {
     /// A reference word (or a type-parameter cell's tag word) now holds this one-element box
     /// of the value that was passed in (a raw primitive reaching an `object` field through
     /// erased generics; a value of another kind than a type-parameter cell already holds).
-    Boxed(GcRef<ArrayObj>),
+    Boxed(ArrRef),
 }
 
 impl FieldWrite {

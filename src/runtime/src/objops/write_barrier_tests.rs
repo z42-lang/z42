@@ -11,9 +11,9 @@
 //!
 //! 修复前，第 3 步报出那个老对象、第 4 步年轻对象被扫掉（use-after-free 的前一步）。
 
-use crate::gc::region::PROMOTION_THRESHOLD;
+use crate::gc::PROMOTION_THRESHOLD;
 use crate::gc::types::RootHandle;
-use crate::gc::{GcMode, GcRef};
+use crate::gc::{GcMode, ArrRef};
 use crate::metadata::bytecode::{Module, CLASS_FLAG_STRUCT};
 use crate::metadata::types::{
     ArrayObj, ElemType, FieldSlot, NativeData, StructTypeLayout, TypeDesc, TypeDescCold,
@@ -48,7 +48,7 @@ fn class_td(name: &str, fields: &[(&str, &str)]) -> Arc<TypeDesc> {
 fn age(v: &Value) -> u8 {
     match v {
         Value::Object(gc) | Value::BoxedStruct(gc) => crate::gc::ObjRef::gen_age(gc),
-        Value::Array(gc) => GcRef::gen_age(gc),
+        Value::Array(gc) => ArrRef::gen_age(gc),
         other => panic!("not a carded heap value: {other:?}"),
     }
 }
@@ -166,8 +166,8 @@ fn struct_s() -> (Arc<TypeDesc>, Arc<StructTypeLayout>) {
 fn a_boxed_struct_copied_into_an_old_struct_array_keeps_its_young_leaf_alive() {
     let ctx = gen_ctx();
     let (s_td, layout) = struct_s();
-    let arr = ctx.heap().alloc_array_obj(
-        ArrayObj::struct_backed(ctx.heap(), ElemType::intern("Demo.S"), 1, layout));
+    let arr = 
+        ArrayObj::alloc_struct(ctx.heap(), ElemType::intern("Demo.S"), 1, layout);
     let Value::Object(box_gc) = ctx.heap().alloc_object(s_td, vec![], NativeData::None) else {
         panic!("box allocates")
     };

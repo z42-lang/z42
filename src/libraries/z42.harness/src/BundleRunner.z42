@@ -1,33 +1,17 @@
-// Shared test-bundle executor (wire-z42b-embedded-test, unify-test-pipeline ②b).
-//
-// A "test-bundle" is a set of cases assembled by the fleet orchestrator (xtask):
-//   golden — a whole program: run in a FRESH isolated VM (ModuleLoader.
-//            RunIsolated → per-case VmContext, no collision), then compare
-//            captured stdout to an `expected` sibling file.
-//   unit   — a [Test] module: run via Runner.RunModuleResults (shared VM — units
-//            are namespaced, collision-free by design).
-//
-// This is the ALGORITHM (isolate/compare goldens + run units + aggregate),
-// shared by both callers of a bundle:
-//   • the on-device test-agent (Z42.TestHost.Agent — embedded VM, every platform)
-//   • z42b test --rid host    (in-process host executor)
-// The manifest is JSON, but z42.harness stays JSON-free (TestReport hand-rolls JSON to
-// avoid a z42.json dependency); so callers parse manifest.json → BundleCase[] with
-// their own z42.json, and hand the parsed cases here. z42 has no jagged arrays →
-// result arrays grow manually.
 namespace Std.Harness;
 
 using Std.IO;
 
-// One bundle case. `Entry == null` marks a unit case; a non-null `Entry` (the
-// golden program's entry symbol) marks a golden. `Zbc` / `Expected` are file names
-// relative to the bundle dir. `Requires` = the capabilities the case declares
-// (`// requires-caps:` in its source, carried by the manifest); empty = none.
+/// 测试束里的一条。`Entry` 为 null 标记单元测试（`[Test]` 模块）；非 null（golden
+/// 程序的入口符号）标记整程序 golden。`Zbc` / `Expected` 是相对束目录的文件名；
+/// `Requires` 是该条声明的能力（源码 `// requires-caps:` 经 manifest 带来），空 = 无。
 public class BundleCase {
     public string Name;
     public string Zbc;
-    public string Entry;      // null → unit; non-null → golden entry symbol
-    public string Expected;   // golden: expected-output file name (may be null / "")
+    /// null → 单元测试；非 null → golden 的入口符号。
+    public string Entry;
+    /// golden 的期望输出文件名（可为 null / ""）。
+    public string Expected;
     public string[] Requires;
 
     public BundleCase(string name, string zbc, string entry, string expected) {
@@ -41,11 +25,22 @@ public class BundleCase {
     public bool IsGolden() { return this.Entry != null; }
 }
 
+/// 测试束执行器：golden（整程序，隔离 VM 里跑、比对 stdout）+ 单元（共享 VM 的
+/// `[Test]` 模块，经 [`Runner.RunModuleResults`]）+ 汇总。设备端 test-agent 与
+/// 宿主 `z42b test --rid host` 共用这套算法。
+///
+/// manifest 本身是 JSON，但本包零依赖：调用方用自己的 z42.json 把 manifest.json
+/// 解析成 `BundleCase[]` 再传进来。
 public static class BundleRunner {
-    // Run every case in `cases` and return the aggregated results (goldens first,
-    // then units — the order the agent has always produced). `bundleDir` holds the
-    // case zbc / expected files; `libsDir` is the stdlib dir for the isolated
-    // golden VMs ("" → Z42_LIBS, else <bundleDir>/../libs).
+    /// 跑 `cases` 里的每一条并返回汇总结果（golden 在前、单元在后，缺能力被跳过的
+    /// 条目排在末尾）。
+    ///
+    /// 能力门在加载之前：声明的能力本 VM 缺失的条目直接记 skipped、不加载（加载
+    /// 本身就可能 trap——没有 native interop 的 VM 上 `[Native]` 门面在解析器里 panic）。
+    ///
+    /// @param allCases 束内全部条目
+    /// @param bundleDir 存放 zbc / 期望输出文件的目录
+    /// @param libsDir 隔离 golden VM 的 stdlib 目录（"" → `Z42_LIBS`，否则 `<bundleDir>/../libs`）
     public static TestResult[] RunBundle(BundleCase[] allCases, string bundleDir, string libsDir) {
         // Capability gate FIRST, before anything is loaded: a case whose declared caps
         // this VM lacks is reported skipped and never loaded — loading alone can trap
@@ -141,7 +136,7 @@ public static class BundleRunner {
         return missing;
     }
 
-    // Exit code for a bundle result: 1 if any case failed, else 0.
+    /// 束结果的退出码：任一条 failed → 1，否则 0。
     public static int ExitCode(TestResult[] results) {
         int i = 0;
         while (i < results.Length) {

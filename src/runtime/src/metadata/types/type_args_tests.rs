@@ -1,4 +1,5 @@
 use super::*;
+use crate::metadata::Value;
 
 fn v(xs: &[&str]) -> Vec<String> {
     xs.iter().map(|s| s.to_string()).collect()
@@ -52,4 +53,55 @@ fn concurrent_interning_converges_on_one_entry() {
         .collect();
     let ptrs: Vec<usize> = hs.into_iter().map(|h| h.join().unwrap()).collect();
     assert!(ptrs.windows(2).all(|w| w[0] == w[1]));
+}
+
+/// M13: the interned entry precomputes each argument's packed kind (`ElemKind::of_type_param`),
+/// and `elem_kind` agrees with running the match on the name again.
+#[test]
+fn elem_kind_cache_matches_the_names() {
+    let ta = TypeArgs::intern(&v(&["int", "geometry.Point", "string", "long", "T"]));
+    assert_eq!(ta.elem_kind(0), ElemKind::I32);
+    assert_eq!(ta.elem_kind(1), ElemKind::Mixed); // user class → erased cells
+    assert_eq!(ta.elem_kind(2), ElemKind::Mixed); // reference argument stays MIXED (M13 scope)
+    assert_eq!(ta.elem_kind(3), ElemKind::I64);
+    assert_eq!(ta.elem_kind(4), ElemKind::Mixed); // the open parameter's own literal name
+    assert_eq!(ta.elem_kind(99), ElemKind::Mixed); // out of bounds
+    assert_eq!(TypeArgs::empty().elem_kind(0), ElemKind::Mixed);
+}
+
+/// M13's vocabulary invariant: every name `default_value_for` answers with a primitive zero
+/// selects a packed kind in `ElemKind::of_type_param`, and the kind's zero round-trips — the
+/// two tables (packing width, default value) must not drift apart.
+#[test]
+fn type_param_vocabularies_agree_with_default_value_for() {
+    for (name, zero, kind) in [
+        ("int", Value::I64(0), ElemKind::I32),
+        ("long", Value::I64(0), ElemKind::I64),
+        ("short", Value::I64(0), ElemKind::I32),
+        ("byte", Value::I64(0), ElemKind::Bytes),
+        ("sbyte", Value::I64(0), ElemKind::I32),
+        ("ushort", Value::I64(0), ElemKind::I32),
+        ("uint", Value::I64(0), ElemKind::I64),
+        ("ulong", Value::I64(0), ElemKind::I64),
+        ("isize", Value::I64(0), ElemKind::I64),
+        ("f32", Value::F64(0.0), ElemKind::F64),
+        ("double", Value::F64(0.0), ElemKind::F64),
+        ("bool", Value::Bool(false), ElemKind::Bool),
+        ("char", Value::Char('\0'), ElemKind::Chars),
+        ("Std.Int32", Value::I64(0), ElemKind::I32),
+        ("Std.UInt16", Value::I64(0), ElemKind::I32),
+        ("Std.UInt32", Value::I64(0), ElemKind::I64),
+        ("Std.Int64", Value::I64(0), ElemKind::I64),
+        ("Std.Single", Value::F64(0.0), ElemKind::F64),
+        ("Std.Boolean", Value::Bool(false), ElemKind::Bool),
+        ("Std.Char", Value::Char('\0'), ElemKind::Chars),
+    ] {
+        assert_eq!(ElemKind::of_type_param(name), kind, "packing kind for {name:?}");
+        assert_eq!(crate::metadata::types::default_value_for(name), zero, "zero for {name:?}");
+    }
+    // Everything else stays erased.
+    for name in ["", "T", "string", "object", "Std.String", "geometry.Point", "int[]"] {
+        assert_eq!(ElemKind::of_type_param(name), ElemKind::Mixed, "{name:?} must stay Mixed");
+        assert!(matches!(crate::metadata::types::default_value_for(name), Value::Null), "{name:?}");
+    }
 }

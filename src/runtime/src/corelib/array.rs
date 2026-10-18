@@ -14,8 +14,8 @@ use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
 
 /// Normalize any element-type spelling (short alias / VM tag / FQ wrapper) to the
-/// **short element tag** `ArrayObj::pack_backing` keys on. Reference types
-/// (`string`, user classes) pass through → a reference (`Boxed`) backing.
+/// **short element tag** the array modes key on (`ElemKind::of`). Reference types
+/// (`string`, user classes) pass through → a REF / MIXED array.
 fn elem_tag(name: &str) -> &str {
     match name {
         "sbyte" | "i8" | "Std.SByte" => "sbyte",
@@ -64,8 +64,8 @@ fn type_name_of(v: &Value) -> Option<String> {
 }
 
 /// `__array_create(elemType: Type, n: int) -> object` — allocate an `elemType[]` of
-/// length `n`, default-initialised. Primitive element types pack (int→I32 backing,
-/// etc.); reference types get a `Boxed` backing. The array carries its short element
+/// length `n`, default-initialised. Primitive element types pack (`int` → a PRIM array of
+/// 4 B elements, etc.); reference types get a REF / MIXED array. The array carries its short element
 /// tag so `GetType().GetElementType()` round-trips. add-json-serde.
 pub fn builtin_array_create(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     crate::corelib::expect_args("Array.CreateInstance", args, 2)?;
@@ -81,10 +81,10 @@ pub fn builtin_array_create(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let heap = ctx.heap();
     let et = crate::metadata::types::ElemType::intern(tag);
     // Same mode choice as `ArrayNew` (REF for a class / interface element type, …).
-    match crate::objops::array::elem_mode(ctx, et, false, n) {
-        crate::objops::array::ElemMode::Struct(a) => Ok(heap.alloc_array_obj(a)),
-        crate::objops::array::ElemMode::Kind(kind) => Ok(heap.alloc_array_obj(ArrayObj::filled(heap, et, kind, n, default))),
-    }
+    Ok(match crate::objops::array::elem_mode(ctx, et, false) {
+        crate::objops::array::ElemMode::Struct(layout) => ArrayObj::alloc_struct(heap, et, n, layout),
+        crate::objops::array::ElemMode::Kind(kind) => ArrayObj::alloc_filled(heap, et, kind, n, default),
+    })
 }
 
 /// `__array_get(arr: object, i: int) -> object` — read element `i` as an object.
@@ -105,7 +105,7 @@ pub fn builtin_array_get(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         if i >= a.len() {
             bail!("Array.GetValue: index {i} out of bounds (len {})", a.len());
         }
-        elem_tag(&a.element_type).to_string()
+        elem_tag(&a.element_type()).to_string()
     };
     // 值 struct 数组的元素装箱成快照（`get_boxed` 没有堆，装不了箱）。
     let raw = objops::array_bulk::elem_get_boxed(ctx, &rc, i).map_err(|e| raise_op(ctx, e))?;
@@ -177,7 +177,7 @@ pub fn builtin_array_set(ctx: &VmContext, args: &[Value]) -> Result<()> {
 /// type checks (`ArrayTypeMismatchException` / `InvalidCastException`), overlap, write
 /// barrier — live in `objops::array_bulk::copy_range`; this only parses the arguments.
 pub fn builtin_array_copy(ctx: &VmContext, args: &[Value]) -> Result<()> {
-    fn arr(v: Option<&Value>, what: &str) -> Result<crate::gc::GcRef<ArrayObj>> {
+    fn arr(v: Option<&Value>, what: &str) -> Result<crate::gc::ArrRef> {
         match v {
             Some(Value::Array(rc)) => Ok(rc.clone()),
             Some(Value::Null) => bail!("__array_copy: null {what} array reference"),
@@ -233,12 +233,9 @@ pub fn builtin_array_clone(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     }
     match &args[0] {
         Value::Array(rc) => {
-            // unify-gc-heap PR-3: value-semantic array copy — `deep_copy` allocates a
-            // fresh element block in the GC heap and clones the elements in (reference
-            // elements stay shared: cloning a `Value::Object`/`Array` clones the handle).
-            // Region-alloc the new header via the heap (not the leaking `GcRef::new`).
-            let copy = rc.borrow().deep_copy(ctx.heap());
-            Ok(ctx.heap().alloc_array_obj(copy))
+            // `deep_copy` allocates a fresh array block with the same bytes (reference
+            // elements stay shared: a copied reference word names the same referent).
+            Ok(rc.borrow().deep_copy(ctx.heap()))
         }
         Value::Null => bail!("__array_clone: null array reference"),
         other => bail!("__array_clone: expected an array, got {:?}", other),

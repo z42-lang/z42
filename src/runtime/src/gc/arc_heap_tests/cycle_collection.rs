@@ -175,12 +175,12 @@ fn collect_cycles_freed_bytes_observable() {
 fn region_prunes_dropped_objects_after_collect() {
     // **add-custom-allocator P1 (2026-05-22)**: heap_registry removed;
     // sweep tombstones unreachable entries in the region directly.
-    // GcRef::drop is no-op so the scope-exit alone doesn't prune —
+    // ArrRef::drop is no-op so the scope-exit alone doesn't prune —
     // we must force a collect.
     let heap = ArcMagrGC::new();
     {
         let _ephemeral = heap.alloc_array(vec![]);
-        // _ephemeral 出 scope；GcRef::drop is no-op. Entry stays alive
+        // _ephemeral 出 scope；ArrRef::drop is no-op. Entry stays alive
         // in region until sweep tombstones it.
     }
     heap.force_collect();
@@ -254,7 +254,7 @@ fn iterate_live_objects_dedupes_cycle() {
 /// `revive_snapshot` — the `on_revived` callback was wired only into the
 /// incremental major path (#701). So a field reachable ONLY through a
 /// soft-revived object stayed unmarked and `sweep_phase` reclaimed it out from
-/// under the still-live target → dangling `GcRef` (UAF in release,
+/// under the still-live target → dangling `ArrRef` (UAF in release,
 /// `generation/alive mismatch` panic in debug).
 ///
 /// `parent` is reachable only via the soft registry; `child` only via

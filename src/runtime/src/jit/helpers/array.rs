@@ -10,8 +10,8 @@ use crate::vm_context::VmContext;
 use super::{raise, vm_ctx_ref};
 
 /// `class_tp`: for `new T[n]` on a **class-level** type parameter, its index (else -1).
-/// The receiver (reg 0) carries the concrete type args, so a primitive `T` gets its zero
-/// per slot — resolved by the same `objops::array::class_type_param_zero` interp uses.
+/// The receiver (reg 0) carries the concrete type args, so a primitive `T` packs the array at
+/// its width — resolved by the same `objops::array::class_type_param_elem` interp uses (M13).
 /// (A method-level `T` has no JIT carrier → `unsupported_reason`.) The JIT never
 /// stack-allocates, so no frame id.
 #[unsafe(no_mangle)]
@@ -22,16 +22,17 @@ pub unsafe extern "C" fn jit_array_new(
     // non-erased array reflection, no name allocation.
     et: *const ElemTypeInfo,
     class_tp: i32,
-    // the instruction's `type_param_kind` (non-zero = element is a type parameter → MIXED).
+    // the instruction's `type_param_kind` (non-zero = element is a type parameter; a primitive
+    // argument packs, anything else stays MIXED).
     tp_kind: u8,
 ) -> u8 {
     let element_type = ElemType::from_raw(et);
     let len = (*frame).regs[size as usize];
-    let prim_zero = if class_tp >= 0 {
-        crate::objops::array::class_type_param_zero((*frame).regs.first(), class_tp as usize)
+    let tp_prim = if class_tp >= 0 {
+        crate::objops::array::class_type_param_elem((*frame).regs.first(), class_tp as usize)
     } else { None };
     let r = crate::objops::array::array_new(
-        vm_ctx_ref(ctx), &len, elem_tag, element_type, tp_kind != 0, prim_zero, None::<fn() -> u32>);
+        vm_ctx_ref(ctx), &len, elem_tag, element_type, tp_kind != 0, tp_prim, None::<fn() -> u32>);
     match r {
         Ok(arr) => { (*frame).regs[dst as usize] = arr; 0 }
         Err(e) => raise(ctx, e),

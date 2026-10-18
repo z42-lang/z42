@@ -1,5 +1,5 @@
 //! [`VarGcRef`] — the 8-byte, type-erased tagged handle to a variable-length GC block
-//! (path-A tagged pointer, same scheme as `GcRef` in `refs.rs`).
+//! (path-A tagged pointer, same scheme as `ArrRef` in `refs.rs`).
 
 use std::alloc::{alloc, handle_alloc_error, Layout};
 use std::ptr::NonNull;
@@ -20,7 +20,7 @@ pub(crate) const HANDLE_ADDR_MASK: u64 = ADDR_MASK as u64;
 
 /// An 8-byte, type-erased handle to a variable-length GC block. The low 48 bits are the
 /// [`GcBlockHeader`] address, the high 16 bits the block's generation (the header's whole
-/// 16-bit field — odd, the live value; path-A tagged pointer, same scheme as `GcRef` in
+/// 16-bit field — odd, the live value; path-A tagged pointer, same scheme as `ArrRef` in
 /// `refs.rs`). "Type-erased" because a `VarRegion`
 /// mixes payload kinds — the block's `type_tag` (not a static `T`) discriminates.
 ///
@@ -43,7 +43,7 @@ const _: () = assert!(std::mem::size_of::<VarGcRef>() == 8);
 const _: () = assert!(std::mem::size_of::<Option<VarGcRef>>() == 8);
 
 // SAFETY: the block memory is immutable-address + atomically ref-counted-by-GC and lives in
-// a `Mutex`-guarded region; a handle is safe to send/share exactly like `GcRef`.
+// a `Mutex`-guarded region; a handle is safe to send/share exactly like `ArrRef`.
 unsafe impl Send for VarGcRef {}
 unsafe impl Sync for VarGcRef {}
 
@@ -270,7 +270,7 @@ impl VarGcRef {
     }
 
     /// Serialize to raw bits for storing in an object's 8 B reference cell
-    /// (`metadata::types::ref_word`). Exposes provenance, like `GcRef::to_tagged_bits`.
+    /// (`metadata::types::ref_word`). Exposes provenance, like `ArrRef::to_tagged_bits`.
     /// Never zero, and the low 3 bits are always clear (the header is 8-aligned).
     #[cfg(target_pointer_width = "64")]
     #[inline]
@@ -367,7 +367,7 @@ impl VarGcRef {
     /// run under Miri's leak checker — the Miri gate is `gc::var_region`).
     /// Test-only: allocate a **standalone, leaked**, zero-initialized block of `payload`
     /// bytes (never in any `VarRegion`, never swept/freed). For unit tests that need an
-    /// array element block (`Boxed`/packed/`struct[]`) without wiring a heap. Callers write
+    /// array block without wiring a heap. Callers write
     /// the payload through `payload_as_ptr` before reading. Same intentional-leak contract as
     /// [`leak_for_test`](Self::leak_for_test) (never run under Miri's leak checker).
     /// Allocate a **standalone, leaked** block of `payload` zero-initialized bytes,

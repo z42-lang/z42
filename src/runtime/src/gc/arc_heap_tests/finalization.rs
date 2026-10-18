@@ -3,7 +3,7 @@ use super::*;
 // ── 7-1. Finalization (add-custom-allocator P1: sweep-time triggering) ──────
 //
 // **Behavioral contract change (2026-05-22)**: with the Arc backing
-// removed (P1), `GcRef::drop` is a no-op — finalizers no longer fire
+// removed (P1), `ArrRef::drop` is a no-op — finalizers no longer fire
 // at scope exit. The finalizer now fires only when sweep_phase tombstones
 // an unreachable entry, OR when the user calls `Std.GC.Finalize(x)`
 // (P2 builtin). Tests migrated from "drop fires" → "force_collect fires".
@@ -21,7 +21,7 @@ fn finalizer_fires_on_sweep_when_unreachable() {
         heap.register_finalizer(&v, Arc::new(move || {
             f.fetch_add(1, Ordering::SeqCst);
         }));
-        // v 出 scope，GcRef::drop is no-op now; entry still alive in region.
+        // v 出 scope，ArrRef::drop is no-op now; entry still alive in region.
     }
 
     // Trigger sweep — entry is unreachable (not pinned, no root) → tombstoned + finalizer fires.

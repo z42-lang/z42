@@ -203,8 +203,8 @@ pub(crate) fn prefetch_write(p: *const u8) {
 
 /// Re-initialize the tombstoned slot at `slot` for a new block, keeping the generation its
 /// tombstone bumped (the ABA guard — same discipline as the locked `reinit_slot`). Writes the
-/// size, a fresh `type_tag` (age 0, every flag clear: remembered / side / ASCII / meta) and an empty
-/// mark, zeroes the payload, and leaves the generation at its dead (even) value for the funnel to
+/// size, a fresh `type_tag` (age 0, every flag clear: remembered / side / ASCII / meta), an empty
+/// mark and a null kind word, zeroes the payload, and leaves the generation at its dead (even) value for the funnel to
 /// publish; the returned handle carries the next (odd) one.
 ///
 /// The new size is in the slot's own size class, so a heap walk on another thread reading it to
@@ -222,7 +222,11 @@ unsafe fn fill_hole(slot: NonNull<GcBlockHeader>, payload: usize, block_type: Bl
         let dead = h.generation.load(Ordering::Relaxed);
         debug_assert_eq!(dead & ALIVE_GEN_BIT, 0, "a stashed slot is dead");
         debug_assert_eq!(payload_class(h.size()), payload_class(payload), "a slot is only reused by its own size class");
-        debug_assert!((*p).kind_word().is_null(), "a dead slot owns no kind word");
+        // An object's kind word owns its type descriptor, which the drop glue released (and
+        // nulled); an array's is a plain `&'static` descriptor, left behind by the tombstone.
+        debug_assert!(h.block_type() != BlockType::Object || (*p).kind_word().is_null(),
+            "a dead object slot owns no type descriptor");
+        (*p).kind_word.store(std::ptr::null_mut(), Ordering::Relaxed);
         h.size.store(payload as u32, Ordering::Relaxed);
         h.marked.store(0, Ordering::Relaxed);
         h.type_tag.store(GcWord::pack_tag(block_type, 0), Ordering::Relaxed);

@@ -17,7 +17,7 @@
 
 **读代码前，先按这个顺序找资料**——README 是入口，书是细节，别从源码盲搜：
 
-1. **定位目录**：查下表，或根 [README](../../README.md#repository-layout) 的 Repository Layout。
+1. **定位目录**：查下表，或根 [README](../../README.md#repository-structure) 的 Repository Structure。
 2. **读目录 README（必须）**：「功能索引」找入口，「如何测试验证」拿验证命令，「关联文档」指向书里的深入页。
    读某目录的代码前必须先读它的 README（如果存在），再决定读哪些文件。
 3. **进书**：要理解机制、决策、在哪改 → internals 对应页（页头「代码」行回指源码）；
@@ -85,9 +85,6 @@
 
 ## 各 AI 工具的入口
 
-规范只在本目录维护；各工具的入口文件只做引用，外加该工具专属的用法（如跨会话记忆放哪）。
-
-| 工具 | 入口 | 说明 |
-|------|------|------|
-| Claude Code | [`.claude/CLAUDE.md`](../../.claude/CLAUDE.md) | 自动载入「每次会话先读」的四份；`.claude/skills/` 是任务清单的斜杠命令薄包装（清单本体在书里）；`.claude/settings.json` 是团队共享权限 |
-| 其他工具 | 本文件 | 在该工具的指令文件里指向 `docs/agent/README.md`，并让它先读上面四份 |
+规范只在本目录维护；根 [`AGENTS.md`](../../AGENTS.md) 是统一入口文件（跨工具标准，ZCode、Codex、Cursor 等
+原生读取，Claude Code 2.x 起同样支持），只做引用 + 提交流程速查。工具专属约定（如跨会话记忆放哪）写在
+AGENTS.md；规范本体一律回本目录改。

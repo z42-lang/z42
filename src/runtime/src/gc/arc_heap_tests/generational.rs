@@ -4,10 +4,10 @@
 //! GC dispatch.
 
 use super::*;
-use crate::gc::{GcMode, GcRef, MagrGC};
-use crate::gc::region::PROMOTION_THRESHOLD;
+use crate::gc::{GcMode, ArrRef, MagrGC};
+use crate::gc::PROMOTION_THRESHOLD;
 
-// Helpers to make Rust GcRef and Value::Object/Array allocations
+// Helpers to make Rust ArrRef and Value::Object/Array allocations
 // look idiomatic in test fixtures.
 
 fn alloc_obj(heap: &ArcMagrGC, name: &str) -> Value {
@@ -21,7 +21,7 @@ fn alloc_arr(heap: &ArcMagrGC, len: usize) -> Value {
 fn gen_age_of(v: &Value) -> u8 {
     match v {
         Value::Object(gc) => crate::gc::ObjRef::gen_age(gc),
-        Value::Array(gc)  => GcRef::gen_age(gc),
+        Value::Array(gc)  => ArrRef::gen_age(gc),
         _ => unreachable!("test helper expects heap ref"),
     }
 }
@@ -33,12 +33,8 @@ fn promote_to_old(v: &Value) {
     match v {
         // Object model R6: an object's age lives in its var block header.
         Value::Object(gc) => gc.var_ref().raise_gen_age_to(PROMOTION_THRESHOLD),
-        Value::Array(gc) => {
-            for _ in 0..PROMOTION_THRESHOLD {
-                let e = unsafe { gc.entry_ptr().as_ref() };
-                e.gen_age.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            }
-        }
+        // Object model R9: so does an array's.
+        Value::Array(gc) => gc.var_ref().raise_gen_age_to(PROMOTION_THRESHOLD),
         _ => unreachable!(),
     }
 }
@@ -180,29 +176,22 @@ fn barrier_no_op_in_stw_mode_even_under_cross_gen_setup() {
 }
 
 #[test]
-fn barrier_array_path_marks_card_on_cross_gen() {
+fn barrier_array_path_remembers_the_array_on_cross_gen() {
     let heap = ArcMagrGC::new();
     heap.set_mode(GcMode::GenerationalMarkSweep);
 
     let arr_old = alloc_arr(&heap, 4);
     let child_young = alloc_obj(&heap, "Child");
     promote_to_old(&arr_old);
-
-    let arr_chunk = match &arr_old {
-        Value::Array(gc) => {
-            let e = unsafe { gc.entry_ptr().as_ref() };
-            e.location().0
-        }
-        _ => unreachable!(),
-    };
+    assert!(!heap.is_remembered_for_test(&arr_old));
 
     heap.write_barrier_array_elem(&arr_old, 0, &child_young);
 
-    let dirty = {
-        let r = heap.region_array_for_test().lock();
-        r.is_card_dirty(arr_chunk)
-    };
-    assert!(dirty, "array path: cross-gen elem write marks arr's chunk");
+    // Object model R9: the array is a block — it joins the remembered set, exactly once.
+    assert!(heap.is_remembered_for_test(&arr_old), "array path: a cross-gen element write remembers the array");
+    let before = heap.remembered_len_for_test();
+    heap.write_barrier_array_elem(&arr_old, 1, &child_young);
+    assert_eq!(heap.remembered_len_for_test(), before, "a second write does not push it again");
 }
 
 // ── P1: parity check — existing STW behavior unchanged ──────────────────────
@@ -333,7 +322,7 @@ fn minor_gc_does_not_visit_old_entries_directly() {
     assert!(gen_age_of(&_old) >= PROMOTION_THRESHOLD);
 
     // Force young_list to exclude this entry (it would be there from alloc).
-    // Calling promote enough times via the GcRef API would do that, but
+    // Calling promote enough times via the ArrRef API would do that, but
     // promote_to_old just bumps gen_age without removing. We simulate
     // the promotion side-effect via an explicit minor.
     heap.force_collect();
@@ -602,55 +591,36 @@ fn collect_full_reclaims_an_unrooted_old_entry_in_one_call() {
 
 // ── fix-primitives-count-as-young (2026-09-11) ──────────────────────────────
 
-/// An array's element storage lives in `region_var` and is kept alive **only** by
-/// `mark_backing()` — a side effect of *tracing* the array. It is not one of the array's
-/// `Value` children, so no walk over those children can observe that it is young; and a minor
-/// only traces an old array when its card is dirty. **An old array with a young backing would
-/// therefore lose it.**
-///
-/// That held before purely by accident: `gen_age_of` answers 0 for `Value::Null` and every
-/// primitive, so `refers_to_young` was true for practically every entry that had one empty
-/// slot — the card table was permanently, entirely dirty and every old array got traced anyway.
-/// Making that predicate honest removed the cover, and the self-host byte fixpoint broke
-/// (gen1 ≠ gen2). No unit test caught it — hence this one.
-///
-/// The fix keeps the two ages in lockstep instead of paying a card: promoting the array header
-/// raises its backing to the same age, so the case cannot arise.
+/// Object model R9 — promotion's barrier for arrays: an array that becomes old while holding a
+/// young element (a parent filled before its child ages out) is remembered, exactly as a write
+/// would have made it; one that holds only primitives is not (it has no edge to record).
 #[test]
-fn promoting_an_array_ages_its_backing_with_it() {
+fn promoting_an_array_with_a_young_element_remembers_it() {
     use crate::vm_context::VmContext;
     let ctx = VmContext::new();
     ctx.heap().set_mode(GcMode::GenerationalMarkSweep);
     let heap = ctx.heap();
 
-    // Primitive elements ⇒ `gc_refs()` is empty ⇒ this array has **no** heap-ref children, so
-    // nothing but the lockstep rule can keep its backing alive once the header is old.
-    let arr = heap.alloc_array(vec![Value::I64(1), Value::I64(2), Value::I64(3)]);
-    let pin = heap.pin_root(arr.clone());
-    let Value::Array(gc) = &arr else { panic!("expected Array") };
+    let holder = heap.alloc_array(vec![Value::Null]);
+    let prims = heap.alloc_array(vec![Value::I64(1), Value::I64(2), Value::I64(3)]);
+    let (_p1, _p2) = (heap.pin_root(holder), heap.pin_root(prims));
+    let (Value::Array(h), Value::Array(p)) = (&holder, &prims) else { panic!("expected arrays") };
+    // One minor short of promotion; the child is allocated now, so it stays young past it.
+    h.var_ref().raise_gen_age_to(PROMOTION_THRESHOLD - 1);
+    p.var_ref().raise_gen_age_to(PROMOTION_THRESHOLD - 1);
+    let child = heap.alloc_array(vec![Value::I64(7)]);
+    h.borrow().set_boxed(0, child); // young owner → young child: no barrier record
 
-    // **Force the age divergence the test is about.** In production it comes from TLAB
-    // retirement timing: the header's array-region chunk and the backing's var-region chunk
-    // retire at different safepoints, so they miss different minors and drift apart. Here we
-    // age the *header* to one minor short of promotion and leave the backing at 0, so the very
-    // next sweep is the one that promotes the header.
-    for _ in 0..(PROMOTION_THRESHOLD - 1) {
-        // SAFETY: the test owns the heap; the entry stays valid.
-        unsafe { gc.entry_ptr().as_ref() }.gen_age.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    }
-    assert_eq!(gc.borrow().min_backing_gen_age_for_test(), 0,
-        "test setup: the backing is still young while the header is one minor from promotion");
+    heap.collect_cycles_with_context(&ctx); // the minor that promotes the two arrays
 
-    heap.collect_cycles_with_context(&ctx); // the minor that promotes the header
-
-    assert!(GcRef::gen_age(gc) >= PROMOTION_THRESHOLD, "test setup: the header must be old now");
-    let backing = gc.borrow().min_backing_gen_age_for_test();
-    assert!(backing >= PROMOTION_THRESHOLD,
-        "a promoted array's element-storage block must be promoted with it — otherwise the next \
-         minor never traces the array (its card is clean: a primitive array has no `Value` \
-         children at all), `mark_backing` never runs, and the backing is swept while the array \
-         is still live (got backing age {backing})");
-    let _ = pin;
+    assert!(ArrRef::gen_age(h) >= PROMOTION_THRESHOLD, "test setup: the holder must be old now");
+    assert!(ArrRef::gen_age(p) >= PROMOTION_THRESHOLD);
+    assert!(heap.is_remembered_for_test(&holder), "a newly-old array holding a young element is remembered");
+    assert!(!heap.is_remembered_for_test(&prims), "a primitive array has no edge to remember");
+    heap.collect_cycles_with_context(&ctx);
+    assert_eq!(h.borrow().get_boxed(0), child, "the child survives the next minor through the remembered set");
+    let Value::Array(c) = child else { panic!() };
+    assert_eq!(c.borrow().get_boxed(0), Value::I64(7));
 }
 
 /// The other half: primitives and empty slots must **not** count as young references, or the
@@ -1268,16 +1238,16 @@ fn major_rebuilds_cards_for_surviving_cross_gen_edges() {
 fn minor_reclaims_whole_dead_chunks() {
     let heap = ArcMagrGC::new();
     heap.set_mode(GcMode::GenerationalMarkSweep);
-    // Enough unrooted arrays to fill several chunks (256 entries each).
-    for _ in 0..2000 {
+    // Enough unrooted arrays to fill several 64 KB chunks.
+    for _ in 0..8000 {
         alloc_arr(&heap, 4);
     }
-    let before = heap.region_array_for_test().lock().chunks_count_for_test();
-    assert!(before > 4, "test setup: expected several array chunks, got {before}");
+    let before = heap.region_var_for_test().lock().chunk_count();
+    assert!(before > 4, "test setup: expected several chunks, got {before}");
 
     heap.force_collect(); // minor — nothing is rooted, so whole chunks die
 
-    let pool = heap.region_array_for_test().lock().free_chunk_pool_len_for_test();
+    let pool = heap.region_var_for_test().lock().free_chunk_pool_len();
     assert!(pool > 0, "a minor must return fully-dead chunks to the pool (pool={pool})");
 }
 

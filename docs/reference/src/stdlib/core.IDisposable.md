@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`
 
-`src/libraries/z42.core/src/Protocols/IDisposable.z42:7`
+[`src/libraries/z42.core/src/Protocols/IDisposable.z42:7`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Protocols/IDisposable.z42#L7)
 
 资源释放契约：持有非托管 / 外部资源的类型实现 Dispose() 做确定性释放。
 
@@ -17,9 +17,12 @@ public interface IDisposable {
 }
 ```
 
+成员：[`Dispose`](#Std.IDisposable.Dispose())
+
+<a id="Std.IDisposable.Dispose()"></a>
 ### void Dispose()
 
-`src/libraries/z42.core/src/Protocols/IDisposable.z42:9`
+[`src/libraries/z42.core/src/Protocols/IDisposable.z42:9`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Protocols/IDisposable.z42#L9)
 
 释放资源；调用后对象不再可用。
 

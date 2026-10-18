@@ -1,25 +1,12 @@
 namespace Std.Harness;
 
-
-// `Std.Harness.BenchStats` — structured form of a benchmark's summary line
-// (rebuild-bench-structured-output). The runner's json mode parses this out of a
-// benchmark's captured stdout and surfaces it as `TestResult.bench_stats`.
-//
-// This is the z42-native successor to the retired Rust
-// `test-runner/src/exec.rs::extract_bench_stats_from_stdout` — same contract, now
-// pure script. The one-line format is produced by `Bencher.printSummary`:
-//
-//   bench[<label>] min=<n>ns median=<n>ns max=<n>ns mean=<n>ns stddev=<n>ns samples=<n>
-//
-// `mean=`/`stddev=` (extend-ab-bench-micro-criterion) are OPTIONAL — a summary
-// line lacking them (older baselines) still parses, with MeanNs/StdDevNs = -1.
-// The A/B gate reads mean+stddev+n for SEM propagation; a -1 there degrades to a
-// bare-ratio verdict (no false regression).
-//
-// `parse` is deterministic (input strings, not timings) and hence directly
-// unit-testable (see `tests/bench_stats.z42`). Malformed input returns `null` —
-// never a sentinel; the caller treats null as "this benchmark has no stats"
-// rather than guessing missing fields.
+/// 基准摘要行（[`Bencher.printSummary`] 的输出）解析出的结构化数据，挂在
+/// `TestResult.bench_stats` 上。行格式：
+///
+///     bench[<label>] min=<n>ns median=<n>ns max=<n>ns mean=<n>ns stddev=<n>ns samples=<n>
+///
+/// `mean=` / `stddev=` 可缺：缺时 `MeanNs` / `StdDevNs` 为 -1（消费方退化为裸比值判定，
+/// 不会误报回归）。
 public class BenchStats {
     public string Label;
     public long MinNs;
@@ -40,11 +27,11 @@ public class BenchStats {
         this.Samples = samples;
     }
 
-    // Parse the last valid `bench[...]` line out of `text` (a benchmark's captured
-    // stdout, possibly multi-line). Returns null if no line parses. A single
-    // benchmark emits exactly one such line; scanning from the end is the most
-    // robust choice if stray output precedes it (mirrors the retired runner's
-    // "picks last" behaviour).
+    /// 从 `text`（一个基准的捕获 stdout，可能多行）里解析**最后**一条合法的
+    /// `bench[...]` 行；一条也解析不出来返回 null（调用方按「这个基准没有
+    /// 统计」处理，而不是猜字段）。
+    ///
+    /// @param text 基准的完整捕获输出；杂散输出在摘要行之前时取最后一条最稳
     public static BenchStats? parse(string text) {
         string[] lines = text.Split("\n");
         int i = lines.Length - 1;

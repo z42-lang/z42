@@ -140,11 +140,10 @@ fn sweep_reclaims_unmarked_keeps_marked() {
 
     let (reclaimed, credited) = r.sweep(MAJOR);
     assert_eq!(reclaimed, 2, "two unmarked blocks reclaimed");
-    // fix-var-sweep-accounting: only the Str block was charged to `used_bytes` at alloc
-    // (header + its true payload length); the ArrayPrim block's bytes were charged — and
-    // are credited — by the owning array header, so it contributes nothing here.
-    assert_eq!(credited, (GcBlockHeader::DATA_OFFSET + 16) as u64,
-        "credit the dead Str's real payload; array element blocks credit zero");
+    // fix-var-sweep-accounting: every block is credited exactly what its allocation charged —
+    // header + true payload length (object model R9: an array is one block, charged whole).
+    assert_eq!(credited, (2 * GcBlockHeader::DATA_OFFSET + 16 + 32) as u64,
+        "credit each dead block's header + real payload");
     assert_eq!(r.live_count(), 2);
     // Survivors resolve; reclaimed do not.
     assert!(r.resolve(keep).is_some());
@@ -155,8 +154,8 @@ fn sweep_reclaims_unmarked_keeps_marked() {
     // second sweep with no marks reclaims them.
     let (reclaimed2, credited2) = r.sweep(MarkKind::Major(2));
     assert_eq!(reclaimed2, 2);
-    assert_eq!(credited2, (GcBlockHeader::DATA_OFFSET + 16) as u64,
-        "the surviving Str, now dead, credits its own payload — not the ArrayPrim's");
+    assert_eq!(credited2, (2 * GcBlockHeader::DATA_OFFSET + 16 + 32) as u64,
+        "the survivors, now dead, credit their own header + payload");
     assert_eq!(r.live_count(), 0);
 }
 
@@ -460,7 +459,7 @@ fn recycled_slot_fits_any_payload_of_its_class() {
 // fix-minor-gc-skips-var-region: generation age, young list, minor sweep
 // ---------------------------------------------------------------------------------------
 
-use crate::gc::region::PROMOTION_THRESHOLD;
+use crate::gc::PROMOTION_THRESHOLD;
 
 const ALL_BLOCK_TYPES: [BlockType; 5] = [
     BlockType::Str,
@@ -1138,7 +1137,7 @@ fn age_updates_keep_the_object_flags() {
     // STW age writes rewrite the whole tag byte; the flags must survive them.
     h.mark(crate::gc::refs::MarkKind::Minor);
     r.sweep_young(None);
-    h.raise_gen_age_to(crate::gc::region::PROMOTION_THRESHOLD);
+    h.raise_gen_age_to(crate::gc::PROMOTION_THRESHOLD);
     assert!(h.is_remembered());
     assert_eq!(h.block_type(), BlockType::Object);
     h.clear_remembered();

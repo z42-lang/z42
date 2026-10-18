@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`
 
-`src/libraries/z42.core/src/Convert.z42:7`
+[`src/libraries/z42.core/src/Convert.z42:7`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Convert.z42#L7)
 
 字符串 ↔ 数值 / 布尔 / 字符等类型之间的转换。
 
@@ -29,81 +29,96 @@ public static class Convert {
 }
 ```
 
+成员：[`ToInt32`](#Std.Convert.ToInt32(string)) · [`ToInt64`](#Std.Convert.ToInt64(string)) · [`ToDouble`](#Std.Convert.ToDouble(string)) · [`ToString`](#Std.Convert.ToString(object)) · [`ToSByte`](#Std.Convert.ToSByte(string)) · [`ToByte`](#Std.Convert.ToByte(string)) · [`ToInt16`](#Std.Convert.ToInt16(string)) · [`ToUInt16`](#Std.Convert.ToUInt16(string)) · [`ToUInt32`](#Std.Convert.ToUInt32(string)) · [`ToUInt64`](#Std.Convert.ToUInt64(string)) · [`ToSingle`](#Std.Convert.ToSingle(string)) · [`ToBoolean`](#Std.Convert.ToBoolean(string)) · [`ToChar`](#Std.Convert.ToChar(string))
+
+<a id="Std.Convert.ToInt32(string)"></a>
 ### static extern int ToInt32(string s)
 
-`src/libraries/z42.core/src/Convert.z42:10`
+[`src/libraries/z42.core/src/Convert.z42:10`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Convert.z42#L10)
 
 解析为 `int`。
 
+<a id="Std.Convert.ToInt64(string)"></a>
 ### static extern long ToInt64(string s)
 
-`src/libraries/z42.core/src/Convert.z42:14`
+[`src/libraries/z42.core/src/Convert.z42:14`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Convert.z42#L14)
 
 解析为 `long`。
 
+<a id="Std.Convert.ToDouble(string)"></a>
 ### static extern double ToDouble(string s)
 
-`src/libraries/z42.core/src/Convert.z42:18`
+[`src/libraries/z42.core/src/Convert.z42:18`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Convert.z42#L18)
 
 解析为 `double`。
 
+<a id="Std.Convert.ToString(object)"></a>
 ### static extern string ToString(object value)
 
-`src/libraries/z42.core/src/Convert.z42:22`
+[`src/libraries/z42.core/src/Convert.z42:22`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Convert.z42#L22)
 
 任意值转字符串。
 
+<a id="Std.Convert.ToSByte(string)"></a>
 ### static sbyte ToSByte(string s)
 
-`src/libraries/z42.core/src/Convert.z42:28`
+[`src/libraries/z42.core/src/Convert.z42:28`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Convert.z42#L28)
 
 解析为 `sbyte`。
 
+<a id="Std.Convert.ToByte(string)"></a>
 ### static byte ToByte(string s)
 
-`src/libraries/z42.core/src/Convert.z42:30`
+[`src/libraries/z42.core/src/Convert.z42:30`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Convert.z42#L30)
 
 解析为 `byte`。
 
+<a id="Std.Convert.ToInt16(string)"></a>
 ### static short ToInt16(string s)
 
-`src/libraries/z42.core/src/Convert.z42:32`
+[`src/libraries/z42.core/src/Convert.z42:32`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Convert.z42#L32)
 
 解析为 `short`。
 
+<a id="Std.Convert.ToUInt16(string)"></a>
 ### static ushort ToUInt16(string s)
 
-`src/libraries/z42.core/src/Convert.z42:34`
+[`src/libraries/z42.core/src/Convert.z42:34`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Convert.z42#L34)
 
 解析为 `ushort`。
 
+<a id="Std.Convert.ToUInt32(string)"></a>
 ### static uint ToUInt32(string s)
 
-`src/libraries/z42.core/src/Convert.z42:36`
+[`src/libraries/z42.core/src/Convert.z42:36`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Convert.z42#L36)
 
 解析为 `uint`。
 
+<a id="Std.Convert.ToUInt64(string)"></a>
 ### static ulong ToUInt64(string s)
 
-`src/libraries/z42.core/src/Convert.z42:38`
+[`src/libraries/z42.core/src/Convert.z42:38`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Convert.z42#L38)
 
 解析为 `ulong`。
 
+<a id="Std.Convert.ToSingle(string)"></a>
 ### static float ToSingle(string s)
 
-`src/libraries/z42.core/src/Convert.z42:41`
+[`src/libraries/z42.core/src/Convert.z42:41`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Convert.z42#L41)
 
 解析为 `float`。
 
+<a id="Std.Convert.ToBoolean(string)"></a>
 ### static bool ToBoolean(string s)
 
-`src/libraries/z42.core/src/Convert.z42:43`
+[`src/libraries/z42.core/src/Convert.z42:43`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Convert.z42#L43)
 
 解析为 `bool`。
 
+<a id="Std.Convert.ToChar(string)"></a>
 ### static char ToChar(string s)
 
-`src/libraries/z42.core/src/Convert.z42:45`
+[`src/libraries/z42.core/src/Convert.z42:45`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Convert.z42#L45)
 
 解析为 `char`。
 

@@ -1,38 +1,30 @@
 //! **refactor (2026-09-12)**: the generational write barrier, split out of
 //! `generational.rs` (which had reached the 886-line limit).
 //!
-//! The barrier's whole job is the **card invariant**: every old→young reference the mutator
-//! creates must leave a dirty card (array owner) or a remembered object (object owner, object
-//! model R6) behind, because the minor mark phase re-roots from those and from nothing else that
-//! reaches into the old generation. A young *owner* needs
-//! no card — it is found by scanning the young generation — which is exactly the asymmetry
-//! that makes changing the definition of "old" a delicate operation (see
-//! `ArcMagrGC::apply_promotion_age`).
-//!
-//! Nothing changed in the move.
+//! The barrier's whole job is the **remembered-set invariant**: every old→young reference the
+//! mutator creates must leave its owner — an object or an array (object model R6 / R9) — in the
+//! remembered set, because the minor mark phase re-roots from it and from nothing else that
+//! reaches into the old generation. A young *owner* needs no record — it is found by scanning
+//! the young generation — which is exactly the asymmetry that makes changing the definition of
+//! "old" a delicate operation (see `ArcMagrGC::apply_promotion_age`).
 
 use crate::metadata::Value;
-use crate::gc::refs::GcRef;
+use crate::gc::ArrRef;
 use crate::gc::obj_ref::ObjRef;
 use crate::gc::heap::MagrGC;
 
 impl crate::gc::arc_heap::ArcMagrGC {
-    /// **add-generational-gc P1 (2026-05-22)**: cross-gen detection
-    /// helper for the write-barrier override. Marks the owner's chunk
-    /// dirty when `owner.gen_age >= PROMOTION_THRESHOLD` (old) AND
-    /// `new.gen_age < PROMOTION_THRESHOLD` (young).
-    ///
-    /// Same routine for both field + array_elem barriers — checks the
-    /// owner Value's kind to pick the right region's card bitmap.
-    /// Non-heap or stack-kind owners → no-op (no card to mark).
-    pub(super) fn maybe_mark_cross_gen_card(&self, owner: &Value, new: &Value) {
+    /// **add-generational-gc P1 (2026-05-22)**: cross-gen detection for the write-barrier
+    /// override. Remembers the owner when it is old (`gen_age >= promotion age`) AND `new` is
+    /// young. Same routine for field and array-element barriers; non-heap / stack owners → no-op.
+    pub(super) fn maybe_remember_owner(&self, owner: &Value, new: &Value) {
         let new_age = match new {
             Value::Object(gc) => ObjRef::gen_age(gc),
             // add-boxed-struct-identity (P4b): a boxed struct is a shared object — a young box
             // stored into an old owner MUST be recorded, else it is missed by minor GC and freed
             // prematurely.
             Value::BoxedStruct(gc) => ObjRef::gen_age(gc),
-            Value::Array(gc)  => GcRef::gen_age(gc),
+            Value::Array(gc)  => ArrRef::gen_age(gc),
             // fix-minor-gc-skips-var-region (#533) gave the closure block its own age, and
             // `gen_age_of` — the judge the minor mark phase actually uses — reads *that*.
             // This barrier was still reading the `env` array's age, so the two could disagree
@@ -53,33 +45,24 @@ impl crate::gc::arc_heap::ArcMagrGC {
             // handled via the transient-arena root scan.
             _ => return,
         };
-        // Only old→young triggers a card. Young→young is in-young
-        // scan already; old→old won't reach young.
+        // Only old→young is recorded. Young→young is in-young scan already; old→old won't reach
+        // young.
         if new_age >= self.promotion_age() {
             return;
         }
-        match owner {
-            // add-boxed-struct-identity (P4b): a boxed struct owner is an object too
-            // (reflection SetValue writes a ref leaf into its blob).
-            //
-            // Object model R6: objects live in the variable-length region, which has no card
-            // table — an old owner joins the remembered set instead (one header CAS, and a push
-            // only the first time; no region lock on this path). See `remembered.rs`.
-            Value::Object(gc) | Value::BoxedStruct(gc) => {
-                if ObjRef::gen_age(gc) < self.promotion_age() { return; }
-                self.remember_object(gc);
-            }
-            Value::Array(gc) => {
-                if GcRef::gen_age(gc) < self.promotion_age() { return; }
-                let entry_ptr = gc.entry_ptr();
-                let entry = unsafe { entry_ptr.as_ref() };
-                let (ci, ei) = entry.location();
-                if ci != u32::MAX {
-                    self.region_array.lock().mark_card_dirty(ci, ei);
-                }
-            }
-            _ => {} // non-heap owners — no card to mark
+        // The region has no card table: an old owner joins the remembered set (one header
+        // `fetch_or`, and a push only the first time; no region lock on this path). See
+        // `remembered.rs`. A boxed struct owner is an object too (reflection `SetValue` writes a
+        // ref leaf into its blob).
+        let owner_block = match owner {
+            Value::Object(gc) | Value::BoxedStruct(gc) => gc.var_ref(),
+            Value::Array(gc) => gc.var_ref(),
+            _ => return, // non-heap owners — nothing to remember
+        };
+        if owner_block.gen_age() < self.promotion_age() {
+            return;
         }
+        self.remember_block(owner_block);
     }
 
     #[allow(unused_variables)]
@@ -94,13 +77,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
                     new.is_heap_ref(),
                     "write_barrier_field caller must filter primitives via Value::is_heap_ref"
                 );
-                // **add-generational-gc P1 (2026-05-22)**: cross-gen
-                // detection. If owner is old (gen_age >= threshold)
-                // AND new is young (gen_age < threshold), the owner's
-                // chunk gets card-dirtied so the upcoming minor GC
-                // re-roots from that chunk (the young target would
-                // otherwise be missed).
-                self.maybe_mark_cross_gen_card(owner, new);
+                // **add-generational-gc P1 (2026-05-22)**: cross-gen detection. If the owner is old
+                // AND `new` is young, the owner is remembered so the upcoming minor re-roots from
+                // it (the young target would otherwise be missed).
+                self.maybe_remember_owner(owner, new);
             }
         }
     }
@@ -118,7 +98,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                     "write_barrier_array_elem caller must filter primitives via Value::is_heap_ref"
                 );
                 // add-generational-gc P1: same cross-gen check.
-                self.maybe_mark_cross_gen_card(arr, new);
+                self.maybe_remember_owner(arr, new);
             }
         }
     }

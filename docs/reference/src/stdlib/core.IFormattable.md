@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`
 
-`src/libraries/z42.core/src/Protocols/IFormattable.z42:11`
+[`src/libraries/z42.core/src/Protocols/IFormattable.z42:11`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Protocols/IFormattable.z42#L11)
 
 自定义格式化契约：用格式串生成字符串表示。
 
@@ -21,9 +21,12 @@ public interface IFormattable {
 }
 ```
 
+成员：[`ToString`](#Std.IFormattable.ToString(string))
+
+<a id="Std.IFormattable.ToString(string)"></a>
 ### string ToString(string format)
 
-`src/libraries/z42.core/src/Protocols/IFormattable.z42:13`
+[`src/libraries/z42.core/src/Protocols/IFormattable.z42:13`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Protocols/IFormattable.z42#L13)
 
 按 format 格式串返回字符串表示。
 

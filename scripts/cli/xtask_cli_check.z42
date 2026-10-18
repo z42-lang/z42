@@ -13,7 +13,7 @@ using Std.Cli;
 
 // 名字 → 说明。顺序即 `xtask check` 全跑的顺序（= GREEN gate 里的顺序）。
 string[] _checkNames() {
-    return new string[]{ "vscode-syntax", "lines", "walkers", "diagcodes", "stage2", "ci-shell", "proc-env", "layout", "versions", "docs-api" };
+    return new string[]{ "vscode-syntax", "lines", "walkers", "diagcodes", "stage2", "ci-shell", "proc-env", "layout", "versions", "docs-api", "doc-lints" };
 }
 
 string _checkDesc(string name) {
@@ -27,6 +27,7 @@ string _checkDesc(string name) {
     if (name == "layout")        { return "test layout spec: src/tests categories, capability vocabulary, artifacts mirror"; }
     if (name == "versions")      { return "versions.toml ↔ its projections (Cargo.toml / build.gradle.kts / Package.swift) agree"; }
     if (name == "docs-api")      { return "generated reference stdlib pages match the source doc comments (run `xtask doc gen` to regenerate)"; }
+    if (name == "doc-lints")     { return "stdlib doc comments stay within the W08xx ratchet baseline (run `xtask check doc-lints --update` after clearing findings)"; }
     return "";
 }
 
@@ -48,8 +49,8 @@ int _check(ParseResult r) {
             foreach (var n in _checkNames()) { ConsoleError.WriteLine("  " + _padRight(n, 15) + _checkDesc(n)); }
             return 2;
         }
-        if (update && name != "lines" && name != "diagcodes" && name != "stage2") {
-            ConsoleError.WriteLine("xtask check: --update only applies to lines / diagcodes / stage2");
+        if (update && name != "lines" && name != "diagcodes" && name != "stage2" && name != "doc-lints") {
+            ConsoleError.WriteLine("xtask check: --update only applies to lines / diagcodes / stage2 / doc-lints");
             return 2;
         }
         return _checkOne(name, update);
@@ -84,5 +85,6 @@ int _checkOne(string name, bool update) {
     if (name == "proc-env")      { return _testProcEnv(); }
     if (name == "versions")      { return _checkVersions(); }
     if (name == "docs-api")      { return _checkDocsApi(); }
+    if (name == "doc-lints")     { return _checkDocLints(update); }
     return _testLayout();
 }

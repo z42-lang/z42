@@ -3,7 +3,7 @@
 //! Every mutable cell on the heap — an object field, a struct leaf, an array element — is at most
 //! 8 B and is read and written with one same-width atomic access: primitives `Relaxed` at their
 //! natural width, reference words `Release` stores / `Acquire` loads. The view here is the
-//! only place those accesses are spelled out; an object's field area (`ScriptObject::cells`), array element blocks
+//! only place those accesses are spelled out; an object's field area (`ScriptObject::cells`), an array's elements
 //! and heap-resident struct blobs all go through them.
 //!
 //! [`Cells`] is the view: loads and stores alike take `&self` (object model R4 removed the

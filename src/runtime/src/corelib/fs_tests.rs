@@ -7,7 +7,7 @@ fn ctx() -> std::pin::Pin<Box<VmContext>> {
 
 /// Extract a `Value::Array` of `Value::Str` into `Vec<String>`.
 /// (Caller must bind the owning VmContext to a named local so the returned
-/// array's GcRef outlives this call — see fix-crypto-tests-ctx-lifetime.)
+/// array's ArrRef outlives this call — see fix-crypto-tests-ctx-lifetime.)
 fn extract_strings(v: Value) -> Vec<String> {
     match v {
         Value::Array(rc) => rc

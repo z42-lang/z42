@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`
 
-`src/libraries/z42.core/src/Protocols/IComparable.z42:8`
+[`src/libraries/z42.core/src/Protocols/IComparable.z42:8`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Protocols/IComparable.z42#L8)
 
 自比较接口：返回负 / 0 / 正，表示实现方与另一个同类值的大小关系（C# / Rust 惯例）。
 
@@ -18,9 +18,12 @@ public interface IComparable {
 }
 ```
 
+成员：[`CompareTo`](#Std.IComparable.CompareTo(Self))
+
+<a id="Std.IComparable.CompareTo(Self)"></a>
 ### int CompareTo(Self other)
 
-`src/libraries/z42.core/src/Protocols/IComparable.z42:10`
+[`src/libraries/z42.core/src/Protocols/IComparable.z42:10`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Protocols/IComparable.z42#L10)
 
 返回负 / 0 / 正，表示 this 小于 / 等于 / 大于 other。
 

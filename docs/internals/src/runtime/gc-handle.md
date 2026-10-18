@@ -53,10 +53,10 @@ struct HandleSlab {
 
 enum HandleEntry {
     StrongObject(ObjRef),
-    StrongArray (GcRef<ArrayObj>),
+    StrongArray (ArrRef),
     StrongAtomic(Value),              // I64 / F64 / Str / Bool / Char / FuncRef / …
     WeakObject  (WeakObjRef),         // 句柄 + 所在 chunk 的复用 epoch，由堆 upgrade
-    WeakArray   (WeakGcRef<ArrayObj>),
+    WeakArray   (WeakArrRef),         // 同上
 }
 ```
 
@@ -71,7 +71,7 @@ enum HandleEntry {
 
 | target | Strong | Weak |
 |---|---|---|
-| `Value::Object` / `Value::Array` | 存 `ObjRef` / `GcRef` 拷贝 | 存 `downgrade_object` / `GcRef::downgrade` |
+| `Value::Object` / `Value::Array` | 存 `ObjRef` / `ArrRef` 拷贝 | 存 `downgrade_object` / `downgrade_array` |
 | 原子值（int / string / bool / …） | 存 `Value` clone | **返回 slot 0**（原子值无法弱化） |
 | `Value::Null` | **返回 slot 0** | **返回 slot 0** |
 
@@ -83,7 +83,7 @@ enum HandleEntry {
 
 ## 3. 强句柄靠什么保活：它是 mark root
 
-**这是本页最容易写错的一条。** slab 里存一个 `ObjRef` / `GcRef` 本身**不**保活：它们是
+**这是本页最容易写错的一条。** slab 里存一个 `ObjRef` / `ArrRef` 本身**不**保活：它们是
 「地址 + generation」的 region 句柄，不是引用计数指针，clone 它不改变任何存活判定。强句柄
 之所以是强的，是因为 `HandleSlab::strong_targets()`（只吐 Strong 三种 variant，Weak 两种
 故意排除）被挂进了**每一条标记的根集**：

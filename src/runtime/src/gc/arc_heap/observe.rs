@@ -10,8 +10,7 @@ use std::sync::OnceLock;
 use std::time::Instant;
 use crate::metadata::{Value};
 #[cfg(test)]
-use crate::gc::refs::GcRef;
-use crate::gc::region::RegionEntry;
+use crate::gc::ArrRef;
 use crate::gc::types::{GcEvent, HeapSnapshot, HeapStats, SnapshotCoverage};
 
 impl crate::gc::arc_heap::ArcMagrGC {
@@ -92,7 +91,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     pub(super) fn fire_barrier_array_elem(&self, arr: &Value, idx: usize, new: &Value) {
         if let Some(obs) = self.barrier_observer.lock().as_ref() {
             let arr_addr = match arr {
-                Value::Array(rc) => GcRef::as_ptr(rc) as *const () as usize,
+                Value::Array(rc) => ArrRef::as_ptr(rc) as *const () as usize,
                 _ => 0,
             };
             obs.push(BarrierEvent::ArrayElem {
@@ -123,25 +122,17 @@ impl crate::gc::arc_heap::ArcMagrGC {
         snapshot
     }
 
-    /// Alive entries (arrays, and objects through their side table) that still carry a finalizer — the same set
-    /// `snapshot_live_from_registry` would hand out, counted in place. An entry an incremental
-    /// sweep has already judged dead is not counted (as `admit_resurrected` would refuse it);
-    /// nothing escapes, so unlike that gate there is nothing to shade.
+    /// Alive objects and arrays that still carry a finalizer (side table) — the same set
+    /// `snapshot_live_from_registry` would hand out, counted in place. A block an incremental
+    /// sweep has already judged dead is not counted (as `admit_resurrected` would refuse it).
     fn count_alive_with_finalizer(&self) -> u64 {
         self.retire_thread_tlab();
-        let doomed = self.doomed_unless_marked();
-        fn counts<T>(e: &RegionEntry<T>, doomed: Option<crate::gc::refs::MarkKind>) -> bool {
-            e.has_finalizer() && doomed.map_or(true, |k| e.is_marked(k))
-        }
-        let mut n = self.count_object_finalizers();
-        self.region_array.lock().iterate_alive(|_, e| n += counts(e, doomed) as u64);
-        n
+        self.count_object_finalizers()
     }
 
     pub(super) fn stats(&self) -> HeapStats {
-        // finalizers_pending 没有集中计数器（finalizer 挂在 entry 上，Drop 时 take），
-        // 准确值要扫一遍 region —— 但只数数，不把活对象收进 Vec（那样观测本身就要
-        // 多付 16–32 B/对象的峰值内存）。
+        // finalizers_pending：侧表里的 finalizer 只有一部分属于还活着的块，准确值要扫一遍 region ——
+        // 但只数数，不把活对象收进 Vec（那样观测本身就要多付 16–32 B/对象的峰值内存）。
         let pending = self.count_alive_with_finalizer();
 
         let mut s = self.inner.lock().stats.clone();

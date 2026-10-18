@@ -13,7 +13,7 @@
 
 use std::cmp::Ordering;
 
-use super::{ArrayBacking, ArrayObj, FieldWrite, Value};
+use super::{ArrayMode, ArrayObj, FieldWrite, Value};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum PrimKind { Int, Double, Char, Str }
@@ -50,7 +50,10 @@ impl ArrayObj {
     /// MIXED array had fixed another primitive kind — the permutation itself only moves
     /// references the array already held).
     pub fn sort_prims_prefix(&self, n: usize) -> Option<Vec<Value>> {
-        if !matches!(self.backing, ArrayBacking::Refs { .. } | ArrayBacking::Cells { .. }) || n > self.len() {
+        // Packed primitive backings sort through the same element cells (M13: a `T[]` whose
+        // argument resolved to a primitive packs; `get_boxed` widens, `set_boxed` narrows).
+        let m = self.mode();
+        if !(matches!(m, ArrayMode::Ref | ArrayMode::Mixed) || m.is_prim()) || n > self.len() {
             return None;
         }
         let mut elems: Vec<Value> = (0..n).map(|i| self.get_boxed(i)).collect();

@@ -1,355 +1,490 @@
-//! ArrayObj / ArrayBacking + 构造与 backing 分配。元素读写在 `array_elems`，视图 / GC / 拷贝在
-//! `array_access`。
+//! ArrayObj / ArrayDesc + construction. Element reads and writes are in `array_elems`, views /
+//! GC / copies in `array_access`.
 //!
-//! 数组元素按分配时的元素类型分模式（object model R3）——堆上每个可变单元 ≤ 8 B、同宽原子读写：
+//! An array is **one** block of the GC's variable-length region (object model R9), laid out like
+//! an object: the 16 B block header — GC word, then the kind word, which holds the array's
+//! [`ArrayDesc`] — and the elements right after it. No separate header object, no second block.
 //!
-//! | 模式 | backing | 元素 | 读 / 写 |
+//! ```text
+//!   GcWord (8 B) │ &ArrayDesc (8 B) │ elements …                       (every mode but STRUCT)
+//!   GcWord (8 B) │ &ArrayDesc (8 B) │ layout word (8 B) │ elements …   (STRUCT)
+//!   └─ block header (16 B) ────────┘ └─ payload: GcWord::size bytes ─┘
+//! ```
+//!
+//! The descriptor is interned per element type and mode (`ElemType::array_desc`, process
+//! lifetime): the element type (non-erased reflection — `arr.GetType().GetElementType()`), the
+//! mode and MIXED's zero kind. The descriptor is 128-aligned and the kind word carries the mode and
+//! the zero kind in its low bits, so element access, the length and the JIT's data queries read
+//! only the array's own header. The length is not stored: it is the payload length divided by the
+//! element width (a power of two the mode gives). A value-struct array's element layout is per array (two load contexts can give
+//! one name two layouts), so it is the one mode with a word of its own: a counted
+//! `Arc<StructTypeLayout>` at the start of the payload, released by the heap's drop glue.
+//!
+//! Elements are stored per mode, chosen at allocation (object model R3) — every mutable cell on
+//! the heap ≤ 8 B, read and written with one same-width atomic access:
+//!
+//! | mode | block type | element | read / write |
 //! |---|---|---|---|
-//! | PRIM | `Bool` / `Bytes` / `I32` / `I64` / `Chars` / `F64` | 打包基元，原宽度 | 同宽 relaxed 原子 |
-//! | REF | `Refs` | 8 B 自描述引用字（`ref_word`） | acquire 读 / release 写，标记期 swap 给 SATB |
-//! | MIXED | `Cells` | 16 B 型参单元（`tparam_cell`：标签字 + 负载字） | 型参单元协议，无锁 |
-//! | STRUCT | `StructBytes` | 值 struct blob，引用叶子是引用字（`struct_blob`） | 叶子各按其单元 |
-//! | FROZEN | `Frozen` | 16 B `Value`，发布前写一次、之后只读 | 普通读 |
-//! | 栈数组 | `StackVec` | 帧 arena 里的 `Value`（GC 根） | — |
+//! | PRIM (`bool` / `byte` / `int` / `long` / `char` / `double`) | `ArrayPrim` | packed primitive, natural width | same-width relaxed atomics |
+//! | REF | `ArrayRef` | 8 B self-describing reference word (`ref_word`) | acquire / release, swap for SATB while marking |
+//! | MIXED | `ArrayCell` | 16 B type-parameter cell (`tparam_cell`: tag word + payload word) | the cell protocol, lock-free |
+//! | STRUCT | `ArrayStruct` | value-struct blob, reference leaves are reference words (`struct_blob`) | each leaf by its cell |
+//! | FROZEN | `ArrayValue` | 16 B `Value`, written once before publication, read-only afterwards | plain reads |
+//!
+//! Arrays are fixed-length: nothing resizes a block in place (`List<T>` grows by allocating a new
+//! backing array and copying). An escape-analysis stack array is not an `ArrayObj` at all — it is
+//! a `Vec<Value>` in the frame arena (`interp::stack_alloc::StackArray`).
 
 #![allow(unused_imports)]
 use super::*;
+use std::ptr::NonNull;
 use std::sync::Arc;
 use crate::metadata::vstr::Str;
-use crate::gc::GcRef;
-use crate::gc::var_region::{BlockType, VarGcRef};
+use crate::gc::ArrRef;
+use crate::gc::var_region::{BlockType, GcBlockHeader, GcWord, VarGcRef};
 use crate::gc::heap::MagrGC;
 
-/// The heap payload behind `Value::Array`: the element type (non-erased reflection —
-/// `arr.GetType().GetElementType()`) and the element storage. The storage is a fixed-size,
-/// non-moving block in the GC variable-length heap (`region_var`), uniquely owned by this header
-/// (the CLR / JVM single-heap model).
-///
-/// `ArrayObj` is intentionally **not `Clone`** (a shallow clone would alias the backing block) —
-/// use [`ArrayObj::deep_copy`] for a heap-aware independent copy.
-#[derive(Debug)]
-pub struct ArrayObj {
-    /// Element type FQ name (e.g. "int" / "geometry.Point"). Empty = unknown (Rust-synthesized
-    /// arrays like reflection result sets). An interned 8 B handle ([`ElemType`]).
-    pub element_type: ElemType,
-    /// Element storage; the variant is the array's mode (see the module docs).
-    pub backing: ArrayBacking,
+/// An array's storage mode (see the module docs). The packed primitive modes carry their
+/// element kind; MIXED's zero kind lives in the descriptor ([`ArrayDesc::zero`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
+pub enum ArrayMode { Bool, Bytes, I32, I64, Chars, F64, Ref, Mixed, Frozen, Struct }
+
+impl ArrayMode {
+    /// The mode an [`ElemKind`] selects (MIXED for `Mixed`).
+    #[inline]
+    pub fn of_kind(kind: ElemKind) -> Self {
+        match kind {
+            ElemKind::Bool => Self::Bool,
+            ElemKind::Bytes => Self::Bytes,
+            ElemKind::I32 => Self::I32,
+            ElemKind::I64 => Self::I64,
+            ElemKind::Chars => Self::Chars,
+            ElemKind::F64 => Self::F64,
+            ElemKind::Ref => Self::Ref,
+            ElemKind::Mixed => Self::Mixed,
+        }
+    }
+
+    /// Whether this is a packed primitive mode.
+    #[inline(always)]
+    pub fn is_prim(self) -> bool {
+        (self as u8) <= (Self::F64 as u8)
+    }
+
+    /// `log2` of the element width (every mode but STRUCT, whose width is the layout's size).
+    #[inline(always)]
+    pub const fn shift(self) -> u8 {
+        match self {
+            Self::Bool | Self::Bytes | Self::Struct => 0,
+            Self::I32 | Self::Chars => 2,
+            Self::I64 | Self::F64 | Self::Ref => 3,
+            Self::Mixed | Self::Frozen => 4,
+        }
+    }
+
+    /// The mode from the low bits of an array's kind word ([`ArrayDesc::kind_word`]).
+    #[inline(always)]
+    fn from_bits(b: usize) -> Self {
+        match b & 15 {
+            0 => Self::Bool, 1 => Self::Bytes, 2 => Self::I32, 3 => Self::I64, 4 => Self::Chars,
+            5 => Self::F64, 6 => Self::Ref, 7 => Self::Mixed, 8 => Self::Frozen, _ => Self::Struct,
+        }
+    }
 }
 
-/// Array element storage — one GC variable-length block per array (none for a stack array).
+/// Bits of an array's kind word below the descriptor's alignment: the mode (low 4 bits) and the
+/// MIXED zero kind (next 3), so the hot paths read an array's shape from its own header without a
+/// dependent load of the descriptor.
+const KIND_TAG_MASK: usize = 127;
+
+/// What an array's kind word points at: element type, mode and MIXED zero kind. Interned per
+/// element type and mode (`ElemType::array_desc`), never freed — the block header holds a plain
+/// `&'static` (no reference count on the allocation path), tagged with the mode and the zero kind
+/// in the low bits the 128 B alignment leaves free ([`Self::kind_word`]).
 #[derive(Debug)]
-pub enum ArrayBacking {
-    /// REF: `len` 8 B reference words (`BlockType::ArrayRef`) — `string[]`, `object[]`, class /
-    /// interface / delegate / array element types. A value that does not fit 8 B (a raw
-    /// primitive reaching `object[]` through erased generics) is boxed (`ref_word` kind 7).
-    Refs  { block: VarGcRef, len: usize },
-    /// MIXED: `len` 16 B type-parameter cells (`BlockType::ArrayCell`) — erased `T[]` and arrays
-    /// whose element type is unknown. Element `i`'s tag word is at `16 i`, its payload word at
-    /// `16 i + 8`; the cell protocol (`tparam_cell`) keeps a read from ever tearing. `zero` is the
-    /// primitive kind a never-written cell (tag word `0`) reads as — the zero of `T` when `T` was a
-    /// primitive at allocation (`new T[n]` with `T = int`), `0` = `null` — so the default fill
-    /// writes nothing and unused capacity (a `List<int>`'s tail) is never touched.
-    Cells { block: VarGcRef, len: usize, zero: u8 },
-    /// FROZEN: `len` raw 16 B `Value`s (`BlockType::ArrayValue`), written **once** before the
-    /// array is published and only read afterwards: closure environments and the one-element
-    /// boxes behind `ref_word` kind 7 (which may hold a stack handle no cell can encode).
-    Frozen { block: VarGcRef, len: usize },
-    Bool  { block: VarGcRef, len: usize },
-    Bytes { block: VarGcRef, len: usize },  // byte / sbyte（窄整型并入；box 语义按 element_type）
-    I32   { block: VarGcRef, len: usize },  // int / uint / short / ushort
-    I64   { block: VarGcRef, len: usize },  // long / ulong
-    Chars { block: VarGcRef, len: usize },  // char（scalar，与 String.ToCharArray 对齐）
-    F64   { block: VarGcRef, len: usize },  // double / float
-    /// STRUCT: a value-struct array `Point[]` — the C# inline `struct[]` model. `len` blobs of
-    /// `layout.size` bytes back-to-back in one `BlockType::ArrayStruct` block; each element is
-    /// exactly the standalone blob layout, its reference leaves 8 B reference words
-    /// (`struct_blob`). Element access goes through a `Value::StructRefHeap` handle.
-    StructBytes {
-        len: usize,
-        block: VarGcRef,
-        layout: std::sync::Arc<StructTypeLayout>,
-    },
-    /// An escape-analysis **stack array**: `Value`s in an arena-owned `Vec` (not the GC heap),
-    /// scanned directly as GC roots by the stack-arena root scanner. Only
-    /// [`ArrayObj::stack_typed`] produces this.
-    StackVec(Vec<Value>),
+#[repr(C, align(128))]
+pub struct ArrayDesc {
+    pub mode: ArrayMode,
+    /// MIXED: the primitive kind a never-written cell (tag word `0`) reads as — the zero of `T`
+    /// when `T` was a primitive at allocation (`new T[n]` with `T = int`), `0` = `null` — so the
+    /// default fill writes nothing and unused capacity (a `List<int>`'s tail) is never touched.
+    /// `0` in every other mode.
+    pub zero: u8,
+    pub elem_type: ElemType,
 }
 
 /// Byte stride of a REF element.
 pub const REF_STRIDE: usize = 8;
 /// Byte stride of a MIXED element (tag word + payload word).
 pub const CELL_STRIDE: usize = 16;
+/// STRUCT: the layout word ahead of the elements.
+pub(super) const STRUCT_HEAD: usize = 8;
+/// Padding after the descriptor word so the payload starts at the block's `DATA_OFFSET` on every
+/// target (4 bytes on 32-bit ones, none on 64-bit).
+const DESC_WORD_PAD: usize = 16 - std::mem::size_of::<GcWord>() - std::mem::size_of::<usize>();
 
-/// 一个 `Value` 与它要写进的**基元 backing** 类型不符时的信号（make-silent-fallbacks-signal）。
+const _: () = assert!(std::mem::size_of::<Value>() == 16);
+
+impl ArrayDesc {
+    /// Slots per element type (`ElemTypeInfo::descs`): one per mode, MIXED once per zero kind.
+    pub(super) const SLOTS: usize = 16;
+
+    /// The cache slot of `(mode, zero)`.
+    #[inline(always)]
+    pub(super) fn slot(mode: ArrayMode, zero: u8) -> usize {
+        match mode {
+            ArrayMode::Mixed if zero != 0 => {
+                debug_assert!((zero as usize) < Self::SLOTS - 10, "MIXED zero kind {zero} out of range");
+                10 + (zero as usize).min(Self::SLOTS - 11)
+            }
+            m => m as usize,
+        }
+    }
+
+    pub(super) fn new(elem_type: ElemType, mode: ArrayMode, zero: u8) -> Self {
+        debug_assert!(zero < 8, "MIXED zero kind {zero} does not fit the kind word's tag");
+        Self { mode, zero: if mode == ArrayMode::Mixed { zero & 7 } else { 0 }, elem_type }
+    }
+
+    /// The value an array's header kind word holds: this descriptor's address tagged with the
+    /// mode (bits 0–3) and the zero kind (bits 4–6).
+    #[inline]
+    fn kind_word(&'static self) -> *const ArrayDesc {
+        let tag = self.mode as usize | (self.zero as usize) << 4;
+        (self as *const ArrayDesc).map_addr(|a| a | tag)
+    }
+
+    /// The block type an array of this descriptor is allocated as (what the tracer dispatches on).
+    #[inline]
+    pub fn block_type(&self) -> BlockType {
+        match self.mode {
+            ArrayMode::Ref => BlockType::ArrayRef,
+            ArrayMode::Mixed => BlockType::ArrayCell,
+            ArrayMode::Frozen => BlockType::ArrayValue,
+            ArrayMode::Struct => BlockType::ArrayStruct,
+            _ => BlockType::ArrayPrim,
+        }
+    }
+
+    /// Element width in bytes (not for STRUCT).
+    #[inline(always)]
+    pub fn width(&self) -> usize {
+        1 << self.mode.shift()
+    }
+
+    /// Payload bytes of a `len`-element array (`layout`: STRUCT only) — `None` past the block
+    /// size limit (`u32` payload length), which the allocator reports as out of memory.
+    pub fn payload_bytes(&self, len: usize, layout: Option<&StructTypeLayout>) -> Option<usize> {
+        let bytes = match (self.mode, layout) {
+            (ArrayMode::Struct, Some(l)) => len.checked_mul(l.size)?.checked_add(STRUCT_HEAD)?,
+            (ArrayMode::Struct, None) => return None,
+            _ => len.checked_mul(self.width())?,
+        };
+        (bytes <= u32::MAX as usize).then_some(bytes)
+    }
+}
+
+/// The heap payload behind `Value::Array` — **one** 16 B header and the elements, as one
+/// dynamically sized value laid over the array's whole block (see the module docs).
 ///
-/// 此前 `set_boxed` 与 `pack_backing` 的每个「类型不符」回落都是**静默存 0**
-/// （`0` / `'\0'` / `false` / `0.0`），debug 与 release 都不响 —— 而 `set_boxed` 同一个
-/// `match` 里的两个 `StructBytes` 臂**是带 `debug_assert!(false)` 的**。
+/// `&ArrayObj` is a fat reference whose metadata is the payload length, so every element access
+/// stays inside the reference's own range (Stacked Borrows: the retag spans `size_of_val`). It is
+/// built only from a pointer carrying the whole block's provenance ([`ArrayObj::from_block`]:
+/// `ArrRef::borrow`, the allocator, the drop glue). `ArrayObj` is never owned by value.
+#[repr(C)]
+pub struct ArrayObj {
+    /// The block's GC word (owned by the region).
+    gc: GcWord,
+    /// The block header's kind word: the interned descriptor, tagged with the mode and the zero
+    /// kind ([`ArrayDesc::kind_word`]); written before the array is published, never changed.
+    kind: *const ArrayDesc,
+    _pad: [std::mem::MaybeUninit<u8>; DESC_WORD_PAD],
+    /// The payload: STRUCT's layout word, then the elements. `UnsafeCell` because elements are
+    /// written through `&self` (atomic cell stores).
+    pub(super) payload: [std::cell::UnsafeCell<u8>],
+}
+
+const _: () = assert!(std::mem::offset_of!(ArrayObj, kind) == crate::gc::var_region::KIND_WORD_OFFSET);
+const _: () = assert!(std::mem::align_of::<ArrayDesc>() > KIND_TAG_MASK);
+
+// SAFETY: the header's fields are `Send + Sync` (atomics, a `&'static` descriptor); elements are
+// only ever accessed through atomic cell views (`Cells`), except FROZEN ones, which are written
+// once before the array is published and only read afterwards. STRUCT's layout word is written
+// before publication too, and what it owns (`StructTypeLayout`) is `Send + Sync`.
+unsafe impl Send for ArrayObj {}
+unsafe impl Sync for ArrayObj {}
+
+impl std::fmt::Debug for ArrayObj {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ArrayObj")
+            .field("element_type", &self.desc().elem_type)
+            .field("mode", &self.mode())
+            .field("len", &self.len())
+            .finish()
+    }
+}
+
+impl ArrayObj {
+    /// The array over the block at `header` whose payload is `payload_size` bytes, as a fat raw
+    /// pointer whose metadata is the payload length.
+    ///
+    /// # Safety
+    /// `header` carries the provenance of the whole block, whose capacity covers `size_of_val` of
+    /// the result (every size class / detached block does). The descriptor word is installed
+    /// before anything reads through the pointer.
+    #[inline(always)]
+    pub(crate) unsafe fn from_block(header: NonNull<u8>, payload_size: usize) -> *mut ArrayObj {
+        std::ptr::slice_from_raw_parts_mut(header.as_ptr(), payload_size) as *mut ArrayObj
+    }
+
+    /// Install `desc` (and, for STRUCT, the counted `layout`) into the fresh, unpublished block at
+    /// `header` and return the array over it.
+    ///
+    /// # Safety
+    /// `header` heads a zeroed block (whole-block provenance) of exactly `payload` bytes nothing
+    /// else can reach yet, whose kind word is null; `payload` is `desc.payload_bytes(len, layout)`.
+    pub(crate) unsafe fn install<'a>(
+        header: NonNull<u8>, payload: usize, desc: &'static ArrayDesc, layout: Option<Arc<StructTypeLayout>>,
+    ) -> &'a ArrayObj {
+        // SAFETY: per the contract; place projections on the raw pointer — no reference to the
+        // header is formed while it is being written.
+        unsafe {
+            let p = Self::from_block(header, payload);
+            std::ptr::addr_of_mut!((*p).kind).write(desc.kind_word());
+            if let Some(l) = layout {
+                debug_assert_eq!(desc.mode, ArrayMode::Struct);
+                Self::layout_word(p).write(Arc::into_raw(l));
+            }
+            &*p
+        }
+    }
+
+    /// STRUCT's layout word (the payload's first word).
+    #[inline(always)]
+    fn layout_word(p: *mut ArrayObj) -> *mut *const StructTypeLayout {
+        // SAFETY: a STRUCT payload starts with the 8-aligned layout word, in range of `p`.
+        unsafe { std::cell::UnsafeCell::raw_get(std::ptr::addr_of!((*p).payload).cast::<std::cell::UnsafeCell<u8>>()).cast() }
+    }
+
+    /// Release what a STRUCT array owns — its layout — so the heap's drop glue can run once per
+    /// dead block. No-op for a layout word never written (an allocation refunded early).
+    ///
+    /// # Safety
+    /// `p` is a STRUCT array over its whole block, destroyed exactly once; nothing reads it after.
+    pub(crate) unsafe fn destroy_struct(p: *mut ArrayObj) {
+        // SAFETY: per the contract.
+        unsafe {
+            let w = Self::layout_word(p);
+            let l = w.read();
+            if !l.is_null() {
+                drop(Arc::from_raw(l));
+                w.write(std::ptr::null());
+            }
+        }
+    }
+
+    /// The array's descriptor.
+    #[inline(always)]
+    pub fn desc(&self) -> &'static ArrayDesc {
+        // SAFETY: the kind word is a tagged `&'static ArrayDesc` (see `install`); untagging keeps
+        // the pointer's provenance.
+        unsafe { &*self.kind.map_addr(|a| a & !KIND_TAG_MASK) }
+    }
+
+    /// The array's mode — from the header's kind word, no descriptor load.
+    #[inline(always)]
+    pub fn mode(&self) -> ArrayMode {
+        ArrayMode::from_bits(self.kind.addr())
+    }
+
+    /// MIXED: the primitive kind a never-written cell reads as (`0` = `null`); `0` otherwise.
+    #[inline(always)]
+    pub fn zero(&self) -> u8 {
+        ((self.kind.addr() >> 4) & 7) as u8
+    }
+
+    /// Element width in bytes (not for STRUCT).
+    #[inline(always)]
+    pub fn width(&self) -> usize {
+        1 << self.mode().shift()
+    }
+
+    /// Element type FQ name (e.g. "int" / "geometry.Point"); empty = unknown (Rust-synthesized
+    /// arrays like reflection result sets, closure environments).
+    #[inline(always)]
+    pub fn element_type(&self) -> ElemType {
+        self.desc().elem_type
+    }
+
+    /// STRUCT: the element layout (borrowed — it lives as long as the array). `None` otherwise.
+    #[inline]
+    pub fn struct_layout_ref(&self) -> Option<&StructTypeLayout> {
+        if self.mode() != ArrayMode::Struct {
+            return None;
+        }
+        // SAFETY: a STRUCT array's layout word was installed before publication and stays until
+        // the block dies (the reference cannot outlive the array).
+        let l = unsafe { Self::layout_word(self as *const Self as *mut Self).read() };
+        // SAFETY: a non-null layout word is a live `Arc` the array owns.
+        (!l.is_null()).then(|| unsafe { &*l })
+    }
+
+    /// The `struct[]` element layout as a counted `Arc` (`None` for any other mode).
+    #[inline]
+    pub fn struct_layout(&self) -> Option<Arc<StructTypeLayout>> {
+        let l = self.struct_layout_ref()?;
+        // SAFETY: `l` came from `Arc::into_raw` and the array holds that count while we bump it.
+        unsafe {
+            Arc::increment_strong_count(l as *const StructTypeLayout);
+            Some(Arc::from_raw(l as *const StructTypeLayout))
+        }
+    }
+
+    /// Byte offset of element 0 within the payload.
+    #[inline(always)]
+    fn elems_off(&self) -> usize {
+        if self.mode() == ArrayMode::Struct { STRUCT_HEAD } else { 0 }
+    }
+
+    #[inline(always)]
+    pub fn len(&self) -> usize {
+        let bytes = self.payload.len();
+        let mode = self.mode();
+        if mode == ArrayMode::Struct {
+            return match self.struct_layout_ref() {
+                Some(l) if l.size != 0 => (bytes - STRUCT_HEAD) / l.size,
+                _ => 0,
+            };
+        }
+        bytes >> mode.shift()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool { self.len() == 0 }
+
+    /// Bytes of element storage (`len × element width`).
+    #[inline]
+    pub fn elem_storage_bytes(&self) -> usize {
+        self.payload.len() - self.elems_off()
+    }
+
+    /// Element 0's address (whole-block provenance — derived from `self`'s own range).
+    #[inline(always)]
+    pub(super) fn elems_ptr(&self) -> *mut u8 {
+        // SAFETY: `elems_off() <= payload.len()`, in range of `&self`.
+        unsafe { std::cell::UnsafeCell::raw_get(self.payload.as_ptr()).add(self.elems_off()) }
+    }
+
+    /// Atomic loads and stores over the element area.
+    #[inline(always)]
+    pub(super) fn cells(&self) -> Cells<'_> {
+        // SAFETY: the element area is in range of `&self`, 8-aligned (the payload starts at the
+        // block's 8-aligned `DATA_OFFSET`, STRUCT's layout word is 8 B), interior-mutable, and
+        // every concurrent access to it is an atomic cell access.
+        unsafe { Cells::from_raw(self.elems_ptr(), self.elem_storage_bytes()) }
+    }
+
+    /// FROZEN: the elements as `Value`s (written once before publication, read-only after).
+    #[inline]
+    pub(super) fn frozen_values(&self) -> &[Value] {
+        debug_assert_eq!(self.mode(), ArrayMode::Frozen);
+        // SAFETY: a FROZEN payload is `len` initialized `Value`s, 8-aligned, in range of `&self`,
+        // never written after publication.
+        unsafe { std::slice::from_raw_parts(self.elems_ptr() as *const Value, self.payload.len() / 16) }
+    }
+
+    /// Element `i`'s address in a FROZEN array under construction.
+    #[inline]
+    fn frozen_slot(&self, i: usize) -> *mut Value {
+        debug_assert!(i < self.len());
+        // SAFETY: in range (`i < len`).
+        unsafe { (self.elems_ptr() as *mut Value).add(i) }
+    }
+}
+
+/// 一个 `Value` 与它要写进的**基元数组**类型不符时的信号（make-silent-fallbacks-signal）。
 ///
-/// 为什么这比同族的「读不到就给 `Null`」更坏：`Null` 至少是个可疑值，会在下游某处炸出来；
-/// `0` 是程序**完全无法与合法写入区分**的答案 —— 一个 `int[]` 里的 `0` 既可能是用户写的，
-/// 也可能是这里吞掉的一次类型错误。
-///
-/// 取 `debug_assert!` 而不是 `bail!`，判据同 `__box_prim` 收到 `Null` 那条：
+/// 「类型不符」回落存 0：`0` 是程序**完全无法与合法写入区分**的答案 —— 一个 `int[]` 里的 `0`
+/// 既可能是用户写的，也可能是这里吞掉的一次类型错误。取 `debug_assert!` 而不是 `bail!`：
 /// - golden 语料默认跑 debug VM ⇒ **CI 本身就是探测器**；
 /// - 「类型不符」是编译器该在 `ArraySet` / `ArrayNewLit` 站点转换/拆箱掉的事，**不是用户的错**，
-///   所以 release 放行、保持今天的行为（不拿用户崩溃换诊断能力）；
-/// - 若若干版本一直不响，再按 `gc/refs.rs` 那条先例考虑提升为无条件 `assert!`。
+///   所以 release 放行（不拿用户崩溃换诊断能力）。
 ///
-/// ⚠️ **2026-09-27（fix-silent-array-elem-zero）划清了适用范围**：上面第二条
-/// 「不是用户的错」**只对 IR 站点（`ArraySet` / `ArrayNewLit`）成立** —— 那里编译器确实该先
-/// 转换。它**不适用于无类型 API**：`Std.Array.SetValue(Object value, int index)` 的形参声明
-/// 就是 `Object`、`Array.CopyRange` 的两侧元素类型可不同，**没有任何编译器站点能转换它们**，
-/// 值是用户给的。实测那两条路在 release 下静默把 `int[0]` 从 9 变成 **0**（连
-/// `double[] <- 整数` 这种在 C# 合法的写法也一样），故它们已改走
+/// ⚠️ 这只对 IR 站点（`ArraySet` / `ArrayNewLit`）成立。**无类型 API**（`Std.Array.SetValue(Object,
+/// int)`、跨元素类型的 `Array.CopyRange`）的值是用户给的、没有编译器站点能转换，它们改走
 /// [`ArrayObj::try_set_boxed`] / 前置逐元素校验，**两个 profile 都报错**。
-/// ⇒ 本函数现在只服务 IR 那一类调用方。
 #[inline]
 pub(super) fn prim_value_mismatch(val: &Value, backing: &str, site: &str) {
     debug_assert!(false,
-        "array {site}: {backing} backing got a non-matching Value ({val:?}) — stored a zero. \
+        "array {site}: {backing} array got a non-matching Value ({val:?}) — stored a zero. \
          A silent zero is indistinguishable from a legitimate write.\n\
          → From an IR `ArraySet` / `ArrayNewLit`: the COMPILER should have converted/unboxed at \
-         that site — that is the bug to fix (this is what the debug-only policy below is for).\n\
+         that site — that is the bug to fix.\n\
          → From an UNTYPED API (`Std.Array.SetValue(Object, int)`, or `Array.CopyRange` across \
-         element types): the value came from user code and NO compiler site could have converted \
-         it. Those two paths validate up front and raise instead (`try_set_boxed`, change \
-         fix-silent-array-elem-zero) — reaching here from them means a validation path was \
-         bypassed, so add the check there rather than relaxing this assert.");
+         element types): those paths validate up front and raise instead (`try_set_boxed`) — \
+         reaching here from them means a validation path was bypassed.");
 }
 
+// ── 构造：在数组自己的块里建好再发布 ──
 impl ArrayObj {
-    // ── block payload accessors ───────────────────────────────────────────────
-    // SAFETY (shared): the block is alive while the caller holds the `ArrayObj`; it stores exactly
-    // `len` `T`s (8-aligned payload, `align_of::<T>() <= 8`). The returned slice's lifetime is tied
-    // to the borrow, and the block outlives the header. A plain slice: only for memory nobody
-    // writes after publication — FROZEN blocks (written once before the array is published).
+    /// The one allocation path: a `len`-element array of `desc` (`layout`: STRUCT only), zeroed —
+    /// every mode's default — then `init` on the unpublished array. `Value::Null` when the heap
+    /// refuses (strict OOM, or a payload past the block size limit).
     #[inline]
-    pub(super) unsafe fn slice_of<T>(block: &VarGcRef, len: usize) -> &[T] {
-        Self::debug_block_bounds::<T>(block, len, "slice_of");
-        // SAFETY: see method contract; payload derived from the raw header ptr (D8).
-        unsafe { std::slice::from_raw_parts(block.payload_as_ptr::<T>(), len) }
-    }
-
-    /// Verify a `len`-element `T` view fits inside the backing block (alive +
-    /// `len*size_of::<T>() <= payload_size`) — a clear panic instead of a raw SIGSEGV.
-    #[inline]
-    pub(super) fn debug_block_bounds<T>(block: &VarGcRef, len: usize, ctx: &str) {
-        debug_assert!(block.is_live(),
-            "{ctx}<{}> on a stale/tombstoned block (len={len})", std::any::type_name::<T>());
-        debug_assert!(
-            len.checked_mul(std::mem::size_of::<T>()).is_some_and(|need| need <= block.payload_size()),
-            "{ctx}<{}> OOB — len={len} elems > block payload {}", std::any::type_name::<T>(), block.payload_size());
-    }
-
-    // SAFETY (exclusive): additionally the block is **fresh** — allocated by the caller and not yet
-    // reachable from any published array — so this `&mut [T]` uniquely aliases the payload.
-    // Construction only: a published array is shared without a lock (object model R4).
-    #[inline]
-    #[allow(clippy::mut_from_ref)]
-    pub(super) unsafe fn slice_of_mut<T>(block: &VarGcRef, len: usize) -> &mut [T] {
-        Self::debug_block_bounds::<T>(block, len, "slice_of_mut");
-        // SAFETY: see method contract.
-        unsafe { std::slice::from_raw_parts_mut(block.payload_as_ptr::<T>(), len) }
-    }
-
-    /// Atomic loads and stores over `bytes` bytes of a backing block.
-    #[inline(always)]
-    pub(super) fn cells_of(block: &VarGcRef, bytes: usize) -> Cells<'_> {
-        Self::debug_block_bounds::<u8>(block, bytes, "cells_of");
-        // SAFETY: a live, 8-aligned block payload of at least `bytes` bytes, owned by the array
-        // the caller borrows; every concurrent access is an atomic cell access.
-        unsafe { Cells::from_raw(block.payload_as_ptr::<u8>(), bytes) }
-    }
-
-    /// Allocate a FROZEN block and move `elems` into it.
-    fn alloc_frozen(heap: &dyn MagrGC, elems: Vec<Value>) -> (VarGcRef, usize) {
-        let len = elems.len();
-        let block = heap.alloc_var_block(len * std::mem::size_of::<Value>(), BlockType::ArrayValue);
-        // SAFETY: fresh block sized for `len` Values; `write` moves each value in without dropping.
-        let base = unsafe { block.payload_as_ptr::<Value>() };
-        for (i, v) in elems.into_iter().enumerate() {
-            unsafe { base.add(i).write(v); }
-        }
-        (block, len)
-    }
-
-    /// Allocate a packed POD block (`BlockType::ArrayPrim`) and copy `data` into it.
-    pub(super) fn alloc_packed<T: Copy>(heap: &dyn MagrGC, data: &[T]) -> VarGcRef {
-        let block = heap.alloc_var_block(std::mem::size_of_val(data), BlockType::ArrayPrim);
-        if !data.is_empty() {
-            // SAFETY: block payload sized `size_of_val(data)`, 8-aligned ≥ align_of::<T>();
-            // src/dst are distinct, non-overlapping regions of `data.len()` `T`s.
-            unsafe { std::ptr::copy_nonoverlapping(data.as_ptr(), block.payload_as_ptr::<T>(), data.len()); }
-        }
-        block
-    }
-
-    /// Allocate a block of `bytes` bytes of `bt` and copy the first `bytes` of `src`'s payload
-    /// into it (deep copy of a block-backed array). The source is read with atomic chunked loads
-    /// ([`Cells::copy_out`]) — another thread may be writing it; the fresh block is written plainly
-    /// (nothing can see it yet).
-    pub(super) fn alloc_block_copy(heap: &dyn MagrGC, src: &VarGcRef, bytes: usize, bt: BlockType) -> VarGcRef {
-        let block = heap.alloc_var_block(bytes, bt);
-        if bytes > 0 {
-            // SAFETY: a fresh block of `bytes` bytes, reachable from nothing yet.
-            let dst = unsafe { Self::slice_of_mut::<u8>(&block, bytes) };
-            Self::cells_of(src, bytes).copy_out(0, dst);
-        }
-        block
+    fn alloc(
+        heap: &dyn MagrGC, desc: &'static ArrayDesc, len: usize, layout: Option<Arc<StructTypeLayout>>,
+        init: &mut dyn FnMut(&ArrayObj),
+    ) -> Value {
+        heap.alloc_array_with(desc, len, layout, init)
     }
 
     /// An untyped MIXED array (element type unknown) — Rust-synthesized arrays.
-    #[inline]
-    pub fn new(heap: &dyn MagrGC, elems: Vec<Value>) -> Self {
+    pub fn alloc_untyped(heap: &dyn MagrGC, elems: Vec<Value>) -> Value {
         let len = elems.len();
-        Self { element_type: ElemType::empty(), backing: Self::pack_backing_iter(heap, ElemKind::Mixed, len, elems.into_iter()) }
+        Self::alloc_from_iter(heap, ElemType::empty(), ElemKind::Mixed, len, elems.into_iter())
     }
 
     /// A FROZEN array: `elems` written once, read-only afterwards (closure environments, the
-    /// `ref_word` kind-7 value box).
-    #[inline]
-    pub fn frozen(heap: &dyn MagrGC, elems: Vec<Value>) -> Self {
-        let (block, len) = Self::alloc_frozen(heap, elems);
-        Self { element_type: ElemType::empty(), backing: ArrayBacking::Frozen { block, len } }
-    }
-
-    /// Allocate a FROZEN array on `heap` — a closure environment (captures are only ever read).
-    /// `Value::Null` under strict-OOM refusal, like every allocation.
-    pub fn alloc_frozen_value(heap: &dyn MagrGC, elems: Vec<Value>) -> Value {
-        heap.alloc_array_obj(Self::frozen(heap, elems))
+    /// `ref_word` kind-7 value box — which may hold a stack handle no cell can encode).
+    pub fn alloc_frozen(heap: &dyn MagrGC, elems: &[Value]) -> Value {
+        let desc = ElemType::empty().array_desc(ArrayMode::Frozen, 0);
+        Self::alloc(heap, desc, elems.len(), None, &mut |a| {
+            for (i, v) in elems.iter().enumerate() {
+                // SAFETY: a fresh FROZEN block sized for `elems.len()` Values; nothing reads it yet.
+                unsafe { a.frozen_slot(i).write(*v) };
+            }
+        })
     }
 
     /// An array of `element_type` (name-only mode choice, [`ElemKind::of`]).
-    #[inline]
-    pub fn typed(heap: &dyn MagrGC, element_type: &str, elems: Vec<Value>) -> Self {
+    pub fn alloc_typed(heap: &dyn MagrGC, element_type: &str, elems: Vec<Value>) -> Value {
         let et = ElemType::intern(element_type);
         let len = elems.len();
-        Self { element_type: et, backing: Self::pack_backing_iter(heap, et.kind(), len, elems.into_iter()) }
+        Self::alloc_from_iter(heap, et, et.kind(), len, elems.into_iter())
     }
 
-    /// An escape-analysis **stack array**: elements in an arena-owned `Vec`, no GC allocation.
-    #[inline]
-    pub fn stack_typed(element_type: ElemType, elems: Vec<Value>) -> Self {
-        Self { element_type, backing: ArrayBacking::StackVec(elems) }
+    /// A `byte[]` straight from bytes (FFI return fast path).
+    pub fn alloc_bytes(heap: &dyn MagrGC, bytes: &[u8]) -> Value {
+        let desc = ElemType::byte().array_desc(ArrayMode::Bytes, 0);
+        Self::alloc(heap, desc, bytes.len(), None, &mut |a| {
+            a.cells().copy_in(0, bytes);
+        })
     }
 
-    /// A `byte[]` straight from an owned `Vec<u8>` (FFI return fast path).
-    pub fn from_bytes(heap: &dyn MagrGC, bytes: Vec<u8>) -> Self {
-        let len = bytes.len();
-        let block = Self::alloc_packed(heap, &bytes);
-        Self { element_type: ElemType::byte(), backing: ArrayBacking::Bytes { block, len } }
+    /// A zeroed value-struct array `Point[len]` (zero = the default struct, every reference leaf
+    /// `null`).
+    pub fn alloc_struct(heap: &dyn MagrGC, element_type: ElemType, len: usize, layout: Arc<StructTypeLayout>) -> Value {
+        let desc = element_type.array_desc(ArrayMode::Struct, 0);
+        Self::alloc(heap, desc, len, Some(layout), &mut |_| {})
     }
 
-    /// A value-struct array `Point[len]`: one zeroed block of `len * layout.size` bytes (zero =
-    /// the default struct, every reference leaf `null`).
-    pub fn struct_backed(heap: &dyn MagrGC, element_type: ElemType, len: usize, layout: std::sync::Arc<StructTypeLayout>) -> Self {
-        let block = heap.alloc_var_block(len * layout.size, BlockType::ArrayStruct);
-        Self { element_type, backing: ArrayBacking::StructBytes { len, block, layout } }
-    }
-}
-
-// ── 按模式建 backing：直接写进新 GC 块，不经中转 `Vec` ──
-impl ArrayObj {
-    /// Build the backing of mode `kind` **directly in its GC block** from an element iterator
-    /// that yields exactly `len` values (debug-asserted; a short iterator leaves the block's zero
-    /// = the mode's default).
-    ///
-    /// GC safety: the block is allocated and written here, before the caller allocates the
-    /// `ArrayObj` header (`alloc_array_obj`). The fresh block is reachable from no root until the
-    /// header points at it, and only an unwired unit-test heap collects inside an allocation —
-    /// so the one allocation that can happen in between (boxing a value that does not fit a REF
-    /// word / MIXED cell, done after the element loop) is safe on every VM heap.
-    pub(super) fn pack_backing_iter(
-        heap: &dyn MagrGC, kind: ElemKind, len: usize, elems: impl Iterator<Item = Value>,
-    ) -> ArrayBacking {
-        macro_rules! packed {
-            ($variant:ident, $ty:ty, $conv:expr) => {{
-                let block = heap.alloc_var_block(len * std::mem::size_of::<$ty>(), BlockType::ArrayPrim);
-                // SAFETY: fresh block sized for exactly `len` `$ty`s, reachable from nothing yet.
-                let dst = unsafe { Self::slice_of_mut::<$ty>(&block, len) };
-                let mut n = 0usize;
-                for (slot, x) in dst.iter_mut().zip(elems) { *slot = $conv(&x); n += 1; }
-                debug_assert_eq!(n, len, "pack_backing_iter: iterator yielded {n} of {len} elements");
-                ArrayBacking::$variant { block, len }
-            }};
-        }
-        match kind {
-            ElemKind::Bytes => packed!(Bytes, u8, |x: &Value| if let Value::I64(n) = x { *n as u8 } else { prim_value_mismatch(x, "byte[]", "pack_backing"); 0 }),
-            ElemKind::Chars => packed!(Chars, char, |x: &Value| if let Value::Char(c) = x { *c } else { prim_value_mismatch(x, "char[]", "pack_backing"); '\0' }),
-            ElemKind::Bool => packed!(Bool, bool, |x: &Value| { if !matches!(x, Value::Bool(_)) { prim_value_mismatch(x, "bool[]", "pack_backing"); } matches!(x, Value::Bool(true)) }),
-            ElemKind::I32 => packed!(I32, i32, |x: &Value| if let Value::I64(n) = x { *n as i32 } else { prim_value_mismatch(x, "int[]", "pack_backing"); 0 }),
-            ElemKind::I64 => packed!(I64, i64, |x: &Value| if let Value::I64(n) = x { *n } else { prim_value_mismatch(x, "long[]", "pack_backing"); 0 }),
-            ElemKind::F64 => packed!(F64, f64, |x: &Value| if let Value::F64(f) = x { *f } else { prim_value_mismatch(x, "double[]", "pack_backing"); 0.0 }),
-            ElemKind::Ref => Self::pack_refs(heap, len, elems),
-            ElemKind::Mixed => Self::pack_cells(heap, len, elems),
-        }
-    }
-
-    fn pack_refs(heap: &dyn MagrGC, len: usize, elems: impl Iterator<Item = Value>) -> ArrayBacking {
-        use std::sync::atomic::Ordering;
-        let block = heap.alloc_var_block(len * REF_STRIDE, BlockType::ArrayRef);
-        let mut pending: Vec<(usize, Value)> = Vec::new();
-        {
-            let c = Self::cells_of(&block, len * REF_STRIDE);
-            let mut n = 0usize;
-            for v in elems.take(len) {
-                match ref_word::encode(&v) {
-                    Some(w) => c.store_word(n * REF_STRIDE, w, Ordering::Relaxed),
-                    None => pending.push((n, v)),
-                }
-                n += 1;
-            }
-            debug_assert_eq!(n, len, "pack_backing_iter: iterator yielded {n} of {len} elements");
-        }
-        for (i, v) in pending {
-            Self::init_boxed(&block, len * REF_STRIDE, i * REF_STRIDE, &v);
-        }
-        ArrayBacking::Refs { block, len }
-    }
-
-    fn pack_cells(heap: &dyn MagrGC, len: usize, elems: impl Iterator<Item = Value>) -> ArrayBacking {
-        use std::sync::atomic::Ordering;
-        let block = heap.alloc_var_block(len * CELL_STRIDE, BlockType::ArrayCell);
-        let mut pending: Vec<(usize, Value)> = Vec::new();
-        {
-            let c = Self::cells_of(&block, len * CELL_STRIDE);
-            let mut n = 0usize;
-            for v in elems.take(len) {
-                match tparam_cell::init_words(&v) {
-                    Some((w0, w1)) => {
-                        c.store_word(n * CELL_STRIDE + 8, w1, Ordering::Relaxed);
-                        c.store_word(n * CELL_STRIDE, w0, Ordering::Relaxed);
-                    }
-                    None => pending.push((n, v)),
-                }
-                n += 1;
-            }
-            debug_assert_eq!(n, len, "pack_backing_iter: iterator yielded {n} of {len} elements");
-        }
-        for (i, v) in pending {
-            Self::init_boxed(&block, len * CELL_STRIDE, i * CELL_STRIDE, &v);
-        }
-        ArrayBacking::Cells { block, len, zero: 0 }
-    }
-
-    /// A fresh element that needs a box: box it (ambient heap) and write the kind-7 word. Without
-    /// a heap (a heap-less unit test) the element stays `null` — debug-asserted.
-    #[cold]
-    fn init_boxed(block: &VarGcRef, bytes: usize, off: usize, v: &Value) {
-        match ref_word::alloc_box_ambient(v) {
-            Ok(b) => Self::cells_of(block, bytes)
-                .store_word(off, ref_word::encode_boxed(&b), std::sync::atomic::Ordering::Release),
-            Err(e) => debug_assert!(false, "array element {v:?} needs a box: {e}"),
-        }
-    }
-
-    /// An `element_type[len]` whose every element is `fill` (`ArrayNew` /
-    /// `Array.CreateInstance` — `fill` is the element type's default), in mode `kind`. When
-    /// `fill` is the zeroed block's value for that mode (packed `0` / `'\0'` / `false` / `+0.0`,
-    /// `null` for REF / MIXED, or a primitive zero for MIXED — recorded as the array's `zero`)
-    /// the fresh block **is** the array; otherwise each slot is written once in place.
-    pub fn filled(heap: &dyn MagrGC, element_type: ElemType, kind: ElemKind, len: usize, fill: Value) -> Self {
+    /// An `element_type[len]` whose every element is `fill` (`ArrayNew` / `Array.CreateInstance`
+    /// — `fill` is the element type's default), in mode `kind`. When `fill` is the zeroed
+    /// block's value for that mode (packed `0` / `'\0'` / `false` / `+0.0`, `null` for REF /
+    /// MIXED, or a primitive zero for MIXED — recorded as the descriptor's zero kind) the fresh
+    /// block **is** the array; otherwise each element is written once in place.
+    pub fn alloc_filled(heap: &dyn MagrGC, element_type: ElemType, kind: ElemKind, len: usize, fill: Value) -> Value {
         let zero = match (kind, &fill) {
             (ElemKind::Bytes | ElemKind::I32 | ElemKind::I64, Value::I64(0)) => true,
             (ElemKind::Chars, Value::Char('\0')) => true,
@@ -359,47 +494,88 @@ impl ArrayObj {
             (ElemKind::Mixed, v) => tparam_cell::zero_kind_of(v) != 0,
             _ => false,
         };
-        let backing = if zero {
-            let (bytes, bt) = match kind {
-                ElemKind::Bytes | ElemKind::Bool => (len, BlockType::ArrayPrim),
-                ElemKind::I32 | ElemKind::Chars => (len * 4, BlockType::ArrayPrim),
-                ElemKind::I64 | ElemKind::F64 => (len * 8, BlockType::ArrayPrim),
-                ElemKind::Ref => (len * REF_STRIDE, BlockType::ArrayRef),
-                ElemKind::Mixed => (len * CELL_STRIDE, BlockType::ArrayCell),
-            };
-            let block = heap.alloc_var_block(bytes, bt);
-            match kind {
-                ElemKind::Bytes => ArrayBacking::Bytes { block, len },
-                ElemKind::Bool => ArrayBacking::Bool { block, len },
-                ElemKind::I32 => ArrayBacking::I32 { block, len },
-                ElemKind::Chars => ArrayBacking::Chars { block, len },
-                ElemKind::I64 => ArrayBacking::I64 { block, len },
-                ElemKind::F64 => ArrayBacking::F64 { block, len },
-                ElemKind::Ref => ArrayBacking::Refs { block, len },
-                ElemKind::Mixed => ArrayBacking::Cells { block, len, zero: tparam_cell::zero_kind_of(&fill) },
+        if zero {
+            let z = if kind == ElemKind::Mixed { tparam_cell::zero_kind_of(&fill) } else { 0 };
+            let desc = element_type.array_desc(ArrayMode::of_kind(kind), z);
+            return Self::alloc(heap, desc, len, None, &mut |_| {});
+        }
+        Self::alloc_from_iter(heap, element_type, kind, len, std::iter::repeat_n(fill, len))
+    }
+
+    /// [`Self::alloc_filled`] in the mode the element type's name selects.
+    #[inline]
+    pub fn alloc_typed_filled(heap: &dyn MagrGC, element_type: ElemType, len: usize, fill: Value) -> Value {
+        Self::alloc_filled(heap, element_type, element_type.kind(), len, fill)
+    }
+
+    /// An array of mode `kind` over an element iterator that yields exactly `len` values
+    /// (debug-asserted; a short iterator leaves the rest at the mode's default), written straight
+    /// into the block. A value that needs a box (a raw primitive reaching `object[]`, a stack
+    /// handle in a MIXED cell) is boxed after the element loop.
+    pub fn alloc_from_iter(
+        heap: &dyn MagrGC, element_type: ElemType, kind: ElemKind, len: usize, elems: impl Iterator<Item = Value>,
+    ) -> Value {
+        let desc = element_type.array_desc(ArrayMode::of_kind(kind), 0);
+        let mut elems = Some(elems);
+        Self::alloc(heap, desc, len, None, &mut |a| {
+            if let Some(it) = elems.take() {
+                a.pack(len, it);
             }
-        } else {
-            Self::pack_backing_iter(heap, kind, len, std::iter::repeat_n(fill, len))
-        };
-        Self { element_type, backing }
+        })
     }
 
-    /// [`Self::filled`] in the mode the element type's name selects.
+    /// [`Self::alloc_from_iter`] in the mode the element type's name selects.
     #[inline]
-    pub fn typed_filled(heap: &dyn MagrGC, element_type: ElemType, len: usize, fill: Value) -> Self {
-        Self::filled(heap, element_type, element_type.kind(), len, fill)
+    pub fn alloc_typed_iter(heap: &dyn MagrGC, element_type: ElemType, len: usize, elems: impl Iterator<Item = Value>) -> Value {
+        Self::alloc_from_iter(heap, element_type, element_type.kind(), len, elems)
     }
 
-    /// An array of mode `kind` over an element iterator of known length (array literals read
-    /// straight from their source registers).
-    pub fn from_iter_kind(heap: &dyn MagrGC, element_type: ElemType, kind: ElemKind, len: usize, elems: impl Iterator<Item = Value>) -> Self {
-        Self { element_type, backing: Self::pack_backing_iter(heap, kind, len, elems) }
+    /// Write the first `len` elements of a fresh (unpublished) array from `elems`.
+    fn pack(&self, len: usize, elems: impl Iterator<Item = Value>) {
+        use std::sync::atomic::Ordering;
+        let c = self.cells();
+        let mut pending: Vec<(usize, Value)> = Vec::new();
+        let mut n = 0usize;
+        let mode = self.mode();
+        let width = self.width();
+        for v in elems.take(len) {
+            match mode {
+                ArrayMode::Ref => match ref_word::encode(&v) {
+                    Some(w) => c.store_word(n * REF_STRIDE, w, Ordering::Relaxed),
+                    None => pending.push((n, v)),
+                },
+                ArrayMode::Mixed => match tparam_cell::init_words(&v) {
+                    Some((w0, w1)) => {
+                        c.store_word(n * CELL_STRIDE + 8, w1, Ordering::Relaxed);
+                        c.store_word(n * CELL_STRIDE, w0, Ordering::Relaxed);
+                    }
+                    None => pending.push((n, v)),
+                },
+                // SAFETY: a fresh FROZEN block, nothing reads it yet.
+                ArrayMode::Frozen => unsafe { self.frozen_slot(n).write(v) },
+                ArrayMode::Struct => debug_assert!(false, "struct[] elements are packed by `write_struct_elem`"),
+                _ => {
+                    let bits = self.prim_bits(&v, "pack");
+                    c.store_bits(n * width, width, bits);
+                }
+            }
+            n += 1;
+        }
+        debug_assert_eq!(n, len, "ArrayObj::pack: iterator yielded {n} of {len} elements");
+        let stride = if mode == ArrayMode::Ref { REF_STRIDE } else { CELL_STRIDE };
+        for (i, v) in pending {
+            Self::init_boxed(&c, i * stride, &v);
+        }
     }
 
-    /// [`Self::from_iter_kind`] in the mode the element type's name selects.
-    #[inline]
-    pub fn typed_iter(heap: &dyn MagrGC, element_type: ElemType, len: usize, elems: impl Iterator<Item = Value>) -> Self {
-        Self::from_iter_kind(heap, element_type, element_type.kind(), len, elems)
+    /// A fresh element that needs a box: box it (ambient heap) and write the kind-7 word. Without
+    /// a heap (a heap-less unit test) the element stays `null` — debug-asserted.
+    #[cold]
+    fn init_boxed(c: &Cells, off: usize, v: &Value) {
+        match ref_word::alloc_box_ambient(v) {
+            Ok(b) => c.store_word(off, ref_word::encode_boxed(&b), std::sync::atomic::Ordering::Release),
+            Err(e) => debug_assert!(false, "array element {v:?} needs a box: {e}"),
+        }
     }
 }
 
@@ -433,5 +609,55 @@ impl ElemKind {
     #[inline]
     pub fn is_prim(self) -> bool {
         !matches!(self, Self::Ref | Self::Mixed)
+    }
+
+    /// A **type parameter's resolved argument name** → the packed kind it selects (M13: `new T[n]`
+    /// with `T` bound to a primitive packs the array). The name vocabulary is `default_value_for`'s
+    /// (field keywords, signature tags, and the FQ wrapper names reflection threads through), so a
+    /// reflective `MakeGenericMethod(typeof(int))` and a direct `new T[n]` in `List<int>` pick the
+    /// same packing; the width grouping follows [`Self::of`] (`sbyte`/`u16` fit i32, `uint`/`u32`
+    /// i64). Everything else — reference, struct, or an open parameter's own literal name — is
+    /// `Mixed` and the array stays erased (cells).
+    #[inline]
+    pub fn of_type_param(name: &str) -> Self {
+        match name {
+            "byte" | "u8" | "Std.Byte" => Self::Bytes,
+            "sbyte" | "i8" | "short" | "i16" | "int" | "i32" | "ushort" | "u16"
+            | "Std.SByte" | "Std.Int16" | "Std.Int32" | "Std.UInt16" => Self::I32,
+            "long" | "i64" | "uint" | "u32" | "ulong" | "u64" | "isize" | "usize"
+            | "Std.UInt32" | "Std.Int64" | "Std.UInt64" => Self::I64,
+            "char" | "Std.Char" => Self::Chars,
+            "bool" | "Std.Boolean" => Self::Bool,
+            "double" | "float" | "f32" | "f64" | "Std.Double" | "Std.Single" => Self::F64,
+            _ => Self::Mixed,
+        }
+    }
+}
+
+#[cfg(test)]
+impl ArrayObj {
+    /// Test-only: a MIXED array in a **leaked** block that no region knows (never marked, swept
+    /// or freed) — for heap-less unit tests.
+    pub(crate) fn leaked(elems: Vec<Value>) -> ArrRef {
+        let desc = ElemType::empty().array_desc(ArrayMode::Mixed, 0);
+        let a = Self::leaked_block(desc, elems.len(), None);
+        for (i, v) in elems.into_iter().enumerate() { a.borrow().set_boxed(i, v); }
+        a
+    }
+
+    /// Test-only: a zeroed `struct[]` in a **leaked** block (elements written via
+    /// `write_struct_elem`).
+    pub(crate) fn struct_leaked(element_type: &str, len: usize, layout: Arc<StructTypeLayout>) -> ArrRef {
+        let desc = ElemType::intern(element_type).array_desc(ArrayMode::Struct, 0);
+        Self::leaked_block(desc, len, Some(layout))
+    }
+
+    /// Test-only: a zeroed array of `desc` in a leaked block.
+    pub(crate) fn leaked_block(desc: &'static ArrayDesc, len: usize, layout: Option<Arc<StructTypeLayout>>) -> ArrRef {
+        let payload = desc.payload_bytes(len, layout.as_deref()).expect("leaked array too large");
+        let v = VarGcRef::alloc_leaked(payload, desc.block_type());
+        // SAFETY: a fresh zeroed block of `payload` bytes nobody else can reach.
+        unsafe { Self::install(v.header_raw(), payload, desc, layout) };
+        ArrRef::from_var(v)
     }
 }

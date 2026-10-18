@@ -5,7 +5,7 @@
 use super::*;
 use std::sync::Arc;
 use crate::metadata::vstr::Str;
-use crate::gc::GcRef;
+use crate::gc::ArrRef;
 use crate::gc::var_region::{BlockType, VarGcRef};
 use crate::gc::heap::MagrGC;
 
@@ -26,12 +26,10 @@ pub enum Value {
     /// `gc/arc_heap_tests/send_sync.rs::assert_send_sync::<Value>()`).
     Str(Str)                    = 4,
     Null                        = 5,
-    /// Heap-allocated dynamic array with reference semantics.
-    /// add-reflection-array-element-type (2026-06-11): payload is `ArrayObj`
-    /// (element type name + elems) instead of a bare `Vec<Value>`, so the array
-    /// carries its element type at runtime (non-erased reflection). `ArrayObj`
-    /// derefs to the element `Vec<Value>`, so element access is unchanged.
-    Array(GcRef<ArrayObj>)      = 6,
+    /// Heap-allocated fixed-length array with reference semantics. Object model R9: an
+    /// [`ArrRef`](crate::gc::ArrRef) — one variable-length GC block holding the 16 B header (its
+    /// kind word the array's descriptor: element type, mode) and the elements.
+    Array(ArrRef)      = 6,
     /// Heap-allocated managed class instance with reference semantics.
     /// Object model R6: an [`ObjRef`](crate::gc::ObjRef) — one variable-length GC block holding
     /// the object header and its field cells.
@@ -69,7 +67,7 @@ pub enum Value {
     /// args after it. See docs/internals/src/runtime/escape-analysis.md + impl-closure-l3-core.
     ///
     /// review.md C1 chunk 5 (2026-05-27): payload boxed (the last and
-    /// biggest cold-path variant — 40 B inline = GcRef(16 B) + String(24 B)).
+    /// biggest cold-path variant — 40 B inline = ArrRef(16 B) + String(24 B)).
     /// Boxing drops Value enum to ~24 B; capturing closures pay one heap
     /// alloc per `MkClos` but that's dwarfed by the env's own GC alloc.
     ///
@@ -77,7 +75,7 @@ pub enum Value {
     /// `ClosureData` now lives in the GC variable-length region (`region_var`) — a single GC
     /// heap instead of a `Box` outside GC. `ClosureData` is immutable after creation, so the
     /// block needs no per-entry lock; access is a lock-free `&ClosureData` (kept alive by
-    /// reachability, like `GcRef`). Cloning a closure `Value` now shares the same heap closure
+    /// reachability, like `ArrRef`). Cloning a closure `Value` now shares the same heap closure
     /// (handle copy) instead of deep-cloning the box. See `Value::closure_data`.
     Closure(VarGcRef) = 10,
     // discriminant 11 retired (runtime-audit D6, 2026-10-07): `StackClosure` — the
@@ -137,8 +135,8 @@ pub enum Value {
     /// composite byte offset the compiler bakes → base = `Value::Object`), a struct[]
     /// element's byte offset depends on the runtime index, so `arr[i]` materializes
     /// this handle and a following `StructFieldGetPrim/SetPrim` reads/writes a leaf of
-    /// element `index` (routing byte/ref access through the array's `StructBytes`
-    /// backing). Payload boxed (8 B pointer) so `Value` stays 24 B. GC follows `arr`.
+    /// element `index` (routing byte/ref access through the value-struct array's
+    /// element). Payload boxed (8 B pointer) so `Value` stays 24 B. GC follows `arr`.
     /// make-value-copy: 8B handle into `VmContext::transient_arena` (payload `StructArrayElem`).
     StructRefHeap { idx: u32, frame_id: u32 } = 18,
 }
@@ -146,7 +144,7 @@ pub enum Value {
 // unify-object-byte-layout PR-5 (2026-08-15): `Value` is the interpreter's
 // register-file cell and the JIT strides its register file by
 // `size_of::<Value>()` (`jit/translate.rs` `VALUE_STRIDE`/`STRIDE`), so its
-// size is an ABI contract, not an incidental detail. After PR-3 (GcRef 8 B) +
+// size is an ABI contract, not an incidental detail. After PR-3 (ArrRef 8 B) +
 // PR-4 (Str 8 B) + this PR (FuncRef → Str 8 B; P1-2 PR 8: FnId 4 B), every payload is ≤ 8 B, so
 // `#[repr(C, u8)]` gives tag(1 B, padded to 8) + 8 B payload = 16 B. This
 // assert fails to compile the moment a payload grows past 8 B (e.g. a new
@@ -197,7 +195,7 @@ impl Value {
     /// **add-write-barriers (2026-05-21)**: returns `true` iff writing
     /// this value into a heap slot must dispatch a GC write barrier.
     /// Heap-ref variants: `Object` / `Array` / `Closure` (Closure.env is a
-    /// `GcRef<Vec<Value>>`) / `Ref` with `RefKind::Array` or `RefKind::Field`
+    /// `ArrRef`) / `Ref` with `RefKind::Array` or `RefKind::Field`
     /// (the inner `gc_ref` is a real heap edge). All primitives, plus
     /// `FuncRef` (a `FnId`, P1-2 PR 8) / `PinnedView` (raw ptr) /
     /// `Ref::Stack` (stack location)
@@ -209,7 +207,7 @@ impl Value {
     /// unify-gc-heap PR-2: access the [`ClosureData`] behind a `Value::Closure`. Returns
     /// `None` for non-closures. The `ClosureData` lives in the GC `region_var`; the block is
     /// alive as long as this closure `Value` is reachable, so the borrow is sound (same
-    /// reachability model as `GcRef`). `ClosureData` is immutable after creation → no lock.
+    /// reachability model as `ArrRef`). `ClosureData` is immutable after creation → no lock.
     #[inline]
     pub fn closure_data(&self) -> Option<&ClosureData> {
         match self {
@@ -255,15 +253,13 @@ impl Value {
     /// **add-mark-sweep-collector P1 (2026-05-21)** / **unify-gc-heap PR-5**: visit every
     /// direct GC-reference child `Value` reachable from `self`. **Single source** for both
     /// the GC mark phase and read-only graph enumeration (heapsnapshot / retention query) —
-    /// they differ only on two mark-phase side effects, both gated by `for_marking`:
+    /// they differ in one place, gated by `marking`:
     ///
-    /// - **`for_marking = true`** (mark phase, from `arc_heap`'s mark loop): additionally
-    ///   marks the variable-length element backings in place (`mark_backing`, so the
-    ///   `region_var` element block stays live this cycle), and surfaces a closure's env
-    ///   *array header* (`Value::Array`) as a child so the mark loop marks it too.
-    /// - **`for_marking = false`** (enumeration, via `ArcMagrGC::scan_object_refs`): a pure
-    ///   read — no mark side effects; descends **directly** into a closure's captured refs
-    ///   (the env header is internal, not surfaced as a graph node).
+    /// - **`marking = Some(_)`** (mark phase, from `arc_heap`'s mark loop): surfaces a closure's
+    ///   env array (`Value::Array`) as a child so the mark loop marks it too.
+    /// - **`marking = None`** (enumeration, via `ArcMagrGC::scan_object_refs`, and the
+    ///   generational inspections): descends **directly** into a closure's captured refs (the
+    ///   env is internal, not surfaced as a graph node).
     ///
     /// Primitives / stack-arena handles / struct-blob refs yield no children (their storage
     /// is scanned directly by the external root scanner, so walking here would double-count).
@@ -275,23 +271,20 @@ impl Value {
                 // Every 8 B reference word plus the type-parameter cells' tag words.
                 rc.borrow().visit_refs(visit);
             }
-            Value::Array(rc) => {
-                let arr = rc.borrow();
-                if let Some(kind) = marking { arr.mark_backing(kind); }  // keep the element block alive
-                arr.visit_refs(visit);  // every mode: REF words, MIXED cells, struct[] leaves, …
-            }
+            // Object model R9: an array is one block — its elements are its children (every
+            // mode: REF words, MIXED cells, struct[] leaves, FROZEN values).
+            Value::Array(rc) => rc.borrow().visit_refs(visit),
             Value::Closure(vref) => {
                 // unify-gc-heap PR-2/PR-5: the closure's `ClosureData` is a GC block in region_var.
                 // SAFETY: a reachable closure names an alive block; payload is one ClosureData.
                 let data = unsafe { &*vref.payload_as_ptr::<ClosureData>() };
                 if marking.is_some() {
-                    // Push the env array *header* (so the mark loop marks its region_array entry
-                    // and re-traces its elements — one indirection past the pre-PR-2 behaviour).
-                    // The target is a `FnId` (P1-2 PR 8), not a GC edge.
-                    visit(&Value::Array(data.env.clone()));
+                    // Push the env array (so the mark loop marks its block and traces its
+                    // elements). The target is a `FnId` (P1-2 PR 8), not a GC edge.
+                    visit(&Value::Array(data.env));
                 } else {
-                    // Enumeration: descend into the captured refs directly — the env header is
-                    // the closure's internal, not a distinct graph node.
+                    // Enumeration: descend into the captured refs directly — the env is the
+                    // closure's internal, not a distinct graph node.
                     data.env.borrow().visit_refs(visit);
                 }
             }
@@ -341,7 +334,7 @@ impl PartialEq for Value {
             (Value::Str(a),  Value::Str(b))  => a == b,
             (Value::Null,    Value::Null)    => true,
             // Array/Object equality is reference equality (same as C# reference semantics)
-            (Value::Array(a),  Value::Array(b))  => GcRef::ptr_eq(a, b),
+            (Value::Array(a),  Value::Array(b))  => ArrRef::ptr_eq(a, b),
             (Value::Object(a), Value::Object(b)) => crate::gc::ObjRef::ptr_eq(a, b),
             // fix-delegate-equality-operator: function values are reference-ish too, and
             // these two arms were simply MISSING — so `==` fell through to `_ => false`
@@ -357,7 +350,7 @@ impl PartialEq for Value {
                     true
                 } else {
                     let (da, db) = (super::closure_data_of(a), super::closure_data_of(b));
-                    da.fn_id == db.fn_id && GcRef::ptr_eq(&da.env, &db.env)
+                    da.fn_id == db.fn_id && ArrRef::ptr_eq(&da.env, &db.env)
                 }
             }
             // make-value-copy: `PinnedView` / `Ref` (and `StructRefHeap`)

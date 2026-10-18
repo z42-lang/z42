@@ -3,8 +3,6 @@
 
 use crate::gc::heap::MagrGC;
 use crate::metadata::Value;
-use crate::metadata::types::{ArrayObj};
-use crate::gc::refs::{GcRef};
 use crate::gc::types::{CollectStats, GcEvent, GcKind};
 use crate::gc::phase_timer::PhaseTimer;
 use super::incremental::{GenWork, SliceBudget};
@@ -232,16 +230,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 let used_before = self.used_bytes_atomic(); // add-gc-tlab (option B)
 
                 // Measure young population pre-minor for escalation calc.
-                let young_before = {
-                    let r_arr = self.region_array.lock();
-                    let r_var = self.region_var.lock();
-                    // fix-minor-gc-skips-var-region: the var region is a minor participant
-                    // now, so it belongs in the denominator too. Leaving it out made the
-                    // survival ratio systematically wrong — it measured only part of what
-                    // the sweep actually touches, and escalation to major fired off that
-                    // partial view. (Object model R6: objects are var blocks.)
-                    r_arr.young_count() + r_var.young_count()
-                };
+                let young_before = self.region_var.lock().young_count();
 
                 // add-bounded-nursery (2026-09-08): the auto-collect policy decides the kind
                 // (the deferred safepoint path only knows "collect") and hands it over here.
@@ -388,63 +377,39 @@ impl crate::gc::arc_heap::ArcMagrGC {
     }
 
     pub(super) fn finalize_now(&self, value: &Value) -> bool {
-        // add-gc-tlab (stage 2): merge this thread's TLAB first so the target is
-        // an ordinary (retired) region slot before tombstone_via_entry pushes it
-        // to free_list — otherwise a just-allocated, still-borrowed slot could
-        // enter free_list while its chunk is borrowed (slot double-use). Rare
+        // add-gc-tlab (stage 2): merge this thread's TLAB first so the target is an ordinary
+        // (retired) block before it is tombstoned — a just-allocated, still-borrowed block's slot
+        // could otherwise enter the free list while its chunk is borrowed (slot double-use). Rare
         // explicit-finalize path, so the retire cost is negligible.
         self.retire_thread_tlab();
-        match value {
-            // Object model R6: the finalizer is a side-table entry; the block is tombstoned in
-            // the variable-length region (its drop glue releases the header), unless another
-            // thread's TLAB still has its chunk — then the collector reclaims it as usual.
-            Value::Object(gc) | Value::BoxedStruct(gc) => {
-                let fin = self.take_object_finalizer(gc);
-                let fired = fin.is_some();
-                if let Some(f) = fin { f(); }
-                {
-                    let mut region = self.region_var.lock();
-                    let vref = gc.var_ref();
-                    if region.chunk_of(vref.addr()).is_some_and(|ci| !region.is_chunk_borrowed(ci as u32)) {
-                        region.tombstone(vref);
-                    }
-                }
-                self.process_flagged_dead();
-                fired
+        // Object model R6 / R9: the finalizer is a side-table entry; the block is tombstoned in
+        // the variable-length region (its drop glue releases what the header owns), unless another
+        // thread's TLAB still has its chunk — then the collector reclaims it as usual.
+        let Some(vref) = Self::owner_block(value) else { return false };
+        let fin = self.take_block_finalizer(vref);
+        let fired = fin.is_some();
+        if let Some(f) = fin { f(); }
+        {
+            let mut region = self.region_var.lock();
+            if region.chunk_of(vref.addr()).is_some_and(|ci| !region.is_chunk_borrowed(ci as u32)) {
+                region.tombstone(vref);
             }
-            Value::Array(gc) => {
-                let entry_ptr = gc.entry_ptr();
-                let entry: &crate::gc::region::RegionEntry<ArrayObj> = unsafe { entry_ptr.as_ref() };
-                let fin = entry.take_finalizer();
-                let fired = fin.is_some();
-                if let Some(f) = fin { f(); }
-                let mut region = self.region_array.lock();
-                region.tombstone_via_entry(entry);
-                fired
-            }
-            _ => false,
         }
+        self.process_flagged_dead();
+        fired
     }
 
     pub(super) fn register_soft_ref(&self, value: &Value) -> u64 {
         use crate::gc::soft_registry::ErasedSoftEntry;
-        let (entry, key) = match value {
-            // Object model R6: keyed by the block-header address; `SIDE_BIT` makes the object's
-            // death drop the entry (`process_flagged_dead`).
-            Value::Object(gc) => {
-                gc.var_ref().set_side();
-                let key = gc.var_ref().addr() as u64;
-                (ErasedSoftEntry::from_object(*gc), key)
-            }
-            Value::Array(gc) => {
-                let ptr = gc.entry_ptr();
-                let generation = unsafe { ptr.as_ref() }.generation.load(std::sync::atomic::Ordering::Acquire);
-                unsafe { ptr.as_ref() }.inc_soft_ref_count();
-                let key = ptr.as_ptr() as u64;
-                (ErasedSoftEntry::from_array(ptr, generation), key)
-            }
+        // Object model R6 / R9: keyed by the block-header address; `SIDE_BIT` makes the block's
+        // death drop the entry (`process_flagged_dead`).
+        let entry = match value {
+            Value::Object(gc) => ErasedSoftEntry::object(*gc),
+            Value::Array(gc) => ErasedSoftEntry::array(*gc),
             _ => return 0,
         };
+        entry.block().set_side();
+        let key = entry.ptr_key() as u64;
         self.inner.lock().soft_registry.insert(entry);
         key
     }
@@ -463,50 +428,19 @@ impl crate::gc::arc_heap::ArcMagrGC {
         for e in &entries {
             if e.ptr_key() != key_usize { continue; }
             if !e.is_alive() { return Value::Null; }
-            // e.is_alive() confirmed: alive=true AND generation == snapshot.
             return Self::soft_entry_value(e);
         }
         Value::Null
     }
 
-    /// The value a soft-registry entry refers to, rebuilt with the entry's snapshot generation
-    /// (safe against slot reuse). The caller has checked the entry is alive.
+    /// The value a soft-registry entry refers to (the handle it recorded, generation included).
+    /// The caller has checked the entry is alive.
     pub(super) fn soft_entry_value(e: &crate::gc::soft_registry::ErasedSoftEntry) -> Value {
-        let key_usize = e.ptr_key();
-        match e.kind {
-            crate::gc::soft_registry::ErasedKind::Object { .. } => {
-                e.object().map_or(Value::Null, Value::Object)
-            }
-            crate::gc::soft_registry::ErasedKind::Array => {
-                let ptr = key_usize as *mut crate::gc::region::RegionEntry<ArrayObj>;
-                let nn = unsafe { std::ptr::NonNull::new_unchecked(ptr) };
-                Value::Array(unsafe { GcRef::from_region_entry(nn, e.generation_snapshot()) })
-            }
-        }
+        e.value()
     }
 
     pub(super) fn unregister_soft_ref(&self, key: u64) {
-        let key_usize = key as usize;
-        // Find the entry kind before removing (need it to decrement the right type).
-        let kind = {
-            let inner = self.inner.lock();
-            inner.soft_registry.snapshot_entries()
-                .into_iter()
-                .find(|e| e.ptr_key() == key_usize)
-                .map(|e| e.kind)
-        };
-        self.inner.lock().soft_registry.remove_one(key_usize);
-        // Decrement soft_ref_count on the backing RegionEntry.
-        if let Some(kind) = kind {
-            match kind {
-                // Object model R6: objects keep no soft-ref count; the registry entry was the
-                // whole record.
-                crate::gc::soft_registry::ErasedKind::Object { .. } => {}
-                crate::gc::soft_registry::ErasedKind::Array => {
-                    let ptr = key_usize as *mut crate::gc::region::RegionEntry<ArrayObj>;
-                    unsafe { (*ptr).dec_soft_ref_count(); }
-                }
-            }
-        }
+        // The registry entry is the whole record (blocks keep no soft-ref count).
+        self.inner.lock().soft_registry.remove_one(key as usize);
     }
 }

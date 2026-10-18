@@ -1,43 +1,25 @@
 namespace Std.Harness.Contracts;
 
-// review.md S2.4 — trait-based test commons (Phase 1 2026-06-03
-// add-collection-contract-phase1; Phase 2 2026-06-11 add-collection-contract-phase2).
-//
-// `BasicCollectionContract.Run(name, instance)` runs the universally-true
-// behavioural assertions for any type implementing `Std.IBasicCollection<T>`,
-// driving a full lifecycle on one fresh instance: fresh is empty → `AddOne`
-// 3 distinct elements → Count==3 & not-empty → `Clear()` → empty → `Clear()`
-// again is idempotent. Holds for every collection regardless of order/dedup
-// semantics (distinct elements keep Count==3 true for the deduplicating
-// SortedSet). Individual collection tests opt in with one `[Test]` line that
-// calls `Run` with a fresh instance of their concrete type:
-//
-//   [Test]
-//   void test_linkedlist_basic_contract() {
-//       BasicCollectionContract.Run("LinkedList<int>", new LinkedList<int>());
-//   }
-//
-// Adding a new collection that wants contract coverage costs **1 line**
-// (one Run call), not 5+ hand-written assertions copied across every
-// collection's test file.
-//
-// API design — why take an instance, not `Func<IBasicCollection<int>>`:
-// z42 delegates don't currently have return-type covariance, so a
-// `() => new LinkedList<int>()` lambda is not assignable to
-// `Func<IBasicCollection<int>>` even though `LinkedList<int>` implements
-// the interface. Taking the instance directly relies on the implicit
-// up-cast at the call boundary, which DOES work today. Invariant 2
-// (Clear()'s idempotence) reuses the same instance — same coverage.
-//
-// Phase 1 hardcodes the element type as `int` to bypass the
-// generic-function-with-interface-constraint code path while it settles
-// in stdlib usage. Phase 2 (future spec) lifts to
-// `Run<T>(name, IBasicCollection<T>)` once that path is well-trodden.
+/// `IBasicCollection<T>` 的行为契约测试：对任何实现都普遍成立的不变式，一条
+/// `[Test]` 一行搞定，不必在每个集合的测试文件里抄五遍断言。
+///
+///     [Test]
+///     void test_linkedlist_basic_contract() {
+///         BasicCollectionContract.Run("LinkedList<int>", new LinkedList<int>());
+///     }
+///
+/// 在一个新实例上跑完整生命周期：新建为空 → `AddOne` 三个互异元素 →
+/// `Count()==3` 且非空 → `Clear()` → 空 → 再 `Clear()` 幂等。元素取互异值，
+/// 契约对去重语义的集合（SortedSet）同样成立。
+///
+/// @warning 形参是实例而非 `Func<IBasicCollection<int>>`：z42 委托暂无返回型协变，
+///     `() => new LinkedList<int>()` 不能赋给 `Func<IBasicCollection<int>>`；
+///     收实例靠调用点的隐式向上转型。元素类型暂固定为 `int`。
 public static class BasicCollectionContract {
-    /// Drives the IBasicCollection invariants against `instance`.
-    /// `name` is a human label for failure context (e.g. `"Queue<int>"`).
-    /// Pass a *fresh* instance — the contract asserts emptiness as its
-    /// first invariant.
+    /// 对 `instance` 断言 `IBasicCollection` 的全部不变式。
+    ///
+    /// @param name 失败上下文里的人类可读标签（如 `"Queue<int>"`）
+    /// @param instance **新建**的实例——第一条不变式就断言它为空
     public static void Run(string name, IBasicCollection<int> instance) {
         // Invariant 1: a freshly-constructed collection is empty.
         Assert.Equal(0, instance.Count());

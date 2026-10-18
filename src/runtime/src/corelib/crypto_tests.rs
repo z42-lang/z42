@@ -26,7 +26,7 @@ fn extract_bytes(v: Value) -> Vec<u8> {
 // fix-crypto-tests-ctx-lifetime (2026-05-30): bind ctx to a named local
 // so it outlives the returned Value::Array. The previous `&ctx()` inline
 // pattern dropped the VmContext (and its owned heap region) at the end
-// of the `let r = …;` statement, leaving `r`'s GcRef pointing into freed
+// of the `let r = …;` statement, leaving `r`'s ArrRef pointing into freed
 // heap memory. Subsequent extract_bytes(r) dereferenced the dangling
 // pointer — usually invisible on Linux/macOS (use-after-free reads stale
 // data), reliably STATUS_ACCESS_VIOLATION (0xc0000005) on Windows.

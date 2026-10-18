@@ -22,8 +22,6 @@ impl Default for ArcMagrGC {
         // heap's lifetime, which is also what makes the three copies below safe to cache.
         let promotion_age = crate::gc::promotion_age_from_config();
         let footprint = std::sync::Arc::new(crate::gc::footprint::Footprint::default());
-        let mut region_array = crate::gc::region::Region::new_for_mode(generational, promotion_age);
-        region_array.attach_footprint(footprint.clone(), super::footprint::array_payload);
         let mut region_var = VarRegion::with_drop_glue_for_mode(var_payload_drop_glue(), generational, promotion_age);
         region_var.attach_footprint(footprint.clone());
         Self {
@@ -34,10 +32,8 @@ impl Default for ArcMagrGC {
             external_needs_collect: Mutex::new(None),
             safepoint_poke: Mutex::new(None),
             mode: std::sync::atomic::AtomicU8::new(mode as u8),
-            // fix-young-list-only-when-generational: the young list is minor GC's
-            // private index, so only a generational heap pays to maintain it.
-            // `set_mode` keeps this in step if the mode changes later.
-            region_array:  Mutex::new(region_array),
+            // fix-young-list-only-when-generational: the young set is minor GC's private
+            // index, so only a generational heap pays to maintain it (`set_mode` keeps it in step).
             region_var:    Mutex::new(region_var),
             remembered:    Mutex::new(Vec::new()),
             promotion_policy: Default::default(),

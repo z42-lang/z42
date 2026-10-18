@@ -6,8 +6,6 @@ use crate::metadata::{NativeData, TypeDesc, Value};
 use crate::metadata::types::OwnedObject;
 use crate::metadata::types::ClosureData;
 use crate::gc::heap::MagrGC;
-use crate::gc::refs::{GcRef};
-use crate::gc::var_region::{BlockType, VarGcRef};
 use crate::gc::types::{AllocSamplerFn, CollectStats, FinalizerFn, FrameMark, GcHandleKind, GcObserver, HeapSnapshot, HeapStats, ObserverId, RootHandle, WeakRef, WeakRefInner};
 
 use crate::gc::arc_heap::{ArcMagrGC, HandleEntry, ContextReclaimHook, ExternalRootScanner, CategorizedRootScanner};
@@ -107,25 +105,19 @@ impl MagrGC for ArcMagrGC {
         self.alloc_boxed_bytes_in_region(type_desc, &scalar_bytes)
     }
 
-    fn alloc_array(&self, elems: Vec<Value>) -> Value {
-        // unify-gc-heap PR-3: the constructor allocates the element block in `self`'s region_var.
-        self.alloc_array_obj(crate::metadata::types::ArrayObj::new(self, elems))
+    fn alloc_array_with(
+        &self,
+        desc: &'static crate::metadata::types::ArrayDesc,
+        len: usize,
+        layout: Option<Arc<crate::metadata::types::StructTypeLayout>>,
+        init: &mut dyn FnMut(&crate::metadata::types::ArrayObj),
+    ) -> Value {
+        self.alloc_array_block(desc, len, layout, init)
     }
 
-    fn alloc_array_typed(&self, element_type: &str, elems: Vec<Value>) -> Value {
-        self.alloc_array_obj(crate::metadata::types::ArrayObj::typed(self, element_type, elems))
-    }
-
-    /// add-struct-array-codegen (P3b follow-up): `Heap`-trait override so dyn-dispatched
-    /// `ctx.heap().alloc_array_obj(..)` region-allocs the pre-built `ArrayObj` (keeping a
-    /// `StructBytes` backing), not the trait default that would box it. Routes to the
-    /// inherent `ArcMagrGC::alloc_array_obj` (fully-qualified — no recursion/ambiguity).
-    fn alloc_array_obj(&self, obj: crate::metadata::types::ArrayObj) -> Value {
-        ArcMagrGC::alloc_array_obj(self, obj)
-    }
-
-    fn alloc_bytes(&self, bytes: Vec<u8>) -> Value {
-        self.alloc_array_obj(crate::metadata::types::ArrayObj::from_bytes(self, bytes))
+    #[inline(always)]
+    fn as_dyn(&self) -> &dyn MagrGC {
+        self
     }
 
     fn alloc_closure(&self, data: ClosureData) -> Value {
@@ -138,17 +130,6 @@ impl MagrGC for ArcMagrGC {
 
     fn alloc_str_concat2(&self, a: &str, b: &str) -> crate::metadata::vstr::Str {
         self.alloc_str_concat2_in_region(a, b)
-    }
-
-    fn alloc_var_block(&self, payload: usize, block_type: BlockType) -> VarGcRef {
-        // add-gc-tlab (stage 3): lock-free var TLAB when armed; else locked path.
-        // (No stats record here — matches the pre-TLAB behavior; the array/backing
-        // caller records the whole allocation's size.)
-        // Published at once: the caller writes element storage into a block it already owns, and
-        // no heap walk outside a collection reads a backing's payload (M12, `VarGcRef::publish`).
-        let vref = self.acquire_var_block(payload, block_type).0;
-        vref.publish();
-        vref
     }
 
     // ── 2. Roots ─────────────────────────────────────────────────────────────
@@ -207,7 +188,7 @@ impl MagrGC for ArcMagrGC {
     // of mode.
     //
     // Under `GenerationalMarkSweep` the override records old→young writes
-    // in the card table (`barrier.rs`).
+    // in the remembered set (`barrier.rs`).
     //
     // Caller contract: invoke ONLY when `new.is_heap_ref() == true`
     // (Decision 1 of add-write-barriers). The generational arm
@@ -229,8 +210,12 @@ impl MagrGC for ArcMagrGC {
     }
 
     #[cfg(test)]
-    fn array_card_dirty_for_test(&self, chunk_idx: u32) -> bool {
-        self.region_array.lock().is_card_dirty(chunk_idx)
+    fn is_remembered_for_test(&self, owner: &Value) -> bool {
+        match owner {
+            Value::Object(o) | Value::BoxedStruct(o) => o.var_ref().is_remembered(),
+            Value::Array(a) => a.var_ref().is_remembered(),
+            _ => false,
+        }
     }
 
     fn verify_card_invariant(&self) -> Result<(), String> {
@@ -272,9 +257,7 @@ impl MagrGC for ArcMagrGC {
         // the store. Switching *to* generational rebuilds the set from the
         // live entries, so a heap that has already allocated collects correctly.
         let generational = mode == crate::gc::GcMode::GenerationalMarkSweep;
-        self.region_array.lock().set_generational(generational);
-        // fix-minor-gc-skips-var-region: the var region keeps a young set too (its bitmaps are
-        // only allocated while generational).
+        // The young set's bitmaps are only allocated while generational.
         self.region_var.lock().set_generational(generational);
         // arm-gc-by-default: the two modes size their growth gate differently (a nursery vs
         // a full allowance), so the cached trip point has to be recomputed.
@@ -359,22 +342,17 @@ impl MagrGC for ArcMagrGC {
 
     // ── 7. Finalization ──────────────────────────────────────────────────────
 
-    /// **Phase 3e**: finalizer 直接挂在 GcAllocation wrapper 上，Drop 时自动
-    /// 触发（含 cycle 断环后 alive_vec drop 链 + 普通 Rc Drop）。
+    /// Finalizers live in a side table keyed by block address (object model R6 / R9); the sweep
+    /// fires them through the flagged-dead list.
     fn register_finalizer(&self, value: &Value, fin: FinalizerFn) {
-        match value {
-            // Object model R6: objects keep finalizers in a side table keyed by block address.
-            Value::Object(gc) | Value::BoxedStruct(gc) => self.set_object_finalizer(gc, fin),
-            Value::Array(gc)  => GcRef::set_finalizer(gc, fin),
-            _ => {} // 原子值无 finalizer
-        }
+        if let Some(b) = Self::owner_block(value) {
+            self.set_block_finalizer(b, fin);
+        } // 原子值无 finalizer
     }
 
     fn cancel_finalizer(&self, value: &Value) {
-        match value {
-            Value::Object(gc) | Value::BoxedStruct(gc) => { let _ = self.take_object_finalizer(gc); }
-            Value::Array(gc)  => { let _ = GcRef::cancel_finalizer(gc); }
-            _ => {}
+        if let Some(b) = Self::owner_block(value) {
+            let _ = self.take_block_finalizer(b);
         }
     }
 
@@ -386,7 +364,7 @@ impl MagrGC for ArcMagrGC {
                 inner: WeakRefInner::Object(self.downgrade_object(gc)),
             }),
             Value::Array(gc) => Some(WeakRef {
-                inner: WeakRefInner::Array(GcRef::downgrade(gc)),
+                inner: WeakRefInner::Array(self.downgrade_array(gc)),
             }),
             _ => None,
         }
@@ -395,7 +373,7 @@ impl MagrGC for ArcMagrGC {
     fn upgrade_weak(&self, weak: &WeakRef) -> Option<Value> {
         let v = match &weak.inner {
             WeakRefInner::Object(w) => self.upgrade_weak_object(w).map(Value::Object),
-            WeakRefInner::Array (w) => w.upgrade().map(Value::Array),
+            WeakRefInner::Array (w) => self.upgrade_weak_array(w).map(Value::Array),
         };
         // add-incremental-major-gc M2a/M2b: shade while marking; refuse a doomed target while sweeping.
         v.filter(|v| self.admit_resurrected(v))
@@ -421,9 +399,9 @@ impl MagrGC for ArcMagrGC {
         let entry = match (target, kind) {
             (Value::Null, _) => return 0,
             (Value::Object(g), GcHandleKind::Strong) => HandleEntry::StrongObject(*g),
-            (Value::Array (g), GcHandleKind::Strong) => HandleEntry::StrongArray (g.clone()),
+            (Value::Array (g), GcHandleKind::Strong) => HandleEntry::StrongArray (*g),
             (Value::Object(g), GcHandleKind::Weak)   => HandleEntry::WeakObject(self.downgrade_object(g)),
-            (Value::Array (g), GcHandleKind::Weak)   => HandleEntry::WeakArray (GcRef::downgrade(g)),
+            (Value::Array (g), GcHandleKind::Weak)   => HandleEntry::WeakArray (self.downgrade_array(g)),
             // Atomic Strong: just clone the Value into the slot.
             (v, GcHandleKind::Strong) => HandleEntry::StrongAtomic(v.clone()),
             // Atomic Weak: rejected — atomics aren't Rc-backed, can't weak-ref.
@@ -485,8 +463,7 @@ impl MagrGC for ArcMagrGC {
     }
 
     fn iterate_live_objects(&self, visitor: &mut dyn FnMut(&Value)) {
-        // Phase 3b: registry-driven Full coverage. 同对象只访问一次（registry
-        // snapshot 内部去重 by GcRef::as_ptr）。
+        // Every alive object / array block, once each (the region walk visits each block once).
         for v in self.snapshot_live_from_registry() {
             visitor(&v);
         }

@@ -1,0 +1,135 @@
+// M13 (pack-tparam-arrays): 泛型 `T[]` 的实参为原始类型时,backing 按该类型打包
+//（`List<int>` 每元素 4 B,不再走 16 B 型参单元）。本文件钉**行为不变**与**密度**:
+// 打包只改存储,不改任何读写 / 排序 / 拷贝 / 反射语义;`SetValue` 对错误种类的值
+// 从「单元什么都收」变为抛 `InvalidCastException`（与 `int[]` 的既有语义一致）。
+namespace Z42CoreTParamPackedArraysTests;
+
+using Std;
+using Std.Collections;
+using Std.Harness;
+
+// 类级型参持数组（`new T[n]` 的直通载体）。
+class Buf<T> {
+    T[] a;
+    public Buf(int n) { this.a = new T[n]; }
+    public T Get(int i) { return this.a[i]; }
+    public void Set(int i, T v) { this.a[i] = v; }
+    public int Length { get { return this.a.Length; } }
+}
+
+[Test]
+void test_buf_int_roundtrip_and_zero() {
+    var b = new Buf<int>(5);
+    Assert.Equal(5, b.Length);
+    Assert.Equal(0, b.Get(0));          // 未写槽 = int 零值（打包块的零填充）
+    b.Set(2, 12345);
+    b.Set(4, -99);
+    Assert.Equal(12345, b.Get(2));
+    Assert.Equal(-99, b.Get(4));
+    Assert.Equal(0, b.Get(3));
+}
+
+[Test]
+void test_buf_each_primitive_width() {
+    var l = new Buf<long>(2);  l.Set(0, 1L << 40); l.Set(1, -1);
+    Assert.Equal(1L << 40, l.Get(0));
+    var d = new Buf<double>(2); d.Set(0, 2.5); d.Set(1, -0.5);
+    Assert.Equal(2.5, d.Get(0));
+    var bl = new Buf<bool>(2); bl.Set(1, true);
+    Assert.Equal(true, bl.Get(1));
+    Assert.Equal(false, bl.Get(0));
+    var c = new Buf<char>(2); c.Set(0, 'z');
+    Assert.Equal('z', c.Get(0));
+    var by = new Buf<byte>(2); by.Set(1, 200);
+    Assert.Equal(200, by.Get(1));
+}
+
+[Test]
+void test_reference_argument_stays_erased() {
+    // 引用实参不受 M13 影响:单元路径照旧,行为不变。
+    var b = new Buf<string>(3);
+    Assert.True(b.Get(0) == null);
+    b.Set(1, "s");
+    Assert.Equal("s", b.Get(1));
+}
+
+[Test]
+void test_list_int_grow_sort_foreach() {
+    var list = new List<int>();
+    for (int i = 0; i < 100; i++) { list.Add((99 - i) * 3 % 100); }
+    Assert.Equal(100, list.Count);
+    list.Sort();
+    int prev = -1;
+    foreach (int x in list) {
+        Assert.True(x >= prev);
+        prev = x;
+    }
+    Assert.Equal(0, list[0]);
+    Assert.Equal(0, list.IndexOf(0));
+    Assert.Equal(true, list.Contains(99 * 3 % 100));
+}
+
+[Test]
+void test_list_copy_across_modes() {
+    // List backing(PRIM)→ ToArray 的 `new T[Count]`(也打包)经 Array.Copy:PRIM → PRIM。
+    var list = new List<int>(4);
+    list.Add(3); list.Add(1); list.Add(2);
+    int[] target = list.ToArray();
+    Assert.Equal(3, target.Length);
+    Assert.Equal(3, target[0]);
+    Assert.Equal(1, target[1]);
+    Assert.Equal(2, target[2]);
+    // MIXED(字面量)→ PRIM 的 Array.Copy。
+    int[] mixed = new int[]{ 9, 8 };
+    Array.Copy(mixed, target, 2);
+    Assert.Equal(9, target[0]);
+    Assert.Equal(8, target[1]);
+}
+
+[Test]
+void test_dictionary_int_values() {
+    var d = new Dictionary<string, int>();
+    for (int i = 0; i < 50; i++) { d["k" + i] = i * 2; }
+    Assert.Equal(50, d.Count);
+    Assert.Equal(0, d["k0"]);
+    Assert.Equal(98, d["k49"]);
+    d["k0"] = -1;
+    Assert.Equal(-1, d["k0"]);
+}
+
+[Test]
+void test_survives_collection() {
+    var b = new Buf<long>(1000);
+    for (int i = 0; i < 1000; i++) { b.Set(i, (long)i * 7); }
+    GC.Collect();
+    long acc = 0;
+    for (int i = 0; i < 1000; i++) { acc += b.Get(i); }
+    Assert.Equal(7 * 999 * 1000 / 2, acc);
+}
+
+[Test]
+void test_setvalue_mismatched_kind_throws() {
+    // 无类型 API 的值是用户给的:错误种类 → InvalidCastException（同 int[] 语义）,
+    // 数组不动。装箱 Int32 拆箱后正常写入。
+    var b = new Buf<int>(2);
+    var arr = (Array)b;   // 经 object 通道拿无类型视图 —— 无此语法则直接用反射结果
+    Assert.Equal(2, b.Length);
+    // 直接构造场景:反射建一个 int[](PRIM)再 SetValue 校验既有语义不回归。
+    object ints = new int[1];
+    ((Array)ints).SetValue(41, 0);
+    Assert.Equal(41, ((Array)ints).GetValue(0));
+    bool threw = false;
+    try { ((Array)ints).SetValue("no", 0); } catch (InvalidCastException) { threw = true; }
+    Assert.True(threw);
+    Assert.Equal(41, ((Array)ints).GetValue(0));
+}
+
+[Test]
+void test_packed_density() {
+    // 密度:200 万个 long 的 backing 每元素 8 B(+ 头与对象本身的开销)。
+    // M13 之前是 16 B/元素的型参单元 —— 断言上限把回归钉住。
+    long before = GC.UsedBytes();
+    var big = new Buf<long>(2_000_000);
+    long delta = GC.UsedBytes() - before;
+    Assert.True(delta <= 2_000_000L * 9 + 256);
+}

@@ -80,7 +80,7 @@ pub unsafe extern "C" fn jit_obj_new(
 
     // runtime-jit-tiering Phase 1b: tiered ctor. Compiled (or compiling at the threshold) →
     // native, `this` in reg 0 and args straight from the caller's registers; cold /
-    // untranslatable / no `FnId` → the interpreter, which mutates `this` (a shared GcRef)
+    // untranslatable / no `FnId` → the interpreter, which mutates `this` (a shared ArrRef)
     // in place. `None` = a class without a ctor: the object stays default-initialised.
     if let Some((func, id)) = ctor {
         let arg_regs = std::slice::from_raw_parts(args_ptr, argc);

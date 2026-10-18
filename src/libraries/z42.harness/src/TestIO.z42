@@ -1,17 +1,6 @@
 namespace Std.Harness;
 
-// `Std.Harness.TestIO` — capture stdout/stderr emitted by code under test (R2 完整版).
-//
-// Implementation: each capture pushes a thread-local buffer; on take, the
-// buffer is popped and returned as a string. Nested calls compose via the
-// stack (inner sees inner output only; outer sees only what executed at
-// the outer level outside of inner's capture window). See
-// docs/design/testing/testing.md "TestIO".
-//
-// 异常路径：被测代码抛出时，sink 也必须卸载。所有方法都先 install，try
-// body()；catch 路径里 take 一次（discard buffer），再 throw 透传异常。
-// 这样调用方拿到 string 只在成功路径下，sink stack 始终一致。
-
+/// 一次双通道捕获的结果。
 public class CaptureResult {
     public string Stdout { get; private set; }
     public string Stderr { get; private set; }
@@ -22,9 +11,15 @@ public class CaptureResult {
     }
 }
 
+/// 捕获被测代码写到 stdout / stderr 的输出。
+///
+/// 每次捕获压入一个线程局部缓冲；捕获可嵌套，按栈组合——内层只看到内层的输出，
+/// 外层只看到内层窗口之外执行期间产生的输出。
+///
+/// @warning `body` 抛出时缓冲同样会卸载（不泄漏 sink），异常原样透传；拿到返回值
+///     只在成功路径上。
 public static class TestIO {
-    // Capture stdout produced during `body()`. Returns the captured text.
-    // Any exception thrown by `body` is rethrown after the sink is cleaned up.
+    /// 捕获 `body` 执行期间写到的 stdout，返回捕获文本。
     public static string captureStdout(Action body) {
         __install_stdout_sink();
         try {
@@ -36,7 +31,7 @@ public static class TestIO {
         }
     }
 
-    // Capture stderr only. stdout passes through to the process.
+    /// 只捕获 stderr；stdout 照常穿透到进程输出。
     public static string captureStderr(Action body) {
         __install_stderr_sink();
         try {
@@ -48,7 +43,7 @@ public static class TestIO {
         }
     }
 
-    // Capture both channels independently.
+    /// 双通道各自独立捕获。
     public static CaptureResult captureBoth(Action body) {
         __install_stdout_sink();
         __install_stderr_sink();

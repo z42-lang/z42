@@ -1,19 +1,19 @@
 //! 对象引用字段的 8 B 自描述字（object model R1）。
 //!
 //! 对象里每个引用字段是一个 8 B 字，单次原子读写：低 3 位记**种类**，其余位是句柄本身
-//! （`GcRef` / `VarGcRef` 的原始位，二者都 8 字节对齐，低 3 位恒为 0）。整个字为 0 = `null`。
+//! （`ObjRef` / `ArrRef` / `VarGcRef` 的原始位——都是变长区块头的地址，8 字节对齐，低 3 位恒为 0）。整个字为 0 = `null`。
 //! 16 B 的 `Value` 只活在寄存器里；字与 `Value` 之间的转换只在这里。
 //!
 //! | 种类 | `Value` | 句柄 |
 //! |---|---|---|
 //! | 0（整字为 0） | `Null` | — |
 //! | 1 | `Object` | `ObjRef`（变长区块） |
-//! | 2 | `Array` | `GcRef<ArrayObj>` |
+//! | 2 | `Array` | `ArrRef`（变长区块） |
 //! | 3 | `Str` | `VarGcRef` |
 //! | 4 | `Closure` | `VarGcRef` |
 //! | 5 | `FuncRef` | 不是句柄：`FnId << 3`，JIT 读走慢路径 |
 //! | 6 | `BoxedStruct` | `ObjRef` |
-//! | 7 | 装箱的任意 `Value`（逃生口） | `GcRef<ArrayObj>`，单元素数组 |
+//! | 7 | 装箱的任意 `Value`（逃生口） | `ArrRef`，单元素 FROZEN 数组 |
 //!
 //! **种类 7 是逃生口**：`object` / 接口字段能经擦除泛型收到裸的 `I64` / `F64` / `Bool` / `Char`
 //! （`void Set<T>(H h, T t) { h.O = t; }` 以 `T = int` 调用），这些值装不进 8 B。写入时把它装进一个
@@ -26,7 +26,7 @@
 use super::{ArrayObj, Cells, FieldWrite, Value};
 use crate::gc::ObjRef;
 use crate::gc::var_region::VarGcRef;
-use crate::gc::GcRef;
+use crate::gc::ArrRef;
 use crate::metadata::vstr::Str;
 
 /// 低 3 位：种类。
@@ -61,11 +61,9 @@ pub static VALUE_TAG_TO_KIND: [u8; 32] = {
 };
 pub const SLOW_PATH_KIND: u8 = 0xFF;
 
-// 句柄的低 3 位必须空着。64 位目标上 entry / 块头都含指针宽字段，天然 8 对齐；32 位目标由
-// `RegionEntry` 的 `repr(align(8))` 与 `GcBlockHeader` 的 `align(8)` 保证。对象（R6）与字符串、
-// 闭包一样是变长区块，句柄指向块头。
+// 句柄的低 3 位必须空着：所有句柄都指向变长区块头（对象 R6、数组 R9、字符串、闭包），块头
+// `align(8)`。
 const _: () = assert!(std::mem::align_of::<crate::gc::var_region::GcBlockHeader>() >= 8);
-const _: () = assert!(std::mem::align_of::<crate::gc::region::RegionEntry<ArrayObj>>() >= 8);
 
 #[inline(always)]
 fn tag(bits: u64, kind: u64) -> u64 {
@@ -91,19 +89,18 @@ pub fn encode(v: &Value) -> Option<u64> {
 
 /// 装箱逃生口的字：`boxed` 是一个只装了原值的单元素数组。
 #[inline]
-pub fn encode_boxed(boxed: &GcRef<ArrayObj>) -> u64 {
+pub fn encode_boxed(boxed: &ArrRef) -> u64 {
     tag(boxed.to_tagged_bits(), RK_BOXED_VALUE)
 }
 
 /// 用当前线程的环境堆（`gc::ambient`）分配逃生盒子：只读的单元素数组，元素是原样的 16 B `Value`
-/// （`ArrayBacking::Frozen` —— 盒子里可以是栈句柄，不能再按单元编码，否则会无限装箱）。
+/// （FROZEN 模式 —— 盒子里可以是栈句柄，不能再按单元编码，否则会无限装箱）。
 /// 没有活动堆（不带 VM 的单测）时报内部错误。
-pub fn alloc_box_ambient(v: &Value) -> anyhow::Result<GcRef<ArrayObj>> {
+pub fn alloc_box_ambient(v: &Value) -> anyhow::Result<ArrRef> {
     let heap = crate::gc::ambient::current_heap().ok_or_else(|| {
         anyhow::anyhow!("cannot store {v:?} into a reference cell: no active heap to box it")
     })?;
-    let boxed = ArrayObj::frozen(heap, vec![*v]);
-    match heap.alloc_array_obj(boxed) {
+    match ArrayObj::alloc_frozen(heap, std::slice::from_ref(v)) {
         Value::Array(r) => Ok(r),
         other => anyhow::bail!("boxing a cell value: heap returned {other:?}"),
     }
@@ -127,7 +124,7 @@ pub unsafe fn decode_for_trace(w: u64) -> Value {
     unsafe {
         match w & KIND_MASK {
             RK_OBJECT => ObjRef::from_tagged_bits(h).map_or(Value::Null, Value::Object),
-            RK_ARRAY | RK_BOXED_VALUE => GcRef::from_tagged_bits(h).map_or(Value::Null, Value::Array),
+            RK_ARRAY | RK_BOXED_VALUE => ArrRef::from_tagged_bits(h).map_or(Value::Null, Value::Array),
             RK_STR => VarGcRef::from_bits(h).map_or(Value::Null, |b| Value::Str(Str::from_var_ref(b))),
             RK_CLOSURE => VarGcRef::from_bits(h).map_or(Value::Null, Value::Closure),
             RK_FUNC_REF => Value::FuncRef(crate::metadata::tokens::FnId((w >> 3) as u32)),
@@ -155,8 +152,8 @@ pub unsafe fn decode(w: u64) -> Value {
 #[cold]
 #[inline(never)]
 unsafe fn unbox(w: u64) -> Value {
-    // SAFETY: 种类 7 的句柄来自 `encode_boxed(&GcRef<ArrayObj>)`。
-    match unsafe { GcRef::<ArrayObj>::from_tagged_bits(handle_bits(w)) } {
+    // SAFETY: 种类 7 的句柄来自 `encode_boxed(&ArrRef)`。
+    match unsafe { ArrRef::from_tagged_bits(handle_bits(w)) } {
         Some(b) => b.borrow().get(0).unwrap_or(Value::Null),
         None => Value::Null,
     }
