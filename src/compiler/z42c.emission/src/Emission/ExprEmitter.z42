@@ -1,5 +1,6 @@
 // 表达式 Bound → IR lowering（port-z42c-codegen，CG-1A–1D；CG-1E refactor 抽出）。
-// 集中 if-is 调度（D1）；无表达式临时栈——每子表达式 Alloc 寄存器 + 内联 Emit，返回该寄存器。
+// 调度 = IBoundExprVisitor<TypedReg, Unit> 双分派（visitor 2/3；完备性由接口保证——新增
+// BoundExpr 子类漏接 Visit = 编不过）；无表达式临时栈——每子表达式 Alloc 寄存器 + 内联 Emit，返回该寄存器。
 // 共享状态经 EmitContext（FunctionEmitter 与本类共用同一 ctx）。
 namespace Z42.Emission;
 
@@ -9,7 +10,7 @@ using Z42.Syntax;
 using Z42.IR;
 using Z42.IR.BinaryFormat;
 
-public sealed partial class ExprEmitter {
+public sealed partial class ExprEmitter : IBoundExprVisitor<TypedReg, Unit> {
     private EmitContext _ctx;
     private FunctionEmitter _fn;   // 反向引用：BoundSeqExpr 的 prelude 语句委托 _fn._emitStmt（含循环/控制流）
     private CallEmitter _call;     // call/new/method-group 发射簇（CG-1E follow-up 按职责抽出）
@@ -29,300 +30,288 @@ public sealed partial class ExprEmitter {
         return this._op.EmitSynthEqualsResult(structName, thisReg, otherReg);
     }
 
+    // 表达式发射入口：记源码行后经 Accept 双分派到下面的 Visit 方法。
+    // 每表达式入口记源码行（镜像 C# EmitExpr 入口 TrackLine；同行去重在 ctx）。
+    // 配合 _emitStmt 的语句级 TrackLine，覆盖跨多行的表达式（如多行 return 拼接）。
+    // 合成 __static_init__ 走 EmitStaticInit 丢弃行表，不受此影响（镜像 C#）。
     public TypedReg Emit(BoundExpr e) {
-        // 每表达式入口记源码行（镜像 C# EmitExpr 入口 TrackLine；同行去重在 ctx）。
-        // 配合 _emitStmt 的语句级 TrackLine，覆盖跨多行的表达式（如多行 return 拼接）。
-        // 合成 __static_init__ 走 EmitStaticInit 丢弃行表，不受此影响（镜像 C#）。
         this._ctx.TrackLine(e.Span);
-        if (e is BoundLitInt) {
-            BoundLitInt li = e as BoundLitInt;
-            int tag = this._ctx.ToIrType(li.Type());
-            TypedReg r = this._ctx.Alloc(tag);
-            // 恒 ConstI64（镜像 C# FunctionEmitterExprs：int 字面量一律 ConstI64Instr，dst 仍按类型 tag；
-            // ConstI32 仅闭包 capture index 用——byte-identical 关键）。
-            this._ctx.Emit(new ConstI64Instr(r, li.Text));
-            return r;
-        }
-        if (e is BoundLitFloat) {
-            BoundLitFloat lf = e as BoundLitFloat;
-            TypedReg r = this._ctx.Alloc(this._ctx.ToIrType(lf.Type()));
-            this._ctx.Emit(new ConstF64Instr(r, lf.Text));
-            return r;
-        }
-        if (e is BoundLitChar) {
-            BoundLitChar lc = e as BoundLitChar;
-            TypedReg r = this._ctx.Alloc(IrType.Char);
-            this._ctx.Emit(new ConstCharInstr(r, lc.Value));
-            return r;
-        }
-        if (e is BoundLitBool) {
-            BoundLitBool lb = e as BoundLitBool;
-            TypedReg r = this._ctx.Alloc(IrType.Bool);
-            this._ctx.Emit(new ConstBoolInstr(r, lb.Value));
-            return r;
-        }
-        if (e is BoundLitStr) {
-            BoundLitStr ls = e as BoundLitStr;
-            // 入池须是解码值（剥引号+转义还原），非 raw lexeme——否则引号泄进 STRS：
-            // 同池字面量比较碰巧相等，但 concat/输出全错（zbc e2e 抓出，2026-06-10）。
-            int idx = this._ctx.Gen.Intern(Lexer.DecodeString(ls.Raw));
-            TypedReg r = this._ctx.Alloc(IrType.Str);
-            this._ctx.Emit(new ConstStrInstr(r, idx));
-            return r;
-        }
-        if (e is BoundLitNull) {
-            TypedReg r = this._ctx.Alloc(IrType.Ref);
-            this._ctx.Emit(new ConstNullInstr(r));
-            return r;
-        }
-        if (e is BoundIdent) { return this._access._lookupIdent(e as BoundIdent); }
-        if (e is BoundCapturedIdent) {
-            // lift env 版体内：array_get env(reg0)[captureIdx]（镜像 C#——idx 用 ConstI32，唯一 ConstI32 场景）
-            BoundCapturedIdent ci = e as BoundCapturedIdent;
-            TypedReg idxReg = this._ctx.Alloc(IrType.I32);
-            this._ctx.Emit(new ConstI32Instr(idxReg, ci.CaptureIdx.ToString()));
-            TypedReg dst = this._ctx.Alloc(this._ctx.ToIrType(ci.Type()));
-            this._ctx.Emit(new ArrayGetInstr(dst, new TypedReg(0, IrType.Ref), idxReg));
-            return dst;
-        }
-        if (e is BoundArrayNew) {
-            BoundArrayNew an = e as BoundArrayNew;
-            TypedReg size = this.Emit(an.Size);
-            TypedReg dst = this._ctx.Alloc(IrType.Ref);
-            // 元素类型名须与 C# Z42TypeName 一致：prim / 泛型形参保留短名；类·实例化用 FQ
-            // （镜像 add-reflection-array-element-type：数组运行期非擦除，elem 名须可解析）。
-            string elemName = an.ElemName;
-            Z42ArrayType at = an.Type() as Z42ArrayType;
-            if (at != null && !this._isBuiltinValueElem(at.Elem) && !(at.Elem is Z42GenericParamType)) {
-                // generic-struct-erased-slot-value-copy：命中闸门的实例化元素用**规范名**，不能用
-                // `an.ElemName`（它来自 `Z42Type.Name()`，渲染成 `Pair<P2, Int32>`——wrapper 名 + 空格）。
-                // 名字对不上 ⇒ 运行期 `try_struct_backed` 全名 miss、回落裸名 ⇒ 数组按**定义**布局建
-                // （型参字段 8B 句柄），而元素是实例化形状 ⇒ stride 与偏移错位
-                // （实测 `struct field write out of blob bounds (off=32, w=4, len=32)`：
-                //  2 元素 × 定义布局 16B = 32，写实例化的 Second 落在 32 已越界）。
-                string ie = this._instIdentityName(at.Elem);   // 元素类型身份 = 实例化
-                elemName = ie != "" ? this._qualifyInstName(ie) : this._qualifyElemName(at.Elem, an.ElemName);
-            }
-            // ElemTag：直接用实际元素 Z42Type 走 ToIrType（泛型形参→Unknown 0x00，非 Ref）。
-            // 修 PrimTag 对泛型形参名回落 Ref 的 bug：通过 Z42PrimType 包装会调 PrimTag("T")→Ref。
-            int elemTag = at != null ? this._ctx.ToIrType(at.Elem) : IrType.Ref;
-            ArrayNewInstr ani = new ArrayNewInstr(dst, size, elemTag, elemName);
-            // fix-generic-array-value-zero-init（方案 C）：泛型形参元素携带 (kind, index)，VM 运行期
-            // 查 type_args 得具体类型产值类型零值。非泛型元素 kind=0/index=-1（编码不变→自举字节安全）。
-            if (an.TypeParamIndex >= 0) {
-                ani.TypeParamKind = an.IsMethodLevel ? 1 : 2;
-                ani.TypeParamIndex = an.TypeParamIndex;
-            }
-            this._ctx.Emit(ani);
-            return dst;
-        }
-        if (e is BoundRefArg) {
-            BoundRefArg ra = e as BoundRefArg;
-            // `out var n` 内联声明：先为 n 分配槽寄存器 + 登记 Locals（调用后读 n 命中），
-            // 镜像 C#（%1=n; load_local_addr %1）。这条路一直是对的，保持不动。
-            if (ra.IsVarDecl && !this._ctx.Locals.ContainsKey(ra.VarName)) {
-                TypedReg vdSlot = this._ctx.Alloc(IrType.Unknown);
-                this._ctx.Locals.Put(ra.VarName, vdSlot);
-                TypedReg vdDst = this._ctx.Alloc(IrType.Unknown);
-                this._ctx.Emit(new LoadLocalAddrInstr(vdDst, vdSlot));
-                return vdDst;
-            }
-            return this._emitRefArgAddr(ra);
-        }
-        if (e is BoundArrayLit) {
-            BoundArrayLit al = e as BoundArrayLit;
-            TypedReg[] elemRegs = new TypedReg[al.ElemCount];
-            int ei = 0;
-            while (ei < al.ElemCount) { elemRegs[ei] = this.Emit(al.Elems[ei]); ei = ei + 1; }
-            TypedReg dst = this._ctx.Alloc(IrType.Ref);
-            string elemName = al.ElemName;
-            Z42ArrayType at = al.Type() as Z42ArrayType;
-            if (at != null && !this._isBuiltinValueElem(at.Elem) && !(at.Elem is Z42GenericParamType)) {
-                elemName = this._qualifyElemName(at.Elem, al.ElemName);
-            }
-            // fix-zbc-writer-silent-truncation：`arr.new.lit` 的元素个数在 zbc 里是 u8。超过 255 个元素时
-            // 改下沉为 `array_new` + 逐元素 `array_set`（元素已按源序求值完毕，语义等价）。此前写端把个数
-            // 静默截成 `n & 0xFF`，产出不可解析的 zbc —— 查表常量一写长就中。
-            // blob 值 struct 元素的整元素写要走句柄拷贝（见 AccessEmitter 的 BoundIndex 分支），这条下沉
-            // 不覆盖它：仍发 arr.new.lit，由写端宽度检查响亮报错（>255 元素的 struct 字面量罕见）。
-            if (al.ElemCount > 255 && at != null && !this._isBlobStruct(at.Elem)) {
-                TypedReg size = this._ctx.Alloc(IrType.I32);
-                this._ctx.Emit(new ConstI32Instr(size, al.ElemCount.ToString()));
-                this._ctx.Emit(new ArrayNewInstr(dst, size, this._ctx.ToIrType(at.Elem), elemName));
-                int si = 0;
-                while (si < al.ElemCount) {
-                    TypedReg idx = this._ctx.Alloc(IrType.I32);
-                    this._ctx.Emit(new ConstI32Instr(idx, si.ToString()));
-                    this._ctx.Emit(new ArraySetInstr(dst, idx, elemRegs[si]));
-                    si = si + 1;
-                }
-                return dst;
-            }
-            this._ctx.Emit(new ArrayNewLitInstr(dst, elemRegs, al.ElemCount, elemName));
-            return dst;
-        }
-        if (e is BoundSeqExpr) {
-            // 序列表达式：依次发射 prelude 语句（委托 FunctionEmitter，支持 var-decl/循环/控制流），
-            // 再发射 value 返回其寄存器。集合字面量脱糖用（new + Add/Set + 填充循环 + 收尾读 tmp）。
-            BoundSeqExpr sq = e as BoundSeqExpr;
-            int si = 0;
-            while (si < sq.PreludeCount) { this._fn.EmitStmt(sq.Prelude[si]); si = si + 1; }
-            return this.Emit(sq.Value);
-        }
-        if (e is BoundStaticGet) {
-            BoundStaticGet sg = e as BoundStaticGet;
-            // add-static-properties：静态属性读 → `call C.get_X()`（此前落到下面发 `static_get C.X`，
-            // 一个根本不存在的静态字段 ⇒ 运行期 MissingSymbolException）。
-            if (sg.IsProp) { return this._call._emitStaticAccessor(sg.ClassName, sg.OwnerCt, "get_" + sg.FieldName, new TypedReg[0], 0, sg.Type()); }
-            // add-const-keyword：const 字段 → 字面量替换（无静态存储；喂 ConstFold）。
-            ConstValue cfv = this._constFieldVal(sg.ClassName, sg.FieldName);
-            if (cfv != null) { return this._emitConstVal(cfv, this._ctx.ToIrType(sg.Type())); }
-            TypedReg dst = this._access._emitStaticGetRaw(sg);
-            // add-static-struct-bytecization (PR-2 S)：static struct 字段存的是**装箱盒**
-            // （StaticSet 时 __box_struct 全局化，进程存活 + 引用身份）。**整读**（`var q = Holder.P`）
-            // 发 AsCast 拆回当前帧 arena StructRef（值语义拷贝）。**叶子访问**（`Holder.P.X`）不走这里——
-            // `_structChainRoot` 直接取盒句柄（见下），叶子 StructFieldGet/SetPrim 就地读写盒。
-            if (this._isBlobStruct(sg.Type())) {
-                TypedReg ud = this._ctx.Alloc(IrType.Ref);
-                this._ctx.Emit(new AsCastInstr(ud, dst, this._ctx.QualifyLayout(this._blobStructName(sg.Type()))));
-                return ud;
-            }
-            return dst;
-        }
-        if (e is BoundLambda) { return this._emitLambda(e as BoundLambda); }
-        if (e is BoundIndirectCall) {
-            BoundIndirectCall ic = e as BoundIndirectCall;
-            TypedReg[] args = new TypedReg[ic.ArgCount];
-            int ai = 0;
-            while (ai < ic.ArgCount) { args[ai] = this.Emit(ic.Args[ai]); ai = ai + 1; }
-            TypedReg callee = this.Emit(ic.Callee);
-            TypedReg dst = this._ctx.Alloc(this._ctx.ToIrType(ic.Type()));
-            this._ctx.Emit(new CallIndirectInstr(dst, callee, args, ic.ArgCount));
-            return dst;
-        }
-        if (e is BoundBinary) { return this._op._emitBinary(e as BoundBinary); }
-        if (e is BoundUnary) { return this._op._emitUnary(e as BoundUnary); }
-        if (e is BoundAssign) { return this._access._emitAssign(e as BoundAssign); }
-        if (e is BoundMember) { return this._access._emitMember(e as BoundMember); }
-        if (e is BoundCall) { return this._call._emitCall(e as BoundCall); }
-        if (e is BoundNew) { return this._call._emitNew(e as BoundNew); }
-        if (e is BoundIndex) { return this._access._emitIndex(e as BoundIndex); }
-        if (e is BoundIsExpr) { return this._top._emitIs(e as BoundIsExpr); }
-        if (e is BoundIsPatternExpr) { return this._top._emitIsPattern(e as BoundIsPatternExpr); }
-        if (e is BoundTypeof) { return this._top._emitTypeof(e as BoundTypeof); }
-        if (e is BoundMethodOf) { return this._top._emitMethodOf(e as BoundMethodOf); }
-        if (e is BoundCast) { return this._top._emitCast(e as BoundCast); }
-        if (e is BoundBox) { return this._top._emitBox(e as BoundBox); }
-        if (e is BoundConvert) { return this._top._emitConvert(e as BoundConvert); }
-        // add-symbol-availability-macro：`available!(X)` → Builtin("__sym_available", ConstStr(key))
-        if (e is BoundSymAvailable) { return this._top._emitSymAvailable(e as BoundSymAvailable); }
-        if (e is BoundConditional) { return this._op._emitConditional(e as BoundConditional); }
-        if (e is BoundSwitchExpr) { return this._op._emitSwitchExpr(e as BoundSwitchExpr); }
-        if (e is BoundFuncRef) {   // 方法组：LoadFn @<qualified 自由函数名>（与 free-call 同名限定）
-            BoundFuncRef fr = e as BoundFuncRef;
-            TypedReg frdst = this._ctx.Alloc(IrType.Ref);
-            // resolve-free-functions-by-namespace：此前一律 `Qualify`（当前 ns）⇒ 引用导入 / 别的 ns 的函数发出不存在的名字。
-            // add-target-typed-funcref-resolution：发 **RegKey**（非-primary 重载=mangle 键）；LoadFn 与 free-call
-            // 走同一 func_index（QualOf(ns, RegKey)）⇒ 选中的具体重载运行期可解析。primary 时 RegKey==FuncName、字节不变。
-            this._ctx.Emit(new LoadFnInstr(frdst, SymbolTable.QualOf(fr.FuncNs, fr.RegKey)));
-            return frdst;
-        }
-        if (e is BoundMethodGroup) { return this._call._emitMethodGroup(e as BoundMethodGroup); }
-        if (e is BoundInterpolatedStr) { return this._emitInterpolation(e as BoundInterpolatedStr); }
-        if (e is BoundExpect) { return this._op._emitExpect(e as BoundExpect); }
-        if (e is BoundDefault) {
-            BoundDefault def = e as BoundDefault;
-            // add-generic-methods：方法级 default(T) → MethodDefaultInsn（读 frame.method_type_args）。
-            if (def.IsMethodLevel) {
-                TypedReg mdr = this._ctx.Alloc(IrType.Ref);
-                this._ctx.Emit(new MethodDefaultInsn(mdr, def.ParamIndex));
-                return mdr;
-            }
-            if (def.ParamIndex >= 0) {
-                // 类级 `default(T)`。`DefaultOfInstr` 只读**受者自己**的 `type_args`，于是
-                // `class DInt : Box<int> {}` 上的 `default(T)` 产 `null` 而不是 `0`（实测）——
-                // 那个实例自己没有实参，实参在**基**的名字里（`Demo.Box<int>`，P1 之后才不被剥掉）。
-                //
-                // 与类级 `typeof(T)` 同款走 builtin（`__class_default(this, idx, ownerFq)`）：
-                // 第三个实参是型参的**声明类**，运行期据此沿基链定位到那一层再取实参。
-                // 不新增 IR 指令 ⇒ 无格式 bump（`DefaultOfInstr` 只带下标，加操作数要 bump）。
-                // 拿不到 `this`（静态语境）⇒ 保持 `DefaultOfInstr`，行为与今天逐字一致。
-                TypedReg dThis = this._ctx.Locals.Get("this") as TypedReg;
-                if (dThis != null) {
-                    TypedReg dIdx = this._ctx.Alloc(IrType.I32);
-                    this._ctx.Emit(new ConstI32Instr(dIdx, def.ParamIndex.ToString()));
-                    TypedReg dOwn = this._ctx.Alloc(IrType.Ref);
-                    this._ctx.Emit(new ConstStrInstr(dOwn, this._ctx.Gen.Intern(this._top._classOwnerFqPub())));
-                    TypedReg[] dargs = new TypedReg[3];
-                    dargs[0] = dThis; dargs[1] = dIdx; dargs[2] = dOwn;
-                    TypedReg dbr = this._ctx.Alloc(IrType.Ref);
-                    this._ctx.Emit(new BuiltinInstr(dbr, "__class_default", dargs, 3));
-                    return dbr;
-                }
-                // 🔴 **静态语境：绝不能发 `DefaultOfInstr`**。它读 `regs[0]`，而静态帧的 reg0 是
-                // **第一个实参、不是 this** ⇒ 静默读了那个实参的 `type_args`。实测
-                // `static string S(Box<int> o) { … default(T) … }` 在 `Box<string>.S(bi)` 上
-                // 返回 `0`（T=string，应为 null）—— 把「明显不知道」升级成「看起来对的错值」。
-                // 类级 `typeof(T)` 早有这道语境判据（`TypeOpTyper` 的注释写明了同一个理由），
-                // `default(T)` 一直漏着。静态语境下 T 今天确实无从得知 ⇒ 给**诚实的 null**，
-                // 与 typeof 给占位名同一口径。
-                TypedReg dnull = this._ctx.Alloc(IrType.Ref);
-                this._ctx.Emit(new ConstNullInstr(dnull));
-                return dnull;
-            }
-            // fix-default-blob-struct：blob 值 struct 的 default(T) = **零初始化 blob**，不是 null。
-            // 此前落到末尾的 ConstNull 兜底 ⇒ 上层 `T t = default(T)` 发 StructAlloc + StructCopy(t, null)
-            // ⇒ 运行期「StructCopy src: expected a struct value (StructRef), got Null」。
-            // arena 的 alloc 本就零初始化（bytes 全零 / refs 全 Null），正是 struct 的默认值定义。
-            if (this._isBlobStruct(def.Type())) {
-                string dsn = this._blobStructName(def.Type());   // 布局名（全名；命中特化闸门时是实例化名）
-                TypedReg dsr = this._ctx.Alloc(IrType.Ref);
-                this._ctx.Emit(new StructAllocInstr(dsr, this._ctx.QualifyLayout(dsn),
-                                                    this._ctx.Gen.Layouts.StructSize(dsn)));
-                return dsr;
-            }
-            int dtag = this._ctx.ToIrType(def.Type());
-            if (dtag == IrType.Bool) {
-                TypedReg drb = this._ctx.Alloc(IrType.Bool);
-                this._ctx.Emit(new ConstBoolInstr(drb, false));
-                return drb;
-            }
-            if (dtag == IrType.I32 || dtag == IrType.I8 || dtag == IrType.I16 || dtag == IrType.U8 || dtag == IrType.U16 || dtag == IrType.U32) {
-                TypedReg dri = this._ctx.Alloc(IrType.I32);
-                this._ctx.Emit(new ConstI32Instr(dri, "0"));
-                return dri;
-            }
-            if (dtag == IrType.I64 || dtag == IrType.U64) {
-                TypedReg drl = this._ctx.Alloc(IrType.I64);
-                this._ctx.Emit(new ConstI64Instr(drl, "0"));
-                return drl;
-            }
-            if (dtag == IrType.F32 || dtag == IrType.F64) {
-                TypedReg drf = this._ctx.Alloc(IrType.F64);
-                this._ctx.Emit(new ConstF64Instr(drf, "0.0"));
-                return drf;
-            }
-            if (dtag == IrType.Char) {
-                TypedReg drc = this._ctx.Alloc(IrType.Char);
-                this._ctx.Emit(new ConstCharInstr(drc, '\0'));   // default(char) = '\0'
-                return drc;
-            }
-            TypedReg drn = this._ctx.Alloc(IrType.Ref);
-            this._ctx.Emit(new ConstNullInstr(drn));
-            return drn;
-        }
-        // BoundError（类型检查失败的错误恢复哨兵）：优雅降级为 const.null（保 dump 良构）。
-        // 仅错误路径可达——成功编译在 emit 前已因类型错误中止，不会走到这里。
-        if (e is BoundError) {
-            TypedReg ph = this._ctx.Alloc(this._ctx.ToIrType(e.Type()));
-            this._ctx.Emit(new ConstNullInstr(ph));
-            return ph;
-        }
-        // 其余任何未处理节点 = 编译器 bug（新增了 BoundExpr 种类却漏接 emit dispatch）。
-        // 响亮报错，杜绝此前「静默 emit const.null 占位 → 错误 codegen」的隐蔽陷阱
-        // （dispatch 穷尽性：新增节点漏接立即崩、带节点 Dump，而非产出错误字节）。
-        throw new Exception("ExprEmitter.Emit: unhandled BoundExpr kind: " + e.Dump());
+        return e.Accept<TypedReg, Unit>(this, Unit.Value);
     }
+
+    // ── IBoundExprVisitor<TypedReg, Unit>（方法序 = 接口声明序）：
+    //    字面量/默认值等叶子发射就地；复杂节点一委子发射簇（_call/_top/_op/_access）──
+    public TypedReg VisitLitInt(BoundLitInt li, Unit d) {
+        int tag = this._ctx.ToIrType(li.Type());
+        TypedReg r = this._ctx.Alloc(tag);
+        // 恒 ConstI64（镜像 C# FunctionEmitterExprs：int 字面量一律 ConstI64Instr，dst 仍按类型 tag；
+        // ConstI32 仅闭包 capture index 用——byte-identical 关键）。
+        this._ctx.Emit(new ConstI64Instr(r, li.Text));
+        return r;
+    }
+    public TypedReg VisitLitChar(BoundLitChar lc, Unit d) {
+        TypedReg r = this._ctx.Alloc(IrType.Char);
+        this._ctx.Emit(new ConstCharInstr(r, lc.Value));
+        return r;
+    }
+    public TypedReg VisitLitFloat(BoundLitFloat lf, Unit d) {
+        TypedReg r = this._ctx.Alloc(this._ctx.ToIrType(lf.Type()));
+        this._ctx.Emit(new ConstF64Instr(r, lf.Text));
+        return r;
+    }
+    public TypedReg VisitLitStr(BoundLitStr ls, Unit d) {
+        // 入池须是解码值（剥引号+转义还原），非 raw lexeme——否则引号泄进 STRS：
+        // 同池字面量比较碰巧相等，但 concat/输出全错（zbc e2e 抓出，2026-06-10）。
+        int idx = this._ctx.Gen.Intern(Lexer.DecodeString(ls.Raw));
+        TypedReg r = this._ctx.Alloc(IrType.Str);
+        this._ctx.Emit(new ConstStrInstr(r, idx));
+        return r;
+    }
+    public TypedReg VisitLitBool(BoundLitBool lb, Unit d) {
+        TypedReg r = this._ctx.Alloc(IrType.Bool);
+        this._ctx.Emit(new ConstBoolInstr(r, lb.Value));
+        return r;
+    }
+    public TypedReg VisitInterpolatedStr(BoundInterpolatedStr n, Unit d) { return this._emitInterpolation(n); }
+    public TypedReg VisitLitNull(BoundLitNull n, Unit d) {
+        TypedReg r = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new ConstNullInstr(r));
+        return r;
+    }
+    public TypedReg VisitIdent(BoundIdent n, Unit d) { return this._access._lookupIdent(n); }
+    public TypedReg VisitFuncRef(BoundFuncRef fr, Unit d) {
+        // 方法组：LoadFn @<qualified 自由函数名>（与 free-call 同名限定）
+        TypedReg frdst = this._ctx.Alloc(IrType.Ref);
+        // resolve-free-functions-by-namespace：此前一律 `Qualify`（当前 ns）⇒ 引用导入 / 别的 ns 的函数发出不存在的名字。
+        // add-target-typed-funcref-resolution：发 **RegKey**（非-primary 重载=mangle 键）；LoadFn 与 free-call
+        // 走同一 func_index（QualOf(ns, RegKey)）⇒ 选中的具体重载运行期可解析。primary 时 RegKey==FuncName、字节不变。
+        this._ctx.Emit(new LoadFnInstr(frdst, SymbolTable.QualOf(fr.FuncNs, fr.RegKey)));
+        return frdst;
+    }
+    public TypedReg VisitMember(BoundMember n, Unit d) { return this._access._emitMember(n); }
+    public TypedReg VisitIndex(BoundIndex n, Unit d) { return this._access._emitIndex(n); }
+    public TypedReg VisitStaticGet(BoundStaticGet sg, Unit d) {
+        // add-static-properties：静态属性读 → `call C.get_X()`（此前落到下面发 `static_get C.X`，
+        // 一个根本不存在的静态字段 ⇒ 运行期 MissingSymbolException）。
+        if (sg.IsProp) { return this._call._emitStaticAccessor(sg.ClassName, sg.OwnerCt, "get_" + sg.FieldName, new TypedReg[0], 0, sg.Type()); }
+        // add-const-keyword：const 字段 → 字面量替换（无静态存储；喂 ConstFold）。
+        ConstValue cfv = this._constFieldVal(sg.ClassName, sg.FieldName);
+        if (cfv != null) { return this._emitConstVal(cfv, this._ctx.ToIrType(sg.Type())); }
+        TypedReg dst = this._access._emitStaticGetRaw(sg);
+        // add-static-struct-bytecization (PR-2 S)：static struct 字段存的是**装箱盒**
+        // （StaticSet 时 __box_struct 全局化，进程存活 + 引用身份）。**整读**（`var q = Holder.P`）
+        // 发 AsCast 拆回当前帧 arena StructRef（值语义拷贝）。**叶子访问**（`Holder.P.X`）不走这里——
+        // `_structChainRoot` 直接取盒句柄（见下），叶子 StructFieldGet/SetPrim 就地读写盒。
+        if (this._isBlobStruct(sg.Type())) {
+            TypedReg ud = this._ctx.Alloc(IrType.Ref);
+            this._ctx.Emit(new AsCastInstr(ud, dst, this._ctx.QualifyLayout(this._blobStructName(sg.Type()))));
+            return ud;
+        }
+        return dst;
+    }
+    public TypedReg VisitCapturedIdent(BoundCapturedIdent ci, Unit d) {
+        // lift env 版体内：array_get env(reg0)[captureIdx]（镜像 C#——idx 用 ConstI32，唯一 ConstI32 场景）
+        TypedReg idxReg = this._ctx.Alloc(IrType.I32);
+        this._ctx.Emit(new ConstI32Instr(idxReg, ci.CaptureIdx.ToString()));
+        TypedReg dst = this._ctx.Alloc(this._ctx.ToIrType(ci.Type()));
+        this._ctx.Emit(new ArrayGetInstr(dst, new TypedReg(0, IrType.Ref), idxReg));
+        return dst;
+    }
+    public TypedReg VisitDefault(BoundDefault def, Unit d) {
+        // add-generic-methods：方法级 default(T) → MethodDefaultInsn（读 frame.method_type_args）。
+        if (def.IsMethodLevel) {
+            TypedReg mdr = this._ctx.Alloc(IrType.Ref);
+            this._ctx.Emit(new MethodDefaultInsn(mdr, def.ParamIndex));
+            return mdr;
+        }
+        if (def.ParamIndex >= 0) {
+            // 类级 `default(T)`。`DefaultOfInstr` 只读**受者自己**的 `type_args`，于是
+            // `class DInt : Box<int> {}` 上的 `default(T)` 产 `null` 而不是 `0`（实测）——
+            // 那个实例自己没有实参，实参在**基**的名字里（`Demo.Box<int>`，P1 之后才不被剥掉）。
+            //
+            // 与类级 `typeof(T)` 同款走 builtin（`__class_default(this, idx, ownerFq)`）：
+            // 第三个实参是型参的**声明类**，运行期据此沿基链定位到那一层再取实参。
+            // 不新增 IR 指令 ⇒ 无格式 bump（`DefaultOfInstr` 只带下标，加操作数要 bump）。
+            // 拿不到 `this`（静态语境）⇒ 保持 `DefaultOfInstr`，行为与今天逐字一致。
+            TypedReg dThis = this._ctx.Locals.Get("this") as TypedReg;
+            if (dThis != null) {
+                TypedReg dIdx = this._ctx.Alloc(IrType.I32);
+                this._ctx.Emit(new ConstI32Instr(dIdx, def.ParamIndex.ToString()));
+                TypedReg dOwn = this._ctx.Alloc(IrType.Ref);
+                this._ctx.Emit(new ConstStrInstr(dOwn, this._ctx.Gen.Intern(this._top._classOwnerFqPub())));
+                TypedReg[] dargs = new TypedReg[3];
+                dargs[0] = dThis; dargs[1] = dIdx; dargs[2] = dOwn;
+                TypedReg dbr = this._ctx.Alloc(IrType.Ref);
+                this._ctx.Emit(new BuiltinInstr(dbr, "__class_default", dargs, 3));
+                return dbr;
+            }
+            // 🔴 **静态语境：绝不能发 `DefaultOfInstr`**。它读 `regs[0]`，而静态帧的 reg0 是
+            // **第一个实参、不是 this** ⇒ 静默读了那个实参的 `type_args`。实测
+            // `static string S(Box<int> o) { … default(T) … }` 在 `Box<string>.S(bi)` 上
+            // 返回 `0`（T=string，应为 null）—— 把「明显不知道」升级成「看起来对的错值」。
+            // 类级 `typeof(T)` 早有这道语境判据（`TypeOpTyper` 的注释写明了同一个理由），
+            // `default(T)` 一直漏着。静态语境下 T 今天确实无从得知 ⇒ 给**诚实的 null**，
+            // 与 typeof 给占位名同一口径。
+            TypedReg dnull = this._ctx.Alloc(IrType.Ref);
+            this._ctx.Emit(new ConstNullInstr(dnull));
+            return dnull;
+        }
+        // fix-default-blob-struct：blob 值 struct 的 default(T) = **零初始化 blob**，不是 null。
+        // 此前落到末尾的 ConstNull 兜底 ⇒ 上层 `T t = default(T)` 发 StructAlloc + StructCopy(t, null)
+        // ⇒ 运行期「StructCopy src: expected a struct value (StructRef), got Null」。
+        // arena 的 alloc 本就零初始化（bytes 全零 / refs 全 Null），正是 struct 的默认值定义。
+        if (this._isBlobStruct(def.Type())) {
+            string dsn = this._blobStructName(def.Type());   // 布局名（全名；命中特化闸门时是实例化名）
+            TypedReg dsr = this._ctx.Alloc(IrType.Ref);
+            this._ctx.Emit(new StructAllocInstr(dsr, this._ctx.QualifyLayout(dsn),
+                                                this._ctx.Gen.Layouts.StructSize(dsn)));
+            return dsr;
+        }
+        int dtag = this._ctx.ToIrType(def.Type());
+        if (dtag == IrType.Bool) {
+            TypedReg drb = this._ctx.Alloc(IrType.Bool);
+            this._ctx.Emit(new ConstBoolInstr(drb, false));
+            return drb;
+        }
+        if (dtag == IrType.I32 || dtag == IrType.I8 || dtag == IrType.I16 || dtag == IrType.U8 || dtag == IrType.U16 || dtag == IrType.U32) {
+            TypedReg dri = this._ctx.Alloc(IrType.I32);
+            this._ctx.Emit(new ConstI32Instr(dri, "0"));
+            return dri;
+        }
+        if (dtag == IrType.I64 || dtag == IrType.U64) {
+            TypedReg drl = this._ctx.Alloc(IrType.I64);
+            this._ctx.Emit(new ConstI64Instr(drl, "0"));
+            return drl;
+        }
+        if (dtag == IrType.F32 || dtag == IrType.F64) {
+            TypedReg drf = this._ctx.Alloc(IrType.F64);
+            this._ctx.Emit(new ConstF64Instr(drf, "0.0"));
+            return drf;
+        }
+        if (dtag == IrType.Char) {
+            TypedReg drc = this._ctx.Alloc(IrType.Char);
+            this._ctx.Emit(new ConstCharInstr(drc, '\0'));   // default(char) = '\0'
+            return drc;
+        }
+        TypedReg drn = this._ctx.Alloc(IrType.Ref);
+        this._ctx.Emit(new ConstNullInstr(drn));
+        return drn;
+    }
+    public TypedReg VisitExpect(BoundExpect n, Unit d) { return this._op._emitExpect(n); }
+    public TypedReg VisitError(BoundError n, Unit d) {
+        // 类型检查失败的错误恢复哨兵：优雅降级为 const.null（保 dump 良构）。
+        // 仅错误路径可达——成功编译在 emit 前已因类型错误中止，不会走到这里。
+        TypedReg ph = this._ctx.Alloc(this._ctx.ToIrType(n.Type()));
+        this._ctx.Emit(new ConstNullInstr(ph));
+        return ph;
+    }
+    public TypedReg VisitSwitchExpr(BoundSwitchExpr n, Unit d) { return this._op._emitSwitchExpr(n); }
+    public TypedReg VisitSeqExpr(BoundSeqExpr sq, Unit d) {
+        // 序列表达式：依次发射 prelude 语句（委托 FunctionEmitter，支持 var-decl/循环/控制流），
+        // 再发射 value 返回其寄存器。集合字面量脱糖用（new + Add/Set + 填充循环 + 收尾读 tmp）。
+        int si = 0;
+        while (si < sq.PreludeCount) { this._fn.EmitStmt(sq.Prelude[si]); si = si + 1; }
+        return this.Emit(sq.Value);
+    }
+    public TypedReg VisitAssign(BoundAssign n, Unit d) { return this._access._emitAssign(n); }
+    public TypedReg VisitMethodGroup(BoundMethodGroup n, Unit d) { return this._call._emitMethodGroup(n); }
+    public TypedReg VisitCall(BoundCall n, Unit d) { return this._call._emitCall(n); }
+    public TypedReg VisitBinary(BoundBinary n, Unit d) { return this._op._emitBinary(n); }
+    public TypedReg VisitUnary(BoundUnary n, Unit d) { return this._op._emitUnary(n); }
+    public TypedReg VisitConditional(BoundConditional n, Unit d) { return this._op._emitConditional(n); }
+    public TypedReg VisitIsExpr(BoundIsExpr n, Unit d) { return this._top._emitIs(n); }
+    public TypedReg VisitIsPatternExpr(BoundIsPatternExpr n, Unit d) { return this._top._emitIsPattern(n); }
+    public TypedReg VisitTypeof(BoundTypeof n, Unit d) { return this._top._emitTypeof(n); }
+    public TypedReg VisitMethodOf(BoundMethodOf n, Unit d) { return this._top._emitMethodOf(n); }
+    public TypedReg VisitCast(BoundCast n, Unit d) { return this._top._emitCast(n); }
+    public TypedReg VisitConvert(BoundConvert n, Unit d) { return this._top._emitConvert(n); }
+    public TypedReg VisitBox(BoundBox n, Unit d) { return this._top._emitBox(n); }
+    public TypedReg VisitNew(BoundNew n, Unit d) { return this._call._emitNew(n); }
+    public TypedReg VisitRefArg(BoundRefArg ra, Unit d) {
+        // `out var n` 内联声明：先为 n 分配槽寄存器 + 登记 Locals（调用后读 n 命中），
+        // 镜像 C#（%1=n; load_local_addr %1）。这条路一直是对的，保持不动。
+        if (ra.IsVarDecl && !this._ctx.Locals.ContainsKey(ra.VarName)) {
+            TypedReg vdSlot = this._ctx.Alloc(IrType.Unknown);
+            this._ctx.Locals.Put(ra.VarName, vdSlot);
+            TypedReg vdDst = this._ctx.Alloc(IrType.Unknown);
+            this._ctx.Emit(new LoadLocalAddrInstr(vdDst, vdSlot));
+            return vdDst;
+        }
+        return this._emitRefArgAddr(ra);
+    }
+    public TypedReg VisitArrayNew(BoundArrayNew an, Unit d) {
+        TypedReg size = this.Emit(an.Size);
+        TypedReg dst = this._ctx.Alloc(IrType.Ref);
+        // 元素类型名须与 C# Z42TypeName 一致：prim / 泛型形参保留短名；类·实例化用 FQ
+        // （镜像 add-reflection-array-element-type：数组运行期非擦除，elem 名须可解析）。
+        string elemName = an.ElemName;
+        Z42ArrayType at = an.Type() as Z42ArrayType;
+        if (at != null && !this._isBuiltinValueElem(at.Elem) && !(at.Elem is Z42GenericParamType)) {
+            // generic-struct-erased-slot-value-copy：命中闸门的实例化元素用**规范名**，不能用
+            // `an.ElemName`（它来自 `Z42Type.Name()`，渲染成 `Pair<P2, Int32>`——wrapper 名 + 空格）。
+            // 名字对不上 ⇒ 运行期 `try_struct_backed` 全名 miss、回落裸名 ⇒ 数组按**定义**布局建
+            // （型参字段 8B 句柄），而元素是实例化形状 ⇒ stride 与偏移错位
+            // （实测 `struct field write out of blob bounds (off=32, w=4, len=32)`：
+            //  2 元素 × 定义布局 16B = 32，写实例化的 Second 落在 32 已越界）。
+            string ie = this._instIdentityName(at.Elem);   // 元素类型身份 = 实例化
+            elemName = ie != "" ? this._qualifyInstName(ie) : this._qualifyElemName(at.Elem, an.ElemName);
+        }
+        // ElemTag：直接用实际元素 Z42Type 走 ToIrType（泛型形参→Unknown 0x00，非 Ref）。
+        // 修 PrimTag 对泛型形参名回落 Ref 的 bug：通过 Z42PrimType 包装会调 PrimTag("T")→Ref。
+        int elemTag = at != null ? this._ctx.ToIrType(at.Elem) : IrType.Ref;
+        ArrayNewInstr ani = new ArrayNewInstr(dst, size, elemTag, elemName);
+        // fix-generic-array-value-zero-init（方案 C）：泛型形参元素携带 (kind, index)，VM 运行期
+        // 查 type_args 得具体类型产值类型零值。非泛型元素 kind=0/index=-1（编码不变→自举字节安全）。
+        if (an.TypeParamIndex >= 0) {
+            ani.TypeParamKind = an.IsMethodLevel ? 1 : 2;
+            ani.TypeParamIndex = an.TypeParamIndex;
+        }
+        this._ctx.Emit(ani);
+        return dst;
+    }
+    public TypedReg VisitArrayLit(BoundArrayLit al, Unit d) {
+        TypedReg[] elemRegs = new TypedReg[al.ElemCount];
+        int ei = 0;
+        while (ei < al.ElemCount) { elemRegs[ei] = this.Emit(al.Elems[ei]); ei = ei + 1; }
+        TypedReg dst = this._ctx.Alloc(IrType.Ref);
+        string elemName = al.ElemName;
+        Z42ArrayType at = al.Type() as Z42ArrayType;
+        if (at != null && !this._isBuiltinValueElem(at.Elem) && !(at.Elem is Z42GenericParamType)) {
+            elemName = this._qualifyElemName(at.Elem, al.ElemName);
+        }
+        // fix-zbc-writer-silent-truncation：`arr.new.lit` 的元素个数在 zbc 里是 u8。超过 255 个元素时
+        // 改下沉为 `array_new` + 逐元素 `array_set`（元素已按源序求值完毕，语义等价）。此前写端把个数
+        // 静默截成 `n & 0xFF`，产出不可解析的 zbc —— 查表常量一写长就中。
+        // blob 值 struct 元素的整元素写要走句柄拷贝（见 AccessEmitter 的 BoundIndex 分支），这条下沉
+        // 不覆盖它：仍发 arr.new.lit，由写端宽度检查响亮报错（>255 元素的 struct 字面量罕见）。
+        if (al.ElemCount > 255 && at != null && !this._isBlobStruct(at.Elem)) {
+            TypedReg size = this._ctx.Alloc(IrType.I32);
+            this._ctx.Emit(new ConstI32Instr(size, al.ElemCount.ToString()));
+            this._ctx.Emit(new ArrayNewInstr(dst, size, this._ctx.ToIrType(at.Elem), elemName));
+            int si = 0;
+            while (si < al.ElemCount) {
+                TypedReg idx = this._ctx.Alloc(IrType.I32);
+                this._ctx.Emit(new ConstI32Instr(idx, si.ToString()));
+                this._ctx.Emit(new ArraySetInstr(dst, idx, elemRegs[si]));
+                si = si + 1;
+            }
+            return dst;
+        }
+        this._ctx.Emit(new ArrayNewLitInstr(dst, elemRegs, al.ElemCount, elemName));
+        return dst;
+    }
+    public TypedReg VisitLambda(BoundLambda n, Unit d) { return this._emitLambda(n); }
+    public TypedReg VisitIndirectCall(BoundIndirectCall ic, Unit d) {
+        TypedReg[] args = new TypedReg[ic.ArgCount];
+        int ai = 0;
+        while (ai < ic.ArgCount) { args[ai] = this.Emit(ic.Args[ai]); ai = ai + 1; }
+        TypedReg callee = this.Emit(ic.Callee);
+        TypedReg dst = this._ctx.Alloc(this._ctx.ToIrType(ic.Type()));
+        this._ctx.Emit(new CallIndirectInstr(dst, callee, args, ic.ArgCount));
+        return dst;
+    }
+    // add-symbol-availability-macro：`available!(X)` → Builtin("__sym_available", ConstStr(key))
+    public TypedReg VisitSymAvailable(BoundSymAvailable n, Unit d) { return this._top._emitSymAvailable(n); }
 
     // GS4：插值串发射。镜像 C# EmitInterpolation：
     // 1. 所有 part 左→右依次发射，收集寄存器列表；
