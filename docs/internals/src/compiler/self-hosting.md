@@ -35,7 +35,7 @@ z42c 只用当前语言子集写；子集表达不了的写法，补进语言而
 |---|---|
 | 类字段的泛型参数被 parser 丢弃（`private List<X> f;` 取元素退化为 `<unknown>`，无法调其方法）| **typed array + count**：`Diagnostic[] _items; int _count;` + 手动 `Grow()`，故编译器内集合一律是并行数组 |
 | `new T[n][]` 不能创建交错数组 | 平铺单数组 + 偏移，或平行数组 + 线性查（如 `WorkspaceMembers.DepFlat/DepOff/DepLen`）|
-| AST / IR 节点 | `class` 继承层级 + `virtual`。IR 指令的操作数 / 编码 / 头部 tag / 可删性是指令类上的虚方法（基类给安全默认）；AST 的遍历是手写 `is` 穷举 walker，完备性由 `xtask check walkers` 对账。bound tree 有 visitor 接口 `IBoundExprVisitor<R, D>` / `IBoundStmtVisitor<R, D>` / `IBoundPatternVisitor<R, D>`（节点上抽象的 `R Accept<R, D>(v, d)`，用不上的 R / D 填 `Unit`），实现接口的遍历由编译器保证完备（新节点必须加 Visit 方法）；发射器与流分析仍是登记在 walkers 门的 `is` walker |
+| AST / IR 节点 | `class` 继承层级 + `virtual`。IR 指令的操作数 / 编码 / 头部 tag / 可删性是指令类上的虚方法（基类给安全默认）；AST 的遍历是手写 `is` 穷举 walker，完备性由 `xtask check walkers` 对账。bound tree 有 visitor 接口 `IBoundExprVisitor<R, D>` / `IBoundStmtVisitor<R, D>` / `IBoundPatternVisitor<R, D>`（节点上抽象的 `R Accept<R, D>(v, d)`，用不上的 R / D 填 `Unit`），实现接口的遍历由编译器保证完备（新节点必须加 Visit 方法；如 `DepUseCollector` 与流分析 `FlowAnalyzer`）；发射器仍是登记在 walkers 门的 `is` walker |
 | 错误路径 | `throw` / `try-catch` + Exception 子类 |
 
 `TokenKind` 等「枚举」是 `static class` + `int` 常量。

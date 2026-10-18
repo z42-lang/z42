@@ -18,7 +18,8 @@
 //
 // 节点族两处来源：语法树四族（z42c.syntax：Expr / Stmt / Pattern / TypeExpr）+ 绑定树三族
 // （z42c.semantics/src/BoundTree：BoundExpr / BoundStmt / BoundPattern）。绑定树这半边（extend-walkers-gate-bound-tree）
-// 管发射器与流分析：发射端漏一类以前会静默发 `const.null`（ExprEmitter 现已改成抛），流分析漏一类则静默不报。
+// 现在只管发射器：发射端漏一类以前会静默发 `const.null`（ExprEmitter 现已改成抛）。流分析（FlowAnalyzer）
+// 已改实现 bound visitor 接口，不再登记——完备性由编译器保证，叶子白名单随之删除。
 namespace Z42Xtask;
 
 using Std.IO;
@@ -48,7 +49,7 @@ sealed class WalkerEntryZ {
 // 只登记「穷举一个 AST 节点族、漏一类即静默/错值」的 walker；按类型-lattice / 目标-shape 分派的
 // （MemberResolver / AssignTyper）与「按设计部分覆盖、null→诊断兜底」的（ConstEval）不登记。
 WalkerEntryZ[] _walkerRegistry() {
-    WalkerEntryZ[] r = new WalkerEntryZ[8];
+    WalkerEntryZ[] r = new WalkerEntryZ[7];
     // MethodTypeParamUse 过近似地穷举全四族；8 个 Expr 叶子（无子节点、无类型位）故意 fall-through。
     string[] mtpuAllow = new string[]{
         "IntLitExpr", "FloatLitExpr", "StringLitExpr", "CharLitExpr",
@@ -63,26 +64,17 @@ WalkerEntryZ[] _walkerRegistry() {
         "src/compiler/z42c.semantics/src/Binding/StmtBinder.z42", new string[]{ "Stmt" }, none, 0);
     r[3] = new WalkerEntryZ("PatternBinder.Bind",
         "src/compiler/z42c.semantics/src/Binding/PatternBinder.z42", new string[]{ "Pattern" }, none, 0);
-    // ── 绑定树：发射器（漏一类 = 运行期才炸或发错）+ 流分析（漏一类 = 静默不报）──
+    // ── 绑定树：发射器（漏一类 = 运行期才炸或发错）──
     // 实现 `IBoundExprVisitor` / `IBoundStmtVisitor` / `IBoundPatternVisitor` 的 walker 不登记：新节点必须覆写
-    // 抽象 `Accept`、在接口里加 Visit 方法，各实现编不过直到处理它——完备性由编译器保证（如 DepUseCollector）。
+    // 抽象 `Accept`、在接口里加 Visit 方法，各实现编不过直到处理它——完备性由编译器保证（DepUseCollector、
+    // FlowAnalyzer——后者原是本门的 r[7] 带叶子白名单，visitor 化后「没覆盖即保守当成已赋值」的叶子
+    // 变成显式空体 Visit 方法，登记条目随之删除）。
     r[4] = new WalkerEntryZ("ExprEmitter.Emit",
         "src/compiler/z42c.emission/src/Emission/ExprEmitter.z42", new string[]{ "BoundExpr" }, none, 0);
     r[5] = new WalkerEntryZ("StmtEmitter._emitStmt",
         "src/compiler/z42c.emission/src/Emission/StmtEmitter.z42", new string[]{ "BoundStmt" }, none, 0);
     r[6] = new WalkerEntryZ("PatternEmitter.EmitMatch",
         "src/compiler/z42c.emission/src/Emission/PatternEmitter.z42", new string[]{ "BoundPattern" }, none, 0);
-    // FlowAnalyzer 按设计「没覆盖的节点保守当成已赋值」（只漏报、不误报，见其文件头）。白名单是今天故意不看的：
-    // 不读局部变量的叶子表达式，以及按保守语义处理的 break / continue。新加的绑定节点仍会让本门变红，
-    // 逼着显式决定它对 definite assignment 有没有影响。
-    string[] flowAllow = new string[]{
-        "BoundLitInt", "BoundLitFloat", "BoundLitStr", "BoundLitChar", "BoundLitBool",
-        "BoundDefault", "BoundError", "BoundTypeof", "BoundMethodOf", "BoundSymAvailable",
-        "BoundFuncRef", "BoundMethodGroup", "BoundStaticGet", "BoundCapturedIdent",
-        "BoundBreak", "BoundContinue" };
-    r[7] = new WalkerEntryZ("FlowAnalyzer._reads/_stmt",
-        "src/compiler/z42c.semantics/src/Validation/FlowAnalyzer.z42",
-        new string[]{ "BoundExpr", "BoundStmt" }, flowAllow, 16);
     return r;
 }
 
