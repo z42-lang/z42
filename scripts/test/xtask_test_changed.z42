@@ -306,8 +306,8 @@ _MapResult _mapFile(string f) {
     if (f.StartsWith("docs/learn/")) { return _mapCmds(new string[]{ "xtask test docs examples --book-only" }, new string[]{ "examples" }); }
     // 测试布局规范页带机器可读清单（类别 / 能力词表），`check layout` 拿它对账 —— 同样排在「docs 一律跳过」之前。
     if (f == "docs/internals/src/devinfra/test-layout.md") { return _mapCmds(new string[]{ "xtask check layout" }, new string[0]); }
-    // Docs / spec / claude state — no tests.
-    if (f.EndsWith(".md") || f.StartsWith("docs/") || f.StartsWith(".claude/")
+    // Docs / repo meta — no tests.
+    if (f.EndsWith(".md") || f.StartsWith("docs/")
         || f == ".gitignore" || f == ".gitattributes"
         || f.StartsWith("LICENSE") || f.StartsWith("README")) { return _mapSkip(); }
 

@@ -10,7 +10,7 @@
 
 | 文件 | 触发条件 | 职责 |
 |------|---------|------|
-| `ci.yml` | `pull_request` / `push` 到 main（只改 `.claude/**` 不触发）；`workflow_dispatch`；每日 16:00 UTC `schedule` | 主门禁 + nightly 发布，job 见下表 |
+| `ci.yml` | `pull_request` / `push` 到 main；`workflow_dispatch`；每日 16:00 UTC `schedule` | 主门禁 + nightly 发布，job 见下表 |
 | `bench-pr.yml` | `pull_request` 到 main（仅 runtime / libraries / compiler / bench / xtask 脚本路径，纯 `.md` 不触发）；`push` main 与每周一 `schedule` 仅预热缓存；`workflow_dispatch` | `bench-regression(linux-x64)`：同 runner A/B，`xtask bench --ab --tier gate --threshold-time 0.25`，>25% 时间回归且区间分离即 fail；micro 层只打印不判红。`bench-cache-warm`：main 上预热 Rust 依赖缓存。阈值依据见 internals「性能基准与回归门禁」 |
 | `release.yml` | 推 tag `v*.*.*`；`workflow_dispatch`（输入 version） | `verify-version`（tag ↔ `scripts/versions.toml`）→ `package-<rid>` × 9 个 RID → `publish-release`（含 SHA256SUMS） |
 | `deploy-book.yml` | `push` main 且改动书 / examples / 安装脚本；`pull_request`（只构建，`[ERROR]` 判红）；`workflow_dispatch` | 构建 mdBook 并发布到 GitHub Pages（含 `install.sh` / `install.ps1`） |

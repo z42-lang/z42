@@ -1,15 +1,11 @@
 name: CI
 
 on:
-  # 只改 `.claude/**` 不触发 CI。纯文档改动照样触发（要跑死链门禁），走 docs-only 快速通道（见 detect-changes）。
+  # 纯文档改动照样触发（要跑死链门禁），走 docs-only 快速通道（见 detect-changes）。
   pull_request:
     branches: [main]
-    paths-ignore:
-      - '.claude/**'
   push:
     branches: [main]
-    paths-ignore:
-      - '.claude/**'
   # 手动全量运行 / 重发 nightly（格式 bump 后旧 nightly 让下载自举的门暂时红时用）：gh workflow run CI --ref main。
   # 救不了 nightly 本身损坏（publish 的 needs 全靠 nightly 自举）——那靠 ci-bootstrap 的种子回退链（ci.md §3.1）。
   workflow_dispatch:

@@ -362,7 +362,7 @@ verbosity ≥ 4 才输出，而 CI 跑的是默认 verbosity——于是 `xtask 
 | `examples/<part>/<chapter>/…` | `test docs examples <part>/<chapter>` | `examples` |
 | `docs/learn/` | `test docs examples --book-only` | `examples` |
 | `scripts/`、`*.workspace.toml`、其余 `src/`、未识别路径 | **full**（坍缩为 `test`）| **full**（不跳）|
-| 其余文档 / `.claude/` / artifacts | 跳过 | — |
+| 其余文档 / artifacts | 跳过 | — |
 
 设计取向是**宁可多跑不可漏跑**：任一未识别路径即保守坍缩为完整 `test`。
 计划里的逻辑命令**在进程内重入 CLI 路由**（不 shell out），免去每命令一次进程启动；cargo 命令例外
