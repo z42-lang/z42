@@ -29,7 +29,7 @@
 //! plain stdin read so the builtins still resolve. The REPL itself is host-only
 //! (scripting-charter 2b).
 
-use crate::corelib::reflection::{builtin_type_members, make_type_from_name};
+use crate::corelib::reflection::{type_members, make_type_from_name};
 use crate::interp::{exec_function, ExecOutcome};
 use crate::metadata::Value;
 use crate::vm_context::VmContext;
@@ -241,7 +241,7 @@ pub fn builtin_repl_member_names(ctx: &VmContext, args: &[Value]) -> Result<Valu
         _ => return Ok(ctx.heap().alloc_array(Vec::new())),
     };
     let type_val = make_type_from_name(ctx, &tname);
-    let members = builtin_type_members(ctx, &[type_val])?;
+    let members = type_members(ctx, &type_val);
     let mut names: Vec<Value> = Vec::new();
     if let Value::Array(a) = members {
         for m in a.borrow().iter_boxed() {

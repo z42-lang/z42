@@ -348,8 +348,13 @@ pub(super) fn resolve_dotless_simple(ctx: &VmContext, name: &str) -> Option<Arc<
 }
 
 pub(super) fn type_handle(args: &[Value]) -> Option<Arc<TypeDesc>> {
-    match args.first() {
-        Some(Value::Object(rc)) => {
+    args.first().and_then(type_handle_of)
+}
+
+/// [`type_handle`] for a single receiver — the typed-builtin shape (P1-8 批次 1)。
+pub(super) fn type_handle_of(ty: &Value) -> Option<Arc<TypeDesc>> {
+    match ty {
+        Value::Object(rc) => {
             let obj = rc.borrow();
             match &obj.native() {
                 NativeData::TypeHandle(td) => Some(td.clone()),
@@ -386,7 +391,15 @@ pub(super) fn simple_method_name(qualified: &str) -> &str {
 /// `Name` / `FullName` extern properties (both handle-carrying and synthetic
 /// Types have these slots written by `build_type`).
 pub(super) fn read_type_str_slot(args: &[Value], field: &str) -> Value {
-    if let Some(Value::Object(rc)) = args.first() {
+    match args.first() {
+        Some(ty) => read_type_slot_of(ty, field),
+        None => Value::Null,
+    }
+}
+
+/// [`read_type_str_slot`] for a single receiver — the typed-builtin shape (P1-8 批次 1)。
+pub(super) fn read_type_slot_of(ty: &Value, field: &str) -> Value {
+    if let Value::Object(rc) = ty {
         if let Some(i) = rc.type_desc().field_index.get(field).copied() {
             let obj = rc.borrow();
             return obj.field_value(i);

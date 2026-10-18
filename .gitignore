@@ -7,6 +7,9 @@ artifacts/
 .cache/
 
 # Rust
+# 手动 `cargo build --manifest-path src/runtime/Cargo.toml`(cwd 不在 src/runtime 下)时
+# .cargo/config 的 target-dir 不生效,产物落到这里;xtask 构建走 artifacts/build/runtime。
+src/runtime/target/
 # Cargo.lock IS committed for binary-producing crates (z42vm / launcher / test-runner /
 # host embed + platform shims) so CI builds are reproducible. Without it `cargo build`
 # re-resolves transitive deps on every run; upstream drift (e.g. a new alloc-no-stdlib

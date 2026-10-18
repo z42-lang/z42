@@ -22,6 +22,7 @@
 //! the public API (`reflection::builtin_*` / `make_type_*` / `read_obj_slot`).
 //!
 
+use crate::corelib::abi::BuiltinError;
 use crate::interp::{exec_function, exec_function_with_type_args, ExecOutcome};
 use crate::metadata::{well_known_names, NativeData, TypeDesc, Value};
 use crate::vm_context::VmContext;
@@ -42,8 +43,8 @@ mod attributes;
 mod methods;
 mod properties;
 mod generics;
-mod enums;
-mod type_query;
+pub(crate) mod enums;
+pub(crate) mod type_query;
 mod invoke;
 // accept-boxed-struct-field-get: `field_get` 的 BoxedStruct 臂复用 `boxed_struct_field_get`
 // （按名取装箱 struct 的叶子）⇒ 模块对 crate 内可见，函数仍是 `pub(crate)`。

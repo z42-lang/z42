@@ -86,7 +86,7 @@ fn member_builtins_return_empty_for_non_type_arg() {
     assert_eq!(array_len(&builtin_type_fields(&c, &[Value::I64(7)]).unwrap()), 0);
     assert_eq!(array_len(&builtin_type_methods(&c, &[Value::I64(7)]).unwrap()), 0);
     assert_eq!(
-        array_len(&builtin_type_generic_args(&c, &[Value::I64(7)]).unwrap()),
+        array_len(&type_generic_args(&c, &Value::I64(7))),
         0
     );
 }
@@ -94,7 +94,7 @@ fn member_builtins_return_empty_for_non_type_arg() {
 #[test]
 fn type_base_null_for_non_type_arg() {
     let c = ctx();
-    assert_eq!(builtin_type_base(&c, &[Value::I64(7)]).unwrap(), Value::Null);
+    assert_eq!(type_base(&c, &Value::I64(7)), Value::Null);
 }
 
 #[test]
@@ -147,16 +147,16 @@ fn type_flags_decode_abstract_and_sealed() {
     let c = ctx();
     // Abstract-only class.
     let ta = type_obj(&c, td_with_flags("Demo.Shape", CLASS_FLAG_ABSTRACT));
-    assert_eq!(builtin_type_is_abstract(&c, &[ta.clone()]).unwrap(), Value::Bool(true));
-    assert_eq!(builtin_type_is_sealed(&c, &[ta]).unwrap(), Value::Bool(false));
+    assert!(type_is_abstract(&ta));
+    assert!(!type_is_sealed(&ta));
     // Sealed-only class.
     let ts = type_obj(&c, td_with_flags("Demo.Token", CLASS_FLAG_SEALED));
-    assert_eq!(builtin_type_is_abstract(&c, &[ts.clone()]).unwrap(), Value::Bool(false));
-    assert_eq!(builtin_type_is_sealed(&c, &[ts]).unwrap(), Value::Bool(true));
+    assert!(!type_is_abstract(&ts));
+    assert!(type_is_sealed(&ts));
     // Plain class (flags = 0).
     let tp = type_obj(&c, bare_td("Demo.Plain"));
-    assert_eq!(builtin_type_is_abstract(&c, &[tp.clone()]).unwrap(), Value::Bool(false));
-    assert_eq!(builtin_type_is_sealed(&c, &[tp]).unwrap(), Value::Bool(false));
+    assert!(!type_is_abstract(&tp));
+    assert!(!type_is_sealed(&tp));
 }
 
 #[test]
@@ -247,10 +247,10 @@ fn type_fields_empty_for_non_type_arg_with_static() {
 fn type_flags_false_for_handle_less() {
     // Non-Type arg / no handle → false, never bail (lenient).
     let c = ctx();
-    assert_eq!(builtin_type_is_abstract(&c, &[Value::I64(7)]).unwrap(), Value::Bool(false));
-    assert_eq!(builtin_type_is_sealed(&c, &[]).unwrap(), Value::Bool(false));
-    assert_eq!(builtin_type_is_value_type(&c, &[Value::I64(7)]).unwrap(), Value::Bool(false));
-    assert_eq!(builtin_type_is_record(&c, &[]).unwrap(), Value::Bool(false));
+    assert!(!type_is_abstract(&Value::I64(7)));
+    assert!(!type_is_sealed(&Value::Null));
+    assert!(!type_is_value_type(&Value::I64(7)));
+    assert!(!type_is_record(&Value::Null));
 }
 
 #[test]
@@ -259,16 +259,16 @@ fn type_flags_decode_struct_and_record() {
     let c = ctx();
     // Struct-only.
     let tv = type_obj(&c, td_with_flags("Demo.Point", CLASS_FLAG_STRUCT));
-    assert_eq!(builtin_type_is_value_type(&c, &[tv.clone()]).unwrap(), Value::Bool(true));
-    assert_eq!(builtin_type_is_record(&c, &[tv]).unwrap(), Value::Bool(false));
+    assert!(type_is_value_type(&tv.clone()));
+    assert!(!type_is_record(&tv));
     // Record-only.
     let tr = type_obj(&c, td_with_flags("Demo.Pair", CLASS_FLAG_RECORD));
-    assert_eq!(builtin_type_is_value_type(&c, &[tr.clone()]).unwrap(), Value::Bool(false));
-    assert_eq!(builtin_type_is_record(&c, &[tr]).unwrap(), Value::Bool(true));
+    assert!(!type_is_value_type(&tr.clone()));
+    assert!(type_is_record(&tr));
     // Plain class (flags 0).
     let tp = type_obj(&c, bare_td("Demo.Plain"));
-    assert_eq!(builtin_type_is_value_type(&c, &[tp.clone()]).unwrap(), Value::Bool(false));
-    assert_eq!(builtin_type_is_record(&c, &[tp]).unwrap(), Value::Bool(false));
+    assert!(!type_is_value_type(&tp.clone()));
+    assert!(!type_is_record(&tp));
 }
 
 #[test]
@@ -278,8 +278,8 @@ fn member_builtins_are_lenient_with_handle_but_no_core() {
     let c = ctx();
     let t = type_obj(&c, bare_td("Demo.Foo"));
     assert!(builtin_type_methods(&c, &[t.clone()]).is_ok());
-    assert!(builtin_type_generic_args(&c, &[t.clone()]).is_ok());
-    assert!(builtin_type_base(&c, &[t]).is_ok());
+    let _ = type_generic_args(&c, &t);
+    let _ = type_base(&c, &t);
 }
 
 #[test]
@@ -293,28 +293,28 @@ fn type_visibility_decode_top_level_and_nested() {
 
     // Top-level public (no '+', vis=0).
     let pub_top = type_obj(&c, td_with_visibility("Demo.PubTop", 0));
-    assert_eq!(builtin_type_visibility(&c, &[pub_top.clone()]).unwrap(), Value::I64(0));
-    assert_eq!(builtin_type_is_nested(&c, &[pub_top]).unwrap(), Value::Bool(false));
+    assert_eq!(type_visibility(&pub_top), 0);
+    assert!(!type_is_nested(&pub_top));
 
     // Top-level internal (no '+', vis=3).
     let int_top = type_obj(&c, td_with_visibility("Demo.IntTop", 3));
-    assert_eq!(builtin_type_visibility(&c, &[int_top.clone()]).unwrap(), Value::I64(3));
-    assert_eq!(builtin_type_is_nested(&c, &[int_top]).unwrap(), Value::Bool(false));
+    assert_eq!(type_visibility(&int_top.clone()), 3);
+    assert!(!type_is_nested(&int_top));
 
     // Nested public / private / protected(family) / internal(assembly) — name has '+'.
     let n_pub = type_obj(&c, td_with_visibility("Demo.Outer+NPub", 0));
-    assert_eq!(builtin_type_visibility(&c, &[n_pub.clone()]).unwrap(), Value::I64(0));
-    assert_eq!(builtin_type_is_nested(&c, &[n_pub]).unwrap(), Value::Bool(true));
+    assert_eq!(type_visibility(&n_pub.clone()), 0);
+    assert!(type_is_nested(&n_pub));
 
     let n_priv = type_obj(&c, td_with_visibility("Demo.Outer+NPriv", 1));
-    assert_eq!(builtin_type_visibility(&c, &[n_priv.clone()]).unwrap(), Value::I64(1));
-    assert_eq!(builtin_type_is_nested(&c, &[n_priv]).unwrap(), Value::Bool(true));
+    assert_eq!(type_visibility(&n_priv.clone()), 1);
+    assert!(type_is_nested(&n_priv));
 
     let n_fam = type_obj(&c, td_with_visibility("Demo.Outer+NFam", 2));
-    assert_eq!(builtin_type_visibility(&c, &[n_fam]).unwrap(), Value::I64(2));
+    assert_eq!(type_visibility(&n_fam), 2);
 
     let n_asm = type_obj(&c, td_with_visibility("Demo.Outer+NAsm", 3));
-    assert_eq!(builtin_type_visibility(&c, &[n_asm]).unwrap(), Value::I64(3));
+    assert_eq!(type_visibility(&n_asm), 3);
 }
 
 #[test]
@@ -323,8 +323,8 @@ fn type_visibility_handle_less_is_public() {
     // No TYPE handle (primitive / array) → visibility defaults to Public (0):
     // primitives behave as public top-level types (mirrors C#).
     let none = Value::I64(1);
-    assert_eq!(builtin_type_visibility(&c, &[none.clone()]).unwrap(), Value::I64(0));
-    assert_eq!(builtin_type_is_nested(&c, &[none]).unwrap(), Value::Bool(false));
+    assert_eq!(type_visibility(&none.clone()), 0);
+    assert!(!type_is_nested(&none));
 }
 
 #[test]
