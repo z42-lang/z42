@@ -166,9 +166,10 @@ xtask 起的每个跑 z42 代码的子进程都经 `_z42Proc(exe, libs)` 建（z
 `src/compiler/z42c.semantics/src/BoundTree`（`BoundExpr` / `BoundStmt` / `BoundPattern` 的子类），逐个登记的
 walker 文件里找 `is <类名>`；全集里既不被匹配、又不在该 walker 白名单里的类 → **红**。登记表是 `_walkerRegistry()`：
 语法树侧 `MethodTypeParamUse.Consumes` / `ExprTyper._bindExpr` / `StmtBinder._bindStmt` / `PatternBinder.Bind`，
-绑定树侧 `ExprEmitter.Emit` / `StmtEmitter._emitStmt` / `PatternEmitter.EmitMatch` / `FlowAnalyzer._reads/_stmt`
-（后者按「没覆盖即保守当成已赋值」的设计带白名单：不读局部的叶子与 break / continue）。加新 walker 加一行。
-实现 bound visitor 接口（`IBoundExprVisitor` 等）的遍历不登记——它的完备性由编译器保证（如 `DepUseCollector`）。
+绑定树侧 `FlowAnalyzer._reads/_stmt`（按「没覆盖即保守当成已赋值」的设计带白名单：不读局部的叶子与
+break / continue）。加新 walker 加一行。
+实现 bound visitor 接口（`IBoundExprVisitor` 等）的遍历不登记——它的完备性由编译器保证（`DepUseCollector`
+与 visitor 2/3 起的 `ExprEmitter` / `StmtEmitter` / `PatternEmitter`）。
 **不硬编码计数**——那种计数本身在漂。
 
 **`diagcodes` 是活体对账 + 一条棘轮**（`scripts/test/xtask_test_diagcodes.z42`）。守的是
