@@ -424,7 +424,7 @@ split   = "package"   # mdbook 输出粒度："package" | "type"
 
 1. 开工导航里「先读 README 再读书」之后加一步：**读完书页跑 `z42 doc --page <页>`，查符号用 `z42 doc <Sym>`
    或 `--members`，再按返回的 `file:line` 用 offset/limit 读实现**，不 grep、不整文件读取。
-2. 新增 `.claude/skills/z42-doc/`：一个很薄的 skill，写清查询命令的速查表和「改 API 后运行 `xtask doc gen`」的流程。
+2. 在 `AGENTS.md`（或所用工具的 skill / 斜杠命令机制）里加一个很薄的查询命令速查表，写清「改 API 后运行 `xtask doc gen`」的流程。
 3. 编译器各包设置 `[doc] private = true`。之后 agent 改编译器时，可以用 `z42 doc --private --pkg z42c.semantics Binder --members`
    拿到内部类的轮廓。这对 1.8 万行 `//` 的编译器帮助最大。
 4. `z42 doc --search` 补上「不知道叫什么名字」的场景：按摘要搜，比 grep 源码噪声小得多。

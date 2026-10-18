@@ -88,7 +88,7 @@ PR 的 xtask，而 xtask 的 `_root()` 取 cwd 的仓库根 = base-src（base �
 
 | 事件 | 行为 |
 |---|---|
-| `pull_request` / `push` to main | `paths-ignore` 只有 `.claude/**`——**纯文档改动照样跑 CI**，但走快速通道（见下） |
+| `pull_request` / `push` to main | 无路径过滤——**纯文档改动照样跑 CI**，但走快速通道（见下） |
 | `schedule`（每日 16:00 UTC） | 无条件全跑，外加只在这里跑的 Tier-2 平台测试 |
 | `workflow_dispatch` | 无条件全跑；格式 bump 后手动重发 nightly 的逃生口 |
 
@@ -121,7 +121,7 @@ install、`ci.yml`、`.github/actions/`——它们决定 SDK 里装什么或怎
 
 | 不影响 SDK 的路径 | 理由 |
 |---|---|
-| `docs/`、`*.md`、`.claude/` | 文档 |
+| `docs/`、`*.md` | 文档 |
 | `**/tests/**`、`**/benches/**`、`examples/` | 测试 / bench 源码与夹具、学习手册示例，不进包 |
 | `scripts/test/`、`scripts/cli/xtask_cli_{test,check}.z42`、`scripts/xtask_{bench,profile}.z42` | xtask 只做测试 / 检查 / 性能编排的部分 |
 | `.github/workflows/{bench-pr,deploy-book,jit-fixpoint-check}.yml` | 不参与发布的 workflow |

@@ -18,8 +18,8 @@ pub(super) struct FuncBody {
 //   • token >= IMPORT_BASE  → `pool[token - IMPORT_BASE]` (cross-zpkg STRS idx)
 //   • token == UNRESOLVED   → "<unresolved>" diagnostic placeholder
 //
-// Pre-1.0 reading was supported in S3a/b transitionally, removed in S3c per
-// CLAUDE.md "不为旧版本提供兼容".
+// Pre-1.0 reading was supported in S3a/b transitionally, removed in S3c
+// (pre-1.0 keeps no old-version compatibility).
 
 pub(super) const IMPORT_BASE_TOKEN: u32 = 0x8000_0000;
 pub(super) const UNRESOLVED_TOKEN:  u32 = 0xFFFF_FFFF;

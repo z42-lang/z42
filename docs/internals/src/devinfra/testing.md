@@ -288,7 +288,7 @@ xtask test
 | **增量编译（IncrementalBuild / CacheStore / ZbcReader）** | `test compiler` | `test compiler incremental`（逐文件 touch 对账，增量 == 全量逐字节） | `compiler-checks` |
 | **学习手册 / `examples/`** | `test docs examples <part>/<chapter>`（只改页面加 `--book-only`）；输出确实该变则 `--bless` 后审 diff | `xtask package dev-sdk` + `test docs examples` | `test-host` 的 examples stage、`package-host`（用打包 SDK 重放，含 Windows）、`deploy-book` |
 | **launcher / z42b 的命令行输出** | `test docs examples`（手册会话脚本记录了这些输出） | 同上 | 同上 |
-| **纯文档 / `.claude/`** | 无 | 无 | `.claude/**` 不触发；`docs/**` 会触发 `test docs links` 死链门 |
+| **纯文档** | 无 | 无 | `docs/**` 会触发 `test docs links` 死链门 |
 
 ## 6. 自举边界：什么会断链
 

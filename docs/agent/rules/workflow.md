@@ -341,6 +341,8 @@ Spec 覆盖：| 场景 | 实现位置 | 验证方式 | ✅ |             # 完�
    xtask test                               # 并入最新 main 后必须全绿才合；base sha 写进描述
    gh pr merge --squash --delete-branch     # squash：main 上一个 PR 一个提交
    ```
+   **rebase 冲突必须当场解决**：机械冲突（两边改的是不同意图、只是文本相邻）直接解掉继续；
+   冲突暴露的是方案层面的分歧（两边改了同一意图）→ 按[越界防护](#越界防护)停下找 User 裁决，不硬合。
    **为什么强制**：① 防版本落后——分支开出去后 main 可能已合入其它 PR（尤其自举链的格式 / 种子 /
    stdlib API 变更），不并入就合 = 拿旧 main 的假设合进新 main；② 这是**语义耦合的唯一兜底**（见下）。
    **跳过 rebase-后-GREEN 直接合 = 违规**，等同于阶段 5「未全绿即 commit」。
@@ -430,6 +432,7 @@ User 说「继续」时，自动执行：
 | Bug fix | 至少 1 个回归测试，覆盖修复的 bug 场景 |
 | 新 IR 指令 / VM 行为 | golden test (run/) 验证端到端执行结果 |
 | 新 CLI 命令 / 工程文件字段 | 单元测试验证解析正确性 + 错误输入报错 |
+| 性能优化（`perf`） | 被优化的路径必须有 bench 覆盖：已有 e2e scenario / `[Benchmark]` 覆盖 → 附同 runner A/B 结论；没有 → 同一 PR 补一条（怎么加、怎么判红见[性能基准与回归门禁](../../internals/src/devinfra/benchmarking.md)） |
 | refactor | 确保已有测试仍覆盖（不必新增，但不得删除测试） |
 
 用例放哪（「被测对象在哪，测试就在哪」）见[怎么跑测试 · 用例放哪](../../internals/src/devinfra/testing.md)。

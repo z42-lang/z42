@@ -112,7 +112,7 @@ learn  ──链──▶  reference          internals  ──链──▶  lea
 - [ ] 所改 / 新写的书页：描述的是当前状态、代码路径可解析、已挂入所属书的 `SUMMARY.md`
 - [ ] `xtask test docs` 绿
 - [ ] **删 / 改 / 重命名任何命令面**（xtask 子命令、CLI verb、工程文件字段、脚本入口）时，
-      `grep -rn "<旧名>" docs/ scripts/ .claude/` 清零——命令面重构的文档半径系统性被低估，门禁不查这一项
+      `grep -rn "<旧名>" docs/ scripts/ AGENTS.md` 清零——命令面重构的文档半径系统性被低估，门禁不查这一项
 
 ## 五、防漂移
 

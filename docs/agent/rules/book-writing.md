@@ -258,6 +258,5 @@ examples/<part>/<chapter>/          ← 与页面路径一一对应（B9）
 
 ## 十三、与其他规则的关系
 
-
 - 知识上浮的落点由 [doc-system.md 三问](doc-system.md) 决定，落页时按本规范写
 - 语种：各书语种见 [docs/README.md](../../README.md)；关键术语保留英文
