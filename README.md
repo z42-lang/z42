@@ -18,18 +18,18 @@ A **full-stack systems programming language** designed for productivity and perf
 z42 combines C#'s productivity, Rust's runtime discipline, and Python's iteration speed —
 a single language spanning ad-hoc scripts to embedded systems components:
 
-| | z42 |
-|---|-----|
+| Dimension | z42 |
+|---|---|
 | **Productive** | C#-style syntax, static typing with inference, automatic GC — no ownership annotations |
 | **Fast on every axis** | Compact bytecode and objects, low-pause generational GC, escape-analysis stack allocation, Cranelift JIT |
-| **Two execution modes today** | Interpretation (instant startup) and JIT (peak throughput) from one bytecode, selectable per namespace; AOT is designed but not implemented |
+| **Two execution modes** | Interpretation (instant startup) and JIT (peak throughput) from one bytecode, selectable per namespace |
 | **Native-first** | Embeddable Rust VM, zero-overhead `extern` FFI, C-compatible structs |
-| **Concurrent** | GC-safe multithreading; structured async/await planned |
-| **Customizable** | Per-project language rules — turn language constructs off in `z42.toml` (`[syntax]`), and using one reports `E0301` |
+| **Concurrent** | GC-safe multithreading |
+| **Customizable** | Turn language constructs off per project in `z42.toml` (`[syntax]`) |
 | **AI-friendly** | Familiar syntax, compile-time errors as agent feedback, docs-as-code repository |
 
-Planned but not yet implemented: AOT, hot patching (functions/types/modules as GC-managed objects),
-and async/await. Performance targets and trade-offs are in
+Planned but not yet implemented: AOT, structured async/await, and hot patching
+(functions/types/modules as GC-managed objects). Performance targets and trade-offs are in
 [`docs/internals/src/philosophy.md`](docs/internals/src/philosophy.md); per-feature status is in
 [`docs/internals/src/features.md`](docs/internals/src/features.md).
 
@@ -77,7 +77,7 @@ Beyond the books: [`docs/roadmap.md`](docs/roadmap.md) (plan + deferred index),
 
 ---
 
-## Repository Layout
+## Repository Structure
 
 ```
 z42/
