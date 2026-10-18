@@ -408,8 +408,9 @@ pub fn translate_function(
 
                 // Spec impl-ref-out-in-runtime: address-load opcodes are
                 // interp-only; JIT path needs Value::Ref handling + cross-
-                // frame deref support which is not yet implemented (CLAUDE.md
-                // "interp 全绿前不碰 JIT/AOT"). Function falls back to interp.
+                // frame deref support which is not yet implemented (interp
+                // must be fully green before JIT/AOT work). Function falls
+                // back to interp.
                                     Instruction::LoadLocalAddr { .. } => {
                     bail!("JIT cannot translate {} yet (impl-ref-out-in-runtime; interp only)", unsupported_reason(instr).unwrap_or("LoadLocalAddr"));
                 }

@@ -1,7 +1,7 @@
 //! Phase 3 S3 (tokenize-ir-and-zbc-bump, 2026-05-09) IdMap unit tests.
 //!
 //! IdMap is the v1.0 wire-format token decoder. Pre-1.0 support was dropped
-//! in S3c per CLAUDE.md "不为旧版本提供兼容".
+//! in S3c (pre-1.0 keeps no old-version compatibility).
 
 use super::*;
 
