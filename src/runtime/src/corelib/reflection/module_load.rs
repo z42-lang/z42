@@ -4,11 +4,8 @@ use super::*;
 /// (component injection, project hooks, `[analyzers]` zpkgs, and the test runner, which then
 /// discovers tests by reflection): merge the artifact (+ dependency closure) into the live
 /// registries. Returns Null.
-pub fn builtin_load_module(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let path = match args.first() {
-        Some(Value::Str(s)) => s.to_string(),
-        _ => bail!("ModuleLoader.Load: expected a path string"),
-    };
+pub fn load_module(ctx: &VmContext, path: &crate::metadata::vstr::Str) -> anyhow::Result<Value> {
+    let path = path.to_string();
     // Static fields of the loaded closure need nothing here: their initializers are
     // per-type and run lazily at first use, and `load_module_into_vm` already drains
     // the pending type-load queue. Do NOT call `init_static_fields` — it clears every
@@ -26,7 +23,9 @@ pub fn builtin_load_module(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 /// called via `MethodInfo.Invoke`. Idempotent per module name (first-wins merge,
 /// like `__load_module`). Returns `true` on success; a malformed/empty buffer or
 /// missing lazy loader throws. (add-z42-repl)
-pub fn builtin_load_bytecode_in_memory(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn load_bytecode_in_memory(ctx: &VmContext, bytes_arr: &Value) -> anyhow::Result<Value> {
+    let args = [*bytes_arr];
+    let args: &[Value] = &args;
     let bytes = match args.first() {
         Some(Value::Array(rc)) => {
             let borrowed = rc.borrow();
@@ -76,17 +75,14 @@ pub fn builtin_load_bytecode_in_memory(ctx: &VmContext, args: &[Value]) -> Resul
 /// AFTER join. `jobs <= 0` → auto (available cores); `1` → sequential. Order is
 /// preserved. On a run error the captured stdout gets a `<z42-run-error: …>`
 /// marker so the caller's comparison fails visibly.
-pub fn builtin_run_goldens_isolated(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let paths = read_str_vec(args.first(), "paths")?;
-    let entries = read_str_vec(args.get(1), "entries")?;
-    let libs_dir = match args.get(2) {
-        Some(Value::Str(s)) => s.to_string(),
-        _ => String::new(),
-    };
-    let jobs = match args.get(3) {
-        Some(Value::I64(n)) => *n,
-        _ => 1,
-    };
+pub fn run_goldens_isolated(
+    ctx: &VmContext, paths_arr: &Value, entries_arr: &Value,
+    libs_dir: &crate::metadata::vstr::Str, jobs: i64,
+) -> anyhow::Result<Value> {
+    let paths = read_str_vec(Some(paths_arr), "paths")?;
+    let entries = read_str_vec(Some(entries_arr), "entries")?;
+    let libs_dir = libs_dir.to_string();
+    let jobs = jobs;
     let libs = if libs_dir.is_empty() { None } else { Some(std::path::PathBuf::from(libs_dir)) };
     let n = paths.len();
 
@@ -191,4 +187,30 @@ pub(super) fn run_one_golden_isolated(path: &str, entry: Option<&str>, libs: Opt
         s.push_str(&format!("\n<z42-run-error: {e:#}>"));
     }
     s
+}
+
+/// 模块装载迁 builtin ABI v2(P1-8 批次 6):`load_module` 的包初始化器与
+/// `load_bytecode_in_memory` 装入的初始化器都会执行 z42 代码,`run_goldens_isolated`
+/// 在隔离子 VM 里跑整套 golden——全部标 `reenters`。
+#[z42_macros::builtins]
+pub mod typed {
+    use super::*;
+
+    #[builtin(name = "__load_module", reenters)]
+    pub fn load(ctx: &VmContext, path: &crate::metadata::vstr::Str) -> Result<Value, BuiltinError> {
+        reentry(ctx, load_module(ctx, path))
+    }
+
+    #[builtin(name = "__load_bytecode_in_memory", reenters)]
+    pub fn load_bytes(ctx: &VmContext, bytes: &Value) -> Result<Value, BuiltinError> {
+        reentry(ctx, load_bytecode_in_memory(ctx, bytes))
+    }
+
+    #[builtin(name = "__run_goldens_isolated", reenters)]
+    pub fn run_goldens(
+        ctx: &VmContext, paths: &Value, entries: &Value,
+        libs_dir: &crate::metadata::vstr::Str, jobs: i64,
+    ) -> Result<Value, BuiltinError> {
+        reentry(ctx, run_goldens_isolated(ctx, paths, entries, libs_dir, jobs))
+    }
 }

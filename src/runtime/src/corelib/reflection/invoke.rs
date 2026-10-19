@@ -38,6 +38,17 @@ pub(crate) fn read_obj_slot(v: &Value, field: &str) -> Value {
     Value::Null
 }
 
+/// 反射重入类 builtin 的统一错误出口(P1-8 批次 6):被反射调用的 z42 代码抛了
+/// (`invoke_qualified` / `exec_function` 已 `set_pending_thrown` + bail 魔法串)→ `Thrown`
+/// 原样传播(raise 侧再 set 回 pending,异常类型与栈不变);其余 anyhow 错误 →
+/// `Legacy`(`Std.Exception`,与旧表语义一致)。
+pub(super) fn reentry<T>(ctx: &VmContext, r: anyhow::Result<T>) -> Result<T, BuiltinError> {
+    r.map_err(|e| match ctx.take_pending_thrown() {
+        Some(v) => BuiltinError::Thrown(v),
+        None => BuiltinError::Legacy(e),
+    })
+}
+
 /// `__type_get_type(fqn: str) -> Type` — FQN string → `Std.Type` (null if unknown).
 ///
 /// fix-emit-zbc-swallows-diagnostics: honour the documented "null if unknown"
@@ -68,12 +79,10 @@ pub fn type_get_type(ctx: &VmContext, fqn: &crate::metadata::vstr::Str) -> Value
 /// method's return value (`void` → null). A `throw` inside the invoked method is
 /// propagated with its ORIGINAL type via `ctx.set_pending_thrown` (consumed by
 /// `exec_call::builtin`), so callers can `try/catch` the real exception.
-pub fn builtin_method_invoke(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    // split-null-sentinel-channels ⑥：显式校验 arity 后直接下标取参。
-    crate::corelib::expect_args("MethodInfo.Invoke", args, 3)?;
-    let mi = args[0].clone();
-    let this_obj = args[1].clone();
-    let args_arr = args[2].clone();
+pub fn method_invoke(ctx: &VmContext, mi: &Value, this_obj: &Value, args_arr: &Value) -> anyhow::Result<Value> {
+    let mi = mi.clone();
+    let this_obj = this_obj.clone();
+    let args_arr = args_arr.clone();
 
     let qualified = match read_obj_slot(&mi, "__qualified") {
         Value::Str(s) => s.to_string(),
@@ -259,11 +268,8 @@ pub(super) fn invoke_qualified(
 /// `ctx.set_pending_thrown` (consumed by `exec_call::builtin` / `jit_builtin`),
 /// so the runner can `try/catch` the real exception. Returns the function's
 /// return value (`void` → null).
-pub fn builtin_invoke_static(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let qualified = match args.first() {
-        Some(Value::Str(s)) => s.to_string(),
-        _ => bail!("__invoke_static: expected a fully-qualified function name string"),
-    };
+pub fn invoke_static(ctx: &VmContext, fqn: &crate::metadata::vstr::Str) -> anyhow::Result<Value> {
+    let qualified = fqn.to_string();
     let module_arc = ctx
         .core
         .module
@@ -310,7 +316,9 @@ pub(super) fn invoke_arity_check(qualified: &str, expected: usize, got: usize) -
 /// ctor `throw` propagates with its original type via `ctx.pending_thrown`. Only
 /// no-arg construction (test-class instantiation for the reflective test runner);
 /// parameterised CreateInstance is deferred.
-pub fn builtin_activator_create(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn activator_create(ctx: &VmContext, t: &Value) -> anyhow::Result<Value> {
+    let args = [*t];
+    let args: &[Value] = &args;
     let td = match type_handle(args) {
         Some(td) => td,
         None => bail!("Activator.CreateInstance: type has no runtime handle (primitive/array/synthetic?)"),
@@ -395,11 +403,21 @@ pub fn builtin_activator_create(ctx: &VmContext, args: &[Value]) -> Result<Value
     // `new T()` cannot: `T` is only known here. So replicate the arity requirement — and when
     // nothing satisfies it, the default-field allocation IS the construction (exactly what the
     // comment above says for a type with no constructor at all, and what C# gives a struct).
+    run_first_noarg_ctor(ctx, module, class_name.as_str(), &cand_bare, &cand_zero, &obj)?;
+    Ok(boxed_if_struct(&td, obj))
+}
+
+
+/// [`activator_create`] 的构造函数执行段(fnlines 拆分):按 `<FQ>.<Simple>` →
+/// `<FQ>.<Simple>$0` 的次序找第一个**零参**(param_count ≤ 1,含 this)构造函数并跑它;
+/// 都不存在则什么也不跑(默认字段分配即构造)。构造器 `throw` 原样传播(pending_thrown)。
+fn run_first_noarg_ctor(
+    ctx: &VmContext, module: &crate::metadata::Module, class_name: &str,
+    cand_bare: &str, cand_zero: &str, obj: &Value,
+) -> anyhow::Result<()> {
+    let _ = class_name;
     let arity_ok = |f: &crate::metadata::Function| f.param_count <= 1;   // param_count includes `this`
-    let mut i = 0;
-    while i < 2 {
-        let cand = if i == 0 { cand_bare.as_str() } else { cand_zero.as_str() };
-        i += 1;
+    for cand in [cand_bare, cand_zero] {
         let outcome = match module.func_index.get(cand) {
             Some(&idx) if arity_ok(&module.functions[idx]) => {
                 Some(exec_function(ctx, module, &module.functions[idx], &[obj.clone()])?)
@@ -420,7 +438,7 @@ pub fn builtin_activator_create(ctx: &VmContext, args: &[Value]) -> Result<Value
             break; // ran the first matching ctor
         }
     }
-    Ok(boxed_if_struct(&td, obj))
+    Ok(())
 }
 
 /// A reflectively constructed **value type** leaves as a boxed struct: the same object block,
@@ -441,13 +459,9 @@ fn boxed_if_struct(td: &crate::metadata::types::TypeDesc, obj: Value) -> Value {
 /// new object as the reg-0 receiver plus the supplied arguments; return the constructed
 /// object. Arity mismatch → catchable `Std.Exception`; a ctor `throw` propagates with
 /// its original type via `ctx.set_pending_thrown`.
-pub fn builtin_ctor_invoke(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    // split-null-sentinel-channels ⑥：显式校验**本 builtin 自身**的 arity 后直接下标。
-    // ⚠️ 别与下方的 `invoke_arity_check` 混淆 —— 那个校验的是**被反射调用的 z42 函数**的
-    // 形参个数 vs 用户给的实参数组，与本 builtin 收几个参数是两件事。
-    crate::corelib::expect_args("ConstructorInfo.Invoke", args, 2)?;
-    let ci = args[0].clone();
-    let args_arr = args[1].clone();
+pub fn ctor_invoke(ctx: &VmContext, ci: &Value, args_arr: &Value) -> anyhow::Result<Value> {
+    let ci = ci.clone();
+    let args_arr = args_arr.clone();
     let qualified = match read_obj_slot(&ci, "__qualified") {
         Value::Str(s) => s.to_string(),
         _ => bail!("ConstructorInfo.Invoke: receiver is not a ConstructorInfo (no __qualified)"),
@@ -527,5 +541,27 @@ pub mod typed {
     #[builtin(name = "__method_make_generic")]
     pub fn make_generic(ctx: &VmContext, mi: &Value, type_args: &Value) -> Result<Value, BuiltinError> {
         method_make_generic(ctx, mi, type_args)
+    }
+
+    /// 重入类(P1-8 批次 6):可能执行用户 z42 代码,标 `reenters` 压轻帧;
+    /// 被调代码抛出的 z42 异常经 `BuiltinError::Thrown` 原样传播。
+    #[builtin(name = "__method_invoke", reenters)]
+    pub fn invoke_method(ctx: &VmContext, this: &Value, obj: &Value, args: &Value) -> Result<Value, BuiltinError> {
+        reentry(ctx, method_invoke(ctx, this, obj, args))
+    }
+
+    #[builtin(name = "__invoke_static", reenters)]
+    pub fn invoke_static_fn(ctx: &VmContext, fqn: &crate::metadata::vstr::Str) -> Result<Value, BuiltinError> {
+        reentry(ctx, invoke_static(ctx, fqn))
+    }
+
+    #[builtin(name = "__activator_create", reenters)]
+    pub fn activator(ctx: &VmContext, t: &Value) -> Result<Value, BuiltinError> {
+        reentry(ctx, activator_create(ctx, t))
+    }
+
+    #[builtin(name = "__ctor_invoke", reenters)]
+    pub fn ctor(ctx: &VmContext, this: &Value, args: &Value) -> Result<Value, BuiltinError> {
+        reentry(ctx, ctor_invoke(ctx, this, args))
     }
 }

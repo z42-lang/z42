@@ -234,7 +234,8 @@ fn a_chained_forward_folds_and_keeps_both_rows() {
 /// cannot run z42 code folds frameless, like a typed builtin.
 #[test]
 fn a_reentrant_old_table_builtin_folds_under_a_light_frame() {
-    // `__load_module` given an integer: an old-table builtin error (`Std.Exception`).
+    // `__load_module` given an integer: a typed builtin's argument error (P1-8 批次 6
+    // 迁入 `#[builtin(reenters)]`;此前是旧表 + `LEGACY_REENTERS` 的样板,文案不同)。
     let build = || module_of(vec![
         wrapper("T.C.Load", "__load_module", 1, false),
         caller("T.Main", "T.C.Load", &[7]),
@@ -245,7 +246,7 @@ fn a_reentrant_old_table_builtin_folds_under_a_light_frame() {
     let m = build();
     let vm = VmContext::new();
     let folded = outcome(&vm, &m, interp(&vm, &m, "T.Main")).unwrap_err();
-    assert!(folded.starts_with("Std.Exception: ModuleLoader.Load: expected a path string"), "{folded}");
+    assert!(folded.starts_with("Std.Exception: __load_module: argument `path` expects a string"), "{folded}");
     assert!(folded.lines().nth(1).is_some_and(|l| l.trim_start().starts_with("at T.C.Load")), "{folded}");
     assert_ne!(m.functions[idx(&m, "T.C.Load")].forward.get(), Some(Some(id)), "a framed fold token");
     assert_eq!(vm.call_stack.depth(), 0, "the light frame is popped");

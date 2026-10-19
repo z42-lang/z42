@@ -5,12 +5,9 @@ use super::*;
 /// qualified name the VM stamped onto `__getterQualified` in
 /// `builtin_type_properties`). `target` is the receiver (reg 0). A read-only
 /// property (no getter) raises a catchable `Std.Exception`.
-pub fn builtin_property_get_value(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    // split-null-sentinel-channels ⑥：显式校验 arity 后直接下标取参 —— 此前用
-    // `args.get(N).unwrap_or(Value::Null)`，「少传参数」与「显式传 null」完全无法区分。
-    crate::corelib::expect_args("PropertyInfo.GetValue", args, 2)?;
-    let pi = args[0].clone();
-    let target = args[1].clone();
+pub fn property_get_value(ctx: &VmContext, pi: &Value, target: &Value) -> anyhow::Result<Value> {
+    let pi = pi.clone();
+    let target = target.clone();
     let getter = match read_obj_slot(&pi, "__getterQualified") {
         Value::Str(s) => s.to_string(),
         _ => bail!("PropertyInfo.GetValue: property has no getter (write-only)"),
@@ -23,13 +20,10 @@ pub fn builtin_property_get_value(ctx: &VmContext, args: &[Value]) -> Result<Val
 /// qualified name the VM stamped onto `__setterQualified`). `target` is the
 /// receiver (reg 0), `value` the assigned value. A read-only property (no
 /// setter) raises a catchable `Std.Exception`.
-pub fn builtin_property_set_value(ctx: &VmContext, args: &[Value]) -> Result<()> {
-    // split-null-sentinel-channels ⑥：显式校验 arity 后直接下标取参 —— 此前用
-    // `args.get(N).unwrap_or(Value::Null)`，「少传参数」与「显式传 null」完全无法区分。
-    crate::corelib::expect_args("PropertyInfo.SetValue", args, 3)?;
-    let pi = args[0].clone();
-    let target = args[1].clone();
-    let value = args[2].clone();
+pub fn property_set_value(ctx: &VmContext, pi: &Value, target: &Value, value: &Value) -> anyhow::Result<()> {
+    let pi = pi.clone();
+    let target = target.clone();
+    let value = value.clone();
     let setter = match read_obj_slot(&pi, "__setterQualified") {
         Value::Str(s) => s.to_string(),
         _ => bail!("PropertyInfo.SetValue: property has no setter (read-only)"),
@@ -42,12 +36,9 @@ pub fn builtin_property_set_value(ctx: &VmContext, args: &[Value]) -> Result<()>
 /// instance field's value straight off the target object's slot (by the field's
 /// `Name` → the object's own `field_index`). Unlike `PropertyInfo.GetValue`
 /// there is no accessor: a field IS a slot. Powers reflective (de)serialization.
-pub fn builtin_field_get_value(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    // split-null-sentinel-channels ⑥：显式校验 arity 后直接下标取参 —— 此前用
-    // `args.get(N).unwrap_or(Value::Null)`，「少传参数」与「显式传 null」完全无法区分。
-    crate::corelib::expect_args("FieldInfo.GetValue", args, 2)?;
-    let fi = args[0].clone();
-    let target = args[1].clone();
+pub fn field_get_value(ctx: &VmContext, fi: &Value, target: &Value) -> anyhow::Result<Value> {
+    let fi = fi.clone();
+    let target = target.clone();
     let name = match read_obj_slot(&fi, "Name") {
         Value::Str(s) => s.to_string(),
         _ => bail!("FieldInfo.GetValue: receiver is not a FieldInfo"),
@@ -171,13 +162,10 @@ pub(crate) fn boxed_struct_field_get(
 /// `__field_set_value(field: FieldInfo, target: object, value: object)` — write
 /// an instance field's slot directly (by `Name` → `field_index`). Powers
 /// reflective deserialization (binding JSON members onto plain public fields).
-pub fn builtin_field_set_value(ctx: &VmContext, args: &[Value]) -> Result<()> {
-    // split-null-sentinel-channels ⑥：显式校验 arity 后直接下标取参 —— 此前用
-    // `args.get(N).unwrap_or(Value::Null)`，「少传参数」与「显式传 null」完全无法区分。
-    crate::corelib::expect_args("FieldInfo.SetValue", args, 3)?;
-    let fi = args[0].clone();
-    let target = args[1].clone();
-    let value = args[2].clone();
+pub fn field_set_value(ctx: &VmContext, fi: &Value, target: &Value, value: &Value) -> anyhow::Result<()> {
+    let fi = fi.clone();
+    let target = target.clone();
+    let value = value.clone();
     let name = match read_obj_slot(&fi, "Name") {
         Value::Str(s) => s.to_string(),
         _ => bail!("FieldInfo.SetValue: receiver is not a FieldInfo"),
@@ -385,5 +373,32 @@ pub(super) fn boxed_struct_field_set(
         let o = gc.borrow();
         o.set_prim_leaf(leaf.byte_off as usize, w, leaf.tag, raw)?;
         Ok(Value::Null)
+    }
+}
+
+/// 反射字段 / 属性读写迁 builtin ABI v2(P1-8 批次 6):getter / setter 是用户 z42
+/// 代码,标 `reenters`;其抛出的 z42 异常经 `BuiltinError::Thrown` 原样传播。
+#[z42_macros::builtins]
+pub mod typed {
+    use super::*;
+
+    #[builtin(name = "__property_get_value", reenters)]
+    pub fn prop_get(ctx: &VmContext, this: &Value, obj: &Value) -> Result<Value, BuiltinError> {
+        reentry(ctx, property_get_value(ctx, this, obj))
+    }
+
+    #[builtin(name = "__property_set_value", reenters)]
+    pub fn prop_set(ctx: &VmContext, this: &Value, obj: &Value, value: &Value) -> Result<(), BuiltinError> {
+        reentry(ctx, property_set_value(ctx, this, obj, value))
+    }
+
+    #[builtin(name = "__field_get_value", reenters)]
+    pub fn field_get(ctx: &VmContext, this: &Value, obj: &Value) -> Result<Value, BuiltinError> {
+        reentry(ctx, field_get_value(ctx, this, obj))
+    }
+
+    #[builtin(name = "__field_set_value", reenters)]
+    pub fn field_set(ctx: &VmContext, this: &Value, obj: &Value, value: &Value) -> Result<(), BuiltinError> {
+        reentry(ctx, field_set_value(ctx, this, obj, value))
     }
 }
