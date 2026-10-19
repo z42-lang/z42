@@ -40,9 +40,9 @@ src/compiler/z42c.semantics/src/  ← 第 4 层 ✗ 不自动加 README
 | 软限制（超出需要重新审视） | 40 行 |
 | 硬限制（必须提取子函数） | 60 行 |
 
-> 计算方式：函数体内的非空、非注释行数。
->
-> 已知缺口：函数限（40/60）目前仍是纯文档、无 lint 实现。
+> 计算方式：函数体内（开括号行与闭括号行之间）的非空、非注释行数；单行体计 0。
+> 门禁：`xtask check fnlines`（与 `check lines` 同形的棘轮，基线 `scripts/test/fn-limit-baseline.txt`，
+> 见 [GREEN gate](../../internals/src/devinfra/test-gate.md)）——新越界 / 继续膨胀 = 红，软限只提示。
 
 ### 类型（struct / class / impl block）行数
 
@@ -60,9 +60,9 @@ src/compiler/z42c.semantics/src/  ← 第 4 层 ✗ 不自动加 README
 
 ### 执行方式
 
-- **机械门禁**：`xtask check lines` 是 GREEN gate 的一个 stage，按硬限做棘轮（怎么判红、基线在哪见
-  [GREEN gate](../../internals/src/devinfra/test-gate.md)）。拆分后降到上限以下的文件要从基线里剔除；
-  **禁止把新越界或增长写进基线**——那等于关掉门禁。
+- **机械门禁**：`xtask check lines`（文件）与 `xtask check fnlines`（函数体）都是 GREEN gate 的 stage，按硬限做
+  棘轮（怎么判红、基线在哪见 [GREEN gate](../../internals/src/devinfra/test-gate.md)）。拆分后降到上限以下的
+  文件 / 函数要从基线里剔除；**禁止把新越界或增长写进基线**——那等于关掉门禁。
 - AI 每次新增代码时，**主动检查**所在文件是否超出软限制
 - 超出软限制时，**建议**拆分方案但不强制打断当前任务
 - 超出硬限制时，**必须**在本次迭代内拆分，不得推迟
