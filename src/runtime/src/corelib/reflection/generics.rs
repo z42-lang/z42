@@ -187,10 +187,14 @@ pub(super) fn type_has_no_arg_ctor(ctx: &VmContext, name: &str) -> bool {
 /// this change**. Static contexts and type params inherited from a generic base
 /// therefore keep their previous behaviour rather than silently resolving to a
 /// plausible-but-wrong type.
-pub fn builtin_class_type_arg(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    match resolve_class_type_arg(ctx, args) {
-        Some(n) => Ok(make_type_from_name(ctx, &n)),
-        None => Ok(make_constructed_type(ctx, "T", &[])),
+pub fn class_type_arg(ctx: &VmContext, recv: &Value, idx: i64, owner: &crate::metadata::vstr::Str) -> Value {
+    if idx < 0 {
+        return make_constructed_type(ctx, "T", &[]);
+    }
+    let owner = (!owner.is_empty()).then(|| owner.to_string());
+    match resolve_class_type_arg(ctx, recv, idx as usize, owner.as_deref()) {
+        Some(n) => make_type_from_name(ctx, &n),
+        None => make_constructed_type(ctx, "T", &[]),
     }
 }
 
@@ -202,11 +206,22 @@ pub fn builtin_class_type_arg(ctx: &VmContext, args: &[Value]) -> Result<Value> 
 /// `default(T)` yielded `null` instead of `0` (measured). Widening the instruction would mean
 /// a zbc format bump plus the two-nightly bootstrap dance; a builtin delivers the same
 /// semantics with neither (same precedent as `__class_type_arg`).
-pub fn builtin_class_default(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    Ok(match resolve_class_type_arg(ctx, args) {
+pub fn class_default(ctx: &VmContext, recv: &Value, idx: i64, owner: &crate::metadata::vstr::Str) -> Value {
+    if idx < 0 {
+        return Value::Null;
+    }
+    let owner = (!owner.is_empty()).then(|| owner.to_string());
+    match resolve_class_type_arg(ctx, recv, idx as usize, owner.as_deref()) {
         Some(n) => crate::metadata::types::default_value_for(&n),
         None => Value::Null,
-    })
+    }
+}
+
+fn class_type_arg_of(recv: &Value, idx: usize) -> Option<String> {
+    match recv {
+        Value::Object(rc) => rc.borrow().type_args().get(idx).cloned(),
+        _ => None,
+    }
 }
 
 /// complete-generic-class-identity（邻线收尾）: resolve a **class-level** type parameter to the
@@ -226,39 +241,23 @@ pub fn builtin_class_default(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 /// `type_args = [U's argument]`, so reading index 0 off the receiver answers with `DG`'s
 /// parameter while the question was about `Box`'s — a plausible-but-wrong type, which is worse
 /// than the placeholder. Measured: `DG<string>` reported `Std.String` for `Box`'s `T`.
-fn resolve_class_type_arg(ctx: &VmContext, args: &[Value]) -> Option<String> {
-    let idx = arg_index(args)?;
-    let owner = arg_owner(args);   // absent in bytecode emitted before this change
+fn resolve_class_type_arg(ctx: &VmContext, recv: &Value, idx: usize, owner: Option<&str>) -> Option<String> {
     if let Some(o) = &owner {
-        if let Some(n) = inherited_type_arg(ctx, args.first(), o, idx) {
+        if let Some(n) = inherited_type_arg(ctx, Some(recv), o, idx) {
             return Some(n);
         }
     }
-    let own_is_declaring = match (&owner, args.first()) {
+    let own_is_declaring = match (&owner, recv) {
         (None, _) => true,   // old bytecode: keep the previous behaviour verbatim
-        (Some(o), Some(Value::Object(rc))) => {
+        (Some(o), Value::Object(rc)) => {
             erased_of(&rc.borrow().type_desc.name) == erased_of(o)
         }
         _ => false,
     };
     if own_is_declaring {
-        return class_type_arg_name(args);
+        return class_type_arg_of(recv, idx);
     }
     None
-}
-
-fn arg_index(args: &[Value]) -> Option<usize> {
-    match args.get(1) {
-        Some(Value::I64(n)) if *n >= 0 => Some(*n as usize),
-        _ => None,
-    }
-}
-
-fn arg_owner(args: &[Value]) -> Option<String> {
-    match args.get(2) {
-        Some(Value::Str(s)) if !s.is_empty() => Some(s.to_string()),
-        _ => None,
-    }
 }
 
 /// Erased prefix of a (possibly instantiated) type name: `Demo.Box<int>` → `Demo.Box`.
@@ -303,15 +302,8 @@ fn inherited_type_arg(
 /// unit tests), so asserting on the builtin's *returned value* would compare
 /// `Null` against `Null` — a gate that can never fire. Asserting on the selected
 /// name instead keeps both sides discriminating.
-pub(super) fn class_type_arg_name(args: &[Value]) -> Option<String> {
-    let idx = match args.get(1) {
-        Some(Value::I64(n)) if *n >= 0 => *n as usize,
-        _ => return None,
-    };
-    match args.first() {
-        Some(Value::Object(rc)) => rc.borrow().type_args().get(idx).cloned(),
-        _ => None,
-    }
+pub(super) fn class_type_arg_name(recv: &Value, idx: usize) -> Option<String> {
+    class_type_arg_of(recv, idx)
 }
 
 /// `__type_make_generic(defType, Type[] argTypes) -> Std.Type` — construct a
@@ -319,37 +311,60 @@ pub(super) fn class_type_arg_name(args: &[Value]) -> Option<String> {
 /// `List<int>`). Reuses `make_constructed_type` (z42's reified type-erasure means
 /// no monomorphization/codegen). Validates arg count + `where` constraints
 /// (Q3 safety) before constructing.
-pub fn builtin_type_make_generic(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let def_td = type_handle(args)
-        .ok_or_else(|| anyhow::anyhow!("MakeGenericType: receiver is not a type handle"))?;
+pub fn type_make_generic(ctx: &VmContext, def: &Value, arg_types_arr: &Value) -> Result<Value, BuiltinError> {
+    let arg = |m: String| BuiltinError::Argument(m);
+    let def_td = type_handle_of(def)
+        .ok_or_else(|| arg("MakeGenericType: receiver is not a type handle".into()))?;
     let type_params: Vec<String> = def_td.type_params().to_vec();
     if type_params.is_empty() {
-        bail!("MakeGenericType: `{}` is not a generic type definition", def_td.name);
+        return Err(arg(format!("MakeGenericType: `{}` is not a generic type definition", def_td.name)));
     }
-    let arg_types: Vec<Value> = match args.get(1) {
-        Some(Value::Array(rc)) => rc.borrow().iter_boxed().collect(),
-        _ => bail!("MakeGenericType: expected a Type[] of type arguments"),
+    let arg_types: Vec<Value> = match arg_types_arr {
+        Value::Array(rc) => rc.borrow().iter_boxed().collect(),
+        _ => return Err(arg("MakeGenericType: expected a Type[] of type arguments".into())),
     };
     if arg_types.len() != type_params.len() {
-        bail!(
+        return Err(arg(format!(
             "MakeGenericType: `{}` expects {} type argument(s), got {}",
-            def_td.name,
-            type_params.len(),
-            arg_types.len()
-        );
+            def_td.name, type_params.len(), arg_types.len())));
     }
     let mut arg_names: Vec<String> = Vec::with_capacity(arg_types.len());
     for at in &arg_types {
         let n = type_arg_name(at)
-            .ok_or_else(|| anyhow::anyhow!("MakeGenericType: unresolvable type argument"))?;
+            .ok_or_else(|| arg("MakeGenericType: unresolvable type argument".into()))?;
         arg_names.push(n);
     }
-    // Q3: constraint validation before construction.
+    // Q3: constraint validation before construction (violations → ArgumentException,
+    // matching C# MakeGenericType).
     let constraints = def_td.type_param_constraints();
     for (i, param) in type_params.iter().enumerate() {
         if let Some(cb) = constraints.get(i) {
-            validate_type_arg_constraint(ctx, param, cb, &arg_names[i], &type_params, &arg_names)?;
+            validate_type_arg_constraint(ctx, param, cb, &arg_names[i], &type_params, &arg_names)
+                .map_err(BuiltinError::Legacy)?;
         }
     }
     Ok(make_constructed_type(ctx, &def_td.name, &arg_names))
+}
+
+/// 泛型反射合成迁 builtin ABI v2(P1-8 批次 5)。三个都是纯合成 / 查表——
+/// `MakeGenericType` 的约束校验只查类型表,不执行 z42 代码,不标 `reenters`;
+/// 违约 → `ArgumentException`(同 C#)。
+#[z42_macros::builtins]
+pub mod typed {
+    use super::*;
+
+    #[builtin(name = "__class_type_arg")]
+    pub fn type_arg_of(ctx: &VmContext, recv: &Value, idx: i64, owner: &crate::metadata::vstr::Str) -> Value {
+        super::class_type_arg(ctx, recv, idx, owner)
+    }
+
+    #[builtin(name = "__class_default")]
+    pub fn default_of(ctx: &VmContext, recv: &Value, idx: i64, owner: &crate::metadata::vstr::Str) -> Value {
+        super::class_default(ctx, recv, idx, owner)
+    }
+
+    #[builtin(name = "__type_make_generic")]
+    pub fn make_generic(ctx: &VmContext, def: &Value, arg_types: &Value) -> Result<Value, BuiltinError> {
+        type_make_generic(ctx, def, arg_types)
+    }
 }

@@ -83,8 +83,8 @@ fn type_handle_none_for_primitive_plain_object_and_empty() {
 #[test]
 fn member_builtins_return_empty_for_non_type_arg() {
     let c = ctx();
-    assert_eq!(array_len(&builtin_type_fields(&c, &[Value::I64(7)]).unwrap()), 0);
-    assert_eq!(array_len(&builtin_type_methods(&c, &[Value::I64(7)]).unwrap()), 0);
+    assert_eq!(array_len(&type_fields(&c, &Value::I64(7)).unwrap()), 0);
+    assert_eq!(array_len(&type_methods(&c, &Value::I64(7)).unwrap()), 0);
     assert_eq!(
         array_len(&type_generic_args(&c, &Value::I64(7))),
         0
@@ -103,7 +103,7 @@ fn type_fields_empty_for_handle_with_no_fields() {
     // FieldInfo class lookup (so it works without z42.core loaded).
     let c = ctx();
     let t = type_obj(&c, bare_td("Demo.Empty"));
-    assert_eq!(array_len(&builtin_type_fields(&c, &[t]).unwrap()), 0);
+    assert_eq!(array_len(&type_fields(&c, &t).unwrap()), 0);
 }
 
 #[test]
@@ -111,13 +111,13 @@ fn type_properties_empty_for_non_type_arg_and_no_accessors() {
     // Lenient: non-Type arg → empty.
     let c = ctx();
     assert_eq!(
-        array_len(&builtin_type_properties(&c, &[Value::I64(7)]).unwrap()),
+        array_len(&type_properties(&c, &Value::I64(7)).unwrap()),
         0
     );
     // Handle present but no methods → no get_/set_ → empty. Crucially no
     // PropertyInfo alloc, so this works without z42.core loaded.
     let t = type_obj(&c, bare_td("Demo.Empty"));
-    assert_eq!(array_len(&builtin_type_properties(&c, &[t]).unwrap()), 0);
+    assert_eq!(array_len(&type_properties(&c, &t).unwrap()), 0);
 }
 
 #[test]
@@ -138,7 +138,7 @@ fn type_properties_ignores_non_accessor_methods() {
         id: TypeId::UNRESOLVED,
     });
     let t = type_obj(&c, td);
-    assert_eq!(array_len(&builtin_type_properties(&c, &[t]).unwrap()), 0);
+    assert_eq!(array_len(&type_properties(&c, &t).unwrap()), 0);
 }
 
 #[test]
@@ -192,13 +192,13 @@ fn static_fields_accessor_reads_cold() {
 fn field_custom_attributes_lenient_for_bad_qualified() {
     // Non-string / dotless / unknown-class qualified names → empty, never bail.
     let c = ctx();
-    assert_eq!(array_len(&builtin_field_custom_attributes(&c, &[Value::I64(7)]).unwrap()), 0);
+    assert_eq!(array_len(&field_custom_attributes(&c, &Value::Null, &"".into()).unwrap()), 0);
     assert_eq!(
-        array_len(&builtin_field_custom_attributes(&c, &[Value::Str("nodot".into())]).unwrap()),
+        array_len(&field_custom_attributes(&c, &Value::Null, &"nodot".into()).unwrap()),
         0
     );
     assert_eq!(
-        array_len(&builtin_field_custom_attributes(&c, &[Value::Str("Unknown.field".into())]).unwrap()),
+        array_len(&field_custom_attributes(&c, &Value::Null, &"Unknown.field".into()).unwrap()),
         0
     );
 }
@@ -240,7 +240,7 @@ fn type_fields_empty_for_non_type_arg_with_static() {
     // builtin_type_fields stays lenient for a non-Type arg even after the
     // static-field merge (no handle → empty, never bail).
     let c = ctx();
-    assert_eq!(array_len(&builtin_type_fields(&c, &[Value::I64(7)]).unwrap()), 0);
+    assert_eq!(array_len(&type_fields(&c, &Value::I64(7)).unwrap()), 0);
 }
 
 #[test]
@@ -277,7 +277,7 @@ fn member_builtins_are_lenient_with_handle_but_no_core() {
     // (they degrade — base resolves to a null Std.Type, etc.).
     let c = ctx();
     let t = type_obj(&c, bare_td("Demo.Foo"));
-    assert!(builtin_type_methods(&c, &[t.clone()]).is_ok());
+    { let _ = type_methods(&c, &t); }
     let _ = type_generic_args(&c, &t);
     let _ = type_base(&c, &t);
 }
@@ -377,16 +377,16 @@ fn obj_with_type_args(ctx: &VmContext, name: &str, targs: &[&str]) -> Value {
 fn class_type_arg_name_picks_bound_arg_by_index() {
     let c = ctx();
     let o = obj_with_type_args(&c, "Demo.Pair", &["Std.Int32", "Std.String"]);
-    assert_eq!(class_type_arg_name(&[o.clone(), Value::I64(0)]).as_deref(), Some("Std.Int32"));
-    assert_eq!(class_type_arg_name(&[o, Value::I64(1)]).as_deref(), Some("Std.String"));
+    assert_eq!(class_type_arg_name(&o, 0).as_deref(), Some("Std.Int32"));
+    assert_eq!(class_type_arg_name(&o, 1).as_deref(), Some("Std.String"));
 }
 
 #[test]
 fn class_type_arg_name_none_for_out_of_range_index() {
     let c = ctx();
     let o = obj_with_type_args(&c, "Demo.Box", &["Std.Int32"]);
-    assert_eq!(class_type_arg_name(&[o.clone(), Value::I64(1)]), None);
-    assert_eq!(class_type_arg_name(&[o, Value::I64(9)]), None);
+    assert_eq!(class_type_arg_name(&o, 1), None);
+    assert_eq!(class_type_arg_name(&o, 9), None);
 }
 
 #[test]
@@ -394,23 +394,22 @@ fn class_type_arg_name_none_for_empty_type_args() {
     // `class Derived : Box<int> { }` 的实例：非泛型类，type_args 为空 ⇒ 占位降级。
     let c = ctx();
     let o = obj_with_type_args(&c, "Demo.Derived", &[]);
-    assert_eq!(class_type_arg_name(&[o, Value::I64(0)]), None);
+    assert_eq!(class_type_arg_name(&o, 0), None);
 }
 
 #[test]
 fn class_type_arg_name_none_for_non_object_receiver() {
     // 🔴 静态语境的 reg0 可能是任意实参（含基元）——必须一律降级，绝不猜。
-    assert_eq!(class_type_arg_name(&[Value::I64(7), Value::I64(0)]), None);
-    assert_eq!(class_type_arg_name(&[Value::Null, Value::I64(0)]), None);
-    assert_eq!(class_type_arg_name(&[]), None);
+    assert_eq!(class_type_arg_name(&Value::I64(7), 0), None);
+    assert_eq!(class_type_arg_name(&Value::Null, 0), None);
+    assert_eq!(class_type_arg_name(&Value::Null, 0), None);
 }
 
 #[test]
 fn class_type_arg_name_none_for_bad_index_arg() {
     let c = ctx();
     let o = obj_with_type_args(&c, "Demo.Box", &["Std.Int32"]);
-    // 负数下标 / 缺下标 / 非整数下标：都不得被当成 0 悄悄放过。
-    assert_eq!(class_type_arg_name(&[o.clone(), Value::I64(-1)]), None);
-    assert_eq!(class_type_arg_name(&[o.clone()]), None);
-    assert_eq!(class_type_arg_name(&[o, Value::Bool(true)]), None);
+    // typed 化(批次 5)后「负数 / 缺失 / 非整数下标」由签名在编译期排除,
+    // 剩下的是真正的越界下标:不得被当成 0 悄悄放过。
+    assert_eq!(class_type_arg_name(&o, usize::MAX), None);
 }

@@ -81,31 +81,18 @@ const PART1: &[(&str, Native)] = &[
     // ── Reflection (add-reflection-mvp, 2026-06-08) ─────────────────────────────
     // align-type-memberinfo-hierarchy: `__type_name` removed — Type.Name inherits
     // from MemberInfo (build_type populates the field), no native getter.
-    ("__type_fields",        Native::Val(reflection::builtin_type_fields)),
-    ("__type_methods",       Native::Val(reflection::builtin_type_methods)),
     // add-reflective-invoke: constructor reflection (ConstructorInfo enumeration).
-    ("__type_constructors",  Native::Val(reflection::builtin_type_constructors)),
-    ("__type_properties",    Native::Val(reflection::builtin_type_properties)),
     // plan-generic-reflection G1: runtime generic instantiation (MakeGenericType,
     // constraint-validated). Constructed CreateInstance is handled in the existing
     // __activator_create builtin (reifies __typeArgs onto the new instance).
-    ("__type_make_generic",          Native::Val(reflection::builtin_type_make_generic)),
     // add-enum-type-metadata (unify-type-metadata P1-a): enum reflection.
-    ("__type_custom_attributes", Native::Val(reflection::builtin_type_custom_attributes)),
-    ("__method_custom_attributes", Native::Val(reflection::builtin_method_custom_attributes)),
-    ("__field_custom_attributes", Native::Val(reflection::builtin_field_custom_attributes)),
-    ("__param_custom_attributes", Native::Val(reflection::builtin_param_custom_attributes)),
     // add-json-serde: property-attribute reflection (reads the auto-property backing
     // field `__prop_<Name>`'s field_attributes — no wire-format bump).
-    ("__property_custom_attributes", Native::Val(reflection::builtin_property_custom_attributes)),
     // add-method-invoke-non-generic (0.3.12): reflective invocation primitives.
-    ("__type_get_type",      Native::Val(reflection::builtin_type_get_type)),
     ("__method_invoke",      Native::Val(reflection::builtin_method_invoke)),
     // add-reflective-invoke (G2): generic-method reflection — MakeGenericMethod
     // produces a constructed MethodInfo; GetGenericArguments reads type params/args;
     // Invoke on the constructed MethodInfo threads __typeArgs into the callee frame.
-    ("__method_make_generic",       Native::Val(reflection::builtin_method_make_generic)),
-    ("__method_generic_arguments",  Native::Val(reflection::builtin_method_generic_arguments)),
     // add-property-getvalue-setvalue: reflective property read/write (reuses the
     // non-generic invoke path via get_<X>/set_<X> accessors).
     ("__property_get_value", Native::Val(reflection::builtin_property_get_value)),
@@ -171,6 +158,13 @@ const TYPED: &[&[super::abi::BuiltinDesc]] = &[
     super::string::typed::DESCS,
     super::reflection::enums::typed::DESCS,
     super::reflection::type_query::typed::DESCS,
+    super::reflection::fields::typed::DESCS,
+    super::reflection::methods::typed::DESCS,
+    super::reflection::properties::typed::DESCS,
+    super::reflection::attributes::typed::DESCS,
+    super::reflection::generics::typed::DESCS,
+    super::reflection::methodof::typed::DESCS,
+    super::reflection::invoke::typed::DESCS,
     super::threading::typed::DESCS,
     super::fs::typed::DESCS,
     super::fs_backend::memory::typed::DESCS,
@@ -198,13 +192,8 @@ const TYPED: &[&[super::abi::BuiltinDesc]] = &[
 /// builtin. Typed builtins say it themselves (`#[builtin(reenters)]`); this list only
 /// shrinks, as those areas migrate.
 pub(crate) const LEGACY_REENTERS: &[&str] = &[
-    "__type_fields", "__type_methods", "__type_constructors",
-    "__type_properties",
-    "__type_make_generic",
     "__type_is_class",
-    "__type_custom_attributes", "__method_custom_attributes",
-    "__field_custom_attributes", "__param_custom_attributes", "__property_custom_attributes",
-    "__type_get_type", "__method_invoke", "__method_make_generic", "__method_generic_arguments",
+    "__method_invoke",
     "__property_get_value", "__property_set_value", "__field_get_value", "__field_set_value",
     "__activator_create", "__ctor_invoke", "__load_module", "__invoke_static",
     "__repl_complete_probe", "__repl_set_completer", "__repl_set_key_editor", "__repl_set_keywords",
@@ -212,8 +201,8 @@ pub(crate) const LEGACY_REENTERS: &[&str] = &[
     "__lctx_default", "__lctx_create_collectible", "__lctx_load",
     "__lctx_name", "__lctx_is_collectible", "__lctx_assemblies", "__asm_name",
     "__asm_is_collectible", "__asm_loadcontext", "__asm_get_types", "__type_is_collectible",
-    "__type_assembly", "__lctx_unload", "__run_goldens_isolated", "__methodof", "__class_type_arg",
-    "__class_default", "__test_module_load", "__asm_get_functions",
+    "__type_assembly", "__lctx_unload", "__run_goldens_isolated",
+    "__test_module_load", "__asm_get_functions",
 ];
 
 const TYPED_N: usize = super::abi::descs_len(TYPED);

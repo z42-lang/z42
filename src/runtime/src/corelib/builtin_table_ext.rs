@@ -215,15 +215,12 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     // ── add-method-reference (2026-09-11) — appended to preserve existing BuiltinIds ──
     // `methodof(Type.Member(sig))` → Std.Reflection.MethodInfo. The overload is
     // already resolved at compile time; the argument is the single qualified name.
-    ("__methodof",        Native::Val(reflection::builtin_methodof)),
     // `__monitor_*`（Mutex / RwLock / Channel 的底座）已迁 ABI v2：`monitor::typed`。
 
     // ── fix-class-level-typeof (2026-09-25) — appended to preserve existing BuiltinIds ──
     // 类级 `typeof(T)`：读 receiver 的 per-instance type_args[idx] 产 `Std.Type`。
     // 与类级 `default(T)`（`DefaultOf` 指令）同一个载体，只是产类型而非零值；走 builtin
     // 而非新 opcode ⇒ 零 zbc 格式 bump、JIT 白送（Builtin 按名/id 通用派发）。
-    ("__class_type_arg",    Native::Val(reflection::builtin_class_type_arg)),
-    ("__class_default",     Native::Val(reflection::builtin_class_default)),
 
     // ── perf-collections-sort — appended to preserve existing BuiltinIds ──
     // `List<T>.Sort()` / `Array.Sort<T>(T[])` 的基元快路径：元素全是同一种基元时原生稳定排序。

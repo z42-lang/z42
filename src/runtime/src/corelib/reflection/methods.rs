@@ -4,8 +4,8 @@ use super::*;
 
 /// `__type_methods(typeObj) -> MethodInfo[]` — vtable (virtual/inherited) plus
 /// declared non-virtual methods, deduped by qualified name.
-pub fn builtin_type_methods(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let td = match type_handle(args) {
+pub fn type_methods(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> {
+    let td = match type_handle_of(ty) {
         Some(t) => t,
         None => return Ok(ctx.heap().alloc_array(Vec::new())),
     };
@@ -14,7 +14,7 @@ pub fn builtin_type_methods(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     // Virtual / inherited methods carry their simple name in the vtable.
     for (simple, qualified) in &td.vtable {
         if seen.insert(qualified.clone()) {
-            out.push(build_method_info(ctx, simple, qualified, true)?);
+            out.push(build_method_info(ctx, simple, qualified, true).map_err(BuiltinError::Legacy)?);
         }
     }
     // Declared non-virtual methods (qualified names only). Constructors are not among
@@ -23,7 +23,7 @@ pub fn builtin_type_methods(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         let q = qualified.to_string();
         if seen.insert(q.clone()) {
             let simple = simple_method_name(&q).to_string();
-            out.push(build_method_info(ctx, &simple, &q, false)?);
+            out.push(build_method_info(ctx, &simple, &q, false).map_err(BuiltinError::Legacy)?);
         }
     }
     // add-interface-member-reflection: an interface carries its declared method
@@ -33,7 +33,7 @@ pub fn builtin_type_methods(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     for sig in td.iface_methods() {
         let q = format!("{}.{}", td.name, sig.name);
         if seen.insert(q) {
-            out.push(build_iface_method_info(ctx, &td.name, sig)?);
+            out.push(build_iface_method_info(ctx, &td.name, sig).map_err(BuiltinError::Legacy)?);
         }
     }
     // add-reflection-transitive-interface-methods: for an interface, also surface
@@ -61,7 +61,7 @@ pub fn builtin_type_methods(ctx: &VmContext, args: &[Value]) -> Result<Value> {
                 for sig in itd.iface_methods() {
                     let q = format!("{}.{}", itd.name, sig.name);
                     if seen.insert(q) {
-                        out.push(build_iface_method_info(ctx, &itd.name, sig)?);
+                        out.push(build_iface_method_info(ctx, &itd.name, sig).map_err(BuiltinError::Legacy)?);
                     }
                 }
                 for bi in itd.interfaces() {
@@ -95,8 +95,8 @@ pub(super) fn is_ctor_key(class_fq: &str, qualified: &str) -> bool {
 /// — a single non-overloaded constructor is absent there). Scan it with `is_ctor_key`;
 /// dedup by function index (a constructor may be registered under bare + mangled
 /// dispatch keys), sorted for a deterministic order.
-pub fn builtin_type_constructors(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let td = match type_handle(args) {
+pub fn type_constructors(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> {
+    let td = match type_handle_of(ty) {
         Some(t) => t,
         None => return Ok(ctx.heap().alloc_array(Vec::new())),
     };
@@ -118,7 +118,7 @@ pub fn builtin_type_constructors(ctx: &VmContext, args: &[Value]) -> Result<Valu
     let mut out = Vec::new();
     for (key, idx) in ctor_keys {
         if seen_idx.insert(idx) {
-            out.push(build_ctor_info(ctx, key)?);
+            out.push(build_ctor_info(ctx, key).map_err(BuiltinError::Legacy)?);
         }
     }
     Ok(ctx.heap().alloc_array(out))
@@ -502,4 +502,21 @@ pub(super) fn resolve_func_type_params(ctx: &VmContext, qualified: &str) -> Vec<
     ctx.try_lookup_function(qualified)
         .map(|f| f.type_params().to_vec())
         .unwrap_or_default()
+}
+
+/// 成员列举迁 builtin ABI v2(P1-8 批次 5):纯合成(FieldInfo / MethodInfo /
+/// ConstructorInfo / PropertyInfo 数组),不执行 z42 代码,不压轻帧。
+#[z42_macros::builtins]
+pub mod typed {
+    use super::*;
+
+    #[builtin(name = "__type_methods")]
+    pub fn methods_of(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> {
+        type_methods(ctx, ty)
+    }
+
+    #[builtin(name = "__type_constructors")]
+    pub fn ctors_of(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> {
+        type_constructors(ctx, ty)
+    }
 }

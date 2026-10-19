@@ -147,14 +147,13 @@ pub fn type_interfaces(ctx: &VmContext, ty: &Value) -> Value {
 /// `get_`/`set_` accessor methods (the accessors remain in the methods slice).
 pub fn type_members(ctx: &VmContext, ty: &Value) -> Value {
     let mut out = Vec::new();
-    // 批次 2 之前的 fields / methods / properties 仍是旧表签名（`&[Value]`）——
-    // 经单元素切片过渡调用,语义相同。
+
     for part in [
-        super::fields::builtin_type_fields as fn(&VmContext, &[Value]) -> anyhow::Result<Value>,
-        super::methods::builtin_type_methods,
-        super::properties::builtin_type_properties,
+        super::fields::type_fields as fn(&VmContext, &Value) -> Result<Value, BuiltinError>,
+        super::methods::type_methods,
+        super::properties::type_properties,
     ] {
-        if let Value::Array(a) = part(ctx, std::slice::from_ref(ty)).unwrap_or(Value::Null) {
+        if let Value::Array(a) = part(ctx, ty).unwrap_or(Value::Null) {
             out.extend(a.borrow().iter_boxed());
         }
     }
