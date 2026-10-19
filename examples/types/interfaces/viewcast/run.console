@@ -1,0 +1,6 @@
+# ANCHOR: err
+$ z42 run viewcast.z42
+z42c build: 1 error(s) in viewcast.z42
+  viewcast.z42(17,16): E0402: cannot assign IDerived to IExtra (var-decl)
+[exit: 1]
+# ANCHOR_END: err

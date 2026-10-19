@@ -120,7 +120,7 @@ int _testDocsCmd(ParseResult r) {
         return 2;
     }
     if (kind == "" || kind == "links") {
-        int c = _testDocs(_root(), r.GetFlag("update")); if (c != 0 || kind == "links") { return c; }
+        int c = _testDocs(_root()); if (c != 0 || kind == "links") { return c; }
     }
     return _testExamples(_examplesOptions(r));
 }

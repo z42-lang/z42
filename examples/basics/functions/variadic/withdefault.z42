@@ -1,0 +1,11 @@
+using Std.IO;
+
+int Sum(params int[] numbers = new int[0]) {   // ✗ params 不能同时带默认值 —— E0208
+    int total = 0;
+    foreach (int n in numbers) { total = total + n; }
+    return total;
+}
+
+void Main() {
+    Console.WriteLine(Sum(1, 2, 3));
+}

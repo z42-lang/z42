@@ -13,12 +13,10 @@ public static class ProcessNative {
     static extern object[] RunSync(string program, string[] args, string[] envKeys, string[] envVals, string[] envRemove, bool envClear, string? cwd, int stdinMode, byte[]? stdinBytes, int stdoutMode, string? stdoutPath, int stderrMode, string? stderrPath, long timeoutMs, bool ownProcessGroup)
     static extern long Start(string program, string[] args, string[] envKeys, string[] envVals, string[] envRemove, bool envClear, string? cwd, int stdinMode, int stdoutMode, string? stdoutPath, int stderrMode, string? stderrPath)
     static extern string? Which(string name)
-    static extern object[] Run(string program, string[] args, string[] envKeys, string[] envVals, string[] envRemove, bool envClear, string? cwd, int stdinMode, byte[]? stdinBytes, int stdoutMode, string? stdoutPath, int stderrMode, string? stderrPath, long timeoutMs, bool ownProcessGroup)
-    static extern object[] Spawn(string program, string[] args, string[] envKeys, string[] envVals, string[] envRemove, bool envClear, string? cwd, int stdinMode, byte[]? stdinBytes, int stdoutMode, string? stdoutPath, int stderrMode, string? stderrPath)
 }
 ```
 
-成员：[`RunSync`](#Std.IO.ProcessNative.RunSync(string,string[],string[],string[],string[],bool,string?,int,byte[]?,int,string?,int,string?,long,bool)) · [`Start`](#Std.IO.ProcessNative.Start(string,string[],string[],string[],string[],bool,string?,int,int,string?,int,string?)) · [`Which`](#Std.IO.ProcessNative.Which(string)) · [`Run`](#Std.IO.ProcessNative.Run(string,string[],string[],string[],string[],bool,string?,int,byte[]?,int,string?,int,string?,long,bool)) · [`Spawn`](#Std.IO.ProcessNative.Spawn(string,string[],string[],string[],string[],bool,string?,int,byte[]?,int,string?,int,string?))
+成员：[`RunSync`](#Std.IO.ProcessNative.RunSync(string,string[],string[],string[],string[],bool,string?,int,byte[]?,int,string?,int,string?,long,bool)) · [`Start`](#Std.IO.ProcessNative.Start(string,string[],string[],string[],string[],bool,string?,int,int,string?,int,string?)) · [`Which`](#Std.IO.ProcessNative.Which(string))
 
 <a id="Std.IO.ProcessNative.RunSync(string,string[],string[],string[],string[],bool,string?,int,byte[]?,int,string?,int,string?,long,bool)"></a>
 ### static extern object[] RunSync(string program, string[] args, string[] envKeys, string[] envVals, string[] envRemove, bool envClear, string? cwd, int stdinMode, byte[]? stdinBytes, int stdoutMode, string? stdoutPath, int stderrMode, string? stderrPath, long timeoutMs, bool ownProcessGroup)
@@ -40,18 +38,4 @@ public static class ProcessNative {
 [`src/libraries/z42.core/src/IO/ProcessNative.z42:49`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/ProcessNative.z42#L49)
 
 按 PATH 解析程序全路径；找不到返回 null。
-
-<a id="Std.IO.ProcessNative.Run(string,string[],string[],string[],string[],bool,string?,int,byte[]?,int,string?,int,string?,long,bool)"></a>
-### static extern object[] Run(string program, string[] args, string[] envKeys, string[] envVals, string[] envRemove, bool envClear, string? cwd, int stdinMode, byte[]? stdinBytes, int stdoutMode, string? stdoutPath, int stderrMode, string? stderrPath, long timeoutMs, bool ownProcessGroup)
-
-[`src/libraries/z42.core/src/IO/ProcessNative.z42:56`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/ProcessNative.z42#L56)
-
-（种子兼容，旧形状）运行子进程，返回判别数组。
-
-<a id="Std.IO.ProcessNative.Spawn(string,string[],string[],string[],string[],bool,string?,int,byte[]?,int,string?,int,string?)"></a>
-### static extern object[] Spawn(string program, string[] args, string[] envKeys, string[] envVals, string[] envRemove, bool envClear, string? cwd, int stdinMode, byte[]? stdinBytes, int stdoutMode, string? stdoutPath, int stderrMode, string? stderrPath)
-
-[`src/libraries/z42.core/src/IO/ProcessNative.z42:75`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/ProcessNative.z42#L75)
-
-（种子兼容，旧形状）启动子进程，返回判别数组。
 

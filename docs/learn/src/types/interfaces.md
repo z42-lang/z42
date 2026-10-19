@@ -97,18 +97,23 @@
 {{#include ../../../../examples/types/interfaces/gap/run.console:run}}
 ```
 
-### 🔴 仍缺的一半：接口之间不成立赋值关系
+### 接口之间的赋值：沿继承链成立，跨链不成立
 
-**类**到它任一祖先接口的赋值没问题（上面的 `IBase b = new Impl();`）。缺的是**接口到父接口**
-这一步：
+**类**到它任一祖先接口的赋值没问题（上面的 `IBase b = new Impl();`）；**接口到父接口**
+（`IDerived : IBase` 时 `IBase b = d;`）同样沿继承链成立。报 **E0402** 的是**没有亲缘
+关系**的两个接口——它们之间不存在任何隐式转换：
 
-```z42,ignore
-IDerived d = new Impl();
-IBase b = d;      // ✗ E0402: cannot assign IDerived to IBase
+```z42
+// examples/types/interfaces/viewcast/viewcast.z42
+{{#include ../../../../examples/types/interfaces/viewcast/viewcast.z42}}
 ```
 
-接口类型之间的赋值判定目前只比较名字是否相等，不走继承链。**变通办法**：需要 `IBase`
-视图时从具体类型赋值（`IBase b = impl;`），而不是从 `IDerived` 转。
+```console
+{{#include ../../../../examples/types/interfaces/viewcast/run.console:err}}
+```
+
+需要另一个接口的视图时，先确认两个接口真有继承关系；没有的话，从具体类型分别赋值
+（`IExtra e = new ImplE();`），不要在接口之间硬转。
 
 ## 接口还是抽象类？
 
@@ -128,8 +133,8 @@ IBase b = d;      // ✗ E0402: cannot assign IDerived to IBase
 - **一个类能实现任意多个接口**，有基类时基类写最前面。
 - `x is IFoo` 判断，`x as IFoo` 转换（失败得 `null`）。
 - 接口可以要求属性 / 索引器 / 事件；`{ get; set; }` 是**两份**契约。
-- **接口可以继承接口**，继承来的成员经子接口照样能调；🔴 缺的只有**接口到父接口的赋值**
-  （`IBase b = d;` 报 E0402），需要 `IBase` 视图时从具体类型赋值。
+- **接口可以继承接口**，继承来的成员经子接口照样能调；**接口到父接口的赋值**沿继承链成立，
+  🔴 报 E0402 的是**没有亲缘关系**的接口之间互赋。
 - 只约定能力用接口，要共享实现用抽象类。
 
 下一章讲**值类型与记录**——`struct` 的值语义，以及 `[Record]` 怎么一行生成一个数据类。

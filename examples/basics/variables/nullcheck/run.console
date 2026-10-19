@@ -1,0 +1,6 @@
+# ANCHOR: err
+$ z42 run nullcheck.z42
+z42c build: 1 error(s) in nullcheck.z42
+  nullcheck.z42(4,12): E0478: `s` is marked `?` and may be null here — check it before dereferencing (e.g. `if (s != null) { … }`)
+[exit: 1]
+# ANCHOR_END: err

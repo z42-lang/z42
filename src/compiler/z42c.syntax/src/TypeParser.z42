@@ -169,7 +169,7 @@ public sealed class TypeParser {
             // （SymbolTable / TypeEnv 都没有诊断袋），列为 tasks 待办；现存代码里没有这种写法。
             // ⚠️ 必须排除数组：`byte[]?` 是**合法**的 —— 数组是引用类型，可空的是数组本身，
             // 不是元素。只看基名 `byte` 会把它误拦（实测被 z42.core 的
-            // `ProcessNative.Spawn(..., byte[]? stdinBytes, ...)` 抓住）。
+            // `ProcessNative.RunSync(..., byte[]? stdinBytes, ...)` 抓住）。
             if (ac == 0 && !isArray && TypeParser._isValueTypeKeyword(name)) {
                 this._p._diags.Error(DiagnosticCodes.NullableValueType, TypeParser.NullableValueTypeMessage(name), qsp);
             }

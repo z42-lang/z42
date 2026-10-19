@@ -10,11 +10,9 @@
 // 检查规则：
 //   D1  markdown 链接 `[text](target)` 的 target 若是仓内相对路径，必须能解析到真实文件/目录
 //
-// **棘轮**（照 `xtask check lines` 的成熟做法）：存量死链记在
-// `scripts/test/doc-link-baseline.txt`，只 warn 不判红；**基线之外的新死链一律红**。
-// 为什么不一次修完：首次跑出 206 条，其中 **121 条（59%）在 `docs/design/` 里，而那个目录
-// 正要被三书重构清空** —— 现在修等于白做。搬走一批，基线自然少一批。
-// `--update` 只许用来**剔除已修好的**，不许用来把新死链写进基线（那等于关掉门禁）。
+// 死链**一律红**。批 0 时曾是「基线棘轮」（存量死链记在 scripts/test/doc-link-baseline.txt、
+// 只 warn 不判红）：三书重构要搬约 200 篇文档，其中 59% 的死链在被清空的 docs/design/ 里，
+// 当场修等于白做。重构完成、基线清零后棘轮与基线文件一并拆除（2026-10-20）。
 //
 // 不检查（有意）：
 //   - 外部 URL（http/https/mailto）—— 联网校验会让门禁变慢且不稳定
@@ -24,34 +22,19 @@ namespace Z42Xtask;
 
 using Std.IO;
 
-// `xtask test docs [--update]` 入口。返回退出码。
-int _testDocs(string root, bool update) {
+// `xtask test docs` 入口。返回退出码。
+int _testDocs(string root) {
     Console.WriteLine("▶ test docs");
     Console.WriteLine("① 相对链接可解析");
     string[] found = _collectDeadLinks(root);
-    if (update) {
-        _writeBaseline(root, found);
-        Console.WriteLine("  基线已更新：" + found.Length.ToString() + " 条");
-        return 0;
-    }
-    string[] baseline = _readBaseline(root);
-    int fresh = 0;
-    int known = 0;
-    int i = 0;
-    while (i < found.Length) {
-        if (_hasString(baseline, found[i])) { known = known + 1; }
-        else {
+    if (found.Length > 0) {
+        int i = 0;
+        while (i < found.Length) {
             ConsoleError.WriteLine("  ✗ " + found[i]);
-            fresh = fresh + 1;
+            i = i + 1;
         }
-        i = i + 1;
-    }
-    if (known > 0) {
-        Console.WriteLine("  基线内 " + known.ToString() + " 条存量死链（不判红；搬迁完成后用 --update 剔除）");
-    }
-    if (fresh > 0) {
         Console.WriteLine("");
-        ConsoleError.WriteLine("  ❌ docs: " + fresh.ToString() + " 条新死链");
+        ConsoleError.WriteLine("  ❌ docs: " + found.Length.ToString() + " 条死链");
         ConsoleError.WriteLine("     链接目标按所在文件的目录解析；跨书链接请用相对路径或完整 URL。");
         return 1;
     }
@@ -141,38 +124,6 @@ int _checkAgentRefs(string root) {
     }
     Console.WriteLine("  ✓ 无越层引用");
     return 0;
-}
-
-string _baselinePath(string root) { return Path.Join(root, "scripts/test/doc-link-baseline.txt"); }
-
-string[] _readBaseline(string root) {
-    string p = _baselinePath(root);
-    if (!File.Exists(p)) { return new string[0]; }
-    string[] lines = File.ReadAllText(p).Split("\n");
-    string[] acc = new string[lines.Length];
-    int n = 0;
-    int i = 0;
-    while (i < lines.Length) {
-        string t = lines[i].Trim();
-        if (t.Length > 0 && !t.StartsWith("#")) { acc[n] = t; n = n + 1; }
-        i = i + 1;
-    }
-    return _trimStrings(acc, n);
-}
-
-void _writeBaseline(string root, string[] entries) {
-    string body = "# xtask test docs —— 存量死链基线（棘轮）。\n"
-        + "# 每行 `<文件> -> <链接目标>`。**只许剔除已修好的，不许写进新死链**。\n"
-        + "# 三书重构搬走一批，这里就该少一批；重构完成后本文件应为空并删除。\n";
-    int i = 0;
-    while (i < entries.Length) { body = body + entries[i] + "\n"; i = i + 1; }
-    File.WriteAllText(_baselinePath(root), body);
-}
-
-bool _hasString(string[] arr, string s) {
-    int i = 0;
-    while (i < arr.Length) { if (arr[i] == s) { return true; } i = i + 1; }
-    return false;
 }
 
 // 扫全仓 markdown 的相对链接。返回死链条目（`<文件> -> <目标>`，不含行号——行号会随编辑漂移，

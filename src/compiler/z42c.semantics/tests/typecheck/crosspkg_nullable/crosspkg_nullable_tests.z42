@@ -1,8 +1,8 @@
 // fix-crosspkg-nullable-resolve：跨包（字符串元数据路径 `ImportedSymbolLoader._resolve`）此前
 // 不剥可空后缀 `?`，而本地 AST 路径（`SymbolTable.ResolveTypeP`）剥。于是一个 `byte[]?` 形参
 // 跨包被解析成垃圾 `Z42ClassType.Builtin("byte[]?")`（Code=-1）而非 `Z42ArrayType(byte)`，两路对
-// 同一书写给出不同 Z42Type。现存唯一触点是 z42.core 的 `ProcessNative.Spawn(byte[]? …)`——它与其
-// 包装 `Process` 同包（走 AST 路径不触发），故是潜伏错译；本用例用合成依赖包直接踩字符串路径。
+// 同一书写给出不同 Z42Type。现存唯一触点是 z42.core 的 `ProcessNative.RunSync(byte[]? …)`——由
+// z42.io 的 `Process` 跨包直调（本用例用合成依赖包直接踩字符串路径）。
 //
 // 复用 crosspkg_duplicate_tests.z42 的 `dupImports` / `dupDiags`（同一 typecheck 测试单元、自由
 // 函数平坦命名空间共享，不能重定义 → 直接调用）。

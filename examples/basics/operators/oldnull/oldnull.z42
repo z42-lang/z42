@@ -1,0 +1,7 @@
+using Std.IO;
+
+void Main() {
+    string? name = null;
+    string display = name ?? "(匿名)";   // ✗ z42 没有 ?? —— E0480
+    Console.WriteLine(display);
+}

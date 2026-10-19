@@ -1,0 +1,18 @@
+using Std.IO;
+
+interface IBase { void A(); }
+interface IDerived : IBase { void B(); }
+interface IExtra { void E(); }     // 与 IDerived 没有亲缘关系
+
+class Impl : IDerived {
+    public void A() { Console.WriteLine("A"); }
+    public void B() { Console.WriteLine("B"); }
+}
+
+void Main() {
+    IDerived d = new Impl();
+    IBase b = d;            // ✓ 接口 → 它的父接口，沿继承链成立
+    b.A();
+
+    IExtra e = d;           // ✗ 没有亲缘的接口之间没有隐式转换 —— E0402
+}
