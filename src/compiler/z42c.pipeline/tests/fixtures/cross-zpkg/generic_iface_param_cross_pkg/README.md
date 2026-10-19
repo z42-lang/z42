@@ -9,7 +9,7 @@
 ## 为什么这是真门
 
 `TypeNameResolver._hybridTypeName`（类方法 + 自由函数的 TSIG 参数/返回拼写）此前把实例化接口落到
-`_resolvedTypeName` 的末段 `t.Name()`——裸名、丢实参。消费包 `ImportedSymbolLoader._resolve` 按
+`_resolvedTypeName` 的末段——类型对象 `Name()` 的裸名、丢实参。消费包 `ImportedSymbolLoader._resolve` 按
 FQN 表查这个参数类型 miss → `Builtin("IVisitor")` 垃圾伪类；普通（非泛型）调用的实参检查有垃圾
 吸收、静默通过，而**泛型调用点的实参补查没有** ⇒ E0402「cannot assign … to (argument)」——
 z42c.emission 调 `BoundExpr.Accept<R, D>(IBoundExprVisitor<R, D> v, D d)`（visitor 2/3）时实测踩中。
