@@ -9,8 +9,8 @@ use super::*;
 /// own_methods, and the property type comes from the accessor signature (same
 /// source as MethodInfo). Getter + setter for the same name merge into one
 /// PropertyInfo (CanRead && CanWrite). Empty for a handle-less Type.
-pub fn builtin_type_properties(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let td = match type_handle(args) {
+pub fn type_properties(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> {
+    let td = match type_handle_of(ty) {
         Some(t) => t,
         None => return Ok(ctx.heap().alloc_array(Vec::new())),
     };
@@ -56,7 +56,7 @@ pub fn builtin_type_properties(ctx: &VmContext, args: &[Value]) -> Result<Value>
                 ("__getterQualified", getter_q),
                 ("__setterQualified", setter_q),
             ],
-        )?);
+        ).map_err(BuiltinError::Legacy)?);
     }
     Ok(ctx.heap().alloc_array(out))
 }
@@ -131,4 +131,16 @@ pub(super) fn upsert_prop<'a>(props: &'a mut Vec<PropAccum>, name: &str) -> &'a 
     });
     let last = props.len() - 1;
     &mut props[last]
+}
+
+/// 成员列举迁 builtin ABI v2(P1-8 批次 5):纯合成(FieldInfo / MethodInfo /
+/// ConstructorInfo / PropertyInfo 数组),不执行 z42 代码,不压轻帧。
+#[z42_macros::builtins]
+pub mod typed {
+    use super::*;
+
+    #[builtin(name = "__type_properties")]
+    pub fn properties_of(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> {
+        type_properties(ctx, ty)
+    }
 }

@@ -52,19 +52,13 @@ pub(crate) fn read_obj_slot(v: &Value, field: &str) -> Value {
 /// real `TypeHandle`. Arrays, constructed generics, primitives and unqualified
 /// simple names keep their existing synthetic-Type semantics — those are load-
 /// bearing (e.g. `typeof(int[])`, cross-package generic type-arg names).
-pub fn builtin_type_get_type(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    match args.first() {
-        Some(Value::Str(s)) => {
-            let t = make_type_from_name(ctx, s);
-            let qualified_class =
-                s.contains('.') && !s.ends_with("[]") && !s.contains('<');
-            if qualified_class && type_handle(std::slice::from_ref(&t)).is_none() {
-                return Ok(Value::Null);
-            }
-            Ok(t)
-        }
-        _ => Ok(Value::Null),
+pub fn type_get_type(ctx: &VmContext, fqn: &crate::metadata::vstr::Str) -> Value {
+    let t = make_type_from_name(ctx, fqn);
+    let qualified_class = fqn.contains('.') && !fqn.ends_with("[]") && !fqn.contains('<');
+    if qualified_class && type_handle_of(&t).is_none() {
+        return Value::Null;
     }
+    t
 }
 
 /// `__method_invoke(method: MethodInfo, obj: object, args: object[]) -> object`.
@@ -133,10 +127,8 @@ pub(super) fn read_type_arg_names(mi: &Value) -> Vec<String> {
 /// `__typeArgs`) returns its bound type arguments; a *definition* returns
 /// placeholder `Std.Type`s built from the declared type-parameter names
 /// (`__typeParamNames`, e.g. `T`/`U`); a non-generic method returns an empty array.
-pub fn builtin_method_generic_arguments(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    // split-null-sentinel-channels ⑥：显式校验 arity 后直接下标取参。
-    crate::corelib::expect_args("MethodInfo.GetGenericArguments", args, 1)?;
-    let mi = args[0].clone();
+pub fn method_generic_arguments(ctx: &VmContext, mi: &Value) -> Result<Value, BuiltinError> {
+    let mi = mi.clone();
     // Constructed state: the bound Type[] set by MakeGenericMethod.
     if let Value::Array(rc) = read_obj_slot(&mi, "__typeArgs") {
         let elems: Vec<Value> = rc.borrow().iter_boxed().collect();
@@ -165,31 +157,30 @@ pub fn builtin_method_generic_arguments(ctx: &VmContext, args: &[Value]) -> Resu
 /// separate subtype) carrying `__typeArgs`. Non-generic receiver or an arity mismatch
 /// raises a catchable `Std.Exception` (the native `Err` is wrapped by
 /// `exec_call::builtin`). `Invoke` on the result threads `__typeArgs` into the frame.
-pub fn builtin_method_make_generic(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn method_make_generic(ctx: &VmContext, mi: &Value, type_args_arr: &Value) -> Result<Value, BuiltinError> {
     // split-null-sentinel-channels ⑥：显式校验**本 builtin 自身**的 arity 后直接下标。
     // ⚠️ 别与下方的 `invoke_arity_check` 混淆 —— 那个校验的是**被反射调用的 z42 函数**的
     // 形参个数 vs 用户给的实参数组，与本 builtin 收几个参数是两件事。
-    crate::corelib::expect_args("MethodInfo.MakeGenericMethod", args, 2)?;
-    let mi = args[0].clone();
-    let type_args = args[1].clone();
+    let mi = mi.clone();
+    let type_args = type_args_arr.clone();
     // Genericness + arity, validated against the declared type-param names.
     let expected = match read_obj_slot(&mi, "__typeParamNames") {
         Value::Array(rc) => rc.borrow().len(),
         _ => 0,
     };
     if expected == 0 {
-        bail!("MakeGenericMethod: method is not a generic method definition");
+        return Err(BuiltinError::InvalidOperation("MakeGenericMethod: method is not a generic method definition".into()));
     }
     let given = match &type_args {
         Value::Array(rc) => rc.borrow().len(),
         _ => 0,
     };
     if given != expected {
-        bail!("MakeGenericMethod: expected {expected} type argument(s), got {given}");
+        return Err(BuiltinError::Argument(format!("MakeGenericMethod: expected {expected} type argument(s), got {given}")));
     }
     // Clone the definition MethodInfo into a constructed one: preserve identity slots,
     // set __typeArgs, and flip IsGenericMethodDefinition off (IsGenericMethod stays on).
-    alloc_named(
+    Ok(alloc_named(
         ctx,
         STD_REFLECTION_METHODINFO,
         &[
@@ -208,7 +199,7 @@ pub fn builtin_method_make_generic(ctx: &VmContext, args: &[Value]) -> Result<Va
             ("__parameters", read_obj_slot(&mi, "__parameters")),
             ("__qualified", read_obj_slot(&mi, "__qualified")),
         ],
-    )
+    ).map_err(BuiltinError::Legacy)?)
 }
 
 /// Shared reflective-invocation core: resolve `qualified` (main module first,
@@ -516,5 +507,25 @@ pub fn builtin_ctor_invoke(ctx: &VmContext, args: &[Value]) -> Result<Value> {
             ctx.set_pending_thrown(val);
             bail!("__z42_reflected_throw__")
         }
+    }
+}
+
+/// 反射合成类迁 builtin ABI v2(P1-8 批次 5):`GetType`(FQN 解析)、
+/// `GetGenericArguments`、`MakeGenericMethod` 都是纯合成,不执行 z42 代码。
+#[z42_macros::builtins]
+pub mod typed {
+    use super::*;
+
+    #[builtin(name = "__type_get_type")]
+    pub fn get_type(ctx: &VmContext, fqn: &crate::metadata::vstr::Str) -> Value { type_get_type(ctx, fqn) }
+
+    #[builtin(name = "__method_generic_arguments")]
+    pub fn generic_args(ctx: &VmContext, mi: &Value) -> Result<Value, BuiltinError> {
+        method_generic_arguments(ctx, mi)
+    }
+
+    #[builtin(name = "__method_make_generic")]
+    pub fn make_generic(ctx: &VmContext, mi: &Value, type_args: &Value) -> Result<Value, BuiltinError> {
+        method_make_generic(ctx, mi, type_args)
     }
 }

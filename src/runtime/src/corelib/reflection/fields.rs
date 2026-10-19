@@ -13,8 +13,8 @@ pub(super) fn is_autoprop_backing(name: &str) -> bool {
 /// `__type_fields(typeObj) -> FieldInfo[]` — instance fields (incl. inherited;
 /// base-first), each `FieldInfo { Name, FieldType: Type }`. Auto-property
 /// backing fields (`__prop_*`) are excluded.
-pub fn builtin_type_fields(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let td = match type_handle(args) {
+pub fn type_fields(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> {
+    let td = match type_handle_of(ty) {
         Some(t) => t,
         None => return Ok(ctx.heap().alloc_array(Vec::new())),
     };
@@ -28,7 +28,7 @@ pub fn builtin_type_fields(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         if is_autoprop_backing(&f.name) {
             continue;
         }
-        out.push(build_field_info(ctx, &td.name, &f.name, &f.type_tag, false, f.visibility)?);
+        out.push(build_field_info(ctx, &td.name, &f.name, &f.type_tag, false, f.visibility).map_err(BuiltinError::Legacy)?);
     }
     // add-reflection-inherited-static-fields: static fields are stored per
     // declaring class (no instance-field-style fixup), so walk the base chain
@@ -44,7 +44,7 @@ pub fn builtin_type_fields(ctx: &VmContext, args: &[Value]) -> Result<Value> {
                 continue;
             }
             if seen.insert(f.name.clone()) {
-                out.push(build_field_info(ctx, &c.name, &f.name, &f.type_tag, true, f.visibility)?);
+                out.push(build_field_info(ctx, &c.name, &f.name, &f.type_tag, true, f.visibility).map_err(BuiltinError::Legacy)?);
             }
         }
         cur = c.base_name.as_ref().and_then(|b| {
@@ -82,4 +82,16 @@ pub(super) fn build_field_info(
             ("__qualified", Value::Str(format!("{class}.{field}").into())),
         ],
     )
+}
+
+/// 成员列举迁 builtin ABI v2(P1-8 批次 5):纯合成(FieldInfo / MethodInfo /
+/// ConstructorInfo / PropertyInfo 数组),不执行 z42 代码,不压轻帧。
+#[z42_macros::builtins]
+pub mod typed {
+    use super::*;
+
+    #[builtin(name = "__type_fields")]
+    pub fn fields_of(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> {
+        type_fields(ctx, ty)
+    }
 }

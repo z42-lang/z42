@@ -21,11 +21,8 @@ use super::*;
 /// lenient (a missing SIGS entry just yields `sig_found = false` and an empty
 /// parameter list), which would turn "emitted a name nobody can resolve" into a
 /// silent wrong answer — precisely the failure mode this feature exists to kill.
-pub fn builtin_methodof(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let qualified = match args.first() {
-        Some(Value::Str(s)) => s.to_string(),
-        _ => bail!("__methodof: expected a qualified method name argument"),
-    };
+pub fn methodof(ctx: &VmContext, qualified: &crate::metadata::vstr::Str) -> Result<Value, BuiltinError> {
+    let qualified = qualified.to_string();
 
     // Existence check mirrors `invoke_qualified`'s two-step lookup: the current
     // module's own index first, then the cross-module table.
@@ -34,15 +31,26 @@ pub fn builtin_methodof(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         None => false,
     } || ctx.try_lookup_function(&qualified).is_some();
     if !known {
-        bail!(
+        return Err(BuiltinError::Internal(format!(
             "__methodof: no emitted function named `{qualified}` — the compiler emitted a \
-             method reference that does not resolve (this is a z42c bug, not a source error)"
-        );
+             method reference that does not resolve (this is a z42c bug, not a source error)")));
     }
 
     // `simple` is the source-level name: strip the `$arity$types` dispatch mangle
     // and the owning-class prefix. `build_method_info` re-strips the mangle itself,
     // so passing the last path segment is enough.
     let simple = qualified.rsplit('.').next().unwrap_or(qualified.as_str());
-    build_method_info(ctx, simple, &qualified, false)
+    build_method_info(ctx, simple, &qualified, false).map_err(BuiltinError::Legacy)
+}
+
+/// `__methodof` 迁 builtin ABI v2(P1-8 批次 5)。`try_lookup_function` 只查已注册表,
+/// 不执行 z42 代码;名字解析失败是编译器缺陷 → `Internal`(致命)。
+#[z42_macros::builtins]
+pub mod typed {
+    use super::*;
+
+    #[builtin(name = "__methodof")]
+    pub fn method_of(ctx: &VmContext, qualified: &crate::metadata::vstr::Str) -> Result<Value, BuiltinError> {
+        methodof(ctx, qualified)
+    }
 }
