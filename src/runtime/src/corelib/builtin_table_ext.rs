@@ -135,7 +135,6 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     ("__repl_set_key_editor",     Native::Val(repl_editing::builtin_repl_set_key_editor)),
     ("__repl_set_keywords",       Native::Val(repl_editing::builtin_repl_set_keywords)),
     ("__repl_member_names",       Native::Val(repl::builtin_repl_member_names)),
-    ("__load_bytecode_in_memory", Native::Val(reflection::builtin_load_bytecode_in_memory)),
 
     // ── add-enum-parse-isdefined (2026-07-24) — appended to preserve BuiltinIds ──
 
@@ -176,7 +175,6 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     ("__heap_retaining_roots",    Native::Val(diagnostics::builtin_heap_retaining_roots)),
 
     // ── mature-embed-testhost P1 (2026-08-09) — appended to preserve BuiltinIds ──
-    ("__run_goldens_isolated",    Native::Val(reflection::builtin_run_goldens_isolated)),
 
     // ── expose-diagnostics-counters (2026-08-23) — appended to preserve BuiltinIds ──
     ("__diag_counters",           Native::Val(diagnostics::builtin_diag_counters)),

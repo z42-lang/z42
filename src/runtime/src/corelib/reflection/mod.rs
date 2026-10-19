@@ -50,7 +50,7 @@ pub(crate) mod invoke;
 // accept-boxed-struct-field-get: `field_get` 的 BoxedStruct 臂复用 `boxed_struct_field_get`
 // （按名取装箱 struct 的叶子）⇒ 模块对 crate 内可见，函数仍是 `pub(crate)`。
 pub(crate) mod accessors;
-mod module_load;
+pub(crate) mod module_load;
 
 pub use self::type_object::*;
 pub use self::fields::*;
