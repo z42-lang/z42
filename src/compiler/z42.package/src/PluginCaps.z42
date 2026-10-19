@@ -1,0 +1,72 @@
+namespace Z42.Package;
+
+using Std.IO;
+
+/// 插件能力位：zpkg 头 flags 的 bit3–5，说明一个插件包提供哪几类插件。由构建按包内实现的契约推导写入
+/// （实现 `Z42.Analyzers.Analyzer` → Analyzer；`Z42.Generators.Generator` / `ModuleGenerator` → Generator；
+/// 继承 `Z42.Build.BuildHooks` → Hook），可组合。消费方读头即可分流，不必加载代码：z42c 取
+/// Analyzer / Generator，z42b 取 Hook。三位全 0 = 不是插件包。
+public static class PluginCaps {
+    public static int Analyzer  = 8;    // bit3
+    public static int Generator = 16;   // bit4
+    public static int Hook      = 32;   // bit5
+
+    /// 从头 flags（或任意整数）里取出插件能力位。
+    public static int Mask(int flags) { return flags & 56; }
+
+    public static bool IsPlugin(int caps)    { return PluginCaps.Mask(caps) != 0; }
+    /// 有 z42c 要加载的部分（analyzer / generator）。
+    public static bool ForCompiler(int caps) { return (caps & 24) != 0; }
+    /// 有 z42b 要加载的部分（hook）。
+    public static bool ForBuild(int caps)    { return (caps & 32) != 0; }
+
+    /// 诊断用的可读形式，如 `analyzer, generator`；全 0 → `none`。
+    public static string Describe(int caps) {
+        string s = "";
+        if ((caps & 8) != 0)  { s = "analyzer"; }
+        if ((caps & 16) != 0) { s = s.Length > 0 ? s + ", generator" : "generator"; }
+        if ((caps & 32) != 0) { s = s.Length > 0 ? s + ", hook" : "hook"; }
+        if (s.Length == 0) { s = "none"; }
+        return s;
+    }
+}
+
+/// 检查一个被 `[plugins]` 引用的 zpkg：读得出、包名与条目一致、头里有插件能力位。z42c 与 z42b 的插件解析
+/// 共用这一份判据与措辞。`Error` 为空 = 通过（`Caps` 有效）；否则是一句完整的错误说明（不含工具前缀）。
+public sealed class PluginInspection {
+    public int    Caps;
+    public string Error;
+    public PluginInspection(int caps, string error) { this.Caps = caps; this.Error = error; }
+}
+
+public static class PluginZpkg {
+    public static PluginInspection Inspect(string zpkgPath, string expectedName) {
+        ZpkgInfo info = null;
+        try { info = ZpkgReader.Open(File.ReadAllBytes(zpkgPath), zpkgPath); } catch (Exception ex) { info = null; }
+        if (info == null) {
+            return new PluginInspection(0, "[plugins] `" + expectedName + "` 指向的 " + zpkgPath
+                + " 读不出来——不是 zpkg，或由另一代工具链编出（格式版本不符）。用当前工具链重建它。");
+        }
+        if (info.Name != expectedName) {
+            return new PluginInspection(0, "[plugins] `" + expectedName + "` 指向的 " + zpkgPath + " 包名是 `"
+                + info.Name + "`——两者须一致（同 [dependencies] 的约定）。");
+        }
+        if (!PluginCaps.IsPlugin(info.PluginCaps)) {
+            return new PluginInspection(0, "[plugins] `" + expectedName + "`（" + zpkgPath + "）不是插件包：头里没有"
+                + " analyzer / generator / hook 能力位。普通库请写进 [dependencies]；若它确是插件工程"
+                + "（kind = \"plugin\"），用当前工具链重建它。");
+        }
+        return new PluginInspection(info.PluginCaps, "");
+    }
+
+    /// 只读文件头的插件能力位（不解析段）；读不出（缺文件 / 太短）→ 0。
+    public static int HeaderCaps(string zpkgPath) {
+        try {
+            byte[] d = File.ReadAllBytes(zpkgPath);
+            if (d.Length < 10) { return 0; }
+            return PluginCaps.Mask((int)d[8] | (((int)d[9]) << 8));
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+}

@@ -190,17 +190,10 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     if (dvc != 0) { return dvc; }
     string projectDir = Path.GetDirectoryName(tomlPath);
     if (projectDir == "") { projectDir = "."; }
-    // fix-hooks-source-scan 阶段2：有效 exclude = `[sources].exclude` ++（`[build] hooks` 目录，若声明）。
-    // hooks 由 z42b 单独编（`[build] hooks` → ModuleLoader.Load），不该被 app 的 `**/*.z42` glob 扫进
-    // app zpkg——否则多一个跨包死类 `ProjectHooks : Z42.Build.BuildHooks`（base 非构建期依赖 → own-only
-    // → vtable fixup 假警报刷屏）。目录形式的排除用 `<dir>/**`（SourceDiscovery._matchesExclude 前缀语义）。
-    int baseExcN = pm.Sources.ExcludeCount;
-    int effExcN = pm.Build.HasHooks ? baseExcN + 1 : baseExcN;
-    string[] effExc = new string[effExcN];
-    int exi = 0;
-    while (exi < baseExcN) { effExc[exi] = pm.Sources.Exclude[exi]; exi = exi + 1; }
-    if (pm.Build.HasHooks) { effExc[baseExcN] = pm.Build.HooksDir + "/**"; }
-    string[] srcs = SourceDiscovery.DiscoverWithExclude(projectDir, pm.Sources.Include, pm.Sources.IncludeCount, effExc, effExcN);
+    // 有效 exclude：`[sources].exclude` 再加上住在工程目录里的插件源码目录（`[build] hooks`、工程内的
+    // `[plugins]` path 条目）——插件单独构建、加载进宿主进程，不该被 app 的 `**/*.z42` glob 扫进 app zpkg。
+    string[] effExc = pm.EffectiveSourceExcludes();
+    string[] srcs = SourceDiscovery.DiscoverWithExclude(projectDir, pm.Sources.Include, pm.Sources.IncludeCount, effExc, effExc.Length);
     if (srcs.Length == 0) {
         ConsoleError.WriteLine("z42c build: no sources matched [sources].include");
         return ExitCode.BuildError;
@@ -291,29 +284,32 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     // exe / lib：按名声明的 SDK 库（+ 传递闭包）可见；analyzer：编译器目录里的 SDK 库全部可见（编译期扩展的
     // 契约包在那里）。不放行的并入扫描 tier 的 Hidden。放行集为空（绝大多数工程，含 z42c 自建）⇒ 不追加目录、
     // tier 原样 ⇒ 自举 byte-identical。此前这里只有「kind = analyzer ⇒ 并入整个编译器目录」一条。
-    SdkLibPlan sdkPlan = SdkLibs.Plan(pm, libsDirs, libsDirsN, pm.Project.Kind == "analyzer");
+    SdkLibPlan sdkPlan = SdkLibs.Plan(pm, libsDirs, libsDirsN, pm.Project.IsPlugin());
     if (sdkPlan.DirsN > 0) {
         libsDirs = SdkLibs.AppendDirs(libsDirs, libsDirsN, sdkPlan);
         libsDirsN = libsDirsN + sdkPlan.DirsN;
     }
     // 只用于扫描与缓存身份；`tier` 本身的 workspace 语义（成员 / 闭包代建 / packed / generated）不受影响。
     WsTier scanTier = SdkLibs.MergeTier(tier, sdkPlan);
-    // ── `[analyzers]` handler zpkg 解析（add-package-roles 批 2）────────────────────────────
-    // 必须在指纹之前：path 条目由 z42c **代建**，不先建就没有 zpkg 可指纹，「改了 analyzer 源码但
-    // 消费方源没变」就不会失效缓存 —— 那正是 PR4e 指纹要堵的洞，只是换 path 条目后会重新漏。
-    // 解析结果同时喂指纹与 CompileInputs（此前两处各按名扫一遍 libsDirs）。
-    // 无 `[analyzers]`（含 z42c 自建）→ 不进此块、指纹 `""` → 自举 byte-identical。
+    // ── `[plugins]` 插件 zpkg 解析（PluginRefs.z42）────────────────────────────────────────
+    // 必须在指纹之前：path 条目由 z42c **代建**，不先建就没有 zpkg 可指纹，「改了插件源码但消费方源没变」
+    // 就不会失效缓存。解析结果同时喂指纹与 CompileInputs。z42c 只拿编译器侧（analyzer / generator）插件；
+    // 一个都没有（含 z42c 自建、只挂了 hook 插件的工程）→ azPaths 为 null、指纹 `""` → 自举 byte-identical。
     string[] azPaths = null;
-    if (pm.AnalyzerCount > 0) {
-        HandlerZpkgs hz = _resolveHandlerZpkgs(pm, projectDir, tomlPath, libsDirs, libsDirsN,
-                                               isRelease, noIncremental, cliAdd, cliRemove);
-        if (hz.Code != 0) { return hz.Code; }
-        azPaths = hz.Paths;
+    PluginZpkgs pz = null;
+    if (pm.PluginCount > 0) {
+        pz = _resolvePluginZpkgs(pm, projectDir, tomlPath, libsDirs, libsDirsN,
+                                 isRelease, noIncremental, cliAdd, cliRemove);
+        if (pz.Code != 0) { return pz.Code; }
+        if (pz.Count > 0) {
+            azPaths = new string[pz.Count];
+            int azi = 0;
+            while (azi < pz.Count) { azPaths[azi] = pz.Paths[azi]; azi = azi + 1; }
+        }
     }
-    // attribute-handler-registry PR4e：handler（[analyzers] zpkg）身份指纹并入增量指纹（design red-line ②
-    // 「产物纳入指纹」，helper 在 BuildPaths.z42）——揉进每个文件源 hash，则「换 generator 但源没变」也令所有
-    // 缓存失效。空（无 [analyzers]，含 z42c 自建）→ `""` → `text+""==text` → 源 hash 不变 → 自举 byte-identical。
-    string handlerFp = _handlerFingerprint(pm, azPaths);
+    // 插件身份指纹并入增量指纹（「产物纳入指纹」）——揉进每个文件源 hash，则「换 generator 但源没变」也令
+    // 所有缓存失效。空 → `""` → `text+""==text` → 源 hash 不变 → 自举 byte-identical。
+    string handlerFp = _pluginFingerprint(pz);
     // 源文本读入 + 源 hash（probe / ZbcFileZ / meta 三处复用；SHA-256 解释执行曾是 D8 增量差价主项）。
     // parallelize-package-compile ★①：per-file 读+哈希并行（各写独立槽，确定性）。
     string[] texts = new string[srcs.Length];
@@ -452,11 +448,11 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         // 于是「全命中但不能 preserved」（dist 被清 / pack 模式切换 / 多 exe）会落进 Main 的全量
         // parse 分支、cachedMods 全 null → **缓存整份作废、全部重编**（实测 xtask 3.7s vs 应有 2.25s；
         // 多 exe 工程更是永远全量）。
-        // fix-analyzer-diags-preserved：有 `[analyzers]` 的工程也不走 preserved。analyzer 诊断与
+        // fix-analyzer-diags-preserved：挂了编译器侧插件的工程也不走 preserved。analyzer 诊断与
         // `[lints]` 决策**不进任何缓存**（PackageCompile 每次构建重跑，快照刻意取在它之前），
         // 早退 = analyzer 没跑 ⇒ 第二次构建警告消失、只改 `[lints]`（升 error / WAE）仍 exit 0。
         // 代价只落在带 analyzer 的工程：全命中时多一次装配 + analyzer 遍历（cached CU 不重做 typecheck）。
-        bool canPreserve = pm.ExeCount == 0 && pm.AnalyzerCount == 0
+        bool canPreserve = pm.ExeCount == 0 && azPaths == null
             && File.Exists(lastZpkg) && _distModeMatches(lastZpkg, isPacked);
         prep = IncrementalDriver.Prepare(srcs, dispSrcs, texts, srcHashes, srcs.Length, projectDir, probeCache, depsId, canPreserve, feats);
         BuildLog.ProgressErr("cached: " + (srcs.Length - prep.Plan.FreshCount).ToString() + "/" + srcs.Length.ToString() + " files");
@@ -528,10 +524,18 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         string dname = declaredDeps[dvi];
         string dfile = dname + ".zpkg";
         bool dfound = false;
+        string dpath = "";
         int dd = 0;
         while (dd < libsDirsN) {
-            if (File.Exists(Path.Join(libsDirs[dd], dfile))) { dfound = true; break; }
+            dpath = Path.Join(libsDirs[dd], dfile);
+            if (File.Exists(dpath)) { dfound = true; break; }
             dd = dd + 1;
+        }
+        // 插件包不能作运行期依赖：它只加载进工具链进程、永不链入产物。读头的能力位就判得出来。
+        if (dfound && PluginCaps.IsPlugin(PluginZpkg.HeaderCaps(dpath))) {
+            ConsoleError.WriteLine("z42c build: [dependencies] `" + dname + "`（" + dpath + "）是插件包（"
+                + PluginCaps.Describe(PluginZpkg.HeaderCaps(dpath)) + "），不能作运行期依赖。改法：把它挪进 [plugins] 段。");
+            return ExitCode.BuildError;
         }
         if (!dfound) {
             string dsearched = "";
@@ -594,16 +598,13 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     // REPL / 单测 / 裸 emit 不经本函数，保持默认 false——它们没有「声明」可依据。
     // 单文件同样走这里，但 launcher 已把 SDK libs 写进它的合成清单，故自然放行。
     cin.EnforceDeclaredDeps = true;
-    // attribute-handler-registry PR3a-load：`[analyzers]` 段声明的 handler zpkg → 加载进编译器、
-    // 编译期运行、**不链入目标产物**（D9）。路径已在上方 `_resolveHandlerZpkgs` 一次解析完（名字条目
-    // 走 libsDirs、path 条目已代建），此处只挂上去。z42c 自建无 [analyzers] → azPaths 为 null → 不进
-    // 此块 → 自举 gen1==gen2 逐字节不动。
+    // 编译器侧插件 zpkg → 加载进编译器、编译期运行、**不链入目标产物**。路径已在上方 `_resolvePluginZpkgs`
+    // 一次解析完（名字条目走 libsDirs、path 条目已代建或直指 zpkg），此处只挂上去。同一批 zpkg 既承载
+    // analyzer 也承载 generator——PackageCompile 经 AnalyzerLoader / GeneratorLoader 各按接口发现。**不设
+    // 独立字段**：driver 引用 CompileInputs 新字段会成新跨成员符号、撞 F2 冷启动 stale-cache。
+    // z42c 自建无插件 → azPaths 为 null → 不进此块 → 自举 gen1==gen2 逐字节不动。
     if (azPaths != null) {
-        cin.AnalyzerZpkgs = azPaths; cin.AnalyzerZpkgCount = pm.AnalyzerCount;
-        // attribute-handler-registry PR4d：同一 `[analyzers]` 段 zpkg 也承载 generator（D9 单段覆盖两类，
-        // User 2026-08-22 裁决）——PackageCompile 直接从 AnalyzerZpkgs 经 GeneratorLoader 发现
-        // `: Generator`/`: ModuleGenerator`（只含 analyzer 的 zpkg → 发现 0 个 generator，反之亦然）。**不设
-        // 独立字段**：避免 driver 引用 CompileInputs 新字段成新跨成员符号、撞 F2 冷启动 stale-cache。
+        cin.AnalyzerZpkgs = azPaths; cin.AnalyzerZpkgCount = azPaths.Length;
     }
     // attribute-handler-registry PR3b：[lints] 中性字段 → LintConfig 决策器（severity 覆盖 +
     // EnabledByDefault 门 + warnings_as_errors）。仅 analyzer 运行时消费；z42c 自建无 [lints] →

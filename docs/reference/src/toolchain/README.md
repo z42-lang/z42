@@ -10,5 +10,5 @@
 - [`z42` 命令参考](cli-z42.md)
 - [`z42c` / `z42b` / `z42d` 命令参考](cli-z42c-z42b.md)
 - [工程清单 z42.toml](z42-toml.md)
-- [编译期扩展（Analyzer / Generator）](compile-time-extensions.md)
+- [插件（Analyzer / Generator / Hook）](compile-time-extensions.md)
 - [运行时设置（旋钮清单）](runtime-settings.md)

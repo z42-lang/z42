@@ -4,8 +4,8 @@
 // 主编译线对 union **只跑一遍** 收集 → 类型检查 → 代码生成 → 优化；前置线有 error 时它只做到类型检查。
 // 对标 Roslyn：generator 产出的语法树并入最终 Compilation，analyzer 在其上运行。
 //
-// 两段都 gated：没有 generator（外部 `[analyzers]` zpkg 里的 `: Generator` / `: ModuleGenerator`、源里用了
-// `[Forward]`、测试注入）就不进 ③；`[analyzers]` 为空就不进 ④ ⇒ z42c 自建 / REPL / 绝大多数包逐字节不动。
+// 两段都 gated：没有 generator（外部插件 zpkg 里的 `: Generator` / `: ModuleGenerator`、源里用了
+// `[Forward]`、测试注入）就不进 ③；`[plugins]` 为空就不进 ④ ⇒ z42c 自建 / REPL / 绝大多数包逐字节不动。
 // 流程图见 docs/internals/src/compiler/source-compile.md「包级编译流程」。
 namespace Z42.Pipeline;
 
@@ -32,7 +32,7 @@ public sealed class FrontLineResult {
     // 两个 loader 打的是同一批 zpkg、同一个加载入口，失败必然同时失败 ⇒ generator 侧失败即 false，
     // analyzer 侧据此跳过，避免同一个根因报两遍。
     public bool HandlersLoadable;
-    // 从 `[analyzers]` zpkg 里**真发现**的 handler 数（不含 `[Forward]` 这类内建、也不含测试注入的实例）：
+    // 从 `[plugins]` zpkg 里**真发现**的 handler 数（不含 `[Forward]` 这类内建、也不含测试注入的实例）：
     // 零发现是一条静默洞，调用方据此报 E0496。
     public int ExternHandlers;
 
@@ -72,7 +72,7 @@ public static class FrontLine {
     // ③ generator：provisional 绑定 → applied / module generator 按 consumes/produces 拓扑分层逐层运行
     // （GeneratorDriver.RunRounds，成环 E0449）→ Add / Replace / Augment 落成 union CU。
     private static void _runGenerators(CompileInputs inp, ImportedSymbols imported, FrontLineResult r) {
-        // 外部 generator 与 analyzer 共用 `[analyzers]` 段的同一批 zpkg（各按接口过滤）；
+        // 外部 generator 与 analyzer 共用 `[plugins]` 段的同一批 zpkg（各按接口过滤）；
         // 测试注入的实例在前、外部加载的在后。
         Generator[] effGens = inp.Generators; int effGenCount = inp.GeneratorCount;
         ModuleGenerator[] effMods = inp.ModuleGenerators; int effModCount = inp.ModuleGeneratorCount;
@@ -177,9 +177,9 @@ public static class FrontLine {
     internal static string _handlerLoadFailMessage(CompileInputs inp, string inner) {
         string skew = FrontLine._versionSkewNote(inp.AnalyzerZpkgs, inp.AnalyzerZpkgCount);
         if (skew.Length > 0) {
-            return "[analyzers] 声明的 handler zpkg 加载失败：" + inner + skew;
+            return "[plugins] 声明的插件 zpkg 加载失败：" + inner + skew;
         }
-        return "[analyzers] 声明的 handler zpkg 加载失败：" + inner
+        return "[plugins] 声明的插件 zpkg 加载失败：" + inner
             + "（indexed zpkg 必须连同它旁边的散装 .zbc 一起放进依赖目录；"
             + "或改用 `--release` 构建 handler 工程得到单文件 packed zpkg）";
     }

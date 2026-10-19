@@ -39,10 +39,10 @@ public sealed class ProjectManifest {
     // —— 同 OptimizeNames / LintNames 的形态。可变公字段（默认空，ManifestLoader 构造后填）。
     // 🔴 未知特性名由**消费方**报错、不静默忽略（同 `Opt.ByName` 的口径）：这里只搬。
     public string[] SyntaxNames; public bool[] SyntaxValues; public int SyntaxCount;
-    // ── [analyzers] 编译期 handler zpkg 引用（attribute-handler-registry D9）─────
-    // 独立引用段：声明「加载进编译器、编译期运行、不链入目标程序」的 analyzer/generator zpkg
-    // （与 [dependencies] 物理分开）。中性 DepEntry（name+version）；消费方（z42c）按名在 LibsDirs
-    // 解析到 `<name>.zpkg`、加载其 `: Analyzer` 类型执行。可变公字段（默认空，ManifestLoader 构造后填）。
+    // ── [analyzers]：种子 ABI 残留（与 `Plugins` 同一份内容）────────────────────
+    // 上一版 z42c 是已编译的二进制，运行期按名访问当前源码编出的本类字段——这对字段改名即断链。新代码一律读
+    // 末尾的 `Plugins`。
+    // STAGE2-DEBT(legacy-plugin-keys): 种子的 z42c.driver 不再读 pm.Analyzers / AnalyzerCount 后删掉这两个字段；同一步把仓内清单的 [analyzers] / kind = "analyzer" / [build] hooks 迁到 [plugins] / kind = "plugin" 并删掉这三个旧写法。
     public DepEntry[] Analyzers; public int AnalyzerCount;
     // ── [lints] 诊断规则开关 / severity 覆盖（attribute-handler-registry PR3b）─────
     // 中性 key/severity 字符串对（如 `Z9002="warning"` / `"webgen.*"="none"`）——z42.project **不**
@@ -66,6 +66,14 @@ public sealed class ProjectManifest {
     // 每项一行现成的文本（不含清单路径）。z42.project 只收集，消费方（ManifestKnobs.Resolve）报错。
     // 可变公字段（默认空，ManifestLoader 构造后填）。
     public string[] UnknownKeys;
+    // ── [plugins] 插件 zpkg 引用 ─────────────────────────────────────────────
+    // 独立引用段：插件（analyzer / generator / hook）加载进工具链进程运行、不链入目标程序，与
+    // [dependencies] 物理分开。中性 DepEntry：Path 空 = 按名在依赖目录找 `<name>.zpkg`；Path 以 `.zpkg`
+    // 结尾 = 现成产物；否则 = 插件工程目录（代建）。插件包提供哪几类由 zpkg 头的能力位说明，消费方
+    // （z42c 取 analyzer / generator，z42b 取 hook）按位分流。旧段名 `[analyzers]` 的条目排在前面一并收进来
+    // （同名重复由 ManifestKnobs 报错）。可变公字段（默认空，ManifestLoader 构造后填）。
+    // 🔴 种子 ABI：新字段**追加在类的最末尾**、不进 ctor 签名。
+    public DepEntry[] Plugins; public int PluginCount;
     public ProjectManifest(ProjectInfo project, Sources sources, BuildConfig build,
                            Profile[] profiles, int profileCount,
                            DepEntry[] deps, int depCount,
@@ -94,5 +102,39 @@ public sealed class ProjectManifest {
         this.Natives = new NativeSpec[0]; this.NativeCount = 0;
         this.Properties = TomlValue.OfTable();
         this.UnknownKeys = new string[0];
+        this.Plugins = new DepEntry[0]; this.PluginCount = 0;
+    }
+
+    /// 本工程源发现的有效 exclude：`[sources].exclude`，再加上住在工程目录里的插件源码目录——
+    /// `[build] hooks` 目录与指向工程内目录的 `[plugins]` path 条目。插件由工具链单独构建、加载进
+    /// 宿主进程，不该被 app 的 `**/*.z42` 扫进 app zpkg（否则多出一个跨包死类，vtable fixup 刷屏）。
+    /// 目录排除写成 `<dir>/**`（SourceDiscovery 的前缀语义）；指到工程目录外（`..` 开头 / 绝对路径）
+    /// 或指向 `.zpkg` 产物的条目与源发现无关，跳过。
+    public string[] EffectiveSourceExcludes() {
+        string[] acc = new string[this.Sources.ExcludeCount + 1 + this.PluginCount];
+        int n = 0;
+        int i = 0;
+        while (i < this.Sources.ExcludeCount) { acc[n] = this.Sources.Exclude[i]; n = n + 1; i = i + 1; }
+        if (this.Build.HasHooks) { acc[n] = this.Build.HooksDir + "/**"; n = n + 1; }
+        int p = 0;
+        while (p < this.PluginCount) {
+            string dir = ProjectManifest._inProjectDir(this.Plugins[p].Path);
+            if (dir.Length > 0) { acc[n] = dir + "/**"; n = n + 1; }
+            p = p + 1;
+        }
+        string[] r = new string[n];
+        int k = 0;
+        while (k < n) { r[k] = acc[k]; k = k + 1; }
+        return r;
+    }
+
+    // path 条目若指向工程目录内的一个目录 → 规范化后的相对目录（去掉 `./` 前缀与尾 `/`）；否则 ""。
+    private static string _inProjectDir(string path) {
+        string d = path.Replace("\\", "/");
+        while (d.StartsWith("./")) { d = d.Substring(2); }
+        while (d.EndsWith("/")) { d = d.Substring(0, d.Length - 1); }
+        if (d.Length == 0 || d == "." || d.StartsWith("/") || d.StartsWith("..") || d.EndsWith(".zpkg")) { return ""; }
+        if (d.Length >= 2 && d.Substring(1, 1) == ":") { return ""; }   // Windows 盘符绝对路径
+        return d;
     }
 }

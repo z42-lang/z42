@@ -20,8 +20,8 @@ using Z42.Project;
 // 编排入口：命令层解析出 manifest + target + sourceDir（+ manifest `[build] hooks`
 // 相对目录，"" = 无）后调本函数。全在进程内组合 —— 零子进程、零代码生成。
 //
-// hooks（wire-z42b build-hook 终章）：声明了 hooks 目录 → _loadProjectHooks
-// （builder_hooks.z42：编译 + 动态注入 ProjectHooks）→ 挂到 p.Hooks。旧「探测 build/
+// hooks：`[build] hooks` 目录与 `[plugins]` 里的 hook 插件 → _loadHooks（builder_hooks.z42：编译 / 加载 +
+// 动态注入 + 组合）→ 挂到 p.Hooks。旧「探测 build/
 // 目录 → 生成一次性 driver 源码」设计被动态注入取代（也修掉了隐式探测会把 xtask 的
 // scripts/build/ 源码目录误判为 hook 目录的坑——hooks 只认 manifest 显式声明）。
 int _orchestrate(ProjectManifest manifest, Target target, string sourceDir, string hooksRel) {
@@ -56,14 +56,10 @@ int _orchestrate(ProjectManifest manifest, Target target, string sourceDir, stri
     p.Workload = _selectWorkload(target.Family);   // 标准平台 workload 库
 
     Dirs dirs = _computeDirs(manifest, sourceDir, target.Profile);
-    if (hooksRel.Length > 0) {
-        BuildHooks h = _loadProjectHooks(
-            Path.Join(sourceDir, hooksRel),
-            Path.Join(dirs.Intermediate, "hooks"),
-            manifest.Project.Name + ".hooks");
-        if (h == null) { return 1; }   // 诊断已打印；声明了 hooks 却失败 ⇒ 构建失败（fail-build-on-hooks-error）
-        p.Hooks = h;
-    }
+    // hook：`[build] hooks` 目录 + `[plugins]` 里带 hook 位的插件，组合成一个（builder_hooks.z42）。
+    HookLoad hl = _loadHooks(manifest, sourceDir, hooksRel, Path.Join(dirs.Intermediate, "hooks"), manifest.Project.Name);
+    if (!hl.Ok) { return 1; }   // 诊断已打印；声明了 hook 却失败 ⇒ 构建失败（fail-build-on-hooks-error）
+    if (hl.Hooks != null) { p.Hooks = hl.Hooks; }
 
     PipelineContext ctx = new PipelineContext();
     ctx.Project     = manifest.Project;

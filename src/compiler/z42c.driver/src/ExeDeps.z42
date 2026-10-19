@@ -235,21 +235,21 @@ int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, stri
 //
 // 为什么不留在 `_bundleExeDeps` 里：那个函数**只在 exe 分支跑**。于是
 //   · `kind = "lib"` 工程里写 `deploy = "Copy"`（大写 typo）→ 整条校验从未执行 ⇒ 静默无效；
-//   · `kind = "analyzer"` 工程里写任何 `deploy` → 它永不链入运行期产物，这个键在那儿没有意义。
+//   · 插件工程（`kind = "plugin"`）里写任何 `deploy` → 它永不链入运行期产物，这个键在那儿没有意义。
 // 两者都是本 change 一路在消灭的那个形状：**配了，没报错，就是不生效**。
 //
-// `[analyzers]` 条目同理 —— handler zpkg 加载进编译器进程、编译期运行、**永不随产物走**，
-// 所以那里的 `deploy` 也无从生效。它与 `[dependencies]` 共用 `DepEntry`，键因此写得出来。
+// `[plugins]` 条目同理 —— 插件 zpkg 加载进工具链进程运行、**永不随产物走**，所以那里的 `deploy` 也无从
+// 生效。它与 `[dependencies]` 共用 `DepEntry`，键因此写得出来。
 int _validateDeployDecls(ProjectManifest pm) {
-    bool isAnalyzer = pm.Project.Kind == "analyzer";
+    bool isPlugin = pm.Project.IsPlugin();
     int i = 0;
     while (i < pm.DepCount) {
         DepEntry d = pm.Deps[i];
         i = i + 1;
         if (d.Deploy.Length == 0) { continue; }
-        if (isAnalyzer) {
+        if (isPlugin) {
             ConsoleError.WriteLine("z42c build: [dependencies] `" + d.Name + "` 写了 deploy = \""
-                + d.Deploy + "\"，但本工程是 kind = \"analyzer\" —— 编译期扩展永不链入运行期产物，"
+                + d.Deploy + "\"，但本工程是插件工程（kind = \"" + pm.Project.Kind + "\"）—— 插件永不链入运行期产物，"
                 + "它的依赖也就没有「部署到哪」这件事。删掉该键。");
             return ExitCode.BuildError;
         }
@@ -257,12 +257,12 @@ int _validateDeployDecls(ProjectManifest pm) {
         if (rc != 0) { return rc; }
     }
     int a = 0;
-    while (a < pm.AnalyzerCount) {
-        DepEntry h = pm.Analyzers[a];
+    while (a < pm.PluginCount) {
+        DepEntry h = pm.Plugins[a];
         a = a + 1;
         if (h.Deploy.Length == 0) { continue; }
-        ConsoleError.WriteLine("z42c build: [analyzers] `" + h.Name + "` 写了 deploy = \""
-            + h.Deploy + "\"，但 handler zpkg 只加载进编译器进程、编译期运行，永不随产物走 —— "
+        ConsoleError.WriteLine("z42c build: [plugins] `" + h.Name + "` 写了 deploy = \""
+            + h.Deploy + "\"，但插件 zpkg 只加载进工具链进程运行，永不随产物走 —— "
             + "deploy 在这里没有意义。删掉该键。");
         return ExitCode.BuildError;
     }

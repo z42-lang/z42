@@ -240,6 +240,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | E0502 | 基类型**成环**：类直接或经若干层基类派生自己，或接口经父接口继承自己。对齐 C# CS0146 / CS0529。每个环只报一次（报在环上最先被检查的那个类型），报错后清掉它的基类型断环 | ✅ `SymbolCollector._passRejectBaseCycles` | `class A : B { }  class B : A { }`、`class A : A { }`、`interface I : J { }  interface J : I { }` |
 | E0503 | 泛型实例化**展不完**：值类型的每个实例化各有一份代码，泛型体里用到自身、且类型实参更深一层（`struct Rec<T>` 里用 `Rec<Rec<T>>`）时，编译 `Rec<int>` 需要 `Rec<Rec<int>>`，如此无穷。报在该泛型的声明处。引用类型（`class`）实例化共用代码，同样的写法不触发 | ✅ `SpecializationGuard.z42:63` | `struct Rec<T> { public T V; public Rec<Rec<T>> Next() { return new Rec<Rec<T>>(); } }` |
 | E0504 | struct 不参与继承：struct 的 `:` 后只能写接口，类也不能派生自 struct。对齐 C# CS0527 / CS0509。报在派生类型的声明处，报错后按「无基类」继续检查 | ✅ `SymbolCollector._rejectStructBase` | `struct B : A { }`、`class C : SomeStruct { }` |
+| E0505 | `kind = "plugin"` 的插件工程里**没有任何类实现插件契约**（`Z42.Analyzers.Analyzer` / `Z42.Generators.Generator` / `Z42.Generators.ModuleGenerator`，或继承 `Z42.Build.BuildHooks`）。插件包提供哪几类由构建按实现的契约推导、写进 zpkg 头能力位；一类都没有的包对任何宿主都是空转，故在**构建插件本身**时即报，而非等使用方加载后发现零 handler（E0496）。判据看本包类型的全名基类与接口（经本包内基类传递） | ✅ `PackageCompile.z42`（常量 `PluginNoContract`） | `kind = "plugin"` 的工程里只有一个普通类 |
 
 ### `[Forward]` 转发生成（⚠️ 常量名与实际发射不符，以本表为准）
 

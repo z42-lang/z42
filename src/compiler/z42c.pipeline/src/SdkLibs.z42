@@ -5,7 +5,7 @@
 //
 // 规则（spec「可见性」）：
 //   · exe / lib：**按名声明**才可见（`"z42.project" = "*"`，不写路径）——声明的 SDK 库 + 它们在 SDK 库内的传递闭包；
-//   · analyzer（以及 z42b 编的 build hooks，见 builder_hooks.z42）：SDK 库**全部**可见，免声明；
+//   · 插件工程（`kind = "plugin"`，以及 z42b 编的 build hooks 目录，见 builder_hooks.z42）：SDK 库**全部**可见，免声明；
 //   · 编译器目录里那套 stdlib 副本：不进放行集（名字在基础解析域里已有）——它们排在 libs/ 之后，
 //     按 basename 先到先得也本就选不中。
 //
@@ -21,7 +21,7 @@ using Z42.Project;
 public sealed class SdkLibPlan {
     // 要追加到 libsDirs 末尾的编译器目录（不含已在基础解析域里的）。
     public string[] Dirs; public int DirsN;
-    // 放行的 SDK 库名（声明的 + 传递闭包；analyzer = 全部）。
+    // 放行的 SDK 库名（声明的 + 传递闭包；插件工程 = 全部）。
     public string[] Allowed; public int AllowedN;
     // 编译器目录里**不**放行的 SDK 库名（并入扫描 tier 的 Hidden）。
     public string[] Hidden; public int HiddenN;
@@ -33,7 +33,7 @@ public sealed class SdkLibPlan {
 }
 
 public static class SdkLibs {
-    // `hostExtension` = analyzer / hooks（全部放行）。基础解析域 = 调用方已拼好的 libsDirs（私有 dist + 框架 libs）。
+    // `hostExtension` = 插件工程 / hooks 目录（全部放行）。基础解析域 = 调用方已拼好的 libsDirs（私有 dist + 框架 libs）。
     public static SdkLibPlan Plan(ProjectManifest pm, string[] baseDirs, int baseN, bool hostExtension) {
         SdkLibPlan plan = new SdkLibPlan();
         string[] dom = CompilerDomain.Dirs();
@@ -145,7 +145,7 @@ public static class SdkLibs {
         return r;
     }
 
-    // 声明白名单（DepIndex 索引 + E0497 依赖契约）补上放行的 SDK 库 —— 传递闭包里的包、analyzer 免声明的包
+    // 声明白名单（DepIndex 索引 + E0497 依赖契约）补上放行的 SDK 库 —— 传递闭包里的包、插件工程免声明的包
     // 都是合法可达的，不能因为没写进清单就被当成「未声明的第三方包」。
     public static string[] ExtendDeclared(string[] declared, int n, SdkLibPlan plan) {
         string[] r = new string[n + plan.AllowedN];

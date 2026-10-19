@@ -69,6 +69,7 @@ public static class ZpkgIndexedWriter {
         }
         int flags = 0;                            // 无 FlagPacked = indexed
         if (zpkg.IsExe) { flags = flags | 2; }    // FlagExe
+        flags = flags | PluginCaps.Mask(zpkg.PluginCaps);   // 插件能力位（bit3–5）
         return ZpkgWriterZ._assemble(tags, datas, secCount, flags);
     }
 

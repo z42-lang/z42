@@ -1,30 +1,191 @@
-// z42b — 项目 build hook 动态注入（wire-z42b：build-hook 终章）。
+// z42b — 项目 build hook 动态注入。
 //
-// manifest `[build] hooks = "<dir>"`（projDir 相对）→ 用注入的同一 ICompiler 把该目录
-// 编成 <name>.hooks.zpkg → ModuleLoader.Load → ModuleLoader.Create("Build.ProjectHooks")
-// → as BuildHooks。约定：hook 源声明 `namespace Build;` + `class
-// ProjectHooks : BuildHooks`，override 需要的钩子（BeforeAssets 等）。
+// hook 有两个来源，组合成一个挂到 Pipeline：
+//   · `[build] hooks = "<dir>"`（projDir 相对）：用注入的同一 ICompiler 把该目录编成 <name>.hooks.zpkg →
+//     ModuleLoader.Load → ModuleLoader.Create("Build.ProjectHooks") → as BuildHooks。约定：hook 源声明
+//     `namespace Build;` + `class ProjectHooks : BuildHooks`。
+//   · `[plugins]` 里带 hook 能力位的插件 zpkg（名字 / `.zpkg` path / 插件工程 path 三种条目；工程条目同样经
+//     ICompiler 代建）：加载后反射出包内全部继承 `Z42.Build.BuildHooks` 的具体类，按类全名序实例化。
+// 顺序：hook 目录在前，插件按 `[plugins]` 声明序；多于一个时经 `CompositeBuildHooks` 逐相位依次调用。
+// 只带 analyzer / generator 位的插件归编译器（BuildSession），这里跳过。
 //
-// 复用 dynamic-component-registration 的组件注入模式（_hostCompiler 同款三段：
-// Load → GetType → as-cast）——零代码生成、零子进程。旧「生成一次性 driver 源码」
-// 设计（_runWithProjectBuild 骨架）被本机制取代：hook 类直接注入进 z42b 自己的
-// Pipeline，无需为项目生成/编译/运行一个专属 driver。
-//
-// 编译面：合成一份 lib 清单（名 = <proj>.hooks、include = `**/*.z42`）随请求传入，直接编 hooks 目录
-// （drop-legacy-compile-request：此前旧的平铺字段编译面固定 kind=exe，hook 目录没有 Main 会被判
-// "no Main() found"，只好拷到 staging 目录再附一个合成的 no-op `Main()`——lib 清单下这些都不需要了）。
+// 复用 dynamic-component-registration 的组件注入模式（_hostCompiler 同款三段：Load → GetType → as-cast）——
+// 零代码生成、零子进程。
 namespace Z42Builder;
 
 using Std.IO;
+using Std.Reflection;   // Assembly
 using Z42.Build;
 using Z42.Project;   // ManifestLoader：hooks 的合成清单
 
-// 编译并实例化项目 hooks。失败（目录缺失 / 编译错 / 类型不符 / 加载异常）→ 打诊断、返回 null（L1「空值 +
-// 调用方检查」idiom）。调用方一律把 null 判为**构建失败**（fail-build-on-hooks-error）：清单既然声明了 hooks，
-// 就不许静默降级成「无 hook」——此前那样构建照样退 0，publish 产物会悄悄缺少 hook 该产出的东西。
-//   hooksDir  hook 源目录（已解析为可用路径）
-//   interDir  hook 产物落点（<pkgName>.zpkg 写这里）
-//   pkgName   hook 包名（约定 <proj>.hooks）
+// hook 加载结果：Ok=false → 诊断已打印，调用方判**构建失败**（fail-build-on-hooks-error：清单既然声明了 hook，
+// 就不许静默降级成「无 hook」）。Ok=true 时 Hooks 可为 null（没有任何 hook 来源）。
+public sealed class HookLoad {
+    public bool       Ok;
+    public BuildHooks Hooks;
+    public HookLoad(bool ok, BuildHooks hooks) { this.Ok = ok; this.Hooks = hooks; }
+}
+
+// 收集一个工程的全部 hook 来源并组合。
+//   projDir   工程目录（相对路径的基准）
+//   hooksRel  `[build] hooks` 目录（projDir 相对；"" = 未声明）
+//   interDir  hook 产物落点（hook 目录 / 插件工程的代建产物写这里）
+//   projName  工程名（hook 目录的合成包名 = <projName>.hooks）
+HookLoad _loadHooks(ProjectManifest m, string projDir, string hooksRel, string interDir, string projName) {
+    BuildHooks[] parts = new BuildHooks[4];
+    int n = 0;
+    if (hooksRel.Length > 0) {
+        BuildHooks h = _loadProjectHooks(Path.Join(projDir, hooksRel), interDir, projName + ".hooks");
+        if (h == null) { return new HookLoad(false, null); }
+        parts[n] = h; n = n + 1;
+    }
+    int pi = 0;
+    while (pi < m.PluginCount) {
+        DepEntry e = m.Plugins[pi];
+        pi = pi + 1;
+        string zpkg = _hookPluginZpkg(e, projDir, interDir);
+        if (zpkg.Length == 0) { return new HookLoad(false, null); }
+        PluginCheck chk = _hostCompiler().InspectPlugin(zpkg, e.Name);   // zpkg 格式归编译器认识
+        if (chk.Error.Length > 0) { ConsoleError.WriteLine("z42b: " + chk.Error); return new HookLoad(false, null); }
+        if (!chk.HasHook) { continue; }
+        BuildHooks[] found = _hooksFromZpkg(zpkg);
+        if (found == null) { return new HookLoad(false, null); }
+        if (found.Length == 0) {
+            ConsoleError.WriteLine("z42b: [plugins] `" + e.Name + "`（" + zpkg + "）头里标着 hook，却没有发现继承 "
+                + "Z42.Build.BuildHooks 的具体类——它由另一代工具链编出、契约对不上；用当前工具链重建该插件工程。");
+            return new HookLoad(false, null);
+        }
+        int f = 0;
+        while (f < found.Length) { parts = _pushHooks(parts, n, found[f]); n = n + 1; f = f + 1; }
+    }
+    if (n == 0) { return new HookLoad(true, null); }
+    if (n == 1) { return new HookLoad(true, parts[0]); }
+    return new HookLoad(true, new CompositeBuildHooks(parts, n));
+}
+
+// `[plugins]` 条目 → 插件 zpkg 路径；失败打诊断返回 ""。
+//   · 名字条目：在**插件目录**里找 `<name>.zpkg`（查找域分离：Z42_PLUGINS + Z42_LIBS 同级的 plugins/，
+//     刻意不查依赖面——插件混进 libs 会污染运行期解析域；同 z42c PluginRefs 的 `_pluginSearchDirs`）；
+//   · `.zpkg` path：现成产物（projDir 相对）；
+//   · 工程 path：校验是插件工程且名字一致 → ICompiler 代建到 interDir。
+string[] _pluginSearchDirs() {
+    string[] acc = new string[2];
+    int n = 0;
+    string env = Environment.GetEnvironmentVariable("Z42_PLUGINS", "");
+    if (env.Length > 0) { acc[n] = env; n = n + 1; }
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    if (libs.Length > 0) {
+        string sib = Path.Join(Path.GetDirectoryName(libs), "plugins");
+        if (Directory.Exists(sib)) { acc[n] = sib; n = n + 1; }
+    }
+    string[] r = new string[n];
+    int i = 0;
+    while (i < n) { r[i] = acc[i]; i = i + 1; }
+    return r;
+}
+
+string _hookPluginZpkg(DepEntry e, string projDir, string interDir) {
+    if (e.Path.Length == 0) {
+        string[] dirs = _pluginSearchDirs();
+        int di = 0;
+        while (di < dirs.Length) {
+            string cand = Path.Join(dirs[di], e.Name + ".zpkg");
+            if (File.Exists(cand)) { return cand; }
+            di = di + 1;
+        }
+        string searched = "";
+        int si = 0;
+        while (si < dirs.Length) { searched = searched + (si > 0 ? ", " : "") + dirs[si]; si = si + 1; }
+        if (dirs.Length == 0) { searched = "(无插件目录——未设 Z42_PLUGINS，Z42_LIBS 旁也没有 plugins/)"; }
+        ConsoleError.WriteLine("z42b: [plugins] `" + e.Name + "` 未在插件目录找到 " + e.Name + ".zpkg；已查找：" + searched
+            + "。普通库放依赖目录（libs）、插件放插件目录。也可改用 `{ path = \"...\" }`（指向插件工程目录或 .zpkg）。");
+        return "";
+    }
+    if (e.Path.EndsWith(".zpkg")) {
+        string zp = Path.IsRooted(e.Path) ? e.Path : Path.Join(projDir, e.Path);
+        if (!File.Exists(zp)) {
+            ConsoleError.WriteLine("z42b: [plugins] `" + e.Name + "` 的 path 指向 " + zp + "，文件不存在。");
+            return "";
+        }
+        return zp;
+    }
+    string dir = Path.Join(projDir, e.Path);
+    ManifestLocation loc = ManifestLocator.FindIn(dir);
+    if (loc.Kind != ManifestLocateKind.Project) {
+        ConsoleError.WriteLine("z42b: [plugins] `" + e.Name + "` 的 path 指向 " + dir + "，那里没有单个工程清单。");
+        return "";
+    }
+    ProjectManifest pm = ManifestLoader.Load(loc.ManifestPath);
+    if (!pm.Project.IsPlugin() || pm.Project.Name != e.Name) {
+        ConsoleError.WriteLine("z42b: [plugins] `" + e.Name + "` 指向的工程 " + loc.ManifestPath + " 须是 kind = \"plugin\" 且名为 `"
+            + e.Name + "`（实际 kind = \"" + pm.Project.Kind + "\"、name = `" + pm.Project.Name + "`）。");
+        return "";
+    }
+    string outZpkg = Path.Join(interDir, e.Name + ".zpkg");
+    CompileRequest req = new CompileRequest(Path.GetDirectoryName(loc.ManifestPath), outZpkg, _hookCompileDeps(),
+                                            "release", false, false, "lib", new string[0], 0);
+    req.PackageName = e.Name;
+    req.Manifest = pm;
+    CompileResult res = _hostCompiler().Compile(req);
+    if (!res.Ok) {
+        ConsoleError.WriteLine("z42b: [plugins] `" + e.Name + "` 的工程构建失败（" + loc.ManifestPath + "）：");
+        ConsoleError.WriteLine(res.Diagnostics);
+        return "";
+    }
+    return res.Zpkg;
+}
+
+// 加载一个插件 zpkg，反射出全部继承 `Z42.Build.BuildHooks` 的具体类并实例化（按类全名序——
+// Assembly.GetTypes 的序）。加载 / 实例化异常 → 诊断返回 null。
+BuildHooks[] _hooksFromZpkg(string zpkg) {
+    BuildHooks[] acc = new BuildHooks[2];
+    int n = 0;
+    try {
+        ModuleLoader.Load(zpkg);                                   // 可执行（并入 live VM）
+        Assembly asm = AssemblyLoadContext.Default().Load(zpkg);   // 反射投影（仅枚举）
+        Type[] types = asm.GetTypes();
+        int i = 0;
+        while (i < types.Length) {
+            Type t = types[i];
+            i = i + 1;
+            if (t.IsAbstract || t.IsInterface || !_derivesBuildHooks(t)) { continue; }
+            Type live = Type.GetType(t.FullName);                  // 解析到合并后的 live 类型
+            if (live == null) { continue; }
+            BuildHooks h = Activator.CreateInstance(live) as BuildHooks;
+            if (h != null) { acc = _pushHooks(acc, n, h); n = n + 1; }
+        }
+    } catch (Exception ex) {
+        ConsoleError.WriteLine("z42b: hook plugin load failed (" + zpkg + "): " + ex.Message);
+        return null;
+    }
+    BuildHooks[] r = new BuildHooks[n];
+    int k = 0;
+    while (k < n) { r[k] = acc[k]; k = k + 1; }
+    return r;
+}
+
+bool _derivesBuildHooks(Type t) {
+    Type b = t.BaseType;
+    int guard = 0;
+    while (b != null && guard < 64) {
+        if (b.FullName == "Z42.Build.BuildHooks") { return true; }
+        b = b.BaseType;
+        guard = guard + 1;
+    }
+    return false;
+}
+
+BuildHooks[] _pushHooks(BuildHooks[] a, int n, BuildHooks x) {
+    if (n == a.Length) {
+        BuildHooks[] b = new BuildHooks[a.Length * 2];
+        int i = 0;
+        while (i < n) { b[i] = a[i]; i = i + 1; }
+        a = b;
+    }
+    a[n] = x;
+    return a;
+}
+
 // deps 追加 `dir` 里的 *.zpkg（目录不存在 = 不追加）。重复的 basename 留给编译器按先到先得处理。
 string[] _hooksAppendZpkgs(string[] deps, string dir) {
     if (!Directory.Exists(dir)) { return deps; }
@@ -37,21 +198,14 @@ string[] _hooksAppendZpkgs(string[] deps, string dir) {
     return r;
 }
 
-BuildHooks _loadProjectHooks(string hooksDir, string interDir, string pkgName) {
-    if (!Directory.Exists(hooksDir)) {
-        ConsoleError.WriteLine("z42b: [build] hooks dir not found: " + hooksDir);
-        return null;
-    }
-    ICompiler comp = _hostCompiler();
-
-    // deps：Z42_LIBS（stdlib）+ **本进程解析编译器包的那些目录**里的 zpkg（add-sdk-libs：analyzer / hooks 自动
-    // 看见 SDK 库）。hook 要继承 `Z42.Build.BuildHooks`，而 `z42.build` 不在 shipped libs/、在编译器目录 ——
-    // 此前只给 Z42_LIBS，**装好的 SDK 里 hooks 一律编不过**（`E0494: 命名空间 Z42.Build 不存在`）。
-    // 「那些目录」= VM 的搜索序里除入口目录与 libs 以外的各项（probing-paths：SDK 里是 `programs/z42c/`；开发树里
-    // xtask 经 `Z42_PROBING_PATHS` 给的是各编译器成员的 dist，drop-alllibs）+ `_findCompilerZpkg()` 所在目录（开发树兜底）。
-    // 只取 `_findCompilerZpkg()` 那一个目录不够：开发树里它是 z42c.pipeline 自己的 dist，里面只有 pipeline。
-    // 类型同一性：hook 编译看到的 `z42.build` 就是本进程从同一组目录加载、运行期 `as BuildHooks` 要对上的那一份。
-    // 编译器目录排在 libs 之后：其中若有 stdlib 副本，按 basename 先到先得被 libs 的那份压住。
+// hook 编译（hook 目录与插件工程）的依赖面：Z42_LIBS（stdlib）+ **本进程解析编译器包的那些目录**里的 zpkg
+// （SDK 库对 hook / 插件工程自动可见）。hook 要继承 `Z42.Build.BuildHooks`，而 `z42.build` 不在 shipped libs/、
+// 在编译器目录——只给 Z42_LIBS，**装好的 SDK 里 hooks 一律编不过**（`E0494: 命名空间 Z42.Build 不存在`）。
+// 「那些目录」= VM 的搜索序里除入口目录与 libs 以外的各项（probing-paths：SDK 里是 `programs/z42c/`；开发树里
+// xtask 经 `Z42_PROBING_PATHS` 给的是各编译器成员的 dist）+ `_findCompilerZpkg()` 所在目录（开发树兜底）。
+// 类型同一性：hook 编译看到的 `z42.build` 就是本进程从同一组目录加载、运行期 `as BuildHooks` 要对上的那一份。
+// 编译器目录排在 libs 之后：其中若有 stdlib 副本，按 basename 先到先得被 libs 的那份压住。
+string[] _hookCompileDeps() {
     string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
     string[] deps = (libs.Length > 0) ? Path.Glob(libs, "*.zpkg") : new string[0];
     string[] msDirs = ModuleSearch.Dirs();
@@ -62,9 +216,22 @@ BuildHooks _loadProjectHooks(string hooksDir, string interDir, string pkgName) {
     }
     string compilerZpkg = _findCompilerZpkg();
     if (compilerZpkg.Length > 0) { deps = _hooksAppendZpkgs(deps, Path.GetDirectoryName(compilerZpkg)); }
+    return deps;
+}
 
+// 编译并实例化 `[build] hooks` 目录。失败（目录缺失 / 编译错 / 类型不符 / 加载异常）→ 打诊断、返回 null。
+//   hooksDir  hook 源目录（已解析为可用路径）
+//   interDir  hook 产物落点（<pkgName>.zpkg 写这里）
+//   pkgName   hook 包名（约定 <proj>.hooks）
+// 编译面：合成一份 lib 清单（名 = <proj>.hooks、include = `**/*.z42`）随请求传入，直接编 hooks 目录。
+BuildHooks _loadProjectHooks(string hooksDir, string interDir, string pkgName) {
+    if (!Directory.Exists(hooksDir)) {
+        ConsoleError.WriteLine("z42b: [build] hooks dir not found: " + hooksDir);
+        return null;
+    }
+    ICompiler comp = _hostCompiler();
     string outZpkg = Path.Join(interDir, pkgName + ".zpkg");
-    CompileRequest req = new CompileRequest(hooksDir, outZpkg, deps, "release", false, false, "lib", new string[0], 0);
+    CompileRequest req = new CompileRequest(hooksDir, outZpkg, _hookCompileDeps(), "release", false, false, "lib", new string[0], 0);
     req.PackageName = pkgName;
     req.Manifest = ManifestLoader.ParseText("[project]\nname = \"" + pkgName + "\"\nversion = \"0.0.0\"\nkind = \"lib\"\n\n"
         + "[sources]\ninclude = [\"**/*.z42\"]\n");

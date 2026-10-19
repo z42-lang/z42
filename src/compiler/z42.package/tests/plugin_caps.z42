@@ -1,0 +1,91 @@
+// unify-plugin-packages：zpkg 头的插件能力位（bit3–5）往返与判别。
+// 位落在头 flags 的**闲置位**（此前恒 0），旧 reader 只认 bit0–2、忽略其余——加位不 bump 版本，
+// 0.53 直接承载（bump 的代价是 strict-pin 双向拒旧，这里不需要）。
+namespace Z42PackagePluginCapsTests;
+
+using Z42.Package;
+using Z42.IR;
+using Z42.IR.BinaryFormat;
+using Std.Harness;
+
+ZbcFileZ _pmod() {
+    string[] exports = new string[1];
+    exports[0] = "F";
+    string[] pool = new string[1];
+    IrClassDesc[] classes = new IrClassDesc[0];
+    IrFunction[] fns = new IrFunction[0];
+    var irm = new IrModule("Demo", pool, 1, classes, 0, fns, 0);
+    return new ZbcFileZ("a.z42", "HASH", "Demo", exports, 1, irm);
+}
+
+// 写一个带指定能力位的 packed zpkg 再读回来，返回 reader 侧看到的能力位。
+int _roundtrip(int caps) {
+    ZpkgFileZ z = ZpkgBuilder.BuildPacked("p", "0.1.0", false, false, "", _one(), 1);
+    z.PluginCaps = caps;
+    byte[] bytes = ZpkgWriterZ.WritePacked(z, false).ToBytes();
+    ZpkgInfo info = ZpkgReader.Open(bytes, "p.zpkg");
+    Assert.NotNull(info);
+    return info.PluginCaps;
+}
+
+ZbcFileZ[] _one() {
+    ZbcFileZ[] m = new ZbcFileZ[1];
+    m[0] = _pmod();
+    return m;
+}
+
+[Test]
+void test_caps_roundtrip_all_combinations() {
+    // 三位可组合：单独、两两、三合一。往返值 = 写入值（构建推导 → 头 → 消费方读）。
+    Assert.Equal(0, _roundtrip(0));                          // 普通包三位全 0
+    Assert.Equal(PluginCaps.Analyzer, _roundtrip(PluginCaps.Analyzer));
+    Assert.Equal(PluginCaps.Generator, _roundtrip(PluginCaps.Generator));
+    Assert.Equal(PluginCaps.Hook, _roundtrip(PluginCaps.Hook));
+    Assert.Equal(PluginCaps.Analyzer | PluginCaps.Generator, _roundtrip(PluginCaps.Analyzer | PluginCaps.Generator));
+    Assert.Equal(PluginCaps.Analyzer | PluginCaps.Hook, _roundtrip(PluginCaps.Analyzer | PluginCaps.Hook));
+    Assert.Equal(PluginCaps.Generator | PluginCaps.Hook, _roundtrip(PluginCaps.Generator | PluginCaps.Hook));
+    int all3 = PluginCaps.Analyzer | PluginCaps.Generator | PluginCaps.Hook;
+    Assert.Equal(all3, _roundtrip(all3));
+}
+
+[Test]
+void test_header_bytes_carry_caps() {
+    // 头 flags 字节级：Packed(bit0) | Analyzer(bit3) | Hook(bit5) = 0x01|0x08|0x20 = 0x29。
+    ZpkgFileZ z = ZpkgBuilder.BuildPacked("p", "0.1.0", false, false, "", _one(), 1);
+    z.PluginCaps = PluginCaps.Analyzer | PluginCaps.Hook;
+    byte[] b = ZpkgWriterZ.WritePacked(z, false).ToBytes();
+    Assert.Equal(0x29, (int)b[8]);      // flags 低字节（LE）
+    Assert.Equal(0x00, (int)b[9]);      // 高字节
+}
+
+[Test]
+void test_caps_mask_ignores_layout_bits() {
+    // Mask 只取 bit3–5：Packed/Exe/SymOnly 等布局位不参战——能力判别与布局判别不相干。
+    Assert.Equal(PluginCaps.Analyzer, PluginCaps.Mask(1 | 2 | PluginCaps.Analyzer));
+    Assert.Equal(0, PluginCaps.Mask(1 | 2 | 4));
+}
+
+[Test]
+void test_caps_predicates() {
+    // 路由判别：ForCompiler（analyzer|generator）→ z42c；ForBuild（hook）→ z42b；IsPlugin 任一位。
+    Assert.False(PluginCaps.IsPlugin(0));
+    Assert.True(PluginCaps.IsPlugin(PluginCaps.Hook));
+    Assert.True(PluginCaps.ForCompiler(PluginCaps.Analyzer));
+    Assert.True(PluginCaps.ForCompiler(PluginCaps.Generator));
+    Assert.False(PluginCaps.ForCompiler(PluginCaps.Hook));          // 只带 hook → z42c 不收
+    Assert.True(PluginCaps.ForBuild(PluginCaps.Hook));
+    Assert.False(PluginCaps.ForBuild(PluginCaps.Analyzer));         // 只带 analyzer → z42b 不收
+    Assert.True(PluginCaps.ForBuild(PluginCaps.Analyzer | PluginCaps.Hook));   // 组合包两边各取所需
+}
+
+[Test]
+void test_caps_describe() {
+    // 摘要行（构建日志与诊断用）：可读、有序、全 0 → none。
+    Assert.Equal("none", PluginCaps.Describe(0));
+    Assert.Equal("analyzer", PluginCaps.Describe(PluginCaps.Analyzer));
+    Assert.Equal("generator", PluginCaps.Describe(PluginCaps.Generator));
+    Assert.Equal("analyzer, generator", PluginCaps.Describe(PluginCaps.Analyzer | PluginCaps.Generator));
+    Assert.Equal("analyzer, hook", PluginCaps.Describe(PluginCaps.Analyzer | PluginCaps.Hook));
+    Assert.Equal("analyzer, generator, hook", PluginCaps.Describe(
+        PluginCaps.Analyzer | PluginCaps.Generator | PluginCaps.Hook));
+}

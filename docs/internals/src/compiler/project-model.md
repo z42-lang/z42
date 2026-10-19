@@ -148,7 +148,7 @@ path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在*
 
 > **与 workspace 编译的关系**：两者都做「拓扑序逐成员建」，但正交——workspace 沿*成员目录内*的依赖边（`z42.workspace.toml` 的 `members`），path 依赖沿*manifest 显式 `path`* 边跨目录。single build 才触发 path 闭包；workspace 成员建带 `libsDirsOverride`（已由 orchestrator 组装 libsDirs）→ 跳过 path 闭包解析。native 库的同族跟随见 [Native 库的布局与解析](../runtime/native-libraries.md)。
 
-### 编译期扩展的解析域与 `[analyzers]` 的 path 条目
+### 插件的解析域与 `[plugins]` 的 path 条目
 
 `[analyzers]` 声明的 handler zpkg（analyzer / generator 本体）**加载进编译器进程、编译期运行、永不链入目标产物**。这条与 `[dependencies]` 正交的通道有两件事要保证：契约够得着、扩展工程能被路径引用。
 
@@ -173,7 +173,7 @@ SDK 安装态 `Z42_LIBS = <sdk>/libs`，上溯找不到开发树，① 落空。
 | 工程 | SDK 库可见 | 机制 |
 |---|---|---|
 | `lib` / `exe` | 按名声明的（不写 path）+ 它们在 SDK 库内的传递闭包（沿 zpkg DEPS 段） | `SdkLibs.Plan` 算放行集；编译器目录追加到 `libsDirs` 末尾，**不放行的包名并入扫描 tier 的 `Hidden`**（`WsTier` 既有字段） |
-| `analyzer` | 全部 | 放行集 = 编译器目录里所有「基础解析域中没有」的包 |
+| `plugin`（含旧名 `analyzer`） | 全部 | 放行集 = 编译器目录里所有「基础解析域中没有」的包 |
 
 几个不显然的点：
 
@@ -184,7 +184,7 @@ SDK 安装态 `Z42_LIBS = <sdk>/libs`，上溯找不到开发树，① 落空。
 - **stdlib 副本**：`programs/z42c/` 里也有整套 stdlib；它们不进放行集（名字在基础解析域里已有），且编译器目录排在
   `libs/` 之后、按 basename 先到先得本就选不中 ⇒ `_bundleExeDeps` 不会把 stdlib 当私有依赖拷走。
 - **放行的包也算「已声明」**：`SdkLibs.ExtendDeclared` 把它们并进 `DeclaredDeps` 白名单——DepIndex 只索引
-  「stdlib（`z42.` 前缀）+ 声明依赖」，E0497 也按它放行；传递闭包里的包、analyzer 免声明的包都是合法可达的。
+  「stdlib（`z42.` 前缀）+ 声明依赖」，E0497 也按它放行；传递闭包里的包、插件工程免声明的包都是合法可达的。
 - **exe 复制**：声明的 SDK 库从编译器目录解析到（不是 shipped `libs/`）⇒ 按既有规则判为私有、复制；传递闭包由
   `_bundleExeDeps` 既有的 DEPS 走查覆盖。
 - **E0494 提示**：`using` 指向的命名空间若由某个**当前不可见**的 SDK 库提供，报错点名该库并给出 `"<包>" = "*"`。

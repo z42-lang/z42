@@ -83,7 +83,7 @@ public sealed class CompileInputs {
     // 非 null → **跳过整个 DepScan.ScanDirs**，直接用传入的已建 DepScanResult。REPL 每轮复用缓存
     // 静态 scan（+ ExtendWithPackage 增量并入前轮 Vars）→ 消除 ~98% 的每轮开销。null = 现状（磁盘扫描）。
     public DepScanResult CachedScan;
-    // attribute-handler-registry PR3a-load：外部 analyzer zpkg 路径（[analyzers] 段解析后由调用方
+    // attribute-handler-registry PR3a-load：外部 analyzer zpkg 路径（[plugins] 段解析后由调用方
     // 按名在 LibsDirs 解析到 `<name>.zpkg`）。非空 → 编译期加载并驱动，诊断合入 per-file Cms；
     // 空（z42c 自建）→ 分支不进 → 逐字节不动。D9：加载进编译器、不链入目标程序。
     public string[] AnalyzerZpkgs; public int AnalyzerZpkgCount;
@@ -99,7 +99,7 @@ public sealed class CompileInputs {
     // 非空 → provisional bind 后（applied 之后）跑 GeneratorDriver.RunModules（扫全编译 + 强类型查询 →
     // AddSource union 重编）；空（z42c 自建）→ 分支不进 → 逐字节不动。
     public ModuleGenerator[] ModuleGenerators; public int ModuleGeneratorCount;
-    // attribute-handler-registry PR4d：外部 generator zpkg **复用 `AnalyzerZpkgs`**（D9 单段 `[analyzers]`
+    // attribute-handler-registry PR4d：外部 generator zpkg **复用 `AnalyzerZpkgs`**（D9 单段 `[plugins]`
     // 覆盖 analyzer + generator 两类，User 2026-08-22 裁决——同一批路径）。Compile 经 GeneratorLoader 从
     // `AnalyzerZpkgs` 发现 `: Generator`/`: ModuleGenerator`、并入 Generators/ModuleGenerators 走同一 gated
     // 块（analyzer 各按接口过滤，互不干扰）。**不新增独立字段**——避免 z42c.driver 引用 CompileInputs 新
@@ -277,7 +277,7 @@ public static class PackageCompile {
         }
 
         // ── ⑥ 并入前置线暂存的 analyzer 诊断 + 零发现判红（E0496）──
-        // gated on 非空 → z42c 自建无 [analyzers] → 该分支不进 → 逐字节不动。analyzer 诊断合入 per-file
+        // gated on 非空 → z42c 自建无 [plugins] → 该分支不进 → 逐字节不动。analyzer 诊断合入 per-file
         // Cms（默认 Warning 级不增 ErrorCount → 不 fail 编译，但对调用方可见）。放在错误门**前**，让
         // analyzer 报的 Error 级也能拦编译。
         if (inp.AnalyzerZpkgCount > 0 && fl.HandlersLoadable) {
@@ -290,7 +290,7 @@ public static class PackageCompile {
             // 🔴 **零发现此前是静默空转**：声明的 zpkg 加载成功、里面一个 `: Analyzer` /
             // `: Generator` / `: ModuleGenerator` 都没有 ⇒ 两个 loader 各返回空数组 ⇒ 提前 return
             // ⇒ **编译退出码 0、零诊断**，用户的扩展干脆不跑，而他有充分理由以为跑了。
-            // （实测：把一个零 handler 的普通库按名挂进 `[analyzers]` → 退出码 0、一句话都没有。）
+            // （实测：把一个零 handler 的普通库按名挂进 `[plugins]` → 退出码 0、一句话都没有。）
             // 两个成因都落在这里：挂错了包；或 handler 由**另一代编译器**编出、契约接口对不上
             // ⇒ `as Generator` 全部返回 null ⇒ 同样是零发现（格式代差那条已由 strict-pin 在加载
             // 时拦下、落 E0493，此处盖的是格式相同而接口形状不同的那半）。
@@ -366,10 +366,24 @@ public static class PackageCompile {
             }
         }
 
+        // 插件工程：按实现的契约推导能力位（写进 zpkg 头）；一类都没有 → E0505。只在此前无错时判——
+        // 有错的编译跳过了代码生成，类描述不全，判出来的「没有契约」是假的。
+        int pluginCaps = 0;
+        if ((inp.Kind == "plugin" || inp.Kind == "analyzer") && cms.Length > 0 && PackageCompile._errorCount(cms, srcCount) == 0) {
+            IrModule[] capMods = new IrModule[srcCount];
+            int cmi = 0;
+            while (cmi < srcCount) { capMods[cmi] = cms[cmi].Module; cmi = cmi + 1; }
+            pluginCaps = PluginCapsScan.FromModules(capMods, srcCount);
+            if (pluginCaps == 0) {
+                DiagnosticBag pbag = new DiagnosticBag();
+                pbag.Error(DiagnosticCodes.PluginNoContract, PluginCapsScan.NoContractMessage(inp.Name),
+                           new Span(0, 0, 1, 1, files[0]));
+                PackageCompile._mergeDiags(cms[0], pbag);
+            }
+        }
+
         // 诊断门（聚合）：任一文件有错 → 不组装，携 Cms 返回供调用方逐文件呈现。
-        int totalErr = 0;
-        int fi = 0;
-        while (fi < srcCount) { if (cms[fi].ErrorCount > 0) { totalErr = totalErr + cms[fi].ErrorCount; } fi = fi + 1; }
+        int totalErr = PackageCompile._errorCount(cms, srcCount);
         if (totalErr > 0) {
             CompileArtifacts errArt = new CompileArtifacts(null, null, 0, cms, srcCount, totalErr, "");
             errArt.Scan = scan;   // perf ②：回显 scan（首轮出错也让调用方缓存已建 scan）
@@ -423,6 +437,7 @@ public static class PackageCompile {
                                                mods, srcCount, depList.Items, depList.Count);
         z.Exported = exported;
         z.ExportedCount = srcCount;
+        z.PluginCaps = pluginCaps;
         string entryStatus = "ok";
         if (isExe) {
             if (z.Entry == "<ambiguous>") { entryStatus = "ambiguous"; }
@@ -460,7 +475,7 @@ public static class PackageCompile {
         return new ZpkgDepList(merged, n);
     }
 
-    // 加载 [analyzers] zpkg → 对每个已 parse 的 CU 跑 AnalyzerDriver → 诊断合入 cms[i]（PR3a-load）。
+    // 加载 [plugins] zpkg → 对每个已 parse 的 CU 跑 AnalyzerDriver → 诊断合入 cms[i]（PR3a-load）。
     // 某个 `using` 的名字是否可接受。三条，缺一条就会误伤真实代码：
     //   ① 相等 —— 就是一个已知命名空间。
     //   ② **父命名空间算已知**（存在某已知 ns 以 `<ns>.` 开头）—— 否则 `using Std;` 会在
@@ -501,14 +516,19 @@ public static class PackageCompile {
             list = list + (i > 0 ? "、" : "") + "`" + inp.AnalyzerZpkgs[i] + "`";
             i = i + 1;
         }
-        return "[analyzers] 声明的 handler zpkg 里没有发现任何 analyzer / generator："
-            + list + "。加载是成功的，但其中不含实现 `Analyzer` / `Generator` / `ModuleGenerator` 的类型"
-            + " —— 要么挂错了包（这个 zpkg 是普通库），要么它由另一代编译器编出、契约接口对不上；"
-            + "后者用当前工具链重建该 handler 工程即可。"
-            + "（此前这种情形**零诊断**：扩展不跑，而编译照常成功。）";
+        return "[plugins] 声明的插件 zpkg 里没有发现任何 analyzer / generator："
+            + list + "。加载是成功的、头里也标着 analyzer / generator，但其中的类型对不上当前的契约接口"
+            + " —— 它由另一代编译器编出；用当前工具链重建该插件工程即可。";
     }
 
     // 把 analyzer 诊断 append 进 CompiledModuleZ（格式镜像 IrDump BuildModule*）。仅 Error 级增 ErrorCount
     // （analyzer 默认 Warning → 不 fail 编译，仅可见）。
     private static void _mergeDiags(CompiledModuleZ cm, DiagnosticBag bag) { cm.AddAll(bag); }
+
+    private static int _errorCount(CompiledModuleZ[] cms, int srcCount) {
+        int total = 0;
+        int i = 0;
+        while (i < srcCount) { if (cms[i].ErrorCount > 0) { total = total + cms[i].ErrorCount; } i = i + 1; }
+        return total;
+    }
 }

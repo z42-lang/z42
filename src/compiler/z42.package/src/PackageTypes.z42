@@ -91,6 +91,8 @@ public sealed class ZpkgFileZ {
     public ZpkgDepZ[]    Deps;        public int DepCount;
     public ZbcFileZ[]    Modules;     public int ModuleCount;
     public ExportedModuleZ[] Exported; public int ExportedCount;   // TSIG/IMPL（每模块一条）
+    // 插件能力位（`PluginCaps` 的 bit3–5，写进头 flags）。非插件包恒 0。构造后赋值：ctor 签名是种子 ABI，不动。
+    public int           PluginCaps;
     public ZpkgFileZ(string name, string version, bool isExe, string entry,
                      string[] namespaces, int nsCount,
                      ZpkgExportZ[] exports, int exportCount,
@@ -102,5 +104,6 @@ public sealed class ZpkgFileZ {
         this.Deps = deps; this.DepCount = depCount;
         this.Modules = modules; this.ModuleCount = moduleCount;
         this.Exported = new ExportedModuleZ[0]; this.ExportedCount = 0;
+        this.PluginCaps = 0;
     }
 }

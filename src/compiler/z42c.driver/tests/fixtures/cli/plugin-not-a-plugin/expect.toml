@@ -1,0 +1,13 @@
+desc = "[plugins] 指向普通库 zpkg（头里没有插件能力位）⇒ 读头即拒，「不是插件包」并给改法；不用等加载后发现零 handler（见 README）"
+outside_repo = true
+
+[[step]]
+tool = "copy"
+from = "{stdlib}/*.zpkg"
+to = "libs/"
+
+[[step]]
+args = ["build", "prj/pnap.z42.toml", "--release"]
+libs = "libs"
+exit = "nonzero"
+stderr_contains = ["不是插件包", "[dependencies]"]

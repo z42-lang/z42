@@ -1,0 +1,73 @@
+// 插件能力位推导：`kind = "plugin"` 的包实现了哪几类插件契约 → `PluginCaps` 的 bit3–5（写进 zpkg 头）。
+//
+// 数据源是各模块的类描述（`IrModule.Classes`，即 TYPE 段那一份）：类名、基类、接口都是全名，增量编译里
+// 缓存命中的模块同样带着，所以推导与是否命中缓存无关。判据：
+//   · 接口含 `Z42.Analyzers.Analyzer`                          → Analyzer
+//   · 接口含 `Z42.Generators.Generator` / `ModuleGenerator`    → Generator
+//   · 基类链上有 `Z42.Build.BuildHooks`                        → Hook
+// 基类链与接口沿**本包内**的基类传递（`B : A`、`A : Analyzer` ⇒ B 也算）；本包之外的基类不展开——
+// 契约须由本包的类直接或经本包内基类实现。接口类型自身不计。
+namespace Z42.Pipeline;
+
+using Z42.IR;        // IrModule / IrClassDesc
+using Z42.Package;   // PluginCaps
+
+public static class PluginCapsScan {
+    public static int FromModules(IrModule[] mods, int count) {
+        int total = 0;
+        int m = 0;
+        while (m < count) { if (mods[m] != null) { total = total + mods[m].ClassCount; } m = m + 1; }
+        IrClassDesc[] classes = new IrClassDesc[total];
+        int n = 0;
+        m = 0;
+        while (m < count) {
+            if (mods[m] != null) {
+                int c = 0;
+                while (c < mods[m].ClassCount) { classes[n] = mods[m].Classes[c]; n = n + 1; c = c + 1; }
+            }
+            m = m + 1;
+        }
+        int caps = 0;
+        int k = 0;
+        while (k < n) {
+            if ((classes[k].Flags & 16) == 0) { caps = caps | PluginCapsScan._capsOf(k, classes, n, 0); }   // bit4 = interface
+            k = k + 1;
+        }
+        return caps;
+    }
+
+    // 一个类自身的能力 ∪ 沿本包内基类链的能力。depth 防自环（坏输入不该让它死循环）。
+    private static int _capsOf(int k, IrClassDesc[] classes, int n, int depth) {
+        if (depth > 64) { return 0; }
+        IrClassDesc cls = classes[k];
+        int caps = 0;
+        int i = 0;
+        while (i < cls.InterfaceCount) {
+            string itf = cls.Interfaces[i];
+            if (itf == "Z42.Analyzers.Analyzer") { caps = caps | PluginCaps.Analyzer; }
+            if (itf == "Z42.Generators.Generator" || itf == "Z42.Generators.ModuleGenerator") { caps = caps | PluginCaps.Generator; }
+            i = i + 1;
+        }
+        if (cls.HasBase) {
+            if (cls.BaseName == "Z42.Build.BuildHooks") { caps = caps | PluginCaps.Hook; }
+            else {
+                int b = PluginCapsScan._find(classes, n, cls.BaseName);
+                if (b >= 0 && b != k) { caps = caps | PluginCapsScan._capsOf(b, classes, n, depth + 1); }
+            }
+        }
+        return caps;
+    }
+
+    private static int _find(IrClassDesc[] classes, int n, string fqn) {
+        int i = 0;
+        while (i < n) { if (classes[i].Name == fqn) { return i; } i = i + 1; }
+        return -1;
+    }
+
+    /// E0505 的消息：点名四个契约。
+    public static string NoContractMessage(string pkgName) {
+        return "插件工程 `" + pkgName + "` 里没有任何类实现插件契约：实现 `Z42.Analyzers.Analyzer`（analyzer）、"
+            + "`Z42.Generators.Generator` / `Z42.Generators.ModuleGenerator`（generator），或继承 `Z42.Build.BuildHooks`（hook）。"
+            + "插件包提供哪几类由这些实现决定；一类都没有的包对任何宿主都是空转。";
+    }
+}
