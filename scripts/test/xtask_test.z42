@@ -432,6 +432,7 @@ string[] _gateStageNames() {
         "gc modes (z42c.semantics build)",
         "vscode-syntax",
         "lines",
+        "fnlines",
         "walkers",
         "diagcodes",
         "stage2",
@@ -679,6 +680,13 @@ int _testAll(bool noBuild, string skip) {
         swStage = _stageStart("lines");
         c = _testLines(false); if (c != 0) { return c; }
         _stageEnd(slog, "lines", swStage);
+    }
+    // stage 7b: 函数体行数硬上限 lint（add-fn-line-lint）：新越界 / 继续膨胀 → 红；基线内 → warn。
+    // 与 stage 7 同形的棘轮，纯文本扫描（~1s），host-independent。Skippable: "fnlines"。
+    if (!_skipHas(skip, "fnlines")) {
+        swStage = _stageStart("fnlines");
+        c = _testFnLines(false); if (c != 0) { return c; }
+        _stageEnd(slog, "fnlines", swStage);
     }
     // stage 8: AST walker 完备性对账（ast-walker-completeness-gate）：注册的穷举 walker 漏一个
     // 节点子类 → 红。纯文本扫描（~1s），host-independent。Skippable: "walkers"。
