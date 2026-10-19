@@ -38,15 +38,19 @@ int _buildWorkspaceFlat(string wsToml, bool isRelease, string outputDir, int cli
     try { ordered = WorkspacePlan.Plan(wsToml); }
     catch (Exception pe) { ConsoleError.WriteLine("z42c build --workspace: " + pe.Message); return ExitCode.BuildError; }
     Console.WriteLine("workspace: " + wsToml + " (" + ordered.Length.ToString() + " members, topo order, flat)");
+    // 全成员名一次算好：此前每个成员迭代都 Load 自己的 manifest 取名、再把**后序所有成员**的 manifest
+    // 重新 Load 一遍（_laterMemberNames）——14 成员的编译器工作区 ≈ 105 次 TOML 解析 + 键审计，
+    // 实测占 jobs1 编译总时 ≈2%（profile：ManifestLoader.Load 2.2%，其中 _laterMemberNames 1.3%）。
+    string[] memberNamesF = _allMemberNames(ordered, ordered.Length);
     int i = 0;
     while (i < ordered.Length) {
         Console.WriteLine("  [" + (i + 1).ToString() + "/" + ordered.Length.ToString() + "] " + ordered[i]);
         // cache-dir-layout：flat 模式所有成员共用一个 --output-dir，cache 按成员名分子目录，避免同名相对源互相覆盖。
-        string memberCache = Path.Join(Path.Join(outputDir, ".cache"), ManifestLoader.Load(ordered[i]).Project.Name);
+        string memberCache = Path.Join(Path.Join(outputDir, ".cache"), memberNamesF[i]);
         // flat 布局下所有成员共用一个 `--output-dir` ⇒ **分不出「成员 dist 档」**，MemberDirs 留 0
         // （只过 Hidden，逐字旧行为）。分档只在 per-member 布局下有意义。
         WsTier tierF = new WsTier();
-        tierF.Hidden = _laterMemberNames(ordered, ordered.Length, i);
+        tierF.Hidden = _laterMemberNames(memberNamesF, ordered.Length, i);
         tierF.HiddenN = tierF.Hidden.Length;
         int rc = _build(ordered[i], isRelease, outputDir, memberCache, flat, 1, noIncremental, cliAdd, cliRemove, false, tierF);   // workspace 暂不支持 --fix
         if (rc != 0) {
@@ -86,7 +90,7 @@ int _buildWorkspacePerMember(string wsToml, bool isRelease, int cliAdd, int cliR
         // 分档：`libsDirs` 前 plan.Count 个是成员 dist（上面就是这么拼的），其后是外部档。
         // 成员 dist 只答成员包、外部档只答非成员包 —— 理由与两个方向的实测撞法见 WsTier.z42。
         WsTier tier = new WsTier();
-        tier.Hidden = _laterMemberNames(plan.Tomls, plan.Count, i);
+        tier.Hidden = _laterMemberNames(memberNames, plan.Count, i);
         tier.HiddenN = tier.Hidden.Length;
         tier.Members = memberNames;
         tier.MembersN = memberNames.Length;
@@ -112,12 +116,13 @@ string[] _allMemberNames(string[] tomls, int count) {
 
 // 拓扑序排在第 i 个之后的成员包名（workspace-read-cache）：编译第 i 个成员时对它们不可见，构建因此封闭——
 // 成员只看得见它可能依赖的前序成员 + 非成员外部包，看不到后序成员上一轮的旧产物（它们的 dist 或 Z42_LIBS 副本）。
-string[] _laterMemberNames(string[] tomls, int count, int i) {
+// 入参是 `_allMemberNames` 一次算好的名字表（不再逐成员重新 Load manifest）。
+string[] _laterMemberNames(string[] names, int count, int i) {
     int n = count - i - 1;
     string[] r = new string[n > 0 ? n : 0];
     int k = 0;
     int j = i + 1;
-    while (j < count) { r[k] = ManifestLoader.Load(tomls[j]).Project.Name; k = k + 1; j = j + 1; }
+    while (j < count) { r[k] = names[j]; k = k + 1; j = j + 1; }
     return r;
 }
 
