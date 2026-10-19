@@ -6,12 +6,14 @@ namespace Z42.Syntax;
 
 using Z42.Core;
 
-public class Stmt {
+public abstract class Stmt {
+    public abstract R Accept<R, D>(IStmtVisitor<R, D> v, D d);
     public Span Span;
     public virtual string Dump() { return "?stmt"; }
 }
 
 public sealed class ExprStmt : Stmt {
+    public override R Accept<R, D>(IStmtVisitor<R, D> v, D d) { return v.VisitExprStmt(this, d); }
     public Expr E;
     public ExprStmt(Expr e, Span span) { this.Span = span; this.E = e; }
     public override string Dump() { return "(expr " + this.E.Dump() + ")"; }
@@ -20,12 +22,14 @@ public sealed class ExprStmt : Stmt {
 // 局部函数声明语句（impl-local-fn-l2）：block 内 `int F(int x) => ...` / `{ ... }`。
 // 包裹一个 MethodDecl（复用方法体语法）；IrGen lift 为 `<Owner>__<F>` 顶层函数。
 public sealed class LocalFunctionStmt : Stmt {
+    public override R Accept<R, D>(IStmtVisitor<R, D> v, D d) { return v.VisitLocalFunctionStmt(this, d); }
     public MethodDecl Decl;
     public LocalFunctionStmt(MethodDecl decl, Span span) { this.Span = span; this.Decl = decl; }
     public override string Dump() { return "(localfn " + this.Decl.Dump() + ")"; }
 }
 
 public sealed class VarDeclStmt : Stmt {
+    public override R Accept<R, D>(IStmtVisitor<R, D> v, D d) { return v.VisitVarDeclStmt(this, d); }
     public TypeExpr Type;     // `var` 推断 → NamedType("var")
     public string   Name;
     public Expr     Init;
@@ -43,6 +47,7 @@ public sealed class VarDeclStmt : Stmt {
 // 解构声明（模式匹配 B）：`Point(x, y) = p;` —— record 位置解构到新声明的局部变量。
 // Pat 为不可失败位置模式（子模式仅通配/裸绑定/嵌套位置，binder 静态校验 irrefutable）；绑定在后续语句可见。
 public sealed class DeconstructDeclStmt : Stmt {
+    public override R Accept<R, D>(IStmtVisitor<R, D> v, D d) { return v.VisitDeconstructDeclStmt(this, d); }
     public Pattern Pat;
     public Expr    Init;
     public DeconstructDeclStmt(Pattern pat, Expr init, Span span) { this.Span = span; this.Pat = pat; this.Init = init; }
@@ -50,6 +55,7 @@ public sealed class DeconstructDeclStmt : Stmt {
 }
 
 public sealed class ReturnStmt : Stmt {
+    public override R Accept<R, D>(IStmtVisitor<R, D> v, D d) { return v.VisitReturnStmt(this, d); }
     public bool HasValue;
     public Expr Value;   // 仅 HasValue 时有效
     public ReturnStmt(bool hasValue, Expr value, Span span) { this.Span = span; this.HasValue = hasValue; this.Value = value; }
@@ -60,6 +66,7 @@ public sealed class ReturnStmt : Stmt {
 }
 
 public sealed class IfStmt : Stmt {
+    public override R Accept<R, D>(IStmtVisitor<R, D> v, D d) { return v.VisitIfStmt(this, d); }
     public Expr Cond;
     public Stmt Then;
     public bool HasElse;
@@ -76,6 +83,7 @@ public sealed class IfStmt : Stmt {
 }
 
 public sealed class WhileStmt : Stmt {
+    public override R Accept<R, D>(IStmtVisitor<R, D> v, D d) { return v.VisitWhileStmt(this, d); }
     public Expr Cond;
     public Stmt Body;
     public WhileStmt(Expr cond, Stmt body, Span span) { this.Span = span; this.Cond = cond; this.Body = body; }
@@ -85,6 +93,7 @@ public sealed class WhileStmt : Stmt {
 }
 
 public sealed class BlockStmt : Stmt {
+    public override R Accept<R, D>(IStmtVisitor<R, D> v, D d) { return v.VisitBlockStmt(this, d); }
     public Stmt[] Stmts;
     public int    Count;
     public BlockStmt(Stmt[] stmts, int count, Span span) { this.Span = span; this.Stmts = stmts; this.Count = count; }
@@ -97,16 +106,19 @@ public sealed class BlockStmt : Stmt {
 }
 
 public sealed class BreakStmt : Stmt {
+    public override R Accept<R, D>(IStmtVisitor<R, D> v, D d) { return v.VisitBreakStmt(this, d); }
     public BreakStmt(Span span) { this.Span = span;}
     public override string Dump() { return "(break)"; }
 }
 
 public sealed class ContinueStmt : Stmt {
+    public override R Accept<R, D>(IStmtVisitor<R, D> v, D d) { return v.VisitContinueStmt(this, d); }
     public ContinueStmt(Span span) { this.Span = span;}
     public override string Dump() { return "(continue)"; }
 }
 
 public sealed class ThrowStmt : Stmt {
+    public override R Accept<R, D>(IStmtVisitor<R, D> v, D d) { return v.VisitThrowStmt(this, d); }
     public Expr E;
     public ThrowStmt(Expr e, Span span) { this.Span = span; this.E = e; }
     public override string Dump() { return "(throw " + this.E.Dump() + ")"; }
@@ -125,6 +137,7 @@ public sealed class ThrowStmt : Stmt {
 // 🔴 **不在 parser 里降糖**（照 `ForeachStmt` 的分法）：要判「目标可 dispose 吗」得有类型信息，
 // 那是 binder 的事；语法层降糖还会让 AST 不再对应源码（REPL / analyzer / Dump 都看这棵树）。
 public sealed class UsingStmt : Stmt {
+    public override R Accept<R, D>(IStmtVisitor<R, D> v, D d) { return v.VisitUsingStmt(this, d); }
     public bool     HasDecl;    // 有没有声明一个名字
     public TypeExpr Type;       // HasDecl 时的声明类型（`var` 也是一个 NamedType）
     public string   Name;       // HasDecl 时的变量名
@@ -144,6 +157,7 @@ public sealed class UsingStmt : Stmt {
 }
 
 public sealed class ForeachStmt : Stmt {
+    public override R Accept<R, D>(IStmtVisitor<R, D> v, D d) { return v.VisitForeachStmt(this, d); }
     public TypeExpr Type;
     public string   Name;
     public Expr     Iter;
@@ -158,6 +172,7 @@ public sealed class ForeachStmt : Stmt {
 
 // C 式 for：三段任意可省（gated by HasInit/HasCond/HasIncr，省略处 Dump 为 "_"）。
 public sealed class ForStmt : Stmt {
+    public override R Accept<R, D>(IStmtVisitor<R, D> v, D d) { return v.VisitForStmt(this, d); }
     public bool HasInit;
     public Stmt Init;     // 含自身 ';'（解析时由 ParseStatement 消费）
     public bool HasCond;
@@ -180,6 +195,7 @@ public sealed class ForStmt : Stmt {
 }
 
 public sealed class DoWhileStmt : Stmt {
+    public override R Accept<R, D>(IStmtVisitor<R, D> v, D d) { return v.VisitDoWhileStmt(this, d); }
     public Stmt Body;
     public Expr Cond;
     public DoWhileStmt(Stmt body, Expr cond, Span span) { this.Span = span; this.Body = body; this.Cond = cond; }
@@ -214,6 +230,7 @@ public sealed class SwitchCase {
 }
 
 public sealed class SwitchStmt : Stmt {
+    public override R Accept<R, D>(IStmtVisitor<R, D> v, D d) { return v.VisitSwitchStmt(this, d); }
     public Expr         Subject;
     public SwitchCase[] Cases;
     public int          CaseCount;
@@ -248,6 +265,7 @@ public sealed class CatchClause {
 }
 
 public sealed class TryCatchStmt : Stmt {
+    public override R Accept<R, D>(IStmtVisitor<R, D> v, D d) { return v.VisitTryCatchStmt(this, d); }
     public Stmt          TryBody;
     public CatchClause[] Catches;
     public int           CatchCount;

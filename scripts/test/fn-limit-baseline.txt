@@ -17,7 +17,7 @@ src/compiler/z42c.analyzers/src/AnalyzerDriver.z42	_walkStmt	64
 src/compiler/z42c.driver/src/ExeDeps.z42	_bundleExeDeps	111
 src/compiler/z42c.driver/src/IncrementalDriver.z42	Prepare	85
 src/compiler/z42c.driver/src/IncrementalDriver.z42	_applyResidue	69
-src/compiler/z42c.driver/src/Main.z42	_build	379
+src/compiler/z42c.driver/src/Main.z42	_build	386
 src/compiler/z42c.driver/src/SurfaceHash.z42	Of	95
 src/compiler/z42c.emission/src/Compilation/IrDump.z42	BuildPackageCusGated	85
 src/compiler/z42c.emission/src/Emission/AccessEmitter.z42	_emitStoreTo	109
@@ -34,12 +34,13 @@ src/compiler/z42c.optimization/src/IrEscapeAnalysis.z42	ComputeEscapedRegs	62
 src/compiler/z42c.optimization/src/IrLicm.z42	_hoistInvariants	80
 src/compiler/z42c.optimization/src/IrLoopAllocReuse.z42	_processLoop	63
 src/compiler/z42c.optimization/src/IrOptPipeline.z42	_passCopyPropUse	64
-src/compiler/z42c.pipeline/src/BuildSession.z42	Run	114
+src/compiler/z42c.pipeline/src/BuildSession.z42	Run	122
 src/compiler/z42c.pipeline/src/CacheStore.z42	Parse	68
 src/compiler/z42c.pipeline/src/DepScan.z42	ScanDirs	118
 src/compiler/z42c.pipeline/src/DepScan.z42	ScanDirsLazy	96
+src/compiler/z42c.pipeline/src/ManifestKnobs.z42	Resolve	65
 src/compiler/z42c.pipeline/src/NsIndexCache.z42	_scanFromIndex	63
-src/compiler/z42c.pipeline/src/PackageCompile.z42	Compile	185
+src/compiler/z42c.pipeline/src/PackageCompile.z42	Compile	197
 src/compiler/z42c.pipeline/src/SdkLibs.z42	Plan	69
 src/compiler/z42c.semantics/src/Binding/AssignTyper.z42	_bindAssign	123
 src/compiler/z42c.semantics/src/Binding/CollectionTyper.z42	_bindArraySpread	63
@@ -67,8 +68,6 @@ src/compiler/z42c.semantics/src/Symbols/SymbolCollector.z42	CollectAll	61
 src/compiler/z42c.semantics/src/Symbols/SymbolCollector.z42	_mergeImports	72
 src/compiler/z42c.semantics/src/Symbols/SymbolTable.z42	_resolveTypePCore	163
 src/compiler/z42c.semantics/src/Types/Conversion.z42	_classifyBuiltin	63
-src/compiler/z42c.semantics/src/Types/MethodTypeParamUse.z42	_expr	137
-src/compiler/z42c.semantics/src/Types/MethodTypeParamUse.z42	_stmt	90
 src/compiler/z42c.semantics/src/Validation/FlowAnalyzer.Reachability.z42	NeverCompletes	61
 src/compiler/z42c.syntax/src/DeclParser.z42	_parseTypeDecl	81
 src/compiler/z42c.syntax/src/ExprParser.z42	_parseExpr	193
