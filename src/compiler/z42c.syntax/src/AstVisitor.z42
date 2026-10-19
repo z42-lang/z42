@@ -1,0 +1,89 @@
+// 语法树（AST）的 visitor 接口：每个节点类一个 Visit 方法，节点经 `Accept<R, D>(v, d)` 双分派到它
+// （同 z42c.semantics 的 bound 树 `IBoundExprVisitor` 等，形状 `R Accept<R, D>(IXVisitor<R, D> v, D d)`：
+// R = 结果，D = 自上而下传的数据；用不上的一侧消费方自填占位类型）。方法名 = `Visit<节点类名>`，
+// 四族名字互不相撞 ⇒ 一个类可同时实现四个接口（如 MethodTypeParamUse）。
+//
+// 新增节点类必须覆写抽象的 `Accept`，也就得在这里加一个 Visit 方法，于是每个实现了该接口的遍历都
+// 编不过、直到处理它——穷举 walker 的完备性由编译器保证，不再靠 `xtask check walkers` 的文本对账。
+// 按设计只看部分节点的遍历（ConstEval / MacroRegistry / DocSig …）不实现接口，照旧 `is` 分派。
+namespace Z42.Syntax;
+
+public interface IExprVisitor<R, D> {
+    R VisitIntLitExpr(IntLitExpr n, D d);
+    R VisitArrayNewExpr(ArrayNewExpr n, D d);
+    R VisitRefArgExpr(RefArgExpr n, D d);
+    R VisitArrayInitExpr(ArrayInitExpr n, D d);
+    R VisitArrayLitExpr(ArrayLitExpr n, D d);
+    R VisitArrayRepeatExpr(ArrayRepeatExpr n, D d);
+    R VisitListLitExpr(ListLitExpr n, D d);
+    R VisitTupleExpr(TupleExpr n, D d);
+    R VisitDictLitExpr(DictLitExpr n, D d);
+    R VisitEmptyBraceLitExpr(EmptyBraceLitExpr n, D d);
+    R VisitLambdaExpr(LambdaExpr n, D d);
+    R VisitCharLitExpr(CharLitExpr n, D d);
+    R VisitFloatLitExpr(FloatLitExpr n, D d);
+    R VisitStringLitExpr(StringLitExpr n, D d);
+    R VisitBoolLitExpr(BoolLitExpr n, D d);
+    R VisitNullLitExpr(NullLitExpr n, D d);
+    R VisitIdentExpr(IdentExpr n, D d);
+    R VisitUnaryExpr(UnaryExpr n, D d);
+    R VisitBinaryExpr(BinaryExpr n, D d);
+    R VisitMemberExpr(MemberExpr n, D d);
+    R VisitIndexExpr(IndexExpr n, D d);
+    R VisitAssignExpr(AssignExpr n, D d);
+    R VisitCallExpr(CallExpr n, D d);
+    R VisitTernaryExpr(TernaryExpr n, D d);
+    R VisitIsExpr(IsExpr n, D d);
+    R VisitIsPatternExpr(IsPatternExpr n, D d);
+    R VisitSwitchExpr(SwitchExpr n, D d);
+    R VisitAsExpr(AsExpr n, D d);
+    R VisitTypeofExpr(TypeofExpr n, D d);
+    R VisitMethodOfExpr(MethodOfExpr n, D d);
+    R VisitCastExpr(CastExpr n, D d);
+    R VisitObjNewExpr(ObjNewExpr n, D d);
+    R VisitObjInitExpr(ObjInitExpr n, D d);
+    R VisitWithExpr(WithExpr n, D d);
+    R VisitDefaultExpr(DefaultExpr n, D d);
+    R VisitInterpolatedStringExpr(InterpolatedStringExpr n, D d);
+}
+
+public interface IStmtVisitor<R, D> {
+    R VisitExprStmt(ExprStmt n, D d);
+    R VisitLocalFunctionStmt(LocalFunctionStmt n, D d);
+    R VisitVarDeclStmt(VarDeclStmt n, D d);
+    R VisitDeconstructDeclStmt(DeconstructDeclStmt n, D d);
+    R VisitReturnStmt(ReturnStmt n, D d);
+    R VisitIfStmt(IfStmt n, D d);
+    R VisitWhileStmt(WhileStmt n, D d);
+    R VisitBlockStmt(BlockStmt n, D d);
+    R VisitBreakStmt(BreakStmt n, D d);
+    R VisitContinueStmt(ContinueStmt n, D d);
+    R VisitThrowStmt(ThrowStmt n, D d);
+    R VisitUsingStmt(UsingStmt n, D d);
+    R VisitForeachStmt(ForeachStmt n, D d);
+    R VisitForStmt(ForStmt n, D d);
+    R VisitDoWhileStmt(DoWhileStmt n, D d);
+    R VisitSwitchStmt(SwitchStmt n, D d);
+    R VisitTryCatchStmt(TryCatchStmt n, D d);
+}
+
+public interface IPatternVisitor<R, D> {
+    R VisitWildcardPattern(WildcardPattern n, D d);
+    R VisitConstantPattern(ConstantPattern n, D d);
+    R VisitNamePattern(NamePattern n, D d);
+    R VisitPositionalPattern(PositionalPattern n, D d);
+    R VisitPropertyPattern(PropertyPattern n, D d);
+    R VisitTuplePattern(TuplePattern n, D d);
+    R VisitOrPattern(OrPattern n, D d);
+    R VisitAtPattern(AtPattern n, D d);
+    R VisitRangePattern(RangePattern n, D d);
+    R VisitRelationalPattern(RelationalPattern n, D d);
+}
+
+public interface ITypeExprVisitor<R, D> {
+    R VisitNamedType(NamedType n, D d);
+    R VisitAssocBindingType(AssocBindingType n, D d);
+    R VisitArrayType(ArrayType n, D d);
+    R VisitNullableType(NullableType n, D d);
+    R VisitFuncTypeExpr(FuncTypeExpr n, D d);
+}

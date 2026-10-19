@@ -1,7 +1,7 @@
 [project]
 name    = "dvdecl"
 version = "0.1.0"
-kind    = "analyzer"
+kind    = "plugin"
 
 [sources]
 include = ["*.z42"]

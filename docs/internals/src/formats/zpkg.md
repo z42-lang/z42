@@ -24,7 +24,7 @@
 12    reserved    u32    0
 ```
 
-**flags**：`bit0 (0x01)` Packed、`bit1 (0x02)` Exe、`bit2 (0x04)` SymOnly（`.zsym` sidecar，reader 见此位即拒绝作工程包加载）。
+**flags**：`bit0 (0x01)` Packed、`bit1 (0x02)` Exe、`bit2 (0x04)` SymOnly（`.zsym` sidecar，reader 见此位即拒绝作工程包加载）、`bit3–5 (0x08/0x10/0x20)` 插件能力位 Analyzer / Generator / Hook（unify-plugin-packages：`kind = "plugin"` 的包构建时按实现的契约推导写入，消费方读头即可分流——z42c 取 Analyzer/Generator、z42b 取 Hook；三位全 0 = 非插件包。位落在此前恒 0 的闲置位，旧 reader 只认 bit0–2，故未 bump 版本）。
 
 Section 目录同 zbc：每条 12 字节（tag 4B + offset u32 + size u32），首段偏移 `= 16 + sec_count × 12`。reader strict-pin，`major`/`minor` 任一不符即拒绝该文件（**不静默跳过**，见 [版本](#版本)）。
 

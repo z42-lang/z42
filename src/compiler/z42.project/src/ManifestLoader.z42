@@ -55,7 +55,7 @@ public static class ManifestLoader {
                                    examples, examples.Length);
         ManifestLoader._parseOptimize(root, pm);   // [optimize] 逐 pass 具名开关（构造后填，见 ProjectManifest）
         ManifestLoader._parseSyntax(root, pm);     // [syntax] 语法特性开关（构造后填，见 ProjectManifest）
-        ManifestLoader._parseAnalyzers(root, pm);   // [analyzers] 编译期 handler zpkg 引用（同构造后填）
+        ManifestLoader._parsePlugins(root, pm);     // [plugins]（含旧名 [analyzers]）插件 zpkg 引用（同构造后填）
         ManifestLoader._parseLints(root, pm);       // [lints] 诊断规则开关 / severity 覆盖（同构造后填）
         ManifestLoader._parseNative(root, pm);       // [native.*] 本包携带的私有 native 库（同构造后填）
         // [properties] 应用自定义属性基表（add-app-properties，同构造后填）。
@@ -96,13 +96,20 @@ public static class ManifestLoader {
         pm.Natives = arr; pm.NativeCount = keys.Length;
     }
 
-    // ── [analyzers]（attribute-handler-registry D9）───────────────────────────
-    // 独立引用段：声明「加载进编译器、编译期运行、不链入目标程序」的 analyzer/generator zpkg。
-    // 值同 [dependencies]（字符串版本或 { version, path } 表）→ 复用 _parseDeps；语义差异（加载到哪、
-    // 是否链入）由消费方（z42c）按段区分，非解析层。构造后填（默认空），避免撑大构造函数。
-    private static void _parseAnalyzers(TomlValue root, ProjectManifest pm) {
-        DepEntry[] az = ManifestLoader._parseDeps(root, "analyzers");
-        pm.Analyzers = az; pm.AnalyzerCount = az.Length;
+    // ── [plugins]（旧名 [analyzers]）──────────────────────────────────────────
+    // 独立引用段：插件 zpkg 加载进工具链进程运行、不链入目标程序。值同 [dependencies]（字符串版本或
+    // { version, path } 表）→ 复用 _parseDeps；加载到哪、按什么分流由消费方决定，非解析层。旧段名的条目
+    // 排在前面，两段并存时同名由 ManifestKnobs 报重复。构造后填（默认空），避免撑大构造函数。
+    private static void _parsePlugins(TomlValue root, ProjectManifest pm) {
+        DepEntry[] old = ManifestLoader._parseDeps(root, "analyzers");
+        DepEntry[] cur = ManifestLoader._parseDeps(root, "plugins");
+        DepEntry[] all = new DepEntry[old.Length + cur.Length];
+        int i = 0;
+        while (i < old.Length) { all[i] = old[i]; i = i + 1; }
+        int j = 0;
+        while (j < cur.Length) { all[old.Length + j] = cur[j]; j = j + 1; }
+        pm.Plugins = all; pm.PluginCount = all.Length;
+        pm.Analyzers = all; pm.AnalyzerCount = all.Length;   // 种子 ABI 残留，同一份（见 ProjectManifest）
     }
 
     // ── [lints]（attribute-handler-registry PR3b）─────────────────────────────

@@ -49,20 +49,16 @@ sealed class WalkerEntryZ {
 // 只登记「穷举一个 AST 节点族、漏一类即静默/错值」的 walker；按类型-lattice / 目标-shape 分派的
 // （MemberResolver / AssignTyper）与「按设计部分覆盖、null→诊断兜底」的（ConstEval）不登记。
 WalkerEntryZ[] _walkerRegistry() {
-    WalkerEntryZ[] r = new WalkerEntryZ[4];
-    // MethodTypeParamUse 过近似地穷举全四族；8 个 Expr 叶子（无子节点、无类型位）故意 fall-through。
-    string[] mtpuAllow = new string[]{
-        "IntLitExpr", "FloatLitExpr", "StringLitExpr", "CharLitExpr",
-        "BoolLitExpr", "NullLitExpr", "IdentExpr", "EmptyBraceLitExpr" };
-    r[0] = new WalkerEntryZ("MethodTypeParamUse.Consumes",
-        "src/compiler/z42c.semantics/src/Types/MethodTypeParamUse.z42",
-        new string[]{ "Expr", "Stmt", "Pattern", "TypeExpr" }, mtpuAllow, 8);
+    WalkerEntryZ[] r = new WalkerEntryZ[3];
+    // MethodTypeParamUse.Consumes 已实现语法树四个 visitor 接口（z42c.syntax 的 IExprVisitor 等，
+    // 节点 Accept 双分派）——完备性由编译器保证，不再登记（syntax visitor 批 1；原 8 个 Expr 叶子
+    // 白名单变成显式空体 Visit 方法）。
     string[] none = new string[]{};
-    r[1] = new WalkerEntryZ("ExprTyper._bindExpr",
+    r[0] = new WalkerEntryZ("ExprTyper._bindExpr",
         "src/compiler/z42c.semantics/src/Binding/ExprTyper.z42", new string[]{ "Expr" }, none, 0);
-    r[2] = new WalkerEntryZ("StmtBinder._bindStmt",
+    r[1] = new WalkerEntryZ("StmtBinder._bindStmt",
         "src/compiler/z42c.semantics/src/Binding/StmtBinder.z42", new string[]{ "Stmt" }, none, 0);
-    r[3] = new WalkerEntryZ("PatternBinder.Bind",
+    r[2] = new WalkerEntryZ("PatternBinder.Bind",
         "src/compiler/z42c.semantics/src/Binding/PatternBinder.z42", new string[]{ "Pattern" }, none, 0);
     // ── 绑定树：已无登记条目 ──
     // 实现 `IBoundExprVisitor` / `IBoundStmtVisitor` / `IBoundPatternVisitor` 的 walker 不登记：新节点必须覆写

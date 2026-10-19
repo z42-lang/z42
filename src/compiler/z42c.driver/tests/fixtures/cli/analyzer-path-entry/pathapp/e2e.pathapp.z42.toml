@@ -6,5 +6,5 @@ kind    = "exe"
 [sources]
 include = ["*.z42"]
 
-[analyzers]
+[plugins]
 "e2e.pathgen" = { path = "../pathgen" }

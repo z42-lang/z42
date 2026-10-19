@@ -1,10 +1,9 @@
-// 构建辅助（pack 模式守卫 / handler 指纹 / 可复现 build_id；自 Main.z42 拆出守 500 行硬限）。
+// 构建辅助（pack 模式守卫 / 可复现 build_id / 路径归一；自 Main.z42 拆出守 500 行硬限）。插件条目解析与指纹在 PluginRefs.z42。
 // dist / cache / generated 目录的解析在 z42.project 的 BuildLayout（launcher / z42b 共用）。
 namespace Z42.Driver;
 
 using Std.IO;
 using Z42.Package;
-using Z42.Project;
 using Z42.Pipeline;
 
 // dist 主文件能否被 preserved 早退原样沿用：pack 模式位（header flags bit0）与本次决议一致，**且**
@@ -32,46 +31,6 @@ bool _distModeMatches(string zpkgPath, bool isPacked) {
 
 // _writeCacheZbc（单文件 fullMode .zbc 落盘）已迁 IncrementalDriver.z42（500 行硬限）。
 
-// attribute-handler-registry PR4e：handler（[analyzers] 段）身份指纹——按 analyzer 名稳定序（加载顺序确定性
-// 规则）拼「名:zpkg 内容指纹」。无 [analyzers] → `""`（源 hash 不揉入 → 自举 byte-identical）。generator 换了
-// （zpkg 内容变）→ 指纹变 → 揉进源 hash 的每个文件都失效 → 全量重编（design red-line ②「产物纳入指纹」）。
-// zpkg 路径由 `_resolveHandlerZpkgs` 先行解析（add-package-roles 批 2：path 条目已代建完毕）——
-// 指纹与 CompileInputs 吃**同一份**路径，不再各自按名去 libsDirs 里找一遍。
-string _handlerFingerprint(ProjectManifest pm, string[] azPaths) {
-    if (pm.AnalyzerCount == 0) { return ""; }
-    // 稳定序：analyzer 名选择排序（禁依赖 manifest 声明顺序碰巧）。
-    string[] names = new string[pm.AnalyzerCount];
-    string[] paths = new string[pm.AnalyzerCount];
-    int i = 0;
-    while (i < pm.AnalyzerCount) {
-        names[i] = pm.Analyzers[i].Name;
-        paths[i] = (azPaths != null && i < azPaths.Length && azPaths[i] != null) ? azPaths[i] : "";
-        i = i + 1;
-    }
-    int p = 0;
-    while (p < names.Length) {
-        int min = p; int q = p + 1;
-        while (q < names.Length) { if (names[q].CompareTo(names[min]) < 0) { min = q; } q = q + 1; }
-        if (min != p) {
-            string t = names[p]; names[p] = names[min]; names[min] = t;
-            string tp = paths[p]; paths[p] = paths[min]; paths[min] = tp;
-        }
-        p = p + 1;
-    }
-    string acc = "";
-    i = 0;
-    while (i < names.Length) {
-        if (paths[i].Length > 0 && File.Exists(paths[i])) {
-            byte[] bytes = File.ReadAllBytes(paths[i]);
-            acc = acc + names[i] + ":" + _bytesFp(bytes) + ";";
-        } else {
-            acc = acc + names[i] + ":missing;";
-        }
-        i = i + 1;
-    }
-    return acc;
-}
-
 // byte[] 内容指纹：长度 + 溢出安全的模多项式滚动哈希（z42 int≡Int32；base 31、模 33554393 使
 // `h*31+255 < 2^31` 不溢出）。长度 + 滚动哈希双要素 → 内容变几乎必变指纹（用于缓存失效，宁多编不漏）。
 string _bytesFp(byte[] b) {
@@ -97,124 +56,6 @@ void _stabilizeSourceIdentity(ZpkgFileZ z, string projectDir) {
         m.SourceHash = "";
         i = i + 1;
     }
-}
-
-// ── [analyzers] 条目 → handler zpkg 路径（add-package-roles 批 2）──────────────────────────
-// 解析结果：Code==0 → Paths（与 pm.Analyzers **同序**，供指纹与 CompileInputs 共用）；
-// Code!=0 → 解析失败，诊断已打印，调用方直接返回该退出码。
-// （z42 无 Result/out：用小载体回传「值 + 退出码」，好过让调用方从 null 反推该报哪一种错。）
-public sealed class HandlerZpkgs {
-    public string[] Paths;
-    public int      Code;
-    public HandlerZpkgs(string[] paths, int code) { this.Paths = paths; this.Code = code; }
-}
-
-// `[analyzers]` 两种条目形态（与 `[dependencies]` 同构，add-package-roles 批 2）：
-//   · `x = "1.0"`（无 path）：在 libsDirs 里找 `<name>.zpkg` —— 既有行为，要求用户先把产物摆进依赖目录。
-//   · `x = { path = "../x" }`：定位该工程 manifest → 校验它确是 `kind = "analyzer"` → **由 z42c 代建**
-//     → 取其 dist 的 `<name>.zpkg`。这条是「用户自定义 analyzer/generator」从纸面变可用的关键：
-//     此前 path 被显式拒绝（更早是**静默忽略**），用户只能手工把 zpkg 拷进 SDK libs 目录。
-//
-// 🔴 **代建结果不并入消费方 libsDirs**（与 `[dependencies]` 的 path 闭包**刻意不同**）：handler 是
-// 编译期扩展，加载进编译器进程、不链入目标产物（D9）。把它的 dist 混进 libsDirs 就等于让 analyzer
-// 包对消费方的**普通代码**可见 —— 解析域隔离当场破掉。故这里只把单个 zpkg 路径交出去。
-//
-// 代建用消费方的 isRelease/optSet，但 **libsDirs 一律不继承**（传 count=0）：analyzer 工程自己会走
-// 它自己的 path 依赖闭包 + Z42_LIBS + 编译器域解析域（`CompilerDomain.Dirs()`，按 `kind == "analyzer"` 生效）。
-HandlerZpkgs _resolveHandlerZpkgs(ProjectManifest pm, string projectDir, string consumerToml,
-                                  string[] libsDirs, int libsDirsN,
-                                  bool isRelease, bool noIncremental, int cliAdd, int cliRemove) {
-    string[] paths = new string[pm.AnalyzerCount];
-    int ai = 0;
-    while (ai < pm.AnalyzerCount) {
-        string aname = pm.Analyzers[ai].Name;
-        string apath = pm.Analyzers[ai].Path;
-        if (apath.Length > 0) {
-            string got = _handlerFromPath(aname, apath, projectDir, consumerToml, isRelease, noIncremental, cliAdd, cliRemove);
-            if (got.Length == 0) { return new HandlerZpkgs(null, ExitCode.BuildError); }
-            paths[ai] = got;
-        } else {
-            string got = _handlerFromLibs(aname, libsDirs, libsDirsN);
-            if (got.Length == 0) { return new HandlerZpkgs(null, ExitCode.BuildError); }
-            paths[ai] = got;
-        }
-        ai = ai + 1;
-    }
-    return new HandlerZpkgs(paths, 0);
-}
-
-// path 条目：定位 → 校验 kind → 代建 → dist 里的 `<name>.zpkg`。失败打印诊断并返回 ""。
-string _handlerFromPath(string aname, string apath, string projectDir, string consumerToml,
-                        bool isRelease, bool noIncremental, int cliAdd, int cliRemove) {
-    string adir = Path.Join(projectDir, apath);
-    // 判据委托 `ManifestLocator.FindIn`（同 `PathDepPlan._resolveDepToml`）——自己 glob
-    // `"*.z42.toml"` 会漏掉**裸 `z42.toml`**，而那正是 `z42 new` 写出来的形态。
-    ManifestLocation aloc = ManifestLocator.FindIn(adir);
-    if (aloc.Kind != ManifestLocateKind.Project) {
-        ConsoleError.WriteLine("z42c build: [analyzers] `" + aname + "` 的 path 指向 " + adir
-            + "，那里没有单个工程清单"
-            + (aloc.Kind == ManifestLocateKind.Ambiguous ? "（同层有多份 *.z42.toml）"
-               : (aloc.Kind == ManifestLocateKind.Workspace ? "（那是一个 workspace）"
-                  : "（既无 z42.toml，也无 *.z42.toml）")) + "。");
-        return "";
-    }
-    string atoml = aloc.ManifestPath;
-    // 自指 → 无限递归。消费方自己就是 analyzer 时最容易写出来（`path = "."`）。
-    if (_samePath(atoml, consumerToml)) {
-        ConsoleError.WriteLine("z42c build: [analyzers] `" + aname + "` 的 path 指回本工程自身（"
-            + atoml + "）——analyzer 不能是自己的 handler。");
-        return "";
-    }
-    ProjectManifest apm = ManifestLoader.Load(atoml);
-    // 双向校验之一（add-package-roles 批 2）：`[analyzers]` 只收编译期扩展工程。
-    // 放进来的若是普通库，失败模式是「加载成功、发现 0 个 handler、什么都不做」——一个静默空转。
-    if (apm.Project.Kind != "analyzer") {
-        ConsoleError.WriteLine("z42c build: [analyzers] `" + aname + "` 指向的工程 " + atoml
-            + " 是 kind = \"" + apm.Project.Kind + "\"，不是 \"analyzer\"。"
-            + "编译期扩展（analyzer / generator 本体）须声明 kind = \"analyzer\"——"
-            + "它决定该工程能否引用编译器契约包，也决定它不会被链入目标产物。");
-        return "";
-    }
-    if (apm.Project.Name != aname) {
-        ConsoleError.WriteLine("z42c build: [analyzers] `" + aname + "` 的 path 指向的工程名是 `"
-            + apm.Project.Name + "`——两者须一致（同 [dependencies] 的 path 依赖约定）。");
-        return "";
-    }
-    // 代建（handler 是宿主进程要加载的东西，恒按本机构建；z42c 无目标 rid 概念，天然如此）。
-    int bc = _build(atoml, isRelease, "", "", new string[0], 0, noIncremental, cliAdd, cliRemove, false, null);
-    if (bc != 0) {
-        ConsoleError.WriteLine("z42c build: [analyzers] `" + aname + "` 的工程构建失败（见上）。");
-        return "";
-    }
-    string adistDir = BuildLayout.Resolve(apm, Path.GetDirectoryName(atoml), isRelease).DistDir;
-    string cand = Path.Join(adistDir, aname + ".zpkg");
-    if (!File.Exists(cand)) {
-        ConsoleError.WriteLine("z42c build: [analyzers] `" + aname + "` 构建后仍未见 " + cand + "。");
-        return "";
-    }
-    return cand;
-}
-
-// 名字条目：libsDirs 里找 `<name>.zpkg`。失败打印诊断（含**找过哪些目录**）并返回 ""。
-string _handlerFromLibs(string aname, string[] libsDirs, int libsDirsN) {
-    string azfile = aname + ".zpkg";
-    int d = 0;
-    while (d < libsDirsN) {
-        string cand = Path.Join(libsDirs[d], azfile);
-        if (File.Exists(cand)) { return cand; }
-        d = d + 1;
-    }
-    string searched = "";
-    int sd = 0;
-    while (sd < libsDirsN) {
-        searched = searched + (sd > 0 ? ", " : "") + libsDirs[sd];
-        sd = sd + 1;
-    }
-    if (libsDirsN == 0) { searched = "(无依赖目录——未设 Z42_LIBS，清单也无 path 依赖)"; }
-    ConsoleError.WriteLine("z42c build: [analyzers] `" + aname + "` 未在依赖目录找到 " + azfile
-        + "；已查找：" + searched
-        + "。改法：把该工程的 zpkg 放进依赖目录，或在 [analyzers] 里改用 `{ path = \"...\" }` 让 z42c 代建。");
-    return "";
 }
 
 // 两个 manifest 路径是否指同一文件（相对 → 绝对 + 折叠 "."/".."；镜像 PathDepPlan._norm，

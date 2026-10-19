@@ -1,0 +1,10 @@
+namespace Hp.A;
+
+using Std.IO;
+using Z42.Build;
+
+public class HookA : BuildHooks {
+    public override void BeforeCompile(IPipelineContext ctx) {
+        Console.WriteLine("HOOK-PLUGIN-SMOKE: A BeforeCompile");
+    }
+}

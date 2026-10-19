@@ -43,6 +43,7 @@
 |------|------|
 | `src/TypeExpr.z42` | 类型表达式 AST（NamedType/ArrayType/NullableType）+ TypeParamList（形参 `<T>`）+ WhereClause/WhereConstraint（泛型约束）|
 | `src/Ast.z42` | 表达式 AST（字面量/标识符/一元/二元/成员/调用/索引/赋值/三目/new/lambda 等；`IsPatternExpr` = is 结构化模式）|
+| `src/AstVisitor.z42` | 语法树 visitor 接口 `IExprVisitor<R, D>` / `IStmtVisitor<R, D>` / `IPatternVisitor<R, D>` / `ITypeExprVisitor<R, D>`：每节点一个 `Visit<节点类名>`，节点经抽象 `Accept<R, D>(v, d)` 双分派；穷举遍历实现接口即由编译器保证完备（新节点漏接 = 编不过）|
 | `src/Stmt.z42` | 语句 AST（expr/var-decl/return/if/while/block/break/continue/throw/foreach/for/do-while/switch/try-catch-finally；SwitchCase/SwitchArm 持 Pattern + 守卫）|
 | `src/Pattern.z42` | 模式 AST（Wildcard/Constant/Name/Positional/Property）——switch / is 结构化共用 |
 | `src/Decl.z42` | 声明 AST（CompilationUnit 含 `SuppressRegions` 局部抑制区间 / Using / Class·Struct·Interface / Enum / Delegate / Field / Method（`IsFree` = 顶层 func）/ Property / Param / Attr；类型用法位均为 TypeExpr）|

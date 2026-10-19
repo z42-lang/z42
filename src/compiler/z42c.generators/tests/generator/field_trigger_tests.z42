@@ -178,6 +178,17 @@ void test_forward_member_not_on_this_field_type_reports() {
 }
 
 [Test]
+void test_forward_target_private_reports_e0464() {
+    // E0464 的一档：methodof 点名 private 成员 —— 名字解析得到，但把别人的 private 实现抬上
+    // 自己的 public 面不是转发，报错并说明理由（跨包不可重构签名的另一档见同码发射点）。
+    string src = "namespace Fw;\nusing Std;\n"
+        + "class A { private string P() { return \"p\"; } }\n"
+        + "class S { [Forward(methodof(A.P))] A _a; }";
+    DiagnosticBag d = _runFwd(src);
+    Assert.Equal(true, hasCode(d, "E0464"));
+}
+
+[Test]
 void test_forward_overloaded_target_reports_and_points_at_partial_tier() {
     // 转发必须发一个**具名方法**，重载时它不能替你选 —— 但必须告诉你该改用哪一档。
     DiagnosticBag d = _runFwd(_fwdSrc("class S { [Forward(methodof(A.G))] A _a; }"));

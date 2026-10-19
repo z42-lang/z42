@@ -637,7 +637,7 @@ int _testAll(bool noBuild, string skip) {
     // 不需要 SDK、秒级；三书重构期间每一批搬运都靠它兜住链接。
     if (!_skipHas(skip, "docs")) {
         swStage = _stageStart("docs (relative links)");
-        c = _testDocs(_root(), false); if (c != 0) { return c; }
+        c = _testDocs(_root()); if (c != 0) { return c; }
         _stageEnd(slog, "docs (relative links)", swStage);
     }
     // stage 5: z42c self-host byte-identical (0.3.10 gate)

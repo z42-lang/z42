@@ -9,13 +9,15 @@ namespace Z42.Syntax;
 
 using Z42.Core;
 
-public class Pattern {
+public abstract class Pattern {
+    public abstract R Accept<R, D>(IPatternVisitor<R, D> v, D d);
     public Span Span;
     public virtual string Dump() { return "?pat"; }
 }
 
 // 通配 `_`：匹配任意、不绑定。仅出现在嵌套子模式位；顶层 switch 的 catch-all 仍走 default/`_`（hasPattern=false）。
 public sealed class WildcardPattern : Pattern {
+    public override R Accept<R, D>(IPatternVisitor<R, D> v, D d) { return v.VisitWildcardPattern(this, d); }
     public WildcardPattern(Span span) { this.Span = span; }
     public override string Dump() { return "_"; }
 }
@@ -23,6 +25,7 @@ public sealed class WildcardPattern : Pattern {
 // 常量模式：字面量（1/"s"/'c'/true/null）或点分枚举/常量（Color.Red）。携原始 Expr，
 // binder 走既有 _bindExpr、emit 走 Eq(subj, value) —— 保证与旧 switch 常量路径 byte-identical。
 public sealed class ConstantPattern : Pattern {
+    public override R Accept<R, D>(IPatternVisitor<R, D> v, D d) { return v.VisitConstantPattern(this, d); }
     public Expr Value;
     public ConstantPattern(Expr value, Span span) { this.Span = span; this.Value = value; }
     public override string Dump() { return this.Value.Dump(); }
@@ -31,6 +34,7 @@ public sealed class ConstantPattern : Pattern {
 // 名字/类型模式：`T`（类型测试）/ `T x`（类型测试+绑定）/ 裸单名（绑定）/ 点分名（常量）。
 // Bind==""：`T` / 裸名 / 点分名（三者由 bind 期定性）；Bind!=""：`T x`（显式类型+绑定，恒类型模式）。
 public sealed class NamePattern : Pattern {
+    public override R Accept<R, D>(IPatternVisitor<R, D> v, D d) { return v.VisitNamePattern(this, d); }
     public TypeExpr Type;
     public string   Bind;   // ""=无显式绑定名
     public NamePattern(TypeExpr type, string bind, Span span) { this.Span = span; this.Type = type; this.Bind = bind; }
@@ -43,6 +47,7 @@ public sealed class NamePattern : Pattern {
 // 位置模式（record 解构）：T(p0, p1, ...) —— IsInstance(T) + 按主构造器声明序逐字段递归匹配子模式。
 // 约束（PatternBinder 校验）：T 必须 IsRecord；子模式数 == record 字段数。
 public sealed class PositionalPattern : Pattern {
+    public override R Accept<R, D>(IPatternVisitor<R, D> v, D d) { return v.VisitPositionalPattern(this, d); }
     public TypeExpr  Type;
     public Pattern[] Elems;
     public int       ElemCount;
@@ -59,6 +64,7 @@ public sealed class PositionalPattern : Pattern {
 
 // 属性模式：T { F: p, ... } / { F: p, ... }（HasType=false 省略类型，仅按字段名匹配、不测类型）。
 public sealed class PropertyPattern : Pattern {
+    public override R Accept<R, D>(IPatternVisitor<R, D> v, D d) { return v.VisitPropertyPattern(this, d); }
     public TypeExpr  Type;         // HasType==false 时无效
     public bool      HasType;
     public string[]  FieldNames;
@@ -80,6 +86,7 @@ public sealed class PropertyPattern : Pattern {
 // Item1..ItemN 字段，逐位递归匹配子模式。裸 `(` 起始（不带类型引导），区别于类型引导的位置模式 `T(...)`。
 // binder 走独立 _bindTuple（subject 须为 ValueTupleN 实例化类型），不复用位置模式的 IsRecord 强制。
 public sealed class TuplePattern : Pattern {
+    public override R Accept<R, D>(IPatternVisitor<R, D> v, D d) { return v.VisitTuplePattern(this, d); }
     public Pattern[] Elems;
     public int       Count;
     public TuplePattern(Pattern[] elems, int count, Span span) { this.Span = span; this.Elems = elems; this.Count = count; }
@@ -94,6 +101,7 @@ public sealed class TuplePattern : Pattern {
 // or-模式（A2）：P0 | P1 | ...，任一匹配即匹配。仅出现在 switch 臂（is 保持 `|` = 位或）。
 // 约束（PatternBinder 校验）：子模式不得引入任何绑定（A2 defer 各 alt 绑定集一致性 + 合流 phi）。
 public sealed class OrPattern : Pattern {
+    public override R Accept<R, D>(IPatternVisitor<R, D> v, D d) { return v.VisitOrPattern(this, d); }
     public Pattern[] Alts;
     public int       Count;
     public OrPattern(Pattern[] alts, int count, Span span) { this.Span = span; this.Alts = alts; this.Count = count; }
@@ -107,6 +115,7 @@ public sealed class OrPattern : Pattern {
 
 // @ 绑定（A2）：name @ P —— 绑 name 到整个 subject 且 subject 须匹配子模式 P。子模式 Sub 不含顶层 or。
 public sealed class AtPattern : Pattern {
+    public override R Accept<R, D>(IPatternVisitor<R, D> v, D d) { return v.VisitAtPattern(this, d); }
     public string  Name;
     public Pattern Sub;
     public AtPattern(string name, Pattern sub, Span span) { this.Span = span; this.Name = name; this.Sub = sub; }
@@ -115,6 +124,7 @@ public sealed class AtPattern : Pattern {
 
 // 闭区间范围模式（A2）：lo ..= hi —— subj >= lo && subj <= hi（含端点）。Lo/Hi 为常量 Expr。
 public sealed class RangePattern : Pattern {
+    public override R Accept<R, D>(IPatternVisitor<R, D> v, D d) { return v.VisitRangePattern(this, d); }
     public Expr Lo;
     public Expr Hi;
     public RangePattern(Expr lo, Expr hi, Span span) { this.Span = span; this.Lo = lo; this.Hi = hi; }
@@ -123,6 +133,7 @@ public sealed class RangePattern : Pattern {
 
 // 关系模式（A2）：> v / >= v / < v / <= v —— subj <op> v。Op = TokenKind（Gt/GtEq/Lt/LtEq）。V 为常量 Expr。
 public sealed class RelationalPattern : Pattern {
+    public override R Accept<R, D>(IPatternVisitor<R, D> v, D d) { return v.VisitRelationalPattern(this, d); }
     public int  Op;
     public Expr Value;
     public RelationalPattern(int op, Expr value, Span span) { this.Span = span; this.Op = op; this.Value = value; }

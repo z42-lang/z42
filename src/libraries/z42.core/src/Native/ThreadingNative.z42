@@ -17,10 +17,6 @@ public static class ThreadNative {
     /// 等待线程结束；worker 抛过异常 / panic / 重复 Join → VM 直接抛 `Std.Threading.ThreadException`。
     [Native("__thread_wait")]
     public static extern void Wait(long slotId);
-
-    /// （种子兼容，旧形状）等待线程，返回 [KIND, msg] 判别数组。
-    [Native("__thread_join")]
-    public static extern object[] Join(long slotId);
 }
 
 // 实现笔记：**原生层不持有任何值**——值是 z42 字段（GC 可见），这里只提供同步。

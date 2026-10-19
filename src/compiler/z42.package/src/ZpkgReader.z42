@@ -17,12 +17,14 @@ public sealed class ZpkgInfo {
     public string[]      Pool;        public int PoolCount;
     public ZpkgSection[] Sections;    public int SectionCount;
     public byte[]        Data;
+    public int           PluginCaps;  // 头 flags 的插件能力位（见 PluginCaps）；非插件包 0
     public ZpkgInfo(string name, string version, string entry, bool isExe, bool packed,
                     string[] pool, int poolCount, ZpkgSection[] sections, int sectionCount, byte[] data) {
         this.Name = name; this.Version = version; this.Entry = entry; this.IsExe = isExe;
         this.Packed = packed;
         this.Pool = pool; this.PoolCount = poolCount;
         this.Sections = sections; this.SectionCount = sectionCount; this.Data = data;
+        this.PluginCaps = 0;
     }
     public bool HasSection(string tag) { return SectionDir.Find(this.Sections, tag) != null; }
     public ZpkgSection Section(string tag) { return SectionDir.Find(this.Sections, tag); }
@@ -120,7 +122,9 @@ public static class ZpkgReader {
             if (pool == null) { return null; }
         }
         int poolCount = pool.Length;
-        return new ZpkgInfo(name, version, entry, isExe, packed, pool, poolCount, secs, secCount, data);
+        ZpkgInfo info = new ZpkgInfo(name, version, entry, isExe, packed, pool, poolCount, secs, secCount, data);
+        info.PluginCaps = PluginCaps.Mask(flags);
+        return info;
     }
 
     // NSPC → ns 名列表。

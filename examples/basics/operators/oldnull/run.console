@@ -1,0 +1,6 @@
+# ANCHOR: err
+$ z42 run oldnull.z42
+z42c build: 1 error(s) in oldnull.z42
+  oldnull.z42(5,27): E0480: `??` is no longer supported — write the fallback out: `var v = <left>; if (v == null) { v = <right>; }`. For "read a setting with a default", prefer an API that takes the default (e.g. `Environment.GetEnvironmentVariable(name, "")`)
+[exit: 1]
+# ANCHOR_END: err

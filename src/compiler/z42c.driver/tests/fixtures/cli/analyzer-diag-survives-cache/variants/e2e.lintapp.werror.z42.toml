@@ -6,7 +6,7 @@ kind    = "lib"
 [sources]
 include = ["*.z42"]
 
-[analyzers]
+[plugins]
 "e2e.lint" = { path = "../lintpkg" }
 
 [lints]

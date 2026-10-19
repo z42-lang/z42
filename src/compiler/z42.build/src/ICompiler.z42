@@ -73,10 +73,23 @@ namespace Z42.Build;
     public string Warnings = "";
 }
 
+/// 插件 zpkg 的检查结果（`ICompiler.InspectPlugin`）。Error 为空 = 通过：读得出、包名与引用一致、头里有插件
+/// 能力位。z42b 不直接认识 zpkg 格式，经注入的编译器问。
+public sealed class PluginCheck {
+    public string Error;     // "" = 通过；否则是一句完整说明（不含工具前缀）
+    public bool   HasHook;   // 带 hook 能力位（归 z42b 加载）
+    public string Kinds;     // 能力的可读形式，如 "analyzer, hook"
+    public PluginCheck(string error, bool hasHook, string kinds) {
+        this.Error = error; this.HasHook = hasHook; this.Kinds = kinds;
+    }
+}
+
 /// 编译器抽象。实现住编译器库（z42c）；z42.build 只持接口。
 /// `z42b` 与 `z42c.driver` 经本接口引用同一实现。
 public interface ICompiler {
     CompileResult Compile(CompileRequest req);
+    /// 检查一个被 `[plugins]` 引用的 zpkg（判据与 z42c 解析插件条目同一份）。
+    PluginCheck InspectPlugin(string zpkgPath, string expectedName);
 }
 
 /// 默认空实现：未注入真实编译器时的兜底（L1「空值 + 调用方检查」idiom）。
@@ -84,5 +97,8 @@ public interface ICompiler {
 public class NoCompiler : ICompiler {
     public CompileResult Compile(CompileRequest req) {
         return new CompileResult("", "", false, "no compiler injected");
+    }
+    public PluginCheck InspectPlugin(string zpkgPath, string expectedName) {
+        return new PluginCheck("no compiler injected", false, "");
     }
 }

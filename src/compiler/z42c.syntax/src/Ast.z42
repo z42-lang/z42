@@ -4,18 +4,21 @@ namespace Z42.Syntax;
 
 using Z42.Core;
 
-public class Expr {
+public abstract class Expr {
+    public abstract R Accept<R, D>(IExprVisitor<R, D> v, D d);
     public Span Span;
     public virtual string Dump() { return "?"; }
 }
 
 public sealed class IntLitExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitIntLitExpr(this, d); }
     public string Value;
     public IntLitExpr(string value, Span span) { this.Span = span; this.Value = value; }
     public override string Dump() { return this.Value; }
 }
 
 public sealed class ArrayNewExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitArrayNewExpr(this, d); }
     public TypeExpr Elem;
     public Expr     Size;
     public ArrayNewExpr(TypeExpr elem, Expr size, Span span) { this.Span = span; this.Elem = elem; this.Size = size; }
@@ -25,6 +28,7 @@ public sealed class ArrayNewExpr : Expr {
 // ref 实参 → 传变量地址（load_local_addr）。Inner 必须是 lvalue 局部变量。
 // simplify-ref-parameters：`ref` 是唯一的参数修饰符（`out` / `in` 已移除）。
 public sealed class RefArgExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitRefArgExpr(this, d); }
     public Expr Inner;
     public bool IsVarDecl;   // `ref var n` / `ref T n` 内联声明（n 在调用处声明，调用后可见）
     public string VarName;   // IsVarDecl 时的变量名
@@ -37,6 +41,7 @@ public sealed class RefArgExpr : Expr {
 }
 
 public sealed class ArrayInitExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitArrayInitExpr(this, d); }
     public TypeExpr Elem;
     public Expr[]   Elems;
     public int      ElemCount;
@@ -54,6 +59,7 @@ public sealed class ArrayInitExpr : Expr {
 // 集合字面量 `[e0, e1, ..]`（数组，专属方括号）。IsSpread[i]=true → 该元素是 `..expr` 展开。
 // 元素类型在语义层推断（目标类型或元素公共类型）；无显式 Elem TypeExpr（区别于 ArrayInitExpr）。
 public sealed class ArrayLitExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitArrayLitExpr(this, d); }
     public Expr[] Elems;
     public bool[] IsSpread;
     public int    ElemCount;
@@ -74,6 +80,7 @@ public sealed class ArrayLitExpr : Expr {
 
 // 重复填充 `[value; count]`（Rust 风）。value 只求值一次。
 public sealed class ArrayRepeatExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitArrayRepeatExpr(this, d); }
     public Expr Value;
     public Expr Count;
     public ArrayRepeatExpr(Expr value, Expr count, Span span) {
@@ -84,6 +91,7 @@ public sealed class ArrayRepeatExpr : Expr {
 
 // List 字面量 `{e0, e1, ..}`（花括号 + 裸元素）。语义层脱糖为 new List<T>() + Add。
 public sealed class ListLitExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitListLitExpr(this, d); }
     public Expr[] Elems;
     public int    ElemCount;
     public ListLitExpr(Expr[] elems, int elemCount, Span span) {
@@ -100,6 +108,7 @@ public sealed class ListLitExpr : Expr {
 // 元组字面量 `(e0, e1, ...)`（≥2 元素，圆括号 + 逗号）。语义层脱糖为 new Std.ValueTupleN<...>(e0, ...)
 // （值元组，类型擦除 blob）。单元素 `(e)` 是分组表达式、不入此节点。
 public sealed class TupleExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitTupleExpr(this, d); }
     public Expr[] Elems;
     public int    Count;
     public TupleExpr(Expr[] elems, int count, Span span) {
@@ -115,6 +124,7 @@ public sealed class TupleExpr : Expr {
 
 // Dict 字面量 `{k0: v0, k1: v1, ..}`（花括号 + 冒号对）。语义层脱糖为 new Dictionary<K,V>() + Set。
 public sealed class DictLitExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitDictLitExpr(this, d); }
     public Expr[] Keys;
     public Expr[] Values;
     public int    Count;
@@ -134,6 +144,7 @@ public sealed class DictLitExpr : Expr {
 
 // 空花括号 `{}`：List 还是 Dict 由目标类型定（语义层解析）。
 public sealed class EmptyBraceLitExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitEmptyBraceLitExpr(this, d); }
     public EmptyBraceLitExpr(Span span) { this.Span = span; }
     public override string Dump() { return "(brace-empty)"; }
 }
@@ -149,6 +160,7 @@ public sealed class LambdaParam {
 }
 
 public sealed class LambdaExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitLambdaExpr(this, d); }
     public LambdaParam[] Params;
     public int           ParamCount;
     public bool          HasBlock;
@@ -174,35 +186,41 @@ public sealed class LambdaExpr : Expr {
 }
 
 public sealed class CharLitExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitCharLitExpr(this, d); }
     public char Value;     // 解码后（剥引号+转义；镜像 C# LitCharExpr——区别于 Int/Str 存 raw）
     public CharLitExpr(char value, Span span) { this.Span = span; this.Value = value; }
     public override string Dump() { return "(char " + this.Value.ToString() + ")"; }
 }
 
 public sealed class FloatLitExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitFloatLitExpr(this, d); }
     public string Value;
     public FloatLitExpr(string value, Span span) { this.Span = span; this.Value = value; }
     public override string Dump() { return this.Value; }
 }
 
 public sealed class StringLitExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitStringLitExpr(this, d); }
     public string Raw;
     public StringLitExpr(string raw, Span span) { this.Span = span; this.Raw = raw; }
     public override string Dump() { return this.Raw; }
 }
 
 public sealed class BoolLitExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitBoolLitExpr(this, d); }
     public bool Value;
     public BoolLitExpr(bool value, Span span) { this.Span = span; this.Value = value; }
     public override string Dump() { if (this.Value) { return "true"; } return "false"; }
 }
 
 public sealed class NullLitExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitNullLitExpr(this, d); }
     public NullLitExpr(Span span) { this.Span = span;}
     public override string Dump() { return "null"; }
 }
 
 public sealed class IdentExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitIdentExpr(this, d); }
     public string Name;
     // complete-generic-class-identity P5-b：**闭合泛型上的静态成员** `GBox<int>.Count`。
     //
@@ -226,6 +244,7 @@ public sealed class IdentExpr : Expr {
 }
 
 public sealed class UnaryExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitUnaryExpr(this, d); }
     public string Op;
     public Expr   Operand;
     public UnaryExpr(string op, Expr operand, Span span) { this.Span = span; this.Op = op; this.Operand = operand; }
@@ -233,6 +252,7 @@ public sealed class UnaryExpr : Expr {
 }
 
 public sealed class BinaryExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitBinaryExpr(this, d); }
     public string Op;
     public Expr   Left;
     public Expr   Right;
@@ -249,6 +269,7 @@ public sealed class BinaryExpr : Expr {
 // obj?.member 空条件成员访问（recv 非 null 才访问，否则 null）。
 
 public sealed class MemberExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitMemberExpr(this, d); }
     public Expr   Target;
     public string Name;
     // 成员名**自身**的源区间（add-method-reference ⑦ span 地基）。
@@ -268,6 +289,7 @@ public sealed class MemberExpr : Expr {
 }
 
 public sealed class IndexExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitIndexExpr(this, d); }
     public Expr Target;
     public Expr[] Indices;    // 下标列表：单维 obj[i] 长度 1；多维 obj[a,b] 长度 N
     public int IndexCount;
@@ -283,6 +305,7 @@ public sealed class IndexExpr : Expr {
 }
 
 public sealed class AssignExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitAssignExpr(this, d); }
     public string Op;    // "=" / "+=" / "-=" / ...
     public Expr   Target;
     public Expr   Value;
@@ -291,6 +314,7 @@ public sealed class AssignExpr : Expr {
 }
 
 public sealed class CallExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitCallExpr(this, d); }
     public Expr   Callee;
     public Expr[] Args;
     public int    ArgCount;
@@ -317,6 +341,7 @@ public sealed class CallExpr : Expr {
 }
 
 public sealed class TernaryExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitTernaryExpr(this, d); }
     public Expr Cond;
     public Expr Then;
     public Expr Else;
@@ -327,6 +352,7 @@ public sealed class TernaryExpr : Expr {
 }
 
 public sealed class IsExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitIsExpr(this, d); }
     public Expr     E;
     public TypeExpr Type;
     public string   BindName;   // is-pattern 绑定变量名（""=无绑定，如 `x is T v`）
@@ -337,6 +363,7 @@ public sealed class IsExpr : Expr {
 // `x is <structural pattern>`（模式匹配核心 A1）：位置/属性/常量/通配等富模式作 is 右侧。
 // 老 `x is T` / `x is T v` 仍走 IsExpr（byte-identical）。绑定在 true 分支可见（同 env）。
 public sealed class IsPatternExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitIsPatternExpr(this, d); }
     public Expr    E;
     public Pattern Pat;
     public IsPatternExpr(Expr e, Pattern pat, Span span) { this.Span = span; this.E = e; this.Pat = pat; }
@@ -357,6 +384,7 @@ public sealed class SwitchArm {
 
 // `subject switch { p => b, ..., _ => d }`（postfix，bp 85）。
 public sealed class SwitchExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitSwitchExpr(this, d); }
     public Expr        Subject;
     public SwitchArm[] Arms;
     public int         ArmCount;
@@ -376,6 +404,7 @@ public sealed class SwitchExpr : Expr {
 }
 
 public sealed class AsExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitAsExpr(this, d); }
     public Expr     E;
     public TypeExpr Type;
     public AsExpr(Expr e, TypeExpr type, Span span) { this.Span = span; this.E = e; this.Type = type; }
@@ -384,6 +413,7 @@ public sealed class AsExpr : Expr {
 
 // typeof(T) → reflection Std.Type（make-typeof-return-type）。
 public sealed class TypeofExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitTypeofExpr(this, d); }
     public TypeExpr Type;
     public TypeofExpr(TypeExpr type, Span span) { this.Span = span; this.Type = type; }
     public override string Dump() { return "(typeof " + this.Type.Dump() + ")"; }
@@ -402,6 +432,7 @@ public sealed class TypeofExpr : Expr {
 //   methodof(X.M)    HasParamList=false —— 省略签名，仅当候选唯一时合法
 //   methodof(X.M())  HasParamList=true  —— 显式指代零参那个重载
 public sealed class MethodOfExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitMethodOfExpr(this, d); }
     public string     OwnerName;     // owner 类型的 AST 原始限定名（"Logger" / "Demo.Logger"）
     public Span       OwnerSpan;
     public string     Member;        // 成员名（末段）
@@ -434,6 +465,7 @@ public sealed class MethodOfExpr : Expr {
 
 // C 风格强制转换 (Type)expr（G3；数值转换，区别于 as 的引用 cast）。
 public sealed class CastExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitCastExpr(this, d); }
     public TypeExpr Type;
     public Expr     E;
     public CastExpr(TypeExpr type, Expr e, Span span) { this.Span = span; this.Type = type; this.E = e; }
@@ -442,6 +474,7 @@ public sealed class CastExpr : Expr {
 
 // add-target-typed-new：`Type == null` 表示 target-typed `new(args)`（省略类名，从目标类型推断）。
 public sealed class ObjNewExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitObjNewExpr(this, d); }
     public TypeExpr Type;
     public Expr[]   Args;
     public int      ArgCount;
@@ -460,6 +493,7 @@ public sealed class ObjNewExpr : Expr {
 // 构造后逐字段赋值；字段简写 `x` 由 parser 展开为 FieldValues[i]=IdentExpr("x")。
 // 语义层脱糖为 new + 逐字段 MemberExpr 赋值（复用 BoundSeqExpr）。
 public sealed class ObjInitExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitObjInitExpr(this, d); }
     public TypeExpr Type;
     public Expr[]   Args;          // ctor 实参
     public int      ArgCount;
@@ -489,6 +523,7 @@ public sealed class ObjInitExpr : Expr {
 // 字段简写 `x` 由 parser 展开为 FieldValues[i]=IdentExpr("x")。语义层脱糖为「读原对象各字段作主构造器
 // 实参 + 覆盖指定字段」→ new（复用 BoundSeqExpr + ObjNewExpr），避 readonly/init 字段赋值。
 public sealed class WithExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitWithExpr(this, d); }
     public Expr     Target;
     public string[] FieldNames;
     public Expr[]   FieldValues;   // 简写时 = IdentExpr(FieldNames[i])
@@ -510,6 +545,7 @@ public sealed class WithExpr : Expr {
 
 // GS7：default(T) 表达式（D-8b-3 Phase 2）。Target = 类型表达式（含泛型类型参数）。
 public sealed class DefaultExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitDefaultExpr(this, d); }
     public TypeExpr Target;
     public DefaultExpr(TypeExpr target, Span span) { this.Span = span; this.Target = target; }
     public override string Dump() { return "(default " + this.Target.Dump() + ")"; }
@@ -529,6 +565,7 @@ public sealed class InterpHole : InterpPart {
     public InterpHole(Expr inner, Span span) : base(span) { this.Inner = inner; }
 }
 public sealed class InterpolatedStringExpr : Expr {
+    public override R Accept<R, D>(IExprVisitor<R, D> v, D d) { return v.VisitInterpolatedStringExpr(this, d); }
     public InterpPart[] Parts;
     public int          PartCount;
     public InterpolatedStringExpr(InterpPart[] parts, int partCount, Span span) {

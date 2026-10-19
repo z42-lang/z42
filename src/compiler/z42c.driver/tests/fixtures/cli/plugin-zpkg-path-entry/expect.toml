@@ -1,0 +1,37 @@
+desc = "[plugins] 的 .zpkg path 条目：直接引用现成产物；只换产物内容（源没动）消费方必须重编出新值（handler 指纹覆盖 zpkg 字节）（见 README）"
+
+# ① 先编出插件产物
+[[step]]
+args = ["build", "plug/e2e.pgen.z42.toml", "--release"]
+exit = 0
+
+# ② 消费方经 .zpkg path 引用 ⇒ generator 产的符号可用
+[[step]]
+args = ["build", "app/e2e.papp.z42.toml", "--release"]
+exit = 0
+
+[[step]]
+tool = "run"
+target = "app/dist/e2e.papp.zpkg"
+exit = 0
+stdout_equals = "42"
+
+# ③ 只改 generator 源（42 → 7）重编插件产物；消费方源码不动、引用路径不动 ⇒ 仍必须重编出新值
+[[step]]
+tool = "copy"
+from = "variants/gen.7.z42"
+to = "plug/gen.z42"
+
+[[step]]
+args = ["build", "plug/e2e.pgen.z42.toml", "--release"]
+exit = 0
+
+[[step]]
+args = ["build", "app/e2e.papp.z42.toml", "--release"]
+exit = 0
+
+[[step]]
+tool = "run"
+target = "app/dist/e2e.papp.zpkg"
+exit = 0
+stdout_equals = "7"

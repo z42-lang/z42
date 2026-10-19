@@ -47,48 +47,9 @@ public static class ProcessNative {
     /// 按 PATH 解析程序全路径；找不到返回 null。
     [Native("__process_which")]
     public static extern string? Which(string name);
-
-    // ── 种子兼容（返回 [KIND, …] 判别数组，由调用方翻成异常）──────────────────
-    // 已发布种子的 z42.io 仍调这些旧形状声明。
-
-    /// （种子兼容，旧形状）运行子进程，返回判别数组。
-    [Native("__process_run")]
-    public static extern object[] Run(
-        string program,
-        string[] args,
-        string[] envKeys,
-        string[] envVals,
-        string[] envRemove,
-        bool envClear,
-        string? cwd,
-        int stdinMode,
-        byte[]? stdinBytes,
-        int stdoutMode,
-        string? stdoutPath,
-        int stderrMode,
-        string? stderrPath,
-        long timeoutMs,
-        bool ownProcessGroup);
-
-    /// （种子兼容，旧形状）启动子进程，返回判别数组。
-    [Native("__process_spawn")]
-    public static extern object[] Spawn(
-        string program,
-        string[] args,
-        string[] envKeys,
-        string[] envVals,
-        string[] envRemove,
-        bool envClear,
-        string? cwd,
-        int stdinMode,
-        byte[]? stdinBytes,
-        int stdoutMode,
-        string? stdoutPath,
-        int stderrMode,
-        string? stderrPath);
 }
 
-/// `Spawn()` 出来的子进程句柄（槽号）上的操作。
+/// `Start()` 出来的子进程句柄（槽号）上的操作。
 public static class ChildProcessNative {
     /// 等待退出并返回结果数组（消耗句柄）。
     [Native("__process_wait")]
@@ -125,43 +86,4 @@ public static class ChildProcessNative {
     /// 流式读 stderr（0 = EOF）。
     [Native("__process_stderr_read")]
     public static extern int ReadStderr(long slotId, byte[] buffer, int offset, int count);
-}
-
-/// 种子兼容（旧形状）：子进程句柄操作，返回判别数组。
-public static class ProcessHandleNative {
-    /// （种子兼容）等待退出。
-    [Native("__process_handle_wait")]
-    public static extern object[] Wait(long slotId);
-
-    /// （种子兼容）非阻塞等待。
-    [Native("__process_handle_try_wait")]
-    public static extern object TryWait(long slotId);
-
-    /// （种子兼容）终止子进程。
-    [Native("__process_handle_kill")]
-    public static extern object Kill(long slotId, bool force);
-
-    /// （种子兼容）写 stdin。
-    [Native("__process_handle_write_stdin")]
-    public static extern object WriteStdin(long slotId, byte[] bytes);
-
-    /// （种子兼容）关闭 stdin。
-    [Native("__process_handle_close_stdin")]
-    public static extern object CloseStdin(long slotId);
-
-    /// （种子兼容）子进程 pid。
-    [Native("__process_handle_pid")]
-    public static extern object Pid(long slotId);
-
-    /// （种子兼容）释放句柄。
-    [Native("__process_handle_drop")]
-    public static extern object Drop(long slotId);
-
-    /// （种子兼容）流式读 stdout。
-    [Native("__process_handle_read_stdout")]
-    public static extern object ReadStdout(long slotId, byte[] buffer, int offset, int count);
-
-    /// （种子兼容）流式读 stderr。
-    [Native("__process_handle_read_stderr")]
-    public static extern object ReadStderr(long slotId, byte[] buffer, int offset, int count);
 }

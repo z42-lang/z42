@@ -220,7 +220,6 @@
         - [Path](stdlib/core.Path.md)
         - [ProcessNative](stdlib/core.ProcessNative.md)
         - [ChildProcessNative](stdlib/core.ChildProcessNative.md)
-        - [ProcessHandleNative](stdlib/core.ProcessHandleNative.md)
     - [Std.Threading]()
         - [LockRecursionException](stdlib/core.LockRecursionException.md)
         - [SynchronizationLockException](stdlib/core.SynchronizationLockException.md)
@@ -231,9 +230,6 @@
         - [UdpSocketNative](stdlib/core.UdpSocketNative.md)
         - [TlsSocketNative](stdlib/core.TlsSocketNative.md)
         - [DnsNative](stdlib/core.DnsNative.md)
-        - [NetTcpNative](stdlib/core.NetTcpNative.md)
-        - [NetTlsNative](stdlib/core.NetTlsNative.md)
-        - [UdpNative](stdlib/core.UdpNative.md)
     - [Std.Reflection]()
         - [Activator](stdlib/core.Activator.md)
         - [Assembly](stdlib/core.Assembly.md)
@@ -286,7 +282,7 @@
 - [`z42` 命令参考](toolchain/cli-z42.md)
 - [`z42c` / `z42b` / `z42d` 命令参考](toolchain/cli-z42c-z42b.md)
 - [工程清单 z42.toml](toolchain/z42-toml.md)
-- [编译期扩展（Analyzer / Generator）](toolchain/compile-time-extensions.md)
+- [插件（Analyzer / Generator / Hook）](toolchain/compile-time-extensions.md)
 - [运行时设置（旋钮清单）](toolchain/runtime-settings.md)
 
 # 嵌入

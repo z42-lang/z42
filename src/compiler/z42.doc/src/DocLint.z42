@@ -12,6 +12,7 @@
 //   W0808 同一命名空间有多个文件写了 //!（按本次输入的文件集合判，stdlib 按包跑）
 namespace Z42.Doc;
 
+using Z42.Core;
 using Z42.Syntax;
 using Std.IO;
 
@@ -60,7 +61,7 @@ public static class DocLint {
             DocBlock b = cu.DocBlocks[i];
             if (!b.Claimed) {
                 string kind = (b.Kind == DocBlock.Inner) ? "//!" : "///";
-                acc.Push(new DocLintFinding("W0801", file, b.Span.Line,
+                acc.Push(new DocLintFinding(DiagnosticCodes.DocOrphanBlock, file, b.Span.Line,
                     "孤立的 " + kind + " 块——后面没有声明认领它"));
             }
             i = i + 1;
@@ -88,7 +89,7 @@ public static class DocLint {
                 int hit = DocLint._nsFind(ns, nsN, cu.Namespace);
                 if (hit < 0) { ns[nsN] = cu.Namespace; at[nsN] = paths[i]; nsN = nsN + 1; }
                 else {
-                    acc.Push(new DocLintFinding("W0808", paths[i], cu.Doc.Span.Line,
+                    acc.Push(new DocLintFinding(DiagnosticCodes.DocDuplicateNamespaceDoc, paths[i], cu.Doc.Span.Line,
                         "命名空间 " + cu.Namespace + " 的 //! 已写在 " + at[hit] + " —— 一个命名空间只留一份（主文件）"));
                 }
             }
@@ -141,7 +142,7 @@ public static class DocLint {
         if (d.Doc == null) {
             // W0805：显式 public 而无 ///。接口成员 / 枚举成员的隐式 public 不算。
             if (Mod.Has(modFlags, Mod.Public)) {
-                acc.Push(new DocLintFinding("W0805", file, d.Span.Line,
+                acc.Push(new DocLintFinding(DiagnosticCodes.DocPublicMissingDoc, file, d.Span.Line,
                     "public `" + name + "` 缺 /// 文档"));
             }
             return;
@@ -151,7 +152,7 @@ public static class DocLint {
         int t = 0;
         while (t < c.Tags.Length) {
             if (!DocLint._knownTag(c.Tags[t].Tag)) {
-                acc.Push(new DocLintFinding("W0804", file, d.Doc.Span.Line,
+                acc.Push(new DocLintFinding(DiagnosticCodes.DocUnknownTag, file, d.Doc.Span.Line,
                     "`" + name + "` 的未知 tag @" + c.Tags[t].Tag));
             }
             t = t + 1;
@@ -162,12 +163,12 @@ public static class DocLint {
             DocTag tag = c.Tags[t];
             if (tag.Tag == "param") {
                 if (!DocLint._paramHas(ps, pc, tag.Name)) {
-                    acc.Push(new DocLintFinding("W0802", file, d.Doc.Span.Line,
+                    acc.Push(new DocLintFinding(DiagnosticCodes.DocParamName, file, d.Doc.Span.Line,
                         "`" + name + "` 的 @param " + tag.Name + " 不在签名里"));
                 }
             } else if (tag.Tag == "typeparam") {
                 if (!DocLint._tpHas(tp, tag.Name)) {
-                    acc.Push(new DocLintFinding("W0802", file, d.Doc.Span.Line,
+                    acc.Push(new DocLintFinding(DiagnosticCodes.DocParamName, file, d.Doc.Span.Line,
                         "`" + name + "` 的 @typeparam " + tag.Name + " 不在签名里"));
                 }
             }
@@ -180,15 +181,15 @@ public static class DocLint {
     private static void _text(LintAcc acc, DocBlock doc, string name, string file) {
         string text = doc.Text;
         if (DocLint._hasHistory(text)) {
-            acc.Push(new DocLintFinding("W0806", file, doc.Span.Line,
+            acc.Push(new DocLintFinding(DiagnosticCodes.DocHistoryNote, file, doc.Span.Line,
                 "`" + name + "` 的文档里有历史注记（日期 / spec 名）——历史归 git blame"));
         }
         string summary = DocParser.Summary(text);
         if (summary.Length == 0) {
-            acc.Push(new DocLintFinding("W0807", file, doc.Span.Line,
+            acc.Push(new DocLintFinding(DiagnosticCodes.DocSummaryLength, file, doc.Span.Line,
                 "`" + name + "` 的摘要缺失（首段为空）"));
         } else if (summary.Length > DocLint.MaxSummary) {
-            acc.Push(new DocLintFinding("W0807", file, doc.Span.Line,
+            acc.Push(new DocLintFinding(DiagnosticCodes.DocSummaryLength, file, doc.Span.Line,
                 "`" + name + "` 的摘要 " + summary.Length.ToString() + " 字，超过 " + DocLint.MaxSummary.ToString() + "——细节挪正文"));
         }
     }

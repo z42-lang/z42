@@ -1,0 +1,9 @@
+namespace Hp.Bad;
+
+using Z42.Build;
+
+public class HookBad : BuildHooks {
+    public override void BeforeCompile(IPipelineContext ctx) {
+        这一行不是合法的 z42。
+    }
+}

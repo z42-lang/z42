@@ -285,6 +285,20 @@ void test_external_analyzer_loaded_and_reports() {
     Assert.Equal(true, _cmsHasCode(cArt, "Z9002"));
 }
 
+[Test]
+void test_analyzer_zpkg_missing_reports_e0493() {
+    // E0493：[analyzers] 段指向的 zpkg 加载失败（这里：路径不存在）→ 落成诊断而非 uncaught
+    //（最常见成因：indexed zpkg 被单独拷走，见 DiagnosticCodes 注释）。守的是「坏输入不炸编译」。
+    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
+    if (libs == "") { return; }   // 无 libs 环境（不该发生于 test harness）→ 跳过
+    CompileInputs cin = _inputs("namespace Consumer;\nint M() { return 1; }\n", "lib");
+    cin.Name = "demo.consumer";
+    string[] az = new string[1]; az[0] = Path.Join(_tmpRoot(), "nope.missing.zpkg");
+    cin.AnalyzerZpkgs = az; cin.AnalyzerZpkgCount = 1;
+    CompileArtifacts cArt = PackageCompile.Compile(cin);
+    Assert.Equal(true, _cmsHasCode(cArt, "E0493"));
+}
+
 // 现编 fixture analyzer → 写临时 zpkg，返回其路径（PR3b [lints] 端到端复用）。
 string _writeFixtureZpkg(string[] dirs) {
     CompileArtifacts aArt = PackageCompile.Compile(_fixtureAnalyzerInputs(dirs));

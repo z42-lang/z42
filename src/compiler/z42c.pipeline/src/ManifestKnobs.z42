@@ -58,8 +58,22 @@ public static class ManifestKnobs {
         int ukk = 0;
         while (ukk < pm.UnknownKeys.Length) { r.AddError(label + ": " + pm.UnknownKeys[ukk]); ukk = ukk + 1; }
         string kind = pm.Project.Kind;
-        if (kind != "exe" && kind != "lib" && kind != "analyzer") {
-            r.AddError(label + ": [project] unknown kind \"" + kind + "\" (known: exe/lib/analyzer)");
+        if (kind != "exe" && kind != "lib" && !pm.Project.IsPlugin()) {
+            r.AddError(label + ": [project] unknown kind \"" + kind + "\" (known: exe/lib/plugin)");
+        }
+        // [plugins] 与旧段名 [analyzers] 并存时，同一个插件写了两遍：两处的版本 / 路径可能不一致，
+        // 静默取其一就是在替用户猜。
+        int pa = 0;
+        while (pa < pm.PluginCount) {
+            int pb = pa + 1;
+            while (pb < pm.PluginCount) {
+                if (pm.Plugins[pa].Name == pm.Plugins[pb].Name) {
+                    r.AddError(label + ": plugin `" + pm.Plugins[pa].Name
+                        + "` is listed twice (in [plugins] and [analyzers]); keep the [plugins] entry");
+                }
+                pb = pb + 1;
+            }
+            pa = pa + 1;
         }
         // [optimize]：CLI > toml > profile 默认（`Opt.Resolve`）；未知名报错，与 CLI `--opt 乱写` 同口径。
         OptTomlResult optToml = Opt.FromToml(pm.OptimizeNames, pm.OptimizeValues, pm.OptimizeCount);

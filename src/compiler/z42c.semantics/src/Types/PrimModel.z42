@@ -165,7 +165,9 @@ public static class PrimModel {
     public static int IrTagOfCode(int c) { return PrimModel._tag[c]; }
 
     // 四张投影表，索引 = Code 的码；顺序 = sbyte short int long byte ushort uint ulong float double
-    // bool char string object。`_kw` 即 canonical 名表（drop-short-primitive-aliases 后全是关键字拼写，
+    // bool char string object。⚠️ `_kw` / `_wrap` 的拼写在 `Z42ClassType._mkPrimFly` 内联了一份字面量
+    // （flyweight 名单；跨类静态初始化顺序无保证，不能在那里读本表）——改这两张表须同步改那里。
+    //`_kw` 即 canonical 名表（drop-short-primitive-aliases 后全是关键字拼写，
     // 亦即写进 zbc/zpkg 的线格式名）。`_tag` 的 object → Ref（与非内建同格），复刻历史 PrimTag。
     private static string[] _fq = new string[]{
         "Std.SByte", "Std.Int16", "Std.Int32", "Std.Int64", "Std.Byte", "Std.UInt16", "Std.UInt32", "Std.UInt64",

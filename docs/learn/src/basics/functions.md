@@ -152,7 +152,16 @@
   {{#include ../../../../examples/basics/functions/variadic/run.console:notlast}}
   ```
 
-- **`params` 不能同时带默认值或 `ref`**（报 `E0208`）。
+- **`params` 不能同时带默认值或 `ref`**（报 `E0208`）：
+
+  ```z42
+  // examples/basics/functions/variadic/withdefault.z42
+  {{#include ../../../../examples/basics/functions/variadic/withdefault.z42}}
+  ```
+
+  ```console
+  {{#include ../../../../examples/basics/functions/variadic/run.console:withdefault}}
+  ```
 
 ## 让函数改到调用方的变量：`ref`
 

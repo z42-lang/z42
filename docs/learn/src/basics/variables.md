@@ -140,6 +140,18 @@ if (s == null) { s = "fallback"; }   // 取不到就用备用值
 >
 > **不标就完全不受检**，所以这是"想严格的地方才严格"，老代码一行都不用改。
 > 值类型（`int` / `bool` / `struct`…）永远不能为空，给它们标 `?` 会直接报错。
+
+
+真把没判空的代码交给编译器，得到的就是 E0478：
+
+```z42
+// examples/basics/variables/nullcheck/nullcheck.z42
+{{#include ../../../../examples/basics/variables/nullcheck/nullcheck.z42}}
+```
+
+```console
+{{#include ../../../../examples/basics/variables/nullcheck/run.console:err}}
+```
 >
 > 逃生口有两个：把判空写出来（主要那个），或者 `x.Expect("理由")` —— 后者在运行期
 > **真的检查**，为空就当场抛出，消息就是你写的那句理由。**没有**别的语言里那种

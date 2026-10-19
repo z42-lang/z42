@@ -1,0 +1,12 @@
+# unify-plugin-packages：[plugins] 指向的插件工程编译不过 ⇒ z42b build 非 0 退出（fail-build-on-plugin-error），
+# 不许降级成「无 hook 照样成功」。
+[project]
+name    = "hpb.app"
+version = "0.1.0"
+kind    = "exe"
+
+[sources]
+include = ["src/**/*.z42"]
+
+[plugins]
+"hp.bad" = { path = "plug" }

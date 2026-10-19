@@ -172,13 +172,13 @@ ProjectManifest _deriveTargetManifest(ProjectManifest m, DevTarget t, string kin
                                new ExeTarget[0], 0, m.Platform,
                                null, null, null,
                                new RunTarget[0], 0, new RunTarget[0], 0, new RunTarget[0], 0);
-    // add-build-session：编译旋钮随父包走——测试目标与被测包同一套 [optimize] / [syntax] / [lints] / [analyzers]
+    // add-build-session：编译旋钮随父包走——测试目标与被测包同一套 [optimize] / [syntax] / [lints] / [plugins]
     // （此前派生清单丢了这四段 ⇒ 测试目标按默认值编，父包开的 syntax 特性在测试里用不了、analyzer 不跑）。
     dm.OptimizeNames = m.OptimizeNames; dm.OptimizeValues = m.OptimizeValues; dm.OptimizeCount = m.OptimizeCount;
     dm.SyntaxNames = m.SyntaxNames; dm.SyntaxValues = m.SyntaxValues; dm.SyntaxCount = m.SyntaxCount;
     dm.LintNames = m.LintNames; dm.LintSeverities = m.LintSeverities; dm.LintCount = m.LintCount;
     dm.LintWarningsAsErrors = m.LintWarningsAsErrors;
-    dm.Analyzers = m.Analyzers; dm.AnalyzerCount = m.AnalyzerCount;
+    dm.Plugins = m.Plugins; dm.PluginCount = m.PluginCount;
     return dm;
 }
 
