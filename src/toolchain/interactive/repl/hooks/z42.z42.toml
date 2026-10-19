@@ -1,0 +1,12 @@
+# z42.repl 的 hook 插件（unify-plugin-packages 1b）：ProvideNative 现场裸 cargo 编 REPL 行编辑器 cdylib
+# （libz42_repl）拷进 dist/<rid>/，令 z42.repl 的 dist 自包含（zpkg + native）。
+[project]
+name    = "z42.repl.hooks"
+version = "0.1.0"
+kind    = "plugin"
+
+[sources]
+include = ["*.z42"]
+
+[build]
+output_dir = "../../../../../artifacts/build/toolchain/interactive/repl/hooks"

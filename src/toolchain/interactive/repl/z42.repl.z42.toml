@@ -9,6 +9,10 @@ name    = "z42.repl"
 version = "0.1.0"
 kind    = "lib"
 
+[plugins]
+# hook 插件（unify-plugin-packages 1b）：ProvideNative 现场 cargo 编 cdylib 拷进 dist/<rid>/。
+"z42.repl.hooks" = { path = "hooks" }
+
 [dependencies]
 "z42c.syntax"   = "0.1.0"   # Lexer 关键字表（语法着色的 SoT，只读不复制）
 "z42.scripting" = "0.1.0"   # Std.Scripting.Completeness（ReplEditing enter 分支整块完整性 + 续行缩进）
@@ -21,7 +25,6 @@ kind    = "lib"
 # 不再按默认值落进源码树。
 # From this toml's dir (src/toolchain/interactive/repl) up 4 levels to repo root；dist = ${output_dir}/dist。
 output_dir = "../../../../artifacts/build/toolchain/interactive/repl"
-hooks = "hooks"
 
 # 声明本包携带的私有 native 库 z42_repl。文件名平台派生 <prefix>z42_repl<suffix>
 # （<prefix>=DLL_PREFIX：Windows 空、其他 lib；<suffix>=.dylib/.so/.dll）。消费方（z42.interactive）

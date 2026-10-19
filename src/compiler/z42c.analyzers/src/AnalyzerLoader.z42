@@ -1,6 +1,6 @@
 // attribute-handler-registry PR3a-load —— 外部 analyzer zpkg 的编译期发现 + 实例化。
 //
-// 消费方在 z42.toml `[analyzers]` 段声明的 handler zpkg（D9：独立编译期类别，加载进编译器、
+// 消费方在 z42.toml `[plugins]` 段声明的 handler zpkg（D9：独立编译期类别，加载进编译器、
 // 编译期运行、不链入目标程序）经本加载器变成可喂给 AnalyzerDriver 的 `Analyzer` 实例。
 //
 // 两路加载组合（单靠一条都不够，源码复核确认——见 tasks PR3a-load 关键设计点）：

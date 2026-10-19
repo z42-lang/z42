@@ -54,7 +54,7 @@ schema 以 [z42-toml.md](../../../docs/reference/src/toolchain/z42-toml.md) 为�
 ### 清单模型（按段）
 | 文件 | 段 | 职责 |
 |------|----|------|
-| `src/ProjectManifest.z42` | 根 | 聚合各段的完整清单（单项目）；同文件还承载 `[optimize]`（`OptimizeNames`/`Values`/`Count`：逐 pass 具名开关的中性 name/value 对，消费方按名映射编译器 `Opt` 位）、`[plugins]`（`Plugins`/`PluginCount`：插件 zpkg 引用，加载进工具链、不链入目标程序；`Analyzers`/`AnalyzerCount` 为种子 ABI 残留、同内容——stage2 挂账）、`[lints]`（`LintNames`/`LintSeverities`/`LintCount`/`LintWarningsAsErrors`：严重级覆盖的中性 name/severity 串对，规则语义由消费方 z42c `LintConfig` 解释）|
+| `src/ProjectManifest.z42` | 根 | 聚合各段的完整清单（单项目）；同文件还承载 `[optimize]`（`OptimizeNames`/`Values`/`Count`：逐 pass 具名开关的中性 name/value 对，消费方按名映射编译器 `Opt` 位）、`[plugins]`（`Plugins`/`PluginCount`：插件 zpkg 引用，加载进工具链、不链入目标程序；旧段名 `[analyzers]` 与残留字段已删除——unify-plugin-packages 1b）、`[lints]`（`LintNames`/`LintSeverities`/`LintCount`/`LintWarningsAsErrors`：严重级覆盖的中性 name/severity 串对，规则语义由消费方 z42c `LintConfig` 解释）|
 | `src/ProjectInfo.z42` | `[project]` | name / version / kind / entry / pack；纯元数据 description / authors / license |
 | `src/Sources.z42` | `[sources]` | include / exclude glob（array + count） |
 | `src/BuildConfig.z42` | `[build]` | output_dir / cache_dir / dist_dir / incremental |

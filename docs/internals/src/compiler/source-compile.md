@@ -28,11 +28,11 @@ flowchart TD
     P0[Lexer → Parser → CompilationUnit] --> RA["HandlerRegistry.RunAst（z42c.semantics）<br/>AttributeSynth（Desugar/）"]
   end
   RA --> DEP["② 依赖解析（z42c.pipeline）<br/>DepScan → DepScanResult → ImportedSymbols<br/>REPL：复用缓存的 CachedScan"]
-  DEP --> GATE{"③ 有 generator？<br/>[analyzers] zpkg 里的 : Generator / : ModuleGenerator<br/>或源里用了 [Forward]"}
+  DEP --> GATE{"③ 有 generator？<br/>[plugins] zpkg 里的 : Generator / : ModuleGenerator<br/>或源里用了 [Forward]"}
   GATE -->|否| AGATE
   GATE -->|是| GEN["GeneratorDriver.RunRounds（z42c.generators）<br/>provisional 绑定 → 产出 union CU<br/>（见下「generator 怎么参与」）"]
   GEN --> AGATE
-  AGATE{"④ 有 analyzer？<br/>[analyzers] 非空"}
+  AGATE{"④ 有 analyzer？<br/>[plugins] 非空"}
   AGATE -->|否| BIND
   AGATE -->|是| AN["_runAnalyzers：AnalyzerLoader 加载 → AnalyzerDriver 遍历（z42c.analyzers）<br/>**union CU 的 AST（含生成代码）**，诊断先按 CU 暂存<br/>（见下「analyzer 怎么参与」）"]
   AN --> BIND
@@ -122,11 +122,11 @@ analyzer **只读、只产诊断**，不参与编译主线：
 | 机制 | 何时跑 | 看到什么 | 产出 | 加载方式 |
 |---|---|---|---|---|
 | **内建 handler**（`AttributeSynth` / test 与 `[ModuleInit]` 校验） | ①⑤ | AST / 符号表 | 合成工厂；诊断 | 编译器内建，永远开启 |
-| **Generator**（`: Generator` / `: ModuleGenerator`，内建 `[Forward]`） | ③ | AST + 已解析符号（provisional 绑定） | 新源码 / 替换声明 / 增补 partial | `[analyzers]` zpkg，`GeneratorLoader` 反射加载 |
+| **Generator**（`: Generator` / `: ModuleGenerator`，内建 `[Forward]`） | ③ | AST + 已解析符号（provisional 绑定） | 新源码 / 替换声明 / 增补 partial | `[plugins]` zpkg，`GeneratorLoader` 反射加载 |
 | **Analyzer**（`: Analyzer`） | ④（generator 之后、包级编译之前） | union CU 的 AST（含生成代码；不含 Bound） | 诊断（可带 `--fix` 重写源） | 同上，`AnalyzerLoader` |
 | **BuildHooks**（`class ProjectHooks : BuildHooks`） | **z42b** 构建阶段（不在 z42c 里） | 构建上下文 | 构建副作用 | `[build] hooks` 目录由 z42b 编成 zpkg，`ModuleLoader` 加载 |
 
-前三类属于编译器，后一类属于构建编排（见 [z42b](../toolchain/z42b.md)）。generator / analyzer 共用一段 `[analyzers]` 清单，同一批 zpkg 由两个 loader 各按接口过滤。
+前三类属于编译器，后一类属于构建编排（见 [z42b](../toolchain/z42b.md)）。generator / analyzer（与 hook）共用一段 `[plugins]` 清单，同一批 zpkg 由各宿主按接口 / 能力位过滤。
 
 ## 机制
 

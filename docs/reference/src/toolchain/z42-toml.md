@@ -31,7 +31,7 @@ z42 使用 **`<name>.z42.toml`** 作为工程配置文件，格式为 TOML。
 | 工作区清单有未知键 | ``z42c build --workspace: <z42.workspace.toml>: unknown key `<键>` in [workspace] (known: …)`` | 规划阶段失败（exit 1），不构建任何成员 |
 | `[lints]` 的值不对 | ``z42c: <清单>: [lints] `<规则>`: unknown severity "<值>" (known: none, hidden, info, warning, error)``；非串值报 ``unknown key `<键>` in [lints] (…)`` | 同工程清单未知键 |
 
-键名本身就是用户数据、因而**不按本页审计**的位置：`[dependencies]` / `[analyzers]` / `[native]` 下的
+键名本身就是用户数据、因而**不按本页审计**的位置：`[dependencies]` / `[plugins]` / `[native]` 下的
 包名 / 子表名、`[lints]` 的规则名（值照样校验，见 [L5c](#lints--逐规则-severity-覆盖)）、`[properties]` 与 `[profile.<n>.properties]` 的键、
 `[profile.<n>.runtime]` 的旋钮名（按 VM 登记表校验，未知名仅警告，见
 [运行时设置](runtime-settings.md#更早一层构建期的名字校验)）、`[optimize]` / `[syntax]` 的名字
@@ -56,7 +56,7 @@ kind    = "exe"        # exe | lib | plugin
 |------|------|------|------|
 | `name` | string | ✅ | 全小写；作为输出文件基名和依赖引用键。命名规则见下节 |
 | `version` | string | ✅ | SemVer，如 `"0.1.0"` |
-| `kind` | `"exe"` \| `"lib"` \| `"plugin"` | 单目标必填；多目标用 `[[exe]]` 时省略 | 可执行程序 / 类库 / 插件（analyzer、generator、hook 都用这个 kind，一个插件包可同时提供几类）。旧名 `"analyzer"` 在过渡期等价。写其它值 → 构建报用法错误 `unknown kind` |
+| `kind` | `"exe"` \| `"lib"` \| `"plugin"` | 单目标必填；多目标用 `[[exe]]` 时省略 | 可执行程序 / 类库 / 插件（analyzer、generator、hook 都用这个 kind，一个插件包可同时提供几类）。旧名 `"analyzer"` 已删除。写其它值 → 构建报用法错误 `unknown kind` |
 | `pack` | bool | ❌ 可选 | packed / indexed 布局，见 [L3](#l3--构建产物配置) |
 | `description` / `authors` / `license` | string / string[] / string | ❌ 可选 | 纯元数据（`authors` 是字符串数组，`license` 建议写 SPDX 标识）；构建不使用 |
 
@@ -296,7 +296,7 @@ incremental = true     # 启用增量编译，默认 true
 | `dist_dir` | string? | 未配 `output_dir` 时 **`<清单目录>/dist`**；配了则 `${output_dir}/dist` | `${output_dir}/dist` | 最终分发产物（`.zpkg` + `.zsym`）。 |
 | `generated_dir` | string? | `${output_dir}/generated`（显式 `""` = 不落盘） | 同左 | generator 生成的源码。 |
 | `incremental` | bool | `true` | `true` | 基于 source hash 跳过未改动文件。CLI `--no-incremental` 是一次性覆盖，**永远压过本键**；两者任一为「关」即关。 |
-| `hooks` | string? | （无） | （无） | **项目 build hook 源目录**（projDir 相对）。声明后 z42b 用注入的同一 `ICompiler` 编该目录 → 动态实例化 `Build.ProjectHooks : BuildHooks` → 注入 `Pipeline.Hooks`。hook 源须 `namespace Build;` + `class ProjectHooks : BuildHooks`。hook 目录里 stdlib 与 **SDK 库**（`z42.build` / `z42.project` 等编译器域包）**自动可见**、免声明，且不拷贝——hook 加载进 z42b 进程，用的就是宿主那份。**z42c 不消费此键**（仅 z42b 编排读），与 `[platform.*]` 同为编排/发布侧配置。用途见下文 publish 一节（`z42 publish` 经 hook 免装 workload 产 apphost）；编排实现属内部细节，本书不展开。 |
+| ~~`hooks`~~ | — | — | — | **已删除**（unify-plugin-packages 1b）：hook 改为插件工程，经 [`[plugins]`](#plugins--加载进工具链进程运行不链入产物) 引用（`"x.hooks" = { path = "hooks" }`，hook 目录补一份 `kind = "plugin"` 清单）。写了旧键按未知键报错。 |
 
 发布目录不在 `[build]`：它是 `[platform.desktop].publish_dir`（见下文 publish 一节），默认 `${output_dir}/publish`。
 
@@ -550,7 +550,7 @@ kind    = "exe"
 
 | 事项 | 行为 |
 |---|---|
-| 谁能看见 | `kind = "exe"` / `"lib"`：**声明了才可见**（连同它们在 SDK 库内的传递依赖）。`kind = "plugin"`（含旧名 `analyzer`）：**自动可见**，免声明（见 [compile-time-extensions.md](compile-time-extensions.md)） |
+| 谁能看见 | `kind = "exe"` / `"lib"`：**声明了才可见**（连同它们在 SDK 库内的传递依赖）。`kind = "plugin"`：**自动可见**，免声明（见 [compile-time-extensions.md](compile-time-extensions.md)） |
 | 不声明会怎样 | `E0494: 命名空间 … 不存在`，并点名提供它的 SDK 库与声明写法：`它由 SDK 库 \`z42c.semantics\` 提供 —— … "z42c.semantics" = "*"` |
 | 部署 | exe：用到的 SDK 库**连同传递依赖**拷进输出目录（runtime 包里没有它们），拷走能跑；lib：不打包，由最终 exe 决定；plugin：不拷，由宿主进程（z42c / z42b）提供 |
 | 位置怎么找 | 本机编译器目录：开发树（`Z42_LIBS` 位于仓库的 `artifacts/` 下时）→ `Z42_HOME/programs/z42c` → 由 `Z42_PORTABLE_VM` 反推的 SDK 根 |
@@ -947,7 +947,7 @@ artifacts/build/libraries/<lib>/<profile>/
 "demo.local"        = { path = "../x.zpkg" }  # 按 zpkg 路径：现成产物，读头校验后直接用
 ```
 
-旧段名 `[analyzers]` 并存合并（条目排在 `[plugins]` 之前；同名写两遍报错），过渡期后删除。
+旧段名 `[analyzers]` 已删除：写了按未知段报错，把条目改写到 `[plugins]`。
 值的写法与 `[dependencies]` 相同，**语义不同**：
 
 | | `[dependencies]` | `[plugins]` |
@@ -1303,7 +1303,6 @@ exclude = []                    # 默认值
 # cache_dir     = "/dev/shm/myproj"
 # dist_dir      = "/build/myproj/dist"
 # generated_dir = "${output_dir}/generated"
-# hooks         = "build"         # z42b 编排读，z42c 不消费
 incremental = true              # 默认 true
 
 [[exe]]                          # 多可执行目标；与 [project] kind = "exe" 二选一
@@ -1316,7 +1315,7 @@ include = ["src/tool/**/*.z42"] # 可选，覆盖 [sources]
 # "pkg-name" = { version = "1.0", path = "...", deploy = "copy" }   # 表形式只认这三个键
 # stdlib 无需声明
 
-[analyzers]                      # 编译期扩展 zpkg；写法同 [dependencies]，不接受 deploy
+[plugins]                        # 插件 zpkg；写法同 [dependencies]，不接受 deploy
 "demo.noemptycatch" = "0.1.0"
 
 [lints]                          # 键是规则 ID，值是 severity：none|hidden|info|warning|error

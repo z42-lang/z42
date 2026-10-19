@@ -369,7 +369,7 @@ public static class PackageCompile {
         // 插件工程：按实现的契约推导能力位（写进 zpkg 头）；一类都没有 → E0505。只在此前无错时判——
         // 有错的编译跳过了代码生成，类描述不全，判出来的「没有契约」是假的。
         int pluginCaps = 0;
-        if ((inp.Kind == "plugin" || inp.Kind == "analyzer") && cms.Length > 0 && PackageCompile._errorCount(cms, srcCount) == 0) {
+        if (inp.Kind == "plugin" && cms.Length > 0 && PackageCompile._errorCount(cms, srcCount) == 0) {
             IrModule[] capMods = new IrModule[srcCount];
             int cmi = 0;
             while (cmi < srcCount) { capMods[cmi] = cms[cmi].Module; cmi = cmi + 1; }

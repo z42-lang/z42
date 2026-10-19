@@ -57,7 +57,7 @@ class ClosurePlan {
 // 这一层差异无法消掉：两条路的 per-member 构建语义本就不同（rid/workload/hooks vs 纯包编译）。
 //
 // 每个成员的依赖扫描面 = **已建成员的 dist**（post-order ⇒ 它的依赖都已在内）+ Z42_LIBS。
-ClosurePlan _buildPathDepClosure(string tomlPath, Target t, string consumerHooksRel) {
+ClosurePlan _buildPathDepClosure(string tomlPath, Target t) {
     ClosurePlan r = new ClosurePlan();
     r.Rc = 0; r.Dists = new string[0]; r.Names = new string[0]; r.Count = 0;
     // 🔴 `Resolve` 会抛（依赖成环 / 目录里不是恰一份 manifest）——异常消息本身是好的，
@@ -95,9 +95,7 @@ ClosurePlan _buildPathDepClosure(string tomlPath, Target t, string consumerHooks
         }
         string depDir = Path.GetDirectoryName(depToml);
         if (depDir.Length == 0) { depDir = "."; }
-        // 成员自己的 `[build] hooks`（不是消费方的）。
-        string depHooks = _pubTomlStr(TomlValue.Parse(File.ReadAllText(depToml)), "build", "hooks", "");
-        int drc = _orchestrate(depPm, t, depDir, depHooks, "", dists, dn);
+        int drc = _orchestrate(depPm, t, depDir, "", dists, dn);
         if (drc != 0) { r.Rc = drc; return r; }
         // 落 dist（下一个成员与消费方都从这里解析它）。
         Dirs dd = _computeDirs(depPm, depDir, t.Profile);
@@ -166,10 +164,7 @@ BuildOutcome _buildProjectAt(ParseResult r, string mode, string outRoot, string 
         o.Rc = 2;
         return o;
     }
-    // `[build] hooks`（projDir 相对目录，"" = 无）——ManifestLoader 未建模该键，
-    // 沿 builder_publish 的 TomlValue 直读先例（z42.project 面零改动）。
     TomlValue toml = TomlValue.Parse(File.ReadAllText(tomlPath));
-    string hooksRel = _pubTomlStr(toml, "build", "hooks", "");
     // ── path 依赖闭包（2026-09-26）────────────────────────────────────────────
     // 此前这条编排路**完全不解析 path 依赖** —— 闭包解析只写在 z42c.driver 的 `_build` 上 ⇒
     // repo 外对着一个 `dep = { path = "../foo" }` 的工程，`z42b build` 连编译都过不了
@@ -178,11 +173,11 @@ BuildOutcome _buildProjectAt(ParseResult r, string mode, string outRoot, string 
     // 与 driver **同一份实现**。
     string[] closureDists = new string[0];
     int closureDistN = 0;
-    ClosurePlan cp = _buildPathDepClosure(tomlPath, t, hooksRel);
+    ClosurePlan cp = _buildPathDepClosure(tomlPath, t);
     if (cp.Rc != 0) { o.Rc = cp.Rc; return o; }
     closureDists = cp.Dists; closureDistN = cp.Count;
 
-    int rc = _orchestrate(m, t, sourceDir, hooksRel, "", closureDists, closureDistN);
+    int rc = _orchestrate(m, t, sourceDir, "", closureDists, closureDistN);
     if (rc != 0) { o.Rc = rc; return o; }
     if (mode != BuildMode.Export) {
         Dirs dirs = _computeDirs(m, sourceDir, t.Profile);

@@ -561,7 +561,7 @@ int _pubRunDepProvideNative(string depTomlPath, TomlValue depToml, string depNam
     // 依赖的 hook 中间目录跟随**依赖自己的** [build].output_dir（此前硬编码 `<depDir>/artifacts/<dep>/hooks`，
     // 无视配置 ⇒ z42.repl 这类配了 output_dir 的依赖照样往源码树写）。
     string interDir = _pubHooksInterDir(depToml, depTomlPath, depName);
-    HookLoad hl = _loadHooks(ManifestLoader.Load(depTomlPath), depDir, _pubTomlStr(depToml, "build", "hooks", ""), interDir, depName);
+    HookLoad hl = _loadHooks(ManifestLoader.Load(depTomlPath), depDir, interDir);
     if (!hl.Ok) {
         ConsoleError.WriteLine("z42b publish: native dep '" + depName + "' hooks failed to load — native not colocated");
         return 1;
@@ -747,7 +747,7 @@ string _pubHookApphostStub(TomlValue toml, string tomlPath, string projName, str
     if (projDir.Length == 0) { projDir = "."; }
     string interDir = _pubHooksInterDir(toml, tomlPath, projName);
 
-    HookLoad hl = _loadHooks(ManifestLoader.Load(tomlPath), projDir, _pubTomlStr(toml, "build", "hooks", ""), interDir, projName);
+    HookLoad hl = _loadHooks(ManifestLoader.Load(tomlPath), projDir, interDir);
     if (!hl.Ok) { return null; }
     if (hl.Hooks == null) { return ""; }   // `[plugins]` 全是编译器侧插件：与无 hook 同
     BuildHooks h = hl.Hooks;
@@ -770,9 +770,8 @@ string _pubHookApphostStub(TomlValue toml, string tomlPath, string projName, str
     return "";
 }
 
-// 本工程有没有 hook 来源：`[build] hooks` 目录，或 `[plugins]` 条目（是否带 hook 位要加载后才知道）。
+// 本工程有没有 hook 来源：[plugins] 条目（是否带 hook 位要加载后才知道）。
 bool _pubHasHooks(TomlValue toml, string tomlPath) {
-    if (_pubTomlStr(toml, "build", "hooks", "").Length > 0) { return true; }
     return ManifestLoader.Load(tomlPath).PluginCount > 0;
 }
 
@@ -793,7 +792,7 @@ Output[] _pubRunHooks(TomlValue toml, string tomlPath, string projName, string r
     string projDir = Path.GetDirectoryName(tomlPath);
     if (projDir.Length == 0) { projDir = "."; }
     string interDir = _pubHooksInterDir(toml, tomlPath, projName);
-    HookLoad hl = _loadHooks(ManifestLoader.Load(tomlPath), projDir, _pubTomlStr(toml, "build", "hooks", ""), interDir, projName);
+    HookLoad hl = _loadHooks(ManifestLoader.Load(tomlPath), projDir, interDir);
     if (!hl.Ok) { return null; }
     if (hl.Hooks == null) { return new Output[0]; }   // `[plugins]` 全是编译器侧插件：与无 hook 同
     BuildHooks h = hl.Hooks;

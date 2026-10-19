@@ -150,7 +150,7 @@ path 依赖与名字依赖的关键差异：名字依赖假定其 zpkg **已在*
 
 ### 插件的解析域与 `[plugins]` 的 path 条目
 
-`[analyzers]` 声明的 handler zpkg（analyzer / generator 本体）**加载进编译器进程、编译期运行、永不链入目标产物**。这条与 `[dependencies]` 正交的通道有两件事要保证：契约够得着、扩展工程能被路径引用。
+`[plugins]` 声明的插件 zpkg（analyzer / generator / hook 本体）**加载进工具链进程、构建期运行、永不链入目标产物**。这条与 `[dependencies]` 正交的通道有三件事要保证：契约够得着、插件工程能被路径引用、按名只在插件目录解析（`Z42_PLUGINS` / 依赖目录同级 `plugins/`——查找域分离）。
 
 #### 解析域：SDK 库（编译器域包）的可见性
 
@@ -173,7 +173,7 @@ SDK 安装态 `Z42_LIBS = <sdk>/libs`，上溯找不到开发树，① 落空。
 | 工程 | SDK 库可见 | 机制 |
 |---|---|---|
 | `lib` / `exe` | 按名声明的（不写 path）+ 它们在 SDK 库内的传递闭包（沿 zpkg DEPS 段） | `SdkLibs.Plan` 算放行集；编译器目录追加到 `libsDirs` 末尾，**不放行的包名并入扫描 tier 的 `Hidden`**（`WsTier` 既有字段） |
-| `plugin`（含旧名 `analyzer`） | 全部 | 放行集 = 编译器目录里所有「基础解析域中没有」的包 |
+| `plugin` | 全部 | 放行集 = 编译器目录里所有「基础解析域中没有」的包 |
 
 几个不显然的点：
 
@@ -196,22 +196,22 @@ SDK 安装态 `Z42_LIBS = <sdk>/libs`，上溯找不到开发树，① 落空。
 
 #### path 条目：z42c 代建那一个工程
 
-`[analyzers]` 的值与 `[dependencies]` 同为 `DepEntry`，但 path 的消费语义**刻意不同**（`_resolveHandlerZpkgs`，`BuildPaths.z42`）：
+`[plugins]` 的值与 `[dependencies]` 同为 `DepEntry`，但 path 的消费语义**刻意不同**（`_resolvePluginZpkgs`，`PluginRefs.z42`）：
 
-| | `[dependencies]` 的 path | `[analyzers]` 的 path |
+| | `[dependencies]` 的 path | `[plugins]` 的 path |
 |---|---|---|
 | 建什么 | 整个传递闭包（`PathDepPlan.Resolve`，post-order）| **只建那一个工程**（它的依赖由它自己那次 `_build` 解析）|
 | 产物去向 | 并入消费方 `libsDirs`，可被普通代码引用 | **不并入任何 libsDirs**，只把单个 zpkg 路径交给 handler 引擎 |
-| 校验 | 名字须与 `[project].name` 一致 | 同上，外加 `kind` 必须是 `"analyzer"` |
+| 校验 | 名字须与 `[project].name` 一致 | 同上，外加 `kind` 必须是 `"plugin"`（读头能力位判「是不是插件包」，按名也拦得住）|
 
-🔴 **代建产物不进 libsDirs 是本机制的要害**：把它并进去就等于让编译期扩展对消费方的**运行期代码**可见，解析域隔离当场破掉。代建用消费方的 `isRelease` / `optSet`，但 **libsDirs 一律不继承**（传 `count = 0`），让 analyzer 工程走自己的 path 闭包 + `Z42_LIBS` + 编译器目录（`CompilerDomain.Dirs()`）。
+🔴 **代建产物不进 libsDirs 是本机制的要害**：把它并进去就等于让编译期扩展对消费方的**运行期代码**可见，解析域隔离当场破掉。代建用消费方的 `isRelease` / `optSet`，但 **libsDirs 一律不继承**（传 `count = 0`），让插件工程走自己的 path 闭包 + `Z42_LIBS` + 编译器目录（`CompilerDomain.Dirs()`）。
 
 **顺序依赖（易踩）**：handler 解析必须排在 `_handlerFingerprint` **之前**。指纹把 handler zpkg 的内容揉进每个源文件的 hash，是「改了 generator 但消费方源没变 ⇒ 也要重编」唯一的失效通道；path 条目若在指纹之后才代建，指纹看到的是「zpkg 不存在」⇒ 改扩展不触发重编，消费方**编出旧结果**且无人报错。两者吃同一份解析结果。
 
-**双向校验**（都只在 path 条目上判得出来——按名引用时手上只有 zpkg，而 zpkg 不记 `kind`）：
+**双向校验**（zpkg 头记能力位，按名 / zpkg 条目在定位阶段即拦；path 条目在代建前拦）：
 
-- `kind = "analyzer"` 的工程出现在 `[dependencies]` → 拒绝（判在 path 闭包循环里，`Main.z42`）。它永不链入产物，写进依赖就是引用一个运行期不会到场的包。判定点继承闭包本身的边界：只在 **top-level build** 走，workspace 成员建带 `libsDirsOverride` ⇒ 跳过。
-- 非 `analyzer` 工程出现在 `[analyzers]` 的 path 条目 → 拒绝。否则失败模式是「加载成功、发现 0 个 handler、什么都不做」的**静默空转**。
+- `kind = "plugin"` 的工程出现在 `[dependencies]` → 拒绝（判在 path 闭包循环里，`Main.z42`）。它永不链入产物，写进依赖就是引用一个运行期不会到场的包。判定点继承闭包本身的边界：只在 **top-level build** 走，workspace 成员建带 `libsDirsOverride` ⇒ 跳过。
+- 位全 0 的包出现在 `[plugins]` → 拒绝「不是插件包」。否则失败模式是「加载成功、发现 0 个 handler、什么都不做」的**静默空转**。
 
 **自指防护**：path 指回消费方自身（`path = "."`）会无限递归——按规范化路径比对拦下。
 
@@ -342,7 +342,7 @@ p→m→t 升序 first-wins）与 `SigsClassIndex`（每 `ZpkgModuleSigs` 按"�
 这个缺陷不动产物一个字节，「对账全绿」与「警告一条看不见」可以同时成立。三格：冷构建
 （阳性对照，修前也对）/ 全命中 / 部分命中。
 
-**「每次都重发」那两层靠的是「一定会进 `PackageCompile`」——所以带 `[analyzers]` 的工程不走
+**「每次都重发」那两层靠的是「一定会进 `PackageCompile`」——所以带 `[plugins]` 的工程不走
 preserved 早退**（`fix-analyzer-diags-preserved`）。早退路径只能回放 meta 里有的东西，而 analyzer
 诊断与 `[lints]` 决策（severity 覆盖 / `warnings_as_errors`）**刻意不进 meta**。修前两个症状：
 什么都不改再构建一次，analyzer 警告消失；只改 `[lints]` 把规则升成 error，源码没动 ⇒ 全命中 ⇒
@@ -377,7 +377,7 @@ preserved 早退**（`fix-analyzer-diags-preserved`）。早退路径只能回�
 | 跨包符号加载（TSIG） | `z42c.semantics/src/Symbols/ImportedSymbolLoader.z42`；调和：`z42.package/src/TsigReconcile.z42` |
 | 工作区规划 | `z42.project/src/WorkspacePlan.z42`（z42c driver 与 z42b 共用）；z42b 逐成员编排：`src/toolchain/builder/core/builder_workspace.z42`；增量：`IncrementalBuild.z42` |
 | 产物组装 | `z42.package/src/ZpkgBuilder.z42`、`ZpkgWriter.z42` |
-| 编译期扩展解析域 / `[analyzers]` 解析 | 编译器目录 `z42c.pipeline/src/BuildSession.z42`（`CompilerDomain.Dirs`）；SDK 库可见性 `z42c.pipeline/src/SdkLibs.z42`；`z42c.driver/src/BuildPaths.z42`（`_resolveHandlerZpkgs` / `_handlerFingerprint`）；`${compiler_libs}` 宏 `ExeDeps.z42`；接线在 `Main.z42` |
+| 插件解析域 / `[plugins]` 解析 | 编译器目录 `z42c.pipeline/src/BuildSession.z42`（`CompilerDomain.Dirs`）；SDK 库可见性 `z42c.pipeline/src/SdkLibs.z42`；`z42c.driver/src/PluginRefs.z42`（`_resolvePluginZpkgs` / `_pluginFingerprint`）；`${compiler_libs}` 宏 `ExeDeps.z42`；接线在 `Main.z42` |
 | handler 加载与执行 | `z42c.pipeline/src/AnalyzerLoader.z42`、`GeneratorLoader.z42`、`PackageCompile.z42` |
 
 ## 边界与限制

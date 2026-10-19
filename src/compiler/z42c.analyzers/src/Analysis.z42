@@ -2,7 +2,7 @@
 //
 // 放在 z42c.syntax（AST 所在处、被 z42c.semantics 依赖）——对齐 Roslyn：analyzer 包依赖编译器的
 // 语法 API（Microsoft.CodeAnalysis），而非纯运行时库（stdlib 不能反依赖编译器）。外部 analyzer
-// zpkg 经 [dependencies] 依赖 z42c.syntax + z42c.core 来编写，用 z42.toml `[analyzers]` 段声明被
+// zpkg 经 [dependencies] 依赖 z42c.syntax + z42c.core 来编写，用 z42.toml `[plugins]` 段声明被
 // 编译器加载执行（D9：独立编译期 zpkg 类别，编译期运行、不链入目标程序、不入消费产物）。设计 SoT：
 // 变更 attribute-handler-registry/design.md §Analyzer 接口 / §Decisions D8·D9。
 //
@@ -82,7 +82,7 @@ public interface Analyzer {
 // C# 把 analyzer（报诊断）和 CodeFixProvider（产修复，仅 IDE）拆成两个类型；z42 **统一**成一套
 // （design.md D4：C# 局限「分析器/修复拆两类型，修复仅 IDE」→ z42「同套 splice，`--fix` build 期应用」）。
 // analyzer 在同一个 `OnSyntaxNode` 回调里、命中问题时把诊断与修复**一起**报出去——回调里本就握着
-// AST 节点，产修复零额外定位成本。第三方 analyzer zpkg 经 `[analyzers]` 加载，**分析+修复捆绑**一同
+// AST 节点，产修复零额外定位成本。第三方 analyzer zpkg 经 `[plugins]` 加载，**分析+修复捆绑**一同
 // 扩展（谁报诊断谁产修复，满足 litmus B 第三方可扩展）。
 //
 // **staged-bootstrap（PR4e/PR4e-wire 同款，self-hosting.md 轴②/③）**：本文件（z42c.syntax）新增的

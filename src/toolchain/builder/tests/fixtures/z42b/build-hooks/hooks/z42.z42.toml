@@ -1,0 +1,7 @@
+[project]
+name    = "bh.hooks"
+version = "0.1.0"
+kind    = "plugin"
+
+[sources]
+include = ["*.z42"]
