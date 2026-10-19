@@ -10,11 +10,10 @@ public sealed class StrMap {
     private int      _count;
     private int      _cap;
 
-    // ⚠⚠ perf（2026-09-15）：新表**不分配**，三个数组先指向下面的共享哨兵（容量 1、`_used[0]` 恒 false），
-    // 第一次 Put 才在 `_grow` 里换成真正的 16 槽。实测 `z42c.semantics` 一次构建死掉的 136k 张表里
-    // **117 892 张（87%）到死都是空的**，却每张付三个 16 槽数组 + 三个 var backing —— 占全部死数组约三成。
-    // 哨兵的形状让查找入口**不必加分支**：掩码 `_cap-1 = 0`，读到 `_used[0] == false` 就按未命中返回。
-    // 哨兵绝不被写：唯一的写入口 Put 在写之前一定先 `_grow`（见下面的条件），`UsedArr/ValArr` 按约定只读。
+    // ⚠⚠ 新表**不分配**：三个数组先指向下面的共享哨兵（容量 1、`_used[0]` 恒 false），第一次 Put 才在
+    // `_grow` 里换成真正的 16 槽——绝大多数表终其一生是空的。哨兵的形状让查找入口**不必加分支**：
+    // 掩码 `_cap-1 = 0`，读到 `_used[0] == false` 就按未命中返回。哨兵绝不被写：唯一的写入口 Put 在写
+    // 之前一定先 `_grow`（见下面的条件），`UsedArr/ValArr` 按约定只读。
     private static string[] s_noKeys = new string[1];
     private static object[] s_noVals = new object[1];
     private static bool[]   s_noUsed = new bool[1];
@@ -30,10 +29,8 @@ public sealed class StrMap {
 
     public int Count() { return this._count; }
 
-    // ⚠⚠ perf（2026-09-06）：下面四个查找入口各自**内联**探测循环，不再共用一个 private `_find`。
-    // 解释执行下**一层纯转发就是一整个 z42 调用帧**（含 VmFrame 两次 `Arc<str>` 克隆）——
-    // 采样 profile 实测 `Find` / `ContainsKey` 这两个转发器**自身**合计占全负载 **2.21%**，
-    // 而它们的函数体只有一行。重复的是循环文本，省下的是每次查找一整个帧。
+    // ⚠⚠ 下面四个查找入口各自**内联**探测循环、不共用 private `_find`：解释执行下一层纯转发就是
+    // 一整个 z42 调用帧（含 VmFrame 两次 `Arc<str>` 克隆）——重复的是循环文本，省的是每次查找一整个帧。
     public bool ContainsKey(string key) {
         int slot = key.GetHashCode() & (this._cap - 1);
         int probes = 0;
