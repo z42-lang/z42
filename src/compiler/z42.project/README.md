@@ -36,7 +36,7 @@ schema 以 [z42-toml.md](../../../docs/reference/src/toolchain/z42-toml.md) 为�
 ### 加载与定位
 | 文件 | 职责 |
 |------|------|
-| `src/ManifestLoader.z42` | TOML → 模型 加载器；解析全段含 `[profile.*]`/`[[exe]]`/`[platform.*]`/`[optimize]`/`[analyzers]`/`[lints]`/`[native.*]`/`[tests]`·`[benches]`·`[examples]`/`[[test]]`·`[[bench]]`·`[[example]]` |
+| `src/ManifestLoader.z42` | TOML → 模型 加载器；解析全段含 `[profile.*]`/`[[exe]]`/`[platform.*]`/`[optimize]`/`[plugins]`（旧名 `[analyzers]`）/`[lints]`/`[native.*]`/`[tests]`·`[benches]`·`[examples]`/`[[test]]`·`[[bench]]`·`[[example]]` |
 | `src/ManifestKeys.z42` | 各段合法键表（清单契约的唯一真相源）+ `KeyAudit` 审计；loader 构造后调用，结果挂到 `UnknownKeys` |
 | `src/ManifestLocator.z42` | 清单定位：`FindUp`（从目录向上找 `z42.toml` → 唯一 `*.z42.toml` → `z42.workspace.toml`）/ `FindIn`（只看一层）/ `ErrorText`；launcher / z42b / z42c 共用 |
 | `src/SourceDiscovery.z42` | `[sources].include` glob → 绝对路径列表（递归/单层，排除 dist/.cache，去重 + Ordinal 排序；`exclude` 走 `PathGlob`）|
@@ -54,12 +54,12 @@ schema 以 [z42-toml.md](../../../docs/reference/src/toolchain/z42-toml.md) 为�
 ### 清单模型（按段）
 | 文件 | 段 | 职责 |
 |------|----|------|
-| `src/ProjectManifest.z42` | 根 | 聚合各段的完整清单（单项目）；同文件还承载 `[optimize]`（`OptimizeNames`/`Values`/`Count`：逐 pass 具名开关的中性 name/value 对，消费方按名映射编译器 `Opt` 位）、`[analyzers]`（`Analyzers`/`AnalyzerCount`：编译期 handler zpkg 引用，加载进编译器、不链入目标程序）、`[lints]`（`LintNames`/`LintSeverities`/`LintCount`/`LintWarningsAsErrors`：严重级覆盖的中性 name/severity 串对，规则语义由消费方 z42c `LintConfig` 解释）|
+| `src/ProjectManifest.z42` | 根 | 聚合各段的完整清单（单项目）；同文件还承载 `[optimize]`（`OptimizeNames`/`Values`/`Count`：逐 pass 具名开关的中性 name/value 对，消费方按名映射编译器 `Opt` 位）、`[plugins]`（`Plugins`/`PluginCount`：插件 zpkg 引用，加载进工具链、不链入目标程序；`Analyzers`/`AnalyzerCount` 为种子 ABI 残留、同内容——stage2 挂账）、`[lints]`（`LintNames`/`LintSeverities`/`LintCount`/`LintWarningsAsErrors`：严重级覆盖的中性 name/severity 串对，规则语义由消费方 z42c `LintConfig` 解释）|
 | `src/ProjectInfo.z42` | `[project]` | name / version / kind / entry / pack；纯元数据 description / authors / license |
 | `src/Sources.z42` | `[sources]` | include / exclude glob（array + count） |
 | `src/BuildConfig.z42` | `[build]` | output_dir / cache_dir / dist_dir / incremental |
 | `src/Profile.z42` | `[profile.*]` | pack / strip / mode / optimize / debug |
-| `src/DepEntry.z42` | `[dependencies]`·`[analyzers]` | 单项依赖（name / version / `path`）；`path` 非空 = 本地路径依赖，为 "" = 名字依赖走 Z42_LIBS |
+| `src/DepEntry.z42` | `[dependencies]`·`[plugins]` | 单项依赖（name / version / `path`）；`path` 非空 = 本地路径依赖，为 "" = 名字依赖走 Z42_LIBS |
 | `src/NativeSpec.z42` | `[native.<name>]` | 本包携带的私有 native 库声明（逻辑名 `Name` + 可选预编译基目录 `Dir`；文件名平台派生）。z42b publish 沿闭包：有 `[build] hooks` 跑 `ProvideNative`，否则从 `Dir` 按 rid 复制预编译文件 |
 | `src/ExeTarget.z42` | `[[exe]]` | 多 exe 目标 |
 | `src/TargetSection.z42` | `[tests]`·`[benches]`·`[examples]` | dev 目标段：约定发现 glob（include/exclude/auto）+ dev-deps 隔离 |

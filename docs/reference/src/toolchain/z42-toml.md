@@ -47,7 +47,7 @@ z42 使用 **`<name>.z42.toml`** 作为工程配置文件，格式为 TOML。
 [project]
 name    = "hello"      # 包名，全小写（见下「包名命名规则」）
 version = "0.1.0"      # SemVer
-kind    = "exe"        # exe | lib | analyzer
+kind    = "exe"        # exe | lib | plugin
 ```
 
 **字段说明：**
@@ -56,7 +56,7 @@ kind    = "exe"        # exe | lib | analyzer
 |------|------|------|------|
 | `name` | string | ✅ | 全小写；作为输出文件基名和依赖引用键。命名规则见下节 |
 | `version` | string | ✅ | SemVer，如 `"0.1.0"` |
-| `kind` | `"exe"` \| `"lib"` \| `"analyzer"` | 单目标必填；多目标用 `[[exe]]` 时省略 | 可执行程序 / 类库 / 编译期扩展（analyzer、generator 都用这个 kind）。写其它值 → 构建报用法错误 `unknown kind` |
+| `kind` | `"exe"` \| `"lib"` \| `"plugin"` | 单目标必填；多目标用 `[[exe]]` 时省略 | 可执行程序 / 类库 / 插件（analyzer、generator、hook 都用这个 kind，一个插件包可同时提供几类）。旧名 `"analyzer"` 在过渡期等价。写其它值 → 构建报用法错误 `unknown kind` |
 | `pack` | bool | ❌ 可选 | packed / indexed 布局，见 [L3](#l3--构建产物配置) |
 | `description` / `authors` / `license` | string / string[] / string | ❌ 可选 | 纯元数据（`authors` 是字符串数组，`license` 建议写 SPDX 标识）；构建不使用 |
 
@@ -133,7 +133,7 @@ dist/my-sdk.zpkg  namespaces = ["Company.Sdk", "Company.Sdk.Internal", "Company.
 |------|------|------|
 | `exe` | `dist/<name>.zpkg`（带入口） | 可执行程序；用到的依赖随产物部署 |
 | `lib` | `dist/<name>.zpkg` | 类库，由最终 exe 决定怎么部署 |
-| `analyzer` | `dist/<name>.zpkg` | 编译期扩展（analyzer / generator）：只加载进编译器进程、编译期运行，永不链入运行期产物；被其它工程通过 [`[analyzers]`](#analyzers--加载进编译器编译期运行不链入产物) 引用，见 [compile-time-extensions.md](compile-time-extensions.md) |
+| `plugin` | `dist/<name>.zpkg` | 插件（analyzer / generator / hook）：只加载进工具链进程（z42c / z42b）运行，永不链入运行期产物；被其它工程通过 [`[plugins]`](#plugins--加载进工具链进程运行不链入产物) 引用，见 [compile-time-extensions.md](compile-time-extensions.md) |
 
 packed / indexed 两种布局由 `pack` 决定，见 [L3 — 构建产物配置](#l3--构建产物配置)。
 
@@ -550,9 +550,9 @@ kind    = "exe"
 
 | 事项 | 行为 |
 |---|---|
-| 谁能看见 | `kind = "exe"` / `"lib"`：**声明了才可见**（连同它们在 SDK 库内的传递依赖）。`kind = "analyzer"`：**自动可见**，免声明（见 [compile-time-extensions.md](compile-time-extensions.md)） |
+| 谁能看见 | `kind = "exe"` / `"lib"`：**声明了才可见**（连同它们在 SDK 库内的传递依赖）。`kind = "plugin"`（含旧名 `analyzer`）：**自动可见**，免声明（见 [compile-time-extensions.md](compile-time-extensions.md)） |
 | 不声明会怎样 | `E0494: 命名空间 … 不存在`，并点名提供它的 SDK 库与声明写法：`它由 SDK 库 \`z42c.semantics\` 提供 —— … "z42c.semantics" = "*"` |
-| 部署 | exe：用到的 SDK 库**连同传递依赖**拷进输出目录（runtime 包里没有它们），拷走能跑；lib：不打包，由最终 exe 决定；analyzer / hooks：不拷，由宿主进程（z42c / z42b）提供 |
+| 部署 | exe：用到的 SDK 库**连同传递依赖**拷进输出目录（runtime 包里没有它们），拷走能跑；lib：不打包，由最终 exe 决定；plugin：不拷，由宿主进程（z42c / z42b）提供 |
 | 位置怎么找 | 本机编译器目录：开发树（`Z42_LIBS` 位于仓库的 `artifacts/` 下时）→ `Z42_HOME/programs/z42c` → 由 `Z42_PORTABLE_VM` 反推的 SDK 根 |
 | stdlib 副本 | `programs/z42c/` 里还有一套 stdlib 副本，对解析**不可见**——stdlib 永远从 `libs/` 解析、不会被拷 |
 
@@ -610,8 +610,8 @@ kind    = "exe"
 
 | 写在哪 | 为什么 |
 |---|---|
-| `kind = "analyzer"` 工程的 `[dependencies]` | 编译期扩展永不链入运行期产物，它的依赖也就没有「部署到哪」 |
-| 任何工程的 [`[analyzers]`](#analyzers--加载进编译器编译期运行不链入产物) 条目 | handler zpkg 只加载进编译器进程、编译期运行，永不随产物走 |
+| `kind = "plugin"` 工程的 `[dependencies]` | 插件永不链入运行期产物，它的依赖也就没有「部署到哪」 |
+| 任何工程的 [`[plugins]`](#plugins--加载进工具链进程运行不链入产物) 条目 | 插件 zpkg 只加载进工具链进程运行，永不随产物走 |
 
 （两处都与 `[dependencies]` 共用同一套条目语法，所以键写得出来 —— 报错是为了不让它静默无效。）
 
@@ -933,44 +933,47 @@ artifacts/build/libraries/<lib>/<profile>/
 
 ---
 
-## L5c — `[analyzers]` / `[lints]`：编译期扩展与诊断开关
+## L5c — `[plugins]` / `[lints]`：插件与诊断开关
 
-完整用法（怎么写一个 analyzer、契约长什么样、`--fix` / `#suppress`）见
-[编译期扩展（Analyzer / Generator）](compile-time-extensions.md)。本节只列**清单字段**。
+完整用法（怎么写一个 analyzer / generator / hook、契约长什么样、`--fix` / `#suppress`）见
+[编译期扩展（Analyzer / Generator / Hook）](compile-time-extensions.md)。本节只列**清单字段**。
 
-### `[analyzers]` —— 加载进编译器、编译期运行、**不链入产物**
+### `[plugins]` —— 加载进工具链进程运行、**不链入产物**
 
 ```toml
-[analyzers]
-"demo.noemptycatch" = "0.1.0"              # 按名：在依赖目录找 demo.noemptycatch.zpkg
-"demo.gen"          = { path = "../gen" }  # 按路径：z42c 代建该工程，取其 dist
+[plugins]
+"demo.noemptycatch" = "0.1.0"                 # 按名：在插件目录找 demo.noemptycatch.zpkg
+"demo.gen"          = { path = "../gen" }     # 按工程路径：z42c 代建该工程，取其 dist
+"demo.local"        = { path = "../x.zpkg" }  # 按 zpkg 路径：现成产物，读头校验后直接用
 ```
 
+旧段名 `[analyzers]` 并存合并（条目排在 `[plugins]` 之前；同名写两遍报错），过渡期后删除。
 值的写法与 `[dependencies]` 相同，**语义不同**：
 
-| | `[dependencies]` | `[analyzers]` |
+| | `[dependencies]` | `[plugins]` |
 |---|---|---|
-| 何时用 | 编译目标代码时解析符号 | 加载进编译器、编译期执行 |
+| 何时用 | 编译目标代码时解析符号 | 加载进工具链（z42c / z42b）、构建期执行 |
 | 进不进产物 | 进 | **不进** |
-| `path = "..."` | 支持，z42c 代建整个**闭包** | 支持，z42c 代建**那一个工程**（它的依赖由它自己解析）|
-| 被引工程的 `kind` | `lib`（引 `analyzer` 会被拒绝）| 必须是 `analyzer`（引普通库会被拒绝）|
+| 在哪找（按名） | 依赖目录（`Z42_LIBS` / SDK `libs/`） | **插件目录**（`Z42_PLUGINS` / 各依赖目录同级的 `plugins/`）——查找域刻意分开，插件不污染运行期解析域 |
+| `path = "..."` | 支持，z42c 代建整个**闭包** | 支持，代建**那一个工程**（它的依赖由它自己解析）；path 也可以指 `.zpkg` 文件（不代建，直接用）|
+| 被引工程的 `kind` | `lib`（引 `plugin` 会被拒绝——按名也拦得住，读头能力位）| 必须是 `plugin`（引普通库会在定位阶段被拒：头里没有插件能力位）|
 
-**path 条目**：指向目录，其中须恰有一份**工程清单**（判据同
-`[dependencies]` 的 path：裸 `z42.toml` 优先，否则唯一一份 `*.z42.toml`），且
-`[project].name` 与这里写的名字一致。z42c 会定位它 → 校验 `kind = "analyzer"` → **代为构建** →
-把产出的 zpkg 交给 generator/analyzer 引擎。改了扩展的源码，消费方下次构建会重编（handler
-指纹含该 zpkg 内容）。
+**path 条目（工程目录）**：判据同 `[dependencies]` 的 path（裸 `z42.toml` 优先，否则唯一一份
+`*.z42.toml`），且 `[project].name` 与条目名一致。工具链会定位它 → 校验 `kind = "plugin"` →
+**代为构建**（用消费方的优化档）→ 把产出的 zpkg 按能力位交给对应宿主（analyzer / generator 进 z42c，
+hook 进 z42b）。改了插件的源码，消费方下次构建会重编（指纹含该 zpkg 内容）；`.zpkg` 条目同理——产物
+**字节**变了就失效缓存。住在工程目录里的 path 插件目录会自动排除出本工程的源发现，不会被 `**/*.z42`
+扫进 app 产物。
 
-> **代建产物不进消费方的解析域**：与 `[dependencies]` 的 path 闭包刻意不同 —— handler 只活在
-> 编译器进程里，把它的 dist 并进依赖目录就等于让编译期扩展对运行期代码可见。
+> **代建产物不进消费方的解析域**：与 `[dependencies]` 的 path 闭包刻意不同 —— 插件只活在工具链
+> 进程里，把它的 dist 并进依赖目录就等于让构建期代码对运行期代码可见。
 
-**双向校验**：`kind = "analyzer"` 的工程写进 `[dependencies]` → 报错（它永不链入产物，运行期不会
-到场）；非 `analyzer` 工程写进 `[analyzers]` → 报错（否则失败模式是「加载成功、发现 0 个 handler、
-什么都不做」的静默空转）。两条都只在 **path 条目**上判得出来 —— 按名引用时手上只有 zpkg，而 zpkg
-不记 `kind`。
+**双向校验**：`kind = "plugin"` 的工程写进 `[dependencies]` → 报错（它永不链入产物，运行期不会
+到场；按名引用也拦得住——读头能力位）；位全 0 的包出现在 `[plugins]` → 定位阶段即报「不是插件包」
+（否则失败模式是「加载成功、发现 0 个 handler、什么都不做」的静默空转）。
 
-同一个段**覆盖 analyzer 与 generator 两类**：z42c 从列出的每个 zpkg 里同时寻找
-`: Analyzer` / `: Generator` / `: ModuleGenerator`。
+一个段覆盖三类：z42c 从列出的每个 zpkg 里寻找 `: Analyzer` / `: Generator` / `: ModuleGenerator`，
+z42b 反射出全部继承 `: BuildHooks` 的具体类——包提供哪几类由 zpkg 头能力位说明，条目里**不写类型**。
 
 > ⚠️ 开发态构建产出的是 indexed zpkg（主文件 + 旁边散装 `.zbc`）。只拷主文件过去，加载时报
 > **E0493**；连 `.zbc` 一起拷，或用 `--release` 得到单文件 packed zpkg。
