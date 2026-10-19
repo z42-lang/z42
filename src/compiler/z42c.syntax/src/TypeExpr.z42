@@ -8,13 +8,15 @@ namespace Z42.Syntax;
 
 using Z42.Core;
 
-public class TypeExpr {
+public abstract class TypeExpr {
+    public abstract R Accept<R, D>(ITypeExprVisitor<R, D> v, D d);
     public Span Span;
     public virtual string Dump() { return "?type"; }
 }
 
 // 限定名 + 可选泛型实参（递归 TypeExpr）。Name 保留点串（"Foo.Bar"）。
 public sealed class NamedType : TypeExpr {
+    public override R Accept<R, D>(ITypeExprVisitor<R, D> v, D d) { return v.VisitNamedType(this, d); }
     public string     Name;
     public TypeExpr[] Args;
     public int        ArgCount;
@@ -53,6 +55,7 @@ public sealed class NamedType : TypeExpr {
 // ⚠️ 只有约束位的 `_parseType` 才接受它（`TypeParser._assocDepth` 门控）。普通类型位写
 // `List<Item = int>` 仍是语法错误 —— 否则 `=` 会与赋值表达式在别处抢词法。
 public sealed class AssocBindingType : TypeExpr {
+    public override R Accept<R, D>(ITypeExprVisitor<R, D> v, D d) { return v.VisitAssocBindingType(this, d); }
     public string   Name;    // 关联类型名（`Item`）
     public TypeExpr Bound;   // 绑定到的类型（`int`）
     public AssocBindingType(string name, TypeExpr bound, Span span) { this.Span = span;
@@ -62,12 +65,14 @@ public sealed class AssocBindingType : TypeExpr {
 }
 
 public sealed class ArrayType : TypeExpr {
+    public override R Accept<R, D>(ITypeExprVisitor<R, D> v, D d) { return v.VisitArrayType(this, d); }
     public TypeExpr Elem;
     public ArrayType(TypeExpr elem, Span span) { this.Span = span; this.Elem = elem; }
     public override string Dump() { return this.Elem.Dump() + "[]"; }
 }
 
 public sealed class NullableType : TypeExpr {
+    public override R Accept<R, D>(ITypeExprVisitor<R, D> v, D d) { return v.VisitNullableType(this, d); }
     public TypeExpr Inner;
     public NullableType(TypeExpr inner, Span span) { this.Span = span; this.Inner = inner; }
     public override string Dump() { return this.Inner.Dump() + "?"; }
@@ -75,6 +80,7 @@ public sealed class NullableType : TypeExpr {
 
 // 函数类型 `(T1, T2, ...) -> R`（闭包/委托类型位）→ 解析为 Z42FuncType（同 Func<>/Action<>）。
 public sealed class FuncTypeExpr : TypeExpr {
+    public override R Accept<R, D>(ITypeExprVisitor<R, D> v, D d) { return v.VisitFuncTypeExpr(this, d); }
     public TypeExpr[] Params;
     public int        ParamCount;
     public TypeExpr   Ret;
