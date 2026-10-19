@@ -85,11 +85,11 @@ ClosurePlan _buildPathDepClosure(string tomlPath, Target t, string consumerHooks
             dists[dn] = builtDist; names[dn] = depPm.Project.Name; dn = dn + 1;
             continue;
         }
-        // 双向校验：编译期扩展不得作运行期依赖（与 driver 同判据、同改法指路）。
-        if (depPm.Project.Kind == "analyzer") {
+        // 插件工程不得作运行期依赖（与 driver 同判据、同改法指路）。
+        if (depPm.Project.IsPlugin()) {
             ConsoleError.WriteLine("z42b build: [dependencies] `" + depPm.Project.Name
-                + "` 是 kind = \"analyzer\" 的编译期扩展工程，不能作运行期依赖。"
-                + "改法：把它挪进 [analyzers] 段（同样支持 `{ path = \"...\" }`）。");
+                + "` 是插件工程（kind = \"" + depPm.Project.Kind + "\"），不能作运行期依赖。"
+                + "改法：把它挪进 [plugins] 段（同样支持 `{ path = \"...\" }`）。");
             r.Rc = 1;
             return r;
         }

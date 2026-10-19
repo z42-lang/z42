@@ -22,8 +22,14 @@ public static class BuildRole {
     public static int WsFlat        = 1;   // workspace flat 成员（共用 --output-dir）
     public static int WsMember      = 2;   // workspace per-member 成员
     public static int ClosureChild  = 3;   // path 依赖闭包代建
-    public static int AnalyzerChild = 4;   // [analyzers] path 条目代建
+    public static int AnalyzerChild = 4;   // [plugins] 工程 path 条目代建
     public static int HostTarget    = 5;   // z42b ICompiler：packed 单产物、不解析 path 闭包、不增量
+}
+
+// `_resolvePlugins` 的结果：编译器侧插件 zpkg 路径（长度恰为 Count）。
+public sealed class PluginPaths {
+    public string[] Paths; public int Count;
+    public PluginPaths(string[] paths, int count) { this.Paths = paths; this.Count = count; }
 }
 
 public static class BuildExit {
@@ -146,28 +152,38 @@ public sealed class BuildSession {
             i = i + 1;
         }
         // ③ 解析域：调用方给的基础域 + SDK 库（add-sdk-libs，规则同 driver，见 SdkLibs.z42）：exe / lib 按名声明的
-        //    SDK 库（+ 闭包）可见，analyzer 全部可见；不放行的进扫描 tier 的 Hidden。
+        //    SDK 库（+ 闭包）可见，插件工程全部可见；不放行的进扫描 tier 的 Hidden。
         string[] libs = o.BaseLibs;
         int libsN = o.BaseLibsN;
-        SdkLibPlan sdkPlan = SdkLibs.Plan(pm, libs, libsN, pm.Project.Kind == "analyzer");
+        SdkLibPlan sdkPlan = SdkLibs.Plan(pm, libs, libsN, pm.Project.IsPlugin());
         if (sdkPlan.DirsN > 0) {
             libs = SdkLibs.AppendDirs(libs, libsN, sdkPlan);
             libsN = libsN + sdkPlan.DirsN;
         }
-        // ④ [analyzers] → handler zpkg 路径（名字条目查解析域；path 条目以 AnalyzerChild 代建）。
+        // ④ [plugins] → 编译器侧插件 zpkg 路径（名字条目查解析域；`.zpkg` path 直用；工程 path 以
+        //    AnalyzerChild 代建）。只带 hook 位的插件归 z42b 的 hook 加载，这里跳过；一个编译器侧插件都没有 → null。
         string[] azPaths = null;
-        if (pm.AnalyzerCount > 0) {
-            azPaths = this._resolveHandlers(pm, libs, libsN);
-            if (azPaths == null) { return BuildSession._fail(BuildExit.BuildError); }
+        if (pm.PluginCount > 0) {
+            PluginPaths pp0 = this._resolvePlugins(pm, libs, libsN);
+            if (pp0 == null) { return BuildSession._fail(BuildExit.BuildError); }
+            if (pp0.Count > 0) { azPaths = pp0.Paths; }
         }
         // ⑤ 声明的依赖必须在解析域里（此前 z42b 路径把解析域下所有 zpkg 都当成已声明，这条从不触发）。
         string[] declared = new string[pm.DepCount];
         int dd = 0;
         while (dd < pm.DepCount) {
             declared[dd] = pm.Deps[dd].Name;
-            if (!BuildSession._inLibs(libs, libsN, declared[dd] + ".zpkg")) {
+            string dpath = BuildSession._findInLibs(libs, libsN, declared[dd] + ".zpkg");
+            if (dpath == "") {
                 rep.Fail("[dependencies] `" + declared[dd] + "` 未找到 " + declared[dd] + ".zpkg；已查找："
                     + BuildSession._dirList(libs, libsN) + "。检查包名拼写，或先构建该依赖。");
+                return BuildSession._fail(BuildExit.BuildError);
+            }
+            // 插件包不能作运行期依赖：它只加载进工具链进程、永不链入产物（读头的能力位判）。
+            int dcaps = PluginZpkg.HeaderCaps(dpath);
+            if (PluginCaps.IsPlugin(dcaps)) {
+                rep.Fail("[dependencies] `" + declared[dd] + "`（" + dpath + "）是插件包（" + PluginCaps.Describe(dcaps)
+                    + "），不能作运行期依赖。改法：把它挪进 [plugins] 段。");
                 return BuildSession._fail(BuildExit.BuildError);
             }
             dd = dd + 1;
@@ -198,7 +214,7 @@ public sealed class BuildSession {
         inp.DeclaredDeps = declaredAll; inp.DepCount = declaredAll.Length;
         inp.EnforceDeclaredDeps = true;          // 真的读了一份清单 ⇒ 执行依赖契约（E0497），同 z42c build
         inp.ParentPkg = o.ParentPkg;
-        if (azPaths != null) { inp.AnalyzerZpkgs = azPaths; inp.AnalyzerZpkgCount = pm.AnalyzerCount; }
+        if (azPaths != null) { inp.AnalyzerZpkgs = azPaths; inp.AnalyzerZpkgCount = azPaths.Length; }
         inp.Lints = kn.Lints;
         CompileArtifacts art = PackageCompile.Compile(inp);
         // ⑦ 诊断：逐 CU（上界 art.CmCount——generator 产出的 CU 排在用户 CU 之后，标 <generated>）。
@@ -245,56 +261,79 @@ public sealed class BuildSession {
         return new BuildResult(BuildExit.Ok, outZpkg, zsym);
     }
 
-    // [analyzers] 条目 → handler zpkg 路径（与 pm.Analyzers 同序）；失败经 reporter 报错并返回 null。
-    // path 条目：定位清单 → 校验 kind = analyzer 且名字一致 → AnalyzerChild 会话代建 → 取其产物。
-    // 代建产物**不并入**消费方解析域（handler 只加载进编译器进程，D9）。
-    private string[] _resolveHandlers(ProjectManifest pm, string[] libs, int libsN) {
+    // [plugins] 条目 → 编译器侧插件 zpkg 路径（按清单顺序）；失败经 reporter 报错并返回 null。
+    //   · 名字条目：解析域里找 `<name>.zpkg`；
+    //   · `.zpkg` path：现成产物（相对工程目录）；
+    //   · 工程 path：定位清单 → 校验是插件工程且名字一致 → AnalyzerChild 会话代建 → 取其产物。
+    // 拿到 zpkg 后按 `PluginZpkg.Inspect` 校验名字与能力位；只收带 analyzer / generator 位的。
+    // 代建产物**不并入**消费方解析域（插件只加载进工具链进程）。
+    private PluginPaths _resolvePlugins(ProjectManifest pm, string[] libs, int libsN) {
         IBuildReporter rep = this._o.Reporter;
-        string[] paths = new string[pm.AnalyzerCount];
+        string[] paths = new string[pm.PluginCount];
+        int n = 0;
         int ai = 0;
-        while (ai < pm.AnalyzerCount) {
-            string aname = pm.Analyzers[ai].Name;
-            string apath = pm.Analyzers[ai].Path;
-            if (apath.Length == 0) {
-                string cand = BuildSession._findInLibs(libs, libsN, aname + ".zpkg");
-                if (cand == "") {
-                    rep.Fail("[analyzers] `" + aname + "` 未找到 " + aname + ".zpkg；已查找：" + BuildSession._dirList(libs, libsN) + "。");
-                    return null;
-                }
-                paths[ai] = cand;
-            } else {
-                string adir = Path.Join(this._o.ProjectDir, apath);
-                ManifestLocation aloc = ManifestLocator.FindIn(adir);
-                if (aloc.Kind != ManifestLocateKind.Project) {
-                    rep.Fail("[analyzers] `" + aname + "` 的 path 指向 " + adir + "，那里没有单个工程清单。");
-                    return null;
-                }
-                ProjectManifest apm = ManifestLoader.Load(aloc.ManifestPath);
-                if (apm.Project.Kind != "analyzer" || apm.Project.Name != aname) {
-                    rep.Fail("[analyzers] `" + aname + "` 指向的工程 " + aloc.ManifestPath + " 须是 kind = \"analyzer\" 且名为 `"
-                        + aname + "`（实际 kind = \"" + apm.Project.Kind + "\"、name = `" + apm.Project.Name + "`）。");
-                    return null;
-                }
-                if (apm.DepCount > 0 && BuildSession._hasPathDep(apm)) {
-                    rep.Fail("[analyzers] `" + aname + "` 自带 path 依赖；本构建路径暂不代建 analyzer 的依赖闭包，"
-                        + "请先用 `z42c build " + aloc.ManifestPath + "` 构建它。");
-                    return null;
-                }
-                // analyzer 工程的解析域 = 消费方基础域（stdlib）；编译器域在子会话里按 kind 并入。
-                BuildOptions co = new BuildOptions(apm, Path.GetDirectoryName(aloc.ManifestPath), BuildRole.AnalyzerChild,
-                                                   this._o.IsRelease, rep);
-                co.Label = aloc.ManifestPath;
-                co.BaseLibs = this._o.BaseLibs; co.BaseLibsN = this._o.BaseLibsN;
-                BuildResult cr = new BuildSession(co).Run();
-                if (cr.Code != BuildExit.Ok) {
-                    rep.Fail("[analyzers] `" + aname + "` 的工程构建失败（见上）。");
-                    return null;
-                }
-                paths[ai] = cr.OutZpkg;
-            }
+        while (ai < pm.PluginCount) {
+            string aname = pm.Plugins[ai].Name;
+            string apath = pm.Plugins[ai].Path;
             ai = ai + 1;
+            string got = "";
+            if (apath.Length == 0) {
+                got = BuildSession._findInLibs(libs, libsN, aname + ".zpkg");
+                if (got == "") {
+                    rep.Fail("[plugins] `" + aname + "` 未找到 " + aname + ".zpkg；已查找：" + BuildSession._dirList(libs, libsN) + "。");
+                    return null;
+                }
+            } else if (apath.EndsWith(".zpkg")) {
+                got = Path.IsRooted(apath) ? apath : Path.Join(this._o.ProjectDir, apath);
+                if (!File.Exists(got)) {
+                    rep.Fail("[plugins] `" + aname + "` 的 path 指向 " + got + "，文件不存在。");
+                    return null;
+                }
+            } else {
+                got = this._buildPluginProject(aname, apath);
+                if (got == "") { return null; }
+            }
+            PluginInspection pi = PluginZpkg.Inspect(got, aname);
+            if (pi.Error.Length > 0) { rep.Fail(pi.Error); return null; }
+            if (PluginCaps.ForCompiler(pi.Caps)) { paths[n] = got; n = n + 1; }
         }
-        return paths;
+        string[] trimmed = new string[n];
+        int t = 0;
+        while (t < n) { trimmed[t] = paths[t]; t = t + 1; }
+        return new PluginPaths(trimmed, n);
+    }
+
+    // 工程 path 的插件：定位清单 → 校验 → AnalyzerChild 子会话代建 → 产物路径；失败报错返回 ""。
+    private string _buildPluginProject(string aname, string apath) {
+        IBuildReporter rep = this._o.Reporter;
+        string adir = Path.Join(this._o.ProjectDir, apath);
+        ManifestLocation aloc = ManifestLocator.FindIn(adir);
+        if (aloc.Kind != ManifestLocateKind.Project) {
+            rep.Fail("[plugins] `" + aname + "` 的 path 指向 " + adir + "，那里没有单个工程清单。");
+            return "";
+        }
+        ProjectManifest apm = ManifestLoader.Load(aloc.ManifestPath);
+        if (!apm.Project.IsPlugin() || apm.Project.Name != aname) {
+            rep.Fail("[plugins] `" + aname + "` 指向的工程 " + aloc.ManifestPath + " 须是 kind = \"plugin\" 且名为 `"
+                + aname + "`（实际 kind = \"" + apm.Project.Kind + "\"、name = `" + apm.Project.Name + "`）。");
+            return "";
+        }
+        if (apm.DepCount > 0 && BuildSession._hasPathDep(apm)) {
+            rep.Fail("[plugins] `" + aname + "` 自带 path 依赖；本构建路径暂不代建插件的依赖闭包，"
+                + "请先用 `z42c build " + aloc.ManifestPath + "` 构建它。");
+            return "";
+        }
+        // 插件工程的解析域 = 消费方基础域（stdlib）；编译器域在子会话里按 kind 并入。
+        BuildOptions co = new BuildOptions(apm, Path.GetDirectoryName(aloc.ManifestPath), BuildRole.AnalyzerChild,
+                                           this._o.IsRelease, rep);
+        co.Label = aloc.ManifestPath;
+        co.BaseLibs = this._o.BaseLibs; co.BaseLibsN = this._o.BaseLibsN;
+        BuildResult cr = new BuildSession(co).Run();
+        if (cr.Code != BuildExit.Ok) {
+            rep.Fail("[plugins] `" + aname + "` 的工程构建失败（见上）。");
+            return "";
+        }
+        return cr.OutZpkg;
     }
 
     private static bool _hasPathDep(ProjectManifest pm) {
@@ -303,7 +342,6 @@ public sealed class BuildSession {
         return false;
     }
 
-    private static bool _inLibs(string[] libs, int n, string file) { return BuildSession._findInLibs(libs, n, file) != ""; }
 
     private static string _findInLibs(string[] libs, int n, string file) {
         int d = 0;
@@ -328,7 +366,7 @@ public sealed class BuildSession {
 
 // 编译器域包的解析域 —— 「显式引用编译器域库」的落点（relocate-compiler-domain-libs，2026-09-27）。
 //
-// `kind = "analyzer"` 的工程要 `[dependencies]` 到编译器的契约包（`z42c.semantics` 的
+// 插件工程（`kind = "plugin"`）要 `[dependencies]` 到编译器的契约包（`z42c.semantics` 的
 // `Generator`/`ModuleGenerator`/`GenSink`/`GenTarget`），而这些 zpkg **不在** `libs/` ——
 // 那正是 proposal 记下的症状：契约在 SDK 目录里、却不在解析器会去看的地方，于是插件作者
 // 拿到的是一句位置在别处的 `E0443 undefined type: ModuleGenerator`，没有任何东西诊断它。

@@ -489,10 +489,10 @@ int _pubBundleProjectNativeDeps(string tomlPath, TomlValue toml, string distDir,
         if (depTomlPath.Length == 0) { continue; }
         TomlValue depToml = TomlValue.Parse(File.ReadAllText(depTomlPath));
         if (_pubHasNative(depToml)) {
-            // hooks 优先：有 [build] hooks → 现场产出（PR-1）；否则 [native.<name>].dir 指向的
-            // 已提交预编译文件按目标 rid 复制（add-precompiled-native）。
+            // hook 优先：有 hook 来源（[build] hooks 或 [plugins]）→ 现场产出（PR-1）；否则 [native.<name>].dir
+            // 指向的已提交预编译文件按目标 rid 复制（add-precompiled-native）。
             int rc = 0;
-            if (_pubTomlStr(depToml, "build", "hooks", "").Length > 0) {
+            if (_pubHasHooks(depToml, depTomlPath)) {
                 rc = _pubRunDepProvideNative(depTomlPath, depToml, name, distDir, rid);
             } else {
                 rc = _pubCopyPrebuiltNative(depTomlPath, depToml, name, distDir, rid);
@@ -558,15 +558,17 @@ bool _pubHasNative(TomlValue toml) {
 int _pubRunDepProvideNative(string depTomlPath, TomlValue depToml, string depName, string distDir, string rid) {
     string depDir = Path.GetDirectoryName(depTomlPath);
     if (depDir.Length == 0) { depDir = "."; }
-    string hooksDir = Path.Join(depDir, _pubTomlStr(depToml, "build", "hooks", ""));
     // 依赖的 hook 中间目录跟随**依赖自己的** [build].output_dir（此前硬编码 `<depDir>/artifacts/<dep>/hooks`，
     // 无视配置 ⇒ z42.repl 这类配了 output_dir 的依赖照样往源码树写）。
     string interDir = _pubHooksInterDir(depToml, depTomlPath, depName);
-    BuildHooks h = _loadProjectHooks(hooksDir, interDir, depName + ".hooks");
-    if (h == null) {
+    HookLoad hl = _loadHooks(ManifestLoader.Load(depTomlPath), depDir, _pubTomlStr(depToml, "build", "hooks", ""), interDir, depName);
+    if (!hl.Ok) {
         ConsoleError.WriteLine("z42b publish: native dep '" + depName + "' hooks failed to load — native not colocated");
         return 1;
     }
+    // `[plugins]` 里全是编译器侧插件、没有任何 hook ⇒ 与「没声明 hook」同：走预编译文件复制。
+    if (hl.Hooks == null) { return _pubCopyPrebuiltNative(depTomlPath, depToml, depName, distDir, rid); }
+    BuildHooks h = hl.Hooks;
     PipelineContext ctx = new PipelineContext();
     ctx.Target = new Target(rid, TargetFamily.Desktop, "release", BuildMode.Publish);
     ctx.Dirs   = new Dirs(depDir, "", interDir, distDir);   // Dist = consumer distDir → native lands here
@@ -732,24 +734,23 @@ string _pubFindFileRec(string dir, string fname) {
 
 // ── 项目 hook 产出 apphost stub（wire-z42b build-hook 终章）─────────────────────
 //
-// `[build] hooks = "<dir>"` 声明 → _loadProjectHooks（builder_hooks.z42：编译 + 动态
-// 注入 ProjectHooks）→ 构造受限 ctx → BeforeAssets(ctx) → 取 ctx.Outputs() 中
+// `[build] hooks = "<dir>"` 或 `[plugins]` 里的 hook 插件 → _loadHooks（builder_hooks.z42：编译 / 加载 + 动态
+// 注入 + 组合）→ 构造受限 ctx → BeforeAssets(ctx) → 取 ctx.Outputs() 中
 // kind=="apphost-stub" 的登记路径。无 hooks 声明 / hook 未登记 / 文件不存在 → ""
 // （调用方落回 Z42_APPHOST_TEMPLATE）；声明了 hooks 却加载失败或 BeforeAssets 抛异常 → null（调用方判
 // 构建失败，不回落——fail-build-on-hooks-error）。
 //
 // hook 中间产物落点：见 `_pubHooksInterDir`。
 string _pubHookApphostStub(TomlValue toml, string tomlPath, string projName, string rid) {
-    string hooksRel = _pubTomlStr(toml, "build", "hooks", "");
-    if (hooksRel.Length == 0) { return ""; }
+    if (!_pubHasHooks(toml, tomlPath)) { return ""; }
     string projDir = Path.GetDirectoryName(tomlPath);
     if (projDir.Length == 0) { projDir = "."; }
-    string hooksDir = Path.Join(projDir, hooksRel);
-
     string interDir = _pubHooksInterDir(toml, tomlPath, projName);
 
-    BuildHooks h = _loadProjectHooks(hooksDir, interDir, projName + ".hooks");
-    if (h == null) { return null; }
+    HookLoad hl = _loadHooks(ManifestLoader.Load(tomlPath), projDir, _pubTomlStr(toml, "build", "hooks", ""), interDir, projName);
+    if (!hl.Ok) { return null; }
+    if (hl.Hooks == null) { return ""; }   // `[plugins]` 全是编译器侧插件：与无 hook 同
+    BuildHooks h = hl.Hooks;
 
     PipelineContext ctx = new PipelineContext();
     ctx.Target = new Target(rid, TargetFamily.Desktop, "release", BuildMode.Publish);
@@ -769,6 +770,12 @@ string _pubHookApphostStub(TomlValue toml, string tomlPath, string projName, str
     return "";
 }
 
+// 本工程有没有 hook 来源：`[build] hooks` 目录，或 `[plugins]` 条目（是否带 hook 位要加载后才知道）。
+bool _pubHasHooks(TomlValue toml, string tomlPath) {
+    if (_pubTomlStr(toml, "build", "hooks", "").Length > 0) { return true; }
+    return ManifestLoader.Load(tomlPath).PluginCount > 0;
+}
+
 // hook 中间产物目录（本工程与 native 依赖三处共用）：`<output_dir>/hooks`，output_dir 取 `BuildLayout.Resolve`
 // （release；含 workspace 成员继承、全部模板变量）。
 string _pubHooksInterDir(TomlValue toml, string tomlPath, string projName) {
@@ -782,14 +789,14 @@ string _pubHooksInterDir(TomlValue toml, string tomlPath, string projName) {
 // 只有 --self-contained 走这里 ⇒ `Target.Mode = PublishSelfContained`：hook 据此才去准备 embed 产物
 // （普通 publish 的 `_pubHookApphostStub` 传 `Publish`，hook 不必白编 libz42.a）。
 Output[] _pubRunHooks(TomlValue toml, string tomlPath, string projName, string rid) {
-    string hooksRel = _pubTomlStr(toml, "build", "hooks", "");
-    if (hooksRel.Length == 0) { return new Output[0]; }
+    if (!_pubHasHooks(toml, tomlPath)) { return new Output[0]; }
     string projDir = Path.GetDirectoryName(tomlPath);
     if (projDir.Length == 0) { projDir = "."; }
-    string hooksDir = Path.Join(projDir, hooksRel);
     string interDir = _pubHooksInterDir(toml, tomlPath, projName);
-    BuildHooks h = _loadProjectHooks(hooksDir, interDir, projName + ".hooks");
-    if (h == null) { return null; }
+    HookLoad hl = _loadHooks(ManifestLoader.Load(tomlPath), projDir, _pubTomlStr(toml, "build", "hooks", ""), interDir, projName);
+    if (!hl.Ok) { return null; }
+    if (hl.Hooks == null) { return new Output[0]; }   // `[plugins]` 全是编译器侧插件：与无 hook 同
+    BuildHooks h = hl.Hooks;
     PipelineContext ctx = new PipelineContext();
     ctx.Target = new Target(rid, TargetFamily.Desktop, "release", BuildMode.PublishSelfContained);
     ctx.Dirs   = new Dirs(projDir, "", interDir, interDir);

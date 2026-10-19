@@ -4,7 +4,7 @@ namespace Z42.Project;
 public sealed class ProjectInfo {
     public string Name;        // kebab-case；.zpkg 文件名 + 依赖引用名
     public string Version;     // SemVer
-    public string Kind;        // "exe" | "lib" | "analyzer"（analyzer = 编译期扩展，add-package-roles 批 1）
+    public string Kind;        // "exe" | "lib" | "plugin"（插件：加载进工具链进程运行；旧名 "analyzer" 同义）
     // 显式入口：清单里**没有**这个键（`[project] entry` 报错，z42c 自动检测唯一 `Main()`）；只供程序化构造的
     // 派生清单用（z42b 的 `[[test]] harness = false` 目标把目标自己的 `entry` 透到这里）。
     public bool   HasEntry;
@@ -24,4 +24,7 @@ public sealed class ProjectInfo {
         this.HasPack = hasPack; this.Pack = pack;
         this.Description = ""; this.Authors = new string[0]; this.License = "";
     }
+
+    /// 插件工程（`kind = "plugin"`，或旧名 `"analyzer"`）：产物加载进工具链进程运行，永不链入目标程序。
+    public bool IsPlugin() { return this.Kind == "plugin" || this.Kind == "analyzer"; }
 }

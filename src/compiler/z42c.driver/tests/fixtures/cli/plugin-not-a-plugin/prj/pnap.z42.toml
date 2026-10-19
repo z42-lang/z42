@@ -1,0 +1,10 @@
+[project]
+name    = "pnap"
+version = "0.1.0"
+kind    = "exe"
+
+[sources]
+include = ["*.z42"]
+
+[plugins]
+"z42.json" = { path = "../libs/z42.json.zpkg" }

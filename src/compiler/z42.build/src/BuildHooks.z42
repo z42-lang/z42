@@ -19,3 +19,20 @@ public class BuildHooks {
     /// 默认 no-op。与 `WorkloadBase.NativeBuild`（平台尾相位）命名同族、职责正交。
     public virtual void ProvideNative(IPipelineContext ctx) { }
 }
+
+/// 多个 hook 按顺序组合成一个：每个相位依次调用各部分（顺序 = 构造时给的顺序）。z42b 把工程的 hook 目录与
+/// `[plugins]` 里带 hook 能力位的插件（插件之间按清单声明序、包内按类全名序）组合后挂到 `Pipeline.Hooks`。
+/// 某一部分抛异常即中止并向上传——与单个 hook 抛异常同样判构建失败。
+public sealed class CompositeBuildHooks : BuildHooks {
+    private BuildHooks[] _parts;
+    private int _count;
+    public CompositeBuildHooks(BuildHooks[] parts, int count) { this._parts = parts; this._count = count; }
+
+    public override void BeforeCompile(IPipelineContext ctx) { int i = 0; while (i < this._count) { this._parts[i].BeforeCompile(ctx); i = i + 1; } }
+    public override void AfterCompile(IPipelineContext ctx)  { int i = 0; while (i < this._count) { this._parts[i].AfterCompile(ctx); i = i + 1; } }
+    public override void BeforeTrim(IPipelineContext ctx)    { int i = 0; while (i < this._count) { this._parts[i].BeforeTrim(ctx); i = i + 1; } }
+    public override void AfterTrim(IPipelineContext ctx)     { int i = 0; while (i < this._count) { this._parts[i].AfterTrim(ctx); i = i + 1; } }
+    public override void BeforeAssets(IPipelineContext ctx)  { int i = 0; while (i < this._count) { this._parts[i].BeforeAssets(ctx); i = i + 1; } }
+    public override void AfterAssets(IPipelineContext ctx)   { int i = 0; while (i < this._count) { this._parts[i].AfterAssets(ctx); i = i + 1; } }
+    public override void ProvideNative(IPipelineContext ctx) { int i = 0; while (i < this._count) { this._parts[i].ProvideNative(ctx); i = i + 1; } }
+}

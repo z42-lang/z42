@@ -64,17 +64,12 @@ public class Pipeline {
     // 与独立 z42c.driver 共享同一实现，不 fork z42c 子进程（见 ICompiler.z42）。
     // 返回 false = 编译失败（诊断已打印）；调用方据此以非零退出码收尾，不抛异常。
     private bool Compile(IPipelineContext ctx) {
-        // fix-hooks-source-scan 阶段4.2：有效 exclude = `[sources].exclude` ++（`[build] hooks` 目录，
-        // 若声明）。与 z42c.driver Main._build 同款——hooks 由 z42b 单独编，不该被 app 的 `**/*.z42`
-        // glob 扫进 app zpkg（否则多一跨包死类 ProjectHooks : BuildHooks → vtable fixup 假警报刷屏）。
-        // 目录排除用 `<dir>/**`（SourceDiscovery._matchesExclude 前缀语义）。
+        // 有效 exclude：`[sources].exclude` 再加上住在工程目录里的插件源码目录（`[build] hooks`、工程内的
+        // `[plugins]` path 条目），与 z42c.driver 同一份（`ProjectManifest.EffectiveSourceExcludes`）——插件单独
+        // 构建、加载进宿主进程，不该被 app 的 `**/*.z42` glob 扫进 app zpkg。
         ProjectManifest pm = ctx.Manifest;
-        int baseExcN = pm.Sources.ExcludeCount;
-        int effExcN = pm.Build.HasHooks ? baseExcN + 1 : baseExcN;
-        string[] effExc = new string[effExcN];
-        int exi = 0;
-        while (exi < baseExcN) { effExc[exi] = pm.Sources.Exclude[exi]; exi = exi + 1; }
-        if (pm.Build.HasHooks) { effExc[baseExcN] = pm.Build.HooksDir + "/**"; }
+        string[] effExc = pm.EffectiveSourceExcludes();
+        int effExcN = effExc.Length;
 
         CompileRequest req = new CompileRequest(
             ctx.Dirs.Source,

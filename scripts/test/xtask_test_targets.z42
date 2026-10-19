@@ -126,6 +126,8 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
         failed = failed + _smokeBuildHooks(root, tt);
         failed = failed + _smokeBuildHooksBroken(root, tt);
         failed = failed + _smokeBuildHooksMode(root, tt);
+        failed = failed + _smokeHookPlugin(root, tt);
+        failed = failed + _smokeHookPluginBroken(root, tt);
         failed = failed + _smokeWorkspaceDefault(root, tt);
     }
     Console.WriteLine("");
@@ -425,6 +427,65 @@ int _smokeBuildHooksMode(string root, TargetTooling tt) {
         i = i + 1;
     }
     Console.WriteLine("  ✅ build hooks mode: publish → publish；--self-contained → publish-self-contained");
+    return 0;
+}
+
+// hook 插件 smoke（unify-plugin-packages）：`[plugins]` 里两个带 hook 能力位的插件工程（path 条目）→
+// z42b 反射出 BuildHooks 具体类、按声明序组合执行。断言两行标记都在**且 A 在 B 前**——只查「都在」会把
+// 组合顺序错乱判绿；只查先后（IndexOf 比大小）不查存在会把「都打了但漏断言」漏掉。
+int _smokeHookPlugin(string root, TargetTooling tt) {
+    string toml = Path.Join(tt.Z42bFixturesRoot, "hook-plugin/z42.toml");
+    if (!File.Exists(toml)) { return 0; }
+    Console.WriteLine("");
+    Console.WriteLine("── hook plugin ([plugins] 插件加载进 z42b、按声明序执行) ──");
+    ProcessResult r = _z42bProc(tt.Vm, tt.Libs).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+        .Arg("--").Arg("build").Arg(toml)
+        .WorkingDirectory(root)
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    string all = r.Stdout + r.Stderr;
+    if (r.ExitCode != 0) {
+        Console.WriteLine("  ❌ hook plugin: `z42b build` exited " + r.ExitCode.ToString());
+        Console.WriteLine("    输出: " + all);
+        return 1;
+    }
+    int ia = all.IndexOf("HOOK-PLUGIN-SMOKE: A BeforeCompile");
+    int ib = all.IndexOf("HOOK-PLUGIN-SMOKE: B BeforeCompile");
+    if (ia < 0 || ib < 0) {
+        Console.WriteLine("  ❌ hook plugin: 两个插件的标记行没有都出现（ia=" + ia.ToString() + ", ib=" + ib.ToString() + "）");
+        Console.WriteLine("    输出: " + all);
+        return 1;
+    }
+    if (ia >= ib) {
+        Console.WriteLine("  ❌ hook plugin: 声明序是 A 在前，输出里 B 先于 A —— 组合顺序错乱");
+        Console.WriteLine("    输出: " + all);
+        return 1;
+    }
+    Console.WriteLine("  ✅ hook plugin: 两个插件按声明序加载并执行");
+    return 0;
+}
+
+// 坏 hook 插件 smoke（fail-build-on-plugin-error）：[plugins] 指向的插件工程编译不过 ⇒ `z42b build`
+// 非 0 退出。此前若把代建失败降级成「跳过该插件」，构建会静默缺 hook 照样退 0——publish 产物悄悄少东西。
+int _smokeHookPluginBroken(string root, TargetTooling tt) {
+    string toml = Path.Join(tt.Z42bFixturesRoot, "hook-plugin-broken/z42.toml");
+    if (!File.Exists(toml)) { return 0; }
+    Console.WriteLine("");
+    Console.WriteLine("── broken hook plugin (插件编不过 ⇒ z42b build 判红) ──");
+    ProcessResult r = _z42bProc(tt.Vm, tt.Libs).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+        .Arg("--").Arg("build").Arg(toml)
+        .WorkingDirectory(root)
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    string all = r.Stdout + r.Stderr;
+    if (r.ExitCode == 0) {
+        Console.WriteLine("  ❌ broken hook plugin: 插件编译失败仍退 0 —— 降级成「无 hook」了");
+        Console.WriteLine("    输出: " + all);
+        return 1;
+    }
+    if (all.IndexOf("HOOK-PLUGIN-SMOKE") >= 0) {
+        Console.WriteLine("  ❌ broken hook plugin: 判红了但坏插件的标记行竟出现（挂错夹具？）");
+        return 1;
+    }
+    Console.WriteLine("  ✅ broken hook plugin: 判红（rc=" + r.ExitCode.ToString() + "）");
     return 0;
 }
 

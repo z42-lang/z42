@@ -55,14 +55,13 @@ PathClosureOut _buildPathDepClosure(string tomlPath, bool isRelease, bool noIncr
             ci = ci + 1;
             ProjectManifest depPm = ManifestLoader.Load(depToml);
             if (wsTier != null && wsTier.IsMember(depPm.Project.Name)) { continue; }   // 成员由 workspace 循环建
-            // 双向校验之二（add-package-roles 批 2）：编译期扩展不得出现在 `[dependencies]`。
-            // 它只在编译器进程里活、永不链入产物；写进依赖等于让**运行期**代码引用一个不会到场的包。
-            // 名字条目查不出来（zpkg 不记 kind，不为一条校验动格式）——path 条目手上有 manifest，
-            // 这也正是用户自建 analyzer 的实际写法。
-            if (depPm.Project.Kind == "analyzer") {
+            // 插件工程不得出现在 `[dependencies]`：它只在工具链进程里活、永不链入产物；写进依赖等于让
+            // **运行期**代码引用一个不会到场的包。path 条目手上有 manifest，按 kind 判；名字条目按 zpkg 头的
+            // 能力位判（见 Main 的依赖存在性校验）。
+            if (depPm.Project.IsPlugin()) {
                 ConsoleError.WriteLine("z42c build: [dependencies] `" + depPm.Project.Name
-                    + "` 是 kind = \"analyzer\" 的编译期扩展工程，不能作运行期依赖。"
-                    + "改法：把它挪进 [analyzers] 段（同样支持 `{ path = \"...\" }`）。");
+                    + "` 是插件工程（kind = \"" + depPm.Project.Kind + "\"），不能作运行期依赖。"
+                    + "改法：把它挪进 [plugins] 段（同样支持 `{ path = \"...\" }`）。");
                 o.Rc = ExitCode.BuildError; return o;
             }
             string depDir = Path.GetDirectoryName(depToml);

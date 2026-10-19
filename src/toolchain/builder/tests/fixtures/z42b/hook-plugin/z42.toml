@@ -1,0 +1,13 @@
+# unify-plugin-packages：`[plugins]` 里带 hook 能力位的插件工程（path 条目）→ z42b 反射出 BuildHooks 具体类、
+# 按声明序组合执行。两个插件各打一行标记；_smokeHookPlugin 断言两行都在且 A 在 B 前（声明序）。
+[project]
+name    = "hp.app"
+version = "0.1.0"
+kind    = "exe"
+
+[sources]
+include = ["src/**/*.z42"]
+
+[plugins]
+"hp.a" = { path = "pluga" }
+"hp.b" = { path = "plugb" }

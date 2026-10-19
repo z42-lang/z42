@@ -2,7 +2,7 @@
 // **在进程内**调本类（不 fork z42c 子进程、不依赖 z42vm 在 PATH、诊断以结构返回）。
 //
 // drop-legacy-compile-request：本类只是 BuildSession 的薄封装（Role = HostTarget）——编译决策全部来自
-// `req.Manifest`（[optimize] / [syntax] / [lints] / [analyzers] / entry / version / 依赖核验），与 `z42c build`
+// `req.Manifest`（[optimize] / [syntax] / [lints] / [plugins] / entry / version / 依赖核验），与 `z42c build`
 // 同一判据。`req.Manifest` 为 null 直接判失败：此前那条「只看平铺字段」的旧路径与 BuildSession 各自一份编译流程，
 // 已经分叉过（BuildSession 首版漏调 `HandlerRegistry.RunAst`）。依赖从磁盘解析：req.Deps 各 zpkg 的父目录集 → 解析域。
 namespace Z42.Pipeline;
@@ -10,6 +10,7 @@ namespace Z42.Pipeline;
 using Std.IO;
 using Z42.Build;
 using Z42.Project;
+using Z42.Package;   // PluginZpkg / PluginCaps
 
 public class Z42cCompiler : ICompiler {
 
@@ -19,6 +20,11 @@ public class Z42cCompiler : ICompiler {
                 "z42c: CompileRequest.Manifest is required (the flat-field request form was removed; pass the project manifest)");
         }
         return Z42cCompiler._viaSession(req);
+    }
+
+    public PluginCheck InspectPlugin(string zpkgPath, string expectedName) {
+        PluginInspection pi = PluginZpkg.Inspect(zpkgPath, expectedName);
+        return new PluginCheck(pi.Error, PluginCaps.ForBuild(pi.Caps), PluginCaps.Describe(pi.Caps));
     }
 
     // HostTarget：packed 单产物、不解析 path 闭包（z42b 自己编排闭包）、不增量。解析域 = req.Deps 各 zpkg 的父目录集。

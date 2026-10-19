@@ -1,0 +1,6 @@
+desc = "kind = \"plugin\" 但包内没有任何类实现插件契约 ⇒ 构建该插件本身即失败（E0505），点名四个契约（见 README）"
+
+[[step]]
+args = ["build", "plug/e2e.empty.z42.toml", "--release"]
+exit = "nonzero"
+stderr_contains = ["E0505", "没有任何类实现插件契约", "Z42.Build.BuildHooks"]
