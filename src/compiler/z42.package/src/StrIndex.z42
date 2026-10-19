@@ -23,9 +23,8 @@ public sealed class StrIndex {
     public int Count() { return this._count; }
 
     // 命中返回值；未命中 -1（调用方的值域皆为非负下标）。
-    // perf（2026-09-06）：`_hash` 那层转发 + `%` 整除一并去掉 —— `_cap` 恒为 2 的幂
-    // （32 起、_grow 翻倍）⇒ `(h & 0x7FFFFFFF) % _cap` 与 `h & (_cap-1)` **逐位等值**
-    // （低位掩码本就落在 0x7FFFFFFF 之内，清符号位对结果无影响）⇒ 槽布局不变。
+    // `_cap` 恒为 2 的幂（32 起、`_grow` 翻倍）⇒ `(h & 0x7FFFFFFF) % _cap` 与 `h & (_cap-1)`
+    // **逐位等值**（低位掩码本就落在 0x7FFFFFFF 之内，清符号位对结果无影响）⇒ 槽布局不变。
     public int Get(string key) {
         int slot = key.GetHashCode() & (this._cap - 1);
         int probes = 0;
