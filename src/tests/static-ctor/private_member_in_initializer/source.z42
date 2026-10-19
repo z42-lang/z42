@@ -1,0 +1,28 @@
+using Std.IO;
+
+// 静态字段 / 静态 auto 属性的初始化器在**类的静态语境**里绑定：能引用自己的私有静态成员、
+// 嵌套类型裸名、泛型类的类型形参。此前用裸 Root env 绑定 ⇒ AccessChecker 拿不到 CurrentClass，
+// `U._mk()` 被判 E0404「cannot access private method」（包构建路径必现；fix-static-init-class-env）。
+class U {
+    public static U Value = U._mk();
+    public static int Count = U._n() + Inner.K;
+    public static string Tag { get; set; } = U._tag();
+    private static U _mk() { return new U(); }
+    private static int _n() { return 41; }
+    private static string _tag() { return "ok"; }
+    private U() {}
+    public string Describe() { return "U"; }
+    class Inner { public static int K = 1; }
+}
+
+class Box<T> {
+    public static int Arity = _one();
+    private static int _one() { return 1; }
+}
+
+void Main() {
+    Console.WriteLine(U.Value.Describe());
+    Console.WriteLine(U.Count);
+    Console.WriteLine(U.Tag);
+    Console.WriteLine(Box<int>.Arity);
+}

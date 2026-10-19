@@ -166,7 +166,11 @@ public sealed class DeclBinder {
                 // C# 里只有显式静态 ctor 才失去 beforefieldinit、才要求精确的「首次使用前」。
                 if (fd.HasInit && fsym != null && fsym.IsStatic && !fsym.IsConst
                     && !DeclBinder._hasStaticCtor(this._tc, c)) {   // add-const-keyword：const 无静态存储/初始化（引用替换为字面量）
-                    var fenv = TypeEnv.Root(symbols);
+                    // fix-static-init-class-env：初始化器在**类的静态语境**里绑定（同静态方法体：有类名与类型
+                    // 形参、不 Define `this`/实例字段）。此前用裸 Root env ⇒ AccessChecker 拿不到 CurrentClass，
+                    // `static U Value = U._mk();` 这类引用自己私有成员的初始化器被判 E0404；嵌套类型裸名与
+                    // 类型形参也解析不到。单文件 --dump-bound 路径不复现（另一条绑定路径），包构建必现。
+                    var fenv = TypeEnv.Root(symbols).WithClassGeneric(ct.Name(), c.TypeParams.Names, c.TypeParams.Count);
                     // add-target-typed-new：`static A f = new()` 以字段类型为目标。
                     model.AddStaticInit(c.Name, fd.Name, this._tc._expr.BindWithTarget(fd.Init, fenv.ResolveType(fd.Type), fenv));
                 }
@@ -212,7 +216,7 @@ public sealed class DeclBinder {
                 // 静态 auto 属性初始化器：同静态字段——无静态 ctor 进 per-CU `__static_init__`，有则注入其体首。
                 if (pd.HasInit && pinitSym != null && pinitSym.IsStatic && pinitSym.PropBackingName != ""
                     && !DeclBinder._hasStaticCtor(this._tc, c)) {
-                    var penv = TypeEnv.Root(symbols);
+                    var penv = TypeEnv.Root(symbols).WithClassGeneric(ct.Name(), c.TypeParams.Names, c.TypeParams.Count);   // fix-static-init-class-env（同上）
                     model.AddStaticInit(c.Name, pinitSym.PropBackingName, this._tc._expr.BindInitValue(pd.Init, pinitSym.FieldType, penv));
                 }
                 if (pd.HasGetBody) {
