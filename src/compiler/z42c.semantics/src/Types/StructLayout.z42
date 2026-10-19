@@ -130,6 +130,12 @@ public sealed partial class StructLayout {
     private StrMap _objStructInProgress; // 8B struct 布局环检测在途集
     // 布局键（`LayoutKey`）→ 算出这份布局的那个类（`OwnerOf`）。手搭的布局（测试）为 null。
     private StrMap _owners;
+    // perf（2026-10-18 profile：jobs1 下 String.IndexOf 自占 5.1%，最大来源 IsStructType→BaseNameOf 1.8%）：
+    // `IsStructType(name)` 每次 BaseNameOf（IndexOf+Substring）+ LayoutKey.Norm（再扫一遍）+ 哈希查 _defs，
+    // 而同一个名字在一个 CU 的发射里被问成百上千次（`_isBlobStruct` 几乎逐表达式问）。`_defs` 只在构造时
+    // 赋值、终身不变 ⇒ 答案可记忆。**只在视图上记忆**（查询在 Query 分片里按 `_base != null` 分流）：
+    // 基表预计算完成后不再被写是并行 CU 的不变量（见类注），各视图一份、互不共享。值用 "1"/"0" 两个字串。
+    private StrMap _isStructMemo;
     public string  ErrorType;    // 非 "" → 检测到递归自含（诊断码 E0416 由持 DiagnosticBag 的调用方发）
     public string  ErrorCycle;   // 环路径描述（诊断信息用）
 
@@ -143,6 +149,7 @@ public sealed partial class StructLayout {
         this._objectCache = new StrMap();
         this._objStructCache = new StrMap();
         this._objStructInProgress = new StrMap();
+        this._isStructMemo = new StrMap();
         this.ErrorType = "";
         this.ErrorCycle = "";
         this._owners = null;

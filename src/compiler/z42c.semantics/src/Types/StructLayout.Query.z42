@@ -11,7 +11,13 @@ public sealed partial class StructLayout {
     public bool IsStructType(string typeName) {
         // generic-struct-erased-slot-value-copy：实例化名（`Pair<P2,int>`）按**基名**判定是不是 struct
         // ——`_defs` 只存定义。基名是 struct ⇒ 其任何实例化也是 struct。
-        return this._defs.ContainsKey(LayoutKey.Norm(StructLayout.BaseNameOf(typeName)));
+        if (this._base == null) { return this._defs.ContainsKey(LayoutKey.Norm(StructLayout.BaseNameOf(typeName))); }
+        // 视图：结果记忆（见主文件 `_isStructMemo` 抬头）；基表路径保持无写。
+        object hit = this._isStructMemo.Get(typeName);
+        if (hit != null) { return (hit as string) == "1"; }
+        bool r = this._defs.ContainsKey(LayoutKey.Norm(StructLayout.BaseNameOf(typeName)));
+        this._isStructMemo.Put(typeName, r ? "1" : "0");
+        return r;
     }
 
     // 某实例化的布局是否**真的不同于定义布局**——这是「要不要特化」的唯一判据。
