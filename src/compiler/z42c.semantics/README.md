@@ -90,7 +90,7 @@
 | `src/Binding/OverloadResolver.z42` / `OverloadBinder.z42`（+ `.Candidates`） | 重载决议与实参归位 |
 | `src/Binding/DeclBinder.z42` / `StmtBinder.z42` | 声明（类 / 方法体 / 属性）与语句绑定 |
 | `src/Binding/ExhaustCheck.z42` / `MacroRegistry.z42` / `RefArgCheck.z42` / `VarFieldInfer.z42` | switch 穷尽性检查 / 编译期宏注册 / `ref`·`out` 实参校验 / `var` 字段类型推断 |
-| `src/Types/TypeSubst.z42` / `TypeArgInference.z42` / `MethodTypeArgSubst.z42` / `MethodTypeParamUse.z42` / `TypeFactsTc.z42` / `PrimModel.z42` / `StructLayout.z42` / `LayoutKey.z42` | 类型代换 / 类型实参推断 / 方法级型参代换与使用分析 / 类型谓词 / 基元模型 / struct 布局 / 布局名与实例化名的唯一拼法（全名） |
+| `src/Types/TypeSubst.z42` / `TypeArgInference.z42` / `MethodTypeArgSubst.z42` / `MethodTypeParamUse.z42` / `TypeFactsTc.z42` / `PrimModel.z42` / `StructLayout.z42`（+ `.Query` 读端查询面分片）/ `LayoutKey.z42` | 类型代换 / 类型实参推断 / 方法级型参代换与使用分析 / 类型谓词 / 基元模型 / struct 布局（计算与缓存在主文件，IsStructType/字段下标·偏移等查询在分片）/ 布局名与实例化名的唯一拼法（全名） |
 | `src/Symbols/SymbolTable.Functions.z42` / `.Nominal.z42` / `.Origins.z42` | `SymbolTable` 碎片：自由函数 / 名义类型 / 符号来源 |
 | `src/Symbols/ImportedSymbolLoader.z42`（+ `.Resolve`） | 把依赖 zpkg 的 TSIG 恢复成符号表条目 |
 | `src/Symbols/ImportedSymbolLoader.Fill.z42` | 导入类成员的**并行填充**（`ClassFillTask`）：Load Phase2 按类分组（partial 跨模块同组保序），组间只读骨架表、各写自己的类对象 ⇒ `ParallelFor` 并行，产物与串行逐字节一致 |
