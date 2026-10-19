@@ -7,7 +7,17 @@ using Z42.IR;
 using Z42.Syntax;
 using Z42.Core;
 
-public sealed class StmtBinder {
+// StmtBinder 语法树 visitor 的 D 参数：语句绑定需要两个上下文（作用域 env + 所属函数返回类型
+// ret——return 语句检查用），接口 D 只有一个槽 ⇒ 复用一个可变 ctx 对象。入口 `_bindStmt` 每次覆写
+// 两个字段后把它随 Accept 下传：零分配；递归安全——每个 VisitXxx 只在入口读一次 d，孩子语句重新
+// 覆写同一对象也不影响（父级此后不再读它）。
+public sealed class StmtCtx {
+    public TypeEnv Env;
+    public Z42Type Ret;
+    public StmtCtx(TypeEnv env, Z42Type ret) { this.Env = env; this.Ret = ret; }
+}
+
+public sealed class StmtBinder : IStmtVisitor<BoundStmt, StmtCtx> {
     private TypeChecker _tc;
     public StmtBinder(TypeChecker tc) { this._tc = tc; }
 
@@ -551,52 +561,53 @@ public sealed class StmtBinder {
     public BoundStmt BindStmt(Stmt s, TypeEnv env, Z42Type ret) { return this._bindStmt(s, env, ret); }
 
     internal BoundStmt _bindStmt(Stmt s, TypeEnv env, Z42Type ret) {
-        if (s is BlockStmt) { return this._bindBlock(s as BlockStmt, env, ret); }
-        if (s is LocalFunctionStmt) { return this._bindLocalFunction(s as LocalFunctionStmt, env, ret); }
-        if (s is VarDeclStmt) { return this._bindVarDecl(s as VarDeclStmt, env, ret); }
-        if (s is DeconstructDeclStmt) { return this._bindDeconstructDecl(s as DeconstructDeclStmt, env); }
-        if (s is ReturnStmt) { return this._bindReturn(s as ReturnStmt, env, ret); }
-        if (s is ExprStmt) {
-            ExprStmt e = s as ExprStmt;
-            return new BoundExprStmt(this._tc._expr._bindExpr(e.E, env), e.Span);
+        // syntax visitor 2/3：调度 = Accept 双分派到下面的逐节点 Visit（IStmtVisitor<BoundStmt,
+        // StmtCtx>；完备性由接口保证——新增 Stmt 子类漏接 = 编不过）。
+        this._sctx.Env = env;
+        this._sctx.Ret = ret;
+        return s.Accept<BoundStmt, StmtCtx>(this, this._sctx);
+    }
+    private StmtCtx _sctx = new StmtCtx(null, null);   // 复用对象（见 StmtCtx 抬头）
+
+    // ── IStmtVisitor<BoundStmt, StmtCtx>（方法序 = 接口声明序；体从旧 if-is 阶梯逐字搬移）──
+    public BoundStmt VisitExprStmt(ExprStmt n, StmtCtx d) {
+        return new BoundExprStmt(this._tc._expr._bindExpr(n.E, d.Env), n.Span);
+    }
+    public BoundStmt VisitLocalFunctionStmt(LocalFunctionStmt n, StmtCtx d) { return this._bindLocalFunction(n, d.Env, d.Ret); }
+    public BoundStmt VisitVarDeclStmt(VarDeclStmt n, StmtCtx d) { return this._bindVarDecl(n, d.Env, d.Ret); }
+    public BoundStmt VisitDeconstructDeclStmt(DeconstructDeclStmt n, StmtCtx d) { return this._bindDeconstructDecl(n, d.Env); }
+    public BoundStmt VisitReturnStmt(ReturnStmt n, StmtCtx d) { return this._bindReturn(n, d.Env, d.Ret); }
+    public BoundStmt VisitIfStmt(IfStmt n, StmtCtx d) { return this._bindIfStmt(n, d.Env, d.Ret); }
+    public BoundStmt VisitWhileStmt(WhileStmt n, StmtCtx d) { return this._bindWhile(n, d.Env, d.Ret); }
+    public BoundStmt VisitBlockStmt(BlockStmt n, StmtCtx d) { return this._bindBlock(n, d.Env, d.Ret); }
+    public BoundStmt VisitBreakStmt(BreakStmt n, StmtCtx d) {
+        if (this._tc._loopDepth == 0 && this._tc._switchDepth == 0) {
+            this._tc._diags.Error(DiagnosticCodes.InvalidBreakContinue, "`break` outside of loop or switch", n.Span);
         }
-        if (s is IfStmt) { return this._bindIfStmt(s as IfStmt, env, ret); }
-        if (s is ThrowStmt) {
-            ThrowStmt th = s as ThrowStmt;
-            return new BoundThrow(this._tc._expr._bindExpr(th.E, env), th.Span);
+        return new BoundBreak(n.Span);
+    }
+    public BoundStmt VisitContinueStmt(ContinueStmt n, StmtCtx d) {
+        if (this._tc._loopDepth == 0) {
+            this._tc._diags.Error(DiagnosticCodes.InvalidBreakContinue, "`continue` outside of loop", n.Span);
         }
-        if (s is TryCatchStmt) { return this._bindTryCatch(s as TryCatchStmt, env, ret); }
-        if (s is WhileStmt) { return this._bindWhile(s as WhileStmt, env, ret); }
-        if (s is DoWhileStmt) { return this._bindDoWhile(s as DoWhileStmt, env, ret); }
-        if (s is SwitchStmt) { return this._bindSwitchStmt(s as SwitchStmt, env, ret); }
-        if (s is BreakStmt) {
-            if (this._tc._loopDepth == 0 && this._tc._switchDepth == 0) {
-                this._tc._diags.Error(DiagnosticCodes.InvalidBreakContinue, "`break` outside of loop or switch", s.Span);
-            }
-            return new BoundBreak(s.Span);
-        }
-        if (s is ContinueStmt) {
-            if (this._tc._loopDepth == 0) {
-                this._tc._diags.Error(DiagnosticCodes.InvalidBreakContinue, "`continue` outside of loop", s.Span);
-            }
-            return new BoundContinue(s.Span);
-        }
-        // for 循环 → BoundFor（独立节点，FunctionEmitter 生成 cond/body/incr/end 四块，
-        // continue 跳 incrL 而非 condL，镜像 C# EmitBoundFor，block 结构 byte-identical）。
-        if (s is ForStmt) { return this._bindFor(s as ForStmt, env, ret); }
-        // GS6: foreach → BoundForeach（镜像 C# TypeChecker：保留语义节点，FunctionEmitter 专用 _emitForeach
-        // 产出 ArrayLen+ConstI32 计数器 byte-identical IR；替代旧脱糖到 while+BoundMember.Length 路径）。
-        if (s is ForeachStmt) { return this._bindForeach(s as ForeachStmt, env, ret); }
+        return new BoundContinue(n.Span);
+    }
+    public BoundStmt VisitThrowStmt(ThrowStmt n, StmtCtx d) {
+        return new BoundThrow(this._tc._expr._bindExpr(n.E, d.Env), n.Span);
+    }
+    public BoundStmt VisitUsingStmt(UsingStmt n, StmtCtx d) {
         // `using` 块形态。简化形态（`using var v = e;`）走 `_bindBlock` 那条特判 —— 它要把
         // **后续兄弟语句**收进 try 体，只有块上下文知道那些语句是什么。落到这里的简化形态
         // （例如 `if (c) using var v = e;` 这种无花括号单语句位）try 体为空，语义上也对。
-        if (s is UsingStmt) {
-            UsingStmt us0 = s as UsingStmt;
-            return this._bindUsing(us0, us0.IsScoped ? (new BlockStmt(new Stmt[0], 0, us0.Span) as Stmt) : us0.Body, env, ret);
-        }
-        this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "unsupported statement (1A)", s.Span);
-        return new BoundExprStmt(new BoundError("unsupported stmt", new Z42ErrorType(), s.Span), s.Span);
+        return this._bindUsing(n, n.IsScoped ? (new BlockStmt(new Stmt[0], 0, n.Span) as Stmt) : n.Body, d.Env, d.Ret);
     }
+    public BoundStmt VisitForeachStmt(ForeachStmt n, StmtCtx d) { return this._bindForeach(n, d.Env, d.Ret); }
+    // for 循环 → BoundFor（独立节点，FunctionEmitter 生成 cond/body/incr/end 四块，
+    // continue 跳 incrL 而非 condL，镜像 C# EmitBoundFor，block 结构 byte-identical）。
+    public BoundStmt VisitForStmt(ForStmt n, StmtCtx d) { return this._bindFor(n, d.Env, d.Ret); }
+    public BoundStmt VisitDoWhileStmt(DoWhileStmt n, StmtCtx d) { return this._bindDoWhile(n, d.Env, d.Ret); }
+    public BoundStmt VisitSwitchStmt(SwitchStmt n, StmtCtx d) { return this._bindSwitchStmt(n, d.Env, d.Ret); }
+    public BoundStmt VisitTryCatchStmt(TryCatchStmt n, StmtCtx d) { return this._bindTryCatch(n, d.Env, d.Ret); }
 
     private Z42Type _varType(TypeEnv env, VarDeclStmt v, BoundExpr init) {
         if (v.Type is NamedType) {

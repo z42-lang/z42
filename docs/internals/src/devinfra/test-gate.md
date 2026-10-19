@@ -27,7 +27,6 @@ graph LR
     S4g --> S5[vscode-syntax<br/>grammar ↔ Lexer 防漂移]
     S5 --> S6[lines<br/>文件行数硬上限棘轮]
     S6 --> S6f[fnlines<br/>函数体行数硬上限棘轮]
-    S6f --> S7[walkers<br/>AST walker 完备性]
     S7 --> S8[diagcodes<br/>诊断码唯一性]
     S8 --> S9[stage2<br/>阶段-2 欠账挂账 + 到期]
     S9 --> S10[ci-shell<br/>CI 内嵌 shell 先用后赋]
@@ -57,7 +56,6 @@ graph LR
 - `vscode-syntax`
 - `lines`
 - `fnlines`
-- `walkers`
 - `diagcodes`
 - `stage2`
 - `ci-shell`
@@ -116,7 +114,6 @@ fixture、debug VM 跑 `main.zpkg`——跨包 dispatch 的 debug 断言覆盖�
 | `vscode-syntax` | 生成产物一致性：`z42.tmLanguage.json` 必须等于「当前 Lexer 关键字表 + 模板」的重渲染 | 约一次 z42c fork |
 | `lines` | 文件行数上限棘轮，见下 | 纯文本扫描 < 1 s |
 | `fnlines` | 函数 / 方法**体**行数上限棘轮，见下 | 纯文本扫描 < 1 s |
-| `walkers` | z42c 里**手写穷举** AST walker 的完备性，见下 | 纯文本扫描 < 1 s |
 | `diagcodes` | 诊断码**一码一义**：每个发得出去的码在登记表里登记恰好一次，见下 | 纯文本扫描 < 1 s |
 | `stage2` | 阶段-1 过渡形态必须挂账且不超期（双向棘轮 + 到期），见 `scripts/test/xtask_test_stage2.z42` 头注 | 纯文本扫描 < 1 s |
 | `ci-shell` | `.github/**` 的多行 `run:` 块里**没有先用后赋**的变量（立门时 7 个 yml / 76 块），见下 | 纯文本扫描 < 1 s |
@@ -172,17 +169,10 @@ xtask 起的每个跑 z42 代码的子进程都经 `_z42Proc(exe, libs)` 建（z
 基线 `scripts/test/fn-limit-baseline.txt`：`path<TAB>name<TAB>lines`（同名重载按出现序 `#n`）；
 抽出子函数后降到硬限以下的条目用 `xtask check fnlines --update` 剔除（只降不升）。
 
-**`walkers` 是活体对账**（`scripts/test/xtask_test_walkers.z42`）：扫节点类的全集——语法树
-`src/compiler/z42c.syntax/src`（`Expr` / `Stmt` / `Pattern` / `TypeExpr` 的子类）+ 绑定树
-`src/compiler/z42c.semantics/src/BoundTree`（`BoundExpr` / `BoundStmt` / `BoundPattern` 的子类），逐个登记的
-walker 文件里找 `is <类名>`；全集里既不被匹配、又不在该 walker 白名单里的类 → **红**。登记表是 `_walkerRegistry()`：
-语法树侧 `MethodTypeParamUse.Consumes` / `ExprTyper._bindExpr` / `StmtBinder._bindStmt` / `PatternBinder.Bind`，
-语法树侧 `MethodTypeParamUse.Consumes` / `ExprTyper._bindExpr` / `StmtBinder._bindStmt` / `PatternBinder.Bind`；
-绑定树侧已无登记条目（发射器与 `FlowAnalyzer` 都改实现 bound visitor 接口，见下）。加新 walker 加一行。
-实现 bound visitor 接口（`IBoundExprVisitor` 等）的遍历不登记——它的完备性由编译器保证（`DepUseCollector`
-与 visitor 2/3 起的 `ExprEmitter` / `StmtEmitter` / `PatternEmitter`、3/3 起的 `FlowAnalyzer`——后者原
-「没覆盖即保守当成已赋值」的叶子白名单变成了显式空体 Visit 方法）。
-**不硬编码计数**——那种计数本身在漂。
+**`walkers`（AST walker 完备性对账）已退役**：语法树与绑定树的穷举遍历全部改实现 visitor 接口
+（语法包的 `IExprVisitor` 等四族、语义包的 `IBoundExprVisitor` 等三族，节点 `Accept<R, D>` 双分派）——
+新增节点子类漏接 Visit 方法直接编不过，完备性由编译器保证，不再需要
+文本对账门（ast-walker-completeness-gate 的历史：bound 树 #1282/#1318/#1319，语法树 #1331 与本变更）。
 
 **`diagcodes` 是活体对账 + 一条棘轮**（`scripts/test/xtask_test_diagcodes.z42`）。守的是
 **用户可见契约**：拿到 `E0477` 会去[诊断码全表](https://z42-lang.github.io/z42/reference/appendix/error-codes.html)
