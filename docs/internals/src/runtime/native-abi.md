@@ -473,12 +473,11 @@ JIT `jit_builtin` / `call_forward`），判定顺序：
 
 **z42.core 里的 `[Native]` 包装同样不能改形状**：`ProcessNative` / `ThreadNative` 这类 core 静态类被别的包
 （`z42.io` / `z42.threading`）调用，而 z42.core 总按当前源预建、别的包可能还是种子带来的旧版——同一个 libs
-目录里新 core + 旧 io。改旧方法的返回类型——`__thread_join` → `__thread_wait` 迁移时旧 Join 的返回形状
-就是活例——旧 `Thread.Join` 就会把 `void` 当数组读。做法：
+目录里新 core + 旧 io。改旧方法的返回类型，还在调它的旧包就会按旧形状读返回值（比如把 `void` 当数组）。做法：
 core 里**加新方法**（`ThreadNative.Wait`、`ProcessNative.RunSync` / `Start`、`ChildProcessNative.*`、
 `TcpSocketNative` / `UdpSocketNative` / `TlsSocketNative` / `DnsNative.Resolve`），新的 z42.io / z42.threading /
-z42.net 改调新方法，旧方法与旧 builtin 一起挂债；种子换代、其 z42.io / z42.threading / z42.net 不再调旧形状后，
-core 侧旧声明即可删除（2026-10-20 已删毕；运行时旧表项与 legacy 实现仍挂 `STAGE2-DEBT` 至下一个种子）。
+z42.net 改调新方法，旧方法与旧 builtin 一起挂债；种子不再声明旧名字后，core 侧旧声明与运行时旧表项、legacy
+实现一并删除。
 
 ### 6.6 与 ext 表的关系
 

@@ -110,7 +110,7 @@ fixture、debug VM 跑 `main.zpkg`——跨包 dispatch 的 debug 断言覆盖�
 | `stdlib [Benchmark]` | **只验语料能不能跑**，不看快慢 | 全量约 14.6 s、零噪声、host-independent |
 | `manifest targets` | 清单驱动的 `[[test]]` / `[[example]]` target 契约 | — |
 | `examples` | 学习手册示例逐条可运行且与书一致（书 ↔ 示例引用 + 用 SDK 里真实的 `z42` 重放每个 `.console`） | 完整 gate 先 `build toolchain` + `package dev-sdk`；`--no-build` 缺 SDK 即红 |
-| `docs` | 相对 markdown 链接可解析（死链一律红；三书重构期的存量基线已清零拆除） | 秒级，不需要 SDK |
+| `docs` | 相对 markdown 链接可解析（死链一律红） | 秒级，不需要 SDK |
 | `compiler` | 编译器自举不动点 gen1 == gen2 + units（见[构建编排](build.md)）| host-independent |
 | `gc modes` | 在每种 GC 模式下、把收集器调到触发上百次，重编一个真实包（`z42c.semantics`），每模式带一个收集次数下限断言 | 三个提前回收缺陷都是这么现形的：编译器在悬垂引用上崩在半途 |
 | `vscode-syntax` | 生成产物一致性：`z42.tmLanguage.json` 必须等于「当前 Lexer 关键字表 + 模板」的重渲染 | 约一次 z42c fork |

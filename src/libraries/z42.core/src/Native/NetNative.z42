@@ -5,9 +5,7 @@
 //
 // ABI v2：TcpSocketNative / UdpSocketNative / TlsSocketNative / DnsNative.Resolve 返回普通值、
 // 失败从 Rust 抛（.NET 口径：SocketException / SocketClosedException / AuthenticationException /
-// wasm32 NetUnsupportedException）。返回 [KIND, …] 判别数组的旧类（NetTcpNative / NetTlsNative /
-// UdpNative / DnsNative.Lookup）已随种子换代删除；运行时表项与 legacy 实现的挂账在
-// builtin_table_ext.rs 的 legacy-net-builtins 条目。
+// wasm32 NetUnsupportedException）。
 namespace Std.Net.Sockets;
 
 /// TCP socket 的 native 原语，供 z42.net 的 TcpClient / TcpListener 调用。
