@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std.Net.Sockets`
 
-[`src/libraries/z42.core/src/Native/NetNative.z42:128`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L128)
+[`src/libraries/z42.core/src/Native/NetNative.z42:129`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L129)
 
 TLS socket 的 native 原语，供 z42.net 的 TlsClient 调用。
 
@@ -24,42 +24,42 @@ public static class TlsSocketNative {
 <a id="Std.Net.Sockets.TlsSocketNative.Connect(string,int,int)"></a>
 ### static extern long Connect(string host, int port, int timeoutMs)
 
-[`src/libraries/z42.core/src/Native/NetNative.z42:131`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L131)
+[`src/libraries/z42.core/src/Native/NetNative.z42:132`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L132)
 
 连接并完成 TLS 握手，返回 slot。timeoutMs <= 0 → 连接与握手都不限时；> 0 同时约束两者。
 
 <a id="Std.Net.Sockets.TlsSocketNative.Read(long,byte[],int,int)"></a>
 ### static extern int Read(long slotId, byte[] buffer, int offset, int count)
 
-[`src/libraries/z42.core/src/Native/NetNative.z42:135`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L135)
+[`src/libraries/z42.core/src/Native/NetNative.z42:136`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L136)
 
 读入 buffer。
 
 <a id="Std.Net.Sockets.TlsSocketNative.Write(long,byte[],int,int)"></a>
 ### static extern void Write(long slotId, byte[] buffer, int offset, int count)
 
-[`src/libraries/z42.core/src/Native/NetNative.z42:139`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L139)
+[`src/libraries/z42.core/src/Native/NetNative.z42:140`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L140)
 
 写出 buffer。
 
 <a id="Std.Net.Sockets.TlsSocketNative.Close(long)"></a>
 ### static extern void Close(long slotId)
 
-[`src/libraries/z42.core/src/Native/NetNative.z42:143`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L143)
+[`src/libraries/z42.core/src/Native/NetNative.z42:144`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L144)
 
 关闭 TLS 会话。
 
 <a id="Std.Net.Sockets.TlsSocketNative.SetReadTimeout(long,int)"></a>
 ### static extern void SetReadTimeout(long slotId, int millis)
 
-[`src/libraries/z42.core/src/Native/NetNative.z42:147`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L147)
+[`src/libraries/z42.core/src/Native/NetNative.z42:148`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L148)
 
 设置读超时。
 
 <a id="Std.Net.Sockets.TlsSocketNative.SetWriteTimeout(long,int)"></a>
 ### static extern void SetWriteTimeout(long slotId, int millis)
 
-[`src/libraries/z42.core/src/Native/NetNative.z42:151`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L151)
+[`src/libraries/z42.core/src/Native/NetNative.z42:152`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L152)
 
 设置写超时。
 

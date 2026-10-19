@@ -31,7 +31,7 @@ void test_connect_with_timeout_to_closed_port_throws() {
     // 127.0.0.1:1 — port 1 is reserved; nothing listens on a normal host.
     // Connect with timeout=200ms should fail-fast with ECONNREFUSED via
     // the SAME builtin path used for the timeout case (proves the
-    // `__net_tcp_connect_with_timeout` builtin reaches OS connect and the
+    // `__tcp_connect` builtin (timeoutMs > 0) reaches OS connect and the
     // error path wires through `SocketException`). Doesn't depend on the
     // timer firing — that requires a blackhole route which varies by host.
     var c = new TcpClient();
@@ -48,7 +48,7 @@ void test_connect_with_timeout_to_closed_port_throws() {
 
 [Test]
 void test_set_connect_timeout_zero_equivalent_to_unset() {
-    // millis == 0 routes through plain __net_tcp_connect (no timeout)
+    // millis == 0 passes timeoutMs = 0 to __tcp_connect (no timeout)
     // — i.e. same path as never calling SetConnectTimeout at all. Verify
     // successful loopback connect still works.
     var server = new TcpListener();

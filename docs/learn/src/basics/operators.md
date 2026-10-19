@@ -154,6 +154,15 @@
 > **z42 没有 `??`。** 别的语言里 `name ?? "(匿名)"` 一行就能兜底，代价和 `?.` 一样：
 > 兜底动作被藏进运算符里，读代码的人看不见「这里其实可能是空」。写 `a ?? b`
 > 会报 **E0480**，并告诉你改成上面的写法。
+
+```z42
+// examples/basics/operators/oldnull/oldnull.z42
+{{#include ../../../../examples/basics/operators/oldnull/oldnull.z42}}
+```
+
+```console
+{{#include ../../../../examples/basics/operators/oldnull/run.console:err}}
+```
 >
 > 如果你在写的是「读一个设置，取不到用默认值」，更好的办法是让 API 直接收默认值——
 > 比如 `Environment.GetEnvironmentVariable("HOME", "")`，一行搞定且结果保证非空。

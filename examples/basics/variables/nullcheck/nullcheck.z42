@@ -1,0 +1,9 @@
+using Std.IO;
+
+int Length(string? s) {
+    return s.Length;        // ✗ 标了 ? 的参数用前必须判空 —— E0478
+}
+
+void Main() {
+    Console.WriteLine(Length("hello"));
+}

@@ -68,8 +68,10 @@ GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / As
 
 **改语义要换名字**：已发布种子的 stdlib 会跑在新 VM 上，同名 builtin 的签名与返回形状必须兼容
 （只把抛出的异常换成更具体的子类是兼容的）。z42.core 里被别的包调用的 `[Native]` 包装（`ProcessNative`、
-`ThreadNative`、`NetTcpNative` / `UdpNative` / `NetTlsNative` / `DnsNative`）同理——加新方法 / 新类，不改旧方法的形状；
-旧名字挂 `STAGE2-DEBT`（native ABI §6.5）。
+`ThreadNative`、`TcpSocketNative` / `UdpSocketNative` / `TlsSocketNative` / `DnsNative`）同理——加新方法 / 新类，不改旧方法的
+形状；旧名字挂 `STAGE2-DEBT`（native ABI §6.5），种子换代后从 core 侧删声明（2026-10-20 已删毕：
+判别数组形状的 4 个 net 旧类、`ProcessNative` 与 `ThreadNative` 的旧方法、`ProcessHandleNative` 整类；
+`builtin_table_ext.rs` 里的旧表项与 legacy 实现仍挂账至种子退役）。
 
 **lenient 约定**：类型/反射类 builtin 对「无 handle 的合成 Type（数组 `T[]`，及 z42.core
 未加载时的 primitive 兜底）」或非预期入参一律返回空数组 / null，不 `bail!`。primitive 正常解析为真 `Std.*` 句柄（`typeof(int)` ≡ `(5).GetType()`）。

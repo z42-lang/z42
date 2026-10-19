@@ -48,7 +48,7 @@ public static partial class ImportedSymbolLoader {
         // 不在这里剥，`byte[]?` 既不命中下方 `EndsWith("[]")`（结尾是 `?`）、也无对应类 ⇒ 落成
         // `Builtin("byte[]?")` 垃圾类（Code=-1），跨包与本地对同一类型给出不同 Z42Type。基元可空
         // （`int?`/`string?`）由 PrimModel.Canon 剥 `?` 早已吸收；本条补的是**非基元**可空引用/数组
-        // （现存唯一触点：跨包直调 `ProcessNative.Spawn(byte[]? …)`）。
+        // （现存唯一触点：跨包直调 `ProcessNative.RunSync(byte[]? …)`）。
         // 末尾字符直接判（导入建表的热路径：每个成员签名的每个类型串都过这里；`EndsWith(string)` 每次物化两份 char[]）。
         int nlen = name.Length;
         if (nlen > 0 && name.CharAt(nlen - 1) == '?') {

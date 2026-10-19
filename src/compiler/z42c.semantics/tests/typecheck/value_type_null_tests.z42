@@ -157,7 +157,7 @@ void test_nullable_reference_type_ok() {
 [Test]
 void test_nullable_value_array_ok() {
     // 🔒 回归守卫：`byte[]?` 合法 —— 数组是引用类型，可空的是数组本身不是元素。
-    // 只看基名会把它误拦（实测被 z42.core 的 `ProcessNative.Spawn(..., byte[]? stdinBytes, ...)` 抓住）。
+    // 只看基名会把它误拦（实测被 z42.core 的 `ProcessNative.RunSync(..., byte[]? stdinBytes, ...)` 抓住）。
     Assert.Equal("", SemanticDump.FirstErrorCode("namespace D; class C { static void F(byte[]? b) { } }"));
     Assert.Equal("", SemanticDump.FirstErrorCode("namespace D; class C { static void F(int[]? a) { } }"));
 }

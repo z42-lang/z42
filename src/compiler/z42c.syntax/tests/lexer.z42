@@ -253,6 +253,21 @@ void test_invalid_escape_char_reports_e0102() {
 }
 
 [Test]
+void test_unexpected_character_reports_e0103() {
+    // 未知字符（反引号不属于任何 token 形态）→ E0103 + Error_Unknown token，不静默吞。
+    var lx = new Lexer("`", "t.z42");
+    lx.Tokenize();
+    var bag = lx.Diagnostics();
+    bool hasE0103 = false;
+    int i = 0;
+    while (i < bag.Count()) {
+        if (bag.Get(i).Code == DiagnosticCodes.InvalidNumericLit) { hasE0103 = true; }
+        i = i + 1;
+    }
+    Assert.True(hasE0103);
+}
+
+[Test]
 void test_invalid_escape_interpolated_reports_e0102() {
     // 插值串文本段未知转义 $"a\qb" → E0102。
     var lx = new Lexer("$\"a\\qb\"", "t.z42");
