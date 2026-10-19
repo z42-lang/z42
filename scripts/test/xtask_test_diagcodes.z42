@@ -129,11 +129,14 @@ bool _dcIsTextFile(string relp) {
         || relp.EndsWith(".toml") || relp.EndsWith(".json");
 }
 
-// 读一份「每行一个码、`#` 开头为注释」的清单。文件读不到 → -1（调用方据此判「棘轮没有基线」，
-// 而不是当成空清单——空清单会让门在文件被误删时**变成恒绿**）。
+// 读一份「每行一个码、`#` 开头为注释」的清单。文件不存在 = 空清单（账清零后整文件删除；
+// 欠账再现时门照样红并指路，`--update` 重建）。文件在却读失败 → -1（调用方据此报错——
+// 那是环境问题，静默当空清单会把真故障吞掉）。
 int _dcLoadCodeList(string root, string relPath, string[] outCodes) {
+    string p = Path.Join(root, relPath);
+    if (!File.Exists(p)) { return 0; }
     string text = "";
-    try { text = File.ReadAllText(Path.Join(root, relPath)); } catch (Exception ex) { return -1; }
+    try { text = File.ReadAllText(p); } catch (Exception ex) { return -1; }
     string[] lines = text.Split("\n");
     int n = 0; int i = 0;
     while (i < lines.Length) {
@@ -694,9 +697,13 @@ string _dcToday() {
     return now.Substring(0, 10);
 }
 
+// ④ 的基线同 ⑨ 的清单语义：不存在 = 空（双向棘轮对「空基线 + 有字面量」照样红）；
+// 在而读不了 = -1。--update 从空基线重建时全部条目取今天为挂账日。
 int _dcLoadBaseline(string root, string[] outPairs) {
+    string p = Path.Join(root, _dcBaselinePath());
+    if (!File.Exists(p)) { return 0; }
     string text = "";
-    try { text = File.ReadAllText(Path.Join(root, _dcBaselinePath())); }
+    try { text = File.ReadAllText(p); }
     catch (Exception ex) { return 0 - 1; }
     string[] lines = text.Split("\n");
     int n = 0; int i = 0;
