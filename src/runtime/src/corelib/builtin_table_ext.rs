@@ -150,25 +150,12 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     // to this one is safe — nothing bakes a positional BuiltinId across a build.
 
     // ── add-load-context-model (2026-07-30) — appended to preserve BuiltinIds ──
-    ("__lctx_default",            Native::Val(assemblyloadcontext::builtin_lctx_default)),
-    ("__lctx_create_collectible", Native::Val(assemblyloadcontext::builtin_lctx_create_collectible)),
-    ("__lctx_load",               Native::Val(assemblyloadcontext::builtin_lctx_load)),
-    ("__lctx_name",               Native::Val(assemblyloadcontext::builtin_lctx_name)),
-    ("__lctx_is_collectible",     Native::Val(assemblyloadcontext::builtin_lctx_is_collectible)),
-    ("__lctx_assemblies",         Native::Val(assemblyloadcontext::builtin_lctx_assemblies)),
-    ("__asm_name",                Native::Val(assemblyloadcontext::builtin_asm_name)),
-    ("__asm_is_collectible",      Native::Val(assemblyloadcontext::builtin_asm_is_collectible)),
-    ("__asm_loadcontext",         Native::Val(assemblyloadcontext::builtin_asm_loadcontext)),
-    ("__asm_get_types",           Native::Val(assemblyloadcontext::builtin_asm_get_types)),
-    ("__type_is_collectible",     Native::Val(assemblyloadcontext::builtin_type_is_collectible)),
-    ("__type_assembly",           Native::Val(assemblyloadcontext::builtin_type_assembly)),
 
     // ── add-exec-profile-matrix (2026-07-31) — appended to preserve BuiltinIds ──
     ("__platform_caps",           Native::Val(platform::builtin_platform_caps)),
     ("__platform_exec_modes",     Native::Val(platform::builtin_platform_exec_modes)),
 
     // ── add-lazy-context-unload (2026-08-05) — appended to preserve BuiltinIds ──
-    ("__lctx_unload",             Native::Void(assemblyloadcontext::builtin_lctx_unload)),
 
     // ── add-heap-retention-diagnostics (2026-08-06) — appended to preserve BuiltinIds ──
     ("__heap_direct_referrers",   Native::Val(diagnostics::builtin_heap_direct_referrers)),
@@ -230,5 +217,4 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     ("__str_join",          Native::Val(string::builtin_str_join)),
     // ── assembly-get-functions — appended to preserve existing BuiltinIds ──
     // `Assembly.GetFunctions()`：一个 zpkg 的自由（顶层）函数 → MethodInfo[]。
-    ("__asm_get_functions", Native::Val(assemblyloadcontext::builtin_asm_get_functions)),
 ];
