@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std.Net.Sockets`
 
-[`src/libraries/z42.core/src/Native/NetNative.z42:77`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L77)
+[`src/libraries/z42.core/src/Native/NetNative.z42:75`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L75)
 
 UDP socket 的 native 原语，供 z42.net 的 UdpClient 调用。
 
@@ -30,84 +30,84 @@ public static class UdpSocketNative {
 <a id="Std.Net.Sockets.UdpSocketNative.Bind(string,int)"></a>
 ### static extern long Bind(string host, int port)
 
-[`src/libraries/z42.core/src/Native/NetNative.z42:80`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L80)
+[`src/libraries/z42.core/src/Native/NetNative.z42:78`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L78)
 
 绑定 host:port，返回 slot。
 
 <a id="Std.Net.Sockets.UdpSocketNative.LocalPort(long)"></a>
 ### static extern int LocalPort(long slotId)
 
-[`src/libraries/z42.core/src/Native/NetNative.z42:84`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L84)
+[`src/libraries/z42.core/src/Native/NetNative.z42:82`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L82)
 
 本地绑定端口。
 
 <a id="Std.Net.Sockets.UdpSocketNative.Send(long,byte[],int,int,string,int)"></a>
 ### static extern int Send(long slotId, byte[] buf, int offset, int count, string remoteHost, int remotePort)
 
-[`src/libraries/z42.core/src/Native/NetNative.z42:88`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L88)
+[`src/libraries/z42.core/src/Native/NetNative.z42:86`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L86)
 
 向 remoteHost:remotePort 发送数据报。
 
 <a id="Std.Net.Sockets.UdpSocketNative.Receive(long)"></a>
 ### static extern object[] Receive(long slotId)
 
-[`src/libraries/z42.core/src/Native/NetNative.z42:92`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L92)
+[`src/libraries/z42.core/src/Native/NetNative.z42:90`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L90)
 
 收一个数据报，返回 `[byte[] datagram, string remoteHost, long remotePort]`。
 
 <a id="Std.Net.Sockets.UdpSocketNative.ReceiveInto(long,byte[],int,int)"></a>
 ### static extern object[] ReceiveInto(long slotId, byte[] buf, int offset, int count)
 
-[`src/libraries/z42.core/src/Native/NetNative.z42:97`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L97)
+[`src/libraries/z42.core/src/Native/NetNative.z42:95`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L95)
 
 收进调用方缓冲，返回 `[long bytesWritten, string remoteHost, long remotePort]`； 超出 `count` 的部分截断。
 
 <a id="Std.Net.Sockets.UdpSocketNative.Close(long)"></a>
 ### static extern void Close(long slotId)
 
-[`src/libraries/z42.core/src/Native/NetNative.z42:101`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L101)
+[`src/libraries/z42.core/src/Native/NetNative.z42:99`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L99)
 
 关闭 socket。
 
 <a id="Std.Net.Sockets.UdpSocketNative.JoinMulticast(long,string,string)"></a>
 ### static extern void JoinMulticast(long slotId, string groupIp, string ifaceIp)
 
-[`src/libraries/z42.core/src/Native/NetNative.z42:105`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L105)
+[`src/libraries/z42.core/src/Native/NetNative.z42:103`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L103)
 
 加入 IPv4 组播组。
 
 <a id="Std.Net.Sockets.UdpSocketNative.LeaveMulticast(long,string,string)"></a>
 ### static extern void LeaveMulticast(long slotId, string groupIp, string ifaceIp)
 
-[`src/libraries/z42.core/src/Native/NetNative.z42:109`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L109)
+[`src/libraries/z42.core/src/Native/NetNative.z42:107`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L107)
 
 离开 IPv4 组播组。
 
 <a id="Std.Net.Sockets.UdpSocketNative.SetMulticastLoop(long,bool)"></a>
 ### static extern void SetMulticastLoop(long slotId, bool enable)
 
-[`src/libraries/z42.core/src/Native/NetNative.z42:113`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L113)
+[`src/libraries/z42.core/src/Native/NetNative.z42:111`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L111)
 
 设置 IP_MULTICAST_LOOP。
 
 <a id="Std.Net.Sockets.UdpSocketNative.SetTtl(long,int)"></a>
 ### static extern void SetTtl(long slotId, int ttl)
 
-[`src/libraries/z42.core/src/Native/NetNative.z42:117`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L117)
+[`src/libraries/z42.core/src/Native/NetNative.z42:115`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L115)
 
 设置单播 IP_TTL。
 
 <a id="Std.Net.Sockets.UdpSocketNative.SetReadTimeout(long,int)"></a>
 ### static extern void SetReadTimeout(long slotId, int millis)
 
-[`src/libraries/z42.core/src/Native/NetNative.z42:121`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L121)
+[`src/libraries/z42.core/src/Native/NetNative.z42:119`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L119)
 
 设置读超时。
 
 <a id="Std.Net.Sockets.UdpSocketNative.SetWriteTimeout(long,int)"></a>
 ### static extern void SetWriteTimeout(long slotId, int millis)
 
-[`src/libraries/z42.core/src/Native/NetNative.z42:125`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L125)
+[`src/libraries/z42.core/src/Native/NetNative.z42:123`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Native/NetNative.z42#L123)
 
 设置写超时。
 
