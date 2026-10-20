@@ -196,7 +196,7 @@ SubcommandRouter _cliRoot() {
     root.AddRouter("package", "assemble from built artifacts (sdk / runtime / workload [--archive] · dev-sdk · ci · release)", _packageRouter());
 
     root.AddRouter("test", "run tests (no subcommand = full GREEN gate)", _testRouter());
-    root.Add("check", "static checks — no build, no test run (lines / walkers / diagcodes / versions …; no name = all)", _checkParser());
+    root.Add("check", "static checks — no build, no test run (lines / fnlines / diagcodes / versions …; no name = all)", _checkParser());
     root.AddRouter("setup", "prepare this machine (no subcommand = install; vscode / check)", _setupRouter());
     root.AddRouter("bench", "benchmarks (no subcommand = e2e; see `bench -h`)", _benchRouter());
     root.AddRouter("doc", "generate reference stdlib pages and index Rust crates (gen / index)", _docRouter());

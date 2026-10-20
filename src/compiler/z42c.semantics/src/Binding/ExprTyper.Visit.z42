@@ -1,0 +1,58 @@
+// ExprTyper 的语法树 visitor 面（syntax visitor 2/3）：`_bindExpr` 的 36 个 if-is 臂改为逐节点
+// `Visit<节点类名>(n, env)`（IExprVisitor<BoundExpr, TypeEnv>，D = TypeEnv）。体从旧阶梯逐字
+// 搬移——每臂本就委托到既有的 per-kind binder（_bindIdent / _bindBinary / _typeop._bindXxx /
+// _construct._bindXxx / …），故这里全部是一行委托；完备性由接口保证（新增 Expr 子类漏接
+// Visit = 编不过）。方法序 = 接口声明序。
+namespace Z42.Semantics;
+
+using Z42.Syntax;
+
+public sealed partial class ExprTyper {
+    public BoundExpr VisitIntLitExpr(IntLitExpr n, TypeEnv env) { return this._bindLiteral(n); }
+    public BoundExpr VisitArrayNewExpr(ArrayNewExpr n, TypeEnv env) { return this._bindArrayNew(n, env); }
+    public BoundExpr VisitRefArgExpr(RefArgExpr n, TypeEnv env) { return this._bindRefArg(n, env); }
+    public BoundExpr VisitArrayInitExpr(ArrayInitExpr n, TypeEnv env) { return this._bindArrayInit(n, env); }
+    // 集合字面量五兄弟（无目标类型上下文 → null；有目标时经 StmtBinder._bindVarDecl 等站点直接调
+    // _bindCollLit——见旧阶梯同款注释）。
+    public BoundExpr VisitArrayLitExpr(ArrayLitExpr n, TypeEnv env) { return this._bindCollLit(n, null, env); }
+    public BoundExpr VisitArrayRepeatExpr(ArrayRepeatExpr n, TypeEnv env) { return this._bindCollLit(n, null, env); }
+    public BoundExpr VisitListLitExpr(ListLitExpr n, TypeEnv env) { return this._bindCollLit(n, null, env); }
+    public BoundExpr VisitTupleExpr(TupleExpr n, TypeEnv env) { return this._construct._bindTuple(n, env); }   // add-tuple-types：值元组字面量
+    public BoundExpr VisitDictLitExpr(DictLitExpr n, TypeEnv env) { return this._bindCollLit(n, null, env); }
+    public BoundExpr VisitEmptyBraceLitExpr(EmptyBraceLitExpr n, TypeEnv env) { return this._bindCollLit(n, null, env); }
+    // GS6: lambda 作为调用参数（无 expected type 上下文）→ 按参数显式类型或 Unknown 合成 expected。
+    public BoundExpr VisitLambdaExpr(LambdaExpr n, TypeEnv env) { return this._bindLambdaArg(n, env); }
+    public BoundExpr VisitCharLitExpr(CharLitExpr n, TypeEnv env) { return this._bindLiteral(n); }
+    public BoundExpr VisitFloatLitExpr(FloatLitExpr n, TypeEnv env) { return this._bindLiteral(n); }
+    public BoundExpr VisitStringLitExpr(StringLitExpr n, TypeEnv env) { return this._bindLiteral(n); }
+    public BoundExpr VisitBoolLitExpr(BoolLitExpr n, TypeEnv env) { return this._bindLiteral(n); }
+    public BoundExpr VisitNullLitExpr(NullLitExpr n, TypeEnv env) { return this._bindLiteral(n); }
+    public BoundExpr VisitIdentExpr(IdentExpr n, TypeEnv env) { return this._bindIdent(n, env); }
+    public BoundExpr VisitUnaryExpr(UnaryExpr n, TypeEnv env) { return this._bindUnary(n, env); }
+    public BoundExpr VisitBinaryExpr(BinaryExpr n, TypeEnv env) { return this._bindBinary(n, env); }
+    public BoundExpr VisitMemberExpr(MemberExpr n, TypeEnv env) { return this._tc._member._bindMember(n, env); }
+    public BoundExpr VisitIndexExpr(IndexExpr n, TypeEnv env) { return this._bindIndex(n, env); }
+    public BoundExpr VisitAssignExpr(AssignExpr n, TypeEnv env) { return this._assign._bindAssign(n, env); }
+    public BoundExpr VisitCallExpr(CallExpr n, TypeEnv env) {
+        // add-symbol-availability-macro：带参编译期宏 `name!(args)` 被 parser 译成
+        // CallExpr(IdentExpr("$macro:name"), args)。必须在 _bindCall **之前**截住——否则
+        // 会去把哨兵名当函数解析、报 "undefined: $macro:available"。
+        if (MacroRegistry.IsMacroCall(n)) { return this._bindMacroCall(n, env); }
+        return this._tc._member._bindCall(n, env);
+    }
+    public BoundExpr VisitTernaryExpr(TernaryExpr n, TypeEnv env) { return this._bindTernary(n, env); }
+    public BoundExpr VisitIsExpr(IsExpr n, TypeEnv env) { return this._typeop._bindIsExpr(n, env); }
+    public BoundExpr VisitIsPatternExpr(IsPatternExpr n, TypeEnv env) { return this._typeop._bindIsPatternExpr(n, env); }
+    public BoundExpr VisitSwitchExpr(SwitchExpr n, TypeEnv env) { return this._bindSwitchExpr(n, env); }
+    public BoundExpr VisitAsExpr(AsExpr n, TypeEnv env) { return this._typeop._bindAsExpr(n, env); }
+    public BoundExpr VisitTypeofExpr(TypeofExpr n, TypeEnv env) { return this._typeop._bindTypeofExpr(n, env); }
+    public BoundExpr VisitMethodOfExpr(MethodOfExpr n, TypeEnv env) { return this._typeop._bindMethodOfExpr(n, env); }
+    public BoundExpr VisitCastExpr(CastExpr n, TypeEnv env) { return this._typeop._bindCastExpr(n, env); }
+    public BoundExpr VisitObjNewExpr(ObjNewExpr n, TypeEnv env) {
+        return this._construct._bindNew(n, env, null);   // 无目标上下文 → target-typed 会报 E0437
+    }
+    public BoundExpr VisitObjInitExpr(ObjInitExpr n, TypeEnv env) { return this._construct._bindObjInit(n, env, null); }
+    public BoundExpr VisitWithExpr(WithExpr n, TypeEnv env) { return this._construct._bindWith(n, env); }   // 模式匹配 D：record 非破坏式更新
+    public BoundExpr VisitDefaultExpr(DefaultExpr n, TypeEnv env) { return this._bindDefault(n, env); }
+    public BoundExpr VisitInterpolatedStringExpr(InterpolatedStringExpr n, TypeEnv env) { return this._bindInterpolatedStr(n, env); }
+}

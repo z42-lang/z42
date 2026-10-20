@@ -16,7 +16,7 @@ using Z42.Syntax;
 using Z42.Core;
 using Z42.IR.BinaryFormat;
 
-public sealed partial class ExprTyper {
+public sealed partial class ExprTyper : IExprVisitor<BoundExpr, TypeEnv> {
     private TypeChecker _tc;
     private int _collSeq;   // 集合字面量脱糖的合成局部名计数器（$c0, $c1, ...）
     private CollectionTyper _coll;   // 集合字面量绑定簇（[..]/{..} 脱糖）
@@ -415,58 +415,9 @@ public sealed partial class ExprTyper {
 
 
     public BoundExpr _bindExpr(Expr e, TypeEnv env) {
-        if (e is IntLitExpr || e is CharLitExpr || e is FloatLitExpr
-            || e is StringLitExpr || e is BoolLitExpr || e is NullLitExpr) {
-            return this._bindLiteral(e);
-        }
-        if (e is IdentExpr) { return this._bindIdent(e as IdentExpr, env); }
-        if (e is AssignExpr) { return this._assign._bindAssign(e as AssignExpr, env); }
-        if (e is BinaryExpr) {
-            return this._bindBinary(e as BinaryExpr, env);
-        }
-        if (e is UnaryExpr) {
-            return this._bindUnary(e as UnaryExpr, env);
-        }
-        if (e is MemberExpr) {
-            return this._tc._member._bindMember(e as MemberExpr, env);
-        }
-        if (e is IsExpr) { return this._typeop._bindIsExpr(e as IsExpr, env); }
-        if (e is IsPatternExpr) { return this._typeop._bindIsPatternExpr(e as IsPatternExpr, env); }
-        if (e is TypeofExpr) { return this._typeop._bindTypeofExpr(e as TypeofExpr, env); }
-        if (e is MethodOfExpr) { return this._typeop._bindMethodOfExpr(e as MethodOfExpr, env); }
-        if (e is AsExpr) { return this._typeop._bindAsExpr(e as AsExpr, env); }
-        if (e is CastExpr) { return this._typeop._bindCastExpr(e as CastExpr, env); }
-        if (e is ArrayNewExpr) { return this._bindArrayNew(e as ArrayNewExpr, env); }
-        if (e is ArrayInitExpr) { return this._bindArrayInit(e as ArrayInitExpr, env); }
-        // 集合字面量（无目标类型上下文 → null；有目标时经 StmtBinder._bindVarDecl 等站点直接调 _bindCollLit）
-        if (ExprTyper.IsCollLit(e)) { return this._bindCollLit(e, null, env); }
-        if (e is RefArgExpr) { return this._bindRefArg(e as RefArgExpr, env); }
-        if (e is ObjNewExpr) {
-            return this._construct._bindNew(e as ObjNewExpr, env, null);   // 无目标上下文 → target-typed 会报 E0437
-        }
-        if (e is ObjInitExpr) { return this._construct._bindObjInit(e as ObjInitExpr, env, null); }
-        if (e is WithExpr) { return this._construct._bindWith(e as WithExpr, env); }   // 模式匹配 D：record 非破坏式更新
-        if (e is TupleExpr) { return this._construct._bindTuple(e as TupleExpr, env); }   // add-tuple-types：值元组字面量
-        if (e is DefaultExpr) {
-            return this._bindDefault(e as DefaultExpr, env);
-        }
-        if (e is TernaryExpr) { return this._bindTernary(e as TernaryExpr, env); }
-        if (e is SwitchExpr) { return this._bindSwitchExpr(e as SwitchExpr, env); }
-        if (e is IndexExpr) { return this._bindIndex(e as IndexExpr, env); }
-        if (e is CallExpr) {
-            // add-symbol-availability-macro：带参编译期宏 `name!(args)` 被 parser 译成
-            // CallExpr(IdentExpr("$macro:name"), args)。必须在 _bindCall **之前**截住——否则
-            // 会去把哨兵名当函数解析、报 "undefined: $macro:available"。
-            if (MacroRegistry.IsMacroCall(e)) { return this._bindMacroCall(e as CallExpr, env); }
-            return this._tc._member._bindCall(e as CallExpr, env);
-        }
-        if (e is InterpolatedStringExpr) {
-            return this._bindInterpolatedStr(e as InterpolatedStringExpr, env);
-        }
-        // GS6: lambda 作为调用参数（无 expected type 上下文）→ 按参数显式类型或 Unknown 合成 expected。
-        if (e is LambdaExpr) { return this._bindLambdaArg(e as LambdaExpr, env); }
-        this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "unsupported expression (1A)", e.Span);
-        return new BoundError("unsupported expr", new Z42ErrorType(), e.Span);
+        // syntax visitor 2/3：调度 = Accept 双分派到 ExprTyper.Visit.z42 的逐节点 Visit（完备性由
+        // IExprVisitor 接口保证——新增 Expr 子类漏接 = 编不过，不再是此处的 if-is 阶梯 + walkers 门）。
+        return e.Accept<BoundExpr, TypeEnv>(this, env);
     }
 
     // add-symbol-availability-macro：带参编译期宏 `name!(args)` 的分发。
