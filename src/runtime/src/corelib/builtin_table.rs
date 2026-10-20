@@ -165,6 +165,7 @@ const TYPED: &[&[super::abi::BuiltinDesc]] = &[
     super::process::typed::DESCS,
     super::io::typed::DESCS,
     super::repl::typed::DESCS,
+    super::repl_editing::typed::DESCS,
     super::monitor::typed::DESCS,
     #[cfg(not(target_arch = "wasm32"))]
     super::network::tcp::typed::DESCS,
@@ -187,8 +188,6 @@ const TYPED: &[&[super::abi::BuiltinDesc]] = &[
 /// shrinks, as those areas migrate.
 pub(crate) const LEGACY_REENTERS: &[&str] = &[
     "__type_is_class",
-    "__repl_complete_probe", "__repl_set_completer", "__repl_set_key_editor", "__repl_set_keywords",
-    "__repl_member_names",
     "__test_module_load",
 ];
 
