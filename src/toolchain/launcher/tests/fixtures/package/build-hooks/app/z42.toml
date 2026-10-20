@@ -4,5 +4,5 @@ version = "0.1.0"
 kind = "exe"
 [sources]
 include = ["src/**/*.z42"]
-[build]
-hooks = "hooks"
+[plugins]
+"hooksmoke.hooks" = { path = "hooks" }

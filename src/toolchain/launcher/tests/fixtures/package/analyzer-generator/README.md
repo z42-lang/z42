@@ -5,7 +5,7 @@
 `artifacts/build/`）命中。发布态走的是完全不同的一档（`Z42_HOME/programs/z42c`），开发树那格证明不了它 ——
 插件作者在发布态拿到的会是一句位置在别处的 `E0443: undefined type`，没有任何东西诊断它。
 
-按用户的实际动作排（SDK 库的可见性规则：analyzer 免声明可见；exe / lib 按名声明才可见）：
+按用户的实际动作排（SDK 库的可见性规则：插件工程（kind=plugin）免声明可见；exe / lib 按名声明才可见）：
 
 1. analyzer 工程（`kind = "analyzer"`，不声明契约包）用包里的 z42c 编得过；
 2. 普通工程 `[analyzers]` 挂上它，编得过，且 generator 生成的代码真能跑（输出 42）；
