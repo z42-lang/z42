@@ -1,4 +1,4 @@
-desc = "装好的 SDK 上 z42b build 编译并执行 [build] hooks（hook 继承 Z42.Build.BuildHooks，z42.build 在 SDK 的编译器目录而不在 libs/；见 README）"
+desc = "装好的 SDK 上 z42b 代建并执行 hook 插件（[plugins] path 条目；hook 继承 Z42.Build.BuildHooks，z42.build 在 SDK 的编译器目录而不在 libs/；见 README）"
 
 [[step]]
 tool = "z42b"

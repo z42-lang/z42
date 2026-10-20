@@ -62,7 +62,7 @@ xtask test stdlib       # z42b 作为 [Test] 运行器跑全部 stdlib 单元
 | `core/builder_cli.z42` | **CLI 路由**（对照 `launcher_cli.z42`）：`Std.Cli` 嵌套 router + dispatch。verbs：new / test / bench / clean / publish（用户经 `z42` 到达，帮助名写 `z42 <verb>`）+ build / export（编排方直接调用）|
 | `core/builder.z42` | **编排核心**：`_orchestrate` 选路径 → 构造 `Pipeline`（注入 `ICompiler` + workload + hooks）+ `PipelineContext` → `Run`；`_hostCompiler` 运行时加载 `programs/z42c/z42c.pipeline.zpkg` 注入编译器（缺失则 `NoCompiler` 兜底）|
 | `core/builder_commands.z42` | **命令处理**：build / export / publish 共用 `_runVerb`（ManifestLoader → Target → `_orchestrate`）|
-| `core/builder_hooks.z42` | 项目 build hook 动态注入：`[build] hooks` 目录（编成 zpkg → `Build.ProjectHooks`）与 `[plugins]` hook 插件（反射全部 `BuildHooks` 具体类）两来源组合，多者经 `CompositeBuildHooks` 按声明序调用 |
+| `core/builder_hooks.z42` | 项目 build hook 注入：`[plugins]` 里带 hook 位的插件（工程条目经 ICompiler 代建）反射全部 `BuildHooks` 具体类，多者经 `CompositeBuildHooks` 按声明序调用；旧 `[build] hooks` 目录写法已删除（1b） |
 | `core/builder_new.z42` | **`new` 脚手架**：生成 z42.toml + src 模板（exe/lib）+ .gitignore + README；工程名校验、`--path` 为父目录 |
 | `core/builder_test.z42` | **test / bench**：反射式 `[Test]`/`[Benchmark]` 运行器。target 双形态：已编译 `.zbc/.zpkg` 直跑 / 工程 `z42.toml`（或无 target）→ compile-then-test |
 | `core/builder_workspace.z42` | **工作区根**：`_wsDispatch` 判目标、按 `WorkspacePlan.PlanDefault` / `PlanLayout` 逐成员跑；`WsSiblings` 登记本轮已建成员（编译期排在 Z42_LIBS 前、path 闭包复用、测试产物旁并置）|

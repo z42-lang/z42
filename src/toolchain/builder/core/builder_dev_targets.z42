@@ -165,7 +165,7 @@ ProjectManifest _deriveTargetManifest(ProjectManifest m, DevTarget t, string kin
 
     string tOut = Path.Join(outRoot, t.Name);
     BuildConfig bc = new BuildConfig(true, tOut, true, Path.Join(tOut, "cache"),
-                                     false, "", m.Build.Incremental, false, "");
+                                     false, "", m.Build.Incremental);
 
     ProjectManifest dm = new ProjectManifest(pi, src, bc,
                                new Profile[0], 0, merged, mc,

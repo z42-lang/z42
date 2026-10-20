@@ -8,19 +8,19 @@ z42 允许把**你自己的代码加载进工具链**（编译器 z42c / 构建�
 
 三类都打包成 **`kind = "plugin"`** 的 zpkg（一个插件包可同时提供几类——包内实现了哪些契约，构建时
 推导出能力位写进 zpkg 头），由消费方工程的 **`[plugins]`** 段声明。它们**只在工具链进程里运行，
-不链入目标产物**。旧名 `kind = "analyzer"` 与 `[analyzers]` 段在过渡期等价。
+不链入目标产物**。旧名 `kind = "analyzer"` 与 `[analyzers]` 段已删除（写了按未知键/未知段报错）。
 
 `kind = "plugin"` 做两件事：让工具链的契约包对这个工程**自动可见**、免声明（见
 [解析域](#解析域编译期扩展自动看得见-sdk-库)），并声明「我是插件」——`[plugins]` 的
 path 条目据此校验，`[dependencies]` 据此拒收。
 
 > 契约包（`z42c.analyzers` / `z42c.generators` / `z42c.syntax` / `z42c.core` / `z42c.semantics`）是 **SDK 库**：住在 `programs/z42c/`、
-> 不在 `libs/`。`kind = "plugin"`（含旧名 `analyzer`）自动看得见它们；普通工程（`kind = "lib"` / `"exe"`）要在
+> 不在 `libs/`。`kind = "plugin"` 自动看得见它们；普通工程（`kind = "lib"` / `"exe"`）要在
 > `[dependencies]` 里**按名声明**才可见。
 
 > 本页所有代码片段都来自实跑通过的最小工程。
 
-## `[plugins]` 段（旧名 `[analyzers]`，并存合并）
+## `[plugins]` 段
 
 ```toml
 [plugins]
@@ -278,8 +278,8 @@ public class MyHooks : BuildHooks {
 ```
 
 包内**全部**继承 `BuildHooks` 的具体类都会被发现并实例化（按类全名序），多个插件 / 多个类按
-`[plugins]` 声明序依次组合调用。本工程的 `[build] hooks = "dir"` 目录写法在过渡期并存，等价于一个
-只含一个类的 hook 插件。
+`[plugins]` 声明序依次组合调用。（本工程的 hook 也这么写：hook 目录补一份 `kind = "plugin"` 清单、
+经 `[plugins]` path 条目引用——旧 `[build] hooks` 目录写法已删除。）
 
 > hook 在 z42b 进程里全权运行（写文件、起子进程），与 `[dependencies]` 上一个包的运行期代码同级
 > 信任——声明即信任，不做沙箱。

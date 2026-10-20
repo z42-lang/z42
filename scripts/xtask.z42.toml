@@ -20,6 +20,11 @@ include = ["**/*.z42"]
 #
 # ⚠️ 代价 = 自举纪律：编 xtask 的是**上一版 nightly**，所以 xtask 用到的 `Z42.Project` / `Z42.Build` 新 API
 # 必须先随一次合入进 nightly、下一个 PR 再用（docs/internals/src/compiler/self-hosting.md）。
+[plugins]
+# hook 插件（unify-plugin-packages 1b）：`z42 publish` 时 z42b 代建并反射加载 scripts/hooks/
+# —— BeforeAssets 现场 cargo 编 apphost stub 并登记，免装 desktop workload。目录为 projDir 相对。
+"xtask.hooks" = { path = "hooks" }
+
 [dependencies]
 "z42.project" = { version = "*", deploy = "sdk" }
 "z42.build"   = { version = "*", deploy = "sdk" }
@@ -33,10 +38,6 @@ include = ["**/*.z42"]
 # "artifacts/xtask/xtask.zpkg" layout instead of "${output_dir}/dist/...".
 # cache_dir 不写 = 默认 ${output_dir}/.cache。
 output_dir = "../artifacts/xtask"
-# build hook（wire-z42b build-hook 终章）：`z42 publish` 时 z42b 动态注入
-# scripts/hooks/ 的 ProjectHooks —— BeforeAssets 现场 cargo 编 apphost stub 并登记，
-# 免装 desktop workload（去掉下载依赖）。目录为 projDir（scripts/）相对。
-hooks      = "hooks"
 dist_dir   = "${output_dir}"
 
 [profile.release.runtime]

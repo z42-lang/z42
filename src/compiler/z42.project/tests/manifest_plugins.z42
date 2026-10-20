@@ -1,7 +1,6 @@
-// unify-plugin-packages（support）：`[plugins]`（含旧段名 `[analyzers]`）的解析层。
-// z42.project 只搬条目（DepEntry 三形态：名字 / 工程目录 / .zpkg 产物，同 [dependencies] 的取值面）；
-// 按位分流、读头校验、代建在 z42c / z42b 消费侧（各自的夹具覆盖）。同名重复不在解析层报——
-// ManifestKnobs.Resolve 拿得到整份清单才判（两段合并后同条目写两遍那格）。
+// unify-plugin-packages：`[plugins]` 的解析层。z42.project 只搬条目（DepEntry 三形态：名字 /
+// 工程目录 / .zpkg 产物，同 [dependencies] 的取值面）；按位分流、读头校验、代建在 z42c / z42b
+// 消费侧（各自的夹具覆盖）。旧段名 [analyzers] 已删除（1b）。
 namespace Z42ProjectPluginTests;
 
 using Z42.Project;
@@ -39,40 +38,14 @@ void test_plugins_zpkg_path_entry() {
 }
 
 [Test]
-void test_legacy_analyzers_merged_and_ordered_first() {
-    // 旧段名 [analyzers] 的条目排在 [plugins] 前面（support 期两段并存合并；顺序即生效顺序的基准）。
-    string toml = "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[plugins]\n\"p.new\" = \"0.1.0\"\n\n[analyzers]\n\"p.old\" = \"0.1.0\"\n";
-    ProjectManifest m = ManifestLoader.ParseText(toml);
-    Assert.Equal(2, m.PluginCount);
-    Assert.Equal("p.old", m.Plugins[0].Name);
-    Assert.Equal("p.new", m.Plugins[1].Name);
-    // 种子 ABI 残留：Analyzers 与 Plugins 是同一份（老 z42c.driver 还在读旧字段）。
-    Assert.Equal(2, m.AnalyzerCount);
-    Assert.Equal("p.old", m.Analyzers[0].Name);
-}
-
-[Test]
-void test_analyzers_only_still_parses() {
-    // 只写旧段名也成立（support 期的等价性）。
-    string toml = "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[analyzers]\n\"p.old\" = { path = \"../old\" }\n";
-    ProjectManifest m = ManifestLoader.ParseText(toml);
-    Assert.Equal(1, m.PluginCount);
-    Assert.Equal("p.old", m.Plugins[0].Name);
-    Assert.Equal("../old", m.Plugins[0].Path);
-}
-
-[Test]
 void test_kind_plugin_is_plugin() {
-    // kind = "plugin" 与旧名 "analyzer" 都判插件工程（IsPlugin；决定 SDK 契约包免声明可见、
-    // 不链入产物、能力位推导）。
+    // kind = "plugin" 判插件工程（IsPlugin；决定 SDK 契约包免声明可见、不链入产物、能力位推导）。
+    // 旧名 "analyzer" 已删除（1b）：由 kind 校验（unknown kind）兜住。
     string toml = "[project]\nname = \"demo\"\nversion = \"0.1.0\"\nkind = \"plugin\"\n";
     ProjectManifest m = ManifestLoader.ParseText(toml);
     Assert.True(m.Project.IsPlugin());
     Assert.Equal("plugin", m.Project.Kind);
 
-    string old = "[project]\nname = \"demo\"\nversion = \"0.1.0\"\nkind = \"analyzer\"\n";
-    ProjectManifest om = ManifestLoader.ParseText(old);
-    Assert.True(om.Project.IsPlugin());
 }
 
 [Test]
@@ -89,5 +62,4 @@ void test_no_plugins_section() {
     string toml = "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n";
     ProjectManifest m = ManifestLoader.ParseText(toml);
     Assert.Equal(0, m.PluginCount);
-    Assert.Equal(0, m.AnalyzerCount);
 }

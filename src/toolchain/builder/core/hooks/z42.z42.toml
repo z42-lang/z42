@@ -1,0 +1,12 @@
+# z42b 的 hook 插件（unify-plugin-packages 1b）：BeforeCompile 把 versions.toml 常量渲染成 builder_pins.z42。
+# 「不用 xtask 也能编 z42b」——z42 build <本 toml> 经 z42b 走本插件；xtask 直编路径另有等价生成（两处文本须一致）。
+[project]
+name    = "z42.builder.hooks"
+version = "0.1.0"
+kind    = "plugin"
+
+[sources]
+include = ["*.z42"]
+
+[build]
+output_dir = "../../../../../artifacts/build/toolchain/builder/hooks"

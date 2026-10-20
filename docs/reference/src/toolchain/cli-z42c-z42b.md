@@ -101,7 +101,7 @@ analyzer 在报诊断的同时可以携带一个「代码修复」（一组文�
 修复**就地重写**回源文件；不加 `--fix`、或 analyzer 没带修复时源文件不动。被 `[lints]`
 或 `#suppress` / `[Suppress]` 抑制的诊断不会应用修复。
 
-修复由 analyzer 自身产出，包括第三方 `[analyzers]` zpkg——「谁报诊断谁产修复」。
+修复由 analyzer 自身产出，包括第三方 `[plugins]` zpkg——「谁报诊断谁产修复」。
 **只对单包 `build` 生效**，`--workspace` 下不应用。
 
 ## `z42c --emit-zbc <file.z42> <out.zbc> [--opt-all]`
@@ -168,11 +168,11 @@ z42b 编译为 `z42.builder.zpkg`，用户通过 launcher 到达它的命令：
 | `[project] version` / `entry` | 写进产物（exe 按 `entry` 找入口，不再只认 `Main`） |
 | `[optimize]` | 与 `z42c build` 同口径；未知优化名是用法错误 |
 | `[syntax]` | 关掉的特性在源码里出现即报 **E0301** |
-| `[lints]` / `[analyzers]` | analyzer 照常加载运行、严重度按 `[lints]` 调整 |
+| `[lints]` / `[plugins]` | analyzer 照常加载运行、严重度按 `[lints]` 调整 |
 | `[dependencies]` | 声明了却找不到的依赖报错；用到未声明的包报 **E0497**（`z42.` 前缀的标准库包豁免） |
 | `--release` | 主包剥离调试信息、旁挂 `.zsym`（同 `z42c build --release`） |
 
-测试 / bench 目标**继承父包**的 `[optimize]` / `[syntax]` / `[lints]` / `[analyzers]`。
+测试 / bench 目标**继承父包**的 `[optimize]` / `[syntax]` / `[lints]` / `[plugins]`。
 
 与 `z42c build` 的差别：z42b 只产出 packed 单产物——显式写 `pack = false` 是用法错误；`[[exe]]` 多入口不认；
 没有增量缓存。编译**警告**以 `warning:` 前缀打到 stderr。

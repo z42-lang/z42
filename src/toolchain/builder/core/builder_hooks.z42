@@ -28,17 +28,10 @@ public sealed class HookLoad {
 
 // 收集一个工程的全部 hook 来源并组合。
 //   projDir   工程目录（相对路径的基准）
-//   hooksRel  `[build] hooks` 目录（projDir 相对；"" = 未声明）
-//   interDir  hook 产物落点（hook 目录 / 插件工程的代建产物写这里）
-//   projName  工程名（hook 目录的合成包名 = <projName>.hooks）
-HookLoad _loadHooks(ProjectManifest m, string projDir, string hooksRel, string interDir, string projName) {
+//   interDir  hook 插件工程代建产物的落点
+HookLoad _loadHooks(ProjectManifest m, string projDir, string interDir) {
     BuildHooks[] parts = new BuildHooks[4];
     int n = 0;
-    if (hooksRel.Length > 0) {
-        BuildHooks h = _loadProjectHooks(Path.Join(projDir, hooksRel), interDir, projName + ".hooks");
-        if (h == null) { return new HookLoad(false, null); }
-        parts[n] = h; n = n + 1;
-    }
     int pi = 0;
     while (pi < m.PluginCount) {
         DepEntry e = m.Plugins[pi];
@@ -217,46 +210,4 @@ string[] _hookCompileDeps() {
     string compilerZpkg = _findCompilerZpkg();
     if (compilerZpkg.Length > 0) { deps = _hooksAppendZpkgs(deps, Path.GetDirectoryName(compilerZpkg)); }
     return deps;
-}
-
-// 编译并实例化 `[build] hooks` 目录。失败（目录缺失 / 编译错 / 类型不符 / 加载异常）→ 打诊断、返回 null。
-//   hooksDir  hook 源目录（已解析为可用路径）
-//   interDir  hook 产物落点（<pkgName>.zpkg 写这里）
-//   pkgName   hook 包名（约定 <proj>.hooks）
-// 编译面：合成一份 lib 清单（名 = <proj>.hooks、include = `**/*.z42`）随请求传入，直接编 hooks 目录。
-BuildHooks _loadProjectHooks(string hooksDir, string interDir, string pkgName) {
-    if (!Directory.Exists(hooksDir)) {
-        ConsoleError.WriteLine("z42b: [build] hooks dir not found: " + hooksDir);
-        return null;
-    }
-    ICompiler comp = _hostCompiler();
-    string outZpkg = Path.Join(interDir, pkgName + ".zpkg");
-    CompileRequest req = new CompileRequest(hooksDir, outZpkg, _hookCompileDeps(), "release", false, false, "lib", new string[0], 0);
-    req.PackageName = pkgName;
-    req.Manifest = ManifestLoader.ParseText("[project]\nname = \"" + pkgName + "\"\nversion = \"0.0.0\"\nkind = \"lib\"\n\n"
-        + "[sources]\ninclude = [\"**/*.z42\"]\n");
-    CompileResult res = comp.Compile(req);
-    if (!res.Ok) {
-        ConsoleError.WriteLine("z42b: hooks compile failed (" + hooksDir + "):");
-        ConsoleError.WriteLine(res.Diagnostics);
-        return null;
-    }
-
-    try {
-        ModuleLoader.Load(res.Zpkg);
-        object o = ModuleLoader.Create("Build.ProjectHooks");
-        if (o == null) {
-            ConsoleError.WriteLine("z42b: hooks loaded but Build.ProjectHooks not found — hook source must declare `namespace Build;` + `class ProjectHooks : BuildHooks`");
-            return null;
-        }
-        BuildHooks h = o as BuildHooks;
-        if (h == null) {
-            ConsoleError.WriteLine("z42b: Build.ProjectHooks does not extend Z42.Build.BuildHooks");
-            return null;
-        }
-        return h;
-    } catch (Exception e) {
-        ConsoleError.WriteLine("z42b: hooks load failed (" + e.Message + ")");
-        return null;
-    }
 }

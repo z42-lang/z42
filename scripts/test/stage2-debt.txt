@@ -6,7 +6,6 @@
 # 重生成：`xtask check stage2 --update`（已有条目**保留原挂账日**，不会把时钟拨回今天）。
 # 推期限 = **手改本文件的日期**（`--update` 不会替你判断前提到没到）；
 # 而**理由写进源码那条 `STAGE2-DEBT` 标记**——本文件的注释会被 `--update` 重写掉。
-src/compiler/z42.project/src/ProjectManifest.z42#legacy-plugin-keys 2026-10-19 种子的 z42c.driver 不再读 pm.Analyzers / AnalyzerCount 后删掉这两个字段；同一步把仓内清单的 [analyzers] / kind = "analyzer" / [build] hooks 迁到 [plugins] / kind = "plugin" 并删掉这三个旧写法。
 src/runtime/src/corelib/builtin_table_ext.rs#legacy-net-builtins 2026-10-13 种子的 z42.core 不再声明 `__net_*` 后删掉下面这些表项、corelib/network/legacy/ 与 tls_legacy.rs。
 src/runtime/src/corelib/process_legacy.rs#legacy-process-builtins 2026-10-13 种子的 z42.core 不再声明 __process_run / __process_spawn / __process_handle_* 后删掉本文件、其表项与 process_legacy_tests.rs。
 src/runtime/src/corelib/threading.rs#legacy-thread-join 2026-10-13 种子的 z42.core 不再声明 __thread_join 后删掉它与 JoinOutcome / 结果数组。

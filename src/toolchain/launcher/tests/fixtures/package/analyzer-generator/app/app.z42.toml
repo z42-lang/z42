@@ -6,5 +6,5 @@ kind    = "exe"
 [sources]
 include = ["*.z42"]
 
-[analyzers]
+[plugins]
 "dist.gen" = { path = "../gen" }

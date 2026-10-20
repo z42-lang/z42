@@ -517,7 +517,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     // （「只索引 stdlib + 声明依赖」），名字对不上任何 zpkg 就只是少激活一个包 —— 编译照常成功。
     // 于是清单里把包名拼错（或依赖了一个根本没 build 的库），得到的不是「找不到依赖 X」，而是
     // 一堆**位置在别处**的 `E0443 undefined type` / `E0401 undefined`，从症状反推不回清单。
-    // 判据与 `_bundleExeDeps` / `[analyzers]` 解析同款：libsDirs 里有没有 `<name>.zpkg`。
+    // 判据与 `_bundleExeDeps` / `[plugins]` 解析同款：libsDirs 里有没有 `<name>.zpkg`。
     // 摸底：全仓 233 个 z42 包的 [dependencies] 无一条落空（落空的 24 条全在 Cargo.toml）⇒ 判红零误伤。
     int dvi = 0;
     while (dvi < pm.DepCount) {

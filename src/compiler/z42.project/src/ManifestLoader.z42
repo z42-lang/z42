@@ -55,7 +55,7 @@ public static class ManifestLoader {
                                    examples, examples.Length);
         ManifestLoader._parseOptimize(root, pm);   // [optimize] 逐 pass 具名开关（构造后填，见 ProjectManifest）
         ManifestLoader._parseSyntax(root, pm);     // [syntax] 语法特性开关（构造后填，见 ProjectManifest）
-        ManifestLoader._parsePlugins(root, pm);     // [plugins]（含旧名 [analyzers]）插件 zpkg 引用（同构造后填）
+        ManifestLoader._parsePlugins(root, pm);     // [plugins] 插件 zpkg 引用（同构造后填）
         ManifestLoader._parseLints(root, pm);       // [lints] 诊断规则开关 / severity 覆盖（同构造后填）
         ManifestLoader._parseNative(root, pm);       // [native.*] 本包携带的私有 native 库（同构造后填）
         // [properties] 应用自定义属性基表（add-app-properties，同构造后填）。
@@ -96,20 +96,13 @@ public static class ManifestLoader {
         pm.Natives = arr; pm.NativeCount = keys.Length;
     }
 
-    // ── [plugins]（旧名 [analyzers]）──────────────────────────────────────────
+    // ── [plugins] ─────────────────────────────────────────────────────────────
     // 独立引用段：插件 zpkg 加载进工具链进程运行、不链入目标程序。值同 [dependencies]（字符串版本或
-    // { version, path } 表）→ 复用 _parseDeps；加载到哪、按什么分流由消费方决定，非解析层。旧段名的条目
-    // 排在前面，两段并存时同名由 ManifestKnobs 报重复。构造后填（默认空），避免撑大构造函数。
+    // { version, path } 表）→ 复用 _parseDeps；加载到哪、按什么分流由消费方决定，非解析层。
+    // 旧段名 [analyzers] 已删除（unify-plugin-packages 1b）：写了按未知段报错，改写 [plugins]。
     private static void _parsePlugins(TomlValue root, ProjectManifest pm) {
-        DepEntry[] old = ManifestLoader._parseDeps(root, "analyzers");
         DepEntry[] cur = ManifestLoader._parseDeps(root, "plugins");
-        DepEntry[] all = new DepEntry[old.Length + cur.Length];
-        int i = 0;
-        while (i < old.Length) { all[i] = old[i]; i = i + 1; }
-        int j = 0;
-        while (j < cur.Length) { all[old.Length + j] = cur[j]; j = j + 1; }
-        pm.Plugins = all; pm.PluginCount = all.Length;
-        pm.Analyzers = all; pm.AnalyzerCount = all.Length;   // 种子 ABI 残留，同一份（见 ProjectManifest）
+        pm.Plugins = cur; pm.PluginCount = cur.Length;
     }
 
     // ── [lints]（attribute-handler-registry PR3b）─────────────────────────────
@@ -262,7 +255,6 @@ public static class ManifestLoader {
         bool hasCache = false; string cacheDir = "";
         bool hasDist = false; string distDir = "";
         bool incremental = true;
-        bool hasHooks = false; string hooksDir = "";
         bool hasGen = false; string genDir = "";
         TomlValue b = null;
         if (root.TryGet("build", ref b)) {
@@ -270,13 +262,12 @@ public static class ManifestLoader {
             hasCache = b.TryGetValue<string>("cache_dir",  ref cacheDir);
             hasDist  = b.TryGetValue<string>("dist_dir",   ref distDir);
             b.TryGetValue<bool>("incremental", ref incremental);   // 未命中保留默认 true
-            // fix-hooks-source-scan：`[build] hooks`（projDir 相对目录）。z42c 阶段 2 据此自动排除。
-            hasHooks = b.TryGetValue<string>("hooks", ref hooksDir);
+            // `[build] hooks` 已删除（unify-plugin-packages 1b）：hook 插件改经 [plugins] 引用，
+            // 写了旧键按未知键报错（键审计表同步删行）。
             // add-member-forwarding：generator 产出源码的落盘目录（"" = 不落盘）。
             hasGen   = b.TryGetValue<string>("generated_dir", ref genDir);
         }
-        BuildConfig bc = new BuildConfig(hasOut, outDir, hasCache, cacheDir, hasDist, distDir, incremental,
-                                         hasHooks, hooksDir);
+        BuildConfig bc = new BuildConfig(hasOut, outDir, hasCache, cacheDir, hasDist, distDir, incremental);
         bc.HasGeneratedDir = hasGen; bc.GeneratedDir = genDir;
         return bc;
     }

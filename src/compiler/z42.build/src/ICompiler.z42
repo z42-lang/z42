@@ -54,7 +54,7 @@ namespace Z42.Build;
     /// 空 → 沿用目录尾名（现状）。**body 字段、不进 ctor**（种子 ABI）。
     public string PackageName = "";
 
-    /// add-build-session：整份清单（含 `[optimize]` / `[syntax]` / `[lints]` / `[analyzers]` / entry / version /
+    /// add-build-session：整份清单（含 `[optimize]` / `[syntax]` / `[lints]` / `[plugins]` / entry / version /
     /// `[dependencies]`）。设了 ⇒ 实现方走 BuildSession，按清单做全部编译决策（与 `z42c build` 同一判据）；
     /// null ⇒ 退回上面的平铺字段（旧调用方）。传**对象**而非路径：z42b 测试目标的清单是在内存里派生的。
     /// **body 字段、不进 ctor**（种子 ABI，同 ParentPkg）。

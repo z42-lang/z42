@@ -4,7 +4,7 @@
 > `[derive(...)]` 三层分档，**一行都还没实施**；落地各档各自开 spec。
 >
 > 🔶 **别把本页读成"z42 没有编译期代码生成"**。另有一条**已经发布**的路：
-> **Analyzer / Generator**——消费方工程用 `[analyzers]` 段把你的 zpkg 加载进编译器，
+> **Analyzer / Generator**——消费方工程用 `[plugins]` 段把你的 zpkg 加载进编译器，
 > generator 在 bind 之后经 `AddSource` / `Augment` / `Replace` 三个 sink 产码并重新 bind。
 > 见 [编译期扩展：Analyzer 与 Generator](https://z42-lang.github.io/z42/reference/toolchain/compile-time-extensions.html)。
 > 两者不是同一件事的两种实现：Generator 是**写一个编译器插件**（单独一个包、看得见整个编译），

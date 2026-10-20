@@ -1,4 +1,4 @@
-// `[plugins]`（含旧段名 `[analyzers]`）条目 → 插件 zpkg，以及插件身份指纹。
+// `[plugins]` 条目 → 插件 zpkg，以及插件身份指纹。
 //
 // 三种条目形态（与 `[dependencies]` 同构）：
 //   · `x = "1.0"`（无 path）：在 libsDirs 里找 `<name>.zpkg`；

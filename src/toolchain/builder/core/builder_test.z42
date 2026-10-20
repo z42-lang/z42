@@ -248,7 +248,7 @@ int _runOneDevTarget(ParseResult r, ProjectManifest m, DevTarget t, string kind,
 
     // ② 父包身份：交给进程内编译器 ⇒ 测试可见父包 internal
     //    （Pipeline.ParentPkg → CompileRequest.ParentPkg → CompileInputs.ParentPkg）。
-    int rc = _orchestrate(derived, tgt, sourceDir, "", m.Project.Name, parentDist);
+    int rc = _orchestrate(derived, tgt, sourceDir, m.Project.Name, parentDist);
     if (rc != 0) { return rc; }
 
     Dirs dirs = _computeDirs(derived, sourceDir, tgt.Profile);
@@ -449,7 +449,7 @@ string _buildParentForTargets(ProjectManifest m, Target tgt, string sourceDir, b
         Dirs rd = _computeDirs(m, sourceDir, tgt.Profile);
         if (File.Exists(Path.Join(rd.Dist, m.Project.Name + ".zpkg"))) { return rd.Dist; }
     }
-    int rc = _orchestrate(m, tgt, sourceDir, "");
+    int rc = _orchestrate(m, tgt, sourceDir);
     if (rc != 0) {
         ConsoleError.WriteLine("z42b: failed to build parent package `" + m.Project.Name + "`");
         return "";

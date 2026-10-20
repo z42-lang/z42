@@ -10,7 +10,7 @@
 // `WorkspacePlan.Plan` / `PlanLayout` / `PlanDefault`。
 // 不抛异常：有的调用方（xtask `_loadManifestOr`）会吞异常回落默认，抛了反而把错误藏起来。
 //
-// 不审计的位置（键名本身就是用户数据）：`[dependencies]` / `[plugins]`（及旧名 `[analyzers]`）/ `[native]` 的子表名、
+// 不审计的位置（键名本身就是用户数据）：`[dependencies]` / `[plugins]`/ `[native]` 的子表名、
 // `[optimize]` / `[syntax]`（消费方按名表校验）、`[lints]` 规则名（只校验值，见 `_lints`）、`[properties]` 与
 // `[profile.<n>.properties]`（应用自定义）、`[profile.<n>.runtime]`（VM 登记表校验）。
 // `[profile.<n>]` 下直接写的键另走 `Profile.BadKeys`（旧形状，报得更具体）。
@@ -29,7 +29,7 @@ public static class ManifestKeys {
     // 各段合法键（`/` 分隔）。改这里 = 改清单契约：同步 docs/reference/src/toolchain/z42-toml.md。
     public static string RootKeys() {
         return "project/sources/build/dependencies/profile/exe/platform/tests/benches/examples/test/bench/example"
-            + "/optimize/syntax/analyzers/plugins/lints/native/properties";
+            + "/optimize/syntax/plugins/lints/native/properties";
     }
     public static string ProjectKeys()   { return "name/version/kind/pack/description/authors/license"; }
     public static string SourcesKeys()   { return "include/exclude"; }
@@ -56,7 +56,6 @@ public static class ManifestKeys {
         a.CheckSub(root, "sources", ManifestKeys.SourcesKeys());
         a.CheckSub(root, "build",   ManifestKeys.BuildKeys());
         ManifestKeys._deps(a, root, "dependencies", "dependencies");
-        ManifestKeys._deps(a, root, "analyzers",    "analyzers");
         ManifestKeys._deps(a, root, "plugins",      "plugins");
         ManifestKeys._eachSub(a, root, "native", ManifestKeys.NativeKeys());
         ManifestKeys._array(a, root, "exe", ManifestKeys.ExeKeys());

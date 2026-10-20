@@ -6,7 +6,7 @@
 //
 // visitor 模型（无 delegate）：z42 自举编译器刻意规避 delegate + 命名 delegate 跨 zpkg 丢 FQ 名（见
 // Analysis.z42 头注），故契约与驱动全走**接口派发 + 纯虚调用**——driver 侧零 delegate / 零闭包，
-// analyzer 侧也无需 lambda。发现 / 加载外部 analyzer zpkg 见 [analyzers] 段（后续增量）；本增量的驱动
+// analyzer 侧也无需 lambda。发现 / 加载外部 analyzer zpkg 见 [plugins] 段（后续增量）；本增量的驱动
 // 机制由单测（tests/analyzer）直接喂 analyzer 实例验证。
 //
 // 设计 SoT：变更 attribute-handler-registry/design.md §Analyzer 接口 / §Pipeline。
