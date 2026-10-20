@@ -35,7 +35,7 @@ fn complete_trampoline_no_completer_registered_returns_null() {
     let _g = SERIAL.lock().unwrap();
     let ctx = VmContext::new();
     // Ensure unset, then a non-null call still returns null (no completer FQN).
-    builtin_repl_set_completer(&ctx, &[Value::Str("".into())]).unwrap();
+    repl_set_completer("");
     let ctx_ptr = &*ctx as *const VmContext as *mut c_void;
     let line = CString::new("Con").unwrap();
     let r = complete_trampoline(ctx_ptr, line.as_ptr(), 3);
@@ -49,7 +49,7 @@ fn complete_trampoline_callback_error_swallowed_to_null() {
     // Register a completer so we pass the "no FQN" gate and actually re-enter; a
     // fresh ctx has `core.module == None`, so `complete_via_callback` errors — the
     // trampoline must swallow that to null, not propagate/panic.
-    builtin_repl_set_completer(&ctx, &[Value::Str("Repl.NoSuchCompleter".into())]).unwrap();
+    repl_set_completer("Repl.NoSuchCompleter");
     let ctx_ptr = &*ctx as *const VmContext as *mut c_void;
     let line = CString::new("Con").unwrap();
     // Mirror `builtin_repl_readline`: park around the (would-be blocking) read; the
@@ -58,5 +58,5 @@ fn complete_trampoline_callback_error_swallowed_to_null() {
     let r = complete_trampoline(ctx_ptr, line.as_ptr(), 3);
     drop(park);
     assert!(r.is_null(), "module=None → callback errors → null, never crash");
-    builtin_repl_set_completer(&ctx, &[Value::Str("".into())]).unwrap();
+    repl_set_completer("");
 }

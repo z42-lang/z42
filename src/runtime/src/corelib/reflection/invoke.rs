@@ -42,7 +42,7 @@ pub(crate) fn read_obj_slot(v: &Value, field: &str) -> Value {
 /// (`invoke_qualified` / `exec_function` 已 `set_pending_thrown` + bail 魔法串)→ `Thrown`
 /// 原样传播(raise 侧再 set 回 pending,异常类型与栈不变);其余 anyhow 错误 →
 /// `Legacy`(`Std.Exception`,与旧表语义一致)。
-pub(super) fn reentry<T>(ctx: &VmContext, r: anyhow::Result<T>) -> Result<T, BuiltinError> {
+pub(crate) fn reentry<T>(ctx: &VmContext, r: anyhow::Result<T>) -> Result<T, BuiltinError> {
     r.map_err(|e| match ctx.take_pending_thrown() {
         Some(v) => BuiltinError::Thrown(v),
         None => BuiltinError::Legacy(e),

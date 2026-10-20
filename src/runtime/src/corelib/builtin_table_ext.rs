@@ -130,11 +130,6 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     // resolved by name at load, so removing the retired `__repl_readline_indented`
     // slot — indent now computed script-side, sink-repl-indent-to-script — shifts no
     // persisted id.)
-    ("__repl_complete_probe",     Native::Val(repl::builtin_repl_complete_probe)),
-    ("__repl_set_completer",      Native::Val(repl::builtin_repl_set_completer)),
-    ("__repl_set_key_editor",     Native::Val(repl_editing::builtin_repl_set_key_editor)),
-    ("__repl_set_keywords",       Native::Val(repl_editing::builtin_repl_set_keywords)),
-    ("__repl_member_names",       Native::Val(repl::builtin_repl_member_names)),
 
     // ── add-enum-parse-isdefined (2026-07-24) — appended to preserve BuiltinIds ──
 

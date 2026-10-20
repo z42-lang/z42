@@ -36,30 +36,20 @@ static REGISTERED_KEY_EDITOR: std::sync::OnceLock<parking_lot::Mutex<Option<Stri
 /// indent-aware handlers invoke (signature `string f(string key, string line, int pos)`).
 /// Empty string clears it. Not host-gated so it resolves on wasm too; the handlers
 /// that read it are host-only and simply never run there.
-pub fn builtin_repl_set_key_editor(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let fqn = match args.first() {
-        Some(Value::Str(s)) => s.to_string(),
-        _ => bail!("__repl_set_key_editor: arg 0 must be the key-editor's fully-qualified name (string)"),
-    };
+pub fn repl_set_key_editor(fqn: &str) {
     let slot = REGISTERED_KEY_EDITOR.get_or_init(|| parking_lot::Mutex::new(None));
-    *slot.lock() = if fqn.is_empty() { None } else { Some(fqn) };
-    Ok(Value::Null)
+    *slot.lock() = if fqn.is_empty() { None } else { Some(fqn.to_string()) };
 }
 
 /// `__repl_set_keywords(joined: string) -> void` — 把 z42 关键字表（`\n` 分隔）
 /// 交给编辑器 cdylib 做输入行语法着色。关键字的唯一 SoT 在 `z42c.syntax` 的
 /// `Lexer._initKeywords()`，VM 与 cdylib 都**不自带**表，只做搬运。
 /// 没加载到 cdylib（wasm / 无 native-interop / 老版本 cdylib）时静默 no-op。
-pub fn builtin_repl_set_keywords(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let joined = match args.first() {
-        Some(Value::Str(s)) => s.to_string(),
-        _ => bail!("__repl_set_keywords: arg 0 must be the newline-joined keyword table (string)"),
-    };
+pub fn repl_set_keywords(joined: &str) {
     #[cfg(feature = "native-interop")]
-    super::repl_native::native::set_keywords(&joined);
+    super::repl_native::native::set_keywords(joined);
     #[cfg(not(feature = "native-interop"))]
     let _ = joined;
-    Ok(Value::Null)
 }
 
 // ── Host-only: VM re-entrancy for the cdylib key handlers ────────────────────
@@ -170,3 +160,14 @@ pub(crate) extern "C" fn keyedit_trampoline(
 #[cfg(all(test, not(target_arch = "wasm32"), feature = "native-interop"))]
 #[path = "repl_editing_tests.rs"]
 mod repl_editing_tests;
+
+/// REPL 编辑器配置迁 builtin ABI v2(P1-8 批次 8):两个 set 都是纯配置
+/// (写全局槽 / 传 cdylib),不执行 z42 代码;wasm 下 set_keywords 体内 no-op。
+#[z42_macros::builtins]
+pub mod typed {
+    #[builtin(name = "__repl_set_key_editor")]
+    pub fn set_key_editor(fqn: &str) { super::repl_set_key_editor(fqn) }
+
+    #[builtin(name = "__repl_set_keywords")]
+    pub fn set_keywords(joined: &str) { super::repl_set_keywords(joined) }
+}

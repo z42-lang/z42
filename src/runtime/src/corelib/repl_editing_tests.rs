@@ -35,7 +35,7 @@ fn keyedit_trampoline_null_key_or_line_returns_null() {
 fn keyedit_trampoline_no_editor_registered_returns_null() {
     let _g = SERIAL.lock().unwrap();
     let ctx = VmContext::new();
-    builtin_repl_set_key_editor(&ctx, &[Value::Str("".into())]).unwrap();
+    repl_set_key_editor("");
     let ctx_ptr = &*ctx as *const VmContext as *mut c_void;
     let key = CString::new("enter").unwrap();
     let line = CString::new("if x {").unwrap();
@@ -49,7 +49,7 @@ fn keyedit_trampoline_callback_error_swallowed_to_null() {
     let ctx = VmContext::new();
     // Registered editor + fresh ctx (module == None) → `key_edit_via_callback`
     // errors; the trampoline must swallow it to null (perform the key's default).
-    builtin_repl_set_key_editor(&ctx, &[Value::Str("Repl.NoSuchEditor".into())]).unwrap();
+    repl_set_key_editor("Repl.NoSuchEditor");
     let ctx_ptr = &*ctx as *const VmContext as *mut c_void;
     let key = CString::new("enter").unwrap();
     let line = CString::new("if x {").unwrap();
@@ -57,5 +57,5 @@ fn keyedit_trampoline_callback_error_swallowed_to_null() {
     let r = keyedit_trampoline(ctx_ptr, key.as_ptr(), line.as_ptr(), 6);
     drop(park);
     assert!(r.is_null(), "module=None → callback errors → null, never crash");
-    builtin_repl_set_key_editor(&ctx, &[Value::Str("".into())]).unwrap();
+    repl_set_key_editor("");
 }
