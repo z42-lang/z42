@@ -380,12 +380,125 @@ fn try_int(ctx: &VmContext, s: Option<&str>, out: abi::RefArg<'_>, ty: &str, min
 
 /// The typed convert builtins. The integer parsers differ only in range; each `[Native]`
 /// name maps to one function here.
+/// native-hash（2026-10-19）：MurmurHash3_x86_128、seed 0——逐字面镜像 z42.package 的
+/// `Murmur3.z42`（smhasher 参考实现；z42 侧有对拍金向量，两侧哈希值必须一致，等值单测双向盯：
+/// 编译器侧 `murmur3.z42` 测试 + 本文件 `mmh3_x86_128_tests`）。供编译器源文本哈希
+/// （`ZpkgBuilder.SourceHashHex`）省掉 z42 侧 GetBytes 物化 + 解释执行的哈希内环。
+const MMH3_C1: u32 = 0x239B_961B;
+const MMH3_C2: u32 = 0xAB0E_9789;
+const MMH3_C3: u32 = 0x38B3_4AE5;
+const MMH3_C4: u32 = 0xA1E3_8B93;
+
+fn mmh3_blocks(data: &[u8], nblocks: usize, h: &mut [u32; 4]) {
+    let rd32 = |o: usize| u32::from_le_bytes([data[o], data[o + 1], data[o + 2], data[o + 3]]);
+    for i in 0..nblocks {
+        let o = i * 16;
+        let k1 = rd32(o).wrapping_mul(MMH3_C1).rotate_left(15).wrapping_mul(MMH3_C2);
+        h[0] ^= k1;
+        h[0] = h[0].rotate_left(19).wrapping_add(h[1]).wrapping_mul(5).wrapping_add(0x561C_CD1B);
+        let k2 = rd32(o + 4).wrapping_mul(MMH3_C2).rotate_left(16).wrapping_mul(MMH3_C3);
+        h[1] ^= k2;
+        h[1] = h[1].rotate_left(17).wrapping_add(h[2]).wrapping_mul(5).wrapping_add(0x0BCA_A747);
+        let k3 = rd32(o + 8).wrapping_mul(MMH3_C3).rotate_left(17).wrapping_mul(MMH3_C4);
+        h[2] ^= k3;
+        h[2] = h[2].rotate_left(15).wrapping_add(h[3]).wrapping_mul(5).wrapping_add(0x96CD_1C35);
+        let k4 = rd32(o + 12).wrapping_mul(MMH3_C4).rotate_left(18).wrapping_mul(MMH3_C1);
+        h[3] ^= k4;
+        h[3] = h[3].rotate_left(13).wrapping_add(h[0]).wrapping_mul(5).wrapping_add(0x32AC_3B17);
+    }
+}
+
+/// 尾部（< 16 字节）——smhasher 参考实现的 switch fallthrough 次序。
+fn mmh3_tail(data: &[u8], t: usize, tl: usize, h: &mut [u32; 4]) {
+    let byte = |i: usize| data[t + i];
+    let (mut q1, mut q2, mut q3, mut q4) = (0u32, 0u32, 0u32, 0u32);
+    if tl >= 15 { q4 ^= (byte(14) as u32) << 16; }
+    if tl >= 14 { q4 ^= (byte(13) as u32) << 8; }
+    if tl >= 13 {
+        q4 ^= byte(12) as u32;
+        h[3] ^= q4.wrapping_mul(MMH3_C4).rotate_left(18).wrapping_mul(MMH3_C1);
+    }
+    if tl >= 12 { q3 ^= (byte(11) as u32) << 24; }
+    if tl >= 11 { q3 ^= (byte(10) as u32) << 16; }
+    if tl >= 10 { q3 ^= (byte(9) as u32) << 8; }
+    if tl >= 9 {
+        q3 ^= byte(8) as u32;
+        h[2] ^= q3.wrapping_mul(MMH3_C3).rotate_left(17).wrapping_mul(MMH3_C4);
+    }
+    if tl >= 8 { q2 ^= (byte(7) as u32) << 24; }
+    if tl >= 7 { q2 ^= (byte(6) as u32) << 16; }
+    if tl >= 6 { q2 ^= (byte(5) as u32) << 8; }
+    if tl >= 5 {
+        q2 ^= byte(4) as u32;
+        h[1] ^= q2.wrapping_mul(MMH3_C2).rotate_left(16).wrapping_mul(MMH3_C3);
+    }
+    if tl >= 4 { q1 ^= (byte(3) as u32) << 24; }
+    if tl >= 3 { q1 ^= (byte(2) as u32) << 16; }
+    if tl >= 2 { q1 ^= (byte(1) as u32) << 8; }
+    if tl >= 1 {
+        q1 ^= byte(0) as u32;
+        h[0] ^= q1.wrapping_mul(MMH3_C1).rotate_left(15).wrapping_mul(MMH3_C2);
+    }
+}
+
+fn mmh3_x86_128(data: &[u8]) -> [u8; 16] {
+    let mut h = [0u32; 4];
+    let n = data.len();
+    let nblocks = n / 16;
+    mmh3_blocks(data, nblocks, &mut h);
+    mmh3_tail(data, nblocks * 16, n - nblocks * 16, &mut h);
+    let (mut h1, mut h2, mut h3, mut h4) = (h[0], h[1], h[2], h[3]);
+    let ln = n as u32;
+    h1 ^= ln; h2 ^= ln; h3 ^= ln; h4 ^= ln;
+    h1 = h1.wrapping_add(h2).wrapping_add(h3).wrapping_add(h4);
+    h2 = h2.wrapping_add(h1); h3 = h3.wrapping_add(h1); h4 = h4.wrapping_add(h1);
+    let fmix = |mut x: u32| {
+        x ^= x >> 16; x = x.wrapping_mul(0x85EB_CA6B);
+        x ^= x >> 13; x = x.wrapping_mul(0xC2B2_AE35);
+        x ^= x >> 16;
+        x
+    };
+    h1 = fmix(h1); h2 = fmix(h2); h3 = fmix(h3); h4 = fmix(h4);
+    h1 = h1.wrapping_add(h2).wrapping_add(h3).wrapping_add(h4);
+    h2 = h2.wrapping_add(h1); h3 = h3.wrapping_add(h1); h4 = h4.wrapping_add(h1);
+    let mut out = [0u8; 16];
+    out[0..4].copy_from_slice(&h1.to_le_bytes());
+    out[4..8].copy_from_slice(&h2.to_le_bytes());
+    out[8..12].copy_from_slice(&h3.to_le_bytes());
+    out[12..16].copy_from_slice(&h4.to_le_bytes());
+    out
+}
+
+fn hex_str(bytes: &[u8]) -> String {
+    const D: &[u8; 16] = b"0123456789abcdef";
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for &b in bytes {
+        s.push(D[(b >> 4) as usize] as char);
+        s.push(D[(b & 0xF) as usize] as char);
+    }
+    s
+}
+
 #[z42_macros::builtins]
 pub mod typed {
     use super::{parse_double, parse_int, try_int, try_store, value_to_str};
     use crate::corelib::abi::{BuiltinError, RefArg};
     use crate::metadata::Value;
     use crate::vm_context::VmContext;
+
+    /// native-hash：字符串（按其 UTF-8 字节）→ MurmurHash3_x86_128 的 32 个小写 hex 字符。
+    /// 等价于 z42 侧 `Murmur3.Hash128Hex(Utf8.GetBytes(s))`（对拍见上）。
+    #[builtin(name = "__mmh3_hex_str", pure)]
+    pub fn mmh3_hex_str(text: &str) -> Result<String, BuiltinError> {
+        Ok(super::hex_str(&super::mmh3_x86_128(text.as_bytes())))
+    }
+
+    /// native-hash：字符串（按其 UTF-8 字节）→ 小写 hex 编码（每字节 2 字符）。
+    /// 等价于 z42c.pipeline `CacheStore.HexEnc` 的输出形态。
+    #[builtin(name = "__hex_str", pure)]
+    pub fn hex_str_builtin(text: &str) -> Result<String, BuiltinError> {
+        Ok(super::hex_str(text.as_bytes()))
+    }
 
     #[builtin(name = "__int64_parse", pure)]
     pub fn int64_parse(s: &str) -> Result<i64, BuiltinError> { parse_int(s, "Int64", i64::MIN as i128, i64::MAX as i128) }
@@ -553,3 +666,25 @@ pub mod typed {
 #[cfg(test)]
 #[path = "convert_tests.rs"]
 mod convert_tests;
+
+#[cfg(test)]
+mod mmh3_x86_128_tests {
+    use super::{hex_str, mmh3_x86_128};
+    fn h(s: &str) -> String { hex_str(&mmh3_x86_128(s.as_bytes())) }
+    // 向量与 z42.package/tests/murmur3.z42 同源（smhasher 参考实现，seed 0，h1..h4 小端拼接）：
+    // 两侧必须逐字相等——这就是编译器源文本哈希换到 native 后缓存键仍可比的依据。
+    #[test]
+    fn matches_z42_murmur3_vectors() {
+        assert_eq!(h(""), "00000000000000000000000000000000");
+        assert_eq!(h("a"), "3c9394a71bb056551bb056551bb05655");
+        assert_eq!(h("abcd"), "aaccb6962ec6af452ec6af452ec6af45");
+        assert_eq!(h("abcdefghijklmnop"), "2776d29f5612b990218bcee445ba93d1");
+        assert_eq!(h("abcdefghijklmnopq"), "d3a445046f5c51642adc6dd99d07111d");
+        assert_eq!(h("abcdefghijklmnopqrst"), "19342546a8216db62873b49e545dcb1f");
+    }
+    #[test]
+    fn hex_is_lowercase_two_chars_per_byte() {
+        assert_eq!(hex_str(b"\x00\xff\x10"), "00ff10");
+        assert_eq!(hex_str("é".as_bytes()), "c3a9");
+    }
+}

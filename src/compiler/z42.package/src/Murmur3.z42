@@ -122,6 +122,14 @@ public static class Murmur3 {
         o[at + 3] = (byte)((v >> 24) & 0xFFL);
     }
 
+    // native-hash：字符串（按其 UTF-8 字节）→ 上面算法的 32 个小写 hex。native（builtin
+    // `__mmh3_hex_str`，convert.rs）逐字面镜像本实现（两侧对拍向量同源，等值单测双向盯）——
+    // 编译器源文本哈希（ZpkgBuilder.SourceHashHex）从「GetBytes 物化 + 解释执行内环」切过来
+    // （profile jobs1：Utf8.GetBytes 2.5% + Murmur3 2.7% + HexEnc 0.9% 的大头）。byte[] 路径
+    // （BLID / zbc 内容哈希）仍走上面的 z42 实现。
+    [Native("__mmh3_hex_str")]
+    public static extern string HashHexOfStr(string text);
+
     /// 32 个小写 hex 字符（无前缀）。拼接方式对齐同包的 `ZpkgBuilder.Sha256Hex`
     /// （z42.package 不依赖 z42.text，也不值得为 32 个字符引入 StringBuilder）。
     public static string Hash128Hex(byte[] data) {
