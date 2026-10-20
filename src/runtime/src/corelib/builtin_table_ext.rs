@@ -130,12 +130,6 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     // resolved by name at load, so removing the retired `__repl_readline_indented`
     // slot — indent now computed script-side, sink-repl-indent-to-script — shifts no
     // persisted id.)
-    ("__repl_complete_probe",     Native::Val(repl::builtin_repl_complete_probe)),
-    ("__repl_set_completer",      Native::Val(repl::builtin_repl_set_completer)),
-    ("__repl_set_key_editor",     Native::Val(repl_editing::builtin_repl_set_key_editor)),
-    ("__repl_set_keywords",       Native::Val(repl_editing::builtin_repl_set_keywords)),
-    ("__repl_member_names",       Native::Val(repl::builtin_repl_member_names)),
-    ("__load_bytecode_in_memory", Native::Val(reflection::builtin_load_bytecode_in_memory)),
 
     // ── add-enum-parse-isdefined (2026-07-24) — appended to preserve BuiltinIds ──
 
@@ -151,32 +145,18 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     // to this one is safe — nothing bakes a positional BuiltinId across a build.
 
     // ── add-load-context-model (2026-07-30) — appended to preserve BuiltinIds ──
-    ("__lctx_default",            Native::Val(assemblyloadcontext::builtin_lctx_default)),
-    ("__lctx_create_collectible", Native::Val(assemblyloadcontext::builtin_lctx_create_collectible)),
-    ("__lctx_load",               Native::Val(assemblyloadcontext::builtin_lctx_load)),
-    ("__lctx_name",               Native::Val(assemblyloadcontext::builtin_lctx_name)),
-    ("__lctx_is_collectible",     Native::Val(assemblyloadcontext::builtin_lctx_is_collectible)),
-    ("__lctx_assemblies",         Native::Val(assemblyloadcontext::builtin_lctx_assemblies)),
-    ("__asm_name",                Native::Val(assemblyloadcontext::builtin_asm_name)),
-    ("__asm_is_collectible",      Native::Val(assemblyloadcontext::builtin_asm_is_collectible)),
-    ("__asm_loadcontext",         Native::Val(assemblyloadcontext::builtin_asm_loadcontext)),
-    ("__asm_get_types",           Native::Val(assemblyloadcontext::builtin_asm_get_types)),
-    ("__type_is_collectible",     Native::Val(assemblyloadcontext::builtin_type_is_collectible)),
-    ("__type_assembly",           Native::Val(assemblyloadcontext::builtin_type_assembly)),
 
     // ── add-exec-profile-matrix (2026-07-31) — appended to preserve BuiltinIds ──
     ("__platform_caps",           Native::Val(platform::builtin_platform_caps)),
     ("__platform_exec_modes",     Native::Val(platform::builtin_platform_exec_modes)),
 
     // ── add-lazy-context-unload (2026-08-05) — appended to preserve BuiltinIds ──
-    ("__lctx_unload",             Native::Void(assemblyloadcontext::builtin_lctx_unload)),
 
     // ── add-heap-retention-diagnostics (2026-08-06) — appended to preserve BuiltinIds ──
     ("__heap_direct_referrers",   Native::Val(diagnostics::builtin_heap_direct_referrers)),
     ("__heap_retaining_roots",    Native::Val(diagnostics::builtin_heap_retaining_roots)),
 
     // ── mature-embed-testhost P1 (2026-08-09) — appended to preserve BuiltinIds ──
-    ("__run_goldens_isolated",    Native::Val(reflection::builtin_run_goldens_isolated)),
 
     // ── expose-diagnostics-counters (2026-08-23) — appended to preserve BuiltinIds ──
     ("__diag_counters",           Native::Val(diagnostics::builtin_diag_counters)),
@@ -232,5 +212,4 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     ("__str_join",          Native::Val(string::builtin_str_join)),
     // ── assembly-get-functions — appended to preserve existing BuiltinIds ──
     // `Assembly.GetFunctions()`：一个 zpkg 的自由（顶层）函数 → MethodInfo[]。
-    ("__asm_get_functions", Native::Val(assemblyloadcontext::builtin_asm_get_functions)),
 ];

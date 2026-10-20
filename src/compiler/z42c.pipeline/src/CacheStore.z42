@@ -250,19 +250,12 @@ public static class CacheStore {
 
     // ── 串 hex(UTF-8) 编解码（meta 行值免转义；label/池串可含空格、换行、任意 Unicode）──
 
-    public static string HexEnc(string s) {
-        byte[] b = Utf8.GetBytes(s);
-        char[] ds = "0123456789abcdef".ToCharArray();   // 按下标取，不再每字节两次 CharAt（builtin 分发）
-        char[] cs = new char[b.Length * 2];
-        int i = 0;
-        while (i < b.Length) {
-            int v = (int)b[i];
-            cs[i * 2] = ds[(v >> 4) & 0xF];
-            cs[i * 2 + 1] = ds[v & 0xF];
-            i = i + 1;
-        }
-        return String.FromChars(cs);
-    }
+    // native-hash：UTF-8 字节的 lowercase hex（builtin `__hex_str`；与原 z42 实现逐字等值——
+    // cache meta 的行式格式靠它，行为不变，纯省 GetBytes 物化 + 逐字节解释循环）。
+    [Native("__hex_str")]
+    private static extern string _hexNative(string s);
+
+    public static string HexEnc(string s) { return CacheStore._hexNative(s); }
 
     public static string HexDec(string hex) {
         int n = hex.Length / 2;

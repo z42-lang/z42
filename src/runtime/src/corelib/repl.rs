@@ -52,6 +52,22 @@ pub mod typed {
     /// the callbacks unpark via `NativeUnparkGuard` in their trampolines before re-entering
     /// the VM — and the line becomes a z42 string (a GC allocation) only after the park
     /// ends (`gc::safepoint::debug_assert_not_native_parked`).
+    /// 注册 / 清除 Tab 补全回调名(纯配置,不执行 z42 代码)。
+    #[builtin(name = "__repl_set_completer")]
+    pub fn set_completer(fqn: &str) { super::repl_set_completer(fqn) }
+
+    /// 执行 z42 补全回调并原样回传其 string[](重入;回调 throw 经 Thrown 原样传播)。
+    #[builtin(name = "__repl_complete_probe", reenters)]
+    pub fn complete_probe(ctx: &VmContext, fqn: &str, line: &crate::metadata::vstr::Str, pos: i64) -> Result<crate::metadata::Value, BuiltinError> {
+        crate::corelib::reflection::reentry(ctx, super::repl_complete_probe(ctx, fqn, line, pos))
+    }
+
+    /// 会话变量的活值成员名(static_get 可触发 cctor——重入)。
+    #[builtin(name = "__repl_member_names", reenters)]
+    pub fn member_names(ctx: &VmContext, fqn: &str) -> Result<crate::metadata::Value, BuiltinError> {
+        crate::corelib::reflection::reentry(ctx, super::repl_member_names(ctx, fqn))
+    }
+
     #[builtin(name = "__repl_readline", reenters)]
     pub fn repl_readline(ctx: &VmContext, prompt: Option<&str>) -> Result<Option<String>, BuiltinError> {
         let _park = crate::gc::NativeParkGuard::enter(ctx);
@@ -66,14 +82,9 @@ pub mod typed {
 /// key invokes (signature `string[] complete(string line, int pos)`). Empty string
 /// clears it. Process-global; the cdylib's `Completer` reads it (via
 /// `complete_trampoline`) on each Tab. D5 spike (add-completion-query-api, risk B).
-pub fn builtin_repl_set_completer(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let fqn = match args.first() {
-        Some(Value::Str(s)) => s.to_string(),
-        _ => bail!("__repl_set_completer: arg 0 must be the completer's fully-qualified name (string)"),
-    };
+pub fn repl_set_completer(fqn: &str) {
     let slot = REGISTERED_COMPLETER.get_or_init(|| parking_lot::Mutex::new(None));
-    *slot.lock() = if fqn.is_empty() { None } else { Some(fqn) };
-    Ok(Value::Null)
+    *slot.lock() = if fqn.is_empty() { None } else { Some(fqn.to_string()) };
 }
 
 /// Registered completer FQN (set by `__repl_set_completer`); read by
@@ -93,20 +104,8 @@ static REGISTERED_COMPLETER: std::sync::OnceLock<parking_lot::Mutex<Option<Strin
 /// `complete_trampoline`; here it is exposed as a direct builtin so a piped z42
 /// program can verify risk A (builtin → z42 callback with args → string[] back)
 /// end-to-end on the real VM.
-pub fn builtin_repl_complete_probe(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let fqn = match args.first() {
-        Some(Value::Str(s)) => s.to_string(),
-        _ => bail!("__repl_complete_probe: arg 0 must be the completer's fully-qualified name (string)"),
-    };
-    let line = match args.get(1) {
-        Some(v @ Value::Str(_)) => v.clone(),
-        _ => bail!("__repl_complete_probe: arg 1 (line) must be a string"),
-    };
-    let pos = match args.get(2) {
-        Some(Value::I64(n)) => *n,
-        _ => bail!("__repl_complete_probe: arg 2 (pos) must be an int"),
-    };
-    complete_via_callback(ctx, &fqn, line, pos)
+pub fn repl_complete_probe(ctx: &VmContext, fqn: &str, line: &crate::metadata::vstr::Str, pos: i64) -> anyhow::Result<Value> {
+    complete_via_callback(ctx, fqn, Value::Str(line.clone()), pos)
 }
 
 /// Shared callback core: invoke the z42 completer `fqn(line, pos)` and return its
@@ -215,12 +214,8 @@ pub(crate) extern "C" fn complete_trampoline(
 /// nested — same set as `Type.GetMembers()`). Reading a stored static field is
 /// side-effect-free (no expression re-evaluation), which is why session-variable
 /// `obj.` completion is safe here (D2). Null / primitive / unloaded → empty.
-pub fn builtin_repl_member_names(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let fqn = match args.first() {
-        Some(Value::Str(s)) => s.to_string(),
-        _ => bail!("__repl_member_names: arg 0 must be the static-field FQN (string)"),
-    };
-    let v = ctx.static_get(&fqn);
+pub fn repl_member_names(ctx: &VmContext, fqn: &str) -> anyhow::Result<Value> {
+    let v = ctx.static_get(fqn);
     let tname = match &v {
         Value::Object(rc) => rc.type_desc().name.clone(),
         // add-repl-completion-iter2: primitive-typed session vars → the **same** canonical

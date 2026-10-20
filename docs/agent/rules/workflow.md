@@ -27,6 +27,10 @@ Think First → Plan in PR → Build → Verify → Merge
 PR 描述只记「这次为什么这么做、做了什么、验证了什么」。要查某特性为何如此：`git log -S<符号>` 找到提交，
 提交标题带 `(#N)`，`gh pr view N` 看当时的方案与决策。
 
+**源码注释也不是过程记录的家。** profile 数据、测量日期、热点归因、A/B 前后数字这类**一次性证据**只进
+PR 描述，不写进源码注释；源码注释只写代码本身表达不了的东西——不变量、等价性前提、并发安全边界、
+维护陷阱（「两处须同步改」）。判据：这条注释陈述的是代码的持久事实，还是某次测量的快照？快照进 PR，事实留注释。
+
 ## PR 即在制品账本
 
 | 要知道什么 | 看哪里 |
@@ -432,7 +436,7 @@ User 说「继续」时，自动执行：
 | Bug fix | 至少 1 个回归测试，覆盖修复的 bug 场景 |
 | 新 IR 指令 / VM 行为 | golden test (run/) 验证端到端执行结果 |
 | 新 CLI 命令 / 工程文件字段 | 单元测试验证解析正确性 + 错误输入报错 |
-| 性能优化（`perf`） | 被优化的路径必须有 bench 覆盖：已有 e2e scenario / `[Benchmark]` 覆盖 → 附同 runner A/B 结论；没有 → 同一 PR 补一条（怎么加、怎么判红见[性能基准与回归门禁](../../internals/src/devinfra/benchmarking.md)） |
+| 性能优化（`perf`） | 被优化的路径必须有 bench 覆盖：已有 e2e scenario / `[Benchmark]` 覆盖 → 附同 runner A/B 结论；没有 → 同一 PR 补一条（怎么加、怎么判红见[性能基准与回归门禁](../../internals/src/devinfra/benchmarking.md)）。**PR 描述必须记录优化前后的数据**（scenario × mode 的 base/pr 均值与结论）——证据进 PR 描述，不进源码注释 |
 | refactor | 确保已有测试仍覆盖（不必新增，但不得删除测试） |
 
 用例放哪（「被测对象在哪，测试就在哪」）见[怎么跑测试 · 用例放哪](../../internals/src/devinfra/testing.md)。

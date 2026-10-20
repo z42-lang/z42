@@ -16,6 +16,8 @@
 
 use anyhow::{bail, Result};
 
+use super::abi::BuiltinError;
+
 use super::reflection::make_type_object;
 use crate::metadata::context::{AssemblyId, ContextId, ContextState, UnloadOutcome};
 use crate::metadata::types::NativeData;
@@ -94,6 +96,14 @@ fn set_type_asm_id(tv: &Value, aid: AssemblyId) {
     }
 }
 
+fn ctx_handle_of(this: &Value) -> Result<ContextId, BuiltinError> {
+    ctx_handle(std::slice::from_ref(this)).map_err(BuiltinError::Legacy)
+}
+
+fn asm_handle_of(this: &Value) -> Result<AssemblyId, BuiltinError> {
+    asm_handle(std::slice::from_ref(this)).map_err(BuiltinError::Legacy)
+}
+
 fn str_arg(args: &[Value], i: usize) -> Result<&str> {
     match args.get(i) {
         Some(Value::Str(s)) => Ok(s.as_ref()),
@@ -113,36 +123,37 @@ fn assembly_name_from_path(path: &str) -> String {
 // ── AssemblyLoadContext builtins ─────────────────────────────────────────────
 
 /// `AssemblyLoadContext.Default` (static) → the永驻 root context.
-pub fn builtin_lctx_default(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    build_loadcontext(ctx, ContextId::ROOT)
+pub fn lctx_default(ctx: &VmContext) -> Result<Value, BuiltinError> {
+    build_loadcontext(ctx, ContextId::ROOT).map_err(BuiltinError::Legacy)
 }
 
 /// `AssemblyLoadContext.CreateCollectible(string name)` (static) → a new collectible context.
-pub fn builtin_lctx_create_collectible(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let name = str_arg(args, 0)?;
+pub fn lctx_create_collectible(ctx: &VmContext, name: &crate::metadata::vstr::Str) -> Result<Value, BuiltinError> {
+    let name = name.as_ref();
     let cid = ctx.core.context_registry.lock().create_collectible(name);
-    build_loadcontext(ctx, cid)
+    build_loadcontext(ctx, cid).map_err(BuiltinError::Legacy)
 }
 
 /// `ctx.Load(string zpkgPath)` (instance) → the loaded `Assembly`.
 /// Phase 1: loads the zpkg into the context's private arena, reflection-visible;
 /// the assembly's functions are NOT yet cross-context executable.
-pub fn builtin_lctx_load(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let cid = ctx_handle(args)?;
-    let path = str_arg(args, 1)?;
+pub fn lctx_load(ctx: &VmContext, this: &Value, path: &crate::metadata::vstr::Str) -> Result<Value, BuiltinError> {
+    let cid = ctx_handle_of(this)?;
+    let path = path.as_ref();
     // Phase 2: a context being unloaded no longer accepts new assemblies.
     if ctx.core.context_registry.lock().context_state(cid) != Some(ContextState::Active) {
-        bail!("AssemblyLoadContext.Load: context is unloading (cannot load new assemblies)");
+        return Err(BuiltinError::InvalidOperation(
+            "AssemblyLoadContext.Load: context is unloading (cannot load new assemblies)".into()));
     }
     let artifact = crate::metadata::loader::load_artifact(path)
-        .map_err(|e| anyhow::anyhow!("AssemblyLoadContext.Load(\"{path}\"): {e}"))?;
+        .map_err(|e| BuiltinError::Legacy(anyhow::anyhow!("AssemblyLoadContext.Load(\"{path}\"): {e}")))?;
     let name = assembly_name_from_path(path);
     let aid = ctx
         .core
         .context_registry
         .lock()
         .load_into(cid, &name, artifact.module);
-    build_assembly(ctx, aid)
+    build_assembly(ctx, aid).map_err(BuiltinError::Legacy)
 }
 
 /// `ctx.__unload()` (instance) — mark this collectible context `Unloading`
@@ -150,20 +161,20 @@ pub fn builtin_lctx_load(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 /// (`Unload()` throws `InvalidOperationException` before reaching here);
 /// `RootRejected` here is a defensive backstop. Actual arena reclamation is
 /// GC-driven (see `ContextRegistry::reclaim`).
-pub fn builtin_lctx_unload(ctx: &VmContext, args: &[Value]) -> Result<()> {
-    let cid = ctx_handle(args)?;
+pub fn lctx_unload(ctx: &VmContext, this: &Value) -> Result<(), BuiltinError> {
+    let cid = ctx_handle_of(this)?;
     match ctx.core.context_registry.lock().unload(cid) {
         UnloadOutcome::Marked | UnloadOutcome::AlreadyUnloading => Ok(()),
-        UnloadOutcome::RootRejected => {
-            bail!("AssemblyLoadContext.Unload: the root context cannot be unloaded")
-        }
-        UnloadOutcome::NotFound => bail!("AssemblyLoadContext.Unload: unknown context"),
+        UnloadOutcome::RootRejected => Err(BuiltinError::InvalidOperation(
+            "AssemblyLoadContext.Unload: the root context cannot be unloaded".into())),
+        UnloadOutcome::NotFound => Err(BuiltinError::InvalidOperation(
+            "AssemblyLoadContext.Unload: unknown context".into())),
     }
 }
 
 /// `ctx.Name` (instance getter).
-pub fn builtin_lctx_name(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let cid = ctx_handle(args)?;
+pub fn lctx_name(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
+    let cid = ctx_handle_of(this)?;
     let name = ctx
         .core
         .context_registry
@@ -174,8 +185,8 @@ pub fn builtin_lctx_name(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 }
 
 /// `ctx.IsCollectible` (instance getter).
-pub fn builtin_lctx_is_collectible(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let cid = ctx_handle(args)?;
+pub fn lctx_is_collectible(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
+    let cid = ctx_handle_of(this)?;
     let b = ctx
         .core
         .context_registry
@@ -186,12 +197,12 @@ pub fn builtin_lctx_is_collectible(ctx: &VmContext, args: &[Value]) -> Result<Va
 }
 
 /// `ctx.GetAssemblies()` (instance) → the assemblies loaded into this context.
-pub fn builtin_lctx_assemblies(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let cid = ctx_handle(args)?;
+pub fn lctx_assemblies(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
+    let cid = ctx_handle_of(this)?;
     let aids = ctx.core.context_registry.lock().context_assemblies(cid);
     let mut out = Vec::with_capacity(aids.len());
     for aid in aids {
-        out.push(build_assembly(ctx, aid)?);
+        out.push(build_assembly(ctx, aid).map_err(BuiltinError::Legacy)?);
     }
     Ok(ctx.heap().alloc_array(out))
 }
@@ -199,8 +210,8 @@ pub fn builtin_lctx_assemblies(ctx: &VmContext, args: &[Value]) -> Result<Value>
 // ── Assembly builtins ────────────────────────────────────────────────────────
 
 /// `asm.Name` (instance getter).
-pub fn builtin_asm_name(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let aid = asm_handle(args)?;
+pub fn asm_name(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
+    let aid = asm_handle_of(this)?;
     let name = ctx
         .core
         .context_registry
@@ -211,28 +222,28 @@ pub fn builtin_asm_name(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 }
 
 /// `asm.IsCollectible` (instance getter).
-pub fn builtin_asm_is_collectible(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let aid = asm_handle(args)?;
+pub fn asm_is_collectible(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
+    let aid = asm_handle_of(this)?;
     let b = ctx.core.context_registry.lock().assembly_is_collectible(aid);
     Ok(Value::Bool(b))
 }
 
 /// `asm.LoadContext` (instance getter) → the owning context.
-pub fn builtin_asm_loadcontext(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let aid = asm_handle(args)?;
+pub fn asm_loadcontext(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
+    let aid = asm_handle_of(this)?;
     let cid = ctx
         .core
         .context_registry
         .lock()
         .assembly_context(aid)
         .unwrap_or(ContextId::ROOT);
-    build_loadcontext(ctx, cid)
+    build_loadcontext(ctx, cid).map_err(BuiltinError::Legacy)
 }
 
 /// `asm.GetTypes()` (instance) → the types defined by this assembly, each
 /// stamped with its `__asmId` so `IsCollectible` / `Assembly` resolve.
-pub fn builtin_asm_get_types(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let aid = asm_handle(args)?;
+pub fn asm_get_types(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
+    let aid = asm_handle_of(this)?;
     let tds = ctx.core.context_registry.lock().assembly_types(aid);
     let mut out = Vec::with_capacity(tds.len());
     for td in tds {
@@ -248,13 +259,13 @@ pub fn builtin_asm_get_types(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 /// live VM, so its attributes / signature / `Invoke` are available once the module is also
 /// loaded executable (`Std.Runtime.ModuleLoader.Load`); a reflect-only projection still
 /// lists the names.
-pub fn builtin_asm_get_functions(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let aid = asm_handle(args)?;
+pub fn asm_get_functions(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
+    let aid = asm_handle_of(this)?;
     let names = ctx.core.context_registry.lock().assembly_function_names(aid);
     let mut out = Vec::with_capacity(names.len());
     for q in &names {
         let simple = q.rsplit('.').next().unwrap_or(q);
-        out.push(super::reflection::build_free_function_info(ctx, simple, q)?);
+        out.push(super::reflection::build_free_function_info(ctx, simple, q).map_err(BuiltinError::Legacy)?);
     }
     Ok(ctx.heap().alloc_array(out))
 }
@@ -262,18 +273,77 @@ pub fn builtin_asm_get_functions(ctx: &VmContext, args: &[Value]) -> Result<Valu
 // ── Type collectibility builtins ─────────────────────────────────────────────
 
 /// `Type.IsCollectible` (instance getter).
-pub fn builtin_type_is_collectible(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let aid = type_asm_id(args);
+pub fn type_is_collectible(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
+    let aid = type_asm_id(std::slice::from_ref(this));
     let b = ctx.core.context_registry.lock().assembly_is_collectible(aid);
     Ok(Value::Bool(b))
 }
 
 /// `Type.Assembly` (instance getter) → the assembly that defines this type.
-pub fn builtin_type_assembly(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let aid = type_asm_id(args);
-    build_assembly(ctx, aid)
+pub fn type_assembly(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
+    let aid = type_asm_id(std::slice::from_ref(this));
+    build_assembly(ctx, aid).map_err(BuiltinError::Legacy)
 }
 
 #[cfg(test)]
 #[path = "assemblyloadcontext_tests.rs"]
 mod assemblyloadcontext_tests;
+
+/// 装载上下文域迁 builtin ABI v2(P1-8 批次 7):除 `__lctx_load`(装载包,保守
+/// `reenters`)外都是纯查询 / 合成(注册表读 + 句柄对象构造),不执行 z42 代码。
+#[z42_macros::builtins]
+pub mod typed {
+    use super::*;
+
+    #[builtin(name = "__lctx_default")]
+    pub fn default_ctx(ctx: &VmContext) -> Result<Value, BuiltinError> { lctx_default(ctx) }
+
+    #[builtin(name = "__lctx_create_collectible")]
+    pub fn create_collectible(ctx: &VmContext, name: &crate::metadata::vstr::Str) -> Result<Value, BuiltinError> {
+        lctx_create_collectible(ctx, name)
+    }
+
+    #[builtin(name = "__lctx_load", reenters)]
+    pub fn load(ctx: &VmContext, this: &Value, path: &crate::metadata::vstr::Str) -> Result<Value, BuiltinError> {
+        lctx_load(ctx, this, path)
+    }
+
+    #[builtin(name = "__lctx_unload")]
+    pub fn unload(ctx: &VmContext, this: &Value) -> Result<(), BuiltinError> { lctx_unload(ctx, this) }
+
+    #[builtin(name = "__lctx_name")]
+    pub fn name(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> { lctx_name(ctx, this) }
+
+    #[builtin(name = "__lctx_is_collectible")]
+    pub fn is_collectible(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
+        lctx_is_collectible(ctx, this)
+    }
+
+    #[builtin(name = "__lctx_assemblies")]
+    pub fn assemblies(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
+        lctx_assemblies(ctx, this)
+    }
+
+    #[builtin(name = "__asm_name")]
+    pub fn asm_name_of(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> { asm_name(ctx, this) }
+
+    #[builtin(name = "__asm_is_collectible")]
+    pub fn asm_is_coll(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> { asm_is_collectible(ctx, this) }
+
+    #[builtin(name = "__asm_loadcontext")]
+    pub fn asm_lctx(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> { asm_loadcontext(ctx, this) }
+
+    #[builtin(name = "__asm_get_types")]
+    pub fn asm_types(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> { asm_get_types(ctx, this) }
+
+    #[builtin(name = "__asm_get_functions")]
+    pub fn asm_fns(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> { asm_get_functions(ctx, this) }
+
+    #[builtin(name = "__type_is_collectible")]
+    pub fn type_is_coll(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
+        type_is_collectible(ctx, this)
+    }
+
+    #[builtin(name = "__type_assembly")]
+    pub fn type_asm(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> { type_assembly(ctx, this) }
+}

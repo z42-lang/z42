@@ -433,7 +433,6 @@ string[] _gateStageNames() {
         "vscode-syntax",
         "lines",
         "fnlines",
-        "walkers",
         "diagcodes",
         "stage2",
         "ci-shell",
@@ -687,13 +686,6 @@ int _testAll(bool noBuild, string skip) {
         swStage = _stageStart("fnlines");
         c = _testFnLines(false); if (c != 0) { return c; }
         _stageEnd(slog, "fnlines", swStage);
-    }
-    // stage 8: AST walker 完备性对账（ast-walker-completeness-gate）：注册的穷举 walker 漏一个
-    // 节点子类 → 红。纯文本扫描（~1s），host-independent。Skippable: "walkers"。
-    if (!_skipHas(skip, "walkers")) {
-        swStage = _stageStart("walkers");
-        c = _testWalkers(); if (c != 0) { return c; }
-        _stageEnd(slog, "walkers", swStage);
     }
     // stage 9: 诊断码唯一性对账（enforce-diagnostic-code-uniqueness）：一个码号挂两个含义、
     // 或发射一个没在登记表里登记过的码 → 红。纯文本扫描（~1s），host-independent。Skippable: "diagcodes"。

@@ -122,8 +122,6 @@ src/runtime/crates/z42-macros/src/shim.rs	render_shim	87
 src/runtime/crates/z42-repl/src/highlight.rs	highlight_line	62
 src/runtime/src/app.rs	run	153
 src/runtime/src/corelib/network/legacy/tcp_options.rs	builtin_net_tcp_socket_set_keepalive_tuned	83
-src/runtime/src/corelib/reflection/invoke.rs	builtin_activator_create	66
-src/runtime/src/corelib/reflection/module_load.rs	builtin_run_goldens_isolated	64
 src/runtime/src/corelib/reflection/type_object.rs	make_type_from_name	61
 src/runtime/src/corelib/struct_reflect.rs	compute_inner	65
 src/runtime/src/gc/arc_heap/auto_collect.rs	maybe_auto_collect	79

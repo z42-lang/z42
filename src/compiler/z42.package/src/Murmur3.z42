@@ -42,13 +42,11 @@ public static class Murmur3 {
         int n = data.Length;
         int nblocks = n / 16;
         int i = 0;
-        // ⚠⚠ perf（2026-09-06）：内环**手工内联** `_rd32` / `_mul` / `_rotl`。
-        // 原写法每 16 字节要付 **24 个 z42 调用帧**（4 次 _rd32 + 每 lane 3 次 _mul/_rotl ×4
-        // + 4 次 _rotl + 4 次 _mul），而每个 helper 的函数体只有「一次乘法 + 一次掩码」——
-        // 解释执行下帧成本远大于函数体本身。BLID 要把整个 zpkg 过一遍（800 KB ≈ 5 万块），
-        // 这里省的是 ~120 万个帧。尾部与 `_fmix` 调用频次是每次哈希一次，仍走 helper。
-        // 等价性：`_rotl(x,r) = ((x<<r)|(x>>(32-r))) & MASK32`、`_mul(x,c) = (x*c) & MASK32`，
-        // 逐字面展开；`(_mul(h,5) + K) & MASK32` 保留内层掩码，与原式逐字面同形。
+        // ⚠⚠ 内环**手工内联** `_rd32` / `_mul` / `_rotl`——解释执行下一层调用帧的成本远大于这几个
+        // helper 的函数体本身，改 helper 必须同步改这里的展开。等价性：
+        // `_rotl(x,r) = ((x<<r)|(x>>(32-r))) & MASK32`、`_mul(x,c) = (x*c) & MASK32`，逐字面展开；
+        // `(_mul(h,5) + K) & MASK32` 保留内层掩码，与原式逐字面同形。尾部与 `_fmix` 每次哈希只调
+        // 一次，仍走 helper。
         while (i < nblocks) {
             int o = i * 16;
             long k1 = ((long)((int)data[o]      & 0xFF)) | (((long)((int)data[o +  1] & 0xFF)) << 8)
@@ -123,6 +121,14 @@ public static class Murmur3 {
         o[at + 2] = (byte)((v >> 16) & 0xFFL);
         o[at + 3] = (byte)((v >> 24) & 0xFFL);
     }
+
+    // native-hash：字符串（按其 UTF-8 字节）→ 上面算法的 32 个小写 hex。native（builtin
+    // `__mmh3_hex_str`，convert.rs）逐字面镜像本实现（两侧对拍向量同源，等值单测双向盯）——
+    // 编译器源文本哈希（ZpkgBuilder.SourceHashHex）从「GetBytes 物化 + 解释执行内环」切过来
+    // （profile jobs1：Utf8.GetBytes 2.5% + Murmur3 2.7% + HexEnc 0.9% 的大头）。byte[] 路径
+    // （BLID / zbc 内容哈希）仍走上面的 z42 实现。
+    [Native("__mmh3_hex_str")]
+    public static extern string HashHexOfStr(string text);
 
     /// 32 个小写 hex 字符（无前缀）。拼接方式对齐同包的 `ZpkgBuilder.Sha256Hex`
     /// （z42.package 不依赖 z42.text，也不值得为 32 个字符引入 StringBuilder）。

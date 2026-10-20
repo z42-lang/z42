@@ -89,27 +89,18 @@ const PART1: &[(&str, Native)] = &[
     // add-json-serde: property-attribute reflection (reads the auto-property backing
     // field `__prop_<Name>`'s field_attributes — no wire-format bump).
     // add-method-invoke-non-generic (0.3.12): reflective invocation primitives.
-    ("__method_invoke",      Native::Val(reflection::builtin_method_invoke)),
     // add-reflective-invoke (G2): generic-method reflection — MakeGenericMethod
     // produces a constructed MethodInfo; GetGenericArguments reads type params/args;
     // Invoke on the constructed MethodInfo threads __typeArgs into the callee frame.
     // add-property-getvalue-setvalue: reflective property read/write (reuses the
     // non-generic invoke path via get_<X>/set_<X> accessors).
-    ("__property_get_value", Native::Val(reflection::builtin_property_get_value)),
-    ("__property_set_value", Native::Void(reflection::builtin_property_set_value)),
     // plan-generic-reflection (serde-driven): reflective field read/write (direct
     // slot access, powers reflective deserialization onto plain public fields).
-    ("__field_get_value",    Native::Val(reflection::builtin_field_get_value)),
-    ("__field_set_value",    Native::Void(reflection::builtin_field_set_value)),
     // retire-test-runner: no-arg reflective construction (test-class instantiation).
-    ("__activator_create",   Native::Val(reflection::builtin_activator_create)),
     // add-reflective-invoke: ConstructorInfo.Invoke — parameterised construction.
-    ("__ctor_invoke",        Native::Val(reflection::builtin_ctor_invoke)),
     // `Std.Runtime.ModuleLoader.Load`: merge a compiled artifact into the live VM (pure load).
-    ("__load_module",        Native::Val(reflection::builtin_load_module)),
     // retire-test-runner: invoke a free/static [Test]/[Benchmark] function by FQN
     // (zero-arg) — stdlib tests are free functions, not class instance methods.
-    ("__invoke_static",      Native::Val(reflection::builtin_invoke_static)),
     // add-reflection-generic-type-definition: `typeof` now lowers to the Typeof
     // opcode (interp/jit), not a builtin — the former `__typeof` is removed.
 
@@ -165,12 +156,16 @@ const TYPED: &[&[super::abi::BuiltinDesc]] = &[
     super::reflection::generics::typed::DESCS,
     super::reflection::methodof::typed::DESCS,
     super::reflection::invoke::typed::DESCS,
+    super::reflection::accessors::typed::DESCS,
+    super::reflection::module_load::typed::DESCS,
+    super::assemblyloadcontext::typed::DESCS,
     super::threading::typed::DESCS,
     super::fs::typed::DESCS,
     super::fs_backend::memory::typed::DESCS,
     super::process::typed::DESCS,
     super::io::typed::DESCS,
     super::repl::typed::DESCS,
+    super::repl_editing::typed::DESCS,
     super::monitor::typed::DESCS,
     #[cfg(not(target_arch = "wasm32"))]
     super::network::tcp::typed::DESCS,
@@ -193,16 +188,7 @@ const TYPED: &[&[super::abi::BuiltinDesc]] = &[
 /// shrinks, as those areas migrate.
 pub(crate) const LEGACY_REENTERS: &[&str] = &[
     "__type_is_class",
-    "__method_invoke",
-    "__property_get_value", "__property_set_value", "__field_get_value", "__field_set_value",
-    "__activator_create", "__ctor_invoke", "__load_module", "__invoke_static",
-    "__repl_complete_probe", "__repl_set_completer", "__repl_set_key_editor", "__repl_set_keywords",
-    "__repl_member_names", "__load_bytecode_in_memory",
-    "__lctx_default", "__lctx_create_collectible", "__lctx_load",
-    "__lctx_name", "__lctx_is_collectible", "__lctx_assemblies", "__asm_name",
-    "__asm_is_collectible", "__asm_loadcontext", "__asm_get_types", "__type_is_collectible",
-    "__type_assembly", "__lctx_unload", "__run_goldens_isolated",
-    "__test_module_load", "__asm_get_functions",
+    "__test_module_load",
 ];
 
 const TYPED_N: usize = super::abi::descs_len(TYPED);

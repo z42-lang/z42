@@ -43,7 +43,6 @@ gate 里还串着若干**静态检查** stage（纯文本扫描 / 生成物比�
 |---|---|
 | `xtask check` | 下面全部，跑完汇总哪些红 |
 | `xtask check lines [--update]` | 单文件行数硬上限（>500 行：新增/增长判红，已知的只警告） |
-| `xtask check walkers` | 注册的 exhaustive AST walker 覆盖每个节点子类 |
 | `xtask check diagcodes [--update]` | 每个发得出去的诊断码在登记表里登记恰好一次 |
 | `xtask check stage2 [--update]` | 阶段-1 过渡形态必须挂账且不超期 |
 | `xtask check vscode-syntax` | VSCode 语法文件 ↔ Lexer 关键字表同步 |

@@ -80,3 +80,24 @@ void test_source_hash_hex_form() {
     Assert.True(ZpkgBuilder.SourceHashHex("abc").StartsWith("mmh3:"));
     Assert.True(ZpkgBuilder.SourceHashHex("abc") != ZpkgBuilder.SourceHashHex("abd"));
 }
+
+// native-hash 等值对拍：HashHexOfStr（builtin __mmh3_hex_str）必须与「GetBytes + Hash128Hex」
+// 逐字相等——这是编译器源文本哈希换到 native 后、增量缓存键仍可比的依据（Rust 侧
+// convert.rs::mmh3_x86_128_tests 用同源向量反向盯）。
+[Test]
+void test_hash_hex_of_str_equals_z42_impl() {
+    Assert.Equal(_h(""), Murmur3.HashHexOfStr(""));
+    Assert.Equal(_h("a"), Murmur3.HashHexOfStr("a"));
+    Assert.Equal(_h("abcdefghijklmnopqrst"), Murmur3.HashHexOfStr("abcdefghijklmnopqrst"));
+    Assert.Equal(_h("café你🎉"), Murmur3.HashHexOfStr("café你🎉"));
+    string long34 = "abcdefghijklmnopqrstuvwxyz01234567";
+    Assert.Equal(_h(long34), Murmur3.HashHexOfStr(long34));
+}
+
+[Test]
+void test_source_hash_hex_stable_shape() {
+    string s = ZpkgBuilder.SourceHashHex("hello");
+    Assert.True(s.StartsWith("mmh3:"));
+    Assert.Equal(5 + 32, s.Length);
+    Assert.Equal(s, ZpkgBuilder.SourceHashHex("hello"));   // 确定性
+}

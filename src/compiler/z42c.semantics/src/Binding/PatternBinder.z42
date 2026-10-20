@@ -7,29 +7,42 @@ namespace Z42.Semantics;
 using Z42.Syntax;
 using Z42.Core;
 
-public sealed class PatternBinder {
+// PatternBinder 语法树 visitor 的 D 参数：模式绑定需要两个上下文（subject 静态类型 + 作用域
+// env），接口 D 只有一个槽 ⇒ 复用一个可变 ctx 对象（同 StmtBinder 的 StmtCtx 手法：入口覆写、
+// 零分配、递归安全）。
+public sealed class PatBindCtx {
+    public Z42Type Subj;
+    public TypeEnv Env;
+    public PatBindCtx(Z42Type subj, TypeEnv env) { this.Subj = subj; this.Env = env; }
+}
+
+public sealed class PatternBinder : IPatternVisitor<BoundPattern, PatBindCtx> {
     private TypeChecker _tc;
     public PatternBinder(TypeChecker tc) { this._tc = tc; }
 
     // 绑定一个模式：subjType=被匹配值的静态类型（用于裸绑定变量类型 / 子模式字段类型来源）。
     internal BoundPattern Bind(Pattern pat, Z42Type subjType, TypeEnv env) {
-        if (pat is WildcardPattern) { return new BoundWildcardPattern(pat.Span); }
-        if (pat is ConstantPattern) {
-            ConstantPattern cp = pat as ConstantPattern;
-            BoundExpr v = this._tc._expr._bindExpr(cp.Value, env);
-            return new BoundConstantPattern(v, pat.Span);
-        }
-        if (pat is NamePattern)       { return this._bindName(pat as NamePattern, subjType, env); }
-        if (pat is TuplePattern)      { return this._bindTuple(pat as TuplePattern, subjType, env); }
-        if (pat is PositionalPattern) { return this._bindPositional(pat as PositionalPattern, subjType, env); }
-        if (pat is PropertyPattern)   { return this._bindProperty(pat as PropertyPattern, subjType, env); }
-        if (pat is OrPattern)         { return this._bindOr(pat as OrPattern, subjType, env); }
-        if (pat is AtPattern)         { return this._bindAt(pat as AtPattern, subjType, env); }
-        if (pat is RangePattern)      { return this._bindRange(pat as RangePattern, subjType, env); }
-        if (pat is RelationalPattern) { return this._bindRelational(pat as RelationalPattern, subjType, env); }
-        this._tc._diags.Error(DiagnosticCodes.TypeMismatch, "unsupported pattern", pat.Span);
-        return new BoundWildcardPattern(pat.Span);
+        // syntax visitor 2/3：调度 = Accept 双分派到下面的逐节点 Visit（完备性由接口保证）。
+        this._pctx.Subj = subjType;
+        this._pctx.Env = env;
+        return pat.Accept<BoundPattern, PatBindCtx>(this, this._pctx);
     }
+    private PatBindCtx _pctx = new PatBindCtx(null, null);   // 复用对象（见 PatBindCtx 抬头）
+
+    // ── IPatternVisitor<BoundPattern, PatBindCtx>（方法序 = 接口声明序；体从旧 if-is 阶梯逐字搬移）──
+    public BoundPattern VisitWildcardPattern(WildcardPattern n, PatBindCtx d) { return new BoundWildcardPattern(n.Span); }
+    public BoundPattern VisitConstantPattern(ConstantPattern n, PatBindCtx d) {
+        BoundExpr v = this._tc._expr._bindExpr(n.Value, d.Env);
+        return new BoundConstantPattern(v, n.Span);
+    }
+    public BoundPattern VisitNamePattern(NamePattern n, PatBindCtx d) { return this._bindName(n, d.Subj, d.Env); }
+    public BoundPattern VisitPositionalPattern(PositionalPattern n, PatBindCtx d) { return this._bindPositional(n, d.Subj, d.Env); }
+    public BoundPattern VisitPropertyPattern(PropertyPattern n, PatBindCtx d) { return this._bindProperty(n, d.Subj, d.Env); }
+    public BoundPattern VisitTuplePattern(TuplePattern n, PatBindCtx d) { return this._bindTuple(n, d.Subj, d.Env); }
+    public BoundPattern VisitOrPattern(OrPattern n, PatBindCtx d) { return this._bindOr(n, d.Subj, d.Env); }
+    public BoundPattern VisitAtPattern(AtPattern n, PatBindCtx d) { return this._bindAt(n, d.Subj, d.Env); }
+    public BoundPattern VisitRangePattern(RangePattern n, PatBindCtx d) { return this._bindRange(n, d.Subj, d.Env); }
+    public BoundPattern VisitRelationalPattern(RelationalPattern n, PatBindCtx d) { return this._bindRelational(n, d.Subj, d.Env); }
 
     // 解构声明（模式匹配 B）不可失败校验：结构仅允许 通配 / 裸绑定 / 嵌套位置模式；且每个位置模式的期望类型
     // （顶层=init 静态类型，嵌套=父 record 字段类型）须与模式类型**精确一致**（IsInstance 恒真）→ 无失败分支。

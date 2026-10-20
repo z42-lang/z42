@@ -13,14 +13,13 @@ using Std.Cli;
 
 // 名字 → 说明。顺序即 `xtask check` 全跑的顺序（= GREEN gate 里的顺序）。
 string[] _checkNames() {
-    return new string[]{ "vscode-syntax", "lines", "fnlines", "walkers", "diagcodes", "stage2", "ci-shell", "proc-env", "layout", "versions", "docs-api", "doc-lints", "doc-refs" };
+    return new string[]{ "vscode-syntax", "lines", "fnlines", "diagcodes", "stage2", "ci-shell", "proc-env", "layout", "versions", "docs-api", "doc-lints", "doc-refs" };
 }
 
 string _checkDesc(string name) {
     if (name == "vscode-syntax") { return "VSCode grammar ↔ Lexer keyword table (regenerate in memory, diff vs committed)"; }
     if (name == "lines")         { return "file line-count hard limit (ratchet baseline: new / grown over the limit = red)"; }
     if (name == "fnlines")       { return "function body line-count hard limit (ratchet baseline: new / grown over the limit = red)"; }
-    if (name == "walkers")       { return "every registered exhaustive AST walker covers every node subclass"; }
     if (name == "diagcodes")     { return "every emitted diagnostic code is registered exactly once in DiagnosticCodes"; }
     if (name == "stage2")        { return "staged-introduction debt: every STAGE2-DEBT marker is ledgered and not overdue"; }
     if (name == "ci-shell")      { return "CI composite actions' run: blocks use no variable before assigning it (set -u)"; }
@@ -81,7 +80,6 @@ int _checkOne(string name, bool update) {
     if (name == "vscode-syntax") { return _testVscodeSyntax(); }
     if (name == "lines")         { return _testLines(update); }
     if (name == "fnlines")       { return _testFnLines(update); }
-    if (name == "walkers")       { return _testWalkers(); }
     if (name == "diagcodes")     { return _testDiagCodes(update); }
     if (name == "stage2")        { return _testStage2Debt(update); }
     if (name == "ci-shell")      { return _testCiShell(); }
