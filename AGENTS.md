@@ -20,8 +20,11 @@
 3. **没问题自动合并**：并入最新 main 后完整 `xtask test` 全绿，即 squash 合并并清理分支 / worktree，
    无需等 User 确认（批量授权的边界仍守）。
 4. **实现功能 / 修复 bug 必须带测试用例**：无测试 = 未完成（要求表见 workflow.md「测试要求」）。
-5. **性能变更必须带性能用例**：被优化的路径要有 bench 覆盖并附 A/B 结论，防回归
-   （判红规则见 [性能基准与回归门禁](docs/internals/src/devinfra/benchmarking.md)）。
+5. **性能变更必须带性能用例和前后数据**：被优化的路径要有 bench 覆盖，且 PR 描述记录优化前后的
+   数据（同 runner A/B 均值与结论），防回归（判红规则见
+   [性能基准与回归门禁](docs/internals/src/devinfra/benchmarking.md)）。
+6. **迭代记录不进源码注释**：profile 数据、测量日期、热点归因这类一次性过程证据写进 PR 描述；
+   源码注释只写代码自表达不了的不变量 / 约束（判据见 workflow.md「核心模型」）。
 
 ## 跨会话记忆（memory）
 

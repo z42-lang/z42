@@ -231,13 +231,12 @@ public sealed class Z42ClassType : Z42Type {
     // 二者名经 Canon 都归 "int"，emit 经 SurfaceName 都回 "int"）。IsStruct 复刻真 phantom（scalar
     // wrapper=struct，string/object=引用类）；无成员——内建成员访问经 MemberResolver 按名查 wrapper
     // 类（2b 已建），不依赖本类型自带成员表。任意拼写入参（keyword/短名/wrapper/FQ）由 Wrapper 归一。
-    // perf（2026-10-18 profile：jobs1 下 PrimModel.Canon 自占 2.6%，其中 1.1% 来自 Builtin 每次
-    // 构造时的 Canon 扫描）：基元关键字 / 包装拼写是**封闭集**（= PrimModel._kw/_wrap 的 28 个线格式名），
-    // 静态 init 一次造好 flyweight，之后这些拼写返回同一对象。Name() 必须等于原样入参（见下），
-    // 故按拼写分别缓存；其余入参（任意名 / `_resolve` 的垃圾回落名，低频）照旧每次新建。
+    // 基元关键字 / 包装拼写是**封闭集**（= PrimModel._kw/_wrap 的 28 个线格式名），静态 init 一次造好
+    // flyweight，之后这些拼写返回同一对象。Name() 必须等于原样入参（见下），故按拼写分别缓存；
+    // 其余入参（任意名 / `_resolve` 的垃圾回落名，低频）照旧每次新建。
     // 只读共享 ⇒ 并行 CU 安全（同 StructLayout 基表只读约定）；cctor 并发由 VM 的首访问闸保证。
-    // ⚠️ 名单在此内联为字面量、不读 PrimModel 的表——跨类静态初始化顺序无保证
-    // （fix-primtype-static-init-order 的教训同源）；两处须同步改（PrimModel._kw/_wrap 抬头有注）。
+    // ⚠️ 名单在此内联为字面量、不读 PrimModel 的表——跨类静态初始化顺序无保证；
+    // 两处须同步改（PrimModel._kw/_wrap 抬头有注）。
     private static StrMap s_primFly = Z42ClassType._mkPrimFly();
     // internal 而非 private：静态字段初始化器绑定时 AccessChecker 拿不到 CurrentClass，私有成员被判
     // E0404（已知编译器 bug，10-14 发现；修好后改回 private）。

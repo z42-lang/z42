@@ -158,6 +158,7 @@ const TYPED: &[&[super::abi::BuiltinDesc]] = &[
     super::reflection::invoke::typed::DESCS,
     super::reflection::accessors::typed::DESCS,
     super::reflection::module_load::typed::DESCS,
+    super::assemblyloadcontext::typed::DESCS,
     super::threading::typed::DESCS,
     super::fs::typed::DESCS,
     super::fs_backend::memory::typed::DESCS,
@@ -188,11 +189,7 @@ pub(crate) const LEGACY_REENTERS: &[&str] = &[
     "__type_is_class",
     "__repl_complete_probe", "__repl_set_completer", "__repl_set_key_editor", "__repl_set_keywords",
     "__repl_member_names",
-    "__lctx_default", "__lctx_create_collectible", "__lctx_load",
-    "__lctx_name", "__lctx_is_collectible", "__lctx_assemblies", "__asm_name",
-    "__asm_is_collectible", "__asm_loadcontext", "__asm_get_types", "__type_is_collectible",
-    "__type_assembly", "__lctx_unload",
-    "__test_module_load", "__asm_get_functions",
+    "__test_module_load",
 ];
 
 const TYPED_N: usize = super::abi::descs_len(TYPED);

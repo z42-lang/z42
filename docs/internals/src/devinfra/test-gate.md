@@ -108,7 +108,7 @@ fixture、debug VM 跑 `main.zpkg`——跨包 dispatch 的 debug 断言覆盖�
 | `stdlib [Benchmark]` | **只验语料能不能跑**，不看快慢 | 全量约 14.6 s、零噪声、host-independent |
 | `manifest targets` | 清单驱动的 `[[test]]` / `[[example]]` target 契约 | — |
 | `examples` | 学习手册示例逐条可运行且与书一致（书 ↔ 示例引用 + 用 SDK 里真实的 `z42` 重放每个 `.console`） | 完整 gate 先 `build toolchain` + `package dev-sdk`；`--no-build` 缺 SDK 即红 |
-| `docs` | 相对 markdown 链接可解析（死链一律红；三书重构期的存量基线已清零拆除） | 秒级，不需要 SDK |
+| `docs` | 相对 markdown 链接可解析（死链一律红） | 秒级，不需要 SDK |
 | `compiler` | 编译器自举不动点 gen1 == gen2 + units（见[构建编排](build.md)）| host-independent |
 | `gc modes` | 在每种 GC 模式下、把收集器调到触发上百次，重编一个真实包（`z42c.semantics`），每模式带一个收集次数下限断言 | 三个提前回收缺陷都是这么现形的：编译器在悬垂引用上崩在半途 |
 | `vscode-syntax` | 生成产物一致性：`z42.tmLanguage.json` 必须等于「当前 Lexer 关键字表 + 模板」的重渲染 | 约一次 z42c fork |
@@ -183,7 +183,8 @@ xtask 起的每个跑 z42 代码的子进程都经 `_z42Proc(exe, libs)` 建（z
 1. 登记表内**无重复码值**；
 2. **发射出去的每个码都必须在登记表里登记**（扫 `src/**` 非 `tests/`，剥行注释后取字符串字面量）；
 3. `DiagnosticCodes.<Name>` 引用的常量名必须存在（防笔误造幽灵码）；
-4. 字面量发码站点清单 `scripts/test/diag-literal-emitters.txt` **双向棘轮**（多一条 / 少一条都红）；
+4. 字面量发码站点清单 `scripts/test/diag-literal-emitters.txt` **双向棘轮**（多一条 / 少一条都红；
+   空账时整文件不存在，`--update` 按需重建）；
 5. [诊断码全表](https://z42-lang.github.io/z42/reference/appendix/error-codes.html)的码 ↔ 登记表**双向相等**；
 6. 清单里的每条**欠账必须按时结清**——字面量发码的正当理由（常量还没进种子）**会过期**，
    挂账超过宽限期（3 天）即红，逼它切回 `DiagnosticCodes.<Name>`；
@@ -192,7 +193,7 @@ xtask 起的每个跑 z42 代码的子进程都经 `_z42Proc(exe, libs)` 建（z
 8. **活性 ↔ 全表状态列双向对账**——有发射面却标着 `⚠️ 零发射点` / `❌ 已退役` → 红；
    零发射面却没这么标 → 红；
 9. **每个活码必须被至少一处测试按码断言**——否则必须在 `scripts/test/diag-untested-codes.txt`
-   里记账（双向棘轮：少一条 / 多一条都红 ⇒ 只能缩短）。
+   里记账（双向棘轮：少一条 / 多一条都红 ⇒ 只能缩短；空账时整文件不存在，`--update` 按需重建）。
 
 **第 8 条守的是另一维**：①-⑦ 盯的全是「码这个对象」（谁占号、谁发它、欠账多久、散文有没有
 乱说形态），**没有一条盯「它还活着吗」**。发射点被删之后 ②③ 只管反方向、④ 只管字面量站点、
