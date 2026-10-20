@@ -166,6 +166,8 @@ const TYPED: &[&[super::abi::BuiltinDesc]] = &[
     super::io::typed::DESCS,
     super::repl::typed::DESCS,
     super::repl_editing::typed::DESCS,
+    #[cfg(feature = "native-interop")]
+    crate::native::ext::typed::DESCS,
     super::monitor::typed::DESCS,
     #[cfg(not(target_arch = "wasm32"))]
     super::network::tcp::typed::DESCS,

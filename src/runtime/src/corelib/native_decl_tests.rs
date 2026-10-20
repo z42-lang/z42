@@ -165,8 +165,21 @@ fn declared_natives_full() -> Vec<(String, bool, String)> {
         for (ln, line) in text.lines().enumerate() {
             let code = line.split("//").next().unwrap_or("");
             let mut rest = code;
-            while let Some(i) = rest.find("[Native(\"") {
-                let after = &rest[i + "[Native(\"".len()..];
+            // 两种形态同 loop 收集:位置参数 `[Native("__x")]` 与 ext 库形态
+            // `[Native(lib = "...", entry = "__x")]`(P1-8 批次 9 起 entry 名进主表,
+            // typed builtin 的名字即 entry 名)。entry 出现在 lib 之后,先扫到谁处理谁。
+            loop {
+                let (i, off, tagged) = match (
+                    rest.find("[Native(\""),
+                    rest.find("entry = \""),
+                ) {
+                    (Some(a), Some(b)) if b < a => (b, "entry = \"".len(), true),
+                    (Some(a), _) => (a, "[Native(\"".len(), false),
+                    (None, Some(b)) => (b, "entry = \"".len(), true),
+                    (None, None) => break,
+                };
+                let _ = tagged;
+                let after = &rest[i + off..];
                 if let Some(end) = after.find('"') {
                     let name = &after[..end];
                     if name.starts_with("__") {
