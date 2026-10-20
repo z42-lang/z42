@@ -37,6 +37,7 @@ use anyhow::Result;
 
 use crate::corelib::NativeFn;
 use crate::metadata::Value;
+use crate::corelib::abi::BuiltinError;
 use crate::vm_context::VmContext;
 
 // ── ExtBuiltinTable ──────────────────────────────────────────────────────────
@@ -93,7 +94,10 @@ impl ExtBuiltinTable {
 /// whether or not the program compresses anything.
 pub fn load_all(ctx: &VmContext) -> Result<()> {
     #[cfg(feature = "bundled-compression")]
-    register_bundled_compression(ctx);
+    {
+        let _ = ctx;
+        compression_symbols_bundled();
+    }
     #[cfg(not(feature = "bundled-compression"))]
     let _ = ctx;
     Ok(())
@@ -112,7 +116,7 @@ pub fn ensure_lib_for(ctx: &VmContext, name: &str) -> bool {
     #[cfg(not(feature = "bundled-compression"))]
     {
         let Some(lib) = KNOWN_EXT_LIBS.iter()
-            .find(|(_, builtins)| builtins.iter().any(|(n, _)| *n == name))
+            .find(|(_, names)| names.contains(&name))
             .map(|(lib, _)| *lib)
         else { return false };
         {
@@ -123,27 +127,26 @@ pub fn ensure_lib_for(ctx: &VmContext, name: &str) -> bool {
     }
 }
 
-#[cfg(feature = "bundled-compression")]
-fn register_bundled_compression(ctx: &VmContext) {
-    let mut table = ctx.core.ext_builtins.lock();
-    let symbols = compression_symbols_bundled();
-    for (name, fn_ptr) in symbols {
-        table.register(name, *fn_ptr);
-    }
-    tracing::debug!(
-        "ext: registered {} bundled compression builtins",
-        table.by_idx.len()
-    );
-}
-
 /// The stdlib ext libs this loader knows how to wire up, with the builtins
 /// each one provides — the map from a missing builtin name to the library to
 /// open. Only these names are ever loaded from the search paths: the
 /// cargo-target directory (one of them, see [`native_search_paths`]) holds
 /// every cdylib of the workspace, e.g. `libz42_repl`, which has its own loader.
+/// The builtin names this loader routes to the compression library — typed
+/// builtins in the main table carry the wrappers; this list only names what
+/// `ensure_lib_for` may open `libz42_compression` for.
 #[cfg(not(feature = "bundled-compression"))]
-const KNOWN_EXT_LIBS: &[(&str, &[(&str, NativeFn)])] = &[
-    ("compression", COMPRESSION_BUILTINS),
+const COMPRESSION_NAMES: &[&str] = &[
+    "__deflate_compress", "__deflate_decompress",
+    "__zstd_compress", "__zstd_decompress",
+    "__brotli_compress", "__brotli_decompress",
+    "__lz4_compress", "__lz4_decompress",
+    "__compressor_begin", "__compressor_feed", "__compressor_finish", "__compressor_dispose",
+];
+
+#[cfg(not(feature = "bundled-compression"))]
+const KNOWN_EXT_LIBS: &[(&str, &[&str])] = &[
+    ("compression", COMPRESSION_NAMES),
 ];
 
 /// Open `lib<z42_{name}>.{so,dylib,dll}` from the first native search path
@@ -243,12 +246,8 @@ fn load_one(ctx: &VmContext, path: &std::path::Path, name: &str) -> Result<()> {
         "compression" => {
             // The library handle moves into the process-static table (see
             // `LoadedCompression::_lib`), not into this VM's `native_libs`.
-            let symbols = unsafe { compression_symbols_via_dlopen(lib)? };
-            let mut table = ctx.core.ext_builtins.lock();
-            for (sym_name, fn_ptr) in symbols {
-                table.register(sym_name, *fn_ptr);
-            }
-            tracing::debug!("ext: registered compression builtins from {}", path.display());
+            let _ = unsafe { compression_symbols_via_dlopen(lib)? };
+            tracing::debug!("ext: loaded compression symbols from {}", path.display());
             Ok(())
         }
         // Unreachable while the caller filters on `KNOWN_EXT_LIBS`; kept as the
@@ -372,7 +371,18 @@ struct LoadedCompression {
 static LOADED_COMPRESSION: OnceLock<LoadedCompression> = OnceLock::new();
 
 /// The loaded fn ptr table, or an error naming the builtin that needed it.
-fn loaded(name: &str) -> Result<&'static LoadedCompression> {
+/// Tests: whether the process-global compression fn-ptr table is filled.
+#[cfg(test)]
+pub(crate) fn compression_loaded_for_test() -> bool {
+    LOADED_COMPRESSION.get().is_some()
+}
+
+fn loaded(ctx: &VmContext, name: &str) -> Result<&'static LoadedCompression> {
+    if LOADED_COMPRESSION.get().is_none() {
+        // typed 主表命中后不再经 ext 查找,装载由这里按名触发(dlopen 路径;
+        // bundled 下 LOADED_COMPRESSION 已在启动时填充)。
+        ensure_lib_for(ctx, name);
+    }
     LOADED_COMPRESSION.get().ok_or_else(|| anyhow::anyhow!("{}: z42-compression not loaded", name))
 }
 
@@ -400,7 +410,7 @@ unsafe fn compression_symbols_via_dlopen(
     // A later VM in the same process (or a second copy of the library) keeps
     // using the table the first load installed; this handle is just dropped.
     if LOADED_COMPRESSION.get().is_some() {
-        return Ok(COMPRESSION_BUILTINS);
+        return Ok(&[]);
     }
 
     // libloading::Symbol::* deref to the underlying fn ptr. We copy the
@@ -433,11 +443,11 @@ unsafe fn compression_symbols_via_dlopen(
         _lib: lib,
     });
 
-    Ok(COMPRESSION_BUILTINS)
+    Ok(&[])
 }
 
 #[cfg(feature = "bundled-compression")]
-fn compression_symbols_bundled() -> &'static [(&'static str, NativeFn)] {
+fn compression_symbols_bundled() {
     // Stash the rlib's `extern "C"` fn ptrs into LOADED_COMPRESSION so the
     // wrapper functions below can use the same path as the dlopen case.
     let _ = LOADED_COMPRESSION.get_or_init(|| LoadedCompression {
@@ -456,26 +466,7 @@ fn compression_symbols_bundled() -> &'static [(&'static str, NativeFn)] {
         free:               z42_compression::z42_compression_free,
         last_error:         z42_compression::z42_compression_last_error,
     });
-    COMPRESSION_BUILTINS
 }
-
-/// Static mapping from `__<entry>` builtin name → wrapper that marshals
-/// `Value` ↔ `*const u8` and dispatches into the cdylib via the
-/// `LOADED_COMPRESSION` fn ptr table.
-const COMPRESSION_BUILTINS: &[(&str, NativeFn)] = &[
-    ("__deflate_compress",     wrap_deflate_compress),
-    ("__deflate_decompress",   wrap_deflate_decompress),
-    ("__zstd_compress",        wrap_zstd_compress),
-    ("__zstd_decompress",      wrap_zstd_decompress),
-    ("__brotli_compress",      wrap_brotli_compress),
-    ("__brotli_decompress",    wrap_brotli_decompress),
-    ("__lz4_compress",         wrap_lz4_compress),
-    ("__lz4_decompress",       wrap_lz4_decompress),
-    ("__compressor_begin",     wrap_compressor_begin),
-    ("__compressor_feed",      wrap_compressor_feed),
-    ("__compressor_finish",    wrap_compressor_finish),
-    ("__compressor_dispose",   wrap_compressor_dispose),
-];
 
 // ── Wrapper helpers ──────────────────────────────────────────────────────────
 
@@ -564,14 +555,13 @@ fn last_error_string() -> String {
 
 // ── Wrappers (NativeFn signatures, called by interp / JIT dispatch) ──────────
 
-fn wrap_deflate_compress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    use anyhow::bail;
+fn deflate_compress(ctx: &VmContext, input: Vec<u8>, level: i64, mode: i64) -> Result<Vec<u8>, BuiltinError> {
     const NAME: &str = "__deflate_compress";
-    let input = require_byte_array(args, 0, NAME)?;
-    let level = arg_i64(args, 1, NAME)? as i32;
-    let mode  = arg_i64(args, 2, NAME)? as i32;
+    let input = input;
+    let level = level as i32;
+    let mode  = mode as i32;
 
-    let lc = loaded(NAME)?;
+    let lc = loaded(ctx, NAME).map_err(BuiltinError::Legacy)?;
 
     let mut out_ptr: *mut u8 = std::ptr::null_mut();
     let mut out_len: usize = 0;
@@ -581,18 +571,17 @@ fn wrap_deflate_compress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
                               &mut out_ptr, &mut out_len)
     };
     if rc != 0 {
-        bail!("{}: {} (rc={})", NAME, last_error_string(), rc);
+        return Err(BuiltinError::Io(format!("{}: {} (rc={})", NAME, last_error_string(), rc)));
     }
-    Ok(bytes_to_value(ctx, take_owned_buffer(lc.free, out_ptr, out_len)))
+    Ok(take_owned_buffer(lc.free, out_ptr, out_len))
 }
 
-fn wrap_deflate_decompress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    use anyhow::bail;
+fn deflate_decompress(ctx: &VmContext, input: Vec<u8>, mode: i64) -> Result<Vec<u8>, BuiltinError> {
     const NAME: &str = "__deflate_decompress";
-    let input = require_byte_array(args, 0, NAME)?;
-    let mode  = arg_i64(args, 1, NAME)? as i32;
+    let input = input;
+    let mode  = mode as i32;
 
-    let lc = loaded(NAME)?;
+    let lc = loaded(ctx, NAME).map_err(BuiltinError::Legacy)?;
 
     let mut out_ptr: *mut u8 = std::ptr::null_mut();
     let mut out_len: usize = 0;
@@ -602,18 +591,17 @@ fn wrap_deflate_decompress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
                                 &mut out_ptr, &mut out_len)
     };
     if rc != 0 {
-        bail!("{}: {} (rc={})", NAME, last_error_string(), rc);
+        return Err(BuiltinError::Io(format!("{}: {} (rc={})", NAME, last_error_string(), rc)));
     }
-    Ok(bytes_to_value(ctx, take_owned_buffer(lc.free, out_ptr, out_len)))
+    Ok(take_owned_buffer(lc.free, out_ptr, out_len))
 }
 
-fn wrap_zstd_compress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    use anyhow::bail;
+fn zstd_compress(ctx: &VmContext, input: Vec<u8>, level: i64) -> Result<Vec<u8>, BuiltinError> {
     const NAME: &str = "__zstd_compress";
-    let input = require_byte_array(args, 0, NAME)?;
-    let level = arg_i64(args, 1, NAME)? as i32;
+    let input = input;
+    let level = level as i32;
 
-    let lc = loaded(NAME)?;
+    let lc = loaded(ctx, NAME).map_err(BuiltinError::Legacy)?;
 
     let mut out_ptr: *mut u8 = std::ptr::null_mut();
     let mut out_len: usize = 0;
@@ -622,17 +610,16 @@ fn wrap_zstd_compress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
                            &mut out_ptr, &mut out_len)
     };
     if rc != 0 {
-        bail!("{}: {} (rc={})", NAME, last_error_string(), rc);
+        return Err(BuiltinError::Io(format!("{}: {} (rc={})", NAME, last_error_string(), rc)));
     }
-    Ok(bytes_to_value(ctx, take_owned_buffer(lc.free, out_ptr, out_len)))
+    Ok(take_owned_buffer(lc.free, out_ptr, out_len))
 }
 
-fn wrap_zstd_decompress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    use anyhow::bail;
+fn zstd_decompress(ctx: &VmContext, input: Vec<u8>) -> Result<Vec<u8>, BuiltinError> {
     const NAME: &str = "__zstd_decompress";
-    let input = require_byte_array(args, 0, NAME)?;
+    let input = input;
 
-    let lc = loaded(NAME)?;
+    let lc = loaded(ctx, NAME).map_err(BuiltinError::Legacy)?;
 
     let mut out_ptr: *mut u8 = std::ptr::null_mut();
     let mut out_len: usize = 0;
@@ -641,18 +628,17 @@ fn wrap_zstd_decompress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
                              &mut out_ptr, &mut out_len)
     };
     if rc != 0 {
-        bail!("{}: {} (rc={})", NAME, last_error_string(), rc);
+        return Err(BuiltinError::Io(format!("{}: {} (rc={})", NAME, last_error_string(), rc)));
     }
-    Ok(bytes_to_value(ctx, take_owned_buffer(lc.free, out_ptr, out_len)))
+    Ok(take_owned_buffer(lc.free, out_ptr, out_len))
 }
 
-fn wrap_brotli_compress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    use anyhow::bail;
+fn brotli_compress(ctx: &VmContext, input: Vec<u8>, level: i64) -> Result<Vec<u8>, BuiltinError> {
     const NAME: &str = "__brotli_compress";
-    let input = require_byte_array(args, 0, NAME)?;
-    let level = arg_i64(args, 1, NAME)? as i32;
+    let input = input;
+    let level = level as i32;
 
-    let lc = loaded(NAME)?;
+    let lc = loaded(ctx, NAME).map_err(BuiltinError::Legacy)?;
 
     let mut out_ptr: *mut u8 = std::ptr::null_mut();
     let mut out_len: usize = 0;
@@ -661,17 +647,16 @@ fn wrap_brotli_compress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
                              &mut out_ptr, &mut out_len)
     };
     if rc != 0 {
-        bail!("{}: {} (rc={})", NAME, last_error_string(), rc);
+        return Err(BuiltinError::Io(format!("{}: {} (rc={})", NAME, last_error_string(), rc)));
     }
-    Ok(bytes_to_value(ctx, take_owned_buffer(lc.free, out_ptr, out_len)))
+    Ok(take_owned_buffer(lc.free, out_ptr, out_len))
 }
 
-fn wrap_brotli_decompress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    use anyhow::bail;
+fn brotli_decompress(ctx: &VmContext, input: Vec<u8>) -> Result<Vec<u8>, BuiltinError> {
     const NAME: &str = "__brotli_decompress";
-    let input = require_byte_array(args, 0, NAME)?;
+    let input = input;
 
-    let lc = loaded(NAME)?;
+    let lc = loaded(ctx, NAME).map_err(BuiltinError::Legacy)?;
 
     let mut out_ptr: *mut u8 = std::ptr::null_mut();
     let mut out_len: usize = 0;
@@ -680,18 +665,17 @@ fn wrap_brotli_decompress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
                                &mut out_ptr, &mut out_len)
     };
     if rc != 0 {
-        bail!("{}: {} (rc={})", NAME, last_error_string(), rc);
+        return Err(BuiltinError::Io(format!("{}: {} (rc={})", NAME, last_error_string(), rc)));
     }
-    Ok(bytes_to_value(ctx, take_owned_buffer(lc.free, out_ptr, out_len)))
+    Ok(take_owned_buffer(lc.free, out_ptr, out_len))
 }
 
-fn wrap_lz4_compress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    use anyhow::bail;
+fn lz4_compress(ctx: &VmContext, input: Vec<u8>, level: i64) -> Result<Vec<u8>, BuiltinError> {
     const NAME: &str = "__lz4_compress";
-    let input = require_byte_array(args, 0, NAME)?;
-    let level = arg_i64(args, 1, NAME)? as i32;
+    let input = input;
+    let level = level as i32;
 
-    let lc = loaded(NAME)?;
+    let lc = loaded(ctx, NAME).map_err(BuiltinError::Legacy)?;
 
     let mut out_ptr: *mut u8 = std::ptr::null_mut();
     let mut out_len: usize = 0;
@@ -700,17 +684,16 @@ fn wrap_lz4_compress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
                           &mut out_ptr, &mut out_len)
     };
     if rc != 0 {
-        bail!("{}: {} (rc={})", NAME, last_error_string(), rc);
+        return Err(BuiltinError::Io(format!("{}: {} (rc={})", NAME, last_error_string(), rc)));
     }
-    Ok(bytes_to_value(ctx, take_owned_buffer(lc.free, out_ptr, out_len)))
+    Ok(take_owned_buffer(lc.free, out_ptr, out_len))
 }
 
-fn wrap_lz4_decompress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    use anyhow::bail;
+fn lz4_decompress(ctx: &VmContext, input: Vec<u8>) -> Result<Vec<u8>, BuiltinError> {
     const NAME: &str = "__lz4_decompress";
-    let input = require_byte_array(args, 0, NAME)?;
+    let input = input;
 
-    let lc = loaded(NAME)?;
+    let lc = loaded(ctx, NAME).map_err(BuiltinError::Legacy)?;
 
     let mut out_ptr: *mut u8 = std::ptr::null_mut();
     let mut out_len: usize = 0;
@@ -719,37 +702,33 @@ fn wrap_lz4_decompress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
                             &mut out_ptr, &mut out_len)
     };
     if rc != 0 {
-        bail!("{}: {} (rc={})", NAME, last_error_string(), rc);
+        return Err(BuiltinError::Io(format!("{}: {} (rc={})", NAME, last_error_string(), rc)));
     }
-    Ok(bytes_to_value(ctx, take_owned_buffer(lc.free, out_ptr, out_len)))
+    Ok(take_owned_buffer(lc.free, out_ptr, out_len))
 }
 
-fn wrap_compressor_begin(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    use anyhow::bail;
+fn compressor_begin(ctx: &VmContext, algo: i64, level: i64, is_decompress: bool) -> Result<i64, BuiltinError> {
     const NAME: &str = "__compressor_begin";
-    let algo  = arg_i64(args, 0, NAME)? as i32;
-    let level = arg_i64(args, 1, NAME)? as i32;
-    let is_decompress = arg_bool(args, 2, NAME)?;
+    let algo  = algo as i32;
+    let level = level as i32;
 
-    let lc = loaded(NAME)?;
+    let lc = loaded(ctx, NAME).map_err(BuiltinError::Legacy)?;
 
     let mut slot_id: u64 = 0;
     let rc = unsafe {
         (lc.compressor_begin)(algo, level, is_decompress as i32, &mut slot_id)
     };
     if rc != 0 {
-        bail!("{}: {} (rc={})", NAME, last_error_string(), rc);
+        return Err(BuiltinError::Io(format!("{}: {} (rc={})", NAME, last_error_string(), rc)));
     }
-    Ok(Value::I64(slot_id as i64))
+    Ok(slot_id as i64)
 }
 
-fn wrap_compressor_feed(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    use anyhow::bail;
+fn compressor_feed(ctx: &VmContext, slot_id: i64, chunk: Vec<u8>) -> Result<Vec<u8>, BuiltinError> {
     const NAME: &str = "__compressor_feed";
-    let slot_id = arg_i64(args, 0, NAME)? as u64;
-    let chunk   = require_byte_array(args, 1, NAME)?;
+    let slot_id = slot_id as u64;
 
-    let lc = loaded(NAME)?;
+    let lc = loaded(ctx, NAME).map_err(BuiltinError::Legacy)?;
 
     let mut out_ptr: *mut u8 = std::ptr::null_mut();
     let mut out_len: usize = 0;
@@ -759,17 +738,16 @@ fn wrap_compressor_feed(ctx: &VmContext, args: &[Value]) -> Result<Value> {
                              &mut out_ptr, &mut out_len)
     };
     if rc != 0 {
-        bail!("{}: {} (rc={})", NAME, last_error_string(), rc);
+        return Err(BuiltinError::Io(format!("{}: {} (rc={})", NAME, last_error_string(), rc)));
     }
-    Ok(bytes_to_value(ctx, take_owned_buffer(lc.free, out_ptr, out_len)))
+    Ok(take_owned_buffer(lc.free, out_ptr, out_len))
 }
 
-fn wrap_compressor_finish(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    use anyhow::bail;
+fn compressor_finish(ctx: &VmContext, slot_id: i64) -> Result<Vec<u8>, BuiltinError> {
     const NAME: &str = "__compressor_finish";
-    let slot_id = arg_i64(args, 0, NAME)? as u64;
+    let slot_id = slot_id as u64;
 
-    let lc = loaded(NAME)?;
+    let lc = loaded(ctx, NAME).map_err(BuiltinError::Legacy)?;
 
     let mut out_ptr: *mut u8 = std::ptr::null_mut();
     let mut out_len: usize = 0;
@@ -777,19 +755,16 @@ fn wrap_compressor_finish(ctx: &VmContext, args: &[Value]) -> Result<Value> {
         (lc.compressor_finish)(slot_id, &mut out_ptr, &mut out_len)
     };
     if rc != 0 {
-        bail!("{}: {} (rc={})", NAME, last_error_string(), rc);
+        return Err(BuiltinError::Io(format!("{}: {} (rc={})", NAME, last_error_string(), rc)));
     }
-    Ok(bytes_to_value(ctx, take_owned_buffer(lc.free, out_ptr, out_len)))
+    Ok(take_owned_buffer(lc.free, out_ptr, out_len))
 }
 
-fn wrap_compressor_dispose(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    const NAME: &str = "__compressor_dispose";
-    let slot_id = arg_i64(args, 0, NAME)? as u64;
-
+fn compressor_dispose(slot_id: i64) {
+    let slot_id = slot_id as u64;
     if let Some(lc) = LOADED_COMPRESSION.get() {
         let _ = unsafe { (lc.compressor_dispose)(slot_id) };
     }
-    Ok(Value::Null)
 }
 
 // The ABI handshake's two halves — this loader's `EXPECTED_COMPRESSION_ABI` and
@@ -813,4 +788,70 @@ mod abi_handshake_tests {
             "the exported C function must return the crate constant",
         );
     }
+}
+
+/// 压缩 builtin 迁 ABI v2(P1-8 批次 9):12 个 wrap 胶水改类型化形态进主表,
+/// ext 表的 fn-ptr 注册退场(装载仍按需触发——`loaded` 未命中时 ensure)。
+/// byte[] 参数拷出、返回打包 byte[];压缩失败(rc≠0)→ `IOException`。
+#[z42_macros::builtins]
+pub mod typed {
+    use super::*;
+
+    #[builtin(name = "__deflate_compress")]
+    pub fn deflate_compress(ctx: &VmContext, input: Vec<u8>, level: i64, mode: i64) -> Result<Vec<u8>, BuiltinError> {
+        super::deflate_compress(ctx, input, level, mode)
+    }
+
+    #[builtin(name = "__deflate_decompress")]
+    pub fn deflate_decompress(ctx: &VmContext, input: Vec<u8>, mode: i64) -> Result<Vec<u8>, BuiltinError> {
+        super::deflate_decompress(ctx, input, mode)
+    }
+
+    #[builtin(name = "__zstd_compress")]
+    pub fn zstd_compress(ctx: &VmContext, input: Vec<u8>, level: i64) -> Result<Vec<u8>, BuiltinError> {
+        super::zstd_compress(ctx, input, level)
+    }
+
+    #[builtin(name = "__zstd_decompress")]
+    pub fn zstd_decompress(ctx: &VmContext, input: Vec<u8>) -> Result<Vec<u8>, BuiltinError> {
+        super::zstd_decompress(ctx, input)
+    }
+
+    #[builtin(name = "__brotli_compress")]
+    pub fn brotli_compress(ctx: &VmContext, input: Vec<u8>, level: i64) -> Result<Vec<u8>, BuiltinError> {
+        super::brotli_compress(ctx, input, level)
+    }
+
+    #[builtin(name = "__brotli_decompress")]
+    pub fn brotli_decompress(ctx: &VmContext, input: Vec<u8>) -> Result<Vec<u8>, BuiltinError> {
+        super::brotli_decompress(ctx, input)
+    }
+
+    #[builtin(name = "__lz4_compress")]
+    pub fn lz4_compress(ctx: &VmContext, input: Vec<u8>, level: i64) -> Result<Vec<u8>, BuiltinError> {
+        super::lz4_compress(ctx, input, level)
+    }
+
+    #[builtin(name = "__lz4_decompress")]
+    pub fn lz4_decompress(ctx: &VmContext, input: Vec<u8>) -> Result<Vec<u8>, BuiltinError> {
+        super::lz4_decompress(ctx, input)
+    }
+
+    #[builtin(name = "__compressor_begin")]
+    pub fn compressor_begin(ctx: &VmContext, algo: i64, level: i64, is_decompress: bool) -> Result<i64, BuiltinError> {
+        super::compressor_begin(ctx, algo, level, is_decompress)
+    }
+
+    #[builtin(name = "__compressor_feed")]
+    pub fn compressor_feed(ctx: &VmContext, slot_id: i64, chunk: Vec<u8>) -> Result<Vec<u8>, BuiltinError> {
+        super::compressor_feed(ctx, slot_id, chunk)
+    }
+
+    #[builtin(name = "__compressor_finish")]
+    pub fn compressor_finish(ctx: &VmContext, slot_id: i64) -> Result<Vec<u8>, BuiltinError> {
+        super::compressor_finish(ctx, slot_id)
+    }
+
+    #[builtin(name = "__compressor_dispose")]
+    pub fn compressor_dispose(slot_id: i64) { super::compressor_dispose(slot_id) }
 }

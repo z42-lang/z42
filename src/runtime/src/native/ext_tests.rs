@@ -92,8 +92,10 @@ fn a_library_is_looked_for_once_per_vm() {
     // to the test binary); a later miss for another of its builtins does not
     // look again.
     let ctx = crate::vm_context::VmContext::new();
+    // P1-8 批次 9:压缩 builtin 迁主表后不再进 ext 表,装载成功的可见信号是
+    // 进程级 fn ptr 表已填充(typed 内部 `loaded` 读它)。
     if ensure_lib_for(&ctx, "__deflate_compress") {
-        assert!(ctx.core.ext_builtins.lock().lookup_id("__deflate_compress").is_some());
+        assert!(crate::native::ext::compression_loaded_for_test());
     }
     assert!(!ensure_lib_for(&ctx, "__zstd_compress"), "second miss for the same library must not retry");
 }
