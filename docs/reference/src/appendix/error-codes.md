@@ -12,7 +12,7 @@
 | **码的来源** | [`src/compiler/z42c.core/src/DiagnosticCodes.z42`](https://github.com/z42-lang/z42/blob/main/src/compiler/z42c.core/src/DiagnosticCodes.z42) 里的码常量 —— **这是唯一 SoT**。每一个发得出去的码都必须在那里登记，由 `xtask check diagcodes` 强制（见下） |
 | **含义** | 取**发射点的诊断消息文本**，而不是常量名。常量名可能一码两义、也可能名实不符（见 `[Forward]` 一节） |
 | **状态** | 对每个码做 `grep -rn 'DiagnosticCodes.<常量名>' src/` + `grep -rn '"<码号>"' src/`，排除 `DiagnosticCodes.z42` 自身与 `tests/` 目录 |
-| **唯一性** | `xtask check diagcodes`（GREEN gate stage）**活体对账**：① 登记表内无重复码值；② 发射出去的每个码都必须在登记表里登记；③ `DiagnosticCodes.<Name>` 引用的常量必须存在；④ 字面量发码站点清单 `scripts/test/diag-literal-emitters.txt` 双向棘轮；⑤ **本页的码表与登记表双向相等**；⑥ 清单里的每条欠账挂账超过 3 天即红（字面量发码的正当理由会过期，到期必须切回常量）；⑦ 任何源文件的散文里都不得断言发射形态（形态是会变的状态，唯一 SoT 是 ④ 的清单）；⑧ **本页状态列与实际发射面双向对账**；⑨ **每个活码必须被至少一处测试按码断言**（否则记账在 `scripts/test/diag-untested-codes.txt`，双向棘轮）（本页多一个码 = 有号被占在文档里而登记表看不见；登记表多一个码 = 新码没进本页） |
+| **唯一性** | `xtask check diagcodes`（GREEN gate stage）**活体对账**：① 登记表内无重复码值；② 发射出去的每个码都必须在登记表里登记；③ `DiagnosticCodes.<Name>` 引用的常量必须存在；④ 字面量发码站点清单 `scripts/test/diag-literal-emitters.txt`（空账时文件不存在、`--update` 按需重建）双向棘轮；⑤ **本页的码表与登记表双向相等**；⑥ 清单里的每条欠账挂账超过 3 天即红（字面量发码的正当理由会过期，到期必须切回常量）；⑦ 任何源文件的散文里都不得断言发射形态（形态是会变的状态，唯一 SoT 是 ④ 的清单）；⑧ **本页状态列与实际发射面双向对账**；⑨ **每个活码必须被至少一处测试按码断言**（否则记账在 `scripts/test/diag-untested-codes.txt`，双向棘轮）（本页多一个码 = 有号被占在文档里而登记表看不见；登记表多一个码 = 新码没进本页） |
 
 > 🔴 **下面这张表的「状态」列不是人工 grep 的快照，而是被门禁钉住的**：
 > 一个码**有**发射点却标着 `⚠️ 零发射点` / `❌ 已退役` → 红；**没有**发射点却没这么标 → 红。
@@ -471,8 +471,8 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 2. **加发射点**，并在提交前用 `grep -rn '"<码号>"' src/` 自证它真的会被报出——只加常量不加发射点，
    等于给了用户一条不存在的保护。⚠️ 发射点若用**字面量**（新常量与其引用不能同 PR，见
    support 先行的分阶段引入纪律），还要把
-   `<码号> <相对路径>` 加进 [`scripts/test/diag-literal-emitters.txt`](../../../../scripts/test/diag-literal-emitters.txt)
-   （`xtask check diagcodes --update`）。**加这一行时先停一秒**：你是不是在给一个已经有主的码挂第二个含义？
+   `<码号> <相对路径>` 记进 `scripts/test/diag-literal-emitters.txt`（文件不存在就由
+   `xtask check diagcodes --update` 重建）。**加这一行时先停一秒**：你是不是在给一个已经有主的码挂第二个含义？
    撞码正是这么来的。
 3. 在本页对应分段加一行：码号 → 含义 → 状态（带 `file:line`）→ 触发示例。
    **这一步不是可选的**——规则 ⑤ 要求本页的码表与登记表双向相等，漏了就红。反过来也一样：
