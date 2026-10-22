@@ -83,14 +83,15 @@
 | `src/Validation/NullableValueTypes.z42` | E0476 的语义半边：类型写法里 `X?` 的 X 解析成 struct / enum ⇒ 报错（基元关键字由解析器报）；挂在 `ChkAmbiguousBareNameT`（方法体类型位）与 `DeclTypeUses`（声明位） |
 | `src/Validation/DepUseCollector.z42` | 绑定树上的跨包依赖收集（bound visitor，完备性由编译器保证）：补「接收者类型没写出来」的导入实例调用；与绑定期 `NoteDepUse` 合并成文件依赖集（`CuCompile.DepRefsOf`，DEPS / E0436 / W0607 的判据），不经代码生成 |
 | `src/Validation/UsingLint.z42` | 多余 `using` 告警：W0607 不必要（没用到 / prelude / 外围）、W0608 重复（同文件 / 已有 global using）；判据与 E0436 同一份用法集合 |
-| `src/Binding/ConstValue.z42` | **编译期常量值**：`ConstValue{Kind, IntVal, StrVal}`，Kind 区分 `Int/Bool/Char/Float(bits)/Str/Null`——供 codegen 把 const 引用替换成对应字面量指令时选对指令 |
+| `src/Types/ConstValue.z42`（自 Binding 下沉，semantics-split 准备） | **编译期常量值**：`ConstValue{Kind, IntVal, StrVal}`，Kind 区分 `Int/Bool/Char/Float(bits)/Str/Null`——供 codegen 把 const 引用替换成对应字面量指令时选对指令 |
 | `src/Binding/ConstEval.z42` | **常量表达式求值器**：AST `Expr` + 已定义 const 环境(`StrMap`) → `ConstValue`（非常量返回 null，调用方报诊断）。覆盖字面量 + 一元/二元 算术·比较·逻辑·位·串接 + 已定义 const 引用（镜像 `IrGenFacts._foldBinary` 语义） |
 | `src/Binding/ExprTyper.z42` / `AssignTyper.z42` / `CollectionTyper.z42` / `ConstructTyper.z42` / `TypeOpTyper.z42` | 各类表达式的绑定与类型推断（`TypeChecker` 的 `*Typer` 分工：一般表达式 / 赋值 / 集合与索引 / new·构造 / is·as·typeof·cast）|
 | `src/Binding/MemberResolver.z42`（+ `.Bare` / `.Func` / `.Generic` / `.Nested` / `.Prim` / `.Static` / `.Subst` / `.TypeParam` 碎片） | 成员解析：实例 / 静态 / 基元 / 型参 / 函数类型成员，含泛型代换；`.Generic` = 泛型方法调用的类型实参解析 / 推断与返回类型代换（收尾在 `GenericCallRet.z42`） |
-| `src/Binding/OverloadResolver.z42` / `OverloadBinder.z42`（+ `.Candidates`） | 重载决议与实参归位 |
+| `src/Binding/OverloadResolver.z42` / `OverloadBinder.z42`（+ `.Candidates`） | 重载决议与实参归位 ；`MangleKey`/`TypeKey` 实现已移 `Types/DispatchKeys.z42`（Binding→Types 单向） |
 | `src/Binding/DeclBinder.z42` / `StmtBinder.z42` | 声明（类 / 方法体 / 属性）与语句绑定 |
 | `src/Binding/ExhaustCheck.z42` / `MacroRegistry.z42` / `RefArgCheck.z42` / `VarFieldInfer.z42` | switch 穷尽性检查 / 编译期宏注册 / `ref`·`out` 实参校验 / `var` 字段类型推断 |
 | `src/Types/TypeSubst.z42` / `TypeArgInference.z42` / `MethodTypeArgSubst.z42` / `MethodTypeParamUse.z42` / `TypeFactsTc.z42` / `PrimModel.z42` / `StructLayout.z42`（+ `.Query` 读端查询面分片）/ `LayoutKey.z42` | 类型代换 / 类型实参推断 / 方法级型参代换与使用分析 / 类型谓词 / 基元模型 / struct 布局（计算与缓存在主文件，IsStructType/字段下标·偏移等查询在分片）/ 布局名与实例化名的唯一拼法（全名） |
+| `src/Types/DispatchKeys.z42` | **派发键派生**：`MangleKey`（统一签名键 `名$参数数$类型键…`）与 `TypeKey`（参数类型键片段，复合类型内建叶子用 keyword 拼写）——定义点与跨包 import 两侧共用的唯一实现（原在 `Binding/OverloadResolver.z42`） |
 | `src/Symbols/SymbolTable.Functions.z42` / `.Nominal.z42` / `.Origins.z42` | `SymbolTable` 碎片：自由函数 / 名义类型 / 符号来源 |
 | `src/Symbols/ImportedSymbolLoader.z42`（+ `.Resolve`） | 把依赖 zpkg 的 TSIG 恢复成符号表条目 |
 | `src/Symbols/ImportedSymbolLoader.Fill.z42` | 导入类成员的**并行填充**（`ClassFillTask`）：Load Phase2 按类分组（partial 跨模块同组保序），组间只读骨架表、各写自己的类对象 ⇒ `ParallelFor` 并行，产物与串行逐字节一致 |

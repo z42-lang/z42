@@ -241,7 +241,7 @@ public sealed class InheritanceResolver {
     // （其 RegKey 即该 imported 包编译时已定案的键，无需也无法继续上溯）。全链找不到匹配 → 返回 null
     // （不改写，保留 _fillClass 的本地决策——理论上不应发生，`override` 必然对应某个虚方法声明）。
     private MethodSymbol _findVirtualOrigin(SymbolTable table, Z42ClassType ct, string name, Z42Type[] paramTypes, int paramCount) {
-        string wantCanon = OverloadResolver.MangleKey(name, paramTypes, paramCount);
+        string wantCanon = DispatchKeys.MangleKey(name, paramTypes, paramCount);
         Z42ClassType cur = ct;
         MethodSymbol lastMatch = null;
         bool more = table.BaseOf(cur) != null;
@@ -256,7 +256,7 @@ public sealed class InheritanceResolver {
                 while (k < keys.Length) {
                     MethodSymbol sym = baseCt.Methods.Get(keys[k]) as MethodSymbol;
                     if (sym != null && sym.Name == name) {
-                        string symCanon = OverloadResolver.MangleKey(sym.Name, sym.Signature.ParamTypes, sym.Signature.ParamCount);
+                        string symCanon = DispatchKeys.MangleKey(sym.Name, sym.Signature.ParamTypes, sym.Signature.ParamCount);
                         if (symCanon == wantCanon) { matchHere = sym; }
                     }
                     k = k + 1;
@@ -417,7 +417,7 @@ public sealed class InheritanceResolver {
     // 沿 base 链找 (name, paramTypes) 的**最近**匹配 MethodSymbol（用于 sealed override 强制：最近的被
     // 覆盖方法若 sealed 即非法）。与 _findVirtualOrigin（找**最初**声明）互补：此处首个命中即返回。
     private MethodSymbol _nearestBaseMethod(SymbolTable table, Z42ClassType ct, string name, Z42Type[] paramTypes, int paramCount) {
-        string wantCanon = OverloadResolver.MangleKey(name, paramTypes, paramCount);
+        string wantCanon = DispatchKeys.MangleKey(name, paramTypes, paramCount);
         Z42ClassType cur = ct;
         bool more = table.BaseOf(cur) != null;
         while (more) {
@@ -429,7 +429,7 @@ public sealed class InheritanceResolver {
                 while (k < keys.Length) {
                     MethodSymbol sym = baseCt.Methods.Get(keys[k]) as MethodSymbol;
                     if (sym != null && sym.Name == name) {
-                        string symCanon = OverloadResolver.MangleKey(sym.Name, sym.Signature.ParamTypes, sym.Signature.ParamCount);
+                        string symCanon = DispatchKeys.MangleKey(sym.Name, sym.Signature.ParamTypes, sym.Signature.ParamCount);
                         if (symCanon == wantCanon) { return sym; }   // 最近命中即返回
                     }
                     k = k + 1;
@@ -535,7 +535,7 @@ public sealed class InheritanceResolver {
         Z42Type[] want = new Z42Type[pc];
         int p = 0;
         while (p < pc) { want[p] = this._substForIface(ims.Signature.ParamTypes[p], ct, it); p = p + 1; }
-        string wantKey = OverloadResolver.MangleKey(ims.Name, want, pc);
+        string wantKey = DispatchKeys.MangleKey(ims.Name, want, pc);
         // fix-iface-satisfaction-gaps #1：MangleKey 不含返回类型 → 另算期望返回（Self→实现类，同形参替换）。
         Z42Type wantRet = this._substForIface(ims.Signature.Ret, ct, it);
         // **按名取全部重载**，不能 `Methods.Get(name)`：非-primary 重载登记在 mangled 键上
@@ -550,7 +550,7 @@ public sealed class InheritanceResolver {
                 nameSeen = true;
                 MethodSymbol cm = cands[j];
                 if (cm.Signature != null
-                    && OverloadResolver.MangleKey(cm.Name, cm.Signature.ParamTypes, cm.Signature.ParamCount) == wantKey) {
+                    && DispatchKeys.MangleKey(cm.Name, cm.Signature.ParamTypes, cm.Signature.ParamCount) == wantKey) {
                     // fix-iface-satisfaction-gaps #1：MangleKey 命中=「名+形参」对上，但它**不含 static/返回类型**。
                     // 补两项校验，否则 static 接口成员被实现成 instance、或返回类型不符，都静默通过（真洞）。
                     //
@@ -591,7 +591,7 @@ public sealed class InheritanceResolver {
                     // ② **协变** = impl 返回是接口声明返回的子类 / 接口实现（用 table，IsAssignableTo 无符号表认不了）。
                     bool retOk = (implRet is Z42UnknownType) || (implRet is Z42ErrorType)
                               || (wantRet is Z42UnknownType) || (wantRet is Z42ErrorType)
-                              || OverloadResolver.TypeKey(implRet) == OverloadResolver.TypeKey(wantRet);
+                              || DispatchKeys.TypeKey(implRet) == DispatchKeys.TypeKey(wantRet);
                     if (!retOk && ((implRet is Z42ClassType) || (implRet is Z42InstantiatedType))) {
                         string implName = implRet.Name();
                         if (implRet is Z42InstantiatedType) { implName = (implRet as Z42InstantiatedType).Def.Name(); }
