@@ -1,8 +1,8 @@
-// xtask — `test compiler fingerprint`：编译器输出变了，版本号必须累加（guard-compiler-fingerprint）。
+// xtask — `test compiler fingerprint`：编译器输出变了，版本号必须累加。
 //
 // 增量缓存的键里，编译器身份 = `CacheStore.CompilerFingerprint` + zbc/zpkg 格式 Minor（见
-// docs/internals/src/compiler/compiler-fingerprint.md）。规则是「凡是影响输出的编译器改动都要累加」，此前全靠自觉。
-// #654 之后产物可复现（同源 + 同编译器 ⇒ 逐字节相同），于是可以机械地判：
+// docs/internals/src/compiler/compiler-fingerprint.md）。规则是「凡是影响输出的编译器改动都要累加」；
+// 产物可复现（同源 + 同编译器 ⇒ 逐字节相同）之后可以机械地判：
 //
 //   同一份 base stdlib 源码，base 编译器编一遍、本树编译器编一遍，逐包比 zpkg 字节。
 //   字节变了 ∧ 指纹没变 ∧ 格式没变 ⇒ 红（缓存会把旧编译器的产物当成新的）。
@@ -35,10 +35,9 @@ int _fpEntryCount(string tree) {
     string t = _fingerprintSourceOf(tree);
     // 🔴 **过渡期回落**：base 树可能早于 fingerprint-content-derived，那时指纹还是
     // `CacheStore.z42` 里的一个 int 常量、`CompilerFingerprint.z42` 根本不存在。
-    // 没有这条回落，守门读出 -1 并判「读不到版本常量」⇒ **换方案的那个 PR 自己必红**
-    // （实测：`base -1/44/49 · 本树 2/44/49` ⇒ ✗）。
+    // 没有这条回落，守门读出 -1 并判「读不到版本常量」⇒ **换方案的那个 PR 自己必红**。
     //
-    // 回落后：base 读出旧的整数（如 41）、本树读出条目数（如 2）⇒ 两者不同 ⇒ 守门正确地
+    // 回落后：base 读出旧的整数、本树读出条目数 ⇒ 两者不同 ⇒ 守门正确地
     // 认为「编译器身份已变」—— 而那确实是事实：换表示本身就让所有旧 `.meta` 失效。
     //
     // ⚠️ 这条回落在两侧都有新文件之后就永远走不到了，但**先留着**：它同时护住
@@ -56,7 +55,7 @@ int _fpEntryCount(string tree) {
     if (e < 0) { return -1; }
     string body = tail.Substring(0, e);
     // 数引号对。⚠️ **跳过 `//` 注释行** —— 否则条目注释里每写一对双引号（举个调用例子就会有）
-    // 就虚增一条「条目」，CI 日志里打印的编译器身份数字随之失真。实测踩过：6 条被数成 10。
+    // 就虚增一条「条目」，CI 日志里打印的编译器身份数字随之失真。
     // 精确判定走 `_fingerprintSourceOf` 全文比较，不受本函数影响；坏的只是**可读性** ——
     // 但那个数字正是给人看的，失真就等于没有。
     int n = 0;
@@ -85,9 +84,7 @@ string _compilerIdentityOf(string tree) {
 
 // ── 「源码没变就没得 bump」守卫 ──────────────────────────────────
 //
-// 🔴 **本门会对完全不碰编译器的 PR 假红**，实测四个独立数据点都指向同一个包：
-//   · #925（改了编译器）、#927（只改 Rust VM）、#928（只改构建脚本）——都是「1 个包（z42.json）」；
-//   · 本地拿**本树自己**当 base（差异为零）跑本门，同样报 z42.json。
+// 🔴 **本门会对完全不碰编译器的 PR 假红**，且反复命中同一个包（z42.json）：
 //
 // 机理是**代际混淆**，它由本门的编排构造出来，与被测 PR 无关：base 侧的 driver 是
 // 「PR 的 z42c 编 base 源码」（bench-pr.yml），本树侧的 driver 是「种子链编本树源码」——
@@ -96,15 +93,15 @@ string _compilerIdentityOf(string tree) {
 // 不动点。于是「两个不同代的同源 driver」编出的 stdlib 本就会有一两个包不一样。
 //
 // ⇒ 源码逐字节相同时，「输出变了」在**定义上**就不可能是「编译器身份该变而没变」——
-// 没有任何 slug 可以追加。此前的处置是照提示 bump 一行（#925 就是这么绿的），那是
-// **治症状**：既没消除代际漂移，又平白让全网增量缓存作废一次。
+// 没有任何 slug 可以追加。此时照提示 bump 一行是**治症状**：既没消除代际漂移，
+// 又平白让全网增量缓存作废一次。
 //
 // 比 `src/compiler`（编译器本体，含 z42.package 的格式写端）**与** `src/libraries`
 // （编译器自己也编译/运行在它之上，stdlib 变了确实可能改变输出）两棵树；两棵都逐字节
 // 相同才跳过。跳过时**大声说明**，不做静默 return 0——静默跳过正是本仓库反复吃过的假门形状。
 //
 // ⚠️ VM 改动不在此列，也**不该**在：本门两侧的 stdlib 都是在**同一个 PR VM** 上编出来的
-// （bench-pr.yml 那行注释写明了「这一步用 PR 的 VM 跑」），所以它对 VM 造成的输出变化本就
+//（bench-pr.yml 那行注释写明了「这一步用 PR 的 VM 跑」），所以它对 VM 造成的输出变化本就
 // 没有分辨力，跳过不损失覆盖。
 bool _srcDirsEqual(string a, string b) {
     bool aEx = Directory.Exists(a);

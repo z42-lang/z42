@@ -1,5 +1,4 @@
-// xtask — VM golden-test runner (folded from the former scripts/test-vm.z42 by
-// the test-vm fold). Same Z42Xtask namespace; the golden-walk + entry-derivation
+// xtask — VM golden-test runner. Same Z42Xtask namespace; the golden-walk + entry-derivation
 // helpers it calls (_deriveEntry / _enumDirsSorted /
 // _firstLine / _stripTrailingNewlines / ...) live in xtask_golden.z42.
 //

@@ -249,39 +249,33 @@ int _testE2eCore(string modes, bool rebuild, bool noBuild, string jobs, string s
     return _runVmGoldensF(modeList, jobsN, sh[0], sh[1], dirFilter, fileFilter);
 }
 
-// add-ci-generational-coverage  / flip-gc-default-to-generational :
-// compile one real package under each GC mode, with the collector tuned to fire hundreds of
-// times, and require that it actually did.
+// compile one real package under each GC mode, with the collector tuned to fire
+// hundreds of times, and require that it actually did.
 //
-// **Why a compiler build and not the golden suite**: the goldens were tried first and are
-// *vacuous* here — each case is a short-lived program that never collects. Reintroducing
-// #539's defect left the whole golden suite green; the same defect crashes this build.
+// **Why a compiler build and not the golden suite**: golden cases are short-lived
+// programs that never collect — vacuous for GC-defect coverage; a `z42c.semantics`
+// build genuinely stresses the collector.
 //
-// **Why both modes.** `generational` is the default now, so every other stage exercises it —
-// but only at the 32 MB default nursery, which is ~26 collections spread over the run and has
-// been proved twice to be too few (it missed #539, and it missed #557). And `stw` went from
-// "the default, covered by everything" to "covered by nothing" — which is exactly the state
-// that let three premature-collection defects live for months before #555.
+// **Why both modes.** `generational` is the default, so every other stage exercises it —
+// but only at the 32 MB default nursery, far too few collections to catch premature-
+// collection defects. And `stw` is exercised by nothing else — uncovered modes are where
+// such defects live for months.
 //
-// **Why these settings** — collections over one `z42c.semantics` build, and what each buys:
+// **Why these settings** — collections over one `z42c.semantics` build:
 //
-//   default (generational), nursery 1M   ~440 collections  ← catches #557 (which needed ~128)
-//   Z42_GC_MODE=stw, budget 16M           ~70 collections  ← the knee: 8M is several hundred but
-//                                                             much longer wall time for the same shape
+//   default (generational), nursery 1M   ~440 collections
+//   Z42_GC_MODE=stw, budget 16M           ~70 collections  ← the knee: 8M is several hundred
+//                                                             but much longer wall time
 //
-// The stw budget tracks the live set: when object model R3 shrank reference arrays to 8 B per
-// element, 32M dropped from 40 to 35 collections (under the floor) — the collector was firing
-// less because the heap got smaller, not because a policy broke.
-//
-// The floors below are set well under the observed counts — their job is to catch a *collapse*
-// (a flipped default, a policy change that stops the collector firing), not to pin an exact
-// number, which drifts with the workload.
+// The stw budget tracks the live set — it drifts when object sizes change, so the floors
+// are set well under the observed counts. Their job is to catch a *collapse* (a flipped
+// default, a policy change that stops the collector firing), not to pin an exact number.
 //
 // The generational leg deliberately leaves `Z42_GC_MODE` **unset**: it is testing *the
 // default*, so hard-coding the mode here would let a flipped default go unnoticed. The
 // asserted collection floor is what makes that safe — if the default changes, or a policy
-// change stops the collector firing, the count collapses and this stage goes red rather than
-// silently testing nothing.
+// change stops the collector firing, the count collapses and this stage goes red rather
+// than silently testing nothing.
 int _testGcModeWorkload(string label, string modeEnv, string nurseryEnv, string budgetEnv,
                         int minCycles, int jobs) {
     string root = _root();
@@ -352,19 +346,17 @@ int _testGcModes() {
 // ── cross-zpkg harness (invoked by `test e2e`) ──────────────────────────────
 
 // noBuild=true: skip the debug-vm/stdlib/z42c rebuild — `test` already prepared
-// them in its build wave (z42c was being self-built a 2nd time here). `test e2e`
-// passes noBuild per its --no-rebuild/--no-build flags (or true after a golden run).
+// them in its build wave. `test e2e` passes noBuild per its --no-rebuild/--no-build
+// flags (or true after a golden run).
 // cross-zpkg 与 multi-exe 两个 fixture harness 的**共用**构建前置：确保 debug z42vm
-// （cargo，跑 fixtures）+ stdlib + z42c（种子自建，编 fixtures）就位。
+//（cargo，跑 fixtures）+ stdlib + z42c（种子自建，编 fixtures）就位。
 //
 // `--toolchain` 激活时（compile-once P3 的 consume 路径）整个跳过——工具链已供给
 // z42c+stdlib+z42vm，没有可建的东西。`noBuild` 同理（调用方已建过）。
 // 返回 0 = 就位；非 0 = 构建失败的 rc，调用方直接透传。
 //
-// 收敛自 _testCrossZpkgCore / _testMultiExeCore 两份**逐行相同**的拷贝
-// （dedupe-cross-multiexe）。这里的**次序**尤其不该存两份：z42vm 必须先于
-// stdlib 自建（stdlib 正是用 z42vm 建的），两份拷贝意味着改一处漏一处——#497 修的
-// 就是另一条构建波上的同类次序问题。
+// ⚠️ 这里的**次序**只此一份（z42vm 必须先于 stdlib 自建——stdlib 正是用 z42vm 建的），
+// 别再在别处复制一份构建波。
 int _ensureFixtureToolchain(bool noBuild) {
     if (noBuild || _toolchainDir(_root()).Length > 0) { return 0; }
     int cr = _exec(_cargoCmd("build", _runtimeCargoConfig()).Arg("-q")
@@ -386,8 +378,7 @@ int _testCrossZpkgCore(string mode, bool noBuild) {
 
 // `test` (no target) — the full GREEN gate, sequential: build once, then run
 // compiler + VM goldens + cross-zpkg + stdlib, short-circuiting on first
-// failure. Mirrors the former scripts/test-all.sh's stage set (the --parallel wave +
-// --scope auto-narrow optimizations are a later increment).
+// failure.
 // True if the comma/space-separated `skip` list names `stage`. Lets CI decompose
 // the monolithic gate: test-host legs run `test --skip stdlib,cross-zpkg` while
 // dedicated parallel jobs (stdlib-interp shards / cross-zpkg-interp) cover those
@@ -401,14 +392,11 @@ bool _skipHas(string skip, string stage) {
     return false;
 }
 
-// ── stage 清单 ↔ test-gate.md 防漂移门（fix-xtask-doc-drift）─────
+// ── stage 清单 ↔ test-gate.md 防漂移门 ─────────────────────────────────────
 //
-// 为什么要这道门：docs/internals/src/devinfra/test-gate.md 自称「GREEN gate stage 组成的唯一
-// 权威清单（SoT）」，页内还明文警告过「历史上复列 5-6 处、已互相漂移」——然后它自己
-// 还是烂了：multi-exe（unify-run-modes P3）、manifest targets（add-tests-bench-manifest-
-// config P4）、examples（设计 D4）三次加 stage 都没同步该页，文档停在 6 个而 gate 实跑 9 个。
-// **纯纪律守不住一份没有测试盯着的清单**（同 format-fixture 那次的教训），所以把「gate 跑
-// 哪些 stage」变成数据 + 开跑前与文档对账。形态照 `check vscode-syntax`（生成产物 ↔ 源表）。
+// 为什么要这道门：test-gate.md 自称「GREEN gate stage 组成的唯一权威清单（SoT）」，
+// 但**纯纪律守不住一份没有测试盯着的清单**——历史上加 stage 不同步该页的事故反复发生。
+// 所以把「gate 跑哪些 stage」变成数据 + 开跑前与文档对账。
 //
 // 加/删/改名一个 stage 的正确姿势：改 _gateStageNames() + test-gate.md 的
 // gate-stages 区，两处一致才绿；只改一处 → 本门变红并打印差异。

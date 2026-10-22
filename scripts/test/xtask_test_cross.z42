@@ -355,7 +355,7 @@ void _crossRunWave(string[] act, int nAct, string[] label, string testsDir,
 //
 // ⚠️ 必须两处都删：packed exe build 会把依赖 zpkg **colocate 进 main/dist**，而 VM 的
 // 惰性加载器先搜 entry zpkg 同目录再搜 Z42_LIBS —— 只删 libs 里那份，colocate 副本仍会
-// 被找到，负例会静默变成正例（本 change 开发期实测踩过：以为 pass 有 bug，实为测试没删干净）。
+// 被找到，负例会静默变成正例。
 //
 // 只影响声明了本文件的 fixture；其余用例零行为变化。
 void _applySkewAbsent(string caseDir, string testLibs, string mainDist) {

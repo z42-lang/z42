@@ -12,10 +12,8 @@
 //      the build roots xtask scans/stages. These live here as single definitions.
 //
 //   ③ the top-level `artifacts/` buckets (tools / packages / reports / .z42 …).
-//      centralize-xtask-layout：这些
-//      此前散落在 ~35 个使用点、各写一遍字面量，理由是「一次性目录、没有布局含义」。但整理
-//      artifacts/ 布局时恰恰要逐个挪它们 —— 散着就得逐个找。现在每个桶**只在这里定义一次**，
-//      使用点只写桶名 + 自己的子目录名。`xtask layout` 把它们打印成目录树，也按相对路径给 CI / 脚本查询。
+//      每个桶**只在这里定义一次**，使用点只写桶名 + 自己的子目录名——散写字面量的话，调整
+//      artifacts/ 布局就得逐个找。`xtask layout` 把它们打印成目录树，也按相对路径给 CI / 脚本查询。
 //
 // Same Z42Xtask namespace as the rest of xtask, so callers use bare names.
 namespace Z42Xtask;
@@ -30,7 +28,6 @@ using Std.Cli;   // ParseResult（`_layoutCmd`）
 // 串味 `E0401`，且种子 z42c 一样如此），另立兼容包也没用（运行期按 **zpkg 文件名**解析，没有任何
 // `DEPS` 指向它）。可行形态 = **编译期 overlay + 运行期旁置**，配方与四段实测判据见
 // `变更 rename-project-namespaces/design.md` §6.1/§6.2。
-// （B3b 已按该形态一步落完；那两段 CI 接线是一代过渡形态、当天即撤。）
 using Z42.Project;   // ManifestLoader / WorkspaceManifest / PathTemplate / TemplateContext
 
 // ── source-of-truth workspace manifests (per-member layout templates) ─────────

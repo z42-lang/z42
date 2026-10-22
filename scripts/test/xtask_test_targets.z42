@@ -266,15 +266,13 @@ int _smokeReuseParentMissing(string root, TargetTooling tt) {
 // 断言方向与其它 smoke 相反：rc == 0 才是失败。
 // 编译失败的**收尾姿势**：必须是一条干净的错误退出，不是未捕获异常。
 //
-// 守的不是「会不会红」—— 它一直会红。此前 `z42.build` 的 Compile 相位在编译失败时抛
-// `Exception("compile failed")`，而 Run 的唯一调用方（z42b `_orchestrate`）直接
-// `return p.Run(ctx)`、中间无人接 ⇒ 用户拿到的是一段带 z42b 内部栈帧的
-// `Error: uncaught exception: Std.Exception: compile failed`，看起来像 z42b 自己崩了，
-// 而「你的清单写错了」这句话上一行就已经打印过。**同 E0493 当年那条的形状。**
+// 守的不是「会不会红」—— 它一直会红；守的是**红得干净**：编译失败必须以干净的错误退出
+// 收尾（一条人话报错），不是抛未捕获异常——否则用户拿到的是带 z42b 内部栈帧的崩溃，
+// 看起来像 z42b 自己崩了，而「你的清单写错了」上一行早已打印过。
 //
 // 三条断言缺一不可：① 判红（否则清单写错等于没写错）；② 输出里**没有** uncaught
 // exception / 栈帧；③ 输出里**有** `compile failed` —— 没有 ③ 的话，哪天它因为别的原因
-// 早早退出，②也会「通过」，门就悄悄失去意义（#802 第③格的教训：红了不等于红对了）。
+// 早早退出，②也会「通过」，门就悄悄失去意义——红了不等于红对了。
 int _smokeCompileFailClean(string root, TargetTooling tt) {
     string toml = Path.Join(tt.Z42bFixturesRoot, "empty-glob/z42.toml");
     if (!File.Exists(toml)) { return 0; }
