@@ -714,7 +714,7 @@ public static class ZbcWriter {
     // ── REGT：count + 每函数 (regCount u32 + regTypes u8×)。
     // 值 = **指令遍历收集**（dst 先、操作数序；首个非 Unknown 赢；未引用寄存器=Unknown(0)）——
     // 镜像 C# BuildRegtSection 的 TypedReg-walk（zpkg 对账实证：Hello 未引用的 this → 0x00，
-    // 预填参数类型是错的；callcheck 当年碰巧对是因 this 都被 field_get 引用过）。──
+    // 预填参数类型是错的；callcheck 碰巧对是因 this 都被 field_get 引用过）。──
     public static ByteWriter BuildRegt(IrFunction[] fns, int fnCount) {
         var w = new ByteWriter();
         w.WriteU32(fnCount);

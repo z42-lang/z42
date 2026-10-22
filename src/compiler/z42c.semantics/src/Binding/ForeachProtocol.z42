@@ -165,7 +165,7 @@ public sealed class ForeachProtocol {
     // 注释留在各自函数里（那些注释是资产：压进一份数据编码就没有地方可写了）。
     //
     // 此前这条链散在两处：`StmtBinder._bindForeach` 的 if 嵌套挑路径、本文件提供判据。
-    // 「两处各写一份」正是 `Count`/`Length` 当年判据分叉的形状（见 `CountOf` 抬头）。
+    // 「两处各写一份」正是 `Count`/`Length` 曾判据分叉的形状（见 `CountOf` 抬头）。
     //
     // ⚠️ **元素类型推导不在这里**：`var` 那一支今天只认 `Z42ClassType`（`List<int>` 这种
     // `Z42InstantiatedType` 落不进去、元素类型停在 Unknown），**比协议成员面窄**。挪进来顺手

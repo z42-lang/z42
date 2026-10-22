@@ -245,7 +245,7 @@ public sealed class ConstraintChecker {
                         // `src/tests/generics/func_constraint_*.z42` 正在用、运行期也正常）。所以那条 E0443
                         // 是**事实错误**的诊断，不是「该报而暂时不该报」——本分支把它们摘出来。
                         //
-                        // ⚠️ 为什么当年的探针没发现：该错误分支落地时以 warning 跑全仓实测「0 条」，
+                        // ⚠️ 为什么此前的探针没发现：该错误分支落地时以 warning 跑全仓实测「0 条」，
                         // 而这三个受害文件全在 `src/tests/generics/`，走 `z42c --emit-zbc` —— 那条路
                         // 丢弃全部诊断。探针看不见的地方，"0 条" 不构成证据。
                         //
