@@ -81,7 +81,7 @@ pub mod typed {
     }
 
     #[builtin(name = "__str_split", this = "Split")]
-    pub fn split(ctx: &VmContext, s: &crate::metadata::vstr::Str, sep: &str) -> Result<Vec<String>, BuiltinError> {
+    pub fn split(ctx: &VmContext, s: &crate::metadata::vstr::Str, sep: &str) -> Result<crate::metadata::Value, BuiltinError> {
         super::str_split(ctx, s, sep)
     }
 
@@ -142,10 +142,8 @@ pub fn str_concat_parts(
         return Err(BuiltinError::Argument(format!(
             "__str_concat_parts: count {} exceeds array length {}", count, b.len())));
     }
-    let mut out = String::with_capacity(b.iter_boxed().take(count).map(|v| match &v {
-        Value::Str(s) => s.len(),
-        _ => 0,
-    }).sum::<usize>());
+    // 单趟 iter_boxed(与 str_join 同因:两趟对每元素多一次 acquire+decode)。
+    let mut out = String::with_capacity(count * 16);
     for v in b.iter_boxed().take(count) {
         match &v {
             Value::Str(s) => out.push_str(s),
@@ -153,6 +151,7 @@ pub fn str_concat_parts(
                 "__str_concat_parts: element must be string, got {:?}", other))),
         }
     }
+    out.shrink_to_fit();
     Ok(out)
 }
 
@@ -167,11 +166,15 @@ pub fn str_concat_parts(
 /// args: [this: str, sep: str (non-empty — the script side rejects "")]
 pub fn str_split(
     ctx: &VmContext, s: &crate::metadata::vstr::Str, sep: &str,
-) -> Result<Vec<String>, BuiltinError> {
+) -> Result<crate::metadata::Value, BuiltinError> {
     if sep.is_empty() {
         return Err(BuiltinError::Argument("__str_split: separator must not be empty".into()));
     }
-    Ok(s.split(sep).map(|p| p.to_string()).collect())
+    // 片段直进 GC 串 + string[] 一次成型(镜像旧表形态)。经 Vec<String> 返回会
+    // 每片多一次 String 分配 + 返回时再拷进 GC(bench 实测 ~29% 慢)。
+    let heap = ctx.heap();
+    let parts: Vec<Value> = s.split(sep).map(|p| Value::Str(heap.alloc_str(p))).collect();
+    Ok(heap.alloc_array_typed("string", parts))
 }
 
 /// `Std.String.Join(sep, values)` (perf-strings-json): `values[0] + sep + values[1] + …`
@@ -183,11 +186,10 @@ pub fn str_join(sep: &str, values: &Value) -> Result<String, BuiltinError> {
     let Value::Array(arr) = values else {
         return Err(BuiltinError::Internal("__str_join: expected string[]".into()));
     };
+    // 单趟 iter_boxed(镜像旧表形态):容量先按保守上界估,元素解码只做一次——
+    // 两趟形态(bench 实测)对 REF 数组每元素多一次 acquire+decode,~2ns/元素。
     let b = arr.borrow();
-    let mut out = String::with_capacity(b.iter_boxed().map(|v| match &v {
-        Value::Str(s) => s.len(),
-        _ => 0,
-    }).sum::<usize>() + sep.len() * b.len().saturating_sub(1));
+    let mut out = String::with_capacity(b.len() * (4 + sep.len()));
     for (i, v) in b.iter_boxed().enumerate() {
         if i > 0 { out.push_str(sep); }
         match &v {
@@ -196,6 +198,7 @@ pub fn str_join(sep: &str, values: &Value) -> Result<String, BuiltinError> {
                 "__str_join: element must be string, got {:?}", other))),
         }
     }
+    out.shrink_to_fit();
     Ok(out)
 }
 

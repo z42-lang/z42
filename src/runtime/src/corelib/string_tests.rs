@@ -46,7 +46,7 @@ fn strings_of(v: Value) -> Vec<String> {
 #[test]
 fn split_keeps_empty_pieces_and_matches_left_to_right() {
     let ctx = VmContext::new();
-    let split = |s: &str, sep: &str| str_split(&ctx, &s.into(), sep).unwrap();
+    let split = |s: &str, sep: &str| strings_of(str_split(&ctx, &s.into(), sep).unwrap());
     assert_eq!(split("a,b,,c", ","), vec!["a", "b", "", "c"]);
     assert_eq!(split(",a,", ","), vec!["", "a", ""]);
     assert_eq!(split("abc", ","), vec!["abc"]);
@@ -114,4 +114,51 @@ fn null_split_receiver_names_the_method() {
     let e = crate::corelib::exec_builtin_value(&ctx, "__str_split", &[Value::Null, Value::Str(",".into())])
         .unwrap_err().downcast::<crate::corelib::abi::BuiltinError>().ok();
     assert!(matches!(e, Some(crate::corelib::abi::BuiltinError::NullReference(m)) if m == "cannot call method `Split` on a null reference"));
+}
+
+// ── P1-8 批次 10 性能形态钉(CI bench 抓过两笔回归,此处钉实现形态不被改回) ──
+// 回归 1(join/concat_parts):两趟 iter_boxed 对 REF 数组每元素多一次
+// acquire+decode(bench ~+25%)。形态契约 = 容量估算不逐元素解码——用「容量来自
+// len() 而非 iter_boxed 一趟」的间接钉:大数组 join 的耗时应与元素数线性、且与
+// 等长 Vec 拷贝同量级。这里用行为侧等价用例保证正确性(性能由 CI bench A/B 盯)。
+#[test]
+fn join_and_concat_parts_match_on_large_arrays() {
+    let ctx = VmContext::new();
+    let arr = |xs: &[&str]| ctx.heap().alloc_array_typed(
+        "string", xs.iter().map(|s| Value::Str((*s).into())).collect());
+    let words: Vec<&str> = (0..20_000).map(|i| match i % 3 { 0 => "aa", 1 => "bbb", _ => "c" }).collect();
+    let joined = str_join(",", &arr(&words)).unwrap();
+    let expect = words.join(",");
+    assert_eq!(joined, expect);
+    let back = str_split(&ctx, &joined.into(), ",").unwrap();
+    assert_eq!(strings_of(back), words);
+    // ConcatParts 取前缀 = 无分隔符直拼(它与 Join 的分工:前者是 StringBuilder
+    // ToString 的地板,不插分隔符)。
+    let parts_val = arr(&words);
+    let head = str_concat_parts(&ctx, &parts_val, 100).unwrap();
+    assert_eq!(head, words[..100].concat());
+}
+
+// 回归 2(split):经 Vec<String> 返回会每片双分配(bench ~+29%)。形态钉:
+// split 的产物必须是 GC string[](REF backing),不是 MIXED——直接读模式。
+#[test]
+fn split_returns_a_ref_backed_string_array() {
+    let ctx = VmContext::new();
+    let out = str_split(&ctx, &"a,b,c".into(), ",").unwrap();
+    match out {
+        Value::Array(a) => {
+            assert_eq!(a.borrow().mode(), crate::metadata::types::ArrayMode::Ref,
+                "split 的 string[] 必须是 REF backing(逐片 GC 串),不是 MIXED");
+            assert_eq!(a.borrow().len(), 3);
+        }
+        other => panic!("expected Array, got {:?}", other),
+    }
+}
+
+// substring 越界的异常类型(批次 10 收敛为 ArgumentOutOfRange)与文案钉。
+#[test]
+fn substring_out_of_range_is_argument_out_of_range() {
+    let e = str_substring(&"hello".into(), 3, 5).unwrap_err();
+    assert!(matches!(e, crate::corelib::abi::BuiltinError::ArgumentOutOfRange(ref m)
+        if m.contains("range [3, 8) out of bounds (length 5)")), "{e:?}");
 }
