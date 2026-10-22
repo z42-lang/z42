@@ -35,6 +35,7 @@ include = ["builder_cli.z42", "builder_test.z42", "builder_device.z42", "builder
 # 才不复制——是否复制取决于构建环境，drop-alllibs（2026-10-01）起改由这里显式声明。
 # ⇒ 这段注释原话是「z42.build/z42.project 均为 stdlib → 不破 stdlib-only」，挪动后已不成立。
 "z42.build"   = { version = "0.1.0", deploy = "shared" }   # ICompiler 接口 + Pipeline 八相位（编排；接口经动态注入绑定实现）
+"z42.package" = { version = "0.1.0", deploy = "shared" }   # ZpkgReader（1c 携带解析沿依赖闭包读 PLGS / DEPS；SDK 库同款按名声明）
 "z42.project" = { version = "0.1.0", deploy = "shared" }   # ProjectManifest / ManifestLoader（build/new/export 动词读清单）
 
 [plugins]

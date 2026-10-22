@@ -89,3 +89,50 @@ void test_caps_describe() {
     Assert.Equal("analyzer, generator, hook", PluginCaps.Describe(
         PluginCaps.Analyzer | PluginCaps.Generator | PluginCaps.Hook));
 }
+
+// ── PLGS 段（1c 携带）往返 ──────────────────────────────────────────────────
+
+ZpkgFileZ _carryPkg(PluginCarryZ[] carried, int n) {
+    ZpkgFileZ z = ZpkgBuilder.BuildPacked("p", "0.1.0", false, false, "", _one(), 1);
+    z.Carried = carried;
+    z.CarriedCount = n;
+    return z;
+}
+
+[Test]
+void test_plgs_roundtrip() {
+    // 携带表写进 PLGS 段再读回来：名 + 精确版本逐条保留、序不变；packed 与 indexed 两种布局同。
+    PluginCarryZ[] cs = new PluginCarryZ[2];
+    cs[0] = new PluginCarryZ("foo.gen", "1.2.0");
+    cs[1] = new PluginCarryZ("bar.lint", "0.0.3");
+    byte[] packed = ZpkgWriterZ.WritePacked(_carryPkg(cs, 2), false).ToBytes();
+    ZpkgInfo pi = ZpkgReader.Open(packed, "p.zpkg");
+    Assert.NotNull(pi);
+    Assert.Equal(2, pi.CarriedCount);
+    Assert.Equal("foo.gen", pi.Carried[0].Name);
+    Assert.Equal("1.2.0", pi.Carried[0].Version);
+    Assert.Equal("bar.lint", pi.Carried[1].Name);
+    Assert.Equal("0.0.3", pi.Carried[1].Version);
+}
+
+[Test]
+void test_plgs_absent_means_empty() {
+    // 无携带 → 不写 PLGS 段 → 读出空数组（不是 null）；非携带包逐字节不受新段影响。
+    ZpkgFileZ z = ZpkgBuilder.BuildPacked("p", "0.1.0", false, false, "", _one(), 1);
+    byte[] b = ZpkgWriterZ.WritePacked(z, false).ToBytes();
+    ZpkgInfo pi = ZpkgReader.Open(b, "p.zpkg");
+    Assert.NotNull(pi);
+    Assert.Equal(0, pi.CarriedCount);
+    Assert.False(pi.HasSection("PLGS"));
+}
+
+[Test]
+void test_plgs_section_present_when_carried() {
+    // 有携带 → 段在；且名字串走 STRS 池（不重复 intern，往返可读）。
+    PluginCarryZ[] cs = new PluginCarryZ[1];
+    cs[0] = new PluginCarryZ("demo.toolkit", "9.9.9");
+    byte[] b = ZpkgWriterZ.WritePacked(_carryPkg(cs, 1), false).ToBytes();
+    ZpkgInfo pi = ZpkgReader.Open(b, "p.zpkg");
+    Assert.True(pi.HasSection("PLGS"));
+    Assert.Equal("demo.toolkit", pi.Carried[0].Name);
+}

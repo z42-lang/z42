@@ -101,8 +101,31 @@ public static class ManifestLoader {
     // { version, path } 表）→ 复用 _parseDeps；加载到哪、按什么分流由消费方决定，非解析层。
     // 旧段名 [analyzers] 已删除（unify-plugin-packages 1b）：写了按未知段报错，改写 [plugins]。
     private static void _parsePlugins(TomlValue root, ProjectManifest pm) {
-        DepEntry[] cur = ManifestLoader._parseDeps(root, "plugins");
+        // `"x" = false`（1c）：关闭**携带**进来的插件 x——只对自动导入有语义。其余值形态（版本串 /
+        // path 表）照旧走条目解析；bool 从这里摘出来，不进 DepEntry。
+        TomlValue pt = null;
+        if (root.TryGet("plugins", ref pt)) {
+            string[] pkeys = pt.Keys();
+            string[] dis = new string[pkeys.Length];
+            int dn = 0;
+            int i = 0;
+            while (i < pkeys.Length) {
+                var dv = pt.Get(pkeys[i]);
+                if (dv.IsBool() && !dv.AsBool()) { dis[dn] = pkeys[i]; dn = dn + 1; }
+                i = i + 1;
+            }
+            string[] d2 = new string[dn];
+            int j = 0;
+            while (j < dn) { d2[j] = dis[j]; j = j + 1; }
+            pm.PluginDisables = d2; pm.PluginDisableCount = dn;
+        }
+        DepEntry[] cur = ManifestLoader._parseDepsSkipBools(root, "plugins");
         pm.Plugins = cur; pm.PluginCount = cur.Length;
+        // [plugins.export]（1c 携带）：条目形态同 [plugins]（名字 / 工程目录 path / .zpkg path），
+        // 语义是「依赖我的工程自动获得」——只记进产物 PLGS 段，不作用于本工程自己的构建。解析层只搬；
+        // 「plugin 工程禁写」「lib 专属」由消费方（z42c 构建 / ManifestKnobs）报。
+        DepEntry[] exp = ManifestLoader._parseNestedDeps(root, "plugins", "export");
+        pm.PluginExports = exp; pm.PluginExportCount = exp.Length;
     }
 
     // ── [lints]（attribute-handler-registry PR3b）─────────────────────────────
@@ -394,6 +417,65 @@ public static class ManifestLoader {
             else { ver = dv.AsString(); }
             deps[i] = new DepEntry(keys[i], ver, pth);
             deps[i].Deploy = dep;   // 构造后赋值：ctor 签名是种子 ABI，不动
+            i = i + 1;
+        }
+        return deps;
+    }
+
+    // 依赖段解析的 [plugins] 专用形态：`"x" = false` 是关闭携带的专用值（进 PluginDisables，
+    // 由调用方先摘走），不是条目——这里跳过 bool 值，其余照 _parseDeps 同款解析。
+    private static DepEntry[] _parseDepsSkipBools(TomlValue root, string key) {
+        TomlValue d = null;
+        if (!root.TryGet(key, ref d)) { return new DepEntry[0]; }
+        string[] keys = d.Keys();
+        DepEntry[] deps = new DepEntry[keys.Length];
+        int n = 0;
+        int i = 0;
+        while (i < keys.Length) {
+            var dv = d.Get(keys[i]);
+            // `export` 是携带子段 [plugins.export]（1c），不是插件条目——显式集不含它。
+            if (!dv.IsBool() && keys[i] != "export") {
+                string ver = "";
+                string pth = "";
+                string dep = "";
+                if (dv.IsTable()) {
+                    dv.TryGetValue<string>("version", ref ver);
+                    dv.TryGetValue<string>("path",    ref pth);
+                    dv.TryGetValue<string>("deploy",  ref dep);
+                }
+                else { ver = dv.AsString(); }
+                deps[n] = new DepEntry(keys[i], ver, pth);
+                deps[n].Deploy = dep;
+                n = n + 1;
+            }
+            i = i + 1;
+        }
+        DepEntry[] r = new DepEntry[n];
+        int j = 0;
+        while (j < n) { r[j] = deps[j]; j = j + 1; }
+        return r;
+    }
+
+    // 嵌套依赖段 `[<parentKey>.<key>]`（unify-plugin-packages 1c：[plugins.export]）——条目形态
+    // 与顶层依赖段一致（名字 / { version, path } 表），复用同一套逐键解析。
+    private static DepEntry[] _parseNestedDeps(TomlValue root, string parentKey, string key) {
+        TomlValue p = null;
+        if (!root.TryGet(parentKey, ref p)) { return new DepEntry[0]; }
+        TomlValue d = null;
+        if (!p.TryGet(key, ref d)) { return new DepEntry[0]; }
+        string[] keys = d.Keys();
+        DepEntry[] deps = new DepEntry[keys.Length];
+        int i = 0;
+        while (i < keys.Length) {
+            var dv = d.Get(keys[i]);
+            string ver = "";
+            string pth = "";
+            if (dv.IsTable()) {
+                dv.TryGetValue<string>("version", ref ver);
+                dv.TryGetValue<string>("path",    ref pth);
+            }
+            else { ver = dv.AsString(); }
+            deps[i] = new DepEntry(keys[i], ver, pth);
             i = i + 1;
         }
         return deps;

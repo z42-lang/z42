@@ -56,7 +56,7 @@ public static class ManifestKeys {
         a.CheckSub(root, "sources", ManifestKeys.SourcesKeys());
         a.CheckSub(root, "build",   ManifestKeys.BuildKeys());
         ManifestKeys._deps(a, root, "dependencies", "dependencies");
-        ManifestKeys._deps(a, root, "plugins",      "plugins");
+        ManifestKeys._plugins(a, root);
         ManifestKeys._eachSub(a, root, "native", ManifestKeys.NativeKeys());
         ManifestKeys._array(a, root, "exe", ManifestKeys.ExeKeys());
         ManifestKeys._section(a, root, "tests");
@@ -137,6 +137,32 @@ public static class ManifestKeys {
         while (i < names.Length) {
             TomlValue dv = d.Get(names[i]);
             if (dv.IsTable()) { a.Check(dv, "[" + label + "." + names[i] + "]", ManifestKeys.DepKeys()); }
+            i = i + 1;
+        }
+    }
+
+    // [plugins] 的键审计（1c）：条目表照 DepKeys 查；`export` 子表是携带段——其**孙表**（插件条目）
+    // 才是 DepKeys 的检查对象；bool false（关闭携带）不是表、不查。
+    private static void _plugins(KeyAudit a, TomlValue root) {
+        TomlValue d = null;
+        if (!root.TryGet("plugins", ref d) || !d.IsTable()) { return; }
+        string[] names = d.Keys();
+        int i = 0;
+        while (i < names.Length) {
+            TomlValue dv = d.Get(names[i]);
+            if (names[i] == "export") {
+                // [plugins.export]：子键 = 插件名（不审计），孙表 = 条目表照 DepKeys。
+                if (dv.IsTable()) {
+                    string[] en = dv.Keys();
+                    int j = 0;
+                    while (j < en.Length) {
+                        TomlValue ev = dv.Get(en[j]);
+                        if (ev.IsTable()) { a.Check(ev, "[plugins.export." + en[j] + "]", ManifestKeys.DepKeys()); }
+                        j = j + 1;
+                    }
+                }
+            }
+            else if (dv.IsTable()) { a.Check(dv, "[plugins." + names[i] + "]", ManifestKeys.DepKeys()); }
             i = i + 1;
         }
     }

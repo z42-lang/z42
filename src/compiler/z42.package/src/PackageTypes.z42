@@ -93,6 +93,11 @@ public sealed class ZpkgFileZ {
     public ExportedModuleZ[] Exported; public int ExportedCount;   // TSIG/IMPL（每模块一条）
     // 插件能力位（`PluginCaps` 的 bit3–5，写进头 flags）。非插件包恒 0。构造后赋值：ctor 签名是种子 ABI，不动。
     public int           PluginCaps;
+    // 携带的插件引用（unify-plugin-packages 1c，写进 PLGS 段）：lib 用 [plugins.export] 声明「依赖我的工程
+    // 自动获得这些插件」。条目 = 名 + 精确版本（引用而非内联——lib 不含插件代码，插件 zpkg 分发在插件目录）。
+    // 非携带包恒空。构造后赋值：ctor 签名是种子 ABI，不动。
+    public PluginCarryZ[] Carried; public int CarriedCount;
+
     public ZpkgFileZ(string name, string version, bool isExe, string entry,
                      string[] namespaces, int nsCount,
                      ZpkgExportZ[] exports, int exportCount,
@@ -106,4 +111,11 @@ public sealed class ZpkgFileZ {
         this.Exported = new ExportedModuleZ[0]; this.ExportedCount = 0;
         this.PluginCaps = 0;
     }
+}
+
+/// 一条携带的插件引用（PLGS 段条目 / [plugins.export] 条目的产物形态）。
+public sealed class PluginCarryZ {
+    public string Name;      // 插件包名（= 插件 zpkg 文件名基干）
+    public string Version;   // 精确版本（分发对齐用；解析按名，版本不符报错）
+    public PluginCarryZ(string name, string version) { this.Name = name; this.Version = version; }
 }

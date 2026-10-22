@@ -214,7 +214,7 @@ public sealed class BuildSession {
         inp.DeclaredDeps = declaredAll; inp.DepCount = declaredAll.Length;
         inp.EnforceDeclaredDeps = true;          // 真的读了一份清单 ⇒ 执行依赖契约（E0497），同 z42c build
         inp.ParentPkg = o.ParentPkg;
-        if (azPaths != null) { inp.AnalyzerZpkgs = azPaths; inp.AnalyzerZpkgCount = azPaths.Length; }
+        if (!_attachCarried(inp, pm, o, azPaths)) { return null; }   // 显式插件挂载 + 1c 携带（失败即构建失败）
         inp.Lints = kn.Lints;
         CompileArtifacts art = PackageCompile.Compile(inp);
         // ⑦ 诊断：逐 CU（上界 art.CmCount——generator 产出的 CU 排在用户 CU 之后，标 <generated>）。
@@ -424,4 +424,14 @@ public static class CompilerDomain {
         found[n] = dir;
         return n + 1;
     }
+}
+
+// 显式插件挂载 + 1c 携带（[plugins.export] → PLGS 段条目）。解析失败（诊断已打印）→ false（构建失败）。
+bool _attachCarried(CompileInputs inp, ProjectManifest pm, BuildOptions o, string[] azPaths) {
+    if (azPaths != null) { inp.AnalyzerZpkgs = azPaths; inp.AnalyzerZpkgCount = azPaths.Length; }
+    if (pm.PluginExportCount == 0) { return true; }
+    PluginCarryZ[] carried = PluginCarry.Resolve(pm, o.ProjectDir, o.IsRelease);
+    if (carried == null) { return false; }
+    inp.CarriedPlugins = carried; inp.CarriedCount = carried.Length;
+    return true;
 }

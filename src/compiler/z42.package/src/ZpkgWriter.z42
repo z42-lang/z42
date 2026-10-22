@@ -189,6 +189,13 @@ public static class ZpkgWriterZ {
             while (j < zpkg.Deps[i].SymCount) { pool.Intern(zpkg.Deps[i].Symbols[j]); j = j + 1; }
             i = i + 1;
         }
+        // PLGS 串（1c 携带表：名 + 版本；无携带零新增）
+        i = 0;
+        while (i < zpkg.CarriedCount) {
+            pool.Intern(zpkg.Carried[i].Name);
+            pool.Intern(zpkg.Carried[i].Version);
+            i = i + 1;
+        }
         // ── intern：IMPL 串（drop-tsig-expt P3：TSIG 段已删；仅保 IMPL 需要的 target/trait/method 串）──
         i = 0;
         while (i < zpkg.ExportedCount) { ZpkgWriterZ._internImplStrings(pool, zpkg.Exported[i]); i = i + 1; }
@@ -216,7 +223,8 @@ public static class ZpkgWriterZ {
         var mods = ZpkgWriterZ._buildMods(zpkg, pool, isRelease);
 
         int secCount = 6;
-        if (zpkg.ExportedCount > 0) { secCount = 7; }   // + IMPL（D2）
+        if (zpkg.ExportedCount > 0) { secCount = secCount + 1; }   // + IMPL（D2）
+        if (zpkg.CarriedCount > 0)   { secCount = secCount + 1; }  // + PLGS（1c 携带表，仅携带包写）
         string[]     tags  = new string[secCount];
         ByteWriter[] datas = new ByteWriter[secCount];
         tags[0] = "META"; datas[0] = meta;
@@ -225,9 +233,9 @@ public static class ZpkgWriterZ {
         tags[3] = "DEPS"; datas[3] = deps;
         tags[4] = "SIGS"; datas[4] = sigs;
         tags[5] = "MODS"; datas[5] = mods;
-        if (secCount == 7) {
-            tags[6] = "IMPL"; datas[6] = ZpkgWriterZ._buildImpl(zpkg, pool);
-        }
+        int si = 6;
+        if (zpkg.ExportedCount > 0) { tags[si] = "IMPL"; datas[si] = ZpkgWriterZ._buildImpl(zpkg, pool); si = si + 1; }
+        if (zpkg.CarriedCount > 0)   { tags[si] = "PLGS"; datas[si] = ZpkgWriterZ._buildPlgs(zpkg, pool); }
 
         int flags = 1;                       // FlagPacked
         if (zpkg.IsExe) { flags = flags | 2; }   // FlagExe
@@ -272,6 +280,20 @@ public static class ZpkgWriterZ {
     }
 
     // SIGS：全模块函数总数 + 平铺条目（条目层复用 zbc WriteSigEntries——单源防漂移）。
+    // PLGS：u32 count + 每条 { u32 name_idx; u32 ver_idx }（走 STRS 池）。旧 reader 按段目录寻址、
+    // 未见过的 tag 查不到即跳过——新段对旧代透明，未 bump 版本（同能力位的不 bump 理由）。
+    public static ByteWriter _buildPlgs(ZpkgFileZ zpkg, ZbcStringPool pool) {
+        var w = new ByteWriter();
+        w.WriteU32(zpkg.CarriedCount);
+        int i = 0;
+        while (i < zpkg.CarriedCount) {
+            w.WriteU32(pool.Idx(zpkg.Carried[i].Name));
+            w.WriteU32(pool.Idx(zpkg.Carried[i].Version));
+            i = i + 1;
+        }
+        return w;
+    }
+
     public static ByteWriter _buildSigs(ZpkgFileZ zpkg, ZbcStringPool pool) {
         var w = new ByteWriter();
         int total = 0;

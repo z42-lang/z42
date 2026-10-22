@@ -1,0 +1,13 @@
+[project]
+name    = "e2e.capp"
+version = "0.1.0"
+kind    = "exe"
+
+[sources]
+include = ["*.z42"]
+
+[dependencies]
+"e2e.clib" = { path = "../lib" }
+
+[plugins]
+"e2e.cgen" = false

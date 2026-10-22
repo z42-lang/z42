@@ -1,0 +1,12 @@
+[project]
+name    = "e2e.clib"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["*.z42"]
+
+[plugins.export]
+# 携带（1c）：依赖 e2e.clib 的工程自动获得 e2e.cgen 插件——本工程自己**不**挂它（export 只给
+# 消费方；自己要用须另写 [plugins]，两段各司其职）。path 条目在 release 构建时验产物。
+"e2e.cgen" = { path = "../gen" }

@@ -58,7 +58,7 @@ int _orchestrate(ProjectManifest manifest, Target target, string sourceDir,
 
     Dirs dirs = _computeDirs(manifest, sourceDir, target.Profile);
     // hook：[plugins] 里带 hook 位的插件，组合成一个（builder_hooks.z42）。
-    HookLoad hl = _loadHooks(manifest, sourceDir, Path.Join(dirs.Intermediate, "hooks"));
+    HookLoad hl = _loadHooks(manifest, sourceDir, Path.Join(dirs.Intermediate, "hooks"), extraDepDirs, extraN);
     if (!hl.Ok) { return 1; }   // 诊断已打印；声明了 hook 却失败 ⇒ 构建失败（fail-build-on-hooks-error）
     if (hl.Hooks != null) { p.Hooks = hl.Hooks; }
 

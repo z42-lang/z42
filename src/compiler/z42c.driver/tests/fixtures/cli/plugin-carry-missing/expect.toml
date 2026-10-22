@@ -1,0 +1,16 @@
+desc = "携带件缺失即失败：依赖携带的插件不在插件目录 ⇒ 构建红、诊断点名携带方与改法（不静默降级）（见 README）"
+outside_repo = true
+
+[[step]]
+args = ["build", "gen/e2e.cgen.z42.toml", "--release"]
+exit = 0
+
+[[step]]
+args = ["build", "lib/e2e.clib.z42.toml", "--release"]
+exit = 0
+
+# 不设 Z42_PLUGINS（插件目录里没有 e2e.cgen.zpkg）⇒ 携带解析失败，点名携带方 e2e.clib
+[[step]]
+args = ["build", "app/e2e.capp.z42.toml", "--release"]
+exit = "nonzero"
+stderr_contains = ["e2e.clib", "携带插件", "e2e.cgen", "false"]

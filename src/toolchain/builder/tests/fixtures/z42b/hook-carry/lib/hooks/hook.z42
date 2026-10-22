@@ -1,0 +1,10 @@
+namespace Hc.Hook;
+
+using Std.IO;
+using Z42.Build;
+
+public class CarryHook : BuildHooks {
+    public override void BeforeCompile(IPipelineContext ctx) {
+        Console.WriteLine("HOOK-CARRY-SMOKE: carried BeforeCompile ran");
+    }
+}

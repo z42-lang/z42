@@ -1,0 +1,6 @@
+namespace E2eCApp;
+
+using Std.IO;
+using E2eClib;
+
+void Main() { Console.WriteLine(Lib.Answer().ToString()); }
