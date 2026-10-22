@@ -6,9 +6,16 @@ use super::convert::arg_char;
 /// True for Unicode whitespace characters (space, tab, CR, LF, NBSP, etc.).
 /// args: [this: char]
 /// New in simplify-string-stdlib (2026-04-24): backs script-side Trim/TrimStart/TrimEnd.
-pub fn builtin_char_is_whitespace(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let c = arg_char(args, 0, "__char_is_whitespace")?;
-    Ok(Value::Bool(c.is_whitespace()))
+pub fn char_is_whitespace(c: char) -> bool {
+    c.is_whitespace()
+}
+
+/// `Std.Char.IsWhiteSpace` 迁 ABI v2(P1-8 批次 10):Rust 的 Unicode 分类,
+/// 脚本无法等价(shrink-primitive-native-interop 保留 native 的理由)。
+#[z42_macros::builtins]
+pub mod typed {
+    #[builtin(name = "__char_is_whitespace", pure)]
+    pub fn is_whitespace(c: char) -> bool { super::char_is_whitespace(c) }
 }
 
 // shrink-primitive-native-interop (2026-08-27): builtin_char_to_lower /
