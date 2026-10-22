@@ -128,6 +128,17 @@ impl<'a> FromArg<'a> for String {
     }
 }
 
+impl<'a> FromArg<'a> for Option<&'a crate::metadata::vstr::Str> {
+    const KIND: ParamKind = ParamKind::OptStr;
+    #[inline(always)]
+    fn from_arg(v: &'a Value, at: &ArgAt) -> Result<Self, BuiltinError> {
+        match v {
+            Value::Null => Ok(None),
+            other => <&crate::metadata::vstr::Str>::from_arg(other, at).map(Some),
+        }
+    }
+}
+
 impl<'a> FromArg<'a> for Option<&'a str> {
     const KIND: ParamKind = ParamKind::OptStr;
     #[inline(always)]

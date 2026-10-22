@@ -1,6 +1,7 @@
 use crate::metadata::Value;
 use crate::vm_context::VmContext;
 use anyhow::{anyhow, bail, Result};
+use crate::corelib::abi::BuiltinError;
 use super::convert::{arg_str, arg_usize, this_str};
 
 /// string.ToCharArray() — bulk materialise the whole `char[]` in ONE native
@@ -11,13 +12,13 @@ use super::convert::{arg_str, arg_usize, this_str};
 /// characters as a single primitive so string algorithms can be written in
 /// SCRIPT over `arr[i]` (the `ArrayGet` opcode) instead of `CharAt` (a builtin
 /// call) — the C# "string ops in managed code over a char buffer" model.
-pub fn builtin_str_to_chars(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let s = this_str(args, "ToCharArray")?;
+pub fn str_to_chars(ctx: &VmContext, s: &crate::metadata::vstr::Str) -> Value {
+    let s: &str = s;
     // One PRIM `char[]` block, decoded straight into it (perf-array-alloc-direct: no staging
     // `Vec<Value>`).
     let n = s.chars().count();
     let heap = ctx.heap();
-    Ok(crate::metadata::types::ArrayObj::alloc_typed_iter(heap, crate::metadata::types::ElemType::char(), n, s.chars().map(Value::Char)))
+    crate::metadata::types::ArrayObj::alloc_typed_iter(heap, crate::metadata::types::ElemType::char(), n, s.chars().map(Value::Char))
 }
 
 /// Returns the number of UTF-8 bytes in the string. O(1).
@@ -28,9 +29,8 @@ pub fn builtin_str_to_chars(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 /// UTF-8 byte storage — `"你好".ByteLength == 6` — for hot paths that
 /// need O(1) size queries (allocation sizing, network framing, hashing).
 /// args: [this: str]
-pub fn builtin_str_byte_length(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let s = this_str(args, "get_ByteLength")?;
-    Ok(Value::I64(s.len() as i64))
+pub fn str_byte_length(s: &crate::metadata::vstr::Str) -> i64 {
+    s.len() as i64
 }
 
 /// The string access builtins on ABI v2 (`string.Length`, `s[i]` / `CharAt`): typed, no
@@ -38,6 +38,7 @@ pub fn builtin_str_byte_length(_ctx: &VmContext, args: &[Value]) -> Result<Value
 #[z42_macros::builtins]
 pub mod typed {
     use crate::corelib::abi::BuiltinError;
+    use crate::vm_context::VmContext;
     use crate::metadata::vstr::Str;
 
     /// Number of Unicode scalar values. O(1) amortised via the per-string metadata
@@ -58,6 +59,51 @@ pub mod typed {
             .ok_or_else(|| BuiltinError::IndexOutOfRange(format!(
                 "index {i} is out of range for a string of length {}", crate::corelib::str_meta::char_len(this))))
     }
+    /// `ToCharArray()` — 一个 PRIM char[] 块,解码直写。
+    #[builtin(name = "__str_to_chars", this = "ToCharArray")]
+    pub fn to_chars(ctx: &VmContext, s: &crate::metadata::vstr::Str) -> crate::metadata::Value {
+        super::str_to_chars(ctx, s)
+    }
+
+    /// UTF-8 字节数,O(1)(`"你好".ByteLength == 6`)。
+    #[builtin(name = "__str_byte_length", this = "get_ByteLength", pure)]
+    pub fn byte_length(s: &crate::metadata::vstr::Str) -> i64 { super::str_byte_length(s) }
+
+    #[builtin(name = "__str_substring", this = "Substring")]
+    pub fn substring(
+        s: &crate::metadata::vstr::Str, start: i64, len: i64,
+    ) -> Result<String, BuiltinError> { super::str_substring(s, start, len) }
+
+    /// `ConcatParts(parts, count)` — 单分配拼接(StringBuilder.ToString / Join 的地板)。
+    #[builtin(name = "__str_concat_parts")]
+    pub fn concat_parts(ctx: &VmContext, parts: &crate::metadata::Value, count: i64) -> Result<String, BuiltinError> {
+        super::str_concat_parts(ctx, parts, count)
+    }
+
+    #[builtin(name = "__str_split", this = "Split")]
+    pub fn split(ctx: &VmContext, s: &crate::metadata::vstr::Str, sep: &str) -> Result<Vec<String>, BuiltinError> {
+        super::str_split(ctx, s, sep)
+    }
+
+    #[builtin(name = "__str_join")]
+    pub fn join(sep: &str, values: &crate::metadata::Value) -> Result<String, BuiltinError> {
+        super::str_join(sep, values)
+    }
+
+    #[builtin(name = "__str_from_chars")]
+    pub fn from_chars(chars: &crate::metadata::Value) -> Result<String, BuiltinError> {
+        super::str_from_chars(chars)
+    }
+
+    #[builtin(name = "__str_equals", this = "Equals", pure)]
+    pub fn equals(
+        s: &crate::metadata::vstr::Str, other: Option<&crate::metadata::vstr::Str>,
+    ) -> bool { super::str_equals(s, other) }
+
+    /// FNV-1a 哈希(UTF-8 字节),31 位截断。
+    #[builtin(name = "__str_hash_code", this = "GetHashCode", pure)]
+    pub fn hash_code(s: &crate::metadata::vstr::Str) -> i64 { super::str_hash_code(s) }
+
 }
 
 /// `Std.String.Substring(start, length)` bulk path (perf-stdlib-hot-paths): character
@@ -65,17 +111,17 @@ pub mod typed {
 /// string. Bails on an out-of-range request (the script side checks first and reports
 /// its own message; this is the defensive floor).
 /// args: [this: str, start: int, length: int]
-pub fn builtin_str_substring(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let start = arg_usize(args, 1, "__str_substring")?;
-    let len = arg_usize(args, 2, "__str_substring")?;
-    match args.first() {
-        Some(Value::Str(s)) => match super::str_meta::byte_range(s, start, len) {
-            Some((b0, b1)) => Ok(Value::Str(ctx.heap().alloc_str(&s[b0..b1]))),
-            None => bail!("__str_substring: range [{}, {}) out of bounds (length {})",
-                          start, start + len, super::str_meta::char_len(s)),
-        },
-        // null → NullReferenceException; anything else is an internal error from `this_str`.
-        _ => { this_str(args, "Substring")?; bail!("__str_substring: expected a string receiver") }
+pub fn str_substring(
+    s: &crate::metadata::vstr::Str, start: i64, len: i64,
+) -> Result<String, BuiltinError> {
+    let (start, len) = (start as usize, len as usize);
+    match super::str_meta::byte_range(s, start, len) {
+        Some((b0, b1)) => Ok(s[b0..b1].to_string()),
+        // 与旧表同语义:越界 → ArgumentOutOfRangeException(此前 catchable
+        // Std.Exception,文案不变)。
+        None => Err(BuiltinError::ArgumentOutOfRange(format!(
+            "__str_substring: range [{}, {}) out of bounds (length {})",
+            start, start + len, super::str_meta::char_len(s)))),
     }
 }
 
@@ -84,31 +130,30 @@ pub fn builtin_str_substring(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 /// / `Join` floor. Elements must be strings (null is rejected: a StringBuilder never
 /// stores null parts, so a null here is a caller bug worth surfacing).
 /// args: [parts: string[], count: int]
-pub fn builtin_str_concat_parts(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let count = arg_usize(args, 1, "__str_concat_parts")?;
-    let arr = match args.first() {
-        Some(Value::Array(a)) => a.clone(),
-        Some(other) => bail!("__str_concat_parts: expected string[], got {:?}", other),
-        None => bail!("__str_concat_parts: missing arg 0"),
+pub fn str_concat_parts(
+    ctx: &VmContext, parts: &Value, count: i64,
+) -> Result<String, BuiltinError> {
+    let count = count as usize;
+    let Value::Array(arr) = parts else {
+        return Err(BuiltinError::Internal("__str_concat_parts: expected string[]".into()));
     };
     let b = arr.borrow();
     if count > b.len() {
-        bail!("__str_concat_parts: count {} exceeds array length {}", count, b.len());
+        return Err(BuiltinError::Argument(format!(
+            "__str_concat_parts: count {} exceeds array length {}", count, b.len())));
     }
-    let mut total = 0usize;
-    let mut parts: Vec<Value> = Vec::with_capacity(count);
+    let mut out = String::with_capacity(b.iter_boxed().take(count).map(|v| match &v {
+        Value::Str(s) => s.len(),
+        _ => 0,
+    }).sum::<usize>());
     for v in b.iter_boxed().take(count) {
         match &v {
-            Value::Str(s) => total += s.len(),
-            other => bail!("__str_concat_parts: element must be string, got {:?}", other),
+            Value::Str(s) => out.push_str(s),
+            other => return Err(BuiltinError::Argument(format!(
+                "__str_concat_parts: element must be string, got {:?}", other))),
         }
-        parts.push(v);
     }
-    let mut out = String::with_capacity(total);
-    for v in &parts {
-        if let Value::Str(s) = v { out.push_str(s); }
-    }
-    Ok(Value::Str(ctx.heap().alloc_str(&out)))
+    Ok(out)
 }
 
 /// `Std.String.Split(string)` (perf-strings-json): split `this` on every non-overlapping
@@ -120,15 +165,13 @@ pub fn builtin_str_concat_parts(ctx: &VmContext, args: &[Value]) -> Result<Value
 /// the same reason as every multi-allocation builtin: collections run at safepoints
 /// (none inside a builtin) and blocks allocated during marking are born marked.
 /// args: [this: str, sep: str (non-empty — the script side rejects "")]
-pub fn builtin_str_split(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let s = this_str(args, "Split")?;
-    let sep = arg_str(args, 1, "__str_split")?;
+pub fn str_split(
+    ctx: &VmContext, s: &crate::metadata::vstr::Str, sep: &str,
+) -> Result<Vec<String>, BuiltinError> {
     if sep.is_empty() {
-        bail!("__str_split: separator must not be empty");
+        return Err(BuiltinError::Argument("__str_split: separator must not be empty".into()));
     }
-    let heap = ctx.heap();
-    let parts: Vec<Value> = s.split(sep).map(|p| Value::Str(heap.alloc_str(p))).collect();
-    Ok(heap.alloc_array_typed("string", parts))
+    Ok(s.split(sep).map(|p| p.to_string()).collect())
 }
 
 /// `Std.String.Join(sep, values)` (perf-strings-json): `values[0] + sep + values[1] + …`
@@ -136,49 +179,44 @@ pub fn builtin_str_split(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 /// the `2n − 1` interleaved `string[]` in script first. Elements must be strings (same
 /// rule and message shape as `__str_concat_parts`).
 /// args: [sep: str, values: string[]]
-pub fn builtin_str_join(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let sep = arg_str(args, 0, "__str_join")?;
-    let arr = match args.get(1) {
-        Some(Value::Array(a)) => a.clone(),
-        Some(other) => bail!("__str_join: expected string[], got {:?}", other),
-        None => bail!("__str_join: missing arg 1"),
+pub fn str_join(sep: &str, values: &Value) -> Result<String, BuiltinError> {
+    let Value::Array(arr) = values else {
+        return Err(BuiltinError::Internal("__str_join: expected string[]".into()));
     };
     let b = arr.borrow();
-    let mut parts: Vec<Value> = Vec::with_capacity(b.len());
-    let mut total = 0usize;
-    for v in b.iter_boxed() {
-        match &v {
-            Value::Str(s) => total += s.len(),
-            other => bail!("__str_join: element must be string, got {:?}", other),
-        }
-        parts.push(v);
-    }
-    total += sep.len() * parts.len().saturating_sub(1);
-    let mut out = String::with_capacity(total);
-    for (i, v) in parts.iter().enumerate() {
+    let mut out = String::with_capacity(b.iter_boxed().map(|v| match &v {
+        Value::Str(s) => s.len(),
+        _ => 0,
+    }).sum::<usize>() + sep.len() * b.len().saturating_sub(1));
+    for (i, v) in b.iter_boxed().enumerate() {
         if i > 0 { out.push_str(sep); }
-        if let Value::Str(s) = v { out.push_str(s); }
+        match &v {
+            Value::Str(s) => out.push_str(s),
+            other => return Err(BuiltinError::Argument(format!(
+                "__str_join: element must be string, got {:?}", other))),
+        }
     }
-    Ok(Value::Str(ctx.heap().alloc_str(&out)))
+    Ok(out)
 }
 
 /// Builds a string from a char[] array.
 /// args: [chars: Array<Char>]
 /// New in simplify-string-stdlib (2026-04-24): enables script-side string
 /// construction (Substring / Replace / ToLower / ToUpper etc.).
-pub fn builtin_str_from_chars(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let arr = match args.first() {
-        Some(Value::Array(a)) => a.clone(),
-        Some(other) => bail!("__str_from_chars: expected char[], got {:?}", other),
-        None => bail!("__str_from_chars: missing arg 0"),
+pub fn str_from_chars(chars: &Value) -> Result<String, BuiltinError> {
+    let Value::Array(arr) = chars else {
+        return Err(BuiltinError::Internal("__str_from_chars: expected char[]".into()));
     };
-    let out: String = arr.borrow().iter_boxed()
-        .map(|v| match v {
-            Value::Char(c) => Ok(c),
-            other => Err(anyhow!("__str_from_chars: array element must be char, got {:?}", other)),
-        })
-        .collect::<Result<String>>()?;
-    Ok(Value::Str(out.into()))
+    let b = arr.borrow();
+    let mut out = String::with_capacity(b.len());
+    for v in b.iter_boxed() {
+        match v {
+            Value::Char(c) => out.push(c),
+            other => return Err(BuiltinError::Argument(format!(
+                "__str_from_chars: array element must be char, got {:?}", other))),
+        }
+    }
+    Ok(out)
 }
 
 // 2026-04-27 wave1-string-script: builtin_str_split + builtin_str_join removed.
@@ -194,26 +232,22 @@ pub fn builtin_str_from_chars(_ctx: &VmContext, args: &[Value]) -> Result<Value>
 
 /// string.Equals(other) — value equality.
 /// args: [this: str, other: str | null]
-pub fn builtin_str_equals(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let a = this_str(args, "Equals")?;
-    let result = match args.get(1) {
-        Some(Value::Str(b)) => a == &**b,
-        Some(Value::Null) | None => false,
-        _ => false,
-    };
-    Ok(Value::Bool(result))
+pub fn str_equals(a: &crate::metadata::vstr::Str, other: Option<&crate::metadata::vstr::Str>) -> bool {
+    match other {
+        Some(b) => a == b,
+        None => false,
+    }
 }
 
 /// string.GetHashCode() — FNV-1a hash of the UTF-8 bytes.
 /// args: [this: str]
-pub fn builtin_str_hash_code(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let s = this_str(args, "GetHashCode")?;
+pub fn str_hash_code(s: &crate::metadata::vstr::Str) -> i64 {
     let mut hash: u32 = 2_166_136_261;
     for byte in s.bytes() {
         hash ^= byte as u32;
         hash = hash.wrapping_mul(16_777_619);
     }
-    Ok(Value::I64((hash & 0x7fff_ffff) as i64))
+    (hash & 0x7fff_ffff) as i64
 }
 
 // 2026-04-27 wave3b-str-format-script: builtin_str_format removed.

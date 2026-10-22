@@ -28,41 +28,15 @@ const PART1: &[(&str, Native)] = &[
     ("__time_now_mono_ns", Native::Val(bench::builtin_time_now_mono_ns)),
     ("__bench_black_box",  Native::Val(bench::builtin_bench_black_box)),
     // ── String (minimal intrinsic core; most methods are script-side now) ────
-    ("__str_byte_length", Native::Val(string::builtin_str_byte_length)),
-    ("__str_to_chars",    Native::Val(string::builtin_str_to_chars)),
-    ("__str_from_chars", Native::Val(string::builtin_str_from_chars)),
     // shrink-primitive-native-interop (2026-08-27): __str_to_string removed —
     // Std.String.ToString 现在是脚本 `return this;`。
-    ("__str_equals",     Native::Val(string::builtin_str_equals)),
-    ("__str_hash_code",  Native::Val(string::builtin_str_hash_code)),
     // ── Char ──────────────────────────────────────────────────────────────────
     // shrink-primitive-native-interop (2026-08-27): __char_to_lower/__char_to_upper
     // removed — ASCII-only casing 迁纯脚本。IsWhiteSpace 保留（真 Unicode）。
-    ("__char_is_whitespace", Native::Val(char::builtin_char_is_whitespace)),
     // ── Parse / convert / primitive ToString / BitConverter ── 已迁 builtin ABI v2：
     //    见 `convert::typed`（`#[builtins]` 模块，经下方 `TYPED` 登记）。
 
     // ── Math ──────────────────────────────────────────────────────────────────
-    ("__math_pow",     Native::Val(math::builtin_math_pow)),
-    ("__math_sqrt",    Native::Val(math::builtin_math_sqrt)),
-    ("__math_floor",   Native::Val(math::builtin_math_floor)),
-    ("__math_ceiling", Native::Val(math::builtin_math_ceiling)),
-    ("__math_round",   Native::Val(math::builtin_math_round)),
-    ("__math_log",     Native::Val(math::builtin_math_log)),
-    ("__math_log10",   Native::Val(math::builtin_math_log10)),
-    ("__math_sin",     Native::Val(math::builtin_math_sin)),
-    ("__math_cos",     Native::Val(math::builtin_math_cos)),
-    ("__math_tan",     Native::Val(math::builtin_math_tan)),
-    ("__math_atan2",   Native::Val(math::builtin_math_atan2)),
-    ("__math_exp",     Native::Val(math::builtin_math_exp)),
-    ("__math_asin",    Native::Val(math::builtin_math_asin)),
-    ("__math_acos",    Native::Val(math::builtin_math_acos)),
-    ("__math_atan",    Native::Val(math::builtin_math_atan)),
-    ("__math_sinh",    Native::Val(math::builtin_math_sinh)),
-    ("__math_cosh",    Native::Val(math::builtin_math_cosh)),
-    ("__math_tanh",    Native::Val(math::builtin_math_tanh)),
-    ("__math_cbrt",    Native::Val(math::builtin_math_cbrt)),
-    ("__math_log2",    Native::Val(math::builtin_math_log2)),
     // ── File / Directory / Glob / Temp / Console tty / Environment / clock ── 已迁 builtin ABI v2：
     //    见 `fs::typed`（FileStream 句柄、`__env_*`、`__process_exit`、`__time_now_ms` 也在那里）。
 
@@ -135,6 +109,8 @@ const PART1: &[(&str, Native)] = &[
 /// 迁过来的 builtin 同时从 PART1 / PART2 删掉（名字唯一，`native_decl_tests` 核对）。
 const TYPED: &[&[super::abi::BuiltinDesc]] = &[
     super::convert::typed::DESCS,
+    super::math::typed::DESCS,
+    super::char::typed::DESCS,
     super::string::typed::DESCS,
     super::reflection::enums::typed::DESCS,
     super::reflection::type_query::typed::DESCS,

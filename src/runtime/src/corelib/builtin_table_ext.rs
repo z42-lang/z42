@@ -103,8 +103,6 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     // ── expose-diagnostics-counters (2026-08-23) — appended to preserve BuiltinIds ──
     ("__diag_counters",           Native::Val(diagnostics::builtin_diag_counters)),
     // ── perf-stdlib-hot-paths (2026-09-03): bulk string primitives ────────────────
-    ("__str_substring",     Native::Val(string::builtin_str_substring)),
-    ("__str_concat_parts",  Native::Val(string::builtin_str_concat_parts)),
 
     // ── complete-runtime-settings P4 (2026-09-05) — appended to preserve BuiltinIds ──
     // Read-only view of the resolved runtime configuration (Std.Runtime.RuntimeConfig).
@@ -149,9 +147,7 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     ("__array_sort_prims",  Native::Val(array::builtin_array_sort_prims)),
     // ── perf-strings-json — appended to preserve existing BuiltinIds ──
     // `String.Split(string)` 的扫描 + 切段：一次原生扫描，每段一次分配。
-    ("__str_split",         Native::Val(string::builtin_str_split)),
     // `String.Join(sep, values)`：一次分配拼出交错结果。
-    ("__str_join",          Native::Val(string::builtin_str_join)),
     // ── assembly-get-functions — appended to preserve existing BuiltinIds ──
     // `Assembly.GetFunctions()`：一个 zpkg 的自由（顶层）函数 → MethodInfo[]。
 ];

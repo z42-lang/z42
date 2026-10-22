@@ -1,152 +1,177 @@
-use crate::metadata::Value;
+//! `Std.Math` 的标量后端 —— builtin ABI v2(P1-8 批次 10):全部
+//! `f64 → f64`(双参两个)的 PURE 函数,z42 侧声明即 `double X(double)`,
+//! 整数实参由类型系统先转换;`pure` 让 JIT 可做 intrinsic。
+//!
+//! 2026-04-27 wave1-math-script: Abs/Max/Min 是 z42 脚本(int + double
+//! overload),不经这里。反三角 / 双曲 / cbrt / log2(augment-corelib-parity
+//! backlog #9)由 libm 承载,边界(溢出、2 的幂上的 log2)跟平台数学库。
+
+use crate::corelib::abi::BuiltinError;
 use crate::vm_context::VmContext;
-use anyhow::{bail, Result};
 
-// 2026-04-27 wave1-math-script: builtin_math_abs/_max/_min removed.
-// `Std.Math.Math.Abs/Max/Min` 现在是 z42 脚本（int + double overload）。
 
-pub fn builtin_math_pow(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    match (args.first(), args.get(1)) {
-        (Some(Value::I64(base)), Some(Value::I64(exp))) => Ok(Value::I64(base.pow(*exp as u32))),
-        (Some(Value::F64(base)), Some(Value::F64(exp))) => Ok(Value::F64(base.powf(*exp))),
-        _ => bail!("Math.Pow: expected two numeric arguments"),
-    }
-}
-pub fn builtin_math_sqrt(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    match args.first() {
-        Some(Value::F64(f)) => Ok(Value::F64(f.sqrt())),
-        Some(Value::I64(n)) => Ok(Value::F64((*n as f64).sqrt())),
-        _ => bail!("Math.Sqrt: expected numeric argument"),
-    }
-}
-pub fn builtin_math_floor(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    match args.first() {
-        Some(Value::F64(f)) => Ok(Value::F64(f.floor())),
-        Some(Value::I64(n)) => Ok(Value::I64(*n)),
-        _ => bail!("Math.Floor: expected numeric argument"),
-    }
-}
-pub fn builtin_math_ceiling(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    match args.first() {
-        Some(Value::F64(f)) => Ok(Value::F64(f.ceil())),
-        Some(Value::I64(n)) => Ok(Value::I64(*n)),
-        _ => bail!("Math.Ceiling: expected numeric argument"),
-    }
-}
-pub fn builtin_math_round(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    match args.first() {
-        Some(Value::F64(f)) => Ok(Value::F64(f.round())),
-        Some(Value::I64(n)) => Ok(Value::I64(*n)),
-        _ => bail!("Math.Round: expected numeric argument"),
-    }
-}
-pub fn builtin_math_log(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    match args.first() {
-        Some(Value::F64(f)) => Ok(Value::F64(f.ln())),
-        Some(Value::I64(n)) => Ok(Value::F64((*n as f64).ln())),
-        _ => bail!("Math.Log: expected numeric argument"),
-    }
-}
-pub fn builtin_math_log10(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    match args.first() {
-        Some(Value::F64(f)) => Ok(Value::F64(f.log10())),
-        Some(Value::I64(n)) => Ok(Value::F64((*n as f64).log10())),
-        _ => bail!("Math.Log10: expected numeric argument"),
-    }
-}
-pub fn builtin_math_sin(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    match args.first() {
-        Some(Value::F64(f)) => Ok(Value::F64(f.sin())),
-        Some(Value::I64(n)) => Ok(Value::F64((*n as f64).sin())),
-        _ => bail!("Math.Sin: expected numeric argument"),
-    }
-}
-pub fn builtin_math_cos(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    match args.first() {
-        Some(Value::F64(f)) => Ok(Value::F64(f.cos())),
-        Some(Value::I64(n)) => Ok(Value::F64((*n as f64).cos())),
-        _ => bail!("Math.Cos: expected numeric argument"),
-    }
-}
-pub fn builtin_math_tan(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    match args.first() {
-        Some(Value::F64(f)) => Ok(Value::F64(f.tan())),
-        Some(Value::I64(n)) => Ok(Value::F64((*n as f64).tan())),
-        _ => bail!("Math.Tan: expected numeric argument"),
-    }
-}
-pub fn builtin_math_atan2(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    match (args.first(), args.get(1)) {
-        (Some(Value::F64(y)), Some(Value::F64(x))) => Ok(Value::F64(y.atan2(*x))),
-        _ => bail!("Math.Atan2: expected two f64 arguments"),
-    }
-}
-pub fn builtin_math_exp(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    match args.first() {
-        Some(Value::F64(f)) => Ok(Value::F64(f.exp())),
-        Some(Value::I64(n)) => Ok(Value::F64((*n as f64).exp())),
-        _ => bail!("Math.Exp: expected numeric argument"),
-    }
+#[inline]
+pub fn math_sqrt(x: f64) -> f64 {
+    x.sqrt()
 }
 
-// augment-corelib-parity (2026-09-02, backlog #9): inverse-trig, hyperbolic,
-// cube-root and base-2 log rounding out System.Math parity. Backed by libm via
-// Rust f64 methods so edge cases (overflow of sinh/cosh, exactness of log2 on
-// powers of two) match the platform math library rather than a lossy z42-script
-// derivation.
-pub fn builtin_math_asin(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    match args.first() {
-        Some(Value::F64(f)) => Ok(Value::F64(f.asin())),
-        Some(Value::I64(n)) => Ok(Value::F64((*n as f64).asin())),
-        _ => bail!("Math.Asin: expected numeric argument"),
-    }
+#[inline]
+pub fn math_floor(x: f64) -> f64 {
+    x.floor()
 }
-pub fn builtin_math_acos(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    match args.first() {
-        Some(Value::F64(f)) => Ok(Value::F64(f.acos())),
-        Some(Value::I64(n)) => Ok(Value::F64((*n as f64).acos())),
-        _ => bail!("Math.Acos: expected numeric argument"),
-    }
+
+#[inline]
+pub fn math_ceiling(x: f64) -> f64 {
+    x.ceil()
 }
-pub fn builtin_math_atan(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    match args.first() {
-        Some(Value::F64(f)) => Ok(Value::F64(f.atan())),
-        Some(Value::I64(n)) => Ok(Value::F64((*n as f64).atan())),
-        _ => bail!("Math.Atan: expected numeric argument"),
-    }
+
+#[inline]
+pub fn math_round(x: f64) -> f64 {
+    x.round()
 }
-pub fn builtin_math_sinh(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    match args.first() {
-        Some(Value::F64(f)) => Ok(Value::F64(f.sinh())),
-        Some(Value::I64(n)) => Ok(Value::F64((*n as f64).sinh())),
-        _ => bail!("Math.Sinh: expected numeric argument"),
-    }
+
+#[inline]
+pub fn math_log(x: f64) -> f64 {
+    x.ln()
 }
-pub fn builtin_math_cosh(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    match args.first() {
-        Some(Value::F64(f)) => Ok(Value::F64(f.cosh())),
-        Some(Value::I64(n)) => Ok(Value::F64((*n as f64).cosh())),
-        _ => bail!("Math.Cosh: expected numeric argument"),
-    }
+
+#[inline]
+pub fn math_log10(x: f64) -> f64 {
+    x.log10()
 }
-pub fn builtin_math_tanh(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    match args.first() {
-        Some(Value::F64(f)) => Ok(Value::F64(f.tanh())),
-        Some(Value::I64(n)) => Ok(Value::F64((*n as f64).tanh())),
-        _ => bail!("Math.Tanh: expected numeric argument"),
-    }
+
+#[inline]
+pub fn math_sin(x: f64) -> f64 {
+    x.sin()
 }
-pub fn builtin_math_cbrt(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    match args.first() {
-        Some(Value::F64(f)) => Ok(Value::F64(f.cbrt())),
-        Some(Value::I64(n)) => Ok(Value::F64((*n as f64).cbrt())),
-        _ => bail!("Math.Cbrt: expected numeric argument"),
-    }
+
+#[inline]
+pub fn math_cos(x: f64) -> f64 {
+    x.cos()
 }
-pub fn builtin_math_log2(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    match args.first() {
-        Some(Value::F64(f)) => Ok(Value::F64(f.log2())),
-        Some(Value::I64(n)) => Ok(Value::F64((*n as f64).log2())),
-        _ => bail!("Math.Log2: expected numeric argument"),
-    }
+
+#[inline]
+pub fn math_tan(x: f64) -> f64 {
+    x.tan()
+}
+
+#[inline]
+pub fn math_exp(x: f64) -> f64 {
+    x.exp()
+}
+
+#[inline]
+pub fn math_asin(x: f64) -> f64 {
+    x.asin()
+}
+
+#[inline]
+pub fn math_acos(x: f64) -> f64 {
+    x.acos()
+}
+
+#[inline]
+pub fn math_atan(x: f64) -> f64 {
+    x.atan()
+}
+
+#[inline]
+pub fn math_sinh(x: f64) -> f64 {
+    x.sinh()
+}
+
+#[inline]
+pub fn math_cosh(x: f64) -> f64 {
+    x.cosh()
+}
+
+#[inline]
+pub fn math_tanh(x: f64) -> f64 {
+    x.tanh()
+}
+
+#[inline]
+pub fn math_cbrt(x: f64) -> f64 {
+    x.cbrt()
+}
+
+#[inline]
+pub fn math_log2(x: f64) -> f64 {
+    x.log2()
+}
+
+#[inline]
+pub fn math_pow(base: f64, exp: f64) -> f64 {
+    base.powf(exp)
+}
+
+#[inline]
+pub fn math_atan2(y: f64, x: f64) -> f64 {
+    y.atan2(x)
+}
+
+/// `Std.Math` 迁 builtin ABI v2(P1-8 批次 10):PURE 标量,签名即声明
+/// (`double X(double)`),整数实参由 z42 类型系统先转换成 double。
+#[z42_macros::builtins]
+pub mod typed {
+
+    #[builtin(name = "__math_sqrt", pure)]
+    pub fn sqrt(x: f64) -> f64 { super::math_sqrt(x) }
+
+    #[builtin(name = "__math_floor", pure)]
+    pub fn floor(x: f64) -> f64 { super::math_floor(x) }
+
+    #[builtin(name = "__math_ceiling", pure)]
+    pub fn ceiling(x: f64) -> f64 { super::math_ceiling(x) }
+
+    #[builtin(name = "__math_round", pure)]
+    pub fn round(x: f64) -> f64 { super::math_round(x) }
+
+    #[builtin(name = "__math_log", pure)]
+    pub fn log(x: f64) -> f64 { super::math_log(x) }
+
+    #[builtin(name = "__math_log10", pure)]
+    pub fn log10(x: f64) -> f64 { super::math_log10(x) }
+
+    #[builtin(name = "__math_sin", pure)]
+    pub fn sin(x: f64) -> f64 { super::math_sin(x) }
+
+    #[builtin(name = "__math_cos", pure)]
+    pub fn cos(x: f64) -> f64 { super::math_cos(x) }
+
+    #[builtin(name = "__math_tan", pure)]
+    pub fn tan(x: f64) -> f64 { super::math_tan(x) }
+
+    #[builtin(name = "__math_exp", pure)]
+    pub fn exp(x: f64) -> f64 { super::math_exp(x) }
+
+    #[builtin(name = "__math_asin", pure)]
+    pub fn asin(x: f64) -> f64 { super::math_asin(x) }
+
+    #[builtin(name = "__math_acos", pure)]
+    pub fn acos(x: f64) -> f64 { super::math_acos(x) }
+
+    #[builtin(name = "__math_atan", pure)]
+    pub fn atan(x: f64) -> f64 { super::math_atan(x) }
+
+    #[builtin(name = "__math_sinh", pure)]
+    pub fn sinh(x: f64) -> f64 { super::math_sinh(x) }
+
+    #[builtin(name = "__math_cosh", pure)]
+    pub fn cosh(x: f64) -> f64 { super::math_cosh(x) }
+
+    #[builtin(name = "__math_tanh", pure)]
+    pub fn tanh(x: f64) -> f64 { super::math_tanh(x) }
+
+    #[builtin(name = "__math_cbrt", pure)]
+    pub fn cbrt(x: f64) -> f64 { super::math_cbrt(x) }
+
+    #[builtin(name = "__math_log2", pure)]
+    pub fn log2(x: f64) -> f64 { super::math_log2(x) }
+
+    #[builtin(name = "__math_pow", pure)]
+    pub fn pow(base: f64, exp: f64) -> f64 { super::math_pow(base, exp) }
+
+    #[builtin(name = "__math_atan2", pure)]
+    pub fn atan2(y: f64, x: f64) -> f64 { super::math_atan2(y, x) }
 }
