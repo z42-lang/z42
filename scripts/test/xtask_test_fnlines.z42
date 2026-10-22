@@ -1,4 +1,4 @@
-// xtask — `check fnlines` gate stage（add-fn-line-lint）。
+// xtask — `check fnlines` gate stage。
 // 函数 / 方法体行数 lint：src/ 下非测试 .z42 / .rs 文件（code-organization.md「函数 / 方法行数」）。
 //   > 60 行（硬限）→ 越界，走棘轮判定（新越界 / 继续膨胀 = 红）
 //   > 40 行（软限）→ 只计数提示，不参与棘轮、永不变红

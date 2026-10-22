@@ -30,10 +30,8 @@
 //
 // **扫 `.github/**` 全部 yml**（composite action 清单 + workflow）。
 //
-// ⭐ 立门时我先写成「只扫 actions，workflow 按块判会大量误报」—— **那是个没验的断言，实测不成立**：
-// 把 workflows 纳进来一共只报 1 处，而那 1 处（`mapfile -t sdk_dirs < <(…)`）是**我的扫描器不认
-// `mapfile`**，属误报。补上 `mapfile`/`readarray` 后 workflows 归零 ⇒ 覆盖面白送，没有理由不要。
-// 留下的规矩：**「会误报所以不扫」这种话，先跑一遍数出来再说。**
+// ⭐ 规矩：**「会误报所以不扫」这种话，先跑一遍数出来再说**——workflow 块纳进来后
+// 只需补认 `mapfile`/`readarray` 即零误报，覆盖面白送。
 //
 // **只扫多行块（`run: |`），不扫单行 `run: cmd`。** 单行里不存在「顺序」问题，而「从未赋值」那一半
 // 在单行上几乎只会命中 runner 环境变量 ⇒ 全是误报。引导逻辑（`ci-bootstrap` 那 260+ 行，全仓最长的

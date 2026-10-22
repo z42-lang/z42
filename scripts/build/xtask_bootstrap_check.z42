@@ -1,7 +1,6 @@
 // xtask — `test compiler bootstrap`: staged-bootstrap boundary check.
 //
-// Script-zero port of the former scripts/check-bootstrap-compat.sh. Enforces the
-// staged-bootstrap discipline (docs/internals/src/compiler/self-hosting.md): the LAST PUBLISHED
+// Enforces the staged-bootstrap discipline (docs/internals/src/compiler/self-hosting.md): the LAST PUBLISHED
 // nightly's z42c must be able to compile the CURRENT repo source. If it can't, the
 // source uses syntax / a zbc·zpkg format newer than the published nightly supports
 // — a boundary violation that would break the bootstrap (build-and-test seeds from
@@ -17,8 +16,8 @@
 // (A) fails but (B) passes ⇒ you used something newer than the published nightly:
 // split into "support first (old-syntax-written), use later" per the discipline.
 //
-// WHAT THIS GATE DOES AND DOESN'T GUARD (add-associated-types — read before
-// concluding it "stopped working"). Both runs go through `_ensureBootstrapSelfDepLibs`,
+// WHAT THIS GATE DOES AND DOESN'T GUARD (read before concluding it "stopped
+// working"). Both runs go through `_ensureBootstrapSelfDepLibs`,
 // exactly like the real `build compiler` path, so:
 //
 //   ✅ axis ① syntax          — the seed z42c must parse current source (incl. the self-dep
@@ -30,7 +29,7 @@
 //                               z42c.syntax are rebuilt from CURRENT source by the pre-build.
 //                               Guarding them would be guarding a constraint that does not
 //                               exist: the real build pre-builds them too (self-hosting.md
-//                               axis ④). This is the false-red that was removed, not a gap.
+//                               axis ④) — 刻意不守，别把它当缺口补回去。
 //   ❌ axis ④ runtime self-dep — still unverified here (this gate only compiles; it never
 //                               RUNS the freshly built z42c). Cold-start runtime breakage
 //                               (`undefined function …`) surfaces in CI's ci-bootstrap jobs

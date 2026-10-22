@@ -201,11 +201,10 @@ string _compilerProbingPaths(string root) {
 
 // ── z42 子进程的唯一入口（xtask-proc-factory）───────────────────────────────────────────
 //
-// xtask 起的每个「跑 z42 代码」的子进程都从这两个函数建，不再在调用点手写 `.Env("Z42_LIBS", …)` /
-// `.Env("Z42_PROBING_PATHS", …)`（此前 159 + 25 处）。理由是两条实际踩过的坑：
+// xtask 起的每个「跑 z42 代码」的子进程都从这两个函数建，不在调用点手写 `.Env("Z42_LIBS", …)` /
+// `.Env("Z42_PROBING_PATHS", …)`。两个 env 各有一个静默坑：
 //   ① 漏 `Z42_LIBS` 不报错——子进程**继承 xtask 自身的**（`.z42/libs`，上一版 SDK），静默跑在旧 stdlib 上；
-//   ② 漏 probing 只在 z42b 真去加载编译器包时才炸（drop-alllibs 那轮，rebase 带进一个新 smoke，
-//      它照邻居手抄却少抄了 probing ⇒ `MissingSymbolException ManifestLoader.Load`）。
+//   ② 漏 probing 只在 z42b 真去加载编译器包时才炸（`MissingSymbolException ManifestLoader.Load`）。
 // `xtask check proc-env` 守住「调用点不得再直接设这些变量」（见 _testProcEnv）。
 //
 // `exe` 是 z42vm，或 apphost / launcher 这类最终起 z42vm 的程序；`libs` 是它要看见的 stdlib 世界。
