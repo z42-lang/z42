@@ -188,7 +188,7 @@ impl VmContext {
     }
 
     /// Peek at the pending exception without removing it. Used by JIT catch-type
-    /// dispatch (catch-by-generic-type, 2026-05-06): the throw helper has set the
+    /// dispatch (catch-by-generic-type): the throw helper has set the
     /// exception, the dispatch helper inspects its class to decide which catch
     /// handler to jump to, and a later `take_exception` (via `jit_install_catch`)
     /// hands the value to the chosen catch register.

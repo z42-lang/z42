@@ -1,4 +1,4 @@
-//! Per-string character-metadata cache (perf-str-char-index, 2026-06-20).
+//! Per-string character-metadata cache (perf-str-char-index).
 //!
 //! `Std.String.Length` (Unicode scalar count) and `CharAt(i)` are O(n) / O(i)
 //! on a UTF-8 string — counting / walking chars from the start. The z42c lexer

@@ -126,7 +126,7 @@ fn streaming_gzip_encoder_matches_one_shot_round_trip() {
 
 #[test]
 fn streaming_gzip_decoder_accumulates_and_decodes() {
-    // fix-streaming-gzip-decoder-test-windows (2026-05-30): the previous
+    // fix-streaming-gzip-decoder-test-windows : the previous
     // assertion required `out.is_empty()` on every feed because the v0
     // API was supposed to buffer everything till finish. In practice
     // compressor_feed's `std::mem::take(d.get_mut())` returns whatever

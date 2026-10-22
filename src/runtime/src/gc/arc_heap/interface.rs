@@ -29,13 +29,13 @@ impl MagrGC for ArcMagrGC {
         *self.external_root_scanner.lock() = Some(scanner);
     }
 
-    /// **add-lazy-context-unload (2026-08-05)**: wire the collectible-context
+    /// **add-lazy-context-unload **: wire the collectible-context
     /// reclaimer. Drives `Unloading` context reclamation on major STW collects.
     fn set_context_reclaimer(&self, hook: ContextReclaimHook) {
         *self.context_reclaimer.lock() = Some(hook);
     }
 
-    /// **add-heap-retention-diagnostics (2026-08-06)**: wire the categorized
+    /// **add-heap-retention-diagnostics **: wire the categorized
     /// root scanner (for `retention_roots` L2 category-level root reporting).
     fn set_categorized_root_scanner(&self, scanner: CategorizedRootScanner) {
         *self.categorized_root_scanner.lock() = Some(scanner);
@@ -55,7 +55,7 @@ impl MagrGC for ArcMagrGC {
         self.build_retention_graph().retaining_roots(target)
     }
 
-    /// **add-gc-safepoint-auto-threshold (2026-05-20)**: wire the
+    /// **add-gc-safepoint-auto-threshold **: wire the
     /// AtomicBool that `maybe_auto_collect` should set on pressure trip
     /// (deferring the actual collect to the next safepoint).
     fn set_external_needs_collect_flag(&self, flag: std::sync::Arc<std::sync::atomic::AtomicBool>) {
@@ -182,7 +182,7 @@ impl MagrGC for ArcMagrGC {
 
     // ── 3. Write barriers ────────────────────────────────────────────────────
     //
-    // **add-write-barriers (2026-05-21)**: ArcMagrGC overrides the trait
+    // **add-write-barriers **: ArcMagrGC overrides the trait
     // methods. Production STW-mode is no-op (matches the pre-this-spec
     // baseline); `#[cfg(test)]` always fires the test observer regardless
     // of mode.

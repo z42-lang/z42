@@ -2,9 +2,9 @@
 // command (_buildTest) + the shared golden-regen machinery (_regenGolden) used by
 // the `test` gate build-wave (_regenForTest in xtask_test.z42 → _regenCore below).
 // (Was scripts/xtask_regen.z42; the standalone `regen` command was folded into
-// `build test` — redesign-xtask-test, 2026-07-07.)
+// `build test` — redesign-xtask-test.)
 //
-// 文件名不带 `xtask_test_` 前缀是有意的（scripts-batch3-naming, 2026-09-06）：那个前缀
+// 文件名不带 `xtask_test_` 前缀是有意的（scripts-batch3-naming）：那个前缀
 // 专表「`test <x>` 命令的实现」，而本文件是 `build test` 的实现——它*编译*测试资产、
 // 自己不含测试。命名规则全表见 scripts/README.md。
 //
@@ -32,8 +32,7 @@ int _buildTest() {
 // golden regen 的并发度。此前硬编码 8、且 CLI/环境都调不了。
 //
 // 这批 case 的成本由**每个进程的 z42c 启动**主导（载 driver.zpkg + 7 个兄弟包 +
-// stdlib），不是编译本身——所以并发度远超核数仍能继续获益。本地实测（24 核，295 case）：
-//     jobs=4 → 40s   jobs=8 → 20s   jobs=16 → 12s   jobs=24 → 10s
+// stdlib），不是编译本身——所以并发度远超核数仍能继续获益。24 核机本地实测：
 // 硬编码 8 在开发机上白白浪费一半以上的时间。
 //
 // 取 max(8, CpuCount())：**对少核机器（GitHub 标准 runner 4 核）保持原样 8，不冒进**——
@@ -323,7 +322,7 @@ ProcessHandle _compileCaseSpawn(string vmBin, string driverZpkg, string stdlibDi
         .Spawn();
 }
 
-// ── golden 资产重建的共享入口（relocate-xtask-handlers, 2026-09-05 从 xtask.z42 搬来） ──
+// ── golden 资产重建的共享入口（relocate-xtask-handlers 从 xtask.z42 搬来） ──
 
 // ── golden-asset rebuild (shared by `build test` + the gate build-wave) ─────
 //

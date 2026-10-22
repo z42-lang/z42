@@ -12,7 +12,7 @@
 //! 每条只写**偏离基线的字段**（`..PUBLIC` / `..TUNING` / `..META`），读表时一眼看到
 //! 的就是"这个旋钮哪里特殊"。基线定义见 [`super::knobs`]。
 //!
-//! complete-runtime-settings P0（2026-09-05）：自 knobs.rs 拆出并扩为完整 schema。
+//! complete-runtime-settings P0：自 knobs.rs 拆出并扩为完整 schema。
 
 use super::knobs::*;
 
@@ -36,7 +36,7 @@ const STACKALLOC_MODES: &[&str] = &["on", "off", "0", "heap", "stats"];
 
 /// 机制内部件 / 调试开关：四层可设，但默认视图隐藏。
 ///
-/// adopt-inline-env-knobs（2026-09-05）：这些旋钮此前是 `ENV_ONLY`——它们在各自
+/// adopt-inline-env-knobs：这些旋钮此前是 `ENV_ONLY`——它们在各自
 /// `consumed_by` 处直接 `std::env::var`，CLI 与配置文件层到不了那行代码，标成四层
 /// 全收会让 `--list-knobs` 说谎。消费点改读 `runtime_config()` 后限制解除。
 const DEBUG_KNOB: KnobSpec = KnobSpec { tier: Tier::Internal, ..PUBLIC };
@@ -364,7 +364,7 @@ pub const KNOWN_KNOBS: &[KnobSpec] = &[
     // add-deployment-model 批 3：zpkg **依赖**的额外搜索目录。
     //
     // 📌 本旋钮曾刻意不叫 `path`：那个名字当时被 `Z42_PATH`（`.zbc` **模块**搜索路径）占着，
-    // 而那条旋钮解析出来只进日志、五个调用方全传空 —— retire-z42-path（2026-09-25）已把它
+    // 而那条旋钮解析出来只进日志、五个调用方全传空 —— retire-z42-path 已把它
     // 连同整条死路径一并退役。`path` 现在是空着的名字；要不要改名是**用户可见的决定**，
     // 留给需要它的时候再说，别顺手做。
     KnobSpec {

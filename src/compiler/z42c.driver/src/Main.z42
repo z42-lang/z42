@@ -209,7 +209,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         libsDirs = libsDirsOverride;
         libsDirsN = libsDirsCount;
     } else {
-        // ── 编译期依赖解析面 vs driver 自身运行期加载面（2026-09-27）───────────────────────
+        // ── 编译期依赖解析面 vs driver 自身运行期加载面 ───────────────────────
         //
         // 编译期依赖面 = `Z42_LIBS`（driver 自己运行期的库另走 VM 的 probing，见 `_extLibDirs`）。
         libsDirs = _extLibDirs(); libsDirsN = libsDirs.Length;

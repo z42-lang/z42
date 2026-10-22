@@ -364,14 +364,14 @@ public sealed class BuildSession {
     private static BuildResult _fail(int code) { return new BuildResult(code, "", ""); }
 }
 
-// 编译器域包的解析域 —— 「显式引用编译器域库」的落点（relocate-compiler-domain-libs，2026-09-27）。
+// 编译器域包的解析域 —— 「显式引用编译器域库」的落点（relocate-compiler-domain-libs）。
 //
 // 插件工程（`kind = "plugin"`）要 `[dependencies]` 到编译器的契约包（`z42c.semantics` 的
 // `Generator`/`ModuleGenerator`/`GenSink`/`GenTarget`），而这些 zpkg **不在** `libs/` ——
 // 那正是 proposal 记下的症状：契约在 SDK 目录里、却不在解析器会去看的地方，于是插件作者
 // 拿到的是一句位置在别处的 `E0443 undefined type: ModuleGenerator`，没有任何东西诊断它。
 //
-// 🔴 **落点是 `programs/z42c/`，不是独立的 `compiler-libs/`**（User 2026-09-27 裁：避免复杂）。
+// 🔴 **落点是 `programs/z42c/`，不是独立的 `compiler-libs/`**（User  裁：避免复杂）。
 // 旧实现探的 `Z42_HOME/compiler-libs` 与 `<sdk>/compiler-libs` **在发布态恒不存在** ——
 // 实测今天的 nightly SDK 里没有那个目录，`z42c.semantics.zpkg` 躺在 `programs/z42c/`；
 // 两条组装路只有 `package dev-sdk` 那条建了它，发布 tarball 里没有 ⇒ **批 1 声称打通的「用户能写

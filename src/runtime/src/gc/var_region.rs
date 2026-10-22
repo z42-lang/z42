@@ -129,7 +129,7 @@ pub struct VarRegion {
     hwm: Vec<u32>,
     /// Per-size-class free lists of tombstoned slots available for reuse (LIFO).
     ///
-    /// **lazy-var-free-list (2026-09-12)**: entries are **not** removed when their chunk is
+    /// **lazy-var-free-list **: entries are **not** removed when their chunk is
     /// pooled. They used to be — `purge_blocks` ran a `retain` over every class, dereferencing
     /// one header per entry to read its `chunk_idx`, and that scan was **142.5 ms of a 513 ms
     /// total pause** on `z42c.semantics` (45 minors × up to 1 235 912 entries). It is
@@ -145,16 +145,16 @@ pub struct VarRegion {
     /// offset 0, so an entry that outlived the pooling would alias whatever lands there next.
     /// [`Self::pool_epoch`] is the guard — see the pop loop in [`Self::alloc`].
     ///
-    /// **perf-free-slot-encoding (2026-09-13)**: an entry is a four-byte [`FreeSlot`], not the
+    /// **perf-free-slot-encoding **: an entry is a four-byte [`FreeSlot`], not the
     /// slot's header pointer. The staleness test needs the entry's **chunk**, and reading that
     /// out of the block header was a random memory access per entry — 13.2 ms of the build's
     /// GC pause in [`Self::compact_class`] alone. See [`FreeSlot`].
-    /// **perf-merge-free-entry (2026-09-13)**: the entry carries its chunk's `pool_epoch`
+    /// **perf-merge-free-entry **: the entry carries its chunk's `pool_epoch`
     /// alongside the slot ([`FreeEntry`]) rather than living in a second, parallel `Vec` —
     /// one push per tombstone instead of two, and one stream to walk in
     /// [`Self::compact_class`]. See [`FreeEntry`] for why splitting them stopped paying.
     free_lists: Vec<Vec<FreeEntry>>,
-    /// **lazy-var-free-list (2026-09-12)**: how many entries across [`Self::free_lists`] are
+    /// **lazy-var-free-list **: how many entries across [`Self::free_lists`] are
     /// known-stale. Exact, not an estimate: a chunk only gets pooled when **every** block in
     /// it is tombstoned, and every non-oversized tombstone pushes a free-list entry, so
     /// pooling chunk `ci` staled exactly as many entries as it had blocks.
@@ -162,7 +162,7 @@ pub struct VarRegion {
     /// Bounds the memory the lazy scheme can waste. Without it a cold size class would hold
     /// its stale entries forever — nothing pops them, so nothing discovers them.
     stale_free: usize,
-    /// **lazy-var-free-list (2026-09-12)**: the same count, split per size class, so a
+    /// **lazy-var-free-list **: the same count, split per size class, so a
     /// compaction can walk **one** list instead of all [`NUM_CLASSES`] of them. Compacting
     /// globally cost 17–25 ms a go, which forced the threshold so loose that stale entries
     /// piled up into ~40 MB of RSS; per class it is cheap enough to run tight.
@@ -208,7 +208,7 @@ pub struct VarRegion {
     /// pooled or freed (`take_flagged_dead`).
     flagged_dead: Vec<usize>,
 
-    // ── add-gc-tlab stage 3 (2026-08-29): per-thread chunk-exclusive var alloc ──
+    // ── add-gc-tlab stage 3 : per-thread chunk-exclusive var alloc ──
     /// Per-chunk "borrowed by a TLAB" flag (parallel to `chunks`). A borrowed chunk is being
     /// lock-free bump-filled by its owning mutator; its high-water mark stays `0` until retire
     /// publishes it, so `iterate_alive`/`sweep` — which walk `[0, hwm)` — never see its blocks.
@@ -227,7 +227,7 @@ pub struct VarRegion {
     /// `VarGcRef` minted in the epoch before — the ABA guard for variable-size chunk reuse
     /// (blocks don't re-align on reuse, so a per-chunk base is used).
     reuse_gen: Vec<u16>,
-    /// **lazy-var-free-list (2026-09-12)**: how many times chunk `ci` has been pooled. Stamped
+    /// **lazy-var-free-list **: how many times chunk `ci` has been pooled. Stamped
     /// onto every [`Self::free_lists`] entry at push and re-checked at pop; that is the whole
     /// staleness test.
     ///
@@ -237,15 +237,15 @@ pub struct VarRegion {
     /// invariant; hanging slot-recycling correctness off it would couple the two. A plain
     /// counter is four bytes per chunk and cannot be wrong.
     pool_epoch: Vec<u32>,
-    /// **add-promotion-age-knob (2026-09-08)**: minor GCs a block must survive before
+    /// **add-promotion-age-knob **: minor GCs a block must survive before
     /// promotion — the region's cached copy of the heap's `promotion_age`.
     promotion_age: u8,
-    /// **fix-loh-never-freed (2026-09-08)**: indices of `chunks` slots whose memory was
+    /// **fix-loh-never-freed **: indices of `chunks` slots whose memory was
     /// `dealloc`'d (a dead dedicated/oversized chunk). The slot itself must survive — every
     /// other per-chunk table is addressed by index — so it stays as a `cap == 0` tombstone
     /// and lands here for [`Self::push_chunk`] to reuse.
     free_chunk_slots: Vec<usize>,
-    /// **add-incremental-chunk-reclaim (2026-09-10)**: per-chunk census, maintained
+    /// **add-incremental-chunk-reclaim **: per-chunk census, maintained
     /// incrementally so [`Self::reclaim_dead_var_chunks`] never has to walk the blocks.
     ///
     /// That walk — one binary search per block over 2.7 M blocks — was **45 ms of a 54 ms
@@ -323,7 +323,7 @@ impl VarRegion {
     /// young-list maintenance set for `generational` (see [`Self::generational`]). Used by
     /// the heap, which knows its mode at construction.
     ///
-    /// **perf-skip-pod-drop-glue (2026-09-13)**: `glue` is optional because an embedding whose
+    /// **perf-skip-pod-drop-glue **: `glue` is optional because an embedding whose
     /// payloads are all POD has nothing for it to do, and a `None` here is what removes the
     /// indirect call from the reclaim path — see [`Self::finalize_payload`].
     pub fn with_drop_glue_for_mode(
@@ -352,7 +352,7 @@ impl VarRegion {
     /// Run the injected payload finalizer on `header`'s payload, if any. Called exactly once
     /// per reclaim (tombstone) or at region teardown for still-alive blocks.
     ///
-    /// **perf-skip-pod-drop-glue (2026-09-13)**: when no payload needs dropping the region is
+    /// **perf-skip-pod-drop-glue **: when no payload needs dropping the region is
     /// built with `drop_glue: None` and this is one predictable branch. It used to read the
     /// block's type and size and make an **indirect call** per reclaimed block into a function
     /// that then did nothing — `1.6 ms` of `minor/var sweep` over 2.42 M dead blocks a
@@ -388,7 +388,7 @@ impl VarRegion {
 
         // Fast path: reuse a tombstoned slot of the same class.
         //
-        // **lazy-var-free-list (2026-09-12)**: a loop rather than one `pop`, because entries
+        // **lazy-var-free-list **: a loop rather than one `pop`, because entries
         // are no longer evicted when their chunk is pooled (see [`Self::free_lists`]). An
         // entry whose stamp no longer matches its chunk's `pool_epoch` is discarded here —
         // that is the one thing standing between this list and handing out a slot inside a
@@ -420,7 +420,7 @@ impl VarRegion {
         VarGcRef::pack(header_ptr, FIRST_GEN)
     }
 
-    /// **lazy-var-free-list (2026-09-12)**: pop the next *usable* slot of `size_class`,
+    /// **lazy-var-free-list **: pop the next *usable* slot of `size_class`,
     /// discarding entries whose chunk has been pooled since they were pushed.
     ///
     /// Returns `None` when the class is exhausted — which now means "exhausted of live
@@ -453,7 +453,7 @@ impl VarRegion {
         }
     }
 
-    /// **lazy-var-free-list (2026-09-12)**: drop every stale entry in one pass.
+    /// **lazy-var-free-list **: drop every stale entry in one pass.
     ///
     /// Called only when the stale entries outnumber the live ones, so the `O(entries)` walk is
     /// paid at most once per entry that goes stale — amortised `O(1)` per pooling, against the
@@ -466,7 +466,7 @@ impl VarRegion {
         }
     }
 
-    /// **lazy-var-free-list (2026-09-12)**: drop every stale entry of **one** size class.
+    /// **lazy-var-free-list **: drop every stale entry of **one** size class.
     ///
     /// Per class rather than all of them, because that is what makes a tight threshold
     /// affordable: a whole-region compaction measured 17–25 ms, so it could only be run once
@@ -495,7 +495,7 @@ impl VarRegion {
         self.stale_per_class[sc] = 0;
     }
 
-    /// **lazy-var-free-list (2026-09-12)**: compact every class that now holds more stale
+    /// **lazy-var-free-list **: compact every class that now holds more stale
     /// entries than live ones. Called at the tail of a chunk reclaim, which is the only thing
     /// that creates stale entries.
     pub(super) fn compact_stale_classes(&mut self) {

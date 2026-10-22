@@ -18,7 +18,7 @@
 //! `ConfigSource` trait 是付抽象税。唯一的关照是 `.json` 路径给一行**迁移提示**
 //! 错误，而不是让从 .NET 迁来的人对着一个被静默忽略的文件 debug 半小时。
 //!
-//! complete-runtime-settings P4（2026-09-05）：自 config.rs 迁出并泛化为按路径读。
+//! complete-runtime-settings P4：自 config.rs 迁出并泛化为按路径读。
 
 use std::path::{Path, PathBuf};
 
@@ -115,7 +115,7 @@ where
 /// 此前 `z42vm` 的 `main()` 只看「变量非空」就锁死在显式分支，于是这种继承来的悬空值
 /// 会把 app 自己声明的运行时设置**整份静默丢掉**，只留一行读起来像「无害地跳过一层」的
 /// `not found` 提示。实测后果：`[runtime] probing-paths` 全失效 ⇒ 应用找不到自己的依赖
-/// （GREEN 的 `probing-paths` e2e 格假红，2026-09-29）。
+/// （GREEN 的 `probing-paths` e2e 格假红）。
 ///
 /// 嵌入入口（`z42-host::install_app_config`）本来就是按「解析出了内容」判的 —— 同一件事
 /// 有过**两份实现、两种语义**，这里把它们收敛成一份。
@@ -180,7 +180,7 @@ where
 /// 所以这里安静返回 `None`——与"显式指向一个不存在的文件"不同，那种情况
 /// [`load_config_file`] 仍会 warn。
 ///
-/// app-config-follows-the-app（2026-09-05）。
+/// app-config-follows-the-app。
 pub fn sidecar_for(app_file: &Path) -> Option<PathBuf> {
     // `with_extension` 替换最后一个扩展名：app.zpkg → app.runtimeconfig.toml
     //（不是追加），与 z42c 的产出名、launcher 的 `_runtimeConfigPath`、

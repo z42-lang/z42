@@ -1,4 +1,4 @@
-//! GC safepoint protocol (add-gc-safepoint, 2026-05-20).
+//! GC safepoint protocol (add-gc-safepoint).
 //!
 //! Cooperative polling safepoint for the interp dispatch loop. Mutators
 //! call [`check_safepoint`] at strategic points (function entry, backward
@@ -53,13 +53,13 @@ pub(crate) fn poke_safepoints(core: &VmCore) {
     }
 }
 
-/// add-gc-safepoint-counter-throttling (2026-05-21): default throttle
+/// add-gc-safepoint-counter-throttling : default throttle
 /// constant lives in `RuntimeConfig::safepoint_throttle` (defaults 1024
 /// — mirrors HotSpot's polling-page heuristic; at z42's typical per-iter
 /// cost ~50ns this caps GC pause latency at ≈ 50us, negligible vs actual
 /// collect time 10ms+).
 ///
-/// runtime-config-phase2 (2026-06-03): the OnceLock-cached env reader
+/// runtime-config-phase2 : the OnceLock-cached env reader
 /// moved into `RuntimeConfig` for centralised parsing + warnings.
 
 /// Effective safepoint throttle. Reads from process-wide [`runtime_config()`]
@@ -94,13 +94,13 @@ pub enum GcPhase {
 
 /// Fast-path safepoint check called from interp hot path.
 ///
-/// **add-gc-safepoint-counter-throttling (2026-05-21)**: the Mutex-lock +
+/// **add-gc-safepoint-counter-throttling **: the Mutex-lock +
 /// phase-check + auto-collect-drain logic only runs every [`throttle_n()`] th
 /// call (default 1024). Worker liveness under a GC request is bounded by N
 /// iterations × per-iter cost — at typical z42 hot-loop iter (~50ns) this caps
 /// GC pause latency at ~50us, far below actual collect time.
 ///
-/// **inline-jit-safepoint-check (2026-08-01)**: the fast path is a plain
+/// **inline-jit-safepoint-check **: the fast path is a plain
 /// `load + store` decrement (NOT `fetch_sub`). `safepoint_skip` is
 /// **single-writer per mutator** — only the owning thread reads/writes it in
 /// production; the sole cross-thread writer is [`VmContext::force_safepoint`],
@@ -130,14 +130,14 @@ pub fn check_safepoint(ctx: &VmContext) {
 /// drain. Called from [`check_safepoint`] every Nth call (per
 /// [`throttle_n`]).
 ///
-/// **add-gc-safepoint-auto-threshold (2026-05-20)**: when phase is Idle
+/// **add-gc-safepoint-auto-threshold **: when phase is Idle
 /// but the heap's pressure-trip path has set `needs_auto_collect = true`,
 /// the calling thread runs a stop-the-world collect under [`request_gc_pause`].
 /// If multiple threads see the flag, the collector-role CAS in
 /// `request_gc_pause` picks one; the rest park as mutators. The flag stays set
 /// until the winner holds the pause (P0-16: sticky — see `take_collect_request`).
 ///
-/// **inline-jit-safepoint-check (2026-08-01)**: `pub(crate)` so the JIT's
+/// **inline-jit-safepoint-check **: `pub(crate)` so the JIT's
 /// `jit_check_safepoint_slow` helper (the rare slow branch of the inlined
 /// fast path) can call it directly after resetting the throttle counter.
 #[inline(never)]
@@ -157,7 +157,7 @@ pub(crate) fn check_safepoint_slow(ctx: &VmContext) {
         ctx.heap().collect_cycles_with_context(ctx);
     }
 
-    // add-sampling-profiler (2026-08-24, script-profiling P2): when the
+    // add-sampling-profiler (script-profiling P2): when the
     // sampling profiler is on (Z42_SAMPLE_HZ set), snapshot the z42 call stack
     // if the background timer flagged a sample. `enabled()` is one atomic load;
     // default-off (the common case) short-circuits here with zero further work.
@@ -172,7 +172,7 @@ pub(crate) fn check_safepoint_slow(ctx: &VmContext) {
 /// Slow path — the mutator parks on the Condvar until the collector
 /// releases the world (phase back to `Idle`).
 fn park_until_idle(ctx: &VmContext) {
-    // add-concurrency-probes (2026-08-23, script-profiling P1b): time how long
+    // add-concurrency-probes (script-profiling P1b): time how long
     // this mutator stays parked (STW stall as seen by the stopped thread). This
     // runs ONLY on the park slow path (an actual GC pause), never on the hot
     // `check_safepoint` fast path — so it's free to leave always-on.
@@ -226,7 +226,7 @@ fn park_until_idle(ctx: &VmContext) {
         .record(park_start.elapsed().as_micros() as u64);
 }
 
-// ── add-repl-prewarm (2026-07-29): GC-safe park around a blocking native call ──
+// ── add-repl-prewarm : GC-safe park around a blocking native call ──
 //
 // A mutator that blocks in a native call (REPL rustyline `readline`) never
 // reaches a bytecode safepoint, so a background collector on another thread
@@ -237,13 +237,13 @@ fn park_until_idle(ctx: &VmContext) {
 // + `gc_phase_cv` machinery as `park_until_idle`; no new synchronization.
 
 thread_local! {
-    /// **fix-alloc-inside-native-park (2026-09-14)**: how many [`NativeParkGuard`]s this
+    /// **fix-alloc-inside-native-park **: how many [`NativeParkGuard`]s this
     /// thread is inside (net of [`NativeUnparkGuard`]s). Read only by
     /// [`debug_assert_not_native_parked`].
     static NATIVE_PARK_DEPTH: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }
 
-/// **fix-alloc-inside-native-park (2026-09-14)**: debug-build tripwire for the one rule a
+/// **fix-alloc-inside-native-park **: debug-build tripwire for the one rule a
 /// parked thread must keep — **no allocation until the park ends**.
 ///
 /// A parked thread counts as stopped, so a collection on another thread proceeds without
@@ -383,7 +383,7 @@ pub struct GcPauseGuard<'a> {
 /// and returns the guard. Caller does mark+sweep, then drops the guard to
 /// transition `Marking → Idle` and notify all parked mutators.
 ///
-/// **add-multi-collector-arbitration (2026-05-21)**: returns
+/// **add-multi-collector-arbitration **: returns
 /// `Option<GcPauseGuard>`. The leading CAS on `collector_active` ensures
 /// only one thread can be the active collector at a time:
 ///
@@ -461,7 +461,7 @@ impl Drop for GcPauseGuard<'_> {
     fn drop(&mut self) {
         *self.ctx.core.gc_phase.lock() = GcPhase::Idle;
         self.ctx.core.gc_phase_cv.notify_all();
-        // add-multi-collector-arbitration (2026-05-21): release the
+        // add-multi-collector-arbitration : release the
         // exclusive collector claim. Release ordering so the next
         // collector's compare_exchange Acquire sees our final heap state.
         self.ctx.core.collector_active.store(false, Ordering::Release);

@@ -42,7 +42,7 @@ public static class ZpkgReader {
 
     // 版本失配**必须说出来**（restore-emit-zbc-diagnostics 同族）。此前这里是一条静默 `return null`：
     // 依赖包被整包跳过，而跳过不会失败——它在很远的地方以满屏 `E0401: undefined: DiagnosticCodes` /
-    // `E0443: undefined type: Span` 的形态浮出来，离真因十万八千里（实测为此二分了三轮）。
+    // `E0443: undefined type: Span` 的形态浮出来，离真因十万八千里。
     // 措辞对齐 VM 侧那条好报错（`src/runtime/src/app.rs` 的 `version_mismatch_hint`）：在**检测点**
     // 点名，并给出修它的命令。
     private static void _warnVersionSkew(string origin, int major, int minor) {

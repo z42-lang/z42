@@ -76,7 +76,7 @@ pub(super) fn decode_instr(op: u8, typ: u8, dst: u32, c: &mut Cursor, pool: &[St
         OP_ARRAY_LEN => Instruction::ArrayLen { dst, arr: c.read_u16()? as u32 },
 
         OP_CALL => {
-            // Phase 3 S3a (tokenize-ir-and-zbc-bump, 2026-05-09): IdMap dispatches
+            // Phase 3 S3a (tokenize-ir-and-zbc-bump): IdMap dispatches
             // to v0.9 (pool_str) or v1.0 (IMPORT_BASE bit) decode based on header.
             let func = id_map.resolve_method(c.read_u32()?)?;
             let args = read_args(c)?;
@@ -291,7 +291,7 @@ pub(super) fn decode_instr(op: u8, typ: u8, dst: u32, c: &mut Cursor, pool: &[St
             Instruction::DefaultOf { dst, param_index }
         }
 
-        // fix-numeric-cast-lowering (2026-05-13)
+        // fix-numeric-cast-lowering 
         OP_CONVERT => {
             let src = c.read_u16()? as u32;
             Instruction::Convert { dst, src, to_tag: typ }

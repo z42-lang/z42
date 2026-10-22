@@ -1,4 +1,4 @@
-// GC 停顿指标（add-incremental-major-gc M0, 2026-09-15）。
+// GC 停顿指标（add-incremental-major-gc M0）。
 //
 // 头部声明 `// gc-pause: report` 的 perf scenario 会在输出末尾打一行
 //   gc-pause max_us=<µs> p99_us=<µs> count=<n>

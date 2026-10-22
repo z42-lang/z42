@@ -1,4 +1,4 @@
-//! Shared app-run core (add-embedded-app-run, 2026-08-02).
+//! Shared app-run core (add-embedded-app-run).
 //!
 //! `run()` is the single implementation of "load a z42 app (.zbc / .zpkg) and
 //! execute its entry", extracted from the z42vm binary's `main.rs` so it is
@@ -48,7 +48,7 @@ pub(crate) fn prelude_candidates(search_dirs: &[PathBuf]) -> Vec<PathBuf> {
 }
 
 
-// fix-version-mismatch-diagnosis (2026-09-05): a .zpkg whose format version is
+// fix-version-mismatch-diagnosis : a .zpkg whose format version is
 // not this runtime's is **not** a "skip it and carry on" condition. The strict
 // pin (see zbc_reader/versions.rs) means z42vm reads exactly one generation, so
 // a mismatched package can never be substituted — warning and continuing boots a
@@ -329,7 +329,7 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
 
 /// End-of-run reporting knobs, recorded by [`run`] so the **`Environment.Exit`
 /// path can produce the same output as a normal return**
-/// (add-gc-runtime-knobs, 2026-09-05).
+/// (add-gc-runtime-knobs).
 ///
 /// `Environment.Exit` is `std::process::exit`, which unwinds nothing and runs no
 /// `Drop`. Before this existed it silently skipped both `--print-stats-on-exit`

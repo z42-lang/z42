@@ -1,5 +1,5 @@
 //! Tests for `semantics::convert_value` — numeric cast dispatch table.
-//! Spec fix-numeric-cast-lowering (2026-05-13); moved here from
+//! Spec fix-numeric-cast-lowering ; moved here from
 //! `interp/exec_value_tests.rs` by converge-vm-arith-semantics (H3).
 
 use super::*;

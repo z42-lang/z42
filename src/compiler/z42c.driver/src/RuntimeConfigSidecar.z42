@@ -18,7 +18,7 @@
 // 放在 driver（写产物的地方）而非 launcher，是因为侧车必须与产物 1:1——放 launcher 就
 // 只有 `z42 run <dir>` 会产，`z42 build` 单跑与 `z42 publish` 打包时产物不自洽。
 //
-// complete-runtime-settings（2026-09-05）引入；add-app-properties 加 `[properties]`
+// complete-runtime-settings 引入；add-app-properties 加 `[properties]`
 // 并把手拼 TOML 换成 `TomlValue.Stringify`（属性支持完整类型后，数组 / 嵌套表 / 转义
 // 自己拼不可行——一个正确的写出器比三行判断可靠）。
 namespace Z42.Driver;

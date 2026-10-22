@@ -221,7 +221,7 @@ public sealed class ConstructTyper {
                     "`new " + PrimModel.SurfaceName(t.Name()) + "()` takes no arguments — a primitive has no constructor" + _hint, n.Span);
             }
             // string 是引用类型：`default(string)` 是 null，但 `new string()` 是「构造一个」
-            // ⇒ 空串（User 裁决 2026-09-24；依据是 z42 自己的「无显式 ctor = 默认构造」口径）。
+            // ⇒ 空串（User 裁决；依据是 z42 自己的「无显式 ctor = 默认构造」口径）。
             // ⚠️ `BoundLitStr.Raw` 是**原始词素**（发射端走 `Lexer.DecodeString` 剥引号），
             // 所以空串要写成带引号的两字符，不是 ""。
             if (_isStr) { return new BoundLitStr("\"\"", t, n.Span); }

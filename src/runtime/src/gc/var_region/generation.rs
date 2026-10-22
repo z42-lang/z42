@@ -10,7 +10,7 @@ use super::*;
 use crate::gc::side_bits;
 
 impl VarRegion {
-    /// **adaptive-promotion (2026-09-12)**: re-point the region at a new promotion age (at the end
+    /// **adaptive-promotion **: re-point the region at a new promotion age (at the end
     /// of a major, right before the aging pass — see `ArcMagrGC::apply_promotion_age`).
     pub fn set_promotion_age(&mut self, age: u8) {
         self.promotion_age = age;
@@ -211,7 +211,7 @@ impl VarRegion {
         self.for_each_young(|r, ptr, ci| {
             // SAFETY: see `for_each_young` (which only hands over blocks, never stashed slots).
             let header = unsafe { ptr.as_ref() };
-            // **fix-old-block-left-in-young-list (2026-09-12)**: a young-set block can already
+            // **fix-old-block-left-in-young-list **: a young-set block can already
             // be past the line, and a minor must never reclaim an old block.
             //
             // `adaptive-promotion` can lower the line itself without taking blocks out of the
@@ -298,7 +298,7 @@ impl VarRegion {
         newly_old
     }
 
-    /// **fix-minor-and-major-in-one-pause (2026-09-10)**: age the young survivors after a
+    /// **fix-minor-and-major-in-one-pause **: age the young survivors after a
     /// **major**, the way [`Self::sweep_young`] does after a minor.
     ///
     /// A major is a superset collection — it marks from the roots and sweeps every region — so

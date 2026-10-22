@@ -8,7 +8,7 @@
 //! 自定义枚举，为一个只出不入的输出面加一套 `Serialize` impl 不划算，字段名也
 //! 更容易被稳定住（工具依赖它）。
 //!
-//! complete-runtime-settings P3（2026-09-05）。
+//! complete-runtime-settings P3。
 
 use super::knobs::*;
 use super::*;

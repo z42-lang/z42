@@ -107,10 +107,10 @@ int _testPackagesInstall() {
     }
     _stgAssert("stdlib libs/ has zpkg", anyZpkg);
 
-    // 🔴 **装 libs 必须按成员清单，而不是「flat 里有什么拷什么」**（2026-09-28）。
+    // 🔴 **装 libs 必须按成员清单，而不是「flat 里有什么拷什么」**。
     //
     // 上面那两组「不得出现在 libs/」的断言读的是**真实 flat 的当下状态** —— 而 flat 里有什么
-    // 曾取决于最后跑的是哪条命令（`build compiler` 的破环预建往里写，`build stdlib` 末步又清空；2026-10-01 起
+    // 曾取决于最后跑的是哪条命令（`build compiler` 的破环预建往里写，`build stdlib` 末步又清空； 起
     // `build compiler` 自建完即清走，但中途失败仍可能留下）。
     // 所以它们**能抓到、抓不住**：实测 `build compiler` 之后打包，SDK 的 `libs/` 里就多出
     // `z42c.core` / `z42c.syntax` / `z42.package` / `z42.project` / `z42.build` 五个。
@@ -153,7 +153,7 @@ int _testPackagesInstall() {
         di = di + 1;
     }
 
-    // 🔴 **workload 包一个都不许出现在 shipped `libs/`**（2026-09-28）。
+    // 🔴 **workload 包一个都不许出现在 shipped `libs/`**。
     //
     // 实测发布包里曾有 `z42.workload.{desktop,ios,android,wasm}.zpkg` 四个 —— 不是有人存心放的，
     // 是它们的清单把 `dist_dir` 指向了 stdlib flat（为了让 launcher 的名字依赖解析得到），

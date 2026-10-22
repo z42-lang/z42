@@ -206,7 +206,7 @@ fn wall_now_ms() -> i64 { 0 }
 
 // ── FileStream slot table ─────────────────────────────────────────────────────
 //
-// add-z42-io-filestream (2026-05-24): each opened OS handle lands in
+// add-z42-io-filestream : each opened OS handle lands in
 // `VmCore.file_handles` keyed by a monotonic id; z42-side `Std.IO.FileStream` holds the
 // id. P1-8 PR 2: the slot holds an `Arc<File>` — operations clone it out under the table
 // lock and do the syscall after dropping the lock (`&File` implements Read / Write /
@@ -337,7 +337,7 @@ pub mod typed {
         active().rename(&src, &dst).map_err(|e| two_path_error(e, &src, &dst))
     }
 
-    /// add-file-last-write-time (2026-06-09): mtime as unix epoch milliseconds (same unit as
+    /// add-file-last-write-time : mtime as unix epoch milliseconds (same unit as
     /// `__time_now_ms`; `File.GetLastWriteTime` wraps it into a `DateTime`).
     #[builtin(name = "__file_last_write_time_ms")]
     pub fn file_last_write_time_ms(path: &str) -> Result<i64, BuiltinError> {
@@ -345,7 +345,7 @@ pub mod typed {
         active().modified_ms(path).map_err(|e| fs_error(e, path, PathRole::File))
     }
 
-    /// add-z42-io-ergonomics-bytes-glob (2026-05-27): one-shot binary read → packed `byte[]`.
+    /// add-z42-io-ergonomics-bytes-glob : one-shot binary read → packed `byte[]`.
     #[builtin(name = "__file_read_bytes", blocking)]
     pub fn file_read_bytes(path: String) -> Result<Vec<u8>, BuiltinError> {
         check_path(&path, "path")?;
@@ -358,7 +358,7 @@ pub mod typed {
         active().write(&path, &bytes).map_err(|e| fs_error(e, &path, PathRole::Create))
     }
 
-    /// add-file-atomic-write (2026-05-27): tmp sibling + ordered sync
+    /// add-file-atomic-write : tmp sibling + ordered sync
     /// (`F_BARRIERFSYNC` / `fdatasync`) + rename — the whole sequence runs parked.
     #[builtin(name = "__file_write_text_atomic", blocking)]
     pub fn file_write_text_atomic(path: String, contents: String) -> Result<(), BuiltinError> {
@@ -372,7 +372,7 @@ pub mod typed {
         active().write_atomic(&path, &bytes).map_err(|e| fs_error(e, &path, PathRole::Create))
     }
 
-    /// extend-z42-io-glob-temp (2026-05-16): a unique directory under the system temp root.
+    /// extend-z42-io-glob-temp : a unique directory under the system temp root.
     #[builtin(name = "__file_create_temp_dir", blocking)]
     pub fn file_create_temp_dir(prefix: String) -> Result<String, BuiltinError> {
         let path = super::unique_temp_path(&prefix, "");
@@ -655,7 +655,7 @@ pub mod typed {
         std::env::vars().map(|(k, v)| format!("{k}={v}")).collect()
     }
 
-    /// add-z42-launcher (2026-06-02): the program arguments forwarded after `--` on the
+    /// add-z42-launcher : the program arguments forwarded after `--` on the
     /// z42vm command line (stored on `VmCore`), not the VM's own argv.
     #[builtin(name = "__env_args")]
     pub fn env_args(ctx: &VmContext) -> Vec<String> {

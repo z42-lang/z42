@@ -31,7 +31,7 @@ impl VmContext {
     /// Public accessor for runtime atomic counters. Used by main.rs
     /// `--print-stats-on-exit` flag and embedders that want to observe
     /// JIT compiles / builtin calls / exception traffic.
-    /// docs/review.md Part 4 D6 Phase 1 (2026-05-26).
+    /// docs/review.md Part 4 D6 Phase 1 .
     /// This thread's counters — increment sites use these. For a total across
     /// the VM's threads use [`Self::counters_snapshot`].
     pub fn counters(&self) -> &crate::counters::RuntimeCounters {
@@ -55,7 +55,7 @@ impl VmContext {
     /// Register a [`crate::observer::RuntimeObserver`]. The observer
     /// receives every subsequent [`crate::observer::RuntimeEvent`] fired
     /// via [`Self::fire_runtime_event`]. Multiple observers fan-out.
-    /// docs/review.md Part 4 D3 Phase 1 (2026-05-26).
+    /// docs/review.md Part 4 D3 Phase 1 .
     pub fn add_runtime_observer(&self, obs: Arc<dyn crate::observer::RuntimeObserver>) {
         self.core.runtime_observers.add(obs);
     }
@@ -75,7 +75,7 @@ impl VmContext {
         self.core.runtime_observers.fire(event)
     }
 
-    /// add-gc-safepoint-counter-throttling (2026-05-21): force the next
+    /// add-gc-safepoint-counter-throttling : force the next
     /// `check_safepoint` call into the slow path immediately, bypassing
     /// the throttle counter. For tests and embedders that need
     /// deterministic safepoint timing — production code should not need
@@ -85,7 +85,7 @@ impl VmContext {
         self.safepoint_skip.store(1, std::sync::atomic::Ordering::Relaxed);
     }
 
-    /// **add-z42-launcher (2026-06-02)**: install the running program's
+    /// **add-z42-launcher **: install the running program's
     /// command-line arguments (the tokens after `--` on the `z42vm`
     /// invocation). Read back by the `__env_args` builtin →
     /// `Std.IO.Environment.GetCommandLineArgs()`. Called once at startup
@@ -94,7 +94,7 @@ impl VmContext {
         *self.core.program_args.lock() = args;
     }
 
-    /// **add-z42-launcher (2026-06-02)**: snapshot the program argv.
+    /// **add-z42-launcher **: snapshot the program argv.
     pub fn program_args(&self) -> Vec<String> {
         self.core.program_args.lock().clone()
     }
@@ -156,7 +156,7 @@ impl VmContext {
         };
         let boxed = Box::new(ctx);
         let ptr = VmContextPtr(&*boxed as *const VmContext);
-        // **fix-context-joins-mid-pause (2026-09-15)**: never join while the collector is
+        // **fix-context-joins-mid-pause **: never join while the collector is
         // `Marking`. By then it has counted the registered contexts as parked and is scanning
         // their roots and sweeping; one that registers now is neither parked nor scanned — it
         // runs on and allocates into regions mid-sweep, and nothing marks those objects (a
@@ -236,19 +236,19 @@ impl VmContext {
             #[cfg(not(target_arch = "wasm32"))]
             udp_sockets:          ResourceRegistry::new(),
 
-            // add-runtime-counters (2026-05-26): all-zero start; Phase 1
+            // add-runtime-counters : all-zero start; Phase 1
             // increment site = corelib::exec_builtin (builtin_calls).
             counters: Arc::new(crate::counters::RuntimeCounters::new()),
-            // add-runtime-observer (2026-05-26): empty registry; embedders
+            // add-runtime-observer : empty registry; embedders
             // attach via `VmContext::add_runtime_observer`. Phase 1 emits
             // ModuleLoaded from main.rs after each load_artifact.
             runtime_observers: crate::observer::RuntimeObserverRegistry::new(),
-            // add-concurrency-probes (2026-08-23): empty park histogram + zeroed
+            // add-concurrency-probes : empty park histogram + zeroed
             // contention counters (only written under the `profile-contention` feature).
             park_histogram: Mutex::new(crate::gc::types::PauseHistogram::default()),
             lock_contentions: std::sync::atomic::AtomicU64::new(0),
             lock_wait_us:     std::sync::atomic::AtomicU64::new(0),
-            // add-sampling-profiler (2026-08-24): start the sampler only when
+            // add-sampling-profiler : start the sampler only when
             // Z42_SAMPLE_HZ is set; otherwise disabled() (no thread, zero-cost).
             // Trace timeline recorded only when Z42_TRACE_OUT is also set.
             sampler: match crate::config::runtime_config().sample_hz {
@@ -262,7 +262,7 @@ impl VmContext {
             jit: std::sync::OnceLock::new(),
         });
 
-        // add-os-signal-handler (2026-05-25): register this Arc<VmCore> into
+        // add-os-signal-handler : register this Arc<VmCore> into
         // the process-wide VM_CORES registry so the POSIX signal handler
         // can walk it to capture z42 call stacks on hard crash. Lazy-prune
         // dead Weak entries at the same time (cheap O(n) sweep amortized
@@ -272,7 +272,7 @@ impl VmContext {
             g.push(Arc::downgrade(&core));
         }
 
-        // add-gc-safepoint-auto-threshold (2026-05-20): wire the
+        // add-gc-safepoint-auto-threshold : wire the
         // needs_auto_collect flag into the heap so its pressure-trip
         // path defers to the next safepoint check instead of collecting
         // inline (the inline path has no &VmContext and would race with
@@ -289,7 +289,7 @@ impl VmContext {
             }));
         }
 
-        // add-gc-runtime-knobs (2026-09-05): apply the process-wide GC knobs.
+        // add-gc-runtime-knobs : apply the process-wide GC knobs.
         //
         // `Z42_GC_MAX_BYTES` is what *arms* automatic collection at all —
         // `maybe_auto_collect` returns immediately while `max_bytes` is `None`,
@@ -304,7 +304,7 @@ impl VmContext {
             if cfg.gc_trace {
                 core.heap.add_observer(Arc::new(crate::gc::trace::GcTracer::default()));
             }
-            // add-loh-bytes-knob (2026-09-08): process-global, not per-heap — `class_for` is
+            // add-loh-bytes-knob : process-global, not per-heap — `class_for` is
             // called from the lock-free TLAB fast path, which has no heap reference. Applied
             // here (rather than read in `class_for`) so the allocation path keeps paying only
             // one relaxed load of a static rather than a `runtime_config()` lookup.
@@ -318,7 +318,7 @@ impl VmContext {
         // only roots are static fields / pending exceptions / live frame
         // regs / per-context arenas stay alive.
         //
-        // **add-vmcontext-registry (2026-05-20)**: scanner walks the
+        // **add-vmcontext-registry **: scanner walks the
         // `vm_contexts` registry to find every live VmContext on this
         // VmCore. Each VmContext contributes its own per-thread roots
         // (pending_exception / pending_thrown / call_stack frames). The
@@ -481,7 +481,7 @@ impl VmContext {
         let ptr = VmContextPtr(&*boxed as *const VmContext);
         boxed.core.vm_contexts.lock().push(ptr);
 
-        // add-z42-compression (2026-05-22): register ext builtins that need no
+        // add-z42-compression : register ext builtins that need no
         // I/O (the bundled wasm build). The dlopen build loads a library on the
         // first lookup miss for one of its builtins (`ext::ensure_lib_for`).
         // Workers via `new_with_core` share the core's table.
@@ -505,7 +505,7 @@ impl VmContext {
 }
 
 impl Drop for VmContext {
-    /// **add-vmcontext-registry (2026-05-20)**: deregister this `VmContext`
+    /// **add-vmcontext-registry **: deregister this `VmContext`
     /// from `VmCore.vm_contexts` so the GC scanner stops trying to walk a
     /// soon-to-be-freed allocation. Runs BEFORE the underlying `Box` storage
     /// is released (Rust drop order: contents → Box dealloc), so any GC

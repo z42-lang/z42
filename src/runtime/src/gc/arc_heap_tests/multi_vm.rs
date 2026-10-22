@@ -1,4 +1,4 @@
-//! add-gc-multi-vm-stress (C3, 2026-05-24): multi-`ArcMagrGC` isolation
+//! add-gc-multi-vm-stress (C3): multi-`ArcMagrGC` isolation
 //! stress. Verifies that GC state is fully per-heap — two embedded
 //! VMs running on the same process do not pollute each other's
 //! allocations / cycles / mark queues / pause histograms.

@@ -7,7 +7,7 @@
 //! consumers don't need to change.
 //!
 //! CoreCLR parallel: EventPipe (provider-based). docs/review.md Part 4 D3
-//! Phase 1 (2026-05-26) — final remaining Part 4 ops/devex item.
+//! Phase 1  — final remaining Part 4 ops/devex item.
 //!
 //! # Phase 1 scope (this commit)
 //!
@@ -35,7 +35,7 @@
 use std::sync::Arc;
 
 /// Push-based runtime event. Phase 1 shipped `ModuleLoaded` + `Custom`;
-/// Phase 2 (2026-05-26) wired 4 more covering JIT compile / exception
+/// Phase 2  wired 4 more covering JIT compile / exception
 /// throw+catch / native FFI call sites.
 #[derive(Debug, Clone)]
 pub enum RuntimeEvent {
@@ -53,7 +53,7 @@ pub enum RuntimeEvent {
     /// compile_module call (covering all module functions); per-function
     /// granularity is deferred. `function_count` is how many functions
     /// Cranelift translated; `duration_us` is wall-clock compile time.
-    /// Phase 2 (2026-05-26).
+    /// Phase 2 .
     JitModuleCompiled {
         module_name:     String,
         function_count:  u32,

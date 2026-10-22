@@ -1,4 +1,4 @@
-//! Stateless namespace→zpkg index primitive (2026-08-25,
+//! Stateless namespace→zpkg index primitive (
 //! refactor-metadata-namespace-index; runtime_review #6 step 2).
 //!
 //! Both the compile-time resolver (`loader::resolve_namespace`) and the runtime
@@ -55,7 +55,7 @@ impl ZpkgCandidate {
 
     /// Build a candidate by searching `dirs` in order for `file_name`, using
     /// the first directory that actually contains the file. Enables colocated
-    /// dependency resolution (support-colocated-zpkg-deps, 2026-06-20): an
+    /// dependency resolution (support-colocated-zpkg-deps): an
     /// apphost whose payload + its deps live together (e.g.
     /// `programs/z42c/z42c.driver.zpkg` next to `z42c.core.zpkg`) resolves
     /// those siblings even though they aren't in the stdlib `libs/` dir.
@@ -116,7 +116,7 @@ pub fn scan_zpkg_candidates(dirs: &[PathBuf]) -> Vec<ZpkgCandidate> {
 
 /// 每文件的 NSPC 记忆化，按 **(size, mtime_ms)** 校验。
 ///
-/// cache-zpkg-candidate-scan（2026-09-04）：本扫描会把 libs 目录下**每个** zpkg 读进内存
+/// cache-zpkg-candidate-scan：本扫描会把 libs 目录下**每个** zpkg 读进内存
 /// 再解析 NSPC，而 `loader::resolve_namespace` 每次调用都做一次完整扫描、
 /// `app::build_declared_candidates` 又按入口的**每个** import 命名空间各调一次
 /// —— hello world 因此做了 75 次读+解析（3 个命名空间 × 25 个包），实测 5.8–10 ms，

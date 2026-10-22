@@ -1,6 +1,6 @@
 //! `ArcMagrGC` 的构造：`Default` impl（`new()` 委托到它）。
 //!
-//! add-gc-runtime-knobs (2026-09-05) 从 `arc_heap.rs` 搬出 —— 那个文件此前停在
+//! add-gc-runtime-knobs  从 `arc_heap.rs` 搬出 —— 那个文件此前停在
 //! 499/500 行的硬上限边缘，任何新字段都会把它顶红。构造器是一块自足的东西
 //! （30 个字段的初值 + 为什么 `mode` 必须手写而不是 derive），拆出来给主文件留出余量。
 //! 私有字段在这里可见：`arc_heap::construct` 是 `arc_heap` 的子模块。
@@ -14,7 +14,7 @@ impl Default for ArcMagrGC {
     fn default() -> Self {
         let mode = crate::gc::GcMode::from_env();
         let generational = mode == crate::gc::GcMode::GenerationalMarkSweep;
-        // add-promotion-age-knob (2026-09-08): read `Z42_GC_PROMOTION_AGE` **once, here**, and
+        // add-promotion-age-knob : read `Z42_GC_PROMOTION_AGE` **once, here**, and
         // hand the value to every part that needs it. The write barrier consults it on every
         // heap reference write, so a `runtime_config()` lookup there would be a global read on
         // the hottest path in the VM — the reason this knob was previously "deliberately not

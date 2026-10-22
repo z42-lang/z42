@@ -1,4 +1,4 @@
-// xtask — wasm platform backend (add-platform-test-pipeline, 2026-06-15).
+// xtask — wasm platform backend (add-platform-test-pipeline).
 // Implements IPlatformBackend for browser-wasm. Ports the three phases of
 // src/toolchain/workload/wasm/platform/{build.sh,test.sh} into z42:
 //   ① BuildProject : wasm-pack build (web + nodejs)
@@ -35,7 +35,7 @@ public class WasmBackend : IPlatformBackend {
         bool localNode  = File.Exists(Path.Join(nodeBin, "node"));
         if (!localNode) {
             if (Process.Which("node") == null) {
-                // 用到才装兜底（零命令面，simplify-xtask-deps 2026-07-07）：hermetic
+                // 用到才装兜底（零命令面，simplify-xtask-deps）：hermetic
                 // 与 PATH node 均缺 → 现场装 hermetic node；失败 = 测试失败。
                 Console.WriteLine("  node missing — auto-installing hermetic node (one-time)");
                 int nic = _installNode(false);

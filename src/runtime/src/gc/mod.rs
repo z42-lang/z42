@@ -1,6 +1,6 @@
 //! Garbage collector —— heap memory management for z42 VM.
 //!
-//! # 当前状态（至 Phase 3-OOM 完成 2026-04-29，**主功能完整可投产**）
+//! # 当前状态（至 Phase 3-OOM 完成，**主功能完整可投产**）
 //!
 //! - [`MagrGC`] —— GC 抽象 trait，对齐 MMTk porting contract（10 个能力组 / ~30 方法）
 //! - [`ObjRef`] / [`ArrRef`] —— 对象 / 数组句柄（变长区块的 8 B 标记指针），弱引用 [`WeakObjRef`] / [`WeakArrRef`]
@@ -80,7 +80,7 @@ pub use types::{
 /// (`var_region::MAX_GEN_AGE`); `Z42_GC_PROMOTION_AGE` can lower it.
 pub const PROMOTION_THRESHOLD: u8 = 3;
 
-/// **add-promotion-age-knob (2026-09-08)**: resolve `Z42_GC_PROMOTION_AGE` for a heap being
+/// **add-promotion-age-knob **: resolve `Z42_GC_PROMOTION_AGE` for a heap being
 /// constructed. Unset → [`PROMOTION_THRESHOLD`].
 ///
 /// Clamped to `1..=MAX_GEN_AGE`: 0 would promote everything on its first minor (there would

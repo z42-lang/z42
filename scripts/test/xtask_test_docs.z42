@@ -3,9 +3,8 @@
 // 批 0 只做一件事：**相对链接死链清零**。之后加了 ②：GREEN gate stage 清单 ↔ test-gate.md 对账
 // （ci-docs-fast-path：纯文档 PR 只跑本门 + diagcodes，读文档的检查必须都在这里）。
 //
-// 为什么这条要先落：三书重构要把约 200 篇文档在目录之间搬来搬去，每一次搬运都会让指向它的相对
-// 链接失效。而 `ci.yml` 此前对 `docs/**` 是 paths-ignore（纯文档改动完全不跑 CI），死链可以一路
-// 漏到线上都没人知道。搬运的全程必须有这道网。
+// 为什么需要：纯文档改动走 paths-ignore 不跑 CI，文档搬运（三书重构期尤其密集）产生的死链
+// 会一路漏到线上都没人知道——必须有这道网。
 //
 // 检查规则：
 //   D1  markdown 链接 `[text](target)` 的 target 若是仓内相对路径，必须能解析到真实文件/目录
@@ -185,7 +184,7 @@ string[] _docMarkdownFiles(string root) {
         string rel = srcMds[s].Replace("\\", "/");
         // 第三方依赖目录不是仓库文档（gitignore 掉的）：跑过 wasm 设备测试（`npm install` 进
         // workload/wasm/platform/tests/node_modules）之后，本地 GREEN 会把那些包自带 README 的
-        // 死链算成「新死链」判红（fix-device-tests，2026-10-02 实测 6 条）。
+        // 死链算成「新死链」判红（fix-device-tests 实测 6 条）。
         if (rel.StartsWith("node_modules/") || rel.Contains("/node_modules/")) { s = s + 1; continue; }
         if (rel.EndsWith("README.md")) {
             string full = Path.Join(srcRoot, rel);

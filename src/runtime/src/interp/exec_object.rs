@@ -110,7 +110,7 @@ pub(super) fn obj_new(
         None => None,
     };
 
-    // fix-ctor-throw-propagation (2026-05-24): if the ctor threw a user
+    // fix-ctor-throw-propagation : if the ctor threw a user
     // exception, surface it via Ok(Some(val)) so the enclosing try/catch
     // can match. Do NOT write `obj_val` into `dst` — the object is
     // partially constructed and the caller is about to jump to a catch

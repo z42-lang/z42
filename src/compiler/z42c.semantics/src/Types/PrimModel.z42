@@ -4,7 +4,7 @@
 // _isPrimKeyword·_isNumericPrim）成一个入口。接受**关键字拼写**（`int` / `byte` / `sbyte` …）、
 // **包装名**（`Int32`）、**FQ**（`Std.Int32`），先归一到 canonical 名，再由它投影出各字段。
 //
-// drop-short-primitive-aliases (2026-09-21)：**canonical 名 = C# 关键字拼写**。此前 canonical 是短名
+// drop-short-primitive-aliases：**canonical 名 = C# 关键字拼写**。此前 canonical 是短名
 // （`i32` / `u8` / `i16` …），既是编译器内部字典键、又经 `_kw` 投影成 IR/zbc 的线格式名，于是同一张表里
 // `int/long/float/double` 走关键字、窄整数族走短名，两套风格并存。现在统一：**源码拼写 == canonical ==
 // IR 线格式名**，`Keyword()` 因与 `Canon()` 同义而删除，`_kw` 表退化成「码 → canonical 名」。
@@ -178,7 +178,7 @@ public static class PrimModel {
     private static string[] _kw = new string[]{
         "sbyte", "short", "int", "long", "byte", "ushort", "uint", "ulong",
         "float", "double", "bool", "char", "string", "object" };
-    // fix-primtype-static-init-order（2026-09-22）：这里**必须写字面量，不能写 `IrType.X`**。
+    // fix-primtype-static-init-order：这里**必须写字面量，不能写 `IrType.X`**。
     //
     // `IrType`（包 z42.package）的标签是 `public static int X = N`（有存储、靠静态初始化器赋值），
     // 而本表在包 z42c.semantics。两个包的 `__static_init__` 之间没有顺序保证，`IrType` 先于

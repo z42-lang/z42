@@ -103,7 +103,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     }
                 }
 
-                // Unary arithmetic — review.md C2 P1 follow-up (2026-05-30):
+                // Unary arithmetic — review.md C2 P1 follow-up :
                 // I64-typed Neg emits native Cranelift `ineg` (wrapping,
                 // matches helper's `Value::I64(-n)`).
                 Instruction::Neg { dst, src } => {
@@ -118,7 +118,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     }
                 }
 
-                // Bitwise — review.md C2 P1 follow-up (2026-05-30); Phase 2A
+                // Bitwise — review.md C2 P1 follow-up ; Phase 2A
                 // widened to all integer types: inline native Cranelift
                 // band/bor/bxor/bnot/ishl/sshr when reg_types confirm integer
                 // operands (I8..U64). Same payload load/store layout as arith;

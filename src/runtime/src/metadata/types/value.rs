@@ -1,4 +1,4 @@
-//! Value 枚举 + impl / PartialEq。refactor-split-metadata-types（2026-09-03）：从 2436 行的 `types.rs` 按职责拆出，
+//! Value 枚举 + impl / PartialEq。refactor-split-metadata-types：从 2436 行的 `types.rs` 按职责拆出，
 //! 对外路径不变（`metadata::types::*` 经 hub 的 `pub use` 全量再导出）。
 
 #![allow(unused_imports)]
@@ -18,7 +18,7 @@ pub enum Value {
     Char(char)      = 3,
     /// Immutable string primitive.  `s.Length` → virtual field dispatch in FieldGet.
     ///
-    /// review.md C1+C3 (2026-05-27): `Arc<str>` instead of `String`. Saves
+    /// review.md C1+C3 : `Arc<str>` instead of `String`. Saves
     /// 8 B/instance (Arc<str> = 16 B vs String = 24 B; no `cap` word) AND
     /// turns clone from O(n) byte copy into O(1) atomic refcount — the
     /// hot-path win for string-heavy interp / format / concat loops.
@@ -40,7 +40,7 @@ pub enum Value {
     /// interpret it. Field access (`.ptr` / `.len`) goes through the
     /// regular `FieldGet` instruction.
     ///
-    /// review.md C1 step 1 (2026-05-27): payload boxed to shrink the
+    /// review.md C1 step 1 : payload boxed to shrink the
     /// inline `Value` size — `PinnedView` is created on the rare
     /// `PinPtr` opcode and immediately consumed by the next native
     /// call, so the heap-alloc cost is dominated by the FFI it enables.
@@ -49,7 +49,7 @@ pub enum Value {
     /// Function reference value: a no-capture lambda or a method group bound to a free
     /// function (`LoadFn`). `CallIndirect` dispatches to the function it names.
     ///
-    /// P1-2 PR 8 (2026-10-07): the payload is the target's [`FnId`](crate::metadata::tokens::FnId),
+    /// P1-2 PR 8 : the payload is the target's [`FnId`](crate::metadata::tokens::FnId),
     /// bound once when the value is created (`LoadFn` — the per-site token makes later
     /// executions of the same site a single load), instead of the function's name as a GC
     /// string resolved again by every `CallIndirect`. The id lives in the space `Call`
@@ -66,19 +66,19 @@ pub enum Value {
     /// passes `env` as the callee's first implicit parameter and copies user
     /// args after it. See docs/internals/src/runtime/escape-analysis.md + impl-closure-l3-core.
     ///
-    /// review.md C1 chunk 5 (2026-05-27): payload boxed (the last and
+    /// review.md C1 chunk 5 : payload boxed (the last and
     /// biggest cold-path variant — 40 B inline = ArrRef(16 B) + String(24 B)).
     /// Boxing drops Value enum to ~24 B; capturing closures pay one heap
     /// alloc per `MkClos` but that's dwarfed by the env's own GC alloc.
     ///
-    /// unify-gc-heap PR-2 (2026-08-15): `VarGcRef` (8B) instead of `Box<ClosureData>`. The
+    /// unify-gc-heap PR-2 : `VarGcRef` (8B) instead of `Box<ClosureData>`. The
     /// `ClosureData` now lives in the GC variable-length region (`region_var`) — a single GC
     /// heap instead of a `Box` outside GC. `ClosureData` is immutable after creation, so the
     /// block needs no per-entry lock; access is a lock-free `&ClosureData` (kept alive by
     /// reachability, like `ArrRef`). Cloning a closure `Value` now shares the same heap closure
     /// (handle copy) instead of deep-cloning the box. See `Value::closure_data`.
     Closure(VarGcRef) = 10,
-    // discriminant 11 retired (runtime-audit D6, 2026-10-07): `StackClosure` — the
+    // discriminant 11 retired (runtime-audit D6): `StackClosure` — the
     // frame-arena closure form for `MkClos` with its stack-alloc byte set — is gone.
     // z42c never set that byte (its escape analysis covers objects / arrays only), so
     // every closure is a heap `Closure`. 11 stays unused (no renumbering of 12+).
@@ -87,7 +87,7 @@ pub enum Value {
     /// 见 `interp/mod.rs::Frame::get`）。引用永远不离开调用栈帧（前置 spec
     /// design Decision 9 + R1），因此 Stack kind 的 frame_idx 不会 stale。
     ///
-    /// review.md C1 chunk 4 (2026-05-27): payload boxed because RefKind
+    /// review.md C1 chunk 4 : payload boxed because RefKind
     /// is 32 B (Field variant) — biggest cold-path payload after
     /// Closure. Refs only live in registers for a single call's
     /// duration, so the box alloc is a tiny fraction of the call cost.
@@ -141,7 +141,7 @@ pub enum Value {
     StructRefHeap { idx: u32, frame_id: u32 } = 18,
 }
 
-// unify-object-byte-layout PR-5 (2026-08-15): `Value` is the interpreter's
+// unify-object-byte-layout PR-5 : `Value` is the interpreter's
 // register-file cell and the JIT strides its register file by
 // `size_of::<Value>()` (`jit/translate.rs` `VALUE_STRIDE`/`STRIDE`), so its
 // size is an ABI contract, not an incidental detail. After PR-3 (ArrRef 8 B) +
@@ -152,7 +152,7 @@ pub enum Value {
 // silently grow the register file / JIT stride back to 24 B.
 const _: () = assert!(std::mem::size_of::<Value>() == 16);
 impl Value {
-    /// interp-typed-superinstr (2026-08-01): read the `I64` payload **without**
+    /// interp-typed-superinstr : read the `I64` payload **without**
     /// a discriminant check. The interpreter's typed super-instructions call
     /// this only when the compiler-emitted `reg_types[r] == IrType::I64` — the
     /// **same invariant** the JIT's raw-slot arithmetic already trusts
@@ -175,7 +175,7 @@ impl Value {
         }
     }
 
-    /// interp-typed-superinstr (2026-08-01): read the `Bool` payload without a
+    /// interp-typed-superinstr : read the `Bool` payload without a
     /// discriminant check. See [`Value::as_i64_unchecked`] for the safety
     /// contract (here the invariant is `reg_types[r] == IrType::Bool`).
     ///
@@ -192,7 +192,7 @@ impl Value {
         }
     }
 
-    /// **add-write-barriers (2026-05-21)**: returns `true` iff writing
+    /// **add-write-barriers **: returns `true` iff writing
     /// this value into a heap slot must dispatch a GC write barrier.
     /// Heap-ref variants: `Object` / `Array` / `Closure` (Closure.env is a
     /// `ArrRef`) / `Ref` with `RefKind::Array` or `RefKind::Field`
@@ -250,7 +250,7 @@ impl Value {
         }
     }
 
-    /// **add-mark-sweep-collector P1 (2026-05-21)** / **unify-gc-heap PR-5**: visit every
+    /// **add-mark-sweep-collector P1 ** / **unify-gc-heap PR-5**: visit every
     /// direct GC-reference child `Value` reachable from `self`. **Single source** for both
     /// the GC mark phase and read-only graph enumeration (heapsnapshot / retention query) —
     /// they differ in one place, gated by `marking`:

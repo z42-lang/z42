@@ -1,5 +1,5 @@
 // z42c driver —— exe 产物的兄弟包依赖 bundling（`_bundleExeDeps` / `_srcRoot`）。
-// refactor-split-driver-main（complete-runtime-settings P5 前置，2026-09-05）：
+// refactor-split-driver-main（complete-runtime-settings P5 前置）：
 // `Main.z42` 长期 636 行、在 line-limit 棘轮基线上，任何增长都会让 `xtask check lines`
 // 变红。本文件是从它逐行搬出的**纯移动**（无逻辑改动），同包同 namespace，调用方
 // 不变；搬完 Main.z42 回到 500 行硬限之下、可从基线剔除。
@@ -148,7 +148,7 @@ int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, stri
                 if (cand != dst) {
                     // indexed（开发态）依赖：主文件只是目录，函数体在它旁边的散装 zbc 里 ⇒ **连散装 zbc 一起拷**，
                     // 保持相对布局（加载器按「主文件所在目录 + rel」找）。此前只拷主文件 ⇒ 运行期 `undefined function`
-                    // （fix-bundle-indexed-deps，User 2026-09-30 裁决：保留 indexed、装配时带上散装 zbc）。
+                    // （fix-bundle-indexed-deps，User 裁决：保留 indexed、装配时带上散装 zbc）。
                     ZpkgInfo depInfo = ZpkgReader.Open(File.ReadAllBytes(cand), cand);
                     if (depInfo != null && !depInfo.Packed) {
                         int lc = _bundleLooseZbc(dep, libsDirs[d], distDir, ZpkgReader.ReadIndexedZbcRels(depInfo), ownZbc, copiedZbc);

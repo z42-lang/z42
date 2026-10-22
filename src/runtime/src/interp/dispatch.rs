@@ -1,7 +1,7 @@
 /// Object dispatch helpers — vtable resolution, ToString protocol, type checks.
 ///
-/// Static-field storage moved to `VmContext::static_fields` (consolidate-vm-state,
-/// 2026-04-28). Call sites now use `ctx.static_get(field)` / `ctx.static_set(...)`.
+/// Static-field storage moved to `VmContext::static_fields` (consolidate-vm-state).
+/// Call sites now use `ctx.static_get(field)` / `ctx.static_set(...)`.
 
 use crate::metadata::{ClassDesc, FieldSlot, Function, Module, TypeDesc, Value};
 use crate::vm_context::VmContext;

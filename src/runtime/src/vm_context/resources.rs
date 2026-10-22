@@ -1,7 +1,7 @@
 use super::*;
 
 impl VmContext {
-    // ── Process slot table (add-std-process, 2026-05-13) ──────────────────
+    // ── Process slot table (add-std-process) ──────────────────
 
     /// Allocate a new slot id and store `slot` under it. Returns the id
     /// for the z42 `ProcessHandle` to carry. Counter is monotonic and
@@ -38,7 +38,7 @@ impl VmContext {
         self.core.processes.count()
     }
 
-    // ── add-z42-net K1 (2026-05-24): TCP socket / listener slot helpers ──
+    // ── add-z42-net K1 : TCP socket / listener slot helpers ──
     //
     // Pattern mirrors `alloc_process_slot` exactly. The registry (counter +
     // table) lives in `core` (shared across threads) so a server thread
@@ -57,7 +57,7 @@ impl VmContext {
         )
     }
 
-    /// add-z42-net-tls (2026-06-03): register a connected + handshaken rustls
+    /// add-z42-net-tls : register a connected + handshaken rustls
     /// stream and return its slot id. `__tls_close` removes (closing the fd).
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn alloc_tls_socket_slot(&self, slot: crate::corelib::tls::TlsSlot) -> u64 {
@@ -84,7 +84,7 @@ impl VmContext {
         self.core.tcp_listeners.count()
     }
 
-    // ── add-z42-net-udp (K2, 2026-05-25) ────────────────────────────────
+    // ── add-z42-net-udp (K2) ────────────────────────────────
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn alloc_udp_socket_slot(&self, sock: std::net::UdpSocket) -> u64 {

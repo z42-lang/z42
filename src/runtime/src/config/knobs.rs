@@ -11,8 +11,8 @@
 //! **可枚举的字段**而非宏，因为 `--list-knobs --json` 要把这些约束输出给工具消费，
 //! 宏在编译后就没了。
 //!
-//! refactor-split-config（2026-09-03）自 config.rs 搬出；
-//! complete-runtime-settings P0（2026-09-05）扩为完整 schema + 表分离到 knob_table.rs。
+//! refactor-split-config 自 config.rs 搬出；
+//! complete-runtime-settings P0 扩为完整 schema + 表分离到 knob_table.rs。
 
 #![allow(unused_imports)]
 use super::*;

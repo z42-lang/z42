@@ -1,5 +1,5 @@
 //! Integration tests for [`PauseHistogram`] on `ArcMagrGC`
-//! (add-gc-pause-histogram, 2026-05-22).
+//! (add-gc-pause-histogram).
 //!
 //! Per-field bucket / boundary correctness is covered in
 //! `gc::types::types_tests`; here we verify the heap actually wires
@@ -83,7 +83,7 @@ fn histogram_records_force_collect() {
     assert!(h.total_us >= h.min_us);
 }
 
-// ── add-gc-pause-window (2026-05-24) ─────────────────────────────────────────
+// ── add-gc-pause-window  ─────────────────────────────────────────
 
 #[test]
 fn recent_pauses_visible_in_stats_snapshot() {

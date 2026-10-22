@@ -1,7 +1,7 @@
 //! POSIX signal OS primitives — fatal-signal registration, signal-name table,
 //! disposition reset, and the async-signal-safe write helpers a handler may use.
 //!
-//! review.md Part 1 P2 Phase 3 (2026-06-11, add-pal-signal). The OS-specific
+//! review.md Part 1 P2 Phase 3 (add-pal-signal). The OS-specific
 //! signal machinery lives here; the **z42-specific crash reporter** that walks
 //! `VM_CORES` and formats the call-stack dump stays in `signal_handler.rs` and
 //! drives these primitives (PAL invariant: `pal/` surface is OS-neutral and

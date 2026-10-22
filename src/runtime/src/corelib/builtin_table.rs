@@ -28,10 +28,10 @@ const PART1: &[(&str, Native)] = &[
     ("__time_now_mono_ns", Native::Val(bench::builtin_time_now_mono_ns)),
     ("__bench_black_box",  Native::Val(bench::builtin_bench_black_box)),
     // ── String (minimal intrinsic core; most methods are script-side now) ────
-    // shrink-primitive-native-interop (2026-08-27): __str_to_string removed —
+    // shrink-primitive-native-interop : __str_to_string removed —
     // Std.String.ToString 现在是脚本 `return this;`。
     // ── Char ──────────────────────────────────────────────────────────────────
-    // shrink-primitive-native-interop (2026-08-27): __char_to_lower/__char_to_upper
+    // shrink-primitive-native-interop : __char_to_lower/__char_to_upper
     // removed — ASCII-only casing 迁纯脚本。IsWhiteSpace 保留（真 Unicode）。
     // ── Parse / convert / primitive ToString / BitConverter ── 已迁 builtin ABI v2：
     //    见 `convert::typed`（`#[builtins]` 模块，经下方 `TYPED` 登记）。
@@ -52,7 +52,7 @@ const PART1: &[(&str, Native)] = &[
     ("__make_closure", Native::Val(object::builtin_make_closure)),
     ("__obj_make_weak", Native::Val(object::builtin_obj_make_weak)),
     ("__obj_upgrade_weak", Native::Val(object::builtin_obj_upgrade_weak)),
-    // ── Reflection (add-reflection-mvp, 2026-06-08) ─────────────────────────────
+    // ── Reflection (add-reflection-mvp) ─────────────────────────────
     // align-type-memberinfo-hierarchy: `__type_name` removed — Type.Name inherits
     // from MemberInfo (build_type populates the field), no native getter.
     // add-reflective-invoke: constructor reflection (ConstructorInfo enumeration).
@@ -78,7 +78,7 @@ const PART1: &[(&str, Native)] = &[
     // add-reflection-generic-type-definition: `typeof` now lowers to the Typeof
     // opcode (interp/jit), not a builtin — the former `__typeof` is removed.
 
-    // ── Array protocol（add-array-base-class，2026-05-07）─────────────────────
+    // ── Array protocol（add-array-base-class）─────────────────────
     ("__array_clone", Native::Val(array::builtin_array_clone)),
     // add-json-serde: reflective array create/get/set/length (build/read/write T[] whose
     // element type is only known as a runtime Type — serde `T[]` support).
@@ -89,9 +89,9 @@ const PART1: &[(&str, Native)] = &[
     ("__gc_collect",       Native::Void(gc::builtin_gc_collect)),
     ("__gc_used_bytes",    Native::Val(gc::builtin_gc_used_bytes)),
     ("__gc_force_collect", Native::Val(gc::builtin_gc_force_collect)),
-    // ── add-custom-allocator P2 (2026-05-22) ─────────────────────────────
+    // ── add-custom-allocator P2  ─────────────────────────────
     ("__gc_finalize",      Native::Val(gc::builtin_gc_finalize)),
-    // ── GCHandle struct + HeapStats（reorganize-gc-stdlib，2026-05-07）───────
+    // ── GCHandle struct + HeapStats（reorganize-gc-stdlib）───────
     ("__gc_handle_alloc",    Native::Val(gc::builtin_gc_handle_alloc)),
     ("__gc_handle_target",   Native::Val(gc::builtin_gc_handle_target)),
     ("__gc_handle_is_alloc", Native::Val(gc::builtin_gc_handle_is_alloc)),

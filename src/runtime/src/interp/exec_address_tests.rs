@@ -1,6 +1,6 @@
 //! Unit tests for `LoadElemAddr` (0xA1) / `LoadFieldAddr` (0xA2).
 //!
-//! These two execution paths landed 2026-05-05 (`cb61cc072`, impl-ref-out-in-runtime)
+//! These two execution paths landed (`cb61cc072`, impl-ref-out-in-runtime)
 //! but stayed **pure dead code for four months**: z42c never emitted the opcodes, and
 //! nothing here covered them. `fix-ref-lvalue-addressing` makes them reachable
 //! (`ref arr[i]` / `ref obj.f`), so they need real coverage — "the implementation looks

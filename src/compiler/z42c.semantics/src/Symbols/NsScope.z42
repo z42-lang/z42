@@ -1,4 +1,4 @@
-// **外围命名空间规则的唯一 SoT**（using-csharp-rules PR-1，User 2026-10-01 裁定「using 按 C# 规则」）。
+// **外围命名空间规则的唯一 SoT**（using-csharp-rules PR-1，User 裁定「using 按 C# 规则」）。
 //
 // C#：写在 `namespace A.B.C` 里的代码，名字查找由内向外走 `A.B.C` → `A.B` → `A`（→ 全局 ns），每一层
 // 先看该层声明的成员；文件级 `using` 在最外层才参与。于是：

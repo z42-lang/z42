@@ -116,7 +116,7 @@ unsafe impl Sync for VmContextPtr {}
 
 /// Process-wide registry of all live [`VmCore`] instances.
 ///
-/// **add-os-signal-handler (2026-05-25)**: the POSIX signal handler in
+/// **add-os-signal-handler **: the POSIX signal handler in
 /// [`crate::signal_handler`] (Phase 2 of D4 panic-hook story) walks this
 /// list to capture z42 call stacks across all VMs in the process. Stored
 /// as `Weak` so a VmCore drop doesn't require explicit deregistration;
@@ -143,7 +143,7 @@ pub fn vm_cores_snapshot() -> Vec<Arc<VmCore>> {
 use crate::metadata::lazy_loader::{LazyLoader, ZpkgCandidate};
 use crate::metadata::{Function, TypeDesc, Value};
 
-/// **add-lazy-context-unload (2026-08-05)**: routes GC-driven collectible-context
+/// **add-lazy-context-unload **: routes GC-driven collectible-context
 /// reclamation to `VmCore.context_registry`. Captures `Weak<VmCore>` (cycle
 /// avoidance, like the root scanner) + a clone of the unloading-count flag for a
 /// lock-free `is_unloading` gate. Registered via `heap.set_context_reclaimer`.

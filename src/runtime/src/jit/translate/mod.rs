@@ -207,8 +207,8 @@ pub fn translate_function(
     let hr_call_indirect = imp!(helper_ids.call_indirect);
     let hr_default_of     = imp!(helper_ids.default_of);
     let hr_convert        = imp!(helper_ids.convert);
-    // add-gc-safepoint-jit (2026-05-21): cooperative GC safepoint trampoline.
-    // inline-jit-safepoint-check (2026-08-01): the fast-path decrement is now
+    // add-gc-safepoint-jit : cooperative GC safepoint trampoline.
+    // inline-jit-safepoint-check : the fast-path decrement is now
     // emitted inline (`emit_safepoint_check`); only the rare slow branch
     // (counter hit 0) calls a helper. `hr_check_safepoint` is retained for
     // reference / tests but no longer emitted on the hot path.
@@ -216,7 +216,7 @@ pub fn translate_function(
     let hr_stack_overflow  = imp!(helper_ids.stack_overflow);
     let hr_fatal_pending   = imp!(helper_ids.fatal_pending);
 
-    // add-gc-safepoint-jit (2026-05-21): function-entry safepoint check.
+    // add-gc-safepoint-jit : function-entry safepoint check.
     // A spawned worker that enters JIT-compiled code immediately after
     // spawn must respect a pending GC pause before touching any roots.
     emit_stack_check(&mut builder, ptr, ctx_val, frame_val, hr_stack_overflow);
@@ -322,7 +322,7 @@ pub fn translate_function(
             builder.switch_to_block(cl_blocks[block_idx]);
         }
 
-        // catch-by-generic-type (2026-05-06): collect every enclosing exception-
+        // catch-by-generic-type : collect every enclosing exception-
         // handler entry, in source order. Each tuple is
         //   (catch_cl, catch_reg, catch_type)
         // where `catch_type` is None for wildcard / synthetic-finally fallthrough
@@ -430,9 +430,9 @@ pub fn translate_function(
                           unsupported_reason(instr).unwrap_or("method-level generics"));
                 }
 
-                // spec fix-numeric-cast-lowering (2026-05-13): explicit numeric cast
-                // review.md C2 P1 follow-up (2026-05-30); Phase 2A widened src
-                // to any integer type (2026-08-15): when src is an integer
+                // spec fix-numeric-cast-lowering : explicit numeric cast
+                // review.md C2 P1 follow-up ; Phase 2A widened src
+                // to any integer type : when src is an integer
                 // (I8..U64, all stored as Value::I64) and to_tag is one of the
                 // integer widths (I8 / I16 / I32 / I64 / U8 / U16 / U32 / U64),
                 // emit the bit-mask / sign-extend directly. The result layout is
@@ -454,7 +454,7 @@ pub fn translate_function(
     Ok(())
 }
 
-// ── review.md C2 P1 specialization helpers (2026-05-28) ────────────────────────
+// ── review.md C2 P1 specialization helpers  ────────────────────────
 //
 // Predicate + emitter for the I64-typed arithmetic fast path. Pure module-
 // scope functions so translate_function's hot path can call them without the

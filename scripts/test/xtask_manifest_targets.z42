@@ -4,7 +4,7 @@
 // fixture flow (xtask_test_targets.z42) and the example runner
 // (xtask_test_example.z42).
 //
-// 名字里没有 `xtask_test_` 前缀是有意的（scripts-batch3-naming, 2026-09-06）：那个前缀
+// 名字里没有 `xtask_test_` 前缀是有意的（scripts-batch3-naming）：那个前缀
 // 专表「`test <x>` 命令的实现」，本文件是被三个消费者共用的**引擎**、不对应任何命令。
 // Reads a project's `<name>.z42.toml` via the shared stdlib ManifestLoader
 // (Z42.Project) — no hand-rolled TOML — and turns the declared

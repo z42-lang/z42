@@ -11,7 +11,7 @@
 
 // ── Qualified stdlib class names ──────────────────────────────────────────
 //
-// rename-primitives-to-pascal-case (2026-05-24): primitives migrated to BCL
+// rename-primitives-to-pascal-case : primitives migrated to BCL
 // PascalCase struct names (`Std.Int32` / `Std.Boolean` / `Std.SByte` / ...).
 // Source keyword (`int / bool / i8 / ...`) is preserved as an alias resolved
 // by the C# TypeChecker via `TypeRegistry.StdlibClassName`.
@@ -51,7 +51,7 @@ pub const STD_OBJECT: &str = "Std.Object";
 /// Stdlib's reified-type class returned by `__obj_get_type`.
 pub const STD_TYPE: &str = "Std.Type";
 
-/// 2026-05-07 add-array-base-class: runtime base of all `T[]`. `Value::Array`
+/// add-array-base-class: runtime base of all `T[]`. `Value::Array`
 /// 不携带 TypeDesc 引用，VM 端 `is_instance` / `as_cast` 硬编码识别 `STD_ARRAY`
 /// / `STD_OBJECT` 子类型。
 pub const STD_ARRAY: &str = "Std.Array";

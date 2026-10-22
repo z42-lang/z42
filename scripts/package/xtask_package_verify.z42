@@ -188,7 +188,7 @@ string _distPkgRid(string distDir) {
 // zbc under each mode with the packaged z42vm and diff stdout. Returns [pass, fail]
 // where fail folds in compile errors (as the caller aggregates).
 //
-// perf-dist-golden-parallel (2026-09-15): 此前逐 mode、逐 case **串行**「编 + 跑」——
+// perf-dist-golden-parallel : 此前逐 mode、逐 case **串行**「编 + 跑」——
 // interp 313 + jit 309 例在 CI 上 linux 8 分钟 / windows 10 分钟，而 zbc 与 mode 无关，
 // 等于每例编译两遍。现在：
 //   ① 编译一遍（jit 的用例集 = interp 的去掉 interpOnly，同一份源）；

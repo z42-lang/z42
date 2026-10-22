@@ -1,4 +1,4 @@
-//! 对象 / struct 字节布局：StructTypeLayout / ObjectLayout / FieldAccess / compose·synthesize。refactor-split-metadata-types（2026-09-03）：从 2436 行的 `types.rs` 按职责拆出，
+//! 对象 / struct 字节布局：StructTypeLayout / ObjectLayout / FieldAccess / compose·synthesize。refactor-split-metadata-types：从 2436 行的 `types.rs` 按职责拆出，
 //! 对外路径不变（`metadata::types::*` 经 hub 的 `pub use` 全量再导出）。
 
 #![allow(unused_imports)]
@@ -549,7 +549,7 @@ fn names_type_param(type_tag: &str, type_params: &[String]) -> bool {
 /// ⚠️ **「a struct field never occurs in a layout-less type」是前置条件，不是这里能检查的事**
 /// —— 本函数只拿到 `&[FieldSlot]`，没有类型注册表，`tag_from_type_name` 对任何非基元名都给
 /// `TAG_OBJECT`，**无从区分 struct 与 class**。所以这条不变式必须由**写端**保证，而它确实成立
-/// （2026-09-27 核实，此前这里只断言、没给理由）：
+/// （核实，此前这里只断言、没给理由）：
 ///
 /// - zbc writer 的对象布局块 gate 是 `(cd.Flags & 116) == 0`，`116 = 4|16|32|64`
 ///   = struct｜interface｜enum｜delegate ⇒ **每个普通 class 一律带布局块**，走不到本函数；

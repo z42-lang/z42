@@ -52,7 +52,7 @@ int _checkAndroidProjectionDrift(string root, TomlValue toml) {
 // iOS 锚点：committed host harness 的 Package.swift（`swift test` 用）。SDK 包的
 // Package.swift 由 xtask_package_ios.z42 运行期从 versions.toml 生成（结构上不可能
 // drift），故唯一残留的硬编码投影是这份 harness——drift 检查钉在它上面
-// （migrate-scripts-to-z42, 2026-06-04 锚点迁移史见 git）。
+// （migrate-scripts-to-z42 锚点迁移史见 git）。
 int _checkIosProjectionDrift(string root, TomlValue toml) {
     string pkgSwiftText = File.ReadAllText(Path.Join(root, "src/toolchain/workload/ios/platform/Package.swift"));
     int fail = 0;

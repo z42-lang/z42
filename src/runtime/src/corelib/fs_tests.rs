@@ -26,7 +26,7 @@ fn builtin_env_args(c: &VmContext, args: &[Value]) -> anyhow::Result<Value> {
     crate::corelib::exec_builtin_value(c, "__env_args", args)
 }
 
-// add-z42-launcher (2026-06-02): __env_args returns the program arguments
+// add-z42-launcher : __env_args returns the program arguments
 // passed after `--` on the z42vm command line (stored on VmCore via
 // set_program_args), NOT the VM's own raw process argv.
 

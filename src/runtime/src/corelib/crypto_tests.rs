@@ -23,7 +23,7 @@ fn extract_bytes(v: Value) -> Vec<u8> {
     }
 }
 
-// fix-crypto-tests-ctx-lifetime (2026-05-30): bind ctx to a named local
+// fix-crypto-tests-ctx-lifetime : bind ctx to a named local
 // so it outlives the returned Value::Array. The previous `&ctx()` inline
 // pattern dropped the VmContext (and its owned heap region) at the end
 // of the `let r = …;` statement, leaving `r`'s ArrRef pointing into freed

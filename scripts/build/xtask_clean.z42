@@ -1,5 +1,5 @@
 // xtask — `clean` 命令：按 target 删 artifacts/build/（编译产物）与 artifacts/intermediate/（中间物）。
-// 从 xtask.z42 搬来（relocate-xtask-handlers, 2026-09-05）——它删的全是 build/
+// 从 xtask.z42 搬来（relocate-xtask-handlers）——它删的全是 build/
 // 产物，归 build 族。
 namespace Z42Xtask;
 
@@ -19,7 +19,7 @@ using Std.Cli;   // ParseResult
 //                 **保留**：xtask/（驱动自身，正在运行）、tools/（下载的第三方工具）、
 //                 packages/ .z42/（成品）、reports/（结果）
 //
-// tidy-artifacts-tmp-and-clean（2026-09-30）修了两处：
+// tidy-artifacts-tmp-and-clean 修了两处：
 //   · `clean tests|bench` 此前删的是 `<lib>/<profile>/{tests,benches}` —— 当前布局里**不存在**这个目录
 //     （golden 镜像在 `<lib>/tests`，dev 目标由 z42b 写在工程目录下），于是恒删 0 个、恒报 ✅。
 //   · `clean all` 此前只删 build/，`.scratch` / `tmp` / `publish` 与源码树里的残留都不管。

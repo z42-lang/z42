@@ -1,5 +1,5 @@
 // xtask — ios packaging (migrate-scripts-to-z42; runtime/workload split for
-// version management — impl-workload-install B2, 2026-06-17).
+// version management — impl-workload-install B2).
 //
 // Splits into TWO artifacts (mirrors desktop's SDK + runtime split):
 //   _buildRuntimePackageIos → z42-runtime-<ver>-<rid>/  (native libs + Z42VM.xcframework
@@ -54,7 +54,7 @@ int _buildRuntimePackageIos(string root, string rid, string version, string prof
     c = _pkgCopyLibs(_libsDir(root), pkgDir); if (c != 0) { return c; }
     Console.WriteLine("  ✓ runtime package: " + pkgDir);
     // runtime pack 才是 libs/ + native/include/ 的真正落点 —— 门必须跑在这里
-    // （fix-package-gates-false-red, 2026-09-06）。desktop 的 runtime pack 已于 #508
+    // （fix-package-gates-false-red）。desktop 的 runtime pack 已于 #508
     // 接上，ios/android/wasm 当时漏了：它们的 workload pack 跑了门却一个
     // source-derived 文件都没装，真装了的这个包反而从未被检查。
     return _pkgFinish(root, pkgDir, "runtime", rid);

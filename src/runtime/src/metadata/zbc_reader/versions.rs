@@ -2,7 +2,7 @@ use super::*;
 
 // ── zbc wire format version (mirror of the z42 writer's Major/Minor) ─────────
 //
-// Strict-pin policy (freeze-zbc-v1, 2026-05-14):
+// Strict-pin policy (freeze-zbc-v1):
 // reader accepts exactly major == ZBC_VERSION_MAJOR && minor == ZBC_VERSION_MINOR.
 // Bumping either requires synchronized update of:
 //   1. src/compiler/z42.package/src/BinaryFormat/ZbcWriter.z42 (ZbcFormat.Major / .Minor)
@@ -17,108 +17,108 @@ use super::*;
 // which `xtask build test` does NOT touch). **Do not grow this comment into a
 // second copy of that doc**; it already rotted once:
 //
-// 🔴 2026-09-27（type-section-flags2-and-struct-fields）：四条里有两条指向不存在的东西 ——
-// 第 1 条指 `src/compiler/z42.IR/BinaryFormat/ZbcWriter.cs`（**C# 编译器 2026-06-26 已整体
+// 🔴  （type-section-flags2-and-struct-fields）：四条里有两条指向不存在的东西 ——
+// 第 1 条指 `src/compiler/z42.IR/BinaryFormat/ZbcWriter.cs`（**C# 编译器已整体
 // 删除**），第 4 条指 `src/compiler/z42.package/tests/fixtures/zbc-format/generate-fixtures.sh`（**该脚本不存在**）。
 // 这就是「摘录一份规范放进代码注释」的必然结局：正本更新了，副本不会跟。
 
 pub const ZBC_VERSION_MAJOR: u16 = 1;
-// 2026-05-30 add-test-timeout-attribute: TIDX v=3 carries per-test
+// add-test-timeout-attribute: TIDX v=3 carries per-test
 // `timeout_ms: i32` after each TestEntry's TestCase array. 0 = no
 // override (runner default applies); positive = per-test wallclock
 // cap in ms. Strict-pin policy: pre-1.9 zbc no longer readable.
-// 2026-06-09 add-attribute-reflection (C3): bumped to 1.10 — TYPE section adds
+// add-attribute-reflection (C3): bumped to 1.10 — TYPE section adds
 // per-class user-attribute refs (u16 count + (type-name, factory-func) str-idx
 // pairs) after the type-param block. See read_type_section below.
-// 2026-06-09 add-attribute-reflection-methods (C3b): bumped to 1.11 — SIGS
+// add-attribute-reflection-methods (C3b): bumped to 1.11 — SIGS
 // section adds the same per-function attr refs after the type-param block.
-// 2026-06-10 add-reflection-type-flags: bumped to 1.12 — TYPE section appends
+// add-reflection-type-flags: bumped to 1.12 — TYPE section appends
 // a class-shape flags byte (abstract/sealed/struct/record) per class record.
-// 2026-06-10 add-reflection-static-fields: bumped to 1.13 — TYPE section
+// add-reflection-static-fields: bumped to 1.13 — TYPE section
 // appends a static-fields block (u16 count + per-field) after the flags byte.
-// 2026-06-10 add-field-attribute-reflection: bumped to 1.14 — each field record
+// add-field-attribute-reflection: bumped to 1.14 — each field record
 // (instance + static block) appends a per-field attr-ref block after type_str.
-// 2026-06-10 add-parameter-attribute-reflection: bumped to 1.15 — each SIGS
+// add-parameter-attribute-reflection: bumped to 1.15 — each SIGS
 // function record appends, after the method-level attr block, a per-parameter
 // attr-ref block (param_count blocks of u16 count + (type, factory) pairs).
-// 2026-06-11 add-reflection-array-element-type: bumped to 1.16 — ArrayNew /
+// add-reflection-array-element-type: bumped to 1.16 — ArrayNew /
 // ArrayNewLit append an element-type-name string-pool index (`element_type`),
 // stored on the runtime ArrayObj so arr.GetType().GetElementType() is non-erased.
-// 2026-06-14 add-reflection-get-interfaces: bumped to 1.17 — TYPE section appends
+// add-reflection-get-interfaces: bumped to 1.17 — TYPE section appends
 // a per-class interface block (u16 count + name str idx[]) after the static-fields
 // block. Loaded into TypeDescCold.interfaces; surfaced by Type.GetInterfaces().
-// 2026-06-16 add-reflection-generic-type-definition: bumped to 1.18 — new Typeof
+// add-reflection-generic-type-definition: bumped to 1.18 — new Typeof
 // opcode (0x73) carries structured generic instantiation args (TypeName str idx +
 // u8 count + str idx[]), replacing the __typeof builtin. Surfaces
 // Type.IsGenericTypeDefinition / GetGenericTypeDefinition + fixes GetGenericArguments.
-// 2026-06-16 add-reflection-interface-class-predicates: bumped to 1.19 —
+// add-reflection-interface-class-predicates: bumped to 1.19 —
 // interfaces now emit a (minimal) TYPE entry; class_flags byte gains bit4 =
 // interface. Surfaces Type.IsInterface + excludes interfaces from Type.IsClass.
-// 2026-06-16 add-reflection-assignable-from: bumped to 1.20 — TYPE-section
+// add-reflection-assignable-from: bumped to 1.20 — TYPE-section
 // interface block now stores fully-qualified interface names (was bare).
 // Real interface handles from GetInterfaces() + robust interface identity for
 // is/as/IsAssignableFrom. Structure unchanged; field semantics bare→FQ.
-// 2026-07-09 reencode-strs-segment-dict: bumped to 1.21 — STRS re-encoded as a
+// reencode-strs-segment-dict: bumped to 1.21 — STRS re-encoded as a
 // segment dictionary. Layout: segCount u32 + (varint segLen + utf8)×segCount +
 // strCount u32 + (varint segN + varint segIdx×segN)×strCount. Each pooled string
 // is the '.'-join of its segment sequence. Removes the redundant per-string
 // offset field and dedups namespace prefixes (−44% STRS on z42.core). String
 // pool indices (how other sections reference strings) are unchanged.
-// 2026-07-09 add-enum-type-metadata (unify-type-metadata P1-a): bumped to 1.22 —
+// add-enum-type-metadata (unify-type-metadata P1-a): bumped to 1.22 —
 // enum types now emit a TYPE-section entry with CLASS_FLAG_ENUM (bit5) and a
 // trailing enum-member block (member_count:u16 + (name_idx:u32, value:i64)×n),
 // gated on the flag so non-enum class records are byte-unchanged. Backs
 // Type.IsEnum + Enum.GetNames/GetValues/GetName + typeof(EnumType).
-// 2026-07-09 add-member-visibility (unify P1-b): bumped to 1.23 - TYPE field
+// add-member-visibility (unify P1-b): bumped to 1.23 - TYPE field
 // blocks (instance + static) gain a trailing visibility:u8 per field; SIGS gains a
 // visibility:u8 after is_static. 0=public/1=private/2=protected. Backs
 // FieldInfo.IsPublic/IsPrivate + MethodInfo.IsPublic/IsPrivate.
-// 2026-07-10 add-method-modifiers (unify P1-c): bumped to 1.24 - SIGS gains a
+// add-method-modifiers (unify P1-c): bumped to 1.24 - SIGS gains a
 // method_flags:u8 after visibility (bit0=virtual/bit1=abstract). Backs
 // MethodInfo.IsVirtual (authoritative) + IsAbstract.
-// 2026-07-10 add-param-metadata (unify P1-d): bumped to 1.25 - SIGS gains min_arg:u16
+// add-param-metadata (unify P1-d): bumped to 1.25 - SIGS gains min_arg:u16
 // + params_from:u8 after method_flags; each param gains name_str_idx:u32 + default_kind:u8
 // (+payload). Backs ParameterInfo.IsOptional/IsParams/Name/DefaultValue.
-// 2026-07-11 add-delegate-metadata (unify P1-e): bumped to 1.26 - class_flags
+// add-delegate-metadata (unify P1-e): bumped to 1.26 - class_flags
 // bit6=delegate (delegate-as-class TYPE entry + synthesized Invoke stub; no
 // extra payload, semantics-extension bump per the 1.19 interface precedent).
-// 2026-07-14 stabilize-dispatch-keys (方案A): bumped to 1.27 - no wire-layout
+// stabilize-dispatch-keys (方案A): bumped to 1.27 - no wire-layout
 // change; dispatch keys now full-signature mangled for every method, so
 // CallInstr/VCall operand strings + SIGS method names are globally re-keyed.
 // The version bump exists to trigger ci-bootstrap's two-generation self-host
 // (coupled with zpkg 0.32) which rebuilds the whole tree consistently.
-// 2026-07-18 fix-crosspkg-interface-impl: bumped to 1.28 - interface TYPE
+// fix-crosspkg-interface-impl: bumped to 1.28 - interface TYPE
 // entries gain a trailing method-signature block (CLASS_FLAG_INTERFACE gated:
 // mcount:u16 + (name:u32, ret:u32, pcount:u8, ptype:u32×pc)×n) so the compiler
 // can restore imported interface methods from dep zpkgs (abstract iface methods
 // have no body → absent from SIGS; EXPT was dropped). Coupled with zpkg 0.33.
-// 2026-08-04 add-escape-analysis-stack-alloc: bumped to 1.29 - ObjNew / ArrayNew
+// add-escape-analysis-stack-alloc: bumped to 1.29 - ObjNew / ArrayNew
 // / ArrayNewLit encodings each gain a trailing u8 stack-alloc flag (1 = frame
 // arena / 0 = heap), set by the escape-analysis compiler pass. Coupled with zpkg 0.34.
-// 2026-08-06 impl-sealed-semantics-devirt: bumped to 1.30 - SIGS method_flags:u8
+// impl-sealed-semantics-devirt: bumped to 1.30 - SIGS method_flags:u8
 // gains bit2=sealed (METHOD_FLAG_SEALED) for `sealed override` / `sealed` methods.
 // Byte layout unchanged (bit was reserved-0); semantics-extension bump so a 1.29
 // reader can't silently misread bit2 (strict-pin divergence guard). Backs
 // MethodInfo.IsSealed + compiler sealed-receiver devirtualization. Coupled with zpkg 0.35.
 //
-// 2026-08-08 add-struct-value-semantics A-use: bumped to 1.31 — TYPE section gains
+// add-struct-value-semantics A-use: bumped to 1.31 — TYPE section gains
 // a value-struct layout block (size + typed reference bitmap, Flags bit2 gated) and
 // z42c begins emitting StructAlloc/Copy/FieldGet/SetPrim. Coupled with zpkg 0.36.
 //
-// 2026-08-11 add-struct-heap-inline P3b: bumped to 1.32 — TYPE section gains a
+// add-struct-heap-inline P3b: bumped to 1.32 — TYPE section gains a
 // **composed inline-struct layout block** (same shape as the struct block; the
 // class's object-relative inline byte-region size + reference bitmap), present when
 // class_flags & CLASS_FLAG_HAS_INLINE_STRUCT (bit7=0x80), following the struct block.
 // Delivers `TypeDescCold.inline_layout` for `class C { Point pt; }`. Coupled with zpkg 0.37.
 //
-// 2026-08-13 enforce-class-access: bumped to 1.33 — TYPE section gains a **class
+// enforce-class-access: bumped to 1.33 — TYPE section gains a **class
 // declaration visibility byte** (0=public/1=private/2=protected/3=internal),
 // immediately following the class_flags u8 (every TYPE record grows by 1 byte).
 // The compiler's cross-package `internal`-class reference enforcement reads it; the
 // VM currently reads-and-discards it (no class-visibility reflection surface yet).
 // Coupled with zpkg 0.38.
 //
-// 2026-08-14 unify-object-byte-layout PR-1: bumped to 1.34 — TYPE section gains a
+// unify-object-byte-layout PR-1: bumped to 1.34 — TYPE section gains a
 // **full object field layout block** for normal reference classes (not struct /
 // interface / enum / delegate). Layout: object_size:u32 + field_count:u16 +
 // (field_off:u32, field_size:u32, field_kind:u8)×n + ref_count:u16 +
@@ -128,7 +128,7 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // `TypeDescCold.object_layout` (dormant; PR-2 consumes it to replace `slots`).
 // Coupled with zpkg 0.39.
 //
-// 2026-08-14 unify-object-byte-layout PR-3 chunk 2a: bumped to 1.35 — TYPE object
+// unify-object-byte-layout PR-3 chunk 2a: bumped to 1.35 — TYPE object
 // block **direct-field FieldKinds refinement**: the coarse `ArrRef` (=2) is split into
 // `GcRefArray` (=4, array `T[]`) and `GcRefClosure` (=5, delegate/func/unresolved) so
 // the runtime (chunk 2b) can safely inline object/array refs as 8B pointers while
@@ -137,12 +137,12 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // are byte-identical. Runtime is dormant (compose_object_layout maps 4/5 to the coarse
 // ArrRef side-table path); chunk 2b consumes it. Coupled with zpkg 0.40. See design D17.
 //
-// 2026-08-21 add-generic-methods: bumped to 1.36 — method-level generic type_args.
+// add-generic-methods: bumped to 1.36 — method-level generic type_args.
 // New opcodes: MethodTypeArg (0xB2), MethodDefault (0xB3), CallGeneric (0xB4),
 // VCallGeneric (0xB5). Non-generic Call/VCall (0x50/0x52) encoding unchanged
 // (byte-identical); generic calls carry a `method_type_args` string list (count u16
 // + pool idx u32×) between the method token and args. Coupled with zpkg 0.41.
-// 2026-09-02 fix-generic-array-value-zero-init (方案 C): bumped to 1.37 — ArrayNew
+// fix-generic-array-value-zero-init (方案 C): bumped to 1.37 — ArrayNew
 // encoding gains a trailing type-param reference: type_param_kind (u8: 0=none /
 // 1=method-level / 2=class-level) + (type_param_index+1) (u16, biased so -1/none → 0),
 // after the escape-analysis stack-alloc flag. When kind!=0 the VM resolves the
@@ -150,7 +150,7 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // and initialises value-type array slots with the type's zero (not Null). Non-generic
 // ArrayNew emits kind=0/index=-1 (tail bytes 00 00 00) — semantics unchanged.
 // ArrayNewLit is NOT changed (all slots literal-written, no null-tail bug). Coupled with zpkg 0.42.
-// 2026-09-13 encode-ctorless-objnew: bumped to 1.39 — ObjNew appends a
+// encode-ctorless-objnew: bumped to 1.39 — ObjNew appends a
 // `ctor_known` u8 after `stack_alloc`. It is a POSITIVE marker: the compiler
 // sets it only when, after whole-package assembly, the ctor name is visible in
 // (all functions emitted by this package) ∪ DependencyIndex. The runtime uses it
@@ -158,13 +158,13 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // version skew → MissingSymbolException) apart from "this class simply has no
 // constructor" (zero-initialize as before). Absence of the bit is the
 // conservative state, so behaviour is unchanged wherever it is not set.
-// 2026-09-14 fix-call-arity-skew: bumped to 1.40 — SIGS `method_flags` gains
+// fix-call-arity-skew: bumped to 1.40 — SIGS `method_flags` gains
 // bit3 = METHOD_FLAG_SRET (the function returns a blob value struct, so its
 // physical signature carries a hidden trailing return slot not counted in
 // `param_count`). Wire layout unchanged; the new bit's meaning is what forces the
 // bump: pre-1.40 artifacts leave it 0, and the runtime's exact call-arity check
 // would reject every struct-returning call in them.
-// 2026-09-15 fix-imported-iface-static-fidelity: bumped to 1.41 — the TYPE-section
+// fix-imported-iface-static-fidelity: bumped to 1.41 — the TYPE-section
 // interface-method block (CLASS_FLAG_INTERFACE gated) gains a per-method
 // `is_static:u8` after `pcount`, before `ptype`s (mirrors the SIGS is_static byte).
 // Interface methods previously carried no modifier bits, so a `static abstract`
@@ -172,7 +172,7 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // compiler's cross-package interface-satisfaction check to skip imported interfaces
 // (#636 stopgap). The runtime consumes the byte to keep the cursor aligned (vtable
 // dispatch ignores it); IfaceMethodSig now carries it for faithful metadata.
-// 2026-09-16 assoc-type-crosspkg: bumped to 1.42 — cross-package associated types.
+// assoc-type-crosspkg: bumped to 1.42 — cross-package associated types.
 // (1) The constraint bundle gains bit7 = has_assoc_binding (assoc_count:u8 +
 // (name_idx:u32, type_idx:u32)×n, after the interface list), carrying a
 // `where T:IEnum<Item=int>` binding. (2) Every TYPE record gains an always-present
@@ -183,16 +183,16 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // IsImported guards in the compiler. Associated types are compile-time only; the
 // runtime consumes both new payloads for cursor alignment (does not validate them).
 //
-// 2026-09-17 fix-ref-lvalue-addressing: bumped to 1.43 — z42c starts emitting
+// fix-ref-lvalue-addressing: bumped to 1.43 — z42c starts emitting
 // LoadElemAddr (0xA1) / LoadFieldAddr (0xA2) for `ref arr[i]` / `ref obj.f`.
-// 2026-09-22 drop-short-primitive-aliases: bumped to 1.44 — **string-pool content
+// drop-short-primitive-aliases: bumped to 1.44 — **string-pool content
 // change**, no layout change. The compiler's canonical primitive spelling moves from
 // the short aliases (`i8`/`i16`/`u8`/`u16`/`u32`/`u64`) to the C# keywords
 // (`sbyte`/`short`/`byte`/`ushort`/`uint`/`ulong`), so every type name written into
 // SIGS / TYPE / FUNC changes accordingly; `Tag.FromName` rebinds the narrow integer
 // family onto the keywords (return-type tags stay one-for-one, and the keyword
 // spellings that used to fall through to Object(0x20) now get their correct tag).
-// 2026-09-27 type-section-flags2-and-struct-fields: bumped to 1.45 — the TYPE record
+// type-section-flags2-and-struct-fields: bumped to 1.45 — the TYPE record
 // gains (1) an **always-present `class_flags2:u16`** right after `visibility`, and
 // (2) a `class_flags2` bit0-gated **per-field struct layout table** after the struct
 // reference-bitmap block (`field_count:u16 + (off:u32, size:u32, kind:u8)×n`, parallel
@@ -202,83 +202,83 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // Why a second flags word: `class_flags` is a u8 with all 8 bits taken. Running out
 // already cost something concrete — the 1.33/1.34 object block had to be gated by a
 // **derived predicate** mirrored on both sides instead of a flag bit.
-// 2026-10-12 retire-tidx: bumped to 1.47 — the TIDX section is gone (tests are discovered by
+// retire-tidx: bumped to 1.47 — the TIDX section is gone (tests are discovered by
 // runtime reflection in z42.harness, so the compiler no longer writes a test index), and `MkClos`
 // drops its always-zero trailing u8 (the former stack-alloc flag; closures are always heap).
 pub const ZBC_VERSION_MINOR: u16 = 47;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
-// Strict-pin policy (freeze-zpkg-v0, 2026-05-14). Same coupling rules as zbc:
+// Strict-pin policy (freeze-zpkg-v0). Same coupling rules as zbc:
 // reader accepts exactly major == ZPKG_VERSION_MAJOR && minor == ZPKG_VERSION_MINOR.
 // Additionally, zbc minor bump REQUIRES zpkg minor bump (strong coupling per
 // docs/internals/src/formats/zpkg.md). See docs/internals/src/devinfra/format-bump.md for the bump
 // procedure (zbc bump → 4 zbc steps + 4 zpkg steps in the same commit).
 
 pub const ZPKG_VERSION_MAJOR: u16 = 0;
-// 2026-06-06 aggregate-zpkg-tidx: bumped to 0.11 to match ZpkgWriter; the
+// aggregate-zpkg-tidx: bumped to 0.11 to match ZpkgWriter; the
 // only zpkg wire-format delta is the per-module trailing `tidx_len: u32 +
 // tidx_data` after REGT inside MODS. Reader for those new fields lives
 // below in `read_mods_section` (returns 3-tuple incl. raw TIDX bytes);
 // `loader::load_zpkg_bytes` aggregates entries with cumulative function +
 // string-pool offsets so the public LoadedArtifact.test_index resolves
 // against the merged module's index space.
-// 2026-06-09 add-attribute-reflection (C3): bumped to 0.12 to mirror ZpkgWriter,
+// add-attribute-reflection (C3): bumped to 0.12 to mirror ZpkgWriter,
 // coupled with inner zbc 1.10 (per-class attribute refs). Outer zpkg layout
 // unchanged; bump tracks the inner zbc format change per the coupling rule.
-// 2026-06-09 add-attribute-reflection-methods (C3b): bumped to 0.13, coupled
+// add-attribute-reflection-methods (C3b): bumped to 0.13, coupled
 // with inner zbc 1.11 (per-function attr refs).
-// 2026-06-10 add-reflection-type-flags: bumped to 0.14, coupled with inner
+// add-reflection-type-flags: bumped to 0.14, coupled with inner
 // zbc 1.12 (TYPE section class-shape flags byte).
-// 2026-06-10 add-reflection-static-fields: bumped to 0.15, coupled with inner
+// add-reflection-static-fields: bumped to 0.15, coupled with inner
 // zbc 1.13 (TYPE section static-fields block).
-// 2026-06-10 add-field-attribute-reflection: bumped to 0.16, coupled with inner
+// add-field-attribute-reflection: bumped to 0.16, coupled with inner
 // zbc 1.14 (per-field attr-ref block).
-// 2026-06-10 add-parameter-attribute-reflection: bumped to 0.17, coupled with
+// add-parameter-attribute-reflection: bumped to 0.17, coupled with
 // inner zbc 1.15 (per-parameter attr-ref block in SIGS).
-// 2026-06-11 add-reflection-array-element-type: bumped to 0.18, coupled with
+// add-reflection-array-element-type: bumped to 0.18, coupled with
 // inner zbc 1.16 (ArrayNew/ArrayNewLit element-type field).
-// 2026-06-14 add-reflection-get-interfaces: bumped to 0.19, coupled with inner
+// add-reflection-get-interfaces: bumped to 0.19, coupled with inner
 // zbc 1.17 (TYPE section per-class interface block).
-// 2026-06-16 add-reflection-generic-type-definition: bumped to 0.20, coupled with
+// add-reflection-generic-type-definition: bumped to 0.20, coupled with
 // inner zbc 1.18 (new Typeof opcode w/ structured generic args).
-// 2026-06-16 add-reflection-interface-class-predicates: bumped to 0.21, coupled
+// add-reflection-interface-class-predicates: bumped to 0.21, coupled
 // with inner zbc 1.19 (interfaces emit minimal TYPE entry; class_flags bit4).
-// 2026-06-16 add-reflection-assignable-from: bumped to 0.22, coupled with inner
+// add-reflection-assignable-from: bumped to 0.22, coupled with inner
 // zbc 1.20 (TYPE-section interface block stores FQ names).
-// 2026-07-01 add-params-varargs: bumped to 0.23 (zpkg-only; inner zbc unchanged).
+// add-params-varargs: bumped to 0.23 (zpkg-only; inner zbc unchanged).
 // TSIG method/function records gain a trailing paramsFrom byte (0xFF = none)
 // right after the existing paramCount byte, before the per-parameter entries.
-// 2026-07-08 add-indexed-zpkg-min-patch: bumped to 0.24 (zpkg-only; inner zbc
+// add-indexed-zpkg-min-patch: bumped to 0.24 (zpkg-only; inner zbc
 // unchanged; packed byte layout unchanged). Indexed mode redefined: main file =
 // packed sections minus MODS plus FILE (per file: ns/src/srcHash pool idx +
 // fnCount u16 + firstSig u32 + zbcHash pool idx — BLAKE3-128 hex of the
 // scattered self-contained fullMode <stem>.zbc). VM loads indexed via the
 // path-aware loader (scattered zbc verified against zbcHash).
-// 2026-07-09 reencode-strs-segment-dict: bumped to 0.25, coupled with inner zbc
+// reencode-strs-segment-dict: bumped to 0.25, coupled with inner zbc
 // 1.21 (STRS segment-dict re-encoding). Outer zpkg section layout unchanged; the
 // STRS section body — shared with .zbc via the same reader — carries the new
 // segment-dict encoding. Also applies to the .zsym sidecar's symPool STRS.
-// 2026-07-09 add-enum-type-metadata: bumped to 0.26, coupled with inner zbc 1.22
+// add-enum-type-metadata: bumped to 0.26, coupled with inner zbc 1.22
 // (TYPE-section enum member block). Outer zpkg layout unchanged.
-// 2026-07-09 add-member-visibility: bumped to 0.27, coupled inner zbc 1.23
+// add-member-visibility: bumped to 0.27, coupled inner zbc 1.23
 // (TYPE/SIGS member visibility). Outer zpkg layout unchanged.
-// 2026-07-10 add-method-modifiers: bumped to 0.28, coupled inner zbc 1.24
+// add-method-modifiers: bumped to 0.28, coupled inner zbc 1.24
 // (SIGS +method_flags:u8). Outer zpkg layout unchanged.
-// 2026-07-10 add-param-metadata: bumped to 0.29, coupled inner zbc 1.25.
-// 2026-07-11 add-delegate-metadata: bumped to 0.30, coupled inner zbc 1.26.
-// 2026-07-11 drop-tsig-expt (unify P3): bumped to 0.31 - zpkg top-level EXPT + TSIG sections
+// add-param-metadata: bumped to 0.29, coupled inner zbc 1.25.
+// add-delegate-metadata: bumped to 0.30, coupled inner zbc 1.26.
+// drop-tsig-expt (unify P3): bumped to 0.31 - zpkg top-level EXPT + TSIG sections
 // removed (EXPT write-only; TSIG superseded by TsigReconcile.Rebuild from TYPE/SIGS). IMPL kept.
-// 2026-07-14 stabilize-dispatch-keys (方案A): bumped to 0.32, coupled inner zbc 1.27.
+// stabilize-dispatch-keys (方案A): bumped to 0.32, coupled inner zbc 1.27.
 // Dispatch keys are now a pure function of each method's own signature (always
 // full-signature mangled; protocol-exempt names stay bare), so exported method
 // names / SIGS / embedded zbc CallInstr operands are globally re-keyed. Outer
 // zpkg layout unchanged. The bump triggers ci-bootstrap's version-diff gate →
 // two-generation self-host rebuilds the whole tree onto the stable keys.
-// 2026-07-18 fix-crosspkg-interface-impl: bumped to 0.33, coupled inner zbc 1.28
+// fix-crosspkg-interface-impl: bumped to 0.33, coupled inner zbc 1.28
 // (interface TYPE entries gain a method-signature block; see zbc changelog).
 // Outer zpkg layout unchanged.
-// add-offline-symbolication (2026-08-04): the SymOnly (.zsym) sidecar MDBG layout
+// add-offline-symbolication : the SymOnly (.zsym) sidecar MDBG layout
 // changed WITHIN minor 33 (per-module now carries `funcCount + per-func
 // frameName_idx[]` before the dbug blob so `.zsym` self-maps func-name → line
 // table for offline `z42d symbolicate`). NOT a minor bump: MDBG lives only in the
@@ -286,55 +286,55 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // distributed stable artifact); writer + this reader land together; regular zpkg
 // bytes are unchanged. read_mdbg_section skips the frame-name idxs (runtime merges
 // sidecar line tables by index, names come from the main zpkg).
-// 2026-08-04 add-escape-analysis-stack-alloc: bumped to 0.34, coupled inner zbc 1.29
+// add-escape-analysis-stack-alloc: bumped to 0.34, coupled inner zbc 1.29
 // (ObjNew/ArrayNew/ArrayNewLit gain a trailing u8 stack-alloc flag). Outer zpkg
 // layout unchanged; the bump triggers ci-bootstrap's version-diff two-gen self-host.
-// 2026-08-06 impl-sealed-semantics-devirt: bumped to 0.35, coupled inner zbc 1.30
+// impl-sealed-semantics-devirt: bumped to 0.35, coupled inner zbc 1.30
 // (SIGS method_flags bit2=sealed). Outer zpkg layout unchanged; the bump triggers
 // ci-bootstrap's version-diff two-gen self-host.
 //
-// 2026-08-08 add-struct-value-semantics A-use: bumped to 0.36, coupled inner zbc
+// add-struct-value-semantics A-use: bumped to 0.36, coupled inner zbc
 // 1.31 (TYPE value-struct layout block + blob value-type instruction emission).
-// 2026-08-11 add-struct-heap-inline P3b: bumped to 0.37, coupled inner zbc 1.32
+// add-struct-heap-inline P3b: bumped to 0.37, coupled inner zbc 1.32
 // (TYPE composed inline-struct layout block, Flags bit7 gated). Outer zpkg layout
 // unchanged; the bump triggers ci-bootstrap's version-diff two-gen self-host.
-// 2026-08-13 enforce-class-access: bumped to 0.38, coupled inner zbc 1.33 (TYPE
+// enforce-class-access: bumped to 0.38, coupled inner zbc 1.33 (TYPE
 // class-declaration visibility byte). Outer zpkg layout unchanged; the bump triggers
 // ci-bootstrap's version-diff two-gen self-host.
-// 2026-08-14 unify-object-byte-layout PR-1: bumped to 0.39, coupled inner zbc 1.34
+// unify-object-byte-layout PR-1: bumped to 0.39, coupled inner zbc 1.34
 // (TYPE full object field layout block for normal reference classes). Outer zpkg
 // layout unchanged; the bump triggers ci-bootstrap's version-diff two-gen self-host.
-// 2026-08-14 unify-object-byte-layout PR-3 chunk 2a: bumped to 0.40, coupled inner zbc
+// unify-object-byte-layout PR-3 chunk 2a: bumped to 0.40, coupled inner zbc
 // 1.35 (TYPE object-block direct-field FieldKinds refinement: coarse ArrRef split into
 // GcRefArray/GcRefClosure so the runtime can safely inline object/array refs in chunk
 // 2b). Outer zpkg layout unchanged; the bump triggers ci-bootstrap's version-diff
 // two-gen self-host.
-// 2026-08-21 add-generic-methods: bumped to 0.41, coupled inner zbc 1.36 (method-level
+// add-generic-methods: bumped to 0.41, coupled inner zbc 1.36 (method-level
 // generic type_args new opcodes; non-generic calls byte-identical). Outer zpkg layout
 // unchanged; the bump triggers ci-bootstrap's version-diff two-gen self-host.
-// 2026-09-02 fix-generic-array-value-zero-init: bumped to 0.42, coupled inner zbc 1.37
+// fix-generic-array-value-zero-init: bumped to 0.42, coupled inner zbc 1.37
 // (ArrayNew trailing type-param reference for generic value-type zero-init). Outer zpkg
 // layout unchanged; the bump triggers ci-bootstrap's version-diff two-gen self-host.
-// 2026-09-13 encode-ctorless-objnew: bumped to 0.44 — embeds zbc 1.39 (ObjNew
+// encode-ctorless-objnew: bumped to 0.44 — embeds zbc 1.39 (ObjNew
 // gains the trailing `ctor_known` u8). No zpkg-outer layout change.
-// 2026-09-14 fix-call-arity-skew: bumped to 0.45 — embeds zbc 1.40 (SIGS
+// fix-call-arity-skew: bumped to 0.45 — embeds zbc 1.40 (SIGS
 // method_flags bit3 = sret). No zpkg-outer layout change.
-// 2026-09-15 fix-imported-iface-static-fidelity: bumped to 0.46 — embeds zbc 1.41
+// fix-imported-iface-static-fidelity: bumped to 0.46 — embeds zbc 1.41
 // (interface-method block gains is_static:u8). No zpkg-outer layout change; the bump
 // triggers ci-bootstrap's version-diff two-gen self-host.
-// 2026-09-16 assoc-type-crosspkg: bumped to 0.47 — embeds zbc 1.42 (constraint bundle
+// assoc-type-crosspkg: bumped to 0.47 — embeds zbc 1.42 (constraint bundle
 // bit7 + TYPE unified assoc block, cross-package associated types). No zpkg-outer
 // layout change; the bump triggers ci-bootstrap's version-diff two-gen self-host.
-// 2026-09-17 fix-ref-lvalue-addressing: bumped to 0.48 — embeds zbc 1.43.
-// 2026-09-22 drop-short-primitive-aliases: bumped to 0.49 — embeds zbc 1.44
+// fix-ref-lvalue-addressing: bumped to 0.48 — embeds zbc 1.43.
+// drop-short-primitive-aliases: bumped to 0.49 — embeds zbc 1.44
 // (canonical primitive spelling short-name -> C# keyword). No zpkg-outer layout change;
 // the bump triggers ci-bootstrap's version-diff two-gen self-host.
-// 2026-09-27 type-section-flags2-and-struct-fields: bumped to 0.50 — embeds zbc 1.45
+// type-section-flags2-and-struct-fields: bumped to 0.50 — embeds zbc 1.45
 // (TYPE record: always-present class_flags2 + gated per-field struct layout table).
 // Outer layout unchanged.
-// 2026-10-06 precise-pkg-refs: bumped to 0.52 — DEPS entries gain `u32 symCount; u32×symIdx`
+// precise-pkg-refs: bumped to 0.52 — DEPS entries gain `u32 symCount; u32×symIdx`
 // (referenced type / free-function full names defined by that dependency) for precise lazy routing.
-// 2026-10-12 retire-tidx: bumped to 0.53 — embeds zbc 1.47; each MODS module record drops its
+// retire-tidx: bumped to 0.53 — embeds zbc 1.47; each MODS module record drops its
 // trailing `tidx_len: u32 + tidx_data` (four length-prefixed bodies: func/type/dbug/regt).
 pub const ZPKG_VERSION_MINOR: u16 = 53;
 
@@ -354,7 +354,7 @@ pub(super) fn verify_zbc_version(data: &[u8]) -> Result<()> {
     if &data[0..4] != ZBC_MAGIC { bail!("not a binary zbc (bad magic)") }
     let major = u16::from_le_bytes([data[4], data[5]]);
     let minor = u16::from_le_bytes([data[6], data[7]]);
-    // Strict-pin policy (freeze-zbc-v1, 2026-05-14): exact match with writer.
+    // Strict-pin policy (freeze-zbc-v1): exact match with writer.
     // Pre-1.0 z42 doesn't keep older zbc minor readable; regen via xtask regen.
     if major != ZBC_VERSION_MAJOR {
         return Err(FormatVersionMismatch::zbc_major(major).into());
@@ -375,7 +375,7 @@ pub(super) fn verify_zpkg_version(data: &[u8]) -> Result<()> {
     if &data[0..4] != ZPKG_MAGIC { bail!("not a binary zpkg (bad magic)") }
     let major = u16::from_le_bytes([data[4], data[5]]);
     let minor = u16::from_le_bytes([data[6], data[7]]);
-    // Strict-pin policy (freeze-zpkg-v0, 2026-05-14): exact match with writer.
+    // Strict-pin policy (freeze-zpkg-v0): exact match with writer.
     // Pre-1.0 z42 doesn't keep older zpkg minor readable; regen via
     // xtask build stdlib.
     if major != ZPKG_VERSION_MAJOR {
@@ -387,7 +387,7 @@ pub(super) fn verify_zpkg_version(data: &[u8]) -> Result<()> {
     Ok(())
 }
 
-// ── typed format-version mismatch (fix-version-mismatch-diagnosis, 2026-09-05) ──
+// ── typed format-version mismatch (fix-version-mismatch-diagnosis) ──
 //
 // Why a distinct error type rather than the former `bail!("…")` strings: the
 // strict-pin policy above makes a version mismatch **unrecoverable** — a z42vm
@@ -441,7 +441,7 @@ impl FormatVersionMismatch {
 
 impl std::fmt::Display for FormatVersionMismatch {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Byte-identical to the pre-2026-09-05 inline `bail!` strings.
+        // Byte-identical to the pre- inline `bail!` strings.
         match (self.kind, self.major_differs) {
             (FormatKind::Zbc, true) => write!(
                 f, "zbc major {} not supported (writer is at {})", self.found.0, self.writer.0),

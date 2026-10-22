@@ -78,7 +78,7 @@ fn from_descriptor_reads_name_and_methods() {
     assert!(!m.fn_ptr.is_null());
 }
 
-// 2026-05-11 retire-z-codes: error messages no longer carry `Z####:`
+// retire-z-codes: error messages no longer carry `Z####:`
 // prefixes; assertions match the diagnostic text body directly.
 
 #[test]

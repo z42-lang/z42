@@ -1,4 +1,4 @@
-// launcher_export_ios.z42 — iOS Xcode project generator (add-export-command, 2026-06-14).
+// launcher_export_ios.z42 — iOS Xcode project generator (add-export-command).
 // Called by _cmdExportIos in launcher_export.z42.
 //
 // Generates a bare .xcodeproj (project.pbxproj with deterministic 24-char hex IDs),

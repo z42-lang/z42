@@ -1,6 +1,6 @@
 //! Reflection builtins — read-only type introspection backing `Std.Type` and
-//! `Std.Reflection.{FieldInfo,MethodInfo,ParameterInfo}` (add-reflection-mvp,
-//! 2026-06-08).
+//! `Std.Reflection.{FieldInfo,MethodInfo,ParameterInfo}` (add-reflection-mvp).
+//!
 //!
 //! Design (see 变更 add-reflection-mvp/design.md):
 //!   - `Std.Type` objects carry the real `Arc<TypeDesc>` in

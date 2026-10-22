@@ -1,6 +1,6 @@
 //! Filesystem platform operations — permission bits + symlinks.
 //!
-//! review.md Part 1 P2 Phase 2 (2026-06-11, add-pal-fs): migrates the
+//! review.md Part 1 P2 Phase 2 (add-pal-fs): migrates the
 //! `#[cfg(unix)]` blocks out of `corelib/fs.rs::builtin_file_make_executable`
 //! and `builtin_file_symlink`. The unix / non-unix split lives entirely inside
 //! this file, so `corelib/fs.rs` carries zero `#[cfg(...)]` for these ops

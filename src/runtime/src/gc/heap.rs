@@ -170,7 +170,7 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     /// 持有的、不通过 GC handle 持有的 `Value`（如 `static_fields` 槽位、
     /// pending exception、frame regs 等）。
     ///
-    /// **add-multithreading-foundation Phase 2.2 (2026-05-19)**：本方法从
+    /// **add-multithreading-foundation Phase 2.2 **：本方法从
     /// `ArcMagrGC` 专属升级到 trait 接口，因为 `heap` 字段在本阶段移入 VmCore
     /// 后，scanner 必须能通过 `Box<dyn MagrGC>` 安装（VmCore 构造完毕拿到
     /// `Weak<VmCore>` 再 install）。
@@ -180,12 +180,12 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     /// 仅 `ArcMagrGC` 重载）。
     fn set_external_root_scanner(&self, _scanner: super::arc_heap::ExternalRootScanner) {}
 
-    /// **add-lazy-context-unload (2026-08-05)**: wire the collectible-context
+    /// **add-lazy-context-unload **: wire the collectible-context
     /// reclaimer hook (drives `AssemblyLoadContext` unload reclamation on major
     /// GC). Default no-op; only `ArcMagrGC` overrides.
     fn set_context_reclaimer(&self, _hook: super::arc_heap::ContextReclaimHook) {}
 
-    /// **add-heap-retention-diagnostics (2026-08-06)**: wire the categorized
+    /// **add-heap-retention-diagnostics **: wire the categorized
     /// root scanner (for retention-query L2). Default no-op; `ArcMagrGC` overrides.
     fn set_categorized_root_scanner(&self, _scanner: super::arc_heap::CategorizedRootScanner) {}
 
@@ -201,7 +201,7 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
         Vec::new()
     }
 
-    /// **add-gc-safepoint-auto-threshold (2026-05-20)**: register the external
+    /// **add-gc-safepoint-auto-threshold **: register the external
     /// "needs collect" flag that turns an allocator pressure-trip into a
     /// *deferred*, safepoint-coordinated collect rather than an inline one.
     ///
@@ -267,7 +267,7 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
 
     /// 字段写屏障：当 `owner` 对象的第 `slot` 字段被赋为 `new` 时通知 GC。
     ///
-    /// **Caller 契约 (add-write-barriers, 2026-05-21)**: callers (interp /
+    /// **Caller 契约 (add-write-barriers)**: callers (interp /
     /// JIT FieldSet path) MUST invoke this exactly when `new.is_heap_ref()
     /// == true`. Primitive writes (`I64 / F64 / Bool / Char / Str / Null /
     /// FuncRef / PinnedView / Ref::Stack`) skip the call —
@@ -335,7 +335,7 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
         panic!("set_mode not supported by this MagrGC impl");
     }
 
-    /// **add-custom-allocator P2 (2026-05-22)**: explicit finalize.
+    /// **add-custom-allocator P2 **: explicit finalize.
     /// User-facing entry point via `Std.GC.Finalize(x)` z42 builtin.
     /// Fires `value`'s registered finalizer immediately (one-shot)
     /// and tombstones the slot so future strong references panic on
@@ -404,7 +404,7 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     /// 已用字节数（同 `stats().used_bytes`）。
     fn used_bytes(&self) -> u64;
 
-    /// 启用 / 关闭 **strict OOM 模式**。Phase 3-OOM (2026-04-29)。
+    /// 启用 / 关闭 **strict OOM 模式**。Phase 3-OOM。
     /// 默认 false（行为兼容历史：alloc 越界仅 fire 事件不拒绝）。
     /// 启用后：`alloc_*` 越过 `max_heap_bytes` 时返回 `Value::Null`、不入 registry、
     /// 不 bump used_bytes，仍 fire `OutOfMemory` 事件让 observer 感知。
@@ -412,7 +412,7 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     /// host 可通过 OOM observer 提前感知并主动管理（kill VM / 重置 heap 等）。
     fn set_strict_oom(&self, _enabled: bool) {}
 
-    /// **add-gc-tlab (stage 2, 2026-08-29)**: retire the **calling thread's**
+    /// **add-gc-tlab (stage 2)**: retire the **calling thread's**
     /// TLAB — merge every borrowed chunk's filled prefix back into the shared
     /// region and drop the claims, leaving the thread's TLAB unbound.
     ///
@@ -457,7 +457,7 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     /// 创建对 `value` 的弱引用。原子值（I64/Str/Null/...）返回 `None`。
     fn make_weak(&self, value: &Value) -> Option<WeakRef>;
 
-    // ── 8.6 Soft references（add-gc-softref，2026-05-26）────────────────────
+    // ── 8.6 Soft references（add-gc-softref）────────────────────
     //
     // Soft references keep their target alive when heap pressure is below
     // `Z42_GC_SOFT_THRESHOLD` (default 0.80). Above the threshold the
@@ -488,7 +488,7 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
     /// 尝试从弱引用恢复强引用。若目标已被回收（无强引用持有）返回 `None`。
     fn upgrade_weak(&self, weak: &WeakRef) -> Option<Value>;
 
-    // ── 8.5 Handle table（reorganize-gc-stdlib，2026-05-07）─────────────────
+    // ── 8.5 Handle table（reorganize-gc-stdlib）─────────────────
     //
     // Slab + free-list backed handle table that powers `Std.GCHandle` (struct,
     // single `_slot: long`). Slot 0 is reserved as the "unallocated" sentinel —

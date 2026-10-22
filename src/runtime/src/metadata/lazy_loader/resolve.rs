@@ -60,7 +60,7 @@ impl LazyLoader {
         }
         // Fallback B: try every remaining declared-but-not-loaded zpkg.
         //
-        // defer-class-initialization (2026-09-04): **到不动点**。`declared_zpkgs` 是
+        // defer-class-initialization : **到不动点**。`declared_zpkgs` 是
         // 增量集合——加载一个包会把它自己的依赖注册成新候选。一轮扫完不等于闭包：
         // xtask 的 `Std.IO.Process` 就出现在「8 个直接依赖都加载完、z42.io 才刚成为候选」
         // 的窗口里，单轮 Fallback-B 会漏掉它并返回 None。变更前这个窗口被 boot 期
@@ -112,7 +112,7 @@ impl LazyLoader {
         if self.base_chain_complete(class_name) {
             return Some(td);
         }
-        // defer-class-initialization (2026-09-04): 返回前保证**基类闭包已就位**。
+        // defer-class-initialization : 返回前保证**基类闭包已就位**。
         //
         // `needs_fixup` 对「基类还没加载」的子类返回 false（"base still unresolvable"），
         // 于是一个跨包子类会以**未合并布局**被返回——基类字段没有槽位，构造函数里

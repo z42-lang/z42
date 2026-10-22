@@ -15,7 +15,7 @@ use crate::vm_context::VmContext;
 
 const STD_RETAINER: &str = "Std.Diagnostics.Retainer";
 const STD_ROOTREF: &str = "Std.Diagnostics.RootRef";
-/// expose-diagnostics-counters (2026-08-23): return type of
+/// expose-diagnostics-counters : return type of
 /// `Std.Diagnostics.Runtime.Counters()` — 11 read-only auto-properties
 /// (7 runtime counters + `allocations` + 3 generational GC fields).
 const STD_RUNTIME_COUNTERS: &str = "Std.Diagnostics.RuntimeCounters";
@@ -97,7 +97,7 @@ pub fn builtin_heap_retaining_roots(ctx: &VmContext, args: &[Value]) -> Result<V
 
 /// `Std.Diagnostics.Runtime.Counters()` (static) → `RuntimeCounters`.
 ///
-/// expose-diagnostics-counters (2026-08-23, script-profiling P1c): surfaces the
+/// expose-diagnostics-counters (script-profiling P1c): surfaces the
 /// runtime counter snapshot + heap-derived numbers to z42 scripts. Same two
 /// sources `app.rs` merges into its `ProfileSnapshot` for `--print-stats-on-exit`
 /// (`RuntimeCounters::snapshot` + `HeapStats`), so a script reading these fields

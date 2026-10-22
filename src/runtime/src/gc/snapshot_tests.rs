@@ -1,5 +1,5 @@
 //! Unit tests for V8 heap-snapshot export
-//! (add-gc-heap-snapshot-export, 2026-05-24).
+//! (add-gc-heap-snapshot-export).
 //!
 //! Covers graph build correctness (id assignment, edge typing,
 //! cycles) and V8 JSON layout shape (top-level keys, meta layout,
@@ -303,7 +303,7 @@ fn root_edge_count_matches_pinned_root_count() {
     let _ = std::mem::size_of::<&ScriptObject>();
 }
 
-// ── add-gc-snapshot-streaming (2026-05-25) ───────────────────────────────────
+// ── add-gc-snapshot-streaming  ───────────────────────────────────
 
 /// Build a small but non-trivial snapshot the streaming tests can share.
 /// Three nodes (root + 2 objects, one referencing the other) + a few

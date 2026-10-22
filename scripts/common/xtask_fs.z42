@@ -1,4 +1,4 @@
-// xtask — 文件系统原语（scripts-batch3-layering, 2026-09-06）。
+// xtask — 文件系统原语（scripts-batch3-layering）。
 //
 // 这些是**不属于任何命令族**、被 common/ build/ test/ package/ 多方共用的最底层
 // 操作。此前它们散落在各命令族的实现文件里，造成三条反向依赖：
@@ -37,7 +37,7 @@ void _resetDir(string d) {
 // **硬链接**上写，会把同 inode 的**所有**路径一起改掉 —— 包括那个你没打算碰的源文件。
 //
 // 这不是理论风险，`_assembleStdlibFlatView` 今天就在造这种别名（flat 里每个 zpkg 与
-// 对应成员 dist 同 inode，实测 `links=2`）。实测（2026-09-28，临时目录）：
+// 对应成员 dist 同 inode，实测 `links=2`）。实测(临时目录）：
 //   member/p.zpkg ← 硬链接 → flat/p.zpkg，然后 `cp seed.zpkg flat/p.zpkg`
 //   ⇒ **member/p.zpkg 的内容当场变成 seed 的字节**。
 // 可达路径就在供种里：`_ensureSeed` 的 `_copyAll(stdlibDir, flatDir, "z42.*.zpkg")`
@@ -139,7 +139,7 @@ void _makeExe(string path) {
 // 之后的构建 / 运行全部在
 // 拷贝里进行。好处不只是源码树干净：
 //   · 每轮从零开始 —— 彻底消掉「上一轮留在源码树里的旧格式 zpkg 赢过本轮产物」这一整类假红
-//     （2026-09-27 实测 52 个 cross-zpkg 失败，见 `_spawnBuildPkgE` 的头注）；
+//     （实测 52 个 cross-zpkg 失败，见 `_spawnBuildPkgE` 的头注）；
 //   · 对任何 z42c（含种子）都有效，不依赖 z42c 的 `--output-dir` 是否接管 cache。
 // 拷贝时跳过 `artifacts/` / `dist/`（旧工作树里的残留），其余原样（夹具间的相对 path 依赖不变）。
 string _stageFixtureTree(string root, string srcRel) {

@@ -16,7 +16,7 @@
 //! z42 当前没有稳定的 `Map<string,string>` marshal 通路；`Environment
 //! .GetEnvironmentVariables()` 已经确立了"扁平数组 + 调用方切分"的约定，这里沿用。
 //!
-//! complete-runtime-settings P4（2026-09-05）。
+//! complete-runtime-settings P4。
 
 use crate::config::{is_available, knob_by_key, runtime_config, BuildCtx, KNOWN_KNOBS};
 use crate::metadata::Value;

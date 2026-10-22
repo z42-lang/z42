@@ -1,8 +1,8 @@
 // xtask — `setup`：按 versions.toml 装开发依赖（native port of the former scripts/setup-tools.sh）。
 // Source-of-truth = versions.toml (parsed with Std.Toml, no python).
 //
-// 依赖两层模型（simplify-xtask-deps, User 裁决 2026-07-07）：
-//   无 --os = 当前 host 基础（跨平台 rust/node 检查，不装交叉栈；User 裁决 2026-07-08）
+// 依赖两层模型（simplify-xtask-deps, User 裁决）：
+//   无 --os = 当前 host 基础（跨平台 rust/node 检查，不装交叉栈；User 裁决）
 //   平台必备 — 该平台构建/测试没它就跑不了，`setup --os <p>` 显式装：
 //     android = rust targets + cargo-ndk + JDK check + build SDK (cmdline-tools
 //               + platforms;<p> + build-tools;<bt> + platform-tools + ndk;<ver>)
@@ -36,7 +36,7 @@ int _setupInstall(string platform, bool force) {
     _checkRust(toml);
     _checkNode(toml);
 
-    // 无 --os = 当前 host 基础（User 裁决 2026-07-08：默认不铺开装全部平台栈）。
+    // 无 --os = 当前 host 基础（User 裁决：默认不铺开装全部平台栈）。
     // host 开发只需上面的跨平台基础；android/ios/wasm 交叉栈显式 --os 才装。
     if (platform.Length == 0) {
         Console.WriteLine("");
@@ -197,7 +197,7 @@ string _nthDot(string s, int n) {
 // ── 下载 ─────────────────────────────────────────────────────────────────────
 
 // `curl` 下载到 outPath。三个 install 下载点（node / android cmdline-tools / gradle）
-// 此前各自拼一遍完全相同的 4 个 flag——这里收成一处（dedupe-cross-multiexe, 2026-09-06）。
+// 此前各自拼一遍完全相同的 4 个 flag——这里收成一处（dedupe-cross-multiexe）。
 //
 // **这四个 flag 不是可选装饰**，尤其 `--fail`：没有它，curl 遇到 4xx/5xx 会把错误页
 // **以 0 退出码**写进 outPath，于是一个 HTML 错误页被当成 tarball/zip 交给下游解压
@@ -330,7 +330,7 @@ int _setupIos(string root, TomlValue toml, string mode) {
 // ── wasm ───────────────────────────────────────────────────────────────────
 
 // wasm 平台必备：rust targets + wasm-pack + hermetic node。node 从"用户手动 step"
-// 升为 wasm 必备（simplify-xtask-deps, User 裁决 2026-07-07）——wasm 测试面
+// 升为 wasm 必备（simplify-xtask-deps, User 裁决）——wasm 测试面
 // （pkg-nodejs smoke + Playwright）没有 node 跑不了。mode: "install" | "check"。
 int _setupWasm(string root, TomlValue toml, string mode, bool force) {
     Console.WriteLine("── wasm ──");

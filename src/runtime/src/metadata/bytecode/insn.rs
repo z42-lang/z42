@@ -1,4 +1,4 @@
-//! 指令载荷结构（*Insn）与 Reg。refactor-split-bytecode（2026-09-03）：从 1334 行的 `bytecode.rs` 按职责拆出，
+//! 指令载荷结构（*Insn）与 Reg。refactor-split-bytecode：从 1334 行的 `bytecode.rs` 按职责拆出，
 //! 对外路径不变（`metadata::bytecode::*` 经 hub 的 `pub use` 全量再导出）。
 
 #![allow(unused_imports)]
@@ -11,7 +11,7 @@ use std::sync::Arc;
 /// Register index.
 pub type Reg = u32;
 
-// ── Boxed instruction payloads (slim-instruction-enum, 2026-06-11) ───────────
+// ── Boxed instruction payloads (slim-instruction-enum) ───────────
 // Variants carrying a `String` (name-bearing, cold) keep their payload behind a
 // `Box<XxxInsn>` so the `Instruction` enum stays ≤32 B (was ~120 B). Hot
 // register/scalar variants remain inline. JSON wire format is unchanged: an

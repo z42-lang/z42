@@ -50,7 +50,7 @@ pub(super) fn add(
     // `ToString` 返回的 GC 串原样借用——直接和另一侧一起拷进结果块（一次 GC 分配，零 malloc）。
     let result = match (frame.get(a)?, frame.get(b)?) {
         (Value::Str(_), _) | (_, Value::Str(_)) => return add_str(ctx, module, frame, dst, a, b),
-        // 2026-04-28 vm-wrapping-int-arith: wrapping_add（与 Rust release build /
+        // vm-wrapping-int-arith: wrapping_add（与 Rust release build /
         // C# unchecked int / Java int 一致），解锁 hash / PRNG / 校验和算法
         _ => int_binop(&frame.regs, a, b, i64::wrapping_add, |x, y| x + y)?,
     };
@@ -88,7 +88,7 @@ pub(super) fn mul(frame: &mut Frame, dst: u32, a: u32, b: u32) -> Result<()> {
     Ok(())
 }
 
-/// fix-int-div-by-zero-panic (2026-05-25): pre-fix, `int / 0` and
+/// fix-int-div-by-zero-panic : pre-fix, `int / 0` and
 /// `int % 0` panicked the VM via Rust's `i64::div` instead of throwing
 /// a catchable z42 exception. (Float divide-by-zero correctly yielded
 /// Infinity per IEEE 754 — no fix needed there.) Now: detect zero
@@ -271,7 +271,7 @@ pub(super) fn to_str(
     Ok(())
 }
 
-// ── Numeric cast (spec fix-numeric-cast-lowering, 2026-05-13) ────────────
+// ── Numeric cast (spec fix-numeric-cast-lowering) ────────────
 //
 // converge-vm-arith-semantics (H3): the cast dispatch table + tag constants
 // moved to `crate::semantics::convert_value` (shared with the JIT

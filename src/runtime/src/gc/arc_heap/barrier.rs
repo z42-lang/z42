@@ -1,4 +1,4 @@
-//! **refactor (2026-09-12)**: the generational write barrier, split out of
+//! **refactor **: the generational write barrier, split out of
 //! `generational.rs` (which had reached the 886-line limit).
 //!
 //! The barrier's whole job is the **remembered-set invariant**: every old→young reference the
@@ -14,7 +14,7 @@ use crate::gc::obj_ref::ObjRef;
 use crate::gc::heap::MagrGC;
 
 impl crate::gc::arc_heap::ArcMagrGC {
-    /// **add-generational-gc P1 (2026-05-22)**: cross-gen detection for the write-barrier
+    /// **add-generational-gc P1 **: cross-gen detection for the write-barrier
     /// override. Remembers the owner when it is old (`gen_age >= promotion age`) AND `new` is
     /// young. Same routine for field and array-element barriers; non-heap / stack owners → no-op.
     pub(super) fn maybe_remember_owner(&self, owner: &Value, new: &Value) {
@@ -77,7 +77,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                     new.is_heap_ref(),
                     "write_barrier_field caller must filter primitives via Value::is_heap_ref"
                 );
-                // **add-generational-gc P1 (2026-05-22)**: cross-gen detection. If the owner is old
+                // **add-generational-gc P1 **: cross-gen detection. If the owner is old
                 // AND `new` is young, the owner is remembered so the upcoming minor re-roots from
                 // it (the young target would otherwise be missed).
                 self.maybe_remember_owner(owner, new);

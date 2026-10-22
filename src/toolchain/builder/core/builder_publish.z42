@@ -23,7 +23,7 @@ using Z42.Project;   // ManifestLocator —— 「工程清单在哪」的单一
 // apphost patching is inlined in builder_apphost.z42 (_pubProduceApphost) so z42b
 // stays on stdlib-only deps and still builds in the test-runner context. NOT
 // `using Z42.Workload.Desktop` (that workload wasn't in Z42_LIBS there — and as of
-// 2026-09-29 the package is gone: this inline copy was its only live reader).
+// the package is gone: this inline copy was its only live reader).
 
 // Entry from builder_cli dispatch (`z42b publish <toml> [--rid <rid>] [--output <dir>]`).
 int _cmdPublishZ42b(ParseResult r) {
@@ -379,7 +379,7 @@ bool _pubContains(string[] xs, int count, string v) {
 // build (via z42c, incremental) each workspace-sibling dependency of `tomlPath`, then copy its
 // zpkg into `payloadDir`. 0 on success.
 //
-// .zsym sidecars are intentionally NOT bundled here (User decision 2026-07-01,
+// .zsym sidecars are intentionally NOT bundled here (User decision
 // add-package-layout-config task ④): the desktop SDK's programs/z42c/ tree has
 // never shipped debug-symbol sidecars for the driver's siblings, and this bundler
 // backs xtask's byte/file-identical packaging refactor — adding new files would
@@ -648,7 +648,7 @@ string _pubNativeFileName(string name, string rid) {
 // **这是 payload 里依赖 zpkg 的唯一来源**，而 dist 的内容由 **z42c 的 `_bundleExeDeps`** 决定
 // （复制判据 + 传递闭包）。
 //
-// 📜 add-deployment-model 批 2.3（2026-09-26）：publish 这条路上曾经还挂着第二份闭包实现
+// 📜 add-deployment-model 批 2.3：publish 这条路上曾经还挂着第二份闭包实现
 // `_pubBundleProjectDeps`（BFS 走**源码树 toml**）。实测它是死重：
 //   · repo 外**构造上**就失效 —— `_pubSrcRoot()` 返回 `""` ⇒ 每个依赖都 `continue`、零复制零递归；
 //   · repo 内撤除整条，四个组件的 payload 文件清单**逐字不变**（对账前先清空 publish 目录 ——

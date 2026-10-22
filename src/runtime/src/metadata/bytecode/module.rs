@@ -1,4 +1,4 @@
-//! Module（zbc 模块：函数表 / 类表 / 字符串池 / 类型注册表）。refactor-split-bytecode（2026-09-03）：从 1334 行的 `bytecode.rs` 按职责拆出，
+//! Module（zbc 模块：函数表 / 类表 / 字符串池 / 类型注册表）。refactor-split-bytecode：从 1334 行的 `bytecode.rs` 按职责拆出，
 //! 对外路径不变（`metadata::bytecode::*` 经 hub 的 `pub use` 全量再导出）。
 
 #![allow(unused_imports)]

@@ -23,7 +23,7 @@ pub(crate) mod helpers;
 /// The single native-call sequence (push_frame → compiled code → pop_frame), shared by
 /// the JIT entry, the call helpers and the interpreter's mixed-mode diverts.
 pub(crate) mod invoke;
-/// Lazy per-function compilation state (lazy-per-function-jit, 2026-07-23).
+/// Lazy per-function compilation state (lazy-per-function-jit).
 mod lazy;
 /// The VM's shared JIT state (`VmCore::jit`): slots, compiler, OSR cache.
 pub(crate) mod runtime;
@@ -32,7 +32,7 @@ pub(crate) mod runtime;
 mod reg_access;
 mod translate;
 /// JIT↔VM read-only metadata contract — review.md Part 1 P0 / E1.P2
-/// Phase 1 (2026-06-02). Compile-time path goes through this trait;
+/// Phase 1 . Compile-time path goes through this trait;
 /// helpers still reach Module via raw pointer (Phase 2 territory).
 pub(crate) mod vm_interface;
 
@@ -53,7 +53,7 @@ use helpers::take_exception_error;
 /// static-init). The calling thread's `ctx` is the compiled code's context
 /// parameter for the whole activation.
 ///
-/// lazy-per-function-jit (2026-07-23): the entry is compiled on its first call
+/// lazy-per-function-jit : the entry is compiled on its first call
 /// ([`runtime::JitRuntime::resolve_fn_by_id`]); a non-translatable entry runs on
 /// the interpreter, which still routes hot callees to native code.
 pub fn run_fn(ctx: &VmContext, entry_name: &str) -> Result<()> {
@@ -131,7 +131,7 @@ fn run_with_static_init(ctx: &VmContext, entry_name: &str) -> Result<()> {
 /// whole-module compile time). Per-function compile events are deferred to a
 /// future observability spec (avoids one event per function).
 pub fn run(ctx: &VmContext, module: &Module, entry_name: &str) -> Result<()> {
-    // E1.P2 Phase 1 (2026-06-02): metadata reads routed through `JitVm`.
+    // E1.P2 Phase 1 : metadata reads routed through `JitVm`.
     let function_count = module.functions().len() as u32;
     let start = std::time::Instant::now();
 

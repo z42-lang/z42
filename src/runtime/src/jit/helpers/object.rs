@@ -126,7 +126,7 @@ pub unsafe extern "C" fn jit_typeof(
     (*frame).regs[dst as usize] = v;
 }
 
-// 2026-05-07 add-default-generic-typeparam (D-8b-3 Phase 2): JIT helper for
+// add-default-generic-typeparam (D-8b-3 Phase 2): JIT helper for
 // `default(T)` runtime resolution. Mirrors interp `Instruction::DefaultOf`
 // dispatch — reads `frame.regs[0]` (this) → `ScriptObject.type_args[param_index]`
 // → `default_value_for(tag)`. Non-Object reg 0 / OOB index / empty type_args
@@ -153,7 +153,7 @@ pub unsafe extern "C" fn jit_default_of(
     0
 }
 
-/// spec fix-numeric-cast-lowering (2026-05-13): explicit numeric type
+/// spec fix-numeric-cast-lowering : explicit numeric type
 /// conversion. Mirrors interp `exec_value::convert` semantics:
 ///   - source Value variant determines from-type
 ///   - `to_tag` (u32 from JIT calling convention; really TypeTag byte) gives target
@@ -201,11 +201,11 @@ pub unsafe extern "C" fn jit_convert(
 
 // ── IsInstance / AsCast ──────────────────────────────────────────────────────
 //
-// perf-vm-isa-cache (2026-09-03): the JIT-private `is_subclass_or_eq` walk (+ its
+// perf-vm-isa-cache : the JIT-private `is_subclass_or_eq` walk (+ its
 // `iface_reaches_mod` mirror) is gone — both helpers now call the interpreter's single
 // `dispatch::isa_td` (id-keyed `IsaCache` → shared memo → chain walk), so
 // there is exactly one type-test implementation for interp, JIT and typed `catch`.
-// 2026-05-07 add-array-base-class: T[] is-a Std.Array is-a Std.Object.
+// add-array-base-class: T[] is-a Std.Array is-a Std.Object.
 // Mirror the interp `is_array_isa` hardcoded chain.
 pub(super) fn is_array_isa(class_name: &str) -> bool {
     matches!(class_name, "Array" | "Object" | "Std.Array" | "Std.Object")

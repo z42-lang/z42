@@ -68,7 +68,7 @@ use std::sync::OnceLock;
 ///
 /// Carries `&VmContext` so builtins can access the GC heap (e.g. allocate
 /// `Std.Type` objects via `ctx.heap().alloc_object(...)`) and other runtime
-/// state. **2026-04-29 extend-native-fn-signature** added `&VmContext` —
+/// state. ** extend-native-fn-signature** added `&VmContext` —
 /// previously `fn(&[Value]) -> Result<Value>`, which forced corelib allocation
 /// callsites to bypass the heap interface.
 pub type NativeFn = fn(&VmContext, &[Value]) -> Result<Value>;
@@ -150,7 +150,7 @@ fn builtin_index() -> &'static HashMap<&'static str, u32> {
 /// High bit of `BuiltinId.0` marks an ext (dlopen / bundled) builtin
 /// resolved through `VmCore.ext_builtins` rather than the static
 /// `BUILTINS` slice. Low 31 bits are the index into the ext table.
-/// add-z42-compression (2026-05-22).
+/// add-z42-compression .
 pub const BUILTIN_ID_EXT_BIT: u32 = 0x8000_0000;
 
 /// Resolve a builtin name to its `BuiltinId`. Static `BUILTINS[]` first;
@@ -178,7 +178,7 @@ pub fn ext_builtin_id_of(ctx: &VmContext, name: &str) -> Option<BuiltinId> {
 /// `exec_builtin_value`). Static `BUILTINS[]` first; ext (dlopened) second. A miss in
 /// both throws `Std.MissingSymbolException` (as an undefined function does).
 pub fn exec_builtin(ctx: &VmContext, name: &str, args: &[Value]) -> Result<Option<Value>> {
-    // add-runtime-counters (2026-05-26): name-keyed slow path also increments
+    // add-runtime-counters : name-keyed slow path also increments
     // for consistency with exec_builtin_by_id (callers may hit either).
     ctx.counters().builtin_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 

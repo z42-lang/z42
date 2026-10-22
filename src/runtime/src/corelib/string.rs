@@ -23,7 +23,7 @@ pub fn str_to_chars(ctx: &VmContext, s: &crate::metadata::vstr::Str) -> Value {
 
 /// Returns the number of UTF-8 bytes in the string. O(1).
 ///
-/// review.md C11.1 (2026-05-27, option 4): non-breaking sibling to
+/// review.md C11.1 (option 4): non-breaking sibling to
 /// `Length`. `Length` keeps the existing char-count (Unicode scalar)
 /// semantics — `"你好".Length == 2`. `ByteLength` reports the underlying
 /// UTF-8 byte storage — `"你好".ByteLength == 6` — for hot paths that
@@ -201,7 +201,7 @@ pub fn str_join(sep: &str, values: &Value) -> Result<String, BuiltinError> {
 
 /// Builds a string from a char[] array.
 /// args: [chars: Array<Char>]
-/// New in simplify-string-stdlib (2026-04-24): enables script-side string
+/// New in simplify-string-stdlib : enables script-side string
 /// construction (Substring / Replace / ToLower / ToUpper etc.).
 pub fn str_from_chars(chars: &Value) -> Result<String, BuiltinError> {
     let Value::Array(arr) = chars else {
@@ -219,15 +219,15 @@ pub fn str_from_chars(chars: &Value) -> Result<String, BuiltinError> {
     Ok(out)
 }
 
-// 2026-04-27 wave1-string-script: builtin_str_split + builtin_str_join removed.
+// wave1-string-script: builtin_str_split + builtin_str_join removed.
 // `Std.String.Split` / `Join` 现在是 z42 脚本，基于 CharAt + Substring。
 
-// 2026-04-27 wave3a-str-concat-script: builtin_str_concat removed.
+// wave3a-str-concat-script: builtin_str_concat removed.
 // `Std.String.Concat` 现在是 z42 脚本（用 `+` 即 IR StrConcatInstr）。
 
 // ── Object protocol overrides for string ─────────────────────────────────────
 
-// shrink-primitive-native-interop (2026-08-27): builtin_str_to_string removed —
+// shrink-primitive-native-interop : builtin_str_to_string removed —
 // Std.String.ToString 现在是脚本 `return this;`（旧 builtin 只是原样返回自身）。
 
 /// string.Equals(other) — value equality.
@@ -250,7 +250,7 @@ pub fn str_hash_code(s: &crate::metadata::vstr::Str) -> i64 {
     (hash & 0x7fff_ffff) as i64
 }
 
-// 2026-04-27 wave3b-str-format-script: builtin_str_format removed.
+// wave3b-str-format-script: builtin_str_format removed.
 // `Std.String.Format` 现在是 z42 脚本（用 string.Replace + Convert.ToString）。
 
 #[cfg(test)]

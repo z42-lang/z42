@@ -46,7 +46,7 @@ fn self_reference_cycle_is_freed() {
 
 #[test]
 fn cycle_with_external_user_ref_is_not_broken_yet() {
-    // **add-mark-sweep-collector P3 (2026-05-21)**: under mark-sweep,
+    // **add-mark-sweep-collector P3 **: under mark-sweep,
     // "external user ref" alone does NOT keep an object alive. The mark
     // phase only walks pinned roots + external_root_scanner output;
     // Rust-local Value strong refs are invisible to the GC. To preserve
@@ -103,7 +103,7 @@ fn pinned_root_cycle_is_not_broken() {
 
 #[test]
 fn unrelated_alive_object_is_not_affected_by_collect() {
-    // **add-mark-sweep-collector P3 (2026-05-21)**: mark-sweep requires
+    // **add-mark-sweep-collector P3 **: mark-sweep requires
     // the object to be reachable from a pinned root (or external scanner
     // output) to survive. The Rust local `_alive` is NOT a root by
     // itself. Pin it explicitly to preserve through collect.
@@ -173,7 +173,7 @@ fn collect_cycles_freed_bytes_observable() {
 
 #[test]
 fn region_prunes_dropped_objects_after_collect() {
-    // **add-custom-allocator P1 (2026-05-22)**: heap_registry removed;
+    // **add-custom-allocator P1 **: heap_registry removed;
     // sweep tombstones unreachable entries in the region directly.
     // ArrRef::drop is no-op so the scope-exit alone doesn't prune —
     // we must force a collect.
@@ -246,7 +246,7 @@ fn iterate_live_objects_dedupes_cycle() {
     assert_eq!(count, 1);
 }
 
-/// Regression (fresh-audit B, 2026-09-23): the STW / one-shot-major soft-ref
+/// Regression (fresh-audit B): the STW / one-shot-major soft-ref
 /// revive path must trace a revived target's **children**, not just mark the
 /// target itself.
 ///

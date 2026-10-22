@@ -134,7 +134,7 @@ fn barrier_field_no_op_in_stw_mode() {
 #[test]
 fn collect_cycles_with_context_frees_an_unrooted_cycle_under_stw() {
     // STW mode routes `collect_cycles_with_context` to `collect_cycles()` under a pause.
-    // flip-gc-default-to-generational (2026-09-10): STW is not the default, so select
+    // flip-gc-default-to-generational : STW is not the default, so select
     // it explicitly — this test is about the STW path, not about what the default is.
     use crate::vm_context::VmContext;
     let ctx = VmContext::new();

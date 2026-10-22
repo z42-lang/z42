@@ -218,7 +218,7 @@ pub unsafe extern "C" fn z42_compression_zstd_decompress(
     }
 }
 
-// ── Brotli one-shot (add-z42-compression-brotli 2026-05-27) ─────────────────
+// ── Brotli one-shot (add-z42-compression-brotli) ─────────────────
 //
 // Pure-Rust brotli works on every target (including wasm32) so no cfg
 // gating needed. RFC 7932.
@@ -256,7 +256,7 @@ pub unsafe extern "C" fn z42_compression_brotli_decompress(
     }
 }
 
-// ── LZ4 one-shot (add-z42-compression-lz4 2026-05-27) ───────────────────────
+// ── LZ4 one-shot (add-z42-compression-lz4) ───────────────────────
 //
 // Pure-Rust lz4_flex works on every target. LZ4 frame format wraps the
 // raw block algorithm with magic + descriptor + EndMark so it interops

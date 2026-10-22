@@ -1,4 +1,4 @@
-//! fix-missing-write-barriers (2026-10-07)：VM 自己（不经 `FieldSet` / `ArraySet` 指令）往**已存在**
+//! fix-missing-write-barriers：VM 自己（不经 `FieldSet` / `ArraySet` 指令）往**已存在**
 //! 的堆对象里写引用的站点，必须和指令一样发写屏障。
 //!
 //! 每个用例同一个形状，也就是这类 bug 在真实程序里出事的形状：

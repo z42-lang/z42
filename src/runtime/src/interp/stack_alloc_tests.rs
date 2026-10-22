@@ -98,7 +98,7 @@ fn reused_slot_rejects_old_handle() {
     assert!(a.with_arr(idx_a, 1, |x| x.get_boxed(0)).is_err());
 }
 
-/// **fix-stackalloc-misses-inlined-refs (2026-09-13)**: the object half of the root scan.
+/// **fix-stackalloc-misses-inlined-refs **: the object half of the root scan.
 ///
 /// `scan_roots_visits_elements` below covers stack *arrays* and has since the arena landed;
 /// stack **objects** had no root-scan test at all, which is why the gap survived

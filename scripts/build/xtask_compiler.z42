@@ -1,5 +1,5 @@
 // xtask — `build compiler` / `test compiler` impl
-// (scaffold-z42c-selfhost, 2026-06-07).
+// (scaffold-z42c-selfhost).
 //
 // Builds the z42 self-host compiler workspace (src/compiler — 7 子包 1:1 镜像 C#
 // bootstrap 的 7 项目) and smoke-tests that all 7 z42c.<sub>.zpkg are produced.
@@ -171,7 +171,7 @@ bool _isCompilerMember(string[] members, string name) {
 
 // 用**种子那一代的 libs**（`_seedLibsSource`：启动时的 `Z42_LIBS` 优先、其次 SDK）补齐缺口。
 // bundle 是**主**来源（与 driver 同代是构造保证的），但它可能**不完整**：冷启动刚从 SDK
-// staged 的 driver 根本没 bundle；被清理过的树只剩零星几个（B3 实测：我自己先按「化石」删掉
+// staged 的 driver 根本没 bundle；被清理过的树只剩零星几个（B3 实测：按「化石」清理过后所剩无几，
 // 23 个，剩 2 个 ⇒ 种子 driver 连 `Std.IO.Environment` 都找不到）。所以判据不是「搬到了吗」
 // 而是「**齐了吗**」—— 缺的从 `_seedLibsSource` 补。**不是无条件的 SDK**：格式 bump 在飞时
 // SDK 还是上一代格式、会被 strict-pin 拒收（见 `_seedLibsSource` 头注）。
@@ -271,7 +271,7 @@ int _buildCompilerViaZ42c(string root, string profile, string[] members, string 
 // = flat）。自建完成即清走，让 flat 回到规范形态 = **只有 stdlib 成员**（与 `build stdlib` 末步
 // `_assembleStdlibFlatView` 产出的一致）。
 //
-// 为什么不能留着（add-sdk-libs 阶段 3 前置，2026-10-01）：flat = 开发树的 `Z42_LIBS`。此前它们一直躺到下一次
+// 为什么不能留着（add-sdk-libs 阶段 3 前置）：flat = 开发树的 `Z42_LIBS`。此前它们一直躺到下一次
 // `build stdlib`，这段窗口里用开发树工具链编的工程会在 `Z42_LIBS` 里看到 `z42.project` 等 SDK 库 ⇒ 被判「框架包」
 // （不复制，运行期 `MissingSymbolException`），`deploy = "sdk"` 的校验也会误判「不是 SDK 库」；打包、alllibs
 // 之类按 flat 取东西的地方也一直得防着它（`_pkgCopyLibs` 头注）。
@@ -308,7 +308,7 @@ void _purgeBootstrapPrebuildsFromFlat(string root, string stdlibFlat) {
 // 的 z42.package 时解析不到 → `undefined function ...Sha256Hex`。破环（converge-z42c-ir-metadata
 // 两代自举）：先用当前 driver（冷启动=上一 nightly 种子，自带等价 ZpkgBuilder）把当前源码的
 // z42.package 单独编进 build-libs，再建 z42c —— fresh z42c 就对着**真 z42.package** 编译+运行，一致。
-// **不 warm-skip**（lazy-type-world 2026-07-30 修）：早先「z42.package 已在 flat dist 就跳过」的
+// **不 warm-skip**（lazy-type-world  修）：早先「z42.package 已在 flat dist 就跳过」的
 // 幂等假设 = 「z42c 不消费 z42.package 的**新** API」。当 z42c 自身源码用到当前源 z42.package 里新增的
 // 类型/方法（如 `LazyReconWorld`），而 flat dist 里躺的是**上一 nightly 种子带来的旧 z42.package**
 // （CI 冷启动 stage 的就是它）时，warm-skip 会让 z42c 的 workspace self-build 对着旧 z42.package 编
@@ -321,7 +321,7 @@ void _purgeBootstrapPrebuildsFromFlat(string root, string stdlibFlat) {
 int _ensureBootstrapSelfDepLibs(string root, string vm, string driver, string stdlibFlat,
                                  string runLibs) {
     _vNormal("  bootstrap: (re)building current-source z42.core + z42.project + z42.build + z42.package + z42c.core + z42c.syntax into build-libs（破 z42c⇄stdlib 轴④环）");
-    // 🔴 先断链再写（fix-flat-hardlink-clobber，2026-10-02）。flat 是 `_assembleStdlibFlatView` 从
+    // 🔴 先断链再写（fix-flat-hardlink-clobber）。flat 是 `_assembleStdlibFlatView` 从
     // per-member dist **硬链接**出来的，而 z42c 写产物用的是就地写（`File.WriteAllBytes`）⇒ 下面往
     // flat 写 z42.core 会**穿透到** `libraries/z42.core/release/dist/z42.core.zpkg`。随后 step-4 的
     // stdlib workspace 构建增量命中（「no changes; preserved」）就把这份**破环预建版**当成规范产物留下：
@@ -399,7 +399,7 @@ int _prebuildOne(string vm, string driver, string toml, string name, string runL
     return 0;
 }
 
-// 防 zpkg 版本 skew 假失败（2026-06-10）：z42c 测试单元先被 z42c 编成 zpkg，再交
+// 防 zpkg 版本 skew 假失败：z42c 测试单元先被 z42c 编成 zpkg，再交
 // z42b（z42.builder.zpkg）在 z42vm 上加载运行。两端写/读的 zpkg 格式版本必须一致。
 // 完整 `xtask test` 在跑前重建 stdlib+runtime+driver+z42b，但 `test compiler` 原本
 // 只检查工具存在、从不重建 —— 一旦某并行变更 bump 了 zpkg 格式（如把 minor 撞到
@@ -449,7 +449,7 @@ int _testCompiler(bool noBuild) {
 
 // Build + run each z42c [Test] unit through z42b.
 //
-// 解析面（drop-alllibs，2026-10-01）：Z42_LIBS = 纯 stdlib flat。
+// 解析面（drop-alllibs）：Z42_LIBS = 纯 stdlib flat。
 //   · 编译期：单元按名声明的编译器包（z42c.syntax 等）由 driver 从编译器目录解析（CompilerDomain 开发树档）；
 //   · 运行期：z42b 及它为每个 [Test] 方法 fork 的子 VM 经 `_z42bProc` 拿到各编译器成员 dist。
 // 此前是把 stdlib + 编译器成员拷进一个 alllibs 目录当唯一 Z42_LIBS（VM 的 Z42_LIBS 只能是一个目录），
@@ -494,7 +494,7 @@ int _testCompilerUnits(string root, string profile, string[] members) {
                     continue;
                 }
                 // Build output → artifacts mirror via the unit toml's [build]
-                // output_dir (mirror-build-output-per-component, 2026-06-16):
+                // output_dir (mirror-build-output-per-component):
                 //   src/compiler/<member>/tests/<unit> → artifacts/build/compiler/<member>/release/tests/<unit>
                 // （profile 在外、tests 在内，与运行时 build/runtime/<profile>/ 同形；单元按 --release 编）
                 // so the produced .zpkg lands in <mirror>/dist/, NOT beside source.
@@ -546,7 +546,7 @@ int _testCompilerUnits(string root, string profile, string[] members) {
 // --workspace` 产物）；gen2 = 用 gen1 自己的 driver 再跑一遍 SAME `--workspace` →
 // 覆盖 canonical dist。`--workspace` 确定 → gen2 必逐字节等于 gen1 快照。
 //
-// 关键（simplify-compiler-build，2026-07-05）：gen1、gen2 现在**同走 --workspace**。此前
+// 关键（simplify-compiler-build）：gen1、gen2 现在**同走 --workspace**。此前
 // gen2 用逐包 `build <toml> --output-dir` + `Z42_LIBS=flat`（含全部 z42c+stdlib 的胖目录），
 // Phase 2 把 gen1 切到 --workspace 后二者分歧——单包胖-flat 构建拉入更大且非确定的依赖闭包
 // （目录扫描顺序非确定，见加载顺序确定性规则）→ gen2>gen1 且逐次漂移。改为二者同路径后，

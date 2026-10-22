@@ -23,7 +23,7 @@ namespace Z42Xtask;
 using Std.IO;
 
 // Returns 0 if every cross-zpkg case passes, 1 on any failure (or setup error).
-// 硬链接写穿透门（2026-09-28）。本 stage 把 stdlib **硬链接**进每个 fixture 的临时
+// 硬链接写穿透门。本 stage 把 stdlib **硬链接**进每个 fixture 的临时
 // `Z42_LIBS`（`_copyStdlibZpkgs`，为省下一轮 ≈198MB 的纯拷贝），而 `File.Copy` 是
 // truncate 语义 ⇒ 写到别名上会把**真正的 flat dist 与成员 dist 一起改掉**。今天躲过它
 // 靠的是「fixture 包都叫 `demo.*`，不与 `z42.*` 撞名」这个巧合，没有任何东西约束它。
@@ -101,7 +101,7 @@ int _testCrossZpkgImpl(string mode) {
     string[] failures = new string[8];
     int      failCount = 0;
 
-    // ── 分波并发（parallel-cross-zpkg, 2026-09-05）──────────────────────────
+    // ── 分波并发（parallel-cross-zpkg）──────────────────────────
     //
     // 每个 fixture 内部 target→ext→main **有真实依赖、必须串行**；但 **fixture 之间
     // 完全独立**。所以按「波次」并发：全部 target 一起编 → 等 → 全部 ext → 等 →
@@ -348,14 +348,14 @@ void _crossRunWave(string[] act, int nAct, string[] label, string testsDir,
     }
 }
 
-// ── 分波并发（parallel-cross-zpkg, 2026-09-05）────────────────────────────
+// ── 分波并发（parallel-cross-zpkg）────────────────────────────
 //
 // add-symbol-availability-macro：可选 `skew-absent.txt` —— 每行一个 zpkg 文件名，
 // 运行**前**从两处删除，模拟「编译时依赖在场、运行时不在场」的版本 skew。
 //
 // ⚠️ 必须两处都删：packed exe build 会把依赖 zpkg **colocate 进 main/dist**，而 VM 的
 // 惰性加载器先搜 entry zpkg 同目录再搜 Z42_LIBS —— 只删 libs 里那份，colocate 副本仍会
-// 被找到，负例会静默变成正例（本 change 开发期实测踩过：以为 pass 有 bug，实为测试没删干净）。
+// 被找到，负例会静默变成正例。
 //
 // 只影响声明了本文件的 fixture；其余用例零行为变化。
 void _applySkewAbsent(string caseDir, string testLibs, string mainDist) {
@@ -450,7 +450,7 @@ XpkgJobZ _spawnBuildPkgE(string vmBin, string driverZpkg, string stdlibDist, str
     // （`_applySkewAbsent` / `_applySkewReplace` 的头注就是靠这条），于是那份陈旧副本**赢过**
     // 本轮刷新的 `<stage>/libs/`。
     //
-    // 实测代价（2026-09-27，#903 把 zpkg 抬到 0.50 之后）：`xtask test e2e` 的 cross-zpkg 格
+    // 实测代价(#903 把 zpkg 抬到 0.50 之后）：`xtask test e2e` 的 cross-zpkg 格
     // **52 个失败**，全是 `zpkg minor 49 not supported (writer is at 0.50)` —— 而 `libs/` 明明
     // 已经是 0.50。清掉 224 个这类目录后立刻全绿。
     //

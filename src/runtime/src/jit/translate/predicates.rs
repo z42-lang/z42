@@ -8,7 +8,7 @@ use super::*;
 /// types (`I8..U64`). Out-of-range or `Unknown` regs fall back to the slow
 /// (helper-call) path.
 ///
-/// jit-unbox-regalloc Phase 2A (2026-08-15): widened from `== I64` to
+/// jit-unbox-regalloc Phase 2A : widened from `== I64` to
 /// `is_integer()`. Every narrow integer (`I8..U64`) is physically stored as
 /// `Value::I64` (payload i64 @off8), and the VM computes **all** integer
 /// arithmetic/bitwise ops as signed i64 wrapping regardless of the declared
@@ -35,7 +35,7 @@ pub(super) fn is_int_typed(func: &Function, dst: u32, a: u32, b: u32) -> bool {
 /// Binary op kind passed to `emit_i64_binop`. Mirrors the subset of
 /// `Instruction` variants we specialize so far.
 ///
-/// review.md C2 P1 follow-up (2026-05-30): bitwise + shift opcodes added.
+/// review.md C2 P1 follow-up : bitwise + shift opcodes added.
 /// `Shl` / `Shr` mask the shift amount by 63 to match the helper
 /// `jit_shl` / `jit_shr` behavior (`x << (y & 63)`).
 #[derive(Clone, Copy)]

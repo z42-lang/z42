@@ -362,7 +362,7 @@ public sealed class StructCopyInstr : IrInstr {
 //
 // `Path` 是**字段序号**路径（长度 >= 1）。用序号而非字段名：**序号实例化不变、偏移才变**
 // （`Pair<A,B>` 的 First/Second 永远 0/1）⇒ 运行期解析是 O(1) 下标，无哈希、无字符串、不需要 IC。
-// 嵌套链（`line.a.x`）此前被求和展平成一个立即数，现在保留为路径；实测深度 1 占 85.1%、最大 4。
+// 嵌套链（`line.a.x`）此前被求和展平成一个立即数，现在保留为路径；实测绝大多数为深度 1（最深 4）。
 public sealed class StructFieldGetPrimInstr : IrInstr {
     public TypedReg Dst;        // 目标寄存器（收基元值）
     public TypedReg Base;       // struct blob 句柄 / 堆对象 / 数组元素句柄

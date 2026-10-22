@@ -22,7 +22,7 @@ thread_local! {
     static STDOUT_SINKS: RefCell<Vec<Vec<u8>>> = const { RefCell::new(Vec::new()) };
     static STDERR_SINKS: RefCell<Vec<Vec<u8>>> = const { RefCell::new(Vec::new()) };
 
-    // Embedding-API hookup (add-embedding-api H2 / 2026-05-10):
+    // Embedding-API hookup (add-embedding-api H2 ):
     // when a host application wraps an `interp::run_*` call inside its
     // `z42_host_invoke` entry, it sets this flag for the duration of the
     // call. While set, `route_stdout` / `route_stderr` consult the
@@ -225,7 +225,7 @@ pub fn builtin_test_io_take_stdout_buffer(_ctx: &VmContext, _: &[Value]) -> Resu
     Ok(Value::Str(String::from_utf8_lossy(&bytes).into_owned().into()))
 }
 
-/// bench-stats-in-process-capture (2026-05-31): Rust-side push of a
+/// bench-stats-in-process-capture : Rust-side push of a
 /// stdout-capture sink. Mirror of `builtin_test_io_install_stdout_sink`
 /// for callers (test-runner) that don't have a z42 VmContext to invoke
 /// the builtin through.
@@ -238,7 +238,7 @@ pub fn push_stdout_sink() {
     STDOUT_SINKS.with(|s| s.borrow_mut().push(Vec::new()));
 }
 
-/// bench-stats-in-process-capture (2026-05-31): Rust-side pop of the
+/// bench-stats-in-process-capture : Rust-side pop of the
 /// most-recent stdout sink. Returns the captured bytes (empty Vec when
 /// no sink was installed). Caller may re-emit to process stdout if it
 /// wants the user to still see the output in their terminal.

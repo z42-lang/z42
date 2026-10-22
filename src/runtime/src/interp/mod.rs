@@ -55,7 +55,7 @@ use anyhow::{bail, Context, Result};
 
 // ── Execution outcome ────────────────────────────────────────────────────────
 
-// refactor-split-interp-mod（2026-09-03）：入口 / Frame / 执行支撑三块搬到子模块，本文件只留执行主循环。
+// refactor-split-interp-mod：入口 / Frame / 执行支撑三块搬到子模块，本文件只留执行主循环。
 mod entry;
 mod frame;
 mod exec_support;
@@ -83,11 +83,11 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
     // (`vm_context/engine_guards.rs`), so a nested frame touches no thread-local.
     let _frame_guard = enter_frame(ctx, func, &mut frame)?;
 
-    // add-gc-safepoint (2026-05-20): every newly-entered z42 function immediately respects a
+    // add-gc-safepoint : every newly-entered z42 function immediately respects a
     // pending GC request — a worker thread spawned mid-collect parks here before touching any
     // roots.
     //
-    // **fix-callee-entry-safepoint-drops-args (2026-09-10)**: this check used to sit at the
+    // **fix-callee-entry-safepoint-drops-args **: this check used to sit at the
     // four `exec_function*` entry points, *before* the frame existed. The callee's arguments
     // live only in a caller-side temporary there — for `new T(..)` that temporary holds the
     // sole reference to the just-allocated receiver — so a collection at that point swept
@@ -99,7 +99,7 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
     // therefore reach a safepoint) is deliberately below.
     crate::gc::safepoint::check_safepoint(ctx);
 
-    // perf-lazy-resolve-tokens (2026-08-18): populate this function's per-site dispatch caches
+    // perf-lazy-resolve-tokens : populate this function's per-site dispatch caches
     // on first execution. `resolve_module` (Vm::run) only walks the *entry* module; lazily
     // loaded packages (all of z42c.semantics / z42c.syntax during a self-compile) never pass
     // through it, so without this their VCall PIC / FieldIC / builtin-id / static-id /
@@ -205,7 +205,7 @@ fn exec_function_body(ctx: &VmContext, module: &Module, func: &Function, mut fra
                     Some(BranchTargets::Br(t)) => *t,
                     _ => label_target(&func.block_index, label)?,
                 };
-                // add-gc-safepoint (2026-05-20): backward branch heuristic
+                // add-gc-safepoint : backward branch heuristic
                 // — block index decreasing is a loop back-edge. Check
                 // safepoint so long-running loops park promptly.
                 if target <= block_idx {

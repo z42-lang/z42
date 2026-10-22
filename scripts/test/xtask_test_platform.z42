@@ -1,4 +1,4 @@
-// xtask — cross-platform test framework (add-platform-test-pipeline, 2026-06-15).
+// xtask — cross-platform test framework (add-platform-test-pipeline).
 // Same Z42Xtask namespace. Unifies wasm / iOS / Android behind one interface so
 // the three-phase flow (① build project ② build test assets ③ run tests) is
 // expressed once, with only the platform-specific bits delegated to a backend.

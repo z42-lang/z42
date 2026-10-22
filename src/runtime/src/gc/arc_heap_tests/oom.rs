@@ -6,7 +6,7 @@ use super::*;
 fn strict_oom_off_by_default_no_rejection() {
     // 默认行为不变：alloc 越界仍成功（仅 fire 事件）。
     //
-    // **add-mark-sweep-collector P3 (2026-05-21)**: under mark-sweep,
+    // **add-mark-sweep-collector P3 **: under mark-sweep,
     // the tight `max_bytes=8` setting trips auto-collect inline during
     // `alloc_array` (the flag-deferred path is only active when a
     // VmContext wires the external flag; here we use a raw ArcMagrGC).

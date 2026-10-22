@@ -239,7 +239,7 @@ public sealed class FunctionEmitter {
             NamedType nt = te as NamedType;
             // unify-type-identity-fqn：**删除了**「含点的限定名 → 字面量 "unknown"」这条短路。
             // 它镜像的是 C# bootstrap 编译器的 `MemberType → _ → "unknown"`，而那个编译器已于
-            // 2026-06-26 移除 —— 等于在复刻一个不存在的编译器的缺陷。`ResolveTypeP` 本就能解析
+            // 移除 —— 等于在复刻一个不存在的编译器的缺陷。`ResolveTypeP` 本就能解析
             // 限定名（FQN 精确 → 嵌套 `+` 键 → 末段回退，SymbolTable.z42:335-400），只是从没被调到。
             // 后果：`Std.Type` / `Std.Attribute[]` 这类声明在反射面读回 "unknown"（实测 z42.core
             // 四个反射类 37 个字段里 9 个如此），且类型检查被 Unknown 的 Absorb 守卫整片吞掉。

@@ -534,7 +534,7 @@ public sealed class TypeChecker {
     // 同 (name,arity) ≥2 的重载若 Canon 归一后撞出同一个 mangled RegKey（如 f(int) vs f(Int32)，或
     // f(string) vs f(string?)），后者会静默覆盖前者，方法体无声丢失、零诊断。这里在绑体前对每个
     // (name,arity) 重载组重放同一遍 mangle，键碰撞即报错——把"静默丢方法"变成编译错误。
-    // D7（2026-07-01）：泛化覆盖静态 + 实例方法（原仅静态）。协议豁免名单内的名字
+    // D7：泛化覆盖静态 + 实例方法（原仅静态）。协议豁免名单内的名字
     // （ToString/Equals/GetHashCode/GetType/get_Item/set_Item）不参与 mangle（SymbolCollector 同款
     // 判定），继续维持 first-wins 静默覆盖的现状（如 String.Equals(object)/Equals(string)），
     // 不在此处误报——用同一份 `SymbolCollector.IsProtocolExempt` 跳过，单一豁免名单来源。

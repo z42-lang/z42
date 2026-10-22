@@ -1,6 +1,6 @@
 //! Locate a deployed `z42vm` (+ libs) and run an app's zpkg **directly** — the
 //! apphost run path. Originally a standalone `z42-hostrun` crate (extracted from
-//! the z42 launcher lib, apphost-to-workload 2026-06-18) so the apphost stub and
+//! the z42 launcher lib, apphost-to-workload) so the apphost stub and
 //! the launcher trampoline could share one impl; the launcher was since rewritten
 //! in z42 (`src/toolchain/launcher/core/*.z42`), leaving the apphost as the sole
 //! Rust consumer, so this logic was folded back in as an apphost module
@@ -122,7 +122,7 @@ pub fn ensure_portable_vm(exe_dir: &Path) {
 }
 
 /// apphost run-path resolution: locate a z42vm + libs to run the app's zpkg
-/// directly. Most-local-wins order (align-bin-z42vm-probe, 2026-06-21):
+/// directly. Most-local-wins order (align-bin-z42vm-probe):
 ///   ① `$Z42_PORTABLE_VM`           (explicit override / SDK-colocated vm — set
 ///                                    by [`ensure_portable_vm`])
 ///   ② local: walk up from `exe_dir`, `<d>/.z42`
@@ -233,8 +233,8 @@ fn build_app_command(rt: &AppRuntime, app_zpkg: &Path, argv: &[String],
 /// `Z42_LIBS` set, and propagate the child exit code.
 ///
 /// The app's `<stem>.runtimeconfig.toml` sidecar is **not** looked up here:
-/// z42vm derives it from the app path itself (app-config-follows-the-app,
-/// 2026-09-05). Computing the path only to hand it back to the thing that can
+/// z42vm derives it from the app path itself (app-config-follows-the-app).
+/// Computing the path only to hand it back to the thing that can
 /// compute it was pure duplication of a convention that belongs in one place —
 /// and the apphost's job is "find z42vm and hand it the app", nothing more. No `launcher.zpkg`, no
 /// muxer, single VM. Never returns.
@@ -298,7 +298,7 @@ mod tests {
     }
 
     // Most-local-wins ordering: local `.z42` (②) beats both user $HOME (③) and
-    // system $Z42_HOME (④), even when all three exist. (2026-06-21)
+    // system $Z42_HOME (④), even when all three exist. 
     #[test]
     fn local_beats_user_and_system() {
         let env_home = temp_dir("env");   // $Z42_HOME (system, ④)
@@ -378,7 +378,7 @@ mod tests {
         assert!(resolve_app_runtime_in(None, None, &local_base, None).is_none());
     }
 
-    // align-bin-z42vm-probe (2026-06-21): SDK-internal apps reach their own
+    // align-bin-z42vm-probe : SDK-internal apps reach their own
     // colocated vm via $Z42_PORTABLE_VM (tier ①), not a dedicated exe-dir probe.
 
     #[test]

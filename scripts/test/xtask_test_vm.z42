@@ -1,11 +1,10 @@
-// xtask — VM golden-test runner (folded from the former scripts/test-vm.z42 by
-// the test-vm fold). Same Z42Xtask namespace; the golden-walk + entry-derivation
+// xtask — VM golden-test runner. Same Z42Xtask namespace; the golden-walk + entry-derivation
 // helpers it calls (_deriveEntry / _enumDirsSorted /
 // _firstLine / _stripTrailingNewlines / ...) live in xtask_golden.z42.
 //
 // Runs VM golden tests in interp / jit mode. Each golden case's source +
 // sidecars live in src; the compiled .zbc lives in the artifacts mirror
-// (redirect-golden-zbc-to-artifacts, 2026-06-16 — keeps src/ free of build
+// (redirect-golden-zbc-to-artifacts — keeps src/ free of build
 // output). Sidecar (src) → artifact (mirror) mapping:
 //   src/tests/<cat>/<name>/source.z42 + expected_output.txt
 //     → artifacts/build/tests/<cat>/<name>/source.zbc                     (dir)

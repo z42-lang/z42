@@ -1,4 +1,4 @@
-//! 运行时值与对象模型（hub）—— refactor-split-metadata-types（2026-09-03）：原 2436 行单文件按职责拆到
+//! 运行时值与对象模型（hub）—— refactor-split-metadata-types：原 2436 行单文件按职责拆到
 //! `types/` 子模块；本文件只做汇总，全量 `pub use` 使既有 `crate::metadata::types::X` 路径零改动。
 //!
 //! | 子模块 | 内容 |

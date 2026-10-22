@@ -23,7 +23,7 @@
 // `artifacts/build/{libraries,compiler}` —— gen1 起步时 artifacts 还是 gen0 的旧 minor 产物，
 // 建首个成员时 DepScan 预开 `Get(path)` 读到旧份 ⇒ `ZpkgReader.Open` 的 strict-pin
 // （major/minor 不符即返 null）⇒ **缓存下一个 null**；覆写成新 minor 之后，后续成员复用那个
-// null ⇒ 跨包类型 undefined（E0401/E0443）。症状是「2026-08-21 (#240) 之后任何格式 bump CI 全红」，
+// null ⇒ 跨包类型 undefined（E0401/E0443）。症状是「(#240) 之后任何格式 bump CI 全红」，
 // 至今靠 ci-bootstrap §1.5「每代构建前清空该代 artifacts」兜着（即时解阻，非根因）。
 //
 // 守卫：命中时比对 (size, mtime_ms)，任一不同即当未命中重开，并把该条目的 Tsig/Mods/Types

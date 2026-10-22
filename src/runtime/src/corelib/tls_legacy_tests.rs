@@ -57,7 +57,7 @@ fn connect_with_invalid_server_name_returns_socket_err() {
     assert_eq!(kind_of(&r), Some(KIND_SOCKET_ERR), "got {:?}", r);
 }
 
-/// **fix-park-blocking-natives (2026-09-14)**: DNS, connect and the handshake used to run
+/// **fix-park-blocking-natives **: DNS, connect and the handshake used to run
 /// unparked, so a peer that stalls the handshake stalled every GC on the process. The peer
 /// here accepts and never answers; the client must be parked until the peer hangs up, and
 /// the error tuple it then builds must come after the park (debug tripwire).

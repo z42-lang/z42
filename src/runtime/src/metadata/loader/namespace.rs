@@ -11,7 +11,7 @@ use crate::metadata::namespace_index;
 /// Used by compiler tooling and diagnostics. The VM's lazy loader no longer
 /// routes by namespace; it uses zpkg file names (`resolve_dependency`).
 ///
-/// retire-z42-path (2026-09-25): 此前还有一个 `module_paths` 参数，用来先扫散装 `.zbc`
+/// retire-z42-path : 此前还有一个 `module_paths` 参数，用来先扫散装 `.zbc`
 /// 并**覆盖** `libs_paths` 里的 zpkg。那一级由 `Z42_PATH` 供给，而 `Z42_PATH` 解析出来只
 /// 进日志 ⇒ **五个生产调用方全传 `&[]`**，覆盖语义从未生效过。旋钮退役时连参数一起删。
 pub fn resolve_namespace(ns: &str, libs_paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
@@ -59,7 +59,7 @@ pub fn resolve_dependency(
 /// Namespace = first two dot-separated components of a Call / static.get target
 /// not defined locally.
 ///
-/// 2026-04-27 fix-static-field-access: 加上 StaticGet 扫描。修前 user code
+/// fix-static-field-access: 加上 StaticGet 扫描。修前 user code
 /// `Math.PI` 编译为 `static.get @Std.Math.Math.PI`，但 namespace 提取只看 Call/
 /// Builtin → 不发现 Std.Math 依赖 → 不 lazy-load z42.math → __static_init__ 不
 /// 跑 → 字段永远 null。
@@ -77,7 +77,7 @@ pub(super) fn extract_import_namespaces_from_module(module: &Module) -> Vec<Stri
                     Instruction::Builtin(insn) => &insn.name,
                     Instruction::StaticGet(insn) => &insn.field,
                     Instruction::StaticSet(insn) => &insn.field,
-                    // fix-objnew-import-ns (2026-05-29): `new Foo()` on an imported
+                    // fix-objnew-import-ns : `new Foo()` on an imported
                     // class emits ObjNew (not Call), and the subsequent method
                     // calls are VCall (vtable) — neither was scanned, so the
                     // providing zpkg's namespace was never inferred and the lazy

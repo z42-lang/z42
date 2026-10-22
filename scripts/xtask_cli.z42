@@ -1,4 +1,4 @@
-// xtask CLI layer (migrate-xtask-launcher-to-std-cli, 2026-06-10).
+// xtask CLI layer (migrate-xtask-launcher-to-std-cli).
 //
 // Builds the Std.Cli nested SubcommandRouter for xtask and dispatches a
 // resolved command to its handler. Replaces the former hand-written
@@ -14,7 +14,7 @@
 // This file is the CLI **core** only: argv pre-processing (global options),
 // the root tree, the top-level _dispatch fan-out, and their helpers. Each
 // command FAMILY's router + dispatch pair lives beside its siblings in
-// scripts/cli/xtask_cli_<family>.z42 (split-xtask-cli, 2026-09-05) — the pairs
+// scripts/cli/xtask_cli_<family>.z42 (split-xtask-cli) — the pairs
 // are mutually zero-coupled, so keeping them here only made this file long.
 // Adding a command family = add a file there + one AddRouter line in _cliRoot
 // + one line in _dispatch.

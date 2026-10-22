@@ -212,7 +212,7 @@ fn mode() -> u32 {
     if m != MODE_UNSET {
         return m;
     }
-    // adopt-inline-env-knobs (2026-09-05): source is the layered config now, not a
+    // adopt-inline-env-knobs : source is the layered config now, not a
     // bare env read. The AtomicU32 cache stays — it saves the 5-way match on this
     // interpreter allocation hot path, which is a separate cost from reading the knob.
     // The `_ => MODE_ON` arm below is now purely "the default"; a misspelled value is

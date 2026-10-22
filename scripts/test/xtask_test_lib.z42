@@ -1,4 +1,4 @@
-// xtask — stdlib [Test] harness (split from xtask_test.z42, 2026-06-30, for the
+// xtask — stdlib [Test] harness (split from xtask_test.z42, for the
 // 500-line code-org limit). Same Z42Xtask namespace; calls _root/_exec/_builtVm/
 // _builtBin/_buildStdlib/_buildRuntime/_libsDir/_compilerMembers/
 // _cleanGlob/_linkAll/_sortedStrings/_parseShard etc. cross-file (same namespace).
@@ -13,7 +13,7 @@ using Std.IO;
 using Std.Time;
 using Std.Cli;
 
-// 包的源码根 —— **两个 workspace 都要认**（relocate-compiler-domain-libs，2026-09-27）：
+// 包的源码根 —— **两个 workspace 都要认**（relocate-compiler-domain-libs）：
 // 用户 stdlib（`Std.*`）在 `src/libraries/`；编译器域（`z42c.core` / `z42c.syntax` / `z42.package` /
 // `z42.project` / `z42.build` / `z42.scripting`）在 `src/compiler/`。
 //
@@ -159,7 +159,7 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     // A/B base capture points these at the same `.ab-base-alllibs` the e2e A/B uses,
     // so base benchmarks compile+run against a proven-consistent base stdlib.
     string root = _root();
-    // add-tests-bench-manifest-config Phase 3.3 (2026-06-06): sort
+    // add-tests-bench-manifest-config Phase 3.3 : sort
     // Directory.Enumerate output so first-wins downstream behaviour is
     // platform-stable (load-order determinism rule — macOS APFS vs Linux ext4
     // give different orderings; CI on Linux blew up here before).
@@ -188,7 +188,7 @@ int _testPkgsCore(string kind, string suite, string[] dirs, string[] names, bool
         // build-if-MISSING (`if (!File.Exists(vm))`), so it cannot catch staleness;
         // cargo is the only thing that knows whether the runtime sources changed,
         // and it is a ~0.2s no-op when they did not. (fix-publish-stale-payload
-        // 2026-09-06 burned an investigation on exactly this.)
+        // burned an investigation on exactly this.)
         int c = _buildRuntime(); if (c != 0) { return c; }
         c = _buildStdlib(); if (c != 0) { return c; }
         // _buildStdlib already self-builds z42c (→ _buildCompilerViaZ42c:
@@ -196,7 +196,7 @@ int _testPkgsCore(string kind, string suite, string[] dirs, string[] names, bool
         // units compile through that z42c (z42vm + z42c.driver.zpkg). A trailing
         // _buildCompiler would be a redundant byte-identical gen2 self-build.
     }
-    // add-tests-bench-manifest-config §6 (2026-06-07): test artifacts persist
+    // add-tests-bench-manifest-config §6 : test artifacts persist
     // under each lib's output_dir in a parallel `tests/` subtree
     // (<lib>/<profile>/tests/{dist,cache}/) instead of a throwaway temp dir, so
     // they're inspectable, incrementally cached, and visible to the CI
@@ -255,7 +255,7 @@ int _testPkgsCore(string kind, string suite, string[] dirs, string[] names, bool
     // 孤儿源守卫（「tests/ 有 .z42 源、却没产出任何单元」= 发现规则没认领 = 假绿）
     // 现在住在 z42b 里（_dtOrphanSourceDir），转发时逐 lib 生效 —— 判据只该有一处。
     //
-    // 它原本就在这里，但**装错了路**（fix-silent-gates, 2026-09-06 修）：条件是
+    // 它原本就在这里，但**装错了路**（fix-silent-gates 修）：条件是
     // `nReq > 0 && totalFiles == 0` ——
     //   ① `nReq > 0` = 只在**显式点名 lib** 时查；而 GREEN gate 走的是不点名全扫
     //      （`nReq == 0` → 内层 `while (qi < nReq)` 空转，orphaned 恒为空）；

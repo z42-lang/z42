@@ -57,7 +57,7 @@ impl VmContext {
         crate::metadata::resolver::fn_registration_mark()
     }
 
-    /// fix-cross-pkg-subclass-fields (2026-05-14): seed the lazy loader's
+    /// fix-cross-pkg-subclass-fields : seed the lazy loader's
     /// `type_registry` with TypeDescs from eagerly-loaded modules (e.g. the
     /// merged main module). Used by both the z42vm CLI and the in-process
     /// test runner immediately after `install_lazy_loader_with_deps` so the
@@ -104,7 +104,7 @@ impl VmContext {
 
     /// Look up a function by FQ name; triggers lazy load if needed.
     ///
-    /// review.md D3 Phase 2 (2026-05-27): emits `RuntimeEvent::ModuleLoaded`
+    /// review.md D3 Phase 2 : emits `RuntimeEvent::ModuleLoaded`
     /// for every zpkg the resolver pulled in transitively, so observers
     /// see lazy-load activity (not just boot-time eager loads).
     /// Load a compiled artifact at `path` into the live registries (functions +

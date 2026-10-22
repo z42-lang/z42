@@ -48,7 +48,7 @@ int _orchestrate(ProjectManifest manifest, Target target, string sourceDir,
     return _orchestrate(manifest, target, sourceDir, parentPkg, one, 1);
 }
 
-// extraDepDirs（path 依赖闭包，2026-09-26）：闭包成员的 dist 目录列表，叶子在前。
+// extraDepDirs（path 依赖闭包）：闭包成员的 dist 目录列表，叶子在前。
 int _orchestrate(ProjectManifest manifest, Target target, string sourceDir,
                  string parentPkg, string[] extraDepDirs, int extraN) {
     Pipeline p = new Pipeline();
@@ -141,7 +141,7 @@ string _findCompilerZpkg() {
     if (File.Exists(p3)) { return p3; }
     // 找不到 = **这个部署形态不带编译能力**，不是"路径没配对"。
     //
-    // 2026-09-26（批 5 use）：此处原有四档硬编码探测（Z42_HOME/programs/z42c → Z42_PORTABLE_VM
+    //  （批 5 use）：此处原有四档硬编码探测（Z42_HOME/programs/z42c → Z42_PORTABLE_VM
     // 反推 SDK 根 → 开发树 artifacts 路径 → Z42_LIBS），且 `ReplCompilerHost` 里还有**第二份**
     // 几乎相同的实现（注释自陈「探测序同 builder.z42」）。位置改成由清单的 `probing-paths`
     // 声明后全部删除——**代码里不再出现 `programs/z42c/`**。
@@ -152,7 +152,7 @@ string _findCompilerZpkg() {
 // 按平台族选标准 workload（实现期接各 *.workload 库的 : WorkloadBase 子类）。
 WorkloadBase _selectWorkload(string family) {
     // 实现期：ios→iOSWorkload / android→AndroidWorkload / wasm→WasmWorkload。
-    // desktop 没有 handler（appbuilder 已删，2026-09-29）——真接 tail 四阶段时要重建一个。
+    // desktop 没有 handler（appbuilder 已删）——真接 tail 四阶段时要重建一个。
     return new WorkloadBase();    // no-op 兜底
 }
 
@@ -176,7 +176,7 @@ Inputs _initialInputs(ProjectManifest m) { return _initialInputs(m, ""); }
 
 // free-function-overloads 阶段 2（use）：同名重载（2 参版，附加 extraDepDir）——此前因不支持
 // 自由函数重载而分名 _initialInputsWith。
-// path 依赖闭包（2026-09-26）：闭包有 N 个成员，每个成员的 dist 都要进依赖扫描面 ⇒ 需要
+// path 依赖闭包：闭包有 N 个成员，每个成员的 dist 都要进依赖扫描面 ⇒ 需要
 // **多个**额外目录，而 1 参版只收一个（那是「父包 dist」一个用例留下的形状）。
 // workspace 逐成员构建：本轮已建成员的 dist（WsSiblings）排在 Z42_LIBS 前，后续成员按名依赖兄弟成员
 // 时从这里解析（同 z42c workspace 构建「成员 dist 在前」）；已在 extraDepDirs 里的不重复加。

@@ -1,4 +1,4 @@
-// using-csharp-rules PR-3：多余的 `using` 报 warning（User 2026-10-01 裁定，三种都报）。
+// using-csharp-rules PR-3：多余的 `using` 报 warning（User 裁定，三种都报）。
 //
 //   W0607 不必要（C# CS8019 / IDE0005）：
 //     · 指向 prelude（`Std` / `Std.Runtime`）或本文件 ns 及其外围 —— 本来就可见；

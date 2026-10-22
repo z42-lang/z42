@@ -1,4 +1,4 @@
-//! exec_function 族入口、FrameGuard、OSR / 原生分流、异常事件与 handler 查找、ref 写回。refactor-split-interp-mod（2026-09-03）：自 1155 行的 `interp/mod.rs` 逐行搬出，
+//! exec_function 族入口、FrameGuard、OSR / 原生分流、异常事件与 handler 查找、ref 写回。refactor-split-interp-mod：自 1155 行的 `interp/mod.rs` 逐行搬出，
 //! mod.rs 只留模块表与执行主循环 `exec_function_body`；本模块经 mod.rs 的 `pub(crate) use` 全量再导出，
 //! 兄弟模块的 `super::X` 路径不变。
 
@@ -57,7 +57,7 @@ pub(super) fn enter_frame<'a>(ctx: &'a VmContext, func: &Function, frame: &mut F
 }
 
 pub(crate) fn exec_function(ctx: &VmContext, module: &Module, func: &Function, args: &[Value]) -> Result<ExecOutcome> {
-    // fix-callee-entry-safepoint-drops-args (2026-09-10): the callee-entry safepoint used
+    // fix-callee-entry-safepoint-drops-args : the callee-entry safepoint used
     // to be **here**, before the frame exists. `args` is a caller-side temporary — for the
     // `new` path it is the only reference to the freshly allocated receiver — so a
     // collection at this point swept values the mutator was still using. It now lives in
@@ -277,7 +277,7 @@ pub(crate) fn exec_function_from_receiver_regs(
 /// callee's final value of that reg and store it through the original Ref
 /// to the caller's lvalue. Runs before every function-exit return path
 /// (normal return + uncaught throw).
-/// Phase 2 D3+D6 (2026-05-26): increment `exceptions_thrown` counter and
+/// Phase 2 D3+D6 : increment `exceptions_thrown` counter and
 /// fire `RuntimeEvent::ExceptionThrown`. Reads class name + message from
 /// the thrown value if it's an Exception subclass; otherwise stamps both
 /// as `"<non-exception-value>"`. Message truncated to 256 chars to keep
@@ -343,7 +343,7 @@ fn run_ref_writebacks_slow(frame: &Frame, ctx: &VmContext) -> Result<()> {
 /// region covers `block_idx` AND whose declared `catch_type` matches the thrown
 /// value's class (with subclass walk via the type registry).
 ///
-/// catch-by-generic-type (2026-05-06): catch_type semantics —
+/// catch-by-generic-type : catch_type semantics —
 ///   None       — wildcard (user wrote `catch { }` / `catch (e)`); always matches.
 ///   Some("*")  — synthetic finally fallthrough catchall (compiler-generated
 ///                when there is no user catch but a finally block exists).

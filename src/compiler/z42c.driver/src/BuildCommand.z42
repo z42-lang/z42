@@ -116,8 +116,7 @@ void _buildUsage() {
 }
 
 // `z42c build` 不写 `--jobs` 时的并行度：min(4, 核数)（default-compile-jobs）。
-// 2026-10-02 实测（24 核，parallel-parse-and-cache 之后）：编译器 workspace jobs=1/2/4/8 = 21.2 / 18.4 / 15.5 / 17.3 秒，
-// stdlib workspace = 14.3 / 12.7 / 11.7 / 12.2 秒 —— 4 线程最优，再多反而变慢（共享引用计数等缓存行争用），
+// 实测（parallel-parse-and-cache 之后）：4 线程最优，再多反而变慢（共享引用计数等缓存行争用），
 // 产物逐字节一致。只作用于 z42c 命令行：z42b 进程内编译不经这里、保持串行（xtask 会成批并发起 z42b，
 // 每个再开多线程会超订）。
 int _defaultBuildJobs() {

@@ -1,5 +1,5 @@
 // xtask — `test list`: read-only catalog of the case-granular test corpus
-// (tidy-test-system, 2026-08-19). Answers "what cases exist, how do I run one,
+// (tidy-test-system). Answers "what cases exist, how do I run one,
 // which platforms can run it" without reading source. Reuses the single corpus
 // enumeration SoT (_enumerateCorpus in xtask_test_embedded.z42) so the catalog
 // never drifts from what the embed bundle / golden runner actually see.

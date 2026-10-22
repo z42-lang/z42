@@ -168,7 +168,7 @@ pub enum GcHandleKind {
 // ── Pause histogram ──────────────────────────────────────────────────────────
 
 /// Default capacity of the per-heap rolling pause-time window
-/// (add-gc-pause-window, 2026-05-24). Overridable via
+/// (add-gc-pause-window). Overridable via
 /// `Z42_GC_PAUSE_WINDOW`; clamped to `[1, 65536]`. The actual default +
 /// clamp live in `RuntimeConfig::gc_pause_window`. Kept as a public
 /// constant for any downstream that wants to refer to the default
@@ -183,7 +183,7 @@ pub const PAUSE_WINDOW_MAX_CAP: usize = 65536;
 
 /// Capacity for the per-heap pause-time window. Delegates to
 /// process-wide [`crate::config::runtime_config()`] (parsed once at
-/// startup; runtime-config-phase2 2026-06-03).
+/// startup; runtime-config-phase2).
 pub fn pause_window_cap_from_env() -> usize {
     crate::config::runtime_config().gc_pause_window
 }
@@ -209,7 +209,7 @@ pub const PAUSE_BUCKET_EDGES: [u64; 7] = [
 /// `Default` uses `min_us = u64::MAX` as a sentinel for "no collect recorded
 /// yet"; callers should check `count == 0` before reading `min_us`.
 ///
-/// **add-gc-pause-window (2026-05-24)**: also maintains
+/// **add-gc-pause-window **: also maintains
 /// `recent_pauses: VecDeque<u64>`, a rolling FIFO window of the
 /// last `window_cap` pause samples (oldest first). `Copy` is no
 /// longer derivable due to the deque — callers `clone()` instead.
@@ -259,7 +259,7 @@ impl PauseHistogram {
     /// Records one pause sample. Saturating arithmetic on every field so a
     /// pathological process running for years cannot overflow into garbage.
     ///
-    /// **add-gc-pause-window (2026-05-24)**: also appends to the rolling
+    /// **add-gc-pause-window **: also appends to the rolling
     /// window, evicting the oldest sample if the window is at capacity.
     pub fn record(&mut self, pause_us: u64) {
         let idx = Self::bucket_index(pause_us);
@@ -286,7 +286,7 @@ impl PauseHistogram {
 /// Heap-wide statistics snapshot returned by
 /// [`MagrGC::stats`](super::heap::MagrGC::stats).
 ///
-/// **add-gc-pause-window (2026-05-24)**: dropped `Copy` (transitive on
+/// **add-gc-pause-window **: dropped `Copy` (transitive on
 /// `PauseHistogram`, which now carries a `VecDeque`). Callers that
 /// previously consumed by value continue to work — `stats()` returns
 /// by value via `Clone`.
@@ -326,7 +326,7 @@ pub struct HeapStats {
     pub finalizers_pending: u64,
     /// Active observers.
     pub observers:          u64,
-    /// Aggregate pause-time histogram (add-gc-pause-histogram, 2026-05-22).
+    /// Aggregate pause-time histogram (add-gc-pause-histogram).
     pub pause_histogram:    PauseHistogram,
 }
 

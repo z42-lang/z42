@@ -1,4 +1,4 @@
-//! Frame（寄存器文件 + 池化）与 ref 解引用 / 写回、行号解析。refactor-split-interp-mod（2026-09-03）：自 1155 行的 `interp/mod.rs` 逐行搬出，
+//! Frame（寄存器文件 + 池化）与 ref 解引用 / 写回、行号解析。refactor-split-interp-mod：自 1155 行的 `interp/mod.rs` 逐行搬出，
 //! mod.rs 只留模块表与执行主循环 `exec_function_body`；本模块经 mod.rs 的 `pub(crate) use` 全量再导出，
 //! 兄弟模块的 `super::X` 路径不变。
 

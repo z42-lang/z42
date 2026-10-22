@@ -1,7 +1,7 @@
 //! Shared virtual-dispatch **target resolution** for the interpreter (`exec_vcall::vcall`)
 //! and the JIT helper (`jit/helpers/vcall.rs::jit_vcall`).
 //!
-//! unify-vcall-resolution (2026-09-03): before this module the two engines each carried a
+//! unify-vcall-resolution : before this module the two engines each carried a
 //! full copy of the receiver-kind ladder (boxed primitive → boxed struct → primitive-as-struct
 //! → object vtable / hierarchy walk), the candidate-name generation and the PIC install rules —
 //! ~900 lines that had to be kept in lock-step by hand (the JIT copy even had its own
@@ -96,7 +96,7 @@ pub(crate) fn vcall_ic_hit(ic: Option<&VCallIC>, obj_val: &Value) -> Option<usiz
     Some(fn_id as usize)
 }
 
-/// fix-crosspkg-typeid-collision (2026-09-08): tripwire for "the PIC handed back a callee
+/// fix-crosspkg-typeid-collision : tripwire for "the PIC handed back a callee
 /// that does not belong to this receiver".
 ///
 /// The PIC compares receiver types by a bare `u32` `TypeId`, so its correctness rests

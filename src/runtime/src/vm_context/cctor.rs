@@ -363,7 +363,7 @@ impl CctorRegistry {
     /// **放置**伪类型的规则同源（`ModuleInitSynth.Emit` 用 CU 的 `g.Ns` 限定），不是第二套
     /// 约定 —— 两侧不会各自漂移。
     ///
-    /// ✅ 那条「已知边界」已消除（2026-09-27）：判据从命名空间前缀换成**包的符号集合**，
+    /// ✅ 那条「已知边界」已消除：判据从命名空间前缀换成**包的符号集合**，
     /// 所以「一个包声明了互不嵌套的多个命名空间」不再影响归属 —— 同包的兄弟命名空间照样重抛，
     /// 别的包也不会被毒。见 [`module_owns_symbol`] 的头注。
     pub fn failed_module_owning(&self, sym_fq: &str) -> Option<Arc<crate::metadata::TypeDesc>> {
@@ -441,7 +441,7 @@ impl CctorRegistry {
     /// 它的 drop 可能要等一个进行中的 STW 结束，不能持着锁等。
     pub fn claim_with<G>(&self, class_fq: &str, park: impl Fn() -> G) -> Result<Option<String>, String> {
         let me = std::thread::current().id();
-        // 截止时间**到真要等待时才取时钟**（fix-device-tests，2026-10-02）：此前在入口就
+        // 截止时间**到真要等待时才取时钟**（fix-device-tests）：此前在入口就
         // `Instant::now()`，每次认领都读一次时钟——而 `wasm32-unknown-unknown` 上它直接 panic
         // （"time not implemented on this platform"）。本函数 09-22 引入后，wasm 上第一个带
         // 类型初始化器的类型就崩，nightly 的 test-wasm-browser 自那天起全红。只有「他线程

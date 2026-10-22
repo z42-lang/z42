@@ -83,9 +83,9 @@ pub(super) const OP_LOAD_FIELD_ADDR: u8 = 0xA2;
 // add-default-generic-typeparam (D-8b-3 Phase 2): runtime resolution of
 // `default(T)` where T is a generic type-parameter on the receiver class.
 pub(super) const OP_DEFAULT_OF: u8 = 0xB0;
-// fix-numeric-cast-lowering (2026-05-13): explicit numeric type conversion.
+// fix-numeric-cast-lowering : explicit numeric type conversion.
 pub(super) const OP_CONVERT: u8 = 0xB1;
-// add-generic-methods (2026-08-21, zbc 1.36): method-level generic type_args.
+// add-generic-methods (zbc 1.36): method-level generic type_args.
 // Non-generic Call/VCall keep 0x50/0x52 (byte-identical); generic calls carry a
 // method_type_args string list via CallGeneric/VCallGeneric.
 pub(super) const OP_METHOD_TYPE_ARG: u8 = 0xB2;

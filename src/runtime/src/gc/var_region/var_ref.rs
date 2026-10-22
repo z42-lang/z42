@@ -180,7 +180,7 @@ impl VarGcRef {
         unsafe { self.header_ptr().as_ref().is_marked(kind) }
     }
 
-    /// **fix-primitives-count-as-young (2026-09-11)**: raise the block's `gen_age` to at least
+    /// **fix-primitives-count-as-young **: raise the block's `gen_age` to at least
     /// `age` (never lowers). STW only. See `GcBlockHeader::raise_gen_age_to`.
     #[inline]
     pub fn raise_gen_age_to(&self, age: u8) {
@@ -188,7 +188,7 @@ impl VarGcRef {
         unsafe { self.header_ptr().as_ref() }.raise_gen_age_to(age);
     }
 
-    /// **fix-minor-gc-skips-var-region (2026-09-08)**: generation age of the block behind
+    /// **fix-minor-gc-skips-var-region **: generation age of the block behind
     /// this handle. `< PROMOTION_THRESHOLD` = young. Read by `ArcMagrGC::gen_age_of` so the
     /// minor mark phase can skip old blocks instead of treating every one as young.
     #[inline]

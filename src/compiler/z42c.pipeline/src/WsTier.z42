@@ -1,4 +1,4 @@
-// 依赖解析的**分档**（change `rename-project-namespaces` B6，2026-09-27）。
+// 依赖解析的**分档**（change `rename-project-namespaces` B6）。
 //
 // workspace per-member 布局下 `libsDirs` 是拼出来的：前 `MemberDirs` 个是**成员 dist**，其后是
 // **外部档**（`Z42_LIBS`）。此前解析只是「按 basename 扫这一串目录、

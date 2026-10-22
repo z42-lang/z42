@@ -3,7 +3,7 @@
 ///   • CallNativeVtable — Spec C5 placeholder
 ///   • PinPtr / UnpinPtr — Spec C4/C10: zero-copy / borrowed buffer FFI
 ///
-/// 2026-05-11 retire-z-codes:
+/// retire-z-codes:
 ///   - User-facing marshal failures (interior NUL on `*const c_char`,
 ///     PinPtr source/element type mismatch) are surfaced as
 ///     `Std.InvalidMarshalException` z42 exceptions, propagated up the
@@ -35,7 +35,7 @@ pub(super) fn call_native(
 ) -> Result<Option<Value>> {
     use crate::native::{marshal, dispatch as ndisp};
 
-    // Phase 2 D3+D6 wiring (2026-05-26): count + event for native FFI calls.
+    // Phase 2 D3+D6 wiring : count + event for native FFI calls.
     // Increment fires BEFORE dispatch so even failing calls (unknown type /
     // marshal error) are counted — they still represent FFI traffic.
     ctx.counters().native_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -118,7 +118,7 @@ pub(super) fn call_native_vtable(vtable_slot: u16) -> Result<()> {
 /// (no relocation possible); the pin set will be repopulated
 /// for moving GC backends in a later spec.
 ///
-/// 2026-05-11 retire-z-codes: type-mismatch + element-out-of-range
+/// retire-z-codes: type-mismatch + element-out-of-range
 /// surface as `Std.InvalidMarshalException` (user-catchable). Returns
 /// `Ok(Some(exc))` to propagate via interp's value-based throw channel.
 #[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）

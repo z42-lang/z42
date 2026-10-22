@@ -31,7 +31,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         self.promotion_age.load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    /// **adaptive-promotion (2026-09-12)**: put a new promotion age in force across the heap and
+    /// **adaptive-promotion **: put a new promotion age in force across the heap and
     /// the region's cached copy, and remember the cohort the new line made old.
     ///
     /// The **major** path's switch (an open cycle closing, or a one-shot major); a minor applies it
@@ -107,14 +107,14 @@ impl crate::gc::arc_heap::ArcMagrGC {
         self.configured_promotion_age
     }
 
-    /// **add-generational-gc P2 (2026-05-22)**: read the gen_age of
+    /// **add-generational-gc P2 **: read the gen_age of
     /// any `Value`. Returns 0 for primitives + stack refs (irrelevant
     /// to generational dispatch — mark/sweep already handles those).
     pub(super) fn gen_age_of(v: &Value) -> u8 {
         match v {
             Value::Object(gc) => ObjRef::gen_age(gc),
             Value::Array(gc)  => ArrRef::gen_age(gc),
-            // fix-minor-gc-skips-var-region (2026-09-08): the closure block carries its own
+            // fix-minor-gc-skips-var-region : the closure block carries its own
             // age now, so report *its* age rather than its `env` array's.
             //
             // This is load-bearing, not tidiness. Reporting 0 for a block the minor sweep
@@ -136,7 +136,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
     }
 
-    /// **add-generational-gc P2 (2026-05-22)**: mark phase for minor GC.
+    /// **add-generational-gc P2 **: mark phase for minor GC.
     ///
     /// Roots = pinned roots + external_root_scanner output + the remembered set (every old
     /// object / array that has received a young reference, or became old holding one, since it
@@ -205,7 +205,7 @@ grey {grey_n} (skipped old {grey_old})"));
                 },
             };
             visited += 1;
-            // fix-minor-stale-mark-on-old-roots (2026-09-08): **only young entries are
+            // fix-minor-stale-mark-on-old-roots : **only young entries are
             // marked.** A minor never sweeps old ones, so a mark on them buys nothing —
             // and it is actively wrong. `sweep_phase_young_only` clears the mark on *young*
             // survivors only; nothing else clears it before the next major. So the mark an
@@ -232,7 +232,7 @@ grey {grey_n} (skipped old {grey_old})"));
                 // Only enqueue **young heap references**. Old children that need re-rooting are
                 // already covered by the remembered set.
                 //
-                // **fix-primitives-count-as-young (2026-09-11)**: `is_heap_ref()` is load-bearing,
+                // **fix-primitives-count-as-young **: `is_heap_ref()` is load-bearing,
                 // not tidiness. `gen_age_of` answers 0 for everything that is not a GC reference
                 // — `Null`, `I64`, stack handles — and 0 is `< threshold`, so **every primitive
                 // field and every empty slot counted as "a young object"** and was cloned onto
@@ -249,7 +249,7 @@ grey {grey_n} (skipped old {grey_old})"));
         marked
     }
 
-    /// **trim-minor-cycle-roots (2026-09-18)**: seed the **young** entries of one of an open
+    /// **trim-minor-cycle-roots **: seed the **young** entries of one of an open
     /// cycle's queues (`mark_queue` / `satb_queue`) as minor roots, and report how many old ones
     /// were skipped.
     ///
@@ -313,7 +313,7 @@ grey {grey_n} (skipped old {grey_old})"));
         let mut found = false;
         // Old entry: traced through, no marks (see the note in `mark_phase_minor`).
         v.visit_gc_children(None, &mut |child| {
-            // fix-primitives-count-as-young (2026-09-11): heap references only — see the note in
+            // fix-primitives-count-as-young : heap references only — see the note in
             // `mark_phase_minor`. Without the `is_heap_ref` guard a `Null` slot made `found` true,
             // so the owner never left the set and was rescanned at every minor forever.
             if child.is_heap_ref() && Self::gen_age_of(child) < threshold {
@@ -324,7 +324,7 @@ grey {grey_n} (skipped old {grey_old})"));
         found
     }
 
-    // **fix-promotion-creates-uncarded-old-to-young (2026-09-08)**: the write barrier records
+    // **fix-promotion-creates-uncarded-old-to-young **: the write barrier records
     // an old→young edge **at the moment of the write**. Promotion creates such edges with no
     // write at all: a parent allocated before its child ages out first, and the instant it
     // crosses the promotion age it is an old block holding a young one — unremembered, because
@@ -341,7 +341,7 @@ grey {grey_n} (skipped old {grey_old})"));
         let mut found = false;
         // Inspection only — no marks.
         v.visit_gc_children(None, &mut |child| {
-            // fix-primitives-count-as-young (2026-09-11): heap references only.
+            // fix-primitives-count-as-young : heap references only.
             // `gen_age_of(Value::Null)` is 0, which is `< threshold`, so without the guard any owner
             // with a single empty or primitive slot "refers to something young" and the old→young
             // record never shrinks (measured 33 001 records covering 203 884 owners per minor, to
@@ -353,7 +353,7 @@ grey {grey_n} (skipped old {grey_old})"));
         found
     }
 
-    /// **add-generational-gc P2 (2026-05-22)**: sweep phase for minor GC. Walks the young set;
+    /// **add-generational-gc P2 **: sweep phase for minor GC. Walks the young set;
     /// for each block:
     /// - marked → clear the mark, age it; at the promotion age it leaves the young set;
     /// - unmarked → tombstone it (its finalizer fires through the flagged-dead list).
@@ -364,7 +364,7 @@ grey {grey_n} (skipped old {grey_old})"));
         let mut freed_bytes: u64 = 0;
         let mut reclaimed_entries: usize = 0;
         let mut promoted_bytes: u64 = 0;
-        // **adaptive-promotion (2026-09-12)**: the age in force. The switch itself happens on
+        // **adaptive-promotion **: the age in force. The switch itself happens on
         // top of a major (see `promotion_policy`), never here — a sweep is the wrong place to
         // redefine which entries are old.
         let configured = self.configured_promotion_age();
@@ -392,7 +392,7 @@ grey {grey_n} (skipped old {grey_old})"));
             self.remember_newly_old(&var.newly_old);
         }
 
-        // **add-bounded-nursery (2026-09-08)**: chunk-level reclaim at the minor tail.
+        // **add-bounded-nursery **: chunk-level reclaim at the minor tail.
         //
         // Without this a minor tombstones blocks but never gives a chunk back, and only a
         // major (`sweep_phase`) did. The TLAB hands each mutator a whole chunk at a
@@ -421,7 +421,7 @@ grey {grey_n} (skipped old {grey_old})"));
         MinorSweepResult { freed_bytes, reclaimed_entries, promoted_bytes }
     }
 
-    /// **add-generational-gc P2 (2026-05-22)**: full minor GC cycle.
+    /// **add-generational-gc P2 **: full minor GC cycle.
     /// Mark phase (young + remembered set) → sweep phase (young only) → returns the freed bytes.
     pub(super) fn run_cycle_collection_minor(&self) -> MinorSweepResult {
         // add-gc-tlab (stage 2, D5): retire the collecting thread's own TLAB so
@@ -444,12 +444,12 @@ grey {grey_n} (skipped old {grey_old})"));
         swept
     }
 
-    /// **add-generational-gc P3 (2026-05-22)**: full major GC cycle.
+    /// **add-generational-gc P3 **: full major GC cycle.
     /// Same as `run_cycle_collection_stw` (mark the whole heap from the roots; sweep every block),
     /// then the young survivors are aged.
     pub(super) fn run_cycle_collection_major(&self) -> u64 {
         let freed = self.run_cycle_collection_stw();
-        // **fix-minor-and-major-in-one-pause (2026-09-10)**: age the young survivors, exactly as
+        // **fix-minor-and-major-in-one-pause **: age the young survivors, exactly as
         // the minor sweep does. A major is a superset collection, so surviving one is as much
         // evidence of longevity as surviving a minor — and aging is the only thing that drains
         // the young list. Before escalation was deferred a major always had a minor in front of
@@ -457,7 +457,7 @@ grey {grey_n} (skipped old {grey_old})"));
         // every live entry stays young and the **next** minor re-marks the whole heap
         // (measured on `09_alloc_ctorless`: 1 498 866 entries, 192.6 ms).
         //
-        // **adaptive-promotion (2026-09-12)**: the switch goes **here** — after the whole-heap
+        // **adaptive-promotion **: the switch goes **here** — after the whole-heap
         // mark and sweep, and **before** the aging. See [`Self::apply_promotion_age`] for why
         // a major is the only self-consistent moment, and why the aging has to be the first
         // thing to run under the new line: it is what drains the entries the new line makes
@@ -500,24 +500,24 @@ grey {grey_n} (skipped old {grey_old})"));
         }
     }
 
-    /// **fix-minor-and-major-in-one-pause (2026-09-10)**: the major's counterpart of the aging
+    /// **fix-minor-and-major-in-one-pause **: the major's counterpart of the aging
     /// half of [`Self::sweep_phase_young_only`]. Entries were already swept by `sweep_phase`;
     /// this only bumps the survivors' ages and lets those that cross the threshold leave the
     /// young set. Newly-old objects and arrays still holding young references are remembered,
     /// the same way promotion does in a minor (`fix-promotion-creates-uncarded-old-to-young`).
     fn age_survivors_after_major(&self) {
-        // **one-pass-major-aging (2026-09-13)**: one walk of the young set.
+        // **one-pass-major-aging **: one walk of the young set.
         let newly_old = self.region_var.lock().age_young_survivors();
         self.remember_newly_old(&newly_old);
     }
 
-    /// **add-generational-gc P3 (2026-05-22)**: escalation threshold.
+    /// **add-generational-gc P3 **: escalation threshold.
     /// If the fraction of young entries surviving a minor GC exceeds
     /// this, the next collect is escalated to major immediately.
     /// Default 0.75 from [`RuntimeConfig::gc_minor_threshold`]; override
     /// via `Z42_GC_MINOR_THRESHOLD`.
     ///
-    /// runtime-config-phase2 (2026-06-03): centralised through
+    /// runtime-config-phase2 : centralised through
     /// `crate::config::runtime_config()`; previous per-callsite
     /// `OnceLock<f32>` retired.
     #[allow(dead_code)] // wired in collect_cycles_with_context below

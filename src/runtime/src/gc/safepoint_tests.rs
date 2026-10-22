@@ -55,7 +55,7 @@ fn pause_guard_drop_notifies_waiters() {
     // Pin<Box<VmContext>> is !Unpin, so we move via Arc<VmCore> and
     // construct a fresh VmContext::new_with_core inside the worker.
     //
-    // fix-context-joins-mid-pause (2026-09-15): the worker's context is built *before* the
+    // fix-context-joins-mid-pause : the worker's context is built *before* the
     // phase is tripped. A context can no longer join while the collector is `Marking` (it
     // waits the pause out unregistered, see `VmContext::new_with_core`), so building it after
     // the trip would test registration rather than parking.
@@ -66,7 +66,7 @@ fn pause_guard_drop_notifies_waiters() {
         let m = VmContext::new_with_core(core);
         ready_tx.send(()).expect("ready");
         go_rx.recv().expect("go");
-        // add-gc-safepoint-counter-throttling (2026-05-21): force the
+        // add-gc-safepoint-counter-throttling : force the
         // worker's safepoint check into the slow path immediately so
         // the test doesn't need to call check_safepoint 1024 times.
         m.safepoint_skip.store(1, Ordering::Relaxed);
@@ -100,7 +100,7 @@ fn pause_guard_drop_notifies_waiters() {
     worker.join().expect("worker panicked");
     assert_eq!(collector.core.parked_count.load(Ordering::Acquire), 0);
 
-    // add-concurrency-probes (2026-08-23, script-profiling P1b): the worker that
+    // add-concurrency-probes (script-profiling P1b): the worker that
     // parked in `park_until_idle` recorded its STW stall into the shared park
     // histogram. Always-on (no feature gate) — proves the probe fires.
     assert!(
@@ -113,7 +113,7 @@ fn pause_guard_drop_notifies_waiters() {
     drop(mutator);
 }
 
-// ── add-gc-safepoint-auto-threshold Phase 5 (2026-05-20) ─────────────────────
+// ── add-gc-safepoint-auto-threshold Phase 5  ─────────────────────
 
 #[test]
 fn auto_collect_flag_drained_at_next_safepoint() {
@@ -121,7 +121,7 @@ fn auto_collect_flag_drained_at_next_safepoint() {
     // the flag is drained AND gc_cycles incremented (proof that the
     // safepoint path ran a real collect_cycles).
     let ctx = VmContext::new();
-    // add-gc-safepoint-counter-throttling (2026-05-21): bypass throttling
+    // add-gc-safepoint-counter-throttling : bypass throttling
     // — force the first check_safepoint into the slow path.
     ctx.safepoint_skip.store(1, Ordering::Relaxed);
     assert!(!ctx.core.needs_auto_collect.load(Ordering::Acquire));
@@ -145,7 +145,7 @@ fn auto_collect_flag_idempotent_only_first_swap_runs_collect() {
     ctx.core.needs_auto_collect.store(true, Ordering::Release);
     let cycles_before = ctx.heap().stats().gc_cycles;
 
-    // add-gc-safepoint-counter-throttling (2026-05-21): force slow path
+    // add-gc-safepoint-counter-throttling : force slow path
     // for each of the two check_safepoint calls below.
     ctx.safepoint_skip.store(1, Ordering::Relaxed);
     check_safepoint(&ctx);
@@ -177,7 +177,7 @@ fn request_pause_waits_for_other_mutators_to_park() {
 
     let w1 = std::thread::spawn(move || {
         let m = VmContext::new_with_core(core1);
-        // add-gc-safepoint-counter-throttling (2026-05-21): force slow path.
+        // add-gc-safepoint-counter-throttling : force slow path.
         m.safepoint_skip.store(1, Ordering::Relaxed);
         check_safepoint(&m);
     });
@@ -205,7 +205,7 @@ fn request_pause_waits_for_other_mutators_to_park() {
     w2.join().expect("w2 panicked");
 }
 
-// ── add-gc-safepoint-counter-throttling Phase 3 (2026-05-21) ─────────────────
+// ── add-gc-safepoint-counter-throttling Phase 3  ─────────────────
 
 #[test]
 fn throttle_n_default_is_at_least_1024() {
@@ -280,7 +280,7 @@ fn check_safepoint_slow_path_pure_idle_no_op_resets_counter() {
         "Idle slow path should not run any collect");
 }
 
-// ── add-multi-collector-arbitration Phase 4 (2026-05-21) ─────────────────────
+// ── add-multi-collector-arbitration Phase 4  ─────────────────────
 
 #[test]
 fn request_gc_pause_returns_some_when_uncontested() {
@@ -305,7 +305,7 @@ fn second_collector_falls_back_to_mutator_park_returns_none() {
     let collector = VmContext::new();
     let _other = VmContext::new_with_core(collector.core_arc());
 
-    // fix-context-joins-mid-pause (2026-09-15): the worker registers *before* the simulated
+    // fix-context-joins-mid-pause : the worker registers *before* the simulated
     // collector enters `Marking` — a context can no longer join mid-pause (see
     // `pause_guard_drop_notifies_waiters`). What this test is about, a registered thread losing
     // the collector CAS, is unchanged.
@@ -382,7 +382,7 @@ fn requested_phase_parks_mutators() {
     handle.join().expect("worker panicked");
 }
 
-// ── add-repl-prewarm (2026-07-29): native-park guards ────────────────────────
+// ── add-repl-prewarm : native-park guards ────────────────────────
 
 #[test]
 fn native_park_guard_satisfies_collector_without_safepoint() {
@@ -468,7 +468,7 @@ fn generational_collection_bumps_minor_counter() {
     assert!(s.gc_cycles >= 1, "gc_cycles must also increment");
 }
 
-// ── fix-alloc-inside-native-park (2026-09-14) ─────────────────────────────────────────────
+// ── fix-alloc-inside-native-park  ─────────────────────────────────────────────
 
 /// A parked thread's fresh allocations are not roots for a collection running on another
 /// thread, so the debug build refuses them outright rather than waiting for the race.
@@ -510,7 +510,7 @@ fn an_unpark_guard_lifts_the_tripwire_for_its_span() {
     assert!(still_parked.is_err(), "the outer park is back in force after the unpark guard");
 }
 
-// ── fix-context-joins-mid-pause (2026-09-15) ──────────────────────────────────────────────
+// ── fix-context-joins-mid-pause  ──────────────────────────────────────────────
 
 /// A context created while the world is stopped must not join until the pause is over.
 ///

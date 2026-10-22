@@ -11,7 +11,7 @@
 //!   the compiler / used by the VM internally / host-only). Adding a builtin without declaring
 //!   it and without extending the allowlist fails here, which keeps the allowlist honest.
 //!
-//! * **（split-null-sentinel-channels ④，2026-09-27）** 声明的返回类型是否 `void` 必须与
+//! * **（split-null-sentinel-channels ④）** 声明的返回类型是否 `void` 必须与
 //!   表项的 `Native::Val` / `Native::Void` 一致。没有这一条，下次加 builtin 时两边会悄悄漂开：
 //!   一个声明为 `void` 的 builtin 若登记成 `Native::Val`，它就又能产出 `Value` 了 ——
 //!   而「用 `Value::Null` 表示无返回值」正是本 change 要消掉的那个混用。
@@ -60,7 +60,7 @@ const UNDECLARED_ALLOWLIST: &[(&str, &str)] = &[
     ("__concat",   "legacy: kept for BuiltinId stability"),
     ("__contains", "legacy: kept for BuiltinId stability"),
     ("__len",      "legacy: kept for BuiltinId stability"),
-    // 🪦 store-sync-values-in-heap 阶段 2 已落地（2026-09-26）：旧同步原语的 19 条豁免连同它们的
+    // 🪦 store-sync-values-in-heap 阶段 2 已落地：旧同步原语的 19 条豁免连同它们的
     // 表槽、`corelib/sync.rs`、三个 registry 一并删除 —— 所以这里**不再需要**对应条目。
     //
     // 📌 删得掉的依据（读码核实，与本文件原注的说法不同）：zbc 存的是 builtin **名字**，
@@ -69,7 +69,7 @@ const UNDECLARED_ALLOWLIST: &[(&str, &str)] = &[
     // `2026-09-14-store-sync-values-in-heap` 规定的 `strings -n 3 | grep` 核过：0 引用。
 ];
 
-/// 扫描根 —— **两个都要**（relocate-compiler-domain-libs，2026-09-27）：用户 stdlib 在
+/// 扫描根 —— **两个都要**（relocate-compiler-domain-libs）：用户 stdlib 在
 /// `src/libraries/`，编译器域（`z42.scripting` / `z42.package` / `z42c.*` …）在 `src/compiler/`。
 /// 只扫前者时 `__repl_complete_probe` / `__repl_member_names` / `__load_bytecode_in_memory`
 /// 当场变成「未声明」——它们声明在 `z42.scripting` 里，而那个包挪去了 `src/compiler/`。

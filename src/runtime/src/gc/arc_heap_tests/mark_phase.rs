@@ -1,4 +1,4 @@
-//! add-mark-sweep-collector P1 (2026-05-21): tests for the new
+//! add-mark-sweep-collector P1 : tests for the new
 //! mark phase BFS. These run alongside the existing trial-deletion path
 //! (which remains the default until P3). The mark_phase function is
 //! `#[allow(dead_code)]` in production until P2 wires it side-by-side
@@ -139,7 +139,7 @@ fn clear_mark_resets_state() {
     assert!(!crate::gc::ObjRef::is_marked(a_gc, heap.major_mark_for_test()));
 }
 
-// ── add-mark-sweep-collector P2 (2026-05-21): sweep + full cycle ────────────
+// ── add-mark-sweep-collector P2 : sweep + full cycle ────────────
 
 fn alive_count(heap: &ArcMagrGC) -> usize {
     let mut n = 0;

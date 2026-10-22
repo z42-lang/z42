@@ -1,5 +1,5 @@
 //! Load-time token resolution for the introduce-method-token spec
-//! (Phase 1, 2026-05-08). Walks every IR instruction in a freshly built
+//! (Phase 1). Walks every IR instruction in a freshly built
 //! `Module` and pre-fills per-function `ResolvedTokens` so the dispatch
 //! hot path can index `Vec<Function>` / `Vec<Value>` directly without
 //! per-call hashing.
@@ -106,7 +106,7 @@ pub fn resolve_module(module: &crate::metadata::Module, ctx: &crate::vm_context:
 
 /// Populate one `Function`'s `ResolvedTokens` against `module` + `ctx`.
 ///
-/// Extracted from `resolve_module` (perf-lazy-resolve-tokens, 2026-08-18) so
+/// Extracted from `resolve_module` (perf-lazy-resolve-tokens) so
 /// **lazily-loaded** functions — whose owning zpkg is never passed through
 /// `resolve_module` (only the entry module is, in `Vm::run`) — can populate
 /// their per-site caches too. Before this, every function in a lazily-loaded
@@ -261,7 +261,7 @@ pub fn resolve_function_tokens(
             .map(|name| {
                 // Static `BUILTINS[]` first, then per-VM ext registry (a miss loads
                 // the providing library, `native::ext::ensure_lib_for`). add-z42-compression
-                // (2026-05-22): facade `[Native(lib="z42_compression", entry=...)]`
+                // : facade `[Native(lib="z42_compression", entry=...)]`
                 // names resolve through the ext path.
                 {
                     let bid = crate::corelib::builtin_id_of(name);

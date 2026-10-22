@@ -8,7 +8,7 @@ use crate::gc::obj_ref::ObjRef;
 use crate::gc::phase_timer::PhaseTimer;
 
 impl crate::gc::arc_heap::ArcMagrGC {
-    /// **add-mark-sweep-collector P3 (2026-05-21)**: mark phase of the
+    /// **add-mark-sweep-collector P3 **: mark phase of the
     /// mark-sweep collector (now the default).
     ///
     /// BFS from roots (pinned + external scanner) → sets `marked = 1` on
@@ -135,7 +135,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
 
     /// Sweep phase of the mark-sweep collector.
     ///
-    /// **add-mark-sweep-collector P3 (2026-05-21)**: original
+    /// **add-mark-sweep-collector P3 **: original
     /// implementation walked the Arc-backed `heap_registry` snapshot.
     ///
     /// Walks the region directly: every alive block without this cycle's epoch is tombstoned (its
@@ -183,7 +183,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         freed_bytes
     }
 
-    /// **add-gc-softref (2026-05-26)**: after mark_phase, re-mark alive
+    /// **add-gc-softref **: after mark_phase, re-mark alive
     /// soft-ref targets when heap pressure < `Z42_GC_SOFT_THRESHOLD`.
     /// Snapshots the registry entries under the lock, then calls
     /// `revive_if_unmarked` outside the lock (only touches RegionEntry
@@ -278,7 +278,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
     }
 
-    /// **add-incremental-major-gc M1 (2026-09-15)**: open a major mark — advance this heap's
+    /// **add-incremental-major-gc M1 **: open a major mark — advance this heap's
     /// epoch and return the kind every mark of the cycle uses. This replaced the
     /// `reset_all_marks_in_regions` pass (a walk over every alive entry and block, 6~11 ms
     /// per major on `z42c.semantics`): a slot is major-marked only if it holds the *current*

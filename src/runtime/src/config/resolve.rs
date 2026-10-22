@@ -25,7 +25,7 @@
 //! （`Z42_GC_SOFT_THRESHOLD=1.5` → 1.0，有单测明确断言 "not rejected"）。
 //! 在这里拒绝会把钳制变成回落默认，是行为回归。
 //!
-//! complete-runtime-settings P1（2026-09-05）。
+//! complete-runtime-settings P1。
 
 use super::knobs::*;
 use super::*;

@@ -117,7 +117,7 @@ pub fn value_to_z42(v: &Value, target: &SigType, arena: &mut Arena) -> Result<Z4
         ))),
         // Spec C8 — Value::Str → *const c_char (NUL-terminated). The
         // arena owns the CString for the call's duration. Interior NULs
-        // surface as Std.InvalidMarshalException (2026-05-11 retire-z-codes;
+        // surface as Std.InvalidMarshalException (retire-z-codes;
         // formerly Z0908) — the C consumer cannot disambiguate them from
         // the terminator.
         (Value::Str(s), SigType::CStr | SigType::Ptr) => {

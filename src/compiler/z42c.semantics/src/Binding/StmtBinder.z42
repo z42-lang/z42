@@ -31,7 +31,7 @@ public sealed class StmtBinder : IStmtVisitor<BoundStmt, StmtCtx> {
     //
     // `rest` = 简化形态要收进 try 体的「后续兄弟语句」（由 `_bindBlock` 传入）；块形态传 `us.Body`。
     //
-    // 🔴 **判定是名义的**（User 2026-09-26 裁 D3-1）：目标类型的**接口闭包**里必须有
+    // 🔴 **判定是名义的**（User  裁 D3-1）：目标类型的**接口闭包**里必须有
     // `Std.IDisposable`。这与 foreach 的判据**刻意不同源** —— foreach 是鸭子类型（形状匹配
     // `Dispose` 成员），`using` 对齐 C# 取名义。别把这看成漏改：两处注释都写明了。
     // 闭包判据复用 `symbols.Implements`（沿 `BaseName` 链 + 接口 BFS 上溯父接口），
@@ -187,7 +187,7 @@ public sealed class StmtBinder : IStmtVisitor<BoundStmt, StmtCtx> {
             // （`iteration.md` 把形状写成 `MoveNext` + `Current` 两个成员）编译就报
             // `E0401: no method Dispose on <T>`，位置还指在 `foreach` 那一行、不提是脱糖合成的调用。
             // 这与 C# 不同（C# 只在枚举器实现 `IDisposable` 时才调），也与本仓文档冲突 ——
-            // User 2026-09-25 裁定**以文档为准、改代码**。
+            // User 裁定**以文档为准、改代码**。
             // 不可 dispose 时连 try/finally 一起省掉：finally 里没有任何事可做。
             Stmt body = whileStmt;
             if (disposable) {

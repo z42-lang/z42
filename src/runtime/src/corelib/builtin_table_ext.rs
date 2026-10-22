@@ -1,4 +1,4 @@
-//! `BUILTINS` 旧表第 2 段（`PART2`）—— 2026-05-14 起的历次追加。整张表的拼接与 `BuiltinId` 的含义见
+//! `BUILTINS` 旧表第 2 段（`PART2`）——  起的历次追加。整张表的拼接与 `BuiltinId` 的含义见
 //! `builtin_table.rs` 抬头。
 //!
 //! **不再往这里加新 builtin**：新 builtin 写成 builtin ABI v2 的类型化函数（`#[builtins]` 模块，
@@ -8,7 +8,7 @@
 use super::*;
 
 pub(crate) const PART2: &[(&str, Native)] = &[
-    // ── add-platform-os-stdlib (2026-05-14) — appended to preserve existing BuiltinIds ──
+    // ── add-platform-os-stdlib — appended to preserve existing BuiltinIds ──
     ("__platform_os",         Native::Val(platform::builtin_platform_os)),
     ("__platform_arch",       Native::Val(platform::builtin_platform_arch)),
     ("__platform_family",     Native::Val(platform::builtin_platform_family)),
@@ -22,43 +22,43 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     ("__system_cpu_count",    Native::Val(system::builtin_system_cpu_count)),
     ("__system_os_version",   Native::Val(system::builtin_system_os_version)),
 
-    // ── add-threading-stdlib (2026-05-20) — appended to preserve existing BuiltinIds ──
+    // ── add-threading-stdlib — appended to preserve existing BuiltinIds ──
     ("__thread_spawn",        Native::Val(threading::builtin_thread_spawn)),
 
-    // ── add-sync-primitives (2026-05-20) ── 🪦 **已删除**（store-sync-values-in-heap 阶段 2，2026-09-26）
+    // ── add-sync-primitives  ── 🪦 **已删除**（store-sync-values-in-heap 阶段 2）
     //
-    // 原先这里有 19 个槽（`__mutex_*` 4 / `__channel_*` 7 / `__rwlock_*` 8）。stdlib 自 2026-09-14
+    // 原先这里有 19 个槽（`__mutex_*` 4 / `__channel_*` 7 / `__rwlock_*` 8）。stdlib 已
     // 改走 `__monitor_*`，此后没有任何 z42 源声明它们；按归档
     // `2026-09-14-store-sync-values-in-heap` 规定的触发条件核过种子（`strings -n 3 | grep` 旧名，
     // programs/z42c 与 libs 皆 0 引用）后整批删除，连同 `corelib/sync.rs`（596 行）与
     // `VmCore.{mutexes,rwlocks,channels}` 三个 registry。
     //
-    // ── add-gc-pause-histogram (2026-05-22) — appended to preserve existing BuiltinIds ──
+    // ── add-gc-pause-histogram — appended to preserve existing BuiltinIds ──
     ("__gc_pause_histogram", Native::Val(gc::builtin_gc_pause_histogram)),
     ("__gc_pause_stats_raw", Native::Val(gc::builtin_gc_pause_stats_raw)),
 
-    // ── add-z42-compression (2026-05-22): __deflate_* / __zstd_* / __compressor_*
+    // ── add-z42-compression : __deflate_* / __zstd_* / __compressor_*
     //    builtins are NOT statically registered here — they're provided by the
     //    z42-compression cdylib, dlopen'd at VM startup (or statically linked
     //    on wasm via the `bundled-compression` feature). Resolved through
     //    `VmCore.ext_builtins` (see corelib::ext_builtin_id_of below).
 
-    // ── add-gc-heap-snapshot-export B3 (2026-05-24) ──
+    // ── add-gc-heap-snapshot-export B3  ──
     ("__gc_write_heap_snapshot", Native::Val(gc::builtin_gc_write_heap_snapshot)),
 
-    // ── add-gc-pause-window (2026-05-24) ──
+    // ── add-gc-pause-window  ──
     ("__gc_recent_pauses",         Native::Val(gc::builtin_gc_recent_pauses)),
     ("__gc_pause_window_capacity", Native::Val(gc::builtin_gc_pause_window_capacity)),
 
-    // ── add-gc-oom-exception (2026-05-25) ──
+    // ── add-gc-oom-exception  ──
     ("__gc_set_max_heap_bytes", Native::Void(gc::builtin_gc_set_max_heap_bytes)),
     ("__gc_set_strict_oom",     Native::Void(gc::builtin_gc_set_strict_oom)),
 
-    // ── add-gc-softref (2026-05-26) ──────────────────────────────────────────
+    // ── add-gc-softref  ──────────────────────────────────────────
     ("__soft_handle_create", Native::Val(gc::builtin_soft_handle_create)),
     ("__soft_handle_get",    Native::Val(gc::builtin_soft_handle_get)),
 
-    // ── add-csprng-to-crypto (2026-05-27) — OS-CSPRNG backing Std.Crypto.SecureRandom ──
+    // ── add-csprng-to-crypto  — OS-CSPRNG backing Std.Crypto.SecureRandom ──
     ("__crypto_random_bytes", Native::Val(crypto::builtin_crypto_random_bytes)),
 
 
@@ -66,18 +66,18 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     ("__load_zpkg",  Native::Void(builtin_load_zpkg_stub)),
     ("__call_static", Native::Val(builtin_call_static_stub)),
 
-    // ── add-z42-repl (2026-07-23) — appended to preserve existing BuiltinIds ──
+    // ── add-z42-repl — appended to preserve existing BuiltinIds ──
     // REPL line editor (rustyline) + in-memory bytecode load. Back
     // `Std.Repl.ReadLine` and z42.scripting's per-eval module load. (BuiltinId is
     // resolved by name at load, so removing the retired `__repl_readline_indented`
     // slot — indent now computed script-side, sink-repl-indent-to-script — shifts no
     // persisted id.)
 
-    // ── add-enum-parse-isdefined (2026-07-24) — appended to preserve BuiltinIds ──
+    // ── add-enum-parse-isdefined — appended to preserve BuiltinIds ──
 
-    // ── add-enum-underlying-type (2026-07-25) — appended to preserve BuiltinIds ──
+    // ── add-enum-underlying-type — appended to preserve BuiltinIds ──
 
-    // ── add-nested-types (2026-07-25) — appended to preserve BuiltinIds ──
+    // ── add-nested-types — appended to preserve BuiltinIds ──
 
     // ── complete-class-access-control — class visibility reflection (appended) ──
     // Single visibility-byte accessor; z42 `Type.Visibility` wraps it in the
@@ -86,25 +86,25 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     // by name at load (resolver.rs), so collapsing the earlier 6 predicate builtins
     // to this one is safe — nothing bakes a positional BuiltinId across a build.
 
-    // ── add-load-context-model (2026-07-30) — appended to preserve BuiltinIds ──
+    // ── add-load-context-model — appended to preserve BuiltinIds ──
 
-    // ── add-exec-profile-matrix (2026-07-31) — appended to preserve BuiltinIds ──
+    // ── add-exec-profile-matrix — appended to preserve BuiltinIds ──
     ("__platform_caps",           Native::Val(platform::builtin_platform_caps)),
     ("__platform_exec_modes",     Native::Val(platform::builtin_platform_exec_modes)),
 
-    // ── add-lazy-context-unload (2026-08-05) — appended to preserve BuiltinIds ──
+    // ── add-lazy-context-unload — appended to preserve BuiltinIds ──
 
-    // ── add-heap-retention-diagnostics (2026-08-06) — appended to preserve BuiltinIds ──
+    // ── add-heap-retention-diagnostics — appended to preserve BuiltinIds ──
     ("__heap_direct_referrers",   Native::Val(diagnostics::builtin_heap_direct_referrers)),
     ("__heap_retaining_roots",    Native::Val(diagnostics::builtin_heap_retaining_roots)),
 
-    // ── mature-embed-testhost P1 (2026-08-09) — appended to preserve BuiltinIds ──
+    // ── mature-embed-testhost P1 — appended to preserve BuiltinIds ──
 
-    // ── expose-diagnostics-counters (2026-08-23) — appended to preserve BuiltinIds ──
+    // ── expose-diagnostics-counters — appended to preserve BuiltinIds ──
     ("__diag_counters",           Native::Val(diagnostics::builtin_diag_counters)),
-    // ── perf-stdlib-hot-paths (2026-09-03): bulk string primitives ────────────────
+    // ── perf-stdlib-hot-paths : bulk string primitives ────────────────
 
-    // ── complete-runtime-settings P4 (2026-09-05) — appended to preserve BuiltinIds ──
+    // ── complete-runtime-settings P4 — appended to preserve BuiltinIds ──
     // Read-only view of the resolved runtime configuration (Std.Runtime.RuntimeConfig).
     // No setter: the config is frozen in a OnceLock after boot — see corelib/config.rs.
     ("__cfg_get",       Native::Val(config::builtin_cfg_get)),
@@ -115,11 +115,11 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     ("__cfg_describe",  Native::Val(config::builtin_cfg_describe)),
     ("__cfg_available", Native::Val(config::builtin_cfg_available)),
 
-    // ── perf-bulk-array-copy (2026-09-05) — appended to preserve existing BuiltinIds ──
+    // ── perf-bulk-array-copy — appended to preserve existing BuiltinIds ──
     // `Array.Copy` 的底座：一次区间搬运，取代脚本里的逐元素 for 循环。
     ("__array_copy",    Native::Void(array::builtin_array_copy)),
 
-    // ── add-app-properties (2026-09-05) — appended to preserve existing BuiltinIds ──
+    // ── add-app-properties — appended to preserve existing BuiltinIds ──
     // 应用自定义配置属性（Std.Runtime.AppProperties）。不是旋钮：VM 不校验、
     // 未知键不是错误；结构化值走 __app_props_toml + Std.Toml。
     ("__app_prop",        Native::Val(appprops::builtin_app_prop)),
@@ -127,17 +127,17 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     ("__app_prop_names",  Native::Val(appprops::builtin_app_prop_names)),
     ("__app_props_toml",  Native::Val(appprops::builtin_app_props_toml)),
 
-    // ── add-symbol-availability-macro (2026-09-08) — appended to preserve existing BuiltinIds ──
+    // ── add-symbol-availability-macro — appended to preserve existing BuiltinIds ──
     // `available!(X)` 的运行期回落。正常路径**永不执行**——加载期 fold_availability
     // 已把它折成 ConstBool 并剪掉死分支。走到这里 = pass 没跑，debug 下 panic 点名。
     ("__sym_available",   Native::Val(symavail::builtin_sym_available)),
 
-    // ── add-method-reference (2026-09-11) — appended to preserve existing BuiltinIds ──
+    // ── add-method-reference — appended to preserve existing BuiltinIds ──
     // `methodof(Type.Member(sig))` → Std.Reflection.MethodInfo. The overload is
     // already resolved at compile time; the argument is the single qualified name.
     // `__monitor_*`（Mutex / RwLock / Channel 的底座）已迁 ABI v2：`monitor::typed`。
 
-    // ── fix-class-level-typeof (2026-09-25) — appended to preserve existing BuiltinIds ──
+    // ── fix-class-level-typeof — appended to preserve existing BuiltinIds ──
     // 类级 `typeof(T)`：读 receiver 的 per-instance type_args[idx] 产 `Std.Type`。
     // 与类级 `default(T)`（`DefaultOf` 指令）同一个载体，只是产类型而非零值；走 builtin
     // 而非新 opcode ⇒ 零 zbc 格式 bump、JIT 白送（Builtin 按名/id 通用派发）。

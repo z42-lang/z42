@@ -1,6 +1,6 @@
 use super::*;
 
-/// **M2 (refactor-vm-context-resource-registry, 2026-08-24)** — the
+/// **M2 (refactor-vm-context-resource-registry)** — the
 /// `Mutex<HashMap<u64, T>>` + monotonic `AtomicU64` id-counter pattern shared
 /// by every per-VM resource table (processes / threads / sync primitives /
 /// file handles / TCP·TLS·UDP sockets). Bundling the lock, the table, and the

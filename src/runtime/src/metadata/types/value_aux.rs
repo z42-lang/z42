@@ -1,4 +1,4 @@
-//! Value 周边：StructArrayElem / RefKind / Pin / Closure 数据 / ExecMode / ObjectData。refactor-split-metadata-types（2026-09-03）：从 2436 行的 `types.rs` 按职责拆出，
+//! Value 周边：StructArrayElem / RefKind / Pin / Closure 数据 / ExecMode / ObjectData。refactor-split-metadata-types：从 2436 行的 `types.rs` 按职责拆出，
 //! 对外路径不变（`metadata::types::*` 经 hub 的 `pub use` 全量再导出）。
 
 #![allow(unused_imports)]
@@ -47,8 +47,8 @@ pub enum PinSourceKind {
     ArrayU8,
 }
 
-/// Payload of [`Value::PinnedView`] — boxed (review.md C1 step 1,
-/// 2026-05-27) so the inline `Value` doesn't pay for the 24-byte raw
+/// Payload of [`Value::PinnedView`] — boxed (review.md C1 step 1).
+/// so the inline `Value` doesn't pay for the 24-byte raw
 /// FFI view triple. `PinPtr` constructs one; `UnpinPtr` and any
 /// `FieldGet` reading `.ptr` / `.len` borrow through the box.
 #[derive(Debug, Clone)]

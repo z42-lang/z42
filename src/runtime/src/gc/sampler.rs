@@ -50,7 +50,7 @@ pub struct Sampler {
     /// `disabled()` 为 `None`：**关着时不取时钟**。`wasm32-unknown-unknown` 没有 `std::time`，
     /// `Instant::now()` 直接 panic「time not implemented on this platform」—— 每个 VmContext
     /// 构造都会建一个 disabled Sampler，旧写法让 wasm 上 `loadZbc` 一步就 trap
-    /// （fix-wasm-std-time；自 2026-08-24 #277 起 nightly `test-wasm-browser` 全红）。
+    /// （fix-wasm-std-time；自 #277 起 nightly `test-wasm-browser` 全红）。
     start: Option<Instant>,
     data: Mutex<SamplerData>,
     /// 定时线程句柄（detached-ish：Drop 置 `stop` 后不 join，线程见 flag 自退）。

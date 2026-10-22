@@ -1,5 +1,5 @@
 //! Thread-local allocation buffer (TLAB) — chunk-exclusive per-thread GC
-//! allocation (add-gc-tlab, 2026-08-29, stage 2).
+//! allocation (add-gc-tlab, stage 2).
 //!
 //! # Why
 //!

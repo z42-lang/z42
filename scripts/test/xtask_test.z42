@@ -142,15 +142,15 @@ int _testRuntime() {
     Stopwatch sw = _procStart("test runtime");
     // --features z42-test-fixtures：build.rs 里「用 z42c 编三个 .z42 fixture + emit
     // cfg」那块默认关闭（否则它 rerun-if-changed 到 z42c.driver.zpkg，而该文件被
-    // `xtask build compiler` 每轮重写 → 下一次 cargo 全量重编，release 实测 62s）。
+    // `xtask build compiler` 每轮重写 → 下一次 cargo 全量重编）。
     // Rust 单测是唯一真正需要这些 fixture 的地方，故在这里按需打开——覆盖面不变，
     // 只是把成本从「所有人的每次构建」挪到「真的要跑 Rust 单测时」。
-    // --workspace（fix-more-silent-gates, 2026-09-06）：不带它时包选择落到 Cargo.toml
+    // --workspace（fix-more-silent-gates）：不带它时包选择落到 Cargo.toml
     // 的 `default-members`（只有根包 z42 + z42-compression），于是 z42-abi(12) /
     // z42-repl(8) / z42-rs(3) / z42-macros(1) 共 **24 个测试从来没有被跑过**，z42-host
     // 也在选择集外。这是全仓唯一的 `cargo test` 入口（CI 的 "Rust VM unit tests" 即此），
     // 所以「从来没跑过」是字面意思。z42-abi 守的正是 C ABI 结构体布局契约——坏了直接
-    // 表现为嵌入端内存错位，却全绿。本地实测加上后 24 个全过，无存量红。
+    // 表现为嵌入端内存错位，却全绿。本地实测加上后全部通过、无存量红。
     int __rc = _exec(_cargoCmd("test", _runtimeCargoConfig()).Arg("--locked").Arg("--workspace")
         .Arg("--features").Arg("z42-test-fixtures")
         .Arg("--manifest-path").Arg(_runtimeManifest())
@@ -160,7 +160,7 @@ int _testRuntime() {
     return __rc;
 }
 
-// GREEN 里的 Rust 单测（`test runtime` 的**窄版**，2026-09-26）。
+// GREEN 里的 Rust 单测（`test runtime` 的**窄版**）。
 //
 // ## 为什么以前整条不在 GREEN 里，而这一版可以进
 //
@@ -168,9 +168,9 @@ int _testRuntime() {
 // （`tests/signal_handler_e2e.rs`），在限制信号的沙箱里**挂住**，常驻门就没法用了。
 //
 // 但记录在案的三次事故**都不需要跑那批**：
-//   · 2026-08-01 `jit::lazy::lazy_tests::tiering_cold_jit_call_callee_stays_interp` —— **lib 单测**；
-//   · 2026-09-08 `corelib::native_decl_tests::every_builtin_is_declared_or_allowlisted` —— **lib 单测**；
-//   · 2026-08-04 给 `Function` 加字段后 `tests/` 里的字面构造点没补 —— 那是**编译**失败，
+//   ·  `jit::lazy::lazy_tests::tiering_cold_jit_call_callee_stays_interp` —— **lib 单测**；
+//   ·  `corelib::native_decl_tests::every_builtin_is_declared_or_allowlisted` —— **lib 单测**；
+//   ·  给 `Function` 加字段后 `tests/` 里的字面构造点没补 —— 那是**编译**失败，
 //     `--no-run` 就能抓（编所有 target、一个都不跑）。
 // 三次都是「本地 GREEN 全绿、CI test-host 四平台红」，每次损失约 18 分钟的 CI 反馈。
 //
@@ -249,39 +249,33 @@ int _testE2eCore(string modes, bool rebuild, bool noBuild, string jobs, string s
     return _runVmGoldensF(modeList, jobsN, sh[0], sh[1], dirFilter, fileFilter);
 }
 
-// add-ci-generational-coverage (2026-09-10) / flip-gc-default-to-generational (2026-09-10):
-// compile one real package under each GC mode, with the collector tuned to fire hundreds of
-// times, and require that it actually did.
+// compile one real package under each GC mode, with the collector tuned to fire
+// hundreds of times, and require that it actually did.
 //
-// **Why a compiler build and not the golden suite**: the goldens were tried first and are
-// *vacuous* here — each case is a short-lived program that never collects. Reintroducing
-// #539's defect left the whole golden suite green; the same defect crashes this build.
+// **Why a compiler build and not the golden suite**: golden cases are short-lived
+// programs that never collect — vacuous for GC-defect coverage; a `z42c.semantics`
+// build genuinely stresses the collector.
 //
-// **Why both modes.** `generational` is the default now, so every other stage exercises it —
-// but only at the 32 MB default nursery, which is ~26 collections spread over the run and has
-// been proved twice to be too few (it missed #539, and it missed #557). And `stw` went from
-// "the default, covered by everything" to "covered by nothing" — which is exactly the state
-// that let three premature-collection defects live for months before #555.
+// **Why both modes.** `generational` is the default, so every other stage exercises it —
+// but only at the 32 MB default nursery, far too few collections to catch premature-
+// collection defects. And `stw` is exercised by nothing else — uncovered modes are where
+// such defects live for months.
 //
-// **Why these settings** — collections over one `z42c.semantics` build, and what each buys:
+// **Why these settings** — collections over one `z42c.semantics` build:
 //
-//   default (generational), nursery 1M   ~440 collections  ← catches #557 (which needed ~128)
-//   Z42_GC_MODE=stw, budget 16M           ~70 collections  ← the knee: 8M is several hundred but
-//                                                             much longer wall time for the same shape
+//   default (generational), nursery 1M   ~440 collections
+//   Z42_GC_MODE=stw, budget 16M           ~70 collections  ← the knee: 8M is several hundred
+//                                                             but much longer wall time
 //
-// The stw budget tracks the live set: when object model R3 shrank reference arrays to 8 B per
-// element, 32M dropped from 40 to 35 collections (under the floor) — the collector was firing
-// less because the heap got smaller, not because a policy broke.
-//
-// The floors below are set well under the observed counts — their job is to catch a *collapse*
-// (a flipped default, a policy change that stops the collector firing), not to pin an exact
-// number, which drifts with the workload.
+// The stw budget tracks the live set — it drifts when object sizes change, so the floors
+// are set well under the observed counts. Their job is to catch a *collapse* (a flipped
+// default, a policy change that stops the collector firing), not to pin an exact number.
 //
 // The generational leg deliberately leaves `Z42_GC_MODE` **unset**: it is testing *the
 // default*, so hard-coding the mode here would let a flipped default go unnoticed. The
 // asserted collection floor is what makes that safe — if the default changes, or a policy
-// change stops the collector firing, the count collapses and this stage goes red rather than
-// silently testing nothing.
+// change stops the collector firing, the count collapses and this stage goes red rather
+// than silently testing nothing.
 int _testGcModeWorkload(string label, string modeEnv, string nurseryEnv, string budgetEnv,
                         int minCycles, int jobs) {
     string root = _root();
@@ -352,19 +346,17 @@ int _testGcModes() {
 // ── cross-zpkg harness (invoked by `test e2e`) ──────────────────────────────
 
 // noBuild=true: skip the debug-vm/stdlib/z42c rebuild — `test` already prepared
-// them in its build wave (z42c was being self-built a 2nd time here). `test e2e`
-// passes noBuild per its --no-rebuild/--no-build flags (or true after a golden run).
+// them in its build wave. `test e2e` passes noBuild per its --no-rebuild/--no-build
+// flags (or true after a golden run).
 // cross-zpkg 与 multi-exe 两个 fixture harness 的**共用**构建前置：确保 debug z42vm
-// （cargo，跑 fixtures）+ stdlib + z42c（种子自建，编 fixtures）就位。
+//（cargo，跑 fixtures）+ stdlib + z42c（种子自建，编 fixtures）就位。
 //
 // `--toolchain` 激活时（compile-once P3 的 consume 路径）整个跳过——工具链已供给
 // z42c+stdlib+z42vm，没有可建的东西。`noBuild` 同理（调用方已建过）。
 // 返回 0 = 就位；非 0 = 构建失败的 rc，调用方直接透传。
 //
-// 收敛自 _testCrossZpkgCore / _testMultiExeCore 两份**逐行相同**的拷贝
-// （dedupe-cross-multiexe, 2026-09-06）。这里的**次序**尤其不该存两份：z42vm 必须先于
-// stdlib 自建（stdlib 正是用 z42vm 建的），两份拷贝意味着改一处漏一处——#497 修的
-// 就是另一条构建波上的同类次序问题。
+// ⚠️ 这里的**次序**只此一份（z42vm 必须先于 stdlib 自建——stdlib 正是用 z42vm 建的），
+// 别再在别处复制一份构建波。
 int _ensureFixtureToolchain(bool noBuild) {
     if (noBuild || _toolchainDir(_root()).Length > 0) { return 0; }
     int cr = _exec(_cargoCmd("build", _runtimeCargoConfig()).Arg("-q")
@@ -386,8 +378,7 @@ int _testCrossZpkgCore(string mode, bool noBuild) {
 
 // `test` (no target) — the full GREEN gate, sequential: build once, then run
 // compiler + VM goldens + cross-zpkg + stdlib, short-circuiting on first
-// failure. Mirrors the former scripts/test-all.sh's stage set (the --parallel wave +
-// --scope auto-narrow optimizations are a later increment).
+// failure.
 // True if the comma/space-separated `skip` list names `stage`. Lets CI decompose
 // the monolithic gate: test-host legs run `test --skip stdlib,cross-zpkg` while
 // dedicated parallel jobs (stdlib-interp shards / cross-zpkg-interp) cover those
@@ -401,14 +392,11 @@ bool _skipHas(string skip, string stage) {
     return false;
 }
 
-// ── stage 清单 ↔ test-gate.md 防漂移门（fix-xtask-doc-drift, 2026-09-05）─────
+// ── stage 清单 ↔ test-gate.md 防漂移门 ─────────────────────────────────────
 //
-// 为什么要这道门：docs/internals/src/devinfra/test-gate.md 自称「GREEN gate stage 组成的唯一
-// 权威清单（SoT）」，页内还明文警告过「历史上复列 5-6 处、已互相漂移」——然后它自己
-// 还是烂了：multi-exe（unify-run-modes P3）、manifest targets（add-tests-bench-manifest-
-// config P4）、examples（设计 D4）三次加 stage 都没同步该页，文档停在 6 个而 gate 实跑 9 个。
-// **纯纪律守不住一份没有测试盯着的清单**（同 format-fixture 那次的教训），所以把「gate 跑
-// 哪些 stage」变成数据 + 开跑前与文档对账。形态照 `check vscode-syntax`（生成产物 ↔ 源表）。
+// 为什么要这道门：test-gate.md 自称「GREEN gate stage 组成的唯一权威清单（SoT）」，
+// 但**纯纪律守不住一份没有测试盯着的清单**——历史上加 stage 不同步该页的事故反复发生。
+// 所以把「gate 跑哪些 stage」变成数据 + 开跑前与文档对账。
 //
 // 加/删/改名一个 stage 的正确姿势：改 _gateStageNames() + test-gate.md 的
 // gate-stages 区，两处一致才绿；只改一处 → 本门变红并打印差异。
@@ -544,7 +532,7 @@ int _testAll(bool noBuild, string skip) {
     // NOTE（改前的原注，保留其判断）：**完整**的 `test runtime` 仍然不是 stage —— 它会拉起
     // signal 崩溃辅助进程（`tests/signal_handler_e2e.rs`），在限制信号的沙箱里挂住，常驻门就没法用。
     // 完整版继续走独立 CI leg + 按需 `xtask test runtime` + `test changed`。
-    // 2026-09-26 补上的是那条边界**之内**的部分：`--lib` 结构性地到不了 `tests/`，所以拿不到那批
+    // 补上的是那条边界**之内**的部分：`--lib` 结构性地到不了 `tests/`，所以拿不到那批
     // helper，而三次「本地全绿 / CI test-host 四平台红」的事故恰好全落在 lib 单测与编译失败上。
     // 放在这里（build wave 之后、最靠前）是为了让 Rust 逻辑坏掉**第一时间**红，而不是 18 分钟后。
     if (!_skipHas(skip, "rust-units")) {
@@ -592,7 +580,7 @@ int _testAll(bool noBuild, string skip) {
     }
     // stage 4a2: stdlib [Benchmark] —— 只验**语料能不能跑**，不看快慢。
     //
-    // 为什么它必须在 GREEN gate 里（fix-bench-corpus-using-stdtest, 2026-09-08）：
+    // 为什么它必须在 GREEN gate 里（fix-bench-corpus-using-stdtest）：
     // bench 语料此前唯一的看门人是 `bench-regression`(bench-pr.yml)，而那个 job **不在
     // 分支保护的 required 列表里**。#532 把 `Failure.z42` 搬出 z42.harness，14/19 个 bench
     // 文件当场跑不起来（`Bencher` 解析成 `<unknown>`），门红了、PR 照合，此后连红 3 个 PR
@@ -650,14 +638,14 @@ int _testAll(bool noBuild, string skip) {
     // stage 5b: recompile one real package under each GC mode, with the collector tuned to
     // fire hundreds of times. Skippable: host-independent, CI runs it 1x.
     //
-    // add-ci-generational-coverage (2026-09-10): nothing in CI had ever run
+    // add-ci-generational-coverage : nothing in CI had ever run
     // `Z42_GC_MODE=generational` — `grep Z42_GC_MODE` found only a smoke of another mode —
     // and that is the direct reason **three** premature-collection defects survived for
     // months (#537 stale marks on old roots; #539 promotion and major card-clear each
     // creating uncarded old→young edges). All three surfaced the same way: the compiler
     // crashing mid-build on a dangling reference. So that is what this runs.
     //
-    // flip-gc-default-to-generational (2026-09-10): generational became the default, which
+    // flip-gc-default-to-generational : generational became the default, which
     // moved `stw` into exactly the uncovered seat generational used to occupy — so both modes
     // run here now, each with an asserted collection floor.
     if (!_skipHas(skip, "gcgen")) {
@@ -666,7 +654,7 @@ int _testAll(bool noBuild, string skip) {
         _stageEnd(slog, "gc modes (z42c.semantics build)", swStage);
     }
     // stage 6: VSCode grammar ↔ Lexer 关键字一致性（跨子系统 SoT，性质同自举不动点；
-    // ≈一次 z42c fork，成本可忽略——add-vscode-syntax-ext, 2026-07-07）
+    // ≈一次 z42c fork，成本可忽略——add-vscode-syntax-ext）
     // Skippable: same rationale as compiler — host-independent, 1× on CI.
     if (!_skipHas(skip, "vscode")) {
         swStage = _stageStart("vscode-syntax");

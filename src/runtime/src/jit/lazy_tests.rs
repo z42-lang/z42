@@ -1,4 +1,4 @@
-//! Unit tests for lazy per-function JIT (lazy-per-function-jit, 2026-07-23).
+//! Unit tests for lazy per-function JIT (lazy-per-function-jit).
 //!
 //! These drive the lazy primitive directly — `runtime::install` + `run_fn` +
 //! `JitRuntime::resolve_fn_by_id` — on hand-built empty/interp-only functions.

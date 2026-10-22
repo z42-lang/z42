@@ -1,4 +1,4 @@
-//! **Pause-budgeted nursery** — add-pause-budget-nursery (2026-09-17).
+//! **Pause-budgeted nursery** — add-pause-budget-nursery .
 //!
 //! # Why
 //!
@@ -59,7 +59,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// Smallest nursery the budget may ask for. **4 MB** (the project owner's call, 2026-09-17):
+/// Smallest nursery the budget may ask for. **4 MB** (the project owner's call):
 /// a smaller nursery halves how much allocation an object must outlive to be promoted, and
 /// `retune-gc-nursery-and-promotion-age` measured what premature promotion does to the footprint
 /// (16M at promotion age 2: peak RSS **405 MB** against 198 MB at 32M).

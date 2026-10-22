@@ -223,7 +223,7 @@ public static partial class ImportedSymbolLoader {
                         // StructLayout.BuildFromSymbols 从字段名/类型重算布局（与生产方持久化逐字节一致）。
                         //
                         // ⚠️ 此处原有一条「不新增 ExportedClassZ 字段 ← bootstrap 越界」的论证，已于
-                        // add-associated-types (2026-09-06) 删除：它写下时（ea3f0c73, 08-12）就已失效 13 天——
+                        // add-associated-types  删除：它写下时（ea3f0c73, 08-12）就已失效 13 天——
                         // _ensureBootstrapSelfDepLibs 的破环预建自 07596b57 (07-30) 起**总是**用当前 driver 把
                         // 当前源 z42.package 建进 build-libs（不 warm-skip），z42c 源用当前源 z42.package 新 API 已是常态
                         // （先例：IsSealed / Visibility / IsDeprecated / ExportedMethodZ.TypeParamCount / StrMap.Find）。

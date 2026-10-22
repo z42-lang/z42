@@ -1,6 +1,6 @@
 /// Unit tests for `metadata::types`: per-tag default value derivation.
 ///
-/// fix-array-default-init, 2026-05-18.
+/// fix-array-default-init.
 
 use super::types::*;
 
@@ -45,7 +45,7 @@ fn default_for_ref_tags_is_null() {
     }
 }
 
-// ── is_heap_ref (add-write-barriers, 2026-05-21) ────────────────────────────
+// ── is_heap_ref (add-write-barriers) ────────────────────────────
 
 use std::sync::Arc;
 
@@ -194,7 +194,7 @@ fn inline_object_field_roundtrips_and_is_traced() {
 /// dead object from holding its children — the 16 B side table AND the 8 B reference words
 /// in `bytes`.
 ///
-/// **perf-cheap-dead-edge-break (2026-09-12)**: this used to `collect()` the offsets into a
+/// **perf-cheap-dead-edge-break **: this used to `collect()` the offsets into a
 /// `Vec<u32>` before writing, on the stated grounds of releasing a borrow — `type_desc` and
 /// `storage` are disjoint fields, so there was no borrow to release, and the minor sweep paid
 /// a malloc/free for every dead object (710 080 per `z42c.semantics` build, **51.0 ms → 18.5
@@ -415,11 +415,11 @@ fn value_size_observed() {
     // variants (review.md C1) should make this shrink. Update the expected
     // when an intentional shrink lands.
     //
-    // 2026-05-27 review.md C1 chunks 1-5 (all cold variants boxed):
+    // review.md C1 chunks 1-5 (all cold variants boxed):
     // Value shrunk 48 B → 24 B. Max-payload variant was
     // Str(Arc<str>) = 16 B → +1 B tag + 7 B align = 24 B.
     //
-    // 2026-08-15 unify-object-byte-layout PR-3/4/5: ArrRef 16→8 B (PR-3),
+    // unify-object-byte-layout PR-3/4/5: ArrRef 16→8 B (PR-3),
     // Str Arc<str> 16→8 B thin (PR-4), FuncRef Box<str> 16→8 B thin (PR-5).
     // Every payload is now ≤ 8 B → tag(1 B, padded to 8) + 8 B = 16 B.
     // This is also enforced at compile time by the `const _: () = assert!`
@@ -429,7 +429,7 @@ fn value_size_observed() {
     assert_eq!(std::mem::align_of::<Value>(), 8, "Value alignment changed");
 }
 
-// ── review.md C2 P1 step 0 (2026-05-28): Value layout pin ──────────────
+// ── review.md C2 P1 step 0 : Value layout pin ──────────────
 //
 // `Value` uses `#[repr(C, u8)]` so the JIT can load/store register
 // payloads via raw memory access. These tests pin the discriminant
@@ -649,7 +649,7 @@ fn script_object_stays_small() {
     assert_eq!(std::mem::size_of::<&ScriptObject>(), 2 * std::mem::size_of::<usize>());
 }
 
-// ── generic_field_zero_overrides (fix-generic-typeparam-field-zero, 2026-09-25) ──
+// ── generic_field_zero_overrides (fix-generic-typeparam-field-zero) ──
 //
 // A `T`-typed field is laid out as a reference slot (layout is computed from the
 // declaration), so layout zero-init leaves it `Null`. These pin the narrow rule that

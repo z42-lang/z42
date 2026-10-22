@@ -1,6 +1,6 @@
 //! ⚠️ `debug_validate_invariants` 是 `#[cfg(debug_assertions)]` 的 —— 本文件对它的
 //! 每个调用点都必须同样门控，否则 **`cargo test --release --lib` 整个编不过**
-//! （2026-09-28 实测：6 处漏了门控，导致该模式在本仓长期不可用；发现于给 P2 做
+//! （实测：6 处漏了门控，导致该模式在本仓长期不可用；发现于给 P2 做
 //! release 下的开销测量时）。debug 才是 `--lib` 的正确模式，但「跑不了」和
 //! 「编不过」是两回事 —— 后者会把一个无关的失败摆在任何想用 release 量性能的人面前。
 //! add-incremental-major-gc M2a: the SATB deletion barrier and the weak / soft read barrier.
@@ -780,7 +780,7 @@ fn run_minor_inside_cycle(mark_it: bool) -> bool {
     alive
 }
 
-/// **trim-minor-cycle-roots (2026-09-18)**: seeding the grey queue into a minor carries the grey
+/// **trim-minor-cycle-roots **: seeding the grey queue into a minor carries the grey
 /// entry's **untraced children**, not just the entry. A grey entry is *marked and not yet
 /// traced*, so a child reachable only through it is still white, and a minor would take it.
 ///
@@ -830,7 +830,7 @@ fn a_child_of_an_unseeded_grey_entry_is_reclaimed() {
         "control: the young half of the rule is what carries the child");
 }
 
-/// **trim-minor-cycle-roots (2026-09-18)**: an **old** grey entry is *not* seeded — its young
+/// **trim-minor-cycle-roots **: an **old** grey entry is *not* seeded — its young
 /// children are already reachable from the dirty-card set, the same invariant that lets the BFS
 /// skip old *children*. `dirty_card` is the control: with the card clean the young child is
 /// reclaimed, which is what proves this exercises the card path and not some other root.

@@ -10,7 +10,7 @@ use super::*;
 /// reported here so `compile_module` can skip the function up front rather than
 /// abort mid-translation.
 ///
-/// fix-jit-cross-zpkg-transitive-eager (2026-06-20): with `--mode jit` now the
+/// fix-jit-cross-zpkg-transitive-eager : with `--mode jit` now the
 /// default and eager loading pulling the *whole* transitive dep closure into
 /// the module, the merged module routinely contains stdlib functions that use
 /// `out`/`ref` params (`LoadLocalAddr`) or native interop (`CallNative`). Those

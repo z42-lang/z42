@@ -97,7 +97,7 @@ public static class DiagnosticCodes {
     public static string LocalShadowsOuter = "E0491";  // 内层作用域声明的名字与**外层**（同一函数体内）的局部变量或形参重名。对齐 C# CS0136。此前不仅零诊断，发射端还按名字复用寄存器槽 ⇒ **内层那份覆盖外层的值**：`string pm = "o"; while (…) { int pm = 42; }` 之后 `pm` 读到 42；形参 `a` 被内层 `string a` 覆盖 —— 编得过、跑出错值。⚠️ 只沿父链走到**函数边界**：lambda / 局部函数的形参与体内局部可以遮蔽外层名字（C# 8 起允许，且各自是独立的槽空间）；并列作用域各自声明同名合法；局部遮蔽字段合法。（forbid-local-shadowing）
     public static string DuplicateTypeName = "E0458";  // 同一命名空间里重复声明同一个类型（同 ns、同名、同 arity，且并非全部 `partial`）。此前**静默 last-wins**：后声明的赢，前一个连同成员一起消失，单文件与跨 CU 两种形态都零诊断——跨 CU 形态在真实工程里更危险（两个文件各写一个 `class Config`，谁也不会注意到其中一个从来没生效过）。对齐 C# CS0101。🔴 判据是 **(ns, 名字, arity)** 三者都相同：裸名键在同短名跨 ns 时也会撞（那归 E0456 管），而 arity 预扫是 per-CU 的，跨 CU 的不同 arity 同名今天能编过、报成「重复定义」是错的（Deferred `arity-mangle-not-package-wide`）。
 
-    // enforce-attribute-const-args（2026-09-29）：store-meta attribute 的实参不是**编译期常量**。
+    // enforce-attribute-const-args：store-meta attribute 的实参不是**编译期常量**。
     // 允许的形式：字面量 / 由字面量与已定义 const 构成的常量表达式 / enum 成员 / `const` 字段 /
     // `typeof(...)` / `methodof(...)`，以及由这些构成的数组（`new T[]{ … }`）。
     //
@@ -108,7 +108,7 @@ public static class DiagnosticCodes {
     // 必须划在编译期。
     public static string AttributeArgNotConstant = "E0500";
 
-    // reject-inheritance-cycle（2026-10-05）：基类型**成环**——类的基类链（`class A : B {}  class B : A {}`、
+    // reject-inheritance-cycle：基类型**成环**——类的基类链（`class A : B {}  class B : A {}`、
     // `class A : A {}`）或接口的父接口图（`interface I : J {}  interface J : I {}`）走回自身。对齐 C# CS0146 /
     // CS0529。此前零诊断：类环让编译器沿基类链走查时**死循环挂住**，接口环在有类实现它时让编译器无声退出。
     // 每个环报一次（报在环上先被检查的那个类型），报错后清掉它的基类型断环，下游不再级联。
@@ -129,7 +129,7 @@ public static class DiagnosticCodes {
     public static string UnsupportedSyntax   = "E0501";
 
     // Package / import resolution
-    // report-crosspkg-duplicate-type（2026-09-12 接线）：**同一个 FQN 被多个依赖包声明**。
+    // report-crosspkg-duplicate-type（接线）：**同一个 FQN 被多个依赖包声明**。
     // 这个码此前**只分配、从未接线**：`ImportedSymbolLoader.z42` 顶上的注释白纸黑字写着
     // 「延后：…E0601 冲突诊断」，`error-codes.md` 也登记了「导入符号冲突」——实测两个包各声明 `Demo.Ns.Widget`，编译 rc=0 零诊断，
     // 字母序靠前的包赢，输的那份连同全部成员从未存在过。症状二更糟：去调只有输家才有的成员，
@@ -247,7 +247,7 @@ public static class DiagnosticCodes {
     // （E0474 / E0477 / E0481 三次撞码刚归位过）。
     public static string ModuleInitBadTarget     = "E0486";  // `[ModuleInit]` 标注目标非法：必须是 `static` + 无参 + 返回 `void` + 非泛型 + 非抽象的方法。标在类型/字段上，或签名不符，都归此码。
     public static string ModuleInitDuplicate     = "E0485";
-    public static string ModuleInitInExePackage  = "E0487";  // 可执行包（`kind = "exe"`）里出现了 `[ModuleInit]`。包初始化器在 `Main` 之前执行 ⇒ **它失败时没有任何用户代码能捕获**（对标 C#：entry 模块的 module initializer 抛异常就是未捕获崩溃）。而 exe 本来就有 `Main` 这个天然入口，同一件事的第二种表达 ⇒ 禁掉。库包（`kind = "lib"`）不受限。  // 一个包里出现了**第二个** `[ModuleInit]`。包级初始化器至多一个（User 裁决 2026-09-22）——多处装配写在同一个方法里，顺序才是显式的。诊断报在后出现的那处，并指出第一处的 file:line。
+    public static string ModuleInitInExePackage  = "E0487";  // 可执行包（`kind = "exe"`）里出现了 `[ModuleInit]`。包初始化器在 `Main` 之前执行 ⇒ **它失败时没有任何用户代码能捕获**（对标 C#：entry 模块的 module initializer 抛异常就是未捕获崩溃）。而 exe 本来就有 `Main` 这个天然入口，同一件事的第二种表达 ⇒ 禁掉。库包（`kind = "lib"`）不受限。  // 一个包里出现了**第二个** `[ModuleInit]`。包级初始化器至多一个（User 裁决）——多处装配写在同一个方法里，顺序才是显式的。诊断报在后出现的那处，并指出第一处的 file:line。
 
     // ── 迭代协议（fix-foreach-protocol-detection）──────────────────────────────
     // ⚠️ 本码原先分配的号与「`[ModuleInit]` 只对库包开放」（#772）撞 —— 那个 PR 早几小时开、
@@ -267,7 +267,7 @@ public static class DiagnosticCodes {
     public static string UndeclaredDependency    = "E0497";  // 用到的类型来自一个**第三方包**，但本工程的 `z42.toml` 没有在 `[dependencies]` 里声明它。此前零编译期检查：编得过、跑到那一行才抛 `Std.MissingSymbolException`。⚠️ **标准库（`z42.` 前缀）不在管辖内**——它们随工具链分发、自动可用，见已归档的 `simplify-stdlib-auto-import`（Rust-std 模型：`[dependencies]` 只写第三方）。⚠️ **判据是「符号的归属包」（`SymbolTable.ClassPkgAll`），不是 `using` 的命名空间**：`Std` 一个命名空间就由 11 个包共同声明，按 using 判会制造大量假阳性。⚠️ 同 FQN 多包时让位给 E0601（那条更严重：谁也选不了）。每个缺失的包只报一次。
     public static string PluginNoContract        = "E0505";  // `kind = "plugin"` 的工程里**没有任何类实现插件契约**（`Z42.Analyzers.Analyzer` / `Z42.Generators.Generator` / `Z42.Generators.ModuleGenerator`，或继承 `Z42.Build.BuildHooks`）。插件包提供哪几类由构建按实现的契约推导、写进 zpkg 头；一类都没有的包对任何宿主都是空转，在构建插件本身时就报，而不是等到使用方加载后才发现。判据看本包类型的全名基类与接口（经本包内的基类传递），契约须由本包的类直接或经本包内基类实现。
 
-    public static string UsingTargetNotDisposable = "E0498";  // `using` 语句的目标类型**没有实现 `Std.IDisposable`**。判定是**名义**的（User 2026-09-26 裁 D3-1，对齐 C#）：光有一个 `Dispose()` 方法**不够**，必须在基表里声明 `: IDisposable`。⚠️ 这与 **foreach 的判据刻意不同源** —— foreach 走鸭子类型（形状匹配 `Dispose` 成员，见 `ForeachProtocol._hasDispose`），`using` 走名义；两处代码注释都写明了这个差异，别当成漏改。⚠️ 判据问的是**接口闭包**（`SymbolTable.Implements`：沿 `BaseName` 链 + 接口 BFS 上溯父接口），不是直接基表 —— `class A : B` 而 `B : IDisposable` 时 `A` 也可 dispose（同 #827 的教训形状）。⚠️ 判据不足（型参 / Unknown / 错误类型）时**保守放行**，不叠误报。⚠️ 落地这条码时全仓的资源类型（TcpClient / TextReader / HttpServer …）刚被同批补上 `: IDisposable` —— 在那之前它们全都只有形状、一个都通不过名义判定。
+    public static string UsingTargetNotDisposable = "E0498";  // `using` 语句的目标类型**没有实现 `Std.IDisposable`**。判定是**名义**的（User  裁 D3-1，对齐 C#）：光有一个 `Dispose()` 方法**不够**，必须在基表里声明 `: IDisposable`。⚠️ 这与 **foreach 的判据刻意不同源** —— foreach 走鸭子类型（形状匹配 `Dispose` 成员，见 `ForeachProtocol._hasDispose`），`using` 走名义；两处代码注释都写明了这个差异，别当成漏改。⚠️ 判据问的是**接口闭包**（`SymbolTable.Implements`：沿 `BaseName` 链 + 接口 BFS 上溯父接口），不是直接基表 —— `class A : B` 而 `B : IDisposable` 时 `A` 也可 dispose（同 #827 的教训形状）。⚠️ 判据不足（型参 / Unknown / 错误类型）时**保守放行**，不叠误报。⚠️ 落地这条码时全仓的资源类型（TcpClient / TextReader / HttpServer …）刚被同批补上 `: IDisposable` —— 在那之前它们全都只有形状、一个都通不过名义判定。
 
     public static string BuiltinTypeNameClash    = "E0499";  // 在 `Std` 之外声明的**顶层 `class` / `struct`**，名字是内建基元的 BCL 拼写（`Int32` / `Single` / `String` / `Object` …共 14 个）。此前**零诊断**：`PrimModel.Canon` 是个纯字符串函数、不看命名空间，把用户这个类型名折成关键字 ⇒ `StructLayout.BuildFromSymbols` 判它是标量、**根本不建布局** ⇒ `ClassDescBuilder` 的 `IsStructType` miss、尺寸与逐字段表一个都不填，而 `ZbcWriter` 仍按 struct 位**无条件**写出一个 size 0 的空块。三副面孔实测：普通 struct ⇒ 运行期 `FieldSet: expected object, got F64(0.0)`；泛型 struct ⇒ `struct field write out of blob bounds`；`[Record]` struct ⇒ **编译器自己崩**（uncaught exception @ `AccessEmitter._pathAppend`，那正是 #938 的符号化守卫 —— 它早就知道这里不对，只是所在位置只能抛）。⚠️ **判据问 `PrimModel.Canon` 本人**（`Code(Canon(name)) >= 0`），不抄那张 14 名表 —— 缺陷的根因就是 `Canon` 的折叠行为，抄名单就是再造一处判据复制。⚠️ 必须用 `Code` 而**不是** `IsScalarValue`：后者只到码 11，**漏掉 `string` / `object`**，而那两个实测一样会崩。⚠️ 豁免是 `PreludeNs.Root()`（`Std`）——`z42.core` 的 `Std.Single` **就是** `float` 的包装类型声明，那里的折叠是对的。用户若把这些名字声明进 `Std`，由**既有的 E0606**（本包遮蔽导入）拦截，本码不重复管辖；声明**新**名字进 `Std` 则完全合法。⚠️ 实测不受影响故**不管**：`enum` / `interface` / **嵌套类型**（flatten 后名字是 `Outer+Single`，折不动）；小写关键字（`struct float`）由语法层 E0202 拦下。
 
@@ -278,8 +278,8 @@ public static class DiagnosticCodes {
     // 这三个号的「已被占用」此前只记在 docs/reference/src/appendix/error-codes.md 里，而门只读这张表
     // ⇒ 它们在门眼里是空位。登记表是唯一能占号的地方，**退役号也必须占在这里**。
     // 前缀不同即不同码（E0466 与 I0466 并存即先例），所以退役 I0467 不牵连 E 前缀的 0467——那个号仍可分配。
-    public static string RetiredForwardSkipped      = "I0467";  // 原 ForwardSkipped：登记此号而发射点一直发 I0466，2026-09-22 改值归位后空出
+    public static string RetiredForwardSkipped      = "I0467";  // 原 ForwardSkipped：登记此号而发射点一直发 I0466 改值归位后空出
     public static string RetiredUnknownNativeName   = "E0901";  // 原 UnknownNativeName（C# bootstrap 编译器删除时一并消失，未移植到 z42c）
     public static string RetiredNativeArityMismatch = "E0902";  // 原 NativeArityMismatch（同上）
-    public static string RetiredCompilerLibsMacroDeprecated = "W0609";  // 原 CompilerLibsMacroDeprecated：`${compiler_libs}` 路径宏的过渡期 warning（add-sdk-libs，2026-10-01 引入）。宏随即删除（用户 2026-10-01 裁定提前删），本码零发射点、编号不复用
+    public static string RetiredCompilerLibsMacroDeprecated = "W0609";  // 原 CompilerLibsMacroDeprecated：`${compiler_libs}` 路径宏的过渡期 warning（add-sdk-libs 引入）。宏随即删除（用户裁定提前删），本码零发射点、编号不复用
 }

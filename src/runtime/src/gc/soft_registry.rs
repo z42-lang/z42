@@ -1,4 +1,4 @@
-//! **add-gc-softref (2026-05-26)**: soft-reference registry for `ArcMagrGC`.
+//! **add-gc-softref **: soft-reference registry for `ArcMagrGC`.
 //!
 //! The registry tracks all live soft-reference targets (object and array blocks) in a
 //! `Vec<ErasedSoftEntry>` the GC revive pass re-marks from.
@@ -23,7 +23,7 @@
 //! thus single-threaded at call time.
 
 /// Soft-ref GC-eligibility pressure ratio. Delegates to process-wide
-/// [`crate::config::runtime_config()`] (runtime-config-phase2 2026-06-03);
+/// [`crate::config::runtime_config()`] (runtime-config-phase2);
 /// default 0.80, clamped `[0.0, 1.0]`, overridable via
 /// `Z42_GC_SOFT_THRESHOLD`.
 pub(crate) fn soft_threshold_from_env() -> f64 {

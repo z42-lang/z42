@@ -15,11 +15,11 @@ use super::*;
 pub fn build_type_registry(module: &mut Module) {
     let order = topo_sort_classes(module);
     let mut registry: FxHashMap<String, Arc<TypeDesc>> = FxHashMap::default();
-    // introduce-method-token 2026-05-08: assign TypeId in topo order so that
+    // introduce-method-token: assign TypeId in topo order so that
     // each TypeDesc has a stable id. VCallIC / FieldIC compare receiver TypeId
     // via single u32 equality (no name hash).
     //
-    // fix-crosspkg-typeid-collision 2026-09-08: the block is drawn from the
+    // fix-crosspkg-typeid-collision: the block is drawn from the
     // **process-global** allocator, not restarted at 0 per module. Those ICs key
     // on the bare u32 and nothing renumbers a TypeDesc when it crosses a zpkg
     // boundary, so per-module numbering made two zpkgs' classes collide and
@@ -35,7 +35,7 @@ pub fn build_type_registry(module: &mut Module) {
         check_struct_field_table_coverage(class_name, desc);
 
         // ── Own fields (this class's own declarations) ────────────────────
-        // fix-cross-pkg-subclass-fields (2026-05-14): preserved separately
+        // fix-cross-pkg-subclass-fields : preserved separately
         // so the lazy-loader fixup pass can rebuild merged `fields` once
         // the cross-zpkg base resolves.
         let own_fields: Vec<FieldSlot> = desc.fields.iter().map(|f| FieldSlot {
@@ -45,7 +45,7 @@ pub fn build_type_registry(module: &mut Module) {
         }).collect();
 
         // ── Own methods (this class's own declarations) ───────────────────
-        // review.md E5.5 (2026-05-27): store qualified func names only;
+        // review.md E5.5 : store qualified func names only;
         // the simple vtable-slot name is re-derived at merge time via
         // `TypeDesc::derive_simple_method_name`.
         let mut own_methods: Vec<Box<str>> = Vec::new();
@@ -227,7 +227,7 @@ pub fn build_type_registry(module: &mut Module) {
             // add-struct-heap-inline (P3b): keep cold if it carries an inline layout
             // (an inline-field class always has own_fields too, but guard explicitly).
             && cold_inner.inline_layout.is_none()
-            // 🔴 symbolic-struct-field-access P0（2026-09-27）：**同一个条件里漏了这一张表**。
+            // 🔴 symbolic-struct-field-access P0：**同一个条件里漏了这一张表**。
             // 相邻两条（`inline_layout` / `composed_object_layout`）都显式守着，理由写在上一条
             // 注释里 ——「值 struct 总有 own_fields，但还是显式守一下」/「别把正确性押在那个
             // 巧合上」。`struct_layout` 此前没跟：冷区只剩它时会被整条裁掉，
@@ -338,7 +338,7 @@ fn check_struct_field_table_coverage(
     );
 }
 
-// ── fix-cross-pkg-subclass-fields (2026-05-14) ─────────────────────────────
+// ── fix-cross-pkg-subclass-fields  ─────────────────────────────
 //
 // Two-phase type loading: `build_type_registry` runs per-module and only
 // resolves base-class inheritance against the local module's registry.
@@ -355,7 +355,7 @@ fn check_struct_field_table_coverage(
 /// If `base_class_name` is `Some(b)` but `b` isn't in `registry`, the merge
 /// degrades to "own only" (cross-zpkg base unresolved — fixup later).
 ///
-/// review.md E5.5 (2026-05-27): `own_methods` carries qualified func names
+/// review.md E5.5 : `own_methods` carries qualified func names
 /// only; the vtable slot key (simple name) is derived per entry via
 /// `TypeDesc::derive_simple_method_name(class_name, fq)`.
 fn merge_with_base(

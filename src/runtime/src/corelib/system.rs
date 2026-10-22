@@ -1,10 +1,10 @@
 //! `Std.OperatingSystem` builtins — process + machine info.
 //!
 //! Cross-platform impls now flow through `crate::pal::system` (review.md
-//! Part 1 P2 Phase 1, add-pal-system-phase1, 2026-06-03). This file is
+//! Part 1 P2 Phase 1, add-pal-system-phase1). This file is
 //! just the builtin-dispatch layer that wraps PAL calls into VM `Value`s.
 //!
-//! 2026-05-14 add-platform-os-stdlib (original landing).
+//!  add-platform-os-stdlib (original landing).
 
 use super::convert::arg_str;
 use crate::metadata::Value;
@@ -69,7 +69,7 @@ pub fn builtin_system_os_version(_ctx: &VmContext, _: &[Value]) -> Result<Value>
     Ok(Value::Str(pal::system::os_version().into()))
 }
 
-// add-pal-system-phase1 (2026-06-03): the unix / wasm / windows-stub
+// add-pal-system-phase1 : the unix / wasm / windows-stub
 // branches that used to live inline here now sit behind `crate::pal::system::*`.
 // Future PAL concerns (fs / signal / thread / mem) follow the same pattern —
 // see `docs/internals/src/runtime/pal.md` for the migration plan.

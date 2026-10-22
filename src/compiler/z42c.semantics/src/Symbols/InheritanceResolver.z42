@@ -184,7 +184,7 @@ public sealed class InheritanceResolver {
         return ns;
     }
 
-    // add-type-based-overloads D7（阶段 8 修复，2026-07-01）：override 方法 regKey 对齐。
+    // add-type-based-overloads D7（阶段 8 修复）：override 方法 regKey 对齐。
     //
     // 根因：_fillClass 的 mangle 决策（wantMangle）只看**当前类自身**的 arityDup——若 Base 声明两个
     // 同 arity 重载（如 Handle(int)/Handle(string)）会 mangle 出 Handle$1$i32/Handle$1$string；但
@@ -573,7 +573,7 @@ public sealed class InheritanceResolver {
                     // MangleKey 命中即放行、从不比 `Visibility` ⇒ `class C : I { private int M(){…} }` 静默通过
                     // （真洞，与 static/返回同族）。⚠️ 类成员**无修饰默认 private**（`SymbolCollector:385` 的
                     // `containing != ""` → "private"），故 `class C : I { int M(){…} }` 同样被拦——严格口径
-                    // （User 裁决 2026-09-14），接口实现必须显式 public。查的是**本地实现方** `cm.Visibility`
+                    // （User 裁决），接口实现必须显式 public。查的是**本地实现方** `cm.Visibility`
                     // （跨包/本包都可靠），故导入接口同样校验（fix-imported-iface-static-fidelity 删守卫后）。
                     if (cm.Visibility != "public") {
                         this._sc.Diags.Error(DiagnosticCodes.InterfaceMismatch,

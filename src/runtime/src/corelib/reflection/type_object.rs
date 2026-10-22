@@ -408,6 +408,6 @@ pub(super) fn read_type_slot_of(ty: &Value, field: &str) -> Value {
     Value::Null
 }
 
-// align-type-memberinfo-hierarchy (2026-06-11): `__type_name` / `builtin_type_name`
+// align-type-memberinfo-hierarchy : `__type_name` / `builtin_type_name`
 // removed — `Type.Name` now resolves to the inherited `Std.Reflection.MemberInfo`
 // `Name` field (populated by `build_type`), no native getter.

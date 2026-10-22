@@ -1,10 +1,10 @@
-// xtask — `build stdlib` impl (unify-scripts-into-xtask, 2026-06-05). Folded from
+// xtask — `build stdlib` impl (unify-scripts-into-xtask). Folded from
 // the former standalone scripts/build-stdlib.z42 so the LAST command that still
 // shelled out to a separate .z42 via `dotnet -- run` now runs in-process.
 //
 // Compiles the z42 stdlib workspace and assembles the flat dist view. The stdlib
 // is built by z42c (the self-hosting z42 compiler) — C# was fully removed
-// 2026-06-26 (remove-dotnet-from-builds). Flow (_buildStdlib):
+// (remove-dotnet-from-builds). Flow (_buildStdlib):
 //
 //   1. ensure seed — warm tree reuses in-tree z42c.driver.zpkg + stdlib dist; a
 //      cold tree stages them from an SDK toolchain via _ensureSeed (see
@@ -55,7 +55,7 @@ int _buildStdlib() {
     //    Warm tree (prior build / nightly seed present): rebuild z42c via z42c.
     //    Cold tree (fresh checkout, no seed): _ensureSeed stages a z42c.driver.zpkg
     //    + stdlib dist from an SDK toolchain first. No dotnet — C# was removed
-    //    2026-06-26 (remove-dotnet-from-builds).
+    //    (remove-dotnet-from-builds).
     string[] members = _compilerMembers(root);
     // warm 路径用绝对 release z42vm（_z42vm() 返回裸名 "z42vm"
     // 不在 PATH → warm 自建会 NotFound）。缺则 cargo 建（幂等）。
@@ -158,7 +158,7 @@ string[] _compilerMembers(string root) {
     return _vgetListFromFile(root, "src/compiler/z42.workspace.toml", "workspace.default_members");
 }
 
-// ── 编译器包的运行期 probing（drop-alllibs，2026-10-01）──────────────────────────────────────────
+// ── 编译器包的运行期 probing（drop-alllibs）──────────────────────────────────────────
 //
 // 运行期要**加载**编译器包的进程——z42b（自身依赖 `z42.build` / `z42.project`，并注入 `z42c.pipeline`）以及它为
 // 编译器单元测试 fork 的子 VM——拿这里给的 `Z42_PROBING_PATHS`：各编译器成员的 dist，平台分隔。
@@ -199,13 +199,12 @@ string _compilerProbingPaths(string root) {
     return acc;
 }
 
-// ── z42 子进程的唯一入口（xtask-proc-factory，2026-10-01）───────────────────────────────────────────
+// ── z42 子进程的唯一入口（xtask-proc-factory）───────────────────────────────────────────
 //
-// xtask 起的每个「跑 z42 代码」的子进程都从这两个函数建，不再在调用点手写 `.Env("Z42_LIBS", …)` /
-// `.Env("Z42_PROBING_PATHS", …)`（此前 159 + 25 处）。理由是两条实际踩过的坑：
+// xtask 起的每个「跑 z42 代码」的子进程都从这两个函数建，不在调用点手写 `.Env("Z42_LIBS", …)` /
+// `.Env("Z42_PROBING_PATHS", …)`。两个 env 各有一个静默坑：
 //   ① 漏 `Z42_LIBS` 不报错——子进程**继承 xtask 自身的**（`.z42/libs`，上一版 SDK），静默跑在旧 stdlib 上；
-//   ② 漏 probing 只在 z42b 真去加载编译器包时才炸（drop-alllibs 那轮，rebase 带进一个新 smoke，
-//      它照邻居手抄却少抄了 probing ⇒ `MissingSymbolException ManifestLoader.Load`）。
+//   ② 漏 probing 只在 z42b 真去加载编译器包时才炸（`MissingSymbolException ManifestLoader.Load`）。
 // `xtask check proc-env` 守住「调用点不得再直接设这些变量」（见 _testProcEnv）。
 //
 // `exe` 是 z42vm，或 apphost / launcher 这类最终起 z42vm 的程序；`libs` 是它要看见的 stdlib 世界。

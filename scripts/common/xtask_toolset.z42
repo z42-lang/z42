@@ -1,4 +1,4 @@
-// xtask — 「跑一组 fixture 需要的工具链四件套」的单点解析（unify-toolset-resolution, 2026-09-05）。
+// xtask — 「跑一组 fixture 需要的工具链四件套」的单点解析（unify-toolset-resolution）。
 //
 // 此前 cross-zpkg / multi-exe 两个 harness 各自内联了**逐字相同**的一段解析：
 //

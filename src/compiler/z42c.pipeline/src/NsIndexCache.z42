@@ -29,7 +29,7 @@ public static class NsIndexCache {
 
     // 索引文件：用户缓存目录下 `nsindex/<目录集 key>`（写失败静默容忍，退化为每次重建）。
     //
-    // 🔴 曾经写在**第一个 libsDir 下的 `.z42-nsindex`**，2026-10-01 改掉——那就是已安装 SDK 的
+    // 🔴 曾经写在**第一个 libsDir 下的 `.z42-nsindex`** 改掉——那就是已安装 SDK 的
     // `libs/`：只读安装位（Program Files、/usr/local、容器镜像层）上写不进去 ⇒ 缓存永远不命中；
     // 写得进去时则把运行期状态混进分发目录（打出的 SDK 跑一遍 `package sdk --verify` 就多出这个文件，
     // 与 nightly 归档 diff 不再干净）。现落在用户缓存根（`UserCache.Root()`，launcher 与 z42d 共用

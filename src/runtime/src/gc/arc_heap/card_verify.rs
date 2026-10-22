@@ -1,4 +1,4 @@
-//! **fix-missing-write-barriers (2026-10-07)**: re-derive the generational invariant from scratch.
+//! **fix-missing-write-barriers **: re-derive the generational invariant from scratch.
 //!
 //! The invariant — **every old object or array that holds a young reference is in the remembered
 //! set** (object model R6 / R9) — is what lets a minor root itself from the remembered set and

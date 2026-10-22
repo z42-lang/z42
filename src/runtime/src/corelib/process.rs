@@ -47,7 +47,7 @@ pub(crate) const STDIO_FILE:    i64 = 3;
 /// `child` is `Option` so methods that move the child out can leave the slot in a
 /// consumed state; the next operation observes `None` and reports an invalid handle.
 ///
-/// **fix-park-blocking-natives (2026-09-14)**: each pipe has its own lock. A streaming
+/// **fix-park-blocking-natives **: each pipe has its own lock. A streaming
 /// read / stdin write blocks for as long as the child likes, and it must do so parked and
 /// *outside* the process-table lock — any thread waiting on that shared lock is unparked,
 /// so one blocked read would stall every collection. Callers clone the `Arc` under the

@@ -6,7 +6,7 @@
 use crate::gc::{HeapStats, MagrGC, ArcMagrGC};
 use crate::metadata::Value;
 
-// flip-gc-default-to-generational (2026-09-10): these two used to pass a **primitive** as the
+// flip-gc-default-to-generational : these two used to pass a **primitive** as the
 // written value. That is a contract violation — `write_barrier_*` documents "caller must filter
 // primitives via `Value::is_heap_ref`" and debug-asserts it — which went unnoticed only because
 // the then-default STW arm ignores its arguments entirely. Under the generational default the

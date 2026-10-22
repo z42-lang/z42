@@ -129,7 +129,7 @@ pub fn run_goldens_isolated(
                 *slots[i].lock().unwrap() = cap;
             }));
         }
-        // fix-park-blocking-natives (2026-09-14): the join blocks for the whole batch ⇒ parked.
+        // fix-park-blocking-natives : the join blocks for the whole batch ⇒ parked.
         // The workers run their own isolated VmContexts, so nothing here touches this ctx's
         // heap. The sequential branch above can't park: its nested VM allocates on this very
         // thread, and the park tripwire (`debug_assert_not_native_parked`) is per-thread.

@@ -1,5 +1,5 @@
-// xtask — execution-profile vocabulary + support matrix (add-exec-profile-matrix,
-// 2026-07-31). The single home shared by `test` and `bench` for describing WHICH
+// xtask — execution-profile vocabulary + support matrix (add-exec-profile-matrix),
+// The single home shared by `test` and `bench` for describing WHICH
 // {mode × platform × capability} cell a run exercises, and whether that cell is
 // runnable / skipped-not-yet / never on the target VM binary.
 //

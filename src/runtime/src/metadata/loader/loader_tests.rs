@@ -177,7 +177,7 @@ fn test_resolve_namespace_ambiguous_returns_both() {
 }
 
 
-// ── fix-cross-pkg-subclass-fields (2026-05-14) ────────────────────────────────
+// ── fix-cross-pkg-subclass-fields  ────────────────────────────────
 
 /// Build a minimal Module containing a single class declaration. Used by
 /// fixup tests to simulate per-zpkg load + merge-into-global-registry.
@@ -605,7 +605,7 @@ fn object_layout_composed_crosspkg_fixup() {
     assert_eq!(&*sub_after.ref_cells, &[0], "the base's string field @0 is a reference word");
 }
 
-// ── TypeId global uniqueness (fix-crosspkg-typeid-collision, 2026-09-08) ──────
+// ── TypeId global uniqueness (fix-crosspkg-typeid-collision) ──────
 
 /// A minimal `Module` holding `names` as field-less, base-less classes.
 fn module_with_class_names(name: &str, names: &[&str]) -> crate::metadata::bytecode::Module {

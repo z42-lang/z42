@@ -1,4 +1,4 @@
-//! add-gc-tlab (stage 2, 2026-08-29): TLAB (chunk-exclusive per-thread
+//! add-gc-tlab (stage 2): TLAB (chunk-exclusive per-thread
 //! allocation) unit tests.
 //!
 //! The other GC unit tests drive `ArcMagrGC` from an **unarmed** thread (no
@@ -292,7 +292,7 @@ fn tlab_var_chunk_reclaim_bounds_growth() {
     );
 }
 
-/// **fix-loh-never-freed (2026-09-08)**: an **oversized** block's dedicated chunk goes back
+/// **fix-loh-never-freed **: an **oversized** block's dedicated chunk goes back
 /// to the global allocator when the block dies, so large-object churn reaches a steady state
 /// instead of climbing. Before this, `tombstone` refused to free-list `OVERSIZED_CLASS` and
 /// `reclaim_dead_var_chunks` skipped every chunk whose `cap != CHUNK_BYTES` — the crate's only

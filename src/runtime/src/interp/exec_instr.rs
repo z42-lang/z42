@@ -107,7 +107,7 @@ pub fn exec_instr(
         Instruction::Sub { dst, a, b } => exec_value::sub(frame, *dst, *a, *b)?,
         Instruction::Mul { dst, a, b } => exec_value::mul(frame, *dst, *a, *b)?,
         Instruction::Div { dst, a, b } => {
-            // fix-int-div-by-zero-panic (2026-05-25): div/rem now return
+            // fix-int-div-by-zero-panic : div/rem now return
             // Option<Value> so int-by-zero can surface as a catchable
             // Std.DivideByZeroException instead of panicking.
             if let Some(thrown) = exec_value::div(ctx, module, frame, *dst, *a, *b)? {
@@ -172,7 +172,7 @@ pub fn exec_instr(
         Instruction::MethodTypeArg { dst, param_index } => exec_address::method_type_arg(ctx, frame, *dst, *param_index),
         Instruction::MethodDefault { dst, param_index } => exec_address::method_default(frame, *dst, *param_index),
 
-        // ── Numeric cast (fix-numeric-cast-lowering, 2026-05-13) ────────────
+        // ── Numeric cast (fix-numeric-cast-lowering) ────────────
         Instruction::Convert { dst, src, to_tag } => {
             // make-hard-cast-fail-properly：硬转换失败 → 可 catch 的真异常（走 Ok(Some) 通道）。
             if let Some(thrown) = exec_value::convert(ctx, module, frame, *dst, *src, *to_tag)? {
@@ -184,7 +184,7 @@ pub fn exec_instr(
         Instruction::Call(insn) => {
             let CallInsn { dst, func: fname, args, method_type_args } = &**insn;
             let _site_idx = site_idx!();
-            // 2026-05-10 exception-stack-trace: stamp current site's code
+            // exception-stack-trace: stamp current site's code
             // offset on this frame's VmFrame before descending into the
             // callee, so a downstream `throw` snapshot shows our call site.
             stamp_call_site(ctx, func, block_idx, instr_idx);
@@ -195,7 +195,7 @@ pub fn exec_instr(
             if let Some(thrown) = exec_call::call(ctx, module, frame, *dst, fname, args, method_token, method_type_args)? {
                 return Ok(Some(thrown));
             }
-            // add-gc-safepoint (2026-05-20): post-Call safepoint — long-running
+            // add-gc-safepoint : post-Call safepoint — long-running
             // callees pop their FrameGuard before returning here, so checking
             // upon resumption catches GC requests that arrived while we were
             // in the callee.
@@ -208,7 +208,7 @@ pub fn exec_instr(
             // with BuiltinId per site at load time (closed set, all hits).
             // Fallback to name lookup when resolver hasn't run.
             let builtin_id = cached_token!(_site_idx, builtin_tokens).copied();
-            // make-corelib-errors-catchable (2026-05-15): builtin errors now
+            // make-corelib-errors-catchable : builtin errors now
             // surface as catchable `Std.Exception` instances (see exec_call::builtin).
             if let Some(thrown) = exec_call::builtin(ctx, module, frame, *dst, name, args, builtin_id)? {
                 return Ok(Some(thrown));
@@ -274,7 +274,7 @@ pub fn exec_instr(
             let _site_idx = site_idx!();
             // P1-2 PR 5: the site cache (class descriptor + ctor FnId) — hit = no hashing.
             let site = cached_token!(_site_idx, obj_new);
-            // fix-ctor-throw-propagation (2026-05-24): mirror Call / Builtin —
+            // fix-ctor-throw-propagation : mirror Call / Builtin —
             // propagate user `throw` from the ctor body to the enclosing
             // try/catch instead of silently dropping it.
             if let Some(thrown) = exec_object::obj_new(
@@ -340,14 +340,14 @@ pub fn exec_instr(
         }
 
         // ── Native interop ───────────────────────────────────────────────────
-        // 2026-05-12 add-platform-wasm Stage 0: feature `native-interop`
+        // add-platform-wasm Stage 0: feature `native-interop`
         // gates all four opcodes. wasm builds bail with a clear message
         // (these opcodes shouldn't appear in a wasm-targeted .zbc anyway,
         // but malformed input shouldn't UAF the interp either).
         #[cfg(feature = "native-interop")]
         Instruction::CallNative(insn) => {
             let CallNativeInsn { dst, module: m, type_name, symbol, args } = &**insn;
-            // 2026-05-11 retire-z-codes: marshal failures throw
+            // retire-z-codes: marshal failures throw
             // Std.InvalidMarshalException via Ok(Some(exc)).
             if let Some(thrown) = exec_native::call_native(ctx, module, frame, *dst, m, type_name, symbol, args)? {
                 return Ok(Some(thrown));
@@ -387,7 +387,7 @@ pub fn exec_instr(
     Ok(None)
 }
 
-/// 2026-05-10 exception-stack-trace: stamp the code offset of a call-class
+/// exception-stack-trace: stamp the code offset of a call-class
 /// instruction onto the executing frame's `VmFrame::pc` so a downstream
 /// `throw` can show the call site (not 0). O(1) — the line / column are
 /// resolved from the offset only when a stack trace is built.

@@ -11,7 +11,7 @@ use std::os::raw::c_char;
 
 use z42_abi::Z42Error;
 
-// 2026-05-11 retire-z-codes: the named `Z####` constants formerly declared
+// retire-z-codes: the named `Z####` constants formerly declared
 // here (Z0905 / Z0906 / Z0910) were retired alongside the cross-language
 // catalog. Callers now inline the numeric codes locally (see
 // `native::exports::TYPE_REGISTRATION_FAILURE` etc.). The `Z42Error.code`

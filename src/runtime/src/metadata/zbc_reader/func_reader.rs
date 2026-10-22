@@ -10,7 +10,7 @@ pub(super) struct FuncBody {
     // assembly time from the (optional) DBUG content.
 }
 
-// ── Phase 3 S3c (tokenize-ir-and-zbc-bump, 2026-05-09) ────────────────────────
+// ── Phase 3 S3c (tokenize-ir-and-zbc-bump) ────────────────────────
 //
 // IdMap: maps a v1.0 zbc IR-field token to its FQ name string.
 //
@@ -173,7 +173,7 @@ pub(super) fn read_dbug(sec: &[u8], pool: &[String]) -> Result<Vec<DbugFuncEntry
     Ok(result)
 }
 
-/// jit-type-specialization C2 P0 step 0.4 (zbc 1.8, 2026-05-27): decode the
+/// jit-type-specialization C2 P0 step 0.4 (zbc 1.8): decode the
 /// REGT section into one `Box<[IrType]>` per function, indexed by position.
 /// Reader is liberal — unknown byte values decode as `IrType::Unknown` (per
 /// `IrType::from_u8`), so writer-side variant additions don't break older

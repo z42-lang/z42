@@ -291,7 +291,7 @@ public static class IrDump {
     // 同理排除 StackAlloc（add-escape-analysis）：逃逸分析是跨函数（ctor this-摘要）+ 模块级变换，
     // 会给非逃逸分配置标志、改 golden 字节且脆弱。同理 LoopAllocReuse（依赖 StackAlloc、改指令流）。
     //
-    // ⚠️ 单个 golden 可用 `opt_all` sidecar 覆盖成 `Opt.All`（fix-ref-param-escape，2026-09-16）。
+    // ⚠️ 单个 golden 可用 `opt_all` sidecar 覆盖成 `Opt.All`（fix-ref-param-escape）。
     // 在此之前「真实 release 自建 + 专项单测覆盖」这句是**空头支票**：逃逸分析的专项单测从来没写过，
     // 于是 `src/tests/optimization/escape_*.z42` 整套在 golden 路径上一次也没开过 StackAlloc ——
     // ref 形参写回的悬垂栈句柄因此一路漏到 release 用户手上。sidecar 就是补这个洞的。

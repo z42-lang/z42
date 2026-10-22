@@ -131,7 +131,7 @@ public sealed partial class OverloadBinder {
 
     private void _checkOneArg(BoundExpr[] args, Expr[] rawArgs, int i, Z42Type pt, TypeEnv env) {
         if (args[i] == null || pt == null) { return; }
-        // make-enum-distinct-type（2026-09-08）：**`_isEnumSide` 跳过已摘除**。
+        // make-enum-distinct-type：**`_isEnumSide` 跳过已摘除**。
         // add-argument-type-check 当时在这里留了个有意的洞——enum-as-int 模型下 `E.Member` 是
         // `BoundLitInt(long)`、enum 类型名却是孤立 `Z42ClassType`，转换格里无边相连，于是
         // `Alloc(target, GCHandleType.Weak)` 会被误判成 `long → GCHandleType` 不可转。那是模型

@@ -68,7 +68,7 @@ pub(super) fn load_field_addr(
     }
 }
 
-/// 2026-05-07 add-default-generic-typeparam (D-8b-3 Phase 2): runtime
+/// add-default-generic-typeparam (D-8b-3 Phase 2): runtime
 /// resolution of `default(T)` where T is a generic type-parameter of the
 /// receiver class. Reads `frame.regs[0]` (this) → `Object → instance.type_args[idx]`,
 /// looks up the resolved tag via `default_value_for(tag)`, writes result to dst.

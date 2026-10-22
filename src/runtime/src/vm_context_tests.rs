@@ -154,7 +154,7 @@ fn lazy_loader_two_contexts_independent() {
     assert_eq!(ctx2.declared_namespaces(), Vec::<String>::new());
 }
 
-// ── add-vmcontext-registry (2026-05-20) ───────────────────────────────────────
+// ── add-vmcontext-registry  ───────────────────────────────────────
 
 #[test]
 fn vm_context_registers_self_on_new() {
@@ -192,7 +192,7 @@ fn two_vm_contexts_both_registered_independently() {
     assert_eq!(ctx2.core.vm_contexts.lock().len(), 1, "ctx2 unaffected by ctx1 drop");
 }
 
-// ── add-threading-stdlib Phase 3 (2026-05-20) ─────────────────────────────────
+// ── add-threading-stdlib Phase 3  ─────────────────────────────────
 
 #[test]
 fn vm_context_new_with_core_shares_core() {

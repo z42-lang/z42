@@ -19,7 +19,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         self.mark_queue.lock().clone()
     }
 
-    /// **add-gc-debug-invariants P1 (2026-05-22)**: test-only mutable
+    /// **add-gc-debug-invariants P1 **: test-only mutable
     /// access to the mark queue for injecting corruption (e.g. leaving
     /// stale entries to verify validate panics).
     #[cfg(test)]
@@ -46,7 +46,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         &self.region_var
     }
 
-    /// **add-generational-gc P3 (2026-05-22)**: test-only entry to the
+    /// **add-generational-gc P3 **: test-only entry to the
     /// minor escalation threshold (used by tests; production reads via
     /// minor_escalation_threshold() in the dispatch path).
     #[cfg(test)]
@@ -54,7 +54,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         Self::minor_escalation_threshold()
     }
 
-    /// **add-gc-debug-invariants P1 (2026-05-22)**: post-collect invariant check. Panics on the
+    /// **add-gc-debug-invariants P1 **: post-collect invariant check. Panics on the
     /// first violation with a descriptive message. Release builds compile the call out (cfg gate
     /// at the call site).
     ///
@@ -73,7 +73,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
 
         // 2. mark_queue must be empty post-collect.
         //
-        // diag-mark-queue-stale (2026-05-30): on failure, dump each
+        // diag-mark-queue-stale : on failure, dump each
         // stale entry's kind (+ a detail for heap refs) — without the dump the assertion is
         // opaque.
         let stale: Vec<Value> = self.mark_queue.lock().clone();
@@ -116,7 +116,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let stale = |minor: bool, e: u8| minor || (e != 0 && e != epoch);
         //    iterate_alive walks heap-registry-equivalent (regions).
         //
-        // diag-stale-mark-bit (2026-05-30): on failure, dump the entry's
+        // diag-stale-mark-bit : on failure, dump the entry's
         // type name + slot summary so we can tell whether the marked
         // object is the freshly-allocated `Leaf` from the stress
         // worker loop (race: barrier ran post-sweep) vs an `Owner` /
@@ -139,7 +139,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
     }
 
-    /// **add-mark-sweep-collector P3 (2026-05-21)**: test-only entry
+    /// **add-mark-sweep-collector P3 **: test-only entry
     /// point that exposes the full mark+sweep cycle for unit tests in
     /// `arc_heap_tests::mark_phase`. Production code goes through
     /// `collect_cycles` → `run_cycle_collection`, which calls the same
@@ -154,7 +154,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         self.sweep_phase()
     }
 
-    /// **add-mark-sweep-collector P3 (2026-05-21)**: clear all mark bits.
+    /// **add-mark-sweep-collector P3 **: clear all mark bits.
     /// Test-only — production sweep resets marks on survivors inline.
     /// Walks the registry via the existing snapshot upgrade path (so dead
     /// WeakRefs are skipped naturally). Makes mark_phase tests idempotent

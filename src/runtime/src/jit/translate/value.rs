@@ -74,7 +74,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
                 }
                 Instruction::Copy { dst, src } => {
-                    // review.md C2 P1 follow-up (2026-05-30): inline when src
+                    // review.md C2 P1 follow-up : inline when src
                     // and dst are both drop-free primitives (I64 / F64 / Bool
                     // / Char). 16 B Value = 1 B tag at offset 0 + 8 B payload
                     // at offset 8. Heap-ref payload requires Arc::clone so
@@ -89,8 +89,8 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     }
                 }
 
-                // Arithmetic — review.md C2 P1 (2026-05-28); widened by
-                // jit-unbox-regalloc Phase 2A (2026-08-15): when reg_types
+                // Arithmetic — review.md C2 P1 ; widened by
+                // jit-unbox-regalloc Phase 2A : when reg_types
                 // confirm all three operands are integer types (I8..U64, all
                 // stored as Value::I64), emit native Cranelift
                 // iadd/isub/imul via raw load/store on frame.regs; skip the
@@ -103,7 +103,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                 // Null also has no Drop), so raw bit-copy without Drop is
                 // sound. Div/Rem on i64 panic on /0 — keep helper for those
                 // (zero-check + exception propagation lives there). Add/Sub/Mul
-                // are wrapping (`vm-wrapping-int-arith`, 2026-04-28) matching
+                // are wrapping (`vm-wrapping-int-arith`) matching
                 // Cranelift defaults, at i64 width for all integer types.
                 Instruction::StrConcat { dst, a, b } => {
                     let (d, av, bv) = (self.ri(*dst), self.ri(*a), self.ri(*b));
@@ -117,7 +117,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                 }
 
                 // Calls
-                // formalize-jit-method-token Phase 2.C (2026-05-08): emit
+                // formalize-jit-method-token Phase 2.C : emit
                 // pre-resolved MethodId + name (fallback for cross-zpkg).
                 // Helper checks id first; UNRESOLVED → uses name HashMap.
             _ => anyhow::bail!("tr_value: unexpected opcode in category dispatch"),

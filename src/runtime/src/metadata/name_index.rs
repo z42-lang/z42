@@ -1,7 +1,7 @@
 //! `NameIndex` — linear-scan replacement for the `HashMap<String, usize>`
 //! used by `TypeDesc.field_index` + `TypeDesc.vtable_index`.
 //!
-//! review.md C4 / C5 P1 (2026-06-01): the FieldIC / VCallIC monomorphic +
+//! review.md C4 / C5 P1 : the FieldIC / VCallIC monomorphic +
 //! polymorphic caches catch the hot path, but IC miss still goes through
 //! `HashMap.get(&str)` which costs a `SipHash` hash + at least one string
 //! compare. For the typical z42 class (≤16 fields / vtable slots), a

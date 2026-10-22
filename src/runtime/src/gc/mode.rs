@@ -1,7 +1,7 @@
 //! GC mode selection.
 //!
 //! [`GcMode`] selects which collection algorithm `ArcMagrGC` uses. The default is
-//! **`GenerationalMarkSweep`** (`flip-gc-default-to-generational`, 2026-09-10);
+//! **`GenerationalMarkSweep`** (`flip-gc-default-to-generational`);
 //! `StwMarkSweep` is opt-in via [`ArcMagrGC::set_mode`] or `Z42_GC_MODE=stw`.
 //! Both run their majors incrementally (`arc_heap/incremental.rs`) when sliced.
 //!
@@ -29,7 +29,7 @@
 pub enum GcMode {
     /// Stop-the-world mark-sweep. Reachable objects survive;
     /// unreachable objects are freed. Mark + sweep both pause all
-    /// mutators. Landed in `add-mark-sweep-collector` (2026-05-21).
+    /// mutators. Landed in `add-mark-sweep-collector` .
     StwMarkSweep = 0,
     /// **Default.** Generational mark-sweep. Heap split into young / old
     /// generations via per-entry `gen_age`; minor GC scans only
@@ -37,7 +37,7 @@ pub enum GcMode {
     /// GC scans whole heap. Write barrier records old→young writes
     /// via per-chunk dirty bitmap. Promotion threshold N=2.
     ///
-    /// **fix-minor-gc-skips-var-region (2026-09-08)**: all three regions take part —
+    /// **fix-minor-gc-skips-var-region **: all three regions take part —
     /// `region_var` (strings / closures / array element storage, ~45% of RSS) used to sit
     /// out every minor and wait for a major. Var blocks carry their age packed into
     /// `GcBlockHeader::type_tag` and keep their own young list; they need no card table of
@@ -48,7 +48,7 @@ pub enum GcMode {
 }
 
 impl Default for GcMode {
-    /// **flip-gc-default-to-generational (2026-09-10)**: see the module docs for the
+    /// **flip-gc-default-to-generational **: see the module docs for the
     /// measurements this rests on. `Z42_GC_MODE=stw` restores the previous default.
     fn default() -> Self { GcMode::GenerationalMarkSweep }
 }
@@ -57,7 +57,7 @@ impl GcMode {
     /// Resolve the GC mode from the process-wide `RuntimeConfig`.
     /// Unset / invalid `Z42_GC_MODE` → the default mode — the warning
     /// lands once in `crate::config::parse_gc_mode` at first access, not
-    /// per-callsite (runtime-config-phase2 2026-06-03).
+    /// per-callsite (runtime-config-phase2).
     pub fn from_env() -> Self {
         crate::config::runtime_config().gc_mode
     }

@@ -34,9 +34,9 @@ use crate::gc::GcMode;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-// refactor-split-config（2026-09-03）：旋钮表 → `config/knobs.rs`，解析函数 → `config/parse.rs`，
+// refactor-split-config：旋钮表 → `config/knobs.rs`，解析函数 → `config/parse.rs`，
 // 单测 → `config_tests.rs`；本文件留 RuntimeConfig 本体 / 默认值 / from_env / toml 加载 / 全局单例。
-// complete-runtime-settings P0（2026-09-05）：schema 类型层 → `config/knobs.rs`，
+// complete-runtime-settings P0：schema 类型层 → `config/knobs.rs`，
 // 旋钮登记表 → `config/knob_table.rs`，可用性求值 → `config/availability.rs`。
 mod availability;
 mod cli;
@@ -57,11 +57,11 @@ pub(crate) use parse::*;
 
 /// Resolved values of **every `Z42_*` runtime knob the runtime consumes**.
 ///
-/// Phase 1 (2026-05-25, refactor-runtime-config) introduced the 4 startup
+/// Phase 1 (refactor-runtime-config) introduced the 4 startup
 /// knobs (`Z42_LIBS` / `Z42_LOG` / `Z42_CRASH_DIR`) — read
 /// once at `main()` and threaded through setup.
 ///
-/// Phase 2 (2026-06-03, runtime-config-phase2) folded in the 6 subsystem-
+/// Phase 2 (runtime-config-phase2) folded in the 6 subsystem-
 /// local knobs (`Z42_GC_MODE` / `Z42_GC_MINOR_THRESHOLD` /
 /// `Z42_GC_PAUSE_WINDOW` / `Z42_GC_SOFT_THRESHOLD` / `Z42_SAFEPOINT_THROTTLE` /
 /// `Z42_NATIVE_PATH`) that previously each kept their own
@@ -88,7 +88,7 @@ pub struct RuntimeConfig {
 
     // ── Phase 2: subsystem knobs (read via [`runtime_config()`]) ─────────
     /// `Z42_GC_MODE` — algorithm selector. Default `generational`
-    /// (flip-gc-default-to-generational, 2026-09-10); `stw` is opt-in.
+    /// (flip-gc-default-to-generational); `stw` is opt-in.
     pub gc_mode: GcMode,
     /// `Z42_GC_MINOR_THRESHOLD` (0.0–1.0) — fraction of young entries
     /// surviving minor GC above which the next collect escalates to
@@ -102,28 +102,28 @@ pub struct RuntimeConfig {
     /// which SoftHandle refs become GC-eligible. Falls back to 0.80 on
     /// missing / invalid.
     pub gc_soft_threshold: f64,
-    /// `Z42_GC_MAX_BYTES` — **soft heap cap** (add-gc-runtime-knobs, 2026-09-05).
+    /// `Z42_GC_MAX_BYTES` — **soft heap cap** (add-gc-runtime-knobs).
     ///
-    /// **arm-gc-by-default (2026-09-09)**: this is no longer the arming switch. It used to be
+    /// **arm-gc-by-default **: this is no longer the arming switch. It used to be
     /// — `maybe_auto_collect` bailed out while it was unset, so by default a long-running
     /// program grew until it exited. The policy's thresholds are relative now (Mono SGen's
     /// shape), so it runs without a cap; setting one only squeezes the collection allowance
     /// and adds a near-limit trip. Accepts `512MB` / `2G` / a plain byte count.
     pub gc_max_bytes: Option<u64>,
     /// `Z42_GC_NURSERY_BYTES` — the unit the auto-collect policy is denominated in
-    /// (add-bounded-nursery, 2026-09-08; made absolute by arm-gc-by-default, 2026-09-09):
+    /// (add-bounded-nursery; made absolute by arm-gc-by-default):
     /// bytes allocated before a **minor** trips, and — times `ALLOWANCE_NURSERY_RATIO` — the
     /// floor under a **major**'s allowance in either mode. `None` = 16 MB
-    /// (retune-gc-nursery-and-promotion-age, 2026-09-11; was 32 MB).
+    /// (retune-gc-nursery-and-promotion-age; was 32 MB).
     pub gc_nursery_bytes: Option<u64>,
     /// `Z42_GC_PROMOTION_AGE` — minor GCs an entry must survive before promotion
-    /// (add-promotion-age-knob, 2026-09-08). `None` = the compile-time default
+    /// (add-promotion-age-knob). `None` = the compile-time default
     /// (`PROMOTION_THRESHOLD` = 3, raised from 2 alongside the smaller nursery). Read **once per
     /// heap at construction**, never on the
     /// write-barrier hot path. Clamped to `1..=MAX_GEN_AGE` at that read.
     pub gc_promotion_age: Option<u8>,
     /// `Z42_GC_LOH_BYTES` — block-footprint threshold above which a variable-length block gets
-    /// its own exactly-sized chunk (add-loh-bytes-knob, 2026-09-08). `None` = the bump-chunk
+    /// its own exactly-sized chunk (add-loh-bytes-knob). `None` = the bump-chunk
     /// size (64 KB), which is also the hard ceiling. Process-global: applied once at VM
     /// construction because the TLAB fast path has no heap reference.
     pub gc_loh_bytes: Option<u64>,
@@ -131,8 +131,8 @@ pub struct RuntimeConfig {
     /// Read through [`RuntimeConfig::vm_thread_stack_size`].
     pub thread_stack_bytes: Option<u64>,
     /// `Z42_GC_ADAPTIVE_PROMOTION` — whether the minor sweep may lower the promotion age by
-    /// one tier when that tier is measured to reclaim nothing (adaptive-promotion,
-    /// 2026-09-12). Default on; `0` pins the configured age. See
+    /// one tier when that tier is measured to reclaim nothing (adaptive-promotion).
+    /// Default on; `0` pins the configured age. See
     /// `gc/arc_heap/promotion_policy.rs` for the measurements behind the rule.
     pub gc_adaptive_promotion: bool,
     /// `Z42_GC_INCREMENTAL` — whether a generational major runs as bounded STW slices with
@@ -148,18 +148,18 @@ pub struct RuntimeConfig {
     /// (add-incremental-major-gc M2b). Default 2. Tiny values (e.g. 0.05) are a stress knob:
     /// they maximise how often mutators and minors run in the middle of a major.
     pub gc_slice_ms: f64,
-    /// `Z42_GC_PHASES` — per-phase pause breakdown on stderr (add-gc-phase-timing,
-    /// 2026-09-11): one indented line per GC phase (reset marks / full mark / each half of
+    /// `Z42_GC_PHASES` — per-phase pause breakdown on stderr (add-gc-phase-timing):
+    /// one indented line per GC phase (reset marks / full mark / each half of
     /// sweep / aging …) with its duration and, where it means something, how many entries it
     /// handled. `Z42_GC_TRACE` says how long a collection took; this says where it went.
     /// Off = zero cost (the timers never read the clock).
     pub gc_phases: bool,
-    /// `Z42_GC_TRACE` — per-collection stderr trace (add-gc-runtime-knobs,
-    /// 2026-09-05): one line per cycle with kind, heap used before/after,
+    /// `Z42_GC_TRACE` — per-collection stderr trace (add-gc-runtime-knobs):
+    /// one line per cycle with kind, heap used before/after,
     /// bytes reclaimed and pause µs. Any non-empty value except `0`/`false`
     /// turns it on. Off = zero cost (no observer installed).
     pub gc_trace: bool,
-    /// `Z42_GC_VERIFY_CARDS` — debug knob (fix-missing-write-barriers, 2026-10-07): at the start
+    /// `Z42_GC_VERIFY_CARDS` — debug knob (fix-missing-write-barriers): at the start
     /// of every minor, re-derive the card-table invariant from scratch (every old entry holding
     /// a young reference sits on a dirty card) and panic naming the owner if it does not hold.
     /// That is exactly what a missing write barrier breaks — a clean miss here, instead of a
@@ -213,7 +213,7 @@ pub struct RuntimeConfig {
     /// per-sample `(ts, stack)` timeline and serialize it on exit.
     pub trace_out: Option<PathBuf>,
 
-    // ── adopt-inline-env-knobs (2026-09-05): 收编的 8 个旋钮 ─────────────
+    // ── adopt-inline-env-knobs : 收编的 8 个旋钮 ─────────────
     // 此前它们各自在 `consumed_by` 处 `std::env::var`，于是只有 env 层能设。
     // 收编后四层全收，且比原来**更快**——`env::var` 每次要加锁 + 查环境块 +
     // 分配 String，这里是 OnceLock 的一次 acquire load + 字段读。
@@ -258,7 +258,7 @@ pub struct RuntimeConfig {
     /// `Z42_REPL_NATIVE` — REPL 行编辑 cdylib 的路径覆盖（文件或其所在目录）。
     pub repl_native: Option<PathBuf>,
 
-    // ── add-app-properties (2026-09-05) ──────────────────────────────────
+    // ── add-app-properties  ──────────────────────────────────
     /// 应用自定义配置属性——**app 侧车的 `[properties]` 段原样搬来**。
     ///
     /// 它**不是旋钮**：不在 `KNOWN_KNOBS` 里、不进 `resolved`、不参与五层分层、
@@ -343,7 +343,7 @@ impl RuntimeConfig {
     /// does not: it assembles the CLI layer itself and installs the result via
     /// [`init_runtime_config`] before anything reads it.
     ///
-    /// sidecar-reaches-published-apps (2026-09-05) added the file layers here.
+    /// sidecar-reaches-published-apps  added the file layers here.
     /// They used to be loaded **only** in `main()`, so every embedder silently
     /// ignored `Z42_CONFIG` and `Z42_APP_CONFIG` — the documented precedence
     /// chain simply did not hold outside the `z42vm` binary.

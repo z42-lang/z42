@@ -2,7 +2,7 @@
 //! `f64 → f64`(双参两个)的 PURE 函数,z42 侧声明即 `double X(double)`,
 //! 整数实参由类型系统先转换;`pure` 让 JIT 可做 intrinsic。
 //!
-//! 2026-04-27 wave1-math-script: Abs/Max/Min 是 z42 脚本(int + double
+//! wave1-math-script: Abs/Max/Min 是 z42 脚本(int + double
 //! overload),不经这里。反三角 / 双曲 / cbrt / log2(augment-corelib-parity
 //! backlog #9)由 libm 承载,边界(溢出、2 的幂上的 log2)跟平台数学库。
 

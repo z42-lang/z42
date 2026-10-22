@@ -169,7 +169,7 @@ fn copy_rejects_non_arrays_and_negative_indices() {
     assert!(copy(&ctx, &src, 0, &dst, 0, -1).is_err());
 }
 
-// ── fix-missing-array-write-barriers (2026-09-10) ────────────────────────────
+// ── fix-missing-array-write-barriers  ────────────────────────────
 
 /// Storing a reference into an array is a heap write, and an **old** array receiving a
 /// **young** element must be remembered or the next minor will not re-root it.
@@ -252,7 +252,7 @@ mod write_barriers {
     }
 }
 
-// ── fix-silent-array-elem-zero (2026-09-27) ─────────────────────────────────
+// ── fix-silent-array-elem-zero  ─────────────────────────────────
 //
 // 无类型数组写入的类型不符**不再静默存 0**。实测的修前行为：`int[0]` 原值 9，
 // `a.SetValue(objNull, 0)` 在 **release** 下静默把它变成 **0**、不抛、报成功；
@@ -400,7 +400,7 @@ fn prim_backing_accepts_agrees_with_set_boxed() {
     }
 }
 
-// ── perf-array-alloc-direct (2026-10-07) ────────────────────────────────────
+// ── perf-array-alloc-direct  ────────────────────────────────────
 //
 // 数组直接在 GC 块里构造（不再先建 `vec![default; n]`）。`typed_filled` 对「默认值恰是
 // 该 backing 的分配器零」走零写入快路，其余逐槽原地写；`typed_iter` 从迭代器直写块。

@@ -30,7 +30,7 @@ pub(super) const CHUNK_ALIGN: usize = 16;
 /// octave into four (32/40/48/56, 64/80/96/112, …) — the mimalloc / jemalloc shape. The octave
 /// below 32 keeps only its 8-aligned steps: 16 and 24.
 ///
-/// **shrink-var-size-classes (2026-09-07)**: plain powers of two rounded the average live
+/// **shrink-var-size-classes **: plain powers of two rounded the average live
 /// block from 118 B of payload+header up to 188 B of footprint. Measured over a
 /// `z42c.semantics --release --no-incremental` build (2.74 M live var blocks): 516.4 MB of
 /// footprint against 323.4 MB of logical bytes — 193.0 MB of pure rounding waste, 17% of the
@@ -49,7 +49,7 @@ const MAX_CLASS: u8 = (CHUNK_BYTES.trailing_zeros() << SUB_LOG2) as u8;
 ///
 /// Each class holds exactly one footprint, which is what lets `alloc` hand a free-list slot
 /// straight to a new block of any payload in the class without re-checking capacity.
-/// **add-loh-bytes-knob (2026-09-08)**: the block-footprint threshold above which a block gets
+/// **add-loh-bytes-knob **: the block-footprint threshold above which a block gets
 /// its own exactly-sized chunk instead of a size class inside a bump chunk (`Z42_GC_LOH_BYTES`).
 ///
 /// **Process-global on purpose.** `class_for` is called from the lock-free TLAB fast path
@@ -157,7 +157,7 @@ pub(super) fn young_words(cap: usize) -> usize {
 /// Young-bitmap words of a bump chunk.
 pub(super) const CHUNK_WORDS: usize = CHUNK_BYTES / (8 * 64);
 
-/// **perf-free-slot-encoding (2026-09-13)**: a free-list entry — the `(chunk index, in-chunk
+/// **perf-free-slot-encoding **: a free-list entry — the `(chunk index, in-chunk
 /// byte offset)` of one tombstoned slot, packed into four bytes.
 ///
 /// It used to be the slot's `NonNull<GcBlockHeader>`, and the staleness test
@@ -219,9 +219,9 @@ impl FreeSlot {
 
 /// One free-list entry: a [`FreeSlot`] plus the `pool_epoch` its chunk carried when the entry
 /// was pushed. A mismatch at pop means the chunk has been pooled since, so the slot no longer
-/// belongs to the list (`lazy-var-free-list`, 2026-09-12).
+/// belongs to the list (`lazy-var-free-list`).
 ///
-/// **perf-merge-free-entry (2026-09-13)**: one list of pairs, not two parallel `Vec`s. The
+/// **perf-merge-free-entry **: one list of pairs, not two parallel `Vec`s. The
 /// pair was split when a slot was still an 8-byte header pointer — `(NonNull, u32)` padded to
 /// 16 bytes, so splitting genuinely halved the footprint. `perf-free-slot-encoding` (#608) made
 /// the slot four bytes and quietly retired that reason: `FreeSlot` and `u32` are both 4-byte
@@ -275,7 +275,7 @@ impl Chunk {
         Layout::from_size_align(self.cap, CHUNK_ALIGN).expect("chunk layout")
     }
 
-    /// **fix-loh-never-freed (2026-09-08)**: hand this chunk's memory back to the global
+    /// **fix-loh-never-freed **: hand this chunk's memory back to the global
     /// allocator, leaving the slot behind as a tombstone (`cap == 0`, dangling base).
     ///
     /// The slot has to stay: `bump_chunk`, `borrowed`, `reuse_gen` and `var_free_chunk_pool`
@@ -303,7 +303,7 @@ impl Chunk {
     }
 }
 
-/// **add-gc-tlab stage 3 (2026-08-29)**: a mutator thread's exclusive write claim on one
+/// **add-gc-tlab stage 3 **: a mutator thread's exclusive write claim on one
 /// `VarRegion` bump chunk (design D4). Produced by [`VarRegion::borrow_chunk`] (under the
 /// region lock), then filled **lock-free** by the owning thread via [`VarChunkClaim::fill`]
 /// until a block doesn't fit (`fill` returns `None`); [`VarRegion::retire_chunk`] then publishes
@@ -514,7 +514,7 @@ impl VarRegion {
         self.borrowed[ci] = false;
     }
 
-    /// **add-gc-tlab stage 3 (D7 for var)** + **fix-loh-never-freed (2026-09-08)**: after a
+    /// **add-gc-tlab stage 3 (D7 for var)** + **fix-loh-never-freed **: after a
     /// sweep, deal with every chunk whose blocks are now all tombstoned, by kind:
     ///
     /// - **bump chunk** (`cap == CHUNK_BYTES`) → into `var_free_chunk_pool` for
@@ -556,7 +556,7 @@ impl VarRegion {
             // minted in this epoch. Stays odd: every recorded span is a dead (even) offset's.
             self.reuse_gen[ci] = self.reuse_gen[ci].wrapping_add(self.max_span_per_chunk[ci]).wrapping_add(1) | ALIVE_GEN_BIT;
             self.max_span_per_chunk[ci] = 0;
-            // **lazy-var-free-list (2026-09-12)**: every free-list entry pointing into this
+            // **lazy-var-free-list **: every free-list entry pointing into this
             // chunk just went stale. They are not evicted here — that scan was the whole cost
             // this change removes — so record how many there are, exactly: a chunk reaches
             // this loop only with every block tombstoned, and every non-oversized tombstone
@@ -591,7 +591,7 @@ impl VarRegion {
     /// held at least one block (a never-used one has nothing to recycle) and holds no live
     /// one; borrowed chunks, the ambient bump chunk and already-pooled chunks are excluded.
     ///
-    /// **add-incremental-chunk-reclaim (2026-09-10)**: both questions are answered from the
+    /// **add-incremental-chunk-reclaim **: both questions are answered from the
     /// per-chunk census (`VarRegion::blocks_per_chunk` / `live_per_chunk`), which alloc,
     /// retire and tombstone keep current — `O(chunks)`, never a walk over blocks.
     pub(super) fn partition_dead_chunks(&self) -> (Vec<usize>, Vec<usize>) {
@@ -636,7 +636,7 @@ impl VarRegion {
     /// marks. Their young bits are already clear — every block in them was tombstoned, and
     /// tombstoning takes a block out of the young set.
     ///
-    /// **lazy-var-free-list (2026-09-12)**: `free_lists` is deliberately **not** scanned here —
+    /// **lazy-var-free-list **: `free_lists` is deliberately **not** scanned here —
     /// that was `O(heap)` work (one header dereference per entry, up to 1.24 M entries, every
     /// collection) to evict a handful. Entries are invalidated lazily at pop instead; see
     /// `VarRegion::free_lists` for why that cannot hand out a dangling pointer, and

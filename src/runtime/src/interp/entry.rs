@@ -1,4 +1,4 @@
-//! 解释器公开入口：ExecOutcome / run / run_returning / run_outcome / init_static_fields / run_with_static_init。refactor-split-interp-mod（2026-09-03）：自 1155 行的 `interp/mod.rs` 逐行搬出，
+//! 解释器公开入口：ExecOutcome / run / run_returning / run_outcome / init_static_fields / run_with_static_init。refactor-split-interp-mod：自 1155 行的 `interp/mod.rs` 逐行搬出，
 //! mod.rs 只留模块表与执行主循环 `exec_function_body`；本模块经 mod.rs 的 `pub(crate) use` 全量再导出，
 //! 兄弟模块的 `super::X` 路径不变。
 
@@ -14,8 +14,7 @@ use std::collections::HashMap;
 ///
 /// Public so embedders (test-runner, REPL) can introspect thrown exception
 /// values — necessary for [ShouldThrow<E>] type matching and TestFailure /
-/// SkipSignal classification (rewrite-z42-test-runner-compile-time S3,
-/// 2026-05-10).
+/// SkipSignal classification (rewrite-z42-test-runner-compile-time S3).
 #[derive(Debug)]
 pub enum ExecOutcome {
     /// Normal return (with optional return value).
@@ -54,7 +53,7 @@ pub fn run_returning(
 /// exception value (for type introspection / [ShouldThrow<E>] matching)
 /// and the optional return value, instead of collapsing thrown into an
 /// anyhow string. For embedders that need exception-aware control flow
-/// (rewrite-z42-test-runner-compile-time S3, 2026-05-10).
+/// (rewrite-z42-test-runner-compile-time S3).
 pub fn run_outcome(
     ctx: &VmContext,
     module: &Module,
@@ -68,7 +67,7 @@ pub fn run_outcome(
 /// `*.__static_init__` functions (both eager-loaded in `module.functions`
 /// and lazy-loadable from declared zpkgs).
 ///
-/// Extracted from [`run_with_static_init`] (2026-05-10 R3b) so embedders
+/// Extracted from [`run_with_static_init`] (R3b) so embedders
 /// (test-runner, REPL) can do init once + run multiple functions in
 /// sequence (Setup → Test → Teardown) without re-initialising between.
 ///

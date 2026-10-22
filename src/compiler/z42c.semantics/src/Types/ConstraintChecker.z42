@@ -280,7 +280,7 @@ public sealed class ConstraintChecker {
             }
             k = k + 1;
         }
-        // v1：函数类型约束与其余七项**互斥**（2026-05-11 add-generic-func-constraint spec）。
+        // v1：函数类型约束与其余七项**互斥**（add-generic-func-constraint spec）。
         // 并置本身在今天是**静默无害**的（func 半边根本不校验），补上校验后它就成了一条语义未定义的
         // 写法——`where T : Func<int,int> + IDisposable` 要求 T 同时是结构化函数类型与实现某接口的类，
         // z42 的类型模型里没有这种东西。早报好过让它继续看起来合法。
@@ -460,7 +460,7 @@ public sealed class ConstraintChecker {
     //      留作**通配**，见 `_funcPosOk`。
     //   ② 实参必须是函数类型且 arity 相同。
     //   ③ 逐位比：形参位**逆变**（约束形参可传给实参形参 ⇒ 实参形参更宽）、返回位**协变**
-    //      （实参返回可当约束返回用）。方向照 2026-05-11 spec 的四条 Scenario。
+    //      （实参返回可当约束返回用）。方向照  spec 的四条 Scenario。
     //
     // 🔴 与其余七项不同，**运行期没有对应判定**（`generics.rs::validate_type_arg_constraint` 只有七项，
     // zbc 约束 flag 位也没有 func 签名槽）⇒ 本项只在编译期成立，且只对**本包声明**的约束生效：

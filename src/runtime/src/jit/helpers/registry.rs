@@ -47,14 +47,14 @@ pub struct HelperIds {
     // control
     pub throw:          FuncId,
     pub install_catch:  FuncId,
-    /// catch-by-generic-type (2026-05-06): peek at pending exception's class +
+    /// catch-by-generic-type : peek at pending exception's class +
     /// subclass walk vs `target` string. Returns 1 on match, 0 otherwise.
     pub match_catch_type: FuncId,
-    /// add-gc-safepoint-jit (2026-05-21): cooperative GC safepoint check
+    /// add-gc-safepoint-jit : cooperative GC safepoint check
     /// trampoline. Emitted by translate.rs at function entry, backward
     /// branches, and post-Call sites.
     pub check_safepoint: FuncId,
-    /// inline-jit-safepoint-check (2026-08-01): slow branch of the inlined
+    /// inline-jit-safepoint-check : slow branch of the inlined
     /// safepoint fast path (counter reset + Mutex/phase/auto-collect drain).
     /// Called from native code only when the inlined decrement hits 0.
     pub check_safepoint_slow: FuncId,
@@ -112,7 +112,7 @@ pub struct HelperIds {
     pub load_fn:        FuncId,
     pub mk_clos:        FuncId,
     pub call_indirect:  FuncId,
-    /// fix-numeric-cast-lowering (2026-05-13): explicit numeric cast.
+    /// fix-numeric-cast-lowering : explicit numeric cast.
     pub convert:        FuncId,
     // add-struct-jit-value-path (P5): blob value-type instruction helpers.
     pub struct_alloc:          FuncId,
@@ -266,13 +266,13 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         str_concat:    decl!("jit_str_concat", [ptr, ptr, i32t, i32t, i32t],              [i8t]),
         to_str:        decl!("jit_to_str",     [ptr, ptr, i32t, i32t],                    [i8t]),
         // jit_call(frame, ctx, dst, method_id, name_ptr, name_len, args_ptr, argc, ic_ptr, caller_offset) -> u8
-        // formalize-jit-method-token Phase 2.C (2026-05-08): id-first dispatch
+        // formalize-jit-method-token Phase 2.C : id-first dispatch
         // with name fallback for cross-zpkg UNRESOLVED targets.
         // make-vm-loading-lazy: `ic_ptr` caches the resolved lazy/merged fn id
         // per call site → lock-free by-id fast path.
         call:          decl!("jit_call",       [ptr, ptr, i32t, i32t, ptr, i64t, ptr, i64t, ptr, i32t], [i8t]),
         // jit_builtin(frame, ctx, dst, builtin_id, name_ptr, name_len, args_ptr, argc) -> u8
-        // formalize-jit-method-token (2026-05-08): id-based dispatch (no hash).
+        // formalize-jit-method-token : id-based dispatch (no hash).
         // fix-jit-builtin-ext-fallback: name_ptr/len added so an UNRESOLVED id (native-ext
         // facade unresolved at compile time) can resolve by name at call time.
         builtin:       decl!("jit_builtin",    [ptr, ptr, i32t, i32t, ptr, i64t, ptr, i64t], [i8t]),
@@ -292,7 +292,7 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         // add-reflection-generic-type-definition: type_args_ptr is `*const String`
         // into the IR `Instruction::Typeof { type_args }` storage (module lifetime).
         typeof_op:     decl!("jit_typeof",     [ptr, ptr, i32t, ptr, i64t, ptr, i64t], []),
-        // formalize-jit-method-token Phase 2.E (2026-05-08): trailing `ptr`
+        // formalize-jit-method-token Phase 2.E : trailing `ptr`
         // arg = `*const FieldIC` (stable into Function.resolved.field_ic).
         field_get:     decl!("jit_field_get",  [ptr, ptr, i32t, i32t, ptr, i64t, ptr],    [i8t]),
         field_set:     decl!("jit_field_set",  [ptr, ptr, i32t, ptr, i64t, i32t, ptr],    [i8t]),
@@ -301,7 +301,7 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         vcall:         decl!("jit_vcall",      [ptr, ptr, i32t, i32t, ptr, i64t, ptr, i64t, ptr, i32t], [i8t]),
         is_instance:   decl!("jit_is_instance",[ptr, ptr, i32t, i32t, ptr, i64t, ptr],    []),
         as_cast:       decl!("jit_as_cast",    [ptr, ptr, i32t, i32t, ptr, i64t, ptr],    []),
-        // formalize-jit-method-token Phase 2 (2026-05-08): id-based
+        // formalize-jit-method-token Phase 2 : id-based
         // make-vm-loading-lazy: trailing (field_ptr, field_len) for by-name
         // fallback when field_id is UNRESOLVED (lazily-loaded fn, no resolved table).
         // (jit_static_get(frame, ctx, dst, field_id, field_ptr, field_len),
@@ -314,9 +314,9 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         install_catch: decl!("jit_install_catch", [ptr, ptr, i32t],                       []),
         // jit_match_catch_type(frame, ctx, target_ptr, target_len, key) -> i8
         match_catch_type: decl!("jit_match_catch_type", [ptr, ptr, ptr, i64t, ptr],       [i8t]),
-        // add-gc-safepoint-jit (2026-05-21): jit_check_safepoint(frame, ctx) -> void
+        // add-gc-safepoint-jit : jit_check_safepoint(frame, ctx) -> void
         check_safepoint:  decl!("jit_check_safepoint",  [ptr, ptr],                       []),
-        // inline-jit-safepoint-check (2026-08-01): jit_check_safepoint_slow(frame, ctx) -> void
+        // inline-jit-safepoint-check : jit_check_safepoint_slow(frame, ctx) -> void
         check_safepoint_slow: decl!("jit_check_safepoint_slow", [ptr, ptr],               []),
         // jit_stack_overflow(frame, ctx) -> void ; jit_fatal_pending(frame, ctx) -> i8
         stack_overflow:   decl!("jit_stack_overflow",   [ptr, ptr],                       []),

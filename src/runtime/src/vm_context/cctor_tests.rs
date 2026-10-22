@@ -5,7 +5,7 @@ use super::*;
 // add-module-init-hook：失败语义（失败是终态、不重试、每次重抛）已由既有的
 // `failed_type_reports_error_on_every_later_access` 覆盖 —— 包初始化器复用同一套
 // `claim`/`finish`，不另造一份重复断言。这里只测本变更**真正新增**的判定。
-// fix-module-init-ownership（2026-09-27）：判据从「命名空间前缀」换成「**包的符号集合**」。
+// fix-module-init-ownership：判据从「命名空间前缀」换成「**包的符号集合**」。
 // 旧版本钉的是前缀语义，所以整段重写 —— 保留的是同一个意图：失败的包只毒它自己。
 #[test]
 fn module_owns_only_its_own_symbols() {

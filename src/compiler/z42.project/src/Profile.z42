@@ -9,7 +9,7 @@ using Std.Toml;
 ///     [profile.release.runtime]      → <app>.runtimeconfig.toml 的 [runtime]
 ///     [profile.release.properties]   → 同上的 [properties]
 ///
-/// restructure-profile-sections（2026-09-05）：此前旋钮是 `[profile.<n>]` 下的裸标量，
+/// restructure-profile-sections：此前旋钮是 `[profile.<n>]` 下的裸标量，
 /// 与构建期键靠一份**手写排除清单**（`pack`/`strip`/`optimize`/`debug`）区分——漏更新
 /// 就会让新的构建期键悄悄流进 app 侧车、每次运行刷一行 `unknown runtime knob`。
 /// 改成子表后边界是**结构性**的，不可能漏。

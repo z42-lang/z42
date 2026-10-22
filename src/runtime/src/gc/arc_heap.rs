@@ -58,7 +58,7 @@ use super::types::{
     AllocSamplerFn, GcHandleKind, GcObserver, HeapStats, ObserverId, RootHandle,
 };
 
-// ── Handle table（reorganize-gc-stdlib，2026-05-07）─────────────────────────
+// ── Handle table（reorganize-gc-stdlib）─────────────────────────
 
 /// One slot in [`HandleSlab`]. Strong slots store cloneable references that
 /// anchor their target across collection; weak slots store a `Weak<...>` that
@@ -130,7 +130,7 @@ impl HandleSlab {
 
     /// Every **strong** slot's target, as mark roots.
     ///
-    /// **fix-strong-handles-are-not-roots (2026-09-11)**: this is what makes
+    /// **fix-strong-handles-are-not-roots **: this is what makes
     /// `GCHandle.AllocStrong` mean anything. `handle_slab` was reachable only from the four
     /// `handle_*` methods in `arc_heap/interface.rs`; **no mark phase ever scanned it**, so a
     /// strong handle did not anchor its target and the only observable difference from a weak
@@ -180,7 +180,7 @@ struct RcHeapInner {
     /// **Phase 3d**: 上次 auto-collect 触发时的 `used_bytes`，用于 throttle
     /// 自动 collect —— 仅当当前 used 距上次增长 >= 10% limit 才再次自动触发。
     last_auto_collect_used: u64,
-    /// add-gc-runtime-knobs (2026-09-05): `stats.reclaimed_bytes` as of the last
+    /// add-gc-runtime-knobs : `stats.reclaimed_bytes` as of the last
     /// auto-collect trip. The delta since tells `maybe_auto_collect` whether the
     /// previous collection actually bought room — see `auto_collect.rs`.
     last_auto_collect_reclaimed: u64,
@@ -197,7 +197,7 @@ struct RcHeapInner {
     /// 不入 registry / 不 bump used_bytes（撤销分配）；false（默认）兼容历史
     /// 行为：alloc 仍成功，只 fire 事件。
     strict_oom: bool,
-    /// **reorganize-gc-stdlib（2026-05-07）**: GCHandle slab。Slot 0 reserved
+    /// **reorganize-gc-stdlib **: GCHandle slab。Slot 0 reserved
     /// 作"未分配" sentinel；其他 slot 由 `Std.GCHandle._slot: long` 引用。
     handle_slab: HandleSlab,
     // **Phase 3e**: finalizers 不再集中存 HashMap；改存到每个 GcAllocation 的
@@ -205,7 +205,7 @@ struct RcHeapInner {
     // drop 链）。register_finalizer / cancel_finalizer 走 ArrRef 方法。
     // finalizers_pending 由 stats() 即时遍历 registry 重算。
 
-    /// **add-gc-softref (2026-05-26)**: registry of all active soft
+    /// **add-gc-softref **: registry of all active soft
     /// references. Populated by `register_soft_ref`; entries are removed
     /// on `unregister_soft_ref`. The revive pass (between mark + sweep)
     /// iterates this to re-mark alive targets when heap pressure is below
@@ -240,12 +240,12 @@ impl std::fmt::Debug for RcHeapInner {
 /// 自己持有的 Value（如 static_fields / pending_exception / interp 栈帧 regs），
 /// 让 cycle collector 不会把这些可达对象误判为 unreachable。
 ///
-/// **add-multithreading-foundation Phase 3 (2026-05-20)**：要求 `Send + Sync`
+/// **add-multithreading-foundation Phase 3 **：要求 `Send + Sync`
 /// —— 闭包内部捕获 Arc<VmCore> Weak 等 Send-safe handle；GC 后续可能在
 /// 独立 worker 线程上跑收集。
 pub type ExternalRootScanner = Box<dyn Fn(&mut dyn FnMut(&Value)) + Send + Sync>;
 
-/// **add-lazy-context-unload (2026-08-05)**: lets the GC drive collectible
+/// **add-lazy-context-unload **: lets the GC drive collectible
 /// `AssemblyLoadContext` reclamation. Wired by `VmCore` (captures `Weak<VmCore>`),
 /// routes to `VmCore.context_registry`. On a major STW collect: if `is_unloading`,
 /// the GC takes a `snapshot`, scans marked objects for retained contexts (see
@@ -262,14 +262,14 @@ pub trait ContextReclaim: Send + Sync {
 
 pub type ContextReclaimHook = Box<dyn ContextReclaim>;
 
-/// **add-heap-retention-diagnostics (2026-08-06)**: like `ExternalRootScanner`
+/// **add-heap-retention-diagnostics **: like `ExternalRootScanner`
 /// but yields each root **with its category** (`RootKind`). Used only by the
 /// on-demand retention query (`retention_*`) to report retaining roots at the
 /// category level — NOT on the mark hot path (mark uses the anonymous scanner).
 pub type CategorizedRootScanner =
     Box<dyn Fn(&mut dyn FnMut(&Value, super::retention::RootKind)) + Send + Sync>;
 
-/// **add-heap-retention-diagnostics (2026-08-06)**: the heap identity (data ptr
+/// **add-heap-retention-diagnostics **: the heap identity (data ptr
 /// as usize) of a heap-ref `Value`, or `None` for primitives / stack refs. Used
 /// to key the reverse reference graph. Mirrors `mark_if_unmarked`'s variant set.
 fn value_heap_ptr(v: &Value) -> Option<usize> {
@@ -395,7 +395,7 @@ pub struct ArcMagrGC {
     /// the bit was clear) and by promotion; trimmed by every minor and when a remembered block
     /// dies.
     remembered: Mutex<Vec<VarGcRef>>,
-    /// **adaptive-promotion (2026-09-12)**: whether a survivor one tier short of promotion
+    /// **adaptive-promotion **: whether a survivor one tier short of promotion
     /// should be promoted now rather than spend another collection being re-marked. Decided
     /// per minor from the survival rate of the tier it would skip — see
     /// [`promotion_policy`](super::arc_heap::promotion_policy) for the measurements.
@@ -412,7 +412,7 @@ pub struct ArcMagrGC {
     /// allocation made while it is set is born with the cycle's mark. See
     /// [`super::arc_heap::alloc_black`] for why this exists and what it costs.
     alloc_black: std::sync::atomic::AtomicBool,
-    /// **add-incremental-major-gc M1 (2026-09-15)**: this heap's current major mark epoch
+    /// **add-incremental-major-gc M1 **: this heap's current major mark epoch
     /// (1..=127; starts at 1, so the first major opens 2). Per heap, not per process: another heap advancing a
     /// shared counter could wrap it onto this heap's last epoch and make stale marks read as
     /// current. See [`crate::gc::refs::MarkKind`].
@@ -421,7 +421,7 @@ pub struct ArcMagrGC {
     /// handed over by mutator threads when they retire their TLAB. Drained into the mark before a
     /// cycle's marking is declared complete, and treated as extra roots by a minor.
     satb_queue: parking_lot::Mutex<Vec<Value>>,
-    /// **add-gc-pause-histogram (2026-05-22)**: aggregate pause-time
+    /// **add-gc-pause-histogram **: aggregate pause-time
     /// histogram. Recorded into at the end of every `collect_cycles` /
     /// `collect_cycles_with_context` / `force_collect` path, right
     /// before the `AfterCollect` event fires. Surfaced via
@@ -429,7 +429,7 @@ pub struct ArcMagrGC {
     /// `Std.GC.PauseStatsRaw()` z42 builtins. Single histogram per
     /// heap (per-mode split is a deferred perf spec).
     pause_histogram: Mutex<super::types::PauseHistogram>,
-    /// **add-gc-safepoint-auto-threshold (2026-05-20)**: external flag the
+    /// **add-gc-safepoint-auto-threshold **: external flag the
     /// `maybe_auto_collect` path sets (instead of running collect inline)
     /// when allocation pressure trips the threshold. Drained by the next
     /// `check_safepoint(ctx)` which runs a stop-the-world collect.
@@ -437,12 +437,12 @@ pub struct ArcMagrGC {
     /// `None` when not wired (e.g. GC unit tests that construct
     /// `ArcMagrGC::new()` standalone without a VmCore) — `maybe_auto_collect`
     /// then falls back to the legacy inline `collect_cycles()` call,
-    /// preserving the pre-2026-05-20 single-threaded behaviour.
+    /// preserving the pre- single-threaded behaviour.
     external_needs_collect: Mutex<Option<std::sync::Arc<std::sync::atomic::AtomicBool>>>,
     /// Sends every mutator's next safepoint check to the slow path; run whenever
     /// `external_needs_collect` is raised (`request_collect_at_safepoint`). `None` when unwired.
     safepoint_poke: Mutex<Option<std::sync::Arc<dyn Fn() + Send + Sync>>>,
-    /// **add-write-barriers (2026-05-21)**: test-only sink for barrier
+    /// **add-write-barriers **: test-only sink for barrier
     /// dispatch events. Production builds (no `cfg(test)`) compile this
     /// field out entirely, so the override on `write_barrier_field` /
     /// `write_barrier_array_elem` collapses to a true no-op.
@@ -454,7 +454,7 @@ pub struct ArcMagrGC {
     /// heap (`corelib::str_meta`) can detect a heap switch and drop entries that would otherwise
     /// false-hit a recycled address (the wasm32 cross-VM string-corruption bug).
     epoch: u64,
-    /// **add-gc-tlab (option B, 2026-08-29)**: live allocation counters moved OUT of the
+    /// **add-gc-tlab (option B)**: live allocation counters moved OUT of the
     /// `inner`-locked `HeapStats` onto lock-free atomics, so the per-alloc hot path
     /// (`record_alloc`) no longer takes the `inner` Mutex (removes 2 of the 4–5 inner locks
     /// per `new`). `stats()` reads these to fill the returned `HeapStats` snapshot; collect
@@ -465,7 +465,7 @@ pub struct ArcMagrGC {
     /// figure `HeapStats::committed_bytes` reports and the soft cap is judged against.
     footprint: std::sync::Arc<crate::gc::footprint::Footprint>,
     allocations: std::sync::atomic::AtomicU64,
-    /// **add-gc-tlab (stage 2, 2026-08-29)**: lock-free mirrors of three
+    /// **add-gc-tlab (stage 2)**: lock-free mirrors of three
     /// `inner`-locked config fields, read on the TLAB allocation fast path so it
     /// takes **no** `inner` lock per object (the whole point of the TLAB):
     /// - `strict_oom_atomic`: mirrors `inner.strict_oom`. When `true` the fast
@@ -481,7 +481,7 @@ pub struct ArcMagrGC {
     strict_oom_atomic: std::sync::atomic::AtomicBool,
     max_bytes_atomic: std::sync::atomic::AtomicU64,
     sampler_active: std::sync::atomic::AtomicBool,
-    /// **add-bounded-nursery (2026-09-08)**: bytes that have been **promoted into the old
+    /// **add-bounded-nursery **: bytes that have been **promoted into the old
     /// generation** since the last major collection. This is the only signal in the heap that
     /// tracks old-generation growth, and therefore the only sound trigger for a major.
     ///
@@ -495,15 +495,15 @@ pub struct ArcMagrGC {
     /// Maintained in the minor sweep (where the promoted set is already being computed) and
     /// reset by [`Self::run_cycle_collection_major`] — **zero cost on the allocation path**.
     promoted_bytes_since_major: std::sync::atomic::AtomicU64,
-    /// **add-bounded-nursery (2026-09-08)**: set by `maybe_auto_collect` when the promoted-byte
+    /// **add-bounded-nursery **: set by `maybe_auto_collect` when the promoted-byte
     /// gate trips, consumed (and cleared) by the generational arm of
     /// `collect_cycles_with_context`. The auto-collect policy decides *which kind* of
     /// collection it wants; the deferred safepoint path only knows "collect".
     pending_major: std::sync::atomic::AtomicBool,
-    /// **add-promotion-age-knob (2026-09-08)**: minor GCs an entry must survive before it is
+    /// **add-promotion-age-knob **: minor GCs an entry must survive before it is
     /// promoted. Seeded from `Z42_GC_PROMOTION_AGE` at construction (see `construct.rs`).
     ///
-    /// **adaptive-promotion (2026-09-12)**: no longer fixed — the minor sweep lowers it when
+    /// **adaptive-promotion **: no longer fixed — the minor sweep lowers it when
     /// the tier it would drop is measured to reclaim nothing, and restores it otherwise (see
     /// [`promotion_policy`](arc_heap::promotion_policy)). Still a field rather than a config
     /// lookup, so the write barrier's cross-gen check stays one relaxed load; and it only
@@ -513,7 +513,7 @@ pub struct ArcMagrGC {
     /// adaptive policy needs a fixed line to reason against — it lowers *by one tier from
     /// the configured age*, never by one tier from wherever it drifted to last.
     configured_promotion_age: u8,
-    /// **arm-gc-by-default (2026-09-09)**: the `used_bytes` reading at which the auto-collect
+    /// **arm-gc-by-default **: the `used_bytes` reading at which the auto-collect
     /// policy wants to be consulted again — Mono SGen's `major_collection_trigger_size`.
     ///
     /// This is what makes arming-by-default affordable. `maybe_auto_collect` takes the heap's
@@ -527,7 +527,7 @@ pub struct ArcMagrGC {
     /// on the next allocation) and by `rearm_auto_collect` after every collection.
     /// `0` — the initial value — means "consult on the first allocation", which arms it.
     next_collect_at: std::sync::atomic::AtomicU64,
-    /// **arm-gc-by-default (2026-09-09)**: bytes that may be allocated before a **minor**
+    /// **arm-gc-by-default **: bytes that may be allocated before a **minor**
     /// trips, and the unit the major allowance is floored in. `Z42_GC_NURSERY_BYTES` when
     /// set, else [`auto_collect::DEFAULT_NURSERY_BYTES`] — read once at construction, like
     /// `promotion_age`, so the policy never does a `runtime_config()` lookup.
@@ -581,7 +581,7 @@ impl ArcMagrGC {
 static NEXT_HEAP_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 
-/// **add-write-barriers (2026-05-21)**: discriminant for a single
+/// **add-write-barriers **: discriminant for a single
 /// barrier dispatch event captured by [`BarrierObserver`]. Used by
 /// `arc_heap_tests::write_barriers` to prove that interp / JIT call
 /// sites invoke the barrier with the expected arguments.
@@ -592,7 +592,7 @@ pub enum BarrierEvent {
     ArrayElem { arr_addr: usize, idx: usize, new_is_heap: bool },
 }
 
-/// **add-write-barriers (2026-05-21)**: test-only barrier event sink.
+/// **add-write-barriers **: test-only barrier event sink.
 /// Wrap in `Arc` for sharing across the heap and the test assertion
 /// closure. Construct via `BarrierObserver::new()`, install via
 /// [`ArcMagrGC::install_barrier_observer`], read recorded events via

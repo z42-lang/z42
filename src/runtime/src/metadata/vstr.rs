@@ -114,7 +114,7 @@ impl Str {
         self.block.is_marked(kind)
     }
 
-    /// **fix-minor-gc-skips-var-region (2026-09-08)**: generation age of this string's GC
+    /// **fix-minor-gc-skips-var-region **: generation age of this string's GC
     /// block, for the minor mark phase's young/old child filter. Strings used to report 0
     /// unconditionally, so every reachable string was re-marked at every minor.
     #[inline]

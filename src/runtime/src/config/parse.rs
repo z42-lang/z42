@@ -1,5 +1,5 @@
 //! 单个旋钮的解析函数（`parse_*`、toml 键映射与标量转换）。
-//! refactor-split-config（2026-09-03）：自 config.rs 逐行搬出（私有 fn 改 `pub(super)` 供 `RuntimeConfig::from_env` 用）。
+//! refactor-split-config：自 config.rs 逐行搬出（私有 fn 改 `pub(super)` 供 `RuntimeConfig::from_env` 用）。
 
 #![allow(unused_imports)]
 use super::*;
@@ -121,7 +121,7 @@ where F: Fn(&str) -> Option<String> {
 }
 
 /// `Z42_GC_PROMOTION_AGE` — minor GCs an entry must survive before promotion
-/// (add-promotion-age-knob, 2026-09-08). `None` = the compile-time default (2).
+/// (add-promotion-age-knob). `None` = the compile-time default (2).
 ///
 /// Range checking + clamping lives at the use site (`gc::promotion_age_from_config`), which
 /// is where the ceiling (`MAX_GEN_AGE`, the two spare bits in `GcBlockHeader::type_tag`) is
@@ -219,7 +219,7 @@ where F: Fn(&str) -> Option<String> {
 // ── Config-file (`[runtime]`) loading ────────────────────────────────────────
 
 /// `Z42_GC_MAX_BYTES` — soft heap-size budget that **arms auto-collect**
-/// (add-gc-runtime-knobs, 2026-09-05).
+/// (add-gc-runtime-knobs).
 ///
 /// This is the knob the rest of the GC family hangs off: `maybe_auto_collect`
 /// returns immediately while `max_bytes` is `None`, and
@@ -239,7 +239,7 @@ where F: Fn(&str) -> Option<String> {
 }
 
 /// `Z42_GC_NURSERY_BYTES` — how much a generational heap may allocate before a **minor**
-/// collection is tripped (add-bounded-nursery, 2026-09-08).
+/// collection is tripped (add-bounded-nursery).
 ///
 /// This is the knob that buys a pause bound: minor work is proportional to the *surviving*
 /// young set, and the nursery caps how much young there can be. `None` (the default) means
@@ -262,7 +262,7 @@ where F: Fn(&str) -> Option<String> {
 }
 
 /// `Z42_GC_LOH_BYTES` — block-footprint threshold for the dedicated-chunk (large object) path
-/// (add-loh-bytes-knob, 2026-09-08). `None` = the bump-chunk size, which is also the ceiling.
+/// (add-loh-bytes-knob). `None` = the bump-chunk size, which is also the ceiling.
 /// Same syntax as `Z42_GC_MAX_BYTES`.
 pub(super) fn parse_gc_loh_bytes<F>(get: &F) -> Option<u64>
 where F: Fn(&str) -> Option<String> {
@@ -310,7 +310,7 @@ where F: Fn(&str) -> Option<String> {
     }
 }
 
-/// Shared parser for on/off knobs (add-gc-runtime-knobs, 2026-09-05).
+/// Shared parser for on/off knobs (add-gc-runtime-knobs).
 ///
 /// Truthy: any non-empty value other than the falsey set. Falsey:
 /// `0` / `false` / `off` / `no` (case-insensitive). Unset / empty → `false`.
@@ -332,7 +332,7 @@ where F: Fn(&str) -> Option<String> {
 /// 语义与它们收编前的内联读取逐字相同：解析失败落 `default`，任何值 clamp 到 ≥ 1
 /// （`0` 意味着"每次都编译"，那是 `1`）。解析失败此前是**静默**的；现在解析层的
 /// `ValueKind::Int` 校验会先给出一条诊断，这里只剩兜底。
-/// adopt-inline-env-knobs（2026-09-05）。
+/// adopt-inline-env-knobs。
 pub(super) fn parse_u32_knob<F>(get: &F, name: &str, default: u32) -> u32
 where F: Fn(&str) -> Option<String> {
     get(name)

@@ -20,7 +20,7 @@ string _pkgSetupDir(string root, string rid, string version, string profile, str
     Console.WriteLine("");
     if (Directory.Exists(pkgDir)) { Directory.Delete(pkgDir, true); }
     Directory.Create(Path.Join(pkgDir, "bin"));
-    // libs/ 与 native/include/ **不在这里建**（fix-package-gates-false-red, 2026-09-06）：
+    // libs/ 与 native/include/ **不在这里建**（fix-package-gates-false-red）：
     // 谁写谁建（_pkgCopyLibs / _copyAbiHeaders / _copyNativeLibs 各自 ensure 自己的
     // 目标目录）。此前无条件预建，使 ios/android/wasm 的 workload pack（只装 Sources/
     // + manifest，libs/headers 全在**另一个** runtime pack 里）带着两个空目录发布，
@@ -70,7 +70,7 @@ int _packageRuntime(string rid, string profile, string variant, bool noBuild) {
     if (version.Length == 0) { ConsoleError.WriteLine("error: versions.toml [project].version missing"); return 1; }
     if (category == "desktop") {
         // host runtime pack 自带 z42-runtime-<rid> 目录，并**自己调 _pkgFinish**
-        // （fix-silent-gates, 2026-09-06 补上——此前它直接 return 0，而这条注释写的
+        // （fix-silent-gates 补上——此前它直接 return 0，而这条注释写的
         // "finishes internally" 是错的，于是这个已发布产物从不跑 source-identity 门）。
         int rc = _buildRuntimePackage(root, rid, version, profile);
         if (rc == 0) { _procEnd("package runtime", sw); }
@@ -170,7 +170,7 @@ int _cargo(bool rel, string verb, string manifest, string target, string pkg) {
     return _exec(p);
 }
 
-// libz42 的 C 嵌入产物：staticlib + cdylib，**一次** `cargo rustc` 同时产出（cargo-one-rustc，2026-10-01）。
+// libz42 的 C 嵌入产物：staticlib + cdylib，**一次** `cargo rustc` 同时产出（cargo-one-rustc）。
 //
 // 此前是两次调用（先 staticlib 再 cdylib）。代价有两层：① 每次都是 z42 crate 的一遍完整编译 + fat LTO
 // （release 是 lto = true / codegen-units = 1），Windows CI 上 package-host 的 `[2/5]` 因此要 ~6 min，
@@ -285,7 +285,7 @@ int _copyNativeLibs(string cargoOut, string pkgDir, bool withEmbed) {
     return ext;
 }
 
-// 🔴 **按 stdlib 成员清单拷，而不是把 flat 整目录拷走**（2026-09-28）。
+// 🔴 **按 stdlib 成员清单拷，而不是把 flat 整目录拷走**。
 //
 // flat（`artifacts/intermediate/libraries/flat/release`）**不只装 stdlib**：`build compiler` 的破环
 // 预建（`_ensureBootstrapSelfDepLibs`）会把编译器域的包写进去，而 `build stdlib` 的末步
@@ -339,7 +339,7 @@ int _pkgCopyLibsOf(string root, string libsDir, string pkgDir) {
 // **不是哈希**：直接读两个文件比字节（比 hash 更强——无碰撞面、不依赖外部工具）。
 // 本函数曾名 `_pkgSha256Check`，源自最初 bash `package.sh` 里真的算 sha256sum 的
 // `pkg_sha256_check`（add-host-package-conform design D4）；移植到 z42 时实现换成了
-// 字节比较，名字留了下来，2026-09-06 正名（fix-package-identity-gate）。
+// 字节比较，名字留了下来，后来正名（fix-package-identity-gate）。
 //
 // **为什么是「包 vs 源」而不是「包 vs 包」**：下表每一类文件，各个包里的副本都拷自
 // 仓库里**同一份源**，故 `A==源 ∧ B==源 ⟹ A==B`——「跨包 byte-identical」是本检查的
@@ -414,7 +414,7 @@ int _pkgSourceIdentityCheck(string root, string pkgDir) {
         int n = t.Compared - before;
         if (n == 0) {
             // 路径在、却一个文件都没比 → 规则与拷贝点脱钩了。**这是失败，不是警告**
-            // （fix-silent-gates, 2026-09-06 收紧）：#496 初版只打 ⚠ 不计入 Mismatch，
+            // （fix-silent-gates 收紧）：#496 初版只打 ⚠ 不计入 Mismatch，
             // 于是「本门要防的那个形状」自己复发时门是黄的不是红的——正是本轮审计
             // 要根除的「不会红的门」。规则失联必须让 package 命令挂掉。
             ConsoleError.WriteLine("  ✗ " + r.Label + ": " + r.PkgRel + " 存在但 0 个文件可比对 —— 规则已与拷贝点脱钩");

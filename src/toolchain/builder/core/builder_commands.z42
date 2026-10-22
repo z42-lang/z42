@@ -165,7 +165,7 @@ BuildOutcome _buildProjectAt(ParseResult r, string mode, string outRoot, string 
         return o;
     }
     TomlValue toml = TomlValue.Parse(File.ReadAllText(tomlPath));
-    // ── path 依赖闭包（2026-09-26）────────────────────────────────────────────
+    // ── path 依赖闭包 ────────────────────────────────────────────
     // 此前这条编排路**完全不解析 path 依赖** —— 闭包解析只写在 z42c.driver 的 `_build` 上 ⇒
     // repo 外对着一个 `dep = { path = "../foo" }` 的工程，`z42b build` 连编译都过不了
     // （实测 `E0494: 命名空间 ... 不存在`）；repo 内看着能用，只因依赖早已预建进 libs。
@@ -186,7 +186,7 @@ BuildOutcome _buildProjectAt(ParseResult r, string mode, string outRoot, string 
             Directory.Create(dirs.Dist);
             string distZpkg = Path.Join(dirs.Dist, m.Project.Name + ".zpkg");
             File.Copy(builtZpkg, distZpkg);
-            // path 闭包成员随产物走（2026-09-26）：名单直接来自上面刚建的闭包，**不是**去源码树
+            // path 闭包成员随产物走：名单直接来自上面刚建的闭包，**不是**去源码树
             // 按名搜。少了这一步，闭包只买到「能编」——拷出去运行会死在中间那个包的方法里
             // （实测 `MissingSymbolException: OoMid.Mid.Call`）。
             int cj = 0;

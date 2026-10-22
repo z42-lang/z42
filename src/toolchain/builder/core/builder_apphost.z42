@@ -4,7 +4,7 @@
 // doubles as the reflective test-runner, which the `stdlib [Test]` build stage compiles
 // with ONLY stdlib in Z42_LIBS — it could not see the `z42.workload.desktop` package
 // that owned Apphost.Produce (depending on it made z42b fail there: E0401: undefined
-// Apphost). drop-dead-desktop-appbuilder (2026-09-29) deleted that package — its copy
+// Apphost). drop-dead-desktop-appbuilder  deleted that package — its copy
 // had zero callers and only served as a drift source — so this is now the sole copy.
 //
 // ⚠ MAGIC must stay in sync with the Rust stub at

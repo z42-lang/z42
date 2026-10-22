@@ -1,7 +1,7 @@
-// 2026-05-07 add-array-base-class:
+// add-array-base-class:
 // Std.Array native bindings. v1 仅 `__array_clone`（浅拷贝）；元素是引用类型
 // 时共享引用，与 C# `System.Array.Clone()` 语义一致。
-// 2026-08-22 add-json-serde: reflective array create/get/set/length —— serde 反射建/读写
+// add-json-serde: reflective array create/get/set/length —— serde 反射建/读写
 // T[]（元素类型只以运行期 Type 已知，无法静态 `new T[n]`）。System.Array parity。
 
 use crate::corelib::convert::box_prim_to_heap;
@@ -159,7 +159,7 @@ pub fn builtin_array_set(ctx: &VmContext, args: &[Value]) -> Result<()> {
         a.try_set_boxed(i, raw.clone())
             .map_err(|e| anyhow::anyhow!("Array.SetValue: {e}"))?
     };
-    // fix-missing-array-write-barriers (2026-09-10): storing a reference into an array is a
+    // fix-missing-array-write-barriers : storing a reference into an array is a
     // heap write like any other, and an **old** array receiving a **young** element must mark
     // its card or the next minor will not re-root it. Same rule as `ArraySet`.
     crate::objops::array::barrier_elem(ctx, &rc, i, wrote, &raw);

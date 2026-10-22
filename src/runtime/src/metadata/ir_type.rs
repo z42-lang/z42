@@ -2,7 +2,7 @@
 //!
 //! Mirror of `src/compiler/z42.IR/IrModule.cs::IrType` (C# `enum byte`).
 //! Wire format: a single `u8` per register, embedded in the zbc REGT
-//! section (introduced 2026-05-27 — review.md C2 step 0.2, JIT type
+//! section (introduced  — review.md C2 step 0.2, JIT type
 //! specialization foundation).
 //!
 //! # Why a runtime mirror

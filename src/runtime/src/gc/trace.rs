@@ -1,4 +1,4 @@
-//! `Z42_GC_TRACE` — per-collection stderr trace (add-gc-runtime-knobs, 2026-09-05).
+//! `Z42_GC_TRACE` — per-collection stderr trace (add-gc-runtime-knobs).
 //!
 //! The GC family had three tuning ratios and no way to see whether a collection
 //! ever happened, which made the knobs unfalsifiable in practice: a program that

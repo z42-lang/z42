@@ -164,7 +164,7 @@ pub(super) fn type_has_no_arg_ctor(ctx: &VmContext, name: &str) -> bool {
     has_bare || has_zero || !has_any_ctor
 }
 
-/// fix-class-level-typeof (2026-09-25): `__class_type_arg(receiver, index) -> Std.Type`
+/// fix-class-level-typeof : `__class_type_arg(receiver, index) -> Std.Type`
 /// — materialize a **class-level** type parameter into a concrete `Std.Type`.
 ///
 /// Mirrors `exec_address::method_type_arg`, but reads the **per-instance**

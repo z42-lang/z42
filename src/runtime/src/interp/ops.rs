@@ -61,7 +61,7 @@ pub(super) fn int_bitop(
 
 /// Numeric less-than comparison with automatic widening.
 ///
-/// fix-char-comparison (2026-05-24): `Value::Char` cases added so
+/// fix-char-comparison : `Value::Char` cases added so
 /// `c < '0'` / `c >= '9'` etc. work in user code without explicit
 /// `(int)c` casts. Char-to-Char compares its codepoint; mixed Char/I64
 /// auto-widens Char to I64 (matches how the parallel Eq path treats
@@ -84,7 +84,7 @@ fn reg_ref(regs: &[Value], r: u32) -> Result<&Value> {
     regs.get(r as usize).ok_or_else(|| anyhow::anyhow!("undefined register %{r}"))
 }
 
-/// interp-typed-superinstr (2026-08-01): the **typed** comparison primitive for
+/// interp-typed-superinstr : the **typed** comparison primitive for
 /// super-instructions whose operands `reg_types` confirm are both `I64`. Index
 /// access stays bounds-checked (panics, never UB); only the *type* extraction is
 /// unchecked (`as_i64_unchecked`), skipping the discriminant branch that
