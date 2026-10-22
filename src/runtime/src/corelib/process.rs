@@ -30,9 +30,6 @@
 //!   locks ([`Pipe`]): a call clones the pipe out under the table lock and does the I/O
 //!   after dropping it.
 //!
-//! The older builtins (`__process_run` / `__process_spawn` / `__process_handle_*`, which
-//! return discriminated arrays) live in `process_legacy.rs` — the published seed's stdlib
-//! still calls them. They share the helpers here.
 
 use crate::corelib::abi::{BuiltinError, CallResult, FieldInit, IntoRet, PlainRet, RetKind};
 use crate::metadata::Value;

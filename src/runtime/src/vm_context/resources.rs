@@ -58,7 +58,7 @@ impl VmContext {
     }
 
     /// add-z42-net-tls (2026-06-03): register a connected + handshaken rustls
-    /// stream and return its slot id. `__net_tls_drop` removes (closing the fd).
+    /// stream and return its slot id. `__tls_close` removes (closing the fd).
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn alloc_tls_socket_slot(&self, slot: crate::corelib::tls::TlsSlot) -> u64 {
         self.core.tls_sockets.insert_new(std::sync::Arc::new(slot))
