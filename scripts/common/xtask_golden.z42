@@ -1,4 +1,4 @@
-// xtask — shared golden-test infrastructure (unify-scripts-into-xtask, 2026-06-05).
+// xtask — shared golden-test infrastructure (unify-scripts-into-xtask).
 // Generic enumeration/array helpers that the folded test commands (build test / test
 // e2e / package sdk --verify) all need — defined ONCE here instead of a private
 // copy per script. Golden-walk + entry-derivation helpers also live here.
@@ -64,7 +64,7 @@ string[] _append(string[] arr, int count, string v) {
     return bigger;
 }
 
-// ── unified golden-corpus walk (unify-golden-corpus-walk, 2026-09-05) ────────
+// ── unified golden-corpus walk (unify-golden-corpus-walk) ────────
 //
 // ONE filesystem traversal of the golden corpus, shared by all four consumers
 // (`build test` regen, `test e2e`, `package sdk --verify`, `test app desktop` / `test list`).
@@ -256,7 +256,7 @@ _GoldenEntry[] _walkGoldenCorpus(string root) {
     return tight;
 }
 
-// ── golden-zbc artifact mirror (mirror-build-output-per-component, 2026-06-16) ─
+// ── golden-zbc artifact mirror (mirror-build-output-per-component) ─
 //
 // Run-golden compiled `.zbc` is build output, not source — it lives under
 // `artifacts/build/` mirroring the src layout, NOT beside `source.z42`:

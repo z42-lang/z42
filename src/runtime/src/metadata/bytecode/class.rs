@@ -1,4 +1,4 @@
-//! ClassDesc / FieldDesc / 布局描述 / 约束束 / CLASS_FLAG_* · METHOD_FLAG_*。refactor-split-bytecode（2026-09-03）：从 1334 行的 `bytecode.rs` 按职责拆出，
+//! ClassDesc / FieldDesc / 布局描述 / 约束束 / CLASS_FLAG_* · METHOD_FLAG_*。refactor-split-bytecode：从 1334 行的 `bytecode.rs` 按职责拆出，
 //! 对外路径不变（`metadata::bytecode::*` 经 hub 的 `pub use` 全量再导出）。
 
 #![allow(unused_imports)]
@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 /// Class descriptor — field layout for object allocation.
 ///
-/// review.md E5 follow-up (2026-05-27): three immutable-after-construction
+/// review.md E5 follow-up : three immutable-after-construction
 /// fields stored as `Box<[T]>` (16 B) instead of `Vec<T>` (24 B) — saves
 /// 8 B/field/ClassDesc. TypeDesc still owns growable `Vec`s because the
 /// cross-zpkg fixup pass rebuilds them.
@@ -245,13 +245,13 @@ pub struct ConstraintBundle {
     pub requires_constructor: bool,
     /// L3-G2.5 enum: `where T: enum` — type arg must be an enum type.
     pub requires_enum: bool,
-    /// add-generic-func-constraint (2026-05-11): function-type signature.
+    /// add-generic-func-constraint : function-type signature.
     /// `params` are IR type-name strings (e.g. "int", "string", "Cat"); `ret` is
     /// likewise a type name ("void" / "int" / etc.). None when no func constraint.
     pub func_signature: Option<FuncSigDescriptor>,
 }
 
-/// add-generic-func-constraint (2026-05-11): per-tp function signature spelled
+/// add-generic-func-constraint : per-tp function signature spelled
 /// as type-name strings (so zbc serialization is uniform with other constraint
 /// fields that hold class/interface names).
 #[derive(Debug, Clone, Default, PartialEq)]

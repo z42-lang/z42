@@ -1,4 +1,4 @@
-//! `methodof(Type.Member(sig))` runtime support (add-method-reference, 2026-09-11).
+//! `methodof(Type.Member(sig))` runtime support (add-method-reference).
 //!
 //! The compiler resolves the overload **entirely at bind time** and emits a single
 //! interned qualified name (`<declaring class FQN>.<RegKey>`) — byte-identical to

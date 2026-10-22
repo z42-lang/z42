@@ -70,7 +70,7 @@ public static class ReplCompilerHost {
         //    上下文更杂——驱动测试直驱 `Script.Eval`，那是**非 app 路径**（没有 entry zpkg），
         //    `ModuleSearch.Dirs()` 在那里按设计返回空数组。
         //
-        // 2026-09-26（批 5 use）：原先这里有四档硬编码（Z42_HOME/programs/z42c → Z42_PORTABLE_VM
+        //  （批 5 use）：原先这里有四档硬编码（Z42_HOME/programs/z42c → Z42_PORTABLE_VM
         // 反推 SDK 根 → 开发树 artifacts 路径 → Z42_LIBS），与 `builder.z42` 那份几乎逐行相同。
         // 位置改由清单的 `probing-paths` 声明后，前三档删除，**代码里不再出现 `programs/z42c/`**。
         string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");

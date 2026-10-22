@@ -1,7 +1,7 @@
 //! Automatic-collection policy: when allocation pressure trips a GC cycle.
 //!
-//! Split out of `alloc.rs` by add-gc-runtime-knobs (2026-09-05); rewritten by
-//! **arm-gc-by-default (2026-09-09)** around Mono SGen's memory governor.
+//! Split out of `alloc.rs` by add-gc-runtime-knobs ; rewritten by
+//! **arm-gc-by-default ** around Mono SGen's memory governor.
 //!
 //! ## The policy
 //!
@@ -56,8 +56,8 @@
 //! time", and every program whose futile phase was followed by one with garbage paid for it in one
 //! long pause. Minors that do not pay are **tenured** instead — see `young_policy.rs`.
 //!
-//! **What counts as "unproductive" is deliberately narrow** (fix-futile-backoff-is-too-eager,
-//! 2026-09-11): essentially-nothing reclaimed, not merely less than the gate. See
+//! **What counts as "unproductive" is deliberately narrow** (fix-futile-backoff-is-too-eager):
+//! essentially-nothing reclaimed, not merely less than the gate. See
 //! [`ArcMagrGC::next_backoff`].
 //!
 //! Productivity is read back from `stats.reclaimed_bytes` — the total is already maintained by
@@ -84,14 +84,14 @@ use super::footprint::SoftCap;
 /// instead of every 10% of the budget forever.
 const MAX_BACKOFF: u32 = 64;
 
-/// **fix-minor-and-major-in-one-pause (2026-09-10)**: a collection that reclaimed less than
+/// **fix-minor-and-major-in-one-pause **: a collection that reclaimed less than
 /// `gate / FUTILE_DIVISOR` counts as having freed *nothing*, and backs off harder than one that
 /// merely under-performed. 1/16 of a gate is far below anything a healthy collection returns
 /// (a healthy minor reclaims most of a nursery) and far above the handful of bytes a
 /// 100%-survival workload gives back, so the two cases never overlap in practice.
 pub(super) const FUTILE_DIVISOR: u64 = 16;
 
-/// **arm-gc-by-default (2026-09-09)**: the unit the whole policy is denominated in — how much
+/// **arm-gc-by-default **: the unit the whole policy is denominated in — how much
 /// may be allocated before a **minor**, and (times [`ALLOWANCE_NURSERY_RATIO`]) the floor
 /// under a **major**'s allowance. Overridable via `Z42_GC_NURSERY_BYTES`.
 ///
@@ -99,7 +99,7 @@ pub(super) const FUTILE_DIVISOR: u64 = 16;
 /// how much young set one minor has to chew through. Mono SGen's default is 4 MB
 /// (`SGEN_DEFAULT_NURSERY_SIZE = 1 << 22`); z42's is four times that.
 ///
-/// **retune-gc-nursery-and-promotion-age (2026-09-11)**: 32M → **16M**, together with
+/// **retune-gc-nursery-and-promotion-age **: 32M → **16M**, together with
 /// `PROMOTION_THRESHOLD` 2 → 3. Measured across three workloads, two binaries, 3 runs each:
 ///
 /// | | `09_alloc_ctorless` wall | `12_gc_churn` RSS / p90 | `z42c.semantics` wall / RSS / p90 |
@@ -129,12 +129,12 @@ pub(super) const FUTILE_DIVISOR: u64 = 16;
 /// on a synthetic whose defining property is that collecting it can never help.
 pub(super) const DEFAULT_NURSERY_BYTES: u64 = 16 * 1024 * 1024;
 
-/// **arm-gc-by-default (2026-09-09)**: fraction of the live set the old generation may take
+/// **arm-gc-by-default **: fraction of the live set the old generation may take
 /// in before the next major. Mono SGen's `SGEN_DEFAULT_ALLOWANCE_HEAP_SIZE_RATIO` = 0.33 —
 /// "let the heap grow by one third before collecting it again".
 const ALLOWANCE_HEAP_RATIO: f64 = 0.33;
 
-/// **arm-gc-by-default (2026-09-09)**: floor on that allowance, in nurseries. Mono SGen's
+/// **arm-gc-by-default **: floor on that allowance, in nurseries. Mono SGen's
 /// `SGEN_DEFAULT_ALLOWANCE_NURSERY_SIZE_RATIO` = 4.0 — without a floor, a program with a
 /// tiny live set would major-collect constantly (a third of "almost nothing" is nothing).
 const ALLOWANCE_NURSERY_RATIO: u64 = 4;
@@ -146,7 +146,7 @@ const MIN_SLICE_INTERVAL: u64 = 64 * 1024;
 const SLICE_REARM_SLACK: u64 = 256 * 1024;
 
 impl crate::gc::arc_heap::ArcMagrGC {
-    /// **add-gc-safepoint-auto-threshold (2026-05-20)**: when the
+    /// **add-gc-safepoint-auto-threshold **: when the
     /// `external_needs_collect` flag is wired (post-`VmCore` construction) this
     /// only does `flag.store(true, Release)` — the collect itself is deferred to
     /// the next mutator `check_safepoint(ctx)` and runs inside its safepoint
@@ -330,7 +330,7 @@ enum TripKind {
 }
 
 impl crate::gc::arc_heap::ArcMagrGC {
-    /// **arm-gc-by-default (2026-09-09)**: the auto-collect policy, modelled on Mono SGen's
+    /// **arm-gc-by-default **: the auto-collect policy, modelled on Mono SGen's
     /// memory governor. The shape that matters: **every threshold is relative**, so the
     /// collector works without anyone naming a byte budget — which is what lets it be armed
     /// by default.
@@ -349,7 +349,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// How the futility multiplier should move, given what the **previous** collection returned
     /// against the gate this one tripped.
     ///
-    /// Two tiers, not three (fix-futile-backoff-is-too-eager, 2026-09-11). The middle one —
+    /// Two tiers, not three (fix-futile-backoff-is-too-eager). The middle one —
     /// *"reclaimed less than **half** a gate ⇒ double the multiplier"* — was the original rule,
     /// and it cannot tell the two cases apart that matter:
     ///
@@ -548,7 +548,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         allowance
     }
 
-    /// **flip-gc-default-to-generational (2026-09-10)**: how much may be allocated before a
+    /// **flip-gc-default-to-generational **: how much may be allocated before a
     /// **minor** — the nursery, but never more than the whole collection allowance.
     ///
     /// With no soft cap the allowance is at least `ALLOWANCE_NURSERY_RATIO` (4) nurseries, so
@@ -657,7 +657,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         Self::collection_allowance(used, self.allowance_unit(), self.soft_cap()) / 2
     }
 
-    /// **arm-gc-by-default (2026-09-09)**: recompute the trip point from the live set a
+    /// **arm-gc-by-default **: recompute the trip point from the live set a
     /// collection just swept down to. Called from `sub_used_bytes`, the one point every
     /// collect path passes through — and therefore **lock-free**, because three of those four
     /// call sites are already holding `inner.lock()`.
@@ -686,7 +686,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         self.next_collect_at.store(self.with_slice_gate(next, live), Ordering::Relaxed);
     }
 
-    /// **arm-gc-by-default (2026-09-09)**: how many bytes may be allocated before a **minor**
+    /// **arm-gc-by-default **: how many bytes may be allocated before a **minor**
     /// trips. `Z42_GC_NURSERY_BYTES` when set, otherwise [`DEFAULT_NURSERY_BYTES`].
     ///
     /// An **absolute** default, not a fraction of the budget it used to be derived from: the

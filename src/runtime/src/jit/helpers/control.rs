@@ -34,7 +34,7 @@ pub unsafe extern "C" fn jit_install_catch(
     (*frame).regs[catch_reg as usize] = v;
 }
 
-/// catch-by-generic-type (2026-05-06): peek at the pending exception's runtime
+/// catch-by-generic-type : peek at the pending exception's runtime
 /// class and return 1 if it is `target` (or a subclass) — i.e. matches a
 /// `catch (target e)` clause. Returns 0 otherwise (or if there is no pending
 /// exception / it is not an Object). The exception is left in place for a
@@ -68,7 +68,7 @@ pub unsafe extern "C" fn jit_match_catch_type(
     }
 }
 
-/// `jit_check_safepoint` (add-gc-safepoint-jit, 2026-05-21): JIT-emitted
+/// `jit_check_safepoint` (add-gc-safepoint-jit): JIT-emitted
 /// code calls this at each safepoint insertion site — function entry,
 /// backward Br terminators, BrCond terminators, and after Call /
 /// CallIndirect helpers return. Thin trampoline into the shared
@@ -89,7 +89,7 @@ pub unsafe extern "C" fn jit_check_safepoint(
     crate::gc::safepoint::check_safepoint(vm_ctx);
 }
 
-/// `jit_check_safepoint_slow` (inline-jit-safepoint-check, 2026-08-01): the
+/// `jit_check_safepoint_slow` (inline-jit-safepoint-check): the
 /// rare slow branch of the JIT-inlined safepoint fast path. When the inlined
 /// `load/store` decrement observes the throttle counter reaching 0, native code
 /// branches here to (1) reset the counter to [`throttle_n`] and (2) run the
@@ -138,7 +138,7 @@ pub unsafe extern "C" fn jit_fatal_pending(_frame: *mut JitFrame, ctx: *const Vm
 
 #[cfg(test)]
 mod check_safepoint_tests {
-    //! add-gc-safepoint-jit (2026-05-21): inline tests for the
+    //! add-gc-safepoint-jit : inline tests for the
     //! `jit_check_safepoint` trampoline. End-to-end JIT-compiled coverage
     //! requires building a real JIT-compiled function via
     //! `jit::compile_module` (heavy fixture); these tests cover the
@@ -171,7 +171,7 @@ mod check_safepoint_tests {
         // gc::safepoint::check_safepoint which atomically swaps it and
         // runs a stop-the-world collect.
         let ctx = VmContext::new();
-        // add-gc-safepoint-counter-throttling (2026-05-21): force the
+        // add-gc-safepoint-counter-throttling : force the
         // first check_safepoint into the slow path (otherwise the
         // throttle counter would skip it).
         ctx.safepoint_skip.store(1, Ordering::Relaxed);

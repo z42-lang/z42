@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use flate2::Compression as FlateLevel;
 use flate2::read::{DeflateDecoder, GzDecoder, ZlibDecoder};
 use flate2::write::{DeflateEncoder, GzEncoder, ZlibEncoder};
-// add-compression-streaming-decode (2026-05-27): push-mode decoders for
+// add-compression-streaming-decode : push-mode decoders for
 // true streaming decompression. Same crate path as the encoders, write
 // chunks in and decoded output forwards to the inner Vec<u8>.
 use flate2::write::{
@@ -112,7 +112,7 @@ pub fn zstd_decompress(input: &[u8]) -> AlgoResult {
         .map_err(|e| (Z42_COMPRESSION_ERR_DECOMPRESS, format!("invalid zstd data: {e}")))
 }
 
-// ── LZ4 (add-z42-compression-lz4 2026-05-27) ─────────────────────────────
+// ── LZ4 (add-z42-compression-lz4) ─────────────────────────────
 //
 // LZ4 frame format (the standard `lz4` CLI / file format wrapper around
 // the raw LZ4 block algorithm — magic number + descriptor + blocks +
@@ -166,7 +166,7 @@ pub fn lz4_decompress(input: &[u8]) -> AlgoResult {
     Ok(out)
 }
 
-// ── Brotli (add-z42-compression-brotli 2026-05-27) ───────────────────────
+// ── Brotli (add-z42-compression-brotli) ───────────────────────
 //
 // Pure-Rust brotli — works on every target including wasm32 (no C deps,
 // unlike zstd). RFC 7932. Used by HTTP `Content-Encoding: br` and other
@@ -218,7 +218,7 @@ enum Handle {
     GzipEnc(GzEncoder<Vec<u8>>),
     #[cfg(not(target_arch = "wasm32"))]
     ZstdEnc(zstd::stream::Encoder<'static, Vec<u8>>),
-    // add-compression-streaming-decode (2026-05-27): push-mode decoders
+    // add-compression-streaming-decode : push-mode decoders
     // backed by flate2::write::*Decoder<Vec<u8>>. `compressor_feed` writes
     // the input chunk and `std::mem::take`s the decoded output that
     // forwarded into the inner Vec, so callers see decoded bytes per
@@ -342,7 +342,7 @@ pub fn compressor_finish(slot_id: u64) -> Result<Vec<u8>, (i32, String)> {
         Handle::GzipEnc(e)    => e.finish().map_err(|e| (Z42_COMPRESSION_ERR_COMPRESS, e.to_string())),
         #[cfg(not(target_arch = "wasm32"))]
         Handle::ZstdEnc(e)    => e.finish().map_err(|e| (Z42_COMPRESSION_ERR_COMPRESS, e.to_string())),
-        // add-compression-streaming-decode (2026-05-27): drain the
+        // add-compression-streaming-decode : drain the
         // decoder's tail (flush any buffered output). `finish` returns
         // the inner Vec by consuming the wrapper. Anything written but
         // not yet picked up by the most-recent feed comes out here.

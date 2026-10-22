@@ -39,7 +39,7 @@ public sealed class ConstraintBundle {
     // `Predicate<U>` / `(int) -> R` / 用户 `delegate`。存**已解析**的 `Z42FuncType`，且**可含型参**
     // （`Func<int,R>` 的 `R`、`Predicate<U>` 的 `U`）—— 调用点先按本次调用已解析的类型实参代换
     // （`MethodTypeArgSubst.ByName`）再逐位比对，代换不掉的位当通配放行。
-    // 与其余七项**互斥**（v1，照 2026-05-11 add-generic-func-constraint 的 spec）：并置报 E0423。
+    // 与其余七项**互斥**（v1，照  add-generic-func-constraint 的 spec）：并置报 E0423。
     public bool    HasFuncType;
     public Z42Type FuncType;
     // add-associated-types PR-3：`where T : IEnum<Item = int>` 的关联类型绑定要求。

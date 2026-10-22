@@ -23,7 +23,7 @@
 //! visits them one by one and `first-wins` on function/type name collisions
 //! (Decision 6).
 //!
-//! ## State ownership (consolidate-vm-state, 2026-04-28)
+//! ## State ownership (consolidate-vm-state)
 //!
 //! Previously `LazyLoader` lived in a `thread_local!` slot. Now an instance
 //! is owned by `VmContext::lazy_loader`; all `try_lookup_*` /
@@ -60,7 +60,7 @@ pub struct LazyLoader {
     /// Directories searched (in order) to resolve a transitive dep zpkg by
     /// file name. Typically `[entry-zpkg-dir, stdlib-libs-dir]` so an apphost's
     /// colocated package deps resolve alongside the stdlib
-    /// (support-colocated-zpkg-deps, 2026-06-20).
+    /// (support-colocated-zpkg-deps).
     search_dirs:    Vec<PathBuf>,
 
     /// zpkg file names that have been loaded (either eagerly at startup or
@@ -197,8 +197,7 @@ impl LazyLoader {
     /// modules (e.g. the merged main module containing z42.core + user code).
     /// The cross-zpkg fixup pass (`try_fixup_inheritance`) consults this
     /// registry when a later-loaded subclass needs to find its base class
-    /// living in an eagerly-loaded module. (fix-cross-pkg-subclass-fields,
-    /// 2026-05-14)
+    /// living in an eagerly-loaded module. (fix-cross-pkg-subclass-fields)
     ///
     /// Arcs are shared with the source module — that bumps strong_count to 2
     /// for these entries. Normally that's fine: eagerly-loaded types are
@@ -217,7 +216,7 @@ impl LazyLoader {
     /// eager source module keeps its own-only copy (unaffected).
     /// `func_names` = 同一个（主）包的函数 FQN。**归属判定要它**：主包自己的自由函数
     /// （`Ns.F$n`）既不在 `types` 里、也不是任何类型的成员，不传进来就判不出归属
-    /// （fix-module-init-ownership，2026-09-27）。调用方手上就是完整的 `Module`，取 `functions` 即可。
+    /// （fix-module-init-ownership）。调用方手上就是完整的 `Module`，取 `functions` 即可。
     pub fn seed_types_for_lookup(
         &mut self,
         types: &FxHashMap<String, Arc<TypeDesc>>,
@@ -405,7 +404,7 @@ impl LazyLoader {
             // re-enters symbol resolution (deadlock). The barrier runs it once the lock
             // is released, still before any of this package's code executes.
             //
-            // fix-module-init-ownership（2026-09-27）：`$Module` 的登记**不再在这里**。
+            // fix-module-init-ownership：`$Module` 的登记**不再在这里**。
             // 归属判定要的是「这个包拥有哪些符号」，而本函数是**逐类型**漏斗 —— 走到某个
             // `$Module` 时，同包的类型表还没填完、函数表也不在手上，算不出那个集合。
             // 登记改由**整包缝**做（`lazy_loader/registry.rs` 的两处循环之后、
@@ -537,7 +536,7 @@ impl LazyLoader {
     /// loaded and not-yet-loaded). Used by `run_with_static_init` to discover
     /// `<ns>.__static_init__` functions in imported stdlib modules.
     ///
-    /// 2026-04-27 fix-static-field-access: 没这个 API 之前，VM 启动时只跑
+    /// fix-static-field-access: 没这个 API 之前，VM 启动时只跑
     /// 主模块的 __static_init__，导入 zpkg（如 z42.math）的常量字段（PI / E /
     /// Tau）永远不被赋值 → `Math.PI` 返回 null。
     pub fn declared_namespaces(&self) -> Vec<String> {
@@ -595,9 +594,9 @@ impl LazyLoader {
 
     /// Force-load every declared zpkg into the function registry / `type_registry`.
     /// Used by `init_static_fields` to enumerate all `*.__static_init__`
-    /// functions before running them. fix-multi-file-static-init (2026-05-15).
+    /// functions before running them. fix-multi-file-static-init .
     ///
-    /// fix-array-default-init (2026-05-19): loop until the declared set is
+    /// fix-array-default-init : loop until the declared set is
     /// stable. `load_zpkg_file` adds *transitive* deps to `declared_zpkgs`
     /// as it loads each artifact; a single snapshot misses zpkgs that only
     /// become declared mid-loop. The previous single-pass version skipped

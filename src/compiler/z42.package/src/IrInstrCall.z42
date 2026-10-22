@@ -289,7 +289,7 @@ public sealed class LoadLocalAddrInstr : IrInstr {
 
 // fix-ref-lvalue-addressing：`ref arr[i]` → load_elem_addr（opcode 0xA1）。
 // 此前 ExprEmitter 对任何 BoundRefArg 一律「先把 inner 求值成临时寄存器，再取那个临时槽的地址」
-// ⇒ 写回落在临时槽上、调用方看不到（静默丢写）。VM 侧 0xA1 的解码与执行自 2026-05-05 就完整，
+// ⇒ 写回落在临时槽上、调用方看不到（静默丢写）。VM 侧 0xA1 的解码与执行早已完整，
 // 只是编译器从来没发过（纯死代码），本指令补上生产方。
 // 运行期产 Value::Ref{RefKind::Array{gc_ref, idx}} —— 持 GcRef、与帧栈无关，比 Stack 更安全。
 public sealed class LoadElemAddrInstr : IrInstr {

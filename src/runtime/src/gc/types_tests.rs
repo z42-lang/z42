@@ -1,4 +1,4 @@
-//! Unit tests for [`PauseHistogram`] (add-gc-pause-histogram, 2026-05-22).
+//! Unit tests for [`PauseHistogram`] (add-gc-pause-histogram).
 //!
 //! Covers bucket boundary correctness, record-side effects on
 //! min/max/total/count, sentinel handling for the empty case, and
@@ -61,7 +61,7 @@ fn window_evicts_oldest_at_capacity() {
     assert_eq!(h.count, 5, "count still tracks every sample");
 }
 
-/// runtime-config-phase2 (2026-06-03): parsing logic moved to
+/// runtime-config-phase2 : parsing logic moved to
 /// `crate::config::parse_gc_pause_window` and is covered by
 /// `config::tests::from_getter_gc_pause_window_clamps_and_validates`.
 /// `pause_window_cap_from_env()` is now a thin delegator to

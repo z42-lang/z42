@@ -1,4 +1,4 @@
-//! add-write-barriers (2026-05-21): unit tests proving the
+//! add-write-barriers : unit tests proving the
 //! `ArcMagrGC::write_barrier_*` trait overrides dispatch to the
 //! installed `BarrierObserver`. The call-site filter (Decision 1 —
 //! only invoke when `new.is_heap_ref()`) is verified end-to-end by
@@ -65,7 +65,7 @@ fn observer_records_new_is_heap_metadata_correctly() {
     // what it sees. Call sites are responsible for the is_heap_ref filter
     // (Decision 1). This test pins the observer's classification logic.
     //
-    // flip-gc-default-to-generational (2026-09-10): it therefore *deliberately* calls the
+    // flip-gc-default-to-generational : it therefore *deliberately* calls the
     // barrier the way a caller that forgot to filter would — which the generational arm
     // debug-asserts against. STW is the arm that tolerates it, so select it
     // explicitly; the observer fires ahead of the mode match either way, so the classification

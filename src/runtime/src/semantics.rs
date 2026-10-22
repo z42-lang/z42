@@ -79,7 +79,7 @@ pub fn int_bitop(
 
 /// 数值 `<` 比较，含 I64/F64 自动加宽 + Char/I64 加宽。
 ///
-/// fix-char-comparison (2026-05-24)：`Value::Char` 臂使 `c < '0'` / `c >= '9'` 等在用户
+/// fix-char-comparison：`Value::Char` 臂使 `c < '0'` / `c >= '9'` 等在用户
 /// 代码里无需显式 `(int)c` 即可工作；Char-Char 比码点，混合 Char/I64 把 Char 加宽到 I64。
 pub fn numeric_lt(va: &Value, vb: &Value) -> Result<bool> {
     Ok(match (va, vb) {
@@ -97,7 +97,7 @@ pub fn numeric_lt(va: &Value, vb: &Value) -> Result<bool> {
 /// 数值 `==` 比较，加宽臂与 [`numeric_lt`] **一一对应**；其余类型退回 `Value` 的
 /// `PartialEq`（引用类型 / 字符串 / 装箱透明拆箱 / null 等全在那里）。
 ///
-/// fix-mixed-numeric-equality (2026-09-18)：此前 `Eq`/`Ne` 直接走 `PartialEq`，而后者按
+/// fix-mixed-numeric-equality：此前 `Eq`/`Ne` 直接走 `PartialEq`，而后者按
 /// 变体配对、**没有混合数值臂**，落到 `_ => false` ⇒ `int i = 5; i == 5.0` 恒为 `false`、
 /// `i != 5.0` 恒为 `true`，与实际数值无关；同样的操作数 `<` `<=` `>` `>=` 却因为走
 /// `numeric_lt` 而全部正确。`char` 对整数同理（`c == 65` 恒假，`c < 66` 正确）。
@@ -169,7 +169,7 @@ pub fn int_rem(x: i64, y: i64) -> i64 {
 /// 目标类型标签常量 —— 单一真相源在 `crate::metadata::types`（`TAG_*`，镜像 z42
 /// 编译器 `z42.package` 的 TypeTags）。此处以 `T_*` 别名重导出，供下面 `convert_value`
 /// 的 match 臂简洁引用，避免第二份 0xNN 表漂移。（C# bootstrap 编译器已于
-/// 2026-06-26 移除，权威在 z42 侧。）
+/// 移除，权威在 z42 侧。）
 pub use crate::metadata::types::{
     TAG_BOOL as T_BOOL, TAG_I8 as T_I8, TAG_I16 as T_I16, TAG_I32 as T_I32,
     TAG_I64 as T_I64, TAG_U8 as T_U8, TAG_U16 as T_U16, TAG_U32 as T_U32,
@@ -182,7 +182,7 @@ pub use crate::metadata::types::{
 ///
 /// 引用类型 identity cast 原样透传。编译器为每个 cast（含 `(string)obj` / `(byte[])obj` /
 /// `(SomeClass)obj`）都发单个 `Convert` IR，故运行期需识别「窄化静态类型、值已匹配」为 no-op
-/// 而非数值转换。`Null` 可 cast 到任意引用目标。(add-std-process, 2026-05-13.)
+/// 而非数值转换。`Null` 可 cast 到任意引用目标。(add-std-process.)
 pub fn convert_value(v: Value, to_tag: u8) -> Result<Value> {
     // Numeric sources first: they are almost every `Convert` (int ↔ long ↔
     // double …), and none of the unbox / identity checks below applies to them.

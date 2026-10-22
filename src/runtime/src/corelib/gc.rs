@@ -4,7 +4,7 @@
 //! Each method has `[Native("__gc_*")]` attribute mapping to the dispatch entries
 //! in `super::dispatch_table()`.
 //!
-//! 2026-04-29 expose-gc-to-scripts (Phase 3d.2): 让脚本能显式触发 cycle
+//!  expose-gc-to-scripts (Phase 3d.2): 让脚本能显式触发 cycle
 //! collection 与查询堆使用量，用于端到端验证 GC 与 host 集成应用。
 
 use crate::gc::GcHandleKind;
@@ -17,12 +17,12 @@ use std::sync::{Arc, OnceLock};
 /// `Std.GC.Collect()` —— 触发环检测（不阻断；no-op 当 paused）。
 /// 调用 `ctx.heap().collect_cycles()`，进而走 `ArcMagrGC` 的 trial-deletion 算法。
 ///
-/// **add-gc-safepoint (2026-05-20)**: stop-the-world via
+/// **add-gc-safepoint **: stop-the-world via
 /// [`crate::gc::safepoint::request_gc_pause`] before mark+sweep. All other
 /// VmContexts park at their next safepoint check; this thread runs collect;
 /// the RAII guard's Drop releases everyone.
 ///
-/// **add-multi-collector-arbitration (2026-05-21)**: best-effort —
+/// **add-multi-collector-arbitration **: best-effort —
 /// silently no-op if another collector is already active. The active
 /// collector's pending work covers our intent; calling again redundantly
 /// would just run an immediate-no-op collect with nothing reachable to
@@ -45,10 +45,10 @@ pub fn builtin_gc_used_bytes(ctx: &VmContext, _args: &[Value]) -> Result<Value> 
 /// 返回 `freed_bytes`（i64）。
 /// 与 `Collect()` 区别：前者是建议性（pause 时跳过），后者总是触发并返回数据。
 ///
-/// **add-gc-safepoint (2026-05-20)**: same stop-the-world wrapper as
+/// **add-gc-safepoint **: same stop-the-world wrapper as
 /// `builtin_gc_collect`.
 ///
-/// **add-multi-collector-arbitration (2026-05-21)**: if another collector
+/// **add-multi-collector-arbitration **: if another collector
 /// is already active, we skip our own force_collect and return 0 freed
 /// bytes (the active collector's work covers our intent). Same
 /// best-effort semantics as `builtin_gc_collect`.
@@ -61,7 +61,7 @@ pub fn builtin_gc_force_collect(ctx: &VmContext, _args: &[Value]) -> Result<Valu
     }
 }
 
-/// `Std.GC.Finalize(target)` — **add-custom-allocator P2 (2026-05-22)**.
+/// `Std.GC.Finalize(target)` — **add-custom-allocator P2 **.
 ///
 /// Fires the registered finalizer on `target` immediately (one-shot)
 /// and tombstones the region slot. Use this when RAII-style prompt
@@ -83,7 +83,7 @@ pub fn builtin_gc_finalize(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     Ok(Value::Bool(fired))
 }
 
-// ── reorganize-gc-stdlib (2026-05-07) ────────────────────────────────────────
+// ── reorganize-gc-stdlib  ────────────────────────────────────────
 //
 // `Std.GCHandle` (struct, single `_slot: long`) and `Std.HeapStats` (class,
 // 7 long fields) builtins. The handle slot itself lives in the GC layer; the
@@ -260,7 +260,7 @@ pub fn builtin_gc_handle_free(ctx: &VmContext, args: &[Value]) -> Result<()> {
     Ok(())
 }
 
-/// `Std.GC.PauseHistogram()` — **add-gc-pause-histogram (2026-05-22)**.
+/// `Std.GC.PauseHistogram()` — **add-gc-pause-histogram **.
 ///
 /// Returns a `long[]` of length 8 where `result[i]` is the count of
 /// collects whose `pause_us` fell into bucket `i`. Bucket boundaries
@@ -284,7 +284,7 @@ pub fn builtin_gc_pause_histogram(ctx: &VmContext, _args: &[Value]) -> Result<Va
     Ok(ctx.heap().alloc_array(arr))
 }
 
-/// `Std.GC.PauseStatsRaw()` — **add-gc-pause-histogram (2026-05-22)**.
+/// `Std.GC.PauseStatsRaw()` — **add-gc-pause-histogram **.
 ///
 /// Returns a `long[]` of length 4: `[min_us, max_us, total_us, count]`.
 /// When no collects have occurred, `min_us == i64::MAX` (sentinel) and
@@ -300,7 +300,7 @@ pub fn builtin_gc_pause_stats_raw(ctx: &VmContext, _args: &[Value]) -> Result<Va
     ]))
 }
 
-/// `Std.GC.RecentPauses()` — **add-gc-pause-window (2026-05-24)**.
+/// `Std.GC.RecentPauses()` — **add-gc-pause-window **.
 ///
 /// Returns the rolling pause-time window as a `long[]` (microseconds,
 /// oldest first). Length is at most `PauseWindowCapacity()`; 0 when no
@@ -313,7 +313,7 @@ pub fn builtin_gc_recent_pauses(ctx: &VmContext, _args: &[Value]) -> Result<Valu
     Ok(ctx.heap().alloc_array(arr))
 }
 
-/// `Std.GC.PauseWindowCapacity()` — **add-gc-pause-window (2026-05-24)**.
+/// `Std.GC.PauseWindowCapacity()` — **add-gc-pause-window **.
 ///
 /// Returns the configured rolling-window capacity (`Z42_GC_PAUSE_WINDOW`
 /// env or default 1024). Useful for distinguishing "only N collects have
@@ -323,7 +323,7 @@ pub fn builtin_gc_pause_window_capacity(ctx: &VmContext, _args: &[Value]) -> Res
     Ok(Value::I64(cap as i64))
 }
 
-/// `Std.GC.WriteHeapSnapshot(path)` — **add-gc-heap-snapshot-export (2026-05-24)**.
+/// `Std.GC.WriteHeapSnapshot(path)` — **add-gc-heap-snapshot-export **.
 ///
 /// Walks the live heap once via `MagrGC::iterate_live_objects` +
 /// `scan_object_refs` + `for_each_root`, builds the V8 `.heapsnapshot`
@@ -337,7 +337,7 @@ pub fn builtin_gc_write_heap_snapshot(ctx: &VmContext, args: &[Value]) -> Result
         Some(Value::Str(s)) => s.clone(),
         _ => return Err(anyhow!("__gc_write_heap_snapshot: expected string path")),
     };
-    // add-gc-snapshot-streaming (2026-05-25): write JSON directly to
+    // add-gc-snapshot-streaming : write JSON directly to
     // a BufWriter<File> via the streaming serializer — avoids the
     // ~30 MB intermediate String for large heaps.
     let snap = crate::gc::snapshot::build_graph_snapshot(ctx.heap());
@@ -353,7 +353,7 @@ pub fn builtin_gc_write_heap_snapshot(ctx: &VmContext, args: &[Value]) -> Result
     Ok(Value::I64(n_bytes as i64))
 }
 
-/// `Std.GC.SetMaxHeapBytes(bytes)` — **add-gc-oom-exception (2026-05-25)**.
+/// `Std.GC.SetMaxHeapBytes(bytes)` — **add-gc-oom-exception **.
 /// Sets the heap upper limit. `bytes <= 0` clears the limit (unbounded).
 pub fn builtin_gc_set_max_heap_bytes(ctx: &VmContext, args: &[Value]) -> Result<()> {
     let bytes = match args.first() {
@@ -364,7 +364,7 @@ pub fn builtin_gc_set_max_heap_bytes(ctx: &VmContext, args: &[Value]) -> Result<
     Ok(())
 }
 
-/// `Std.GC.SetStrictOOM(enabled)` — **add-gc-oom-exception (2026-05-25)**.
+/// `Std.GC.SetStrictOOM(enabled)` — **add-gc-oom-exception **.
 /// Enables / disables strict OOM mode. When enabled, alloc over
 /// `max_heap_bytes` throws `Std.OutOfMemoryException` instead of
 /// returning `Value::Null` silently.
@@ -374,7 +374,7 @@ pub fn builtin_gc_set_strict_oom(ctx: &VmContext, args: &[Value]) -> Result<()> 
     Ok(())
 }
 
-// ── Soft reference builtins (add-gc-softref, 2026-05-26) ─────────────────────
+// ── Soft reference builtins (add-gc-softref) ─────────────────────
 
 /// `Std.SoftHandle` TypeDesc — single `_key: long` field holding the soft-ref key.
 fn soft_handle_type_desc() -> Arc<TypeDesc> {
@@ -416,7 +416,7 @@ fn soft_handle_key(handle: &Value) -> Result<u64> {
     }
 }
 
-/// `Std.SoftHandle.Create(object target)` — **add-gc-softref (2026-05-26)**.
+/// `Std.SoftHandle.Create(object target)` — **add-gc-softref **.
 /// Registers a soft reference to `target` and returns a new `Std.SoftHandle`
 /// object whose `_key` field holds the opaque registry key.
 /// Returns a SoftHandle with `_key = 0` if `target` is null or atomic.
@@ -430,7 +430,7 @@ pub fn builtin_soft_handle_create(ctx: &VmContext, args: &[Value]) -> Result<Val
     ))
 }
 
-/// `Std.SoftHandle.Get()` — **add-gc-softref (2026-05-26)**.
+/// `Std.SoftHandle.Get()` — **add-gc-softref **.
 /// Returns the soft-ref target, or `Value::Null` if it was cleared by GC.
 pub fn builtin_soft_handle_get(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let receiver = args.first().unwrap_or(&Value::Null);

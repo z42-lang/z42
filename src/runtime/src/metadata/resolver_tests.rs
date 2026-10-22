@@ -184,7 +184,7 @@ fn ic_reinstall_same_type_updates_slot_in_place() {
 }
 
 
-// ── fix-field-ic-publication-race (2026-09-17) ───────────────────────────────
+// ── fix-field-ic-publication-race  ───────────────────────────────
 
 /// (TypeId, 载荷) 必须**成对**发布：并发 install/lookup 期间，任何一次命中拿到的载荷
 /// 都必须是该 TypeId 自己的那份，而不是别的 TypeId 的（或还没写入的 `UNRESOLVED`）。

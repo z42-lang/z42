@@ -172,7 +172,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
 
     /// Emit the exception dispatch: wildcard fast-path jump, typed/multi-catch
     /// probe chain, or return-1 propagation (former
-    /// `emit_dispatch_to_catch_or_return!`). catch-by-generic-type (2026-05-06).
+    /// `emit_dispatch_to_catch_or_return!`). catch-by-generic-type .
     pub(super) fn dispatch_to_catch_or_return(&mut self) {
         if self.catch_info.is_some() || !self.catch_chain.is_empty() {
             // A fatal VM error (stack overflow) unwinds past every handler,

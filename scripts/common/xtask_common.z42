@@ -1,4 +1,4 @@
-// xtask — shared common code (unify-scripts-into-xtask, 2026-06-05). One home for
+// xtask — shared common code (unify-scripts-into-xtask). One home for
 // the infrastructure every xtask module reuses: repo-root + process-exec helpers,
 // the long artifact paths, the relative source paths, and the bin-invocation
 // builders (cargo / dotnet-driver). Same Z42Xtask namespace, so callers reference
@@ -144,7 +144,7 @@ int _verifyMemberZpkgs(string wsToml, string[] members, string profile) {
     return fail;
 }
 
-// (_sh removed 2026-06-30: the generic shell-string passthrough is gone — its
+// (_sh removed: the generic shell-string passthrough is gone — its
 // last caller, `run`, is now a native Process spawn. The few remaining bash
 // invocations elsewhere run SPECIFIC committed .sh scripts (install-z42.sh
 // cold-start primer), not arbitrary shell.)
@@ -424,7 +424,7 @@ static class SeedStage {
 // 🔴 为什么 ③ 不能无条件排前面：「SDK 就是种子那一代」这个假设**只在没有格式 bump 时成立**。
 //    zpkg/zbc 格式 bump 在飞时 SDK 还是**上一代格式**，拿它补 run-libs 会被 strict-pin 当场拒收：
 //      `zpkg minor 49 not supported (writer is at 0.50); regen via xtask build stdlib`
-//    （#905 第二轮 CI 实测 —— #903 把 zpkg 抬到 0.50 而当时 nightly 还是 0.49）。
+//    （#905 CI 实测：#903 抬 zpkg 0.50 时 nightly 尚在 0.49）。
 //
 // ⚠️ 这里**故意不加**「minor 必须等于本树写端」的门：两代自举的 gen0 那一腿本就要用**旧** VM
 //    跑旧格式的种子，那道门会当场误报。判「配没配对」得比对**正在用的那个 VM**，不是源码树。
@@ -441,7 +441,7 @@ string _seedLibsSource(string root) {
     return "";
 }
 
-// ── 种子代的运行期 libs 快照（rename-project-namespaces B2，2026-09-27）────────────────────
+// ── 种子代的运行期 libs 快照（rename-project-namespaces B2）────────────────────
 //
 // **为什么需要它**：自举时跑的是**上一代** z42c 二进制。它运行期要加载那一代的 stdlib
 // （按它自己编译时的 FQN 调用），而它正在编译的源码要解析**当前源**新建出来的库。
@@ -501,7 +501,7 @@ int _ensureSeed(string root) {
     if (File.Exists(inDriver) && File.GetSize(inDriver) > 0L
         && File.Exists(inCore) && File.GetSize(inCore) > 0L) {
         // ⚠️ 「在不在」不等于「能用」——warm 判据此前只有 Exists + size>0，于是**任意老的**
-        // in-tree 产物都会被无声复用。实证代价（2026-09-23）：一棵树里躺着 zpkg 0.48 时代的
+        // in-tree 产物都会被无声复用。实证代价：一棵树里躺着 zpkg 0.48 时代的
         // driver，那一代的静态初始化还走 `__static_init__`，而 unify-static-init-into-cctor
         // 已把运行期对它的支持删掉 ⇒ 静态量永不初始化，崩成
         // `ArrayGet: expected array, got Null @ PrimModel.SurfaceName` —— 一个和「种子过期」
@@ -559,7 +559,7 @@ int _ensureSeed(string root) {
 
     // 🔴 供种的期望清单来自**当前** `_compilerMembers()`，而种子是**上一代** —— **成员集合一变，
     // 这里立刻不匹配**，且只在冷启动（走供种）暴露，本地 warm 树看不见。
-    // relocate-compiler-domain-libs（2026-09-27）就是这么让 CI 八个 job 全红在 `[3/5]` 的：
+    // relocate-compiler-domain-libs 就是这么让 CI 八个 job 全红在 `[3/5]` 的：
     // `z42.scripting` 那一代还住种子的 `libs/`，当前源期望它在 `programs/z42c/`。
     // ⇒ **挪动编译器成员集合前，先想「上一代种子里这个文件在哪」**（曾为此留过一代 `libs/` 兜底）。
     // **新增成员**（种子那一代还没有它，如拆出的 z42c.optimization）不算缺：供种只给 dist 预置一份可用的上一代，

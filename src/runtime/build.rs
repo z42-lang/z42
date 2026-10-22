@@ -26,7 +26,7 @@ fn main() {
     //     by tests/native_interop_e2e.rs, which is itself gated)
     //   - wasm32 target (no libc / stdlib.h in the wasm sandbox)
     //
-    // 2026-05-12 add-platform-wasm Stage 0: the last two are auto-detection
+    // add-platform-wasm Stage 0: the last two are auto-detection
     // so contributors building for wasm don't have to remember the env var.
     let native_interop_off = env::var("CARGO_FEATURE_NATIVE_INTEROP").is_err();
     let wasm_target = env::var("CARGO_CFG_TARGET_ARCH")
@@ -75,7 +75,7 @@ fn main() {
     // The Rust integration tests `z42_source_calls_numz42_via_native_attr`
     // (cfg z42_have_z42c) and `host::host_tests::load_invoke_hello_world`
     // (cfg z42_have_embedding_hello) each consume a `.zbc` compiled from a fixture source.
-    // C#/dotnet was removed (2026-06-26) — these now compile
+    // C#/dotnet was removed  — these now compile
     // with z42c (z42vm + z42c.driver.zpkg), mirroring `xtask regen`'s
     // _compileCase. When no warm z42c toolchain is present (e.g. the initial
     // cold cargo build, before stdlib/z42c are built), the fixtures are
@@ -83,15 +83,14 @@ fn main() {
     //
     // ⚠️ 整块由 `z42-test-fixtures` feature 门控，默认**关闭**。
     //
-    // 原因（fix-build-rs-zpkg-invalidation, 2026-09-05）：下面的
+    // 原因（fix-build-rs-zpkg-invalidation）：下面的
     // `rerun-if-changed=<z42c.driver.zpkg>` 在构建期形成一个环——
     //     z42vm(Rust) ──要它才能跑──> z42c ──产出──> z42c.driver.zpkg
     //          ↑                                          │
     //          └────── build.rs rerun-if-changed ─────────┘
     // 而 `xtask build compiler` 每轮都重写 driver.zpkg，于是**下一次** cargo 判定
     // build script 陈旧 → 整个 crate graph（lib z42 → z42vm → 各 cdylib）全量重编。
-    // 实测：warm 树上仅 `touch` 一下 driver.zpkg，release 重编就要 **62s**；
-    // `xtask build compiler` 的 92s 里有 62s 是这个（debug 只 ~3.5s，故只在
+    // 实测：warm 树上仅 `touch` 一下 driver.zpkg 就会让 release 全量重编（debug 只需秒级，故只在
     // release 上致命）。CI 的 ci-bootstrap 每个 job 都踩一次，一次 run 踩 7 次。
     //
     // 这是**纯测试便利设施**（编两个 fixture）被挂进了所有人的构建关键路径。

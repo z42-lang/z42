@@ -1,6 +1,6 @@
 //! 内联缓存（PIC）—— `VCallIC` / `FieldIC` 的槽位布局与查找/安装协议。
 //!
-//! review.md C4 P2 + C5 P2（jit-polymorphic-ic，2026-05-28）：4 槽多态内联缓存。
+//! review.md C4 P2 + C5 P2（jit-polymorphic-ic）：4 槽多态内联缓存。
 //! 与「token 解析」是两件事：token 解析是**每函数一次**的冷路径，PIC 是**每次派发**
 //! 的热路径。父模块 `resolver` 只负责前者。
 
@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicU32, AtomicU64};
 use crate::metadata::tokens::UNRESOLVED;
 use crate::metadata::types::FieldLoc;
 
-/// review.md C4 P2 + C5 P2 (jit-polymorphic-ic, 2026-05-28): 4-slot
+/// review.md C4 P2 + C5 P2 (jit-polymorphic-ic): 4-slot
 /// polymorphic inline cache. `IC_SLOTS` is the lookup window per site.
 /// Sites that observe ≤4 receiver types fast-path through linear scan
 /// with early exit on `UNRESOLVED`. Sites with > 4 types victimize
@@ -23,7 +23,7 @@ pub const IC_SLOTS: usize = 4;
 /// unchanged), lazily loaded functions the ids after that. Read it back with
 /// `interp::exec_call::fn_by_id` / `JitRuntime::fn_of`; it is also the JIT slot id.
 ///
-/// fix-field-ic-publication-race (2026-09-17): 拆成两个独立原子量会撕裂，见
+/// fix-field-ic-publication-race : 拆成两个独立原子量会撕裂，见
 /// [`pack`] 上方的说明。承载的 vtable slot 已删——它是死载荷：唯一的消费点
 /// `interp::vcall_resolve::vcall_ic_hit` 写的是 `let (_slot, fn_id) = …`，
 /// JIT 侧共用同一个 `vcall_ic_hit`。留着它就得凑 96 位、没法单原子发布。
@@ -43,7 +43,7 @@ impl Default for VCallICEntry {
 /// returns the cached dispatch. Sites that see < `IC_SLOTS` types skip
 /// remaining slots via the `UNRESOLVED` early-exit sentinel.
 ///
-/// Pre-2026-05-28 this was a single (type_id, slot, fn_idx) tuple —
+/// Pre- this was a single (type_id, slot, fn_idx) tuple —
 /// mono only; polymorphic sites bounced between the cache and
 /// `vtable_index` HashMap. PIC closes that gap for sites with ≤4
 /// observed receiver types. Mono fast-path is preserved at zero cost
@@ -112,7 +112,7 @@ impl Default for FieldIC {
 
 // ── PIC lookup + install helpers (shared interp + JIT) ──────────────────────
 //
-// **发布协议（fix-field-ic-publication-race，2026-09-17）**：每条 entry 是**一个**
+// **发布协议（fix-field-ic-publication-race）**：每条 entry 是**一个**
 // `AtomicU64` —— 高 32 位 TypeId、低 32 位载荷（field slot / FnId）。安装写一次、
 // 查找读一次，(TypeId, 载荷) 永远配对，**撕裂在结构上不可能**，因此 `Relaxed` 足够：
 // 我们要的不是跨线程的先后顺序，而是"这一对不许拆开"。
@@ -300,7 +300,7 @@ pub fn ctorless_note(mark: Option<&std::sync::atomic::AtomicUsize>, mark_before:
     }
 }
 
-// ── PIC correctness tripwires (fix-crosspkg-typeid-collision, 2026-09-08) ───
+// ── PIC correctness tripwires (fix-crosspkg-typeid-collision) ───
 //
 // Both PICs identify a receiver by a bare `u32` `TypeId`, so they are only sound
 // while that id is globally unique (see `tokens::alloc_type_id_block`). It was

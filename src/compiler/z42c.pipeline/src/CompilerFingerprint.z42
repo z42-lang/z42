@@ -1,10 +1,10 @@
-// 编译器语义指纹的**内容派生**来源（change `fingerprint-content-derived`，2026-09-27）。
+// 编译器语义指纹的**内容派生**来源（change `fingerprint-content-derived`）。
 //
 // 指纹 = 下面这张 `Entries` 列表的**内容哈希**。每条语义变更**追加一行自己的 slug**，
 // 不再手工 +1。完整规则与历史见
 // `docs/internals/src/compiler/compiler-fingerprint.md` 与 `docs/internals/src/devinfra/format-bump.md`。
 //
-// ── 为什么换掉那个手工计数器（两条实测损害，都在 2026-09-27 当天发生）──────────────
+// ── 为什么换掉那个手工计数器（两条实测损害，都在立门当天发生）──────────────
 //
 // ① **撞号 / 让号**：同一天两次 —— #883 原取 36 被 #885 抢走让到 37；#892 原取 38 被 #891
 //    抢走让到 39。号是「先合先得」，后到的必须回头改自己的 PR。

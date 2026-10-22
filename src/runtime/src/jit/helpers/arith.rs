@@ -12,7 +12,7 @@ use super::{set_exception, vm_ctx_ref};
 
 // ── Arithmetic ───────────────────────────────────────────────────────────────
 
-// 2026-04-28 vm-wrapping-int-arith: Add/Sub/Mul 用 wrapping，与 interp 对齐 +
+// vm-wrapping-int-arith: Add/Sub/Mul 用 wrapping，与 interp 对齐 +
 // C# unchecked / Java int / Rust release default 一致。Div/Rem 不变（panic
 // on /0 是不同语义）。
 
@@ -116,7 +116,7 @@ arith_op!(jit_mul, i64::wrapping_mul, |x, y| x * y);
 // Div / Rem: integer divide-by-zero must throw `Std.DivideByZeroException`
 // (catchable) rather than panic the VM via Rust's `x / 0` (which traps
 // SIGFPE on x86_64 in release / panics in debug). fix-jit-int-div-by-zero
-// (2026-05-30): pre-fix the helper macro called `int_op(x, y)` directly
+// : pre-fix the helper macro called `int_op(x, y)` directly
 // in the I64 fast path; for y == 0 that panicked the VM, diverging from
 // interp behavior. Now matches `interp::exec_value::check_int_div_by_zero`.
 //

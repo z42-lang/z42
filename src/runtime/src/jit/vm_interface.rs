@@ -1,7 +1,7 @@
 //! `JitVm` — read-only metadata contract between the JIT backend and the
 //! VM module representation.
 //!
-//! review.md Part 1 P0 / Part 5 E1.P2 Phase 1 (2026-06-02). The original
+//! review.md Part 1 P0 / Part 5 E1.P2 Phase 1 . The original
 //! review prescribed routing translate.rs *and* every helper through a
 //! single VmInterface trait, but two structural facts cap that aspiration:
 //!

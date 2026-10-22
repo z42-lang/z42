@@ -20,7 +20,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
     /// Returns the estimated `freed_bytes` (sum of `object_size_bytes`
     /// for broken cycle nodes).
     ///
-    /// **add-mark-sweep-collector P3 (2026-05-21)**: replaced the
+    /// **add-mark-sweep-collector P3 **: replaced the
     /// previous trial-deletion (Bacon-Rajan simplified) implementation.
     /// O(N²) → O(reachable). The pure tracing contract: Rust-local
     /// `Value` strong refs are NOT roots — embedders must `pin_root`
@@ -72,10 +72,10 @@ impl crate::gc::arc_heap::ArcMagrGC {
         };
         // add-incremental-major-gc M2a: grey what the SATB barrier recorded; stop recording.
         self.close_major_marking();
-        // **add-gc-softref (2026-05-26)**: revive soft-ref targets that
+        // **add-gc-softref **: revive soft-ref targets that
         // are unmarked but below the pressure threshold.
         self.revive_soft_refs();
-        // **add-lazy-context-unload (2026-08-05)**: after mark (marks set),
+        // **add-lazy-context-unload **: after mark (marks set),
         // before sweep (which clears them), scan marked objects for retained
         // collectible contexts. Gated on `is_unloading` → zero cost normally.
         let ctx_snapshot = {
@@ -139,7 +139,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         let pause_us = Self::now_us().saturating_sub(start);
         self.pause_histogram.lock().record(pause_us);
         self.fire_event(GcEvent::AfterCollect { kind, freed_bytes, pause_us });
-        // **add-gc-debug-invariants P1 (2026-05-22)**: post-collect
+        // **add-gc-debug-invariants P1 **: post-collect
         // invariant check. Release builds compile this out entirely.
         #[cfg(debug_assertions)]
         self.debug_validate_invariants();
@@ -215,8 +215,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 }
             }
             crate::gc::GcMode::GenerationalMarkSweep => {
-                // add-generational-gc P3 (2026-05-22): minor + escalation.
-                // fix-minor-and-major-in-one-pause (2026-09-10): one cycle runs a minor **or**
+                // add-generational-gc P3 : minor + escalation.
+                // fix-minor-and-major-in-one-pause : one cycle runs a minor **or**
                 // a major, never both — escalation now asks for the major on the *next* cycle
                 // (see the note further down).
                 let _pause = match crate::gc::safepoint::request_gc_pause(ctx) {
@@ -232,7 +232,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 // Measure young population pre-minor for escalation calc.
                 let young_before = self.region_var.lock().young_count();
 
-                // add-bounded-nursery (2026-09-08): the auto-collect policy decides the kind
+                // add-bounded-nursery : the auto-collect policy decides the kind
                 // (the deferred safepoint path only knows "collect") and hands it over here.
                 // A promoted-byte gate trip means the old generation needs sweeping, which a
                 // minor cannot do at all.
@@ -243,7 +243,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                     .pending_major
                     .swap(false, std::sync::atomic::Ordering::AcqRel);
 
-                // **fix-minor-and-major-in-one-pause (2026-09-10)**: a major marks the whole
+                // **fix-minor-and-major-in-one-pause **: a major marks the whole
                 // heap from the roots and sweeps every region — everything a minor reclaims and
                 // more. Running the minor *first* and the major on top of it, in one pause, pays
                 // for the young set twice and reclaims nothing extra.
@@ -291,7 +291,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                     freed_bytes = minor.freed_bytes;
                     minor_reclaimed = minor.reclaimed_entries;
 
-                    // fix-minor-survival-counts-promotion-as-death (2026-09-08): survival is
+                    // fix-minor-survival-counts-promotion-as-death : survival is
                     // `1 - reclaimed / young_before` — the fraction of the young set the sweep
                     // did **not** tombstone.
                     //

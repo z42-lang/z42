@@ -79,7 +79,7 @@ fn auto_collect_triggers_when_over_threshold() {
 
 /// 一次回收之后，紧跟的小分配不得再触发一次 —— 闸门问的是「自上次回收以来长了多少」。
 ///
-/// **arm-gc-by-default (2026-09-09)**：闸门从「预算的 10%」换成了**相对增长**
+/// **arm-gc-by-default **：闸门从「预算的 10%」换成了**相对增长**
 /// （`live × ALLOWANCE_HEAP_RATIO`，下界 `nursery × ALLOWANCE_NURSERY_RATIO`），
 /// 所以这里显式把 nursery 调小来控制算术，而不是靠预算的百分比。
 #[test]

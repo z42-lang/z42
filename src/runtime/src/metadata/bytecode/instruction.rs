@@ -1,4 +1,4 @@
-//! Instruction / Terminator / BranchTargets 枚举 + impl Instruction。refactor-split-bytecode（2026-09-03）：从 1334 行的 `bytecode.rs` 按职责拆出，
+//! Instruction / Terminator / BranchTargets 枚举 + impl Instruction。refactor-split-bytecode：从 1334 行的 `bytecode.rs` 按职责拆出，
 //! 对外路径不变（`metadata::bytecode::*` 经 hub 的 `pub use` 全量再导出）。
 
 #![allow(unused_imports)]
@@ -241,7 +241,7 @@ pub enum Instruction {
         idx: Reg,
     },
     LoadFieldAddr(Box<LoadFieldAddrInsn>),
-    /// 2026-05-07 add-default-generic-typeparam (D-8b-3 Phase 2): runtime
+    /// add-default-generic-typeparam (D-8b-3 Phase 2): runtime
     /// resolution of `default(T)` where T is a generic type-parameter of the
     /// receiver class. Reads `frame.regs[0]` (this) → `Object → type_desc.type_args[param_index]`,
     /// looks up the resolved type via `default_value_for(tag)`, writes Value to dst.
@@ -266,7 +266,7 @@ pub enum Instruction {
         dst: Reg,
         param_index: u8,
     },
-    /// spec fix-numeric-cast-lowering (2026-05-13): explicit numeric type
+    /// spec fix-numeric-cast-lowering : explicit numeric type
     /// conversion. Target type comes from `dst`'s static type tag; source
     /// type is resolved at runtime from `src`'s `Value` variant.
     ///
@@ -311,7 +311,7 @@ pub enum Instruction {
     /// (zbc `TypeTags::*` byte): `Value::I64(0)` for numeric tags,
     /// `Value::Bool(false)` for bool, `Value::Char('\0')` for char,
     /// `Value::F64(0.0)` for float/double, `Value::Null` for ref/string/unknown.
-    /// fix-array-default-init, 2026-05-18.
+    /// fix-array-default-init.
     /// add-reflection-array-element-type (zbc 1.16): boxed because the
     /// `element_type` String would blow the 32 B slim-instruction invariant.
     ArrayNew(Box<ArrayNewInsn>),

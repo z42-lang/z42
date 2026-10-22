@@ -1,4 +1,4 @@
-// xtask — 把 packages.toml 的组件**直接装进包目录**（drop-package-staging，2026-10-01）。
+// xtask — 把 packages.toml 的组件**直接装进包目录**（drop-package-staging）。
 //
 // 一个包（sdk / runtime）= 按 `[package.<name>].include` 的顺序，把每个组件装到它在包里的落点：
 //   · cargo-bin（z42vm）/ cargo-native / cargo-native-ext / stdlib-glob / editor-assets —— 从构建产物拷到 `dest`；
@@ -6,7 +6,7 @@
 //     `[platform.desktop] bin/payload` 决定落点（`bin/<名>` + `programs/<名>/`），工程路径取 packages.toml 的 `project`。
 //
 // 🔴 此前是两段：先各自产出到暂存根 `artifacts/publish/<comp>/`，再整目录拷进包（add-package-layout-config
-// Decision 6）。去掉暂存的理由（User 2026-10-01）：
+// Decision 6）。去掉暂存的理由（User）：
 //   ① 固定形态组件本就是从构建产物拷出来的，暂存只是多拷一遍；apphost 组件 publish 不清空 `--output`、各落各的
 //      子目录，可以直接发布进包目录；
 //   ② 只有桌面 sdk / runtime 用暂存 —— ios / wasm / android 与 `package dev-sdk` 一直直接往包目录写，两套做法并存；

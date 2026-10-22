@@ -1,7 +1,7 @@
 use super::*;
 
 impl VmContext {
-    // ── Frame chain (2026-05-10 unify-frame-chain) ────────────────────────
+    // ── Frame chain (unify-frame-chain) ────────────────────────
     //
     // Single push_frame / pop_frame replaces the previously-separate
     // (push_frame_state / pop_frame_regs) + (push_call_frame / pop_call_frame)

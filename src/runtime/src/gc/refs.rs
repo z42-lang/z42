@@ -4,7 +4,7 @@
 
 use std::sync::atomic::Ordering;
 
-/// **add-incremental-major-gc M1 (2026-09-15)**: which mark a mark-phase operation reads or
+/// **add-incremental-major-gc M1 **: which mark a mark-phase operation reads or
 /// writes. Both kinds share one `marked` byte per block (`GcBlockHeader`):
 ///
 /// ```text

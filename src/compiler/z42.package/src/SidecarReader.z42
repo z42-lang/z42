@@ -1,4 +1,4 @@
-// `.zsym` SymOnly sidecar reader (add-offline-symbolication, 2026-08-04).
+// `.zsym` SymOnly sidecar reader (add-offline-symbolication).
 //
 // ZpkgReader.Open 拒收 SymOnly（flags&4）——那是"工程包消费面"。本 reader 专读
 // `.zsym`：META + STRS + MDBG(每函数嵌 frame-name key，minor 33 within) + BLID，

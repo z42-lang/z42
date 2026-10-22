@@ -1,4 +1,4 @@
-// xtask — 开发态的两种组装（tidy-xtask-cli, 2026-10-06 从 build 族挪来）：
+// xtask — 开发态的两种组装（tidy-xtask-cli 从 build 族挪来）：
 //   package dev-sdk          已编好的工具链 → `.z42` SDK 布局（默认 artifacts/.z42；`--toolchain` / 学习手册示例消费）
 //   package ci               已建好的构建树的 zpkg 快照（仓库相对路径）→ CI 的 `toolchain-<os>` artifact，
 //                            下游 job 原地还原即得一棵 warm 构建树
@@ -59,7 +59,7 @@ int _packageDevSdk(string outOpt) {
     int c = _pkgCopyLibs(_libsDir(root), outDir); if (c != 0) { return c; }
     Console.WriteLine("  ✓ libs/ (stdlib)");
 
-    // 注：**没有独立的 `compiler-libs/`**（relocate-compiler-domain-libs，2026-09-27）——编译期扩展的
+    // 注：**没有独立的 `compiler-libs/`**（relocate-compiler-domain-libs）——编译期扩展的
     // 解析域就是上面的 `programs/z42c/`，z42c 侧由 `_compilerDomainDirs()` 探它。
     string binDir = Path.Join(outDir, "bin");
     Directory.Create(binDir);

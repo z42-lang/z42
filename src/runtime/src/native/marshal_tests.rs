@@ -107,7 +107,7 @@ fn str_to_ptr_uses_same_path_as_cstr() {
 
 #[test]
 fn str_with_interior_nul_returns_invalid_marshal() {
-    // 2026-05-11 retire-z-codes: interior NUL surfaces as
+    // retire-z-codes: interior NUL surfaces as
     // `MarshalErr::InvalidMarshal` carrying a plain-text diagnostic.
     // The caller (`exec_native::call_native`) wraps the message into a
     // `Std.InvalidMarshalException` instance for user-catchable throw.

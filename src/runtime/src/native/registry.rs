@@ -30,7 +30,7 @@ pub struct MethodEntry {
     pub cif: Cif,
 }
 
-// SAFETY (add-multithreading-foundation Phase 3, 2026-05-20):
+// SAFETY (add-multithreading-foundation Phase 3):
 // `MethodEntry` is **read-only after registration** — `name` / `signature` /
 // `fn_ptr` / `params` / `return_type` / `cif` are all set once in
 // `from_descriptor` and never mutated. The raw `fn_ptr` and `Cif`'s internal

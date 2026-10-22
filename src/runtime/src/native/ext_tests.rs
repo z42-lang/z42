@@ -13,7 +13,7 @@ fn native_search_paths_includes_default_sdk_layout() {
 
 #[test]
 fn native_search_paths_includes_exec_dir_for_cargo_target_layout() {
-    // 2026-05-24 dev-infra: <exec_dir> itself is now a search path so cargo
+    // dev-infra: <exec_dir> itself is now a search path so cargo
     // `target/<profile>/libz42_*.dylib` is discovered without manual
     // `ln -sf ../libz42_compression.dylib release/native/libz42_compression.dylib`.
     let exe = std::env::current_exe().expect("current_exe");
@@ -27,7 +27,7 @@ fn native_search_paths_includes_exec_dir_for_cargo_target_layout() {
     );
 }
 
-/// runtime-config-phase2 (2026-06-03): `Z42_NATIVE_PATH` parsing moved
+/// runtime-config-phase2 : `Z42_NATIVE_PATH` parsing moved
 /// to `crate::config::parse_native_search_paths`, covered by
 /// `config::tests::from_getter_native_path_splits_on_platform_separator`.
 /// `native_search_paths()` now concatenates the parsed list with SDK-

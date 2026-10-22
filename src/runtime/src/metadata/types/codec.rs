@@ -1,4 +1,4 @@
-//! 基元字节编解码（decode/encode_prim、prim_to/from_bits）。refactor-split-metadata-types（2026-09-03）：从 2436 行的 `types.rs` 按职责拆出，
+//! 基元字节编解码（decode/encode_prim、prim_to/from_bits）。refactor-split-metadata-types：从 2436 行的 `types.rs` 按职责拆出，
 //! 对外路径不变（`metadata::types::*` 经 hub 的 `pub use` 全量再导出）。
 
 #![allow(unused_imports)]

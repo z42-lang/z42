@@ -6,7 +6,7 @@ use crate::gc::{GcMode, MagrGC};
 
 #[test]
 fn mode_default_is_generational_mark_sweep() {
-    // flip-gc-default-to-generational (2026-09-10).
+    // flip-gc-default-to-generational .
     let heap = ArcMagrGC::new();
     assert_eq!(heap.mode(), GcMode::GenerationalMarkSweep);
 }

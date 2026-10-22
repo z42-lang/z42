@@ -1,5 +1,5 @@
 // z42c driver —— `[profile.<n>.runtime]` 旋钮名的**构建期**校验
-// （compiler-checks-knob-names，2026-09-06）。
+// （compiler-checks-knob-names）。
 //
 // 为什么挪到构建期：旋钮名写错（`gc-mdoe`）此前只有运行时发现得了——它被原样烤进
 // `dist/<app>.runtimeconfig.toml`，目标机的 VM 每次启动刷一行 `unknown runtime knob`

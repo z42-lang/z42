@@ -1,4 +1,4 @@
-//! Super-instruction fusion framework (interp-superinstr-fusion, 2026-08-01).
+//! Super-instruction fusion framework (interp-superinstr-fusion).
 //!
 //! A **super-instruction** is a tail pattern of a basic block that a backend can
 //! execute (interp) or emit (JIT) as ONE step instead of a separate instruction
@@ -49,7 +49,7 @@ pub enum SuperInstr {
     /// `t_blk`/`f_blk` directly, skipping the separate `BrCond` dispatch + the
     /// bool re-read. `dst` is still written so unrelated readers are unaffected.
     ///
-    /// interp-typed-superinstr (2026-08-01): `typed` is set when `reg_types`
+    /// interp-typed-superinstr : `typed` is set when `reg_types`
     /// confirm both operands are `I64` — the interpreter then compares via
     /// unchecked i64 extraction (no discriminant branch). This is the loop
     /// condition (`i < n`) fast path.
@@ -119,7 +119,7 @@ pub fn compute_fused_tails(blocks: &[BasicBlock], branch_targets: &[BranchTarget
     // takes the un-fused path — lets an operator turn the optimization off without a
     // rebuild (e.g. to isolate a suspected regression), and is how the framework's
     // isolated speedup is measured.
-    // adopt-inline-env-knobs (2026-09-05): these three used to be `env::var` calls
+    // adopt-inline-env-knobs : these three used to be `env::var` calls
     // made on EVERY `fuse_blocks` (i.e. per method) — each one locking the process
     // environment and allocating a String. The layered config is a OnceLock load.
     let cfg = crate::config::runtime_config();

@@ -1,4 +1,4 @@
-// CI 内嵌 shell 的「先用后赋」门（2026-09-27，rename-project-namespaces B3b 之后立）。
+// CI 内嵌 shell 的「先用后赋」门(rename-project-namespaces B3b 之后立）。
 //
 // ## 守的是什么
 //

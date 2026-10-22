@@ -1,4 +1,4 @@
-// xtask — test workload packaging (package-test-workload, 2026-08-29).
+// xtask — test workload packaging (package-test-workload).
 // Same Z42Xtask namespace.
 //
 // The test workload is a PAYLOAD-ONLY workload (unlike desktop/ios/android/wasm,

@@ -12,7 +12,7 @@
 // 本文件独立存在的另一个原因：`builder_publish.z42` 已 967 行、在 line-limit 棘轮
 // 基线上，越界文件不得增长。`_pubStageApp` 连同它取代的那行 `File.Copy` 一起搬出来，
 // 调用点净行数为 0。
-// sidecar-reaches-published-apps（2026-09-05）。
+// sidecar-reaches-published-apps。
 namespace Z42Builder;
 
 using Std.IO;

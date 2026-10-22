@@ -51,7 +51,7 @@ mod incremental;
 // `invariants` calls `ArcMagrGC::debug_validate_invariants()` which is
 // `#[cfg(debug_assertions)]` only. Gate the module to match so
 // `cargo build --release --lib --tests` doesn't break.
-// (fix-gc-tests-release-build 2026-05-27)
+// (fix-gc-tests-release-build)
 #[cfg(debug_assertions)]
 mod invariants;
 mod mark_phase;

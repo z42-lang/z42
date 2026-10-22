@@ -5,7 +5,7 @@
 use super::*;
 
 /// Find every exception_table entry whose try region covers `block_idx`,
-/// in source order. catch-by-generic-type (2026-05-06) requires the JIT to
+/// in source order. catch-by-generic-type  requires the JIT to
 /// see all covering entries (not just the first) so it can emit a typed-catch
 /// chain that probes each candidate's `catch_type` against the thrown value's
 /// class and jumps to the first matching handler.
@@ -21,7 +21,7 @@ pub(super) fn find_handler_entries(func: &Function, block_idx: usize) -> Vec<usi
     out
 }
 
-/// inline-jit-safepoint-check (2026-08-01): emit the cooperative-GC safepoint
+/// inline-jit-safepoint-check : emit the cooperative-GC safepoint
 /// **fast path** inline as native load/store + branch, replacing a
 /// `jit_check_safepoint` helper call (~10ns) on the hot path. See
 /// `变更 inline-jit-safepoint-check/design.md`.

@@ -16,7 +16,7 @@
 //! 这样"完整类型"是**零新增 ABI** 得到的——TOML 有什么就支持什么，将来不需要为新的
 //! 值类型再扩展一次 marshal。发明结构化 ABI 或路径 mini-language 成本高、表达力还更差。
 //!
-//! add-app-properties（2026-09-05）。
+//! add-app-properties。
 
 use crate::config::runtime_config;
 use crate::metadata::Value;

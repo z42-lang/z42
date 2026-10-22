@@ -18,7 +18,7 @@
 //   ③ 完备性由**编译器**保证：`V` 实现语法树全部四个 visitor 接口（`z42c.syntax` 的
 //      `IExprVisitor` / `IStmtVisitor` / `IPatternVisitor` / `ITypeExprVisitor`，节点经
 //      `Accept<R, D>` 双分派）——给任一族加新节点子类，接口加 Visit 方法、这里编不过直到处理它。
-//      （2026-09-09 起此处曾由 `xtask check walkers` 文本对账兜底；visitor 化后该登记已删。）
+//      （起此处曾由 `xtask check walkers` 文本对账兜底；visitor 化后该登记已删。）
 //
 // 覆盖基线：Ast.z42 36 个 Expr / Stmt.z42 17 个 Stmt / Pattern.z42 10 个 Pattern /
 // TypeExpr.z42 5 个 TypeExpr 子类——接口即清单。

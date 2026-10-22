@@ -105,7 +105,7 @@ const KEEP_MASK: u8 = TAG_MASK | ASCII_STR_BIT | REMEMBERED_BIT | SIDE_BIT;
 
 /// Largest `gen_age` a block header can represent (see [`AGE_MASK`]).
 ///
-/// **retune-gc-nursery-and-promotion-age (2026-09-11)**: `gc::PROMOTION_THRESHOLD` is
+/// **retune-gc-nursery-and-promotion-age **: `gc::PROMOTION_THRESHOLD` is
 /// now **3**, i.e. exactly this ceiling — the spare bits are full. `Z42_GC_PROMOTION_AGE`
 /// can still be lowered but no longer raised; a higher age needs a bit the 16-byte header no
 /// longer has (object model R8 spent the last spare bytes on the object's type word).
@@ -283,7 +283,7 @@ impl GcWord {
         age
     }
 
-    /// **fix-primitives-count-as-young (2026-09-11)**: raise `gen_age` to at least `age`
+    /// **fix-primitives-count-as-young **: raise `gen_age` to at least `age`
     /// (never lowers it). **STW only**, same as [`Self::bump_gen_age`].
     ///
     /// Used by tenure (every young block straight to the promotion age) and tests.

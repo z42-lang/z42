@@ -67,7 +67,7 @@ public sealed class IrPureFunctionTable {
     //   · **不递归**（直接或互相）：不终止的递归同理，投机执行会在原本不执行的地方栈溢出；
     //   · 只调可投机的函数。
     // 用**最小**不动点（从空集往上长）：一个函数入集当且仅当它的每个 callee 已在集中 ⇒ 递归环上的函数
-    // 永远等不到彼此入集，天然被排除。代价：`fib` 这类递归纯函数不再外提（User 2026-09-30 裁决：正确性
+    // 永远等不到彼此入集，天然被排除。代价：`fib` 这类递归纯函数不再外提（User 裁决：正确性
     // 优先；add-pure-call-opt 的 ~200× bench 随之回退，CSE 消重不受影响）。
     private static StrMap _computeSpeculatable(IrModule m, StrMap pure) {
         StrMap spec = new StrMap();

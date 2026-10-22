@@ -197,7 +197,7 @@ void _cmdRun(string[] rest) {
     // 🔴 曾经在这里 `.Env("Z42_APP_CONFIG", rcPath)`：env **会被子孙进程继承**，于是这个
     // z42 程序 spawn 出的每个子 app 都带着**父 app** 的侧车路径；而它是相对路径，子进程换个
     // cwd 就指向不存在的文件 ⇒ 子 app 自己的运行时设置被整份丢掉。实测让 GREEN 的
-    // `probing-paths` e2e 格假红（2026-09-29）。侧车是 **app 的属性**，不是调用方的选项，
+    // `probing-paths` e2e 格假红。侧车是 **app 的属性**，不是调用方的选项，
     // 更不该跨进程流传。
     string vm = _sdkVm();
     if (!File.Exists(vm)) {

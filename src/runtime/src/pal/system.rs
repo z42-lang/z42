@@ -1,6 +1,6 @@
 //! System-level platform queries — hostname, OS version, etc.
 //!
-//! review.md Part 1 P2 Phase 1 (2026-06-03, add-pal-system-phase1): first
+//! review.md Part 1 P2 Phase 1 (add-pal-system-phase1): first
 //! concern migrated to the new `pal/` layer. Public functions return
 //! OS-neutral types (`Option<String>` / `String`); the unix / non-unix
 //! split lives entirely inside this file, so consumers (currently

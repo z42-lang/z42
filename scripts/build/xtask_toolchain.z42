@@ -1,10 +1,10 @@
-// xtask — build toolchain / build workload (add-build-toolchain, 2026-07-05).
+// xtask — build toolchain / build workload (add-build-toolchain).
 //
 // Symmetry with `build compiler`↔src/compiler & `build stdlib`↔src/libraries:
 //   build workload  ↔ src/toolchain/workload/*  (kind=lib; launcher's deps)
 //   build toolchain ↔ src/toolchain/{launcher,builder,devtools,interactive} apphosts
 //
-// SoT principle (User, 2026-07-05): every toolchain output/publish path is READ from
+// SoT principle (User): every toolchain output/publish path is READ from
 // the component's own z42.toml (`[build].dist_dir`, `[platform.desktop].publish_dir`),
 // NEVER hardcoded here — change a path in the toml and xtask follows automatically.
 namespace Z42Xtask;
@@ -16,9 +16,9 @@ using Z42.Project;   // BuildLayout / ManifestLoader（工程产物布局的唯�
 
 // ── component manifests ──────────────────────────────────────────────────────
 // workload libs (kind=lib)：各自建进自己的 `artifacts/build/toolchain/workload/<n>/dist`。
-// **不再落进 stdlib flat**（2026-09-28）——那会让它们随整目录被打进 SDK 的 `libs/`。
+// **不再落进 stdlib flat** ——那会让它们随整目录被打进 SDK 的 `libs/`。
 // launcher 编译期靠 path 依赖解析它们，运行期靠 ExeDeps 拷进 `programs/launcher/`。
-// 🔴 **只有三个** —— desktop 没有 appbuilder（drop-dead-desktop-appbuilder，2026-09-29）：
+// 🔴 **只有三个** —— desktop 没有 appbuilder（drop-dead-desktop-appbuilder）：
 // 桌面复用宿主 runtime，不需要 export；那个包里唯一的实质代码是 apphost patcher 的**第二份
 // 副本**，而在跑的是 z42b 内联的那份（`builder_apphost.z42`）⇒ 删掉，消掉一处静默漂移源。
 string[] _workloadTomls() {
@@ -129,14 +129,14 @@ string _z42bToml() { return "src/toolchain/builder/core/z42.builder.z42.toml"; }
 // 用**调用方给定**的 (vm, driver, libs) 编 z42b 并校验产物。
 //
 // 为什么参数化而不是让本函数自己解析：四个调用点的 vm/driver/libs 来源**各不相同**——
-//   test stdlib   ：支持 `--toolchain` override（ovVm/ovDriver/ovLibs）
-//   test compiler ：按 profile 取（_driverZpkg(root, profile)）
+//   test stdlib：支持 `--toolchain` override（ovVm/ovDriver/ovLibs）
+//   test compiler：按 profile 取（_driverZpkg(root, profile)）
 //   test toolchain builder（manifest 目标夹具）：固定 release
-//   package ci    ：release + `_toolchainCompileLibs`
+//   package ci：release + `_toolchainCompileLibs`
 // **能统一的只有「怎么编 + 怎么校验」，输入不能统一** —— 强行统一就会把 override / profile 语义弄丢。
 // 工具链程序（launcher / z42b / z42d / z42i / workload libs）的**编译期解析面**。
 //
-// = 纯 stdlib flat（drop-alllibs，2026-10-01）。它们用到的 `Z42.Project` / `Z42.Build` / `Z42.Package` /
+// = 纯 stdlib flat（drop-alllibs）。它们用到的 `Z42.Project` / `Z42.Build` / `Z42.Package` /
 // `Z42.Scripting` / `Z42.Syntax` 是 **SDK 库**：清单里按名声明 + `deploy = "shared"`，编译期由 driver 从编译器目录
 // 解析（CompilerDomain 开发树档），不复制进程序的发布包；发布态运行期靠各自的 `probing-paths = "../z42c"`，
 // 开发树里运行 z42b 时由 xtask 经 `_z42bProc` 起进程。

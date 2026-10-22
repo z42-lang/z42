@@ -21,7 +21,7 @@
 //   diag <hex(utf8)>               ← 0..n 行（该 CU 的 **per-CU typecheck 诊断**原文，v7 起；
 //                                     cached 命中时回放，否则警告只在冷构建那一次可见）
 //
-// TSIG **不入 meta**（design D2 修正 2026-07-08）：每文件 TSIG 全包耦合（自由函数
+// TSIG **不入 meta**（design D2 修正）：每文件 TSIG 全包耦合（自由函数
 // 兄弟泄漏 + 全包 AST 依赖），每次 build 由当前源 AST 全包重算。token 集与源一一对应
 // （源不变 → token 不变），故可入 meta；标识符无空白字符，raw 存储。
 // 其余串值 hex(UTF-8) 编码免转义。
@@ -75,21 +75,21 @@ public sealed class CacheMeta {
 }
 
 public static class CacheStore {
-    // v8（2026-09-30 fix-cache-atomic-writes）：+`zbchash <hex>` 行（zbc↔meta 配对校验）+ 末行 `end <行数>` 哨兵
+    // v8（fix-cache-atomic-writes）：+`zbchash <hex>` 行（zbc↔meta 配对校验）+ 末行 `end <行数>` 哨兵
     //     （半截 meta 此前只要开头几行在就被当成有效——token 列表截断 ⇒ 该失效的文件没失效）。v7 条目失效。
-    // v7（2026-09-27 warnings-survive-cache）：+`diag <hex>` 行——per-CU typecheck 诊断入 meta，
+    // v7（warnings-survive-cache）：+`diag <hex>` 行——per-CU typecheck 诊断入 meta，
     //     cached 命中时回放。此前 cached CU 的 `DiagMsgs` 被清空 ⇒ **警告只在冷构建那一次可见**
     //     （实测 W0700：第 ① 次打印，第 ② 次 `cached: 1/1` 起彻底消失，源码一字未改）。v6 条目失效。
-    // v6（2026-09-15 add-dep-identity-to-cache-key）：package.meta +`deps <依赖身份>` 行——依赖包变了（BLID /
+    // v6（add-dep-identity-to-cache-key）：package.meta +`deps <依赖身份>` 行——依赖包变了（BLID /
     //     内容哈希）整包作废。此前依赖改签名、消费方源码没动会命中旧产物。v5 条目失效。
-    // v5（2026-09-06 incr-name-level-invalidation）：`surface` 单行 → `nsurf <name> <hash>` 多行
+    // v5（incr-name-level-invalidation）：`surface` 单行 → `nsurf <name> <hash>` 多行
     //     （失效判据降到**名字**粒度）+ `sident` 行（声明面标识符，传播判据）。v4 条目失效。
-    // v4（2026-09-06 fix-z42c-incremental-closure）：+surface 行（声明面指纹）——传播闸门的输入。
+    // v4（fix-z42c-incremental-closure）：+surface 行（声明面指纹）——传播闸门的输入。
     //     旧条目无该行 → v3 条目失效（一次全量后即恢复增量）。
-    // v3（2026-08-11 add-compiler-fingerprint-cache）：+z42c-fp 行（编译器语义指纹进 key）。v2 条目失效。
-    // v2（2026-07-08）：+token 行——D8 计时实测 42 文件语料增量比全量慢 17%，根因 =
+    // v3（add-compiler-fingerprint-cache）：+z42c-fp 行（编译器语义指纹进 key）。v2 条目失效。
+    // v2：+token 行——D8 计时实测 42 文件语料增量比全量慢 17%，根因 =
     // 闭包边输入对全部文件独立重 lex；token 入 meta 后 cached 文件零 lex。v1 条目失效。
-    // v9（2026-10-01 using-csharp-rules 2.9）：+`usedns <ns>` 行——本文件用到的全部 ns（含同包跨 ns），cached 命中时
+    // v9（using-csharp-rules 2.9）：+`usedns <ns>` 行——本文件用到的全部 ns（含同包跨 ns），cached 命中时
     //     回填给 E0436 判据。此前只存 `useddep`（依赖包那一半）。v8 条目失效。
     public static int MetaVersion = 9;
 

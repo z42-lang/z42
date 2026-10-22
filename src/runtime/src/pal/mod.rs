@@ -1,7 +1,7 @@
 //! Platform Abstraction Layer (PAL) — single home for every `#[cfg(...)]`
 //! split in the runtime.
 //!
-//! review.md Part 1 P2 Phase 1 (2026-06-03, add-pal-system-phase1). See
+//! review.md Part 1 P2 Phase 1 (add-pal-system-phase1). See
 //! `docs/internals/src/runtime/pal.md` for the long-form design (CoreCLR
 //! comparison, Phase 2-N migration plan, invariants every submodule must
 //! respect).

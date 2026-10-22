@@ -83,7 +83,7 @@ fn len_missing_arg_errors() {
     assert!(exec_builtin_value(&c, "__len", &[]).is_err());
 }
 
-// ── __str_char_at (new in simplify-string-stdlib 2026-04-24) ──────────────────
+// ── __str_char_at (new in simplify-string-stdlib) ──────────────────
 
 #[test]
 fn char_at_returns_nth_scalar() {
@@ -106,7 +106,7 @@ fn char_at_unicode_scalar_index() {
     assert_eq!(exec_builtin_value(&c, "__str_char_at", &[s("αβγ"), i(1)]).unwrap(), Value::Char('β'));
 }
 
-// ── __str_from_chars (new in simplify-string-stdlib 2026-04-24) ──────────────
+// ── __str_from_chars (new in simplify-string-stdlib) ──────────────
 
 #[test]
 fn from_chars_builds_string() {
@@ -125,7 +125,7 @@ fn from_chars_empty_array() {
 }
 
 // ── __char_is_whitespace ─────────────────────────────────────────────────────
-// shrink-primitive-native-interop (2026-08-27): __char_to_lower/__char_to_upper
+// shrink-primitive-native-interop : __char_to_lower/__char_to_upper
 // builtins removed (migrated to ASCII script Std.Char.ToLower/.ToUpper). Their
 // behavior is now covered by the z42 stdlib test
 // z42.core/tests/primitive_protocol_script.z42 (test_char_ascii_casing).
@@ -276,7 +276,7 @@ fn obj_hash_code_non_object_errors() {
     assert!(exec_builtin_value(&c, "__obj_hash_code", &[i(1)]).is_err());
 }
 
-// ── __delegate_eq (2026-05-03 fix-delegate-reference-equality, D-5) ───────────
+// ── __delegate_eq (fix-delegate-reference-equality, D-5) ───────────
 
 use crate::gc::ArrRef;
 
@@ -389,7 +389,7 @@ fn delegate_eq_non_delegate_values_returns_false() {
     assert_eq!(exec_builtin_value(&c, "__delegate_eq", &[obj(&c, "Foo"), i(0)]).unwrap(), Value::Bool(false));
 }
 
-// ── __obj_make_weak / __obj_upgrade_weak (2026-05-04 expose-weak-ref-builtin, D-1a) ─
+// ── __obj_make_weak / __obj_upgrade_weak (expose-weak-ref-builtin, D-1a) ─
 
 #[test]
 fn make_weak_object_returns_handle_object() {
@@ -437,7 +437,7 @@ fn make_weak_then_upgrade_array() {
     assert!(matches!(upgraded, Value::Array(_)));
 }
 
-// ── __delegate_target / __delegate_fn_name / __make_closure (D-1b, 2026-05-04) ──
+// ── __delegate_target / __delegate_fn_name / __make_closure (D-1b) ──
 
 fn closure(env: Vec<Value>, id: u32) -> Value {
     closure_of(crate::metadata::types::ArrayObj::leaked(env), id)

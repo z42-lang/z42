@@ -21,7 +21,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                 }
                 Instruction::Builtin(insn) => {
                     let BuiltinInsn { dst, name, args } = &**insn;
-                    // formalize-jit-method-token Phase 2 (2026-05-08): emit the
+                    // formalize-jit-method-token Phase 2 : emit the
                     // pre-resolved BuiltinId as an i32 const for zero-hash dispatch.
                     // fix-jit-builtin-ext-fallback: also emit the name pointer so an
                     // UNRESOLVED id resolves by name at call time. `resolved` may now be
@@ -93,7 +93,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     let inst = self.builder.ins().call(self.hr_call_indirect,
                         &[self.frame_val, self.ctx_val, d, c, ap, al, off_val]);
                     let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
-                    // add-gc-safepoint-jit (2026-05-21): post-CallIndirect
+                    // add-gc-safepoint-jit : post-CallIndirect
                     // safepoint, see Instruction::Call for rationale.
                     emit_safepoint_check(self.builder, self.ctx_val, self.frame_val, self.hr_check_safepoint_slow);
                 }
@@ -123,7 +123,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         let off_val = self.builder.ins().iconst(types::I32, self.func.linear_offset(self.block_idx as u32, self.instr_idx as u32) as i64);
         let inst = self.builder.ins().call(self.hr_call, &[self.frame_val, self.ctx_val, d, mid_val, np, nl, ap, al, ic_val, off_val]);
         let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
-        // add-gc-safepoint-jit (2026-05-21): post-Call safepoint
+        // add-gc-safepoint-jit : post-Call safepoint
         // — long callees may yield to a GC request that arrived
         // partway through; the caller catches it on return.
         emit_safepoint_check(self.builder, self.ctx_val, self.frame_val, self.hr_check_safepoint_slow);

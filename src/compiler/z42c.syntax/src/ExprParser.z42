@@ -255,8 +255,8 @@ public sealed partial class ExprParser {
 
     // restore-named-arguments：解析**一个**调用实参，识别命名形态 `name: value`。
     //
-    // 这一半是自举迁移时丢的：原 spec（add-named-arguments, 2026-05-12）在 **C#** 编译器里
-    // 实现了 `IDENT :` 前瞻（`ExprParser.Atoms.cs`），C# 编译器 2026-06-26 移除后没人移植过来
+    // 这一半是自举迁移时丢的：原 spec（add-named-arguments）在 **C#** 编译器里
+    // 实现了 `IDENT :` 前瞻（`ExprParser.Atoms.cs`），C# 编译器移除后没人移植过来
     // ⇒ 语义层（`OverloadBinder._adaptArgs`，注释里写的正是 `f(x: new())`）一直在等一个
     // 永远不会到来的形态，而当时仓库根的演示文件整个用的都是这个语法、
     // **从来没有被编译过**（顶层 examples 无人编，见 gate-toplevel-examples）。

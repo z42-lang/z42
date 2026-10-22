@@ -1,4 +1,4 @@
-//! SATB (snapshot-at-the-beginning) deletion barrier — add-incremental-major-gc M2a (2026-09-16).
+//! SATB (snapshot-at-the-beginning) deletion barrier — add-incremental-major-gc M2a .
 //!
 //! # What it guarantees
 //!

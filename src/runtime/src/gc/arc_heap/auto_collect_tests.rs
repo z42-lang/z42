@@ -1,4 +1,4 @@
-//! add-gc-runtime-knobs (2026-09-05): auto-collect gating + futility backoff.
+//! add-gc-runtime-knobs : auto-collect gating + futility backoff.
 //!
 //! These drive `maybe_auto_collect` on a bare `ArcMagrGC` (no `VmCore` wiring),
 //! so it takes the inline-collect fallback and we can observe `gc_cycles`.
@@ -7,7 +7,7 @@ use crate::gc::{ArcMagrGC, MagrGC};
 
 fn cycles(heap: &ArcMagrGC) -> u64 { heap.stats().gc_cycles }
 
-/// **arm-gc-by-default (2026-09-09)** reverses the historical default: with no
+/// **arm-gc-by-default ** reverses the historical default: with no
 /// `Z42_GC_MAX_BYTES` the collector used to *never* run, so a long-lived program grew until
 /// it exited. Every threshold is relative now (Mono SGen's shape), so there is nothing left
 /// for a budget to switch on.
@@ -61,7 +61,7 @@ fn an_over_budget_live_set_does_not_re_collect_forever() {
     // `src/benches/scenarios/09_alloc_ctorless` with a 64MB budget: a 0.29s run had not
     // finished after 9 minutes, doing a 0-byte 75ms mark-sweep every ~6MB.
     //
-    // **arm-gc-by-default (2026-09-09)** attacks it from the other side as well: the gate is
+    // **arm-gc-by-default ** attacks it from the other side as well: the gate is
     // now `live × ALLOWANCE_HEAP_RATIO`, so it *grows with the live set* and the collection
     // count is logarithmic in heap growth rather than linear. The backoff stays as a belt for
     // the case a soft cap squeezes the allowance down to its floor — which is what this test
@@ -93,7 +93,7 @@ fn an_over_budget_live_set_does_not_re_collect_forever() {
     drop(pins);
 }
 
-// ── fix-futile-backoff-is-too-eager (2026-09-11) ─────────────────────────────
+// ── fix-futile-backoff-is-too-eager  ─────────────────────────────
 
 /// The two shapes the futility multiplier has to tell apart, with the numbers actually
 /// measured off each. Both reclaim well under half a 32 MB gate — which is why the original
@@ -172,7 +172,7 @@ fn a_reclaiming_collector_keeps_collecting_as_the_heap_refills() {
          ~2.5x over)");
 }
 
-// ── add-bounded-nursery (2026-09-08) ─────────────────────────────────────────
+// ── add-bounded-nursery  ─────────────────────────────────────────
 
 /// The nursery gate is a *separate* trip condition from the budget gate: under
 /// `GenerationalMarkSweep` a minor fires once `Z42_GC_NURSERY_BYTES` has been allocated,
@@ -202,7 +202,7 @@ fn generational_trips_a_minor_on_the_nursery_gate_below_the_near_limit() {
     );
 }
 
-/// **flip-gc-default-to-generational (2026-09-10)**: a soft cap has to be enforced under the
+/// **flip-gc-default-to-generational **: a soft cap has to be enforced under the
 /// generational collector too.
 ///
 /// The generational gate is the **nursery** — an absolute 32 MB by default, deliberately

@@ -160,7 +160,7 @@ pub(super) fn emit_f64_to_int(
 /// the 8 B payload at offset 8 — heap-ref payloads keep the helper path
 /// because they need Arc::clone. Caller verified `is_drop_free_primitive`
 /// on both dst and src so neither side has Drop work (review.md C2 P1
-/// follow-up, 2026-05-30).
+/// follow-up).
 pub(super) fn emit_primitive_copy(
     builder: &mut FunctionBuilder,
     regs_base: cranelift_codegen::ir::Value,
@@ -279,7 +279,7 @@ pub(super) fn emit_const_bool(
 
 /// Emit native `frame.regs[dst] = Value::Char(val)` — store TAG_CHAR + 4 B
 /// codepoint payload. Caller must have verified `reg_types[dst] == Char`
-/// (review.md C11 #4, 2026-05-30).
+/// (review.md C11 #4).
 pub(super) fn emit_const_char(
     builder: &mut FunctionBuilder,
     regs_base: cranelift_codegen::ir::Value,
@@ -293,7 +293,7 @@ pub(super) fn emit_const_char(
 /// Emit native `frame.regs[dst] = Value::Null` — just stores TAG_NULL.
 /// Caller must have verified the previous slot value is Drop-free (any
 /// primitive `IrType` — I64/F64/Bool/Char). For Ref/Str/Unknown dst we
-/// keep the helper path so the Drop runs (review.md C11 #4, 2026-05-30).
+/// keep the helper path so the Drop runs (review.md C11 #4).
 pub(super) fn emit_const_null(
     builder: &mut FunctionBuilder,
     regs_base: cranelift_codegen::ir::Value,

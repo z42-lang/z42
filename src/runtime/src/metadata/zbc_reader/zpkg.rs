@@ -169,7 +169,7 @@ pub(super) fn read_mods_section(
         // 1.2 split-debug-symbols: per-member DBUG body. 0 bytes = no debug.
         let dbug_len    = c.read_u32()? as usize;
         let dbug_data   = c.read_bytes(dbug_len)?;
-        // jit-type-specialization C2 P0 (zpkg 0.9 / zbc 1.8, 2026-05-27):
+        // jit-type-specialization C2 P0 (zpkg 0.9 / zbc 1.8):
         // per-member REGT body. 0 bytes = no typed regs (legacy zbc / mod
         // with no IrType-tagged functions).
         let regt_len    = c.read_u32()? as usize;

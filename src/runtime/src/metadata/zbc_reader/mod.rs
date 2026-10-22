@@ -144,7 +144,7 @@ pub fn read_zbc(data: &[u8]) -> Result<Module> {
         .transpose()?
         .unwrap_or_default();
 
-    // jit-type-specialization C2 P0 step 0.4 (zbc 1.8, 2026-05-27): per-
+    // jit-type-specialization C2 P0 step 0.4 (zbc 1.8): per-
     // function register IrType bytes. Absent (legacy zbc / writer-only-bumped
     // path) → all functions get empty reg_types.
     let mut regt_entries = get_section(data, &dir, b"REGT")

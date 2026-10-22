@@ -1,4 +1,4 @@
-//! TypeDesc / TypeDescCold + impl（运行时类型描述符，≈ CoreCLR MethodTable）。refactor-split-metadata-types（2026-09-03）：从 2436 行的 `types.rs` 按职责拆出，
+//! TypeDesc / TypeDescCold + impl（运行时类型描述符，≈ CoreCLR MethodTable）。refactor-split-metadata-types：从 2436 行的 `types.rs` 按职责拆出，
 //! 对外路径不变（`metadata::types::*` 经 hub 的 `pub use` 全量再导出）。
 
 #![allow(unused_imports)]
@@ -17,8 +17,8 @@ use crate::gc::heap::MagrGC;
 pub struct TypeDesc {
     /// Fully-qualified class name (e.g. `"Demo.Point"`).
     pub name: String,
-    /// Runtime token assigned by `metadata::resolver::resolve_module` (introduce-method-token,
-    /// 2026-05-08). Stable for the lifetime of the loaded module; used by VCallIC / FieldIC
+    /// Runtime token assigned by `metadata::resolver::resolve_module` (introduce-method-token).
+    /// Stable for the lifetime of the loaded module; used by VCallIC / FieldIC
     /// for receiver-type comparison without name hash. Default `TypeId::UNRESOLVED` until
     /// resolver runs (back-compat — pre-resolver code doesn't depend on this).
     pub id: crate::metadata::tokens::TypeId,
@@ -26,13 +26,13 @@ pub struct TypeDesc {
     pub base_name: Option<String>,
     /// Field slots in order (base fields first, then derived).
     ///
-    /// **Cross-zpkg subclass note** (fix-cross-pkg-subclass-fields, 2026-05-14):
+    /// **Cross-zpkg subclass note** (fix-cross-pkg-subclass-fields):
     /// `build_type_registry` populates this with base fields from the local
     /// module's registry only — cross-zpkg base classes contribute nothing
     /// until [`crate::metadata::loader::try_fixup_inheritance`] runs at
     /// lazy-load time, which rebuilds this vector to include inherited slots.
     pub fields: Vec<FieldSlot>,
-    /// `field_name → slot index` — linear scan (review.md C4 P1, 2026-06-01:
+    /// `field_name → slot index` — linear scan (review.md C4 P1:
     /// `NameIndex` replaces `HashMap<String, usize>` because typical class
     /// field counts ≤16, where `Vec<(Box<str>, usize)>` scan beats hash +
     /// string compare). Same cross-zpkg fixup semantics as `fields`.
@@ -41,8 +41,8 @@ pub struct TypeDesc {
     /// Derived class overrides replace base entries at the same slot index.
     /// Same cross-zpkg fixup semantics as `fields`.
     pub vtable: Vec<(String, String)>,
-    /// `method_name → vtable slot index` — linear scan (review.md C5 P1,
-    /// 2026-06-01). Same rationale as `field_index`.
+    /// `method_name → vtable slot index` — linear scan (review.md C5 P1).
+    /// Same rationale as `field_index`.
     pub vtable_index: crate::metadata::name_index::NameIndex,
     /// add-reflection-type-flags (zbc 1.12): class-shape flags byte
     /// (`bytecode::CLASS_FLAG_*` — abstract/sealed/struct/record). Reflection
@@ -53,7 +53,7 @@ pub struct TypeDesc {
     /// (0=public / 1=private / 2=protected / 3=internal). Reflection only; backs
     /// `Type.IsPublic` / `IsNotPublic` / `IsNested{Public,Private,Family,Assembly}`.
     pub visibility: u8,
-    /// review.md E2.P1 Step 1 (2026-05-27): five rarely-accessed fields
+    /// review.md E2.P1 Step 1 : five rarely-accessed fields
     /// (own_fields / own_methods / type_params / type_args /
     /// type_param_constraints) live behind an `Option<Box<TypeDescCold>>`.
     /// Hot path (FieldGet IC miss → `field_index`; VCall miss →
@@ -91,18 +91,18 @@ pub struct TypeDescCold {
     /// 用 `Arc` 是因为 `TypeDescCold` 派生 `Clone`：克隆共享同一个原子，语义正确；
     /// 即便某条路径拿到的是独立副本（值为 0），也只是多走一次慢路，不影响正确性。
     pub init_gen: std::sync::Arc<std::sync::atomic::AtomicU32>,
-    /// fix-cross-pkg-subclass-fields (2026-05-14): the fields **this class
+    /// fix-cross-pkg-subclass-fields : the fields **this class
     /// itself declares** (excluding inherited). Preserved so the cross-zpkg
     /// fixup pass can rebuild `fields` = base.fields ++ own_fields once the
     /// base class becomes resolvable via the global type registry.
     pub own_fields: Box<[FieldSlot]>,
-    /// fix-cross-pkg-subclass-fields (2026-05-14): the **qualified func
+    /// fix-cross-pkg-subclass-fields : the **qualified func
     /// names** of methods this class itself defines, in the order they
     /// were discovered by `build_type_registry`. Used by fixup to rebuild
     /// `vtable` (preserving override-vs-append semantics) once the base
     /// class becomes resolvable.
     ///
-    /// review.md E5.5 (2026-05-27): the simple method name (vtable slot
+    /// review.md E5.5 : the simple method name (vtable slot
     /// key) is no longer stored — it's derived at merge time via
     /// [`TypeDesc::derive_simple_method_name`] given the owning class
     /// name. Saves one heap allocation + 16–24 B per method.
@@ -369,7 +369,7 @@ impl TypeDesc {
         member.split('$').next() == Some(Self::ctor_member_name(class_name))
     }
 
-    /// review.md E5.5 (2026-05-27): derive the simple method name (vtable
+    /// review.md E5.5 : derive the simple method name (vtable
     /// slot key) from a qualified function name in `own_methods`. Strips
     /// the owning class's `"<ClassName>."` prefix, then the arity suffix
     /// `"$N"` (so `Foo.Bar.Method$2` → `Method`).

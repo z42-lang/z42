@@ -1,4 +1,4 @@
-//! Function / FunctionCold / 帧名 / LocalVar / LineEntry / ExceptionEntry / BasicBlock。refactor-split-bytecode（2026-09-03）：从 1334 行的 `bytecode.rs` 按职责拆出，
+//! Function / FunctionCold / 帧名 / LocalVar / LineEntry / ExceptionEntry / BasicBlock。refactor-split-bytecode：从 1334 行的 `bytecode.rs` 按职责拆出，
 //! 对外路径不变（`metadata::bytecode::*` 经 hub 的 `pub use` 全量再导出）。
 
 #![allow(unused_imports)]
@@ -50,7 +50,7 @@ pub fn frame_file(func: &Function) -> &str {
 /// no params, and no generics carry only an 8-byte null pointer instead
 /// of six `Box<[T]>` headers (96 B inline → 8 B Option<Box>).
 ///
-/// review.md E2.P5 (2026-05-27). Mirror of CoreCLR's split between
+/// review.md E2.P5 . Mirror of CoreCLR's split between
 /// `MethodDesc` (hot, 32 B base) and `MethodDescChunk` / cold side
 /// tables.
 #[derive(Debug, Default)]
@@ -94,7 +94,7 @@ pub struct FunctionCold {
 
 /// A single function.
 ///
-/// review.md E2.P5 (2026-05-27): six rarely-accessed slice fields moved
+/// review.md E2.P5 : six rarely-accessed slice fields moved
 /// into [`FunctionCold`] behind `Option<Box>`. Reads go through accessor
 /// methods that return `&[T]` (empty slice when cold is absent). Sidecar
 /// mutations (`loader.rs` debug-symbol overlay) lazy-init via
@@ -136,7 +136,7 @@ pub struct Function {
     /// the common case of a non-generic function with no try/catch and
     /// no debug symbols. Reads go through accessor methods on `Function`.
     pub cold: Option<Box<FunctionCold>>,
-    /// review.md C2 step 0.2 (2026-05-27): per-register static type
+    /// review.md C2 step 0.2 : per-register static type
     /// from the C# IR's `TypedReg.Type`. Indexed by register ID;
     /// length matches `max_reg`. Empty `Box<[]>` when no REGT section
     /// is present in the zbc (legacy fixtures + writer-not-yet-updated
@@ -152,7 +152,7 @@ pub struct Function {
     /// Not serialized; populated by `loader::build_block_indices`. Empty ⇒
     /// runtime falls back to `block_index` (hand-built test functions).
     pub branch_targets: Vec<BranchTargets>,
-    /// interp-superinstr-fusion (2026-08-01): per-block fused-tail super-instruction
+    /// interp-superinstr-fusion : per-block fused-tail super-instruction
     /// (e.g. `cmp`+`BrCond` → `CmpBr`), parallel to `blocks`. Recognized once at
     /// load by `superinstr::compute_fused_tails`; the interp reads
     /// `fused_tails[block_idx]` (O(1)) to run the fused step and skip a dispatch on
@@ -165,7 +165,7 @@ pub struct Function {
     /// formatting. `None` for hand-built test functions the loader never
     /// post-processes → [`Function::frame_name_file`] formats on the fly.
     pub frame_meta: Option<(std::sync::Arc<str>, std::sync::Arc<str>)>,
-    /// Per-function token cache (introduce-method-token, 2026-05-08).
+    /// Per-function token cache (introduce-method-token).
     /// Lazy-init by `metadata::resolver::resolve_module` after module load.
     /// `OnceLock` so `Function: Sync` is preserved (single-thread today,
     /// future multi-thread ready). Not serialized — purely runtime metadata.
@@ -310,7 +310,7 @@ pub struct LocalVar {
 
 /// An entry in a function's source-line mapping table.
 ///
-/// 2026-05-10 span-column-propagate (zbc 1.1): `column` carries 1-based
+/// span-column-propagate (zbc 1.1): `column` carries 1-based
 /// source column from `Span.Column`. Value `0` means unknown (legacy
 /// hand-rolled IR or pre-1.1 zbc never reach here — reader rejects).
 #[derive(Debug, Clone)]

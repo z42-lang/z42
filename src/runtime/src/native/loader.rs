@@ -14,7 +14,7 @@ use super::error;
 use crate::vm_context::VmContext;
 
 /// Categorical error code mirrored into the last-error slot for native
-/// library load failures. 2026-05-11 retire-z-codes: was `Z0910`; the
+/// library load failures.  retire-z-codes: was `Z0910`; the
 /// named constant was retired but the numeric value stays for embedder
 /// wire-compat with `Z42Error.code`.
 const LIB_LOAD_FAILURE: u32 = 910;
@@ -98,7 +98,7 @@ mod tests {
 
     #[test]
     fn nonexistent_path_sets_lib_load_failure() {
-        // 2026-05-11 retire-z-codes: no Z#### prefix in message, just the
+        // retire-z-codes: no Z#### prefix in message, just the
         // diagnostic. The numeric code stays in Z42Error for embedder
         // wire-compat (LIB_LOAD_FAILURE = 910).
         let ctx = VmContext::new();

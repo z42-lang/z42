@@ -1,6 +1,6 @@
 // z42b publish —— 「产物是否最新」这一步。
 //
-// 病灶（fix-publish-stale-payload，2026-09-06）：原 `_pubEnsureBuilt` 把
+// 病灶（fix-publish-stale-payload）：原 `_pubEnsureBuilt` 把
 // **「zpkg 文件存在」当成「zpkg 是最新的」**——
 //
 //     string zpkgSrc = _pubResolveZpkg(...);

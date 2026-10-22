@@ -1,5 +1,5 @@
 //! Send + Sync compile-time assertions for the Phase 3 multi-threading
-//! foundation (`add-multithreading-foundation`, 2026-05-20).
+//! foundation (`add-multithreading-foundation`).
 //!
 //! These tests don't actually run anything — they assert at compile time
 //! that the key VM types are `Send + Sync`. If a future change introduces
@@ -57,7 +57,7 @@ fn dyn_magr_gc_is_send_sync() {
 
 #[test]
 fn vm_context_ptr_is_send_sync() {
-    // add-vmcontext-registry (2026-05-20): VmContextPtr is a raw-pointer
+    // add-vmcontext-registry : VmContextPtr is a raw-pointer
     // newtype with `unsafe impl Send + Sync` — pin this at compile time
     // so removing the impl breaks the build.
     assert_send_sync::<VmContextPtr>();

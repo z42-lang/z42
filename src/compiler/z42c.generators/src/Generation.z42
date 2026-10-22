@@ -1,6 +1,6 @@
 // attribute-handler-registry PR4a —— applied generator 契约（编译期源生成框架的公共 API 面）。
 //
-// 放在 z42c.semantics（**非** z42c.syntax，与 Analyzer 契约不同）——方案 B（post-bind，User 2026-08-21
+// 放在 z42c.semantics（**非** z42c.syntax，与 Analyzer 契约不同）——方案 B（post-bind，User
 // 裁决）的 GenTarget 须暴露被贴类型的**解析后 Z42ClassType**（PR4c 的 GenContext.TypesWith<T> 更返回
 // TypeSymbol），这些是语义层类型，syntax（下层）引用不到。与 design 原稿契约含 TypeSymbol/SymbolKind
 // 一致、且贴 Roslyn（source generator 依赖完整 CodeAnalysis 语义 API，非仅语法）。外部 generator（PR4d）
@@ -25,7 +25,7 @@
 //
 // ModuleGenerator（扫全编译聚合）+ GenContext（TypesWith<T> 跨类型符号查询，依赖泛型方法）= PR4c（✅）；
 // 外部 zpkg 加载（`GeneratorLoader`，经 `[plugins]` 段——单段覆盖 analyzer + generator + hook，
-// User 2026-08-22 裁决——发现 `: Generator`/`: ModuleGenerator`）+ VM 执行 golden = PR4d（✅）；
+// User 裁决——发现 `: Generator`/`: ModuleGenerator`）+ VM 执行 golden = PR4d（✅）；
 // 有界多轮留 PR4e。
 namespace Z42.Generators;
 

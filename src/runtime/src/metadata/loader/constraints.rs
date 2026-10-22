@@ -45,7 +45,7 @@ fn check_constraint_refs(
     for iface in &b.interfaces {
         check_one(Some(iface), registry, owner, /*soft_allow_unresolved=*/ true)?;
     }
-    // add-generic-func-constraint (2026-05-11): validate type-name references in
+    // add-generic-func-constraint : validate type-name references in
     // the function signature constraint. Primitives / Std.* / owner's type-params
     // don't need registry lookup; user classes do.
     if let Some(sig) = &b.func_signature {

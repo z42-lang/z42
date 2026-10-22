@@ -1,4 +1,4 @@
-// xtask — shared versions.toml reader (unify-scripts-into-xtask, 2026-06-05).
+// xtask — shared versions.toml reader (unify-scripts-into-xtask).
 // One place to parse versions.toml; replaces the four near-identical readers that
 // used to live in xtask_install (_vget/_vgetList/_scalarStr), xtask_package
 // (_versionsGet), xtask_package_ios (_versionsGetIos) and xtask_package_android

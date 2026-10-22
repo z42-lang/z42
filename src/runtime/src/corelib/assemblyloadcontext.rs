@@ -1,6 +1,6 @@
 //! Load-context builtins — backing `Std.Runtime.AssemblyLoadContext`,
 //! `Std.Reflection.Assembly`, and the `Std.Type` collectibility surface
-//! (add-load-context-model, 2026-07-30).
+//! (add-load-context-model).
 //!
 //! Mechanism:
 //!   - `AssemblyLoadContext` / `Assembly` z42 objects carry a `ContextId` / `AssemblyId`

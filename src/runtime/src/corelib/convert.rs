@@ -92,7 +92,7 @@ pub(crate) fn struct_hash_code(gc: &crate::gc::ObjRef) -> i64 {
 
 // ── Typed argument extractors ────────────────────────────────────────────────
 //
-// refactor-corelib-typed-extractors (2026-05-17): direct-ABI 优化的第一阶段。
+// refactor-corelib-typed-extractors : direct-ABI 优化的第一阶段。
 // 每个 builtin 在 dispatch 边界拿到 `&[Value]` 后会 extract typed args；旧的
 // `require_str` 每次都 `s.clone()` 一份 `String`，对 `__str_length` /
 // `__str_equals` 这种纯只读 ops 是显著开销。
@@ -322,7 +322,7 @@ pub fn value_to_str(v: &Value) -> String {
     }
 }
 
-// refactor-corelib-typed-extractors (2026-05-17): 旧的 `require_str` /
+// refactor-corelib-typed-extractors : 旧的 `require_str` /
 // `require_usize` / `to_usize` / `require_i64` / `require_f64` / `require_char`
 // 全部删除 —— 全 corelib 已 migrated 到 `arg_*` 系列（零 clone / Copy / #[inline]）。
 // pre-1.0 不留兼容包袱。
@@ -380,7 +380,7 @@ fn try_int(ctx: &VmContext, s: Option<&str>, out: abi::RefArg<'_>, ty: &str, min
 
 /// The typed convert builtins. The integer parsers differ only in range; each `[Native]`
 /// name maps to one function here.
-/// native-hash（2026-10-19）：MurmurHash3_x86_128、seed 0——逐字面镜像 z42.package 的
+/// native-hash：MurmurHash3_x86_128、seed 0——逐字面镜像 z42.package 的
 /// `Murmur3.z42`（smhasher 参考实现；z42 侧有对拍金向量，两侧哈希值必须一致，等值单测双向盯：
 /// 编译器侧 `murmur3.z42` 测试 + 本文件 `mmh3_x86_128_tests`）。供编译器源文本哈希
 /// （`ZpkgBuilder.SourceHashHex`）省掉 z42 侧 GetBytes 物化 + 解释执行的哈希内环。

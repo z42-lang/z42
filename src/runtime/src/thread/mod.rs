@@ -2,7 +2,7 @@
 //!
 //! **STATUS: STUB** — no public API yet.
 //!
-//! Phase 1 reality (post extend-jit-helper-abi, 2026-04-28): the VM is still
+//! Phase 1 reality (post extend-jit-helper-abi): the VM is still
 //! single-threaded but **all** runtime-mutable state is now owned by an
 //! explicit `VmContext` (see `crate::vm_context`). The previous `thread_local!`
 //! slots `interp::dispatch::STATIC_FIELDS`, `interp::PENDING_EXCEPTION`,

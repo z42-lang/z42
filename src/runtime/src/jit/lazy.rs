@@ -1,4 +1,4 @@
-//! Lazy per-function JIT compilation (lazy-per-function-jit, 2026-07-23).
+//! Lazy per-function JIT compilation (lazy-per-function-jit).
 //!
 //! Holds the cranelift `JITModule` plus helper import ids, and compiles a single
 //! z42 function to native code on demand. A `LazyCompiler` is owned (behind a
@@ -52,7 +52,7 @@ impl LazyCompiler {
         // 删除——interp/jit 对比现在是 `xtask bench --mode both`。上面括号里的
         // 数字就是当时的结论，无需再去找那份文件。）
         //
-        // disable-cranelift-verifier（2026-09-05）：`enable_verifier` 在 Cranelift 里默认
+        // disable-cranelift-verifier：`enable_verifier` 在 Cranelift 里默认
         // **true**（见 cranelift-codegen-meta 的 shared/settings.rs），于是我们每编一个函数
         // 都白跑一遍 IR 校验 —— 编译期原生采样里 `Verifier::run` 是最大的单个叶子，实测占
         // 翻译总耗时的 31%（1325 个函数 903 ms → 619 ms，每 op 19.75 → 13.55 µs）。

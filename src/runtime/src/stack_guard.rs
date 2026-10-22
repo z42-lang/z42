@@ -16,7 +16,7 @@
 //! 4. that entry reports it — `z42vm` prints [`take_report`] and exits with
 //!    [`EXIT_CODE`], the embedding API returns an error status.
 //!
-//! Not catchable by design (runtime-audit decision, 2026-10-06): some paths
+//! Not catchable by design (runtime-audit decision): some paths
 //! between two checks run unbounded native recursion, re-entry points used to
 //! flatten exceptions, and JIT helpers are `extern "C"` — a catchable overflow
 //! could not be made reliable, so it is not offered at all.

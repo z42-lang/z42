@@ -1,4 +1,4 @@
-// xtask — stdlib [Test] unit machinery (split from xtask_test_lib.z42, 2026-06-30,
+// xtask — stdlib [Test] unit machinery (split from xtask_test_lib.z42,
 // for the 500-line code-org limit). Same Z42Xtask namespace; the lib-level
 // orchestration (_testLib / _testLibCore / sharding) stays in xtask_test_lib.z42
 // and calls these cross-file.
@@ -103,7 +103,7 @@ string _renderSyntheticManifest(string projName, string includeGlob,
 //
 // **并行仍留在这里**：并行测试执行必须分进程（单 VM 内 ModuleLoader 按命名空间去重、
 // first-wins），而 z42b 定位不到自己（`__env_args` 只给 `--` 之后的参数）—— xtask 知道
-// vm + builder zpkg 路径，所以由它来批量拉起。实测 z42.io 51 单元 8 路并行：31.07s → 11.25s。
+// vm + builder zpkg 路径，所以由它来批量拉起。实测 z42.io 51 单元 8 路并行约 2.8× 提速。
 //
 // 随之消失的还有旧路径那套「编译退 0 但产物缺失」的重试绕行 —— 那个 Heisenbug 出自
 // 合成清单的独立编译相位，这条路径上没有独立编译相位。

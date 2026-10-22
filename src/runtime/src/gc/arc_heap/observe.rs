@@ -53,7 +53,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         }
     }
 
-    /// **add-write-barriers (2026-05-21)**: install a test-only observer
+    /// **add-write-barriers **: install a test-only observer
     /// that records every `write_barrier_field` / `write_barrier_array_elem`
     /// dispatch on this heap instance. Returns the previously-installed
     /// observer (if any) so tests can chain. Replaces (not stacks) — one
@@ -66,7 +66,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         std::mem::replace(&mut *self.barrier_observer.lock(), Some(obs))
     }
 
-    /// **add-write-barriers (2026-05-21)**: uninstall the test observer.
+    /// **add-write-barriers **: uninstall the test observer.
     #[cfg(test)]
     pub fn clear_barrier_observer(&self) -> Option<std::sync::Arc<BarrierObserver>> {
         self.barrier_observer.lock().take()

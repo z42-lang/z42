@@ -2,7 +2,7 @@ use super::*;
 
 // ── 7-1. Finalization (add-custom-allocator P1: sweep-time triggering) ──────
 //
-// **Behavioral contract change (2026-05-22)**: with the Arc backing
+// **Behavioral contract change **: with the Arc backing
 // removed (P1), `ArrRef::drop` is a no-op — finalizers no longer fire
 // at scope exit. The finalizer now fires only when sweep_phase tombstones
 // an unreachable entry, OR when the user calls `Std.GC.Finalize(x)`
@@ -111,7 +111,7 @@ fn finalizer_fires_when_object_freed_via_cycle_collect() {
 
 #[test]
 fn finalizer_does_not_fire_when_object_kept_alive() {
-    // **add-custom-allocator P1 (2026-05-22)**: under pure-tracing GC
+    // **add-custom-allocator P1 **: under pure-tracing GC
     // (post-add-mark-sweep-collector), Rust-local Value strong refs are
     // NOT roots. To preserve the object across collect we must pin it
     // explicitly; otherwise sweep tombstones it and fires the finalizer.
@@ -130,7 +130,7 @@ fn finalizer_does_not_fire_when_object_kept_alive() {
     assert_eq!(heap.stats().finalizers_pending, 1);
 }
 
-// ── add-custom-allocator P2 (2026-05-22): Std.GC.Finalize / finalize_now ──
+// ── add-custom-allocator P2 : Std.GC.Finalize / finalize_now ──
 
 #[test]
 fn finalize_now_fires_registered_finalizer_immediately() {

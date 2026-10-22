@@ -246,7 +246,7 @@ fn build_method_info_ex(
     is_virtual: bool,
     receiverless: bool,
 ) -> Result<Value> {
-    // stabilize-dispatch-keys (方案A, 2026-07-14): dispatch keys now carry a
+    // stabilize-dispatch-keys (方案A): dispatch keys now carry a
     // full `$N$types` mangle suffix for every method (vtable slots + own_methods
     // keys included), so the derived `simple` name may be e.g. `Foo$1$int`.
     // Reflection presents the source-level name — strip the mangle suffix for

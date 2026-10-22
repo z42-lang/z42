@@ -7,7 +7,7 @@
 //! `src/libraries/z42.io/src/Platform.z42` constants `OSKind::*` /
 //! `ArchKind::*` (the z42 stdlib spec lists the canonical values).
 //!
-//! 2026-05-14 add-platform-os-stdlib.
+//!  add-platform-os-stdlib.
 
 use crate::metadata::Value;
 use crate::vm_context::VmContext;
@@ -65,7 +65,7 @@ pub fn builtin_platform_arch_kind(_ctx: &VmContext, _: &[Value]) -> Result<Value
 
 /// `__platform_caps() -> string[]` — runtime capability set of THIS binary.
 ///
-/// add-exec-profile-matrix (2026-07-31): the exec-profile bench/test harness
+/// add-exec-profile-matrix : the exec-profile bench/test harness
 /// probes the target VM binary with `Std.Platform.Capabilities()` and tags each
 /// result with the caps the binary actually reports — never a static guess. The
 /// values are the ground truth of "what was compiled in":

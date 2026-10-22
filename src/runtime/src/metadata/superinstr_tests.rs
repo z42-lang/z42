@@ -1,4 +1,4 @@
-//! interp-typed-superinstr (2026-08-01): recognizer tests for the fused
+//! interp-typed-superinstr : recognizer tests for the fused
 //! super-instruction rule table — covers CmpBr recognition, the `typed`
 //! (integer `reg_types`) fast-path flag, and the untyped fallback.
 

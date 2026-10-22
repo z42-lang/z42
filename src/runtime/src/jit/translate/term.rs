@@ -53,7 +53,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
             Terminator::Br { label } => {
                 let target = self.func.blocks.iter().position(|b| &b.label == label)
                     .expect("Br label not found");
-                // add-gc-safepoint-jit (2026-05-21): backward branch =
+                // add-gc-safepoint-jit : backward branch =
                 // loop back-edge; check safepoint so long-running JIT
                 // loops park promptly when GC requests a pause.
                 if target <= self.block_idx {
@@ -62,7 +62,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                 self.builder.ins().jump(self.cl_blocks[target], &[]);
             }
             Terminator::BrCond { cond, true_label, false_label } => {
-                // add-gc-safepoint-jit (2026-05-21): BrCond's runtime target
+                // add-gc-safepoint-jit : BrCond's runtime target
                 // isn't known until cond is evaluated; check unconditionally.
                 // Idle fast path is cheap; this catches loops where the
                 // back-edge is a BrCond rather than a Br.
@@ -73,7 +73,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                 let false_idx = self.func.blocks.iter().position(|blk| &blk.label == false_label)
                     .expect("false_label not found");
 
-                // C2 P1 step 4 (2026-05-28): when reg_types[cond] confirms
+                // C2 P1 step 4 : when reg_types[cond] confirms
                 // Bool, skip the `jit_get_bool` helper call entirely — load
                 // the i8 payload byte directly from `frame.regs[cond]` and
                 // feed it to `brif`. Closes the dominant remaining helper-

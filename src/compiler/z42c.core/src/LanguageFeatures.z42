@@ -2,7 +2,7 @@
 // （Dict<...> 被丢弃）→ 并行数组 string[] names + bool[] enabled + count。
 // IsEnabled(未知名) = false（拼写错误被发现，不静默启用）。
 //
-// ✅ **已接线**（add-l0-protocol-table 批 1，2026-09-25）：`z42.toml` 的 `[syntax]` 段 →
+// ✅ **已接线**（add-l0-protocol-table 批 1）：`z42.toml` 的 `[syntax]` 段 →
 // `ManifestLoader._parseSyntax`（只搬中性 name/value）→ `z42c.driver` 的 `Main._build` 建表
 // （`Phase1Profile` 起底 + 按 toml 覆盖，**未知名报错退出**）→ `CompileInput.Features` →
 // `IncrementalDriver` 的**两处** `new Parser` → `Parser._requireFeature` 发 **E0301**。
@@ -29,7 +29,7 @@
 // `async` —— `await` 从不被任何 parser 消费、无 Task 类型；`list_patterns` —— 全仓零
 // ListPattern、模式解析器没有 `[` 分支），外加 2 个「库有、语言构造没有」的
 // （`threading` —— `lock` 连关键字都不是；`native_interop` —— FFI 真有但挂它名下的
-// `pinned` 是个没人消费的死 token）。六个已于 2026-09-23 删除。
+// `pinned` 是个没人消费的死 token）。六个已删除。
 // **加名字前先确认 parser 真的有消费该语法的代码路径**，否则这里就又多一句假话 ——
 // 在开关真正接线之前，没有任何门能替你发现这件事。
 namespace Z42.Core;

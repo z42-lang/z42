@@ -22,7 +22,7 @@ void _writeBuildCache(ProjectManifest pm, string projectDir, bool isRelease, str
         string cacheDir = cacheDirOverride.Length > 0 ? cacheDirOverride : BuildLayout.Resolve(pm, projectDir, isRelease).CacheDir;
         // zbc 必须**先于** meta 写：meta 是「这份 zbc 有效」的证明，反过来写中途崩溃会留下新 meta 配旧 zbc。
         // parallel-parse-and-cache：逐文件 zbc 互不依赖，各写自己的文件与 zbcHashes 槽 ⇒ 可并行（jobs=1 时内联）。
-        // 实测（编译器 workspace、jobs=1）这一步占总耗时 8.8%。任一文件失败照旧整体放弃本次 cache（不写 meta）。
+        // 实测（编译器 workspace、jobs=1）这一步占总耗时约一成。任一文件失败照旧整体放弃本次 cache（不写 meta）。
         string[] zbcHashes = new string[srcs.Length];
         CacheZbcTask zt = new CacheZbcTask(cacheDir, projectDir, srcs, mods, prep, zbcHashes);
         ParallelFor.Run(srcs.Length, ParallelConfig.Jobs(srcs.Length), zt);

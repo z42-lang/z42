@@ -1,4 +1,4 @@
-//! Per-app native apphost stub (add-apphost, 2026-06-09).
+//! Per-app native apphost stub (add-apphost).
 //!
 //! `z42 publish <project.z42.toml>` copies this binary and patches the embedded
 //! target placeholder (located in the file by [`MAGIC`]) with the app's zpkg

@@ -291,7 +291,7 @@ public sealed partial class SymbolTable {
         if (pkg == "") { return ""; }            // 空 = 本包声明的那份 / 来源不唯一
         if (pkg == this.SelfPkg) { return ""; }
         // 🔴 **标准库（`z42.` 前缀）自动可用，不要求声明** —— 这是已归档的设计裁决
-        // `simplify-stdlib-auto-import`（2026-06-06，Rust-std 模型：`[dependencies]` 只写第三方）。
+        // `simplify-stdlib-auto-import`(Rust-std 模型：`[dependencies]` 只写第三方）。
         // ⚠️ 它配套的 WS013 lint（声明 `z42.*` 依赖 → 「冗余」警告）**已随 C# 编译器蠕发**
         // （全仓 `grep WS013 src/` 为空），而 `z42-toml.md` 至今还写着它会警告 ——
         // 同族于 E0407 / `FlowAnalyzer.cs` 那类「文档在、实现没了」。
@@ -380,7 +380,7 @@ public sealed partial class SymbolTable {
         SymbolTable._internAllIn(this.Intern, this.InterfacesByFqn);
     }
 
-    // 🔴 **按槽位扫，不是按条目数扫**（2026-09-28 修，B1 的既有缺陷）。
+    // 🔴 **按槽位扫，不是按条目数扫**（修，B1 的既有缺陷）。
     // `StrMap.ValAt(i)` 取的是**槽位** `i`（哈希布局），而 `Count()` 是**条目数** ——
     // 两者索引空间不同。原先写成 `while (i < tbl.Count())` ⇒ 只扫了前 `_count` 个槽，
     // 条目一旦散布到靠后的槽就**漏 intern**，留下 `TypeId == 0`。

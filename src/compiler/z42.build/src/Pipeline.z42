@@ -87,7 +87,7 @@ public class Pipeline {
         req.PackageName = pm.Project.Name;
         req.Manifest = pm;   // add-build-session：实现方据此走 BuildSession（[optimize]/[syntax]/[lints]/[plugins]/entry/version/E0497）
         CompileResult res = this.Compiler.Compile(req);
-        // 警告经 ctx.Warn 呈现（stderr；User 2026-09-30 裁决）。此前成功时警告被整体丢弃。
+        // 警告经 ctx.Warn 呈现（stderr；User 裁决）。此前成功时警告被整体丢弃。
         if (res.Warnings != null && res.Warnings.Length > 0) {
             string[] wl = res.Warnings.Split("\n");
             int wi = 0;

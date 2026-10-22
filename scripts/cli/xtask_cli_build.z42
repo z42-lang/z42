@@ -1,5 +1,5 @@
 // xtask CLI — `build` 命令族：router（叶子的 flag/option 声明）+ dispatch
-// （已解析命令 → handler）。从 xtask_cli.z42 拆出（split-xtask-cli, 2026-09-05）：
+// （已解析命令 → handler）。从 xtask_cli.z42 拆出（split-xtask-cli）：
 // 每个命令族的 router 与 dispatch 成对出现、与其它族零耦合，放在一起比按
 // 「所有 router 一段、所有 dispatch 一段」更好读。同 Z42Xtask 命名空间，
 // 跨文件裸名互调；xtask_cli.z42 的 _cliRoot / _dispatch 是唯一的挂载点。

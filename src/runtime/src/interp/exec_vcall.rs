@@ -1,6 +1,6 @@
 /// Virtual dispatch (`VCall`): the interpreter's **invoke** side.
 ///
-/// unify-vcall-resolution (2026-09-03): *what* to call is decided by
+/// unify-vcall-resolution : *what* to call is decided by
 /// `vcall_resolve::resolve_vcall` (shared with `jit/helpers/vcall.rs::jit_vcall`);
 /// this file only keeps the interpreter-specific pieces — the receiver-kind
 /// helpers (`primitive_class_name` / `value_synthetic_type_id` / `is_array_isa`),
@@ -67,7 +67,7 @@ pub(crate) fn primitive_class_name(obj: &Value) -> Option<&'static str> {
         // or Std.Single is **never reached through this path** — it lands on Int32/Double's
         // same-named method instead.
         //
-        // fix-narrow-prim-instance-dispatch (2026-09-22): the compiler now emits a **static
+        // fix-narrow-prim-instance-dispatch : the compiler now emits a **static
         // Call** to the wrapper's method for exactly those 8 receiver types (primitives are
         // sealed value types — there is no virtual dispatch to preserve), so they reach their
         // own implementations. This table stays as the fallback for everything else.
@@ -82,7 +82,7 @@ pub(crate) fn primitive_class_name(obj: &Value) -> Option<&'static str> {
         Value::Bool(_) => Some(STD_BOOLEAN),
         Value::Char(_) => Some(STD_CHAR),
         Value::Str(_)  => Some(STD_STRING),
-        // 2026-05-07 add-array-base-class: T[] dispatches to Std.Array methods
+        // add-array-base-class: T[] dispatches to Std.Array methods
         // (Clone / GetType / ToString / Equals / GetHashCode). The lookup path
         // tries `Std.Array.<method>` first, then falls through to base
         // `Std.Object.<method>` via the primitive overload retry logic.
@@ -91,7 +91,7 @@ pub(crate) fn primitive_class_name(obj: &Value) -> Option<&'static str> {
     }
 }
 
-/// refactor-vcall-ic-primitives (2026-05-17): synthetic TypeId for IC keying.
+/// refactor-vcall-ic-primitives : synthetic TypeId for IC keying.
 /// Primitives don't have a real `TypeDesc.id` (they're built-in runtime values,
 /// not user-defined classes). Returning a stable `PRIM_TYPE_*` lets `VCallIC`
 /// cache them with the same `cached_type_id` mechanism used for object
@@ -112,7 +112,7 @@ pub(crate) fn value_synthetic_type_id(obj: &Value) -> Option<u32> {
     }
 }
 
-/// 2026-05-07 add-array-base-class: hardcoded is-a check for `Value::Array`.
+/// add-array-base-class: hardcoded is-a check for `Value::Array`.
 /// Class name comparison accepts both unqualified and `Std.`-qualified forms
 /// because IR-emitted class names depend on TypeChecker's qualification path
 /// (imported classes use FQ; bare references unqualified).

@@ -3,7 +3,7 @@
 //! 两个自包含的类型，与 `lib.rs` 的 Host 生命周期管理无关，变更频率也不同。
 //! 拆出来是行数硬限所迫（`lib.rs` 长期在 line-limit 棘轮基线上，越界文件不得增长），
 //! 顺便让 `lib.rs` 回到 500 行以下、可以从基线剔除。
-//! app-config-follows-the-app（2026-09-05）的顺带整理。
+//! app-config-follows-the-app 的顺带整理。
 
 use std::path::PathBuf;
 use std::sync::Arc;

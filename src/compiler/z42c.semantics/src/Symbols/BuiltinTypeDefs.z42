@@ -37,7 +37,7 @@ public static class BuiltinTypeDefs {
         m[0] = BuiltinTypeDefs._im(ProtocolNames.Count, "int", BuiltinTypeDefs._t0(), 0);
         m[1] = BuiltinTypeDefs._im("IsEmpty", "bool", BuiltinTypeDefs._t0(), 0);
         m[2] = BuiltinTypeDefs._im("Clear", "void", BuiltinTypeDefs._t0(), 0);
-        m[3] = BuiltinTypeDefs._im("AddOne", "void", BuiltinTypeDefs._t1("T"), 1);   // 2026-06-11 prelude 漂移（并行流）
+        m[3] = BuiltinTypeDefs._im("AddOne", "void", BuiltinTypeDefs._t1("T"), 1);   //  prelude 漂移（并行流）
         r[1] = BuiltinTypeDefs._iface("IBasicCollection", BuiltinTypeDefs._t1("T"), 1, m, 4);
         // apply-self-to-core-protocols：IComparable / IEquatable / INumber 已 Self 化 ⇒
         // tpc=0（非泛型），签名里的「实现方自己」写作 "Self"。此表必须与

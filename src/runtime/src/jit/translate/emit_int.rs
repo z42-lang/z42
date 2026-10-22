@@ -80,7 +80,7 @@ pub(super) fn emit_i64_neg(
 
 /// Emit native `frame.regs[dst] = Value::I64(!src)` — bitwise NOT on i64
 /// via Cranelift `bnot`. Caller must have verified `reg_types[dst] ==
-/// reg_types[src] == I64` (review.md C2 P1 follow-up, 2026-05-30).
+/// reg_types[src] == I64` (review.md C2 P1 follow-up).
 pub(super) fn emit_i64_bit_not(
     builder: &mut FunctionBuilder,
     regs_base: cranelift_codegen::ir::Value,

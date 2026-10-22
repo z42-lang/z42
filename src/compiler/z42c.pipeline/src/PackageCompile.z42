@@ -100,7 +100,7 @@ public sealed class CompileInputs {
     // AddSource union 重编）；空（z42c 自建）→ 分支不进 → 逐字节不动。
     public ModuleGenerator[] ModuleGenerators; public int ModuleGeneratorCount;
     // attribute-handler-registry PR4d：外部 generator zpkg **复用 `AnalyzerZpkgs`**（D9 单段 `[plugins]`
-    // 覆盖 analyzer + generator 两类，User 2026-08-22 裁决——同一批路径）。Compile 经 GeneratorLoader 从
+    // 覆盖 analyzer + generator 两类，User 裁决——同一批路径）。Compile 经 GeneratorLoader 从
     // `AnalyzerZpkgs` 发现 `: Generator`/`: ModuleGenerator`、并入 Generators/ModuleGenerators 走同一 gated
     // 块（analyzer 各按接口过滤，互不干扰）。**不新增独立字段**——避免 z42c.driver 引用 CompileInputs 新
     // 字段成「新跨成员符号」，撞 F2 DepScanCache 冷启动 stale-cache（driver 冷建解析到种子旧 pipeline →

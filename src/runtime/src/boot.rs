@@ -1,6 +1,6 @@
 //! Merged module → ready-to-run `VmContext`: the boot steps shared by every entry path.
 //!
-//! fix-host-static-init (2026-09-14): there are two ways to run z42 code —
+//! fix-host-static-init : there are two ways to run z42 code —
 //! [`crate::app::run`] (the `z42vm` binary, `z42_run_app`, wasm `runTestApp`) and the
 //! embedding host API (`z42_host_load_zbc` → `z42_host_invoke`, in `host/ops.rs`). Both
 //! merge the user module with its dependencies the same way, but the host kept a
@@ -96,7 +96,7 @@ pub(crate) fn boot_context(mut module: Module, plan: BootPlan) -> Pin<Box<VmCont
 /// Per-module execution setup that must precede running any function of `module`.
 /// Idempotent, but meant to run once per module.
 pub(crate) fn prepare_execution(ctx: &VmContext, module: &Module) {
-    // introduce-method-token Phase 3 (2026-05-08): pre-resolve dispatch
+    // introduce-method-token Phase 3 : pre-resolve dispatch
     // tokens for every Function. Idempotent — safe if hot paths run
     // before Phase 4 hookups consume the cache (they fall back to
     // string lookup until Phase 4 lands).

@@ -1,4 +1,4 @@
-// xtask — iOS platform backend (add-platform-test-pipeline, 2026-06-15).
+// xtask — iOS platform backend (add-platform-test-pipeline).
 // Implements IPlatformBackend (logic ported from the former
 // src/toolchain/workload/ios/platform/build.sh, now removed):
 //   ① BuildProject : cargo build × (ios targets + macOS host slice) → xcframework

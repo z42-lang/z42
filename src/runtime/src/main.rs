@@ -56,13 +56,13 @@ struct Cli {
     /// 把来自环境变量 / 配置文件的配置问题从警告升级为致命错误。
     ///
     /// 命令行（`--set`）的问题一律致命，不受此开关影响。CI 用它把配置漂移变成硬失败。
-    // 等价 `Z42_STRICT_CONFIG=1`。引入：complete-runtime-settings P1（2026-09-05）。
+    // 等价 `Z42_STRICT_CONFIG=1`。引入：complete-runtime-settings P1。
     #[arg(long, help_heading = "运行时配置")]
     strict_config: bool,
 
     // ── 自省 ────────────────────────────────────────────────────────────
     /// 构建信息 + 完整旋钮快照，然后退出。**提 bug 时贴这个。**
-    // 引入：docs/review.md Part 4 D5（2026-05-25）。
+    // 引入：docs/review.md Part 4 D5。
     #[arg(long, help_heading = "自省")]
     info: bool,
 
@@ -86,7 +86,7 @@ struct Cli {
     /// 程序正常退出后，把运行时计数器打到 stderr。
     ///
     /// `--stats` = 人读的文本块；`--stats=json` = 单行 JSON（供工具抓取）。
-    // 引入：docs/review.md Part 4 D6（2026-05-26）；JSON 形态来自 script-profiling P0。
+    // 引入：docs/review.md Part 4 D6；JSON 形态来自 script-profiling P0。
     //
     // `require_equals`：可选值必须写成 `--stats=json`。不加的话 clap 会把紧跟其后的
     // 位置参数当成它的值——`z42vm --stats app.zpkg` 会报「invalid value 'app.zpkg'
@@ -101,11 +101,11 @@ struct Cli {
     args: Vec<String>,
 }
 
-// 2026-05-11 retire-z-codes: `--explain` / `--list-errors` were removed
+// retire-z-codes: `--explain` / `--list-errors` were removed
 // alongside the Rust-side `diagnostics` catalog. Use `z42c explain E####`
 // for compile-time codes; runtime errors are typed z42 exceptions now.
 
-// 2026-05-07 add-runtime-feature-flags (P4.1): variants are feature-gated so
+// add-runtime-feature-flags (P4.1): variants are feature-gated so
 // `--help` only advertises modes the binary can actually run, and clap rejects
 // unsupported `--mode jit` requests with a friendly enum-list error.
 /// `--stats-format` selector (script-profiling P0). `Text` is the historical
@@ -175,7 +175,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // Centralized runtime config — single source of truth for Z42_* env vars
-    // consumed at boot (docs/review.md Part 4 D1, 2026-05-26). Subsystem
+    // consumed at boot (docs/review.md Part 4 D1). Subsystem
     // reads go through the process-global runtime_config().
     //
     // Precedence chain (unify-run-modes P0): env > [runtime] TOML file > default.
@@ -279,7 +279,7 @@ belong to the app and come only from its <app>.runtimeconfig.toml sidecar.");
     #[cfg(unix)]
     z42::signal_handler::install();
 
-    // Verbose-mode startup banner (docs/review.md D5 item 2, 2026-05-26).
+    // Verbose-mode startup banner (docs/review.md D5 item 2).
     // One-line tracing::info — gated by EnvFilter / `--verbose` so the
     // default quiet boot is preserved. `--info` users get the full dump
     // from `print_build_info` instead.
@@ -332,7 +332,7 @@ belong to the app and come only from its <app>.runtimeconfig.toml sidecar.");
     // are respected.
     // "Did the user already specify libs?" must consult the RESOLVED knob, not the
     // raw env — otherwise `--set libs=/x` and `[runtime].libs` would be overwritten
-    // by the auto-published value (adopt-inline-env-knobs, 2026-09-05).
+    // by the auto-published value (adopt-inline-env-knobs).
     let user_libs = cfg.libs_dir.as_ref().map(|p| p.display().to_string());
     if let Some(val) = libs_env_to_publish(user_libs.as_deref(), libs_dir.as_deref()) {
         // Safety: z42 is single-threaded; no concurrent env reads during boot.

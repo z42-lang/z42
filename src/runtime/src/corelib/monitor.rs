@@ -1,4 +1,4 @@
-//! `Monitor` —— z42 同步原语唯一的原生底座（store-sync-values-in-heap, 2026-09-14）。
+//! `Monitor` —— z42 同步原语唯一的原生底座（store-sync-values-in-heap）。
 //!
 //! **不变量：原生层不持有任何 GC 值。** `Std.Threading.Mutex<T>` / `RwLock<T>` / `Channel<T>`
 //! 用 z42 写在 Monitor 之上，它们的值 / 队列缓冲区是 z42 对象的普通字段——GC 按对象图追踪、

@@ -1,4 +1,4 @@
-// launcher_export.z42 — `z42 export` entry points + shared helpers (add-export-command, 2026-06-14).
+// launcher_export.z42 — `z42 export` entry points + shared helpers (add-export-command).
 //
 // Three entry points dispatched by launcher_cli.z42:
 //   _cmdExportIos     → launcher_export_ios.z42 :: _generateIosProject

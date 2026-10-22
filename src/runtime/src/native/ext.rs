@@ -1,4 +1,4 @@
-//! Stdlib native extension loader (add-z42-compression, 2026-05-22).
+//! Stdlib native extension loader (add-z42-compression).
 //!
 //! Loads `lib<basename>.{so,dylib,dll}` files from the SDK native search
 //! path at VM startup, dlopen's each, resolves a known set of `extern
@@ -182,7 +182,7 @@ pub(crate) fn native_search_paths() -> Vec<PathBuf> {
 
     // 1. Explicit override (CI / dev / power user). `Z42_NATIVE_PATH`
     //    is colon-separated on Unix, semicolon-separated on Windows.
-    //    runtime-config-phase2 (2026-06-03): centralised through
+    //    runtime-config-phase2 : centralised through
     //    `RuntimeConfig::native_search_paths` (pre-split at config init).
     paths.extend(crate::config::runtime_config().native_search_paths.iter().cloned());
 
@@ -190,7 +190,7 @@ pub(crate) fn native_search_paths() -> Vec<PathBuf> {
     //      <exec_dir>/../native/    — SDK package layout (bin/ and native/ siblings)
     //      <exec_dir>/native/       — dev / cargo-target layout when scripts symlink
     //      <exec_dir>              — raw cargo-target layout (libz42_*.dylib sit next
-    //                                 to z42vm directly; added 2026-05-24 to remove
+    //                                 to z42vm directly; added  to remove
     //                                 the manual `ln -sf ../libz42_compression.dylib
     //                                 release/native/libz42_compression.dylib` setup
     //                                 step every fresh `cargo build` previously
@@ -295,7 +295,7 @@ type CZstdDecompressFn = unsafe extern "C" fn(
     *const u8, usize,
     *mut *mut u8, *mut usize,
 ) -> i32;
-// add-z42-compression-brotli (2026-05-27): same shape as zstd.
+// add-z42-compression-brotli : same shape as zstd.
 type CBrotliCompressFn = unsafe extern "C" fn(
     *const u8, usize, i32,
     *mut *mut u8, *mut usize,
@@ -304,7 +304,7 @@ type CBrotliDecompressFn = unsafe extern "C" fn(
     *const u8, usize,
     *mut *mut u8, *mut usize,
 ) -> i32;
-// add-z42-compression-lz4 (2026-05-27): same shape as brotli.
+// add-z42-compression-lz4 : same shape as brotli.
 type CLz4CompressFn = unsafe extern "C" fn(
     *const u8, usize, i32,
     *mut *mut u8, *mut usize,
@@ -522,7 +522,7 @@ fn bytes_to_value(ctx: &VmContext, bytes: Vec<u8>) -> Value {
 
 fn take_owned_buffer(free: CFreeFn, out_ptr: *mut u8, out_len: usize) -> Vec<u8> {
     if out_ptr.is_null() || out_len == 0 { return Vec::new(); }
-    // unify-gc-heap PR-3 fix (2026-08-15): **copy** the cdylib's output into a Rust-owned Vec
+    // unify-gc-heap PR-3 fix : **copy** the cdylib's output into a Rust-owned Vec
     // (z42vm's global allocator), then free the cdylib's buffer via ITS OWN allocator
     // (`z42_compression_free`). The previous code reconstructed a Rust `Vec::from_raw_parts`
     // over the foreign buffer and let Rust's allocator drop it — a latent allocator-mismatch

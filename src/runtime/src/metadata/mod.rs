@@ -13,13 +13,13 @@ pub mod tokens;
 /// unify-object-byte-layout PR-4: `Str` — 8-byte thin ref-counted UTF-8 string handle
 /// (replaces `Value::Str(Arc<str>)`'s 16-byte fat pointer; lets `Value` reach 16 B in PR-5).
 pub mod vstr;
-/// review.md Part 2 C4 / C5 P1 (2026-06-01): linear-scan replacement for
+/// review.md Part 2 C4 / C5 P1 : linear-scan replacement for
 /// `HashMap<String, usize>` used in `TypeDesc.field_index` /
 /// `TypeDesc.vtable_index`. For typical class sizes (≤16 entries) a
 /// `Vec<(Box<str>, usize)>` scan beats hash + string compare on cache
 /// locality + branch prediction, and saves 8 B / entry vs `String`.
 pub mod name_index;
-/// review.md C2 step 0.2 (2026-05-27): `IrType` enum mirroring the C#
+/// review.md C2 step 0.2 : `IrType` enum mirroring the C#
 /// `IrType : byte` in `z42.IR/IrModule.cs`. Foundation for JIT type
 /// specialization — populated per-register on the `Function` via the
 /// upcoming REGT zbc section.
@@ -57,10 +57,10 @@ mod sidecar_tests;
 #[path = "types_tests.rs"]
 mod types_tests;
 
-// Re-exports: string pool typed handle (Part 5 P0 Phase A, 2026-05-26)
-// Re-exports: NameIndex (review.md Part 2 C4 / C5 P1, 2026-06-01)
+// Re-exports: string pool typed handle (Part 5 P0 Phase A)
+// Re-exports: NameIndex (review.md Part 2 C4 / C5 P1)
 pub use name_index::NameIndex;
-// Re-exports: per-register static type tag (C2 step 0.2, 2026-05-27)
+// Re-exports: per-register static type tag (C2 step 0.2)
 pub use ir_type::IrType;
 
 // Re-exports: runtime value types

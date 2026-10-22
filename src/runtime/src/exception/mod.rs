@@ -14,7 +14,7 @@
 //! `sync_in_from_ctx` / `sync_out_to_ctx` bridges are gone (review2 §5.5
 //! closed; review2 §3 fully tackled).
 //!
-//! ## Stack-trace capture (2026-05-10 exception-stack-trace)
+//! ## Stack-trace capture (exception-stack-trace)
 //!
 //! `VmContext.call_stack` holds one [`VmFrame`] per active script frame,
 //! pushed by `interp::exec_support::enter_frame` / `jit::invoke::call_native`.
@@ -39,7 +39,7 @@ use crate::vm_context::VmContext;
 /// (a) GC root scanning, (b) stack-trace formatting, and (c) interp
 /// `RefKind::Stack` cross-frame deref.
 ///
-/// 2026-05-10 unify-frame-chain replaces three previously-parallel
+/// unify-frame-chain replaces three previously-parallel
 /// vectors (`exec_stack`, `env_arena_stack`, `call_stack`) with a single
 /// `Vec<VmFrame>`. Push and pop happen in lockstep — no caller can
 /// "forget half" and leak a partial frame.
@@ -98,7 +98,7 @@ pub struct VmFrame {
 /// [`VmFrame::pc`] value of a frame that has not stamped a site yet.
 pub const PC_UNSET: u32 = u32::MAX;
 
-// SAFETY (add-multithreading-foundation Phase 3, 2026-05-20):
+// SAFETY (add-multithreading-foundation Phase 3):
 // `VmFrame` holds raw pointers (`func` / `regs`) valid for the
 // frame's lifetime, which is enclosed by `FrameGuard` RAII / `call_native`.
 // The GC scanner is the only cross-thread reader (mark phase invoked from a
@@ -357,7 +357,7 @@ pub fn read_message(value: &Value, ctx: &VmContext, module: &Module) -> Option<S
 /// machinery will then run the local handler lookup + `populate_stack_trace`
 /// fill on first throw.
 ///
-/// 2026-05-11 retire-z-codes: introduced so Rust-side throw sites (marshal
+/// retire-z-codes: introduced so Rust-side throw sites (marshal
 /// NUL, PinPtr type mismatch …) can hand the user a typed, catchable
 /// exception instead of an anyhow! error string with a `Z####:` prefix.
 ///

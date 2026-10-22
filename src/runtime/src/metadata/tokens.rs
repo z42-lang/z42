@@ -28,7 +28,7 @@
 /// practice); a sentinel cannot collide with a real id without overflowing.
 pub const UNRESOLVED: u32 = u32::MAX;
 
-/// Phase 3 (`tokenize-ir-and-zbc-bump`, 2026-05-09): bit threshold splitting
+/// Phase 3 (`tokenize-ir-and-zbc-bump`): bit threshold splitting
 /// the `u32` token space into intra-module IDs and import-table indices.
 ///
 /// ```text
@@ -46,7 +46,7 @@ pub const UNRESOLVED: u32 = u32::MAX;
 /// the type).
 pub const IMPORT_BASE: u32 = 0x8000_0000;
 
-/// refactor-vcall-ic-primitives (2026-05-17): synthetic TypeId base for
+/// refactor-vcall-ic-primitives : synthetic TypeId base for
 /// primitive receivers (`Value::I64` / `F64` / `Bool` / `Char` / `Str` / `Array`).
 /// These don't appear in `Module.type_registry` — primitives are built-in
 /// runtime values, not user-defined classes — but the `VCallIC` machinery
@@ -249,7 +249,7 @@ impl TypeKeyCell {
     }
 }
 
-/// fix-crosspkg-typeid-collision (2026-09-08): allocate `n` consecutive
+/// fix-crosspkg-typeid-collision : allocate `n` consecutive
 /// **globally unique** `TypeId`s and return the first.
 ///
 /// `TypeId` used to be handed out per module starting at 0 ("per module" was

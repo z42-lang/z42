@@ -1,7 +1,7 @@
 //! `z42vm` 启动期辅助：stdlib 定位、tracing 初始化、panic hook、构建信息打印、
 //! 模块搜索路径解析。
 //!
-//! refactor-split-main（complete-runtime-settings P5 前置，2026-09-05）：自
+//! refactor-split-main（complete-runtime-settings P5 前置）：自
 //! `main.rs` 逐行搬出的**纯移动**（无逻辑改动）。main.rs 在 line-limit 棘轮基线上
 //! （568 行），本 change 给它加了 CLI `--set` / `--list-knobs` / `--show-config` 的
 //! 接线后涨到 666——越界文件不得增长，故先拆。`main.rs` 留 CLI 定义 + `main()`
@@ -12,7 +12,7 @@ use z42::config::KNOWN_KNOBS;
 
 /// Locate the stdlib libs/ directory.
 ///
-/// Search order (redesign-artifact-layout, 2026-05-12):
+/// Search order (redesign-artifact-layout):
 ///   1. `$Z42_LIBS`                                         — env override
 ///   2. `<binary-dir>/../libs/`                             — packages/<pkg>/libs/ adjacent
 ///   3. `<cwd>/artifacts/intermediate/libraries/flat/release/` — dev flat view (xtask build stdlib)
@@ -20,7 +20,7 @@ use z42::config::KNOWN_KNOBS;
 pub fn resolve_libs_dir() -> Option<PathBuf> {
     // 1. the `libs` knob (Z42_LIBS / --set libs= / [runtime].libs)
     //
-    // adopt-inline-env-knobs (2026-09-05): this used to be a bare `env::var`, so the
+    // adopt-inline-env-knobs : this used to be a bare `env::var`, so the
     // knob advertised four layers but only ever observed one — `--set libs=/x` and
     // `[runtime].libs` were silently ignored here.
     if let Some(v) = z42::config::runtime_config().libs_dir.as_ref()
@@ -105,8 +105,8 @@ pub fn log_libs(libs_dir: &PathBuf) {
 ///   2. `--verbose` CLI flag — defaults to `z42=info`
 ///   3. Otherwise: `z42=warn` (errors + warnings only; quiet boot)
 ///
-/// docs/review.md Part 4 D2 (2026-05-25) + D1 RuntimeConfig migration
-/// (2026-05-26): env var consumed via `RuntimeConfig` not inline read.
+/// docs/review.md Part 4 D2  + D1 RuntimeConfig migration
+/// : env var consumed via `RuntimeConfig` not inline read.
 pub fn init_tracing(verbose: bool, cfg: &z42::config::RuntimeConfig) {
     use tracing_subscriber::EnvFilter;
 
@@ -128,7 +128,7 @@ pub fn default_filter(verbose: bool) -> &'static str {
 /// Install a custom panic hook that prints VM context + Rust backtrace on
 /// internal panic. When `Z42_CRASH_DIR` env var is set and writable, also
 /// writes the report to `<dir>/z42vm-crash-<unix_ts_ns>.txt` for offline
-/// post-mortem. docs/review.md Part 4 D4 — Phase 1 (2026-05-25).
+/// post-mortem. docs/review.md Part 4 D4 — Phase 1 .
 ///
 /// Phase 1 covers Rust `panic!()` / unwrap / index OOB / assertion failures.
 /// Phase 2 (OS signal handler for SIGSEGV / SIGABRT) is a separate spec —
@@ -203,8 +203,8 @@ pub fn build_feature_tag() -> String {
 
 /// Print runtime build information to stdout. Triggered by `--info`.
 /// Output is intentionally human-readable + grep-friendly (one `key: value`
-/// per line). docs/review.md Part 4 D5 (2026-05-25) + D1 RuntimeConfig
-/// migration (2026-05-26): enumerates `config::KNOWN_KNOBS` so adding a
+/// per line). docs/review.md Part 4 D5  + D1 RuntimeConfig
+/// migration : enumerates `config::KNOWN_KNOBS` so adding a
 /// new knob is one table edit instead of also updating this function.
 pub fn print_build_info(resolution: &z42::config::Resolution, ctx: &z42::config::BuildCtx) {
     println!("z42vm {}", env!("CARGO_PKG_VERSION"));

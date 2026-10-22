@@ -218,11 +218,11 @@ fn minor_gc_tombstones_unrooted_young_entry() {
     assert_eq!(post, 0, "minor GC tombstones the unrooted young entry");
 }
 
-/// **fix-young-list-only-when-generational (2026-09-07)**: a heap that allocated
+/// **fix-young-list-only-when-generational **: a heap that allocated
 /// while in STW mode maintains no young list. Switching to generational must rebuild it
 /// from the live entries — otherwise minor GC walks an empty list and reclaims nothing.
 ///
-/// flip-gc-default-to-generational (2026-09-10): STW is no longer the default, so the
+/// flip-gc-default-to-generational : STW is no longer the default, so the
 /// starting mode is now set explicitly — the scenario under test is unchanged.
 #[test]
 fn set_mode_to_generational_rebuilds_young_list_from_live_entries() {
@@ -543,7 +543,7 @@ fn major_collect_via_context_full_scans_unrooted_old_entries() {
         pins.push(heap_dyn.pin_root(v));
     }
 
-    // fix-minor-and-major-in-one-pause (2026-09-10): escalation now asks for a major on the
+    // fix-minor-and-major-in-one-pause : escalation now asks for a major on the
     // **next** trip instead of running one on top of the minor just done (which paid for the
     // whole heap twice in a single pause). So this takes two cycles: the first minor observes
     // the high survival rate and requests the major, the second runs it — and a `want_major`
@@ -589,7 +589,7 @@ fn collect_full_reclaims_an_unrooted_old_entry_in_one_call() {
     assert!(heap_dyn.upgrade_weak(&weak).is_none(), "collect_full reclaims the dead old entry");
 }
 
-// ── fix-primitives-count-as-young (2026-09-11) ──────────────────────────────
+// ── fix-primitives-count-as-young  ──────────────────────────────
 
 /// Object model R9 — promotion's barrier for arrays: an array that becomes old while holding a
 /// young element (a parent filled before its child ages out) is remembered, exactly as a write
@@ -639,7 +639,7 @@ fn primitives_and_null_slots_do_not_count_as_young_references() {
          young — counting them kept every card dirty forever");
 }
 
-// ── fix-minor-and-major-in-one-pause (2026-09-10) ───────────────────────────
+// ── fix-minor-and-major-in-one-pause  ───────────────────────────
 
 /// A cycle runs a minor **or** a major, never both.
 ///

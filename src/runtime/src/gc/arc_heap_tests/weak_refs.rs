@@ -37,7 +37,7 @@ fn upgrade_weak_succeeds_while_strong_alive() {
 
 #[test]
 fn upgrade_weak_fails_after_sweep_tombstones() {
-    // **add-custom-allocator P1 (2026-05-22)**: WeakRef no longer
+    // **add-custom-allocator P1 **: WeakRef no longer
     // invalidates at Rust-scope-exit (ArrRef::drop is now no-op). It
     // invalidates when sweep_phase tombstones the entry. Was named
     // `upgrade_weak_fails_after_strong_dropped` — semantics updated.
@@ -52,7 +52,7 @@ fn upgrade_weak_fails_after_sweep_tombstones() {
         "Weak invalidates after sweep tombstones the entry");
 }
 
-// ── 8.5 Handle table（reorganize-gc-stdlib，2026-05-07）─────────────────────
+// ── 8.5 Handle table（reorganize-gc-stdlib）─────────────────────
 
 #[test]
 fn handle_alloc_returns_nonzero_for_object() {
@@ -103,7 +103,7 @@ fn handle_strong_anchors_after_external_drop() {
 
 #[test]
 fn handle_weak_clears_after_sweep_collects_target() {
-    // **add-custom-allocator P1 (2026-05-22)**: weak handle target
+    // **add-custom-allocator P1 **: weak handle target
     // invalidates when sweep tombstones the entry, not at scope exit
     // of the original strong ref (ArrRef::drop is now no-op).
     let heap = ArcMagrGC::new();

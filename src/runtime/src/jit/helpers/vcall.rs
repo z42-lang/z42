@@ -1,7 +1,7 @@
 #![allow(dangerous_implicit_autorefs)]
 //! Virtual dispatch (`jit_vcall`): the JIT's **invoke** side.
 //!
-//! unify-vcall-resolution (2026-09-03): target resolution (boxed primitive / boxed
+//! unify-vcall-resolution : target resolution (boxed primitive / boxed
 //! struct / primitive-as-struct / object vtable + hierarchy walk, candidate spellings,
 //! PIC install) lives in `interp::vcall_resolve` and is shared with the interpreter —
 //! this helper only decides how to run the resolved target: a compiled `FnEntry` when
@@ -16,7 +16,7 @@ use crate::vm_context::VmContext;
 use super::super::invoke::call_entry;
 use super::{set_exception, vm_ctx_ref};
 
-/// `jit_vcall` after formalize-jit-method-token Phase 2.E (2026-05-08):
+/// `jit_vcall` after formalize-jit-method-token Phase 2.E :
 /// the per-site `VCallIC` is threaded in (stable raw pointer baked into
 /// machine code by codegen). IC hit goes straight to the cached callee's
 /// JIT slot by `FnId` (tiered) — module-local and lazily loaded callees alike

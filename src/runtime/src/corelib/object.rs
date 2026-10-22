@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 /// Returns a `Std.Type` for the runtime class of the argument.
 ///
-/// 2026-06-08 add-reflection-mvp: user objects now carry the real
+/// add-reflection-mvp: user objects now carry the real
 /// `Arc<TypeDesc>` in `NativeData::TypeHandle`, so the returned Type responds to
 /// `GetFields()` / `GetMethods()` / `BaseType` / `GetGenericArguments()`.
 /// Primitives / arrays / strings get a handle-less `Std.Type` (member queries
@@ -69,7 +69,7 @@ pub fn builtin_obj_ref_eq(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     Ok(Value::Bool(result))
 }
 
-/// 2026-05-04 expose-weak-ref-builtin (D-1a)：把 GC 的 `make_weak` 暴露给
+/// expose-weak-ref-builtin (D-1a)：把 GC 的 `make_weak` 暴露给
 /// stdlib。Object/Array 弱化返回 WeakHandle（包装 NativeData::WeakRef 的
 /// ScriptObject）；原子值（I64 / Str / Bool / Char / FuncRef / Closure 等）
 /// 不可弱化，返回 Null。
@@ -86,7 +86,7 @@ pub fn builtin_obj_make_weak(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     Ok(ctx.heap().alloc_object(type_desc, Vec::new(), NativeData::WeakRef(weak)))
 }
 
-/// 2026-05-04 D-1b: 提取 delegate 的 captured target（receiver 对象）。
+/// D-1b: 提取 delegate 的 captured target（receiver 对象）。
 /// 用于 `Std.WeakRef<TD>` 在 ctor 时拿到 target 后做 `MakeWeak` —— 让多播
 /// 订阅器只持 listener 的弱引用，避免 lapsed listener 内存泄漏。
 ///
@@ -110,7 +110,7 @@ pub fn builtin_delegate_target(_ctx: &VmContext, args: &[Value]) -> Result<Value
     }
 }
 
-/// 2026-05-04 D-1b: 提取 Closure 的 fn_name（thunk 函数全限定名）。
+/// D-1b: 提取 Closure 的 fn_name（thunk 函数全限定名）。
 /// P1-2 PR 8：值里存的是目标 `FnId`，名字从 id 指向的 `Function` 取，每次新分配一个 GC 串
 /// （冷路径：`WeakRef` 构造时调一次）。
 /// 与 `__delegate_target` 配套使用 —— `Std.WeakRef<TD>` 不强持原 handler
@@ -128,7 +128,7 @@ pub fn builtin_delegate_fn_name(ctx: &VmContext, args: &[Value]) -> Result<Value
     }
 }
 
-/// 2026-05-04 D-1b: 用给定 fn_name + env 数组构造 heap-allocated Closure。
+/// D-1b: 用给定 fn_name + env 数组构造 heap-allocated Closure。
 /// 与 `__delegate_target` / `__delegate_fn_name` 配套，让 `Std.WeakRef<TD>.Get()`
 /// 在 receiver 仍存活时重建一个等价于原 handler 的 Closure。
 ///
@@ -170,7 +170,7 @@ pub fn builtin_make_closure(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     Ok(ctx.heap().alloc_closure(crate::metadata::ClosureData { env, fn_id }))
 }
 
-/// 2026-05-04 expose-weak-ref-builtin (D-1a)：升格 WeakHandle 弱引用。
+/// expose-weak-ref-builtin (D-1a)：升格 WeakHandle 弱引用。
 /// 目标存活返回原 Object/Array；目标已被回收 / 输入非 WeakHandle / Null →
 /// 返回 Null（lenient 处理，与 `__delegate_eq` 同款）。
 pub fn builtin_obj_upgrade_weak(ctx: &VmContext, args: &[Value]) -> Result<Value> {
@@ -206,7 +206,7 @@ fn weak_handle_type_desc() -> Arc<TypeDesc> {
     })).clone()
 }
 
-/// 2026-05-03 fix-delegate-reference-equality (D-5)：delegate reference
+/// fix-delegate-reference-equality (D-5)：delegate reference
 /// equality —— 两个 `Value` 变体（FuncRef / Closure）按
 /// 各自身份语义比较。跨变体不等，非 delegate 值返回 false 不报错。
 ///
@@ -252,7 +252,7 @@ pub fn builtin_obj_hash_code(_ctx: &VmContext, args: &[Value]) -> Result<Value> 
             let addr = crate::gc::ObjRef::as_ptr(gc) as *const _ as *const u8 as usize;
             Ok(Value::I64(identity_hash(addr)))
         }
-        // 2026-05-07 add-array-base-class: identity hash for Value::Array
+        // add-array-base-class: identity hash for Value::Array
         Some(Value::Array(gc)) => {
             let addr = crate::gc::ArrRef::as_ptr(gc) as *const _ as *const u8 as usize;
             Ok(Value::I64(identity_hash(addr)))
@@ -267,7 +267,7 @@ pub fn builtin_obj_hash_code(_ctx: &VmContext, args: &[Value]) -> Result<Value> 
 pub fn builtin_obj_equals(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let result = match (args.first(), args.get(1)) {
         (Some(Value::Object(a)), Some(Value::Object(b))) => crate::gc::ObjRef::ptr_eq(a, b),
-        // 2026-05-07 add-array-base-class: reference-equality for arrays (mirror Object)
+        // add-array-base-class: reference-equality for arrays (mirror Object)
         (Some(Value::Array(a)),  Some(Value::Array(b)))  => crate::gc::ArrRef::ptr_eq(a, b),
         (Some(Value::Null), Some(Value::Null))           => true,
         (Some(Value::Null), _) | (_, Some(Value::Null)) => false,
@@ -285,7 +285,7 @@ pub fn builtin_obj_to_str(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
             let simple = crate::metadata::type_names::unqualified(td_name);
             Ok(Value::Str(simple.into()))
         }
-        // 2026-05-07 add-array-base-class: arrays ToString returns simple class name
+        // add-array-base-class: arrays ToString returns simple class name
         // ("Array"), matching Object protocol default. Element-typed ToString
         // (`int[]` etc.) is deferred to expand-type-metadata.
         Some(Value::Array(_)) => Ok(Value::Str("Array".into())),
@@ -294,7 +294,7 @@ pub fn builtin_obj_to_str(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
     }
 }
 
-// 2026-04-27 wave1-assert-script: 6 `builtin_assert_*` functions removed.
+// wave1-assert-script: 6 `builtin_assert_*` functions removed.
 // `Std.Assert` is now pure z42 script in `z42.core/src/Assert.z42`.
 
 #[cfg(test)]

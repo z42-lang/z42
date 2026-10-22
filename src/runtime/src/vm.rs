@@ -5,7 +5,7 @@ use anyhow::{bail, Result};
 /// Top-level VM: holds run-time configuration (exec mode) and dispatches to
 /// the appropriate backend.
 ///
-/// **add-threading-stdlib (2026-05-20)**: the user's compiled `Module` moved
+/// **add-threading-stdlib **: the user's compiled `Module` moved
 /// from `Vm` into `VmCore` (accessed via `ctx.core.module`). This lets a
 /// spawned thread share the same Module without a Vm clone. Vm is now a
 /// thin run-config wrapper.
@@ -27,7 +27,7 @@ impl Vm {
     /// and for `ctx.install_lazy_loader` before calling `run` if dependencies
     /// need lazy-loading.
     ///
-    /// Entry resolution (strict, since 2026-05-14 auto-detect-main +
+    /// Entry resolution (strict, since  auto-detect-main +
     /// drop-cli-entry-fallback): `hint` must be `Some(name)`. The compiler
     /// (`PackageCompiler.BuildTarget.AutoDetectEntry`) bakes `Entry` into
     /// every exe zpkg; the artifact loader passes it as `hint`. CLI users
@@ -54,7 +54,7 @@ impl Vm {
 
         let outcome = match self.default_mode {
             ExecMode::Interp => crate::interp::run_with_static_init(ctx, module, entry),
-            // 2026-05-07 add-runtime-feature-flags (P4.1): JIT path is feature-gated.
+            // add-runtime-feature-flags (P4.1): JIT path is feature-gated.
             // When `jit` feature is off, fall through to a friendly bail so old zbc
             // files with `exec_mode = Jit` produce a clear "recompile with --features jit"
             // message instead of an opaque link error.

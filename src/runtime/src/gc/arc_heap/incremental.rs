@@ -1,4 +1,4 @@
-//! **Incremental major collection** — add-incremental-major-gc M2b (2026-09-16).
+//! **Incremental major collection** — add-incremental-major-gc M2b .
 //!
 //! A generational major no longer runs in one pause. It runs as a sequence of **slices**, each an
 //! ordinary stop-the-world pause bounded by `Z42_GC_SLICE_MS`, with mutators — and minors — running

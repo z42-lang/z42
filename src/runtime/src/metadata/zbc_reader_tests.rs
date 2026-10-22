@@ -1,4 +1,4 @@
-//! Phase 3 S3 (tokenize-ir-and-zbc-bump, 2026-05-09) IdMap unit tests.
+//! Phase 3 S3 (tokenize-ir-and-zbc-bump) IdMap unit tests.
 //!
 //! IdMap is the v1.0 wire-format token decoder. Pre-1.0 support was dropped
 //! in S3c (pre-1.0 keeps no old-version compatibility).
@@ -282,11 +282,11 @@ fn pure_primitive_struct_block_has_no_ref_leaves() {
     assert!(sl.ref_offsets.is_empty(), "pure-primitive struct has no ref leaves");
 }
 
-// ── fix-version-mismatch-diagnosis (2026-09-05) ──────────────────────────────
+// ── fix-version-mismatch-diagnosis  ──────────────────────────────
 // A version mismatch is now a *typed* error (`FormatVersionMismatch`) so callers
 // that warn-and-continue on ordinary read failures can hard-fail on this one.
 // These tests pin both halves: the user-visible strings must not drift (they are
-// the same text the pre-2026-09-05 inline `bail!`s produced), and the type must
+// the same text the pre- inline `bail!`s produced), and the type must
 // stay recoverable from an anyhow chain that has been `.context(…)`-wrapped.
 
 #[test]

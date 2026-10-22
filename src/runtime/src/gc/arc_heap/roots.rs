@@ -48,7 +48,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         count
     }
 
-    /// **add-lazy-context-unload (2026-08-05)**: after mark, walk marked
+    /// **add-lazy-context-unload **: after mark, walk marked
     /// `ScriptObject`s and resolve which collectible contexts they retain
     /// (instance `type_desc` ptr + reflection native handles). Only called when
     /// an unload is in flight. Marks are still set (sweep clears them next).
@@ -75,7 +75,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         live
     }
 
-    /// **add-heap-retention-diagnostics (2026-08-06)**: build the reverse
+    /// **add-heap-retention-diagnostics **: build the reverse
     /// reference graph over the live heap (object + array regions) + categorized
     /// roots. Callers `force_collect()` first so only reachable objects remain.
     pub(super) fn build_retention_graph(&self) -> crate::gc::retention::RetentionGraph {
@@ -131,7 +131,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
         // Pinned roots (GC-internal host pins / frame pins) + strong GC handles.
         {
             let inner = self.inner.lock();
-            // fix-strong-handles-are-not-roots (2026-09-11): a strong handle anchors its target,
+            // fix-strong-handles-are-not-roots : a strong handle anchors its target,
             // so retention analysis has to report it as a root — otherwise `Heap.WhyIsThisAlive`
             // shows an object that is alive with no retainer, which is exactly the question the
             // diagnostic exists to answer. Reported as `Pinned`: it is the same kind of thing —

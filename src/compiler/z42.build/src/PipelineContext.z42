@@ -8,7 +8,7 @@ using Z42.Project;
 // native 原语（Hash/Archive/Sign/Download/ProbeVersion）与平台编写（plist/entitlements/
 // 模板）与 Exec 仍为 extern / stub，待实现期接 toolchain native builtin。
 //
-// 归属（2026-06-23 决策）：**暂放本库（z42.build）** —— 使编排器 z42b / 生成的 driver
+// 归属（决策）：**暂放本库（z42.build）** —— 使编排器 z42b / 生成的 driver
 //   可 import 本类构造 ctx。代价：实现 ICompiler 的编译器库会传递依赖到本 impl —— 可接受
 //   的 interim，由下「计划重构」消解。
 //

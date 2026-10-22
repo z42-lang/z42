@@ -14,7 +14,7 @@
 //! `#ifdef _DEBUG` 外根本不生成符号）。z42 选择"忽略但明说"——成本是一行 stderr，
 //! 收益是用户不必读源码就知道旋钮为什么不生效。
 //!
-//! complete-runtime-settings P0（2026-09-05）。
+//! complete-runtime-settings P0。
 
 use super::knobs::*;
 

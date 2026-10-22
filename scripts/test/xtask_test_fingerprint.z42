@@ -83,7 +83,7 @@ string _compilerIdentityOf(string tree) {
     return fp + "/" + zbc + "/" + zpkg;
 }
 
-// ── 「源码没变就没得 bump」守卫（2026-09-28）──────────────────────────────────
+// ── 「源码没变就没得 bump」守卫 ──────────────────────────────────
 //
 // 🔴 **本门会对完全不碰编译器的 PR 假红**，实测四个独立数据点都指向同一个包：
 //   · #925（改了编译器）、#927（只改 Rust VM）、#928（只改构建脚本）——都是「1 个包（z42.json）」；
@@ -199,7 +199,7 @@ int _testFingerprint(ParseResult r) {
         ConsoleError.WriteLine("usage: xtask test compiler fingerprint --base <base 源码树根（其 stdlib 已由 base 编译器建好）>");
         return 2;
     }
-    // enforce-fqn-name-identity 之外的独立修复（2026-09-28）：**两侧 driver 是不是同一个二进制**。
+    // enforce-fqn-name-identity 之外的独立修复：**两侧 driver 是不是同一个二进制**。
     // 见下面 `_bothSidesComparable` 抬头 —— 不是同一个就没有可比性，本门此时只能如实说
     // 「判不了」，不能继续给一个分辨不出真假的红。
     string baseDriver = r.GetOption("base-driver");
@@ -224,7 +224,7 @@ int _testFingerprint(ParseResult r) {
     if (!sameCompiler) { Console.WriteLine("  src/compiler 与 base 不同 ⇒ 照常对比字节"); }
     else { Console.WriteLine("  src/compiler 相同但 src/libraries 不同 ⇒ 照常对比字节（stdlib 能改变编译器行为）"); }
 
-    // 🔴 **可比性先算、先打印**（2026-09-29）。此前它藏在「字节变了」之后 —— 于是
+    // 🔴 **可比性先算、先打印**。此前它藏在「字节变了」之后 —— 于是
     // 字节没变的那一路（本地对账的常态）**永远看不到这行**，我也就没法在本地观察它对不对：
     // 一个只在判红那一刻才出声的判据，本身就没法被验证。门每一轮都该说清自己**这轮有没有
     // 判别力**，而不是只在开火时才交代。
@@ -306,7 +306,7 @@ int _testFingerprint(ParseResult r) {
         return 0;
     }
     Console.WriteLine("  编译器输出变了：" + nChanged.ToString() + " 个包（" + changed + "）");
-    // 🔴 **先确认这是不是你的改动**（2026-09-28）：本门红过一轮「与被测 PR 无关」的案例 ——
+    // 🔴 **先确认这是不是你的改动**：本门红过一轮「与被测 PR 无关」的案例 ——
     // 源码没变也报「1 个包（z42.json）」。源码相同那一类现在由本文件开头的守卫直接跳过，
     // 但**两侧 driver 不是同一个二进制**这一类还在：base 侧 driver 由 bench-pr.yml 现建
     // （PR 的 z42c 编 base 源码），本树侧是自举链的产物，二者可能处在不同的自举代，而
@@ -314,7 +314,7 @@ int _testFingerprint(ParseResult r) {
     // ⇒ 判据在 CI 日志里：bench-pr 的「driver sha」两行。两个 sha 相同却输出不同 ⇒ 非确定性；
     //   不同 ⇒ 代际差异，别急着 bump（bump 只会让全网缓存作废一次，下个 PR 照样红）。
     Console.WriteLine("  ⓘ 本树 driver：" + _driverZpkg(root, "release"));
-    // 🔴 **可比性前置判断**（2026-09-28）：`--base-driver` 给了就**自己比**，不再让人去翻日志。
+    // 🔴 **可比性前置判断**：`--base-driver` 给了就**自己比**，不再让人去翻日志。
     //
     // 本门的判据是「两个编译器编同一份源码，字节是否相同」—— 它**默认两侧 driver 只差在
     // 被测源码上**。而 bench-pr.yml 的编排不满足这个前提：`BASEDRIVER` 是 `PRDRIVER`

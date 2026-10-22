@@ -1,6 +1,6 @@
 //! `Std.Threading` builtins — OS-thread spawn + join.
 //!
-//! Architecture (add-threading-stdlib, 2026-05-20):
+//! Architecture (add-threading-stdlib):
 //!
 //! - `__thread_spawn(action)` validates the callable, allocates a slot id from
 //!   `VmCore.threads` (a `ResourceRegistry`), spawns an `std::thread`, and
@@ -55,7 +55,7 @@ pub fn builtin_thread_spawn(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     let core_for_thread: Arc<crate::vm_context::VmCore> = Arc::clone(&ctx.core);
     let id = ctx.core.threads.alloc_id();
 
-    // 🔴 **fix-spawn-env-gc-root (2026-09-13)**: root the captured environment *here*, on the
+    // 🔴 **fix-spawn-env-gc-root **: root the captured environment *here*, on the
     // spawning thread, while the source closure is still live in the caller's frame.
     //
     // `env_vec` is a plain `Vec<Value>` moved into the worker's Rust closure, and a `Value` is
@@ -118,7 +118,7 @@ pub fn builtin_thread_spawn(ctx: &VmContext, args: &[Value]) -> Result<Value> {
     Ok(Value::I64(id as i64))
 }
 
-/// **fix-spawn-env-gc-root (2026-09-13)**: keeps a spawned action's captured environment
+/// **fix-spawn-env-gc-root **: keeps a spawned action's captured environment
 /// pinned as a GC root for the worker thread's whole life, and unpins it when the worker's
 /// Rust closure unwinds — including on a panic, which is why this is a `Drop` guard and not an
 /// `unpin_root` call at the end of the closure.

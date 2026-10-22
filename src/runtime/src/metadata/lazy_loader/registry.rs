@@ -3,7 +3,7 @@
 
 use super::*;
 
-/// 整包 owner 集合的累积器（fix-module-init-ownership，2026-09-27）。
+/// 整包 owner 集合的累积器（fix-module-init-ownership）。
 ///
 /// 包初始化失败后的归属判定查的是「这个包拥有哪些符号」，所以登记 `$Module` 时必须把整包的
 /// 类型 FQN ∪ 函数 FQN 交出去。**逐类型漏斗（`insert_type`）算不出它** —— 走到某个 `$Module`
@@ -121,7 +121,7 @@ impl LazyLoader {
             // "this class has no ctor" cache is validated against).
             self.insert_function(name, Arc::new(fn_));
         }
-        // fix-cross-pkg-subclass-fields (2026-05-14): drop the by-id Vec of
+        // fix-cross-pkg-subclass-fields : drop the by-id Vec of
         // TypeDescs BEFORE moving them into `self.type_registry` so each Arc
         // has strong_count = 1 in the lazy_loader's registry. Otherwise the
         // fixup pass below can't use `Arc::get_mut` to mutate inherited
@@ -148,7 +148,7 @@ impl LazyLoader {
         }
         owned.finish(self.cctors.as_ref());
 
-        // fix-cross-pkg-subclass-fields (2026-05-14): subclasses in this
+        // fix-cross-pkg-subclass-fields : subclasses in this
         // zpkg whose base lives in an already-loaded dep zpkg need a fixup
         // pass to inherit the base's field/vtable layout. The fixed-point
         // loop also retries previously-deferred subclasses (a freshly-loaded

@@ -1367,7 +1367,7 @@ fn unset_config_vars_mean_no_file_layer() {
     assert_eq!(load_app_config(&get), Ok(None));
 }
 
-// ── app-config 层的回落（fix-app-config-layer-suppression, 2026-09-29）─────────
+// ── app-config 层的回落（fix-app-config-layer-suppression）─────────
 //
 // 判据必须是「显式那份**解析出了内容**」，不是「变量设了没有」。`Z42_APP_CONFIG` 会跨进程
 // 继承（父 app 的侧车路径漏给子 app，且常是相对路径 ⇒ 子进程里指向不存在的文件），
@@ -1383,7 +1383,7 @@ fn write_app_with_sidecar(name: &str, body: &str) -> (std::path::PathBuf, std::p
 
 #[test]
 fn a_dangling_app_config_falls_back_to_the_apps_own_sidecar() {
-    // 这条是 2026-09-29 的实测回归：xtask 经 launcher 跑时把自己的 `Z42_APP_CONFIG`
+    // 这是一条实测回归：xtask 经 launcher 跑时把自己的 `Z42_APP_CONFIG`
     // （相对路径）漏给了每个子 app，子进程换 cwd 后它指向不存在的文件 ⇒ 子 app 的
     // `[runtime] probing-paths` 全丢 ⇒ 应用找不到自己的依赖。
     let (app, side) = write_app_with_sidecar("dangling", "[runtime]\nsafepoint-throttle = 64\n");
@@ -1439,7 +1439,7 @@ fn a_broken_explicit_app_config_is_an_error_not_a_quiet_fallback() {
     for p in [side, bad] { let _ = std::fs::remove_file(p); }
 }
 
-// ── add-gc-runtime-knobs (2026-09-05) ────────────────────────────────────────
+// ── add-gc-runtime-knobs  ────────────────────────────────────────
 
 #[test]
 fn gc_max_bytes_accepts_plain_counts_and_binary_suffixes() {
@@ -1555,7 +1555,7 @@ fn env_only_is_now_reserved_for_scaffolding_and_meta_knobs() {
     // that a user could reasonably want on the command line.
     let env_only: Vec<&str> = KNOWN_KNOBS.iter()
         .filter(|k| k.sources == LayerMask::ENV_ONLY).map(|k| k.name).collect();
-    // fix-spawn-env-gc-root（2026-09-13）：第二条脚手架。它和 `Z42_STRESS_ITERS` 一样
+    // fix-spawn-env-gc-root：第二条脚手架。它和 `Z42_STRESS_ITERS` 一样
     // **必须**是 ENV_ONLY —— 消费它的测试在进程跑起来之后才用
     // `Environment.SetEnvironmentVariable` 打开它，而 CLI / 配置文件层都在启动时就定死了，
     // 声明那两层等于说谎。
@@ -1878,7 +1878,7 @@ fn app_properties_are_not_knobs() {
     assert!(RuntimeConfig::default().app_properties.is_none());
 }
 
-// ── add-bounded-nursery (2026-09-08) ─────────────────────────────────────────
+// ── add-bounded-nursery  ─────────────────────────────────────────
 
 #[test]
 fn gc_nursery_bytes_parses_the_same_suffixes_as_gc_max_bytes() {
@@ -1922,7 +1922,7 @@ fn gc_loh_bytes_parses_the_same_suffixes_as_gc_max_bytes() {
     }
 }
 
-// ── probing-paths 的 TOML 数组形态（2026-09-26）────────────────────────────────
+// ── probing-paths 的 TOML 数组形态 ────────────────────────────────
 //
 // 守的是什么：路径列表的分隔符平台相关（unix `:` / win `;`），所以「在清单里写多条」一旦落成
 // 一个字符串就绑死了一个平台（#842 的 windows 红）。数组形态让清单无歧义，**摊平只发生在

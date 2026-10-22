@@ -517,7 +517,7 @@ public sealed class SymbolCollector {
     // 裸字符串字面量硬编码查找（见 design.md D7 逐名核实表），mangle 会断查找，永不参与实例 mangle。
     // ToString=VM dispatch.rs/jit value.rs 硬编码；Equals/GetHashCode/GetType=DependencyIndex._isProtocol
     // 因 Object 全员继承排除跨包裸名索引；get_Item/set_Item=TypeChecker 自身字面量查找。
-    // 不含 op_*：操作符是静态方法，走既有静态 mangle 规则，不受此名单约束（见 D7 2026-07-01 订正）。
+    // 不含 op_*：操作符是静态方法，走既有静态 mangle 规则，不受此名单约束（见 D7  订正）。
     // public：TypeChecker._checkDuplicateStaticOverloads 泛化后同样需要跳过这批名字（单一豁免名单来源）。
     public static bool IsProtocolExempt(string name) {
         return name == "ToString" || name == "Equals" || name == "GetHashCode" || name == "GetType"

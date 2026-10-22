@@ -51,7 +51,7 @@ public sealed partial class SymbolTable {
     public StrMap Delegates;        // FQN → Z42FuncType（用户 delegate，非泛型；委托类型即函数类型）
     // add-bare-name-ambiguity-diagnostic：**短名 → 声明过它的全部命名空间**（值 StrBox，"|" 连接，登记序）。
     // 为什么必须单独存：FQN 键表答不了「同一短名有几份」的 O(1) 反查（C# CS0104 的判据）。
-    // ⚠️ 2026-09-27 更正：这段原本还写着「`ClassesByFqn` 只登记**本地**类（imported 从不进）」——
+    // ⚠️  更正：这段原本还写着「`ClassesByFqn` 只登记**本地**类（imported 从不进）」——
     // **已经不成立**。`ImportedSymbolLoader` 在 first-wins 守卫**之外** `ClassesByFqn.Put(fqnKey, nct)`
     // （每一份都留），`SymbolCollector._mergeImports` 再并进主表。那句话大概是守卫收窄之前写的，
     // 之后没人回来改 —— 又一条「没有东西盯着的断言迟早变谎言」。

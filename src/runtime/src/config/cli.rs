@@ -13,7 +13,7 @@
 //! 旋钮的 env 名与 kebab key 不再是机械映射（为兼容改名），"自动等价"就会失效
 //! 或产生歧义。别名要有，就在表里写出来、被 `--list-knobs` 打印出来。
 //!
-//! complete-runtime-settings P2（2026-09-05）。
+//! complete-runtime-settings P2。
 
 use super::*;
 use std::collections::BTreeMap;

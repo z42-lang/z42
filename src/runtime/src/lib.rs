@@ -1,7 +1,7 @@
 pub mod metadata;
 pub mod corelib;
 pub mod gc;
-// review.md Part 1 P2 Phase 1 (2026-06-03, add-pal-system-phase1):
+// review.md Part 1 P2 Phase 1 (add-pal-system-phase1):
 // Platform Abstraction Layer — single home for every `#[cfg(target_os)]`
 // split. Phase 1 covers `system` (hostname / os_version);
 // Phase 2-N add fs / signal / thread / mem.
@@ -15,14 +15,14 @@ pub mod stack_guard;
 // P1-3：引擎无关的对象操作层（字段 / 数组 / 静态字段 / struct 叶子），interp 与 JIT 共用。
 pub mod objops;
 pub mod interp;
-// 2026-05-07 add-runtime-feature-flags (P4.1): jit / aot are feature-gated.
+// add-runtime-feature-flags (P4.1): jit / aot are feature-gated.
 // `default = ["jit"]` keeps backward compat; platforms (wasm / ios / android)
 // build without the JIT backend by activating their preset features.
 #[cfg(feature = "jit")]
 pub mod jit;
 #[cfg(feature = "aot")]
 pub mod aot;
-// 2026-05-12 add-platform-wasm Stage 0: native interop (Tier 1 ABI for native
+// add-platform-wasm Stage 0: native interop (Tier 1 ABI for native
 // code registering types into z42) requires libffi + dlopen which the wasm
 // sandbox cannot provide. Gated on the `native-interop` feature.
 #[cfg(feature = "native-interop")]
@@ -43,7 +43,7 @@ mod app_tests;
 mod probing_tests;
 
 // Runtime configuration registry — single source of truth for every
-// Z42_* env var the runtime reads (docs/review.md Part 4 D1, 2026-05-26).
+// Z42_* env var the runtime reads (docs/review.md Part 4 D1).
 // `RuntimeConfig` carries the 5 startup-consumed knobs; `KNOWN_KNOBS`
 // table also lists subsystem-local knobs (Z42_GC_* / Z42_NATIVE_PATH /
 // Z42_SAFEPOINT_THROTTLE / Z42_STRESS_ITERS) for `--info` discovery.
@@ -53,13 +53,13 @@ pub mod probing;
 // Runtime atomic counters — JIT compiles / builtin calls / exception
 // traffic etc. Surfaced via `--print-stats-on-exit` CLI flag and (future)
 // scripted `Std.Diagnostics.RuntimeStats.Snapshot()`. docs/review.md
-// Part 4 D6 Phase 1 (2026-05-26). Phase 2 migrates JIT / native / exception
+// Part 4 D6 Phase 1 . Phase 2 migrates JIT / native / exception
 // increment sites in individual follow-up refactors.
 pub mod counters;
 
 // Push-based runtime event stream — symmetric to existing GcObserver
 // but for non-GC events (module loads + future JIT compiles / exceptions /
-// native calls). docs/review.md Part 4 D3 Phase 1 (2026-05-26). Phase 2
+// native calls). docs/review.md Part 4 D3 Phase 1 . Phase 2
 // wires individual emit sites in follow-up refactors.
 pub mod observer;
 

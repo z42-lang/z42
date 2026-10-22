@@ -1,4 +1,4 @@
-//! **adaptive-promotion (2026-09-12)**: decide, per minor, whether a survivor that has
+//! **adaptive-promotion **: decide, per minor, whether a survivor that has
 //! already lived `promotion_age - 2` collections should be promoted **now** instead of
 //! spending one more collection in the young generation.
 //!

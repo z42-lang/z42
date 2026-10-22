@@ -1,4 +1,4 @@
-//! add-gc-stress-test P0 (2026-05-22): random-workload stress under
+//! add-gc-stress-test P0 : random-workload stress under
 //! both GcMode variants. Builds on C1's `debug_validate_invariants`
 //! which auto-runs after every collect — stress just drives random
 //! ops at the heap and trips the validator on subtle bugs.

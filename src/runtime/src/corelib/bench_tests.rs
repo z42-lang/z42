@@ -56,7 +56,7 @@ fn black_box_returns_arg_unchanged_string() {
     assert_eq!(r, Value::Str("xyz".into()));
 }
 
-/// split-null-sentinel-channels ⑥（2026-09-28）：**arity 不符报错，不再静默给 Null**。
+/// split-null-sentinel-channels ⑥：**arity 不符报错，不再静默给 Null**。
 ///
 /// 🔴 本测试原名 `black_box_no_arg_returns_null`，断言的是「零参调用返回 `Value::Null`」
 /// —— 那正是本 change 要消掉的混用：「少传了参数」与「显式传了 null」压成同一个值。

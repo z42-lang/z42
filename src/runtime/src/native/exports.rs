@@ -22,7 +22,7 @@ use super::registry::RegisteredType;
 use crate::vm_context::VmContext;
 
 /// Categorical error codes mirrored into the last-error slot for embedder
-/// consumption via `z42_last_error()`. 2026-05-11 retire-z-codes: named
+/// consumption via `z42_last_error()`.  retire-z-codes: named
 /// `Z####` constants retired, but the numeric values stay for ABI compat
 /// — embedder hosts may still pattern-match on them.
 const TYPE_REGISTRATION_FAILURE: u32 = 905;
@@ -124,7 +124,7 @@ pub unsafe extern "C" fn z42_register_type(
     let registered = match unsafe { RegisteredType::from_descriptor(desc) } {
         Ok(r) => r,
         Err(e) => {
-            // 2026-05-11 retire-z-codes: messages no longer carry `Z####:`
+            // retire-z-codes: messages no longer carry `Z####:`
             // prefixes; recover the categorical code from the human-readable
             // text instead (only ABI mismatch carries a distinct surface
             // marker — everything else falls under TYPE_REGISTRATION_FAILURE).

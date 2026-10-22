@@ -1,7 +1,7 @@
 //! OS signal handler — z42 call stack capture on hard crash.
 //!
 //! Phase 2 of the panic-hook story (Phase 1 = Rust panic hook in main.rs).
-//! Spec: `变更 add-os-signal-handler/` (2026-05-25).
+//! Spec: `变更 add-os-signal-handler/` .
 //!
 //! Covers POSIX fatal signals only:
 //! `SIGSEGV` / `SIGABRT` / `SIGFPE` / `SIGILL` / `SIGBUS`. Windows VEH is
@@ -72,7 +72,7 @@ pub fn install() {
 fn open_crash_report_fd() {
     use std::os::fd::IntoRawFd;
 
-    // adopt-inline-env-knobs (2026-09-05): the `crash-dir` knob off the layered
+    // adopt-inline-env-knobs : the `crash-dir` knob off the layered
     // config, not a raw env read — `--set crash-dir=` / `[runtime].crash-dir` were
     // silently ignored here. (This runs at `install()` time, pre-opening the fd; the
     // signal handler itself only writes to the already-open fd, so nothing about

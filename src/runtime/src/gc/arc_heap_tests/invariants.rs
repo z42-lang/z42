@@ -1,4 +1,4 @@
-//! add-gc-debug-invariants P1 (2026-05-22): heap-wide invariant
+//! add-gc-debug-invariants P1 : heap-wide invariant
 //! validation tests. Each test exercises either the healthy path
 //! (validation passes after a collect cycle) or a corrupted-state
 //! path (panics with the expected message via #[should_panic]).

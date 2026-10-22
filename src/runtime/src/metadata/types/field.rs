@@ -1,4 +1,4 @@
-//! FieldSlot + 类型标签（TAG_*）与默认值。refactor-split-metadata-types（2026-09-03）：从 2436 行的 `types.rs` 按职责拆出，
+//! FieldSlot + 类型标签（TAG_*）与默认值。refactor-split-metadata-types：从 2436 行的 `types.rs` 按职责拆出，
 //! 对外路径不变（`metadata::types::*` 经 hub 的 `pub use` 全量再导出）。
 
 #![allow(unused_imports)]
@@ -12,7 +12,7 @@ use crate::gc::heap::MagrGC;
 
 /// A single field slot in a class layout (runtime representation).
 ///
-/// review.md E2.P2 Step 1 (2026-05-27): `Box<str>` (16 B per field) instead
+/// review.md E2.P2 Step 1 : `Box<str>` (16 B per field) instead
 /// of `String` (24 B; the `cap` word is dead weight — slot fields are
 /// immutable after `build_type_registry`). Saves 16 B per FieldSlot
 /// (48 B → 32 B). Full E2.P2 target (48 B → 16 B with `name_id: StringId`
@@ -24,7 +24,7 @@ pub struct FieldSlot {
     /// Type tag from zbc (e.g. `"int"`, `"long"`, `"bool"`, `"f64"`, `"str"`,
     /// `"Demo.Box"`, …). Used by `ObjNew` to pick a per-type default `Value`
     /// for fields that have no explicit initializer.
-    /// 2026-05-02 fix-class-field-default-init.
+    /// fix-class-field-default-init.
     pub type_tag: Box<str>,
     /// Member visibility (add-member-visibility, unify P1-b): 0=public /
     /// 1=private / 2=protected. Carried from the TYPE section's per-field
@@ -177,7 +177,7 @@ pub const TAG_ARRAY:   u8 = 0x21;
 /// directly (no string lookup). Used by `ArrayNew` (interp + JIT) to
 /// initialise array elements without an explicit literal.
 ///
-/// fix-array-default-init, 2026-05-18.
+/// fix-array-default-init.
 pub fn default_value_for_tag(tag: u8) -> Value {
     match tag {
         TAG_BOOL => Value::Bool(false),

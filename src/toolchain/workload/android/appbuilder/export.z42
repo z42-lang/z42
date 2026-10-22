@@ -1,4 +1,4 @@
-// launcher_export_android.z42 — Android Gradle project generator (add-export-command, 2026-06-14).
+// launcher_export_android.z42 — Android Gradle project generator (add-export-command).
 // Called by _cmdExportAndroid in launcher_export.z42.
 //
 // Generates a standard Kotlin+Gradle Android project with the z42 app bytecode

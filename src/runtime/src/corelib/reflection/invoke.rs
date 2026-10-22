@@ -337,7 +337,7 @@ pub fn activator_create(ctx: &VmContext, t: &Value) -> anyhow::Result<Value> {
     // `default_value_for` 已经认 FQ 包装名（`fix-type-reflection-names` 加的），与
     // `MethodDefaultInsn`（`default(T)`）读的是同一张表 ⇒ `new T()` 与 `default(T)` 对基元
     // 恒等，由构造保证。`Std.String` 是唯一的分歧：`default(string)` 是 null，而
-    // `new string()` 是「构造一个」⇒ 空串（User 裁决 2026-09-24）。
+    // `new string()` 是「构造一个」⇒ 空串（User 裁决）。
     if td.name == crate::metadata::well_known_names::STD_STRING {
         return Ok(Value::Str("".into()));
     }

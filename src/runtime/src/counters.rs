@@ -1,18 +1,18 @@
 //! `RuntimeCounters` — atomic counters for VM runtime observability.
 //!
 //! Roslyn / CoreCLR parallel: EventCounters / `dotnet-counters monitor`.
-//! docs/review.md Part 4 D6 (2026-05-26) — last remaining Part 4 ops/devex
+//! docs/review.md Part 4 D6  — last remaining Part 4 ops/devex
 //! item; was P0 because production environments had zero visibility into
 //! runtime activity (JIT compiles / builtin calls / exception traffic).
 //!
 //! # Increment sites (current)
 //!
 //! - `builtin_calls`         ← `corelib::exec_builtin`
-//! - `native_calls`          ← `interp::exec_native::call_native` (2026-05-26)
-//! - `jit_methods_compiled`  ← `jit::frame` tier-up compile (2026-05-26)
+//! - `native_calls`          ← `interp::exec_native::call_native` 
+//! - `jit_methods_compiled`  ← `jit::frame` tier-up compile 
 //! - `jit_native_from_interp`← `interp::exec_call` / `exec_vcall` native routing
-//! - `exceptions_thrown`     ← `interp::fire_exception_thrown` (2026-05-26)
-//! - `exceptions_caught`     ← `interp::fire_exception_caught` (2026-05-26)
+//! - `exceptions_thrown`     ← `interp::fire_exception_thrown` 
+//! - `exceptions_caught`     ← `interp::fire_exception_caught` 
 //!
 //! Still at 0 (not yet wired): `jit_compile_us_total` — per-compile wall time
 //! is tracked as a diagnostics.md §4.2 span item, deferred.
@@ -50,11 +50,11 @@ pub struct RuntimeCounters {
     pub builtin_calls:        AtomicU64,
 
     /// Native FFI calls dispatched (e.g. user `[Native("...")]` extern methods).
-    /// Incremented at top of `interp::exec_native::call_native` (2026-05-26).
+    /// Incremented at top of `interp::exec_native::call_native` .
     pub native_calls:         AtomicU64,
 
     /// Methods JIT-compiled. Incremented on tier-up compile in `jit::frame`
-    /// (2026-05-26).
+    /// .
     pub jit_methods_compiled: AtomicU64,
 
     /// Total wallclock JIT compile time, microseconds. Not yet wired (0);
@@ -69,11 +69,11 @@ pub struct RuntimeCounters {
 
     /// User exceptions thrown (z42 `throw expr` statements + VM-raised
     /// arithmetic / type errors that bubble as exceptions).
-    /// Incremented in `interp::fire_exception_thrown` (2026-05-26).
+    /// Incremented in `interp::fire_exception_thrown` .
     pub exceptions_thrown:    AtomicU64,
 
     /// User exceptions caught by `try { ... } catch` blocks.
-    /// Incremented in `interp::fire_exception_caught` (2026-05-26).
+    /// Incremented in `interp::fire_exception_caught` .
     pub exceptions_caught:    AtomicU64,
 }
 
@@ -208,7 +208,7 @@ pub struct ProfileSnapshot {
     /// Region memory held at exit (from `HeapStats.committed_bytes`) — the footprint view.
     pub committed_bytes:   u64,
 
-    // ── add-concurrency-probes (2026-08-23, script-profiling P1b) ──
+    // ── add-concurrency-probes (script-profiling P1b) ──
     /// Number of times a mutator parked at a GC safepoint (STW stalls).
     pub park_count:        u64,
     /// Cumulative µs mutators spent parked at safepoints.

@@ -1,4 +1,4 @@
-//! Compiler-artifact loader — split into concern submodules (2026-08-25,
+//! Compiler-artifact loader — split into concern submodules (
 //! refactor-metadata-loader-split). This hub keeps the shared imports and
 //! re-exports the flat `loader::*` API so external callers are unaffected:
 //!   `artifact`      — format-dispatch load (`load_artifact`) + zbc/zpkg loaders

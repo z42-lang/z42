@@ -645,7 +645,7 @@ fn a_reclaimed_chunk_carries_no_young_block() {
 }
 
 // ---------------------------------------------------------------------------------------
-// lazy-var-free-list (2026-09-12): free-list entries survive their chunk's pooling and are
+// lazy-var-free-list : free-list entries survive their chunk's pooling and are
 // rejected at pop instead of being scanned out at reclaim.
 // ---------------------------------------------------------------------------------------
 
@@ -1006,7 +1006,7 @@ fn the_per_chunk_census_matches_a_full_scan() {
 }
 
 // ---------------------------------------------------------------------------------------
-// perf-free-slot-encoding (2026-09-13): a free-list entry names its slot as
+// perf-free-slot-encoding : a free-list entry names its slot as
 // `(chunk index, in-chunk offset)` instead of pointing at it, so the staleness test never
 // dereferences a block header.
 // ---------------------------------------------------------------------------------------

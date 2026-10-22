@@ -1,4 +1,4 @@
-//! V8 `.heapsnapshot` graph export (add-gc-heap-snapshot-export, 2026-05-24).
+//! V8 `.heapsnapshot` graph export (add-gc-heap-snapshot-export).
 //!
 //! Walks the live heap via the existing [`MagrGC`] trait methods
 //! ([`iterate_live_objects`](super::heap::MagrGC::iterate_live_objects) +

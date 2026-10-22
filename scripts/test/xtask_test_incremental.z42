@@ -298,7 +298,7 @@ string _incrXtaskCopy(string root, string scratch) {
 
 // 真品 `scripts/xtask.z42.toml` 的依赖，改写成拷贝里可用的 `[dependencies]` 段（没有 → ""）。
 //
-// 为什么必须带：relocate-compiler-domain-libs（2026-09-27）把 `Z42.Project` / `Z42.Build` 挪出
+// 为什么必须带：relocate-compiler-domain-libs 把 `Z42.Project` / `Z42.Build` 挪出
 // `libs/` —— 而这份拷贝的替身清单此前只写了 `[project]` + `[sources]`，于是 xtask 轮当场
 // `E0494: 命名空间 Z42.Project 不存在`（`initial build failed`）。本门不在 GREEN 也不在 CI 里，所以坏了
 // 没人发现。从真品清单读而不是在这里抄一份依赖列表：下次 xtask 加减依赖时本门自动跟上。

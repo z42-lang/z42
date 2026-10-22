@@ -162,7 +162,7 @@ fn format_prefers_line_over_offset() {
     assert_eq!(format_stack_trace(&frames), "  at Foo (f.z42:5:9)");
 }
 
-// ── 2026-05-11 retire-z-codes: make_stdlib_exception ────────────────────────
+// ──  retire-z-codes: make_stdlib_exception ────────────────────────
 
 #[cfg(test)]
 mod make_stdlib_exception_tests {

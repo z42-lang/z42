@@ -5,7 +5,7 @@
 //! VM logic lives in `z42_host` + `z42`; this crate is the JS-side
 //! glue and the wasm-bindgen surface.
 //!
-//! Spec: 变更 add-platform-wasm/ (REVISION 2026-05-11),
+//! Spec: 变更 add-platform-wasm/ (REVISION),
 //!       docs/internals/src/runtime/embedding.md §6 Tier 3 + §11 ZpkgResolver.
 //!
 //! H4 scope: single VM instance, sync invoke, null / i64 / f64 / bool

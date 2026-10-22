@@ -32,8 +32,8 @@ fn no_resolution_publishes_nothing() {
 // ── tidy-z42vm-cli: 帮助文本是用户文档 ──────────────────────────────────────
 
 /// `--help` 里不该出现内部溯源信息。曾经的样子：
-///   `--info    ... Useful for bug reports and CI preflight. docs/review.md Part 4 D5 (2026-05-25)`
-///   `--strict-config  ... complete-runtime-settings P1 (2026-09-05) — the CI config-drift gate`
+///   `--info    ... Useful for bug reports and CI preflight. docs/review.md Part 4 D5 `
+///   `--strict-config  ... complete-runtime-settings P1  — the CI config-drift gate`
 /// 那是给维护者的，对着 `--help` 的人不需要，还挤掉了真正该说的内容。溯源移进了
 /// 紧邻的 `//` 注释（信息一条不丢，只是换了读者）——这条门守住不再漂回去。
 #[test]

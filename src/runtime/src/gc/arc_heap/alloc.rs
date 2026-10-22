@@ -9,7 +9,7 @@ use crate::gc::types::{AllocKind, AllocSample, GcEvent};
 impl crate::gc::arc_heap::ArcMagrGC {
     /// alloc 通用通路：bump stats + 检查压力 + 触发 sampler。
     ///
-    /// **add-custom-allocator P1 (2026-05-22)**: previously pushed a
+    /// **add-custom-allocator P1 **: previously pushed a
     /// WeakRef to `heap_registry`; that field is gone now — the region
     /// itself is the authoritative liveness store, iterated directly
     /// by sweep / iterate_live_objects / snapshot helpers.
@@ -58,7 +58,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
                 Err(actual) => cur = actual,
             }
         }
-        // **arm-gc-by-default (2026-09-09)**: this is the one point every collect path passes
+        // **arm-gc-by-default **: this is the one point every collect path passes
         // through once its cycle is accounted for, so it is where the next trip point is
         // recomputed. It must stay **lock-free**: three of the four call sites hold
         // `inner.lock()` (they credit the bytes inside the same stats block), and

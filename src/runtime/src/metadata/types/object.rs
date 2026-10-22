@@ -1,4 +1,4 @@
-//! NativeData / ScriptObject（对象头）+ ObjRef 访问。refactor-split-metadata-types（2026-09-03）：从 2436 行的 `types.rs` 按职责拆出，
+//! NativeData / ScriptObject（对象头）+ ObjRef 访问。refactor-split-metadata-types：从 2436 行的 `types.rs` 按职责拆出，
 //! 对外路径不变（`metadata::types::*` 经 hub 的 `pub use` 全量再导出）。
 
 #![allow(unused_imports)]
@@ -17,27 +17,27 @@ use crate::gc::heap::MagrGC;
 pub enum NativeData {
     /// No native backing — ordinary user-defined class.
     None,
-    /// 2026-05-04 expose-weak-ref-builtin (D-1a)：包装 GC 弱引用句柄。
+    /// expose-weak-ref-builtin (D-1a)：包装 GC 弱引用句柄。
     /// 由 `__obj_make_weak` builtin 创建；`__obj_upgrade_weak` 升格回原对象。
     /// 用户视角是 `Std.WeakHandle` 类（无字段）。
     WeakRef(crate::gc::WeakRef),
-    /// 2026-06-08 add-reflection-mvp：`Std.Type` 对象携带的真实类型句柄。
+    /// add-reflection-mvp：`Std.Type` 对象携带的真实类型句柄。
     /// 由 `__obj_get_type` 对 `Value::Object` 创建（存对象 `type_desc` 的
     /// `Arc<TypeDesc>`）；反射 builtins（`__type_fields` / `__type_methods` /
     /// `__type_base` / `__type_generic_args`）据此枚举成员。基础类型/数组的
     /// synthetic Type 无此句柄（`NativeData::None`），成员查询退化为空。
     TypeHandle(Arc<TypeDesc>),
-    /// 2026-07-30 add-load-context-model：`Std.Runtime.LoadContext` 对象携带的
+    /// add-load-context-model：`Std.Runtime.LoadContext` 对象携带的
     /// 上下文句柄（root = `ContextId::ROOT`）。`__lctx_*` builtins 据此查
     /// `VmCore.context_registry`。
     LoadContextHandle(crate::metadata::context::ContextId),
-    /// 2026-07-30 add-load-context-model：`Std.Reflection.Assembly` 对象携带的
+    /// add-load-context-model：`Std.Reflection.Assembly` 对象携带的
     /// 程序集句柄（zpkg 运行时投影）。`__asm_*` builtins 据此查注册表。
     AssemblyHandle(crate::metadata::context::AssemblyId),
-    /// 2026-09-14 store-sync-values-in-heap：`Std.Threading.Mutex/RwLock/Channel` 的同步底座。
+    /// store-sync-values-in-heap：`Std.Threading.Mutex/RwLock/Channel` 的同步底座。
     /// **不含任何 GC 值**（值是 z42 字段）；句柄对象的槽位被复用时随旧条目 drop。
     Monitor(std::sync::Arc<crate::corelib::monitor::Monitor>),
-    // 2026-04-26 script-first-stringbuilder: removed `StringBuilder(String)` —
+    // script-first-stringbuilder: removed `StringBuilder(String)` —
     // `Std.Text.StringBuilder` is now a pure z42 script. Variant slot kept open
     // for future native-backed types (Stream / FileHandle / etc.).
 }

@@ -17,7 +17,7 @@
 // (A) fails but (B) passes ⇒ you used something newer than the published nightly:
 // split into "support first (old-syntax-written), use later" per the discipline.
 //
-// WHAT THIS GATE DOES AND DOESN'T GUARD (add-associated-types, 2026-09-06 — read before
+// WHAT THIS GATE DOES AND DOESN'T GUARD (add-associated-types — read before
 // concluding it "stopped working"). Both runs go through `_ensureBootstrapSelfDepLibs`,
 // exactly like the real `build compiler` path, so:
 //
@@ -64,8 +64,8 @@ int _bootstrapCheck(string ridArg) {
 
     // ── fetch the latest nightly SDK package (z42vm + libs/ + programs/z42c/ seed) ──
     // The z42c seed lives in the SDK nightly (host tooling), not the runtime nightly —
-    // the runtime package is a pure embeddable pack (native + stdlib only, no z42c/z42vm,
-    // 2026-07-01) since it may be installed on a different host than it targets.
+    // the runtime package is a pure embeddable pack (native + stdlib only, no z42c/z42vm)
+    // since it may be installed on a different host than it targets.
     string ext = "tar.gz";
     if (rid == "windows-x64") { ext = "zip"; }
     string asset = "z42-sdk-nightly-" + rid + "." + ext;
@@ -173,8 +173,8 @@ int _bcRunWorkspace(string root, string label, string vm, string driver, string 
     // before compiling the workspace. `_ensureBootstrapSelfDepLibs`'s flat-dir parameter doubles as
     // both Z42_LIBS (compile surface) and the prebuild output dir, so passing `runlibs` keeps this check fully isolated.
     //
-    // Without this the check diverged from reality and produced FALSE REDS (add-associated-types,
-    // 2026-09-06): the nightly `libs/` carries the PREVIOUS nightly's z42.package, so any z42c source
+    // Without this the check diverged from reality and produced FALSE REDS (add-associated-types)
+    // the nightly `libs/` carries the PREVIOUS nightly's z42.package, so any z42c source
     // consuming a current-source z42.package member (routine since 07596b57 removed the warm-skip — see
     // self-hosting.md axis ④) failed here on the day it landed and "self-healed" the next day when
     // the nightly caught up. It also never rebuilt z42c.core/z42c.syntax, which moved out of

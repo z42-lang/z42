@@ -43,7 +43,7 @@ fn parse_zbc_sidecar_rejects_non_zbc_magic() {
     assert!(err.to_string().contains("bad magic"), "{err}");
 }
 
-// Strict-pin policy (freeze-zbc-v1 / freeze-zpkg-v0, 2026-05-14): reader accepts
+// Strict-pin policy (freeze-zbc-v1 / freeze-zpkg-v0): reader accepts
 // only major.minor == ZBC_VERSION_* / ZPKG_VERSION_*. Tests that previously used
 // pre-freeze "requires N+" semantics have been updated to use the current minor
 // where SymOnly / BLID checks are reachable, and to use mismatched minors where

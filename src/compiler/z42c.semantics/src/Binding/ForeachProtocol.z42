@@ -109,7 +109,7 @@ public sealed class ForeachProtocol {
     // 为什么要有这一问：脱糖此前**无条件**发 `__e.Dispose()`，于是照 `iteration.md` 写的最小
     // 枚举器（那里把形状写成 `MoveNext` + `Current` 两个成员，**没有** `Dispose`）编译就报
     // `E0401: no method Dispose`。C# 只在枚举器实现 `IDisposable` 时才调 —— 文档描述的是 C#
-    // 语义，代码却更严。User 2026-09-25 裁定以文档为准。
+    // 语义，代码却更严。User 裁定以文档为准。
     //
     // ⚠️ 判据取**成员面**而非「有没有声明 IDisposable」：与本文件其余判定同一口径（三条路径都
     // 按形状匹配）。

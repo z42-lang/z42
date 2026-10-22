@@ -3,7 +3,7 @@ use super::*;
 impl VmContext {
     // ── Native interop (Tier 1, spec C2) ──────────────────────────────────
     //
-    // 2026-05-12 add-platform-wasm Stage 0: entire interop API gated on
+    // add-platform-wasm Stage 0: entire interop API gated on
     // `native-interop` feature. wasm builds drop these methods (and the
     // backing fields) entirely.
 

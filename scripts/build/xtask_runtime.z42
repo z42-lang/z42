@@ -1,7 +1,7 @@
 // xtask — `build runtime`：直接驱动 cargo 构建 z42vm。
-// （`feature-matrix` 命令 2026-10-02 删除：四个 feature 组合由 package-{wasm,ios,android} 在真实目标上完整构建覆盖，
+// （`feature-matrix` 命令已删除：四个 feature 组合由 package-{wasm,ios,android} 在真实目标上完整构建覆盖，
 //  interp-only 不含 cranelift 的断言挪进了 CI 的 package-wasm —— drop-feature-matrix。）
-// 从 xtask.z42 搬来（relocate-xtask-handlers, 2026-09-05）：它们是 build 族的
+// 从 xtask.z42 搬来（relocate-xtask-handlers）：它们是 build 族的
 // handler，不是 CLI 入口的一部分，xtask.z42 只该留 Main 与 run 直通。
 namespace Z42Xtask;
 

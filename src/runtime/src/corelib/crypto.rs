@@ -1,6 +1,6 @@
 //! `__crypto_random_bytes` — OS-CSPRNG via `getrandom` crate.
 //!
-//! add-csprng-to-crypto (2026-05-26). Backs `Std.Crypto.Random.GetBytes(n)`.
+//! add-csprng-to-crypto . Backs `Std.Crypto.Random.GetBytes(n)`.
 //! Underlying syscall by platform:
 //!   - Linux / Android:  getrandom(2)
 //!   - macOS / iOS:      getentropy(2) / SecRandomCopyBytes

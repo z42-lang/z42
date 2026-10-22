@@ -1,4 +1,4 @@
-// xtask 子进程环境的单一入口门（xtask-proc-factory，2026-10-01）。
+// xtask 子进程环境的单一入口门（xtask-proc-factory）。
 //
 // ## 守的是什么
 //

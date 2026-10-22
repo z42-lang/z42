@@ -1,6 +1,6 @@
 //! `IsInstance` / `AsCast` interp dispatch — the runtime type tests.
 //!
-//! refactor-split-interp-exec-object (2026-09-04): split out of
+//! refactor-split-interp-exec-object : split out of
 //! `exec_object.rs` when it crossed the 500-line hard limit; the parent
 //! re-exports so `exec_object::is_instance` / `as_cast` paths are unchanged.
 
@@ -29,7 +29,7 @@ pub(crate) fn is_instance(
 ) -> Result<()> {
     let result = match frame.get(obj)? {
         Value::Object(rc) => isa_td(ctx, &module.type_registry, rc.type_desc(), class_name, key),
-        // 2026-05-07 add-array-base-class: T[] is-a Std.Array is-a Std.Object.
+        // add-array-base-class: T[] is-a Std.Array is-a Std.Object.
         // VM hardcodes the chain since Value::Array doesn't carry a TypeDesc.
         Value::Array(_) => is_array_isa(class_name),
         Value::Null => false,

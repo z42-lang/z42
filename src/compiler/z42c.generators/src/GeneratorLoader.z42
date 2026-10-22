@@ -2,7 +2,7 @@
 //
 // 与 AnalyzerLoader（PR3a-load）同源、同 infra：消费方在 z42.toml `[plugins]` 段声明的 handler zpkg
 // （D9 单段覆盖 analyzer + generator 两类，对齐 C# 把 source generator 也归 analyzer 引用类别；User
-// 2026-08-22 裁决）经本加载器变成可喂给 GeneratorDriver 的 `Generator`（applied）/`ModuleGenerator` 实例。
+// 裁决）经本加载器变成可喂给 GeneratorDriver 的 `Generator`（applied）/`ModuleGenerator` 实例。
 //
 // 两路加载组合（单靠一条都不够，源码复核见 AnalyzerLoader 头注 / tasks PR3a-load）：
 //   · Path-A 发现（reflect-only）：AssemblyLoadContext.Default().Load(path) → Assembly.GetTypes()

@@ -176,7 +176,7 @@ fn tag_from_name_signedness_guardrail() {
     // Every primitive spelling maps to the exact zbc Tag the codegen bakes, so reflection
     // decodes with matching width + signedness.
     //
-    // drop-short-primitive-aliases (2026-09-22): the short aliases (`i8` / `u8` / …) are gone
+    // drop-short-primitive-aliases : the short aliases (`i8` / `u8` / …) are gone
     // from the language AND from the wire, so there is exactly one spelling per type now —
     // this table used to carry both and assert they agreed.
     let cases: &[(&str, u8)] = &[

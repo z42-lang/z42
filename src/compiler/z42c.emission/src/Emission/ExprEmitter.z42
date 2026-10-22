@@ -61,7 +61,7 @@ public sealed partial class ExprEmitter : IBoundExprVisitor<TypedReg, Unit> {
     }
     public TypedReg VisitLitStr(BoundLitStr ls, Unit d) {
         // 入池须是解码值（剥引号+转义还原），非 raw lexeme——否则引号泄进 STRS：
-        // 同池字面量比较碰巧相等，但 concat/输出全错（zbc e2e 抓出，2026-06-10）。
+        // 同池字面量比较碰巧相等，但 concat/输出全错（zbc e2e 抓出）。
         int idx = this._ctx.Gen.Intern(Lexer.DecodeString(ls.Raw));
         TypedReg r = this._ctx.Alloc(IrType.Str);
         this._ctx.Emit(new ConstStrInstr(r, idx));
@@ -525,7 +525,7 @@ public sealed partial class ExprEmitter : IBoundExprVisitor<TypedReg, Unit> {
     // **新分配的临时寄存器** ⇒ 取的是临时槽的地址 ⇒ 出口 copy-out 写回临时槽，调用方看不到
     // （静默丢写：`Inc(ref arr[0])` 打印 10 而非 11）。
     //
-    // VM 侧 0xA1/0xA2 的解码与执行自 2026-05-05 就完整（RefKind::Array / Field 持 GcRef、
+    // VM 侧 0xA1/0xA2 的解码与执行早已完整（RefKind::Array / Field 持 GcRef、
     // 与帧栈无关，比 Stack 形态更安全），只是编译器从没发过。
     //
     // **不可取址的形态（属性 / 索引器 / 静态字段 / blob struct 字段）已由 ExprTyper._bindRefArg

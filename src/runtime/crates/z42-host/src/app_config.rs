@@ -6,7 +6,7 @@
 //! "用户设环境变量"这回事。
 //!
 //! 拆成独立文件是行数硬限所迫（`lib.rs` 在 line-limit 棘轮基线上，越界文件不得增长）。
-//! app-config-follows-the-app（2026-09-05）。
+//! app-config-follows-the-app。
 
 /// 把 app 旁边的 `<stem>.runtimeconfig.toml` 装进配置的 app-config 层。
 ///

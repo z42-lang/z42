@@ -82,7 +82,7 @@ pub struct Z42HostConfig {
 
     pub search_paths: *const *const c_char,
 
-    // 2026-05-11 add-zpkg-resolver-hook (append-only).
+    // add-zpkg-resolver-hook (append-only).
     pub zpkg_resolver: Z42ZpkgResolverFn,
     pub zpkg_resolver_user_data: *mut c_void,
 }
