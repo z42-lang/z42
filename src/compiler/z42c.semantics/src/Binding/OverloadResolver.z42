@@ -90,13 +90,7 @@ public sealed class OverloadResolver {
     // 统一签名键：每个方法（含唯一方法）一律编码完整签名。定义点与跨包 import 两侧用本函数 +
     // 解析后类型 .Name() → round-trip 一致。
     public static string MangleKey(string name, Z42Type[] paramTypes, int paramCount) {
-        string s = name + "$" + paramCount.ToString();
-        int i = 0;
-        while (i < paramCount) {
-            s = s + "$" + OverloadResolver.TypeKey(paramTypes[i]);
-            i = i + 1;
-        }
-        return s;
+        return DispatchKeys.MangleKey(name, paramTypes, paramCount);   // semantics-split：实现移 Types/DispatchKeys.z42
     }
 
     // 单个形参类型 → 键片段：Canon 归一（基本别名 + 剥 nullable）后剥空白（泛型名含 ", "）。
@@ -106,51 +100,10 @@ public sealed class OverloadResolver {
     // `undefined function`。裸内建仍走 Canon（int→"int"）。二者的非对称正是逐字节
     // 复刻旧 `Canon(Name())`：旧 Canon 只归一裸名、不进 "[]"/"<>" 内部，故内部叶子保留 keyword 拼写。
     public static string TypeKey(Z42Type t) {
-        if (t == null) { return "unknown"; }
-        if ((t is Z42ArrayType) || (t is Z42InstantiatedType) || (t is Z42FuncType)) {
-            return OverloadResolver._stripSpaces(OverloadResolver._compositeKeyName(t));
-        }
-        return OverloadResolver._stripSpaces(t.CanonName());
+        return DispatchKeys.TypeKey(t);   // semantics-split：实现移 Types/DispatchKeys.z42
     }
 
-    // 复合类型名重建（镜像各 Z42Type.Name() 的字符串格式），但内建叶子映射回 keyword 拼写。
-    private static string _compositeKeyName(Z42Type t) {
-        if (t is Z42ArrayType) { return OverloadResolver._compositeKeyName((t as Z42ArrayType).Elem) + "[]"; }
-        if (t is Z42InstantiatedType) {
-            Z42InstantiatedType it = t as Z42InstantiatedType;
-            string s = it.Def.Name() + "<";
-            int i = 0;
-            while (i < it.ArgCount) { if (i > 0) { s = s + ", "; } s = s + OverloadResolver._compositeKeyName(it.TypeArgs[i]); i = i + 1; }
-            return s + ">";
-        }
-        if (t is Z42FuncType) {
-            Z42FuncType ft = t as Z42FuncType;
-            bool isVoid = ft.Ret is Z42VoidType;
-            string s = "Func<";
-            if (isVoid) { if (ft.ParamCount == 0) { return "Action"; } s = "Action<"; }
-            int i = 0;
-            while (i < ft.ParamCount) { if (i > 0) { s = s + ", "; } s = s + OverloadResolver._compositeKeyName(ft.ParamTypes[i]); i = i + 1; }
-            if (!isVoid) { if (ft.ParamCount > 0) { s = s + ", "; } s = s + OverloadResolver._compositeKeyName(ft.Ret); }
-            return s + ">";
-        }
-        // 叶子：内建 → keyword 拼写（复刻翻转前 Z42PrimType 名）；其余 → 原名。
-        if (t is Z42ClassType) { int _c = t.PrimCode(); if (_c >= 0) { return PrimModel.KeywordOfCode(_c); } }
-        return t.Name();
-    }
 
-    // perf-compiler-lookup-tables：单趟 char[] 过滤（原 Substring(i,1) + 串拼接为 O(n²) 且每字符两次分配）。
-    private static string _stripSpaces(string s) {
-        char[] cs = s.ToCharArray();
-        int keep = 0;
-        int i = 0;
-        while (i < cs.Length) { if (cs[i] != ' ') { keep = keep + 1; } i = i + 1; }
-        if (keep == cs.Length) { return s; }
-        char[] outc = new char[keep];
-        int k = 0;
-        i = 0;
-        while (i < cs.Length) { if (cs[i] != ' ') { outc[k] = cs[i]; k = k + 1; } i = i + 1; }
-        return String.FromChars(outc);
-    }
 
     // ── 决议 ────────────────────────────────────────────────────────────────
     // candidates = 同名所有重载（调用方枚举）；argTypes = 实参解析类型。

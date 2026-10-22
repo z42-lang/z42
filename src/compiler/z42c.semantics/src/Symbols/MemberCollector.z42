@@ -49,10 +49,10 @@ public sealed class MemberCollector {
                 // 自己、不碰 primary）。tracker 只统计本地（导入函数各自带包内定好的 RegKey）。
                 string baseFqn = SymbolTable.QualOf(table.ScopeNs, m.Name);
                 string sigFqn = SymbolTable.QualOf(table.ScopeNs,
-                    OverloadResolver.MangleKey(m.Name, msym.Signature.ParamTypes, msym.Signature.ParamCount));
+                    DispatchKeys.MangleKey(m.Name, msym.Signature.ParamTypes, msym.Signature.ParamCount));
                 string regName = m.Name;
                 if (this._sc._freeFnLocalSeen.ContainsKey(baseFqn)) {
-                    regName = OverloadResolver.MangleKey(m.Name, msym.Signature.ParamTypes, msym.Signature.ParamCount);
+                    regName = DispatchKeys.MangleKey(m.Name, msym.Signature.ParamTypes, msym.Signature.ParamCount);
                 } else {
                     this._sc._freeFnLocalSeen.Put(baseFqn, "1");
                 }
@@ -368,7 +368,7 @@ public sealed class MemberCollector {
                 bool staticVirtual = mst && (Mod.Has(md.ModFlags, Mod.Override) || Mod.Has(md.ModFlags, Mod.Abstract));
                 string regName;
                 if (mst && !staticVirtual) {
-                    regName = OverloadResolver.MangleKey(md.Name, msym.Signature.ParamTypes, msym.Signature.ParamCount);
+                    regName = DispatchKeys.MangleKey(md.Name, msym.Signature.ParamTypes, msym.Signature.ParamCount);
                     // add-user-conversions Decision 4（根因）：转换运算符按 (param,return) 唯一——静态 mangle 仅按
                     // 参数类型，`op_Implicit(Foo)->int` 与 `->string` 会撞键 → RegKey 附返回类型消歧。
                     if (SymbolCollector._isConvOp(md.Name)) {
@@ -387,7 +387,7 @@ public sealed class MemberCollector {
                     bool tracks = !(md.IsPartial && !md.HasBody);
                     if (tracks) {
                         if (emittedInst.ContainsKey(md.Name)) {
-                            regName = OverloadResolver.MangleKey(md.Name, msym.Signature.ParamTypes, msym.Signature.ParamCount);
+                            regName = DispatchKeys.MangleKey(md.Name, msym.Signature.ParamTypes, msym.Signature.ParamCount);
                         } else {
                             emittedInst.Put(md.Name, "1");
                         }

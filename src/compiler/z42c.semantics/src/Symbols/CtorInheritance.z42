@@ -248,7 +248,7 @@ public sealed class CtorInheritance {
     private void _add(ClassDecl c, Z42ClassType ct, MethodDecl md, bool primary) {
         MethodSymbol msym = this._sc._methodSymbol(this._cur, md, c.Name, c.TypeParams.Names, c.TypeParams.Count);
         string regName = md.Name;
-        if (!primary) { regName = OverloadResolver.MangleKey(md.Name, msym.Signature.ParamTypes, msym.Signature.ParamCount); }
+        if (!primary) { regName = DispatchKeys.MangleKey(md.Name, msym.Signature.ParamTypes, msym.Signature.ParamCount); }
         SymbolCollector.RegisterMethod(ct, md, msym, regName);
         if (c.MemberCount == c.Members.Length) {
             Decl[] grown = new Decl[c.Members.Length * 2 + 1];
