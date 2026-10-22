@@ -27,6 +27,27 @@ public sealed class StrMap {
         this._count = 0;
     }
 
+    // perf-strmap（2026-10-20 profile：`_grow` 自占 1.9%、`_grow` 的调用方 Put/TryAdd 合计 2.3% ——
+    // 每次翻倍重哈希整表，大表（符号表 FQN 视图、每类方法表）要连长 6-10 次才到位）。**已知最终
+    // 规模的调用方**用它一次到位：容量向上取 2 的幂（空表仍走无分配哨兵路径 —— 传 0 等价无参构造）。
+    public StrMap(int expected) {
+        if (expected <= 0) {
+            this._cap = 1;
+            this._keys = StrMap.s_noKeys;
+            this._vals = StrMap.s_noVals;
+            this._used = StrMap.s_noUsed;
+            this._count = 0;
+            return;
+        }
+        int cap = 16;
+        while (cap < expected * 2) { cap = cap * 2; }   // 负载因子 <0.5（开放寻址探测长度 ~1-2）
+        this._cap = cap;
+        this._keys = new string[cap];
+        this._vals = new object[cap];
+        this._used = new bool[cap];
+        this._count = 0;
+    }
+
     public int Count() { return this._count; }
 
     // ⚠⚠ 下面四个查找入口各自**内联**探测循环、不共用 private `_find`：解释执行下一层纯转发就是
@@ -160,12 +181,25 @@ public sealed class StrMap {
     // 0x7FFFFFFF 之内，清符号位那一步对结果没有影响，结果恒非负。探测序不变 ⇒ 槽布局不变。
 
     private void _grow() {
+        // 哨兵表（容量 1）直接长到 16，与旧构造器给的初始容量一致 ⇒ 槽布局不变。
+        if (this._cap < 16) { this._rehash(16); } else { this._rehash(this._cap * 2); }
+    }
+
+    // perf-strmap：已知最终规模的调用方一次到位（原地重排、引用不变 —— 交给别人的表引用不受影响）。
+    // 已够大 / 空期望是 no-op（含无分配哨兵形态）。
+    public void EnsureCapacity(int expected) {
+        if (expected <= 0 || expected * 2 <= this._cap) { return; }
+        int cap = 16;
+        while (cap < expected * 2) { cap = cap * 2; }
+        this._rehash(cap);
+    }
+
+    private void _rehash(int newCap) {
         int oldCap = this._cap;
         string[] oldKeys = this._keys;
         object[] oldVals = this._vals;
         bool[]   oldUsed = this._used;
-        // 哨兵表（容量 1）直接长到 16，与旧构造器给的初始容量一致 ⇒ 槽布局不变。
-        if (oldCap < 16) { this._cap = 16; } else { this._cap = oldCap * 2; }
+        this._cap = newCap;
         this._keys = new string[this._cap];
         this._vals = new object[this._cap];
         this._used = new bool[this._cap];

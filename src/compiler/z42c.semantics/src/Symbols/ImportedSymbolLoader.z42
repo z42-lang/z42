@@ -642,6 +642,7 @@ public static partial class ImportedSymbolLoader {
             }
             i = i + 1;
         }
+        ct.Methods.EnsureCapacity(cl.MethodCount);   // perf-strmap：导入方法数已知，一次到位
         i = 0;
         while (i < cl.MethodCount) {
             ExportedMethodZ m = cl.Methods[i];

@@ -79,7 +79,7 @@ public sealed class MemberCollector {
     // 接口方法签名（体可无；签名同类方法解析）（port-z42c-interface）。
     private void _fillInterface(SymbolTable table, ClassDecl c) {
         // 按本命名空间的 FQN 取：短名表只留同名接口里的一份，别的 ns 的同名接口会一个方法都填不进去。
-        Z42InterfaceType it = table.InterfacesByFqn.Get(SymbolTable.QualOf(table.ScopeNs, c.Name)) as Z42InterfaceType;
+        Z42InterfaceType it = table.InterfacesByFqn.Get(SymbolTable.QualOf(table.ScopeNs, c.Name)) as Z42InterfaceType;   it.Methods.EnsureCapacity(c.MemberCount);   // perf-strmap：同 _fillClass
         // add-associated-types PR-2（`Self`）：接口内 `Self` 指代**实现类型**，实现方式是把它当成一个
         // 隐式类型形参塞进 paramNames —— ResolveTypeP 的形参命中分支随即把 `Self` 解析成
         // Z42GenericParamType("Self")，与真型参 `T` 走**完全同一条路**：不新造类型、约束位/成员签名
@@ -232,7 +232,7 @@ public sealed class MemberCollector {
         // stabilize-instance-dispatch-keys：primary/非-primary 键决议的 emit-期 tracker。声明序**首次**见到
         // 某实例/静态虚方法名 → primary（基线键=裸名，多态/协议规范槽 + seed 锚点）；后续同名兄弟 → 非-primary
         // （全签名 MangleKey，加/删重载只动自己、不碰 primary → 唯一方法逐字节不变）。协议豁免名恒裸、不入此表。
-        StrMap emittedInst = new StrMap();
+        StrMap emittedInst = new StrMap();   ct.Methods.EnsureCapacity(c.MemberCount);   // perf-strmap：成员表一次到位（挂此行以零净增——基线不许超限函数增长）
         int j = 0;
         while (j < c.MemberCount) {
             Decl mem = this._sc._unwrap(c.Members[j]);
