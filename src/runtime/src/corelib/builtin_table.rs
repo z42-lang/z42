@@ -124,17 +124,6 @@ const PART1: &[(&str, Native)] = &[
     ("__gc_handle_kind",     Native::Val(gc::builtin_gc_handle_kind)),
     ("__gc_handle_free",     Native::Void(gc::builtin_gc_handle_free)),
     ("__gc_stats",           Native::Val(gc::builtin_gc_stats)),
-    // ── add-std-process (2026-05-13) ── seed compatibility only: the stdlib calls the typed
-    //    `process::typed` builtins; these old shapes stay for the published seed (`process_legacy.rs`).
-    ("__process_run",                 Native::Val(process_legacy::builtin_process_run)),
-    ("__process_spawn",               Native::Val(process_legacy::builtin_process_spawn)),
-    ("__process_handle_wait",         Native::Val(process_legacy::builtin_process_handle_wait)),
-    ("__process_handle_try_wait",     Native::Val(process_legacy::builtin_process_handle_try_wait)),
-    ("__process_handle_kill",         Native::Val(process_legacy::builtin_process_handle_kill)),
-    ("__process_handle_write_stdin",  Native::Val(process_legacy::builtin_process_handle_write_stdin)),
-    ("__process_handle_close_stdin",  Native::Val(process_legacy::builtin_process_handle_close_stdin)),
-    ("__process_handle_pid",          Native::Val(process_legacy::builtin_process_handle_pid)),
-    ("__process_handle_drop",         Native::Val(process_legacy::builtin_process_handle_drop)),
 ];
 
 /// 完整表 = PART1 ++ PART2，**编译期**拼接：BuiltinId 就是最终下标，运行期再拼会

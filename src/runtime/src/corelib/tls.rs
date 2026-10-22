@@ -26,13 +26,6 @@
 //! Connect (resolution + connect + handshake), read and write run parked
 //! (`Blocking::new(..).then(..)`); the results are built after unparking.
 //!
-//! The older `__net_tls_*` builtins (discriminated arrays) live in `tls_legacy.rs` — the
-//! published seed's z42.net still calls them.
-
-#[path = "tls_legacy.rs"]
-mod legacy;
-pub use legacy::*;
-
 /// One TLS connection. `stream` holds the TLS session plus the socket; `sock` is a dup
 /// of the same socket, used to shut it down on close — waking a read blocked inside
 /// `stream`'s lock — and to set timeouts without waiting for that lock.

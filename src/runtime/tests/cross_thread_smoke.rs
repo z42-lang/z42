@@ -106,10 +106,10 @@ fn box_dyn_magr_gc_works_on_worker_thread() {
 #[test]
 fn spawn_via_builtin_then_join_runs_action_on_worker_thread() {
     // End-to-end test: hand `__thread_spawn` a `Value::FuncRef` to a minimal
-    // function (empty body + Ret void), then `__thread_join` and assert the
-    // success discriminator. Proves the full plumbing — Arc<VmCore> sharing,
-    // new_with_core construction on the worker, exec_function dispatch, and
-    // JoinHandle propagation through the threads registry.
+    // function (empty body + Ret void), then `__thread_wait` and assert success.
+    // Proves the full plumbing — Arc<VmCore> sharing, new_with_core construction on
+    // the worker, exec_function dispatch, and JoinHandle propagation through the
+    // threads registry.
     let module = make_void_action_module("TestVoidAction");
     let ctx = VmContext::with_module(module);
 
@@ -123,24 +123,22 @@ fn spawn_via_builtin_then_join_runs_action_on_worker_thread() {
     };
     assert!(slot_id > 0, "slot id should be > 0 (1-based)");
 
-    let join_result = corelib::exec_builtin_value(&ctx, "__thread_join", &[Value::I64(slot_id)])
-        .expect("__thread_join should not error for a known slot");
-    let arr = match join_result {
-        Value::Array(rc) => rc,
-        other => panic!("expected Value::Array, got {other:?}"),
-    };
-    let borrowed = arr.borrow();
-    assert!(matches!(borrowed.get_boxed(0), Value::I64(0)),
-        "expected JOIN_OK (0), got {:?}", borrowed.get_boxed(0));
+    // `__thread_wait` is a void builtin: success is the absence of an error; a
+    // worker that threw / panicked surfaces as a `Std.Threading.ThreadException`.
+    corelib::exec_builtin(&ctx, "__thread_wait", &[Value::I64(slot_id)])
+        .expect("__thread_wait should not error for a known slot");
 
-    // Second join on the same slot → JOIN_UNKNOWN_SLOT (handle consumed).
-    let second = corelib::exec_builtin_value(&ctx, "__thread_join", &[Value::I64(slot_id)]).unwrap();
-    if let Value::Array(rc) = second {
-        let b = rc.borrow();
-        assert!(matches!(b.get_boxed(0), Value::I64(2)),
-            "second join on same slot should be JOIN_UNKNOWN_SLOT (2), got {:?}", b.get_boxed(0));
-    } else {
-        panic!("expected Array, got {second:?}");
+    // Second wait on the same slot → ThreadException (handle consumed).
+    let second = corelib::exec_builtin(&ctx, "__thread_wait", &[Value::I64(slot_id)])
+        .expect_err("second wait on the same slot must fail");
+    let err = second.downcast::<corelib::abi::BuiltinError>()
+        .expect("a typed builtin error");
+    match err {
+        corelib::abi::BuiltinError::Exception { class, message } => {
+            assert_eq!(class, "Std.Threading.ThreadException");
+            assert_eq!(message, "thread already joined");
+        }
+        other => panic!("unexpected error: {other:?}"),
     }
 }
 

@@ -92,7 +92,7 @@ pub struct VmCore {
     /// Per VM: every thread of this VM, no other VM in the process.
     pub(crate) fatal: std::sync::atomic::AtomicBool,
     /// add-std-process (2026-05-13) — live `Std.IO.Process` children
-    /// spawned via `__process_spawn`. Keyed by monotonic u64 slot id
+    /// spawned via `__process_start`. Keyed by monotonic u64 slot id
     /// that z42 `ProcessHandle` carries; removed (`take_*`) on `wait` /
     /// `kill`+reap / explicit `drop`. **M2**: id counter now embedded in the
     /// registry (was `VmContext::process_next_id`, per-thread) → ids are unique
@@ -143,7 +143,7 @@ pub struct VmCore {
     pub(crate) strings:            Arc<crate::metadata::str_table::StrTable>,
     /// **add-threading-stdlib (2026-05-20)**: live `Std.Threading.Thread`
     /// instances keyed by monotonic u64 slot id. `__thread_spawn` inserts;
-    /// `__thread_join` takes-out + joins. Pattern mirrors
+    /// `__thread_wait` takes-out + joins. Pattern mirrors
     /// `add-std-process` processes registry.
     /// (**M2**: slot-id counter embedded in the registry.)
     pub(crate) threads:            ResourceRegistry<std::thread::JoinHandle<anyhow::Result<()>>>,
@@ -218,7 +218,7 @@ pub struct VmCore {
 
     // ── add-z42-net K1 (2026-05-24) ───────────────────────────────────────
     /// live `Std.Net.Sockets.TcpClient` streams keyed by monotonic u64 slot
-    /// id. `__net_tcp_connect` / `__net_tcp_accept` insert; `__net_tcp_socket_drop`
+    /// id. `__tcp_connect` / `__tcp_accept` insert; `__tcp_close`
     /// removes and shuts the stream down. Read / write clone the `Arc` instead of
     /// taking the stream out, so the socket is full duplex; the fd closes when the
     /// last `Arc` drops. wasm32 target: never populated.
@@ -232,10 +232,10 @@ pub struct VmCore {
 
     // ── add-z42-net-tls (2026-06-03) ──────────────────────────────────────
     /// live rustls client TLS streams (TCP + handshake state) keyed by
-    /// monotonic u64 slot id. `__net_tls_connect` inserts; `__net_tls_drop`
+    /// monotonic u64 slot id. `__tls_connect` inserts; `__tls_close`
     /// removes and shuts the socket down; the fd closes when the last `Arc`
     /// drops. Slot space is independent from `tcp_sockets`. wasm32: never
-    /// populated (TLS builtins return KIND_UNSUPPORTED).
+    /// populated (TLS builtins throw `NetUnsupportedException`).
     /// (**M2**: slot-id counter embedded in the registry.)
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) tls_sockets:
@@ -243,7 +243,7 @@ pub struct VmCore {
 
     // ── add-z42-net-udp (K2, 2026-05-25) ───────────────────────────────────
     /// live `Std.Net.Sockets.UdpClient` sockets keyed by monotonic u64 slot id.
-    /// `__net_udp_bind` inserts; `__net_udp_drop` removes. Send / recv clone the
+    /// `__udp_bind` inserts; `__udp_close` removes. Send / recv clone the
     /// `Arc`; the fd closes when the last `Arc` drops. wasm32 target: never populated.
     /// (**M2**: slot-id counter embedded in the registry.)
     #[cfg(not(target_arch = "wasm32"))]

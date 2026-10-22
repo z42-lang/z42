@@ -45,7 +45,6 @@ pub mod char;
 pub mod gc;
 pub mod bench;
 pub mod process;
-pub mod process_legacy;   // seed compatibility: the pre-ABI-v2 `__process_*` builtins
 pub mod platform;
 pub mod system;
 pub mod threading;
