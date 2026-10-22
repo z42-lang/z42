@@ -637,8 +637,8 @@ public sealed partial class SymbolTable {
             // `Name$N` → 回退 bare，不受影响。
             // unify-type-identity-fqn：**外围命名空间优先**（C# 作用域规则：enclosing ns 胜过 usings）。
             // 裸名类走下方 `Classes` 是按裸名键、同短名跨 ns **first/last-wins** ⇒ `namespace Alpha`
-            // 里写的 `Widget` 可能绑到 `Beta.Widget`。fix-type-ref-ns-collision 当年只根治了**限定**
-            // 引用（ClassesByFqn），裸名至今仍撞赢家 —— 以前没人把解析结果持久化，所以只表现为运行期
+            // 里写的 `Widget` 可能绑到 `Beta.Widget`。限定引用（ClassesByFqn）已根治，
+            // 裸名至今仍撞赢家 —— 以前没人把解析结果持久化，所以只表现为运行期
             // 降级；一旦把它写进元数据就变成「自信的错答案」（实测：HolderA.w 被写成 Beta.Widget）。
             // 只在外围 ns **确实声明了该名字**时改道 —— 那种情形按语言规则本就无歧义，不会误伤。
             int _cch = 0;

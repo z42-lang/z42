@@ -574,7 +574,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     // 🔴 cin.Files 必须是**真实路径**，不能换成显示名：它直接成为 `ZbcFileZ.SourceFile`
     // （PackageCompile.z42 `string rel = files[i]`）进而进入 zpkg，由 `_stabilizeSourceIdentity`
     // 按 projectDir 相对化来保证「同一份源换目录编出的字节相同」。换成 cwd 相对的显示名后，
-    // 那次相对化会因前缀不匹配而失效 ⇒ 可复现 build_id 判红（GREEN 实测抓到）。
+    // 那次相对化会因前缀不匹配而失效 ⇒ 可复现 build_id 判红。
     // 显示名只走 Parser（诊断位置）与下面两处呈现，不进产物。
     cin.Texts = texts; cin.Files = srcs; cin.SrcHashes = srcHashes; cin.SrcCount = srcs.Length;
     cin.Cus = cus; cin.CachedMods = cachedMods; cin.CachedMetas = cachedMetas;

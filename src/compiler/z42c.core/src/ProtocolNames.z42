@@ -53,7 +53,7 @@ public static class ProtocolNames {
 
     // 属性的合成访问器前缀。**是前缀、不是完整名** —— 计数成员两档（`Count`→`Length`）靠
     // `GetterPrefix + srcName` 拼；存成两条完整名会把那两档逻辑复制成两份，而「两处各写一份」
-    // 正是 `Count`/`Length` 当年判据分叉的原因（见 `ForeachProtocol.CountOf` 抬头）。
+    // 正是 `Count`/`Length` 曾判据分叉的原因（见 `ForeachProtocol.CountOf` 抬头）。
     public static string GetterPrefix  = "get_";
 
     // ── 事件协议（`event` 降糖，**发生在语法层**）────────────────────────────

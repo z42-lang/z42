@@ -110,7 +110,7 @@ public sealed class StmtBinder : IStmtVisitor<BoundStmt, StmtCtx> {
             // **策略链问一次就够** —— 顺序（数组 → 索引面 → 枚举器）与每一步的判据都在
             // `ForeachProtocol.Resolve` 里，本函数只按 plan 合成 AST / 填 BoundForeach。
             // 此前路径选择散在下面的 if 嵌套里、判据在 ForeachProtocol，「两处各写一份」正是
-            // `Count`/`Length` 当年分叉的形状。
+            // `Count`/`Length` 曾分叉的形状。
             ForeachPlan fePlan = ForeachProtocol.Resolve(feScope.Symbols, ct0);
             // add-foreach-ienumerable：三-path 决策树的**第三 path（兜底）**——目标既非数组、也无
             // 整数索引面，但暴露 `GetEnumerator()` → 走 IEnumerable 协议 path。

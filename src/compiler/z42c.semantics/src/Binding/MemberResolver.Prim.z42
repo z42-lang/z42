@@ -62,8 +62,7 @@ public sealed partial class MemberResolver {
     // —— 那是**不可 catch 的内部错误**，不是 `Std.Exception` 子类。int / string / double / bool 全中，
     // 而同样写法在用户类上一直报 E0401、在数组上报 E0402：只有 prim 这条路松绑定。
     //
-    // `#724` 当年看见了这个洞并留下，理由是「松绑定要保 `string.Length` 经 DepIndex 解析」——
-    // **该理由已过期**：`String.Length` 现在是真实声明的 extern 属性（`String.z42:44`），
+    // 松绑定的历史理由是「要保 `string.Length` 经 DepIndex 解析」——**该理由已过期**：`String.Length` 现在是真实声明的 extern 属性（`String.z42:44`），
     // getter 查找本就命中，不再需要靠松绑定兜。
     //
     // ⚠️ 仍然松绑定的唯一情形：包装类是**成员表为空的 stub**（懒加载 / 冷启动未载真类）——

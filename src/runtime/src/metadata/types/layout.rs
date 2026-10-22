@@ -47,7 +47,7 @@ pub struct StructTypeLayout {
     /// **O(1) 数组下标，无哈希、无字符串、不需要 IC**。
     ///
     /// ⚠️ 本字段目前是**休眠元数据：没有任何消费方**（形态同
-    /// `unify-object-byte-layout (PR-1)` 当年的做法）。接通它是 P2 的事。
+    /// `unify-object-byte-layout (PR-1)` 的先例）。接通它是 P2 的事。
     /// 之所以先单独落地：P0 纯附加、零行为变化，可独立 GREEN；而 P2 要改指令编码、
     /// 得在此之上做。
     pub fields: Box<[StructFieldLayout]>,

@@ -123,9 +123,9 @@ public sealed partial class OverloadBinder {
     internal void CheckArg(BoundExpr a, Z42Type pt, Span sp, TypeEnv env) {
         if (a == null || pt == null) { return; }
         // make-enum-distinct-type：`_isEnumSide` 跳过已摘除（理由见 `_checkOneArg`）。
-        // 这条路（ctor 位置实参 / 命名实参 / 可选参）**不经**上面的汇聚点，当年的跳过是两处各写
-        // 一遍的——摘的时候必须同样两处都摘；只摘汇聚点那处，enum 形参在 ctor 与命名实参位就仍然
-        // 不检查（"看着修好了、其实半边还瞎"）。
+        // 这条路（ctor 位置实参 / 命名实参 / 可选参）**不经**上面的汇聚点，而那个跳过曾在两处
+        // 各写一遍——摘除时必须同样两处都摘；只摘汇聚点那处，enum 形参在 ctor 与命名实参位就
+        // 仍然不检查（"看着修好了、其实半边还瞎"）。
         this._tc.CheckImplicitConvert(a, pt, env.Symbols, sp, "argument");
     }
 
