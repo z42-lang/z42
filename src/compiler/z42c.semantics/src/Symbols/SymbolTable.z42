@@ -122,14 +122,16 @@ public sealed partial class SymbolTable {
     // `SortedClasses()` 的缓存。**每个视图自己的**（不随 WithAliases 复制），见该函数。
     private Z42ClassType[] _sortedClasses;
     public SymbolTable() {
-        this.ClassesByFqn = new StrMap();   // fix-type-ref-ns-collision
-        this.FunctionsByFqn = new StrMap();
-        this.FuncOverloadsByFqn = new StrMap();   // free-function-overloads
+        // perf-strmap：包级大视图一次到位（编译器包 ≈500-1500 类/自由函数，从 16 连翻 7 次的
+        // _grow 重哈希在 profile 里占 1.9%；2048 槽 ≈35KB，每包构建一份，可忽略）。
+        this.ClassesByFqn = new StrMap(2048);   // fix-type-ref-ns-collision
+        this.FunctionsByFqn = new StrMap(1024);
+        this.FuncOverloadsByFqn = new StrMap(1024);   // free-function-overloads
         this.FuncNsAll = new StrMap();
         this.ClassConstraints = new StrMap();
         this.InterfaceConstraints = new StrMap();
         this.EnumTypes = new StrMap();
-        this.InterfacesByFqn = new StrMap();   // unify-type-identity-fqn
+        this.InterfacesByFqn = new StrMap(512);   // unify-type-identity-fqn（perf-strmap 同上）
         this.EnumTypeNs = new StrMap();        // unify-type-identity-fqn
         this.EnumConsts = new StrMap();
         this.Delegates = new StrMap();
