@@ -615,7 +615,7 @@ public sealed class SymbolCollector {
     // `table` 必须是**带作用域的 per-CU 视图**（_passMembers 顶部建），否则 ScopeNs/ScopeUsings 为空、
     // 判据恒返回 false —— 那就成了「装了个从不响的门」。
     internal void _chkTypeRefT(Z42Type t, TypeExpr te, string cls, SymbolTable table, Span sp) {
-        AccessChecker.CheckTypeRef(t, cls, table, this.Diags, sp);
+        TypeRefAccess.CheckTypeRef(t, cls, table, this.Diags, sp);
         this._chkTypeRefPkg(t, table, sp);   // report-crosspkg-duplicate-type：E0601 / E0606（声明位）
         string name = table.FirstAmbiguousBareName(te);   // 含嵌套位置（`List<Widget>` / `Widget[]`）；限定名跳过
         if (name == "") { return; }
