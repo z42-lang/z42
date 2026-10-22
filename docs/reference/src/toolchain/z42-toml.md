@@ -945,6 +945,7 @@ artifacts/build/libraries/<lib>/<profile>/
 "demo.noemptycatch" = "0.1.0"                 # 按名：在插件目录找 demo.noemptycatch.zpkg
 "demo.gen"          = { path = "../gen" }     # 按工程路径：z42c 代建该工程，取其 dist
 "demo.local"        = { path = "../x.zpkg" }  # 按 zpkg 路径：现成产物，读头校验后直接用
+"noisy.lint"        = false                   # 关闭携带进来的插件（见 [plugins.export]）
 ```
 
 旧段名 `[analyzers]` 已删除：写了按未知段报错，把条目改写到 `[plugins]`。
@@ -977,6 +978,23 @@ z42b 反射出全部继承 `: BuildHooks` 的具体类——包提供哪几类�
 
 > ⚠️ 开发态构建产出的是 indexed zpkg（主文件 + 旁边散装 `.zbc`）。只拷主文件过去，加载时报
 > **E0493**；连 `.zbc` 一起拷，或用 `--release` 得到单文件 packed zpkg。
+
+### `[plugins.export]` —— lib 携带插件（消费方零配置自动获得）
+
+```toml
+# 写在 kind = "lib" 的工程里（插件工程 / exe 写它按清单错误报）
+[plugins.export]
+"foo.gen"  = { path = "../gen" }     # 工程路径：构建时读它的清单记「名 + 精确版本」进 zpkg PLGS 段
+"foo.lint" = "0.1.0"                 # 按名携带（发布件形态；须写版本）
+```
+
+- **携带 = 引用而非内联**：lib 产物不含插件代码，只记引用；插件 zpkg 分发在**插件目录**
+  （`Z42_PLUGINS` / 依赖目录同级 `plugins/`）——携带方发布时须随行分发（release 构建 lib 时会
+  验证 path 条目的产物在、能力位非零、版本一致）。
+- **消费方零配置**：依赖此 lib 的工程沿依赖闭包自动获得这些插件（显式 `[plugins]` 赢携带、
+  同名先到先得）；`[plugins] "x" = false` 关掉某个携带项。
+- 携带件缺失 / 版本不符 → 构建失败、诊断**点名携带方**——携带是发布承诺，不静默降级。
+- 只对 lib 有意义：exe 无人依赖；插件工程不参与依赖图（携带链终止在 lib）。
 
 ### `[lints]` —— 逐规则 severity 覆盖
 

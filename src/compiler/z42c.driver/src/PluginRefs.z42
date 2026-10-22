@@ -201,3 +201,111 @@ string _pluginFingerprint(PluginZpkgs pz) {
     }
     return acc;
 }
+
+// ── 携带解析（1c 自动导入）────────────────────────────────────────────────────
+// 消费方闭包里 lib 的 PLGS 段 → 自动并入生效集。规则：
+//   · 只走**真在闭包里**的包（声明的名条目 + path 闭包；传递经各 dep zpkg 的 DEPS 段 BFS）——
+//     躺在 libs 目录里但没被依赖的包，携带不生效；
+//   · 显式 [plugins] 赢携带；同名携带先到先得（BFS 序：声明序 → 各 DEPS 段序）；
+//   · `[plugins] "x" = false` 把携带的 x 摘掉；
+//   · 按名在插件目录解析；找到但版本与携带钉的不符 → 报错点名携带者（不静默用旧版）；
+//     找不到 → 报错点名携带者（携带是发布承诺，缺件即失败）。
+// 返回与 _resolvePluginZpkgs 同形：编译器侧（analyzer / generator 位）插件；无携带 → Count == 0。
+// 失败 → Code != 0（诊断已打印）。
+// 返回 false = 失败（诊断已打印）；成功且无携带 → names 置 null。数组输出避免在 Main 的新路径上
+// 使用 PluginZpkgs 类型（夹具域里 driver 双载时自定义类型按名实例化会被拒——E0601 同源）。
+bool _resolveCarriedPlugins(ProjectManifest pm, string[] libsDirs, int libsDirsN, ref string[] names, ref string[] paths) {
+    // 闭包 BFS 的名字队列：0 层 = 消费方声明的依赖（清单序）。
+    string[] queue = new string[128];
+    int qn = 0;
+    int i = 0;
+    while (i < pm.DepCount && qn < 128) { queue[qn] = pm.Deps[i].Name; qn = qn + 1; i = i + 1; }
+    // path 闭包成员也在解析域里（dists 已并入 libsDirs；名字来自闭包计划）——由调用方透传更准确，
+    // 但 path 依赖同样出现在 pm.Deps（path 条目也写 [dependencies]）⇒ 0 层已覆盖。
+    string[] visitedPkg = new string[128];
+    int vn = 0;
+    // 去重名集：显式 [plugins] 的名先占位（显式赢携带）。
+    string[] taken = new string[128 + pm.PluginCount];
+    int tn = 0;
+    i = 0;
+    while (i < pm.PluginCount) { taken[tn] = pm.Plugins[i].Name; tn = tn + 1; i = i + 1; }
+    string[] rnames = new string[64];
+    string[] rpaths = new string[64];
+    int rn = 0;
+    int qi = 0;
+    while (qi < qn) {
+        string dep = queue[qi];
+        qi = qi + 1;
+        bool seen = false;
+        int v = 0;
+        while (v < vn) { if (visitedPkg[v] == dep) { seen = true; break; } v = v + 1; }
+        if (seen || vn >= 128) { continue; }
+        visitedPkg[vn] = dep; vn = vn + 1;
+        string zpath = _findDepZpkg(dep, libsDirs, libsDirsN);
+        if (zpath.Length == 0) { continue; }   // 声明了但解析不到：E0497/依赖解析的职责，不在携带层重复报
+        ZpkgInfo info = null;
+        try { info = ZpkgReader.Open(File.ReadAllBytes(zpath), zpath); } catch (Exception ex) { info = null; }
+        if (info == null) { continue; }
+        // 传递：把该包自己的 DEPS 入队（按段序，确定性）。
+        string[] trans = ZpkgReader.ReadDependencies(info);
+        int t = 0;
+        while (t < trans.Length && qn < 128) { queue[qn] = trans[t]; qn = qn + 1; t = t + 1; }
+        if (!_carryOne(pm, dep, info, libsDirs, libsDirsN, taken, ref tn, rnames, rpaths, ref rn)) { return false; }
+    }
+    if (rn > 0) {
+        string[] rn2 = new string[rn];
+        string[] rp2 = new string[rn];
+        int x = 0;
+        while (x < rn) { rn2[x] = rnames[x]; rp2[x] = rpaths[x]; x = x + 1; }
+        names = rn2; paths = rp2;
+    }
+    return true;
+}
+
+// 在依赖目录里按名找 zpkg（闭包 BFS 的定位器；不做插件目录查找——那是 _pluginFromLibs 的职责）。
+string _findDepZpkg(string name, string[] libsDirs, int libsDirsN) {
+    string f = name + ".zpkg";
+    int d = 0;
+    while (d < libsDirsN) {
+        string cand = Path.Join(libsDirs[d], f);
+        if (File.Exists(cand)) { return cand; }
+        d = d + 1;
+    }
+    return "";
+}
+
+// 一个依赖 zpkg 的携带条目逐条并入。失败（缺件 / 版本不符）→ false（诊断点名携带方）。
+bool _carryOne(ProjectManifest pm, string dep, ZpkgInfo info, string[] libsDirs, int libsDirsN,
+               string[] taken, ref int tn, string[] rnames, string[] rpaths, ref int rn) {
+    int c = 0;
+    while (c < info.CarriedCount) {
+        PluginCarryZ carry = info.Carried[c];
+        c = c + 1;
+        string pname = carry.Name;
+        bool skip = false;
+        int d = 0;
+        while (d < pm.PluginDisableCount) { if (pm.PluginDisables[d] == pname) { skip = true; break; } d = d + 1; }
+        if (skip) { continue; }
+        int k = 0;
+        while (k < tn) { if (taken[k] == pname) { skip = true; break; } k = k + 1; }
+        if (skip) { continue; }
+        string got = _pluginFromLibs(pname, libsDirs, libsDirsN);
+        if (got.Length == 0) {
+            ConsoleError.WriteLine("z42c build: 依赖 `" + dep + "` 携带插件 `" + pname + "`（" + carry.Version
+                + "），但插件目录里没有 " + pname + ".zpkg——携带是发布承诺：把该插件放进插件目录"
+                + "（Z42_PLUGINS / 依赖目录同级 plugins/），或用 [plugins] `" + pname + "` = false 关闭它。");
+            return false;
+        }
+        ZpkgInfo pi = null;
+        try { pi = ZpkgReader.Open(File.ReadAllBytes(got), got); } catch (Exception ex) { pi = null; }
+        if (pi == null || pi.Version != carry.Version) {
+            ConsoleError.WriteLine("z42c build: 依赖 `" + dep + "` 携带插件 `" + pname + "` 钉的是 "
+                + carry.Version + "，插件目录里那份是 " + (pi == null ? "?" : pi.Version)
+                + "——版本对不齐（不静默用别的版本）。重装匹配版本，或与携带方同步升级。");
+            return false;
+        }
+        taken[tn] = pname; tn = tn + 1;
+        if (PluginCaps.ForCompiler(pi.PluginCaps) && rn < 64) { rnames[rn] = pname; rpaths[rn] = got; rn = rn + 1; }
+    }
+    return true;
+}

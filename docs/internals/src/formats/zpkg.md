@@ -32,8 +32,8 @@ Section 目录同 zbc：每条 12 字节（tag 4B + offset u32 + size u32），�
 
 | 模式 | 固定段 | 可选 |
 |------|--------|------|
-| packed | `META` `STRS` `NSPC` `DEPS` `SIGS` `MODS` | `IMPL`（有导出成员时）、`BLID`（release strip 的主包末尾） |
-| indexed | `META` `STRS` `NSPC` `DEPS` `SIGS` `FILE` | `IMPL` |
+| packed | `META` `STRS` `NSPC` `DEPS` `SIGS` `MODS` | `IMPL`（有导出成员时）、`PLGS`（有携带插件时，1c）、`BLID`（release strip 的主包末尾） |
+| indexed | `META` `STRS` `NSPC` `DEPS` `SIGS` `FILE` | `IMPL`、`PLGS` |
 | sidecar (.zsym) | `META` `STRS` `MDBG` `BLID` | — |
 
 packed 与 indexed 只在"模块体段"不同（`MODS` ↔ `FILE`），其余段共用同一构建器。
@@ -43,6 +43,12 @@ packed 与 indexed 只在"模块体段"不同（`MODS` ↔ `FILE`），其余段
 ### META — 包元数据
 
 `str name` + `str version` + `str entry`（lib 的 entry 为空串）。
+
+### PLGS — 携带插件表（unify-plugin-packages 1c）
+
+`u32 count`，每条 `{ u32 name_idx; u32 ver_idx }`（走 STRS 池）——lib 的 `[plugins.export]`
+构建时记入：消费方沿依赖闭包读到后按名在插件目录解析、按版本对齐。仅携带包写此段；旧 reader 按
+段目录寻址、未见过的 tag 查不到即跳过——对旧代透明，未 bump 版本（同头能力位的不 bump 理由）。
 
 ### STRS — 字符串池
 

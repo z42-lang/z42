@@ -63,3 +63,46 @@ void test_no_plugins_section() {
     ProjectManifest m = ManifestLoader.ParseText(toml);
     Assert.Equal(0, m.PluginCount);
 }
+
+// ── [plugins.export]（1c 携带）与 `"x" = false` 关闭 ─────────────────────────
+
+[Test]
+void test_plugins_export_parsed() {
+    // 携带条目三形态与 [plugins] 一致：名字 / 工程目录 path / .zpkg path。只搬不解释。
+    string toml = "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[plugins.export]\n\"foo.gen\" = \"1.0.0\"\n\"bar.lint\" = { path = \"../bar\" }\n\"baz.local\" = { path = \"../b.zpkg\" }\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(3, m.PluginExportCount);
+    Assert.Equal("foo.gen", m.PluginExports[0].Name);
+    Assert.Equal("1.0.0", m.PluginExports[0].Version);
+    Assert.Equal("", m.PluginExports[0].Path);
+    Assert.Equal("../bar", m.PluginExports[1].Path);
+    Assert.Equal("../b.zpkg", m.PluginExports[2].Path);
+}
+
+[Test]
+void test_plugins_export_absent_empty() {
+    // 没写 → 空数组；非携带工程逐字节不受影响。
+    string toml = "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(0, m.PluginExportCount);
+}
+
+[Test]
+void test_plugins_false_disable() {
+    // `"x" = false` 只关携带项：x 不进 [plugins] 条目集，进 PluginDisables。
+    string toml = "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[plugins]\n\"noisy.lint\" = false\n\"own.gen\" = { path = \"../gen\" }\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(1, m.PluginCount);                 // own.gen 是条目
+    Assert.Equal(1, m.PluginDisableCount);
+    Assert.Equal("noisy.lint", m.PluginDisables[0]);
+}
+
+[Test]
+void test_false_and_entry_coexist() {
+    // false 与正常条目混写互不干扰；非 false 的 bool（true）不属携带语义、按普通值走条目解析报错。
+    string toml = "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[plugins]\n\"a\" = false\n\"b\" = \"0.1.0\"\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(1, m.PluginCount);
+    Assert.Equal("b", m.Plugins[0].Name);
+    Assert.Equal(1, m.PluginDisableCount);
+}

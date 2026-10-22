@@ -16,6 +16,7 @@ namespace Z42Builder;
 using Std.IO;
 using Std.Reflection;   // Assembly
 using Z42.Build;
+using Z42.Package;   // ZpkgReader / ZpkgInfo / PluginCarryZ（携带解析）
 using Z42.Project;   // ManifestLoader：hooks 的合成清单
 
 // hook 加载结果：Ok=false → 诊断已打印，调用方判**构建失败**（fail-build-on-hooks-error：清单既然声明了 hook，
@@ -29,9 +30,15 @@ public sealed class HookLoad {
 // 收集一个工程的全部 hook 来源并组合。
 //   projDir   工程目录（相对路径的基准）
 //   interDir  hook 插件工程代建产物的落点
-HookLoad _loadHooks(ProjectManifest m, string projDir, string interDir) {
-    BuildHooks[] parts = new BuildHooks[4];
+//   extraDirs 额外依赖目录（path 闭包 / 父包 dist；携带解析要沿真闭包走，publish 路径无 → 空表）
+HookLoad _loadHooks(ProjectManifest m, string projDir, string interDir, string[] extraDirs, int extraN) {
+    BuildHooks[] parts = new BuildHooks[8];
     int n = 0;
+    // 1c 携带：依赖闭包里 lib 的 PLGS 自动并入（显式赢、false 摘、只收 Hook 位）。
+    BuildHooks[] carried = _loadCarriedHooks(m, extraDirs, extraN);
+    if (carried == null) { return new HookLoad(false, null); }
+    int ci = 0;
+    while (ci < carried.Length) { parts = _pushHooks(parts, n, carried[ci]); n = n + 1; ci = ci + 1; }
     int pi = 0;
     while (pi < m.PluginCount) {
         DepEntry e = m.Plugins[pi];
@@ -74,6 +81,69 @@ string[] _pluginSearchDirs() {
     string[] r = new string[n];
     int i = 0;
     while (i < n) { r[i] = acc[i]; i = i + 1; }
+    return r;
+}
+
+// 依赖闭包 BFS：真在闭包里的 lib（0 层 = 清单声明序，传递 = 各 dep zpkg 的 DEPS 段序）的 PLGS →
+// 自动并入的 hook。显式 [plugins] 名与已取携带名先占坑（显式赢、同名先到先得）；`"x" = false` 摘除。
+// 只收 Hook 位（analyzer / generator 位归 z42c）。域 = 插件目录（_pluginSearchDirs）+ hook 编译依赖面
+//（Z42_LIBS + 编译器目录）+ extraDirs（闭包 dist）。失败 → null（诊断已打印，点名携带者）。
+BuildHooks[] _loadCarriedHooks(ProjectManifest m, string[] extraDirs, int extraN) {
+    // 闭包定位域：_hookCompileDeps 是文件列表；名字→目录用它的所在目录集合即可（去重后与 extraDirs 拼接）。
+    string[] depDirs = _hookCompileDeps();
+    string[] dom = new string[depDirs.Length + extraN + 2];
+    int dn = 0;
+    int di = 0;
+    while (di < depDirs.Length) {
+        string d = Path.GetDirectoryName(depDirs[di]);
+        bool has = false;
+        int j = 0;
+        while (j < dn) { if (dom[j] == d) { has = true; break; } j = j + 1; }
+        if (!has && dn < dom.Length) { dom[dn] = d; dn = dn + 1; }
+        di = di + 1;
+    }
+    int ei = 0;
+    while (ei < extraN) { if (dn < dom.Length) { dom[dn] = extraDirs[ei]; dn = dn + 1; } ei = ei + 1; }
+    string[] queue = new string[128];
+    int qn = 0;
+    int i = 0;
+    while (i < m.DepCount && qn < 128) { queue[qn] = m.Deps[i].Name; qn = qn + 1; i = i + 1; }
+    string[] visited = new string[128];
+    int vn = 0;
+    string[] taken = new string[128 + m.PluginCount];
+    int tn = 0;
+    i = 0;
+    while (i < m.PluginCount) { taken[tn] = m.Plugins[i].Name; tn = tn + 1; i = i + 1; }
+    BuildHooks[] found = new BuildHooks[16];
+    int fn = 0;
+    int qi = 0;
+    while (qi < qn) {
+        string dep = queue[qi];
+        qi = qi + 1;
+        bool seen = false;
+        int v = 0;
+        while (v < vn) { if (visited[v] == dep) { seen = true; break; } v = v + 1; }
+        if (seen || vn >= 128) { continue; }
+        visited[vn] = dep; vn = vn + 1;
+        string zpath = "";
+        int d2 = 0;
+        while (d2 < dn) {
+            string cand = Path.Join(dom[d2], dep + ".zpkg");
+            if (File.Exists(cand)) { zpath = cand; break; }
+            d2 = d2 + 1;
+        }
+        if (zpath.Length == 0) { continue; }
+        ZpkgInfo info = null;
+        try { info = ZpkgReader.Open(File.ReadAllBytes(zpath), zpath); } catch (Exception ex) { info = null; }
+        if (info == null) { continue; }
+        string[] trans = ZpkgReader.ReadDependencies(info);
+        int tt = 0;
+        while (tt < trans.Length && qn < 128) { queue[qn] = trans[tt]; qn = qn + 1; tt = tt + 1; }
+        if (!_carryOneHook(m, dep, info, taken, ref tn, found, ref fn)) { return null; }
+    }
+    BuildHooks[] r = new BuildHooks[fn];
+    i = 0;
+    while (i < fn) { r[i] = found[i]; i = i + 1; }
     return r;
 }
 
@@ -210,4 +280,44 @@ string[] _hookCompileDeps() {
     string compilerZpkg = _findCompilerZpkg();
     if (compilerZpkg.Length > 0) { deps = _hooksAppendZpkgs(deps, Path.GetDirectoryName(compilerZpkg)); }
     return deps;
+}
+
+// 一个依赖 zpkg 的携带条目逐条并入（只收 Hook 位；false 摘、显式/先到防重）。失败 → false（诊断点名携带方）。
+bool _carryOneHook(ProjectManifest m, string dep, ZpkgInfo info, string[] taken, ref int tn,
+                   BuildHooks[] found, ref int fn) {
+    int c = 0;
+    while (c < info.CarriedCount) {
+        string pname = info.Carried[c].Name;
+        string pver  = info.Carried[c].Version;
+        c = c + 1;
+        bool skip = false;
+        int d3 = 0;
+        while (d3 < m.PluginDisableCount) { if (m.PluginDisables[d3] == pname) { skip = true; break; } d3 = d3 + 1; }
+        if (skip) { continue; }
+        int k = 0;
+        while (k < tn) { if (taken[k] == pname) { skip = true; break; } k = k + 1; }
+        if (skip) { continue; }
+        string[] pdirs = _pluginSearchDirs();
+        string got = "";
+        int pd = 0;
+        while (pd < pdirs.Length) {
+            string cand = Path.Join(pdirs[pd], pname + ".zpkg");
+            if (File.Exists(cand)) { got = cand; break; }
+            pd = pd + 1;
+        }
+        if (got.Length == 0) {
+            ConsoleError.WriteLine("z42b: 依赖 `" + dep + "` 携带插件 `" + pname + "`（" + pver
+                + "），但插件目录里没有 " + pname + ".zpkg——把该插件放进插件目录，或用 [plugins] `" + pname + "` = false 关闭它。");
+            return false;
+        }
+        PluginCheck chk = _hostCompiler().InspectPlugin(got, pname);
+        if (chk.Error.Length > 0) { ConsoleError.WriteLine("z42b: " + chk.Error); return false; }
+        if (!chk.HasHook) { taken[tn] = pname; tn = tn + 1; continue; }   // 携带的是编译器侧插件：z42b 不收，记名防重
+        BuildHooks[] one = _hooksFromZpkg(got);
+        if (one == null) { return false; }
+        int f = 0;
+        while (f < one.Length && fn < 16) { found[fn] = one[f]; fn = fn + 1; f = f + 1; }
+        taken[tn] = pname; tn = tn + 1;
+    }
+    return true;
 }

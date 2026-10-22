@@ -1,0 +1,5 @@
+namespace E2eClib;
+
+public static class Lib {
+    public static int Answer() { return 40; }   // 纯常量：lib 自己不跑携带的 generator（语义：export 不自用）
+}

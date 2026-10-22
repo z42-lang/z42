@@ -1,0 +1,104 @@
+// 携带解析（unify-plugin-packages 1c）：lib 的 `[plugins.export]` → zpkg PLGS 段条目（名 + 精确版本）。
+//
+// 这是「携带 = 引用而非内联」的引用侧：lib 产物不含插件代码，只记「依赖我的工程自动获得这些插件」。
+// 消费侧（z42c / z42b 的依赖闭包解析）按名在插件目录定位、比对版本——见 PluginRefs / builder_hooks。
+//
+// 解析规则（按条目形态）：
+//   · 名字条目：名 = 条目名，版本 = 条目版本串；
+//   · `path = "<dir>"`：定位插件工程清单（须 kind = "plugin" 且名字一致）→ 版本取该清单的 version；
+//   · `path = "x.zpkg"`：读产物（须带插件能力位、META 名与条目一致）→ 版本取 META。
+// release 加验（#11，防把坏件钉进发布件）：path 条目要求产物 dist/<name>.zpkg 存在、头能力位非零、
+// META 名/版本与解析值一致；dev（#12 快路径）只读清单/产物头、不代建不查 dist。
+// 失败 → 打诊断并返回 null；调用方判**构建失败**——「携带了却给不出可解析条目」不许静默落空。
+namespace Z42.Pipeline;
+
+using Std.IO;
+using Z42.Package;   // PluginCarryZ / PluginZpkg / PluginCaps
+using Z42.Project;   // ProjectManifest / ManifestLocator / BuildLayout
+
+public static class PluginCarry {
+    // projectDir = 携带者工程目录（path 条目的相对基准）。
+    public static PluginCarryZ[] Resolve(ProjectManifest pm, string projectDir, bool isRelease) {
+        if (pm.PluginExportCount == 0) { return new PluginCarryZ[0]; }
+        PluginCarryZ[] r = new PluginCarryZ[pm.PluginExportCount];
+        int i = 0;
+        while (i < pm.PluginExportCount) {
+            DepEntry e = pm.PluginExports[i];
+            string name = e.Name;
+            string version = e.Version;
+            if (e.Path.Length == 0) {
+                if (version.Length == 0) {
+                    ConsoleError.WriteLine("z42c build: [plugins.export] `" + name + "` 是名字条目但没写版本——"
+                        + "携带钉的是精确版本（消费方按名解析、按版本对齐），没有版本可钉。");
+                    return null;
+                }
+            }
+            else if (e.Path.EndsWith(".zpkg")) {
+                string zp = Path.IsRooted(e.Path) ? e.Path : Path.Join(projectDir, e.Path);
+                ZpkgInfo info = _open(zp);
+                if (info == null) {
+                    ConsoleError.WriteLine("z42c build: [plugins.export] `" + name + "` 的 path 指向 " + zp
+                        + "，读不出来（不存在 / 另一代工具链编出）。");
+                    return null;
+                }
+                if (info.Name != name || !PluginCaps.IsPlugin(info.PluginCaps)) {
+                    ConsoleError.WriteLine("z42c build: [plugins.export] `" + name + "` 的 path 指向的 " + zp
+                        + " 不是该名的插件包（实际名 `" + info.Name + "`，能力 " + PluginCaps.Describe(info.PluginCaps) + "）。");
+                    return null;
+                }
+                version = info.Version;
+            }
+            else {
+                version = PluginCarry._fromProject(e, name, projectDir, isRelease);
+                if (version == null) { return null; }
+            }
+            r[i] = new PluginCarryZ(name, version);
+            i = i + 1;
+        }
+        return r;
+    }
+
+    // path 条目（工程目录）：定位插件工程清单 → 校验 kind/name → 版本取清单；release 加验 dist 产物
+    // （在、能力位非零、名/版本与清单一致——#11 防把坏件钉进发布件）。失败 → null（诊断已打印）。
+    static string _fromProject(DepEntry e, string name, string projectDir, bool isRelease) {
+        string dir = Path.IsRooted(e.Path) ? e.Path : Path.Join(projectDir, e.Path);
+        ManifestLocation loc = ManifestLocator.FindIn(dir);
+        if (loc.Kind != ManifestLocateKind.Project) {
+            ConsoleError.WriteLine("z42c build: [plugins.export] `" + name + "` 的 path 指向 " + dir
+                + "，那里没有单个工程清单。");
+            return null;
+        }
+        ProjectManifest cpm = ManifestLoader.Load(loc.ManifestPath);
+        if (!cpm.Project.IsPlugin() || cpm.Project.Name != name) {
+            ConsoleError.WriteLine("z42c build: [plugins.export] `" + name + "` 指向的工程须是 kind = \"plugin\" 且名为 `"
+                + name + "`（实际 kind = \"" + cpm.Project.Kind + "\"、name = `" + cpm.Project.Name + "`）。");
+            return null;
+        }
+        string version = cpm.Project.Version;
+        if (isRelease && !PluginCarry._verifyDist(name, dir, cpm, version)) { return null; }
+        return version;
+    }
+
+    // release 验产物：dist/<name>.zpkg 在、能力位非零、名/版本与清单一致。
+    static bool _verifyDist(string name, string dir, ProjectManifest cpm, string version) {
+        BuildLayout bl = BuildLayout.Resolve(cpm, dir, true);
+        string dist = Path.Join(bl.DistDir, name + ".zpkg");
+        ZpkgInfo zi = _open(dist);
+        if (zi == null) {
+            ConsoleError.WriteLine("z42c build: [plugins.export] `" + name + "` 的 release 验证失败："
+                + dist + " 读不出来——先构建该插件工程（携带钉的是精确版本，产物必须随行）。");
+            return false;
+        }
+        if (!PluginCaps.IsPlugin(zi.PluginCaps) || zi.Name != name || zi.Version != version) {
+            ConsoleError.WriteLine("z42c build: [plugins.export] `" + name + "` 的 release 验证失败："
+                + dist + "（名 `" + zi.Name + "`、版本 " + zi.Version + "、能力 "
+                + PluginCaps.Describe(zi.PluginCaps) + "）与清单（" + version + "）不一致——重编该插件工程。");
+            return false;
+        }
+        return true;
+    }
+
+    static ZpkgInfo _open(string path) {
+        try { return ZpkgReader.Open(File.ReadAllBytes(path), path); } catch (Exception ex) { return null; }
+    }
+}

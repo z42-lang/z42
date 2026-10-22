@@ -295,18 +295,13 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     // 必须在指纹之前：path 条目由 z42c **代建**，不先建就没有 zpkg 可指纹，「改了插件源码但消费方源没变」
     // 就不会失效缓存。解析结果同时喂指纹与 CompileInputs。z42c 只拿编译器侧（analyzer / generator）插件；
     // 一个都没有（含 z42c 自建、只挂了 hook 插件的工程）→ azPaths 为 null、指纹 `""` → 自举 byte-identical。
-    string[] azPaths = null;
-    PluginZpkgs pz = null;
+    string[] azPaths = null; PluginZpkgs pz = null;
     if (pm.PluginCount > 0) {
         pz = _resolvePluginZpkgs(pm, projectDir, tomlPath, libsDirs, libsDirsN,
                                  isRelease, noIncremental, cliAdd, cliRemove);
         if (pz.Code != 0) { return pz.Code; }
-        if (pz.Count > 0) {
-            azPaths = new string[pz.Count];
-            int azi = 0;
-            while (azi < pz.Count) { azPaths[azi] = pz.Paths[azi]; azi = azi + 1; }
-        }
     }
+    if (!_attachCarriedSet(pm, libsDirs, libsDirsN, ref pz, ref azPaths)) { return ExitCode.BuildError; }   // 1c：携带闭包并入显式集
     // 插件身份指纹并入增量指纹（「产物纳入指纹」）——揉进每个文件源 hash，则「换 generator 但源没变」也令
     // 所有缓存失效。空 → `""` → `text+""==text` → 源 hash 不变 → 自举 byte-identical。
     string handlerFp = _pluginFingerprint(pz);
@@ -606,6 +601,13 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     if (azPaths != null) {
         cin.AnalyzerZpkgs = azPaths; cin.AnalyzerZpkgCount = azPaths.Length;
     }
+    // 1c 携带：[plugins.export] → PLGS 段条目（PluginCarry.Resolve，dev 快路径 / release 验产物）。
+    // 解析失败判构建失败——携带是发布承诺，钉不进就别让 lib 过。
+    if (pm.PluginExportCount > 0) {
+        PluginCarryZ[] carried = PluginCarry.Resolve(pm, projectDir, isRelease);
+        if (carried == null) { return ExitCode.BuildError; }
+        cin.CarriedPlugins = carried; cin.CarriedCount = carried.Length;
+    }
     // attribute-handler-registry PR3b：[lints] 中性字段 → LintConfig 决策器（severity 覆盖 +
     // EnabledByDefault 门 + warnings_as_errors）。仅 analyzer 运行时消费；z42c 自建无 [lints] →
     // LintCount==0 && !WAE → 空配置（等价 null）→ 逐字节不动。
@@ -816,4 +818,27 @@ void _usage() {
     Console.WriteLine("  z42c --emit-zbc    <file.z42> <out> [--opt-all]   compile to .zbc (subset)");
     Console.WriteLine("  z42c build         [<manifest>]        build a project (see `z42c build --help`)");
     Console.WriteLine("  (clean / test / bench are run by z42b, not z42c — the compiler only compiles)");
+}
+
+// 1c：携带闭包解析（显式赢、false 摘、缺件/版本不符点名携带者）并进显式集，刷新 azPaths。
+bool _attachCarriedSet(ProjectManifest pm, string[] libsDirs, int libsDirsN, ref PluginZpkgs pz, ref string[] azPaths) {
+    string[] carryNames = null;
+    string[] carryPaths = null;
+    if (!_resolveCarriedPlugins(pm, libsDirs, libsDirsN, ref carryNames, ref carryPaths)) { return false; }
+    pz = _mergeCarried(pz, carryNames, carryPaths);
+    if (pz != null && pz.Count > 0) { azPaths = pz.Paths; }
+    return true;
+}
+
+// 显式插件集 ∪ 携带集（显式在前、携带在后——顺序即生效顺序）。无携带 → 原样返回。
+PluginZpkgs _mergeCarried(PluginZpkgs pz, string[] carryNames, string[] carryPaths) {
+    if (carryPaths == null) { return pz; }
+    int baseN = (pz == null ? 0 : pz.Count);
+    string[] mn = new string[baseN + carryPaths.Length];
+    string[] mp = new string[baseN + carryPaths.Length];
+    int mi = 0;
+    while (mi < baseN) { mn[mi] = pz.Names[mi]; mp[mi] = pz.Paths[mi]; mi = mi + 1; }
+    int ci = 0;
+    while (ci < carryPaths.Length) { mn[baseN + ci] = carryNames[ci]; mp[baseN + ci] = carryPaths[ci]; ci = ci + 1; }
+    return new PluginZpkgs(mn, mp, baseN + carryPaths.Length, ExitCode.Ok);
 }

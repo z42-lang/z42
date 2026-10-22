@@ -126,6 +126,7 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
         failed = failed + _smokeBuildHooksMode(root, tt);
         failed = failed + _smokeHookPlugin(root, tt);
         failed = failed + _smokeHookPluginBroken(root, tt);
+        failed = failed + _smokeHookCarry(root, tt);
         failed = failed + _smokeWorkspaceDefault(root, tt);
     }
     Console.WriteLine("");
@@ -400,6 +401,42 @@ int _smokeHookPlugin(string root, TargetTooling tt) {
 
 // 坏 hook 插件 smoke（fail-build-on-plugin-error）：[plugins] 指向的插件工程编译不过 ⇒ `z42b build`
 // 非 0 退出。此前若把代建失败降级成「跳过该插件」，构建会静默缺 hook 照样退 0——publish 产物悄悄少东西。
+// 携带 hook smoke（unify-plugin-packages 1c）：app 零 [plugins]，依赖的 lib 经 [plugins.export] 携带
+// hook 插件 ⇒ z42b 沿闭包自动加载执行。先编插件产物（放它的 dist），再以 Z42_PLUGINS 指向 dist 编 app。
+int _smokeHookCarry(string root, TargetTooling tt) {
+    string dir = Path.Join(tt.Z42bFixturesRoot, "hook-carry");
+    string toml = Path.Join(dir, "z42.toml");
+    if (!File.Exists(toml)) { return 0; }
+    Console.WriteLine("");
+    Console.WriteLine("── hook carry (lib 携带的 hook 插件自动执行，app 零配置) ──");
+    // ① 编 hook 插件（dist = <fixture>/lib/hooks/dist）
+    int rc1 = _exec(_z42bProc(tt.Vm, tt.Libs).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+        .Arg("--").Arg("build").Arg(Path.Join(dir, "lib/hooks/z42.z42.toml"))
+        .WorkingDirectory(root));
+    if (rc1 != 0) {
+        Console.WriteLine("  ❌ hook carry: hook 插件工程编不过（rc=" + rc1.ToString() + "）");
+        return 1;
+    }
+    // ② 编 app：Z42_PLUGINS 指向插件 dist，携带自动生效
+    Process p2 = _z42bProc(tt.Vm, tt.Libs).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+        .Arg("--").Arg("build").Arg(toml)
+        .Env("Z42_PLUGINS", Path.Join(dir, "lib/hooks/dist"));
+    ProcessResult r = p2.WorkingDirectory(root).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    string all = r.Stdout + r.Stderr;
+    if (r.ExitCode != 0) {
+        Console.WriteLine("  ❌ hook carry: `z42b build` exited " + r.ExitCode.ToString());
+        Console.WriteLine("    输出: " + all);
+        return 1;
+    }
+    if (all.IndexOf("HOOK-CARRY-SMOKE: carried BeforeCompile ran") < 0) {
+        Console.WriteLine("  ❌ hook carry: 构建成功但携带 hook 没执行（闭包解析或加载断了？）");
+        Console.WriteLine("    输出: " + all);
+        return 1;
+    }
+    Console.WriteLine("  ✅ hook carry: lib 携带的 hook 在 app 构建里自动执行");
+    return 0;
+}
+
 int _smokeHookPluginBroken(string root, TargetTooling tt) {
     string toml = Path.Join(tt.Z42bFixturesRoot, "hook-plugin-broken/z42.toml");
     if (!File.Exists(toml)) { return 0; }

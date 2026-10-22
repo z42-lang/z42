@@ -18,6 +18,8 @@ public sealed class ZpkgInfo {
     public ZpkgSection[] Sections;    public int SectionCount;
     public byte[]        Data;
     public int           PluginCaps;  // 头 flags 的插件能力位（见 PluginCaps）；非插件包 0
+    // PLGS 段读出的携带插件表（1c）；无段 = 空数组（不是 null）。构造后赋值。
+    public PluginCarryZ[] Carried;     public int CarriedCount;
     public ZpkgInfo(string name, string version, string entry, bool isExe, bool packed,
                     string[] pool, int poolCount, ZpkgSection[] sections, int sectionCount, byte[] data) {
         this.Name = name; this.Version = version; this.Entry = entry; this.IsExe = isExe;
@@ -25,6 +27,7 @@ public sealed class ZpkgInfo {
         this.Pool = pool; this.PoolCount = poolCount;
         this.Sections = sections; this.SectionCount = sectionCount; this.Data = data;
         this.PluginCaps = 0;
+        this.Carried = new PluginCarryZ[0]; this.CarriedCount = 0;
     }
     public bool HasSection(string tag) { return SectionDir.Find(this.Sections, tag) != null; }
     public ZpkgSection Section(string tag) { return SectionDir.Find(this.Sections, tag); }
@@ -124,6 +127,8 @@ public static class ZpkgReader {
         int poolCount = pool.Length;
         ZpkgInfo info = new ZpkgInfo(name, version, entry, isExe, packed, pool, poolCount, secs, secCount, data);
         info.PluginCaps = PluginCaps.Mask(flags);
+        info.Carried = ZpkgReader.ReadCarried(info);   // 无 PLGS 段 → 空数组
+        info.CarriedCount = info.Carried.Length;
         return info;
     }
 
@@ -153,6 +158,24 @@ public static class ZpkgReader {
     // ✅ 阶段 2 已落地（#849）：`_bundleExeDeps` 用它按 DEPS 段建按名/产物引用的传递闭包。
     //    （此前这里写着「消费要等它随 nightly 进种子之后」—— 消费落地后没人回来改这句，
     //     于是支持侧的注释变成假话。这类腐坏现在由 `xtask check stage2` 的双向棘轮盯着。）
+    // PLGS 段（unify-plugin-packages 1c）：`u32 count` + 每条 { u32 name_idx; u32 ver_idx }。
+    // 消费方（z42c / z42b 的携带解析）按名在插件目录定位、比对版本。无段 → 空数组。
+    public static PluginCarryZ[] ReadCarried(ZpkgInfo z) {
+        ZpkgSection s = z.Section("PLGS");
+        if (s == null) { return new PluginCarryZ[0]; }
+        var c = new ZpkgCursor(z.Data, s.Offset);
+        int n = c.U32();
+        PluginCarryZ[] r = new PluginCarryZ[n];
+        int i = 0;
+        while (i < n) {
+            string name = z.Pool[c.U32()];
+            string ver  = z.Pool[c.U32()];
+            r[i] = new PluginCarryZ(name, ver);
+            i = i + 1;
+        }
+        return r;
+    }
+
     public static string[] ReadDependencies(ZpkgInfo z) {
         ZpkgSection s = z.Section("DEPS");
         if (s == null) { return new string[0]; }

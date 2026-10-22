@@ -1,0 +1,6 @@
+namespace E2eCApp;
+
+using Std.IO;
+using E2eClib;
+
+void Main() { Console.WriteLine((Lib.Answer() + E2eOut.O.V()).ToString()); }   // 40 + 42（42 来自携带的 generator）

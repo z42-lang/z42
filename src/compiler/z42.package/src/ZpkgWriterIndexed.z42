@@ -31,6 +31,13 @@ public static class ZpkgIndexedWriter {
             while (j < zpkg.Deps[i].SymCount) { pool.Intern(zpkg.Deps[i].Symbols[j]); j = j + 1; }
             i = i + 1;
         }
+        // PLGS 串（1c 携带表：名 + 版本；无携带零新增）
+        i = 0;
+        while (i < zpkg.CarriedCount) {
+            pool.Intern(zpkg.Carried[i].Name);
+            pool.Intern(zpkg.Carried[i].Version);
+            i = i + 1;
+        }
         i = 0;
         while (i < zpkg.ExportedCount) { ZpkgWriterZ._internImplStrings(pool, zpkg.Exported[i]); i = i + 1; }
         // SIGS 串（packed 靠 InternPoolStrings 顺带入池；indexed 无 MODS 体 → 显式入池）
@@ -55,7 +62,8 @@ public static class ZpkgIndexedWriter {
         var file = ZpkgIndexedWriter._buildFile(zpkg, pool, zbcHashes, srcRels);
 
         int secCount = 6;
-        if (zpkg.ExportedCount > 0) { secCount = 7; }
+        if (zpkg.ExportedCount > 0) { secCount = secCount + 1; }
+        if (zpkg.CarriedCount > 0)   { secCount = secCount + 1; }   // PLGS（1c 携带表，dev 态同样带）
         string[]     tags  = new string[secCount];
         ByteWriter[] datas = new ByteWriter[secCount];
         tags[0] = "META"; datas[0] = meta;
@@ -64,9 +72,9 @@ public static class ZpkgIndexedWriter {
         tags[3] = "DEPS"; datas[3] = deps;
         tags[4] = "SIGS"; datas[4] = sigs;
         tags[5] = "FILE"; datas[5] = file;
-        if (secCount == 7) {
-            tags[6] = "IMPL"; datas[6] = ZpkgWriterZ._buildImpl(zpkg, pool);
-        }
+        int si = 6;
+        if (zpkg.ExportedCount > 0) { tags[si] = "IMPL"; datas[si] = ZpkgWriterZ._buildImpl(zpkg, pool); si = si + 1; }
+        if (zpkg.CarriedCount > 0)   { tags[si] = "PLGS"; datas[si] = ZpkgWriterZ._buildPlgs(zpkg, pool); }
         int flags = 0;                            // 无 FlagPacked = indexed
         if (zpkg.IsExe) { flags = flags | 2; }    // FlagExe
         flags = flags | PluginCaps.Mask(zpkg.PluginCaps);   // 插件能力位（bit3–5）

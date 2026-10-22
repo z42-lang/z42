@@ -61,6 +61,12 @@ public static class ManifestKnobs {
         if (kind != "exe" && kind != "lib" && !pm.Project.IsPlugin()) {
             r.AddError(label + ": [project] unknown kind \"" + kind + "\" (known: exe/lib/plugin)");
         }
+        // 1c 携带：[plugins.export] 只对 lib 有意义。plugin 工程写它 = 携带套携带（插件不在依赖图里，
+        // 链会无限延伸）；exe 写它 = 无人依赖 exe，携带永不生效——都按清单错误报。
+        if (pm.PluginExportCount > 0 && kind != "lib") {
+            r.AddError(label + ": [plugins.export] 只能写在 kind = \"lib\" 的工程里（当前 kind = \"" + kind
+                + "\"——插件工程不参与依赖图，携带链必须终止在 lib）");
+        }
         // [optimize]：CLI > toml > profile 默认（`Opt.Resolve`）；未知名报错，与 CLI `--opt 乱写` 同口径。
         OptTomlResult optToml = Opt.FromToml(pm.OptimizeNames, pm.OptimizeValues, pm.OptimizeCount);
         int uk = 0;

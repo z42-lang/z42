@@ -68,6 +68,13 @@ public sealed class ProjectManifest {
     // （z42c 取 analyzer / generator，z42b 取 hook）按位分流。可变公字段（默认空，ManifestLoader 构造后填）。
     // 🔴 种子 ABI：新字段**追加在类的最末尾**、不进 ctor 签名。
     public DepEntry[] Plugins; public int PluginCount;
+    // ── [plugins] `"x" = false`（1c）：关闭携带进来的插件 x（只对自动导入有语义）────────
+    // 显式条目与 false 不会同名共存（同一 TOML 键）；消费方拿它把携带集里的同名条目摘掉。
+    public string[]   PluginDisables; public int PluginDisableCount;
+    // ── [plugins.export]（1c 携带）：「依赖我的工程自动获得这些插件」───────────────────
+    // 条目形态同 [plugins]；只记进产物 PLGS 段（名 + 精确版本），不作用于本工程自己的构建。
+    // 仅 lib 有意义（exe 无人依赖）；plugin 工程禁写（携带链终止）——消费方报。
+    public DepEntry[] PluginExports; public int PluginExportCount;
     public ProjectManifest(ProjectInfo project, Sources sources, BuildConfig build,
                            Profile[] profiles, int profileCount,
                            DepEntry[] deps, int depCount,
@@ -96,6 +103,8 @@ public sealed class ProjectManifest {
         this.Properties = TomlValue.OfTable();
         this.UnknownKeys = new string[0];
         this.Plugins = new DepEntry[0]; this.PluginCount = 0;
+        this.PluginDisables = new string[0]; this.PluginDisableCount = 0;
+        this.PluginExports = new DepEntry[0]; this.PluginExportCount = 0;
     }
 
     /// 本工程源发现的有效 exclude：`[sources].exclude`，再加上住在工程目录里的插件源码目录——

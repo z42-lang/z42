@@ -284,6 +284,30 @@ public class MyHooks : BuildHooks {
 > hook 在 z42b 进程里全权运行（写文件、起子进程），与 `[dependencies]` 上一个包的运行期代码同级
 > 信任——声明即信任，不做沙箱。
 
+## lib 携带插件（`[plugins.export]`，消费方零配置）
+
+一个库可以把插件**随包带给**所有依赖它的工程——消费方一个字都不用写：
+
+```toml
+# foo（kind = "lib"）的清单
+[plugins.export]
+"foo.gen"  = { path = "../gen" }    # 工程路径：构建时记「名 + 精确版本」进 zpkg 的 PLGS 段
+"foo.lint" = "0.1.0"                # 按名携带（须写版本）
+```
+
+```toml
+# 消费方——只有普通依赖，插件自动生效
+[dependencies]
+"foo" = "0.1.0"
+```
+
+- **携带是引用不是内联**（serde → serde_derive 形态）：lib 产物只记 PLGS 引用，插件 zpkg 分发在
+  插件目录——发布 lib 时把携带的插件一起放进插件目录（release 构建 lib 时会验证 path 条目的产物）。
+- 生效规则：只走**真在依赖闭包里**的包（传递携带经各 dep 的 DEPS 传递生效）；显式 `[plugins]`
+  赢携带；`[plugins] "x" = false` 关掉某个携带项；analyzer 规则粒度仍可用 `[lints]` 调。
+- 失败即失败：携带件缺失 / 版本不符，构建红且**点名携带方**——「声明了、静默没生效」不给留。
+- 只对 lib 有意义（插件工程不参与依赖图，携带链终止在 lib）。
+
 ## 插件怎么被找到、被加载
 
 1. 条目定位：按名查插件目录（`Z42_PLUGINS` / 依赖目录同级 `plugins/`）；path 条目代建或直取产物。

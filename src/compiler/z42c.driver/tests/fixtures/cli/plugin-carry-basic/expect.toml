@@ -1,0 +1,36 @@
+desc = "[plugins.export] 携带链：lib 携带 generator，依赖它的 app 零配置自动获得（生成符号能跑）；\"x\" = false 关掉后生成符号消失、构建必须红（见 README）"
+outside_repo = true
+
+# ① 编插件产物（携带钉的版本从它的清单读；release 验产物要它在）
+[[step]]
+args = ["build", "gen/e2e.cgen.z42.toml", "--release"]
+exit = 0
+
+# ② 编 lib：PLGS 写进产物（release 验证 gen 的 dist 在、能力位非零、版本一致）
+[[step]]
+args = ["build", "lib/e2e.clib.z42.toml", "--release"]
+exit = 0
+
+# ③ app 零 [plugins]：携带自动生效——app 直接用生成符号 E2eOut（42）+ lib 经自用插件算出 42
+[[step]]
+args = ["build", "app/e2e.capp.z42.toml", "--release"]
+env = { Z42_PLUGINS = "{case}/gen/dist" }
+exit = 0
+
+[[step]]
+tool = "run"
+target = "app/dist/e2e.capp.zpkg"
+exit = 0
+stdout_equals = "82"
+
+# ④ 同一 app，`"e2e.cgen" = false` 关掉携带 ⇒ generator 不跑 ⇒ 生成符号不存在 ⇒ 构建红
+[[step]]
+tool = "copy"
+from = "variants/app.disable.z42.toml"
+to = "app/e2e.capp.z42.toml"
+
+[[step]]
+args = ["build", "app/e2e.capp.z42.toml", "--release"]
+env = { Z42_PLUGINS = "{case}/gen/dist" }
+exit = "nonzero"
+stderr_contains = ["E2eOut"]
