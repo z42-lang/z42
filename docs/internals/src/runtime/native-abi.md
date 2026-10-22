@@ -465,11 +465,10 @@ JIT `jit_builtin` / `call_forward`），判定顺序：
 `__to_str` / `__time_now_ms` / `__process_exit`）不遵守该约定，**不要再加新的**。
 
 **改语义要换名字**：已发布的种子 stdlib 跑在新 VM 上（冷启动自举），同名 builtin 的签名与返回形状
-必须保持兼容（只把抛出的异常换成更具体的子类是兼容的）。要改形状就起新名字（`__process_run` →
-`__process_run_sync`、`__process_handle_*` → `__process_*`、`__thread_join` → `__thread_wait`、`__net_tcp_*` /
-`__net_udp_*` / `__net_dns_lookup` / `__net_tls_*` → `__tcp_*` / `__udp_*` / `__dns_lookup` / `__tls_*`：旧的返回
-`[KIND, …]` 判别数组，新的从 Rust 抛），旧名字挂 `STAGE2-DEBT` 留到种子不再声明它为止。形状不变、只把抛出的
-异常换成更具体子类的可以原名迁（`__monitor_*`：`Std.Exception` → `LockRecursionException` / `SynchronizationLockException`）。
+必须保持兼容（只把抛出的异常换成更具体的子类是兼容的）。要改形状就起新名字（例：返回 `[KIND, …]` 判别数组的
+旧形状 → 返回普通值、失败从 Rust 抛的新名字），旧名字挂 `STAGE2-DEBT` 留到种子不再声明它为止、随后连同表项
+与实现一并删除。形状不变、只把抛出的异常换成更具体子类的可以原名迁（`__monitor_*`：`Std.Exception` →
+`LockRecursionException` / `SynchronizationLockException`）。
 
 **z42.core 里的 `[Native]` 包装同样不能改形状**：`ProcessNative` / `ThreadNative` 这类 core 静态类被别的包
 （`z42.io` / `z42.threading`）调用，而 z42.core 总按当前源预建、别的包可能还是种子带来的旧版——同一个 libs

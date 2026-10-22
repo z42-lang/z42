@@ -546,7 +546,9 @@ fn make_closure_returns_null_for_invalid_args() {
 // ── refactor-split-corelib-mod: 拼接表的不变式 ─────────────────────────────
 //
 // BUILTINS 现在是 PART1 ++ PART2 的**编译期**拼接（两个文件纯粹是 500 行硬限所
-// 迫）。下标即 BuiltinId、会被烤进 zbc，所以拼接不能错位、不能留空洞。
+// 迫）。下标即 BuiltinId，但 zbc 里存的是 builtin **名字**、id 只在加载期按名解析
+// （见 native_decl_tests 与 ext 表内 __repl_readline_indented 先例）——抽掉退役槽位
+// 不影响既有 zbc；本测试守的是拼接不错位、无空洞、名字唯一。
 
 #[test]
 fn builtin_table_join_preserves_order_and_has_no_holes() {
@@ -564,6 +566,6 @@ fn builtin_table_join_preserves_order_and_has_no_holes() {
     assert_eq!(names.len(), total, "duplicate builtin name in BUILTINS");
     // 拼接点两侧的相对顺序保持：PART2 的第一条排在 PART1 最后一条之后。
     let idx = |n: &str| BUILTINS.iter().position(|(x, _)| *x == n).unwrap();
-    assert!(idx("__process_handle_drop") < idx("__platform_os"),
-        "PART2 must follow PART1 — appended BuiltinIds shifted");
+    assert!(idx("__gc_stats") < idx("__gc_write_heap_snapshot"),
+        "PART2 must follow PART1 — the const join reordered");
 }

@@ -1,11 +1,11 @@
-//! 监听槽位与可中断的 accept 等待——新（`network/tcp.rs`，ABI v2）旧（`legacy/tcp.rs`）两套
-//! builtin 共用。等待函数只碰纯 Rust 数据，可以在 park 状态下运行。
+//! 监听槽位与可中断的 accept 等待，供 `network/tcp.rs`（ABI v2）的 accept 使用。
+//! 等待函数只碰纯 Rust 数据，可以在 park 状态下运行。
 
 /// fix-accept-not-interruptible (2026-09-17)：监听槽位 = 共享的 listener + 一个关闭标志。
 ///
-/// 此前 `builtin_net_tcp_accept` 在阻塞前把 `TcpListener` **从表里摘走**，于是
-/// `__net_tcp_listener_drop` 在表里找不到它 ⇒ `TcpListener.Stop()` 退化成空操作，
-/// 连 fd 都没关；而 macOS 上即便关了 fd 也唤不醒阻塞中的 `accept`。两者叠加的结果是
+/// accept 若在阻塞前把 `TcpListener` **从表里摘走**，drop 就在表里找不到它 ⇒
+/// `TcpListener.Stop()` 退化成空操作，连 fd 都没关；而 macOS 上即便关了 fd 也唤不醒
+/// 阻塞中的 `accept`。两者叠加的结果是
 /// `HttpServer` 只能靠一次性自连探针唤醒 accept，探针一漏就**永久死锁**
 /// （实测：整包工作台挂过 44 小时）。
 ///

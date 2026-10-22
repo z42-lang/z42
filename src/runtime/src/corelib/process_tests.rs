@@ -1,7 +1,7 @@
 //! Unit tests of the typed process builtins (`process::typed`): results, the .NET-shaped
 //! exceptions thrown from Rust, and parking while a call waits on the child.
 //!
-//! POSIX coreutils assumed (`sh` / `true` / `cat` / `sleep`), like `process_legacy_tests`.
+//! POSIX coreutils assumed (`sh` / `true` / `cat` / `sleep`).
 
 use super::*;
 use crate::corelib::abi::{BuiltinError, FieldInit};

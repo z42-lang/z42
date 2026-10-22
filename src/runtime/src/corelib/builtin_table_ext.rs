@@ -43,38 +43,16 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     //    on wasm via the `bundled-compression` feature). Resolved through
     //    `VmCore.ext_builtins` (see corelib::ext_builtin_id_of below).
 
-    // ── add-process-stream-stdio (2026-05-24) — appended to preserve existing BuiltinIds ──
-    ("__process_handle_read_stdout", Native::Val(process_legacy::builtin_process_handle_read_stdout)),
-    ("__process_handle_read_stderr", Native::Val(process_legacy::builtin_process_handle_read_stderr)),
-
-    // ── add-z42-net K1 (2026-05-24) — appended to preserve existing BuiltinIds ──
-    // STAGE2-DEBT(legacy-net-builtins): 种子的 z42.core 不再声明 `__net_*` 后删掉下面这些表项、corelib/network/legacy/ 与 tls_legacy.rs。
-    // 它们返回 `[KIND, …]` 判别数组，只为已发布种子的 z42.net（经 z42.core 的 NetTcpNative / UdpNative /
-    // NetTlsNative / DnsNative.Lookup）保留；新的是 ABI v2 的 `__tcp_*` / `__udp_*` / `__dns_lookup` / `__tls_*`。
-    ("__net_tcp_connect",       Native::Val(network::builtin_net_tcp_connect)),
-    ("__net_tcp_listen",        Native::Val(network::builtin_net_tcp_listen)),
-    ("__net_tcp_accept",        Native::Val(network::builtin_net_tcp_accept)),
-    ("__net_tcp_socket_read",   Native::Val(network::builtin_net_tcp_socket_read)),
-    ("__net_tcp_socket_write",  Native::Val(network::builtin_net_tcp_socket_write)),
-    ("__net_tcp_socket_drop",   Native::Void(network::builtin_net_tcp_socket_drop)),
-    ("__net_tcp_listener_drop", Native::Void(network::builtin_net_tcp_listener_drop)),
-
-    // ── add-gc-heap-snapshot-export B3 (2026-05-24) — appended to preserve existing BuiltinIds ──
+    // ── add-gc-heap-snapshot-export B3 (2026-05-24) ──
     ("__gc_write_heap_snapshot", Native::Val(gc::builtin_gc_write_heap_snapshot)),
 
-    // ── add-gc-pause-window (2026-05-24) — appended to preserve existing BuiltinIds ──
+    // ── add-gc-pause-window (2026-05-24) ──
     ("__gc_recent_pauses",         Native::Val(gc::builtin_gc_recent_pauses)),
     ("__gc_pause_window_capacity", Native::Val(gc::builtin_gc_pause_window_capacity)),
 
-    // ── add-gc-oom-exception (2026-05-25) — appended to preserve existing BuiltinIds ──
+    // ── add-gc-oom-exception (2026-05-25) ──
     ("__gc_set_max_heap_bytes", Native::Void(gc::builtin_gc_set_max_heap_bytes)),
     ("__gc_set_strict_oom",     Native::Void(gc::builtin_gc_set_strict_oom)),
-
-    // ── add-z42-net-udp K2 (2026-05-25) — appended to preserve existing BuiltinIds ──
-    ("__net_udp_bind", Native::Val(network::builtin_net_udp_bind)),
-    ("__net_udp_send", Native::Val(network::builtin_net_udp_send)),
-    ("__net_udp_recv", Native::Val(network::builtin_net_udp_recv)),
-    ("__net_udp_drop", Native::Void(network::builtin_net_udp_drop)),
 
     // ── add-gc-softref (2026-05-26) ──────────────────────────────────────────
     ("__soft_handle_create", Native::Val(gc::builtin_soft_handle_create)),
@@ -83,42 +61,6 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     // ── add-csprng-to-crypto (2026-05-27) — OS-CSPRNG backing Std.Crypto.SecureRandom ──
     ("__crypto_random_bytes", Native::Val(crypto::builtin_crypto_random_bytes)),
 
-    // ── add-httpclient-timeout (2026-05-27) — TCP socket read/write deadlines ──
-    ("__net_tcp_socket_set_read_timeout",  Native::Val(network::builtin_net_tcp_socket_set_read_timeout)),
-    ("__net_tcp_socket_set_write_timeout", Native::Val(network::builtin_net_tcp_socket_set_write_timeout)),
-
-    // ── add-z42-net-udp-recv-into (2026-05-27) — buffer-fill Receive variant ──
-    ("__net_udp_recv_into", Native::Val(network::builtin_net_udp_recv_into)),
-
-    // ── add-z42-net-udp-multicast (2026-05-27) — IPv4 multicast group ops ──
-    ("__net_udp_join_multicast",      Native::Val(network::builtin_net_udp_join_multicast)),
-    ("__net_udp_leave_multicast",     Native::Val(network::builtin_net_udp_leave_multicast)),
-    ("__net_udp_set_multicast_loop",  Native::Val(network::builtin_net_udp_set_multicast_loop)),
-
-    // ── add-z42-net-dns (2026-05-27) — synchronous DNS resolution ──
-    ("__net_dns_lookup",              Native::Val(network::builtin_net_dns_lookup)),
-
-    // ── add-z42-net-socket-options (2026-05-27) — TCP_NODELAY / IP_TTL ──
-    ("__net_tcp_socket_set_nodelay",  Native::Val(network::builtin_net_tcp_socket_set_nodelay)),
-    ("__net_tcp_socket_set_ttl",      Native::Val(network::builtin_net_tcp_socket_set_ttl)),
-    ("__net_tcp_listener_set_ttl",    Native::Val(network::builtin_net_tcp_listener_set_ttl)),
-    ("__net_udp_set_ttl",             Native::Val(network::builtin_net_udp_set_ttl)),
-
-    // ── add-net-socket-options-extended (2026-05-30) — connect/UDP timeout, SO_REUSEADDR, SO_KEEPALIVE ──
-    ("__net_tcp_connect_with_timeout", Native::Val(network::builtin_net_tcp_connect_with_timeout)),
-    ("__net_tcp_socket_set_keepalive", Native::Val(network::builtin_net_tcp_socket_set_keepalive)),
-    ("__net_tcp_socket_set_keepalive_tuned", Native::Val(network::builtin_net_tcp_socket_set_keepalive_tuned)),
-    ("__net_tcp_listen_with_options",  Native::Val(network::builtin_net_tcp_listen_with_options)),
-    ("__net_udp_set_read_timeout",     Native::Val(network::builtin_net_udp_set_read_timeout)),
-    ("__net_udp_set_write_timeout",    Native::Val(network::builtin_net_udp_set_write_timeout)),
-
-    // ── add-z42-net-tls (2026-06-03) — rustls client TLS streams (HTTPS) ──
-    ("__net_tls_connect",                  Native::Val(tls::builtin_net_tls_connect)),
-    ("__net_tls_socket_read",              Native::Val(tls::builtin_net_tls_socket_read)),
-    ("__net_tls_socket_write",             Native::Val(tls::builtin_net_tls_socket_write)),
-    ("__net_tls_socket_drop",              Native::Void(tls::builtin_net_tls_socket_drop)),
-    ("__net_tls_socket_set_read_timeout",  Native::Val(tls::builtin_net_tls_socket_set_read_timeout)),
-    ("__net_tls_socket_set_write_timeout", Native::Val(tls::builtin_net_tls_socket_set_write_timeout)),
 
     // ── runtime-dynamic-load-call (DEFERRED) — stubs so zpkg loads cleanly ──
     ("__load_zpkg",  Native::Void(builtin_load_zpkg_stub)),

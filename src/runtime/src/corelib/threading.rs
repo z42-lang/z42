@@ -6,32 +6,15 @@
 //!   `VmCore.threads` (a `ResourceRegistry`), spawns an `std::thread`, and
 //!   stores the `JoinHandle` in it keyed by the slot id. Returns the slot
 //!   id as `Value::I64`.
-//! - `__thread_join(slot_id)` removes the handle from the registry, joins, and
-//!   returns a discriminated result array the z42 facade converts to either a
-//!   normal return or a `Std.Threading.ThreadException`.
+//! - `__thread_wait(slot_id)` removes the handle from the registry, joins (parked),
+//!   and throws `Std.Threading.ThreadException` when the worker threw / panicked or
+//!   the slot is unknown.
 //!
 //! The spawned worker constructs `VmContext::new_with_core(Arc::clone(core))`
 //! so it shares `static_fields` / `heap` / `lazy_loader` / `native_libs` with
 //! the parent thread. Its per-thread state (`pending_exception` / `call_stack`)
 //! is private — the worker is registered in
 //! `VmCore.vm_contexts` so the GC scanner walks both threads' roots.
-//!
-//! Cross-thread error semantics (Decision 5 + 6 in design.md):
-//! - z42 `throw` inside the action → `ExecOutcome::Thrown(val)` →
-//!   discriminator `1` with formatted message
-//! - Rust panic inside the action  → `catch_unwind` Err → discriminator `1`
-//!   with `"thread panicked"` message
-//! - Already-joined / unknown slot  → discriminator `2`
-//!
-//! ## Return shape (`__thread_join`)
-//!
-//! `Value::Array` with leading discriminator:
-//!
-//! ```text
-//! [I64(0)]                — success
-//! [I64(1), Str(message)]  — thread action threw / panicked
-//! [I64(2)]                — slot unknown (already joined or bogus id)
-//! ```
 
 use crate::interp::ExecOutcome;
 use crate::metadata::Value;
@@ -39,9 +22,6 @@ use crate::vm_context::VmContext;
 use anyhow::{anyhow, bail, Result};
 use std::sync::Arc;
 
-const JOIN_OK:           i64 = 0;
-const JOIN_ACTION_ERR:   i64 = 1;
-const JOIN_UNKNOWN_SLOT: i64 = 2;
 
 /// `__thread_spawn(action) -> i64` — spawn an OS thread executing `action`.
 ///
@@ -162,7 +142,6 @@ impl Drop for SpawnedEnvRoot {
 /// parked, so a collection another thread starts meanwhile does not wait for them.
 #[z42_macros::builtins]
 pub mod typed {
-    use super::JoinOutcome;
     use crate::corelib::abi::Blocking;
     use crate::vm_context::VmContext;
 
@@ -175,8 +154,8 @@ pub mod typed {
         std::thread::sleep(std::time::Duration::from_millis(millis.max(0) as u64));
     }
 
-    /// `__thread_wait(slot)` — `Thread.Join()`: wait for a spawned thread (parked, as
-    /// `__thread_join`). The outcome throws instead of coming back as an array: the
+    /// `__thread_wait(slot)` — `Thread.Join()`: wait for a spawned thread (parked).
+    /// The outcome throws instead of coming back as an array: the
     /// worker threw or panicked, or the thread was already joined →
     /// `Std.Threading.ThreadException` (its message as before). .NET's `Join()` has no
     /// failure of its own (an unhandled worker exception ends the process there), so the
@@ -197,46 +176,7 @@ pub mod typed {
         })
     }
 
-    // STAGE2-DEBT(legacy-thread-join): 种子的 z42.core 不再声明 __thread_join 后删掉它与 JoinOutcome / 结果数组。
-    /// `__thread_join(slot)` — seed compatibility (the stdlib calls `__thread_wait`): wait
-    /// for a spawned thread; returns the discriminated
-    /// outcome array (module docs). The handle is taken out of the registry unparked,
-    /// the join itself runs parked: the joined thread may need a collection to finish,
-    /// and the collector waits for every thread that is not parked — joining unparked
-    /// deadlocks both (`t.Join()` is the backbone of z42 threading).
-    #[builtin(name = "__thread_join")]
-    pub fn thread_join(ctx: &VmContext, slot: i64) -> Blocking<JoinOutcome> {
-        let handle = ctx.core.threads.lock().remove(&(slot as u64));
-        Blocking::new(move || Ok(match handle {
-            None => JoinOutcome::UnknownSlot,
-            Some(h) => match h.join() {
-                Ok(Ok(()))  => JoinOutcome::Ok,
-                Ok(Err(e))  => JoinOutcome::ActionErr(format!("{e}")),
-                Err(_panic) => JoinOutcome::ActionErr("thread panicked".to_string()),
-            },
-        }))
-    }
 }
-
-/// What `__thread_join` found — plain data, built into the result array only after the
-/// joining thread is unparked again.
-pub enum JoinOutcome {
-    Ok,
-    ActionErr(String),
-    UnknownSlot,
-}
-
-impl crate::corelib::abi::IntoRet for JoinOutcome {
-    const KIND: crate::corelib::abi::RetKind = crate::corelib::abi::RetKind::Any;
-    fn into_ret(self, ctx: &VmContext) -> crate::corelib::abi::CallResult {
-        Ok(Some(match self {
-            JoinOutcome::Ok => ok_result(ctx),
-            JoinOutcome::ActionErr(msg) => action_err_result(ctx, &msg),
-            JoinOutcome::UnknownSlot => unknown_slot_result(ctx),
-        }))
-    }
-}
-impl crate::corelib::abi::PlainRet for JoinOutcome {}
 
 // ── internal helpers ─────────────────────────────────────────────────────────
 
@@ -275,21 +215,6 @@ fn run_spawned_action(
             bail!("{msg}")
         }
     }
-}
-
-fn ok_result(ctx: &VmContext) -> Value {
-    ctx.heap().alloc_array(vec![Value::I64(JOIN_OK)])
-}
-
-fn action_err_result(ctx: &VmContext, msg: &str) -> Value {
-    ctx.heap().alloc_array(vec![
-        Value::I64(JOIN_ACTION_ERR),
-        Value::Str(msg.to_string().into()),
-    ])
-}
-
-fn unknown_slot_result(ctx: &VmContext) -> Value {
-    ctx.heap().alloc_array(vec![Value::I64(JOIN_UNKNOWN_SLOT)])
 }
 
 #[cfg(test)]
