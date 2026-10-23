@@ -733,7 +733,7 @@ public static partial class ImportedSymbolLoader {
     // （「编译期与运行期各判各的」正是 `where T : struct` 那个 bug 的形状）。
     private static bool _nullableMark(bool marked, Z42Type resolved) {
         if (!marked) { return false; }
-        if (TypeChecker._isNonNullableValueType(resolved)) { return false; }
+        if (TypeFacts.IsNonNullableValueType(resolved)) { return false; }
         return true;
     }
 

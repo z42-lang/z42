@@ -10,3 +10,4 @@ kind    = "lib"
 "z42c.core"   = "0.1.0"
 "z42c.syntax" = "0.1.0"
 "z42.package"      = "0.1.0"   # IR 模型 + zbc/zpkg 格式（converge-z42c-ir-metadata-onto-stdlib：取代 z42c.ir）
+"z42c.symbols"     = "0.1.0"   # 符号世界（收集/符号表/导入装载/类型模型/布局；Z42.Semantics 命名空间共用）

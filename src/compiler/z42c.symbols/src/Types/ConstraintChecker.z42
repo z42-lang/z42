@@ -470,7 +470,7 @@ public sealed class ConstraintChecker {
                                       Z42Type want, Z42Type arg, string pn, string ownerName, Span sp) {
         // 信息不足一律放行（同 _satisfiesInterface / _isEnumArg）。
         if ((arg is Z42GenericParamType) || (arg is Z42ErrorType) || (arg is Z42UnknownType)) { return; }
-        Z42Type w = MethodTypeArgSubst.ByName(want, pnames, pc, args);
+        Z42Type w = TypeSubst.Apply(want, new NameListMap(pnames, pc, args));
         if (!(w is Z42FuncType)) { return; }        // 代换后不再是函数类型：不该发生，保守放行
         Z42FuncType wf = w as Z42FuncType;
         if (!(arg is Z42FuncType)) {

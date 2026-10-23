@@ -1,5 +1,7 @@
 # z42c.semantics
 
+> 符号世界（Symbols/ + Types/，≈12K 行）已拆到 **z42c.symbols** 包（semantics-split；命名空间仍为 `Z42.Semantics`，本包依赖它）。
+
 ## 职责
 语义分析：`SymbolCollector`（Pass 0 符号收集）→ `TypeChecker`（Pass 1 绑定 + 类型检查）→ `Bound` 树（每节点携解析后 `Z42Type`）+ 声明期校验 / 流分析、内建 AST 脱糖、TSIG 导出面提取。单文件前端口径收在 `FrontEnd`。后端最大的子系统，dogfood 缺口高发段。
 
@@ -23,8 +25,6 @@
 
 | 目录 | 内容 |
 |------|------|
-| `src/Symbols/` | 符号表与收集：`SymbolTable`（4 碎片）、`SymbolCollector` 及各簇 pass、继承解析、导入符号加载、命名空间作用域、attribute handler 注册表、声明修饰符助手 `DeclFacts` |
-| `src/Types/` | 类型模型：`Z42Type`、类型代换、转换分类、基元模型、泛型约束、类型实参推断、struct 布局 |
 | `src/BoundTree/` | Bound 树节点（表达式 / 语句 / 模式）、visitor 接口（`IBound*Visitor<R, D>`、`Unit`）、`SemanticModel` |
 | `src/Binding/` | 绑定 + 类型检查：`TypeChecker`、各 `*Typer`、`MemberResolver`（9 碎片）、重载决议、语句 / 声明 / 模式绑定、访问检查、穷尽检查、常量求值与常量 blob、编译期宏 |
 | `src/Validation/` | 声明期约束（`DeclEnforcer`）、流分析（`FlowAnalyzer`）、声明位类型引用补录、跨包依赖收集（`DepUseCollector`）、多余 `using` 告警、`[ModuleInit]` 校验 |

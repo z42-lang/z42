@@ -1,0 +1,92 @@
+// ConstBlob 的**读端**（自 Binding/ConstBlob.z42 拆出，semantics-split：CtorInheritance 等
+// 符号层要按 `$Default` blob 重建默认值 AST；写端 ConstBlob 留在 z42c.semantics——发射/绑定用）。
+// 自包含：串 → AST 字面量（只依赖 z42c.syntax + ZbcInstr._parseIntLit）。
+namespace Z42.Semantics;
+
+using Z42.Core;   // Span
+using Z42.Syntax;
+using Z42.IR.BinaryFormat;   // ZbcInstr._parseIntLit
+public sealed class ConstBlobReader {
+    private string _s;
+    private int    _pos;
+    private Span   _sp;
+    public ConstBlobReader(string s, Span sp) { this._s = s; this._pos = 0; this._sp = sp; }
+
+    // 读一个节点 → AST Expr；格式非法 → null。
+    public Expr Read() {
+        if (this._s == null || this._pos >= this._s.Length) { return null; }
+        char tag = this._s.CharAt(this._pos); this._pos = this._pos + 1;
+        if (tag == 'n') { return new NullLitExpr(this._sp); }
+        if (tag == 'b') {
+            char b = this._s.CharAt(this._pos); this._pos = this._pos + 1;
+            return new BoolLitExpr(b == '1', this._sp);
+        }
+        if (tag == 'i') { return this._numLit(this._readSeg(), true); }
+        if (tag == 'c') { return new CharLitExpr((char)(int)ZbcInstr._parseIntLit(this._readSeg()), this._sp); }
+        if (tag == 'f') { return this._numLit(this._readSeg(), false); }
+        if (tag == 's') { return new StringLitExpr(ConstBlobReader._escapeRaw(this._readSeg()), this._sp); }
+        if (tag == 'e') {
+            string enumName = this._readSeg();
+            string member = this._readSeg();
+            this._readSeg();                       // int 值（注入用 Enum.Member re-emit；反射另取）
+            return new MemberExpr(new IdentExpr(enumName, this._sp), member, this._sp);
+        }
+        if (tag == 'a') {
+            this._readSeg();                       // elem 类型（留空；重绑用目标元素类型）
+            int n = (int)ZbcInstr._parseIntLit(this._readSeg());
+            Expr[] elems = new Expr[n];
+            bool[] spread = new bool[n];
+            int i = 0;
+            while (i < n) { elems[i] = this.Read(); spread[i] = false; i = i + 1; }
+            return new ArrayLitExpr(elems, spread, n, this._sp);
+        }
+        if (tag == 't') {
+            string tn = this._readSeg();
+            int arity = (int)ZbcInstr._parseIntLit(this._readSeg());
+            Expr[] args = new Expr[arity];
+            int i = 0;
+            while (i < arity) { args[i] = this.Read(); i = i + 1; }
+            NamedType nt = NamedType.Synth(tn, new TypeExpr[0], 0, this._sp);
+            return new ObjNewExpr(nt, args, arity, this._sp);
+        }
+        return null;
+    }
+
+    // 数值字面量：负值包 UnaryExpr("-", lit(绝对值))。isInt → IntLitExpr，否则 FloatLitExpr。
+    private Expr _numLit(string dec, bool isInt) {
+        bool neg = dec.Length > 0 && dec.CharAt(0) == '-';
+        string mag = neg ? dec.Substring(1, dec.Length - 1) : dec;
+        Expr lit = isInt ? (new IntLitExpr(mag, this._sp) as Expr) : (new FloatLitExpr(mag, this._sp) as Expr);
+        if (neg) { return new UnaryExpr("-", lit, this._sp); }
+        return lit;
+    }
+
+    // 读 <len>:<content>，返回 content（手动扫 ':'，不依赖 2-arg IndexOf）。
+    private string _readSeg() {
+        int colon = this._pos;
+        while (colon < this._s.Length && this._s.CharAt(colon) != ':') { colon = colon + 1; }
+        if (colon >= this._s.Length) { this._pos = this._s.Length; return ""; }
+        int len = (int)ZbcInstr._parseIntLit(this._s.Substring(this._pos, colon - this._pos));
+        this._pos = colon + 1;
+        string content = this._s.Substring(this._pos, len);
+        this._pos = this._pos + len;
+        return content;
+    }
+
+    // 反转 Lexer.DecodeString：解码值 → 带引号原始词素。
+    public static string _escapeRaw(string s) {
+        string r = "\"";
+        int i = 0;
+        while (i < s.Length) {
+            char c = s.CharAt(i);
+            if (c == '\\')      { r = r + "\\\\"; }
+            else if (c == '"')  { r = r + "\\\""; }
+            else if (c == '\n') { r = r + "\\n"; }
+            else if (c == '\t') { r = r + "\\t"; }
+            else if (c == '\r') { r = r + "\\r"; }
+            else { r = r + c.ToString(); }
+            i = i + 1;
+        }
+        return r + "\"";
+    }
+}

@@ -81,7 +81,7 @@ public static class BuiltinTypeDefs {
         return r;
     }
 
-    internal static ExportedEnumZ[] _builtinEnums() {
+    public static ExportedEnumZ[] _builtinEnums() {
         ExportedEnumMemberZ[] mems = new ExportedEnumMemberZ[2];
         mems[0] = new ExportedEnumMemberZ("Weak", 0L);
         mems[1] = new ExportedEnumMemberZ("Strong", 1L);
@@ -98,7 +98,7 @@ public static class BuiltinTypeDefs {
         return new ExportedDelegateZ(name, ret, ps, argc, tps, tpc, false, "");
     }
 
-    internal static ExportedDelegateZ[] _builtinDelegates() {
+    public static ExportedDelegateZ[] _builtinDelegates() {
         ExportedDelegateZ[] r = new ExportedDelegateZ[11];
         string[] t = BuiltinTypeDefs._t0();
         r[0] = BuiltinTypeDefs._del("Action", "void", t, 0, 0, t);
@@ -124,7 +124,7 @@ public static class BuiltinTypeDefs {
 
     // ExportedMethodZ 构造快捷方式（public + virtual + abstract，flags=6，minArg=参数数）。
     // 本类（内建接口面）与 Exports 的 ClassExtractor（接口方法）共用 —— 放在语义层这一侧，导出层反过来引用它。
-    internal static ExportedMethodZ _im(string name, string ret, string[] paramTypes, int pc) {
+    public static ExportedMethodZ _im(string name, string ret, string[] paramTypes, int pc) {
         ExportedParamZ[] ps = new ExportedParamZ[pc];
         int i = 0;
         while (i < pc) { ps[i] = new ExportedParamZ("p" + i.ToString(), paramTypes[i]); i = i + 1; }
