@@ -41,17 +41,10 @@ const PART1: &[(&str, Native)] = &[
     //    见 `fs::typed`（FileStream 句柄、`__env_*`、`__process_exit`、`__time_now_ms` 也在那里）。
 
     // ── Object protocol ───────────────────────────────────────────────────────
-    ("__obj_get_type",  Native::Val(object::builtin_obj_get_type)),
-    ("__obj_ref_eq",    Native::Val(object::builtin_obj_ref_eq)),
-    ("__obj_hash_code", Native::Val(object::builtin_obj_hash_code)),
-    ("__obj_equals",    Native::Val(object::builtin_obj_equals)),
-    ("__obj_to_str",    Native::Val(object::builtin_obj_to_str)),
     ("__delegate_eq",   Native::Val(object::builtin_delegate_eq)),
     ("__delegate_target", Native::Val(object::builtin_delegate_target)),
     ("__delegate_fn_name", Native::Val(object::builtin_delegate_fn_name)),
     ("__make_closure", Native::Val(object::builtin_make_closure)),
-    ("__obj_make_weak", Native::Val(object::builtin_obj_make_weak)),
-    ("__obj_upgrade_weak", Native::Val(object::builtin_obj_upgrade_weak)),
     // ── Reflection (add-reflection-mvp) ─────────────────────────────
     // align-type-memberinfo-hierarchy: `__type_name` removed — Type.Name inherits
     // from MemberInfo (build_type populates the field), no native getter.
@@ -86,18 +79,8 @@ const PART1: &[(&str, Native)] = &[
     ("__array_get",    Native::Val(array::builtin_array_get)),
     ("__array_set",    Native::Void(array::builtin_array_set)),
     // ── GC control（Phase 3d.2 expose-gc-to-scripts） ────────────────────────
-    ("__gc_collect",       Native::Void(gc::builtin_gc_collect)),
-    ("__gc_used_bytes",    Native::Val(gc::builtin_gc_used_bytes)),
-    ("__gc_force_collect", Native::Val(gc::builtin_gc_force_collect)),
     // ── add-custom-allocator P2  ─────────────────────────────
-    ("__gc_finalize",      Native::Val(gc::builtin_gc_finalize)),
     // ── GCHandle struct + HeapStats（reorganize-gc-stdlib）───────
-    ("__gc_handle_alloc",    Native::Val(gc::builtin_gc_handle_alloc)),
-    ("__gc_handle_target",   Native::Val(gc::builtin_gc_handle_target)),
-    ("__gc_handle_is_alloc", Native::Val(gc::builtin_gc_handle_is_alloc)),
-    ("__gc_handle_kind",     Native::Val(gc::builtin_gc_handle_kind)),
-    ("__gc_handle_free",     Native::Void(gc::builtin_gc_handle_free)),
-    ("__gc_stats",           Native::Val(gc::builtin_gc_stats)),
 ];
 
 /// 完整表 = PART1 ++ PART2，**编译期**拼接：BuiltinId 就是最终下标，运行期再拼会
@@ -110,6 +93,8 @@ const PART1: &[(&str, Native)] = &[
 const TYPED: &[&[super::abi::BuiltinDesc]] = &[
     super::convert::typed::DESCS,
     super::math::typed::DESCS,
+    super::object::typed::DESCS,
+    super::gc::typed::DESCS,
     super::char::typed::DESCS,
     super::string::typed::DESCS,
     super::reflection::enums::typed::DESCS,

@@ -1,6 +1,7 @@
 use crate::metadata::{NativeData, TypeDesc, Value};
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
+use crate::corelib::abi::BuiltinError;
 use std::sync::Arc;
 
 // ── Object protocol ───────────────────────────────────────────────────────────
@@ -12,10 +13,15 @@ use std::sync::Arc;
 /// `GetFields()` / `GetMethods()` / `BaseType` / `GetGenericArguments()`.
 /// Primitives / arrays / strings get a handle-less `Std.Type` (member queries
 /// reflect empty) — element-typed array reflection deferred (reflection.md).
-pub fn builtin_obj_get_type(ctx: &VmContext, args: &[Value]) -> Result<Value> {
+pub fn obj_get_type(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
     use crate::corelib::reflection::{make_constructed_type, make_type_from_name, make_type_object};
-    match args.first() {
-        Some(Value::Object(rc)) => {
+    obj_get_type_impl(ctx, this).map_err(BuiltinError::Legacy)
+}
+
+fn obj_get_type_impl(ctx: &VmContext, this: &Value) -> Result<Value> {
+    use crate::corelib::reflection::{make_constructed_type, make_type_from_name, make_type_object};
+    match this {
+        Value::Object(rc) => {
             let td = rc.type_desc_arc().clone();
             // add-reflection-instance-generic-args: a generic instance
             // (`new Box<int>()`) carries its construction type-args on the
@@ -31,7 +37,7 @@ pub fn builtin_obj_get_type(ctx: &VmContext, args: &[Value]) -> Result<Value> {
                 Ok(make_constructed_type(ctx, &td.name, &args_owned))
             }
         }
-        Some(Value::Array(rc)) => {
+        Value::Array(rc) => {
             // add-reflection-array-element-type: the array value carries its
             // element type (non-erased). `<elem>[]` routes through
             // make_type_from_name's `[]` path → array Type with IsArray + element.
@@ -39,51 +45,46 @@ pub fn builtin_obj_get_type(ctx: &VmContext, args: &[Value]) -> Result<Value> {
             let element = rc.borrow().element_type().to_string();
             Ok(make_type_from_name(ctx, &format!("{element}[]")))
         }
-        Some(Value::Str(_)) => {
+        Value::Str(_) => {
             Ok(make_type_from_name(ctx, crate::metadata::well_known_names::STD_STRING))
         }
         // add-struct-object-boxing → unify Phase 2 R3: 装箱值类型（struct 或基元）→ 其**精确类型**
         // （type_desc.name：struct 类型 / 基元 wrapper 如 Std.Int64——两者统一为 BoxedStruct）。
-        Some(Value::BoxedStruct(b)) => Ok(make_type_from_name(ctx, &b.type_desc().name)),
+        Value::BoxedStruct(b) => Ok(make_type_from_name(ctx, &b.type_desc().name)),
         // 未装箱裸基元 → canonical stdlib 类（I64→Std.Int32；装箱后走上面精确类）。
-        Some(v @ (Value::I64(_) | Value::F64(_) | Value::Bool(_) | Value::Char(_))) => {
+        v @ (Value::I64(_) | Value::F64(_) | Value::Bool(_) | Value::Char(_)) => {
             match crate::interp::primitive_class_name(v) {
                 Some(cn) => Ok(make_type_from_name(ctx, cn)),
                 None => bail!("__obj_get_type: expected an object"),
             }
         }
-        Some(Value::Null) => bail!("__obj_get_type: null reference"),
+        Value::Null => bail!("__obj_get_type: null reference"),
         _ => bail!("__obj_get_type: expected an object"),
     }
 }
 
 /// Reference equality: true iff both arguments point to the same heap allocation,
 /// or both are null.
-pub fn builtin_obj_ref_eq(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let result = match (args.first(), args.get(1)) {
-        (Some(Value::Object(a)), Some(Value::Object(b))) => crate::gc::ObjRef::ptr_eq(a, b),
-        (Some(Value::Null), Some(Value::Null))           => true,
-        (Some(Value::Null), _) | (_, Some(Value::Null)) => false,
-        _                                                => false,
-    };
-    Ok(Value::Bool(result))
+pub fn obj_ref_eq(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Object(a), Value::Object(b)) => crate::gc::ObjRef::ptr_eq(a, b),
+        (Value::Null, Value::Null)           => true,
+        (Value::Null, _) | (_, Value::Null) => false,
+        _                                  => false,
+    }
 }
 
 /// expose-weak-ref-builtin (D-1a)：把 GC 的 `make_weak` 暴露给
 /// stdlib。Object/Array 弱化返回 WeakHandle（包装 NativeData::WeakRef 的
 /// ScriptObject）；原子值（I64 / Str / Bool / Char / FuncRef / Closure 等）
 /// 不可弱化，返回 Null。
-pub fn builtin_obj_make_weak(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let target = match args.first() {
-        Some(v) => v,
-        None => return Ok(Value::Null),
-    };
-    let weak = match ctx.heap().make_weak(target) {
-        Some(w) => w,
-        None => return Ok(Value::Null),
+pub fn obj_make_weak(ctx: &VmContext, target: &Value) -> Value {
+    let target = target;
+    let Some(weak) = ctx.heap().make_weak(target) else {
+        return Value::Null;
     };
     let type_desc = weak_handle_type_desc();
-    Ok(ctx.heap().alloc_object(type_desc, Vec::new(), NativeData::WeakRef(weak)))
+    ctx.heap().alloc_object(type_desc, Vec::new(), NativeData::WeakRef(weak))
 }
 
 /// D-1b: 提取 delegate 的 captured target（receiver 对象）。
@@ -173,19 +174,18 @@ pub fn builtin_make_closure(ctx: &VmContext, args: &[Value]) -> Result<Value> {
 /// expose-weak-ref-builtin (D-1a)：升格 WeakHandle 弱引用。
 /// 目标存活返回原 Object/Array；目标已被回收 / 输入非 WeakHandle / Null →
 /// 返回 Null（lenient 处理，与 `__delegate_eq` 同款）。
-pub fn builtin_obj_upgrade_weak(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let handle = match args.first() {
-        Some(Value::Object(o)) => o,
-        _ => return Ok(Value::Null),
+pub fn obj_upgrade_weak(ctx: &VmContext, handle: &Value) -> Value {
+    let Value::Object(o) = handle else {
+        return Value::Null;
     };
     let weak = {
-        let obj = handle.borrow();
+        let obj = o.borrow();
         match &obj.native() {
             NativeData::WeakRef(w) => w.clone(),
-            _ => return Ok(Value::Null),
+            _ => return Value::Null,
         }
     };
-    Ok(ctx.heap().upgrade_weak(&weak).unwrap_or(Value::Null))
+    ctx.heap().upgrade_weak(&weak).unwrap_or(Value::Null)
 }
 
 /// WeakHandle 的 TypeDesc 单例（slots 为空；仅 NativeData::WeakRef 携带状态）。
@@ -220,9 +220,9 @@ pub fn builtin_delegate_eq(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
         // rather than keeping a second copy here.
         (Some(a @ Value::FuncRef(_)), Some(b @ Value::FuncRef(_))) => a == b,
         (Some(a @ Value::Closure(_)), Some(b @ Value::Closure(_))) => a == b,
-        (Some(Value::Null), Some(Value::Null))           => true,
+        (Some(Value::Null), Some(Value::Null))   => true,
         (Some(Value::Null), _) | (_, Some(Value::Null)) => false,
-        _                                                => false,
+        _                                        => false,
     };
     Ok(Value::Bool(result))
 }
@@ -246,51 +246,50 @@ pub(crate) fn identity_hash(addr: usize) -> i64 {
 }
 
 /// Identity-based hash code derived from the object's address.
-pub fn builtin_obj_hash_code(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    match args.first() {
-        Some(Value::Object(gc)) => {
-            let addr = crate::gc::ObjRef::as_ptr(gc) as *const _ as *const u8 as usize;
-            Ok(Value::I64(identity_hash(addr)))
-        }
+pub fn obj_hash_code(this: &Value) -> Result<i64, BuiltinError> {
+    obj_hash_code_impl(this)
+}
+
+fn obj_hash_code_impl(this: &Value) -> Result<i64, BuiltinError> {
+    match this {
+        Value::Object(gc) => Ok(identity_hash(crate::gc::ObjRef::as_ptr(gc) as *const _ as *const u8 as usize)),
         // add-array-base-class: identity hash for Value::Array
-        Some(Value::Array(gc)) => {
-            let addr = crate::gc::ArrRef::as_ptr(gc) as *const _ as *const u8 as usize;
-            Ok(Value::I64(identity_hash(addr)))
-        }
-        Some(Value::Null) => Ok(Value::I64(0)),
-        _ => bail!("__obj_hash_code: expected an object"),
+        Value::Array(gc) => Ok(identity_hash(crate::gc::ArrRef::as_ptr(gc) as *const _ as *const u8 as usize)),
+        Value::Null => Ok(0),
+        other => Err(BuiltinError::Internal(format!(
+            "__obj_hash_code: expected an object, got {other:?}"))),
     }
 }
 
 /// Value equality — defaults to reference equality.
 /// args: [this, other]
-pub fn builtin_obj_equals(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let result = match (args.first(), args.get(1)) {
-        (Some(Value::Object(a)), Some(Value::Object(b))) => crate::gc::ObjRef::ptr_eq(a, b),
+pub fn obj_equals(this: &Value, other: &Value) -> bool {
+    let result = match (this, other) {
+        (Value::Object(a), Value::Object(b)) => crate::gc::ObjRef::ptr_eq(a, b),
         // add-array-base-class: reference-equality for arrays (mirror Object)
-        (Some(Value::Array(a)),  Some(Value::Array(b)))  => crate::gc::ArrRef::ptr_eq(a, b),
-        (Some(Value::Null), Some(Value::Null))           => true,
-        (Some(Value::Null), _) | (_, Some(Value::Null)) => false,
-        _                                                => false,
+        (Value::Array(a),  Value::Array(b))  => crate::gc::ArrRef::ptr_eq(a, b),
+        (Value::Null, Value::Null)           => true,
+        (Value::Null, _) | (_, Value::Null) => false,
+        _                                  => false,
     };
-    Ok(Value::Bool(result))
+    result
 }
 
 /// Human-readable representation — returns the unqualified type name.
 /// args: [this]
-pub fn builtin_obj_to_str(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    match args.first() {
-        Some(Value::Object(rc)) => {
+pub fn obj_to_str(this: &Value) -> Result<String, BuiltinError> {
+    match this {
+        Value::Object(rc) => {
             let td_name = &rc.type_desc().name;
-            let simple = crate::metadata::type_names::unqualified(td_name);
-            Ok(Value::Str(simple.into()))
+            Ok(crate::metadata::type_names::unqualified(td_name).to_string())
         }
         // add-array-base-class: arrays ToString returns simple class name
         // ("Array"), matching Object protocol default. Element-typed ToString
         // (`int[]` etc.) is deferred to expand-type-metadata.
-        Some(Value::Array(_)) => Ok(Value::Str("Array".into())),
-        Some(Value::Null) => Ok(Value::Str("null".into())),
-        _ => bail!("__obj_to_str: expected an object"),
+        Value::Array(_) => Ok("Array".to_string()),
+        Value::Null => Ok("null".to_string()),
+        other => Err(BuiltinError::Internal(format!(
+            "__obj_to_str: expected an object, got {other:?}"))),
     }
 }
 
@@ -300,3 +299,34 @@ pub fn builtin_obj_to_str(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
 #[cfg(test)]
 #[path = "object_tests.rs"]
 mod object_tests;
+
+/// Object 协议迁 builtin ABI v2(P1-8 批次 11)。`GetType` 是纯合成;`ref_eq`
+/// / `hash_code` / `equals` / `to_str` 是 Rust 默认(子类 override 走 z42 vtable,
+/// 不经这里)——全部 PURE。
+#[z42_macros::builtins]
+pub mod typed {
+    use super::*;
+
+    #[builtin(name = "__obj_get_type", this = "GetType")]
+    pub fn get_type(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
+        obj_get_type(ctx, this)
+    }
+
+    #[builtin(name = "__obj_ref_eq", pure)]
+    pub fn ref_eq(a: &Value, b: &Value) -> bool { obj_ref_eq(a, b) }
+
+    #[builtin(name = "__obj_hash_code", this = "GetHashCode", pure)]
+    pub fn hash_code(this: &Value) -> Result<i64, BuiltinError> { obj_hash_code(this) }
+
+    #[builtin(name = "__obj_equals", this = "Equals", pure)]
+    pub fn equals(this: &Value, other: &Value) -> bool { obj_equals(this, other) }
+
+    #[builtin(name = "__obj_to_str", this = "ToString")]
+    pub fn to_str(this: &Value) -> Result<String, BuiltinError> { obj_to_str(this) }
+
+    #[builtin(name = "__obj_make_weak")]
+    pub fn make_weak(ctx: &VmContext, target: &Value) -> Value { obj_make_weak(ctx, target) }
+
+    #[builtin(name = "__obj_upgrade_weak")]
+    pub fn upgrade_weak(ctx: &VmContext, handle: &Value) -> Value { obj_upgrade_weak(ctx, handle) }
+}
