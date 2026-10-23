@@ -14,8 +14,8 @@ reference 的[类](https://z42-lang.github.io/z42/reference/language/classes.htm
 
 | IR 指令 | 发射处 | 走哪条 |
 |---|---|---|
-| `ToStr dst, src` | 字符串插值 `$"..."` 的每个洞（`ExprEmitter.z42:300`） | interp `exec_value::to_str` → `dispatch.rs::obj_to_gc_str`；JIT `jit_to_str`（**认 vtable**）|
-| `Add dst, a, b`（操作数之一是 `Str`） | `+` 字符串拼接（`OperatorEmitter.z42:47-56`，**不**发 `ToStr`）| interp `exec_value::add` → `with_obj_str`；JIT `jit_add` → `with_stringify_dispatch`（**认 vtable**）|
+| `ToStr dst, src` | 字符串插值 `$"..."` 的每个洞（ExprEmitter.z42（`VisitArrayLit`）） | interp `exec_value::to_str` → `dispatch.rs::obj_to_gc_str`；JIT `jit_to_str`（**认 vtable**）|
+| `Add dst, a, b`（操作数之一是 `Str`） | `+` 字符串拼接（OperatorEmitter.z42（`_emitBinary`），**不**发 `ToStr`）| interp `exec_value::add` → `with_obj_str`；JIT `jit_add` → `with_stringify_dispatch`（**认 vtable**）|
 | `VCall dst, recv, method, args` | 每一处 `obj.ToString()` / `.Equals(..)` / `.GetHashCode()` / `.GetType()` | `vcall_resolve.rs::resolve_vcall` 阶梯 |
 
 插值、拼接、`Console.WriteLine(obj)`（`stringify_dispatch`）共用同一个 `ToString` 协议
@@ -61,7 +61,7 @@ struct 自身的 `ToString`），刻意不回落 `Std.Object.ToString`。
 
 ## `value_to_str`：不可失败的 Display
 
-`corelib/convert.rs:225`。它**没有 `ctx`**，这是它的形状的根本约束：凡是需要解 arena 或跑
+convert.rs（`tr_convert`）。它**没有 `ctx`**，这是它的形状的根本约束：凡是需要解 arena 或跑
 z42 函数才能渲染的变体，它只能给占位符。
 
 | `Value` 变体 | 输出 |
@@ -111,7 +111,7 @@ vtable 把「可能重载的方法名」映射到编译器为该站点绑定的�
 
 ### overload-suffix 重试
 
-候选名由 `resolve_by_candidates`（`vcall_resolve.rs:309-342`）生成，每个类压三种拼法：
+候选名由 `resolve_by_candidates`（vcall_resolve.rs（`resolve_vcall_unchecked`））生成，每个类压三种拼法：
 `{c}.{m}${arity}`、`{c}.{m}`，以及当操作数本身已是完整键（`Name$arity$types`）时的裸规范槽；
 然后对 `Std.Object` 再压同样三种。
 
@@ -142,7 +142,7 @@ vtable 把「可能重载的方法名」映射到编译器为该站点绑定的�
 - **基元的 `Equals` / `GetHashCode` 没有 builtin**（没有 `__int32_equals` / `__double_hash_code` /
   `__char_equals` 之类），
   它们是 `Std.Int32` 等 wrapper 里的纯脚本方法（`Equals` → `this == other`，`GetHashCode` → `(int)this`）。
-  `Std.String.ToString` 同理，是 `String.z42:65` 的 `return this;`——一个只原样返回自身的
+  `Std.String.ToString` 同理，是 String.z42（`ToString`） 的 `return this;`——一个只原样返回自身的
   builtin 不值得占一个 `BuiltinId`。
 - **`GetType`** 在阶梯的第 1/2 级是原生拦截（盒自己带精确 type_desc），在第 3/4 级经
   `Std.Object.GetType` → `__obj_get_type` builtin（`corelib/object.rs`）合成 `Std.Type` 对象。

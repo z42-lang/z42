@@ -41,7 +41,7 @@ z42 repl                                  launcher（特判命令，不走生成
 依赖是**单向**的：`z42.repl` → `z42.scripting`（用 `Completeness`），反向没有边。会话变量活值的成员名
 反射（补全要用）因此归 `Std.Scripting.Engine.MemberNames` 而不是 `Std.Repl.Repl`——放错边就成环。
 
-`z42 repl` 在 launcher 里是**特判命令**（`launcher_cli.z42:28`）：`_forwardRepl` 自己拦 `-h`/`--help`
+`z42 repl` 在 launcher 里是**特判命令**（launcher_cli.z42（`_runLauncher`））：`_forwardRepl` 自己拦 `-h`/`--help`
 打印帮助（跳过 `-c` 的值，故 `z42 repl -c "-h"` 仍是求值），其余参数里剥出 launcher 级的
 `--mode`/`--config`/`--set` 转成 z42vm 的参数与 `Z42_CONFIG` 环境变量，剩下的透传给 z42i。
 
@@ -216,8 +216,8 @@ EOF 分支统一报 `E0203`（`DiagnosticCodes.UnexpectedEof`），非 EOF 仍�
 
 | 标志 | 置位点 | 覆盖 |
 |---|---|---|
-| `IncompleteAtEof` | `Parser.z42:183`（`_expect`）、`Parser.z42:207`（`_errorOrIncomplete`） | 缺 `{ } ( ) [ ]`、缺类型名/函数名（`DeclParser`）、缺操作数（`ExprParser`） |
-| `IncompleteSemiAtEof` | `Parser.z42:195`（`_expectSemi`） | 只有「缺 `;`」这一种 |
+| `IncompleteAtEof` | Parser.z42（`_finalizeSuppress`）（`_expect`）、Parser.z42（`_claimDocAt`）（`_errorOrIncomplete`） | 缺 `{ } ( ) [ ]`、缺类型名/函数名（`DeclParser`）、缺操作数（`ExprParser`） |
+| `IncompleteSemiAtEof` | Parser.z42（`_attachDoc`）（`_expectSemi`） | 只有「缺 `;`」这一种 |
 
 **「此前无真错」这一条是必需的**：真语法错解析恢复后也会走到 EOF，若不加这条，`class 1`（已报
 expected type name）会被当成没写完而挂起等续行。

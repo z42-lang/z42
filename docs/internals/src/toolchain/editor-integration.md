@@ -4,7 +4,7 @@
 > `src/toolchain/devtools/vscode/`（扩展资产）、
 > `scripts/install/xtask_install_vscode.z42`（生成器 + 门禁检查）、
 > `src/compiler/z42c.syntax/src/Lexer.z42`（关键字 SoT）、
-> `src/compiler/z42c.driver/src/Main.z42:51`（`--dump-keywords` 路由）、
+> Main.z42（`Main`）（`--dump-keywords` 路由）、
 > `scripts/test/xtask_test.z42`（gate 挂接）。
 
 z42 在 VSCode 里的全部语言支持 = **一份声明式 TextMate grammar**，零 node / 零编译依赖，

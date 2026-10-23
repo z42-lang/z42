@@ -99,7 +99,8 @@ public static class Zip {
     // ── Write ────────────────────────────────────────────────────────
 
     /// 逐条按 `CompressionMethod` 打包成 zip 字节；method 不是 0 / 8 抛 `ArchiveException`。
-    /// 空条目表产出 22 字节（只有 EOCD）的合法空归档。时间戳固定为 1980-01-01。
+    /// 空条目表产出 22 字节（只有 EOCD）的合法空归档。时间戳固定为 zip 格式的纪元零点
+    /// （1980 年 1 月 1 日，MS-DOS zip 时间起点）。
     public static byte[] Write(ZipEntry[] entries) {
         // Pass 1: precompute per-entry compressed data + CRC + offsets.
         // Aggregate written-so-far counter is the LFH offset.

@@ -62,9 +62,9 @@
 
 | 码 | 含义 | 状态 | 触发示例 |
 |---|---|---|---|
-| E0101 | 字符串字面量未闭合（普通 / raw / 插值三种都走这个码） | ✅ `Lexer.z42:254,286,320` | `string s = "abc` |
-| E0102 | 无法识别的转义序列 | ✅ `Lexer.z42:344` | `"a\q"` |
-| E0103 | 非法数字字面量 / 意外字符 | ✅ `Lexer.z42:416` | `0x`（无数字） |
+| E0101 | 字符串字面量未闭合（普通 / raw / 插值三种都走这个码） | ✅ Lexer.z42（`_lexNumber` / `_isNumSuffix` / `_lexChar`） | `string s = "abc` |
+| E0102 | 无法识别的转义序列 | ✅ Lexer.z42（`_lexInterpolated`） | `"a\q"` |
+| E0103 | 非法数字字面量 / 意外字符 | ✅ Lexer.z42（`_lexSymbol`） | `0x`（无数字） |
 
 ---
 
@@ -75,14 +75,14 @@
 
 | 码 | 含义 | 状态 | 触发示例 |
 |---|---|---|---|
-| E0201 | 该位置不接受这个 token（顶层非声明、表达式里出现无法使用的 token） | ✅ `Parser.z42:416`、`ExprParser.z42:503,519,560` | 顶层写 `foo;` |
-| E0202 | 缺少必需的 token（类型名 / `>` / 枚举成员名 / `->` …） | ✅ `TypeParser.z42:30,144,192`、`DeclParser.z42:129,260,273` | `class { }` |
-| E0203 | 输入在构造完成前结束 | ✅ `Parser.z42:184,196,208` | 文件以 `class C {` 结尾 |
+| E0201 | 该位置不接受这个 token（顶层非声明、表达式里出现无法使用的 token） | ✅ Parser.z42（`_skipToSemicolon`）、ExprParser.z42（`ObjNewExpr`） | 顶层写 `foo;` |
+| E0202 | 缺少必需的 token（类型名 / `>` / 枚举成员名 / `->` …） | ✅ TypeParser.z42（`_parseTypeParams` / `_parseType` / `_parseParenType`）、DeclParser.z42（`_parseTypeDecl` / `_parseEnum`） | `class { }` |
+| E0203 | 输入在构造完成前结束 | ✅ Parser.z42（`_claimDoc` / `_attachDoc` / `_claimDocAt`） | 文件以 `class C {` 结尾 |
 | E0204 | 函数声明缺返回类型 | ⚠️ 零发射点 | — |
 | E0205 | 表达式无法无歧义解析 | ⚠️ 零发射点 | — |
-| E0206 | `params` 不是最后一个形参 | ✅ `MemberParser.z42:380` | `void f(params int[] a, int b)` |
-| E0207 | `params` 形参类型不是数组 `T[]` | ✅ `MemberParser.z42:369` | `void f(params int a)` |
-| E0208 | `params` 与 `ref`/`out`/默认值同时出现 | ✅ `MemberParser.z42:371` | `void f(params ref int[] a)` |
+| E0206 | `params` 不是最后一个形参 | ✅ MemberParser.z42（`_parseParamList`） | `void f(params int[] a, int b)` |
+| E0207 | `params` 形参类型不是数组 `T[]` | ✅ MemberParser.z42（`_parseArrowBody`） | `void f(params int a)` |
+| E0208 | `params` 与 `ref`/`out`/默认值同时出现 | ✅ MemberParser.z42（`BlockStmt`） | `void f(params ref int[] a)` |
 | E0209 | 只能出现在文件顶部的**指令**（`using` 导入 / 别名、`namespace`）出现在语句位置。⚠️ `using` **也是一种语句** ⇒ 这条拦截先经 `StmtParser._isUsingStmtStart()` 分流：`using (` / `using var` / `using <类型> <标识符> =` 是语句，其余才落本码 | ✅ `Parser.z42`（`ParseStatement` 开头那段拦截）| 在方法体里写 `using Std.Text;` |
 | E0210 | `using` / `global using` / 类型别名 `using X = T;` 写在文件里第一个类型或函数声明**之后**。对齐 C# CS1529。与 `namespace` 的相对顺序不限 | ✅ `Parser.z42`（`_chkUsingPos`）| `class A { }` 之后写 `using Std.IO;` —— 挪到文件顶部即可 |
 
@@ -90,9 +90,9 @@
 
 | 码 | 含义 | 状态 | 触发示例 |
 |---|---|---|---|
-| E0442 | 顶层声明标了 `private` / `protected`（模块作用域下无意义，用 `internal` 或 `public`） | ✅ `Parser.z42:395` | 顶层 `private class C { }` |
-| E0457 | 一个文件里写了**多个**文件级 `namespace X;`，或把 `namespace` 写在类型/函数声明**之后**。不会静默 last-wins（那会导致限定名解析到错误的类型）。恢复策略：保留**第一个** ns | ✅ `Parser.z42:345,349` | `namespace A; class C { } namespace B;` |
-| E0462 | `methodof(...)` 括号内**签名语法**形态错：缺 `Type.Member`、owner 带类型实参、方法带类型实参 | ✅ `MethodOfParser.z42:32,54,60,66,71` | `methodof(Logger)` |
+| E0442 | 顶层声明标了 `private` / `protected`（模块作用域下无意义，用 `internal` 或 `public`） | ✅ Parser.z42（`_skipStmtPlaceholder`） | 顶层 `private class C { }` |
+| E0457 | 一个文件里写了**多个**文件级 `namespace X;`，或把 `namespace` 写在类型/函数声明**之后**。不会静默 last-wins（那会导致限定名解析到错误的类型）。恢复策略：保留**第一个** ns | ✅ Parser.z42（`_expectSemi`） | `namespace A; class C { } namespace B;` |
+| E0462 | `methodof(...)` 括号内**签名语法**形态错：缺 `Type.Member`、owner 带类型实参、方法带类型实参 | ✅ MethodOfParser.z42（`_parseTarget`） | `methodof(Logger)` |
 
 ---
 
@@ -115,61 +115,61 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 
 | 码 | 含义 | 状态 | 触发示例 |
 |---|---|---|---|
-| E0401 | 未定义符号：变量 / 函数 / 字段 / 方法找不到。**基元收者同样适用**（`int` / `string` / `double` / `bool` … → 各自的包装类）：`int x = 5; x.Bogus();` 报「no method \`Bogus\` on \`Int32\`」。仍然松绑定的唯一情形：包装类是**成员表为空的 stub**（懒加载 / 冷启动未载真类，候选集不完整，判「不存在」会误报）。**也覆盖泛型型参收者**：`T f<T>(T a) { return a.Bogue; }` 报「no field or property \`Bogue\` on type parameter \`T\`, and no known type declares that name」。⚠️ 判据刻意收窄到「**全仓无此成员名**」，不是「不由 `where` 约束提供就报」——后者会误报 `var m = Max(a,b); m.value` 这类对引用类型完全正常的惯用写法（实测被既有 e2e 判红）。同一变更还让「方法级 `where` 挂在既非方法级也非类级的型参名上」报本码。**也覆盖委托 / 函数类型收者**：委托值上**只有 `Invoke` 一个成员**，`f.Bogus()` 报「no method \`Bogus\` on delegate type \`Func<Int32, Int32>\`」。**不套用 prim 那条 stub 豁免**：委托的成员面是语言固定的，不存在候选集不完整的情形。**也覆盖 enum 类型名后的未知成员**：`Color.Nope` 报「enum \`Color\` has no member \`Nope\`」。**也覆盖数组收者**：`T[]` 上能调的实例方法是 `Std.Array` 的（`Clone` / `GetValue` / `SetValue`）加上 `Object` 继承来的，别的名字报「no method \`Sort\` on \`String[]\`」；名字是 `Array` 的**静态**方法时附提示改写成 `Array.Sort(…)`。`Array` 未加载 / 是成员表为空的 stub 时同 prim 一样仍松绑定 | ✅ `MemberResolver.z42:123,173,375,409,594`、`MemberResolver.Prim.z42:80`（prim 收者）、`MemberResolver.Prim.z42` 的 `BindArrayInstanceCall`（数组收者）、`MemberResolver.TypeParam.z42`（型参收者）、`ConstraintChecker.z42`（未知型参）、`PatternBinder.z42:353` | 调用未声明的 `foo()`；`int x = 5; x.Bogus();`；`T f<T>(T a) { return a.Bogue; }`；`string[] a = …; a.Sort();` |
-| E0402 | 类型不匹配（含不支持的语句 / 模式、空集合字面量缺目标类型、**元组元数越界**等兜底场景） | ✅ `StmtBinder.z42:368,391`、`CollectionTyper.z42:35,51,132,141`、`PatternBinder.z42:32`、`ConstructTyper.z42:103`（元组字面量元数）、`z42c.syntax/src/TypeParser.z42`（元组**类型**元数——语法层） | `var a = [];`、`(int,int,int,int,int,int,int,int,int) t;` |
+| E0401 | 未定义符号：变量 / 函数 / 字段 / 方法找不到。**基元收者同样适用**（`int` / `string` / `double` / `bool` … → 各自的包装类）：`int x = 5; x.Bogus();` 报「no method \`Bogus\` on \`Int32\`」。仍然松绑定的唯一情形：包装类是**成员表为空的 stub**（懒加载 / 冷启动未载真类，候选集不完整，判「不存在」会误报）。**也覆盖泛型型参收者**：`T f<T>(T a) { return a.Bogue; }` 报「no field or property \`Bogue\` on type parameter \`T\`, and no known type declares that name」。⚠️ 判据刻意收窄到「**全仓无此成员名**」，不是「不由 `where` 约束提供就报」——后者会误报 `var m = Max(a,b); m.value` 这类对引用类型完全正常的惯用写法（实测被既有 e2e 判红）。同一变更还让「方法级 `where` 挂在既非方法级也非类级的型参名上」报本码。**也覆盖委托 / 函数类型收者**：委托值上**只有 `Invoke` 一个成员**，`f.Bogus()` 报「no method \`Bogus\` on delegate type \`Func<Int32, Int32>\`」。**不套用 prim 那条 stub 豁免**：委托的成员面是语言固定的，不存在候选集不完整的情形。**也覆盖 enum 类型名后的未知成员**：`Color.Nope` 报「enum \`Color\` has no member \`Nope\`」。**也覆盖数组收者**：`T[]` 上能调的实例方法是 `Std.Array` 的（`Clone` / `GetValue` / `SetValue`）加上 `Object` 继承来的，别的名字报「no method \`Sort\` on \`String[]\`」；名字是 `Array` 的**静态**方法时附提示改写成 `Array.Sort(…)`。`Array` 未加载 / 是成员表为空的 stub 时同 prim 一样仍松绑定 | ✅ MemberResolver.z42（`BoundCall` / `BoundMember` / `_bindMemberCall`）、MemberResolver.Prim.z42（`BindPrimNoApplicableOverload`）（prim 收者）、`MemberResolver.Prim.z42` 的 `BindArrayInstanceCall`（数组收者）、`MemberResolver.TypeParam.z42`（型参收者）、`ConstraintChecker.z42`（未知型参）、PatternBinder.z42（`BoundWildcardPattern`） | 调用未声明的 `foo()`；`int x = 5; x.Bogus();`；`T f<T>(T a) { return a.Bogue; }`；`string[] a = …; a.Sort();` |
+| E0402 | 类型不匹配（含不支持的语句 / 模式、空集合字面量缺目标类型、**元组元数越界**等兜底场景） | ✅ StmtBinder.z42（`_chkCatchType` / `_bindTryCatch`）、CollectionTyper.z42（`BoundError`）、PatternBinder.z42（`Bind`）、ConstructTyper.z42（`BoundError`）（元组字面量元数）、`z42c.syntax/src/TypeParser.z42`（元组**类型**元数——语法层） | `var a = [];`、`(int,int,int,int,int,int,int,int,int) t;` |
 | E0403 | 非 void 函数存在无 `return` 的路径。漏 return 的函数以前**编得过**，运行期返回 `Null`，调用方在**毫不相干的地方**崩成 `VCall: expected object, got Null` | ✅ `FlowAnalyzer._checkMissingReturn`（谓词 `NeverCompletes`） | `int f(int x) { if (x > 0) { return 1; } }` |
-| E0404 | 访问控制违规：`private`/`protected` 成员跨界访问，或引用 `private`/`protected` 嵌套类型（对标 C# CS0122） | ✅ `AccessChecker.z42:66,192` | 类外读 `private` 字段 |
-| E0405 | 非法修饰符组合（如同时写两个访问修饰符） | ✅ `DeclParser.z42:101`（语法层） | `public private int x;` |
+| E0404 | 访问控制违规：`private`/`protected` 成员跨界访问，或引用 `private`/`protected` 嵌套类型（对标 C# CS0122） | ✅ AccessChecker.z42（`_derivesFrom` / `_derivesFromOrEq`） | 类外读 `private` 字段 |
+| E0405 | 非法修饰符组合（如同时写两个访问修饰符） | ✅ DeclParser.z42（`_parseModifiers`）（语法层） | `public private int x;` |
 | E0406 | 整数字面量超出显式宽度类型的范围 | ⚠️ 零发射点 | — |
 | E0407 | **局部变量**未赋值就读。合并规则：`if` 两支都赋才算（一支必定 return/throw 则取另一支）／`while` 体内赋值不算（可能零次执行）／`do-while` 算（必执行一次）／`switch` 取各 case 交集且须有 `default`／`try` 的赋值在 **catch 里不算**（异常可能在赋值前抛出）。字段与静态字段不在管辖（它们零初始化） | ✅ `FlowAnalyzer.z42` | `int x; return x;` |
-| E0408 | 重复声明。当前实际发射面是**顶层自由函数重名**（自由函数不支持重载）与成员收集期的重复成员 | ✅ `DeclBinder.z42:49,120`、`MemberCollector.z42:42` | 同文件两个 `int f()` |
+| E0408 | 重复声明。当前实际发射面是**顶层自由函数重名**（自由函数不支持重载）与成员收集期的重复成员 | ✅ DeclBinder.z42（`_defineInstanceFields` / `_bindImpl`）、MemberCollector.z42（`_passMembers`） | 同文件两个 `int f()` |
 | E0409 | 把 `void` 表达式赋给变量 | ⚠️ 零发射点 | — |
-| E0410 | `break` 在循环 / `switch` 外，或 `continue` 在循环外 | ✅ `StmtBinder.z42:352,358` | 方法体顶层写 `break;` |
+| E0410 | `break` 在循环 / `switch` 外，或 `continue` 在循环外 | ✅ StmtBinder.z42（`BoundWhile` / `_chkCatchType`） | 方法体顶层写 `break;` |
 | E0411 | 非法继承 | ⚠️ 零发射点（sealed 相关走 E0427–E0429） | — |
-| E0412 | 接口实现不匹配：签名 / `static` 与实例形态不一致 | ✅ `InheritanceResolver.z42:444,457,479,494,499` | 接口声明实例方法，实现方写成 `static` |
+| E0412 | 接口实现不匹配：签名 / `static` 与实例形态不一致 | ✅ InheritanceResolver.z42（`_nearestBaseMethod` / `_checkAssocBindingsComplete` / `_checkOneIfaceAssoc` / `_checkIfaceMembersComplete`） | 接口声明实例方法，实现方写成 `static` |
 | E0413 | 非法实现 | ⚠️ 零发射点 | — |
 | E0414 | event 字段的外部访问控制 | ⚠️ 零发射点 | — |
 | E0420 | `catch (T e)` 的 `T` 不是 `Exception` 或其子类。写错类型会让运行期那个 catch **静默永不匹配** ⇒ 异常穿出去变成 `uncaught exception`，所以编译期校验 | ✅ `StmtBinder._chkCatchType` | `class NotEx { } … catch (NotEx e) { }`。⚠️ 本次编译解析不到 `Exception` 时不报（不链 stdlib 的编译路径拿不准）|
 | E0421 | 非法的 `default(T)` 目标类型 | ⚠️ 零发射点 | — |
 | E0424 | 非法强制转换 | ⚠️ 零发射点。非法 cast 实际走 E0402 / E0439，或运行期 `Std.InvalidCastException` | — |
-| E0443 | 类型注解引用了未定义的类型名（对标 C# CS0246） | ✅ `AccessChecker.z42:132`、`ConstraintChecker.z42:212`、`TypeOpTyper.z42:91` | `Nope x = null;` |
+| E0443 | 类型注解引用了未定义的类型名（对标 C# CS0246） | ✅ AccessChecker.z42（`CheckTypeRef`）、ConstraintChecker.z42（`_fillBundle`）、TypeOpTyper.z42（`_bindTypeofExpr`） | `Nope x = null;` |
 
 ### `const` / `readonly` / 属性写入
 
 | 码 | 含义 | 状态 | 触发示例 |
 |---|---|---|---|
-| E0415 | `readonly` 字段在构造函数外（静态字段则在初始化器外）被赋值 | ✅ `AssignTyper.z42:256` | 普通方法里写 `this.RoField = 1;` |
-| E0416 | `const` 声明缺初始化器 | ✅ `StmtBinder.z42:269`、`MemberCollector.z42:389` | `const int K;` |
-| E0417 | `const` 初始化器不是编译期常量 | ✅ `StmtBinder.z42:278`、`MemberCollector.z42:399` | `const int K = f();` |
-| E0418 | 给 `const` 赋值 | ✅ `AssignTyper.z42:178,187` | `K = 2;` |
-| E0419 | 常量表达式引用了尚未定义的 `const` | ✅ `StmtBinder.z42:276`、`MemberCollector.z42:396` | `const int A = B; const int B = 1;` |
-| E0452 | 给没有 setter 的属性赋值：`X { get; }` 只读自动属性仅可在构造函数内经 `this` 写；`X { get {..} }` 计算属性任何位置都不可赋值（对标 C# CS0200）。静态属性同理，仅本类静态 ctor 内可写 | ✅ `AssignTyper.z42:217,220,268,271`、`DeclBinder.z42:229` | `obj.GetOnly = 1;` |
+| E0415 | `readonly` 字段在构造函数外（静态字段则在初始化器外）被赋值 | ✅ AssignTyper.z42（`_checkConstAssign`） | 普通方法里写 `this.RoField = 1;` |
+| E0416 | `const` 声明缺初始化器 | ✅ StmtBinder.z42（`BoundDeconstructDeclStmt`）、MemberCollector.z42（`Z42FuncType`） | `const int K;` |
+| E0417 | `const` 初始化器不是编译期常量 | ✅ StmtBinder.z42（`BoundDeconstructDeclStmt`）、MemberCollector.z42（`Z42FuncType`） | `const int K = f();` |
+| E0418 | 给 `const` 赋值 | ✅ AssignTyper.z42（`BoundAssign` / `_finishValue`） | `K = 2;` |
+| E0419 | 常量表达式引用了尚未定义的 `const` | ✅ StmtBinder.z42（`BoundDeconstructDeclStmt`）、MemberCollector.z42（`Z42FuncType`） | `const int A = B; const int B = 1;` |
+| E0452 | 给没有 setter 的属性赋值：`X { get; }` 只读自动属性仅可在构造函数内经 `this` 写；`X { get {..} }` 计算属性任何位置都不可赋值（对标 C# CS0200）。静态属性同理，仅本类静态 ctor 内可写 | ✅ AssignTyper.z42（`_isStaticRecv` / `_checkConstAssign`）、DeclBinder.z42（`_bindClass`） | `obj.GetOnly = 1;` |
 
 ### 转换与重载
 
 | 码 | 含义 | 状态 | 触发示例 |
 |---|---|---|---|
-| E0425 | 重载歧义：多个候选同等匹配 | ✅ `OverloadBinder.z42:418,667,709,754,784,790`、`ConstructTyper.z42:236` | 两个重载分别取 `int` / `long`，传 `byte` |
-| E0426 | `new C(args)` 的实参与本地构造器形参不匹配（`params` / 默认值尾巴均已考虑）—— 防的是静默按位截断。**也覆盖「基元根本没有构造器」**：`new int(5)` / `new string(cs)` 报「takes no arguments — a primitive has no constructor」（后者附带 `String.FromChars` 的指引）。⚠️ 基元这一支**非加不可**——`new <基元>()` 现在折成零值（见[泛型约束](../language/generic-constraints.md#基元满足-new构造出来的是零值)），不拦实参的话 `new int(5)` 会被同一条折叠**静默变成 `0`** | ✅ `ConstructTyper.z42:188,223,355` | `new Point(1)`，而 `Point` 只有 `(int,int)`；`new int(5)` |
-| E0437 | target-typed `new()` 的目标类型推断不出来或有歧义 | ✅ `ConstructTyper.z42:26,151`、`OverloadBinder.z42:677,699` | `var x = new();` |
-| E0439 | 存在显式转换但用在隐式上下文（窄化 / 有损）—— 必须写 `(T)` cast | ✅ `TypeChecker.z42:368` | `int i = someLong;` |
-| E0440 | 转换运算符声明冲突：同一 (源→目标) 重复，或 `implicit` 与 `explicit` 同对 | ✅ `MemberCollector.z42:339,342` | 同类里同时写 `implicit operator int` 与 `explicit operator int` |
+| E0425 | 重载歧义：多个候选同等匹配 | ✅ OverloadBinder.z42（`_crossPkgDefault` / `_ctorKey` / `_resolveOverloadCands`）、ConstructTyper.z42（`BoundDefault`） | 两个重载分别取 `int` / `long`，传 `byte` |
+| E0426 | `new C(args)` 的实参与本地构造器形参不匹配（`params` / 默认值尾巴均已考虑）—— 防的是静默按位截断。**也覆盖「基元根本没有构造器」**：`new int(5)` / `new string(cs)` 报「takes no arguments — a primitive has no constructor」（后者附带 `String.FromChars` 的指引）。⚠️ 基元这一支**非加不可**——`new <基元>()` 现在折成零值（见[泛型约束](../language/generic-constraints.md#基元满足-new构造出来的是零值)），不拦实参的话 `new int(5)` 会被同一条折叠**静默变成 `0`** | ✅ ConstructTyper.z42（`BoundError` / `_bindCtorArgs`） | `new Point(1)`，而 `Point` 只有 `(int,int)`；`new int(5)` |
+| E0437 | target-typed `new()` 的目标类型推断不出来或有歧义 | ✅ ConstructTyper.z42（`BoundError` / `_packParamsTail`）、OverloadBinder.z42（`_ctorKey` / `_resolveFreeOverload`） | `var x = new();` |
+| E0439 | 存在显式转换但用在隐式上下文（窄化 / 有损）—— 必须写 `(T)` cast | ✅ TypeChecker.z42（`_suggestVia`） | `int i = someLong;` |
+| E0440 | 转换运算符声明冲突：同一 (源→目标) 重复，或 `implicit` 与 `explicit` 同对 | ✅ MemberCollector.z42（`Z42FuncType`） | 同类里同时写 `implicit operator int` 与 `explicit operator int` |
 
 ### 继承 / `sealed` / `static` 类 / `partial`
 
 | 码 | 含义 | 状态 | 触发示例 |
 |---|---|---|---|
-| E0427 | 继承 `sealed` 类 | ✅ `InheritanceResolver.z42:251` | `class D : SealedBase { }` |
-| E0428 | `override` 一个已 `sealed` 的 override 方法 | ✅ `InheritanceResolver.z42:292` | — |
-| E0429 | 方法级 `sealed` 没有 override 基类的任何 `virtual` 方法 | ✅ `InheritanceResolver.z42:287` | — |
-| E0430 | 同名类型的某个声明没标 `partial`（必须全部标） | ✅ `DeclEnforcer.z42:194` | `partial class C {} class C {}` |
-| E0431 | 各碎片的 Kind（class / struct / interface）不一致 | ✅ `DeclEnforcer.z42:198` | `partial class C {} partial struct C {}` |
-| E0432 | 基类被多个碎片声明（至多一个碎片可写基类） | ✅ `StubCollector.z42:199` | — |
-| E0433 | 碎片之间重复成员（同名字段 / 同签名方法） | ✅ `MemberCollector.z42:176,323` | — |
-| E0434 | `partial` 方法：实现找不到匹配的声明，或声明与实现签名不一致 | ✅ `DeclEnforcer.z42:231` | — |
-| E0435 | 嵌套类型自身标 `partial`（v1 不支持） | ✅ `DeclEnforcer.z42:215` | — |
-| E0451 | `static` 类含实例成员（方法 / 字段 / 属性 / 构造器）、声明了基类、或实现了接口（对标 C# CS0708/0710/0713/0714） | ✅ `InheritanceResolver.z42:262,266,554,557,563,568` | `static class U { public int V; }` |
-| E0469 | 实例构造器没写初始化子句（⇒ 隐式 `: base()`），而基类有实例构造器却**无一可零实参调用** ⇒ 须显式 `: base(...)`（对标 C# CS7036）。派生类**没写任何构造器**时不报 | ✅ `DeclBinder.z42:516` | `class B { public B(int x){} } class D : B { public D(){} }` |
+| E0427 | 继承 `sealed` 类 | ✅ InheritanceResolver.z42（`_findVirtualOrigin`） | `class D : SealedBase { }` |
+| E0428 | `override` 一个已 `sealed` 的 override 方法 | ✅ InheritanceResolver.z42（`_passSealedEnforce`） | — |
+| E0429 | 方法级 `sealed` 没有 override 基类的任何 `virtual` 方法 | ✅ InheritanceResolver.z42（`_passSealedEnforce`） | — |
+| E0430 | 同名类型的某个声明没标 `partial`（必须全部标） | ✅ DeclEnforcer.z42（`_passValidatePartial`） | `partial class C {} class C {}` |
+| E0431 | 各碎片的 Kind（class / struct / interface）不一致 | ✅ DeclEnforcer.z42（`_passValidatePartial`） | `partial class C {} partial struct C {}` |
+| E0432 | 基类被多个碎片声明（至多一个碎片可写基类） | ✅ StubCollector.z42（`_passQualifyIfaceNamesInScope`） | — |
+| E0433 | 碎片之间重复成员（同名字段 / 同签名方法） | ✅ MemberCollector.z42（`_fillInterface` / `Z42FuncType`） | — |
+| E0434 | `partial` 方法：实现找不到匹配的声明，或声明与实现签名不一致 | ✅ DeclEnforcer.z42（`_passResolvePartialMethods`） | — |
+| E0435 | 嵌套类型自身标 `partial`（v1 不支持） | ✅ DeclEnforcer.z42（`_checkNestedPartial`） | — |
+| E0451 | `static` 类含实例成员（方法 / 字段 / 属性 / 构造器）、声明了基类、或实现了接口（对标 C# CS0708/0710/0713/0714） | ✅ InheritanceResolver.z42（`_findVirtualOrigin` / `_checkOneIfaceMethod`） | `static class U { public int V; }` |
+| E0469 | 实例构造器没写初始化子句（⇒ 隐式 `: base()`），而基类有实例构造器却**无一可零实参调用** ⇒ 须显式 `: base(...)`（对标 C# CS7036）。派生类**没写任何构造器**时不报 | ✅ DeclBinder.z42（`_accessorSetParams`） | `class B { public B(int x){} } class D : B { public D(){} }` |
 | E0470 | `ref` 实参不是可取址的左值（属性 / 索引器 / 静态字段 / 值 struct 的字段 / 字面量 / 调用结果 / 数组虚成员）。这些形态若放行会**写回静默丢失**——取的是承载读出值的临时寄存器的地址 | ✅ `ExprTyper.z42`（`_chkRefArgLvalue`）| `void Inc(ref int x){} ... Inc(ref h.P)` |
 | E0471 | 使用了 `out` / `in` 作参数修饰符（形参位或调用点）。三态已收敛为单一 `ref`：`out` 的四条规则全为处理「未初始化内存」这一个例外，而槽位自动取零值消灭了该例外；`in` 的只读保证从设计时起就不完整（只约束 slot 不可重赋，不约束指向对象的内部状态）。诊断附迁移写法 | ✅ `MemberParser.z42`（形参侧）/ `ExprParser.z42`（调用点） | `void F(out int v){}` → `void F(ref int v){}` |
 | E0472 | 形参是 `ref`，**实参漏写** `ref`。否则方法里的写入会**静默丢失**——被调方改的是自己的形参寄存器，出口 copy-out 没有调用方的 lvalue 可写回 | ✅ `OverloadBinder.z42`（`_checkRefSymmetry`）| `void Inc(ref int x){} ... Inc(v)` |
@@ -206,39 +206,39 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 
 | 码 | 含义 | 状态 | 触发示例 |
 |---|---|---|---|
-| E0422 | 类型实参不满足函数类型约束 | ✅ `ConstraintChecker.z42:474` | — |
-| E0423 | 型参把函数类型约束与其他约束混写，或同时要求 `class` + `struct` | ✅ `ConstraintChecker.z42:231` | `where T : (int)->int, IFoo` |
-| E0446 | 泛型方法调用 `Foo<...>()` 的类型实参数与声明的类型形参数不符 | ✅ `MemberResolver.z42:613` | `Swap<int, string>(a, b)`，而 `Swap<T>` 只有一个型参 |
-| E0453 | 关联类型：接口里 `type Item;` 未被实现方绑定；实现方写了不带绑定的 `type Item;`；接口自己写了绑定；`where T : IFoo<Zzz = int>` 里 `Zzz` 不是该接口的关联类型；实参绑定与约束要求不符 | ✅ `ConstraintChecker.z42:168,500,506`、`InheritanceResolver.z42:363`、`MemberCollector.z42:70,160` | — |
-| E0454 | 经**接口静态类型**调用形参位含 `Self` 的方法。`Self` 在形参位是逆变方向、没有唯一安全上界，放行即运行期类型混淆。替代写法是型参：`bool f<T>(T a, T b) where T : IEq` | ✅ `MemberResolver.z42:127` | `IEq a, b; a.Same(b);` |
-| E0455 | 省略尖括号调用一个**方法体真的消费型参**的泛型方法（体内有 `typeof(T)` / `new T()` / `default(T)` / `new T[n]`，或把 `T` 转发给嵌套泛型调用）。这类 callee 在运行期会读到**空**的方法类型实参；本码把静默错值换成编译错误，修法是显式写出 `<T>` | ✅ `MemberResolver.z42:583` | `Make()` → 应写 `Make<int>()` |
-| E0463 | 在**型参收者**（`where T : IEq` 的 `T`）上调用约束接口方法时，给形参位是 `Self` 的形参传了**具体类型**实参。与 E0454 的分工：E0454 管接口静态类型收者，本码管型参收者 | ✅ `OverloadBinder.z42:180` | `a.Same("nope")`，`a` 的类型是 `T` |
+| E0422 | 类型实参不满足函数类型约束 | ✅ ConstraintChecker.z42（`_checkFuncConstraint`） | — |
+| E0423 | 型参把函数类型约束与其他约束混写，或同时要求 `class` + `struct` | ✅ ConstraintChecker.z42（`_fillBundle`） | `where T : (int)->int, IFoo` |
+| E0446 | 泛型方法调用 `Foo<...>()` 的类型实参数与声明的类型形参数不符 | ✅ MemberResolver.z42（`BoundCall`） | `Swap<int, string>(a, b)`，而 `Swap<T>` 只有一个型参 |
+| E0453 | 关联类型：接口里 `type Item;` 未被实现方绑定；实现方写了不带绑定的 `type Item;`；接口自己写了绑定；`where T : IFoo<Zzz = int>` 里 `Zzz` 不是该接口的关联类型；实参绑定与约束要求不符 | ✅ ConstraintChecker.z42（`_buildSet` / `_checkFuncConstraint`）、InheritanceResolver.z42（`_passSealedEnforce`）、MemberCollector.z42（`_passMembers` / `_fillInterface`） | — |
+| E0454 | 经**接口静态类型**调用形参位含 `Self` 的方法。`Self` 在形参位是逆变方向、没有唯一安全上界，放行即运行期类型混淆。替代写法是型参：`bool f<T>(T a, T b) where T : IEq` | ✅ MemberResolver.z42（`BoundCall`） | `IEq a, b; a.Same(b);` |
+| E0455 | 省略尖括号调用一个**方法体真的消费型参**的泛型方法（体内有 `typeof(T)` / `new T()` / `default(T)` / `new T[n]`，或把 `T` 转发给嵌套泛型调用）。这类 callee 在运行期会读到**空**的方法类型实参；本码把静默错值换成编译错误，修法是显式写出 `<T>` | ✅ MemberResolver.z42（`_bindMemberCall`） | `Make()` → 应写 `Make<int>()` |
+| E0463 | 在**型参收者**（`where T : IEq` 的 `T`）上调用约束接口方法时，给形参位是 `Self` 的形参传了**具体类型**实参。与 E0454 的分工：E0454 管接口静态类型收者，本码管型参收者 | ✅ OverloadBinder.z42（`CheckConstraintIfaceArgs`） | `a.Same("nope")`，`a` 的类型是 `T` |
 
 ### 名字解析
 
 | 码 | 含义 | 状态 | 触发示例 |
 |---|---|---|---|
 | E0436 | 源码里写了某命名空间里的**短名**（依赖包或**同包**）却没在本文件 `using` 它（file-scoped usings；外围命名空间、prelude、全局 ns 除外；全限定写法不需要 using）。类型名报在**引用处**（类型存在，只是本文件看不见）；其余报在文件头 `(1,1)` | ✅ `CuPreprocess.z42` / `ExprTyper.z42` / `AccessChecker.z42` | `namespace B; void F() { W w = null; }`（同包 `namespace A` 声明了 `W`） |
-| E0441 | 不一致可访问性：高可见性的成员 / 类型签名暴露了更低可见性的类型（对标 C# CS0050 族） | ✅ `AccessChecker.z42:227` | `public void f(InternalOnly x)` |
+| E0441 | 不一致可访问性：高可见性的成员 / 类型签名暴露了更低可见性的类型（对标 C# CS0050 族） | ✅ AccessChecker.z42（`CheckExposure`） | `public void f(InternalOnly x)` |
 | E0456 | 非限定短名同时匹配**多个可见命名空间**里的类型（对标 C# CS0104）。当前命名空间里的那一份优先，限定写法永不歧义。嵌套位置同样判：泛型实参（`Box<Widget>`）、数组元素（`Widget[]`）、可空内层（`Widget?`）、函数类型的参数与返回。不会静默择一（那样选中哪份取决于加载顺序） | ✅ `SymbolCollector._chkTypeRefT`、`TypeChecker.ChkAmbiguousBareNameT`（判据 `SymbolTable.FirstAmbiguousBareName`） | `using A; using B;` 后裸写 `Box b = null;`，A/B 各有一个 `Box` |
-| E0458 | 同一命名空间里重复声明同一个类型（同 ns、同名、同 arity，且并非全部 `partial`；对标 C# CS0101）。判据是 **(ns, 名字, arity)** 三者都相同。不会静默 last-wins（那样前一个连同成员一起消失） | ✅ `StubCollector.z42:231` | 两个文件各写一个 `namespace X; class Config` |
+| E0458 | 同一命名空间里重复声明同一个类型（同 ns、同名、同 arity，且并非全部 `partial`；对标 C# CS0101）。判据是 **(ns, 名字, arity)** 三者都相同。不会静默 last-wins（那样前一个连同成员一起消失） | ✅ StubCollector.z42（`_qualifyClassIfaces`） | 两个文件各写一个 `namespace X; class Config` |
 
 ### 编译期宏 / `methodof` / 属性与生成器
 
 | 码 | 含义 | 状态 | 触发示例 |
 |---|---|---|---|
-| E0444 | `: Attribute` 的类名必须以 `Attribute` 结尾 | ✅ `DeclEnforcer.z42:25` | `class My : Attribute { }` |
-| E0445 | `: Analyzer` 的类名必须以 `Analyzer` 结尾 | ✅ `DeclEnforcer.z42:107` | — |
-| E0447 | `: Generator` 的类名必须以 `Generator` 结尾 | ✅ `DeclEnforcer.z42:128` | — |
-| E0448 | generator 只能改它 trigger 命中的声明（Augment / Replace 越界） | ✅ `GeneratorDriver.z42:273,281,319,327,496` | — |
-| E0449 | generator 的 consumes / produces 依赖成环，拓扑分层无法定序 | ✅ `GeneratorDriver.z42:531` | — |
-| E0450 | 编译期宏 `name!()` 误用：未知宏名 / 参数类型不符 / 出现在非参数默认值位 | ✅ `DeclBinder.z42:566,569,577,579,586`、`ExprTyper.z42:88,417` | 形参默认值写 `nope!()` |
-| E0459 | `methodof(T.M)` 的目标方法不存在，或没有重载匹配给出的参数类型列表。诊断会列出该名字下全部可用重载 | ✅ `TypeOpTyper.z42:149,173` | `methodof(Logger.Nope)` |
-| E0460 | `methodof` 无法唯一确定目标：给了参数类型列表却匹配到多个，或省略了参数列表而候选 ≥ 2。**绝不静默择一** | ✅ `TypeOpTyper.z42:181,191` | `methodof(Logger.Log)`，`Log` 有两个重载 |
-| E0461 | `methodof` 的目标是**指不了**的方法：用户定义的运算符与转换在源码里没有名字（`op_*` 是编译器内部拼写） | ✅ `TypeOpTyper.z42:104` | `methodof(Vec.op_Addition)` |
-| E0500 | store-meta attribute 的实参不是**编译期常量**。允许：字面量 / 常量表达式 / enum 成员 / `const` 字段 / `typeof(..)` / `methodof(..)`，以及由这些构成的数组。attribute 工厂在**首次反射查询**时才执行，依赖运行期状态会让读回的元数据取决于谁先查 | ✅ `DeclEnforcer.AttrArgs.z42:97` | `[Tag(K.Make())]`、`[Num(K.Mutable)]` |
+| E0444 | `: Attribute` 的类名必须以 `Attribute` 结尾 | ✅ DeclEnforcer.z42（`_passAttributeSuffixEnforce`） | `class My : Attribute { }` |
+| E0445 | `: Analyzer` 的类名必须以 `Analyzer` 结尾 | ✅ DeclEnforcer.z42（`_passAnalyzerSuffixEnforce`） | — |
+| E0447 | `: Generator` 的类名必须以 `Generator` 结尾 | ✅ DeclEnforcer.z42（`_passGeneratorSuffixEnforce`） | — |
+| E0448 | generator 只能改它 trigger 命中的声明（Augment / Replace 越界） | ✅ GeneratorDriver.z42（`_mergeFieldOps` / `_buildEdit` / `RunModules`） | — |
+| E0449 | generator 的 consumes / produces 依赖成环，拓扑分层无法定序 | ✅ GeneratorDriver.z42（`GenOutcome`） | — |
+| E0450 | 编译期宏 `name!()` 误用：未知宏名 / 参数类型不符 / 出现在非参数默认值位 | ✅ DeclBinder.z42（`_bindMethodBodyCore`）、ExprTyper.z42（`BoundError` / `_bindExpr`） | 形参默认值写 `nope!()` |
+| E0459 | `methodof(T.M)` 的目标方法不存在，或没有重载匹配给出的参数类型列表。诊断会列出该名字下全部可用重载 | ✅ TypeOpTyper.z42（`BoundError`） | `methodof(Logger.Nope)` |
+| E0460 | `methodof` 无法唯一确定目标：给了参数类型列表却匹配到多个，或省略了参数列表而候选 ≥ 2。**绝不静默择一** | ✅ TypeOpTyper.z42（`BoundError`） | `methodof(Logger.Log)`，`Log` 有两个重载 |
+| E0461 | `methodof` 的目标是**指不了**的方法：用户定义的运算符与转换在源码里没有名字（`op_*` 是编译器内部拼写） | ✅ TypeOpTyper.z42（`_bindTypeofExpr`） | `methodof(Vec.op_Addition)` |
+| E0500 | store-meta attribute 的实参不是**编译期常量**。允许：字面量 / 常量表达式 / enum 成员 / `const` 字段 / `typeof(..)` / `methodof(..)`，以及由这些构成的数组。attribute 工厂在**首次反射查询**时才执行，依赖运行期状态会让读回的元数据取决于谁先查 | ✅ DeclEnforcer.AttrArgs.z42（`_acCheckAttrs`） | `[Tag(K.Make())]`、`[Num(K.Mutable)]` |
 | E0502 | 基类型**成环**：类直接或经若干层基类派生自己，或接口经父接口继承自己。对齐 C# CS0146 / CS0529。每个环只报一次（报在环上最先被检查的那个类型），报错后清掉它的基类型断环 | ✅ `SymbolCollector._passRejectBaseCycles` | `class A : B { }  class B : A { }`、`class A : A { }`、`interface I : J { }  interface J : I { }` |
-| E0503 | 泛型实例化**展不完**：值类型的每个实例化各有一份代码，泛型体里用到自身、且类型实参更深一层（`struct Rec<T>` 里用 `Rec<Rec<T>>`）时，编译 `Rec<int>` 需要 `Rec<Rec<int>>`，如此无穷。报在该泛型的声明处。引用类型（`class`）实例化共用代码，同样的写法不触发 | ✅ `SpecializationGuard.z42:63` | `struct Rec<T> { public T V; public Rec<Rec<T>> Next() { return new Rec<Rec<T>>(); } }` |
+| E0503 | 泛型实例化**展不完**：值类型的每个实例化各有一份代码，泛型体里用到自身、且类型实参更深一层（`struct Rec<T>` 里用 `Rec<Rec<T>>`）时，编译 `Rec<int>` 需要 `Rec<Rec<int>>`，如此无穷。报在该泛型的声明处。引用类型（`class`）实例化共用代码，同样的写法不触发 | ✅ SpecializationGuard.z42（`Exceeded`） | `struct Rec<T> { public T V; public Rec<Rec<T>> Next() { return new Rec<Rec<T>>(); } }` |
 | E0504 | struct 不参与继承：struct 的 `:` 后只能写接口，类也不能派生自 struct。对齐 C# CS0527 / CS0509。报在派生类型的声明处，报错后按「无基类」继续检查 | ✅ `SymbolCollector._rejectStructBase` | `struct B : A { }`、`class C : SomeStruct { }` |
 | E0505 | `kind = "plugin"` 的插件工程里**没有任何类实现插件契约**（`Z42.Analyzers.Analyzer` / `Z42.Generators.Generator` / `Z42.Generators.ModuleGenerator`，或继承 `Z42.Build.BuildHooks`）。插件包提供哪几类由构建按实现的契约推导、写进 zpkg 头能力位；一类都没有的包对任何宿主都是空转，故在**构建插件本身**时即报，而非等使用方加载后发现零 handler（E0496）。判据看本包类型的全名基类与接口（经本包内基类传递） | ✅ `PackageCompile.z42`（常量 `PluginNoContract`） | `kind = "plugin"` 的工程里只有一个普通类 |
 
@@ -252,10 +252,10 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 
 | 码 | 实际含义（按发射点消息） | 状态 |
 |---|---|---|
-| E0464 | 转发面**渲染不出等价签名**：目标成员是 `private`（不该把别人的私有实现抬到自己的公开面上），或它声明在**另一个包**（跨包元数据既不带参数名也不带 `ref`/`out`，丢掉 `ref` 会**静默**产生错误语义）。修法：改用 `partial` 声明档 | ✅ `ForwardGenerator.z42:232,237` |
-| E0465 | 转发目标**不可转发或不唯一**：点名了 Object 协议方法（`ToString` / `Equals` / `GetHashCode` / `GetType`——转发它们会让外层类报告内层的身份），或该名字在目标类型上有**多个重载**（转发要生成一个具名方法，无法代选） | ✅ `ForwardGenerator.z42:194,216` |
-| E0468 | `[Forward]` 形态 / 用法错：字段类型不是 class/interface、没有可转发的成员面；`[Forward(...)]` 实参既非 `typeof(接口)` 也非 `methodof(类型.成员)`；`typeof(X)` 里 X 不解析成接口；`methodof(类型.成员)` 点名的成员**不在该字段的类型上** | ✅ `ForwardGenerator.z42:104,126,163,208` |
-| **I0466**（Info） | 外层类已自己声明了同名成员 → `[Forward]` **跳过不生成**。这不是错误（用户的实现优先），但必须说出来——否则「贴了 `[Forward]` 却没生效」是一个没有任何解释的缺席 | ✅ `ForwardGenerator.z42:201,279` |
+| E0464 | 转发面**渲染不出等价签名**：目标成员是 `private`（不该把别人的私有实现抬到自己的公开面上），或它声明在**另一个包**（跨包元数据既不带参数名也不带 `ref`/`out`，丢掉 `ref` 会**静默**产生错误语义）。修法：改用 `partial` 声明档 | ✅ ForwardGenerator.z42（`_notRenderable`） |
+| E0465 | 转发目标**不可转发或不唯一**：点名了 Object 协议方法（`ToString` / `Equals` / `GetHashCode` / `GetType`——转发它们会让外层类报告内层的身份），或该名字在目标类型上有**多个重载**（转发要生成一个具名方法，无法代选） | ✅ ForwardGenerator.z42（`_emitNamedTier`） |
+| E0468 | `[Forward]` 形态 / 用法错：字段类型不是 class/interface、没有可转发的成员面；`[Forward(...)]` 实参既非 `typeof(接口)` 也非 `methodof(类型.成员)`；`typeof(X)` 里 X 不解析成接口；`methodof(类型.成员)` 点名的成员**不在该字段的类型上** | ✅ ForwardGenerator.z42（`Generate` / `_emitIfaceTier` / `_emitNamedTier`） |
+| **I0466**（Info） | 外层类已自己声明了同名成员 → `[Forward]` **跳过不生成**。这不是错误（用户的实现优先），但必须说出来——否则「贴了 `[Forward]` 却没生效」是一个没有任何解释的缺席 | ✅ ForwardGenerator.z42（`_emitNamedTier` / `_infoIfOwnerDeclares`） |
 | E0466 | 常量 `ForwardAmbiguous` | ⚠️ 零发射点（重载歧义实际发的是 E0465） |
 | I0467 | ❌ **已退役**：常量 `ForwardSkipped` 的值是 I0466，本号空出，**不复用**（占号常量 `RetiredForwardSkipped`）。⚠️ **前缀不同即不同码**（本行上方 E0466 与 I0466 并存即先例），所以退役的是 `I` 前缀的 0467，**`E` 前缀的 0467 不受牵连、仍是可分配空号** |
 
@@ -284,10 +284,10 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 
 | 码 | 含义 | 状态 | 触发示例 |
 |---|---|---|---|
-| E0601 | **同一个 FQN 被多个依赖包声明**。与 E0456 的分工：E0456 管「同**短名**跨 ns」（限定写法即可消歧），本码管「**FQN 本身**重复」——写全限定名也分不开，被遮蔽那份在 z42 里没有任何写法能指到。否则字母序靠前的包赢，输的那份连同全部成员从未存在过，报错还答非所问（「no method X on Widget」） | ✅ `SymbolCollector.z42:461`、`TypeChecker.z42:66,147,154` | 两个依赖包各声明 `Demo.Ns.Widget` |
+| E0601 | **同一个 FQN 被多个依赖包声明**。与 E0456 的分工：E0456 管「同**短名**跨 ns」（限定写法即可消歧），本码管「**FQN 本身**重复」——写全限定名也分不开，被遮蔽那份在 z42 里没有任何写法能指到。否则字母序靠前的包赢，输的那份连同全部成员从未存在过，报错还答非所问（「no method X on Widget」） | ✅ SymbolCollector.z42（`_rejectClassCycle`）、TypeChecker.z42（`_chkTypeRef` / `_collectUsings` / `ChkEnumOrigins`） | 两个依赖包各声明 `Demo.Ns.Widget` |
 | E0602 | `using <ns>;` 声明的 namespace 没有任何已加载包提供 | ⚠️ 零发射点 —— **未解析的 `using` 当前不会被报出** | — |
 | E0605 | 非 `z42.*` 包在自己源码里声明 `namespace Std.*`（或裸 `Std`） | ⚠️ 零发射点 | — |
-| E0606 | **本包声明的类型遮蔽了某个导入包的同 FQN 类型**。失败形态与 E0601 一样（被遮蔽那份根本指不了），但冲突的两份里有一份是本包自己写的、改名随时可以 ⇒ 定为 error 而非 warning | ✅ `SymbolCollector.z42:463`、`TypeChecker.z42:68,149,156` | 本包写了与依赖包逐字相同的 `Demo.Ns.Widget` |
+| E0606 | **本包声明的类型遮蔽了某个导入包的同 FQN 类型**。失败形态与 E0601 一样（被遮蔽那份根本指不了），但冲突的两份里有一份是本包自己写的、改名随时可以 ⇒ 定为 error 而非 warning | ✅ SymbolCollector.z42（`_rejectClassCycle`）、TypeChecker.z42（`_chkTypeRef` / `ChkEnumOrigins`） | 本包写了与依赖包逐字相同的 `Demo.Ns.Widget` |
 | W0603 | 依赖扫描层：消费一个 NSPC 占用了 `Std.*` 的第三方 zpkg | ⚠️ 零发射点 | — |
 
 ---
@@ -298,7 +298,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 
 | 码 | 含义 | 状态 |
 |---|---|---|
-| E0900 | 编译器内部不一致。当前唯一发射点：宏注册表认了某个宏名、但绑定层没有对应分支 | ✅ `ExprTyper.z42:427` |
+| E0900 | 编译器内部不一致。当前唯一发射点：宏注册表认了某个宏名、但绑定层没有对应分支 | ✅ ExprTyper.z42（`_bindMacroCall`） |
 
 ### E0901–E0916 原生互操作（⚠️ 部分未接线）
 
@@ -309,9 +309,9 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | 码 | 含义 | 状态 |
 |---|---|---|
 | E0901 / E0902 | **已退役**。原 `UnknownNativeName`（`[Native("__name")]` 不在 VM dispatch_table 内）与 `NativeArityMismatch`（`extern` 形参数与注册项不一致）。两个编号由占号常量 `RetiredUnknownNativeName` / `RetiredNativeArityMismatch`（零发射点，仅防复用）占住 | ❌ |
-| E0903 | `extern` 方法 / 属性缺少 `[Native]` 标注 | ✅ `DeclEnforcer.Native.z42:80` |
-| E0904 | `[Native]` 标注用在非 `extern` 的声明上（有体方法、类、字段……） | ✅ `DeclEnforcer.Native.z42:89` |
-| E0907 | `[Native(...)]` 形态错：没有入口名（无实参 / 只有 `lib` / 空串）、未知键、值不是字符串字面量、同一个键给了两次、有 `type` 却没有 `lib`，或同一声明贴了两个 `[Native]` | ✅ `DeclEnforcer.Native.z42:96` |
+| E0903 | `extern` 方法 / 属性缺少 `[Native]` 标注 | ✅ DeclEnforcer.Native.z42（`_nvCheck`） |
+| E0904 | `[Native]` 标注用在非 `extern` 的声明上（有体方法、类、字段……） | ✅ DeclEnforcer.Native.z42（`_nvCheck`） |
+| E0907 | `[Native(...)]` 形态错：没有入口名（无实参 / 只有 `lib` / 空串）、未知键、值不是字符串字面量、同一个键给了两次、有 `type` 却没有 `lib`，或同一声明贴了两个 `[Native]` | ✅ DeclEnforcer.Native.z42（`_nvCheck`） |
 | E0908a | `pinned p = <expr> { ... }` 中 `<expr>` 类型不是 `string` | ⚠️ 零发射点 |
 | E0908b | `pinned` 块体内含 `return` / `break` / `continue` / `throw` | ⚠️ 零发射点 |
 | E0909 | `.z42abi` manifest 读取失败：文件不存在 / IO 失败 / JSON 不合法 / `abi_version` 不符 / 缺必需字段 | ⚠️ 零发射点 |
@@ -334,12 +334,12 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 
 | 码 | 含义 | 状态 | 触发示例 |
 |---|---|---|---|
-| E0911 | `[Test]` 违反五条规则之一 | ✅ `TestAttrEnforcer.z42:220` | `[Test] int t() { return 0; }` |
-| E0912 | `[Benchmark]` 违反同五条规则（**脱糖后**判定：form-2 `void f(Bencher b)` 合法） | ✅ `TestAttrEnforcer.z42:218` | — |
-| E0913 | `[ShouldThrow]` 缺类型实参，或该类型**可解析但基类链到不了 `Exception`**。⚠️ 类型解析不到时**刻意不报**（跨包 / 符号表不完整会误伤） | ✅ `TestAttrEnforcer.z42:277,282` | `[ShouldThrow(typeof(int))]` |
-| E0914 | `[Skip]` 缺 `reason` 或 reason 为空串；或 `[Skip]`/`[Ignore]` **孤儿使用**（同声明上没有 `[Test]`/`[Benchmark]`） | ✅ `TestAttrEnforcer.z42:119,152` | `[Skip] void t() {}` |
-| E0915 | `[Setup]` / `[Teardown]` 违反同五条规则 | ✅ `TestAttrEnforcer.z42:219` | — |
-| E0917 | `[Timeout]` 缺 `milliseconds`（或该实参非整数字面量），或其值 ≤ 0 | ✅ `TestAttrEnforcer.z42:127,133` | `[Timeout(0)] [Test] void t() {}` |
+| E0911 | `[Test]` 违反五条规则之一 | ✅ TestAttrEnforcer.z42（`_teCode`） | `[Test] int t() { return 0; }` |
+| E0912 | `[Benchmark]` 违反同五条规则（**脱糖后**判定：form-2 `void f(Bencher b)` 合法） | ✅ TestAttrEnforcer.z42（`_teCode`） | — |
+| E0913 | `[ShouldThrow]` 缺类型实参，或该类型**可解析但基类链到不了 `Exception`**。⚠️ 类型解析不到时**刻意不报**（跨包 / 符号表不完整会误伤） | ✅ TestAttrEnforcer.z42（`_tsCheck`） | `[ShouldThrow(typeof(int))]` |
+| E0914 | `[Skip]` 缺 `reason` 或 reason 为空串；或 `[Skip]`/`[Ignore]` **孤儿使用**（同声明上没有 `[Test]`/`[Benchmark]`） | ✅ TestAttrEnforcer.z42（`_teArgChecks` / `_teOrphanCheck`） | `[Skip] void t() {}` |
+| E0915 | `[Setup]` / `[Teardown]` 违反同五条规则 | ✅ TestAttrEnforcer.z42（`_teCode`） | — |
+| E0917 | `[Timeout]` 缺 `milliseconds`（或该实参非整数字面量），或其值 ≤ 0 | ✅ TestAttrEnforcer.z42（`_teArgChecks`） | `[Timeout(0)] [Test] void t() {}` |
 
 > E0913 / E0914 / E0917 防的是**静默降级**——编译器读不到合法实参若取默认值继续走
 > （skip 没理由、超时静默失效、抛出类型永不匹配），会把问题全推到运行期且症状指不回病灶。
@@ -356,8 +356,8 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | E1002 | 具名实参用了未知的形参名 | ⚠️ 零发射点 | — |
 | E1003 | 同一个具名实参重复出现 | ⚠️ 零发射点 | — |
 | E1004 | 同一个形参被位置实参与具名实参重复指定 | ⚠️ 零发射点 | — |
-| E1005 | 实参太少：缺位形参没有默认值。**也覆盖函数类型值的调用**：`(int,int) -> int add; add(1)` 报本码（否则少传让形参拿到 `Null`、崩在**别处**，栈顶指 lambda 体而非调用点）。⚠️ 委托形参写了默认值**不生效**（`delegate void D(int a, int b = 5)` 调 `d(1)` 得 `b=null`），故按精确个数判；型参收者（`where T : Func<..>`）**不校验**（擦除后形参表不可信） | ✅ `OverloadBinder.z42:287,290,294`、`_checkFuncValueArity`（函数类型值） | `void f(int a, int b)` 调成 `f(1)`；`(int,int) -> int add; add(1)` |
-| E1006 | 实参太多（非 `params` 调用）。**也覆盖函数类型值的调用**：`(int) -> int f; f(1, 2)` 报本码（否则多余实参被**静默丢掉**，比崩溃更坏） | ✅ `OverloadBinder.z42:287,292`、`_checkFuncValueArity`（函数类型值） | `void f(int a)` 调成 `f(1, 2)`；`(int) -> int f; f(1, 2)` |
+| E1005 | 实参太少：缺位形参没有默认值。**也覆盖函数类型值的调用**：`(int,int) -> int add; add(1)` 报本码（否则少传让形参拿到 `Null`、崩在**别处**，栈顶指 lambda 体而非调用点）。⚠️ 委托形参写了默认值**不生效**（`delegate void D(int a, int b = 5)` 调 `d(1)` 得 `b=null`），故按精确个数判；型参收者（`where T : Func<..>`）**不校验**（擦除后形参表不可信） | ✅ OverloadBinder.z42（`_withDefaults`）、`_checkFuncValueArity`（函数类型值） | `void f(int a, int b)` 调成 `f(1)`；`(int,int) -> int add; add(1)` |
+| E1006 | 实参太多（非 `params` 调用）。**也覆盖函数类型值的调用**：`(int) -> int f; f(1, 2)` 报本码（否则多余实参被**静默丢掉**，比崩溃更坏） | ✅ OverloadBinder.z42（`_withDefaults`）、`_checkFuncValueArity`（函数类型值） | `void f(int a)` 调成 `f(1, 2)`；`(int) -> int f; f(1, 2)` |
 
 > E1005 / E1006 共用一条专门消息：**实例方法被写成静态形式调用**时，提示第一个实参是接收者。
 
@@ -369,15 +369,15 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 
 | 码 | 含义 | 状态 | 触发示例 |
 |---|---|---|---|
-| E1101 | `available!(X)` 的目标解析到多个重载，无法唯一确定（v1 不支持签名消歧） | ✅ `ExprTyper.z42:482` | `available!(Logger.Log)`，`Log` 有重载 |
-| E1102 | `available!(...)` 的参数不是符号引用（传了字面量 / 任意表达式），或参数个数不为 1 | ✅ `ExprTyper.z42:442,463,492` | `available!(1)` |
+| E1101 | `available!(X)` 的目标解析到多个重载，无法唯一确定（v1 不支持签名消歧） | ✅ ExprTyper.z42（`BoundError`） | `available!(Logger.Log)`，`Log` 有重载 |
+| E1102 | `available!(...)` 的参数不是符号引用（传了字面量 / 任意表达式），或参数个数不为 1 | ✅ ExprTyper.z42（`BoundError` / `BoundSymAvailable`） | `available!(1)` |
 
 ---
 
 ## W0xxx — 警告
 
 警告不改变退出码，只写到 stderr。驱动层的警告打印门在
-[`Main.z42:435`](https://github.com/z42-lang/z42/blob/main/src/compiler/z42c.driver/src/Main.z42)。
+[Main.z42（`Main`）](https://github.com/z42-lang/z42/blob/main/src/compiler/z42c.driver/src/Main.z42)。
 
 | 码 | 含义 | 状态 | 触发示例 |
 |---|---|---|---|
@@ -387,7 +387,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | W0608 | 重复的 `using`（对标 C# CS0105）：同一文件里写了两次；或包里已有同名 `global using` | ✅ `UsingLint.z42` | `using A; using A;` |
 | W0609 | ❌ 已退役：原「`[dependencies]` 的 `path` 用了 `${compiler_libs}` 路径宏」过渡期 warning。宏已删除，旧写法当场报错并给出按名写法；编号不复用（占号常量 `RetiredCompilerLibsMacroDeprecated`） | ❌ | — |
 | W0610 | 清单 `[dependencies]` 声明了标准库包。stdlib 总是可用（从 SDK 的 `libs/` 解析），不需要声明；照常构建，只提示删掉这一行。`path` 依赖、`deploy = "copy"`（要把它复制进 exe 自包含）与 workspace 成员之间的依赖不报 | ✅ driver `DepDecls.z42` | `[dependencies]` 里写 `"z42.io" = "0.1.0"` |
-| W0700 | `switch` 不穷尽：对 `bool` / `enum` / 封闭类型做 `switch` 时漏了分支，且没有 `default` | ✅ `ExhaustCheck.z42:127,154,200` | `switch (b) { case true: ... }`，`b` 是 `bool` |
+| W0700 | `switch` 不穷尽：对 `bool` / `enum` / 封闭类型做 `switch` 时漏了分支，且没有 `default` | ✅ ExhaustCheck.z42（`_report` / `_reportClosedHierarchy`） | `switch (b) { case true: ... }`，`b` 是 `bool` |
 | W0701 | 解构声明的绑定名遮蔽了当前类的字段 / 属性：`(A, B) = (a, b);`（花括号体里）声明的是两个**新局部**，随即离开作用域，一个成员都没动。局部遮蔽字段本身合法，单看语法挑不出毛病——只能靠「遮蔽了同名成员」这个信号拦。仅在有 `this` 的上下文里查。表达式位置的同一写法由 **E0482** 直接报错 | ✅ `StmtBinder.z42`（发 `DiagnosticCodes.DeconstructShadowsMember`） | `class C { int A; void M(int a) { (A, _) = (a, 0); } }` |
 | W0801 | 孤立的 doc 注释块：`///` / `//!` 后面没有声明认领它（方法体里的 `///`、文件中段的 `//!`、悬空块） | ✅ `DocLint.z42`（`xtask check doc-lints`） | 方法体里写 `/// 说明` |
 | W0802 | `@param` / `@typeparam` 的名字不在声明的签名里 | ✅ `DocLint.z42` | `/// @param y …` 而 `F(int x)` |
@@ -404,7 +404,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 
 | 码 | 含义 | 状态 |
 |---|---|---|
-| I0466 | `[Forward]` 跳过某成员：外层类已自己声明了同名成员，用户的实现优先（详见上面的 `[Forward]` 小节） | ✅ `ForwardGenerator.z42:201,279`（发 `DiagnosticCodes.ForwardSkipped`） |
+| I0466 | `[Forward]` 跳过某成员：外层类已自己声明了同名成员，用户的实现优先（详见上面的 `[Forward]` 小节） | ✅ ForwardGenerator.z42（`_emitNamedTier` / `_infoIfOwnerDeclares`）（发 `DiagnosticCodes.ForwardSkipped`） |
 | I0467 | ❌ 已退役，编号不复用 —— 见 `[Forward]` 小节 |
 
 ---

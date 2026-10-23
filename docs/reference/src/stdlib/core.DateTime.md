@@ -77,7 +77,7 @@ public sealed class DateTime {
 
 [`src/libraries/z42.core/src/Time/DateTime.z42:27`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTime.z42#L27)
 
-Unix 纪元（1970-01-01T00:00:00Z）。
+Unix 纪元（1970 年 1 月 1 日 00:00:00 UTC）。
 
 <a id="Std.Time.DateTime.UnixMs()"></a>
 ### long UnixMs()

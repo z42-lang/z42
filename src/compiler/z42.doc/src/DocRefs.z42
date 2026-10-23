@@ -246,13 +246,20 @@ public static class DocRefs {
     private static DocItem _namespace(DocIndex ix, string q) {
         string a = q + ".";
         string b = q + "::";
+        bool pkg = false;
         int i = 0;
         while (i < ix.Count()) {
             DocItem it = ix.At(i);
             if (it.Id.StartsWith(a) || it.Id.StartsWith(b)) {
                 return new DocItem(q, DocKind.Namespace, q, "", "namespace " + q, 0, "public", "");
             }
+            // 书页里 `` `z42.core` `` 这类**包名**引用与命名空间同形：它不是符号，符号解析永远
+            // 落空——但它是合法（且大量）的散文引用，不该计入「解析不了的多段链」。
+            if (it.Pkg == q) { pkg = true; }
             i = i + 1;
+        }
+        if (pkg) {
+            return new DocItem(q, DocKind.Namespace, q, "", "package " + q, 0, "public", "");
         }
         return null;
     }

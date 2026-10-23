@@ -147,11 +147,11 @@ launcher 按这个顺序定位 SDK 根：`Z42_HOME` 环境变量 → apphost 注
 | 码 | 含义 | 发射点 |
 |---|---|---|
 | `0` | 成功 | — |
-| `1` | 构建 / 执行失败（诊断已输出） | `src/compiler/z42c.driver/src/Main.z42:27`（`ExitCode.BuildError`）、`src/toolchain/launcher/core/launcher.z42:176`、`:184` |
-| `2` | 用法错误：未知命令 / 未知选项 / 找不到工程 / 找不到工具 | `src/toolchain/launcher/core/launcher_cli.z42:35`、`:42`；`launcher.z42:154`、`:160`、`:170`、`:182`、`:193`；`z42c.driver/src/Main.z42:28`（`ExitCode.UsageError`） |
+| `1` | 构建 / 执行失败（诊断已输出） | `Main.z42`（`ExitCode.BuildError`）、`launcher.z42`（`_cmdRun`） |
+| `2` | 用法错误：未知命令 / 未知选项 / 找不到工程 / 找不到工具 | `launcher_cli.z42`（`_runLauncher`）、`launcher.z42`（`_home` / `_cmdRun`）；`Main.z42`（`Main`，含 `ExitCode.UsageError`） |
 
 **被运行程序的退出码原样透传**——launcher 把子进程的退出码直接交回
-（`src/toolchain/launcher/core/launcher.z42:214`）：
+（launcher.z42（`_cmdRun`））：
 
 ```console
 $ z42 run exit7.z42          # 程序里 Environment.Exit(7)
@@ -442,7 +442,7 @@ stderr 提示重建，查询照常进行。
 
 **书里的代码引用**：`z42 doc --page <页.md>` 读该页页头声明的「代码」范围，把正文里每个反引号符号解析成
 当前位置，逐行输出 `符号 → file:line`；`--docs <符号>` 反查哪些书页 / README 引用了它。书里不写行号
-（`Foo.z42:57` 这类会被标 ✗），位置交给 `--page` 现查。
+（Foo.z42 带行号这类写法会被标 ✗），位置交给 `--page` 现查。
 
 **还不支持**：只看源码语法，参数类型按源码写法显示、不做全限定；没有继承来的文档；标记与链接只解析、
 不校验。
