@@ -458,8 +458,8 @@ struct Bad  : INum2 { public int MakeZero() { return 0; } }                   //
 struct Priv : INum2 { static override int MakeZero() { return 0; } }          // ❌ E0412：默认 private，必须写 public
 ```
 
-发射点：`src/compiler/z42c.semantics/src/Symbols/InheritanceResolver.z42:441`（static）/ `:456`（可见性）
-/ `:478`（返回类型）。
+发射点：`InheritanceResolver.z42` 的 `_nearestBaseMethod`（static）/ `_checkAssocBindingsComplete`（可见性）
+/ `_checkOneIfaceAssoc`（返回类型）。
 
 **跨包同口径**。接口方法的 static 位随 **zbc 1.41** 的接口方法块 `is_static:u8` 过 wire，
 导入侧还原真值，因此**导入接口**与本包接口接受完全相同的四项校验。回归门：`src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/iface_static_impl_mismatch/`（负例 fixture，期望 build

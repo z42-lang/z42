@@ -252,7 +252,7 @@ JIT 可内联消除。备选的 C-2（marker interface `IStatefulSubscription`�
 
 > `src/libraries/z42.core/src/Exceptions/MulticastException.z42` 顶部注释里"当前
 > MulticastFunc/Predicate 仍抛非泛型 base 版本"这句**已过期**——两者现在都抛泛型版
-> （`MulticastFunc.z42:224` / `MulticastPredicate.z42:211`）。
+> （MulticastFunc.z42（`Invoke`） / MulticastPredicate.z42（`Invoke`））。
 
 ## 6. 缺口与 Deferred
 

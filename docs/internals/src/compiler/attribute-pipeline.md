@@ -13,15 +13,15 @@
 
 ## 三路分流：`HandlerRegistry.KindOf`
 
-每个 `[X]` 先分类，这是整条管线的**唯一入口判据**（`HandlerRegistry.z42:57-61`）：
+每个 `[X]` 先分类，这是整条管线的**唯一入口判据**（HandlerRegistry.z42（`StoreMetaClassName`））：
 
 | kind | 判定 | 处理 |
 |---|---|---|
-| **Directive** | `IsDirectiveAttr`：`Native` / `Suppress` / `Deprecated` / `Record`（`:78-83`）| 靠**名字**识别，不需要用户建 backing 类；不合成反射工厂 |
+| **Directive** | `IsDirectiveAttr`：`Native` / `Suppress` / `Deprecated` / `Record`（HandlerRegistry.z42（`IsDeprecatedDirective`））| 靠**名字**识别，不需要用户建 backing 类；不合成反射工厂 |
 | **Handler** | `IsModuleInitHandler`：`[ModuleInit]` | 编译器内建，聚合成包级产物 |
 | **StoreMeta** | 其余全部（含测试家族 `[Test]` 等，类在 z42.harness `TestAttributes.z42`） | 按 D8 后缀约定展开成 `<name>Attribute` 类，合成反射工厂 |
 
-后缀展开只有一处：`HandlerRegistry.StoreMetaClassName(appliedName)`（`:69-71`），被
+后缀展开只有一处：`HandlerRegistry.StoreMetaClassName(appliedName)`（HandlerRegistry.z42（`IsSuppressDirective`）），被
 `AttributeSynth._synthFactory` 的 `new <cls>(args)` 与 `ClassDescBuilder` 的 `IrAttrRef` 类型名
 两处消费。directive / handler **豁免后缀**，也不走这条路。
 
@@ -31,7 +31,7 @@
 ## Factory thunk：活实例不依赖 Activator / Invoke
 
 attribute 的构造在编译期**全部已知**（已知类、已知构造器、常量实参），所以不需要运行时的泛型
-实例化。`AttributeSynth`（`AttributeSynth.z42:19`，parse 之后 / typecheck 之前的 AST 级下降）
+实例化。`AttributeSynth`（AttributeSynth.z42，parse 之后 / typecheck 之前的 AST 级下降）
 为每一处 `[Foo(args)]` 合成一个**无参工厂自由函数**：
 
 ```z42
@@ -135,7 +135,7 @@ attribute 挂到那个字段上；`__property_custom_attributes(qualified)` 拿 
 
 ## 反射时构造 + 缓存
 
-四个（现为五个）builtin 是运行期入口（`corelib/builtin_table.rs:206-212`）：
+四个（现为五个）builtin 是运行期入口（builtin_table.rs（`nop`））：
 `__type_custom_attributes` / `__method_custom_attributes` / `__field_custom_attributes` /
 `__param_custom_attributes` / `__property_custom_attributes`。
 
@@ -161,7 +161,7 @@ z42 一侧（`Type.z42` / `Reflection/*.z42`）把结果缓存在反射对象的
   > ⚠️ 这里**不能用 `decl.Span`**：本 parser 的 decl span 只覆盖起始 token，用它圈范围会漏掉整个体。
   > 活跃栈按 AST 结构走，圈定的是真正的子树。
 
-两条路汇合在 `DiagSinkImpl.Report`（`AnalyzerDriver.z42:26-38` 持有 `SuppressionSet Supp`）：
+两条路汇合在 `DiagSinkImpl.Report`（AnalyzerDriver.z42 持有 `SuppressionSet Supp`）：
 **severity 决策之前**先查 `SuppressionSet.IsSuppressed(ruleId, at.Start)`，命中即整条丢弃、
 根本不进 `DiagnosticBag`。
 
@@ -171,7 +171,7 @@ z42 一侧（`Type.z42` / `Reflection/*.z42`）把结果缓存在反射对象的
 `available` 共用一套机制，注册表是 `MacroRegistry.z42`。
 
 **parser 侧不新增任何 token 或 AST 节点**：`name!()` 被译成既有的
-`IdentExpr("$macro:" + name)` 哨兵（`ExprParser.z42:493,496`）。`$` 在真标识符里非法 ⇒ 零撞名。
+`IdentExpr("$macro:" + name)` 哨兵（ExprParser.z42（`TypeofExpr` / `ObjNewExpr`））。`$` 在真标识符里非法 ⇒ 零撞名。
 带参形态 `name!(x)` 由 postfix 循环自然产出 `CallExpr(IdentExpr(哨兵), args)`。
 
 > 为什么要这么绕：这样 `z42c.semantics` 只靠既有的 `IdentExpr.Name` 就能识别，
@@ -209,12 +209,12 @@ namespace 的字面量——所以跨包调用注入的是**消费方**的上下
 
 | 位置 | 场景 |
 |---|---|
-| `MemberResolver.z42:323` | 泛型型参（`TKey` / `TValue`）上的成员访问 |
-| `MemberResolver.z42:348` | 泛型实例化类型上找不到字段也找不到 `get_X` |
-| `MemberResolver.z42:373` | prim wrapper 类上找不到字段也找不到 `get_X`，**且**包装类成员表为空（stub）或该名字其实是个方法（方法组取值） |
-| `MemberResolver.z42:118` / `:226` | class 收者 / 泛型实例化收者的方法调用查不到 → `sig=null` |
-| `MemberResolver.z42:265` | 型参收者的方法调用，Object 与约束接口都查不到 → `sig=null` |
-| `MemberResolver.Prim.z42:44` | prim 收者的方法调用查不到，**且**包装类成员表为空（stub） → `sig=null` |
+| MemberResolver.z42（`BoundMember`） | 泛型型参（`TKey` / `TValue`）上的成员访问 |
+| MemberResolver.z42（`BoundMember`） | 泛型实例化类型上找不到字段也找不到 `get_X` |
+| MemberResolver.z42（`BoundMember`） | prim wrapper 类上找不到字段也找不到 `get_X`，**且**包装类成员表为空（stub）或该名字其实是个方法（方法组取值） |
+| MemberResolver.z42（`BoundCall`） / MemberResolver.z42（`BoundCall`） | class 收者 / 泛型实例化收者的方法调用查不到 → `sig=null` |
+| MemberResolver.z42（`BoundCall`） | 型参收者的方法调用，Object 与约束接口都查不到 → `sig=null` |
+| MemberResolver.Prim.z42（`BoundCall`） | prim 收者的方法调用查不到，**且**包装类成员表为空（stub） → `sig=null` |
 
 **这不是可以顺手收紧的小 fix。** 这条逃生通道被大量**合法写法**依赖——enum 成员访问、类名静态成员、
 异常内建属性、字符串上的 extern 属性、链式反射等。实测：即便只对非 Unknown/Error 接收者

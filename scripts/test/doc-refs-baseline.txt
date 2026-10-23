@@ -1,6 +1,6 @@
 # 书页代码引用棘轮基线（xtask check doc-refs --update 重写）。
 # 每区域两数：行号引用（要清零，之后变成硬指标）、解析不了的多段链（只降不升）。
 # 生成页（z42 doc 生成）与 learn 不查（learn 的对象在 examples/，归 learn↔examples 检查）。
-readme 0 450
-internals 36 1148
-reference 128 309
+readme 0 173
+internals 0 797
+reference 0 252
