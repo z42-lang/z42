@@ -284,12 +284,12 @@ public sealed class DeclBinder {
         // 基类 + 接口 vs 类可见性
         if (ct.HasBase) {
             Z42ClassType bt = symbols.BaseOf(ct);   // A5：走句柄
-            if (bt != null) { AccessChecker.CheckExposure(ct.Visibility, bt, symbols, this._tc._diags, c.Span); }
+            if (bt != null) { TypeRefAccess.CheckExposure(ct.Visibility, bt, symbols, this._tc._diags, c.Span); }
         }
         int ii = 0;
         while (ii < ct.InterfaceCount) {
             Z42InterfaceType it = symbols.GetInterface(ct.InterfaceNames[ii]);
-            if (it != null) { AccessChecker.CheckExposure(ct.Visibility, it, symbols, this._tc._diags, c.Span); }
+            if (it != null) { TypeRefAccess.CheckExposure(ct.Visibility, it, symbols, this._tc._diags, c.Span); }
             ii = ii + 1;
         }
         // 成员：字段类型 + 方法（含 ctor）返回/参数类型 vs 成员可见性
@@ -300,19 +300,19 @@ public sealed class DeclBinder {
                 FieldDecl fd = mem as FieldDecl;
                 FieldSymbol fs = ct.Fields.Get(fd.Name) as FieldSymbol;
                 if (fs != null) {
-                    string fvis = AccessChecker.MinVisibility(fs.Visibility, ct.Visibility);   // 有效可访问性封顶
-                    AccessChecker.CheckExposure(fvis, fs.FieldType, symbols, this._tc._diags, fd.Span);
+                    string fvis = TypeRefAccess.MinVisibility(fs.Visibility, ct.Visibility);   // 有效可访问性封顶
+                    TypeRefAccess.CheckExposure(fvis, fs.FieldType, symbols, this._tc._diags, fd.Span);
                 }
             } else if (mem is MethodDecl) {
                 MethodDecl md = mem as MethodDecl;
                 string mkey = OverloadResolver.MethodKeyOf(md);
                 MethodSymbol ms = ct.Methods.Get(mkey) as MethodSymbol;
                 if (ms != null) {
-                    string mvis = AccessChecker.MinVisibility(ms.Visibility, ct.Visibility);   // 有效可访问性封顶
-                    AccessChecker.CheckExposure(mvis, ms.Signature.Ret, symbols, this._tc._diags, md.Span);
+                    string mvis = TypeRefAccess.MinVisibility(ms.Visibility, ct.Visibility);   // 有效可访问性封顶
+                    TypeRefAccess.CheckExposure(mvis, ms.Signature.Ret, symbols, this._tc._diags, md.Span);
                     int p = 0;
                     while (p < ms.Signature.ParamCount) {
-                        AccessChecker.CheckExposure(mvis, ms.Signature.ParamTypes[p], symbols, this._tc._diags, md.Span);
+                        TypeRefAccess.CheckExposure(mvis, ms.Signature.ParamTypes[p], symbols, this._tc._diags, md.Span);
                         p = p + 1;
                     }
                 }

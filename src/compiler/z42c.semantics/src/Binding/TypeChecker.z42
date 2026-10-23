@@ -49,7 +49,7 @@ public sealed class TypeChecker {
     // enforce-class-access：绑定期类型引用点访问校验（体引用：new/var/cast/is/as/typeof/default/catch/泛型实参）。
     // binder 解析出类型后调此；委托静态 AccessChecker.CheckTypeRef，emit 到 _diags。
     public void _chkTypeRef(Z42Type t, TypeEnv env, Span sp) {
-        AccessChecker.CheckTypeRef(t, env.CurrentClass(), env.Symbols, this._diags, sp);
+        TypeRefAccess.CheckTypeRef(t, env.CurrentClass(), env.Symbols, this._diags, sp);
         if (t is Z42ClassType) { this._access.CheckDeprecatedT(t as Z42ClassType, sp); }   // add-deprecated-directive：类级 use-site（new/类型引用）
         this._chkTypeRefPkg(env.Symbols, t, sp);   // report-crosspkg-duplicate-type：E0601 / E0606（使用位）
         if (t is Z42InstantiatedType) { this._constraints.Check(env.Symbols, t as Z42InstantiatedType, sp); }   // check-constraints-all-type-refs H1：体内类型引用位（局部/cast/is/as/default/typeof）校验 where 约束（声明位走 CheckDeclTypeRefs）
