@@ -134,7 +134,7 @@ int _csAssignsIn(string line, string[] outNames) {
         while (k < rest.Length && _csIdentChar(rest.CharAt(k))) { k = k + 1; }
         if (k > 0) { outNames[n] = rest.Substring(0, k); n = n + 1; }
     }
-    // `mapfile -t X` / `readarray -t X`（数组读入 —— 立门当天扩到 workflows 时就因为漏了它误报一次）
+    // `mapfile -t X` / `readarray -t X`（数组读入）
     if (t.StartsWith("mapfile ") || t.StartsWith("readarray ")) {
         int sp0 = t.IndexOf(" ");
         string rest0 = t.Substring(sp0 + 1, t.Length - sp0 - 1).Trim();
