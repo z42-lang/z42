@@ -44,19 +44,20 @@ src/compiler/z42c.semantics/src/  ← 第 4 层 ✗ 不自动加 README
 > 门禁：`xtask check fnlines`（与 `check lines` 同形的棘轮，基线 `scripts/test/fn-limit-baseline.txt`，
 > 见 [GREEN gate](../../internals/src/devinfra/test-gate.md)）——新越界 / 继续膨胀 = 红，软限只提示。
 
-### 类型（struct / class / impl block）行数
+### 类型规模（struct / class / impl block）
 
-| 类型 | 硬限制 |
-|------|--------|
-| Rust `impl` 块 | 200 行（超出拆分为多个 impl 块或子模块） |
-| z42 类型（class / struct / record） | 200 行（超出提取辅助类型） |
+**单类型 200 行硬限已废止（2026-10-21）**：它自立规起从未有 lint，而真实代码早已按
+「partial 按关注点分片」长成大类型（MemberResolver 8 个 partial ≈2.5K 行、SymbolTable
+4 碎片、ExprEmitter 发射簇……）——规则与现实的裂缝只会培养对整个规范的轻视。机械可执行
+的约束只有两条：**文件 ≤886 行**（`check lines` 棘轮）与**函数体 ≤60 行**（`check fnlines`
+棘轮）。类型本身的规模由下面的**结构约定**管，不做行数判定：
 
-> **类型拆多文件时累计计入**：若某语言支持把一个类型拆到多个文件（如 partial），
-> 按"类型整体"判定 200 行硬限——把归属同一类型的成员体积（除模块 / 命名空间 / 类壳
-> 包裹之外的部分）累加，防止"类型超 200 行"被散落到多文件来绕过。
->
-> 单文件的行数硬限仍独立适用——多文件拆分主要解决"文件超限"，**不**解决
-> "类型超限"。两条限制分别约束。
+- **大类型必须 `partial` 按关注点分片**，每片一个文件、一片一个名字（`.Subst` / `.Candidates` /
+  `.Query` / `.Funcref`……）；同族方法（同名重载组）整组落同一碎片，新重载追加在组尾
+  （primary 裸键纪律，见 String.z42 头注的先例）。
+- **先抽协作对象、再加 partial**：分片的正当顺序是「职责确实属于同一类型」；仅仅为了摊行数
+  把无关方法塞进新 partial 是反模式——那类情况该提取辅助类型（如 `PatCtx` / `ModBodies`）。
+- Rust `impl` 块同理：按 trait / 职责拆多个 impl 块或子模块，无行数判定。
 
 ### 执行方式
 
