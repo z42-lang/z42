@@ -157,7 +157,7 @@ public sealed class InheritanceResolver {
         // 组合：`cur` 本身已经是被实例化看待的（`Deep : DInt : GBox<int>` 走到第二层时），
         // 就把它的实参代进去 —— `_substGeneric` 对 Z42InstantiatedType 正是逐实参递归。
         if (curInst != null) {
-            Z42Type composed = MemberResolver._substGeneric(bi, curInst);
+            Z42Type composed = TypeSubst.Apply(bi, new ClassArgsMap(curInst));
             if (composed is Z42InstantiatedType) { bi = composed as Z42InstantiatedType; }
         }
         return bi;
@@ -172,7 +172,7 @@ public sealed class InheritanceResolver {
     // ⇒ 宁可留着原类型，也不要把它降成 Unknown。
     private FieldSymbol _substField(FieldSymbol bfs, Z42InstantiatedType baseInst) {
         if (baseInst == null) { return bfs; }
-        Z42Type ft = MemberResolver._substGeneric(bfs.FieldType, baseInst);
+        Z42Type ft = TypeSubst.Apply(bfs.FieldType, new ClassArgsMap(baseInst));
         if (ft == null || ft is Z42UnknownType) { return bfs; }
         if (ft.Name() == bfs.FieldType.Name()) { return bfs; }
         FieldSymbol ns = new FieldSymbol(bfs.Name, bfs.Visibility, ft, bfs.IsStatic, bfs.ContainingTypeName);

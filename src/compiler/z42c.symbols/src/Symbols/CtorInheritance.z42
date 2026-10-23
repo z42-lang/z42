@@ -188,7 +188,7 @@ public sealed class CtorInheritance {
             Param src = (m.HasDecl && m.Decl != null && i < m.Decl.ParamCount) ? m.Decl.Params[i] : null;
             string name = src != null ? src.Name : "p" + i.ToString();
             Z42Type t = sig.ParamTypes[i];
-            if (targs != null) { t = MethodTypeArgSubst.ByName(t, bt.GenericParamNames, bt.GenericParamCount, targs); }
+            if (targs != null) { t = TypeSubst.Apply(t, new NameListMap(bt.GenericParamNames, bt.GenericParamCount, targs)); }
             Param p = new Param(new ResolvedTypeExpr(t, sp), name, sp);
             if (src != null) {
                 p.IsRef = src.IsRef; p.IsParams = src.IsParams; p.Default = src.Default;

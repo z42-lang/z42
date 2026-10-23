@@ -54,7 +54,7 @@ public static class TypeNameResolver {
     // 布局错。与 TSIG 导出同用一条递归，语义一致。
     public static string SurfaceTypeName(Z42Type t) { return TypeNameResolver._resolvedTypeName(t); }
 
-    internal static string _resolvedTypeName(Z42Type t) {
+    public static string _resolvedTypeName(Z42Type t) {
         if (t == null || t is Z42UnknownType) { return "unknown"; }
         if (t is Z42ErrorType) { return "error"; }
         // unify-value-types Phase 1（TSIG 导出 byte-identical + seed 兼容）：翻转后内建类型 leaf 变
@@ -103,7 +103,7 @@ public static class TypeNameResolver {
     }
 
     // 混合模式：resolved 处理委托规范化（Predicate→Func）；AST nullable 包装补 "?"（z42c ResolveTypeP 擦除 nullable）。
-    internal static string _hybridTypeName(TypeExpr te, Z42Type resolved) {
+    public static string _hybridTypeName(TypeExpr te, Z42Type resolved) {
         if (te is NullableType) { return TypeNameResolver._resolvedTypeName(resolved) + "?"; }
         return TypeNameResolver._resolvedTypeName(resolved);
     }

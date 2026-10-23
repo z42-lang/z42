@@ -27,6 +27,16 @@ public static class ResultKind {
 // ResolveType 不规范化拼写（byte 留 byte，不转 u8）→ 谓词同时接受 keyword + canonical 双拼写。
 // 基元包装结构体（Boolean/Byte/Int32…）在 struct 方法内 this 的类型，与基元同等处理。
 public static class TypeFacts {
+    // semantics-split 自 TypeChecker._isNonNullableValueType 下沉（纯类型模型谓据：enum 或
+    // IsStruct 的 Z42ClassType）——ImportedSymbolLoader 的 nullable 标记与绑定期共用同一判据
+    //（「编译期与运行期各判各的」正是 `where T : struct` 那个 bug 的形状，故不复制两份）。
+    public static bool IsNonNullableValueType(Z42Type t) {
+        if (TypeFacts.IsEnum(t)) { return true; }
+        Z42ClassType ct = t as Z42ClassType;
+        if (ct == null) { return false; }
+        return ct.IsStruct;
+    }
+
     // 统一取"基元名"：Z42PrimType → 直接取；Z42ClassType 是基元包装 → 映射；其余 → ""。
     public static string _asPrimName(Z42Type t) {
         if (t is Z42ClassType) { return TypeFacts._structPrimName((t as Z42ClassType).Name()); }

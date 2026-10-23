@@ -631,7 +631,7 @@ public sealed class SymbolCollector {
 
     // 取一个类型引用的 FQN（类 / 泛型实例化的定义类 / 接口）；其余（型参、基元、数组…）返回 ""。
     // 两个消费端共用，避免各写一份「哪些类型算数」的判据。
-    internal static string PkgCheckFqn(Z42Type t) {
+    public static string PkgCheckFqn(Z42Type t) {
         if (t == null) { return ""; }
         if (t is Z42InstantiatedType) {
             Z42ClassType d = (t as Z42InstantiatedType).Def;

@@ -81,7 +81,7 @@ public sealed class InterfaceClosure {
             Z42Type bt = symbols.ResolveTypeP(bref, it.TypeParamNames, it.TypeParamCount);
             if (bt is Z42InstantiatedInterfaceType) {
                 if (it is Z42InstantiatedInterfaceType) {
-                    bt = MemberResolver._substIfaceArgs(bt, it as Z42InstantiatedInterfaceType);
+                    bt = TypeSubst.Apply(bt, new IfaceArgsMap(it as Z42InstantiatedInterfaceType));
                 }
                 return bt as Z42InterfaceType;
             }

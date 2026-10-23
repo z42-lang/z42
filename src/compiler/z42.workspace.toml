@@ -55,6 +55,7 @@ default_members = [
     "z42.project",
     "z42.build",
     "z42c.optimization",
+    "z42c.symbols",
     "z42c.semantics",
     "z42c.generators",
     "z42c.emission",

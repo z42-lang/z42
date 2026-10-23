@@ -7,6 +7,7 @@ version = "0.1.0"
 kind    = "lib"
 
 [dependencies]
+"z42c.symbols" = "0.1.0"   # 符号世界（semantics-split 拆出；命名空间仍 Z42.Semantics）
 "z42c.core"      = "0.1.0"
 "z42c.syntax"    = "0.1.0"
 "z42c.semantics" = "0.1.0"
