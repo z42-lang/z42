@@ -10,7 +10,7 @@ fn identity_hash_low_bits_vary_across_objects() {
     let mut low3 = [0usize; 8];
     for _ in 0..64 {
         let arr = ctx.heap().alloc_array(vec![Value::I64(0)]);
-        let Value::I64(h) = builtin_obj_hash_code(&ctx, &[arr]).unwrap() else { panic!("hash must be I64") };
+        let h = obj_hash_code(&arr).unwrap();
         assert!((0..=0x7fff_ffff).contains(&h), "hash must stay non-negative 31-bit: {h}");
         low3[(h & 7) as usize] += 1;
     }
@@ -22,7 +22,7 @@ fn identity_hash_low_bits_vary_across_objects() {
 fn identity_hash_is_stable_for_one_object() {
     let ctx = VmContext::new();
     let arr = ctx.heap().alloc_array(Vec::new());
-    let a = builtin_obj_hash_code(&ctx, &[arr]).unwrap();
-    let b = builtin_obj_hash_code(&ctx, &[arr]).unwrap();
-    assert!(matches!((a, b), (Value::I64(x), Value::I64(y)) if x == y));
+    let a = obj_hash_code(&arr).unwrap();
+    let b = obj_hash_code(&arr).unwrap();
+    assert!(a == b);
 }

@@ -566,6 +566,6 @@ fn builtin_table_join_preserves_order_and_has_no_holes() {
     assert_eq!(names.len(), total, "duplicate builtin name in BUILTINS");
     // 拼接点两侧的相对顺序保持：PART2 的第一条排在 PART1 最后一条之后。
     let idx = |n: &str| BUILTINS.iter().position(|(x, _)| *x == n).unwrap();
-    assert!(idx("__gc_stats") < idx("__gc_write_heap_snapshot"),
+    assert!(idx("__array_set") < idx("__platform_os"),
         "PART2 must follow PART1 — the const join reordered");
 }

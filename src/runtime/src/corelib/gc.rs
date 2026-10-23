@@ -28,17 +28,16 @@ use std::sync::{Arc, OnceLock};
 /// would just run an immediate-no-op collect with nothing reachable to
 /// reclaim. Matches typical `GC.Collect()` semantics in C# / Java where
 /// concurrent calls may coalesce.
-pub fn builtin_gc_collect(ctx: &VmContext, _args: &[Value]) -> Result<()> {
+pub fn gc_collect(ctx: &VmContext) {
     // Dispatch via collect_cycles_with_context so the heap takes the pause
     // and picks the work for its current GcMode.
     ctx.heap().collect_cycles_with_context(ctx);
-    Ok(())
 }
 
 /// `Std.GC.UsedBytes()` —— 返回当前 `HeapStats.used_bytes`（i64）。
 /// RC 模式 + cycle collector：alloc 累加；cycle collect 后按 freed_bytes 减去。
-pub fn builtin_gc_used_bytes(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    Ok(Value::I64(ctx.heap().used_bytes() as i64))
+pub fn gc_used_bytes(ctx: &VmContext) -> i64 {
+    ctx.heap().used_bytes() as i64
 }
 
 /// `Std.GC.ForceCollect()` —— 强制一次**全堆** collect（分代下是 major，见 `MagrGC::collect_full`），
@@ -52,12 +51,12 @@ pub fn builtin_gc_used_bytes(ctx: &VmContext, _args: &[Value]) -> Result<Value> 
 /// is already active, we skip our own force_collect and return 0 freed
 /// bytes (the active collector's work covers our intent). Same
 /// best-effort semantics as `builtin_gc_collect`.
-pub fn builtin_gc_force_collect(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
+pub fn gc_force_collect(ctx: &VmContext) -> anyhow::Result<i64> {
     if let Some(_pause) = crate::gc::safepoint::request_gc_pause(ctx) {
         let stats = ctx.heap().collect_full();
-        Ok(Value::I64(stats.freed_bytes as i64))
+        Ok(stats.freed_bytes as i64)
     } else {
-        Ok(Value::I64(0))
+        Ok(0)
     }
 }
 
@@ -77,10 +76,8 @@ pub fn builtin_gc_force_collect(ctx: &VmContext, _args: &[Value]) -> Result<Valu
 /// same object panics on borrow (generation mismatch detection,
 /// per add-custom-allocator design D5). Weak refs return None on
 /// upgrade. Slot becomes reusable on next alloc.
-pub fn builtin_gc_finalize(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let target = args.first().unwrap_or(&Value::Null);
-    let fired = ctx.heap().finalize_now(target);
-    Ok(Value::Bool(fired))
+pub fn gc_finalize(ctx: &VmContext, target: &Value) -> bool {
+    ctx.heap().finalize_now(target)
 }
 
 // ── reorganize-gc-stdlib  ────────────────────────────────────────
@@ -223,41 +220,35 @@ fn make_gc_handle(ctx: &VmContext, slot: u64) -> Value {
 
 /// `Std.GCHandle.Alloc(target, GCHandleType type)` — returns a new GCHandle
 /// struct. Atomic-Weak / null target → `_slot=0` (`IsAllocated=false`).
-pub fn builtin_gc_handle_alloc(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let target = args.first().ok_or_else(|| anyhow!("__gc_handle_alloc: missing target arg"))?;
-    let kind_int = match args.get(1) {
-        Some(Value::I64(v)) => *v,
-        _ => return Err(anyhow!("__gc_handle_alloc: expected GCHandleType (int) arg")),
-    };
+pub fn gc_handle_alloc(ctx: &VmContext, target: &Value, kind_int: i64) -> Value {
     let slot = ctx.heap().handle_alloc(target, gc_handle_kind_from_i64(kind_int));
-    Ok(make_gc_handle(ctx, slot))
+    make_gc_handle(ctx, slot)
 }
 
 /// `Std.GCHandle.Target { get; }` — returns null when slot freed or weak target collected.
-pub fn builtin_gc_handle_target(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let slot = extract_gc_handle_slot(ctx, args.first().unwrap_or(&Value::Null));
-    Ok(ctx.heap().handle_target(slot).unwrap_or(Value::Null))
+pub fn gc_handle_target(ctx: &VmContext, this: &Value) -> Value {
+    let slot = extract_gc_handle_slot(ctx, this);
+    ctx.heap().handle_target(slot).unwrap_or(Value::Null)
 }
 
 /// `Std.GCHandle.IsAllocated { get; }`.
-pub fn builtin_gc_handle_is_alloc(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let slot = extract_gc_handle_slot(ctx, args.first().unwrap_or(&Value::Null));
-    Ok(Value::Bool(ctx.heap().handle_is_alloc(slot)))
+pub fn gc_handle_is_alloc(ctx: &VmContext, this: &Value) -> bool {
+    let slot = extract_gc_handle_slot(ctx, this);
+    ctx.heap().handle_is_alloc(slot)
 }
 
 /// `Std.GCHandle.Kind { get; }` — returns `GCHandleType` enum int. Freed slot
 /// returns `Strong` (default) — callers should check `IsAllocated` first.
-pub fn builtin_gc_handle_kind(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let slot = extract_gc_handle_slot(ctx, args.first().unwrap_or(&Value::Null));
+pub fn gc_handle_kind(ctx: &VmContext, this: &Value) -> i64 {
+    let slot = extract_gc_handle_slot(ctx, this);
     let kind = ctx.heap().handle_kind(slot).unwrap_or(GcHandleKind::Strong);
-    Ok(Value::I64(gc_handle_kind_to_i64(kind)))
+    gc_handle_kind_to_i64(kind)
 }
 
 /// `Std.GCHandle.Free()` — releases the slot. Idempotent (also no-op on slot 0).
-pub fn builtin_gc_handle_free(ctx: &VmContext, args: &[Value]) -> Result<()> {
-    let slot = extract_gc_handle_slot(ctx, args.first().unwrap_or(&Value::Null));
+pub fn gc_handle_free(ctx: &VmContext, this: &Value) {
+    let slot = extract_gc_handle_slot(ctx, this);
     ctx.heap().handle_free(slot);
-    Ok(())
 }
 
 /// `Std.GC.PauseHistogram()` — **add-gc-pause-histogram **.
@@ -276,12 +267,12 @@ pub fn builtin_gc_handle_free(ctx: &VmContext, args: &[Value]) -> Result<()> {
 /// | 5 | `[100 ms, 1 s)`             |
 /// | 6 | `[1, 10) s`                 |
 /// | 7 | `[10 s, ∞)`                 |
-pub fn builtin_gc_pause_histogram(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
+pub fn gc_pause_histogram(ctx: &VmContext) -> Value {
     let h = ctx.heap().stats().pause_histogram;
     let arr: Vec<Value> = h.buckets.iter()
         .map(|&n| Value::I64(n as i64))
         .collect();
-    Ok(ctx.heap().alloc_array(arr))
+    ctx.heap().alloc_array(arr)
 }
 
 /// `Std.GC.PauseStatsRaw()` — **add-gc-pause-histogram **.
@@ -290,14 +281,14 @@ pub fn builtin_gc_pause_histogram(ctx: &VmContext, _args: &[Value]) -> Result<Va
 /// When no collects have occurred, `min_us == i64::MAX` (sentinel) and
 /// the other three fields are 0. Callers should check `count == 0`
 /// before reading `min_us`.
-pub fn builtin_gc_pause_stats_raw(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
+pub fn gc_pause_stats_raw(ctx: &VmContext) -> Value {
     let h = ctx.heap().stats().pause_histogram;
-    Ok(ctx.heap().alloc_array(vec![
+    ctx.heap().alloc_array(vec![
         Value::I64(h.min_us   as i64),
         Value::I64(h.max_us   as i64),
         Value::I64(h.total_us as i64),
         Value::I64(h.count    as i64),
-    ]))
+    ])
 }
 
 /// `Std.GC.RecentPauses()` — **add-gc-pause-window **.
@@ -305,12 +296,12 @@ pub fn builtin_gc_pause_stats_raw(ctx: &VmContext, _args: &[Value]) -> Result<Va
 /// Returns the rolling pause-time window as a `long[]` (microseconds,
 /// oldest first). Length is at most `PauseWindowCapacity()`; 0 when no
 /// collect has occurred yet.
-pub fn builtin_gc_recent_pauses(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
+pub fn gc_recent_pauses(ctx: &VmContext) -> Value {
     let h = ctx.heap().stats().pause_histogram;
     let arr: Vec<Value> = h.recent_pauses.iter()
         .map(|&us| Value::I64(us as i64))
         .collect();
-    Ok(ctx.heap().alloc_array(arr))
+    ctx.heap().alloc_array(arr)
 }
 
 /// `Std.GC.PauseWindowCapacity()` — **add-gc-pause-window **.
@@ -318,9 +309,9 @@ pub fn builtin_gc_recent_pauses(ctx: &VmContext, _args: &[Value]) -> Result<Valu
 /// Returns the configured rolling-window capacity (`Z42_GC_PAUSE_WINDOW`
 /// env or default 1024). Useful for distinguishing "only N collects have
 /// happened" from "the window saturated at N".
-pub fn builtin_gc_pause_window_capacity(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
+pub fn gc_pause_window_capacity(ctx: &VmContext) -> i64 {
     let cap = ctx.heap().stats().pause_histogram.window_cap;
-    Ok(Value::I64(cap as i64))
+    cap as i64
 }
 
 /// `Std.GC.WriteHeapSnapshot(path)` — **add-gc-heap-snapshot-export **.
@@ -332,11 +323,7 @@ pub fn builtin_gc_pause_window_capacity(ctx: &VmContext, _args: &[Value]) -> Res
 ///
 /// The resulting file opens directly in Chrome DevTools → Memory →
 /// Load, speedscope, and heapviewer.com.
-pub fn builtin_gc_write_heap_snapshot(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let path = match args.first() {
-        Some(Value::Str(s)) => s.clone(),
-        _ => return Err(anyhow!("__gc_write_heap_snapshot: expected string path")),
-    };
+pub fn gc_write_heap_snapshot(ctx: &VmContext, path: &str) -> Result<i64> {
     // add-gc-snapshot-streaming : write JSON directly to
     // a BufWriter<File> via the streaming serializer — avoids the
     // ~30 MB intermediate String for large heaps.
@@ -350,28 +337,22 @@ pub fn builtin_gc_write_heap_snapshot(ctx: &VmContext, args: &[Value]) -> Result
     // BufWriter's Drop-flush silently drops errors otherwise.
     writer.flush()
         .map_err(|e| anyhow!("__gc_write_heap_snapshot: flush {}: {}", path, e))?;
-    Ok(Value::I64(n_bytes as i64))
+    Ok(n_bytes as i64)
 }
 
 /// `Std.GC.SetMaxHeapBytes(bytes)` — **add-gc-oom-exception **.
 /// Sets the heap upper limit. `bytes <= 0` clears the limit (unbounded).
-pub fn builtin_gc_set_max_heap_bytes(ctx: &VmContext, args: &[Value]) -> Result<()> {
-    let bytes = match args.first() {
-        Some(Value::I64(n)) if *n > 0 => Some(*n as u64),
-        _ => None,
-    };
+pub fn gc_set_max_heap_bytes(ctx: &VmContext, bytes: i64) {
+    let bytes = (bytes > 0).then_some(bytes as u64);
     ctx.heap().set_max_heap_bytes(bytes);
-    Ok(())
 }
 
 /// `Std.GC.SetStrictOOM(enabled)` — **add-gc-oom-exception **.
 /// Enables / disables strict OOM mode. When enabled, alloc over
 /// `max_heap_bytes` throws `Std.OutOfMemoryException` instead of
 /// returning `Value::Null` silently.
-pub fn builtin_gc_set_strict_oom(ctx: &VmContext, args: &[Value]) -> Result<()> {
-    let enabled = matches!(args.first(), Some(Value::Bool(true)));
+pub fn gc_set_strict_oom(ctx: &VmContext, enabled: bool) {
     ctx.heap().set_strict_oom(enabled);
-    Ok(())
 }
 
 // ── Soft reference builtins (add-gc-softref) ─────────────────────
@@ -441,9 +422,9 @@ pub fn builtin_soft_handle_get(ctx: &VmContext, args: &[Value]) -> Result<Value>
 
 /// `Std.GC.GetStats()` — projects Rust `HeapStats` into a `Std.HeapStats` instance.
 /// `MaxBytes` uses `-1` as the unlimited sentinel (z42 has no `Optional<T>`).
-pub fn builtin_gc_stats(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
+pub fn gc_stats(ctx: &VmContext) -> Value {
     let s = ctx.heap().stats();
-    Ok(ctx.heap().alloc_object(
+    ctx.heap().alloc_object(
         heap_stats_type_desc(),
         vec![
             Value::I64(s.allocations        as i64),
@@ -455,6 +436,71 @@ pub fn builtin_gc_stats(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
             Value::I64(s.observers          as i64),
         ],
         NativeData::None,
-    ))
+    )
 }
 
+/// GC 观测面迁 builtin ABI v2(P1-8 批次 11):全部纯查询 / 触发回收(不执行
+/// z42 代码);数组返回的按性能铁律实现内直构、typed 返回 Value;snapshot 的
+/// IO 错误 → `IOException`。
+#[z42_macros::builtins]
+pub mod typed {
+    use super::*;
+    use crate::corelib::abi::BuiltinError;
+
+    #[builtin(name = "__gc_collect")]
+    pub fn collect(ctx: &VmContext) { gc_collect(ctx) }
+
+    #[builtin(name = "__gc_used_bytes", pure)]
+    pub fn used_bytes(ctx: &VmContext) -> i64 { gc_used_bytes(ctx) }
+
+    #[builtin(name = "__gc_force_collect")]
+    pub fn force_collect(ctx: &VmContext) -> Result<i64, BuiltinError> {
+        gc_force_collect(ctx).map_err(BuiltinError::Legacy)
+    }
+
+    #[builtin(name = "__gc_finalize")]
+    pub fn finalize(ctx: &VmContext, target: &Value) -> bool { gc_finalize(ctx, target) }
+
+    #[builtin(name = "__gc_handle_alloc")]
+    pub fn handle_alloc(ctx: &VmContext, target: &Value, kind: i64) -> Value {
+        gc_handle_alloc(ctx, target, kind)
+    }
+
+    #[builtin(name = "__gc_handle_target", this = "get_Target")]
+    pub fn handle_target(ctx: &VmContext, this: &Value) -> Value { gc_handle_target(ctx, this) }
+
+    #[builtin(name = "__gc_handle_is_alloc", this = "get_IsAllocated", pure)]
+    pub fn handle_is_alloc(ctx: &VmContext, this: &Value) -> bool { gc_handle_is_alloc(ctx, this) }
+
+    #[builtin(name = "__gc_handle_kind", this = "get_Kind", pure)]
+    pub fn handle_kind(ctx: &VmContext, this: &Value) -> i64 { gc_handle_kind(ctx, this) }
+
+    #[builtin(name = "__gc_handle_free", this = "Free")]
+    pub fn handle_free(ctx: &VmContext, this: &Value) { gc_handle_free(ctx, this) }
+
+    #[builtin(name = "__gc_pause_histogram")]
+    pub fn pause_histogram(ctx: &VmContext) -> Value { gc_pause_histogram(ctx) }
+
+    #[builtin(name = "__gc_pause_stats_raw")]
+    pub fn pause_stats_raw(ctx: &VmContext) -> Value { gc_pause_stats_raw(ctx) }
+
+    #[builtin(name = "__gc_recent_pauses")]
+    pub fn recent_pauses(ctx: &VmContext) -> Value { gc_recent_pauses(ctx) }
+
+    #[builtin(name = "__gc_pause_window_capacity", pure)]
+    pub fn pause_window_capacity(ctx: &VmContext) -> i64 { gc_pause_window_capacity(ctx) }
+
+    #[builtin(name = "__gc_write_heap_snapshot")]
+    pub fn write_heap_snapshot(ctx: &VmContext, path: &str) -> Result<i64, BuiltinError> {
+        gc_write_heap_snapshot(ctx, path).map_err(|e| BuiltinError::Io(e.to_string()))
+    }
+
+    #[builtin(name = "__gc_set_max_heap_bytes")]
+    pub fn set_max_heap_bytes(ctx: &VmContext, bytes: i64) { gc_set_max_heap_bytes(ctx, bytes) }
+
+    #[builtin(name = "__gc_set_strict_oom")]
+    pub fn set_strict_oom(ctx: &VmContext, enabled: bool) { gc_set_strict_oom(ctx, enabled) }
+
+    #[builtin(name = "__gc_stats")]
+    pub fn stats(ctx: &VmContext) -> Value { gc_stats(ctx) }
+}

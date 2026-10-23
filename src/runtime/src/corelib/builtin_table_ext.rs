@@ -34,8 +34,6 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     // `VmCore.{mutexes,rwlocks,channels}` 三个 registry。
     //
     // ── add-gc-pause-histogram — appended to preserve existing BuiltinIds ──
-    ("__gc_pause_histogram", Native::Val(gc::builtin_gc_pause_histogram)),
-    ("__gc_pause_stats_raw", Native::Val(gc::builtin_gc_pause_stats_raw)),
 
     // ── add-z42-compression : __deflate_* / __zstd_* / __compressor_*
     //    builtins are NOT statically registered here — they're provided by the
@@ -44,15 +42,10 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     //    `VmCore.ext_builtins` (see corelib::ext_builtin_id_of below).
 
     // ── add-gc-heap-snapshot-export B3  ──
-    ("__gc_write_heap_snapshot", Native::Val(gc::builtin_gc_write_heap_snapshot)),
 
     // ── add-gc-pause-window  ──
-    ("__gc_recent_pauses",         Native::Val(gc::builtin_gc_recent_pauses)),
-    ("__gc_pause_window_capacity", Native::Val(gc::builtin_gc_pause_window_capacity)),
 
     // ── add-gc-oom-exception  ──
-    ("__gc_set_max_heap_bytes", Native::Void(gc::builtin_gc_set_max_heap_bytes)),
-    ("__gc_set_strict_oom",     Native::Void(gc::builtin_gc_set_strict_oom)),
 
     // ── add-gc-softref  ──────────────────────────────────────────
     ("__soft_handle_create", Native::Val(gc::builtin_soft_handle_create)),
