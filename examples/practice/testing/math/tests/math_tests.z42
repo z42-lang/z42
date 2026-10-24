@@ -1,0 +1,35 @@
+namespace MathKit.Tests;
+
+using Std.Harness;
+
+// ANCHOR: basic
+[Test]
+void test_add() {
+    Assert.Equal(5, MathX.Add(2, 3));
+}
+
+[Test]
+void test_div_rounds_toward_zero() {
+    Assert.Equal(-2, MathX.Div(-7, 3));
+}
+
+[Test]
+void test_average_is_approximate() {
+    Assert.EqualApprox(MathX.Average(new int[] { 1, 2 }), 1.5, 0.0001);
+    Assert.InRange(MathX.Average(new int[] { 3, 4, 5 }), 3.0, 5.0);
+}
+// ANCHOR_END: basic
+
+// ANCHOR: throws
+[Test]
+[ShouldThrow<DivideByZeroException>]
+void test_div_by_zero_throws() {
+    MathX.Div(1, 0);
+}
+
+[Test]
+void test_div_by_zero_via_assert() {
+    Assert.Throws("DivideByZeroException", () => { MathX.Div(1, 0); });
+    Assert.DoesNotThrow(() => { MathX.Div(1, 1); });
+}
+// ANCHOR_END: throws
