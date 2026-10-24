@@ -254,187 +254,203 @@ public class RegexNode {
 <a id="Std.Regex.RegexNode._kind"></a>
 ### int _kind
 
-[`src/libraries/z42.regex/src/RegexNode.z42:19`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L19)
+[`src/libraries/z42.regex/src/RegexNode.z42:20`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L20)
 
+节点类别（1=LIT … 10=WORD_NON_BOUNDARY，见上方 Kinds 表）。
 
 <a id="Std.Regex.RegexNode._ch"></a>
 ### int _ch
 
-[`src/libraries/z42.regex/src/RegexNode.z42:20`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L20)
+[`src/libraries/z42.regex/src/RegexNode.z42:22`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L22)
 
+LIT 节点的字符（codepoint）。
 
 <a id="Std.Regex.RegexNode._negated"></a>
 ### bool _negated
 
-[`src/libraries/z42.regex/src/RegexNode.z42:22`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L22)
+[`src/libraries/z42.regex/src/RegexNode.z42:25`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L25)
 
+CHARSET 是否取反（`[^...]`）。
 
 <a id="Std.Regex.RegexNode._rangeStarts"></a>
 ### int[] _rangeStarts
 
-[`src/libraries/z42.regex/src/RegexNode.z42:23`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L23)
+[`src/libraries/z42.regex/src/RegexNode.z42:27`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L27)
 
+CHARSET 各区间起点（inclusive，与 `_rangeEnds` 按下标配对）。
 
 <a id="Std.Regex.RegexNode._rangeEnds"></a>
 ### int[] _rangeEnds
 
-[`src/libraries/z42.regex/src/RegexNode.z42:24`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L24)
+[`src/libraries/z42.regex/src/RegexNode.z42:29`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L29)
 
+CHARSET 各区间终点（inclusive）。
 
 <a id="Std.Regex.RegexNode._rangeCount"></a>
 ### int _rangeCount
 
-[`src/libraries/z42.regex/src/RegexNode.z42:25`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L25)
+[`src/libraries/z42.regex/src/RegexNode.z42:31`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L31)
 
+CHARSET 的有效区间个数（数组可能更长，仅前 `_rangeCount` 项参与匹配）。
 
 <a id="Std.Regex.RegexNode._leftSeq"></a>
 ### RegexNode[] _leftSeq
 
-[`src/libraries/z42.regex/src/RegexNode.z42:27`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L27)
+[`src/libraries/z42.regex/src/RegexNode.z42:34`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L34)
 
+ALT 左分支节点序列（有效长度 `_leftCount`）。
 
 <a id="Std.Regex.RegexNode._leftCount"></a>
 ### int _leftCount
 
-[`src/libraries/z42.regex/src/RegexNode.z42:28`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L28)
+[`src/libraries/z42.regex/src/RegexNode.z42:36`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L36)
 
+ALT 左分支有效节点数。
 
 <a id="Std.Regex.RegexNode._rightSeq"></a>
 ### RegexNode[] _rightSeq
 
-[`src/libraries/z42.regex/src/RegexNode.z42:29`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L29)
+[`src/libraries/z42.regex/src/RegexNode.z42:38`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L38)
 
+ALT 右分支节点序列（有效长度 `_rightCount`）。
 
 <a id="Std.Regex.RegexNode._rightCount"></a>
 ### int _rightCount
 
-[`src/libraries/z42.regex/src/RegexNode.z42:30`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L30)
+[`src/libraries/z42.regex/src/RegexNode.z42:40`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L40)
 
+ALT 右分支有效节点数。
 
 <a id="Std.Regex.RegexNode._childSeq"></a>
 ### RegexNode[] _childSeq
 
-[`src/libraries/z42.regex/src/RegexNode.z42:32`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L32)
+[`src/libraries/z42.regex/src/RegexNode.z42:43`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L43)
 
+QUANT / GROUP 的子节点序列（有效长度 `_childCount`）。
 
 <a id="Std.Regex.RegexNode._childCount"></a>
 ### int _childCount
 
-[`src/libraries/z42.regex/src/RegexNode.z42:33`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L33)
+[`src/libraries/z42.regex/src/RegexNode.z42:45`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L45)
 
+QUANT / GROUP 的子节点有效数。
 
 <a id="Std.Regex.RegexNode._min"></a>
 ### int _min
 
-[`src/libraries/z42.regex/src/RegexNode.z42:34`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L34)
+[`src/libraries/z42.regex/src/RegexNode.z42:47`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L47)
 
+QUANT 最小重复次数。
 
 <a id="Std.Regex.RegexNode._max"></a>
 ### int _max
 
-[`src/libraries/z42.regex/src/RegexNode.z42:35`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L35)
+[`src/libraries/z42.regex/src/RegexNode.z42:49`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L49)
 
+QUANT 最大重复次数（`-1` = 无上界）。
 
 <a id="Std.Regex.RegexNode._greedy"></a>
 ### bool _greedy
 
-[`src/libraries/z42.regex/src/RegexNode.z42:36`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L36)
+[`src/libraries/z42.regex/src/RegexNode.z42:51`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L51)
 
+QUANT 是否贪婪（`true` = max-first；`false` = min-first / 非贪婪）。
 
 <a id="Std.Regex.RegexNode._groupIndex"></a>
 ### int _groupIndex
 
-[`src/libraries/z42.regex/src/RegexNode.z42:38`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L38)
+[`src/libraries/z42.regex/src/RegexNode.z42:54`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L54)
 
+GROUP 捕获组编号（1-based）。
 
 <a id="Std.Regex.RegexNode.ctor(int)"></a>
 ### RegexNode(int kind)
 
-[`src/libraries/z42.regex/src/RegexNode.z42:41`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L41)
+[`src/libraries/z42.regex/src/RegexNode.z42:57`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L57)
 
 构造指定 kind 的节点（各 field 初始化为默认值）。
 
 <a id="Std.Regex.RegexNode.Lit(int)"></a>
 ### static RegexNode Lit(int ch)
 
-[`src/libraries/z42.regex/src/RegexNode.z42:61`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L61)
+[`src/libraries/z42.regex/src/RegexNode.z42:77`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L77)
 
 构造字符字面节点。
 
 <a id="Std.Regex.RegexNode.Any()"></a>
 ### static RegexNode Any()
 
-[`src/libraries/z42.regex/src/RegexNode.z42:68`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L68)
+[`src/libraries/z42.regex/src/RegexNode.z42:84`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L84)
 
 构造 `.` 节点（匹配任意单字符）。
 
 <a id="Std.Regex.RegexNode.Charset(bool,int[],int[],int)"></a>
 ### static RegexNode Charset(bool negated, int[] starts, int[] ends, int count)
 
-[`src/libraries/z42.regex/src/RegexNode.z42:73`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L73)
+[`src/libraries/z42.regex/src/RegexNode.z42:89`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L89)
 
 构造字符类 `[...]` 节点。
 
 <a id="Std.Regex.RegexNode.AnchorStart()"></a>
 ### static RegexNode AnchorStart()
 
-[`src/libraries/z42.regex/src/RegexNode.z42:83`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L83)
+[`src/libraries/z42.regex/src/RegexNode.z42:99`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L99)
 
 构造 `^` 锚节点。
 
 <a id="Std.Regex.RegexNode.AnchorEnd()"></a>
 ### static RegexNode AnchorEnd()
 
-[`src/libraries/z42.regex/src/RegexNode.z42:85`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L85)
+[`src/libraries/z42.regex/src/RegexNode.z42:101`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L101)
 
 构造 `$` 锚节点。
 
 <a id="Std.Regex.RegexNode.WordBoundary()"></a>
 ### static RegexNode WordBoundary()
 
-[`src/libraries/z42.regex/src/RegexNode.z42:88`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L88)
+[`src/libraries/z42.regex/src/RegexNode.z42:104`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L104)
 
 构造 `\b` 零宽词边界节点：两侧 word-ness 不同时匹配。
 
 <a id="Std.Regex.RegexNode.WordNonBoundary()"></a>
 ### static RegexNode WordNonBoundary()
 
-[`src/libraries/z42.regex/src/RegexNode.z42:91`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L91)
+[`src/libraries/z42.regex/src/RegexNode.z42:107`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L107)
 
 构造 `\B` 零宽非词边界节点：两侧 word-ness 相同时匹配。
 
 <a id="Std.Regex.RegexNode.Alt(RegexNode[],int,RegexNode[],int)"></a>
 ### static RegexNode Alt(RegexNode[] left, int leftCount, RegexNode[] right, int rightCount)
 
-[`src/libraries/z42.regex/src/RegexNode.z42:94`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L94)
+[`src/libraries/z42.regex/src/RegexNode.z42:110`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L110)
 
 构造交替 `a|b` 节点。
 
 <a id="Std.Regex.RegexNode.Quant(RegexNode[],int,int,int)"></a>
 ### static RegexNode Quant(RegexNode[] child, int childCount, int min, int max)
 
-[`src/libraries/z42.regex/src/RegexNode.z42:105`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L105)
+[`src/libraries/z42.regex/src/RegexNode.z42:121`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L121)
 
 构造贪婪量词节点。
 
 <a id="Std.Regex.RegexNode.QuantLazy(RegexNode[],int,int,int)"></a>
 ### static RegexNode QuantLazy(RegexNode[] child, int childCount, int min, int max)
 
-[`src/libraries/z42.regex/src/RegexNode.z42:116`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L116)
+[`src/libraries/z42.regex/src/RegexNode.z42:132`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L132)
 
 构造惰性（非贪婪）量词节点（`*?`、`+?`、`??`、`{n,m}?`）：先试最短 count。
 
 <a id="Std.Regex.RegexNode.Group(RegexNode[],int,int)"></a>
 ### static RegexNode Group(RegexNode[] child, int childCount, int groupIndex)
 
-[`src/libraries/z42.regex/src/RegexNode.z42:127`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L127)
+[`src/libraries/z42.regex/src/RegexNode.z42:143`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L143)
 
 构造捕获组节点。
 
 <a id="Std.Regex.RegexNode.CharsetMatches(int)"></a>
 ### bool CharsetMatches(int ch)
 
-[`src/libraries/z42.regex/src/RegexNode.z42:136`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L136)
+[`src/libraries/z42.regex/src/RegexNode.z42:152`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexNode.z42#L152)
 
 CHARSET 是否匹配 ch（含 _negated 反转）。仅 _kind == 3 时调用。
 
@@ -479,40 +495,42 @@ public class RegexParser {
 <a id="Std.Regex.RegexParser.GroupIndices"></a>
 ### int[] GroupIndices
 
-[`src/libraries/z42.regex/src/RegexParser.z42:23`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexParser.z42#L23)
+[`src/libraries/z42.regex/src/RegexParser.z42:24`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexParser.z42#L24)
 
+与 GroupNames 平行的捕获下标（1-based）数组。
 
 <a id="Std.Regex.RegexParser.NamedGroupCount"></a>
 ### int NamedGroupCount
 
-[`src/libraries/z42.regex/src/RegexParser.z42:24`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexParser.z42#L24)
+[`src/libraries/z42.regex/src/RegexParser.z42:26`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexParser.z42#L26)
 
+已注册的命名组个数（GroupNames / GroupIndices 的有效长度）。
 
 <a id="Std.Regex.RegexParser.ctor(string)"></a>
 ### RegexParser(string src)
 
-[`src/libraries/z42.regex/src/RegexParser.z42:27`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexParser.z42#L27)
+[`src/libraries/z42.regex/src/RegexParser.z42:29`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexParser.z42#L29)
 
 用待解析的 pattern 字符串构造 parser。
 
 <a id="Std.Regex.RegexParser.ResultNodes"></a>
 ### RegexNode[] ResultNodes
 
-[`src/libraries/z42.regex/src/RegexParser.z42:65`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexParser.z42#L65)
+[`src/libraries/z42.regex/src/RegexParser.z42:67`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexParser.z42#L67)
 
 解析结果：RegexNode[] AST，配合 ResultCount 使用。
 
 <a id="Std.Regex.RegexParser.ResultCount"></a>
 ### int ResultCount
 
-[`src/libraries/z42.regex/src/RegexParser.z42:67`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexParser.z42#L67)
+[`src/libraries/z42.regex/src/RegexParser.z42:69`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexParser.z42#L69)
 
 实际节点数（与 ResultNodes 配对）。
 
 <a id="Std.Regex.RegexParser.ParsePattern()"></a>
 ### void ParsePattern()
 
-[`src/libraries/z42.regex/src/RegexParser.z42:70`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexParser.z42#L70)
+[`src/libraries/z42.regex/src/RegexParser.z42:72`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.regex/src/RegexParser.z42#L72)
 
 入口：解析完整 pattern；调用后读 ResultNodes / ResultCount / GroupCount。
 

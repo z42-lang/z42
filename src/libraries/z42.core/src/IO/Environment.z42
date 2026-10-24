@@ -42,8 +42,10 @@ public static class Environment {
     [Native("__env_get_cwd")]
     public static extern string GetCurrentDirectory();
 
-    /// 改变当前工作目录（`cd path`）。目录不存在抛 `DirectoryNotFoundException`，
-    /// 无权限抛 `UnauthorizedAccessException`。
+    /// 改变当前工作目录（`cd path`）。
+    ///
+    /// 目录不存在抛 `DirectoryNotFoundException`，无权限抛
+    /// `UnauthorizedAccessException`。
     [Native("__env_set_cwd")]
     public static extern void SetCurrentDirectory(string path);
 }

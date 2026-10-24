@@ -1,17 +1,19 @@
 namespace Std.Crypto;
 
 
-// AES（FIPS 197）——Rijndael 128 位块、128 / 192 / 256 位 key 的纯脚本实现（无 FFI）。
-// key 长度决定变体：16 字节 = AES-128，24 字节 = AES-192，32 字节 = AES-256。
-
+/// AES（FIPS 197）——Rijndael 128 位块、128 / 192 / 256 位 key 的纯脚本实现（无 FFI）。
+///
+/// key 长度决定变体：16 字节 = AES-128，24 字节 = AES-192，32 字节 = AES-256。
 public static class Aes {
     // perf-stdlib-hot-paths：S-box / 逆 S-box 只建一次（此前每轮 SubBytes / 每次密钥扩展都 new int[256] + 256 次赋值）。
     static int[] _SBOX = Aes._sbox();
     static int[] _INV_SBOX = Aes._invSbox();
     // ── Public API ───────────────────────────────────────────────────────
 
-    /// 加密一个 16 字节块。`key` 为 16 / 24 / 32 字节，分别选择 AES-128 / 192 / 256；
-    /// key 尺寸或明文非 16 字节时抛 `ArgumentException`。
+    /// 加密一个 16 字节块。
+    ///
+    /// `key` 为 16 / 24 / 32 字节，分别选择 AES-128 / 192 / 256；key 尺寸或明文
+    /// 非 16 字节时抛 `ArgumentException`。
     public static byte[] EncryptBlock(byte[] key, byte[] plaintext) {
         if (plaintext.Length != 16) {
             throw new ArgumentException("AES.EncryptBlock: plaintext must be 16 bytes");
@@ -58,6 +60,7 @@ public static class Aes {
     }
 
     /// AES-CTR 加解密（CTR 模式下加密与解密同操作——与密钥流 XOR）。
+    ///
     /// IV 布局：8 字节 nonce || 8 字节大端 counter（从 0 起），逐块递增。同一 key + nonce
     /// 解密时传相同参数即可（密钥流确定）。
     public static byte[] EncryptCtr(byte[] key, byte[] nonce, byte[] data) {
@@ -103,6 +106,7 @@ public static class Aes {
     }
 
     /// AES-CBC 加密，PKCS#7 填充（RFC 5652 §6.3——补到下一个 16 字节边界，已对齐也追加一整块填充）。
+    ///
     /// `iv` 必须 16 字节；输出长度恒为 ((data.Length / 16) + 1) * 16。
     public static byte[] EncryptCbcPkcs7(byte[] key, byte[] iv, byte[] data) {
         if (iv.Length != 16) {
@@ -139,8 +143,9 @@ public static class Aes {
         return out_;
     }
 
-    /// AES-CBC 解密并校验 / 剥离 PKCS#7 填充。输入非 16 的倍数或填充非法抛 `ArgumentException`
-    /// （通常表示 key / IV 错误或密文损坏）。
+    /// AES-CBC 解密并校验 / 剥离 PKCS#7 填充。
+    ///
+    /// 输入非 16 的倍数或填充非法抛 `ArgumentException`（通常表示 key / IV 错误或密文损坏）。
     public static byte[] DecryptCbcPkcs7(byte[] key, byte[] iv, byte[] data) {
         if (iv.Length != 16) {
             throw new ArgumentException("AES.DecryptCbcPkcs7: IV must be 16 bytes");
@@ -221,7 +226,8 @@ public static class Aes {
         return out_;
     }
 
-    /// AES-CCM 解密 + 校验。输入 = ciphertext || encTag（tagLen 字节）；
+    /// AES-CCM 解密 + 校验。输入 = ciphertext || encTag（tagLen 字节）。
+    ///
     /// tag 不匹配抛 `ArgumentException`（勿吞——篡改信号）。
     public static byte[] DecryptCcm(byte[] key, byte[] nonce, byte[] aad, byte[] ctAndTag, int tagLen) {
         if (ctAndTag.Length < tagLen) {
@@ -427,6 +433,7 @@ public static class Aes {
     // GHASH 推导。纯脚本 GHASH（逐位，无 PCLMUL）较慢，大块加密需 cdylib 后端。
 
     /// 加密 + 认证。输出 = ciphertext（与 `plaintext` 等长）|| tag（16 字节）。
+    ///
     /// IV 12 字节（96 位）走快路径 J0 = IV || 0x00000001；其它长度按 NIST SP 800-38D §7.1 走
     /// GHASH 推导。IV.Length == 0 拒绝（全零 J0 是安全隐患——同 key 多消息会复用同一 counter 流）。
     public static byte[] EncryptGcm(byte[] key, byte[] iv, byte[] aad, byte[] plaintext) {
@@ -451,8 +458,9 @@ public static class Aes {
         return out_;
     }
 
-    /// 解密 + 校验。输入 = ciphertext || 16 字节 tag；tag 不匹配抛 `ArgumentException`
-    /// （勿吞——tag 失败意味着密文或 AAD 被篡改）。
+    /// 解密 + 校验。输入 = ciphertext || 16 字节 tag。
+    ///
+    /// tag 不匹配抛 `ArgumentException`（勿吞——tag 失败意味着密文或 AAD 被篡改）。
     public static byte[] DecryptGcm(byte[] key, byte[] iv, byte[] aad, byte[] ctAndTag) {
         if (iv.Length == 0) {
             throw new ArgumentException("AES.DecryptGcm: IV must be non-empty");

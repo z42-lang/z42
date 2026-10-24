@@ -16,8 +16,10 @@ public sealed class Type : MemberInfo {
     /// VM 写入的全限定名（优先用 `FullName` 属性）。
     public string __fullName;
 
-    /// VM 写入：数组类型（`typeof(int[])`、数组字段/参数类型、`arr.GetType()`）为 true。
-    /// `__elementName` 存元素类型的 FQ 名；`GetElementType()` 解析为 `Type`（缺省 null）。
+    /// VM 写入：是否数组类型；`__elementName` 存元素类型的 FQ 名。
+    ///
+    /// `typeof(int[])`、数组字段/参数类型、`arr.GetType()` 为 true；
+    /// `GetElementType()` 解析为 `Type`（缺省 null）。
     public bool IsArray;
     /// 数组元素类型的 FQ 名（非数组为 ""）。
     public string __elementName;
@@ -26,6 +28,7 @@ public sealed class Type : MemberInfo {
     public long __asmId;
 
     /// VM 写入：构造泛型（`typeof(Box<int>)`）的实参 `Type[]`；开放定义与非泛型为 null。
+    ///
     /// 非 null 标记该类型为构造类型，故 `IsGenericTypeDefinition` false、
     /// `GetGenericArguments()` 返回这些。
     public Type[] __typeArgs;
@@ -102,7 +105,8 @@ public sealed class Type : MemberInfo {
     [Native("__type_is_enum")]
     public extern bool IsEnum { get; }
 
-    /// enum 的底层整型。z42 一律以 i64（long）背书 enum → 恒返 typeof(long)。
+    /// enum 的底层整型：z42 一律以 i64（long）背书 → 恒返 typeof(long)。
+    ///
     /// 非 enum 抛 Std.Exception（镜像 C#）。
     [Native("__type_enum_underlying")]
     public extern Type GetEnumUnderlyingType();
@@ -176,8 +180,10 @@ public sealed class Type : MemberInfo {
     [Native("__type_methods")]
     public extern Std.Reflection.MethodInfo[] GetMethods();
 
-    /// 本类型声明的构造器。每个 ConstructorInfo.Invoke(args) 分配并构造新实例。基元 / 数组 /
-    /// 接口为空。按参数类型的重载选择（GetConstructor(Type[])）未实现——枚举后自行查参数。
+    /// 本类型声明的构造器；每个 ConstructorInfo.Invoke(args) 分配并构造新实例。
+    ///
+    /// 基元 / 数组 / 接口为空。按参数类型的重载选择（GetConstructor(Type[])）未实现——
+    /// 枚举后自行查参数。
     [Native("__type_constructors")]
     public extern Std.Reflection.ConstructorInfo[] GetConstructors();
 
@@ -186,6 +192,7 @@ public sealed class Type : MemberInfo {
     public extern Std.Reflection.MemberInfo[] GetMembers();
 
     /// 属性（auto-property + extern getter），由 `get_<X>` / `set_<X>` 访问器约定派生，含继承。
+    ///
     /// 基元 / 数组为空。访问器方法仍出现在 GetMethods() 中（C# 对齐）；这是附加的属性视图。
     [Native("__type_properties")]
     public extern Std.Reflection.PropertyInfo[] GetProperties();
@@ -195,18 +202,22 @@ public sealed class Type : MemberInfo {
     public extern Type[] GetGenericArguments();
 
     /// 构造类型的开放泛型定义（`typeof(Box<int>).GetGenericTypeDefinition()` → `Box<>`）。
+    ///
     /// 非泛型抛异常（镜像 C# InvalidOperationException）。
     [Native("__type_generic_definition")]
     public extern Type GetGenericTypeDefinition();
 
-    /// 由开放定义 + 实参在运行期构造泛型（`typeof(List<>).MakeGenericType(typeof(int))` →
-    /// `List<int>`）。校验实参个数与 `where` 约束，违反抛 Std.Exception（反射是绕过编译期
-    /// 约束检查的逃生门，故自行把关）。
+    /// 由开放定义 + 实参在运行期构造泛型；校验实参个数与 `where` 约束。
+    ///
+    /// `typeof(List<>).MakeGenericType(typeof(int))` → `List<int>`。违反约束抛
+    /// Std.Exception（反射是绕过编译期约束检查的逃生门，故自行把关）。
     [Native("__type_make_generic")]
     public extern Type MakeGenericType(params Type[] typeArgs);
 
-    /// 本类型实现的接口（自身声明 + 基类链继承，按名去重）。返回真实接口句柄
-    /// （IsInterface / FullName 可用）。接口的传递继承（接口继承接口）尚未包含。
+    /// 本类型实现的接口（自身声明 + 基类链继承，按名去重）。
+    ///
+    /// 返回真实接口句柄（IsInterface / FullName 可用）。接口的传递继承（接口继承接口）
+    /// 尚未包含。
     [Native("__type_interfaces")]
     public extern Type[] GetInterfaces();
 
@@ -225,6 +236,7 @@ public sealed class Type : MemberInfo {
     }
 
     /// `c` 的实例能否赋给本类型变量：`c` 是 this、派生自 this、或实现接口 `this`。
+    ///
     /// 反射形式的 `is`；VM 里比真实类型身份（非字符串）。null → false。
     [Native("__type_is_assignable_from")]
     public extern bool IsAssignableFrom(Type c);
@@ -232,6 +244,7 @@ public sealed class Type : MemberInfo {
     // ── Load context ──────────────────────────────────────────────────────────
 
     /// 是否加载进可回收的 AssemblyLoadContext（镜像 .NET Type.IsCollectible）。
+    ///
     /// 常驻 root context 的类型（core/stdlib/main 与基元/数组合成体）→ false。
     [Native("__type_is_collectible")]
     public extern bool IsCollectible { get; }
@@ -242,8 +255,9 @@ public sealed class Type : MemberInfo {
 
     // ── 自定义 attribute ──────────────────────────────────────────────────────
 
-    /// 本类型 attribute 实例的惰性缓存：首次 GetCustomAttributes() 前为 null，之后同一数组
-    /// （同一批实例）复用（C# 每次调用都新分配，z42 不）。
+    /// 本类型 attribute 实例的惰性缓存：首次 GetCustomAttributes() 前为 null。
+    ///
+    /// 之后同一数组（同一批实例）复用（C# 每次调用都新分配，z42 不）。
     public Attribute[] __attrCache;
 
     /// VM 构建的活 attribute 实例（每个应用一次，按应用顺序）。VM 调用各自编译器合成工厂。

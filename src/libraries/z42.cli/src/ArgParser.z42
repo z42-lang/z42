@@ -123,7 +123,8 @@ public class ArgParser {
         this._optionCount = this._optionCount + 1;
     }
 
-    /// 注册带环境变量后备的 option。取值优先级 argv > 环境变量 > defaultValue；
+    /// 注册带环境变量后备的 option。取值优先级 argv > 环境变量 > defaultValue。
+    ///
     /// 环境变量不存在或为空串时落到 defaultValue；help 自动追加 " (env: $NAME)"。
     public void AddOptionWithEnv(string longName, string shortName, string help,
                                   string defaultValue, string envVarName) {
@@ -172,6 +173,7 @@ public class ArgParser {
     }
 
     /// 注册可重复 option：每次出现都追加；用 `GetRepeatedOption` 取全部，`GetOption` 取最后一个。
+    ///
     /// 默认值固定 ""，help 自动追加 " (repeatable)"。
     public void AddRepeatedOption(string longName, string shortName, string help) {
         this.EnsureOptionCap();
@@ -218,8 +220,10 @@ public class ArgParser {
         this._positionalCount = this._positionalCount + 1;
     }
 
-    /// 注册可选 positional：缺省时 `GetPositional(i)` 返回 ""。必须在所有必填 positional
-    /// 之后声明，否则 `AddPositional` 抛 CliException。help 中渲染为 `[name]`。
+    /// 注册可选 positional：缺省时 `GetPositional(i)` 返回 ""。
+    ///
+    /// 必须在所有必填 positional 之后声明，否则 `AddPositional` 抛 CliException。
+    /// help 中渲染为 `[name]`。
     public void AddOptionalPositional(string name, string help) {
         this.EnsurePositionalCap();
         this._positionalNames[this._positionalCount] = name;

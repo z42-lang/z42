@@ -2,11 +2,14 @@ namespace Std.Net.Http;
 
 using Std.IO;
 
-// 服务端 HTTP/1.1 请求解析器（内部）。与 HttpClient._readResponse 对称，
-// 请求行是 "METHOD path_and_query HTTP/1.x"；返回的 HttpRequest.Url 为请求目标。
+/// 服务端 HTTP/1.1 请求解析器（内部）。与 `HttpClient._readResponse` 对称。
+///
+/// 请求行是 "METHOD path_and_query HTTP/1.x"；返回的 HttpRequest.Url 为请求目标。
 public static class _HttpRequestParser {
 
-    // 从流解析完整请求；线上格式错误 / 中途 EOF 抛 HttpProtocolException。
+    /// 从流解析完整请求；线上格式错误 / 中途 EOF 抛 `HttpProtocolException`。
+    ///
+    /// 请求体按 `Transfer-Encoding: chunked` 或 `Content-Length` 读取，两者都没有则为空。
     public static HttpRequest ReadRequest(Stream stream) {
         var lr = new _ReqLineReader(stream);
         string requestLine = lr.ReadLine();
@@ -216,7 +219,7 @@ public static class _HttpRequestParser {
     }
 }
 
-// 内部 CRLF/LF 容忍行读取器；与 HttpClient 的 _LineReader 同形（内联避免跨文件类 token 问题）。
+/// 内部 CRLF/LF 容忍行读取器；与 HttpClient 的 `_LineReader` 同形（内联避免跨文件类 token 问题）。
 public class _ReqLineReader {
     private Stream _stream;
     private byte[] _buf;
@@ -225,6 +228,7 @@ public class _ReqLineReader {
     private char[] _line;
     private int    _lineLen;
 
+    /// 包住 `stream` 建读取器；内部缓冲与行缓冲均为空。
     public _ReqLineReader(Stream stream) {
         this._stream   = stream;
         this._buf      = new byte[4096];
@@ -234,6 +238,9 @@ public class _ReqLineReader {
         this._lineLen  = 0;
     }
 
+    /// 读一行，行尾 CRLF / LF 均剥除；起点即 EOF 返回 null。
+    ///
+    /// EOF 落在行中时返回已积累的残行（不含行尾符）。
     public string ReadLine() {
         this._lineLen = 0;
         bool any = false;
@@ -271,6 +278,7 @@ public class _ReqLineReader {
         return this._finish();
     }
 
+    /// 把内部缓冲区已有字节拷入 `dest` 自 `offset` 起（至多 `count`），返回实际拷贝数。
     public int DrainBuffered(byte[] dest, int offset, int count) {
         int available = this._bufEnd - this._bufStart;
         int toCopy;

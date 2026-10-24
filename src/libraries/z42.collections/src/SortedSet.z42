@@ -1,6 +1,7 @@
 namespace Std.Collections;
 
 /// 按升序维护的去重集合：O(log n) 查找，Add / Remove 的元素搬移是 O(n)。
+///
 /// where T: IComparable + IEquatable。
 public class SortedSet<T> : IBasicCollection<T> where T: IComparable + IEquatable {
     // 底层用有序 T[] 存储，Contains/Remove 二分查找，Add 二分定位 + O(n) 搬移。

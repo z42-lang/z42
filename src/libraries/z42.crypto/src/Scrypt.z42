@@ -1,12 +1,15 @@
 namespace Std.Crypto;
 
 
-// scrypt 口令哈希 KDF（RFC 7914 / Colin Percival 2009），PBKDF2 的内存硬替代：暴力破解每次尝试
-// 需 O(N × r) 内存，令 GPU / ASIC 攻击远比单纯并行昂贵。流程：① PBKDF2-HMAC-SHA256(password, salt,
-// 1, p × 128 × r) → B[0..p-1]；② 每个 B[i] 做 ROMix(B[i], N)（内存硬步骤）；③ 再做 PBKDF2 得 DK。
-// ROMix 中 BlockMix 用 Salsa20/8（8 轮变体）作混合原语（RFC 7914 §3）。
+/// scrypt 口令哈希 KDF（RFC 7914 / Colin Percival 2009），PBKDF2 的内存硬替代。
+///
+/// 暴力破解每次尝试需 O(N × r) 内存，令 GPU / ASIC 攻击远比单纯并行昂贵。流程：
+/// ① PBKDF2-HMAC-SHA256(password, salt, 1, p × 128 × r) → B[0..p-1]；② 每个 B[i] 做
+/// ROMix(B[i], N)（内存硬步骤）；③ 再做 PBKDF2 得 DK。ROMix 中 BlockMix 用 Salsa20/8
+/// （8 轮变体）作混合原语（RFC 7914 §3）。
 public static class Scrypt {
     /// 用 scrypt(N, r, p) 从 `password` + `salt` 派生 `dkLen` 字节。
+    ///
     /// 约束：N 为 2 的幂且 ≥ 2，r ≥ 1，p ≥ 1，r × p < 2^30，dkLen ≥ 0。
     public static byte[] Derive(byte[] password, byte[] salt,
                                 int n, int r, int p, int dkLen) {

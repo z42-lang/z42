@@ -13,7 +13,7 @@ internal static class JsonReflect {
     // FieldInfo.GetValue）。z42 反射无 GetMethod(name)/GetField(name) → 遍历按名取首个匹配。
     // 跨包 imported 反射返回引用类型（Type/MethodInfo/FieldInfo）逐处 cast + local receiver（footgun）。
 
-    // 构造泛型第 idx 个类型实参（List→[T]，Dict→[K,V]）；越界返回 null。
+    /// 取泛型类型的第 `idx` 个类型实参（List→T、Dict→K/V）；越界返回 null。
     public static Type GenericArg(Type t, int idx) {
         Type[] ga = t.GetGenericArguments();
         if (idx < ga.Length) { Type g = ga[idx]; return g; }
@@ -43,19 +43,21 @@ internal static class JsonReflect {
         return null;
     }
 
-    // List<T>：Count（公开字段）+ get_Item(i)（indexer）+ Add(item)。
+    /// 反射读 `Count` 公开字段，返回 List<T> 的元素个数。
     public static int ListCount(object list) {
         Type t = (Type)list.GetType();
         FieldInfo cf = JsonReflect._findField(t, "Count");
         object v = cf.GetValue(list);
         return (int)v;
     }
+    /// 反射调 `get_Item(i)`（indexer）取 List<T> 第 `i` 个元素。
     public static object ListGet(object list, int i) {
         Type t = (Type)list.GetType();
         MethodInfo gm = JsonReflect._findMethod(t, "get_Item");
         object[] args = new object[1]; args[0] = i;
         return gm.Invoke(list, args);
     }
+    /// 反射调 `Add(item)` 向 List<T> 追加一个元素。
     public static void ListAdd(object list, object item) {
         Type t = (Type)list.GetType();
         MethodInfo am = JsonReflect._findMethod(t, "Add");
@@ -63,19 +65,21 @@ internal static class JsonReflect {
         am.Invoke(list, args);
     }
 
-    // Dictionary<string,V>：Keys()→string[] 快照 + get_Item(key) + set_Item(key,val)。
+    /// 反射调 `Keys()` 取 Dictionary<string,V> 键的 string[] 快照。
     public static string[] DictKeys(object dict) {
         Type t = (Type)dict.GetType();
         MethodInfo km = JsonReflect._findMethod(t, "Keys");
         object r = km.Invoke(dict, new object[0]);
         return (string[])r;
     }
+    /// 反射调 `get_Item(key)` 按键取 Dictionary<string,V> 的值。
     public static object DictGet(object dict, string key) {
         Type t = (Type)dict.GetType();
         MethodInfo gm = JsonReflect._findMethod(t, "get_Item");
         object[] args = new object[1]; args[0] = key;
         return gm.Invoke(dict, args);
     }
+    /// 反射调 `set_Item(key, val)` 按键写 Dictionary<string,V> 的值。
     public static void DictSet(object dict, string key, object val) {
         Type t = (Type)dict.GetType();
         MethodInfo sm = JsonReflect._findMethod(t, "set_Item");

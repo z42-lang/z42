@@ -2,6 +2,7 @@ namespace Std.Net;
 
 /// 网络 API 在当前目标平台（如 wasm32）不受支持时抛出；继承 `PlatformNotSupportedException`。
 public class NetUnsupportedException : PlatformNotSupportedException {
+    /// 无参构造：消息固定为「当前目标（如 wasm32）不支持网络 socket」。
     public NetUnsupportedException()
         : base("network sockets are not supported on this target (e.g. wasm32)") {
     }

@@ -1,8 +1,10 @@
 namespace Std;
 
-/// 可被 GC 清除的引用（比 weak 强一档）：堆压力低于阈值（`Z42_GC_SOFT_THRESHOLD`，默认 80%）时
-/// 保活，越过阈值后 GC 可清除。没设堆上限时永不被清除。原子值（int / string / bool 等）
-/// 不可软引用——`Create()` 返回的句柄 `Get()` 恒为 null。
+/// 可被 GC 清除的引用（比 weak 强一档）。
+///
+/// 堆压力低于阈值（`Z42_GC_SOFT_THRESHOLD`，默认 80%）时保活，越过阈值后 GC 可
+/// 清除。没设堆上限时永不被清除。原子值（int / string / bool 等）不可软引用——
+/// `Create()` 返回的句柄 `Get()` 恒为 null。
 public class SoftHandle {
     private long _key;
 

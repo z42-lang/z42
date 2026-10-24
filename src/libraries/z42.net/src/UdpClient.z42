@@ -16,6 +16,7 @@ public class UdpClient : IDisposable {
     private string _lastRxHost;
     private int    _lastRxPort;
 
+    /// 构造未绑定实例；`Bind` 显式绑定，或首次 `Send` 自动绑定临时端口。
     public UdpClient() {
         this._slotId     = -1;
         this._bound      = false;
@@ -45,6 +46,7 @@ public class UdpClient : IDisposable {
     }
 
     /// 向 `remoteHost:remotePort` 发送 `data[0..length]` 的数据报，返回发送字节数。
+    ///
     /// 若尚未 Bind，则自动绑定到 ("0.0.0.0", 0)。
     public int Send(byte[] data, int length, string remoteHost, int remotePort) {
         if (this._disposed) {
@@ -113,8 +115,9 @@ public class UdpClient : IDisposable {
         return this.SendConnected(data, data.Length);
     }
 
-    /// 把数据报收进调用方缓冲 `buf[offset..offset+count)`，省一次分配；返回写入字节数。
-    /// 对端地址通过 `LastReceiveHost` / `LastReceivePort` 读取。
+    /// 把数据报收进调用方缓冲 `buf[offset..offset+count)`，省一次分配。
+    ///
+    /// 返回写入字节数。对端地址通过 `LastReceiveHost` / `LastReceivePort` 读取。
     public int ReceiveInto(byte[] buf, int offset, int count) {
         if (this._disposed) {
             throw new SocketClosedException();

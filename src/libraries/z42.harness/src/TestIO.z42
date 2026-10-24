@@ -2,9 +2,13 @@ namespace Std.Harness;
 
 /// 一次双通道捕获的结果。
 public class CaptureResult {
+    /// 捕获窗口内写到的 stdout 文本。
     public string Stdout { get; private set; }
+
+    /// 捕获窗口内写到的 stderr 文本。
     public string Stderr { get; private set; }
 
+    /// 以两路捕获文本组装结果；参数顺序即字段顺序。
     public CaptureResult(string stdout, string stderr) {
         this.Stdout = stdout;
         this.Stderr = stderr;

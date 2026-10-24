@@ -41,6 +41,7 @@ public class TcpClient : IDisposable {
     // _connectTimeoutMs > 0 时下一次 Connect 走带超时的 builtin；0 = 无预设。
     private int _connectTimeoutMs;
 
+    /// 构造未连接实例；随后 `Connect(host, port)` 建立连接。
     public TcpClient() {
         this._slotId    = -1;
         this._connected = false;
@@ -184,6 +185,7 @@ public class TcpClient : IDisposable {
 
     // 供 `TcpListener.AcceptTcpClient` 使用的内部构造：listener 已从
     // __tcp_accept 拿到 slot id，直接包成已连接的 TcpClient。
+    /// 以 accept 到的 slot 句柄直接包装成已连接客户端（远端记为 "<accepted>"）。
     public TcpClient(long slotId, bool fromAccept) {
         this._slotId    = slotId;
         this._connected = true;

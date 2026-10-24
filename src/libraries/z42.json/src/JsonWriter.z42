@@ -12,6 +12,7 @@ public sealed class JsonWriter {
     private bool _pretty;
     private int _depth;
 
+    /// `pretty=true` 输出换行 + 两空格缩进，否则单行紧凑格式。
     public JsonWriter(bool pretty) {
         this._parts = new string[64];
         this._n = 0;
@@ -19,6 +20,7 @@ public sealed class JsonWriter {
         this._depth = 0;
     }
 
+    /// 把 `v` 写成 JSON 文本并返回（一次性拼接全部片段）。
     public string Write(JsonValue v) {
         this.WriteValue(v);
         return String.ConcatParts(this._parts, this._n);

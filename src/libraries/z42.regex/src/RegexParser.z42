@@ -20,7 +20,9 @@ public class RegexParser {
 
     /// 命名组名 → 1-based 捕获下标 的并行数组；供 Regex.Compile 转发进编译结果。
     public string[] GroupNames;
+    /// 与 GroupNames 平行的捕获下标（1-based）数组。
     public int[]    GroupIndices;
+    /// 已注册的命名组个数（GroupNames / GroupIndices 的有效长度）。
     public int      NamedGroupCount;
 
     /// 用待解析的 pattern 字符串构造 parser。

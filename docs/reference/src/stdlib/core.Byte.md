@@ -45,77 +45,79 @@ public struct Byte : IComparable, IEquatable, INumber {
 <a id="Std.Byte.Parse(string)"></a>
 ### static extern byte Parse(string s)
 
-[`src/libraries/z42.core/src/Primitives/Byte.z42:11`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Byte.z42#L11)
+[`src/libraries/z42.core/src/Primitives/Byte.z42:13`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Byte.z42#L13)
 
-解析无符号整数字符串；格式错误抛 FormatException，越界抛 OverflowException，null 抛 ArgumentNullException。
+解析无符号整数字符串。
+
+格式错误抛 FormatException，越界抛 OverflowException，null 抛 ArgumentNullException。
 
 <a id="Std.Byte.ToString()"></a>
 ### extern string ToString()
 
-[`src/libraries/z42.core/src/Primitives/Byte.z42:14`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Byte.z42#L14)
+[`src/libraries/z42.core/src/Primitives/Byte.z42:16`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Byte.z42#L16)
 
 返回十进制字符串表示。
 
 <a id="Std.Byte.TryParse(string,byte)"></a>
 ### static extern bool TryParse(string s, ref byte v)
 
-[`src/libraries/z42.core/src/Primitives/Byte.z42:17`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Byte.z42#L17)
+[`src/libraries/z42.core/src/Primitives/Byte.z42:19`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Byte.z42#L19)
 
 非抛出解析：成功把值写入 `v` 并返回 true；格式错误 / 越界 / null 返回 false 且 `v` 置 0。
 
 <a id="Std.Byte.Equals(byte)"></a>
 ### bool Equals(byte other)
 
-[`src/libraries/z42.core/src/Primitives/Byte.z42:20`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Byte.z42#L20)
+[`src/libraries/z42.core/src/Primitives/Byte.z42:22`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Byte.z42#L22)
 
 值相等比较。
 
 <a id="Std.Byte.GetHashCode()"></a>
 ### int GetHashCode()
 
-[`src/libraries/z42.core/src/Primitives/Byte.z42:22`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Byte.z42#L22)
+[`src/libraries/z42.core/src/Primitives/Byte.z42:24`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Byte.z42#L24)
 
 返回哈希码。
 
 <a id="Std.Byte.CompareTo(byte)"></a>
 ### int CompareTo(byte other)
 
-[`src/libraries/z42.core/src/Primitives/Byte.z42:25`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Byte.z42#L25)
+[`src/libraries/z42.core/src/Primitives/Byte.z42:27`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Byte.z42#L27)
 
 比较大小，返回负 / 0 / 正。
 
 <a id="Std.Byte.op_Add(byte,byte)"></a>
 ### static override byte op_Add(byte a, byte b)
 
-[`src/libraries/z42.core/src/Primitives/Byte.z42:32`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Byte.z42#L32)
+[`src/libraries/z42.core/src/Primitives/Byte.z42:34`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Byte.z42#L34)
 
 加法。
 
 <a id="Std.Byte.op_Subtract(byte,byte)"></a>
 ### static override byte op_Subtract(byte a, byte b)
 
-[`src/libraries/z42.core/src/Primitives/Byte.z42:34`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Byte.z42#L34)
+[`src/libraries/z42.core/src/Primitives/Byte.z42:36`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Byte.z42#L36)
 
 减法。
 
 <a id="Std.Byte.op_Multiply(byte,byte)"></a>
 ### static override byte op_Multiply(byte a, byte b)
 
-[`src/libraries/z42.core/src/Primitives/Byte.z42:36`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Byte.z42#L36)
+[`src/libraries/z42.core/src/Primitives/Byte.z42:38`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Byte.z42#L38)
 
 乘法。
 
 <a id="Std.Byte.op_Divide(byte,byte)"></a>
 ### static override byte op_Divide(byte a, byte b)
 
-[`src/libraries/z42.core/src/Primitives/Byte.z42:38`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Byte.z42#L38)
+[`src/libraries/z42.core/src/Primitives/Byte.z42:40`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Byte.z42#L40)
 
 除法。
 
 <a id="Std.Byte.op_Modulo(byte,byte)"></a>
 ### static override byte op_Modulo(byte a, byte b)
 
-[`src/libraries/z42.core/src/Primitives/Byte.z42:40`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Byte.z42#L40)
+[`src/libraries/z42.core/src/Primitives/Byte.z42:42`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Byte.z42#L42)
 
 取模。
 

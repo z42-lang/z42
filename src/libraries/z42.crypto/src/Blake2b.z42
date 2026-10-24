@@ -2,11 +2,12 @@ namespace Std.Crypto;
 
 using Std.Encoding;
 
-// BLAKE2b 哈希（RFC 7693），为软件速度设计的 SHA-3 候选 BLAKE 后继：比 SHA-2 / SHA-3 更简单、
-// 可并行，输出长度可配置（1..64 字节），支持 keyed 模式（MAC）。用于 Argon2、IPFS、WireGuard、
-// Zcash、libsodium（`crypto_generichash`）等。16 字（1024 位）工作向量上做 12 轮 `G` 混合，
-// 由 8 字状态做 key；块大小 128 字节、64 位字（z42 的 `long` 天然契合，逻辑右移用 `_lshr64`）。
-
+/// BLAKE2b 哈希（RFC 7693）——输出 1..64 字节可配、支持 keyed（MAC）模式的快速哈希。
+///
+/// 为软件速度设计的 SHA-3 候选 BLAKE 后继：比 SHA-2 / SHA-3 更简单、可并行。用于
+/// Argon2、IPFS、WireGuard、Zcash、libsodium（`crypto_generichash`）等。16 字（1024 位）
+/// 工作向量上做 12 轮 `G` 混合，由 8 字状态做 key；块大小 128 字节、64 位字（z42 的
+/// `long` 天然契合，逻辑右移用 `_lshr64`）。
 public static class Blake2b {
     // ── Public API ───────────────────────────────────────────────────────────
 
@@ -32,7 +33,9 @@ public static class Blake2b {
     /// 对 UTF-8 字符串计算 256 位 BLAKE2b 摘要并输出小写十六进制。
     public static string Hash256StringHex(string s) { return Hex.Encode(Blake2b.Hash256String(s)); }
 
-    /// BLAKE2b 变长 + keyed（MAC）模式：`key.Length` ∈ [0, 64]、`outLen` ∈ [1, 64]，无 key 传 `new byte[0]`。
+    /// BLAKE2b 变长 + keyed（MAC）模式。
+    ///
+    /// `key.Length` ∈ [0, 64]、`outLen` ∈ [1, 64]，无 key 传 `new byte[0]`。
     public static byte[] HashLen(byte[] data, byte[] key, int outLen) {
         if (outLen < 1 || outLen > 64) {
             throw new ArgumentException(

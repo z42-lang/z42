@@ -7,6 +7,7 @@ public class TlsStream : Stream {
     private long _slotId;
     private bool _closed;
 
+    /// 以底层 TLS 会话的 slot 句柄包装流；初始为打开状态。
     public TlsStream(long slotId) {
         this._slotId = slotId;
         this._closed = false;
@@ -48,6 +49,7 @@ public class TlsStream : Stream {
     }
 
     // 供 TlsClient.Dispose 调用：即使用户仍持有缓存引用，也翻转 _closed 位。
+    /// 翻转 _closed 位使本流失效；幂等，底层会话由 TlsClient.Dispose 释放。
     public void MarkClosed() {
         this._closed = true;
     }
@@ -68,6 +70,7 @@ public class TlsClient : IDisposable {
     private string    _remoteHost;
     private int       _remotePort;
 
+    /// 构造未连接实例；随后 `Connect(host, port, timeoutMs)` 建立会话。
     public TlsClient() {
         this._slotId     = -1;
         this._connected  = false;

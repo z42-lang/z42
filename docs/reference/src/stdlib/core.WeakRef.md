@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`
 
-[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:150`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L150)
+[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:153`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L153)
 
 弱引用包装。
 
@@ -27,28 +27,28 @@ public sealed class WeakRef<TD> : ISubscription<TD> {
 <a id="Std.WeakRef<TD>.ctor(TD)"></a>
 ### WeakRef(TD h)
 
-[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:157`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L157)
+[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:160`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L160)
 
 用 handler 构造弱引用包装。
 
 <a id="Std.WeakRef<TD>.Get()"></a>
 ### TD Get()
 
-[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:173`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L173)
+[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:176`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L176)
 
 target 存活时重建 Closure 返回；否则返回 null（退化时返回 degradedHandler）。
 
 <a id="Std.WeakRef<TD>.IsAlive()"></a>
 ### bool IsAlive()
 
-[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:184`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L184)
+[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:187`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L187)
 
 是否仍活跃（退化时恒 true）。
 
 <a id="Std.WeakRef<TD>.OnInvoked()"></a>
 ### void OnInvoked()
 
-[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:191`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L191)
+[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:194`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L194)
 
 无操作（weak 不维护本地状态）。
 

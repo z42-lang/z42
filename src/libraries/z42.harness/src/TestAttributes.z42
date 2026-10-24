@@ -13,26 +13,32 @@ namespace Std.Harness;
 
 /// 一条测试：零参、返回 void 的自由函数或静态方法。
 public sealed class TestAttribute : Attribute {
+    /// 无实参（签名约束由编译期校验）。
     public TestAttribute() { }
 }
 
 /// 一条基准：零参，或唯一参数为 [`Bencher`]（`void f(Bencher b)`——runner 传入并自动打摘要行）。
 public sealed class BenchmarkAttribute : Attribute {
+    /// 无实参（签名约束由编译期校验）。
     public BenchmarkAttribute() { }
 }
 
 /// 同命名空间（或同一类型）里每条测试之前执行。
 public sealed class SetupAttribute : Attribute {
+    /// 无实参（签名约束由编译期校验）。
     public SetupAttribute() { }
 }
 
 /// 同命名空间（或同一类型）里每条测试之后执行（测试失败也执行）。
 public sealed class TeardownAttribute : Attribute {
+    /// 无实参（签名约束由编译期校验）。
     public TeardownAttribute() { }
 }
 
-/// 跳过本条。`reason` 必填（E0914）；给 `platform` ⇒ 仅在该平台跳过；给 `feature` ⇒
-/// 运行时缺这项能力才跳过（能力集见 `Std.Platform.Capabilities()`，未知能力名按缺失处理）。
+/// 跳过本条。`reason` 必填（E0914）；`platform` / `feature` 是可选门。
+///
+/// 给 `platform` ⇒ 仅在该平台跳过；给 `feature` ⇒ 运行时缺这项能力才跳过
+/// （能力集见 `Std.Platform.Capabilities()`，未知能力名按缺失处理）。
 public sealed class SkipAttribute : Attribute {
     /// 必填：跳过的原因（报告里随 SKIP 行输出）。
     public string Reason;
@@ -40,6 +46,7 @@ public sealed class SkipAttribute : Attribute {
     public string Platform;
     /// 能力门：运行中的 VM 不报告这项能力时跳过。
     public string Feature;
+    /// 三门都可省（缺省空串）；空串在发现层归一成 null（见 [`TestDiscovery`]）。
     public SkipAttribute(string reason = "", string platform = "", string feature = "") {
         this.Reason = reason;
         this.Platform = platform;
@@ -49,6 +56,7 @@ public sealed class SkipAttribute : Attribute {
 
 /// 无条件跳过（不报理由）。
 public sealed class IgnoreAttribute : Attribute {
+    /// 无实参。
     public IgnoreAttribute() { }
 }
 
@@ -56,18 +64,23 @@ public sealed class IgnoreAttribute : Attribute {
 public sealed class TimeoutAttribute : Attribute {
     /// 超时毫秒数（必须为正）。
     public int Milliseconds;
+    /// 记录 `milliseconds`（正性由编译期 E0917 查，运行期不强制）。
     public TimeoutAttribute(int milliseconds = 0) { this.Milliseconds = milliseconds; }
 }
 
 /// 期望抛出 `E`（或其子类型）。runner 经 [`IExpectsException`] 取到 `E`，不必知道类型实参。
 public sealed class ShouldThrowAttribute<E> : Attribute, IExpectsException {
+    /// 无实参。
     public ShouldThrowAttribute() { }
+    /// 期望的异常类型：typeof(E)。
     public Type? ExceptionType() { return typeof(E); }
 }
 
 /// 漏写类型实参的 `[ShouldThrow]` 落到这里（E0913 照报）；它不期望任何具体类型。
 public sealed class ShouldThrowAttribute : Attribute, IExpectsException {
+    /// 无实参。
     public ShouldThrowAttribute() { }
+    /// 恒返 null——不期望任何具体异常类型。
     public Type? ExceptionType() { return null; }
 }
 

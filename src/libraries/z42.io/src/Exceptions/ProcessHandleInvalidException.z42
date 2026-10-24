@@ -1,6 +1,8 @@
 namespace Std.IO;
 
-/// 对已 Wait / TryWait（有结果）/ Dispose 的 ProcessHandle 再操作时抛出；继承 InvalidOperationException。
+/// 对已 Wait / TryWait（有结果）/ Dispose 的 ProcessHandle 再操作时抛出。
+///
+/// 继承 InvalidOperationException。
 public class ProcessHandleInvalidException : InvalidOperationException {
     /// 被执行的程序。
     public string Program;

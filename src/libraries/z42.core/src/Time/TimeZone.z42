@@ -1,8 +1,10 @@
 namespace Std.Time;
 
 
-/// 固定偏移时区：一个带符号的分钟偏移加一个名字。没有 DST、没有 IANA tzdata。
-/// 短代码大小写不敏感；任意固定偏移用 `FromOffsetMinutes`。私有构造，只能走工厂。
+/// 固定偏移时区：一个带符号的分钟偏移加一个名字。
+///
+/// 没有 DST、没有 IANA tzdata。短代码大小写不敏感；任意固定偏移用
+/// `FromOffsetMinutes`。私有构造，只能走工厂。
 public sealed class TimeZone {
     int _offsetMinutes;     // signed; e.g. JST = +540, PST = -480
     string _name;           // short code (e.g. "JST") or "+05:30" rendering
@@ -27,9 +29,11 @@ public sealed class TimeZone {
         return new TimeZone(offsetMinutes, TimeZone._formatOffset(offsetMinutes));
     }
 
-    /// 按短代码查找（大小写不敏感），未知代码返回 null。支持的代码：UTC / GMT / Z；
-    /// 美洲 EST/EDT/CST/CDT/MST/MDT/PST/PDT（标准时与夏令时分开列，调用方按日期自己挑）；
-    /// 欧洲 CET/CEST/EET/EEST；亚洲 / 大洋洲 JST/KST/IST/ICT/AEST/AEDT/NZST/NZDT。
+    /// 按短代码查找（大小写不敏感），未知代码返回 null。
+    ///
+    /// 支持的代码：UTC / GMT / Z；美洲 EST/EDT/CST/CDT/MST/MDT/PST/PDT（标准时与
+    /// 夏令时分开列，调用方按日期自己挑）；欧洲 CET/CEST/EET/EEST；亚洲 / 大洋洲
+    /// JST/KST/IST/ICT/AEST/AEDT/NZST/NZDT。
     public static TimeZone? FromName(string code) {
         string upper = code.ToUpper();
         int offset = TimeZone._lookupOffset(upper);

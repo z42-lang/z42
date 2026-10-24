@@ -83,42 +83,44 @@ public sealed class Version {
 <a id="Std.Version.Parse(string)"></a>
 ### static Version Parse(string s)
 
-[`src/libraries/z42.core/src/Version.z42:68`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Version.z42#L68)
+[`src/libraries/z42.core/src/Version.z42:69`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Version.z42#L69)
 
-解析 `"major.minor"` / `"major.minor.build"` / `"major.minor.build.revision"`。 段数不对或某段非整数 / 为负抛 FormatException。
+解析 `"major.minor"` / `"major.minor.build"` / `"major.minor.build.revision"`。
+
+段数不对或某段非整数 / 为负抛 FormatException。
 
 <a id="Std.Version.TryParse(string)"></a>
 ### static Version? TryParse(string s)
 
-[`src/libraries/z42.core/src/Version.z42:99`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Version.z42#L99)
+[`src/libraries/z42.core/src/Version.z42:100`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Version.z42#L100)
 
 不抛异常的解析：成功返回 Version，任何非法输入返回 null。
 
 <a id="Std.Version.CompareTo(Version)"></a>
 ### int CompareTo(Version other)
 
-[`src/libraries/z42.core/src/Version.z42:110`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Version.z42#L110)
+[`src/libraries/z42.core/src/Version.z42:111`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Version.z42#L111)
 
 按 (major, minor, build, revision) 字典序比较，返回 -1 / 0 / 1。
 
 <a id="Std.Version.Equals(Version)"></a>
 ### bool Equals(Version other)
 
-[`src/libraries/z42.core/src/Version.z42:125`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Version.z42#L125)
+[`src/libraries/z42.core/src/Version.z42:126`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Version.z42#L126)
 
 四段全等比较。
 
 <a id="Std.Version.GetHashCode()"></a>
 ### int GetHashCode()
 
-[`src/libraries/z42.core/src/Version.z42:133`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Version.z42#L133)
+[`src/libraries/z42.core/src/Version.z42:134`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Version.z42#L134)
 
 内容哈希码。
 
 <a id="Std.Version.ToString()"></a>
 ### override string ToString()
 
-[`src/libraries/z42.core/src/Version.z42:144`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Version.z42#L144)
+[`src/libraries/z42.core/src/Version.z42:145`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Version.z42#L145)
 
 `"major.minor[.build[.revision]]"` —— 未设置的尾部段（-1）省略。
 

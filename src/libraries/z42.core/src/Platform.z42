@@ -6,8 +6,10 @@ namespace Std;
 /// （`OSKindValue()` / `IsMacOS()`）；两者读同一来源。能力查询（`Capabilities()` /
 /// `ExecModes()`）报告**这个 z42vm 二进制编进了什么**，不是从平台名猜的。
 public static class Platform {
-    /// OS 名：`"linux"` / `"macos"` / `"windows"` / `"android"` / `"ios"` / `"wasm"` /
-    /// `"freebsd"`，或目标三元组里的其它 OS 名。
+    /// OS 名：`"linux"` / `"macos"` / `"windows"` 等（或目标三元组里的其它 OS 名）。
+    ///
+    /// 已知名：`"linux"` / `"macos"` / `"windows"` / `"android"` / `"ios"` /
+    /// `"wasm"` / `"freebsd"`。
     [Native("__platform_os")]
     public static extern string OS();
     /// 架构名：`"x86_64"` / `"aarch64"` / `"wasm32"` / `"x86"`，或目标三元组里的其它架构名。
@@ -69,11 +71,13 @@ public static class Platform {
     // 本二进制编进了什么（运行期查询，非平台名猜测）。
 
     /// 本二进制编进的能力集，如 `["jit", "native-interop", "threads", "socket", "fs", ...]`。
+    ///
     /// 元素顺序稳定，可直接打印做诊断。
     [Native("__platform_caps")]
     public static extern string[] Capabilities();
 
     /// 本二进制可派发的执行后端：恒含 `"interp"`，编进 JIT / AOT 时再加 `"jit"` / `"aot"`。
+    ///
     /// 注意 `"aot"` 是「编进来了」，不是「能跑」。
     [Native("__platform_exec_modes")]
     public static extern string[] ExecModes();
@@ -126,8 +130,9 @@ public static class OSKind {
     public static int FreeBSD = 7;
 }
 
-/// 架构的整数 kind 常量（与 `Platform.ArchKindValue()` 返回值一致）。命名对齐 .NET 的
-/// `X64` / `Arm64` / `Wasm` / `X86`。
+/// 架构的整数 kind 常量（与 `Platform.ArchKindValue()` 返回值一致）。
+///
+/// 命名对齐 .NET 的 `X64` / `Arm64` / `Wasm` / `X86`。
 public static class ArchKind {
     /// 未识别（0）。
     public static int Unknown = 0;

@@ -1,8 +1,12 @@
 namespace Std.Threading;
 
-/// 通道断开异常：对已关闭（或等待期间被关闭）的通道 Send，或通道已关闭且队列已空时 Recv。
+/// 通道断开异常：对已关闭（或等待期间被关闭）的通道 Send，或通道已关闭且队列
+/// 已空时 Recv。
+///
 /// TrySend / TryRecv 永远不抛这个异常，用返回值表达同样的状态。
 public class ChannelDisconnectedException : Exception {
+    /// 按触发消息构造。
+    ///
     /// @param message 触发消息（"channel closed" / "channel disconnected"）。
     public ChannelDisconnectedException(string message) : base(message) {}
 

@@ -1,8 +1,10 @@
 namespace Std.Time;
 
-// 日历换算 / ISO 解析·格式化 的纯静态辅助（从 DateTime.z42 拆出）。
+/// 日历换算 / ISO 解析·格式化的纯静态辅助（从 DateTime.z42 拆出）。
 public static class _DateTimeHelpers {
-    // (y, m, d) → 1970-01-01 起的天数（Howard Hinnant 的 days_from_civil）。
+    /// (y, m, d) → 自 Unix 纪元（1970 年 1 月 1 日）起的天数。
+    ///
+    /// Howard Hinnant 的 days_from_civil 算法。
     public static long _daysFromCivil(long y, long m, long d) {
         if (m <= 2L) { y = y - 1L; }
         long era;
@@ -15,6 +17,9 @@ public static class _DateTimeHelpers {
         return era * 146097L + doe - 719468L;
     }
 
+    /// 从 `start` 起读 `width` 位十进制数字；越界或非数字抛 ArgumentException。
+    ///
+    /// `fieldName` 只进报错信息（"ParseIso8601: <fieldName> …"）。
     public static int _parseFixed(string s, int start, int width, string fieldName) {
         if (start + width > s.Length) {
             throw new ArgumentException("ParseIso8601: " + fieldName + " truncated");
@@ -34,6 +39,7 @@ public static class _DateTimeHelpers {
         return n;
     }
 
+    /// 断言 `s` 的 `pos` 处恰是 `want`；越界或不符抛 ArgumentException（报 got）。
     public static void _expect(string s, int pos, char want) {
         if (pos >= s.Length || s.CharAt(pos) != want) {
             char got = pos < s.Length ? s.CharAt(pos) : '?';
@@ -43,14 +49,19 @@ public static class _DateTimeHelpers {
         }
     }
 
+    /// 是否 ASCII 十进制数字（'0'..'9'）。
     public static bool _isDigit(char c) { return c >= '0' && c <= '9'; }
 
+    /// 单个 char 包成 string（报错信息里拼字符字面量用）。
     public static string _charStr(char c) {
         char[] buf = new char[1];
         buf[0] = c;
         return String.FromChars(buf);
     }
-    // days since 1970-01-01 → [year, month, day]（Howard Hinnant 的 civil_from_days）。
+
+    /// Unix 纪元起的天数 → [year, month, day]。
+    ///
+    /// Howard Hinnant 的 civil_from_days 算法。
     public static long[] _civilFromDays(long days) {
         long z = days + 719468L;
         long era;
@@ -71,28 +82,34 @@ public static class _DateTimeHelpers {
         return result;
     }
 
-    // Floor division / modulo（处理负数向负无穷舍入；Unix epoch 之前的时刻需要）。
-    // C-style `/` 在 z42 跟 .NET 一样 truncates-toward-zero，对负数会算错日界。
+    /// 向负无穷舍入的除法（Unix 纪元之前的时刻需要；C 风格 `/` 向零截断会算错日界）。
     public static long _floorDiv(long a, long b) {
         long q = a / b;
         long r = a - q * b;
         if ((r != 0L) && ((r < 0L) != (b < 0L))) { q = q - 1L; }
         return q;
     }
+
+    /// 与 `_floorDiv` 同口径的取模（余数与除数同号）。
     public static long _floorMod(long a, long b) {
         long r = a - _floorDiv(a, b) * b;
         return r;
     }
 
+    /// 左补零到 2 位（月 / 日、时 / 分 / 秒）。
     public static string _pad2(long n) {
         if (n < 10L) { return "0" + n.ToString(); }
         return n.ToString();
     }
+
+    /// 左补零到 3 位（毫秒）。
     public static string _pad3(long n) {
         if (n < 10L)  { return "00" + n.ToString(); }
         if (n < 100L) { return "0"  + n.ToString(); }
         return n.ToString();
     }
+
+    /// 左补零到 4 位（年份）；负数先输出 `-` 再按绝对值补零。
     public static string _pad4(long n) {
         if (n < 0L)     { return "-" + _pad4(-n); }
         if (n < 10L)    { return "000" + n.ToString(); }

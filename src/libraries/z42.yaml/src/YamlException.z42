@@ -1,7 +1,9 @@
 namespace Std.Yaml;
 
 /// `Std.Yaml.*` 抛出的用户可见异常：解析错误 / 访问器类型不符 / 序列化错误。
-/// 与其余 stdlib 异常一样住在所属包的命名空间（`Std.Toml.TomlException` / `Std.Json.JsonException`）。
+///
+/// 与其余 stdlib 异常一样住在所属包的命名空间（`Std.Toml.TomlException` /
+/// `Std.Json.JsonException`）。
 public class YamlException : Exception {
     /// 构造带消息的 YamlException。
     public YamlException(string message) : base(message) { }

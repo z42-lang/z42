@@ -1,8 +1,9 @@
 namespace Std.Text;
 
-// `Std.Text.Strings` —— `Std.String` 上没有的常见字符串 shaping 静态工具。放在 z42.text 而不是 prelude
-// 的 `Std.String` 上，是因为 prelude 的每个方法都会进所有脚本的命名空间；这些工具有用但不够通用，按需
-// `using Std.Text` 才看到更合适。
+/// `Std.String` 上没有的常见字符串 shaping 静态工具。
+///
+/// 放在 z42.text 而不是 prelude 的 `Std.String` 上，是因为 prelude 的每个方法都会进所有
+/// 脚本的命名空间；这些工具有用但不够通用，按需 `using Std.Text` 才看到更合适。
 public static class Strings {
 
     /// 左侧补 `fill` 到长度 `width`。`s` 已够长时原样返回，**不截断**。

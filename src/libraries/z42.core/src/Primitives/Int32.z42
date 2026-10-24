@@ -7,8 +7,9 @@ public struct Int32 : IComparable, IEquatable, INumber {
     /// 最小值：-2147483648。
     public static int MinValue = -2147483647 - 1;
 
-    /// 解析十进制整数字符串；格式错误抛 FormatException，越界抛 OverflowException，
-    /// null 抛 ArgumentNullException。
+    /// 解析十进制整数字符串。
+    ///
+    /// 格式错误抛 FormatException，越界抛 OverflowException，null 抛 ArgumentNullException。
     [Native("__int32_parse")]      public static extern int Parse(string s);
     /// 返回十进制字符串表示。
     [Native("__int32_to_string")]  public extern string ToString();

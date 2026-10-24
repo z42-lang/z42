@@ -1,9 +1,9 @@
 namespace Std;
 
-// `Std.String` 的 partial 碎片 —— Split / Join / Concat / Format。
-//
-// 本碎片持有**整个 Split 家族**（`Split(string)` / `Split(string,int)` / `Split(char[])`）——
-// 同名方法组必须同碎片，见 `String.z42` 头部的碎片归属说明。
+/// `Std.String` 的 partial 碎片 —— Split / Join / Concat / Format。
+///
+/// 本碎片持有**整个 Split 家族**（`Split(string)` / `Split(string,int)` / `Split(char[])`）——
+/// 同名方法组必须同碎片，见 `String.z42` 头部的碎片归属说明。
 public sealed partial class String {
     // ── Split / Join ─────────────────────────────────────────────────────────
     // Split(string) 的扫描与切段走原生 `__str_split`（一次扫描、每段一次分配）；
@@ -86,8 +86,9 @@ public sealed partial class String {
         return false;
     }
 
-    /// 以 `separator` 拼接各段。`params` 使 `Join("-", arr)` 与 `Join("-", "a", "b")`
-    /// 都可用；零实参 → ""。
+    /// 以 `separator` 拼接各段。
+    ///
+    /// `params` 使 `Join("-", arr)` 与 `Join("-", "a", "b")` 都可用；零实参 → ""。
     // n ≥ 2 走原生 `__str_join`：一次分配完成交错 + 拼接。
     public static string Join(string separator, params string[] values) {
         int n = values.Length;

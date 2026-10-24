@@ -31,9 +31,12 @@ YAML。覆盖 Docker Compose / kubectl / Helm 这类配置日常用到的子集�
 
 ## YamlException
 
-[`src/libraries/z42.yaml/src/YamlException.z42:5`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlException.z42#L5)
+[`src/libraries/z42.yaml/src/YamlException.z42:7`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlException.z42#L7)
 
-`Std.Yaml.*` 抛出的用户可见异常：解析错误 / 访问器类型不符 / 序列化错误。 与其余 stdlib 异常一样住在所属包的命名空间（`Std.Toml.TomlException` / `Std.Json.JsonException`）。
+`Std.Yaml.*` 抛出的用户可见异常：解析错误 / 访问器类型不符 / 序列化错误。
+
+与其余 stdlib 异常一样住在所属包的命名空间（`Std.Toml.TomlException` /
+`Std.Json.JsonException`）。
 
 ```z42
 public class YamlException : Exception {
@@ -46,7 +49,7 @@ public class YamlException : Exception {
 <a id="Std.Yaml.YamlException.ctor(string)"></a>
 ### YamlException(string message)
 
-[`src/libraries/z42.yaml/src/YamlException.z42:7`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlException.z42#L7)
+[`src/libraries/z42.yaml/src/YamlException.z42:9`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlException.z42#L9)
 
 构造带消息的 YamlException。
 
@@ -89,9 +92,11 @@ public sealed class YamlParser {
 
 ## YamlValue
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:56`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L56)
+[`src/libraries/z42.yaml/src/YamlValue.z42:58`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L58)
 
-值树的唯一节点类型，也是包的入口点；8 种 kind：Null / Bool / Int / Float / String / Sequence / Mapping / Timestamp。
+值树的唯一节点类型，也是包的入口点。
+
+8 种 kind：Null / Bool / Int / Float / String / Sequence / Mapping / Timestamp。
 
 ```z42
 public class YamlValue {
@@ -144,261 +149,269 @@ public class YamlValue {
 <a id="Std.Yaml.YamlValue.Parse(string)"></a>
 ### static YamlValue Parse(string text)
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:80`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L80)
+[`src/libraries/z42.yaml/src/YamlValue.z42:83`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L83)
 
-解析 YAML 文本为根值。语法错误抛 YamlException（消息含 行:列）；空输入返回 Null 值； 多文档输入（`---` 分隔）报错，请用 `ParseAll`。
+解析 YAML 文本为根值。语法错误抛 YamlException（消息含 行:列）。
+
+空输入返回 Null 值；多文档输入（`---` 分隔）报错，请用 `ParseAll`。
 
 <a id="Std.Yaml.YamlValue.ParseAll(string)"></a>
 ### static YamlValue[] ParseAll(string text)
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:86`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L86)
+[`src/libraries/z42.yaml/src/YamlValue.z42:89`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L89)
 
 解析 `---` 分隔的多文档 YAML 为值数组（kubectl / helm 清单风格）。空 / 全空白输入返回空数组。
 
 <a id="Std.Yaml.YamlValue.Stringify(YamlValue)"></a>
 ### static string Stringify(YamlValue root)
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:92`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L92)
+[`src/libraries/z42.yaml/src/YamlValue.z42:95`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L95)
 
 把值树序列化为块风格 YAML 文本。输出便于人读，但并非与输入逐字节一致（不保留注释 / 引号风格）。
 
 <a id="Std.Yaml.YamlValue.ParseStream(Stream)"></a>
 ### static YamlValue ParseStream(Stream source)
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:103`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L103)
+[`src/libraries/z42.yaml/src/YamlValue.z42:106`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L106)
 
 从 UTF-8 字节流解析 YAML。独立命名（非 `Parse` 的重载），不关闭传入的流。
 
 <a id="Std.Yaml.YamlValue.ParseAllStream(Stream)"></a>
 ### static YamlValue[] ParseAllStream(Stream source)
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:111`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L111)
+[`src/libraries/z42.yaml/src/YamlValue.z42:114`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L114)
 
 从 UTF-8 字节流解析多文档 YAML 为值数组。不关闭传入的流。
 
 <a id="Std.Yaml.YamlValue.WriteTo(Stream,YamlValue)"></a>
 ### static void WriteTo(Stream dest, YamlValue root)
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:119`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L119)
+[`src/libraries/z42.yaml/src/YamlValue.z42:122`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L122)
 
 把值树序列化为 UTF-8 字节写入 `dest`。不关闭 `dest`。
 
 <a id="Std.Yaml.YamlValue.OfNull()"></a>
 ### static YamlValue OfNull()
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:128`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L128)
+[`src/libraries/z42.yaml/src/YamlValue.z42:131`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L131)
 
 构造 Null 值。
 
 <a id="Std.Yaml.YamlValue.OfBool(bool)"></a>
 ### static YamlValue OfBool(bool b)
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:135`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L135)
+[`src/libraries/z42.yaml/src/YamlValue.z42:138`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L138)
 
 构造 Bool 值。
 
 <a id="Std.Yaml.YamlValue.OfInt(long)"></a>
 ### static YamlValue OfInt(long n)
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:143`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L143)
+[`src/libraries/z42.yaml/src/YamlValue.z42:146`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L146)
 
 构造 Int 值。
 
 <a id="Std.Yaml.YamlValue.OfFloat(double)"></a>
 ### static YamlValue OfFloat(double d)
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:151`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L151)
+[`src/libraries/z42.yaml/src/YamlValue.z42:154`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L154)
 
 构造 Float 值。
 
 <a id="Std.Yaml.YamlValue.OfString(string)"></a>
 ### static YamlValue OfString(string s)
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:159`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L159)
+[`src/libraries/z42.yaml/src/YamlValue.z42:162`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L162)
 
 构造 String 值。
 
 <a id="Std.Yaml.YamlValue.OfTimestamp(DateTime)"></a>
 ### static YamlValue OfTimestamp(DateTime dt)
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:168`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L168)
+[`src/libraries/z42.yaml/src/YamlValue.z42:172`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L172)
 
-从 DateTime 构造时间戳；`Stringify` 输出规范 UTC ISO 8601。 如需保留非 UTC 偏移 / 不同精度，用 `OfTimestampString(raw)`。
+从 DateTime 构造时间戳；`Stringify` 输出规范 UTC ISO 8601。
+
+如需保留非 UTC 偏移 / 不同精度，用 `OfTimestampString(raw)`。
 
 <a id="Std.Yaml.YamlValue.OfTimestampString(string)"></a>
 ### static YamlValue OfTimestampString(string iso)
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:177`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L177)
+[`src/libraries/z42.yaml/src/YamlValue.z42:181`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L181)
 
 从 ISO 8601 串构造时间戳，保留原词法串以便往返保真。非法输入抛 ArgumentException。
 
 <a id="Std.Yaml.YamlValue.OfSequence()"></a>
 ### static YamlValue OfSequence()
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:186`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L186)
+[`src/libraries/z42.yaml/src/YamlValue.z42:190`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L190)
 
 构造空序列（用 `Add` 填充）。
 
 <a id="Std.Yaml.YamlValue.OfMapping()"></a>
 ### static YamlValue OfMapping()
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:195`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L195)
+[`src/libraries/z42.yaml/src/YamlValue.z42:199`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L199)
 
 构造空映射（用 `Set` 填充）。
 
 <a id="Std.Yaml.YamlValue.IsNull()"></a>
 ### bool IsNull()
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:207`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L207)
+[`src/libraries/z42.yaml/src/YamlValue.z42:211`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L211)
 
 是否为 Null。
 
 <a id="Std.Yaml.YamlValue.IsBool()"></a>
 ### bool IsBool()
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:209`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L209)
+[`src/libraries/z42.yaml/src/YamlValue.z42:213`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L213)
 
 是否为 Bool。
 
 <a id="Std.Yaml.YamlValue.IsInt()"></a>
 ### bool IsInt()
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:211`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L211)
+[`src/libraries/z42.yaml/src/YamlValue.z42:215`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L215)
 
 是否为 Int。
 
 <a id="Std.Yaml.YamlValue.IsFloat()"></a>
 ### bool IsFloat()
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:213`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L213)
+[`src/libraries/z42.yaml/src/YamlValue.z42:217`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L217)
 
 是否为 Float。
 
 <a id="Std.Yaml.YamlValue.IsString()"></a>
 ### bool IsString()
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:215`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L215)
+[`src/libraries/z42.yaml/src/YamlValue.z42:219`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L219)
 
 是否为 String。
 
 <a id="Std.Yaml.YamlValue.IsSequence()"></a>
 ### bool IsSequence()
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:217`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L217)
+[`src/libraries/z42.yaml/src/YamlValue.z42:221`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L221)
 
 是否为 Sequence。
 
 <a id="Std.Yaml.YamlValue.IsMapping()"></a>
 ### bool IsMapping()
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:219`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L219)
+[`src/libraries/z42.yaml/src/YamlValue.z42:223`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L223)
 
 是否为 Mapping。
 
 <a id="Std.Yaml.YamlValue.IsTimestamp()"></a>
 ### bool IsTimestamp()
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:221`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L221)
+[`src/libraries/z42.yaml/src/YamlValue.z42:225`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L225)
 
 是否为 Timestamp。
 
 <a id="Std.Yaml.YamlValue.KindName()"></a>
 ### string KindName()
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:224`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L224)
+[`src/libraries/z42.yaml/src/YamlValue.z42:228`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L228)
 
 返回 kind 的类型名（用于诊断）。
 
 <a id="Std.Yaml.YamlValue.AsBool()"></a>
 ### bool AsBool()
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:240`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L240)
+[`src/libraries/z42.yaml/src/YamlValue.z42:244`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L244)
 
 取 Bool；kind 不符抛 YamlException。
 
 <a id="Std.Yaml.YamlValue.AsInt()"></a>
 ### long AsInt()
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:248`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L248)
+[`src/libraries/z42.yaml/src/YamlValue.z42:252`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L252)
 
 取 Int（long）；不接受 Float。
 
 <a id="Std.Yaml.YamlValue.AsFloat()"></a>
 ### double AsFloat()
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:256`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L256)
+[`src/libraries/z42.yaml/src/YamlValue.z42:260`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L260)
 
 取 Float（double）；不接受 Int。
 
 <a id="Std.Yaml.YamlValue.AsString()"></a>
 ### string AsString()
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:264`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L264)
+[`src/libraries/z42.yaml/src/YamlValue.z42:268`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L268)
 
 取 String。
 
 <a id="Std.Yaml.YamlValue.AsTimestamp()"></a>
 ### DateTime AsTimestamp()
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:272`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L272)
+[`src/libraries/z42.yaml/src/YamlValue.z42:276`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L276)
 
 取 Timestamp 的 DateTime。
 
 <a id="Std.Yaml.YamlValue.AsTimestampRaw()"></a>
 ### string AsTimestampRaw()
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:280`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L280)
+[`src/libraries/z42.yaml/src/YamlValue.z42:284`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L284)
 
 取解析得来的原词法串（由 `OfTimestamp` 构造时为空串），便于往返保真。
 
 <a id="Std.Yaml.YamlValue.Length()"></a>
 ### int Length()
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:290`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L290)
+[`src/libraries/z42.yaml/src/YamlValue.z42:294`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L294)
 
 序列元素数；非序列抛 YamlException。
 
 <a id="Std.Yaml.YamlValue.At(int)"></a>
 ### YamlValue At(int i)
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:298`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L298)
+[`src/libraries/z42.yaml/src/YamlValue.z42:302`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L302)
 
 取第 i 个元素；越界抛 YamlException（不是 VM abort）。
 
 <a id="Std.Yaml.YamlValue.Add(YamlValue)"></a>
 ### void Add(YamlValue v)
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:309`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L309)
+[`src/libraries/z42.yaml/src/YamlValue.z42:313`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L313)
 
 追加元素到序列末尾。
 
 <a id="Std.Yaml.YamlValue.ContainsKey(string)"></a>
 ### bool ContainsKey(string key)
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:328`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L328)
+[`src/libraries/z42.yaml/src/YamlValue.z42:332`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L332)
 
 是否含键；非映射值返回 false，不抛。
 
 <a id="Std.Yaml.YamlValue.Get(string)"></a>
 ### YamlValue Get(string key)
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:339`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L339)
+[`src/libraries/z42.yaml/src/YamlValue.z42:343`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L343)
 
 取键对应值；键不存在抛 YamlException("key not found: k")。
 
 <a id="Std.Yaml.YamlValue.TryGet(string,YamlValue)"></a>
 ### bool TryGet(string key, ref YamlValue value)
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:364`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L364)
+[`src/libraries/z42.yaml/src/YamlValue.z42:369`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L369)
 
-取即检查：命中则写入 `value` 并返回 true；未命中返回 false 且**不动** `value`。 本值不是 mapping 时返回 false 而**不抛** —— 与 `ContainsKey` 一致。
+取即检查：命中则写入 `value` 并返回 true；未命中返回 false 且**不动** `value`。
+
+本值不是 mapping 时返回 false 而**不抛** —— 与 `ContainsKey` 一致。
 
 <a id="Std.Yaml.YamlValue.TryGetValue<T>(string,T)"></a>
 ### bool TryGetValue<T>(string key, ref T value)
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:384`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L384)
+[`src/libraries/z42.yaml/src/YamlValue.z42:391`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L391)
 
-取即检查 + 取标量：命中则按 `T` 取值写入 `value` 并返回 true；未命中返回 false 且 **不动** `value`（「有就覆盖默认值」一行写完）。
+取即检查 + 取标量：命中则按 `T` 取值写入 `value` 并返回 true；未命中返回 false 且**不动** `value`。
+
+「有就覆盖默认值」一行写完。
 
 ⚠️ 命中但**类型不符照抛** `YamlException`，与 `AsString()` / `AsInt()` 一字不差。
 
@@ -411,28 +424,28 @@ public class YamlValue {
 <a id="Std.Yaml.YamlValue.Set(string,YamlValue)"></a>
 ### void Set(string key, YamlValue v)
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:399`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L399)
+[`src/libraries/z42.yaml/src/YamlValue.z42:406`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L406)
 
 写键值对（键已存在则覆盖）。
 
 <a id="Std.Yaml.YamlValue.Keys()"></a>
 ### string[] Keys()
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:431`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L431)
+[`src/libraries/z42.yaml/src/YamlValue.z42:438`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L438)
 
 当前映射键的插入顺序快照。
 
 <a id="Std.Yaml.YamlValue.Count()"></a>
 ### int Count()
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:445`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L445)
+[`src/libraries/z42.yaml/src/YamlValue.z42:452`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L452)
 
 序列元素数 / 映射键数；其余 kind 抛 YamlException。
 
 <a id="Std.Yaml.YamlValue.DeepClone()"></a>
 ### YamlValue DeepClone()
 
-[`src/libraries/z42.yaml/src/YamlValue.z42:452`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L452)
+[`src/libraries/z42.yaml/src/YamlValue.z42:459`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.yaml/src/YamlValue.z42#L459)
 
 递归复制整棵子树。别名（`*name`）解析出的值就是锚点值的 DeepClone。
 

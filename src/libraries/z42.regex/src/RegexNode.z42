@@ -16,26 +16,42 @@ public class RegexNode {
     //   8 = GROUP        capturing `()`（_childSeq/_childCount, _groupIndex 1-based）
     //   9 = WORD_BOUNDARY      `\b`（零宽，两侧 word-ness 不同时匹配）
     //  10 = WORD_NON_BOUNDARY  `\B`（零宽，两侧 word-ness 相同时匹配）
+    /// 节点类别（1=LIT … 10=WORD_NON_BOUNDARY，见上方 Kinds 表）。
     public int _kind;
-    public int _ch;                    // LIT — codepoint
+    /// LIT 节点的字符（codepoint）。
+    public int _ch;
 
-    public bool _negated;              // CHARSET
-    public int[] _rangeStarts;         // CHARSET — inclusive
+    /// CHARSET 是否取反（`[^...]`）。
+    public bool _negated;
+    /// CHARSET 各区间起点（inclusive，与 `_rangeEnds` 按下标配对）。
+    public int[] _rangeStarts;
+    /// CHARSET 各区间终点（inclusive）。
     public int[] _rangeEnds;
+    /// CHARSET 的有效区间个数（数组可能更长，仅前 `_rangeCount` 项参与匹配）。
     public int _rangeCount;
 
-    public RegexNode[] _leftSeq;       // ALT
+    /// ALT 左分支节点序列（有效长度 `_leftCount`）。
+    public RegexNode[] _leftSeq;
+    /// ALT 左分支有效节点数。
     public int _leftCount;
+    /// ALT 右分支节点序列（有效长度 `_rightCount`）。
     public RegexNode[] _rightSeq;
+    /// ALT 右分支有效节点数。
     public int _rightCount;
 
-    public RegexNode[] _childSeq;      // QUANT / GROUP
+    /// QUANT / GROUP 的子节点序列（有效长度 `_childCount`）。
+    public RegexNode[] _childSeq;
+    /// QUANT / GROUP 的子节点有效数。
     public int _childCount;
-    public int _min;                   // QUANT
-    public int _max;                   // QUANT (-1 = unbounded)
-    public bool _greedy;               // QUANT (true = max-first; false = min-first / non-greedy)
+    /// QUANT 最小重复次数。
+    public int _min;
+    /// QUANT 最大重复次数（`-1` = 无上界）。
+    public int _max;
+    /// QUANT 是否贪婪（`true` = max-first；`false` = min-first / 非贪婪）。
+    public bool _greedy;
 
-    public int _groupIndex;            // GROUP (1-based)
+    /// GROUP 捕获组编号（1-based）。
+    public int _groupIndex;
 
     /// 构造指定 kind 的节点（各 field 初始化为默认值）。
     public RegexNode(int kind) {

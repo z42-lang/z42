@@ -20,14 +20,20 @@ public static class Runtime {
 <a id="Std.Runtime.Runtime.LoadZpkg(string)"></a>
 ### static extern void LoadZpkg(string name)
 
-[`src/libraries/z42.core/src/Runtime.z42:20`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Runtime.z42#L20)
+[`src/libraries/z42.core/src/Runtime.z42:22`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Runtime.z42#L22)
 
-按逻辑名把 z42 包加载进 VM 的类型与函数注册表。幂等：同名重复加载是 no-op。 名称无法解析、文件非合法 zpkg 或 zbc 版本与运行 VM 不兼容时抛 RuntimeException。
+按逻辑名把 z42 包加载进 VM 的类型与函数注册表（幂等）。
+
+同名重复加载是 no-op。名称无法解析、文件非合法 zpkg 或 zbc 版本与运行 VM
+不兼容时抛 RuntimeException。
 
 <a id="Std.Runtime.Runtime.CallStatic(string,string[])"></a>
 ### static extern int CallStatic(string fqn, string[] args)
 
-[`src/libraries/z42.core/src/Runtime.z42:25`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Runtime.z42#L25)
+[`src/libraries/z42.core/src/Runtime.z42:29`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Runtime.z42#L29)
 
-按全限定名调用 public static 函数，目标必须是精确签名 `(string[])->int`； 不匹配抛 RuntimeException。典型用于 LoadZpkg 后驱动 workload 入口并返回退出码。
+按全限定名调用 public static 函数。
+
+目标必须是精确签名 `(string[])->int`，不匹配抛 RuntimeException。典型用于
+LoadZpkg 后驱动 workload 入口并返回退出码。
 

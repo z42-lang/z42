@@ -22,6 +22,7 @@ public sealed class JsonParser {
     // would otherwise blow the VM stack. Capped in ParseValue.
     private int _depth;
 
+    /// 以 `src` 为输入构建严格模式（RFC 8259）解析器；宽松语法见 Relaxed。
     public JsonParser(string src) {
         this._src = src;
         this._chars = src.ToCharArray();
@@ -38,6 +39,9 @@ public sealed class JsonParser {
         return p;
     }
 
+    /// 解析整个文档：恰好一个根值 + 可选前后空白，返回根 JsonValue。
+    ///
+    /// @throws JsonException 空输入、根值后有多余字符或任何语法错误（带行 / 列）。
     public JsonValue ParseDocument() {
         this.SkipWhitespace();
         if (this._pos >= this._len) {

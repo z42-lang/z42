@@ -2,25 +2,34 @@ namespace Std.Net.WebSockets;
 
 using Std.IO;
 
-// RFC 6455 §5 帧编解码器（内部）。
-// 帧头布局（网络字节序）：FIN/RSV/opcode、MASK + 7 位长度，必要时扩展长度（16/64 位），
-// 客户端出站必须带掩码（MASK=1），服务端出站不得带掩码；7 位长度 0-125 内联，126/127 走扩展长度。
+/// RFC 6455 §5 帧编解码器（内部）。
+///
+/// 帧头布局（网络字节序）：FIN/RSV/opcode、MASK + 7 位长度，必要时扩展长度（16/64 位），
+/// 客户端出站必须带掩码（MASK=1），服务端出站不得带掩码；7 位长度 0-125 内联，126/127 走扩展长度。
 public static class _FrameCodec {
 
     // ── Opcodes (RFC 6455 §5.2) ──────────────────────────────────────────
+    /// 延续帧 opcode（`0`）：分片消息的非首帧。
     public static int OpContinuation = 0;
+    /// 文本帧 opcode（`1`）。
     public static int OpText         = 1;
+    /// 二进制帧 opcode（`2`）。
     public static int OpBinary       = 2;
+    /// 关闭帧 opcode（`8`）。
     public static int OpClose        = 8;
+    /// Ping 控制帧 opcode（`9`）。
     public static int OpPing         = 9;
+    /// Pong 控制帧 opcode（`10`）。
     public static int OpPong         = 10;
 
-    // 编码单帧（FIN=1、无分片、客户端掩码）；RSV1 保持清零，见 EncodeFrameRsv1。
+    /// 编码单帧（FIN=1、无分片、客户端掩码）；RSV1 保持清零，见 EncodeFrameRsv1。
+    ///
+    /// `maskingKey` 必须恰为 4 字节，否则抛 `WebSocketProtocolException`。
     public static byte[] EncodeFrame(int opcode, byte[] payload, int payloadLen, byte[] maskingKey) {
         return _FrameCodec._encodeFrameInternal(opcode, payload, payloadLen, maskingKey, false);
     }
 
-    // 客户端→服务端压缩帧：同 EncodeFrame 但置 RSV1（RFC 7692 §7.2.3）。
+    /// 客户端→服务端压缩帧：同 EncodeFrame 但置 RSV1（RFC 7692 §7.2.3）。
     public static byte[] EncodeFrameRsv1(int opcode, byte[] payload, int payloadLen, byte[] maskingKey) {
         return _FrameCodec._encodeFrameInternal(opcode, payload, payloadLen, maskingKey, true);
     }
@@ -85,12 +94,12 @@ public static class _FrameCodec {
         return frame;
     }
 
-    // 服务端帧编码器：RFC 6455 §5.1 要求服务端出站不得掩码；布局同 EncodeFrame 但 MASK 清零。
+    /// 服务端帧编码器：RFC 6455 §5.1 要求服务端出站不得掩码；布局同 EncodeFrame 但 MASK 清零。
     public static byte[] EncodeServerFrame(int opcode, byte[] payload, int payloadLen) {
         return _FrameCodec._encodeServerFrameInternal(opcode, payload, payloadLen, false);
     }
 
-    // 服务端→客户端压缩帧：同 EncodeServerFrame 但置 RSV1（RFC 7692 §7.2.3）。
+    /// 服务端→客户端压缩帧：同 EncodeServerFrame 但置 RSV1（RFC 7692 §7.2.3）。
     public static byte[] EncodeServerFrameRsv1(int opcode, byte[] payload, int payloadLen) {
         return _FrameCodec._encodeServerFrameInternal(opcode, payload, payloadLen, true);
     }
@@ -139,7 +148,9 @@ public static class _FrameCodec {
         return frame;
     }
 
-    // 解码入站帧；带掩码的服务端帧按 RFC §5.1 抛协议违规。
+    /// 解码入站帧；带掩码的服务端帧按 RFC §5.1 抛协议违规。
+    ///
+    /// 流提前 EOF 或 payload 超过 v0 上限（约 2^31 字节）同样抛 `WebSocketProtocolException`。
     public static _DecodedFrame ReadFrame(Stream stream) {
         // 读 2 个基础字节
         byte[] hdr = _FrameCodec._readExactly(stream, 2);
@@ -193,13 +204,18 @@ public static class _FrameCodec {
     }
 }
 
-// 解码后的入站帧视图（内部），由 _FrameCodec.ReadFrame 返回。
+/// 解码后的入站帧视图（内部），由 _FrameCodec.ReadFrame 返回。
 public class _DecodedFrame {
+    /// FIN 位：`true` 表示消息末帧。
     public bool   Fin;
+    /// 帧 opcode，取值见 `_FrameCodec` 的 `Op*` 常量。
     public int    Opcode;
+    /// 帧载荷字节（服务端帧不掩码，原样读入）。
     public byte[] Payload;
-    public bool   Rsv1;     // per-message-deflate 压缩 payload 标志
+    /// RSV1 位：per-message-deflate 压缩 payload 标志。
+    public bool   Rsv1;
 
+    /// 以解码出的各字段构造帧视图。
     public _DecodedFrame(bool fin, int opcode, byte[] payload, bool rsv1) {
         this.Fin     = fin;
         this.Opcode  = opcode;

@@ -2,8 +2,9 @@ namespace Std;
 
 /// 内置 `bool` 类型的包装结构体，实现 IEquatable。
 public struct Boolean : IEquatable {
-    /// 解析布尔字符串：去首尾空白、大小写不敏感的 "true" / "false"；其余抛
-    /// FormatException，null 抛 ArgumentNullException。
+    /// 解析布尔字符串：去首尾空白、大小写不敏感的 "true" / "false"。
+    ///
+    /// 其余抛 FormatException，null 抛 ArgumentNullException。
     public static bool Parse(string s) {
         bool v = false;
         if (Boolean.TryParse(s, ref v)) return v;

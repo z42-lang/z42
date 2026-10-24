@@ -4,9 +4,12 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std.Runtime`
 
-[`src/libraries/z42.core/src/Runtime/AppProperties.z42:12`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Runtime/AppProperties.z42#L12)
+[`src/libraries/z42.core/src/Runtime/AppProperties.z42:14`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Runtime/AppProperties.z42#L14)
 
-应用自定义配置属性（**app 自己的**配置，只读）。来自工程 manifest 的 `[properties]` + `[profile.<n>.properties]`，由 `z42c build` 烤进 runtimeconfig.toml 随产物分发。
+应用自定义配置属性（**app 自己的**配置，只读）。
+
+来自工程 manifest 的 `[properties]` + `[profile.<n>.properties]`，由 `z42c build`
+烤进 runtimeconfig.toml 随产物分发。
 
 与 `Std.Runtime.RuntimeConfig` 的分工：RuntimeConfig 是 VM 旋钮（有登记表、校验、
 五层优先级链）；AppProperties 是 app 自己的配置（VM 不理解不校验，未知 key 是正常
@@ -30,35 +33,35 @@ public static class AppProperties {
 <a id="Std.Runtime.AppProperties.Get(string)"></a>
 ### static extern string? Get(string key)
 
-[`src/libraries/z42.core/src/Runtime/AppProperties.z42:16`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Runtime/AppProperties.z42#L16)
+[`src/libraries/z42.core/src/Runtime/AppProperties.z42:18`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Runtime/AppProperties.z42#L18)
 
 顶层标量属性；不存在、或该键的值不是标量（数组 / 表）→ null（非标量请用 `Raw()`）。 整数 / 布尔 / 日期渲染为字符串。
 
 <a id="Std.Runtime.AppProperties.Has(string)"></a>
 ### static extern bool Has(string key)
 
-[`src/libraries/z42.core/src/Runtime/AppProperties.z42:20`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Runtime/AppProperties.z42#L20)
+[`src/libraries/z42.core/src/Runtime/AppProperties.z42:22`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Runtime/AppProperties.z42#L22)
 
 顶层是否存在该键（值为数组 / 表时同样为 true）。
 
 <a id="Std.Runtime.AppProperties.Names()"></a>
 ### static extern string[] Names()
 
-[`src/libraries/z42.core/src/Runtime/AppProperties.z42:24`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Runtime/AppProperties.z42#L24)
+[`src/libraries/z42.core/src/Runtime/AppProperties.z42:26`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Runtime/AppProperties.z42#L26)
 
 全部顶层键。
 
 <a id="Std.Runtime.AppProperties.Raw()"></a>
 ### static extern string? Raw()
 
-[`src/libraries/z42.core/src/Runtime/AppProperties.z42:28`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Runtime/AppProperties.z42#L28)
+[`src/libraries/z42.core/src/Runtime/AppProperties.z42:30`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Runtime/AppProperties.z42#L30)
 
 整段 `[properties]` 的 TOML 文本；没有属性时返回 null（区别于空表）。
 
 <a id="Std.Runtime.AppProperties.GetOrDefault(string,string)"></a>
 ### static string GetOrDefault(string key, string fallback)
 
-[`src/libraries/z42.core/src/Runtime/AppProperties.z42:31`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Runtime/AppProperties.z42#L31)
+[`src/libraries/z42.core/src/Runtime/AppProperties.z42:33`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Runtime/AppProperties.z42#L33)
 
 便利包装：取不到（不存在或非标量）时返回 fallback。
 

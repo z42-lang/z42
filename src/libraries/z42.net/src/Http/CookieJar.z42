@@ -9,6 +9,7 @@ public class CookieJar {
     private int      _count;
     private int      _cap;
 
+    /// 构造空 jar（内部容量 8，按需倍增）。
     public CookieJar() {
         this._cap     = 8;
         this._cookies = new Cookie[8];
@@ -174,7 +175,7 @@ public class CookieJar {
 
     // ── Set-Cookie parser ────────────────────────────────────────────────
 
-    // 解析单个 Set-Cookie 头值；坏输入（无 name=value 前缀）返回 null。
+    /// 解析单个 Set-Cookie 头值；坏输入（无 name=value 前缀）返回 null。
     public static Cookie _parseSetCookie(string raw, string responseHost, string responsePath, long nowUnixSec) {
         // 首段：NAME=VALUE
         int semi = CookieJar._indexOfChar(raw, ';', 0);

@@ -35,12 +35,14 @@ public class MethodBase : MemberInfo {
 
 [`src/libraries/z42.core/src/Reflection/MethodBase.z42:13`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodBase.z42#L13)
 
+限定后备函数名（VM 写入），用于反射调用及（`MethodInfo` 上）attribute 工厂解析。
 
 <a id="Std.Reflection.MethodBase.__parameters"></a>
 ### ParameterInfo[] __parameters
 
 [`src/libraries/z42.core/src/Reflection/MethodBase.z42:16`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodBase.z42#L16)
 
+VM 写入的后备参数数组，经 `GetParameters()` 暴露。
 
 <a id="Std.Reflection.MethodBase.GetParameters()"></a>
 ### ParameterInfo[] GetParameters()

@@ -150,7 +150,9 @@ public class TomlValue {
     /// kind 是否为 Table。
     public bool IsTable()  { return this._kind == 5; }
 
-    /// 返回类型标签名（`"string"` / `"long"` / `"double"` / `"bool"` / `"array"` / `"table"`），用于诊断。
+    /// 返回类型标签名，用于诊断。
+    ///
+    /// 取值：`"string"` / `"long"` / `"double"` / `"bool"` / `"array"` / `"table"`。
     public string KindName() {
         int k = this._kind;
         if (k == 0) return "string";
@@ -247,7 +249,8 @@ public class TomlValue {
         return false;
     }
 
-    /// 取即检查 + 取标量：命中则按 `T` 取出值写入 `value` 并返回 true；
+    /// 取即检查 + 取标量：命中则按 `T` 取出值写入 `value` 并返回 true。
+    ///
     /// 未命中返回 false 且**不动** `value` —— 所以「有就覆盖默认值」能一行写完：
     /// `t.TryGetValue<string>("name", ref name);`
     ///

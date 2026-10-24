@@ -60,35 +60,38 @@ public struct Guid {
 <a id="Std.Guid.TryParse(string,Guid)"></a>
 ### static bool TryParse(string s, ref Guid v)
 
-[`src/libraries/z42.core/src/Guid.z42:63`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Guid.z42#L63)
+[`src/libraries/z42.core/src/Guid.z42:65`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Guid.z42#L65)
 
-不抛异常的解析：成功时写入 `v` 并返回 true；非法输入返回 false 且 `v` 为 `Guid.Empty()`。`Guid` 是 struct ⇒ 不可空，故 out 值走 `ref`。
+不抛异常的解析：成功时写入 `v` 并返回 true。
+
+非法输入返回 false 且 `v` 为 `Guid.Empty()`。`Guid` 是 struct ⇒ 不可空，
+故 out 值走 `ref`。
 
 <a id="Std.Guid.Equals(Guid)"></a>
 ### bool Equals(Guid other)
 
-[`src/libraries/z42.core/src/Guid.z42:101`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Guid.z42#L101)
+[`src/libraries/z42.core/src/Guid.z42:103`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Guid.z42#L103)
 
 按 16 字节值比较相等。
 
 <a id="Std.Guid.GetHashCode()"></a>
 ### int GetHashCode()
 
-[`src/libraries/z42.core/src/Guid.z42:117`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Guid.z42#L117)
+[`src/libraries/z42.core/src/Guid.z42:119`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Guid.z42#L119)
 
 内容哈希码。
 
 <a id="Std.Guid.ToString()"></a>
 ### override string ToString()
 
-[`src/libraries/z42.core/src/Guid.z42:130`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Guid.z42#L130)
+[`src/libraries/z42.core/src/Guid.z42:132`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Guid.z42#L132)
 
 规范带连字符的小写形式，如 `"0f8fad5b-d9cb-469f-a165-70867728950e"`。
 
 <a id="Std.Guid.ToString(string)"></a>
 ### string ToString(string format)
 
-[`src/libraries/z42.core/src/Guid.z42:136`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Guid.z42#L136)
+[`src/libraries/z42.core/src/Guid.z42:138`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Guid.z42#L138)
 
 按格式串输出："D"（带连字符，默认）或 "N"（32 位无连字符）；大小写不敏感。 其它格式抛 FormatException。
 

@@ -7,6 +7,7 @@ public class NetworkStream : Stream {
     private long _slotId;
     private bool _closed;
 
+    /// 以底层 TCP socket 的 slot 句柄包装流；初始为打开状态。
     public NetworkStream(long slotId) {
         this._slotId = slotId;
         this._closed = false;
@@ -65,6 +66,7 @@ public class NetworkStream : Stream {
     // ── Internal accessor for owning TcpClient ───────────────────────────
 
     // 供 `TcpClient.Dispose` 调用：即使用户仍持有缓存引用，也能翻转流的 _closed 位。
+    /// 翻转 _closed 位使本流失效；幂等，底层 fd 由 TcpClient.Dispose 释放。
     public void MarkClosed() {
         this._closed = true;
     }

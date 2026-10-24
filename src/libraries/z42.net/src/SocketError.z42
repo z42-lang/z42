@@ -1,6 +1,7 @@
 namespace Std.Net.Sockets;
 
 /// socket 操作的错误码，镜像 .NET 的 `SocketError`，取值即 Winsock 码。
+///
 /// 读 `SocketException.SocketErrorCode`。
 public enum SocketError {
     SocketError = -1,

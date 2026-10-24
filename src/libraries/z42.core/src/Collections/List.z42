@@ -5,9 +5,11 @@ namespace Std.Collections;
 // 元素全是同一种基元（int 系 / double / char / string）时 `Sort()` 交给原生稳定排序
 // （`Array.SortPrimitives`，同序）。
 
-/// 纯源码级泛型动态数组：摊还 O(1) Add / 随机访问，O(n) RemoveAt / Insert / Contains /
-/// IndexOf / Remove。对 `T` 无类型约束——相等与比较是**运行期**要求：Contains / IndexOf /
-/// Remove 用 `Equals`，`Sort()` 用 `CompareTo`（元素不可比较时在 Sort 处失败）。
+/// 纯源码级泛型动态数组：摊还 O(1) Add / 随机访问。
+///
+/// O(n) 操作：RemoveAt / Insert / Contains / IndexOf / Remove。对 `T` 无类型
+/// 约束——相等与比较是**运行期**要求：Contains / IndexOf / Remove 用 `Equals`，
+/// `Sort()` 用 `CompareTo`（元素不可比较时在 Sort 处失败）。
 public partial class List<T> : IEnumerable<T> {
     T[] items;
 
@@ -34,9 +36,10 @@ public partial class List<T> : IEnumerable<T> {
     /// 是否为空。
     public bool IsEmpty() { return this.Count == 0; }
 
-    /// 返回**具体** `ListEnumerator<T>` struct（非 `IEnumerator<T>` 接口）。List 自身
-    /// foreach 走索引快路径（Count + get_Item），不经此；本方法服务以接口静态类型 /
-    /// 泛型约束持有的调用点。
+    /// 返回**具体** `ListEnumerator<T>` struct（非 `IEnumerator<T>` 接口）。
+    ///
+    /// List 自身 foreach 走索引快路径（Count + get_Item），不经此；本方法服务以
+    /// 接口静态类型 / 泛型约束持有的调用点。
     public ListEnumerator<T> GetEnumerator() { return new ListEnumerator<T>(this); }
 
     /// 读写第 `i` 个元素。

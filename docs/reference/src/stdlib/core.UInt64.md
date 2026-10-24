@@ -45,77 +45,79 @@ public struct UInt64 : IComparable, IEquatable, INumber {
 <a id="Std.UInt64.Parse(string)"></a>
 ### static extern ulong Parse(string s)
 
-[`src/libraries/z42.core/src/Primitives/UInt64.z42:13`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/UInt64.z42#L13)
+[`src/libraries/z42.core/src/Primitives/UInt64.z42:14`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/UInt64.z42#L14)
 
-解析无符号整数字符串；格式错误抛 FormatException，越界抛 OverflowException， null 抛 ArgumentNullException。
+解析无符号整数字符串。
+
+格式错误抛 FormatException，越界抛 OverflowException，null 抛 ArgumentNullException。
 
 <a id="Std.UInt64.ToString()"></a>
 ### extern string ToString()
 
-[`src/libraries/z42.core/src/Primitives/UInt64.z42:15`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/UInt64.z42#L15)
+[`src/libraries/z42.core/src/Primitives/UInt64.z42:16`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/UInt64.z42#L16)
 
 返回十进制字符串表示。
 
 <a id="Std.UInt64.TryParse(string,ulong)"></a>
 ### static extern bool TryParse(string s, ref ulong v)
 
-[`src/libraries/z42.core/src/Primitives/UInt64.z42:19`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/UInt64.z42#L19)
+[`src/libraries/z42.core/src/Primitives/UInt64.z42:20`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/UInt64.z42#L20)
 
 非抛出解析：成功把值写入 `v` 并返回 true；格式错误 / 越界 / null 返回 false 且 `v` 置 0。
 
 <a id="Std.UInt64.Equals(ulong)"></a>
 ### bool Equals(ulong other)
 
-[`src/libraries/z42.core/src/Primitives/UInt64.z42:22`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/UInt64.z42#L22)
+[`src/libraries/z42.core/src/Primitives/UInt64.z42:23`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/UInt64.z42#L23)
 
 值相等比较。
 
 <a id="Std.UInt64.GetHashCode()"></a>
 ### int GetHashCode()
 
-[`src/libraries/z42.core/src/Primitives/UInt64.z42:24`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/UInt64.z42#L24)
+[`src/libraries/z42.core/src/Primitives/UInt64.z42:25`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/UInt64.z42#L25)
 
 返回哈希码（折叠高低 32 位，同 Int64）。
 
 <a id="Std.UInt64.CompareTo(ulong)"></a>
 ### int CompareTo(ulong other)
 
-[`src/libraries/z42.core/src/Primitives/UInt64.z42:27`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/UInt64.z42#L27)
+[`src/libraries/z42.core/src/Primitives/UInt64.z42:28`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/UInt64.z42#L28)
 
 比较大小，返回负 / 0 / 正。
 
 <a id="Std.UInt64.op_Add(ulong,ulong)"></a>
 ### static override ulong op_Add(ulong a, ulong b)
 
-[`src/libraries/z42.core/src/Primitives/UInt64.z42:34`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/UInt64.z42#L34)
+[`src/libraries/z42.core/src/Primitives/UInt64.z42:35`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/UInt64.z42#L35)
 
 加法。
 
 <a id="Std.UInt64.op_Subtract(ulong,ulong)"></a>
 ### static override ulong op_Subtract(ulong a, ulong b)
 
-[`src/libraries/z42.core/src/Primitives/UInt64.z42:36`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/UInt64.z42#L36)
+[`src/libraries/z42.core/src/Primitives/UInt64.z42:37`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/UInt64.z42#L37)
 
 减法。
 
 <a id="Std.UInt64.op_Multiply(ulong,ulong)"></a>
 ### static override ulong op_Multiply(ulong a, ulong b)
 
-[`src/libraries/z42.core/src/Primitives/UInt64.z42:38`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/UInt64.z42#L38)
+[`src/libraries/z42.core/src/Primitives/UInt64.z42:39`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/UInt64.z42#L39)
 
 乘法。
 
 <a id="Std.UInt64.op_Divide(ulong,ulong)"></a>
 ### static override ulong op_Divide(ulong a, ulong b)
 
-[`src/libraries/z42.core/src/Primitives/UInt64.z42:40`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/UInt64.z42#L40)
+[`src/libraries/z42.core/src/Primitives/UInt64.z42:41`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/UInt64.z42#L41)
 
 除法。
 
 <a id="Std.UInt64.op_Modulo(ulong,ulong)"></a>
 ### static override ulong op_Modulo(ulong a, ulong b)
 
-[`src/libraries/z42.core/src/Primitives/UInt64.z42:42`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/UInt64.z42#L42)
+[`src/libraries/z42.core/src/Primitives/UInt64.z42:43`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/UInt64.z42#L43)
 
 取模。
 

@@ -1,7 +1,8 @@
 namespace Std;
 
-/// 多播 Predicate：一次注册多个 `Predicate<T>` handler，Invoke 收集所有返回值进
-/// `bool[]`（FIFO）。`All(T)` / `Any(T)` 短路求值。
+/// 多播 Predicate：一次注册多个 `Predicate<T>` handler。
+///
+/// Invoke 收集所有返回值进 `bool[]`（FIFO）。`All(T)` / `Any(T)` 短路求值。
 ///
 /// 双 vec 通道（同 MulticastAction / MulticastFunc）。Invoke 默认 fail-fast；
 /// `continueOnException = true` 时失败位置占 default(bool) = false，多失败聚合抛
@@ -216,8 +217,10 @@ public sealed class MulticastPredicate<T> {
         return result;
     }
 
-    /// 所有活跃 handler 都返回 true 时返回 true；一旦遇 false 立即返回 false（短路），
-    /// 后续 handler 不调用。空 bus 返回 true（vacuous truth）。
+    /// 所有活跃 handler 都返回 true 时返回 true。
+    ///
+    /// 一旦遇 false 立即返回 false（短路），后续 handler 不调用。空 bus 返回 true
+    /// （vacuous truth）。
     public bool All(T arg) {
         int sn = this.strongCount;
         Predicate<T>[] snapStrong = new Predicate<T>[sn];
@@ -260,8 +263,9 @@ public sealed class MulticastPredicate<T> {
         return true;
     }
 
-    /// 任一活跃 handler 返回 true 时返回 true；一旦遇 true 立即返回 true（短路）。
-    /// 空 bus 返回 false（vacuous existential）。
+    /// 任一活跃 handler 返回 true 时返回 true。
+    ///
+    /// 一旦遇 true 立即返回 true（短路）。空 bus 返回 false（vacuous existential）。
     public bool Any(T arg) {
         int sn = this.strongCount;
         Predicate<T>[] snapStrong = new Predicate<T>[sn];

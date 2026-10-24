@@ -1,6 +1,7 @@
 namespace Std.IO;
 
-/// 目录操作（mkdir / rmdir / ls），语义对标 .NET BCL `System.IO.Directory`：
+/// 目录操作（mkdir / rmdir / ls），语义对标 .NET BCL `System.IO.Directory`。
+///
 /// - `Create` = `mkdir -p`（递归建中间目录，已存在不报错）
 /// - `Delete` = `rmdir` / `rm -rf`（recursive=true 时后者）
 /// - `Enumerate` 只列直接子项（含文件 + 子目录），返回 basename
@@ -35,8 +36,10 @@ public static class Directory {
         return File.CreateTempDir(prefix);
     }
 
-    /// 递归拷贝目录：dst 不存在则建；src 下的文件拷贝进 dst；src 下的子目录在
-    /// recursive=true 时递归拷贝，false 时跳过。dst 不应位于 src 内部（否则自指无限递归）。
+    /// 递归拷贝目录：dst 不存在则建，src 下的文件拷贝进 dst。
+    ///
+    /// src 下的子目录在 recursive=true 时递归拷贝，false 时跳过。dst 不应位于 src
+    /// 内部（否则自指无限递归）。
     public static void Copy(string src, string dst, bool recursive) {
         Directory.Create(dst);
         foreach (var name in Directory.Enumerate(src)) {

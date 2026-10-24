@@ -23,8 +23,9 @@ namespace Std.Json;
 using Std.IO;
 using Std.Collections;
 
-/// 值树的唯一节点类型与包的入口点：一个 `JsonValue` 属于 Null / Bool / Long / Double /
-/// String / Array / Object 七种 kind 之一。
+/// 值树的唯一节点类型与包的入口点：一个 `JsonValue` 属于七种 kind 之一。
+///
+/// 七种 kind：Null / Bool / Long / Double / String / Array / Object。
 public class JsonValue {
     // 与 Std.Toml.TomlValue 同款 discriminated-union 设计：单 int kind + 多个 typed 槽位 +
     // Is*/As* 谓词访问。详见 docs/reference/src/stdlib/json.md。
@@ -64,8 +65,10 @@ public class JsonValue {
         return (JsonValue)p.ParseDocument();
     }
 
-    /// 宽松（JSON5 风格）解析：额外接受 `//` 行注释、`/* */` 块注释与数组 / 对象尾逗号，
-    /// 适合工具配置（`tsconfig.json`、`.vscode/settings.json`、Docker `compose.json`）。
+    /// 宽松（JSON5 风格）解析：额外接受注释与尾逗号，适合工具配置。
+    ///
+    /// 额外接受：`//` 行注释、`/* */` 块注释、数组 / 对象尾逗号。
+    /// 典型场景：`tsconfig.json`、`.vscode/settings.json`、Docker `compose.json`。
     public static JsonValue ParseRelaxed(string text) {
         JsonParser p = JsonParser.Relaxed(text);
         return (JsonValue)p.ParseDocument();
@@ -124,11 +127,17 @@ public class JsonValue {
 
     // ── Factories ────────────────────────────────────────────────────────
 
+    /// 构造一个 Null 值。
     public static JsonValue OfNull()         { JsonValue v = new JsonValue(); v._kind = 0; return v; }
+    /// 构造一个值为 `b` 的 Bool 值。
     public static JsonValue OfBool(bool b)   { JsonValue v = new JsonValue(); v._kind = 1; v._bool = b; return v; }
+    /// 构造一个值为 `n` 的 Long 值。
     public static JsonValue OfLong(long n)   { JsonValue v = new JsonValue(); v._kind = 2; v._long = n; return v; }
+    /// 构造一个值为 `d` 的 Double 值。
     public static JsonValue OfDouble(double d) { JsonValue v = new JsonValue(); v._kind = 3; v._double = d; return v; }
+    /// 构造一个值为 `s` 的 String 值。
     public static JsonValue OfString(string s) { JsonValue v = new JsonValue(); v._kind = 4; v._str = s; return v; }
+    /// 构造一个空 Array 值（配合 `Add` 逐项追加）。
     public static JsonValue OfArray() {
         JsonValue v = new JsonValue();
         v._kind = 5;
@@ -136,6 +145,7 @@ public class JsonValue {
         v._arrayCount = 0;
         return v;
     }
+    /// 构造一个空 Object 值（配合 `Set` 逐键填充）。
     public static JsonValue OfObject() {
         JsonValue v = new JsonValue();
         v._kind = 6;
@@ -148,14 +158,22 @@ public class JsonValue {
 
     // ── Predicates ───────────────────────────────────────────────────────
 
+    /// 本值是否为 Null。
     public bool IsNull()   { return this._kind == 0; }
+    /// 本值是否为 Bool。
     public bool IsBool()   { return this._kind == 1; }
+    /// 本值是否为 Long。
     public bool IsLong()   { return this._kind == 2; }
+    /// 本值是否为 Double。
     public bool IsDouble() { return this._kind == 3; }
+    /// 本值是否为 String。
     public bool IsString() { return this._kind == 4; }
+    /// 本值是否为 Array。
     public bool IsArray()  { return this._kind == 5; }
+    /// 本值是否为 Object。
     public bool IsObject() { return this._kind == 6; }
 
+    /// kind 的小写名称（`null`…`object`，未知 kind 给 `unknown`），多用于错误消息。
     public string KindName() {
         int k = this._kind;
         if (k == 0) return "null";
@@ -170,19 +188,23 @@ public class JsonValue {
 
     // ── Accessors (throw on wrong kind) ──────────────────────────────────
 
+    /// 取 bool 值；kind 非 Bool 时抛 `JsonException`。
     public bool AsBool() {
         if (this._kind != 1) { throw new JsonException("expected bool, got " + this.KindName()); }
         return this._bool;
     }
+    /// 取 long 值；kind 非 Long 时抛 `JsonException`。
     public long AsLong() {
         if (this._kind != 2) { throw new JsonException("expected long, got " + this.KindName()); }
         return this._long;
     }
+    /// 取 double 值；Long 自动升格为 double，其余非 Double kind 抛 `JsonException`。
     public double AsDouble() {
         if (this._kind == 2) { return (double)this._long; }   // promote int → double
         if (this._kind != 3) { throw new JsonException("expected number, got " + this.KindName()); }
         return this._double;
     }
+    /// 取 string 值；kind 非 String 时抛 `JsonException`。
     public string AsString() {
         if (this._kind != 4) { throw new JsonException("expected string, got " + this.KindName()); }
         return this._str;
@@ -190,11 +212,13 @@ public class JsonValue {
 
     // ── Object operations (kind == 6) ────────────────────────────────────
 
+    /// object 是否含指定键；非 object kind 一律返回 false（不抛）。
     public bool ContainsKey(string key) {
         if (this._kind != 6) { return false; }
         return this._slotOf(key) >= 0;
     }
 
+    /// 按键取子值；非 object 或键不存在时抛 `JsonException`。
     public JsonValue Get(string key) {
         if (this._kind != 6) {
             throw new JsonException("JsonGet on non-object value (" + this.KindName() + ")");
@@ -232,6 +256,7 @@ public class JsonValue {
     // 三个文档库（TOML / JSON / YAML）形状一致，见 `Std.Toml.TomlValue.TryGet`。
 
     /// 取即检查：命中则写入 `value` 并返回 true；未命中返回 false 且**不动** `value`。
+    ///
     /// 本值不是 object 时返回 false 而**不抛** —— 与 `ContainsKey` 一致。
     public bool TryGet(string key, ref JsonValue value) {
         if (this._kind != 6) { return false; }
@@ -242,7 +267,9 @@ public class JsonValue {
     }
 
     /// 取即检查 + 取标量：命中则按 `T` 取值写入 `value` 并返回 true；未命中返回 false 且
-    /// **不动** `value`（「有就覆盖默认值」一行写完）。
+    /// **不动** `value`。
+    ///
+    /// 「有就覆盖默认值」一行写完。
     ///
     /// ⚠️ 命中但**类型不符照抛** `JsonException`，与 `AsString()` / `AsLong()` 一字不差 ——
     /// 「键不在」与「值类型错」是两种失败，把后者吞成 false 会让数据里的类型错**静默退回默认值**。
@@ -262,6 +289,7 @@ public class JsonValue {
             + "use string / long / double / bool / JsonValue");
     }
 
+    /// 写入键值：已有键原地覆盖（顺序不变），新键追加到末尾；非 object 抛 `JsonException`。
     public void Set(string key, JsonValue v) {
         if (this._kind != 6) {
             throw new JsonException("JsonSet on non-object value (" + this.KindName() + ")");
@@ -296,6 +324,7 @@ public class JsonValue {
         }
     }
 
+    /// 对象的全部键，按插入顺序；非 object kind 抛 `JsonException`。
     public string[] Keys() {
         if (this._kind != 6) {
             throw new JsonException("ObjectKeys() on non-object value (" + this.KindName() + ")");
@@ -309,6 +338,7 @@ public class JsonValue {
         return result;
     }
 
+    /// 元素个数：Array 为元素数，Object 为键数；其余 kind 抛 `JsonException`。
     public int Count() {
         if (this._kind == 5) { return this._arrayCount; }
         if (this._kind == 6) { return this._objectCount; }
@@ -317,6 +347,7 @@ public class JsonValue {
 
     // ── Array operations (kind == 5) ─────────────────────────────────────
 
+    /// 数组长度；非 array kind 抛 `JsonException`。
     public int Length() {
         if (this._kind != 5) {
             throw new JsonException("JsonLength() on non-array value (" + this.KindName() + ")");
@@ -324,6 +355,7 @@ public class JsonValue {
         return this._arrayCount;
     }
 
+    /// 按下标（0 起）取元素；非数组或下标越界抛 `JsonException`。
     public JsonValue At(int i) {
         if (this._kind != 5) {
             throw new JsonException("JsonAt() on non-array value (" + this.KindName() + ")");
@@ -334,6 +366,7 @@ public class JsonValue {
         return this._arrayItems[i];
     }
 
+    /// 追加一个元素到数组末尾；非 array kind 抛 `JsonException`。
     public void Add(JsonValue v) {
         if (this._kind != 5) {
             throw new JsonException("JsonAdd() on non-array value (" + this.KindName() + ")");

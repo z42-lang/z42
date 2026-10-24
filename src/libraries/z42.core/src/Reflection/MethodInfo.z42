@@ -46,19 +46,22 @@ public class MethodInfo : MethodBase {
         return a.__qualified != b.__qualified;
     }
 
+    /// 值相等：`other` 为 `MethodInfo` 且 `__qualified` 相同才为真（与 `==` 一致）。
     public override bool Equals(object other) {
         MethodInfo m = other as MethodInfo;
         if (Object.ReferenceEquals(m, null)) { return false; }
         return this.__qualified == m.__qualified;
     }
 
+    /// 哈希码取自 `__qualified`，与 Equals 的判据一致。
     public override int GetHashCode() { return this.__qualified.GetHashCode(); }
 
     // ── 自定义 attribute ─────────────────────────────────────────────────────
 
-    // 缓存的 attribute 实例（缓存理由见 Type.GetCustomAttributes）。
+    /// 缓存的 attribute 实例（缓存理由见 Type.GetCustomAttributes）。
     public Std.Attribute[] __attrCache;
 
+    /// native 门面：取 `qualified` 全限定名对应方法上的 attribute 实例数组。
     [Native("__method_custom_attributes")]
     public extern Std.Attribute[] __customAttributes(string qualified);
 
@@ -100,10 +103,14 @@ public class MethodInfo : MethodBase {
     /// 是否为未绑定的泛型方法定义；经 `MakeGenericMethod` 绑定实参后为 false。
     public bool IsGenericMethodDefinition;
 
-    // 声明的类型参数名（如 ["T","U"]），VM 写入；定义上 GetGenericArguments() 据此生成占位 Type。
+    /// 声明的类型参数名（如 `["T","U"]`），VM 写入。
+    ///
+    /// 定义上 GetGenericArguments() 据此生成占位 Type。
     public string[] __typeParamNames;
 
-    // 构造后 MethodInfo 上由 MakeGenericMethod 绑定的类型实参（Type[]）；定义上为 null。Invoke 时传入被调帧。
+    /// 构造后 MethodInfo 上由 MakeGenericMethod 绑定的类型实参；定义上为 null。
+    ///
+    /// Invoke 时传入被调帧。
     public Std.Type[] __typeArgs;
 
     /// 方法的类型参数（定义上）或绑定的类型实参（构造后）。

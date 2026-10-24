@@ -10,6 +10,7 @@ public class UdpReceiveResult {
     /// 发送方端口。
     public int    RemotePort;
 
+    /// 以数据报字节与发送方地址组装。
     public UdpReceiveResult(byte[] buffer, string remoteHost, int remotePort) {
         this.Buffer     = buffer;
         this.RemoteHost = remoteHost;

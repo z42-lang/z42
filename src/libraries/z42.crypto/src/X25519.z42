@@ -1,13 +1,13 @@
 namespace Std.Crypto;
 
-
-// X25519 椭圆曲线 Diffie-Hellman（RFC 7748）：在 Curve25519（Montgomery 曲线 y² = x³ + 486662x² + x
-// 于 GF(p)，p = 2^255 - 19）上做标量乘，用于 TLS 1.3、WireGuard、Signal、age、SSH、Tor 的密钥协商。
-// 算法：RFC 7748 §5 的 Montgomery ladder，常数时间条件交换防标量计时泄漏；域算术基于
-// `Std.Numerics.BigInt`（ModInverse / Add / Multiply / Mod）。
-
 using Std.Numerics;
 
+/// X25519 椭圆曲线 Diffie-Hellman（RFC 7748）——Curve25519 上的密钥协商。
+///
+/// 在 Curve25519（Montgomery 曲线 y² = x³ + 486662x² + x 于 GF(p)，p = 2^255 - 19）上做
+/// 标量乘，用于 TLS 1.3、WireGuard、Signal、age、SSH、Tor 的密钥协商。算法：RFC 7748 §5
+/// 的 Montgomery ladder，常数时间条件交换防标量计时泄漏；域算术基于
+/// `Std.Numerics.BigInt`（ModInverse / Add / Multiply / Mod）。
 public static class X25519 {
     // ── Constants ────────────────────────────────────────────────────────────
 
@@ -16,8 +16,9 @@ public static class X25519 {
 
     // ── Public API ───────────────────────────────────────────────────────────
 
-    /// 按 RFC 7748 §5 clamp 32 字节标量：清 byte0 低 3 位、清 byte31 最高位、置 byte31 次高位，
-    /// 返回新的 clamp 副本（不改入参）。
+    /// 按 RFC 7748 §5 clamp 32 字节标量，返回新的 clamp 副本（不改入参）。
+    ///
+    /// 清 byte0 低 3 位、清 byte31 最高位、置 byte31 次高位。
     public static byte[] Clamp(byte[] scalar) {
         if (scalar.Length != 32) {
             throw new ArgumentException(
@@ -32,8 +33,9 @@ public static class X25519 {
         return k;
     }
 
-    /// X25519 标量乘：`scalar × point`（各 32 字节小端编码）。`scalar` 内部自动 clamp（RFC 7748 §5），
-    /// 调用方不必预 clamp。
+    /// X25519 标量乘：`scalar × point`（各 32 字节小端编码）。
+    ///
+    /// `scalar` 内部自动 clamp（RFC 7748 §5），调用方不必预 clamp。
     public static byte[] ScalarMult(byte[] scalar, byte[] point) {
         if (scalar.Length != 32) {
             throw new ArgumentException(

@@ -1,12 +1,13 @@
 namespace Std.Crypto;
 
 
-// OS 支撑的密码学安全随机数发生器。原始熵抽头 `__crypto_random_bytes` 已迁移到核心
-// `Std.Runtime.Entropy`（跨切面原语，供 core 的 Guid.NewGuid 复用）；SecureRandom 委托到那里
-// （单一声明点），本类保持安全语义门面（rejection sampling、有界整数）。
-// **用这里生成** session token、CSRF nonce、KDF salt、掩码密钥、口令等一切需要不可预测性的场合。
-// **勿用 `Std.Random`**（PCG，确定性 PRNG，用于 fixture / 仿真 / 临时 ID）做安全用途。
-// wasm32 抛 `Std.NotSupportedException`。
+/// OS 支撑的密码学安全随机数发生器，安全语义门面（rejection sampling、有界整数）。
+///
+/// 原始熵抽头 `__crypto_random_bytes` 已迁移到核心 `Std.Runtime.Entropy`（跨切面原语，
+/// 供 core 的 Guid.NewGuid 复用）；SecureRandom 委托到那里（单一声明点）。
+/// **用这里生成** session token、CSRF nonce、KDF salt、掩码密钥、口令等一切需要不可预测性的
+/// 场合。**勿用 `Std.Random`**（PCG，确定性 PRNG，用于 fixture / 仿真 / 临时 ID）做安全用途。
+/// wasm32 抛 `Std.NotSupportedException`。
 public static class SecureRandom {
     /// 从 OS CSPRNG 填充 n 字节（n ≥ 0）。
     public static byte[] GetBytes(int n) {
@@ -38,7 +39,9 @@ public static class SecureRandom {
         return r;
     }
 
-    /// [0, bound) 均匀分布的随机 int，用 rejection sampling 避免模偏差；bound ≤ 0 抛 `ArgumentException`。
+    /// [0, bound) 均匀分布的随机 int，用 rejection sampling 避免模偏差。
+    ///
+    /// bound ≤ 0 抛 `ArgumentException`。
     public static int NextU32Bounded(int bound) {
         if (bound <= 0) {
             throw new ArgumentException("bound must be positive, got " + bound.ToString());

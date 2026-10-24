@@ -11,6 +11,7 @@ public class TcpListener : IDisposable {
     // 预 bind 的 SO_REUSEADDR 开关：POSIX 要求在 bind 前设置，故先记录、Bind 时再消费。
     private bool _reuseAddress;
 
+    /// 构造未绑定实例；随后 `Bind(host, port)` 开始监听。
     public TcpListener() {
         this._slotId   = -1;
         this._started  = false;

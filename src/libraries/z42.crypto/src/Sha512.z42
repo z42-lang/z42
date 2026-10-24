@@ -2,10 +2,11 @@ namespace Std.Crypto;
 
 using Std.Encoding;
 
-// SHA-512 哈希（FIPS 180-4），纯脚本实现。状态用 `long`（i64）保存——SHA-512 的字长 64 位，
-// 天然契合 z42 的有符号 i64；唯一麻烦是负数 `>>` 会符号扩展，所以高位可能置 1 处用 `_lshr64`
-// 做逻辑右移。块大小 128 字节（16 × 64 位字），输出 64 字节，80 轮（SHA-256 为 64 轮）。
-// SHA-384（Sha384.z42）通过暴露的 `_compressBlock` 共用压缩函数，仅 IV 与输出截断不同。
+/// SHA-512 哈希（FIPS 180-4），纯脚本实现；块 128 字节、输出 64 字节、80 轮。
+///
+/// 状态用 `long`（i64）保存——SHA-512 字长 64 位，天然契合 z42 的有符号 i64；负数
+/// `>>` 会符号扩展，所以高位可能置 1 处用 `_lshr64` 做逻辑右移。SHA-384（Sha384.z42）
+/// 通过暴露的 `_compressBlock` 共用压缩函数，仅 IV 与输出截断不同。
 public static class Sha512 {
     // ── Public API ───────────────────────────────────────────────────────────
 
@@ -40,6 +41,7 @@ public static class Sha512 {
 
     // ── FIPS 180-4 constants ─────────────────────────────────────────────────
 
+    /// 构造 SHA-512 的初始 IV（8 个 i64）。
     public static long[] _initialHash() {
         long[] h = new long[8];
         h[0] = 0x6A09E667F3BCC908L; h[1] = 0xBB67AE8584CAA73BL;
@@ -97,8 +99,9 @@ public static class Sha512 {
 
     // ── Pre-processing: pad + length-encode ──────────────────────────────────
 
-    // 供 Sha384 复用的公开填充函数。填充规则与 SHA-256 相同，但块大小为 128、长度字段 16 字节
-    // （高 8 字节恒为 0，因为 z42 的字节长度 × 8 总能用 i64 表示）。
+    /// MD 填充（供 Sha384 复用）：0x80 + 补零到 112 mod 128 + 16 字节大端位长。
+    ///
+    /// 长度字段高 8 字节恒为 0——z42 的字节长度 × 8 总能用 i64 表示。
     public static byte[] _pad(byte[] data) {
         long bitLen = (long)data.Length * 8L;
         int padZeros = (112 - (data.Length + 1) % 128 + 128) % 128;
@@ -117,7 +120,9 @@ public static class Sha512 {
 
     // ── Per-block compression (shared with Sha384) ───────────────────────────
 
-    // 把一个 128 字节块压缩进 h[0..7]。用 `_` 前缀表示内部接口，供 Sha384 携带自己的 IV 复用。
+    /// 把 `block[offset..]` 起的一个 128 字节块压缩进 `h[0..7]`（就地累加）。
+    ///
+    /// `_` 前缀的内部接口，供 Sha384 携带自己的 IV 复用。
     public static void _compressBlock(long[] h, byte[] block, int offset) {
         long[] k = Sha512._roundConstants();
         long[] w = new long[80];
@@ -180,20 +185,21 @@ public static class Sha512 {
 
     // ── 64-bit shift / rotate helpers ────────────────────────────────────────
 
-    // i64 逻辑右移。算术 `>>` 对负数会符号扩展；用同样的掩码（`-1L << (64-n)`）XOR 掉引入的 1。
+    /// i64 逻辑右移 `n` 位；负数时用掩码 XOR 掉算术 `>>` 引入的符号扩展位。
     public static long _lshr64(long x, int n) {
         if (n == 0) return x;
         if (x >= 0L) return x >> n;
         return (x >> n) ^ ((-1L) << (64 - n));
     }
 
-    // i64 循环右移 n 位（n ∈ [1, 63]）。
+    /// i64 循环右移 `n` 位（n ∈ [1, 63]）。
     public static long _rotr64(long x, int n) {
         return Sha512._lshr64(x, n) | (x << (64 - n));
     }
 
     // ── Byte-order helpers ───────────────────────────────────────────────────
 
+    /// 按大端读 `data[offset..offset+7]` 的 8 字节组成 i64。
     public static long _readBE64(byte[] data, int offset) {
         long b0 = (long)((int)data[offset]     & 0xFF);
         long b1 = (long)((int)data[offset + 1] & 0xFF);
@@ -207,6 +213,7 @@ public static class Sha512 {
              | (b4 << 24) | (b5 << 16) | (b6 << 8)  | b7;
     }
 
+    /// 把 `v` 按大端写进 `data[offset..offset+7]` 的 8 字节。
     public static void _writeBE64(byte[] data, int offset, long v) {
         data[offset]     = (byte)(Sha512._lshr64(v, 56) & 0xFFL);
         data[offset + 1] = (byte)(Sha512._lshr64(v, 48) & 0xFFL);

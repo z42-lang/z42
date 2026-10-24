@@ -1,8 +1,10 @@
 // 实现笔记：native 句柄（ContextId）存于 VM 的 NativeData；本类无数据字段。
 namespace Std.Runtime;
 
-/// z42 的加载上下文（对标 dotnet `AssemblyLoadContext`）。把 zpkg 载入可界定边界的上下文：
-/// root（core / stdlib / 主程序所在，永驻不可回收）+ collectible（按需创建，可卸载）。
+/// z42 的加载上下文（对标 dotnet `AssemblyLoadContext`）。
+///
+/// 把 zpkg 载入可界定边界的上下文：root（core / stdlib / 主程序所在，永驻不可回收）
+/// + collectible（按需创建，可卸载）。
 public sealed class AssemblyLoadContext {
     /// 永驻 root 上下文（core / stdlib / 主程序所在），IsCollectible == false。
     // z42 stdlib 无静态属性先例，静态成员一律 extern 方法。
@@ -29,8 +31,10 @@ public sealed class AssemblyLoadContext {
     [Native("__lctx_assemblies")]
     public extern Std.Reflection.Assembly[] GetAssemblies();
 
-    /// 卸载本上下文：标记为 Unloading，由 GC 惰性回收。root 永驻不可卸载 → 抛
-    /// `InvalidOperationException`。fire-and-forget（卸载惰性，不保证立即回收）。
+    /// 卸载本上下文：标记为 Unloading，由 GC 惰性回收。
+    ///
+    /// root 永驻不可卸载 → 抛 `InvalidOperationException`。fire-and-forget
+    /// （卸载惰性，不保证立即回收）。
     public void Unload() {
         if (!this.IsCollectible) {
             throw new Std.InvalidOperationException(

@@ -36,8 +36,10 @@ public sealed partial class String : IComparable, IEquatable {
     /// 字符数（Unicode 标量个数），O(n)。需要 O(1) 的字节尺寸用 ByteLength。
     [Native("__str_length")]      public extern int Length     { get; }
 
-    /// UTF-8 字节数，O(1)。非 ASCII 串与 Length 不同（`"你好".Length == 2`，
-    /// `"你好".ByteLength == 6`）。热路径尺寸查询用本属性。
+    /// UTF-8 字节数，O(1)。
+    ///
+    /// 非 ASCII 串与 Length 不同（`"你好".Length == 2`，`"你好".ByteLength == 6`）。
+    /// 热路径尺寸查询用本属性。
     [Native("__str_byte_length")] public extern int ByteLength { get; }
 
     /// 第 `index` 个字符（`s[index]` 同）。越界（含负数）抛 IndexOutOfRangeException。

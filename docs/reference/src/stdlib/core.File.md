@@ -120,49 +120,55 @@ public static class File {
 <a id="Std.IO.File.GetLastWriteTime(string)"></a>
 ### static DateTime GetLastWriteTime(string path)
 
-[`src/libraries/z42.core/src/IO/File.z42:62`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/File.z42#L62)
+[`src/libraries/z42.core/src/IO/File.z42:64`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/File.z42#L64)
 
-文件最后修改时间（mtime），包装成 `Std.Time.DateTime`。比较用 `IsAfter` / `IsBefore` / `UnixMs()`。文件不存在抛 `FileNotFoundException`。
+文件最后修改时间（mtime），包装成 `Std.Time.DateTime`。
+
+比较用 `IsAfter` / `IsBefore` / `UnixMs()`。文件不存在抛
+`FileNotFoundException`。
 
 <a id="Std.IO.File.CreateTempDir(string)"></a>
 ### static extern string CreateTempDir(string prefix)
 
-[`src/libraries/z42.core/src/IO/File.z42:75`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/File.z42#L75)
+[`src/libraries/z42.core/src/IO/File.z42:77`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/File.z42#L77)
 
 创建唯一临时目录，返回全路径（`<sysTemp>/prefix.<nanos>.<pid>.<bump>`）。
 
 <a id="Std.IO.File.CreateTempFile(string,string)"></a>
 ### static extern string CreateTempFile(string prefix, string suffix)
 
-[`src/libraries/z42.core/src/IO/File.z42:80`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/File.z42#L80)
+[`src/libraries/z42.core/src/IO/File.z42:84`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/File.z42#L84)
 
-创建唯一空临时文件，返回全路径（`<sysTemp>/prefix.<nanos>.<pid>.<bump><suffix>`）。 suffix 可为 ""（无扩展名）。
+创建唯一空临时文件，返回全路径。
+
+路径形如 `<sysTemp>/prefix.<nanos>.<pid>.<bump><suffix>`；suffix 可为 ""
+（无扩展名）。
 
 <a id="Std.IO.File.MakeExecutable(string)"></a>
 ### static extern void MakeExecutable(string path)
 
-[`src/libraries/z42.core/src/IO/File.z42:84`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/File.z42#L84)
+[`src/libraries/z42.core/src/IO/File.z42:88`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/File.z42#L88)
 
 Unix: `chmod u+x,g+x,o+x`；Windows: no-op（NTFS 由扩展名决定）。
 
 <a id="Std.IO.File.Link(string,string)"></a>
 ### static extern void Link(string src, string dst)
 
-[`src/libraries/z42.core/src/IO/File.z42:88`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/File.z42#L88)
+[`src/libraries/z42.core/src/IO/File.z42:92`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/File.z42#L92)
 
 创建 hard link `dst → src`（跨设备 OS 错误透传）。
 
 <a id="Std.IO.File.SymLink(string,string)"></a>
 ### static extern void SymLink(string src, string dst)
 
-[`src/libraries/z42.core/src/IO/File.z42:92`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/File.z42#L92)
+[`src/libraries/z42.core/src/IO/File.z42:96`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/File.z42#L96)
 
 创建 symbolic link `dst → src`（Windows 暂未支持）。
 
 <a id="Std.IO.File.GetSize(string)"></a>
 ### static extern long GetSize(string path)
 
-[`src/libraries/z42.core/src/IO/File.z42:96`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/File.z42#L96)
+[`src/libraries/z42.core/src/IO/File.z42:100`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/File.z42#L100)
 
 文件字节数（path 是 directory 时抛错）。
 

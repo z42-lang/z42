@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`
 
-[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:71`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L71)
+[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:73`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L73)
 
 组合包装 —— mode flags 累加；融合后只分配一个 CompositeRef 实例。
 
@@ -27,41 +27,42 @@ public sealed class CompositeRef<TD> : ISubscription<TD> {
 <a id="Std.CompositeRef<TD>.Modes"></a>
 ### int Modes
 
-[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:73`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L73)
+[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:76`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L76)
 
+组合的 mode flags 位掩码（`ModeFlags` 各值的按位或）。
 
 <a id="Std.CompositeRef<TD>.ctor(TD,int)"></a>
 ### CompositeRef(TD h, int modes)
 
-[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:80`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L80)
+[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:83`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L83)
 
 用 handler 与 mode flags 构造组合包装。
 
 <a id="Std.CompositeRef<TD>.WithMode(int)"></a>
 ### CompositeRef<TD> WithMode(int additional)
 
-[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:106`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L106)
+[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:109`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L109)
 
 累加 mode flag 复用本实例，链式 .AsOnce().AsWeak() 不重复分配（融合）。
 
 <a id="Std.CompositeRef<TD>.Get()"></a>
 ### TD Get()
 
-[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:112`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L112)
+[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:115`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L115)
 
 返回 handler；Weak 活跃时经 weakHandle 重建 Closure。
 
 <a id="Std.CompositeRef<TD>.IsAlive()"></a>
 ### bool IsAlive()
 
-[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:126`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L126)
+[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:129`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L129)
 
 是否仍活跃（考虑 consumed 与 weak target）。
 
 <a id="Std.CompositeRef<TD>.OnInvoked()"></a>
 ### void OnInvoked()
 
-[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:136`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L136)
+[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:139`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L139)
 
 Once flag 时标记为已消费。
 

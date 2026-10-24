@@ -1,11 +1,13 @@
 namespace Std.Json;
 
 /// 显式指定成员的 JSON 键名，serde 引擎按名映射时以此覆盖默认成员名。
+///
 /// 用法 `[JsonProperty("json_name")]`，可标注字段或 auto-property。
 public class JsonPropertyAttribute : Attribute {
     /// JSON 中使用的键名。
     public string Name;
 
+    /// 以覆盖默认成员名的 JSON 键名构造特性。
     public JsonPropertyAttribute(string name) {
         this.Name = name;
     }

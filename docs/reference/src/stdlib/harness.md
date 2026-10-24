@@ -59,57 +59,68 @@ public class BenchStats {
 <a id="Std.Harness.BenchStats.Label"></a>
 ### string Label
 
-[`src/libraries/z42.harness/src/BenchStats.z42:11`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BenchStats.z42#L11)
+[`src/libraries/z42.harness/src/BenchStats.z42:12`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BenchStats.z42#L12)
 
+基准名（`bench[<label>]` 方括号里的文本）。
 
 <a id="Std.Harness.BenchStats.MinNs"></a>
 ### long MinNs
 
-[`src/libraries/z42.harness/src/BenchStats.z42:12`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BenchStats.z42#L12)
+[`src/libraries/z42.harness/src/BenchStats.z42:14`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BenchStats.z42#L14)
 
+最小耗时（纳秒）。
 
 <a id="Std.Harness.BenchStats.MedianNs"></a>
 ### long MedianNs
 
-[`src/libraries/z42.harness/src/BenchStats.z42:13`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BenchStats.z42#L13)
+[`src/libraries/z42.harness/src/BenchStats.z42:16`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BenchStats.z42#L16)
 
+中位数耗时（纳秒）。
 
 <a id="Std.Harness.BenchStats.MaxNs"></a>
 ### long MaxNs
 
-[`src/libraries/z42.harness/src/BenchStats.z42:14`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BenchStats.z42#L14)
+[`src/libraries/z42.harness/src/BenchStats.z42:18`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BenchStats.z42#L18)
 
+最大耗时（纳秒）。
 
 <a id="Std.Harness.BenchStats.MeanNs"></a>
 ### long MeanNs
 
-[`src/libraries/z42.harness/src/BenchStats.z42:15`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BenchStats.z42#L15)
+[`src/libraries/z42.harness/src/BenchStats.z42:20`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BenchStats.z42#L20)
 
+平均耗时（纳秒）；摘要行缺 `mean=` 时为 -1。
 
 <a id="Std.Harness.BenchStats.StdDevNs"></a>
 ### long StdDevNs
 
-[`src/libraries/z42.harness/src/BenchStats.z42:16`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BenchStats.z42#L16)
+[`src/libraries/z42.harness/src/BenchStats.z42:22`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BenchStats.z42#L22)
 
+标准差（纳秒）；摘要行缺 `stddev=` 时为 -1。
 
 <a id="Std.Harness.BenchStats.Samples"></a>
 ### long Samples
 
-[`src/libraries/z42.harness/src/BenchStats.z42:17`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BenchStats.z42#L17)
+[`src/libraries/z42.harness/src/BenchStats.z42:24`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BenchStats.z42#L24)
 
+采样次数。
 
 <a id="Std.Harness.BenchStats.ctor(string,long,long,long,long,long,long)"></a>
 ### BenchStats(string label, long minNs, long medianNs, long maxNs, long meanNs, long stddevNs, long samples)
 
-[`src/libraries/z42.harness/src/BenchStats.z42:19`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BenchStats.z42#L19)
+[`src/libraries/z42.harness/src/BenchStats.z42:27`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BenchStats.z42#L27)
 
+按七个统计量直接装配。
 
 <a id="Std.Harness.BenchStats.parse(string)"></a>
 ### static BenchStats? parse(string text)
 
-[`src/libraries/z42.harness/src/BenchStats.z42:35`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BenchStats.z42#L35)
+[`src/libraries/z42.harness/src/BenchStats.z42:44`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BenchStats.z42#L44)
 
-从 `text`（一个基准的捕获 stdout，可能多行）里解析**最后**一条合法的 `bench[...]` 行；一条也解析不出来返回 null（调用方按「这个基准没有 统计」处理，而不是猜字段）。
+从 `text` 里解析**最后**一条合法的 `bench[...]` 行。
+
+`text` 是一个基准的捕获 stdout，可能多行。一条也解析不出来返回 null
+（调用方按「这个基准没有统计」处理，而不是猜字段）。
 
 | 参数 | 说明 |
 |---|---|
@@ -154,71 +165,85 @@ public class Bencher {
 <a id="Std.Harness.Bencher.WarmupIters"></a>
 ### int WarmupIters { get; private set; }
 
-[`src/libraries/z42.harness/src/Bencher.z42:19`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Bencher.z42#L19)
+[`src/libraries/z42.harness/src/Bencher.z42:20`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Bencher.z42#L20)
 
+预热次数（`iter` 开头不计时的先跑次数，构造时定死）。
 
 <a id="Std.Harness.Bencher.Samples"></a>
 ### int Samples { get; private set; }
 
-[`src/libraries/z42.harness/src/Bencher.z42:20`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Bencher.z42#L20)
+[`src/libraries/z42.harness/src/Bencher.z42:22`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Bencher.z42#L22)
 
+实际采样数：自适应形态由 `iter` 选定后写入，固定形态即构造实参。
 
 <a id="Std.Harness.Bencher.MinNs"></a>
 ### long MinNs { get; private set; }
 
-[`src/libraries/z42.harness/src/Bencher.z42:21`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Bencher.z42#L21)
+[`src/libraries/z42.harness/src/Bencher.z42:24`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Bencher.z42#L24)
 
+最快一次采样的耗时（ns）。
 
 <a id="Std.Harness.Bencher.MaxNs"></a>
 ### long MaxNs { get; private set; }
 
-[`src/libraries/z42.harness/src/Bencher.z42:22`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Bencher.z42#L22)
+[`src/libraries/z42.harness/src/Bencher.z42:26`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Bencher.z42#L26)
 
+最慢一次采样的耗时（ns）。
 
 <a id="Std.Harness.Bencher.MedianNs"></a>
 ### long MedianNs { get; private set; }
 
-[`src/libraries/z42.harness/src/Bencher.z42:23`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Bencher.z42#L23)
+[`src/libraries/z42.harness/src/Bencher.z42:28`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Bencher.z42#L28)
 
+采样耗时的中位数（ns；偶数个样本取上半中位）。
 
 <a id="Std.Harness.Bencher.MeanNs"></a>
 ### long MeanNs { get; private set; }
 
-[`src/libraries/z42.harness/src/Bencher.z42:24`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Bencher.z42#L24)
+[`src/libraries/z42.harness/src/Bencher.z42:30`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Bencher.z42#L30)
 
+采样耗时的算术平均（ns，整数除法向零截断）。
 
 <a id="Std.Harness.Bencher.StdDevNs"></a>
 ### long StdDevNs { get; private set; }
 
-[`src/libraries/z42.harness/src/Bencher.z42:25`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Bencher.z42#L25)
+[`src/libraries/z42.harness/src/Bencher.z42:32`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Bencher.z42#L32)
 
+采样总体的标准差（ns，÷n 口径，四舍五入到整 ns）。
 
 <a id="Std.Harness.Bencher.TotalNs"></a>
 ### long TotalNs { get; private set; }
 
-[`src/libraries/z42.harness/src/Bencher.z42:26`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Bencher.z42#L26)
+[`src/libraries/z42.harness/src/Bencher.z42:34`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Bencher.z42#L34)
 
+全部采样耗时之和（ns）。
 
 <a id="Std.Harness.Bencher.ctor()"></a>
 ### Bencher()
 
-[`src/libraries/z42.harness/src/Bencher.z42:33`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Bencher.z42#L33)
+[`src/libraries/z42.harness/src/Bencher.z42:42`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Bencher.z42#L42)
 
-自适应采样：预热 10 次；先用一小段 pilot 估出单次耗时，再按约 50ms 的测量 预算选采样数（夹在 [20, 2000]）。快的基准采得多（置信区间紧），慢的采得少 （墙钟时间有上界）。`iter` 之后 `Samples` 是实际用的 n。
+自适应采样：预热 10 次，按约 50ms 的测量预算在 [20, 2000] 内选采样数。
+
+先用一小段 pilot 估出单次耗时，再按预算定 n：快的基准采得多（置信区间紧），
+慢的采得少（墙钟时间有上界）。`iter` 之后 `Samples` 是实际用的 n。
 
 <a id="Std.Harness.Bencher.ctor(int,int)"></a>
 ### Bencher(int warmupIters, int sampleIters)
 
-[`src/libraries/z42.harness/src/Bencher.z42:41`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Bencher.z42#L41)
+[`src/libraries/z42.harness/src/Bencher.z42:50`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Bencher.z42#L50)
 
 固定采样：预热 `warmupIters` 次、计时 `sampleIters` 次，不做自适应。
 
 <a id="Std.Harness.Bencher.iter(Action)"></a>
 ### void iter(Action body)
 
-[`src/libraries/z42.harness/src/Bencher.z42:58`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Bencher.z42#L58)
+[`src/libraries/z42.harness/src/Bencher.z42:68`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Bencher.z42#L68)
 
-预热 `WarmupIters` 次（不计时），再采样 n 次（n 固定或自适应）。返回后 `MinNs` / `MedianNs` / `MaxNs` / `MeanNs` / `StdDevNs` / `TotalNs` / `Samples` 反映这次采样。
+预热后计时采样 n 次（n 固定或自适应），刷新全部统计属性。
+
+返回后 `MinNs` / `MedianNs` / `MaxNs` / `MeanNs` / `StdDevNs` / `TotalNs` / `Samples`
+反映这次采样。
 
 | 参数 | 说明 |
 |---|---|
@@ -227,11 +252,13 @@ public class Bencher {
 <a id="Std.Harness.Bencher.printSummary(string)"></a>
 ### void printSummary(string label)
 
-[`src/libraries/z42.harness/src/Bencher.z42:141`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Bencher.z42#L141)
+[`src/libraries/z42.harness/src/Bencher.z42:152`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Bencher.z42#L152)
 
-打一行人类可读的摘要，格式是 runner 契约的一部分（json 模式下 runner 捕获这行 并经 `BenchStats.parse` 解析成 `TestResult.bench_stats`）：
+打一行人类可读的摘要；这行格式是 runner 契约的一部分。
 
-bench[<label>] min=<n>ns median=<n>ns max=<n>ns mean=<n>ns stddev=<n>ns samples=<n>
+json 模式下 runner 捕获这行并经 `BenchStats.parse` 解析成 `TestResult.bench_stats`：
+
+    bench[<label>] min=<n>ns median=<n>ns max=<n>ns mean=<n>ns stddev=<n>ns samples=<n>
 
 | 参数 | 说明 |
 |---|---|
@@ -239,8 +266,9 @@ bench[<label>] min=<n>ns median=<n>ns max=<n>ns mean=<n>ns stddev=<n>ns samples=
 
 ## BenchHelpers
 
-[`src/libraries/z42.harness/src/Bencher.z42:167`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Bencher.z42#L167)
+[`src/libraries/z42.harness/src/Bencher.z42:179`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Bencher.z42#L179)
 
+基准相关的静态帮助函数集。
 
 ```z42
 public static class BenchHelpers {
@@ -253,17 +281,24 @@ public static class BenchHelpers {
 <a id="Std.Harness.BenchHelpers.blackBox(object)"></a>
 ### static extern object blackBox(object value)
 
-[`src/libraries/z42.harness/src/Bencher.z42:175`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Bencher.z42#L175)
+[`src/libraries/z42.harness/src/Bencher.z42:188`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Bencher.z42#L188)
 
-「别把这次计算优化掉」的恒等包装（对应 criterion 的 black_box）。目前解释器 不做死代码消除，恒等返回；留着这个形口，用户代码在 JIT 学会消除纯表达式后 无需改动。可无条件使用。
+「别把这次计算优化掉」的恒等包装（对应 criterion 的 black_box）。
+
+目前解释器不做死代码消除，恒等返回；留着这个形口，用户代码在 JIT 学会消除
+纯表达式后无需改动。可无条件使用。
 
 > ⚠️ 形参是 `object` 而非 `<T>`：跨 zpkg 的方法级泛型实参推断尚未就绪， 装箱开销由调用方自负。
 
 ## BundleCase
 
-[`src/libraries/z42.harness/src/BundleRunner.z42:8`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BundleRunner.z42#L8)
+[`src/libraries/z42.harness/src/BundleRunner.z42:10`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BundleRunner.z42#L10)
 
-测试束里的一条。`Entry` 为 null 标记单元测试（`[Test]` 模块）；非 null（golden 程序的入口符号）标记整程序 golden。`Zbc` / `Expected` 是相对束目录的文件名； `Requires` 是该条声明的能力（源码 `// requires-caps:` 经 manifest 带来），空 = 无。
+测试束里的一条。
+
+`Entry` 为 null 标记单元测试（`[Test]` 模块）；非 null（golden 程序的入口符号）
+标记整程序 golden。`Zbc` / `Expected` 是相对束目录的文件名；`Requires` 是该条
+声明的能力（源码 `// requires-caps:` 经 manifest 带来），空 = 无。
 
 ```z42
 public class BundleCase {
@@ -282,52 +317,61 @@ public class BundleCase {
 <a id="Std.Harness.BundleCase.Name"></a>
 ### string Name
 
-[`src/libraries/z42.harness/src/BundleRunner.z42:9`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BundleRunner.z42#L9)
+[`src/libraries/z42.harness/src/BundleRunner.z42:12`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BundleRunner.z42#L12)
 
+条目名；golden 与被能力门跳过的条目以它作 TestResult.Name。
 
 <a id="Std.Harness.BundleCase.Zbc"></a>
 ### string Zbc
 
-[`src/libraries/z42.harness/src/BundleRunner.z42:10`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BundleRunner.z42#L10)
+[`src/libraries/z42.harness/src/BundleRunner.z42:14`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BundleRunner.z42#L14)
 
+产物文件名（`.zbc`），相对束目录。
 
 <a id="Std.Harness.BundleCase.Entry"></a>
 ### string Entry
 
-[`src/libraries/z42.harness/src/BundleRunner.z42:12`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BundleRunner.z42#L12)
+[`src/libraries/z42.harness/src/BundleRunner.z42:16`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BundleRunner.z42#L16)
 
 null → 单元测试；非 null → golden 的入口符号。
 
 <a id="Std.Harness.BundleCase.Expected"></a>
 ### string Expected
 
-[`src/libraries/z42.harness/src/BundleRunner.z42:14`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BundleRunner.z42#L14)
+[`src/libraries/z42.harness/src/BundleRunner.z42:18`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BundleRunner.z42#L18)
 
 golden 的期望输出文件名（可为 null / ""）。
 
 <a id="Std.Harness.BundleCase.Requires"></a>
 ### string[] Requires
 
-[`src/libraries/z42.harness/src/BundleRunner.z42:15`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BundleRunner.z42#L15)
+[`src/libraries/z42.harness/src/BundleRunner.z42:20`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BundleRunner.z42#L20)
 
+该条声明的能力（空 = 无要求）；本 VM 缺任一项则整条跳过、不加载。
 
 <a id="Std.Harness.BundleCase.ctor(string,string,string,string)"></a>
 ### BundleCase(string name, string zbc, string entry, string expected)
 
-[`src/libraries/z42.harness/src/BundleRunner.z42:17`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BundleRunner.z42#L17)
+[`src/libraries/z42.harness/src/BundleRunner.z42:23`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BundleRunner.z42#L23)
 
+按 name / zbc / entry / expected 建一条；`Requires` 初始化为空数组。
 
 <a id="Std.Harness.BundleCase.IsGolden()"></a>
 ### bool IsGolden()
 
-[`src/libraries/z42.harness/src/BundleRunner.z42:25`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BundleRunner.z42#L25)
+[`src/libraries/z42.harness/src/BundleRunner.z42:32`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BundleRunner.z42#L32)
 
+是否整程序 golden 条目（`Entry` 非 null）。
 
 ## BundleRunner
 
-[`src/libraries/z42.harness/src/BundleRunner.z42:34`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BundleRunner.z42#L34)
+[`src/libraries/z42.harness/src/BundleRunner.z42:43`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BundleRunner.z42#L43)
 
-测试束执行器：golden（整程序，隔离 VM 里跑、比对 stdout）+ 单元（共享 VM 的 `[Test]` 模块，经 [`Runner.RunModuleResults`]）+ 汇总。设备端 test-agent 与 宿主 `z42b test --rid host` 共用这套算法。
+测试束执行器：golden + 单元 + 汇总。
+
+golden（整程序，隔离 VM 里跑、比对 stdout）+ 单元（共享 VM 的 `[Test]` 模块，
+经 [`Runner.RunModuleResults`]）+ 汇总。设备端 test-agent 与宿主
+`z42b test --rid host` 共用这套算法。
 
 manifest 本身是 JSON，但本包零依赖：调用方用自己的 z42.json 把 manifest.json
 解析成 `BundleCase[]` 再传进来。
@@ -344,7 +388,7 @@ public static class BundleRunner {
 <a id="Std.Harness.BundleRunner.RunBundle(BundleCase[],string,string)"></a>
 ### static TestResult[] RunBundle(BundleCase[] allCases, string bundleDir, string libsDir)
 
-[`src/libraries/z42.harness/src/BundleRunner.z42:44`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BundleRunner.z42#L44)
+[`src/libraries/z42.harness/src/BundleRunner.z42:53`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BundleRunner.z42#L53)
 
 跑 `cases` 里的每一条并返回汇总结果（golden 在前、单元在后，缺能力被跳过的 条目排在末尾）。
 
@@ -360,15 +404,18 @@ public static class BundleRunner {
 <a id="Std.Harness.BundleRunner.ExitCode(TestResult[])"></a>
 ### static int ExitCode(TestResult[] results)
 
-[`src/libraries/z42.harness/src/BundleRunner.z42:140`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BundleRunner.z42#L140)
+[`src/libraries/z42.harness/src/BundleRunner.z42:149`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BundleRunner.z42#L149)
 
 束结果的退出码：任一条 failed → 1，否则 0。
 
 ## InvokeOutcome
 
-[`src/libraries/z42.harness/src/Runner.z42:33`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Runner.z42#L33)
+[`src/libraries/z42.harness/src/Runner.z42:35`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Runner.z42#L35)
 
-一次调用的结果（z42 无 out 参数，用字段带出）。`Captured` 只在 json 模式下 捕获被测函数的 stdout（供基准摘要行解析），其余情况为 `""`。
+一次调用的结果（z42 无 out 参数，用字段带出）。
+
+`Captured` 只在 json 模式下捕获被测函数的 stdout（供基准摘要行解析），
+其余情况为 `""`。
 
 ```z42
 public class InvokeOutcome {
@@ -386,44 +433,53 @@ public class InvokeOutcome {
 <a id="Std.Harness.InvokeOutcome.Threw"></a>
 ### bool Threw
 
-[`src/libraries/z42.harness/src/Runner.z42:34`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Runner.z42#L34)
+[`src/libraries/z42.harness/src/Runner.z42:37`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Runner.z42#L37)
 
+被调函数是否抛了异常。
 
 <a id="Std.Harness.InvokeOutcome.Thrown"></a>
 ### Type? Thrown
 
-[`src/libraries/z42.harness/src/Runner.z42:35`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Runner.z42#L35)
+[`src/libraries/z42.harness/src/Runner.z42:39`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Runner.z42#L39)
 
+抛出的异常的运行期类型（`[ShouldThrow<E>]` 判定用）；未抛时为 null。
 
 <a id="Std.Harness.InvokeOutcome.ErrType"></a>
 ### string ErrType
 
-[`src/libraries/z42.harness/src/Runner.z42:36`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Runner.z42#L36)
+[`src/libraries/z42.harness/src/Runner.z42:41`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Runner.z42#L41)
 
+抛出异常的运行期类型全限定名（FullName）；未抛时为 `""`。
 
 <a id="Std.Harness.InvokeOutcome.ErrMsg"></a>
 ### string ErrMsg
 
-[`src/libraries/z42.harness/src/Runner.z42:37`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Runner.z42#L37)
+[`src/libraries/z42.harness/src/Runner.z42:43`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Runner.z42#L43)
 
+抛出异常的 Message；未抛时为 `""`。
 
 <a id="Std.Harness.InvokeOutcome.Captured"></a>
 ### string Captured
 
-[`src/libraries/z42.harness/src/Runner.z42:38`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Runner.z42#L38)
+[`src/libraries/z42.harness/src/Runner.z42:45`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Runner.z42#L45)
 
+json 模式下捕获的被测函数 stdout（供基准摘要行解析）；其余模式为 `""`。
 
 <a id="Std.Harness.InvokeOutcome.ctor()"></a>
 ### InvokeOutcome()
 
-[`src/libraries/z42.harness/src/Runner.z42:39`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Runner.z42#L39)
+[`src/libraries/z42.harness/src/Runner.z42:47`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Runner.z42#L47)
 
+全字段初始化：Threw=false、Thrown=null、字符串字段空串。
 
 ## Runner
 
-[`src/libraries/z42.harness/src/Runner.z42:46`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Runner.z42#L46)
+[`src/libraries/z42.harness/src/Runner.z42:56`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Runner.z42#L56)
 
-反射式测试 runner：并入一个编好的测试 / bench 产物，经 [`TestDiscovery`] 找出 `[Test]` / `[Benchmark]` / `[Setup]` / `[Teardown]`，逐条执行并归类 pass / fail / skip。
+反射式测试 runner：发现并执行测试 / bench，归类 pass / fail / skip。
+
+并入一个编好的测试 / bench 产物，经 [`TestDiscovery`] 找出 `[Test]` / `[Benchmark]` /
+`[Setup]` / `[Teardown]`，逐条执行并归类 pass / fail / skip。
 
 ```z42
 public static class Runner {
@@ -438,23 +494,28 @@ public static class Runner {
 <a id="Std.Harness.Runner.RunModule(string,string)"></a>
 ### static int RunModule(string path, string format)
 
-[`src/libraries/z42.harness/src/Runner.z42:50`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Runner.z42#L50)
+[`src/libraries/z42.harness/src/Runner.z42:61`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Runner.z42#L61)
 
-并入 `path` 处的产物并跑其中每条 `[Test]` / `[Benchmark]`，按 `format` （`"pretty"` | `"json"`）输出。返回进程退出码：0 = 全过；1 = 有失败，或一条 可跑的测试都没发现（拼错 attribute、glob 漏文件都算事故，不与「全过」等价）。
+并入 `path` 处的产物并跑其中每条 `[Test]` / `[Benchmark]`，按 `format` 输出。
+
+`format` 取 `"pretty"` | `"json"`。返回进程退出码：0 = 全过；1 = 有失败，或一条
+可跑的测试都没发现（拼错 attribute、glob 漏文件都算事故，不与「全过」等价）。
 
 <a id="Std.Harness.Runner.ExitCodeFor(int,int)"></a>
 ### static int ExitCodeFor(int runnable, int failed)
 
-[`src/libraries/z42.harness/src/Runner.z42:104`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Runner.z42#L104)
+[`src/libraries/z42.harness/src/Runner.z42:115`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Runner.z42#L115)
 
 退出码决策（纯函数，可直接单测）：一条可跑的测试都没有 → 1（「测试没跑」 不得与「全过」等价）；有失败 → 1；否则 0。
 
 <a id="Std.Harness.Runner.RunModuleResults(string)"></a>
 ### static TestResult[] RunModuleResults(string path)
 
-[`src/libraries/z42.harness/src/Runner.z42:112`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Runner.z42#L112)
+[`src/libraries/z42.harness/src/Runner.z42:124`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Runner.z42#L124)
 
-跑 `path` 处产物里的每条 `[Test]` / `[Benchmark]`，**只返回结果、不打印**。 供跨模块聚合：调用方收集多个模块的结果后统一渲染一份合并报告。
+跑 `path` 处产物里的每条 `[Test]` / `[Benchmark]`，**只返回结果、不打印**。
+
+供跨模块聚合：调用方收集多个模块的结果后统一渲染一份合并报告。
 
 ## TestAttribute
 
@@ -473,12 +534,13 @@ public sealed class TestAttribute : Attribute {
 <a id="Std.Harness.TestAttribute.ctor()"></a>
 ### TestAttribute()
 
-[`src/libraries/z42.harness/src/TestAttributes.z42:16`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L16)
+[`src/libraries/z42.harness/src/TestAttributes.z42:17`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L17)
 
+无实参（签名约束由编译期校验）。
 
 ## BenchmarkAttribute
 
-[`src/libraries/z42.harness/src/TestAttributes.z42:20`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L20)
+[`src/libraries/z42.harness/src/TestAttributes.z42:21`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L21)
 
 一条基准：零参，或唯一参数为 [`Bencher`]（`void f(Bencher b)`——runner 传入并自动打摘要行）。
 
@@ -493,12 +555,13 @@ public sealed class BenchmarkAttribute : Attribute {
 <a id="Std.Harness.BenchmarkAttribute.ctor()"></a>
 ### BenchmarkAttribute()
 
-[`src/libraries/z42.harness/src/TestAttributes.z42:21`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L21)
+[`src/libraries/z42.harness/src/TestAttributes.z42:23`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L23)
 
+无实参（签名约束由编译期校验）。
 
 ## SetupAttribute
 
-[`src/libraries/z42.harness/src/TestAttributes.z42:25`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L25)
+[`src/libraries/z42.harness/src/TestAttributes.z42:27`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L27)
 
 同命名空间（或同一类型）里每条测试之前执行。
 
@@ -513,12 +576,13 @@ public sealed class SetupAttribute : Attribute {
 <a id="Std.Harness.SetupAttribute.ctor()"></a>
 ### SetupAttribute()
 
-[`src/libraries/z42.harness/src/TestAttributes.z42:26`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L26)
+[`src/libraries/z42.harness/src/TestAttributes.z42:29`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L29)
 
+无实参（签名约束由编译期校验）。
 
 ## TeardownAttribute
 
-[`src/libraries/z42.harness/src/TestAttributes.z42:30`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L30)
+[`src/libraries/z42.harness/src/TestAttributes.z42:33`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L33)
 
 同命名空间（或同一类型）里每条测试之后执行（测试失败也执行）。
 
@@ -533,14 +597,18 @@ public sealed class TeardownAttribute : Attribute {
 <a id="Std.Harness.TeardownAttribute.ctor()"></a>
 ### TeardownAttribute()
 
-[`src/libraries/z42.harness/src/TestAttributes.z42:31`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L31)
+[`src/libraries/z42.harness/src/TestAttributes.z42:35`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L35)
 
+无实参（签名约束由编译期校验）。
 
 ## SkipAttribute
 
-[`src/libraries/z42.harness/src/TestAttributes.z42:36`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L36)
+[`src/libraries/z42.harness/src/TestAttributes.z42:42`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L42)
 
-跳过本条。`reason` 必填（E0914）；给 `platform` ⇒ 仅在该平台跳过；给 `feature` ⇒ 运行时缺这项能力才跳过（能力集见 `Std.Platform.Capabilities()`，未知能力名按缺失处理）。
+跳过本条。`reason` 必填（E0914）；`platform` / `feature` 是可选门。
+
+给 `platform` ⇒ 仅在该平台跳过；给 `feature` ⇒ 运行时缺这项能力才跳过
+（能力集见 `Std.Platform.Capabilities()`，未知能力名按缺失处理）。
 
 ```z42
 public sealed class SkipAttribute : Attribute {
@@ -556,33 +624,34 @@ public sealed class SkipAttribute : Attribute {
 <a id="Std.Harness.SkipAttribute.Reason"></a>
 ### string Reason
 
-[`src/libraries/z42.harness/src/TestAttributes.z42:38`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L38)
+[`src/libraries/z42.harness/src/TestAttributes.z42:44`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L44)
 
 必填：跳过的原因（报告里随 SKIP 行输出）。
 
 <a id="Std.Harness.SkipAttribute.Platform"></a>
 ### string Platform
 
-[`src/libraries/z42.harness/src/TestAttributes.z42:40`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L40)
+[`src/libraries/z42.harness/src/TestAttributes.z42:46`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L46)
 
 平台门：等于 `Std.Platform.OS()` 的返回值时跳过。
 
 <a id="Std.Harness.SkipAttribute.Feature"></a>
 ### string Feature
 
-[`src/libraries/z42.harness/src/TestAttributes.z42:42`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L42)
+[`src/libraries/z42.harness/src/TestAttributes.z42:48`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L48)
 
 能力门：运行中的 VM 不报告这项能力时跳过。
 
 <a id="Std.Harness.SkipAttribute.ctor(string,string,string)"></a>
 ### SkipAttribute(string reason = "", string platform = "", string feature = "")
 
-[`src/libraries/z42.harness/src/TestAttributes.z42:43`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L43)
+[`src/libraries/z42.harness/src/TestAttributes.z42:50`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L50)
 
+三门都可省（缺省空串）；空串在发现层归一成 null（见 [`TestDiscovery`]）。
 
 ## IgnoreAttribute
 
-[`src/libraries/z42.harness/src/TestAttributes.z42:51`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L51)
+[`src/libraries/z42.harness/src/TestAttributes.z42:58`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L58)
 
 无条件跳过（不报理由）。
 
@@ -597,12 +666,13 @@ public sealed class IgnoreAttribute : Attribute {
 <a id="Std.Harness.IgnoreAttribute.ctor()"></a>
 ### IgnoreAttribute()
 
-[`src/libraries/z42.harness/src/TestAttributes.z42:52`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L52)
+[`src/libraries/z42.harness/src/TestAttributes.z42:60`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L60)
 
+无实参。
 
 ## TimeoutAttribute
 
-[`src/libraries/z42.harness/src/TestAttributes.z42:56`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L56)
+[`src/libraries/z42.harness/src/TestAttributes.z42:64`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L64)
 
 超时（毫秒，必须为正：E0917）。**目前只有编译期校验，runner 运行期不强制。**
 
@@ -618,19 +688,20 @@ public sealed class TimeoutAttribute : Attribute {
 <a id="Std.Harness.TimeoutAttribute.Milliseconds"></a>
 ### int Milliseconds
 
-[`src/libraries/z42.harness/src/TestAttributes.z42:58`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L58)
+[`src/libraries/z42.harness/src/TestAttributes.z42:66`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L66)
 
 超时毫秒数（必须为正）。
 
 <a id="Std.Harness.TimeoutAttribute.ctor(int)"></a>
 ### TimeoutAttribute(int milliseconds = 0)
 
-[`src/libraries/z42.harness/src/TestAttributes.z42:59`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L59)
+[`src/libraries/z42.harness/src/TestAttributes.z42:68`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L68)
 
+记录 `milliseconds`（正性由编译期 E0917 查，运行期不强制）。
 
 ## ShouldThrowAttribute
 
-[`src/libraries/z42.harness/src/TestAttributes.z42:63`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L63)
+[`src/libraries/z42.harness/src/TestAttributes.z42:72`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L72)
 
 期望抛出 `E`（或其子类型）。runner 经 [`IExpectsException`] 取到 `E`，不必知道类型实参。
 
@@ -646,18 +717,20 @@ public sealed class ShouldThrowAttribute<E> : Attribute, IExpectsException {
 <a id="Std.Harness.ShouldThrowAttribute<E>.ctor()"></a>
 ### ShouldThrowAttribute()
 
-[`src/libraries/z42.harness/src/TestAttributes.z42:64`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L64)
+[`src/libraries/z42.harness/src/TestAttributes.z42:74`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L74)
 
+无实参。
 
 <a id="Std.Harness.ShouldThrowAttribute<E>.ExceptionType()"></a>
 ### Type? ExceptionType()
 
-[`src/libraries/z42.harness/src/TestAttributes.z42:65`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L65)
+[`src/libraries/z42.harness/src/TestAttributes.z42:76`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L76)
 
+期望的异常类型：typeof(E)。
 
 ## ShouldThrowAttribute
 
-[`src/libraries/z42.harness/src/TestAttributes.z42:69`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L69)
+[`src/libraries/z42.harness/src/TestAttributes.z42:80`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L80)
 
 漏写类型实参的 `[ShouldThrow]` 落到这里（E0913 照报）；它不期望任何具体类型。
 
@@ -673,18 +746,20 @@ public sealed class ShouldThrowAttribute : Attribute, IExpectsException {
 <a id="Std.Harness.ShouldThrowAttribute.ctor()"></a>
 ### ShouldThrowAttribute()
 
-[`src/libraries/z42.harness/src/TestAttributes.z42:70`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L70)
+[`src/libraries/z42.harness/src/TestAttributes.z42:82`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L82)
 
+无实参。
 
 <a id="Std.Harness.ShouldThrowAttribute.ExceptionType()"></a>
 ### Type? ExceptionType()
 
-[`src/libraries/z42.harness/src/TestAttributes.z42:71`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L71)
+[`src/libraries/z42.harness/src/TestAttributes.z42:84`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L84)
 
+恒返 null——不期望任何具体异常类型。
 
 ## IExpectsException
 
-[`src/libraries/z42.harness/src/TestAttributes.z42:75`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L75)
+[`src/libraries/z42.harness/src/TestAttributes.z42:88`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L88)
 
 「期望抛出某类型」的 attribute 统一口径（runner 只认这个接口）。
 
@@ -699,7 +774,7 @@ public interface IExpectsException {
 <a id="Std.Harness.IExpectsException.ExceptionType()"></a>
 ### Type? ExceptionType()
 
-[`src/libraries/z42.harness/src/TestAttributes.z42:76`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L76)
+[`src/libraries/z42.harness/src/TestAttributes.z42:89`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L89)
 
 
 ## TestCase
@@ -753,112 +828,126 @@ public class TestCase {
 <a id="Std.Harness.TestCase.Method"></a>
 ### MethodInfo Method
 
-[`src/libraries/z42.harness/src/TestDiscovery.z42:11`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L11)
+[`src/libraries/z42.harness/src/TestDiscovery.z42:12`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L12)
 
+被标注的函数本体，[`Invoke`] 的反射调用目标。
 
 <a id="Std.Harness.TestCase.Skipped"></a>
 ### bool Skipped
 
-[`src/libraries/z42.harness/src/TestDiscovery.z42:12`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L12)
+[`src/libraries/z42.harness/src/TestDiscovery.z42:14`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L14)
 
+贴了 `[Skip]` 为 true（三个门控实参见下面的 `Skip*` 字段）。
 
 <a id="Std.Harness.TestCase.Ignored"></a>
 ### bool Ignored
 
-[`src/libraries/z42.harness/src/TestDiscovery.z42:13`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L13)
+[`src/libraries/z42.harness/src/TestDiscovery.z42:16`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L16)
 
+贴了 `[Ignore]` 为 true（无条件跳过，不报理由）。
 
 <a id="Std.Harness.TestCase.SkipReason"></a>
 ### string? SkipReason
 
-[`src/libraries/z42.harness/src/TestDiscovery.z42:15`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L15)
+[`src/libraries/z42.harness/src/TestDiscovery.z42:18`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L18)
 
 `[Skip]` 的三个实参；没给的为 null。
 
 <a id="Std.Harness.TestCase.SkipPlatform"></a>
 ### string? SkipPlatform
 
-[`src/libraries/z42.harness/src/TestDiscovery.z42:16`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L16)
+[`src/libraries/z42.harness/src/TestDiscovery.z42:20`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L20)
 
+`[Skip]` 的 platform 实参；没给为 null。
 
 <a id="Std.Harness.TestCase.SkipFeature"></a>
 ### string? SkipFeature
 
-[`src/libraries/z42.harness/src/TestDiscovery.z42:17`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L17)
+[`src/libraries/z42.harness/src/TestDiscovery.z42:22`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L22)
 
+`[Skip]` 的 feature 实参；没给为 null。
 
 <a id="Std.Harness.TestCase.ShouldThrow"></a>
 ### bool ShouldThrow
 
-[`src/libraries/z42.harness/src/TestDiscovery.z42:19`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L19)
+[`src/libraries/z42.harness/src/TestDiscovery.z42:24`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L24)
 
 `[ShouldThrow<E>]`：贴了即 true；`Expected` 为 E（漏写类型实参时为 null）。
 
 <a id="Std.Harness.TestCase.Expected"></a>
 ### Type? Expected
 
-[`src/libraries/z42.harness/src/TestDiscovery.z42:20`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L20)
+[`src/libraries/z42.harness/src/TestDiscovery.z42:26`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L26)
 
+期望抛出的异常类型（`[ShouldThrow<E>]` 的 E）；漏写类型实参为 null。
 
 <a id="Std.Harness.TestCase.ctor(string,int,MethodInfo)"></a>
 ### TestCase(string qualified, int kind, MethodInfo method)
 
-[`src/libraries/z42.harness/src/TestDiscovery.z42:22`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L22)
+[`src/libraries/z42.harness/src/TestDiscovery.z42:30`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L30)
 
+装配一条用例：名字 / kind / 函数取实参，skip 与期望异常等一律先置默认， 由发现层（`_fromMethod`）读 attribute 后补写。
 
 <a id="Std.Harness.TestCase.IsTest()"></a>
 ### bool IsTest()
 
-[`src/libraries/z42.harness/src/TestDiscovery.z42:29`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L29)
+[`src/libraries/z42.harness/src/TestDiscovery.z42:38`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L38)
 
+是否 `[Test]`（Kind == 1）。
 
 <a id="Std.Harness.TestCase.IsBenchmark()"></a>
 ### bool IsBenchmark()
 
-[`src/libraries/z42.harness/src/TestDiscovery.z42:30`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L30)
+[`src/libraries/z42.harness/src/TestDiscovery.z42:40`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L40)
 
+是否 `[Benchmark]`（Kind == 2）。
 
 <a id="Std.Harness.TestCase.IsSetup()"></a>
 ### bool IsSetup()
 
-[`src/libraries/z42.harness/src/TestDiscovery.z42:31`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L31)
+[`src/libraries/z42.harness/src/TestDiscovery.z42:42`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L42)
 
+是否 `[Setup]`（Kind == 3）。
 
 <a id="Std.Harness.TestCase.IsTeardown()"></a>
 ### bool IsTeardown()
 
-[`src/libraries/z42.harness/src/TestDiscovery.z42:32`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L32)
+[`src/libraries/z42.harness/src/TestDiscovery.z42:44`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L44)
 
+是否 `[Teardown]`（Kind == 4）。
 
 <a id="Std.Harness.TestCase.IsSkipped()"></a>
 ### bool IsSkipped()
 
-[`src/libraries/z42.harness/src/TestDiscovery.z42:33`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L33)
+[`src/libraries/z42.harness/src/TestDiscovery.z42:46`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L46)
 
+是否贴了 `[Skip]`。
 
 <a id="Std.Harness.TestCase.IsIgnored()"></a>
 ### bool IsIgnored()
 
-[`src/libraries/z42.harness/src/TestDiscovery.z42:34`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L34)
+[`src/libraries/z42.harness/src/TestDiscovery.z42:48`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L48)
 
+是否贴了 `[Ignore]`。
 
 <a id="Std.Harness.TestCase.HasShouldThrow()"></a>
 ### bool HasShouldThrow()
 
-[`src/libraries/z42.harness/src/TestDiscovery.z42:35`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L35)
+[`src/libraries/z42.harness/src/TestDiscovery.z42:50`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L50)
 
+是否贴了 `[ShouldThrow<E>]`。
 
 <a id="Std.Harness.TestCase.DeclaringType()"></a>
 ### string DeclaringType()
 
-[`src/libraries/z42.harness/src/TestDiscovery.z42:38`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L38)
+[`src/libraries/z42.harness/src/TestDiscovery.z42:53`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L53)
 
 所属命名空间（自由函数）或类型（静态方法）的全限定名——`[Setup]` / `[Teardown]` 按它成组。
 
 <a id="Std.Harness.TestCase.Invoke()"></a>
 ### void Invoke()
 
-[`src/libraries/z42.harness/src/TestDiscovery.z42:49`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L49)
+[`src/libraries/z42.harness/src/TestDiscovery.z42:64`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L64)
 
 调用（无接收者）。被调函数里抛出的异常按原类型传出。
 
@@ -869,15 +958,19 @@ public class TestCase {
 <a id="Std.Harness.TestCase.TakesBencher()"></a>
 ### bool TakesBencher()
 
-[`src/libraries/z42.harness/src/TestDiscovery.z42:62`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L62)
+[`src/libraries/z42.harness/src/TestDiscovery.z42:77`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L77)
 
 恰好一个 `Std.Harness.Bencher` 形参（编译期 E0912 已保证 `[Benchmark]` 只有零参与这一种形状）。
 
 ## TestDiscovery
 
-[`src/libraries/z42.harness/src/TestDiscovery.z42:78`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L78)
+[`src/libraries/z42.harness/src/TestDiscovery.z42:95`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L95)
 
-运行期反射发现测试：把编好的测试 / bench 产物并入当前 VM，经反射找出贴了 `[Test]` / `[Benchmark]` / `[Setup]` / `[Teardown]` 的函数，连同 `[Skip]` / `[Ignore]` / `[ShouldThrow<E>]` 一起读成 [`TestCase`]。
+运行期反射发现测试：并入编好的产物，把贴了测试 attribute 的函数读成 [`TestCase`]。
+
+把编好的测试 / bench 产物并入当前 VM，经反射找出贴了 `[Test]` / `[Benchmark]` /
+`[Setup]` / `[Teardown]` 的函数，连同 `[Skip]` / `[Ignore]` / `[ShouldThrow<E>]`
+一起读成 [`TestCase`]。
 
 发现面 = 产物的自由函数（`Assembly.GetFunctions()`）+ 各类型的静态方法（`Type.GetMethods()`）；
 只读 attribute 活实例，不依赖编译器写进产物的测试专用元数据，也不依赖测试专用的 VM 能力。
@@ -894,7 +987,7 @@ public static class TestDiscovery {
 <a id="Std.Harness.TestDiscovery.Discover(string)"></a>
 ### static TestCase[] Discover(string path)
 
-[`src/libraries/z42.harness/src/TestDiscovery.z42:80`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L80)
+[`src/libraries/z42.harness/src/TestDiscovery.z42:97`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestDiscovery.z42#L97)
 
 并入 `path`（.zpkg / .zbc）并发现其中的测试。加载失败抛异常。
 
@@ -917,24 +1010,27 @@ public class CaptureResult {
 <a id="Std.Harness.CaptureResult.Stdout"></a>
 ### string Stdout { get; private set; }
 
-[`src/libraries/z42.harness/src/TestIO.z42:5`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestIO.z42#L5)
+[`src/libraries/z42.harness/src/TestIO.z42:6`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestIO.z42#L6)
 
+捕获窗口内写到的 stdout 文本。
 
 <a id="Std.Harness.CaptureResult.Stderr"></a>
 ### string Stderr { get; private set; }
 
-[`src/libraries/z42.harness/src/TestIO.z42:6`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestIO.z42#L6)
+[`src/libraries/z42.harness/src/TestIO.z42:9`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestIO.z42#L9)
 
+捕获窗口内写到的 stderr 文本。
 
 <a id="Std.Harness.CaptureResult.ctor(string,string)"></a>
 ### CaptureResult(string stdout, string stderr)
 
-[`src/libraries/z42.harness/src/TestIO.z42:8`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestIO.z42#L8)
+[`src/libraries/z42.harness/src/TestIO.z42:12`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestIO.z42#L12)
 
+以两路捕获文本组装结果；参数顺序即字段顺序。
 
 ## TestIO
 
-[`src/libraries/z42.harness/src/TestIO.z42:21`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestIO.z42#L21)
+[`src/libraries/z42.harness/src/TestIO.z42:25`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestIO.z42#L25)
 
 捕获被测代码写到 stdout / stderr 的输出。
 
@@ -956,21 +1052,21 @@ public static class TestIO {
 <a id="Std.Harness.TestIO.captureStdout(Action)"></a>
 ### static string captureStdout(Action body)
 
-[`src/libraries/z42.harness/src/TestIO.z42:23`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestIO.z42#L23)
+[`src/libraries/z42.harness/src/TestIO.z42:27`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestIO.z42#L27)
 
 捕获 `body` 执行期间写到的 stdout，返回捕获文本。
 
 <a id="Std.Harness.TestIO.captureStderr(Action)"></a>
 ### static string captureStderr(Action body)
 
-[`src/libraries/z42.harness/src/TestIO.z42:35`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestIO.z42#L35)
+[`src/libraries/z42.harness/src/TestIO.z42:39`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestIO.z42#L39)
 
 只捕获 stderr；stdout 照常穿透到进程输出。
 
 <a id="Std.Harness.TestIO.captureBoth(Action)"></a>
 ### static CaptureResult captureBoth(Action body)
 
-[`src/libraries/z42.harness/src/TestIO.z42:47`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestIO.z42#L47)
+[`src/libraries/z42.harness/src/TestIO.z42:51`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestIO.z42#L51)
 
 双通道各自独立捕获。
 
@@ -1010,32 +1106,34 @@ public class TestResult {
 <a id="Std.Harness.TestResult.IsBenchmark"></a>
 ### bool IsBenchmark
 
-[`src/libraries/z42.harness/src/TestReport.z42:11`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestReport.z42#L11)
+[`src/libraries/z42.harness/src/TestReport.z42:12`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestReport.z42#L12)
 
+该条是否为 `[Benchmark]`（json 报告的 `is_benchmark` 字段）。
 
 <a id="Std.Harness.TestResult.Reason"></a>
 ### string Reason
 
-[`src/libraries/z42.harness/src/TestReport.z42:13`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestReport.z42#L13)
+[`src/libraries/z42.harness/src/TestReport.z42:14`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestReport.z42#L14)
 
 仅失败 / 跳过时非 null。
 
 <a id="Std.Harness.TestResult.Stats"></a>
 ### BenchStats Stats
 
-[`src/libraries/z42.harness/src/TestReport.z42:15`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestReport.z42#L15)
+[`src/libraries/z42.harness/src/TestReport.z42:16`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestReport.z42#L16)
 
 仅基准且摘要行解析成功时非 null。
 
 <a id="Std.Harness.TestResult.ctor(string,string,bool,string,BenchStats)"></a>
 ### TestResult(string name, string status, bool isBenchmark, string reason, BenchStats stats)
 
-[`src/libraries/z42.harness/src/TestReport.z42:17`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestReport.z42#L17)
+[`src/libraries/z42.harness/src/TestReport.z42:19`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestReport.z42#L19)
 
+全字段直赋：`reason` 仅失败 / 跳过时非 null，`stats` 仅基准解析成功时非 null。
 
 ## TestReport
 
-[`src/libraries/z42.harness/src/TestReport.z42:32`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestReport.z42#L32)
+[`src/libraries/z42.harness/src/TestReport.z42:34`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestReport.z42#L34)
 
 runner `--format json` 模式的报告序列化。本包零依赖，JSON 手写而非经 z42.json。 schema：
 
@@ -1056,21 +1154,25 @@ public static class TestReport {
 <a id="Std.Harness.TestReport.toJson(string,TestResult[])"></a>
 ### static string toJson(string artifact, TestResult[] results)
 
-[`src/libraries/z42.harness/src/TestReport.z42:34`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestReport.z42#L34)
+[`src/libraries/z42.harness/src/TestReport.z42:36`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestReport.z42#L36)
 
 渲染一份 JSON 报告。形参名是 `artifact` 而非 `module`——`module` 是 z42 保留字。
 
 <a id="Std.Harness.TestReport.resultJson(TestResult)"></a>
 ### static string resultJson(TestResult r)
 
-[`src/libraries/z42.harness/src/TestReport.z42:66`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestReport.z42#L66)
+[`src/libraries/z42.harness/src/TestReport.z42:68`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestReport.z42#L68)
 
+渲染单条结果的 JSON 对象（不带尾逗号；由 toJson 以 "," 接合）。
 
 <a id="Std.Harness.TestReport.esc(string)"></a>
 ### static string esc(string str)
 
-[`src/libraries/z42.harness/src/TestReport.z42:98`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestReport.z42#L98)
+[`src/libraries/z42.harness/src/TestReport.z42:100`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestReport.z42#L100)
 
+最小 JSON 字符串转义：引号、反斜杠及异常消息里常见的控制字符。
+
+对本报告携带的字符串（名字、状态、原因文本）已足够。
 
 ## TestRunner
 
@@ -1102,20 +1204,21 @@ public class TestRunner {
 <a id="Std.Harness.TestRunner.ctor(string)"></a>
 ### TestRunner(string contextName)
 
-[`src/libraries/z42.harness/src/TestRunner.z42:23`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestRunner.z42#L23)
+[`src/libraries/z42.harness/src/TestRunner.z42:24`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestRunner.z42#L24)
 
+记上下文名并打印测试头横幅；计数清零，尚无进行中的条目。
 
 <a id="Std.Harness.TestRunner.Begin(string)"></a>
 ### void Begin(string name)
 
-[`src/libraries/z42.harness/src/TestRunner.z42:36`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestRunner.z42#L36)
+[`src/libraries/z42.harness/src/TestRunner.z42:37`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestRunner.z42#L37)
 
 开始一条测试；有进行中的条目则先结算它。
 
 <a id="Std.Harness.TestRunner.Fail(Exception)"></a>
 ### void Fail(Exception e)
 
-[`src/libraries/z42.harness/src/TestRunner.z42:50`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestRunner.z42#L50)
+[`src/libraries/z42.harness/src/TestRunner.z42:51`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestRunner.z42#L51)
 
 标记当前条目失败（在 catch 处调用），打印失败原因。
 
@@ -1126,7 +1229,7 @@ public class TestRunner {
 <a id="Std.Harness.TestRunner.Summary()"></a>
 ### int Summary()
 
-[`src/libraries/z42.harness/src/TestRunner.z42:57`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestRunner.z42#L57)
+[`src/libraries/z42.harness/src/TestRunner.z42:58`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestRunner.z42#L58)
 
 结算最后一条（若有）、打印汇总。返回 failed 计数，适合直接做进程退出码。
 

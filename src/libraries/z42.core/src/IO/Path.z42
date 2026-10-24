@@ -22,9 +22,11 @@ public static class Path {
         return false;
     }
 
-    /// 词法规范化：折叠重复分隔符、去掉 `.` 段、抵消 `..` 段、去掉尾随 `/`，并把 `\` 统一换成
-    /// `/`。纯词法不碰文件系统（不解析符号链接、不要求路径存在）。越过根的 `..` 在根处停住；
-    /// 相对路径开头保留不了的 `..` 原样保留；结果为空时返回 `.`（相对）或 `/`（绝对）。
+    /// 词法规范化路径，不碰文件系统。
+    ///
+    /// 折叠重复分隔符、去掉 `.` 段、抵消 `..` 段、去掉尾随 `/`，并把 `\` 统一换成
+    /// `/`（不解析符号链接、不要求路径存在）。越过根的 `..` 在根处停住；相对路径开头
+    /// 保留不了的 `..` 原样保留；结果为空时返回 `.`（相对）或 `/`（绝对）。
     public static string Normalize(string path) {
         if (path.Length == 0) { return "."; }
         string s = path.Replace("\\", "/");
@@ -165,8 +167,10 @@ public static class Path {
     [Native("__path_glob")]
     public static extern string[] Glob(string dir, string pattern);
 
-    /// 在 dir 下递归找所有匹配 pattern 的文件，返回绝对路径排序数组。pattern 支持 `*`（跨 `/`）
-    /// 与 `?`；不带 `/` 时只匹配 basename，带 `/` 时匹配相对 dir 的完整子路径。不支持 `**`。
+    /// 在 dir 下递归找所有匹配 pattern 的文件，返回绝对路径排序数组。
+    ///
+    /// pattern 支持 `*`（跨 `/`）与 `?`；不带 `/` 时只匹配 basename，带 `/` 时匹配
+    /// 相对 dir 的完整子路径。不支持 `**`。
     public static string[] GlobRecursive(string dir, string pattern) {
         if (!Directory.Exists(dir)) return new string[0];
         string[] rels = Directory.EnumerateRecursive(dir);

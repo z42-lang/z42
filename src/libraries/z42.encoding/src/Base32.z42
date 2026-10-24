@@ -144,6 +144,7 @@ public static class Base32 {
     }
 
     /// 单个 Base32 字符 → 5-bit value (0..31)。
+    ///
     /// 严格大写：`a-z` 不接受（caller 可先 `s.ToUpper()`）。
     /// `=` 在此处即视为非法（外层 Decode 已经识别 padding）。
     private static int decodeChar(char c) {

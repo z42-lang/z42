@@ -2,13 +2,16 @@ namespace Std.Net.WebSockets;
 using Std.Encoding;
 
 
-/// 收到的 WebSocket 消息载体；`WebSocketClient.Receive()` / `WebSocketConnection.Receive()` 返回它。
+/// 收到的 WebSocket 消息载体。
+///
+/// `WebSocketClient.Receive()` / `WebSocketConnection.Receive()` 返回它。
 public class WebSocketMessage {
     /// 消息类型（`WebSocketMessageType.{Text, Binary, Close}` 之一）。
     public int    MessageType;
     /// 原始 payload 字节。
     public byte[] Buffer;
 
+    /// 以消息类型码与原始 payload 字节组装。
     public WebSocketMessage(int messageType, byte[] buffer) {
         this.MessageType = messageType;
         this.Buffer      = buffer;

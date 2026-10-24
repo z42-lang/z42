@@ -2,6 +2,7 @@ namespace Std.Net;
 
 /// z42.net 的网络异常基类（.NET 无对应类）；`SocketException` 继承它。
 public class NetException : Exception {
+    /// 以错误消息构造。
     public NetException(string message) : base(message) {
     }
 

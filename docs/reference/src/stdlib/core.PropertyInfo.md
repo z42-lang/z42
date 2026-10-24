@@ -54,52 +54,60 @@ public class PropertyInfo : MemberInfo {
 <a id="Std.Reflection.PropertyInfo.__getterQualified"></a>
 ### string __getterQualified
 
-[`src/libraries/z42.core/src/Reflection/PropertyInfo.z42:19`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/PropertyInfo.z42#L19)
+[`src/libraries/z42.core/src/Reflection/PropertyInfo.z42:21`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/PropertyInfo.z42#L21)
 
+getter（`get_<Name>`）的全限定名（VM 在 __type_properties 里盖章）；无 getter 时为 null。
+
+GetValue 据此解析要调的函数。
 
 <a id="Std.Reflection.PropertyInfo.__setterQualified"></a>
 ### string __setterQualified
 
-[`src/libraries/z42.core/src/Reflection/PropertyInfo.z42:20`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/PropertyInfo.z42#L20)
+[`src/libraries/z42.core/src/Reflection/PropertyInfo.z42:25`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/PropertyInfo.z42#L25)
 
+setter（`set_<Name>`）的全限定名；无 setter 时为 null。
+
+SetValue 据此解析要调的函数。
 
 <a id="Std.Reflection.PropertyInfo.GetValue(object)"></a>
 ### extern object GetValue(object obj)
 
-[`src/libraries/z42.core/src/Reflection/PropertyInfo.z42:24`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/PropertyInfo.z42#L24)
+[`src/libraries/z42.core/src/Reflection/PropertyInfo.z42:29`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/PropertyInfo.z42#L29)
 
 经 getter 从 `obj` 读出本属性值。只写属性（无 getter）抛 `Std.Exception`。
 
 <a id="Std.Reflection.PropertyInfo.SetValue(object,object)"></a>
 ### extern void SetValue(object obj, object value)
 
-[`src/libraries/z42.core/src/Reflection/PropertyInfo.z42:28`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/PropertyInfo.z42#L28)
+[`src/libraries/z42.core/src/Reflection/PropertyInfo.z42:33`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/PropertyInfo.z42#L33)
 
 经 setter 把 `value` 写入 `obj` 上的本属性。只读属性（无 setter）抛 `Std.Exception`。
 
 <a id="Std.Reflection.PropertyInfo.__attrCache"></a>
 ### Std.Attribute[] __attrCache
 
-[`src/libraries/z42.core/src/Reflection/PropertyInfo.z42:35`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/PropertyInfo.z42#L35)
+[`src/libraries/z42.core/src/Reflection/PropertyInfo.z42:40`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/PropertyInfo.z42#L40)
 
+缓存的 attribute 实例（缓存理由见 FieldInfo.GetCustomAttributes）。
 
 <a id="Std.Reflection.PropertyInfo.__customAttributes(string)"></a>
 ### extern Std.Attribute[] __customAttributes(string qualified)
 
-[`src/libraries/z42.core/src/Reflection/PropertyInfo.z42:38`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/PropertyInfo.z42#L38)
+[`src/libraries/z42.core/src/Reflection/PropertyInfo.z42:44`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/PropertyInfo.z42#L44)
 
+native 门面：按访问器全限定名取本属性上的 attribute 实例数组。
 
 <a id="Std.Reflection.PropertyInfo.GetCustomAttributes()"></a>
 ### Std.Attribute[] GetCustomAttributes()
 
-[`src/libraries/z42.core/src/Reflection/PropertyInfo.z42:41`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/PropertyInfo.z42#L41)
+[`src/libraries/z42.core/src/Reflection/PropertyInfo.z42:47`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/PropertyInfo.z42#L47)
 
 本属性上应用的 attribute，以活实例返回；首次调用后缓存。用访问器全限定名（getter 优先，否则 setter）解析。
 
 <a id="Std.Reflection.PropertyInfo.GetAttribute(Std.Type)"></a>
 ### Std.Attribute? GetAttribute(Std.Type attributeType)
 
-[`src/libraries/z42.core/src/Reflection/PropertyInfo.z42:56`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/PropertyInfo.z42#L56)
+[`src/libraries/z42.core/src/Reflection/PropertyInfo.z42:62`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/PropertyInfo.z42#L62)
 
 指定类型的单个 attribute，无则返回 null。按实例运行期类型的 FullName 比较，子类 attribute 也匹配。
 

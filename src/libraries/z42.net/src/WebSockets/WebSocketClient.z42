@@ -26,7 +26,9 @@ public class WebSocketClient : IDisposable {
         return this._state;
     }
 
-    /// 建立 WebSocket 连接；URL 必须是 `ws://host[:port][/path]`，`wss://` 抛 `NotSupportedException`。
+    /// 建立 WebSocket 连接；URL 必须是 `ws://host[:port][/path]`。
+    ///
+    /// `wss://` 抛 `NotSupportedException`。
     public void Connect(string url) {
         if (this._state != WebSocketState.Closed) {
             throw new InvalidOperationException("WebSocketClient already connected");
@@ -411,12 +413,16 @@ public class WebSocketClient : IDisposable {
     }
 }
 
-// 内部值载体 —— z42 无 out 参数 / 元组，URL 解析器返回这个三字段记录。
+/// ws:// URL 的解析结果（内部值载体）——z42 无 out 参数 / 元组，用三字段记录。
 public class _WsUrl {
+    /// 主机名（不含端口）。
     public string Host;
+    /// 端口；URL 省略时为 80。
     public int    Port;
+    /// 路径 + 查询串（含开头 `/`；URL 无路径部分时为 `/`）。
     public string PathQuery;
 
+    /// 装配三个解析字段。
     public _WsUrl(string host, int port, string pathQuery) {
         this.Host      = host;
         this.Port      = port;
@@ -424,14 +430,16 @@ public class _WsUrl {
     }
 }
 
-// 内部行读取器（HttpClient._LineReader 的极简内联版，避免 Http ↔ WebSockets 交叉耦合）。
-// 逐字节读保证绝不越过 \r\n\r\n 头边界多读（避免把 101 响应之后的首帧字节吸进私有缓冲）。
+/// 内部行读取器（HttpClient._LineReader 的极简内联版，避免 Http ↔ WebSockets 交叉耦合）。
+///
+/// 逐字节读保证不越过 \r\n\r\n 头边界多读——避免把 101 响应之后的首帧字节吸进私有缓冲。
 public class _WsLineReader {
     private Stream _stream;
     private byte[] _one;
     private char[] _line;
     private int    _lineLen;
 
+    /// 基于 `stream` 逐字节读行。
     public _WsLineReader(Stream stream) {
         this._stream   = stream;
         this._one      = new byte[1];
@@ -439,6 +447,7 @@ public class _WsLineReader {
         this._lineLen  = 0;
     }
 
+    /// 读一行（不含行尾 CRLF/LF）；EOF 无字节返回 null，裸 CR 不单独结束行。
     public string ReadLine() {
         this._lineLen = 0;
         bool any = false;

@@ -1,7 +1,8 @@
 namespace Std.Reflection;
 
-/// 反射方法参数，对标 C# `System.Reflection.ParameterInfo`（只读子集），由
-/// `MethodInfo.GetParameters()` 填充。
+/// 反射方法参数，对标 C# `System.Reflection.ParameterInfo`（只读子集）。
+///
+/// 由 `MethodInfo.GetParameters()` 填充。
 public class ParameterInfo {
     /// 参数名。
     public string Name;
@@ -23,12 +24,13 @@ public class ParameterInfo {
 
     // ── 自定义 attribute ─────────────────────────────────────────────────────
 
-    // 后备方法/函数的全限定名（VM 写入），与 Position 一起用于解析本参数的 attribute 工厂。
+    /// 后备方法/函数的全限定名（VM 写入），与 `Position` 一起用于解析本参数的 attribute 工厂。
     public string __qualified;
 
-    // 缓存的 attribute 实例（缓存理由见 Type.GetCustomAttributes）。
+    /// 缓存的 attribute 实例（缓存理由见 `Type.GetCustomAttributes`）。
     public Std.Attribute[] __attrCache;
 
+    /// 按全限定名与参数位置取 attribute 定义的 native 通道。
     [Native("__param_custom_attributes")]
     public extern Std.Attribute[] __customAttributes(string qualified, int position);
 

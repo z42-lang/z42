@@ -22,7 +22,10 @@ public class ConstructorInfo : MethodBase {
 <a id="Std.Reflection.ConstructorInfo.Invoke(object[])"></a>
 ### extern object Invoke(object[] args)
 
-[`src/libraries/z42.core/src/Reflection/ConstructorInfo.z42:11`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/ConstructorInfo.z42#L11)
+[`src/libraries/z42.core/src/Reflection/ConstructorInfo.z42:13`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/ConstructorInfo.z42#L13)
 
-分配新实例，用 `args`（按声明序映射形参）跑构造体并返回构造出的对象。实参个数不符抛 `Std.Exception`；构造体内的 `throw` 以原类型传播。
+分配新实例并跑构造体，返回构造出的对象。
+
+`args` 按声明序映射形参。实参个数不符抛 `Std.Exception`；构造体内的 `throw`
+以原类型传播。
 

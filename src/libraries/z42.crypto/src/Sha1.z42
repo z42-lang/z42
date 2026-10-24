@@ -2,10 +2,11 @@ namespace Std.Crypto;
 
 using Std.Encoding;
 
-// SHA-1 哈希（FIPS 180-4 §6.1），纯脚本实现，结构与 `Sha256` 相同。状态用 `long`（i64）
-// 保存，每一步运算边界掩码到 32 位——z42 的 `int` 是有符号 i32，消息表加法会溢出。
-// ⚠️ SHA-1 自 SHAttered（2017）起碰撞已破：仅用于 HMAC-SHA1、git 对象哈希、
-// Sec-WebSocket-Accept（RFC 6455 §4.2.2）等既有协议互操作，勿用于新设计。
+/// SHA-1 哈希（FIPS 180-4 §6.1），纯脚本实现。⚠️ 碰撞已破（SHAttered），仅限既有协议互操作。
+///
+/// 结构与 `Sha256` 相同。状态用 `long`（i64）保存，每一步运算边界掩码到 32 位——z42 的
+/// `int` 是有符号 i32，消息表加法会溢出。自 SHAttered（2017）起仅用于 HMAC-SHA1、git
+/// 对象哈希、Sec-WebSocket-Accept（RFC 6455 §4.2.2）等既有协议互操作，勿用于新设计。
 public static class Sha1 {
     // ── Public API ───────────────────────────────────────────────────────
 

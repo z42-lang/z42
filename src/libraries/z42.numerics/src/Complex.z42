@@ -204,8 +204,9 @@ public sealed class Complex {
 
     // ── Internal helpers (z42 Math missing hyperbolics) ────────────────
 
-    /// cosh(x) = (e^x + e^-x) / 2. z42.math doesn't expose hyperbolic
-    /// helpers; inlined here for the trig identities.
+    /// cosh(x) = (e^x + e^-x) / 2.
+    ///
+    /// z42.math doesn't expose hyperbolic helpers; inlined here for the trig identities.
     static double _cosh(double x) {
         double ex = Math.Exp(x);
         return (ex + 1.0 / ex) * 0.5;

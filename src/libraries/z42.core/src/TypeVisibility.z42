@@ -3,8 +3,10 @@ namespace Std;
 // 记录在 zbc 1.33 class-visibility 字节里的类型声明可见性。顶层类型只能是 Public 或
 // Internal（E0442 拒绝顶层 private / protected）；嵌套类型可取四种任一。
 
-/// 反射 `Type` 的声明可见性。经 `Type.Visibility` 读取；无句柄 Type（基元/数组）报 `Public`。
-/// 顶层类型只有 `Public` / `Internal`；嵌套类型可取四种任一。
+/// 反射 `Type` 的声明可见性。
+///
+/// 经 `Type.Visibility` 读取；无句柄 Type（基元/数组）报 `Public`。顶层类型只有
+/// `Public` / `Internal`；嵌套类型可取四种任一。
 public enum TypeVisibility {
     /// = 0 `public`
     Public,

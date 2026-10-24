@@ -33,11 +33,12 @@ public sealed class YamlWriter {
         return sb.ToString();
     }
 
-    /// Write `v` at indent `indent` (in spaces). `inline` = true means the
-    /// caller already emitted the leading context (`key: ` or `- `) on
-    /// the current line — for scalars we just emit the value + newline;
-    /// for nested mapping/sequence we emit a newline then recurse with
-    /// indent+2 prefix on each child line.
+    /// Write `v` at indent `indent` (in spaces).
+    ///
+    /// `inline` = true means the caller already emitted the leading context
+    /// (`key: ` or `- `) on the current line — for scalars we just emit the
+    /// value + newline; for nested mapping/sequence we emit a newline then
+    /// recurse with indent+2 prefix on each child line.
     private void _WriteValue(StringBuilder sb, YamlValue v, int indent, bool inline) {
         if (v.IsNull()) {
             if (inline) {

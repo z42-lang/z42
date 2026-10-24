@@ -4,10 +4,12 @@ namespace Std.Collections;
 // 摊还 O(1) 平均读写；枚举期间新增键 / `Clear` ⇒ 下一次 `MoveNext` 抛
 // `InvalidOperationException`；覆盖已有键与 `Remove` 不影响进行中的枚举。
 
-/// 插入有序的泛型哈希映射：摊还 O(1) 平均读写，遍历（`foreach` / `GetEnumerator` /
-/// `Keys()` / `Values()` / `Entries()`）按**插入顺序**。覆盖已有键不改变其位置；
-/// `Remove` 后再插入同一键排到末尾。`TKey` 必须 hashable + equatable（primitive 走 VM
-/// builtin 路由 GetHashCode / Equals；自定义类型实现 `IEquatable`）。
+/// 插入有序的泛型哈希映射：摊还 O(1) 平均读写，遍历按**插入顺序**。
+///
+/// 遍历（`foreach` / `GetEnumerator` / `Keys()` / `Values()` / `Entries()`）按插入
+/// 顺序；覆盖已有键不改变其位置；`Remove` 后再插入同一键排到末尾。`TKey` 必须
+/// hashable + equatable（primitive 走 VM builtin 路由 GetHashCode / Equals；自定义
+/// 类型实现 `IEquatable`）。
 public class Dictionary<TKey, TValue> where TKey: IEquatable {
     internal int[] _index;      // 索引表：0 = 空，-1 = 已删，否则 entry 下标 + 1；长度 = entries 容量 × 2
     internal int[] _hashes;     // entries：规整后的 hash（≥ 0）；-1 = tombstone
@@ -225,8 +227,10 @@ public class Dictionary<TKey, TValue> where TKey: IEquatable {
         return result;
     }
 
-    /// 返回 key 在索引表中的槽：若 key 存在，该槽指向它的 entry；否则是探测序列上的第一个空槽
-    ///（即新键应放入的槽）。容量 / 槽位管理入口，正常使用无需调用。
+    /// 返回 key 在索引表中的槽。
+    ///
+    /// 若 key 存在，该槽指向它的 entry；否则是探测序列上的第一个空槽（即新键应放入
+    /// 的槽）。容量 / 槽位管理入口，正常使用无需调用。
     public int FindSlot(TKey key) {
         return this._slotOf(key, HashIndex.Mix(key.GetHashCode()));
     }

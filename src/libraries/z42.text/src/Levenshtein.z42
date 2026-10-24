@@ -1,7 +1,8 @@
 namespace Std.Text;
 
-// Levenshtein 编辑距离 + 相似度。O(|a|·|b|) 时间、O(min(|a|,|b|)) 空间（两行 DP）。
-// 用途：命令拼写纠正（"did you mean: status?"）、拼写检查、配置键的容错查找。
+/// Levenshtein 编辑距离 + 相似度。O(|a|·|b|) 时间、O(min(|a|,|b|)) 空间（两行 DP）。
+///
+/// 用途：命令拼写纠正（"did you mean: status?"）、拼写检查、配置键的容错查找。
 public static class Levenshtein {
     /// `a` 变成 `b` 所需的单字符插入 / 删除 / 替换的最少次数。对称；相同字符串返回 `0`，一侧为空时返回另一侧长度。
     public static int Distance(string a, string b) {

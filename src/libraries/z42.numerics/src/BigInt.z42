@@ -33,17 +33,25 @@ using Std.Random;
 // chain 不需要任何 wrap-around 处理，纯算术 / 比较即可。trade-off：单
 // limb 容量 4.6% 损失 (vs 32-bit)。
 
-// Helper carrier — z42 当前不支持 int[][] (jagged 2D arrays)。把 q + r 包成
-// 一个 class 透传比 sentinel-pack 更显式。
+/// 幅值除法的商 + 余数载体（内部）。
+///
+/// z42 当前不支持 `int[][]`（jagged 2D 数组），把 q + r 包成 class 透传比 sentinel-pack 更显式。
 public class _MagDivModResult {
+    /// 商（规范化 limb 数组）。
     public int[] q;
+    /// 余数（规范化 limb 数组）。
     public int[] r;
+    /// 以商与余数构造载体。
     public _MagDivModResult(int[] q, int[] r) {
         this.q = q;
         this.r = r;
     }
 }
 
+/// 任意精度整数：sign + 31-bit limb 幅值，不可变引用类型（运算返回新对象）。
+///
+/// 内部表示：`_mag` 为 31-bit little-endian limbs（每个 ∈ [0, BASE)），`_sign` ∈ {-1, 0, +1}；
+/// 规范化要求无尾随零 limb（`_mag.Length == 0` iff `_sign == 0`）。包级概览见本文件头部 `//!`。
 public class BigInt {
 
     // ── Constants ────────────────────────────────────────────────────────
@@ -57,15 +65,18 @@ public class BigInt {
 
     // ── Constants on limb size ──────────────────────────────────────────
 
-    // 31-bit limbs: each limb in [0, BASE), where BASE = 2^31 = 0x80000000.
-    // Stored in z42 `int` (signed i32) so positive [0, 2^31) round-trips
-    // through `int` without sign-bit overlap.
+    /// 每个 limb 的位数（31）。
+    ///
+    /// limb 取值 `[0, BASE)`，存进 z42 `int`（signed i32）时正数范围不与符号位重叠。
     public static int LIMB_BITS = 31;
-    public static long BASE     = 2147483648L;   // 1 << 31
+    /// limb 基数，`2^31 = 2147483648`。
+    public static long BASE     = 2147483648L;
 
     // ── Fields ───────────────────────────────────────────────────────────
 
+    /// 幅值：31-bit little-endian limbs（每个 ∈ [0, BASE)，无尾随零）。
     public int[] _mag;
+    /// 符号：-1 负 / 0 零 / +1 正（零时 `_mag.Length == 0`）。
     public int   _sign;
 
     // ── Public constructors ─────────────────────────────────────────────
@@ -444,9 +455,9 @@ public class BigInt {
         return dm[1];
     }
 
-    /// Internal divmod: returns [quotient, remainder] with truncation
-    /// semantics — quotient truncated toward zero, remainder same sign as
-    /// dividend (this), so dividend = quotient * divisor + remainder.
+    /// 内部 divmod：返回 [商, 余数]，向零截断——余数符号跟被除数（this）。
+    ///
+    /// 恒等式：dividend == quotient * divisor + remainder。
     BigInt[] _divMod(BigInt divisor) {
         if (divisor._sign == 0) {
             throw new DivideByZeroException("BigInt division by zero");
@@ -526,8 +537,9 @@ public class BigInt {
 
     static int LIMB_MASK = 0x7FFFFFFF;
 
-    /// 位与 (AND). 两个操作数都按无限位 two's-complement 表示后逐限位相与；
-    /// 结果符号由 result_lead = a_lead AND b_lead 决定 (两个都负才负)。
+    /// 位与（AND）：两操作数按无限位 two's-complement 相与，均为负时结果才负。
+    ///
+    /// 结果符号由 result_lead = a_lead AND b_lead 决定。
     public BigInt And(BigInt other) {
         if (this._sign == 0 || other._sign == 0) return BigInt.Zero;
         if (this._sign > 0 && other._sign > 0) {
@@ -598,8 +610,9 @@ public class BigInt {
         return BigInt._bitop(this, other, 2);
     }
 
-    /// 位非 (NOT). 用代数恒等式 `~x == -(x + 1)`。
-    /// 命名为 `BitNot` 而非 `Not` 以避开 z42 method resolution 的 name-only
+    /// 位非（NOT）：按代数恒等式 `~x == -(x + 1)` 计算。
+    ///
+    /// 命名为 `BitNot` 而非 `Not`，避开 z42 method resolution 的 name-only
     /// dispatch 隐患（与未来潜在的 boolean `Not()` 同名风险）。
     public BigInt BitNot() {
         BigInt incremented = this.Add(BigInt.One);
@@ -639,9 +652,9 @@ public class BigInt {
         return BigInt._fromTwosCompLimbs(r, rLead);
     }
 
-    /// Convert `n` to a length-`len` two's-complement limb array.
-    /// Non-negative: zero-pad |n| to len.
-    /// Negative: invert |n| limb-by-limb then add 1 (carrying through len).
+    /// 把 `n` 转成 `len` 长的 two's-complement limb 数组。
+    ///
+    /// 非负：|n| 补零到 len；负：|n| 逐 limb 取反再 +1（进位贯穿到 len）。
     static int[] _twosCompLimbs(BigInt n, int len) {
         int[] mag = n._mag;
         int ml = mag.Length;
@@ -672,9 +685,9 @@ public class BigInt {
         return r;
     }
 
-    /// Reverse `_twosCompLimbs`: given the two's-comp limb array + leading
-    /// pattern (0 for non-negative, LIMB_MASK for negative), recover the
-    /// BigInt sign + magnitude.
+    /// `_twosCompLimbs` 的逆变换：恢复出 BigInt 的符号与幅值。
+    ///
+    /// lead == 0 → 结果非负，幅值即 limbs；lead == LIMB_MASK → 结果为负，幅值 = 取反(limbs) + 1。
     static BigInt _fromTwosCompLimbs(int[] limbs, int lead) {
         if (lead == 0) {
             // Result is non-negative — magnitude is `limbs` (with trailing
@@ -712,10 +725,10 @@ public class BigInt {
         return BigInt._fromMagSign(mag, this._sign);
     }
 
-    /// 右移 n 位 (n >= 0)。Magnitude 逻辑右移；符号保留 (-8 >> 1 == -4).
-    /// 是 **逻辑** magnitude shift，**非** 算术 shift (.NET BigInteger 用算术
-    /// shift on 负数会向 -∞ 取整；本 v0 用 sign+magnitude repr 不便实现，
-    /// follow-up 处理).
+    /// 右移 n 位（n >= 0）：幅值逻辑右移，符号保留（`-8 >> 1 == -4`）。负 n 抛 `ArgumentException`。
+    ///
+    /// 是逻辑 magnitude shift 而非算术右移（.NET BigInteger 对负数算术移位会向 -∞ 取整）；
+    /// 要算术语义请用 `Divide(2^k)`。
     public BigInt ShiftRight(int n) {
         if (n < 0) {
             throw new ArgumentException("BigInt.ShiftRight: negative shift amount");
@@ -748,9 +761,10 @@ public class BigInt {
         return ((tc[limbIdx] >> bitIdx) & 1) == 1;
     }
 
-    /// 表示该数值（绝对值）所需的最少 bit 数。
-    /// `Zero.BitLength() == 0`, `One.BitLength() == 1`, `255.BitLength() == 8`,
-    /// `(-256).BitLength() == 9`. 永远 `>= 0`.
+    /// 表示该数值（绝对值）所需的最少 bit 数，永远 `>= 0`。
+    ///
+    /// `Zero.BitLength() == 0`、`One.BitLength() == 1`、`255.BitLength() == 8`、
+    /// `(-256).BitLength() == 9`。
     public int BitLength() {
         if (this._sign == 0) return 0;
         int topIdx = this._mag.Length - 1;
@@ -767,7 +781,9 @@ public class BigInt {
 
     // ── 模运算与数论 ───────────────────────────────────────────────────
 
-    /// Modular exponentiation `this^exp mod modulus`（负指数经 ModInverse；奇模数走 Montgomery REDC）。见 BigIntModular。
+    /// 模幂 `this^exp mod modulus`（负指数经 ModInverse；奇模数走 Montgomery REDC）。
+    ///
+    /// 实现见 BigIntModular。
     public BigInt ModPow(BigInt exp, BigInt modulus) { return BigIntModular.ModPow(this, exp, modulus); }
 
     /// Modular multiplicative inverse in `[0, modulus)`（扩展欧几里得）。见 BigIntModular。
@@ -782,10 +798,15 @@ public class BigInt {
     /// Miller-Rabin with caller-provided RNG（错误率 ≤ 4^-rounds）。见 BigIntPrimality。
     public bool IsProbablyPrime(int rounds, Random rng) { return BigIntPrimality.IsProbablyPrime(this, rounds, rng); }
 
-    /// Smallest (probably) prime strictly greater than `this`（6k±1 轮转 + 小素数试除 + 20 轮 MR）。见 BigIntPrimality。
+    /// 严格大于 `this` 的最小（概率）素数（6k±1 轮转 + 小素数试除 + 20 轮 MR）。
+    ///
+    /// 实现见 BigIntPrimality。
     public BigInt NextPrime() { return BigIntPrimality.NextPrime(this); }
 
-    /// Deterministic primality for n < 3,317,044,064,679,887,385,961,981（OEIS A014233 见证集）。见 BigIntPrimality。
+    /// 确定性素性检测（OEIS A014233 见证集），范围内零错误；超限抛 `ArgumentException`。
+    ///
+    /// 范围上限 3,317,044,064,679,887,385,961,981，更大的 n 用 `IsProbablyPrime(rounds)`。
+    /// 实现见 BigIntPrimality。
     public bool IsPrime() { return BigIntPrimality.IsPrime(this); }
 
     /// BPSW primality（强 MR 基 2 + 强 Lucas）。见 BigIntBpsw。
@@ -898,8 +919,9 @@ public class BigInt {
 
     // ── Internal helpers ────────────────────────────────────────────────
 
-    /// Build a normalised BigInt from a magnitude + sign. Trims trailing
-    /// zero limbs; if magnitude becomes empty, forces sign to 0.
+    /// 由幅值 + 符号构造规范化的 BigInt。
+    ///
+    /// 裁掉尾随零 limb；幅值变空则强制符号为 0。
     internal static BigInt _fromMagSign(int[] mag, int sign) {
         int[] trimmed = BigInt._trim(mag);
         BigInt b = new BigInt(0);
@@ -987,8 +1009,7 @@ public class BigInt {
         return BigInt._trim(r);
     }
 
-    /// Magnitude subtraction; **assumes a >= b**. Caller must check magnitude
-    /// ordering beforehand.
+    /// 幅值减法，前置条件 `a >= b`（调用方须先比较幅值大小）。
     static int[] _magSub(int[] a, int[] b) {
         int la = a.Length;
         int[] r = new int[la];
@@ -1012,8 +1033,9 @@ public class BigInt {
         return BigInt._trim(r);
     }
 
-    /// Magnitude left-shift by n bits (n > 0).
-    /// 拆分 n 为 limbShift (n / 31) + bitShift (n % 31).
+    /// 幅值左移 n 位（n > 0）。
+    ///
+    /// 拆分 n 为 limbShift (n / 31) + bitShift (n % 31)。
     static int[] _magShiftLeft(int[] mag, int n) {
         if (mag.Length == 0) return new int[0];
         int limbShift = n / 31;
@@ -1079,9 +1101,10 @@ public class BigInt {
     // Karatsuba（亚平方）。经验值 ~30（31-bit limb）：过低递归开销大，过高错过渐近收益。
     static int KARATSUBA_THRESHOLD = 32;
 
-    /// Magnitude multiplication. Dispatches to schoolbook below
-    /// `KARATSUBA_THRESHOLD` (small operands win on constant factors) and
-    /// to Karatsuba above (sub-quadratic O(n^log2(3)) ≈ O(n^1.585)).
+    /// 幅值乘法：小操作数走 schoolbook，大操作数走 Karatsuba。
+    ///
+    /// 低于 `KARATSUBA_THRESHOLD` 用 schoolbook（小操作数赢在常数因子）；之上用
+    /// Karatsuba（亚平方 O(n^log2(3)) ≈ O(n^1.585)）。
     internal static int[] _magMul(int[] a, int[] b) {
         int la = a.Length;
         int lb = b.Length;
@@ -1192,8 +1215,9 @@ public class BigInt {
         return BigInt._trim(r);
     }
 
-    /// Magnitude divmod: long-division for general case + fast path for
-    /// single-limb divisor. Precondition: divisor.Length > 0, dividend.Length >= divisor.Length.
+    /// 幅值 divmod：单 limb 除数走快速路径，其余走长除法。
+    ///
+    /// 前置条件：divisor.Length > 0 且 dividend.Length >= divisor.Length。
     static _MagDivModResult _magDivMod(int[] dividend, int[] divisor) {
         if (divisor.Length == 1) {
             return BigInt._magDivModSingle(dividend, divisor[0]);
@@ -1315,8 +1339,7 @@ public class BigInt {
         return BigInt._trim(r);
     }
 
-    /// Test whether `rem >= trial << offset_limbs` (without modifying rem).
-    /// Used by divmod estimate-correct loop.
+    /// 判断 `rem >= trial << offset_limbs`（不改 rem），divmod 估商修正用。
     static bool _magSubShifted_le(int[] rem, int[] trial, int offset) {
         // Compare rem[offset..offset+trial.Length] (+ rem[offset+trial.Length])
         // against trial.
@@ -1341,8 +1364,9 @@ public class BigInt {
         return true;   // equal → still subtractable
     }
 
-    /// Mutate `rem` ← `rem - (trial << offset_limbs)`. Caller must guarantee
-    /// the subtraction stays non-negative (i.e. `_magSubShifted_le` returned true).
+    /// 原位执行 `rem ← rem - (trial << offset_limbs)`。
+    ///
+    /// 调用方须保证减法结果非负（先过 `_magSubShifted_le`）。
     static void _magSubShifted_apply(int[] rem, int[] trial, int offset) {
         int    trialLen = trial.Length;
         long   borrow   = 0L;
@@ -1376,8 +1400,9 @@ public class BigInt {
         }
     }
 
-    /// Convert a 28-bit (or less) hex chunk to lowercase hex.
-    /// If `pad`, output zero-padded to 7 hex chars; else top chunk trimmed.
+    /// 28 位以内的 hex chunk 转小写十六进制串。
+    ///
+    /// `pad` 为 true 时补零到 7 个 hex 字符；否则视为最高 chunk，裁掉前导零。
     static string _chunkToHex(int chunkVal, bool pad) {
         if (chunkVal == 0 && !pad) return "0";
         char[] buf = new char[7];

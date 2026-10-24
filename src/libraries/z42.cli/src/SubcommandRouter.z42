@@ -51,8 +51,9 @@ public sealed class SubcommandRouter {
         this._count = this._count + 1;
     }
 
-    /// 注册嵌套子命令路由（`prog build package …`）；`child` 处理该名字之后的 token。
-    /// 同名重复注册会覆盖（叶子 → 路由或路由 → 路由）。
+    /// 注册嵌套子命令路由（`prog build package …`）。
+    ///
+    /// `child` 处理该名字之后的 token；同名重复注册会覆盖（叶子 → 路由或路由 → 路由）。
     public void AddRouter(string name, string description, SubcommandRouter child) {
         int i = 0;
         while (i < this._count) {
@@ -74,8 +75,10 @@ public sealed class SubcommandRouter {
         this._count = this._count + 1;
     }
 
-    /// 单层 sugar：只看 argv[0]。命中叶子返回 `SubcommandMatch`；其余情形（argv 为空 /
-    /// argv[0] 是 `--help` / `-h` / 名字不认识）一律返回 null。不处理嵌套子命令。
+    /// 单层 sugar：只看 argv[0]，命中叶子返回 `SubcommandMatch`。
+    ///
+    /// 其余情形（argv 为空 / argv[0] 是 `--help` / `-h` / 名字不认识）一律返回
+    /// null。不处理嵌套子命令。
     public SubcommandMatch? Match(string[] argv) {
         if (argv.Length == 0) return null;
         string first = argv[0];
@@ -96,9 +99,10 @@ public sealed class SubcommandRouter {
         return null;
     }
 
-    /// 推荐入口：递归下钻整棵命令树，返回三态互斥的 `CommandResolution`
-    /// （IsMatch / IsHelp / IsUnknown 恰好一个为真）。叶子 `ArgParser.Parse` 的
-    /// option 级错误（未知 flag / 缺值 / 缺 positional）以 `CliException` 向上透传。
+    /// 推荐入口：递归下钻整棵命令树，返回三态互斥的 `CommandResolution`。
+    ///
+    /// IsMatch / IsHelp / IsUnknown 恰好一个为真。叶子 `ArgParser.Parse` 的 option
+    /// 级错误（未知 flag / 缺值 / 缺 positional）以 `CliException` 向上透传。
     public CommandResolution Resolve(string[] argv) {
         if (argv.Length == 0) { return CommandResolution.Help(this.HelpText()); }
         string first = argv[0];

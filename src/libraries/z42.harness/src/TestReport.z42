@@ -8,12 +8,14 @@ public class TestResult {
     public string Name;
     /// `"passed"` | `"failed"` | `"skipped"`。
     public string Status;
+    /// 该条是否为 `[Benchmark]`（json 报告的 `is_benchmark` 字段）。
     public bool IsBenchmark;
     /// 仅失败 / 跳过时非 null。
     public string Reason;
     /// 仅基准且摘要行解析成功时非 null。
     public BenchStats Stats;
 
+    /// 全字段直赋：`reason` 仅失败 / 跳过时非 null，`stats` 仅基准解析成功时非 null。
     public TestResult(string name, string status, bool isBenchmark, string reason, BenchStats stats) {
         this.Name = name;
         this.Status = status;
@@ -62,7 +64,7 @@ public static class TestReport {
         return s;
     }
 
-    // Render one result object (no trailing comma; toJson joins with ",").
+    /// 渲染单条结果的 JSON 对象（不带尾逗号；由 toJson 以 "," 接合）。
     public static string resultJson(TestResult r) {
         string s = "{";
         s = s + "\"name\":\"" + TestReport.esc(r.Name) + "\",";
@@ -92,9 +94,9 @@ public static class TestReport {
             + "}";
     }
 
-    // Minimal JSON string escaping: quote, backslash, and the common control
-    // chars that appear in exception messages / names. Sufficient for the
-    // strings this report carries (names, statuses, reason text).
+    /// 最小 JSON 字符串转义：引号、反斜杠及异常消息里常见的控制字符。
+    ///
+    /// 对本报告携带的字符串（名字、状态、原因文本）已足够。
     public static string esc(string str) {
         string outp = "";
         int i = 0;

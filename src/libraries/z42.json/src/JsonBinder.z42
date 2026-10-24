@@ -7,6 +7,10 @@ using Std.Reflection;
 /// 构造模型：有无参构造器（或无构造器）→ Activator + 按名赋值；否则选参数最多的构造器按
 /// 参数名匹配 JSON 键调用，再补齐剩余可写成员。类型覆盖基元 + 嵌套对象 + 定长数组 T[]。
 public static class JsonBinder {
+    /// 把 `v` 递归绑定为 `t` 的实例并返回；`v` 为 JSON null 时返回 null。
+    ///
+    /// 基元 / string 直接转换；数组、List、Dictionary（键须为 string，否则抛
+    /// JsonException）逐元素递归；其余对象按类注释的构造模型创建。
     public static object FromJson(Type t, JsonValue v) {
         if (v.IsNull()) { return null; }
         string fn = t.FullName;

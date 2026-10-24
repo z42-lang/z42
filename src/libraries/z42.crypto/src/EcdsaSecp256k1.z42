@@ -2,11 +2,11 @@ namespace Std.Crypto;
 
 using Std.Numerics;
 
-// secp256k1 曲线上的 ECDSA（SEC2 + RFC 6979 确定性 nonce），用于 Bitcoin、Ethereum、Lightning
-// 等区块链协议。曲线为短 Weierstrass `y² = x³ + 7 mod p`（a = 0，Bitcoin 选的 "Koblitz" 形式）。
-// 接口与 `EcdsaP256` 完全相同，仅曲线常数与加倍公式不同（a = 0 使 M = 3X²）。标量乘用 Jacobian
-// 坐标（入口 Z=1 抬升、出口单次 ModInverse），曲线常数 p / n 每次公共入口解析一次。
-
+/// secp256k1 曲线上的 ECDSA（SEC2 + RFC 6979 确定性 nonce），用于 Bitcoin 等区块链协议。
+///
+/// 曲线为短 Weierstrass `y² = x³ + 7 mod p`（a = 0，Bitcoin 选的 "Koblitz" 形式）。
+/// 接口与 `EcdsaP256` 完全相同，仅曲线常数与加倍公式不同（a = 0 使 M = 3X²）。标量乘用
+/// Jacobian 坐标（入口 Z=1 抬升、出口单次 ModInverse），曲线常数 p / n 每次公共入口解析一次。
 public static class EcdsaSecp256k1 {
     // ── Public API ───────────────────────────────────────────────────────────
 

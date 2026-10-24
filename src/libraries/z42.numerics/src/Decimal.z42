@@ -2,11 +2,13 @@ namespace Std.Numerics;
 
 
 /// 任意精度十进制定点：`BigInt` 尾数 + 非负十进制 `scale`，表示 `mantissa * 10^-scale`。
-/// 没有精度上限（乘法得 2N 位结果，除法显式指定结果位数）。按不可变使用，每个运算返回新对象。
+///
+/// 没有精度上限（乘法得 2N 位结果，除法显式指定结果位数）。按不可变使用，每个
+/// 运算返回新对象。
 public sealed class Decimal {
-    // Value = _mantissa * 10^-_scale. Scale >= 0 (negative scale would
-    // model trailing-zero-ranges; we normalise into mantissa).
+    /// 尾数（有符号 BigInt）；数值 = _mantissa * 10^-_scale。
     public BigInt _mantissa;
+    /// 十进制 scale（小数位数），恒非负——负 scale 表达的尾零段归一化进尾数。
     public int    _scale;
 
     /// 用尾数与 scale 构造定点数（`scale >= 0`）。
@@ -124,8 +126,10 @@ public sealed class Decimal {
 
     // ── Internal: align scales ─────────────────────────────────────────
 
-    /// Returns the mantissa of `d` re-scaled to `targetScale` (must be ≥
-    /// d's current scale). Multiplies by 10^(target - current).
+    /// Returns the mantissa of `d` re-scaled to `targetScale`.
+    ///
+    /// `targetScale` must be ≥ d's current scale. Multiplies by
+    /// 10^(target - current).
     static BigInt _rescaleMantissa(Decimal d, int targetScale) {
         int diff = targetScale - d._scale;
         if (diff == 0) return d._mantissa;

@@ -58,8 +58,10 @@ public struct Guid {
         return new Guid(outb);
     }
 
-    /// 不抛异常的解析：成功时写入 `v` 并返回 true；非法输入返回 false 且 `v` 为
-    /// `Guid.Empty()`。`Guid` 是 struct ⇒ 不可空，故 out 值走 `ref`。
+    /// 不抛异常的解析：成功时写入 `v` 并返回 true。
+    ///
+    /// 非法输入返回 false 且 `v` 为 `Guid.Empty()`。`Guid` 是 struct ⇒ 不可空，
+    /// 故 out 值走 `ref`。
     public static bool TryParse(string s, ref Guid v) {
         try {
             v = Guid.Parse(s);

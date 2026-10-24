@@ -64,6 +64,7 @@ public sealed class Version {
     // ── 解析 ──────────────────────────────────────────────────────────────────
 
     /// 解析 `"major.minor"` / `"major.minor.build"` / `"major.minor.build.revision"`。
+    ///
     /// 段数不对或某段非整数 / 为负抛 FormatException。
     public static Version Parse(string s) {
         string[] parts = s.Split(".");

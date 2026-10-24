@@ -4,9 +4,12 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std.Runtime`
 
-[`src/libraries/z42.core/src/Entropy.z42:10`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Entropy.z42#L10)
+[`src/libraries/z42.core/src/Entropy.z42:12`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Entropy.z42#L12)
 
-OS 熵源 intrinsic 的唯一声明点。封装 Linux getrandom(2) / macOS getentropy / Windows BCryptGenRandom；wasm32 抛 Std.NotSupportedException。
+OS 熵源 intrinsic 的唯一声明点。
+
+封装 Linux getrandom(2) / macOS getentropy / Windows BCryptGenRandom；wasm32
+抛 Std.NotSupportedException。
 
 ```z42
 public static class Entropy {
@@ -19,7 +22,7 @@ public static class Entropy {
 <a id="Std.Runtime.Entropy.GetBytes(int)"></a>
 ### static extern byte[] GetBytes(int n)
 
-[`src/libraries/z42.core/src/Entropy.z42:13`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Entropy.z42#L13)
+[`src/libraries/z42.core/src/Entropy.z42:15`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Entropy.z42#L15)
 
 从 OS CSPRNG 取 `n` 字节（调用方自行校验 `n`）。
 

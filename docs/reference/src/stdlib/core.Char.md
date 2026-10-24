@@ -159,70 +159,72 @@ public struct Char : IComparable, IEquatable {
 <a id="Std.Char.IsPunctuation()"></a>
 ### bool IsPunctuation()
 
-[`src/libraries/z42.core/src/Primitives/Char.z42:88`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Char.z42#L88)
+[`src/libraries/z42.core/src/Primitives/Char.z42:90`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Char.z42#L90)
 
-是否为标点（Unicode P* 分类在 U+0000–U+007F 的 ASCII 标点；$ + < = > ^ ` | ~ 属符号 S 类，返回 false）。
+是否为标点（Unicode P* 分类在 U+0000–U+007F 的 ASCII 标点）。
+
+$ + < = > ^ ` | ~ 属符号 S 类，返回 false。
 
 <a id="Std.Char.IsDigit(char)"></a>
 ### static bool IsDigit(char c)
 
-[`src/libraries/z42.core/src/Primitives/Char.z42:100`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Char.z42#L100)
+[`src/libraries/z42.core/src/Primitives/Char.z42:102`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Char.z42#L102)
 
 静态形式：`Char.IsDigit(c)`。
 
 <a id="Std.Char.IsLetter(char)"></a>
 ### static bool IsLetter(char c)
 
-[`src/libraries/z42.core/src/Primitives/Char.z42:102`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Char.z42#L102)
+[`src/libraries/z42.core/src/Primitives/Char.z42:104`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Char.z42#L104)
 
 静态形式：`Char.IsLetter(c)`。
 
 <a id="Std.Char.IsLetterOrDigit(char)"></a>
 ### static bool IsLetterOrDigit(char c)
 
-[`src/libraries/z42.core/src/Primitives/Char.z42:104`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Char.z42#L104)
+[`src/libraries/z42.core/src/Primitives/Char.z42:106`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Char.z42#L106)
 
 静态形式：`Char.IsLetterOrDigit(c)`。
 
 <a id="Std.Char.IsWhiteSpace(char)"></a>
 ### static bool IsWhiteSpace(char c)
 
-[`src/libraries/z42.core/src/Primitives/Char.z42:106`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Char.z42#L106)
+[`src/libraries/z42.core/src/Primitives/Char.z42:108`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Char.z42#L108)
 
 静态形式：`Char.IsWhiteSpace(c)`。
 
 <a id="Std.Char.IsUpper(char)"></a>
 ### static bool IsUpper(char c)
 
-[`src/libraries/z42.core/src/Primitives/Char.z42:108`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Char.z42#L108)
+[`src/libraries/z42.core/src/Primitives/Char.z42:110`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Char.z42#L110)
 
 静态形式：`Char.IsUpper(c)`。
 
 <a id="Std.Char.IsLower(char)"></a>
 ### static bool IsLower(char c)
 
-[`src/libraries/z42.core/src/Primitives/Char.z42:110`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Char.z42#L110)
+[`src/libraries/z42.core/src/Primitives/Char.z42:112`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Char.z42#L112)
 
 静态形式：`Char.IsLower(c)`。
 
 <a id="Std.Char.IsPunctuation(char)"></a>
 ### static bool IsPunctuation(char c)
 
-[`src/libraries/z42.core/src/Primitives/Char.z42:112`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Char.z42#L112)
+[`src/libraries/z42.core/src/Primitives/Char.z42:114`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Char.z42#L114)
 
 静态形式：`Char.IsPunctuation(c)`。
 
 <a id="Std.Char.ToUpper(char)"></a>
 ### static char ToUpper(char c)
 
-[`src/libraries/z42.core/src/Primitives/Char.z42:114`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Char.z42#L114)
+[`src/libraries/z42.core/src/Primitives/Char.z42:116`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Char.z42#L116)
 
 静态形式：`Char.ToUpper(c)`。
 
 <a id="Std.Char.ToLower(char)"></a>
 ### static char ToLower(char c)
 
-[`src/libraries/z42.core/src/Primitives/Char.z42:116`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Char.z42#L116)
+[`src/libraries/z42.core/src/Primitives/Char.z42:118`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Char.z42#L118)
 
 静态形式：`Char.ToLower(c)`。
 

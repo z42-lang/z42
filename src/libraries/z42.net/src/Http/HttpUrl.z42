@@ -14,6 +14,7 @@ public class HttpUrl {
     /// 带前导 "?" 的查询串；无则空串。
     public string Query;
 
+    /// 按已解析的五元组直接组装（不经解析；各字段原样落位）。
     public HttpUrl(string scheme, string host, int port, string path, string query) {
         this.Scheme = scheme;
         this.Host   = host;

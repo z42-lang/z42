@@ -26,8 +26,11 @@
 
 ## _MagDivModResult
 
-[`src/libraries/z42.numerics/src/BigInt.z42:38`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L38)
+[`src/libraries/z42.numerics/src/BigInt.z42:39`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L39)
 
+幅值除法的商 + 余数载体（内部）。
+
+z42 当前不支持 `int[][]`（jagged 2D 数组），把 q + r 包成 class 透传比 sentinel-pack 更显式。
 
 ```z42
 public class _MagDivModResult {
@@ -42,25 +45,32 @@ public class _MagDivModResult {
 <a id="Std.Numerics._MagDivModResult.q"></a>
 ### int[] q
 
-[`src/libraries/z42.numerics/src/BigInt.z42:39`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L39)
+[`src/libraries/z42.numerics/src/BigInt.z42:41`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L41)
 
+商（规范化 limb 数组）。
 
 <a id="Std.Numerics._MagDivModResult.r"></a>
 ### int[] r
 
-[`src/libraries/z42.numerics/src/BigInt.z42:40`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L40)
+[`src/libraries/z42.numerics/src/BigInt.z42:43`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L43)
 
+余数（规范化 limb 数组）。
 
 <a id="Std.Numerics._MagDivModResult.ctor(int[],int[])"></a>
 ### _MagDivModResult(int[] q, int[] r)
 
-[`src/libraries/z42.numerics/src/BigInt.z42:41`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L41)
+[`src/libraries/z42.numerics/src/BigInt.z42:45`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L45)
 
+以商与余数构造载体。
 
 ## BigInt
 
-[`src/libraries/z42.numerics/src/BigInt.z42:47`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L47)
+[`src/libraries/z42.numerics/src/BigInt.z42:55`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L55)
 
+任意精度整数：sign + 31-bit limb 幅值，不可变引用类型（运算返回新对象）。
+
+内部表示：`_mag` 为 31-bit little-endian limbs（每个 ∈ [0, BASE)），`_sign` ∈ {-1, 0, +1}；
+规范化要求无尾随零 limb（`_mag.Length == 0` iff `_sign == 0`）。包级概览见本文件头部 `//!`。
 
 ```z42
 public class BigInt {
@@ -116,227 +126,241 @@ public class BigInt {
 <a id="Std.Numerics.BigInt.Zero"></a>
 ### static BigInt Zero
 
-[`src/libraries/z42.numerics/src/BigInt.z42:52`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L52)
+[`src/libraries/z42.numerics/src/BigInt.z42:60`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L60)
 
 零。
 
 <a id="Std.Numerics.BigInt.One"></a>
 ### static BigInt One
 
-[`src/libraries/z42.numerics/src/BigInt.z42:54`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L54)
+[`src/libraries/z42.numerics/src/BigInt.z42:62`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L62)
 
 一。
 
 <a id="Std.Numerics.BigInt.MinusOne"></a>
 ### static BigInt MinusOne
 
-[`src/libraries/z42.numerics/src/BigInt.z42:56`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L56)
+[`src/libraries/z42.numerics/src/BigInt.z42:64`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L64)
 
 负一。
 
 <a id="Std.Numerics.BigInt.LIMB_BITS"></a>
 ### static int LIMB_BITS
 
-[`src/libraries/z42.numerics/src/BigInt.z42:63`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L63)
+[`src/libraries/z42.numerics/src/BigInt.z42:71`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L71)
 
+每个 limb 的位数（31）。
+
+limb 取值 `[0, BASE)`，存进 z42 `int`（signed i32）时正数范围不与符号位重叠。
 
 <a id="Std.Numerics.BigInt.BASE"></a>
 ### static long BASE
 
-[`src/libraries/z42.numerics/src/BigInt.z42:64`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L64)
+[`src/libraries/z42.numerics/src/BigInt.z42:73`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L73)
 
+limb 基数，`2^31 = 2147483648`。
 
 <a id="Std.Numerics.BigInt._mag"></a>
 ### int[] _mag
 
-[`src/libraries/z42.numerics/src/BigInt.z42:68`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L68)
+[`src/libraries/z42.numerics/src/BigInt.z42:78`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L78)
 
+幅值：31-bit little-endian limbs（每个 ∈ [0, BASE)，无尾随零）。
 
 <a id="Std.Numerics.BigInt._sign"></a>
 ### int _sign
 
-[`src/libraries/z42.numerics/src/BigInt.z42:69`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L69)
+[`src/libraries/z42.numerics/src/BigInt.z42:80`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L80)
 
+符号：-1 负 / 0 零 / +1 正（零时 `_mag.Length == 0`）。
 
 <a id="Std.Numerics.BigInt.ctor(long)"></a>
 ### BigInt(long value)
 
-[`src/libraries/z42.numerics/src/BigInt.z42:74`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L74)
+[`src/libraries/z42.numerics/src/BigInt.z42:85`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L85)
 
 用 `long` 构造任意精度整数（`int` 实参走 int→long 隐式加宽）。
 
 <a id="Std.Numerics.BigInt.Parse(string)"></a>
 ### static BigInt Parse(string s)
 
-[`src/libraries/z42.numerics/src/BigInt.z42:97`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L97)
+[`src/libraries/z42.numerics/src/BigInt.z42:108`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L108)
 
 解析十进制表示，允许前导 `+` / `-`。空串或非法字符抛 `FormatException`。
 
 <a id="Std.Numerics.BigInt.ParseHex(string)"></a>
 ### static BigInt ParseHex(string s)
 
-[`src/libraries/z42.numerics/src/BigInt.z42:144`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L144)
+[`src/libraries/z42.numerics/src/BigInt.z42:155`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L155)
 
 解析十六进制（大小写不敏感），允许 `0x` 前缀与 `-`。非法输入抛 `FormatException`。
 
 <a id="Std.Numerics.BigInt.IsZero()"></a>
 ### bool IsZero()
 
-[`src/libraries/z42.numerics/src/BigInt.z42:185`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L185)
+[`src/libraries/z42.numerics/src/BigInt.z42:196`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L196)
 
 是否为零。
 
 <a id="Std.Numerics.BigInt.IsOne()"></a>
 ### bool IsOne()
 
-[`src/libraries/z42.numerics/src/BigInt.z42:190`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L190)
+[`src/libraries/z42.numerics/src/BigInt.z42:201`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L201)
 
 是否为一。
 
 <a id="Std.Numerics.BigInt.IsNegative()"></a>
 ### bool IsNegative()
 
-[`src/libraries/z42.numerics/src/BigInt.z42:197`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L197)
+[`src/libraries/z42.numerics/src/BigInt.z42:208`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L208)
 
 是否为负。
 
 <a id="Std.Numerics.BigInt.Sign()"></a>
 ### int Sign()
 
-[`src/libraries/z42.numerics/src/BigInt.z42:202`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L202)
+[`src/libraries/z42.numerics/src/BigInt.z42:213`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L213)
 
 符号：-1 / 0 / +1。
 
 <a id="Std.Numerics.BigInt.ToInt32()"></a>
 ### int ToInt32()
 
-[`src/libraries/z42.numerics/src/BigInt.z42:209`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L209)
+[`src/libraries/z42.numerics/src/BigInt.z42:220`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L220)
 
 转为 `int`，超出 i32 范围抛 `OverflowException`。
 
 <a id="Std.Numerics.BigInt.ToInt64()"></a>
 ### long ToInt64()
 
-[`src/libraries/z42.numerics/src/BigInt.z42:218`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L218)
+[`src/libraries/z42.numerics/src/BigInt.z42:229`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L229)
 
 转为 `long`，超出 i64 范围抛 `OverflowException`。
 
 <a id="Std.Numerics.BigInt.ToBase(int)"></a>
 ### string ToBase(int radix)
 
-[`src/libraries/z42.numerics/src/BigInt.z42:308`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L308)
+[`src/libraries/z42.numerics/src/BigInt.z42:319`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L319)
 
 转成 `radix` 进制字符串（`radix` ∈ [2, 36]，小写字母，负数带 `-`）。
 
 <a id="Std.Numerics.BigInt.ToHex()"></a>
 ### string ToHex()
 
-[`src/libraries/z42.numerics/src/BigInt.z42:359`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L359)
+[`src/libraries/z42.numerics/src/BigInt.z42:370`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L370)
 
 小写十六进制，无 `0x` 前缀；零为 `"0"`，负数带 `-`。
 
 <a id="Std.Numerics.BigInt.Add(BigInt)"></a>
 ### BigInt Add(BigInt other)
 
-[`src/libraries/z42.numerics/src/BigInt.z42:403`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L403)
+[`src/libraries/z42.numerics/src/BigInt.z42:414`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L414)
 
 加法。
 
 <a id="Std.Numerics.BigInt.Subtract(BigInt)"></a>
 ### BigInt Subtract(BigInt other)
 
-[`src/libraries/z42.numerics/src/BigInt.z42:423`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L423)
+[`src/libraries/z42.numerics/src/BigInt.z42:434`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L434)
 
 减法。
 
 <a id="Std.Numerics.BigInt.Multiply(BigInt)"></a>
 ### BigInt Multiply(BigInt other)
 
-[`src/libraries/z42.numerics/src/BigInt.z42:428`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L428)
+[`src/libraries/z42.numerics/src/BigInt.z42:439`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L439)
 
 乘法。
 
 <a id="Std.Numerics.BigInt.Divide(BigInt)"></a>
 ### BigInt Divide(BigInt other)
 
-[`src/libraries/z42.numerics/src/BigInt.z42:436`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L436)
+[`src/libraries/z42.numerics/src/BigInt.z42:447`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L447)
 
 除法，向零截断。
 
 <a id="Std.Numerics.BigInt.Mod(BigInt)"></a>
 ### BigInt Mod(BigInt other)
 
-[`src/libraries/z42.numerics/src/BigInt.z42:442`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L442)
+[`src/libraries/z42.numerics/src/BigInt.z42:453`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L453)
 
 取模，余数符号跟被除数。
 
 <a id="Std.Numerics.BigInt.Negate()"></a>
 ### BigInt Negate()
 
-[`src/libraries/z42.numerics/src/BigInt.z42:486`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L486)
+[`src/libraries/z42.numerics/src/BigInt.z42:497`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L497)
 
 取相反数。
 
 <a id="Std.Numerics.BigInt.Abs()"></a>
 ### BigInt Abs()
 
-[`src/libraries/z42.numerics/src/BigInt.z42:492`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L492)
+[`src/libraries/z42.numerics/src/BigInt.z42:503`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L503)
 
 取绝对值。
 
 <a id="Std.Numerics.BigInt.Pow(int)"></a>
 ### BigInt Pow(int exponent)
 
-[`src/libraries/z42.numerics/src/BigInt.z42:498`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L498)
+[`src/libraries/z42.numerics/src/BigInt.z42:509`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L509)
 
 整数幂（`exponent >= 0`），用重复平方（O(log exp) 次乘法）。负指数抛 `ArgumentException`。
 
 <a id="Std.Numerics.BigInt.And(BigInt)"></a>
 ### BigInt And(BigInt other)
 
-[`src/libraries/z42.numerics/src/BigInt.z42:531`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L531)
+[`src/libraries/z42.numerics/src/BigInt.z42:543`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L543)
 
-位与 (AND). 两个操作数都按无限位 two's-complement 表示后逐限位相与； 结果符号由 result_lead = a_lead AND b_lead 决定 (两个都负才负)。
+位与（AND）：两操作数按无限位 two's-complement 相与，均为负时结果才负。
+
+结果符号由 result_lead = a_lead AND b_lead 决定。
 
 <a id="Std.Numerics.BigInt.Or(BigInt)"></a>
 ### BigInt Or(BigInt other)
 
-[`src/libraries/z42.numerics/src/BigInt.z42:553`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L553)
+[`src/libraries/z42.numerics/src/BigInt.z42:565`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L565)
 
 位或 (OR). 两个操作数 two's-complement OR；结果符号 = a_lead OR b_lead (任一负则负).
 
 <a id="Std.Numerics.BigInt.Xor(BigInt)"></a>
 ### BigInt Xor(BigInt other)
 
-[`src/libraries/z42.numerics/src/BigInt.z42:578`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L578)
+[`src/libraries/z42.numerics/src/BigInt.z42:590`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L590)
 
 位异或 (XOR). 两个操作数 two's-complement XOR；结果符号 = a_lead XOR b_lead (恰好一个负才负).
 
 <a id="Std.Numerics.BigInt.BitNot()"></a>
 ### BigInt BitNot()
 
-[`src/libraries/z42.numerics/src/BigInt.z42:604`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L604)
+[`src/libraries/z42.numerics/src/BigInt.z42:617`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L617)
 
-位非 (NOT). 用代数恒等式 `~x == -(x + 1)`。 命名为 `BitNot` 而非 `Not` 以避开 z42 method resolution 的 name-only dispatch 隐患（与未来潜在的 boolean `Not()` 同名风险）。
+位非（NOT）：按代数恒等式 `~x == -(x + 1)` 计算。
+
+命名为 `BitNot` 而非 `Not`，避开 z42 method resolution 的 name-only
+dispatch 隐患（与未来潜在的 boolean `Not()` 同名风险）。
 
 <a id="Std.Numerics.BigInt.ShiftLeft(int)"></a>
 ### BigInt ShiftLeft(int n)
 
-[`src/libraries/z42.numerics/src/BigInt.z42:705`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L705)
+[`src/libraries/z42.numerics/src/BigInt.z42:718`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L718)
 
 左移 n 位 (n >= 0)。Magnitude 左移；符号保留 (-8 << 1 == -16). n 为负数抛 ArgumentException.
 
 <a id="Std.Numerics.BigInt.ShiftRight(int)"></a>
 ### BigInt ShiftRight(int n)
 
-[`src/libraries/z42.numerics/src/BigInt.z42:719`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L719)
+[`src/libraries/z42.numerics/src/BigInt.z42:732`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L732)
 
-右移 n 位 (n >= 0)。Magnitude 逻辑右移；符号保留 (-8 >> 1 == -4). 是 **逻辑** magnitude shift，**非** 算术 shift (.NET BigInteger 用算术 shift on 负数会向 -∞ 取整；本 v0 用 sign+magnitude repr 不便实现， follow-up 处理).
+右移 n 位（n >= 0）：幅值逻辑右移，符号保留（`-8 >> 1 == -4`）。负 n 抛 `ArgumentException`。
+
+是逻辑 magnitude shift 而非算术右移（.NET BigInteger 对负数算术移位会向 -∞ 取整）；
+要算术语义请用 `Divide(2^k)`。
 
 <a id="Std.Numerics.BigInt.TestBit(int)"></a>
 ### bool TestBit(int n)
 
-[`src/libraries/z42.numerics/src/BigInt.z42:734`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L734)
+[`src/libraries/z42.numerics/src/BigInt.z42:747`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L747)
 
 测试第 `n` 位（`n >= 0`）是否为 1；`n` 为负抛 `ArgumentException`。
 
@@ -346,63 +370,73 @@ public class BigInt {
 <a id="Std.Numerics.BigInt.BitLength()"></a>
 ### int BitLength()
 
-[`src/libraries/z42.numerics/src/BigInt.z42:754`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L754)
+[`src/libraries/z42.numerics/src/BigInt.z42:768`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L768)
 
-表示该数值（绝对值）所需的最少 bit 数。 `Zero.BitLength() == 0`, `One.BitLength() == 1`, `255.BitLength() == 8`, `(-256).BitLength() == 9`. 永远 `>= 0`.
+表示该数值（绝对值）所需的最少 bit 数，永远 `>= 0`。
+
+`Zero.BitLength() == 0`、`One.BitLength() == 1`、`255.BitLength() == 8`、
+`(-256).BitLength() == 9`。
 
 <a id="Std.Numerics.BigInt.ModPow(BigInt,BigInt)"></a>
 ### BigInt ModPow(BigInt exp, BigInt modulus)
 
-[`src/libraries/z42.numerics/src/BigInt.z42:771`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L771)
+[`src/libraries/z42.numerics/src/BigInt.z42:787`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L787)
 
-Modular exponentiation `this^exp mod modulus`（负指数经 ModInverse；奇模数走 Montgomery REDC）。见 BigIntModular。
+模幂 `this^exp mod modulus`（负指数经 ModInverse；奇模数走 Montgomery REDC）。
+
+实现见 BigIntModular。
 
 <a id="Std.Numerics.BigInt.ModInverse(BigInt)"></a>
 ### BigInt ModInverse(BigInt modulus)
 
-[`src/libraries/z42.numerics/src/BigInt.z42:774`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L774)
+[`src/libraries/z42.numerics/src/BigInt.z42:790`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L790)
 
 Modular multiplicative inverse in `[0, modulus)`（扩展欧几里得）。见 BigIntModular。
 
 <a id="Std.Numerics.BigInt.IsProbablyPrime(int)"></a>
 ### bool IsProbablyPrime(int rounds)
 
-[`src/libraries/z42.numerics/src/BigInt.z42:777`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L777)
+[`src/libraries/z42.numerics/src/BigInt.z42:793`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L793)
 
 Miller-Rabin 概率素性检测，用挂钟播种的默认 RNG（结果不可复现）。要可复现就用 `(int, Random)` 重载。
 
 <a id="Std.Numerics.BigInt.IsProbablyPrime(int,Random)"></a>
 ### bool IsProbablyPrime(int rounds, Random rng)
 
-[`src/libraries/z42.numerics/src/BigInt.z42:783`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L783)
+[`src/libraries/z42.numerics/src/BigInt.z42:799`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L799)
 
 Miller-Rabin with caller-provided RNG（错误率 ≤ 4^-rounds）。见 BigIntPrimality。
 
 <a id="Std.Numerics.BigInt.NextPrime()"></a>
 ### BigInt NextPrime()
 
-[`src/libraries/z42.numerics/src/BigInt.z42:786`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L786)
+[`src/libraries/z42.numerics/src/BigInt.z42:804`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L804)
 
-Smallest (probably) prime strictly greater than `this`（6k±1 轮转 + 小素数试除 + 20 轮 MR）。见 BigIntPrimality。
+严格大于 `this` 的最小（概率）素数（6k±1 轮转 + 小素数试除 + 20 轮 MR）。
+
+实现见 BigIntPrimality。
 
 <a id="Std.Numerics.BigInt.IsPrime()"></a>
 ### bool IsPrime()
 
-[`src/libraries/z42.numerics/src/BigInt.z42:789`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L789)
+[`src/libraries/z42.numerics/src/BigInt.z42:810`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L810)
 
-Deterministic primality for n < 3,317,044,064,679,887,385,961,981（OEIS A014233 见证集）。见 BigIntPrimality。
+确定性素性检测（OEIS A014233 见证集），范围内零错误；超限抛 `ArgumentException`。
+
+范围上限 3,317,044,064,679,887,385,961,981，更大的 n 用 `IsProbablyPrime(rounds)`。
+实现见 BigIntPrimality。
 
 <a id="Std.Numerics.BigInt.IsBpswPrime()"></a>
 ### bool IsBpswPrime()
 
-[`src/libraries/z42.numerics/src/BigInt.z42:792`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L792)
+[`src/libraries/z42.numerics/src/BigInt.z42:813`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L813)
 
 BPSW primality（强 MR 基 2 + 强 Lucas）。见 BigIntBpsw。
 
 <a id="Std.Numerics.BigInt.Gcd(BigInt)"></a>
 ### BigInt Gcd(BigInt other)
 
-[`src/libraries/z42.numerics/src/BigInt.z42:810`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L810)
+[`src/libraries/z42.numerics/src/BigInt.z42:831`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L831)
 
 `|this|` 与 `|other|` 的最大公约数，结果非负（`gcd(0,0)==0`，`gcd(a,0)==|a|`）。
 
@@ -418,14 +452,14 @@ BPSW primality（强 MR 基 2 + 强 Lucas）。见 BigIntBpsw。
 <a id="Std.Numerics.BigInt.Lcm(BigInt)"></a>
 ### BigInt Lcm(BigInt other)
 
-[`src/libraries/z42.numerics/src/BigInt.z42:848`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L848)
+[`src/libraries/z42.numerics/src/BigInt.z42:869`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L869)
 
 `|this|` 与 `|other|` 的最小公倍数，结果非负；`lcm(0, _) == 0`。
 
 <a id="Std.Numerics.BigInt.CompareTo(BigInt)"></a>
 ### int CompareTo(BigInt other)
 
-[`src/libraries/z42.numerics/src/BigInt.z42:860`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L860)
+[`src/libraries/z42.numerics/src/BigInt.z42:881`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/BigInt.z42#L881)
 
 与另一个 BigInt 比较，返回 -1 / 0 / +1。
 
@@ -668,9 +702,12 @@ public sealed class Complex {
 
 ## Decimal
 
-[`src/libraries/z42.numerics/src/Decimal.z42:6`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L6)
+[`src/libraries/z42.numerics/src/Decimal.z42:8`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L8)
 
-任意精度十进制定点：`BigInt` 尾数 + 非负十进制 `scale`，表示 `mantissa * 10^-scale`。 没有精度上限（乘法得 2N 位结果，除法显式指定结果位数）。按不可变使用，每个运算返回新对象。
+任意精度十进制定点：`BigInt` 尾数 + 非负十进制 `scale`，表示 `mantissa * 10^-scale`。
+
+没有精度上限（乘法得 2N 位结果，除法显式指定结果位数）。按不可变使用，每个
+运算返回新对象。
 
 ```z42
 public sealed class Decimal {
@@ -705,159 +742,161 @@ public sealed class Decimal {
 <a id="Std.Numerics.Decimal._mantissa"></a>
 ### BigInt _mantissa
 
-[`src/libraries/z42.numerics/src/Decimal.z42:9`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L9)
+[`src/libraries/z42.numerics/src/Decimal.z42:10`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L10)
 
+尾数（有符号 BigInt）；数值 = _mantissa * 10^-_scale。
 
 <a id="Std.Numerics.Decimal._scale"></a>
 ### int _scale
 
-[`src/libraries/z42.numerics/src/Decimal.z42:10`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L10)
+[`src/libraries/z42.numerics/src/Decimal.z42:12`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L12)
 
+十进制 scale（小数位数），恒非负——负 scale 表达的尾零段归一化进尾数。
 
 <a id="Std.Numerics.Decimal.ctor(BigInt,int)"></a>
 ### Decimal(BigInt mantissa, int scale)
 
-[`src/libraries/z42.numerics/src/Decimal.z42:13`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L13)
+[`src/libraries/z42.numerics/src/Decimal.z42:15`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L15)
 
 用尾数与 scale 构造定点数（`scale >= 0`）。
 
 <a id="Std.Numerics.Decimal.ctor(int)"></a>
 ### Decimal(int value)
 
-[`src/libraries/z42.numerics/src/Decimal.z42:22`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L22)
+[`src/libraries/z42.numerics/src/Decimal.z42:24`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L24)
 
 用整数构造定点数（scale 为 0）。
 
 <a id="Std.Numerics.Decimal.Zero()"></a>
 ### static Decimal Zero()
 
-[`src/libraries/z42.numerics/src/Decimal.z42:30`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L30)
+[`src/libraries/z42.numerics/src/Decimal.z42:32`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L32)
 
 零值定点数（0，scale 0）。
 
 <a id="Std.Numerics.Decimal.One()"></a>
 ### static Decimal One()
 
-[`src/libraries/z42.numerics/src/Decimal.z42:35`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L35)
+[`src/libraries/z42.numerics/src/Decimal.z42:37`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L37)
 
 一值定点数（1，scale 0）。
 
 <a id="Std.Numerics.Decimal.FromInt(int)"></a>
 ### static Decimal FromInt(int value)
 
-[`src/libraries/z42.numerics/src/Decimal.z42:40`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L40)
+[`src/libraries/z42.numerics/src/Decimal.z42:42`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L42)
 
 从 `int` 构造定点数。
 
 <a id="Std.Numerics.Decimal.FromLong(long)"></a>
 ### static Decimal FromLong(long value)
 
-[`src/libraries/z42.numerics/src/Decimal.z42:45`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L45)
+[`src/libraries/z42.numerics/src/Decimal.z42:47`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L47)
 
 从 `long` 构造定点数。
 
 <a id="Std.Numerics.Decimal.Parse(string)"></a>
 ### static Decimal Parse(string s)
 
-[`src/libraries/z42.numerics/src/Decimal.z42:50`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L50)
+[`src/libraries/z42.numerics/src/Decimal.z42:52`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L52)
 
 解析十进制字面量 `[-]?digit+([.]digit+)?`（不支持指数/千分位）。非法输入抛 `FormatException`。
 
 <a id="Std.Numerics.Decimal.IsZero()"></a>
 ### bool IsZero()
 
-[`src/libraries/z42.numerics/src/Decimal.z42:101`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L101)
+[`src/libraries/z42.numerics/src/Decimal.z42:103`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L103)
 
 是否为零。
 
 <a id="Std.Numerics.Decimal.IsNegative()"></a>
 ### bool IsNegative()
 
-[`src/libraries/z42.numerics/src/Decimal.z42:106`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L106)
+[`src/libraries/z42.numerics/src/Decimal.z42:108`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L108)
 
 是否为负。
 
 <a id="Std.Numerics.Decimal.Sign()"></a>
 ### int Sign()
 
-[`src/libraries/z42.numerics/src/Decimal.z42:111`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L111)
+[`src/libraries/z42.numerics/src/Decimal.z42:113`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L113)
 
 符号：-1 / 0 / +1。
 
 <a id="Std.Numerics.Decimal.Mantissa()"></a>
 ### BigInt Mantissa()
 
-[`src/libraries/z42.numerics/src/Decimal.z42:116`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L116)
+[`src/libraries/z42.numerics/src/Decimal.z42:118`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L118)
 
 返回尾数（`BigInt`）。
 
 <a id="Std.Numerics.Decimal.Scale()"></a>
 ### int Scale()
 
-[`src/libraries/z42.numerics/src/Decimal.z42:121`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L121)
+[`src/libraries/z42.numerics/src/Decimal.z42:123`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L123)
 
 返回 scale（小数位数）。
 
 <a id="Std.Numerics.Decimal.Add(Decimal)"></a>
 ### Decimal Add(Decimal other)
 
-[`src/libraries/z42.numerics/src/Decimal.z42:150`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L150)
+[`src/libraries/z42.numerics/src/Decimal.z42:154`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L154)
 
 加法（结果 scale 取两边较大者）。
 
 <a id="Std.Numerics.Decimal.Subtract(Decimal)"></a>
 ### Decimal Subtract(Decimal other)
 
-[`src/libraries/z42.numerics/src/Decimal.z42:158`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L158)
+[`src/libraries/z42.numerics/src/Decimal.z42:162`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L162)
 
 减法（结果 scale 取两边较大者）。
 
 <a id="Std.Numerics.Decimal.Multiply(Decimal)"></a>
 ### Decimal Multiply(Decimal other)
 
-[`src/libraries/z42.numerics/src/Decimal.z42:166`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L166)
+[`src/libraries/z42.numerics/src/Decimal.z42:170`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L170)
 
 乘法（结果 scale 为两边之和）。
 
 <a id="Std.Numerics.Decimal.DivideBy(Decimal,int)"></a>
 ### Decimal DivideBy(Decimal other, int resultScale)
 
-[`src/libraries/z42.numerics/src/Decimal.z42:177`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L177)
+[`src/libraries/z42.numerics/src/Decimal.z42:181`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L181)
 
 除法，显式指定结果位数（`resultScale` 位小数）。向零截断，无舍入模式。
 
 <a id="Std.Numerics.Decimal.Negate()"></a>
 ### Decimal Negate()
 
-[`src/libraries/z42.numerics/src/Decimal.z42:207`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L207)
+[`src/libraries/z42.numerics/src/Decimal.z42:211`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L211)
 
 取相反数。
 
 <a id="Std.Numerics.Decimal.Abs()"></a>
 ### Decimal Abs()
 
-[`src/libraries/z42.numerics/src/Decimal.z42:212`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L212)
+[`src/libraries/z42.numerics/src/Decimal.z42:216`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L216)
 
 取绝对值。
 
 <a id="Std.Numerics.Decimal.CompareTo(Decimal)"></a>
 ### int CompareTo(Decimal other)
 
-[`src/libraries/z42.numerics/src/Decimal.z42:219`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L219)
+[`src/libraries/z42.numerics/src/Decimal.z42:223`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L223)
 
 比较（跨 scale 对齐后比较，返回 -1 / 0 / +1）。
 
 <a id="Std.Numerics.Decimal.Equals(Decimal)"></a>
 ### bool Equals(Decimal other)
 
-[`src/libraries/z42.numerics/src/Decimal.z42:227`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L227)
+[`src/libraries/z42.numerics/src/Decimal.z42:231`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L231)
 
 按数值比较，跨 scale 相等（`Parse("19.99").Equals(Parse("19.990")) == true`）。
 
 <a id="Std.Numerics.Decimal.ToString()"></a>
 ### override string ToString()
 
-[`src/libraries/z42.numerics/src/Decimal.z42:234`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L234)
+[`src/libraries/z42.numerics/src/Decimal.z42:238`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.numerics/src/Decimal.z42#L238)
 
 十进制字符串，保留存储的 scale（`Parse("1.00").ToString() == "1.00"`），负数带 `-`。
 
