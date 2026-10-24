@@ -207,7 +207,7 @@ main `6723c6a50`（阶段 1 全部条目已合并：P1-2 函数/类型身份、P
 
 **内存**（各条目实测的汇总，密度 = (RSS(N)−RSS(0))/N，100 万个装 `object[]`）：小对象 STW 空类 65.6 → **49.4**、`{int; string}` 81.6 → **65.6**（R8）；数组 `long[8]` 181.3 → **138.3**、`object[4]` 171.4 → **80.7**（R9）；`List<int>` 每元素 16 → **4 B**、`Dictionary<string,int>` 总量 −20%（M13）。§1.6 里「小对象 ≈ 100 B、流失场景 RSS/used 8×」的画面已分别压到 49–66 B 与 2–3×（M12 空洞复用 + R8 后续条目闸门）。
 
-**收官后剖面头部**（12 s sample，质量有限——窗口混入驱动等待，只列可辨项）：safepoint 慢查 18%、`jit_obj_new` 18%、vcall 派发 17%。按名字的调用 / 字段路径在 z42c 剖面里已不显著（P1-2/P1-4 的收益）；「身份按名字」剩下的主要残余是三套函数注册表合一的清理与 PIC 未覆盖的反射侧。
+**收官后剖面头部**（2026-10-24 重测：z42c 工作区自建 `--jobs 1`、JIT、`sample` 9 s / 6763 主线程样本，load 7–9；inclusive = 函数在调用树最外层出现的样本占比）：vcall 落到解释器侧 `exec_vcall::invoke` 21.8%、`jit_obj_new` 分配路径 14.5%、GC 回收 10.0%（`check_safepoint_slow` → `collect_cycles_with_context`——即此前所称「safepoint 慢查」，是回收本身而非慢路径开销）、原子写 `write_atomic` 6.3%（其中 `fcntl` F_BARRIERFSYNC 3.7%，700 个产物文件各一次）、JIT 调用帧实参 `JitFrame::new_args_from` 5.3%、`resolve_slot_slow` 3.9%、JIT 编译 3.9%、`jit_add` / `jit_eq` 算术 helper 各 ≈2.7%。**此前记的那组（safepoint 18% / `jit_obj_new` 18% / vcall 17%）不可信**：Cranelift 默认 `preserve_frame_pointers=false`，JIT 帧没有帧指针链，`sample` 在 JIT 帧处读到栈上残留的旧返回地址——同一构建 70% 的样本被挂到早已返回的 `rename(2)` 叶子上，而进程单线程、全程 R 态、CPU 95% 忙，纯属幻影；interp 模式（无 JIT 帧）同一负载无此现象。JIT 现已开启帧指针（`jit/lazy.rs`），开销实测为零（z42c 构建 3 轮中位 10.39 → 10.37 s；micro 18 项双序 A/B 门内）——此后 JIT 模式的采样剖面可信。按名字的调用 / 字段路径在 z42c 剖面里已不显著（P1-2/P1-4 的收益）；「身份按名字」剩下的主要残余是三套函数注册表合一的清理与 PIC 未覆盖的反射侧。
 
 ---
 

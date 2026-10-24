@@ -64,6 +64,12 @@ impl LazyCompiler {
         let mut flags = cranelift_codegen::settings::builder();
         flags.set("enable_verifier", if cfg!(debug_assertions) { "true" } else { "false" })
             .map_err(|e| anyhow::anyhow!("cranelift setting enable_verifier: {}", e))?;
+        // 每个 JIT 函数（含叶子）都建帧指针链：采样剖面器（macOS `sample` / perf）靠 fp 链穿透 JIT 帧，
+        // 没有它 unwinder 在 JIT 帧处读到栈上残留的旧返回地址，把样本挂到早已返回的调用链上
+        // （整段 JIT 执行被归到某个无关的 syscall 叶子）——JIT 模式的剖面因此不可信。代价是叶子函数
+        // 多两条 prologue/epilogue 指令；非叶子函数本就要建帧。
+        flags.set("preserve_frame_pointers", "true")
+            .map_err(|e| anyhow::anyhow!("cranelift setting preserve_frame_pointers: {}", e))?;
         let isa = cranelift_native::builder()
             .map_err(|e| anyhow::anyhow!("native ISA unavailable: {}", e))?
             .finish(cranelift_codegen::settings::Flags::new(flags))?;
