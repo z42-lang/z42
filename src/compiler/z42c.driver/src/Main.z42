@@ -128,25 +128,3 @@ void _usage() {
     Console.WriteLine("  (clean / test / bench are run by z42b, not z42c — the compiler only compiles)");
 }
 
-// 1c：携带闭包解析（显式赢、false 摘、缺件/版本不符点名携带者）并进显式集，刷新 azPaths。
-bool _attachCarriedSet(ProjectManifest pm, string[] libsDirs, int libsDirsN, ref PluginZpkgs pz, ref string[] azPaths) {
-    string[] carryNames = null;
-    string[] carryPaths = null;
-    if (!_resolveCarriedPlugins(pm, libsDirs, libsDirsN, ref carryNames, ref carryPaths)) { return false; }
-    pz = _mergeCarried(pz, carryNames, carryPaths);
-    if (pz != null && pz.Count > 0) { azPaths = pz.Paths; }
-    return true;
-}
-
-// 显式插件集 ∪ 携带集（显式在前、携带在后——顺序即生效顺序）。无携带 → 原样返回。
-PluginZpkgs _mergeCarried(PluginZpkgs pz, string[] carryNames, string[] carryPaths) {
-    if (carryPaths == null) { return pz; }
-    int baseN = (pz == null ? 0 : pz.Count);
-    string[] mn = new string[baseN + carryPaths.Length];
-    string[] mp = new string[baseN + carryPaths.Length];
-    int mi = 0;
-    while (mi < baseN) { mn[mi] = pz.Names[mi]; mp[mi] = pz.Paths[mi]; mi = mi + 1; }
-    int ci = 0;
-    while (ci < carryPaths.Length) { mn[baseN + ci] = carryNames[ci]; mp[baseN + ci] = carryPaths[ci]; ci = ci + 1; }
-    return new PluginZpkgs(mn, mp, baseN + carryPaths.Length, ExitCode.Ok);
-}
