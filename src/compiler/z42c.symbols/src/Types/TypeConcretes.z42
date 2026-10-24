@@ -1,0 +1,92 @@
+// 类型模型的小型具象类（自 Z42Type.z42 拆出：主文件多类共存过 886 硬限；各自独立无静态
+// 初始化器纠缠）。接口实例化 / 泛型形参 / 类实例化的形状与代换入口见各类头注。
+namespace Z42.Semantics;
+
+
+// 实例化接口类型（add-associated-types PR-3 地基）：`IFoo<int>` 的类型实参承载。
+//
+// 🔴 **为什么是子类，而不是 design D6 原写的「把 `Z42InstantiatedType.Def` 提升为可承载
+// `Z42ClassType` 或 `Z42InterfaceType`」** —— 实测两条路的半径差一个数量级：
+//   · 提升 `Def`：`Def` 的静态类型今天是 `Z42ClassType`，全仓 **49 处 `.Def`** 直接当类用
+//     （取 `OverloadsOf` / `IsAbstract` / `Fqn()` …），外加 **44 处 `is Z42InstantiatedType`**
+//     分支要重新判定「这是类还是接口」。逐处审计，且每一处判错都会静默改变自举字节。
+//   · 子类：`Z42InstantiatedInterfaceType is Z42InterfaceType` 恒真 ⇒ 既有
+//     **16 处 `is` + 18 处 `as` Z42InterfaceType** 一行不改、行为不变；只有想要实参的新代码
+//     才多问一句。
+// 结论：同样的表达力，改动面从「93 处逐个审」降到「0 处必改」。design D6 已同步订正。
+//
+// 🔴 **`Name()` 刻意仍返回裸名**（`"IFoo"` 而非 `"IFoo<int>"`）：接口名会流进 TSIG / 成员元数据
+// （`TypeNameResolver._resolvedTypeName` → 导出串），改成带实参的拼写会**直接漂移自举字节**。
+// 实参走 `TypeArgs` 侧带，不进名字。要「带实参的名字」用 `NameWithArgs()`。
+public sealed class Z42InstantiatedInterfaceType : Z42InterfaceType {
+    public Z42InterfaceType Def;        // 接口定义（Methods/BaseNames/TypeParamNames 的真身）
+    public Z42Type[]        TypeArgs;
+    public int              ArgCount;
+    public Z42InstantiatedInterfaceType(Z42InterfaceType def, Z42Type[] typeArgs, int argCount)
+        : base(def.Name()) {
+        this.Def = def; this.TypeArgs = typeArgs; this.ArgCount = argCount;
+        // 成员/父接口/型参名共享定义那份引用（只读消费；不复制以免与后续填充脱节）。
+        this.Methods = def.Methods;
+        this.BaseNames = def.BaseNames; this.BaseCount = def.BaseCount;
+        this.BaseRefs = def.BaseRefs;   // 与 BaseNames 同一份引用（同上：只读消费，不复制）
+        // B3：句柄同样共享 def 那份引用 —— ⚠️ **必须**共享而不是拷贝：绑定 pass
+        // (`BindTypeRefs`) 只遍历符号表里的**定义**，实例化视图不在表里、拿不到二次填充。
+        // 拷贝的话这里会永远停在「全 0 未绑定」，而那是**静默**的（查不着 = 当作没实现）。
+        this.Bases = def.Bases;
+        this.TypeParamNames = def.TypeParamNames; this.TypeParamCount = def.TypeParamCount;
+        this.Visibility = def.Visibility; this.IsImported = def.IsImported;
+        // fqn-tables 5b：声明 ns 同样随定义走。此前漏拷 ⇒ 实例化接口的 `Fqn()` 退化成裸名 ⇒ TYPE / SIGS 把
+        // `ISubscription<Action<T>>` 这类引用写成裸名（SIGS 侧还丢了实参），消费端只能靠短名回落猜。
+        this.Namespace = def.Namespace;
+    }
+    // 带实参的拼写（诊断 / 关联类型绑定匹配用；**不要**拿它去写元数据，见上）。
+    public string NameWithArgs() {
+        string s = this._name + "<";
+        int i = 0;
+        while (i < this.ArgCount) {
+            if (i > 0) { s = s + ", "; }
+            s = s + this.TypeArgs[i].Name();
+            i = i + 1;
+        }
+        return s + ">";
+    }
+}
+
+
+// 泛型类型形参（2A）：T / K / V 等。约束求解延后（2B）→ 仅同名互赋。
+public sealed class Z42GenericParamType : Z42Type {
+    private string _name;
+    public Z42GenericParamType(string name) { this._name = name; }
+    public override string Name() { return this._name; }
+    public override bool IsAssignableTo(Z42Type other) {
+        if (other is Z42ErrorType) { return true; }
+        return (other is Z42GenericParamType) && this._name == other.Name();
+    }
+}
+
+
+// 泛型实例化（2A-2）：Box<int>。Def = 泛型类定义，TypeArgs = 实参。不变（同 def 同实参才可赋）。
+// 成员类型替换（T→int）延后（需 substitution pass）。
+public sealed class Z42InstantiatedType : Z42Type {
+    public Z42ClassType Def;
+    public Z42Type[]    TypeArgs;
+    public int          ArgCount;
+    public Z42InstantiatedType(Z42ClassType def, Z42Type[] typeArgs, int argCount) {
+        this.Def = def; this.TypeArgs = typeArgs; this.ArgCount = argCount;
+    }
+    public override string Name() {
+        string s = this.Def.Name() + "<";
+        int i = 0;
+        while (i < this.ArgCount) {
+            if (i > 0) { s = s + ", "; }
+            s = s + this.TypeArgs[i].Name();
+            i = i + 1;
+        }
+        return s + ">";
+    }
+    public override bool IsAssignableTo(Z42Type other) {
+        if (other is Z42ErrorType) { return true; }
+        if (other is Z42InstantiatedType) { return this.Name() == other.Name(); }
+        return false;
+    }
+}
