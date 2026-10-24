@@ -229,9 +229,9 @@ fn a_chained_forward_folds_and_keeps_both_rows() {
     }
 }
 
-/// An old-table builtin that may run z42 code folds under a light frame for the
+/// A builtin that may run z42 code (`reenters`) folds under a light frame for the
 /// wrapper: its error's trace shows the wrapper exactly as the unfolded call; one that
-/// cannot run z42 code folds frameless, like a typed builtin.
+/// cannot run z42 code folds frameless.
 #[test]
 fn a_reentrant_old_table_builtin_folds_under_a_light_frame() {
     // `__load_module` given an integer: a typed builtin's argument error (P1-8 批次 6

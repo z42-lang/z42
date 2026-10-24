@@ -217,37 +217,27 @@ PinSourceKind }` 住在 per-`VmContext` 的 `TransientArena` 里，随帧 LIFO �
 
 ## 6. 内置函数通路（`BUILTINS`）
 
-typed 通路之外的那一半：`[Native("__name")]` 把 stdlib 的 z42 声明接到 VM 里的 Rust 实现上。
-builtin 有两种写法并存：**ABI v2 的类型化 builtin**（`#[builtin]`，§6.2，新代码一律用它）和
-旧表里的手写 `fn(&VmContext, &[Value])`（按领域逐个迁走，迁完删除）。
+`[Native("__name")]` 把 stdlib 的 z42 声明接到 VM 里的 Rust 实现上。builtin 一律写成
+**ABI v2 的类型化 builtin**（`#[builtin]`，§6.2）——签名即实参/返回/错误的类型；旧表
+（手写 `fn(&VmContext, &[Value])`）已随 P1-8 批次 12b 全部迁完删除。
 
 ### 6.1 表与 id
 
 ```rust
-pub enum Native {
-    Val(NativeFn),                     // 旧：fn(&VmContext, &[Value]) -> Result<Value>
-    Void(NativeVoidFn),                // 旧：fn(&VmContext, &[Value]) -> Result<()>
-    Typed(&'static abi::BuiltinDesc),  // ABI v2：#[builtin] 生成的描述符
-}
-
-const PART1: &[(&str, Native)] = &[ … ];                       // builtin_table.rs（旧表）
-const PART2: &[(&str, Native)] = &[ … ];                       // builtin_table_ext.rs（旧表）
 const TYPED: &[&[abi::BuiltinDesc]] = &[convert::typed::DESCS, string::typed::DESCS, …];  // 一个模块一行
-static JOINED: [(&str, Native); TOTAL] = joined();             // const fn 编译期拼接：PART1 ++ PART2 ++ TYPED
-pub(crate) const BUILTINS: &[(&str, Native)] = &JOINED;
+const JOINED: [abi::BuiltinDesc; N] = abi::concat_descs(TYPED);  // 编译期拼接
+pub(crate) const BUILTINS: &[abi::BuiltinDesc] = &JOINED;
 ```
 
 **slice 下标就是 `BuiltinId`。**
 
 > `BuiltinId` **不会被烤进 zbc**：zbc 里存的是**名字**（`BuiltinInsn { dst, name, args }`），
 > `BuiltinId` 由 resolver 在**加载期**按名字填进 `Function.resolved.builtin_tokens`，AOT 也不烤它
-> ⇒ 它是**单次运行内的派发令牌**，不跨进程持久化。迁到 ABI v2 的 builtin 从旧表删掉、出现在 `TYPED`
-> 段，下标随之平移，对既有产物没有影响。
+> ⇒ 它是**单次运行内的派发令牌**，不跨进程持久化——增删表项只让下标平移，对既有产物没有影响。
 
 - 名字唯一：同一个名字只能在表里出现一次（`abi_tests::typed_builtins_are_in_the_table_once`）。
 - 名字 → id 的反查表 `BUILTIN_INDEX: OnceLock<HashMap<&str, u32>>` 首次访问时从 `BUILTINS` 现算
   （`corelib/mod.rs`），保证单一真相。
-- 拆成 `PART1` / `PART2` 两段纯粹是行数门禁，旧表迁空后整段删掉。
 
 加载期由 `metadata::resolver` 把每个 builtin 调用点的名字解析成 token：先查 `BUILTINS`，未命中再查
 per-VM 的 ext 表；两边都没有则留 `UNRESOLVED`，在真正调用时按名字再解一次（JIT 在 ext 库尚未加载时就
@@ -255,10 +245,12 @@ per-VM 的 ext 表；两边都没有则留 `UNRESOLVED`，在真正调用时按�
 
 **两个引擎的调用口只有一个**：`corelib::invoke_builtin(ctx, id, name, this, regs, args)`。实参
 **原地从调用方寄存器读**——`this`（vcall 短路持有的接收者，不在寄存器里）在前，其后是 `regs[args[i]]`。
-类型化 builtin 的包装器直接按下标取；旧表 builtin 才把实参拷进一个栈上缓冲区（≤ 6 个，超出用 `Vec`）再调——缓冲区原地填、不移动，实参逐个 16 字节拷贝（经 `Option<Value>` 中转或移动 `SmallVec` 会让被调方读实参时错过 store forwarding，曾使折叠后的旧表调用慢 25%）。
-解释器 `exec_call::builtin` 与 JIT `jit_builtin`（签名 `(frame, ctx, dst, id, name, args_ptr, argc)`）
-都只做「结果写 `dst`、失败交给 §6.3」。只握着切片的调用方（反射、单测、`exec_builtin_value`）走
-`exec_builtin` / `exec_builtin_by_id`，类型化 builtin 为它们另生成一个读切片的入口。
+包装器直接按下标取实参。解释器 `exec_call::builtin` 与 JIT `jit_builtin`（签名
+`(frame, ctx, dst, id, name, args_ptr, argc)`）都只做「结果写 `dst`、失败交给 §6.3」。只握着切片的
+调用方（单测、嵌入、`exec_builtin_value`）走 `exec_builtin`（按名），类型化 builtin 为它们另生成一个
+读切片的入口；**ext** builtin（dlopen / bundled，`fn(&VmContext, &[Value])`）的实参才拷进栈上缓冲区
+（≤ 6 个，超出用 `Vec`）——缓冲区原地填、不移动，实参逐个 16 字节拷贝（经 `Option<Value>` 中转或移动
+`SmallVec` 会让被调方读实参时错过 store forwarding，曾使折叠后的 ext 调用慢 25%）。
 
 ### 6.1b 有返回值 vs 无返回值
 
@@ -267,7 +259,6 @@ interp / JIT 都**不写 `dst`**（若共用 `Value` 返回值，「无返回值
 
 | 部件 | 契约 |
 |---|---|
-| 旧表项 | `Native::Val(f)`（`-> Result<Value>`）/ `Native::Void(f)`（`-> Result<()>`）|
 | 类型化 builtin | 返回 `()` ⇒ `RetKind::Void`；其余返回类型都产出值 |
 | 期待有值的调用方 | `exec_builtin_value(..) -> Result<Value>` —— 撞上 void **报错**，不给占位值 |
 
@@ -378,7 +369,7 @@ GC 等不到它到达 safepoint（规则见 runtime-rust.md「阻塞的 native �
 | `Detailed { classes, message, fields }` | 按序取第一个已加载的类，另外填公开字段（`Std.IO.ProcessTimeoutException` 的 `Program` / `TimeoutMs`、`Std.Net.Sockets.SocketException` 的 `SocketErrorCode` / `ErrorCode`，退到基类时跳过它没有的字段）。`BuiltinError::object_disposed(name, msg)` 用它造 `Std.ObjectDisposedException`（→ `InvalidOperationException`），带 `ObjectName` |
 | `Thrown(Value)` | 已构造好的异常值，原样抛（回调里 z42 代码抛的） |
 | `Internal(String)` | **致命错误**，不可 catch |
-| `Legacy(anyhow::Error)` | 旧表 builtin 的错误：沿用旧映射（`objops::Throw` 按其类，其余 `Std.Exception`） |
+| `Legacy(anyhow::Error)` | `anyhow` 桥：类型化 builtin 包装旧 helper（`obj_get_type` 等）与 **ext** builtin 的错误（`objops::Throw` 按其类，其余 `Std.Exception`；typed 可下插恢复） |
 
 `From<std::io::Error>` 按 .NET 的口径映射 OS 错误（不存在 → `FileNotFound`，无权限 →
 `UnauthorizedAccess`，超时 → `Timeout`，提前 EOF → `EndOfStream`，平台不支持 → `NotSupported`，其余 → `Io`）；
@@ -404,7 +395,9 @@ JIT `jit_builtin` / `call_forward`），判定顺序：
 
 「内部错误」指 VM / stdlib 自身的缺陷：`[Native]` 声明与 Rust 签名不一致、句柄失效、不变式被破
 （如 `__box_prim` 在 debug 构建收到 `Null`）。用户代码能触发的失败一律用对应的异常类。
-旧表 builtin 的 `anyhow` 错误**迁移前**仍按旧映射成 `Std.Exception`，不区分内部错误。
+`Legacy(anyhow)` 不再对应旧表（已删），只剩两个用途：类型化 builtin 包装 anyhow 返回的旧 helper
+（如 `obj_get_type`），以及 **ext** builtin 的 `fn(&VmContext, &[Value])` 错误通道（`objops::Throw`
+按其类、其余 `Std.Exception`）。
 
 ### 6.4 `[Native]` 桩折叠（两个引擎，VM 链接期）
 
@@ -427,12 +420,12 @@ JIT `jit_builtin` / `call_forward`），判定顺序：
 
 **栈回溯不变**（用户不可见折叠）：
 
-- 不会执行 z42 代码的 builtin（类型化且不 `reenters`；旧表里不在 `LEGACY_REENTERS` 上的）：**不建任何帧**。
-  失败时才从函数现算包装函数那一行（链式形态两行）拼进 trace，结果与不折叠时逐字相同；
-- 可能执行 z42 代码的（类型化的 `reenters`；旧表的反射 / 加载上下文 / REPL builtin，列在
-  `builtin_table.rs` 的 `LEGACY_REENTERS`）：在 builtin 运行期间压一个**轻帧**——只有包装函数指针、
-  没有寄存器文件、什么都不执行——于是回调里抛出的异常、致命报告都看到与不折叠时一样的栈。这类 builtin
-  只折叠形态 1。
+- 不会执行 z42 代码的 builtin（类型化且不 `reenters`）：**不建任何帧**。失败时才从函数现算包装函数
+  那一行（链式形态两行）拼进 trace，结果与不折叠时逐字相同；
+- 可能执行 z42 代码的（类型化的 `reenters`：反射调用、getter、加载器、REPL 回调）：在 builtin 运行
+  期间压一个**轻帧**——只有包装函数指针、没有寄存器文件、什么都不执行——于是回调里抛出的异常、致命
+  报告都看到与不折叠时一样的栈。这类 builtin 只折叠形态 1。（旧表的 `LEGACY_REENTERS` 名单已随旧表
+  删除，`reenters` 由各 builtin 自己声明。）
 
 帧策略在函数首次被调用、算折叠结果时一并定下，编进缓存的折叠令牌（builtin id + 「要轻帧」位），调用时不再查表。
 
@@ -461,8 +454,9 @@ JIT `jit_builtin` / `call_forward`），判定顺序：
 
 新领域 → 往这张表里加一行，再挑一个短单词。
 
-**裸名一族**（`__println` / `__print` / `__readline` / `__concat` / `__contains` / `__len` /
-`__to_str` / `__time_now_ms` / `__process_exit`）不遵守该约定，**不要再加新的**。
+**裸名一族**（`__println` / `__print` / `__readline` / `__to_str` / `__time_now_ms` /
+`__process_exit`）不遵守该约定，**不要再加新的**（`__concat` / `__contains` / `__len` 三个零引用
+旧名已随旧表删除）。
 
 **改语义要换名字**：已发布的种子 stdlib 跑在新 VM 上（冷启动自举），同名 builtin 的签名与返回形状
 必须保持兼容（只把抛出的异常换成更具体的子类是兼容的）。要改形状就起新名字（例：返回 `[KIND, …]` 判别数组的

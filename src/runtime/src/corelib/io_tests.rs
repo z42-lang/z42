@@ -31,23 +31,25 @@ fn s(text: &str) -> Value {
     Value::Str(text.to_string().into())
 }
 
+// The sinks are driven through the table like the stdlib does, so these tests also
+// cover their registration as typed builtins.
 fn install_stdout() {
-    builtin_test_io_install_stdout_sink(&ctx(), &[]).unwrap();
+    crate::corelib::exec_builtin(&ctx(), "__test_io_install_stdout_sink", &[]).unwrap();
 }
 
 fn take_stdout() -> String {
-    match builtin_test_io_take_stdout_buffer(&ctx(), &[]).unwrap() {
+    match crate::corelib::exec_builtin_value(&ctx(), "__test_io_take_stdout_buffer", &[]).unwrap() {
         Value::Str(s) => s.to_string(),
         other => panic!("expected Str, got {:?}", other),
     }
 }
 
 fn install_stderr() {
-    builtin_test_io_install_stderr_sink(&ctx(), &[]).unwrap();
+    crate::corelib::exec_builtin(&ctx(), "__test_io_install_stderr_sink", &[]).unwrap();
 }
 
 fn take_stderr() -> String {
-    match builtin_test_io_take_stderr_buffer(&ctx(), &[]).unwrap() {
+    match crate::corelib::exec_builtin_value(&ctx(), "__test_io_take_stderr_buffer", &[]).unwrap() {
         Value::Str(s) => s.to_string(),
         other => panic!("expected Str, got {:?}", other),
     }

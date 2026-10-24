@@ -337,12 +337,11 @@ fn tostring_result(ctx: &VmContext, module: &Module, val: &Value) -> Result<ToSt
                 return outcome(ctx, super::exec_function(ctx, module, callee, &[val.clone()])?);
             }
         }
-        // Fallback: builtin obj_to_str (unqualified type name)
-        return crate::corelib::exec_builtin_value(
-                ctx,
-                crate::metadata::well_known_names::BUILTIN_OBJ_TO_STR,
-                &[val.clone()])
-            .map(ToStringResult::Value);
+        // Fallback: the Rust default ToString (unqualified type name), as the
+        // `__obj_to_str` builtin behind the vtable slot would answer.
+        return crate::corelib::object::obj_to_str(val)
+            .map(|name| ToStringResult::Value(Value::Str(name.into())))
+            .map_err(|e| e.into_anyhow(ctx));
     }
     // dispatch-tostring-in-native-stringify: **装箱**接收者（值 struct 装箱 / 基元装箱 / enum 盒）。
     // 复用 `resolve_vcall` 的整套判据 —— 它已经把三种盒各自的正确答案都定好了：

@@ -1,17 +1,19 @@
 // add-array-base-class:
-// Std.Array native bindings. v1 仅 `__array_clone`（浅拷贝）；元素是引用类型
-// 时共享引用，与 C# `System.Array.Clone()` 语义一致。
-// add-json-serde: reflective array create/get/set/length —— serde 反射建/读写
-// T[]（元素类型只以运行期 Type 已知，无法静态 `new T[n]`）。System.Array parity。
+// Std.Array native bindings。`Clone` 浅拷贝;元素是引用类型时共享引用,与 C#
+// `System.Array.Clone()` 语义一致。
+// add-json-serde: reflective array create/get/set —— serde 反射建/读写
+// T[](元素类型只以运行期 Type 已知,无法静态 `new T[n]`)。System.Array parity。
+// P1-8 批次 12b:整域迁 builtin ABI v2;实参经 `FromArg` 直读(数组收 `ArrRef` 句柄,
+// null/非数组在 ABI 层报 `NullReference`/`InvalidCast`),错误按 C# 口径类型化
+// (越界 → `IndexOutOfRangeException`,负长度/负下标 → `ArgumentOutOfRangeException`)。
 
 use crate::corelib::convert::box_prim_to_heap;
-use crate::corelib::raise_op;
 use crate::corelib::reflection::read_obj_slot;
+use crate::gc::ArrRef;
 use crate::metadata::types::{default_value_for, ArrayObj};
 use crate::metadata::Value;
 use crate::objops;
 use crate::vm_context::VmContext;
-use anyhow::{bail, Result};
 
 /// Normalize any element-type spelling (short alias / VM tag / FQ wrapper) to the
 /// **short element tag** the array modes key on (`ElemKind::of`). Reference types
@@ -63,182 +65,151 @@ fn type_name_of(v: &Value) -> Option<String> {
     None
 }
 
-/// `__array_create(elemType: Type, n: int) -> object` — allocate an `elemType[]` of
-/// length `n`, default-initialised. Primitive element types pack (`int` → a PRIM array of
-/// 4 B elements, etc.); reference types get a REF / MIXED array. The array carries its short element
-/// tag so `GetType().GetElementType()` round-trips. add-json-serde.
-pub fn builtin_array_create(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    crate::corelib::expect_args("Array.CreateInstance", args, 2)?;
-    let elem = args[0].clone();
-    let n = match args.get(1) {
-        Some(Value::I64(n)) if *n >= 0 => *n as usize,
-        _ => bail!("Array.CreateInstance: expected (Type, non-negative int)"),
-    };
-    let name = type_name_of(&elem)
-        .ok_or_else(|| anyhow::anyhow!("Array.CreateInstance: element type has no name"))?;
-    let tag = elem_tag(&name);
-    let default = default_value_for(tag);
-    let heap = ctx.heap();
-    let et = crate::metadata::types::ElemType::intern(tag);
-    // Same mode choice as `ArrayNew` (REF for a class / interface element type, …).
-    Ok(match crate::objops::array::elem_mode(ctx, et, false) {
-        crate::objops::array::ElemMode::Struct(layout) => ArrayObj::alloc_struct(heap, et, n, layout),
-        crate::objops::array::ElemMode::Kind(kind) => ArrayObj::alloc_filled(heap, et, kind, n, default),
-    })
-}
+#[z42_macros::builtins]
+pub mod typed {
+    use super::*;
+    use crate::corelib::abi::BuiltinError;
 
-/// `__array_get(arr: object, i: int) -> object` — read element `i` as an object.
-/// Packed integers are boxed to the matching wrapper (`BoxedStruct`); double / bool /
-/// char / reference elements are already object-representation. add-json-serde.
-pub fn builtin_array_get(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let rc = match args.first() {
-        Some(Value::Array(rc)) => rc.clone(),
-        Some(Value::Null) => bail!("Array.GetValue: null array reference"),
-        other => bail!("Array.GetValue: expected an array, got {:?}", other),
-    };
-    let i = match args.get(1) {
-        Some(Value::I64(n)) if *n >= 0 => *n as usize,
-        _ => bail!("Array.GetValue: expected a non-negative index"),
-    };
-    let tag = {
-        let a = rc.borrow();
-        if i >= a.len() {
-            bail!("Array.GetValue: index {i} out of bounds (len {})", a.len());
-        }
-        elem_tag(&a.element_type()).to_string()
-    };
-    // 值 struct 数组的元素装箱成快照（`get_boxed` 没有堆，装不了箱）。
-    let raw = objops::array_bulk::elem_get_boxed(ctx, &rc, i).map_err(|e| raise_op(ctx, e))?;
-    match (int_wrapper_fqn(&tag), &raw) {
-        (Some(fqn), Value::I64(n)) => box_prim_to_heap(ctx, fqn, *n),
-        _ => Ok(raw),
+    /// `Array.CreateInstance(Type elementType, int length)` — allocate an `elemType[]`
+    /// of length `n`, default-initialised. Primitive element types pack (`int` → a PRIM
+    /// array of 4 B elements, etc.); reference types get a REF / MIXED array. The array
+    /// carries its short element tag so `GetType().GetElementType()` round-trips.
+    /// add-json-serde.
+    #[builtin(name = "__array_create")]
+    pub fn create(ctx: &VmContext, elem_type: &Value, length: i64) -> Result<Value, BuiltinError> {
+        let n = usize::try_from(length).map_err(|_| BuiltinError::ArgumentOutOfRange(format!(
+            "Array.CreateInstance: length must be non-negative, got {length}")))?;
+        let name = type_name_of(elem_type).ok_or_else(|| BuiltinError::Argument(
+            "Array.CreateInstance: element type has no name".into()))?;
+        let tag = elem_tag(&name);
+        let default = default_value_for(tag);
+        let heap = ctx.heap();
+        let et = crate::metadata::types::ElemType::intern(tag);
+        // Same mode choice as `ArrayNew` (REF for a class / interface element type, …).
+        Ok(match crate::objops::array::elem_mode(ctx, et, false) {
+            crate::objops::array::ElemMode::Struct(layout) => ArrayObj::alloc_struct(heap, et, n, layout),
+            crate::objops::array::ElemMode::Kind(kind) => ArrayObj::alloc_filled(heap, et, kind, n, default),
+        })
     }
-}
 
-/// `__array_set(arr: object, value: object, i: int) -> void` — write `value` into
-/// element `i`, unboxing a boxed primitive into the packed slot. Arg order mirrors
-/// C# `Array.SetValue(object value, int index)` (value first) as an instance method
-/// (`this`=array at args[0]). add-array-property-reflection-api (was value-last).
-pub fn builtin_array_set(ctx: &VmContext, args: &[Value]) -> Result<()> {
-    // split-null-sentinel-channels ⑥：显式校验 arity，之后 `args[1]` 直接下标
-    // （此前是 `args.get(1).unwrap_or(Value::Null)` ⇒ 少传参数与传 null 无法区分）。
-    crate::corelib::expect_args("Array.SetValue", args, 3)?;
-    let rc = match args.first() {
-        Some(Value::Array(rc)) => rc.clone(),
-        Some(Value::Null) => bail!("Array.SetValue: null array reference"),
-        other => bail!("Array.SetValue: expected an array, got {:?}", other),
-    };
-    let value = args[1].clone();
-    let i = match args.get(2) {
-        Some(Value::I64(n)) if *n >= 0 => *n as usize,
-        _ => bail!("Array.SetValue: expected a non-negative index"),
-    };
-    // Unbox a boxed integer primitive to its raw `I64` so packed backings store it;
-    // non-boxed values (F64 / Bool / Char / Str / Object) pass through to `set_boxed`.
-    let raw = match value {
-        Value::BoxedStruct(s) => match s.borrow().boxed_prim_i64() {
-            Some(n) => Value::I64(n),
-            None => Value::BoxedStruct(s),
-        },
-        other => other,
-    };
-    let wrote = {
-        let a = rc.borrow();
-        if i >= a.len() {
-            bail!("Array.SetValue: index {i} out of bounds (len {})", a.len());
-        }
-        // 值不是元素类型（基元不同种 / 值 struct 数组收到别的东西）→ InvalidCastException（同 C#），
-        // 数组不动。
-        if let Err(e) = objops::array_bulk::check_untyped_store(&a, &raw) {
-            return Err(raise_op(ctx, e));
-        }
-        // fix-silent-array-elem-zero：走会报错的那版。此前是 `set_boxed`（release 静默存 0）
-        // ⇒ `a.SetValue(objNull, 0)` 把 `int[0]` 从 9 变成 0、不抛、报成功。
-        // 形参声明是 `Object` ⇒ 没有编译器站点能先转换，值是**用户**给的
-        // （与 IR `ArraySet` 那条路不同，那里 debug-only 的原策略依然正确）。
-        a.try_set_boxed(i, raw.clone())
-            .map_err(|e| anyhow::anyhow!("Array.SetValue: {e}"))?
-    };
-    // fix-missing-array-write-barriers : storing a reference into an array is a
-    // heap write like any other, and an **old** array receiving a **young** element must mark
-    // its card or the next minor will not re-root it. Same rule as `ArraySet`.
-    crate::objops::array::barrier_elem(ctx, &rc, i, wrote, &raw);
-    Ok(())
-}
-
-/// `__array_copy(src, srcIndex, dst, dstIndex, length)` — bulk element move,
-/// mirroring `System.Array.Copy(Array, int, Array, int, int)`. perf-bulk-array-copy:
-/// the script-side `Array.Copy<T>` was a per-element `for` loop, so every copied
-/// element paid an interpreted `ArrayGet` + `ArraySet`. This is the same
-/// "one bulk primitive, the algorithm stays in script" shape as `__str_to_chars`
-/// / `__str_substring`: it copies a range and nothing else.
-///
-/// The element semantics — every backing incl. value-struct arrays, boxing / unboxing,
-/// type checks (`ArrayTypeMismatchException` / `InvalidCastException`), overlap, write
-/// barrier — live in `objops::array_bulk::copy_range`; this only parses the arguments.
-pub fn builtin_array_copy(ctx: &VmContext, args: &[Value]) -> Result<()> {
-    fn arr(v: Option<&Value>, what: &str) -> Result<crate::gc::ArrRef> {
-        match v {
-            Some(Value::Array(rc)) => Ok(rc.clone()),
-            Some(Value::Null) => bail!("__array_copy: null {what} array reference"),
-            other => bail!("__array_copy: expected an array for {what}, got {other:?}"),
-        }
-    }
-    fn idx(v: Option<&Value>, what: &str) -> Result<usize> {
-        match v {
-            Some(Value::I64(n)) if *n >= 0 => Ok(*n as usize),
-            _ => bail!("__array_copy: {what} must be a non-negative int"),
-        }
-    }
-    let src = arr(args.first(), "source")?;
-    let si = idx(args.get(1), "sourceIndex")?;
-    let dst = arr(args.get(2), "destination")?;
-    let di = idx(args.get(3), "destinationIndex")?;
-    let n = idx(args.get(4), "length")?;
-    objops::array_bulk::copy_range(ctx, &src, si, &dst, di, n).map_err(|e| raise_op(ctx, e))
-}
-
-/// `__array_sort_prims(array, count) -> bool` — stable-sort `array[0, count)` natively
-/// when every element there is one primitive kind (int-like / double / char / string),
-/// in exactly the order the elements' own `CompareTo` gives (see
-/// `ArrayObj::sort_prims_prefix`). `false` = declined, array untouched: the caller's
-/// script merge sort runs instead. A permutation only moves references the array already
-/// holds; the one new reference a store can produce (a box, when a MIXED cell had fixed another
-/// primitive kind) goes to the write barrier.
-pub fn builtin_array_sort_prims(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let n = match args.get(1) {
-        Some(Value::I64(n)) if *n >= 0 => *n as usize,
-        _ => bail!("__array_sort_prims: count must be a non-negative int"),
-    };
-    match args.first() {
-        Some(Value::Array(rc)) => {
-            let sorted = rc.borrow().sort_prims_prefix(n);
-            let owner = Value::Array(*rc);
-            for b in sorted.iter().flatten() {
-                ctx.heap().write_barrier_array_elem(&owner, 0, b);
+    /// `Array.GetValue(int index)` — read element `i` as an object. Packed integers are
+    /// boxed to the matching wrapper (`BoxedStruct`); double / bool / char / reference
+    /// elements are already object-representation. add-json-serde.
+    #[builtin(name = "__array_get", this = "GetValue")]
+    pub fn get(ctx: &VmContext, this: ArrRef, index: i64) -> Result<Value, BuiltinError> {
+        let i = index.try_into().map_err(|_| index_oob("__array_get", index, &this))?;
+        let tag = {
+            let a = this.borrow();
+            if i >= a.len() {
+                return Err(index_oob("__array_get", index, &this));
             }
-            Ok(Value::Bool(sorted.is_some()))
+            elem_tag(&a.element_type()).to_string()
+        };
+        // 值 struct 数组的元素装箱成快照（`get_boxed` 没有堆，装不了箱）。
+        let raw = objops::array_bulk::elem_get_boxed(ctx, &this, i)?;
+        match (int_wrapper_fqn(&tag), &raw) {
+            (Some(fqn), Value::I64(n)) => box_prim_to_heap(ctx, fqn, *n).map_err(|e| BuiltinError::Internal(format!(
+                "__array_get: boxing element {i} as `{fqn}`: {e}"))),
+            _ => Ok(raw),
         }
-        Some(Value::Null) => bail!("__array_sort_prims: null array reference"),
-        other => bail!("__array_sort_prims: expected an array, got {other:?}"),
     }
-}
 
-/// `Std.Array.Clone()` — shallow copy of the receiver array. Reference-type
-/// elements are shared (the new array's slots reference the same heap objects).
-/// Empty arrays return another empty array (not the same reference).
-pub fn builtin_array_clone(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    if args.len() != 1 {
-        bail!("__array_clone: expected 1 argument (this), got {}", args.len());
+    /// `Array.SetValue(object value, int index)` — write `value` into element `i`,
+    /// unboxing a boxed primitive into the packed slot. Arg order mirrors C# as an
+    /// instance method (`this` = array).
+    #[builtin(name = "__array_set", this = "SetValue")]
+    pub fn set(ctx: &VmContext, this: ArrRef, value: &Value, index: i64) -> Result<(), BuiltinError> {
+        let i = index.try_into().map_err(|_| index_oob("__array_set", index, &this))?;
+        // Unbox a boxed integer primitive to its raw `I64` so packed backings store it;
+        // non-boxed values (F64 / Bool / Char / Str / Object) pass through to `set_boxed`.
+        let raw = match value {
+            Value::BoxedStruct(s) => match s.borrow().boxed_prim_i64() {
+                Some(n) => Value::I64(n),
+                None => Value::BoxedStruct(s.clone()),
+            },
+            other => other.clone(),
+        };
+        let wrote = {
+            let a = this.borrow();
+            if i >= a.len() {
+                return Err(index_oob("__array_set", index, &this));
+            }
+            // 值不是元素类型（基元不同种 / 值 struct 数组收到别的东西）→ InvalidCastException（同 C#），
+            // 数组不动。
+            objops::array_bulk::check_untyped_store(&a, &raw)?;
+            // fix-silent-array-elem-zero：走会报错的那版。此前是 `set_boxed`（release 静默存 0）
+            // ⇒ `a.SetValue(objNull, 0)` 把 `int[0]` 从 9 变成 0、不抛、报成功。
+            // 形参声明是 `Object` ⇒ 没有编译器站点能先转换，值是**用户**给的
+            // （与 IR `ArraySet` 那条路不同，那里 debug-only 的原策略依然正确）。
+            a.try_set_boxed(i, raw.clone()).map_err(|e| BuiltinError::InvalidCast(format!(
+                "Array.SetValue: {e}")))?
+        };
+        // fix-missing-array-write-barriers : storing a reference into an array is a
+        // heap write like any other, and an **old** array receiving a **young** element must mark
+        // its card or the next minor will not re-root it. Same rule as `ArraySet`.
+        crate::objops::array::barrier_elem(ctx, &this, i, wrote, &raw);
+        Ok(())
     }
-    match &args[0] {
-        Value::Array(rc) => {
-            // `deep_copy` allocates a fresh array block with the same bytes (reference
-            // elements stay shared: a copied reference word names the same referent).
-            Ok(rc.borrow().deep_copy(ctx.heap()))
+
+    /// `Array.CopyRange(source, sourceIndex, destination, destinationIndex, length)` —
+    /// bulk element move, mirroring `System.Array.Copy(Array, int, Array, int, int)`.
+    /// perf-bulk-array-copy: the script-side `Array.Copy<T>` was a per-element `for`
+    /// loop, so every copied element paid an interpreted `ArrayGet` + `ArraySet`. This
+    /// is the same "one bulk primitive, the algorithm stays in script" shape as
+    /// `__str_to_chars` / `__str_substring`: it copies a range and nothing else.
+    ///
+    /// The element semantics — every backing incl. value-struct arrays, boxing / unboxing,
+    /// type checks (`ArrayTypeMismatchException` / `InvalidCastException`), overlap, write
+    /// barrier — live in `objops::array_bulk::copy_range`; this only parses the arguments.
+    #[builtin(name = "__array_copy")]
+    pub fn copy(
+        ctx: &VmContext, src: ArrRef, src_index: i64, dst: ArrRef, dst_index: i64, length: i64,
+    ) -> Result<(), BuiltinError> {
+        let si = non_negative("__array_copy", "sourceIndex", src_index)?;
+        let di = non_negative("__array_copy", "destinationIndex", dst_index)?;
+        let n = non_negative("__array_copy", "length", length)?;
+        objops::array_bulk::copy_range(ctx, &src, si, &dst, di, n)?;
+        Ok(())
+    }
+
+    /// `List<T>.Sort()` / `Array.Sort<T>(T[])` 的基元快路径 — stable-sort
+    /// `array[0, count)` natively when every element there is one primitive kind
+    /// (int-like / double / char / string), in exactly the order the elements' own
+    /// `CompareTo` gives (see `ArrayObj::sort_prims_prefix`). `false` = declined, array
+    /// untouched: the caller's script merge sort runs instead. A permutation only moves
+    /// references the array already holds; the one new reference a store can produce
+    /// (a box, when a MIXED cell had fixed another primitive kind) goes to the write
+    /// barrier.
+    #[builtin(name = "__array_sort_prims")]
+    pub fn sort_prims(ctx: &VmContext, array: ArrRef, count: i64) -> Result<bool, BuiltinError> {
+        let n = usize::try_from(count).map_err(|_| BuiltinError::ArgumentOutOfRange(format!(
+            "__array_sort_prims: count must be non-negative, got {count}")))?;
+        let sorted = array.borrow().sort_prims_prefix(n);
+        let owner = Value::Array(array);
+        for b in sorted.iter().flatten() {
+            ctx.heap().write_barrier_array_elem(&owner, 0, b);
         }
-        Value::Null => bail!("__array_clone: null array reference"),
-        other => bail!("__array_clone: expected an array, got {:?}", other),
+        Ok(sorted.is_some())
+    }
+
+    /// `Array.Clone()` — shallow copy of the receiver array. Reference-type elements
+    /// are shared (the new array's slots reference the same heap objects). Empty arrays
+    /// return another empty array (not the same reference).
+    #[builtin(name = "__array_clone", this = "Clone")]
+    pub fn clone(ctx: &VmContext, this: ArrRef) -> Value {
+        // `deep_copy` allocates a fresh array block with the same bytes (reference
+        // elements stay shared: a copied reference word names the same referent).
+        this.borrow().deep_copy(ctx.heap())
+    }
+
+    fn non_negative(who: &str, what: &str, v: i64) -> Result<usize, BuiltinError> {
+        usize::try_from(v).map_err(|_| BuiltinError::ArgumentOutOfRange(format!(
+            "{who}: {what} must be non-negative, got {v}")))
+    }
+
+    fn index_oob(who: &str, index: i64, arr: &ArrRef) -> BuiltinError {
+        BuiltinError::IndexOutOfRange(format!(
+            "{who}: index {index} out of bounds (len {})", arr.borrow().len()))
     }
 }
 

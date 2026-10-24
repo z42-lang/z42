@@ -180,7 +180,7 @@ fn a_boxed_struct_copied_into_an_old_struct_array_keeps_its_young_leaf_alive() {
     super::struct_leaf::struct_field_set_val(&ctx, &boxed, 0, TAG_OBJECT, &young).expect("leaf write");
 
     // `arr.SetValue(box, 0)`：叶子被拷进老数组。
-    crate::corelib::array::builtin_array_set(&ctx, &[arr.clone(), boxed.clone(), Value::I64(0)])
+    crate::corelib::exec_builtin(&ctx, "__array_set", &[arr.clone(), boxed.clone(), Value::I64(0)])
         .expect("SetValue ok");
     assert_cards_hold(&ctx, "Array.SetValue(boxed struct → struct[])");
 

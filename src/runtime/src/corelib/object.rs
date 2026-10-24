@@ -97,17 +97,17 @@ pub fn obj_make_weak(ctx: &VmContext, target: &Value) -> Value {
 /// - `Closure { env: [] }` / `env[0]` 非 Object（如基础类型 / Null）→ Null
 /// - `FuncRef` → Null（free function 无 receiver）
 /// - 非 delegate / Null → Null
-pub fn builtin_delegate_target(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    match args.first() {
-        Some(Value::Closure(c)) => {
+pub fn delegate_target(delegate: &Value) -> Value {
+    match delegate {
+        Value::Closure(c) => {
             let env_ref = crate::metadata::types::closure_data_of(c).env.borrow();
             match env_ref.first() {
-                Some(Value::Object(o)) => Ok(Value::Object(o.clone())),
-                Some(Value::Array(a)) => Ok(Value::Array(a.clone())),
-                _ => Ok(Value::Null),
+                Some(Value::Object(o)) => Value::Object(o.clone()),
+                Some(Value::Array(a)) => Value::Array(a.clone()),
+                _ => Value::Null,
             }
         }
-        _ => Ok(Value::Null),
+        _ => Value::Null,
     }
 }
 
@@ -121,11 +121,13 @@ pub fn builtin_delegate_target(_ctx: &VmContext, args: &[Value]) -> Result<Value
 /// 语义：
 /// - `Closure` / `FuncRef` → 目标函数的全限定名
 /// - 其他 → Null
-pub fn builtin_delegate_fn_name(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let Some(id) = args.first().and_then(Value::callable_id) else { return Ok(Value::Null) };
+pub fn delegate_fn_name(ctx: &VmContext, delegate: &Value) -> Result<Value, BuiltinError> {
+    let Some(id) = delegate.callable_id() else { return Ok(Value::Null) };
     match ctx.callable_fn(id) {
         Some(f) => Ok(Value::Str(ctx.heap().alloc_str(&f.name))),
-        None => bail!("__delegate_fn_name: function id {} is not registered in this VM", id.0),
+        // A callable's id is bound by this VM: an unregistered one is a broken handle.
+        None => Err(BuiltinError::Internal(format!(
+            "__delegate_fn_name: function id {} is not registered in this VM", id.0))),
     }
 }
 
@@ -134,38 +136,24 @@ pub fn builtin_delegate_fn_name(ctx: &VmContext, args: &[Value]) -> Result<Value
 /// 在 receiver 仍存活时重建一个等价于原 handler 的 Closure。
 ///
 /// 语义：
-/// - args[0]: Value::Str (fn_name)
-/// - args[1]: Value::Array (env Vec<Value>)
+/// - `fn_name`: Value::Str
+/// - `env`: Value::Array (env Vec<Value>)
 /// - 非 string / 非 array / Null → Null（lenient）
 /// - P1-2 PR 8：名字在这里解析成 `FnId`（与 `MkClos` 同一条 `bind_fn_ref`），解析不到就抛
 ///   （`MissingSymbolException`，与 `MkClos` 相同）
-pub fn builtin_make_closure(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let fn_name = match args.first() {
-        Some(Value::Str(s)) => *s,
-        _ => return Ok(Value::Null),
-    };
-    let env_arr = match args.get(1) {
-        Some(Value::Array(a)) => a.clone(),
-        _ => return Ok(Value::Null),
-    };
+pub fn make_closure(ctx: &VmContext, fn_name: &Value, env: &Value) -> Result<Value, BuiltinError> {
+    let Value::Str(fn_name) = fn_name else { return Ok(Value::Null) };
+    let Value::Array(env_arr) = env else { return Ok(Value::Null) };
     let Some(module) = ctx.module() else {
-        bail!("__make_closure: no entry module to resolve `{}` against", &*fn_name);
+        return Err(BuiltinError::Internal(format!(
+            "__make_closure: no entry module to resolve `{}` against", &**fn_name)));
     };
-    let fn_id = match crate::interp::fn_ref_id(ctx, module, &fn_name, None) {
-        Ok(id) => id,
-        Err(exc) => {
-            // Propagates with its own type (`exec_call::builtin` takes it from here).
-            ctx.set_pending_thrown(exc);
-            bail!("__make_closure: cannot bind `{}`", &*fn_name);
-        }
-    };
+    let fn_id = crate::interp::fn_ref_id(ctx, module, fn_name, None).map_err(BuiltinError::Thrown)?;
     // 把 Array 里的元素拷贝到 Vec<Value>，再走 heap.alloc_array 拿到新的 ArrRef。
     // 与 jit_mk_clos 同款路径：env 是 GC 管理的 Array → Closure 持其 ArrRef。
     let env_vec: Vec<Value> = env_arr.borrow().iter_boxed().collect();
-    let env_val = crate::metadata::types::ArrayObj::alloc_frozen(ctx.heap(), &env_vec);
-    let env = match env_val {
-        Value::Array(rc) => rc,
-        _ => return Ok(Value::Null),  // unreachable but lenient
+    let Value::Array(env) = crate::metadata::types::ArrayObj::alloc_frozen(ctx.heap(), &env_vec) else {
+        return Ok(Value::Null);  // unreachable but lenient
     };
     // unify-gc-heap PR-2: the ClosureData lives in the GC variable-length region.
     Ok(ctx.heap().alloc_closure(crate::metadata::ClosureData { env, fn_id }))
@@ -213,18 +201,16 @@ fn weak_handle_type_desc() -> Arc<TypeDesc> {
 /// 语义参见 `delegates-events.md` 与本 spec design.md：
 /// - `FuncRef(id)` —— 目标 `FnId` 相等（P1-2 PR 8 起；一个函数一个 id，等价于此前的名字相等）
 /// - `Closure { env, fn_id }` —— fn_id 相等且 env ArrRef::ptr_eq
-pub fn builtin_delegate_eq(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let result = match (args.first(), args.get(1)) {
+pub fn delegate_eq(a: &Value, b: &Value) -> bool {
+    match (a, b) {
         // fix-delegate-equality-operator: FuncRef / Closure identity now lives in
         // `Value`'s `PartialEq` (the `==` operator reaches the same rule), so defer to it
         // rather than keeping a second copy here.
-        (Some(a @ Value::FuncRef(_)), Some(b @ Value::FuncRef(_))) => a == b,
-        (Some(a @ Value::Closure(_)), Some(b @ Value::Closure(_))) => a == b,
-        (Some(Value::Null), Some(Value::Null))   => true,
-        (Some(Value::Null), _) | (_, Some(Value::Null)) => false,
-        _                                        => false,
-    };
-    Ok(Value::Bool(result))
+        (Value::FuncRef(_), Value::FuncRef(_)) => a == b,
+        (Value::Closure(_), Value::Closure(_)) => a == b,
+        (Value::Null, Value::Null)   => true,
+        _                            => false,
+    }
 }
 
 /// Identity hash of a heap address: non-negative 31 bits, stable because the
@@ -302,7 +288,9 @@ mod object_tests;
 
 /// Object 协议迁 builtin ABI v2(P1-8 批次 11)。`GetType` 是纯合成;`ref_eq`
 /// / `hash_code` / `equals` / `to_str` 是 Rust 默认(子类 override 走 z42 vtable,
-/// 不经这里)——全部 PURE。
+/// 不经这里)——全部 PURE。委托协议(`DelegateOps`,批次 12b):`eq` / `target` 只读委托值
+/// (PURE);`fn_name` / `make_closure` 分配 GC 串 / 闭包,`make_closure` 绑定失败时抛
+/// `MkClos` 同款的 `MissingSymbolException`(`Thrown` 原样传播)。
 #[z42_macros::builtins]
 pub mod typed {
     use super::*;
@@ -329,4 +317,20 @@ pub mod typed {
 
     #[builtin(name = "__obj_upgrade_weak")]
     pub fn upgrade_weak(ctx: &VmContext, handle: &Value) -> Value { obj_upgrade_weak(ctx, handle) }
+
+    #[builtin(name = "__delegate_eq", pure)]
+    pub fn delegate_eq(a: &Value, b: &Value) -> bool { super::delegate_eq(a, b) }
+
+    #[builtin(name = "__delegate_target", pure)]
+    pub fn delegate_target(delegate: &Value) -> Value { super::delegate_target(delegate) }
+
+    #[builtin(name = "__delegate_fn_name")]
+    pub fn delegate_fn_name(ctx: &VmContext, delegate: &Value) -> Result<Value, BuiltinError> {
+        super::delegate_fn_name(ctx, delegate)
+    }
+
+    #[builtin(name = "__make_closure")]
+    pub fn make_closure(ctx: &VmContext, fn_name: &Value, env: &Value) -> Result<Value, BuiltinError> {
+        super::make_closure(ctx, fn_name, env)
+    }
 }

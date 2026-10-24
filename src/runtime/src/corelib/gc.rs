@@ -7,6 +7,7 @@
 //!  expose-gc-to-scripts (Phase 3d.2): 让脚本能显式触发 cycle
 //! collection 与查询堆使用量，用于端到端验证 GC 与 host 集成应用。
 
+use crate::corelib::abi::BuiltinError;
 use crate::gc::GcHandleKind;
 use crate::metadata::{FieldSlot, NativeData, TypeDesc, Value};
 use crate::vm_context::VmContext;
@@ -382,18 +383,22 @@ fn soft_handle_type_desc() -> Arc<TypeDesc> {
     }).clone()
 }
 
-/// Read the `_key: long` field from a `Std.SoftHandle` receiver.
-fn soft_handle_key(handle: &Value) -> Result<u64> {
+/// Read the `_key: long` field from a `Std.SoftHandle` receiver. A null receiver is a
+/// `NullReferenceException` (it is the instance member `Get`); anything but a
+/// `Std.SoftHandle`-shaped object with a long slot 0 is a malformed handle — reachable
+/// through reflective invocation on an arbitrary object, hence a catchable
+/// `InvalidOperationException`, not an internal error.
+fn soft_handle_key(handle: &Value) -> Result<u64, BuiltinError> {
     match handle {
         Value::Object(gc) => {
             let obj = gc.borrow();
             match obj.field_value(0) {
                 Value::I64(k) => Ok(k as u64),
-                _ => Err(anyhow!("SoftHandle._key: expected long slot")),
+                _ => Err(BuiltinError::InvalidOperation("SoftHandle._key: expected long slot".into())),
             }
         }
-        Value::Null => Err(anyhow!("SoftHandle._key: null receiver")),
-        _ => Err(anyhow!("SoftHandle._key: not an object")),
+        Value::Null => Err(BuiltinError::NullReference("SoftHandle._key: null receiver".into())),
+        _ => Err(BuiltinError::InvalidOperation("SoftHandle._key: not an object".into())),
     }
 }
 
@@ -401,20 +406,18 @@ fn soft_handle_key(handle: &Value) -> Result<u64> {
 /// Registers a soft reference to `target` and returns a new `Std.SoftHandle`
 /// object whose `_key` field holds the opaque registry key.
 /// Returns a SoftHandle with `_key = 0` if `target` is null or atomic.
-pub fn builtin_soft_handle_create(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let target = args.first().unwrap_or(&Value::Null);
+pub fn soft_handle_create(ctx: &VmContext, target: &Value) -> Value {
     let key = ctx.heap().register_soft_ref(target);
-    Ok(ctx.heap().alloc_object(
+    ctx.heap().alloc_object(
         soft_handle_type_desc(),
         vec![Value::I64(key as i64)],
         NativeData::None,
-    ))
+    )
 }
 
 /// `Std.SoftHandle.Get()` — **add-gc-softref **.
 /// Returns the soft-ref target, or `Value::Null` if it was cleared by GC.
-pub fn builtin_soft_handle_get(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let receiver = args.first().unwrap_or(&Value::Null);
+pub fn soft_handle_get(ctx: &VmContext, receiver: &Value) -> Result<Value, BuiltinError> {
     let key = soft_handle_key(receiver)?;
     if key == 0 { return Ok(Value::Null); }
     Ok(ctx.heap().soft_ref_get(key))
@@ -445,7 +448,6 @@ pub fn gc_stats(ctx: &VmContext) -> Value {
 #[z42_macros::builtins]
 pub mod typed {
     use super::*;
-    use crate::corelib::abi::BuiltinError;
 
     #[builtin(name = "__gc_collect")]
     pub fn collect(ctx: &VmContext) { gc_collect(ctx) }
@@ -503,4 +505,17 @@ pub mod typed {
 
     #[builtin(name = "__gc_stats")]
     pub fn stats(ctx: &VmContext) -> Value { gc_stats(ctx) }
+
+    /// `Std.SoftHandle.Create(object target)` — 登记软引用,回一个 `_key` 持 opaque
+    /// key 的 `Std.SoftHandle`(target 为 null / 原子值时 `_key = 0`)。分配即副作用,非 PURE。
+    #[builtin(name = "__soft_handle_create")]
+    pub fn soft_handle_create(ctx: &VmContext, target: &Value) -> Value {
+        super::soft_handle_create(ctx, target)
+    }
+
+    /// `Std.SoftHandle.Get()` — 取软引用目标,被 GC 清除或 `_key = 0` 时回 null。
+    #[builtin(name = "__soft_handle_get", this = "Get")]
+    pub fn soft_handle_get(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
+        super::soft_handle_get(ctx, this)
+    }
 }

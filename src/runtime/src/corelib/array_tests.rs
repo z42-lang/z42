@@ -7,11 +7,17 @@ fn ctx() -> std::pin::Pin<Box<VmContext>> {
     VmContext::new()
 }
 
+// The builtin surface is driven through the table like the stdlib does, so these tests
+// also cover the typed registration (null / wrong-kind / arity errors come from the ABI).
+fn clone(ctx: &VmContext, this: &Value) -> anyhow::Result<Value> {
+    crate::corelib::exec_builtin_value(ctx, "__array_clone", std::slice::from_ref(this))
+}
+
 #[test]
 fn clone_primitives_independent() {
     let ctx = ctx();
     let original = Value::Array(crate::metadata::types::ArrayObj::leaked(vec![Value::I64(1), Value::I64(2), Value::I64(3)]));
-    let cloned = builtin_array_clone(&ctx, std::slice::from_ref(&original)).expect("clone ok");
+    let cloned = clone(&ctx, &original).expect("clone ok");
 
     let (orig_rc, copy_rc) = match (&original, &cloned) {
         (Value::Array(o), Value::Array(c)) => (o, c),
@@ -30,7 +36,7 @@ fn clone_shares_reference_elements() {
     let ctx = ctx();
     let inner = Value::Array(crate::metadata::types::ArrayObj::leaked(vec![Value::I64(7)]));
     let original = Value::Array(crate::metadata::types::ArrayObj::leaked(vec![inner.clone()]));
-    let cloned = builtin_array_clone(&ctx, std::slice::from_ref(&original)).expect("clone ok");
+    let cloned = clone(&ctx, &original).expect("clone ok");
 
     let (orig_rc, copy_rc) = match (&original, &cloned) {
         (Value::Array(o), Value::Array(c)) => (o, c),
@@ -49,7 +55,7 @@ fn clone_shares_reference_elements() {
 fn clone_empty_array() {
     let ctx = ctx();
     let empty = Value::Array(crate::metadata::types::ArrayObj::leaked(Vec::new()));
-    let cloned = builtin_array_clone(&ctx, std::slice::from_ref(&empty)).expect("clone ok");
+    let cloned = clone(&ctx, &empty).expect("clone ok");
 
     let (orig_rc, copy_rc) = match (&empty, &cloned) {
         (Value::Array(o), Value::Array(c)) => (o, c),
@@ -62,15 +68,15 @@ fn clone_empty_array() {
 #[test]
 fn clone_rejects_non_array() {
     let ctx = ctx();
-    let err = builtin_array_clone(&ctx, &[Value::I64(42)]).unwrap_err();
-    assert!(err.to_string().contains("expected an array"));
+    let err = clone(&ctx, &Value::I64(42)).unwrap_err();
+    assert!(err.to_string().contains("an array"), "unexpected error: {err}");
 }
 
 #[test]
 fn clone_rejects_null() {
     let ctx = ctx();
-    let err = builtin_array_clone(&ctx, &[Value::Null]).unwrap_err();
-    assert!(err.to_string().contains("null array"));
+    let err = clone(&ctx, &Value::Null).unwrap_err();
+    assert!(err.to_string().contains("null reference"), "unexpected error: {err}");
 }
 
 // ── __array_copy (perf-bulk-array-copy) ──────────────────────────────────────
@@ -96,11 +102,15 @@ fn read(v: &Value) -> Vec<i64> {
     }
 }
 
-fn copy(ctx: &VmContext, src: &Value, si: i64, dst: &Value, di: i64, n: i64) -> Result<()> {
-    builtin_array_copy(
-        ctx,
+fn copy(ctx: &VmContext, src: &Value, si: i64, dst: &Value, di: i64, n: i64) -> anyhow::Result<()> {
+    crate::corelib::exec_builtin(
+        ctx, "__array_copy",
         &[src.clone(), Value::I64(si), dst.clone(), Value::I64(di), Value::I64(n)],
-    )
+    ).map(|_| ())
+}
+
+fn set(ctx: &VmContext, arr: &Value, value: &Value, i: i64) -> anyhow::Result<()> {
+    crate::corelib::exec_builtin(ctx, "__array_set", &[arr.clone(), value.clone(), Value::I64(i)]).map(|_| ())
 }
 
 #[test]
@@ -164,7 +174,7 @@ fn copy_rejects_non_arrays_and_negative_indices() {
     let ctx = ctx();
     let src = ints(&[1, 2]);
     let dst = ints(&[0, 0]);
-    assert!(builtin_array_copy(&ctx, &[Value::Null, Value::I64(0), dst.clone(), Value::I64(0), Value::I64(1)]).is_err());
+    assert!(copy(&ctx, &Value::Null, 0, &dst, 0, 1).is_err());
     assert!(copy(&ctx, &src, -1, &dst, 0, 1).is_err());
     assert!(copy(&ctx, &src, 0, &dst, 0, -1).is_err());
 }
@@ -206,7 +216,7 @@ mod write_barriers {
         let young = ctx.heap().alloc_array(vec![Value::I64(7)]);
         assert!(!remembered(&ctx, &dst), "test setup: not remembered yet");
 
-        builtin_array_set(&ctx, &[dst.clone(), young, Value::I64(0)]).expect("set ok");
+        set(&ctx, &dst, &young, 0).expect("set ok");
 
         assert!(remembered(&ctx, &dst), "Array.SetValue must fire the write barrier");
     }
@@ -224,11 +234,7 @@ mod write_barriers {
         }
         assert!(!remembered(&ctx, &dst), "test setup: not remembered yet");
 
-        builtin_array_copy(
-            &ctx,
-            &[src, Value::I64(0), dst.clone(), Value::I64(0), Value::I64(4)],
-        )
-        .expect("copy ok");
+        copy(&ctx, &src, 0, &dst, 0, 4).expect("copy ok");
 
         assert!(remembered(&ctx, &dst), "Array.Copy must fire the write barrier");
     }
@@ -242,11 +248,7 @@ mod write_barriers {
         let dst = old_array(&ctx, 4);
         let src = ctx.heap().alloc_array(vec![Value::I64(1); 4]);
 
-        builtin_array_copy(
-            &ctx,
-            &[src, Value::I64(0), dst.clone(), Value::I64(0), Value::I64(4)],
-        )
-        .expect("copy ok");
+        copy(&ctx, &src, 0, &dst, 0, 4).expect("copy ok");
 
         assert!(!remembered(&ctx, &dst), "a primitive copy has no cross-gen edge to record");
     }
@@ -278,7 +280,7 @@ fn set_value_rejects_kind_mismatch_instead_of_zeroing() {
     let ctx = ctx();
     for bad in [Value::Null, Value::Str("not a number".into()), Value::F64(1.5)] {
         let a = int_arr(&ctx, 9);
-        let r = builtin_array_set(&ctx, &[a.clone(), bad.clone(), Value::I64(0)]);
+        let r = set(&ctx, &a, &bad, 0);
         assert!(r.is_err(), "int[] 收 {bad:?} 必须报错（静默存 0 是回归）");
         assert!(
             matches!(elem0(&a), Value::I64(9)),
@@ -292,7 +294,7 @@ fn set_value_rejects_kind_mismatch_instead_of_zeroing() {
 fn set_value_keeps_the_normal_integer_path() {
     let ctx = ctx();
     let a = int_arr(&ctx, 9);
-    builtin_array_set(&ctx, &[a.clone(), Value::I64(42), Value::I64(0)]).expect("正常整数必须写得进");
+    set(&ctx, &a, &Value::I64(42), 0).expect("正常整数必须写得进");
     assert!(matches!(elem0(&a), Value::I64(42)));
 }
 
@@ -305,11 +307,11 @@ fn set_value_keeps_the_normal_integer_path() {
 fn set_value_is_strict_no_widening() {
     let ctx = ctx();
     let d = ctx.heap().alloc_array_typed("double", vec![Value::F64(7.5)]);
-    let r = builtin_array_set(&ctx, &[d.clone(), Value::I64(42), Value::I64(0)]);
+    let r = set(&ctx, &d, &Value::I64(42), 0);
     assert!(r.is_err(), "严格口径：double[] 不收整数");
     assert!(matches!(elem0(&d), Value::F64(f) if f == 7.5), "原值不得被动");
     // 同种照旧
-    builtin_array_set(&ctx, &[d.clone(), Value::F64(1.25), Value::I64(0)]).expect("double[] 收 F64");
+    set(&ctx, &d, &Value::F64(1.25), 0).expect("double[] 收 F64");
     assert!(matches!(elem0(&d), Value::F64(f) if f == 1.25));
 }
 
@@ -318,7 +320,7 @@ fn set_value_is_strict_no_widening() {
 fn set_value_reference_backing_still_accepts_null() {
     let ctx = ctx();
     let s = ctx.heap().alloc_array_typed("string", vec![Value::Str("x".into())]);
-    builtin_array_set(&ctx, &[s.clone(), Value::Null, Value::I64(0)]).expect("引用元素写 null 合法");
+    set(&ctx, &s, &Value::Null, 0).expect("引用元素写 null 合法");
     assert!(matches!(elem0(&s), Value::Null));
 }
 
@@ -328,7 +330,7 @@ fn copy_across_incompatible_element_types_raises() {
     let ctx = ctx();
     let si = ctx.heap().alloc_array_typed("string", vec![Value::Str("x".into())]);
     let di = int_arr(&ctx, 9);
-    let r = builtin_array_copy(&ctx, &[si, Value::I64(0), di.clone(), Value::I64(0), Value::I64(1)]);
+    let r = copy(&ctx, &si, 0, &di, 0, 1);
     assert!(r.is_err(), "string[] → int[] 必须报错");
     assert!(matches!(elem0(&di), Value::I64(9)), "目的地不得被清零");
 }
@@ -339,8 +341,7 @@ fn copy_same_element_type_is_unaffected() {
     let ctx = ctx();
     let a = int_arr(&ctx, 5);
     let b = int_arr(&ctx, 0);
-    builtin_array_copy(&ctx, &[a, Value::I64(0), b.clone(), Value::I64(0), Value::I64(1)])
-        .expect("同型拷贝照旧");
+    copy(&ctx, &a, 0, &b, 0, 1).expect("同型拷贝照旧");
     assert!(matches!(elem0(&b), Value::I64(5)));
 }
 

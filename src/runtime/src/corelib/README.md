@@ -4,11 +4,10 @@
 
 z42 VM 的**原生 builtin 层**：为 z42 标准库（`Std.*`）里那些无法用纯 z42 表达、
 必须落到 Rust 的能力（IO、文件系统、反射、进程/线程/网络、加密、GC 控制…）提供
-native 实现。builtin 写成类型化 Rust 函数（builtin ABI v2，`#[builtin]`，见下「加一个 builtin」）；
-尚未迁移的领域仍是旧式 `fn(&VmContext, &[Value]) -> Result<Value>`。两者统一登记进 `BUILTINS` 表
-（旧表 `builtin_table.rs` ++ `builtin_table_ext.rs`，加 `#[builtins]` 模块的描述符），由解释器
-`Instruction::Builtin`、JIT `jit_builtin` 和 `[Native]` 包装函数的折叠调用经 `invoke_builtin` 调用
-——实参原地从调用方寄存器读。
+native 实现。builtin 一律写成类型化 Rust 函数（builtin ABI v2，`#[builtin]`，见下「加一个
+builtin」），登记进 `BUILTINS` 表（`builtin_table.rs` 把各 `#[builtins]` 模块的描述符编译期拼接），
+由解释器 `Instruction::Builtin`、JIT `jit_builtin` 和 `[Native]` 包装函数的折叠调用经
+`invoke_builtin` 调用——实参原地从调用方寄存器读。
 
 **不做**：语言语义（在 `interp` / `jit`）、类型/字节码元数据（在 `metadata`）、
 GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / Assert 等）都已从
@@ -18,10 +17,10 @@ GC 堆本身（在 `gc`）。凡能用纯 z42 写的（StringBuilder / List / As
 
 | 功能 | 入口 / 文件 |
 |------|-----------|
-| builtin 注册表 + 名称↔id 解析 + 分发 | `mod.rs` 的 `invoke_builtin`（引擎）/ `exec_builtin`（实参切片）；`builtin_table.rs` 的 `BUILTINS` 表（`TYPED` 段列出 `#[builtins]` 模块） |
+| builtin 注册表 + 名称↔id 解析 + 分发 | `mod.rs` 的 `invoke_builtin`（引擎）/ `exec_builtin`（按名，测试/嵌入/ToString 回落）；`builtin_table.rs` 的 `BUILTINS` 表（`TYPED` 列出 `#[builtins]` 模块，一行一个） |
 | builtin ABI v2：类型化实参 / 返回值、`BuiltinError` 与异常类、`blocking` | **`abi/`**（`args.rs` / `ret.rs` / `error.rs`；宏在 `crates/z42-macros/src/builtins_attr.rs`） |
 | 值转换 / 解析（`Parse` / `TryParse`）/ to-string / 装箱 | `convert.rs`（`typed` 模块，ABI v2） |
-| 控制台 IO（print / readline：`typed` 模块，ABI v2；写进程 stdout / stderr 与读 stdin 都 park）/ TestIO 捕获 / concat / len | `io.rs` |
+| 控制台 IO（print / readline：`typed` 模块，ABI v2；写进程 stdout / stderr 与读 stdin 都 park）/ TestIO 捕获（sink 栈） | `io.rs` |
 | 字符串操作 / 字符（含 bulk 原语 `__str_to_chars` / `__str_substring` / `__str_concat_parts` / `__str_split` / `__str_join`：Substring / StringBuilder.ToString / Join / Concat / Split 的底座，一次拷贝取代逐字符 builtin 派发）| `string.rs` / `str_meta.rs` / `char.rs` |
 | 数学 | `math.rs` |
 | 文件系统 / FileStream 句柄 / env / 时间（`typed` 模块，ABI v2：.NET 口径的 IO 异常 `fs_error`、文件 I/O 一律 park、句柄表锁外做系统调用；平台隔离后端返回 `io::Error`） | `fs.rs` + `fs_backend/`（`native` / `memory`） |
@@ -105,9 +104,9 @@ xtask test stdlib
 
 | 文件 | 职责 |
 |------|------|
-| `mod.rs` | 名称↔`BuiltinId` 解析 + `invoke_builtin` / `exec_builtin` 分发 + `Native`（`Val` / `Void` / `Typed`）表项类型 |
+| `mod.rs` | 名称↔`BuiltinId` 解析 + `invoke_builtin` / `exec_builtin` 分发（ext builtin 的 `NativeFn` 类型也在此） |
 | `abi/` | builtin ABI v2：`BuiltinDesc` / `FromArg` / `IntoRet` / `Blocking` / `BuiltinError` + `raise`（两引擎共用的失败出口）；`test_builtins.rs` 是 `cfg(test)` 的测试用 builtin |
-| `builtin_table.rs` / `builtin_table_ext.rs` | `BUILTINS`：旧表两段 + `TYPED`（`#[builtins]` 模块列表）编译期拼接；旧表项随领域迁移删除 |
+| `builtin_table.rs` | `BUILTINS`：各 `#[builtins]` 模块的 `DESCS` 经 `abi::concat_descs` 编译期拼接（下标即 `BuiltinId`，不跨进程持久化） |
 | `reflection/mod.rs` | 反射 hub —— 导入 + 共享常量 + 私有 re-glob 各 concern 子模块（兄弟经 `use super::*` 互见）+ `pub use` 保留公开 API |
 | `reflection/type_object.rs` | `Std.Type` 对象构造（`make_type_object` / `make_type_from_name` / `make_constructed_type`）+ handle/slot 辅助 |
 | `reflection/type_query.rs` | 类型查询谓词（base / interfaces / members / nested / is_abstract·sealed·value·record·interface·class·primitive·generic / assignable_from / visibility）|

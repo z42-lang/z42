@@ -63,26 +63,6 @@ fn obj(ctx: &VmContext, class_name: &str) -> Value {
     ctx.heap().alloc_object(type_desc, Vec::new(), NativeData::None)
 }
 
-// ── __len ─────────────────────────────────────────────────────────────────────
-
-#[test]
-fn len_of_string_is_utf8_bytes() {
-    let c = ctx();
-    assert_eq!(exec_builtin_value(&c, "__len", &[s("hello")]).unwrap(), i64(5));
-}
-
-#[test]
-fn len_of_empty_string() {
-    let c = ctx();
-    assert_eq!(exec_builtin_value(&c, "__len", &[s("")]).unwrap(), i64(0));
-}
-
-#[test]
-fn len_missing_arg_errors() {
-    let c = ctx();
-    assert!(exec_builtin_value(&c, "__len", &[]).is_err());
-}
-
 // ── __str_char_at (new in simplify-string-stdlib) ──────────────────
 
 #[test]
@@ -545,27 +525,27 @@ fn make_closure_returns_null_for_invalid_args() {
 
 // ── refactor-split-corelib-mod: 拼接表的不变式 ─────────────────────────────
 //
-// BUILTINS 现在是 PART1 ++ PART2 的**编译期**拼接（两个文件纯粹是 500 行硬限所
-// 迫）。下标即 BuiltinId，但 zbc 里存的是 builtin **名字**、id 只在加载期按名解析
-// （见 native_decl_tests 与 ext 表内 __repl_readline_indented 先例）——抽掉退役槽位
-// 不影响既有 zbc；本测试守的是拼接不错位、无空洞、名字唯一。
+// BUILTINS 是 `#[builtins]` 模块 DESCS 的**编译期**拼接。下标即 BuiltinId，但 zbc
+// 里存的是 builtin **名字**、id 只在加载期按名解析（见 native_decl_tests 与 ext 表内
+// __repl_readline_indented 先例）——抽掉退役槽位不影响既有 zbc；本测试守的是拼接
+// 不错位、无空洞、名字唯一。
 
 #[test]
 fn builtin_table_join_preserves_order_and_has_no_holes() {
     use super::BUILTINS;
     // 没有被填充值漏下来的空洞（padding 的名字是空串）。
-    assert!(BUILTINS.iter().all(|(n, _)| !n.is_empty()),
+    assert!(BUILTINS.iter().all(|d| !d.name.is_empty()),
         "a padding slot leaked into BUILTINS — the const join left a hole");
-    // 旧表在前、类型化 builtin（`TYPED`）在后。
-    assert!(matches!(BUILTINS[0].1, super::Native::Val(_) | super::Native::Void(_)), "the old table comes first");
     // 名字唯一——重复会让 name→id 索引静默丢掉一个实现。
-    let mut names: Vec<&str> = BUILTINS.iter().map(|(n, _)| *n).collect();
+    let mut names: Vec<&str> = BUILTINS.iter().map(|d| d.name).collect();
     let total = names.len();
     names.sort_unstable();
     names.dedup();
     assert_eq!(names.len(), total, "duplicate builtin name in BUILTINS");
-    // 拼接点两侧的相对顺序保持：PART2 的第一条排在 PART1 最后一条之后。
-    let idx = |n: &str| BUILTINS.iter().position(|(x, _)| *x == n).unwrap();
-    assert!(idx("__array_set") < idx("__platform_os"),
-        "PART2 must follow PART1 — the const join reordered");
+    // 拼接保持模块注册顺序：`builtin_table.rs` 的 TYPED 首模块（convert）在表头，
+    // 最后一个真实模块（batch 12b 收官的 array）在 cfg(test) 的测试 builtin 之前。
+    let idx = |n: &str| BUILTINS.iter().position(|d| d.name == n).unwrap();
+    assert_eq!(BUILTINS[0].name, "__mmh3_hex_str", "the first module (convert) heads the table");
+    assert!(idx("__array_clone") < idx("__test_abi_args"),
+        "modules must join in registration order");
 }

@@ -14,10 +14,9 @@
 //! wrapper's: same arguments, same result (`Null` for void, as the wrapper's `ret`
 //! leaves), same exception — and the same stack trace:
 //!
-//! - a builtin that never runs z42 code (typed without `BuiltinFlags::reenters`, or an
-//!   old-table one not on `LEGACY_REENTERS`) runs with no frame at all; if it fails,
-//!   the wrapper's row(s) are synthesized from the function ([`wrapper_rows`]), lazily,
-//!   on the error path only;
+//! - a builtin that never runs z42 code (typed without `BuiltinFlags::reenters`) runs
+//!   with no frame at all; if it fails, the wrapper's row(s) are synthesized from the
+//!   function ([`wrapper_rows`]), lazily, on the error path only;
 //! - one that may run z42 code (a reflection invoke, a getter, a callback, a load that
 //!   runs initializers) runs under a *light* frame for the wrapper (no register file,
 //!   nothing executed), so whatever that code throws, and any fatal report, sees the

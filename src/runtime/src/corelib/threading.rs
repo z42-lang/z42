@@ -22,34 +22,31 @@ use crate::vm_context::VmContext;
 use anyhow::{anyhow, bail, Result};
 use std::sync::Arc;
 
-
-/// `__thread_spawn(action) -> i64` — spawn an OS thread executing `action`.
+/// `__thread_spawn(action)` — spawn an OS thread executing `action`.
 ///
 /// `action` must be a callable z42 value (`Value::FuncRef` for zero-capture
 /// lambdas, `Value::Closure` for capturing lambdas).
-pub fn builtin_thread_spawn(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let callable = args.first()
-        .ok_or_else(|| anyhow!("__thread_spawn: missing action argument"))?;
-
+pub fn thread_spawn(ctx: &VmContext, action: &Value) -> Result<i64, crate::corelib::abi::BuiltinError> {
     // P1-2 PR 8: the target is the value's bound `FnId` — a plain integer that crosses to
     // the worker as is (the worker shares this VM's `FuncTable`).
-    let (fn_id, env_vec): (crate::metadata::tokens::FnId, Option<Vec<Value>>) = match callable {
+    let (fn_id, env_vec): (crate::metadata::tokens::FnId, Option<Vec<Value>>) = match action {
         Value::FuncRef(id) => (*id, None),
         Value::Closure(c) => {
             let data = crate::metadata::types::closure_data_of(c);
             (data.fn_id, Some(data.env.borrow().to_boxed_vec()))
         }
-        other => bail!(
+        // The stdlib passes `object action`; anything but a delegate value is the
+        // caller's argument (a user value), so a typed argument error, not an internal one.
+        other => return Err(crate::corelib::abi::BuiltinError::Argument(format!(
             "__thread_spawn: expected callable (Action / FuncRef / Closure), got {:?}",
             other
-        ),
+        ))),
     };
 
     if ctx.core.module.is_none() {
-        bail!(
+        return Err(crate::corelib::abi::BuiltinError::Internal(
             "__thread_spawn: VmContext has no shared Module — \
-             constructed via VmContext::new() instead of VmContext::with_module()"
-        );
+             constructed via VmContext::new() instead of VmContext::with_module()".into()));
     }
 
     let core_for_thread: Arc<crate::vm_context::VmCore> = Arc::clone(&ctx.core);
@@ -112,10 +109,13 @@ pub fn builtin_thread_spawn(ctx: &VmContext, args: &[Value]) -> Result<Value> {
             Ok(r)    => r,
             Err(_)   => Err(anyhow!("thread panicked (Rust panic; not user throw)")),
         }
-    }).map_err(|e| anyhow!("__thread_spawn: cannot create thread: {e}"))?;
+    }).map_err(|e| crate::corelib::abi::BuiltinError::Exception {
+        class: "Std.Threading.ThreadException",
+        message: format!("__thread_spawn: cannot create thread: {e}"),
+    })?;
 
     ctx.core.threads.lock().insert(id, handle);
-    Ok(Value::I64(id as i64))
+    Ok(id as i64)
 }
 
 /// **fix-spawn-env-gc-root **: keeps a spawned action's captured environment
@@ -142,7 +142,7 @@ impl Drop for SpawnedEnvRoot {
 /// parked, so a collection another thread starts meanwhile does not wait for them.
 #[z42_macros::builtins]
 pub mod typed {
-    use crate::corelib::abi::Blocking;
+    use crate::corelib::abi::{Blocking, BuiltinError};
     use crate::vm_context::VmContext;
 
     /// `__thread_sleep(millis)` — block the current thread. Negative values saturate to
@@ -152,6 +152,14 @@ pub mod typed {
     #[builtin(name = "__thread_sleep", blocking)]
     pub fn thread_sleep(millis: i64) {
         std::thread::sleep(std::time::Duration::from_millis(millis.max(0) as u64));
+    }
+
+    /// `__thread_spawn(action)` — OS 线程执行 `action`,返回句柄槽号。线程创建失败 →
+    /// `Std.Threading.ThreadException`(与 `__thread_wait` 的失败同类);非 callable 实参 →
+    /// `ArgumentException`。spawn 本身不等(worker 跑在别的线程上,不占调用线程)。
+    #[builtin(name = "__thread_spawn")]
+    pub fn thread_spawn(ctx: &VmContext, action: &crate::metadata::Value) -> Result<i64, BuiltinError> {
+        super::thread_spawn(ctx, action)
     }
 
     /// `__thread_wait(slot)` — `Thread.Join()`: wait for a spawned thread (parked).

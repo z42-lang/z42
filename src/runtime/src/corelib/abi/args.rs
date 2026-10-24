@@ -269,6 +269,21 @@ impl<'a> FromArg<'a> for Vec<String> {
     }
 }
 
+/// An array of any element type, by handle (`Copy`, 8 bytes): the builtin works on the
+/// array in place. Null → `ArgumentNullException` (`NullReferenceException` as a
+/// receiver); any other kind of value → `InvalidCastException`.
+impl<'a> FromArg<'a> for crate::gc::ArrRef {
+    const KIND: ParamKind = ParamKind::Array;
+    #[inline(always)]
+    fn from_arg(v: &'a Value, at: &ArgAt) -> Result<Self, BuiltinError> {
+        match v {
+            Value::Array(rc) => Ok(*rc),
+            Value::Null => Err(at.null()),
+            other => Err(at.mismatch("an array", other)),
+        }
+    }
+}
+
 /// A `ref` / `out` argument (the caller passed the address of a local, an array element
 /// or a field). [`RefArg::store`] writes through it, as an assignment to the parameter
 /// inside a z42 method would.
