@@ -1,0 +1,18 @@
+# ANCHOR: run
+$ z42 run records.z42
+3
+# ANCHOR_END: run
+# ANCHOR: members
+$ z42 doc Point --members
+struct Demo.Geometry.Point    records.z42:6
+  平面上的点。
+  +double X                   横坐标。  :8
+  +double Y                   纵坐标。  :10
+  +Point(double X, double Y)  平面上的点。  :6
+# ANCHOR_END: members
+# ANCHOR: field
+$ z42 doc Rect.Min
+public Point Min    Demo.Geometry.Rect
+  左下角。
+  @ records.z42:15
+# ANCHOR_END: field

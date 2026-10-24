@@ -1,0 +1,31 @@
+//! 平面图形：面积与缩放。
+
+namespace Demo.Shapes;
+
+using Std.IO;
+
+/// 圆。
+public class Circle {
+    /// 半径，不小于 0。
+    public double Radius;
+
+    /// 返回面积 πr²。
+    public double Area() { return 3.14159 * this.Radius * this.Radius; }
+
+    /// 把半径放大 factor 倍。
+    ///
+    /// 返回 this，便于链式调用。
+    /// @param factor 缩放系数，须大于 0
+    /// @throws ArgumentException factor 不大于 0
+    public Circle Scale(double factor) {
+        if (factor <= 0) { throw new ArgumentException("factor must be positive"); }
+        this.Radius = this.Radius * factor;
+        return this;
+    }
+}
+
+void Main() {
+    Circle c = new Circle();
+    c.Radius = 1.0;
+    Console.WriteLine(c.Scale(2.0).Area());
+}

@@ -1,0 +1,22 @@
+namespace Demo.Geometry;
+
+using Std.IO;
+
+/// 平面上的点。
+[Record] public struct Point(
+    /// 横坐标。
+    double X,
+    /// 纵坐标。
+    double Y);
+
+/// 轴对齐矩形。
+[Record] public struct Rect(
+    /// 左下角。
+    Point Min,
+    /// 右上角。
+    Point Max);
+
+void Main() {
+    Rect r = new Rect(new Point(0.0, 0.0), new Point(3.0, 4.0));
+    Console.WriteLine(r.Max.X - r.Min.X);
+}
