@@ -12,5 +12,5 @@ include = ["*.z42"]
 [dependencies]
 "z42.harness"    = "0.1.0"   # LintSupport（internal——宿主 [plugins.export] internal=true 授权同包待遇）
 "z42c.syntax"    = "0.1.0"
-"z42c.analyzers" = "0.1.0"
+"z42c.plugin" = "0.1.0"
 "z42c.core"      = "0.1.0"

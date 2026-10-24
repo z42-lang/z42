@@ -67,7 +67,7 @@
 | 文件 | 职责 |
 |------|------|
 | `src/DumpTool.z42` | 前端 dump 纯函数（`DumpTokens`/`DumpAst`/`DumpDoc`：源码 → token 流 / AST s-expr / 声明的 doc 挂靠）|
-| `src/SuppressionSet.z42` | 诊断局部抑制集：`AddRegion`（`#suppress` 区间，来自 `CompilationUnit.SuppressRegions`）/ `PushActive`·`PopActive`（`[Suppress]` 声明活跃栈）/ `IsSuppressed`；`Directive` = 指令 attribute 名。`z42c.analyzers`（analyzer 诊断）与 `z42c.semantics`（`[Deprecated]` 告警）共用 |
+| `src/SuppressionSet.z42` | 诊断局部抑制集：`AddRegion`（`#suppress` 区间，来自 `CompilationUnit.SuppressRegions`）/ `PushActive`·`PopActive`（`[Suppress]` 声明活跃栈）/ `IsSuppressed`；`Directive` = 指令 attribute 名。`z42c.plugin`（analyzer 诊断）与 `z42c.semantics`（`[Deprecated]` 告警）共用 |
 
 ## 依赖关系
 `z42c.core`。stdlib 自动可用。

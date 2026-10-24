@@ -40,7 +40,7 @@
 ```bash
 ./xtask test compiler        # tests/<unit>/ 全部 [Test] 单元 + 自举不动点；全部 PASS 即通过
 ```
-`tests/` 按子系统分单元目录（typecheck / collect / overload / pattern / directives / conversion 等；analyzer / generator 单元在 [`z42c.analyzers/tests/`](../z42c.analyzers/tests/) / [`z42c.generators/tests/`](../z42c.generators/tests/)），每个单元自带 `*.z42.toml`。codegen / zbc / zbcreader 单元在 [`z42c.emission/tests/`](../z42c.emission/tests/)。
+`tests/` 按子系统分单元目录（typecheck / collect / overload / pattern / directives / conversion 等；analyzer / generator 单元在 [`z42c.plugin/tests/`](../z42c.plugin/tests/)），每个单元自带 `*.z42.toml`。codegen / zbc / zbcreader 单元在 [`z42c.emission/tests/`](../z42c.emission/tests/)。
 
 ## 关联文档
 - 设计 / 机制：[architecture.md](../../../docs/internals/src/compiler/architecture.md)、[binder-hierarchy.md](../../../docs/internals/src/compiler/binder-hierarchy.md)、[generics.md](../../../docs/internals/src/compiler/generics.md)、[access-control.md](../../../docs/internals/src/compiler/access-control.md)、[self-hosting.md](../../../docs/internals/src/compiler/self-hosting.md)
