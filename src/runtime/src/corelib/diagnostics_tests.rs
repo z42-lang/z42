@@ -1,6 +1,6 @@
 //! Tests for diagnostics builtins registration.
 //!
-//! The `builtin_diag_counters` *projection* (snapshot → z42 object) needs a
+//! The `__diag_counters` *projection* (snapshot → z42 object) needs a
 //! loaded `Std.Diagnostics.RuntimeCounters` type, which a bare `VmContext`
 //! test can't provide — that path is covered end-to-end by the z42 `[Test]`
 //! dogfood in `src/libraries/z42.diagnostics/tests/runtime_counters.z42`
@@ -15,7 +15,7 @@ fn diag_counters_is_registered() {
     let id = builtin_id_of("__diag_counters").expect("__diag_counters must be registered");
     assert!((id.0 as usize) < BUILTINS.len());
     // Points at the diagnostics builtin entry (name matches at that index).
-    assert_eq!(BUILTINS[id.0 as usize].0, "__diag_counters");
+    assert_eq!(BUILTINS[id.0 as usize].name, "__diag_counters");
 }
 
 #[test]
@@ -26,7 +26,7 @@ fn diag_counters_appended_last_preserves_ids() {
     // ids stay stable; the invariant we lock here is that the entry exists and
     // its id equals its array position (positional == BuiltinId).
     let id = builtin_id_of("__diag_counters").unwrap();
-    let pos = BUILTINS.iter().position(|(n, _)| *n == "__diag_counters").unwrap();
+    let pos = BUILTINS.iter().position(|d| d.name == "__diag_counters").unwrap();
     assert_eq!(id.0 as usize, pos, "BuiltinId must equal BUILTINS array position");
 }
 
@@ -66,7 +66,7 @@ fn retention_query_waits_for_running_mutators_to_park() {
     let start = Instant::now();
     // The result projection needs stdlib types a bare VmContext lacks; only the
     // timing matters here.
-    let _ = super::builtin_heap_retaining_roots(&ctx, &[target]);
+    let _ = super::heap_retaining_roots(&ctx, &target);
     assert!(start.elapsed() >= Duration::from_millis(150),
         "the query ran while another mutator was still running");
 

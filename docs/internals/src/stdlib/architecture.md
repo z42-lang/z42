@@ -117,9 +117,9 @@ public static extern long Spawn(object action);
 
 ## 5. 全仓 native 表面（实测）
 
-VM 注册表 `BUILTINS` 共 **321** 个条目：旧表（`builtin_table.rs` + `builtin_table_ext.rs`）286 个，
-ABI v2 的 `#[builtins]` 模块 35 个。stdlib 与编译器域侧 `[Native("__…")]` 声明的**不同符号** **306** 个，
-全部能在表里找到。
+VM 注册表 `BUILTINS` 共 **332** 个条目（桌面 arm64），全部是 ABI v2 的 `#[builtins]` 模块
+（P1-8 批次 12b 后旧表清零，`builtin_table.rs` 只做 `DESCS` 拼接）。stdlib 与编译器域侧
+`[Native("__…")]` 声明的**不同符号** **307** 个，全部能在表里找到。
 
 按包分布：
 
@@ -152,11 +152,11 @@ compression 那 12 个**不在** `BUILTINS` 里——它们由 cdylib 在加载�
 
 ### 表里没有 stdlib 声明的条目
 
-一部分是编译器直接发射的（`__concat` / `__len` / `__contains` / `__box_prim` / `__box_struct` /
-`__methodof` / `__struct_hash_code` / `__class_type_arg` / `__class_default`），一部分住在
-`src/toolchain/`（`__repl_*` / `__vfs_*`），还有只为种子 SDK 保留的（`__test_module_load`）。清单与理由在
+一部分是编译器直接发射的（`__box_prim` / `__box_struct` / `__methodof` / `__struct_hash_code` /
+`__class_type_arg` / `__class_default`），一部分住在宿主侧（`__repl_*` / `__vfs_*`）。清单与理由在
 `corelib/native_decl_tests.rs` 的 `UNDECLARED_ALLOWLIST`；表项可以真删——`BuiltinId` 不跨进程持久化，
-判据只是「已发布种子里还有没有 z42 源声明这个名字」。
+判据只是「已发布种子里还有没有 z42 源声明这个名字」（零引用的 `__concat` / `__len` / `__contains`
+已按此判据连同实现删除）。
 
 > 审计时注意：`grep "extern"` 会大量命中注释——`z42.io` / `z42.net` / `z42.json` / `z42.text` 里
 > 提到 extern 的行全是「本文件不自带 extern，已上移 core」这类说明。要数真实声明必须匹配

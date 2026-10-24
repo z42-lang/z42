@@ -98,11 +98,6 @@ pub fn is_scalar_prim_wrapper(name: &str) -> bool {
 
 // ── Well-known builtin names (used outside corelib::dispatch_table) ──────
 
-/// Builtin invoked as the fallback in `dispatch.rs::tostring_result` when an
-/// object's vtable doesn't override `ToString`. Returns the simple class
-/// name (e.g. `Foo{...}`).
-pub const BUILTIN_OBJ_TO_STR: &str = "__obj_to_str";
-
 // ── Well-known method names (vtable + dispatch lookup keys) ──────────────
 
 /// `Std.Object.ToString()` — vtable key + IR-emitted method name.

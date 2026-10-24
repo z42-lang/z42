@@ -1,11 +1,7 @@
 use crate::corelib::abi::Blocking;
-use crate::metadata::Value;
-use crate::vm_context::VmContext;
-use anyhow::{bail, Result};
 use std::cell::{Cell, RefCell};
 use std::os::raw::{c_char, c_void};
 use std::sync::RwLock;
-use super::convert::value_to_str;
 
 // ── R2 完整版 — TestIO sink dispatch ───────────────────────────────────────
 //
@@ -174,6 +170,8 @@ fn read_line_from(r: &mut impl std::io::BufRead) -> std::io::Result<String> {
 /// `Write` / `WriteLine` stringify their argument through the user's `ToString` (z42
 /// code: `reenters`), then route it ([`route`]): the process-stream write runs parked.
 /// `ReadLine` waits for input for as long as the user likes — the whole read is parked.
+/// The TestIO sinks push / pop this thread's capture stack ([`push_stdout_sink`] and
+/// friends): no heap access, no blocking.
 #[z42_macros::builtins]
 pub mod typed {
     use super::{route, Stream};
@@ -213,22 +211,28 @@ pub mod typed {
     pub fn readline() -> Result<String, BuiltinError> {
         super::read_line_from(&mut std::io::stdin().lock()).map_err(BuiltinError::from)
     }
-}
 
-pub fn builtin_test_io_install_stdout_sink(_ctx: &VmContext, _: &[Value]) -> Result<()> {
-    push_stdout_sink();
-    Ok(())
-}
+    #[builtin(name = "__test_io_install_stdout_sink")]
+    pub fn test_io_install_stdout_sink() { super::push_stdout_sink() }
 
-pub fn builtin_test_io_take_stdout_buffer(_ctx: &VmContext, _: &[Value]) -> Result<Value> {
-    let bytes = take_stdout_sink();
-    Ok(Value::Str(String::from_utf8_lossy(&bytes).into_owned().into()))
+    #[builtin(name = "__test_io_take_stdout_buffer")]
+    pub fn test_io_take_stdout_buffer() -> String {
+        String::from_utf8_lossy(&super::take_stdout_sink()).into_owned()
+    }
+
+    #[builtin(name = "__test_io_install_stderr_sink")]
+    pub fn test_io_install_stderr_sink() { super::push_stderr_sink() }
+
+    #[builtin(name = "__test_io_take_stderr_buffer")]
+    pub fn test_io_take_stderr_buffer() -> String {
+        String::from_utf8_lossy(&super::take_stderr_sink()).into_owned()
+    }
 }
 
 /// bench-stats-in-process-capture : Rust-side push of a
-/// stdout-capture sink. Mirror of `builtin_test_io_install_stdout_sink`
-/// for callers (test-runner) that don't have a z42 VmContext to invoke
-/// the builtin through.
+/// stdout-capture sink — the same thing the `__test_io_install_stdout_sink`
+/// builtin does, for callers (test-runner) that don't have a z42 VmContext
+/// to invoke the builtin through.
 ///
 /// While installed, any subsequent `println` / `print` from z42 code on
 /// this thread routes into the buffer instead of process stdout. Stack
@@ -246,48 +250,14 @@ pub fn take_stdout_sink() -> Vec<u8> {
     STDOUT_SINKS.with(|s| s.borrow_mut().pop().unwrap_or_default())
 }
 
-pub fn builtin_test_io_install_stderr_sink(_ctx: &VmContext, _: &[Value]) -> Result<()> {
+/// The stderr counterpart of [`push_stdout_sink`].
+pub fn push_stderr_sink() {
     STDERR_SINKS.with(|s| s.borrow_mut().push(Vec::new()));
-    Ok(())
 }
 
-pub fn builtin_test_io_take_stderr_buffer(_ctx: &VmContext, _: &[Value]) -> Result<Value> {
-    let bytes = STDERR_SINKS.with(|s| s.borrow_mut().pop().unwrap_or_default());
-    Ok(Value::Str(String::from_utf8_lossy(&bytes).into_owned().into()))
-}
-
-pub fn builtin_concat(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let a = args.first().map(value_to_str).unwrap_or_default();
-    let b = args.get(1).map(value_to_str).unwrap_or_default();
-    Ok(Value::Str(format!("{}{}", a, b).into()))
-}
-
-pub fn builtin_len(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    match args.first() {
-        Some(Value::Array(rc)) => Ok(Value::I64(rc.borrow().len() as i64)),
-        Some(Value::Str(s))    => Ok(Value::I64(s.len() as i64)),
-        Some(other)            => bail!("__len: expected array or string, got {:?}", other),
-        None                   => bail!("__len: missing argument"),
-    }
-}
-
-pub fn builtin_contains(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    match args.first() {
-        Some(Value::Str(s)) => {
-            let needle = super::convert::arg_str(args, 1, "__contains")?;
-            Ok(Value::Bool(s.contains(needle)))
-        }
-        Some(Value::Array(arr)) => {
-            // split-null-sentinel-channels ⑥：此前缺参时会去**搜索 Null**。而
-            // 「在数组里找 null」本身是合法操作（`list.Contains(null)`）—— 正因如此
-            // 「少传参数」与「显式传 null」必须靠 arity 校验才分得开。
-            // 字符串那一支早就经 `arg_str(args, 1, ..)` 校验了，这一支漏了。
-            crate::corelib::expect_args("Contains", args, 2)?;
-            let item = args[1].clone();
-            Ok(Value::Bool(arr.borrow().iter_boxed().any(|v| v == item)))
-        }
-        _ => bail!("Contains: first argument must be a string or List"),
-    }
+/// The stderr counterpart of [`take_stdout_sink`].
+pub fn take_stderr_sink() -> Vec<u8> {
+    STDERR_SINKS.with(|s| s.borrow_mut().pop().unwrap_or_default())
 }
 
 #[cfg(test)]

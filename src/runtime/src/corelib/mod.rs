@@ -4,12 +4,12 @@
 /// engines call [`invoke_builtin`] (interp `Instruction::Builtin`, JIT `jit_builtin`, and
 /// the `[Native]` wrapper short-circuit of both — `interp::forward`), reading the
 /// arguments in place from the caller's registers; callers that hold the arguments as a
-/// slice use [`exec_builtin`]. New builtins are typed Rust functions (builtin ABI v2,
-/// [`abi`]); the old `fn(&VmContext, &[Value])` entries migrate area by area.
+/// slice use [`exec_builtin`]. A builtin is a typed Rust function (builtin ABI v2,
+/// [`abi`]) — arguments and errors are typed by its Rust signature.
 ///
 /// Submodules are organised by functional category (≈ CoreCLR `classlibnative/`):
 ///   `convert`     — value_to_str, parse / try_parse / to_string, boxing
-///   `io`          — println, print, readline, concat, len, contains
+///   `io`          — println, print, readline, TestIO sinks
 ///   `string`      — str_length/char_at/substring/split/join/format …
 ///   `math`        — abs/max/min/pow/sqrt/trig …
 ///   `fs`          — file_* / path_* / env_* / process_exit / time_now_ms
@@ -39,7 +39,6 @@ pub mod diagnostics;
 pub mod appprops;
 pub mod array;
 mod builtin_table;
-mod builtin_table_ext;
 pub mod config;
 pub mod char;
 pub mod gc;
@@ -64,75 +63,13 @@ use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-/// Function pointer type for all native builtins.
-///
-/// Carries `&VmContext` so builtins can access the GC heap (e.g. allocate
-/// `Std.Type` objects via `ctx.heap().alloc_object(...)`) and other runtime
-/// state. ** extend-native-fn-signature** added `&VmContext` —
-/// previously `fn(&[Value]) -> Result<Value>`, which forced corelib allocation
-/// callsites to bypass the heap interface.
+/// Function pointer type of an **ext** builtin（dlopen / bundled 的 native 扩展 ABI，
+/// `native::ext`）——不是 builtin 表的形态，表里只有 ABI v2 的类型化描述符
+/// （`abi::BuiltinDesc`）。
 pub type NativeFn = fn(&VmContext, &[Value]) -> Result<Value>;
-
-/// **无返回值** builtin（change `split-null-sentinel-channels` ④）。
-///
-/// 🔴 **为什么要另立一个类型**：此前 void builtin 也声明成 `NativeFn`、用
-/// `Ok(Value::Null)` 表示「没有返回值」—— 于是 `Value::Null` 同时承载「用户的 null」
-/// 与「void」两义，而消费侧无从分辨。改成 `Result<()>` 后，**声明为 void 的 builtin
-/// 在类型上就无法产出值**，不是靠约定。
-///
-/// ⚠️ 与之配套：`exec_builtin*` 返回 `Result<Option<Value>>`，`None` = void ⇒
-/// 调用方**被 `Option` 强制**处理 void 那一格（`frame.set(dst, ..)` 只在 `Some` 时发生）。
-pub type NativeVoidFn = fn(&VmContext, &[Value]) -> Result<()>;
-
-/// 表项里的 builtin 实现 —— 按「有没有返回值」分两味。
-///
-/// 用枚举而不是拆两张表：`BuiltinId` 就是表下标，拆表会让 44 个 void 条目之后的
-/// 下标全部平移。枚举保持下标逐一不动，同时拿到类型强制。
-#[derive(Clone, Copy)]
-pub enum Native {
-    /// 有返回值。
-    Val(NativeFn),
-    /// 无返回值 —— 类型上无法产出 `Value`。
-    Void(NativeVoidFn),
-    /// Builtin ABI v2（runtime-audit P1-8）：`#[builtin]` 类型化 builtin，实参由生成的包装器
-    /// 直接从调用方寄存器读（[`abi`]）。旧两味逐区迁过来后删除。
-    Typed(&'static abi::BuiltinDesc),
-}
-
-impl Native {
-    /// 统一调用口（实参为切片的调用方）：`None` = 该 builtin 无返回值。
-    #[inline]
-    pub fn call(&self, ctx: &VmContext, args: &[Value]) -> Result<Option<Value>> {
-        match self {
-            Native::Val(f) => f(ctx, args).map(Some),
-            Native::Void(f) => f(ctx, args).map(|()| None),
-            Native::Typed(d) => (d.call_slice)(ctx, args).map_err(|e| (*e).into_anyhow(ctx)),
-        }
-    }
-
-    /// 是否为无返回值型 —— `native_decl_tests` 用它与 stdlib 的 `[Native]` 声明对账。
-    #[inline]
-    pub fn is_void(&self) -> bool {
-        match self {
-            Native::Void(_) => true,
-            Native::Val(_) => false,
-            Native::Typed(d) => d.ret == abi::RetKind::Void,
-        }
-    }
-}
 
 // BUILTINS 表见 `builtin_table.rs`（纯数据，编译期拼接；下标即 BuiltinId，不跨进程持久化）。
 pub(crate) use builtin_table::BUILTINS;
-
-// runtime-dynamic-load-call stubs (DEFERRED): registered so zpkgs that declare
-// [Native("__load_zpkg")] / [Native("__call_static")] load cleanly; calls fail
-// at runtime until the reflection MVP is complete.
-fn builtin_load_zpkg_stub(_ctx: &VmContext, _args: &[Value]) -> Result<()> {
-    anyhow::bail!("__load_zpkg: not yet implemented (runtime-dynamic-load-call DEFERRED)")
-}
-fn builtin_call_static_stub(_ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    anyhow::bail!("__call_static: not yet implemented (runtime-dynamic-load-call DEFERRED)")
-}
 
 /// Lazy-built `name → BuiltinId` index for `exec_builtin(name, args)` and the
 /// resolver's `builtin_id_of` lookup. Built once on first access from
@@ -142,7 +79,7 @@ static BUILTIN_INDEX: OnceLock<HashMap<&'static str, u32>> = OnceLock::new();
 fn builtin_index() -> &'static HashMap<&'static str, u32> {
     BUILTIN_INDEX.get_or_init(|| {
         BUILTINS.iter().enumerate()
-            .map(|(i, (name, _))| (*name, i as u32))
+            .map(|(i, d)| (d.name, i as u32))
             .collect()
     })
 }
@@ -174,16 +111,18 @@ pub fn ext_builtin_id_of(ctx: &VmContext, name: &str) -> Option<BuiltinId> {
     })
 }
 
-/// Name-keyed entry for callers that hold the arguments as a slice (reflection, tests,
-/// `exec_builtin_value`). Static `BUILTINS[]` first; ext (dlopened) second. A miss in
-/// both throws `Std.MissingSymbolException` (as an undefined function does).
+/// Name-keyed entry for callers that hold the arguments as a slice — unit tests,
+/// embedders, and the interpreter's `ToString` dispatch fallback
+/// (`exec_builtin_value`); the engines use [`invoke_builtin`]. Static `BUILTINS[]`
+/// first; ext (dlopened) second. A miss in both throws `Std.MissingSymbolException`
+/// (as an undefined function does).
 pub fn exec_builtin(ctx: &VmContext, name: &str, args: &[Value]) -> Result<Option<Value>> {
     // add-runtime-counters : name-keyed slow path also increments
-    // for consistency with exec_builtin_by_id (callers may hit either).
+    // for consistency with invoke_builtin_id (callers may hit either).
     ctx.counters().builtin_calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
     if let Some(&id) = builtin_index().get(name) {
-        return BUILTINS[id as usize].1.call(ctx, args);
+        return (BUILTINS[id as usize].call_slice)(ctx, args).map_err(|e| (*e).into_anyhow(ctx));
     }
     #[cfg(feature = "native-interop")]
     if let Some(id) = ext_builtin_id_of(ctx, name) {
@@ -207,8 +146,8 @@ fn unknown_builtin(name: &str) -> abi::BuiltinError {
 
 /// The engines' builtin call (interp `Builtin`, JIT `jit_builtin`): the arguments are
 /// read straight from the caller's register file — `this` first when the receiver is
-/// not in a register (vcall), then `regs[args[i]]`. A typed builtin reads them in place;
-/// an old-table builtin gets them copied into a stack buffer. `Ok(None)` = void.
+/// not in a register (vcall), then `regs[args[i]]`; a typed builtin reads them in place.
+/// `Ok(None)` = void.
 ///
 /// `id` = the site's resolved `BuiltinId`, or `UNRESOLVED` to resolve `name` now
 /// (which re-checks the ext registry; a miss throws `MissingSymbolException`).
@@ -235,14 +174,11 @@ pub(crate) fn invoke_builtin_id(
     }
     let idx = id as usize;
     debug_assert!(idx < BUILTINS.len(), "BuiltinId {id} out of range");
-    match BUILTINS[idx].1 {
-        Native::Typed(d) => (d.call_regs)(ctx, this, regs, args),
-        Native::Val(f) => legacy(with_reg_args(this, regs, args, |a| f(ctx, a)).map(Some)),
-        Native::Void(f) => legacy(with_reg_args(this, regs, args, |a| f(ctx, a)).map(|()| None)),
-    }
+    (BUILTINS[idx].call_regs)(ctx, this, regs, args)
 }
 
-/// An old-table result into the call's result (the error path boxes, cold).
+/// An ext (dlopen'd / bundled) builtin's `anyhow` result into the call's result
+/// (the error path boxes, cold).
 #[inline(always)]
 fn legacy(r: Result<Option<Value>>) -> abi::CallResult {
     match r {
@@ -285,14 +221,14 @@ fn invoke_by_name(
     Err(Box::new(unknown_builtin(name)))
 }
 
-/// Old-table builtins take `&[Value]`: copy the arguments out into a stack buffer
+/// Ext builtins take `&[Value]`: copy the arguments out into a stack buffer
 /// (≤ 6, the common case — a heap `Vec` beyond) and run `f` on it.
 ///
 /// Copies straight from the registers (`regs[r]`, a register index is in range by
 /// construction) into a buffer that never moves: going through `Option<Value>` made the
 /// compiler rebuild each value from its tag byte plus an overlapping payload copy, and
 /// a `SmallVec` was moved again before the call — the builtin's reload of its arguments
-/// then missed store forwarding (+25% per folded old-table call in a string hashing loop).
+/// then missed store forwarding (+25% per folded ext call in a string hashing loop).
 #[inline(always)]
 fn with_reg_args<R>(this: Option<Value>, regs: &[Value], args: &[u32], f: impl FnOnce(&[Value]) -> R) -> R {
     const INLINE: usize = 6;
@@ -316,59 +252,14 @@ fn with_reg_args<R>(this: Option<Value>, regs: &[Value], args: &[u32], f: impl F
 
 /// Whether a folded call of builtin `id`'s `[Native]` wrapper may skip the wrapper's
 /// frame entirely (`interp::forward`): the builtin never runs z42 code — a typed one
-/// without `reenters`, an old-table one not on `LEGACY_REENTERS`. Decided once per
-/// wrapper, when its forward is computed.
+/// without `reenters`. Decided once per wrapper, when its forward is computed.
 pub(crate) fn folds_frameless(id: u32) -> bool {
-    match BUILTINS.get(id as usize) {
-        Some((_, Native::Typed(d))) => !d.flags.reenters,
-        Some((name, _)) => !builtin_table::LEGACY_REENTERS.contains(name),
-        None => false,
-    }
+    BUILTINS.get(id as usize).is_some_and(|d| !d.flags.reenters)
 }
 
 /// The name of builtin `id` (for an internal error's report).
 pub(crate) fn builtin_name(id: u32, fallback: &str) -> &str {
-    BUILTINS.get(id as usize).map_or(fallback, |e| e.0)
-}
-
-/// objops 的 [`OpError`](crate::objops::OpError) → 旧表 builtin 的错误通道。用户可 `catch` 的异常走
-/// [`OpError::into_builtin_error`](crate::objops::OpError::into_builtin_error)，由两个引擎共用的出口
-/// [`abi::error::raise`] 以**原异常类**构造；已建好的异常值（`Thrown`）经 `pending_thrown` 以原值抛出
-/// （`raise` 先取它）；内部错误原样返回（旧表 builtin 照常包成 `Std.Exception`）。类型化 builtin 用
-/// `From<OpError> for BuiltinError`。
-pub(crate) fn raise_op(ctx: &VmContext, e: crate::objops::OpError) -> anyhow::Error {
-    match e {
-        crate::objops::OpError::Thrown(v) => {
-            ctx.set_pending_thrown(v);
-            anyhow::anyhow!("exception")
-        }
-        other => other.into_builtin_error(),
-    }
-}
-
-/// 校验 builtin 收到的实参个数 —— **split-null-sentinel-channels ⑥**。
-///
-/// 🔴 **为什么需要它**：此前这些 builtin 用 `args.get(N).cloned().unwrap_or(Value::Null)`
-/// 取参 ⇒ **「少传了参数」与「显式传了 null」完全无法区分**。arity 错配只可能来自
-/// stdlib 的 `[Native]` 声明与 Rust 实现不一致（编译器会校验 extern 调用点），
-/// 而那种维护错误此前被**静默吸收成 Null**，表现为 builtin 深处一个莫名的 Null。
-///
-/// 校验之后调用方可以**直接下标取参**（`args[N]`），`unwrap_or(Value::Null)` 随之消失。
-///
-/// ⚠️ **为什么不做成一道「表 ↔ stdlib」的 arity 对账门**（先前的设想）：实测不可行 ——
-/// Rust 侧从不声明 arity，而 307 个 builtin 里**只有 80 个**的函数体真的字面索引 `args`
-/// （其余用 helper / 解构 / 切片）⇒ 从源码提取会**假红**，而本仓的教训是假红比没门更坏。
-/// 局部校验零假红风险，且仓里本就有先例（`__array_clone` 一直这么做）。
-#[inline]
-pub(crate) fn expect_args(who: &str, args: &[Value], want: usize) -> Result<()> {
-    if args.len() != want {
-        anyhow::bail!(
-            "{who}: expected {want} argument(s), got {} — the stdlib `[Native]` declaration \
-             and this builtin disagree on arity",
-            args.len()
-        );
-    }
-    Ok(())
+    BUILTINS.get(id as usize).map_or(fallback, |d| d.name)
 }
 
 /// 给**明确期待有返回值**的调用方（`__obj_to_str` 这类）：撞上 void builtin 就报错，

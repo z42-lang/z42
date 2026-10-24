@@ -26,7 +26,7 @@ pub(crate) fn kind(k: i64) -> BuiltinError {
     }
 }
 
-use crate::corelib::{builtin_id_of, invoke_builtin, Native, BUILTINS};
+use crate::corelib::{builtin_id_of, invoke_builtin, BUILTINS};
 use crate::metadata::tokens::TypeId;
 use crate::metadata::types::{FieldSlot, TypeDesc};
 use crate::metadata::{Module, Value};
@@ -47,23 +47,40 @@ fn call_regs(ctx: &VmContext, name: &str, this: Option<Value>, regs: &[Value], i
 #[test]
 fn typed_builtins_are_in_the_table_once() {
     let mut seen = std::collections::HashSet::new();
-    for (name, _) in BUILTINS { assert!(seen.insert(*name), "builtin `{name}` registered twice"); }
-    match BUILTINS[id("__test_abi_args") as usize].1 {
-        Native::Typed(d) => {
-            assert_eq!(d.params, &[ParamKind::Str, ParamKind::I64, ParamKind::F64, ParamKind::Bool,
-                ParamKind::Char, ParamKind::OptStr]);
-            assert_eq!(d.ret, RetKind::Str);
-            assert!(!d.flags.blocking);
-        }
-        _ => panic!("typed builtin expected"),
+    for d in BUILTINS { assert!(seen.insert(d.name), "builtin `{}` registered twice", d.name); }
+    let d = &BUILTINS[id("__test_abi_args") as usize];
+    assert_eq!(d.params, &[ParamKind::Str, ParamKind::I64, ParamKind::F64, ParamKind::Bool,
+        ParamKind::Char, ParamKind::OptStr]);
+    assert_eq!(d.ret, RetKind::Str);
+    assert!(!d.flags.blocking);
+    assert!(BUILTINS[id("__test_abi_sleep") as usize].flags.blocking);
+    let d = &BUILTINS[id("__int32_parse") as usize];
+    assert!(d.flags.pure && d.ret == RetKind::I64);
+    // An array parameter is taken by handle (`ArrRef`): `ParamKind::Array`.
+    assert_eq!(BUILTINS[id("__array_clone") as usize].params, &[ParamKind::Array]);
+}
+
+/// `ArrRef` parameters: null → `ArgumentNullException` (`NullReferenceException` as the
+/// receiver), any other kind → `InvalidCastException`; an array comes through by handle.
+#[test]
+fn array_arguments_are_taken_by_handle() {
+    let ctx = VmContext::new();
+    let arr = ctx.heap().alloc_array(vec![Value::I64(1), Value::I64(2)]);
+    let regs = [arr, Value::I64(0), Value::Null, s("x")];
+    // `__array_copy(src, 0, dst, 0, 2)` with src = dst: a legal (no-op) overlapping copy.
+    assert_eq!(call_regs(&ctx, "__array_copy", None, &regs, &[0, 1, 0, 1, 1]).unwrap(), None);
+    match call_regs(&ctx, "__array_copy", None, &regs, &[2, 1, 0, 1, 1]) {
+        Err(BuiltinError::ArgumentNull(m)) => assert_eq!(m, "Value cannot be null. (Parameter 'src')"),
+        other => panic!("{other:?}"),
     }
-    match BUILTINS[id("__test_abi_sleep") as usize].1 {
-        Native::Typed(d) => assert!(d.flags.blocking),
-        _ => panic!("typed builtin expected"),
+    match call_regs(&ctx, "__array_copy", None, &regs, &[3, 1, 0, 1, 1]) {
+        Err(BuiltinError::InvalidCast(m)) => assert!(m.contains("expects an array"), "{m}"),
+        other => panic!("{other:?}"),
     }
-    match BUILTINS[id("__int32_parse") as usize].1 {
-        Native::Typed(d) => assert!(d.flags.pure && d.ret == RetKind::I64),
-        _ => panic!("`__int32_parse` is migrated"),
+    // As a receiver (`this = "Clone"`), null is a null-reference, not a null argument.
+    match call_regs(&ctx, "__array_clone", Some(Value::Null), &[], &[]) {
+        Err(BuiltinError::NullReference(m)) => assert!(m.contains("Clone"), "{m}"),
+        other => panic!("{other:?}"),
     }
 }
 

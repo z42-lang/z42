@@ -115,7 +115,8 @@ fn spawn_via_builtin_then_join_runs_action_on_worker_thread() {
 
     // P1-2 PR 8: a `FuncRef` holds its target's `FnId` — the entry module's index 0.
     let action = Value::FuncRef(z42::metadata::tokens::FnId(0));
-    let spawn_result = corelib::threading::builtin_thread_spawn(&ctx, &[action])
+    // Drive the builtin through the table, as the stdlib's `[Native]` wrapper does.
+    let spawn_result = corelib::exec_builtin_value(&ctx, "__thread_spawn", &[action])
         .expect("__thread_spawn should succeed for a valid FuncRef");
     let slot_id = match spawn_result {
         Value::I64(n) => n,

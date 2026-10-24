@@ -191,7 +191,10 @@ pub(super) fn run_one_golden_isolated(path: &str, entry: Option<&str>, libs: Opt
 
 /// 模块装载迁 builtin ABI v2(P1-8 批次 6):`load_module` 的包初始化器与
 /// `load_bytecode_in_memory` 装入的初始化器都会执行 z42 代码,`run_goldens_isolated`
-/// 在隔离子 VM 里跑整套 golden——全部标 `reenters`。
+/// 在隔离子 VM 里跑整套 golden——全部标 `reenters`。批次 12b 顺带把两个 DEFERRED 桩
+/// (`Std.Runtime.Runtime` 的 `__load_zpkg` / `__call_static`,runtime-dynamic-load-call)
+/// 收进来:仍是桩,但失败是类型化的 `NotImplementedException`(实参收 `&Value`,
+/// 保证无论传什么先报「未实现」而不是先卡在参数校验上)。
 #[z42_macros::builtins]
 pub mod typed {
     use super::*;
@@ -212,5 +215,26 @@ pub mod typed {
         libs_dir: &crate::metadata::vstr::Str, jobs: i64,
     ) -> Result<Value, BuiltinError> {
         reentry(ctx, run_goldens_isolated(ctx, paths, entries, libs_dir, jobs))
+    }
+
+    fn not_implemented(who: &str) -> BuiltinError {
+        BuiltinError::Exception {
+            class: "Std.NotImplementedException",
+            message: format!("{who}: not yet implemented (runtime-dynamic-load-call DEFERRED)"),
+        }
+    }
+
+    /// `Std.Runtime.Runtime.LoadZpkg(string)` — DEFERRED 桩:按逻辑名动态加载 zpkg
+    /// 的 VM 入口尚未实现(workload 派发由宿主侧 ZpkgResolver 走,见 load-context.md)。
+    #[builtin(name = "__load_zpkg")]
+    pub fn load_zpkg(_name: &Value) -> Result<(), BuiltinError> {
+        Err(not_implemented("__load_zpkg"))
+    }
+
+    /// `Std.Runtime.Runtime.CallStatic(string, string[])` — DEFERRED 桩:按全限定名
+    /// 驱动 `(string[]) -> int` 入口点的 VM 侧派发尚未实现。
+    #[builtin(name = "__call_static")]
+    pub fn call_static(_fqn: &Value, _args: &Value) -> Result<i64, BuiltinError> {
+        Err(not_implemented("__call_static"))
     }
 }

@@ -18,20 +18,27 @@ fn no_module_ctx() -> std::pin::Pin<Box<VmContext>> {
     VmContext::new()
 }
 
+fn spawn(c: &VmContext, args: &[Value]) -> crate::corelib::abi::BuiltinError {
+    // Drive through the table so the tests also cover the typed registration.
+    let e = crate::corelib::exec_builtin(c, "__thread_spawn", args).unwrap_err();
+    e.downcast::<crate::corelib::abi::BuiltinError>().expect("a typed builtin error")
+}
+
 #[test]
 fn thread_spawn_missing_arg_errors() {
     let ctx = no_module_ctx();
-    let err = builtin_thread_spawn(&ctx, &[]).unwrap_err();
-    assert!(err.to_string().contains("missing action"),
-        "unexpected error: {err}");
+    let err = spawn(&ctx, &[]);
+    // The arity check lives in the macro-generated wrapper.
+    assert!(matches!(err, crate::corelib::abi::BuiltinError::Internal(ref m) if m.contains("argument")),
+        "unexpected error: {err:?}");
 }
 
 #[test]
 fn thread_spawn_non_callable_arg_errors() {
     let ctx = no_module_ctx();
-    let err = builtin_thread_spawn(&ctx, &[Value::I64(7)]).unwrap_err();
-    assert!(err.to_string().contains("expected callable"),
-        "unexpected error: {err}");
+    let err = spawn(&ctx, &[Value::I64(7)]);
+    assert!(matches!(err, crate::corelib::abi::BuiltinError::Argument(ref m) if m.contains("expected callable")),
+        "unexpected error: {err:?}");
 }
 
 #[test]
@@ -40,9 +47,9 @@ fn thread_spawn_without_module_errors() {
     // refuse rather than panic later from the worker.
     let ctx = no_module_ctx();
     let action = Value::FuncRef(crate::metadata::tokens::FnId(0));
-    let err = builtin_thread_spawn(&ctx, &[action]).unwrap_err();
-    assert!(err.to_string().contains("no shared Module"),
-        "unexpected error: {err}");
+    let err = spawn(&ctx, &[action]);
+    assert!(matches!(err, crate::corelib::abi::BuiltinError::Internal(ref m) if m.contains("no shared Module")),
+        "unexpected error: {err:?}");
 }
 
 fn typed_err(e: anyhow::Error) -> crate::corelib::abi::BuiltinError {

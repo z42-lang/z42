@@ -55,6 +55,8 @@ pub enum ParamKind {
     OptBytes,
     /// `Vec<String>` — a non-null `string[]` of non-null strings, copied out.
     StrArray,
+    /// `ArrRef` — a non-null array of any element type, by handle (not copied).
+    Array,
     /// Any value (`&Value` / `Value`).
     Any,
 }

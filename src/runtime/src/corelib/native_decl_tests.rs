@@ -11,10 +11,14 @@
 //!   the compiler / used by the VM internally / host-only). Adding a builtin without declaring
 //!   it and without extending the allowlist fails here, which keeps the allowlist honest.
 //!
-//! * **（split-null-sentinel-channels ④）** 声明的返回类型是否 `void` 必须与
-//!   表项的 `Native::Val` / `Native::Void` 一致。没有这一条，下次加 builtin 时两边会悄悄漂开：
-//!   一个声明为 `void` 的 builtin 若登记成 `Native::Val`，它就又能产出 `Value` 了 ——
+//! * **（split-null-sentinel-channels ④）** 声明的返回类型是否 `void` 必须与表项的
+//!   `RetKind::Void` 一致。没有这一条，下次加 builtin 时两边会悄悄漂开：一个声明为
+//!   `void` 的 builtin 若登出 `RetKind::Str`，它就又能产出 `Value` 了 ——
 //!   而「用 `Value::Null` 表示无返回值」正是本 change 要消掉的那个混用。
+//!
+//! P1-8 批次 12b 后表里只有类型化 builtin；删表项的判据照旧——「已发布种子里还有没有
+//! z42 源声明这个名字」（`strings -n 3 | grep <name>`，必须先 strings；直接 grep 二进制
+//! 会假缺席）。
 //!
 //! Only the positional `[Native("__x")]` form is checked: the `[Native(lib=..., entry=...)]`
 //! form binds to native extensions (`native/ext.rs`), not to `BUILTINS`.
@@ -55,11 +59,6 @@ const UNDECLARED_ALLOWLIST: &[(&str, &str)] = &[
     ("__repl_set_keywords",   "host-only: z42-repl cdylib"),
     ("__vfs_enable", "host-only: wasm playground VFS"),
     ("__vfs_mount",  "host-only: wasm playground VFS"),
-    // Legacy string primitives retained for `exec_builtin(name, …)` unit tests / embedders
-    // (`BUILTINS` is append-only for `BuiltinId` stability, so they are not removed).
-    ("__concat",   "legacy: kept for BuiltinId stability"),
-    ("__contains", "legacy: kept for BuiltinId stability"),
-    ("__len",      "legacy: kept for BuiltinId stability"),
     // 🪦 store-sync-values-in-heap 阶段 2 已落地：旧同步原语的 19 条豁免连同它们的
     // 表槽、`corelib/sync.rs`、三个 registry 一并删除 —— 所以这里**不再需要**对应条目。
     //
@@ -166,7 +165,7 @@ fn declared_natives_full() -> Vec<(String, bool, String)> {
 
 #[test]
 fn every_declared_native_has_a_builtin() {
-    let table: BTreeSet<&str> = BUILTINS.iter().map(|(n, _)| *n).collect();
+    let table: BTreeSet<&str> = BUILTINS.iter().map(|d| d.name).collect();
     let missing: Vec<String> = declared_natives().into_iter()
         .filter(|(name, _)| !table.contains(name.as_str()))
         .map(|(name, at)| format!("{name} (declared at {at})"))
@@ -182,7 +181,7 @@ fn every_builtin_is_declared_or_allowlisted() {
     let allow: BTreeSet<&str> = UNDECLARED_ALLOWLIST.iter().map(|(n, _)| *n).collect();
     // `__test_abi_*`: the builtin ABI's own test builtins (`corelib::abi::test_builtins`,
     // registered under `cfg(test)` only).
-    let undeclared: Vec<&str> = BUILTINS.iter().map(|(n, _)| *n)
+    let undeclared: Vec<&str> = BUILTINS.iter().map(|d| d.name)
         .filter(|n| !declared.contains(*n) && !allow.contains(n) && !n.starts_with("__test_abi_"))
         .collect();
     assert!(undeclared.is_empty(),
@@ -196,30 +195,30 @@ fn every_builtin_is_declared_or_allowlisted() {
         "UNDECLARED_ALLOWLIST entries are now declared in stdlib — drop them from the allowlist:\n  {}",
         stale.join("\n  "));
     // …and must only name real builtins.
-    let table: BTreeSet<&str> = BUILTINS.iter().map(|(n, _)| *n).collect();
+    let table: BTreeSet<&str> = BUILTINS.iter().map(|d| d.name).collect();
     let unknown: Vec<&str> = allow.iter().copied().filter(|n| !table.contains(n)).collect();
     assert!(unknown.is_empty(),
         "UNDECLARED_ALLOWLIST names are not BUILTINS at all:\n  {}", unknown.join("\n  "));
 }
 
-/// 🔴 stdlib 声明的 `void` ⟺ 表项是 `Native::Void`（split-north-null ④ 的闭环门）。
+/// 🔴 stdlib 声明的 `void` ⟺ 表项的 `RetKind` 是 `Void`（split-north-null ④ 的闭环门）。
 ///
-/// **为什么需要它**：`Native::Val` / `Native::Void` 是手写的第三份数据，与 stdlib 的
-/// 返回类型必须一致。漂开的后果不是崩，而是**悄悄退回旧行为** —— 一个 `void` builtin
-/// 登记成 `Val` 就又能产出 `Value` 了，而「用 `Value::Null` 表示无返回值」正是本 change
-/// 要消掉的混用。名字那两条方向的对账已在上面；这条管「味」。
+/// **为什么需要它**：builtin 的 Rust 签名决定 `RetKind`，与 stdlib 声明的返回类型
+/// 必须一致。漂开的后果不是崩，而是**悄悄退回旧行为** —— 一个 `void` builtin 登出
+/// 非 Void 的 `RetKind` 就又能产出 `Value` 了，而「用 `Value::Null` 表示无返回值」
+/// 正是本 change 要消掉的混用。名字那两条方向的对账已在上面；这条管「味」。
 #[test]
 fn declared_voidness_matches_the_builtin_table() {
     let table: std::collections::BTreeMap<&str, bool> =
-        BUILTINS.iter().map(|(n, f)| (*n, f.is_void())).collect();
+        BUILTINS.iter().map(|d| (d.name, d.ret == super::abi::RetKind::Void)).collect();
     let mut bad = Vec::new();
     for (name, decl_void, where_) in declared_natives_full() {
         let Some(&tbl_void) = table.get(name.as_str()) else { continue };  // 名字那条门管这格
         if decl_void != tbl_void {
             bad.push(format!(
-                "  {name}: stdlib 声明{}，而 BUILTINS 登记为 Native::{}  ({where_})",
+                "  {name}: stdlib 声明{}，而 BUILTINS 的 RetKind 是{}  ({where_})",
                 if decl_void { "返回 void" } else { "有返回值" },
-                if tbl_void { "Void" } else { "Val" },
+                if tbl_void { "Void" } else { "非 Void" },
             ));
         }
     }
@@ -227,9 +226,9 @@ fn declared_voidness_matches_the_builtin_table() {
     bad.dedup();
     assert!(
         bad.is_empty(),
-        "stdlib 的 [Native] 返回类型与 BUILTINS 的 Val/Void 登记不一致：\n{}\n\
-         修法：声明 void 的登记成 `Native::Void(f)` 且 `f` 返回 `Result<()>`；\n\
-         有返回值的登记成 `Native::Val(f)` 且 `f` 返回 `Result<Value>`。\n\
+        "stdlib 的 [Native] 返回类型与 BUILTINS 的 RetKind 登记不一致：\n{}\n\
+         修法：让 Rust 签名与声明一致——声明 void 的返回 `()`（`RetKind::Void`），\n\
+         有返回值的返回具体值类型。\n\
          （change split-null-sentinel-channels ④：void 不再用 `Value::Null` 表示）",
         bad.join("\n")
     );
