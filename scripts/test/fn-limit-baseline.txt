@@ -14,7 +14,6 @@ src/compiler/z42.package/src/ZpkgWire.z42	ReadEntry	63
 src/compiler/z42.project/src/WorkspacePlan.z42	DiscoverMembers	73
 src/compiler/z42.scripting/src/Script.z42	Eval	81
 src/compiler/z42c.analyzers/src/AnalyzerDriver.z42	_walkStmt	64
-src/compiler/z42c.driver/src/BuildRun.z42	_build	386
 src/compiler/z42c.driver/src/ExeDeps.z42	_bundleExeDeps	111
 src/compiler/z42c.driver/src/IncrementalDriver.z42	Prepare	85
 src/compiler/z42c.driver/src/IncrementalDriver.z42	_applyResidue	69
