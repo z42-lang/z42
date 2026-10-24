@@ -4,51 +4,98 @@ namespace Std.Net.Sockets;
 ///
 /// 读 `SocketException.SocketErrorCode`。
 public enum SocketError {
+    /// 未明分类的 socket 错误。
     SocketError = -1,
+    /// 操作成功。
     Success = 0,
+    /// 重叠操作被取消（WSAEcancelled 995）。
     OperationAborted = 995,
+    /// 重叠操作尚未完成（WSA_IO_PENDING 997）。
     IOPending = 997,
+    /// 阻塞调用被中断（WSAEINTR 10004）。
     Interrupted = 10004,
+    /// 权限不足（WSAEACCES 10013）。
     AccessDenied = 10013,
+    /// 地址指针无效（WSAEFAULT 10014）。
     Fault = 10014,
+    /// 参数无效（WSAEINVAL 10022）。
     InvalidArgument = 10022,
+    /// 打开的 socket / 句柄过多（WSAEMFILE 10024）。
     TooManyOpenSockets = 10024,
+    /// 非阻塞操作未就绪（WSAEWOULDBLOCK 10035）。
     WouldBlock = 10035,
+    /// 非阻塞操作进行中（WSAEINPROGRESS 10036）。
     InProgress = 10036,
+    /// 操作已在进行（WSAEALREADY 10037）。
     AlreadyInProgress = 10037,
+    /// 句柄不是 socket（WSAENOTSOCK 10038）。
     NotSocket = 10038,
+    /// 缺少目标地址（WSAEDESTADDRREQ 10039）。
     DestinationAddressRequired = 10039,
+    /// 报文过长（WSAEMSGSIZE 10040）。
     MessageSize = 10040,
+    /// 协议类型错误（WSAEPROTOTYPE 10041）。
     ProtocolType = 10041,
+    /// 协议选项错误（WSAENOPROTOOPT 10042）。
     ProtocolOption = 10042,
+    /// 协议不支持（WSAEPROTONOSUPPORT 10043）。
     ProtocolNotSupported = 10043,
+    /// 地址族不支持该 socket 类型（WSAESOCKTNOSUPPORT 10044）。
     SocketNotSupported = 10044,
+    /// 操作不支持（WSAEOPNOTSUPP 10045）。
     OperationNotSupported = 10045,
+    /// 协议族不支持（WSAEAFNOSUPPORT 家族侧 10046）。
     ProtocolFamilyNotSupported = 10046,
+    /// 地址族不支持（WSAEAFNOSUPPORT 10047）。
     AddressFamilyNotSupported = 10047,
+    /// 地址已被占用（WSAEADDRINUSE 10048）。
     AddressAlreadyInUse = 10048,
+    /// 地址不可用（WSAEADDRNOTAVAIL 10049）。
     AddressNotAvailable = 10049,
+    /// 网络已断（WSAENETDOWN 10050）。
     NetworkDown = 10050,
+    /// 网络不可达（WSAENETUNREACH 10051）。
     NetworkUnreachable = 10051,
+    /// 网络重置导致连接断开（WSAENETRESET 10052）。
     NetworkReset = 10052,
+    /// 连接被本机软件中止（WSAECONNABORTED 10053）。
     ConnectionAborted = 10053,
+    /// 被对端重置（WSAECONNRESET 10054）。
     ConnectionReset = 10054,
+    /// 缓冲区耗尽（WSAENOBUFS 10055）。
     NoBufferSpaceAvailable = 10055,
+    /// socket 已连接（WSAEISCONN 10056）。
     IsConnected = 10056,
+    /// socket 未连接（WSAENOTCONN 10057）。
     NotConnected = 10057,
+    /// socket 已关闭，不能再收发（WSAESHUTDOWN 10058）。
     Shutdown = 10058,
+    /// 连接尝试超时（WSAETIMEDOUT 10060）。
     TimedOut = 10060,
+    /// 被对端拒绝（WSAECONNREFUSED 10061）。
     ConnectionRefused = 10061,
+    /// 主机已下线（WSAEHOSTDOWN 10064）。
     HostDown = 10064,
+    /// 主机不可达（WSAEHOSTUNREACH 10065）。
     HostUnreachable = 10065,
+    /// 进程数达到上限（WSAEPROCLIM 10067）。
     ProcessLimit = 10067,
+    /// 网络子系统未就绪（WSASYSNOTREADY 10091）。
     SystemNotReady = 10091,
+    /// Winsock 版本不支持（WSAVERNOTSUPPORTED 10092）。
     VersionNotSupported = 10092,
+    /// Winsock 未初始化（WSANOTINITIALISED 10093）。
     NotInitialized = 10093,
+    /// 正在断开（WSAEDISCON 10101）。
     Disconnecting = 10101,
+    /// 服务类型未找到（WSA_SERVICE_NOT_FOUND 10109）。
     TypeNotFound = 10109,
+    /// 主机名解析失败（WSAHOST_NOT_FOUND 11001）。
     HostNotFound = 11001,
+    /// 解析暂时失败，可重试（WSATRY_AGAIN 11002）。
     TryAgain = 11002,
+    /// 不可恢复的解析错误（WSANO_RECOVERY 11003）。
     NoRecovery = 11003,
+    /// 名字合法但无请求类型的数据（WSANO_DATA 11004）。
     NoData = 11004,
 }

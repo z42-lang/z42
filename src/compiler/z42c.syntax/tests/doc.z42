@@ -44,6 +44,23 @@ void test_doc_attaches_to_each_declaration_kind() {
 }
 
 [Test]
+void test_param_docs_attach_to_record_fields_and_primary_ctor() {
+    // param-docs：类型位置参数前置 /// 挂到展开后的字段；主构造器（合成成员）认领类型自己的 doc；
+    // 方法形参不认领——保持「方法参数文档用 @param」的单一口径（/// 会留作孤立块，由 W0801 报出）。
+    string src = "namespace App;\n"
+        + "/// 点。\n"
+        + "[Record] public struct P(\n"
+        + "    /// 横坐标。\n"
+        + "    int X,\n"
+        + "    /// 纵坐标。\n"
+        + "    int Y);\n";
+    Assert.Equal("struct P = 点。\n"
+        + "  field X = 横坐标。\n"
+        + "  field Y = 纵坐标。\n"
+        + "  ctor P = 点。\n", DumpTool.DumpDoc(src));
+}
+
+[Test]
 void test_doc_lines_join_and_strip_prefix() {
     // 去掉 `///` 与其后一个空格；空 `///` 行保留为空行（段落分隔）；多出的空格原样保留。
     string src = "/// 摘要。\n///\n///   缩进的正文\n///无空格\nclass C { }\n";

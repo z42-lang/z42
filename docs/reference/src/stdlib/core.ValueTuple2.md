@@ -21,18 +21,21 @@ public struct ValueTuple2<T1,T2> {
 <a id="Std.ValueTuple2<T1,T2>.Item1"></a>
 ### T1 Item1
 
-[`src/libraries/z42.core/src/ValueTuple.z42:16`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ValueTuple.z42#L16)
+[`src/libraries/z42.core/src/ValueTuple.z42:18`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ValueTuple.z42#L18)
 
+第 1 个元素。
 
 <a id="Std.ValueTuple2<T1,T2>.Item2"></a>
 ### T2 Item2
 
-[`src/libraries/z42.core/src/ValueTuple.z42:16`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ValueTuple.z42#L16)
+[`src/libraries/z42.core/src/ValueTuple.z42:20`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ValueTuple.z42#L20)
 
+第 2 个元素。
 
 <a id="Std.ValueTuple2<T1,T2>.ctor(T1,T2)"></a>
 ### ValueTuple2(T1 Item1, T2 Item2)
 
 [`src/libraries/z42.core/src/ValueTuple.z42:16`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ValueTuple.z42#L16)
 
+二元值元组（`(a, b)` 的运行时载体）。
 

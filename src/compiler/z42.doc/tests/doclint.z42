@@ -99,6 +99,7 @@ void test_w0805_public_missing_doc() {
         + "class D { }\n",
         "A.z42");
     Assert.Equal(1, _count(fs, "W0805"));
+    // 枚举成员隐式 public，同查 W0805（param-docs 起不再豁免）；写了 doc 则过。
     DocLintFinding[] en = DocLint.CheckSource(
         "namespace App;\n"
         + "/// 种类。\n"
@@ -106,7 +107,25 @@ void test_w0805_public_missing_doc() {
         + "    A,\n"
         + "    B\n"
         + "}\n", "A.z42");
-    Assert.True(!_has(en, "W0805"));
+    Assert.Equal(2, _count(en, "W0805"));
+    DocLintFinding[] en2 = DocLint.CheckSource(
+        "namespace App;\n"
+        + "/// 种类。\n"
+        + "public enum E {\n"
+        + "    /// 甲。\n"
+        + "    A,\n"
+        + "    /// 乙。\n"
+        + "    B\n"
+        + "}\n", "A.z42");
+    Assert.True(!_has(en2, "W0805"));
+    // 接口成员隐式 public，同查 W0805。
+    DocLintFinding[] ifc = DocLint.CheckSource(
+        "namespace App;\n"
+        + "/// 形状。\n"
+        + "public interface IShape {\n"
+        + "    double Area();\n"
+        + "}\n", "A.z42");
+    Assert.Equal(1, _count(ifc, "W0805"));
 }
 
 [Test]

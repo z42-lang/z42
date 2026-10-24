@@ -15,7 +15,9 @@ public sealed class Param {
     public Expr     Default;   // GS1：可选参数默认值（`int x = 5`）；无默认值 = null。镜像 C# Param.Default。
     public Attr[]   Attrs;     // add-parameter-attribute-reflection：参数前置 attribute（默认空）
     public int      AttrCount;
-    public Param(TypeExpr type, string name, Span span) { this.Span = span; this.Type = type; this.Name = name; this.IsRef = false; this.IsParams = false; this.Default = null; this.Attrs = new Attr[0]; this.AttrCount = 0; }
+    public DocBlock Doc;       // param-docs：类型位置参数前置 `///`（record 字段的挂靠点）。方法形参不认领，
+                               // 保持「方法参数文档用 @param」的单一口径。默认 null → 现有调用面不变。
+    public Param(TypeExpr type, string name, Span span) { this.Span = span; this.Type = type; this.Name = name; this.IsRef = false; this.IsParams = false; this.Default = null; this.Attrs = new Attr[0]; this.AttrCount = 0; this.Doc = null; }
     // Dump 不含 Default（镜像 C# AstDumper.VisitParam：仅 `Param {mod}{name} {span}`，不输出默认值）→ 无默认值参数 Dump 不变。
     public string Dump() { return this.Type.Dump() + " " + this.Name; }
 }

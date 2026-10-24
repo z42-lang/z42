@@ -115,7 +115,7 @@ public sealed class DeclParser {
         return false;
     }
 
-    public Decl _parseTypeDecl(string mods, string kind, AttrList attrs) {   // add-nested-types：MemberParser 嵌套类型也调用
+    public Decl _parseTypeDecl(string mods, string kind, AttrList attrs, int docTok = -1) {   // add-nested-types：MemberParser 嵌套类型也调用；param-docs：docTok 供主构造器认领类型 doc
         Span sp = this._p._peek().Span;
         this._p._advance();   // class / struct / interface
         string name = this._p._peek().Text;
@@ -131,7 +131,7 @@ public sealed class DeclParser {
         Param[] primaryParams = new Param[0];
         int primaryPc = 0;
         if (kind != "interface" && this._p._peek().Kind == TokenKind.LParen) {
-            ParamList ppl = this._p._memberP._parseParamList();
+            ParamList ppl = this._p._memberP._parseParamList(true);
             primaryParams = ppl.Items; primaryPc = ppl.Count;
         }
         TypeExpr[] bases = new TypeExpr[0];
@@ -144,34 +144,14 @@ public sealed class DeclParser {
         Decl[] members = new Decl[16];
         int mc = 0;
         bool isIface = (kind == "interface");
-        // 位置参数就地展开：字段（[Record]=public / 否则=private）+ 主构造器（this.X=X），置于块成员之前。
+        // 位置参数就地展开：字段 + 主构造器，见 _expandPrimaryParams（fnlines 抽离）。
         if (primaryPc > 0) {
-            bool hasRecord = this._attrsHaveRecord(attrs);
-            string fvis = "private";
-            if (hasRecord) { fvis = "public"; }
-            int pi = 0;
-            while (pi < primaryPc) {
+            Decl[] pm = this._expandPrimaryParams(name, attrs, primaryParams, primaryPc, sp, docTok);
+            int pk = 0;
+            while (pk < pm.Length) {
                 members = this._growDecls(members, mc);
-                members[mc] = new FieldDecl(fvis, primaryParams[pi].Type, primaryParams[pi].Name, false, null, primaryParams[pi].Span);
-                mc = mc + 1; pi = pi + 1;
+                members[mc] = pm[pk]; mc = mc + 1; pk = pk + 1;
             }
-            Stmt[] cstmts = new Stmt[primaryPc];
-            int ci = 0;
-            while (ci < primaryPc) {
-                Expr tgt = new MemberExpr(new IdentExpr("this", primaryParams[ci].Span), primaryParams[ci].Name, primaryParams[ci].Span);
-                Expr val = new IdentExpr(primaryParams[ci].Name, primaryParams[ci].Span);
-                cstmts[ci] = new ExprStmt(new AssignExpr("=", tgt, val, primaryParams[ci].Span), primaryParams[ci].Span);
-                ci = ci + 1;
-            }
-            BlockStmt cbody = new BlockStmt(cstmts, primaryPc, sp);
-            members = this._growDecls(members, mc);
-            // enforce-ctor-visibility：主构造器是 public（对齐 C#）。普通构造器不写修饰符是 private，主构造器若沿用，
-            // 记录 / 元组（`(a, b)` 脱糖为 `[Record] struct ValueTuple2<…>(…)`）在类外都无法构造。
-            MethodDecl pctor = new MethodDecl("public", false, true, this._p._typeP._emptyType(), name,
-                                         this._p._typeP._emptyTypeParams(), new WhereClause[0], 0,
-                                         primaryParams, primaryPc, true, cbody, new Expr[0], 0, false, sp);
-            members[mc] = pctor;
-            mc = mc + 1;
         }
         // 带位置参数的短形式 `[Record] class Point(int X, int Y);`（分号、无块体）——
         // body 可选：有 `{` 则解析块成员，否则消一个 `;`。无位置参数仍要求 `{`。
@@ -285,6 +265,46 @@ public sealed class DeclParser {
         }
         this._p._expect(TokenKind.RBrace, "}");
         return new EnumDecl(mods, name, hasBase, baseType, members, mc, sp);
+    }
+
+
+    // param-docs / add-record-attribute：位置参数就地展开为字段（[Record]=public / 否则 private）+
+    // 主构造器（this.X=X，认领类型 doc）。自举硬约束：就地展开而非存 AST 字段（见调用处注释）。
+    private Decl[] _expandPrimaryParams(string name, AttrList attrs, Param[] primaryParams, int primaryPc, Span sp, int docTok) {
+        Decl[] members = new Decl[primaryPc + 1];
+        int mc = 0;
+        bool hasRecord = this._attrsHaveRecord(attrs);
+        string fvis = "private";
+        if (hasRecord) { fvis = "public"; }
+        int pi = 0;
+        while (pi < primaryPc) {
+            FieldDecl pf = new FieldDecl(fvis, primaryParams[pi].Type, primaryParams[pi].Name, false, null, primaryParams[pi].Span);
+            if (primaryParams[pi].Doc != null) { pf.Doc = primaryParams[pi].Doc; }
+            members[mc] = pf;
+            mc = mc + 1; pi = pi + 1;
+        }
+        Stmt[] cstmts = new Stmt[primaryPc];
+        int ci = 0;
+        while (ci < primaryPc) {
+            Expr tgt = new MemberExpr(new IdentExpr("this", primaryParams[ci].Span), primaryParams[ci].Name, primaryParams[ci].Span);
+            Expr val = new IdentExpr(primaryParams[ci].Name, primaryParams[ci].Span);
+            cstmts[ci] = new ExprStmt(new AssignExpr("=", tgt, val, primaryParams[ci].Span), primaryParams[ci].Span);
+            ci = ci + 1;
+        }
+        BlockStmt cbody = new BlockStmt(cstmts, primaryPc, sp);
+        // enforce-ctor-visibility：主构造器是 public（对齐 C#）。普通构造器不写修饰符是 private，主构造器若沿用，
+        // 记录 / 元组（`(a, b)` 脱糖为 `[Record] struct ValueTuple2<…>(…)`）在类外都无法构造。
+        MethodDecl pctor = new MethodDecl("public", false, true, this._p._typeP._emptyType(), name,
+                                     this._p._typeP._emptyTypeParams(), new WhereClause[0], 0,
+                                     primaryParams, primaryPc, true, cbody, new Expr[0], 0, false, sp);
+        // 主构造器是合成成员（隐式 public），认领类型自己的 doc 块——claim 幂等，外层 _attachDoc
+        // 随后再取同一块挂到 Inner，互不冲突。
+        if (docTok >= 0) { pctor.Doc = this._p._claimDoc(docTok, docTok); }
+        members[mc] = pctor;
+        mc = mc + 1;
+        Decl[] outDecls = new Decl[mc];
+        Array.Copy(members, outDecls, mc);
+        return outDecls;
     }
 
     internal Decl _parseDelegate(string mods) {

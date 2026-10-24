@@ -181,6 +181,13 @@ public sealed class Parser {
     // 之前的下标（无 attribute 时与 tok 相同）。先认 tok 处的块（约定写法：doc 在 attribute 之前），
     // 再认 afterAttrs 处的块。同一位置前若有多块（中间隔空行），只认最近的一块，其余留作孤立块。
     // 回溯重解析同一位置会再次认到同一块，幂等。
+    // param-docs：认领「当前位置之前最近一块」///（无块返回 null）。供参数级文档等游标处认领。
+    internal DocBlock _claimDocHere() {
+        if (this._lx.DocBlockCount() == 0) { return null; }
+        int t = this._mark();
+        return this._claimDoc(t, t);
+    }
+
     internal DocBlock _claimDoc(int tok, int afterAttrs) {
         DocBlock b = this._claimDocAt(tok);
         if (b == null && afterAttrs != tok) { b = this._claimDocAt(afterAttrs); }
@@ -670,7 +677,7 @@ public sealed class Parser {
                 string kind = "class";
                 if (dk == TokenKind.Struct) { kind = "struct"; }
                 else if (dk == TokenKind.Interface) { kind = "interface"; }
-                d = this._declP._parseTypeDecl(mods, kind, attrs);   // add-record-attribute：传 attrs 供位置参数就地判 [Record]
+                d = this._declP._parseTypeDecl(mods, kind, attrs, docTok);   // add-record-attribute：传 attrs 供位置参数就地判 [Record]；param-docs：docTok 透传
             } else if (dk == TokenKind.Impl) {
                 d = this._declP._parseImplDecl(mods);
             } else if (dk == TokenKind.Enum) {
