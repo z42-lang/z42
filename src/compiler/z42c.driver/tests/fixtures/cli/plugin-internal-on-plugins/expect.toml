@@ -1,0 +1,6 @@
+desc = "[plugins] 条目写 internal = true ⇒ 清单错误（挂靠插件先于宿主构建，引用宿主类型构成环——授权只在 [plugins.export] 条目上合法）"
+
+[[step]]
+args = ["build", "z42.z42.toml", "--release"]
+exit = "nonzero"
+stderr_contains = ["internal = true", "plugins.export"]

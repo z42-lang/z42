@@ -408,6 +408,17 @@ public static class BundleRunner {
 
 束结果的退出码：任一条 failed → 1，否则 0。
 
+## LintSupport
+
+[`src/libraries/z42.harness/src/LintSupport.z42:8`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/LintSupport.z42#L8)
+
+plugin-internal-access 的判别力成员（类 public、成员 internal——internal 可见性的既有机制形态，测试单元同款）。
+
+```z42
+public static class LintSupport {
+}
+```
+
 ## InvokeOutcome
 
 [`src/libraries/z42.harness/src/Runner.z42:35`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Runner.z42#L35)

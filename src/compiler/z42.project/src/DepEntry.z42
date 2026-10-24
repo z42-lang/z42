@@ -23,6 +23,11 @@ public sealed class DepEntry {
     /// ✅ 阶段 2 已落地（#848）：`_validateDeployDecls` 校验取值、`_bundleExeDeps` 按它决定复制。
     ///    （原注写「消费要等它随 nightly 进种子之后」，消费落地后没跟着改。）
     public string Deploy;
+    /// `internal`（plugin-internal-access）：**宿主侧授权**——`[plugins.export]` 的 path 条目声明后，
+    /// 该插件的代建编译以宿主为 ParentPkg（宿主 internal 对它可见，与测试单元同机制）。
+    /// 仅 export 条目合法（[plugins] 条目的插件跑在宿主自己的编译里，先于宿主构建，构成环）。
+    /// 构造后赋值：ctor 签名是种子 ABI，不动。
+    public bool   Internal;
     public DepEntry(string name, string version, string path) {
         this.Name = name;
         this.Version = version;

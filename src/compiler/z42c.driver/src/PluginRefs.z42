@@ -111,7 +111,7 @@ string _pluginFromProject(string aname, string apath, string projectDir, string 
         return "";
     }
     // 代建（插件是宿主进程要加载的东西，恒按本机构建；z42c 无目标 rid 概念，天然如此）。
-    int bc = _build(atoml, isRelease, "", "", new string[0], 0, noIncremental, cliAdd, cliRemove, false, null);
+    int bc = _build(atoml, isRelease, "", "", new string[0], 0, noIncremental, cliAdd, cliRemove, false, null, "");   // [plugins] 条目禁 internal（环），恒空
     if (bc != 0) {
         ConsoleError.WriteLine("z42c build: [plugins] `" + aname + "` 的工程构建失败（见上）。");
         return "";

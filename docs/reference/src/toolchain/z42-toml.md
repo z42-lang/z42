@@ -986,6 +986,7 @@ z42b 反射出全部继承 `: BuildHooks` 的具体类——包提供哪几类�
 [plugins.export]
 "foo.gen"  = { path = "../gen" }     # 工程路径：构建时读它的清单记「名 + 精确版本」进 zpkg PLGS 段
 "foo.lint" = "0.1.0"                 # 按名携带（发布件形态；须写版本）
+"foo.deep" = { path = "plugins/deep", internal = true }   # internal 授权（见下）
 ```
 
 - **携带 = 引用而非内联**：lib 产物不含插件代码，只记引用；插件 zpkg 分发在**插件目录**——
@@ -997,6 +998,10 @@ z42b 反射出全部继承 `: BuildHooks` 的具体类——包提供哪几类�
   z42.harness 经此把 lint 插件带给每个工程；插件目录没配齐时静默跳过，不判红）。
 - 携带件缺失 / 版本不符 → 构建失败、诊断**点名携带方**——携带是发布承诺，不静默降级。
 - 只对 lib 有意义：exe 无人依赖；插件工程不参与依赖图（携带链终止在 lib）。
+- **`internal = true`（plugin-internal-access，仅 path 条目）**：宿主授权该插件以**同包待遇**编译——
+  宿主的 internal 成员对插件源码可见（与测试单元看父包 internal 同一机制、同一个键位语义）。授权是
+  宿主侧声明（插件自己声明无效）；只在 export 条目上合法（`[plugins]` 条目的插件先于宿主构建，引用
+  宿主类型构成环）。可见性三级：**同包（自己）> 挂靠（internal 授权的插件、测试单元）> 依赖（public）**。
 
 ### `[lints]` —— 逐规则 severity 覆盖
 

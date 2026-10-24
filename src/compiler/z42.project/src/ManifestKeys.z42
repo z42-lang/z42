@@ -35,6 +35,8 @@ public static class ManifestKeys {
     public static string SourcesKeys()   { return "include/exclude"; }
     public static string BuildKeys()     { return "output_dir/cache_dir/dist_dir/incremental/hooks/generated_dir"; }
     public static string DepKeys()       { return "version/path/deploy"; }
+    // 插件条目（[plugins] 与 [plugins.export]）比依赖多 internal（plugin-internal-access 宿主授权）。
+    public static string PluginDepKeys() { return "version/path/deploy/internal"; }
     public static string ExeKeys()       { return "name/entry/include"; }
     public static string SectionKeys()   { return "include/exclude/auto/dependencies"; }
     public static string RunTargetKeys() { return "name/harness/entry/include/test/dependencies"; }
@@ -157,12 +159,12 @@ public static class ManifestKeys {
                     int j = 0;
                     while (j < en.Length) {
                         TomlValue ev = dv.Get(en[j]);
-                        if (ev.IsTable()) { a.Check(ev, "[plugins.export." + en[j] + "]", ManifestKeys.DepKeys()); }
+                        if (ev.IsTable()) { a.Check(ev, "[plugins.export." + en[j] + "]", ManifestKeys.PluginDepKeys()); }
                         j = j + 1;
                     }
                 }
             }
-            else if (dv.IsTable()) { a.Check(dv, "[plugins." + names[i] + "]", ManifestKeys.DepKeys()); }
+            else if (dv.IsTable()) { a.Check(dv, "[plugins." + names[i] + "]", ManifestKeys.PluginDepKeys()); }
             i = i + 1;
         }
     }

@@ -106,3 +106,24 @@ void test_false_and_entry_coexist() {
     Assert.Equal("b", m.Plugins[0].Name);
     Assert.Equal(1, m.PluginDisableCount);
 }
+
+// ── internal 授权（plugin-internal-access）──────────────────────────────────
+
+[Test]
+void test_plugins_export_internal_flag() {
+    // [plugins.export] 条目 internal = true → DepEntry.Internal；缺省 false。
+    string toml = "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[plugins.export]\n\"a.lint\" = { path = \"../a\", internal = true }\n\"b.gen\" = { path = \"../b\" }\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(2, m.PluginExportCount);
+    Assert.True(m.PluginExports[0].Internal);
+    Assert.False(m.PluginExports[1].Internal);
+}
+
+[Test]
+void test_plugins_entry_internal_parsed_forBan() {
+    // [plugins] 条目的 internal 也解析出来（供 ManifestKnobs 报「只支持 export 条目」）。
+    string toml = "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[plugins]\n\"a.lint\" = { path = \"../a\", internal = true }\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(1, m.PluginCount);
+    Assert.True(m.Plugins[0].Internal);
+}

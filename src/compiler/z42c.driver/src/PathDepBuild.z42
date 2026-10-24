@@ -74,7 +74,7 @@ PathClosureOut _buildPathDepClosure(string tomlPath, bool isRelease, bool noIncr
             int depOverrideN = accN;
             int bi = 0;
             while (bi < libsDirsN) { depOverride[depOverrideN] = libsDirs[bi]; depOverrideN = depOverrideN + 1; bi = bi + 1; }
-            int dbc = _build(depToml, isRelease, "", "", depOverride, depOverrideN, noIncremental, cliAdd, cliRemove, false, null);
+            int dbc = _build(depToml, isRelease, "", "", depOverride, depOverrideN, noIncremental, cliAdd, cliRemove, false, null, "");
             if (dbc != 0) { o.Rc = dbc; return o; }
             accum[accN] = depDist; accN = accN + 1;
             o.Names[o.NamesN] = depPm.Project.Name; o.NamesN = o.NamesN + 1;

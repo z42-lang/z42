@@ -75,7 +75,9 @@ public static class PluginCarry {
             return null;
         }
         string version = cpm.Project.Version;
-        if (isRelease && !PluginCarry._verifyDist(name, dir, cpm, version)) { return null; }
+        // internal 条目（宿主授权）跳过 release 前置验产物：它以宿主为 ParentPkg 编译，构造上必须
+        // 宿主先建——dist 在宿主构建前不存在。验证负担转移到插件自己的构建（internal 对不上自然编译失败）。
+        if (isRelease && !e.Internal && !PluginCarry._verifyDist(name, dir, cpm, version)) { return null; }
         return version;
     }
 

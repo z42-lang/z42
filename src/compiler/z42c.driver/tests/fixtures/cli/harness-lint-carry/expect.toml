@@ -5,7 +5,7 @@ desc = "z42.harness 携带的 lint 插件（z42.harness.lint）零配置自动�
 args = ["build", "z42.z42.toml", "--release"]
 env = { Z42_PLUGINS = "{plugins}" }
 exit = 0
-output_contains = ["H0002"]
+output_contains = ["H0002", "被顶掉——只保留你真正想要的那个注解"]   # 后段来自宿主 internal 成员（plugin-internal-access）
 
 # ② [lints] "H0002" = "none" ⇒ 不再报（携带 analyzer 与显式的同权受管）
 [[step]]

@@ -63,6 +63,7 @@ public static class ManifestKnobs {
         }
         // 1c 携带：[plugins.export] 只对 lib 有意义。plugin 工程写它 = 携带套携带（插件不在依赖图里，
         // 链会无限延伸）；exe 写它 = 无人依赖 exe，携带永不生效——都按清单错误报。
+        _rejectPluginInternal(pm, label, r);
         if (pm.PluginExportCount > 0 && kind != "lib") {
             r.AddError(label + ": [plugins.export] 只能写在 kind = \"lib\" 的工程里（当前 kind = \"" + kind
                 + "\"——插件工程不参与依赖图，携带链必须终止在 lib）");
@@ -118,5 +119,20 @@ public static class ManifestKnobs {
         // strip ≡ release（z42c 无独立 strip 旋钮）：release 主包剥 DBUG、旁挂 .zsym。
         r.Strip = isRelease;
         return r;
+    }
+
+    // plugin-internal-access：internal 授权只在 [plugins.export] 条目上合法。[plugins] 条目的插件跑在
+    // 宿主自己的编译里、必须先于宿主构建——它引用宿主 internal 类型构成环（宿主还没编出来）。
+    // public：driver 在插件解析之前先查（清单错误先于一切解析报）。
+    public static void _rejectPluginInternal(ProjectManifest pm, string label, KnobResult r) {
+        int pi = 0;
+        while (pi < pm.PluginCount) {
+            if (pm.Plugins[pi].Internal) {
+                r.AddError(label + ": [plugins] `" + pm.Plugins[pi].Name
+                    + "` 写了 internal = true——internal 授权只支持 [plugins.export] 条目（挂靠插件先于宿主"
+                    + "构建，引用宿主类型构成环；export 插件跑在消费方编译里，宿主先建，顺序成立）");
+            }
+            pi = pi + 1;
+        }
     }
 }

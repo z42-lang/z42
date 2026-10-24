@@ -438,14 +438,17 @@ public static class ManifestLoader {
                 string ver = "";
                 string pth = "";
                 string dep = "";
+                bool intl = false;
                 if (dv.IsTable()) {
                     dv.TryGetValue<string>("version", ref ver);
                     dv.TryGetValue<string>("path",    ref pth);
                     dv.TryGetValue<string>("deploy",  ref dep);
+                    dv.TryGetValue<bool>("internal", ref intl);   // plugin-internal-access（见 DepEntry.Internal）
                 }
                 else { ver = dv.AsString(); }
                 deps[n] = new DepEntry(keys[i], ver, pth);
                 deps[n].Deploy = dep;
+                deps[n].Internal = intl;
                 n = n + 1;
             }
             i = i + 1;
@@ -470,12 +473,15 @@ public static class ManifestLoader {
             var dv = d.Get(keys[i]);
             string ver = "";
             string pth = "";
+            bool intl = false;
             if (dv.IsTable()) {
                 dv.TryGetValue<string>("version", ref ver);
                 dv.TryGetValue<string>("path",    ref pth);
+                dv.TryGetValue<bool>("internal", ref intl);   // plugin-internal-access：宿主授权，代建编译传 ParentPkg
             }
             else { ver = dv.AsString(); }
             deps[i] = new DepEntry(keys[i], ver, pth);
+            deps[i].Internal = intl;
             i = i + 1;
         }
         return deps;
