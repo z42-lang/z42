@@ -53,7 +53,6 @@ src/compiler/z42c.semantics/src/Binding/OverloadBinder.z42	_resolveOverloadCands
 src/compiler/z42c.semantics/src/Binding/OverloadBinder.z42	_withDefaults	70
 src/compiler/z42c.semantics/src/Binding/StmtBinder.z42	_bindLambda	70
 src/compiler/z42c.semantics/src/Binding/TypeOpTyper.z42	_bindMethodOfExpr	101
-src/compiler/z42c.semantics/src/Exports/ClassExtractor.z42	_extractClass	288
 src/compiler/z42c.semantics/src/Exports/ExportedTypeExtractor.z42	_extractCore	80
 src/compiler/z42c.semantics/src/Validation/FlowAnalyzer.Reachability.z42	NeverCompletes	61
 src/compiler/z42c.symbols/src/Symbols/ImportedSymbolLoader.z42	Load#3	225

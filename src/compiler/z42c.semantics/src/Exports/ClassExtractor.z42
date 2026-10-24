@@ -52,6 +52,7 @@ public static class ClassExtractor {
 
     // ── 用户类：字段（继承实例 → 自有实例 → 自有 static）+ 方法（Object 四方法 → base 链合并实例 → 自有 static）──
     // pkgClassMap：全包 类 FQN→ClassDecl，用于跨文件 base 类方法继承（G18 部分修复）。
+    // 方法合并状态收进 MethodMerger（G18：override 同名替换、保留首次插入位）；本函数只剩编排。
     internal static ExportedClassZ _extractClass(ClassDecl c, SymbolTable symbols, StrMap classMap, StrMap pkgClassMap) {
         // Arity-mangle：泛型类以 Name$N 键注册时从 Name$N 取 CT。
         string ecCtKey = c.Name;
@@ -65,12 +66,7 @@ public static class ClassExtractor {
         string baseName = "Object";
         if (ct != null && ct.HasBase) { baseName = ct.BaseName; }   // 基表判别后的真基类（接口已剔除）
 
-        ExportedFieldZ[] fields = new ExportedFieldZ[4];
-        int fldc = 0;
-        // ── 实例字段：base 链展开（topmost 祖先在前 → 本类自有），镜像 C# SymbolCollector 第二趟
-        //    mergedFields = new Dict(base.Fields) ∪ own。z42c Fields 是 hashed StrMap 不可按序迭代，
-        //    故走 Z42ClassType.OwnField* 有序元数据 + base 链（imported/Object 祖先 OwnFieldCount=0 → 不贡献，
-        //    imported base 字段继承延后；syntax base 均本地）。G18。
+        // base 链展开（topmost 祖先在前 → 本类自有）——字段收集与方法合并共用。
         Z42ClassType[] chain = new Z42ClassType[8];
         int chainLen = 0;
         Z42ClassType walk = ct;
@@ -80,6 +76,52 @@ public static class ClassExtractor {
             chainLen = SymbolTable.NextBaseHop(chainLen);
             walk = symbols.BaseOf(walk);   // A5：唯一出口（「没基类」「名字空」「基类不可见」都归一成 null）
         }
+        ExtractedFields f = ClassExtractor._collectFields(c, ct, chain, chainLen);
+        // ── 实例方法：Object 四方法 + base 链 topmost→self 合并（override 保留祖先位、新方法追加）──
+        //    镜像 C# SymbolCollector 第二趟 mergedMethods = new Dict(base.Methods) ∪ own。Object 四方法是
+        //    C# Object stub 注入的根。合并循环体见 `_mergeOneAncestor` / `_synthAccessor`。
+        MethodMerger m = new MethodMerger();
+        // struct 的**导出方法表**不注入 Object 四方法（保 zbc TYPE 段元数据 / 自举字节不变——decision 3
+        // 选项 A）。注意：这不代表 struct「没有」Object 方法——fix-value-type-object-methods 起，值类型的
+        // GetType 由 CallEmitter 折叠成 typeof(静态类型)、ToString/Equals/GetHashCode 由 CallEmitter 装箱 +
+        // VCall 命中 runtime 装箱-struct 协议（见 CallEmitter._emitValueTypeGetType /
+        // _emitBoxedStructObjectCall）。此处仅决定「typeof(struct).GetMethods() 是否列出 Object 四方法」这一
+        // **反射枚举完备性**维度——列出属另一维度（改元数据/字节，收益边际），故不注入。旧注释误称「镜像 C#
+        // ExcludeFromImplicitObject」——C# struct 经 ValueType:Object 是**有**这些方法的，特此订正。
+        if (!isStruct) {
+            ExportedMethodZ[] o4 = ObjectMethods.Four();   // compiler-review §4.3：单源
+            m.Methods[0] = o4[0]; m.Methods[1] = o4[1]; m.Methods[2] = o4[2]; m.Methods[3] = o4[3];
+            m.SeenName[0] = "ToString"; m.SeenName[1] = "Equals"; m.SeenName[2] = "GetHashCode"; m.SeenName[3] = "GetType";
+            m.SeenAt[0] = 0; m.SeenAt[1] = 1; m.SeenAt[2] = 2; m.SeenAt[3] = 3;
+            m.Mc = 4; m.Seenc = 4;
+        }
+        int mci = chainLen - 1;        // topmost 祖先 → self（反向）
+        while (mci >= 0) {
+            ClassExtractor._mergeOneAncestor(m, symbols, classMap, pkgClassMap, chain, mci);
+            mci = mci - 1;
+        }
+        // ── static 方法与静态属性访问器：本类自有（C# StaticMethods 段不继承合并；`_appendStaticMembers`）──
+        ClassExtractor._appendStaticMembers(m, c, ct);
+
+        // 导出名用裸名（镜像 C# ExportedClassDef：ct.Name，非 IrName()）。
+        string ecExportName = c.Name;
+        ExportedClassZ ez = new ExportedClassZ(ecExportName, !isStruct, isStruct ? "" : baseName, f.Items, f.Count, m.Methods, m.Mc, c.TypeParams.Names, c.TypeParams.Count);
+        if (ct != null && ct.InterfaceCount > 0) {                  // 类接口表（port-z42c-interface）
+            ez.Interfaces = ct.InterfaceNames;
+            ez.InterfaceCount = ct.InterfaceCount;
+        }
+        return ez;
+    }
+
+    // ── 字段收集：继承实例字段（base 链 topmost → self）→ 自有 static 字段 ──────────────
+    private static ExtractedFields _collectFields(ClassDecl c, Z42ClassType ct, Z42ClassType[] chain, int chainLen) {
+        ExtractedFields o = new ExtractedFields();
+        o.Items = new ExportedFieldZ[4];
+        o.Count = 0;
+        // ── 实例字段：base 链展开（topmost 祖先在前 → 本类自有），镜像 C# SymbolCollector 第二趟
+        //    mergedFields = new Dict(base.Fields) ∪ own。z42c Fields 是 hashed StrMap 不可按序迭代，
+        //    故走 Z42ClassType.OwnField* 有序元数据 + base 链（imported/Object 祖先 OwnFieldCount=0 → 不贡献，
+        //    imported base 字段继承延后；syntax base 均本地）。G18。
         int ci = chainLen - 1;          // 反向：topmost 祖先先
         while (ci >= 0) {
             Z42ClassType anc = chain[ci];
@@ -87,13 +129,13 @@ public static class ClassExtractor {
             while (fi < anc.OwnFieldCount) {
                 // OwnFieldNames 包含：普通实例字段（原名）+ auto-property 后备字段（__prop_X）。
                 // 镜像 C# ct.Fields 全量导出（不过滤 __prop_X）。
-                if (fldc == fields.Length) {
-                    ExportedFieldZ[] b = new ExportedFieldZ[fields.Length * 2];
-                    int k = 0; while (k < fldc) { b[k] = fields[k]; k = k + 1; }
-                    fields = b;
+                if (o.Count == o.Items.Length) {
+                    ExportedFieldZ[] b = new ExportedFieldZ[o.Items.Length * 2];
+                    int k = 0; while (k < o.Count) { b[k] = o.Items[k]; k = k + 1; }
+                    o.Items = b;
                 }
-                fields[fldc] = new ExportedFieldZ(anc.OwnFieldNames[fi], anc.OwnFieldSpellings[fi], anc.OwnFieldVis[fi], false);
-                fldc = fldc + 1;
+                o.Items[o.Count] = new ExportedFieldZ(anc.OwnFieldNames[fi], anc.OwnFieldSpellings[fi], anc.OwnFieldVis[fi], false);
+                o.Count = o.Count + 1;
                 fi = fi + 1;
             }
             ci = ci - 1;
@@ -109,212 +151,124 @@ public static class ClassExtractor {
                     string tn = "unknown";
                     string vis = "internal";
                     if (fs != null) { tn = TypeNameResolver._resolvedTypeName(fs.FieldType); vis = fs.Visibility; }
-                    if (fldc == fields.Length) {
-                        ExportedFieldZ[] b = new ExportedFieldZ[fields.Length * 2];
-                        int k = 0; while (k < fldc) { b[k] = fields[k]; k = k + 1; }
-                        fields = b;
+                    if (o.Count == o.Items.Length) {
+                        ExportedFieldZ[] b = new ExportedFieldZ[o.Items.Length * 2];
+                        int k = 0; while (k < o.Count) { b[k] = o.Items[k]; k = k + 1; }
+                        o.Items = b;
                     }
-                    fields[fldc] = new ExportedFieldZ(fd.Name, tn, vis, true);
-                    fldc = fldc + 1;
+                    o.Items[o.Count] = new ExportedFieldZ(fd.Name, tn, vis, true);
+                    o.Count = o.Count + 1;
                 }
             }
             j = j + 1;
         }
+        return o;
+    }
 
-        // ── 实例方法：Object 四方法 + base 链 topmost→self 合并（override 保留祖先位、新方法追加）──
-        //    镜像 C# SymbolCollector 第二趟 mergedMethods = new Dict(base.Methods) ∪ own（override 同名替换、
-        //    保留首次插入位）。Object 四方法是 C# Object stub 注入的根。seenName/seenAt 平行表做名→位查找。G18。
-        ExportedMethodZ[] methods = new ExportedMethodZ[16];
-        string[] seenName = new string[16];
-        int[]    seenAt   = new int[16];
-        int mc = 0; int seenc = 0;
-        // struct 的**导出方法表**不注入 Object 四方法（保 zbc TYPE 段元数据 / 自举字节不变——decision 3
-        // 选项 A）。注意：这不代表 struct「没有」Object 方法——fix-value-type-object-methods 起，值类型的
-        // GetType 由 CallEmitter 折叠成 typeof(静态类型)、ToString/Equals/GetHashCode 由 CallEmitter 装箱 +
-        // VCall 命中 runtime 装箱-struct 协议（见 CallEmitter._emitValueTypeGetType /
-        // _emitBoxedStructObjectCall）。此处仅决定「typeof(struct).GetMethods() 是否列出 Object 四方法」这一
-        // **反射枚举完备性**维度——列出属另一维度（改元数据/字节，收益边际），故不注入。旧注释误称「镜像 C#
-        // ExcludeFromImplicitObject」——C# struct 经 ValueType:Object 是**有**这些方法的，特此订正。
-        if (!isStruct) {
-            ExportedMethodZ[] o4 = ObjectMethods.Four();   // compiler-review §4.3：单源
-            methods[0] = o4[0]; methods[1] = o4[1]; methods[2] = o4[2]; methods[3] = o4[3];
-            seenName[0] = "ToString"; seenName[1] = "Equals"; seenName[2] = "GetHashCode"; seenName[3] = "GetType";
-            seenAt[0] = 0; seenAt[1] = 1; seenAt[2] = 2; seenAt[3] = 3;
-            mc = 4; seenc = 4;
+    // ── 单个祖先的实例方法合并（base 链自 topmost → self 逐层调用）───────────────────
+    private static void _mergeOneAncestor(MethodMerger m, SymbolTable symbols, StrMap classMap, StrMap pkgClassMap, Z42ClassType[] chain, int mci) {
+        // per-CU classMap 先查；miss 时用全包 pkgClassMap 回退（G18 部分修复：跨文件 base 类方法继承）。
+        // 两表都按类 FQN 建键、只给本包祖先查：导入祖先与本包某类同短名时不会取到本包那份声明。
+        ClassDecl ancd = null;
+        if (symbols != null && !chain[mci].IsImported) {
+            string ank = chain[mci].Fqn();
+            ancd = classMap.Get(ank) as ClassDecl;
+            if (ancd == null && pkgClassMap != null) { ancd = pkgClassMap.Get(ank) as ClassDecl; }
         }
-        int mci = chainLen - 1;        // topmost 祖先 → self（反向）
-        while (mci >= 0) {
-            // per-CU classMap 先查；miss 时用全包 pkgClassMap 回退（G18 部分修复：跨文件 base 类方法继承）。
-            // 两表都按类 FQN 建键、只给本包祖先查：导入祖先与本包某类同短名时不会取到本包那份声明。
-            ClassDecl ancd = null;
-            if (symbols != null && !chain[mci].IsImported) {
-                string ank = chain[mci].Fqn();
-                ancd = classMap.Get(ank) as ClassDecl;
-                if (ancd == null && pkgClassMap != null) { ancd = pkgClassMap.Get(ank) as ClassDecl; }
+        if (ancd == null && chain[mci].OwnMethodCount > 0) {
+            // G18-import：imported 祖先（无 ClassDecl）→ 按 OwnMethod* 有序元数据贡献实例方法，
+            // 镜像本地 ClassDecl 路径的 seenName dedup/override 语义（skip Object4 已注册键）。
+            int omi = 0;
+            while (omi < chain[mci].OwnMethodCount) {
+                string omkey = chain[mci].OwnMethodNames[omi];
+                MethodSymbol oms = chain[mci].Methods.Get(omkey) as MethodSymbol;
+                if (oms != null) {
+                    ExportedMethodZ omem = ClassExtractor._fromImportedMethod(omkey, oms, chain[mci].OwnMethodIsVirtual[omi], chain[mci].OwnMethodIsAbstract[omi]);
+                    m.Put(omkey, omem);
+                }
+                omi = omi + 1;
             }
-            if (ancd == null && chain[mci].OwnMethodCount > 0) {
-                // G18-import：imported 祖先（无 ClassDecl）→ 按 OwnMethod* 有序元数据贡献实例方法，
-                // 镜像本地 ClassDecl 路径的 seenName dedup/override 语义（skip Object4 已注册键）。
-                int omi = 0;
-                while (omi < chain[mci].OwnMethodCount) {
-                    string omkey = chain[mci].OwnMethodNames[omi];
-                    MethodSymbol oms = chain[mci].Methods.Get(omkey) as MethodSymbol;
-                    if (oms != null) {
-                        ExportedMethodZ omem = ClassExtractor._fromImportedMethod(omkey, oms, chain[mci].OwnMethodIsVirtual[omi], chain[mci].OwnMethodIsAbstract[omi]);
-                        int omat = ClassExtractor._indexOf(seenName, seenc, omkey);
-                        if (omat >= 0) { methods[seenAt[omat]] = omem; }
-                        else {
-                            if (mc == methods.Length) {
-                                ExportedMethodZ[] b = new ExportedMethodZ[methods.Length * 2];
-                                int k = 0; while (k < mc) { b[k] = methods[k]; k = k + 1; }
-                                methods = b;
-                            }
-                            if (seenc == seenName.Length) {
-                                string[] sn = new string[seenName.Length * 2]; int[] sa = new int[seenAt.Length * 2];
-                                int k = 0; while (k < seenc) { sn[k] = seenName[k]; sa[k] = seenAt[k]; k = k + 1; }
-                                seenName = sn; seenAt = sa;
-                            }
-                            methods[mc] = omem; seenName[seenc] = omkey; seenAt[seenc] = mc;
-                            seenc = seenc + 1; mc = mc + 1;
+        }
+        if (ancd != null) {
+            int aj = 0;
+            while (aj < ancd.MemberCount) {
+                Decl amem = ExportedTypeExtractor._unwrap(ancd.Members[aj]);
+                if (amem is MethodDecl) {
+                    MethodDecl amd = amem as MethodDecl;
+                    if (!Mod.Has(amd.ModFlags, Mod.Static)) {     // 实例方法（含 ctor，G11）
+                        // unify-regkey-source-of-truth：键解析收敛到 OverloadResolver.MethodKeyOf。
+                        // 此处曾是 #414 漏同步的那份抄本（拿错 symbol → _fromSymbol 里 ParamTypes[i] 越界崩）。
+                        string amkey = OverloadResolver.MethodKeyOf(amd);
+                        MethodSymbol ams = chain[mci].Methods.Get(amkey) as MethodSymbol;
+                        if (ams != null) {
+                            m.Put(amkey, ClassExtractor._fromSymbol(amd, ams, false, amkey));
                         }
                     }
-                    omi = omi + 1;
+                } else if (amem is PropertyDecl) {
+                    // auto-property getter → TSIG method "get_PropName"（镜像 C# ExportedTypeExtractor）
+                    ClassExtractor._synthAccessor(m, chain[mci], amem);
+                } else if (amem is IndexerDecl) {
+                    // indexer get_Item / set_Item → TSIG methods（镜像 C# ct.Methods 含 IndexerDecl lowering）
+                    ClassExtractor._synthAccessor(m, chain[mci], amem);
                 }
+                aj = aj + 1;
             }
-            if (ancd != null) {
-                int aj = 0;
-                while (aj < ancd.MemberCount) {
-                    Decl amem = ExportedTypeExtractor._unwrap(ancd.Members[aj]);
-                    if (amem is MethodDecl) {
-                        MethodDecl amd = amem as MethodDecl;
-                        if (!Mod.Has(amd.ModFlags, Mod.Static)) {     // 实例方法（含 ctor，G11）
-                            // unify-regkey-source-of-truth：键解析收敛到 OverloadResolver.MethodKeyOf。
-                            // 此处曾是 #414 漏同步的那份抄本（拿错 symbol → _fromSymbol 里 ParamTypes[i] 越界崩）。
-                            string amkey = OverloadResolver.MethodKeyOf(amd);
-                            MethodSymbol ams = chain[mci].Methods.Get(amkey) as MethodSymbol;
-                            if (ams != null) {
-                                ExportedMethodZ em = ClassExtractor._fromSymbol(amd, ams, false, amkey);
-                                int at = ClassExtractor._indexOf(seenName, seenc, amkey);
-                                if (at >= 0) { methods[seenAt[at]] = em; }            // override：替换祖先位
-                                else {
-                                    if (mc == methods.Length) {
-                                        ExportedMethodZ[] b = new ExportedMethodZ[methods.Length * 2];
-                                        int k = 0; while (k < mc) { b[k] = methods[k]; k = k + 1; }
-                                        methods = b;
-                                    }
-                                    if (seenc == seenName.Length) {
-                                        string[] sn = new string[seenName.Length * 2]; int[] sa = new int[seenAt.Length * 2];
-                                        int k = 0; while (k < seenc) { sn[k] = seenName[k]; sa[k] = seenAt[k]; k = k + 1; }
-                                        seenName = sn; seenAt = sa;
-                                    }
-                                    methods[mc] = em; seenName[seenc] = amkey; seenAt[seenc] = mc;
-                                    seenc = seenc + 1; mc = mc + 1;
-                                }
-                            }
-                        }
-                    } else if (amem is PropertyDecl) {
-                        // auto-property getter → TSIG method "get_PropName"（镜像 C# ExportedTypeExtractor）
-                        PropertyDecl apd = amem as PropertyDecl;
-                        if (!Mod.Has(apd.ModFlags, Mod.Static) && apd.HasGet) {
-                            string gkey = "get_" + apd.Name;
-                            if (chain[mci].Methods.ContainsKey(gkey)) {
-                                MethodSymbol gms = chain[mci].Methods.Get(gkey) as MethodSymbol;
-                                string gret = TypeNameResolver.TsigTypeName(apd.Type);
-                                bool gVirt = Mod.Has(apd.ModFlags, Mod.Virtual);
-                                bool gAbs = Mod.Has(apd.ModFlags, Mod.Abstract);
-                                ExportedMethodZ gem = new ExportedMethodZ(gkey, gret, gms.Visibility, false, gVirt, gAbs, 0, new ExportedParamZ[0], 0);
-                                int gat = ClassExtractor._indexOf(seenName, seenc, gkey);
-                                if (gat >= 0) { methods[seenAt[gat]] = gem; }
-                                else {
-                                    if (mc == methods.Length) {
-                                        ExportedMethodZ[] b = new ExportedMethodZ[methods.Length * 2];
-                                        int k = 0; while (k < mc) { b[k] = methods[k]; k = k + 1; }
-                                        methods = b;
-                                    }
-                                    if (seenc == seenName.Length) {
-                                        string[] sn = new string[seenName.Length * 2]; int[] sa = new int[seenAt.Length * 2];
-                                        int k = 0; while (k < seenc) { sn[k] = seenName[k]; sa[k] = seenAt[k]; k = k + 1; }
-                                        seenName = sn; seenAt = sa;
-                                    }
-                                    methods[mc] = gem; seenName[seenc] = gkey; seenAt[seenc] = mc;
-                                    seenc = seenc + 1; mc = mc + 1;
-                                }
-                            }
-                        }
-                    } else if (amem is IndexerDecl) {
-                        // indexer get_Item / set_Item → TSIG methods（镜像 C# ct.Methods 含 IndexerDecl lowering）
-                        IndexerDecl id = amem as IndexerDecl;
-                        if (!Mod.Has(id.ModFlags, Mod.Static)) {
-                            if (id.HasGet) {
-                                string gkey = "get_Item";
-                                if (chain[mci].Methods.ContainsKey(gkey)) {
-                                    MethodSymbol gms = chain[mci].Methods.Get(gkey) as MethodSymbol;
-                                    string gret = TypeNameResolver.TsigTypeName(id.RetType);
-                                    bool gVirt = Mod.Has(id.ModFlags, Mod.Virtual);
-                                    bool gAbs = Mod.Has(id.ModFlags, Mod.Abstract);
-                                    int gpc = id.ParamCount;
-                                    ExportedParamZ[] gps = new ExportedParamZ[gpc];
-                                    int qi = 0;
-                                    while (qi < gpc) { gps[qi] = new ExportedParamZ("p" + qi.ToString(), TypeNameResolver.TsigTypeName(id.Params[qi].Type)); qi = qi + 1; }
-                                    ExportedMethodZ gem = new ExportedMethodZ(gkey, gret, gms.Visibility, false, gVirt, gAbs, gpc, gps, gpc);
-                                    int gat = ClassExtractor._indexOf(seenName, seenc, gkey);
-                                    if (gat >= 0) { methods[seenAt[gat]] = gem; }
-                                    else {
-                                        if (mc == methods.Length) {
-                                            ExportedMethodZ[] b = new ExportedMethodZ[methods.Length * 2];
-                                            int k = 0; while (k < mc) { b[k] = methods[k]; k = k + 1; }
-                                            methods = b;
-                                        }
-                                        if (seenc == seenName.Length) {
-                                            string[] sn = new string[seenName.Length * 2]; int[] sa = new int[seenAt.Length * 2];
-                                            int k = 0; while (k < seenc) { sn[k] = seenName[k]; sa[k] = seenAt[k]; k = k + 1; }
-                                            seenName = sn; seenAt = sa;
-                                        }
-                                        methods[mc] = gem; seenName[seenc] = gkey; seenAt[seenc] = mc;
-                                        seenc = seenc + 1; mc = mc + 1;
-                                    }
-                                }
-                            }
-                            if (id.HasSet) {
-                                string skey = "set_Item";
-                                if (chain[mci].Methods.ContainsKey(skey)) {
-                                    MethodSymbol sms = chain[mci].Methods.Get(skey) as MethodSymbol;
-                                    bool sVirt = Mod.Has(id.ModFlags, Mod.Virtual);
-                                    bool sAbs = Mod.Has(id.ModFlags, Mod.Abstract);
-                                    int spc = id.ParamCount + 1;
-                                    ExportedParamZ[] sps = new ExportedParamZ[spc];
-                                    int qi = 0;
-                                    while (qi < id.ParamCount) { sps[qi] = new ExportedParamZ("p" + qi.ToString(), TypeNameResolver.TsigTypeName(id.Params[qi].Type)); qi = qi + 1; }
-                                    sps[id.ParamCount] = new ExportedParamZ("p" + id.ParamCount.ToString(), TypeNameResolver.TsigTypeName(id.RetType));
-                                    ExportedMethodZ sem = new ExportedMethodZ(skey, "void", sms.Visibility, false, sVirt, sAbs, spc, sps, spc);
-                                    int sat = ClassExtractor._indexOf(seenName, seenc, skey);
-                                    if (sat >= 0) { methods[seenAt[sat]] = sem; }
-                                    else {
-                                        if (mc == methods.Length) {
-                                            ExportedMethodZ[] b = new ExportedMethodZ[methods.Length * 2];
-                                            int k = 0; while (k < mc) { b[k] = methods[k]; k = k + 1; }
-                                            methods = b;
-                                        }
-                                        if (seenc == seenName.Length) {
-                                            string[] sn = new string[seenName.Length * 2]; int[] sa = new int[seenAt.Length * 2];
-                                            int k = 0; while (k < seenc) { sn[k] = seenName[k]; sa[k] = seenAt[k]; k = k + 1; }
-                                            seenName = sn; seenAt = sa;
-                                        }
-                                        methods[mc] = sem; seenName[seenc] = skey; seenAt[seenc] = mc;
-                                        seenc = seenc + 1; mc = mc + 1;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    aj = aj + 1;
-                }
-            }
-            mci = mci - 1;
         }
-        // ── static 方法：本类自有（C# StaticMethods 段不继承合并）──
-        // GS3：静态重载方法以 Name$arity 键存，先试 Name$arity，再 bare（unique 方法）。
-        // seenStatic 去重：同名不同 arity 的两个 MethodDecl 可能 map 到同一 smkey（bare 或 $N 共享）→ 只取首次。
+    }
+
+    // ── 合成访问器 → TSIG 方法（auto-property getter / indexer get_Item / set_Item）──
+    private static void _synthAccessor(MethodMerger m, Z42ClassType anc, Decl mem) {
+        if (mem is PropertyDecl) {
+            PropertyDecl apd = mem as PropertyDecl;
+            if (!Mod.Has(apd.ModFlags, Mod.Static) && apd.HasGet) {
+                string gkey = "get_" + apd.Name;
+                if (anc.Methods.ContainsKey(gkey)) {
+                    MethodSymbol gms = anc.Methods.Get(gkey) as MethodSymbol;
+                    string gret = TypeNameResolver.TsigTypeName(apd.Type);
+                    bool gVirt = Mod.Has(apd.ModFlags, Mod.Virtual);
+                    bool gAbs = Mod.Has(apd.ModFlags, Mod.Abstract);
+                    m.Put(gkey, new ExportedMethodZ(gkey, gret, gms.Visibility, false, gVirt, gAbs, 0, new ExportedParamZ[0], 0));
+                }
+            }
+        } else {
+            IndexerDecl id = mem as IndexerDecl;
+            if (!Mod.Has(id.ModFlags, Mod.Static)) {
+                if (id.HasGet) {
+                    string gkey = "get_Item";
+                    if (anc.Methods.ContainsKey(gkey)) {
+                        MethodSymbol gms = anc.Methods.Get(gkey) as MethodSymbol;
+                        string gret = TypeNameResolver.TsigTypeName(id.RetType);
+                        bool gVirt = Mod.Has(id.ModFlags, Mod.Virtual);
+                        bool gAbs = Mod.Has(id.ModFlags, Mod.Abstract);
+                        int gpc = id.ParamCount;
+                        ExportedParamZ[] gps = new ExportedParamZ[gpc];
+                        int qi = 0;
+                        while (qi < gpc) { gps[qi] = new ExportedParamZ("p" + qi.ToString(), TypeNameResolver.TsigTypeName(id.Params[qi].Type)); qi = qi + 1; }
+                        m.Put(gkey, new ExportedMethodZ(gkey, gret, gms.Visibility, false, gVirt, gAbs, gpc, gps, gpc));
+                    }
+                }
+                if (id.HasSet) {
+                    string skey = "set_Item";
+                    if (anc.Methods.ContainsKey(skey)) {
+                        MethodSymbol sms = anc.Methods.Get(skey) as MethodSymbol;
+                        bool sVirt = Mod.Has(id.ModFlags, Mod.Virtual);
+                        bool sAbs = Mod.Has(id.ModFlags, Mod.Abstract);
+                        int spc = id.ParamCount + 1;
+                        ExportedParamZ[] sps = new ExportedParamZ[spc];
+                        int qi = 0;
+                        while (qi < id.ParamCount) { sps[qi] = new ExportedParamZ("p" + qi.ToString(), TypeNameResolver.TsigTypeName(id.Params[qi].Type)); qi = qi + 1; }
+                        sps[id.ParamCount] = new ExportedParamZ("p" + id.ParamCount.ToString(), TypeNameResolver.TsigTypeName(id.RetType));
+                        m.Put(skey, new ExportedMethodZ(skey, "void", sms.Visibility, false, sVirt, sAbs, spc, sps, spc));
+                    }
+                }
+            }
+        }
+    }
+
+    // ── static 方法与静态属性访问器：本类自有（C# StaticMethods 段不继承合并）──────────
+    // GS3：静态重载方法以 Name$arity 键存，先试 Name$arity，再 bare（unique 方法）。
+    // seenStatic 去重：同名不同 arity 的两个 MethodDecl 可能 map 到同一 smkey（bare 或 $N 共享）→ 只取首次。
+    private static void _appendStaticMembers(MethodMerger m, ClassDecl c, Z42ClassType ct) {
         string[] seenStatic = new string[16]; int seenStaticCount = 0;
         int sj = 0;
         while (sj < c.MemberCount) {
@@ -331,13 +285,7 @@ public static class ClassExtractor {
                             seenStatic = ssn;
                         }
                         seenStatic[seenStaticCount] = smkey; seenStaticCount = seenStaticCount + 1;
-                        if (mc == methods.Length) {
-                            ExportedMethodZ[] b = new ExportedMethodZ[methods.Length * 2];
-                            int k = 0; while (k < mc) { b[k] = methods[k]; k = k + 1; }
-                            methods = b;
-                        }
-                        methods[mc] = ClassExtractor._fromSymbol(smd, sms, true, smkey);
-                        mc = mc + 1;
+                        m.Append(ClassExtractor._fromSymbol(smd, sms, true, smkey));
                     }
                 }
             } else if (smem is PropertyDecl && Mod.Has((smem as PropertyDecl).ModFlags, Mod.Static)) {
@@ -350,32 +298,18 @@ public static class ClassExtractor {
                 while (ak < 2) {
                     MethodSymbol ams = ct.Methods.Get(akeys[ak]) as MethodSymbol;
                     if (ams != null && ams.IsStatic) {
-                        if (mc == methods.Length) {
-                            ExportedMethodZ[] b = new ExportedMethodZ[methods.Length * 2];
-                            int k = 0; while (k < mc) { b[k] = methods[k]; k = k + 1; }
-                            methods = b;
-                        }
                         if (ak == 0) {
-                            methods[mc] = new ExportedMethodZ(akeys[0], ptn, ams.Visibility, true, false, false, 0, new ExportedParamZ[0], 0);
+                            m.Append(new ExportedMethodZ(akeys[0], ptn, ams.Visibility, true, false, false, 0, new ExportedParamZ[0], 0));
                         } else {
                             ExportedParamZ[] sps = new ExportedParamZ[1]; sps[0] = new ExportedParamZ("value", ptn);
-                            methods[mc] = new ExportedMethodZ(akeys[1], "void", ams.Visibility, true, false, false, 1, sps, 1);
+                            m.Append(new ExportedMethodZ(akeys[1], "void", ams.Visibility, true, false, false, 1, sps, 1));
                         }
-                        mc = mc + 1;
                     }
                     ak = ak + 1;
                 }
             }
             sj = sj + 1;
         }
-        // 导出名用裸名（镜像 C# ExportedClassDef：ct.Name，非 IrName()）。
-        string ecExportName = c.Name;
-        ExportedClassZ ez = new ExportedClassZ(ecExportName, !isStruct, isStruct ? "" : baseName, fields, fldc, methods, mc, c.TypeParams.Names, c.TypeParams.Count);
-        if (ct != null && ct.InterfaceCount > 0) {                  // 类接口表（port-z42c-interface）
-            ez.Interfaces = ct.InterfaceNames;
-            ez.InterfaceCount = ct.InterfaceCount;
-        }
-        return ez;
     }
 
     // GS3：methKey = 重载时 Name$arity，unique 时 bare Name（镜像 C# FuncToMethod mn=registry key）。
@@ -424,7 +358,8 @@ public static class ClassExtractor {
     }
 
     // 名→位线性查找（方法合并：seenName/seenAt 平行表；方法数小，线性足够）。G18。
-    private static int _indexOf(string[] arr, int count, string name) {
+    // internal：MethodMerger.Put 与本类共用（static 段的 seenStatic 去重也在用）。
+    internal static int _indexOf(string[] arr, int count, string name) {
         int i = 0;
         while (i < count) {
             if (arr[i] == name) { return i; }
