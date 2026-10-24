@@ -1,0 +1,60 @@
+namespace Z42.Semantics;
+
+using Z42.IR;
+
+// 字段收集的产物（z42 函数只能返回一个值）：Items 按 2 倍扩容分配，Count 为有效数。
+internal sealed class ExtractedFields {
+    public ExportedFieldZ[] Items;
+    public int Count;
+}
+
+// G18 方法合并器（ClassExtractor._extractClass 抽出的协作对象）：镜像 C# SymbolCollector 第二趟
+// `mergedMethods = new Dict(base.Methods) ∪ own`——override 同名替换、**保留首次插入位**（祖先位），
+// 新方法追加。此前这段「methods 扩容 + seen 扩容 + 平行表写入」的样板在 _extractClass 里逐字
+// 重复了 6 处（imported 祖先 / 本地方法 / auto-property getter / indexer get / indexer set / static 段）。
+//
+// 两个入口的语义差异是本类型的全部要点：
+//   · Put(key, em)   —— 实例方法合并：key 已在 seen 表 ⇒ **替换祖先位**（override）；否则追加并登记。
+//   · Append(em)     —— 无 override 语义的追加（static 段：同名不同 arity 的声明可能 map 到同一
+//                       smkey，去重由调用方的 seenStatic 表负责，这里只管放进去）。
+internal sealed class MethodMerger {
+    public ExportedMethodZ[] Methods;
+    public string[] SeenName;    // 名→位平行表（方法数小，线性查找足够；ClassExtractor._indexOf）
+    public int[]    SeenAt;
+    public int Mc;               // methods 有效数
+    public int Seenc;            // seen 表有效数（Put 追加时与 Mc 同步 +1；Object4 注入后两者同置 4）
+    public MethodMerger() {
+        this.Methods = new ExportedMethodZ[16];
+        this.SeenName = new string[16];
+        this.SeenAt = new int[16];
+        this.Mc = 0; this.Seenc = 0;
+    }
+
+    // 实例方法合并：override（key 已注册）→ 替换祖先位；否则追加（两表按需 2 倍扩容）。
+    public void Put(string key, ExportedMethodZ em) {
+        int at = ClassExtractor._indexOf(this.SeenName, this.Seenc, key);
+        if (at >= 0) { this.Methods[this.SeenAt[at]] = em; return; }
+        if (this.Mc == this.Methods.Length) {
+            ExportedMethodZ[] b = new ExportedMethodZ[this.Methods.Length * 2];
+            int k = 0; while (k < this.Mc) { b[k] = this.Methods[k]; k = k + 1; }
+            this.Methods = b;
+        }
+        if (this.Seenc == this.SeenName.Length) {
+            string[] sn = new string[this.SeenName.Length * 2]; int[] sa = new int[this.SeenAt.Length * 2];
+            int k = 0; while (k < this.Seenc) { sn[k] = this.SeenName[k]; sa[k] = this.SeenAt[k]; k = k + 1; }
+            this.SeenName = sn; this.SeenAt = sa;
+        }
+        this.Methods[this.Mc] = em; this.SeenName[this.Seenc] = key; this.SeenAt[this.Seenc] = this.Mc;
+        this.Seenc = this.Seenc + 1; this.Mc = this.Mc + 1;
+    }
+
+    // 无 override 语义的追加（static 段 / static 属性访问器）：不进 seen 表。
+    public void Append(ExportedMethodZ em) {
+        if (this.Mc == this.Methods.Length) {
+            ExportedMethodZ[] b = new ExportedMethodZ[this.Methods.Length * 2];
+            int k = 0; while (k < this.Mc) { b[k] = this.Methods[k]; k = k + 1; }
+            this.Methods = b;
+        }
+        this.Methods[this.Mc] = em; this.Mc = this.Mc + 1;
+    }
+}
