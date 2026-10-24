@@ -170,6 +170,7 @@ public class HttpClient : IDisposable {
     }
 
     /// 发送任意 `HttpRequest`，返回解析后的 `HttpResponse`。
+    ///
     /// 设置了 `SetMaxRedirects(n > 0)` 时会自动跟随 3xx 至多 n 跳。
     public HttpResponse Send(HttpRequest request) {
         HttpRequest cur = request;
@@ -1166,16 +1167,22 @@ public class HttpClient : IDisposable {
 }
 
 // ── 响应头载体（内部）───────────────────────────────────────────────────
-//
-// `_readResponseHead` 的类元组返回值，让 SendStreaming 能把 line-reader
-// 及其缓冲字节交给 `_HttpBodyStream`；z42 无元组字面量，用 public class 作载体。
 
+/// 响应头解析结果载体（内部）：`_readResponseHead` 的类元组返回值。
+///
+/// 让 SendStreaming 能把 line-reader 及其缓冲字节交给 `_HttpBodyStream`；
+/// z42 无元组字面量，用 public class 作载体。
 public class _HttpResponseHead {
+    /// HTTP 状态码（如 200）。
     public int         StatusCode;
+    /// 状态行的 reason-phrase（如 `OK`）；无短语时为空串。
     public string      ReasonPhrase;
+    /// 按线序解析出的响应头集合（可含重复名，如 Set-Cookie）。
     public HttpHeaders Headers;
+    /// 读头所用的行读取器；预读缓冲可能已含 body 首字节，交给 `_HttpBodyStream` 排干。
     public _LineReader Reader;
 
+    /// 逐字段装配（由 `_readResponseHead` 构造）。
     public _HttpResponseHead(int statusCode, string reasonPhrase, HttpHeaders headers, _LineReader reader) {
         this.StatusCode   = statusCode;
         this.ReasonPhrase = reasonPhrase;
@@ -1185,10 +1192,11 @@ public class _HttpResponseHead {
 }
 
 // ── 行读取器（内部）─────────────────────────────────────────────────────
-//
-// 从字节流读 CRLF 结尾的行，多余字节缓冲到下一次调用。头解析完后，调用方可用
-// `DrainBuffered` 取回已从 socket 读入的 body 字节。容忍纯 LF 结尾。
 
+/// 从字节流读 CRLF 结尾行的读取器（内部）；容忍纯 LF 结尾。
+///
+/// 多余字节缓存在内部留待下次读；头解析完后，调用方用 `DrainBuffered` 取回
+/// 已从 socket 预读的 body 字节。
 public class _LineReader {
     private Stream _stream;
     private byte[] _buf;
@@ -1199,6 +1207,7 @@ public class _LineReader {
     private char[] _line;
     private int    _lineLen;
 
+    /// 基于 `stream` 读行（内部 4096 字节预读缓冲）。
     public _LineReader(Stream stream) {
         this._stream   = stream;
         this._buf      = new byte[4096];
@@ -1208,7 +1217,7 @@ public class _LineReader {
         this._lineLen  = 0;
     }
 
-    // 读一行（不含 CRLF/LF）；EOF 无字节返回 null，空行返回空串。
+    /// 读一行（不含行尾 CRLF/LF）；EOF 无字节返回 null，空行返回空串。
     public string ReadLine() {
         this._lineLen = 0;
         bool any = false;
@@ -1246,7 +1255,7 @@ public class _LineReader {
         return this._finishLine();
     }
 
-    // 把已缓冲（ReadLine 预读）的至多 count 字节拷到 dest[offset..]，返回拷贝数。
+    /// 把预读缓冲里至多 `count` 字节拷到 `dest[offset..]`，返回实际拷贝数。
     public int DrainBuffered(byte[] dest, int offset, int count) {
         int available = this._bufEnd - this._bufStart;
         int toCopy;

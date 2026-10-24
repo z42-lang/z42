@@ -46,14 +46,17 @@ enum 成员值（声明序，底层 i64）。非 enum → 空数组。
 <a id="Std.Enum.Parse(Type,string)"></a>
 ### static extern long Parse(Type enumType, string name)
 
-[`src/libraries/z42.core/src/Enum.z42:22`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Enum.z42#L22)
+[`src/libraries/z42.core/src/Enum.z42:24`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Enum.z42#L24)
 
-成员名 → 值（GetName 的逆）。未命中抛 Std.Exception（镜像 C# Enum.Parse）。 大小写敏感（z42 大小写敏感语言，无 ignoreCase 变体）。
+成员名 → 值（GetName 的逆）。
+
+未命中抛 Std.Exception（镜像 C# Enum.Parse）。大小写敏感（z42 大小写敏感
+语言，无 ignoreCase 变体）。
 
 <a id="Std.Enum.IsDefined(Type,long)"></a>
 ### static extern bool IsDefined(Type enumType, long value)
 
-[`src/libraries/z42.core/src/Enum.z42:26`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Enum.z42#L26)
+[`src/libraries/z42.core/src/Enum.z42:28`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Enum.z42#L28)
 
 值是否为已定义 enum 成员。非 enum / 无句柄 → false。
 

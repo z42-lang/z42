@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`
 
-[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:41`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L41)
+[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:43`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L43)
 
 一次性包装 —— 第一次 OnInvoked 后 IsAlive=false。
 
@@ -22,28 +22,28 @@ public sealed class OnceRef<TD> : ISubscription<TD> {
 <a id="Std.OnceRef<TD>.ctor(TD)"></a>
 ### OnceRef(TD h)
 
-[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:46`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L46)
+[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:48`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L48)
 
 用 handler 构造一次性包装。
 
 <a id="Std.OnceRef<TD>.Get()"></a>
 ### TD Get()
 
-[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:52`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L52)
+[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:54`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L54)
 
 返回被包装的委托。
 
 <a id="Std.OnceRef<TD>.IsAlive()"></a>
 ### bool IsAlive()
 
-[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:57`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L57)
+[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:59`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L59)
 
 是否尚未被消费。
 
 <a id="Std.OnceRef<TD>.OnInvoked()"></a>
 ### void OnInvoked()
 
-[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:62`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L62)
+[`src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42:64`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/SubscriptionRefs.z42#L64)
 
 标记为已消费。
 

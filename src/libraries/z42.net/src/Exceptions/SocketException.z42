@@ -1,18 +1,23 @@
 namespace Std.Net.Sockets;
 
-/// socket 操作（connect / bind / accept / send / receive / 选项 / DNS）因系统错误失败时抛出。
-/// 超时也是它（`SocketErrorCode == SocketError.TimedOut`），与 .NET 的 `Socket.Receive` 一致。
+/// socket 操作（connect / bind / accept / send / receive / 选项 / DNS）因系统
+/// 错误失败时抛出。
+///
+/// 超时也是它（`SocketErrorCode == SocketError.TimedOut`），与 .NET 的
+/// `Socket.Receive` 一致。
 public class SocketException : NetException {
     /// 结构化错误码（`SocketError`，Winsock 取值）。
     public SocketError SocketErrorCode;
     /// 与 `SocketErrorCode` 同一个值的 int。
     public int ErrorCode;
 
+    /// 只带消息：错误码侧记为笼统的 SocketError / -1（拿不到系统码时用）。
     public SocketException(string message) : base(message) {
         this.SocketErrorCode = SocketError.SocketError;
         this.ErrorCode = -1;
     }
 
+    /// 带系统错误码构造：`errorCode` 同时落到 SocketErrorCode 与 ErrorCode。
     public SocketException(int errorCode, string message) : base(message) {
         this.SocketErrorCode = (SocketError)errorCode;
         this.ErrorCode = errorCode;

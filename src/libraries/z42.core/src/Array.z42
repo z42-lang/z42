@@ -13,8 +13,10 @@ using Std.Collections;
 // 这四个协议方法与 `Std.Object` 绑定同一批 `__obj_*` builtin、无数组专属行为，直接继承基类
 // 即可（与 Std.Int32 等基元类同款）。
 
-/// 所有 `T[]` 的运行时基类。元素读写、克隆与静态算法（Sort / IndexOf / Find / ...）
-/// 都经此类；用户不能 `new Array()`，也不能继承。
+/// 所有 `T[]` 的运行时基类。
+///
+/// 元素读写、克隆与静态算法（Sort / IndexOf / Find / ...）都经此类；用户不能
+/// `new Array()`，也不能继承。
 public sealed class Array {
     /// 元素个数。实际值由 IR `array_len` 直读，此字段仅为类型检查占位。
     public int Length;
@@ -296,8 +298,10 @@ public sealed class Array {
         for (int i = 0; i < length; i++) { array[index + i] = default(T); }
     }
 
-    /// 返回长度为 `newSize` 的新数组：前缀拷自 `array`，尾部填 default(T)；`newSize` 更小时
-    /// 截断。原数组不变（C# 用 `ref T[]`，这里把结果赋回）。
+    /// 返回长度为 `newSize` 的新数组，原数组不变。
+    ///
+    /// 前缀拷自 `array`，尾部填 default(T)；`newSize` 更小时截断。C# 用 `ref T[]`，
+    /// 这里把结果赋回。
     public static T[] Resize<T>(T[] array, int newSize) {
         if (newSize < 0) {
             throw new Exception($"Array.Resize: newSize {newSize} is negative");
@@ -352,8 +356,10 @@ public sealed class Array {
         for (int i = startIndex; i < end; i++) { array[i] = value; }
     }
 
-    /// 从 `source[sourceIndex..]` 拷 `length` 个元素到 `destination[destinationIndex..]`。
-    /// 同一数组内重叠区间按 memmove 语义（向高索引移动时反向拷贝）。
+    /// 从 `source` 拷 `length` 个元素到 `destination` 的指定偏移处。
+    ///
+    /// 即 `source[sourceIndex..]` → `destination[destinationIndex..]`。同一数组内
+    /// 重叠区间按 memmove 语义（向高索引移动时反向拷贝）。
     public static void Copy<T>(T[] source, int sourceIndex, T[] destination, int destinationIndex, int length) {
         if (length < 0 || sourceIndex < 0 || destinationIndex < 0
             || sourceIndex + length > source.Length
@@ -392,8 +398,9 @@ public sealed class Array {
         return -1;
     }
 
-    /// 在有序子区间 `[index, index+length)` 内按 `CompareTo` 二分查找 `value`。
-    /// 命中返回下标，否则返回 `~insertionPoint`。
+    /// 在有序子区间 `[index, index+length)` 内按 `CompareTo` 二分查找。
+    ///
+    /// 命中返回 `value` 的下标，否则返回 `~insertionPoint`。
     public static int BinarySearch<T>(T[] array, int index, int length, T value) where T : IComparable {
         int lo = index;
         int hi = index + length - 1;
@@ -407,8 +414,10 @@ public sealed class Array {
         return ~lo;
     }
 
-    /// 在调用方比较器（`comparison(element, value)` < 0 ⇒ element 在 value 前）下对全数组
-    /// 二分查找。命中返回下标，否则返回 `~insertionPoint`。
+    /// 在调用方比较器下对全数组二分查找。
+    ///
+    /// 比较器约定：`comparison(element, value)` < 0 ⇒ element 在 value 前。命中返回
+    /// 下标，否则返回 `~insertionPoint`。
     public static int BinarySearch<T>(T[] array, T value, Func<T, T, int> comparison) {
         int lo = 0;
         int hi = array.Length - 1;

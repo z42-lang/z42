@@ -2,11 +2,6 @@ namespace Std.Crypto;
 
 using Std.Numerics;
 
-// RSA 原语（RFC 8017 / PKCS#1 v2.2），纯脚本实现于 `Std.Numerics.BigInt.ModPow`。密钥用原始 n / e / d
-// 的 BigInt 构造，字段公开可写。支持：RSASSA-PKCS1-v1_5 与 RSASSA-PSS 签名验签（SHA-256）、
-// RSAES-OAEP 加解密（SHA-256）、以及裸模幂 RawPublicOp / RawPrivateOp。纯脚本 RSA-2048 签名约数秒级，
-// 验签快（e=65537 仅 17 位）。
-
 /// RSA 公钥（模数 + 公钥指数）。
 public class RsaPublicKey {
     /// 模数。
@@ -41,6 +36,12 @@ public class RsaPrivateKey {
     }
 }
 
+/// RSA 原语（RFC 8017 / PKCS#1 v2.2）——签名 / 验签 / 加解密与裸模幂。
+///
+/// 纯脚本实现于 `Std.Numerics.BigInt.ModPow`。密钥用原始 n / e / d 的 BigInt 构造，字段
+/// 公开可写。支持：RSASSA-PKCS1-v1_5 与 RSASSA-PSS 签名验签（SHA-256）、RSAES-OAEP
+/// 加解密（SHA-256）、以及裸模幂 RawPublicOp / RawPrivateOp。纯脚本 RSA-2048 签名约数秒级，
+/// 验签快（e=65537 仅 17 位）。
 public static class Rsa {
     // ── RSASSA-PKCS1-v1_5 sign / verify with SHA-256 ─────────────────────────
     //
@@ -157,7 +158,10 @@ public static class Rsa {
         return Rsa._writeBEBigInt(sInt, k);
     }
 
-    /// 校验 RSASSA-PSS / SHA-256 签名，`saltLen` 必须与签名时一致（RFC 8017 §9.1.2 步骤 11——验签方知道 salt 长度而非 salt 本身）。
+    /// 校验 RSASSA-PSS / SHA-256 签名。
+    ///
+    /// `saltLen` 必须与签名时一致（RFC 8017 §9.1.2 步骤 11——验签方知道 salt 长度
+    /// 而非 salt 本身）。
     public static bool VerifyPssSha256(RsaPublicKey publicKey, byte[] message, byte[] signature, int saltLen) {
         int k = Rsa._modulusByteLength(publicKey.n);
         if (signature.Length != k) { return false; }
@@ -345,8 +349,10 @@ public static class Rsa {
         return Rsa._writeBEBigInt(cInt, k);
     }
 
-    /// RSA-OAEP / SHA-256 / MGF1-SHA-256 解密，返回明文。填充非法抛 `ArgumentException`
-    /// （勿在调用层区分错误——区分 padding 错误与值错误的计时泄漏风险正是 OAEP 要缓解的）。
+    /// RSA-OAEP / SHA-256 / MGF1-SHA-256 解密，返回明文。
+    ///
+    /// 填充非法抛 `ArgumentException`（勿在调用层区分错误——区分 padding 错误与
+    /// 值错误的计时泄漏风险正是 OAEP 要缓解的）。
     public static byte[] DecryptOaepSha256(RsaPrivateKey privateKey, byte[] ciphertext, byte[] label) {
         int k = Rsa._modulusByteLength(privateKey.n);
         int hLen = 32;
@@ -454,7 +460,9 @@ public static class Rsa {
     // ChaCha20-Poly1305) instead — RSA encryption is mostly a legacy /
     // interop concern. Exposed here for completeness + protocol interop.
 
-    /// 裸 `message^e mod n` 模幂（RSAEP，RFC 8017 §5.1.1），无 padding。输入须在 [0, n)，返回 n.byteLength() 字节。
+    /// 裸 `message^e mod n` 模幂（RSAEP，RFC 8017 §5.1.1），无 padding。
+    ///
+    /// 输入须在 [0, n)，返回 n.byteLength() 字节。
     public static byte[] RawPublicOp(RsaPublicKey publicKey, byte[] message) {
         int k = Rsa._modulusByteLength(publicKey.n);
         BigInt mInt = Rsa._readBEBigInt(message);

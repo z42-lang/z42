@@ -15,8 +15,13 @@ public class PropertyInfo : MemberInfo {
     /// 是否有 setter（`set_<Name>`）。
     public bool CanWrite;
 
-    // 访问器函数的全限定名（VM 在 __type_properties 里盖章）；缺该访问器时为 null。GetValue / SetValue 据此解析要调的函数。
+    /// getter（`get_<Name>`）的全限定名（VM 在 __type_properties 里盖章）；无 getter 时为 null。
+    ///
+    /// GetValue 据此解析要调的函数。
     public string __getterQualified;
+    /// setter（`set_<Name>`）的全限定名；无 setter 时为 null。
+    ///
+    /// SetValue 据此解析要调的函数。
     public string __setterQualified;
 
     /// 经 getter 从 `obj` 读出本属性值。只写属性（无 getter）抛 `Std.Exception`。
@@ -31,9 +36,10 @@ public class PropertyInfo : MemberInfo {
     // auto-property 降解为私有后备字段 `__prop_<Name>`，编译器把属性上的 attribute 挂到该字段，故 native
     // 从访问器全限定名（剥掉 get_/set_ 前缀 → 后备字段）解析。纯计算属性（无后备字段）没有 attribute。
 
-    // 缓存的 attribute 实例（缓存理由见 FieldInfo.GetCustomAttributes）。
+    /// 缓存的 attribute 实例（缓存理由见 FieldInfo.GetCustomAttributes）。
     public Std.Attribute[] __attrCache;
 
+    /// native 门面：按访问器全限定名取本属性上的 attribute 实例数组。
     [Native("__property_custom_attributes")]
     public extern Std.Attribute[] __customAttributes(string qualified);
 

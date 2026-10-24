@@ -2,6 +2,7 @@ namespace Std.Net.Http;
 
 /// HTTP 异常基类，继承 `NetException`；`HttpProtocolException` 继承它。
 public class HttpException : NetException {
+    /// 以错误消息构造。
     public HttpException(string message) : base(message) {}
 
     override string ToString() {

@@ -35,7 +35,8 @@ public sealed class DateTimeOffset {
         return new DateTimeOffset(utc, tz);
     }
 
-    /// 解析带**必须**偏移后缀（`Z` / `±HH:MM` / `±HHMM` / `±HH`）的 ISO 8601；
+    /// 解析带**必须**偏移后缀（`Z` / `±HH:MM` / `±HHMM` / `±HH`）的 ISO 8601。
+    ///
     /// 缺后缀抛 `FormatException`。
     public static DateTimeOffset Parse(string s) {
         if (s == null || s.Length == 0) {

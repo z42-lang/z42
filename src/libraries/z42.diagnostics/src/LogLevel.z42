@@ -14,6 +14,7 @@ public static class LogLevel {
     public static int Error = 4;
 
     /// 返回 level 的大写名字。未知 level 返回 "LEVEL<n>"。
+    ///
     /// 返回值保留 SCREAMING_SNAKE 作业界 log 格式约定；与字段大小写无关。
     public static string Name(int level) {
         if (level == LogLevel.Trace) { return "TRACE"; }

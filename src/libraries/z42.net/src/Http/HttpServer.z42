@@ -12,6 +12,7 @@ public class HttpServer : IDisposable {
     private int         _localPort;
     private string      _bindHost;
 
+    /// 构造未绑定状态；先 `Bind(host, port)` 再进各 Serve 入口。
     public HttpServer() {
         this._listener  = null;
         this._stopped   = false;
@@ -107,8 +108,10 @@ public class HttpServer : IDisposable {
         }
     }
 
-    /// 每连接一线程的 accept 循环；主循环立即继续 accept 而不等待 worker。
-    /// handler 必须线程安全；`Stop()` 只关 listener，不 join 在途 worker。
+    /// 每连接一线程的 accept 循环。
+    ///
+    /// 主循环立即继续 accept 而不等待 worker。handler 必须线程安全；`Stop()` 只关
+    /// listener，不 join 在途 worker。
     public void ServeThreaded(Action<HttpServerContext> handler) {
         while (!this._stopped) {
             if (this._listener == null) return;
@@ -134,8 +137,10 @@ public class HttpServer : IDisposable {
         }
     }
 
-    /// 带有限 worker 池的 accept 循环：预起 `workerCount` 个 worker，从容量 `queueSize`
-    /// 的有界通道取连接；队列满时 accept 循环直接丢弃连接（立即 Dispose）。`Stop()` 关闭通道。
+    /// 带有限 worker 池的 accept 循环。
+    ///
+    /// 预起 `workerCount` 个 worker，从容量 `queueSize` 的有界通道取连接；队列满时
+    /// accept 循环直接丢弃连接（立即 Dispose）。`Stop()` 关闭通道。
     public void ServeWithPool(Action<HttpServerContext> handler, int workerCount, int queueSize) {
         if (workerCount < 1) {
             throw new ArgumentException(
@@ -198,8 +203,10 @@ public class HttpServer : IDisposable {
     }
 
     /// 通知 serve 循环退出并关掉 listener；幂等。
-    /// 关掉 listener 就足以唤醒另一线程里阻塞的 AcceptTcpClient（它抛 SocketClosedException，
-    /// 三个 serve 循环都 catch 它）。此前用一次性自连探针唤醒 accept，现已无必要，整段删除。
+    ///
+    /// 关掉 listener 就足以唤醒另一线程里阻塞的 AcceptTcpClient（它抛
+    /// SocketClosedException，三个 serve 循环都 catch 它）。此前用一次性自连探针
+    /// 唤醒 accept，现已无必要，整段删除。
     public void Stop() {
         if (this._stopped) return;
         this._stopped = true;

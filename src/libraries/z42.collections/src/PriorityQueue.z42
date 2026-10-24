@@ -2,6 +2,7 @@ namespace Std.Collections;
 
 
 /// 最小堆优先队列：O(log n) 的 Enqueue / Dequeue，O(1) 的 Peek。
+///
 /// where T: IComparable —— CompareTo 小的先出队。
 ///
 /// 只有最小堆形态；要最大堆请把排序键取负，或用反向 CompareTo 的包装类型。

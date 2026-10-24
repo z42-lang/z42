@@ -1,7 +1,8 @@
 namespace Std.IO;
 
-/// 标准输出。所有方法都收 `object`——任何类型都能直接传（`Console.WriteLine(42)`、
-/// `Console.Write(true)` 等，primitive 在 VM 层自动装箱）。
+/// 标准输出。所有方法都收 `object`——任何类型都能直接传。
+///
+/// `Console.WriteLine(42)`、`Console.Write(true)` 等，primitive 在 VM 层自动装箱。
 public static class Console {
     /// 写 `value` 并换行。
     [Native("__println")]

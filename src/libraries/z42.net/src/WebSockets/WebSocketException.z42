@@ -2,6 +2,7 @@ namespace Std.Net.WebSockets;
 
 /// WebSocket 异常基类，继承 `NetException`；`WebSocketProtocolException` 继承它。
 public class WebSocketException : NetException {
+    /// 以错误消息构造。
     public WebSocketException(string message) : base(message) {}
 
     override string ToString() {

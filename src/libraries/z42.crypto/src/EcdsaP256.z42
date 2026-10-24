@@ -2,12 +2,12 @@ namespace Std.Crypto;
 
 using Std.Numerics;
 
-// NIST P-256（secp256r1）曲线上的 ECDSA（FIPS 186-4 + RFC 6979 确定性 nonce），
-// P-256 是 JWT ES256、TLS 1.3 默认密钥共享、X.509 证书 PKI 的默认曲线。曲线为短 Weierstrass
-// `y² = x³ - 3x + b mod p`（a = -3）。接口与 `EcdsaSecp256k1` 完全相同，仅曲线常数与加倍公式不同。
-// 标量乘用 Jacobian 坐标（入口 Z=1 抬升、出口单次 ModInverse），a=-3 的加倍用
-// `M = 3·(X − Z²)·(X + Z²)` 分解（≡ 3X² + a·Z⁴），避免显式 `-3·Z⁴` 项。
-
+/// NIST P-256（secp256r1）曲线上的 ECDSA（FIPS 186-4 + RFC 6979 确定性 nonce）。
+///
+/// P-256 是 JWT ES256、TLS 1.3 默认密钥共享、X.509 证书 PKI 的默认曲线。曲线为短
+/// Weierstrass `y² = x³ - 3x + b mod p`（a = -3）。接口与 `EcdsaSecp256k1` 完全相同，仅
+/// 曲线常数与加倍公式不同。标量乘用 Jacobian 坐标（入口 Z=1 抬升、出口单次 ModInverse），
+/// a=-3 的加倍用 `M = 3·(X − Z²)·(X + Z²)` 分解（≡ 3X² + a·Z⁴），避免显式 `-3·Z⁴` 项。
 public static class EcdsaP256 {
     // ── Public API ───────────────────────────────────────────────────────────
 

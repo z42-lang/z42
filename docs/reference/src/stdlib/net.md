@@ -49,15 +49,20 @@ public static class Dns {
 <a id="Std.Net.Sockets.Dns.GetHostAddresses(string)"></a>
 ### static IPAddress[] GetHostAddresses(string host)
 
-[`src/libraries/z42.net/src/Dns.z42:8`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/Dns.z42#L8)
+[`src/libraries/z42.net/src/Dns.z42:10`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/Dns.z42#L10)
 
-把主机名解析为 IPAddress 数组；解析失败抛 `SocketException`。 数字字面量（如 "127.0.0.1" / "::1"）原样返回，不走网络。
+把主机名解析为 IPAddress 数组。
+
+解析失败抛 `SocketException`。数字字面量（如 "127.0.0.1" / "::1"）原样返回，
+不走网络。
 
 ## SocketClosedException
 
-[`src/libraries/z42.net/src/Exceptions/SocketClosedException.z42:5`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/Exceptions/SocketClosedException.z42#L5)
+[`src/libraries/z42.net/src/Exceptions/SocketClosedException.z42:6`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/Exceptions/SocketClosedException.z42#L6)
 
-在已 `Dispose` / `Close` / `Stop` 的 socket 或 listener 上操作时抛出（含阻塞中的 accept / 读写 被另一线程关掉）；继承 `ObjectDisposedException`。
+在已 `Dispose` / `Close` / `Stop` 的 socket 或 listener 上操作时抛出。
+
+含阻塞中的 accept / 读写被另一线程关掉；继承 `ObjectDisposedException`。
 
 ```z42
 public class SocketClosedException : ObjectDisposedException {
@@ -70,14 +75,18 @@ public class SocketClosedException : ObjectDisposedException {
 <a id="Std.Net.Sockets.SocketClosedException.ctor()"></a>
 ### SocketClosedException()
 
-[`src/libraries/z42.net/src/Exceptions/SocketClosedException.z42:6`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/Exceptions/SocketClosedException.z42#L6)
+[`src/libraries/z42.net/src/Exceptions/SocketClosedException.z42:8`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/Exceptions/SocketClosedException.z42#L8)
 
+无参构造：ObjectDisposedException 的对象名固定为 Std.Net.Sockets.Socket。
 
 ## SocketException
 
-[`src/libraries/z42.net/src/Exceptions/SocketException.z42:5`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/Exceptions/SocketException.z42#L5)
+[`src/libraries/z42.net/src/Exceptions/SocketException.z42:8`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/Exceptions/SocketException.z42#L8)
 
-socket 操作（connect / bind / accept / send / receive / 选项 / DNS）因系统错误失败时抛出。 超时也是它（`SocketErrorCode == SocketError.TimedOut`），与 .NET 的 `Socket.Receive` 一致。
+socket 操作（connect / bind / accept / send / receive / 选项 / DNS）因系统 错误失败时抛出。
+
+超时也是它（`SocketErrorCode == SocketError.TimedOut`），与 .NET 的
+`Socket.Receive` 一致。
 
 ```z42
 public class SocketException : NetException {
@@ -93,28 +102,30 @@ public class SocketException : NetException {
 <a id="Std.Net.Sockets.SocketException.SocketErrorCode"></a>
 ### SocketError SocketErrorCode
 
-[`src/libraries/z42.net/src/Exceptions/SocketException.z42:7`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/Exceptions/SocketException.z42#L7)
+[`src/libraries/z42.net/src/Exceptions/SocketException.z42:10`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/Exceptions/SocketException.z42#L10)
 
 结构化错误码（`SocketError`，Winsock 取值）。
 
 <a id="Std.Net.Sockets.SocketException.ErrorCode"></a>
 ### int ErrorCode
 
-[`src/libraries/z42.net/src/Exceptions/SocketException.z42:9`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/Exceptions/SocketException.z42#L9)
+[`src/libraries/z42.net/src/Exceptions/SocketException.z42:12`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/Exceptions/SocketException.z42#L12)
 
 与 `SocketErrorCode` 同一个值的 int。
 
 <a id="Std.Net.Sockets.SocketException.ctor(string)"></a>
 ### SocketException(string message)
 
-[`src/libraries/z42.net/src/Exceptions/SocketException.z42:11`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/Exceptions/SocketException.z42#L11)
+[`src/libraries/z42.net/src/Exceptions/SocketException.z42:15`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/Exceptions/SocketException.z42#L15)
 
+只带消息：错误码侧记为笼统的 SocketError / -1（拿不到系统码时用）。
 
 <a id="Std.Net.Sockets.SocketException.ctor(int,string)"></a>
 ### SocketException(int errorCode, string message)
 
-[`src/libraries/z42.net/src/Exceptions/SocketException.z42:16`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/Exceptions/SocketException.z42#L16)
+[`src/libraries/z42.net/src/Exceptions/SocketException.z42:21`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/Exceptions/SocketException.z42#L21)
 
+带系统错误码构造：`errorCode` 同时落到 SocketErrorCode 与 ErrorCode。
 
 ## IPAddress
 
@@ -368,20 +379,24 @@ public class NetworkStream : Stream {
 <a id="Std.Net.Sockets.NetworkStream.ctor(long)"></a>
 ### NetworkStream(long slotId)
 
-[`src/libraries/z42.net/src/NetworkStream.z42:10`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/NetworkStream.z42#L10)
+[`src/libraries/z42.net/src/NetworkStream.z42:11`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/NetworkStream.z42#L11)
 
+以底层 TCP socket 的 slot 句柄包装流；初始为打开状态。
 
 <a id="Std.Net.Sockets.NetworkStream.MarkClosed()"></a>
 ### void MarkClosed()
 
-[`src/libraries/z42.net/src/NetworkStream.z42:68`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/NetworkStream.z42#L68)
+[`src/libraries/z42.net/src/NetworkStream.z42:70`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/NetworkStream.z42#L70)
 
+翻转 _closed 位使本流失效；幂等，底层 fd 由 TcpClient.Dispose 释放。
 
 ## SocketError
 
-[`src/libraries/z42.net/src/SocketError.z42:5`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/SocketError.z42#L5)
+[`src/libraries/z42.net/src/SocketError.z42:6`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/SocketError.z42#L6)
 
-socket 操作的错误码，镜像 .NET 的 `SocketError`，取值即 Winsock 码。 读 `SocketException.SocketErrorCode`。
+socket 操作的错误码，镜像 .NET 的 `SocketError`，取值即 Winsock 码。
+
+读 `SocketException.SocketErrorCode`。
 
 ```z42
 public enum SocketError {
@@ -467,112 +482,114 @@ public class TcpClient : IDisposable {
 <a id="Std.Net.Sockets.TcpClient.ctor()"></a>
 ### TcpClient()
 
-[`src/libraries/z42.net/src/TcpClient.z42:44`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L44)
+[`src/libraries/z42.net/src/TcpClient.z42:45`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L45)
 
+构造未连接实例；随后 `Connect(host, port)` 建立连接。
 
 <a id="Std.Net.Sockets.TcpClient.ConnectTo(string,int)"></a>
 ### static TcpClient ConnectTo(string host, int port)
 
-[`src/libraries/z42.net/src/TcpClient.z42:55`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L55)
+[`src/libraries/z42.net/src/TcpClient.z42:56`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L56)
 
 等价于 `new TcpClient()` 后再 `Connect(host, port)` 的静态工厂。
 
 <a id="Std.Net.Sockets.TcpClient.Connect(string,int)"></a>
 ### void Connect(string host, int port)
 
-[`src/libraries/z42.net/src/TcpClient.z42:63`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L63)
+[`src/libraries/z42.net/src/TcpClient.z42:64`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L64)
 
 建立到 `host:port` 的 TCP 连接，阻塞直到握手完成或失败。 连接被拒 / DNS 失败 / 网络不可达抛 `SocketException`。
 
 <a id="Std.Net.Sockets.TcpClient.SetConnectTimeout(int)"></a>
 ### void SetConnectTimeout(int millis)
 
-[`src/libraries/z42.net/src/TcpClient.z42:80`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L80)
+[`src/libraries/z42.net/src/TcpClient.z42:81`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L81)
 
 设置下一次 `Connect` 的超时（毫秒）；`millis <= 0` 清除超时。 只作用于紧随其后的一次 Connect；该值在同一实例上跨重连持续有效。
 
 <a id="Std.Net.Sockets.TcpClient.GetStream()"></a>
 ### NetworkStream GetStream()
 
-[`src/libraries/z42.net/src/TcpClient.z42:85`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L85)
+[`src/libraries/z42.net/src/TcpClient.z42:86`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L86)
 
 返回该连接的字节流 `NetworkStream`；惰性创建并缓存，重复调用返回同一实例。
 
 <a id="Std.Net.Sockets.TcpClient.RemoteHost()"></a>
 ### string RemoteHost()
 
-[`src/libraries/z42.net/src/TcpClient.z42:99`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L99)
+[`src/libraries/z42.net/src/TcpClient.z42:100`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L100)
 
 返回连接的远端主机。
 
 <a id="Std.Net.Sockets.TcpClient.RemotePort()"></a>
 ### int RemotePort()
 
-[`src/libraries/z42.net/src/TcpClient.z42:104`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L104)
+[`src/libraries/z42.net/src/TcpClient.z42:105`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L105)
 
 返回连接的远端端口。
 
 <a id="Std.Net.Sockets.TcpClient.SetReadTimeout(int)"></a>
 ### void SetReadTimeout(int millis)
 
-[`src/libraries/z42.net/src/TcpClient.z42:109`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L109)
+[`src/libraries/z42.net/src/TcpClient.z42:110`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L110)
 
 设置读超时（毫秒）；`millis <= 0` 清除超时。
 
 <a id="Std.Net.Sockets.TcpClient.SetWriteTimeout(int)"></a>
 ### void SetWriteTimeout(int millis)
 
-[`src/libraries/z42.net/src/TcpClient.z42:120`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L120)
+[`src/libraries/z42.net/src/TcpClient.z42:121`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L121)
 
 设置写超时（毫秒）；`millis <= 0` 清除超时。
 
 <a id="Std.Net.Sockets.TcpClient.SetNoDelay(bool)"></a>
 ### void SetNoDelay(bool enable)
 
-[`src/libraries/z42.net/src/TcpClient.z42:131`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L131)
+[`src/libraries/z42.net/src/TcpClient.z42:132`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L132)
 
 设置 TCP_NODELAY（禁用 Nagle 算法）。
 
 <a id="Std.Net.Sockets.TcpClient.SetTtl(int)"></a>
 ### void SetTtl(int ttl)
 
-[`src/libraries/z42.net/src/TcpClient.z42:140`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L140)
+[`src/libraries/z42.net/src/TcpClient.z42:141`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L141)
 
 设置 IP_TTL（跳数限制），`ttl` 通常在 [1, 255]。
 
 <a id="Std.Net.Sockets.TcpClient.SetKeepAlive(bool)"></a>
 ### void SetKeepAlive(bool enable)
 
-[`src/libraries/z42.net/src/TcpClient.z42:149`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L149)
+[`src/libraries/z42.net/src/TcpClient.z42:150`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L150)
 
 开启或关闭 SO_KEEPALIVE（使用系统默认的 idle / interval / probe 参数）。
 
 <a id="Std.Net.Sockets.TcpClient.SetKeepAlive(bool,int,int,int)"></a>
 ### void SetKeepAlive(bool enable, int idleSecs, int intervalSecs, int probes)
 
-[`src/libraries/z42.net/src/TcpClient.z42:158`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L158)
+[`src/libraries/z42.net/src/TcpClient.z42:159`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L159)
 
 带调参的 SO_KEEPALIVE；`enable == true` 时三个调参值都必须 >= 1。
 
 <a id="Std.Net.Sockets.TcpClient.Dispose()"></a>
 ### void Dispose()
 
-[`src/libraries/z42.net/src/TcpClient.z42:168`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L168)
+[`src/libraries/z42.net/src/TcpClient.z42:169`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L169)
 
 关闭 socket 并释放底层 fd；幂等。之后的操作抛 `SocketClosedException`。
 
 <a id="Std.Net.Sockets.TcpClient.Close()"></a>
 ### void Close()
 
-[`src/libraries/z42.net/src/TcpClient.z42:181`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L181)
+[`src/libraries/z42.net/src/TcpClient.z42:182`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L182)
 
 `Dispose()` 的别名，对齐 .NET 的 `TcpClient.Close()`。
 
 <a id="Std.Net.Sockets.TcpClient.ctor(long,bool)"></a>
 ### TcpClient(long slotId, bool fromAccept)
 
-[`src/libraries/z42.net/src/TcpClient.z42:187`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L187)
+[`src/libraries/z42.net/src/TcpClient.z42:189`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpClient.z42#L189)
 
+以 accept 到的 slot 句柄直接包装成已连接客户端（远端记为 "<accepted>"）。
 
 ## TcpListener
 
@@ -601,76 +618,77 @@ public class TcpListener : IDisposable {
 <a id="Std.Net.Sockets.TcpListener.ctor()"></a>
 ### TcpListener()
 
-[`src/libraries/z42.net/src/TcpListener.z42:14`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpListener.z42#L14)
+[`src/libraries/z42.net/src/TcpListener.z42:15`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpListener.z42#L15)
 
+构造未绑定实例；随后 `Bind(host, port)` 开始监听。
 
 <a id="Std.Net.Sockets.TcpListener.Create(string,int)"></a>
 ### static TcpListener Create(string host, int port)
 
-[`src/libraries/z42.net/src/TcpListener.z42:24`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpListener.z42#L24)
+[`src/libraries/z42.net/src/TcpListener.z42:25`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpListener.z42#L25)
 
 等价于 `new TcpListener()` 后 `Bind(host, port)` 的静态工厂。
 
 <a id="Std.Net.Sockets.TcpListener.Bind(string,int)"></a>
 ### void Bind(string host, int port)
 
-[`src/libraries/z42.net/src/TcpListener.z42:31`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpListener.z42#L31)
+[`src/libraries/z42.net/src/TcpListener.z42:32`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpListener.z42#L32)
 
 绑定到 `host:port` 并开始监听；port 0 表示由 OS 分配端口（事后用 `LocalPort()` 查询）。
 
 <a id="Std.Net.Sockets.TcpListener.SetReuseAddress(bool)"></a>
 ### void SetReuseAddress(bool enable)
 
-[`src/libraries/z42.net/src/TcpListener.z42:47`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpListener.z42#L47)
+[`src/libraries/z42.net/src/TcpListener.z42:48`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpListener.z42#L48)
 
 设置 SO_REUSEADDR（只能在 `Bind` 之前调用）；Bind 之后再调抛 `InvalidOperationException`。
 
 <a id="Std.Net.Sockets.TcpListener.Start()"></a>
 ### void Start()
 
-[`src/libraries/z42.net/src/TcpListener.z42:56`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpListener.z42#L56)
+[`src/libraries/z42.net/src/TcpListener.z42:57`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpListener.z42#L57)
 
 BCL 兼容的空操作；`Bind` 已经原子地完成了 bind + listen。
 
 <a id="Std.Net.Sockets.TcpListener.AcceptTcpClient()"></a>
 ### TcpClient AcceptTcpClient()
 
-[`src/libraries/z42.net/src/TcpListener.z42:64`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpListener.z42#L64)
+[`src/libraries/z42.net/src/TcpListener.z42:65`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpListener.z42#L65)
 
 阻塞直到有对端连接，返回包装已接受 socket 的 `TcpClient`。
 
 <a id="Std.Net.Sockets.TcpListener.LocalPort()"></a>
 ### int LocalPort()
 
-[`src/libraries/z42.net/src/TcpListener.z42:76`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpListener.z42#L76)
+[`src/libraries/z42.net/src/TcpListener.z42:77`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpListener.z42#L77)
 
 本地绑定端口 —— 用 port 0 绑定时查询 OS 分配到的端口。
 
 <a id="Std.Net.Sockets.TcpListener.BindHost()"></a>
 ### string BindHost()
 
-[`src/libraries/z42.net/src/TcpListener.z42:81`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpListener.z42#L81)
+[`src/libraries/z42.net/src/TcpListener.z42:82`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpListener.z42#L82)
 
 返回绑定主机。
 
 <a id="Std.Net.Sockets.TcpListener.SetTtl(int)"></a>
 ### void SetTtl(int ttl)
 
-[`src/libraries/z42.net/src/TcpListener.z42:86`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpListener.z42#L86)
+[`src/libraries/z42.net/src/TcpListener.z42:87`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpListener.z42#L87)
 
 设置监听 socket 的 IP_TTL（Bind 之后调用）。
 
 <a id="Std.Net.Sockets.TcpListener.Stop()"></a>
 ### void Stop()
 
-[`src/libraries/z42.net/src/TcpListener.z42:95`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpListener.z42#L95)
+[`src/libraries/z42.net/src/TcpListener.z42:96`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpListener.z42#L96)
 
 停止接受并释放监听 socket；幂等。
 
 <a id="Std.Net.Sockets.TcpListener.Dispose()"></a>
 ### void Dispose()
 
-[`src/libraries/z42.net/src/TcpListener.z42:100`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpListener.z42#L100)
+[`src/libraries/z42.net/src/TcpListener.z42:101`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TcpListener.z42#L101)
 
 释放监听 socket；幂等。
 
@@ -692,18 +710,20 @@ public class TlsStream : Stream {
 <a id="Std.Net.Sockets.TlsStream.ctor(long)"></a>
 ### TlsStream(long slotId)
 
-[`src/libraries/z42.net/src/TlsClient.z42:10`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TlsClient.z42#L10)
+[`src/libraries/z42.net/src/TlsClient.z42:11`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TlsClient.z42#L11)
 
+以底层 TLS 会话的 slot 句柄包装流；初始为打开状态。
 
 <a id="Std.Net.Sockets.TlsStream.MarkClosed()"></a>
 ### void MarkClosed()
 
-[`src/libraries/z42.net/src/TlsClient.z42:51`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TlsClient.z42#L51)
+[`src/libraries/z42.net/src/TlsClient.z42:53`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TlsClient.z42#L53)
 
+翻转 _closed 位使本流失效；幂等，底层会话由 TlsClient.Dispose 释放。
 
 ## TlsClient
 
-[`src/libraries/z42.net/src/TlsClient.z42:63`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TlsClient.z42#L63)
+[`src/libraries/z42.net/src/TlsClient.z42:65`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TlsClient.z42#L65)
 
 同步阻塞的 TLS 客户端；证书校验始终开启（rustls + 内置 Mozilla 根集，SNI = 连接主机）。
 
@@ -726,62 +746,63 @@ public class TlsClient : IDisposable {
 <a id="Std.Net.Sockets.TlsClient.ctor()"></a>
 ### TlsClient()
 
-[`src/libraries/z42.net/src/TlsClient.z42:71`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TlsClient.z42#L71)
+[`src/libraries/z42.net/src/TlsClient.z42:74`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TlsClient.z42#L74)
 
+构造未连接实例；随后 `Connect(host, port, timeoutMs)` 建立会话。
 
 <a id="Std.Net.Sockets.TlsClient.Connect(string,int,int)"></a>
 ### void Connect(string host, int port, int timeoutMs)
 
-[`src/libraries/z42.net/src/TlsClient.z42:81`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TlsClient.z42#L81)
+[`src/libraries/z42.net/src/TlsClient.z42:84`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TlsClient.z42#L84)
 
 建立到 `host:port` 的 TCP 连接并完成 TLS 握手；`timeoutMs > 0` 同时约束两者。
 
 <a id="Std.Net.Sockets.TlsClient.GetStream()"></a>
 ### Stream GetStream()
 
-[`src/libraries/z42.net/src/TlsClient.z42:96`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TlsClient.z42#L96)
+[`src/libraries/z42.net/src/TlsClient.z42:99`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TlsClient.z42#L99)
 
 返回该会话的字节流（具体类型为 `TlsStream`）；惰性创建并缓存。
 
 <a id="Std.Net.Sockets.TlsClient.RemoteHost()"></a>
 ### string RemoteHost()
 
-[`src/libraries/z42.net/src/TlsClient.z42:110`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TlsClient.z42#L110)
+[`src/libraries/z42.net/src/TlsClient.z42:113`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TlsClient.z42#L113)
 
 返回连接的远端主机。
 
 <a id="Std.Net.Sockets.TlsClient.RemotePort()"></a>
 ### int RemotePort()
 
-[`src/libraries/z42.net/src/TlsClient.z42:115`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TlsClient.z42#L115)
+[`src/libraries/z42.net/src/TlsClient.z42:118`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TlsClient.z42#L118)
 
 返回连接的远端端口。
 
 <a id="Std.Net.Sockets.TlsClient.SetReadTimeout(int)"></a>
 ### void SetReadTimeout(int millis)
 
-[`src/libraries/z42.net/src/TlsClient.z42:120`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TlsClient.z42#L120)
+[`src/libraries/z42.net/src/TlsClient.z42:123`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TlsClient.z42#L123)
 
 设置读超时（毫秒）；`millis <= 0` 清除超时。
 
 <a id="Std.Net.Sockets.TlsClient.SetWriteTimeout(int)"></a>
 ### void SetWriteTimeout(int millis)
 
-[`src/libraries/z42.net/src/TlsClient.z42:131`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TlsClient.z42#L131)
+[`src/libraries/z42.net/src/TlsClient.z42:134`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TlsClient.z42#L134)
 
 设置写超时（毫秒）；`millis <= 0` 清除超时。
 
 <a id="Std.Net.Sockets.TlsClient.Dispose()"></a>
 ### void Dispose()
 
-[`src/libraries/z42.net/src/TlsClient.z42:142`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TlsClient.z42#L142)
+[`src/libraries/z42.net/src/TlsClient.z42:145`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TlsClient.z42#L145)
 
 关闭会话并释放底层 fd；幂等。
 
 <a id="Std.Net.Sockets.TlsClient.Close()"></a>
 ### void Close()
 
-[`src/libraries/z42.net/src/TlsClient.z42:155`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TlsClient.z42#L155)
+[`src/libraries/z42.net/src/TlsClient.z42:158`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/TlsClient.z42#L158)
 
 `Dispose()` 的别名，对齐 `TcpClient.Close()`。
 
@@ -826,174 +847,179 @@ public class UdpClient : IDisposable {
 <a id="Std.Net.Sockets.UdpClient.ctor()"></a>
 ### UdpClient()
 
-[`src/libraries/z42.net/src/UdpClient.z42:19`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L19)
+[`src/libraries/z42.net/src/UdpClient.z42:20`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L20)
 
+构造未绑定实例；`Bind` 显式绑定，或首次 `Send` 自动绑定临时端口。
 
 <a id="Std.Net.Sockets.UdpClient.Bind(string,int)"></a>
 ### void Bind(string host, int port)
 
-[`src/libraries/z42.net/src/UdpClient.z42:33`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L33)
+[`src/libraries/z42.net/src/UdpClient.z42:34`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L34)
 
 绑定到 `host:port`；port 0 由 OS 分配临时端口（事后用 `LocalPort()` 查询）。
 
 <a id="Std.Net.Sockets.UdpClient.Send(byte[],int,string,int)"></a>
 ### int Send(byte[] data, int length, string remoteHost, int remotePort)
 
-[`src/libraries/z42.net/src/UdpClient.z42:49`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L49)
+[`src/libraries/z42.net/src/UdpClient.z42:51`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L51)
 
-向 `remoteHost:remotePort` 发送 `data[0..length]` 的数据报，返回发送字节数。 若尚未 Bind，则自动绑定到 ("0.0.0.0", 0)。
+向 `remoteHost:remotePort` 发送 `data[0..length]` 的数据报，返回发送字节数。
+
+若尚未 Bind，则自动绑定到 ("0.0.0.0", 0)。
 
 <a id="Std.Net.Sockets.UdpClient.Receive()"></a>
 ### UdpReceiveResult Receive()
 
-[`src/libraries/z42.net/src/UdpClient.z42:61`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L61)
+[`src/libraries/z42.net/src/UdpClient.z42:63`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L63)
 
 阻塞直到收到一个数据报，返回数据报及其发送方地址。
 
 <a id="Std.Net.Sockets.UdpClient.Connect(string,int)"></a>
 ### void Connect(string remoteHost, int remotePort)
 
-[`src/libraries/z42.net/src/UdpClient.z42:78`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L78)
+[`src/libraries/z42.net/src/UdpClient.z42:80`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L80)
 
 设置默认远端地址，供后续 `SendConnected` 使用；不调用 OS 的 connect(2)。
 
 <a id="Std.Net.Sockets.UdpClient.Disconnect()"></a>
 ### void Disconnect()
 
-[`src/libraries/z42.net/src/UdpClient.z42:88`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L88)
+[`src/libraries/z42.net/src/UdpClient.z42:90`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L90)
 
 清除默认远端地址；幂等。
 
 <a id="Std.Net.Sockets.UdpClient.IsConnected()"></a>
 ### bool IsConnected()
 
-[`src/libraries/z42.net/src/UdpClient.z42:95`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L95)
+[`src/libraries/z42.net/src/UdpClient.z42:97`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L97)
 
 是否已 Connect 且未 Disconnect。
 
 <a id="Std.Net.Sockets.UdpClient.SendConnected(byte[],int)"></a>
 ### int SendConnected(byte[] data, int length)
 
-[`src/libraries/z42.net/src/UdpClient.z42:100`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L100)
+[`src/libraries/z42.net/src/UdpClient.z42:102`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L102)
 
 向 `Connect` 设置的远端发送 `data[0..length]`；未 Connect 抛 `InvalidOperationException`。
 
 <a id="Std.Net.Sockets.UdpClient.SendConnected(byte[])"></a>
 ### int SendConnected(byte[] data)
 
-[`src/libraries/z42.net/src/UdpClient.z42:112`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L112)
+[`src/libraries/z42.net/src/UdpClient.z42:114`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L114)
 
 向已连接的远端发送整个 `data` 数组。
 
 <a id="Std.Net.Sockets.UdpClient.ReceiveInto(byte[],int,int)"></a>
 ### int ReceiveInto(byte[] buf, int offset, int count)
 
-[`src/libraries/z42.net/src/UdpClient.z42:118`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L118)
+[`src/libraries/z42.net/src/UdpClient.z42:121`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L121)
 
-把数据报收进调用方缓冲 `buf[offset..offset+count)`，省一次分配；返回写入字节数。 对端地址通过 `LastReceiveHost` / `LastReceivePort` 读取。
+把数据报收进调用方缓冲 `buf[offset..offset+count)`，省一次分配。
+
+返回写入字节数。对端地址通过 `LastReceiveHost` / `LastReceivePort` 读取。
 
 <a id="Std.Net.Sockets.UdpClient.ReceiveIntoFull(byte[])"></a>
 ### int ReceiveIntoFull(byte[] buf)
 
-[`src/libraries/z42.net/src/UdpClient.z42:133`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L133)
+[`src/libraries/z42.net/src/UdpClient.z42:136`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L136)
 
 把数据报收满整个 `buf`（offset 0、count buf.Length）。
 
 <a id="Std.Net.Sockets.UdpClient.LastReceiveHost()"></a>
 ### string LastReceiveHost()
 
-[`src/libraries/z42.net/src/UdpClient.z42:138`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L138)
+[`src/libraries/z42.net/src/UdpClient.z42:141`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L141)
 
 最近一次 `ReceiveInto*` 的对端主机（成功接收前为空）。
 
 <a id="Std.Net.Sockets.UdpClient.LastReceivePort()"></a>
 ### int LastReceivePort()
 
-[`src/libraries/z42.net/src/UdpClient.z42:141`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L141)
+[`src/libraries/z42.net/src/UdpClient.z42:144`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L144)
 
 最近一次 `ReceiveInto*` 的对端端口（成功接收前为 0）。
 
 <a id="Std.Net.Sockets.UdpClient.JoinMulticastGroup(string,string)"></a>
 ### void JoinMulticastGroup(string groupIp, string ifaceIp)
 
-[`src/libraries/z42.net/src/UdpClient.z42:146`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L146)
+[`src/libraries/z42.net/src/UdpClient.z42:149`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L149)
 
 加入 IPv4 组播组；`ifaceIp` 传 "0.0.0.0" 表示由 OS 选择接口。
 
 <a id="Std.Net.Sockets.UdpClient.JoinMulticastGroup(string)"></a>
 ### void JoinMulticastGroup(string groupIp)
 
-[`src/libraries/z42.net/src/UdpClient.z42:155`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L155)
+[`src/libraries/z42.net/src/UdpClient.z42:158`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L158)
 
 加入 IPv4 组播组，接口交给 OS（0.0.0.0）。
 
 <a id="Std.Net.Sockets.UdpClient.LeaveMulticastGroup(string,string)"></a>
 ### void LeaveMulticastGroup(string groupIp, string ifaceIp)
 
-[`src/libraries/z42.net/src/UdpClient.z42:160`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L160)
+[`src/libraries/z42.net/src/UdpClient.z42:163`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L163)
 
 离开之前加入的 IPv4 组播组。
 
 <a id="Std.Net.Sockets.UdpClient.LeaveMulticastGroup(string)"></a>
 ### void LeaveMulticastGroup(string groupIp)
 
-[`src/libraries/z42.net/src/UdpClient.z42:169`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L169)
+[`src/libraries/z42.net/src/UdpClient.z42:172`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L172)
 
 离开 IPv4 组播组，接口交给 OS（0.0.0.0）。
 
 <a id="Std.Net.Sockets.UdpClient.SetMulticastLoop(bool)"></a>
 ### void SetMulticastLoop(bool enable)
 
-[`src/libraries/z42.net/src/UdpClient.z42:174`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L174)
+[`src/libraries/z42.net/src/UdpClient.z42:177`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L177)
 
 设置 IP_MULTICAST_LOOP（本 socket 发出的组播是否回环到本机）。
 
 <a id="Std.Net.Sockets.UdpClient.SetTtl(int)"></a>
 ### void SetTtl(int ttl)
 
-[`src/libraries/z42.net/src/UdpClient.z42:183`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L183)
+[`src/libraries/z42.net/src/UdpClient.z42:186`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L186)
 
 设置单播发送的 IP_TTL。
 
 <a id="Std.Net.Sockets.UdpClient.SetReadTimeout(int)"></a>
 ### void SetReadTimeout(int millis)
 
-[`src/libraries/z42.net/src/UdpClient.z42:192`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L192)
+[`src/libraries/z42.net/src/UdpClient.z42:195`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L195)
 
 设置读超时（毫秒）；`millis <= 0` 清除超时。需先 Bind。
 
 <a id="Std.Net.Sockets.UdpClient.SetWriteTimeout(int)"></a>
 ### void SetWriteTimeout(int millis)
 
-[`src/libraries/z42.net/src/UdpClient.z42:201`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L201)
+[`src/libraries/z42.net/src/UdpClient.z42:204`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L204)
 
 设置写超时（毫秒）；`millis <= 0` 清除超时。需先 Bind。
 
 <a id="Std.Net.Sockets.UdpClient.LocalPort()"></a>
 ### int LocalPort()
 
-[`src/libraries/z42.net/src/UdpClient.z42:210`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L210)
+[`src/libraries/z42.net/src/UdpClient.z42:213`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L213)
 
 本地绑定端口（用 port 0 绑定时查询 OS 分配到的端口）。
 
 <a id="Std.Net.Sockets.UdpClient.BindHost()"></a>
 ### string BindHost()
 
-[`src/libraries/z42.net/src/UdpClient.z42:221`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L221)
+[`src/libraries/z42.net/src/UdpClient.z42:224`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L224)
 
 返回绑定主机。
 
 <a id="Std.Net.Sockets.UdpClient.Dispose()"></a>
 ### void Dispose()
 
-[`src/libraries/z42.net/src/UdpClient.z42:226`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L226)
+[`src/libraries/z42.net/src/UdpClient.z42:229`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L229)
 
 关闭 socket；幂等。之后的操作抛 `SocketClosedException`。
 
 <a id="Std.Net.Sockets.UdpClient.Close()"></a>
 ### void Close()
 
-[`src/libraries/z42.net/src/UdpClient.z42:236`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L236)
+[`src/libraries/z42.net/src/UdpClient.z42:239`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpClient.z42#L239)
 
 `Dispose()` 的别名，对齐 .NET 的 `UdpClient.Close()`。
 
@@ -1038,6 +1064,7 @@ public class UdpReceiveResult {
 <a id="Std.Net.Sockets.UdpReceiveResult.ctor(byte[],string,int)"></a>
 ### UdpReceiveResult(byte[] buffer, string remoteHost, int remotePort)
 
-[`src/libraries/z42.net/src/UdpReceiveResult.z42:13`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpReceiveResult.z42#L13)
+[`src/libraries/z42.net/src/UdpReceiveResult.z42:14`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.net/src/UdpReceiveResult.z42#L14)
 
+以数据报字节与发送方地址组装。
 

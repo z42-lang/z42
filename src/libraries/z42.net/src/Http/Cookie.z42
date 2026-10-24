@@ -18,6 +18,7 @@ public class Cookie {
     /// 绝对过期时间（Unix 秒）；0 = 会话 cookie。
     public long   ExpiresUnixSec;
 
+    /// 以名值对构造会话 cookie：域空、路径 "/"、无 Secure/HttpOnly、不过期。
     public Cookie(string name, string value) {
         this.Name           = name;
         this.Value          = value;

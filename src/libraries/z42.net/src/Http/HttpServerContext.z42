@@ -11,6 +11,7 @@ public class HttpServerContext {
     public bool         ResponseSent;
     private NetworkStream _stream;
 
+    /// 绑定请求与其连接流；ResponseSent 初始为 false。
     public HttpServerContext(HttpRequest request, NetworkStream stream) {
         this.Request      = request;
         this.ResponseSent = false;

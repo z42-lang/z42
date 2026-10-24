@@ -2,8 +2,9 @@ namespace Std.Crypto;
 
 using Std.Encoding;
 
-// SHA-384 哈希（FIPS 180-4 §6.5）：即 SHA-512 换用不同的初始哈希值，并把输出截断为
-// 前 48 字节（最终状态的前 6 个 64 位字）。压缩函数通过 `Sha512._compressBlock` 与 Sha512 共用。
+/// SHA-384 哈希（FIPS 180-4 §6.5）——SHA-512 换初始哈希值并把输出截断为前 48 字节。
+///
+/// 输出取最终状态的前 6 个 64 位字。压缩函数通过 `Sha512._compressBlock` 与 Sha512 共用。
 public static class Sha384 {
     /// 计算 SHA-384 原始摘要（48 字节）。
     public static byte[] Hash(byte[] data) {

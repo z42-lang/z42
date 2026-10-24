@@ -8,17 +8,25 @@ public class TestCase {
     public string Qualified;
     /// 1=Test, 2=Benchmark, 3=Setup, 4=Teardown.
     public int Kind;
+    /// 被标注的函数本体，[`Invoke`] 的反射调用目标。
     public MethodInfo Method;
+    /// 贴了 `[Skip]` 为 true（三个门控实参见下面的 `Skip*` 字段）。
     public bool Skipped;
+    /// 贴了 `[Ignore]` 为 true（无条件跳过，不报理由）。
     public bool Ignored;
     /// `[Skip]` 的三个实参；没给的为 null。
     public string? SkipReason;
+    /// `[Skip]` 的 platform 实参；没给为 null。
     public string? SkipPlatform;
+    /// `[Skip]` 的 feature 实参；没给为 null。
     public string? SkipFeature;
     /// `[ShouldThrow<E>]`：贴了即 true；`Expected` 为 E（漏写类型实参时为 null）。
     public bool ShouldThrow;
+    /// 期望抛出的异常类型（`[ShouldThrow<E>]` 的 E）；漏写类型实参为 null。
     public Type? Expected;
 
+    /// 装配一条用例：名字 / kind / 函数取实参，skip 与期望异常等一律先置默认，
+    /// 由发现层（`_fromMethod`）读 attribute 后补写。
     public TestCase(string qualified, int kind, MethodInfo method) {
         this.Qualified = qualified; this.Kind = kind; this.Method = method;
         this.Skipped = false; this.Ignored = false;
@@ -26,12 +34,19 @@ public class TestCase {
         this.ShouldThrow = false; this.Expected = null;
     }
 
+    /// 是否 `[Test]`（Kind == 1）。
     public bool IsTest()      { return this.Kind == 1; }
+    /// 是否 `[Benchmark]`（Kind == 2）。
     public bool IsBenchmark() { return this.Kind == 2; }
+    /// 是否 `[Setup]`（Kind == 3）。
     public bool IsSetup()     { return this.Kind == 3; }
+    /// 是否 `[Teardown]`（Kind == 4）。
     public bool IsTeardown()  { return this.Kind == 4; }
+    /// 是否贴了 `[Skip]`。
     public bool IsSkipped()   { return this.Skipped; }
+    /// 是否贴了 `[Ignore]`。
     public bool IsIgnored()   { return this.Ignored; }
+    /// 是否贴了 `[ShouldThrow<E>]`。
     public bool HasShouldThrow() { return this.ShouldThrow; }
 
     /// 所属命名空间（自由函数）或类型（静态方法）的全限定名——`[Setup]` / `[Teardown]` 按它成组。
@@ -68,9 +83,11 @@ public class TestCase {
     }
 }
 
-/// 运行期反射发现测试：把编好的测试 / bench 产物并入当前 VM，经反射找出贴了
-/// `[Test]` / `[Benchmark]` / `[Setup]` / `[Teardown]` 的函数，连同 `[Skip]` / `[Ignore]` /
-/// `[ShouldThrow<E>]` 一起读成 [`TestCase`]。
+/// 运行期反射发现测试：并入编好的产物，把贴了测试 attribute 的函数读成 [`TestCase`]。
+///
+/// 把编好的测试 / bench 产物并入当前 VM，经反射找出贴了 `[Test]` / `[Benchmark]` /
+/// `[Setup]` / `[Teardown]` 的函数，连同 `[Skip]` / `[Ignore]` / `[ShouldThrow<E>]`
+/// 一起读成 [`TestCase`]。
 ///
 /// 发现面 = 产物的自由函数（`Assembly.GetFunctions()`）+ 各类型的静态方法（`Type.GetMethods()`）；
 /// 只读 attribute 活实例，不依赖编译器写进产物的测试专用元数据，也不依赖测试专用的 VM 能力。

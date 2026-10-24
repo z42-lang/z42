@@ -4,16 +4,16 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`
 
-[`src/libraries/z42.core/src/String.z42:33`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L33)
+[`src/libraries/z42.core/src/String.Edit.z42:8`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.Edit.z42#L8)
 
-内置 `string` 类型的包装类：写 `string s` 声明的值，方法都派发到这里。
+`Std.String` 的 partial 碎片 —— 位置编辑（Insert / Remove）与对齐填充（PadLeft / PadRight）。
 
-不可变；索引与长度按 Unicode 标量（`char`）计（字节数用 `ByteLength`）；越界与
-非法实参抛可 catch 的 `Std.Exception`。sealed partial，实现 `IComparable` /
-`IEquatable`。
+碎片归属规则（partial v1）：**同名方法组必须落在同一碎片**——键决策是每-fragment
+的局部状态，跨碎片时两个同名方法会各自当「声明序首个」取裸键，后者静默覆盖前者。
+故 Remove×2 / PadLeft×2 / PadRight×2 各自成组落在本碎片。
 
 ```z42
-public sealed partial class String : IComparable, IEquatable {
+public sealed partial class String {
     string Insert(int startIndex, string value)
     string Remove(int startIndex)
     string Remove(int startIndex, int count)
@@ -71,49 +71,49 @@ public sealed partial class String : IComparable, IEquatable {
 <a id="Std.String.Insert(int,string)"></a>
 ### string Insert(int startIndex, string value)
 
-[`src/libraries/z42.core/src/String.Edit.z42:14`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.Edit.z42#L14)
+[`src/libraries/z42.core/src/String.Edit.z42:13`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.Edit.z42#L13)
 
 在 `startIndex` 处插入 `value`。`startIndex == Length` 等价追加；越界抛异常， 空 `value` 返回原串。
 
 <a id="Std.String.Remove(int)"></a>
 ### string Remove(int startIndex)
 
-[`src/libraries/z42.core/src/String.Edit.z42:24`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.Edit.z42#L24)
+[`src/libraries/z42.core/src/String.Edit.z42:23`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.Edit.z42#L23)
 
 删除 `[startIndex, Length)`，即截断到 `startIndex`。
 
 <a id="Std.String.Remove(int,int)"></a>
 ### string Remove(int startIndex, int count)
 
-[`src/libraries/z42.core/src/String.Edit.z42:33`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.Edit.z42#L33)
+[`src/libraries/z42.core/src/String.Edit.z42:32`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.Edit.z42#L32)
 
 删除 `[startIndex, startIndex+count)`；越界抛异常。
 
 <a id="Std.String.PadLeft(int)"></a>
 ### string PadLeft(int totalWidth)
 
-[`src/libraries/z42.core/src/String.Edit.z42:45`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.Edit.z42#L45)
+[`src/libraries/z42.core/src/String.Edit.z42:44`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.Edit.z42#L44)
 
 右对齐到 `totalWidth`，左侧补空格。串已达宽度则原样返回。
 
 <a id="Std.String.PadLeft(int,char)"></a>
 ### string PadLeft(int totalWidth, char paddingChar)
 
-[`src/libraries/z42.core/src/String.Edit.z42:50`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.Edit.z42#L50)
+[`src/libraries/z42.core/src/String.Edit.z42:49`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.Edit.z42#L49)
 
 右对齐到 `totalWidth`，左侧补 `paddingChar`。`totalWidth < 0` 抛异常。
 
 <a id="Std.String.PadRight(int)"></a>
 ### string PadRight(int totalWidth)
 
-[`src/libraries/z42.core/src/String.Edit.z42:65`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.Edit.z42#L65)
+[`src/libraries/z42.core/src/String.Edit.z42:64`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.Edit.z42#L64)
 
 左对齐到 `totalWidth`，右侧补空格。
 
 <a id="Std.String.PadRight(int,char)"></a>
 ### string PadRight(int totalWidth, char paddingChar)
 
-[`src/libraries/z42.core/src/String.Edit.z42:70`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.Edit.z42#L70)
+[`src/libraries/z42.core/src/String.Edit.z42:69`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.Edit.z42#L69)
 
 左对齐到 `totalWidth`，右侧补 `paddingChar`。`totalWidth < 0` 抛异常。
 
@@ -141,21 +141,23 @@ public sealed partial class String : IComparable, IEquatable {
 <a id="Std.String.Join(string,string[])"></a>
 ### static string Join(string separator, params string[] values)
 
-[`src/libraries/z42.core/src/String.Split.z42:92`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.Split.z42#L92)
+[`src/libraries/z42.core/src/String.Split.z42:93`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.Split.z42#L93)
 
-以 `separator` 拼接各段。`params` 使 `Join("-", arr)` 与 `Join("-", "a", "b")` 都可用；零实参 → ""。
+以 `separator` 拼接各段。
+
+`params` 使 `Join("-", arr)` 与 `Join("-", "a", "b")` 都可用；零实参 → ""。
 
 <a id="Std.String.Concat(string[])"></a>
 ### static string Concat(params string[] values)
 
-[`src/libraries/z42.core/src/String.Split.z42:104`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.Split.z42#L104)
+[`src/libraries/z42.core/src/String.Split.z42:105`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.Split.z42#L105)
 
 无分隔符逐段拼接；零实参 → ""。
 
 <a id="Std.String.Format(string,object[])"></a>
 ### static string Format(string format, params object[] args)
 
-[`src/libraries/z42.core/src/String.Split.z42:115`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.Split.z42#L115)
+[`src/libraries/z42.core/src/String.Split.z42:116`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.Split.z42#L116)
 
 把 `{0}` / `{1}` … 替换为对应实参的 `Convert.ToString()`。
 
@@ -169,245 +171,248 @@ public sealed partial class String : IComparable, IEquatable {
 <a id="Std.String.ByteLength"></a>
 ### extern int ByteLength { get; }
 
-[`src/libraries/z42.core/src/String.z42:41`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L41)
+[`src/libraries/z42.core/src/String.z42:43`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L43)
 
-UTF-8 字节数，O(1)。非 ASCII 串与 Length 不同（`"你好".Length == 2`， `"你好".ByteLength == 6`）。热路径尺寸查询用本属性。
+UTF-8 字节数，O(1)。
+
+非 ASCII 串与 Length 不同（`"你好".Length == 2`，`"你好".ByteLength == 6`）。
+热路径尺寸查询用本属性。
 
 <a id="Std.String.CharAt(int)"></a>
 ### extern char CharAt(int index)
 
-[`src/libraries/z42.core/src/String.z42:44`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L44)
+[`src/libraries/z42.core/src/String.z42:46`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L46)
 
 第 `index` 个字符（`s[index]` 同）。越界（含负数）抛 IndexOutOfRangeException。
 
 <a id="Std.String.this[int]"></a>
 ### char this[int index] { get; }
 
-[`src/libraries/z42.core/src/String.z42:47`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L47)
+[`src/libraries/z42.core/src/String.z42:49`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L49)
 
 索引器：等价于 `CharAt(index)`。`foreach (char c in s)` 也经此迭代。
 
 <a id="Std.String.FromChars(char[])"></a>
 ### static extern string FromChars(char[] chars)
 
-[`src/libraries/z42.core/src/String.z42:50`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L50)
+[`src/libraries/z42.core/src/String.z42:52`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L52)
 
 由 `char[]` 建串。空数组 → 空串。
 
 <a id="Std.String.ToString()"></a>
 ### string ToString()
 
-[`src/libraries/z42.core/src/String.z42:55`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L55)
+[`src/libraries/z42.core/src/String.z42:57`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L57)
 
 返回自身。
 
 <a id="Std.String.Equals(object?)"></a>
 ### extern bool Equals(object? other)
 
-[`src/libraries/z42.core/src/String.z42:58`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L58)
+[`src/libraries/z42.core/src/String.z42:60`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L60)
 
 值相等比较。
 
 <a id="Std.String.Equals(string)"></a>
 ### extern bool Equals(string other)
 
-[`src/libraries/z42.core/src/String.z42:60`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L60)
+[`src/libraries/z42.core/src/String.z42:62`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L62)
 
 值相等比较。
 
 <a id="Std.String.CompareTo(string)"></a>
 ### extern int CompareTo(string other)
 
-[`src/libraries/z42.core/src/String.z42:62`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L62)
+[`src/libraries/z42.core/src/String.z42:64`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L64)
 
 序数比较，返回负 / 0 / 正。
 
 <a id="Std.String.GetHashCode()"></a>
 ### extern int GetHashCode()
 
-[`src/libraries/z42.core/src/String.z42:64`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L64)
+[`src/libraries/z42.core/src/String.z42:66`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L66)
 
 内容哈希码。
 
 <a id="Std.String.IsEmpty()"></a>
 ### bool IsEmpty()
 
-[`src/libraries/z42.core/src/String.z42:71`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L71)
+[`src/libraries/z42.core/src/String.z42:73`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L73)
 
 `Length == 0`。
 
 <a id="Std.String.Contains(string)"></a>
 ### bool Contains(string value)
 
-[`src/libraries/z42.core/src/String.z42:76`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L76)
+[`src/libraries/z42.core/src/String.z42:78`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L78)
 
 `value` 是否出现在本串中（等价 `IndexOf(value) >= 0`）。
 
 <a id="Std.String.StartsWith(string)"></a>
 ### bool StartsWith(string prefix)
 
-[`src/libraries/z42.core/src/String.z42:81`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L81)
+[`src/libraries/z42.core/src/String.z42:83`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L83)
 
 是否以 `prefix` 开头。空前缀恒 true。
 
 <a id="Std.String.EndsWith(string)"></a>
 ### bool EndsWith(string suffix)
 
-[`src/libraries/z42.core/src/String.z42:92`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L92)
+[`src/libraries/z42.core/src/String.z42:94`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L94)
 
 是否以 `suffix` 结尾。空后缀恒 true。
 
 <a id="Std.String.IndexOf(string)"></a>
 ### int IndexOf(string value)
 
-[`src/libraries/z42.core/src/String.z42:107`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L107)
+[`src/libraries/z42.core/src/String.z42:109`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L109)
 
 `value` 首次出现的索引（标量单位），未命中 -1；`IndexOf("")` → 0。
 
 <a id="Std.String.IndexOf(char)"></a>
 ### int IndexOf(char value)
 
-[`src/libraries/z42.core/src/String.z42:126`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L126)
+[`src/libraries/z42.core/src/String.z42:128`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L128)
 
 `value` 首次出现的索引，未命中 -1。
 
 <a id="Std.String.LastIndexOf(string)"></a>
 ### int LastIndexOf(string value)
 
-[`src/libraries/z42.core/src/String.z42:136`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L136)
+[`src/libraries/z42.core/src/String.z42:138`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L138)
 
 `value` 最后一次出现的索引（标量单位），未命中 -1；`LastIndexOf("")` → Length。
 
 <a id="Std.String.LastIndexOf(char)"></a>
 ### int LastIndexOf(char value)
 
-[`src/libraries/z42.core/src/String.z42:154`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L154)
+[`src/libraries/z42.core/src/String.z42:156`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L156)
 
 `value` 最后一次出现的索引，未命中 -1。
 
 <a id="Std.String.Replace(string,string)"></a>
 ### string Replace(string oldValue, string newValue)
 
-[`src/libraries/z42.core/src/String.z42:163`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L163)
+[`src/libraries/z42.core/src/String.z42:165`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L165)
 
 替换全部出现的 `oldValue` 为 `newValue`。`oldValue` 为空串抛异常。
 
 <a id="Std.String.Substring(int)"></a>
 ### string Substring(int start)
 
-[`src/libraries/z42.core/src/String.z42:211`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L211)
+[`src/libraries/z42.core/src/String.z42:213`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L213)
 
 截取 `[start, Length)`。
 
 <a id="Std.String.Substring(int,int)"></a>
 ### string Substring(int start, int length)
 
-[`src/libraries/z42.core/src/String.z42:216`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L216)
+[`src/libraries/z42.core/src/String.z42:218`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L218)
 
 截取 `[start, start+length)`；`start`/`length` 为负或越界抛异常。
 
 <a id="Std.String.ToLower()"></a>
 ### string ToLower()
 
-[`src/libraries/z42.core/src/String.z42:228`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L228)
+[`src/libraries/z42.core/src/String.z42:230`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L230)
 
 ASCII 小写转换，非 ASCII 字母原样保留。
 
 <a id="Std.String.ToUpper()"></a>
 ### string ToUpper()
 
-[`src/libraries/z42.core/src/String.z42:238`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L238)
+[`src/libraries/z42.core/src/String.z42:240`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L240)
 
 ASCII 大写转换，非 ASCII 字母原样保留。
 
 <a id="Std.String.ToCharArray()"></a>
 ### extern char[] ToCharArray()
 
-[`src/libraries/z42.core/src/String.z42:250`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L250)
+[`src/libraries/z42.core/src/String.z42:252`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L252)
 
 物化成 `char[]`；空串 → 空数组。
 
 <a id="Std.String.ConcatParts(string[],int)"></a>
 ### static extern string ConcatParts(string[] parts, int count)
 
-[`src/libraries/z42.core/src/String.z42:257`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L257)
+[`src/libraries/z42.core/src/String.z42:259`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L259)
 
 把 `parts[0..count)` 一次拼接；`count` 越界或元素非 string 由 VM 报错。
 
 <a id="Std.String.Trim()"></a>
 ### string Trim()
 
-[`src/libraries/z42.core/src/String.z42:260`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L260)
+[`src/libraries/z42.core/src/String.z42:262`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L262)
 
 裁掉首尾空白。
 
 <a id="Std.String.TrimStart()"></a>
 ### string TrimStart()
 
-[`src/libraries/z42.core/src/String.z42:271`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L271)
+[`src/libraries/z42.core/src/String.z42:273`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L273)
 
 裁掉前导空白。
 
 <a id="Std.String.TrimEnd()"></a>
 ### string TrimEnd()
 
-[`src/libraries/z42.core/src/String.z42:279`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L279)
+[`src/libraries/z42.core/src/String.z42:281`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L281)
 
 裁掉尾随空白。
 
 <a id="Std.String.Trim(char)"></a>
 ### string Trim(char trimChar)
 
-[`src/libraries/z42.core/src/String.z42:302`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L302)
+[`src/libraries/z42.core/src/String.z42:304`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L304)
 
 裁掉首尾 `trimChar`。
 
 <a id="Std.String.Trim(char[])"></a>
 ### string Trim(char[] trimChars)
 
-[`src/libraries/z42.core/src/String.z42:309`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L309)
+[`src/libraries/z42.core/src/String.z42:311`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L311)
 
 裁掉首尾 `trimChars` 中任一字符；空数组按空白裁。
 
 <a id="Std.String.TrimStart(char)"></a>
 ### string TrimStart(char trimChar)
 
-[`src/libraries/z42.core/src/String.z42:322`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L322)
+[`src/libraries/z42.core/src/String.z42:324`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L324)
 
 裁掉前导 `trimChar`。
 
 <a id="Std.String.TrimStart(char[])"></a>
 ### string TrimStart(char[] trimChars)
 
-[`src/libraries/z42.core/src/String.z42:329`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L329)
+[`src/libraries/z42.core/src/String.z42:331`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L331)
 
 裁掉前导 `trimChars` 中任一字符；空数组按空白裁。
 
 <a id="Std.String.TrimEnd(char)"></a>
 ### string TrimEnd(char trimChar)
 
-[`src/libraries/z42.core/src/String.z42:339`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L339)
+[`src/libraries/z42.core/src/String.z42:341`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L341)
 
 裁掉尾随 `trimChar`。
 
 <a id="Std.String.TrimEnd(char[])"></a>
 ### string TrimEnd(char[] trimChars)
 
-[`src/libraries/z42.core/src/String.z42:346`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L346)
+[`src/libraries/z42.core/src/String.z42:348`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L348)
 
 裁掉尾随 `trimChars` 中任一字符；空数组按空白裁。
 
 <a id="Std.String.IsNullOrEmpty(string?)"></a>
 ### static bool IsNullOrEmpty(string? value)
 
-[`src/libraries/z42.core/src/String.z42:359`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L359)
+[`src/libraries/z42.core/src/String.z42:361`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L361)
 
 `value` 为 null 或空串时为 true。
 
 <a id="Std.String.IsNullOrWhiteSpace(string?)"></a>
 ### static bool IsNullOrWhiteSpace(string? value)
 
-[`src/libraries/z42.core/src/String.z42:364`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L364)
+[`src/libraries/z42.core/src/String.z42:366`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/String.z42#L366)
 
 `value` 为 null 或全空白时为 true。
 

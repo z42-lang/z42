@@ -45,77 +45,79 @@ public struct Int32 : IComparable, IEquatable, INumber {
 <a id="Std.Int32.Parse(string)"></a>
 ### static extern int Parse(string s)
 
-[`src/libraries/z42.core/src/Primitives/Int32.z42:12`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Int32.z42#L12)
+[`src/libraries/z42.core/src/Primitives/Int32.z42:13`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Int32.z42#L13)
 
-解析十进制整数字符串；格式错误抛 FormatException，越界抛 OverflowException， null 抛 ArgumentNullException。
+解析十进制整数字符串。
+
+格式错误抛 FormatException，越界抛 OverflowException，null 抛 ArgumentNullException。
 
 <a id="Std.Int32.ToString()"></a>
 ### extern string ToString()
 
-[`src/libraries/z42.core/src/Primitives/Int32.z42:14`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Int32.z42#L14)
+[`src/libraries/z42.core/src/Primitives/Int32.z42:15`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Int32.z42#L15)
 
 返回十进制字符串表示。
 
 <a id="Std.Int32.TryParse(string,int)"></a>
 ### static extern bool TryParse(string s, ref int v)
 
-[`src/libraries/z42.core/src/Primitives/Int32.z42:18`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Int32.z42#L18)
+[`src/libraries/z42.core/src/Primitives/Int32.z42:19`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Int32.z42#L19)
 
 非抛出解析：成功把值写入 `v` 并返回 true；格式错误 / 越界 / null 返回 false 且 `v` 置 0。
 
 <a id="Std.Int32.Equals(int)"></a>
 ### bool Equals(int other)
 
-[`src/libraries/z42.core/src/Primitives/Int32.z42:21`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Int32.z42#L21)
+[`src/libraries/z42.core/src/Primitives/Int32.z42:22`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Int32.z42#L22)
 
 值相等比较。
 
 <a id="Std.Int32.GetHashCode()"></a>
 ### int GetHashCode()
 
-[`src/libraries/z42.core/src/Primitives/Int32.z42:23`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Int32.z42#L23)
+[`src/libraries/z42.core/src/Primitives/Int32.z42:24`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Int32.z42#L24)
 
 返回哈希码（int 的哈希是自身）。
 
 <a id="Std.Int32.CompareTo(int)"></a>
 ### int CompareTo(int other)
 
-[`src/libraries/z42.core/src/Primitives/Int32.z42:26`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Int32.z42#L26)
+[`src/libraries/z42.core/src/Primitives/Int32.z42:27`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Int32.z42#L27)
 
 比较大小，返回负 / 0 / 正。
 
 <a id="Std.Int32.op_Add(int,int)"></a>
 ### static override int op_Add(int a, int b)
 
-[`src/libraries/z42.core/src/Primitives/Int32.z42:34`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Int32.z42#L34)
+[`src/libraries/z42.core/src/Primitives/Int32.z42:35`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Int32.z42#L35)
 
 加法。
 
 <a id="Std.Int32.op_Subtract(int,int)"></a>
 ### static override int op_Subtract(int a, int b)
 
-[`src/libraries/z42.core/src/Primitives/Int32.z42:36`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Int32.z42#L36)
+[`src/libraries/z42.core/src/Primitives/Int32.z42:37`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Int32.z42#L37)
 
 减法。
 
 <a id="Std.Int32.op_Multiply(int,int)"></a>
 ### static override int op_Multiply(int a, int b)
 
-[`src/libraries/z42.core/src/Primitives/Int32.z42:38`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Int32.z42#L38)
+[`src/libraries/z42.core/src/Primitives/Int32.z42:39`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Int32.z42#L39)
 
 乘法。
 
 <a id="Std.Int32.op_Divide(int,int)"></a>
 ### static override int op_Divide(int a, int b)
 
-[`src/libraries/z42.core/src/Primitives/Int32.z42:40`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Int32.z42#L40)
+[`src/libraries/z42.core/src/Primitives/Int32.z42:41`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Int32.z42#L41)
 
 除法。
 
 <a id="Std.Int32.op_Modulo(int,int)"></a>
 ### static override int op_Modulo(int a, int b)
 
-[`src/libraries/z42.core/src/Primitives/Int32.z42:42`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Int32.z42#L42)
+[`src/libraries/z42.core/src/Primitives/Int32.z42:43`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Primitives/Int32.z42#L43)
 
 取模。
 

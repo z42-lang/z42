@@ -1,7 +1,9 @@
 namespace Std.Harness.Contracts;
 
-/// `IBasicCollection<T>` 的行为契约测试：对任何实现都普遍成立的不变式，一条
-/// `[Test]` 一行搞定，不必在每个集合的测试文件里抄五遍断言。
+/// `IBasicCollection<T>` 的行为契约测试。
+///
+/// 对任何实现都普遍成立的不变式，一条 `[Test]` 一行搞定，不必在每个集合的测试
+/// 文件里抄五遍断言。
 ///
 ///     [Test]
 ///     void test_linkedlist_basic_contract() {

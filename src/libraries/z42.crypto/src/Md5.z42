@@ -2,10 +2,11 @@ namespace Std.Crypto;
 
 using Std.Encoding;
 
-// MD5 哈希（RFC 1321），纯脚本实现，结构与 `Sha1` 相同。状态用 `long`（i64）保存，
-// 每一步运算边界掩码到 32 位；全程小端字节序（RFC 1321 §3.4，与 SHA-1 相反）。
-// ⚠️ MD5 碰撞已破（Wang et al 2004；前缀碰撞 Stevens 2007），勿用于新设计。仅用于
-// HTTP Digest 认证、ETag、CRAM-MD5、BitTorrent v1 等协议强制的旧格式互操作。
+/// MD5 哈希（RFC 1321），纯脚本实现。⚠️ 碰撞已破，勿用于新设计，仅限旧格式互操作。
+///
+/// 结构与 `Sha1` 相同。状态用 `long`（i64）保存，每一步运算边界掩码到 32 位；全程小端
+/// 字节序（RFC 1321 §3.4，与 SHA-1 相反）。碰撞（Wang et al 2004；前缀碰撞 Stevens 2007）
+/// 意味着仅用于 HTTP Digest 认证、ETag、CRAM-MD5、BitTorrent v1 等协议强制的旧格式互操作。
 public static class Md5 {
     // ── Public API ───────────────────────────────────────────────────────
 

@@ -82,7 +82,9 @@ public class StringWriter {
 
     // ── 生命周期 ─────────────────────────────────────────────
 
-    /// 标记关闭（幂等）；关闭后 Write / WriteLine / Clear 抛 InvalidOperationException，ToString() 仍可用。
+    /// 标记关闭（幂等）。
+    ///
+    /// 关闭后 Write / WriteLine / Clear 抛 InvalidOperationException，ToString() 仍可用。
     public void Close() {
         if (this._closed) { return; }
         this._closed = true;

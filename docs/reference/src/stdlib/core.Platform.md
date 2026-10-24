@@ -41,133 +41,140 @@ public static class Platform {
 <a id="Std.Platform.OS()"></a>
 ### static extern string OS()
 
-[`src/libraries/z42.core/src/Platform.z42:12`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L12)
+[`src/libraries/z42.core/src/Platform.z42:14`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L14)
 
-OS 名：`"linux"` / `"macos"` / `"windows"` / `"android"` / `"ios"` / `"wasm"` / `"freebsd"`，或目标三元组里的其它 OS 名。
+OS 名：`"linux"` / `"macos"` / `"windows"` 等（或目标三元组里的其它 OS 名）。
+
+已知名：`"linux"` / `"macos"` / `"windows"` / `"android"` / `"ios"` /
+`"wasm"` / `"freebsd"`。
 
 <a id="Std.Platform.Arch()"></a>
 ### static extern string Arch()
 
-[`src/libraries/z42.core/src/Platform.z42:15`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L15)
+[`src/libraries/z42.core/src/Platform.z42:17`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L17)
 
 架构名：`"x86_64"` / `"aarch64"` / `"wasm32"` / `"x86"`，或目标三元组里的其它架构名。
 
 <a id="Std.Platform.Family()"></a>
 ### static extern string Family()
 
-[`src/libraries/z42.core/src/Platform.z42:18`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L18)
+[`src/libraries/z42.core/src/Platform.z42:20`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L20)
 
 Unix 系为 `"unix"`，Windows 为 `"windows"`。
 
 <a id="Std.Platform.OSKindValue()"></a>
 ### static extern int OSKindValue()
 
-[`src/libraries/z42.core/src/Platform.z42:22`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L22)
+[`src/libraries/z42.core/src/Platform.z42:24`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L24)
 
 OS 的整数 kind（常量见 `OSKind`）。
 
 <a id="Std.Platform.ArchKindValue()"></a>
 ### static extern int ArchKindValue()
 
-[`src/libraries/z42.core/src/Platform.z42:25`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L25)
+[`src/libraries/z42.core/src/Platform.z42:27`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L27)
 
 架构的整数 kind（常量见 `ArchKind`）。
 
 <a id="Std.Platform.IsLinux()"></a>
 ### static bool IsLinux()
 
-[`src/libraries/z42.core/src/Platform.z42:31`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L31)
+[`src/libraries/z42.core/src/Platform.z42:33`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L33)
 
 是否 Linux。
 
 <a id="Std.Platform.IsMacOS()"></a>
 ### static bool IsMacOS()
 
-[`src/libraries/z42.core/src/Platform.z42:35`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L35)
+[`src/libraries/z42.core/src/Platform.z42:37`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L37)
 
 是否 macOS。
 
 <a id="Std.Platform.IsWindows()"></a>
 ### static bool IsWindows()
 
-[`src/libraries/z42.core/src/Platform.z42:39`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L39)
+[`src/libraries/z42.core/src/Platform.z42:41`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L41)
 
 是否 Windows。
 
 <a id="Std.Platform.IsAndroid()"></a>
 ### static bool IsAndroid()
 
-[`src/libraries/z42.core/src/Platform.z42:43`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L43)
+[`src/libraries/z42.core/src/Platform.z42:45`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L45)
 
 是否 Android。
 
 <a id="Std.Platform.IsIos()"></a>
 ### static bool IsIos()
 
-[`src/libraries/z42.core/src/Platform.z42:47`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L47)
+[`src/libraries/z42.core/src/Platform.z42:49`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L49)
 
 是否 iOS。
 
 <a id="Std.Platform.IsWasm()"></a>
 ### static bool IsWasm()
 
-[`src/libraries/z42.core/src/Platform.z42:51`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L51)
+[`src/libraries/z42.core/src/Platform.z42:53`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L53)
 
 是否 wasm。
 
 <a id="Std.Platform.IsFreeBSD()"></a>
 ### static bool IsFreeBSD()
 
-[`src/libraries/z42.core/src/Platform.z42:55`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L55)
+[`src/libraries/z42.core/src/Platform.z42:57`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L57)
 
 是否 FreeBSD。
 
 <a id="Std.Platform.IsUnix()"></a>
 ### static bool IsUnix()
 
-[`src/libraries/z42.core/src/Platform.z42:59`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L59)
+[`src/libraries/z42.core/src/Platform.z42:61`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L61)
 
 是否 Unix 系（Linux / MacOS / Ios / Android / FreeBSD 任一）。
 
 <a id="Std.Platform.Capabilities()"></a>
 ### static extern string[] Capabilities()
 
-[`src/libraries/z42.core/src/Platform.z42:74`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L74)
+[`src/libraries/z42.core/src/Platform.z42:77`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L77)
 
-本二进制编进的能力集，如 `["jit", "native-interop", "threads", "socket", "fs", ...]`。 元素顺序稳定，可直接打印做诊断。
+本二进制编进的能力集，如 `["jit", "native-interop", "threads", "socket", "fs", ...]`。
+
+元素顺序稳定，可直接打印做诊断。
 
 <a id="Std.Platform.ExecModes()"></a>
 ### static extern string[] ExecModes()
 
-[`src/libraries/z42.core/src/Platform.z42:79`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L79)
+[`src/libraries/z42.core/src/Platform.z42:83`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L83)
 
-本二进制可派发的执行后端：恒含 `"interp"`，编进 JIT / AOT 时再加 `"jit"` / `"aot"`。 注意 `"aot"` 是「编进来了」，不是「能跑」。
+本二进制可派发的执行后端：恒含 `"interp"`，编进 JIT / AOT 时再加 `"jit"` / `"aot"`。
+
+注意 `"aot"` 是「编进来了」，不是「能跑」。
 
 <a id="Std.Platform.HasJit()"></a>
 ### static bool HasJit()
 
-[`src/libraries/z42.core/src/Platform.z42:84`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L84)
+[`src/libraries/z42.core/src/Platform.z42:88`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L88)
 
 是否编进 JIT 后端（`Capabilities()` 含 `"jit"`）。
 
 <a id="Std.Platform.HasNativeInterop()"></a>
 ### static bool HasNativeInterop()
 
-[`src/libraries/z42.core/src/Platform.z42:88`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L88)
+[`src/libraries/z42.core/src/Platform.z42:92`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L92)
 
 是否编进 native FFI（`Capabilities()` 含 `"native-interop"`）。
 
 <a id="Std.Platform.HasThreads()"></a>
 ### static bool HasThreads()
 
-[`src/libraries/z42.core/src/Platform.z42:92`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L92)
+[`src/libraries/z42.core/src/Platform.z42:96`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L96)
 
 是否有真实 OS 线程（`Capabilities()` 含 `"threads"`）。
 
 <a id="Std.Platform.HasAot()"></a>
 ### static bool HasAot()
 
-[`src/libraries/z42.core/src/Platform.z42:96`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L96)
+[`src/libraries/z42.core/src/Platform.z42:100`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Platform.z42#L100)
 
 是否编进 AOT 后端（`ExecModes()` 含 `"aot"`）。编进 ≠ 能跑。
 

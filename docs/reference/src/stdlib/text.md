@@ -23,8 +23,11 @@
 
 ## Levenshtein
 
-[`src/libraries/z42.text/src/Levenshtein.z42:5`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.text/src/Levenshtein.z42#L5)
+[`src/libraries/z42.text/src/Levenshtein.z42:6`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.text/src/Levenshtein.z42#L6)
 
+Levenshtein 编辑距离 + 相似度。O(|a|·|b|) 时间、O(min(|a|,|b|)) 空间（两行 DP）。
+
+用途：命令拼写纠正（"did you mean: status?"）、拼写检查、配置键的容错查找。
 
 ```z42
 public static class Levenshtein {
@@ -38,14 +41,14 @@ public static class Levenshtein {
 <a id="Std.Text.Levenshtein.Distance(string,string)"></a>
 ### static int Distance(string a, string b)
 
-[`src/libraries/z42.text/src/Levenshtein.z42:7`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.text/src/Levenshtein.z42#L7)
+[`src/libraries/z42.text/src/Levenshtein.z42:8`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.text/src/Levenshtein.z42#L8)
 
 `a` 变成 `b` 所需的单字符插入 / 删除 / 替换的最少次数。对称；相同字符串返回 `0`，一侧为空时返回另一侧长度。
 
 <a id="Std.Text.Levenshtein.SimilarityRatio(string,string)"></a>
 ### static double SimilarityRatio(string a, string b)
 
-[`src/libraries/z42.text/src/Levenshtein.z42:56`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.text/src/Levenshtein.z42#L56)
+[`src/libraries/z42.text/src/Levenshtein.z42:57`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.text/src/Levenshtein.z42#L57)
 
 相似度，落在 `[0.0, 1.0]`：`1.0 - Distance(a, b) / max(len(a), len(b))`。两个空串返回 `1.0`。
 
@@ -53,6 +56,10 @@ public static class Levenshtein {
 
 [`src/libraries/z42.text/src/StringBuilder.z42:25`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.text/src/StringBuilder.z42#L25)
 
+可变字符串构建器：Append 收集进 `string[]` buffer（2× 扩容），ToString 一次性合并。
+
+基于 z42.core 原语（`string[]` + 手动扩容 + `String.FromChars`），避免每次 Append 都
+拼接的 O(n²) 开销。不用 `List<string>` 是因为 stdlib 字段类型暂不支持泛型实例化语法。
 
 ```z42
 public class StringBuilder {
@@ -196,8 +203,12 @@ public class StringBuilder {
 
 ## Strings
 
-[`src/libraries/z42.text/src/Strings.z42:6`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.text/src/Strings.z42#L6)
+[`src/libraries/z42.text/src/Strings.z42:7`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.text/src/Strings.z42#L7)
 
+`Std.String` 上没有的常见字符串 shaping 静态工具。
+
+放在 z42.text 而不是 prelude 的 `Std.String` 上，是因为 prelude 的每个方法都会进所有
+脚本的命名空间；这些工具有用但不够通用，按需 `using Std.Text` 才看到更合适。
 
 ```z42
 public static class Strings {
@@ -214,7 +225,7 @@ public static class Strings {
 <a id="Std.Text.Strings.PadLeft(string,int,char)"></a>
 ### static string PadLeft(string s, int width, char fill)
 
-[`src/libraries/z42.text/src/Strings.z42:11`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.text/src/Strings.z42#L11)
+[`src/libraries/z42.text/src/Strings.z42:12`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.text/src/Strings.z42#L12)
 
 左侧补 `fill` 到长度 `width`。`s` 已够长时原样返回，**不截断**。
 
@@ -223,7 +234,7 @@ public static class Strings {
 <a id="Std.Text.Strings.PadRight(string,int,char)"></a>
 ### static string PadRight(string s, int width, char fill)
 
-[`src/libraries/z42.text/src/Strings.z42:28`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.text/src/Strings.z42#L28)
+[`src/libraries/z42.text/src/Strings.z42:29`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.text/src/Strings.z42#L29)
 
 右侧补 `fill` 到长度 `width`。`s` 已够长时原样返回，不截断。
 
@@ -232,7 +243,7 @@ public static class Strings {
 <a id="Std.Text.Strings.Repeat(string,int)"></a>
 ### static string Repeat(string s, int count)
 
-[`src/libraries/z42.text/src/Strings.z42:44`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.text/src/Strings.z42#L44)
+[`src/libraries/z42.text/src/Strings.z42:45`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.text/src/Strings.z42#L45)
 
 重复 `s` `count` 次。`count <= 0` 或空 `s` → `""`。
 
@@ -241,7 +252,7 @@ public static class Strings {
 <a id="Std.Text.Strings.IndexOfAny(string,char[])"></a>
 ### static int IndexOfAny(string s, char[] chars)
 
-[`src/libraries/z42.text/src/Strings.z42:66`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.text/src/Strings.z42#L66)
+[`src/libraries/z42.text/src/Strings.z42:67`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.text/src/Strings.z42#L67)
 
 `s` 中第一个出现在 `chars` 里的字符的下标；无匹配返回 `-1`。`chars` 为空数组恒返回 `-1`。
 
@@ -250,7 +261,7 @@ public static class Strings {
 <a id="Std.Text.Strings.TrimChars(string,char[])"></a>
 ### static string TrimChars(string s, char[] chars)
 
-[`src/libraries/z42.text/src/Strings.z42:83`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.text/src/Strings.z42#L83)
+[`src/libraries/z42.text/src/Strings.z42:84`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.text/src/Strings.z42#L84)
 
 从**两端**去掉所有属于 `chars` 的字符。`chars` 为空数组时原样返回。
 

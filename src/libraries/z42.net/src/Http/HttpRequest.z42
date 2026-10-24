@@ -17,6 +17,7 @@ public class HttpRequest {
     /// Digest 认证密码（空串表示不用 Digest）。
     public string DigestPassword;
 
+    /// 以方法与完整 URL 构造：空请求头、无 body、不带认证凭据。
     public HttpRequest(string method, string url) {
         this.Method         = method;
         this.Url            = url;

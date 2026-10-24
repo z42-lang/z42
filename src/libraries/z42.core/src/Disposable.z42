@@ -1,9 +1,9 @@
 namespace Std;
 
-/// 通用 `IDisposable` 实现 + `From(Action)` 工厂：把「释放时调一段无参回调」的常见模式
-/// 封装成稳定 API，避免每个调用方自定义 IDisposable 子类。
+/// 通用 `IDisposable` 实现 + `From(Action)` 工厂。
 ///
-/// 幂等：多次 `Dispose()` 安全，仅第一次触发 `onDispose`，之后 noop。
+/// 把「释放时调一段无参回调」的常见模式封装成稳定 API，避免每个调用方自定义
+/// IDisposable 子类。幂等：多次 `Dispose()` 安全，仅第一次触发 `onDispose`，之后 noop。
 public sealed class Disposable : IDisposable {
     private Action onDispose;
     private bool disposed;
@@ -14,8 +14,9 @@ public sealed class Disposable : IDisposable {
         this.disposed = false;
     }
 
-    /// 工厂：`Disposable.From(() => ...)`，比直接 `new Disposable(...)` 更贴近「创建一个
-    /// 一次性 dispose 句柄」的意图。
+    /// 工厂：`Disposable.From(() => ...)`。
+    ///
+    /// 比直接 `new Disposable(...)` 更贴近「创建一个一次性 dispose 句柄」的意图。
     public static IDisposable From(Action onDispose) {
         return new Disposable(onDispose);
     }

@@ -11,8 +11,10 @@ public class ModeFlags {
     public static int Weak = 2;
 }
 
-/// 强引用包装 —— 默认无状态。Subscribe(handler) 对应到内部 strong 通道走快路径；
-/// 用户显式构造 StrongRef 走 advanced 通道也合法。
+/// 强引用包装 —— 默认无状态。
+///
+/// Subscribe(handler) 对应到内部 strong 通道走快路径；用户显式构造 StrongRef 走
+/// advanced 通道也合法。
 public sealed class StrongRef<TD> : ISubscription<TD> {
     TD handler;
 
@@ -70,6 +72,7 @@ public sealed class OnceRef<TD> : ISubscription<TD> {
 /// Closure；否则 weak 会失效。strong 路径继续直接持 handler 走快路径。
 public sealed class CompositeRef<TD> : ISubscription<TD> {
     private TD strongHandler;       // 仅 Mode.Weak 未启用 / weak 退化时有效
+    /// 组合的 mode flags 位掩码（`ModeFlags` 各值的按位或）。
     public int Modes;
     bool consumed;
     private WeakHandle weakHandle;

@@ -5,8 +5,10 @@ namespace Std.Runtime;
 // core 的 Guid.NewGuid 都委托到这里，不重复声明 extern。密码学算法（散列 / AEAD / KDF）
 // 仍可插拔地留在 z42.crypto。
 
-/// OS 熵源 intrinsic 的唯一声明点。封装 Linux getrandom(2) / macOS getentropy /
-/// Windows BCryptGenRandom；wasm32 抛 Std.NotSupportedException。
+/// OS 熵源 intrinsic 的唯一声明点。
+///
+/// 封装 Linux getrandom(2) / macOS getentropy / Windows BCryptGenRandom；wasm32
+/// 抛 Std.NotSupportedException。
 public static class Entropy {
     /// 从 OS CSPRNG 取 `n` 字节（调用方自行校验 `n`）。
     [Native("__crypto_random_bytes")]

@@ -20,6 +20,7 @@ public class TestRunner {
     int    Passed;
     int    Failed;
 
+    /// 记上下文名并打印测试头横幅；计数清零，尚无进行中的条目。
     public TestRunner(string contextName) {
         this.ContextName   = contextName;
         this.CurrentName   = "";

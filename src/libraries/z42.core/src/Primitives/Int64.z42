@@ -7,7 +7,9 @@ public struct Int64 : IComparable, IEquatable, INumber {
     /// 最小值：-9223372036854775808。
     public static long MinValue = -9223372036854775807 - 1;
 
-    /// 解析整数字符串；格式错误抛 FormatException，越界抛 OverflowException，null 抛 ArgumentNullException。
+    /// 解析整数字符串。
+    ///
+    /// 格式错误抛 FormatException，越界抛 OverflowException，null 抛 ArgumentNullException。
     [Native("__int64_parse")]      public static extern long Parse(string s);
     // 共用 __int32_* builtin：VM 把 int 与 long 同存为 Value::I64。
     /// 返回十进制字符串表示。

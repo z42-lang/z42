@@ -2,14 +2,18 @@ namespace Std.Json;
 
 /// JSON 解析 / 序列化错误；携带 1-based 行 / 列号（0 = 不可用，如 stringify 阶段错误）。
 public class JsonException : Exception {
+    /// 1-based 行号；0 = 不可用（如 stringify 阶段错误）。
     public int Line;
+    /// 1-based 列号；0 = 不可用。
     public int Column;
 
+    /// 无位置版本：Line / Column 置 0。
     public JsonException(string message) : base(message) {
         this.Line = 0;
         this.Column = 0;
     }
 
+    /// 带位置版本：`line` / `column` 按 1-based 原样保存。
     public JsonException(string message, int line, int column) : base(message) {
         this.Line = line;
         this.Column = column;

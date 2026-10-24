@@ -7,7 +7,9 @@ public struct Byte : IComparable, IEquatable, INumber {
     /// 最小值：0。
     public static byte MinValue = 0;
 
-    /// 解析无符号整数字符串；格式错误抛 FormatException，越界抛 OverflowException，null 抛 ArgumentNullException。
+    /// 解析无符号整数字符串。
+    ///
+    /// 格式错误抛 FormatException，越界抛 OverflowException，null 抛 ArgumentNullException。
     [Native("__byte_parse")]       public static extern byte Parse(string s);
     // 共用 __int32_* builtin（运行时 Value 存为 i64）。
     /// 返回十进制字符串表示。

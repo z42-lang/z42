@@ -3,39 +3,66 @@ namespace Std.Net.Http;
 /// 常用 HTTP 状态码的 int 常量集（非 enum），取值即 wire 值。
 public static class HttpStatusCode {
     // 1xx Informational
+    /// 「继续」：服务器已收到请求头，客户端可继续发送请求体（`Expect: 100-continue`）。
     public static int Continue          = 100;
+    /// 「切换协议」：服务器同意升级协议（如 `Upgrade: websocket`）。
     public static int SwitchingProtocols = 101;
 
     // 2xx Success
+    /// 「成功」：请求成功，最常见的成功响应。
     public static int Ok               = 200;
+    /// 「已创建」：请求已创建新资源，`Location` 指向其地址。
     public static int Created          = 201;
+    /// 「已接受」：请求已受理但尚未处理完，多用于异步任务。
     public static int Accepted         = 202;
+    /// 「无内容」：请求成功但响应体为空。
     public static int NoContent        = 204;
+    /// 「部分内容」：`Range` 请求命中，返回所请求区间的部分实体。
     public static int PartialContent   = 206;
 
     // 3xx Redirection
+    /// 「永久移动」：资源已永久迁至新 URI，`Location` 给出新地址。
     public static int MovedPermanently = 301;
+    /// 「找到」：资源临时位于其它 URI，`Location` 给出临时地址。
     public static int Found            = 302;
+    /// 「其它」：改以 `GET` 请求 `Location` 给出的 URI（`POST` 完成后跳转）。
     public static int SeeOther         = 303;
+    /// 「未修改」：条件请求命中（如 `If-None-Match`），资源未变、无响应体。
     public static int NotModified      = 304;
+    /// 「临时重定向」：须以原方法与请求体重发到 `Location`（302 的保方法版）。
     public static int TemporaryRedirect = 307;
+    /// 「永久重定向」：永久迁至 `Location` 且须以原方法重发（301 的保方法版）。
     public static int PermanentRedirect = 308;
 
     // 4xx Client errors
+    /// 「错误请求」：请求语法错误，服务器无法理解。
     public static int BadRequest       = 400;
+    /// 「未授权」：缺少有效身份凭证，需按 `WWW-Authenticate` 重新认证。
     public static int Unauthorized     = 401;
+    /// 「禁止」：服务器理解请求但拒绝授权（区别于 401 的未认证）。
     public static int Forbidden        = 403;
+    /// 「未找到」：请求的资源不存在。
     public static int NotFound         = 404;
+    /// 「方法不允许」：方法不被资源支持，`Allow` 头列出合法方法。
     public static int MethodNotAllowed = 405;
+    /// 「冲突」：与资源当前状态冲突（如并发修改、版本不符）。
     public static int Conflict         = 409;
+    /// 「已消失」：资源已永久移除且无转发地址（永久版 404）。
     public static int Gone             = 410;
+    /// 「媒体类型不支持」：请求体的 `Content-Type` 为服务器所不支持。
     public static int UnsupportedMediaType = 415;
+    /// 「请求过多」：被限流，`Retry-After` 给出重试等待时间。
     public static int TooManyRequests  = 429;
 
     // 5xx Server errors
+    /// 「服务器内部错误」：服务器端意外出错，通用服务端错误。
     public static int InternalServerError = 500;
+    /// 「未实现」：服务器不支持完成请求所需的功能。
     public static int NotImplemented      = 501;
+    /// 「错误网关」：作为网关收到上游的无效响应。
     public static int BadGateway          = 502;
+    /// 「服务不可用」：暂时过载或维护中，常伴 `Retry-After`。
     public static int ServiceUnavailable  = 503;
+    /// 「网关超时」：作为网关等待上游响应超时。
     public static int GatewayTimeout      = 504;
 }

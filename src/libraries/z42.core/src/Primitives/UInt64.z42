@@ -8,8 +8,9 @@ public struct UInt64 : IComparable, IEquatable, INumber {
     /// 最小值：0。
     public static ulong MinValue = 0;
 
-    /// 解析无符号整数字符串；格式错误抛 FormatException，越界抛 OverflowException，
-    /// null 抛 ArgumentNullException。
+    /// 解析无符号整数字符串。
+    ///
+    /// 格式错误抛 FormatException，越界抛 OverflowException，null 抛 ArgumentNullException。
     [Native("__uint64_parse")]     public static extern ulong Parse(string s);
     /// 返回十进制字符串表示。
     [Native("__uint64_to_string")] public extern string ToString();

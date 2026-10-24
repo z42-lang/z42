@@ -3,13 +3,14 @@ namespace Std.Crypto;
 using Std.Encoding;
 using Std.Numerics;
 
-// Poly1305 一次性 MAC（RFC 8439 §2.5），GF(2^130 - 5) 上的认证器，用于 ChaCha20-Poly1305 AEAD
-// 与 NaCl / libsodium。⚠️ 一次性：32 字节 key 对每条消息必须全新——复用会泄漏多项式系数、彻底
-// 失去安全性；AEAD 中 key 每消息由 ChaCha20(key, nonce, counter=0)[0..32] 派生。算法：
-// key = r（16 字节，clamp）|| s（16 字节）；对 (message || 0x01 填充) 的每个 17 字节块，
-// acc = ((acc + block) * r) mod (2^130 - 5)；tag = (acc + s) mod 2^128（16 字节小端输出）。
-// 基于 `Std.Numerics.BigInt` 实现（z42 无原生 128/160 位整数）。
-
+/// Poly1305 一次性 MAC（RFC 8439 §2.5），GF(2^130 - 5) 上的认证器。
+///
+/// 用于 ChaCha20-Poly1305 AEAD 与 NaCl / libsodium。⚠️ 一次性：32 字节 key 对每条消息必须
+/// 全新——复用会泄漏多项式系数、彻底失去安全性；AEAD 中 key 每消息由
+/// ChaCha20(key, nonce, counter=0)[0..32] 派生。算法：key = r（16 字节，clamp）|| s（16 字节）；
+/// 对 (message || 0x01 填充) 的每个 17 字节块，acc = ((acc + block) * r) mod (2^130 - 5)；
+/// tag = (acc + s) mod 2^128（16 字节小端输出）。基于 `Std.Numerics.BigInt` 实现
+/// （z42 无原生 128/160 位整数）。
 public static class Poly1305 {
     /// 在 32 字节一次性 key 下计算 `message` 的 16 字节认证 tag，key 长度错误抛 `ArgumentException`。
     public static byte[] Mac(byte[] key, byte[] message) {

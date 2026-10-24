@@ -285,9 +285,11 @@ ERROR 级别常量（4，最高）。
 <a id="Std.Diagnostics.LogLevel.Name(int)"></a>
 ### static string Name(int level)
 
-[`src/libraries/z42.diagnostics/src/LogLevel.z42:18`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.diagnostics/src/LogLevel.z42#L18)
+[`src/libraries/z42.diagnostics/src/LogLevel.z42:19`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.diagnostics/src/LogLevel.z42#L19)
 
-返回 level 的大写名字。未知 level 返回 "LEVEL<n>"。 返回值保留 SCREAMING_SNAKE 作业界 log 格式约定；与字段大小写无关。
+返回 level 的大写名字。未知 level 返回 "LEVEL<n>"。
+
+返回值保留 SCREAMING_SNAKE 作业界 log 格式约定；与字段大小写无关。
 
 ## Retainer
 

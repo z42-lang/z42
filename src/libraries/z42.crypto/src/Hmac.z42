@@ -2,8 +2,10 @@ namespace Std.Crypto;
 
 using Std.Encoding;
 
-// HMAC-SHA256（RFC 2104），纯脚本实现于 `Sha256` 之上。算法：K' = len(K)>64 时 SHA256(K)，
-// 否则 K 右补 0x00 到 64 字节；inner = SHA256((K' XOR 0x36×64) || msg)；HMAC = SHA256((K' XOR 0x5C×64) || inner)。
+/// HMAC-SHA256（RFC 2104），纯脚本实现于 `Sha256` 之上。
+///
+/// 算法：K' = len(K)>64 时 SHA256(K)，否则 K 右补 0x00 到 64 字节；
+/// inner = SHA256((K' XOR 0x36×64) || msg)；HMAC = SHA256((K' XOR 0x5C×64) || inner)。
 public static class HmacSha256 {
     // ── Public API ───────────────────────────────────────────────────────────
 
@@ -85,8 +87,9 @@ public static class HmacSha256 {
     }
 }
 
-// HMAC-SHA-1（RFC 2104），布局与 HmacSha256 相同。块大小 64（与 SHA-256 同），摘要 20 字节。
-// ⚠️ 仅当旧系统互操作要求时使用（TOTP RFC 6238 默认、AWS Signature V2 等），新设计用 HMAC-SHA-256。
+/// HMAC-SHA-1（RFC 2104），布局与 HmacSha256 相同。块大小 64（与 SHA-256 同），摘要 20 字节。
+///
+/// ⚠️ 仅当旧系统互操作要求时使用（TOTP RFC 6238 默认、AWS Signature V2 等），新设计用 HMAC-SHA-256。
 public static class HmacSha1 {
     /// 计算 `message` 在 `key` 下的 HMAC-SHA1，返回 20 字节摘要。
     public static byte[] Compute(byte[] key, byte[] message) {
@@ -165,7 +168,7 @@ public static class HmacSha1 {
     }
 }
 
-// HMAC-SHA-512（RFC 2104）。块大小 128（SHA-256 为 64），摘要 64 字节。
+/// HMAC-SHA-512（RFC 2104）。块大小 128（SHA-256 为 64），摘要 64 字节。
 public static class HmacSha512 {
     /// 计算 `message` 在 `key` 下的 HMAC-SHA512，返回 64 字节摘要。
     public static byte[] Compute(byte[] key, byte[] message) {
@@ -245,7 +248,7 @@ public static class HmacSha512 {
     }
 }
 
-// HMAC-SHA-384（RFC 2104）。块大小 128（与 HMAC-SHA-512 同），内部用 SHA-384 所以摘要 48 字节。
+/// HMAC-SHA-384（RFC 2104）。块大小 128（与 HMAC-SHA-512 同），内部用 SHA-384 所以摘要 48 字节。
 public static class HmacSha384 {
     /// 计算 `message` 在 `key` 下的 HMAC-SHA384，返回 48 字节摘要。
     public static byte[] Compute(byte[] key, byte[] message) {
@@ -323,9 +326,10 @@ public static class HmacSha384 {
     }
 }
 
-// HMAC-MD5（RFC 2104），HmacSha1 的纯脚本镜像——同为 64 字节块，MD5 摘要 16 字节。
-// ⚠️ HMAC-MD5 作为 MAC 仍基本可用（Wang 碰撞攻击不直接扩展到 HMAC，外层 key 随机化了 H 状态），
-// 但仅当协议强制（HTTP Digest-MD5 / CRAM-MD5 / APR1 / legacy SASL）时使用；新设计用 HMAC-SHA-256。
+/// HMAC-MD5（RFC 2104），HmacSha1 的纯脚本镜像——同为 64 字节块，MD5 摘要 16 字节。
+///
+/// ⚠️ HMAC-MD5 作为 MAC 仍基本可用（Wang 碰撞攻击不直接扩展到 HMAC，外层 key 随机化了 H 状态），
+/// 但仅当协议强制（HTTP Digest-MD5 / CRAM-MD5 / APR1 / legacy SASL）时使用；新设计用 HMAC-SHA-256。
 public static class HmacMd5 {
     /// 计算 `message` 在 `key` 下的 HMAC-MD5，返回 16 字节摘要。
     public static byte[] Compute(byte[] key, byte[] message) {

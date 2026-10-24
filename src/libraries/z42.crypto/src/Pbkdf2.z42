@@ -2,14 +2,17 @@ namespace Std.Crypto;
 
 using Std.Encoding;
 
-// PBKDF2-HMAC-SHA256（RFC 8018 §5.2），用于密码哈希 / KDF。比直接 SHA-256 慢约 `iterations` 倍，
-// 典型生产值 100000。算法（RFC 8018）：T(i) = U1 XOR U2 XOR ... XOR Uc（c = iterations），
-// U1 = HMAC(P, S || INT(i))（INT 为 4 字节大端），Uj = HMAC(P, Uj-1)；DK = T(1) || T(2) || ...，
-// 截断到 `dkLen` 字节。
+/// PBKDF2-HMAC-SHA256（RFC 8018 §5.2），用于密码哈希 / KDF。
+///
+/// 比直接 SHA-256 慢约 `iterations` 倍，典型生产值 100000。算法（RFC 8018）：
+/// T(i) = U1 XOR U2 XOR ... XOR Uc（c = iterations），U1 = HMAC(P, S || INT(i))（INT 为
+/// 4 字节大端），Uj = HMAC(P, Uj-1)；DK = T(1) || T(2) || ...，截断到 `dkLen` 字节。
 public static class Pbkdf2 {
     // ── Public API ───────────────────────────────────────────────────────────
 
-    /// PBKDF2-HMAC-SHA256 派生，返回 `dkLen` 字节。`iterations < 1` 或 `dkLen < 1` 抛 `ArgumentException`。
+    /// PBKDF2-HMAC-SHA256 派生，返回 `dkLen` 字节。
+    ///
+    /// `iterations < 1` 或 `dkLen < 1` 抛 `ArgumentException`。
     public static byte[] DeriveKey(byte[] password, byte[] salt, int iterations, int dkLen) {
         if (iterations < 1) {
             throw new ArgumentException(

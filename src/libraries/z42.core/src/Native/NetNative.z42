@@ -89,7 +89,8 @@ public static class UdpSocketNative {
     [Native("__udp_recv")]
     public static extern object[] Receive(long slotId);
 
-    /// 收进调用方缓冲，返回 `[long bytesWritten, string remoteHost, long remotePort]`；
+    /// 收进调用方缓冲，返回 `[long bytesWritten, string remoteHost, long remotePort]`。
+    ///
     /// 超出 `count` 的部分截断。
     [Native("__udp_recv_into")]
     public static extern object[] ReceiveInto(long slotId, byte[] buf, int offset, int count);

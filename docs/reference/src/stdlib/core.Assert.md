@@ -108,126 +108,129 @@ public static class Assert {
 <a id="Std.Assert.Throws(string,Action)"></a>
 ### static void Throws(string expectedTypeName, Action body)
 
-[`src/libraries/z42.core/src/Assert.z42:89`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L89)
+[`src/libraries/z42.core/src/Assert.z42:91`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L91)
 
-断言 `body` 抛出运行时类型短名等于 `expectedTypeName` 的异常。 整测试级别的抛异常断言（类型在 attribute 期静态可知）用 `[ShouldThrow<E>]`。
+断言 `body` 抛出类型短名等于 `expectedTypeName` 的异常。
+
+匹配的是运行时类型短名。整测试级别的抛异常断言（类型在 attribute 期静态
+可知）用 `[ShouldThrow<E>]`。
 
 <a id="Std.Assert.ThrowsAny(Action)"></a>
 ### static void ThrowsAny(Action body)
 
-[`src/libraries/z42.core/src/Assert.z42:109`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L109)
+[`src/libraries/z42.core/src/Assert.z42:111`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L111)
 
 断言 `body` 抛出任意异常。类型安全性低于带类型名的重载，只在只关心「有没有抛」时用。
 
 <a id="Std.Assert.DoesNotThrow(Action)"></a>
 ### static void DoesNotThrow(Action body)
 
-[`src/libraries/z42.core/src/Assert.z42:119`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L119)
+[`src/libraries/z42.core/src/Assert.z42:121`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L121)
 
 断言 `body` 不抛异常。
 
 <a id="Std.Assert.EqualApprox(double,double,double)"></a>
 ### static void EqualApprox(double actual, double expected, double eps)
 
-[`src/libraries/z42.core/src/Assert.z42:134`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L134)
+[`src/libraries/z42.core/src/Assert.z42:136`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L136)
 
 绝对容差比较：`|actual - expected| <= eps`。NaN 永不命中（NaN != NaN）。
 
 <a id="Std.Assert.Greater(long,long)"></a>
 ### static void Greater(long actual, long expected)
 
-[`src/libraries/z42.core/src/Assert.z42:155`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L155)
+[`src/libraries/z42.core/src/Assert.z42:157`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L157)
 
 断言 `actual > expected`。
 
 <a id="Std.Assert.Greater(double,double)"></a>
 ### static void Greater(double actual, double expected)
 
-[`src/libraries/z42.core/src/Assert.z42:165`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L165)
+[`src/libraries/z42.core/src/Assert.z42:167`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L167)
 
 断言 `actual > expected`（NaN 操作数直接判失败）。
 
 <a id="Std.Assert.Less(long,long)"></a>
 ### static void Less(long actual, long expected)
 
-[`src/libraries/z42.core/src/Assert.z42:181`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L181)
+[`src/libraries/z42.core/src/Assert.z42:183`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L183)
 
 断言 `actual < expected`。
 
 <a id="Std.Assert.Less(double,double)"></a>
 ### static void Less(double actual, double expected)
 
-[`src/libraries/z42.core/src/Assert.z42:191`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L191)
+[`src/libraries/z42.core/src/Assert.z42:193`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L193)
 
 断言 `actual < expected`（NaN 操作数直接判失败）。
 
 <a id="Std.Assert.GreaterOrEqual(long,long)"></a>
 ### static void GreaterOrEqual(long actual, long expected)
 
-[`src/libraries/z42.core/src/Assert.z42:207`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L207)
+[`src/libraries/z42.core/src/Assert.z42:209`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L209)
 
 断言 `actual >= expected`。
 
 <a id="Std.Assert.GreaterOrEqual(double,double)"></a>
 ### static void GreaterOrEqual(double actual, double expected)
 
-[`src/libraries/z42.core/src/Assert.z42:217`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L217)
+[`src/libraries/z42.core/src/Assert.z42:219`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L219)
 
 断言 `actual >= expected`（NaN 操作数直接判失败）。
 
 <a id="Std.Assert.LessOrEqual(long,long)"></a>
 ### static void LessOrEqual(long actual, long expected)
 
-[`src/libraries/z42.core/src/Assert.z42:233`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L233)
+[`src/libraries/z42.core/src/Assert.z42:235`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L235)
 
 断言 `actual <= expected`。
 
 <a id="Std.Assert.LessOrEqual(double,double)"></a>
 ### static void LessOrEqual(double actual, double expected)
 
-[`src/libraries/z42.core/src/Assert.z42:243`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L243)
+[`src/libraries/z42.core/src/Assert.z42:245`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L245)
 
 断言 `actual <= expected`（NaN 操作数直接判失败）。
 
 <a id="Std.Assert.InRange(long,long,long)"></a>
 ### static void InRange(long actual, long min, long max)
 
-[`src/libraries/z42.core/src/Assert.z42:259`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L259)
+[`src/libraries/z42.core/src/Assert.z42:261`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L261)
 
 断言 `min <= actual <= max`（含边界）。
 
 <a id="Std.Assert.InRange(double,double,double)"></a>
 ### static void InRange(double actual, double min, double max)
 
-[`src/libraries/z42.core/src/Assert.z42:269`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L269)
+[`src/libraries/z42.core/src/Assert.z42:271`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L271)
 
 断言 `min <= actual <= max`（含边界；NaN 操作数直接判失败）。
 
 <a id="Std.Assert.ArrayContains(object,object[])"></a>
 ### static void ArrayContains(object needle, object[] haystack)
 
-[`src/libraries/z42.core/src/Assert.z42:294`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L294)
+[`src/libraries/z42.core/src/Assert.z42:296`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L296)
 
 断言 `haystack` 含 `needle`（用 `==` 比较）。
 
 <a id="Std.Assert.ArrayDoesNotContain(object,object[])"></a>
 ### static void ArrayDoesNotContain(object needle, object[] haystack)
 
-[`src/libraries/z42.core/src/Assert.z42:307`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L307)
+[`src/libraries/z42.core/src/Assert.z42:309`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L309)
 
 断言 `haystack` 不含 `needle`。
 
 <a id="Std.Assert.ArrayIsEmpty(object[])"></a>
 ### static void ArrayIsEmpty(object[] coll)
 
-[`src/libraries/z42.core/src/Assert.z42:319`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L319)
+[`src/libraries/z42.core/src/Assert.z42:321`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L321)
 
 断言 `coll` 为空数组。
 
 <a id="Std.Assert.ArrayIsNotEmpty(object[])"></a>
 ### static void ArrayIsNotEmpty(object[] coll)
 
-[`src/libraries/z42.core/src/Assert.z42:329`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L329)
+[`src/libraries/z42.core/src/Assert.z42:331`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Assert.z42#L331)
 
 断言 `coll` 非空数组。
 

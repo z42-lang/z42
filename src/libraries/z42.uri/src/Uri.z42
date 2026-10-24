@@ -24,6 +24,7 @@
 namespace Std.Uri;
 using Std.Text;
 
+/// 解析后的 URI 组件容器与操作（percent 编解码、相对引用解析）；规则与限制见包级文档。
 public class Uri {
     private string _scheme;        // "" 表示无（不应出现 — Parse 拒绝）
     private bool   _hasAuthority;  // true when URI had `//` after scheme

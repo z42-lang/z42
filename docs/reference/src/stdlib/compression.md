@@ -220,8 +220,9 @@ LZ4 frame。
 
 [`src/libraries/z42.compression/src/CompressionDecoderStream.z42:10`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.compression/src/CompressionDecoderStream.z42#L10)
 
-拉模式压缩解码流：调用方从返回流读明文，解码流按需从被包装的 `src` 拉取压缩字节。 对应 `Gzip.WrapRead(...)` 等门面的返回类型，也可直接构造。
+拉模式压缩解码流：调用方从返回流读明文，按需从 `src` 拉取压缩字节。
 
+对应 `Gzip.WrapRead(...)` 等门面的返回类型，也可直接构造。
 内存占用为一块压缩输入（64 KB）+ 该块产出的明文。不关闭 `src`——其生命周期归调用方。
 关闭后再 `Read` 抛 `InvalidOperationException`。
 
@@ -390,23 +391,29 @@ public static class Gzip {
 <a id="Std.Compression.Gzip.WrapWrite(Stream)"></a>
 ### static Stream WrapWrite(Stream dest)
 
-[`src/libraries/z42.compression/src/Gzip.z42:37`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.compression/src/Gzip.z42#L37)
+[`src/libraries/z42.compression/src/Gzip.z42:38`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.compression/src/Gzip.z42#L38)
 
-把 `dest` 包装成 gzip 编码流：写入返回流的字节会被压缩（默认等级）并转发给 `dest`。 调用方必须对返回流调用 `Close()` 以写出 gzip 尾；否则输出被截断。`dest` 不会被 编码流关闭——其生命周期归调用方。
+把 `dest` 包装成 gzip 编码流（默认等级）。
+
+写入返回流的字节会被压缩并转发给 `dest`。调用方必须对返回流调用 `Close()`
+以写出 gzip 尾；否则输出被截断。`dest` 不会被编码流关闭——其生命周期归调用方。
 
 <a id="Std.Compression.Gzip.WrapWrite(Stream,int)"></a>
 ### static Stream WrapWrite(Stream dest, int level)
 
-[`src/libraries/z42.compression/src/Gzip.z42:42`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.compression/src/Gzip.z42#L42)
+[`src/libraries/z42.compression/src/Gzip.z42:43`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.compression/src/Gzip.z42#L43)
 
 把 `dest` 包装成 gzip 编码流，使用给定等级（1..9）。
 
 <a id="Std.Compression.Gzip.WrapRead(Stream)"></a>
 ### static Stream WrapRead(Stream src)
 
-[`src/libraries/z42.compression/src/Gzip.z42:48`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.compression/src/Gzip.z42#L48)
+[`src/libraries/z42.compression/src/Gzip.z42:51`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.compression/src/Gzip.z42#L51)
 
-把 `src` 包装成 gzip 解码流：从返回流读出的字节，是从 `src` 拉取的 gzip 字节 解压后的明文。`src` 不会被解码流关闭——其生命周期归调用方。
+把 `src` 包装成 gzip 解码流，读出的是解压后的明文。
+
+明文按需从 `src` 拉取的 gzip 字节解压而来。`src` 不会被解码流关闭——其
+生命周期归调用方。
 
 ## Lz4
 

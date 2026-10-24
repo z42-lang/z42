@@ -99,45 +99,49 @@ public class MethodInfo : MethodBase {
 <a id="Std.Reflection.MethodInfo.Equals(object)"></a>
 ### override bool Equals(object other)
 
-[`src/libraries/z42.core/src/Reflection/MethodInfo.z42:49`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodInfo.z42#L49)
+[`src/libraries/z42.core/src/Reflection/MethodInfo.z42:50`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodInfo.z42#L50)
 
+值相等：`other` 为 `MethodInfo` 且 `__qualified` 相同才为真（与 `==` 一致）。
 
 <a id="Std.Reflection.MethodInfo.GetHashCode()"></a>
 ### override int GetHashCode()
 
-[`src/libraries/z42.core/src/Reflection/MethodInfo.z42:55`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodInfo.z42#L55)
+[`src/libraries/z42.core/src/Reflection/MethodInfo.z42:57`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodInfo.z42#L57)
 
+哈希码取自 `__qualified`，与 Equals 的判据一致。
 
 <a id="Std.Reflection.MethodInfo.__attrCache"></a>
 ### Std.Attribute[] __attrCache
 
-[`src/libraries/z42.core/src/Reflection/MethodInfo.z42:60`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodInfo.z42#L60)
+[`src/libraries/z42.core/src/Reflection/MethodInfo.z42:62`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodInfo.z42#L62)
 
+缓存的 attribute 实例（缓存理由见 Type.GetCustomAttributes）。
 
 <a id="Std.Reflection.MethodInfo.__customAttributes(string)"></a>
 ### extern Std.Attribute[] __customAttributes(string qualified)
 
-[`src/libraries/z42.core/src/Reflection/MethodInfo.z42:63`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodInfo.z42#L63)
+[`src/libraries/z42.core/src/Reflection/MethodInfo.z42:66`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodInfo.z42#L66)
 
+native 门面：取 `qualified` 全限定名对应方法上的 attribute 实例数组。
 
 <a id="Std.Reflection.MethodInfo.GetCustomAttributes()"></a>
 ### Std.Attribute[] GetCustomAttributes()
 
-[`src/libraries/z42.core/src/Reflection/MethodInfo.z42:66`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodInfo.z42#L66)
+[`src/libraries/z42.core/src/Reflection/MethodInfo.z42:69`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodInfo.z42#L69)
 
 本方法上应用的 attribute，以活实例返回；首次调用后缓存。
 
 <a id="Std.Reflection.MethodInfo.GetAttribute(Std.Type)"></a>
 ### Std.Attribute? GetAttribute(Std.Type attributeType)
 
-[`src/libraries/z42.core/src/Reflection/MethodInfo.z42:75`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodInfo.z42#L75)
+[`src/libraries/z42.core/src/Reflection/MethodInfo.z42:78`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodInfo.z42#L78)
 
 指定类型的单个 attribute，无则返回 null。按实例运行期类型的 FullName 比较，子类 attribute 也匹配。
 
 <a id="Std.Reflection.MethodInfo.Invoke(object,object[])"></a>
 ### extern object Invoke(object obj, object[] args)
 
-[`src/libraries/z42.core/src/Reflection/MethodInfo.z42:93`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodInfo.z42#L93)
+[`src/libraries/z42.core/src/Reflection/MethodInfo.z42:96`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodInfo.z42#L96)
 
 调用本方法：实例方法 `obj` 是接收者（静态方法传 `null` 即可）；`args` 按声明序映射形参。
 
@@ -146,40 +150,46 @@ public class MethodInfo : MethodBase {
 <a id="Std.Reflection.MethodInfo.IsGenericMethod"></a>
 ### bool IsGenericMethod
 
-[`src/libraries/z42.core/src/Reflection/MethodInfo.z42:98`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodInfo.z42#L98)
+[`src/libraries/z42.core/src/Reflection/MethodInfo.z42:101`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodInfo.z42#L101)
 
 方法是否声明了类型参数（定义或已构造均为 true）。
 
 <a id="Std.Reflection.MethodInfo.IsGenericMethodDefinition"></a>
 ### bool IsGenericMethodDefinition
 
-[`src/libraries/z42.core/src/Reflection/MethodInfo.z42:101`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodInfo.z42#L101)
+[`src/libraries/z42.core/src/Reflection/MethodInfo.z42:104`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodInfo.z42#L104)
 
 是否为未绑定的泛型方法定义；经 `MakeGenericMethod` 绑定实参后为 false。
 
 <a id="Std.Reflection.MethodInfo.__typeParamNames"></a>
 ### string[] __typeParamNames
 
-[`src/libraries/z42.core/src/Reflection/MethodInfo.z42:104`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodInfo.z42#L104)
+[`src/libraries/z42.core/src/Reflection/MethodInfo.z42:109`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodInfo.z42#L109)
 
+声明的类型参数名（如 `["T","U"]`），VM 写入。
+
+定义上 GetGenericArguments() 据此生成占位 Type。
 
 <a id="Std.Reflection.MethodInfo.__typeArgs"></a>
 ### Std.Type[] __typeArgs
 
-[`src/libraries/z42.core/src/Reflection/MethodInfo.z42:107`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodInfo.z42#L107)
+[`src/libraries/z42.core/src/Reflection/MethodInfo.z42:114`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodInfo.z42#L114)
 
+构造后 MethodInfo 上由 MakeGenericMethod 绑定的类型实参；定义上为 null。
+
+Invoke 时传入被调帧。
 
 <a id="Std.Reflection.MethodInfo.GetGenericArguments()"></a>
 ### extern Std.Type[] GetGenericArguments()
 
-[`src/libraries/z42.core/src/Reflection/MethodInfo.z42:111`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodInfo.z42#L111)
+[`src/libraries/z42.core/src/Reflection/MethodInfo.z42:118`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodInfo.z42#L118)
 
 方法的类型参数（定义上）或绑定的类型实参（构造后）。
 
 <a id="Std.Reflection.MethodInfo.MakeGenericMethod(Std.Type[])"></a>
 ### extern MethodInfo MakeGenericMethod(params Std.Type[] typeArgs)
 
-[`src/libraries/z42.core/src/Reflection/MethodInfo.z42:116`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodInfo.z42#L116)
+[`src/libraries/z42.core/src/Reflection/MethodInfo.z42:123`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/MethodInfo.z42#L123)
 
 给泛型方法定义绑定类型实参，返回构造后的 MethodInfo。本方法非泛型定义或实参个数不符时抛 `Std.Exception`。
 

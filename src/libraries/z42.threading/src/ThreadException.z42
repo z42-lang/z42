@@ -1,8 +1,12 @@
 namespace Std.Threading;
 
 /// 由 Thread.Join()（以及 Timer.StopAndJoin，它内部就是 Join）抛出的跨线程异常。
-/// worker 的原始异常类型与栈不跨线程——只能 catch (ThreadException)，拿到 Message 原文。
+///
+/// worker 的原始异常类型与栈不跨线程——只能 catch (ThreadException)，拿到
+/// Message 原文。
 public class ThreadException : Exception {
+    /// 按触发消息构造。
+    ///
     /// @param message 触发消息（worker 异常原文 / "thread panicked" / "thread already joined"）。
     public ThreadException(string message) : base(message) {}
 

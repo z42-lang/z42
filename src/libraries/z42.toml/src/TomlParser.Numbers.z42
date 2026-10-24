@@ -1,14 +1,15 @@
 namespace Std.Toml;
 
-// TomlParser 的「数字词法」这一半（partial 拆分只为守 code-organization 的行数硬限；
-// 逻辑逐行未改）。归在一起的理由：它们共同回答「一段字符怎么变成 TomlValue 的数字」——
-// 十进制扫描（`ParseNumber`）、TOML 1.0 的两条强制（前导零 `RejectLeadingZeros`、
-// 下划线必须夹在数字之间 `ValidateUnderscoreBetweenDigits`）、下划线剥离、基数判位
-// （`IsDigitChar`）、非十进制字面量（`ParseNonDecimalInt`）。
-//
-// 这里也是**日期/时间字面量的两个落点**：TOML 的 4 种 datetime
-// 尚不支持，而 `d = 1979-05-27` 会先被当成整数 `1979`、`t = 07:32:00` 会先撞上「前导零」
-// ⇒ 裸消息说不出真正原因。判据与三条阴性对照见 `tests/parse_errors.z42` 的 datetime 组。
+/// TomlParser 的「数字词法」这一半（partial 拆分只为守 code-organization 的行数硬限）。
+///
+/// 归在一起的理由：它们共同回答「一段字符怎么变成 TomlValue 的数字」——十进制扫描
+/// （`ParseNumber`）、TOML 1.0 的两条强制（前导零 `RejectLeadingZeros`、下划线必须夹在
+/// 数字之间 `ValidateUnderscoreBetweenDigits`）、下划线剥离、基数判位（`IsDigitChar`）、
+/// 非十进制字面量（`ParseNonDecimalInt`）。
+///
+/// 这里也是日期/时间字面量的两个落点：TOML 的 4 种 datetime 尚不支持，而裸日期字面量会
+/// 先被当成整数、`t = 07:32:00` 会先撞上「前导零」⇒ 裸消息说不出真正原因。判据与三条
+/// 阴性对照见 `tests/parse_errors.z42` 的 datetime 组。
 
 public sealed partial class TomlParser {
     // ── Number parsing ───────────────────────────────────────────────────

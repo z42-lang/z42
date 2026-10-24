@@ -1,7 +1,9 @@
 namespace Std;
 
-/// 多播订阅策略包装器协议：`MulticastAction<T>.Subscribe(ISubscription<Action<T>>)` 走
-/// advanced 路径；用户可实现自己的包装器加入新策略（throttle / debounce / dispatcher 等）。
+/// 多播订阅策略包装器协议。
+///
+/// `MulticastAction<T>.Subscribe(ISubscription<Action<T>>)` 走 advanced 路径；用户
+/// 可实现自己的包装器加入新策略（throttle / debounce / dispatcher 等）。
 public interface ISubscription<TD> {
     /// 返回被包装的委托；仅在 IsAlive() 为 true 时有定义，调用方先检查 IsAlive。
     TD Get();

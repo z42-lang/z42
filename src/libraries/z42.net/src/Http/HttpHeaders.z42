@@ -9,6 +9,7 @@ public class HttpHeaders {
     private int _count;
     private int _cap;
 
+    /// 构造空集合（内部容量 8，按需倍增）。
     public HttpHeaders() {
         this._cap       = 8;
         this._keys      = new string[8];

@@ -85,9 +85,11 @@ public class LinkedListNode<T> {
 
 ## LinkedList
 
-[`src/libraries/z42.collections/src/LinkedList.z42:33`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L33)
+[`src/libraries/z42.collections/src/LinkedList.z42:34`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L34)
 
-双向链表：O(1) 的两端插入/删除与端点访问，O(n) 的按值查找。 where T: IEquatable（Find / Contains / Remove 需要比较相等）。
+双向链表：O(1) 的两端插入/删除与端点访问，O(n) 的按值查找。
+
+where T: IEquatable（Find / Contains / Remove 需要比较相等）。
 
 ```z42
 public class LinkedList<T> : IBasicCollection<T> where T : IEquatable {
@@ -114,113 +116,115 @@ public class LinkedList<T> : IBasicCollection<T> where T : IEquatable {
 <a id="Std.Collections.LinkedList<T>.ctor()"></a>
 ### LinkedList()
 
-[`src/libraries/z42.collections/src/LinkedList.z42:39`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L39)
+[`src/libraries/z42.collections/src/LinkedList.z42:40`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L40)
 
 创建空链表。
 
 <a id="Std.Collections.LinkedList<T>.Count()"></a>
 ### int Count()
 
-[`src/libraries/z42.collections/src/LinkedList.z42:46`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L46)
+[`src/libraries/z42.collections/src/LinkedList.z42:47`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L47)
 
 返回元素个数（方法，不是字段）。
 
 <a id="Std.Collections.LinkedList<T>.IsEmpty()"></a>
 ### bool IsEmpty()
 
-[`src/libraries/z42.collections/src/LinkedList.z42:48`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L48)
+[`src/libraries/z42.collections/src/LinkedList.z42:49`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L49)
 
 是否为空。
 
 <a id="Std.Collections.LinkedList<T>.First()"></a>
 ### LinkedListNode<T>? First()
 
-[`src/libraries/z42.collections/src/LinkedList.z42:51`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L51)
+[`src/libraries/z42.collections/src/LinkedList.z42:52`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L52)
 
 头节点；空链表返回 null（不抛）。
 
 <a id="Std.Collections.LinkedList<T>.Last()"></a>
 ### LinkedListNode<T>? Last()
 
-[`src/libraries/z42.collections/src/LinkedList.z42:53`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L53)
+[`src/libraries/z42.collections/src/LinkedList.z42:54`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L54)
 
 尾节点；空链表返回 null（不抛）。
 
 <a id="Std.Collections.LinkedList<T>.ToArray()"></a>
 ### T[] ToArray()
 
-[`src/libraries/z42.collections/src/LinkedList.z42:56`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L56)
+[`src/libraries/z42.collections/src/LinkedList.z42:57`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L57)
 
 头 → 尾顺序的快照数组；不改动链表。
 
 <a id="Std.Collections.LinkedList<T>.AddFirst(T)"></a>
 ### LinkedListNode<T> AddFirst(T value)
 
-[`src/libraries/z42.collections/src/LinkedList.z42:71`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L71)
+[`src/libraries/z42.collections/src/LinkedList.z42:72`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L72)
 
 头插，返回新建的节点。
 
 <a id="Std.Collections.LinkedList<T>.AddLast(T)"></a>
 ### LinkedListNode<T> AddLast(T value)
 
-[`src/libraries/z42.collections/src/LinkedList.z42:87`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L87)
+[`src/libraries/z42.collections/src/LinkedList.z42:88`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L88)
 
 尾插，返回新建的节点。
 
 <a id="Std.Collections.LinkedList<T>.AddOne(T)"></a>
 ### void AddOne(T item)
 
-[`src/libraries/z42.collections/src/LinkedList.z42:102`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L102)
+[`src/libraries/z42.collections/src/LinkedList.z42:103`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L103)
 
 IBasicCollection 契约的统一插入入口，委托给 AddLast。
 
 <a id="Std.Collections.LinkedList<T>.RemoveFirst()"></a>
 ### T RemoveFirst()
 
-[`src/libraries/z42.collections/src/LinkedList.z42:107`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L107)
+[`src/libraries/z42.collections/src/LinkedList.z42:108`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L108)
 
 摘掉头节点并返回其 Value；空链表抛 Exception。
 
 <a id="Std.Collections.LinkedList<T>.RemoveLast()"></a>
 ### T RemoveLast()
 
-[`src/libraries/z42.collections/src/LinkedList.z42:124`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L124)
+[`src/libraries/z42.collections/src/LinkedList.z42:125`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L125)
 
 摘掉尾节点并返回其 Value；空链表抛 Exception。
 
 <a id="Std.Collections.LinkedList<T>.Remove(T)"></a>
 ### bool Remove(T value)
 
-[`src/libraries/z42.collections/src/LinkedList.z42:141`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L141)
+[`src/libraries/z42.collections/src/LinkedList.z42:142`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L142)
 
 删除第一个值相等的节点；删掉返回 true，没找到返回 false。
 
 <a id="Std.Collections.LinkedList<T>.Clear()"></a>
 ### void Clear()
 
-[`src/libraries/z42.collections/src/LinkedList.z42:166`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L166)
+[`src/libraries/z42.collections/src/LinkedList.z42:167`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L167)
 
 清空（幂等）。
 
 <a id="Std.Collections.LinkedList<T>.Contains(T)"></a>
 ### bool Contains(T value)
 
-[`src/libraries/z42.collections/src/LinkedList.z42:175`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L175)
+[`src/libraries/z42.collections/src/LinkedList.z42:176`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L176)
 
 是否存在值相等的节点，等价 Find(value) != null。
 
 <a id="Std.Collections.LinkedList<T>.Find(T)"></a>
 ### LinkedListNode<T>? Find(T value)
 
-[`src/libraries/z42.collections/src/LinkedList.z42:178`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L178)
+[`src/libraries/z42.collections/src/LinkedList.z42:179`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/LinkedList.z42#L179)
 
 第一个值相等的节点；没找到返回 null。
 
 ## PriorityQueue
 
-[`src/libraries/z42.collections/src/PriorityQueue.z42:9`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/PriorityQueue.z42#L9)
+[`src/libraries/z42.collections/src/PriorityQueue.z42:10`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/PriorityQueue.z42#L10)
 
-最小堆优先队列：O(log n) 的 Enqueue / Dequeue，O(1) 的 Peek。 where T: IComparable —— CompareTo 小的先出队。
+最小堆优先队列：O(log n) 的 Enqueue / Dequeue，O(1) 的 Peek。
+
+where T: IComparable —— CompareTo 小的先出队。
 
 只有最小堆形态；要最大堆请把排序键取负，或用反向 CompareTo 的包装类型。
 单类型形参：优先级就是元素本身，没有独立的 TPriority。
@@ -243,56 +247,56 @@ public class PriorityQueue<T> : IBasicCollection<T> where T : IComparable {
 <a id="Std.Collections.PriorityQueue<T>.ctor()"></a>
 ### PriorityQueue()
 
-[`src/libraries/z42.collections/src/PriorityQueue.z42:15`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/PriorityQueue.z42#L15)
+[`src/libraries/z42.collections/src/PriorityQueue.z42:16`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/PriorityQueue.z42#L16)
 
 创建空优先队列。
 
 <a id="Std.Collections.PriorityQueue<T>.Count()"></a>
 ### int Count()
 
-[`src/libraries/z42.collections/src/PriorityQueue.z42:22`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/PriorityQueue.z42#L22)
+[`src/libraries/z42.collections/src/PriorityQueue.z42:23`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/PriorityQueue.z42#L23)
 
 返回元素个数（方法，不是字段）。
 
 <a id="Std.Collections.PriorityQueue<T>.IsEmpty()"></a>
 ### bool IsEmpty()
 
-[`src/libraries/z42.collections/src/PriorityQueue.z42:24`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/PriorityQueue.z42#L24)
+[`src/libraries/z42.collections/src/PriorityQueue.z42:25`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/PriorityQueue.z42#L25)
 
 是否为空。
 
 <a id="Std.Collections.PriorityQueue<T>.Enqueue(T)"></a>
 ### void Enqueue(T item)
 
-[`src/libraries/z42.collections/src/PriorityQueue.z42:27`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/PriorityQueue.z42#L27)
+[`src/libraries/z42.collections/src/PriorityQueue.z42:28`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/PriorityQueue.z42#L28)
 
 入堆，O(log n)。
 
 <a id="Std.Collections.PriorityQueue<T>.AddOne(T)"></a>
 ### void AddOne(T item)
 
-[`src/libraries/z42.collections/src/PriorityQueue.z42:35`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/PriorityQueue.z42#L35)
+[`src/libraries/z42.collections/src/PriorityQueue.z42:36`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/PriorityQueue.z42#L36)
 
 IBasicCollection 契约的统一插入入口，委托给 Enqueue。
 
 <a id="Std.Collections.PriorityQueue<T>.Dequeue()"></a>
 ### T Dequeue()
 
-[`src/libraries/z42.collections/src/PriorityQueue.z42:38`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/PriorityQueue.z42#L38)
+[`src/libraries/z42.collections/src/PriorityQueue.z42:39`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/PriorityQueue.z42#L39)
 
 取出并返回最小元素；空队列抛 Exception。O(log n)。
 
 <a id="Std.Collections.PriorityQueue<T>.Peek()"></a>
 ### T Peek()
 
-[`src/libraries/z42.collections/src/PriorityQueue.z42:52`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/PriorityQueue.z42#L52)
+[`src/libraries/z42.collections/src/PriorityQueue.z42:53`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/PriorityQueue.z42#L53)
 
 只看最小元素不取出；空队列抛 Exception。O(1)。
 
 <a id="Std.Collections.PriorityQueue<T>.Clear()"></a>
 ### void Clear()
 
-[`src/libraries/z42.collections/src/PriorityQueue.z42:60`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/PriorityQueue.z42#L60)
+[`src/libraries/z42.collections/src/PriorityQueue.z42:61`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/PriorityQueue.z42#L61)
 
 清空所有元素，保留已分配容量。
 
@@ -391,9 +395,11 @@ IBasicCollection 契约的统一插入入口，委托给 Enqueue。
 
 ## SortedSet
 
-[`src/libraries/z42.collections/src/SortedSet.z42:5`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/SortedSet.z42#L5)
+[`src/libraries/z42.collections/src/SortedSet.z42:6`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/SortedSet.z42#L6)
 
-按升序维护的去重集合：O(log n) 查找，Add / Remove 的元素搬移是 O(n)。 where T: IComparable + IEquatable。
+按升序维护的去重集合：O(log n) 查找，Add / Remove 的元素搬移是 O(n)。
+
+where T: IComparable + IEquatable。
 
 ```z42
 public class SortedSet<T> : IBasicCollection<T> where T : IComparable, IEquatable {
@@ -418,91 +424,91 @@ public class SortedSet<T> : IBasicCollection<T> where T : IComparable, IEquatabl
 <a id="Std.Collections.SortedSet<T>.ctor()"></a>
 ### SortedSet()
 
-[`src/libraries/z42.collections/src/SortedSet.z42:12`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/SortedSet.z42#L12)
+[`src/libraries/z42.collections/src/SortedSet.z42:13`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/SortedSet.z42#L13)
 
 创建空集合。
 
 <a id="Std.Collections.SortedSet<T>.Count()"></a>
 ### int Count()
 
-[`src/libraries/z42.collections/src/SortedSet.z42:19`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/SortedSet.z42#L19)
+[`src/libraries/z42.collections/src/SortedSet.z42:20`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/SortedSet.z42#L20)
 
 返回元素个数（方法，不是字段）。
 
 <a id="Std.Collections.SortedSet<T>.IsEmpty()"></a>
 ### bool IsEmpty()
 
-[`src/libraries/z42.collections/src/SortedSet.z42:21`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/SortedSet.z42#L21)
+[`src/libraries/z42.collections/src/SortedSet.z42:22`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/SortedSet.z42#L22)
 
 是否为空。
 
 <a id="Std.Collections.SortedSet<T>.Add(T)"></a>
 ### bool Add(T item)
 
-[`src/libraries/z42.collections/src/SortedSet.z42:24`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/SortedSet.z42#L24)
+[`src/libraries/z42.collections/src/SortedSet.z42:25`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/SortedSet.z42#L25)
 
 新元素返回 true；已存在返回 false 且不改变集合。
 
 <a id="Std.Collections.SortedSet<T>.AddOne(T)"></a>
 ### void AddOne(T item)
 
-[`src/libraries/z42.collections/src/SortedSet.z42:41`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/SortedSet.z42#L41)
+[`src/libraries/z42.collections/src/SortedSet.z42:42`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/SortedSet.z42#L42)
 
 IBasicCollection 契约的统一插入入口，委托给 Add。
 
 <a id="Std.Collections.SortedSet<T>.Contains(T)"></a>
 ### bool Contains(T item)
 
-[`src/libraries/z42.collections/src/SortedSet.z42:44`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/SortedSet.z42#L44)
+[`src/libraries/z42.collections/src/SortedSet.z42:45`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/SortedSet.z42#L45)
 
 二分查找是否存在。
 
 <a id="Std.Collections.SortedSet<T>.Remove(T)"></a>
 ### bool Remove(T item)
 
-[`src/libraries/z42.collections/src/SortedSet.z42:50`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/SortedSet.z42#L50)
+[`src/libraries/z42.collections/src/SortedSet.z42:51`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/SortedSet.z42#L51)
 
 删除并返回 true；本就不在返回 false。
 
 <a id="Std.Collections.SortedSet<T>.Min()"></a>
 ### T Min()
 
-[`src/libraries/z42.collections/src/SortedSet.z42:65`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/SortedSet.z42#L65)
+[`src/libraries/z42.collections/src/SortedSet.z42:66`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/SortedSet.z42#L66)
 
 最小元素；空集合抛 Exception。
 
 <a id="Std.Collections.SortedSet<T>.Max()"></a>
 ### T Max()
 
-[`src/libraries/z42.collections/src/SortedSet.z42:71`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/SortedSet.z42#L71)
+[`src/libraries/z42.collections/src/SortedSet.z42:72`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/SortedSet.z42#L72)
 
 最大元素；空集合抛 Exception。
 
 <a id="Std.Collections.SortedSet<T>.ToArray()"></a>
 ### T[] ToArray()
 
-[`src/libraries/z42.collections/src/SortedSet.z42:77`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/SortedSet.z42#L77)
+[`src/libraries/z42.collections/src/SortedSet.z42:78`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/SortedSet.z42#L78)
 
 升序快照数组。
 
 <a id="Std.Collections.SortedSet<T>.Clear()"></a>
 ### void Clear()
 
-[`src/libraries/z42.collections/src/SortedSet.z42:84`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/SortedSet.z42#L84)
+[`src/libraries/z42.collections/src/SortedSet.z42:85`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/SortedSet.z42#L85)
 
 清空（幂等）。
 
 <a id="Std.Collections.SortedSet<T>.LowerBound(T)"></a>
 ### int LowerBound(T item)
 
-[`src/libraries/z42.collections/src/SortedSet.z42:89`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/SortedSet.z42#L89)
+[`src/libraries/z42.collections/src/SortedSet.z42:90`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/SortedSet.z42#L90)
 
 第一个 >= item 的元素下标；全都小于 item 时返回 Count()。
 
 <a id="Std.Collections.SortedSet<T>.Grow()"></a>
 ### void Grow()
 
-[`src/libraries/z42.collections/src/SortedSet.z42:104`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/SortedSet.z42#L104)
+[`src/libraries/z42.collections/src/SortedSet.z42:105`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.collections/src/SortedSet.z42#L105)
 
 扩容容量（容量管理入口，正常使用无需调用）。
 

@@ -52,7 +52,9 @@ using Std.Time;
 //   6 = Mapping  (ordered key→value, string keys only)
 //   7 = Timestamp (ISO 8601)
 
-/// 值树的唯一节点类型，也是包的入口点；8 种 kind：Null / Bool / Int / Float / String / Sequence / Mapping / Timestamp。
+/// 值树的唯一节点类型，也是包的入口点。
+///
+/// 8 种 kind：Null / Bool / Int / Float / String / Sequence / Mapping / Timestamp。
 public class YamlValue {
     private int _kind;
     private bool _bool;
@@ -75,8 +77,9 @@ public class YamlValue {
 
     // ── Public entry points (parse / stringify) ──────────────────────────
 
-    /// 解析 YAML 文本为根值。语法错误抛 YamlException（消息含 行:列）；空输入返回 Null 值；
-    /// 多文档输入（`---` 分隔）报错，请用 `ParseAll`。
+    /// 解析 YAML 文本为根值。语法错误抛 YamlException（消息含 行:列）。
+    ///
+    /// 空输入返回 Null 值；多文档输入（`---` 分隔）报错，请用 `ParseAll`。
     public static YamlValue Parse(string text) {
         YamlParser parser = new YamlParser(text);
         return (YamlValue)parser.ParseDocument();
@@ -164,6 +167,7 @@ public class YamlValue {
     }
 
     /// 从 DateTime 构造时间戳；`Stringify` 输出规范 UTC ISO 8601。
+    ///
     /// 如需保留非 UTC 偏移 / 不同精度，用 `OfTimestampString(raw)`。
     public static YamlValue OfTimestamp(DateTime dt) {
         YamlValue v = new YamlValue();
@@ -360,6 +364,7 @@ public class YamlValue {
     // 三个文档库（TOML / JSON / YAML）形状一致，见 `Std.Toml.TomlValue.TryGet`。
 
     /// 取即检查：命中则写入 `value` 并返回 true；未命中返回 false 且**不动** `value`。
+    ///
     /// 本值不是 mapping 时返回 false 而**不抛** —— 与 `ContainsKey` 一致。
     public bool TryGet(string key, ref YamlValue value) {
         if (this._kind != 6) { return false; }
@@ -371,8 +376,10 @@ public class YamlValue {
         return false;
     }
 
-    /// 取即检查 + 取标量：命中则按 `T` 取值写入 `value` 并返回 true；未命中返回 false 且
-    /// **不动** `value`（「有就覆盖默认值」一行写完）。
+    /// 取即检查 + 取标量：命中则按 `T` 取值写入 `value` 并返回 true；未命中返回 false
+    /// 且**不动** `value`。
+    ///
+    /// 「有就覆盖默认值」一行写完。
     ///
     /// ⚠️ 命中但**类型不符照抛** `YamlException`，与 `AsString()` / `AsInt()` 一字不差。
     ///

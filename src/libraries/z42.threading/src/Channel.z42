@@ -18,7 +18,9 @@ public class Channel<T> {
         this._init(-1, 16);
     }
 
-    /// 有界构造器。capacity > 0 有界（Send 在队列满时阻塞直到腾出位置）；capacity == 0 会合
+    /// 有界构造器。
+    ///
+    /// capacity > 0 有界（Send 在队列满时阻塞直到腾出位置）；capacity == 0 会合
     /// （每个 Send 阻塞直到这个值被另一条线程取走）。
     /// @throws ArgumentException capacity < 0 时。
     public Channel(int capacity) {
@@ -67,8 +69,10 @@ public class Channel<T> {
         }
     }
 
-    /// 阻塞到有值可取。通道已关闭且队列已空时抛 ChannelDisconnectedException("channel disconnected")；
-    /// 队列里还有值就照常取，关闭不丢数据。
+    /// 阻塞到有值可取。
+    ///
+    /// 通道已关闭且队列已空时抛 ChannelDisconnectedException("channel
+    /// disconnected")；队列里还有值就照常取，关闭不丢数据。
     /// @throws ChannelDisconnectedException 通道已关闭且队列已空时。
     public T Recv() {
         T v;

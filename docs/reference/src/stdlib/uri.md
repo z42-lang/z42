@@ -28,8 +28,9 @@ RFC 3986 的一个子集：必须有 scheme，authority 内的 IPv6 字面量按
 
 ## Uri
 
-[`src/libraries/z42.uri/src/Uri.z42:27`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L27)
+[`src/libraries/z42.uri/src/Uri.z42:28`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L28)
 
+解析后的 URI 组件容器与操作（percent 编解码、相对引用解析）；规则与限制见包级文档。
 
 ```z42
 public class Uri {
@@ -63,133 +64,133 @@ public class Uri {
 <a id="Std.Uri.Uri.ctor(string,bool,string,string,int,string,string,string)"></a>
 ### Uri(string scheme, bool hasAuthority, string userInfo, string host, int port, string path, string query, string fragment)
 
-[`src/libraries/z42.uri/src/Uri.z42:38`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L38)
+[`src/libraries/z42.uri/src/Uri.z42:39`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L39)
 
 八参数构造器：逐字段直接构造（不做校验）。
 
 <a id="Std.Uri.Uri.GetScheme()"></a>
 ### string GetScheme()
 
-[`src/libraries/z42.uri/src/Uri.z42:53`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L53)
+[`src/libraries/z42.uri/src/Uri.z42:54`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L54)
 
 返回 scheme 组件。
 
 <a id="Std.Uri.Uri.GetUserInfo()"></a>
 ### string GetUserInfo()
 
-[`src/libraries/z42.uri/src/Uri.z42:55`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L55)
+[`src/libraries/z42.uri/src/Uri.z42:56`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L56)
 
 返回 userInfo 组件；缺省时返回空串。
 
 <a id="Std.Uri.Uri.GetHost()"></a>
 ### string GetHost()
 
-[`src/libraries/z42.uri/src/Uri.z42:57`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L57)
+[`src/libraries/z42.uri/src/Uri.z42:58`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L58)
 
 返回 host 组件；IPv6 字面量保留方括号（`[::1]`）；缺省返回空串。
 
 <a id="Std.Uri.Uri.GetPort()"></a>
 ### int GetPort()
 
-[`src/libraries/z42.uri/src/Uri.z42:59`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L59)
+[`src/libraries/z42.uri/src/Uri.z42:60`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L60)
 
 返回显式端口；未显式写端口时返回 -1。
 
 <a id="Std.Uri.Uri.GetPath()"></a>
 ### string GetPath()
 
-[`src/libraries/z42.uri/src/Uri.z42:61`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L61)
+[`src/libraries/z42.uri/src/Uri.z42:62`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L62)
 
 返回 path 组件。
 
 <a id="Std.Uri.Uri.GetQuery()"></a>
 ### string GetQuery()
 
-[`src/libraries/z42.uri/src/Uri.z42:63`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L63)
+[`src/libraries/z42.uri/src/Uri.z42:64`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L64)
 
 返回 query 组件，不含前导 `?`；缺省返回空串。
 
 <a id="Std.Uri.Uri.GetFragment()"></a>
 ### string GetFragment()
 
-[`src/libraries/z42.uri/src/Uri.z42:65`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L65)
+[`src/libraries/z42.uri/src/Uri.z42:66`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L66)
 
 返回 fragment 组件，不含前导 `#`；缺省返回空串。
 
 <a id="Std.Uri.Uri.HasUserInfo()"></a>
 ### bool HasUserInfo()
 
-[`src/libraries/z42.uri/src/Uri.z42:68`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L68)
+[`src/libraries/z42.uri/src/Uri.z42:69`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L69)
 
 userInfo 非空串时为 true。
 
 <a id="Std.Uri.Uri.HasHost()"></a>
 ### bool HasHost()
 
-[`src/libraries/z42.uri/src/Uri.z42:70`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L70)
+[`src/libraries/z42.uri/src/Uri.z42:71`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L71)
 
 host 非空串时为 true。
 
 <a id="Std.Uri.Uri.HasAuthority()"></a>
 ### bool HasAuthority()
 
-[`src/libraries/z42.uri/src/Uri.z42:72`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L72)
+[`src/libraries/z42.uri/src/Uri.z42:73`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L73)
 
 URI 在 scheme 后带 `//` 时为 true（与 host 是否为空无关）。
 
 <a id="Std.Uri.Uri.HasPort()"></a>
 ### bool HasPort()
 
-[`src/libraries/z42.uri/src/Uri.z42:74`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L74)
+[`src/libraries/z42.uri/src/Uri.z42:75`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L75)
 
 即 `GetPort() >= 0`。
 
 <a id="Std.Uri.Uri.HasQuery()"></a>
 ### bool HasQuery()
 
-[`src/libraries/z42.uri/src/Uri.z42:76`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L76)
+[`src/libraries/z42.uri/src/Uri.z42:77`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L77)
 
 query 非空串时为 true。
 
 <a id="Std.Uri.Uri.HasFragment()"></a>
 ### bool HasFragment()
 
-[`src/libraries/z42.uri/src/Uri.z42:78`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L78)
+[`src/libraries/z42.uri/src/Uri.z42:79`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L79)
 
 fragment 非空串时为 true。
 
 <a id="Std.Uri.Uri.IsIPv6Literal()"></a>
 ### bool IsIPv6Literal()
 
-[`src/libraries/z42.uri/src/Uri.z42:85`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L85)
+[`src/libraries/z42.uri/src/Uri.z42:86`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L86)
 
 host 是否以 `[` 开头、`]` 结尾且长度 ≥ 2（即括号形式的 IPv6 字面量）。
 
 <a id="Std.Uri.Uri.GetHostName()"></a>
 ### string GetHostName()
 
-[`src/libraries/z42.uri/src/Uri.z42:92`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L92)
+[`src/libraries/z42.uri/src/Uri.z42:93`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L93)
 
 剥掉 IPv6 方括号后的 host（`[::1]` → `::1`）；普通域名 / IPv4 与 `GetHost()` 相同。
 
 <a id="Std.Uri.Uri.EffectivePort()"></a>
 ### int EffectivePort()
 
-[`src/libraries/z42.uri/src/Uri.z42:100`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L100)
+[`src/libraries/z42.uri/src/Uri.z42:101`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L101)
 
 返回生效端口：有显式端口就返回它，否则返回 scheme 的 IANA 默认端口；两者都没有返回 -1。
 
 <a id="Std.Uri.Uri.DefaultPortFor(string)"></a>
 ### static int DefaultPortFor(string scheme)
 
-[`src/libraries/z42.uri/src/Uri.z42:106`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L106)
+[`src/libraries/z42.uri/src/Uri.z42:107`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L107)
 
 返回 scheme 对应的 IANA 默认端口（scheme 大小写不敏感）；未收录的 scheme 返回 -1。
 
 <a id="Std.Uri.Uri.Parse(string)"></a>
 ### static Uri Parse(string text)
 
-[`src/libraries/z42.uri/src/Uri.z42:161`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L161)
+[`src/libraries/z42.uri/src/Uri.z42:162`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L162)
 
 解析绝对 URI。
 
@@ -202,14 +203,14 @@ host 是否以 `[` 开头、`]` 结尾且长度 ≥ 2（即括号形式的 IPv6 
 <a id="Std.Uri.Uri.EncodeComponent(string)"></a>
 ### static string EncodeComponent(string s)
 
-[`src/libraries/z42.uri/src/Uri.z42:167`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L167)
+[`src/libraries/z42.uri/src/Uri.z42:168`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L168)
 
 percent 编码组件：只保留 RFC 3986 §2.3 的 unreserved 集合，其余一律 `%XX`（大写十六进制）。
 
 <a id="Std.Uri.Uri.DecodeComponent(string)"></a>
 ### static string DecodeComponent(string s)
 
-[`src/libraries/z42.uri/src/Uri.z42:174`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L174)
+[`src/libraries/z42.uri/src/Uri.z42:175`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L175)
 
 percent 解码组件：`%XX` → 字节 → UTF-8 字符串；裸 `+` 解码成空格。
 
@@ -218,7 +219,7 @@ percent 解码组件：`%XX` → 字节 → UTF-8 字符串；裸 `+` 解码成�
 <a id="Std.Uri.Uri.Resolve(Uri,string)"></a>
 ### static Uri Resolve(Uri base_, string reference)
 
-[`src/libraries/z42.uri/src/Uri.z42:183`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L183)
+[`src/libraries/z42.uri/src/Uri.z42:184`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/Uri.z42#L184)
 
 按 RFC 3986 §5.3 把相对引用 reference 相对 base_ 解析成绝对 URI。
 

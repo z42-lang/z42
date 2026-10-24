@@ -5,18 +5,22 @@ namespace Std.Json;
 /// 序列化按对象**运行期类型**递归（多态元素随其真实类型）；反序列化按**目标 Type** 递归
 /// （JsonBinder）。成员统一由 JsonMembers 提供（字段 + 属性）；[JsonProperty]/[JsonIgnore] 生效。
 public static class JsonSerializer {
+    /// 把 `value` 序列化为紧凑 JSON 文本（无换行缩进）；null 序列化为 "null"。
     public static string Serialize(object value) {
         return JsonValue.Stringify(JsonSerializer._toJson(value));
     }
 
+    /// 同 Serialize，但输出按两层缩进换行的易读格式。
     public static string SerializePretty(object value) {
         return JsonValue.StringifyPretty(JsonSerializer._toJson(value));
     }
 
+    /// 解析 `json` 并按 `T` 绑定返回；JSON null / 语法错误按 JsonBinder / JsonParser 语义抛出。
     public static T Deserialize<T>(string json) {
         return (T)JsonBinder.FromJson(typeof(T), JsonValue.Parse(json));
     }
 
+    /// 同泛型版 Deserialize，目标类型运行期给定（多态反序列化入口）。
     public static object Deserialize(Type type, string json) {
         return JsonBinder.FromJson(type, JsonValue.Parse(json));
     }

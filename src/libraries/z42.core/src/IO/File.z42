@@ -57,8 +57,10 @@ public static class File {
     [Native("__file_move")]
     public static extern void Move(string src, string dst);
 
-    /// 文件最后修改时间（mtime），包装成 `Std.Time.DateTime`。比较用
-    /// `IsAfter` / `IsBefore` / `UnixMs()`。文件不存在抛 `FileNotFoundException`。
+    /// 文件最后修改时间（mtime），包装成 `Std.Time.DateTime`。
+    ///
+    /// 比较用 `IsAfter` / `IsBefore` / `UnixMs()`。文件不存在抛
+    /// `FileNotFoundException`。
     public static DateTime GetLastWriteTime(string path) {
         return DateTime.FromUnixMs(LastWriteTimeMs(path));
     }
@@ -74,8 +76,10 @@ public static class File {
     [Native("__file_create_temp_dir")]
     public static extern string CreateTempDir(string prefix);
 
-    /// 创建唯一空临时文件，返回全路径（`<sysTemp>/prefix.<nanos>.<pid>.<bump><suffix>`）。
-    /// suffix 可为 ""（无扩展名）。
+    /// 创建唯一空临时文件，返回全路径。
+    ///
+    /// 路径形如 `<sysTemp>/prefix.<nanos>.<pid>.<bump><suffix>`；suffix 可为 ""
+    /// （无扩展名）。
     [Native("__file_create_temp_file")]
     public static extern string CreateTempFile(string prefix, string suffix);
 

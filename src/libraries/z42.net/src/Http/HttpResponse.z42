@@ -16,6 +16,7 @@ public class HttpResponse {
     /// 仅 `SendStreaming` 下非 null 的流式响应体。
     public Stream      BodyStream;
 
+    /// 按各字段组装；流式体 BodyStream 置 null（由 SendStreaming 路径另行填）。
     public HttpResponse(int statusCode, string reasonPhrase, HttpHeaders headers, byte[] body) {
         this.StatusCode   = statusCode;
         this.ReasonPhrase = reasonPhrase;

@@ -1,7 +1,9 @@
 namespace Std.Runtime;
 
-/// 应用自定义配置属性（**app 自己的**配置，只读）。来自工程 manifest 的 `[properties]` +
-/// `[profile.<n>.properties]`，由 `z42c build` 烤进 runtimeconfig.toml 随产物分发。
+/// 应用自定义配置属性（**app 自己的**配置，只读）。
+///
+/// 来自工程 manifest 的 `[properties]` + `[profile.<n>.properties]`，由 `z42c build`
+/// 烤进 runtimeconfig.toml 随产物分发。
 ///
 /// 与 `Std.Runtime.RuntimeConfig` 的分工：RuntimeConfig 是 VM 旋钮（有登记表、校验、
 /// 五层优先级链）；AppProperties 是 app 自己的配置（VM 不理解不校验，未知 key 是正常

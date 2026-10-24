@@ -3,8 +3,10 @@ namespace Std.Net.Sockets;
 
 /// 同步阻塞的 DNS 查询（getaddrinfo）。
 public static class Dns {
-    /// 把主机名解析为 IPAddress 数组；解析失败抛 `SocketException`。
-    /// 数字字面量（如 "127.0.0.1" / "::1"）原样返回，不走网络。
+    /// 把主机名解析为 IPAddress 数组。
+    ///
+    /// 解析失败抛 `SocketException`。数字字面量（如 "127.0.0.1" / "::1"）原样返回，
+    /// 不走网络。
     public static IPAddress[] GetHostAddresses(string host) {
         // 解析失败 → SocketException(HostNotFound)，由 VM 抛出。
         string[] strs = DnsNative.Resolve(host);

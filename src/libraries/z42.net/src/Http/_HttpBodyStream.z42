@@ -3,10 +3,10 @@ namespace Std.Net.Http;
 using Std.IO;
 using Std.Net.Sockets;
 
-// 由 HttpClient.SendStreaming 返回的按帧感知 body 流（内部）。
-// 实现 Stream.Read 契约，按 Content-Length / chunked / 读到 EOF 三种方式解帧；
-// 流持有底层 TcpClient + _LineReader，Close() 释放 socket。
-
+/// 由 HttpClient.SendStreaming 返回的按帧感知 body 流（内部）。
+///
+/// 实现 Stream.Read 契约，按 Content-Length / chunked / 读到 EOF 三种方式解帧；
+/// 流持有底层 TcpClient + _LineReader，Close() 释放 socket。
 public class _HttpBodyStream : Stream {
     static int MODE_LENGTH  = 0;
     static int MODE_CHUNKED = 1;
@@ -27,7 +27,7 @@ public class _HttpBodyStream : Stream {
     private bool        _atEof;
     private bool        _closed;
 
-    // Content-Length 模式构造。
+    /// Content-Length 定界模式构造：读完 `length` 字节即 EOF（0 直接 EOF）。
     public static _HttpBodyStream OfLength(object tcp, Stream stream, object lr, int length) {
         var s = new _HttpBodyStream(tcp, stream, lr);
         s._mode = _HttpBodyStream.MODE_LENGTH;
@@ -36,7 +36,7 @@ public class _HttpBodyStream : Stream {
         return s;
     }
 
-    // chunked 编码模式构造。
+    /// Transfer-Encoding: chunked 定界模式构造。
     public static _HttpBodyStream OfChunked(object tcp, Stream stream, object lr) {
         var s = new _HttpBodyStream(tcp, stream, lr);
         s._mode = _HttpBodyStream.MODE_CHUNKED;
@@ -45,7 +45,7 @@ public class _HttpBodyStream : Stream {
         return s;
     }
 
-    // 读到 EOF 模式（HTTP/1.0 关闭定界）。
+    /// 读到连接关闭定界的模式构造（HTTP/1.0 风格）。
     public static _HttpBodyStream OfEof(object tcp, Stream stream, object lr) {
         var s = new _HttpBodyStream(tcp, stream, lr);
         s._mode = _HttpBodyStream.MODE_EOF;
@@ -63,10 +63,16 @@ public class _HttpBodyStream : Stream {
         this._closed = false;
     }
 
+    /// 是否可读：Close 之前恒 true。
     public override bool CanRead() { return !this._closed; }
+    /// 恒 false：只读流。
     public override bool CanWrite() { return false; }
+    /// 恒 false：网络流不可定位。
     public override bool CanSeek() { return false; }
 
+    /// 按构造模式解帧读至多 `count` 字节到 `buffer[offset..]`，返回实读数；流尾返回 0。
+    ///
+    /// 关闭后读抛 InvalidOperationException；非法 chunk 尺寸抛 HttpProtocolException。
     public override int Read(byte[] buffer, int offset, int count) {
         if (this._closed) {
             throw new InvalidOperationException("_HttpBodyStream: stream is closed");
@@ -175,6 +181,7 @@ public class _HttpBodyStream : Stream {
         return filled + more;
     }
 
+    /// 标记关闭并释放底层 TcpClient；幂等。
     public override void Close() {
         if (this._closed) { return; }
         this._closed = true;

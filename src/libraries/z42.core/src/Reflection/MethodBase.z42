@@ -9,10 +9,10 @@ public class MethodBase : MemberInfo {
     /// 是否为静态方法（无隐式 `this`）。构造器永不静态。
     public bool IsStatic;
 
-    // 限定后备函数名（VM 写入），用于反射调用及（MethodInfo 上）attribute 工厂解析。
+    /// 限定后备函数名（VM 写入），用于反射调用及（`MethodInfo` 上）attribute 工厂解析。
     public string __qualified;
 
-    // VM 写入的后备参数数组，经 GetParameters() 暴露。
+    /// VM 写入的后备参数数组，经 `GetParameters()` 暴露。
     public ParameterInfo[] __parameters;
 
     /// 参数列表，按声明序（不含隐式 `this`）。

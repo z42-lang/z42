@@ -84,8 +84,10 @@ public static class Assert {
 
     // ── 异常断言 ────────────────────────────────────────────────────────────
 
-    /// 断言 `body` 抛出运行时类型短名等于 `expectedTypeName` 的异常。
-    /// 整测试级别的抛异常断言（类型在 attribute 期静态可知）用 `[ShouldThrow<E>]`。
+    /// 断言 `body` 抛出类型短名等于 `expectedTypeName` 的异常。
+    ///
+    /// 匹配的是运行时类型短名。整测试级别的抛异常断言（类型在 attribute 期静态
+    /// 可知）用 `[ShouldThrow<E>]`。
     public static void Throws(string expectedTypeName, Action body) {
         try {
             body();

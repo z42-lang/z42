@@ -4,9 +4,12 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`
 
-[`src/libraries/z42.core/src/Delegates/MulticastFunc.z42:12`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastFunc.z42#L12)
+[`src/libraries/z42.core/src/Delegates/MulticastFunc.z42:14`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastFunc.z42#L14)
 
-多播 Func：一次注册多个 `Func<TArg, TResult>` handler，Invoke 收集所有返回值进 `TResult[]`（FIFO，注册顺序 = 调用顺序）。与单播 `Func<TArg, TResult>` 分离。
+多播 Func：一次注册多个 `Func<TArg, TResult>` handler。
+
+Invoke 收集所有返回值进 `TResult[]`（FIFO，注册顺序 = 调用顺序）。与单播
+`Func<TArg, TResult>` 分离。
 
 双 vec 通道：
   - strong 通道 —— 直接持 Func<TArg, TResult>，裸 handler `Subscribe(...)` 走此路径。
@@ -32,35 +35,35 @@ public sealed class MulticastFunc<TArg,TResult> {
 <a id="Std.MulticastFunc<TArg,TResult>.ctor()"></a>
 ### MulticastFunc()
 
-[`src/libraries/z42.core/src/Delegates/MulticastFunc.z42:26`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastFunc.z42#L26)
+[`src/libraries/z42.core/src/Delegates/MulticastFunc.z42:28`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastFunc.z42#L28)
 
 构造空的多播 Func。
 
 <a id="Std.MulticastFunc<TArg,TResult>.Subscribe(Func<TArg,TResult>)"></a>
 ### IDisposable Subscribe(Func<TArg,TResult> handler)
 
-[`src/libraries/z42.core/src/Delegates/MulticastFunc.z42:39`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastFunc.z42#L39)
+[`src/libraries/z42.core/src/Delegates/MulticastFunc.z42:41`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastFunc.z42#L41)
 
 裸 handler 订阅 → strong 快路径（零包装开销）。
 
 <a id="Std.MulticastFunc<TArg,TResult>.SubscribeAdvanced(ISubscription<Func<TArg,TResult>>)"></a>
 ### IDisposable SubscribeAdvanced(ISubscription<Func<TArg,TResult>> wrapper)
 
-[`src/libraries/z42.core/src/Delegates/MulticastFunc.z42:49`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastFunc.z42#L49)
+[`src/libraries/z42.core/src/Delegates/MulticastFunc.z42:51`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastFunc.z42#L51)
 
 ISubscription 包装器订阅 → advanced 慢路径（OnceRef / CompositeRef / 用户自定义包装器）。
 
 <a id="Std.MulticastFunc<TArg,TResult>.Count()"></a>
 ### int Count()
 
-[`src/libraries/z42.core/src/Delegates/MulticastFunc.z42:59`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastFunc.z42#L59)
+[`src/libraries/z42.core/src/Delegates/MulticastFunc.z42:61`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastFunc.z42#L61)
 
 当前活跃订阅总数（strong + advanced）。
 
 <a id="Std.MulticastFunc<TArg,TResult>.Invoke(TArg,bool)"></a>
 ### TResult[] Invoke(TArg arg, bool continueOnException = false)
 
-[`src/libraries/z42.core/src/Delegates/MulticastFunc.z42:79`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastFunc.z42#L79)
+[`src/libraries/z42.core/src/Delegates/MulticastFunc.z42:81`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastFunc.z42#L81)
 
 触发所有活跃 handler，收集返回值进 TResult[]（strong-first / advanced-after 顺序）。
 
@@ -71,14 +74,14 @@ MulticastException<TResult>（携带 Results 与失败索引 / 异常并行数�
 <a id="Std.MulticastFunc<TArg,TResult>.Unsubscribe(Func<TArg,TResult>)"></a>
 ### void Unsubscribe(Func<TArg,TResult> handler)
 
-[`src/libraries/z42.core/src/Delegates/MulticastFunc.z42:227`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastFunc.z42#L227)
+[`src/libraries/z42.core/src/Delegates/MulticastFunc.z42:229`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastFunc.z42#L229)
 
 按 handler 取消订阅（仅扫 strong 通道；advanced 通道用 token-based dispose）。
 
 <a id="Std.MulticastFunc<TArg,TResult>.RemoveAt(int,bool)"></a>
 ### void RemoveAt(int idx, bool isAdvanced)
 
-[`src/libraries/z42.core/src/Delegates/MulticastFunc.z42:240`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastFunc.z42#L240)
+[`src/libraries/z42.core/src/Delegates/MulticastFunc.z42:242`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastFunc.z42#L242)
 
 内部：dispose token 入口，把对应通道的 alive[idx] 置 false。
 

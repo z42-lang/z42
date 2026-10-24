@@ -2,5 +2,6 @@ namespace Std.Security.Authentication;
 
 /// TLS 认证（握手）失败：证书不受信 / 名字不符 / 过期、协议不兼容、对端发来的不是 TLS。
 public class AuthenticationException : Exception {
+    /// 以失败原因（证书 / 协议层面）构造。
     public AuthenticationException(string message) : base(message) {}
 }

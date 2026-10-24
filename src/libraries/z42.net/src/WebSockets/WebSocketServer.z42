@@ -10,6 +10,7 @@ public class WebSocketServer {
     private TcpListener _listener;
     private bool _running;
 
+    /// 构造未绑定实例；随后 `Bind(host, port)` 开始监听。
     public WebSocketServer() {
         this._listener = null;
         this._running = false;

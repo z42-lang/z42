@@ -4,9 +4,11 @@ namespace Std.Numerics;
 
 internal static class BigIntModular {
     /// Compute `(this ^ exp) mod modulus` via square-and-multiply
-    /// (LSB-first), walking exp's bits with `TestBit` / `ShiftRight`.
-    /// Reduces O(2^N) intermediate-size explosion of `Pow().Mod()` to
-    /// O(N) modular multiplications. RSA / Diffie-Hellman backbone.
+    /// (LSB-first).
+    ///
+    /// Walking exp's bits with `TestBit` / `ShiftRight`. Reduces O(2^N)
+    /// intermediate-size explosion of `Pow().Mod()` to O(N) modular
+    /// multiplications. RSA / Diffie-Hellman backbone.
     ///
     /// v0 limits:
     ///   * `modulus > 0` — else ArgumentException
@@ -88,15 +90,17 @@ internal static class BigIntModular {
         return BigInt._fromMagSign(out_, 1);
     }
 
-    /// Montgomery multiplication: (a * b) * R^(-1) mod n. Returns k-limb
-    /// magnitude (possibly trimmed if leading zeros). Both `a` and `b`
-    /// must already be ≤ n in magnitude (Montgomery-form inputs).
+    /// Montgomery multiplication: (a * b) * R^(-1) mod n.
+    ///
+    /// Returns k-limb magnitude (possibly trimmed if leading zeros). Both
+    /// `a` and `b` must already be ≤ n in magnitude (Montgomery-form inputs).
     internal static int[] _montMul(int[] a, int[] b, int[] n, int nPrime, int k) {
         int[] t = BigInt._magMul(a, b);   // length ≤ 2k
         return BigIntModular._montRedc(t, n, nPrime, k);
     }
 
     /// Montgomery REDC: given T < n*R, compute T * R^(-1) mod n.
+    ///
     /// Implementation per Handbook of Applied Cryptography §14.32 (CIOS
     /// inverse — single-pass loop over k limb positions).
     internal static int[] _montRedc(int[] t, int[] n, int nPrime, int k) {
@@ -186,6 +190,7 @@ internal static class BigIntModular {
     }
 
     /// Compute n' such that n * n' ≡ -1 (mod 2^31). Requires n0 odd.
+    ///
     /// Newton's iteration: x_{i+1} = x_i * (2 - n0 * x_i) (mod 2^31)
     /// — bit-precision doubles per step, so 5 iterations suffice for 31 bits.
     internal static int _montNPrime(int n0) {
@@ -203,9 +208,10 @@ internal static class BigIntModular {
         return (int)nPrime;
     }
 
-    /// Modular multiplicative inverse: returns `x` in `[0, modulus)` such
-    /// that `(this * x) mod modulus == 1`. Computed via iterative extended
-    /// Euclidean algorithm.
+    /// Modular multiplicative inverse of `this` mod `modulus`.
+    ///
+    /// Returns `x` in `[0, modulus)` such that `(this * x) mod modulus == 1`.
+    /// Computed via iterative extended Euclidean algorithm.
     ///
     /// Throws `ArgumentException` if:
     ///   * `modulus <= 1` — `mod 1` collapses every value to 0 (no

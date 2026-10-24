@@ -16,20 +16,29 @@ using Std.IO;
 /// @warning 计时是单线程墙钟（`Clock.MonoNanos()`），不是 CPU 时间；被并发干扰的
 ///     基准会反映为 max 偏大，而不是报错。
 public class Bencher {
+    /// 预热次数（`iter` 开头不计时的先跑次数，构造时定死）。
     public int WarmupIters { get; private set; }
-    public int Samples { get; private set; }   // actual n after iter() (adaptive: chosen; fixed: S)
+    /// 实际采样数：自适应形态由 `iter` 选定后写入，固定形态即构造实参。
+    public int Samples { get; private set; }
+    /// 最快一次采样的耗时（ns）。
     public long MinNs { get; private set; }
+    /// 最慢一次采样的耗时（ns）。
     public long MaxNs { get; private set; }
+    /// 采样耗时的中位数（ns；偶数个样本取上半中位）。
     public long MedianNs { get; private set; }
-    public long MeanNs { get; private set; }    // arithmetic mean of samples (ns)
-    public long StdDevNs { get; private set; }  // population stddev of samples (ns, rounded)
+    /// 采样耗时的算术平均（ns，整数除法向零截断）。
+    public long MeanNs { get; private set; }
+    /// 采样总体的标准差（ns，÷n 口径，四舍五入到整 ns）。
+    public long StdDevNs { get; private set; }
+    /// 全部采样耗时之和（ns）。
     public long TotalNs { get; private set; }
 
     bool _adaptive;   // true → estimate n to fill the time budget; false → fixed Samples
 
-    /// 自适应采样：预热 10 次；先用一小段 pilot 估出单次耗时，再按约 50ms 的测量
-    /// 预算选采样数（夹在 [20, 2000]）。快的基准采得多（置信区间紧），慢的采得少
-    /// （墙钟时间有上界）。`iter` 之后 `Samples` 是实际用的 n。
+    /// 自适应采样：预热 10 次，按约 50ms 的测量预算在 [20, 2000] 内选采样数。
+    ///
+    /// 先用一小段 pilot 估出单次耗时，再按预算定 n：快的基准采得多（置信区间紧），
+    /// 慢的采得少（墙钟时间有上界）。`iter` 之后 `Samples` 是实际用的 n。
     public Bencher() {
         this.WarmupIters = 10;
         this.Samples = 0;          // filled by iter() once n is chosen
@@ -50,8 +59,9 @@ public class Bencher {
         this.MeanNs = 0; this.StdDevNs = 0; this.TotalNs = 0;
     }
 
-    /// 预热 `WarmupIters` 次（不计时），再采样 n 次（n 固定或自适应）。返回后
-    /// `MinNs` / `MedianNs` / `MaxNs` / `MeanNs` / `StdDevNs` / `TotalNs` / `Samples`
+    /// 预热后计时采样 n 次（n 固定或自适应），刷新全部统计属性。
+    ///
+    /// 返回后 `MinNs` / `MedianNs` / `MaxNs` / `MeanNs` / `StdDevNs` / `TotalNs` / `Samples`
     /// 反映这次采样。
     ///
     /// @param body 被测代码；每次采样独立计时
@@ -132,8 +142,9 @@ public class Bencher {
         return (int)need;
     }
 
-    /// 打一行人类可读的摘要，格式是 runner 契约的一部分（json 模式下 runner 捕获这行
-    /// 并经 `BenchStats.parse` 解析成 `TestResult.bench_stats`）：
+    /// 打一行人类可读的摘要；这行格式是 runner 契约的一部分。
+    ///
+    /// json 模式下 runner 捕获这行并经 `BenchStats.parse` 解析成 `TestResult.bench_stats`：
     ///
     ///     bench[<label>] min=<n>ns median=<n>ns max=<n>ns mean=<n>ns stddev=<n>ns samples=<n>
     ///
@@ -164,10 +175,12 @@ public class Bencher {
     private static long __time_now_mono_ns() { return Clock.MonoNanos(); }
 }
 
+/// 基准相关的静态帮助函数集。
 public static class BenchHelpers {
-    /// 「别把这次计算优化掉」的恒等包装（对应 criterion 的 black_box）。目前解释器
-    /// 不做死代码消除，恒等返回；留着这个形口，用户代码在 JIT 学会消除纯表达式后
-    /// 无需改动。可无条件使用。
+    /// 「别把这次计算优化掉」的恒等包装（对应 criterion 的 black_box）。
+    ///
+    /// 目前解释器不做死代码消除，恒等返回；留着这个形口，用户代码在 JIT 学会消除
+    /// 纯表达式后无需改动。可无条件使用。
     ///
     /// @warning 形参是 `object` 而非 `<T>`：跨 zpkg 的方法级泛型实参推断尚未就绪，
     ///     装箱开销由调用方自负。

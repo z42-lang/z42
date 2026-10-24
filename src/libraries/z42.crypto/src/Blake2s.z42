@@ -2,11 +2,12 @@ namespace Std.Crypto;
 
 using Std.Encoding;
 
-// BLAKE2s 哈希（RFC 7693 §B）：BLAKE2 的 32 位字变体，算法与 BLAKE2b 相同，但用 32 位字、
-// 64 字节块、10 轮（BLAKE2b 为 64 位 / 128 字节 / 12 轮）。输出 1..32 字节，key 0..32 字节
-// （keyed-MAC 模式）。用于 Argon2i / Argon2id 内层压缩等 32 位友好场景。状态用 `int[8]`
-// （i32），工作向量 `int[16]`；z42 的 `int` 是有符号 i32 且溢出回绕，32 位算术直接成立。
-
+/// BLAKE2s 哈希（RFC 7693 §B）——BLAKE2 的 32 位字变体，输出 1..32 字节、支持 keyed-MAC。
+///
+/// 算法与 BLAKE2b 相同，但用 32 位字、64 字节块、10 轮（BLAKE2b 为 64 位 / 128 字节 /
+/// 12 轮）。key 0..32 字节。用于 Argon2i / Argon2id 内层压缩等 32 位友好场景。状态用
+/// `int[8]`（i32），工作向量 `int[16]`；z42 的 `int` 是有符号 i32 且溢出回绕，32 位算术
+/// 直接成立。
 public static class Blake2s {
     // ── Public API ───────────────────────────────────────────────────────────
 
@@ -21,7 +22,9 @@ public static class Blake2s {
     /// 对 UTF-8 字符串计算 BLAKE2s 摘要并输出小写十六进制。
     public static string HashStringHex(string s) { return Hex.Encode(Blake2s.HashString(s)); }
 
-    /// BLAKE2s 变长 + keyed（MAC）模式：`key.Length` ∈ [0, 32]、`outLen` ∈ [1, 32]，无 key 传 `new byte[0]`。
+    /// BLAKE2s 变长 + keyed（MAC）模式。
+    ///
+    /// `key.Length` ∈ [0, 32]、`outLen` ∈ [1, 32]，无 key 传 `new byte[0]`。
     public static byte[] HashLen(byte[] data, byte[] key, int outLen) {
         if (outLen < 1 || outLen > 32) {
             throw new ArgumentException(

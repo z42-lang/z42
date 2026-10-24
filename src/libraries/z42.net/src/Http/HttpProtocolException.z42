@@ -2,6 +2,7 @@ namespace Std.Net.Http;
 
 /// HTTP 线上格式违规：坏状态行、缺 CRLF、坏头行、体中途 EOF、坏 chunk 尺寸等。
 public class HttpProtocolException : HttpException {
+    /// 以描述违规位置 / 原因的错误消息构造。
     public HttpProtocolException(string message) : base(message) {}
 
     override string ToString() {

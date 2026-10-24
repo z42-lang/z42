@@ -8,14 +8,22 @@ namespace Std.Harness;
 /// `mean=` / `stddev=` 可缺：缺时 `MeanNs` / `StdDevNs` 为 -1（消费方退化为裸比值判定，
 /// 不会误报回归）。
 public class BenchStats {
+    /// 基准名（`bench[<label>]` 方括号里的文本）。
     public string Label;
+    /// 最小耗时（纳秒）。
     public long MinNs;
+    /// 中位数耗时（纳秒）。
     public long MedianNs;
+    /// 最大耗时（纳秒）。
     public long MaxNs;
-    public long MeanNs;     // -1 if the summary line omitted mean= (older format)
-    public long StdDevNs;   // -1 if the summary line omitted stddev=
+    /// 平均耗时（纳秒）；摘要行缺 `mean=` 时为 -1。
+    public long MeanNs;
+    /// 标准差（纳秒）；摘要行缺 `stddev=` 时为 -1。
+    public long StdDevNs;
+    /// 采样次数。
     public long Samples;
 
+    /// 按七个统计量直接装配。
     public BenchStats(string label, long minNs, long medianNs, long maxNs,
                       long meanNs, long stddevNs, long samples) {
         this.Label = label;
@@ -27,9 +35,10 @@ public class BenchStats {
         this.Samples = samples;
     }
 
-    /// 从 `text`（一个基准的捕获 stdout，可能多行）里解析**最后**一条合法的
-    /// `bench[...]` 行；一条也解析不出来返回 null（调用方按「这个基准没有
-    /// 统计」处理，而不是猜字段）。
+    /// 从 `text` 里解析**最后**一条合法的 `bench[...]` 行。
+    ///
+    /// `text` 是一个基准的捕获 stdout，可能多行。一条也解析不出来返回 null
+    /// （调用方按「这个基准没有统计」处理，而不是猜字段）。
     ///
     /// @param text 基准的完整捕获输出；杂散输出在摘要行之前时取最后一条最稳
     public static BenchStats? parse(string text) {

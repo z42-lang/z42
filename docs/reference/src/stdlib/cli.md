@@ -83,63 +83,70 @@ public class ArgParser {
 <a id="Std.Cli.ArgParser.AddOptionWithEnv(string,string,string,string,string)"></a>
 ### void AddOptionWithEnv(string longName, string shortName, string help, string defaultValue, string envVarName)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:128`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L128)
+[`src/libraries/z42.cli/src/ArgParser.z42:129`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L129)
 
-注册带环境变量后备的 option。取值优先级 argv > 环境变量 > defaultValue； 环境变量不存在或为空串时落到 defaultValue；help 自动追加 " (env: $NAME)"。
+注册带环境变量后备的 option。取值优先级 argv > 环境变量 > defaultValue。
+
+环境变量不存在或为空串时落到 defaultValue；help 自动追加 " (env: $NAME)"。
 
 <a id="Std.Cli.ArgParser.AddMutuallyExclusive(string[])"></a>
 ### void AddMutuallyExclusive(string[] names)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:142`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L142)
+[`src/libraries/z42.cli/src/ArgParser.z42:143`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L143)
 
 声明一组 option long-name，argv 中至多出现一个；名字必须已注册，否则当场抛 CliException。
 
 <a id="Std.Cli.ArgParser.AddRepeatedOption(string,string,string)"></a>
 ### void AddRepeatedOption(string longName, string shortName, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:176`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L176)
+[`src/libraries/z42.cli/src/ArgParser.z42:178`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L178)
 
-注册可重复 option：每次出现都追加；用 `GetRepeatedOption` 取全部，`GetOption` 取最后一个。 默认值固定 ""，help 自动追加 " (repeatable)"。
+注册可重复 option：每次出现都追加；用 `GetRepeatedOption` 取全部，`GetOption` 取最后一个。
+
+默认值固定 ""，help 自动追加 " (repeatable)"。
 
 <a id="Std.Cli.ArgParser.AllowExtras()"></a>
 ### void AllowExtras()
 
-[`src/libraries/z42.cli/src/ArgParser.z42:189`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L189)
+[`src/libraries/z42.cli/src/ArgParser.z42:191`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L191)
 
 一次性开关：开启后未知 flag / option 进 `ParseResult.Extras()` 而不抛异常。
 
 <a id="Std.Cli.ArgParser.AddRequiredOption(string,string,string)"></a>
 ### void AddRequiredOption(string longName, string shortName, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:195`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L195)
+[`src/libraries/z42.cli/src/ArgParser.z42:197`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L197)
 
 注册必填 option：argv 里没写时 Parse 抛 CliException。默认值固定 ""， help 自动追加 " (required)"。
 
 <a id="Std.Cli.ArgParser.AddPositional(string,string)"></a>
 ### void AddPositional(string name, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:208`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L208)
+[`src/libraries/z42.cli/src/ArgParser.z42:210`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L210)
 
 注册必填 positional，按声明顺序匹配 argv 中非 flag/option 的部分。
 
 <a id="Std.Cli.ArgParser.AddOptionalPositional(string,string)"></a>
 ### void AddOptionalPositional(string name, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:223`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L223)
+[`src/libraries/z42.cli/src/ArgParser.z42:227`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L227)
 
-注册可选 positional：缺省时 `GetPositional(i)` 返回 ""。必须在所有必填 positional 之后声明，否则 `AddPositional` 抛 CliException。help 中渲染为 `[name]`。
+注册可选 positional：缺省时 `GetPositional(i)` 返回 ""。
+
+必须在所有必填 positional 之后声明，否则 `AddPositional` 抛 CliException。
+help 中渲染为 `[name]`。
 
 <a id="Std.Cli.ArgParser.Parse(string[])"></a>
 ### ParseResult Parse(string[] argv)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:234`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L234)
+[`src/libraries/z42.cli/src/ArgParser.z42:238`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L238)
 
 解析 argv（不含 program name），返回 ParseResult；失败抛 CliException。
 
 <a id="Std.Cli.ArgParser.HelpText()"></a>
 ### string HelpText()
 
-[`src/libraries/z42.cli/src/ArgParser.z42:499`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L499)
+[`src/libraries/z42.cli/src/ArgParser.z42:503`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L503)
 
 生成 USAGE / FLAGS / OPTIONS / ARGS 四段帮助文本。
 
@@ -275,8 +282,9 @@ public sealed class CommandResolution {
 
 ## _RepeatedList
 
-[`src/libraries/z42.cli/src/ParseResult.z42:5`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L5)
+[`src/libraries/z42.cli/src/ParseResult.z42:4`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L4)
 
+可重复 option 存储的内部包装：z42 没有原生 `string[][]`，每个 option 用它存追加值。
 
 ```z42
 public class _RepeatedList {
@@ -295,35 +303,41 @@ public class _RepeatedList {
 
 [`src/libraries/z42.cli/src/ParseResult.z42:6`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L6)
 
+已追加的值；容量不够时翻倍。
 
 <a id="Std.Cli._RepeatedList._count"></a>
 ### int _count
 
-[`src/libraries/z42.cli/src/ParseResult.z42:7`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L7)
+[`src/libraries/z42.cli/src/ParseResult.z42:8`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L8)
 
+已追加的数量。
 
 <a id="Std.Cli._RepeatedList.ctor()"></a>
 ### _RepeatedList()
 
-[`src/libraries/z42.cli/src/ParseResult.z42:9`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L9)
+[`src/libraries/z42.cli/src/ParseResult.z42:11`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L11)
 
+起始容量 4 的空列表。
 
 <a id="Std.Cli._RepeatedList.Append(string)"></a>
 ### void Append(string v)
 
-[`src/libraries/z42.cli/src/ParseResult.z42:14`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L14)
+[`src/libraries/z42.cli/src/ParseResult.z42:17`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L17)
 
+追加一个值（容量不够翻倍）。
 
 <a id="Std.Cli._RepeatedList.Snapshot()"></a>
 ### string[] Snapshot()
 
-[`src/libraries/z42.cli/src/ParseResult.z42:26`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L26)
+[`src/libraries/z42.cli/src/ParseResult.z42:30`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L30)
 
+按当前长度拷出一份。
 
 ## _MutexGroup
 
-[`src/libraries/z42.cli/src/ParseResult.z42:36`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L36)
+[`src/libraries/z42.cli/src/ParseResult.z42:39`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L39)
 
+互斥 option 组声明的内部包装：这些 long-name 至多能在命令行出现一个。
 
 ```z42
 public class _MutexGroup {
@@ -338,24 +352,27 @@ public class _MutexGroup {
 <a id="Std.Cli._MutexGroup._names"></a>
 ### string[] _names
 
-[`src/libraries/z42.cli/src/ParseResult.z42:37`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L37)
+[`src/libraries/z42.cli/src/ParseResult.z42:41`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L41)
 
+组内的 long-name 列表。
 
 <a id="Std.Cli._MutexGroup._count"></a>
 ### int _count
 
-[`src/libraries/z42.cli/src/ParseResult.z42:38`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L38)
+[`src/libraries/z42.cli/src/ParseResult.z42:43`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L43)
 
+组内名字数。
 
 <a id="Std.Cli._MutexGroup.ctor(string[])"></a>
 ### _MutexGroup(string[] names)
 
-[`src/libraries/z42.cli/src/ParseResult.z42:40`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L40)
+[`src/libraries/z42.cli/src/ParseResult.z42:46`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L46)
 
+按声明的名字建组。
 
 ## ParseResult
 
-[`src/libraries/z42.cli/src/ParseResult.z42:47`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L47)
+[`src/libraries/z42.cli/src/ParseResult.z42:53`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L53)
 
 Parse 的返回值。取值方法一律按 long name 查找；名字未注册抛 CliException。
 
@@ -399,193 +416,218 @@ public class ParseResult {
 <a id="Std.Cli.ParseResult._flagLongs"></a>
 ### string[] _flagLongs
 
-[`src/libraries/z42.cli/src/ParseResult.z42:49`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L49)
+[`src/libraries/z42.cli/src/ParseResult.z42:55`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L55)
 
+flag 的 long-name（与 ArgParser 的注册表平行）。
 
 <a id="Std.Cli.ParseResult._flagValues"></a>
 ### bool[] _flagValues
 
-[`src/libraries/z42.cli/src/ParseResult.z42:50`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L50)
+[`src/libraries/z42.cli/src/ParseResult.z42:57`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L57)
 
+各 flag 是否出现。
 
 <a id="Std.Cli.ParseResult._flagCount"></a>
 ### int _flagCount
 
-[`src/libraries/z42.cli/src/ParseResult.z42:51`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L51)
+[`src/libraries/z42.cli/src/ParseResult.z42:59`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L59)
 
+flag 数量。
 
 <a id="Std.Cli.ParseResult._optionLongs"></a>
 ### string[] _optionLongs
 
-[`src/libraries/z42.cli/src/ParseResult.z42:54`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L54)
+[`src/libraries/z42.cli/src/ParseResult.z42:62`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L62)
 
+option 的 long-name。
 
 <a id="Std.Cli.ParseResult._optionValues"></a>
 ### string[] _optionValues
 
-[`src/libraries/z42.cli/src/ParseResult.z42:55`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L55)
+[`src/libraries/z42.cli/src/ParseResult.z42:64`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L64)
 
+各 option 的最终值（argv → env → default 三级解析后）。
 
 <a id="Std.Cli.ParseResult._optionWasSet"></a>
 ### bool[] _optionWasSet
 
-[`src/libraries/z42.cli/src/ParseResult.z42:58`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L58)
+[`src/libraries/z42.cli/src/ParseResult.z42:67`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L67)
 
+值是否真的写自 argv（区别于默认值兜底）；用于必填校验，也让调用方能区分 「用户显式传了默认值」和「默认值隐式生效」。
 
 <a id="Std.Cli.ParseResult._optionRepeated"></a>
 ### bool[] _optionRepeated
 
-[`src/libraries/z42.cli/src/ParseResult.z42:60`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L60)
+[`src/libraries/z42.cli/src/ParseResult.z42:69`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L69)
 
+声明侧 repeated 标志的镜像；非 repeated 时条目为 null。
 
 <a id="Std.Cli.ParseResult._optionLists"></a>
 ### _RepeatedList[] _optionLists
 
-[`src/libraries/z42.cli/src/ParseResult.z42:61`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L61)
+[`src/libraries/z42.cli/src/ParseResult.z42:71`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L71)
 
+repeated option 追加的值列表；非 repeated 时条目为 null。
 
 <a id="Std.Cli.ParseResult._optionCount"></a>
 ### int _optionCount
 
-[`src/libraries/z42.cli/src/ParseResult.z42:62`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L62)
+[`src/libraries/z42.cli/src/ParseResult.z42:73`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L73)
 
+option 数量。
 
 <a id="Std.Cli.ParseResult._extras"></a>
 ### string[] _extras
 
-[`src/libraries/z42.cli/src/ParseResult.z42:65`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L65)
+[`src/libraries/z42.cli/src/ParseResult.z42:76`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L76)
 
+未知 flag / option 的透传列表；仅当调用过 ArgParser.AllowExtras 时才填充。
 
 <a id="Std.Cli.ParseResult._extrasCount"></a>
 ### int _extrasCount
 
-[`src/libraries/z42.cli/src/ParseResult.z42:66`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L66)
+[`src/libraries/z42.cli/src/ParseResult.z42:78`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L78)
 
+透传条目数。
 
 <a id="Std.Cli.ParseResult._allowExtras"></a>
 ### bool _allowExtras
 
-[`src/libraries/z42.cli/src/ParseResult.z42:67`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L67)
+[`src/libraries/z42.cli/src/ParseResult.z42:80`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L80)
 
+是否允许过透传。
 
 <a id="Std.Cli.ParseResult._positionalNames"></a>
 ### string[] _positionalNames
 
-[`src/libraries/z42.cli/src/ParseResult.z42:70`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L70)
+[`src/libraries/z42.cli/src/ParseResult.z42:83`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L83)
 
+位置参数的名字（注册序）。
 
 <a id="Std.Cli.ParseResult._positionalValues"></a>
 ### string[] _positionalValues
 
-[`src/libraries/z42.cli/src/ParseResult.z42:71`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L71)
+[`src/libraries/z42.cli/src/ParseResult.z42:85`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L85)
 
+各位置参数的值。
 
 <a id="Std.Cli.ParseResult._positionalCount"></a>
 ### int _positionalCount
 
-[`src/libraries/z42.cli/src/ParseResult.z42:72`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L72)
+[`src/libraries/z42.cli/src/ParseResult.z42:87`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L87)
 
+位置参数数量。
 
 <a id="Std.Cli.ParseResult._showHelp"></a>
 ### bool _showHelp
 
-[`src/libraries/z42.cli/src/ParseResult.z42:74`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L74)
+[`src/libraries/z42.cli/src/ParseResult.z42:90`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L90)
 
+是否命中了 `-h` / `--help`。
 
 <a id="Std.Cli.ParseResult.ctor()"></a>
 ### ParseResult()
 
-[`src/libraries/z42.cli/src/ParseResult.z42:76`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L76)
+[`src/libraries/z42.cli/src/ParseResult.z42:93`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L93)
 
+全空的初始结果；由 ArgParser.Parse 填充。
 
 <a id="Std.Cli.ParseResult.GetFlag(string)"></a>
 ### bool GetFlag(string longName)
 
-[`src/libraries/z42.cli/src/ParseResult.z42:96`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L96)
+[`src/libraries/z42.cli/src/ParseResult.z42:113`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L113)
 
 返回指定 long-name flag 是否出现过。
 
 <a id="Std.Cli.ParseResult.GetOption(string)"></a>
 ### string GetOption(string longName)
 
-[`src/libraries/z42.cli/src/ParseResult.z42:106`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L106)
+[`src/libraries/z42.cli/src/ParseResult.z42:123`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L123)
 
 返回 option 的最终值（argv → env → default 三级解析后的结果）。
 
 <a id="Std.Cli.ParseResult.WasOptionSet(string)"></a>
 ### bool WasOptionSet(string longName)
 
-[`src/libraries/z42.cli/src/ParseResult.z42:117`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L117)
+[`src/libraries/z42.cli/src/ParseResult.z42:134`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L134)
 
 该 option 是否真的写在 argv 里（区分「用户显式传了默认值」和「默认值兜底」）。 env 后备命中时仍是 false。
 
 <a id="Std.Cli.ParseResult.GetRepeatedOption(string)"></a>
 ### string[] GetRepeatedOption(string longName)
 
-[`src/libraries/z42.cli/src/ParseResult.z42:128`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L128)
+[`src/libraries/z42.cli/src/ParseResult.z42:146`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L146)
 
-按 argv 顺序返回重复 option 的全部值；未传过返回空数组。 对非 `AddRepeatedOption` 声明的 option 抛 `CliException`。
+按 argv 顺序返回重复 option 的全部值。
+
+未传过返回空数组；对非 `AddRepeatedOption` 声明的 option 抛 `CliException`。
 
 <a id="Std.Cli.ParseResult.Extras()"></a>
 ### string[] Extras()
 
-[`src/libraries/z42.cli/src/ParseResult.z42:143`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L143)
+[`src/libraries/z42.cli/src/ParseResult.z42:161`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L161)
 
 返回 AllowExtras 收集到的未知 argv token；未开启时返回空数组。
 
 <a id="Std.Cli.ParseResult.ExtrasCount()"></a>
 ### int ExtrasCount()
 
-[`src/libraries/z42.cli/src/ParseResult.z42:154`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L154)
+[`src/libraries/z42.cli/src/ParseResult.z42:172`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L172)
 
 AllowExtras 收集到的未知 token 个数；未开启时为 0。
 
 <a id="Std.Cli.ParseResult.GetIntOption(string)"></a>
 ### int GetIntOption(string longName)
 
-[`src/libraries/z42.cli/src/ParseResult.z42:162`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L162)
+[`src/libraries/z42.cli/src/ParseResult.z42:180`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L180)
 
 取值后走 int.Parse；失败抛 CliException。
 
 <a id="Std.Cli.ParseResult.GetLongOption(string)"></a>
 ### long GetLongOption(string longName)
 
-[`src/libraries/z42.cli/src/ParseResult.z42:171`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L171)
+[`src/libraries/z42.cli/src/ParseResult.z42:189`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L189)
 
 取值后走 long.Parse；失败抛 CliException。
 
 <a id="Std.Cli.ParseResult.GetDoubleOption(string)"></a>
 ### double GetDoubleOption(string longName)
 
-[`src/libraries/z42.cli/src/ParseResult.z42:180`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L180)
+[`src/libraries/z42.cli/src/ParseResult.z42:198`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L198)
 
 取值后走 double.Parse；失败抛 CliException。
 
 <a id="Std.Cli.ParseResult.GetBoolOption(string)"></a>
 ### bool GetBoolOption(string longName)
 
-[`src/libraries/z42.cli/src/ParseResult.z42:190`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L190)
+[`src/libraries/z42.cli/src/ParseResult.z42:210`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L210)
 
-只认 `true` / `false`（ASCII 大小写不敏感），其它值抛 CliException。 用于 `--enabled=true` 这种显式布尔 option，与 `GetFlag` 的「出现即真」不同。
+只认 `true` / `false`（ASCII 大小写不敏感）。
+
+其它值抛 CliException；用于 `--enabled=true` 这种显式布尔 option，
+与 `GetFlag` 的「出现即真」不同。
 
 <a id="Std.Cli.ParseResult.GetPositional(int)"></a>
 ### string GetPositional(int index)
 
-[`src/libraries/z42.cli/src/ParseResult.z42:210`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L210)
+[`src/libraries/z42.cli/src/ParseResult.z42:232`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L232)
 
-返回第 index 个 positional（0-based）。边界为**声明总数**（非已提供数）： 已声明但未提供的可选 positional 返回 ""；index 超出声明总数抛 CliException。
+返回第 index 个 positional（0-based）。
+
+边界为**声明总数**（非已提供数）：已声明但未提供的可选 positional 返回 ""；
+index 超出声明总数抛 CliException。
 
 <a id="Std.Cli.ParseResult.PositionalCount()"></a>
 ### int PositionalCount()
 
-[`src/libraries/z42.cli/src/ParseResult.z42:219`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L219)
+[`src/libraries/z42.cli/src/ParseResult.z42:241`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L241)
 
 argv 里实际提供的 positional 个数。
 
 <a id="Std.Cli.ParseResult.ShowHelp()"></a>
 ### bool ShowHelp()
 
-[`src/libraries/z42.cli/src/ParseResult.z42:222`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L222)
+[`src/libraries/z42.cli/src/ParseResult.z42:244`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ParseResult.z42#L244)
 
 argv 里出现过 `-h` / `--help`。
 
@@ -627,48 +669,56 @@ public sealed class SubcommandRouter {
 <a id="Std.Cli.SubcommandRouter.AddRouter(string,string,SubcommandRouter)"></a>
 ### void AddRouter(string name, string description, SubcommandRouter child)
 
-[`src/libraries/z42.cli/src/SubcommandRouter.z42:56`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L56)
+[`src/libraries/z42.cli/src/SubcommandRouter.z42:57`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L57)
 
-注册嵌套子命令路由（`prog build package …`）；`child` 处理该名字之后的 token。 同名重复注册会覆盖（叶子 → 路由或路由 → 路由）。
+注册嵌套子命令路由（`prog build package …`）。
+
+`child` 处理该名字之后的 token；同名重复注册会覆盖（叶子 → 路由或路由 → 路由）。
 
 <a id="Std.Cli.SubcommandRouter.Match(string[])"></a>
 ### SubcommandMatch? Match(string[] argv)
 
-[`src/libraries/z42.cli/src/SubcommandRouter.z42:79`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L79)
+[`src/libraries/z42.cli/src/SubcommandRouter.z42:82`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L82)
 
-单层 sugar：只看 argv[0]。命中叶子返回 `SubcommandMatch`；其余情形（argv 为空 / argv[0] 是 `--help` / `-h` / 名字不认识）一律返回 null。不处理嵌套子命令。
+单层 sugar：只看 argv[0]，命中叶子返回 `SubcommandMatch`。
+
+其余情形（argv 为空 / argv[0] 是 `--help` / `-h` / 名字不认识）一律返回
+null。不处理嵌套子命令。
 
 <a id="Std.Cli.SubcommandRouter.Resolve(string[])"></a>
 ### CommandResolution Resolve(string[] argv)
 
-[`src/libraries/z42.cli/src/SubcommandRouter.z42:102`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L102)
+[`src/libraries/z42.cli/src/SubcommandRouter.z42:106`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L106)
 
-推荐入口：递归下钻整棵命令树，返回三态互斥的 `CommandResolution` （IsMatch / IsHelp / IsUnknown 恰好一个为真）。叶子 `ArgParser.Parse` 的 option 级错误（未知 flag / 缺值 / 缺 positional）以 `CliException` 向上透传。
+推荐入口：递归下钻整棵命令树，返回三态互斥的 `CommandResolution`。
+
+IsMatch / IsHelp / IsUnknown 恰好一个为真。叶子 `ArgParser.Parse` 的 option
+级错误（未知 flag / 缺值 / 缺 positional）以 `CliException` 向上透传。
 
 <a id="Std.Cli.SubcommandRouter.HelpText()"></a>
 ### string HelpText()
 
-[`src/libraries/z42.cli/src/SubcommandRouter.z42:136`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L136)
+[`src/libraries/z42.cli/src/SubcommandRouter.z42:140`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L140)
 
 渲染顶层帮助：programName - description + 一段 SUBCOMMANDS: 列表。
 
 <a id="Std.Cli.SubcommandRouter.Count()"></a>
 ### int Count()
 
-[`src/libraries/z42.cli/src/SubcommandRouter.z42:151`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L151)
+[`src/libraries/z42.cli/src/SubcommandRouter.z42:155`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L155)
 
 已注册的子命令个数。
 
 <a id="Std.Cli.SubcommandRouter.Has(string)"></a>
 ### bool Has(string name)
 
-[`src/libraries/z42.cli/src/SubcommandRouter.z42:154`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L154)
+[`src/libraries/z42.cli/src/SubcommandRouter.z42:158`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L158)
 
 指定名字是否已注册为子命令。
 
 ## SubcommandMatch
 
-[`src/libraries/z42.cli/src/SubcommandRouter.z42:200`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L200)
+[`src/libraries/z42.cli/src/SubcommandRouter.z42:204`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L204)
 
 单层子命令命中的结果：名字 + 叶子 ParseResult。
 
@@ -685,21 +735,21 @@ public sealed class SubcommandMatch {
 <a id="Std.Cli.SubcommandMatch.ctor(string,ParseResult)"></a>
 ### SubcommandMatch(string name, ParseResult result)
 
-[`src/libraries/z42.cli/src/SubcommandRouter.z42:205`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L205)
+[`src/libraries/z42.cli/src/SubcommandRouter.z42:209`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L209)
 
 用命中的子命令名与解析结果创建匹配对象。
 
 <a id="Std.Cli.SubcommandMatch.Name()"></a>
 ### string Name()
 
-[`src/libraries/z42.cli/src/SubcommandRouter.z42:211`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L211)
+[`src/libraries/z42.cli/src/SubcommandRouter.z42:215`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L215)
 
 命中的子命令名。
 
 <a id="Std.Cli.SubcommandMatch.Result()"></a>
 ### ParseResult Result()
 
-[`src/libraries/z42.cli/src/SubcommandRouter.z42:214`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L214)
+[`src/libraries/z42.cli/src/SubcommandRouter.z42:218`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L218)
 
 命中的叶子 ParseResult。
 

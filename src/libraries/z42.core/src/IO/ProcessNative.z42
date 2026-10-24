@@ -4,10 +4,12 @@
 namespace Std.IO;
 
 /// 子进程 spawn / wait / kill / stdio 的 native 原语，供 z42.io 的 Process 应用层调用。
-/// 失败一律由 VM 直接抛（.NET 口径）：启动失败 → ProcessStartException（: IOException），
-/// 超时 → ProcessTimeoutException（: TimeoutException），句柄已失效 → ProcessHandleInvalidException
-/// （: InvalidOperationException），未重定向的 stdin → InvalidOperationException，管道 I/O 错 →
-/// IOException。成功结果数组：[exitCode, stdout, stderr, stdoutBytes, stderrBytes]。
+///
+/// 失败一律由 VM 直接抛（.NET 口径）：启动失败 → ProcessStartException
+/// （: IOException），超时 → ProcessTimeoutException（: TimeoutException），句柄已失效
+/// → ProcessHandleInvalidException（: InvalidOperationException），未重定向的 stdin →
+/// InvalidOperationException，管道 I/O 错 → IOException。成功结果数组：[exitCode,
+/// stdout, stderr, stdoutBytes, stderrBytes]。
 public static class ProcessNative {
     /// 同步运行子进程，返回结果数组。
     [Native("__process_run_sync")]

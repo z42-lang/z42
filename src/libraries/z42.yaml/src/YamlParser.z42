@@ -136,6 +136,7 @@ public sealed class YamlParser {
     }
 
     /// Parse exactly one document body (no strict trailing-content check).
+    ///
     /// Stops at EOF or a `---` / `...` document boundary, leaving the marker
     /// unconsumed so the caller can decide what to do with it.
     private YamlValue _ParseOneDocBody() {
@@ -158,6 +159,7 @@ public sealed class YamlParser {
     }
 
     /// True if the current line is a document-boundary marker (`---` or `...`).
+    ///
     /// Used by block parsers to break out cleanly so root-level markers don't
     /// get mis-parsed as plain scalars / sequence dashes.
     private bool _IsDocBoundary() {
@@ -864,9 +866,11 @@ public sealed class YamlParser {
         return this._ApplyTagCoercion(tag, raw);
     }
 
-    /// Parse a tag handle starting with `!`. Accepts `!`, `!!`, and
-    /// `!`/`!!` followed by an identifier (alphanumerics + `_` `-` `.`).
-    /// Returns the full handle string including leading `!`(s).
+    /// Parse a tag handle starting with `!`.
+    ///
+    /// Accepts `!`, `!!`, and `!`/`!!` followed by an identifier
+    /// (alphanumerics + `_` `-` `.`). Returns the full handle string
+    /// including leading `!`(s).
     private string _ParseTagName() {
         int start = this._pos;
         this._Advance();                          // first `!`
@@ -886,6 +890,7 @@ public sealed class YamlParser {
     }
 
     /// Apply a YAML 1.2 universal tag's type coercion to a raw scalar.
+    ///
     /// Unknown tags fall through to plain-scalar type inference.
     private YamlValue _ApplyTagCoercion(string tag, YamlValue raw) {
         if (tag == "!!str") {
@@ -993,6 +998,7 @@ public sealed class YamlParser {
     }
 
     /// Parse an anchor name starting at `_pos` (after the `&` or `*` sigil).
+    ///
     /// Accepts alphanumerics + `_` `-` `.` (YAML 1.2 is more permissive but
     /// this covers all common use cases). Stops at whitespace / EOL / flow
     /// indicators.
@@ -1066,10 +1072,12 @@ public sealed class YamlParser {
     // → _ParseBlockMapping / _ParseFlow is safe because the nested parser does its own
     // save/restore.
 
-    /// Merge `mergeVal` into `dst`. `mergeVal` must be a mapping or a
-    /// sequence whose every item is a mapping; anything else throws.
-    /// For each source mapping (in order), insert every (k, v) for which
-    /// `dst` does not already contain `k`, recording `k` in `_mergedKeys`.
+    /// Merge `mergeVal` into `dst`.
+    ///
+    /// `mergeVal` must be a mapping or a sequence whose every item is a
+    /// mapping; anything else throws. For each source mapping (in order),
+    /// insert every (k, v) for which `dst` does not already contain `k`,
+    /// recording `k` in `_mergedKeys`.
     private void _ApplyMerge(YamlValue dst, YamlValue mergeVal) {
         if (mergeVal.IsMapping()) {
             this._MergeOneSource(dst, mergeVal);
@@ -1119,8 +1127,9 @@ public sealed class YamlParser {
         this._mergedCount = this._mergedCount + 1;
     }
 
-    /// Linear scan — merge counts are typically <10. Returns the index of
-    /// `key` in the current merged-key table, or -1.
+    /// Returns the index of `key` in the current merged-key table, or -1.
+    ///
+    /// Linear scan — merge counts are typically <10.
     private int _IndexOfMergedKey(string key) {
         int i = 0;
         while (i < this._mergedCount) {
@@ -1294,8 +1303,9 @@ public sealed class YamlParser {
         return YamlValue.OfString(body);
     }
 
-    /// Consume from current pos through the rest of the line; return the
-    /// trimmed content, stripped of any end-of-line `#…` comment.
+    /// Consume from current pos through the rest of the line.
+    ///
+    /// Returns the trimmed content, stripped of any end-of-line `#…` comment.
     private string _ConsumeLinePlainScalar() {
         int start = this._pos;
         int commentStart = -1;
@@ -1318,7 +1328,8 @@ public sealed class YamlParser {
         return raw.Trim();
     }
 
-    /// Type-detect a plain (unquoted, untrimmed) scalar:
+    /// Type-detect a plain (unquoted, untrimmed) scalar.
+    ///
     ///   "" / "~" / "null"  → null
     ///   "true" / "false"   → bool
     ///   integer literal    → int   (sign, decimal only — v0)
@@ -1364,9 +1375,10 @@ public sealed class YamlParser {
         return YamlValue.OfString(raw);
     }
 
-    /// Cheap prefix-check for ISO 8601 — `YYYY-MM-DD` exactly, or that
-    /// followed by `T`/`t`/space + at least `HH`. ParseIso8601 does the
-    /// real validation; this just gates whether to attempt it.
+    /// Cheap prefix-check for ISO 8601 — gates whether to attempt it.
+    ///
+    /// `YYYY-MM-DD` exactly, or that followed by `T`/`t`/space + at least
+    /// `HH`; ParseIso8601 does the real validation.
     private bool _LooksLikeTimestamp(string s) {
         if (s.Length < 10) { return false; }
         int i = 0;
@@ -1390,6 +1402,7 @@ public sealed class YamlParser {
     }
 
     /// YAML 1.2 hex literal: `0x` prefix (lowercase), at least one hex digit.
+    ///
     /// No sign allowed (matches YAML 1.2 spec §10.2 schema).
     private bool _LooksLikeHex(string s) {
         if (s.Length < 3) { return false; }
@@ -1488,6 +1501,7 @@ public sealed class YamlParser {
     // ── Whitespace + line handling ──────────────────────────────────────
 
     /// Number of leading space characters on the line starting at _pos.
+    ///
     /// Throws if a tab appears in the indentation (YAML forbids).
     private int _CurrentLineIndent() {
         int i = this._pos;
@@ -1606,9 +1620,10 @@ public sealed class YamlParser {
         return prev == ' ' || prev == '\t' || prev == '\n' || prev == '\r';
     }
 
-    /// Scan from `start` to end-of-line looking for an unquoted `:` followed
-    /// by WS / EOL — that means the line is a block-mapping key:value.
-    /// Returns false for lines that are plain scalars.
+    /// Scan from `start` to end-of-line for an unquoted `:` followed by WS / EOL.
+    ///
+    /// That means the line is a block-mapping key:value. Returns false for
+    /// lines that are plain scalars.
     private bool _LineHasMappingColon(int start) {
         int i = start;
         bool inSingleQuote = false;

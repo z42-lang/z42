@@ -64,154 +64,156 @@ public sealed class DateTimeOffset {
 <a id="Std.Time.DateTimeOffset.Parse(string)"></a>
 ### static DateTimeOffset Parse(string s)
 
-[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:40`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L40)
+[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:41`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L41)
 
-解析带**必须**偏移后缀（`Z` / `±HH:MM` / `±HHMM` / `±HH`）的 ISO 8601； 缺后缀抛 `FormatException`。
+解析带**必须**偏移后缀（`Z` / `±HH:MM` / `±HHMM` / `±HH`）的 ISO 8601。
+
+缺后缀抛 `FormatException`。
 
 <a id="Std.Time.DateTimeOffset.UtcDateTime()"></a>
 ### DateTime UtcDateTime()
 
-[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:96`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L96)
+[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:97`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L97)
 
 底层 UTC 时刻。
 
 <a id="Std.Time.DateTimeOffset.LocalDateTime()"></a>
 ### DateTime LocalDateTime()
 
-[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:99`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L99)
+[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:100`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L100)
 
 本地墙钟读数（不带偏移信息，塞进一个 DateTime）。
 
 <a id="Std.Time.DateTimeOffset.Offset()"></a>
 ### TimeZone Offset()
 
-[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:104`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L104)
+[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:105`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L105)
 
 时区（偏移）。
 
 <a id="Std.Time.DateTimeOffset.Year()"></a>
 ### int Year()
 
-[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:107`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L107)
+[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:108`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L108)
 
 本地年份。
 
 <a id="Std.Time.DateTimeOffset.Month()"></a>
 ### int Month()
 
-[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:109`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L109)
+[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:110`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L110)
 
 本地月份。
 
 <a id="Std.Time.DateTimeOffset.Day()"></a>
 ### int Day()
 
-[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:111`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L111)
+[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:112`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L112)
 
 本地日。
 
 <a id="Std.Time.DateTimeOffset.Hour()"></a>
 ### int Hour()
 
-[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:113`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L113)
+[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:114`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L114)
 
 本地时。
 
 <a id="Std.Time.DateTimeOffset.Minute()"></a>
 ### int Minute()
 
-[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:115`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L115)
+[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:116`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L116)
 
 本地分。
 
 <a id="Std.Time.DateTimeOffset.Second()"></a>
 ### int Second()
 
-[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:117`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L117)
+[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:118`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L118)
 
 本地秒。
 
 <a id="Std.Time.DateTimeOffset.Millisecond()"></a>
 ### int Millisecond()
 
-[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:119`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L119)
+[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:120`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L120)
 
 本地毫秒。
 
 <a id="Std.Time.DateTimeOffset.DayOfWeek()"></a>
 ### int DayOfWeek()
 
-[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:121`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L121)
+[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:122`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L122)
 
 本地星期几。
 
 <a id="Std.Time.DateTimeOffset.DayOfYear()"></a>
 ### int DayOfYear()
 
-[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:123`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L123)
+[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:124`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L124)
 
 本地一年中的第几天。
 
 <a id="Std.Time.DateTimeOffset.ToIso8601()"></a>
 ### string ToIso8601()
 
-[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:126`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L126)
+[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:127`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L127)
 
 带偏移后缀的 ISO 8601 渲染。
 
 <a id="Std.Time.DateTimeOffset.ToString()"></a>
 ### override string ToString()
 
-[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:131`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L131)
+[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:132`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L132)
 
 同 `ToIso8601()`。
 
 <a id="Std.Time.DateTimeOffset.Equals(DateTimeOffset)"></a>
 ### bool Equals(DateTimeOffset other)
 
-[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:136`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L136)
+[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:137`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L137)
 
 只比 UTC 时刻（忽略偏移）。
 
 <a id="Std.Time.DateTimeOffset.EqualsExact(DateTimeOffset)"></a>
 ### bool EqualsExact(DateTimeOffset other)
 
-[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:142`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L142)
+[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:143`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L143)
 
 UTC 时刻 + 偏移都相同。
 
 <a id="Std.Time.DateTimeOffset.IsAfter(DateTimeOffset)"></a>
 ### bool IsAfter(DateTimeOffset other)
 
-[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:149`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L149)
+[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:150`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L150)
 
 是否晚于 `other`。
 
 <a id="Std.Time.DateTimeOffset.IsBefore(DateTimeOffset)"></a>
 ### bool IsBefore(DateTimeOffset other)
 
-[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:151`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L151)
+[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:152`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L152)
 
 是否早于 `other`。
 
 <a id="Std.Time.DateTimeOffset.Subtract(DateTimeOffset)"></a>
 ### TimeSpan Subtract(DateTimeOffset other)
 
-[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:154`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L154)
+[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:155`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L155)
 
 与 `other` 的差值。
 
 <a id="Std.Time.DateTimeOffset.Add(TimeSpan)"></a>
 ### DateTimeOffset Add(TimeSpan span)
 
-[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:159`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L159)
+[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:160`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L160)
 
 加 TimeSpan。
 
 <a id="Std.Time.DateTimeOffset.SubtractSpan(TimeSpan)"></a>
 ### DateTimeOffset SubtractSpan(TimeSpan span)
 
-[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:164`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L164)
+[`src/libraries/z42.core/src/Time/DateTimeOffset.z42:165`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTimeOffset.z42#L165)
 
 减 TimeSpan。
 

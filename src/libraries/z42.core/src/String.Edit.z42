@@ -1,11 +1,10 @@
 namespace Std;
 
-// `Std.String` 的 partial 碎片 —— 位置编辑（Insert / Remove）与对齐填充（PadLeft /
-// PadRight）。
-//
-// 碎片归属规则（partial v1）：**同名方法组必须落在同一碎片**——键决策是每-fragment
-// 的局部状态，跨碎片时两个同名方法会各自当「声明序首个」取裸键，后者静默覆盖前者。
-// 故 Remove×2 / PadLeft×2 / PadRight×2 各自成组落在本碎片。
+/// `Std.String` 的 partial 碎片 —— 位置编辑（Insert / Remove）与对齐填充（PadLeft / PadRight）。
+///
+/// 碎片归属规则（partial v1）：**同名方法组必须落在同一碎片**——键决策是每-fragment
+/// 的局部状态，跨碎片时两个同名方法会各自当「声明序首个」取裸键，后者静默覆盖前者。
+/// 故 Remove×2 / PadLeft×2 / PadRight×2 各自成组落在本碎片。
 public sealed partial class String {
     // ── 位置编辑 ─────────────────────────────────────────────────────────────
 

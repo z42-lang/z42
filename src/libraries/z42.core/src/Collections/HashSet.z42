@@ -1,9 +1,11 @@
 namespace Std.Collections;
 
-/// 插入有序的泛型哈希集合（与 `Dictionary<TKey, TValue>` 同一布局，共用操作见
-/// `HashIndex.z42`）：摊还 O(1) 平均 Add / Remove / Contains。`ToArray()` 按**插入顺序**产出；
-/// 已存在元素再 `Add` 不改变位置；`Remove` 后再加入排到末尾。`T` 必须 hashable + equatable
-/// （primitive 走 VM builtin，用户类型实现 `IEquatable`），与 Dictionary 的 TKey 约束一致。
+/// 插入有序的泛型哈希集合：摊还 O(1) 平均 Add / Remove / Contains。
+///
+/// 与 `Dictionary<TKey, TValue>` 同一布局，共用操作见 `HashIndex.z42`。
+/// `ToArray()` 按**插入顺序**产出；已存在元素再 `Add` 不改变位置；`Remove` 后再加入
+/// 排到末尾。`T` 必须 hashable + equatable（primitive 走 VM builtin，用户类型实现
+/// `IEquatable`），与 Dictionary 的 TKey 约束一致。
 ///
 /// 没有 `GetEnumerator()`，不能直接 `foreach` —— 用 `ToArray()` 取快照后再遍历。
 public class HashSet<T> where T: IEquatable {

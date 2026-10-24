@@ -2,13 +2,13 @@ namespace Std.Crypto;
 
 using Std.Encoding;
 
-// BLAKE3 哈希函数：BLAKE2 的 Merkle 树后继，面向并行硬件（SIMD / 多核）设计。此串行纯脚本实现
-// 与官方 Rust 实现逐字节一致，但没有并行加速（用于 Cargo crate 校验、IPFS 内容寻址等）。结构：
-// 输入按 1024 字节分 chunk，每个 chunk 经 16 个 64 字节子块的压缩函数迭代成 32 字节链值（CV），
-// chunk CV 按二叉树两两合并，根节点带 ROOT 标志产出最终输出（默认 32 字节，XOF 模式任意长）。
-// 压缩函数与 BLAKE2s 同形（32 位字、16 字工作向量上的 G 混合），但减为 7 轮、换用不同 SIGMA
-// 置换表并注入 counter / flags。
-
+/// BLAKE3 哈希函数——BLAKE2 的 Merkle 树后继，默认 32 字节输出，XOF 模式任意长。
+///
+/// 面向并行硬件（SIMD / 多核）设计。此串行纯脚本实现与官方 Rust 实现逐字节一致，但没有
+/// 并行加速（用于 Cargo crate 校验、IPFS 内容寻址等）。结构：输入按 1024 字节分 chunk，
+/// 每个 chunk 经 16 个 64 字节子块的压缩函数迭代成 32 字节链值（CV），chunk CV 按二叉树
+/// 两两合并，根节点带 ROOT 标志产出最终输出。压缩函数与 BLAKE2s 同形（32 位字、16 字
+/// 工作向量上的 G 混合），但减为 7 轮、换用不同 SIGMA 置换表并注入 counter / flags。
 public static class Blake3 {
     // ── Constants ────────────────────────────────────────────────────────────
 

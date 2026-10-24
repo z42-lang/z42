@@ -84,7 +84,9 @@ public struct Char : IComparable, IEquatable {
     public bool IsLower() {
         return !(this < 'a') && !(this > 'z');
     }
-    /// 是否为标点（Unicode P* 分类在 U+0000–U+007F 的 ASCII 标点；$ + < = > ^ ` | ~ 属符号 S 类，返回 false）。
+    /// 是否为标点（Unicode P* 分类在 U+0000–U+007F 的 ASCII 标点）。
+    ///
+    /// $ + < = > ^ ` | ~ 属符号 S 类，返回 false。
     public bool IsPunctuation() {
         int c = (int)this;
         if (c >= 33 && c <= 47) return c != 36 && c != 43; // ! " # % & ' ( ) * , - . /  (excl. $ +)

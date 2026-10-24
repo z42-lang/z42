@@ -4,11 +4,12 @@ namespace Std.Numerics;
 using Std.Random;
 
 internal static class BigIntPrimality {
-    /// Uniform-ish random BigInt in `[0, upper)`. Generates a magnitude
-    /// with `upper.BitLength()` random bits then reduces modulo `upper`.
-    /// Mod-bias is acceptable for Miller-Rabin witness sampling (correctness
-    /// only depends on witnesses being distributed enough to surface
-    /// composites within the requested rounds).
+    /// Uniform-ish random BigInt in `[0, upper)`.
+    ///
+    /// Generates a magnitude with `upper.BitLength()` random bits then
+    /// reduces modulo `upper`. Mod-bias is acceptable for Miller-Rabin
+    /// witness sampling (correctness only depends on witnesses being
+    /// distributed enough to surface composites within the requested rounds).
     internal static BigInt _randomBelow(Random rng, BigInt upper) {
         int bitLen = upper.BitLength();
         if (bitLen <= 0) return BigInt.Zero;
@@ -28,6 +29,7 @@ internal static class BigIntPrimality {
     }
 
     /// Miller-Rabin probabilistic primality test with caller-provided RNG.
+    ///
     /// Returns `true` if probably prime (error ≤ `4^(-rounds)`), `false`
     /// if definitely composite.
     internal static bool IsProbablyPrime(BigInt self, int rounds, Random rng) {
@@ -80,8 +82,10 @@ internal static class BigIntPrimality {
         return true;
     }
 
-    /// Smallest (probably) prime strictly greater than `this`. Uses 20-round
-    /// Miller-Rabin (cryptographic-grade default; error ≤ 4^-20 ≈ 10^-12).
+    /// Smallest (probably) prime strictly greater than `this`.
+    ///
+    /// Uses 20-round Miller-Rabin (cryptographic-grade default;
+    /// error ≤ 4^-20 ≈ 10^-12).
     ///
     /// `(this < 2).NextPrime() == 2`; otherwise stepping uses a 2-3 wheel
     /// (only candidates coprime to 6, i.e. `6k±1`) plus a small-prime trial
@@ -125,11 +129,13 @@ internal static class BigIntPrimality {
         return BigInt.Zero;   // unreachable; satisfies type-checker if needed
     }
 
-    /// Trial divide `cand` by primes 3, 5, 7, 11, ..., 31. Returns true if
-    /// `cand` is one of those primes or has no small factor (Miller-Rabin
-    /// should be run); returns false if `cand` is divisible by any small
-    /// prime > 2 (definitely composite). Big perf win in NextPrime — most
-    /// composite candidates are caught here without invoking ModPow rounds.
+    /// Trial divide `cand` by primes 3, 5, 7, 11, ..., 31.
+    ///
+    /// Returns true if `cand` is one of those primes or has no small factor
+    /// (Miller-Rabin should be run); returns false if `cand` is divisible by
+    /// any small prime > 2 (definitely composite). Big perf win in NextPrime
+    /// — most composite candidates are caught here without invoking ModPow
+    /// rounds.
     internal static bool _trialDivideSmallPrimes(BigInt cand) {
         int[] smallPrimes = new int[10];
         smallPrimes[0] =  3; smallPrimes[1] =  5; smallPrimes[2] =  7;
@@ -151,7 +157,9 @@ internal static class BigIntPrimality {
     }
 
     /// True iff this BigInt is prime, with **zero** error within the
-    /// supported range. Throws `ArgumentException` for values ≥
+    /// supported range.
+    ///
+    /// Throws `ArgumentException` for values ≥
     /// 3,317,044,064,679,887,385,961,981 — callers with larger inputs
     /// should use `IsProbablyPrime(rounds)`.
     ///
@@ -198,6 +206,8 @@ internal static class BigIntPrimality {
         return true;
     }
 
+    /// Return 0 (composite) / 1 (small prime) / 2 (coprime — Miller-Rabin needed).
+    ///
     /// Return 0 if `n` is divisible by a prime in {2..41} and not equal
     /// to it (definitely composite), 1 if `n` equals one of those primes
     /// (definitely prime), 2 if `n` is coprime to all (Miller-Rabin
@@ -222,10 +232,11 @@ internal static class BigIntPrimality {
         return 2;
     }
 
-    /// Run one round of Miller-Rabin with `witness` as base `a`. Returns
-    /// false iff `witness` proves `this` composite; true iff it passes
-    /// (probably-prime under this witness). Caller pre-computes
-    /// `d`, `r` such that `this - 1 = 2^r * d`, and `nMinus1 = this - 1`.
+    /// Run one round of Miller-Rabin with `witness` as base `a`.
+    ///
+    /// Returns false iff `witness` proves `this` composite; true iff it
+    /// passes (probably-prime under this witness). Caller pre-computes `d`,
+    /// `r` such that `this - 1 = 2^r * d`, and `nMinus1 = this - 1`.
     internal static bool _millerRabinFixedWitness(BigInt self, BigInt witness, BigInt d, int r,
                                   BigInt nMinus1) {
         BigInt x = witness.ModPow(d, self);
@@ -242,8 +253,9 @@ internal static class BigIntPrimality {
         return false;
     }
 
-    /// Pick smallest deterministic witness set sufficient for `n`. Caller
-    /// has already verified `n < 3,317,044,064,679,887,385,961,981`.
+    /// Pick smallest deterministic witness set sufficient for `n`.
+    ///
+    /// Caller has already verified `n < 3,317,044,064,679,887,385,961,981`.
     /// Tier table is from OEIS A014233.
     internal static BigInt[] _pickDeterministicWitnesses(BigInt n) {
         // Tier 1: n < 2047 → {2}
@@ -328,8 +340,10 @@ internal static class BigIntPrimality {
         return w;
     }
 
-    /// Build witness set {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41}
-    /// truncated to primes ≤ maxPrime. Used by tiers 8..13.
+    /// Build the fixed 13-prime witness set truncated to primes ≤ maxPrime.
+    ///
+    /// Full set is {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41};
+    /// used by tiers 8..13.
     internal static BigInt[] _witnessesOfRange(int maxPrime) {
         int[] all = new int[13];
         all[ 0] =  2; all[ 1] =  3; all[ 2] =  5; all[ 3] =  7;

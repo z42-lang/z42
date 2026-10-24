@@ -1,7 +1,9 @@
 namespace Std;
 
-/// 多播 Func：一次注册多个 `Func<TArg, TResult>` handler，Invoke 收集所有返回值进
-/// `TResult[]`（FIFO，注册顺序 = 调用顺序）。与单播 `Func<TArg, TResult>` 分离。
+/// 多播 Func：一次注册多个 `Func<TArg, TResult>` handler。
+///
+/// Invoke 收集所有返回值进 `TResult[]`（FIFO，注册顺序 = 调用顺序）。与单播
+/// `Func<TArg, TResult>` 分离。
 ///
 /// 双 vec 通道：
 ///   - strong 通道 —— 直接持 Func<TArg, TResult>，裸 handler `Subscribe(...)` 走此路径。

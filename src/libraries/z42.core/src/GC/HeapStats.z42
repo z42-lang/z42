@@ -1,7 +1,9 @@
 namespace Std;
 
-/// `Std.GC.GetStats()` 的返回类型，1:1 投影 GC 的 7 个统计字段。实例由 corelib
-/// `__gc_stats` builtin 直接产出（不暴露 ctor），保证字段值与 GC 实时状态一致。
+/// `Std.GC.GetStats()` 的返回类型，1:1 投影 GC 的 7 个统计字段。
+///
+/// 实例由 corelib `__gc_stats` builtin 直接产出（不暴露 ctor），保证字段值与 GC
+/// 实时状态一致。
 
 public class HeapStats {
     /// 自堆创建以来累计的 alloc 次数。

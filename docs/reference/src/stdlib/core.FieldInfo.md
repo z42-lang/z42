@@ -76,30 +76,33 @@ public class FieldInfo : MemberInfo {
 
 [`src/libraries/z42.core/src/Reflection/FieldInfo.z42:30`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/FieldInfo.z42#L30)
 
+字段的全限定名（VM 写入，形如 `<Class>.<Field>`），用于解析本字段的 attribute 工厂。
 
 <a id="Std.Reflection.FieldInfo.__attrCache"></a>
 ### Std.Attribute[] __attrCache
 
 [`src/libraries/z42.core/src/Reflection/FieldInfo.z42:33`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/FieldInfo.z42#L33)
 
+缓存的 attribute 实例（缓存理由见 `Type.GetCustomAttributes`）。
 
 <a id="Std.Reflection.FieldInfo.__customAttributes(string)"></a>
 ### extern Std.Attribute[] __customAttributes(string qualified)
 
-[`src/libraries/z42.core/src/Reflection/FieldInfo.z42:36`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/FieldInfo.z42#L36)
+[`src/libraries/z42.core/src/Reflection/FieldInfo.z42:37`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/FieldInfo.z42#L37)
 
+按全限定名取本字段 attribute 定义的 native 通道。
 
 <a id="Std.Reflection.FieldInfo.GetCustomAttributes()"></a>
 ### Std.Attribute[] GetCustomAttributes()
 
-[`src/libraries/z42.core/src/Reflection/FieldInfo.z42:39`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/FieldInfo.z42#L39)
+[`src/libraries/z42.core/src/Reflection/FieldInfo.z42:40`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/FieldInfo.z42#L40)
 
 本字段上应用的 attribute，以活实例返回；首次调用后缓存。
 
 <a id="Std.Reflection.FieldInfo.GetAttribute(Std.Type)"></a>
 ### Std.Attribute? GetAttribute(Std.Type attributeType)
 
-[`src/libraries/z42.core/src/Reflection/FieldInfo.z42:48`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/FieldInfo.z42#L48)
+[`src/libraries/z42.core/src/Reflection/FieldInfo.z42:49`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/FieldInfo.z42#L49)
 
 指定类型的单个 attribute，无则返回 null。按实例运行期类型的 FullName 比较，子类 attribute 也匹配。
 

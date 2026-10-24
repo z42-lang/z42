@@ -91,7 +91,10 @@ public static class Environment {
 <a id="Std.IO.Environment.SetCurrentDirectory(string)"></a>
 ### static extern void SetCurrentDirectory(string path)
 
-[`src/libraries/z42.core/src/IO/Environment.z42:48`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/Environment.z42#L48)
+[`src/libraries/z42.core/src/IO/Environment.z42:50`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/Environment.z42#L50)
 
-改变当前工作目录（`cd path`）。目录不存在抛 `DirectoryNotFoundException`， 无权限抛 `UnauthorizedAccessException`。
+改变当前工作目录（`cd path`）。
+
+目录不存在抛 `DirectoryNotFoundException`，无权限抛
+`UnauthorizedAccessException`。
 

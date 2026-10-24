@@ -68,8 +68,18 @@ public class TomlException : Exception {
 
 ## TomlParser
 
-[`src/libraries/z42.toml/src/TomlParser.Numbers.z42:13`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlParser.Numbers.z42#L13)
+[`src/libraries/z42.toml/src/TomlParser.Numbers.z42:14`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlParser.Numbers.z42#L14)
 
+TomlParser 的「数字词法」这一半（partial 拆分只为守 code-organization 的行数硬限）。
+
+归在一起的理由：它们共同回答「一段字符怎么变成 TomlValue 的数字」——十进制扫描
+（`ParseNumber`）、TOML 1.0 的两条强制（前导零 `RejectLeadingZeros`、下划线必须夹在
+数字之间 `ValidateUnderscoreBetweenDigits`）、下划线剥离、基数判位（`IsDigitChar`）、
+非十进制字面量（`ParseNonDecimalInt`）。
+
+这里也是日期/时间字面量的两个落点：TOML 的 4 种 datetime 尚不支持，而裸日期字面量会
+先被当成整数、`t = 07:32:00` 会先撞上「前导零」⇒ 裸消息说不出真正原因。判据与三条
+阴性对照见 `tests/parse_errors.z42` 的 datetime 组。
 
 ```z42
 public sealed partial class TomlParser {
@@ -286,56 +296,58 @@ kind 是否为 Table。
 <a id="Std.Toml.TomlValue.KindName()"></a>
 ### string KindName()
 
-[`src/libraries/z42.toml/src/TomlValue.z42:154`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L154)
+[`src/libraries/z42.toml/src/TomlValue.z42:156`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L156)
 
-返回类型标签名（`"string"` / `"long"` / `"double"` / `"bool"` / `"array"` / `"table"`），用于诊断。
+返回类型标签名，用于诊断。
+
+取值：`"string"` / `"long"` / `"double"` / `"bool"` / `"array"` / `"table"`。
 
 <a id="Std.Toml.TomlValue.AsString()"></a>
 ### string AsString()
 
-[`src/libraries/z42.toml/src/TomlValue.z42:168`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L168)
+[`src/libraries/z42.toml/src/TomlValue.z42:170`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L170)
 
 取 String 值；kind 不符抛 `TomlException("expected string, got …")`。
 
 <a id="Std.Toml.TomlValue.AsLong()"></a>
 ### long AsLong()
 
-[`src/libraries/z42.toml/src/TomlValue.z42:176`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L176)
+[`src/libraries/z42.toml/src/TomlValue.z42:178`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L178)
 
 取 Long 值；kind 不符抛 `TomlException`。
 
 <a id="Std.Toml.TomlValue.AsDouble()"></a>
 ### double AsDouble()
 
-[`src/libraries/z42.toml/src/TomlValue.z42:184`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L184)
+[`src/libraries/z42.toml/src/TomlValue.z42:186`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L186)
 
 取 Double 值；kind 不符抛 `TomlException`。不接受 Long（整数值要先自己转）。
 
 <a id="Std.Toml.TomlValue.AsBool()"></a>
 ### bool AsBool()
 
-[`src/libraries/z42.toml/src/TomlValue.z42:192`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L192)
+[`src/libraries/z42.toml/src/TomlValue.z42:194`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L194)
 
 取 Bool 值；kind 不符抛 `TomlException`。
 
 <a id="Std.Toml.TomlValue.ContainsKey(string)"></a>
 ### bool ContainsKey(string key)
 
-[`src/libraries/z42.toml/src/TomlValue.z42:202`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L202)
+[`src/libraries/z42.toml/src/TomlValue.z42:204`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L204)
 
 表是否含该键；非表值返回 false，不抛。
 
 <a id="Std.Toml.TomlValue.Get(string)"></a>
 ### TomlValue Get(string key)
 
-[`src/libraries/z42.toml/src/TomlValue.z42:213`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L213)
+[`src/libraries/z42.toml/src/TomlValue.z42:215`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L215)
 
 取表值；键不存在抛 `TomlException("key not found: k")`。
 
 <a id="Std.Toml.TomlValue.TryGet(string,TomlValue)"></a>
 ### bool TryGet(string key, ref TomlValue value)
 
-[`src/libraries/z42.toml/src/TomlValue.z42:240`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L240)
+[`src/libraries/z42.toml/src/TomlValue.z42:242`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L242)
 
 取即检查：命中则写入 `value` 并返回 true；未命中返回 false 且**不动** `value`。
 
@@ -345,9 +357,12 @@ false），于是 `if (t.ContainsKey(k)) { … t.Get(k) … }` 换成 `TryGet` �
 <a id="Std.Toml.TomlValue.TryGetValue<T>(string,T)"></a>
 ### bool TryGetValue<T>(string key, ref T value)
 
-[`src/libraries/z42.toml/src/TomlValue.z42:261`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L261)
+[`src/libraries/z42.toml/src/TomlValue.z42:264`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L264)
 
-取即检查 + 取标量：命中则按 `T` 取出值写入 `value` 并返回 true； 未命中返回 false 且**不动** `value` —— 所以「有就覆盖默认值」能一行写完： `t.TryGetValue<string>("name", ref name);`
+取即检查 + 取标量：命中则按 `T` 取出值写入 `value` 并返回 true。
+
+未命中返回 false 且**不动** `value` —— 所以「有就覆盖默认值」能一行写完：
+`t.TryGetValue<string>("name", ref name);`
 
 ⚠️ 命中但**类型不符照抛** `TomlException`，与 `AsString()` / `AsLong()` 一字不差。
 「键不在」与「值类型错」是两种失败：前者是调用方要处理的常态，后者是 TOML 文件写错了。
@@ -360,42 +375,42 @@ false），于是 `if (t.ContainsKey(k)) { … t.Get(k) … }` 换成 `TryGet` �
 <a id="Std.Toml.TomlValue.Set(string,TomlValue)"></a>
 ### void Set(string key, TomlValue v)
 
-[`src/libraries/z42.toml/src/TomlValue.z42:281`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L281)
+[`src/libraries/z42.toml/src/TomlValue.z42:284`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L284)
 
 写入键值；覆盖已有键时保持原位置（round-trip 不重排）。
 
 <a id="Std.Toml.TomlValue.Keys()"></a>
 ### string[] Keys()
 
-[`src/libraries/z42.toml/src/TomlValue.z42:314`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L314)
+[`src/libraries/z42.toml/src/TomlValue.z42:317`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L317)
 
 当前表键的插入顺序快照。
 
 <a id="Std.Toml.TomlValue.Count()"></a>
 ### int Count()
 
-[`src/libraries/z42.toml/src/TomlValue.z42:328`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L328)
+[`src/libraries/z42.toml/src/TomlValue.z42:331`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L331)
 
 表键数（数组则为元素数）；其余 kind 抛 `TomlException`。
 
 <a id="Std.Toml.TomlValue.Length()"></a>
 ### int Length()
 
-[`src/libraries/z42.toml/src/TomlValue.z42:337`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L337)
+[`src/libraries/z42.toml/src/TomlValue.z42:340`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L340)
 
 数组元素数；非数组抛 `TomlException`。
 
 <a id="Std.Toml.TomlValue.At(int)"></a>
 ### TomlValue At(int i)
 
-[`src/libraries/z42.toml/src/TomlValue.z42:345`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L345)
+[`src/libraries/z42.toml/src/TomlValue.z42:348`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L348)
 
 取数组元素；越界抛 `TomlException`（不是 VM abort）。
 
 <a id="Std.Toml.TomlValue.Add(TomlValue)"></a>
 ### void Add(TomlValue v)
 
-[`src/libraries/z42.toml/src/TomlValue.z42:356`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L356)
+[`src/libraries/z42.toml/src/TomlValue.z42:359`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.toml/src/TomlValue.z42#L359)
 
 追加元素到数组末尾。
 

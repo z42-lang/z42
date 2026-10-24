@@ -18,10 +18,10 @@
 //! - `Levenshtein` 没有距离上限剪枝参数，也没有 Damerau–Levenshtein（相邻换位不算一次编辑）。
 namespace Std.Text;
 
-// Mutable string builder —— Script-First 实现，基于 z42.core 原语（`string[]` + 手动扩容 +
-// `String.FromChars`）。Append 收集进 `string[]` buffer（2× 扩容），ToString 时一次性合并成 char[]
-// 再 FromChars，避免每次 Append 都拼接的 O(n²) 开销。不用 `List<string>` 是因为 stdlib 字段类型暂不
-// 支持泛型实例化语法。
+/// 可变字符串构建器：Append 收集进 `string[]` buffer（2× 扩容），ToString 一次性合并。
+///
+/// 基于 z42.core 原语（`string[]` + 手动扩容 + `String.FromChars`），避免每次 Append 都
+/// 拼接的 O(n²) 开销。不用 `List<string>` 是因为 stdlib 字段类型暂不支持泛型实例化语法。
 public class StringBuilder {
     string[] _parts;
     int _count;

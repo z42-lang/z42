@@ -2,11 +2,11 @@ namespace Std.Crypto;
 
 using Std.Numerics;
 
-// Ed25519 数字签名（RFC 8032 §5.1）：在 GF(2^255 - 19) 上的扭曲 Edwards 曲线
-// -x² + y² = 1 + d·x²·y²（d = -121665 / 121666 mod p）上，曲线阶 ℓ = 2^252 +
-// 27742317777372353535851937790883648493。用于 SSH `ssh-ed25519`、age、JWT EdDSA、libsodium 等。
-// 基于 `Std.Numerics.BigInt` 的纯脚本实现（性能同 X25519 的说明）。
-
+/// Ed25519 数字签名（RFC 8032 §5.1），基于 `Std.Numerics.BigInt` 的纯脚本实现。
+///
+/// 在 GF(2^255 - 19) 上的扭曲 Edwards曲线 -x² + y² = 1 + d·x²·y²（d = -121665 / 121666 mod p）
+/// 上，曲线阶 ℓ = 2^252 + 27742317777372353535851937790883648493。用于 SSH `ssh-ed25519`、
+/// age、JWT EdDSA、libsodium 等（性能同 X25519 的说明）。
 public static class Ed25519 {
     // ── Public API ───────────────────────────────────────────────────────────
 

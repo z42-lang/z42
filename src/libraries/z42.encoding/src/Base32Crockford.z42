@@ -153,6 +153,7 @@ public static class Base32Crockford {
     }
 
     /// Crockford char → 5-bit value (0..31). Case-insensitive.
+    ///
     /// `I` / `L` / `i` / `l` aliased to `1`; `O` / `o` aliased to `0`
     /// (per Crockford spec — typo-tolerant decoding).
     private static int decodeChar(char c) {

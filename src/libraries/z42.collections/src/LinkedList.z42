@@ -29,6 +29,7 @@ public class LinkedListNode<T> {
 }
 
 /// 双向链表：O(1) 的两端插入/删除与端点访问，O(n) 的按值查找。
+///
 /// where T: IEquatable（Find / Contains / Remove 需要比较相等）。
 public class LinkedList<T> : IBasicCollection<T> where T: IEquatable {
     LinkedListNode<T> head;

@@ -1,8 +1,10 @@
 namespace Std.Json;
 using Std.Reflection;
 
-/// 统一「可序列化成员」抽象：封装字段 (FieldInfo) 或属性 (PropertyInfo)，携带解析后的
-/// JSON 键名、成员类型、读写能力；序列化 / 反序列化引擎按这层统一遍历，无需区分字段与属性。
+/// 统一「可序列化成员」抽象：封装字段 (FieldInfo) 或属性 (PropertyInfo)。
+///
+/// 携带解析后的 JSON 键名、成员类型、读写能力；序列化 / 反序列化引擎按这层统一
+/// 遍历，无需区分字段与属性。
 ///
 /// 键名解析：`[JsonProperty("k")]` 覆盖默认成员名；`[JsonIgnore]` 排除成员。
 public class JsonMember {
@@ -19,16 +21,19 @@ public class JsonMember {
     /// 可写（反序列化）。
     public bool CanWrite;
 
+    /// 读 `target` 上该成员的当前值（按封装的是字段还是属性走对应反射）。
     public object Get(object target) {
         if (this._field != null) { return this._field.GetValue(target); }
         return this._prop.GetValue(target);
     }
 
+    /// 把 `value` 写入 `target` 上该成员（按封装的是字段还是属性走对应反射）。
     public void Set(object target, object value) {
         if (this._field != null) { this._field.SetValue(target, value); return; }
         this._prop.SetValue(target, value);
     }
 
+    /// 封装字段 `f` 为可序列化成员；字段恒可读写，`key` 为解析后的 JSON 键名。
     public static JsonMember OfField(FieldInfo f, string key) {
         JsonMember m = new JsonMember();
         m._field = f; m._prop = null;
@@ -39,6 +44,7 @@ public class JsonMember {
         return m;
     }
 
+    /// 封装属性 `p` 为可序列化成员；可读 / 可写随属性自身，`key` 为解析后的 JSON 键名。
     public static JsonMember OfProperty(PropertyInfo p, string key) {
         JsonMember m = new JsonMember();
         m._prop = p; m._field = null;

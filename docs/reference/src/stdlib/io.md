@@ -392,9 +392,11 @@ public class ProcessExitException : Exception {
 
 ## ProcessHandleInvalidException
 
-[`src/libraries/z42.io/src/Exceptions/ProcessHandleInvalidException.z42:4`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.io/src/Exceptions/ProcessHandleInvalidException.z42#L4)
+[`src/libraries/z42.io/src/Exceptions/ProcessHandleInvalidException.z42:6`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.io/src/Exceptions/ProcessHandleInvalidException.z42#L6)
 
-对已 Wait / TryWait（有结果）/ Dispose 的 ProcessHandle 再操作时抛出；继承 InvalidOperationException。
+对已 Wait / TryWait（有结果）/ Dispose 的 ProcessHandle 再操作时抛出。
+
+继承 InvalidOperationException。
 
 ```z42
 public class ProcessHandleInvalidException : InvalidOperationException {
@@ -408,14 +410,14 @@ public class ProcessHandleInvalidException : InvalidOperationException {
 <a id="Std.IO.ProcessHandleInvalidException.Program"></a>
 ### string Program
 
-[`src/libraries/z42.io/src/Exceptions/ProcessHandleInvalidException.z42:6`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.io/src/Exceptions/ProcessHandleInvalidException.z42#L6)
+[`src/libraries/z42.io/src/Exceptions/ProcessHandleInvalidException.z42:8`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.io/src/Exceptions/ProcessHandleInvalidException.z42#L8)
 
 被执行的程序。
 
 <a id="Std.IO.ProcessHandleInvalidException.ctor(string)"></a>
 ### ProcessHandleInvalidException(string program)
 
-[`src/libraries/z42.io/src/Exceptions/ProcessHandleInvalidException.z42:9`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.io/src/Exceptions/ProcessHandleInvalidException.z42#L9)
+[`src/libraries/z42.io/src/Exceptions/ProcessHandleInvalidException.z42:11`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.io/src/Exceptions/ProcessHandleInvalidException.z42#L11)
 
 用程序名构造。
 
@@ -1828,9 +1830,11 @@ initialCapacity 仅为 API 形状兼容的提示，当前被忽略。
 <a id="Std.IO.StringWriter.Close()"></a>
 ### void Close()
 
-[`src/libraries/z42.io/src/StringWriter.z42:86`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.io/src/StringWriter.z42#L86)
+[`src/libraries/z42.io/src/StringWriter.z42:88`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.io/src/StringWriter.z42#L88)
 
-标记关闭（幂等）；关闭后 Write / WriteLine / Clear 抛 InvalidOperationException，ToString() 仍可用。
+标记关闭（幂等）。
+
+关闭后 Write / WriteLine / Clear 抛 InvalidOperationException，ToString() 仍可用。
 
 ## TextReader
 

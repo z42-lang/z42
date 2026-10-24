@@ -9,10 +9,12 @@ public enum GCHandleType {
 // 实现笔记：`GCHandle` 是 struct，单字段 `_slot: long`（corelib HandleTable 的 slot id，0 = 未分配）。
 // 拷贝 GCHandle 共享同一 slot：任意副本 Free() 后所有副本一起失效。
 
-/// 统一 GC 句柄，对齐 C# `System.Runtime.InteropServices.GCHandle`。与 `Std.WeakHandle`
-/// （轻量、自动回收、无 Free）的区别：GCHandle 双模（Strong / Weak）+ 显式 Free。
-/// 原子值（int / string / bool / 委托 / null 等）只能 `AllocStrong`（slot 持值拷贝）；
-/// `AllocWeak` 得到未分配句柄（`IsAllocated` = false，原子值不可弱化）。
+/// 统一 GC 句柄，对齐 C# `System.Runtime.InteropServices.GCHandle`。
+///
+/// 与 `Std.WeakHandle`（轻量、自动回收、无 Free）的区别：GCHandle 双模
+/// （Strong / Weak）+ 显式 Free。原子值（int / string / bool / 委托 / null 等）只能
+/// `AllocStrong`（slot 持值拷贝）；`AllocWeak` 得到未分配句柄（`IsAllocated` =
+/// false，原子值不可弱化）。
 public struct GCHandle {
     private long _slot;
 
@@ -34,8 +36,10 @@ public struct GCHandle {
     [Native("__gc_handle_target")]
     public extern object Target { get; }
 
-    /// slot 是否仍占用。Weak 模式即使 target 已回收，IsAllocated 仍为 true
-    /// （slot 由本 handle 拥有）；调 Free 后才变 false。
+    /// slot 是否仍占用。
+    ///
+    /// Weak 模式即使 target 已回收，IsAllocated 仍为 true（slot 由本 handle 拥有）；
+    /// 调 Free 后才变 false。
     [Native("__gc_handle_is_alloc")]
     public extern bool IsAllocated { get; }
 

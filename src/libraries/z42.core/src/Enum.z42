@@ -16,8 +16,10 @@ public static class Enum {
     [Native("__enum_name")]
     public static extern string GetName(Type enumType, long value);
 
-    /// 成员名 → 值（GetName 的逆）。未命中抛 Std.Exception（镜像 C# Enum.Parse）。
-    /// 大小写敏感（z42 大小写敏感语言，无 ignoreCase 变体）。
+    /// 成员名 → 值（GetName 的逆）。
+    ///
+    /// 未命中抛 Std.Exception（镜像 C# Enum.Parse）。大小写敏感（z42 大小写敏感
+    /// 语言，无 ignoreCase 变体）。
     [Native("__enum_parse")]
     public static extern long Parse(Type enumType, string name);
 
