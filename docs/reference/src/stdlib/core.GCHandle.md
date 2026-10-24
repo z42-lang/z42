@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`
 
-[`src/libraries/z42.core/src/GC/GCHandle.z42:18`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/GC/GCHandle.z42#L18)
+[`src/libraries/z42.core/src/GC/GCHandle.z42:20`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/GC/GCHandle.z42#L20)
 
 统一 GC 句柄，对齐 C# `System.Runtime.InteropServices.GCHandle`。
 
@@ -30,35 +30,35 @@ public struct GCHandle {
 <a id="Std.GCHandle.Alloc(object,GCHandleType)"></a>
 ### static extern GCHandle Alloc(object target, GCHandleType type)
 
-[`src/libraries/z42.core/src/GC/GCHandle.z42:23`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/GC/GCHandle.z42#L23)
+[`src/libraries/z42.core/src/GC/GCHandle.z42:25`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/GC/GCHandle.z42#L25)
 
 占一个槽位并返回句柄。
 
 <a id="Std.GCHandle.AllocWeak(object)"></a>
 ### static GCHandle AllocWeak(object target)
 
-[`src/libraries/z42.core/src/GC/GCHandle.z42:26`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/GC/GCHandle.z42#L26)
+[`src/libraries/z42.core/src/GC/GCHandle.z42:28`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/GC/GCHandle.z42#L28)
 
 分配弱引用句柄。
 
 <a id="Std.GCHandle.AllocStrong(object)"></a>
 ### static GCHandle AllocStrong(object target)
 
-[`src/libraries/z42.core/src/GC/GCHandle.z42:31`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/GC/GCHandle.z42#L31)
+[`src/libraries/z42.core/src/GC/GCHandle.z42:33`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/GC/GCHandle.z42#L33)
 
 分配强引用句柄。
 
 <a id="Std.GCHandle.Target"></a>
 ### extern object Target { get; }
 
-[`src/libraries/z42.core/src/GC/GCHandle.z42:37`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/GC/GCHandle.z42#L37)
+[`src/libraries/z42.core/src/GC/GCHandle.z42:39`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/GC/GCHandle.z42#L39)
 
 当前 slot 持有的 target；Free 后 / Weak 模式目标已回收 → `null`。
 
 <a id="Std.GCHandle.IsAllocated"></a>
 ### extern bool IsAllocated { get; }
 
-[`src/libraries/z42.core/src/GC/GCHandle.z42:44`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/GC/GCHandle.z42#L44)
+[`src/libraries/z42.core/src/GC/GCHandle.z42:46`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/GC/GCHandle.z42#L46)
 
 slot 是否仍占用。
 
@@ -68,14 +68,14 @@ Weak 模式即使 target 已回收，IsAllocated 仍为 true（slot 由本 handl
 <a id="Std.GCHandle.Kind"></a>
 ### extern GCHandleType Kind { get; }
 
-[`src/libraries/z42.core/src/GC/GCHandle.z42:48`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/GC/GCHandle.z42#L48)
+[`src/libraries/z42.core/src/GC/GCHandle.z42:50`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/GC/GCHandle.z42#L50)
 
 分配时的模式（Weak / Strong）。Free 后值未定义——先查 IsAllocated。
 
 <a id="Std.GCHandle.Free()"></a>
 ### extern void Free()
 
-[`src/libraries/z42.core/src/GC/GCHandle.z42:52`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/GC/GCHandle.z42#L52)
+[`src/libraries/z42.core/src/GC/GCHandle.z42:54`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/GC/GCHandle.z42#L54)
 
 释放 slot；之后所有共享 _slot 的 handle alias 同步失效。幂等。
 

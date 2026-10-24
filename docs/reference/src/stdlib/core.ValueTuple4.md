@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`
 
-[`src/libraries/z42.core/src/ValueTuple.z42:22`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ValueTuple.z42#L22)
+[`src/libraries/z42.core/src/ValueTuple.z42:32`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ValueTuple.z42#L32)
 
 四元值元组（`(a, b, c, d)` 的运行时载体）。
 
@@ -23,30 +23,35 @@ public struct ValueTuple4<T1,T2,T3,T4> {
 <a id="Std.ValueTuple4<T1,T2,T3,T4>.Item1"></a>
 ### T1 Item1
 
-[`src/libraries/z42.core/src/ValueTuple.z42:22`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ValueTuple.z42#L22)
+[`src/libraries/z42.core/src/ValueTuple.z42:34`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ValueTuple.z42#L34)
 
+第 1 个元素。
 
 <a id="Std.ValueTuple4<T1,T2,T3,T4>.Item2"></a>
 ### T2 Item2
 
-[`src/libraries/z42.core/src/ValueTuple.z42:22`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ValueTuple.z42#L22)
+[`src/libraries/z42.core/src/ValueTuple.z42:36`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ValueTuple.z42#L36)
 
+第 2 个元素。
 
 <a id="Std.ValueTuple4<T1,T2,T3,T4>.Item3"></a>
 ### T3 Item3
 
-[`src/libraries/z42.core/src/ValueTuple.z42:22`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ValueTuple.z42#L22)
+[`src/libraries/z42.core/src/ValueTuple.z42:38`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ValueTuple.z42#L38)
 
+第 3 个元素。
 
 <a id="Std.ValueTuple4<T1,T2,T3,T4>.Item4"></a>
 ### T4 Item4
 
-[`src/libraries/z42.core/src/ValueTuple.z42:22`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ValueTuple.z42#L22)
+[`src/libraries/z42.core/src/ValueTuple.z42:40`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ValueTuple.z42#L40)
 
+第 4 个元素。
 
 <a id="Std.ValueTuple4<T1,T2,T3,T4>.ctor(T1,T2,T3,T4)"></a>
 ### ValueTuple4(T1 Item1, T2 Item2, T3 Item3, T4 Item4)
 
-[`src/libraries/z42.core/src/ValueTuple.z42:22`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ValueTuple.z42#L22)
+[`src/libraries/z42.core/src/ValueTuple.z42:32`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ValueTuple.z42#L32)
 
+四元值元组（`(a, b, c, d)` 的运行时载体）。
 

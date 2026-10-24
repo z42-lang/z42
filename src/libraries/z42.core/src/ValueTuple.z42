@@ -13,22 +13,92 @@ namespace Std;
 // 之外的任何包写元组就撞 E0404。
 
 /// 二元值元组（`(a, b)` 的运行时载体）。
-[Record] public struct ValueTuple2<T1, T2>(T1 Item1, T2 Item2);
+[Record] public struct ValueTuple2<T1, T2>(
+    /// 第 1 个元素。
+    T1 Item1,
+    /// 第 2 个元素。
+    T2 Item2);
 
 /// 三元值元组（`(a, b, c)` 的运行时载体）。
-[Record] public struct ValueTuple3<T1, T2, T3>(T1 Item1, T2 Item2, T3 Item3);
+[Record] public struct ValueTuple3<T1, T2, T3>(
+    /// 第 1 个元素。
+    T1 Item1,
+    /// 第 2 个元素。
+    T2 Item2,
+    /// 第 3 个元素。
+    T3 Item3);
 
 /// 四元值元组（`(a, b, c, d)` 的运行时载体）。
-[Record] public struct ValueTuple4<T1, T2, T3, T4>(T1 Item1, T2 Item2, T3 Item3, T4 Item4);
+[Record] public struct ValueTuple4<T1, T2, T3, T4>(
+    /// 第 1 个元素。
+    T1 Item1,
+    /// 第 2 个元素。
+    T2 Item2,
+    /// 第 3 个元素。
+    T3 Item3,
+    /// 第 4 个元素。
+    T4 Item4);
 
 /// 五元值元组（`(a, b, c, d, e)` 的运行时载体）。
-[Record] public struct ValueTuple5<T1, T2, T3, T4, T5>(T1 Item1, T2 Item2, T3 Item3, T4 Item4, T5 Item5);
+[Record] public struct ValueTuple5<T1, T2, T3, T4, T5>(
+    /// 第 1 个元素。
+    T1 Item1,
+    /// 第 2 个元素。
+    T2 Item2,
+    /// 第 3 个元素。
+    T3 Item3,
+    /// 第 4 个元素。
+    T4 Item4,
+    /// 第 5 个元素。
+    T5 Item5);
 
 /// 六元值元组（`(a, ..., f)` 的运行时载体）。
-[Record] public struct ValueTuple6<T1, T2, T3, T4, T5, T6>(T1 Item1, T2 Item2, T3 Item3, T4 Item4, T5 Item5, T6 Item6);
+[Record] public struct ValueTuple6<T1, T2, T3, T4, T5, T6>(
+    /// 第 1 个元素。
+    T1 Item1,
+    /// 第 2 个元素。
+    T2 Item2,
+    /// 第 3 个元素。
+    T3 Item3,
+    /// 第 4 个元素。
+    T4 Item4,
+    /// 第 5 个元素。
+    T5 Item5,
+    /// 第 6 个元素。
+    T6 Item6);
 
 /// 七元值元组（`(a, ..., g)` 的运行时载体）。
-[Record] public struct ValueTuple7<T1, T2, T3, T4, T5, T6, T7>(T1 Item1, T2 Item2, T3 Item3, T4 Item4, T5 Item5, T6 Item6, T7 Item7);
+[Record] public struct ValueTuple7<T1, T2, T3, T4, T5, T6, T7>(
+    /// 第 1 个元素。
+    T1 Item1,
+    /// 第 2 个元素。
+    T2 Item2,
+    /// 第 3 个元素。
+    T3 Item3,
+    /// 第 4 个元素。
+    T4 Item4,
+    /// 第 5 个元素。
+    T5 Item5,
+    /// 第 6 个元素。
+    T6 Item6,
+    /// 第 7 个元素。
+    T7 Item7);
 
 /// 八元值元组（`(a, ..., h)` 的运行时载体）。
-[Record] public struct ValueTuple8<T1, T2, T3, T4, T5, T6, T7, T8>(T1 Item1, T2 Item2, T3 Item3, T4 Item4, T5 Item5, T6 Item6, T7 Item7, T8 Item8);
+[Record] public struct ValueTuple8<T1, T2, T3, T4, T5, T6, T7, T8>(
+    /// 第 1 个元素。
+    T1 Item1,
+    /// 第 2 个元素。
+    T2 Item2,
+    /// 第 3 个元素。
+    T3 Item3,
+    /// 第 4 个元素。
+    T4 Item4,
+    /// 第 5 个元素。
+    T5 Item5,
+    /// 第 6 个元素。
+    T6 Item6,
+    /// 第 7 个元素。
+    T7 Item7,
+    /// 第 8 个元素。
+    T8 Item8);

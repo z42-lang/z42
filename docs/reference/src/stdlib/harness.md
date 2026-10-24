@@ -785,8 +785,9 @@ public interface IExpectsException {
 <a id="Std.Harness.IExpectsException.ExceptionType()"></a>
 ### Type? ExceptionType()
 
-[`src/libraries/z42.harness/src/TestAttributes.z42:89`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L89)
+[`src/libraries/z42.harness/src/TestAttributes.z42:90`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/TestAttributes.z42#L90)
 
+期望抛出的异常类型；null 表示没有期望。
 
 ## TestCase
 

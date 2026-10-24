@@ -6,6 +6,18 @@ z42 用内建 attribute **`[Record]`** 标记「记录」类型，**没有 `reco
 非 `[Record]` 的 `class/struct` 也可带位置参数，那是 **primary constructor（主构造器）**：参数变成
 private 字段。
 
+位置参数可以各带一行 `///` 文档，挂到展开后的字段上（主构造器则认领类型自己的 doc）：
+
+```z42
+[Record] struct Point(
+    /// 横坐标。
+    double X,
+    /// 纵坐标。
+    double Y);
+```
+
+方法形参不认领 `///`——方法的参数文档用 `@param` 标签（见 [文档注释](doc-comments.md)）。
+
 > **为什么用 attribute 而不是关键字**：C# 的 `record` 既能是 `class` 又能是 `struct`，作为独立关键字与
 > class/struct 两条身份轴纠缠。z42 里「自动数据载体」是一根正交、opt-in 的轴——用 attribute 表达，
 > 作用于两种身份，语言机制更简单。`[Record]` 提供「位置参数糖 + 反射标记 + **值语义**（值相等 / 记录式

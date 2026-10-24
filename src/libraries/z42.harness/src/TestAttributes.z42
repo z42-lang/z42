@@ -86,5 +86,6 @@ public sealed class ShouldThrowAttribute : Attribute, IExpectsException {
 
 /// 「期望抛出某类型」的 attribute 统一口径（runner 只认这个接口）。
 public interface IExpectsException {
+    /// 期望抛出的异常类型；null 表示没有期望。
     Type? ExceptionType();
 }

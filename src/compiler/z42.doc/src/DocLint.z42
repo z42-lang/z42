@@ -67,7 +67,7 @@ public static class DocLint {
             i = i + 1;
         }
         int d = 0;
-        while (d < cu.DeclCount) { DocLint._decl(acc, cu.Decls[d], file); d = d + 1; }
+        while (d < cu.DeclCount) { DocLint._decl(acc, cu.Decls[d], file, false); d = d + 1; }
         return acc.Take();
     }
 
@@ -99,49 +99,54 @@ public static class DocLint {
     }
 
     // 一个声明（递归成员）：W0805 缺 ///；有 /// 时 W0802 / W0804 / W0806 / W0807。
-    private static void _decl(LintAcc acc, Decl d0, string file) {
+    // iface = 正在遍历接口体——接口成员隐式 public，与显式 public 同查 W0805（param-docs 起不再豁免）。
+    private static void _decl(LintAcc acc, Decl d0, string file, bool iface) {
         Decl d = (d0 is AttributedDecl) ? (d0 as AttributedDecl).Inner : d0;
         if (d is ClassDecl) {
             ClassDecl c = d as ClassDecl;
-            DocLint._checkOne(acc, c, c.Name, c.TypeParams, null, 0, c.ModFlags, file);
+            bool inner = (c.Kind == "interface");
+            DocLint._checkOne(acc, c, c.Name, c.TypeParams, null, 0, c.ModFlags, file, false);
             int i = 0;
-            while (i < c.MemberCount) { DocLint._decl(acc, c.Members[i], file); i = i + 1; }
+            while (i < c.MemberCount) { DocLint._decl(acc, c.Members[i], file, inner); i = i + 1; }
         }
         if (d is EnumDecl) {
             EnumDecl e = d as EnumDecl;
-            DocLint._checkOne(acc, e, e.Name, null, null, 0, e.ModFlags, file);
+            DocLint._checkOne(acc, e, e.Name, null, null, 0, e.ModFlags, file, false);
             int j = 0;
             while (j < e.MemberCount) {
                 EnumMember m = e.Members[j];
-                // 枚举成员不查 W0805（隐式 public、只进签名总览块）；文本检查照做。
-                if (m.Doc != null) { DocLint._text(acc, m.Doc, m.Name, file); }
+                // 枚举成员隐式 public，与显式 public 同查 W0805（param-docs 起不再豁免）；文本检查照做。
+                if (m.Doc == null) {
+                    acc.Push(new DocLintFinding(DiagnosticCodes.DocPublicMissingDoc, file, m.Span.Line,
+                        "public `" + m.Name + "` 缺 /// 文档"));
+                } else { DocLint._text(acc, m.Doc, m.Name, file); }
                 j = j + 1;
             }
         }
         if (d is DelegateDecl) {
             DelegateDecl dg = d as DelegateDecl;
-            DocLint._checkOne(acc, dg, dg.Name, dg.TypeParams, dg.Params, dg.ParamCount, dg.ModFlags, file);
+            DocLint._checkOne(acc, dg, dg.Name, dg.TypeParams, dg.Params, dg.ParamCount, dg.ModFlags, file, false);
         }
         if (d is ImplDecl) {
             ImplDecl im = d as ImplDecl;
             int k = 0;
-            while (k < im.MethodCount) { DocLint._decl(acc, im.Methods[k], file); k = k + 1; }
+            while (k < im.MethodCount) { DocLint._decl(acc, im.Methods[k], file, iface); k = k + 1; }
         }
         if (d is MethodDecl) {
             MethodDecl md = d as MethodDecl;
-            DocLint._checkOne(acc, md, md.Name, md.TypeParams, md.Params, md.ParamCount, md.ModFlags, file);
+            DocLint._checkOne(acc, md, md.Name, md.TypeParams, md.Params, md.ParamCount, md.ModFlags, file, iface);
         }
-        if (d is FieldDecl)    { FieldDecl f = d as FieldDecl;       DocLint._checkOne(acc, f, f.Name, null, null, 0, f.ModFlags, file); return; }
-        if (d is PropertyDecl) { PropertyDecl pr = d as PropertyDecl; DocLint._checkOne(acc, pr, pr.Name, null, null, 0, pr.ModFlags, file); return; }
-        if (d is IndexerDecl)  { IndexerDecl ix = d as IndexerDecl;   DocLint._checkOne(acc, ix, "this", null, null, 0, ix.ModFlags, file); return; }
+        if (d is FieldDecl)    { FieldDecl f = d as FieldDecl;       DocLint._checkOne(acc, f, f.Name, null, null, 0, f.ModFlags, file, iface); return; }
+        if (d is PropertyDecl) { PropertyDecl pr = d as PropertyDecl; DocLint._checkOne(acc, pr, pr.Name, null, null, 0, pr.ModFlags, file, iface); return; }
+        if (d is IndexerDecl)  { IndexerDecl ix = d as IndexerDecl;   DocLint._checkOne(acc, ix, "this", null, null, 0, ix.ModFlags, file, iface); return; }
     }
 
     // 一个声明的全套检查。tp / ps 为 null 表示该声明没有对应结构（@param 恒不匹配）。
     private static void _checkOne(LintAcc acc, Decl d, string name, TypeParamList tp,
-                                   Param[] ps, int pc, int modFlags, string file) {
+                                   Param[] ps, int pc, int modFlags, string file, bool implicitPublic) {
         if (d.Doc == null) {
-            // W0805：显式 public 而无 ///。接口成员 / 枚举成员的隐式 public 不算。
-            if (Mod.Has(modFlags, Mod.Public)) {
+            // W0805：public 而无 ///——显式 public（Mod 位）或隐式 public（接口成员）都算。
+            if (Mod.Has(modFlags, Mod.Public) || implicitPublic) {
                 acc.Push(new DocLintFinding(DiagnosticCodes.DocPublicMissingDoc, file, d.Span.Line,
                     "public `" + name + "` 缺 /// 文档"));
             }

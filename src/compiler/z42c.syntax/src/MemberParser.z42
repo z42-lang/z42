@@ -370,13 +370,21 @@ public sealed class MemberParser {
         return new BlockStmt(one, 1, esp);
     }
 
-    public ParamList _parseParamList() {
+    // E0207 / E0208：params 形参的形状约束（数组、不与 ref/默认值同现）。
+    private void _checkParamsShape(Param prm, TypeExpr pt, bool isRef, Span paramsTok) {
+        if (!(pt is ArrayType)) { this._p._diags.Error(DiagnosticCodes.ParamsNotArray, "'params' parameter type must be an array 'T[]'", pt.Span); }
+        if (isRef || prm.Default != null) { this._p._diags.Error(DiagnosticCodes.ParamsModifierConflict, "'params' cannot combine with 'ref'/'out' or a default value", paramsTok); }
+    }
+
+    public ParamList _parseParamList(bool allowDocs = false) {
         Span sp = this._p._peek().Span;
         this._p._expect(TokenKind.LParen, "(");
         Param[] ps = new Param[8];
         int pc = 0;
         if (this._p._peek().Kind != TokenKind.RParen) {
             while (true) {
+                // param-docs：类型位置参数允许前置 `///`（挂到 Param.Doc，record 展开的字段由此带文档）。
+                DocBlock pdoc = allowDocs ? this._p._claimDocHere() : null;
                 // add-parameter-attribute-reflection：参数前置 `[Attr(...)]`（在 ref/type 之前）。
                 AttrList pattrs = null;
                 if (this._p._peek().Kind == TokenKind.LBracket) { pattrs = this._p._declP._parseAttributes(); }
@@ -426,16 +434,12 @@ public sealed class MemberParser {
                 prm.IsRef = isRef;
                 prm.IsParams = isParams;
                 if (pattrs != null) { prm.Attrs = pattrs.Items; prm.AttrCount = pattrs.Count; }
+                if (pdoc != null) { prm.Doc = pdoc; }
                 if (this._p._peek().Kind == TokenKind.Eq) {   // GS1：默认参数值 `int x = expr`
                     this._p._advance();
                     prm.Default = this._p._exprP._parseExpr(0);
                 }
-                if (isParams) {
-                    // params 类型必须是数组 T[]（E0207）
-                    if (!(pt is ArrayType)) { this._p._diags.Error(DiagnosticCodes.ParamsNotArray, "'params' parameter type must be an array 'T[]'", pt.Span); }
-                    // params 不得与 ref/out 或默认值同现（E0208）
-                    if (isRef || prm.Default != null) { this._p._diags.Error(DiagnosticCodes.ParamsModifierConflict, "'params' cannot combine with 'ref'/'out' or a default value", paramsTok); }
-                }
+                if (isParams) { this._checkParamsShape(prm, pt, isRef, paramsTok); }
                 ps[pc] = prm; pc = pc + 1;
                 if (this._p._peek().Kind == TokenKind.Comma) { this._p._advance(); } else { break; }
             }

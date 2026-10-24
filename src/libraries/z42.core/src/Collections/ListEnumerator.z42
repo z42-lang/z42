@@ -7,7 +7,9 @@ namespace Std.Collections;
 ///
 /// `List<T>` 自身 foreach 走索引快路径（`Count` + `get_Item`），不经本枚举器；本类服务以
 /// `IEnumerable<T>` 接口静态类型 / 泛型约束持有的调用点。
-[Record] public struct ListEnumerator<T>(List<T> _list) : IEnumerator<T> {
+[Record] public struct ListEnumerator<T>(
+    /// 被枚举的列表。
+    List<T> _list) : IEnumerator<T> {
     int _pos;
 
     /// 前进到下一个元素；无更多返回 false。

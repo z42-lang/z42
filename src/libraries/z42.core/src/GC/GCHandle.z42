@@ -2,8 +2,10 @@ namespace Std;
 
 /// GC 句柄模式：Weak = 弱引用（目标可被回收，Target 返回 null）；Strong = 强引用（anchor 目标直到 Free()）。
 public enum GCHandleType {
-    Weak,    // = 0：弱引用，目标可被回收，Target 返回 null
-    Strong,  // = 1：强引用，anchor 目标直到 Free()
+    /// 弱引用：目标可被回收，Target 返回 null。
+    Weak,
+    /// 强引用：anchor 目标直到 Free()。
+    Strong,
 }
 
 // 实现笔记：`GCHandle` 是 struct，单字段 `_slot: long`（corelib HandleTable 的 slot id，0 = 未分配）。

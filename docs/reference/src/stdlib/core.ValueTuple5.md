@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`
 
-[`src/libraries/z42.core/src/ValueTuple.z42:25`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ValueTuple.z42#L25)
+[`src/libraries/z42.core/src/ValueTuple.z42:43`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ValueTuple.z42#L43)
 
 五元值元组（`(a, b, c, d, e)` 的运行时载体）。
 
@@ -24,36 +24,42 @@ public struct ValueTuple5<T1,T2,T3,T4,T5> {
 <a id="Std.ValueTuple5<T1,T2,T3,T4,T5>.Item1"></a>
 ### T1 Item1
 
-[`src/libraries/z42.core/src/ValueTuple.z42:25`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ValueTuple.z42#L25)
+[`src/libraries/z42.core/src/ValueTuple.z42:45`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ValueTuple.z42#L45)
 
+第 1 个元素。
 
 <a id="Std.ValueTuple5<T1,T2,T3,T4,T5>.Item2"></a>
 ### T2 Item2
 
-[`src/libraries/z42.core/src/ValueTuple.z42:25`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ValueTuple.z42#L25)
+[`src/libraries/z42.core/src/ValueTuple.z42:47`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ValueTuple.z42#L47)
 
+第 2 个元素。
 
 <a id="Std.ValueTuple5<T1,T2,T3,T4,T5>.Item3"></a>
 ### T3 Item3
 
-[`src/libraries/z42.core/src/ValueTuple.z42:25`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ValueTuple.z42#L25)
+[`src/libraries/z42.core/src/ValueTuple.z42:49`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ValueTuple.z42#L49)
 
+第 3 个元素。
 
 <a id="Std.ValueTuple5<T1,T2,T3,T4,T5>.Item4"></a>
 ### T4 Item4
 
-[`src/libraries/z42.core/src/ValueTuple.z42:25`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ValueTuple.z42#L25)
+[`src/libraries/z42.core/src/ValueTuple.z42:51`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ValueTuple.z42#L51)
 
+第 4 个元素。
 
 <a id="Std.ValueTuple5<T1,T2,T3,T4,T5>.Item5"></a>
 ### T5 Item5
 
-[`src/libraries/z42.core/src/ValueTuple.z42:25`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ValueTuple.z42#L25)
+[`src/libraries/z42.core/src/ValueTuple.z42:53`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ValueTuple.z42#L53)
 
+第 5 个元素。
 
 <a id="Std.ValueTuple5<T1,T2,T3,T4,T5>.ctor(T1,T2,T3,T4,T5)"></a>
 ### ValueTuple5(T1 Item1, T2 Item2, T3 Item3, T4 Item4, T5 Item5)
 
-[`src/libraries/z42.core/src/ValueTuple.z42:25`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ValueTuple.z42#L25)
+[`src/libraries/z42.core/src/ValueTuple.z42:43`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/ValueTuple.z42#L43)
 
+五元值元组（`(a, b, c, d, e)` 的运行时载体）。
 
