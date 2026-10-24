@@ -22,12 +22,14 @@ int _testApp(ParseResult r) {
     string format = r.GetOption("format");
     string zbc = r.GetOption("zbc");
     int[] sh = _parseShard(r.GetOption("shard"));
-    string[] plats;
-    if (which == "all") { plats = new string[]{ "desktop", "wasm", "ios", "android" }; }
-    else if (which == "desktop" || which == "wasm" || which == "ios" || which == "android") { plats = new string[]{ which }; }
-    else {
-        ConsoleError.WriteLine("error: xtask test app <desktop|wasm|ios|android|all> — unknown platform '" + which + "'");
-        return 2;
+    // 平台域 = versions.toml [workload].members（test app 在每个 workload 的 testhost 上跑）。
+    string[] plats = _vWorkloads(_root());
+    if (which != "all") {
+        if (_strIn(plats, which)) { plats = new string[]{ which }; }
+        else {
+            ConsoleError.WriteLine("error: xtask test app <" + _joinStrings(plats, "|") + "|all> — unknown platform '" + which + "'");
+            return 2;
+        }
     }
     if (step.Length > 0 && step != "stage" && step != "build" && step != "assets" && step != "bundle" && step != "run") {
         ConsoleError.WriteLine("error: xtask test app " + which + " — unknown step '" + step + "' (stage | build | assets | bundle | run)");

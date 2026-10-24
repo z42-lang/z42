@@ -7,11 +7,13 @@
 # 改由 xtask 在入口处显式校验（`xtask check versions` / `xtask setup`）。代价：rustup 不再
 # cd-into auto-install 该 channel；收益：单一文件就是答案。
 #
-# 四类块：
+# 六类块：
 #   [project]     — z42 自身版本号（release tag SoT；workspace.package.version 镜像）
 #   [toolchain.*] — 跨平台 build 工具版本（rust / dotnet / node）
 #   [build.*]     — 每平台 native SDK（NDK / Xcode / ...）
 #   [platform.*]  — z42 产物运行时支持承诺（min OS / arch / tier）
+#   [workload]    — workload 枚举（xtask 各命令 --platform/--os 的参数域）
+#   [rid.*]       — 目标 RID 登记（名字 ↔ cargo triple ↔ 类别 ↔ 主 RID）
 #
 # 其他原生 pin 文件（gradle 是个例外，因为 gradle wrapper 是 gradle 项目
 # 标准做法、不算重复声明）：
@@ -153,3 +155,71 @@ tier         = "tier1"
 min_version  = "10.0"
 rust_targets = ["x86_64-pc-windows-msvc"]    # MSVC toolchain (from VS Build Tools / Visual Studio)
 tier         = "tier1"
+
+# ══════════════════════════════════════════════════════════════════════════
+# WORKLOAD: workload 枚举
+# ══════════════════════════════════════════════════════════════════════════
+#
+# 「有哪些 workload」的单一真相源——xtask 的 `test app` / `package *` / `setup --os`
+# 参数校验、release 索引的 workload 清单都从这里读，不在代码里另抄名单。
+# desktop = 宿主 workload（复用宿主 runtime：无 appbuilder、无独立 runtime 包）；
+# 其余为跨平台 workload（= `setup --os` 的参数域）。
+# release 索引里另有一个 `test` 伪 workload（测试 bundle 的归档名），它不是平台、不进本表。
+[workload]
+members = ["desktop", "ios", "android", "wasm"]
+
+# ══════════════════════════════════════════════════════════════════════════
+# RID: 目标 RID 登记（xtask `_ridToCargo` / `_ridCategory` / release 归档矩阵的唯一来源）
+# ══════════════════════════════════════════════════════════════════════════
+#
+# 加一个 RID = 这里加一段，xtask 各处（打包分发、release 索引、--archive 汇总）自动跟上；
+# 不在表里的 RID 一律按 unknown 处理。字段：
+#   triple   — cargo --target 三元组
+#   category — desktop（SDK + 桌面 runtime + 宿主 workload）| ios | android | wasm
+#              （跨平台类别名与 [workload].members / [build.*] 一致）
+#   primary  — 平台 workload 归档的主 RID：同一平台的 tooling 包各 ABI 内容相同，归档只由
+#              主 RID 出（`_relPrimaryWorkload`），两个主 RID 会在 release 汇总同名相撞。
+# triple ↔ [platform.*].rust_targets 双向对账（`xtask check versions`）：platform 由 rid 推出
+# （category != desktop 时 = category；desktop RID = 名字首段，如 linux-x64 → linux）。
+# 反向要求 platform 的每个 rust_target 都有 RID 登记——新增 target 不登记则 CI 编得出、xtask 打不出包。
+# ⚠️ .github/workflows/release.yml 的 matrix 是本表的另一份投影（GitHub 无法直接读 toml），
+# 两处须同步改；对账门只覆盖 toml 侧。
+
+[rid.linux-x64]
+triple   = "x86_64-unknown-linux-gnu"
+category = "desktop"
+
+[rid.linux-arm64]
+triple   = "aarch64-unknown-linux-gnu"
+category = "desktop"
+
+[rid.macos-arm64]
+triple   = "aarch64-apple-darwin"
+category = "desktop"
+
+[rid.windows-x64]
+triple   = "x86_64-pc-windows-msvc"
+category = "desktop"
+
+[rid.ios-arm64]
+triple   = "aarch64-apple-ios"
+category = "ios"
+primary  = true
+
+[rid.iossim-arm64]
+triple   = "aarch64-apple-ios-sim"
+category = "ios"
+
+[rid.android-arm64]
+triple   = "aarch64-linux-android"
+category = "android"
+primary  = true
+
+[rid.android-x64]
+triple   = "x86_64-linux-android"
+category = "android"
+
+[rid.browser-wasm]
+triple   = "wasm32-unknown-unknown"
+category = "wasm"
+primary  = true

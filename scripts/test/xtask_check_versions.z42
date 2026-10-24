@@ -4,6 +4,7 @@
 //   src/runtime/Cargo.toml [workspace.package].version   ← [project].version
 //   android build.gradle.kts minSdk / compileSdk          ← [platform.android]
 //   ios harness Package.swift .iOS / .macOS               ← [platform.ios]
+//   [rid.*].triple ↔ [platform.*].rust_targets            ← 双向（见 _checkRidTable）
 // 纯文本比对、与机器无关（不看装了什么）——所以它是 `xtask check` 的一项、GREEN gate 的一个 stage；
 // 「本机装没装齐」是另一回事，在 `xtask setup check`。scalar 解析复用 common/xtask_versions.z42 的 _scalarStr。
 namespace Z42Xtask;
@@ -26,6 +27,7 @@ int _checkVersions() {
     int fail = _check("src/runtime/Cargo.toml [workspace.package].version", wantVer, gotVer);
     fail = fail + _checkAndroidProjectionDrift(root, toml);
     fail = fail + _checkIosProjectionDrift(root, toml);
+    fail = fail + _checkRidTable(root, toml);
     if (fail > 0) {
         ConsoleError.WriteLine("error: versions.toml drift detected — update the source files to match versions.toml");
         ConsoleError.WriteLine("       See versions.toml → field comments (→ filename) for which file to fix.");
@@ -62,6 +64,100 @@ int _checkIosProjectionDrift(string root, TomlValue toml) {
     string wantMac = _scalarStr(toml.Get("platform").Get("ios").Get("min_macos"));
     string gotMac  = _firstMatchGroup(pkgSwiftText, "\\.macOS\\(\\.v([0-9]+)\\)", 1) + ".0";
     fail = fail + _check("ios/Package.swift  .macOS(.v<major>)", wantMac, gotMac);
+    return fail;
+}
+
+// ── [rid.*] ↔ [platform.*] / [workload] 对账（unify-rid-workload-tables）────────
+//
+// [rid] 表是 xtask 侧的目标登记，[platform] 是运行时承诺——两边各自演化就会出现「CI 编得出、
+// xtask 打不出包」。规则（详见 versions.toml [rid] 头注）：
+//   ① 每个 rid 的 triple 必须在对应 platform 的 rust_targets 里（platform 推导：desktop RID
+//      取名字首段，跨平台 RID = category）；
+//   ② 反向：platform 的每个 rust_target 都得有 rid 登记；
+//   ③ rid 的 category 必须是 [workload].members 之一；
+//   ④ 每个跨平台 workload 至少有一个 rid，且主 RID（primary）恰一个——release 归档按主 RID
+//      命名，缺了丢归档、多了同名相撞。
+
+// rid → 对账用的 platform 名（versions.toml [rid] 头注的推导规则）。
+string _ridPlatformOf(string rid, string category) {
+    if (category != "desktop") { return category; }
+    int dash = rid.IndexOf("-");
+    return dash > 0 ? rid.Substring(0, dash) : rid;
+}
+
+int _checkRidTable(string root, TomlValue toml) {
+    TomlValue ridTable = _vRidTable(root);
+    if (ridTable == null) {
+        ConsoleError.WriteLine("✗ versions.toml 缺 [rid.*] 表 — 目标 RID 登记是 xtask 打包/release 的依据，不能省");
+        return 1;
+    }
+    string[] workloads = _vWorkloads(root);
+    string[] ridNames = ridTable.Keys();
+    int fail = 0;
+    // ① + ③：triple ↔ platform.rust_targets、category ∈ workloads。
+    int i = 0;
+    while (i < ridNames.Length) {
+        string rid = ridNames[i];
+        i = i + 1;
+        string category = _scalarStr(ridTable.Get(rid).Get("category"));
+        if (!_strIn(workloads, category)) {
+            ConsoleError.WriteLine("✗ [rid." + rid + "].category '" + category + "' 不在 [workload].members 里");
+            fail = fail + 1;
+            continue;
+        }
+        string platform = _ridPlatformOf(rid, category);
+        string[] targets = _vgetList(toml, "platform." + platform + ".rust_targets");
+        string triple = _scalarStr(ridTable.Get(rid).Get("triple"));
+        if (!_strIn(targets, triple)) {
+            ConsoleError.WriteLine("✗ [rid." + rid + "].triple '" + triple + "' 不在 [platform." + platform + "].rust_targets 里");
+            fail = fail + 1;
+        }
+    }
+    // ② 反向：platform 的每个 target 都得有 rid。
+    string[] plats = toml.Get("platform").Keys();
+    int p = 0;
+    while (p < plats.Length) {
+        string[] targets = _vgetList(toml, "platform." + plats[p] + ".rust_targets");
+        p = p + 1;
+        int t = 0;
+        while (t < targets.Length) {
+            string triple = targets[t];
+            t = t + 1;
+            bool found = false;
+            int j = 0;
+            while (j < ridNames.Length) {
+                if (_scalarStr(ridTable.Get(ridNames[j]).Get("triple")) == triple) { found = true; break; }
+                j = j + 1;
+            }
+            if (!found) {
+                ConsoleError.WriteLine("✗ [platform." + plats[p - 1] + "].rust_targets 的 '" + triple + "' 没有对应的 [rid.*]（CI 编得出、xtask 打不出包）");
+                fail = fail + 1;
+            }
+        }
+    }
+    // ④ 每个跨平台 workload：≥1 个 rid、主 RID 恰一个。
+    int w = 0;
+    while (w < workloads.Length) {
+        string wl = workloads[w];
+        w = w + 1;
+        if (wl == "desktop") { continue; }
+        string[] rids = _vRidsOfCategory(root, wl);
+        if (rids.Length == 0) {
+            ConsoleError.WriteLine("✗ workload '" + wl + "' 没有任何 [rid.*]（无法打包）");
+            fail = fail + 1;
+            continue;
+        }
+        int primaries = 0;
+        int r = 0;
+        while (r < rids.Length) {
+            if (_vRidPrimary(root, rids[r])) { primaries = primaries + 1; }
+            r = r + 1;
+        }
+        if (primaries != 1) {
+            ConsoleError.WriteLine("✗ workload '" + wl + "' 的主 RID 有 " + primaries.ToString() + " 个（须恰 1 个：release 归档按主 RID 命名）");
+            fail = fail + 1;
+        }
+    }
     return fail;
 }
 

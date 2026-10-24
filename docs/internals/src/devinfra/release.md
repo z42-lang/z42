@@ -27,6 +27,10 @@
 
 ## 2. 9 个 RID
 
+登记的唯一真相源是 `scripts/versions.toml` 的 `[rid.*]` 表（名字 ↔ cargo triple ↔ 类别 ↔
+主 RID；xtask 的 `_ridToCargo` / `_ridCategory` / release 归档矩阵都从它读）。下表是机制说明，
+加一个 RID 改 toml，这里同步更新。
+
 | 类别 | RID | 能在哪些 host 上 build |
 |---|---|---|
 | Desktop | `linux-x64` / `linux-arm64` / `macos-arm64` / `windows-x64` | **只能同 RID host**（不跨编） |
