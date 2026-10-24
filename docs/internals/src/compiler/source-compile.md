@@ -1,6 +1,6 @@
 # 源代码编译流程（z42c）
 
-> **页型**: 机制页 ｜ **代码**: `src/compiler/z42c.syntax/` · `src/compiler/z42c.semantics/` · `src/compiler/z42c.emission/` · `src/compiler/z42.package/`
+> **页型**: 机制页 ｜ **代码**: `src/compiler/z42c.syntax/` · `src/compiler/z42c.symbols/` · `src/compiler/z42c.semantics/` · `src/compiler/z42c.emission/` · `src/compiler/z42.package/`
 > **相关**: [架构总览](architecture.md) · [工程模型、依赖解析与工作区编译](project-model.md) · [zbc 字节码格式](../formats/zbc.md) · [zpkg 包格式](../formats/zpkg.md) · [CLI 与诊断工具](https://z42-lang.github.io/z42/reference/toolchain/cli-z42c-z42b.html)
 
 ## 概述
@@ -24,8 +24,8 @@ graph LR
 
 ```mermaid
 flowchart TD
-  subgraph S0["① 解析 + 内建 AST 脱糖（调用方逐文件做；z42c.syntax / z42c.semantics）"]
-    P0[Lexer → Parser → CompilationUnit] --> RA["HandlerRegistry.RunAst（z42c.semantics）<br/>AttributeSynth（Desugar/）"]
+  subgraph S0["① 解析 + 内建 AST 脱糖（调用方逐文件做；z42c.syntax / z42c.symbols）"]
+    P0[Lexer → Parser → CompilationUnit] --> RA["HandlerRegistry.RunAst（z42c.symbols）<br/>AttributeSynth"]
   end
   RA --> DEP["② 依赖解析（z42c.pipeline）<br/>DepScan → DepScanResult → ImportedSymbols<br/>REPL：复用缓存的 CachedScan"]
   DEP --> GATE{"③ 有 generator？<br/>[plugins] zpkg 里的 : Generator / : ModuleGenerator<br/>或源里用了 [Forward]"}
@@ -504,7 +504,7 @@ resolve = candidates[0]；|candidates| ≥ 2 ⇒ E0456（调用点另报）
 **判定**：`CuPreprocess._enforceFileScope`（经 `IrDump.EnforceFileScopeAll`，在 cached 元数据回填之后）对
 `UsedNs` 逐个判：prelude / 外围链（含全局 ns）/ 本文件 using（含注入的 global using）之外 ⇒ E0436。`W0607`
 （`UsingLint` / `GlobalUsingLint`）用同一份集合。cached 文件的 `UsedNs` 存在 cache meta（`usedns` 行）里回填。
-依赖引用 `UsedDepNs`（绑定期记录 ∪ 绑定树 walker `DepUseCollector`，含编译器推导出的接收者 / 返回类型，见
+依赖引用 `UsedDepNs`（绑定期记录 ∪ 绑定树 visitor `DepUseCollector`，含编译器推导出的接收者 / 返回类型，见
 [zpkg 格式 DEPS 段](../formats/zpkg.md)）只喂 DEPS 段，**不**参与 E0436 / W0607——那些名字源码里没写。
 
 **发射**：解析出的 ns 随 `BoundCall.FreeNs` / `BoundFuncRef.FuncNs` 带到发射端，`CallEmitter` / `ExprEmitter`
@@ -1037,7 +1037,7 @@ PatternEmitter（烘焙 `struct_fget_prim` 等指令的立即数 offset）**同�
 只在**未注入**时（单文件 `--dump-ir` / 单测路径）自行计算。
 
 > **为什么这不是可有可无的微优化**：若每个 CU 都把**整包 + 全部导入符号**的布局重算一遍
-> ——编译 `z42c.semantics`（95 个文件）就是重建 95 次，实测占该编译总指令数的 31.8%。
+> ——以拆出 `z42c.symbols` 之前的 `z42c.semantics`（95 个文件）为测量对象，就是重建 95 次，实测占该编译总指令数的 31.8%。
 > 提出循环后指令数 165.0 G → 114.7 G（−30.5%）、峰值 RSS 2.96 GB → 1.42 GB（−52%），
 > 产物逐字节不变。
 
@@ -1102,8 +1102,8 @@ z42 无独立的 finally 执行机制——`StmtEmitter._emitTry`（语句 & 控
 |------|---------|
 | 词法 | `z42c.syntax/src/Lexer.z42`、`Token.z42`、`TokenKind.z42` |
 | 语法 | `z42c.syntax/src/Parser.z42` + `ExprParser` / `DeclParser` / `MemberParser` / `StmtParser` / `TypeParser`；AST：`Ast.z42` / `Decl.z42` / `Stmt.z42` / `TypeExpr.z42` |
-| 类型检查 | `z42c.semantics/src/Binding/TypeChecker.z42`、`SymbolCollector.z42`、`SymbolTable.z42`、`OverloadResolver.z42`、`ConstraintChecker.z42`；产物：`Bound.z42`、`SemanticModel.z42` |
-| IR 生成 | `z42c.emission/src/Emission/IrGen.z42`、`FunctionEmitter.z42`（函数级 hub：函数入口/静态 init/lambda 与局部函数 lift/签名装配 + 共享状态 EmitContext·ExprEmitter·finally 栈，语句发射委派 `StmtEmitter`）、`StmtEmitter.z42`（语句 & 控制流簇：`_emitStmt` 调度 + if/for/while/do-while/switch/foreach + try/catch/finally，经 hub 反向引用单向委回）、`ExprEmitter.z42`（表达式发射入口/dispatch，按职责分解为 `CallEmitter`（call/new/method-group）、`TypeOpEmitter`（is/typeof/cast/box/convert）、`OperatorEmitter`（binary/unary/条件/switch-expr/struct 相等）、`AccessEmitter`（assign/member/index/ident + struct 值语义机制）四个协作发射簇）、`EmitContext.z42`；IR 模型：`z42c.ir/src/IrModule.z42`、`IrInstr.z42`、`IrType.z42` |
+| 类型检查 | `z42c.semantics/src/Binding/TypeChecker.z42`、`OverloadResolver.z42`；符号与约束：`z42c.symbols/src/Symbols/SymbolCollector.z42`、`SymbolTable.z42`、`Types/ConstraintChecker.z42`；产物：`BoundExpr.z42`、`SemanticModel.z42` |
+| IR 生成 | `z42c.emission/src/Emission/IrGen.z42`、`FunctionEmitter.z42`（函数级 hub：函数入口/静态 init/lambda 与局部函数 lift/签名装配 + 共享状态 EmitContext·ExprEmitter·finally 栈，语句发射委派 `StmtEmitter`）、`StmtEmitter.z42`（语句 & 控制流簇：`_emitStmt` 调度 + if/for/while/do-while/switch/foreach + try/catch/finally，经 hub 反向引用单向委回）、`ExprEmitter.z42`（表达式发射入口/dispatch，按职责分解为 `CallEmitter`（call/new/method-group）、`TypeOpEmitter`（is/typeof/cast/box/convert）、`OperatorEmitter`（binary/unary/条件/switch-expr/struct 相等）、`AccessEmitter`（assign/member/index/ident + struct 值语义机制）四个协作发射簇）、`EmitContext.z42`；IR 模型：`z42.package/src/IrModule.z42`、`IrInstr.z42`、`IrType.z42` |
 | 写出 | `z42.package/src/BinaryFormat/ZbcWriter.z42`、`ZbcFormat.z42`、`ZbcInstr.z42` |
 
 ## 边界与限制

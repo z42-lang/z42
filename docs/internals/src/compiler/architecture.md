@@ -18,17 +18,18 @@ graph LR
 
 ## z42c 的组成
 
-z42c 按依赖顺序分成十一个逻辑包；`driver` 是唯一的可执行程序，也就是 `z42c` 命令。**物理布局**：全部在 `src/compiler/` 这一个 workspace 里——后端五包 `z42c.optimization` / `z42c.semantics` / `z42c.emission` / `z42c.pipeline` / `z42c.driver`，可移植前端 `z42c.core` / `z42c.syntax`，编译期扩展 `z42c.analyzers`（analyzer 契约 + 引擎，只读 AST）与 `z42c.generators`（generator 契约 + 多轮引擎，改写源码结构），IR·后端库 `z42.package`（含 zbc/zpkg 后端），清单模型 `z42.project`。依赖单向无环，各包细节见后续各章。语义层（`semantics`：符号收集 / 绑定 / 类型检查）零引用代码生成层（`emission`：Bound → IR + 编译编排），代码生成只对无错误的程序运行。
+z42c 按依赖顺序分成十二个逻辑包；`driver` 是唯一的可执行程序，也就是 `z42c` 命令。**物理布局**：全部在 `src/compiler/` 这一个 workspace 里——可移植前端 `z42c.core` / `z42c.syntax`，符号层 `z42c.symbols`（符号收集 / 符号表 / 跨包导入装载 / 类型模型 / struct 布局；物理上独立成包，命名空间与语义层同为 `Z42.Semantics`），语义层 `z42c.semantics`（绑定 / 类型检查 / 校验 / 导出抽取），后端四包 `z42c.optimization` / `z42c.emission` / `z42c.pipeline` / `z42c.driver`，编译期扩展 `z42c.analyzers`（analyzer 契约 + 引擎，只读 AST）与 `z42c.generators`（generator 契约 + 多轮引擎，改写源码结构），IR·后端库 `z42.package`（含 zbc/zpkg 后端），清单模型 `z42.project`。依赖单向无环，各包细节见后续各章。符号层与语义层零引用代码生成层（`emission`：Bound → IR + 编译编排），代码生成只对无错误的程序运行。同一 workspace 还住着三个不属于 z42c 本体的编译器域库：`z42.build`（z42b 构建框架，见下）、`z42.doc`（文档索引与 `z42 doc`，见[文档索引与 `z42 doc`](../toolchain/doc.md)）、`z42.scripting`（REPL / 脚本引擎，见 [REPL](../toolchain/repl.md)）。
 
 | 包 | 职责 | 关键文件 |
 |------|------|---------|
 | `z42c.core` | 基础设施：`Span` / `Diagnostic` / `DiagnosticBag` / `DiagnosticCodes` / `LanguageFeatures` | `Span.z42`、`Diagnostic*.z42`、`LanguageFeatures.z42` |
 | `z42c.syntax` | **语法层**：Lexer + Parser + AST | `TokenKind.z42`、`Lexer.z42`、`Parser.z42`、`Ast.z42`、`Stmt.z42`、`Decl.z42`、`TypeExpr.z42` |
-| `z42c.semantics` | 语义分析（符号收集 + 绑定 + TypeCheck + 校验），不含代码生成；**不得引用** `z42c.emission` | `SymbolCollector.z42`、`TypeChecker.z42`、`BoundExpr.z42`、`FrontEnd.z42` |
+| `z42c.symbols` | **符号层**：符号收集（`SymbolCollector` 及各簇 pass）、符号表、跨包导入符号装载、attribute 脱糖（`HandlerRegistry` / `AttributeSynth`）、类型模型（`Z42Type` 家族）、类型代换 / 转换分类 / 泛型约束、struct 布局、常量求值、类级访问强制；只依赖 `z42c.core` / `z42c.syntax` / `z42.package` | `SymbolCollector.z42`、`SymbolTable.z42`、`ImportedSymbolLoader.z42`、`Z42Type.z42`、`StructLayout.z42` |
+| `z42c.semantics` | 语义分析（绑定 + TypeCheck + 流 / 依赖校验 + 导出抽取），不含代码生成；**不得引用** `z42c.emission` | `TypeChecker.z42`、`ExprTyper.z42`、`BoundExpr.z42`、`FrontEnd.z42` |
 | `z42c.emission` | Codegen（Bound → IR，用 `z42.package` 的模型）+ 单文件 / 包编译编排；只对无错误的程序生成 | `IrGen.z42`、`ExprEmitter.z42`、`IrDump.z42`、`CuCompile.z42` |
 | `z42c.optimization` | IR → IR 优化管线（只依赖 `z42.package`）+ `Opt` 开关 | `IrOptPipeline.z42`、`IrOptInfo.z42`、`OptSet.z42`、`IrInline.z42` |
 | `z42c.pipeline` | 编译管线编排 + 依赖扫描 + `CacheStore`（增量缓存）；workspace 规划在 `z42.project` 的 `WorkspacePlan` | `BuildSession.z42`、`DepScan.z42`、`CacheStore.z42` |
-| `z42c.driver` | CLI 入口（exe） | `Main.z42` |
+| `z42c.driver` | CLI 入口（exe）：`Main.z42` 只做命令分派，各命令体独立成文件 | `Main.z42`、`BuildCommand.z42`（参数解析）、`BuildRun.z42`（单包构建相位）、`WorkspaceBuild.z42`、`SingleFileCommand.z42` |
 
 > IR / zpkg 后端（`IrModule` / `IrInstr` / `ZbcWriter` / `ZpkgWriter` / `ZpkgBuilder` / `TsigReconcile` /
 > `DependencyIndex` 等）在 `src/compiler/z42.package/`——见其 README。清单模型 `.z42.toml` 解析在
@@ -42,11 +43,12 @@ graph TD
     analyzers[analyzers·analyzer 契约/加载/驱动] --> core & syntax
     project[project·manifest] --> ir
     optimization[optimization·IR→IR 优化] --> ir
-    semantics[semantics·符号/绑定/TypeCheck] --> core & syntax & ir
-    generators[generators·generator 契约/引擎] --> core & syntax & semantics
-    emission[emission·IrGen/编译编排] --> core & syntax & ir & optimization & semantics
-    pipeline[pipeline·管线编排] --> core & syntax & analyzers & semantics & generators & emission & optimization & ir & project
-    driver[driver·exe·z42c 命令] --> pipeline & emission & semantics & optimization & ir & core
+    symbols[symbols·符号收集/符号表/类型模型/布局] --> core & syntax & ir
+    semantics[semantics·绑定/TypeCheck/校验] --> core & syntax & ir & symbols
+    generators[generators·generator 契约/引擎] --> core & syntax & symbols & semantics
+    emission[emission·IrGen/编译编排] --> core & syntax & ir & optimization & symbols & semantics
+    pipeline[pipeline·管线编排] --> core & syntax & analyzers & symbols & semantics & generators & emission & optimization & ir & project
+    driver[driver·exe·z42c 命令] --> pipeline & emission & semantics & symbols & optimization & ir & core
 ```
 
 ## z42b 的构建阶段

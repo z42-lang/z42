@@ -59,7 +59,7 @@ attribute 一样为每处应用合成反射工厂；runner（`Std.Harness.Runner
 
 ```mermaid
 flowchart LR
-  N["名字表<br/>HandlerRegistry.IsTestHandlerAttr / IsTestKindAttr<br/>（z42c.semantics/Symbols）"] --> V
+  N["名字表<br/>HandlerRegistry.IsTestHandlerAttr / IsTestKindAttr<br/>（z42c.symbols/Symbols）"] --> V
   V["① 校验（符号收集期）<br/>TestAttrEnforcer：位置 / 签名 E0911·E0912·E0915，<br/>实参 E0913·E0914·E0917"] --> F
   F["② 普通 attribute 工厂<br/>AttributeSynth（store-meta）<br/>→ attr-ref 进产物，运行期反射读回"]
 ```
@@ -294,7 +294,7 @@ build wave 也算一个 stage：它同样走 `_stageStart` 打 banner、同样�
 |---|---|
 | 加一个测试 attribute / 改它的字段 | `src/libraries/z42.harness/src/TestAttributes.z42` + 发现 `src/libraries/z42.harness/src/TestDiscovery.z42` + 编译期名字表 / 校验 |
 | 一个 attribute 的运行期行为 | `src/libraries/z42.harness/src/Runner.z42` |
-| 一个 attribute 的编译期校验 | `src/compiler/z42c.semantics/src/Testing/TestAttrEnforcer.z42`（名字表在 `Symbols/HandlerRegistry.z42`） |
+| 一个 attribute 的编译期校验 | `src/compiler/z42c.symbols/src/Symbols/TestAttrEnforcer.z42`（名字表在 `Symbols/HandlerRegistry.z42`） |
 | `[Benchmark]` 的调用形状（零参 / 单个 `Bencher`） | `TestCase.Invoke` / `TakesBencher`（`TestDiscovery.z42`）**和** `TestAttrEnforcer` 的 R3，同一个 commit |
 | 报告字段 | `src/libraries/z42.harness/src/TestReport.z42`（json）+ `Runner._runOne`（pretty） |
 | benchmark 统计形状 | `Bencher.printSummary` **和** `BenchStats._parseLine`，同一个 commit |

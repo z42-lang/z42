@@ -1,7 +1,7 @@
 # 泛型的实现
 
 > **页型**: 机制页
-> **代码**: `src/compiler/z42c.semantics/`（TypeChecker / SymbolCollector）· `src/compiler/z42c.emission/`（IrGen）·
+> **代码**: `src/compiler/z42c.symbols/`（SymbolCollector / 类型模型）· `src/compiler/z42c.semantics/`（TypeChecker）· `src/compiler/z42c.emission/`（IrGen）·
 > `src/compiler/z42.package/`（zbc TYPE/SIGS 约束布局）· `src/runtime/src/corelib/reflection/generics.rs`
 > **相关**: [泛型类型实参推断](generic-inference.md) · [架构总览](architecture.md) ·
 > [源代码编译流程](source-compile.md)
@@ -247,7 +247,7 @@ struct 的同名布局会分叉。
 ### 布局名与实例化名一律全名（`LayoutKey`）
 
 `StructLayout` 的键、发射进 IR 的布局名（`StructAlloc` 的类型名、合成实例化描述符名、特化成员的
-owner 前缀）都出自 `z42c.semantics/src/Types/LayoutKey.z42`：
+owner 前缀）都出自 `z42c.symbols/src/Types/LayoutKey.z42`：
 
 | 输入 | 拼法 |
 |---|---|
@@ -829,7 +829,7 @@ VM interp:  ObjNew 时创建实例化 TypeDesc（填充 type_args）
 
 ### 设计：shadow-only mangling
 
-[`Z42ClassType`](https://github.com/z42-lang/z42/blob/main/src/compiler/z42c.semantics/src/Types/Z42Type.z42) 增 `IrName` 派生属性 + `HasArityMangle` 标志：
+[`Z42ClassType`](https://github.com/z42-lang/z42/blob/main/src/compiler/z42c.symbols/src/Types/Z42Type.z42) 增 `IrName` 派生属性 + `HasArityMangle` 标志：
 
 | 场景 | Registry key | `IrName` | `HasArityMangle` |
 |------|-------------|---------|-----------------|
@@ -843,7 +843,7 @@ VM interp:  ObjNew 时创建实例化 TypeDesc（填充 type_args）
 
 ### Pre-pass 检测
 
-`src/compiler/z42c.semantics/src/Symbols/SymbolCollector.z42` 先 group `cu.Classes` by source name；同源名两个以上时，仅 generic 兄弟（arity > 0）需要 mangling。非泛型永远占 bare 槽位。同 arity 重复仍走 E0408 duplicate path。
+`src/compiler/z42c.symbols/src/Symbols/SymbolCollector.z42` 先 group `cu.Classes` by source name；同源名两个以上时，仅 generic 兄弟（arity > 0）需要 mangling。非泛型永远占 bare 槽位。同 arity 重复仍走 E0408 duplicate path。
 
 ### 类型解析路由
 

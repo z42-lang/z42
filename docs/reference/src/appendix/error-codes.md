@@ -326,7 +326,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 ### E0911–E0917 测试框架
 
 发射点全在
-[`TestAttrEnforcer.z42`](https://github.com/z42-lang/z42/blob/main/src/compiler/z42c.semantics/src/Testing/TestAttrEnforcer.z42)
+[`TestAttrEnforcer.z42`](https://github.com/z42-lang/z42/blob/main/src/compiler/z42c.symbols/src/Symbols/TestAttrEnforcer.z42)
 的 `_passTestAttrEnforce`（纯语法检查，不依赖符号表）与相邻的 `_passTestAttrSemantic`。
 
 强制五条规则：**零接收者**（顶层自由函数或 `static` 方法）、**返回 `void`**、**无参数**、
