@@ -1,0 +1,235 @@
+// `_parsePrefix` 的四个家族体（从 ExprParser.z42 拆出，fnlines 只降不升）：cast 家族、
+// `(` 分组/元组、new 家族、identifier + 编译期宏哨兵。`partial` 拆分与 ExprParser 同一个类、
+// 共用 `_p`；同包先例：ExprParserInterp.z42 / Lexer.z42 / LexerEscapes.z42。
+namespace Z42.Syntax;
+
+using Z42.Core;
+
+public sealed partial class ExprParser {
+
+    // cast 家族四段：`(Type)expr`（类型关键字）/ `(T[])expr` / `(T)operand`（用户类型，follow token
+    // 判歧义）/ 闭合泛型 `(GBox<string>)o`（回溯）。返回 null = 不是 cast——含闭合泛型回溯失败，
+    // 由调用方继续 `(` 的分组 / 元组分支（`(a < b)` 这类比较照旧）。
+    private Expr _parseCastPrefix(Token t, int k) {
+        // C 风格强制转换 `(Type)expr`：`( 类型关键字 )` 无歧义（类型关键字不能作值）。
+        // 用户类 cast `(C)x` 留 `as`（避免与 `(expr)` 歧义）。操作数按一元优先级（85）绑定。
+        if (k == TokenKind.LParen && this._p._isTypeKeyword(this._p._peekAt(1).Kind)
+            && this._p._peekAt(2).Kind == TokenKind.RParen) {
+            this._p._advance();
+            TypeExpr ct = this._p._typeP._parseType();
+            this._p._expect(TokenKind.RParen, ")");
+            Expr operand = this._parseExpr(ParseTable.UnaryBp());
+            return new CastExpr(ct, operand, t.Span);
+        }
+        // GS6: 数组类型强转 (T[])expr：类型关键字或类名后跟 []，区别于 (T)expr（peek(2) 不同）。
+        if (k == TokenKind.LParen
+            && (this._p._isTypeKeyword(this._p._peekAt(1).Kind) || this._p._peekAt(1).Kind == TokenKind.Identifier)
+            && this._p._peekAt(2).Kind == TokenKind.LBracket
+            && this._p._peekAt(3).Kind == TokenKind.RBracket
+            && this._p._peekAt(4).Kind == TokenKind.RParen) {
+            this._p._advance();
+            TypeExpr ct = this._p._typeP._parseType();
+            this._p._expect(TokenKind.RParen, ")");
+            Expr operand = this._parseExpr(ParseTable.UnaryBp());
+            return new CastExpr(ct, operand, t.Span);
+        }
+        // 用户类型 / 泛型形参 cast `(T)operand`：( Identifier ) <operand-start>。
+        // add-user-conversions：放宽 follow token 集（原仅 Identifier）到标识符/字面量/new——这些均无法与
+        // 分组表达式 `(expr)` 歧义（`(val)ident`、`(val)5` 在 z42 都是无效相邻 primary），故收编为 cast。
+        // **刻意排除** `-`/`+`/`(` 等：`(a) - b` 保持二元、`(f)(x)` 保持调用（歧义，用户改写 `as` 或临时变量）。
+        // 覆盖 stdlib `(TD)DelegateOps.MakeClosure(...)` 与用户 explicit 转换 `(Foo)bar` / `(Foo)5`。
+        if (k == TokenKind.LParen && this._p._peekAt(1).Kind == TokenKind.Identifier
+            && this._p._peekAt(2).Kind == TokenKind.RParen
+            && ExprParser._castOperandStart(this._p._peekAt(3).Kind)) {
+            this._p._advance();
+            TypeExpr ct = this._p._typeP._parseType();
+            this._p._expect(TokenKind.RParen, ")");
+            Expr operand = this._parseExpr(ParseTable.UnaryBp());
+            return new CastExpr(ct, operand, t.Span);
+        }
+        // complete-generic-class-identity P5：**闭合泛型**的 cast `(GBox<string>)o`。
+        //
+        // 上面两条 cast 前瞻都是**定长**的（`( Ident )` / `( Ident [ ] )`），装不下变长的 `<…>`
+        // ⇒ `(GBox<string>)o` 报 `E0202: expected ')'`，而 `o as GBox<string>` 一直合法
+        //（`_parseType()` 本就支持闭合泛型，`as` 走的就是它）—— 同一件事两种写法口径不一。
+        //
+        // 用与泛型方法调用（:115）同款的**回溯**：游标 + 诊断 + `_pendingGt`（`>>` 拆分状态）
+        // 三件一起存档还原，缺一不可。
+        // 预检 `( Ident <` 才试 ⇒ 非泛型形态一条指令都不多走，既有产物**字节不变**。
+        // `_castOperandStart` 仍**刻意排除** `(`：`(f<int>)(x)` 保持泛型调用而非 cast（同上条注释）。
+        if (k == TokenKind.LParen && this._p._peekAt(1).Kind == TokenKind.Identifier
+            && this._p._peekAt(2).Kind == TokenKind.Lt) {
+            int cMark = this._p._mark();
+            int cDiag = this._p._diags.Count();
+            int cGt = this._p._pendingGt;
+            this._p._advance();                     // '('
+            TypeExpr gct = this._p._typeP._parseType();
+            if (gct != null && this._p._peek().Kind == TokenKind.RParen
+                && ExprParser._castOperandStart(this._p._peekAt(1).Kind)) {
+                this._p._advance();                 // ')'
+                Expr gop = this._parseExpr(ParseTable.UnaryBp());
+                return new CastExpr(gct, gop, t.Span);
+            }
+            this._p._reset(cMark);
+            this._p._diags.TruncateTo(cDiag);
+            this._p._pendingGt = cGt;
+            // 落到下面的分组表达式 / 元组（`(a < b)` 这类比较照旧）
+        }
+        return null;
+    }
+
+    // `(` 分组表达式 / 元组字面量 `(e0, e1, …)`（cast 前瞻未占用时到此）。
+    private Expr _parseParenPrefix(Token t) {
+        this._p._advance();
+        Expr inner = this._parseExpr(0);
+        // 元组字面量 `(e0, e1, ...)`（add-tuple-types）：首元素后遇 `,` → 收集为 TupleExpr（≥2 元素）。
+        // lambda `(a,b)=>` 已由 _isLambdaStart 在 _parsePrefix 前分流；cast `(T)x` 由 peekAt(2) 前瞻占用；
+        // 故到此处首元素后跟 `,` 只可能是元组。单元素 `(e)` 仍为分组表达式。
+        if (this._p._peek().Kind == TokenKind.Comma) {
+            Expr[] elems = new Expr[4];
+            elems[0] = inner;
+            int en = 1;
+            while (this._p._peek().Kind == TokenKind.Comma) {
+                this._p._advance();   // ,
+                if (en == elems.Length) {
+                    Expr[] b = new Expr[elems.Length * 2];
+                    Array.Copy(elems, b, en);
+                    elems = b;
+                }
+                elems[en] = this._parseExpr(0); en = en + 1;
+            }
+            this._p._expect(TokenKind.RParen, ")");
+            return new TupleExpr(elems, en, t.Span);
+        }
+        this._p._expect(TokenKind.RParen, ")");
+        return inner;
+    }
+
+    // new 家族：target-typed `new(…)` / `new T[]{…}` 数组字面量初始化 / `new T[size]` /
+    // `new T(args?) { … }` 对象初始化器。
+    private Expr _parseNewPrefix(Token t) {
+        this._p._advance();
+        // target-typed new：`new(…)` —— `_parseTargetTypedNew`（Prefix 分片内同文件）。
+        if (this._p._peek().Kind == TokenKind.LParen) { return this._parseTargetTypedNew(t); }
+        TypeExpr ty = this._p._typeP._parseType();
+        // 数组初始化 new T[]{v1,...}（SA-2）：_parseType 已吃 T[] 的 []，后跟 { = 字面量初始化器。
+        // 仅 ArrayType 走此路；非数组 `new Foo {` 落到下方对象初始化器（add-object-initializers）。
+        if ((ty is ArrayType) && this._p._peek().Kind == TokenKind.LBrace) {
+            TypeExpr elemTy = ty;
+            if (ty is ArrayType) { elemTy = (ty as ArrayType).Elem; }
+            this._p._advance();   // {
+            Expr[] elems = new Expr[8];
+            int en = 0;
+            if (this._p._peek().Kind != TokenKind.RBrace) {
+                while (true) {
+                    if (en == elems.Length) {
+                        Expr[] b = new Expr[elems.Length * 2];
+                        Array.Copy(elems, b, en);
+                        elems = b;
+                    }
+                    elems[en] = this._parseExpr(0); en = en + 1;
+                    // 尾逗号容忍（C# 数组/集合初始化器允许 `{1,2,3,}`）：吃掉逗号后若紧跟 `}`
+                    // 即尾逗号，break——否则会把 `}` 当表达式多解析出一个 null 元素（fix-array-trailing-comma：
+                    // 原 IR `arr.new.lit %0,%1,%2,%3` 第 4 个 const.null → byte[] 长度多 1）。
+                    if (this._p._peek().Kind == TokenKind.Comma) {
+                        this._p._advance();
+                        if (this._p._peek().Kind == TokenKind.RBrace) { break; }
+                    } else { break; }
+                }
+            }
+            this._p._expect(TokenKind.RBrace, "}");
+            return new ArrayInitExpr(elemTy, elems, en, t.Span);
+        }
+        // 数组创建 new T[size]（SA-1）：_parseType 只吃 `[]`，带 size 的 `[` 留此处
+        if (this._p._peek().Kind == TokenKind.LBracket) {
+            this._p._advance();
+            Expr size = this._parseExpr(0);
+            this._p._expect(TokenKind.RBracket, "]");
+            return new ArrayNewExpr(ty, size, t.Span);
+        }
+        Expr[] args = new Expr[8];
+        int n = 0;
+        if (this._p._peek().Kind == TokenKind.LParen) {
+            this._p._advance();
+            if (this._p._peek().Kind != TokenKind.RParen) {
+                while (true) {
+                    if (n == args.Length) {
+                        Expr[] b = new Expr[args.Length * 2];
+                        Array.Copy(args, b, n);
+                        args = b;
+                    }
+                    args[n] = this._parseCallArg(); n = n + 1;   // restore-named-arguments：`new P(y: 2)`
+                    if (this._p._peek().Kind == TokenKind.Comma) { this._p._advance(); } else { break; }
+                }
+            }
+            this._p._expect(TokenKind.RParen, ")");
+        }
+        // 对象初始化器 new Foo(args?) { F = v, x }（add-object-initializers）：ctor 实参后跟 `{`。
+        if (this._p._peek().Kind == TokenKind.LBrace) {
+            return this._parseObjInit(ty, args, n, t);
+        }
+        return new ObjNewExpr(ty, args, n, t.Span);
+    }
+
+    // target-typed new（add-target-typed-new）：`new` 紧跟 `(` → 省略类名，从目标类型推断。
+    // 类名不可能以 `(` 起头（函数类型 `(T)->R` 无法被 new），故前瞻一个 token 即无歧义。
+    // 产出 Type==null 的 ObjNewExpr / ObjInitExpr，由语义层用目标类型定型。
+    private Expr _parseTargetTypedNew(Token t) {
+        this._p._advance();   // (
+        Expr[] targs = new Expr[8];
+        int tn = 0;
+        if (this._p._peek().Kind != TokenKind.RParen) {
+            while (true) {
+                if (tn == targs.Length) {
+                    Expr[] b = new Expr[targs.Length * 2];
+                    Array.Copy(targs, b, tn);
+                    targs = b;
+                }
+                targs[tn] = this._parseExpr(0); tn = tn + 1;
+                if (this._p._peek().Kind == TokenKind.Comma) { this._p._advance(); } else { break; }
+            }
+        }
+        this._p._expect(TokenKind.RParen, ")");
+        if (this._p._peek().Kind == TokenKind.LBrace) {
+            return this._parseObjInit(null, targs, tn, t);   // target-typed 对象初始化器
+        }
+        return new ObjNewExpr(null, targs, tn, t.Span);
+    }
+
+    // identifier primary + 编译期表达式宏哨兵 `name!(…)`。
+    private Expr _parseIdentPrefix(Token t) {
+        this._p._advance();
+        // attribute-handler-registry PR6b：编译期表达式宏 `name!()`（v1 = caller info：
+        // caller_member!()/caller_line!()/caller_file!()/module_path!()）。复用既有 Bang + `()`，
+        // 无新 token、无新 AST 节点——译成既有 IdentExpr 的哨兵名 `$macro:<name>`（`$` 非法于真
+        // 标识符 → 零撞名，同本 change `$Default`/`$Caller` 哨兵哲学）。这样 z42c.semantics 只需靠
+        // 既有 IdentExpr.Name 识别、**不引用任何新 syntax 类型** → 避免 syntax→semantics 新跨包符号
+        // 撞 F2 冷启动 stale-cache（见 design「caller 宏语法」节 + self-hosting 轴②/④ 教训）。
+        // 白名单认名 + 位置合法性由语义层强制（E0450）。
+        //
+        // add-symbol-availability-macro：扩出**带参**形态 `name!(args)`（如 `available!(B.Foo)`）。
+        // 仍零新 token、零新 AST 节点——见到 `Bang + LParen` 时**只吞 `!`**，把 `(` 留给上面的
+        // postfix 循环（`k == TokenKind.LParen` → `_parseCall`），由它自然产出
+        // `CallExpr(IdentExpr("$macro:<name>"), args)`。语义层在 ExprTyper 的 CallExpr 分发点
+        // 前拦一句「Callee 是宏哨兵」即可，同样不引用任何新 syntax 类型 → 继续 F2-安全。
+        //
+        // 无参形态 `name!()` 必须保持原样吞三个 token 返回**裸 IdentExpr** —— caller 类宏的
+        // 三条既有消费路径（ClassDescBuilder / DeclBinder / OverloadBinder）都按裸 IdentExpr 识别，
+        // 若改成 CallExpr(哨兵, []) 会全部失配。
+        //
+        // 占用 `ident!(` 零回归：`Bang` 在 z42 里只有前缀一元语义（`_parseUnary`），无后缀/中缀
+        // 用法，故 `a!(b)` 此前一律是语法错。
+        if (this._p._peek().Kind == TokenKind.Bang
+            && this._p._peekAt(1).Kind == TokenKind.LParen) {
+            if (this._p._peekAt(2).Kind == TokenKind.RParen) {
+                this._p._advance();   // !
+                this._p._advance();   // (
+                this._p._advance();   // )
+                return new IdentExpr("$macro:" + t.Text, t.Span);
+            }
+            this._p._advance();       // 只吞 `!`；`(` 交给 postfix 循环建 CallExpr
+            return new IdentExpr("$macro:" + t.Text, t.Span);
+        }
+        return new IdentExpr(t.Text, t.Span);
+    }
+}

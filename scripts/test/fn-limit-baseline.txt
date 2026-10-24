@@ -64,12 +64,11 @@ src/compiler/z42c.symbols/src/Symbols/SymbolCollector.z42	CollectAll	61
 src/compiler/z42c.symbols/src/Symbols/SymbolCollector.z42	_mergeImports	72
 src/compiler/z42c.symbols/src/Symbols/SymbolTable.z42	_resolveTypePCore	163
 src/compiler/z42c.symbols/src/Types/Conversion.z42	_classifyBuiltin	63
-src/compiler/z42c.syntax/src/DeclParser.z42	_parseTypeDecl	81
+src/compiler/z42c.syntax/src/DeclParser.z42	_parseTypeDecl	63
 src/compiler/z42c.syntax/src/ExprParser.z42	_parseExpr	193
-src/compiler/z42c.syntax/src/ExprParser.z42	_parsePrefix	203
 src/compiler/z42c.syntax/src/Lexer.z42	_lexSymbol	62
 src/compiler/z42c.syntax/src/MemberParser.z42	_parseMemberBody	95
-src/compiler/z42c.syntax/src/MemberParser.z42	_parseParamList	65
+src/compiler/z42c.syntax/src/MemberParser.z42	_parseParamList	64
 src/compiler/z42c.syntax/src/MethodOfParser.z42	_parseTarget	66
 src/compiler/z42c.syntax/src/Parser.z42	ParseCompilationUnit	103
 src/compiler/z42c.syntax/src/StmtParser.z42	_isVarDeclStart	80
