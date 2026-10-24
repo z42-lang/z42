@@ -16,150 +16,312 @@ using Z42.Optimization;
 using Z42.Emission;
 
 
+// ── `_build` 相位级拆分的结果载体（z42 函数只能返回一个值；PathClosureOut 同款惯例）──
+// 约定：Rc != 0 = 失败（诊断已打印，调用方透传返回）；Rc == 0 = 成功。PrepareOut 的 Rc 另有 -1 哨兵。
+public sealed class BuildSourcesOut {
+    public int Rc;
+    public ProjectManifest Pm;
+    public string[] Srcs; public string[] DispSrcs;
+    public string ProjectDir;
+}
+public sealed class DirsOut {
+    public string[] Dirs; public int N;
+}
+public sealed class LibsDomainOut {
+    public int Rc;
+    public string[] LibsDirs; public int LibsDirsN;
+    public string[] ClosureNames; public int ClosureN;
+    public WsTier ScanTier; public SdkLibPlan SdkPlan;
+}
+public sealed class PluginSetupOut {
+    public int Rc;
+    public string[] AzPaths;   // 显式 [plugins] ∪ 携带链的编译器侧插件 zpkg；null = 一个都没有
+    public string HandlerFp;   // 插件身份指纹；"" = 无插件（自举 byte-identical 路径）
+}
+public sealed class SrcHashesOut {
+    public string[] Texts; public string[] Hashes;
+}
+public sealed class PackDecisionOut {
+    public int Rc;
+    public bool IsExe; public bool IsPacked;
+}
+public sealed class BuildDirsOut {
+    public string DistDir; public string EffCacheDir; public bool WriteCache;
+}
+// 增量 probe 的结果：Rc == -1 = 未 preserved、继续正常编译（Prep 供后续相位复用）；
+// 其他 Rc = 调用方应立即返回的退出码（preserved 早退动作已在内部完成，或失败诊断已打印）。
+public sealed class PrepareOut {
+    public int Rc;            // -1 哨兵见上
+    public bool Preserved;
+    public IncrPrep Prep;
+}
+public sealed class ParseAllOut {
+    public CompilationUnit[] Cus;
+    public NameListZ[] Idents; public NameSurfacesZ[] Surfaces;
+}
+
+
 // `z42c build <toml>`：manifest → 源发现 → 逐文件编译 → packed zpkg → dist/<name>.zpkg。
 // MVP：单工程/packed/无增量（镜像 C# PackageCompiler.BuildTarget 关键路径）。
 // cacheDirOverride：workspace 构建由 WorkspaceLayoutPlan 给出成员 cache 目录（成员 toml 通常无 [build]，按单工程解析会落进
 // 源码树）；"" = 按本工程 manifest 解析（BuildLayout）。
 // tier：解析**分档**（见 z42c.pipeline 的 WsTier.z42）——成员 dist 只答成员包、外部档只答
 // 非成员包，外加「拓扑序排在本成员之后的成员整个不可见」。null = 非 workspace 路径，全可见。
+// 本函数原为 386 行整块（fnlines 棘轮账本头名），现只剩相位编排（fnlines 只降不升）；
+// 各相位的实现与叙事注释随相位走（下方 `_resolve*` / `_prepare*` / `_report*` / `_write*`）。
 int _build(string tomlPath, bool isRelease, string outputDirOverride, string cacheDirOverride, string[] libsDirsOverride, int libsDirsCount, bool noIncremental, int cliAdd, int cliRemove, bool fix, WsTier tier) {
-    ProjectManifest pm = ManifestLoader.Load(tomlPath);
+    // ── ① manifest 校验 + 源发现（旋钮 / deploy 清单级 fail-fast 都在编译前）──
+    BuildSourcesOut sr = _resolveBuildSources(tomlPath);
+    if (sr.Rc != 0) { return sr.Rc; }
+    ProjectManifest pm = sr.Pm; string[] srcs = sr.Srcs; string[] dispSrcs = sr.DispSrcs; string projectDir = sr.ProjectDir;
+    // ── ② 依赖域组装（Z42_LIBS / path 闭包 / vendored zpkg / SDK 库可见性 → 扫描档）──
+    LibsDomainOut ld = _resolveLibsDomain(pm, tomlPath, projectDir, isRelease, noIncremental, cliAdd, cliRemove,
+        libsDirsOverride, libsDirsCount, tier);
+    if (ld.Rc != 0) { return ld.Rc; }
+    string[] libsDirs = ld.LibsDirs; int libsDirsN = ld.LibsDirsN; SdkLibPlan sdkPlan = ld.SdkPlan;
+    string[] closureNames = ld.ClosureNames; int closureN = ld.ClosureN; WsTier scanTier = ld.ScanTier;
+    // ── ③ 编译器侧插件解析（显式 [plugins] ∪ 携带链）+ 身份指纹 ──
+    PluginSetupOut pl = _resolvePluginSetup(pm, projectDir, tomlPath, libsDirs, libsDirsN,
+        isRelease, noIncremental, cliAdd, cliRemove, tier);
+    if (pl.Rc != 0) { return pl.Rc; }
+    string[] azPaths = pl.AzPaths; string handlerFp = pl.HandlerFp;
+    // ── ④ 源文本读入 + 源 hash（per-file 并行）──
+    SrcHashesOut sh = _readAndHashSources(srcs, handlerFp);
+    // ── ⑤ exe / pack 决议（含 indexed 与 flat workspace / --release 的不兼容拦截）──
+    PackDecisionOut pd = _decidePacked(pm, tomlPath, tier, outputDirOverride, isRelease, libsDirsCount);
+    if (pd.Rc != 0) { return pd.Rc; }
+    bool isExe = pd.IsExe; bool isPacked = pd.IsPacked;
+    // ── ⑥ 输出目录与 cache 布局（dist / 生效 cache 目录 / 是否写 cache）──
+    BuildDirsOut bd = _resolveBuildDirs(pm, projectDir, isRelease, outputDirOverride, cacheDirOverride);
+    string distDir = bd.DistDir;
+    // ── ⑦ 旋钮决议（optimize / syntax / lints；CLI > toml > profile）──
+    KnobResult kn = _resolveKnobs(pm, tomlPath, isRelease, cliAdd, cliRemove);
+    if (kn == null) { return ExitCode.UsageError; }
+    int effOptSet = kn.OptSet; LanguageFeatures feats = kn.Features;
+    // ── ⑧ 依赖身份（缓存键扩展）+ 增量 probe；全命中 → preserved 早退 ──
+    string depsId = _buildDepsIdentity(pm, effOptSet, isRelease, libsDirs, libsDirsN, scanTier);
+    PrepareOut po = _prepareIncremental(pm, srcs, dispSrcs, sh.Texts, sh.Hashes, projectDir, bd.EffCacheDir, depsId,
+        feats, distDir, isPacked, isExe, azPaths, closureNames, closureN, libsDirs, libsDirsN, isRelease,
+        outputDirOverride, cacheDirOverride, noIncremental);
+    if (po.Rc != -1) { return po.Rc; }   // preserved 早退已完成（Ok）或失败（诊断已打印）
+    IncrPrep prep = po.Prep;
+    // ── ⑨ parse-all（增量复用 prep.Cus / 全量 ParseAllTk）──
+    ParseAllOut pa = _parseAllSources(srcs, dispSrcs, sh.Texts, prep, feats);
+    CompilationUnit[] cus = pa.Cus; NameListZ[] metaIdents = pa.Idents; NameSurfacesZ[] metaSurfaces = pa.Surfaces;
+    // ── ⑩ 编译核心：依赖存在性校验 → cached meta 回填 → CompileInputs → PackageCompile.Compile ──
+    int vdr = _verifyDeclaredDeps(pm, libsDirs, libsDirsN); if (vdr != 0) { return vdr; }
+    CachedNsMeta[] cachedMetas = _buildCachedMetas(prep, srcs.Length);
+    CompileInputs cin = _fillCompileInputs(pm, srcs, sh.Texts, sh.Hashes, cus, prep, cachedMetas,
+        isRelease, fix, feats, effOptSet, libsDirs, libsDirsN, scanTier, sdkPlan, azPaths, projectDir, kn);
+    if (cin == null) { return ExitCode.BuildError; }
+    CompileArtifacts art = PackageCompile.Compile(cin);
+    // ── ⑪ 诊断呈现（错误 / 警告 / entry 校验——生成 CU 与用户 CU 同口径）──
+    int erc = _reportCompileErrors(art, dispSrcs); if (erc != 0) { return erc; }
+    int wrc = _reportWarningsAndEntry(art, dispSrcs, isExe, pm); if (wrc != 0) { return wrc; }
+    // ── ⑫ generator 产出源码落盘 ──
+    int wgr = _writeGeneratedSources(pm, projectDir, isRelease, outputDirOverride, tier, art); if (wgr != 0) { return wgr; }
+    // ── ⑬ 产物写出（多 exe 多产物 / 单产物；cache 落盘；exe 依赖 bundling）──
+    if (isPacked) { _stabilizeSourceIdentity(art.Z, projectDir); }   // 可复现 build_id（BuildPaths.z42）
+    Directory.Create(distDir);
+    if (pm.ExeCount > 0) {
+        int xi = 0;
+        while (xi < pm.ExeCount) {
+            int xr = _writeExeTarget(pm, pm.Exes[xi], art, distDir, isPacked, isRelease, bd.EffCacheDir, projectDir, srcs, prep);
+            if (xr != 0) { return xr; }
+            xi = xi + 1;
+        }
+        // 依赖 bundling 一次（各 exe 共享同一 dist）。
+        int mbc = _bundleExeDeps(pm, closureNames, closureN, distDir, libsDirs, libsDirsN);
+        if (mbc != 0) { return mbc; }
+        // 多 exe 同样落 cache（cache-dir-layout：此前此分支提前 return，从不写 cache）。
+        if (bd.WriteCache) { _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, sh.Texts, sh.Hashes, art.Cms, art.Mods, prep, metaIdents, metaSurfaces, depsId, feats, art.CuDiags); }
+        return ExitCode.Ok;
+    }
+    int wor = _writeSingleOutput(pm, art, distDir, isPacked, isExe, isRelease, bd.EffCacheDir, projectDir, srcs, prep);
+    if (wor != 0) { return wor; }
+    if (bd.WriteCache) { _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, sh.Texts, sh.Hashes, art.Cms, art.Mods, prep, metaIdents, metaSurfaces, depsId, feats, art.CuDiags); }
+    // 自包含 exe（.NET bin/ 式）：把非标准库依赖 zpkg 复制进 dist，使 exe 可从自身目录运行。
+    if (isExe) {
+        int bc = _bundleExeDeps(pm, closureNames, closureN, distDir, libsDirs, libsDirsN);
+        if (bc != 0) { return bc; }
+    }
+    return ExitCode.Ok;
+}
+
+// ── ① manifest 校验 + 源发现 ─────────────────────────────────────────────────────
+BuildSourcesOut _resolveBuildSources(string tomlPath) {
+    BuildSourcesOut o = new BuildSourcesOut();
+    o.Pm = ManifestLoader.Load(tomlPath);
     // 旋钮名校验（compiler-checks-knob-names）：manifest 的 `[profile.*]` 有问题不值得等
     // 一趟全量编译，放在编译前 fail fast。旧形状（直接写键）致命；未知旋钮名只 warn。
-    int pkc = _validateProfileKnobs(pm);
-    if (pkc != 0) { return pkc; }
+    int pkc = _validateProfileKnobs(o.Pm);
+    if (pkc != 0) { o.Rc = pkc; return o; }
     // `deploy` 声明校验（add-deployment-model 批 4.3）：与旋钮名校验同款——**清单有问题不等一趟
     // 全量编译**。放在这里而不是 `_bundleExeDeps` 里，是因为那个只在 exe 分支跑：lib / analyzer
     // 工程写错的 `deploy` 会被整条跳过 ⇒「配了以为生效」。
-    int dvc = _validateDeployDecls(pm);
-    if (dvc != 0) { return dvc; }
+    int dvc = _validateDeployDecls(o.Pm);
+    if (dvc != 0) { o.Rc = dvc; return o; }
     string projectDir = Path.GetDirectoryName(tomlPath);
     if (projectDir == "") { projectDir = "."; }
     // 有效 exclude：`[sources].exclude` 再加上住在工程目录里的插件源码目录（`[build] hooks`、工程内的
     // `[plugins]` path 条目）——插件单独构建、加载进宿主进程，不该被 app 的 `**/*.z42` glob 扫进 app zpkg。
-    string[] effExc = pm.EffectiveSourceExcludes();
-    string[] srcs = SourceDiscovery.DiscoverWithExclude(projectDir, pm.Sources.Include, pm.Sources.IncludeCount, effExc, effExc.Length);
-    if (srcs.Length == 0) {
+    string[] effExc = o.Pm.EffectiveSourceExcludes();
+    o.Srcs = SourceDiscovery.DiscoverWithExclude(projectDir, o.Pm.Sources.Include, o.Pm.Sources.IncludeCount, effExc, effExc.Length);
+    if (o.Srcs.Length == 0) {
         ConsoleError.WriteLine("z42c build: no sources matched [sources].include");
-        return ExitCode.BuildError;
+        o.Rc = ExitCode.BuildError; return o;
     }
-    string[] dispSrcs = _displaySrcs(srcs);   // 只用于诊断呈现；读取 / 缓存键 / 产物一律仍用 srcs
+    o.DispSrcs = _displaySrcs(o.Srcs);   // 只用于诊断呈现；读取 / 缓存键 / 产物一律仍用 Srcs
+    o.ProjectDir = projectDir;
+    return o;
+}
+
+// ── ② 依赖域组装 ─────────────────────────────────────────────────────────────────
+LibsDomainOut _resolveLibsDomain(ProjectManifest pm, string tomlPath, string projectDir, bool isRelease, bool noIncremental,
+                                 int cliAdd, int cliRemove, string[] libsDirsOverride, int libsDirsCount, WsTier tier) {
+    LibsDomainOut o = new LibsDomainOut();
+    o.ClosureNames = new string[0]; o.ClosureN = 0;
     // ── 跨包依赖（CI-4）：libsDirs 扫描 → DepIndex + nsMap + TSIG 池；usings 聚合决定激活集 ──
     // workspace build 传 libsDirsOverride：Milestone 1 = [flat dist]（单元素）；
     // Milestone 2 = 全成员 dist 列表（per-member 布局，解析兄弟）+ Z42_LIBS（外部 stdlib）。
     // 单工程留空 → 回落 Z42_LIBS env（单目录）。
-    string[] libsDirs;
-    int libsDirsN;
+    // ── 编译期依赖解析面 vs driver 自身运行期加载面 ───────────────────────
+    //
+    // 编译期依赖面 = `Z42_LIBS`（driver 自己运行期的库另走 VM 的 probing，见 `_extLibDirs`）。
     if (libsDirsCount > 0) {
-        libsDirs = libsDirsOverride;
-        libsDirsN = libsDirsCount;
+        o.LibsDirs = libsDirsOverride; o.LibsDirsN = libsDirsCount;
     } else {
-        // ── 编译期依赖解析面 vs driver 自身运行期加载面 ───────────────────────
-        //
-        // 编译期依赖面 = `Z42_LIBS`（driver 自己运行期的库另走 VM 的 probing，见 `_extLibDirs`）。
-        libsDirs = _extLibDirs(); libsDirsN = libsDirs.Length;
+        o.LibsDirs = _extLibDirs(); o.LibsDirsN = o.LibsDirs.Length;
     }
     // ── path 依赖闭包（add-path-dependencies 阶段2 use）——实现见 PathDepBuild.z42 `_buildPathDepClosure`。
-    string[] closureNames = new string[0];
-    int closureN = 0;
     // fix-path-dep-closure-scope：workspace per-member 成员（tier.MembersN > 0）**也**解析闭包——此前只有
     // top-level（libsDirsCount==0）解析，而 workspace 调用总是带 libsDirs 进来 ⇒ 成员指向 workspace **外**的
     // path 依赖永远不代建。闭包**子建**（tier == null、count>0）仍跳过：那里的相对路径未必解得开。
     bool wsMember = tier != null && tier.MembersN > 0;
     if (libsDirsCount == 0 || wsMember) {
-        PathClosureOut pco = _buildPathDepClosure(tomlPath, isRelease, noIncremental, cliAdd, cliRemove, libsDirs, libsDirsN,
-                                                  wsMember ? tier : null);
-        if (pco.Rc != 0) { return pco.Rc; }
-        closureNames = pco.Names; closureN = pco.NamesN;
-        libsDirs = pco.LibsDirs; libsDirsN = pco.LibsDirsN;
+        PathClosureOut pco = _buildPathDepClosure(tomlPath, isRelease, noIncremental, cliAdd, cliRemove,
+                                                  o.LibsDirs, o.LibsDirsN, wsMember ? tier : null);
+        if (pco.Rc != 0) { o.Rc = pco.Rc; return o; }
+        o.ClosureNames = pco.Names; o.ClosureN = pco.NamesN;
+        o.LibsDirs = pco.LibsDirs; o.LibsDirsN = pco.LibsDirsN;
     }
-    // ── `[dependencies]` 的 zpkg 产物引用（add-deployment-model）──
-    // `path` 指向 `.zpkg` 文件 ⇒ 不代建，把它**所在目录**并入解析域（helper 在 ExeDeps.z42）。
-    // 放在 path 闭包之后、编译器域解析域之前：vendored 产物优先级与 path 闭包同级，都排在
-    // 框架（Z42_LIBS）之前——「我显式指定的那一份」应当压过「碰巧同名的框架包」。
-    {
-        string[] zrefs0 = _zpkgRefDirs(pm, projectDir);
-        if (zrefs0 == null) { return ExitCode.BuildError; }
-        // 🔴 **编译器域目录必须排在框架之后，不能排在前面**（relocate-compiler-domain-libs 实测）。
-        //
-        // 编译器域目录（`<sdk>/programs/z42c/`、开发树的 driver dist）里可能躺着 stdlib 副本：老版本 driver 的
-        // exe 复制判据只认 `Z42_LIBS`，自举时把整套 stdlib 当私有包复制进了自己的 dist，那一代 SDK 就带着它们。
-        // 把这种目录放在 `Z42_LIBS` 之前，`z42.core` 等就会**先在那儿命中**，于是 `_bundleExeDeps` 按「不是从
-        // 框架目录找到的 ⇒ 私有」把**整套 stdlib 拷进用户工程的输出目录**（实测：引用一个编译器域包，dist 从
-        // 1 个 zpkg 变成十几个；同工程不引用编译器域包时只有 1 个）。
-        //
-        // 手写的 vendored zpkg 引用仍排在框架**之前**（那是「我显式指定的这一份要压过碰巧同名的
-        // 框架包」的原意）；编译器域目录不需要这条优先级 —— 它里面的编译器域包按构造不存在于
-        // shipped `libs/`，放最后一样命中，而 stdlib 则继续从框架解析（⇒ 不复制）。
-        string[] dom = CompilerDomain.Dirs();
-        string[] zrefs = new string[zrefs0.Length];
-        string[] zdom = new string[zrefs0.Length];
-        int zn = 0;
-        int zdn = 0;
-        int zi = 0;
-        while (zi < zrefs0.Length) {
-            bool isDom = false;
-            int dj = 0;
-            while (dj < dom.Length) { if (dom[dj] == zrefs0[zi]) { isDom = true; } dj = dj + 1; }
-            if (isDom) { zdom[zdn] = zrefs0[zi]; zdn = zdn + 1; } else { zrefs[zn] = zrefs0[zi]; zn = zn + 1; }
-            zi = zi + 1;
-        }
-        if (zdn > 0) {
-            string[] withD = new string[libsDirsN + zdn];
-            int wi2 = 0;
-            while (wi2 < libsDirsN) { withD[wi2] = libsDirs[wi2]; wi2 = wi2 + 1; }
-            int dk = 0;
-            while (dk < zdn) { withD[libsDirsN + dk] = zdom[dk]; dk = dk + 1; }
-            libsDirs = withD; libsDirsN = libsDirsN + zdn;
-        }
-        if (zn > 0) {
-            // ⚠️ 用 `zn`（有效个数）而不是 `zrefs.Length`（分配长度）—— 拆分后数组是按上界分配的，
-            // 用 Length 会把尾部空槽也当成目录混进解析域。
-            string[] withZ = new string[libsDirsN + zn];
-            int zk = 0;
-            while (zk < zn) { withZ[zk] = zrefs[zk]; zk = zk + 1; }
-            int wi2 = 0;
-            while (wi2 < libsDirsN) { withZ[zn + wi2] = libsDirs[wi2]; wi2 = wi2 + 1; }
-            libsDirs = withZ; libsDirsN = libsDirsN + zn;
-        }
-    }
+    // vendored zpkg 引用目录并入解析域（`_appendZpkgRefDirs`，在 path 闭包之后、SDK 库之前）。
+    DirsOut zr = _appendZpkgRefDirs(pm, projectDir, o.LibsDirs, o.LibsDirsN);
+    if (zr == null) { o.Rc = ExitCode.BuildError; return o; }
+    o.LibsDirs = zr.Dirs; o.LibsDirsN = zr.N;
     // 声明了 stdlib ⇒ W0610（DepDecls.z42）。此刻 libsDirs = path 闭包 / vendored zpkg + 外部档，正是判「从哪解析到」的那一份。
-    _warnStdlibDeps(pm, tomlPath, libsDirs, libsDirsN, tier);
+    _warnStdlibDeps(pm, tomlPath, o.LibsDirs, o.LibsDirsN, tier);
     // ── SDK 库的可见性（add-sdk-libs；规则与实现见 z42c.pipeline 的 SdkLibs.z42）────────────────────
     // exe / lib：按名声明的 SDK 库（+ 传递闭包）可见；analyzer：编译器目录里的 SDK 库全部可见（编译期扩展的
     // 契约包在那里）。不放行的并入扫描 tier 的 Hidden。放行集为空（绝大多数工程，含 z42c 自建）⇒ 不追加目录、
     // tier 原样 ⇒ 自举 byte-identical。此前这里只有「kind = analyzer ⇒ 并入整个编译器目录」一条。
-    SdkLibPlan sdkPlan = SdkLibs.Plan(pm, libsDirs, libsDirsN, pm.Project.IsPlugin());
-    if (sdkPlan.DirsN > 0) {
-        libsDirs = SdkLibs.AppendDirs(libsDirs, libsDirsN, sdkPlan);
-        libsDirsN = libsDirsN + sdkPlan.DirsN;
+    // SdkPlan 同时交给 ⑩ 的 CompileInputs 装填（ExtendDeclared：放行的 SDK 库也算已声明）。
+    o.SdkPlan = SdkLibs.Plan(pm, o.LibsDirs, o.LibsDirsN, pm.Project.IsPlugin());
+    if (o.SdkPlan.DirsN > 0) {
+        o.LibsDirs = SdkLibs.AppendDirs(o.LibsDirs, o.LibsDirsN, o.SdkPlan);
+        o.LibsDirsN = o.LibsDirsN + o.SdkPlan.DirsN;
     }
     // 只用于扫描与缓存身份；`tier` 本身的 workspace 语义（成员 / 闭包代建 / packed / generated）不受影响。
-    WsTier scanTier = SdkLibs.MergeTier(tier, sdkPlan);
-    // ── `[plugins]` 插件 zpkg 解析（PluginRefs.z42）────────────────────────────────────────
+    o.ScanTier = SdkLibs.MergeTier(tier, o.SdkPlan);
+    return o;
+}
+
+// vendored zpkg 引用目录并入解析域（`_resolveLibsDomain` 的内层）。null = 失败（诊断已打印）。
+// `path` 指向 `.zpkg` 文件 ⇒ 不代建，把它**所在目录**并入解析域（helper 在 ExeDeps.z42）。
+// 放在 path 闭包之后、编译器域解析域之前：vendored 产物优先级与 path 闭包同级，都排在
+// 框架（Z42_LIBS）之前——「我显式指定的那一份」应当压过「碰巧同名的框架包」。
+DirsOut _appendZpkgRefDirs(ProjectManifest pm, string projectDir, string[] libsDirs, int libsDirsN) {
+    string[] zrefs0 = _zpkgRefDirs(pm, projectDir);
+    if (zrefs0 == null) { return null; }
+    // 🔴 **编译器域目录必须排在框架之后，不能排在前面**（relocate-compiler-domain-libs 实测）。
+    //
+    // 编译器域目录（`<sdk>/programs/z42c/`、开发树的 driver dist）里可能躺着 stdlib 副本：老版本 driver 的
+    // exe 复制判据只认 `Z42_LIBS`，自举时把整套 stdlib 当私有包复制进了自己的 dist，那一代 SDK 就带着它们。
+    // 把这种目录放在 `Z42_LIBS` 之前，`z42.core` 等就会**先在那儿命中**，于是 `_bundleExeDeps` 按「不是从
+    // 框架目录找到的 ⇒ 私有」把**整套 stdlib 拷进用户工程的输出目录**（实测：引用一个编译器域包，dist 从
+    // 1 个 zpkg 变成十几个；同工程不引用编译器域包时只有 1 个）。
+    //
+    // 手写的 vendored zpkg 引用仍排在框架**之前**（那是「我显式指定的这一份要压过碰巧同名的
+    // 框架包」的原意）；编译器域目录不需要这条优先级 —— 它里面的编译器域包按构造不存在于
+    // shipped `libs/`，放最后一样命中，而 stdlib 则继续从框架解析（⇒ 不复制）。
+    string[] dom = CompilerDomain.Dirs();
+    string[] zrefs = new string[zrefs0.Length];
+    string[] zdom = new string[zrefs0.Length];
+    int zn = 0;
+    int zdn = 0;
+    int zi = 0;
+    while (zi < zrefs0.Length) {
+        bool isDom = false;
+        int dj = 0;
+        while (dj < dom.Length) { if (dom[dj] == zrefs0[zi]) { isDom = true; } dj = dj + 1; }
+        if (isDom) { zdom[zdn] = zrefs0[zi]; zdn = zdn + 1; } else { zrefs[zn] = zrefs0[zi]; zn = zn + 1; }
+        zi = zi + 1;
+    }
+    DirsOut o = new DirsOut();
+    o.Dirs = libsDirs; o.N = libsDirsN;
+    if (zdn > 0) {
+        string[] withD = new string[libsDirsN + zdn];
+        int wi2 = 0;
+        while (wi2 < libsDirsN) { withD[wi2] = libsDirs[wi2]; wi2 = wi2 + 1; }
+        int dk = 0;
+        while (dk < zdn) { withD[libsDirsN + dk] = zdom[dk]; dk = dk + 1; }
+        o.Dirs = withD; o.N = libsDirsN + zdn;
+    }
+    if (zn > 0) {
+        // ⚠️ 用 `zn`（有效个数）而不是 `zrefs.Length`（分配长度）—— 拆分后数组是按上界分配的，
+        // 用 Length 会把尾部空槽也当成目录混进解析域。
+        string[] withZ = new string[o.N + zn];
+        int zk = 0;
+        while (zk < zn) { withZ[zk] = zrefs[zk]; zk = zk + 1; }
+        int wi2 = 0;
+        while (wi2 < o.N) { withZ[zn + wi2] = o.Dirs[wi2]; wi2 = wi2 + 1; }
+        o.Dirs = withZ; o.N = o.N + zn;
+    }
+    return o;
+}
+
+// ── ③ 编译器侧插件解析 + 身份指纹 ────────────────────────────────────────────────
+PluginSetupOut _resolvePluginSetup(ProjectManifest pm, string projectDir, string tomlPath, string[] libsDirs, int libsDirsN,
+                                   bool isRelease, bool noIncremental, int cliAdd, int cliRemove, WsTier tier) {
+    PluginSetupOut o = new PluginSetupOut();
+    string[] plNames = null; string[] plPaths = null;   // 显式 [plugins]（编译器侧）
+    // ── `[plugins]` 插件 zpkg 解析（PluginRefs.z42）────────────────────────────────
     // 必须在指纹之前：path 条目由 z42c **代建**，不先建就没有 zpkg 可指纹，「改了插件源码但消费方源没变」
     // 就不会失效缓存。解析结果同时喂指纹与 CompileInputs。z42c 只拿编译器侧（analyzer / generator）插件；
     // 一个都没有（含 z42c 自建、只挂了 hook 插件的工程）→ azPaths 为 null、指纹 `""` → 自举 byte-identical。
-    string[] azPaths = null; string[] plNames = null; string[] plPaths = null;   // 显式 [plugins]（编译器侧）
     if (pm.PluginCount > 0 && !_resolvePluginZpkgs(pm, projectDir, tomlPath, libsDirs, libsDirsN,
-            isRelease, noIncremental, cliAdd, cliRemove, ref plNames, ref plPaths)) { return ExitCode.BuildError; }
-    if (!_attachCarriedPaths(pm, libsDirs, libsDirsN, wsMember, plPaths, ref azPaths)) { return ExitCode.BuildError; }   // 1c/PR2：显式∪携带
+            isRelease, noIncremental, cliAdd, cliRemove, ref plNames, ref plPaths)) { o.Rc = ExitCode.BuildError; return o; }
+    // 1c/PR2：显式∪携带（两阶段，见 PluginRefs 头注）。wsMember 判据与 `_resolveLibsDomain` 同源。
+    string[] azPaths = null;
+    if (!_attachCarriedPaths(pm, libsDirs, libsDirsN, tier != null && tier.MembersN > 0, plPaths, ref azPaths)) { o.Rc = ExitCode.BuildError; return o; }
+    o.AzPaths = azPaths;
     // 插件身份指纹并入增量指纹（「产物纳入指纹」）——揉进每个文件源 hash，则「换 generator 但源没变」也令
     // 所有缓存失效。空 → `""` → `text+""==text` → 源 hash 不变 → 自举 byte-identical。
-    string handlerFp = _pluginFingerprint(azPaths, azPaths);
-    // 源文本读入 + 源 hash（probe / ZbcFileZ / meta 三处复用；SHA-256 解释执行曾是 D8 增量差价主项）。
-    // parallelize-package-compile ★①：per-file 读+哈希并行（各写独立槽，确定性）。
-    string[] texts = new string[srcs.Length];
-    string[] srcHashes = new string[srcs.Length];
+    o.HandlerFp = _pluginFingerprint(azPaths, azPaths);
+    return o;
+}
+
+// ── ④ 源文本读入 + 源 hash（probe / ZbcFileZ / meta 三处复用；SHA-256 解释执行曾是
+//    D8 增量差价主项）。parallelize-package-compile ★①：per-file 读+哈希并行（各写独立槽，确定性）。
+SrcHashesOut _readAndHashSources(string[] srcs, string handlerFp) {
+    SrcHashesOut o = new SrcHashesOut();
+    o.Texts = new string[srcs.Length];
+    o.Hashes = new string[srcs.Length];
     ParallelFor.Run(srcs.Length, ParallelConfig.Jobs(srcs.Length),
-        new SrcReadHashTask(srcs, texts, srcHashes, handlerFp));
+        new SrcReadHashTask(srcs, o.Texts, o.Hashes, handlerFp));
+    return o;
+}
+
+// ── ⑤ exe / pack 决议 ────────────────────────────────────────────────────────────
+PackDecisionOut _decidePacked(ProjectManifest pm, string tomlPath, WsTier tier, string outputDirOverride, bool isRelease, int libsDirsCount) {
+    PackDecisionOut o = new PackDecisionOut();
     // exe 判定：显式 kind=exe，或声明了 `[[exe]]` 多目标（unify-run-modes P3）。
-    bool isExe = pm.Project.Kind == "exe" || pm.ExeCount > 0;
+    o.IsExe = pm.Project.Kind == "exe" || pm.ExeCount > 0;
     // pack 决议（add-indexed-zpkg-min-patch）：[project].pack 显式 > 内置默认
     //（debug→false=indexed / release→true=packed）。[profile] 层随 profiles 延后线
-    //（z42c 尚未解析 profile 段）；`[[exe]]` 多目标已由本函数下方多产物分支消费。
+    //（z42c 尚未解析 profile 段）；`[[exe]]` 多目标已由产物写相位的多产物分支消费。
     // indexed 为开发态：与 release strip 冲突即拦。
-    bool isPacked = pm.Project.HasPack ? pm.Project.Pack : isRelease;
+    o.IsPacked = pm.Project.HasPack ? pm.Project.Pack : isRelease;
     // fix-flat-workspace-packed：flat workspace（`--workspace --output-dir`，全部成员共用一个 dist；
     // 判据同 WsTier 的定义 `MemberDirs == 0`）一律 packed。indexed 的散装 zbc 按**工程内相对路径**落在
     // dist 下 ⇒ 两个成员都有 `x.z42` 时后者覆盖前者（前一个包加载到别人的代码），`_cleanOrphanZbc`
@@ -170,48 +332,63 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
             ConsoleError.WriteLine("z42c build: " + tomlPath + ": pack=false (indexed) is incompatible with a flat workspace"
                 + " build (--workspace --output-dir): members share one dist and their loose .zbc files would collide;"
                 + " drop `pack = false`, or build without --output-dir (per-member layout)");
-            return ExitCode.UsageError;
+            o.Rc = ExitCode.UsageError; return o;
         }
-        isPacked = true;
+        o.IsPacked = true;
     }
     // fix-path-dep-closure-scope：path 依赖的**闭包代建**（调用约定：tier == null 且带 libsDirs）默认 packed。
     // 它的产物是给消费方用的依赖，要被 exe 装配进 dist；indexed 主文件的散装 zbc 装配不过去（落在 dist
     // 根下会与消费方自己的 zbc 撞名）⇒ 此前 debug 构建的 exe 只要有 path 依赖，运行期就
     // `undefined function`。indexed 的最小 patch 好处只属于正在开发的那个包，依赖用不上。显式 `pack` 照旧优先。
-    if (tier == null && libsDirsCount > 0 && !pm.Project.HasPack) { isPacked = true; }
-    if (!isPacked && isRelease) {
+    if (tier == null && libsDirsCount > 0 && !pm.Project.HasPack) { o.IsPacked = true; }
+    if (!o.IsPacked && isRelease) {
         ConsoleError.WriteLine("z42c build: pack=false (indexed) is dev-mode only and incompatible with --release strip; build without --release or set pack=true");
-        return ExitCode.UsageError;
+        o.Rc = ExitCode.UsageError; return o;
     }
-    string distDir = outputDirOverride.Length > 0 ? outputDirOverride : BuildLayout.Resolve(pm, projectDir, isRelease).DistDir;
-    // 文件级增量（add-file-level-incremental）：种子 + token 保守边闭包 + cached 读回。
-    // 全命中 → 完全跳过重编/重写（沿用 preserved 路径）；部分命中 → 失效子集重编、
-    // 其余 IrModule 从 cache 读回（meta 残留已回填）。单工程 --output-dir 平铺不走（workspace 成员走，见下）。
-    IncrPrep prep = null;
-    // `[build] incremental = false` 关增量（wire-build-incremental）。此前这个键**被解析进
-    // BuildConfig.Incremental 就再没人读过**——`docs/reference/src/toolchain/z42-toml.md:223/242` 明文
-    // 承诺「基于 source hash 跳过未改动文件，默认 true」，当时的 workspace 示例
-    // 也真的在 preset 里写它，但写 false 不会有任何效果。**一个看起来正经、实则从不生效的旋钮**，
-    // 比没有这个旋钮更坏：用户以为自己关掉了。
-    //
-    // 优先级：CLI `--no-incremental` 是显式一次性覆盖，**永远压过 manifest**；manifest 里的
-    // false 则是该工程的常设选择。两者任一为「关」即关。
-    bool incrOff = noIncremental || !pm.Build.Incremental;
-    // 依赖身份（add-dep-identity-to-cache-key）：编译要扫的依赖 zpkg 的 BLID/内容哈希。probe 比对、cache 写入共用
-    // 同一个值——libsDirs 此处已是最终形态（含 path 依赖闭包的 dist）；DepScanCache memo 使编译期扫描零重读。
-    // `[optimize]` / `[syntax]` / `[lints]` 决议 —— 与 z42b（BuildSession）共用 `ManifestKnobs.Resolve`
-    // （unify-driver-knobs：此前两份逐项相同的实现并存，改一份须同步另一份）。每个 workspace 成员各走一遍本函数
-    // ⇒ 每个成员用自己的 manifest。优化集：CLI > toml > profile 默认；未知优化名 / 语法特性名报错、不静默忽略。
-    // pack 用上面 driver 自己的判断（有 flat workspace / 闭包子建两种角色，且已先行拦截）⇒ 这里 forcePacked=false，
-    // Resolve 的 pack 报错不会再触发。⚠️ 必须解在 `depsId` **之前** —— 优化集要并进包级缓存身份，见下。
+    return o;
+}
+
+// ── ⑥ 输出目录与 cache 布局 ──────────────────────────────────────────────────────
+BuildDirsOut _resolveBuildDirs(ProjectManifest pm, string projectDir, bool isRelease, string outputDirOverride, string cacheDirOverride) {
+    BuildDirsOut o = new BuildDirsOut();
+    o.DistDir = outputDirOverride.Length > 0 ? outputDirOverride : BuildLayout.Resolve(pm, projectDir, isRelease).DistDir;
+    // workspace-read-cache：workspace 成员（cacheDirOverride 非空）也 probe。单工程 `--output-dir`（自举预建 build-libs 等）
+    // 仍不 probe——那条路径没有 workspace 布局给出的 cache 目录，dist 是临时拼的平铺目录。
+    // 实际生效的 cache 目录：workspace 成员由 WorkspaceLayoutPlan 给出，否则按本工程 manifest 解析。probe / indexed dist 读回 /
+    // 写 cache 三处必须是同一个目录（此前 indexed dist 固定按 manifest 解析，workspace 一读 cache 就读错位置）。
+    o.EffCacheDir = cacheDirOverride.Length > 0 ? cacheDirOverride : BuildLayout.Resolve(pm, projectDir, isRelease).CacheDir;
+    // fix-output-dir-aux-outputs：单工程 `--output-dir`（非 workspace）**不写 cache**。这条路径本就不 probe
+    // （见上），cache 写了也永远不读；而按 manifest 解析的 cache 目录落在**工程目录旁**（成员 toml 无 [build]
+    // ⇒ `<proj>/artifacts/<profile>/.cache`）—— xtask 自举预建 6 个自依赖库、测试夹具每跑一轮都在源码树里
+    // 留一份。不改写到 `<dir>/.cache`：自举预建的 `<dir>` 是 stdlib flat（= Z42_LIBS = 进 SDK 的 libs/），
+    // 往里放 cache 目录有被整目录拷进包的风险。indexed dist 的「cached 字节原样复制」只在增量开启时消费，
+    // 本路径不开，故不受影响。
+    o.WriteCache = !(outputDirOverride.Length > 0 && cacheDirOverride.Length == 0);
+    return o;
+}
+
+// ── ⑦ 旋钮决议 ───────────────────────────────────────────────────────────────────
+// `[optimize]` / `[syntax]` / `[lints]` 决议 —— 与 z42b（BuildSession）共用 `ManifestKnobs.Resolve`
+// （unify-driver-knobs：此前两份逐项相同的实现并存，改一份须同步另一份）。每个 workspace 成员各走一遍
+// ⇒ 每个成员用自己的 manifest。优化集：CLI > toml > profile 默认；未知优化名 / 语法特性名报错、不静默忽略。
+// pack 用 driver 自己的判断（有 flat workspace / 闭包子建两种角色，且已先行拦截）⇒ 这里 forcePacked=false，
+// Resolve 的 pack 报错不会再触发。null = 错误已打印。
+// ⚠️ 必须解在 `depsId` **之前** —— 优化集要并进包级缓存身份，见 `_buildDepsIdentity`。
+KnobResult _resolveKnobs(ProjectManifest pm, string tomlPath, bool isRelease, int cliAdd, int cliRemove) {
     KnobResult kn = ManifestKnobs.Resolve(pm, tomlPath, isRelease, cliAdd, cliRemove, false);
     if (kn.ErrorCount > 0) {
         int ke = 0;
         while (ke < kn.ErrorCount) { ConsoleError.WriteLine("z42c: " + kn.Errors[ke]); ke = ke + 1; }
-        return ExitCode.UsageError;
+        return null;
     }
-    int effOptSet = kn.OptSet;
-    LanguageFeatures feats = kn.Features;
+    return kn;
+}
+
+// ── ⑧a 依赖身份（包级缓存键扩展）─────────────────────────────────────────────────
+// 输入维度：依赖目录内容哈希 + 优化集 + [syntax] 显式项 + 清单自身（name/version/kind/entry/profile）
+// + 声明依赖名单。全部都是「只改 toml、源码一字未动」时也必须令缓存失效的输入——漏一个就是
+// 「probe 全命中 ⇒ 早退 preserved ⇒ 改动没进产物，而构建报成功」。
+string _buildDepsIdentity(ProjectManifest pm, int effOptSet, bool isRelease, string[] libsDirs, int libsDirsN, WsTier scanTier) {
     string depsId = DepIdentity.Of(libsDirs, libsDirsN, pm.Project.Name, scanTier);
     // wire-optimize-manifest：**优化集并进包级缓存身份**。它此前不在任何 cache key 里——那时无害
     // （`[optimize]` 整段被忽略，optSet 只由 CLI/profile 决定，而这两者不会在「源没变」时悄悄变）。
@@ -232,7 +409,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     //
     // 这是 `|opt` / `|syn:` 同一族的第三、四次：**「只改 toml、源码一字未动」恰好全命中缓存
     // ⇒ 早退 preserved ⇒ 改动没进产物，而构建报成功**。前两次的处置是在 preserved 路径上各打
-    // 一个补偿补丁（上方 `_writeRuntimeConfigSidecar` 与 `_bundleExeDeps` 就是那两个），
+    // 一个补偿补丁（`_writeRuntimeConfigSidecar` 与 `_bundleExeDeps` 就是那两个），
     // 这次改为**扩键**——补偿补丁只能救已知的那一个产出物，扩键才是「缓存键涵盖全部影响
     // 产物的输入」这条前置条件本身。
     //
@@ -260,18 +437,29 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         depsId = depsId + "|dep:" + pm.Deps[mdi].Name;
         mdi = mdi + 1;
     }
-    // workspace-read-cache：workspace 成员（cacheDirOverride 非空）也 probe。单工程 `--output-dir`（自举预建 build-libs 等）
-    // 仍不 probe——那条路径没有 workspace 布局给出的 cache 目录，dist 是临时拼的平铺目录。
-    // 实际生效的 cache 目录：workspace 成员由 WorkspaceLayoutPlan 给出，否则按本工程 manifest 解析。probe / indexed dist 读回 /
-    // 写 cache 三处必须是同一个目录（此前 indexed dist 固定按 manifest 解析，workspace 一读 cache 就读错位置）。
-    string effCacheDir = cacheDirOverride.Length > 0 ? cacheDirOverride : BuildLayout.Resolve(pm, projectDir, isRelease).CacheDir;
-    // fix-output-dir-aux-outputs：单工程 `--output-dir`（非 workspace）**不写 cache**。这条路径本就不 probe
-    // （见上），cache 写了也永远不读；而按 manifest 解析的 cache 目录落在**工程目录旁**（成员 toml 无 [build]
-    // ⇒ `<proj>/artifacts/<profile>/.cache`）—— xtask 自举预建 6 个自依赖库、测试夹具每跑一轮都在源码树里
-    // 留一份。不改写到 `<dir>/.cache`：自举预建的 `<dir>` 是 stdlib flat（= Z42_LIBS = 进 SDK 的 libs/），
-    // 往里放 cache 目录有被整目录拷进包的风险。indexed dist 的「cached 字节原样复制」只在增量开启时消费，
-    // 本路径不开，故不受影响。
-    bool writeCache = !(outputDirOverride.Length > 0 && cacheDirOverride.Length == 0);
+    return depsId;
+}
+
+// ── ⑧b 文件级增量 probe；全命中 → preserved 早退 ─────────────────────────────────
+// 文件级增量（add-file-level-incremental）：种子 + token 保守边闭包 + cached 读回。
+// 全命中 → 完全跳过重编/重写（沿用 preserved 路径）；部分命中 → 失效子集重编、
+// 其余 IrModule 从 cache 读回（meta 残留已回填）。单工程 --output-dir 平铺不走（workspace 成员走）。
+PrepareOut _prepareIncremental(ProjectManifest pm, string[] srcs, string[] dispSrcs, string[] texts, string[] srcHashes,
+                               string projectDir, string effCacheDir, string depsId, LanguageFeatures feats,
+                               string distDir, bool isPacked, bool isExe, string[] azPaths,
+                               string[] closureNames, int closureN, string[] libsDirs, int libsDirsN, bool isRelease,
+                               string outputDirOverride, string cacheDirOverride, bool noIncremental) {
+    PrepareOut o = new PrepareOut();
+    o.Rc = -1;   // -1 = 未 preserved，调用方继续正常编译
+    // `[build] incremental = false` 关增量（wire-build-incremental）。此前这个键**被解析进
+    // BuildConfig.Incremental 就再没人读过**——`docs/reference/src/toolchain/z42-toml.md:223/242` 明文
+    // 承诺「基于 source hash 跳过未改动文件，默认 true」，当时的 workspace 示例
+    // 也真的在 preset 里写它，但写 false 不会有任何效果。**一个看起来正经、实则从不生效的旋钮**，
+    // 比没有这个旋钮更坏：用户以为自己关掉了。
+    //
+    // 优先级：CLI `--no-incremental` 是显式一次性覆盖，**永远压过 manifest**；manifest 里的
+    // false 则是该工程的常设选择。两者任一为「关」即关。
+    bool incrOff = noIncremental || !pm.Build.Incremental;
     if ((outputDirOverride.Length == 0 || cacheDirOverride.Length > 0) && !incrOff) {
         string probeCache = effCacheDir;
         string lastZpkg = Path.Join(distDir, pm.Project.Name + ".zpkg");
@@ -291,12 +479,12 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         // 代价只落在带 analyzer 的工程：全命中时多一次装配 + analyzer 遍历（cached CU 不重做 typecheck）。
         bool canPreserve = pm.ExeCount == 0 && azPaths == null
             && File.Exists(lastZpkg) && _distModeMatches(lastZpkg, isPacked);
-        prep = IncrementalDriver.Prepare(srcs, dispSrcs, texts, srcHashes, srcs.Length, projectDir, probeCache, depsId, canPreserve, feats);
-        BuildLog.ProgressErr("cached: " + (srcs.Length - prep.Plan.FreshCount).ToString() + "/" + srcs.Length.ToString() + " files");
-        if (canPreserve && prep.Plan.AllCached) {
+        o.Prep = IncrementalDriver.Prepare(srcs, dispSrcs, texts, srcHashes, srcs.Length, projectDir, probeCache, depsId, canPreserve, feats);
+        BuildLog.ProgressErr("cached: " + (srcs.Length - o.Prep.Plan.FreshCount).ToString() + "/" + srcs.Length.ToString() + " files");
+        if (canPreserve && o.Prep.Plan.AllCached) {
             if (isExe) {
                 int sbc = _bundleExeDeps(pm, closureNames, closureN, distDir, libsDirs, libsDirsN);
-                if (sbc != 0) { return sbc; }
+                if (sbc != 0) { o.Rc = sbc; return o; }
                 // 🔴 侧车必须在 preserved 路径上也重写。`[profile.<n>.runtime]` 的旋钮与
                 // `[properties]` **不进源 hash**（它们不影响编译产物），于是「只改了运行时
                 // 配置、源码一字未动」恰好全命中缓存 ⇒ 早退 ⇒ 侧车留在上一次的值：用户改了
@@ -304,7 +492,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
                 // `../../shared` 改成 `../../CHANGED`，重建后侧车仍是 `../../shared`）。
                 // 写出是幂等的（值没变就写回同样的字节），代价是一次 TOML 序列化。
                 int rcp = _writeRuntimeConfigSidecar(pm, distDir, pm.Project.Name, isRelease);
-                if (rcp != 0) { return rcp; }
+                if (rcp != 0) { o.Rc = rcp; return o; }
             }
             // 🔴 警告必须在 preserved 路径上也打印（warnings-survive-cache），理由与上面侧车
             // 那条**一模一样**：早退跳过了用户仍然需要看见的东西。实测：带 W0700 的工程连续
@@ -313,7 +501,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
             // 诊断此刻已经在手（`prep.Plan.Metas[*].Diags`，v7 meta 起随条目回放），不需要编译。
             int pwi = 0;
             while (pwi < srcs.Length) {
-                CacheMeta pm2 = prep.Plan.Metas[pwi];
+                CacheMeta pm2 = o.Prep.Plan.Metas[pwi];
                 if (pm2 != null && pm2.DiagCount > 0) {
                     ConsoleError.WriteLine("z42c build: " + pm2.DiagCount.ToString() + " warning(s) in " + dispSrcs[pwi]);
                     int pwd = 0;
@@ -322,18 +510,21 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
                 pwi = pwi + 1;
             }
             BuildLog.Progress("no changes; preserved -> " + BuildLayout.Display(lastZpkg));
-            return ExitCode.Ok;
+            o.Preserved = true; o.Rc = ExitCode.Ok;
+            return o;
         }
     }
-    // ── ⑦ parse-all（增量复用 prep.Cus / 全量 ParseAllTk）：cus 喂编译核心，metaIdents 供 ⑬ cache ──
-    int i = 0;
-    CompilationUnit[] cus;
-    NameListZ[] metaIdents = null;
-    NameSurfacesZ[] metaSurfaces = null;
+    return o;
+}
+
+// ── ⑨ parse-all ──────────────────────────────────────────────────────────────────
+// 增量复用 prep.Cus / 全量 ParseAllTk：cus 喂编译核心，idents/surfaces 供 cache 落盘。
+ParseAllOut _parseAllSources(string[] srcs, string[] dispSrcs, string[] texts, IncrPrep prep, LanguageFeatures feats) {
+    ParseAllOut o = new ParseAllOut();
     if (prep != null && prep.Cus != null) {
-        cus = prep.Cus;
-        metaIdents = prep.Idents;
-        metaSurfaces = prep.Surfaces;
+        o.Cus = prep.Cus;
+        o.Idents = prep.Idents;
+        o.Surfaces = prep.Surfaces;
     } else {
         // 全量路径（--no-incremental / 增量未启 / workspace）：parse 时捕获标识符供 meta 写盘
         //（D8 修正——零第二遍 lex）。cache-dir-layout：cache 恒落盘 → 恒捕获。
@@ -341,24 +532,24 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         int wi = 0;
         while (wi < srcs.Length) { want[wi] = true; wi = wi + 1; }
         ParsedPkg pk = IncrementalDriver.ParseAllTk(texts, dispSrcs, srcs.Length, want, feats);
-        cus = pk.Cus;
-        metaIdents = pk.Idents;
-        metaSurfaces = pk.Surfaces;
+        o.Cus = pk.Cus;
+        o.Idents = pk.Idents;
+        o.Surfaces = pk.Surfaces;
     }
-    // ── 编译核心（PackageCompile：⑥依赖解析 → ⑧包级编译 → ⑩组装；extract-compile-pipeline-api）──
-    //    落盘 / 诊断呈现 / 增量 probe / cache 落盘留本 CLI；核心只吃内存源 + 依赖目录 + manifest 派生标量。
-    string[] declaredDeps = new string[pm.DepCount];
-    int ddi = 0;
-    while (ddi < pm.DepCount) { declaredDeps[ddi] = pm.Deps[ddi].Name; ddi = ddi + 1; }
-    // 🔴 声明了却**不存在**的依赖此前零诊断：`DepScan` 拿 declaredDeps 只当**过滤白名单**
-    // （「只索引 stdlib + 声明依赖」），名字对不上任何 zpkg 就只是少激活一个包 —— 编译照常成功。
-    // 于是清单里把包名拼错（或依赖了一个根本没 build 的库），得到的不是「找不到依赖 X」，而是
-    // 一堆**位置在别处**的 `E0443 undefined type` / `E0401 undefined`，从症状反推不回清单。
-    // 判据与 `_bundleExeDeps` / `[plugins]` 解析同款：libsDirs 里有没有 `<name>.zpkg`。
-    // 摸底：全仓 233 个 z42 包的 [dependencies] 无一条落空（落空的 24 条全在 Cargo.toml）⇒ 判红零误伤。
+    return o;
+}
+
+// ── ⑩a 声明依赖存在性校验 ────────────────────────────────────────────────────────
+// 🔴 声明了却**不存在**的依赖此前零诊断：`DepScan` 拿 declaredDeps 只当**过滤白名单**
+// （「只索引 stdlib + 声明依赖」），名字对不上任何 zpkg 就只是少激活一个包 —— 编译照常成功。
+// 于是清单里把包名拼错（或依赖了一个根本没 build 的库），得到的不是「找不到依赖 X」，而是
+// 一堆**位置在别处**的 `E0443 undefined type` / `E0401 undefined`，从症状反推不回清单。
+// 判据与 `_bundleExeDeps` / `[plugins]` 解析同款：libsDirs 里有没有 `<name>.zpkg`。
+// 摸底：全仓 233 个 z42 包的 [dependencies] 无一条落空（落空的 24 条全在 Cargo.toml）⇒ 判红零误伤。
+int _verifyDeclaredDeps(ProjectManifest pm, string[] libsDirs, int libsDirsN) {
     int dvi = 0;
     while (dvi < pm.DepCount) {
-        string dname = declaredDeps[dvi];
+        string dname = pm.Deps[dvi].Name;
         string dfile = dname + ".zpkg";
         bool dfound = false;
         string dpath = "";
@@ -389,12 +580,16 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         }
         dvi = dvi + 1;
     }
-    IrModule[] cachedMods = prep != null ? prep.Cached : null;
+    return 0;
+}
+
+// ── ⑩b cached meta 回填（增量条目的 per-file 元数据 → CachedNsMeta）──────────────
+CachedNsMeta[] _buildCachedMetas(IncrPrep prep, int srcCount) {
     CachedNsMeta[] cachedMetas = null;
-    if (cachedMods != null && prep != null && prep.Plan != null) {
-        cachedMetas = new CachedNsMeta[srcs.Length];
+    if (prep != null && prep.Cached != null && prep.Plan != null) {
+        cachedMetas = new CachedNsMeta[srcCount];
         int mi = 0;
-        while (mi < srcs.Length) {
+        while (mi < srcCount) {
             if (prep.Plan.Metas[mi] != null) {
                 cachedMetas[mi] = new CachedNsMeta(prep.Plan.Metas[mi].UsedDepNs, prep.Plan.Metas[mi].UsedDepNsCount);
                 // warnings-survive-cache：cached CU 的诊断也随 meta 回来（否则警告只在冷构建可见）。
@@ -402,7 +597,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
                 cachedMetas[mi].DiagCount = prep.Plan.Metas[mi].DiagCount;
                 // using-csharp-rules 2.9b：cached CU 的 `UsedNs` 也随 meta 回来（包级「global using 全包没用到」要看到它）。
                 // meta 读回的数组按 2 倍扩容带空槽，消费方按 `.Length` 遍历 ⇒ 截成精确长度。
-                // ⚠️ 别叫 `pm`：本函数外层已有 `ProjectManifest pm`，z42c 目前不报内层同名局部（C# CS0136）且会覆盖外层槽位。
+                // ⚠️ 别叫 `pm`：调用链上层已有 `ProjectManifest pm`，z42c 目前不报内层同名局部（C# CS0136）且会覆盖外层槽位。
                 CacheMeta cmeta = prep.Plan.Metas[mi];
                 string[] uns = new string[cmeta.UsedNsCount];
                 int ui = 0;
@@ -412,14 +607,23 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
             mi = mi + 1;
         }
     }
+    return cachedMetas;
+}
+
+// ── ⑩c CompileInputs 装填。null = 失败（诊断已打印）─────────────────────────────
+CompileInputs _fillCompileInputs(ProjectManifest pm, string[] srcs, string[] texts, string[] srcHashes,
+                                 CompilationUnit[] cus, IncrPrep prep, CachedNsMeta[] cachedMetas,
+                                 bool isRelease, bool fix, LanguageFeatures feats, int effOptSet,
+                                 string[] libsDirs, int libsDirsN, WsTier scanTier, SdkLibPlan sdkPlan,
+                                 string[] azPaths, string projectDir, KnobResult kn) {
     CompileInputs cin = new CompileInputs();
     // 🔴 cin.Files 必须是**真实路径**，不能换成显示名：它直接成为 `ZbcFileZ.SourceFile`
     // （PackageCompile.z42 `string rel = files[i]`）进而进入 zpkg，由 `_stabilizeSourceIdentity`
     // 按 projectDir 相对化来保证「同一份源换目录编出的字节相同」。换成 cwd 相对的显示名后，
     // 那次相对化会因前缀不匹配而失效 ⇒ 可复现 build_id 判红。
-    // 显示名只走 Parser（诊断位置）与下面两处呈现，不进产物。
+    // 显示名只走 Parser（诊断位置）与诊断呈现两处，不进产物。
     cin.Texts = texts; cin.Files = srcs; cin.SrcHashes = srcHashes; cin.SrcCount = srcs.Length;
-    cin.Cus = cus; cin.CachedMods = cachedMods; cin.CachedMetas = cachedMetas;
+    cin.Cus = cus; cin.CachedMods = prep != null ? prep.Cached : null; cin.CachedMetas = cachedMetas;
     cin.Name = pm.Project.Name; cin.Version = pm.Project.Version; cin.Kind = pm.Project.Kind;
     cin.HasEntry = pm.Project.HasEntry; cin.Entry = pm.Project.Entry;
     cin.IsRelease = isRelease;
@@ -428,6 +632,9 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     cin.OptSet = effOptSet;   // wire-optimize-manifest：上方已按 CLI > toml > profile 解出
     cin.LibsDirs = libsDirs; cin.LibsDirsN = libsDirsN;
     cin.Tier = scanTier;
+    string[] declaredDeps = new string[pm.DepCount];
+    int ddi = 0;
+    while (ddi < pm.DepCount) { declaredDeps[ddi] = pm.Deps[ddi].Name; ddi = ddi + 1; }
     // add-sdk-libs：放行的 SDK 库（传递闭包 / analyzer 免声明）也算已声明 —— DepIndex 要索引它们、E0497 要放行。
     string[] declaredAll = SdkLibs.ExtendDeclared(declaredDeps, pm.DepCount, sdkPlan);
     cin.DeclaredDeps = declaredAll; cin.DepCount = declaredAll.Length;
@@ -435,7 +642,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     // REPL / 单测 / 裸 emit 不经本函数，保持默认 false——它们没有「声明」可依据。
     // 单文件同样走这里，但 launcher 已把 SDK libs 写进它的合成清单，故自然放行。
     cin.EnforceDeclaredDeps = true;
-    // 编译器侧插件 zpkg → 加载进编译器、编译期运行、**不链入目标产物**。路径已在上方 `_resolvePluginZpkgs`
+    // 编译器侧插件 zpkg → 加载进编译器、编译期运行、**不链入目标产物**。路径已在 `_resolvePluginZpkgs`
     // 一次解析完（名字条目走 libsDirs、path 条目已代建或直指 zpkg），此处只挂上去。同一批 zpkg 既承载
     // analyzer 也承载 generator——PackageCompile 经 AnalyzerLoader / GeneratorLoader 各按接口发现。**不设
     // 独立字段**：driver 引用 CompileInputs 新字段会成新跨成员符号、撞 F2 冷启动 stale-cache。
@@ -447,16 +654,19 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     // 解析失败判构建失败——携带是发布承诺，钉不进就别让 lib 过。
     if (pm.PluginExportCount > 0) {
         PluginCarryZ[] carried = PluginCarry.Resolve(pm, projectDir, isRelease);
-        if (carried == null) { return ExitCode.BuildError; }
+        if (carried == null) { return null; }
         cin.CarriedPlugins = carried; cin.CarriedCount = carried.Length;
     }
     // attribute-handler-registry PR3b：[lints] 中性字段 → LintConfig 决策器（severity 覆盖 +
     // EnabledByDefault 门 + warnings_as_errors）。仅 analyzer 运行时消费；z42c 自建无 [lints] →
     // LintCount==0 && !WAE → 空配置（等价 null）→ 逐字节不动。
     cin.Lints = kn.Lints;   // null = 无 [lints]（等价空配置）
-    CompileArtifacts art = PackageCompile.Compile(cin);
+    return cin;
+}
+
+// ── ⑪a 错误呈现（逐文件，首个有错即报并返回——与抽取前逐字一致）──────────────────
+int _reportCompileErrors(CompileArtifacts art, string[] dispSrcs) {
     CompiledModuleZ[] cms = art.Cms;
-    // ⑨ 诊断呈现（逐文件，首个有错即报并返回——与抽取前逐字一致）
     // 🔴 循环上界必须是 **art.CmCount 而不是 srcs.Length**（fix-generated-cu-errors-invisible）：
     // generator 产出后 `cms` 是 **union**（用户 CU + 生成 CU），比 `srcs` 长。按 `srcs.Length`
     // 迭代 ⇒ **生成 CU 里的编译错误一条也不会被检查**：既不打印、也不返回 BuildError，
@@ -484,24 +694,27 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
             + " error(s), but no compilation unit reported them (this is a z42c bug)");
         return ExitCode.BuildError;
     }
-    // ⑩ 警告呈现（report-crosspkg-duplicate-type）。
-    //
-    // 🔴 在此之前，**两个诊断打印点都被 `ErrorCount > 0` 罩着** ⇒ z42c 从不单独打印任何 warning：
+    return 0;
+}
+
+// ── ⑪b 警告呈现（report-crosspkg-duplicate-type）+ entry 校验 ─────────────────────
+int _reportWarningsAndEntry(CompileArtifacts art, string[] dispSrcs, bool isExe, ProjectManifest pm) {
+    // 🔴 在此前，**两个诊断打印点都被 `ErrorCount > 0` 罩着** ⇒ z42c 从不单独打印任何 warning：
     // 一个文件若只有 warning 没有 error，`DiagMsgs` 里装着它、却一个字也不会出现在终端。
     // 于是 W0700（switch 不穷尽）/ W0603 / W0604 / deprecated 这些码**一直是哑的**——
     // 「从不打印的门 = 没有门」，与本 change 要修的是同一族毛病。
     //
     // 打开它的代价实测为 **0**：stdlib 25 个包 + z42c 自建全跑一遍，共 0 条 warning
     // （量法是临时给这里加打印再全量构建）。warning 不改退出码，只出 stderr。
-    // 🔴 循环上界与上面的错误循环同口径：**`art.CmCount` 而不是 `srcs.Length`**
-    // （warnings-survive-cache）。上面那条在 fix-generated-cu-errors-invisible 里已经改过并写明
+    // 🔴 循环上界与错误循环同口径：**`art.CmCount` 而不是 `srcs.Length`**
+    // （warnings-survive-cache）。错误那格在 fix-generated-cu-errors-invisible 里已经改过并写明
     // 理由，这一条当时没跟着改 ⇒ **generator 产出的 CU 里的警告一条也不会打印**。
     // 少一格不像错误那格会崩（越界读），所以它更安静、也更容易一直留着。
     // 生成 CU 没有真实源文件名 → 标 `<generated>`，与错误那格逐字一致。
     if (art.ErrorCount == 0) {
         int wi = 0;
         while (wi < art.CmCount) {
-            CompiledModuleZ wcm = cms[wi];
+            CompiledModuleZ wcm = art.Cms[wi];
             if (wcm.DiagCount > 0) {
                 string worigin = wi < dispSrcs.Length ? dispSrcs[wi] : "<generated>";
                 ConsoleError.WriteLine("z42c build: " + wcm.DiagCount.ToString() + " warning(s) in " + worigin);
@@ -511,7 +724,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
             wi = wi + 1;
         }
     }
-    // ⑪ entry 校验（单产物 exe 专属）。多目标（ExeCount>0）用各自 [[exe]].entry 显式指定，
+    // entry 校验（单产物 exe 专属）。多目标（ExeCount>0）用各自 [[exe]].entry 显式指定，
     // 共享编译的自动探测 ambiguous/missing 与其无关 → 跳过（unify-run-modes P3）。
     if (isExe && pm.ExeCount == 0 && art.EntryStatus == "ambiguous") {
         ConsoleError.WriteLine("z42c build: multiple Main candidates; set [project].entry explicitly");
@@ -521,11 +734,14 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         ConsoleError.WriteLine("z42c build: kind=exe but no Main() found");
         return ExitCode.BuildError;
     }
-    // generator 产出的源码落盘（wire-generated-dir）。
-    //
-    // 选 Generator 路线（生成**源码**而非直接造 AST/IR）的理由就是「以后可以支持调试」——
-    // 栈帧里出现 `__gen$…z42` 时背后得有一个真文件可以打开。配的是「写到哪」不是「写不写」，
-    // 故默认恒落盘；没用 generator 的包 GenCount==0，一个字节都不写。
+    return 0;
+}
+
+// ── ⑫ generator 产出的源码落盘（wire-generated-dir）─────────────────────────────
+// 选 Generator 路线（生成**源码**而非直接造 AST/IR）的理由就是「以后可以支持调试」——
+// 栈帧里出现 `__gen$…z42` 时背后得有一个真文件可以打开。配的是「写到哪」不是「写不写」，
+// 故默认恒落盘；没用 generator 的包 GenCount==0，一个字节都不写。
+int _writeGeneratedSources(ProjectManifest pm, string projectDir, bool isRelease, string outputDirOverride, WsTier tier, CompileArtifacts art) {
     if (art.GenCount > 0) {
         string genDir = BuildLayout.Resolve(pm, projectDir, isRelease).GeneratedDir;
         // fix-output-dir-aux-outputs：单工程 `--output-dir <dir>` 把 generated 一并收进 `<dir>/generated/<name>`
@@ -559,70 +775,63 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
             }
         }
     }
-    ZpkgFileZ z = art.Z;
-    ZbcFileZ[] mods = art.Mods;
-    // union 模块数（含 generator 产出的 CU）——indexed dist 的循环上界必须用它，不能用 srcs.Length，
-    // 否则带 generator 的工程崩在 WriteIndexedMain 的越界上（见 IndexedDist.z42 头注）。
-    int modN = art.ModCount;
-    if (isPacked) { _stabilizeSourceIdentity(z, projectDir); }   // 可复现 build_id（BuildPaths.z42）
-    Directory.Create(distDir);
-    // ── 多 exe 多产物（unify-run-modes P3）：一个 manifest 声明 N 个 [[exe]] → N 个
-    //    dist/<name>.zpkg。[sources] 已在上方编译一次；此处按 exe 重烤 name/entry（共享
-    //    字节，只改 META）后各写一份，复用现有单入口烘焙链。非破坏：ExeCount==0 落到下方
-    //    未改动的单产物路径（z42c 自身源无 [[exe]] → 自举 gen1==gen2 不受扰）。
-    //    首切：exe 专属 src 子集 + 增量 preserved 后置，多 exe 一律全量、共享 [sources]。
-    if (pm.ExeCount > 0) {
-        int xi = 0;
-        while (xi < pm.ExeCount) {
-            ExeTarget ex = pm.Exes[xi];
-            if (ex.SrcCount > 0) {
-                ConsoleError.WriteLine("z42c build: [[exe]] `" + ex.Name + "` 声明了独立 `src` 子集——per-exe 源集尚未支持（当前所有 exe 共享 [sources]）；移除 `src` 或拆成独立工程");
-                return ExitCode.UsageError;
-            }
-            if (ex.Entry.Length == 0) {
-                ConsoleError.WriteLine("z42c build: [[exe]] `" + ex.Name + "` 缺少 `entry`（全限定 Main 函数名）");
-                return ExitCode.UsageError;
-            }
-            z.Name = ex.Name;      // 产物文件名 + 包内标识
-            z.IsExe = true;
-            z.Entry = ex.Entry;    // 重烤 baked entry
-            if (!isPacked) {
-                string idxCacheX = effCacheDir;
-                int ircX = _writeIndexedDist(distDir, idxCacheX, projectDir, srcs, z, mods, modN, prep);
-                if (ircX != 0) { return ircX; }
-            } else {
-                ZpkgWriteResult wresX = ZpkgWriterZ.WritePackedWithSidecar(z, isRelease);
-                string outX = Path.Join(distDir, ex.Name + ".zpkg");
-                File.WriteAllBytes(outX, wresX.Main);
-                BuildLog.Progress("wrote -> " + BuildLayout.Display(outX));
-                if (wresX.HasSidecar) {
-                    string symX = Path.Join(distDir, ex.Name + ".zsym");
-                    File.WriteAllBytes(symX, wresX.Sidecar);
-                    BuildLog.Progress("wrote -> " + BuildLayout.Display(symX));
-                }
-            }
-            // 运行配置侧车（complete-runtime-settings P5）：每个产物一份。
-            int rcx = _writeRuntimeConfigSidecar(pm, distDir, ex.Name, isRelease);
-            if (rcx != 0) { return rcx; }
-            xi = xi + 1;
-        }
-        // 依赖 bundling 一次（各 exe 共享同一 dist）。
-        int mbc = _bundleExeDeps(pm, closureNames, closureN, distDir, libsDirs, libsDirsN);
-        if (mbc != 0) { return mbc; }
-        // 多 exe 同样落 cache（cache-dir-layout：此前此分支提前 return，从不写 cache）。
-        if (writeCache) { _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, texts, srcHashes, cms, mods, prep, metaIdents, metaSurfaces, depsId, feats, art.CuDiags); }
-        return ExitCode.Ok;
+    return 0;
+}
+
+// ── ⑬a 单个 [[exe]] 目标的产物写出（多 exe 循环体；unify-run-modes P3）──────────
+// 一个 manifest 声明 N 个 [[exe]] → N 个 dist/<name>.zpkg。[sources] 已在上方编译一次；
+// 此处按 exe 重烤 name/entry（共享字节，只改 META）后各写一份，复用现有单入口烘焙链。
+// 非破坏：ExeCount==0 落到单产物路径（z42c 自身源无 [[exe]] → 自举 gen1==gen2 不受扰）。
+// 首切：exe 专属 src 子集 + 增量 preserved 后置，多 exe 一律全量、共享 [sources]。
+int _writeExeTarget(ProjectManifest pm, ExeTarget ex, CompileArtifacts art, string distDir, bool isPacked, bool isRelease,
+                    string effCacheDir, string projectDir, string[] srcs, IncrPrep prep) {
+    if (ex.SrcCount > 0) {
+        ConsoleError.WriteLine("z42c build: [[exe]] `" + ex.Name + "` 声明了独立 `src` 子集——per-exe 源集尚未支持（当前所有 exe 共享 [sources]）；移除 `src` 或拆成独立工程");
+        return ExitCode.UsageError;
     }
-    string outPath = Path.Join(distDir, pm.Project.Name + ".zpkg");
+    if (ex.Entry.Length == 0) {
+        ConsoleError.WriteLine("z42c build: [[exe]] `" + ex.Name + "` 缺少 `entry`（全限定 Main 函数名）");
+        return ExitCode.UsageError;
+    }
+    ZpkgFileZ z = art.Z;      // 产物文件名 + 包内标识；循环内逐 exe 重烤
+    z.Name = ex.Name;
+    z.IsExe = true;
+    z.Entry = ex.Entry;    // 重烤 baked entry
+    // indexed dist 的循环上界必须用 union 模块数（art.ModCount，含 generator 产出的 CU），
+    // 不能用 srcs.Length——否则带 generator 的工程崩在 WriteIndexedMain 的越界上（IndexedDist.z42 头注）。
     if (!isPacked) {
-        // indexed（开发态，add-indexed-zpkg-min-patch）：散装自包含 zbc（字节稳定投影）
-        // + FILE 目录主文件。cache 目录供 cached 文件字节原样复制（增量未启时不消费）。
-        string idxCache = effCacheDir;
-        int irc = _writeIndexedDist(distDir, idxCache, projectDir, srcs, z, mods, modN, prep);
+        int ircX = _writeIndexedDist(distDir, effCacheDir, projectDir, srcs, z, art.Mods, art.ModCount, prep);
+        if (ircX != 0) { return ircX; }
+    } else {
+        ZpkgWriteResult wresX = ZpkgWriterZ.WritePackedWithSidecar(z, isRelease);
+        string outX = Path.Join(distDir, ex.Name + ".zpkg");
+        File.WriteAllBytes(outX, wresX.Main);
+        BuildLog.Progress("wrote -> " + BuildLayout.Display(outX));
+        if (wresX.HasSidecar) {
+            string symX = Path.Join(distDir, ex.Name + ".zsym");
+            File.WriteAllBytes(symX, wresX.Sidecar);
+            BuildLog.Progress("wrote -> " + BuildLayout.Display(symX));
+        }
+    }
+    // 运行配置侧车（complete-runtime-settings P5）：每个产物一份。
+    return _writeRuntimeConfigSidecar(pm, distDir, ex.Name, isRelease);
+}
+
+// ── ⑬b 单产物写出（zpkg 主文件 + 侧车）──────────────────────────────────────────
+// indexed（开发态，add-indexed-zpkg-min-patch）：散装自包含 zbc（字节稳定投影）
+// + FILE 目录主文件。cache 目录供 cached 文件字节原样复制（增量未启时不消费）。
+// packed：strip-symbols —— 主 zpkg（MODS dbug_len=0 + BLID）+ .zsym sidecar（split-debug）。
+// 运行配置侧车（complete-runtime-settings P5）：只对 exe 产物；无 [profile.*]
+// 旋钮时不产文件（非破坏——从前没有侧车的工程 dist 内容逐字节不变）。
+int _writeSingleOutput(ProjectManifest pm, CompileArtifacts art, string distDir, bool isPacked, bool isExe, bool isRelease,
+                       string effCacheDir, string projectDir, string[] srcs, IncrPrep prep) {
+    string outPath = Path.Join(distDir, pm.Project.Name + ".zpkg");
+    // 循环上界同 _writeExeTarget：indexed dist 必须用 union 模块数（art.ModCount），不能 srcs.Length。
+    if (!isPacked) {
+        int irc = _writeIndexedDist(distDir, effCacheDir, projectDir, srcs, art.Z, art.Mods, art.ModCount, prep);
         if (irc != 0) { return irc; }
     } else {
-        // release → strip-symbols：主 zpkg（MODS dbug_len=0 + BLID）+ .zsym sidecar（split-debug）。
-        ZpkgWriteResult wres = ZpkgWriterZ.WritePackedWithSidecar(z, isRelease);
+        ZpkgWriteResult wres = ZpkgWriterZ.WritePackedWithSidecar(art.Z, isRelease);
         File.WriteAllBytes(outPath, wres.Main);
         BuildLog.Progress("wrote -> " + BuildLayout.Display(outPath));
         if (wres.HasSidecar) {
@@ -631,20 +840,10 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
             BuildLog.Progress("wrote -> " + BuildLayout.Display(symPath));
         }
     }
-    // 运行配置侧车（complete-runtime-settings P5）：只对 exe 产物；无 [profile.*]
-    // 旋钮时不产文件（非破坏——从前没有侧车的工程 dist 内容逐字节不变）。
     if (isExe) {
-        int rc1 = _writeRuntimeConfigSidecar(pm, distDir, pm.Project.Name, isRelease);
-        if (rc1 != 0) { return rc1; }
+        return _writeRuntimeConfigSidecar(pm, distDir, pm.Project.Name, isRelease);
     }
-    // cache 落盘（cache-dir-layout：不论是否增量都落盘，helper 见 BuildCache.z42）。
-    if (writeCache) { _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, texts, srcHashes, cms, mods, prep, metaIdents, metaSurfaces, depsId, feats, art.CuDiags); }
-    // 自包含 exe（.NET bin/ 式）：把非标准库依赖 zpkg 复制进 dist，使 exe 可从自身目录运行。
-    if (isExe) {
-        int bc = _bundleExeDeps(pm, closureNames, closureN, distDir, libsDirs, libsDirsN);
-        if (bc != 0) { return bc; }
-    }
-    return ExitCode.Ok;
+    return 0;
 }
 
 // 1c/PR2：携带闭包解析（两阶段，见 PluginRefs 头注）并进显式集，刷 azPaths。
