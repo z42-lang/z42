@@ -1,7 +1,7 @@
 # 文档索引与 `z42 doc`
 
-> 代码：`src/compiler/z42.doc/src/`（引擎，含 `DocParser.z42`）、`src/toolchain/devtools/core/doc_cmd.z42`（`DocCommand`）、
-> `src/toolchain/devtools/rust-index/`（Rust 索引器）、`scripts/build/xtask_doc.z42`（`xtask doc gen` / `doc index`）、
+> 代码：`src/compiler/z42.doc/src/`（引擎，含 `DocParser.z42` / `DocLint.z42` / `DocRefs.z42` / `DocMd.z42`）、`src/toolchain/devtools/core/doc_cmd.z42`（`DocCommand`）、
+> `src/toolchain/devtools/rust-index/`（Rust 索引器）、`scripts/build/xtask_doc.z42`（`xtask doc gen` / `doc index` / `check docs-api` / `doc-lints` / `doc-refs`）、
 > `src/toolchain/launcher/core/launcher_cli.z42`（`_forwardZ42d`）、`src/compiler/z42c.syntax/src/DocBlock.z42`（doc 挂靠）
 >
 > 要查**怎么用**（旗标、输出、名字怎么写）→ 语言与库参考的 `z42` 命令页与 doc 注释页。
@@ -43,8 +43,9 @@ z42 doc <args>                      launcher：`doc` 原样转发
 - 摘要 = doc 首段，遇空行或首个 `@` 行即止。
 - `DocParser.Parse` 把 doc 原文拆成 `DocComment{Summary, Body, Tags[], Links[], Examples[], Hidden}`：
   只做文本解析，正文 Markdown 原样保留；`@param` / `@typeparam` / `@throws` 拆出第一段作名字，`@example`
-  收进 Examples 并去公共缩进，`@hidden` 置 Hidden 位，``[`Sym`]`` 抽进 Links。校验（名字是否存在、类型与
-  链接能否解析）留给语义层。
+  收进 Examples 并去公共缩进，`@hidden` 置 Hidden 位，``[`Sym`]`` 抽进 Links。校验分两层：不需要语义的
+  （`@param` 名是否在签名里、tag 是否在闭集、摘要、历史注记、孤立块、重复 `//!`）由 `DocLint` 在语法索引上做
+  （§8）；类型与链接能否解析留给语义层。
 
 ## 3. 名字解析
 
@@ -77,10 +78,23 @@ z42 doc <args>                      launcher：`doc` 原样转发
 `DocMd.PackagePage` 把一个包的语法级索引渲染成 `reference/stdlib/<pkg>.md`：页首「由 z42 doc 生成」
 注释、标题（包名 —— `//!` 摘要）、包路径与命名空间行、`//!` 正文与 `@warning`、每个类型一个 `##`
 （类型文档 + ```` ```z42 ```` 签名总览块）、每个 public 成员一个 `###`（正文、`@param` 表、`@throws`、
-`@example`）。private 成员不进参考页；跨页锚点（Doc ID slug）与嵌套类型展开归迁移期。
+`@example`）。private 成员不进参考页。
+
+- **成员导航**：每个成员带一个 `<a id>` 锚点（Doc ID 的 slug），类型标题下一行成员索引链到各锚点。mdBook 的
+  SUMMARY 不支持锚点条目，成员级导航只能放在页内。
+- **源码位置**：每个声明一行 `file:line`。`DocMd.SourceBase` 非空时渲染成链接，点击直达仓库源码的那一行；
+  基址取 book.toml 的 `git-repository-url`（`blob/main`），`Z42_DOC_SOURCE_BASE` 可覆盖（本地预览 / 镜像），
+  gen 与 check 必须同值否则漂移门禁误报。生成页里的行号随每次 gen 重写，不会腐——这也是生成页不受
+  doc-refs 门禁「禁写行号」约束的原因（§8）。
+- **同名声明合并**：partial 类型并成一页（代表声明），泛型委托按元数各一页。
+- **type-split**：太大的包一个类型一页——索引页 `<short>.md` 加每个类型的 `<short>.<Type>.md`（当前只有
+  `z42.core`，清单硬编码在 xtask 里，待 `[doc] split` 清单键就绪后改读清单）。SUMMARY.md 里该包的页清单
+  区段由 `xtask doc gen` / `check docs-api` 维护：标记注释夹住，按命名空间分草稿章、章下列类型；区段外不许
+  生成改动。
 
 `z42d doc --format mdbook --out <dir> --pkg <name>` 渲染一个包到 `<dir>/<name>.md`（生成不写共享索引缓存）。
-`xtask doc gen` / `xtask check docs-api` 据此重新生成 stdlib 页并与仓库内文件对账。
+`xtask doc gen` 重新生成全部**已迁移**包（写了 `//!` 的包）的页面；`xtask check docs-api` 重新生成并与仓库内
+文件 diff，不一致即失败并提示跑 gen（§8）。
 
 ## 6. Rust 条目（外部索引）
 
@@ -109,15 +123,41 @@ xtask doc index
 `DocRefs` 解析书页（markdown）里的代码引用：页头「代码」行（`> 代码：`…` 及其后连续 `>` 行）里带反引号的
 路径是**范围**；正文单反引号里的 `A.B` / `a::b` 符号链当作引用（末段是文件扩展名、或写成 `文件:行号` 的
 分别按文件 / 行号处理——行号一律报 ✗）。`DocIndex.Resolve` 先精确后后缀解析，命中优先取文件落在范围内的。
+书页里写的**包名**（如 `` `z42.core` ``）与命名空间同形，按索引项自带的包字段兜底解析，不算未解析。
 
 - `z42 doc --page <md>`：读一页，逐行输出 `符号 → file:line`；解析不了的多段链标 `?`，行号引用标 `✗`。
 - `z42 doc --docs <sym>`：反查，扫 `docs/**/*.md` 与 `src/**/README.md`，列出引用该符号的页与行。
 - 代码块（``` 围起来的）里的内容不算。
 
-## 8. 边界与限制
+同一套解析在 `xtask check doc-refs` 里当门禁用（§8）：改完一页先跑 `--page` 看有没有 `?` / `✗`，再跑门禁。
 
-- 只有语法级：没有继承文档、实现者列表；`@tag` 已解析，但链接校验、`@param` 名校验还没有。
-- Rust 索引需要手动 `xtask doc index` 刷新（过期会提示）。
-- 书里代码引用的门禁（`xtask check doc-refs` + 基线）还没接。
+## 8. 门禁（`xtask check`）
+
+三道都只在 `xtask check` 里，**不在 GREEN gate 的 stage 清单里，也不在 CI 里**（CI 的 docs-check 只跑
+`xtask test docs links` 与 `check diagcodes`）。改书页、README 或 stdlib `///` 的 PR 合并前要本地跑一遍，
+否则棘轮会被无声推高、漂移到下一个人手里才红。三道的单跑方式与基线见[怎么跑测试](../devinfra/testing.md)。
+
+| 门 | 守什么 | 基线 |
+|---|---|---|
+| `check docs-api` | 已迁移包的 reference 页与源码 `///` 一致：重新渲染（§5）并与仓库内文件 diff，连 SUMMARY 的 type-split 区段一起对账；不一致即红并提示 `xtask doc gen` | 无（生成物对账） |
+| `check doc-lints` | stdlib（`src/libraries/`）各包的 doc 注释过 `DocLint` 语法级检查，各 W08xx 码的计数不得超过基线 | `scripts/test/doc-lint-baseline.txt`，只降不升；只列还有存量的码，清零即删行；`--update` 重写 |
+| `check doc-refs` | internals / reference 手写页与 `src/**/README.md` 三区域里的代码引用：**行号引用**（基线已为 0，即硬指标——任何新增即红）与**解析不了的多段链**（棘轮） | `scripts/test/doc-refs-baseline.txt`，每区域两数，只降不升；`--update` 重写 |
+
+**DocLint**（`z42.doc` 包的 `DocLint.CheckPaths`）在语法索引上做不需要语义的检查，按包分组跑（W0808
+「同一命名空间一份 `//!`」按包判）：W0801 孤立块、W0802 `@param` / `@typeparam` 名不在签名里、W0804 未知
+tag、W0805 public 声明缺 `///`、W0806 历史注记（日期 / spec 名模式）、W0807 摘要缺失或超长、W0808 重复 `//!`。
+范围只有 stdlib：编译器域的注释按 doc-system「契约不显然时写」，不适用 W0805 全覆盖棘轮。W0803（链接与
+`@throws` 类型能否解析）需要语义信息，归编译器的 DocChecker pass，不在此列。
+
+**doc-refs** 跑之前先执行 `xtask doc index` 重建 Rust 外部索引（§6），Rust 符号按当前源码解析；生成页（页首
+「由 z42 doc 生成」标记）自带随 gen 重写的 `file:line`，不查；learn 的引用对象在 `examples/`、不进符号索引，
+归 learn↔examples 重放检查，也不查。
+
+## 9. 边界与限制
+
+- 只有语法级：没有继承文档、实现者列表。`@tag` 的语法级检查（§8 的 DocLint）已有；链接与 `@throws` 类型解析
+  （W0803）需要语义，归编译器 DocChecker pass，尚未落地。
+- `z42 doc` 查询用的 Rust 索引不会自己更新：手动 `xtask doc index`（过期会提示）；`check doc-refs` 每次自动重建。
+- doctest（`@example` 合成测试、`z42 test --doc`）尚未接。
 
 以上后续阶段见仓库根 `docs/z42-doc.md`。
