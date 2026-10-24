@@ -18,7 +18,7 @@ public sealed class ZpkgInfo {
     public ZpkgSection[] Sections;    public int SectionCount;
     public byte[]        Data;
     public int           PluginCaps;  // 头 flags 的插件能力位（见 PluginCaps）；非插件包 0
-    // PLGS 段读出的携带插件表（1c）；无段 = 空数组（不是 null）。构造后赋值。
+    /// PLGS 段读出的携带插件表（1c）；无段 = 空数组（不是 null）。构造后赋值。
     public PluginCarryZ[] Carried;     public int CarriedCount;
     public ZpkgInfo(string name, string version, string entry, bool isExe, bool packed,
                     string[] pool, int poolCount, ZpkgSection[] sections, int sectionCount, byte[] data) {

@@ -1,0 +1,15 @@
+# z42.harness.lint —— harness 约定 lint 插件（harness-as-plugin PR 2 首个携带插件）。
+# 由 z42.harness lib 经 [plugins.export] 携带：依赖 harness 的工程（测试单元）自动获得。
+# 规则抓的是**运行期才炸 / 静默失效**的两类真陷阱（见 HarnessLintAnalyzer.z42 头注）。
+[project]
+name    = "z42.harness.lint"
+version = "0.1.0"
+kind    = "plugin"
+
+[sources]
+include = ["*.z42"]
+
+[dependencies]
+"z42c.syntax"    = "0.1.0"
+"z42c.analyzers" = "0.1.0"
+"z42c.core"      = "0.1.0"

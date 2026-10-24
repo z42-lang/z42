@@ -128,6 +128,16 @@ int _packageCi(string dest) {
         _copyIfExists(flat[fi], Path.Join(flatDst, Path.GetFileName(flat[fi])));
         fi = fi + 1;
     }
+    // 1b. stdlib flat 同级 plugins/（harness-as-plugin：携带插件平铺位；下游夹具 / SDK 打包都从
+    //     这里取）。空 / 不存在则跳过——恢复端按 sibling 相对位置落位，无需额外登记。
+    string pluginsSrc = Path.Join(Path.GetDirectoryName(flatSrc), "plugins");
+    if (Directory.Exists(pluginsSrc)) {
+        string pluginsDst = Path.Join(dest, _rootRel(root, pluginsSrc));
+        Directory.Create(pluginsDst);
+        string[] pz = Path.Glob(pluginsSrc, "*.zpkg");
+        int zi = 0;
+        while (zi < pz.Length) { _copyIfExists(pz[zi], Path.Join(pluginsDst, Path.GetFileName(pz[zi]))); zi = zi + 1; }
+    }
     // 2. stdlib per-member dist (warm-seed self-build inputs)
     _stageMembers(_libsBuildRoot(root), dest, _rootRel(root, _libsBuildRoot(root)));
     // 3. z42c compiler per-member dist (7 zpkgs incl z42c.driver.zpkg = warm seed)

@@ -31,11 +31,15 @@ public sealed class PluginZpkgs {
     }
 }
 
-PluginZpkgs _resolvePluginZpkgs(ProjectManifest pm, string projectDir, string consumerToml,
-                                string[] libsDirs, int libsDirsN,
-                                bool isRelease, bool noIncremental, int cliAdd, int cliRemove) {
-    string[] names = new string[pm.PluginCount];
-    string[] paths = new string[pm.PluginCount];
+// 返回 false = 失败（诊断已打印）；成功 → names/paths 填编译器侧插件（并行、清单序）。数组输出而非
+// PluginZpkgs 类型：进程内一旦加载过插件（probing 目录扫描把 driver dist 副本注册成重名包），任何
+// 自定义类型的按名实例化都会被 VM 拒——显式与携带两条路径统一走数组（E0601 同源的混合域防御）。
+bool _resolvePluginZpkgs(ProjectManifest pm, string projectDir, string consumerToml,
+                         string[] libsDirs, int libsDirsN,
+                         bool isRelease, bool noIncremental, int cliAdd, int cliRemove,
+                         ref string[] names, ref string[] paths) {
+    string[] locNames = new string[pm.PluginCount > 0 ? pm.PluginCount : 1];
+    string[] locPaths = new string[pm.PluginCount > 0 ? pm.PluginCount : 1];
     int n = 0;
     int ai = 0;
     while (ai < pm.PluginCount) {
@@ -49,12 +53,19 @@ PluginZpkgs _resolvePluginZpkgs(ProjectManifest pm, string projectDir, string co
         } else {
             got = _pluginFromProject(e.Name, e.Path, projectDir, consumerToml, isRelease, noIncremental, cliAdd, cliRemove);
         }
-        if (got.Length == 0) { return new PluginZpkgs(null, null, 0, ExitCode.BuildError); }
+        if (got.Length == 0) { return false; }
         int caps = _checkPluginZpkg(e.Name, got);
-        if (caps < 0) { return new PluginZpkgs(null, null, 0, ExitCode.BuildError); }
-        if (PluginCaps.ForCompiler(caps)) { names[n] = e.Name; paths[n] = got; n = n + 1; }
+        if (caps < 0) { return false; }
+        if (PluginCaps.ForCompiler(caps)) { locNames[n] = e.Name; locPaths[n] = got; n = n + 1; }
     }
-    return new PluginZpkgs(names, paths, n, ExitCode.Ok);
+    if (n > 0) {
+        string[] n2 = new string[n];
+        string[] p2 = new string[n];
+        int x = 0;
+        while (x < n) { n2[x] = locNames[x]; p2[x] = locPaths[x]; x = x + 1; }
+        names = n2; paths = p2;
+    }
+    return true;
 }
 
 // 读插件 zpkg 的头与 META（判据与措辞共用 z42.package 的 `PluginZpkg.Inspect`）：通过 → 能力位；否则打印诊断返回 -1。
@@ -130,16 +141,17 @@ string _pluginFromZpkgFile(string aname, string apath, string projectDir) {
 // （SDK 布局：libs 的同级即 <sdk>/plugins；开发树的 dist 目录通常没有这个同级，名字条目本就面向分发态）。
 // 失败打印诊断（含**找过哪些目录**）并返回 ""。
 string[] _pluginSearchDirs(string[] libsDirs, int libsDirsN) {
-    // Z42_PLUGINS + 各 libsDir 的同级 plugins/；容量按两倍上界开，装完截断。
-    string[] acc = new string[1 + libsDirsN];
+    // 两个来源，刻意**不含**「任意 libs 目录的同级 plugins/」：开发树里 libs 目录旁常躺着同代/异代
+    // 编译器包，插件一加载就把它卷进进程（双代注册、类型拒用——E0601 同源）。SDK 世界由 Z42_HOME
+    // 精确给出（<sdk>/plugins）；开发树/CI 由 xtask 经 Z42_PLUGINS 显式指（proc 工厂注入）。
+    string[] acc = new string[2];
     int n = 0;
     string env = Environment.GetEnvironmentVariable("Z42_PLUGINS", "");
     if (env.Length > 0) { acc[n] = env; n = n + 1; }
-    int d = 0;
-    while (d < libsDirsN) {
-        string sib = Path.Join(Path.GetDirectoryName(libsDirs[d]), "plugins");
-        if (sib.Length > 0 && Directory.Exists(sib)) { acc[n] = sib; n = n + 1; }
-        d = d + 1;
+    string home = Environment.GetEnvironmentVariable("Z42_HOME", "");
+    if (home.Length > 0) {
+        string sdkPlugins = Path.Join(home, "plugins");
+        if (Directory.Exists(sdkPlugins)) { acc[n] = sdkPlugins; n = n + 1; }
     }
     string[] r = new string[n];
     int i = 0;
@@ -148,6 +160,11 @@ string[] _pluginSearchDirs(string[] libsDirs, int libsDirsN) {
 }
 
 string _pluginFromLibs(string aname, string[] libsDirs, int libsDirsN) {
+    return _pluginLookup(aname, libsDirs, libsDirsN, false);
+}
+
+// 安静版查找（lenient 阶段用）：找不到返回 "" 不打印——尽力而为的语义不该刷屏。
+string _pluginLookup(string aname, string[] libsDirs, int libsDirsN, bool quiet) {
     string azfile = aname + ".zpkg";
     string[] dirs = _pluginSearchDirs(libsDirs, libsDirsN);
     int d = 0;
@@ -162,23 +179,21 @@ string _pluginFromLibs(string aname, string[] libsDirs, int libsDirsN) {
         searched = searched + (sd > 0 ? ", " : "") + dirs[sd];
         sd = sd + 1;
     }
-    if (dirs.Length == 0) { searched = "(无插件目录——未设 Z42_PLUGINS，依赖目录旁也没有 plugins/)"; }
-    ConsoleError.WriteLine("z42c build: [plugins] `" + aname + "` 未在插件目录找到 " + azfile
-        + "；已查找：" + searched
-        + "。插件目录与依赖目录（libs）刻意分开：普通库放 libs、插件放 plugins（或 Z42_PLUGINS）。"
-        + "也可改用 `{ path = \"...\" }`（指向插件工程目录让 z42c 代建，或直接指向 .zpkg）。");
+    if (dirs.Length == 0) { searched = "(无插件目录——未设 Z42_PLUGINS / Z42_HOME/plugins)"; }
+    if (!quiet) {
+        ConsoleError.WriteLine("z42c build: [plugins] `" + aname + "` 未在插件目录找到 " + azfile
+            + "；已查找：" + searched
+            + "。插件目录与依赖目录（libs）刻意分开：普通库放 libs、插件放 plugins（或 Z42_PLUGINS）。"
+            + "也可改用 `{ path = \"...\" }`（指向插件工程目录让 z42c 代建，或直接指向 .zpkg）。");
+    }
     return "";
 }
 
 // 插件身份指纹：按插件名稳定序（禁依赖清单声明顺序碰巧）拼「名:zpkg 内容指纹」，揉进每个文件的源 hash ⇒
 // 「换了 generator 但源没变」也令所有缓存失效（产物纳入指纹）。只含编译器侧插件——hook 不影响编译产物。
 // 无编译器侧插件 → `""`（源 hash 不揉入 → 自举 byte-identical）。
-string _pluginFingerprint(PluginZpkgs pz) {
-    if (pz == null || pz.Count == 0) { return ""; }
-    string[] names = new string[pz.Count];
-    string[] paths = new string[pz.Count];
-    int i = 0;
-    while (i < pz.Count) { names[i] = pz.Names[i]; paths[i] = pz.Paths[i]; i = i + 1; }
+string _pluginFingerprint(string[] names, string[] paths) {
+    if (names == null || names.Length == 0) { return ""; }
     int p = 0;
     while (p < names.Length) {
         int min = p; int q = p + 1;
@@ -190,7 +205,7 @@ string _pluginFingerprint(PluginZpkgs pz) {
         p = p + 1;
     }
     string acc = "";
-    i = 0;
+    int i = 0;
     while (i < names.Length) {
         if (File.Exists(paths[i])) {
             acc = acc + names[i] + ":" + _bytesFp(File.ReadAllBytes(paths[i])) + ";";
@@ -214,12 +229,29 @@ string _pluginFingerprint(PluginZpkgs pz) {
 // 失败 → Code != 0（诊断已打印）。
 // 返回 false = 失败（诊断已打印）；成功且无携带 → names 置 null。数组输出避免在 Main 的新路径上
 // 使用 PluginZpkgs 类型（夹具域里 driver 双载时自定义类型按名实例化会被拒——E0601 同源）。
-bool _resolveCarriedPlugins(ProjectManifest pm, string[] libsDirs, int libsDirsN, ref string[] names, ref string[] paths) {
+bool _resolveCarriedPlugins(ProjectManifest pm, string[] libsDirs, int libsDirsN, ref string[] names, ref string[] paths,
+                            bool wsMember) {
+    // workspace 成员构建（仓库自举）不做携带解析：受众是测试单元与用户工程；自举进程的解析域
+    // 混着种子/成员两代编译器包，插件加载链会触发双代注册。
+    if (wsMember) { return true; }
+    // 编译器域消费方（z42c.* 成员 / SDK 契约与编排包）不做携带解析：工具链自举是内景，不是用户场景，
+    // 且自举进程的 flat 里躺着上一代 driver——携带插件一旦加载，其编译器域依赖链会把旧代 driver
+    // 拉进同一进程（双代注册、类型按名实例化被拒）。库包携带只在用户工程 / stdlib 成员上生效。
+    if (_isToolchainProject(pm.Project.Name)) { return true; }
+    // 插件工程自身也不做携带：它是被加载物、不是 lint 受众；显式 [plugins] 的 path 代建会嵌套构建
+    // 插件工程——在那里加载别的插件会把宿主进程搞成混合域（见上）。
+    if (pm.Project.IsPlugin()) { return true; }
     // 闭包 BFS 的名字队列：0 层 = 消费方声明的依赖（清单序）。
-    string[] queue = new string[128];
+    // 两阶段（harness-as-plugin 定案）：
+    //   阶段一「声明闭包」——0 层 = 清单声明的依赖，传递经 DEPS。携带是**硬承诺**：缺件/版本不符报错
+    //   （点名携带方）。这是 1c 的语义，plugin-carry-missing 等夹具钉着它。
+    //   阶段二「ambient 标准库」——0 层 = 解析域里的标准库包（免声明、总是可见，W0610 口径），携带
+    //   **尽力而为**：缺件/版本不符静默跳过——插件世界不完整的环境（只配了自己那颗插件的开发夹具）
+    //   不该被 harness 的携带判死。z42.harness → z42.harness.lint 经此到达每个测试工程。
+    string[] queue = new string[192];
     int qn = 0;
     int i = 0;
-    while (i < pm.DepCount && qn < 128) { queue[qn] = pm.Deps[i].Name; qn = qn + 1; i = i + 1; }
+    while (i < pm.DepCount && qn < 192) { queue[qn] = pm.Deps[i].Name; qn = qn + 1; i = i + 1; }
     // path 闭包成员也在解析域里（dists 已并入 libsDirs；名字来自闭包计划）——由调用方透传更准确，
     // 但 path 依赖同样出现在 pm.Deps（path 条目也写 [dependencies]）⇒ 0 层已覆盖。
     string[] visitedPkg = new string[128];
@@ -236,10 +268,11 @@ bool _resolveCarriedPlugins(ProjectManifest pm, string[] libsDirs, int libsDirsN
     while (qi < qn) {
         string dep = queue[qi];
         qi = qi + 1;
+        if (dep == pm.Project.Name) { continue; }   // 自身不算自己的闭包（[plugins.export] 不自用）
         bool seen = false;
         int v = 0;
         while (v < vn) { if (visitedPkg[v] == dep) { seen = true; break; } v = v + 1; }
-        if (seen || vn >= 128) { continue; }
+        if (seen || vn >= 192) { continue; }
         visitedPkg[vn] = dep; vn = vn + 1;
         string zpath = _findDepZpkg(dep, libsDirs, libsDirsN);
         if (zpath.Length == 0) { continue; }   // 声明了但解析不到：E0497/依赖解析的职责，不在携带层重复报
@@ -250,8 +283,13 @@ bool _resolveCarriedPlugins(ProjectManifest pm, string[] libsDirs, int libsDirsN
         string[] trans = ZpkgReader.ReadDependencies(info);
         int t = 0;
         while (t < trans.Length && qn < 128) { queue[qn] = trans[t]; qn = qn + 1; t = t + 1; }
-        if (!_carryOne(pm, dep, info, libsDirs, libsDirsN, taken, ref tn, rnames, rpaths, ref rn)) { return false; }
+        // 携带方是消费方自己（含 <parent>.test.<unit> 这类派生名——父包的测试单元）⇒ 携带按
+        // lenient 处理：export 声明的受众是「别的工程」，不是携带者自己的测试单元硬承诺。
+        bool selfCarry = pm.Project.Name == dep || pm.Project.Name.StartsWith(dep + ".");
+        if (!_carryOne(pm, dep, info, libsDirs, libsDirsN, taken, ref tn, rnames, rpaths, ref rn, selfCarry)) { return false; }
     }
+    // 阶段二：ambient 标准库（软失败）——抽到 _carryAmbientPhase。
+    _carryAmbientPhase(pm, libsDirs, libsDirsN, visitedPkg, ref vn, taken, ref tn, rnames, rpaths, ref rn);
     if (rn > 0) {
         string[] rn2 = new string[rn];
         string[] rp2 = new string[rn];
@@ -276,12 +314,13 @@ string _findDepZpkg(string name, string[] libsDirs, int libsDirsN) {
 
 // 一个依赖 zpkg 的携带条目逐条并入。失败（缺件 / 版本不符）→ false（诊断点名携带方）。
 bool _carryOne(ProjectManifest pm, string dep, ZpkgInfo info, string[] libsDirs, int libsDirsN,
-               string[] taken, ref int tn, string[] rnames, string[] rpaths, ref int rn) {
+               string[] taken, ref int tn, string[] rnames, string[] rpaths, ref int rn, bool lenient) {
     int c = 0;
     while (c < info.CarriedCount) {
         PluginCarryZ carry = info.Carried[c];
         c = c + 1;
         string pname = carry.Name;
+        if (pname == pm.Project.Name) { continue; }   // 携带者就是自己（z42.harness.lint 经 ambient 引到自身）——export 不自用
         bool skip = false;
         int d = 0;
         while (d < pm.PluginDisableCount) { if (pm.PluginDisables[d] == pname) { skip = true; break; } d = d + 1; }
@@ -289,16 +328,18 @@ bool _carryOne(ProjectManifest pm, string dep, ZpkgInfo info, string[] libsDirs,
         int k = 0;
         while (k < tn) { if (taken[k] == pname) { skip = true; break; } k = k + 1; }
         if (skip) { continue; }
-        string got = _pluginFromLibs(pname, libsDirs, libsDirsN);
+        string got = _pluginLookup(pname, libsDirs, libsDirsN, lenient);
         if (got.Length == 0) {
+            if (lenient) { continue; }
             ConsoleError.WriteLine("z42c build: 依赖 `" + dep + "` 携带插件 `" + pname + "`（" + carry.Version
                 + "），但插件目录里没有 " + pname + ".zpkg——携带是发布承诺：把该插件放进插件目录"
-                + "（Z42_PLUGINS / 依赖目录同级 plugins/），或用 [plugins] `" + pname + "` = false 关闭它。");
+                + "（Z42_PLUGINS / Z42_HOME/plugins），或用 [plugins] `" + pname + "` = false 关闭它。");
             return false;
         }
         ZpkgInfo pi = null;
         try { pi = ZpkgReader.Open(File.ReadAllBytes(got), got); } catch (Exception ex) { pi = null; }
         if (pi == null || pi.Version != carry.Version) {
+            if (lenient) { continue; }
             ConsoleError.WriteLine("z42c build: 依赖 `" + dep + "` 携带插件 `" + pname + "` 钉的是 "
                 + carry.Version + "，插件目录里那份是 " + (pi == null ? "?" : pi.Version)
                 + "——版本对不齐（不静默用别的版本）。重装匹配版本，或与携带方同步升级。");
@@ -308,4 +349,83 @@ bool _carryOne(ProjectManifest pm, string dep, ZpkgInfo info, string[] libsDirs,
         if (PluginCaps.ForCompiler(pi.PluginCaps) && rn < 64) { rnames[rn] = pname; rpaths[rn] = got; rn = rn + 1; }
     }
     return true;
+}
+
+// 工具链内部工程（自举域）不做携带：消费方是 z42c.* / SDK 契约与编排包及其内嵌工程（前缀
+// 匹配，如 z42.builder.hooks、xtask.hooks）。自举进程解析域混着种子/成员两代编译器包，插件
+// 加载链会触发双代注册；库包携带只面向测试单元与用户工程。
+bool _isToolchainProject(string name) {
+    string[] roots = new string[9];
+    roots[0] = "z42c."; roots[1] = "z42.build"; roots[2] = "z42.project"; roots[3] = "z42.package";
+    roots[4] = "z42.doc"; roots[5] = "z42.scripting"; roots[6] = "z42.repl"; roots[7] = "z42.builder"; roots[8] = "xtask";
+    int i = 0;
+    while (i < roots.Length) {
+        if (name == roots[i] || name.StartsWith(roots[i] + ".")) { return true; }
+        i = i + 1;
+    }
+    return false;
+}
+
+// 环境域标准库集：解析域里各目录的 *.zpkg 名（去重、按名排序——确定性）。这些包免声明、总是可见，
+// 它们的 PLGS 携带对每个消费方生效（harness-as-plugin：z42.harness → z42.harness.lint）。
+string[] _ambientStdlib(string[] libsDirs, int libsDirsN) {
+    string[] acc = new string[64];
+    int n = 0;
+    int d = 0;
+    while (d < libsDirsN && n < 64) {
+        string[] files = Path.Glob(libsDirs[d], "*.zpkg");
+        int f = 0;
+        while (f < files.Length && n < 64) {
+            string nm = Path.GetFileName(files[f]);
+            nm = nm.Substring(0, nm.Length - 5);
+            // 编译器域包不作携带载体：z42c.* 前缀 + SDK 契约/编排包（z42.build 等）。它们不面向
+            // 用户工程分发，且冷自举时 flat 里躺着种子代 driver——打开它会把双代 driver 拉进
+            // 同一进程（类型按名实例化被拒）。携带只对库包有意义。
+            if (nm.StartsWith("z42c.") || nm == "z42.build" || nm == "z42.project" || nm == "z42.package"
+                || nm == "z42.doc" || nm == "z42.scripting" || nm == "z42.repl") { f = f + 1; continue; }
+
+            bool has = false;
+            int k = 0;
+            while (k < n) { if (acc[k] == nm) { has = true; break; } k = k + 1; }
+            if (!has) { acc[n] = nm; n = n + 1; }
+            f = f + 1;
+        }
+        d = d + 1;
+    }
+    int i2 = 1;
+    while (i2 < n) {
+        string x = acc[i2];
+        int j = i2 - 1;
+        while (j >= 0 && acc[j].CompareTo(x) > 0) { acc[j + 1] = acc[j]; j = j - 1; }
+        acc[j + 1] = x;
+        i2 = i2 + 1;
+    }
+    string[] r = new string[n];
+    i2 = 0;
+    while (i2 < n) { r[i2] = acc[i2]; i2 = i2 + 1; }
+    return r;
+}
+
+// 阶段二：ambient 标准库携带（名字序、已在阶段一访问过的跳过、缺件静默——见 _resolveCarriedPlugins 头注）。
+void _carryAmbientPhase(ProjectManifest pm, string[] libsDirs, int libsDirsN,
+                        string[] visitedPkg, ref int vn, string[] taken, ref int tn,
+                        string[] rnames, string[] rpaths, ref int rn) {
+    string[] ambient = _ambientStdlib(libsDirs, libsDirsN);
+    int ai = 0;
+    while (ai < ambient.Length) {
+        string dep = ambient[ai];
+        ai = ai + 1;
+        if (dep == pm.Project.Name) { continue; }
+        bool seen = false;
+        int v = 0;
+        while (v < vn) { if (visitedPkg[v] == dep) { seen = true; break; } v = v + 1; }
+        if (seen || vn >= 192) { continue; }
+        visitedPkg[vn] = dep; vn = vn + 1;
+        string zpath = _findDepZpkg(dep, libsDirs, libsDirsN);
+        if (zpath.Length == 0) { continue; }
+        ZpkgInfo info = null;
+        try { info = ZpkgReader.Open(File.ReadAllBytes(zpath), zpath); } catch (Exception ex) { info = null; }
+        if (info == null) { continue; }
+        _carryOne(pm, dep, info, libsDirs, libsDirsN, taken, ref tn, rnames, rpaths, ref rn, true);
+    }
 }

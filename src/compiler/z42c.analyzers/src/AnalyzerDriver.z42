@@ -157,7 +157,16 @@ public static class AnalyzerDriver {
     // （规避 decl.Span 只覆盖首 token 的问题，见 SuppressionSet 头注）。pop 保证与 push 平衡。
     private static void _walkDecl(Decl d, Analyzer a, int[] kinds, DiagSink sink, SuppressionSet supp) {
         int pushed = 0;
-        if (d is AttributedDecl) { pushed = AnalyzerDriver._pushSuppress(d as AttributedDecl, supp); }
+        if (d is AttributedDecl) {
+            AttributedDecl ad = d as AttributedDecl;
+            pushed = AnalyzerDriver._pushSuppress(ad, supp);
+            // AttributedMethod（PR 2 harness-as-plugin）：带注解的方法连外壳一起分派——attribute 是
+            // 很多规则（测试约定等）的判据，剥壳分派（MethodDecl）看不见它们。外壳内层是方法才发，避免
+            // 无意义噪声；MethodDecl 分派照旧（两种 kind 的观察者各取所需）。
+            if (AnalyzerDriver._unwrap(ad) is MethodDecl) {
+                AnalyzerDriver._dispatch(SyntaxKind.AttributedMethod, ad, a, kinds, sink);
+            }
+        }
         AnalyzerDriver._walkDeclInner(AnalyzerDriver._unwrap(d), a, kinds, sink, supp);
         supp.PopActive(pushed);
     }

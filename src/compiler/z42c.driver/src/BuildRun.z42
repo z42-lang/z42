@@ -140,16 +140,13 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     // 必须在指纹之前：path 条目由 z42c **代建**，不先建就没有 zpkg 可指纹，「改了插件源码但消费方源没变」
     // 就不会失效缓存。解析结果同时喂指纹与 CompileInputs。z42c 只拿编译器侧（analyzer / generator）插件；
     // 一个都没有（含 z42c 自建、只挂了 hook 插件的工程）→ azPaths 为 null、指纹 `""` → 自举 byte-identical。
-    string[] azPaths = null; PluginZpkgs pz = null;
-    if (pm.PluginCount > 0) {
-        pz = _resolvePluginZpkgs(pm, projectDir, tomlPath, libsDirs, libsDirsN,
-                                 isRelease, noIncremental, cliAdd, cliRemove);
-        if (pz.Code != 0) { return pz.Code; }
-    }
-    if (!_attachCarriedSet(pm, libsDirs, libsDirsN, ref pz, ref azPaths)) { return ExitCode.BuildError; }   // 1c：携带闭包并入显式集
+    string[] azPaths = null; string[] plNames = null; string[] plPaths = null;   // 显式 [plugins]（编译器侧）
+    if (pm.PluginCount > 0 && !_resolvePluginZpkgs(pm, projectDir, tomlPath, libsDirs, libsDirsN,
+            isRelease, noIncremental, cliAdd, cliRemove, ref plNames, ref plPaths)) { return ExitCode.BuildError; }
+    if (!_attachCarriedPaths(pm, libsDirs, libsDirsN, wsMember, plPaths, ref azPaths)) { return ExitCode.BuildError; }   // 1c/PR2：显式∪携带
     // 插件身份指纹并入增量指纹（「产物纳入指纹」）——揉进每个文件源 hash，则「换 generator 但源没变」也令
     // 所有缓存失效。空 → `""` → `text+""==text` → 源 hash 不变 → 自举 byte-identical。
-    string handlerFp = _pluginFingerprint(pz);
+    string handlerFp = _pluginFingerprint(azPaths, azPaths);
     // 源文本读入 + 源 hash（probe / ZbcFileZ / meta 三处复用；SHA-256 解释执行曾是 D8 增量差价主项）。
     // parallelize-package-compile ★①：per-file 读+哈希并行（各写独立槽，确定性）。
     string[] texts = new string[srcs.Length];
@@ -648,4 +645,26 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
         if (bc != 0) { return bc; }
     }
     return ExitCode.Ok;
+}
+
+// 1c/PR2：携带闭包解析（两阶段，见 PluginRefs 头注）并进显式集，刷 azPaths。
+bool _attachCarriedPaths(ProjectManifest pm, string[] libsDirs, int libsDirsN, bool wsMember,
+                         string[] plPaths, ref string[] azPaths) {
+    string[] carryNames = null; string[] carryPaths = null;
+    if (!_resolveCarriedPlugins(pm, libsDirs, libsDirsN, ref carryNames, ref carryPaths, wsMember)) { return false; }
+    azPaths = _mergeCarriedPaths(plPaths, carryPaths);
+    return true;
+}
+
+// 显式插件路径 ∪ 携带插件路径（显式在前、携带在后——顺序即生效顺序）。无插件 → null。
+string[] _mergeCarriedPaths(string[] plPaths, string[] carryPaths) {
+    int a = (plPaths == null ? 0 : plPaths.Length);
+    int b = (carryPaths == null ? 0 : carryPaths.Length);
+    if (a + b == 0) { return null; }
+    string[] r = new string[a + b];
+    int i = 0;
+    while (i < a) { r[i] = plPaths[i]; i = i + 1; }
+    int j = 0;
+    while (j < b) { r[a + j] = carryPaths[j]; j = j + 1; }
+    return r;
 }

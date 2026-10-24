@@ -69,14 +69,16 @@ HookLoad _loadHooks(ProjectManifest m, string projDir, string interDir, string[]
 //   · `.zpkg` path：现成产物（projDir 相对）；
 //   · 工程 path：校验是插件工程且名字一致 → ICompiler 代建到 interDir。
 string[] _pluginSearchDirs() {
+    // 同 z42c PluginRefs 的口径：Z42_PLUGINS 显式 + Z42_HOME/plugins（SDK）；不做 libs 同级发现
+    //（开发树混合域毒源，见 z42c 侧注释）。
     string[] acc = new string[2];
     int n = 0;
     string env = Environment.GetEnvironmentVariable("Z42_PLUGINS", "");
     if (env.Length > 0) { acc[n] = env; n = n + 1; }
-    string libs = Environment.GetEnvironmentVariable("Z42_LIBS", "");
-    if (libs.Length > 0) {
-        string sib = Path.Join(Path.GetDirectoryName(libs), "plugins");
-        if (Directory.Exists(sib)) { acc[n] = sib; n = n + 1; }
+    string home = Environment.GetEnvironmentVariable("Z42_HOME", "");
+    if (home.Length > 0) {
+        string sdkPlugins = Path.Join(home, "plugins");
+        if (Directory.Exists(sdkPlugins)) { acc[n] = sdkPlugins; n = n + 1; }
     }
     string[] r = new string[n];
     int i = 0;
@@ -89,6 +91,9 @@ string[] _pluginSearchDirs() {
 // 只收 Hook 位（analyzer / generator 位归 z42c）。域 = 插件目录（_pluginSearchDirs）+ hook 编译依赖面
 //（Z42_LIBS + 编译器目录）+ extraDirs（闭包 dist）。失败 → null（诊断已打印，点名携带者）。
 BuildHooks[] _loadCarriedHooks(ProjectManifest m, string[] extraDirs, int extraN) {
+    // 编译器域消费方跳过携带（同 z42c PluginRefs 的守卫与理由）。
+    if (_isToolchainProjectName(m.Project.Name)) { return new BuildHooks[0]; }
+    if (m.Project.IsPlugin()) { return new BuildHooks[0]; }   // 插件工程自身不携带（同 z42c 守卫）
     // 闭包定位域：_hookCompileDeps 是文件列表；名字→目录用它的所在目录集合即可（去重后与 extraDirs 拼接）。
     string[] depDirs = _hookCompileDeps();
     string[] dom = new string[depDirs.Length + extraN + 2];
@@ -104,10 +109,11 @@ BuildHooks[] _loadCarriedHooks(ProjectManifest m, string[] extraDirs, int extraN
     }
     int ei = 0;
     while (ei < extraN) { if (dn < dom.Length) { dom[dn] = extraDirs[ei]; dn = dn + 1; } ei = ei + 1; }
-    string[] queue = new string[128];
+    // 两阶段（同 z42c PluginRefs）：声明闭包=硬承诺；ambient 标准库=尽力而为（缺件静默）。
+    string[] queue = new string[192];
     int qn = 0;
     int i = 0;
-    while (i < m.DepCount && qn < 128) { queue[qn] = m.Deps[i].Name; qn = qn + 1; i = i + 1; }
+    while (i < m.DepCount && qn < 192) { queue[qn] = m.Deps[i].Name; qn = qn + 1; i = i + 1; }
     string[] visited = new string[128];
     int vn = 0;
     string[] taken = new string[128 + m.PluginCount];
@@ -120,10 +126,11 @@ BuildHooks[] _loadCarriedHooks(ProjectManifest m, string[] extraDirs, int extraN
     while (qi < qn) {
         string dep = queue[qi];
         qi = qi + 1;
+        if (dep == m.Project.Name) { continue; }   // 自身不算（export 不自用）
         bool seen = false;
         int v = 0;
         while (v < vn) { if (visited[v] == dep) { seen = true; break; } v = v + 1; }
-        if (seen || vn >= 128) { continue; }
+        if (seen || vn >= 192) { continue; }
         visited[vn] = dep; vn = vn + 1;
         string zpath = "";
         int d2 = 0;
@@ -139,8 +146,10 @@ BuildHooks[] _loadCarriedHooks(ProjectManifest m, string[] extraDirs, int extraN
         string[] trans = ZpkgReader.ReadDependencies(info);
         int tt = 0;
         while (tt < trans.Length && qn < 128) { queue[qn] = trans[tt]; qn = qn + 1; tt = tt + 1; }
-        if (!_carryOneHook(m, dep, info, taken, ref tn, found, ref fn)) { return null; }
+        bool selfCarry = m.Project.Name == dep || m.Project.Name.StartsWith(dep + ".");   // 父包测试单元 ⇒ lenient
+        if (!_carryOneHook(m, dep, info, taken, ref tn, found, ref fn, selfCarry)) { return null; }
     }
+    _carryAmbientHooksPhase(m, dom, dn, visited, ref vn, taken, ref tn, found, ref fn);
     BuildHooks[] r = new BuildHooks[fn];
     i = 0;
     while (i < fn) { r[i] = found[i]; i = i + 1; }
@@ -284,12 +293,13 @@ string[] _hookCompileDeps() {
 
 // 一个依赖 zpkg 的携带条目逐条并入（只收 Hook 位；false 摘、显式/先到防重）。失败 → false（诊断点名携带方）。
 bool _carryOneHook(ProjectManifest m, string dep, ZpkgInfo info, string[] taken, ref int tn,
-                   BuildHooks[] found, ref int fn) {
+                   BuildHooks[] found, ref int fn, bool lenient) {
     int c = 0;
     while (c < info.CarriedCount) {
         string pname = info.Carried[c].Name;
         string pver  = info.Carried[c].Version;
         c = c + 1;
+        if (pname == m.Project.Name) { continue; }   // 携带者就是自己——export 不自用
         bool skip = false;
         int d3 = 0;
         while (d3 < m.PluginDisableCount) { if (m.PluginDisables[d3] == pname) { skip = true; break; } d3 = d3 + 1; }
@@ -306,6 +316,7 @@ bool _carryOneHook(ProjectManifest m, string dep, ZpkgInfo info, string[] taken,
             pd = pd + 1;
         }
         if (got.Length == 0) {
+            if (lenient) { continue; }
             ConsoleError.WriteLine("z42b: 依赖 `" + dep + "` 携带插件 `" + pname + "`（" + pver
                 + "），但插件目录里没有 " + pname + ".zpkg——把该插件放进插件目录，或用 [plugins] `" + pname + "` = false 关闭它。");
             return false;
@@ -320,4 +331,85 @@ bool _carryOneHook(ProjectManifest m, string dep, ZpkgInfo info, string[] taken,
         taken[tn] = pname; tn = tn + 1;
     }
     return true;
+}
+
+// 工具链内部工程判定（镜像 z42c PluginRefs._isToolchainProject——前缀匹配覆盖内嵌工程）。
+bool _isToolchainProjectName(string name) {
+    string[] roots = new string[9];
+    roots[0] = "z42c."; roots[1] = "z42.build"; roots[2] = "z42.project"; roots[3] = "z42.package";
+    roots[4] = "z42.doc"; roots[5] = "z42.scripting"; roots[6] = "z42.repl"; roots[7] = "z42.builder"; roots[8] = "xtask";
+    int i = 0;
+    while (i < roots.Length) {
+        if (name == roots[i] || name.StartsWith(roots[i] + ".")) { return true; }
+        i = i + 1;
+    }
+    return false;
+}
+
+// 环境域标准库集（域内各目录 *.zpkg 名，去重、按名排序）——镜像 z42c PluginRefs._ambientStdlib。
+string[] _ambientStdlibNames(string[] dom, int dn) {
+    string[] acc = new string[64];
+    int n = 0;
+    int d = 0;
+    while (d < dn && n < 64) {
+        string[] files = Path.Glob(dom[d], "*.zpkg");
+        int f = 0;
+        while (f < files.Length && n < 64) {
+            string nm = Path.GetFileName(files[f]);
+            nm = nm.Substring(0, nm.Length - 5);
+            // 编译器域包不作携带载体：z42c.* 前缀 + SDK 契约/编排包（z42.build 等）。它们不面向
+            // 用户工程分发，且冷自举时 flat 里躺着种子代 driver——打开它会把双代 driver 拉进
+            // 同一进程（类型按名实例化被拒）。携带只对库包有意义。
+            if (nm.StartsWith("z42c.") || nm == "z42.build" || nm == "z42.project" || nm == "z42.package"
+                || nm == "z42.doc" || nm == "z42.scripting" || nm == "z42.repl") { f = f + 1; continue; }
+
+            bool has = false;
+            int k = 0;
+            while (k < n) { if (acc[k] == nm) { has = true; break; } k = k + 1; }
+            if (!has) { acc[n] = nm; n = n + 1; }
+            f = f + 1;
+        }
+        d = d + 1;
+    }
+    int i = 1;
+    while (i < n) {
+        string x = acc[i];
+        int j = i - 1;
+        while (j >= 0 && acc[j].CompareTo(x) > 0) { acc[j + 1] = acc[j]; j = j - 1; }
+        acc[j + 1] = x;
+        i = i + 1;
+    }
+    string[] r = new string[n];
+    i = 0;
+    while (i < n) { r[i] = acc[i]; i = i + 1; }
+    return r;
+}
+
+// 阶段二：ambient 标准库携带（软失败；镜像 z42c 的 _carryAmbientPhase）。
+void _carryAmbientHooksPhase(ProjectManifest m, string[] dom, int dn, string[] visited, ref int vn,
+                             string[] taken, ref int tn, BuildHooks[] found, ref int fn) {
+    string[] ambient = _ambientStdlibNames(dom, dn);
+    int ai = 0;
+    while (ai < ambient.Length) {
+        string dep = ambient[ai];
+        ai = ai + 1;
+        if (dep == m.Project.Name) { continue; }
+        bool seen = false;
+        int v = 0;
+        while (v < vn) { if (visited[v] == dep) { seen = true; break; } v = v + 1; }
+        if (seen || vn >= 192) { continue; }
+        visited[vn] = dep; vn = vn + 1;
+        string zpath = "";
+        int d2 = 0;
+        while (d2 < dn) {
+            string cand = Path.Join(dom[d2], dep + ".zpkg");
+            if (File.Exists(cand)) { zpath = cand; break; }
+            d2 = d2 + 1;
+        }
+        if (zpath.Length == 0) { continue; }
+        ZpkgInfo info = null;
+        try { info = ZpkgReader.Open(File.ReadAllBytes(zpath), zpath); } catch (Exception ex) { info = null; }
+        if (info == null) { continue; }
+        _carryOneHook(m, dep, info, taken, ref tn, found, ref fn, true);
+    }
 }
