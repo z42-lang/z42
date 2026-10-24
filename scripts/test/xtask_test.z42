@@ -687,7 +687,7 @@ int _testAll(bool noBuild, string skip) {
     // 纯文本扫描（~1s），host-independent。Skippable: "stage2"。
     if (!_skipHas(skip, "stage2")) {
         swStage = _stageStart("stage2");
-        c = _testStage2Debt(false); if (c != 0) { return c; }
+        c = _testStage2Debt(); if (c != 0) { return c; }
         _stageEnd(slog, "stage2", swStage);
     }
     // stage 11: CI 内嵌 shell 的先用后赋（`.github/actions/**` 的 `run:` 块）。引导逻辑是 260+ 行
