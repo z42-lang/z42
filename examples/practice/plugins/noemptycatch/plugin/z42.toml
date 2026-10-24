@@ -1,0 +1,7 @@
+[project]
+name    = "demo.noemptycatch"
+version = "0.1.0"
+kind    = "plugin"
+
+[sources]
+include = ["src/**/*.z42"]
