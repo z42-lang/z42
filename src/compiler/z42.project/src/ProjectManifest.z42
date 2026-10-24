@@ -69,11 +69,11 @@ public sealed class ProjectManifest {
     // 🔴 种子 ABI：新字段**追加在类的最末尾**、不进 ctor 签名。
     public DepEntry[] Plugins; public int PluginCount;
     // ── [plugins] `"x" = false`（1c）：关闭携带进来的插件 x（只对自动导入有语义）────────
-    // 显式条目与 false 不会同名共存（同一 TOML 键）；消费方拿它把携带集里的同名条目摘掉。
+    /// 显式条目与 false 不会同名共存（同一 TOML 键）；消费方拿它把携带集里的同名条目摘掉。
     public string[]   PluginDisables; public int PluginDisableCount;
     // ── [plugins.export]（1c 携带）：「依赖我的工程自动获得这些插件」───────────────────
-    // 条目形态同 [plugins]；只记进产物 PLGS 段（名 + 精确版本），不作用于本工程自己的构建。
-    // 仅 lib 有意义（exe 无人依赖）；plugin 工程禁写（携带链终止）——消费方报。
+    /// 条目形态同 [plugins]；只记进产物 PLGS 段（名 + 精确版本），不作用于本工程自己的构建。
+    /// 仅 lib 有意义（exe 无人依赖）；plugin 工程禁写（携带链终止）——消费方报。
     public DepEntry[] PluginExports; public int PluginExportCount;
     public ProjectManifest(ProjectInfo project, Sources sources, BuildConfig build,
                            Profile[] profiles, int profileCount,
@@ -113,7 +113,7 @@ public sealed class ProjectManifest {
     /// 目录排除写成 `<dir>/**`（SourceDiscovery 的前缀语义）；指到工程目录外（`..` 开头 / 绝对路径）
     /// 或指向 `.zpkg` 产物的条目与源发现无关，跳过。
     public string[] EffectiveSourceExcludes() {
-        string[] acc = new string[this.Sources.ExcludeCount + 1 + this.PluginCount];
+        string[] acc = new string[this.Sources.ExcludeCount + 1 + this.PluginCount + this.PluginExportCount];
         int n = 0;
         int i = 0;
         while (i < this.Sources.ExcludeCount) { acc[n] = this.Sources.Exclude[i]; n = n + 1; i = i + 1; }
@@ -122,6 +122,14 @@ public sealed class ProjectManifest {
             string dir = ProjectManifest._inProjectDir(this.Plugins[p].Path);
             if (dir.Length > 0) { acc[n] = dir + "/**"; n = n + 1; }
             p = p + 1;
+        }
+        // 携带（[plugins.export]）的 path 条目目录同样排除：嵌套携带插件有自己的清单与构建，
+        // 不该被宿主的 **/*.z42 扫进宿主 zpkg（与 [plugins] 条目同款规则；1c 收尾）。
+        int e = 0;
+        while (e < this.PluginExportCount) {
+            string dir = ProjectManifest._inProjectDir(this.PluginExports[e].Path);
+            if (dir.Length > 0) { acc[n] = dir + "/**"; n = n + 1; }
+            e = e + 1;
         }
         string[] r = new string[n];
         int k = 0;

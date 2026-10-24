@@ -1,0 +1,20 @@
+desc = "z42.harness 携带的 lint 插件（z42.harness.lint）零配置自动生效：环境域标准库携带 → H0002 混贴注解；[lints] 可关（见 README）"
+
+# ① 零 [plugins]、零 [dependencies]：经 ambient stdlib 携带链自动获得，H0002 报出
+[[step]]
+args = ["build", "z42.z42.toml", "--release"]
+env = { Z42_PLUGINS = "{plugins}" }
+exit = 0
+output_contains = ["H0002"]
+
+# ② [lints] "H0002" = "none" ⇒ 不再报（携带 analyzer 与显式的同权受管）
+[[step]]
+tool = "copy"
+from = "variants/off.z42.toml"
+to = "z42.z42.toml"
+
+[[step]]
+args = ["build", "z42.z42.toml", "--release"]
+env = { Z42_PLUGINS = "{plugins}" }
+exit = 0
+stdout_not_contains = ["H0002"]

@@ -302,7 +302,9 @@ public class MyHooks : BuildHooks {
 ```
 
 - **携带是引用不是内联**（serde → serde_derive 形态）：lib 产物只记 PLGS 引用，插件 zpkg 分发在
-  插件目录——发布 lib 时把携带的插件一起放进插件目录（release 构建 lib 时会验证 path 条目的产物）。
+  插件目录（`Z42_PLUGINS` / SDK 的 `<Z42_HOME>/plugins/`）——发布 lib 时把携带的插件一起放进
+  插件目录（release 构建 lib 时会验证 path 条目的产物）。声明闭包携带缺件即红；标准库携带
+  （z42.harness → z42.harness.lint 是首个用户）尽力而为。
 - 生效规则：只走**真在依赖闭包里**的包（传递携带经各 dep 的 DEPS 传递生效）；显式 `[plugins]`
   赢携带；`[plugins] "x" = false` 关掉某个携带项；analyzer 规则粒度仍可用 `[lints]` 调。
 - 失败即失败：携带件缺失 / 版本不符，构建红且**点名携带方**——「声明了、静默没生效」不给留。

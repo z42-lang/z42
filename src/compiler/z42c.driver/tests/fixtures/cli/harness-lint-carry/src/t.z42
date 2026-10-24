@@ -1,0 +1,7 @@
+namespace Hl.App;
+
+using Std.Harness;
+
+[Test]
+[Setup]
+void test_mixed() { }   // 混贴：反射发现按末个覆盖，[Test] 静默失效——H0002 的靶子

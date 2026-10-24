@@ -52,7 +52,9 @@ int _testCompilerCliFixtures(string root, string vm, string driverZpkg, string b
     s.DefaultTool = "z42c";
     s.DefaultLibs = flat;
     s.Tools = new FixtureTool[]{ z42c, z42b, run };
-    s.Vars = new FixturePair[]{ new FixturePair("stdlib", flat), new FixturePair("compiler", Path.GetDirectoryName(driverZpkg)) };
+    string pluginsDir = Path.Join(Path.GetDirectoryName(flat), "plugins");
+    s.Vars = new FixturePair[]{ new FixturePair("stdlib", flat), new FixturePair("compiler", Path.GetDirectoryName(driverZpkg)),
+                                new FixturePair("plugins", pluginsDir) };
     int[] r = _runFixtureSuite(root, s);
     return r[1] == 0 ? 0 : 1;
 }

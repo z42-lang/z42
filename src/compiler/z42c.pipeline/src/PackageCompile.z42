@@ -88,7 +88,7 @@ public sealed class CompileInputs {
     // 空（z42c 自建）→ 分支不进 → 逐字节不动。D9：加载进编译器、不链入目标程序。
     public string[] AnalyzerZpkgs; public int AnalyzerZpkgCount;
     // 携带的插件表（1c）：[plugins.export] 解析结果（名 + 精确版本，PluginCarry.Resolve），组装时写进
-    // zpkg PLGS 段。空 → 不写段（非携带包逐字节不动）。解析失败在调用方（driver / BuildSession）判失败。
+    /// zpkg PLGS 段。空 → 不写段（非携带包逐字节不动）。解析失败在调用方（driver / BuildSession）判失败。
     public PluginCarryZ[] CarriedPlugins; public int CarriedCount;
     // attribute-handler-registry PR3b：[lints] 决策器（由 driver 从 manifest 中性字段构造）。null →
     // AnalyzerDriver 用 LintConfig.Empty()（仅 EnabledByDefault + DefaultSeverity，无覆盖/无 WAE）。

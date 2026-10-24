@@ -80,6 +80,12 @@ int _buildStdlib() {
         return 1;
     }
 
+    // ── 3.5 stdlib 携带插件（harness-as-plugin PR 2）：z42.harness 经 [plugins.export] 携带
+    //      z42.harness.lint——release 构建 harness 时会验它的 dist（防钉坏件）⇒ 插件必须先于
+    //      workspace 构建编出来；同时平铺到 flat 同级 plugins/（消费方携带解析的查找域，查
+    //      Z42_PLUGINS 之外就看各 libs 目录的同级 plugins/——与 SDK 布局同构）。
+    if (_buildStdlibCarriedPlugins(root, vm, z42cDriver, stdlibRun) != 0) { return 1; }
+
     // ── 4. z42c rebuild stdlib per-member (M2 drop-in; overwrites seed) ──
     //    CWD=src/libraries → workspace discovery + per-member output_dir template;
     //    Z42_LIBS=stdlibRun：稳定 stdlib 快照供 driver 运行期 Std.*（fresh member 从
@@ -209,6 +215,9 @@ string _compilerProbingPaths(string root) {
 //
 // `exe` 是 z42vm，或 apphost / launcher 这类最终起 z42vm 的程序；`libs` 是它要看见的 stdlib 世界。
 Process _z42Proc(string exe, string libs) {
+    // 刻意**不**全局注入 Z42_PLUGINS：开发树的编译器域混着多代包，携带插件一加载就会把进程
+    // 搞成混合域（双代注册、类型拒用）。携带是分发态特性——SDK 世界由 Z42_HOME/plugins 命中；
+    // 开发树里需要的用例（harness-lint-carry 夹具等）按步显式设 env。
     return new Process(exe).Env("Z42_LIBS", libs);
 }
 
@@ -251,3 +260,55 @@ Process _z42cProcMode(string vm, string libs, string driverZpkg, string mode) {
 }
 
 // `_cleanGlob` / `_linkAll` 已移至 common/xtask_fs.z42（scripts-batch3-layering）。
+
+// stdlib 成员携带的插件工程（今天只有 z42.harness.lint）：逐个 z42c build --release 到插件工程
+// 自己的 dist（release 验证的判据位），并把产物平铺进 flat 同级 plugins/。放 flat 之外是刻意的：
+// libs 是运行期解析域，插件进插件目录（unify-plugin-packages 的查找域分离）。
+// 冷启动垫底用的种子 driver zpkg（_ensureSeed 拷进 flat）在编译器自建完成后就成了**旧代副本**：
+// 留在 flat / stdlibRun 里，任何携带插件的加载链都可能把它拉进与新 driver 同进程（双代注册、类型按名
+// 实例化被拒）。flat 本该是纯 stdlib 世界——编译器包住各自成员 dist。此处双清（flat + stdlibRun）。
+void _purgeSeedDriverZpkg(string root) {
+    string flat = _libsFlatDist(root, "release");
+    string[] victims = new string[2];
+    victims[0] = Path.Join(flat, "z42c.driver.zpkg");
+    victims[1] = Path.Join(_compilerWsWork(root, "stdlib-run/release"), "z42c.driver.zpkg");
+    int i = 0;
+    while (i < victims.Length) {
+        if (File.Exists(victims[i])) {
+            File.Delete(victims[i]);
+            _vNormal("  purged stale seed driver: " + victims[i]);
+        }
+        i = i + 1;
+    }
+}
+
+int _buildStdlibCarriedPlugins(string root, string vm, string driver, string runLibs) {
+    _purgeSeedDriverZpkg(root);
+    string[] tomls = new string[1];
+    tomls[0] = Path.Join(root, "src/libraries/z42.harness/plugins/lint/z42.z42.toml");
+    string flatDir = _libsFlatDist(root, "release");
+    string pluginsDir = Path.Join(Path.GetDirectoryName(flatDir), "plugins");
+    Directory.Create(pluginsDir);
+    // 不清空、覆盖式：上一轮的插件产物是冷自举（编译器重建早于本步）的携带解析兜底。
+    int i = 0;
+    while (i < tomls.Length) {
+        string toml = tomls[i];
+        if (!File.Exists(toml)) { ConsoleError.WriteLine("  ✗ carried plugin manifest missing: " + toml); return 1; }
+        string projDir = Path.GetDirectoryName(toml);
+        // --output-dir 显式指到插件工程 dist（与 BuildLayout 缺省一致；显式免受 cwd 影响）。
+        string dist = Path.Join(projDir, "dist");
+        int rc = _z42cBuildPackage(vm, driver, toml, runLibs, dist, runLibs);
+        if (rc != 0) { ConsoleError.WriteLine("  ✗ carried plugin build failed: " + toml); return 1; }
+        string zpkg = Path.Join(dist, "z42.harness.lint.zpkg");
+        if (!File.Exists(zpkg)) { ConsoleError.WriteLine("  ✗ carried plugin produced no zpkg: " + zpkg); return 1; }
+        _copyOverwrite(zpkg, Path.Join(pluginsDir, "z42.harness.lint.zpkg"));
+        i = i + 1;
+    }
+    return 0;
+}
+
+// 覆盖拷贝（File.Copy 无 overwrite 参数形态）。目标在则先删。
+void _copyOverwrite(string src, string dst) {
+    if (File.Exists(dst)) { File.Delete(dst); }
+    File.Copy(src, dst);
+}

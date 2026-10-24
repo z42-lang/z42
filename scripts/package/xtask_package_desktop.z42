@@ -74,6 +74,19 @@ int _packageDesktop(string root, string pkgDir, string rid, string version, stri
     c = _pkgInstallPackage(cfg, root, "sdk", pkgDir, ictx);
     if (c != 0) { return c; }
 
+    // [4.5/5] 插件目录（harness-as-plugin PR 2）：stdlib 携带插件平铺进 <sdk>/plugins/——SDK 世界
+    // 的插件查找域（Z42_HOME/plugins）。flat 同级 plugins 由 xtask build stdlib 平铺；空则不发目录。
+    string flatPlugins = Path.Join(Path.GetDirectoryName(_toolchainCompileLibs(root)), "plugins");
+    if (Directory.Exists(flatPlugins)) {
+        string[] pz = Path.Glob(flatPlugins, "*.zpkg");
+        if (pz.Length > 0) {
+            Directory.Create(Path.Join(pkgDir, "plugins"));
+            int zi = 0;
+            while (zi < pz.Length) { _copyOverwrite(pz[zi], Path.Join(pkgDir, "plugins", Path.GetFileName(pz[zi]))); zi = zi + 1; }
+            Console.WriteLine("  plugins/: " + pz.Length.ToString() + " carried plugin zpkg(s)");
+        }
+    }
+
     // [5/5] manifest.toml
     Console.WriteLine("[5/5] manifest.toml");
     _pkgEmitManifest(pkgDir, rid, version, profile, hostRid);
@@ -237,7 +250,8 @@ void _pkgEmitManifest(string pkgDir, string rid, string version, string profile,
     m = m + "build-host  = \"" + buildHost + "\"\n\n";
     m = m + "[contents]\n";
     m = m + "bin         = [" + binList + "]\n";
-    m = m + "libs        = [" + libsList + "]\n\n";
+    m = m + "libs        = [" + libsList + "]\n";
+    m = m + "plugins     = [" + _quotedDirList(Path.Join(pkgDir, "plugins"), ".zpkg") + "]\n\n";
     m = m + "[contents.native]\n";
     m = m + "static      = [" + staticList + "]\n";
     m = m + "dynamic     = [" + dynamicList + "]\n";

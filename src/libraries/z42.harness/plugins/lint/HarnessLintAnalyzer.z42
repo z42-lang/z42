@@ -1,0 +1,63 @@
+// z42.harness.lint —— harness 约定 lint（harness-as-plugin PR 2）。
+//
+// 规则 H0002：同一函数不得混贴多种 harness「kind 注解」（[Test] / [Benchmark] / [Setup] / [Teardown]）。
+// 这是编译期校验（E0911–E0917）的真盲区，且是静默陷阱的两头夹击：
+//   · TestAttrEnforcer 按**首个** kind 注解校验形状；
+//   · TestDiscovery（运行期发现）按**末个**覆盖判定 kind——`[Test][Setup] void f()` 被静默当成
+//     Setup：不进测试报告、也没有任何提示。
+// 其余形状（零参 / 返回 void / static / 非泛型）已由 E0911–E0917 编译期硬错覆盖，不在本插件重复。
+// 由 z42.harness lib 携带（[plugins.export]）：所有依赖解析域含 harness 的工程自动生效；
+// `[lints] "H0002" = "none"` 可关（携带 analyzer 与显式的同权受 [lints] 管）。
+namespace Z42.HarnessLint;
+
+using Z42.Syntax;
+using Z42.Analyzers;
+
+/// harness 约定 lint（H0002：harness kind 注解混贴）。由 z42.harness 携带给每个测试工程。
+///
+/// 混贴 = 编译期校验按首个 kind、反射发现按末个覆盖——先过编译、再静默失效。
+public class HarnessLintAnalyzer : Analyzer {
+    /// 声明本 analyzer 发的规则（供 [lints] 枚举 / severity 解析）。
+    public DiagRule[] SupportedRules() {
+        DiagRule[] rs = new DiagRule[1];
+        rs[0] = HarnessLintAnalyzer._rule();
+        return rs;
+    }
+
+    /// 只观察带注解的方法（SyntaxKind.AttributedMethod，PR 2 新 kind）。
+    public int[] ObservedKinds() {
+        int[] ks = new int[1];
+        ks[0] = SyntaxKind.AttributedMethod;
+        return ks;
+    }
+
+    /// 逐节点回调：识别混贴的 harness kind 注解并报 H0002。
+    public void OnSyntaxNode(int kind, object node, DiagSink diags) {
+        if (kind != SyntaxKind.AttributedMethod) { return; }
+        AttributedDecl ad = node as AttributedDecl;
+        if (ad == null) { return; }
+        MethodDecl m = ad.Inner as MethodDecl;
+        if (m == null) { return; }
+
+        string first = ""; string second = "";
+        int i = 0;
+        while (i < ad.AttrCount) {
+            string n = ad.Attrs[i].Name;
+            if (n == "Test" || n == "Benchmark" || n == "Setup" || n == "Teardown") {
+                if (first.Length == 0) { first = n; }
+                else if (n != first && second.Length == 0) { second = n; }
+            }
+            i = i + 1;
+        }
+        if (second.Length > 0) {
+            diags.Report(HarnessLintAnalyzer._rule(), ad.Span);
+        }
+    }
+
+    /// H0002 规则声明（Warning、默认开；[lints] 可调）。
+    static DiagRule _rule() {
+        return new DiagRule("H0002", "harness 注解混贴",
+            "同一函数贴了多种 harness 注解：反射发现按末个覆盖，先前的静默失效（如 [Test] 被 [Setup] 顶掉、不进测试报告）",
+            "Correctness", AnalyzerSeverity.Warning, true);
+    }
+}

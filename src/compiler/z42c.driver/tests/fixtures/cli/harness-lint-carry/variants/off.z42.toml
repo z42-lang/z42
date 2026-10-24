@@ -1,0 +1,10 @@
+[project]
+name    = "hl.app"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["src/**/*.z42"]
+
+[lints]
+"H0002" = "none"        # 携带 analyzer 与显式同权受 [lints] 管
