@@ -432,7 +432,14 @@ jobs:
           # a per-file loop (last-wins) is safe. (Same for every dist-glob copy below.)
           PRALL="$ROOT/.ab-pr-alllibs"; rm -rf "$PRALL"; mkdir -p "$PRALL"
           cp -f "$ROOT/artifacts/intermediate/libraries/flat/release/"*.zpkg "$PRALL/"
-          for f in "$ROOT/artifacts/build/compiler/"*/release/dist/*.zpkg; do cp -f "$f" "$PRALL/"; done
+          # bench-ab-pkgset-filter：只拷 **base 成员表里也存在** 的编译器包。HEAD 可能重命名/合并包
+          # （z42c-plugin-merge：HEAD 有 z42c.plugin、base 还是 z42c.analyzers/generators）——HEAD 独有的
+          # 包进 base 的解析域 ⇒ 同 FQN 双包（E0606：declared in this package and also in package …），
+          # base workspace 当场红。同名的照拷（base 自建同名产物优先，与此前行为一致）。
+          for f in "$ROOT/artifacts/build/compiler/"*/release/dist/*.zpkg; do
+            n="$(basename "$f" .zpkg)"
+            if grep -q "\"$n\"" "$ROOT/base-src/src/compiler/z42.workspace.toml"; then cp -f "$f" "$PRALL/"; fi
+          done
 
           # base z42vm: reuse PR's unless src/runtime differs base..pr.
           # 路径集见文件头 narrow-bench-gate-guards：排除 *.md，README 改动不算「VM 变了」。
