@@ -25,8 +25,6 @@ const PART1: &[(&str, Native)] = &[
     ("__test_io_install_stderr_sink", Native::Void(io::builtin_test_io_install_stderr_sink)),
     ("__test_io_take_stderr_buffer",  Native::Val(io::builtin_test_io_take_stderr_buffer)),
     // ── Time + bencher helpers ──────────────────────────────────────────────
-    ("__time_now_mono_ns", Native::Val(bench::builtin_time_now_mono_ns)),
-    ("__bench_black_box",  Native::Val(bench::builtin_bench_black_box)),
     // ── String (minimal intrinsic core; most methods are script-side now) ────
     // shrink-primitive-native-interop : __str_to_string removed —
     // Std.String.ToString 现在是脚本 `return this;`。
@@ -94,6 +92,13 @@ const TYPED: &[&[super::abi::BuiltinDesc]] = &[
     super::convert::typed::DESCS,
     super::math::typed::DESCS,
     super::object::typed::DESCS,
+    super::platform::typed::DESCS,
+    super::system::typed::DESCS,
+    super::config::typed::DESCS,
+    super::appprops::typed::DESCS,
+    super::symavail::typed::DESCS,
+    super::bench::typed::DESCS,
+    super::crypto::typed::DESCS,
     super::gc::typed::DESCS,
     super::char::typed::DESCS,
     super::string::typed::DESCS,

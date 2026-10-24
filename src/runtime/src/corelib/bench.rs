@@ -20,8 +20,8 @@ use std::time::Instant;
 #[cfg(not(target_arch = "wasm32"))]
 static EPOCH: OnceLock<Instant> = OnceLock::new();
 
-pub fn builtin_time_now_mono_ns(_ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    Ok(Value::I64(mono_ns()))
+pub fn time_now_mono_ns() -> i64 {
+    mono_ns()
 }
 
 /// Nanoseconds since an internal epoch (monotonic).
@@ -44,11 +44,24 @@ fn mono_ns() -> i64 {
     TICK.fetch_add(1_000, Ordering::Relaxed)
 }
 
-pub fn builtin_bench_black_box(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    crate::corelib::expect_args("Bench.BlackBox", args, 1)?;
-    Ok(args[0].clone())
+pub fn bench_black_box<T>(v: T) -> T {
+    std::hint::black_box(v)
 }
 
 #[cfg(test)]
 #[path = "bench_tests.rs"]
 mod bench_tests;
+
+/// bench 计时与防优化迁 builtin ABI v2(P1-8 批次 12):全 PURE。
+#[z42_macros::builtins]
+pub mod typed {
+    use super::*;
+
+    #[builtin(name = "__time_now_mono_ns", pure)]
+    pub fn now_mono_ns() -> i64 { time_now_mono_ns() }
+
+    #[builtin(name = "__bench_black_box", pure)]
+    pub fn black_box(v: &crate::metadata::Value) -> crate::metadata::Value {
+        super::bench_black_box(*v)
+    }
+}

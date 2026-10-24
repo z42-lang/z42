@@ -47,33 +47,43 @@ fn scalar(v: &toml::Value) -> Option<String> {
 }
 
 /// `__app_prop(string key) -> string?` —— 顶层标量属性。不存在 / 非标量 → null。
-pub fn builtin_app_prop(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let key = arg_str(args, "AppProperties.Get")?;
-    Ok(table()
-        .and_then(|t| t.get(&key))
-        .and_then(scalar)
-        .map_or(Value::Null, |s| Value::Str(s.into())))
+pub fn app_prop(key: &str) -> Option<String> {
+    table().and_then(|t| t.get(key)).and_then(scalar)
 }
 
 /// `__app_prop_has(string key) -> bool` —— 顶层是否存在该键（含非标量值）。
-pub fn builtin_app_prop_has(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let key = arg_str(args, "AppProperties.Has")?;
-    Ok(Value::Bool(table().is_some_and(|t| t.contains_key(&key))))
+pub fn app_prop_has(key: &str) -> bool {
+    table().is_some_and(|t| t.contains_key(key))
 }
 
 /// `__app_prop_names() -> string[]` —— 全部顶层键。
-pub fn builtin_app_prop_names(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
+pub fn app_prop_names(ctx: &VmContext) -> Value {
     let names: Vec<Value> = table()
         .map(|t| t.keys().map(|k| Value::Str(k.clone().into())).collect())
         .unwrap_or_default();
-    Ok(ctx.heap().alloc_array(names))
+    ctx.heap().alloc_array(names)
 }
 
 /// `__app_props_toml() -> string?` —— 整段 `[properties]` 的 TOML 文本。
 /// 没有属性时返回 null（而不是空串），让调用方能区分"没有"与"空表"。
-pub fn builtin_app_props_toml(_ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-    Ok(table().map_or(Value::Null, |t| {
-        // 重新序列化而不是保留原始切片——避免为了几个属性把整份侧车文本一直持有。
-        Value::Str(toml::to_string(t).unwrap_or_default().into())
-    }))
+pub fn app_props_toml() -> Option<String> {
+    table().map(|t| toml::to_string(t).unwrap_or_default())
+}
+
+/// 应用属性面迁 builtin ABI v2(P1-8 批次 12):全查询。
+#[z42_macros::builtins]
+pub mod typed {
+    use super::*;
+
+    #[builtin(name = "__app_prop", pure)]
+    pub fn prop(key: &str) -> Option<String> { app_prop(key) }
+
+    #[builtin(name = "__app_prop_has", pure)]
+    pub fn prop_has(key: &str) -> bool { app_prop_has(key) }
+
+    #[builtin(name = "__app_prop_names")]
+    pub fn prop_names(ctx: &VmContext) -> Value { app_prop_names(ctx) }
+
+    #[builtin(name = "__app_props_toml", pure)]
+    pub fn props_toml() -> Option<String> { app_props_toml() }
 }

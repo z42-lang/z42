@@ -20,22 +20,16 @@ use anyhow::Result;
 /// （fix-wasm-std-time 发现：nightly 全红期间没人跑到这里）。
 const HOST_OS: &str = if cfg!(target_arch = "wasm32") { "wasm" } else { std::env::consts::OS };
 
-pub fn builtin_platform_os(_ctx: &VmContext, _: &[Value]) -> Result<Value> {
-    Ok(Value::Str(HOST_OS.to_string().into()))
-}
+pub fn platform_os() -> &'static str { HOST_OS }
 
-pub fn builtin_platform_arch(_ctx: &VmContext, _: &[Value]) -> Result<Value> {
-    Ok(Value::Str(std::env::consts::ARCH.to_string().into()))
-}
+pub fn platform_arch() -> &'static str { std::env::consts::ARCH }
 
-pub fn builtin_platform_family(_ctx: &VmContext, _: &[Value]) -> Result<Value> {
-    Ok(Value::Str(std::env::consts::FAMILY.to_string().into()))
-}
+pub fn platform_family() -> &'static str { std::env::consts::FAMILY }
 
 /// Keep in sync with `Std.OSKind` in
 /// `src/libraries/z42.core/src/Platform.z42`.
-pub fn builtin_platform_os_kind(_ctx: &VmContext, _: &[Value]) -> Result<Value> {
-    let kind: i64 = match HOST_OS {
+pub fn platform_os_kind() -> i64 {
+    match HOST_OS {
         "linux"   => 1,
         "macos"   => 2,
         "windows" => 3,
@@ -44,23 +38,21 @@ pub fn builtin_platform_os_kind(_ctx: &VmContext, _: &[Value]) -> Result<Value> 
         "wasm"    => 6,
         "freebsd" => 7,
         _         => 0,
-    };
-    Ok(Value::I64(kind))
+    }
 }
 
 /// Keep in sync with `Std.ArchKind` in
 /// `src/libraries/z42.core/src/Platform.z42`. Names use the .NET-style
 /// short forms (X64 / Arm64 / Wasm / X86); the integer values are what
 /// matters at the ABI boundary.
-pub fn builtin_platform_arch_kind(_ctx: &VmContext, _: &[Value]) -> Result<Value> {
-    let kind: i64 = match std::env::consts::ARCH {
+pub fn platform_arch_kind() -> i64 {
+    match std::env::consts::ARCH {
         "x86_64"  => 1,
         "aarch64" => 2,
         "wasm32"  => 3,
         "x86"     => 4,
         _         => 0,
-    };
-    Ok(Value::I64(kind))
+    }
 }
 
 /// `__platform_caps() -> string[]` — runtime capability set of THIS binary.
@@ -88,7 +80,7 @@ pub fn builtin_platform_arch_kind(_ctx: &VmContext, _: &[Value]) -> Result<Value
 ///     The vocabulary (and which caps are live) is docs/internals/src/devinfra/test-layout.md §4;
 ///     `xtask check layout` reconciles that list with the pushes below.
 /// Order is stable (declaration order) so probe output is deterministic.
-pub fn builtin_platform_caps(ctx: &VmContext, _: &[Value]) -> Result<Value> {
+pub fn platform_caps(ctx: &VmContext) -> Value {
     let mut caps: Vec<&str> = Vec::new();
     #[cfg(feature = "jit")]                 caps.push("jit");
     #[cfg(feature = "native-interop")]      caps.push("native-interop");
@@ -106,7 +98,7 @@ pub fn builtin_platform_caps(ctx: &VmContext, _: &[Value]) -> Result<Value> {
     #[cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "android")))] caps.push("socket-listen");
     #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]                    caps.push("hardlink");
     let list: Vec<Value> = caps.into_iter().map(|s| Value::Str(s.to_string().into())).collect();
-    Ok(ctx.heap().alloc_array(list))
+    ctx.heap().alloc_array(list)
 }
 
 /// `__platform_exec_modes() -> string[]` — execution backends this binary can
@@ -117,14 +109,42 @@ pub fn builtin_platform_caps(ctx: &VmContext, _: &[Value]) -> Result<Value> {
 /// stub — this reports "compiled in", not "executable". The exec-profile support
 /// matrix's *policy overlay* is what marks any `aot_pkgs ≠ []` composition as
 /// `skipped-not-yet` (M9), independent of this list.
-pub fn builtin_platform_exec_modes(ctx: &VmContext, _: &[Value]) -> Result<Value> {
+pub fn platform_exec_modes(ctx: &VmContext) -> Value {
     let mut modes: Vec<&str> = vec!["interp"];
     #[cfg(feature = "jit")] modes.push("jit");
     #[cfg(feature = "aot")] modes.push("aot");
     let list: Vec<Value> = modes.into_iter().map(|s| Value::Str(s.to_string().into())).collect();
-    Ok(ctx.heap().alloc_array(list))
+    ctx.heap().alloc_array(list)
 }
 
 #[cfg(test)]
 #[path = "platform_tests.rs"]
 mod platform_tests;
+
+/// 平台身份迁 builtin ABI v2(P1-8 批次 12):编译期常量全 PURE;caps /
+/// exec_modes 返回数组,实现内直构。
+#[z42_macros::builtins]
+pub mod typed {
+    use super::*;
+
+    #[builtin(name = "__platform_os", pure)]
+    pub fn os() -> &'static str { platform_os() }
+
+    #[builtin(name = "__platform_arch", pure)]
+    pub fn arch() -> &'static str { platform_arch() }
+
+    #[builtin(name = "__platform_family", pure)]
+    pub fn family() -> &'static str { platform_family() }
+
+    #[builtin(name = "__platform_os_kind", pure)]
+    pub fn os_kind() -> i64 { platform_os_kind() }
+
+    #[builtin(name = "__platform_arch_kind", pure)]
+    pub fn arch_kind() -> i64 { platform_arch_kind() }
+
+    #[builtin(name = "__platform_caps")]
+    pub fn caps(ctx: &VmContext) -> Value { platform_caps(ctx) }
+
+    #[builtin(name = "__platform_exec_modes")]
+    pub fn exec_modes(ctx: &VmContext) -> Value { platform_exec_modes(ctx) }
+}

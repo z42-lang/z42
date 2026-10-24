@@ -7,27 +7,27 @@ use crate::vm_context::VmContext;
 #[test]
 fn os_returns_consts_value() {
     let ctx = VmContext::new();
-    let Value::Str(os) = builtin_platform_os(&ctx, &[]).unwrap()
+    let os = platform_os()
         else { panic!("expected Str"); };
-    assert_eq!(os, HOST_OS.into());
+    assert_eq!(os, HOST_OS);
     assert!(!os.is_empty(), "os string must not be empty");
 }
 
 #[test]
 fn arch_returns_consts_value() {
     let ctx = VmContext::new();
-    let Value::Str(arch) = builtin_platform_arch(&ctx, &[]).unwrap()
+    let arch = platform_arch()
         else { panic!("expected Str"); };
-    assert_eq!(arch, std::env::consts::ARCH.into());
+    assert_eq!(arch, std::env::consts::ARCH);
     assert!(!arch.is_empty());
 }
 
 #[test]
 fn family_returns_consts_value() {
     let ctx = VmContext::new();
-    let Value::Str(family) = builtin_platform_family(&ctx, &[]).unwrap()
+    let family = platform_family()
         else { panic!("expected Str"); };
-    assert_eq!(family, std::env::consts::FAMILY.into());
+    assert_eq!(family, std::env::consts::FAMILY);
 }
 
 /// fix-wasm-std-time：OS 名与 kind 必须对得上 —— wasm32 上 rustc 的 `consts::OS` 是 `""`，
@@ -35,8 +35,8 @@ fn family_returns_consts_value() {
 #[test]
 fn os_name_and_kind_agree() {
     let ctx = VmContext::new();
-    let Value::Str(os) = builtin_platform_os(&ctx, &[]).unwrap() else { panic!("expected Str"); };
-    let Value::I64(kind) = builtin_platform_os_kind(&ctx, &[]).unwrap() else { panic!("expected I64"); };
+    let os = platform_os() else { panic!("expected Str"); };
+    let kind = platform_os_kind() else { panic!("expected I64"); };
     assert!(!os.is_empty(), "Platform.OS() must never be empty");
     #[cfg(target_arch = "wasm32")]
     assert_eq!(&*os, "wasm");
@@ -49,7 +49,7 @@ fn os_name_and_kind_agree() {
 #[test]
 fn os_kind_matches_current_os() {
     let ctx = VmContext::new();
-    let Value::I64(kind) = builtin_platform_os_kind(&ctx, &[]).unwrap()
+    let kind = platform_os_kind()
         else { panic!("expected I64"); };
     // Verify the value matches the known mapping for this build target.
     #[cfg(target_os = "linux")]
@@ -74,7 +74,7 @@ fn os_kind_matches_current_os() {
 #[test]
 fn arch_kind_matches_current_arch() {
     let ctx = VmContext::new();
-    let Value::I64(kind) = builtin_platform_arch_kind(&ctx, &[]).unwrap()
+    let kind = platform_arch_kind()
         else { panic!("expected I64"); };
     #[cfg(target_arch = "x86_64")]
     assert_eq!(kind, 1);
@@ -102,7 +102,7 @@ fn str_array(v: Value) -> Vec<String> {
 #[test]
 fn caps_reports_threads_off_wasm() {
     let ctx = VmContext::new();
-    let caps = str_array(builtin_platform_caps(&ctx, &[]).unwrap());
+    let caps = str_array(platform_caps(&ctx));
     // threads = real OS-thread support, compiled in everywhere except wasm.
     #[cfg(not(target_arch = "wasm32"))]
     assert!(caps.contains(&"threads".to_string()), "non-wasm build must report threads: {caps:?}");
@@ -113,7 +113,7 @@ fn caps_reports_threads_off_wasm() {
 #[test]
 fn caps_reports_jit_when_feature_enabled() {
     let ctx = VmContext::new();
-    let caps = str_array(builtin_platform_caps(&ctx, &[]).unwrap());
+    let caps = str_array(platform_caps(&ctx));
     #[cfg(feature = "jit")]
     assert!(caps.contains(&"jit".to_string()), "jit build must report jit cap: {caps:?}");
     #[cfg(not(feature = "jit"))]
@@ -123,7 +123,7 @@ fn caps_reports_jit_when_feature_enabled() {
 #[test]
 fn exec_modes_always_has_interp_and_matches_features() {
     let ctx = VmContext::new();
-    let modes = str_array(builtin_platform_exec_modes(&ctx, &[]).unwrap());
+    let modes = str_array(platform_exec_modes(&ctx));
     assert!(modes.contains(&"interp".to_string()), "interp is always available: {modes:?}");
     #[cfg(feature = "jit")]
     assert!(modes.contains(&"jit".to_string()), "jit build lists jit mode: {modes:?}");
