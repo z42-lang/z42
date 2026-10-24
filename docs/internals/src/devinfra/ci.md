@@ -97,7 +97,8 @@ PR 的 xtask，而 xtask 的 `_root()` 取 cwd 的仓库根 = base-src（base �
 main push 取 `before...sha` 的 compare（新分支的全零 `before`、API 失败、到 compare 的 300 文件上限 ⇒ 当作非纯文档）。
 `docs-check` 的内容：ci-bootstrap 的 `xtask-only`
 模式（种子 z42c 只编出 xtask，省掉 build compiler / stdlib）+ `xtask test docs links`（相对链接 + gate stage 清单
-↔ `test-gate.md`）+ `xtask check diagcodes`（诊断码 ↔ `error-codes.md`）。读文档的门禁就这几道。
+↔ `test-gate.md`）+ `xtask check diagcodes`（诊断码 ↔ `error-codes.md`）。读文档的门禁就这几道——`xtask check` 的
+三道文档门禁（docs-api / doc-lints / doc-refs）**不在其中**，只能本地跑，见[怎么跑测试](testing.md)。
 `test-host` ×4 与 toolchain 链（`compile-toolchain` → `compile-test-assets` / `test-consume`）随之 skip；
 main push 上 `publish-nightly` 也随之不跑（纯文档本来就不影响 SDK，见下节的 `sdk` 判定）。schedule / dispatch 不走快速通道。
 
