@@ -500,6 +500,14 @@ pub mod typed {
         Ok(super::hex_str(text.as_bytes()))
     }
 
+    /// native-hash（bytes 扩展）：byte[] → MurmurHash3_x86_128 的 32 个小写 hex。等价于 z42 侧
+    /// `Murmur3.Hash128Hex(bytes)`——cache zbc 的内容哈希（写端 _writeCacheZbc / 读端配对校验）
+    /// 与 DepIdentity 的字节依赖指纹共用；消费方全在 z42 侧（Rust 只读比较、从不重算）。
+    #[builtin(name = "__mmh3_hex_bytes", pure)]
+    pub fn mmh3_hex_bytes(data: Vec<u8>) -> Result<String, BuiltinError> {
+        Ok(super::hex_str(&super::mmh3_x86_128(&data)))
+    }
+
     #[builtin(name = "__int64_parse", pure)]
     pub fn int64_parse(s: &str) -> Result<i64, BuiltinError> { parse_int(s, "Int64", i64::MIN as i128, i64::MAX as i128) }
     #[builtin(name = "__int32_parse", pure)]

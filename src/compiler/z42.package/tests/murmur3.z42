@@ -101,3 +101,22 @@ void test_source_hash_hex_stable_shape() {
     Assert.Equal(5 + 32, s.Length);
     Assert.Equal(s, ZpkgBuilder.SourceHashHex("hello"));   // 确定性
 }
+
+// native-hash(bytes) 等值对拍：HashHexOfBytes（builtin __mmh3_hex_bytes）与 Hash128Hex 逐字相等
+// ——cache zbc 内容哈希的写端（_writeCacheZbc）/ 读端校验（配对 meta.zbchash）与 DepIdentity 指纹
+// 都换到了 native，值不变 ⇒ 增量缓存零失效。
+[Test]
+void test_hash_hex_of_bytes_equals_z42_impl() {
+    Assert.Equal(_h(""), Murmur3.HashHexOfBytes(new byte[0]));
+    byte[] b1 = new byte[] { (byte)'a' };
+    Assert.Equal(_h("a"), Murmur3.HashHexOfBytes(b1));
+    byte[] b17 = new byte[17];
+    int i = 0; while (i < 17) { b17[i] = (byte)(i + 1); i = i + 1; }
+    Assert.Equal(Murmur3.Hash128Hex(b17), Murmur3.HashHexOfBytes(b17));
+    byte[] b33 = new byte[33];
+    i = 0; while (i < 33) { b33[i] = (byte)(255 - i); i = i + 1; }
+    Assert.Equal(Murmur3.Hash128Hex(b33), Murmur3.HashHexOfBytes(b33));
+    // 高位字节（UTF-8 非 ASCII 形态）
+    byte[] hi = Utf8.GetBytes("café你🎉");
+    Assert.Equal(Murmur3.Hash128Hex(hi), Murmur3.HashHexOfBytes(hi));
+}
