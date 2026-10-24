@@ -33,6 +33,37 @@ pub unsafe extern "C" fn jit_vcall(
     ic_ptr: *const VCallIC,
     caller_offset: u32, // packed code offset of the call site (jit-stack-trace)
 ) -> u8 {
+    vcall_impl(frame, ctx, dst, obj, method_ptr, method_len, args_ptr, argc, ic_ptr, caller_offset, &[])
+}
+
+/// `jit_vcall` for a method-level generic call site (`e.Accept<R, A>(...)`): `mta_ptr/len`
+/// is the site's `method_type_args`, threaded into the callee frame only when the callee
+/// runs on the interpreter — a compiled callee cannot observe it (see `jit_call_mta`).
+/// Resolution and the PIC are the same as the non-generic site: generics are erased,
+/// one `FnId` serves every instantiation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_vcall_mta(
+    frame: *mut JitFrame, ctx: *const VmContext,
+    dst: u32, obj: u32, method_ptr: *const u8, method_len: usize,
+    args_ptr: *const u32, argc: usize,
+    ic_ptr: *const VCallIC,
+    caller_offset: u32,
+    mta_ptr: *const String, mta_len: usize,
+) -> u8 {
+    let mta = std::slice::from_raw_parts(mta_ptr, mta_len);
+    vcall_impl(frame, ctx, dst, obj, method_ptr, method_len, args_ptr, argc, ic_ptr, caller_offset, mta)
+}
+
+#[inline(always)]
+#[allow(clippy::too_many_arguments)]
+unsafe fn vcall_impl(
+    frame: *mut JitFrame, ctx: *const VmContext,
+    dst: u32, obj: u32, method_ptr: *const u8, method_len: usize,
+    args_ptr: *const u32, argc: usize,
+    ic_ptr: *const VCallIC,
+    caller_offset: u32,
+    mta: &[String],
+) -> u8 {
     let rt        = super::jit_rt(ctx);
     let module    = super::jit_module(ctx);
     let frame_ref = &mut *frame;
@@ -63,8 +94,8 @@ pub unsafe extern "C" fn jit_vcall(
                 func);
             // Move `obj_val` in — this branch always returns.
             return match rt.resolve_fn_by_id_tiered(&*ctx, id) {
-                Some(entry) => invoke_entry(frame_ref, ctx, dst, entry, obj_val, arg_regs),
-                None => invoke_interp(frame_ref, ctx, dst, func, obj_val, arg_regs),
+                Some(entry) => invoke_entry(frame_ref, ctx, dst, entry, obj_val, arg_regs, mta),
+                None => invoke_interp(frame_ref, ctx, dst, func, obj_val, arg_regs, mta),
             };
         }
     }
@@ -84,21 +115,23 @@ pub unsafe extern "C" fn jit_vcall(
         // native; cold / untranslatable (interp-only opcode such as `LoadLocalAddr`) / no
         // `FnId` → interp, mirroring `jit_call`'s cross-zpkg-via-interp fallback.
         VCallTarget::Local { func, id } => match id.and_then(|id| rt.resolve_fn_by_id_tiered(&*ctx, id)) {
-            Some(entry) => invoke_entry(frame_ref, ctx, dst, entry, resolved.this, arg_regs),
-            None => invoke_interp(frame_ref, ctx, dst, func, resolved.this, arg_regs),
+            Some(entry) => invoke_entry(frame_ref, ctx, dst, entry, resolved.this, arg_regs, mta),
+            None => invoke_interp(frame_ref, ctx, dst, func, resolved.this, arg_regs, mta),
         },
     }
 }
 
 /// Run a compiled entry: receiver in reg 0, args read straight from the caller's
 /// registers (no `Vec<Value>`), one `VmFrame` push covering GC roots + stack trace.
+/// `mta` is not passed on (a compiled callee cannot read it); it only keeps a `[Native]`
+/// wrapper from folding on a generic site, as the interpreter's `try_fold` does.
 unsafe fn invoke_entry(
     frame_ref: &mut JitFrame, ctx: *const VmContext, dst: u32,
-    entry: &FnEntry, this: Value, arg_regs: &[u32],
+    entry: &FnEntry, this: Value, arg_regs: &[u32], mta: &[String],
 ) -> u8 {
     // `[Native]` extern wrapper (e.g. `string.Length`): run its builtin directly (`jit::forward`).
     if let Some(id) = entry.forward {
-        if arg_regs.len() + 1 == unsafe { (*entry.func).param_count } {
+        if mta.is_empty() && arg_regs.len() + 1 == unsafe { (*entry.func).param_count } {
             return unsafe { super::super::forward::call_forward(frame_ref, ctx, dst, entry.func, id, Some(this), arg_regs) };
         }
     }
@@ -108,21 +141,22 @@ unsafe fn invoke_entry(
 }
 
 /// Run a function on the interpreter with `this` in reg 0 and args filled from the
-/// caller's registers (same frame builder the interpreter's own vcall uses).
+/// caller's registers (same frame builder the interpreter's own vcall uses); a generic
+/// site's `mta` goes into the callee frame's `method_type_args`.
 unsafe fn invoke_interp(
     frame_ref: &mut JitFrame, ctx: *const VmContext, dst: u32,
-    func: &Function, this: Value, arg_regs: &[u32],
+    func: &Function, this: Value, arg_regs: &[u32], mta: &[String],
 ) -> u8 {
     let module  = super::jit_module(ctx);
     let vm_ctx  = vm_ctx_ref(ctx);
-    // A cold `[Native]` wrapper folds too (`interp::forward`).
-    if arg_regs.len() + 1 == func.param_count {
+    // A cold `[Native]` wrapper folds too (`interp::forward`); not on a generic site.
+    if mta.is_empty() && arg_regs.len() + 1 == func.param_count {
         if let Some(id) = crate::interp::forward::forward_of(vm_ctx, module, func) {
             return unsafe { super::super::forward::call_forward(frame_ref, ctx, dst, func, id, Some(this), arg_regs) };
         }
     }
     match crate::interp::exec_function_from_receiver_regs(
-        vm_ctx, module, func, &this, &frame_ref.regs, arg_regs, &[])
+        vm_ctx, module, func, &this, &frame_ref.regs, arg_regs, mta)
     {
         Ok(crate::interp::ExecOutcome::Returned(ret)) => {
             frame_ref.regs[dst as usize] = ret.unwrap_or(Value::Null); 0
