@@ -18,24 +18,44 @@ using Z42.Project;   // BuildLayout / ManifestLoader（工程产物布局的唯�
 // workload libs (kind=lib)：各自建进自己的 `artifacts/build/toolchain/workload/<n>/dist`。
 // **不再落进 stdlib flat** ——那会让它们随整目录被打进 SDK 的 `libs/`。
 // launcher 编译期靠 path 依赖解析它们，运行期靠 ExeDeps 拷进 `programs/launcher/`。
-// 🔴 **只有三个** —— desktop 没有 appbuilder（drop-dead-desktop-appbuilder）：
-// 桌面复用宿主 runtime，不需要 export；那个包里唯一的实质代码是 apphost patcher 的**第二份
-// 副本**，而在跑的是 z42b 内联的那份（`builder_apphost.z42`）⇒ 删掉，消掉一处静默漂移源。
+// 🔅 清单 = 目录约定：`src/toolchain/workload/<n>/appbuilder/z42.workload.<n>.z42.toml`
+// 存在的才算 workload lib。desktop 没有 appbuilder（drop-dead-desktop-appbuilder：桌面复用宿主
+// runtime，不需要 export）⇒ 目录不在列；新增 workload = 建 appbuilder 目录，这里自动跟上。
 string[] _workloadTomls() {
-    string[] xs = new string[3];
-    xs[0] = "src/toolchain/workload/ios/appbuilder/z42.workload.ios.z42.toml";
-    xs[1] = "src/toolchain/workload/android/appbuilder/z42.workload.android.z42.toml";
-    xs[2] = "src/toolchain/workload/wasm/appbuilder/z42.workload.wasm.z42.toml";
-    return xs;
+    string root = _root();
+    string[] dirs = _enumDirsSorted(Path.Join(root, "src/toolchain/workload"));
+    string[] xs = new string[dirs.Length];
+    int n = 0;
+    int i = 0;
+    while (i < dirs.Length) {
+        string rel = "src/toolchain/workload/" + dirs[i] + "/appbuilder/z42.workload." + dirs[i] + ".z42.toml";
+        i = i + 1;
+        if (File.Exists(Path.Join(root, rel))) { xs[n] = rel; n = n + 1; }
+    }
+    string[] tight = new string[n];
+    int k = 0;
+    while (k < n) { tight[k] = xs[k]; k = k + 1; }
+    return tight;
 }
 // apphost components (kind=exe, apphost=true): published to their own publish_dir.
+// 清单 = packages.toml `[component.*]` 里 kind = "apphost" 且工程在 src/toolchain/ 下的（z42c
+// 的工程在 src/compiler/ ⇒ 天然不在列，它由 `build compiler` 自建）：新增工具链程序只需在
+// packages.toml 登记组件，这里自动跟上。顺序 = packages.toml 文件序（launcher → z42b → z42d → z42i）。
 string[] _toolchainApphostTomls() {
-    string[] xs = new string[4];
-    xs[0] = "src/toolchain/launcher/core/z42.launcher.z42.toml";
-    xs[1] = _z42bToml();
-    xs[2] = "src/toolchain/devtools/core/z42.devtools.z42.toml";
-    xs[3] = "src/toolchain/interactive/core/z42.interactive.z42.toml";
-    return xs;
+    _PkgComponent[] comps = _pkgcfgLoad(_root()).components;
+    string[] xs = new string[comps.Length];
+    int n = 0;
+    int i = 0;
+    while (i < comps.Length) {
+        if (comps[i].kind == "apphost" && comps[i].project.StartsWith("src/toolchain/")) {
+            xs[n] = comps[i].project; n = n + 1;
+        }
+        i = i + 1;
+    }
+    string[] tight = new string[n];
+    int k = 0;
+    while (k < n) { tight[k] = xs[k]; k = k + 1; }
+    return tight;
 }
 
 // ── toml-driven path readers (SoT: never hardcode toolchain paths) ───────────
@@ -123,8 +143,9 @@ int _ensureToolchainDeps(string root) {
     return 0;
 }
 
-// z42b（z42.builder.zpkg）的 toml —— 单点常量，避免各站点各写一遍字面路径。
-string _z42bToml() { return "src/toolchain/builder/core/z42.builder.z42.toml"; }
+// z42b（z42.builder.zpkg）的 toml —— packages.toml `[component.z42b].project`（单一真相源），
+// 避免各站点各写一遍字面路径；挪 z42b 的工程位置只改 packages.toml。
+string _z42bToml() { return _pkgcfgFindComponent(_pkgcfgLoad(_root()), "z42b").project; }
 
 // 用**调用方给定**的 (vm, driver, libs) 编 z42b 并校验产物。
 //
@@ -229,8 +250,8 @@ int _assertPayloadComplete(string root, string tomlPath) {
 }
 
 // z42c 驱动自己的 apphost（`bin/z42c` + `programs/z42c` payload）。z42c 的 zpkg 由 `build compiler`
-// 编，这里只发布；与其余 apphost 同一个 stub、同一个 z42b。
-string _z42cDriverToml() { return "src/compiler/z42c.driver/z42c.driver.z42.toml"; }
+// 编，这里只发布；与其余 apphost 同一个 stub、同一个 z42b。路径 = packages.toml `[component.z42c].project`。
+string _z42cDriverToml() { return _pkgcfgFindComponent(_pkgcfgLoad(_root()), "z42c").project; }
 
 // Publish the toolchain apphosts (launcher / z42b / z42d / z42i + z42c) → each toml's
 // publish_dir. Auto-builds workloads first (launcher depends on them, User Q1). z42b
