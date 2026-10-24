@@ -1,0 +1,45 @@
+# ANCHOR: run
+$ cd greet
+$ z42 run
+你好，世界！
+# ANCHOR_END: run
+# ANCHOR: plain
+$ cd ../plain
+$ z42 publish
+z42b publish: ./z42.toml is not configured to publish a desktop apphost — add `apphost = true` under [platform.desktop]
+[exit: 2]
+# ANCHOR_END: plain
+# ANCHOR: toml
+$ cd ../greet
+$ cat z42.toml
+[project]
+name    = "greet"
+version = "0.1.0"
+kind    = "exe"
+
+[sources]
+include = ["src/**/*.z42"]
+
+[platform.desktop]
+apphost = true
+# ANCHOR_END: toml
+# ANCHOR: publish
+$ z42 publish
+z42b publish: desktop apphost not available (the apphost ships with the desktop workload).
+       run: z42 workload install desktop
+       (publish via `z42 publish` so the launcher resolves the installed workload apphost;
+        or declare `[build] hooks` with a ProjectHooks that registers an apphost-stub output.)
+[exit: 1]
+# ANCHOR_END: publish
+# ANCHOR: list
+$ z42 workload list
+(no workloads installed)
+# ANCHOR_END: list
+# ANCHOR: export
+$ z42 export --rid browser-wasm
+z42 export wasm → ./greet-wasm
+...
+$ ls greet-wasm
+index.html
+index.js
+# ANCHOR_END: export
