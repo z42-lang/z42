@@ -53,6 +53,7 @@ cache -> ./artifacts/debug/.cache (1 files)
 | `--workspace` | 按拓扑序编译工作区全部成员 |
 | `--output-dir <dir>` | 产物（zpkg / zsym / 侧车）写到 `<dir>`。单工程：generator 生成的源码写到 `<dir>/generated/<name>`，**不写增量缓存**（该模式本就不读缓存，写了只会在工程目录旁留下残留）。与 `--workspace` 连用时全部成员共用它，成员一律 packed，缓存按成员落 `<dir>/.cache/<name>`（见 [z42.toml · pack](z42-toml.md)） |
 | `--no-incremental` | 全量重建，忽略构建缓存 |
+| `--internal-of <包名>` | internal 授权：把 `<包名>` 当作宿主、本包以**同包待遇**编译——宿主的 internal 成员对本包源码可见（与测试单元看父包 internal 同一机制）。正常由编排侧传入：lib 的 `[plugins.export]` 条目写 `internal = true` 时，z42b 代建该插件自动带上；手写它等于替宿主做了授权，见 [z42.toml · `[plugins.export]`](z42-toml.md) 与[插件](compile-time-extensions.md) |
 | `--opt <name>` | 开启一项优化（可重复） |
 | `--no-opt <name>` | 关闭一项优化（可重复） |
 | `--jobs <n>` | 包内文件级并行编译度，默认 `min(4, CPU 核数)`；`1` = 串行。产物与并行度无关、逐字节一致 |

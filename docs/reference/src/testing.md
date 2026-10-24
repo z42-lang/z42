@@ -1,7 +1,7 @@
 # 测试
 
 > 代码：`src/libraries/z42.harness/src/`、
-> `src/libraries/z42.core/src/Assert.z42`、`src/libraries/z42.harness/src/TestAttributes.z42`、`src/compiler/z42c.semantics/src/Testing/TestAttrEnforcer.z42`、
+> `src/libraries/z42.core/src/Assert.z42`、`src/libraries/z42.harness/src/TestAttributes.z42`、`src/compiler/z42c.symbols/src/Symbols/TestAttrEnforcer.z42`、
 > `src/toolchain/builder/core/builder_test.z42`
 >
 > 测试文件放在哪、`[tests]` / `[[test]]` / `[benches]` 怎么配、`harness = false` 是什么，

@@ -16,7 +16,7 @@ dictionaries 持各种 scope 信息 —— 重构为多态 `Binder` 子类链。
 
 ## 为什么不继续用 TypeEnv
 
-当前 `TypeEnv`（`src/compiler/z42c.semantics/src/Types/TypeEnv.z42`）
+当前 `TypeEnv`（`src/compiler/z42c.symbols/src/Types/TypeEnv.z42`）
 聚合了所有 scope 的所有 slot 类型：
 
 - 父链：`Parent`

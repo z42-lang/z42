@@ -19,7 +19,7 @@ b.x = 99;       // 只改 b
 
 ## 布局：字节精确
 
-编译器 `StructLayout`（`z42c.semantics`）为每个 struct 类型算**字节扁平布局**：每个直接字段的
+编译器 `StructLayout`（`z42c.symbols`）为每个 struct 类型算**字节扁平布局**：每个直接字段的
 `(byte_offset, size, kind)`、类型总 `size/align`，以及**带种类的引用叶子表**（引用位图）。
 
 - 基元字节精确：`i8/u8/bool=1`、`i16/u16=2`、`i32/u32/f32/char=4`、`i64/u64/f64=8`（`char`=4B
@@ -1024,8 +1024,8 @@ InstNeedsOwnBody(inst) = Layouts.InstDiffersFromDef(inst)      // ① 布局不�
 
 **解析器**：`GBox<int>.Count` 须可解析（否则 `E0202`）。`<类型列表>` 后紧跟 `.` ⇒ 左边是**类型引用**，
 无歧义（二元 `<` 的 `>` 之后不可能紧跟 `.`，那样缺操作数）。实参挂到左边的 `IdentExpr`
-（`IdentExpr.TypeArgs`）而**不新造 AST 节点** —— 每加一个节点类型，每个 walker 都要补分支，
-漏一个就是静默跳过。
+（`IdentExpr.TypeArgs`）而**不新造 AST 节点** —— 每加一个节点类型，语法树的每个 visitor 都要补一个
+`Visit` 方法（编译器会逼着补齐，但改动面是全量摊派的）。
 
 用例：`src/tests/generics/generic_static_per_instantiation.z42`（三格 + **三条阴性对照**：
 非泛型静态字段、`a < b` 仍是比较、实例字段仍每对象一份）。
