@@ -143,9 +143,9 @@ int _testPackagesInstall() {
     // ①「契约包在 compiler-libs/ 里」随该目录一并删除，而 ②「它**不在** libs/」**依然成立、
     // 而且现在更重要** —— 删机制时顺手把这半也删掉，正是本仓反复吃过的「迁移带走一道活门」。
     // 注释原话：只测①不测②，这门就管不住「哪天有人图省事把它塞进 libs/ 了事」。
-    string[] domain = new string[]{ "z42c.core", "z42c.syntax", "z42c.analyzers", "z42c.optimization", "z42c.semantics", "z42c.generators", "z42c.emission", "z42c.pipeline",
-                                   "z42c.driver", "z42.package", "z42.project", "z42.build",
-                                   "z42.scripting" };
+    // 清单读 `_compilerMembers`（compiler workspace 的 default_members）：拆出新编译器包时本门自动跟上，
+    // 不留「名单在自检里手抄一份」的漂移面。
+    string[] domain = _compilerMembers(root);
     int di = 0;
     while (di < domain.Length) {
         _stgAssert(domain[di] + " NOT in shipped libs/",
