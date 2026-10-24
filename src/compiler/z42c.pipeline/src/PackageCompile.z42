@@ -156,55 +156,25 @@ public sealed class CompileArtifacts {
     }
 }
 
+// ② 依赖解析的产物（z42 函数只能返回一个值；Compile 相位级拆分的载体）。
+// Scan == null = 无依赖目录（单文件 / 裸 emit 路径）——此时 Imported/DepIndex 同为 null，
+// 下游 ⑦ 的已知 ns 校验据此整条跳过。
+public sealed class DepResolution {
+    public DepScanResult Scan;
+    public ImportedSymbols Imported;
+    public DependencyIndex DepIndex;
+}
+
 public static class PackageCompile {
 
     // 纯核心：② 依赖解析 → ③④ 前置线（FrontLine）→ ⑤ 包级编译 → ⑥⑦ 诊断收口 + 错误门 → ⑧ 组装。零落盘 / 零 Console / 零 ExitCode。
     public static CompileArtifacts Compile(CompileInputs inp) {
-        // ── ② 跨包依赖解析（libsDirs 扫描 → DepIndex + nsMap + usings 聚合 → ImportedSymbols）──
+        // ── ② 跨包依赖解析（`_resolveDeps`：libsDirs 扫描 → DepIndex + nsMap + usings 聚合 → ImportedSymbols）──
         // perf ②：inp.CachedScan 非 null → 跳过 DepScan.ScanDirs，直接复用（REPL 每轮省 ~98%）。
-        DepScanResult scan = null;
-        ImportedSymbols imported = null;
-        DependencyIndex depIndex = null;
-        if (inp.CachedScan != null) {
-            scan = inp.CachedScan;                                    // 复用（scan-provider）
-        } else if (inp.LibsDirsN > 0) {
-            scan = DepScan.ScanDirs(inp.LibsDirs, inp.LibsDirsN, inp.Name, inp.DeclaredDeps, inp.DepCount, inp.Tier);   // 排除 self-zpkg
-        }
-        if (scan != null) {
-            depIndex = scan.Index;
-            // 全工程 usings 聚合（首现序去重；镜像 C# LoadExternalImported 跨文件聚合）
-            string[] allUsings = new string[8];
-            int auc = 0;
-            int ui = 0;
-            while (ui < inp.SrcCount) {
-                string[] us = IrDump.ActivationNsOf(inp.Cus[ui]);   // F1：已 parse 的 CU 在手；using-csharp-rules：含外围链
-                int j = 0;
-                while (j < us.Length) {
-                    bool seen = false;
-                    int k = 0;
-                    while (k < auc) { if (allUsings[k] == us[j]) { seen = true; } k = k + 1; }
-                    if (!seen) {
-                        if (auc == allUsings.Length) {
-                            string[] b = new string[allUsings.Length * 2];
-                            int m2 = 0; while (m2 < auc) { b[m2] = allUsings[m2]; m2 = m2 + 1; }
-                            allUsings = b;
-                        }
-                        allUsings[auc] = us[j]; auc = auc + 1;
-                    }
-                    j = j + 1;
-                }
-                ui = ui + 1;
-            }
-            // z42b-owns-test-targets：inp.ParentPkg 非空 → 本次是该包的测试/bench 目标，
-            // 加载父包时按同包待遇（其 internal 可见）。普通包为 "" → 行为与此前逐字节一致。
-            imported = ImportedSymbolLoader.Load(scan.Exported, scan.ExportedPkg, scan.ExportedCount,
-                                                 allUsings, auc, inp.ParentPkg, inp.DeclaredDeps, inp.DepCount);
-            // fix-crosspkg-ns-reachability：依赖契约搭车进符号表（由 `SymbolCollector._mergeImports` 并入）。
-            imported.SelfPkg = inp.Name;
-            imported.EnforceDeclaredDeps = inp.EnforceDeclaredDeps;
-            int dd = 0;
-            while (dd < inp.DepCount) { imported.DeclaredDeps.Put(inp.DeclaredDeps[dd], "1"); dd = dd + 1; }
-        }
+        DepResolution deps = PackageCompile._resolveDeps(inp);
+        DepScanResult scan = deps.Scan;
+        ImportedSymbols imported = deps.Imported;
+        DependencyIndex depIndex = deps.DepIndex;
 
         // ── ③④ 前置线（generator → analyzer）：只动源码层，产出 union CU + 暂存诊断（见 FrontLine.z42）──
         // 无 generator / analyzer 的包（z42c 自建 / REPL / 绝大多数包）两段都不进 ⇒ 逐字节不动。
@@ -225,27 +195,8 @@ public static class PackageCompile {
         CompiledModuleZ[] cms = IrDump.BuildPackageCusGated(texts, files, srcCount, cus,
                                                             depIndex, imported, inp.IsRelease, cachedMods, optSet,
                                                             fl.HasErrors());
-        // cached 的 UsedDepNs 是 typecheck 产物（本轮跳过）→ 从 meta 回填（源不变即不变）。
-        // 诊断同理（warnings-survive-cache）：`CompileCuTask.Run` 的 cached 分支把 `DiagMsgs`
-        // 置空，此前无人回填 ⇒ **警告只在冷构建那一次可见**（实测 W0700：第 ① 次打印，第 ②
-        // 次起 `cached: 1/1` 彻底消失、源码一字未改）。与 E0436 那条（#879
-        // fix-incremental-file-scope-diagnostics）是**同一个毛病的第三例**。
-        if (cachedMods != null && inp.CachedMetas != null) {
-            int ci = 0;
-            while (ci < inp.SrcCount) {
-                if (cachedMods[ci] != null && inp.CachedMetas[ci] != null) {
-                    cms[ci].UsedDepNs = inp.CachedMetas[ci].UsedDepNs;
-                    cms[ci].UsedDepNsCount = inp.CachedMetas[ci].UsedDepNsCount;
-                    if (inp.CachedMetas[ci].UsedNs != null) { cms[ci].UsedNs = inp.CachedMetas[ci].UsedNs; }   // using-csharp-rules 2.9
-                    cms[ci].DiagMsgs = inp.CachedMetas[ci].Diags;
-                    cms[ci].DiagCount = inp.CachedMetas[ci].DiagCount;
-                    // ErrorCount 不回填：ErrorCount>0 的编译**根本不写 cache** ⇒ 存下来的
-                    // 只会是 warning。若哪天这个前提变了，这里必须跟着改（否则 cached
-                    // 命中会把错误降级成警告 —— 比丢警告坏得多）。
-                }
-                ci = ci + 1;
-            }
-        }
+        // cached meta 回填（warnings-survive-cache / UsedDepNs / UsedNs，叙事见 `_backfillCached` 头注）。
+        PackageCompile._backfillCached(cms, cachedMods, inp);
         // per-CU typecheck 诊断快照 —— **必须在下面两层之前**取：`EnforceFileScopeAll`（E0436）
         // 与 `_runAnalyzers` 每次构建都重新发（analyzer 跑在 AST 上，cached CU 的 AST 是在的），
         // 把它们也存进 meta 就会在 cached 命中时**重复打印**。
@@ -263,127 +214,19 @@ public static class PackageCompile {
         // 同口径：generator 路径下 `cus`/`files`/`srcCount` 是三者一起被替换的（见上方 ro.Cus 那一支）。
         IrDump.EnforceFileScopeAll(cus, files, cms, srcCount);
 
-        // PR4a：generator 引擎的护栏诊断（越界 Replace/Augment，E0448）合入首模块 → Error 增 ErrorCount 拦编译。
-        if (genDiags.Count() > 0 && cms.Length > 0) { PackageCompile._mergeDiags(cms[0], genDiags); }
-
-        // add-module-init-hook：**exe 包禁用 `[ModuleInit]`**（E0487）。判据是 manifest 的 kind，
-        // 只有这一层拿得到（semantics 看不到）⇒ 挂在这里，而**所有**编译路径都经过 PackageCompile。
-        // 诊断带自己的 Span，`_mergeDiags` 会按 file(line,col) 格式化，位置精确指向那处标注。
-        // 🔴 扫 `cus` 而不是 `inp.Cus`：generator（`[Forward]` 等）会把合成 CU 并进来，
-        // 此时 `cus` 是 union、长度 > `inp.Cus` ⇒ 按 srcCount 读 inp.Cus 会越界
-        // （实测：`forward_tiers_cross_pkg` 的 main 构建直接挂）。编译用的是哪个数组，
-        // 校验就扫哪个。
-        if (inp.Kind == "exe" && cms.Length > 0) {
-            DiagnosticBag exeDiags = new DiagnosticBag();
-            ModuleInitScan.CheckExePackage(cus, srcCount, exeDiags);
-            if (exeDiags.Count() > 0) { PackageCompile._mergeDiags(cms[0], exeDiags); }
-        }
-
-        // ── ⑥ 并入前置线暂存的 analyzer 诊断 + 零发现判红（E0496）──
-        // gated on 非空 → z42c 自建无 [plugins] → 该分支不进 → 逐字节不动。analyzer 诊断合入 per-file
-        // Cms（默认 Warning 级不增 ErrorCount → 不 fail 编译，但对调用方可见）。放在错误门**前**，让
-        // analyzer 报的 Error 级也能拦编译。
-        if (inp.AnalyzerZpkgCount > 0 && fl.HandlersLoadable) {
-            int ab = 0;
-            while (ab < fl.AnalyzerDiags.Length) {
-                if (fl.AnalyzerDiags[ab] != null && ab < cms.Length) { PackageCompile._mergeDiags(cms[ab], fl.AnalyzerDiags[ab]); }
-                ab = ab + 1;
-            }
-            int externHandlers = fl.ExternHandlers;
-            // 🔴 **零发现此前是静默空转**：声明的 zpkg 加载成功、里面一个 `: Analyzer` /
-            // `: Generator` / `: ModuleGenerator` 都没有 ⇒ 两个 loader 各返回空数组 ⇒ 提前 return
-            // ⇒ **编译退出码 0、零诊断**，用户的扩展干脆不跑，而他有充分理由以为跑了。
-            // （实测：把一个零 handler 的普通库按名挂进 `[plugins]` → 退出码 0、一句话都没有。）
-            // 两个成因都落在这里：挂错了包；或 handler 由**另一代编译器**编出、契约接口对不上
-            // ⇒ `as Generator` 全部返回 null ⇒ 同样是零发现（格式代差那条已由 strict-pin 在加载
-            // 时拦下、落 E0493，此处盖的是格式相同而接口形状不同的那半）。
-            if (externHandlers == 0 && cms.Length > 0) {
-                DiagnosticBag nbag = new DiagnosticBag();
-                nbag.Error(DiagnosticCodes.HandlerZpkgNoHandlers, PackageCompile._noHandlersMessage(inp),
-                           new Span(0, 0, 1, 1, inp.AnalyzerZpkgs[0]));
-                PackageCompile._mergeDiags(cms[0], nbag);
-            }
-        }
+        // 诊断收口三源合入 + 零发现判红（gen 护栏 E0448 / exe ModuleInit E0487 / analyzer ⑥ + E0496，
+        // 叙事见 `_mergePhaseDiags` 头注）。
+        PackageCompile._mergePhaseDiags(cus, cms, srcCount, inp, fl, genDiags);
 
         // PR4d：generation 增长了 srcCount/cus/files/cms（union 含 Augment 合并的 synthetic partial 碎片
         // 与 AddSource 新 CU）。**assembly 必须用 union count `srcCount`、而非 `inp.SrcCount`**——否则生成
-        // 的 module（索引 ≥ inp.SrcCount）被截断出 zpkg：AddSource 新类运行期无 TypeDesc（Activator 报 no
-        // runtime handle）、Augment override 所在 partial 碎片模块丢失（vtable 无覆盖 → 调默认）。PR4a/4c
-        // 的引擎单测走独立 CollectAll+TypeChecker harness、从不经本 assembly，故此截断此前未被发现，PR4d 的
-        // VM 执行 golden 首次触发。generated CU 无源 hash → 占位；z42c 自建无 generator → srcCount==inp.SrcCount
-        // → hashes==inp.SrcHashes、下面全部退化为原路径 → 逐字节不动。
-        string[] hashes = inp.SrcHashes;
-        if (srcCount != inp.SrcCount) {
-            hashes = new string[srcCount];
-            int hi = 0;
-            while (hi < srcCount) { hashes[hi] = hi < inp.SrcCount ? inp.SrcHashes[hi] : "GENERATED"; hi = hi + 1; }
-        }
+        // 的 module（索引 ≥ inp.SrcCount）被截断出 zpkg（叙事随 `_assembleZpkg` 头注）。
 
-        // ── ⑦ `using` 指向不存在的命名空间（E0494）────────────────────────────────────────
-        // 🔴 此前**零诊断**：`using Z42.Totally.Bogus;` 编译通过。usings 的唯一去向是
-        // `ImportedSymbolLoader.Load` 的**激活过滤**——名字对不上任何已知 ns，就只是没激活任何东西，
-        // 与「写了个没用到的 using」不可区分。于是拼错命名空间得到的不是「没有这个命名空间」，
-        // 而是后面一堆**位置在别处**的 `E0401 undefined` / `E0443 undefined type`。
-        // 与 `_enforceFileScope`（E0436，「用了却没 using」）互为反向：那条查漏，这条查错。
-        //
-        // 已知 ns = 依赖 zpkg 的 nsMap ∪ 本包各 CU 自己的 ns（含 generator 产出的 CU）。
-        // **父命名空间也算已知**：`using Std;` 合法，即便注册的只有 `Std.IO` / `Std.Text`
-        // —— 判据是「存在某个已知 ns 以 `<ns>.` 开头」。
-        // ⚠️ `scan == null`（无依赖目录：单文件 / 裸 emit 路径）时**整条跳过** —— 那时已知集为空，
-        // 一开就是全量误报。
-        if (scan != null) {
-            int knownCap = scan.NsCount + srcCount;
-            string[] knownNs = new string[knownCap];
-            int knownN = 0;
-            int kn = 0;
-            while (kn < scan.NsCount) { knownNs[knownN] = scan.NsNames[kn]; knownN = knownN + 1; kn = kn + 1; }
-            int kc = 0;
-            while (kc < srcCount) {
-                if (cus[kc] != null && cus[kc].HasNamespace) { knownNs[knownN] = cus[kc].Namespace; knownN = knownN + 1; }
-                kc = kc + 1;
-            }
-            int ci2 = 0;
-            while (ci2 < srcCount) {
-                CompilationUnit ucu = cus[ci2];
-                if (ucu != null) {
-                    int ud = 0;
-                    while (ud < ucu.DeclCount) {
-                        if (ucu.Decls[ud] is UsingDecl) {
-                            UsingDecl uz = ucu.Decls[ud] as UsingDecl;
-                            if (!PackageCompile._usingAcceptable(uz.Name, knownNs, knownN)) {
-                                DiagnosticBag ubag = new DiagnosticBag();
-                                // add-sdk-libs：它若在某个**未声明**的 SDK 库里，直接点名该怎么声明（SDK 库按名声明才可见）。
-                                string sdkPkg = SdkLibs.HiddenProviderOf(uz.Name, inp.LibsDirs, inp.LibsDirsN, inp.Tier);
-                                string fix = sdkPkg.Length > 0
-                                    ? "；它由 SDK 库 `" + sdkPkg + "` 提供 —— SDK 库须在 [dependencies] 按名声明才可见：\"" + sdkPkg + "\" = \"*\""
-                                    : "；检查拼写，或补上提供它的 [dependencies]";
-                                ubag.Error(DiagnosticCodes.UnknownNamespace, "命名空间 `" + uz.Name + "` 不存在（依赖的包里没有它，本包也没有声明它）"
-                                    + fix, uz.Span);
-                                PackageCompile._mergeDiags(cms[ci2], ubag);
-                            }
-                        }
-                        ud = ud + 1;
-                    }
-                }
-                ci2 = ci2 + 1;
-            }
-        }
+        // ── ⑦ `using` 指向不存在的命名空间（E0494，`_checkUsingNamespaces`）──
+        PackageCompile._checkUsingNamespaces(cus, cms, srcCount, scan, inp);
 
-        // 插件工程：按实现的契约推导能力位（写进 zpkg 头）；一类都没有 → E0505。只在此前无错时判——
-        // 有错的编译跳过了代码生成，类描述不全，判出来的「没有契约」是假的。
-        int pluginCaps = 0;
-        if (inp.Kind == "plugin" && cms.Length > 0 && PackageCompile._errorCount(cms, srcCount) == 0) {
-            IrModule[] capMods = new IrModule[srcCount];
-            int cmi = 0;
-            while (cmi < srcCount) { capMods[cmi] = cms[cmi].Module; cmi = cmi + 1; }
-            pluginCaps = PluginCapsScan.FromModules(capMods, srcCount);
-            if (pluginCaps == 0) {
-                DiagnosticBag pbag = new DiagnosticBag();
-                pbag.Error(DiagnosticCodes.PluginNoContract, PluginCapsScan.NoContractMessage(inp.Name),
-                           new Span(0, 0, 1, 1, files[0]));
-                PackageCompile._mergeDiags(cms[0], pbag);
-            }
-        }
+        // 插件工程能力位推导（E0505，`_derivePluginCaps`）。
+        int pluginCaps = PackageCompile._derivePluginCaps(inp, cms, srcCount, files);
 
         // 诊断门（聚合）：任一文件有错 → 不组装，携 Cms 返回供调用方逐文件呈现。
         int totalErr = PackageCompile._errorCount(cms, srcCount);
@@ -394,63 +237,8 @@ public static class PackageCompile {
             return errArt;
         }
 
-        // ── ⑧ 组装：ZbcFileZ[] → BuildDependencyMap → BuildPackedD → ZpkgFileZ ──
-        // encode-ctorless-objnew：装配是本包**全部** IrModule 第一次同时在手的时刻（含增量 cached），
-        // 也是 `ObjNew.CtorKnown` 唯一算得准的地方——同包其它文件的构造器到这时才都在手上。
-        // 见 `CtorKnownFixup` 的文件头注释。
-        IrModule[] irms = new IrModule[srcCount];
-        int ci = 0;
-        while (ci < srcCount) { irms[ci] = cms[ci].Module; ci = ci + 1; }
-        CtorKnownFixup.Apply(irms, srcCount, depIndex);
-
-        bool isExe = inp.Kind == "exe";
-        ZbcFileZ[] mods = new ZbcFileZ[srcCount];
-        int i = 0;
-        while (i < srcCount) {
-            CompiledModuleZ cm = cms[i];
-            IrModule irm = cm.Module;
-            string rel = files[i];   // SourceFile = 发现到的完整路径原样（generated CU 用其合成文件名）
-            string[] exports = new string[irm.FuncCount];
-            int e = 0;
-            while (e < irm.FuncCount) { exports[e] = irm.Functions[e].Name; e = e + 1; }
-            string modNs = cm.Namespace;
-            if (modNs == "") { modNs = "main"; }   // no-ns 单元 ns="main"（C# build 字节实证）
-            mods[i] = new ZbcFileZ(rel, hashes[i], modNs, exports, irm.FuncCount, irm);
-            mods[i].Usings = cm.Usings;       mods[i].UsingCount = cm.UsingCount;
-            mods[i].UsedDepNs = cm.UsedDepNs; mods[i].UsedDepNsCount = cm.UsedDepNsCount;
-            i = i + 1;
-        }
-        // TSIG：BuildPackageCus 已产 per-file Exported（PS-1）
-        ExportedModuleZ[] exported = new ExportedModuleZ[srcCount];
-        i = 0;
-        while (i < srcCount) { exported[i] = cms[i].Exported; i = i + 1; }
-        // DEPS 条目：每个符号实际来自的包（规则与来龙去脉见 ZpkgDeps.z42）。
-        ZpkgDepList depList = new ZpkgDepList(new ZpkgDepZ[0], 0);
-        if (scan != null) {
-            depList = ZpkgDeps.Build(mods, srcCount, scan.NsNames, scan.NsFiles, scan.NsCount, inp.Name, inp.ParentPkg == null ? "" : inp.ParentPkg);
-        }
-        // fix-crosspkg-ns-split-deps（refine-interop-native-separation）：命名空间跨包时
-        // （如 Std.IO 分布在 z42.core + z42.io），BuildDependencyMap 的 ns→file 是 first-wins，
-        // 只记第一个提供包（prelude 优先 = core），漏掉第二个（z42.io）→ 运行时惰性加载拿不到
-        // z42.io 作候选 → Std.IO.Process/Stdio undefined。补救：把 toml 声明的依赖并入 DEPS，
-        // 确保每个声明依赖都成为运行时候选（lazy_loader 按 dep.file 发现候选、读候选自身导出 ns
-        // 匹配，故 Namespaces 字段惰性路径不读；填空即可、确定性）。
-        depList = PackageCompile._unionDeclaredDeps(depList, inp.DeclaredDeps, inp.DepCount, inp.Name + ".zpkg");
-        ZpkgFileZ z = ZpkgBuilder.BuildPackedD(inp.Name, inp.Version, isExe, inp.HasEntry, inp.Entry,
-                                               mods, srcCount, depList.Items, depList.Count);
-        z.Exported = exported;
-        z.ExportedCount = srcCount;
-        z.PluginCaps = pluginCaps; if (inp.CarriedCount > 0) { z.Carried = inp.CarriedPlugins; z.CarriedCount = inp.CarriedCount; }   // 能力位 + 1c PLGS（count 0 不写段）
-        string entryStatus = "ok";
-        if (isExe) {
-            if (z.Entry == "<ambiguous>") { entryStatus = "ambiguous"; }
-            else if (z.Entry == "") { entryStatus = "missing"; }
-        }
-        CompileArtifacts okArt = new CompileArtifacts(z, mods, srcCount, cms, srcCount, 0, entryStatus);
-        okArt.GenFiles = fl.GenFiles; okArt.GenTexts = fl.GenTexts; okArt.GenCount = fl.GenCount;
-        okArt.CuDiags = snap;
-        okArt.Scan = scan;   // perf ②：回显 scan 供调用方缓存 + 后续 ExtendWithPackage
-        return okArt;
+        // ── ⑧ 组装（`_assembleZpkg`：ZbcFileZ[] → BuildDependencyMap → BuildPackedD → ZpkgFileZ）──
+        return PackageCompile._assembleZpkg(inp, cms, srcCount, files, scan, depIndex, pluginCaps, fl, snap);
     }
 
 
@@ -533,5 +321,271 @@ public static class PackageCompile {
         int i = 0;
         while (i < srcCount) { if (cms[i].ErrorCount > 0) { total = total + cms[i].ErrorCount; } i = i + 1; }
         return total;
+    }
+
+    // ── ② 跨包依赖解析（libsDirs 扫描 → DepIndex + nsMap + usings 聚合 → ImportedSymbols）──
+    private static DepResolution _resolveDeps(CompileInputs inp) {
+        DepResolution o = new DepResolution();
+        if (inp.CachedScan != null) {
+            o.Scan = inp.CachedScan;                                    // 复用（scan-provider）
+        } else if (inp.LibsDirsN > 0) {
+            o.Scan = DepScan.ScanDirs(inp.LibsDirs, inp.LibsDirsN, inp.Name, inp.DeclaredDeps, inp.DepCount, inp.Tier);   // 排除 self-zpkg
+        }
+        if (o.Scan != null) {
+            o.DepIndex = o.Scan.Index;
+            // 全工程 usings 聚合（首现序去重；镜像 C# LoadExternalImported 跨文件聚合）
+            string[] allUsings = new string[8];
+            int auc = 0;
+            int ui = 0;
+            while (ui < inp.SrcCount) {
+                string[] us = IrDump.ActivationNsOf(inp.Cus[ui]);   // F1：已 parse 的 CU 在手；using-csharp-rules：含外围链
+                int j = 0;
+                while (j < us.Length) {
+                    bool seen = false;
+                    int k = 0;
+                    while (k < auc) { if (allUsings[k] == us[j]) { seen = true; } k = k + 1; }
+                    if (!seen) {
+                        if (auc == allUsings.Length) {
+                            string[] b = new string[allUsings.Length * 2];
+                            int m2 = 0; while (m2 < auc) { b[m2] = allUsings[m2]; m2 = m2 + 1; }
+                            allUsings = b;
+                        }
+                        allUsings[auc] = us[j]; auc = auc + 1;
+                    }
+                    j = j + 1;
+                }
+                ui = ui + 1;
+            }
+            // z42b-owns-test-targets：inp.ParentPkg 非空 → 本次是该包的测试/bench 目标，
+            // 加载父包时按同包待遇（其 internal 可见）。普通包为 "" → 行为与此前逐字节一致。
+            o.Imported = ImportedSymbolLoader.Load(o.Scan.Exported, o.Scan.ExportedPkg, o.Scan.ExportedCount,
+                                                   allUsings, auc, inp.ParentPkg, inp.DeclaredDeps, inp.DepCount);
+            // fix-crosspkg-ns-reachability：依赖契约搭车进符号表（由 `SymbolCollector._mergeImports` 并入）。
+            o.Imported.SelfPkg = inp.Name;
+            o.Imported.EnforceDeclaredDeps = inp.EnforceDeclaredDeps;
+            int dd = 0;
+            while (dd < inp.DepCount) { o.Imported.DeclaredDeps.Put(inp.DeclaredDeps[dd], "1"); dd = dd + 1; }
+        }
+        return o;
+    }
+
+    // ── ⑤后 cached meta 回填（增量条目 → cms 槽位）──────────────────────────────────
+    // cached 的 UsedDepNs 是 typecheck 产物（本轮跳过）→ 从 meta 回填（源不变即不变）。
+    // 诊断同理（warnings-survive-cache）：`CompileCuTask.Run` 的 cached 分支把 `DiagMsgs`
+    // 置空，此前无人回填 ⇒ **警告只在冷构建那一次可见**（实测 W0700：第 ① 次打印，第 ②
+    // 次起 `cached: 1/1` 彻底消失、源码一字未改）。与 E0436 那条（#879
+    // fix-incremental-file-scope-diagnostics）是**同一个毛病的第三例**。
+    private static void _backfillCached(CompiledModuleZ[] cms, IrModule[] cachedMods, CompileInputs inp) {
+        if (cachedMods != null && inp.CachedMetas != null) {
+            int ci = 0;
+            while (ci < inp.SrcCount) {
+                if (cachedMods[ci] != null && inp.CachedMetas[ci] != null) {
+                    cms[ci].UsedDepNs = inp.CachedMetas[ci].UsedDepNs;
+                    cms[ci].UsedDepNsCount = inp.CachedMetas[ci].UsedDepNsCount;
+                    if (inp.CachedMetas[ci].UsedNs != null) { cms[ci].UsedNs = inp.CachedMetas[ci].UsedNs; }   // using-csharp-rules 2.9
+                    cms[ci].DiagMsgs = inp.CachedMetas[ci].Diags;
+                    cms[ci].DiagCount = inp.CachedMetas[ci].DiagCount;
+                    // ErrorCount 不回填：ErrorCount>0 的编译**根本不写 cache** ⇒ 存下来的
+                    // 只会是 warning。若哪天这个前提变了，这里必须跟着改（否则 cached
+                    // 命中会把错误降级成警告 —— 比丢警告坏得多）。
+                }
+                ci = ci + 1;
+            }
+        }
+    }
+
+    // ── ⑥ 诊断收口：三源合入 + 零发现判红（E0496）──────────────────────────────────
+    private static void _mergePhaseDiags(CompilationUnit[] cus, CompiledModuleZ[] cms, int srcCount,
+                                         CompileInputs inp, FrontLineResult fl, DiagnosticBag genDiags) {
+        // PR4a：generator 引擎的护栏诊断（越界 Replace/Augment，E0448）合入首模块 → Error 增 ErrorCount 拦编译。
+        if (genDiags.Count() > 0 && cms.Length > 0) { PackageCompile._mergeDiags(cms[0], genDiags); }
+
+        // add-module-init-hook：**exe 包禁用 `[ModuleInit]`**（E0487）。判据是 manifest 的 kind，
+        // 只有这一层拿得到（semantics 看不到）⇒ 挂在这里，而**所有**编译路径都经过 PackageCompile。
+        // 诊断带自己的 Span，`_mergeDiags` 会按 file(line,col) 格式化，位置精确指向那处标注。
+        // 🔴 扫 `cus` 而不是 `inp.Cus`：generator（`[Forward]` 等）会把合成 CU 并进来，
+        // 此时 `cus` 是 union、长度 > `inp.Cus` ⇒ 按 srcCount 读 inp.Cus 会越界
+        // （实测：`forward_tiers_cross_pkg` 的 main 构建直接挂）。编译用的是哪个数组，
+        // 校验就扫哪个。
+        if (inp.Kind == "exe" && cms.Length > 0) {
+            DiagnosticBag exeDiags = new DiagnosticBag();
+            ModuleInitScan.CheckExePackage(cus, srcCount, exeDiags);
+            if (exeDiags.Count() > 0) { PackageCompile._mergeDiags(cms[0], exeDiags); }
+        }
+
+        // 并入前置线暂存的 analyzer 诊断。gated on 非空 → z42c 自建无 [plugins] → 该分支不进 →
+        // 逐字节不动。analyzer 诊断合入 per-file Cms（默认 Warning 级不增 ErrorCount → 不 fail 编译，
+        // 但对调用方可见）。放在错误门**前**，让 analyzer 报的 Error 级也能拦编译。
+        if (inp.AnalyzerZpkgCount > 0 && fl.HandlersLoadable) {
+            int ab = 0;
+            while (ab < fl.AnalyzerDiags.Length) {
+                if (fl.AnalyzerDiags[ab] != null && ab < cms.Length) { PackageCompile._mergeDiags(cms[ab], fl.AnalyzerDiags[ab]); }
+                ab = ab + 1;
+            }
+            int externHandlers = fl.ExternHandlers;
+            // 🔴 **零发现此前是静默空转**：声明的 zpkg 加载成功、里面一个 `: Analyzer` /
+            // `: Generator` / `: ModuleGenerator` 都没有 ⇒ 两个 loader 各返回空数组 ⇒ 提前 return
+            // ⇒ **编译退出码 0、零诊断**，用户的扩展干脆不跑，而他有充分理由以为跑了。
+            // （实测：把一个零 handler 的普通库按名挂进 `[plugins]` → 退出码 0、一句话都没有。）
+            // 两个成因都落在这里：挂错了包；或 handler 由**另一代编译器**编出、契约接口对不上
+            // ⇒ `as Generator` 全部返回 null ⇒ 同样是零发现（格式代差那条已由 strict-pin 在加载
+            // 时拦下、落 E0493，此处盖的是格式相同而接口形状不同的那半）。
+            if (externHandlers == 0 && cms.Length > 0) {
+                DiagnosticBag nbag = new DiagnosticBag();
+                nbag.Error(DiagnosticCodes.HandlerZpkgNoHandlers, PackageCompile._noHandlersMessage(inp),
+                           new Span(0, 0, 1, 1, inp.AnalyzerZpkgs[0]));
+                PackageCompile._mergeDiags(cms[0], nbag);
+            }
+        }
+    }
+
+    // ── ⑦ `using` 指向不存在的命名空间（E0494）────────────────────────────────────
+    // 🔴 此前**零诊断**：`using Z42.Totally.Bogus;` 编译通过。usings 的唯一去向是
+    // `ImportedSymbolLoader.Load` 的**激活过滤**——名字对不上任何已知 ns，就只是没激活任何东西，
+    // 与「写了个没用到的 using」不可区分。于是拼错命名空间得到的不是「没有这个命名空间」，
+    // 而是后面一堆**位置在别处**的 `E0401 undefined` / `E0443 undefined type`。
+    // 与 `_enforceFileScope`（E0436，「用了却没 using」）互为反向：那条查漏，这条查错。
+    //
+    // 已知 ns = 依赖 zpkg 的 nsMap ∪ 本包各 CU 自己的 ns（含 generator 产出的 CU）。
+    // **父命名空间也算已知**：`using Std;` 合法，即便注册的只有 `Std.IO` / `Std.Text`
+    // —— 判据是「存在某个已知 ns 以 `<ns>.` 开头」。
+    // ⚠️ `scan == null`（无依赖目录：单文件 / 裸 emit 路径）时**整条跳过** —— 那时已知集为空，
+    // 一开就是全量误报。
+    // ⚠️ 外层递增必须是 `ci2 = ci2 + 1`：拆分前这里写作 `ci2 = ci + 1`，而 z42 局部是函数级
+    // 槽位——`ci` 是上面 cached 回填循环的残留值（= inp.SrcCount）⇒ 增量路径（cachedMods 非
+    // null）下除首个 CU 外整段跳过、E0494 漏检。
+    private static void _checkUsingNamespaces(CompilationUnit[] cus, CompiledModuleZ[] cms, int srcCount,
+                                              DepScanResult scan, CompileInputs inp) {
+        if (scan != null) {
+            int knownCap = scan.NsCount + srcCount;
+            string[] knownNs = new string[knownCap];
+            int knownN = 0;
+            int kn = 0;
+            while (kn < scan.NsCount) { knownNs[knownN] = scan.NsNames[kn]; knownN = knownN + 1; kn = kn + 1; }
+            int kc = 0;
+            while (kc < srcCount) {
+                if (cus[kc] != null && cus[kc].HasNamespace) { knownNs[knownN] = cus[kc].Namespace; knownN = knownN + 1; }
+                kc = kc + 1;
+            }
+            int ci2 = 0;
+            while (ci2 < srcCount) {
+                CompilationUnit ucu = cus[ci2];
+                if (ucu != null) {
+                    int ud = 0;
+                    while (ud < ucu.DeclCount) {
+                        if (ucu.Decls[ud] is UsingDecl) {
+                            UsingDecl uz = ucu.Decls[ud] as UsingDecl;
+                            if (!PackageCompile._usingAcceptable(uz.Name, knownNs, knownN)) {
+                                DiagnosticBag ubag = new DiagnosticBag();
+                                // add-sdk-libs：它若在某个**未声明**的 SDK 库里，直接点名该怎么声明（SDK 库按名声明才可见）。
+                                string sdkPkg = SdkLibs.HiddenProviderOf(uz.Name, inp.LibsDirs, inp.LibsDirsN, inp.Tier);
+                                string fix = sdkPkg.Length > 0
+                                    ? "；它由 SDK 库 `" + sdkPkg + "` 提供 —— SDK 库须在 [dependencies] 按名声明才可见：\"" + sdkPkg + "\" = \"*\""
+                                    : "；检查拼写，或补上提供它的 [dependencies]";
+                                ubag.Error(DiagnosticCodes.UnknownNamespace, "命名空间 `" + uz.Name + "` 不存在（依赖的包里没有它，本包也没有声明它）"
+                                    + fix, uz.Span);
+                                PackageCompile._mergeDiags(cms[ci2], ubag);
+                            }
+                        }
+                        ud = ud + 1;
+                    }
+                }
+                ci2 = ci2 + 1;
+            }
+        }
+    }
+
+    // 插件工程：按实现的契约推导能力位（写进 zpkg 头）；一类都没有 → E0505。只在此前无错时判——
+    // 有错的编译跳过了代码生成，类描述不全，判出来的「没有契约」是假的。
+    private static int _derivePluginCaps(CompileInputs inp, CompiledModuleZ[] cms, int srcCount, string[] files) {
+        int pluginCaps = 0;
+        if (inp.Kind == "plugin" && cms.Length > 0 && PackageCompile._errorCount(cms, srcCount) == 0) {
+            IrModule[] capMods = new IrModule[srcCount];
+            int cmi = 0;
+            while (cmi < srcCount) { capMods[cmi] = cms[cmi].Module; cmi = cmi + 1; }
+            pluginCaps = PluginCapsScan.FromModules(capMods, srcCount);
+            if (pluginCaps == 0) {
+                DiagnosticBag pbag = new DiagnosticBag();
+                pbag.Error(DiagnosticCodes.PluginNoContract, PluginCapsScan.NoContractMessage(inp.Name),
+                           new Span(0, 0, 1, 1, files[0]));
+                PackageCompile._mergeDiags(cms[0], pbag);
+            }
+        }
+        return pluginCaps;
+    }
+
+    // ── ⑧ 组装：ZbcFileZ[] → BuildDependencyMap → BuildPackedD → ZpkgFileZ ────────
+    // PR4d：generation 增长了 srcCount/cus/files/cms（union 含 Augment 合并的 synthetic partial 碎片
+    // 与 AddSource 新 CU）。**assembly 必须用 union count `srcCount`、而非 `inp.SrcCount`**——否则生成
+    // 的 module（索引 ≥ inp.SrcCount）被截断出 zpkg：AddSource 新类运行期无 TypeDesc（Activator 报 no
+    // runtime handle）、Augment override 所在 partial 碎片模块丢失（vtable 无覆盖 → 调默认）。PR4a/4c
+    // 的引擎单测走独立 CollectAll+TypeChecker harness、从不经本 assembly，故此截断此前未被发现，PR4d 的
+    // VM 执行 golden 首次触发。generated CU 无源 hash → 占位；z42c 自建无 generator → srcCount==inp.SrcCount
+    // → hashes==inp.SrcHashes、下面全部退化为原路径 → 逐字节不动。
+    // encode-ctorless-objnew：装配是本包**全部** IrModule 第一次同时在手的时刻（含增量 cached），
+    // 也是 `ObjNew.CtorKnown` 唯一算得准的地方——同包其它文件的构造器到这时才都在手上。
+    // 见 `CtorKnownFixup` 的文件头注释。
+    private static CompileArtifacts _assembleZpkg(CompileInputs inp, CompiledModuleZ[] cms, int srcCount, string[] files,
+                                                  DepScanResult scan, DependencyIndex depIndex, int pluginCaps,
+                                                  FrontLineResult fl, CuDiagSnapshot[] snap) {
+        string[] hashes = inp.SrcHashes;
+        if (srcCount != inp.SrcCount) {
+            hashes = new string[srcCount];
+            int hi = 0;
+            while (hi < srcCount) { hashes[hi] = hi < inp.SrcCount ? inp.SrcHashes[hi] : "GENERATED"; hi = hi + 1; }
+        }
+        IrModule[] irms = new IrModule[srcCount];
+        int ci = 0;
+        while (ci < srcCount) { irms[ci] = cms[ci].Module; ci = ci + 1; }
+        CtorKnownFixup.Apply(irms, srcCount, depIndex);
+
+        bool isExe = inp.Kind == "exe";
+        ZbcFileZ[] mods = new ZbcFileZ[srcCount];
+        int i = 0;
+        while (i < srcCount) {
+            CompiledModuleZ cm = cms[i];
+            IrModule irm = cm.Module;
+            string rel = files[i];   // SourceFile = 发现到的完整路径原样（generated CU 用其合成文件名）
+            string[] exports = new string[irm.FuncCount];
+            int e = 0;
+            while (e < irm.FuncCount) { exports[e] = irm.Functions[e].Name; e = e + 1; }
+            string modNs = cm.Namespace;
+            if (modNs == "") { modNs = "main"; }   // no-ns 单元 ns="main"（C# build 字节实证）
+            mods[i] = new ZbcFileZ(rel, hashes[i], modNs, exports, irm.FuncCount, irm);
+            mods[i].Usings = cm.Usings;       mods[i].UsingCount = cm.UsingCount;
+            mods[i].UsedDepNs = cm.UsedDepNs; mods[i].UsedDepNsCount = cm.UsedDepNsCount;
+            i = i + 1;
+        }
+        // TSIG：BuildPackageCus 已产 per-file Exported（PS-1）
+        ExportedModuleZ[] exported = new ExportedModuleZ[srcCount];
+        i = 0;
+        while (i < srcCount) { exported[i] = cms[i].Exported; i = i + 1; }
+        // DEPS 条目：每个符号实际来自的包（规则与来龙去脉见 ZpkgDeps.z42）。
+        ZpkgDepList depList = new ZpkgDepList(new ZpkgDepZ[0], 0);
+        if (scan != null) {
+            depList = ZpkgDeps.Build(mods, srcCount, scan.NsNames, scan.NsFiles, scan.NsCount, inp.Name, inp.ParentPkg == null ? "" : inp.ParentPkg);
+        }
+        // fix-crosspkg-ns-split-deps（refine-interop-native-separation）：命名空间跨包时
+        // （如 Std.IO 分布在 z42.core + z42.io），BuildDependencyMap 的 ns→file 是 first-wins，
+        // 只记第一个提供包（prelude 优先 = core），漏掉第二个（z42.io）→ 运行时惰性加载拿不到
+        // z42.io 作候选 → Std.IO.Process/Stdio undefined。补救：把 toml 声明的依赖并入 DEPS，
+        // 确保每个声明依赖都成为运行时候选（lazy_loader 按 dep.file 发现候选、读候选自身导出 ns
+        // 匹配，故 Namespaces 字段惰性路径不读；填空即可、确定性）。
+        depList = PackageCompile._unionDeclaredDeps(depList, inp.DeclaredDeps, inp.DepCount, inp.Name + ".zpkg");
+        ZpkgFileZ z = ZpkgBuilder.BuildPackedD(inp.Name, inp.Version, isExe, inp.HasEntry, inp.Entry,
+                                               mods, srcCount, depList.Items, depList.Count);
+        z.Exported = exported;
+        z.ExportedCount = srcCount;
+        z.PluginCaps = pluginCaps; if (inp.CarriedCount > 0) { z.Carried = inp.CarriedPlugins; z.CarriedCount = inp.CarriedCount; }   // 能力位 + 1c PLGS（count 0 不写段）
+        string entryStatus = "ok";
+        if (isExe) {
+            if (z.Entry == "<ambiguous>") { entryStatus = "ambiguous"; }
+            else if (z.Entry == "") { entryStatus = "missing"; }
+        }
+        CompileArtifacts okArt = new CompileArtifacts(z, mods, srcCount, cms, srcCount, 0, entryStatus);
+        okArt.GenFiles = fl.GenFiles; okArt.GenTexts = fl.GenTexts; okArt.GenCount = fl.GenCount;
+        okArt.CuDiags = snap;
+        okArt.Scan = scan;   // perf ②：回显 scan 供调用方缓存 + 后续 ExtendWithPackage
+        return okArt;
     }
 }
