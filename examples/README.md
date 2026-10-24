@@ -13,6 +13,7 @@ z42 run greet.z42 -- 小明
 | `basics/` | [基础](../docs/learn/src/basics/)：`variables` / `operators` / `strings` / `control-flow` / `functions` / `collections` / `tuples` |
 | `types/` | [类型](../docs/learn/src/types/)：`classes` / `structs-records` / `inheritance` / `interfaces` / `generics` / `lambdas` / `exceptions` / `patterns` / `attributes-reflection` / `organization` |
 | `stdlib/` | [标准库](../docs/learn/src/stdlib/)：`data-formats` / `files` |
+| `practice/` | [工程实践](../docs/learn/src/practice/)：`doc-comments` |
 
 ## 给贡献者
 
