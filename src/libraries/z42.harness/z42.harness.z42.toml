@@ -10,4 +10,4 @@ kind    = "lib"
 [plugins.export]
 # 携带（harness-as-plugin PR 2）：依赖 z42.harness 的工程（全部测试单元）自动获得约定 lint。
 # 插件 zpkg 分发在插件目录（SDK plugins/；开发树平铺在 stdlib flat 同级 plugins/）。
-"z42.harness.lint" = { path = "plugins/lint" }
+"z42.harness.lint" = { path = "plugins/lint", internal = true }   # internal 授权：lint 可用本库 internal 成员

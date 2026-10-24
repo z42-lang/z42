@@ -1,0 +1,10 @@
+[project]
+name    = "pio.app"
+version = "0.1.0"
+kind    = "exe"
+
+[sources]
+include = ["src/**/*.z42"]
+
+[plugins]
+"any.plugin" = { path = "missing.zpkg", internal = true }   # path 存在与否不重要——internal ban 先于一切插件解析

@@ -52,7 +52,7 @@ int _buildWorkspaceFlat(string wsToml, bool isRelease, string outputDir, int cli
         WsTier tierF = new WsTier();
         tierF.Hidden = _laterMemberNames(memberNamesF, ordered.Length, i);
         tierF.HiddenN = tierF.Hidden.Length;
-        int rc = _build(ordered[i], isRelease, outputDir, memberCache, flat, 1, noIncremental, cliAdd, cliRemove, false, tierF);   // workspace 暂不支持 --fix
+        int rc = _build(ordered[i], isRelease, outputDir, memberCache, flat, 1, noIncremental, cliAdd, cliRemove, false, tierF, "");   // workspace 暂不支持 --fix
         if (rc != 0) {
             ConsoleError.WriteLine("z42c build --workspace: member build failed: " + ordered[i]);
             return rc;
@@ -95,7 +95,7 @@ int _buildWorkspacePerMember(string wsToml, bool isRelease, int cliAdd, int cliR
         tier.Members = memberNames;
         tier.MembersN = memberNames.Length;
         tier.MemberDirs = plan.Count;
-        int rc = _build(plan.Tomls[i], isRelease, plan.DistDirs[i], plan.CacheDirs[i], libsDirs, libsN, noIncremental, cliAdd, cliRemove, false, tier);   // workspace 暂不支持 --fix
+        int rc = _build(plan.Tomls[i], isRelease, plan.DistDirs[i], plan.CacheDirs[i], libsDirs, libsN, noIncremental, cliAdd, cliRemove, false, tier, "");   // workspace 暂不支持 --fix
         if (rc != 0) {
             ConsoleError.WriteLine("z42c build --workspace: member build failed: " + plan.Tomls[i]);
             return rc;

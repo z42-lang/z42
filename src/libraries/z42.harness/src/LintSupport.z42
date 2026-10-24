@@ -1,0 +1,13 @@
+// plugin-internal-access 的判别力成员：internal 工具，只有「同包 / ParentPkg 挂靠（internal 授权的
+// 插件、测试单元）」看得见。z42.harness.lint 用它拼 H0002 的处置提示——若授权没生效，插件编译
+// 当场报 internal 不可访问（比「消息少了后缀」更早、更响）。
+// 纯字符串工具（不碰 Z42.Syntax）：本库是 shipped stdlib，不依赖编译器域包；AST 判定在插件侧。
+namespace Std.Harness;
+
+/// plugin-internal-access 的判别力成员（类 public、成员 internal——internal 可见性的既有机制形态，测试单元同款）。
+public static class LintSupport {
+    /// 混贴的处置提示（H0002 消息后缀）：挪掉谁、留谁，按 TestDiscovery 的末位覆盖语义直说。
+    internal static string MixFixNote(string firstName, string lastName) {
+        return "反射发现按末位覆盖：`" + lastName + "` 生效、`" + firstName + "` 被顶掉——只保留你真正想要的那个注解";
+    }
+}

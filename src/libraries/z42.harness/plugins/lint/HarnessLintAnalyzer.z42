@@ -12,6 +12,7 @@ namespace Z42.HarnessLint;
 
 using Z42.Syntax;
 using Z42.Analyzers;
+using Std.Harness;   // LintSupport 是 z42.harness 的 internal 成员——宿主 internal=true 授权可见（plugin-internal-access）
 
 /// harness 约定 lint（H0002：harness kind 注解混贴）。由 z42.harness 携带给每个测试工程。
 ///
@@ -20,7 +21,7 @@ public class HarnessLintAnalyzer : Analyzer {
     /// 声明本 analyzer 发的规则（供 [lints] 枚举 / severity 解析）。
     public DiagRule[] SupportedRules() {
         DiagRule[] rs = new DiagRule[1];
-        rs[0] = HarnessLintAnalyzer._rule();
+        rs[0] = HarnessLintAnalyzer._rule("Test", "Setup");   // 占位：规则表只要 ID/类别/严重级，消息在报告时按实际注解拼
         return rs;
     }
 
@@ -50,14 +51,14 @@ public class HarnessLintAnalyzer : Analyzer {
             i = i + 1;
         }
         if (second.Length > 0) {
-            diags.Report(HarnessLintAnalyzer._rule(), ad.Span);
+            diags.Report(HarnessLintAnalyzer._rule(first, second), ad.Span);
         }
     }
 
     /// H0002 规则声明（Warning、默认开；[lints] 可调）。
-    static DiagRule _rule() {
+    static DiagRule _rule(string first, string second) {
         return new DiagRule("H0002", "harness 注解混贴",
-            "同一函数贴了多种 harness 注解：反射发现按末个覆盖，先前的静默失效（如 [Test] 被 [Setup] 顶掉、不进测试报告）",
+            "同一函数贴了多种 harness 注解：" + LintSupport.MixFixNote(first, second),
             "Correctness", AnalyzerSeverity.Warning, true);
     }
 }

@@ -69,7 +69,7 @@ public sealed class ParseAllOut {
 // 非成员包，外加「拓扑序排在本成员之后的成员整个不可见」。null = 非 workspace 路径，全可见。
 // 本函数原为 386 行整块（fnlines 棘轮账本头名），现只剩相位编排（fnlines 只降不升）；
 // 各相位的实现与叙事注释随相位走（下方 `_resolve*` / `_prepare*` / `_report*` / `_write*`）。
-int _build(string tomlPath, bool isRelease, string outputDirOverride, string cacheDirOverride, string[] libsDirsOverride, int libsDirsCount, bool noIncremental, int cliAdd, int cliRemove, bool fix, WsTier tier) {
+int _build(string tomlPath, bool isRelease, string outputDirOverride, string cacheDirOverride, string[] libsDirsOverride, int libsDirsCount, bool noIncremental, int cliAdd, int cliRemove, bool fix, WsTier tier, string internalOf) {
     // ── ① manifest 校验 + 源发现（旋钮 / deploy 清单级 fail-fast 都在编译前）──
     BuildSourcesOut sr = _resolveBuildSources(tomlPath);
     if (sr.Rc != 0) { return sr.Rc; }
@@ -112,7 +112,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     int vdr = _verifyDeclaredDeps(pm, libsDirs, libsDirsN); if (vdr != 0) { return vdr; }
     CachedNsMeta[] cachedMetas = _buildCachedMetas(prep, srcs.Length);
     CompileInputs cin = _fillCompileInputs(pm, srcs, sh.Texts, sh.Hashes, cus, prep, cachedMetas,
-        isRelease, fix, feats, effOptSet, libsDirs, libsDirsN, scanTier, sdkPlan, azPaths, projectDir, kn);
+        isRelease, fix, feats, effOptSet, libsDirs, libsDirsN, scanTier, sdkPlan, azPaths, projectDir, kn, internalOf);
     if (cin == null) { return ExitCode.BuildError; }
     CompileArtifacts art = PackageCompile.Compile(cin);
     // ── ⑪ 诊断呈现（错误 / 警告 / entry 校验——生成 CU 与用户 CU 同口径）──
@@ -289,6 +289,17 @@ PluginSetupOut _resolvePluginSetup(ProjectManifest pm, string projectDir, string
     // 必须在指纹之前：path 条目由 z42c **代建**，不先建就没有 zpkg 可指纹，「改了插件源码但消费方源没变」
     // 就不会失效缓存。解析结果同时喂指纹与 CompileInputs。z42c 只拿编译器侧（analyzer / generator）插件；
     // 一个都没有（含 z42c 自建、只挂了 hook 插件的工程）→ azPaths 为 null、指纹 `""` → 自举 byte-identical。
+    // plugin-internal-access：internal 授权的清单合法性先于一切插件解析（path 定位 / 按名查找都不该
+    // 先炸——清单错误是最早的错误）。语义见 ManifestKnobs._rejectPluginInternal。
+    {
+        KnobResult ban = new KnobResult();
+        Z42.Pipeline.ManifestKnobs._rejectPluginInternal(pm, "z42c build: " + pm.Project.Name, ban);
+        if (ban.ErrorCount > 0) {
+            int bi = 0;
+            while (bi < ban.Errors.Length) { ConsoleError.WriteLine(ban.Errors[bi]); bi = bi + 1; }
+            o.Rc = ExitCode.BuildError; return o;
+        }
+    }
     if (pm.PluginCount > 0 && !_resolvePluginZpkgs(pm, projectDir, tomlPath, libsDirs, libsDirsN,
             isRelease, noIncremental, cliAdd, cliRemove, ref plNames, ref plPaths)) { o.Rc = ExitCode.BuildError; return o; }
     // 1c/PR2：显式∪携带（两阶段，见 PluginRefs 头注）。wsMember 判据与 `_resolveLibsDomain` 同源。
@@ -615,7 +626,7 @@ CompileInputs _fillCompileInputs(ProjectManifest pm, string[] srcs, string[] tex
                                  CompilationUnit[] cus, IncrPrep prep, CachedNsMeta[] cachedMetas,
                                  bool isRelease, bool fix, LanguageFeatures feats, int effOptSet,
                                  string[] libsDirs, int libsDirsN, WsTier scanTier, SdkLibPlan sdkPlan,
-                                 string[] azPaths, string projectDir, KnobResult kn) {
+                                 string[] azPaths, string projectDir, KnobResult kn, string internalOf) {
     CompileInputs cin = new CompileInputs();
     // 🔴 cin.Files 必须是**真实路径**，不能换成显示名：它直接成为 `ZbcFileZ.SourceFile`
     // （PackageCompile.z42 `string rel = files[i]`）进而进入 zpkg，由 `_stabilizeSourceIdentity`
@@ -625,6 +636,9 @@ CompileInputs _fillCompileInputs(ProjectManifest pm, string[] srcs, string[] tex
     cin.Texts = texts; cin.Files = srcs; cin.SrcHashes = srcHashes; cin.SrcCount = srcs.Length;
     cin.Cus = cus; cin.CachedMods = prep != null ? prep.Cached : null; cin.CachedMetas = cachedMetas;
     cin.Name = pm.Project.Name; cin.Version = pm.Project.Version; cin.Kind = pm.Project.Kind;
+    // plugin-internal-access：--internal-of 传入宿主包名 ⇒ 宿主按同包待遇加载（internal 可见），
+    // 与测试单元的 ParentPkg 同一机制。空 = 普通编译（逐字节不变）。
+    cin.ParentPkg = internalOf;
     cin.HasEntry = pm.Project.HasEntry; cin.Entry = pm.Project.Entry;
     cin.IsRelease = isRelease;
     cin.Fix = fix;         // PR7-wire：`--fix` → _runAnalyzers 传 6-参 Run，analyzer 携修复就地重写源

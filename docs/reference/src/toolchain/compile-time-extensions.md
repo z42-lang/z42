@@ -309,6 +309,8 @@ public class MyHooks : BuildHooks {
   赢携带；`[plugins] "x" = false` 关掉某个携带项；analyzer 规则粒度仍可用 `[lints]` 调。
 - 失败即失败：携带件缺失 / 版本不符，构建红且**点名携带方**——「声明了、静默没生效」不给留。
 - 只对 lib 有意义（插件工程不参与依赖图，携带链终止在 lib）。
+- 携带条目可加 `internal = true`（宿主授权）：插件以宿主同包待遇编译、可用宿主 internal 成员——
+  z42.harness.lint 用它复用 harness 的 internal 工具（见 z42-toml 的 `[plugins.export]` 一节）。
 
 ## 插件怎么被找到、被加载
 
