@@ -130,6 +130,11 @@ public static class Murmur3 {
     [Native("__mmh3_hex_str")]
     public static extern string HashHexOfStr(string text);
 
+    // native-hash（bytes 扩展）：与 Hash128Hex(byte[]) 等值——cache zbc 内容哈希与 DepIdentity 用
+    // （消费全在 z42 侧；Rust 只读比较从不重算，见抬头）。对拍单测同盯。
+    [Native("__mmh3_hex_bytes")]
+    public static extern string HashHexOfBytes(byte[] data);
+
     /// 32 个小写 hex 字符（无前缀）。拼接方式对齐同包的 `ZpkgBuilder.Sha256Hex`
     /// （z42.package 不依赖 z42.text，也不值得为 32 个字符引入 StringBuilder）。
     public static string Hash128Hex(byte[] data) {

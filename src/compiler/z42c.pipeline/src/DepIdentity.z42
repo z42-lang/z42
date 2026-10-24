@@ -34,7 +34,7 @@ public static class DepIdentity {
             }
             i = i + 1;
         }
-        return Murmur3.Hash128Hex(Utf8.GetBytes(String.ConcatParts(parts, k)));
+        return Murmur3.HashHexOfStr(String.ConcatParts(parts, k));   // native-hash：串路径直哈
     }
 
     private static string _idOf(CachedZpkg ce) {
@@ -51,7 +51,7 @@ public static class DepIdentity {
                 if (sec.Tag == "BLID") { id = "blid:" + DepIdentity._hex(z.Data, sec.Offset, sec.Size); }
                 s = s + 1;
             }
-            if (id.Length == 0) { id = "bytes:" + Murmur3.Hash128Hex(z.Data); }
+            if (id.Length == 0) { id = "bytes:" + Murmur3.HashHexOfBytes(z.Data); }
         }
         ce.Identity = id;
         return id;
