@@ -51,6 +51,9 @@ public sealed partial class String : IComparable, IEquatable {
     /// 由 `char[]` 建串。空数组 → 空串。
     [Native("__str_from_chars")] public static extern string FromChars(char[] chars);
 
+    // replace-fastpath：单字符整体替换的 native 底座（零命中原样返回）。仅 Replace 内部使用。
+    [Native("__str_replace_char")] private static extern string _replaceChar(string s, char oldChar, char newChar);
+
     // ── Object 协议覆盖 ───────────────────────────────────────────────────────
 
     /// 返回自身。
@@ -166,6 +169,15 @@ public sealed partial class String : IComparable, IEquatable {
         if (oldValue.Length == 0) {
             throw new Exception("Replace: oldValue cannot be empty");
         }
+        // replace-fastpath（2026-10-25 profile：jobs1 编译器构建里 Replace 自占 4.3%，最大调用方
+        // IncrementalBuild.Rel 的 `path.Replace("\\", "/")`——POSIX 路径里反斜杠几乎不存在，却每次
+        // 物化 3 份 char[] + 分配整份结果串）。单字符 → 单字符：CharAt 扫描零命中直接返回原串
+        // （零分配；命中才物化构建）。镜像 .NET 语义（无命中返回同一实例是合法的，串不可变）。
+        if (oldValue.Length == 1 && newValue.Length == 1) {
+            // native 整体替换（__str_replace_char）：Rust 侧 contains 判零命中（原样返回），
+            // 免去 z42 侧任何物化 / 扫描——ToCharArray 版实测物化本身仍占 ~2.9%。
+            return String._replaceChar(this, oldValue.CharAt(0), newValue.CharAt(0));
+        }
         // 一次物化 char[]，在 ArrayGet 视图上两遍扫描（先计数后构建），分摊物化开销。
         char[] t = this.ToCharArray();
         char[] o = oldValue.ToCharArray();
@@ -184,6 +196,7 @@ public sealed partial class String : IComparable, IEquatable {
             if (hit) { matches = matches + 1; i = i + on; }
             else     { i = i + 1; }
         }
+        if (matches == 0) { return this; }   // replace-fastpath：零命中免结果分配与拷贝
         int resultLen = tn + matches * (nn - on);
         char[] result = new char[resultLen];
         // 第二遍：命中则替换，否则原样拷贝。

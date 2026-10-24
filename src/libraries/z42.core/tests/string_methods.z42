@@ -112,6 +112,16 @@ void test_replace_basic() {
     Assert.Equal("xxyy", "aabb".Replace("a", "x").Replace("b", "y"));
 }
 
+// replace-fastpath：零命中走免分配快路径（单字符 CharAt 扫描 / 通用 matches==0 返回原串）。
+[Test]
+void test_replace_no_occurrence_unchanged() {
+    Assert.Equal("hello", "hello".Replace("\\", "/"));
+    Assert.Equal("a/b/c", "a/b/c".Replace("\\", "/"));
+    Assert.Equal("abc", "abc".Replace("xyz", "q"));
+    Assert.Equal("aaa", "aaa".Replace("b", "c"));
+    Assert.Equal("", "".Replace("x", "y"));
+}
+
 [Test]
 void test_replace_multichar_and_growth() {
     // 替换串比被替换串长（result 需扩容）。

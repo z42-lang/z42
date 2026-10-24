@@ -80,6 +80,15 @@ pub mod typed {
         super::str_concat_parts(ctx, parts, count)
     }
 
+    /// replace-fastpath：单字符 → 单字符的整体替换。零命中时**原样返回**（Arc clone，零分配零拷贝）；
+    /// 命中才构建新串。z42 侧 `String.Replace` 的单字符分支唯一消费（消除 POSIX 路径
+    /// `Replace("\\","/")` 每调一次物化整串的 4.3% jobs1 热点）。
+    #[builtin(name = "__str_replace_char", pure)]
+    pub fn replace_char(s: &str, old: char, new: char) -> String {
+        if !s.contains(old) { return s.to_string(); }
+        s.replace(old, &new.to_string())
+    }
+
     #[builtin(name = "__str_split", this = "Split")]
     pub fn split(ctx: &VmContext, s: &crate::metadata::vstr::Str, sep: &str) -> Result<crate::metadata::Value, BuiltinError> {
         super::str_split(ctx, s, sep)
