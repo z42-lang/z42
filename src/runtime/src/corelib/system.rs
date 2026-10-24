@@ -11,62 +11,50 @@ use crate::metadata::Value;
 use crate::pal;
 use crate::vm_context::VmContext;
 use anyhow::Result;
+use crate::corelib::abi::BuiltinError;
 
 // fix-wasm-corpus-capability-gate: std::process::id / std::env::current_exe /
 // current_dir / set_current_dir all panic on wasm32 ("not supported"). Degrade
 // to browser-safe values so infrastructure paths don't abort the VM module.
-pub fn builtin_system_pid(_ctx: &VmContext, _: &[Value]) -> Result<Value> {
+pub fn system_pid() -> i64 {
     #[cfg(not(target_arch = "wasm32"))]
-    let pid = std::process::id() as i64;
+    { std::process::id() as i64 }
     #[cfg(target_arch = "wasm32")]
-    let pid = 0i64;
-    Ok(Value::I64(pid))
+    { 0 }
 }
 
-pub fn builtin_system_exe_path(_ctx: &VmContext, _: &[Value]) -> Result<Value> {
+pub fn system_exe_path() -> String {
     #[cfg(not(target_arch = "wasm32"))]
-    let exe = match std::env::current_exe() {
-        Ok(p)  => p.to_string_lossy().into_owned(),
-        Err(_) => String::new(),
-    };
+    { std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default() }
     #[cfg(target_arch = "wasm32")]
-    let exe = String::new();
-    Ok(Value::Str(exe.into()))
+    { String::new() }
 }
 
-pub fn builtin_system_cwd(_ctx: &VmContext, _: &[Value]) -> Result<Value> {
+pub fn system_cwd() -> String {
     #[cfg(not(target_arch = "wasm32"))]
-    let cwd = match std::env::current_dir() {
-        Ok(p)  => p.to_string_lossy().into_owned(),
-        Err(_) => String::new(),
-    };
+    { std::env::current_dir().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default() }
     #[cfg(target_arch = "wasm32")]
-    let cwd = "/".to_string();
-    Ok(Value::Str(cwd.into()))
+    { "/".to_string() }
 }
 
-pub fn builtin_system_set_cwd(_ctx: &VmContext, args: &[Value]) -> Result<()> {
-    let path = arg_str(args, 0, "__system_set_cwd")?;
+pub fn system_set_cwd(path: &str) -> Result<(), BuiltinError> {
     #[cfg(not(target_arch = "wasm32"))]
-    std::env::set_current_dir(path)?;
+    { std::env::set_current_dir(path).map_err(|e| BuiltinError::Io(e.to_string()))?; }
     #[cfg(target_arch = "wasm32")]
     let _ = path;
     Ok(())
 }
 
-pub fn builtin_system_hostname(_ctx: &VmContext, _: &[Value]) -> Result<Value> {
-    Ok(Value::Str(pal::system::hostname().unwrap_or_default().into()))
+pub fn system_hostname() -> String {
+    pal::system::hostname().unwrap_or_default()
 }
 
-pub fn builtin_system_cpu_count(_ctx: &VmContext, _: &[Value]) -> Result<Value> {
-    let n = std::thread::available_parallelism()
-        .map(|n| n.get() as i64)
-        .unwrap_or(1);
-    Ok(Value::I64(n))
+pub fn system_cpu_count() -> i64 {
+    std::thread::available_parallelism().map(|n| n.get() as i64).unwrap_or(1)
 }
 
-pub fn builtin_system_os_version(_ctx: &VmContext, _: &[Value]) -> Result<Value> {
-    Ok(Value::Str(pal::system::os_version().into()))
+pub fn system_os_version() -> String {
+    pal::system::os_version()
 }
 
 // add-pal-system-phase1 : the unix / wasm / windows-stub
@@ -77,3 +65,31 @@ pub fn builtin_system_os_version(_ctx: &VmContext, _: &[Value]) -> Result<Value>
 #[cfg(test)]
 #[path = "system_tests.rs"]
 mod system_tests;
+
+/// 系统信息迁 builtin ABI v2(P1-8 批次 12):查询全 PURE;SetCwd 的 IO 错误 →
+/// IOException;wasm 桩值原样保留。
+#[z42_macros::builtins]
+pub mod typed {
+    use super::*;
+
+    #[builtin(name = "__system_pid", pure)]
+    pub fn pid() -> i64 { system_pid() }
+
+    #[builtin(name = "__system_exe_path", pure)]
+    pub fn exe_path() -> String { system_exe_path() }
+
+    #[builtin(name = "__system_cwd", pure)]
+    pub fn cwd() -> String { system_cwd() }
+
+    #[builtin(name = "__system_set_cwd")]
+    pub fn set_cwd(path: &str) -> Result<(), BuiltinError> { system_set_cwd(path) }
+
+    #[builtin(name = "__system_hostname", pure)]
+    pub fn hostname() -> String { system_hostname() }
+
+    #[builtin(name = "__system_cpu_count", pure)]
+    pub fn cpu_count() -> i64 { system_cpu_count() }
+
+    #[builtin(name = "__system_os_version", pure)]
+    pub fn os_version() -> String { system_os_version() }
+}

@@ -110,7 +110,7 @@ int _tlCheckCategories(string root, string doc) {
 // platform.rs 的 builtin_platform_caps 里 `caps.push("x")` 的全部 x；找不到函数返回 null。
 string[] _tlRuntimeCaps(string root) {
     string src = File.ReadAllText(Path.Join(root, "src/runtime/src/corelib/platform.rs"));
-    int b = src.IndexOf("fn builtin_platform_caps");
+    int b = src.IndexOf("fn platform_caps");
     if (b < 0) { return null; }
     string body = src.Substring(b);
     int e = body.IndexOf("\n}");

@@ -13,11 +13,8 @@
 
 use super::*;
 
-pub fn builtin_sym_available(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let key = match args.first() {
-        Some(Value::Str(s)) => s.to_string(),
-        _ => "<non-string>".to_string(),
-    };
+pub fn sym_available(key: &str) -> bool {
+    let key = key.to_string();
 
     debug_assert!(
         false,
@@ -30,5 +27,13 @@ pub fn builtin_sym_available(_ctx: &VmContext, args: &[Value]) -> Result<Value> 
         "__sym_available(`{key}`) reached at runtime — fold_availability did not run; \
          dead branches were not pruned. Answering `false` (fallback path)."
     );
-    Ok(Value::Bool(false))
+    false
+}
+
+/// `available!` 运行期回落迁 builtin ABI v2(P1-8 批次 12)——正常路径在
+/// 加载期就被折叠为 ConstBool,到达这里 = 折叠 pass 失效(详见模块注释)。
+#[z42_macros::builtins]
+pub mod typed {
+    #[builtin(name = "__sym_available")]
+    pub fn available(key: &str) -> bool { super::sym_available(key) }
 }

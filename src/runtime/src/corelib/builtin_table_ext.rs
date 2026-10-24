@@ -9,18 +9,6 @@ use super::*;
 
 pub(crate) const PART2: &[(&str, Native)] = &[
     // ── add-platform-os-stdlib — appended to preserve existing BuiltinIds ──
-    ("__platform_os",         Native::Val(platform::builtin_platform_os)),
-    ("__platform_arch",       Native::Val(platform::builtin_platform_arch)),
-    ("__platform_family",     Native::Val(platform::builtin_platform_family)),
-    ("__platform_os_kind",    Native::Val(platform::builtin_platform_os_kind)),
-    ("__platform_arch_kind",  Native::Val(platform::builtin_platform_arch_kind)),
-    ("__system_pid",          Native::Val(system::builtin_system_pid)),
-    ("__system_exe_path",     Native::Val(system::builtin_system_exe_path)),
-    ("__system_cwd",          Native::Val(system::builtin_system_cwd)),
-    ("__system_set_cwd",      Native::Void(system::builtin_system_set_cwd)),
-    ("__system_hostname",     Native::Val(system::builtin_system_hostname)),
-    ("__system_cpu_count",    Native::Val(system::builtin_system_cpu_count)),
-    ("__system_os_version",   Native::Val(system::builtin_system_os_version)),
 
     // ── add-threading-stdlib — appended to preserve existing BuiltinIds ──
     ("__thread_spawn",        Native::Val(threading::builtin_thread_spawn)),
@@ -52,7 +40,6 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     ("__soft_handle_get",    Native::Val(gc::builtin_soft_handle_get)),
 
     // ── add-csprng-to-crypto  — OS-CSPRNG backing Std.Crypto.SecureRandom ──
-    ("__crypto_random_bytes", Native::Val(crypto::builtin_crypto_random_bytes)),
 
 
     // ── runtime-dynamic-load-call (DEFERRED) — stubs so zpkg loads cleanly ──
@@ -82,8 +69,6 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     // ── add-load-context-model — appended to preserve BuiltinIds ──
 
     // ── add-exec-profile-matrix — appended to preserve BuiltinIds ──
-    ("__platform_caps",           Native::Val(platform::builtin_platform_caps)),
-    ("__platform_exec_modes",     Native::Val(platform::builtin_platform_exec_modes)),
 
     // ── add-lazy-context-unload — appended to preserve BuiltinIds ──
 
@@ -100,13 +85,6 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     // ── complete-runtime-settings P4 — appended to preserve BuiltinIds ──
     // Read-only view of the resolved runtime configuration (Std.Runtime.RuntimeConfig).
     // No setter: the config is frozen in a OnceLock after boot — see corelib/config.rs.
-    ("__cfg_get",       Native::Val(config::builtin_cfg_get)),
-    ("__cfg_source",    Native::Val(config::builtin_cfg_source)),
-    ("__cfg_names",     Native::Val(config::builtin_cfg_names)),
-    ("__search_dirs",   Native::Val(config::builtin_search_dirs)),
-    ("__cfg_dump",      Native::Val(config::builtin_cfg_dump)),
-    ("__cfg_describe",  Native::Val(config::builtin_cfg_describe)),
-    ("__cfg_available", Native::Val(config::builtin_cfg_available)),
 
     // ── perf-bulk-array-copy — appended to preserve existing BuiltinIds ──
     // `Array.Copy` 的底座：一次区间搬运，取代脚本里的逐元素 for 循环。
@@ -115,15 +93,10 @@ pub(crate) const PART2: &[(&str, Native)] = &[
     // ── add-app-properties — appended to preserve existing BuiltinIds ──
     // 应用自定义配置属性（Std.Runtime.AppProperties）。不是旋钮：VM 不校验、
     // 未知键不是错误；结构化值走 __app_props_toml + Std.Toml。
-    ("__app_prop",        Native::Val(appprops::builtin_app_prop)),
-    ("__app_prop_has",    Native::Val(appprops::builtin_app_prop_has)),
-    ("__app_prop_names",  Native::Val(appprops::builtin_app_prop_names)),
-    ("__app_props_toml",  Native::Val(appprops::builtin_app_props_toml)),
 
     // ── add-symbol-availability-macro — appended to preserve existing BuiltinIds ──
     // `available!(X)` 的运行期回落。正常路径**永不执行**——加载期 fold_availability
     // 已把它折成 ConstBool 并剪掉死分支。走到这里 = pass 没跑，debug 下 panic 点名。
-    ("__sym_available",   Native::Val(symavail::builtin_sym_available)),
 
     // ── add-method-reference — appended to preserve existing BuiltinIds ──
     // `methodof(Type.Member(sig))` → Std.Reflection.MethodInfo. The overload is

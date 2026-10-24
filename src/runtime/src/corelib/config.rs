@@ -40,29 +40,24 @@ fn find(key: &str) -> Option<&'static crate::config::KnobSpec> {
 }
 
 /// `__cfg_get(string key) -> string?` —— 分层解析后的生效值；取默认时返回 null。
-pub fn builtin_cfg_get(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let key = arg_str(args, "RuntimeConfig.Get")?;
-    let Some(spec) = find(&key) else { return Ok(Value::Null) };
-    let cfg = runtime_config();
-    Ok(cfg
+pub fn cfg_get(key: &str) -> Option<String> {
+    let spec = find(key)?;
+    runtime_config()
         .resolved
         .iter()
         .find(|r| r.name == spec.name)
         .and_then(|r| r.raw.clone())
-        .map_or(Value::Null, |v| Value::Str(v.into())))
 }
 
 /// `__cfg_source(string key) -> string` —— `"cli"|"env"|"user-config"|"app-config"|"default"`。
 /// 未知 key 返回 `"unknown"`。
-pub fn builtin_cfg_source(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let key = arg_str(args, "RuntimeConfig.Source")?;
-    let Some(spec) = find(&key) else { return Ok(Value::Str("unknown".to_string().into())) };
-    let label = runtime_config()
+pub fn cfg_source(key: &str) -> &'static str {
+    let Some(spec) = find(key) else { return "unknown" };
+    runtime_config()
         .resolved
         .iter()
         .find(|r| r.name == spec.name)
-        .map_or("default", |r| r.source.label());
-    Ok(Value::Str(label.to_string().into()))
+        .map_or("default", |r| r.source.label())
 }
 
 /// `__search_dirs() -> string[]` —— 本进程解析 zpkg 依赖时**按序**查找的目录。
@@ -72,26 +67,26 @@ pub fn builtin_cfg_source(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
 /// 重做就会漂移，而这正是今天两份 `_findCompilerZpkg` 各写四档探测的由来。
 ///
 /// 非 app 路径（纯 host 嵌入）未初始化 → 空数组。
-pub fn builtin_search_dirs(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
+pub fn search_dirs(ctx: &VmContext) -> Value {
     let dirs: Vec<Value> = crate::probing::search_dirs()
         .iter()
         .map(|p| Value::Str(p.display().to_string().into()))
         .collect();
-    Ok(ctx.heap().alloc_array(dirs))
+    ctx.heap().alloc_array(dirs)
 }
 
 /// `__cfg_names() -> string[]` —— 全部旋钮的对外 key。
-pub fn builtin_cfg_names(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
+pub fn cfg_names(ctx: &VmContext) -> Value {
     let names: Vec<Value> = KNOWN_KNOBS
         .iter()
         .map(|k| Value::Str(public_key(k).to_string().into()))
         .collect();
-    Ok(ctx.heap().alloc_array(names))
+    ctx.heap().alloc_array(names)
 }
 
 /// `__cfg_dump() -> string[]` —— `"key=value|source"` 扁平条目。value 为空表示取默认。
 /// 调用方按**第一个** `=` 与**最后一个** `|` 切分。
-pub fn builtin_cfg_dump(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
+pub fn cfg_dump(ctx: &VmContext) -> Value {
     let cfg = runtime_config();
     let entries: Vec<Value> = KNOWN_KNOBS
         .iter()
@@ -102,19 +97,44 @@ pub fn builtin_cfg_dump(ctx: &VmContext, _args: &[Value]) -> Result<Value> {
             Value::Str(format!("{}={value}|{source}", public_key(k)).into())
         })
         .collect();
-    Ok(ctx.heap().alloc_array(entries))
+    ctx.heap().alloc_array(entries)
 }
 
 /// `__cfg_describe(string key) -> string?` —— 一行说明；未知 key 返回 null。
-pub fn builtin_cfg_describe(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let key = arg_str(args, "RuntimeConfig.Describe")?;
-    Ok(find(&key).map_or(Value::Null, |s| Value::Str(s.description.to_string().into())))
+pub fn cfg_describe(key: &str) -> Option<String> {
+    find(key).map(|s| s.description.to_string())
 }
 
 /// `__cfg_available(string key) -> bool` —— 该旋钮在**本 build / 本平台**是否存在。
 /// 未知 key 返回 false。
-pub fn builtin_cfg_available(_ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let key = arg_str(args, "RuntimeConfig.IsAvailable")?;
+pub fn cfg_available(key: &str) -> bool {
     let ctx = BuildCtx::current();
-    Ok(Value::Bool(find(&key).is_some_and(|s| is_available(s, &ctx))))
+    find(key).is_some_and(|s| is_available(s, &ctx))
+}
+
+/// 运行时配置面迁 builtin ABI v2(P1-8 批次 12):全查询 PURE;数组实现内直构。
+#[z42_macros::builtins]
+pub mod typed {
+    use super::*;
+
+    #[builtin(name = "__cfg_get", pure)]
+    pub fn get(key: &str) -> Option<String> { cfg_get(key) }
+
+    #[builtin(name = "__cfg_source", pure)]
+    pub fn source(key: &str) -> &'static str { cfg_source(key) }
+
+    #[builtin(name = "__search_dirs")]
+    pub fn dirs(ctx: &VmContext) -> Value { search_dirs(ctx) }
+
+    #[builtin(name = "__cfg_names")]
+    pub fn names(ctx: &VmContext) -> Value { cfg_names(ctx) }
+
+    #[builtin(name = "__cfg_dump")]
+    pub fn dump(ctx: &VmContext) -> Value { cfg_dump(ctx) }
+
+    #[builtin(name = "__cfg_describe", pure)]
+    pub fn describe(key: &str) -> Option<String> { cfg_describe(key) }
+
+    #[builtin(name = "__cfg_available", pure)]
+    pub fn available(key: &str) -> bool { cfg_available(key) }
 }
