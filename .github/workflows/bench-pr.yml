@@ -498,6 +498,21 @@ jobs:
           # 「BASEDRIVER + PR stdlib + PR VM」才是自洽的三件套。产物不受影响：base stdlib
           # 的字节由 BASEDRIVER 的代码决定，与执行它的 VM 无关。BASEVM 仍然只用于下面的
           # 实测环节（那时 BASEALL 已被 base stdlib 覆盖，不再引用新 builtin）。
+          #
+          # 携带插件先于 workspace（harness-as-plugin）：z42.harness 经 [plugins.export] 携带
+          # z42.harness.lint，它的 release 构建会验插件工程 dist 里的 zpkg（PluginCarry._verifyDist），
+          # 产物必须先于 workspace 存在。`xtask build stdlib` 在 workspace 前由 _buildStdlibCarriedPlugins
+          # 编它；这里裸调 driver 走 workspace，同一步得自己补——同一 CLI 形态（_z42cBuildPackage：
+          # `build <toml> --release --output-dir <工程>/dist`，dist 即 BuildLayout 缺省、验证的判据位）。
+          # 解析域与 xtask 同构（上一代 z42c.core/syntax + 当前代 z42c.analyzers 混编插件）。只建产物，
+          # 不平铺进 BASEALL 同级 plugins/：bench 单元按 ambient 标准库消费 harness，携带缺件静默，且
+          # PR 侧 PRALL 同样无同级 plugins/——两侧对称。base 早于该机制时无此清单，跳过。
+          LINT_TOML="$ROOT/base-src/src/libraries/z42.harness/plugins/lint/z42.z42.toml"
+          if [ -f "$LINT_TOML" ]; then
+            ( cd base-src/src/libraries && \
+              Z42_LIBS="$BASEALL" "$PRVM" "$BASEDRIVER" --mode jit -- build "$LINT_TOML" --release \
+                --output-dir "$(dirname "$LINT_TOML")/dist" )
+          fi
           ( cd base-src/src/libraries && \
             Z42_LIBS="$BASEALL" "$PRVM" "$BASEDRIVER" --mode jit -- build --workspace --release --no-incremental )
           for f in "$ROOT/base-src/artifacts/build/libraries/"*/release/dist/*.zpkg; do cp -f "$f" "$BASEALL/"; done
