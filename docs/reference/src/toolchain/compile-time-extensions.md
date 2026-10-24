@@ -20,6 +20,48 @@ path 条目据此校验，`[dependencies]` 据此拒收。
 
 > 本页所有代码片段都来自实跑通过的最小工程。
 
+## 最小插件工程与默认值
+
+一个完整可用的插件工程只需**两行清单 + 一个源文件**（`src/` 布局）：
+
+```toml
+# z42.z42.toml —— 就这两行
+[project]
+name    = "demo.lint"
+kind    = "plugin"
+```
+
+```text
+demo.lint/
+  z42.z42.toml
+  src/DemoLintAnalyzer.z42
+```
+
+全部默认（省略即默认，无需特别设置就不写）：
+
+| 配置 | 默认 | 说明 |
+|---|---|---|
+| `version` | `"0.1.0"` | **仅 kind = "plugin" 可省**；lib / exe 的版本是对外契约，仍必填 |
+| `[sources].include` | `["src/**/*.z42"]` | 与普通工程同 |
+| 契约包（`z42c.plugin` / `z42c.syntax` / `z42c.core` / `z42c.semantics`） | 免声明 | kind = "plugin" 对 SDK 契约包自动可见 |
+| stdlib（`z42.harness` 等全部标准库） | 免声明 | 标准库免声明、总是可见（W0610 同口径） |
+| 提供哪几类插件 | 由代码推导 | 包内实现了哪些契约，构建时推导出能力位写进 zpkg 头——不声明、不配置 |
+
+需要写的时候：版本要对外钉（发布件）写 `version`；源码不在 `src/` 或要排除子目录写 `[sources]`；
+引用非 SDK 的第三方库写 `[dependencies]`；嵌套在宿主工程里要复用宿主 internal 由**宿主**在
+`[plugins.export]` 条目写 `internal = true`（授权在宿主侧，插件自己写无效）。
+
+## 完整使用流程（索引）
+
+1. **写插件**：analyzer / generator / hook 三类契约与示例见下文各章；最小工程见上节。
+2. **挂插件**：消费方 `[plugins]` 三种条目（按名 / 工程路径 / `.zpkg` 路径）；hook 经 z42b 反射执行。
+3. **随库分发**：lib 用 `[plugins.export]` 携带——依赖它的工程零配置自动获得（声明闭包=硬承诺、
+   ambient 标准库=尽力而为）；`[plugins] "x" = false` 关闭单项。
+4. **internal 授权**：宿主在携带条目上 `internal = true`——插件以宿主同包待遇编译，可复用宿主
+   internal 成员（与测试单元看父包 internal 同机制）。
+5. **分发面**：插件 zpkg 放**插件目录**（`Z42_PLUGINS` / SDK 的 `<Z42_HOME>/plugins/`）——与依赖目录
+   （libs）刻意分开，运行期解析域不混入插件。
+
 ## `[plugins]` 段
 
 ```toml

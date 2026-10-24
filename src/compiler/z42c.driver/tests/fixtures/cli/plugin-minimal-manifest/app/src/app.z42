@@ -1,0 +1,6 @@
+namespace E2eMiniApp;
+
+using Std.IO;
+using E2eMiniOut;
+
+void Main() { Console.WriteLine(O.V().ToString()); }

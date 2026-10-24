@@ -1,16 +1,6 @@
-# z42.harness.lint —— harness 约定 lint 插件（harness-as-plugin PR 2 首个携带插件）。
-# 由 z42.harness lib 经 [plugins.export] 携带：依赖 harness 的工程（测试单元）自动获得。
-# 规则抓的是**运行期才炸 / 静默失效**的两类真陷阱（见 HarnessLintAnalyzer.z42 头注）。
+# z42.harness.lint —— harness 约定 lint 插件（最小清单示范：name + kind 两行）。
+# 全部走默认：version=0.1.0（插件可省）、sources=src/**/*.z42、z42c.plugin/z42c.syntax 契约包
+# 与 stdlib（z42.harness）对 kind=plugin 免声明。internal 授权在宿主的 [plugins.export] 条目上。
 [project]
 name    = "z42.harness.lint"
-version = "0.1.0"
 kind    = "plugin"
-
-[sources]
-include = ["*.z42"]
-
-[dependencies]
-"z42.harness"    = "0.1.0"   # LintSupport（internal——宿主 [plugins.export] internal=true 授权同包待遇）
-"z42c.syntax"    = "0.1.0"
-"z42c.plugin" = "0.1.0"
-"z42c.core"      = "0.1.0"
