@@ -38,7 +38,6 @@ src/compiler/z42c.pipeline/src/CacheStore.z42	Parse	68
 src/compiler/z42c.pipeline/src/DepScan.z42	ScanDirs	118
 src/compiler/z42c.pipeline/src/DepScan.z42	ScanDirsLazy	96
 src/compiler/z42c.pipeline/src/NsIndexCache.z42	_scanFromIndex	63
-src/compiler/z42c.pipeline/src/PackageCompile.z42	Compile	197
 src/compiler/z42c.pipeline/src/SdkLibs.z42	Plan	69
 src/compiler/z42c.semantics/src/Binding/AssignTyper.z42	_bindAssign	123
 src/compiler/z42c.semantics/src/Binding/CollectionTyper.z42	_bindArraySpread	63
