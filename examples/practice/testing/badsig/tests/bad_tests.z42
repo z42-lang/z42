@@ -1,0 +1,14 @@
+namespace BadSig.Tests;
+
+using Std.Harness;
+
+public class Holder {
+    [Test]
+    void test_instance() { Assert.True(true); }
+}
+
+[Test]
+int test_returns_int() { return 1; }
+
+[Test]
+void test_takes_arg(int x) { Assert.Equal(1, x); }

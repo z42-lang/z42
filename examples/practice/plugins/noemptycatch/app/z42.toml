@@ -1,0 +1,10 @@
+[project]
+name    = "app"
+version = "0.1.0"
+kind    = "exe"
+
+[sources]
+include = ["src/**/*.z42"]
+
+[plugins]
+"demo.noemptycatch" = { path = "../plugin" }

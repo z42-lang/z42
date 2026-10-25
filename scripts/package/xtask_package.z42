@@ -110,26 +110,12 @@ string _detectHostRid() {
     return "linux-x64";
 }
 
-string _ridCategory(string rid) {
-    if (rid.StartsWith("macos-") || rid.StartsWith("linux-") || rid.StartsWith("windows-")) { return "desktop"; }
-    if (rid.StartsWith("ios-") || rid.StartsWith("iossim-")) { return "ios"; }
-    if (rid.StartsWith("android-")) { return "android"; }
-    if (rid == "browser-wasm") { return "wasm"; }
-    return "unknown";
-}
+// RID → 类别 / cargo triple：versions.toml `[rid.*]` 的唯一登记（不在表里 = unknown / ""，
+// 如 Intel mac 的 macos-x64-unsupported——versions.toml 只承诺 arm64，不支持的 host 在此止步，
+// 而不是按前缀猜一个类别继续往下走）。
+string _ridCategory(string rid) { return _vRidCategory(_root(), rid); }
 
-string _ridToCargo(string rid) {
-    if (rid == "macos-arm64")   { return "aarch64-apple-darwin"; }
-    if (rid == "linux-arm64")   { return "aarch64-unknown-linux-gnu"; }
-    if (rid == "linux-x64")     { return "x86_64-unknown-linux-gnu"; }
-    if (rid == "windows-x64")   { return "x86_64-pc-windows-msvc"; }
-    if (rid == "ios-arm64")     { return "aarch64-apple-ios"; }
-    if (rid == "iossim-arm64")  { return "aarch64-apple-ios-sim"; }
-    if (rid == "android-arm64") { return "aarch64-linux-android"; }
-    if (rid == "android-x64")   { return "x86_64-linux-android"; }
-    if (rid == "browser-wasm")  { return "wasm32-unknown-unknown"; }
-    return "";
-}
+string _ridToCargo(string rid) { return _vRidTriple(_root(), rid); }
 
 // Read versions.toml [project].version with native Std.Toml (was python3).
 string _versionsGet(string root) {

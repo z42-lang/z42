@@ -1,0 +1,25 @@
+namespace Demo.Lint;
+
+using Z42.Syntax;
+using Z42.Analyzers;
+
+/// 报告空的 catch 块。
+public sealed class NoEmptyCatchAnalyzer : Analyzer {
+    public DiagRule[] SupportedRules() {
+        DiagRule[] rs = new DiagRule[1];
+        rs[0] = new DiagRule("DEMO001", "空 catch", "空 catch 会把异常悄悄吃掉",
+                             "Correctness", AnalyzerSeverity.Warning, true);
+        return rs;
+    }
+    public int[] ObservedKinds() {
+        int[] ks = new int[1];
+        ks[0] = SyntaxKind.CatchClause;
+        return ks;
+    }
+    public void OnSyntaxNode(int kind, object node, DiagSink diags) {
+        BlockStmt b = (node as CatchClause).Body as BlockStmt;
+        if (b != null && b.Count == 0) {
+            diags.Report(this.SupportedRules()[0], (node as CatchClause).Span);
+        }
+    }
+}

@@ -1,0 +1,11 @@
+using Std.IO;
+
+void Main() {
+#suppress DEMO001
+    try {
+        Console.WriteLine(int.Parse("abc"));
+    } catch (FormatException e) {
+    }
+#restore DEMO001
+    Console.WriteLine("done");
+}

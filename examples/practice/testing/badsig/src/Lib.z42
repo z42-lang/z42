@@ -1,0 +1,7 @@
+namespace BadSig;
+
+/// 占位。
+public static class Nothing {
+    /// 返回 1。
+    public static int One() { return 1; }
+}

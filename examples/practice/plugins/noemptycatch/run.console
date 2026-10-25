@@ -1,0 +1,77 @@
+# ANCHOR: layout
+$ ls
+app/
+plugin/
+quiet/
+strict/
+$ cat plugin/z42.toml
+[project]
+name    = "demo.noemptycatch"
+version = "0.1.0"
+kind    = "plugin"
+
+[sources]
+include = ["src/**/*.z42"]
+# ANCHOR_END: layout
+# ANCHOR: app-toml
+$ cat app/z42.toml
+[project]
+name    = "app"
+version = "0.1.0"
+kind    = "exe"
+
+[sources]
+include = ["src/**/*.z42"]
+
+[plugins]
+"demo.noemptycatch" = { path = "../plugin" }
+# ANCHOR_END: app-toml
+# ANCHOR: app-build
+$ cd app
+$ z42 build
+wrote -> ../plugin/dist/demo.noemptycatch.zpkg (indexed, 1 zbc)
+wrote -> ./dist/app.zpkg (indexed, 1 zbc)
+cached: 0/1 files
+cache -> ../plugin/artifacts/debug/.cache (1 files)
+cached: 0/1 files
+...
+z42c build: 1 warning(s) in ./src/Main.z42
+  ./src/Main.z42(6,7): DEMO001: 空 catch 会把异常悄悄吃掉
+...
+# ANCHOR_END: app-build
+# ANCHOR: strict-toml
+$ cd ../strict
+$ cat z42.toml
+[project]
+name    = "strict"
+version = "0.1.0"
+kind    = "exe"
+
+[sources]
+include = ["src/**/*.z42"]
+
+[plugins]
+"demo.noemptycatch" = { path = "../plugin" }
+
+[lints]
+DEMO001 = "error"
+# ANCHOR_END: strict-toml
+# ANCHOR: strict-build
+$ z42 build
+no changes; preserved -> ../plugin/dist/demo.noemptycatch.zpkg
+cached: 1/1 files
+cached: 0/1 files
+...
+z42c build: 1 error(s) in ./src/Main.z42
+  ./src/Main.z42(6,7): DEMO001: 空 catch 会把异常悄悄吃掉
+[exit: 1]
+# ANCHOR_END: strict-build
+# ANCHOR: quiet-build
+$ cd ../quiet
+$ z42 build
+no changes; preserved -> ../plugin/dist/demo.noemptycatch.zpkg
+wrote -> ./dist/quiet.zpkg (indexed, 1 zbc)
+cached: 1/1 files
+cached: 0/1 files
+...
+# ANCHOR_END: quiet-build

@@ -51,3 +51,6 @@
 # 工程实践
 
 - [文档注释与 `z42 doc`](practice/doc-comments.md)
+- [写测试](practice/testing.md)
+- [给编译器加一条检查：插件](practice/plugins.md)
+- [发布到别人的机器上](practice/publishing.md)
