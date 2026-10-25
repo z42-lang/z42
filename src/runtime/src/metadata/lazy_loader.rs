@@ -324,6 +324,23 @@ impl LazyLoader {
         }
     }
 
+    /// Mark `file_name` resident under **both** idempotency keys: the by-name
+    /// (`<pkg>.zpkg`) form and the `__loaded_path__<module>` form that
+    /// `register_loaded_artifact` checks. By-name and by-path loads keep separate
+    /// bookkeeping, and the by-path side already marks this side's `<pkg>.zpkg`
+    /// key (fix-repl-inmemory-dep-warn). Without the mirror mark a zpkg loaded
+    /// lazily by name and then again via `ModuleLoader.Load` registers every
+    /// type twice — duplicate-type warnings plus an ambiguous-use-site entry
+    /// (observed as ~30 `duplicate type Z42.Driver.*` warnings and a skipped
+    /// cache write when z42b loads z42c.driver for a path-plugin build after
+    /// the lazy loader had already pulled it in by name).
+    fn mark_zpkg_loaded_both(&mut self, file_name: &str) {
+        self.mark_zpkg_loaded(file_name.to_string());
+        if let Some(stem) = file_name.strip_suffix(".zpkg") {
+            self.mark_zpkg_loaded(format!("__loaded_path__{stem}"));
+        }
+    }
+
     /// runtime-ambiguous-use-site: remember that `name` was declared by more than
     /// one loaded zpkg. Append-only (the registries it shadows are append-only too,
     /// which `registry_fingerprint` relies on — nothing is ever removed here either).

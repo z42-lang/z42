@@ -99,6 +99,28 @@ pub struct RunOpts {
     pub stats_json: bool,
 }
 
+/// Idempotency keys for the entry zpkg, seeded into `initially_loaded_zpkgs`.
+///
+/// The entry zpkg is merged straight into the program module below — it never
+/// passes through the lazy loader, so its name is absent from the loader's
+/// bookkeeping. Record both keys (the dep file name and the
+/// `__loaded_path__<module>` form `register_loaded_artifact` checks): without
+/// them, a lazy symbol miss whose namespace/fallback strategies can see the
+/// entry zpkg in a search dir re-loads the running program itself. Observed as
+/// z42c.driver re-registering its 30 types while compiling a `[plugins]` path
+/// entry — duplicate-type warnings plus a skipped cache write (`CacheZbcTask`
+/// turned ambiguous), so the consumer's incremental cache never persisted.
+fn entry_zpkg_idempotency_keys(file: &str) -> Vec<String> {
+    let mut keys = Vec::new();
+    if let Some(name) = std::path::Path::new(file).file_name().and_then(|n| n.to_str()) {
+        keys.push(name.to_string());
+        if let Some(stem) = name.strip_suffix(".zpkg") {
+            keys.push(format!("__loaded_path__{stem}"));
+        }
+    }
+    keys
+}
+
 /// Load the app at `file` (.zbc or .zpkg) and run its entry (`entry` overrides
 /// the artifact's baked-in entry hint). Returns the program's result.
 pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
@@ -156,7 +178,8 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
     let mut loaded_paths: HashSet<PathBuf> = HashSet::new();
     // Track zpkg file names loaded eagerly at startup (initially_loaded input
     // for the lazy loader — these are excluded from on-demand candidate set).
-    let mut initially_loaded_zpkgs: Vec<String> = Vec::new();
+    // Seeded with the entry zpkg's two idempotency keys (see `entry_zpkg_idempotency_keys`).
+    let mut initially_loaded_zpkgs: Vec<String> = entry_zpkg_idempotency_keys(file);
     // add-runtime-observer: collect (name, byte_size) for every module loaded
     // during boot, replay-emitted as `ModuleLoaded` events after the registry exists.
     let mut loaded_for_replay: Vec<(String, Option<u64>)> = Vec::new();

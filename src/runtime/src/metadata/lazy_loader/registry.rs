@@ -58,8 +58,9 @@ impl LazyLoader {
             None    => return Ok(()),
         };
 
-        // Decision 4: pre-insert to break cycles before recursive dep expansion.
-        self.mark_zpkg_loaded(file_name.to_string());
+        // Decision 4: pre-insert to break cycles before recursive dep expansion
+        // (both idempotency keys — see `mark_zpkg_loaded_both`).
+        self.mark_zpkg_loaded_both(file_name);
 
         let path_str = file_path.to_string_lossy().into_owned();
         let mut artifact = load_artifact(&path_str)?;
