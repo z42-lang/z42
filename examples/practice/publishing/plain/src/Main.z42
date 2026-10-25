@@ -1,0 +1,6 @@
+using Std.IO;
+
+void Main() {
+    string who = "世界";
+    Console.WriteLine($"你好，{who}！");
+}
