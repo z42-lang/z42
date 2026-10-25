@@ -127,3 +127,18 @@ void test_plugins_entry_internal_parsed_forBan() {
     Assert.Equal(1, m.PluginCount);
     Assert.True(m.Plugins[0].Internal);
 }
+
+// ── 最小插件清单（plugin-minimal-manifest）────────────────────────────────────
+
+[Test]
+void test_plugin_version_defaults() {
+    // kind=plugin 未写 version → 默认 "0.1.0"（最小清单 = name + kind 两行）；lib/exe 不缺省。
+    string toml = "[project]\nname = \"p.mini\"\nkind = \"plugin\"\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal("0.1.0", m.Project.Version);
+    Assert.True(m.Project.IsPlugin());
+
+    string lib = "[project]\nname = \"l.x\"\nversion = \"1.2.3\"\nkind = \"lib\"\n";
+    ProjectManifest lm = ManifestLoader.ParseText(lib);
+    Assert.Equal("1.2.3", lm.Project.Version);
+}

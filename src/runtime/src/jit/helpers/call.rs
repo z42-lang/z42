@@ -34,6 +34,42 @@ pub unsafe extern "C" fn jit_call(
     ic_ptr: *const std::sync::atomic::AtomicU32,
     caller_offset: u32, // packed code offset of the call site
 ) -> u8 {
+    call_impl(frame, ctx, dst, method_id, fn_name_ptr, fn_name_len, args_ptr, argc, ic_ptr, caller_offset, &[])
+}
+
+/// `jit_call` for a method-level generic call site. `mta_ptr/len` is the site's
+/// `method_type_args` (FQ type-name strings; a compile-time constant of the site, baked by
+/// codegen — it points into the instruction the Module owns). It is threaded into the
+/// callee frame only when the callee runs on the interpreter; a **compiled** callee never
+/// observes it (`translate::unsupported`'s invariant: a function that could read its type
+/// args does not compile), so the native path is the plain `jit_call` one.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_call_mta(
+    frame: *mut JitFrame, ctx: *const VmContext,
+    dst: u32,
+    method_id: u32,
+    fn_name_ptr: *const u8, fn_name_len: usize,
+    args_ptr: *const u32, argc: usize,
+    ic_ptr: *const std::sync::atomic::AtomicU32,
+    caller_offset: u32,
+    mta_ptr: *const String, mta_len: usize,
+) -> u8 {
+    let mta = std::slice::from_raw_parts(mta_ptr, mta_len);
+    call_impl(frame, ctx, dst, method_id, fn_name_ptr, fn_name_len, args_ptr, argc, ic_ptr, caller_offset, mta)
+}
+
+#[inline(always)]
+#[allow(clippy::too_many_arguments)]
+unsafe fn call_impl(
+    frame: *mut JitFrame, ctx: *const VmContext,
+    dst: u32,
+    method_id: u32,
+    fn_name_ptr: *const u8, fn_name_len: usize,
+    args_ptr: *const u32, argc: usize,
+    ic_ptr: *const std::sync::atomic::AtomicU32,
+    caller_offset: u32,
+    mta: &[String],
+) -> u8 {
     use crate::metadata::tokens::UNRESOLVED;
     let rt        = super::jit_rt(ctx);
     let frame_ref = &mut *frame;
@@ -49,10 +85,10 @@ pub unsafe extern "C" fn jit_call(
     if token != UNRESOLVED {
         // A bound token already passed its signature check (resolver / first bind).
         if let Some(entry) = rt.resolve_fn_by_id_tiered(&*ctx, token as usize) {
-            return call_compiled(frame_ref, ctx, dst, entry, arg_regs, caller_offset);
+            return call_compiled(frame_ref, ctx, dst, entry, arg_regs, caller_offset, mta);
         }
         if let Some(callee) = rt.fn_of(token as usize) {
-            return call_interp(frame_ref, ctx, dst, callee, arg_regs, caller_offset);
+            return call_interp(frame_ref, ctx, dst, callee, arg_regs, caller_offset, mta);
         }
     }
 
@@ -69,18 +105,20 @@ pub unsafe extern "C" fn jit_call(
         Err(exc) => { set_exception(vm, exc); return 1; }
     };
     if let Some(entry) = id.and_then(|id| rt.resolve_fn_by_id_tiered(&*ctx, id)) {
-        return call_compiled(frame_ref, ctx, dst, entry, arg_regs, caller_offset);
+        return call_compiled(frame_ref, ctx, dst, entry, arg_regs, caller_offset, mta);
     }
-    call_interp(frame_ref, ctx, dst, callee, arg_regs, caller_offset)
+    call_interp(frame_ref, ctx, dst, callee, arg_regs, caller_offset, mta)
 }
 
 /// Run a compiled callee: module-init and cctor barriers (keyed by the callee's own
 /// name — nothing to decode), then the native call with the callee frame filled
-/// straight from the caller's registers.
+/// straight from the caller's registers. `mta` (a generic site's type args) is not
+/// passed on — a compiled callee cannot read it — it only keeps a `[Native]` wrapper
+/// from folding, as the interpreter's `try_fold` does for generic sites.
 #[inline]
 unsafe fn call_compiled(
     frame_ref: &mut JitFrame, ctx: *const VmContext, dst: u32,
-    entry: &FnEntry, arg_regs: &[u32], caller_offset: u32,
+    entry: &FnEntry, arg_regs: &[u32], caller_offset: u32, mta: &[String],
 ) -> u8 {
     let vm = vm_ctx_ref(ctx);
     // add-static-constructors：调用该类型的静态方法是 C# 的类型初始化触发点之一。
@@ -100,7 +138,7 @@ unsafe fn call_compiled(
     // `[Native]` extern wrapper: dispatch its builtin straight from our registers
     // instead of building the wrapper's activation (see `jit::forward`).
     if let Some(id) = entry.forward {
-        if arg_regs.len() == (*entry.func).param_count {
+        if mta.is_empty() && arg_regs.len() == (*entry.func).param_count {
             return super::super::forward::call_forward(frame_ref, ctx, dst, entry.func, id, None, arg_regs);
         }
     }
@@ -114,7 +152,7 @@ unsafe fn call_compiled(
 #[inline(never)]
 unsafe fn call_interp(
     frame_ref: &mut JitFrame, ctx: *const VmContext, dst: u32,
-    callee: &crate::metadata::Function, arg_regs: &[u32], caller_offset: u32,
+    callee: &crate::metadata::Function, arg_regs: &[u32], caller_offset: u32, mta: &[String],
 ) -> u8 {
     let vm = vm_ctx_ref(ctx);
     let module = super::jit_module(ctx);
@@ -130,13 +168,14 @@ unsafe fn call_interp(
         set_exception(vm, exc);
         return 1;
     }
-    // A cold `[Native]` wrapper (no compiled entry yet) folds too (`interp::forward`).
-    if arg_regs.len() == callee.param_count {
+    // A cold `[Native]` wrapper (no compiled entry yet) folds too (`interp::forward`);
+    // not for a generic site, as the interpreter's `try_fold`.
+    if mta.is_empty() && arg_regs.len() == callee.param_count {
         if let Some(id) = crate::interp::forward::forward_of(vm, module, callee) {
             return super::super::forward::call_forward(frame_ref, ctx, dst, callee, id, None, arg_regs);
         }
     }
-    match crate::interp::exec_function_from_regs(vm, module, callee, &frame_ref.regs, arg_regs, &[]) {
+    match crate::interp::exec_function_from_regs(vm, module, callee, &frame_ref.regs, arg_regs, mta) {
         Ok(crate::interp::ExecOutcome::Returned(ret)) => {
             frame_ref.regs[dst as usize] = ret.unwrap_or(Value::Null);
             0

@@ -1,4 +1,4 @@
-// z42c.analyzers 单测：AnalyzerDriver / LintConfig / SuppressionSet / `--fix`。
+// z42c.plugin（analyzer 面）单测：AnalyzerDriver / LintConfig / SuppressionSet / `--fix`。
 //
 // 验证编译期 analyzer 驱动机制：一个测试内 analyzer（实现 Z42.Analyzers.Analyzer 契约，Register 里用
 // lambda 注册 OnSyntaxNode——这是 user code，lambda 合法）经 AnalyzerDriver.Run 遍历 parse 出的

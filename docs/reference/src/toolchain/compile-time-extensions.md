@@ -14,11 +14,53 @@ z42 允许把**你自己的代码加载进工具链**（编译器 z42c / 构建�
 [解析域](#解析域编译期扩展自动看得见-sdk-库)），并声明「我是插件」——`[plugins]` 的
 path 条目据此校验，`[dependencies]` 据此拒收。
 
-> 契约包（`z42c.analyzers` / `z42c.generators` / `z42c.syntax` / `z42c.core` / `z42c.semantics`）是 **SDK 库**：住在 `programs/z42c/`、
+> 契约包（`z42c.plugin` / `z42c.syntax` / `z42c.core` / `z42c.semantics`）是 **SDK 库**：住在 `programs/z42c/`、
 > 不在 `libs/`。`kind = "plugin"` 自动看得见它们；普通工程（`kind = "lib"` / `"exe"`）要在
 > `[dependencies]` 里**按名声明**才可见。
 
 > 本页所有代码片段都来自实跑通过的最小工程。
+
+## 最小插件工程与默认值
+
+一个完整可用的插件工程只需**两行清单 + 一个源文件**（`src/` 布局）：
+
+```toml
+# z42.z42.toml —— 就这两行
+[project]
+name    = "demo.lint"
+kind    = "plugin"
+```
+
+```text
+demo.lint/
+  z42.z42.toml
+  src/DemoLintAnalyzer.z42
+```
+
+全部默认（省略即默认，无需特别设置就不写）：
+
+| 配置 | 默认 | 说明 |
+|---|---|---|
+| `version` | `"0.1.0"` | **仅 kind = "plugin" 可省**；lib / exe 的版本是对外契约，仍必填 |
+| `[sources].include` | `["src/**/*.z42"]` | 与普通工程同 |
+| 契约包（`z42c.plugin` / `z42c.syntax` / `z42c.core` / `z42c.semantics`） | 免声明 | kind = "plugin" 对 SDK 契约包自动可见 |
+| stdlib（`z42.harness` 等全部标准库） | 免声明 | 标准库免声明、总是可见（W0610 同口径） |
+| 提供哪几类插件 | 由代码推导 | 包内实现了哪些契约，构建时推导出能力位写进 zpkg 头——不声明、不配置 |
+
+需要写的时候：版本要对外钉（发布件）写 `version`；源码不在 `src/` 或要排除子目录写 `[sources]`；
+引用非 SDK 的第三方库写 `[dependencies]`；嵌套在宿主工程里要复用宿主 internal 由**宿主**在
+`[plugins.export]` 条目写 `internal = true`（授权在宿主侧，插件自己写无效）。
+
+## 完整使用流程（索引）
+
+1. **写插件**：analyzer / generator / hook 三类契约与示例见下文各章；最小工程见上节。
+2. **挂插件**：消费方 `[plugins]` 三种条目（按名 / 工程路径 / `.zpkg` 路径）；hook 经 z42b 反射执行。
+3. **随库分发**：lib 用 `[plugins.export]` 携带——依赖它的工程零配置自动获得（声明闭包=硬承诺、
+   ambient 标准库=尽力而为）；`[plugins] "x" = false` 关闭单项。
+4. **internal 授权**：宿主在携带条目上 `internal = true`——插件以宿主同包待遇编译，可复用宿主
+   internal 成员（与测试单元看父包 internal 同机制）。
+5. **分发面**：插件 zpkg 放**插件目录**（`Z42_PLUGINS` / SDK 的 `<Z42_HOME>/plugins/`）——与依赖目录
+   （libs）刻意分开，运行期解析域不混入插件。
 
 ## `[plugins]` 段
 
@@ -93,7 +135,7 @@ zpkg **格式**代差（handler 由另一代工具链编出、wire 格式已经 
 
 ## 写一个 Analyzer
 
-契约在 **`z42c.analyzers`**（命名空间 `Z42.Analyzers`）；AST 节点类型（`CatchClause` 等）在 `z42c.syntax`（命名空间 `Z42.Syntax`）。依赖这三个包即可：
+契约在 **`z42c.plugin`** 的 analyzer 面（命名空间 `Z42.Analyzers`）；AST 节点类型（`CatchClause` 等）在 `z42c.syntax`（命名空间 `Z42.Syntax`）。依赖即可：
 
 ```toml
 [project]
@@ -104,7 +146,7 @@ kind    = "plugin"
 [dependencies]
 "z42c.core"   = "0.1.0"
 "z42c.syntax" = "0.1.0"
-"z42c.analyzers" = "0.1.0"
+"z42c.plugin" = "0.1.0"
 ```
 
 > 这些契约包住在 `programs/z42c/`、**不在 `libs/`**。`kind = "plugin"` 下它们自动可见，上面的
@@ -205,9 +247,9 @@ analyzer 可以在报诊断的同时给出修复：把 `diags` 下转成 `FixSin
 ## 写一个 Generator
 
 Generator 契约（`Generator` / `ModuleGenerator` / `GenTarget` / `GenSink` / `GenContext`）住在
-**`z42c.generators`**，命名空间 `Z42.Generators`。它比 analyzer 契约深一层：generator 在一次
+**`z42c.plugin`** 的 generator 面，命名空间 `Z42.Generators`。它比 analyzer 契约深一层：generator 在一次
 预备绑定**之后**运行，拿得到解析后的符号（`Z42ClassType` / `SymbolTable`，命名空间 `Z42.Semantics`，
-由 `z42c.generators` 传递引入）。
+由 `z42c.plugin` 传递引入）。
 
 两种形态：
 
@@ -229,7 +271,7 @@ Generator 契约（`Generator` / `ModuleGenerator` / `GenTarget` / `GenSink` / `
 
 ### 解析域：插件自动看得见 SDK 库
 
-契约包（`z42c.generators` / `z42c.analyzers` / `z42c.semantics` / `z42c.syntax` / `z42c.core`）是 **SDK 库**——不在 SDK 的 `libs/` 里，而在
+契约包（`z42c.plugin` / `z42c.semantics` / `z42c.syntax` / `z42c.core`）是 **SDK 库**——不在 SDK 的 `libs/` 里，而在
 **`programs/z42c/`**，与 z42c 自己的 zpkg 同址（规则全文见 [z42-toml.md](z42-toml.md) 的「SDK 库」）：
 
 | 工程 | SDK 库可见吗 | 部署 |
@@ -249,7 +291,7 @@ version = "0.1.0"
 kind    = "plugin"
 
 [dependencies]
-"z42c.generators" = "0.1.0"
+"z42c.plugin" = "0.1.0"
 ```
 
 消费方用 path 挂上它，全程不需要手工拷 zpkg：

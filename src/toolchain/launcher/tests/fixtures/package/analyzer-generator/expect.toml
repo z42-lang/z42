@@ -32,9 +32,9 @@ tool = "z42c"
 cwd = "aslib"
 args = ["build", "dist.gen.z42.toml", "--release"]
 exit = "nonzero"
-stderr_contains = ["z42c.generators", "按名声明"]
+stderr_contains = ["z42c.plugin", "按名声明"]
 
-# ④ kind = "lib" 按名声明 "z42c.generators" ⇒ 编得过（SDK 库对普通工程按需开启）
+# ④ kind = "lib" 按名声明 "z42c.plugin" ⇒ 编得过（SDK 库对普通工程按需开启）
 [[step]]
 tool = "copy"
 from = "gen/gen.z42"

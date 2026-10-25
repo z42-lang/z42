@@ -29,18 +29,12 @@ public struct DictionaryEnumerator<TKey,TValue> where TKey : IEquatable {
 
 [`src/libraries/z42.core/src/Collections/DictionaryEnumerator.z42:10`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Collections/DictionaryEnumerator.z42#L10)
 
-被枚举的字典；版本号 `_ver` 由它驱动失效检测。
 
 <a id="Std.Collections.DictionaryEnumerator<TKey,TValue>.ctor(Dictionary<TKey,TValue>)"></a>
 ### DictionaryEnumerator(Dictionary<TKey,TValue> _dict)
 
 [`src/libraries/z42.core/src/Collections/DictionaryEnumerator.z42:8`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Collections/DictionaryEnumerator.z42#L8)
 
-`Dictionary<TKey, TValue>` 的枚举器：按 entries 顺序（= 插入顺序）遍历，跳过 tombstone。
-
-首次 `MoveNext` 记下字典的 `_version`；此后字典新增键 / `Clear` / 压实会改变它，下一次
-`MoveNext` 即抛 `InvalidOperationException`（对齐 C# 的 "Collection was modified"）。
-覆盖已有键与 `Remove` 不改 `_version`：entry 原位不动，枚举照常继续（被删项不再产出）。
 
 <a id="Std.Collections.DictionaryEnumerator<TKey,TValue>.MoveNext()"></a>
 ### bool MoveNext()

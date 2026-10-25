@@ -185,7 +185,7 @@ jobs:
           # rename-z42-ir-to-z42-package：本函数对 **base 与 PR 两棵树**都调用，而改名 PR 里
           # 只有 PR 侧叫 `z42.package`、base 侧仍叫 `z42.ir` ⇒ **写死任一个名字都会有一侧找不到**
           # （实测：只改新名，base 侧 `grep: No such file` ⇒ 本门 17s 就红）。两个名字都试。
-          # STAGE2-DEBT(bench-pr-libdir-probe): 旧名/旧位置彻底退役后删掉后两档。2026-09-30 推到 10-27：后两档是给 **base 树**兜底的，base 若早于 #921（09-27 把该库挪进 src/compiler/）就仍在 src/libraries/ ⇒ 现在删会让「从 09-27 前的 main 分出来的 PR」本门红。等 relocate 满一个月
+          # STAGE2-DEBT(bench-pr-libdir-probe,2026-10-27): 旧名/旧位置彻底退役后删掉后两档。2026-09-30 推到 10-27：后两档是给 **base 树**兜底的，base 若早于 #921（09-27 把该库挪进 src/compiler/）就仍在 src/libraries/ ⇒ 现在删会让「从 09-27 前的 main 分出来的 PR」本门红。等 relocate 满一个月
           # ⚠️ 本函数对 **base 与 PR 两棵树**都调用（同 `ver()` 的纪律）：relocate-compiler-domain-libs
           # 把该库从 `src/libraries/` 挪到 `src/compiler/`，改名 PR 那次是名字不同、这次是**位置**不同
           # ⇒ 同样必须「两个都试」，写死任一侧都会有一棵树找不到、本门 17s 就红。
@@ -432,7 +432,14 @@ jobs:
           # a per-file loop (last-wins) is safe. (Same for every dist-glob copy below.)
           PRALL="$ROOT/.ab-pr-alllibs"; rm -rf "$PRALL"; mkdir -p "$PRALL"
           cp -f "$ROOT/artifacts/intermediate/libraries/flat/release/"*.zpkg "$PRALL/"
-          for f in "$ROOT/artifacts/build/compiler/"*/release/dist/*.zpkg; do cp -f "$f" "$PRALL/"; done
+          # bench-ab-pkgset-filter：只拷 **base 成员表里也存在** 的编译器包。HEAD 可能重命名/合并包
+          # （z42c-plugin-merge：HEAD 有 z42c.plugin、base 还是 z42c.analyzers/generators）——HEAD 独有的
+          # 包进 base 的解析域 ⇒ 同 FQN 双包（E0606：declared in this package and also in package …），
+          # base workspace 当场红。同名的照拷（base 自建同名产物优先，与此前行为一致）。
+          for f in "$ROOT/artifacts/build/compiler/"*/release/dist/*.zpkg; do
+            n="$(basename "$f" .zpkg)"
+            if grep -q "\"$n\"" "$ROOT/base-src/src/compiler/z42.workspace.toml"; then cp -f "$f" "$PRALL/"; fi
+          done
 
           # base z42vm: reuse PR's unless src/runtime differs base..pr.
           # 路径集见文件头 narrow-bench-gate-guards：排除 *.md，README 改动不算「VM 变了」。
@@ -516,6 +523,9 @@ jobs:
             INTERNAL_OF="--internal-of z42.harness"
           fi
           if [ -f "$LINT_TOML" ]; then
+            # --internal-of z42.harness（#1370 起）：lint 用宿主 internal 成员（LintSupport.MixFixNote），
+            # 裸构建撞 E0404。解析域里的 z42.harness 来自 PR flat（BASEALL）——宿主先在不在场由 ParentPkg
+            # 同包待遇兜住。base < #1370 不存在该旗标——所有以现行 main 为底的 PR 都 ≥ #1370。
             ( cd base-src/src/libraries && \
               Z42_LIBS="$BASEALL" "$PRVM" "$BASEDRIVER" --mode jit -- build "$LINT_TOML" --release \
                 --output-dir "$(dirname "$LINT_TOML")/dist" $INTERNAL_OF )

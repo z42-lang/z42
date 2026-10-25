@@ -1,7 +1,7 @@
 // doc 注释的机械检查（z42-doc §4.7 的 W08xx，语法级首批）：`xtask check doc-lints` 的引擎。
 // 走语法树 + DocParser，不进编译器诊断管线——编译器内建 DocChecker pass（含 W0803 链接解析、
-// [lints] 级别决策）是下一步；这层先把 19 个已迁移包的注释质量从人工目检变成棘轮保证。
-// 码以字面量发射（分阶段引入纪律：注册表常量与跨包引用不能同 PR，见 diag-literal-emitters.txt）。
+// [lints] 级别决策）是下一步；这层先把 19 个已迁移包的注释质量从人工目检变成硬门保证。
+// 码以字面量发射（分阶段引入纪律：注册表常量与跨包引用不能同 PR，见 gates.toml [diagcodes-literal]）。
 //
 //   W0801 孤立的 ///（后面没有声明认领）
 //   W0802 @param / @typeparam 名不在签名里

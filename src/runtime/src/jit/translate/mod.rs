@@ -56,7 +56,7 @@ mod emit_int;
 mod emit_fc;
 
 use unsupported::*;
-pub(crate) use unsupported::jit_unsupported_reason;
+pub(crate) use unsupported::{jit_unsupported_reason, unsupported_reason};
 pub(crate) use analysis::max_reg;
 use ic::*;
 use control::*;
@@ -150,30 +150,31 @@ pub fn translate_function(
     let hr_const_null    = imp!(helper_ids.const_null);
     let hr_const_str     = imp!(helper_ids.const_str);
     let hr_copy          = imp!(helper_ids.copy);
-    let hr_add           = imp!(helper_ids.add);
-    let hr_sub           = imp!(helper_ids.sub);
-    let hr_mul           = imp!(helper_ids.mul);
-    let hr_div           = imp!(helper_ids.div);
-    let hr_rem           = imp!(helper_ids.rem);
-    let hr_eq            = imp!(helper_ids.eq);
-    let hr_ne            = imp!(helper_ids.ne);
-    let hr_lt            = imp!(helper_ids.lt);
-    let hr_le            = imp!(helper_ids.le);
-    let hr_gt            = imp!(helper_ids.gt);
-    let hr_ge            = imp!(helper_ids.ge);
-    let hr_and           = imp!(helper_ids.and);
-    let hr_or            = imp!(helper_ids.or);
-    let hr_not           = imp!(helper_ids.not);
-    let hr_neg           = imp!(helper_ids.neg);
-    let hr_bit_and       = imp!(helper_ids.bit_and);
-    let hr_bit_or        = imp!(helper_ids.bit_or);
-    let hr_bit_xor       = imp!(helper_ids.bit_xor);
-    let hr_bit_not       = imp!(helper_ids.bit_not);
-    let hr_shl           = imp!(helper_ids.shl);
-    let hr_shr           = imp!(helper_ids.shr);
+    let hr_add           = imp!(helper_ids.arith.add);
+    let hr_sub           = imp!(helper_ids.arith.sub);
+    let hr_mul           = imp!(helper_ids.arith.mul);
+    let hr_div           = imp!(helper_ids.arith.div);
+    let hr_rem           = imp!(helper_ids.arith.rem);
+    let hr_eq            = imp!(helper_ids.arith.eq);
+    let hr_ne            = imp!(helper_ids.arith.ne);
+    let hr_lt            = imp!(helper_ids.arith.lt);
+    let hr_le            = imp!(helper_ids.arith.le);
+    let hr_gt            = imp!(helper_ids.arith.gt);
+    let hr_ge            = imp!(helper_ids.arith.ge);
+    let hr_and           = imp!(helper_ids.arith.and);
+    let hr_or            = imp!(helper_ids.arith.or);
+    let hr_not           = imp!(helper_ids.arith.not);
+    let hr_neg           = imp!(helper_ids.arith.neg);
+    let hr_bit_and       = imp!(helper_ids.arith.bit_and);
+    let hr_bit_or        = imp!(helper_ids.arith.bit_or);
+    let hr_bit_xor       = imp!(helper_ids.arith.bit_xor);
+    let hr_bit_not       = imp!(helper_ids.arith.bit_not);
+    let hr_shl           = imp!(helper_ids.arith.shl);
+    let hr_shr           = imp!(helper_ids.arith.shr);
     let hr_str_concat    = imp!(helper_ids.str_concat);
     let hr_to_str        = imp!(helper_ids.to_str);
     let hr_call          = imp!(helper_ids.call);
+    let hr_call_mta      = imp!(helper_ids.call_mta);
     let hr_builtin       = imp!(helper_ids.builtin);
     let hr_array_new     = imp!(helper_ids.array_new);
     let hr_array_new_lit = imp!(helper_ids.array_new_lit);
@@ -189,6 +190,7 @@ pub fn translate_function(
     let hr_field_get     = imp!(helper_ids.field_get);
     let hr_field_set     = imp!(helper_ids.field_set);
     let hr_vcall         = imp!(helper_ids.vcall);
+    let hr_vcall_mta     = imp!(helper_ids.vcall_mta);
     let hr_is_instance   = imp!(helper_ids.is_instance);
     let hr_as_cast       = imp!(helper_ids.as_cast);
     let hr_static_get    = imp!(helper_ids.static_get);
@@ -363,7 +365,7 @@ pub fn translate_function(
             hoisted_ref_arrays: &hoisted_ref_arrays,
             hr_array_ref_data,
             callees,
-            hr_const_i32, hr_const_i64, hr_const_f64, hr_const_bool, hr_const_char, hr_const_null, hr_const_str, hr_copy, hr_add, hr_sub, hr_mul, hr_div, hr_rem, hr_eq, hr_ne, hr_lt, hr_le, hr_gt, hr_ge, hr_and, hr_or, hr_not, hr_neg, hr_bit_and, hr_bit_or, hr_bit_xor, hr_bit_not, hr_shl, hr_shr, hr_str_concat, hr_to_str, hr_call, hr_builtin, hr_array_new, hr_array_new_lit, hr_array_get, hr_array_data, hr_array_set, hr_array_len, hr_obj_new, hr_typeof, hr_field_get, hr_field_set, hr_vcall, hr_is_instance, hr_as_cast, hr_static_get, hr_static_set, hr_struct_alloc, hr_struct_copy, hr_struct_field_get_prim, hr_struct_field_set_prim, hr_get_bool, hr_throw, hr_install_catch, hr_match_catch_type, hr_load_fn, hr_mk_clos, hr_call_indirect, hr_default_of, hr_convert, hr_check_safepoint_slow, hr_fatal_pending,
+            hr_const_i32, hr_const_i64, hr_const_f64, hr_const_bool, hr_const_char, hr_const_null, hr_const_str, hr_copy, hr_add, hr_sub, hr_mul, hr_div, hr_rem, hr_eq, hr_ne, hr_lt, hr_le, hr_gt, hr_ge, hr_and, hr_or, hr_not, hr_neg, hr_bit_and, hr_bit_or, hr_bit_xor, hr_bit_not, hr_shl, hr_shr, hr_str_concat, hr_to_str, hr_call, hr_call_mta, hr_builtin, hr_array_new, hr_array_new_lit, hr_array_get, hr_array_data, hr_array_set, hr_array_len, hr_obj_new, hr_typeof, hr_field_get, hr_field_set, hr_vcall, hr_vcall_mta, hr_is_instance, hr_as_cast, hr_static_get, hr_static_set, hr_struct_alloc, hr_struct_copy, hr_struct_field_get_prim, hr_struct_field_set_prim, hr_get_bool, hr_throw, hr_install_catch, hr_match_catch_type, hr_load_fn, hr_mk_clos, hr_call_indirect, hr_default_of, hr_convert, hr_check_safepoint_slow, hr_fatal_pending,
         };
         for (instr_idx, instr) in z42_block.instructions.iter().enumerate() {
             cx.instr_idx = instr_idx;

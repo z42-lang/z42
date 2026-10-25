@@ -46,7 +46,7 @@ gate 里还串着若干**静态检查** stage（纯文本扫描 / 生成物比�
 | `xtask check lines [--update]` | 单文件行数硬上限（>500 行：新增/增长判红，已知的只警告） |
 | `xtask check fnlines [--update]` | 函数 / 方法**体**行数上限棘轮（[GREEN gate](test-gate.md) 的 fnlines 节） |
 | `xtask check diagcodes [--update]` | 每个发得出去的诊断码在登记表里登记恰好一次 |
-| `xtask check stage2 [--update]` | 阶段-1 过渡形态必须挂账且不超期 |
+| `xtask check stage2` | 阶段-1 过渡形态的 `STAGE2-DEBT(<tag>,YYYY-MM-DD)` 标记必须带挂账日且不超宽限（宽限在 `gates.toml [stage2]`） |
 | `xtask check vscode-syntax` | VSCode 语法文件 ↔ Lexer 关键字表同步 |
 | `xtask check ci-shell` | CI composite action 的 `run:` 块没有先用后赋的变量 |
 | `xtask check proc-env` | `Z42_LIBS` / `Z42_PROBING_PATHS` 只经 `_z42Proc` / `_z42bProc` / `_z42cProc` 设置 |

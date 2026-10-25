@@ -39,6 +39,9 @@ pub(crate) mod vm_interface;
 #[cfg(test)]
 #[path = "lazy_load_tests.rs"]
 mod lazy_load_tests;
+#[cfg(test)]
+#[path = "generic_call_tests.rs"]
+mod generic_call_tests;
 
 use crate::metadata::Module;
 use vm_interface::JitVm;

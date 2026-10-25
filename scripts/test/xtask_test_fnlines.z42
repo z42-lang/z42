@@ -14,16 +14,17 @@
 //   .rs：`fn name(` 起头的签名，到首个以 `{` 收尾的行为止（`;` 收尾 = trait 声明，跳过）。
 //   计括号深度前剥掉字符串 / 字符字面量与 `//` 注释，免被 `"{"` 这类字面量骚扰。
 // 漏识别只会少算（棘轮更松），不会误红；识别到的体行数与 `wc` 口径一致可人工复核。
-// 基线 `scripts/test/fn-limit-baseline.txt`：`path<TAB>name<TAB>lines`，同名重载按文件内出现序加 `#n`。
+// 基线在 `scripts/test/gates.toml` 的 `[fnlines]` 区：`"<path>::<name>" = <lines>`，同名重载加 `#n`。
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Toml;
 using Std.Time;
 
 int _fnLimitHard() { return 60; }
 int _fnLimitSoft() { return 40; }
 
-// 一个方法的度量：键（`<relpath>\t<name>`，重载 `#n`）+ 体行数。
+// 一个方法的度量：键（`<relpath>::<name>`，重载 `#n`）+ 体行数。
 sealed class FnMeasureZ {
     public string Key;
     public int Lines;
@@ -34,7 +35,6 @@ sealed class FnMeasureZ {
 int _testFnLines(bool update) {
     Stopwatch sw = _procStart("check fnlines");
     string root = _root();
-    string basePath = Path.Join(root, "scripts/test/fn-limit-baseline.txt");
     string[] files = _lineLintFiles(root);   // 与 `check lines` 同一受检集（排除 tests / bench / 产物）
     string[] over = new string[128]; int[] overN = new int[128]; int oc = 0;
     int scanned = 0; int fns = 0; int softs = 0;
@@ -65,12 +65,12 @@ int _testFnLines(bool update) {
     }
     _sortOverByPath(over, overN, oc);
     if (update) {
-        _writeFnBaseline(basePath, over, overN, oc);
+        _writeFnBaseline(root, over, overN, oc);
         Console.WriteLine("  ✓ baseline rewritten: " + oc.ToString() + " function(s) over " + _fnLimitHard().ToString() + " body lines");
         _procEnd("check fnlines", sw);
         return 0;
     }
-    FnMeasureZ[] base = _readFnBaseline(basePath);
+    FnMeasureZ[] base = _readFnBaseline(root);
     int bc = base.Length;
     string[] bKey = new string[bc]; int[] bN = new int[bc];
     i = 0; while (i < bc) { bKey[i] = base[i].Key; bN[i] = base[i].Lines; i = i + 1; }
@@ -135,7 +135,7 @@ FnMeasureZ[] _fnMeasures(string rel, string text, bool isRust) {
         }
         int body = _fnBodyLines(raw, code, hdr, n);
         if (oc == outp.Length) { FnMeasureZ[] g = new FnMeasureZ[oc * 2]; int k = 0; while (k < oc) { g[k] = outp[k]; k = k + 1; } outp = g; }
-        outp[oc] = new FnMeasureZ(rel + "\t" + name, body); oc = oc + 1;
+        outp[oc] = new FnMeasureZ(rel + "::" + name, body); oc = oc + 1;
         i = hdr + 1;   // 从 `{` 下一行继续：局部函数（更深缩进）不会再被当成成员头，嵌套 fn（.rs）各算各的
     }
     FnMeasureZ[] r = new FnMeasureZ[oc];
@@ -306,30 +306,31 @@ string _fnStripLiterals(string line) {
     return outp;
 }
 
-// 基线格式：每行 `path<TAB>name<TAB>lines`，按 path+name 序；缺文件 = 空基线。
-FnMeasureZ[] _readFnBaseline(string path) {
-    if (!File.Exists(path)) { return new FnMeasureZ[0]; }
-    string[] lines = File.ReadAllText(path).Split("\n");
-    FnMeasureZ[] outp = new FnMeasureZ[64]; int c = 0; int i = 0;
-    while (i < lines.Length) {
-        string l = lines[i].Trim();
-        if (l.Length > 0 && !l.StartsWith("#")) {
-            string[] f = l.Split("\t");
-            if (f.Length == 3) {
-                if (c == outp.Length) { FnMeasureZ[] g = new FnMeasureZ[c * 2]; int k = 0; while (k < c) { g[k] = outp[k]; k = k + 1; } outp = g; }
-                outp[c] = new FnMeasureZ(f[0] + "\t" + f[1], int.Parse(f[2])); c = c + 1;
-            }
-        }
+// 基线在 gates.toml `[fnlines]` 区：键 `"<path>::<name>"`（重载 `#n`），值为体行数；缺区 = 空基线。
+FnMeasureZ[] _readFnBaseline(string root) {
+    TomlValue t = _gatesSection(root, "fnlines");
+    string[] keys = t.Keys();
+    FnMeasureZ[] r = new FnMeasureZ[keys.Length];
+    int c = 0;
+    int i = 0;
+    while (i < keys.Length) {
+        TomlValue v = t.Get(keys[i]);
+        if (v.IsLong()) { r[c] = new FnMeasureZ(keys[i], (int)v.AsLong()); c = c + 1; }
         i = i + 1;
     }
-    FnMeasureZ[] r = new FnMeasureZ[c];
-    i = 0; while (i < c) { r[i] = outp[i]; i = i + 1; }
-    return r;
+    FnMeasureZ[] outp = new FnMeasureZ[c];
+    i = 0; while (i < c) { outp[i] = r[i]; i = i + 1; }
+    return outp;
 }
 
-void _writeFnBaseline(string path, string[] a, int[] n, int c) {
-    string s = "# function-body-line ratchet baseline (xtask check fnlines --update): path<TAB>name<TAB>lines; hard limit " + _fnLimitHard().ToString() + "\n";
+void _writeFnBaseline(string root, string[] a, int[] n, int c) {
+    string[] body = new string[c + 1];
+    body[0] = "[fnlines]";
     int i = 0;
-    while (i < c) { s = s + a[i] + "\t" + n[i].ToString() + "\n"; i = i + 1; }
-    File.WriteAllTextAtomic(path, s);
+    while (i < c) {
+        body[i + 1] = _tomlQuote(a[i]) + " = " + n[i].ToString();
+        i = i + 1;
+    }
+    _gatesWriteSection(root, "fnlines", body, c + 1);
 }
+

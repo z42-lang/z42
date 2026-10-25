@@ -14,23 +14,19 @@
 //
 // 在过渡形态**所在的那个文件**里写一行标记：
 //
-//     // STAGE2-DEBT(<tag>): <阶段 2 要做的那件事>
+//     // STAGE2-DEBT(<tag>,YYYY-MM-DD): <阶段 2 要做的那件事>
 //
-// `<tag>` 是文件内唯一的短 slug（一个文件可以有多条债）。身份 = `<带根前缀的相对路径>#<tag>`
-//（如 `src/compiler/.../X.z42#tag`、`scripts/build/Y.z42#tag`）。
+// `<tag>` 是文件内唯一的短 slug（一个文件可以有多条债）；`YYYY-MM-DD` 是**挂账日**。
+// 身份 = `<带根前缀的相对路径>#<tag>`（如 `src/compiler/.../X.z42#tag`、`scripts/build/Y.z42#tag`）。
+// 挂账日写在标记里（登记表就是源码本身，无独立清单可腐坏）；宽限天数配置在
+// `scripts/test/gates.toml` 的 `[stage2] grace-days`。
 //
-// ⚠️🔴 **改身份格式必须同时迁移清单**：只改 id 方案不在册条目上重写，旧格式条目会变成**永远
-//    匹配不上的幽灵**，棘轮持续报「债已清却还挂着」——要么一并重写清单旧条目，要么留一轮兼容
-//    读法。别让登记表自己腐坏。
 // ⚠️ **说明必须写在标记那一行之内**：扫描只取该行 `)` 之后的部分，续行会被静默丢掉。
-// 然后 `xtask check stage2 --update` 把它记进 `scripts/test/stage2-debt.txt`（新条目自动填当天）。
 //
-// 三条判据：
-//   ① **双向棘轮**：源里多一条而清单没有 → 红（新过渡形态必须挂账）；清单有而源里没了 → 红
-//      （阶段 2 做完了就得清账，否则清单自己会腐坏成假的）。
-//   ② **到期**：挂账超过宽限期 → 红，逼人回来收尾。
-//   ③ 清单里**已有条目保留原挂账日** —— 否则每次 `--update` 都把欠账时钟拨回今天，② 永不到期
-//      （diagcodes 规则 ⑥ 同坑）。
+// 两条判据：
+//   ① **挂账日**：标记必须带日期——没有日期的新债直接红（挂账日即起算日，写在源码里不会被
+//      任何重置拨时钟；要推期限就改标记里的日期，理由写在说明文本里）。
+//   ② **到期**：挂账超过宽限期（gates.toml `[stage2] grace-days`）→ 红，逼人回来收尾。
 //
 // ## ⚠️ 覆盖边界（写在这里，别让它变成隐形假保障）
 //
@@ -42,13 +38,19 @@
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Toml;
 
-string _s2BaselinePath() { return "scripts/test/stage2-debt.txt"; }
 
-// 宽限期。阶段 2 的前提是「支持侧随 nightly 发布**并成为种子**」，nightly 每天发 ⇒ 2 天够；
-// 余下是给发布链偶发失败 + 人回来收尾留的余量。比 diagcodes 的 3 天宽，因为那条只要求常量进种子，
-// 而这里还要求真的把活干完。
-int _s2GraceDays() { return 7; }
+
+// 宽限期读 gates.toml `[stage2] grace-days`（缺省 7）。阶段 2 的前提是「支持侧随 nightly 发布
+// **并成为种子**」，nightly 每天发 ⇒ 2 天够；余下是给发布链偶发失败 + 人回来收尾留的余量。
+// 比 diagcodes 的 3 天宽，因为那条只要求常量进种子，而这里还要求真的把活干完。
+int _s2GraceDays() {
+    TomlValue t = _gatesSection(_root(), "stage2");
+    TomlValue v = null;
+    if (t.TryGet("grace-days", ref v) && v.IsLong()) { return (int)v.AsLong(); }
+    return 7;
+}
 
 // 扫 `src/` / `scripts/` 下的 .z42 与 .rs，外加 `.github/` 下的 .yml，抽出
 // `STAGE2-DEBT(<tag>): <text>` → `<带根前缀的相对路径>#<tag>`。
@@ -100,9 +102,12 @@ int _s2ScanOne(string dir, string idPrefix, string[] outIds, string[] outTexts, 
             string rest = line.Substring(at + 12);   // "STAGE2-DEBT(".Length
             int close = rest.IndexOf(")");
             if (close <= 0) { continue; }
-            string tag = rest.Substring(0, close).Trim();
+            string head = rest.Substring(0, close).Trim();   // "<tag>,YYYY-MM-DD"
             string note = rest.Substring(close + 1).Trim();
             if (note.StartsWith(":")) { note = note.Substring(1).Trim(); }
+            string tag = head;
+            int comma = head.IndexOf(",");
+            if (comma > 0) { tag = head.Substring(0, comma).Trim(); }
             if (tag == "") { continue; }
             if (n < outIds.Length) {
                 outIds[n] = idPrefix + "/" + relp + "#" + tag;
@@ -114,122 +119,57 @@ int _s2ScanOne(string dir, string idPrefix, string[] outIds, string[] outTexts, 
     return n;
 }
 
-// 清单行 = `<id> <YYYY-MM-DD> <说明>`（说明可含空格，不参与身份比较）。
-string _s2IdOf(string line) {
-    string[] fs = line.Split(" ");
-    if (fs.Length < 1) { return ""; }
-    return fs[0].Trim();
-}
 
-string _s2DateOf(string line) {
-    string[] fs = line.Split(" ");
-    if (fs.Length < 2) { return ""; }
-    return fs[1].Trim();
-}
 
-int _s2LoadBaseline(string root, string[] outLines) {
-    string text = "";
-    try { text = File.ReadAllText(Path.Join(root, _s2BaselinePath())); }
-    catch (Exception ex) { return 0 - 1; }
-    string[] lines = text.Split("\n");
-    int n = 0; int i = 0;
-    while (i < lines.Length) {
-        string l = lines[i].Trim();
-        i = i + 1;
-        if (l == "" || l.StartsWith("#")) { continue; }
-        if (n < outLines.Length) { outLines[n] = l; n = n + 1; }
-    }
-    return n;
-}
 
-int _testStage2Debt(bool update) {
+int _testStage2Debt() {
     string root = _root();
     string[] ids = new string[256];
     string[] notes = new string[256];
     int n = _s2Scan(root, ids, notes);
 
-    string[] prev = new string[256];
-    int prevc = _s2LoadBaseline(root, prev);
-
-    if (update) {
-        string today = _dcToday();
-        string body = "# 阶段-2 欠账清单（分阶段引入纪律的配套；门 = `xtask check stage2`）。\n"
-            + "# 每条 = 一个**阶段 1 过渡形态**：为让上一版 z42c/种子仍能编当前源，而暂留的形状\n"
-            + "# （新 API 未消费 / 旧 FQN 的转发层 / 字面量替常量 / 空转桩……）。\n"
-            + "# 挂账超过宽限期即红 —— 因为「阶段 2 忘了不会红」是本仓库反复吃过的亏。\n"
-            + "# 格式：<相对 src/ 的路径>#<tag> <挂账日> <阶段 2 要做的那件事>\n"
-            + "# 重生成：`xtask check stage2 --update`（已有条目**保留原挂账日**，不会把时钟拨回今天）。\n"
-            // 🔴 本表头是**硬编码模板**：`--update` 每次照它重写整个文件头 ⇒ 你手写进这个文件的
-            // 任何注释都会被冲掉（实测踩到）。所以「为什么推期限」不能记在这里，
-            // 只能记在**源码那条 `STAGE2-DEBT` 标记**里 —— 那段文本 `--update` 是照抄的，
-            // 而且理由住在代码旁边本来就更对。下面这行把这条纪律写进产物，免得下一个人再踩。
-            + "# 推期限 = **手改本文件的日期**（`--update` 不会替你判断前提到没到）；\n"
-            + "# 而**理由写进源码那条 `STAGE2-DEBT` 标记**——本文件的注释会被 `--update` 重写掉。\n";
-        int w = 0;
-        while (w < n) {
-            string day = "";
-            int q = 0;
-            while (q < prevc) {
-                if (_s2IdOf(prev[q]) == ids[w]) { day = _s2DateOf(prev[q]); q = prevc; } else { q = q + 1; }
-            }
-            if (day == "") { day = today; }
-            body = body + ids[w] + " " + day + " " + notes[w] + "\n";
-            w = w + 1;
-        }
-        File.WriteAllText(Path.Join(root, _s2BaselinePath()), body);
-        Console.WriteLine("  ↻ rewrote " + _s2BaselinePath() + " (" + n.ToString() + " 条阶段-2 欠账)");
-        return 0;
-    }
-
-    if (prevc < 0) {
-        ConsoleError.WriteLine("  ✗ 读不到 " + _s2BaselinePath() + " —— 棘轮没有基线可比");
-        return 1;
-    }
-
     int bad = 0;
-    // ① 源里有、清单没有 → 新过渡形态未挂账。
+    int today = _dcCivilDays(_dcToday());
     int a = 0;
     while (a < n) {
-        bool found = false;
-        int q = 0;
-        while (q < prevc) { if (_s2IdOf(prev[q]) == ids[a]) { found = true; q = prevc; } else { q = q + 1; } }
-        if (!found) {
-            ConsoleError.WriteLine("  ✗ 阶段-2 欠账未挂账: " + ids[a] + " —— " + notes[a]);
-            ConsoleError.WriteLine("      新开分阶段引入必须挂账（否则阶段 2 没有任何东西提醒你）：xtask check stage2 --update");
+        // 标记头里的挂账日（`STAGE2-DEBT(tag,date)`）。
+        string file = Path.Join(root, ids[a].Substring(0, ids[a].IndexOf("#")));
+        string date = "";
+        string text = "";
+        try { text = File.ReadAllText(file); }
+        catch (Exception ex) { text = ""; }
+        int at2 = text.IndexOf("STAGE2-DEBT(");
+        int li2 = 0;
+        string[] ls = text.Split("\n");
+        while (li2 < ls.Length) {
+            int at3 = ls[li2].IndexOf("STAGE2-DEBT(");
+            if (at3 >= 0) {
+                string r2 = ls[li2].Substring(at3 + 12);
+                int c2 = r2.IndexOf(")");
+                if (c2 > 0) {
+                    string h2 = r2.Substring(0, c2).Trim();
+                    int cm = h2.IndexOf(",");
+                    if (cm > 0) { date = h2.Substring(cm + 1).Trim(); }
+                }
+            }
+            li2 = li2 + 1;
+        }
+        if (date.Length != 10) {
+            ConsoleError.WriteLine("  ✗ 阶段-2 欠账缺挂账日: " + ids[a] + " —— 标记写成 STAGE2-DEBT(<tag>,YYYY-MM-DD)，日期即起算日");
             bad = bad + 1;
+        } else {
+            int dd = _dcCivilDays(date);
+            if (dd < 0) {
+                ConsoleError.WriteLine("  ✗ 挂账日不是 YYYY-MM-DD: " + ids[a] + "（" + date + "）");
+                bad = bad + 1;
+            } else if (today >= 0 && (today - dd) > _s2GraceDays()) {
+                ConsoleError.WriteLine("  ✗ 阶段-2 欠账超期 " + (today - dd).ToString() + " 天（宽限 "
+                    + _s2GraceDays().ToString() + " 天）: " + ids[a]);
+                ConsoleError.WriteLine("      支持侧早该随 nightly 进种子了 —— 回去把阶段 2 做掉，然后删标记。");
+                bad = bad + 1;
+            }
         }
         a = a + 1;
-    }
-    // ① 反向：清单有、源里没了 → 阶段 2 做完却没清账。
-    int b = 0;
-    while (b < prevc) {
-        string pid = _s2IdOf(prev[b]);
-        bool found = false;
-        int q = 0;
-        while (q < n) { if (ids[q] == pid) { found = true; q = n; } else { q = q + 1; } }
-        if (!found) {
-            ConsoleError.WriteLine("  ✗ 阶段-2 欠账已清却还挂着: " + pid);
-            ConsoleError.WriteLine("      源里已无该标记 —— 清单留着就会腐坏成假的：xtask check stage2 --update");
-            bad = bad + 1;
-        }
-        b = b + 1;
-    }
-    // ② 到期。
-    int today = _dcCivilDays(_dcToday());
-    int c = 0;
-    while (c < prevc) {
-        string day = _s2DateOf(prev[c]);
-        int dd = _dcCivilDays(day);
-        if (dd < 0) {
-            ConsoleError.WriteLine("  ✗ 挂账日不是 YYYY-MM-DD: " + prev[c]);
-            bad = bad + 1;
-        } else if (today >= 0 && (today - dd) > _s2GraceDays()) {
-            ConsoleError.WriteLine("  ✗ 阶段-2 欠账超期 " + (today - dd).ToString() + " 天（宽限 "
-                + _s2GraceDays().ToString() + " 天）: " + _s2IdOf(prev[c]));
-            ConsoleError.WriteLine("      支持侧早该随 nightly 进种子了 —— 回去把阶段 2 做掉，然后 --update 清账。");
-            bad = bad + 1;
-        }
-        c = c + 1;
     }
 
     if (bad > 0) { return 1; }

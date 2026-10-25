@@ -115,7 +115,7 @@ fixture、debug VM 跑 `main.zpkg`——跨包 dispatch 的 debug 断言覆盖�
 | `lines` | 文件行数上限棘轮，见下 | 纯文本扫描 < 1 s |
 | `fnlines` | 函数 / 方法**体**行数上限棘轮，见下 | 纯文本扫描 < 1 s |
 | `diagcodes` | 诊断码**一码一义**：每个发得出去的码在登记表里登记恰好一次，见下 | 纯文本扫描 < 1 s |
-| `stage2` | 阶段-1 过渡形态必须挂账且不超期（双向棘轮 + 到期），见 `scripts/test/xtask_test_stage2.z42` 头注 | 纯文本扫描 < 1 s |
+| `stage2` | 阶段-1 过渡形态必须挂账且不超期：挂账日写在源码标记 `STAGE2-DEBT(<tag>,YYYY-MM-DD)` 里，缺日期红、超宽限红（宽限在 gates.toml `[stage2] grace-days`），见 `scripts/test/xtask_test_stage2.z42` 头注 | 纯文本扫描 < 1 s |
 | `ci-shell` | `.github/**` 的多行 `run:` 块里**没有先用后赋**的变量（立门时 7 个 yml / 76 块），见下 | 纯文本扫描 < 1 s |
 | `proc-env` | xtask 子进程的 `Z42_LIBS` / `Z42_PROBING_PATHS` **只经** `_z42Proc` / `_z42bProc` / `_z42cProc` 设置，调用点不得直接 `.Env(...)`，见下 | 纯文本扫描 < 1 s |
 | `layout` | [测试用例组织规范](test-layout.md)里能机械判定的部分：`src/tests` 类别登记、能力词表 ↔ 运行期、能力声明只用已生效的名字 | 纯文本扫描，秒级 |
@@ -157,8 +157,8 @@ xtask 起的每个跑 z42 代码的子进程都经 `_z42Proc(exe, libs)` 建（z
 - **硬限 886 行**——不在基线的新越界文件、或比基线更长的已知越界文件 → **红**；
 - **软限 500 行**——只打一行 advisory 计数，**不进棘轮、不阻断**。
 
-扫 `src/` 下的非测试 `.z42` / `.rs`，对照 `scripts/test/line-limit-baseline.txt`（首行即注明硬限值）。
-拆分后降到硬限以下的文件用 `xtask check lines --update` 从基线剔除（只降不升）。
+扫 `src/` 下的非测试 `.z42` / `.rs`，对照 `scripts/test/gates.toml` 的 `[lines]` 区（键 = 文件路径，
+值 = 挂账行数）。拆分后降到硬限以下的文件用 `xtask check lines --update` 从基线剔除（只降不升）。
 注意软限从来不变红：写个 600 行的新文件 gate 并不会拦。
 
 **`fnlines` 是同形的函数级棘轮**（`_fnLimitHard()` / `_fnLimitSoft()`，`scripts/test/xtask_test_fnlines.z42`）：
@@ -166,8 +166,8 @@ xtask 起的每个跑 z42 代码的子进程都经 `_z42Proc(exe, libs)` 建（z
 首建基线时越界函数已有三位数——又一例「没有测试盯着的约定迟早会烂」）。「体行数」= 开括号行与闭括号行之间的非空、非注释行；
 单行体计 0。识别是文本启发式（`.z42` 看成员缩进 + `(…)` + 行尾 `{`，排除控制流 / lambda / `new …{`；
 `.rs` 看 `fn name(` 到行尾 `{`），剥掉字面量与行注释再数括号——漏识别只会少算、不会误红。
-基线 `scripts/test/fn-limit-baseline.txt`：`path<TAB>name<TAB>lines`（同名重载按出现序 `#n`）；
-抽出子函数后降到硬限以下的条目用 `xtask check fnlines --update` 剔除（只降不升）。
+基线在 `scripts/test/gates.toml` 的 `[fnlines]` 区：键 `"<path>::<name>"`（同名重载按出现序 `#n`），
+值 = 体行数；抽出子函数后降到硬限以下的条目用 `xtask check fnlines --update` 剔除（只降不升）。
 
 **`walkers`（AST walker 完备性对账）已退役**：语法树与绑定树的穷举遍历全部改实现 visitor 接口
 （语法包的 `IExprVisitor` 等四族、语义包的 `IBoundExprVisitor` 等三族，节点 `Accept<R, D>` 双分派）——
@@ -183,8 +183,8 @@ xtask 起的每个跑 z42 代码的子进程都经 `_z42Proc(exe, libs)` 建（z
 1. 登记表内**无重复码值**；
 2. **发射出去的每个码都必须在登记表里登记**（扫 `src/**` 非 `tests/`，剥行注释后取字符串字面量）；
 3. `DiagnosticCodes.<Name>` 引用的常量名必须存在（防笔误造幽灵码）；
-4. 字面量发码站点清单 `scripts/test/diag-literal-emitters.txt` **双向棘轮**（多一条 / 少一条都红；
-   空账时整文件不存在，`--update` 按需重建）；
+4. 字面量发码站点清单 gates.toml `[diagcodes-literal]` **双向棘轮**（多一条 / 少一条都红；
+   键 = `"<码> <文件>"`，值 = 挂账日）；
 5. [诊断码全表](https://z42-lang.github.io/z42/reference/appendix/error-codes.html)的码 ↔ 登记表**双向相等**；
 6. 清单里的每条**欠账必须按时结清**——字面量发码的正当理由（常量还没进种子）**会过期**，
    挂账超过宽限期（3 天）即红，逼它切回 `DiagnosticCodes.<Name>`；
@@ -192,8 +192,8 @@ xtask 起的每个跑 z42 代码的子进程都经 `_z42Proc(exe, libs)` 建（z
    **会变的状态**（⑥ 要求它必须切回），散文不会跟着变，只会腐成假话。唯一 SoT 是 ④ 的清单；
 8. **活性 ↔ 全表状态列双向对账**——有发射面却标着 `⚠️ 零发射点` / `❌ 已退役` → 红；
    零发射面却没这么标 → 红；
-9. **每个活码必须被至少一处测试按码断言**——否则必须在 `scripts/test/diag-untested-codes.txt`
-   里记账（双向棘轮：少一条 / 多一条都红 ⇒ 只能缩短；空账时整文件不存在，`--update` 按需重建）。
+9. **每个活码必须被至少一处测试按码断言**——否则必须在 gates.toml `[diagcodes-untested]` 的
+   `codes` 数组里记账（双向棘轮：少一条 / 多一条都红 ⇒ 只能缩短）。
 
 **第 8 条守的是另一维**：①-⑦ 盯的全是「码这个对象」（谁占号、谁发它、欠账多久、散文有没有
 乱说形态），**没有一条盯「它还活着吗」**。发射点被删之后 ②③ 只管反方向、④ 只管字面量站点、
@@ -258,8 +258,8 @@ xtask 起的每个跑 z42 代码的子进程都经 `_z42Proc(exe, libs)` 建（z
 **第 6 条：为什么欠账要有到期日**。④ 让过渡期的字面量**看得见**，但看得见不等于
 会被清掉——三次撞码（E0474 / E0477 / E0481）的共同前提正是「42 个码、100 个发射点常年挂着字面量」。
 一次性清账靠的是有人记着一条 Deferred；**记忆不是机制**，不盯着它就会重新长回来。所以每条
-清单项带一个挂账日（`--update` 给新条目自动填当天，**已有条目保留原日期**——否则每次重生成基线都把
-欠账时钟拨回今天，⑥ 永远不会到期），超过宽限期就红。
+清单项带一个挂账日（`[diagcodes-literal]` 条目的值；`--update` 给新条目自动填当天，**已有条目
+保留原日期**——否则每次重写区段都把欠账时钟拨回今天，⑥ 永远不会到期），超过宽限期就红。
 
 > ⚠️ **判据为什么是「挂账天数」而不是「去种子里查这个常量在不在」**：后者更精确，但**在 CI 里拿不到
 > 种子**。`xtask check diagcodes` 跑的时候 `Z42_LIBS` 指的是**自建** stdlib
@@ -287,7 +287,7 @@ xtask 起的每个跑 z42 代码的子进程都经 `_z42Proc(exe, libs)` 建（z
 > 单行断言红 / 多行块首行红 / 合法的「字面量」陈述不红。
 
 > ⭐ 清单清空后 ④ 会不会变成空门？**不会**——注入验过：把一个发射点改回字面量，④ 立刻红
-> （`NEW literal emission … is not in diag-literal-emitters.txt`）。清的是账，不是门。
+> （`NEW literal emission … is not in gates.toml [diagcodes-literal]`）。清的是账，不是门。
 
 > 🔴 **⑦ 的射程是全部非 tests 源，不止登记表**：同样的断言**也写在
 > 发射点旁边**——扩到全部非 tests 源后抓出 **11 条**已腐成假话的。判据也因此放宽：不要求
