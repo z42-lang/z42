@@ -8,8 +8,8 @@
 //   ① 登记表内**无重复码值**（同一个码值挂在两个常量上 → 红）；
 //   ② **发射出去的每一个码都必须在登记表里登记**（非 tests 源里剥注释后的字面量码找不到 → 红）；
 //   ③ `DiagnosticCodes.<Name>` 引用的常量名必须存在（笔误造幽灵码 → 红）；
-//   ④ **字面量发码清单双向棘轮**——`diag-literal-emitters.txt` 是 (码, 文件) 的精确快照，
-//      多一条 / 少一条都红。它拦的是「给一个已有码再挂一个发射点」——①② 对此放行，④ 让它
+//   ④ **字面量发码清单双向棘轮**——gates.toml 的 `[diagcodes-literal]` 区是 (码, 文件) 的精确
+//      快照，多一条 / 少一条都红。它拦的是「给一个已有码再挂一个发射点」——①② 对此放行，④ 让它
 //      必须动一个被评审的文件，撞码在评审与 git 冲突里看得见；
 //   ⑤ **error-codes.md 的码表与登记表双向相等**；保留号 / 退役号也必须占在登记表——只写在
 //      文档散文里的占用在门眼里是空位，会被下一个扫表找号的人拿走；
@@ -22,14 +22,15 @@
 //      不新增一份真相，只是把文档里已有的人工状态列变成机器对账；「刻意保留/退役」与「已腐坏」
 //      从此形状不同；
 //   ⑨ **每个活码必须被至少一处测试按码断言**——⑧ 答「它还活着吗」，⑨ 答「它活着这件事
-//      **有人验过**吗」；否则必须在 `diag-untested-codes.txt` 里记账（双向棘轮：少一条 /
-//      多一条都红）。
+//      **有人验过**吗」；否则必须在 gates.toml 的 `[diagcodes-untested]` 区（`codes` 数组）
+//      里记账（双向棘轮：少一条 / 多一条都红）。
 //
 // ⚠️ ⑨ 的判据有两个坑，别改回去：
 //   · **注释里提到一个码不算钉住它** ⇒ `.z42` 的测试面文本要先剥行注释。
-//   · **本门自己的文件不算测试面**（见 `_dcIsOwnFile`）⇒ 否则棘轮**自我擦除**：允许清单住在
-//     `scripts/test/` 下、正是覆盖面的一个根，清单里的码于是「出现在测试面」⇒ 判为已覆盖 ⇒
-//     下次 `--update` 把它们删掉 ⇒ 再跑又说未覆盖。一个自指的门，两次运行给出互相矛盾的答案。
+//   · **本门自己的清单不算测试面**（见 `_dcIsOwnFile`）⇒ 否则棘轮**自我擦除**：允许清单所在的
+//     gates.toml 住在 `scripts/test/` 下、正是覆盖面的一个根，清单里的码于是「出现在测试面」⇒
+//     判为已覆盖 ⇒ 下次 `--update` 把它们删掉 ⇒ 再跑又说未覆盖。一个自指的门，两次运行给出
+//     互相矛盾的答案。
 //
 // ⚠️ **有发射面** = 字面量发码（④ 那批站点）∪ `DiagnosticCodes.<Name>` 引用，**排除 tests/**
 //（与 ②③ 同一份扫描面）。测试里断言一个码**不算**它活着。账面（活 / 零发射各几个）打在汇总行上：
@@ -47,11 +48,15 @@ namespace Z42Xtask;
 
 using Std.IO;
 using Std.Time;
+using Std.Toml;
 
-string _dcBaselinePath() { return "scripts/test/diag-literal-emitters.txt"; }
+// ④ 的字面量发码快照住在 gates.toml 的机器区段：键 `"<码> <文件相对路径>"` 是比对身份，
+// 值 `"YYYY-MM-DD"` 是挂账日（toml 无日期类型，存字符串）。区段缺失 = 空快照。
+string _dcLiteralSection() { return "diagcodes-literal"; }
 
-// ⑨ 的允许清单：**活码里还没有任何测试按码断言的**那些。双向棘轮（多一条 / 少一条都红）⇒ 只能缩短。
-string _dcUntestedPath() { return "scripts/test/diag-untested-codes.txt"; }
+// ⑨ 的允许清单：**活码里还没有任何测试按码断言的**那些，gates.toml 机器区段里的
+// `codes` 字符串数组。双向棘轮（多一条 / 少一条都红）⇒ 只能缩短。
+string _dcUntestedSection() { return "diagcodes-untested"; }
 
 // ⑨ 的「测试面」：一个码在这些地方出现过，就算被断言过。
 //   · `src/**` 里被 ②③ 排除掉的那些（即 `tests/` 下的，任意扩展名——`expected_build_error.txt`
@@ -62,18 +67,17 @@ string[] _dcCoverageRoots() { return new string[]{ "examples", "scripts/test", "
 
 // 🔴 **本门自己的文件不算测试面** —— 否则棘轮会自我擦除。
 //
-// 实测踩到：`diag-untested-codes.txt`（⑨ 的允许清单）住在 `scripts/test/` 下，而那正是覆盖面的
-// 一个根 ⇒ 清单里列的码因为「出现在测试面」被判为**已覆盖** ⇒ 下一次跑 `--update` 就把它们从
-// 清单里删掉 ⇒ 再跑又说它们未覆盖……一个自指的门，两次运行给出互相矛盾的答案
+// 实测踩到：⑨ 的允许清单（gates.toml `[diagcodes-untested]`）住在 `scripts/test/` 下，而那正是
+// 覆盖面的一个根 ⇒ 清单里列的码因为「出现在测试面」被判为**已覆盖** ⇒ 下一次跑 `--update` 就把
+// 它们从清单里删掉 ⇒ 再跑又说它们未覆盖……一个自指的门，两次运行给出互相矛盾的答案
 //（第一次报 {E0103,E0435,E0464}、第二次报 {E0436,E0493}）。
 //
-// `diag-literal-emitters.txt`（④ 的清单）同病；门脚本自身也同病 —— 它的诊断文本里逐字写着
-// 码号（`「E0407 那一形」`之类），一旦算进覆盖面，**被它点名讨论过的码就永远显得有测试**。
+// ④ 的清单（gates.toml `[diagcodes-literal]`，同文件）同病；门脚本自身也同病 —— 它的诊断文本里
+// 逐字写着码号（`「E0407 那一形」`之类），一旦算进覆盖面，**被它点名讨论过的码就永远显得有测试**。
 //
 // 判据按**文件名**而不是路径前缀：这几份文件将来搬家也不会悄悄失效。
 bool _dcIsOwnFile(string relp) {
-    return relp.EndsWith("diag-untested-codes.txt")
-        || relp.EndsWith("diag-literal-emitters.txt")
+    return relp.EndsWith("gates.toml")
         || relp.EndsWith("xtask_test_diagcodes.z42");
 }
 
@@ -84,21 +88,20 @@ bool _dcIsTextFile(string relp) {
         || relp.EndsWith(".toml") || relp.EndsWith(".json");
 }
 
-// 读一份「每行一个码、`#` 开头为注释」的清单。文件不存在 = 空清单（账清零后整文件删除；
-// 欠账再现时门照样红并指路，`--update` 重建）。文件在却读失败 → -1（调用方据此报错——
-// 那是环境问题，静默当空清单会把真故障吞掉）。
-int _dcLoadCodeList(string root, string relPath, string[] outCodes) {
-    string p = Path.Join(root, relPath);
-    if (!File.Exists(p)) { return 0; }
-    string text = "";
-    try { text = File.ReadAllText(p); } catch (Exception ex) { return -1; }
-    string[] lines = text.Split("\n");
-    int n = 0; int i = 0;
-    while (i < lines.Length) {
-        string ln = lines[i].Replace("\r", "");
+// 读 `[diagcodes-untested]` 的 `codes` 数组。区段 / 键缺失 = 空清单（账清零后 `--update` 把数组
+// 写回空；欠账再现时门照样红并指路）。解析失败由 `_gatesSection` 自行报错并按空表处理。
+int _dcLoadCodeList(string root, string[] outCodes) {
+    TomlValue t = _gatesSection(root, _dcUntestedSection());
+    TomlValue arr = null;
+    if (!t.TryGet("codes", ref arr) || !arr.IsArray()) { return 0; }
+    int n = 0;
+    int i = 0;
+    while (i < arr.Length()) {
+        TomlValue v = arr.At(i);
+        if (v.IsString()) {
+            if (n < outCodes.Length) { outCodes[n] = v.AsString(); n = n + 1; }
+        }
         i = i + 1;
-        if (ln.Length == 0 || ln.StartsWith("#")) { continue; }
-        if (n < outCodes.Length) { outCodes[n] = ln; n = n + 1; }
     }
     return n;
 }
@@ -270,8 +273,8 @@ int _testDiagCodes(bool update) {
                         viol = _dcPush(viol, vc, "src/" + relp + ":" + (li + 1).ToString()
                             + " pins the emission form in prose (「用字面量…发码」) — literal-vs-constant is"
                             + " transient state the staged-rollout discipline requires to flip back, and prose does"
-                            + " not flip with it. The single source of truth is rule ④'s " + _dcBaselinePath()
-                            + ", regenerated from a real scan. Drop the claim.");
+                            + " not flip with it. The single source of truth is rule ④'s gates.toml ["
+                            + _dcLiteralSection() + "] section, regenerated from a real scan. Drop the claim.");
                         vc = vc + 1;
                     }
                     // 规则 ③：DiagnosticCodes.<Name> 引用的常量必须存在。
@@ -300,48 +303,37 @@ int _testDiagCodes(bool update) {
     // ── ④ 字面量发码清单双向棘轮 ──────────────────────────────────────────
     _dcSort(pairs, pc);
     if (update) {
-        string outp = Path.Join(root, _dcBaselinePath());
-        string body = "# 字面量发码站点快照（enforce-diagnostic-code-uniqueness 规则 ④，双向棘轮：多一条/少一条都红）。\n"
-            + "# 发射点用字面量而非 DiagnosticCodes 常量，是 分阶段引入纪律（self-hosting.md）的**过渡期形态**：\n"
-            + "# 新常量与引用它的发射点不能同 PR（上一版 z42c 的 z42c.core 里还没有这个常量）⇒ 中间必有一轮字面量。\n"
-            + "# 所以这份清单的稳态是「上一个 nightly 以来新加的码」那么几条，**不是空**——④ 是常设配套，不会退役。\n"
-            + "# 每条都是**欠账**：等它的常量随 nightly 进了种子，就该把发射点切回 DiagnosticCodes.<Name> 并重跑 --update。\n"
-            + "# 重生成：`xtask check diagcodes --update`（改之前先想清楚你是不是在给一个已有码挂第二个含义）。\n";
+        string[] body = new string[pc + 1];
+        body[0] = "[" + _dcLiteralSection() + "]";
         // 挂账日：已在清单里的条目**保留原日期**（否则每次 --update 都把欠账的时钟拨回今天，
         // ⑥ 就永远不会到期——这正是「重生成基线」类机制最容易长出来的那个洞）。
-        string[] prev = new string[256]; int prevc = _dcLoadBaseline(root, prev);
-        if (prevc < 0) { prevc = 0; }
+        // 旧日期从 toml 旧区段读（`_dcLoadBaseline`），区段缺失（读不到）取今天。
+        string[] prev = new string[256]; string[] prevDay = new string[256];
+        int prevc = _dcLoadBaseline(root, prev, prevDay);
         string today = _dcToday();
         int w2 = 0;
         while (w2 < pc) {
             string day = "";
             int q = 0;
             while (q < prevc) {
-                if (_dcPairOf(prev[q]) == pairs[w2]) { day = _dcDateOf(prev[q]); q = prevc; } else { q = q + 1; }
+                if (prev[q] == pairs[w2]) { day = prevDay[q]; q = prevc; } else { q = q + 1; }
             }
             if (day == "") { day = today; }
-            body = body + pairs[w2] + " " + day + "\n";
+            body[w2 + 1] = _tomlQuote(pairs[w2]) + " = " + _tomlQuote(day);
             w2 = w2 + 1;
         }
-        File.WriteAllText(outp, body);
-        Console.WriteLine("  ↻ rewrote " + _dcBaselinePath() + " (" + pc.ToString() + " literal emission site(s))");
+        _gatesWriteSection(root, _dcLiteralSection(), body, pc + 1);
+        Console.WriteLine("  ↻ rewrote gates.toml [" + _dcLiteralSection() + "] ("
+            + pc.ToString() + " literal emission site(s))");
     } else {
-        string[] want = new string[256]; int wc = _dcLoadBaseline(root, want);
-        if (wc < 0) {
-            ConsoleError.WriteLine("  ✗ cannot read " + _dcBaselinePath() + " — the ratchet has no baseline to compare against");
-            return 1;
-        }
-        // 比身份只比前两列 —— 第三列是挂账日，归 ⑥ 管。
-        string[] wantPair = new string[256];
-        int wi = 0;
-        while (wi < wc) { wantPair[wi] = _dcPairOf(want[wi]); wi = wi + 1; }
-        _dcSort(want, wc);
-        _dcSort(wantPair, wc);
+        // 快照的键（`<CODE> <relpath>`）是 ④ 比对的身份，值（挂账日）归 ⑥ 管——各读各的列。
+        string[] wantPair = new string[256]; string[] wantDay = new string[256];
+        int wc = _dcLoadBaseline(root, wantPair, wantDay);
         int a = 0;
         while (a < pc) {
             if (_dcIndexOfStr(wantPair, wc, pairs[a]) < 0) {
                 viol = _dcPush(viol, vc, "NEW literal emission `" + pairs[a]
-                    + "` is not in " + _dcBaselinePath()
+                    + "` is not in gates.toml [" + _dcLiteralSection() + "]"
                     + " — a new code must be registered in DiagnosticCodes.z42 first; if you are re-using an EXISTING code, stop: that is how E0474/E0477 became one-code-two-meanings");
                 vc = vc + 1;
             }
@@ -374,7 +366,7 @@ int _testDiagCodes(bool update) {
         int today = _dcCivilDays(_dcToday());
         a = 0;
         while (a < wc) {
-            string day = _dcDateOf(want[a]);
+            string day = wantDay[a];
             int dd = _dcCivilDays(day);
             if (dd < 0) {
                 viol = _dcPush(viol, vc, "baseline entry `" + wantPair[a]
@@ -528,49 +520,44 @@ int _testDiagCodes(bool update) {
     _dcSort(untested, un);
 
     if (update) {
-        string outp2 = Path.Join(root, _dcUntestedPath());
-        string body2 = "# 活码里**还没有任何测试按码断言**的那些（规则 ⑨，双向棘轮：多一条 / 少一条都红）。\n"
-            + "# 「活码」= 有发射点（字面量或 DiagnosticCodes.<Name> 引用，见规则 ⑧）。\n"
-            + "# 「被断言」判据很宽：码值或常量名出现在测试面任一处即算——测试面 = src/**/tests/** ∪\n"
-            + "# src/tests/**（任意文本扩展名，含 expected_build_error.txt）∪ examples/** ∪ scripts/test/**\n"
-            + "# ∪ docs/learn/**。本门要答的是「有没有被任何一处钉住」，不是「钉得够不够好」。\n"
-            + "# 每一条都是**欠账**：给它补一个按码断言的用例，然后重跑 `xtask check diagcodes --update`。\n"
-            + "# 这份清单只应缩短 —— 新增一个活码而不给它测试，门会红并要求你在这里显式记一笔。\n";
+        string codes = "";
         int w3 = 0;
-        while (w3 < un) { body2 = body2 + untested[w3] + "\n"; w3 = w3 + 1; }
-        File.WriteAllText(outp2, body2);
-        Console.WriteLine("  ⑨ updated " + _dcUntestedPath() + ": " + un.ToString() + " untested live code(s)");
+        while (w3 < un) {
+            if (w3 > 0) { codes = codes + ", "; }
+            codes = codes + _tomlQuote(untested[w3]);
+            w3 = w3 + 1;
+        }
+        string[] body2 = new string[2];
+        body2[0] = "[" + _dcUntestedSection() + "]";
+        body2[1] = "codes = [" + codes + "]";
+        _gatesWriteSection(root, _dcUntestedSection(), body2, 2);
+        Console.WriteLine("  ⑨ updated gates.toml [" + _dcUntestedSection() + "]: " + un.ToString()
+            + " untested live code(s)");
     } else {
-        string[] allow = new string[256]; int an = _dcLoadCodeList(root, _dcUntestedPath(), allow);
-        if (an < 0) {
-            ConsoleError.WriteLine("  ✗ cannot read " + _dcUntestedPath()
-                + " — rule ⑨'s ratchet has no baseline to compare against (a gate that cannot find its"
-                + " subject is not a gate). Regenerate with `xtask check diagcodes --update`.");
-            vc = vc + 1;
-        } else {
-            int u2 = 0;
-            while (u2 < un) {
-                if (_dcIndexOfStr(allow, an, untested[u2]) < 0) {
-                    viol = _dcPush(viol, vc, "`" + untested[u2] + "` has an emission site but **no test"
-                        + " asserts it by code** anywhere in the test surface — add a case that pins the code"
-                        + " (a fixture's expected_build_error.txt, an Assert on the code, a replayed .console),"
-                        + " or record the debt in " + _dcUntestedPath() + ". Without a test, the code's behaviour"
-                        + " (whether it fires, where, what it says) can vanish in the next refactor with the gate green.");
-                    vc = vc + 1;
-                }
-                u2 = u2 + 1;
+        string[] allow = new string[256]; int an = _dcLoadCodeList(root, allow);
+        int u2 = 0;
+        while (u2 < un) {
+            if (_dcIndexOfStr(allow, an, untested[u2]) < 0) {
+                viol = _dcPush(viol, vc, "`" + untested[u2] + "` has an emission site but **no test"
+                    + " asserts it by code** anywhere in the test surface — add a case that pins the code"
+                    + " (a fixture's expected_build_error.txt, an Assert on the code, a replayed .console),"
+                    + " or record the debt in gates.toml [" + _dcUntestedSection() + "]. Without a test,"
+                    + " the code's behaviour (whether it fires, where, what it says) can vanish in the next"
+                    + " refactor with the gate green.");
+                vc = vc + 1;
             }
-            int a2 = 0;
-            while (a2 < an) {
-                if (_dcIndexOfStr(untested, un, allow[a2]) < 0) {
-                    viol = _dcPush(viol, vc, _dcUntestedPath() + " lists `" + allow[a2] + "` as untested,"
-                        + " but it now IS asserted somewhere (or stopped being a live code) — drop the line"
-                        + " (`xtask check diagcodes --update`). A stale allowlist entry is a false claim that"
-                        + " the ratchet then protects: it would let a real regression hide behind it.");
-                    vc = vc + 1;
-                }
-                a2 = a2 + 1;
+            u2 = u2 + 1;
+        }
+        int a2 = 0;
+        while (a2 < an) {
+            if (_dcIndexOfStr(untested, un, allow[a2]) < 0) {
+                viol = _dcPush(viol, vc, "gates.toml [" + _dcUntestedSection() + "] lists `" + allow[a2]
+                    + "` as untested, but it now IS asserted somewhere (or stopped being a live code) — drop"
+                    + " the entry (`xtask check diagcodes --update`). A stale allowlist entry is a false claim"
+                    + " that the ratchet then protects: it would let a real regression hide behind it.");
+                vc = vc + 1;
             }
+            a2 = a2 + 1;
         }
     }
 
@@ -613,18 +600,22 @@ int _testDiagCodes(bool update) {
 string _dcRegistryPath() { return "src/compiler/z42c.core/src/DiagnosticCodes.z42"; }
 string _dcDocPath() { return "docs/reference/src/appendix/error-codes.md"; }
 
-// 基线文件 → `<CODE> <relpath>` 行（`#` 注释与空行跳过）。读不到返回 -1。
-// 清单每行形如 `<CODE> <relpath> <YYYY-MM-DD>`；前两列是 ④ 比对的身份，第三列是 ⑥ 的挂账日。
-string _dcPairOf(string line) {
-    string[] f = line.Split(" ");
-    if (f.Length < 2) { return line; }
-    return f[0] + " " + f[1];
-}
-
-string _dcDateOf(string line) {
-    string[] f = line.Split(" ");
-    if (f.Length < 3) { return ""; }
-    return f[2].Trim();
+// ④ 的快照同 ⑨ 的清单语义：区段缺失 = 空（双向棘轮对「空快照 + 有字面量」照样红）。
+// 读 gates.toml `[diagcodes-literal]`：键 `"<CODE> <relpath>"` 出到 outPairs（④ 比对的身份），
+// 值 `YYYY-MM-DD` 出到 outDays（⑥ 的挂账日）。--update 从空快照重建时全部条目取今天为挂账日。
+int _dcLoadBaseline(string root, string[] outPairs, string[] outDays) {
+    TomlValue t = _gatesSection(root, _dcLiteralSection());
+    string[] keys = t.Keys();
+    int n = 0;
+    int i = 0;
+    while (i < keys.Length) {
+        TomlValue v = t.Get(keys[i]);
+        if (v.IsString()) {
+            if (n < outPairs.Length) { outPairs[n] = keys[i]; outDays[n] = v.AsString(); n = n + 1; }
+        }
+        i = i + 1;
+    }
+    return n;
 }
 
 // `YYYY-MM-DD` → 自 1970-01-01 的天数（Howard Hinnant days_from_civil）。非法输入返回 -1。
@@ -648,26 +639,6 @@ string _dcToday() {
     string now = _utcNow();          // `YYYY-MM-DDTHH:MM:SSZ`
     if (now.Length < 10) { return ""; }
     return now.Substring(0, 10);
-}
-
-// ④ 的基线同 ⑨ 的清单语义：不存在 = 空（双向棘轮对「空基线 + 有字面量」照样红）；
-// 在而读不了 = -1。--update 从空基线重建时全部条目取今天为挂账日。
-int _dcLoadBaseline(string root, string[] outPairs) {
-    string p = Path.Join(root, _dcBaselinePath());
-    if (!File.Exists(p)) { return 0; }
-    string text = "";
-    try { text = File.ReadAllText(p); }
-    catch (Exception ex) { return 0 - 1; }
-    string[] lines = text.Split("\n");
-    int n = 0; int i = 0;
-    while (i < lines.Length) {
-        string l = lines[i].Trim();
-        if (l != "" && !l.StartsWith("#")) {
-            if (n < outPairs.Length) { outPairs[n] = l; n = n + 1; }
-        }
-        i = i + 1;
-    }
-    return n;
 }
 
 // 登记表本身是码号的「声明位」，不算发射点；tests 里断言码号是正当用法。

@@ -1,2 +1,0 @@
-# stdlib doc 注释棘轮基线（xtask check doc-lints --update 重写）。
-# 只降不升：清零一条就从这里删掉那行；计数下降时随手更新。W0803 归编译器 pass，不在此列。

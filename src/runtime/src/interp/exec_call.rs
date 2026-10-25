@@ -203,9 +203,9 @@ pub(super) fn call(
     // and route it to native code once compiled, instead of interpreting the whole
     // subtree — lazily loaded callees exactly like entry-module ones. No-op when there
     // is no published JIT ctx (interp-only run) or the callee is cold/untranslatable.
-    // add-generic-methods: generic calls carry method_type_args that the native
-    // JIT static-call fast path does not thread yet → stay on the interpreter so
-    // the callee frame gets its type_args. (JIT generic support: jit_call path.)
+    // A generic call diverts too: a callee that could read its method_type_args never
+    // compiles (`jit::translate::unsupported`'s invariant), so a compiled one does not
+    // need them; the interpreter path below threads them for the rest.
     // runtime-ambiguous-use-site（下方）先于折叠：歧义调用不该因为目标是 `[Native]` 桩就静默通过。
     if crate::vm_context::symres::ambiguous_function_exception(ctx, module, fname).is_none()
         && method_type_args.is_empty()
@@ -215,11 +215,9 @@ pub(super) fn call(
             return res;
         }
     }
-    if method_type_args.is_empty() {
-        if let Some(id) = callee_id {
-            if let Some(res) = try_native_static_call(ctx, frame, dst, id, args) {
-                return res;
-            }
+    if let Some(id) = callee_id {
+        if let Some(res) = try_native_static_call(ctx, frame, dst, id, args) {
+            return res;
         }
     }
     // runtime-ambiguous-use-site：**调用**一个被两个已加载 zpkg 各自声明的函数 → 报错。

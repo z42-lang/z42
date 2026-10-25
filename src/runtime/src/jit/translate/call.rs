@@ -105,9 +105,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
     /// The `jit_call` helper sequence for a `Call` site (call + exception check +
     /// post-call safepoint). Also the slow path of an inlined string intrinsic.
     pub(super) fn emit_call_helper(&mut self, insn: &CallInsn) {
-        // add-generic-methods: generic Call sites are filtered out by
-        // jit_unsupported_reason (stay interp); non-generic reach here.
-        let CallInsn { dst, func: fname, args, .. } = insn;
+        let CallInsn { dst, func: fname, args, method_type_args } = insn;
         let d = self.ri(*dst);
         let (np, nl) = self.str_val(fname);
         let (ap, al) = self.regs_val(args);
@@ -121,7 +119,17 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         // jit-stack-trace: pass this site's code offset so jit_call can
         // stamp the caller's frame before descending into the callee.
         let off_val = self.builder.ins().iconst(types::I32, self.func.linear_offset(self.block_idx as u32, self.instr_idx as u32) as i64);
-        let inst = self.builder.ins().call(self.hr_call, &[self.frame_val, self.ctx_val, d, mid_val, np, nl, ap, al, ic_val, off_val]);
+        // A method-level generic site (jit-generic-call-sites): the site's type args are a
+        // constant of the instruction — bake their address like `Typeof`'s type_args (the
+        // Module owns the instruction for as long as this code can run). `$mta:` forwarding
+        // sites never get here (`unsupported::forwards_caller_mta`).
+        let inst = if method_type_args.is_empty() {
+            self.builder.ins().call(self.hr_call, &[self.frame_val, self.ctx_val, d, mid_val, np, nl, ap, al, ic_val, off_val])
+        } else {
+            let tap = self.builder.ins().iconst(self.ptr, method_type_args.as_ptr() as i64);
+            let tal = self.builder.ins().iconst(types::I64, method_type_args.len() as i64);
+            self.builder.ins().call(self.hr_call_mta, &[self.frame_val, self.ctx_val, d, mid_val, np, nl, ap, al, ic_val, off_val, tap, tal])
+        };
         let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
         // add-gc-safepoint-jit : post-Call safepoint
         // — long callees may yield to a GC request that arrived

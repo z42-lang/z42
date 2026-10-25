@@ -2,12 +2,13 @@
 // 文件行数 lint：src/ 下非测试 .z42 / .rs 文件（code-organization.md）。
 //   > 886 行（硬限）→ 越界，走下面的棘轮判定（新越界/继续膨胀 = 红）
 //   > 500 行（软限）→ 只 warn，不参与棘轮、永不变红
-// 先 warn 后 fail 的落地方式 = **棘轮基线**：`scripts/test/line-limit-baseline.txt` 记录已知越界文件
+// 先 warn 后 fail 的落地方式 = **棘轮基线**：`scripts/test/gates.toml` 的 `[lines]` 区记录已知越界文件
 // 及其当时行数；越界文件若不在基线（新越界）或比基线更长（继续膨胀）→ 红；在基线内且不增长 → 只 warn。
 // 拆分后降到上限以下的文件在下次 `--update` 时自动从基线消失（只降不升）。
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Toml;
 using Std.Time;
 
 // 文件行数上限（code-organization.md）。
@@ -21,7 +22,6 @@ int _lineLimitSoft() { return 500; }
 int _testLines(bool update) {
     Stopwatch sw = _procStart("check lines");
     string root = _root();
-    string basePath = Path.Join(root, "scripts/test/line-limit-baseline.txt");
     string[] files = _lineLintFiles(root);
     string[] over = new string[64]; int[] overN = new int[64]; int oc = 0;
     int scanned = 0;
@@ -41,13 +41,13 @@ int _testLines(bool update) {
     }
     _sortOverByPath(over, overN, oc);
     if (update) {
-        _writeLineBaseline(basePath, over, overN, oc);
+        _writeLineBaseline(root, over, overN, oc);
         Console.WriteLine("  ✓ baseline rewritten: " + oc.ToString() + " file(s) over " + _lineLimitHard().ToString() + " lines");
         _procEnd("check lines", sw);
         return 0;
     }
     string[] bPath = new string[64]; int[] bN = new int[64];
-    int bc = _readLineBaseline(basePath, bPath, bN);
+    int bc = _readLineBaseline(root, bPath, bN);
     int fails = 0; int warns = 0;
     i = 0;
     while (i < oc) {
@@ -160,24 +160,34 @@ int _indexOfStr(string[] a, int c, string key) {
 }
 
 // 基线格式：每行 `path<TAB>lines`，按 path 序；缺文件 = 空基线。
-int _readLineBaseline(string path, string[] outPath, int[] outN) {
-    if (!File.Exists(path)) { return 0; }
-    string[] lines = File.ReadAllText(path).Split("\n");
-    int c = 0; int i = 0;
-    while (i < lines.Length) {
-        string l = lines[i].Trim();
-        if (l.Length > 0 && !l.StartsWith("#")) {
-            string[] f = l.Split("\t");
-            if (f.Length == 2 && c < outPath.Length) { outPath[c] = f[0]; outN[c] = int.Parse(f[1]); c = c + 1; }
+int _readLineBaseline(string root, string[] outPath, int[] outN) {
+    TomlValue t = _gatesSection(root, "lines");
+    string[] keys = t.Keys();
+    int n = 0;
+    int i = 0;
+    while (i < keys.Length) {
+        TomlValue v = t.Get(keys[i]);
+        if (v.IsLong()) {
+            if (n < outPath.Length) { outPath[n] = keys[i]; outN[n] = (int)v.AsLong(); n = n + 1; }
         }
         i = i + 1;
     }
-    return c;
+    return n;
 }
 
-void _writeLineBaseline(string path, string[] a, int[] n, int c) {
-    string s = "# line-limit ratchet baseline (xtask check lines --update): path<TAB>lines; hard limit " + _lineLimitHard().ToString() + "\n";
+void _writeLineBaseline(string root, string[] a, int[] n, int c) {
+    string[] body = new string[c + 1];
+    body[0] = "[lines]";
     int i = 0;
-    while (i < c) { s = s + a[i] + "\t" + n[i].ToString() + "\n"; i = i + 1; }
-    File.WriteAllTextAtomic(path, s);
+    while (i < c) {
+        body[i + 1] = _tomlQuote(a[i]) + " = " + n[i].ToString();
+        i = i + 1;
+    }
+    _gatesWriteSection(root, "lines", body, c + 1);
 }
+
+// toml 基本字符串引号（路径只可能含反斜杠与引号）。
+string _tomlQuote(string s) {
+    return "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+}
+

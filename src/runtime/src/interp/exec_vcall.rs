@@ -169,9 +169,10 @@ pub(super) fn vcall(
 }
 
 /// Run `func` with `this` in reg 0. With a `FnId` (module-local and lazily loaded callees
-/// alike) it counts toward its tier-up and goes native once compiled (mixed-mode divert;
-/// generic instance calls stay on interp because the native path does not thread
-/// `method_type_args` yet); otherwise, or while cold / untranslatable, interp.
+/// alike) it counts toward its tier-up and goes native once compiled (mixed-mode divert) —
+/// a generic call too: a callee that could read its `method_type_args` never compiles
+/// (`jit::translate::unsupported`'s invariant), so a compiled one does not need them in
+/// its frame. Otherwise, or while cold / untranslatable, interp (type args threaded).
 #[allow(clippy::too_many_arguments)]
 fn invoke(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32,
@@ -184,10 +185,10 @@ fn invoke(
         if let Some(res) = super::exec_call::try_fold(ctx, module, frame, dst, func, Some(*this), args) {
             return res;
         }
-        if let Some(id) = id {
-            if let Some(res) = try_native_method_call(ctx, frame, dst, id, this, args) {
-                return res;
-            }
+    }
+    if let Some(id) = id {
+        if let Some(res) = try_native_method_call(ctx, frame, dst, id, this, args) {
+            return res;
         }
     }
     let outcome = super::exec_function_from_receiver_regs(
