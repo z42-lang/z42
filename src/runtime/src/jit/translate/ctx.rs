@@ -77,6 +77,8 @@ pub(super) struct TxCtx<'a, 'b> {
     pub(super) hr_bit_not: FuncRef,
     pub(super) hr_shl: FuncRef,
     pub(super) hr_shr: FuncRef,
+    pub(super) hr_eq_str: FuncRef,
+    pub(super) hr_add_str: FuncRef,
     pub(super) hr_str_concat: FuncRef,
     pub(super) hr_to_str: FuncRef,
     pub(super) hr_call: FuncRef,

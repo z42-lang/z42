@@ -263,6 +263,33 @@ z42c 自举整工作区构建（`--jobs 1`）13.38 → 13.01 s，产物逐字节
 单测 `jit/translate/str_intrinsics_tests.rs` 逐例比对 interp / jit 并断言走了哪条路径；
 golden `src/tests/strings/str_intrinsics_jit` 覆盖真实编译器与标准库下的同一组成员。
 
+## 动态类型站点的算术 / 比较 guard 内联
+
+> `jit/translate/arith.rs::emit_arith_guarded_binop`、`jit/translate/compare.rs::emit_cmp_guarded`（发射）、
+> `jit/helpers/arith.rs::jit_eq_str` / `jit_add_str`（窄 helper）、单测 `jit/translate/arith_guard_tests.rs`。
+
+静态类型谓词（`is_int_typed` 等）覆盖不到的站点——`reg_types` 为 `Unknown` / 混合的寄存器上的
+`Add`/`Sub`/`Mul`/`Eq`/`Ne`/`Lt`/`Le`/`Gt`/`Ge`——此前整族落到胖 helper（`jit_add` 等：frame/ctx/dst/a/b
+五个参数 + tag 匹配分派）。这类站点在动态语言风格的负载里占大头（编译器自身的名字比较、判空、拼接）。
+guard 内联按**运行期寄存器 tag** 逐站点分派常见形态，未命中走原 helper 不变：
+
+- **双 `I64`**（全部九个操作码）：load 两个 i64 载荷、原生 `iadd`/`isub`/`imul`/`icmp`（wrapping /
+  signed，与 helper 快路径同一条语义）、直写结果槽。
+- **双 `Str`**（仅 `Eq`/`Ne`/`Add`）：`Eq`/`Ne` 调窄 helper `jit_eq_str(pa, pb)`——内容比较（`Str: PartialEq`）
+  且省掉五参 marshal 与 tag 分派；`Add` 调 `jit_add_str(ctx, pa, pb, pdst)`——同一个 `alloc_str_concat2`
+  融合分配。窄 helper 收**寄存器槽地址**（guard 的 tag load 已算好）而不是 frame+索引，非 Str 组合按防御臂
+  处理（`eq_str` 回 `numeric_eq`）。
+- **恰一侧 `Null`**（仅 `Eq`/`Ne`）：`Null` 不参与 `numeric_eq` 的任何数值加宽臂，跨 variant 相等恒为
+  `false`（`Value: PartialEq` 的 `_` 臂），`p == null` / `p != null` 就地折叠成常量。
+- 混合数值（`I64`/`F64`/`Char` 交叉）、装箱整数、`BoxedStruct` 深比较等一律落回胖 helper——语义
+  （透明拆箱、NaN unordered 等）全部保持在 `semantics` / `Value: PartialEq` 单点。
+
+**不变式**：每个 guard 命中路径与胖 helper 的对应臂**字节等价**；guard 未命中 = 原调用序列原样。
+块分裂模式与 cache 一致性论证与 `emit_char_cmp` 相同：站点入口时块内整数缓存已被驱动层 flush
+（比较 / 算术属 non-participating 指令），快慢两路都直读直写内存、不建缓存条目。
+单测 `arith_guard_tests.rs` 用空 `reg_types` 的手工 IR 把每个 guard 形态与回落形态（双 Null、混合数值、
+Str+int 拼接、Str 与 int 排序比较）逐例双引擎对照。
+
 ## 分层：热度阈值 + 三态负缓存（准则 2）
 
 惰性逐函数编译是「首次调用即编译」；分层把它推进为「**热函数才编译**」——冷函数（调用次数

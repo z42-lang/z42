@@ -93,6 +93,20 @@ pub(super) fn emit_i64_bit_not(
     store_int(builder, cache, promoted, dst, result);
 }
 
+/// Signed `IntCC` for a `CmpKind` — the one spelling of "how the VM orders
+/// integers" shared by the statically-typed inline path and the dynamic-site
+/// I64 guard (`compare.rs::emit_cmp_guarded`).
+pub(super) fn int_cc_for_cmp(kind: CmpKind) -> IntCC {
+    match kind {
+        CmpKind::Eq => IntCC::Equal,
+        CmpKind::Ne => IntCC::NotEqual,
+        CmpKind::Lt => IntCC::SignedLessThan,
+        CmpKind::Le => IntCC::SignedLessThanOrEqual,
+        CmpKind::Gt => IntCC::SignedGreaterThan,
+        CmpKind::Ge => IntCC::SignedGreaterThanOrEqual,
+    }
+}
+
 /// Emit Cranelift native `icmp <pred>` for `frame.regs[dst] = Value::Bool(a OP b)`
 /// when both `a` and `b` are statically I64. Result discriminant is `TAG_BOOL`,
 /// payload is the i8 comparison result.
@@ -107,8 +121,6 @@ pub(super) fn emit_i64_cmp(
     dst: u32, a: u32, b: u32,
     kind: CmpKind,
 ) {
-    use cranelift_codegen::ir::condcodes::IntCC;
-
     // Operands read via resident Variable (2C) / cache (2B) / memory.
     let ai = load_int(builder, cache, promoted, regs_base, a);
     let bi = load_int(builder, cache, promoted, regs_base, b);
@@ -116,15 +128,7 @@ pub(super) fn emit_i64_cmp(
     // Cranelift `icmp` returns an i8 (boolean: 0 or 1) — directly the
     // payload byte we need to write back. Signed compares since z42's
     // `<` / `<=` etc. are signed on all narrow integer types (i8..i64).
-    let cc = match kind {
-        CmpKind::Eq => IntCC::Equal,
-        CmpKind::Ne => IntCC::NotEqual,
-        CmpKind::Lt => IntCC::SignedLessThan,
-        CmpKind::Le => IntCC::SignedLessThanOrEqual,
-        CmpKind::Gt => IntCC::SignedGreaterThan,
-        CmpKind::Ge => IntCC::SignedGreaterThanOrEqual,
-    };
-    let result_i8 = builder.ins().icmp(cc, ai, bi);
+    let result_i8 = builder.ins().icmp(int_cc_for_cmp(kind), ai, bi);
 
     // The dst is a Bool, not an integer — write it straight to memory (with
     // TAG_BOOL) and drop any stale integer cache entry for it. The consumer

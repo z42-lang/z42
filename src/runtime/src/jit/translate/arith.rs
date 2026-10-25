@@ -15,9 +15,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     } else if is_f64_typed(self.func, *dst, *a, *b) {
                         emit_f64_binop(self.builder, self.regs_base, self.promoted, *dst, *a, *b, F64BinopKind::Add);
                     } else {
-                        let (d, av, bv) = (self.ri(*dst), self.ri(*a), self.ri(*b));
-                        let inst = self.builder.ins().call(self.hr_add, &[self.frame_val, self.ctx_val, d, av, bv]);
-                        let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
+                        self.emit_arith_guarded_binop(*dst, *a, *b, self.hr_add, BinopKind::Add, true);
                     }
                 }
                 Instruction::Sub { dst, a, b } => {
@@ -26,9 +24,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     } else if is_f64_typed(self.func, *dst, *a, *b) {
                         emit_f64_binop(self.builder, self.regs_base, self.promoted, *dst, *a, *b, F64BinopKind::Sub);
                     } else {
-                        let (d, av, bv) = (self.ri(*dst), self.ri(*a), self.ri(*b));
-                        let inst = self.builder.ins().call(self.hr_sub, &[self.frame_val, self.ctx_val, d, av, bv]);
-                        let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
+                        self.emit_arith_guarded_binop(*dst, *a, *b, self.hr_sub, BinopKind::Sub, false);
                     }
                 }
                 Instruction::Mul { dst, a, b } => {
@@ -37,9 +33,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                     } else if is_f64_typed(self.func, *dst, *a, *b) {
                         emit_f64_binop(self.builder, self.regs_base, self.promoted, *dst, *a, *b, F64BinopKind::Mul);
                     } else {
-                        let (d, av, bv) = (self.ri(*dst), self.ri(*a), self.ri(*b));
-                        let inst = self.builder.ins().call(self.hr_mul, &[self.frame_val, self.ctx_val, d, av, bv]);
-                        let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
+                        self.emit_arith_guarded_binop(*dst, *a, *b, self.hr_mul, BinopKind::Mul, false);
                     }
                 }
                 Instruction::Div { dst, a, b } => {
@@ -184,4 +178,75 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         }
         Ok(())
     }
+
+    /// Dynamic-site guard inlining for Add/Sub/Mul: guard both operands'
+    /// runtime tags on `I64` and compute the wrapping op natively; `Add`
+    /// additionally guards both `Str` and concats via the narrow
+    /// `jit_add_str` (string building is the dominant dynamic-Add shape).
+    /// Everything else takes the fat helper unchanged; each guard-hit path
+    /// is byte-equivalent to the helper's arm (wrapping `iadd`/`isub`/
+    /// `imul`, `alloc_str_concat2`). Same block-splitting pattern (and
+    /// cache-coherence argument) as `emit_char_cmp`.
+    fn emit_arith_guarded_binop(
+        &mut self, dst: u32, a: u32, b: u32,
+        hr: cranelift_codegen::ir::FuncRef, op: BinopKind, with_str: bool,
+    ) {
+        let a_addr = reg_addr(self.builder, self.regs_base, a);
+        let b_addr = reg_addr(self.builder, self.regs_base, b);
+        let d_addr = reg_addr(self.builder, self.regs_base, dst);
+        let ta = load_tag(self.builder, a_addr);
+        let tb = load_tag(self.builder, b_addr);
+        let done_blk = self.builder.create_block();
+
+        // Guard 1: both I64 — the helper's fast path, inline (wrapping).
+        let fast_i64 = self.builder.create_block();
+        let next_blk = self.builder.create_block();
+        let a_i64 = self.builder.ins().icmp_imm_s(IntCC::Equal, ta, TAG_I64 as i64);
+        let b_i64 = self.builder.ins().icmp_imm_s(IntCC::Equal, tb, TAG_I64 as i64);
+        let both_i64 = self.builder.ins().band(a_i64, b_i64);
+        self.builder.ins().brif(both_i64, fast_i64, &[], next_blk, &[]);
+        self.builder.switch_to_block(fast_i64);
+        let ai = load_payload_i64(self.builder, a_addr);
+        let bi = load_payload_i64(self.builder, b_addr);
+        let r = match op {
+            BinopKind::Add => self.builder.ins().iadd(ai, bi),
+            BinopKind::Sub => self.builder.ins().isub(ai, bi),
+            BinopKind::Mul => self.builder.ins().imul(ai, bi),
+            _ => unreachable!("guarded binop is Add/Sub/Mul only"),
+        };
+        store_const_tag(self.builder, d_addr, TAG_I64, r);
+        self.builder.ins().jump(done_blk, &[]);
+
+        self.builder.switch_to_block(next_blk);
+        let slow_blk = if with_str {
+            // Guard 2: both Str — fused concat via the narrow helper.
+            let fast_str = self.builder.create_block();
+            let slow_blk = self.builder.create_block();
+            let a_str = self.builder.ins().icmp_imm_s(IntCC::Equal, ta, TAG_STR as i64);
+            let b_str = self.builder.ins().icmp_imm_s(IntCC::Equal, tb, TAG_STR as i64);
+            let both_str = self.builder.ins().band(a_str, b_str);
+            self.builder.ins().brif(both_str, fast_str, &[], slow_blk, &[]);
+            self.builder.switch_to_block(fast_str);
+            let inst = self.builder.ins().call(self.hr_add_str, &[self.ctx_val, a_addr, b_addr, d_addr]);
+            let ret = self.builder.inst_results(inst)[0];
+            self.check(ret);
+            self.builder.ins().jump(done_blk, &[]);
+            slow_blk
+        } else {
+            // No further shape to fold — this block is the slow path.
+            next_blk
+        };
+
+        self.builder.switch_to_block(slow_blk);
+        let (d, av, bv) = (self.ri(dst), self.ri(a), self.ri(b));
+        let inst = self.builder.ins().call(hr, &[self.frame_val, self.ctx_val, d, av, bv]);
+        let ret = self.builder.inst_results(inst)[0];
+        self.check(ret);
+        self.builder.ins().jump(done_blk, &[]);
+        self.builder.switch_to_block(done_blk);
+    }
 }
+
+#[cfg(test)]
+#[path = "arith_guard_tests.rs"]
+mod arith_guard_tests;

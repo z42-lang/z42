@@ -252,6 +252,46 @@ cmp_op!(jit_le, |x: &i64, y: &i64| x <= y, true,  true);
 cmp_op!(jit_gt, |x: &i64, y: &i64| x > y,  true,  false);
 cmp_op!(jit_ge, |x: &i64, y: &i64| x >= y, false, true);
 
+// ── Guard-specialized narrow helpers (dynamic-site guard inlining) ───────────
+//
+// The translate side guards a dynamic (Unknown-typed) Add/Eq/Ne site on the
+// operand TAG_STRs and calls these instead of the fat helpers above. They
+// take the operand *register-slot addresses* (already computed by the guard's
+// tag loads) and skip the frame/ctx/dst/a/b marshalling and the tag-match
+// dispatch. Byte-equivalent to the fat helper's corresponding arm:
+// `Str == Str` is `Str: PartialEq` (content compare), concat is the same
+// `alloc_str_concat2`. The non-Str `_` arm is unreachable per the translate
+// side's tag guards — it answers defensively rather than invoking UB.
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_eq_str(
+    pa: *const Value, pb: *const Value,
+) -> u8 {
+    match (&*pa, &*pb) {
+        (Value::Str(sa), Value::Str(sb)) => (sa == sb) as u8,
+        _ => semantics::numeric_eq(&*pa, &*pb) as u8,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jit_add_str(
+    ctx: *const VmContext,
+    pa: *const Value, pb: *const Value, pdst: *mut Value,
+) -> u8 {
+    match (&*pa, &*pb) {
+        (Value::Str(sa), Value::Str(sb)) => {
+            let heap = vm_ctx_ref(ctx).heap();
+            *pdst = Value::Str(heap.alloc_str_concat2(sa.as_str(), sb.as_str()));
+            0
+        }
+        _ => {
+            set_exception(vm_ctx_ref(ctx), Value::Str(
+                "jit_add_str: non-Str operand (translate-side tag guard broken)".into()));
+            1
+        }
+    }
+}
+
 // ── Logical ──────────────────────────────────────────────────────────────────
 
 #[unsafe(no_mangle)]
