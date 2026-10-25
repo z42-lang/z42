@@ -1,0 +1,12 @@
+[project]
+name    = "e2e.sapp"
+version = "0.1.0"
+kind    = "exe"
+
+[sources]
+include = ["*.z42"]
+
+[plugins]
+# 单文件插件条目：path 指向一个 .z42 源文件（不是工程目录）——z42c 合成最小插件清单（落消费方
+# cache 目录）后走与工程条目相同的代建路。plug/ 里刻意没有 z42.toml。
+"e2e.sgen" = { path = "../plug/gen.z42" }

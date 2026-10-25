@@ -125,6 +125,7 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
         failed = failed + _smokeManifestSections(root, tt);
         failed = failed + _smokeBuildHooksMode(root, tt);
         failed = failed + _smokeHookPlugin(root, tt);
+        failed = failed + _smokeHookSingleFile(root, tt);
         failed = failed + _smokeHookPluginBroken(root, tt);
         failed = failed + _smokeHookCarry(root, tt);
         failed = failed + _smokeWorkspaceDefault(root, tt);
@@ -394,6 +395,33 @@ int _smokeHookPlugin(string root, TargetTooling tt) {
         return 1;
     }
     Console.WriteLine("  ✅ hook plugin: 两个插件按声明序加载并执行");
+    return 0;
+}
+
+// 单文件 hook 插件 smoke（plugin-single-file）：`[plugins]` 条目 path 直接指向 .z42 源文件（无插件工程
+// 清单）⇒ z42b 合成最小插件清单（PluginSynth.Synth）→ ICompiler 代建 → 反射出 BuildHooks 执行。
+// 断言标记行出现——这一条覆盖「合成 + 代建 + 加载 + 执行」全链；清单解析与组合顺序由 hook-plugin 钉。
+int _smokeHookSingleFile(string root, TargetTooling tt) {
+    string toml = Path.Join(tt.Z42bFixturesRoot, "hook-single-file/z42.toml");
+    if (!File.Exists(toml)) { return 0; }
+    Console.WriteLine("");
+    Console.WriteLine("── hook single-file plugin ([plugins] 单文件条目 → 合成清单代建) ──");
+    ProcessResult r = _z42bProc(tt.Vm, tt.Libs).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+        .Arg("--").Arg("build").Arg(toml)
+        .WorkingDirectory(root)
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    string all = r.Stdout + r.Stderr;
+    if (r.ExitCode != 0) {
+        Console.WriteLine("  ❌ hook single-file plugin: `z42b build` exited " + r.ExitCode.ToString());
+        Console.WriteLine("    输出: " + all);
+        return 1;
+    }
+    if (all.IndexOf("HOOK-SINGLE-FILE-SMOKE: BeforeCompile") < 0) {
+        Console.WriteLine("  ❌ hook single-file plugin: 单文件插件的标记行没有出现（合成/代建/加载断了？）");
+        Console.WriteLine("    输出: " + all);
+        return 1;
+    }
+    Console.WriteLine("  ✅ hook single-file plugin: 单文件条目合成清单、代建并执行");
     return 0;
 }
 

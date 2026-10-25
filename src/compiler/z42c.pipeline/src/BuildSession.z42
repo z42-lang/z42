@@ -304,29 +304,47 @@ public sealed class BuildSession {
     }
 
     // 工程 path 的插件：定位清单 → 校验 → AnalyzerChild 子会话代建 → 产物路径；失败报错返回 ""。
+    // 单文件 path（`.z42`）：合成最小插件清单（PluginSynth.Synth，落消费方 cache 目录）→ 与工程条目同路
+    //（与 z42c.driver PluginRefs / z42b builder_hooks 三处同口径）。
     private string _buildPluginProject(string aname, string apath) {
         IBuildReporter rep = this._o.Reporter;
         string adir = Path.Join(this._o.ProjectDir, apath);
-        ManifestLocation aloc = ManifestLocator.FindIn(adir);
-        if (aloc.Kind != ManifestLocateKind.Project) {
-            rep.Fail("[plugins] `" + aname + "` 的 path 指向 " + adir + "，那里没有单个工程清单。");
-            return "";
+        string atoml = "";
+        if (apath.EndsWith(".z42")) {
+            string asrc = Path.IsRooted(apath) ? apath : adir;
+            if (!File.Exists(asrc)) {
+                rep.Fail("[plugins] `" + aname + "` 的 path 指向 " + asrc + "，文件不存在。");
+                return "";
+            }
+            string cacheDir = BuildLayout.Resolve(this._o.Manifest, this._o.ProjectDir, this._o.IsRelease).CacheDir;
+            atoml = PluginSynth.Synth(cacheDir, aname, asrc);
+            if (atoml.Length == 0) {
+                rep.Fail("[plugins] `" + aname + "` 的单文件插件清单合成失败（源文件 " + asrc + "）。");
+                return "";
+            }
+        } else {
+            ManifestLocation aloc = ManifestLocator.FindIn(adir);
+            if (aloc.Kind != ManifestLocateKind.Project) {
+                rep.Fail("[plugins] `" + aname + "` 的 path 指向 " + adir + "，那里没有单个工程清单。");
+                return "";
+            }
+            atoml = aloc.ManifestPath;
         }
-        ProjectManifest apm = ManifestLoader.Load(aloc.ManifestPath);
+        ProjectManifest apm = ManifestLoader.Load(atoml);
         if (!apm.Project.IsPlugin() || apm.Project.Name != aname) {
-            rep.Fail("[plugins] `" + aname + "` 指向的工程 " + aloc.ManifestPath + " 须是 kind = \"plugin\" 且名为 `"
+            rep.Fail("[plugins] `" + aname + "` 指向的工程 " + atoml + " 须是 kind = \"plugin\" 且名为 `"
                 + aname + "`（实际 kind = \"" + apm.Project.Kind + "\"、name = `" + apm.Project.Name + "`）。");
             return "";
         }
         if (apm.DepCount > 0 && BuildSession._hasPathDep(apm)) {
             rep.Fail("[plugins] `" + aname + "` 自带 path 依赖；本构建路径暂不代建插件的依赖闭包，"
-                + "请先用 `z42c build " + aloc.ManifestPath + "` 构建它。");
+                + "请先用 `z42c build " + atoml + "` 构建它。");
             return "";
         }
         // 插件工程的解析域 = 消费方基础域（stdlib）；编译器域在子会话里按 kind 并入。
-        BuildOptions co = new BuildOptions(apm, Path.GetDirectoryName(aloc.ManifestPath), BuildRole.AnalyzerChild,
+        BuildOptions co = new BuildOptions(apm, Path.GetDirectoryName(atoml), BuildRole.AnalyzerChild,
                                            this._o.IsRelease, rep);
-        co.Label = aloc.ManifestPath;
+        co.Label = atoml;
         co.BaseLibs = this._o.BaseLibs; co.BaseLibsN = this._o.BaseLibsN;
         BuildResult cr = new BuildSession(co).Run();
         if (cr.Code != BuildExit.Ok) {

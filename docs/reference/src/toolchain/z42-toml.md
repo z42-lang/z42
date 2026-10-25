@@ -86,7 +86,8 @@ version = "0.1.0"
 - **stdlib 命名族**是 `z42.<topic>`（`z42.core` / `z42.io` / `z42.numerics` / `z42.harness` …）。
   `z42.*` 是官方保留前缀——它们随工具链分发、**始终可用**，`[dependencies]` 里
   **只写第三方包**（Rust-std 模型），也不要给自己的包起 `z42.` 开头的名字。
-  声明 `z42.*` 是冗余、但无害：编译器不报错也不警告。
+  声明 `z42.*` 是冗余；其中「同 workspace 成员」这条子集会被 **WS032** 逐条提示（见
+  [L6.2](#l62-顶层结构)），其余静默无害。
 
 - **第三方包必须声明**，漏写会在编译期报 [`E0497`](../appendix/error-codes.md)，
   消息里直接给出要加的那一行。判据是**类型的归属包**，不是 `using` 的命名空间。
@@ -296,7 +297,7 @@ incremental = true     # 启用增量编译，默认 true
 | `dist_dir` | string? | 未配 `output_dir` 时 **`<清单目录>/dist`**；配了则 `${output_dir}/dist` | `${output_dir}/dist` | 最终分发产物（`.zpkg` + `.zsym`）。 |
 | `generated_dir` | string? | `${output_dir}/generated`（显式 `""` = 不落盘） | 同左 | generator 生成的源码。 |
 | `incremental` | bool | `true` | `true` | 基于 source hash 跳过未改动文件。CLI `--no-incremental` 是一次性覆盖，**永远压过本键**；两者任一为「关」即关。 |
-| ~~`hooks`~~ | — | — | — | **已删除**（unify-plugin-packages 1b）：hook 改为插件工程，经 [`[plugins]`](#plugins--加载进工具链进程运行不链入产物) 引用（`"x.hooks" = { path = "hooks" }`，hook 目录补一份 `kind = "plugin"` 清单）。写了旧键按未知键报错。 |
+| ~~`hooks`~~ | — | — | — | **已删除**（unify-plugin-packages 1b）：hook 改为插件，经 [`[plugins]`](#plugins--加载进工具链进程运行不链入产物) 引用（零依赖 hook 直接写单文件条目 `"x.hooks" = { path = "hooks/hook.z42" }`；复杂 hook 写插件工程 `"x.hooks" = { path = "hooks" }` + `kind = "plugin"` 清单）。写了旧键按未知键报错。 |
 
 发布目录不在 `[build]`：它是 `[platform.desktop].publish_dir`（见下文 publish 一节），默认 `${output_dir}/publish`。
 
@@ -639,7 +640,10 @@ kind    = "exe"
 由此确立的约定：
 
 - **`[dependencies]` / `[tests.dependencies]` / `[benches.dependencies]` 只用于第三方依赖。** stdlib（`z42.*`）出现在其中纯属冗余。
-- **声明 `z42.*` 不报错也不警告**，只是冗余。
+- **声明 `z42.*` 静默冗余**；唯一有执行的子集：成员清单按名声明**同 workspace 成员**（无 `path` /
+  `deploy` 键）→ workspace 构建（`z42c build --workspace` / z42b 工作区动词）按 **WS032** 逐条提示、
+  构建照常。SDK 库（`z42.project` / `z42.build` / `z42c.*`）在普通工程里**仍须按名声明**——那是
+  可见性种子，不是冗余。
 - **第三方包漏写会报 [`E0497`](../appendix/error-codes.md)**（编译期）——这是本节约定里
   真正有执行的那一半。
 - **`Std.*` 命名空间保留（E0605，硬错误）**：非 `z42.*` 包在源码声明 `namespace Std.*`（或裸 `Std`）→ **编译错误**。`Std` / `Std.*` 专属官方 stdlib（同 Rust 保留 `std`/`core`/`alloc`），保证程序里任何 `Std.*` 一定解析到官方、自动可用的 stdlib，永不被第三方 shadow。（消费一个已构建的、占用 `Std.*` 的第三方 zpkg 时另有 W0603 warning 作软网。）
@@ -945,6 +949,7 @@ artifacts/build/libraries/<lib>/<profile>/
 "demo.noemptycatch" = "0.1.0"                 # 按名：在插件目录找 demo.noemptycatch.zpkg
 "demo.gen"          = { path = "../gen" }     # 按工程路径：z42c 代建该工程，取其 dist
 "demo.local"        = { path = "../x.zpkg" }  # 按 zpkg 路径：现成产物，读头校验后直接用
+"demo.hook"         = { path = "hooks/hook.z42" }   # 按单文件：零依赖插件免写清单，合成最小插件清单后代建
 "noisy.lint"        = false                   # 关闭携带进来的插件（见 [plugins.export]）
 ```
 
@@ -956,7 +961,7 @@ artifacts/build/libraries/<lib>/<profile>/
 | 何时用 | 编译目标代码时解析符号 | 加载进工具链（z42c / z42b）、构建期执行 |
 | 进不进产物 | 进 | **不进** |
 | 在哪找（按名） | 依赖目录（`Z42_LIBS` / SDK `libs/`） | **插件目录**（`Z42_PLUGINS` / 各依赖目录同级的 `plugins/`）——查找域刻意分开，插件不污染运行期解析域 |
-| `path = "..."` | 支持，z42c 代建整个**闭包** | 支持，代建**那一个工程**（它的依赖由它自己解析）；path 也可以指 `.zpkg` 文件（不代建，直接用）|
+| `path = "..."` | 支持，z42c 代建整个**闭包** | 支持，代建**那一个工程**（它的依赖由它自己解析）；path 也可以指 `.zpkg` 文件（不代建，直接用），或指单个 `.z42` 源文件（合成最小插件清单后代建，见下）|
 | 被引工程的 `kind` | `lib`（引 `plugin` 会被拒绝——按名也拦得住，读头能力位）| 必须是 `plugin`（引普通库会在定位阶段被拒：头里没有插件能力位）|
 
 **path 条目（工程目录）**：判据同 `[dependencies]` 的 path（裸 `z42.toml` 优先，否则唯一一份
@@ -965,6 +970,13 @@ artifacts/build/libraries/<lib>/<profile>/
 hook 进 z42b）。改了插件的源码，消费方下次构建会重编（指纹含该 zpkg 内容）；`.zpkg` 条目同理——产物
 **字节**变了就失效缓存。住在工程目录里的 path 插件目录会自动排除出本工程的源发现，不会被 `**/*.z42`
 扫进 app 产物。
+
+**path 条目（单文件）**：`path` 以 `.z42` 结尾时指**一个源文件**而非目录——工具链合成一份最小插件清单
+（`name` = 条目键、`kind = "plugin"`、`include` = 该文件的绝对路径，落消费方 cache 目录），之后走与
+工程条目**完全相同**的代建路。适合「一个源文件、零 `[dependencies]`」的插件（hook 插件几乎全是这个
+形态）——免写 `z42.toml`。源文件不复制：诊断指回原文件，增量按真源生效。带依赖的插件（如
+z42.harness.lint）单文件写不出依赖，仍用完整工程形态——对齐 tests 的两种配置：单文件测试 / 独立测试工程。
+`[plugins.export]` 不收单文件条目：携带钉**精确版本**并按 dist 验发布件，插件须是有 `version` 的完整工程。
 
 > **代建产物不进消费方的解析域**：与 `[dependencies]` 的 path 闭包刻意不同 —— 插件只活在工具链
 > 进程里，把它的 dist 并进依赖目录就等于让构建期代码对运行期代码可见。
@@ -1120,8 +1132,8 @@ output_dir = "artifacts/${project_name}/${profile}"
 |---|---|
 | `members` | 成员目录（glob / 显式路径），缺省 `["*"]` |
 | `exclude` | 从展开结果中剔除的成员路径 |
-| `default_members` | 默认成员子集：编排器（`z42 build` / `test` / `bench` / `clean` 在工作区上）缺省只对它们执行，`--workspace` 才覆盖全部；`run` / `publish` / `export` 在工作区上要求它恰好选中一个成员（见 [`z42` · 工作区](cli-z42.md#工作区)）。条目写成员目录（相对工作区根）或成员的 `[project].name`；没写或写 `[]` = 全部成员；有条目匹配不到成员 → WS031。z42c 不看它（`z42c build --workspace` 恒编全部成员）。旧拼写 `default-members` 已删除，写了按未知键报错 |
-| `dependencies` | 中央依赖声明，条目写法同 `[dependencies]`。当前只解析与校验键名，构建不消费——成员仍在自己的 `[dependencies]` 里声明依赖 |
+| `default_members` | 默认成员子集：编排器（`z42 build` / `test` / `bench` / `clean` 在工作区上）缺省只对它们执行，`--workspace` 才覆盖全部；`run` / `publish` / `export` 在工作区上要求它恰好选中一个成员（见 [`z42` · 工作区](cli-z42.md#工作区)）。条目写成员目录（相对工作区根）或成员的 `[project].name`；没写或写 `[]` = 全部成员；有条目匹配不到成员 → WS031。**声明序同时是构建序优先级**：`z42c build --workspace` 恒编全部成员，但按这份序逐个发射（未列成员殿后、名字序决胜；成员声明了依赖边时边优先）——成员 import 了谁，谁就得排在它前面，排错是当场「找不到依赖」的硬错误。旧拼写 `default-members` 已删除，写了按未知键报错 |
+| `dependencies` | 中央依赖声明，条目写法同 `[dependencies]`。当前只解析与校验键名，构建不消费 |
 | `build` | 只接受 `output_dir` / `cache_dir`，见 [L6.5](#l65-workspacebuild-集中产物) |
 
 **成员发现规则**（z42c `build --workspace`）：
@@ -1132,6 +1144,10 @@ output_dir = "artifacts/${project_name}/${profile}"
 - 成员目录里的清单可以是 `<name>.z42.toml`，也可以是裸名 `z42.toml`（`z42 new` 生成的形态）；同一目录多份
   `*.z42.toml` 报错（WS005）。
 - `exclude` 按成员相对根的路径做段级 glob（`**` 跨段，`*` / `?` 段内），从展开结果里剔除。
+- **同 workspace 成员依赖不声明、自动解析**：包间依赖走「成员 dist 进解析域 + WsTier 分档」，与
+  `[dependencies]` 无关；成员清单按名声明同 workspace 成员（无 `path` / `deploy` 键）→ **WS032**
+  逐条提示（非致命）。构建顺序由此改由 `default_members` 声明序决定（见上表），成员声明了依赖边
+  （`path` 条目）时边仍优先。
 - 成员间依赖成环直接报错。
 
 ### L6.3 Members 展开
@@ -1155,7 +1171,7 @@ exclude = ["libs/sandbox-*"]
 |---|---|
 | `z42c build <manifest>` | 单工程：只编这一个清单（依赖按 `[dependencies]` 解析，path 依赖闭包先建） |
 | `z42c build`（不给清单） | 从 CWD 向上找**最近的** `z42.toml` 或 `z42.workspace.toml`：找到工程清单 → 同上；找到 workspace 清单 → 同 `--workspace` |
-| `z42c build --workspace` | 按拓扑序编**全部**成员（`members` 展开结果；`default_members` 不参与——它归编排器，见 L6.2） |
+| `z42c build --workspace` | 按拓扑序编**全部**成员（`members` 展开结果；发射优先级 = `default_members` 声明序，见 L6.2） |
 
 ```bash
 z42c build                      # 最近的清单（工程 → 单工程；workspace → 全部成员）

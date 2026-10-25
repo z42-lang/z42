@@ -1,0 +1,57 @@
+// 单文件插件条目（`[plugins] "x" = { path = "hook.z42" }`）→ 合成最小插件清单。
+//
+// 「单文件 vs 完整工程」两种插件形态（对齐 tests：单文件测试 / 独立测试工程；`z42 run` 的单文件工程）：
+// 一个源文件、不声明依赖的插件（hook 插件全是这个形态）不必手写 z42.toml——这里在消费方的构建树里
+// 合成一份最小清单（kind = "plugin"、include = 源文件绝对路径），之后**完全复用工程条目的代建路**
+// （z42c `PluginRefs._pluginFromProject` / z42b `builder_hooks._hookPluginZpkg`）。带 `[dependencies]` 的
+// 插件（如 z42.harness.lint）单文件形态写不出依赖，保留完整工程形态。
+//
+// 与 launcher 的 `_synthSingleFileManifest` 同一套约定：
+//   · 源文件**绝不复制**——include 写绝对路径（`SourceDiscovery` 对 rooted 字面路径直通），诊断指回
+//     读者自己的文件，增量缓存也按真源生效；
+//   · 清单每次重写（成本可忽略）——免得源文件移动/改名后清单陈旧；
+//   · 合成目录按源文件绝对路径取指纹——同一文件反复构建落同一条目，代建的增量才有效。
+// 落点由调用方给（z42c = 消费方 cache 目录 ⇒ 随消费方缓存一起清；z42b = hook interDir），本函数不选家。
+namespace Z42.Project;
+
+using Std.IO;
+
+public static class PluginSynth {
+
+    // 为单文件插件源码合成清单，返回清单路径；失败（源文件不存在 / 写不进 baseDir）返回 ""（不打印，
+    // 由调用方出各自的诊断）。目录 = `<baseDir>/plugin-synth/<name>-<指纹>/z42.toml`。
+    public static string Synth(string baseDir, string pluginName, string srcPath) {
+        if (srcPath.Length == 0 || !File.Exists(srcPath)) { return ""; }
+        string abs = Path.IsRooted(srcPath) ? srcPath : Path.Join(Environment.GetCurrentDirectory(), srcPath);
+        abs = abs.Replace("\\", "/");
+        string dir = Path.Join(Path.Join(baseDir, "plugin-synth"), pluginName + "-" + _pathFp(abs));
+        try {
+            Directory.Create(dir);
+            string toml = "# 由 [plugins] 单文件条目自动生成，请勿手工编辑。\n"
+                + "# 源文件：" + abs + "\n"
+                + "[project]\n"
+                + "name    = \"" + pluginName + "\"\n"
+                + "version = \"0.0.0\"\n"
+                + "kind    = \"plugin\"\n"
+                + "\n"
+                + "[sources]\n"
+                + "include = [\"" + abs + "\"]\n";
+            string manifest = Path.Join(dir, "z42.toml");
+            File.WriteAllText(manifest, toml);
+            return manifest;
+        } catch (Exception ex) {
+            return "";
+        }
+    }
+
+    // 路径指纹（与 z42c `_bytesFp` 同款散列强度，够选目录用）：长度 + 字符串哈希。
+    private static string _pathFp(string s) {
+        int h = 0;
+        int i = 0;
+        while (i < s.Length) {
+            h = (h * 31 + (((int)s.CharAt(i)) & 255)) % 33554393;
+            i = i + 1;
+        }
+        return s.Length.ToString() + "_" + h.ToString();
+    }
+}

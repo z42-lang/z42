@@ -51,10 +51,14 @@ demo.lint/
 引用非 SDK 的第三方库写 `[dependencies]`；嵌套在宿主工程里要复用宿主 internal 由**宿主**在
 `[plugins.export]` 条目写 `internal = true`（授权在宿主侧，插件自己写无效）。
 
+> **单文件插件**：一个源文件、零 `[dependencies]` 的插件连这两行清单都不用写——消费方条目直接指
+> 源文件（`"demo.hook" = { path = "hooks/hook.z42" }`），工具链合成最小清单后代建（见下文
+> 「四种条目写法」）。要写 `version` / `[sources]` / `[dependencies]` 之一时才需要工程形态。
+
 ## 完整使用流程（索引）
 
 1. **写插件**：analyzer / generator / hook 三类契约与示例见下文各章；最小工程见上节。
-2. **挂插件**：消费方 `[plugins]` 三种条目（按名 / 工程路径 / `.zpkg` 路径）；hook 经 z42b 反射执行。
+2. **挂插件**：消费方 `[plugins]` 四种条目（按名 / 工程路径 / `.zpkg` 路径 / 单文件 `.z42`）；hook 经 z42b 反射执行。
 3. **随库分发**：lib 用 `[plugins.export]` 携带——依赖它的工程零配置自动获得（声明闭包=硬承诺、
    ambient 标准库=尽力而为）；`[plugins] "x" = false` 关闭单项。
 4. **internal 授权**：宿主在携带条目上 `internal = true`——插件以宿主同包待遇编译，可复用宿主
@@ -75,19 +79,20 @@ demo.lint/
 |---|---|---|
 | 何时加载 | 编译目标代码时解析符号 | **加载进工具链、构建期执行** |
 | 进不进产物 | 进 | **不进** |
-| `path = "..."` | 支持，z42c 代为构建整个闭包 | 支持，代建**那一个工程**；也可指 `.zpkg` 文件直接用 |
+| `path = "..."` | 支持，z42c 代为构建整个闭包 | 支持，代建**那一个工程**；也可指 `.zpkg` 文件直接用，或指单个 `.z42` 源文件（合成最小清单后代建） |
 
 **一个段覆盖三类**：z42c 从 `[plugins]` 列出的每个 zpkg 里同时寻找 `: Analyzer`、
 `: Generator`、`: ModuleGenerator` 的类型；z42b 反射出全部继承 `: BuildHooks` 的具体类。条目里
 **不写类型**——包提供哪几类由 zpkg 头能力位说明，宿主按位分流。
 
-### 三种条目写法
+### 四种条目写法
 
 ```toml
 [plugins]
 "demo.noemptycatch" = "0.1.0"                 # 按名：在插件目录找 demo.noemptycatch.zpkg
 "demo.gen"          = { path = "../gen" }     # 按工程路径：代建该工程，取其 dist
 "demo.local"        = { path = "../x.zpkg" }  # 按 zpkg 路径：现成产物，读头校验后直接用
+"demo.hook"         = { path = "hooks/hook.z42" }   # 按单文件：零依赖插件免写清单，合成最小清单后代建
 ```
 
 **按名**：在**插件目录**里找 `<name>.zpkg`——`Z42_PLUGINS` 指向的目录，或各依赖目录同级的
