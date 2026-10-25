@@ -1,0 +1,11 @@
+# ANCHOR: run
+$ z42 test
+
+── test target: bad_tests ──
+compiled: [..]
+compile failed:
+./tests/bad_tests.z42(6,6): E0911: `[Test]` must be applied to a free function or a `static` method (got: instance method `Holder.test_instance`); add `static`, or move it to a top-level function
+./tests/bad_tests.z42(10,2): E0911: `[Test]` must return `void` (got: `int`)
+./tests/bad_tests.z42(13,2): E0911: `[Test]` must take no parameters (got: 1)
+[exit: 1]
+# ANCHOR_END: run

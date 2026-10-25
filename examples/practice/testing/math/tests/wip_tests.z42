@@ -1,0 +1,19 @@
+namespace MathKit.WipTests;
+
+using Std.Harness;
+
+[Test]
+void test_passes() {
+    Assert.True(MathX.Add(0, 0) == 0);
+}
+
+[Test]
+void test_fails_on_purpose() {
+    Assert.Equal(42, MathX.Add(1, 2));
+}
+
+[Test]
+[Skip(reason: "平均值的溢出行为还没定")]
+void test_average_overflow() {
+    Assert.Fail("不会跑到这里");
+}

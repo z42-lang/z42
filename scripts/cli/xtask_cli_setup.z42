@@ -4,19 +4,22 @@ namespace Z42Xtask;
 
 using Std.Cli;
 
+// --os 参数域 = versions.toml [workload] 的跨平台 workload（帮助文本同源，不手抄名单）。
+string _setupOsDomain() { return _joinStrings(_vCrossWorkloads(_root()), "|"); }
+
 // 准备本机开发环境（实现在 scripts/install/）：
-//   setup [--os android|ios|wasm] [--force]   装 host 基础 / 某平台必备（default action，xtask_cli.z42 的 shim 解析）
+//   setup [--os <platform>] [--force]         装 host 基础 / 某平台必备（default action，xtask_cli.z42 的 shim 解析）
 //   setup vscode                              生成语法 + 装 VSCode 扩展到工作区
 //   setup check [--os <p>]                    只读：本机依赖是否在场
 // 重型依赖（android emulator tier）零命令面——`test app android run` 用到才自动装。versions.toml 的
 // 漂移检查与机器无关，在 `xtask check versions`。
 SubcommandRouter _setupRouter() {
     SubcommandRouter s = new SubcommandRouter("xtask setup",
-        "prepare this machine (no subcommand = install: xtask setup [--os android|ios|wasm] [--force])");
+        "prepare this machine (no subcommand = install: xtask setup [--os " + _setupOsDomain() + "] [--force])");
     s.Add("vscode", "regenerate the TextMate grammar + link the VSCode extension into <repo>/.vscode/extensions",
         new ArgParser("xtask setup vscode", "regenerate grammar + install the repo-local VSCode extension"));
     ArgParser check = new ArgParser("xtask setup check", "are this machine's dev deps present (read-only)");
-    check.AddOption("os", "", "platform: android|ios|wasm (default: all, informational; with --os a missing dep fails)", "");
+    check.AddOption("os", "", "platform: " + _setupOsDomain() + " (default: all, informational; with --os a missing dep fails)", "");
     s.Add("check", "dev deps present? (read-only; strict only with --os)", check);
     return s;
 }
@@ -24,7 +27,7 @@ SubcommandRouter _setupRouter() {
 // default action：`setup` / `setup --os <p> [--force]`。
 ArgParser _setupInstallParser() {
     ArgParser p = new ArgParser("xtask setup", "install the host base / a platform's essential deps");
-    p.AddOption("os", "", "platform: android|ios|wasm (default: host base only, no cross stacks)", "");
+    p.AddOption("os", "", "platform: " + _setupOsDomain() + " (default: host base only, no cross stacks)", "");
     p.AddFlag("force", "", "force reinstall");
     return p;
 }

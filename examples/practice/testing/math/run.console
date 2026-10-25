@@ -1,0 +1,60 @@
+# ANCHOR: files
+$ ls
+src/
+tests/
+z42.toml
+$ ls tests
+math_tests.z42
+setup_tests.z42
+wip_tests.z42
+# ANCHOR_END: files
+# ANCHOR: all
+$ z42 test
+
+── test target: math_tests ──
+compiled: [..]
+compiled: [..]
+  PASS MathKit.Tests.test_add
+  PASS MathKit.Tests.test_average_is_approximate
+  PASS MathKit.Tests.test_div_by_zero_throws
+  PASS MathKit.Tests.test_div_by_zero_via_assert
+  PASS MathKit.Tests.test_div_rounds_toward_zero
+
+  Result: 5 passed, 0 failed, 0 skipped
+
+── test target: setup_tests ──
+compiled: [..]
+  PASS MathKit.SetupTests.test_first_sees_fresh_counter
+  PASS MathKit.SetupTests.test_second_also_sees_fresh_counter
+
+  Result: 2 passed, 0 failed, 0 skipped
+
+── test target: wip_tests ──
+compiled: [..]
+  SKIP MathKit.WipTests.test_average_overflow (平均值的溢出行为还没定)
+  FAIL MathKit.WipTests.test_fails_on_purpose: Std.TestFailure: values not equal
+  PASS MathKit.WipTests.test_passes
+
+  Result: 1 passed, 1 failed, 1 skipped
+[exit: 1]
+# ANCHOR_END: all
+# ANCHOR: one
+$ z42 test --name math_tests
+
+── test target: math_tests ──
+compiled: [..]
+compiled: [..]
+  PASS MathKit.Tests.test_add
+  PASS MathKit.Tests.test_average_is_approximate
+  PASS MathKit.Tests.test_div_by_zero_throws
+  PASS MathKit.Tests.test_div_by_zero_via_assert
+  PASS MathKit.Tests.test_div_rounds_toward_zero
+
+  Result: 5 passed, 0 failed, 0 skipped
+# ANCHOR_END: one
+# ANCHOR: list
+$ z42 test --list
+math_tests
+setup_tests
+wip_tests
+# ANCHOR_END: list

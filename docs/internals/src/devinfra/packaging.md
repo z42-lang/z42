@@ -113,7 +113,9 @@ graph LR
 `dest` 与 `artifact` 一样支持 `{version}` / `{rid}` 展开——`apphost-stub` 需要它（落点按 RID 变化）。
 
 **加一个新组件**（如某个新工具）= 它自己的 toml 写 bin/payload + 在 `packages.toml` 的 include
-加一行。**新增一类产物**（新 `kind`）才需要动注册表的「形状」。
+加一行。**新增一类产物**（新 `kind`）才需要动注册表的「形状」。`kind = "apphost"` 的组件登记后
+自动进入 `build toolchain` 与 SDK 打包的构建序列（`_toolchainApphostTomls` 按注册表派生，工程在
+`src/toolchain/` 下即算工具链程序），无需再往任何构建脚本里抄路径。
 
 ## 4. payload-only workload
 

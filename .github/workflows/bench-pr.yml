@@ -514,15 +514,21 @@ jobs:
           # 解析域与 xtask 同构（上一代 z42c.core/syntax + 当前代 z42c.analyzers 混编插件）。只建产物，
           # 不平铺进 BASEALL 同级 plugins/：bench 单元按 ambient 标准库消费 harness，携带缺件静默，且
           # PR 侧 PRALL 同样无同级 plugins/——两侧对称。base 早于该机制时无此清单，跳过。
+          # plugin-internal-access（#1370）起本步须带 --internal-of z42.harness（xtask 的
+          # _buildStdlibCarriedPlugins 同款旗标——LintSupport 的 internal 成员只有宿主同包待遇可见）；
+          # base 早于 #1370 的 driver 不认识该旗标，按祖先关系判定后再加。
           LINT_TOML="$ROOT/base-src/src/libraries/z42.harness/plugins/lint/z42.z42.toml"
+          INTERNAL_OF=""
+          if [ -f "$LINT_TOML" ] && git -C base-src merge-base --is-ancestor e2e055abb HEAD; then
+            INTERNAL_OF="--internal-of z42.harness"
+          fi
           if [ -f "$LINT_TOML" ]; then
             # --internal-of z42.harness（#1370 起）：lint 用宿主 internal 成员（LintSupport.MixFixNote），
             # 裸构建撞 E0404。解析域里的 z42.harness 来自 PR flat（BASEALL）——宿主先在不在场由 ParentPkg
             # 同包待遇兜住。base < #1370 不存在该旗标——所有以现行 main 为底的 PR 都 ≥ #1370。
             ( cd base-src/src/libraries && \
               Z42_LIBS="$BASEALL" "$PRVM" "$BASEDRIVER" --mode jit -- build "$LINT_TOML" --release \
-                --internal-of z42.harness \
-                --output-dir "$(dirname "$LINT_TOML")/dist" )
+                --output-dir "$(dirname "$LINT_TOML")/dist" $INTERNAL_OF )
           fi
           ( cd base-src/src/libraries && \
             Z42_LIBS="$BASEALL" "$PRVM" "$BASEDRIVER" --mode jit -- build --workspace --release --no-incremental )

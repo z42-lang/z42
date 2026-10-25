@@ -55,7 +55,6 @@ src/compiler/z42c.semantics/src/Binding/StmtBinder.z42	_bindLambda	70
 src/compiler/z42c.semantics/src/Binding/TypeOpTyper.z42	_bindMethodOfExpr	101
 src/compiler/z42c.semantics/src/Exports/ExportedTypeExtractor.z42	_extractCore	80
 src/compiler/z42c.semantics/src/Validation/FlowAnalyzer.Reachability.z42	NeverCompletes	61
-src/compiler/z42c.symbols/src/Symbols/ImportedSymbolLoader.z42	Load#3	225
 src/compiler/z42c.symbols/src/Symbols/InheritanceResolver.z42	_checkOneIfaceMethod	72
 src/compiler/z42c.symbols/src/Symbols/InheritanceResolver.z42	_passSealedEnforce	67
 src/compiler/z42c.symbols/src/Symbols/MemberCollector.z42	_fillClass	153
