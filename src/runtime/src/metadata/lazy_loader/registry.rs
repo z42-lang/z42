@@ -58,20 +58,9 @@ impl LazyLoader {
             None    => return Ok(()),
         };
 
-        // Decision 4: pre-insert to break cycles before recursive dep expansion.
-        // Also pre-insert the `__loaded_path__<module>` key that
-        // `register_loaded_artifact` idempotency checks: by-name and by-path loads
-        // keep separate bookkeeping, and the by-path side already marks this side's
-        // `<pkg>.zpkg` key (fix-repl-inmemory-dep-warn). Without the mirror mark a
-        // zpkg loaded lazily by name and then again via `ModuleLoader.Load` registers
-        // every type twice — duplicate-type warnings plus an ambiguous-use-site entry
-        // (observed as ~30 `duplicate type Z42.Driver.*` warnings and a skipped cache
-        // write when z42b loads z42c.driver for a path-plugin build after the lazy
-        // loader had already pulled it in by name).
-        self.mark_zpkg_loaded(file_name.to_string());
-        if let Some(stem) = file_name.strip_suffix(".zpkg") {
-            self.mark_zpkg_loaded(format!("__loaded_path__{stem}"));
-        }
+        // Decision 4: pre-insert to break cycles before recursive dep expansion
+        // (both idempotency keys — see `mark_zpkg_loaded_both`).
+        self.mark_zpkg_loaded_both(file_name);
 
         let path_str = file_path.to_string_lossy().into_owned();
         let mut artifact = load_artifact(&path_str)?;
