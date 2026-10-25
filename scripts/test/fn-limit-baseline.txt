@@ -3,7 +3,6 @@ src/compiler/z42.doc/src/DocParser.z42	Parse	61
 src/compiler/z42.doc/src/SyntaxIndexer.z42	_decl	78
 src/compiler/z42.package/src/BinaryFormat/ZbcReader.z42	Read	69
 src/compiler/z42.package/src/BinaryFormat/ZbcReader.z42	ReadTypeAt	166
-src/compiler/z42.package/src/BinaryFormat/ZbcReaderInstr.z42	_decode	204
 src/compiler/z42.package/src/BinaryFormat/ZbcWriter.z42	BuildType	168
 src/compiler/z42.package/src/BinaryFormat/ZbcWriter.z42	InternPoolStrings	100
 src/compiler/z42.package/src/BinaryFormat/ZbcWriter.z42	WriteSigEntries	63
@@ -13,7 +12,6 @@ src/compiler/z42.package/src/ZpkgBuilder.z42	BuildPackedD	62
 src/compiler/z42.package/src/ZpkgWire.z42	ReadEntry	63
 src/compiler/z42.project/src/WorkspacePlan.z42	DiscoverMembers	73
 src/compiler/z42.scripting/src/Script.z42	Eval	81
-src/compiler/z42c.analyzers/src/AnalyzerDriver.z42	_walkStmt	64
 src/compiler/z42c.driver/src/ExeDeps.z42	_bundleExeDeps	111
 src/compiler/z42c.driver/src/IncrementalDriver.z42	Prepare	85
 src/compiler/z42c.driver/src/IncrementalDriver.z42	_applyResidue	69
