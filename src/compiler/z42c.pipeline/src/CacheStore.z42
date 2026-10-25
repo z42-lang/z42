@@ -223,7 +223,7 @@ public static class CacheStore {
         string p = CacheStore.MetaPath(cacheDir, m.Rel);
         string parent = Path.GetDirectoryName(p);
         if (parent.Length > 0) { Directory.Create(parent); }
-        File.WriteAllTextAtomic(p, CacheStore.Serialize(m));   // 原子：中途崩溃不留半截 meta
+        File.WriteAllText(p, CacheStore.Serialize(m));   // 缓存写非原子：坏 meta 由 Load 的哨兵/哈希校验兜底（坏=按 fresh 重建），不依赖落盘顺序
     }
 
     // 读盘：meta 缺失 / 解析失败 / 版本不符 / 同名 zbc 缺失 → null（该文件 fresh）。
@@ -287,7 +287,7 @@ public static class CacheStore {
         int i = 0;
         while (i < n) { s = s + "src " + rels[i] + "\n"; i = i + 1; }
         Directory.Create(cacheDir);
-        File.WriteAllTextAtomic(Path.Join(cacheDir, "package.meta"), s);   // 原子（fix-cache-atomic-writes）
+        File.WriteAllText(Path.Join(cacheDir, "package.meta"), s);   // 缓存写非原子：坏文件由读端格式校验兜底（坏=全量），不依赖落盘顺序
     }
 
     // 上次源清单；缺失/pin 不符/依赖身份不符/格式坏 → null（= 全量）。

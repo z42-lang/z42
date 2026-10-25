@@ -354,16 +354,20 @@ preserved 早退**（`fix-analyzer-diags-preserved`）。早退路径只能回�
 ### 缓存条目的完整性（meta v8）
 
 每个源文件的缓存是**一对**文件：`<rel>.zbc`（产物）+ `<rel>.meta`（「这份 zbc 对哪版源码有效」的证明）。
-三条保证它们不会以半截或错配的形态被读回：
+两层校验保证它们不会以半截或错配的形态被读回——**坏 = 按该文件 fresh 重建**，一致性不依赖写盘方式：
 
-- **原子写**：zbc、meta、`package.meta` 都走 `File.Write*Atomic`（临时文件 + rename）——中途崩溃要么是旧的、
-  要么是新的，没有半截。若是普通写，则 `Parse` 只核开头几行的版本 pin、后面字段全可选 ⇒ 半截 meta
-  （token 列表不全）会被当成有效，该失效的文件没失效。
-- **末行哨兵** `end <行数>`：即便绕过原子写（外部工具拷坏、磁盘满），截断的 meta 也整条作废。
-- **zbc↔meta 配对**：meta 记 `zbchash`（zbc 内容的 Murmur3-128）；读回 cached zbc 时比对，对不上就走既有的
-  `[degrade/unreadable-cache]` 降级（该文件 fresh，**不**引入已变名字）。写入顺序固定为「全部 zbc → 全部 meta」，
-  崩在中间只可能留下「新 zbc + 旧 meta」；若源码随后又改回旧内容，旧 meta 的 SourceHash 会重新对上——
-  没有这道配对就会命中一份由另一版源码编出来的 zbc。
+- **末行哨兵** `end <行数>`：截断/拷坏/磁盘满的 meta 整条作废（外部工具改坏也兜住；`Parse` 只核开头几行
+  版本 pin 的旧缺陷即由它修复——半截 meta 的 token 列表不全不再被当成有效）。
+- **zbc↔meta 配对**：meta 记 `zbchash`（zbc 内容的 Murmur3-128）；读回 cached zbc 时全量重算比对，对不上就
+  走既有的 `[degrade/unreadable-cache]` 降级（该文件 fresh，**不**引入已变名字）。写入顺序固定为
+  「全部 zbc → 全部 meta」，崩在中间只可能留下「新 zbc + 旧 meta」；若源码随后又改回旧内容，旧 meta 的
+  SourceHash 会重新对上——没有这道配对就会命中一份由另一版源码编出来的 zbc。
+
+zbc、meta、`package.meta` 的**写盘是普通写**（`File.Write*`）：缓存文件的崩溃一致性由上面两层校验兜底
+（最坏 = 一次 fresh 重建，与 meta 被外部改坏同一处理路径），不值得为它付每文件一次的落盘屏障（tmp +
+`F_BARRIERFSYNC` + rename 的原子写在逐文件缓存写出里是显著的 wall 开销）。这**不**适用于读端校验较弱的
+缓存：`NsIndexCache`（条目数 + 指纹）与 doc `IndexCache`（仅 mtime/size，半截断行边界会漏条目）仍走
+`File.Write*Atomic`——`Write*Atomic` 留给这类「半截 = 静默错误而非重建」的文件与用户可见的关键配置。
 
 ## 实现
 
