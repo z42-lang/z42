@@ -101,13 +101,26 @@ int _releaseGenIndex(string label, string dist, string channel, string tag, stri
     string sums = File.ReadAllText(sumsPath);
     string ts = _utcNow();   // shared helper (ExitCode-guarded); avoids re-inlining `date`
 
-    // desktop ext: windows = .zip, others = .tar.gz
-    string[] dRids = new string[4];
-    dRids[0] = "linux-x64"; dRids[1] = "linux-arm64"; dRids[2] = "macos-arm64"; dRids[3] = "windows-x64";
-    string[] pRids = new string[5];
-    pRids[0] = "ios-arm64"; pRids[1] = "iossim-arm64"; pRids[2] = "android-arm64"; pRids[3] = "android-x64"; pRids[4] = "browser-wasm";
-    string[] wls = new string[5];
-    wls[0] = "ios"; wls[1] = "android"; wls[2] = "wasm"; wls[3] = "desktop"; wls[4] = "test";
+    // RID / workload 清单：versions.toml [rid.*] / [workload].members（desktop RID 出 sdk+runtime，
+    // 其余出 runtime；workload 归档另加 release 专用的 `test` 伪 workload——测试 bundle 的归档名，不是平台）。
+    string[] dRids = _vRidsOfCategory(root, "desktop");
+    string[] allRids = _vRidNames(root);
+    string[] pRids = new string[allRids.Length];
+    int pn = 0;
+    int pi = 0;
+    while (pi < allRids.Length) {
+        if (_vRidCategory(root, allRids[pi]) != "desktop") { pRids[pn] = allRids[pi]; pn = pn + 1; }
+        pi = pi + 1;
+    }
+    string[] pRidsTight = new string[pn];
+    int pk = 0;
+    while (pk < pn) { pRidsTight[pk] = pRids[pk]; pk = pk + 1; }
+    pRids = pRidsTight;
+    string[] wlMembers = _vWorkloads(root);
+    string[] wls = new string[wlMembers.Length + 1];
+    int wn = 0;
+    while (wn < wlMembers.Length) { wls[wn] = wlMembers[wn]; wn = wn + 1; }
+    wls[wn] = "test";
 
     // ── validate: every required archive has a sha in SHA256SUMS ──
     int missing = 0;
@@ -234,21 +247,20 @@ JsonValue _strArr4(string a, string b, string c, string d) { JsonValue r = JsonV
 //   z42-workload-<v>-test            → z42-workload-<L>-test
 // windows-x64 的 sdk / runtime / desktop workload 出 `.zip`，其余 `.tar.gz`（与 `_sdkName` / `_rtName` 一致）。
 
+// RID 清单 / 类别 / 主 RID：versions.toml `[rid.*]` 的唯一登记（加 RID = 改 toml，这里自动跟上）。
 string[] _relRids() {
-    return new string[] { "linux-x64", "linux-arm64", "macos-arm64", "windows-x64",
-                          "ios-arm64", "iossim-arm64", "android-arm64", "android-x64", "browser-wasm" };
+    return _vRidNames(_root());
 }
 
 bool _relIsDesktop(string rid) {
-    return rid.StartsWith("linux-") || rid.StartsWith("macos-") || rid.StartsWith("windows-");
+    return _ridCategory(rid) == "desktop";
 }
 
 // 平台 workload 的 tooling 包各 ABI / slice 内容相同 ⇒ 每个平台只由一个主 RID 出归档（否则汇总时同名相撞）。
 string _relPrimaryWorkload(string rid) {
-    if (rid == "ios-arm64")     { return "ios"; }
-    if (rid == "android-arm64") { return "android"; }
-    if (rid == "browser-wasm")  { return "wasm"; }
-    return "";
+    string cat = _ridCategory(rid);
+    if (cat == "desktop" || cat == "unknown") { return ""; }
+    return _vRidPrimary(_root(), rid) ? cat : "";
 }
 
 // 包目录名 → 归档基名（不含扩展名）；不是要发布的包 → ""。
