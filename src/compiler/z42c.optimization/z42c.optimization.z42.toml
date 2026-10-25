@@ -7,6 +7,3 @@ name    = "z42c.optimization"
 version = "0.1.0"
 kind    = "lib"
 
-[dependencies]
-"z42c.symbols" = "0.1.0"   # 符号世界（semantics-split 拆出；命名空间仍 Z42.Semantics）
-"z42.package" = "0.1.0"   # IR 模型（Z42.IR）+ ZbcInstr._parseIntLit（常量折叠复用权威字面量解析）

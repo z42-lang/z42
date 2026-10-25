@@ -3,10 +3,6 @@ name    = "z42.harness"
 version = "0.1.0"
 kind    = "lib"
 
-[dependencies]
-"z42.core" = "0.1.0"
-"z42.io"   = "0.1.0"   # Bencher.z42 uses Std.IO.Console.WriteLine
-
 [plugins.export]
 # 携带（harness-as-plugin PR 2）：依赖 z42.harness 的工程（全部测试单元）自动获得约定 lint。
 # 插件 zpkg 分发在插件目录（SDK plugins/；开发树平铺在 stdlib flat 同级 plugins/）。

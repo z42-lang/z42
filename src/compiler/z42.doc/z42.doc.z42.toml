@@ -7,6 +7,3 @@ kind    = "lib"
 [sources]
 include = ["src/**/*.z42"]
 
-[dependencies]
-"z42c.core"   = "0.1.0"
-"z42c.syntax" = "0.1.0"

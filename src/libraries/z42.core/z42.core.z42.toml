@@ -6,4 +6,3 @@ kind    = "lib"
 # z42.core is the implicit prelude of every z42 program.
 # It is loaded automatically at VM startup — user projects must NOT declare
 # it as a dependency. The compiler and VM inject it unconditionally.
-[dependencies]

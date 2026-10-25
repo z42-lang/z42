@@ -7,7 +7,3 @@ name    = "z42c.symbols"
 version = "0.1.0"
 kind    = "lib"
 
-[dependencies]
-"z42c.core"   = "0.1.0"   # Span / Diagnostic / DiagnosticBag
-"z42c.syntax" = "0.1.0"   # AST 节点（收集期 / 父接口声明形态）
-"z42.package" = "0.1.0"   # IR 模型（StrMap / ExportedClassZ / IrType / IParallelTask）

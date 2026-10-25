@@ -3,9 +3,3 @@ name    = "z42.random"
 version = "0.1.0"
 kind    = "lib"
 
-[dependencies]
-"z42.core" = "0.1.0"
-# NOTE: z42.crypto cannot be added here — would form
-# crypto → numerics → random → crypto cycle. FromEntropy() seed deferred
-# to `random-future-seed-from-entropy-residual` (needs entropy primitive
-# accessible from z42.random without bringing in crypto).
