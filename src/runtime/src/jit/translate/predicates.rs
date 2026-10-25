@@ -48,7 +48,7 @@ pub(super) enum BinopKind { Add, Sub, Mul, BitAnd, BitOr, BitXor, Shl, Shr }
 pub(super) enum F64BinopKind { Add, Sub, Mul, Div }
 
 /// Comparison op kind for `emit_i64_cmp`.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub(super) enum CmpKind { Eq, Ne, Lt, Le, Gt, Ge }
 
 /// Bool binary op kind for `emit_bool_binop`.

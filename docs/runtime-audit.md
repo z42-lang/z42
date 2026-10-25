@@ -785,6 +785,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 | ID | 类型 | 内容 | 验证要点 | 状态 |
 |---|---|---|---|---|
 | X-1 | perf/jit | 泛型**调用站点** JIT 化：方法级泛型 `Call`/`VCall` 不再整函数拒译（站点 mta 烘进机器码 → `jit_call_mta` / `jit_vcall_mta`），解释器侧对称转接已编译 callee；`$mta:` 转发站点与读型参的函数体维持拒译；安全不变式写进 `translate/unsupported.rs` 头注 | 两引擎单测（`jit/generic_call_tests.rs`：mta 送达解释器 callee、已编译 callee 直连、interp 转接计数）；z42c 自建 `jit_native_from_interp` 1,447,597 → 128,135、拒译 36 → 28；GREEN 双模式 | ✅ #1372（user CPU −1.7%，见 §1.7） |
+| X-2 | perf/jit | **动态类型站点**（`reg_types` Unknown）的算术/比较 guard 内联：运行期 tag 双 `I64` → 原生 wrapping/signed 运算（Add/Sub/Mul/Eq/Ne/Lt/Le/Gt/Ge）；双 `Str` → 窄 helper `jit_eq_str`（内容比较）/`jit_add_str`（同款 `alloc_str_concat2`，省五参 marshal+tag 分派）；恰一侧 `Null` → Eq/Ne 常量折叠（`Null` 不入任何数值加宽臂，跨 variant 恒 false）；未命中走原胖 helper。发射模式同 `emit_char_cmp`，命中路径与 helper 对应臂字节等价 | 探针（z42c 自建 jobs=1 一轮，helper 入口按 tag 组合计数）：eq 55.5M（Str+Str 26.2M、I64+I64 21.7M、引用 vs Null 5.6M）、add 6.65M（Str+Str 98%）、ne 7.7M、lt/ge/le I64+I64 0.52M、sub/div/rem ≈0。A/B（同 driver/flat 只换 VM，6 轮交错中位）：z42c 自建 user CPU −0.98%（9.452→9.359 s）、墙钟 −0.67%、33 产物 sha256 一致；micro（01/05/11）平（05 首轮 +2.3% 复测 0.998 为噪声）；单测 `arith_guard_tests.rs` 空 `reg_types` 手工 IR 双引擎对照全 guard/回落形态；GREEN 双模式 | ✅ #<PR> |
 
 下一候选以 §1.7 可信剖面为据（调用协议 / 帧构造、分配 / GC、原子写 fsync 批处理、算术 helper 内联），开工前出方案。
 
