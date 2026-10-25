@@ -207,7 +207,8 @@ main `6723c6a50`（阶段 1 全部条目已合并：P1-2 函数/类型身份、P
 
 **内存**（各条目实测的汇总，密度 = (RSS(N)−RSS(0))/N，100 万个装 `object[]`）：小对象 STW 空类 65.6 → **49.4**、`{int; string}` 81.6 → **65.6**（R8）；数组 `long[8]` 181.3 → **138.3**、`object[4]` 171.4 → **80.7**（R9）；`List<int>` 每元素 16 → **4 B**、`Dictionary<string,int>` 总量 −20%（M13）。§1.6 里「小对象 ≈ 100 B、流失场景 RSS/used 8×」的画面已分别压到 49–66 B 与 2–3×（M12 空洞复用 + R8 后续条目闸门）。
 
-**收官后剖面头部**（2026-10-24 重测：z42c 工作区自建 `--jobs 1`、JIT、`sample` 9 s / 6763 主线程样本，load 7–9；inclusive = 函数在调用树最外层出现的样本占比）：vcall 落到解释器侧 `exec_vcall::invoke` 21.8%、`jit_obj_new` 分配路径 14.5%、GC 回收 10.0%（`check_safepoint_slow` → `collect_cycles_with_context`——即此前所称「safepoint 慢查」，是回收本身而非慢路径开销）、原子写 `write_atomic` 6.3%（其中 `fcntl` F_BARRIERFSYNC 3.7%，700 个产物文件各一次）、JIT 调用帧实参 `JitFrame::new_args_from` 5.3%、`resolve_slot_slow` 3.9%、JIT 编译 3.9%、`jit_add` / `jit_eq` 算术 helper 各 ≈2.7%。**此前记的那组（safepoint 18% / `jit_obj_new` 18% / vcall 17%）不可信**：Cranelift 默认 `preserve_frame_pointers=false`，JIT 帧没有帧指针链，`sample` 在 JIT 帧处读到栈上残留的旧返回地址——同一构建 70% 的样本被挂到早已返回的 `rename(2)` 叶子上，而进程单线程、全程 R 态、CPU 95% 忙，纯属幻影；interp 模式（无 JIT 帧）同一负载无此现象。JIT 现已开启帧指针（`jit/lazy.rs`），开销实测为零（z42c 构建 3 轮中位 10.39 → 10.37 s；micro 18 项双序 A/B 门内）——此后 JIT 模式的采样剖面可信。按名字的调用 / 字段路径在 z42c 剖面里已不显著（P1-2/P1-4 的收益）；「身份按名字」剩下的主要残余是三套函数注册表合一的清理与 PIC 未覆盖的反射侧。
+**收官后剖面头部**（2026-10-24 重测：z42c 工作区自建 `--jobs 1`、JIT、`sample` 9 s / 6763 主线程样本，load 7–9；inclusive = 函数在调用树最外层出现的样本占比）：vcall 落到解释器侧 `exec_vcall::invoke` 21.8%、`jit_obj_new` 分配路径 14.5%、GC 回收 10.0%（`check_safepoint_slow` → `collect_cycles_with_context`——即此前所称「safepoint 慢查」，是回收本身而非慢路径开销）、原子写 `write_atomic` 6.3%（其中 `fcntl` F_BARRIERFSYNC 3.7%，700 个产物文件各一次）、JIT 调用帧实参 `JitFrame::new_args_from` 5.3%、`resolve_slot_slow` 3.9%、JIT 编译 3.9%、`jit_add` / `jit_eq` 算术 helper 各 ≈2.7%。**此前记的那组（safepoint 18% / `jit_obj_new` 18% / vcall 17%）不可信**：Cranelift 默认 `preserve_frame_pointers=false`，JIT 帧没有帧指针链，`sample` 在 JIT 帧处读到栈上残留的旧返回地址——同一构建 70% 的样本被挂到早已返回的 `rename(2)` 叶子上，而进程单线程、全程 R 态、CPU 95% 忙，纯属幻影；interp 模式（无 JIT 帧）同一负载无此现象。JIT 现已开启帧指针（`jit/lazy.rs`），开销实测为零（z42c 构建 3 轮中位 10.39 → 10.37 s；micro 18 项双序 A/B 门内）——此后 JIT 模式的采样剖面可信。
+**头部第一项的归因与处置（2026-10-25）**：`exec_vcall::invoke` 21.8% 的根因是 JIT 把「含方法级泛型调用」的函数整函数拒译——z42c 四个遍的 visitor 派发入口（`ExprEmitter.Emit` / `StmtEmitter._emitStmt` / `ExprTyper._bindExpr` / `StmtBinder._bindStmt` / `FlowAnalyzer._stmt,_reads` / `DepUseCollector._expr,_stmt`）各含一处 `e.Accept<R, A>(this, arg)`，于是每节点每遍的派发全在解释器，`jit_native_from_interp` = 1,447,597；全工作区热拒译仅 36 个（8 个即上述，28 个是冷的 manifest 解析）。泛型调用站点 JIT 化后：拒译只剩 28 个冷函数，`jit_native_from_interp` **→ 128,135（−91%）**，但 z42c 自建（`--jobs 1`，4 轮同期交替，load 13–17）user CPU 仅 **−1.7%**（10.52 → 10.34 s 中位）、JIT 编译耗时持平（1.59 s）——解释器蹦床本身并不贵，21.8% inclusive 的主体是其下 native callee 的执行与 **JIT 调用协议自身**（`new_args_from` / `call_compiled` / `call_native` / `jit_call` / `pop_frame` 等 self ≈22%）。下一刀的靶子因此是调用协议 / 帧构造与 helper 内联，不是更多解释器残余。按名字的调用 / 字段路径在 z42c 剖面里已不显著（P1-2/P1-4 的收益）；「身份按名字」剩下的主要残余是三套函数注册表合一的清理与 PIC 未覆盖的反射侧。
 
 ---
 
@@ -778,6 +779,14 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 - 局部变量 `C[][] x = …`（元素为用户类）解析失败；
 - `new T[n][]` 不支持；
 - double 没有定点格式化，插值串没有格式说明符。
+
+### 收官剖面驱动的执行层修补（2026-10-25 起，逐项 PR）
+
+| ID | 类型 | 内容 | 验证要点 | 状态 |
+|---|---|---|---|---|
+| X-1 | perf/jit | 泛型**调用站点** JIT 化：方法级泛型 `Call`/`VCall` 不再整函数拒译（站点 mta 烘进机器码 → `jit_call_mta` / `jit_vcall_mta`），解释器侧对称转接已编译 callee；`$mta:` 转发站点与读型参的函数体维持拒译；安全不变式写进 `translate/unsupported.rs` 头注 | 两引擎单测（`jit/generic_call_tests.rs`：mta 送达解释器 callee、已编译 callee 直连、interp 转接计数）；z42c 自建 `jit_native_from_interp` 1,447,597 → 128,135、拒译 36 → 28；GREEN 双模式 | ✅ #1372（user CPU −1.7%，见 §1.7） |
+
+下一候选以 §1.7 可信剖面为据（调用协议 / 帧构造、分配 / GC、原子写 fsync 批处理、算术 helper 内联），开工前出方案。
 
 ### 阶段 2：紧凑执行与对象模型（1–2 个月，需另行确认）
 

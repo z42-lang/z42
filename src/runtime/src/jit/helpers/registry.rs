@@ -62,30 +62,12 @@ pub struct HelperIds {
     pub stack_overflow: FuncId,
     /// Catch-dispatch guard: non-zero while a fatal VM error unwinds.
     pub fatal_pending: FuncId,
-    // arith
-    pub add:            FuncId,
-    pub sub:            FuncId,
-    pub mul:            FuncId,
-    pub div:            FuncId,
-    pub rem:            FuncId,
-    pub eq:             FuncId,
-    pub ne:             FuncId,
-    pub lt:             FuncId,
-    pub le:             FuncId,
-    pub gt:             FuncId,
-    pub ge:             FuncId,
-    pub and:            FuncId,
-    pub or:             FuncId,
-    pub not:            FuncId,
-    pub neg:            FuncId,
-    pub bit_and:        FuncId,
-    pub bit_or:         FuncId,
-    pub bit_xor:        FuncId,
-    pub bit_not:        FuncId,
-    pub shl:            FuncId,
-    pub shr:            FuncId,
+    // arith：21 个标量算术 / 比较 / 位运算 helper 作一个子结构（`declare_imports` 的扁平字面量
+    // 早已过 fnlines 上限——条目再长只能靠分组）。
+    pub arith:          ArithImports,
     // call
     pub call:           FuncId,
+    pub call_mta:       FuncId,
     pub builtin:        FuncId,
     // array
     pub array_new:      FuncId,
@@ -108,6 +90,7 @@ pub struct HelperIds {
     pub default_of:     FuncId,
     // vcall
     pub vcall:          FuncId,
+    pub vcall_mta:      FuncId,
     // closure (L3 / D1b)
     pub load_fn:        FuncId,
     pub mk_clos:        FuncId,
@@ -152,30 +135,10 @@ pub fn register_symbols(builder: &mut JITBuilder) {
     reg!("jit_check_safepoint_slow", control::jit_check_safepoint_slow);
     reg!("jit_stack_overflow",       control::jit_stack_overflow);
     reg!("jit_fatal_pending",        control::jit_fatal_pending);
-    // arith
-    reg!("jit_add",           arith::jit_add);
-    reg!("jit_sub",           arith::jit_sub);
-    reg!("jit_mul",           arith::jit_mul);
-    reg!("jit_div",           arith::jit_div);
-    reg!("jit_rem",           arith::jit_rem);
-    reg!("jit_eq",            arith::jit_eq);
-    reg!("jit_ne",            arith::jit_ne);
-    reg!("jit_lt",            arith::jit_lt);
-    reg!("jit_le",            arith::jit_le);
-    reg!("jit_gt",            arith::jit_gt);
-    reg!("jit_ge",            arith::jit_ge);
-    reg!("jit_and",           arith::jit_and);
-    reg!("jit_or",            arith::jit_or);
-    reg!("jit_not",           arith::jit_not);
-    reg!("jit_neg",           arith::jit_neg);
-    reg!("jit_bit_and",       arith::jit_bit_and);
-    reg!("jit_bit_or",        arith::jit_bit_or);
-    reg!("jit_bit_xor",       arith::jit_bit_xor);
-    reg!("jit_bit_not",       arith::jit_bit_not);
-    reg!("jit_shl",           arith::jit_shl);
-    reg!("jit_shr",           arith::jit_shr);
+    register_symbols_arith(builder);   // arith（分组注册——本函数在 fnlines 账本上，别再长）
     // call
     reg!("jit_call",          call::jit_call);
+    reg!("jit_call_mta",      call::jit_call_mta);
     reg!("jit_builtin",       call::jit_builtin);
     // array
     reg!("jit_array_new",     array::jit_array_new);
@@ -198,6 +161,7 @@ pub fn register_symbols(builder: &mut JITBuilder) {
     reg!("jit_static_set",    object::jit_static_set);
     // vcall
     reg!("jit_vcall",         vcall::jit_vcall);
+    reg!("jit_vcall_mta",     vcall::jit_vcall_mta);
     // closure
     reg!("jit_load_fn",       closure::jit_load_fn);
     reg!("jit_mk_clos",       closure::jit_mk_clos);
@@ -242,27 +206,7 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         const_null:    decl!("jit_const_null", [ptr, ptr, i32t],                           []),
         const_str:     decl!("jit_const_str",  [ptr, ptr, i32t, i32t],                    [i8t]),
         copy:          decl!("jit_copy",       [ptr, ptr, i32t, i32t],                    []),
-        add:           decl!("jit_add",        [ptr, ptr, i32t, i32t, i32t],              [i8t]),
-        sub:           decl!("jit_sub",        [ptr, ptr, i32t, i32t, i32t],              [i8t]),
-        mul:           decl!("jit_mul",        [ptr, ptr, i32t, i32t, i32t],              [i8t]),
-        div:           decl!("jit_div",        [ptr, ptr, i32t, i32t, i32t],              [i8t]),
-        rem:           decl!("jit_rem",        [ptr, ptr, i32t, i32t, i32t],              [i8t]),
-        eq:            decl!("jit_eq",         [ptr, ptr, i32t, i32t, i32t],              []),
-        ne:            decl!("jit_ne",         [ptr, ptr, i32t, i32t, i32t],              []),
-        lt:            decl!("jit_lt",         [ptr, ptr, i32t, i32t, i32t],              [i8t]),
-        le:            decl!("jit_le",         [ptr, ptr, i32t, i32t, i32t],              [i8t]),
-        gt:            decl!("jit_gt",         [ptr, ptr, i32t, i32t, i32t],              [i8t]),
-        ge:            decl!("jit_ge",         [ptr, ptr, i32t, i32t, i32t],              [i8t]),
-        and:           decl!("jit_and",        [ptr, ptr, i32t, i32t, i32t],              [i8t]),
-        or:            decl!("jit_or",         [ptr, ptr, i32t, i32t, i32t],              [i8t]),
-        not:           decl!("jit_not",        [ptr, ptr, i32t, i32t],                    [i8t]),
-        neg:           decl!("jit_neg",        [ptr, ptr, i32t, i32t],                    [i8t]),
-        bit_and:       decl!("jit_bit_and",    [ptr, ptr, i32t, i32t, i32t],              [i8t]),
-        bit_or:        decl!("jit_bit_or",     [ptr, ptr, i32t, i32t, i32t],              [i8t]),
-        bit_xor:       decl!("jit_bit_xor",    [ptr, ptr, i32t, i32t, i32t],              [i8t]),
-        bit_not:       decl!("jit_bit_not",    [ptr, ptr, i32t, i32t],                    [i8t]),
-        shl:           decl!("jit_shl",        [ptr, ptr, i32t, i32t, i32t],              [i8t]),
-        shr:           decl!("jit_shr",        [ptr, ptr, i32t, i32t, i32t],              [i8t]),
+        arith:         declare_arith(jit)?,
         str_concat:    decl!("jit_str_concat", [ptr, ptr, i32t, i32t, i32t],              [i8t]),
         to_str:        decl!("jit_to_str",     [ptr, ptr, i32t, i32t],                    [i8t]),
         // jit_call(frame, ctx, dst, method_id, name_ptr, name_len, args_ptr, argc, ic_ptr, caller_offset) -> u8
@@ -271,6 +215,10 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         // make-vm-loading-lazy: `ic_ptr` caches the resolved lazy/merged fn id
         // per call site → lock-free by-id fast path.
         call:          decl!("jit_call",       [ptr, ptr, i32t, i32t, ptr, i64t, ptr, i64t, ptr, i32t], [i8t]),
+        // jit_call_mta(…jit_call 的全部参数…, mta_ptr, mta_len) -> u8：方法级泛型调用站点
+        // （jit-generic-call-sites）。`mta_ptr` 指向站点 IR 里的 `method_type_args: Box<[String]>`，
+        // 与 `Typeof` 的 type_args 指针同款的生存期（Module 持有）。
+        call_mta:      decl!("jit_call_mta",   [ptr, ptr, i32t, i32t, ptr, i64t, ptr, i64t, ptr, i32t, ptr, i64t], [i8t]),
         // jit_builtin(frame, ctx, dst, builtin_id, name_ptr, name_len, args_ptr, argc) -> u8
         // formalize-jit-method-token : id-based dispatch (no hash).
         // fix-jit-builtin-ext-fallback: name_ptr/len added so an UNRESOLVED id (native-ext
@@ -299,6 +247,8 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         // jit_vcall(frame, ctx, dst, obj, method_ptr, method_len, args_ptr, argc, ic_ptr, caller_offset) -> u8
         // Phase 2.E: `ic_ptr` = `*const VCallIC`.
         vcall:         decl!("jit_vcall",      [ptr, ptr, i32t, i32t, ptr, i64t, ptr, i64t, ptr, i32t], [i8t]),
+        // jit_vcall_mta(…jit_vcall 的全部参数…, mta_ptr, mta_len) -> u8（见 jit_call_mta）。
+        vcall_mta:     decl!("jit_vcall_mta",  [ptr, ptr, i32t, i32t, ptr, i64t, ptr, i64t, ptr, i32t, ptr, i64t], [i8t]),
         is_instance:   decl!("jit_is_instance",[ptr, ptr, i32t, i32t, ptr, i64t, ptr],    []),
         as_cast:       decl!("jit_as_cast",    [ptr, ptr, i32t, i32t, ptr, i64t, ptr],    []),
         // formalize-jit-method-token Phase 2 : id-based
@@ -341,5 +291,100 @@ pub fn declare_imports(jit: &mut JITModule) -> Result<HelperIds> {
         struct_field_get_prim: decl!("jit_struct_field_get_prim", [ptr, ptr, i32t, i32t, ptr, i64t, ptr, i64t, i8t], [i8t]),
         // jit_struct_field_set_prim(frame, ctx, base, root_ptr, root_len, path_ptr, path_len, kind, val) -> u8
         struct_field_set_prim: decl!("jit_struct_field_set_prim", [ptr, ptr, i32t, ptr, i64t, ptr, i64t, i8t, i32t], [i8t]),
+    })
+}
+
+// ─── arith group ────────────────────────────────────────────────────────────
+
+/// The 21 scalar arithmetic / comparison / bit helpers as one group (`HelperIds::arith`).
+/// Split out of the flat `register_symbols` / `declare_imports` tables, which sit at the
+/// fnlines ratchet: new helpers must come in as groups, not as more lines there.
+pub(crate) struct ArithImports {
+    pub add: FuncId,
+    pub sub: FuncId,
+    pub mul: FuncId,
+    pub div: FuncId,
+    pub rem: FuncId,
+    pub eq: FuncId,
+    pub ne: FuncId,
+    pub lt: FuncId,
+    pub le: FuncId,
+    pub gt: FuncId,
+    pub ge: FuncId,
+    pub and: FuncId,
+    pub or: FuncId,
+    pub not: FuncId,
+    pub neg: FuncId,
+    pub bit_and: FuncId,
+    pub bit_or: FuncId,
+    pub bit_xor: FuncId,
+    pub bit_not: FuncId,
+    pub shl: FuncId,
+    pub shr: FuncId,
+}
+
+fn register_symbols_arith(builder: &mut JITBuilder) {
+    macro_rules! reg {
+        ($name:expr, $fn:expr) => {
+            builder.symbol($name, $fn as *const u8);
+        };
+    }
+    reg!("jit_add", arith::jit_add);
+    reg!("jit_sub", arith::jit_sub);
+    reg!("jit_mul", arith::jit_mul);
+    reg!("jit_div", arith::jit_div);
+    reg!("jit_rem", arith::jit_rem);
+    reg!("jit_eq", arith::jit_eq);
+    reg!("jit_ne", arith::jit_ne);
+    reg!("jit_lt", arith::jit_lt);
+    reg!("jit_le", arith::jit_le);
+    reg!("jit_gt", arith::jit_gt);
+    reg!("jit_ge", arith::jit_ge);
+    reg!("jit_and", arith::jit_and);
+    reg!("jit_or", arith::jit_or);
+    reg!("jit_not", arith::jit_not);
+    reg!("jit_neg", arith::jit_neg);
+    reg!("jit_bit_and", arith::jit_bit_and);
+    reg!("jit_bit_or", arith::jit_bit_or);
+    reg!("jit_bit_xor", arith::jit_bit_xor);
+    reg!("jit_bit_not", arith::jit_bit_not);
+    reg!("jit_shl", arith::jit_shl);
+    reg!("jit_shr", arith::jit_shr);
+}
+
+fn declare_arith(jit: &mut JITModule) -> Result<ArithImports> {
+    let ptr  = jit.target_config().pointer_type();
+    let i8t  = types::I8;
+    let i32t = types::I32;
+    macro_rules! decl {
+        ($name:expr, [$($p:expr),*], [$($r:expr),*]) => {{
+            let mut sig = jit.make_signature();
+            $(sig.params.push(AbiParam::new($p));)*
+            $(sig.returns.push(AbiParam::new($r));)*
+            jit.declare_function($name, Linkage::Import, &sig)?
+        }};
+    }
+    Ok(ArithImports {
+        add:           decl!("jit_add",        [ptr, ptr, i32t, i32t, i32t],              [i8t]),
+        sub:           decl!("jit_sub",        [ptr, ptr, i32t, i32t, i32t],              [i8t]),
+        mul:           decl!("jit_mul",        [ptr, ptr, i32t, i32t, i32t],              [i8t]),
+        div:           decl!("jit_div",        [ptr, ptr, i32t, i32t, i32t],              [i8t]),
+        rem:           decl!("jit_rem",        [ptr, ptr, i32t, i32t, i32t],              [i8t]),
+        eq:            decl!("jit_eq",         [ptr, ptr, i32t, i32t, i32t],              []),
+        ne:            decl!("jit_ne",         [ptr, ptr, i32t, i32t, i32t],              []),
+        lt:            decl!("jit_lt",         [ptr, ptr, i32t, i32t, i32t],              [i8t]),
+        le:            decl!("jit_le",         [ptr, ptr, i32t, i32t, i32t],              [i8t]),
+        gt:            decl!("jit_gt",         [ptr, ptr, i32t, i32t, i32t],              [i8t]),
+        ge:            decl!("jit_ge",         [ptr, ptr, i32t, i32t, i32t],              [i8t]),
+        and:           decl!("jit_and",        [ptr, ptr, i32t, i32t, i32t],              [i8t]),
+        or:            decl!("jit_or",         [ptr, ptr, i32t, i32t, i32t],              [i8t]),
+        not:           decl!("jit_not",        [ptr, ptr, i32t, i32t],                    [i8t]),
+        neg:           decl!("jit_neg",        [ptr, ptr, i32t, i32t],                    [i8t]),
+        bit_and:       decl!("jit_bit_and",    [ptr, ptr, i32t, i32t, i32t],              [i8t]),
+        bit_or:        decl!("jit_bit_or",     [ptr, ptr, i32t, i32t, i32t],              [i8t]),
+        bit_xor:       decl!("jit_bit_xor",    [ptr, ptr, i32t, i32t, i32t],              [i8t]),
+        bit_not:       decl!("jit_bit_not",    [ptr, ptr, i32t, i32t],                    [i8t]),
+        shl:           decl!("jit_shl",        [ptr, ptr, i32t, i32t, i32t],              [i8t]),
+        shr:           decl!("jit_shr",        [ptr, ptr, i32t, i32t, i32t],              [i8t]),
     })
 }

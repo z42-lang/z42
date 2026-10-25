@@ -1,6 +1,14 @@
 //! JIT-untranslatable opcode table (single source for prescan + bail arms).
 //!
 //! Split out of `translate/mod.rs` by refactor-jit-translate-split (H2).
+//!
+//! **方法级泛型的安全不变式（承重墙，两处须同步改）**：一个函数能被 JIT 编译 ⇔ 它的函数体在
+//! 运行期**观察不到** `frame.method_type_args`。运行期读它的指令只有 `MethodTypeArg` /
+//! `MethodDefault`（`interp/exec_address.rs`）、方法级类型参的 `ArrayNew`（`interp/exec_array.rs`）
+//! 与带 `$mta:N` 转发标记的泛型调用（`interp/exec_support.rs::resolve_forwarded_mta`）——
+//! 它们全部在下表里。正因如此，一个**已编译**的 callee 可以被任何泛型调用站点直接 native 调用
+//! 而不传 mta（`jit_call_mta` / `jit_vcall_mta`、interp 的 mixed-mode 转接）：它拿到也不会看。
+//! 日后任何新增「读 mta」的指令必须同步进下表，否则这条推论即破。
 
 use super::*;
 
@@ -46,14 +54,16 @@ pub(crate) fn unsupported_reason(instr: &Instruction) -> Option<&'static str> {
         Instruction::LoadLocalAddr { .. }    => "LoadLocalAddr",
         Instruction::LoadElemAddr { .. }     => "LoadElemAddr",
         Instruction::LoadFieldAddr(_)        => "LoadFieldAddr",
-        // add-generic-methods: method-level generics run on the interpreter for
-        // now (the JIT frame has no method_type_args carrier, and the JIT call
-        // paths don't thread it). A function that *reads* a method type param,
-        // or *makes* a generic call, stays interp — everything else JITs.
+        // add-generic-methods: a generic method *body* that reads its type params runs on
+        // the interpreter (the JIT frame has no method_type_args carrier).
         Instruction::MethodTypeArg { .. }    => "MethodTypeArg (generic method body)",
         Instruction::MethodDefault { .. }    => "MethodDefault (generic method body)",
-        Instruction::Call(insn)  if !insn.method_type_args.is_empty() => "generic Call",
-        Instruction::VCall(insn) if !insn.method_type_args.is_empty() => "generic VCall",
+        // A generic call *site* JITs (`jit_call_mta` / `jit_vcall_mta`: the site's
+        // method_type_args are a compile-time constant baked into the code) — unless a
+        // type arg is a `$mta:N` forwarding marker, which reads the caller's own frame
+        // slot that a JIT frame does not have (see the module docs' invariant).
+        Instruction::Call(insn)  if forwards_caller_mta(&insn.method_type_args) => "generic Call forwarding the caller's type args ($mta:)",
+        Instruction::VCall(insn) if forwards_caller_mta(&insn.method_type_args) => "generic VCall forwarding the caller's type args ($mta:)",
         // fix-generic-array-value-zero-init (方案 C): `new T[n]` on a METHOD-level type
         // parameter needs the runtime method_type_args to zero-init value-type slots — the
         // carrier the JIT frame lacks — so it runs interp (consistent with MethodDefault
@@ -63,4 +73,10 @@ pub(crate) fn unsupported_reason(instr: &Instruction) -> Option<&'static str> {
             => "method-type-param ArrayNew",
         _ => return None,
     })
+}
+
+/// Whether a call site's `method_type_args` contain a `$mta:N` forwarding marker (resolved
+/// against the caller frame at run time — `interp::resolve_forwarded_mta`).
+pub(crate) fn forwards_caller_mta(mta: &[String]) -> bool {
+    mta.iter().any(|s| s.starts_with("$mta:"))
 }

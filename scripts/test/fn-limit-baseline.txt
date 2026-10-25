@@ -128,8 +128,7 @@ src/runtime/src/host/ops.rs	build_host_module	93
 src/runtime/src/interp/exec_instr.rs	exec_instr	247
 src/runtime/src/interp/mod.rs	exec_function_body	97
 src/runtime/src/interp/vcall_resolve.rs	resolve_vcall_unchecked	103
-src/runtime/src/jit/helpers/registry.rs	declare_imports	81
-src/runtime/src/jit/helpers/registry.rs	register_symbols	71
+src/runtime/src/jit/helpers/registry.rs	declare_imports	63
 src/runtime/src/jit/translate/analysis.rs	compute_promotable_regs	114
 src/runtime/src/jit/translate/arith.rs	tr_arith	149
 src/runtime/src/jit/translate/array.rs	tr_array	170
