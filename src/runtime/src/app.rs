@@ -223,6 +223,22 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
         loaded_for_replay.push((file.to_string(), byte_size));
     }
 
+    // The entry zpkg is merged straight into the program module below — it never
+    // passes through the lazy loader, so its name is absent from the loader's
+    // bookkeeping. Record both idempotency keys (the dep file name and the
+    // `__loaded_path__<module>` form `register_loaded_artifact` checks): without
+    // them, a lazy symbol miss whose namespace/fallback strategies can see the
+    // entry zpkg in a search dir re-loads the running program itself. Observed as
+    // z42c.driver re-registering its 30 types while compiling a `[plugins]` path
+    // entry — duplicate-type warnings plus a skipped cache write (`CacheZbcTask`
+    // turned ambiguous), so the consumer's incremental cache never persisted.
+    if let Some(name) = std::path::Path::new(file).file_name().and_then(|n| n.to_str()) {
+        initially_loaded_zpkgs.push(name.to_string());
+        if let Some(stem) = name.strip_suffix(".zpkg") {
+            initially_loaded_zpkgs.push(format!("__loaded_path__{stem}"));
+        }
+    }
+
     // 5.1d — dependency loading strategy: Interp / JIT → pure lazy (declared
     // candidates drive on-demand load); AOT → eager transitive BFS (whole
     // program compiled ahead of time, every callee merged up front).

@@ -34,10 +34,9 @@ wrote -> ./dist/app.zpkg (indexed, 1 zbc)
 cached: 0/1 files
 cache -> ../plugin/artifacts/debug/.cache (1 files)
 cached: 0/1 files
-...
 z42c build: 1 warning(s) in ./src/Main.z42
   ./src/Main.z42(6,7): DEMO001: 空 catch 会把异常悄悄吃掉
-...
+cache -> ./artifacts/debug/.cache (1 files)
 # ANCHOR_END: app-build
 # ANCHOR: strict-toml
 $ cd ../strict
@@ -61,7 +60,6 @@ $ z42 build
 no changes; preserved -> ../plugin/dist/demo.noemptycatch.zpkg
 cached: 1/1 files
 cached: 0/1 files
-...
 z42c build: 1 error(s) in ./src/Main.z42
   ./src/Main.z42(6,7): DEMO001: 空 catch 会把异常悄悄吃掉
 [exit: 1]
@@ -73,5 +71,5 @@ no changes; preserved -> ../plugin/dist/demo.noemptycatch.zpkg
 wrote -> ./dist/quiet.zpkg (indexed, 1 zbc)
 cached: 1/1 files
 cached: 0/1 files
-...
+cache -> ./artifacts/debug/.cache (1 files)
 # ANCHOR_END: quiet-build
