@@ -300,6 +300,30 @@ void _purgeBootstrapPrebuildsFromFlat(string root, string stdlibFlat) {
     if (purged > 0) { _vNormal("  flat 清走破环预建的非 stdlib 包 " + purged.ToString() + " 个（回到规范形态）"); }
 }
 
+// 破环预建清单（**序 = 依赖序**；断链 / 预建 / 日志同读这一份，加一项 = 这里加一行）。
+// 成员 = z42c 自依赖链上须先于 workspace 自建 fresh 进 flat 的当前源库：
+//   z42.core      一切的地基（隐式 prelude）；z42c 的消费面含其新增门面（如 Std.BitConverter）
+//   z42.project   轴②：driver 编译期消费 ProjectManifest 的 [plugins] 段字段
+//   z42.build     轴②：z42c.pipeline 编译期消费 IReplCompiler / ReplCompileResult
+//   z42.package   轴④主环：z42c **运行期**依赖（IR 模型 + zbc/zpkg 后端，ZpkgBuilder）
+//   z42c.core     可移植前端，semantics/pipeline/driver 的共享库依赖
+//   z42c.syntax   同上（依赖 z42c.core，排其后）
+// 轴②/轴④与「不 warm-skip」的理由见 `_ensureBootstrapSelfDepLibs` 头注。序内约束：
+// z42.build 依赖 z42.project；z42c.syntax 依赖 z42c.core；z42.package 与 z42.project/
+// z42.build 互不依赖（相对序可换，沿历史序）。各包真实 import 关系见
+// src/compiler/z42.workspace.toml 头注（default_members 声明序 = workspace 构建序）。
+string[] _bootstrapPrebuilds() {
+    return new string[]{ "z42.core", "z42.project", "z42.build", "z42.package", "z42c.core", "z42c.syntax" };
+}
+
+// 破环预建成员的 toml，按目录约定探测：stdlib 域在 src/libraries/，编译器域在 src/compiler/
+// （物理位置即域声明）。清单成员必居其一；探测不到时 `_prebuildOne` 以「no zpkg produced」判红。
+string _bootstrapToml(string root, string name) {
+    string libToml = Path.Join(root, "src/libraries/" + name + "/" + name + ".z42.toml");
+    if (File.Exists(libToml)) { return libToml; }
+    return Path.Join(root, "src/compiler/" + name + "/" + name + ".z42.toml");
+}
+
 // 冷启动破环：z42c 运行期依赖 z42.package（stdlib 库——IR 模型 + zbc/zpkg 后端，含
 // Z42.Project.ZpkgBuilder），但 z42.package 由 z42c 构建 → 循环。冷启动时（fresh checkout /
 // CI 新 runner）flat dist 里还没有 z42.package，若直接建 z42c，编译器只能拿**种子**自带的
@@ -320,7 +344,9 @@ void _purgeBootstrapPrebuildsFromFlat(string root, string stdlibFlat) {
 // 编译期解析面**。分开的理由见调用点注释与 design.md §3。
 int _ensureBootstrapSelfDepLibs(string root, string vm, string driver, string stdlibFlat,
                                  string runLibs) {
-    _vNormal("  bootstrap: (re)building current-source z42.core + z42.project + z42.build + z42.package + z42c.core + z42c.syntax into build-libs（破 z42c⇄stdlib 轴④环）");
+    string[] prebuilt = _bootstrapPrebuilds();
+    _vNormal("  bootstrap: (re)building current-source " + String.Join(" + ", prebuilt)
+             + " into build-libs（破 z42c⇄stdlib 轴④环）");
     // 🔴 先断链再写（fix-flat-hardlink-clobber）。flat 是 `_assembleStdlibFlatView` 从
     // per-member dist **硬链接**出来的，而 z42c 写产物用的是就地写（`File.WriteAllBytes`）⇒ 下面往
     // flat 写 z42.core 会**穿透到** `libraries/z42.core/release/dist/z42.core.zpkg`。随后 step-4 的
@@ -330,45 +356,18 @@ int _ensureBootstrapSelfDepLibs(string root, string vm, string driver, string st
     // fingerprint 门禁注释里记的「stdlib 每代恰一两个包字节不同」的一个来源。
     // 断链（内容原样复制成独立 inode，预建失败时 flat 照旧可用）后再写，per-member dist 不受影响；
     // step-6 重新链回规范产物。`_linkAll` 早有同款断链。
-    string[] prebuilt = new string[]{ "z42.core", "z42.project", "z42.build", "z42.package", "z42c.core", "z42c.syntax" };
     int pb = 0;
     while (pb < prebuilt.Length) {
         _breakHardLink(Path.Join(stdlibFlat, prebuilt[pb] + ".zpkg"));
         _breakHardLink(Path.Join(stdlibFlat, prebuilt[pb] + ".zsym"));
         pb = pb + 1;
     }
-    // consolidate-core-intrinsics (A1): 当前源 z42.package 现调 Std.BitConverter（当前源 z42.core 新增门面）。
-    // 冷/首暖构建时 flat 里躺的是种子/上一次的旧 z42.core（缺 BitConverter），若直接单包编 z42.package 会
-    // `undefined function`。故先用同款「先预建覆盖种子」模式把**当前源 z42.core** 建进 flat，再建 z42.package。
-    // 与下面 z42.package 同理由：z42c 运行期自依赖链上的当前源库，必须先于消费者进 flat（轴 ④）。
-    string coreToml = Path.Join(root, "src/libraries/z42.core/z42.core.z42.toml");
-    if (_prebuildOne(vm, driver, coreToml, "z42.core", runLibs, stdlibFlat) != 0) { return 1; }
-    // 轴②：z42c.driver **编译期**消费 z42.project 的 ProjectManifest（`[plugins]` 段的
-    // Plugins/PluginCount 字段）。z42c workspace self-build 早于 step-4
-    // 全量 stdlib 重建 → 若不先把当前源 z42.project 建进 flat，driver 会对着**旧** z42.project 编 →
-    // `no field PluginCount on ProjectManifest`（轴②：z42c 源新用一个 stdlib API，须先于 z42c 自建进
-    // flat）。与 z42.core/z42.package 同款「先预建覆盖种子」。z42.project 依赖 z42.core（已上预建）+ io/toml（flat 已有）。
-    string projToml = Path.Join(root, "src/compiler/z42.project/z42.project.z42.toml");
-    if (_prebuildOne(vm, driver, projToml, "z42.project", runLibs, stdlibFlat) != 0) { return 1; }
-    // sink-repl-compile-facade：z42c.pipeline **编译期**消费 z42.build 的新 API（`IReplCompiler` +
-    // `ReplCompileResult`，供 REPL 编译门面 `Z42cReplCompiler` 实现）。同 z42.project/z42.package 的轴② ——
-    // z42c 源新用一个 stdlib API，须先把**当前源** z42.build 建进 flat，否则 z42c 自建 z42c.pipeline
-    // 会对着**旧**（种子）z42.build 编 → `E0443: undefined type IReplCompiler`。z42.build 依赖
-    // z42.core（已上预建）+ z42.io（flat 已有）+ z42.project（已上预建）。
-    string buildToml = Path.Join(root, "src/compiler/z42.build/z42.build.z42.toml");
-    if (_prebuildOne(vm, driver, buildToml, "z42.build", runLibs, stdlibFlat) != 0) { return 1; }
-    string irToml = Path.Join(root, "src/compiler/z42.package/z42.package.z42.toml");
-    if (_prebuildOne(vm, driver, irToml, "z42.package", runLibs, stdlibFlat) != 0) { return 1; }
-    // converge-z42-syntax-lib（route A 地基）：z42c.core + z42c.syntax（可移植前端）已挪入
-    // src/libraries/，成 z42c.semantics/pipeline/driver 的**共享库**依赖。冷启动 flat 里躺的是
-    // 上一 nightly 种子的旧 z42c.core/syntax；z42c 自建期若不先把**当前源**建进 flat，semantics/
-    // pipeline 会对着旧前端编（`no field`/`undefined type` 首遍失败——见 line 72 内部环重试）。
-    // 与 z42.package 同款「不 warm-skip、先预建覆盖种子」，让 fresh z42c 永远对着当前源前端编译+运行。
-    // 顺序：z42c.core 靠 z42.core（隐式 prelude，已上建）；z42c.syntax 靠 z42c.core（先于它建）。
-    string z42cCoreToml = Path.Join(root, "src/compiler/z42c.core/z42c.core.z42.toml");
-    if (_prebuildOne(vm, driver, z42cCoreToml, "z42c.core", runLibs, stdlibFlat) != 0) { return 1; }
-    string z42cSynToml = Path.Join(root, "src/compiler/z42c.syntax/z42c.syntax.z42.toml");
-    if (_prebuildOne(vm, driver, z42cSynToml, "z42c.syntax", runLibs, stdlibFlat) != 0) { return 1; }
+    // 逐个按清单序预建（每项进 flat 的理由与序约束见 `_bootstrapPrebuilds` 头注）。
+    pb = 0;
+    while (pb < prebuilt.Length) {
+        if (_prebuildOne(vm, driver, _bootstrapToml(root, prebuilt[pb]), prebuilt[pb], runLibs, stdlibFlat) != 0) { return 1; }
+        pb = pb + 1;
+    }
     return 0;
 }
 
