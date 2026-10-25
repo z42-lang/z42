@@ -70,6 +70,98 @@ string[] _vgetListFromFile(string root, string relPath, string dotted) {
     return _vgetList(toml, dotted);
 }
 
+// ── [workload] / [rid.*] 登记（unify-rid-workload-tables）────────────────────
+// versions.toml 的两张枚举表：workload 名单与目标 RID（名字 ↔ triple ↔ 类别 ↔ 主 RID）。
+// 读不到表（旧文件/漏段）时返回空 / unknown —— 调用方把「空名单」当配置错误报出，不静默回落
+// 到代码里另抄的名单。
+
+bool _strIn(string[] xs, string x) {
+    int i = 0;
+    while (i < xs.Length) { if (xs[i] == x) { return true; } i = i + 1; }
+    return false;
+}
+
+// 用 sep 连接字符串数组（错误信息里列参数域用，如 "android|ios|wasm"）。
+string _joinStrings(string[] xs, string sep) {
+    string acc = "";
+    int i = 0;
+    while (i < xs.Length) {
+        if (acc.Length > 0) { acc = acc + sep; }
+        acc = acc + xs[i];
+        i = i + 1;
+    }
+    return acc;
+}
+
+// 全部 workload（[workload].members，文件序）。desktop = 宿主 workload，恒在列。
+string[] _vWorkloads(string root) {
+    return _vgetListFromFile(root, "scripts/versions.toml", "workload.members");
+}
+
+// 跨平台 workload（= members 去 desktop）：`setup --os` / `setup check --os` 的参数域。
+string[] _vCrossWorkloads(string root) {
+    string[] ms = _vWorkloads(root);
+    string[] xs = new string[ms.Length];
+    int n = 0;
+    int i = 0;
+    while (i < ms.Length) {
+        if (ms[i] != "desktop") { xs[n] = ms[i]; n = n + 1; }
+        i = i + 1;
+    }
+    string[] tight = new string[n];
+    int k = 0;
+    while (k < n) { tight[k] = xs[k]; k = k + 1; }
+    return tight;
+}
+
+// [rid.*] 表节点；文件缺 rid 段时返回 null（调用方按配置错误处理）。
+TomlValue _vRidTable(string root) {
+    TomlValue doc = _vparse(root);
+    return doc.ContainsKey("rid") ? doc.Get("rid") : null;
+}
+
+// 全部登记的 RID（排序——release 索引 / 归档汇总要确定性顺序）。
+string[] _vRidNames(string root) {
+    TomlValue t = _vRidTable(root);
+    return t == null ? new string[0] : _sortedStrings(t.Keys());
+}
+
+// RID 的 cargo triple；未登记返回 ""。
+string _vRidTriple(string root, string rid) {
+    TomlValue t = _vRidTable(root);
+    return (t == null || !t.ContainsKey(rid)) ? "" : _scalarStr(t.Get(rid).Get("triple"));
+}
+
+// RID 类别（desktop | ios | android | wasm）；未登记返回 "unknown"。
+string _vRidCategory(string root, string rid) {
+    TomlValue t = _vRidTable(root);
+    return (t == null || !t.ContainsKey(rid)) ? "unknown" : _scalarStr(t.Get(rid).Get("category"));
+}
+
+// 是否该平台 workload 归档的主 RID；未登记 / 未标一律 false。
+bool _vRidPrimary(string root, string rid) {
+    TomlValue t = _vRidTable(root);
+    if (t == null || !t.ContainsKey(rid)) { return false; }
+    TomlValue e = t.Get(rid);
+    return e.ContainsKey("primary") && e.Get("primary").AsBool();
+}
+
+// 某类别下的全部 RID（排序）。
+string[] _vRidsOfCategory(string root, string category) {
+    string[] names = _vRidNames(root);
+    string[] xs = new string[names.Length];
+    int n = 0;
+    int i = 0;
+    while (i < names.Length) {
+        if (_vRidCategory(root, names[i]) == category) { xs[n] = names[i]; n = n + 1; }
+        i = i + 1;
+    }
+    string[] tight = new string[n];
+    int k = 0;
+    while (k < n) { tight[k] = xs[k]; k = k + 1; }
+    return tight;
+}
+
 // ── z42b 构建期常量（生成物，不入库）─────────────────────────────────────────
 // 正主是 z42b 自己的 build hook（src/toolchain/builder/core/hooks/hooks.z42，BeforeCompile 生成）——
 // 用户 `z42 build` 编 z42b 不需要 xtask。但 xtask 自举 z42b 走 z42c driver 直编，**driver 不执行 hook**
