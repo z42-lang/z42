@@ -77,9 +77,25 @@ public static class ZbcReaderInstr {
     }
 
     // 单指令解码（op/tag/dst 已消费）。未知 opcode → null（调用方按坏 cache 处理）。
+    // opcode 互斥 ⇒ 分族查找（五族，见下方 `_decode*`）与原顺序长链等价；各族尾 return null = 无匹配续下一族。
     private static IrInstr _decode(int op, int tag, int dst, ZpkgCursor c, string[] pool,
                                    string[] fnNames, int fnCount, string[] clsNames, int clsCount) {
         TypedReg d = ZbcReaderInstr._r(dst, tag);
+        IrInstr ins = ZbcReaderInstr._decodeAlu(op, tag, d, c);
+        if (ins != null) { return ins; }
+        ins = ZbcReaderInstr._decodeCalls(op, d, c, pool, fnNames, fnCount);
+        if (ins != null) { return ins; }
+        ins = ZbcReaderInstr._decodeFields(op, tag, d, c, pool);
+        if (ins != null) { return ins; }
+        ins = ZbcReaderInstr._decodeTypes(op, d, c, pool, fnNames, fnCount, clsNames, clsCount);
+        if (ins != null) { return ins; }
+        ins = ZbcReaderInstr._decodeTail(op, tag, d, c, pool, fnNames, fnCount);
+        if (ins != null) { return ins; }
+        return null;   // 未知 opcode（z42 writer 不发射的 op）→ 坏 cache，按 fresh 处理
+    }
+
+    // 常量 / 一元 / 二元算术·比较·位运算·串接（一行式族；ConstI 的 i64 分叉按 tag）。
+    private static IrInstr _decodeAlu(int op, int tag, TypedReg d, ZpkgCursor c) {
         if (op == Op.ConstStr)  { return new ConstStrInstr(d, c.U32()); }
         if (op == Op.ConstI) {
             if (tag == Tag.I64) { return new ConstI64Instr(d, ZbcReaderInstr._i64Text(c.I64())); }
@@ -113,6 +129,11 @@ public static class ZbcReaderInstr {
         if (op == Op.Shl) { return new ShlInstr(d, ZbcReaderInstr._ru(c.U16()), ZbcReaderInstr._ru(c.U16())); }
         if (op == Op.Shr) { return new ShrInstr(d, ZbcReaderInstr._ru(c.U16()), ZbcReaderInstr._ru(c.U16())); }
         if (op == Op.StrConcat) { return new StrConcatInstr(d, ZbcReaderInstr._ru(c.U16()), ZbcReaderInstr._ru(c.U16())); }
+        return null;   // 本族无匹配，调用方继续下一族
+    }
+
+    // 调用家族：Call / CallGeneric / Builtin / CallNative / VCall / VCallGeneric（方法名经 _method，import 走 pool）。
+    private static IrInstr _decodeCalls(int op, TypedReg d, ZpkgCursor c, string[] pool, string[] fnNames, int fnCount) {
         if (op == Op.Call) {
             string fname = ZbcReaderInstr._method(c.U32(), pool, fnNames, fnCount);
             TypedReg[] args = ZbcReaderInstr._args(c);
@@ -158,6 +179,11 @@ public static class ZbcReaderInstr {
             vi.MethodTypeArgs = mta; vi.MethodTypeArgCount = mtaN;
             return vi;
         }
+        return null;   // 本族无匹配，调用方继续下一族
+    }
+
+    // 字段与静态：FieldGet/Set、StructAlloc/Copy、StructFieldGet/SetPrim（symbolic P2）、StaticGet/Set（写侧用 tag）。
+    private static IrInstr _decodeFields(int op, int tag, TypedReg d, ZpkgCursor c, string[] pool) {
         if (op == Op.FieldGet) {
             TypedReg obj = ZbcReaderInstr._ru(c.U16());
             return new FieldGetInstr(d, obj, ZbcReaderInstr._p(pool, c.U32()));
@@ -201,6 +227,11 @@ public static class ZbcReaderInstr {
             TypedReg val = ZbcReaderInstr._r(c.U16(), tag);
             return new StaticSetInstr(field, val);
         }
+        return null;   // 本族无匹配，调用方继续下一族
+    }
+
+    // 类型与数组：ObjNew（含 stack_alloc/ctor_known 尾字节）、Typeof、IsInstance、AsCast、ArrayNew、ArrayNewLit。
+    private static IrInstr _decodeTypes(int op, TypedReg d, ZpkgCursor c, string[] pool, string[] fnNames, int fnCount, string[] clsNames, int clsCount) {
         if (op == Op.ObjNew) {
             string cls = ZbcReaderInstr._type(c.U32(), pool, clsNames, clsCount);
             string ctor = ZbcReaderInstr._method(c.U32(), pool, fnNames, fnCount);
@@ -255,6 +286,11 @@ public static class ZbcReaderInstr {
             alI.StackAlloc = saL;
             return alI;
         }
+        return null;   // 本族无匹配，调用方继续下一族
+    }
+
+    // 尾段：数组读写与长度、函数值（LoadFn/MkClos/CallIndirect）、地址材料化（LoadLocalAddr/LoadElemAddr/LoadFieldAddr）。
+    private static IrInstr _decodeTail(int op, int tag, TypedReg d, ZpkgCursor c, string[] pool, string[] fnNames, int fnCount) {
         if (op == Op.ArrayGet) { return new ArrayGetInstr(d, ZbcReaderInstr._ru(c.U16()), ZbcReaderInstr._ru(c.U16())); }
         if (op == Op.ArraySet) {
             TypedReg arr = ZbcReaderInstr._ru(c.U16());
@@ -286,8 +322,9 @@ public static class ZbcReaderInstr {
             TypedReg lfo = ZbcReaderInstr._ru(c.U16());
             return new LoadFieldAddrInstr(d, lfo, ZbcReaderInstr._p(pool, c.U32()));
         }
-        return null;   // 未知 opcode（z42 writer 不发射的 op）→ 坏 cache，按 fresh 处理
+        return null;   // 本族无匹配，调用方继续下一族
     }
+
 
     // ── token / 池 / 文本助手 ────────────────────────────────────────────────
 
