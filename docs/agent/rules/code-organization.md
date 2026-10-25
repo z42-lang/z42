@@ -41,8 +41,8 @@ src/compiler/z42c.semantics/src/  ← 第 4 层 ✗ 不自动加 README
 | 硬限制（必须提取子函数） | 60 行 |
 
 > 计算方式：函数体内（开括号行与闭括号行之间）的非空、非注释行数；单行体计 0。
-> 门禁：`xtask check fnlines`（与 `check lines` 同形的棘轮，基线 `scripts/test/fn-limit-baseline.txt`，
-> 见 [GREEN gate](../../internals/src/devinfra/test-gate.md)）——新越界 / 继续膨胀 = 红，软限只提示。
+> 门禁：`xtask check fnlines`（与 `check lines` 同形的棘轮，基线在 `scripts/test/gates.toml` 的
+> `[fnlines]` 区，见 [GREEN gate](../../internals/src/devinfra/test-gate.md)）——新越界 / 继续膨胀 = 红，软限只提示。
 
 ### 类型规模（struct / class / impl block）
 

@@ -46,7 +46,7 @@ gate 里还串着若干**静态检查** stage（纯文本扫描 / 生成物比�
 | `xtask check lines [--update]` | 单文件行数硬上限（>500 行：新增/增长判红，已知的只警告） |
 | `xtask check fnlines [--update]` | 函数 / 方法**体**行数上限棘轮（[GREEN gate](test-gate.md) 的 fnlines 节） |
 | `xtask check diagcodes [--update]` | 每个发得出去的诊断码在登记表里登记恰好一次 |
-| `xtask check stage2 [--update]` | 阶段-1 过渡形态必须挂账且不超期 |
+| `xtask check stage2` | 阶段-1 过渡形态的 `STAGE2-DEBT(<tag>,YYYY-MM-DD)` 标记必须带挂账日且不超宽限（宽限在 `gates.toml [stage2]`） |
 | `xtask check vscode-syntax` | VSCode 语法文件 ↔ Lexer 关键字表同步 |
 | `xtask check ci-shell` | CI composite action 的 `run:` 块没有先用后赋的变量 |
 | `xtask check proc-env` | `Z42_LIBS` / `Z42_PROBING_PATHS` 只经 `_z42Proc` / `_z42bProc` / `_z42cProc` 设置 |
@@ -56,10 +56,10 @@ gate 里还串着若干**静态检查** stage（纯文本扫描 / 生成物比�
 | `xtask check doc-lints [--update]` | **文档门禁**：stdlib doc 注释的 W08xx 语法级计数不超 `scripts/test/doc-lint-baseline.txt`（只降不升） |
 | `xtask check doc-refs [--update]` | **文档门禁**：internals / reference 手写页与 README 的代码引用可解析、不写行号（行号基线已为 0，即硬指标；未解析多段链按 `scripts/test/doc-refs-baseline.txt` 只降不升） |
 
-三道文档门禁**不在 GREEN gate 的 stage 清单里，也不在 CI 里**（CI 的 docs-check 只跑 `xtask test docs links` 与
-`check diagcodes`，见 [CI 拓扑](ci.md)）——唯一入口就是这里的 `xtask check`。改书页、README 或 stdlib `///` 的
-PR 合并前要本地跑一遍（doc-refs 会先重建 Rust 外部索引），否则棘轮被无声推高，直到下一个本地跑的人才看到红。
-三道的机制见[文档索引与 `z42 doc`](../toolchain/doc.md)。
+三道文档门禁**不在 GREEN gate 的 stage 清单里**。CI 只在纯文档 PR 的 docs-check 里跑 doc-refs 与 docs-api
+（见 [CI 拓扑](ci.md)）；doc-lints 哪个 job 都不跑——纯文档改动碰不到 stdlib 的 `///`，改了 `///` 的 PR 又不走
+docs-check。所以改 stdlib `///` 的 PR 合并前要本地 `xtask check doc-lints`，否则棘轮被无声推高，直到下一个本地跑的
+人才看到红。三道的机制见[文档索引与 `z42 doc`](../toolchain/doc.md)。
 
 打包相关：`xtask package sdk --verify` 组装完 SDK 后先自检 `packages.toml` 的解析 / 组件安装 / 发布归档，再拿这份
 发行版（`bin/z42c`、`bin/z42vm`、`libs/`、launcher）跑[发行包夹具](fixture-harness.md)（命令行路径 / 桌面发布 /

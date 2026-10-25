@@ -96,7 +96,13 @@ pub type JitFn = unsafe extern "C" fn(frame: *mut JitFrame, ctx: *const VmContex
   `declare_imports` 在模块里声明导入，生成码用普通 `call` 调用。约定：前两个参数总是 `(frame, ctx)`；
   可能失败的返回 `u8`（0 成功，1 异常），不会失败的返回 `()`。
 - 不可翻译的指令集中在 `translate/unsupported.rs`（`CallNative`、`PinPtr`、`LoadLocalAddr` 等地址类指令、
-  方法级泛型的 `MethodTypeArg`、泛型调用、方法级形参的 `new T[n]` 等）。含这些指令的函数在编译前就被拒绝，留在解释器上。
+  方法级泛型**函数体**读型参的 `MethodTypeArg` / `MethodDefault`、方法级形参的 `new T[n]`、带 `$mta:N` 转发标记的
+  泛型调用等）。含这些指令的函数在编译前就被拒绝，留在解释器上。
+- **方法级泛型的调用站点可以编译**：站点的 `method_type_args` 是指令里的编译期常量，翻译时把它的 `(ptr, len)`
+  烘进机器码交给 `jit_call_mta` / `jit_vcall_mta`；callee 已编译 ⇒ 直接 native 且**不传**型参，否则解释执行并线程
+  进 callee 帧。这依赖 `unsupported.rs` 头注的不变式——「能编译 ⇔ 函数体观察不到 `frame.method_type_args`」：
+  运行期读它的指令全在拒译表里，所以已编译的 callee 拿到也不会看。解释器侧对称：泛型调用的 callee 一旦编译也走
+  mixed-mode 转接。（动机：z42c 四个遍的 visitor 入口各含一处 `e.Accept<R, A>(this, arg)`，此前整函数留解释器。）
   类级形参的 `new T[n]` 可以编译：实参在 reg 0 接收者的 `type_args` 上，翻译时把形参下标传给 `jit_array_new`，
   由 `objops::array::class_type_param_elem` 解析出基元 T 的打包宽度与零值（M13：数组按该宽度打包；与解释器 `array_new` 同一实现）——
   否则 `Dictionary.Grow` 这类含 `new TKey[n]` 的扩容循环整段留在解释器里。

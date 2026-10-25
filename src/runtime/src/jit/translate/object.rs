@@ -99,8 +99,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
     /// The `jit_vcall` helper sequence for a `VCall` site. Also the slow path of an
     /// inlined string intrinsic.
     pub(super) fn emit_vcall_helper(&mut self, insn: &VCallInsn) {
-        // add-generic-methods: generic VCall sites filtered by jit_unsupported_reason.
-        let VCallInsn { dst, obj, method, args, .. } = insn;
+        let VCallInsn { dst, obj, method, args, method_type_args } = insn;
         let d = self.ri(*dst); let o = self.ri(*obj);
         let (mp, ml) = self.str_val(method);
         let (ap, al) = self.regs_val(args);
@@ -108,7 +107,14 @@ impl<'a, 'b> TxCtx<'a, 'b> {
         let ic_val = self.builder.ins().iconst(self.ptr, ic_ptr as i64);
         // jit-stack-trace: call-site code offset.
         let off_val = self.builder.ins().iconst(types::I32, self.func.linear_offset(self.block_idx as u32, self.instr_idx as u32) as i64);
-        let inst = self.builder.ins().call(self.hr_vcall, &[self.frame_val, self.ctx_val, d, o, mp, ml, ap, al, ic_val, off_val]);
+        // Generic site → `jit_vcall_mta` with the site's type args baked (see `emit_call_helper`).
+        let inst = if method_type_args.is_empty() {
+            self.builder.ins().call(self.hr_vcall, &[self.frame_val, self.ctx_val, d, o, mp, ml, ap, al, ic_val, off_val])
+        } else {
+            let tap = self.builder.ins().iconst(self.ptr, method_type_args.as_ptr() as i64);
+            let tal = self.builder.ins().iconst(types::I64, method_type_args.len() as i64);
+            self.builder.ins().call(self.hr_vcall_mta, &[self.frame_val, self.ctx_val, d, o, mp, ml, ap, al, ic_val, off_val, tap, tal])
+        };
         let ret  = self.builder.inst_results(inst)[0]; self.check(ret);
     }
 }

@@ -133,9 +133,10 @@ xtask doc index
 
 ## 8. 门禁（`xtask check`）
 
-三道都只在 `xtask check` 里，**不在 GREEN gate 的 stage 清单里，也不在 CI 里**（CI 的 docs-check 只跑
-`xtask test docs links` 与 `check diagcodes`）。改书页、README 或 stdlib `///` 的 PR 合并前要本地跑一遍，
-否则棘轮会被无声推高、漂移到下一个人手里才红。三道的单跑方式与基线见[怎么跑测试](../devinfra/testing.md)。
+三道都**不在 GREEN gate 的 stage 清单里**；CI 只在**纯文档 PR** 的 docs-check 里跑其中两道（doc-refs、docs-api，
+见 [CI 拓扑](../devinfra/ci.md)）。doc-lints 任何 CI job 都不跑：纯文档改动碰不到 stdlib 的 `///`，而改了 `///`
+的 PR 又不走 docs-check——所以改 stdlib `///` 的 PR 合并前要本地 `xtask check doc-lints`，否则棘轮会被无声推高、
+漂移到下一个人手里才红。三道的单跑方式与基线见[怎么跑测试](../devinfra/testing.md)。
 
 | 门 | 守什么 | 基线 |
 |---|---|---|

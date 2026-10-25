@@ -109,9 +109,9 @@ pub(super) fn resolve_forwarded_mta(caller: &Frame, mta: &[String]) -> Vec<Strin
 /// `typeof(T)`/`new T()`/`default(T)` via the M1 `frame.method_type_args` slot —
 /// identical to a direct `Foo<T>()` call. An empty slice is behaviourally identical
 /// to `exec_function` (same JIT backstop + frame), so non-generic reflective invokes
-/// keep their exact prior path. Generic methods are never JIT-compiled (M1's
-/// `jit_unsupported_reason`), so the `try_native_exec` fast lane is only consulted
-/// for the empty (non-generic) case.
+/// keep their exact prior path. With type args this stays on the interpreter (a generic
+/// body that reads them never compiles anyway — `jit::translate::unsupported`; one that
+/// does not read them would be safe to run native, but reflection is not a hot path).
 pub(crate) fn exec_function_with_type_args(
     ctx: &VmContext,
     module: &Module,
