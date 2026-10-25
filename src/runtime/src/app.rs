@@ -440,6 +440,11 @@ fn register_entry_as_loaded(
     let p = std::path::Path::new(file);
     if let Some(entry_name) = p.file_name().and_then(|n| n.to_str()) {
         initially_loaded_zpkgs.push(entry_name.to_string());
+        // register_loaded_artifact 的幂等键还有 `__loaded_path__<module>` 形态（模块名，去扩展）——
+        // 两个键都要登记，缺一个都会漏判（同 #1393 的观察）。
+        if let Some(stem) = entry_name.strip_suffix(".zpkg") {
+            initially_loaded_zpkgs.push(format!("__loaded_path__{stem}"));
+        }
     }
     if let Ok(entry_canonical) = p.canonicalize() {
         loaded_paths.insert(entry_canonical);
