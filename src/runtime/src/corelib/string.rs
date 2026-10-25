@@ -277,15 +277,19 @@ pub fn str_equals(a: &crate::metadata::vstr::Str, other: Option<&crate::metadata
     }
 }
 
-/// string.GetHashCode() — FNV-1a hash of the UTF-8 bytes.
+/// string.GetHashCode() — FNV-1a hash of the UTF-8 bytes, memoized per string
+/// block (immutable input ⇒ constant answer; see `Str::memoized_hash_code`).
 /// args: [this: str]
 pub fn str_hash_code(s: &crate::metadata::vstr::Str) -> i64 {
+    if let Some(h) = s.memoized_hash_code() { return h; }
     let mut hash: u32 = 2_166_136_261;
     for byte in s.bytes() {
         hash ^= byte as u32;
         hash = hash.wrapping_mul(16_777_619);
     }
-    (hash & 0x7fff_ffff) as i64
+    let h = hash & 0x7fff_ffff;
+    if h != 0 { s.memoize_hash_code(h); }   // 0 stays unmemoized: null = "no cache"
+    h as i64
 }
 
 // wave3b-str-format-script: builtin_str_format removed.

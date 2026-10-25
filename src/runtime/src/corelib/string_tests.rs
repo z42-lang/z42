@@ -162,3 +162,26 @@ fn substring_out_of_range_is_argument_out_of_range() {
     assert!(matches!(e, crate::corelib::abi::BuiltinError::ArgumentOutOfRange(ref m)
         if m.contains("range [3, 8) out of bounds (length 5)")), "{e:?}");
 }
+
+// str_hash_code: FNV answer memoized in the string block's dead kind word —
+// immutable input, constant answer, second read O(1) (runtime-audit X-5).
+#[test]
+fn str_hash_code_is_stable_and_memoized() {
+    use crate::metadata::vstr::Str;
+    let s = Str::new_leaked("hello, world");
+    assert_eq!(s.memoized_hash_code(), None, "fresh block carries no memo");
+    let h1 = str_hash_code(&s);
+    assert_eq!(str_hash_code(&s), h1, "stable across calls");
+    assert_eq!(s.memoized_hash_code(), Some(h1), "the answer is memoized");
+    // Same content, another block: same answer, memoized independently.
+    let s2 = Str::new_leaked("hello, world");
+    assert_eq!(str_hash_code(&s2), h1);
+    assert_eq!(s2.memoized_hash_code(), Some(h1));
+    // Pin the FNV-1a reference value — memoization must not change the answer.
+    let mut hash: u32 = 2_166_136_261;
+    for b in b"hello, world" {
+        hash ^= *b as u32;
+        hash = hash.wrapping_mul(16_777_619);
+    }
+    assert_eq!(h1, (hash & 0x7fff_ffff) as i64);
+}

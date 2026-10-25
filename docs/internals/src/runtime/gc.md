@@ -267,7 +267,7 @@ VarRegion 变长块（16B 对齐原始 chunk + size-class free-list + oversized 
 | `marked: u8` | 标记位（minor 位 + major epoch，`refs::mark_cell`） |
 | `type_tag: u8` | 块种类 / 代龄 / 记忆集 / ASCII 或 meta / 侧表位（位表见 [GC TLAB](gc-tlab.md#变长区的分代)），屏障在 mutator 线程无锁读 |
 | `size: u32` | payload 长度：字符串长度、数组的元素区（数组长度由它和元素宽度推出）、对象的字段区 + meta。**size class 是它的函数**（`chunk::payload_class`），chunk 遍历按它的 footprint 步进 |
-| 种类字 | 对象的 `Arc<TypeDesc>`、数组的 `&'static ArrayDesc`；字符串、闭包恒空 |
+| 种类字 | 对象的 `Arc<TypeDesc>`、数组的 `&'static ArrayDesc`；字符串块惰性缓存 `GetHashCode` 的 FNV 值（不可变 ⇒ 块常量；null=未算，carve/复用必清）；闭包恒空 |
 | size class（不单存） | 由 `size` 推出；块是否在专用 chunk 由 chunk 自己记（`Chunk::dedicated`） |
 | 所属 chunk（不单存） | 清扫、TLAB、空洞认领本来就按 chunk 走、手里有下标；从句柄出发的少数调用（弱引用 `downgrade`、`finalize_now`、OOM 退款）用 `VarRegion::chunk_of` 按地址查 |
 | 存活位（不单存） | 并进 generation 的最低位 |
