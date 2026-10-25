@@ -1,0 +1,25 @@
+namespace MathKit.SetupTests;
+
+using Std.Harness;
+
+static class Counter {
+    public static int N;
+}
+
+[Setup]
+void reset() { Counter.N = 0; }
+
+[Teardown]
+void check_not_negative() { Assert.True(Counter.N >= 0); }
+
+[Test]
+void test_first_sees_fresh_counter() {
+    Counter.N = Counter.N + 1;
+    Assert.Equal(1, Counter.N);
+}
+
+[Test]
+void test_second_also_sees_fresh_counter() {
+    Counter.N = Counter.N + 1;
+    Assert.Equal(1, Counter.N);
+}

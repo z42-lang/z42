@@ -1,0 +1,39 @@
+# ANCHOR: run
+$ z42 run shapes.z42
+12.56636
+# ANCHOR_END: run
+# ANCHOR: query
+$ z42 doc Circle
+public class Circle    Demo.Shapes
+  圆。
+  @ shapes.z42:8
+# ANCHOR_END: query
+# ANCHOR: members
+$ z42 doc Circle --members
+class Demo.Shapes.Circle    shapes.z42:8
+  圆。
+  +double Radius                半径，不小于 0。  :10
+  +double Area()                返回面积 πr²。  :13
+  +Circle Scale(double factor)  把半径放大 factor 倍。  :20
+# ANCHOR_END: members
+# ANCHOR: tags
+$ z42 doc Circle.Scale
+public Circle Scale(double factor)    Demo.Shapes.Circle
+  把半径放大 factor 倍。
+  返回 this，便于链式调用。
+  param factor  缩放系数，须大于 0
+  throws ArgumentException  factor 不大于 0
+  @ shapes.z42:20
+# ANCHOR_END: tags
+# ANCHOR: namespace
+$ z42 doc Demo.Shapes
+namespace Demo.Shapes    shapes.z42:1
+  平面图形：面积与缩放。
+  +class Circle  圆。  :8
+  ~void Main()   :27
+# ANCHOR_END: namespace
+# ANCHOR: search
+$ z42 doc --search 面积
+Demo.Shapes  平面图形：面积与缩放。  shapes.z42:1
+Demo.Shapes.Circle.Area()  返回面积 πr²。  shapes.z42:13
+# ANCHOR_END: search

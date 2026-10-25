@@ -25,11 +25,13 @@ using Std.IO;
 using Std.Toml;
 
 // `setup [--os <platform>] [--force]`（default action，在 xtask_cli.z42 的 shim 里解析）。
+// --os 参数域 = versions.toml [workload] 的跨平台 workload（[build.*] 各平台栈一一对应）。
 int _setupInstall(string platform, bool force) {
-    if (platform.Length > 0 && platform != "android" && platform != "ios" && platform != "wasm") {
-        ConsoleError.WriteLine("setup --os: unknown platform '" + platform + "' (android|ios|wasm)"); return 2;
-    }
     string root = _root();
+    string[] cross = _vCrossWorkloads(root);
+    if (platform.Length > 0 && !_strIn(cross, platform)) {
+        ConsoleError.WriteLine("setup --os: unknown platform '" + platform + "' (" + _joinStrings(cross, "|") + ")"); return 2;
+    }
     TomlValue toml = TomlValue.Parse(File.ReadAllText(_versionsPath(root)));
 
     Console.WriteLine("── toolchain (cross-platform) ──");

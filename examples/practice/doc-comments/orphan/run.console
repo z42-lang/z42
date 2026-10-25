@@ -1,0 +1,10 @@
+# ANCHOR: run
+$ z42 run orphan.z42
+5
+# ANCHOR_END: run
+# ANCHOR: add
+$ z42 doc Ints.Add
+public static int Add(int a, int b)    Demo.Util.Ints
+  返回两数之和。
+  @ orphan.z42:8
+# ANCHOR_END: add

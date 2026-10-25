@@ -1,0 +1,19 @@
+namespace Demo.Util;
+
+using Std.IO;
+
+/// 整数工具。
+public static class Ints {
+    /// 返回两数之和。
+    public static int Add(
+        /// 这一行挂不到任何东西。
+        int a,
+        int b) {
+        /// 方法体里的 /// 也挂不到任何东西。
+        return a + b;
+    }
+}
+
+void Main() {
+    Console.WriteLine(Ints.Add(2, 3));
+}
