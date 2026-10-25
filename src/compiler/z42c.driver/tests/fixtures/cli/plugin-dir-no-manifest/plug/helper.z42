@@ -1,0 +1,5 @@
+namespace E2eDGen;
+
+public static class E2eDConst {
+    public static int V() { return 42; }
+}

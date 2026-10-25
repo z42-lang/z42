@@ -76,38 +76,51 @@ int _checkPluginZpkg(string name, string zpkgPath) {
     return pi.Caps;
 }
 
-// path 条目（工程目录 / 单文件源码）：定位 → 校验 kind → 代建 → dist 里的 `<name>.zpkg`。失败打印诊断并返回 ""。
-string _pluginFromProject(ProjectManifest pm, string aname, string apath, string projectDir, string consumerToml,
-                          bool isRelease, bool noIncremental, int cliAdd, int cliRemove) {
+// path 条目 → 插件工程清单路径（带清单目录 = 定位；免清单单文件/目录 = PluginSynth 合成，落消费方
+// cache 目录）；失败打印诊断返回 ""。三形态：`.z42` 单文件（include = 源文件绝对路径）、无清单目录
+//（include = <abs>/**/*.z42 递归全收；一个源都没有 ⇒ 明确报错，不静默合成出「no sources matched」）、
+// 带清单目录（判据委托 `ManifestLocator.FindIn`——裸 `z42.toml` 优先，同 `PathDepPlan._resolveDepToml`）。
+string _pluginToml(ProjectManifest pm, string aname, string apath, string projectDir, bool isRelease) {
     string adir = Path.Join(projectDir, apath);
-    string atoml = "";
+    string cacheDir = BuildLayout.Resolve(pm, projectDir, isRelease).CacheDir;
     if (apath.EndsWith(".z42")) {
-        // 单文件条目：合成最小插件清单（include = 源文件绝对路径），之后与工程条目完全同路。
         string asrc = Path.IsRooted(apath) ? apath : adir;
         if (!File.Exists(asrc)) {
             ConsoleError.WriteLine("z42c build: [plugins] `" + aname + "` 的 path 指向 " + asrc + "，文件不存在。");
             return "";
         }
-        atoml = PluginSynth.Synth(BuildLayout.Resolve(pm, projectDir, isRelease).CacheDir, aname, asrc);
-        if (atoml.Length == 0) {
+        string ftoml = PluginSynth.SynthFile(cacheDir, aname, asrc);
+        if (ftoml.Length == 0) {
             ConsoleError.WriteLine("z42c build: [plugins] `" + aname + "` 的单文件插件清单合成失败（源文件 " + asrc
                 + "，落点在消费方 cache 目录）。");
-            return "";
         }
-    } else {
-        // 判据委托 `ManifestLocator.FindIn`（同 `PathDepPlan._resolveDepToml`）——自己 glob
-        // `"*.z42.toml"` 会漏掉**裸 `z42.toml`**，而那正是 `z42 new` 写出来的形态。
-        ManifestLocation aloc = ManifestLocator.FindIn(adir);
-        if (aloc.Kind != ManifestLocateKind.Project) {
-            ConsoleError.WriteLine("z42c build: [plugins] `" + aname + "` 的 path 指向 " + adir
-                + "，那里没有单个工程清单"
-                + (aloc.Kind == ManifestLocateKind.Ambiguous ? "（同层有多份 *.z42.toml）"
-                   : (aloc.Kind == ManifestLocateKind.Workspace ? "（那是一个 workspace）"
-                      : "（既无 z42.toml，也无 *.z42.toml）")) + "。");
-            return "";
-        }
-        atoml = aloc.ManifestPath;
+        return ftoml;
     }
+    ManifestLocation aloc = ManifestLocator.FindIn(adir);
+    if (aloc.Kind == ManifestLocateKind.Project) { return aloc.ManifestPath; }
+    if (aloc.Kind == ManifestLocateKind.NotFound && Directory.Exists(adir)) {
+        string dtoml = PluginSynth.SynthDir(cacheDir, aname, adir);
+        if (dtoml.Length == 0) {
+            ConsoleError.WriteLine("z42c build: [plugins] `" + aname + "` 的 path 指向 " + adir
+                + "，那里既没有工程清单，也没有任何 .z42 源文件——目录条目要么是插件工程（带清单），"
+                + "要么至少放一个 .z42 源（免清单全收）。");
+        }
+        return dtoml;
+    }
+    ConsoleError.WriteLine("z42c build: [plugins] `" + aname + "` 的 path 指向 " + adir
+        + "，那里没有单个工程清单"
+        + (aloc.Kind == ManifestLocateKind.Ambiguous ? "（同层有多份 *.z42.toml）"
+           : (aloc.Kind == ManifestLocateKind.Workspace ? "（那是一个 workspace）"
+              : "（目录不存在）")) + "。");
+    return "";
+}
+
+// path 条目（工程目录 / 免清单目录 / 单文件源码）：定位（或合成）→ 校验 kind → 代建 → dist 里的
+// `<name>.zpkg`。失败打印诊断并返回 ""。
+string _pluginFromProject(ProjectManifest pm, string aname, string apath, string projectDir, string consumerToml,
+                          bool isRelease, bool noIncremental, int cliAdd, int cliRemove) {
+    string atoml = _pluginToml(pm, aname, apath, projectDir, isRelease);
+    if (atoml.Length == 0) { return ""; }
     // 自指 → 无限递归。消费方自己就是插件工程时最容易写出来（`path = "."`）。
     if (_samePath(atoml, consumerToml)) {
         ConsoleError.WriteLine("z42c build: [plugins] `" + aname + "` 的 path 指回本工程自身（"

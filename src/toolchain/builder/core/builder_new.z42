@@ -1,5 +1,5 @@
-// `z42 new <name> [--lib] [--path <dir>]` —— 创建工程骨架。
-// 生成 z42.toml + 源文件模板 + .gitignore + README.md。模板两种：exe（默认）/ lib。
+// `z42 new <name> [--lib] [--plugin] [--path <dir>]` —— 创建工程骨架。
+// 生成 z42.toml + 源文件模板 + .gitignore + README.md。模板三种：exe（默认）/ lib / plugin。
 // 测试不单设模板：任何工程的 `tests/*.z42` 都会被 `z42 test` 自动发现。
 namespace Z42Builder;
 
@@ -17,7 +17,7 @@ int _cmdNew(ParseResult r) {
         ConsoleError.WriteLine("  use lowercase letters, digits, `-`, `_` or `.`, starting with a letter or digit (e.g. `my-app`)");
         return 2;
     }
-    string kind = r.GetFlag("lib") ? "lib" : "exe";
+    string kind = r.GetFlag("plugin") ? "plugin" : (r.GetFlag("lib") ? "lib" : "exe");
 
     string parent = r.GetOption("path");
     string dir = parent.Length > 0 ? Path.Join(parent, name) : name;
@@ -33,6 +33,7 @@ int _cmdNew(ParseResult r) {
     string srcDir = Path.Join(dir, "src");
     Directory.Create(srcDir);
     if (kind == "exe") { File.WriteAllText(Path.Join(srcDir, "Main.z42"), _exeSource(name)); }
+    else if (kind == "plugin") { File.WriteAllText(Path.Join(srcDir, "ProjectHooks.z42"), _pluginSource(name)); }
     else               { File.WriteAllText(Path.Join(srcDir, "Lib.z42"), _libSource(name)); }
 
     Console.WriteLine("Created " + _kindNoun(kind) + " project `" + name + "` in " + dir + "/");
@@ -55,9 +56,9 @@ bool _isValidProjectName(string name) {
     return name.Length > 0;
 }
 
-string _kindNoun(string kind) { return kind == "lib" ? "library" : "executable"; }
+string _kindNoun(string kind) { return kind == "lib" ? "library" : (kind == "plugin" ? "plugin" : "executable"); }
 
-string _nextCommand(string kind) { return kind == "lib" ? "z42 build" : "z42 run"; }
+string _nextCommand(string kind) { return kind == "exe" ? "z42 run" : "z42 build"; }
 
 // ── 模板 ─────────────────────────────────────────────────────────────────────
 
@@ -93,6 +94,24 @@ string _libSource(string name) {
     s = s + "public static class Greeter {\n";
     s = s + "    public static string Hello(string who) {\n";
     s = s + "        return \"Hello, \" + who + \"!\";\n";
+    s = s + "    }\n";
+    s = s + "}\n";
+    return s;
+}
+
+// 插件骨架选 hook 样例（三类契约里面最小：一个类、一个相位回调，`z42 build` 即可验证）。
+// analyzer / generator 见 docs/learn「给编译器加一条检查：插件」章。
+string _pluginSource(string name) {
+    string s = "";
+    s = s + "namespace " + _nsOf(name) + ";\n";
+    s = s + "\n";
+    s = s + "using Std.IO;\n";
+    s = s + "using Z42.Build;\n";
+    s = s + "\n";
+    s = s + "// build hook：挂在消费方 [plugins] 里，z42 build / publish 按相位回调。\n";
+    s = s + "public class ProjectHooks : BuildHooks {\n";
+    s = s + "    public override void BeforeCompile(IPipelineContext ctx) {\n";
+    s = s + "        Console.WriteLine(\"" + name + ": BeforeCompile\");\n";
     s = s + "    }\n";
     s = s + "}\n";
     return s;

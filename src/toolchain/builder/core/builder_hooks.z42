@@ -4,9 +4,9 @@
 //   · `[build] hooks = "<dir>"`（projDir 相对）：用注入的同一 ICompiler 把该目录编成 <name>.hooks.zpkg →
 //     ModuleLoader.Load → ModuleLoader.Create("Build.ProjectHooks") → as BuildHooks。约定：hook 源声明
 //     `namespace Build;` + `class ProjectHooks : BuildHooks`。
-//   · `[plugins]` 里带 hook 能力位的插件 zpkg（名字 / `.zpkg` path / 插件工程 path / **单文件 `.z42` path** 四种
-//     条目；工程与单文件条目同样经 ICompiler 代建——单文件由 `PluginSynth.Synth` 合成最小清单）：加载后反射出
-//     包内全部继承 `Z42.Build.BuildHooks` 的具体类，按类全名序实例化。
+//   · `[plugins]` 里带 hook 能力位的插件 zpkg（名字 / `.zpkg` path / 插件工程 path / **免清单目录 path** /
+//     **单文件 `.z42` path** 五种条目；后三种经 ICompiler 代建——免清单与单文件由 `PluginSynth` 合成最小
+//     清单）：加载后反射出包内全部继承 `Z42.Build.BuildHooks` 的具体类，按类全名序实例化。
 // 顺序：hook 目录在前，插件按 `[plugins]` 声明序；多于一个时经 `CompositeBuildHooks` 逐相位依次调用。
 // 只带 analyzer / generator 位的插件归编译器（BuildSession），这里跳过。
 //
@@ -171,7 +171,7 @@ string _hookPluginZpkg(DepEntry e, string projDir, string interDir) {
         while (si < dirs.Length) { searched = searched + (si > 0 ? ", " : "") + dirs[si]; si = si + 1; }
         if (dirs.Length == 0) { searched = "(无插件目录——未设 Z42_PLUGINS，Z42_LIBS 旁也没有 plugins/)"; }
         ConsoleError.WriteLine("z42b: [plugins] `" + e.Name + "` 未在插件目录找到 " + e.Name + ".zpkg；已查找：" + searched
-            + "。普通库放依赖目录（libs）、插件放插件目录。也可改用 `{ path = \"...\" }`（指向插件工程目录、.zpkg 或单个 .z42 源文件）。");
+            + "。普通库放依赖目录（libs）、插件放插件目录。也可改用 `{ path = \"...\" }`（指向插件工程目录、免清单源目录、.zpkg 或单个 .z42 源文件）。");
         return "";
     }
     if (e.Path.EndsWith(".zpkg")) {
@@ -182,29 +182,11 @@ string _hookPluginZpkg(DepEntry e, string projDir, string interDir) {
         }
         return zp;
     }
-    // 工程 path：校验是插件工程且名字一致；单文件 path（`.z42`）：合成最小插件清单（名字/kind 由构造保证）。
-    // 两条都汇到同一次 in-process 编译（产物落 interDir，不进源码树）。
-    string atoml = "";
+    // path 条目（工程目录 / 免清单目录 / 单文件）→ 定位（或合成）清单，pm 一并带回；失败返回 ""。
+    // 之后统一走同一次 in-process 编译（产物落 interDir，不进源码树）。
     ProjectManifest pm = null;
-    if (e.Path.EndsWith(".z42")) {
-        atoml = _hookSingleFileToml(e.Name, e.Path, projDir, interDir);
-        if (atoml.Length == 0) { return ""; }
-        pm = ManifestLoader.Load(atoml);
-    } else {
-        string dir = Path.Join(projDir, e.Path);
-        ManifestLocation loc = ManifestLocator.FindIn(dir);
-        if (loc.Kind != ManifestLocateKind.Project) {
-            ConsoleError.WriteLine("z42b: [plugins] `" + e.Name + "` 的 path 指向 " + dir + "，那里没有单个工程清单。");
-            return "";
-        }
-        pm = ManifestLoader.Load(loc.ManifestPath);
-        if (!pm.Project.IsPlugin() || pm.Project.Name != e.Name) {
-            ConsoleError.WriteLine("z42b: [plugins] `" + e.Name + "` 指向的工程 " + loc.ManifestPath + " 须是 kind = \"plugin\" 且名为 `"
-                + e.Name + "`（实际 kind = \"" + pm.Project.Kind + "\"、name = `" + pm.Project.Name + "`）。");
-            return "";
-        }
-        atoml = loc.ManifestPath;
-    }
+    string atoml = _hookPluginToml(e, projDir, interDir, ref pm);
+    if (atoml.Length == 0) { return ""; }
     string outZpkg = Path.Join(interDir, e.Name + ".zpkg");
     CompileRequest req = new CompileRequest(Path.GetDirectoryName(atoml), outZpkg, _hookCompileDeps(),
                                             "release", false, false, "lib", new string[0], 0);
@@ -219,19 +201,48 @@ string _hookPluginZpkg(DepEntry e, string projDir, string interDir) {
     return res.Zpkg;
 }
 
-// 单文件 path（`.z42`）→ 合成最小插件清单（落 interDir/synth）；诊断已打印返回 ""。
-string _hookSingleFileToml(string aname, string apath, string projDir, string interDir) {
-    string src = Path.IsRooted(apath) ? apath : Path.Join(projDir, apath);
-    if (!File.Exists(src)) {
-        ConsoleError.WriteLine("z42b: [plugins] `" + aname + "` 的 path 指向 " + src + "，文件不存在。");
-        return "";
+// path 条目三形态 → 插件工程清单（或合成清单）+ 已加载的 pm；失败打印诊断返回 ""（pm 置 null）：
+//   · `.z42` 单文件 / 无清单但有源文件的目录 → PluginSynth 合成最小清单（落 interDir/synth）；
+//   · 带清单目录 → 校验是插件工程且名字一致（清单存在即生效）。
+string _hookPluginToml(DepEntry e, string projDir, string interDir, ref ProjectManifest pm) {
+    string aname = e.Name;
+    string asrc = Path.IsRooted(e.Path) ? e.Path : Path.Join(projDir, e.Path);
+    if (e.Path.EndsWith(".z42")) {
+        if (!File.Exists(asrc)) {
+            ConsoleError.WriteLine("z42b: [plugins] `" + aname + "` 的 path 指向 " + asrc + "，文件不存在。");
+            return "";
+        }
+        string atoml = PluginSynth.SynthFile(Path.Join(interDir, "synth"), aname, asrc);
+        if (atoml.Length == 0) {
+            ConsoleError.WriteLine("z42b: [plugins] `" + aname + "` 的单文件插件清单合成失败（源文件 " + asrc + "）。");
+            return "";
+        }
+        pm = ManifestLoader.Load(atoml);
+        return atoml;
     }
-    string atoml = PluginSynth.Synth(Path.Join(interDir, "synth"), aname, src);
-    if (atoml.Length == 0) {
-        ConsoleError.WriteLine("z42b: [plugins] `" + aname + "` 的单文件插件清单合成失败（源文件 " + src + "）。");
-        return "";
+    ManifestLocation loc = ManifestLocator.FindIn(asrc);
+    if (loc.Kind == ManifestLocateKind.Project) {
+        ProjectManifest lpm = ManifestLoader.Load(loc.ManifestPath);
+        if (!lpm.Project.IsPlugin() || lpm.Project.Name != aname) {
+            ConsoleError.WriteLine("z42b: [plugins] `" + aname + "` 指向的工程 " + loc.ManifestPath + " 须是 kind = \"plugin\" 且名为 `"
+                + aname + "`（实际 kind = \"" + lpm.Project.Kind + "\"、name = `" + lpm.Project.Name + "`）。");
+            return "";
+        }
+        pm = lpm;
+        return loc.ManifestPath;
     }
-    return atoml;
+    if (loc.Kind == ManifestLocateKind.NotFound && Directory.Exists(asrc)) {
+        string atoml = PluginSynth.SynthDir(Path.Join(interDir, "synth"), aname, asrc);
+        if (atoml.Length == 0) {
+            ConsoleError.WriteLine("z42b: [plugins] `" + aname + "` 的 path 指向 " + asrc
+                + "，那里既没有工程清单，也没有任何 .z42 源文件。");
+            return "";
+        }
+        pm = ManifestLoader.Load(atoml);
+        return atoml;
+    }
+    ConsoleError.WriteLine("z42b: [plugins] `" + aname + "` 的 path 指向 " + asrc + "，那里没有单个工程清单。");
+    return "";
 }
 
 // 加载一个插件 zpkg，反射出全部继承 `Z42.Build.BuildHooks` 的具体类并实例化（按类全名序——

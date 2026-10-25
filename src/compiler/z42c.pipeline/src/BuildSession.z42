@@ -303,12 +303,13 @@ public sealed class BuildSession {
         return new PluginPaths(trimmed, n);
     }
 
-    // 工程 path 的插件：定位清单 → 校验 → AnalyzerChild 子会话代建 → 产物路径；失败报错返回 ""。
-    // 单文件 path（`.z42`）：合成最小插件清单（PluginSynth.Synth，落消费方 cache 目录）→ 与工程条目同路
-    //（与 z42c.driver PluginRefs / z42b builder_hooks 三处同口径）。
+    // path 条目的插件（工程目录 / 免清单目录 / 单文件）：定位（或合成）清单 → 校验 → AnalyzerChild
+    // 子会话代建 → 产物路径；失败报错返回 ""。免清单（单文件 / 目录）由 PluginSynth 合成最小清单
+    //（落消费方 cache 目录）→ 与工程条目同路（与 z42c.driver PluginRefs / z42b builder_hooks 同口径）。
     private string _buildPluginProject(string aname, string apath) {
         IBuildReporter rep = this._o.Reporter;
         string adir = Path.Join(this._o.ProjectDir, apath);
+        string cacheDir = BuildLayout.Resolve(this._o.Manifest, this._o.ProjectDir, this._o.IsRelease).CacheDir;
         string atoml = "";
         if (apath.EndsWith(".z42")) {
             string asrc = Path.IsRooted(apath) ? apath : adir;
@@ -316,19 +317,26 @@ public sealed class BuildSession {
                 rep.Fail("[plugins] `" + aname + "` 的 path 指向 " + asrc + "，文件不存在。");
                 return "";
             }
-            string cacheDir = BuildLayout.Resolve(this._o.Manifest, this._o.ProjectDir, this._o.IsRelease).CacheDir;
-            atoml = PluginSynth.Synth(cacheDir, aname, asrc);
+            atoml = PluginSynth.SynthFile(cacheDir, aname, asrc);
             if (atoml.Length == 0) {
                 rep.Fail("[plugins] `" + aname + "` 的单文件插件清单合成失败（源文件 " + asrc + "）。");
                 return "";
             }
         } else {
             ManifestLocation aloc = ManifestLocator.FindIn(adir);
-            if (aloc.Kind != ManifestLocateKind.Project) {
+            if (aloc.Kind == ManifestLocateKind.Project) {
+                atoml = aloc.ManifestPath;
+            } else if (aloc.Kind == ManifestLocateKind.NotFound && Directory.Exists(adir)) {
+                atoml = PluginSynth.SynthDir(cacheDir, aname, adir);
+                if (atoml.Length == 0) {
+                    rep.Fail("[plugins] `" + aname + "` 的 path 指向 " + adir
+                        + "，那里既没有工程清单，也没有任何 .z42 源文件。");
+                    return "";
+                }
+            } else {
                 rep.Fail("[plugins] `" + aname + "` 的 path 指向 " + adir + "，那里没有单个工程清单。");
                 return "";
             }
-            atoml = aloc.ManifestPath;
         }
         ProjectManifest apm = ManifestLoader.Load(atoml);
         if (!apm.Project.IsPlugin() || apm.Project.Name != aname) {

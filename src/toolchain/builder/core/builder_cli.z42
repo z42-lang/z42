@@ -41,15 +41,21 @@ int _runBuilder(string[] argv) {
     return _dispatchBuilder(res);
 }
 
+// `z42 new` 的参数面（exe 默认 / --lib / --plugin 三种骨架，见 builder_new.z42）。
+ArgParser _newArgParser() {
+    ArgParser newP = new ArgParser("z42 new", "create a new project");
+    newP.AddOptionalPositional("name", "project name (lowercase letters, digits, `-`, `_`, `.`)");
+    newP.AddFlag("lib", "", "library project (default: executable)");
+    newP.AddFlag("plugin", "", "plugin project (build-time extension loaded into the toolchain; not linked into apps)");
+    newP.AddOption("path", "", "directory to create the project in (default: current dir)", "");
+    return newP;
+}
+
 SubcommandRouter _builderRoot() {
     SubcommandRouter root = new SubcommandRouter("z42b", "z42 build orchestrator");
 
     // new / build / publish / export（编译器动态注入）。
-    ArgParser newP = new ArgParser("z42 new", "create a new project");
-    newP.AddOptionalPositional("name", "project name (lowercase letters, digits, `-`, `_`, `.`)");
-    newP.AddFlag("lib", "", "library project (default: executable)");
-    newP.AddOption("path", "", "directory to create the project in (default: current dir)", "");
-    root.Add("new", "create a new project", newP);
+    root.Add("new", "create a new project", _newArgParser());
 
     ArgParser build = new ArgParser("z42b build", "compile to a platform-agnostic app.zpkg");
     build.AddOptionalPositional("project", "<manifest|dir> (default: the nearest manifest; a workspace builds its default_members)");

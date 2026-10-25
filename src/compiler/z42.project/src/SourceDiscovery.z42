@@ -90,7 +90,10 @@ public static class SourceDiscovery {
         if (mid >= 0) {
             string prefix = pattern.Substring(0, mid);
             string suffix = pattern.Substring(mid + 4, pattern.Length - (mid + 4));
-            return Path.GlobRecursive(Path.Join(projectDir, prefix), suffix);
+            // rooted 前缀不与 projectDir 拼接（同上方 ④ 的 rooted 直通，纯增量）：免清单插件目录的
+            // 合成清单住 cache 目录，include 写的是插件源**目录**的绝对路径 + `/**/*.z42`。
+            string baseDir = Path.IsRooted(prefix) ? prefix : Path.Join(projectDir, prefix);
+            return Path.GlobRecursive(baseDir, suffix);
         }
         // 逐段：最后一段是文件模式，之前每段都是目录模式（可带通配）。
         // 目录前沿（frontier）逐段扩张；Path.Glob 返回目录与文件两者，故用 Directory.Exists 滤出目录。
