@@ -86,7 +86,8 @@ version = "0.1.0"
 - **stdlib 命名族**是 `z42.<topic>`（`z42.core` / `z42.io` / `z42.numerics` / `z42.harness` …）。
   `z42.*` 是官方保留前缀——它们随工具链分发、**始终可用**，`[dependencies]` 里
   **只写第三方包**（Rust-std 模型），也不要给自己的包起 `z42.` 开头的名字。
-  声明 `z42.*` 是冗余、但无害：编译器不报错也不警告。
+  声明 `z42.*` 是冗余；其中「同 workspace 成员」这条子集会被 **WS032** 逐条提示（见
+  [L6.2](#l62-顶层结构)），其余静默无害。
 
 - **第三方包必须声明**，漏写会在编译期报 [`E0497`](../appendix/error-codes.md)，
   消息里直接给出要加的那一行。判据是**类型的归属包**，不是 `using` 的命名空间。
@@ -639,7 +640,10 @@ kind    = "exe"
 由此确立的约定：
 
 - **`[dependencies]` / `[tests.dependencies]` / `[benches.dependencies]` 只用于第三方依赖。** stdlib（`z42.*`）出现在其中纯属冗余。
-- **声明 `z42.*` 不报错也不警告**，只是冗余。
+- **声明 `z42.*` 静默冗余**；唯一有执行的子集：成员清单按名声明**同 workspace 成员**（无 `path` /
+  `deploy` 键）→ workspace 构建（`z42c build --workspace` / z42b 工作区动词）按 **WS032** 逐条提示、
+  构建照常。SDK 库（`z42.project` / `z42.build` / `z42c.*`）在普通工程里**仍须按名声明**——那是
+  可见性种子，不是冗余。
 - **第三方包漏写会报 [`E0497`](../appendix/error-codes.md)**（编译期）——这是本节约定里
   真正有执行的那一半。
 - **`Std.*` 命名空间保留（E0605，硬错误）**：非 `z42.*` 包在源码声明 `namespace Std.*`（或裸 `Std`）→ **编译错误**。`Std` / `Std.*` 专属官方 stdlib（同 Rust 保留 `std`/`core`/`alloc`），保证程序里任何 `Std.*` 一定解析到官方、自动可用的 stdlib，永不被第三方 shadow。（消费一个已构建的、占用 `Std.*` 的第三方 zpkg 时另有 W0603 warning 作软网。）
@@ -1120,8 +1124,8 @@ output_dir = "artifacts/${project_name}/${profile}"
 |---|---|
 | `members` | 成员目录（glob / 显式路径），缺省 `["*"]` |
 | `exclude` | 从展开结果中剔除的成员路径 |
-| `default_members` | 默认成员子集：编排器（`z42 build` / `test` / `bench` / `clean` 在工作区上）缺省只对它们执行，`--workspace` 才覆盖全部；`run` / `publish` / `export` 在工作区上要求它恰好选中一个成员（见 [`z42` · 工作区](cli-z42.md#工作区)）。条目写成员目录（相对工作区根）或成员的 `[project].name`；没写或写 `[]` = 全部成员；有条目匹配不到成员 → WS031。z42c 不看它（`z42c build --workspace` 恒编全部成员）。旧拼写 `default-members` 已删除，写了按未知键报错 |
-| `dependencies` | 中央依赖声明，条目写法同 `[dependencies]`。当前只解析与校验键名，构建不消费——成员仍在自己的 `[dependencies]` 里声明依赖 |
+| `default_members` | 默认成员子集：编排器（`z42 build` / `test` / `bench` / `clean` 在工作区上）缺省只对它们执行，`--workspace` 才覆盖全部；`run` / `publish` / `export` 在工作区上要求它恰好选中一个成员（见 [`z42` · 工作区](cli-z42.md#工作区)）。条目写成员目录（相对工作区根）或成员的 `[project].name`；没写或写 `[]` = 全部成员；有条目匹配不到成员 → WS031。**声明序同时是构建序优先级**：`z42c build --workspace` 恒编全部成员，但按这份序逐个发射（未列成员殿后、名字序决胜；成员声明了依赖边时边优先）——成员 import 了谁，谁就得排在它前面，排错是当场「找不到依赖」的硬错误。旧拼写 `default-members` 已删除，写了按未知键报错 |
+| `dependencies` | 中央依赖声明，条目写法同 `[dependencies]`。当前只解析与校验键名，构建不消费 |
 | `build` | 只接受 `output_dir` / `cache_dir`，见 [L6.5](#l65-workspacebuild-集中产物) |
 
 **成员发现规则**（z42c `build --workspace`）：
@@ -1132,6 +1136,10 @@ output_dir = "artifacts/${project_name}/${profile}"
 - 成员目录里的清单可以是 `<name>.z42.toml`，也可以是裸名 `z42.toml`（`z42 new` 生成的形态）；同一目录多份
   `*.z42.toml` 报错（WS005）。
 - `exclude` 按成员相对根的路径做段级 glob（`**` 跨段，`*` / `?` 段内），从展开结果里剔除。
+- **同 workspace 成员依赖不声明、自动解析**：包间依赖走「成员 dist 进解析域 + WsTier 分档」，与
+  `[dependencies]` 无关；成员清单按名声明同 workspace 成员（无 `path` / `deploy` 键）→ **WS032**
+  逐条提示（非致命）。构建顺序由此改由 `default_members` 声明序决定（见上表），成员声明了依赖边
+  （`path` 条目）时边仍优先。
 - 成员间依赖成环直接报错。
 
 ### L6.3 Members 展开
@@ -1155,7 +1163,7 @@ exclude = ["libs/sandbox-*"]
 |---|---|
 | `z42c build <manifest>` | 单工程：只编这一个清单（依赖按 `[dependencies]` 解析，path 依赖闭包先建） |
 | `z42c build`（不给清单） | 从 CWD 向上找**最近的** `z42.toml` 或 `z42.workspace.toml`：找到工程清单 → 同上；找到 workspace 清单 → 同 `--workspace` |
-| `z42c build --workspace` | 按拓扑序编**全部**成员（`members` 展开结果；`default_members` 不参与——它归编排器，见 L6.2） |
+| `z42c build --workspace` | 按拓扑序编**全部**成员（`members` 展开结果；发射优先级 = `default_members` 声明序，见 L6.2） |
 
 ```bash
 z42c build                      # 最近的清单（工程 → 单工程；workspace → 全部成员）

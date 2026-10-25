@@ -28,20 +28,25 @@ members = ["*"]
 # 注：<member>/tests/<unit>/*.z42.toml 是独立 lib 项目（由 `xtask test compiler`
 # 用显式 toml 路径单独构建 + z42-test-runner 运行），非 workspace member。
 # workspace build 会对其报 WS007（orphan manifest）—— 非致命、纯提示，已知可忽略。
-# 拓扑序（叶子在前；z42c 也会 topo-sort，显式序作 fallback）：
+# 🔴 成员清单**不再声明**同 workspace 依赖（retire-member-dep-decls，WS032 逐条提示删除）：
+# 包间依赖走 workspace 拓扑序 + 同 workspace dist 自动发现。于是 **`default_members` 的声明序
+# 就是构建顺序**——成员 import 了谁，谁必须排在它前面；排错当场硬错误（找不到依赖/命名空间），
+# 不是静默错序。调整依赖结构时同步改这份序。真实的 import 关系（换库/加库时照此校对）：
 #   z42c.core             → (prelude only)
 #   z42c.syntax           → z42c.core
-#   z42.package           → z42.core / encoding / io / crypto（stdlib）
-#   z42.project           → z42.core / io / toml（stdlib）
-#   z42.build             → z42.core / io（stdlib）, z42.project
-#   z42c.optimization     → z42.package（IR → IR 优化管线，与语义分析无关）
-#   z42c.semantics        → z42c.core, z42c.syntax, z42.package（符号 / 绑定 / 检查，不依赖代码生成）
-#   z42c.plugin           → z42c.core, z42c.syntax, z42c.symbols, z42c.semantics（analyzer 契约+加载+驱动+[lints]；generator 契约+加载+多轮引擎+内建 [Forward]）
-#   z42c.emission         → z42c.core, z42c.syntax, z42.package, z42c.optimization, z42c.semantics（代码生成 + 编译编排）
-#   z42c.pipeline         → z42c.core, z42c.syntax, plugin, semantics, emission, optimization, z42.package, z42.project
-#   z42c.driver           → pipeline, emission, semantics, optimization, z42.package, z42c.core
-#   z42.scripting         → z42c.core, z42c.syntax, z42.build + stdlib(core/io/test/threading)
+#   z42.package           → stdlib(core/encoding/io/crypto)
+#   z42.project           → stdlib(core/io/toml)
+#   z42.build             → z42.project（唯一保留下来的 path 依赖：喂 PathDepPlan 的闭包图，见其清单头注）
+#   z42c.symbols          → z42c.core, z42c.syntax, z42.package（semantics-split 拆出；命名空间仍 Z42.Semantics）
+#   z42c.optimization     → z42c.symbols, z42.package（IR → IR 优化管线）
+#   z42c.semantics        → z42c.core, z42c.syntax, z42.package, z42c.symbols（符号 / 绑定 / 检查）
+#   z42c.plugin           → z42c.symbols, z42c.core, z42c.syntax, z42c.semantics（analyzer 契约+加载+驱动+[lints]；generator 契约+加载+多轮引擎+内建 [Forward]）
+#   z42c.emission         → z42c.symbols, z42c.core, z42c.syntax, z42.package, z42c.optimization, z42c.semantics（代码生成 + 编译编排）
+#   z42c.pipeline         → 全部上述 + z42.project, z42.build
+#   z42c.driver           → symbols, syntax, semantics, emission, core, z42.package, optimization, z42.project, pipeline
+#   z42.scripting         → z42.build, z42c.core, z42c.syntax + stdlib(core/io/test/threading)
 #                            置于末尾：依赖面最宽
+#   z42.doc（不在 default_members）→ z42c.core, z42c.syntax；无成员依赖它，殿后自建
 # 注：z42c.ir + z42c.project 早先收敛为单库 z42.package（converge-z42c-ir-metadata-onto-stdlib）；
 #     CacheStore 迁 z42c.pipeline。六个包 2026-09-27 从 src/libraries/ 挪回本 workspace ⇒
 #     它们与 semantics/pipeline/driver 现在**同 workspace**，包间依赖走 workspace 拓扑序 + 同
@@ -49,14 +54,14 @@ members = ["*"]
 default_members = [
     "z42c.core",
     "z42c.syntax",
-        "z42.package",
+    "z42.package",
     "z42.project",
     "z42.build",
-    "z42c.optimization",
     "z42c.symbols",
+    "z42c.optimization",
     "z42c.semantics",
     "z42c.plugin",
-        "z42c.emission",
+    "z42c.emission",
     "z42c.pipeline",
     "z42c.driver",
     "z42.scripting",

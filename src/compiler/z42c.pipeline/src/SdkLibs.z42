@@ -164,6 +164,29 @@ public static class SdkLibs {
         return tight;
     }
 
+    // `ExtendDeclared` 再并上 **同 workspace 成员名**（retire-member-dep-decls）：同 workspace 依赖经
+    // 成员 dist 自动解析、不写进成员清单（WS032），而 `z42c.*` 不带 `z42.` 前缀、吃不到 stdlib 豁免 ⇒
+    // E0497 放行集把成员名当作「已声明」。members 空（非成员工程）⇒ 原样返回。
+    // 🔴 只用于**依赖契约的放行集**，不得流入 zpkg 的 DEPS 段（`_unionDeclaredDeps`）——那会把
+    // 入口包变成假运行期候选（双代注册、类型拒用）。
+    public static string[] WithMembers(string[] declared, int n, string[] members, int membersN) {
+        if (membersN == 0) { return declared; }
+        int m = n;
+        string[] r = new string[n + membersN];
+        int i = 0;
+        while (i < n) { r[i] = declared[i]; i = i + 1; }
+        int j = 0;
+        while (j < membersN) {
+            if (!SdkLibs._has(r, m, members[j])) { r[m] = members[j]; m = m + 1; }
+            j = j + 1;
+        }
+        if (m == r.Length) { return r; }
+        string[] tight = new string[m];
+        int k = 0;
+        while (k < m) { tight[k] = r[k]; k = k + 1; }
+        return tight;
+    }
+
     // E0494 的提示：`ns`（或其子命名空间）由哪个**当前不可见**的 SDK 库提供？没有 ⇒ ""。
     // 只在报错路径调用（不影响正常编译的开销）。直接到编译器目录里找，而不是只看解析域：工程一个 SDK 库都没声明时
     // 编译器目录压根不在解析域里（放行集为空 ⇒ 不追加），而那正是最常见的「忘了声明」。

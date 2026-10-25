@@ -11,6 +11,8 @@ using Std.IO;
 // 成员发现结果：flat 平行数组。
 //   Tomls[i] / Names[i] = 成员 i 的 manifest 路径 / [project].name
 //   成员 i 的 workspace 内依赖名 = DepFlat[DepOff[i] .. DepOff[i]+DepLen[i]]
+//   DefaultOrder = default_members 声明的名字序（发射优先级，见 WorkspaceMemberDeps.ReadyOrder）；
+//   手工构造（测试）不填 = null ⇒ TopoOrder 退回名字序
 public sealed class WorkspaceMembers {
     public string[] Tomls;
     public string[] Names;
@@ -18,10 +20,13 @@ public sealed class WorkspaceMembers {
     public int[]    DepOff;
     public int[]    DepLen;
     public int      Count;
+    public string[] DefaultOrder;
+    public int      DefaultOrderN;
     public WorkspaceMembers(string[] tomls, string[] names, string[] depFlat,
                             int[] depOff, int[] depLen, int count) {
         this.Tomls = tomls; this.Names = names; this.DepFlat = depFlat;
         this.DepOff = depOff; this.DepLen = depLen; this.Count = count;
+        this.DefaultOrder = null; this.DefaultOrderN = 0;
     }
 }
 
@@ -72,6 +77,7 @@ public static class WorkspacePlan {
         WorkspaceManifest ws = ManifestLoader.LoadWorkspace(wsToml);
         WorkspacePlan.RejectUnknownKeys(ws, wsToml);
         WorkspaceMembers m = WorkspacePlan.DiscoverMembers(WorkspacePlan._dirOf(wsToml), ws);
+        m.DefaultOrder = ws.DefaultMembers; m.DefaultOrderN = ws.DefaultCount;
         int[] order = WorkspacePlan.TopoOrder(m);
         string[] ordered = new string[m.Count];
         int i = 0;
@@ -116,6 +122,7 @@ public static class WorkspacePlan {
         WorkspacePlan.RejectUnknownKeys(ws, wsToml);
         string wsDir = WorkspacePlan._dirOf(wsToml);
         WorkspaceMembers m = WorkspacePlan.DiscoverMembers(wsDir, ws);
+        m.DefaultOrder = ws.DefaultMembers; m.DefaultOrderN = ws.DefaultCount;
         int[] order = WorkspacePlan.TopoOrder(m);
         bool[] pick = defaultOnly ? WorkspacePlan.SelectDefault(wsDir, ws, m) : null;
         bool[] need = pick == null ? null : WorkspacePlan._withDeps(m, pick);
@@ -297,15 +304,17 @@ public static class WorkspacePlan {
         }
     }
 
-    // O(N²) 拓扑：按 member 名 Ordinal 逐轮扫描，「全部依赖已发射」即发射（同一轮内也可连发）。
+    // O(N²) 拓扑：逐轮扫描，「全部依赖已发射」即发射（同一轮内也可连发）。
     // 无进展但未全发射 → 环。返回成员索引（叶子在前）。
+    // 发射优先级 = default_members 声明序（未列成员殿后、名字决胜；retire-member-dep-decls 起成员清单
+    // 不再携带依赖边，声明序就是主要的排序来源）；无 default_members → 名字序。
     public static int[] TopoOrder(WorkspaceMembers m) {
         int n = m.Count;
         bool[] done = new bool[n];
         int[]  order = new int[n];
         int    oc = 0;
-        // 预排序的成员索引（按 name Ordinal）—— 保证就绪集发射序确定。
-        int[] byName = WorkspacePlan.IndicesByName(m.Names, n);
+        // 预排序的成员索引—— 保证就绪集发射序确定。
+        int[] byName = WorkspaceMemberDeps.ReadyOrder(m);
         while (oc < n) {
             bool progress = false;
             int k = 0;

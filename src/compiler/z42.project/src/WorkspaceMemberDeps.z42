@@ -1,0 +1,117 @@
+// workspace 成员间的依赖不再走成员清单（retire-member-dep-decls）：
+//   · 解析——同 workspace 成员经「成员 dist 进 libsDirs + WsTier 分档」自动发现，`[dependencies]` 从不参与；
+//   · 顺序——`WorkspacePlan.TopoOrder` 的发射优先级 = `default_members` 声明序（本文件的 `ReadyOrder`），
+//     成员清单里那批同名条目携带的依赖边随之退役。
+// 于是成员清单里按名声明同 workspace 成员只剩冗余（还在的话）——`RedundantDepWarnings` 把它们逐条
+// 报成 WS032 提示（非致命），由 workspace 编排方（z42c `--workspace` / z42b workspace 动词）打印。
+namespace Z42.Project;
+
+using Std.IO;
+
+public static class WorkspaceMemberDeps {
+
+    // 拓扑发射优先级：`default_members` 里列过的成员按声明序、没列的殿后（名字 Ordinal 决胜）。
+    // 没写 default_members（或 `WorkspaceMembers` 手工构造、未填 `DefaultOrder`）⇒ 纯名字序（旧行为）。
+    // 只影响「同一轮里多个就绪成员先发谁」，不影响就绪判定本身——依赖未满足的成员绝不会提前发射，
+    // 声明序写错只会把依赖顶到前面（构建仍正确），真环照旧由 `TopoOrder` 抛出。
+    public static int[] ReadyOrder(WorkspaceMembers m) {
+        int n = m.Count;
+        int[] idx = WorkspacePlan.IndicesByName(m.Names, n);
+        if (m.DefaultOrder == null || m.DefaultOrderN == 0) { return idx; }
+        // rank[i] = 名字在 default_members 里的序号；没列 = int.MaxValue（殿后）。
+        int[] rank = new int[n];
+        int i = 0;
+        while (i < n) {
+            string name = m.Names[idx[i]];
+            int r = int.MaxValue;
+            int d = 0;
+            while (d < m.DefaultOrderN) {
+                if (m.DefaultOrder[d] == name) { r = d; break; }
+                d = d + 1;
+            }
+            rank[i] = r;
+            i = i + 1;
+        }
+        // 插入排序（rank 升序，同 rank 保持名字序——`idx` 已按名字排好，稳定插入即可）。
+        int a = 1;
+        while (a < n) {
+            int curIdx = idx[a];
+            int curRank = rank[a];
+            int b = a - 1;
+            while (b >= 0 && rank[b] > curRank) {
+                idx[b + 1] = idx[b];
+                rank[b + 1] = rank[b];
+                b = b - 1;
+            }
+            idx[b + 1] = curIdx;
+            rank[b + 1] = curRank;
+            a = a + 1;
+        }
+        return idx;
+    }
+
+    // 清单所在工程若是某个 workspace 的成员（成员本尊或其子目录，如 `<member>/src`）→ 该 workspace
+    // 的全部成员名（用于 E0497 的「成员视作已声明」豁免，见 SdkLibs.WithMembers）；否则空表。
+    // 非成员（独立工程 / 成员目录里的嵌套清单，如 tests/<unit>）照旧按名声明——FindWorkspaceFor
+    // 只认成员目录本身，这里从源目录逐级向上试。workspace 坏了（成员环 / 重名）→ 空表：那是
+    // workspace 构建自己的错误，别让单包构建替它红。
+    public static string[] EnclosingMemberNames(string sourceDir) {
+        string dir = sourceDir;
+        while (dir.Length > 0) {
+            string wsToml = WorkspaceLayout.FindWorkspaceFor(dir);
+            if (wsToml.Length > 0) {
+                try {
+                    WorkspaceManifest ws = ManifestLoader.LoadWorkspace(wsToml);
+                    string d = Path.GetDirectoryName(wsToml);
+                    if (d.Length == 0) { d = "."; }
+                    WorkspaceMembers m = WorkspacePlan.DiscoverMembers(d, ws);
+                    string[] names = new string[m.Count];
+                    int i = 0;
+                    while (i < m.Count) { names[i] = m.Names[i]; i = i + 1; }
+                    return names;
+                } catch (Exception e) {
+                    return new string[0];
+                }
+            }
+            string parent = Path.GetDirectoryName(dir);
+            if (parent.Length == 0 || parent == dir) { break; }
+            dir = parent;
+        }
+        return new string[0];
+    }
+
+    // WS032：成员清单 `[dependencies]` 里按名声明（无 path / 无 deploy——那两种键有真实语义）的
+    // 同 workspace 成员 → 每条一行提示。没有 workspace / 没有违例 → 空表。
+    public static string[] RedundantDepWarnings(string wsToml) {
+        WorkspaceManifest ws = ManifestLoader.LoadWorkspace(wsToml);
+        string wsDir = Path.GetDirectoryName(wsToml);
+        if (wsDir.Length == 0) { wsDir = "."; }
+        WorkspaceMembers m = WorkspacePlan.DiscoverMembers(wsDir, ws);
+        string[] warns = new string[16];
+        int wn = 0;
+        int i = 0;
+        while (i < m.Count) {
+            string toml = m.Tomls[i];
+            ProjectManifest pm = ManifestLoader.Load(toml);
+            i = i + 1;
+            int d = 0;
+            while (d < pm.DepCount) {
+                DepEntry e = pm.Deps[d];
+                d = d + 1;
+                if (e.Path.Length > 0 || e.Deploy.Length > 0) { continue; }
+                if (WorkspacePlan.IndexOfName(m.Names, m.Count, e.Name) < 0) { continue; }
+                if (wn == warns.Length) {
+                    string[] grown = new string[wn * 2];
+                    int k = 0; while (k < wn) { grown[k] = warns[k]; k = k + 1; }
+                    warns = grown;
+                }
+                warns[wn] = "workspace: " + toml + " declares dependency on workspace member `" + e.Name
+                    + "` (WS032) — same-workspace deps resolve automatically; remove the entry";
+                wn = wn + 1;
+            }
+        }
+        string[] r = new string[wn];
+        int j = 0; while (j < wn) { r[j] = warns[j]; j = j + 1; }
+        return r;
+    }
+}

@@ -1,0 +1,86 @@
+// z42c driver —— exe 依赖 bundling 的**种子名单**（`BundleSeed` / `_bundleSeed`）。
+// 从 `_bundleExeDeps` 拆出（retire-member-dep-decls 顺带）：那个函数在 fn-lines 棘轮基线上，
+// 且种子来源从两处长到三处，值得有自己的家。
+namespace Z42.Driver;
+
+using Std.IO;
+using Z42.IR;
+using Z42.Package;
+using Z42.Project;
+
+// bundling 的工作名单（可变持有者：z42 无 out 参，扩容靠改自身字段而不是换调用方的数组引用）。
+public sealed class BundleSeed {
+    public string[] Names;
+    public string[] Deploys;   // 与 Names 平行：该依赖清单声明的 deploy（没声明 = ""，走默认判据）
+    public bool[]   SdkSkip;   // 与 Names 平行：own-DEPS 播种的条目 = true——未声明而解析自编译器
+                               // 目录时按 SDK 语义跳过；清单声明 / path 闭包 / BFS 级联（已拷包的
+                               // 传递依赖，自包含链必须跟随）= false，走既有默认
+    public int      N;
+    public BundleSeed(int cap) {
+        this.Names = new string[cap + 8];
+        this.Deploys = new string[cap + 8];
+        this.SdkSkip = new bool[cap + 8];
+        this.N = 0;
+    }
+    // 追加（重名跳过——先到的赢：直接声明 > 自身 DEPS / path 闭包）。满则倍增扩容。
+    public void Add(string name, string deploy) { BundleSeed._add(this, name, deploy, false); }
+    public void AddSdkSkip(string name) { BundleSeed._add(this, name, "", true); }
+    private static void _add(BundleSeed s, string name, string deploy, bool sdkSkip) {
+        int q = 0;
+        while (q < s.N) { if (s.Names[q] == name) { return; } q = q + 1; }
+        if (s.N == s.Names.Length) {
+            string[] nb = new string[s.Names.Length * 2];
+            string[] db = new string[s.Names.Length * 2];
+            bool[]   kb = new bool[s.Names.Length * 2];
+            int c = 0; while (c < s.N) { nb[c] = s.Names[c]; db[c] = s.Deploys[c]; kb[c] = s.SdkSkip[c]; c = c + 1; }
+            s.Names = nb; s.Deploys = db; s.SdkSkip = kb;
+        }
+        s.Names[s.N] = name; s.Deploys[s.N] = deploy; s.SdkSkip[s.N] = sdkSkip; s.N = s.N + 1;
+    }
+}
+
+// 待拷名单 = ① 直接声明的依赖（pm.Deps）∪ ② **本包刚写出的 zpkg 的 DEPS 段** ∪ ③ path 依赖闭包
+// （fix-path-dep-closure 那份），去重。
+//
+// ② 是 retire-member-dep-decls 引入：workspace 成员清单不再声明同 workspace 依赖（WS032，经成员 dist
+// 自动解析），z42c.driver 这样的成员 exe 原本靠 `[dependencies]` 那批条目当种子把兄弟包拷进自身 dist——
+// 条目删了，种子改从**产物自述**取：zpkg 的 DEPS 段由编译期 usings 生成，比清单声明更真（声明了没用的
+// 不再捆绑，用了没声明的不再漏）。顺带补上 `_bundleExeDeps` 尾注记的老缺口——「按名引用的依赖没有
+// 传递闭包」的第一跳（app 自己 import 了谁）从这里就有，后续跳仍由复制循环里的 DEPS BFS 走。
+BundleSeed _bundleSeed(ProjectManifest pm, string distDir, string[] closureNames, int closureN) {
+    BundleSeed s = new BundleSeed(pm.DepCount);
+    int pi = 0;
+    while (pi < pm.DepCount) { s.Add(pm.Deps[pi].Name, pm.Deps[pi].Deploy); pi = pi + 1; }
+    _seedOwnDeps(pm, distDir, s);
+    int ci = 0;
+    while (ci < closureN) { s.Add(closureNames[ci], ""); ci = ci + 1; }
+    return s;
+}
+
+// 本包各 main（[project].name + [[exe]] 目标）刚落盘的 zpkg → DEPS 段的包名（去 `.zpkg` 后缀、排除
+// 本包名）并入名单。zpkg 还没写出来 / 读不开 ⇒ 跳过（bundle 在产物写出后才跑，正常路径必然可读；
+// 防御的是手拼 dist 的边界）。
+void _seedOwnDeps(ProjectManifest pm, string distDir, BundleSeed s) {
+    string[] mains = new string[pm.ExeCount + 1];
+    mains[0] = pm.Project.Name;
+    int e = 0;
+    while (e < pm.ExeCount) { mains[e + 1] = pm.Exes[e].Name; e = e + 1; }
+    int k = 0;
+    while (k < mains.Length) {
+        string p = Path.Join(distDir, mains[k] + ".zpkg");
+        k = k + 1;
+        if (!File.Exists(p)) { continue; }
+        ZpkgInfo zi = null;
+        try { zi = ZpkgReader.Open(File.ReadAllBytes(p), p); } catch (Exception ex) { zi = null; }
+        if (zi == null) { continue; }
+        string[] deps = ZpkgReader.ReadDependencies(zi);
+        int d = 0;
+        while (d < deps.Length) {
+            string df = deps[d];
+            d = d + 1;
+            if (!df.EndsWith(".zpkg")) { continue; }   // DEPS 段存文件名（同 ExeDeps / SdkLibs 的约定）
+            string dn = df.Substring(0, df.Length - 5);
+            if (dn != pm.Project.Name) { s.AddSdkSkip(dn); }
+        }
+    }
+}

@@ -169,8 +169,10 @@ compression 那 12 个**不在** `BUILTINS` 里——它们由 cdylib 在加载�
 
 **全部 stdlib 自动可见，但 namespace 要 `using` 才激活。** 每个 `z42.*` 包都随工具链分发、无条件进
 编译器视野（`ScanLibsForNamespaces` / `BuildDepIndex` 对 `z42.*` 跳过 declared-deps 过滤），同 Rust
-不在 `Cargo.toml` 里列 `std`。`[dependencies]` 只为第三方包而设；非 `z42.*` 工程声明 `z42.*` 依赖 →
-`WS013`。
+不在 `Cargo.toml` 里列 `std`。`[dependencies]` 只为第三方包而设；声明 `z42.*` 依赖纯属冗余，其中
+「同 workspace 成员」子集由 workspace 构建按 **WS032** 逐条提示（文档案 `z42-toml.md` L6.2）。
+（历史注：早期文档曾把这条许给从未实现的 WS013；WS032 是它落地时收窄的、可执行的版本——SDK 库
+在普通工程里的按名声明是可见性种子，不提示。）
 
 这两条合起来的后果，经常被误解：**`Console` 物理上住在 `z42.core`（`src/IO/Console.z42`），但它的
 namespace 是 `Std.IO`，不在 prelude 名单里，所以 hello world 仍必须写 `using Std.IO;`**——不写报

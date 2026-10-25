@@ -41,7 +41,7 @@ using Z42.Pipeline;    // CompilerDomain（编译器域解析域，与 BuildSess
 //      框架包不拷也不递归（它的依赖同在 libs/）；`deploy = "shared"` 在循环开头就 continue。
 //   ⭐ 这个缺口的**症状离原因很远**：`app → mid → leaf` 而 dist/ 只有 mid.zpkg 时，拷出去
 //      **死在 mid 的方法里**（`MissingSymbolException`）——报的像是「mid 的代码有问题」。
-int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, string distDir, string[] libsDirs, int libsDirsN) {
+int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, string distDir, string[] libsDirs, int libsDirsN, WsTier tier) {
     // 复制判定（add-deployment-model 批 1）：**在不在 shipped `libs/`**（= `Z42_LIBS`）。
     // 在 → 框架，运行期从 libs/ 解析，不复制；不在 → 私有，复制进 dist。
     //
@@ -69,38 +69,15 @@ int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, stri
     //
     // 外部档 = `_extLibDirs()`（`Z42_LIBS`）——与解析面同一份。
     string[] frameworkDirs = _extLibDirs();
-    // 待拷名单 = 直接依赖 ∪ **path 依赖闭包全体**（去重，fix-path-dep-closure）。
-    // 闭包成员恒为私有包（按路径引入、其 dist 不在 Z42_LIBS）⇒ 判据自然判出「拷」，
-    // 不需要再单独记「这一项是不是 path 依赖」——那份平行数组随判据统一一起退休。
-    string[] names = new string[pm.DepCount + 8];
+    // 待拷名单 = 直接声明 ∪ 本包 zpkg 的 DEPS 段（usings 驱动，retire-member-dep-decls 起成员 exe 的
+    // 唯一种子）∪ **path 依赖闭包全体**（去重，fix-path-dep-closure）。构成与来源见 `BundleSeed.z42`。
+    BundleSeed seed = _bundleSeed(pm, distDir, closureNames, closureN);
+    string[] names = seed.Names;
+    string[] deploys = seed.Deploys;
+    bool[] sdkSkip = seed.SdkSkip;   // own-DEPS 播种位（见 BundleSeed.z42）
+    int nameN = seed.N;
     // `deploy`（add-deployment-model 批 4 use）与 names **并行**：直接依赖取清单声明的值，
-    // path 闭包成员取 `""`（它们不在 `[dependencies]` 里，无从声明）。
-    string[] deploys = new string[pm.DepCount + 8];
-    int nameN = 0;
-    int pi = 0;
-    while (pi < pm.DepCount) {
-        names[nameN] = pm.Deps[pi].Name;
-        deploys[nameN] = pm.Deps[pi].Deploy;
-        nameN = nameN + 1;
-        pi = pi + 1;
-    }
-    int ci = 0;
-    while (ci < closureN) {
-        string cn = closureNames[ci];
-        ci = ci + 1;
-        bool dup = false;
-        int q = 0;
-        while (q < nameN) { if (names[q] == cn) { dup = true; } q = q + 1; }
-        if (dup) { continue; }
-        if (nameN == names.Length) {
-            string[] nb = new string[names.Length * 2];
-            string[] db = new string[names.Length * 2];
-            int k = 0;
-            while (k < nameN) { nb[k] = names[k]; db[k] = deploys[k]; k = k + 1; }
-            names = nb; deploys = db;
-        }
-        names[nameN] = cn; deploys[nameN] = ""; nameN = nameN + 1;
-    }
+    // 其余来源（DEPS / path 闭包成员不在 `[dependencies]` 里，无从声明）取 `""`。
     // 散装 zbc 撞名判据（fix-bundle-indexed-deps）：本包自己的散装 zbc（本 dist 里自己那几个 indexed 主文件的
     // FILE 目录）+ 本轮已由别的依赖拷入的（rel → 依赖名）。上一轮拷来的旧副本不在两者之内 ⇒ 直接覆盖。
     StrMap ownZbc = _ownLooseZbc(pm, distDir);
@@ -109,6 +86,7 @@ int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, stri
     while (i < nameN) {
         string dep = names[i];
         string dpl = deploys[i];
+        bool ownSeed = sdkSkip[i];   // 在 i 自增前取——own-DEPS 播种位（见 BundleSeed.z42）
         i = i + 1;
         // 取值合法性已由 `_validateDeployDecls`（`_build` 开头）统一校验过 —— 批 4.3 起不在这里
         // 重做一遍：那份只在 exe 分支跑，lib / analyzer 写错的 `deploy` 会被整条跳过。
@@ -140,6 +118,18 @@ int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, stri
                 // 从外部档（框架目录）找到 ⇒ 框架，默认不复制（运行期同样从那儿解析）。
                 // `deploy = "copy"` **压过**这条：显式要自包含的，即使是框架包也复制。
                 if (dpl != "copy" && _inDirs(frameworkDirs, libsDirs[d])) {
+                    copied = true;
+                    d = libsDirsN;
+                    continue;
+                }
+                // retire-member-dep-decls：**未声明**的条目（own-DEPS / path 闭包播种进来的）若解析自
+                // **编译器目录**（SDK 库），按 SDK 语义不复制（运行期从所在 SDK 解析）——声明过的
+                // 不走这条：`[dependencies]` 的既定默认是复制（用户 exe 自包含，z42-toml.md），要免复制
+                // 得显式 `deploy = "sdk"` / `"shared"`。workspace 成员 dist 段（`d < tier.MemberDirs`）
+                // 除外：本轮成员产物照旧拷进成员 exe 的 dist 保自包含（z42c.driver）。
+                if (ownSeed && dpl != "copy" && dpl != "sdk"
+                    && (tier == null || d >= tier.MemberDirs)
+                    && _isCompilerDomainDir(libsDirs[d])) {
                     copied = true;
                     d = libsDirsN;
                     continue;
@@ -185,19 +175,34 @@ int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, stri
                         // DEPS 段存的是**文件名**（`z42.core.zpkg`），names 里是包名。
                         if (!_isZpkgRef(sf)) { continue; }
                         string sn = sf.Substring(0, sf.Length - 5);
+                        // 已拷包的传递依赖必须随行（自包含链）——复制语义**压过** own-DEPS 的 SDK
+                        // 跳过位：该名字若带跳过位入表，清掉；已被跳过处理过的（序号在本轮游标之前），
+                        // 以普通条目重挂一份让复制发生。
                         bool seen = false;
+                        bool reappend = false;
                         int sq = 0;
-                        while (sq < nameN) { if (names[sq] == sn) { seen = true; } sq = sq + 1; }
-                        if (seen) { continue; }
+                        while (sq < nameN) {
+                            if (names[sq] == sn) {
+                                seen = true;
+                                if (sdkSkip[sq]) {
+                                    sdkSkip[sq] = false;
+                                    if (sq < i) { reappend = true; }
+                                }
+                            }
+                            sq = sq + 1;
+                        }
+                        if (seen && !reappend) { continue; }
                         if (nameN == names.Length) {
                             string[] nb2 = new string[names.Length * 2];
                             string[] db2 = new string[names.Length * 2];
+                            bool[] kb2 = new bool[names.Length * 2];
                             int k2 = 0;
-                            while (k2 < nameN) { nb2[k2] = names[k2]; db2[k2] = deploys[k2]; k2 = k2 + 1; }
-                            names = nb2; deploys = db2;
+                            while (k2 < nameN) { nb2[k2] = names[k2]; db2[k2] = deploys[k2]; kb2[k2] = sdkSkip[k2]; k2 = k2 + 1; }
+                            names = nb2; deploys = db2; sdkSkip = kb2;
                         }
-                        // 间接依赖不在 `[dependencies]` 里，无从声明 deploy ⇒ 走默认判据。
-                        names[nameN] = sn; deploys[nameN] = ""; nameN = nameN + 1;
+                        // 间接依赖不在 `[dependencies]` 里，无从声明 deploy ⇒ 走默认判据（SdkSkip = false：
+                        // 已拷包的传递链必须跟随，见 BundleSeed.z42）。
+                        names[nameN] = sn; deploys[nameN] = ""; sdkSkip[nameN] = false; nameN = nameN + 1;
                     }
                 }
                 d = libsDirsN;   // break
@@ -214,15 +219,9 @@ int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, stri
     return ExitCode.Ok;
 }
 
-// 🔴 **剩下的缺口：按名引用的依赖没有传递闭包。**
-// `path` 依赖的闭包已由 fix-path-dep-closure 搬齐（上面那份 `closureNames`）；**按名**引用的
-// 依赖（`"foo" = "1.0"`）若自己还依赖别的非框架包，那一层今天不会被搬。
-// 做不到的原因很具体：建闭包要知道「某个依赖自己依赖了谁」，而 z42 侧 today 读不出 zpkg 的
-// DEPS 段（只有 Rust 侧 `zbc_reader/zpkg.rs` 解码它）。靠源码树的 toml 去找是 publisher 今天
-// 的做法，而那条路**在 repo 外整个失效**（`srcRoot == ""` ⇒ 每个依赖都 continue，零复制零递归）
-// —— 把它搬过来等于把一个更大的毛病也搬过来。
-// ⇒ 正解是先给 z42 侧补 zpkg DEPS 解码（support 先行、卡一个 nightly）。
-// 见 `变更 add-deployment-model/tasks.md` 批 2。
+// 🔴 **曾经剩下的缺口：按名引用的依赖没有传递闭包**（`app → mid → leaf` 而 app 只按名声明 mid）。
+// retire-member-dep-decls 起从两头补上：第一跳 = 本包 zpkg 的 DEPS 段（`_bundleSeed` ②，usings 驱动），
+// 后续跳 = 上面复制循环里对已拷包的 DEPS BFS。清单声明如今只贡献 `deploy` 键，不再承担「谁要拷」。
 
 // `z42c build --workspace [--output-dir <flat>] [--release]`：从 CWD 向上找
 // z42.workspace.toml → 成员拓扑序 → 逐成员 build。
@@ -284,6 +283,14 @@ int _chkDeployValue(string section, string name, string value) {
 bool _inDirs(string[] dirs, string dir) {
     int i = 0;
     while (i < dirs.Length) { if (dirs[i] == dir) { return true; } i = i + 1; }
+    return false;
+}
+
+// 名字是否在清单 `[dependencies]` 里声明过（deploy 值无关——这里只区分「声明的默认面」与
+// own-DEPS / 闭包播种的未声明条目，见 _bundleExeDeps 的 SDK 域跳过分支）。
+bool _declaredByName(ProjectManifest pm, string name) {
+    int i = 0;
+    while (i < pm.DepCount) { if (pm.Deps[i].Name == name) { return true; } i = i + 1; }
     return false;
 }
 

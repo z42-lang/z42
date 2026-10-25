@@ -12,43 +12,39 @@
 # 自动发现：BuildLibsDirs 在 artifacts/build/libraries/ 下搜索每个 member
 # 的 dist 子目录，stdlib 编译时各 member 能找到先前编译的产物。
 #
-# Spec: 变更 redesign-artifact-layout/
-
-[workspace]
-members = ["*"]
-# Topologically ordered (declared order must respect deps even though z42c
-# also runs a topo-sort, in case a build path falls back to literal order):
-#   z42.core       → (no deps)
-#   z42.collections / encoding / math / text / time / toml → (need core only)
-#   z42.random     → (needs z42.time for wall-clock default seed)
-#   z42.io         → (needs z42.time for Std.Process.Timeout/TimeSpan)
-#   z42.json       → (needs z42.text for StringBuilder)
-#   z42.harness    → (needs z42.io for Bencher.Std.IO.Console)
+# 🔴 成员清单**不再声明**同 workspace 依赖（retire-member-dep-decls）：解析靠上面的 dist 自动发现，
+# 声明了只剩冗余——`z42c build --workspace` 与 z42b 会按 WS032 逐条提示删除。于是
+# **`default_members` 的声明序就是构建顺序**：某个成员 import 了谁，谁就必须排在它前面；
+# 排错了不是静默错序，而是当场「找不到依赖/命名空间」的硬错误。调整依赖结构时同步改这份序。
+#   约束（源码可见性之外仅此一条环约束）：z42.random 不得 import z42.crypto——
+#   crypto → numerics → random 成环；FromEntropy() 种子留待熵原语就位（random-future-seed-from-entropy-residual）。
 # 🔴 **本 workspace 只放用户 stdlib（`Std.*`）**。工具链/编译器域的包（`z42c.core` / `z42c.syntax` /
 # `z42.package` / `z42.project` / `z42.build` / `z42.scripting`）已挪去 `src/compiler/`
 # （relocate-compiler-domain-libs，2026-09-27）——**物理位置就是「这是编译器域」的声明**，
 # 普通工程的解析域只有 shipped `libs/`，结构上就看不到它们；要用得在 `[dependencies]` 里显式引用。
 # 挪动不改包名/命名空间 ⇒ zpkg 文件名不变 ⇒ 不涉及种子纪律。
+[workspace]
+members = ["*"]
 default_members = [
-    "z42.core",
+    "z42.core",        # ← 一切的地基；Std.Time / Std.Text 的时间与文本基元都在这
     "z42.collections",
     "z42.encoding",
     "z42.text",
-    "z42.toml",
-    "z42.random",
-    "z42.uri",
-    "z42.threading",
-    "z42.io",
-    "z42.diagnostics",
-    "z42.regex",
-    "z42.cli",
-    "z42.json",
-    "z42.crypto",
-    "z42.compression",
-    "z42.yaml",
-    "z42.net",
-    "z42.numerics",
-    "z42.harness",
+    "z42.io",          # core / encoding / text
+    "z42.toml",        # core / io
+    "z42.diagnostics", # core / io
+    "z42.threading",   # core / diagnostics
+    "z42.uri",         # core / text
+    "z42.regex",       # core
+    "z42.cli",         # core / text / io
+    "z42.json",        # core / text / io
+    "z42.random",      # core
+    "z42.numerics",    # core / random
+    "z42.crypto",      # core / encoding / numerics
+    "z42.compression", # core / io
+    "z42.yaml",        # core / io
+    "z42.net",         # core / io / encoding / random / crypto / threading / compression
+    "z42.harness",     # core / io
 ]
 
 [workspace.build]

@@ -1,0 +1,4 @@
+using Std.IO;
+using WsLib;
+
+void Main() { Console.WriteLine(W.V()); }

@@ -1,0 +1,10 @@
+desc = "成员清单按名声明同 workspace 成员 → WS032 逐条提示、构建照常；构建序听 default_members（名字序会把 wsapp 排在 wslib 前）"
+args = ["build", "--workspace"]
+exit = 0
+stderr_contains = ["WS032", "`wslib`"]
+exists = ["artifacts/wsapp/debug/dist/wsapp.zpkg", "artifacts/wslib/debug/dist/wslib.zpkg"]
+
+[run]
+target = "artifacts/wsapp/debug/dist/wsapp.zpkg"
+exit = 0
+stdout_equals = "7"

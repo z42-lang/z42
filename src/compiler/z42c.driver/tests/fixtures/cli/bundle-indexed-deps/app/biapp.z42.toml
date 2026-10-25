@@ -5,6 +5,3 @@ kind    = "exe"
 
 [sources]
 include = ["*.z42"]
-
-[dependencies]
-"bilib" = "0.1.0"

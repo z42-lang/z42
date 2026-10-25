@@ -1,0 +1,11 @@
+[project]
+name    = "wsapp"
+version = "0.1.0"
+kind    = "exe"
+
+[sources]
+include = ["*.z42"]
+
+# 🔴 故意保留的同 workspace 成员依赖声明：WS032 的靶子（构建照常、stderr 逐条提示）。
+[dependencies]
+"wslib" = "0.1.0"

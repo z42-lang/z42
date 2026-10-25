@@ -241,10 +241,7 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
 
     // 5.1c — load the user artifact.
     let user_artifact = crate::metadata::load_artifact(file)?;
-    {
-        let byte_size = std::fs::metadata(file).ok().map(|m| m.len());
-        loaded_for_replay.push((file.to_string(), byte_size));
-    }
+    register_entry_as_loaded(file, &mut loaded_paths, &mut initially_loaded_zpkgs, &mut loaded_for_replay);
 
     // 5.1d — dependency loading strategy: Interp / JIT → pure lazy (declared
     // candidates drive on-demand load); AOT → eager transitive BFS (whole
@@ -446,6 +443,36 @@ if ctx.core.sampler.enabled() {
 
 }
 
+
+/// 入口 artifact 的三重登记（fix-entry-self-reload）：
+/// · `loaded_for_replay` —— observer 的 `ModuleLoaded` 事件重放；
+/// · `initially_loaded_zpkgs` —— **入口自己的文件名**也进惰性加载器的已载集。缺了它，入口仍是
+///   惰性候选（入口目录正是第一个搜索目录），任何一次 provider / fallback 加载都会把**正在运行
+///   的入口**从磁盘再读一遍：全部符号二次注册、逐类型记歧义，随后第一个入口类型的实例化当场拒用
+///   （自举 driver dist 实测：`Z42.Driver.* is provided by more than one loaded package`）；
+/// · `loaded_paths` —— AOT 急切 BFS 的 canonical-path 去重集，防依赖链绕回入口时重复合并。
+/// 裸 `.zbc` 的 basename 不会与任何 zpkg 候选撞名，登记无副作用。
+fn register_entry_as_loaded(
+    file: &str,
+    loaded_paths: &mut HashSet<PathBuf>,
+    initially_loaded_zpkgs: &mut Vec<String>,
+    loaded_for_replay: &mut Vec<(String, Option<u64>)>,
+) {
+    let byte_size = std::fs::metadata(file).ok().map(|m| m.len());
+    loaded_for_replay.push((file.to_string(), byte_size));
+    let p = std::path::Path::new(file);
+    if let Some(entry_name) = p.file_name().and_then(|n| n.to_str()) {
+        initially_loaded_zpkgs.push(entry_name.to_string());
+        // register_loaded_artifact 的幂等键还有 `__loaded_path__<module>` 形态（模块名，去扩展）——
+        // 两个键都要登记，缺一个都会漏判（同 #1393 的观察）。
+        if let Some(stem) = entry_name.strip_suffix(".zpkg") {
+            initially_loaded_zpkgs.push(format!("__loaded_path__{stem}"));
+        }
+    }
+    if let Ok(entry_canonical) = p.canonicalize() {
+        loaded_paths.insert(entry_canonical);
+    }
+}
 
 /// Build the declared-but-not-loaded zpkg candidate set for the lazy loader.
 ///
