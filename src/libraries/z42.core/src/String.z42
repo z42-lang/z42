@@ -54,6 +54,12 @@ public sealed partial class String : IComparable, IEquatable {
     // replace-fastpath：单字符整体替换的 native 底座（零命中原样返回）。仅 Replace 内部使用。
     [Native("__str_replace_char")] private static extern string _replaceChar(string s, char oldChar, char newChar);
 
+    // native-str-indexof：四个查找重载的 native 底座（Rust find/rfind，标量下标）。仅本类使用。
+    [Native("__str_index_of_char")] private static extern int _nativeIndexOfChar(string s, char c);
+    [Native("__str_last_index_of_char")] private static extern int _nativeLastIndexOfChar(string s, char c);
+    [Native("__str_index_of")] private static extern int _nativeIndexOf(string s, string needle);
+    [Native("__str_last_index_of")] private static extern int _nativeLastIndexOf(string s, string needle);
+
     // ── Object 协议覆盖 ───────────────────────────────────────────────────────
 
     /// 返回自身。
@@ -110,58 +116,22 @@ public sealed partial class String : IComparable, IEquatable {
     // 实现：物化整串 char[] 后朴素 O(n·m) 两指针扫描，ArrayGet 取字符比逐字符
     // CharAt（builtin 派发）快。
     public int IndexOf(string value) {
-        char[] h = this.ToCharArray();
-        char[] n = value.ToCharArray();
-        int tn = h.Length;
-        int vn = n.Length;
-        if (vn == 0) return 0;
-        if (vn > tn) return -1;
-        int limit = tn - vn;
-        for (int i = 0; i <= limit; i++) {
-            bool match = true;
-            for (int j = 0; j < vn; j++) {
-                if (h[i + j] != n[j]) { match = false; break; }
-            }
-            if (match) return i;
-        }
-        return -1;
+        return String._nativeIndexOf(this, value);   // native-str-indexof：Rust find，零物化
     }
 
     /// `value` 首次出现的索引，未命中 -1。
     public int IndexOf(char value) {
-        char[] h = this.ToCharArray();
-        int n = h.Length;
-        for (int i = 0; i < n; i++) {
-            if (h[i] == value) return i;
-        }
-        return -1;
+        return String._nativeIndexOfChar(this, value);   // native-str-indexof：Rust find，零物化
     }
 
     /// `value` 最后一次出现的索引（标量单位），未命中 -1；`LastIndexOf("")` → Length。
     public int LastIndexOf(string value) {
-        char[] h = this.ToCharArray();
-        char[] n = value.ToCharArray();
-        int tn = h.Length;
-        int vn = n.Length;
-        if (vn == 0) return tn;
-        if (vn > tn) return -1;
-        for (int i = tn - vn; i >= 0; i--) {
-            bool match = true;
-            for (int j = 0; j < vn; j++) {
-                if (h[i + j] != n[j]) { match = false; break; }
-            }
-            if (match) return i;
-        }
-        return -1;
+        return String._nativeLastIndexOf(this, value);   // native-str-indexof：Rust rfind，零物化
     }
 
     /// `value` 最后一次出现的索引，未命中 -1。
     public int LastIndexOf(char value) {
-        char[] h = this.ToCharArray();
-        for (int i = h.Length - 1; i >= 0; i--) {
-            if (h[i] == value) return i;
-        }
-        return -1;
+        return String._nativeLastIndexOfChar(this, value);   // native-str-indexof：Rust rfind，零物化
     }
 
     /// 替换全部出现的 `oldValue` 为 `newValue`。`oldValue` 为空串抛异常。

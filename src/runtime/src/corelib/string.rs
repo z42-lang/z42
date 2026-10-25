@@ -89,6 +89,32 @@ pub mod typed {
         s.replace(old, &new.to_string())
     }
 
+    /// native-str-indexof：`IndexOf(char)` —— Rust `find`，零物化。未命中 -1（标量下标）。
+    #[builtin(name = "__str_index_of_char", this = "_nativeIndexOfChar", pure)]
+    pub fn index_of_char(s: &str, c: char) -> i64 {
+        match s.find(c) { Some(at) => s[..at].chars().count() as i64, None => -1 }
+    }
+
+    /// `LastIndexOf(char)` —— Rust `rfind`。未命中 -1。
+    #[builtin(name = "__str_last_index_of_char", this = "_nativeLastIndexOfChar", pure)]
+    pub fn last_index_of_char(s: &str, c: char) -> i64 {
+        match s.rfind(c) { Some(at) => s[..at].chars().count() as i64, None => -1 }
+    }
+
+    /// `IndexOf(string)` —— 空针 0、未命中 -1（标量下标）。Rust `find`，零物化。
+    #[builtin(name = "__str_index_of", this = "_nativeIndexOf", pure)]
+    pub fn index_of(s: &str, needle: &str) -> i64 {
+        if needle.is_empty() { return 0; }
+        match s.find(needle) { Some(at) => s[..at].chars().count() as i64, None => -1 }
+    }
+
+    /// `LastIndexOf(string)` —— 空针 Length、未命中 -1（标量下标）。
+    #[builtin(name = "__str_last_index_of", this = "_nativeLastIndexOf", pure)]
+    pub fn last_index_of(s: &str, needle: &str) -> i64 {
+        if needle.is_empty() { return s.chars().count() as i64; }
+        match s.rfind(needle) { Some(at) => s[..at].chars().count() as i64, None => -1 }
+    }
+
     #[builtin(name = "__str_split", this = "Split")]
     pub fn split(ctx: &VmContext, s: &crate::metadata::vstr::Str, sep: &str) -> Result<crate::metadata::Value, BuiltinError> {
         super::str_split(ctx, s, sep)

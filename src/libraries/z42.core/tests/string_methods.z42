@@ -101,6 +101,8 @@ void test_index_of() {
     Assert.Equal(-1, "hello".IndexOf("z"));
     Assert.Equal(0, "hello".IndexOf(""));    // 空针 → 0
     Assert.Equal(-1, "hi".IndexOf("hello")); // 针比干草长
+    Assert.Equal(2, "hello".IndexOf('l'));       // char 重载
+    Assert.Equal(-1, "hello".IndexOf('z'));
 }
 
 // ── Replace ───────────────────────────────────────────────────────────────
@@ -287,4 +289,27 @@ void test_hashcode_stable_for_equal_strings() {
     // 相等字符串哈希必相等（"a"+"bc" 与字面 "abc" 同值）。
     string built = "a" + "bc";
     Assert.Equal("abc".GetHashCode(), built.GetHashCode());
+}
+
+// ── LastIndexOf + 多字节标量下标（native-str-indexof：Rust find/rfind 底座）──────
+
+[Test]
+void test_last_index_of_native() {
+    Assert.Equal(3, "hello".LastIndexOf('l'));
+    Assert.Equal(-1, "hello".LastIndexOf('z'));
+    Assert.Equal(5, "a.b.c.".LastIndexOf('.'));
+    Assert.Equal(2, "abab".LastIndexOf("ab"));
+    Assert.Equal(-1, "hello".LastIndexOf("xyz"));
+    Assert.Equal(5, "hello".LastIndexOf(""));     // 空针 → Length
+    Assert.Equal(1, "aa".LastIndexOf("a"));
+}
+
+[Test]
+void test_index_of_multibyte_scalar_units() {
+    // 下标按 Unicode 标量（原生实现用 chars().count()，不按字节）：
+    // café你 → c=0,a=1,f=2,é=3,你=4
+    Assert.Equal(4, "café你".IndexOf('你'));
+    Assert.Equal(3, "café你".IndexOf('é'));
+    Assert.Equal(1, "aéb".IndexOf("éb"));
+    Assert.Equal(4, "café你".LastIndexOf('你'));
 }
