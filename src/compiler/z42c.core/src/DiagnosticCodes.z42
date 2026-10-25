@@ -214,7 +214,7 @@ public static class DiagnosticCodes {
     public static string NullableFieldNotSnapshotted = "E0484";  // 直接解引用一个标了 `?` 的**字段/属性**，而没有先快照到局部。与形参（E0478）分成两码，是因为**修法不同**：形参就地 `if (s != null)` 就够，字段不行。字段不是一个「值」，是一个**每次读都重新求值的位置**——`if (this.F != null) { this.F.M(); }` 里的两个 `this.F` 是两次独立的读：别的线程能在中间写；`F` 若是属性还是两次真调用，返回值可以不同。所以字段**永不就地窄化**，修法是 `var v = this.F; if (v != null) { … }`（局部是个值，检查一次就永远成立）。⚠️ 跨包暂不携带标记（字段的 TSIG 拼写走 `SurfaceTypeName`，`?` 已擦除）⇒ 导入字段一律视为未标，**漏报**方向。
     public static string DeconstructShadowsMember = "W0701";
     // ── W08xx doc 注释（z42-doc §4.7；首批发射点在 z42.doc 的 DocLint.z42——xtask 门禁
-    //    `check doc-lints` 的引擎，字面量发射见 diag-literal-emitters.txt；编译器内建
+    //    `check doc-lints` 的引擎，字面量发射见 gates.toml [diagcodes-literal]；编译器内建
     //    DocChecker pass（W0803 + [lints] 级别决策）是后续 PR）─────────────────────────
     public static string DocOrphanBlock          = "W0801";   // 孤立的 /// / //!（后面没有声明认领）
     public static string DocParamName            = "W0802";   // @param / @typeparam 名不在签名里
