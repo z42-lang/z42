@@ -18,7 +18,7 @@ graph LR
 
 ## z42c 的组成
 
-z42c 按依赖顺序分成十二个逻辑包；`driver` 是唯一的可执行程序，也就是 `z42c` 命令。**物理布局**：全部在 `src/compiler/` 这一个 workspace 里——可移植前端 `z42c.core` / `z42c.syntax`，符号层 `z42c.symbols`（符号收集 / 符号表 / 跨包导入装载 / 类型模型 / struct 布局；物理上独立成包，命名空间与语义层同为 `Z42.Semantics`），语义层 `z42c.semantics`（绑定 / 类型检查 / 校验 / 导出抽取），后端四包 `z42c.optimization` / `z42c.emission` / `z42c.pipeline` / `z42c.driver`，编译期扩展 `z42c.analyzers`（analyzer 契约 + 引擎，只读 AST）与 `z42c.generators`（generator 契约 + 多轮引擎，改写源码结构），IR·后端库 `z42.package`（含 zbc/zpkg 后端），清单模型 `z42.project`。依赖单向无环，各包细节见后续各章。符号层与语义层零引用代码生成层（`emission`：Bound → IR + 编译编排），代码生成只对无错误的程序运行。同一 workspace 还住着三个不属于 z42c 本体的编译器域库：`z42.build`（z42b 构建框架，见下）、`z42.doc`（文档索引与 `z42 doc`，见[文档索引与 `z42 doc`](../toolchain/doc.md)）、`z42.scripting`（REPL / 脚本引擎，见 [REPL](../toolchain/repl.md)）。
+z42c 按依赖顺序分成十一个逻辑包；`driver` 是唯一的可执行程序，也就是 `z42c` 命令。**物理布局**：全部在 `src/compiler/` 这一个 workspace 里——可移植前端 `z42c.core` / `z42c.syntax`，符号层 `z42c.symbols`（符号收集 / 符号表 / 跨包导入装载 / 类型模型 / struct 布局；物理上独立成包，命名空间与语义层同为 `Z42.Semantics`），语义层 `z42c.semantics`（绑定 / 类型检查 / 校验 / 导出抽取），后端四包 `z42c.optimization` / `z42c.emission` / `z42c.pipeline` / `z42c.driver`，编译期扩展 `z42c.plugin`（一个包双命名空间：`Z42.Analyzers` analyzer 契约 + 引擎只读 AST；`Z42.Generators` generator 契约 + 多轮引擎改写源码结构），IR·后端库 `z42.package`（含 zbc/zpkg 后端），清单模型 `z42.project`。依赖单向无环，各包细节见后续各章。符号层与语义层零引用代码生成层（`emission`：Bound → IR + 编译编排），代码生成只对无错误的程序运行。同一 workspace 还住着三个不属于 z42c 本体的编译器域库：`z42.build`（z42b 构建框架，见下）、`z42.doc`（文档索引与 `z42 doc`，见[文档索引与 `z42 doc`](../toolchain/doc.md)）、`z42.scripting`（REPL / 脚本引擎，见 [REPL](../toolchain/repl.md)）。
 
 | 包 | 职责 | 关键文件 |
 |------|------|---------|

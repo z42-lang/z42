@@ -1,0 +1,10 @@
+[project]
+name    = "e2e.miniapp"
+version = "0.1.0"
+kind    = "exe"
+
+[sources]
+include = ["src/**/*.z42"]
+
+[plugins]
+"e2e.minigen" = { path = ".." }

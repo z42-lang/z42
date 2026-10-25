@@ -1312,7 +1312,7 @@ monorepo/
 # ── 工程清单 <name>.z42.toml ───────────────────────────────────────────────
 [project]
 name        = "my-app"          # 必填
-version     = "0.1.0"           # 必填，SemVer
+version     = "0.1.0"           # 必填，SemVer（例外：kind = "plugin" 可省，默认 "0.1.0"）
 kind        = "exe"             # exe | lib | analyzer；多目标用 [[exe]] 时省略
 pack        = false             # 可选；省略 → debug indexed / release packed
 description = ""                # 可选，纯元数据

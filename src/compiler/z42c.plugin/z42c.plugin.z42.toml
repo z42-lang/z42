@@ -1,0 +1,16 @@
+# z42c.plugin — 编译期插件契约包（z42c-plugin-merge：z42c.analyzers + z42c.generators 合一）。
+# 一个包、两个命名空间（Z42.Analyzers / Z42.Generators）——契约 FQN 不动，既有插件与能力位推导零改动：
+#   · analyzer 面：Analyzer / DiagRule / DiagSink / SyntaxKind / AnalyzerDriver / AnalyzerLoader / [lints]（LintConfig）
+#   · generator 面：Generator / ModuleGenerator / GenSink / GenTarget / GenContext / 多轮引擎 / 内建 [Forward]
+# 写插件的工程依赖本包（+ z42c.syntax 拿 AST 节点）；编译器侧由 z42c.pipeline 的前置线 ③④ 调用。
+# 旧包名 z42c.analyzers / z42c.generators 已删——依赖它们按「找不到包」报，改写 z42c.plugin。
+[project]
+name    = "z42c.plugin"
+version = "0.1.0"
+kind    = "lib"
+
+[dependencies]
+"z42c.symbols"  = "0.1.0"   # 符号世界（generator 的 GenTarget / GenContext 暴露解析后的符号；命名空间仍 Z42.Semantics）
+"z42c.core"     = "0.1.0"   # Span / Diagnostic / DiagnosticBag / DiagnosticCodes
+"z42c.syntax"   = "0.1.0"   # Parser / CompilationUnit / AST / SuppressionSet
+"z42c.semantics" = "0.1.0"  # SymbolCollector / SymbolTable / Z42ClassType / ImportedSymbols / HandlerRegistry

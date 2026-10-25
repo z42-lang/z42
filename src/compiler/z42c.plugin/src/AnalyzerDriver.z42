@@ -250,14 +250,7 @@ public static class AnalyzerDriver {
             return;
         }
         if (s is SwitchStmt) {
-            SwitchStmt sw = s as SwitchStmt;
-            int i = 0;
-            while (i < sw.CaseCount) {
-                SwitchCase cs = sw.Cases[i];
-                int j = 0;
-                while (j < cs.BodyCount) { AnalyzerDriver._walkStmt(cs.Body[j], a, kinds, sink); j = j + 1; }
-                i = i + 1;
-            }
+            AnalyzerDriver._walkSwitch(s as SwitchStmt, a, kinds, sink);
             return;
         }
         if (s is TryCatchStmt) {
@@ -285,6 +278,17 @@ public static class AnalyzerDriver {
         }
         // 其余语句（Expr/Return/VarDecl/Throw/Break/Continue/Deconstruct）无子语句 → 无需深入。
     }
+    // Switch 分支遍历（从 _walkStmt 抽出——fnlines 硬限；z42c-plugin-merge 搬包触发重计）。
+    private static void _walkSwitch(SwitchStmt sw, Analyzer a, int[] kinds, DiagSink sink) {
+        int i = 0;
+        while (i < sw.CaseCount) {
+            SwitchCase cs = sw.Cases[i];
+            int j = 0;
+            while (j < cs.BodyCount) { AnalyzerDriver._walkStmt(cs.Body[j], a, kinds, sink); j = j + 1; }
+            i = i + 1;
+        }
+    }
+
 
     // 分派：节点 kind 在 analyzer 的 ObservedKinds 内即调 OnSyntaxNode（纯虚接口调用，无 delegate）。
     private static void _dispatch(int kind, object node, Analyzer a, int[] kinds, DiagSink sink) {

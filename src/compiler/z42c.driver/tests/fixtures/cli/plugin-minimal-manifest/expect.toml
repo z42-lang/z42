@@ -1,0 +1,11 @@
+desc = "最小插件清单（name + kind 两行）：version 默认 0.1.0、sources 默认 src/**、契约包免声明——path 条目代建后 generator 产的符号在消费方可用（见 README）"
+
+[[step]]
+args = ["build", "app/z42.z42.toml", "--release"]
+exit = 0
+
+[[step]]
+tool = "run"
+target = "app/dist/e2e.miniapp.zpkg"
+exit = 0
+stdout_equals = "7"

@@ -244,6 +244,10 @@ public static class ManifestLoader {
             p.TryGetValue<string>("name",    ref name);
             p.TryGetValue<string>("version", ref version);
             p.TryGetValue<string>("kind",    ref kind);      // 未命中保留默认 "lib"；合法性由 ManifestKnobs.Resolve 判
+            // plugin-minimal-manifest：插件工程可省略 version（默认 "0.1.0"）——最小插件清单只剩
+            // name + kind 两行（sources 默认 src/**、契约包免声明、stdlib 免声明）。lib/exe 不缺省：
+            // 发布版本是库/应用对外契约的一部分，写错默认值会静默漂移；插件多为仓内工件，版本负担不值。
+            if (version.Length == 0 && kind == "plugin") { version = "0.1.0"; }
             hasPack  = p.TryGetValue<bool>("pack",    ref pack);
         }
         // `[project] entry` 不是清单键（入口由 z42c 自动检测唯一的 `Main()`）；写了由 ManifestKeys 报错。

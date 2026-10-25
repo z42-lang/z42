@@ -2,7 +2,7 @@
 #
 # 本 workspace = **整个编译器域**（relocate-compiler-domain-libs，2026-09-27）：
 #   后端 5 包    z42c.optimization / z42c.semantics / z42c.emission / z42c.pipeline / z42c.driver
-#   编译期扩展    z42c.analyzers（analyzer 契约 + 引擎）/ z42c.generators（generator 契约 + 引擎）
+#   编译期扩展    z42c.plugin（analyzer + generator 契约与引擎合一，双命名空间 Z42.Analyzers / Z42.Generators）
 #   可移植前端    z42c.core / z42c.syntax（Lexer/Parser/AST/Span/Diagnostic）
 #   格式与模型    z42.package（IR + zbc/zpkg 后端）/ z42.project（工程清单）/ z42.build（构建管线）
 #   eval 内核     z42.scripting（Std.Scripting；命名空间待后续改名批次归位）
@@ -31,15 +31,14 @@ members = ["*"]
 # 拓扑序（叶子在前；z42c 也会 topo-sort，显式序作 fallback）：
 #   z42c.core             → (prelude only)
 #   z42c.syntax           → z42c.core
-#   z42c.analyzers        → z42c.core, z42c.syntax + stdlib(io)（analyzer 契约 + 加载 + 驱动 + [lints]；不依赖语义层）
 #   z42.package           → z42.core / encoding / io / crypto（stdlib）
 #   z42.project           → z42.core / io / toml（stdlib）
 #   z42.build             → z42.core / io（stdlib）, z42.project
 #   z42c.optimization     → z42.package（IR → IR 优化管线，与语义分析无关）
 #   z42c.semantics        → z42c.core, z42c.syntax, z42.package（符号 / 绑定 / 检查，不依赖代码生成）
-#   z42c.generators       → z42c.core, z42c.syntax, z42c.semantics（generator 契约 + 加载 + 多轮引擎 + 内建 [Forward]）
+#   z42c.plugin           → z42c.core, z42c.syntax, z42c.symbols, z42c.semantics（analyzer 契约+加载+驱动+[lints]；generator 契约+加载+多轮引擎+内建 [Forward]）
 #   z42c.emission         → z42c.core, z42c.syntax, z42.package, z42c.optimization, z42c.semantics（代码生成 + 编译编排）
-#   z42c.pipeline         → z42c.core, z42c.syntax, analyzers, semantics, generators, emission, optimization, z42.package, z42.project
+#   z42c.pipeline         → z42c.core, z42c.syntax, plugin, semantics, emission, optimization, z42.package, z42.project
 #   z42c.driver           → pipeline, emission, semantics, optimization, z42.package, z42c.core
 #   z42.scripting         → z42c.core, z42c.syntax, z42.build + stdlib(core/io/test/threading)
 #                            置于末尾：依赖面最宽
@@ -50,15 +49,14 @@ members = ["*"]
 default_members = [
     "z42c.core",
     "z42c.syntax",
-    "z42c.analyzers",
-    "z42.package",
+        "z42.package",
     "z42.project",
     "z42.build",
     "z42c.optimization",
     "z42c.symbols",
     "z42c.semantics",
-    "z42c.generators",
-    "z42c.emission",
+    "z42c.plugin",
+        "z42c.emission",
     "z42c.pipeline",
     "z42c.driver",
     "z42.scripting",

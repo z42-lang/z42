@@ -10,15 +10,14 @@
 |------|:----:|------|------|
 | `z42c.core` | lib | `Z42.Core`（Span / Diagnostic / Features）| — |
 | `z42c.syntax` | lib | `Z42.Syntax`（Lexer + Parser + AST + 诊断局部抑制 `SuppressionSet`）| z42c.core |
-| `z42c.analyzers` | lib | `Z42.Analyzers`（编译期 analyzer：契约 + 外部 zpkg 加载 + AST 遍历驱动 + `[lints]` 决策；只读 AST）| z42c.core, z42c.syntax |
+| `z42c.plugin` | lib | `Z42.Analyzers` + `Z42.Generators`（编译期插件契约包合一：analyzer 契约/加载/驱动/`[lints]` + generator 契约/加载/多轮引擎/内建 `[Forward]`）| z42c.core, z42c.syntax, z42c.symbols, z42c.semantics |
 | `z42.package` | lib | `Z42.IR` / `Z42.IR.BinaryFormat` / `Z42.Package`（IR 模型 + zbc/zpkg 读写）| — |
 | `z42.project` | lib | `Z42.Project`（`z42.toml` 清单模型）| — |
 | `z42.build` | lib | `Z42.Build`（构建管线框架 + `ICompiler` / `IReplCompiler` 接口）| z42.project |
 | `z42c.optimization` | lib | `Z42.Optimization`（IR → IR 优化管线 + `Opt` 开关）| z42.package |
 | `z42c.semantics` | lib | `Z42.Semantics`（符号收集 + 绑定 + 类型检查 + 校验，不含代码生成）| z42c.core, z42c.syntax, z42.package |
-| `z42c.generators` | lib | `Z42.Generators`（编译期 generator：契约 + 外部 zpkg 加载 + 多轮引擎 + 内建 `[Forward]`；改写源码结构）| z42c.core, z42c.syntax, z42c.semantics |
 | `z42c.emission` | lib | `Z42.Emission`（代码生成 Bound → IR + 单文件 / 包编译编排 `IrDump`）| z42c.core, z42c.syntax, z42.package, z42c.optimization, z42c.semantics |
-| `z42c.pipeline` | lib | `Z42.Pipeline`（编排 / 依赖扫描 / workspace / 增量）| z42c.core, z42c.syntax, z42c.analyzers, z42c.semantics, z42c.generators, z42c.emission, z42c.optimization, z42.package, z42.project, z42.build |
+| `z42c.pipeline` | lib | `Z42.Pipeline`（编排 / 依赖扫描 / workspace / 增量）| z42c.core, z42c.syntax, z42c.plugin, z42c.semantics, z42c.emission, z42c.optimization, z42.package, z42.project, z42.build |
 | `z42c.driver` | **exe** | `Z42.Driver`（CLI = `z42c` 入口）| z42c.pipeline, z42c.semantics, z42c.emission, z42c.optimization, z42c.syntax, z42c.core, z42.package, z42.project |
 | `z42.scripting` | lib | `Std.Scripting`（REPL / 脚本 eval 内核）| z42c.core, z42c.syntax, z42.build |
 | `z42.doc` | lib | `Z42.Doc`（`z42 doc` 引擎：语法级符号索引 + 名字解析 + 输出）| z42c.core, z42c.syntax |
