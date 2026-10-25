@@ -147,7 +147,9 @@ jobs:
           MAX_WAIT_MIN: "240"
         run: .github/ci/pr-gate.sh
 
-  # ── 纯文档改动的全部门禁：死链 + gate 清单对账、诊断码文档对账。不需要 SDK，xtask 用种子 z42c 编出即可。
+  # ── 纯文档改动的全部门禁：死链 + gate 清单对账、诊断码文档对账、书页代码引用（doc-refs）、生成页对账
+  #    （docs-api）。不需要 SDK 构建树，xtask 用种子 z42c 编出即可。doc-lints 不在这里：纯文档改动碰不到 stdlib
+  #    的 `///`（那是 src/），它在 docs-check 里只会随种子滞后假红、抓不到任何东西——仍是本地 `xtask check` 专属。
   docs-check:
     name: docs-check(linux-x64)
     timeout-minutes: 20
@@ -157,19 +159,27 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # 不需要 Rust：xtask 跑在 `.z42` SDK 的 z42vm 上，docs / diagcodes 两道门不碰构建树（add-sdk-libs D7）。
+      # Rust 只为 `xtask check doc-refs`：它先 cargo 编 rust-index（syn 解析运行时 crate）重建 artifacts/doc/rust.idx，
+      # 书页里的 Rust 符号才按当前源码解析；其余门禁跑在 `.z42` SDK 的 z42vm 上、不碰构建树（add-sdk-libs D7）。
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Bootstrap xtask (seed z42c → current xtask only)
         uses: ./.github/actions/ci-bootstrap
         with:
           gh-token: ${{ secrets.GITHUB_TOKEN }}
           xtask-only: "true"
 
+      # docs-api 经 xtask 自带的 z42c.syntax 解析 stdlib 源码——xtask-only 下那是种子 SDK 的解析器。改动 doc 挂靠
+      # 语义的 PR 合入后，到下一次 nightly 种子发布前它可能假红（种子随每次 main push 重发，窗口很短）。
       - name: Docs gates
         shell: bash
         run: |
           set -euo pipefail
           xtask test docs links
           xtask check diagcodes
+          xtask check doc-refs
+          xtask check docs-api
 
   build-and-test:
     name: test-host(${{ matrix.platform }})

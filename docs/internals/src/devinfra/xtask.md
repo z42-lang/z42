@@ -18,7 +18,7 @@
 | `build` | **编译**各组件：`runtime` / `compiler` / `stdlib` / `workload` / `toolchain [z42b]` / `test` / `all` |
 | `package` | **组装**（只把已编好的产物摆成某种布局，缺产物即报错并点名该跑的 `build`）：发行包 `sdk` / `runtime` / `workload`（都可带 `--archive [--label L]` 同时出发布归档；`sdk --verify` 再在这份 SDK 上跑 packages.toml 自检 + 发行包夹具 + golden）、开发态 `dev-sdk`（`.z42` SDK 布局）/ `ci`（已建好构建树的 zpkg 快照，CI 的 `toolchain-<os>` artifact）、发布汇总 `release`（CI 汇总 job 专用：合并 desktop workload → SHA256SUMS → release-index.json；见[打包引擎](packaging.md)）|
 | `test` | 跑用例，按「契约属于谁」分：`e2e` / `stdlib` / `compiler` / `toolchain` / `runtime` / `app` / `docs`，外加 `changed`、`list`；裸 `test [--no-build] [--skip …]` = 完整 GREEN gate（见[怎么跑测试](testing.md)、[测试门禁](test-gate.md)）|
-| `check` | 不编译、不跑用例的静态检查：`vscode-syntax` / `lines` / `fnlines` / `diagcodes` / `stage2` / `ci-shell` / `proc-env` / `layout` / `versions` / `docs-api` / `doc-lints` / `doc-refs`；不带名字 = 全跑并汇总（`--update` 重写 lines / fnlines / diagcodes / doc-refs 在 `gates.toml` 的机器区段；stage2 / doc-lints 无 `--update`）。最后三道是**只在这里**的文档门禁，不是 GREEN gate 的 stage、也不进 CI，见[怎么跑测试](testing.md) |
+| `check` | 不编译、不跑用例的静态检查：`vscode-syntax` / `lines` / `fnlines` / `diagcodes` / `stage2` / `ci-shell` / `proc-env` / `layout` / `versions` / `docs-api` / `doc-lints` / `doc-refs`；不带名字 = 全跑并汇总（`--update` 重写 lines / fnlines / diagcodes / stage2 / doc-lints / doc-refs 的棘轮基线）。最后三道是文档门禁，不是 GREEN gate 的 stage；CI 只在纯文档 PR 的 docs-check 里跑 doc-refs 与 docs-api，doc-lints 纯本地，见[怎么跑测试](testing.md) |
 | `bench` | 基准；裸 `bench` = e2e 场景（见[性能基准与回归门禁](benchmarking.md)）|
 | `setup` | 准备本机：裸 `setup [--os android\|ios\|wasm] [--force]` = 安装，`setup vscode` = 编辑器扩展，`setup check` = 只读在场校验（见 §6）|
 | `profile` | 对单个 `.z42` 脚本做 cpu / heap / threads / e2e 剖析 |
