@@ -1,0 +1,22 @@
+namespace MathKit;
+
+/// 整数运算。
+public static class MathX {
+    /// 返回两数之和。
+    public static int Add(int a, int b) { return a + b; }
+
+    /// 整除，向零取整。
+    /// @throws DivideByZeroException 除数为 0
+    public static int Div(int a, int b) {
+        if (b == 0) { throw new DivideByZeroException("b is zero"); }
+        return a / b;
+    }
+
+    /// 返回平均值；空数组返回 0。
+    public static double Average(int[] xs) {
+        if (xs.Length == 0) { return 0.0; }
+        int sum = 0;
+        foreach (int x in xs) { sum = sum + x; }
+        return (double)sum / xs.Length;
+    }
+}

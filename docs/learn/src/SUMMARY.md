@@ -51,3 +51,4 @@
 # 工程实践
 
 - [文档注释与 `z42 doc`](practice/doc-comments.md)
+- [写测试](practice/testing.md)
