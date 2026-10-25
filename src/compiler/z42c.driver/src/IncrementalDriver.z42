@@ -437,7 +437,7 @@ string _writeCacheZbc(string cacheDir, string projectDir, string src, IrModule i
     string parent = Path.GetDirectoryName(zbcPath);
     if (parent.Length > 0) { Directory.Create(parent); }
     byte[] bytes = ZbcWriter.Write(irm).ToBytes();
-    File.WriteAllBytesAtomic(zbcPath, bytes);   // 原子：中途崩溃不留半截 zbc
+    File.WriteAllBytes(zbcPath, bytes);   // 缓存写非原子：坏 zbc 由 meta 的 zbchash 配对校验兜底（坏=按 fresh 重建，IncrementalDriver 读端全量重算哈希），不依赖落盘顺序
     return Murmur3.HashHexOfBytes(bytes);   // native-hash(bytes)：与写端同源
 }
 
