@@ -524,10 +524,20 @@ jobs:
           fi
           if [ -f "$LINT_TOML" ]; then
             # --internal-of z42.harness（#1370 起）：lint 用宿主 internal 成员（LintSupport.MixFixNote），
-            # 裸构建撞 E0404。解析域里的 z42.harness 来自 PR flat（BASEALL）——宿主先在不在场由 ParentPkg
+            # 裸构建撞 E0404。解析域里的 z42.harness 来自 PR flat——宿主先在不在场由 ParentPkg
             # 同包待遇兜住。base < #1370 不存在该旗标——所有以现行 main 为底的 PR 都 ≥ #1370。
+            # Z42_LIBS 用 **PR flat（纯 stdlib）**，不是 BASEALL（bench-base-lint-pkgset，#1391 实证）：
+            # #1373（合包）起 lint 是两行最小清单——契约包（z42c.syntax / z42c.plugin）对 kind=plugin
+            # 免声明。免声明的机制 = SdkLibs.Plan 把编译器目录（CompilerDomain 从 Z42_LIBS 上溯探到的
+            # driver dist）里的包收集为 SDK 库候选、hostExtension 全放行进 ExtendDeclared。BASEALL 作
+            # Z42_LIBS 时两头全断：上溯（.ab-base-alllibs 的祖先）探不到 driver dist，且 SDK 兜底目录
+            # 里的同名 zpkg 又全被 BASEALL 基础域遮蔽（_inDirs 剔重）⇒ 候选空 ⇒ 零放行 ⇒
+            # E0497「comes from package z42c.syntax/z42c.plugin, which this project does not declare」。
+            # PR flat 里没有编译器包 ⇒ 上溯命中 PR 树的 driver dist ⇒ 候选齐全 ⇒ 免声明恢复——与 xtask
+            # 的 _buildStdlibCarriedPlugins（Z42_LIBS = stdlib flat）同构。契约包从追加进来的 driver
+            # dist 解析；z42.harness 仍从 flat 来（本就在）。
             ( cd base-src/src/libraries && \
-              Z42_LIBS="$BASEALL" "$PRVM" "$BASEDRIVER" --mode jit -- build "$LINT_TOML" --release \
+              Z42_LIBS="$ROOT/artifacts/intermediate/libraries/flat/release" "$PRVM" "$BASEDRIVER" --mode jit -- build "$LINT_TOML" --release \
                 --output-dir "$(dirname "$LINT_TOML")/dist" $INTERNAL_OF )
           fi
           ( cd base-src/src/libraries && \
