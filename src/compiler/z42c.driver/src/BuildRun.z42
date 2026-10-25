@@ -71,7 +71,7 @@ public sealed class ParseAllOut {
 // 各相位的实现与叙事注释随相位走（下方 `_resolve*` / `_prepare*` / `_report*` / `_write*`）。
 int _build(string tomlPath, bool isRelease, string outputDirOverride, string cacheDirOverride, string[] libsDirsOverride, int libsDirsCount, bool noIncremental, int cliAdd, int cliRemove, bool fix, WsTier tier, string internalOf) {
     // ── ① manifest 校验 + 源发现（旋钮 / deploy 清单级 fail-fast 都在编译前）──
-    BuildSourcesOut sr = _resolveBuildSources(tomlPath);
+    BuildSourcesOut sr = _resolveBuildSources(tomlPath, tier);
     if (sr.Rc != 0) { return sr.Rc; }
     ProjectManifest pm = sr.Pm; string[] srcs = sr.Srcs; string[] dispSrcs = sr.DispSrcs; string projectDir = sr.ProjectDir;
     // ── ② 依赖域组装（Z42_LIBS / path 闭包 / vendored zpkg / SDK 库可见性 → 扫描档）──
@@ -100,7 +100,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     int effOptSet = kn.OptSet; LanguageFeatures feats = kn.Features;
     // ── ⑧ 依赖身份（缓存键扩展）+ 增量 probe；全命中 → preserved 早退 ──
     string depsId = _buildDepsIdentity(pm, effOptSet, isRelease, libsDirs, libsDirsN, scanTier);
-    PrepareOut po = _prepareIncremental(pm, srcs, dispSrcs, sh.Texts, sh.Hashes, projectDir, bd.EffCacheDir, depsId,
+    PrepareOut po = _prepareIncremental(pm, srcs, dispSrcs, sh.Texts, sh.Hashes, scanTier, projectDir, bd.EffCacheDir, depsId,
         feats, distDir, isPacked, isExe, azPaths, closureNames, closureN, libsDirs, libsDirsN, isRelease,
         outputDirOverride, cacheDirOverride, noIncremental);
     if (po.Rc != -1) { return po.Rc; }   // preserved 早退已完成（Ok）或失败（诊断已打印）
@@ -131,7 +131,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
             xi = xi + 1;
         }
         // 依赖 bundling 一次（各 exe 共享同一 dist）。
-        int mbc = _bundleExeDeps(pm, closureNames, closureN, distDir, libsDirs, libsDirsN);
+        int mbc = _bundleExeDeps(pm, closureNames, closureN, distDir, libsDirs, libsDirsN, tier);
         if (mbc != 0) { return mbc; }
         // 多 exe 同样落 cache（cache-dir-layout：此前此分支提前 return，从不写 cache）。
         if (bd.WriteCache) { _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, sh.Texts, sh.Hashes, art.Cms, art.Mods, prep, metaIdents, metaSurfaces, depsId, feats, art.CuDiags); }
@@ -142,14 +142,14 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     if (bd.WriteCache) { _writeBuildCache(pm, projectDir, isRelease, cacheDirOverride, srcs, sh.Texts, sh.Hashes, art.Cms, art.Mods, prep, metaIdents, metaSurfaces, depsId, feats, art.CuDiags); }
     // 自包含 exe（.NET bin/ 式）：把非标准库依赖 zpkg 复制进 dist，使 exe 可从自身目录运行。
     if (isExe) {
-        int bc = _bundleExeDeps(pm, closureNames, closureN, distDir, libsDirs, libsDirsN);
+        int bc = _bundleExeDeps(pm, closureNames, closureN, distDir, libsDirs, libsDirsN, tier);
         if (bc != 0) { return bc; }
     }
     return ExitCode.Ok;
 }
 
 // ── ① manifest 校验 + 源发现 ─────────────────────────────────────────────────────
-BuildSourcesOut _resolveBuildSources(string tomlPath) {
+BuildSourcesOut _resolveBuildSources(string tomlPath, WsTier tier) {
     BuildSourcesOut o = new BuildSourcesOut();
     o.Pm = ManifestLoader.Load(tomlPath);
     // 旋钮名校验（compiler-checks-knob-names）：manifest 的 `[profile.*]` 有问题不值得等
@@ -455,7 +455,7 @@ string _buildDepsIdentity(ProjectManifest pm, int effOptSet, bool isRelease, str
 // 文件级增量（add-file-level-incremental）：种子 + token 保守边闭包 + cached 读回。
 // 全命中 → 完全跳过重编/重写（沿用 preserved 路径）；部分命中 → 失效子集重编、
 // 其余 IrModule 从 cache 读回（meta 残留已回填）。单工程 --output-dir 平铺不走（workspace 成员走）。
-PrepareOut _prepareIncremental(ProjectManifest pm, string[] srcs, string[] dispSrcs, string[] texts, string[] srcHashes,
+PrepareOut _prepareIncremental(ProjectManifest pm, string[] srcs, string[] dispSrcs, string[] texts, string[] srcHashes, WsTier tier,
                                string projectDir, string effCacheDir, string depsId, LanguageFeatures feats,
                                string distDir, bool isPacked, bool isExe, string[] azPaths,
                                string[] closureNames, int closureN, string[] libsDirs, int libsDirsN, bool isRelease,
@@ -494,7 +494,7 @@ PrepareOut _prepareIncremental(ProjectManifest pm, string[] srcs, string[] dispS
         BuildLog.ProgressErr("cached: " + (srcs.Length - o.Prep.Plan.FreshCount).ToString() + "/" + srcs.Length.ToString() + " files");
         if (canPreserve && o.Prep.Plan.AllCached) {
             if (isExe) {
-                int sbc = _bundleExeDeps(pm, closureNames, closureN, distDir, libsDirs, libsDirsN);
+                int sbc = _bundleExeDeps(pm, closureNames, closureN, distDir, libsDirs, libsDirsN, tier);
                 if (sbc != 0) { o.Rc = sbc; return o; }
                 // 🔴 侧车必须在 preserved 路径上也重写。`[profile.<n>.runtime]` 的旋钮与
                 // `[properties]` **不进源 hash**（它们不影响编译产物），于是「只改了运行时
@@ -650,6 +650,8 @@ CompileInputs _fillCompileInputs(ProjectManifest pm, string[] srcs, string[] tex
     int ddi = 0;
     while (ddi < pm.DepCount) { declaredDeps[ddi] = pm.Deps[ddi].Name; ddi = ddi + 1; }
     // add-sdk-libs：放行的 SDK 库（传递闭包 / analyzer 免声明）也算已声明 —— DepIndex 要索引它们、E0497 要放行。
+    // 同 workspace 成员名的放行在 `PackageCompile._resolveDeps` 侧并（retire-member-dep-decls）——
+    // 那份不得进 zpkg DEPS，见 SdkLibs.WithMembers 头注。
     string[] declaredAll = SdkLibs.ExtendDeclared(declaredDeps, pm.DepCount, sdkPlan);
     cin.DeclaredDeps = declaredAll; cin.DepCount = declaredAll.Length;
     // fix-crosspkg-ns-reachability：走到这里就是**真的读了一份 manifest**（`pm`）⇒ 执行依赖契约（E0497）。

@@ -114,13 +114,14 @@ void test_default_empty_selects_all() {
 void test_default_by_path_and_name() {
     string ws = _ws("default_members = [\"./apps/hello/\", \"tool\"]\n");
     WorkspaceLayoutPlan p = WorkspacePlan.PlanDefault(ws, "release");
-    // hello 依赖 core ⇒ core 也进计划（排前、不作目标）。
-    Assert.Equal("core,hello,tool", _names(p));
-    Assert.False(p.Selected[0]);
-    Assert.True(p.Selected[1] && p.Selected[2]);
+    // hello 依赖 core（path 边）⇒ core 也进计划、必在 hello 前；tool 是已列叶子，就绪即发——
+    // default_members 优先级只对**就绪集**排序（retire-member-dep-decls），未列成员（core）殿后。
+    Assert.Equal("tool,core,hello", _names(p));
+    Assert.False(p.Selected[1]);
+    Assert.True(p.Selected[0] && p.Selected[2]);
     Assert.Equal(2, p.SelectedCount());
     Assert.True(p.DistDirs[0].EndsWith("/dist"));
-    // PlanLayout（z42c --workspace）不看 default_members。
+    // PlanLayout（z42c --workspace）编全部成员。
     Assert.Equal(3, WorkspacePlan.PlanLayout(ws, "release").Count);
 }
 
@@ -149,4 +150,57 @@ void test_single_default() {
     try { WorkspacePlan.SingleDefault(_ws("")); } catch (Exception e) { msg = e.Message; }
     Assert.True(msg.Contains("default_members selects 3 members; pass one of them:"));
     Assert.True(msg.Contains("libs/core/z42.toml"));
+}
+
+// ── default_members 作为发射优先级（retire-member-dep-decls）──────────────────
+
+// 两成员、零依赖（m-aa / m-zz）；extraA / extraZ 追加进各自清单（按名声明的同 workspace 依赖边）。
+string _ws2(string defaults, string extraA, string extraZ) {
+    string root = Directory.CreateTempDir("z42-wsorder");
+    _member(root, "a", "m-aa", extraA);
+    _member(root, "z", "m-zz", extraZ);
+    File.WriteAllText(Path.Join(root, "z42.workspace.toml"),
+        "[workspace]\nmembers = [\"*\"]\n" + defaults);
+    return Path.Join(root, "z42.workspace.toml");
+}
+
+// 无依赖边时，default_members 声明序就是构建序——压过名字序（m-zz 名字序在前，声明把它排最后）。
+[Test]
+void test_topo_default_order_beats_name_order() {
+    string ws = _ws2("default_members = [\"m-aa\", \"m-zz\"]\n", "", "");
+    Assert.Equal("m-aa,m-zz", _names(WorkspacePlan.PlanLayout(ws, "debug")));
+    // 反过来声明 ⇒ 顺序跟着反过来（同一批成员、零依赖边）。
+    string ws2 = _ws2("default_members = [\"m-zz\", \"m-aa\"]\n", "", "");
+    Assert.Equal("m-zz,m-aa", _names(WorkspacePlan.PlanLayout(ws2, "debug")));
+}
+
+// 依赖边压过声明序：声明把依赖方排前也不行——就绪优先，被依赖者必须先建。
+[Test]
+void test_topo_edges_beat_default_order() {
+    string ws = _ws2("default_members = [\"m-zz\", \"m-aa\"]\n", "",
+                     "\n[dependencies]\n\"m-aa\" = \"0.1.0\"\n");
+    Assert.Equal("m-aa,m-zz", _names(WorkspacePlan.PlanLayout(ws, "debug")));
+}
+
+// 未列进 default_members 的成员殿后（名字序），不挡在声明序前面。
+[Test]
+void test_topo_unlisted_members_go_last() {
+    string ws = _ws2("default_members = [\"m-zz\"]\n", "", "");
+    Assert.Equal("m-zz,m-aa", _names(WorkspacePlan.PlanLayout(ws, "debug")));
+}
+
+// ── WS032：成员清单按名声明同 workspace 成员 → 提示；path 条目不提示 ──────────
+
+// _ws 的 hello 声明 core 用的是 path 依赖（闭包图需要）→ 不提示；按名声明（裸版本串）→ 提示。
+[Test]
+void test_ws032_redundant_member_dep_warning() {
+    Assert.Equal(0, WorkspaceMemberDeps.RedundantDepWarnings(_ws("")).Length);   // path 条目：承重，不提示
+    string root = Directory.CreateTempDir("z42-ws032");
+    _member(root, "libs/core", "core", "");
+    _member(root, "apps/hello", "hello", "\n[dependencies]\n\"core\" = \"0.1.0\"\n");
+    File.WriteAllText(Path.Join(root, "z42.workspace.toml"),
+        "[workspace]\nmembers = [\"libs/*\", \"apps/*\"]\n");
+    string[] warns = WorkspaceMemberDeps.RedundantDepWarnings(Path.Join(root, "z42.workspace.toml"));
+    Assert.Equal(1, warns.Length);
+    Assert.True(warns[0].Contains("WS032") && warns[0].Contains("`core`") && warns[0].Contains("hello"));
 }

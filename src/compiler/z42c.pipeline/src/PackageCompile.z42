@@ -9,6 +9,7 @@
 // 依赖从磁盘 LibsDirs 解析（design D3；DeclaredDeps 取名字串数组，故本核心不依赖 manifest 模型）。
 namespace Z42.Pipeline;
 
+using Std.IO;         // Path（retire-member-dep-decls：E0497 成员放行的源目录推导）
 using Z42.Core;       // DiagnosticBag / Diagnostic / DiagnosticSeverity（analyzer 诊断合入）
 using Z42.Syntax;
 using Z42.Semantics;
@@ -16,6 +17,7 @@ using Z42.Generators;   // CompileInputs 的测试注入面（Generator / Module
 using Z42.Analyzers;   // CompileInputs.Lints（LintConfig）
 using Z42.IR;
 using Z42.Package;
+using Z42.Project;   // WorkspaceMemberDeps（E0497 的 workspace 成员放行，retire-member-dep-decls）
 using Z42.Optimization;
 using Z42.Emission;
 
@@ -358,13 +360,30 @@ public static class PackageCompile {
             }
             // z42b-owns-test-targets：inp.ParentPkg 非空 → 本次是该包的测试/bench 目标，
             // 加载父包时按同包待遇（其 internal 可见）。普通包为 "" → 行为与此前逐字节一致。
+            //
+            // retire-member-dep-decls：成员清单不再声明同 workspace 依赖（WS032）——`z42c.*` 不带
+            // `z42.` 前缀、吃不到 stdlib 豁免 ⇒ **E0497 的放行集**并入所属 workspace 的成员名（按
+            // 首个源文件目录向上找 workspace）。🔴 只扩这里的两处消费，**不进 `inp.DeclaredDeps`**：
+            // 那份会经 `_unionDeclaredDeps` 写进 zpkg 的 DEPS 段（把入口包变成假运行期候选 → 双代
+            // 注册、类型拒用），也会误开 DepIndex 的过滤白名单。成员声明为空 ⇒ 过滤本来就关。
+            string[] contractDeps = inp.DeclaredDeps;
+            int contractN = inp.DepCount;
+            if (inp.EnforceDeclaredDeps && inp.SrcCount > 0 && inp.Files != null && inp.Files.Length > 0) {
+                string firstDir = Path.GetDirectoryName(inp.Files[0]);
+                if (firstDir.Length == 0) { firstDir = "."; }
+                string[] wsMembers = WorkspaceMemberDeps.EnclosingMemberNames(firstDir);
+                if (wsMembers.Length > 0) {
+                    contractDeps = SdkLibs.WithMembers(inp.DeclaredDeps, inp.DepCount, wsMembers, wsMembers.Length);
+                    contractN = contractDeps.Length;
+                }
+            }
             o.Imported = ImportedSymbolLoader.Load(o.Scan.Exported, o.Scan.ExportedPkg, o.Scan.ExportedCount,
-                                                   allUsings, auc, inp.ParentPkg, inp.DeclaredDeps, inp.DepCount);
+                                                   allUsings, auc, inp.ParentPkg, contractDeps, contractN);
             // fix-crosspkg-ns-reachability：依赖契约搭车进符号表（由 `SymbolCollector._mergeImports` 并入）。
             o.Imported.SelfPkg = inp.Name;
             o.Imported.EnforceDeclaredDeps = inp.EnforceDeclaredDeps;
             int dd = 0;
-            while (dd < inp.DepCount) { o.Imported.DeclaredDeps.Put(inp.DeclaredDeps[dd], "1"); dd = dd + 1; }
+            while (dd < contractN) { o.Imported.DeclaredDeps.Put(contractDeps[dd], "1"); dd = dd + 1; }
         }
         return o;
     }

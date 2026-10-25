@@ -1,4 +1,4 @@
-desc = "workspace 里 exe 成员依赖 lib 成员的 debug 构建：lib 是 indexed，散装 zbc 要随行装配进 exe 的 dist，exe 才跑得起来"
+desc = "workspace 里 exe 成员用 lib 成员（不声明依赖，WS032 / default_members 序）：lib 是 indexed，散装 zbc 经 exe 自身 zpkg 的 DEPS 段随行装配进 dist，exe 才跑得起来"
 args = ["build", "--workspace"]
 exit = 0
 

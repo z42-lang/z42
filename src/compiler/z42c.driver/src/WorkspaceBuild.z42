@@ -37,6 +37,7 @@ int _buildWorkspaceFlat(string wsToml, bool isRelease, string outputDir, int cli
     string[] ordered;
     try { ordered = WorkspacePlan.Plan(wsToml); }
     catch (Exception pe) { ConsoleError.WriteLine("z42c build --workspace: " + pe.Message); return ExitCode.BuildError; }
+    _warnRedundantMemberDeps(wsToml);
     Console.WriteLine("workspace: " + wsToml + " (" + ordered.Length.ToString() + " members, topo order, flat)");
     // 全成员名一次算好：此前每个成员迭代都 Load 自己的 manifest 取名、再把**后序所有成员**的 manifest
     // 重新 Load 一遍（_laterMemberNames）——14 成员的编译器工作区 ≈ 105 次 TOML 解析 + 键审计，
@@ -69,6 +70,7 @@ int _buildWorkspacePerMember(string wsToml, bool isRelease, int cliAdd, int cliR
     WorkspaceLayoutPlan plan;
     try { plan = WorkspacePlan.PlanLayout(wsToml, profile); }   // 同 flat：抛出的消息直接呈现
     catch (Exception pe) { ConsoleError.WriteLine("z42c build --workspace: " + pe.Message); return ExitCode.BuildError; }
+    _warnRedundantMemberDeps(wsToml);
     // libsDirs = 全成员 dist + **编译期外部包目录**（`_extLibDirs()` = `Z42_LIBS`；stdlib，如 z42c.* → z42.core）。
     string[] ext = _extLibDirs();
     int extra = ext.Length;
@@ -112,6 +114,14 @@ string[] _allMemberNames(string[] tomls, int count) {
     int i = 0;
     while (i < count) { r[i] = ManifestLoader.Load(tomls[i]).Project.Name; i = i + 1; }
     return r;
+}
+
+// WS032：成员清单按名声明同 workspace 成员依赖 → 纯提示、构建照常（同 workspace 依赖经成员 dist
+// 自动解析，声明只剩冗余；构建序由 default_members 决定）。规划成功后才打印——规划错误优先呈现。
+void _warnRedundantMemberDeps(string wsToml) {
+    string[] warns = WorkspaceMemberDeps.RedundantDepWarnings(wsToml);
+    int i = 0;
+    while (i < warns.Length) { ConsoleError.WriteLine(warns[i]); i = i + 1; }
 }
 
 // 拓扑序排在第 i 个之后的成员包名（workspace-read-cache）：编译第 i 个成员时对它们不可见，构建因此封闭——

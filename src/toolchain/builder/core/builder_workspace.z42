@@ -96,6 +96,11 @@ int _wsRunVerb(ParseResult r, string verb, string wsToml) {
         ConsoleError.WriteLine("z42 " + verb + ": " + e.Message);
         return 2;
     }
+    // WS032：成员清单按名声明同 workspace 成员依赖 → 纯提示（同 z42c build --workspace；构建序由
+    // default_members 决定，声明只剩冗余）。clean 也照打——它是清单卫生问题，与动词无关。
+    string[] wsWarns = WorkspaceMemberDeps.RedundantDepWarnings(wsToml);
+    int wi = 0;
+    while (wi < wsWarns.Length) { ConsoleError.WriteLine(wsWarns[wi]); wi = wi + 1; }
     string format = (verb == "test" || verb == "bench") ? r.GetOption("format") : "";
     if (format.Length == 0) { format = "pretty"; }
     // `--format json` 的契约是 stdout 只有一份机器可读报告 ⇒ 多个目标拼不成一份，直接拒绝。

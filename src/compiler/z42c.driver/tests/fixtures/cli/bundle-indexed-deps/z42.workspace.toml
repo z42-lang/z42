@@ -1,5 +1,7 @@
 [workspace]
 members = ["*"]
+# 成员依赖不声明（WS032）；构建序由这份声明序定（bilib 在 biapp 前）。
+default_members = ["bilib", "biapp"]
 
 [workspace.build]
 output_dir = "artifacts/${project_name}/${profile}"

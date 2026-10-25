@@ -1,0 +1,4 @@
+[workspace]
+members = ["*"]
+# 名字序是 wsapp < wslib（故意的）：构建能成 ⇒ 排序听 default_members 的、不听名字序。
+default_members = ["wslib", "wsapp"]

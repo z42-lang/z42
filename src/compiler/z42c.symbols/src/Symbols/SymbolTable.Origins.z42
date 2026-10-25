@@ -292,9 +292,9 @@ public sealed partial class SymbolTable {
         if (pkg == this.SelfPkg) { return ""; }
         // 🔴 **标准库（`z42.` 前缀）自动可用，不要求声明** —— 这是已归档的设计裁决
         // `simplify-stdlib-auto-import`(Rust-std 模型：`[dependencies]` 只写第三方）。
-        // ⚠️ 它配套的 WS013 lint（声明 `z42.*` 依赖 → 「冗余」警告）**已随 C# 编译器蠕发**
-        // （全仓 `grep WS013 src/` 为空），而 `z42-toml.md` 至今还写着它会警告 ——
-        // 同族于 E0407 / `FlowAnalyzer.cs` 那类「文档在、实现没了」。
+        // 声明侧的执行在 workspace 规划层：成员清单按名声明同 workspace 成员 → WS032 提示
+        // （`WorkspaceMemberDeps.RedundantDepWarnings`；早期文档许过的 WS013 从未实现，
+        // WS032 是它收窄后的落地版——SDK 库按名声明是可见性种子，不提示）。
         // 本码对 stdlib 一律放行，否则就是把那条裁决反过来做。
         if (pkg.StartsWith("z42.")) { return ""; }
         if (this.DeclaredDeps.ContainsKey(pkg)) { return ""; }
