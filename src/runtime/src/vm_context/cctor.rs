@@ -685,13 +685,35 @@ impl crate::vm_context::VmContext {
         Ok(())
     }
 
+    /// Will the callee's call barrier (module init + owner cctor, as
+    /// `call.rs::call_compiled` runs it) keep passing, on every thread, until
+    /// the barrier epoch moves? The same shape as `statics.rs::
+    /// static_barrier_settled`: no module initializer left to run, and either
+    /// no static constructor is pending at all, or this callee's owner is
+    /// resolved and its initializer is done in the current generation. `false`
+    /// (including an unresolved owner cell) simply keeps the caller on the
+    /// full barrier — a settle record is only ever an optimization.
+    pub fn callee_barrier_settled(
+        &self, owner: &crate::metadata::bytecode::OwnerInitCell,
+    ) -> bool {
+        let cc = &self.core.cctors;
+        if cc.any_module_init_pending() { return false; }
+        if !cc.any_pending() { return true; }
+        match owner.get() {
+            Some(Some(td)) => td.init_done_in(cc.generation()),
+            // Owner resolved and has no static constructor: exempt for good.
+            Some(None) => true,
+            // Unresolved: stay on the full barrier (it resolves the cell).
+            None => false,
+        }
+    }
+
     ///
     /// `owner` is the callee's [`Function::owner_init`](crate::metadata::Function::owner_init)
     /// cell. After the first call it holds the answer, so the steady-state cost
     /// is one `OnceLock` read — and nothing at all for free functions and
     /// methods of types without a static constructor, which is almost every call.
-    pub fn ensure_callee_owner_init(
-        &self, func_fq: &str, owner: &crate::metadata::bytecode::OwnerInitCell,
+    pub fn ensure_callee_owner_init(        &self, func_fq: &str, owner: &crate::metadata::bytecode::OwnerInitCell,
     ) -> Result<(), String> {
         if !self.core.cctors.any_pending() { return Ok(()); }
         if let Some(cached) = owner.get() {

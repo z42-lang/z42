@@ -173,6 +173,12 @@ pub struct FnEntry {
     /// (`interp::forward::forward_of`); the call helpers then skip the activation and
     /// dispatch the builtin directly (see [`super::forward`]).
     pub forward: Option<u32>,
+    /// Call-barrier settle cell (`call.rs::call_compiled`): the barrier epoch at
+    /// which this entry's module-init + owner-cctor barrier was last proven it
+    /// will keep passing (`cctor.rs::callee_barrier_settled`). Steady state the
+    /// gate is one acquire + one relaxed load, same shape as the static-field
+    /// gate (`statics.rs`). `0` = not settled. Shared by clones of this entry.
+    pub init_ready: std::sync::Arc<std::sync::atomic::AtomicU32>,
 }
 
 // Raw pointers — the code is owned by the VM's `JitRuntime` (which holds this
@@ -189,7 +195,18 @@ impl FnEntry {
             ptr: std::ptr::null(), max_reg: 0, func: std::ptr::null(),
             owner_init: Default::default(),
             forward: None,
+            init_ready: std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0)),
         }
+    }
+    /// Settle-gate probe: does the recorded epoch still match? (See `init_ready`.)
+    #[inline]
+    pub fn init_ready_eq(&self, epoch: u32) -> bool {
+        self.init_ready.load(std::sync::atomic::Ordering::Acquire) == epoch
+    }
+    /// Record that the call barrier passed and keeps passing as of `epoch`.
+    #[inline]
+    pub fn mark_init_ready(&self, epoch: u32) {
+        self.init_ready.store(epoch, std::sync::atomic::Ordering::Release);
     }
     #[inline]
     pub fn is_rejected(&self) -> bool { self.ptr.is_null() }

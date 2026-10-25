@@ -296,3 +296,32 @@ fn static_field_barrier_records_only_a_settled_verdict() {
     assert!(ctx.ensure_static_field_init("Demo.Holder.Count", Some(id.0)).is_ok());
     assert!(!cell().barrier_ready(ctx.core.cctors.barrier_epoch()), "re-entrant pass is not settled");
 }
+
+/// `callee_barrier_settled` (the call-barrier twin of the static-field settle
+/// verdict, consumed by `jit::helpers::call::call_compiled`): only a barrier
+/// that keeps passing until the epoch moves may be short-circuited.
+#[test]
+fn callee_barrier_settled_tracks_the_same_events_as_the_epoch() {
+    let ctx = crate::vm_context::VmContext::new();
+    let owner = crate::metadata::bytecode::OwnerInitCell::default();
+    // Nothing pending anywhere: settled (this is the `any_cctor_pending == false`
+    // world, where `call_compiled` never even reaches the gate).
+    assert!(ctx.callee_barrier_settled(&owner));
+    // A static constructor pending elsewhere + this callee's owner unresolved:
+    // not settled (the full barrier resolves the owner cell first).
+    ctx.core.cctors.register("Other.C", "Other.C.$cctor");
+    assert!(!ctx.callee_barrier_settled(&owner));
+    // Owner resolved to "no static constructor" (a free function's steady
+    // state): exempt for good.
+    let _ = owner.set(None);
+    assert!(ctx.callee_barrier_settled(&owner));
+    // A package initializer pending: never settled, owner exempt or not.
+    let m = Arc::new(crate::metadata::TypeDesc {
+        class_flags: 0, visibility: 0, name: "Demo.$Module".to_string(), base_name: None,
+        fields: Vec::new(), field_index: crate::metadata::NameIndex::new(), vtable: Vec::new(),
+        vtable_index: crate::metadata::NameIndex::new(), cold: None,
+        id: crate::metadata::tokens::TypeId::UNRESOLVED,
+    });
+    ctx.core.cctors.register_module_init(&m, FxHashSet::default());
+    assert!(!ctx.callee_barrier_settled(&owner));
+}

@@ -125,10 +125,21 @@ unsafe fn call_compiled(
     // fix-crosspkg-static-call-cctor：必须在解析**之后**——首次跨包调用的解析正是加载依赖包、
     // 登记其 cctor 的那一步。add-module-init-hook：包级初始化先于类型初始化。两道门都在
     // 函数内短路，稳态下各是一次 relaxed load。
-    if vm.module_init_gate_open() || vm.any_cctor_pending() {
-        if let Some(exc) = call_barriers(vm, ctx, &*entry.func, &entry.owner_init) {
-            set_exception(vm, exc);
-            return 1;
+    // Settle fast path (the call-barrier twin of the static-field gate,
+    // `statics.rs`): once a full pass proves the barrier will keep passing
+    // (`callee_barrier_settled`), the entry records the epoch — read BEFORE the
+    // barrier ran, so an event while it ran leaves the record stale (re-checked
+    // next call), never wrong. The gate is then one acquire + one relaxed load.
+    if !entry.init_ready_eq(vm.core.cctors.barrier_epoch()) {
+        let epoch = vm.core.cctors.barrier_epoch_acquire();
+        if vm.module_init_gate_open() || vm.any_cctor_pending() {
+            if let Some(exc) = call_barriers(vm, ctx, &*entry.func, &entry.owner_init) {
+                set_exception(vm, exc);
+                return 1;
+            }
+        }
+        if vm.callee_barrier_settled(&entry.owner_init) {
+            entry.mark_init_ready(epoch);
         }
     }
     // jit-stack-trace: stamp the caller's call-site offset. Before the forwarder
