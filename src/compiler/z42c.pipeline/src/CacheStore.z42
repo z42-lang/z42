@@ -146,6 +146,7 @@ public static class CacheStore {
     }
 
     // 解析；版本 pin（metaVersion/zbc/zpkg）任一不符或格式坏 → null（= 条目作废）。
+    [Suppress("style.fnLinesHard", "68 body lines；拆分见 code-organization.md")]
     public static CacheMeta Parse(string text, string rel) {
         CacheMeta m = new CacheMeta(rel);
         bool verOk = false;

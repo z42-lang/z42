@@ -234,6 +234,7 @@ public class ArgParser {
 
     // ── Parse ────────────────────────────────────────────────────────────
 
+    [Suppress("style.fnLinesHard", "117 body lines；拆分见 code-organization.md")]
     /// 解析 argv（不含 program name），返回 ParseResult；失败抛 CliException。
     public ParseResult Parse(string[] argv) {
         var r = new ParseResult();
@@ -499,6 +500,7 @@ public class ArgParser {
 
     // ── HelpText ─────────────────────────────────────────────────────────
 
+    [Suppress("style.fnLinesHard", "87 body lines；拆分见 code-organization.md")]
     /// 生成 USAGE / FLAGS / OPTIONS / ARGS 四段帮助文本。
     public string HelpText() {
         StringBuilder sb = new StringBuilder();

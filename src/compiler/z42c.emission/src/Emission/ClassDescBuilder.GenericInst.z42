@@ -139,6 +139,7 @@ public sealed partial class ClassDescBuilder {
         return r;
     }
 
+    [Suppress("style.fnLinesHard", "71 body lines；拆分见 code-organization.md")]
     private IrClassDesc _instClassDescIn(string instName, string bareDef, Decl rawDef, ClassDecl cdef, StructLayout ly) {
         StructLayoutInfo ol = ly.ObjectLayoutOf(instName);
         StructLayoutInfo il = ly.InlineLayoutOf(instName);

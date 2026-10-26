@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`
 
-[`src/libraries/z42.core/src/Delegates/MulticastFunc.z42:286`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastFunc.z42#L286)
+[`src/libraries/z42.core/src/Delegates/MulticastFunc.z42:287`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastFunc.z42#L287)
 
 内部订阅 token —— Subscribe 返回它，Dispose 把 alive[idx] 置 false。
 
@@ -20,14 +20,14 @@ public sealed class MulticastFuncSubscription<TArg,TResult> : IDisposable {
 <a id="Std.MulticastFuncSubscription<TArg,TResult>.ctor(MulticastFunc<TArg,TResult>,int,bool)"></a>
 ### MulticastFuncSubscription(MulticastFunc<TArg,TResult> bus, int idx, bool isAdvanced)
 
-[`src/libraries/z42.core/src/Delegates/MulticastFunc.z42:292`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastFunc.z42#L292)
+[`src/libraries/z42.core/src/Delegates/MulticastFunc.z42:293`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastFunc.z42#L293)
 
 构造订阅 token。
 
 <a id="Std.MulticastFuncSubscription<TArg,TResult>.Dispose()"></a>
 ### void Dispose()
 
-[`src/libraries/z42.core/src/Delegates/MulticastFunc.z42:299`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastFunc.z42#L299)
+[`src/libraries/z42.core/src/Delegates/MulticastFunc.z42:300`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastFunc.z42#L300)
 
 取消订阅：把对应通道的 alive[idx] 置 false。
 

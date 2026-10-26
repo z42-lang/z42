@@ -77,6 +77,7 @@ public sealed class MemberCollector {
     }
 
     // 接口方法签名（体可无；签名同类方法解析）（port-z42c-interface）。
+    [Suppress("style.fnLinesHard", "82 body lines；拆分见 code-organization.md")]
     private void _fillInterface(SymbolTable table, ClassDecl c) {
         // 按本命名空间的 FQN 取：短名表只留同名接口里的一份，别的 ns 的同名接口会一个方法都填不进去。
         Z42InterfaceType it = table.InterfacesByFqn.Get(SymbolTable.QualOf(table.ScopeNs, c.Name)) as Z42InterfaceType;   it.Methods.EnsureCapacity(c.MemberCount);   // perf-strmap：同 _fillClass
@@ -196,6 +197,7 @@ public sealed class MemberCollector {
         return r;
     }
 
+    [Suppress("style.fnLinesHard", "153 body lines；拆分见 code-organization.md")]
     private void _fillClass(SymbolTable table, ClassDecl c) {
         // 本 CU 声明的这个类（`table` 已是 `WithScopeOf(cu)` 视图）：arity-mangle 键与对象都按本命名空间的 FQN 取。
         // 🔴 **必须走 `GetClass` 访问器，不能直接摸 `Classes`**（A5b-2）。

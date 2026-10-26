@@ -3,5 +3,10 @@ name    = "z42.crypto"
 version = "0.1.0"
 kind    = "lib"
 
+[lints]
+# 内建行数 lint（style.*，默认关；见 compile-time-extensions.md「内建规则」）。硬限升 error =
+# 拦编译；软限不动。豁免走源内抑制：方法级 [Suppress]、文件顶部 #suppress。
+"style.fnLinesHard" = "error"
+
 [tests]
 include = ["tests/*.z42", "tests/secp256k1/**/*.z42"]

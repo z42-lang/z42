@@ -141,6 +141,7 @@ public static class Conversion {
     }
 
     // 内建转换分类（分支序镜像旧 TypeFactsTc._isAssignable 以保证布尔等价，数值 prim 对提前到结构判定 D 之前）。
+    [Suppress("style.fnLinesHard", "63 body lines；拆分见 code-organization.md")]
     private static ConvResult _classifyBuiltin(Z42Type from, Z42Type to, SymbolTable symbols) {
         // A: error / unknown 吸收
         if ((from is Z42ErrorType) || (from is Z42UnknownType)) { return new ConvResult(ConvKind.Absorb); }

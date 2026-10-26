@@ -101,7 +101,7 @@ int _build(string tomlPath, bool isRelease, string outputDirOverride, string cac
     string depsId = _buildDepsIdentity(pm, effOptSet, isRelease, libsDirs, libsDirsN, scanTier);
     PrepareOut po = _prepareIncremental(pm, srcs, dispSrcs, sh.Texts, sh.Hashes, scanTier, projectDir, bd.EffCacheDir, depsId,
         feats, distDir, isPacked, isExe, azPaths, closureNames, closureN, libsDirs, libsDirsN, isRelease,
-        outputDirOverride, cacheDirOverride, noIncremental);
+        outputDirOverride, cacheDirOverride, noIncremental, LineLint.Active(kn.Lints));
     if (po.Rc != -1) { return po.Rc; }   // preserved 早退已完成（Ok）或失败（诊断已打印）
     IncrPrep prep = po.Prep;
     // ── ⑨ parse-all（增量复用 prep.Cus / 全量 ParseAllTk）──
@@ -458,7 +458,7 @@ PrepareOut _prepareIncremental(ProjectManifest pm, string[] srcs, string[] dispS
                                string projectDir, string effCacheDir, string depsId, LanguageFeatures feats,
                                string distDir, bool isPacked, bool isExe, string[] azPaths,
                                string[] closureNames, int closureN, string[] libsDirs, int libsDirsN, bool isRelease,
-                               string outputDirOverride, string cacheDirOverride, bool noIncremental) {
+                               string outputDirOverride, string cacheDirOverride, bool noIncremental, bool styleLint) {
     PrepareOut o = new PrepareOut();
     o.Rc = -1;   // -1 = 未 preserved，调用方继续正常编译
     // `[build] incremental = false` 关增量（wire-build-incremental）。此前这个键**被解析进
@@ -486,8 +486,9 @@ PrepareOut _prepareIncremental(ProjectManifest pm, string[] srcs, string[] dispS
         // fix-analyzer-diags-preserved：挂了编译器侧插件的工程也不走 preserved。analyzer 诊断与
         // `[lints]` 决策**不进任何缓存**（PackageCompile 每次构建重跑，快照刻意取在它之前），
         // 早退 = analyzer 没跑 ⇒ 第二次构建警告消失、只改 `[lints]`（升 error / WAE）仍 exit 0。
-        // 代价只落在带 analyzer 的工程：全命中时多一次装配 + analyzer 遍历（cached CU 不重做 typecheck）。
-        bool canPreserve = pm.ExeCount == 0 && azPaths == null
+        // 内建行数 lint 同理（LineLint 每 build 重跑，不走缓存）。
+        // 代价只落在带 analyzer / style lint 的工程：全命中时多一次装配 + analyzer 遍历（cached CU 不重做 typecheck）。
+        bool canPreserve = pm.ExeCount == 0 && azPaths == null && !styleLint
             && File.Exists(lastZpkg) && _distModeMatches(lastZpkg, isPacked);
         o.Prep = IncrementalDriver.Prepare(srcs, dispSrcs, texts, srcHashes, srcs.Length, projectDir, probeCache, depsId, canPreserve, feats);
         BuildLog.ProgressErr("cached: " + (srcs.Length - o.Prep.Plan.FreshCount).ToString() + "/" + srcs.Length.ToString() + " files");

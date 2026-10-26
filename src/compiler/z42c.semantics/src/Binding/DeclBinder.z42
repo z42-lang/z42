@@ -144,6 +144,7 @@ public sealed class DeclBinder {
         }
     }
 
+    [Suppress("style.fnLinesHard", "100 body lines；拆分见 code-organization.md")]
     internal void _bindClass(SemanticModel model, SymbolTable symbols, ClassDecl c) {
         // Arity-mangle：泛型类若以 Name$N 键注册，优先取该 CT。
         string ctKey = c.Name;
@@ -519,6 +520,7 @@ public sealed class DeclBinder {
         return ps;
     }
 
+    [Suppress("style.fnLinesHard", "68 body lines；拆分见 code-organization.md")]
     private BoundStmt _bindMethodBodyCore(SymbolTable symbols, TypeEnv env, MethodDecl md) {
         env.MarkFnBoundary();   // forbid-local-shadowing：函数体内的重名检查走到形参这层为止（字段、`this` 不进 DeclSpans）
         int p = 0;

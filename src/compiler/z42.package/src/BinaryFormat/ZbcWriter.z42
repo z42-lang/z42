@@ -49,6 +49,7 @@ public static class ZbcWriter {
     public static string WriteHex(IrModule irm) { return ZbcWriter.Write(irm).ToHex(); }
 
     // ── 字符串池预扫（顺序即 STRS 字节序，须 1:1 复刻 C# InternPoolStrings full 模式）──────────
+    [Suppress("style.fnLinesHard", "100 body lines；拆分见 code-organization.md")]
     public static void InternPoolStrings(IrModule irm, ZbcStringPool pool, int[] strRemap) {
         pool.Intern(irm.Name);
         // const.str 池（z42c StringPool 1-based，[0]="" 占位 → 从 1 起）→ 记 remap。
@@ -511,6 +512,7 @@ public static class ZbcWriter {
     }
 
     // SIGS 条目（无 count 头；zbc 单模块与 zpkg 全模块平铺共用——单源防漂移）。
+    [Suppress("style.fnLinesHard", "63 body lines；拆分见 code-organization.md")]
     public static void WriteSigEntries(ByteWriter w, IrFunction[] fns, int fnCount, ZbcStringPool pool) {
         int fi = 0;
         while (fi < fnCount) {

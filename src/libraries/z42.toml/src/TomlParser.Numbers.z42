@@ -16,6 +16,7 @@ public sealed partial class TomlParser {
 
     // 扫描一个数字 token，按内容分派到整数 / 浮点。
     // 处理：可选 `+`/`-`、十进制数字、`.`、`eE` 指数、`nan` / `inf` 字面量。
+    [Suppress("style.fnLinesHard", "79 body lines；拆分见 code-organization.md")]
     private TomlValue ParseNumber() {
         int start = this._pos;
         bool isFloat = false;

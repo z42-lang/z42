@@ -301,7 +301,7 @@ Unix 毫秒。
 <a id="Std.Time.DateTime.ParseIso8601(string)"></a>
 ### static DateTime ParseIso8601(string s)
 
-[`src/libraries/z42.core/src/Time/DateTime.z42:278`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTime.z42#L278)
+[`src/libraries/z42.core/src/Time/DateTime.z42:279`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Time/DateTime.z42#L279)
 
 解析 RFC 3339 / ISO 8601 子集，返回 UTC 时刻。
 

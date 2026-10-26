@@ -155,6 +155,7 @@ public static class IrDump {
     }
     // `upstreamErrors`：前置线（generator 护栏 / analyzer）已经报了 error ⇒ 这次编译注定不产出，
     // 各文件照常收集 + 类型检查（诊断一次报全），但都不进代码生成与优化——与包级收集期错误同一道门。
+    [Suppress("style.fnLinesHard", "85 body lines；拆分见 code-organization.md")]
     public static CompiledModuleZ[] BuildPackageCusGated(string[] srcs, string[] files, int count,
                                                          CompilationUnit[] cus,
                                                          DependencyIndex deps, ImportedSymbols imported,

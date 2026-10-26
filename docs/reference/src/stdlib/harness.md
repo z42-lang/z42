@@ -388,7 +388,7 @@ public static class BundleRunner {
 <a id="Std.Harness.BundleRunner.RunBundle(BundleCase[],string,string)"></a>
 ### static TestResult[] RunBundle(BundleCase[] allCases, string bundleDir, string libsDir)
 
-[`src/libraries/z42.harness/src/BundleRunner.z42:53`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BundleRunner.z42#L53)
+[`src/libraries/z42.harness/src/BundleRunner.z42:54`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BundleRunner.z42#L54)
 
 跑 `cases` 里的每一条并返回汇总结果（golden 在前、单元在后，缺能力被跳过的 条目排在末尾）。
 
@@ -404,7 +404,7 @@ public static class BundleRunner {
 <a id="Std.Harness.BundleRunner.ExitCode(TestResult[])"></a>
 ### static int ExitCode(TestResult[] results)
 
-[`src/libraries/z42.harness/src/BundleRunner.z42:149`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BundleRunner.z42#L149)
+[`src/libraries/z42.harness/src/BundleRunner.z42:150`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/BundleRunner.z42#L150)
 
 束结果的退出码：任一条 failed → 1，否则 0。
 

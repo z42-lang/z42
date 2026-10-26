@@ -627,6 +627,7 @@ public sealed class StmtBinder : IStmtVisitor<BoundStmt, StmtCtx> {
         return vt;
     }
 
+    [Suppress("style.fnLinesHard", "70 body lines；拆分见 code-organization.md")]
     public BoundExpr _bindLambda(LambdaExpr lam, Z42FuncType expected, TypeEnv env) {
         if (lam.ParamCount != expected.ParamCount) {
             this._tc._diags.Error(DiagnosticCodes.TypeMismatch,

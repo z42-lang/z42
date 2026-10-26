@@ -192,6 +192,7 @@ public sealed class SymbolCollector {
 
     // imported 符号 seed（local stub 已注册的同名跳过，local-wins；镜像 C# MergeImported + 本地覆盖）。
     // 必须在 _passMembers 前调用：成员（字段/方法签名）类型解析依赖 imported 类已在表中（G18）。
+    [Suppress("style.fnLinesHard", "72 body lines；拆分见 code-organization.md")]
     private void _mergeImports(SymbolTable table, ImportedSymbols imported) {
         if (imported == null) { return; }
         // fix-crosspkg-ns-reachability：依赖契约三件套。必须在本函数**最前**并入——
@@ -289,6 +290,7 @@ public sealed class SymbolCollector {
 
     // 全包合并收集（PS-1）：多 CU 同表（接口 stub 全包 → 类 stub 全包 → 成员/函数全包）。
     // 语义等价 C# sibling-exports（其逐文件+缓存导出形态为增量编译服务）。同名冲突 first-wins（诊断挂账）。
+    [Suppress("style.fnLinesHard", "61 body lines；拆分见 code-organization.md")]
     public SymbolTable CollectAll(CompilationUnit[] cus, string[] files, int cuCount, ImportedSymbols imported) {
         var table = new SymbolTable();
         int nf = 0;

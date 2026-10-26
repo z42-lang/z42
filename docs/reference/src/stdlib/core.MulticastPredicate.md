@@ -61,7 +61,7 @@ ISubscription 包装器订阅 → advanced 慢路径（OnceRef / CompositeRef / 
 <a id="Std.MulticastPredicate<T>.Invoke(T,bool)"></a>
 ### bool[] Invoke(T arg, bool continueOnException = false)
 
-[`src/libraries/z42.core/src/Delegates/MulticastPredicate.z42:75`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastPredicate.z42#L75)
+[`src/libraries/z42.core/src/Delegates/MulticastPredicate.z42:76`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastPredicate.z42#L76)
 
 触发所有活跃 handler，收集返回值进 bool[]（strong-first / advanced-after 顺序）。
 
@@ -72,7 +72,7 @@ MulticastException<bool>。
 <a id="Std.MulticastPredicate<T>.All(T)"></a>
 ### bool All(T arg)
 
-[`src/libraries/z42.core/src/Delegates/MulticastPredicate.z42:224`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastPredicate.z42#L224)
+[`src/libraries/z42.core/src/Delegates/MulticastPredicate.z42:225`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastPredicate.z42#L225)
 
 所有活跃 handler 都返回 true 时返回 true。
 
@@ -82,7 +82,7 @@ MulticastException<bool>。
 <a id="Std.MulticastPredicate<T>.Any(T)"></a>
 ### bool Any(T arg)
 
-[`src/libraries/z42.core/src/Delegates/MulticastPredicate.z42:269`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastPredicate.z42#L269)
+[`src/libraries/z42.core/src/Delegates/MulticastPredicate.z42:270`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastPredicate.z42#L270)
 
 任一活跃 handler 返回 true 时返回 true。
 
@@ -91,14 +91,14 @@ MulticastException<bool>。
 <a id="Std.MulticastPredicate<T>.Unsubscribe(Predicate<T>)"></a>
 ### void Unsubscribe(Predicate<T> handler)
 
-[`src/libraries/z42.core/src/Delegates/MulticastPredicate.z42:312`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastPredicate.z42#L312)
+[`src/libraries/z42.core/src/Delegates/MulticastPredicate.z42:313`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastPredicate.z42#L313)
 
 按 handler 取消订阅（仅扫 strong 通道；advanced 通道用 token-based dispose）。
 
 <a id="Std.MulticastPredicate<T>.RemoveAt(int,bool)"></a>
 ### void RemoveAt(int idx, bool isAdvanced)
 
-[`src/libraries/z42.core/src/Delegates/MulticastPredicate.z42:325`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastPredicate.z42#L325)
+[`src/libraries/z42.core/src/Delegates/MulticastPredicate.z42:326`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastPredicate.z42#L326)
 
 内部：dispose token 入口，把对应通道的 alive[idx] 置 false。
 

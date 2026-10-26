@@ -13,6 +13,7 @@ namespace Std.Json;
 /// `JsonException`。
 public static class JsonPath {
 
+    [Suppress("style.fnLinesHard", "79 body lines；拆分见 code-organization.md")]
     /// 按 `path` 遍历 `root`，返回路径上的值；路径走不通（键缺失、下标越界、kind 不符）返回 null。
     public static JsonValue? Select(JsonValue root, string path) {
         if (root == null) return null;

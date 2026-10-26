@@ -98,6 +98,7 @@ internal static class BigIntBpsw {
         return 0;
     }
 
+    [Suppress("style.fnLinesHard", "61 body lines；拆分见 code-organization.md")]
     /// Strong Lucas pseudoprime test mod `this` (= n).
     ///
     /// Caller has already chosen `D, P, Q` per Selfridge. Returns true iff

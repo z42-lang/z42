@@ -1,0 +1,19 @@
+# z42c.pipeline LineLint（内建行数 lint，style.* 规则）单测。
+[project]
+name    = "z42c.pipeline.test.linelint"
+version = "0.1.0"
+kind    = "lib"
+
+[sources]
+include = ["**/*.z42"]
+
+[dependencies]
+"z42c.emission"  = "0.1.0"   # IrDump / CompiledModuleZ（诊断断言）
+"z42c.pipeline"  = "0.1.0"   # PackageCompile / CompileInputs / LineLint
+"z42c.plugin"    = "0.1.0"   # LintConfig
+"z42c.core"      = "0.1.0"
+
+[build]
+# Build output → artifacts mirror（mirror-build-output-per-component）：
+# src/compiler/z42c.pipeline/tests/linelint → artifacts/build/compiler/z42c.pipeline/${profile}/tests/linelint
+output_dir = "../../../../../artifacts/build/compiler/z42c.pipeline/${profile}/tests/linelint"

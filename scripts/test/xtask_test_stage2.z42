@@ -18,15 +18,14 @@
 //
 // `<tag>` 是文件内唯一的短 slug（一个文件可以有多条债）；`YYYY-MM-DD` 是**挂账日**。
 // 身份 = `<带根前缀的相对路径>#<tag>`（如 `src/compiler/.../X.z42#tag`、`scripts/build/Y.z42#tag`）。
-// 挂账日写在标记里（登记表就是源码本身，无独立清单可腐坏）；宽限天数配置在
-// `scripts/test/gates.toml` 的 `[stage2] grace-days`。
+// 挂账日写在标记里（登记表就是源码本身，无独立清单可腐坏）；宽限天数是门内常量。
 //
 // ⚠️ **说明必须写在标记那一行之内**：扫描只取该行 `)` 之后的部分，续行会被静默丢掉。
 //
 // 两条判据：
 //   ① **挂账日**：标记必须带日期——没有日期的新债直接红（挂账日即起算日，写在源码里不会被
 //      任何重置拨时钟；要推期限就改标记里的日期，理由写在说明文本里）。
-//   ② **到期**：挂账超过宽限期（gates.toml `[stage2] grace-days`）→ 红，逼人回来收尾。
+//   ② **到期**：挂账超过宽限期（门内常量 7 天）→ 红，逼人回来收尾。
 //
 // ## ⚠️ 覆盖边界（写在这里，别让它变成隐形假保障）
 //
@@ -38,19 +37,13 @@
 namespace Z42Xtask;
 
 using Std.IO;
-using Std.Toml;
 
 
 
-// 宽限期读 gates.toml `[stage2] grace-days`（缺省 7）。阶段 2 的前提是「支持侧随 nightly 发布
-// **并成为种子**」，nightly 每天发 ⇒ 2 天够；余下是给发布链偶发失败 + 人回来收尾留的余量。
-// 比 diagcodes 的 3 天宽，因为那条只要求常量进种子，而这里还要求真的把活干完。
-int _s2GraceDays() {
-    TomlValue t = _gatesSection(_root(), "stage2");
-    TomlValue v = null;
-    if (t.TryGet("grace-days", ref v) && v.IsLong()) { return (int)v.AsLong(); }
-    return 7;
-}
+// 宽限天数（原 gates.toml [stage2] grace-days，从未改过 ⇒ 常量化）。阶段 2 的前提是「支持侧
+// 随 nightly 发布**并成为种子**」，nightly 每天发 ⇒ 2 天够；余下是给发布链偶发失败 + 人回来
+// 收尾留的余量。比 diagcodes 的 3 天宽，因为那条只要求常量进种子，而这里还要求真的把活干完。
+int _s2GraceDays() { return 7; }
 
 // 扫 `src/` / `scripts/` 下的 .z42 与 .rs，外加 `.github/` 下的 .yml，抽出
 // `STAGE2-DEBT(<tag>,<date>): <text>` → id `<带根前缀的相对路径>#<tag>` + 挂账日 + 说明（三个数组同下标）。

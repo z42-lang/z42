@@ -172,8 +172,15 @@ public sealed class Parser {
 
     // RuleId = 单个标识符（如 Z9002）；缺失 → 诊断 + 返回空串（抑制退化为无效，安全）。
     private string _parseSuppressRuleId() {
+        // 限定 Id（`style.fileLinesHard`）：规则 Id 常带 `域.` 前缀成族（[lints] 的 `域.*` 通配
+        // 正以此为准）。此前只收单个标识符 ⇒ 带 `.` 的 Id 在点号处断成普通语法错误。
         if (this._peek().Kind == TokenKind.Identifier) {
-            string id = this._peek().Text; this._advance(); return id;
+            string id = this._peek().Text; this._advance();
+            while (this._peek().Kind == TokenKind.Dot && this._peekAt(1).Kind == TokenKind.Identifier) {
+                id = id + "." + this._peekAt(1).Text;
+                this._advance(); this._advance();
+            }
+            return id;
         }
         this._diags.Error(DiagnosticCodes.ExpectedToken, "expected rule id after #suppress/#restore", this._peek().Span);
         return "";
@@ -608,6 +615,7 @@ public sealed class Parser {
     }
 
     // ════ 顶层声明 ══════════════════════════════════════════════════════════
+    [Suppress("style.fnLinesHard", "103 body lines；拆分见 code-organization.md")]
     public CompilationUnit ParseCompilationUnit() {
         Span cusp = this._peek().Span;
         bool hasNs = false;

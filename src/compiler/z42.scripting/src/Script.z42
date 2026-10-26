@@ -124,6 +124,7 @@ public static class Script {
         return "第 " + userLine.ToString() + " 行: " + rest;
     }
 
+    [Suppress("style.fnLinesHard", "81 body lines；拆分见 code-organization.md")]
     public static EvalResult Eval(ScriptState state, string input) {
         string trimmed = input.Trim();
 

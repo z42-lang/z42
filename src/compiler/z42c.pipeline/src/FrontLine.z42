@@ -61,12 +61,37 @@ public static class FrontLine {
         r.Cus = inp.Cus; r.Files = inp.Files; r.Texts = inp.Texts; r.Count = inp.SrcCount;
         FrontLine._runGenerators(inp, imported, r);
         // ④ analyzer：遍历 union CU（含生成代码）。只读 AST、不依赖类型检查。
+        // ④b 内建行数 lint（style.*）：[lints] 启用才进（默认关 ⇒ 逐字节不动点不受扰）；
+        // 只 lint 真实源文件（i < SrcCount）——生成 CU 无源文本。
+        bool lineLint = LineLint.Active(inp.Lints);
         if (inp.AnalyzerZpkgCount > 0 && r.HandlersLoadable) {
             r.AnalyzerDiags = new DiagnosticBag[r.Count];
             r.ExternHandlers = r.ExternHandlers
                 + FrontLine._runAnalyzers(inp, r.Cus, r.Count, r.AnalyzerDiags, r.Diags);
+        } else if (lineLint) {
+            r.AnalyzerDiags = new DiagnosticBag[r.Count];
         }
+        if (lineLint) { FrontLine._runLineLint(inp, r); }
         return r;
+    }
+
+    // 内建行数 lint 趟：逐真实源 CU 跑 LineLint.Check，诊断挂进 AnalyzerDiags（与外部 analyzer 同一
+    // 合并路——PackageCompile._mergePhaseDiags 拓宽后的 gate）。不走 AnalyzerDriver：行数度量需要
+    // 源文本 + CU 级观察面，驱动面向语法节点回调且不传 texts；这里自带 [Suppress]/#suppress 抑制。
+    private static void _runLineLint(CompileInputs inp, FrontLineResult r) {
+        int i = 0;
+        while (i < inp.SrcCount && i < r.Count) {
+            CompilationUnit cu = r.Cus[i];
+            if (cu != null) {
+                DiagnosticBag bag = new DiagnosticBag();
+                LineLint.Check(cu, r.Texts[i], inp.Lints, bag);
+                if (bag.Count() > 0) {
+                    if (r.AnalyzerDiags[i] == null) { r.AnalyzerDiags[i] = bag; }
+                    else { r.AnalyzerDiags[i].MergeFrom(bag); }   // 外部 analyzer 同 CU 已有诊断 → 并存
+                }
+            }
+            i = i + 1;
+        }
     }
 
     // ③ generator：provisional 绑定 → applied / module generator 按 consumes/produces 拓扑分层逐层运行

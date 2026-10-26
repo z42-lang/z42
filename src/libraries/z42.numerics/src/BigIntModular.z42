@@ -99,6 +99,7 @@ internal static class BigIntModular {
         return BigIntModular._montRedc(t, n, nPrime, k);
     }
 
+    [Suppress("style.fnLinesHard", "67 body lines；拆分见 code-organization.md")]
     /// Montgomery REDC: given T < n*R, compute T * R^(-1) mod n.
     ///
     /// Implementation per Handbook of Applied Cryptography §14.32 (CIOS

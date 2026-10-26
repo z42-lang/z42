@@ -296,8 +296,7 @@ scripts/
 │   ├── xtask_test_docs.z42      `test docs`：相对链接死链 + stage 清单对账
 │   ├── xtask_test_app.z42       `test app`：设备测试一条命令（+ `xtask_test_device_host.z42` 宿主工程暂存）
 │   ├── xtask_check_versions.z42 `check versions`：versions.toml ↔ Cargo.toml / build.gradle.kts / Package.swift
-│   ├── xtask_test_{diagcodes,fnlines,layout,stage2,fingerprint,ci_shell,proc_env}.z42  各机械门（诊断码唯一 / 函数体行数棘轮 / 测试布局 / 阶段-2 欠账 / 编译器指纹 / CI shell / 子进程环境）；棘轮基线与白名单统一在 `test/gates.toml`（AST walker 完备性门已随语法树 visitor 化退役）
-│   ├── xtask_test_lines.z42     `check lines`：src/ 非测试 .z42/.rs 886 行硬上限（500 软限只提示），对照 gates.toml `[lines]` 棘轮（新越界/增长 → 红）
+│   ├── xtask_test_{diagcodes,layout,stage2,fingerprint,ci_shell,proc_env}.z42  各机械门（诊断码唯一 / 测试布局 / 阶段-2 欠账 / 编译器指纹 / CI shell / 子进程环境）；棘轮基线统一在 `test/gates.toml`（行数棘轮已下沉编译器 style.* lint，AST walker 完备性门已随语法树 visitor 化退役）
 │   ├── xtask_test_changed.z42   按改动文件挑 stage
 │   └── xtask_test_{platform,wasm,ios,android,desktop}.z42  平台 3 段测试（build/assets/run）
 │                                platform 是 dispatcher + 共享 phase②；其余四个是 backend 类

@@ -283,6 +283,7 @@ public sealed class ConstructTyper {
     // `inst`（fix-generic-ctor-args）= 本次 `new` 的**实例化类型**，用于按类级型参代换后补查
     // 实参（见下方该块的注释）。`null` = 非泛型实例化，或调用方手上没有那个信息
     // （base-ctor 调用那条）⇒ 该补查整条跳过，行为恒等。
+    [Suppress("style.fnLinesHard", "105 body lines；拆分见 code-organization.md")]
     internal BoundCtorArgs _bindCtorArgs(Z42ClassType cls, Expr[] rawArgs, int argc, TypeEnv env, Span sp, Z42InstantiatedType inst) {
         string ctorName = cls != null ? this._tc._overload._ctorKey(cls, argc) : "";
         // 🔴 **同 arity 的多个 ctor 之间做真的类型决议**（fix-ctor-overload-by-arity-only）。

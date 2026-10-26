@@ -123,6 +123,7 @@ public sealed class TypeOpTyper {
     // 匹配用 `OverloadResolver.TypeKey`（**派发口径**，键推导的 SoT）而非 `SurfaceTypeName`
     // （那是 TSIG 导出口径）：两侧都过 TypeKey ⇒ 落在同一套字母表，且就是运行期真正用的键。
     // 诊断展示反过来用 `SurfaceTypeName`（人读的表面拼写）。
+    [Suppress("style.fnLinesHard", "101 body lines；拆分见 code-organization.md")]
     internal BoundExpr _bindMethodOfExpr(MethodOfExpr mx, TypeEnv env) {
             // 结果类型用 **FQ 名**解析：`Std.Reflection.MethodInfo` 无需 using、也无需声明依赖
             // （标准库既定设计，实测通过）。短名 `MethodInfo` 会强迫用户写 using，与 typeof 不对称。

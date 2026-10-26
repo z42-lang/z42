@@ -41,6 +41,7 @@ public class BundleCase {
 /// manifest 本身是 JSON，但本包零依赖：调用方用自己的 z42.json 把 manifest.json
 /// 解析成 `BundleCase[]` 再传进来。
 public static class BundleRunner {
+    [Suppress("style.fnLinesHard", "65 body lines；拆分见 code-organization.md")]
     /// 跑 `cases` 里的每一条并返回汇总结果（golden 在前、单元在后，缺能力被跳过的
     /// 条目排在末尾）。
     ///

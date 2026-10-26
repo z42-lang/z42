@@ -194,6 +194,7 @@ public sealed partial class ClassDescBuilder {
         return trimmed;
     }
 
+    [Suppress("style.fnLinesHard", "173 body lines；拆分见 code-organization.md")]
     internal IrClassDesc _classDesc(ClassDecl c, bool hasRecord) {   // add-record-attribute：hasRecord 由 IrGen 从原始 AttributedDecl 判（[Record]）
         // 镜像 C# EmitClassDesc：struct 无默认基类；Std.Object 自身无基类；其余默认 "Std.Object"。
         // add-record-attribute（N+1，keyword 已删）：`[Record] class` 走 class（Kind=="class"）→ 自然拿回
@@ -475,6 +476,7 @@ public sealed partial class ClassDescBuilder {
         return descs;
     }
 
+    [Suppress("style.fnLinesHard", "90 body lines；拆分见 code-organization.md")]
     internal IrClassDesc _interfaceDesc(ClassDecl c) {
         IrFieldDesc[] empty = new IrFieldDesc[0];
         IrClassDesc cd = new IrClassDesc(this._g._q(c.Name), false, "", empty, 0);

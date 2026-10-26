@@ -25,9 +25,7 @@ graph LR
     S3d --> S4[compiler 自举<br/>编译器域 + 不动点 + units]
     S4 --> S4g[gc modes<br/>z42c.semantics 在各 GC 模式下重编]
     S4g --> S5[vscode-syntax<br/>grammar ↔ Lexer 防漂移]
-    S5 --> S6[lines<br/>文件行数硬上限棘轮]
-    S6 --> S6f[fnlines<br/>函数体行数硬上限棘轮]
-    S7 --> S8[diagcodes<br/>诊断码唯一性]
+    S5 --> S8[diagcodes<br/>诊断码唯一性]
     S8 --> S9[stage2<br/>阶段-2 欠账挂账 + 到期]
     S9 --> S10[ci-shell<br/>CI 内嵌 shell 先用后赋]
     S10 --> S11[proc-env<br/>子进程 env 单一入口]
@@ -54,8 +52,6 @@ graph LR
 - `compiler`
 - `gc modes (z42c.semantics build)`
 - `vscode-syntax`
-- `lines`
-- `fnlines`
 - `diagcodes`
 - `stage2`
 - `ci-shell`
@@ -112,10 +108,8 @@ fixture、debug VM 跑 `main.zpkg`——跨包 dispatch 的 debug 断言覆盖�
 | `compiler` | 编译器自举不动点 gen1 == gen2 + units（见[构建编排](build.md)）| host-independent |
 | `gc modes` | 在每种 GC 模式下、把收集器调到触发上百次，重编一个真实包（`z42c.semantics`），每模式带一个收集次数下限断言 | 三个提前回收缺陷都是这么现形的：编译器在悬垂引用上崩在半途 |
 | `vscode-syntax` | 生成产物一致性：`z42.tmLanguage.json` 必须等于「当前 Lexer 关键字表 + 模板」的重渲染 | 约一次 z42c fork |
-| `lines` | 文件行数上限棘轮，见下 | 纯文本扫描 < 1 s |
-| `fnlines` | 函数 / 方法**体**行数上限棘轮，见下 | 纯文本扫描 < 1 s |
 | `diagcodes` | 诊断码**一码一义**：每个发得出去的码在登记表里登记恰好一次，见下 | 纯文本扫描 < 1 s |
-| `stage2` | 阶段-1 过渡形态必须挂账且不超期：挂账日写在源码标记 `STAGE2-DEBT(<tag>,YYYY-MM-DD)` 里，缺日期红、超宽限红（宽限在 gates.toml `[stage2] grace-days`），见 `scripts/test/xtask_test_stage2.z42` 头注 | 纯文本扫描 < 1 s |
+| `stage2` | 阶段-1 过渡形态必须挂账且不超期：挂账日写在源码标记 `STAGE2-DEBT(<tag>,YYYY-MM-DD)` 里，缺日期红、超宽限红（宽限为门内常量 7 天），见 `scripts/test/xtask_test_stage2.z42` 头注 | 纯文本扫描 < 1 s |
 | `ci-shell` | `.github/**` 的多行 `run:` 块里**没有先用后赋**的变量（立门时 7 个 yml / 76 块），见下 | 纯文本扫描 < 1 s |
 | `proc-env` | xtask 子进程的 `Z42_LIBS` / `Z42_PROBING_PATHS` **只经** `_z42Proc` / `_z42bProc` / `_z42cProc` 设置，调用点不得直接 `.Env(...)`，见下 | 纯文本扫描 < 1 s |
 | `layout` | [测试用例组织规范](test-layout.md)里能机械判定的部分：`src/tests` 类别登记、能力词表 ↔ 运行期、能力声明只用已生效的名字 | 纯文本扫描，秒级 |
@@ -152,22 +146,12 @@ xtask 起的每个跑 z42 代码的子进程都经 `_z42Proc(exe, libs)` 建（z
 （见[项目模型](../compiler/project-model.md)）。`.EnvRemove(...)`（dist 测试刻意模拟用户机器）不判；夹具 `expect.toml`
 里的 `env` / `env_remove` 是夹具自己的输入，也不在扫描面内。
 
-**`lines` 是两档**（`_lineLimitHard()` / `_lineLimitSoft()`，`scripts/test/xtask_test_lines.z42`）：
-
-- **硬限 886 行**——不在基线的新越界文件、或比基线更长的已知越界文件 → **红**；
-- **软限 500 行**——只打一行 advisory 计数，**不进棘轮、不阻断**。
-
-扫 `src/` 下的非测试 `.z42` / `.rs`，对照 `scripts/test/gates.toml` 的 `[lines]` 区（键 = 文件路径，
-值 = 挂账行数）。拆分后降到硬限以下的文件用 `xtask check lines --update` 从基线剔除（只降不升）。
-注意软限从来不变红：写个 600 行的新文件 gate 并不会拦。
-
-**`fnlines` 是同形的函数级棘轮**（`_fnLimitHard()` / `_fnLimitSoft()`，`scripts/test/xtask_test_fnlines.z42`）：
-硬限 **60 行**体、软限 **40 行**体（code-organization.md「函数 / 方法行数」；此前只是文档约定、零 lint，
-首建基线时越界函数已有三位数——又一例「没有测试盯着的约定迟早会烂」）。「体行数」= 开括号行与闭括号行之间的非空、非注释行；
-单行体计 0。识别是文本启发式（`.z42` 看成员缩进 + `(…)` + 行尾 `{`，排除控制流 / lambda / `new …{`；
-`.rs` 看 `fn name(` 到行尾 `{`），剥掉字面量与行注释再数括号——漏识别只会少算、不会误红。
-基线在 `scripts/test/gates.toml` 的 `[fnlines]` 区：键 `"<path>::<name>"`（同名重载按出现序 `#n`），
-值 = 体行数；抽出子函数后降到硬限以下的条目用 `xtask check fnlines --update` 剔除（只降不升）。
+**`lines` / `fnlines`（行数棘轮）已退役**：机制下沉为编译器内建 lint——`style.fileLines(Hard)`
+（886/500 两档）与 `style.fnLines(Hard)`（60/40 两档）四条规则，各包清单 `[lints]` 启用并升 error
+（越限拦编译，等价于原「新越界 = 红」）；原棘轮基线（gates.toml `[lines]` / `[fnlines]` 区）退役为
+源内显式豁免——方法级 `[Suppress("style.fnLinesHard", "…")]`、文件顶部 `#suppress`（见
+[编译期扩展](../../../reference/src/toolchain/compile-time-extensions.md)「内建规则」）。取舍：被豁免的条目可以继续增长
+（原棘轮的「不许膨胀」没了），换来豁免可见、带理由、可 grep；`.rs` 侧长度纪律随之失去门禁（如需要走 clippy）。
 
 **`walkers`（AST walker 完备性对账）已退役**：语法树与绑定树的穷举遍历全部改实现 visitor 接口
 （语法包的 `IExprVisitor` 等四族、语义包的 `IBoundExprVisitor` 等三族，节点 `Accept<R, D>` 双分派）——
@@ -303,7 +287,7 @@ xtask 起的每个跑 z42 代码的子进程都经 `_z42Proc(exe, libs)` 建（z
 
 除 build wave 与 `e2e goldens` 外，其余 stage 都可经 `--skip <csv>` 下放到独立 CI job
 （`_skipHas`）。skip 名是短名，**不等于 banner 全名**：`rust-units` / `cross-zpkg` / `multi-exe` / `stdlib` /
-`toolchain` / `bench` / `targets` / `examples` / `docs` / `compiler` / `gcgen` / `vscode` / `lines` / `fnlines` / `walkers` / `diagcodes` /
+`toolchain` / `bench` / `targets` / `examples` / `docs` / `compiler` / `gcgen` / `vscode` / `walkers` / `diagcodes` /
 `stage2` / `ci-shell` / `proc-env` / `layout` / `versions`。
 
 skip 只影响**在哪跑**，不改变 gate 的 stage 组成，所以 §1 的清单不随 `--skip` 变化，
