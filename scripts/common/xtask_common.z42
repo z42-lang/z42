@@ -111,10 +111,6 @@ int _z42cWorkspaceBuild(string vm, string driver, string cwd, string libs, bool 
 // 单包 `build <toml> --release --output-dir <out>`：把一个成员 zpkg 直接写到 <out>/<name>.zpkg
 // （非 workspace 布局）。冷启动破 z42c⇄z42.package 环用（_ensureBootstrapSelfDepLibs）：种子 driver
 // 先把当前源码的 z42.package 编进 build-libs，让 fresh z42c 对着真 z42.package 编译+运行。
-int _z42cBuildPackage(string vm, string driver, string tomlPath, string libs, string outputDir) {
-    return _z42cBuildPackage(vm, driver, tomlPath, libs, outputDir, "");
-}
-
 // `runLibs` 同 `_z42cWorkspaceBuild`。
 int _z42cBuildPackage(string vm, string driver, string tomlPath, string libs, string outputDir,
                       string runLibs) {
@@ -614,21 +610,11 @@ int _ensureSeed(string root) {
 // stdlib flat dist (= the Z42_LIBS value the compiler + VM load stdlib from):
 //   artifacts/intermediate/libraries/flat/release.
 // This is the CANONICAL build-tree path — where the producer command (build stdlib)
-// WRITES. Consumer commands (test) that should READ from an active
-// `--toolchain` use _activeLibsDir() instead (which falls back here when unset).
+// WRITES. Consumers that must honour an active `--toolchain` resolve the toolchain
+// first themselves (`_activeVm` / `_toolchainLibs`) and fall back here.
 // ⚠️ scripts/hooks/hooks.z42（embed-libs）另写了一份（hooks 工程调不到本函数），改这里要同步。
 string _libsDir(string root) {
     return _libsFlatDist(root, "release");
-}
-
-// stdlib libs to READ for the current command: the active --toolchain's libs/
-// when set, else the canonical build-tree _libsDir. Consumer paths (test, and
-// build steps that resolve against an existing toolchain) call this; producers
-// keep writing to _libsDir.
-string _activeLibsDir(string root) {
-    string tc = _toolchainDir(root);
-    if (tc.Length > 0) { return _toolchainLibs(tc); }
-    return _libsDir(root);
 }
 
 // `_packagesDir` → common/xtask_layout.z42（top-level buckets，centralize-xtask-layout）。
