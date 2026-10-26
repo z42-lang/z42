@@ -209,7 +209,6 @@ LibsDomainOut _resolveLibsDomain(ProjectManifest pm, string tomlPath, string pro
     DirsOut zr = _appendZpkgRefDirs(pm, projectDir, o.LibsDirs, o.LibsDirsN);
     if (zr == null) { o.Rc = ExitCode.BuildError; return o; }
     o.LibsDirs = zr.Dirs; o.LibsDirsN = zr.N;
-    if (tier == null || tier.MemberDirs == 0) { o.LibsDirs = _memberDomainDirs(pm, projectDir, o.LibsDirs, ref o.LibsDirsN); }   // 见 _memberDomainDirs（BuildPaths.z42）
     // 声明了 stdlib ⇒ W0610（DepDecls.z42）。此刻 libsDirs = path 闭包 / vendored zpkg + 外部档，正是判「从哪解析到」的那一份。
     _warnStdlibDeps(pm, tomlPath, o.LibsDirs, o.LibsDirsN, tier);
     // ── SDK 库的可见性（add-sdk-libs；规则与实现见 z42c.pipeline 的 SdkLibs.z42）────────────────────
@@ -217,7 +216,7 @@ LibsDomainOut _resolveLibsDomain(ProjectManifest pm, string tomlPath, string pro
     // 契约包在那里）。不放行的并入扫描 tier 的 Hidden。放行集为空（绝大多数工程，含 z42c 自建）⇒ 不追加目录、
     // tier 原样 ⇒ 自举 byte-identical。此前这里只有「kind = analyzer ⇒ 并入整个编译器目录」一条。
     // SdkPlan 同时交给 ⑩ 的 CompileInputs 装填（ExtendDeclared：放行的 SDK 库也算已声明）。
-    o.SdkPlan = SdkLibs.Plan(pm, o.LibsDirs, o.LibsDirsN, pm.Project.IsPlugin());
+    o.SdkPlan = _memberAwarePlan(pm, projectDir, tier, o.LibsDirs, o.LibsDirsN);   // 成员工程走 PlanForMembers（retire-member-dep-decls 收尾）
     if (o.SdkPlan.DirsN > 0) {
         o.LibsDirs = SdkLibs.AppendDirs(o.LibsDirs, o.LibsDirsN, o.SdkPlan);
         o.LibsDirsN = o.LibsDirsN + o.SdkPlan.DirsN;

@@ -5,7 +5,7 @@ namespace Z42.Driver;
 using Std.IO;
 using Z42.Package;
 using Z42.Pipeline;
-using Z42.Project;   // WorkspaceMemberDeps（_memberDomainDirs）
+using Z42.Project;   // WorkspaceMemberDeps（_memberAwarePlan）
 
 // dist 主文件能否被 preserved 早退原样沿用：pack 模式位（header flags bit0）与本次决议一致，**且**
 // zpkg 格式版本（header major@4 / minor@6）等于本编译器写出的版本。读不出（缺文件/太短）按不一致处理 → 重建。
@@ -96,30 +96,13 @@ string[] _extLibDirs() {
     return one;
 }
 
-// 本工程是 workspace 成员（standalone / path 闭包语境）⇒ 编译器域目录并入 libsDirs（去重追加）。
-// retire-member-dep-decls：成员清单不再声明同 workspace 依赖（WS032），兄弟成员（z42c.core 等）经
-// 域目录（driver 自包含 dist 即全体成员）按普通目录解析。workspace 路径不加：成员 dist 已在 libsDirs
-// 且有 tier 分档纪律（后序成员不可见的封闭性）。
-// 成员判据 = 所属 workspace 成员名含本包名（EnclosingMemberNames 向上找所属 workspace；嵌套在成员
-// 目录里的独立工程——如 tests/<unit>——不在其列：那些按名声明自己的依赖）。非成员原样返回。
-string[] _memberDomainDirs(ProjectManifest pm, string projectDir, string[] dirs, ref int n) {
-    string[] members = WorkspaceMemberDeps.EnclosingMemberNames(projectDir);
-    bool isMember = false;
-    int i = 0;
-    while (i < members.Length) { if (members[i] == pm.Project.Name) { isMember = true; } i = i + 1; }
-    if (!isMember) { return dirs; }
-    string[] dom = CompilerDomain.Dirs();
-    string[] grown = new string[n + dom.Length];
-    int m = 0;
-    while (m < n) { grown[m] = dirs[m]; m = m + 1; }
-    int d = 0;
-    while (d < dom.Length) {
-        bool dup = false;
-        int g = 0;
-        while (g < m) { if (grown[g] == dom[d]) { dup = true; } g = g + 1; }
-        if (!dup && Directory.Exists(dom[d])) { grown[m] = dom[d]; m = m + 1; }
-        d = d + 1;
-    }
-    n = m;
-    return grown;
+// retire-member-dep-decls 收尾：本工程是 workspace 成员且非 workspace 分档（standalone / path
+// 闭包）⇒ 成员名并入 SDK 放行种子（`SdkLibs.PlanForMembers`，#1404 起 nightly 在）——放行集非空
+// 才会挂载编译器目录，兄弟成员（z42c.core 等）由此对成员工程可见。成员清单不再声明同 workspace
+// 依赖（WS032）。workspace 分档（MemberDirs > 0）走纯 `Plan`：成员 dist 已在 libsDirs，且 tier
+// 分档守着「后序成员不可见」的封闭性纪律。
+SdkLibPlan _memberAwarePlan(ProjectManifest pm, string projectDir, WsTier tier, string[] dirs, int n) {
+    if (tier != null && tier.MemberDirs > 0) { return SdkLibs.Plan(pm, dirs, n, pm.Project.IsPlugin()); }
+    return SdkLibs.PlanForMembers(pm, dirs, n, pm.Project.IsPlugin(),
+                                  WorkspaceMemberDeps.EnclosingMemberNames(projectDir));
 }
