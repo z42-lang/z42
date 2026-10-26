@@ -401,16 +401,15 @@ int _distRunJobs() {
 // 消费端见 launcher 的 `_desktopApphostStub`（读 installed workload 或 Z42_APPHOST_TEMPLATE 覆盖）。
 // ⚠️ 别改成去包里找：那里恒找不到，发布类夹具就成了「永远缺件」—— preflight 会把它报成缺件，
 // 而一旦有人把缺件降成 SKIP，这几条腿就变回从不运行、从不失败的门。
+// 名字与生产端同源（`_desktopWorkloadPkgName` / `_desktopApphostName`，xtask_package_desktop.z42）；verify 只认
+// release profile 的那份（缺则 `_packageVerify` 以 release 补打）。
 string _distWorkloadDir(string root) {
-    string rid = _detectHostRid();
-    return Path.Join(_packagesDir(root), "z42-workload-" + _versionsGet(root) + "-desktop-" + rid);
+    return Path.Join(_packagesDir(root), _desktopWorkloadPkgName(_versionsGet(root), _detectHostRid(), "release"));
 }
 
 // "" = 未构建（调用方按缺件处理）。
 string _distApphostTemplate(string root) {
-    string rid = _detectHostRid();
-    string name = rid.StartsWith("windows-") ? ("apphost-" + rid + ".exe") : ("apphost-" + rid);
-    string p = Path.Join(_distWorkloadDir(root), name);
+    string p = Path.Join(_distWorkloadDir(root), _desktopApphostName(_detectHostRid()));
     if (File.Exists(p)) { return p; }
     return "";
 }

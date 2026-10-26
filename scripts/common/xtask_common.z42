@@ -698,3 +698,14 @@ string _cmdOut(string bin, string[] args) {
         return r.Stdout.Trim();
     } catch (Exception e) { return ""; }
 }
+
+// 文件的 sha256（小写 hex）；失败 → ""。走系统工具（Std.Crypto.Sha256 是纯脚本实现，解释模式下对几百 MB 的
+// 归档太慢）：macOS 只有 `shasum`，Linux 必有 `sha256sum`；两者都打 "<hash>  <file>"，取首 token。
+// 发布归档 SHA256SUMS（package/）与下载件 pin 校验（install/）共用。
+string _sha256Hex(string path) {
+    string outp = Platform.IsMacOS() ? _cmdOut("shasum", new string[] { "-a", "256", path })
+                                     : _cmdOut("sha256sum", new string[] { path });
+    int sp = outp.IndexOf(" ");
+    string hex = sp > 0 ? outp.Substring(0, sp) : outp;
+    return hex.Trim().ToLower();
+}

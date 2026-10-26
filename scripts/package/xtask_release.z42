@@ -375,7 +375,7 @@ int _releaseWriteSums(string distDir) {
     string outp = "";
     i = 0;
     while (i < names.Length) {
-        string sha = _relSha256(Path.Join(distDir, names[i]));
+        string sha = _sha256Hex(Path.Join(distDir, names[i]));
         if (sha.Length != 64) { ConsoleError.WriteLine("SHA256SUMS: 算不出 " + names[i] + " 的 sha256"); return 1; }
         outp = outp + sha + "  " + names[i] + "\n";
         i = i + 1;
@@ -385,10 +385,3 @@ int _releaseWriteSums(string distDir) {
     return 0;
 }
 
-// 文件的 sha256（小写 hex）；失败 → ""。macOS 只有 `shasum`，Linux 两者通常都有、`sha256sum` 必有。
-string _relSha256(string path) {
-    string outp = Platform.IsMacOS() ? _cmdOut("shasum", new string[] { "-a", "256", path })
-                                     : _cmdOut("sha256sum", new string[] { path });
-    int sp = outp.IndexOf(" ");
-    return sp > 0 ? outp.Substring(0, sp) : "";
-}

@@ -87,15 +87,8 @@ int _buildRuntimePackageAndroid(string root, string rid, string version, string 
     Console.WriteLine("  [4/5] C ABI headers");
     _copyAbiHeaders(root, Path.Join(pkgDir, "native/include"));
 
-    // [5/5] stdlib libs (loaded by the embedded VM; install bakes them into the AAR's assets/stdlib)
-    Console.WriteLine("  [5/5] libs/");
-    c = _pkgCopyLibs(_libsDir(root), pkgDir); if (c != 0) { return c; }
-    Console.WriteLine("  ✓ runtime package: " + pkgDir);
-    // runtime pack 才是 libs/ + native/include/ 的真正落点 —— 门必须跑在这里
-    // （fix-package-gates-false-red）。desktop 的 runtime pack 已于 #508
-    // 接上，ios/android/wasm 当时漏了：它们的 workload pack 跑了门却一个
-    // source-derived 文件都没装，真装了的这个包反而从未被检查。
-    return _pkgFinish(root, pkgDir, "runtime", rid);
+    // [5/5] stdlib libs (loaded by the embedded VM; install bakes them into the AAR's assets/stdlib) + package gate
+    return _runtimePkgFinish(root, pkgDir, rid, "[5/5]");
 }
 
 // ── workload tooling: the gradle project (buildable unit) ───────────────────────

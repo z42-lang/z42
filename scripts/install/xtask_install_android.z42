@@ -152,7 +152,7 @@ int _androidCmdlineTools(bool force, string sdkDir, string cmdlineUrlTmpl, strin
     string url = cmdlineUrlTmpl.Replace("{os}", cmdlineHost);   // versions.toml pins the version
     int dc = _curlDownload(url, zip);
     if (dc != 0) { return dc; }
-    if (_verifySha256(zip, cmdlineSha, "cmdline-tools (" + cmdlineHost + ")", hostOs) != 0) { return 1; }
+    if (_verifySha256(zip, cmdlineSha, "cmdline-tools (" + cmdlineHost + ")") != 0) { return 1; }
     int uc = _exec(new Process("unzip").Arg("-q").Arg(zip).Arg("-d").Arg(tmp));
     if (uc != 0) { return uc; }
     // zip extracts to "cmdline-tools/" — rename to ".../latest".
@@ -215,7 +215,7 @@ int _androidEmulatorExtras(bool wantEmu, bool force, string avdmanager, string a
         string gzip = Path.Join(tmp2, "gradle.zip");
         int dc = _curlDownload("https://services.gradle.org/distributions/gradle-" + gradleVer + "-bin.zip", gzip);
         if (dc != 0) { return dc; }
-        if (_verifySha256(gzip, gradleSha, "gradle " + gradleVer, hostOs) != 0) { return 1; }
+        if (_verifySha256(gzip, gradleSha, "gradle " + gradleVer) != 0) { return 1; }
         if (Directory.Exists(gradleDir)) { Directory.Delete(gradleDir, true); }
         Directory.Create(gradleDir);
         int uc = _exec(new Process("unzip").Arg("-q").Arg(gzip).Arg("-d").Arg(gradleDir));
@@ -266,26 +266,15 @@ int _runWithStdin(string bin, string[] args, string javaHome, string stdin) {
     } catch (Exception e) { return 0; }   // licenses pipe is best-effort (mirrors `|| true`)
 }
 
-// sha256 of a file as lowercase hex. macOS ships `shasum`, Linux `sha256sum`;
-// both print "<hash>  <file>" so the first token is the digest.
-string _sha256Of(string path, string hostOs) {
-    string outp;
-    if (hostOs == "mac") { outp = _cmdOut("shasum", new string[]{ "-a", "256", path }); }
-    else                 { outp = _cmdOut("sha256sum", new string[]{ path }); }
-    int sp = outp.IndexOf(" ");
-    string hex = (sp < 0) ? outp : outp.Substring(0, sp);
-    return hex.Trim().ToLower();
-}
-
 // Verify a downloaded artifact against its versions.toml pin. Abort (rc 1) on a
 // missing pin or a mismatch — a supply-chain tamper / wrong-build guard, so an
 // unpinned download is treated as a hard error, not a silent pass.
-int _verifySha256(string path, string expected, string label, string hostOs) {
+int _verifySha256(string path, string expected, string label) {
     if (expected.Length == 0) {
         ConsoleError.WriteLine("error: no sha256 pinned for " + label + " in versions.toml — refusing unverified install");
         return 1;
     }
-    string actual = _sha256Of(path, hostOs);
+    string actual = _sha256Hex(path);
     if (!actual.Equals(expected.ToLower())) {
         ConsoleError.WriteLine("error: sha256 mismatch for " + label);
         ConsoleError.WriteLine("  expected " + expected);
