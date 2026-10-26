@@ -189,3 +189,40 @@ void test_parse_partial_method_no_body() {
     string d = parseUnit("class C { partial void M(); }");
     Assert.Equal(true, d.IndexOf("method partial void M") >= 0);
 }
+
+// 插值串拆段：普通字符按段整段切出，转义 / `{{` `}}` 并入同一文本段；洞按嵌套深度切。
+[Test]
+void test_interpolated_string_parts() {
+    var p = new Parser("$\"a\\tb{{c}}{x + 1}d{y}\"", "t.z42");
+    var e = p.ParseExpression() as InterpolatedStringExpr;
+    Assert.Equal(4, e.PartCount);
+    Assert.Equal("a\tb{c}", (e.Parts[0] as InterpText).Text);
+    Assert.Equal("(+ x 1)", (e.Parts[1] as InterpHole).Inner.Dump());
+    Assert.Equal("d", (e.Parts[2] as InterpText).Text);
+    Assert.Equal("y", (e.Parts[3] as InterpHole).Inner.Dump());
+    Assert.Equal(0, p.Diagnostics().Count());
+}
+
+// 边界：首洞 / 尾文本 / 洞内嵌套串含 `}` / 纯文本无洞 / 末尾 `}}`；同一 Parser 连续多洞复用同一子解析器
+// （`Parser.HoleParser`），嵌套插值走子解析器自己的那一个——两层各自独立、互不重入。
+[Test]
+void test_interpolated_string_edges_and_nested() {
+    var p = new Parser("$\"{d[\"}\"]} tail\"", "t.z42");
+    var e = p.ParseExpression() as InterpolatedStringExpr;
+    Assert.Equal(2, e.PartCount);
+    Assert.Equal(" tail", (e.Parts[1] as InterpText).Text);
+    var p2 = new Parser("$\"plain}}\"", "t.z42");
+    var e2 = p2.ParseExpression() as InterpolatedStringExpr;
+    Assert.Equal(1, e2.PartCount);
+    Assert.Equal("plain}", (e2.Parts[0] as InterpText).Text);
+    var p3 = new Parser("$\"{$\"{a}b\"}c{n}\"", "t.z42");
+    var e3 = p3.ParseExpression() as InterpolatedStringExpr;
+    Assert.Equal(3, e3.PartCount);
+    var inner = (e3.Parts[0] as InterpHole).Inner as InterpolatedStringExpr;
+    Assert.Equal(2, inner.PartCount);
+    Assert.Equal("a", (inner.Parts[0] as InterpHole).Inner.Dump());
+    Assert.Equal("b", (inner.Parts[1] as InterpText).Text);
+    Assert.Equal("c", (e3.Parts[1] as InterpText).Text);
+    Assert.Equal("n", (e3.Parts[2] as InterpHole).Inner.Dump());   // 第二个洞：复用的子解析器已 Reset
+    Assert.Equal(0, p3.Diagnostics().Count());
+}
