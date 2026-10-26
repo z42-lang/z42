@@ -73,7 +73,7 @@ xtask layout intermediate/libraries/flat/release   # 只打印一条的绝对路
 树里的名字就是磁盘上的目录名（`build/` 下的子目录直接枚举 `src/` 的一级目录），查询参数就是树里显示的
 相对路径（尾 `/` 可有可无）。路径由 `xtask_layout.z42` 里各自的单一定义函数算出，布局整理时树自动跟上。
 仍然写死在 xtask 之外的有：`.github/ci/xtask`（CI 垫片，跑在 `.z42` SDK 上、要先能启动 xtask，鸡生蛋）、
-`scripts/hooks/hooks.z42`（z42b publish 时单独编译的 hooks 工程，调不到 xtask 的函数）、
+`scripts/xtask_hooks.z42`（z42b publish 时单独编译的 hooks 工程，调不到 xtask 的函数）、
 Rust 测试里的若干 cwd 相对路径。
 
 ### `intermediate/libraries/flat/<profile>` 为什么必须存在

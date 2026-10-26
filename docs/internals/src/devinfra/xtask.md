@@ -1,6 +1,6 @@
 # xtask：仓库开发 CLI
 
-> 代码：`scripts/xtask.z42`、`scripts/xtask_cli.z42`、`scripts/cli/`、`scripts/common/`
+> 代码：`scripts/xtask.z42`、`scripts/cli/xtask_cli.z42`、`scripts/cli/`、`scripts/common/`
 >
 > 每个子命令的旗标以 `xtask <命令> -h` 为准（帮助文本由路由树自动生成）；逐文件职责表见
 > [`scripts/README.md`](https://github.com/z42-lang/z42/blob/main/scripts/README.md)，本页不复列。
@@ -69,7 +69,7 @@ graph LR
     RT --> D[_dispatch 按路径首段<br/>→ 各 _dispatchXxx]
 ```
 
-① **全局标志剥离**（`_applyToolchainOpt` / `_applyVerbosityOpt`，`scripts/xtask_cli.z42`）：
+① **全局标志剥离**（`_applyToolchainOpt` / `_applyVerbosityOpt`，`scripts/cli/xtask_cli.z42`）：
 两 token 形式从 argv 摘除、last-wins，`--toolchain` 写进 `Z42_HOME`。
 ② **拦截层**：有两个命令的默认语义是路由树表达不了的——裸 `test` = 完整 GREEN gate、
 裸 `bench` = e2e 场景；它们在 `Resolve` 之前被拦下，但**仍注册在树里**，好让 `xtask -h` 列出、
@@ -86,7 +86,7 @@ graph LR
 dispatch 之间没有任何引用。所以按**族**分文件，而不是「所有 router 一段、所有 dispatch 一段」：
 
 ```
-scripts/xtask_cli.z42              核心：全局选项剥离 → _cliRoot 根树 → _dispatch 分流
+scripts/cli/xtask_cli.z42              核心：全局选项剥离 → _cliRoot 根树 → _dispatch 分流
 scripts/cli/xtask_cli_build.z42    _buildRouter    + _dispatchBuild
 scripts/cli/xtask_cli_package.z42  _packageRouter  + _dispatchPackage
 scripts/cli/xtask_cli_test.z42     _testRouter     + _dispatchTest

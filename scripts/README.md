@@ -18,7 +18,7 @@ xtask <command> [args]                         # 直接运行
 xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分（launcher 保持通用
 运行时）。冷启动如何先产出 xtask 见下文「冷启动 bootstrap」。
 
-本目录的 `.z42` 除 `hooks/hooks.z42`（z42b build hook）外全部是 xtask 模块（含 stdlib 构建逻辑 `build/xtask_stdlib.z42`）。
+本目录的 `.z42` 除 `xtask_hooks.z42`（z42b build hook，`namespace Build`）外全部是 xtask 模块（含 stdlib 构建逻辑 `build/xtask_stdlib.z42`）。
 安装脚本运行在「还没有 z42 工具链」的最前端，故保持 shell / PowerShell：
 
 - **`install/install.{sh,ps1}`** —— 用户安装脚本，唯一的安装逻辑：默认 nightly、安装到 `~/.z42`、配置 PATH、
@@ -239,17 +239,21 @@ xtask package sdk --verify    # 打 host-RID 发行包，再自检 + 端到端�
 scripts/
 ├── xtask.z42            **只有入口**：Main（校验 VM → _runCli）+ `run` 直通（Resolve 前拦截）
 ├── xtask.z42.toml       工程清单（glob include；output → artifacts/xtask/）
-├── xtask_cli.z42        CLI **核心**：全局选项剥离 + 根命令树 + 顶层 dispatch 分流（每层 -h 自动生成）
-├── xtask_bench.z42      bench 基准 / --diff / --ab 回归对比
-├── xtask_profile.z42    profile 单脚本性能（cpu/heap/threads/e2e；samply/dhat/hyperfine + counter JSON）
-├── cli/                每个命令族的 router（叶子的 flag/option 声明）+ dispatch（→ handler）
-│   │                   ——两者成对出现、族间零耦合，故按族分文件，而非「router 一段 / dispatch 一段」
+├── xtask_hooks.z42      z42b build hook（`namespace Build`，非 Z42Xtask；xtask.z42.toml `[plugins]` 的免清单单文件条目，
+│                        树内自动排除出 [sources]）：publish 前现场 cargo 编 apphost stub，免装 desktop workload
+├── cli/                CLI 核心 + 每个命令族的 router（叶子的 flag/option 声明）+ dispatch（→ handler）
+│   │                   ——router 与 dispatch 成对出现、族间零耦合，故按族分文件，而非「router 一段 / dispatch 一段」
+│   ├── xtask_cli.z42          **核心**：全局选项剥离 + 根命令树 + 顶层 dispatch 分流（每层 -h 自动生成）；profile / layout / clean 的叶子也在这
 │   ├── xtask_cli_build.z42    `build` 族
 │   ├── xtask_cli_package.z42  `package` 族
 │   ├── xtask_cli_test.z42     `test` 族（含嵌套的 `test app` 子 router）
 │   ├── xtask_cli_check.z42    `check`（静态检查的单跑入口；实现在 test/ install/ package/ 原处）
 │   ├── xtask_cli_setup.z42    `setup` 族 + default-action（`setup` 不带子命令 = 安装）的 parser
 │   └── xtask_cli_bench.z42    `bench` 族 + default-action（`bench` 不带子命令 = e2e）的 parser 与入口
+├── bench/              性能测量族：bench / profile
+│   ├── xtask_bench.z42         bench 基准 / --diff / --micro-diff / --ab 同 runner 回归门禁（判定数学 `_abVerdict` 可 `--ab-selftest`）
+│   ├── xtask_bench_pause.z42   GC 停顿指标解析（bench 场景头 `// gc-pause: report`）
+│   └── xtask_profile.z42       profile 单脚本性能（cpu/heap/threads/e2e；samply/dhat/hyperfine + counter JSON）
 ├── common/             共享基建（非某个命令专属）
 │   ├── xtask_common.z42     _root/_exec/cargo/toolchain 选择器 + verbosity + 种子解析
 │   ├── xtask_layout.z42     构建树布局路径（per-member 读 workspace.toml 单源 + flat/runtime/build-root 约定）
@@ -257,8 +261,7 @@ scripts/
 │   ├── xtask_golden.z42     golden 枚举 / 入口推导（多 test stage + build test 复用）
 │   ├── xtask_toolset.z42    外部工具（cargo/gh/tar/...）的存在性与定位
 │   ├── xtask_fs.z42         文件系统原语（_resetDir/_copyAll/_linkAll/_cleanGlob/_copyIfExists/_makeExe）
-│   ├── xtask_exec_profile.z42  执行剖面词汇（tier × aot_pkgs × VM caps；test 与 bench 共用）
-│   ├── xtask_bench_pause.z42   GC 停顿指标解析（bench 场景头 `// gc-pause: report`）
+│   ├── xtask_exec_profile.z42  执行剖面词汇（tier × aot_pkgs × VM caps；test 与 bench 共用，故不随 bench/ 走）
 │   └── xtask_fixture_harness.z42  声明式夹具（`expect.toml`）的通用引擎：z42c 命令行夹具与发行包夹具共用
 ├── build/              build stdlib / compiler / runtime / golden-assets + clean + 自举边界检查
 │   ├── xtask_stdlib.z42         build stdlib（z42c build --workspace + 扁平视图）
@@ -280,6 +283,7 @@ scripts/
 │   ├── xtask_test_lib_units.z42 unit 级机制（发现 / 批量编译运行 / 合成 manifest）
 │   ├── xtask_manifest_targets.z42  manifest [[test]]/[[bench]]/[[example]] target **引擎**
 │   │                            （被 lib / targets / example 三个 flow 共用，不对应任何命令）
+│   │                            + micro bench 结果聚合 `MicroBenchAgg`（`bench stdlib --json`；消费方全在本族，故不住 bench/）
 │   ├── xtask_test_targets.z42   `test toolchain builder` / `bench targets` 入口（_testTargetsCore）
 │   │                            + fixture 工程与 tooling 准备（_prepFixtureTooling）
 │   ├── xtask_test_example.z42   工程清单 `[[example]]` 目标的编译 / 运行
@@ -313,17 +317,14 @@ scripts/
 │   ├── xtask_install{,_android}.z42  `setup [--os]` + Android SDK·NDK·模拟器
 │   ├── xtask_setup_check.z42         `setup check`：只读在场校验
 │   └── xtask_install_vscode.z42      生成 z42.tmLanguage.json + **`check vscode-syntax` 门**
-└── hooks/
-    └── hooks.z42       z42b build hook（`namespace Build`，非 Z42Xtask）：publish 前现场
-                        cargo 编 apphost stub，免装 desktop workload
 ```
 
 每个命令的详细 Usage 见 `xtask -h`（每层子命令 `-h` 自动生成）与各源文件顶部注释。
 
 ### 目录分层规则
 
-**依赖只有一个方向：`build/` `test/` `package/` `install/` `cli/` 各族 → `common/`。
-族与族之间不得互相调用，`common/` 更不得反调任何族。**
+**依赖只有一个方向：`build/` `test/` `package/` `install/` `bench/` 各族 → `common/`；`cli/` 是分发层，
+只向下调各族的 handler。族与族之间不得互相调用，`common/` 更不得反调任何族。**
 
 被两个以上族用到的东西，就该上移到 `common/`——最底层的文件系统原语在
 `common/xtask_fs.z42`，路径布局在 `xtask_layout.z42`，外部工具探测在 `xtask_toolset.z42`。

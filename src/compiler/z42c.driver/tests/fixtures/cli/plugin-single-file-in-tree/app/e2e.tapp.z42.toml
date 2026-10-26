@@ -5,7 +5,7 @@ kind    = "exe"
 
 # include 是 **/*.z42 —— igen/igen.z42 会被它匹配到，靠「树内插件条目自动排除」挡住
 #（EffectiveSourceExcludes：条目路径规范化后 +/**；段匹配的零段 ** 同时覆盖文件本身）。
-# 这是未来 xtask.hooks 迁到 `{ path = "hooks/hooks.z42" }` 的确切形态。
+# 这正是 xtask.hooks 的现行形态（`{ path = "xtask_hooks.z42" }`，scripts/ 根下）。
 [sources]
 include = ["**/*.z42"]
 

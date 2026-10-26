@@ -301,7 +301,7 @@ jobs:
       # 三条路径与它们的可测性各不相同：
       #   `_abVerdict`  —— e2e A/B，本 job 唯一的硬门禁。吃两套同机实测的真工具链，
       #                    **喂不了 JSON fixture**；但它是纯函数 ⇒ `bench --ab-selftest`
-      #                    单测（五例，见 scripts/xtask_bench.z42 的函数头）。
+      #                    单测（五例，见 scripts/bench/xtask_bench.z42 的函数头）。
       #   `_benchDiff`  —— `bench --diff`，历史/本地对比路径。四个 fixture。
       #   `_microDiff`  —— `bench --micro-diff`，micro 层 A/B（ab-resample-on-suspicion
       #                    之后重新是**硬门禁**）。单轮七个 fixture（SEM 路径 + 无 SEM 的

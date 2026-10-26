@@ -1,6 +1,6 @@
 # 性能基准与回归门禁
 
-> 代码：`scripts/xtask_bench.z42`、`scripts/common/xtask_bench_pause.z42`、`src/benches/`、`src/runtime/benches/`、`.github/workflows/bench-pr.yml`
+> 代码：`scripts/bench/xtask_bench.z42`、`scripts/bench/xtask_bench_pause.z42`、`src/benches/`、`src/runtime/benches/`、`.github/workflows/bench-pr.yml`
 >
 > 命令与旗标以 `xtask bench -h` / `xtask bench stdlib -h` 为准。
 
