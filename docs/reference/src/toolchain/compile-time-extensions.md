@@ -51,10 +51,10 @@ demo.lint/
 引用非 SDK 的第三方库写 `[dependencies]`；嵌套在宿主工程里要复用宿主 internal 由**宿主**在
 `[plugins.export]` 条目写 `internal = true`（授权在宿主侧，插件自己写无效）。
 
-> **免清单插件**：零 `[dependencies]` 的插件连这两行清单都不用写——消费方条目直接指源文件
-> （`"demo.hook" = { path = "hooks/hook.z42" }`）或无清单源目录（`"demo.multi" = { path = "hooks/" }`，
-> `<目录>/**/*.z42` 递归全收），工具链合成最小清单后代建（见下文「五种条目写法」）。要写 `version` /
-> `[sources]` / `[dependencies]` 之一时才需要工程形态（`z42 new --plugin` 可脚手架）。
+> **免清单插件**：零 `[dependencies]` 的插件连这两行清单都不用写——消费方条目用**源集**写法
+> （`"demo.hook" = { include = ["hooks/**/*.z42"] }`，键名与语义对齐 `[tests]`，可加 `exclude`），
+> 工具链合成最小清单后代建（见下文「条目写法」）。要写 `version` / `[dependencies]` 之一时才需要
+> 工程形态（`z42 new --plugin` 可脚手架）。
 
 ## 完整使用流程（索引）
 
@@ -86,15 +86,15 @@ demo.lint/
 `: Generator`、`: ModuleGenerator` 的类型；z42b 反射出全部继承 `: BuildHooks` 的具体类。条目里
 **不写类型**——包提供哪几类由 zpkg 头能力位说明，宿主按位分流。
 
-### 五种条目写法
+### 条目写法（源集优先）
 
 ```toml
 [plugins]
-"demo.noemptycatch" = "0.1.0"                 # 按名：在插件目录找 demo.noemptycatch.zpkg
+"demo.hook"         = { include = ["hooks/**/*.z42"], exclude = ["hooks/skip/**"] }   # 源集（推荐，对齐 [tests]）
 "demo.gen"          = { path = "../gen" }     # 按工程路径：代建该工程，取其 dist
+"demo.noemptycatch" = "0.1.0"                 # 按名：在插件目录找 demo.noemptycatch.zpkg
 "demo.local"        = { path = "../x.zpkg" }  # 按 zpkg 路径：现成产物，读头校验后直接用
-"demo.hook"         = { path = "hooks/hook.z42" }   # 免清单·单文件：一个 .z42 源文件，合成最小清单后代建
-"demo.multi"        = { path = "hooks/" }     # 免清单·目录：无清单目录 ⇒ <目录>/**/*.z42 递归全收
+# 弃用中（被源集取代，仍工作）：{ path = "hooks/hook.z42" }（单文件）/ { path = "hooks/" }（无清单目录全收）
 ```
 
 **按名**：在**插件目录**里找 `<name>.zpkg`——`Z42_PLUGINS` 指向的目录，或各依赖目录同级的
@@ -115,11 +115,12 @@ indexed/packed 的坑。住在工程目录里的 path 插件目录自动排除�
 **按 zpkg 路径**：现成产物直接用（读头验能力位 + META 验名，不代建）。适合钉住一份已构建的插件
 （CI 产物、发布件）；产物字节变了消费方照样重编。
 
-**免清单（单文件 / 目录）**：`path` 指**一个 `.z42` 源文件**，或指**没有工程清单**的目录（include =
-`<目录>/**/*.z42` 递归全收；目录里有清单时清单优先）。工具链合成最小插件清单（name = 条目键、
+**源集（include/exclude，推荐）**：与 `[tests]` 同键同语义——`include` 相对本工程目录的源码
+glob（须以文件模式收尾），`exclude` 圈掉不要的。工具链合成最小插件清单（name = 条目键、
 kind = "plugin"，落消费方 cache 目录）后走与工程路径**完全相同**的代建路——零依赖插件（hook 几乎
-全是）从此不写 z42.toml。源不复制：诊断指回原文件，增量按真源生效；树内条目同样自动排除出消费方
-源发现；空目录 / 目录里没有任何 `.z42` 明确报错。**这是零依赖 hook 插件的推荐写法**。
+全是）从此不写 z42.toml。include 模式自动排除出消费方源发现（**显式分区**：模式圈中的文件归插件）；
+源集圈不到任何 `.z42` 明确报错；`include` 与 `path` 互斥。**这是零依赖 hook 插件的推荐写法**。
+旧的免清单 `path` 形态（指 `.z42` 单文件 / 无清单目录全收）仍工作、已被源集取代（弃用中）。
 
 代建出来的 zpkg **不进消费方的解析域**（与 `[dependencies]` 的 path 闭包刻意不同）：插件只活
 在工具链进程里，把它的 dist 并进依赖目录就等于让构建期代码对运行期代码可见。

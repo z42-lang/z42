@@ -1,0 +1,14 @@
+namespace E2eSet;
+
+using Z42.Generators;
+
+// 源集条目（plugins-include-form）：值来自 helper.z42（两文件一个包）；skip/ 里的坏插件被
+// exclude 挡住——若漏进编译即红（语法错误直接失败）。
+public sealed class E2eSetGenerator : ModuleGenerator {
+    public void Generate(GenContext ctx, GenSink sink) {
+        sink.AddSource("e2e", "namespace E2eOut; public static class O { public static int V() { return "
+            + E2eSetConst.V().ToString() + "; } }");
+    }
+    public string[] Consumes() { return new string[0]; }
+    public string[] Produces() { return new string[0]; }
+}

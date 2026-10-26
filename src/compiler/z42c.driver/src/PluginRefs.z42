@@ -47,12 +47,15 @@ bool _resolvePluginZpkgs(ProjectManifest pm, string projectDir, string consumerT
         DepEntry e = pm.Plugins[ai];
         ai = ai + 1;
         string got = "";
-        if (e.Path.Length == 0) {
+        if (e.IncludeCount > 0) {
+            // 源集条目（plugins-include-form，对齐 [tests]）：合成最小清单后与工程条目同一条代建路。
+            got = _pluginFromProject(pm, e, projectDir, consumerToml, isRelease, noIncremental, cliAdd, cliRemove);
+        } else if (e.Path.Length == 0) {
             got = _pluginFromLibs(e.Name, libsDirs, libsDirsN);
         } else if (e.Path.EndsWith(".zpkg")) {
             got = _pluginFromZpkgFile(e.Name, e.Path, projectDir);
         } else {
-            got = _pluginFromProject(pm, e.Name, e.Path, projectDir, consumerToml, isRelease, noIncremental, cliAdd, cliRemove);
+            got = _pluginFromProject(pm, e, projectDir, consumerToml, isRelease, noIncremental, cliAdd, cliRemove);
         }
         if (got.Length == 0) { return false; }
         int caps = _checkPluginZpkg(e.Name, got);
@@ -80,11 +83,28 @@ int _checkPluginZpkg(string name, string zpkgPath) {
 // cache 目录）；失败打印诊断返回 ""。三形态：`.z42` 单文件（include = 源文件绝对路径）、无清单目录
 //（include = <abs>/**/*.z42 递归全收；一个源都没有 ⇒ 明确报错，不静默合成出「no sources matched」）、
 // 带清单目录（判据委托 `ManifestLocator.FindIn`——裸 `z42.toml` 优先，同 `PathDepPlan._resolveDepToml`）。
-string _pluginToml(ProjectManifest pm, string aname, string apath, string projectDir, bool isRelease) {
-    string adir = Path.Join(projectDir, apath);
+// path 条目（工程目录 / 免清单目录 / 单文件源码）+ 源集条目（include/exclude）→ 插件工程清单路径
+//（带清单目录 = 定位；免清单 = PluginSynth 合成，落消费方 cache 目录）；失败打印诊断返回 ""。
+string _pluginToml(ProjectManifest pm, DepEntry e, string projectDir, bool isRelease) {
+    string aname = e.Name;
     string cacheDir = BuildLayout.Resolve(pm, projectDir, isRelease).CacheDir;
-    if (apath.EndsWith(".z42")) {
-        string asrc = Path.IsRooted(apath) ? apath : adir;
+    if (e.IncludeCount > 0) {
+        // 源集与 path 互斥：都写时源集静默赢会让人以为 path 也生效。
+        if (e.Path.Length > 0) {
+            ConsoleError.WriteLine("z42c build: [plugins] `" + aname + "` 同时写了 include 与 path——二者互斥："
+                + "源码集用 include/exclude（相对本工程目录），插件工程用 path。");
+            return "";
+        }
+        string stoml = PluginSynth.SynthSet(cacheDir, aname, projectDir, e.Include, e.IncludeCount, e.Exclude, e.ExcludeCount);
+        if (stoml.Length == 0) {
+            ConsoleError.WriteLine("z42c build: [plugins] `" + aname + "` 的源集 include 一个 .z42 都没匹配到——"
+                + "检查 glob（须以文件模式收尾，如 `hooks/**/*.z42`）。");
+        }
+        return stoml;
+    }
+    string adir = Path.Join(projectDir, e.Path);
+    if (e.Path.EndsWith(".z42")) {
+        string asrc = Path.IsRooted(e.Path) ? e.Path : adir;
         if (!File.Exists(asrc)) {
             ConsoleError.WriteLine("z42c build: [plugins] `" + aname + "` 的 path 指向 " + asrc + "，文件不存在。");
             return "";
@@ -115,11 +135,12 @@ string _pluginToml(ProjectManifest pm, string aname, string apath, string projec
     return "";
 }
 
-// path 条目（工程目录 / 免清单目录 / 单文件源码）：定位（或合成）→ 校验 kind → 代建 → dist 里的
-// `<name>.zpkg`。失败打印诊断并返回 ""。
-string _pluginFromProject(ProjectManifest pm, string aname, string apath, string projectDir, string consumerToml,
+// path 条目（工程目录 / 免清单目录 / 单文件源码）+ 源集条目：定位（或合成）→ 校验 kind → 代建 →
+// dist 里的 `<name>.zpkg`。失败打印诊断并返回 ""。
+string _pluginFromProject(ProjectManifest pm, DepEntry e, string projectDir, string consumerToml,
                           bool isRelease, bool noIncremental, int cliAdd, int cliRemove) {
-    string atoml = _pluginToml(pm, aname, apath, projectDir, isRelease);
+    string aname = e.Name;
+    string atoml = _pluginToml(pm, e, projectDir, isRelease);
     if (atoml.Length == 0) { return ""; }
     // 自指 → 无限递归。消费方自己就是插件工程时最容易写出来（`path = "."`）。
     if (_samePath(atoml, consumerToml)) {

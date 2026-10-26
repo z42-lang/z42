@@ -142,6 +142,7 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
         failed = failed + _smokeHookPlugin(root, tt);
         failed = failed + _smokeHookSingleFile(root, tt);
         failed = failed + _smokeHookDir(root, tt);
+        failed = failed + _smokeHookInclude(root, tt);
         failed = failed + _smokeHookPluginBroken(root, tt);
         failed = failed + _smokeHookCarry(root, tt);
         failed = failed + _smokeWorkspaceDefault(root, tt);
@@ -429,6 +430,36 @@ int _smokeHookDir(string root, TargetTooling tt) {
         return 1;
     }
     Console.WriteLine("  ✅ hook dir plugin: 免清单目录全收、两个 hook 类都执行");
+    return 0;
+}
+
+// 源集 hook 插件 smoke（plugins-include-form）：`[plugins]` 条目写 include/exclude（对齐 [tests]）
+// ⇒ z42b 合成最小清单（PluginSynth.SynthSet）→ ICompiler 代建 → 反射出全部 BuildHooks。
+// 两个类分住两文件——**两条**标记都在才判绿（漏收任何一个文件即缺一条）。
+int _smokeHookInclude(string root, TargetTooling tt) {
+    string toml = Path.Join(tt.Z42bFixturesRoot, "hook-include/z42.toml");
+    if (!File.Exists(toml)) { return 0; }
+    Console.WriteLine("");
+    Console.WriteLine("── hook include plugin ([plugins] 源集条目 include/exclude → 合成清单代建) ──");
+    ProcessResult r = _z42bProc(tt.Vm, tt.Libs).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
+        .Arg("--").Arg("build").Arg(toml)
+        .WorkingDirectory(root)
+        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    string all = r.Stdout + r.Stderr;
+    if (r.ExitCode != 0) {
+        Console.WriteLine("  ❌ hook include plugin: `z42b build` exited " + r.ExitCode.ToString());
+        Console.WriteLine("    输出: " + all);
+        return 1;
+    }
+    int ia = all.IndexOf("HOOK-INCLUDE-SMOKE: A BeforeCompile");
+    int ib = all.IndexOf("HOOK-INCLUDE-SMOKE: B BeforeCompile");
+    if (ia < 0 || ib < 0) {
+        Console.WriteLine("  ❌ hook include plugin: 两个文件的标记行没有都出现（源集漏文件？ia="
+            + ia.ToString() + ", ib=" + ib.ToString() + "）");
+        Console.WriteLine("    输出: " + all);
+        return 1;
+    }
+    Console.WriteLine("  ✅ hook include plugin: 源集 include 全收、两个 hook 类都执行");
     return 0;
 }
 

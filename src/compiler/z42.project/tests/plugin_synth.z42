@@ -96,3 +96,52 @@ void test_in_tree_single_file_plugin_not_swept_into_consumer() {
     Assert.Equal(1, hits.Length);
     Assert.Equal(Path.Join(app, "Main.z42"), hits[0]);
 }
+
+// ── 源集条目（plugins-include-form，对齐 [tests]）──────────────────────────────
+
+[Test]
+[Skip(platform: "wasm", reason: "wasm 沙箱没有真实文件系统，造不了临时源树")]
+void test_synth_set_globs_and_excludes() {
+    // 源集：include glob 相对消费方工程目录（rebase 成绝对模式写进合成清单），exclude 同语义；
+    // 展开零命中 → ""。plug/hooka.z42 + plug/inner/hookb.z42 + plug/skip/skip.z42：
+    // include `plug/**/*.z42` 排除 `plug/skip/**` ⇒ 恰两个文件。
+    string root = _mkPluginTree();
+    Directory.Create(Path.Join(root, Path.Join("plug", "skip")));
+    File.WriteAllText(Path.Join(root, Path.Join("plug", Path.Join("skip", "skip.z42"))), "// s\n");
+    string cache = Path.Join(root, "cache");
+    string[] inc = new string[1]; inc[0] = "plug/**/*.z42";
+    string[] exc = new string[1]; exc[0] = "plug/skip/**";
+    string manifest = PluginSynth.SynthSet(cache, "demo.set", root, inc, 1, exc, 1);
+    Assert.True(manifest.Length > 0);
+    ProjectManifest pm = ManifestLoader.Load(manifest);
+    Assert.Equal("demo.set", pm.Project.Name);
+    Assert.True(pm.Project.IsPlugin());
+    Assert.Equal(1, pm.Sources.IncludeCount);
+    Assert.Equal(1, pm.Sources.ExcludeCount);
+    string[] hits = SourceDiscovery.DiscoverWithExclude(Path.GetDirectoryName(manifest),
+                                                        pm.Sources.Include, pm.Sources.IncludeCount,
+                                                        pm.Sources.Exclude, pm.Sources.ExcludeCount);
+    Assert.Equal(2, hits.Length);
+
+    // 空源集（glob 圈不中任何文件）不静默合成。
+    string[] bad = new string[1]; bad[0] = "nothing/**/*.z42";
+    Assert.Equal("", PluginSynth.SynthSet(cache, "demo.set", root, bad, 1, new string[0], 0));
+}
+
+[Test]
+[Skip(platform: "wasm", reason: "wasm 沙箱没有真实文件系统，造不了临时源树")]
+void test_include_entry_parsing_and_partition() {
+    // 解析层：[plugins] 表条目收 include/exclude（键名与 [tests] 同），构造后赋值字段带上；
+    // 有效排除把树内源集条目的 include 模式本身加进去（显式分区：模式圈中的文件归插件）。
+    string toml = "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[plugins]\n"
+        + "\"demo.hook\" = { include = [\"hooks/**/*.z42\"], exclude = [\"hooks/skip/**\"] }\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    Assert.Equal(1, m.PluginCount);
+    Assert.Equal(1, m.Plugins[0].IncludeCount);
+    Assert.Equal("hooks/**/*.z42", m.Plugins[0].Include[0]);
+    Assert.Equal(1, m.Plugins[0].ExcludeCount);
+    Assert.Equal("", m.Plugins[0].Path);
+    string[] ex = m.EffectiveSourceExcludes();
+    Assert.Equal(1, ex.Length);
+    Assert.Equal("hooks/**/*.z42", ex[0]);
+}

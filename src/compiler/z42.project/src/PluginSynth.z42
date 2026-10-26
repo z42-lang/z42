@@ -1,13 +1,15 @@
 // 免清单插件条目（`[plugins]`）→ 合成最小插件清单。
 //
-// 「免清单」两种形态（对齐 tests：单文件测试 / 独立测试工程；`z42 run` 的单文件工程）：
-//   · 单文件：`x = { path = "hook.z42" }` → include = 该文件绝对路径；
-//   · 目录：  `x = { path = "hooks/" }`（目录里没有工程清单）→ include = `<目录>/**/*.z42` 递归全收。
-// 一个源文件 / 一目录源文件、零依赖的插件（hook 插件全是这个形态）不必手写 z42.toml——在消费方的
-// 构建树里合成一份最小清单（kind = "plugin"），之后**完全复用工程条目的代建路**（z42c
-// `PluginRefs._pluginFromProject` / z42c.pipeline `BuildSession._buildPluginProject` / z42b
-// `builder_hooks`）。需要清单能力（`[dependencies]` / `version` / include-exclude 精细控制）的插件
-// 仍用完整工程形态——目录里有清单时清单优先（配置存在即生效）。
+// 「免清单」三种形态（对齐 tests：单文件测试 / 目录测试单元 / 源集 glob；`z42 run` 的单文件工程）：
+//   · 源集（推荐，plugins-include-form）：`x = { include = ["hooks/**/*.z42"], exclude = [...] }`
+//     —— include/exclude 相对消费方工程目录，与 [tests] 同键同语义（SynthSet）；
+//   · 单文件：`x = { path = "hook.z42" }`（#1400；被源集形态取代，弃用中）；
+//   · 目录：  `x = { path = "hooks/" }`（目录里没有工程清单 ⇒ 递归全收；同被源集形态取代）。
+// 零依赖的插件（hook 几乎全是）不必手写 z42.toml——在消费方的构建树里合成一份最小清单
+//（kind = "plugin"），之后**完全复用工程条目的代建路**（z42c `PluginRefs._pluginFromProject` /
+// z42c.pipeline `BuildSession._buildPluginProject` / z42b `builder_hooks`）。需要清单能力
+//（`[dependencies]` / `version` / include-exclude 精细控制——源集条目已自带 include/exclude）的
+// 插件用完整工程形态（`path = "../gen"`）——目录里有清单时清单优先（配置存在即生效）。
 //
 // 与 launcher 的 `_synthSingleFileManifest` 同一套约定：
 //   · 源文件**绝不复制**——include 写绝对路径（`SourceDiscovery` 对 rooted 直通），诊断指回
@@ -35,6 +37,31 @@ public static class PluginSynth {
         return PluginSynth._write(baseDir, pluginName, PluginSynth._abs(srcDir) + "/**/*.z42");
     }
 
+    // 源集条目（plugins-include-form，对齐 [tests]）→ 合成清单：include/exclude 相对消费方工程目录
+    // （srcRoot）的 glob，rebase 成绝对模式后原样写进合成清单（rooted 字面 / rooted 前缀 /**/ /
+    // **/ 前缀三类展开都成立）。先按 srcRoot 试展开——零命中即 ""（不静默空），且诊断能在调用方
+    // 指回消费方写的 pattern，而不是 cache 里的合成路径。
+    public static string SynthSet(string baseDir, string pluginName, string srcRoot,
+                                  string[] include, int includeN, string[] exclude, int excludeN) {
+        string root = PluginSynth._abs(srcRoot);
+        string[] inc = new string[includeN];
+        int i = 0;
+        while (i < includeN) { inc[i] = PluginSynth._rebase(root, include[i]); i = i + 1; }
+        string[] exc = new string[excludeN];
+        i = 0;
+        while (i < excludeN) { exc[i] = PluginSynth._rebase(root, exclude[i]); i = i + 1; }
+        if (SourceDiscovery.DiscoverWithExclude(root, inc, inc.Length, exc, exc.Length).Length == 0) { return ""; }
+        return PluginSynth._writeSet(baseDir, pluginName, inc, inc.Length, exc, exc.Length);
+    }
+
+    // 消费方相对 pattern → 绝对 pattern（rooted 原样，其余接到 srcRoot 下；分隔符归一为 /）。
+    private static string _rebase(string root, string pattern) {
+        string p = pattern.Replace("\\", "/");
+        if (Path.IsRooted(p)) { return p; }
+        while (p.StartsWith("./")) { p = p.Substring(2, p.Length - 2); }
+        return root + "/" + p;
+    }
+
     // 统一写盘：目录 = `<baseDir>/plugin-synth/<name>-<指纹>/z42.toml`。
     private static string _write(string baseDir, string pluginName, string includePattern) {
         string dir = Path.Join(Path.Join(baseDir, "plugin-synth"), pluginName + "-" + PluginSynth._pathFp(includePattern));
@@ -55,6 +82,39 @@ public static class PluginSynth {
         } catch (Exception ex) {
             return "";
         }
+    }
+
+    // 源集条目的写盘（include/exclude 多模式；指纹取全部模式拼接——同一插件改源集 ⇒ 换合成目录）。
+    private static string _writeSet(string baseDir, string pluginName, string[] inc, int incN,
+                                    string[] exc, int excN) {
+        string joined = "";
+        int i = 0;
+        while (i < incN) { joined = joined + (i > 0 ? ";" : "") + inc[i]; i = i + 1; }
+        string dir = Path.Join(Path.Join(baseDir, "plugin-synth"), pluginName + "-" + PluginSynth._pathFp(joined));
+        try {
+            Directory.Create(dir);
+            string toml = "# 由 [plugins] 源集条目自动生成，请勿手工编辑。\n"
+                + "[project]\n"
+                + "name    = \"" + pluginName + "\"\n"
+                + "version = \"0.0.0\"\n"
+                + "kind    = \"plugin\"\n"
+                + "\n"
+                + "[sources]\n"
+                + "include = [" + PluginSynth._tomlList(inc, incN) + "]\n"
+                + (excN > 0 ? "exclude = [" + PluginSynth._tomlList(exc, excN) + "]\n" : "");
+            string manifest = Path.Join(dir, "z42.toml");
+            File.WriteAllText(manifest, toml);
+            return manifest;
+        } catch (Exception ex) {
+            return "";
+        }
+    }
+
+    private static string _tomlList(string[] a, int n) {
+        string s = "";
+        int i = 0;
+        while (i < n) { s = s + (i > 0 ? ", " : "") + "\"" + a[i] + "\""; i = i + 1; }
+        return s;
     }
 
     private static string _abs(string p) {

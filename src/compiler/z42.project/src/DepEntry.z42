@@ -28,6 +28,15 @@ public sealed class DepEntry {
     /// 仅 export 条目合法（[plugins] 条目的插件跑在宿主自己的编译里，先于宿主构建，构成环）。
     /// 构造后赋值：ctor 签名是种子 ABI，不动。
     public bool   Internal;
+    /// `[plugins]` 源集条目（plugins-include-form，对齐 [tests]）：include/exclude 是相对**消费方**
+    /// 工程目录的源码 glob（须以文件模式收尾，如 `hooks/**/*.z42` / `hooks/hook.z42`）。
+    /// IncludeCount > 0 = 源集条目（PluginSynth 合成最小清单，include 的源集自动排除出消费方源
+    /// 发现——显式分区）；与 path 互斥。[plugins.export] 不收源集条目（携带钉精确版本，要真工程）。
+    /// 构造后赋值：ctor 签名是种子 ABI，不动。
+    public string[] Include;
+    public int      IncludeCount;
+    public string[] Exclude;
+    public int      ExcludeCount;
     public DepEntry(string name, string version, string path) {
         this.Name = name;
         this.Version = version;

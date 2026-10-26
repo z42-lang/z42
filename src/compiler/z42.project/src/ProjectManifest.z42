@@ -1,5 +1,6 @@
 namespace Z42.Project;
 
+using Std.IO;      // Path.IsRooted（EffectiveSourceExcludes 对源集条目的树内判定）
 using Std.Toml;
 
 /// `z42.toml` 的完整类型化模型（单项目）。z42c 与 z42.build 共同依赖的唯一真相。
@@ -107,20 +108,35 @@ public sealed class ProjectManifest {
         this.PluginExports = new DepEntry[0]; this.PluginExportCount = 0;
     }
 
-    /// 本工程源发现的有效 exclude：`[sources].exclude`，再加上住在工程目录里的插件源码目录——
-    /// `[build] hooks` 目录与指向工程内目录的 `[plugins]` path 条目。插件由工具链单独构建、加载进
-    /// 宿主进程，不该被 app 的 `**/*.z42` 扫进 app zpkg（否则多出一个跨包死类，vtable fixup 刷屏）。
-    /// 目录排除写成 `<dir>/**`（SourceDiscovery 的前缀语义）；指到工程目录外（`..` 开头 / 绝对路径）
-    /// 或指向 `.zpkg` 产物的条目与源发现无关，跳过。
+    /// 本工程源发现的有效 exclude：`[sources].exclude`，再加上住在工程目录里的插件源——
+    /// `[build] hooks` 目录、指向工程内目录的 `[plugins]` path 条目、源集条目（include）的
+    /// include 模式本身。插件由工具链单独构建、加载进宿主进程，不该被 app 的 `**/*.z42` 扫进
+    /// app zpkg（否则多出一个跨包死类，vtable fixup 刷屏）。目录排除写成 `<dir>/**`（SourceDiscovery
+    /// 的前缀语义）；源集条目直接排除它声明的模式——include 就是显式分区，模式圈中的文件归插件。
+    /// 指到工程目录外（`..` 开头 / 绝对路径）或指向 `.zpkg` 产物的条目与源发现无关，跳过。
     public string[] EffectiveSourceExcludes() {
-        string[] acc = new string[this.Sources.ExcludeCount + 1 + this.PluginCount + this.PluginExportCount];
+        int cap = this.Sources.ExcludeCount + 1 + this.PluginCount + this.PluginExportCount;
+        int p0 = 0;
+        while (p0 < this.PluginCount) { cap = cap + this.Plugins[p0].IncludeCount; p0 = p0 + 1; }
+        string[] acc = new string[cap];
         int n = 0;
         int i = 0;
         while (i < this.Sources.ExcludeCount) { acc[n] = this.Sources.Exclude[i]; n = n + 1; i = i + 1; }
         int p = 0;
         while (p < this.PluginCount) {
-            string dir = ProjectManifest._inProjectDir(this.Plugins[p].Path);
-            if (dir.Length > 0) { acc[n] = dir + "/**"; n = n + 1; }
+            if (this.Plugins[p].IncludeCount > 0) {
+                int q = 0;
+                while (q < this.Plugins[p].IncludeCount) {
+                    string pat = this.Plugins[p].Include[q].Replace("\\", "/");
+                    if (pat.Length > 0 && !pat.StartsWith("/") && !pat.StartsWith("../") && !Path.IsRooted(pat)) {
+                        acc[n] = pat; n = n + 1;
+                    }
+                    q = q + 1;
+                }
+            } else {
+                string dir = ProjectManifest._inProjectDir(this.Plugins[p].Path);
+                if (dir.Length > 0) { acc[n] = dir + "/**"; n = n + 1; }
+            }
             p = p + 1;
         }
         // 携带（[plugins.export]）的 path 条目目录同样排除：嵌套携带插件有自己的清单与构建，
