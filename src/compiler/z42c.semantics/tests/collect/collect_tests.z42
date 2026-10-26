@@ -928,3 +928,25 @@ void test_intern_is_idempotent() {
     Assert.Equal(before, foo.TypeId);
     Assert.Equal(n, t.Intern.Count());
 }
+
+// 视图与根表共享**同一批表实例**（`WithAliases` / `WithScopeOf` 走视图构造器，不另分配）：并行段内只读共享、
+// Intern 计数与跨包门禁表（ClassPkgAll / FuncOriginAll / DeclaredDeps）都只有在同一实例上才成立；
+// 作用域 / 别名 / 外围类是视图自有的，根表不动。
+[Test]
+void test_view_shares_root_tables_and_owns_scope() {
+    var p = new Parser("namespace Demo; interface IA { } class Foo : IA { }", "t.z42");
+    var cu = p.ParseCompilationUnit();
+    SymbolTable root = new SymbolCollector().Collect(cu);
+    SymbolTable view = root.WithScopeOf(cu);
+    Assert.Equal(true, view.ClassesByFqn == root.ClassesByFqn);
+    Assert.Equal(true, view.InterfacesByFqn == root.InterfacesByFqn);
+    Assert.Equal(true, view.FunctionsByFqn == root.FunctionsByFqn);
+    Assert.Equal(true, view.Intern == root.Intern);
+    Assert.Equal(true, view.ClassPkgAll == root.ClassPkgAll);
+    Assert.Equal(true, view.FuncOriginAll == root.FuncOriginAll);
+    Assert.Equal(true, view.DeclaredDeps == root.DeclaredDeps);
+    Assert.Equal(true, view.GetClass("Foo") == root.GetClass("Demo.Foo"));   // 视图按本 CU 作用域解析到同一对象
+    Assert.Equal("Demo", view.ScopeNs);
+    Assert.Equal("", root.ScopeNs);
+    Assert.Equal("", view.EnclosingClass);
+}

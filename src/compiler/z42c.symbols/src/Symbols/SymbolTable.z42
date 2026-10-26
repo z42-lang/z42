@@ -180,40 +180,50 @@ public sealed partial class SymbolTable {
     // 用户 delegate 的 FQN → 声明 ns（StrBox）。`Delegates` 只存 `Z42FuncType`、没有 ns，记录用法时要它。
     public StrMap DelegateNs;
 
-    // parallelize-package-compile：per-file 别名视图（线程安全根治）。共享其余 7 个数据字段的
+    // 视图构造器：**不分配任何表**。共享字段全部指向 `parent` 的同一实例（并行段内只读），只有视图自有的
+    // 字段（`CurrentAliases` / `EnclosingClass` / `_sortedClasses` / `_firstArity`）取初值。公开构造器只给**根表**
+    // 用（预分配包级大表）——视图是 per-CU × per-pass 建的，走公开构造器会把那些表原地丢弃。
+    private SymbolTable(SymbolTable parent) {
+        this.ClassesByFqn = parent.ClassesByFqn;   // fix-type-ref-ns-collision：共享 FQN 视图（并行段内只读）
+        this.FunctionsByFqn = parent.FunctionsByFqn;   // 共享（并行段内只读）
+        this.FuncOverloadsByFqn = parent.FuncOverloadsByFqn;   // free-function-overloads：共享（并行段内只读）
+        this.FuncNsAll = parent.FuncNsAll;
+        this.ClassConstraints = parent.ClassConstraints;
+        this.InterfaceConstraints = parent.InterfaceConstraints;
+        this.EnumTypes = parent.EnumTypes;
+        this.InterfacesByFqn = parent.InterfacesByFqn;   // unify-type-identity-fqn：共享（并行段内只读）
+        this.EnumTypeNs = parent.EnumTypeNs;             // unify-type-identity-fqn：共享（并行段内只读）
+        this.EnumConsts = parent.EnumConsts;
+        this.Delegates = parent.Delegates;
+        this.ClassNsAll = parent.ClassNsAll;   // add-bare-name-ambiguity-diagnostic：共享（并行段内只读）
+        this.IfaceNsAll = parent.IfaceNsAll;   // enforce-fqn-name-identity 阶段 2：共享（并行段内只读）
+        this.Intern = parent.Intern;           // B1：**必须共享同一实例**（各视图各自分配会撞 id）
+        this.ClassPkgAll = parent.ClassPkgAll;   // report-crosspkg-duplicate-type：共享（并行段内只读）。⚠️ 漏了这行 = 门恒不响
+        this.FuncOriginAll = parent.FuncOriginAll;   // report-crosspkg-duplicate-function：同上，漏了这行门就恒不响
+        this.DeclaredDeps = parent.DeclaredDeps;     // fix-crosspkg-ns-reachability：同上三行，漏了 E0497 就恒不响
+        this.SelfPkg = parent.SelfPkg;
+        this.EnforceDeclaredDeps = parent.EnforceDeclaredDeps;
+        this._undeclaredSeen = parent._undeclaredSeen;   // 共享：去重要跨文件视图生效
+        this.MultiArityNames = parent.MultiArityNames;   // fix-arity-mangle-package-wide：共享（并行段内只读）
+        this.ScopeNs = parent.ScopeNs;   // unify-type-identity-fqn：视图链上继承（调用方随后按 cu 覆写）
+        this.ScopeUsings = parent.ScopeUsings; this.ScopeUsingCount = parent.ScopeUsingCount;
+        this.ScopeChain = parent.ScopeChain;
+        this.UseRecorder = parent.UseRecorder;
+        this.DelegateNs = parent.DelegateNs;
+        this.EnumShortNames = parent.EnumShortNames;
+        this.DelegateShortNames = parent.DelegateShortNames;
+        this.CurrentAliases = null;
+        this.EnclosingClass = "";
+        this._sortedClasses = null;
+        this._firstArity = new StrMap();
+    }
+
+    // parallelize-package-compile：per-file 别名视图（线程安全根治）。共享其余数据字段的
     // 引用（并行段内只读），仅换 CurrentAliases。每个文件的 typecheck/codegen 持自己的视图 →
     // 段内零共享可变（旧代码 `symbols.CurrentAliases = ...` 覆写共享表在并行下会数据竞争）。
     public SymbolTable WithAliases(StrMap aliases) {
-        SymbolTable t = new SymbolTable();
-        t.ClassesByFqn = this.ClassesByFqn;   // fix-type-ref-ns-collision：共享 FQN 视图（并行段内只读）
-        t.FunctionsByFqn = this.FunctionsByFqn;   // 共享（并行段内只读）
-        t.FuncOverloadsByFqn = this.FuncOverloadsByFqn;   // free-function-overloads：共享（并行段内只读）
-        t.FuncNsAll = this.FuncNsAll;
-        t.ClassConstraints = this.ClassConstraints;
-        t.InterfaceConstraints = this.InterfaceConstraints;
-        t.EnumTypes = this.EnumTypes;
-        t.InterfacesByFqn = this.InterfacesByFqn;   // unify-type-identity-fqn：共享（并行段内只读）
-        t.EnumTypeNs = this.EnumTypeNs;             // unify-type-identity-fqn：共享（并行段内只读）
-        t.EnumConsts = this.EnumConsts;
-        t.Delegates = this.Delegates;
-        t.ClassNsAll = this.ClassNsAll;   // add-bare-name-ambiguity-diagnostic：共享（并行段内只读）
-        t.IfaceNsAll = this.IfaceNsAll;   // enforce-fqn-name-identity 阶段 2：共享（并行段内只读）
-        t.Intern = this.Intern;           // B1：**必须共享同一实例**（各视图各自分配会撞 id）
-        t.ClassPkgAll = this.ClassPkgAll;   // report-crosspkg-duplicate-type：共享（并行段内只读）。⚠️ 漏了这行 = 门恒不响
-        t.FuncOriginAll = this.FuncOriginAll;   // report-crosspkg-duplicate-function：同上，漏了这行门就恒不响
-        t.DeclaredDeps = this.DeclaredDeps;     // fix-crosspkg-ns-reachability：同上三行，漏了 E0497 就恒不响
-        t.SelfPkg = this.SelfPkg;
-        t.EnforceDeclaredDeps = this.EnforceDeclaredDeps;
-        t._undeclaredSeen = this._undeclaredSeen;   // 共享：去重要跨文件视图生效
-        t.MultiArityNames = this.MultiArityNames;   // fix-arity-mangle-package-wide：共享（并行段内只读）
+        SymbolTable t = new SymbolTable(this);
         t.CurrentAliases = aliases;
-        t.ScopeNs = this.ScopeNs;   // unify-type-identity-fqn：视图链上继承（调用方随后按 cu 覆写）
-        t.ScopeUsings = this.ScopeUsings; t.ScopeUsingCount = this.ScopeUsingCount;
-        t.ScopeChain = this.ScopeChain;
-        t.UseRecorder = this.UseRecorder;
-        t.DelegateNs = this.DelegateNs;
-        t.EnumShortNames = this.EnumShortNames;
-        t.DelegateShortNames = this.DelegateShortNames;
         return t;
     }
 
@@ -603,8 +613,8 @@ public sealed partial class SymbolTable {
             int _ich = 0;
             while (_ich < this.ScopeChain.Length) {   // using-csharp-rules：外围链由内到外
                 string ifq = this.ScopeChain[_ich] + "." + n;
-                if (this.InterfacesByFqn.ContainsKey(ifq)) {
-                    Z42InterfaceType sift = this.InterfacesByFqn.Get(ifq) as Z42InterfaceType;
+                Z42InterfaceType sift = this.InterfacesByFqn.Get(ifq) as Z42InterfaceType;
+                if (sift != null) {
                     if (nt.ArgCount > 0) {
                         Z42Type[] sitargs = new Z42Type[nt.ArgCount];
                         int sia = 0;
@@ -648,9 +658,9 @@ public sealed partial class SymbolTable {
                 if (nt.ArgCount > 0) {
                     string sfqm = _lvl + "." + n + "$" + nt.ArgCount.ToString();
                     string sfqb = _lvl + "." + n;
-                    string sfq = this.ClassesByFqn.ContainsKey(sfqm) ? sfqm : sfqb;
-                    if (this.ClassesByFqn.ContainsKey(sfq)) {
-                        Z42ClassType sdef = this.ClassesByFqn.Get(sfq) as Z42ClassType;
+                    Z42ClassType sdef = this.ClassesByFqn.Get(sfqm) as Z42ClassType;   // arity-mangle 键优先
+                    if (sdef == null) { sdef = this.ClassesByFqn.Get(sfqb) as Z42ClassType; }
+                    if (sdef != null) {
                         Z42Type[] stargs = new Z42Type[nt.ArgCount];
                         int sa = 0;
                         while (sa < nt.ArgCount) { stargs[sa] = this.ResolveTypeP(nt.Args[sa], paramNames, paramCount); sa = sa + 1; }
@@ -658,7 +668,7 @@ public sealed partial class SymbolTable {
                     }
                 } else {
                     string sfq0 = _lvl + "." + n;
-                    if (this.ClassesByFqn.ContainsKey(sfq0)) { return this.ClassesByFqn.Get(sfq0) as Z42ClassType; }
+                    Z42ClassType sdef0 = this.ClassesByFqn.Get(sfq0) as Z42ClassType; if (sdef0 != null) { return sdef0; }
                 }
             }
             // A5b-2d：类同款 —— 完整作用域解析（与 `GetClass` 同一出口），短名表退到最后。泛型先试 arity-mangle 键。
@@ -685,16 +695,16 @@ public sealed partial class SymbolTable {
                 // `A.Foo<T>` 用 FQN$N 键。只命中显式注册的 ns 限定顶层类；嵌套类型（`+` 键）自然不匹配、下落。
                 if (nt.ArgCount > 0) {
                     string fqMangle = n + "$" + nt.ArgCount.ToString();
-                    if (this.ClassesByFqn.ContainsKey(fqMangle)) {
-                        Z42ClassType fgdef = this.ClassesByFqn.Get(fqMangle) as Z42ClassType;
+                    Z42ClassType fgdef = this.ClassesByFqn.Get(fqMangle) as Z42ClassType;
+                    if (fgdef != null) {
                         Z42Type[] fta = new Z42Type[nt.ArgCount];
                         int fa = 0;
                         while (fa < nt.ArgCount) { fta[fa] = this.ResolveTypeP(nt.Args[fa], paramNames, paramCount); fa = fa + 1; }
                         return new Z42InstantiatedType(fgdef, fta, nt.ArgCount);
                     }
                 }
-                if (this.ClassesByFqn.ContainsKey(n)) {
-                    Z42ClassType fdef = this.ClassesByFqn.Get(n) as Z42ClassType;
+                Z42ClassType fdef = this.ClassesByFqn.Get(n) as Z42ClassType;
+                if (fdef != null) {
                     if (nt.ArgCount > 0) {
                         Z42Type[] fta2 = new Z42Type[nt.ArgCount];
                         int fa2 = 0;

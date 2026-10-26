@@ -564,6 +564,11 @@ public static class ZbcWriter {
     // ── IMPT：导入名 = Call 目标中非本模块函数（镜像 C# BuildImptSection；z42c 无 Builtin 指令）。
     //    HashSet 迭代非确定 → 写前 Ordinal sort（插入排序 + String.CompareTo）。──────────────
     private static ByteWriter _buildImpt(IrModule irm, ZbcStringPool pool) {
+        // 本模块函数名、已收集导入名各一张 O(1) 索引：每条 Call 查两次，不随函数数 / 导入数线性增长。
+        StrIndex locals = new StrIndex();
+        int li = 0;
+        while (li < irm.FuncCount) { locals.Put(irm.Functions[li].Name, li); li = li + 1; }
+        StrIndex seen = new StrIndex();
         string[] imports = new string[8];
         int n = 0;
         int fi = 0;
@@ -576,7 +581,8 @@ public static class ZbcWriter {
                 while (ii < blk.InstrCount) {
                     if (blk.Instrs[ii] is CallInstr) {
                         CallInstr ci = blk.Instrs[ii] as CallInstr;
-                        if (!ZbcWriter._isLocalFunc(irm, ci.Func) && !ZbcWriter._contains(imports, n, ci.Func)) {
+                        if (locals.Get(ci.Func) < 0 && seen.Get(ci.Func) < 0) {
+                            seen.Put(ci.Func, n);
                             if (n == imports.Length) {
                                 string[] bigger = new string[imports.Length * 2];
                                 int k = 0; while (k < n) { bigger[k] = imports[k]; k = k + 1; }
@@ -612,24 +618,6 @@ public static class ZbcWriter {
         i = 0;
         while (i < n) { w.WriteU32(pool.Idx(imports[i])); i = i + 1; }
         return w;
-    }
-
-    private static bool _isLocalFunc(IrModule irm, string name) {
-        int i = 0;
-        while (i < irm.FuncCount) {
-            if (irm.Functions[i].Name == name) { return true; }
-            i = i + 1;
-        }
-        return false;
-    }
-
-    private static bool _contains(string[] arr, int n, string s) {
-        int i = 0;
-        while (i < n) {
-            if (arr[i] == s) { return true; }
-            i = i + 1;
-        }
-        return false;
     }
 
     // ── EXPT：导出函数（默认全部）+ kind u8=0 ─────────────────────────────────────────
