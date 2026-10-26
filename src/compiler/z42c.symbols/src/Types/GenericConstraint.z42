@@ -19,7 +19,7 @@
 // > ctor 也早已由 MemberCollector 收集为方法（名=类名）。接口约束因此是**接线**而非造能力。
 //
 // 受限写法：class + public 字段；约束集用 typed array + int count（类字段不能带泛型）。
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 
 // 单个型参（如 T）的约束集合。
 public sealed class ConstraintBundle {

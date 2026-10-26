@@ -12,7 +12,7 @@
 //   DeclEnforcer        —— 声明良构约束：D8 后缀强制（attribute/analyzer/generator）+ partial 校验
 //   TestAttrEnforcer    —— 测试 / bench attribute 校验（E0911–E0917，Testing/）
 // 每簇持 _sc 反向引用、经 _sc 访问共享辅助/状态（零簇间边，所有跨簇流量过 hub）。
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 using Z42.IR;   // StrMap 统一到 z42c.ir（compiler-review §4.1）
 
 using Z42.Syntax;

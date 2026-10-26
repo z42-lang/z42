@@ -16,7 +16,7 @@
 // 设计不变式：归一覆盖 struct 值语义无关的**内建标量/引用类型**：整数族 sbyte..ulong、float/double、
 // bool、char 为 **Scalar 值类型**（裸 Value 承载、算术热路径）；string/object 为**有专属 IR 标签的内建
 // 引用类型**（非 Scalar，但 IrTag 保留 Str/Ref）。
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 using Z42.IR;   // IrType
 
 public static class PrimModel {

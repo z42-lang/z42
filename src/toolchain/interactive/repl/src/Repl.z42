@@ -1,5 +1,5 @@
 // REPL native bindings（add-z42-repl 阶段 2）。行编辑 = Std.Repl.Repl；
-// 脚本引擎内部原语（内存加载 / 反射调用）= Std.Scripting.Engine。均由 z42vm builtin 承载。
+// 脚本引擎内部原语（内存加载 / 反射调用）= Z42.Scripting.Engine。均由 z42vm builtin 承载。
 namespace Std.Repl;
 
 using Z42.Syntax;   // Lexer —— 关键字表的唯一 SoT（语法着色用）

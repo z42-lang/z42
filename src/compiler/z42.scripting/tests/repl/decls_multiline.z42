@@ -3,7 +3,7 @@
 // 会话变量与声明正交。
 namespace Z42ScriptingTests;
 
-using Std.Scripting;
+using Z42.Scripting;
 using Std.Harness;
 
 [Test]

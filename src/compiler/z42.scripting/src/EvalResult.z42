@@ -1,5 +1,5 @@
 // 一次 Script.Eval 的结果（add-z42-repl 阶段 2）。
-namespace Std.Scripting;
+namespace Z42.Scripting;
 
 public class EvalResult {
     public bool Success;         // 编译 + 执行是否成功

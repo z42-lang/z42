@@ -9,7 +9,7 @@ REPL **终端交互层（tier1）**：rustyline 行编辑 + 缩进感知键位�
 | 功能 | 入口 / 文件 |
 |------|-----------|
 | 行编辑（rustyline，读整条多行语句 / 非 tty 读一物理行） | `Std.Repl.Repl.ReadLine(prompt)`（`Repl.z42` → z42vm builtin `__repl_readline`）|
-| 注册 Tab 补全回调 FQN | `Std.Repl.Repl.SetCompleter(fqn)`（回调 `Std.Scripting.replComplete`）|
+| 注册 Tab 补全回调 FQN | `Std.Repl.Repl.SetCompleter(fqn)`（回调 `Z42.Scripting.replComplete`）|
 | 注册缩进键位回调 FQN | `Std.Repl.Repl.SetKeyEditor(fqn)`（回调本包 `replKeyEdit`）|
 | 缩进感知键位 + 回车整块判定 | `Std.Repl.ReplEditing.KeyEdit(key,line,pos)`（`ReplEditing.z42`；退格→`dedent`｜错位 `replace:` floor、Tab→`insert:<空格>` grid-snap、`}`→`replace:<缩进>}` 自动回退、Enter→`accept`（写完提交）｜`newline:<缩进>`（没写完续行））+ 自由函数 `replKeyEdit`；决策全在 z42，Rust `parse_action` 只译成 redo-免疫 `Cmd`（见 host-only cdylib `src/runtime/crates/z42-repl/src/editing.rs`）|
 
@@ -17,10 +17,10 @@ REPL **终端交互层（tier1）**：rustyline 行编辑 + 缩进感知键位�
 ```z42
 using Std.Repl;
 string line = Repl.ReadLine(">>> ");        // tty 下读整条多行语句；EOF → null
-Repl.SetCompleter("Std.Scripting.replComplete");   // Tab 补全（Completer 在 z42.scripting）
+Repl.SetCompleter("Z42.Scripting.replComplete");   // Tab 补全（Completer 在 z42.scripting）
 Repl.SetKeyEditor("Std.Repl.replKeyEdit");         // 缩进感知键位
 ```
-整块编辑的完整性判定（「写完没」）与续行缩进复用 `Std.Scripting.Completeness`（本包依赖 z42.scripting）。
+整块编辑的完整性判定（「写完没」）与续行缩进复用 `Z42.Scripting.Completeness`（本包依赖 z42.scripting）。
 
 ## 如何测试验证
 compiler-consuming 库（依赖 z42.scripting → z42c.*），用「warm z42c + z42vm」回路编译；随 z42.interactive

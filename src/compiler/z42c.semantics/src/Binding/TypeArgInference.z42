@@ -18,6 +18,7 @@
 namespace Z42.Semantics;
 
 using Z42.Syntax;
+using Z42.Symbols;
 
 // 推断结果：Ok=false 时 Args 无意义（调用方必须原样按今天行为继续）。
 public sealed class TypeArgBindings {

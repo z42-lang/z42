@@ -1,6 +1,6 @@
 namespace Z42.Emission;
 
-using Z42.Semantics;
+using Z42.Symbols;
 using Z42.IR;
 
 // 已解析类型 → SIGS 持久化拼写（fqn-tables 5b 从 FunctionEmitter 抽出：方法签名与 extern / abstract 桩共用一份）。

@@ -4,7 +4,7 @@
 //   ② 规则查表用 **if-else 串**（BinaryTypeTable.Lookup）替代 Dictionary 字面量；
 //   ③ 规则记录用 **class BinaryRule** 替代 C# record BinaryTypeRule。
 // 「加一个运算符 = 加一行 if」的性质与 C# 表一致。
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 
 // 操作数约束种类（int tag 替代 C# 的 Func<Z42Type,bool> 谓词）。
 public static class OperandKind {

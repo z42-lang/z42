@@ -15,11 +15,12 @@
 | `z42.project` | lib | `Z42.Project`（`z42.toml` 清单模型）| — |
 | `z42.build` | lib | `Z42.Build`（构建管线框架 + `ICompiler` / `IReplCompiler` 接口）| z42.project |
 | `z42c.optimization` | lib | `Z42.Optimization`（IR → IR 优化管线 + `Opt` 开关）| z42.package |
-| `z42c.semantics` | lib | `Z42.Semantics`（符号收集 + 绑定 + 类型检查 + 校验，不含代码生成）| z42c.core, z42c.syntax, z42.package |
+| `z42c.symbols` | lib | `Z42.Symbols`（符号收集 + 符号表 + 跨包导入装载 + 类型模型 `Z42Type` + struct 布局；不含绑定）| z42c.core, z42c.syntax, z42.package |
+| `z42c.semantics` | lib | `Z42.Semantics`（绑定 + 类型检查 + 校验，不含代码生成）| z42c.core, z42c.syntax, z42.package, z42c.symbols |
 | `z42c.emission` | lib | `Z42.Emission`（代码生成 Bound → IR + 单文件 / 包编译编排 `IrDump`）| z42c.core, z42c.syntax, z42.package, z42c.optimization, z42c.semantics |
 | `z42c.pipeline` | lib | `Z42.Pipeline`（编排 / 依赖扫描 / workspace / 增量）| z42c.core, z42c.syntax, z42c.plugin, z42c.semantics, z42c.emission, z42c.optimization, z42.package, z42.project, z42.build |
 | `z42c.driver` | **exe** | `Z42.Driver`（CLI = `z42c` 入口）| z42c.pipeline, z42c.semantics, z42c.emission, z42c.optimization, z42c.syntax, z42c.core, z42.package, z42.project |
-| `z42.scripting` | lib | `Std.Scripting`（REPL / 脚本 eval 内核）| z42c.core, z42c.syntax, z42.build |
+| `z42.scripting` | lib | `Z42.Scripting`（REPL / 脚本 eval 内核）| z42c.core, z42c.syntax, z42.build |
 | `z42.doc` | lib | `Z42.Doc`（`z42 doc` 引擎：语法级符号索引 + 名字解析 + 输出）| z42c.core, z42c.syntax |
 
 包间依赖经 `z42c build --workspace` 的拓扑序 + 同 workspace dist 自动发现解析；冷启动由 `_ensureBootstrapSelfDepLibs` 破 z42c ⇄ z42.package 环预建，见 [self-hosting.md](../../docs/internals/src/compiler/self-hosting.md) 轴 ④。

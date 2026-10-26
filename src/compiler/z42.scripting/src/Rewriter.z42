@@ -4,7 +4,7 @@
 // 里对会话变量的裸引用（`x`）必须改写成限定形式 `Vars{N}.x`——因 z42 静态方法/初始化器不能
 // 不加限定引用类静态字段（实证 E0401）。用 z42c.syntax 的 Lexer 做 token 级改写：identifier
 // token 若匹配会话变量名、且前一 token 非 `.`（排除成员访问 obj.x），就在其前插入 `Vars{N}.`。
-namespace Std.Scripting;
+namespace Z42.Scripting;
 
 using Std.Collections;
 using Z42.Syntax;

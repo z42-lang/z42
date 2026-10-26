@@ -20,7 +20,7 @@ namespace Z42cSemanticsBuiltinNameClashTests;
 
 
 using Z42.Syntax;
-using Z42.Semantics;
+using Z42.Symbols;
 using Z42.Core;
 using Std.Harness;
 

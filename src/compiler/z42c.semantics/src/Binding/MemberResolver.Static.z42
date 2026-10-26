@@ -5,6 +5,7 @@ namespace Z42.Semantics;
 using Z42.Syntax;
 
 using Z42.Core;
+using Z42.Symbols;
 
 public sealed partial class MemberResolver {
     // add-static-properties：`C.x`（限定）与类内裸名 `x` 共用的**唯一**静态成员判据。

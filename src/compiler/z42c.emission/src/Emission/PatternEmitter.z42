@@ -10,6 +10,7 @@
 namespace Z42.Emission;
 
 using Z42.Semantics;
+using Z42.Symbols;
 
 using Z42.IR;
 using Z42.IR.BinaryFormat;   // 特性 3：Tag.FromName（struct record 字段 blob 读的 TypeTag）

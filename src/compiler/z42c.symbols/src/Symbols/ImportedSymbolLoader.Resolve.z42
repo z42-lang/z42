@@ -4,7 +4,7 @@
 // 这一簇是**纯叶子**：只认字符串形态（数组后缀 / 可空后缀 / 委托名 / 泛型实例化串 / 型参名 /
 // 基元名 / FQ 名），不碰加载流程。主文件负责「读包 → 建类型骨架 → 填成员」，本文件负责
 // 「把 TSIG 里那一串名字变回类型」。
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 using Z42.IR;   // StrMap（裸名回落的 *NsAll 表）
 
 

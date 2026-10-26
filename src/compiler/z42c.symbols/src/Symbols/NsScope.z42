@@ -8,7 +8,7 @@
 // 此前 z42 只认本文件 ns **一层**（`ScopeNs == ns` 精确相等），各处各写一遍 —— 解析器 ①、
 // E0456 歧义判据、自由函数候选、E0436 文件级 using 强制、包激活、static call 消歧各有一份。
 // 🔴 「是否外围」的判据**只在这里写**；外围按**段**算：`A.BC` 不是 `A.B` 的外围。
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 
 public static class NsScope {
 

@@ -2,7 +2,7 @@
 // 第 N 轮不会撞上前一个会话已加载的 `Repl.R{N}`——撞上时 VM 里的旧函数胜出，求值静默拿到旧结果。
 namespace Z42ScriptingTests;
 
-using Std.Scripting;
+using Z42.Scripting;
 using Std.Harness;
 
 [Test]

@@ -4,7 +4,7 @@
 // DiagnosticBag / Span；AccessChecker 的**成员级**实例面（CheckAccess / 弃用检测，持 TypeChecker
 // 反向引用）留在 Binding——两侧的 private 静态助手互不共享（本簇自带 _checkVisRef/_nestedOuter/
 // _derivesFromOrEq/_denyType/_visRank 五件）。
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 
 using Z42.Core;   // Span / DiagnosticBag
 

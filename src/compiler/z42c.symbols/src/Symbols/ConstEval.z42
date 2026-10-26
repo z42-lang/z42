@@ -4,7 +4,7 @@
 // 覆盖：字面量（int/bool/char/float/string/null）+ 一元 `- + ! ~` + 二元 算术/比较/逻辑/位/串接，
 // + **已定义 const 引用**（IdentExpr 裸名 / MemberExpr `Class.FIELD`，经 env 查找）。折叠语义镜像
 // IrGenFacts._foldBinary（除零 / 越界移位 → null 保守拒绝，交由诊断）。env：name → ConstValue。
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 
 using Z42.Syntax;
 using Z42.IR;

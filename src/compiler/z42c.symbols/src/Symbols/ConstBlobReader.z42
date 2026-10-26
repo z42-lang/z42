@@ -1,7 +1,7 @@
 // ConstBlob 的**读端**（自 Binding/ConstBlob.z42 拆出，semantics-split：CtorInheritance 等
 // 符号层要按 `$Default` blob 重建默认值 AST；写端 ConstBlob 留在 z42c.semantics——发射/绑定用）。
 // 自包含：串 → AST 字面量（只依赖 z42c.syntax + ZbcInstr._parseIntLit）。
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 
 using Z42.Core;   // Span
 using Z42.Syntax;

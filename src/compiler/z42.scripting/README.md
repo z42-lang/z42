@@ -6,7 +6,7 @@ REPL / 脚本场景的**跨平台编译+执行内核**（scripting-charter Form 
 **编译期只依赖 stdlib**：编译经 `z42.build` 的 `IReplCompiler` 门面（把「有状态增量编译世界」封成 opaque 句柄），实现 `Z42cReplCompiler` 住 `z42c.pipeline`，由 `ReplCompilerHost` 运行期反射注入（apphost 不静态 bundle 编译器，运行期动态加载 `z42c.pipeline` 组件）。前端 `z42c.core` / `z42c.syntax`（Lexer/Parser/Span）为库依赖。机制详见 [repl.md「编译门面 + 运行期注入」](../../../docs/internals/src/toolchain/repl.md)。
 
 ## 功能索引
-命名空间 `Std.Scripting`。
+命名空间 `Z42.Scripting`（编译器域统一 `Z42.*`；`Std.*` 只属用户 stdlib）。
 
 | 功能 | 入口 / 文件 |
 |------|-----------|

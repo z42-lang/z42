@@ -7,9 +7,9 @@
 //   /libs/*.zpkg   ← stdlib + z42c 编译器 + z42.scripting（编译期 DepScan 从此扫）
 //   /input.z42     ← 本次源码（facade `evalIn` 写入）
 //
-// 调用方（facade）：`loadZbc(z42.scripting)` → `resolveEntry("Std.Scripting.evalFromVfs")`
+// 调用方（facade）：`loadZbc(z42.scripting)` → `resolveEntry("Z42.Scripting.evalFromVfs")`
 // → `invoke([])`（零参）。运行期模块加载由 `zpkgResolver` 服务；编译期 fs 读由 VFS 服务。
-namespace Std.Scripting;
+namespace Z42.Scripting;
 
 using Std.IO;
 

@@ -1,7 +1,7 @@
 # z42c.symbols
 
 > 符号世界：收集 / 符号表 / 导入装载 / 类型模型 / 布局——自 z42c.semantics 拆出（semantics-split）。
-> 命名空间保持 `Z42.Semantics`（只挪物理包，不动类型名 ⇒ 无种子 ABI 变化）。对 Binding 的活引用 0 处（#1351/#1355 清零）。
+> 命名空间 `Z42.Symbols`（与物理包一致，消费方的 `using Z42.Symbols` 即声明来源）。对 Binding 的活引用 0 处（#1351/#1355 清零）。
 
 ## 职责
 符号收集（SymbolCollector 及各簇 pass）、符号表（SymbolTable 4 碎片）、导入符号装载（ImportedSymbolLoader + TsigReconcile 世界）、类型模型（Z42Type 家族）、类型代换/转换分类/基元模型/泛型约束/类型实参推断、struct 布局（StructLayout + Query 分片）、常量求值（ConstEval）、类级访问强制（TypeRefAccess）。

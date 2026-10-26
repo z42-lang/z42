@@ -2,7 +2,7 @@
 // 持 IrGen 反向引用 _g：_g._symbols/IsRelease/_fillParamMeta。
 namespace Z42.Emission;
 
-using Z42.Semantics;
+using Z42.Symbols;
 
 using Z42.Syntax;
 using Z42.IR;

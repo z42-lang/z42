@@ -52,7 +52,7 @@ class iOSBuild         class iOSWorkload            class WorkloadBase
 | `src/IPipelineContext.z42` | **相位上下文契约**：项目模型 + 能力受限 fs + exec + 日志 + 产物登记 + 平台原语 + preflight 原语 |
 | `src/ICompiler.z42` | **编译抽象**：Compile 头相位经此**在进程内**调编译器库（不 fork z42c）；`z42b` 与 `z42c.driver` 引用同一实现。含 CompileRequest / CompileResult 记录 + NoCompiler 兜底。**计划后续抽到中立微库**（见下） |
 | `src/PipelineContext.z42` | `IPipelineContext` 的 SDK 实现（骨架）—— 受限 fs / exec / 平台原语 / 产物登记的落地点。编排器构造它注入 ctx。**归属本库** |
-| `src/IReplCompiler.z42` | **REPL 编译门面**：opaque 会话句柄 + 粗粒度查询（`ReplCompileResult`）；`Std.Scripting` 只依赖本接口，实现 `Z42cReplCompiler` 在 `z42c.pipeline`，运行期经反射注入 |
+| `src/IReplCompiler.z42` | **REPL 编译门面**：opaque 会话句柄 + 粗粒度查询（`ReplCompileResult`）；`Z42.Scripting` 只依赖本接口，实现 `Z42cReplCompiler` 在 `z42c.pipeline`，运行期经反射注入 |
 | `src/BuildLog.z42` | 构建进度输出去向开关（进程级，进度走 stderr 以保 `--format json` 的 stdout 纯净） |
 | `src/Models.z42` | 管线运行期记录（Target/Dirs/Inputs/Output/ExecResult；项目模型在 z42.project） |
 | `src/BuildKinds.z42` | 常量：TargetFamily / BuildMode / Phase（用 const，避开 enum） |

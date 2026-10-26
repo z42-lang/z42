@@ -5,7 +5,7 @@
 // 往里记被引用实体的**声明 ns**。`Infer` 结束停用（`Active = false`）。
 // 消费方：`CuPreprocess._enforceFileScope`（E0436：用了却没 using）。
 // 线程安全：每个文件一个 TypeChecker、一份记录器，并行段内互不共享。
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 
 public sealed class NsUseRecorder {
     public string[] Items;

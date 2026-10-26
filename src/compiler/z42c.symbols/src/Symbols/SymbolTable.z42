@@ -14,7 +14,7 @@
 //   生产路径上 `SymbolCollector` 的三个入口（`Collect` / `CollectAll` / `CollectWithImports`）
 //   都紧跟着调；**手搭符号表的测试必须自己补**（`conversion_tests` 曾因此红过一次）。
 //   `WithAliases` 产出的 per-file 视图共享同一份 `Intern`，不必重复调。
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 using Z42.IR;   // StrMap 统一到 z42c.ir（compiler-review §4.1）
 
 using Z42.Syntax;

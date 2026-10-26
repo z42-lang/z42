@@ -4,6 +4,7 @@
 namespace Z42.Semantics;
 
 using Z42.Core;
+using Z42.Symbols;
 
 public abstract class BoundPattern {
     public Span Span;

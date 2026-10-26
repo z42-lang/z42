@@ -27,7 +27,7 @@
 // 也就是「谁的实参会被执行」。加新载体（今天是 类 / 方法 / 字段 / 属性 / 形参 / 顶层函数）
 // 时两处都要动，否则新载体上的实参会绕过本检查。判据本身（哪些 attr 算 store-meta）两处
 // 共用 `HandlerRegistry.KindOf`，不重新推导。
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 
 using Z42.Syntax;
 using Z42.Core;

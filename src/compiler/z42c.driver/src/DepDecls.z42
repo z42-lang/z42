@@ -5,7 +5,7 @@ using Std.IO;
 using Z42.Project;
 using Z42.Pipeline;    // WsTier
 using Z42.Package;     // ZpkgReader / ZpkgInfo
-using Z42.Semantics;   // PreludeNs
+using Z42.Symbols;   // PreludeNs
 using Z42.Core;        // DiagnosticCodes（W0610）
 
 // stdlib 不用声明：它在框架目录（编译期外部档 = `_extLibDirs()`）里，解析面本来就看得见

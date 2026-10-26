@@ -1,4 +1,4 @@
-// z42c 的 IReplCompiler 实现（sink-repl-compile-facade）。REPL（Std.Scripting）经 z42.build 的
+// z42c 的 IReplCompiler 实现（sink-repl-compile-facade）。REPL（Z42.Scripting）经 z42.build 的
 // `IReplCompiler` 接口**在进程内**调本类，复用 PackageCompile / DepScan / IrDump 核心——与
 // `Z42cCompiler : ICompiler`（wire-z42b）同构。依赖方向：z42c.pipeline → z42.build（仅接口，无环）。
 //

@@ -2,7 +2,7 @@
 // 抛出的异常被捕获、作失败 EvalResult 返回、会话不推进。
 namespace Z42ScriptingTests;
 
-using Std.Scripting;
+using Z42.Scripting;
 using Std.Harness;
 
 [Test]

@@ -1,12 +1,13 @@
-// 类型检查 Pass 1（port-z42c-semantics 1A-4b）。CompilationUnit + SymbolTable → SemanticModel。
-// 调度：集中式 if-is 链（D1，镜像 C# 集中 switch）。1A 范围：lit/ident/assign/free-call + decl/return/expr/block。
-// 检查：var-decl 初值可赋 / return 类型可赋 / 标识符已定义 / 函数已声明。其余表达式·语句 → 1B+。
+// 类型检查入口与 Binding 层的调度中枢。CompilationUnit + SymbolTable → SemanticModel。
+// 本类持绑定期共享状态（当前 CU / 作用域深度 / lambda 捕获 / 约束集 / 诊断袋）并组合各 *Typer / *Binder /
+// *Resolver 子簇；表达式与语句的分派走 visitor（`ExprTyper` / `StmtBinder`），子簇经 `_tc` 回触共享状态。
 namespace Z42.Semantics;
 
 using Z42.Syntax;
 using Z42.Core;
 using Z42.IR;   // add-user-conversions：StrMap
 using Z42.IR.BinaryFormat;
+using Z42.Symbols;
 
 public sealed class TypeChecker {
     public DiagnosticBag      _diags;

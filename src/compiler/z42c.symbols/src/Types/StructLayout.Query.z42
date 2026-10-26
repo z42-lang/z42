@@ -2,7 +2,7 @@
 // 主文件此前 883 行贴着上限）：「这个名字是不是 struct / 实例化布局是否异于定义 / 名字拆基名与实参 /
 // 字段的下标·偏移·类型名·是否 struct / 总大小」。不碰计算与缓存流程（那些留在主文件：BuildFromSymbols /
 // _compute* / ForkView）；与主文件同一个类、共享其 private 面。
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 
 using Z42.IR;   // StrMap
 
