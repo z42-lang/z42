@@ -260,7 +260,7 @@ scripts/
 │   ├── xtask_versions.z42   versions.toml 读取器（_vget/_vRead/...）
 │   ├── xtask_golden.z42     golden 枚举 / 入口推导（多 test stage + build test 复用）
 │   ├── xtask_toolset.z42    外部工具（cargo/gh/tar/...）的存在性与定位
-│   ├── xtask_fs.z42         文件系统原语（_resetDir/_copyAll/_linkAll/_cleanGlob/_copyIfExists/_makeExe）
+│   ├── xtask_fs.z42         文件系统原语（_resetDir/_copyAll/_linkAll/_copyFile/_copyIfExists/_cleanGlob/_makeExe；写入前先断链）
 │   ├── xtask_exec_profile.z42  执行剖面词汇（tier × aot_pkgs × VM caps；test 与 bench 共用，故不随 bench/ 走）
 │   └── xtask_fixture_harness.z42  声明式夹具（`expect.toml`）的通用引擎：z42c 命令行夹具与发行包夹具共用
 ├── build/              build stdlib / compiler / runtime / golden-assets + clean + 自举边界检查

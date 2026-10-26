@@ -309,7 +309,7 @@ int _buildStdlibCarriedPlugins(string root, string vm, string driver, string run
     if (rc != 0) { ConsoleError.WriteLine("  ✗ carried plugin build failed: " + toml); return 1; }
     string zpkg = Path.Join(dist, "z42.harness.lint.zpkg");
     if (!File.Exists(zpkg)) { ConsoleError.WriteLine("  ✗ carried plugin produced no zpkg: " + zpkg); return 1; }
-    _copyOverwrite(zpkg, Path.Join(pluginsDir, "z42.harness.lint.zpkg"));
+    _copyFile(zpkg, Path.Join(pluginsDir, "z42.harness.lint.zpkg"));
     return 0;
 }
 
@@ -323,8 +323,3 @@ int _z42cBuildPackageInternal(string vm, string driver, string tomlPath, string 
         .Run().ExitCode;
 }
 
-// 覆盖拷贝（File.Copy 无 overwrite 参数形态）。目标在则先删。
-void _copyOverwrite(string src, string dst) {
-    if (File.Exists(dst)) { File.Delete(dst); }
-    File.Copy(src, dst);
-}

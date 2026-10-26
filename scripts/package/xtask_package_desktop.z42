@@ -82,7 +82,7 @@ int _packageDesktop(string root, string pkgDir, string rid, string version, stri
         if (pz.Length > 0) {
             Directory.Create(Path.Join(pkgDir, "plugins"));
             int zi = 0;
-            while (zi < pz.Length) { _copyOverwrite(pz[zi], Path.Join(pkgDir, "plugins", Path.GetFileName(pz[zi]))); zi = zi + 1; }
+            while (zi < pz.Length) { _copyFile(pz[zi], Path.Join(pkgDir, "plugins", Path.GetFileName(pz[zi]))); zi = zi + 1; }
             Console.WriteLine("  plugins/: " + pz.Length.ToString() + " carried plugin zpkg(s)");
         }
     }
