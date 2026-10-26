@@ -277,208 +277,229 @@ public static class ZbcWriter {
         w.WriteU32(classCount);
         int c = 0;
         while (c < classCount) {
-            IrClassDesc cd = classes[c];
-            w.WriteU32(pool.Idx(cd.Name));
-            if (cd.HasBase) { w.WriteU32(pool.Idx(cd.BaseName)); } else { w.WriteU32(-1); }   // -1 = uint.MaxValue
-            w.WriteU16(cd.FieldCount);
-            int f = 0;
-            while (f < cd.FieldCount) {
-                w.WriteU32(pool.Idx(cd.Fields[f].Name));
-                w.WriteU8(Tag.FromName(cd.Fields[f].Type));
-                w.WriteU32(pool.Idx(cd.Fields[f].Type));
-                ZbcWriter._writeFieldAttrs(w, cd.Fields[f], pool);   // per-field attrCount + refs（zbc 1.14）
-                w.WriteU8(cd.Fields[f].Visibility);   // add-member-visibility（zbc 1.23）：0/1/2
-                f = f + 1;
-            }
-            // TypeParams + per-tp constraint bundles（zbc L3-G1/G3a，镜像 C# BuildType tpCount+WriteConstraintBundle）
-            int tpCount = cd.TypeParamCount;
-            w.WriteU8(tpCount);
-            int tpi = 0;
-            while (tpi < tpCount) {
-                w.WriteU32(pool.Idx(cd.TypeParams[tpi]));
-                // constraint bundle（flags=0 → only interfaces；无 class/struct/base/func constraint）
-                IrConstraintDesc cDesc = null;
-                if (cd.TypeParamConstraints != null && tpi < cd.TypeParamConstraints.Length) {
-                    cDesc = cd.TypeParamConstraints[tpi];
-                }
-                // 约束 flags（add-associated-types PR-1 起写**全部** bit0-5；此前只写 bit3，故运行期
-                // validate_type_arg_constraint 的 class/struct/base/new()/enum 五个分支是死代码，
-                // 且跨包约束无从恢复）。bit6 funcSig 仍未承载 —— Deferred where-constraint-future-func-constraint。
-                // wire 布局早已规约、三方 reader（Rust type_reader.rs / ZbcReader / ZpkgReader）均按完整
-                // 布局消费，故置位**不改 layout、无需格式 bump**。
-                bool reqClass  = (cDesc != null) && cDesc.RequiresClass;
-                bool reqStruct = (cDesc != null) && cDesc.RequiresStruct;
-                bool hasBase   = (cDesc != null) && cDesc.BaseClass != "";
-                bool hasTpRef  = (cDesc != null) && cDesc.TypeParamConstraint != "";
-                bool reqCtor   = (cDesc != null) && cDesc.RequiresCtor;
-                bool reqEnum   = (cDesc != null) && cDesc.RequiresEnum;
-                bool hasAssoc  = (cDesc != null) && cDesc.AssocBindingCount > 0;   // bit7（zbc 1.42）
-                int cflags = 0;
-                if (reqClass)  { cflags = cflags + 1; }    // bit0 requires_class
-                if (reqStruct) { cflags = cflags + 2; }    // bit1 requires_struct
-                if (hasBase)   { cflags = cflags + 4; }    // bit2 has_base
-                if (hasTpRef)  { cflags = cflags + 8; }    // bit3 has_type_param
-                if (reqCtor)   { cflags = cflags + 16; }   // bit4 requires_constructor
-                if (reqEnum)   { cflags = cflags + 32; }   // bit5 requires_enum
-                if (hasAssoc)  { cflags = cflags + 128; }  // bit7 has_assoc_binding（assoc-type-crosspkg）
-                w.WriteU8(cflags);
-                // 载荷顺序必须是 base → tpRef → iface_count → [bit7 assoc]（三方 reader 的一致读取序）。
-                if (hasBase)  { w.WriteU32(pool.Idx(cDesc.BaseClass)); }
-                if (hasTpRef) { w.WriteU32(pool.Idx(cDesc.TypeParamConstraint)); }
-                int ifc = (cDesc != null) ? cDesc.InterfaceCount : 0;
-                w.WriteU8(ifc);
-                int ifi = 0;
-                while (ifi < ifc) {
-                    w.WriteU32(pool.Idx(cDesc.Interfaces[ifi]));
-                    ifi = ifi + 1;
-                }
-                // bit7 关联类型绑定块（zbc 1.42，assoc-type-crosspkg）：assoc_count:u8 + (name,type)×n。
-                if (hasAssoc) {
-                    w.WriteU8(cDesc.AssocBindingCount);
-                    int abi = 0;
-                    while (abi < cDesc.AssocBindingCount) {
-                        w.WriteU32(pool.Idx(cDesc.AssocBindingNames[abi]));
-                        w.WriteU32(pool.Idx(cDesc.AssocBindingTypeNames[abi]));
-                        abi = abi + 1;
-                    }
-                }
-                tpi = tpi + 1;
-            }
-            w.WriteU16(cd.AttrCount);    // attrCount（zbc 1.10，add-attribute-reflection）
-            int cai = 0;
-            while (cai < cd.AttrCount) {
-                w.WriteU32(pool.Idx(cd.Attrs[cai].TypeName));
-                w.WriteU32(pool.Idx(cd.Attrs[cai].FactoryFunc));
-                cai = cai + 1;
-            }
-            w.WriteU8(cd.Flags);   // class-shape flags（zbc 1.12，G12）：abstract/sealed/struct/record
-            w.WriteU8(cd.Visibility);   // enforce-class-access（zbc 1.33）：类声明可见性 0/1/2/3（紧随 Flags）
-            // class_flags2（zbc 1.45）：always-present u16。既有 `Flags` 是 u8 且 8 位用满 —— 位用光的
-            // 后果已现形（对象块只能用推导谓词当闸门、判据两侧各抄一份）。bit0 = HAS_STRUCT_FIELD_TABLE。
-            w.WriteU16(cd.Flags2);
-            w.WriteU16(cd.StaticFieldCount);   // static-fields count（zbc 1.13；SA-3）
-            int sf = 0;
-            while (sf < cd.StaticFieldCount) {
-                w.WriteU32(pool.Idx(cd.StaticFields[sf].Name));
-                w.WriteU8(Tag.FromName(cd.StaticFields[sf].Type));
-                w.WriteU32(pool.Idx(cd.StaticFields[sf].Type));
-                ZbcWriter._writeFieldAttrs(w, cd.StaticFields[sf], pool);   // per-field attrCount + refs（zbc 1.14）
-                w.WriteU8(cd.StaticFields[sf].Visibility);   // add-member-visibility（zbc 1.23）
-                sf = sf + 1;
-            }
-            w.WriteU16(cd.InterfaceCount);   // 接口块（zbc 1.17：bare 名 idx[]）
-            int ifx = 0;
-            while (ifx < cd.InterfaceCount) { w.WriteU32(pool.Idx(cd.Interfaces[ifx])); ifx = ifx + 1; }
-            // enum 成员块（add-enum-type-metadata / unify P1-a）：Flags bit5(0x20) 置位时追加
-            // member_count:u16 + (name_idx:u32, value:i64)×n。gated → 非 enum 类零字节、布局不变。
-            if ((cd.Flags & 32) != 0) {
-                w.WriteU16(cd.EnumMemberCount);
-                int emx = 0;
-                while (emx < cd.EnumMemberCount) {
-                    w.WriteU32(pool.Idx(cd.EnumMemberNames[emx]));
-                    w.WriteI64(cd.EnumMemberValues[emx]);
-                    emx = emx + 1;
-                }
-            }
-            // 接口方法签名块（zbc 1.28，fix-crosspkg-interface-impl；zbc 1.41 加 is_static）：Flags bit4(0x10) 置位时追加
-            // mcount:u16 + (name_idx:u32, ret_idx:u32, pcount:u8, is_static:u8, ptype_idx:u32×pcount)×n。
-            // gated → 非接口零字节（同 enum 块模式）。跨包接口实现从依赖 zpkg 恢复方法签名的唯一载体。
-            // is_static（zbc 1.41，fix-imported-iface-static-fidelity）：镜像 SIGS 的 is_static:u8，
-            // 承载 static abstract 接口成员的静态位（此前恒丢成 0，迫使满足性校验跳过导入接口）。
-            if ((cd.Flags & 16) != 0) {
-                w.WriteU16(cd.IfaceMethodCount);
-                int imw = 0;
-                int ipbase = 0;
-                while (imw < cd.IfaceMethodCount) {
-                    w.WriteU32(pool.Idx(cd.IfaceMethodNames[imw]));
-                    w.WriteU32(pool.Idx(cd.IfaceMethodRets[imw]));
-                    int ipc = cd.IfaceMethodParamCounts[imw];
-                    w.WriteU8(ipc);
-                    w.WriteU8(cd.IfaceMethodStatic[imw]);   // zbc 1.41：is_static（pcount 后、ptypes 前，镜像 SIGS）
-                    int ipw = 0;
-                    while (ipw < ipc) { w.WriteU32(pool.Idx(cd.IfaceMethodParamTypes[ipbase + ipw])); ipw = ipw + 1; }
-                    ipbase = ipbase + ipc;
-                    imw = imw + 1;
-                }
-            }
-            // 值 struct 布局块（zbc 1.31，add-struct-value-semantics A-use）：Flags bit2(0x04)=struct 时追加
-            // size:u32 + ref_leaf_count:u16 + (byte_off:u32, kind:u8)×n。运行时按 type_name 查此块得**引用
-            // 位图**（GC 定位 blob 内引用叶子 + StructCopy 逐叶子 clone）；byte 大小/字段偏移由 codegen 烘焙进
-            // 访问指令，不经此块。gated → 非 struct 零字节（同 enum/iface 块模式）。
-            if ((cd.Flags & 4) != 0) {
-                w.WriteU32(cd.StructSize);
-                w.WriteU16(cd.StructRefCount);
-                int srl = 0;
-                while (srl < cd.StructRefCount) {
-                    w.WriteU32(cd.StructRefOffsets[srl]);
-                    w.WriteU8(cd.StructRefKinds[srl]);
-                    srl = srl + 1;
-                }
-            }
-            // 值 struct 的**逐字段**布局表（zbc 1.45）：Flags2 bit0 gated，紧随 struct 引用位图块。
-            // field_count:u16 + (off:u32, size:u32, kind:u8)×n，**同序平行于 Fields**（名/类型名不重复承载）。
-            // 🔴 承载它是为了让运行期**有可能**自己解析 struct 字段偏移 —— 那是「泛型必须按实例化
-            // 单态化」的唯一实际动因（见 IrModule 里 StructField* 的头注）。本 change 只承载、无人消费。
-            if ((cd.Flags2 & 1) != 0) {
-                w.WriteU16(cd.StructFieldCount);
-                int sfl = 0;
-                while (sfl < cd.StructFieldCount) {
-                    w.WriteU32(cd.StructFieldOffsets[sfl]);
-                    w.WriteU32(cd.StructFieldSizes[sfl]);
-                    w.WriteU8(cd.StructFieldKinds[sfl]);
-                    sfl = sfl + 1;
-                }
-            }
-            // 合成内联 struct 布局块（zbc 1.32，add-struct-heap-inline P3b）：Flags bit7(0x80)=class 有内联
-            // struct 字段时随 TYPE 尾部 emit（在 struct 块之后）。同 struct 块 shape：InlineSize:u32 +
-            // ref_count:u16 + (byte_off:u32, kind:u8)×n（对象相对引用位图，供运行时 GC 定位内联 struct 字段
-            // 引用叶子 + 内联叶子写屏障；字节 offset 由 codegen 烘焙进访问指令，不经此块）。gated → 非内联 class 零字节。
-            if ((cd.Flags & 128) != 0) {
-                w.WriteU32(cd.InlineSize);
-                w.WriteU16(cd.InlineRefCount);
-                int irl = 0;
-                while (irl < cd.InlineRefCount) {
-                    w.WriteU32(cd.InlineRefOffsets[irl]);
-                    w.WriteU8(cd.InlineRefKinds[irl]);
-                    irl = irl + 1;
-                }
-            }
-            // 对象全字段布局块（zbc 1.34，unify-object-byte-layout PR-1）：普通引用类（Flags 不含
-            // struct(4)/interface(16)/enum(32)/delegate(64)）随 TYPE 尾部 emit（在 inline 块之后）。派生谓词
-            // gated（class flags 满位、无空闲位），reader 用同谓词读 → 无标志位也锁步。Layout：ObjectSize:u32 +
-            // field_count:u16 + (off:u32, size:u32, kind:u8)×n + ref_count:u16 + (ref_off:u32, ref_kind:u8)×m。
-            // 8B 引用宽度（C# 终点）；per-field 供 FieldGet/反射，扁平引用位图（含内联 struct 内部叶子）供 GC。
-            if ((cd.Flags & 116) == 0) {   // 116 = 4|16|32|64（struct|interface|enum|delegate）
-                w.WriteU32(cd.ObjectSize);
-                w.WriteU16(cd.ObjFieldCount);
-                int ofx = 0;
-                while (ofx < cd.ObjFieldCount) {
-                    w.WriteU32(cd.ObjFieldOffsets[ofx]);
-                    w.WriteU32(cd.ObjFieldSizes[ofx]);
-                    w.WriteU8(cd.ObjFieldKinds[ofx]);
-                    ofx = ofx + 1;
-                }
-                w.WriteU16(cd.ObjRefCount);
-                int orx = 0;
-                while (orx < cd.ObjRefCount) {
-                    w.WriteU32(cd.ObjRefOffsets[orx]);
-                    w.WriteU8(cd.ObjRefKinds[orx]);
-                    orx = orx + 1;
-                }
-            }
-            // 关联类型统一 assoc 块（zbc 1.42，assoc-type-crosspkg）：TYPE 记录**尾部** always-present。
-            // assoc_count:u16 + (name_idx:u32, type_idx:u32)×n。接口写 (Item,"")=声明名单、类写 (Item,int)=绑定。
-            // count=0 时仅 +2 字节（绝大多数类型无 assoc）。reader 按 Flags bit4(接口)/否(类) 路由消费。
-            w.WriteU16(cd.AssocCount);
-            int aaw = 0;
-            while (aaw < cd.AssocCount) {
-                w.WriteU32(pool.Idx(cd.AssocNames[aaw]));
-                w.WriteU32(pool.Idx(cd.AssocTypes[aaw]));
-                aaw = aaw + 1;
-            }
+            ZbcWriter._writeClassDesc(w, classes[c], pool);
             c = c + 1;
         }
         return w;
+    }
+
+    // 单类描述（TYPE 段每类一块，序 = reader 的读取序）：Name/Base/Fields → 型参约束 bundles
+    //（`_writeTypeParamBundles`）→ Attrs/Flags/Flags2/Visibility/StaticFields/Interfaces → gated
+    // 尾块（enum/iface 方法/struct 布局/struct 字段表/inline/对象全字段，`_writeGatedTailBlocks`）→ assoc 尾块。
+    private static void _writeClassDesc(ByteWriter w, IrClassDesc cd, ZbcStringPool pool) {
+        w.WriteU32(pool.Idx(cd.Name));
+        if (cd.HasBase) { w.WriteU32(pool.Idx(cd.BaseName)); } else { w.WriteU32(-1); }   // -1 = uint.MaxValue
+        w.WriteU16(cd.FieldCount);
+        int f = 0;
+        while (f < cd.FieldCount) {
+            w.WriteU32(pool.Idx(cd.Fields[f].Name));
+            w.WriteU8(Tag.FromName(cd.Fields[f].Type));
+            w.WriteU32(pool.Idx(cd.Fields[f].Type));
+            ZbcWriter._writeFieldAttrs(w, cd.Fields[f], pool);   // per-field attrCount + refs（zbc 1.14）
+            w.WriteU8(cd.Fields[f].Visibility);   // add-member-visibility（zbc 1.23）：0/1/2
+            f = f + 1;
+        }
+        ZbcWriter._writeTypeParamBundles(w, cd, pool);
+        w.WriteU16(cd.AttrCount);    // attrCount（zbc 1.10，add-attribute-reflection）
+        int cai = 0;
+        while (cai < cd.AttrCount) {
+            w.WriteU32(pool.Idx(cd.Attrs[cai].TypeName));
+            w.WriteU32(pool.Idx(cd.Attrs[cai].FactoryFunc));
+            cai = cai + 1;
+        }
+        w.WriteU8(cd.Flags);   // class-shape flags（zbc 1.12，G12）：abstract/sealed/struct/record
+        w.WriteU8(cd.Visibility);   // enforce-class-access（zbc 1.33）：类声明可见性 0/1/2/3（紧随 Flags）
+        // class_flags2（zbc 1.45）：always-present u16。既有 `Flags` 是 u8 且 8 位用满 —— 位用光的
+        // 后果已现形（对象块只能用推导谓词当闸门、判据两侧各抄一份）。bit0 = HAS_STRUCT_FIELD_TABLE。
+        w.WriteU16(cd.Flags2);
+        w.WriteU16(cd.StaticFieldCount);   // static-fields count（zbc 1.13；SA-3）
+        int sf = 0;
+        while (sf < cd.StaticFieldCount) {
+            w.WriteU32(pool.Idx(cd.StaticFields[sf].Name));
+            w.WriteU8(Tag.FromName(cd.StaticFields[sf].Type));
+            w.WriteU32(pool.Idx(cd.StaticFields[sf].Type));
+            ZbcWriter._writeFieldAttrs(w, cd.StaticFields[sf], pool);   // per-field attrCount + refs（zbc 1.14）
+            w.WriteU8(cd.StaticFields[sf].Visibility);   // add-member-visibility（zbc 1.23）
+            sf = sf + 1;
+        }
+        w.WriteU16(cd.InterfaceCount);   // 接口块（zbc 1.17：bare 名 idx[]）
+        int ifx = 0;
+        while (ifx < cd.InterfaceCount) { w.WriteU32(pool.Idx(cd.Interfaces[ifx])); ifx = ifx + 1; }
+        ZbcWriter._writeGatedMetaBlocks(w, cd, pool);
+        ZbcWriter._writeGatedLayoutBlocks(w, cd, pool);
+        // 关联类型统一 assoc 块（zbc 1.42，assoc-type-crosspkg）：TYPE 记录**尾部** always-present。
+        // assoc_count:u16 + (name_idx:u32, type_idx:u32)×n。接口写 (Item,"")=声明名单、类写 (Item,int)=绑定。
+        // count=0 时仅 +2 字节（绝大多数类型无 assoc）。reader 按 Flags bit4(接口)/否(类) 路由消费。
+        w.WriteU16(cd.AssocCount);
+        int aaw = 0;
+        while (aaw < cd.AssocCount) {
+            w.WriteU32(pool.Idx(cd.AssocNames[aaw]));
+            w.WriteU32(pool.Idx(cd.AssocTypes[aaw]));
+            aaw = aaw + 1;
+        }
+    }
+
+    // ── TypeParams + per-tp constraint bundles（zbc L3-G1/G3a，镜像 C# BuildType tpCount+WriteConstraintBundle）──
+    private static void _writeTypeParamBundles(ByteWriter w, IrClassDesc cd, ZbcStringPool pool) {
+        int tpCount = cd.TypeParamCount;
+        w.WriteU8(tpCount);
+        int tpi = 0;
+        while (tpi < tpCount) {
+            w.WriteU32(pool.Idx(cd.TypeParams[tpi]));
+            // constraint bundle（flags=0 → only interfaces；无 class/struct/base/func constraint）
+            IrConstraintDesc cDesc = null;
+            if (cd.TypeParamConstraints != null && tpi < cd.TypeParamConstraints.Length) {
+                cDesc = cd.TypeParamConstraints[tpi];
+            }
+            // 约束 flags（add-associated-types PR-1 起写**全部** bit0-5；此前只写 bit3，故运行期
+            // validate_type_arg_constraint 的 class/struct/base/new()/enum 五个分支是死代码，
+            // 且跨包约束无从恢复）。bit6 funcSig 仍未承载 —— Deferred where-constraint-future-func-constraint。
+            // wire 布局早已规约、三方 reader（Rust type_reader.rs / ZbcReader / ZpkgReader）均按完整
+            // 布局消费，故置位**不改 layout、无需格式 bump**。
+            bool reqClass  = (cDesc != null) && cDesc.RequiresClass;
+            bool reqStruct = (cDesc != null) && cDesc.RequiresStruct;
+            bool hasBase   = (cDesc != null) && cDesc.BaseClass != "";
+            bool hasTpRef  = (cDesc != null) && cDesc.TypeParamConstraint != "";
+            bool reqCtor   = (cDesc != null) && cDesc.RequiresCtor;
+            bool reqEnum   = (cDesc != null) && cDesc.RequiresEnum;
+            bool hasAssoc  = (cDesc != null) && cDesc.AssocBindingCount > 0;   // bit7（zbc 1.42）
+            int cflags = 0;
+            if (reqClass)  { cflags = cflags + 1; }    // bit0 requires_class
+            if (reqStruct) { cflags = cflags + 2; }    // bit1 requires_struct
+            if (hasBase)   { cflags = cflags + 4; }    // bit2 has_base
+            if (hasTpRef)  { cflags = cflags + 8; }    // bit3 has_type_param
+            if (reqCtor)   { cflags = cflags + 16; }   // bit4 requires_constructor
+            if (reqEnum)   { cflags = cflags + 32; }   // bit5 requires_enum
+            if (hasAssoc)  { cflags = cflags + 128; }  // bit7 has_assoc_binding（assoc-type-crosspkg）
+            w.WriteU8(cflags);
+            // 载荷顺序必须是 base → tpRef → iface_count → [bit7 assoc]（三方 reader 的一致读取序）。
+            if (hasBase)  { w.WriteU32(pool.Idx(cDesc.BaseClass)); }
+            if (hasTpRef) { w.WriteU32(pool.Idx(cDesc.TypeParamConstraint)); }
+            int ifc = (cDesc != null) ? cDesc.InterfaceCount : 0;
+            w.WriteU8(ifc);
+            int ifi = 0;
+            while (ifi < ifc) {
+                w.WriteU32(pool.Idx(cDesc.Interfaces[ifi]));
+                ifi = ifi + 1;
+            }
+            // bit7 关联类型绑定块（zbc 1.42，assoc-type-crosspkg）：assoc_count:u8 + (name,type)×n。
+            if (hasAssoc) {
+                w.WriteU8(cDesc.AssocBindingCount);
+                int abi = 0;
+                while (abi < cDesc.AssocBindingCount) {
+                    w.WriteU32(pool.Idx(cDesc.AssocBindingNames[abi]));
+                    w.WriteU32(pool.Idx(cDesc.AssocBindingTypeNames[abi]));
+                    abi = abi + 1;
+                }
+            }
+            tpi = tpi + 1;
+        }
+    }
+
+    // ── gated 元数据尾块：enum 成员（bit5）+ 接口方法签名（bit4；zbc 1.28 / 1.41 is_static）──
+    private static void _writeGatedMetaBlocks(ByteWriter w, IrClassDesc cd, ZbcStringPool pool) {
+        // enum 成员块（add-enum-type-metadata / unify P1-a）：Flags bit5(0x20) 置位时追加
+        // member_count:u16 + (name_idx:u32, value:i64)×n。gated → 非 enum 类零字节、布局不变。
+        if ((cd.Flags & 32) != 0) {
+            w.WriteU16(cd.EnumMemberCount);
+            int emx = 0;
+            while (emx < cd.EnumMemberCount) {
+                w.WriteU32(pool.Idx(cd.EnumMemberNames[emx]));
+                w.WriteI64(cd.EnumMemberValues[emx]);
+                emx = emx + 1;
+            }
+        }
+        // 接口方法签名块（zbc 1.28，fix-crosspkg-interface-impl；zbc 1.41 加 is_static）：Flags bit4(0x10) 置位时追加
+        // mcount:u16 + (name_idx:u32, ret_idx:u32, pcount:u8, is_static:u8, ptype_idx:u32×pcount)×n。
+        // gated → 非接口零字节（同 enum 块模式）。跨包接口实现从依赖 zpkg 恢复方法签名的唯一载体。
+        // is_static（zbc 1.41，fix-imported-iface-static-fidelity）：镜像 SIGS 的 is_static:u8，
+        // 承载 static abstract 接口成员的静态位（此前恒丢成 0，迫使满足性校验跳过导入接口）。
+        if ((cd.Flags & 16) != 0) {
+            w.WriteU16(cd.IfaceMethodCount);
+            int imw = 0;
+            int ipbase = 0;
+            while (imw < cd.IfaceMethodCount) {
+                w.WriteU32(pool.Idx(cd.IfaceMethodNames[imw]));
+                w.WriteU32(pool.Idx(cd.IfaceMethodRets[imw]));
+                int ipc = cd.IfaceMethodParamCounts[imw];
+                w.WriteU8(ipc);
+                w.WriteU8(cd.IfaceMethodStatic[imw]);   // zbc 1.41：is_static（pcount 后、ptypes 前，镜像 SIGS）
+                int ipw = 0;
+                while (ipw < ipc) { w.WriteU32(pool.Idx(cd.IfaceMethodParamTypes[ipbase + ipw])); ipw = ipw + 1; }
+                ipbase = ipbase + ipc;
+                imw = imw + 1;
+            }
+        }
+    }
+
+    // ── gated 布局尾块：值 struct 引用位图（bit2）+ struct 逐字段表（Flags2 bit0，zbc 1.45）+
+    //    合成内联 struct（bit7，zbc 1.32）+ 对象全字段（派生谓词，zbc 1.34）──
+    private static void _writeGatedLayoutBlocks(ByteWriter w, IrClassDesc cd, ZbcStringPool pool) {
+        // 值 struct 布局块（zbc 1.31，add-struct-value-semantics A-use）：Flags bit2(0x04)=struct 时追加
+        // size:u32 + ref_leaf_count:u16 + (byte_off:u32, kind:u8)×n。运行时按 type_name 查此块得**引用
+        // 位图**（GC 定位 blob 内引用叶子 + StructCopy 逐叶子 clone）；byte 大小/字段偏移由 codegen 烘焙进
+        // 访问指令，不经此块。gated → 非 struct 零字节（同 enum/iface 块模式）。
+        if ((cd.Flags & 4) != 0) {
+            w.WriteU32(cd.StructSize);
+            w.WriteU16(cd.StructRefCount);
+            int srl = 0;
+            while (srl < cd.StructRefCount) {
+                w.WriteU32(cd.StructRefOffsets[srl]);
+                w.WriteU8(cd.StructRefKinds[srl]);
+                srl = srl + 1;
+            }
+        }
+        // 值 struct 的**逐字段**布局表（zbc 1.45）：Flags2 bit0 gated，紧随 struct 引用位图块。
+        // field_count:u16 + (off:u32, size:u32, kind:u8)×n，**同序平行于 Fields**（名/类型名不重复承载）。
+        // 🔴 承载它是为了让运行期**有可能**自己解析 struct 字段偏移 —— 那是「泛型必须按实例化
+        // 单态化」的唯一实际动因（见 IrModule 里 StructField* 的头注）。本 change 只承载、无人消费。
+        if ((cd.Flags2 & 1) != 0) {
+            w.WriteU16(cd.StructFieldCount);
+            int sfl = 0;
+            while (sfl < cd.StructFieldCount) {
+                w.WriteU32(cd.StructFieldOffsets[sfl]);
+                w.WriteU32(cd.StructFieldSizes[sfl]);
+                w.WriteU8(cd.StructFieldKinds[sfl]);
+                sfl = sfl + 1;
+            }
+        }
+        // 合成内联 struct 布局块（zbc 1.32，add-struct-heap-inline P3b）：Flags bit7(0x80)=class 有内联
+        // struct 字段时随 TYPE 尾部 emit（在 struct 块之后）。同 struct 块 shape：InlineSize:u32 +
+        // ref_count:u16 + (byte_off:u32, kind:u8)×n（对象相对引用位图，供运行时 GC 定位内联 struct 字段
+        // 引用叶子 + 内联叶子写屏障；字节 offset 由 codegen 烘焙进访问指令，不经此块）。gated → 非内联 class 零字节。
+        if ((cd.Flags & 128) != 0) {
+            w.WriteU32(cd.InlineSize);
+            w.WriteU16(cd.InlineRefCount);
+            int irl = 0;
+            while (irl < cd.InlineRefCount) {
+                w.WriteU32(cd.InlineRefOffsets[irl]);
+                w.WriteU8(cd.InlineRefKinds[irl]);
+                irl = irl + 1;
+            }
+        }
+        // 对象全字段布局块（zbc 1.34，unify-object-byte-layout PR-1）：普通引用类（Flags 不含
+        // struct(4)/interface(16)/enum(32)/delegate(64)）随 TYPE 尾部 emit（在 inline 块之后）。派生谓词
+        // gated（class flags 满位、无空闲位），reader 用同谓词读 → 无标志位也锁步。Layout：ObjectSize:u32 +
+        // field_count:u16 + (off:u32, size:u32, kind:u8)×n + ref_count:u16 + (ref_off:u32, ref_kind:u8)×m。
+        // 8B 引用宽度（C# 终点）；per-field 供 FieldGet/反射，扁平引用位图（含内联 struct 内部叶子）供 GC。
+        if ((cd.Flags & 116) == 0) {   // 116 = 4|16|32|64（struct|interface|enum|delegate）
+            w.WriteU32(cd.ObjectSize);
+            w.WriteU16(cd.ObjFieldCount);
+            int ofx = 0;
+            while (ofx < cd.ObjFieldCount) {
+                w.WriteU32(cd.ObjFieldOffsets[ofx]);
+                w.WriteU32(cd.ObjFieldSizes[ofx]);
+                w.WriteU8(cd.ObjFieldKinds[ofx]);
+                ofx = ofx + 1;
+            }
+            w.WriteU16(cd.ObjRefCount);
+            int orx = 0;
+            while (orx < cd.ObjRefCount) {
+                w.WriteU32(cd.ObjRefOffsets[orx]);
+                w.WriteU8(cd.ObjRefKinds[orx]);
+                orx = orx + 1;
+            }
+        }
     }
 
     // ── SIGS：count + 每函数签名（zbc 1.11 含 attrCount）─────────────────────────────
