@@ -324,7 +324,7 @@ int _smokeManifestSections(string root, TargetTooling tt) {
 // build hooks smoke（drop-legacy-compile-request）：`[build] hooks` 目录经开发树的 ICompiler 编译 → 动态实例化 →
 // 挂进管线执行。断言两条：① `z42b build` 成功；② 输出里有 hook 打的标记行（证明 hook 真的被编译、加载、调用，
 // hook 收到的 Target.Mode（hooks-embed-on-demand）：普通 `z42b publish` 传 `publish`，`--self-contained` 传
-// `publish-self-contained`。项目 hook 靠这个值决定要不要准备 embed 产物（scripts/hooks/hooks.z42：embed apphost
+// `publish-self-contained`。项目 hook 靠这个值决定要不要准备 embed 产物（scripts/xtask_hooks.z42：embed apphost
 // 要把整个 VM 编成 libz42.a，普通 publish 一个字节都用不到）。两条路各断言一次，传反、传同值都会红。
 // 只看 hook 打出的那一行，不看退出码：fixture 不登记 stub / embed 产物，普通 publish 回落到假模板、
 // self-contained 报「embed apphost not available」，都与本格无关。Z42_EMBED_* 显式置空，免得外部环境让

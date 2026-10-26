@@ -6,7 +6,7 @@
 > `src/runtime/src/corelib/platform.rs`（`__platform_caps` / `__platform_exec_modes` builtin）、
 > `src/libraries/z42.core/src/Platform.z42`（`Capabilities()` / `ExecModes()` 门面）、
 > `src/benches/probe/capabilities.z42`（探针）、`src/benches/baseline-schema.json`（schema v2）、
-> `scripts/xtask_bench.z42`（消费方）。
+> `scripts/bench/xtask_bench.z42`（消费方）。
 
 「这次运行是在什么执行画像下测的」这句话，test 与 bench 两侧需要**同一套词汇**。
 本页写这套词汇的三根轴、三值支持矩阵、以及它怎么进结果文件。

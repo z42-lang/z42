@@ -23,6 +23,7 @@
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Json;
 using Z42.Project;
 
 // ── manifest access (null-tolerant: missing/broken toml → convention defaults) ──
@@ -372,4 +373,85 @@ int _runLibViaZ42b(string root, string projDir, string parentToml, string lib, s
     }
     return _runUnitsViaZ42b(root, parentToml, names, names.Length, kind,
                             jobsN, mode, vm, builderZpkg, libs, lib, agg);
+}
+
+// ── micro bench 结果聚合（`bench stdlib --json`：lib / units / targets 三个 flow 共用）──────────
+// 住在这里而不是 bench/：消费方全是 test 族（[[bench]] 目标与 [Benchmark] 单元的 z42b json 输出），bench 族自己不用。
+// add-stdlib-bench-baseline: aggregate per-module z42b `--format json` bench_stats
+// into one schema-v1 baseline doc. median_ns is the primary metric (value); min/max
+// map to ci_lower/ci_upper. One instance is reused across all libs/modules by
+// `bench stdlib --json` (null when not capturing → pretty passthrough untouched).
+class MicroBenchAgg {
+    string _items;   // comma+newline-joined schema-v2 benchmark objects
+    int    _n;
+    // add-exec-profile-matrix: the profile every micro result is tagged with.
+    // Probed once (setProfileOnce) from the VM the z42b runner executes under, so
+    // interp vs jit micro baselines never compare against each other. Defaults to
+    // an interp/empty profile until set.
+    string[] _tiers;
+    VmCaps   _vm;
+    string   _vmVersion;
+    bool     _profSet;
+    public MicroBenchAgg() {
+        this._items = ""; this._n = 0;
+        this._tiers = new string[1]; this._tiers[0] = "interp";
+        this._vm = new VmCaps(); this._vmVersion = ""; this._profSet = false;
+    }
+    internal int count() { return this._n; }
+
+    // Record the execution profile (idempotent — first call wins). tiers comes
+    // from the micro `--mode`; vm/vmVersion from probing the runner's VM binary.
+    internal void setProfileOnce(string[] tiers, VmCaps vm, string vmVersion) {
+        if (this._profSet) { return; }
+        this._tiers = tiers; this._vm = vm; this._vmVersion = vmVersion;
+        this._profSet = true;
+    }
+
+    // Parse one z42b `--format json` module output; append each benchmark's stats.
+    // Non-benchmark entries (smoke [Test]) and failed benches (no bench_stats) skip.
+    internal void addModuleJson(string moduleJson, string lib) {
+        JsonValue root = JsonValue.Parse(moduleJson.Trim());
+        JsonValue results = null;
+        if (!root.TryGet("results", ref results)) { return; }
+        int i = 0;
+        while (i < results.Count()) {
+            JsonValue res = results.At(i);
+            bool isBench = false;
+            JsonValue bs = null;
+            if (res.TryGetValue<bool>("is_benchmark", ref isBench) && isBench
+                && res.TryGet("bench_stats", ref bs)) {
+                string name = lib + "." + bs.Get("label").AsString();
+                long med = bs.Get("median_ns").AsLong();
+                long lo  = bs.Get("min_ns").AsLong();
+                long hi  = bs.Get("max_ns").AsLong();
+                long smp = bs.Get("samples").AsLong();
+                // mean_ns / stddev_ns (extend-ab-bench-micro-criterion): optional
+                // in older reports → default -1. Carried into the schema-v2 object
+                // so the informational baseline is SEM-ready for future consumers.
+                long mean = -1; bs.TryGetValue<long>("mean_ns", ref mean);
+                long sd   = -1; bs.TryGetValue<long>("stddev_ns", ref sd);
+                if (this._n > 0) { this._items = this._items + ",\n"; }
+                this._items = this._items
+                    + "    {\n      \"name\": \"" + name + "\",\n"
+                    + "      \"tier\": \"z42-micro\",\n      \"metric\": \"time\",\n"
+                    + "      \"value\": " + med.ToString() + ",\n      \"unit\": \"ns\",\n"
+                    + "      \"ci_lower\": " + lo.ToString() + ",\n      \"ci_upper\": " + hi.ToString() + ",\n"
+                    + "      \"mean_ns\": " + mean.ToString() + ",\n      \"stddev_ns\": " + sd.ToString() + ",\n"
+                    + "      \"samples\": " + smp.ToString() + ",\n"
+                    + "      \"profile\": " + _epProfileJson(this._tiers, new string[0], this._vm) + "\n    }";
+                this._n = this._n + 1;
+            }
+            i = i + 1;
+        }
+    }
+
+    // Wrap accumulated items in the schema-v2 envelope (reuses _gitOut/_utcNow).
+    internal string toSchemaV2(string root) {
+        string commit = _gitOut(root, "rev-parse", "--short", "HEAD");
+        string branch = _gitOut(root, "rev-parse", "--abbrev-ref", "HEAD");
+        return "{\n  \"schema_version\": 2,\n  \"commit\": \"" + commit
+            + "\",\n  \"branch\": \"" + branch + "\",\n  \"z42vm_version\": \"" + this._vmVersion
+            + "\",\n  \"timestamp\": \"" + _utcNow() + "\",\n  \"benchmarks\": [\n"
+            + this._items + "\n  ]\n}\n";
+    }
 }

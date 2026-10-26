@@ -52,6 +52,21 @@ string _root() {
     return Environment.GetCurrentDirectory();
 }
 
+// resolve a possibly-relative path under the repo root (absolute paths unchanged).
+// bench（--diff / --micro-diff 的 json 路径）与 test（`bench stdlib --json` 落盘）共用。
+string _absUnder(string root, string p) {
+    if (p.StartsWith("/")) { return p; }
+    return Path.Join(root, p);
+}
+
+// `git <a> <b> <c>` at root, stdout trimmed; "unknown" on failure（bench 结果信封与 micro 聚合器的
+// commit / branch 字段共用）。
+string _gitOut(string root, string a, string b, string c) {
+    ProcessResult r = new Process("git").Arg(a).Arg(b).Arg(c).WorkingDirectory(root).Run();
+    if (r.ExitCode == 0) { return r.Stdout.Trim(); }
+    return "unknown";
+}
+
 // Run a prepared Process at the repo root, inheriting stdio; return its exit code.
 int _exec(Process p) {
     return p.WorkingDirectory(_root())
@@ -612,7 +627,7 @@ int _ensureSeed(string root) {
 // This is the CANONICAL build-tree path — where the producer command (build stdlib)
 // WRITES. Consumers that must honour an active `--toolchain` resolve the toolchain
 // first themselves (`_activeVm` / `_toolchainLibs`) and fall back here.
-// ⚠️ scripts/hooks/hooks.z42（embed-libs）另写了一份（hooks 工程调不到本函数），改这里要同步。
+// ⚠️ scripts/xtask_hooks.z42（embed-libs）另写了一份（hooks 工程调不到本函数），改这里要同步。
 string _libsDir(string root) {
     return _libsFlatDist(root, "release");
 }

@@ -19,7 +19,7 @@
 //
 // 命令树、每个叶子的 flag/positional、逐层 `-h`、未知命令报错都在 xtask_cli.z42
 // （`_runCli` + 各 `_xRouter()` / `_dispatchX`）——Main 只做 argv 取用与转发。
-// 各命令的 handler 分散在 build/ test/ package/ install/ 子目录，映射见
+// 各命令的 handler 分散在 build/ test/ package/ install/ bench/ 子目录，映射见
 // `scripts/README.md` 的源码结构表。
 //
 // 本文件只剩**入口**：`Main`（校验 VM → 转 _runCli）与 `run` 直通。任何 build /
