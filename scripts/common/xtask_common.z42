@@ -690,6 +690,14 @@ bool _have(string bin) {
     } catch (Exception e) { return false; }
 }
 
+// `<bin>` 不在 PATH 上 ⇒ 打一行 `error: <bin> not found (<hint>)` 并返回 false（调用方 return 1）。
+// 平台测试 backend（desktop / ios / android）与 embedded 的入口门：此前 13 处各写一遍四行 if 块。
+bool _requireTool(string bin, string hint) {
+    if (Process.Which(bin) != null) { return true; }
+    ConsoleError.WriteLine("error: " + bin + " not found (" + hint + ")");
+    return false;
+}
+
 // stdout of a command, trimmed; "" on failure.
 string _cmdOut(string bin, string[] args) {
     try {

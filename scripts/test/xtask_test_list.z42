@@ -13,13 +13,6 @@ namespace Z42Xtask;
 using Std.IO;
 using Std.Cli;
 
-// Right-pad `s` to width `w` with spaces (small local helper; keeps columns aligned).
-string _padCol(string s, int w) {
-    string outv = s;
-    while (outv.Length < w) { outv = outv + " "; }
-    return outv;
-}
-
 // The command a developer runs to execute just this one case.
 string _runCmdFor(_CorpusCase c) {
     if (c.kind == "golden") { return "test e2e --file " + c.name; }
@@ -80,8 +73,8 @@ int _testListPretty(_CorpusCase[] cases, int n) {
             note = "  requires: " + String.Join(",", req);
             withReq = withReq + 1;
         }
-        Console.WriteLine("  " + _padCol(c.name, 40) + " " + kindTag
-            + "  " + _padCol(mode, 12) + "  " + _runCmdFor(c) + note);
+        Console.WriteLine("  " + _padRight(c.name, 40) + " " + kindTag
+            + "  " + _padRight(mode, 12) + "  " + _runCmdFor(c) + note);
         if (c.kind == "golden") { golden = golden + 1; } else { tests = tests + 1; }
         i = i + 1;
     }

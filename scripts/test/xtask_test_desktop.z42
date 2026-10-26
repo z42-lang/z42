@@ -38,14 +38,8 @@ public class DesktopBackend : IPlatformBackend {
             Console.WriteLine("  packaged runtime: " + rt + " (no build)");
             return 0;
         }
-        if (Process.Which("cargo") == null) {
-            ConsoleError.WriteLine("error: cargo not found (https://rustup.rs)");
-            return 1;
-        }
-        if (Process.Which("cc") == null) {
-            ConsoleError.WriteLine("error: cc not found (C compiler required for desktop embedding test)");
-            return 1;
-        }
+        if (!_requireTool("cargo", "https://rustup.rs")) { return 1; }
+        if (!_requireTool("cc", "C compiler required for desktop embedding test")) { return 1; }
         // 与打包同一个 crate-type 列表（_embedCrateTypes）与 link-arg（_embedLinkArg）：参数不同会让两边交替时
         // 互相作废 cargo 指纹。
         Console.WriteLine("  cargo rustc --release --lib --crate-type=" + _embedCrateTypes() + " (libz42.a)");
@@ -59,10 +53,7 @@ public class DesktopBackend : IPlatformBackend {
 
     // ③ compile r1_r7.c against libz42.a, run it, parse output → JUnit.
     public int RunTests(string root) {
-        if (Process.Which("cc") == null) {
-            ConsoleError.WriteLine("error: cc not found (C compiler required for desktop embedding test)");
-            return 1;
-        }
+        if (!_requireTool("cc", "C compiler required for desktop embedding test")) { return 1; }
         string outDir  = _workOut(root, "src/toolchain/workload/desktop", "");
         Directory.Create(outDir);
         string fixtures = Path.Join(outDir, "fixtures");

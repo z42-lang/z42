@@ -346,7 +346,7 @@ int _checkExamplesCoverage(string root, string ex, string[] pages, string[] incl
         string abs = _collapseDots(Path.Join(ex, rel));
         if (rel.EndsWith(".console")) {
             consoleDirs[cdn] = Path.GetDirectoryName(abs) + "/"; cdn = cdn + 1;
-            if (!_strArrHas(included, abs)) {
+            if (!_strIn(included, abs)) {
                 ConsoleError.WriteLine("  ✗ B7 examples/" + rel + " is not included by any page");
                 bad = bad + 1;
             }
@@ -422,8 +422,3 @@ string _repoRel(string abs) {
     return abs.StartsWith(root) ? abs.Substring(root.Length) : abs;
 }
 
-bool _strArrHas(string[] a, string v) {
-    int i = 0;
-    while (i < a.Length) { if (a[i] == v) { return true; } i = i + 1; }
-    return false;
-}
