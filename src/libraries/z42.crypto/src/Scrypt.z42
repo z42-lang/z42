@@ -175,6 +175,7 @@ public static class Scrypt {
 
     // Salsa20 核心减到 8 轮（4 个双轮）。把 64 字节输入解析为 16 个小端 u32，
     // 变换后与输入状态模 2^32 相加。
+    [Suppress("style.fnLinesHard", "62 body lines；拆分见 code-organization.md")]
     static byte[] _salsa20_8(byte[] input) {
         // Parse input into 16 u32 (use long to avoid signed-int overflow).
         long[] x = new long[16];

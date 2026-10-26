@@ -48,6 +48,7 @@ public static class Utf8 {
         return result;
     }
 
+    [Suppress("style.fnLinesHard", "74 body lines；拆分见 code-organization.md")]
     /// 把 UTF-8 字节解码为字符串，严格校验。
     public static string GetString(byte[] bytes) {
         if (bytes.Length == 0) return "";

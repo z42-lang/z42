@@ -11,6 +11,7 @@ public sealed class UriParser {
         this._pos = 0;
     }
 
+    [Suppress("style.fnLinesHard", "78 body lines；拆分见 code-organization.md")]
     /// 解析为 Uri（只能对一个实例调用一次）。
     public Uri ParseUri() {
         // RFC 3986 §3: URI = scheme ":" hier-part [ "?" query ] [ "#" fragment ]

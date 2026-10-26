@@ -73,6 +73,7 @@ public sealed class MulticastFunc<TArg, TResult> {
         return c;
     }
 
+    [Suppress("style.fnLinesHard", "132 body lines；拆分见 code-organization.md")]
     /// 触发所有活跃 handler，收集返回值进 TResult[]（strong-first / advanced-after 顺序）。
     ///
     /// `continueOnException = false`（默认）走 fail-fast：首个抛出的异常直接传播。

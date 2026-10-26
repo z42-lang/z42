@@ -191,21 +191,8 @@ int _checkDocLints() {
         }
     }
 
-    // 每码计数（码升序打印，便于人工比对）；[doc-lints] allow 白名单里的码不计入。
-    TomlValue lintCfg = _gatesSection(root, "doc-lints");
-    string[] allow = new string[8]; int an = 0;
-    TomlValue allowArr = null;
-    if (lintCfg.TryGet("allow", ref allowArr) && allowArr.IsArray()) {
-        int ai = 0;
-        while (ai < allowArr.Length()) {
-            TomlValue av = allowArr.At(ai);
-            if (av.IsString()) {
-                if (an == allow.Length) { string[] g = new string[an * 2]; Array.Copy(allow, g, an); allow = g; }
-                allow[an] = av.AsString(); an = an + 1;
-            }
-            ai = ai + 1;
-        }
-    }
+    // 每码计数（码升序打印，便于人工比对）。纯硬门：任何 W08xx 都红（原 gates.toml
+    // [doc-lints] allow 白名单从未启用过，退役；豁免走修注释或改 W08xx 码本身）。
     string[] codes = new string[n];
     int[] counts = new int[n];
     int cn = 0;
@@ -223,22 +210,15 @@ int _checkDocLints() {
     int total = 0;
     int w = 0;
     while (w < cn) {
-        bool skipped = false;
-        int q = 0;
-        while (q < an) { if (allow[q] == codes[w]) { skipped = true; break; } q = q + 1; }
-        if (skipped) {
-            Console.WriteLine("  " + codes[w] + " " + counts[w].ToString() + "（[doc-lints] allow，不计入）");
-        } else {
-            total = total + counts[w];
-            Console.WriteLine("  " + codes[w] + " " + counts[w].ToString());
-        }
+        total = total + counts[w];
+        Console.WriteLine("  " + codes[w] + " " + counts[w].ToString());
         w = w + 1;
     }
     if (total > 0) {
-        ConsoleError.WriteLine("check doc-lints: ✗ " + total.ToString() + " 条欠账（白名单/豁免走 scripts/test/gates.toml 的 [doc-lints] allow）");
+        ConsoleError.WriteLine("check doc-lints: ✗ " + total.ToString() + " 条欠账（硬门，无白名单）");
         return 1;
     }
-    Console.WriteLine("check doc-lints: ✓ 0 条欠账（硬门；allow 走 gates.toml [doc-lints]）");
+    Console.WriteLine("check doc-lints: ✓ 0 条欠账（硬门）");
     return 0;
 }
 

@@ -62,3 +62,9 @@ void _gatesWriteSection(string root, string name, string[] bodyLines, int bn) {
     if (tailRest.StartsWith("\n")) { tail = tail + 1; tailRest = tailRest.Substring(1); }
     File.WriteAllTextAtomic(p, text.Substring(0, b) + block + tailRest);
 }
+
+// toml 基本字符串引号（路径 / 日期这类只可能含反斜杠与引号的值）。原住 xtask_test_lines.z42，
+// 行数门禁退役后随 gates 写入面安家于此。
+string _tomlQuote(string s) {
+    return "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+}

@@ -91,6 +91,7 @@ int _runDevTargets(ParseResult r, string verb, string format) {
     return _runDevTargetsAt(r, verb, format, tomlPath);
 }
 
+[Suppress("style.fnLinesHard", "81 body lines；拆分见 code-organization.md")]
 int _runDevTargetsAt(ParseResult r, string verb, string format, string tomlPath) {
     ProjectManifest m = ManifestLoader.Load(tomlPath);
     string kind = (verb == "bench") ? "bench" : "test";

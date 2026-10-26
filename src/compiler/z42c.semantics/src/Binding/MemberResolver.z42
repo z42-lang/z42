@@ -73,6 +73,7 @@ public sealed partial class MemberResolver {
     //
     // **刻意不改重载决议**：下方 `_resolveOverload` 的 typeArgCount 仍传 0。把它改成
     // `call.TypeArgCount` 会改变重载选择 → 撼动 codegen 与自举字节不动点，属另一件事。
+    [Suppress("style.fnLinesHard", "117 body lines；拆分见 code-organization.md")]
     private BoundExpr _bindInstanceMemberCall(MemberExpr mem, BoundExpr recv, Z42Type rt, BoundExpr[] args, int argCount, Expr[] rawArgs, TypeEnv env, Span sp, CallExpr call) {
         // define-null-check-marks D5：`Expect("理由")` intrinsic —— 空检查义务的唯一显式逃生口。
         //
@@ -294,6 +295,7 @@ public sealed partial class MemberResolver {
         return this.BindPrimInstanceCall(mem, recv, rt, args, argCount, rawArgs, env, sp, call);
     }
 
+    [Suppress("style.fnLinesHard", "72 body lines；拆分见 code-organization.md")]
     private BoundExpr _bindInstanceMember(MemberExpr m, BoundExpr target, Z42Type tt, TypeEnv env) {
         // unify-value-types Phase 1：排除内建 Z42ClassType，让 string.Length（下方特例）+ 其余基元成员
         // 走 prim-wrapper 路径，与翻转前 Z42PrimType 收者同款。用户 class/struct 仍走类成员访问。
@@ -467,6 +469,7 @@ public sealed partial class MemberResolver {
     }
 
 
+    [Suppress("style.fnLinesHard", "78 body lines；拆分见 code-organization.md")]
     internal BoundExpr _bindCall(CallExpr call, TypeEnv env) {
         BoundExpr[] args = new BoundExpr[call.ArgCount];
         int i = 0;
@@ -580,6 +583,7 @@ public sealed partial class MemberResolver {
         return new BoundError("unsupported call", new Z42ErrorType(), call.Span);
     }
 
+    [Suppress("style.fnLinesHard", "82 body lines；拆分见 code-organization.md")]
     private BoundExpr _bindMemberCall(MemberExpr mem, BoundExpr[] args, int argCount, Expr[] rawArgs, TypeEnv env, Span sp, CallExpr call) {
         // fix-namespace-qualified-free-call：`ns.func()`（ns 可多段，`A.B.func()`）且 func 是 ns 里的自由函数
         // → 自由调用（否则被误当类 ns 的静态调用 → 双限定 ns.ns.func → 运行期 undefined）。全限定名不需要

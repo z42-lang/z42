@@ -243,6 +243,7 @@ public sealed class IrGen {
         return ns != "" ? ns + "." + name : this._qClass(name);
     }
 
+    [Suppress("style.fnLinesHard", "122 body lines；拆分见 code-organization.md")]
     public IrModule Generate(CompilationUnit cu, SemanticModel model, int optSet) {
         this._symbols = model.Symbols;
         this.OptSet = optSet;   // add-sealed-devirt：供 emit 时 devirt 门控（EmitContext.Gen.OptSet）

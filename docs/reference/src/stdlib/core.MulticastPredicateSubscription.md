@@ -4,7 +4,7 @@
 
 > 包路径 `src/libraries/z42.core/`；命名空间 `Std`
 
-[`src/libraries/z42.core/src/Delegates/MulticastPredicate.z42:369`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastPredicate.z42#L369)
+[`src/libraries/z42.core/src/Delegates/MulticastPredicate.z42:370`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastPredicate.z42#L370)
 
 内部订阅 token —— Subscribe 返回它，Dispose 把 alive[idx] 置 false。
 
@@ -20,14 +20,14 @@ public sealed class MulticastPredicateSubscription<T> : IDisposable {
 <a id="Std.MulticastPredicateSubscription<T>.ctor(MulticastPredicate<T>,int,bool)"></a>
 ### MulticastPredicateSubscription(MulticastPredicate<T> bus, int idx, bool isAdvanced)
 
-[`src/libraries/z42.core/src/Delegates/MulticastPredicate.z42:375`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastPredicate.z42#L375)
+[`src/libraries/z42.core/src/Delegates/MulticastPredicate.z42:376`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastPredicate.z42#L376)
 
 构造订阅 token。
 
 <a id="Std.MulticastPredicateSubscription<T>.Dispose()"></a>
 ### void Dispose()
 
-[`src/libraries/z42.core/src/Delegates/MulticastPredicate.z42:382`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastPredicate.z42#L382)
+[`src/libraries/z42.core/src/Delegates/MulticastPredicate.z42:383`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastPredicate.z42#L383)
 
 取消订阅：把对应通道的 alive[idx] 置 false。
 

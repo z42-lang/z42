@@ -47,6 +47,7 @@ public sealed class SigEntryZ {
 public static class ZbcReader {
 
     // 顶层：zbc 字节 → IrModule；任何不符（magic/pin/未知 opcode/截断）→ null。
+    [Suppress("style.fnLinesHard", "69 body lines；拆分见 code-organization.md")]
     public static IrModule Read(byte[] data) {
         if (data.Length < 16) { return null; }
         if ((int)data[0] != 90 || (int)data[1] != 66 || (int)data[2] != 67 || (int)data[3] != 0) { return null; }   // "ZBC\0"
@@ -159,6 +160,7 @@ public static class ZbcReader {
 
     // TYPE 段体解析（给定偏移；reconcile-tsig-from-runtime-sections 公开——zpkg MODS 每模块
     // 记录内嵌的 TYPE 字节与 zbc TYPE 段同构，ZpkgReader.ReadModuleTypes 复用本入口）。
+    [Suppress("style.fnLinesHard", "165 body lines；拆分见 code-organization.md")]
     public static IrClassDesc[] ReadTypeAt(byte[] data, int offset, string[] pool) {
         ZpkgCursor c = new ZpkgCursor(data, offset);
         int n = c.U32();

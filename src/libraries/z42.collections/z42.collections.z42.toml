@@ -7,3 +7,8 @@ kind    = "lib"
 # W1）— 作为"最基础泛型集合三件套"进入隐式 prelude 范围。本包保留次级集合
 # （Queue / Stack + 未来 LinkedList / SortedDictionary / PriorityQueue）。
 
+[lints]
+# 内建行数 lint（style.*，默认关；见 compile-time-extensions.md「内建规则」）。硬限升 error =
+# 拦编译；软限不动。豁免走源内抑制：方法级 [Suppress]、文件顶部 #suppress。
+"style.fnLinesHard" = "error"
+

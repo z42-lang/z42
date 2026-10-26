@@ -33,6 +33,7 @@ public sealed class YamlWriter {
         return sb.ToString();
     }
 
+    [Suppress("style.fnLinesHard", "78 body lines；拆分见 code-organization.md")]
     /// Write `v` at indent `indent` (in spaces).
     ///
     /// `inline` = true means the caller already emitted the leading context

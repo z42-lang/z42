@@ -16,6 +16,7 @@ public static class ZpkgBuilder {
     }
 
     // 带 DEPS 条目（CI-4）。
+    [Suppress("style.fnLinesHard", "62 body lines；拆分见 code-organization.md")]
     public static ZpkgFileZ BuildPackedD(string name, string version, bool isExe, bool hasExplicitEntry,
                                          string explicitEntry, ZbcFileZ[] modules, int moduleCount,
                                          ZpkgDepZ[] deps, int depCount) {

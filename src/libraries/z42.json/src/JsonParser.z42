@@ -319,6 +319,7 @@ public sealed class JsonParser {
 
     // ── Number ───────────────────────────────────────────────────────────
 
+    [Suppress("style.fnLinesHard", "61 body lines；拆分见 code-organization.md")]
     private JsonValue ParseNumber() {
         char[] cs = this._chars;
         int n = this._len;

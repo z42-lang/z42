@@ -205,6 +205,7 @@ public sealed partial class OverloadBinder {
 
     // add-call-arity-diagnostics：`staticForm` = 调用点是**静态形式**（`Class.m(...)` / `int.m(...)` / `A.B.Class.m(...)`）。
     // 静态形式选中**实例**方法 = 「接收者作首参」写法（`Int32.ToString(n)`），实参数必须恰为形参数 + 1。
+    [Suppress("style.fnLinesHard", "70 body lines；拆分见 code-organization.md")]
     internal BoundExpr[] _withDefaults(MethodSymbol ms, BoundExpr[] args, Expr[] rawArgs, int rawArgCount, TypeEnv env, Span sp, bool staticForm) {
         // add-call-arity-diagnostics：实参个数校验。此前这里对「个数不符」**全程不报**——少传且缺位无默认值时
         // 原样返回不足的实参（同包）或补零值（跨包，连运行期签名判定都拦不住），多传则直接发码。
@@ -701,6 +702,7 @@ public sealed partial class OverloadBinder {
     }
 
     // 决议核心（类方法 + 自由函数共用）：接收已聚合的候选集 all，与来源（类基链 / 自由函数候选表）无关。
+    [Suppress("style.fnLinesHard", "76 body lines；拆分见 code-organization.md")]
     internal MethodSymbol _resolveOverloadCands(SymbolTable symbols, MethodSymbol[] all, string name,
                                           BoundExpr[] args, int argCount, int typeArgCount, Span sp,
                                           Expr[] rawArgs, TypeEnv env) {

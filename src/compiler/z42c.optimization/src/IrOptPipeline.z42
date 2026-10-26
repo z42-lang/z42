@@ -179,6 +179,7 @@ public sealed class IrOptPipeline {
     // 对单赋值 `dst = copy src`（dst 非形参、src 稳定）建 dst→src 映射（链式解析到最终稳定 src），
     // 用 IrOptInfo.ReplaceReads 改写全函数所有 dst 使用点为 src，再删这些已死的 copy。
     // 安全：src 稳定（单赋值 temp / 从不重写的形参）→ 其值在 dst 所有使用点相同（IR 有效 = def 支配 use）。
+    [Suppress("style.fnLinesHard", "64 body lines；拆分见 code-organization.md")]
     private static void _passCopyPropUse(IrFunction f) {
         int[] defs = IrRegCounts.Defs(f);
         int pc = f.ParamCount;

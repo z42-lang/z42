@@ -23,6 +23,7 @@ public class TarEntry {
 public static class Tar {
     // ── Read ────────────────────────────────────────────────────────
 
+    [Suppress("style.fnLinesHard", "68 body lines；拆分见 code-organization.md")]
     /// 解析 tar 字节为条目数组。空输入返回 0 条；长度不是 512 的倍数、或遇到非普通文件
     /// 条目时抛 `ArchiveException`。
     public static TarEntry[] Read(byte[] tarBytes) {
@@ -225,6 +226,7 @@ public static class Tar {
 
     // ── ExtractStream ────────────────────────────────────────────────
 
+    [Suppress("style.fnLinesHard", "88 body lines；拆分见 code-organization.md")]
     /// 边读边解，适合大归档；除普通文件外还接受目录条目；缺结尾全零块时按正常结束处理。
     public static int ExtractStream(Stream src, string destDir) {
         Directory.Create(destDir);

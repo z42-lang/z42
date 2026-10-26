@@ -281,6 +281,7 @@ public sealed class InheritanceResolver {
     //   ② 方法级 sealed（含简写）无匹配基类 virtual → E0418（封死一个非 override 方法无意义）
     //   ③ override（含 sealed 简写）一个 sealed 基方法 → E0417
     // 在 _passFixupOverrides 之后运行（regKey/签名已定案），复用 _findVirtualOrigin 的按签名上溯匹配。
+    [Suppress("style.fnLinesHard", "67 body lines；拆分见 code-organization.md")]
     internal void _passSealedEnforce(SymbolTable table, CompilationUnit cu) {
         SymbolTable sv = table.WithScopeOf(cu);   // A5b-2b-3：本 CU 作用域（类自身的声明查找 + 接口成员校验里的 ResolveTypeP）
         int i = 0;
@@ -530,6 +531,7 @@ public sealed class InheritanceResolver {
         }
     }
 
+    [Suppress("style.fnLinesHard", "72 body lines；拆分见 code-organization.md")]
     private void _checkOneIfaceMethod(SymbolTable table, Z42ClassType ct, string cName, Span cSpan, Z42InterfaceType it, MethodSymbol ims) {
         int pc = ims.Signature.ParamCount;
         Z42Type[] want = new Z42Type[pc];
