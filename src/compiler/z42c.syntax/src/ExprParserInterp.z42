@@ -15,15 +15,20 @@ public sealed partial class ExprParser {
         // fix-parser-silent-misparse：片段数组按需扩容（此前定长 64，片段多了越界崩）。
         InterpPart[] parts = new InterpPart[8];
         int pc = 0;
+        // 普通字符按段累积：`segStart` 记当前段起点，只在遇到 `\` `{` `}` 时 Substring 一段并入
+        // textBuf——逐字符 `textBuf + c.ToString()` 对一条串是 O(len²) 的重拷。
         string textBuf = "";
+        int segStart = i;
         while (i < bodyEnd) {
             char c = raw.CharAt(i);
             if (c == '\\' && i + 1 < bodyEnd) {
                 // 与普通串共用唯一映射（LexerEscapes.DecodeOne）；此前手抄一份、缺 \' \a \b \f \v。
-                textBuf = textBuf + LexerEscapes.DecodeOne(raw.CharAt(i + 1)); i = i + 2;
+                textBuf = textBuf + raw.Substring(segStart, i - segStart) + LexerEscapes.DecodeOne(raw.CharAt(i + 1));
+                i = i + 2; segStart = i;
             } else if (c == '{') {
+                textBuf = textBuf + raw.Substring(segStart, i - segStart);
                 if (i + 1 < bodyEnd && raw.CharAt(i + 1) == '{') {
-                    textBuf = textBuf + "{"; i = i + 2;
+                    textBuf = textBuf + "{"; i = i + 2; segStart = i;
                 } else {
                     // flush text
                     if (textBuf.Length > 0) {
@@ -46,37 +51,43 @@ public sealed partial class ExprParser {
                     }
                     string holeText = raw.Substring(holeStart, i - holeStart);
                     i = i + 1;   // skip }
-                    var sub = new Parser(holeText, "<interp>");
+                    segStart = i;
+                    Parser sub = this._p.HoleParser(holeText);   // 按洞复用，见 Parser.HoleParser
                     Expr holeExpr = sub.ParseExpression();
-                    // 洞内的词法 / 语法错误此前留在子 parser 的诊断袋里、从未并入 ⇒ 静默丢失。
-                    // 位置取整个插值串的 `t.Span`（子 parser 的 Span 是合成文件 `<interp>` 的洞内坐标）。
-                    DiagnosticBag subDiags = sub.Diagnostics();
-                    int sdi = 0;
-                    while (sdi < subDiags.Count()) {
-                        Diagnostic sd = subDiags.Get(sdi);
-                        this._p._diags.Add(new Diagnostic(sd.Severity, sd.Code,
-                            "in interpolation hole `{" + holeText + "}`: " + sd.Message, t.Span));
-                        sdi = sdi + 1;
-                    }
-                    // 洞里表达式之后还剩 token → 报错（E0492，详见 error-codes.md）。此前只取
-                    // `ParseExpression()` 的结果、**从不问它读完没有** ⇒ `$"{d:F2}"` 的 `:F2` 没人看，
-                    // 格式说明符静默失效。位置必须用 `t.Span`：子 parser 产的 Span 其 File 是合成的
-                    // `"<interp>"`、偏移是洞内坐标。洞内解析失败的诊断见上方转发（同样取 `t.Span`）。
-                    if (sub._peek().Kind != TokenKind.Eof) {
-                        this._p._diags.Error(DiagnosticCodes.InterpHoleTrailing, "unexpected `" + sub._peek().Text
-                            + "` after the expression in this interpolation hole — z42 has no format specifiers"
-                            + " (`{x:F2}`); format the value yourself (e.g. `Math.Round(x, 2).ToString()`) first", t.Span);
-                    }
+                    this._forwardHoleDiags(sub, holeText, t.Span);
                     parts = ExprParser._pushPart(parts, pc, new InterpHole(holeExpr, t.Span)); pc = pc + 1;
                 }
             } else if (c == '}' && i + 1 < bodyEnd && raw.CharAt(i + 1) == '}') {
-                textBuf = textBuf + "}"; i = i + 2;
+                textBuf = textBuf + raw.Substring(segStart, i - segStart) + "}";
+                i = i + 2; segStart = i;
             } else {
-                textBuf = textBuf + c.ToString(); i = i + 1;
+                i = i + 1;
             }
         }
+        if (segStart < bodyEnd) { textBuf = textBuf + raw.Substring(segStart, bodyEnd - segStart); }
         if (textBuf.Length > 0) { parts = ExprParser._pushPart(parts, pc, new InterpText(textBuf, t.Span)); pc = pc + 1; }
         return new InterpolatedStringExpr(parts, pc, t.Span);
+    }
+
+    // 洞内子解析器的诊断并入外层。位置一律取整个插值串的 `sp`（子 parser 的 Span 是合成文件 `<interp>` 的洞内坐标）。
+    private void _forwardHoleDiags(Parser sub, string holeText, Span sp) {
+        // 洞内的词法 / 语法错误此前留在子 parser 的诊断袋里、从未并入 ⇒ 静默丢失。
+        DiagnosticBag subDiags = sub.Diagnostics();
+        int sdi = 0;
+        while (sdi < subDiags.Count()) {
+            Diagnostic sd = subDiags.Get(sdi);
+            this._p._diags.Add(new Diagnostic(sd.Severity, sd.Code,
+                "in interpolation hole `{" + holeText + "}`: " + sd.Message, sp));
+            sdi = sdi + 1;
+        }
+        // 洞里表达式之后还剩 token → 报错（E0492，详见 error-codes.md）。此前只取
+        // `ParseExpression()` 的结果、**从不问它读完没有** ⇒ `$"{d:F2}"` 的 `:F2` 没人看，
+        // 格式说明符静默失效。
+        if (sub._peek().Kind != TokenKind.Eof) {
+            this._p._diags.Error(DiagnosticCodes.InterpHoleTrailing, "unexpected `" + sub._peek().Text
+                + "` after the expression in this interpolation hole — z42 has no format specifiers"
+                + " (`{x:F2}`); format the value yourself (e.g. `Math.Round(x, 2).ToString()`) first", sp);
+        }
     }
 
     private static InterpPart[] _pushPart(InterpPart[] parts, int count, InterpPart p) {
