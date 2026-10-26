@@ -1,0 +1,135 @@
+// cli-engine-hardening：重名（long / short / positional / 子命令 / 别名）声明期报错。
+namespace Z42CliDuplicateRegistrationTests;
+
+using Std.Cli;
+using Std.Harness;
+
+bool _throws(Action body) {
+    try { body(); }
+    catch (CliException e) { return true; }
+    return false;
+}
+
+[Test]
+void test_duplicate_flag_long_throws() {
+    Assert.True(_throws(() => {
+        var p = new ArgParser("prog", "t");
+        p.AddFlag("verbose", "v", "verbose");
+        p.AddFlag("verbose", "", "again");
+    }));
+}
+
+[Test]
+void test_duplicate_option_long_throws() {
+    Assert.True(_throws(() => {
+        var p = new ArgParser("prog", "t");
+        p.AddOption("jobs", "j", "jobs", "1");
+        p.AddOption("jobs", "", "again", "2");
+    }));
+}
+
+[Test]
+void test_flag_option_long_clash_throws() {
+    // flag 与 option 之间同 long 也算撞——解析期无法区分带不带值。
+    Assert.True(_throws(() => {
+        var p = new ArgParser("prog", "t");
+        p.AddFlag("force", "f", "force");
+        p.AddOption("force", "", "force", "x");
+    }));
+}
+
+[Test]
+void test_required_repeated_env_variants_also_checked() {
+    Assert.True(_throws(() => {
+        var p = new ArgParser("prog", "t");
+        p.AddOption("jobs", "j", "jobs", "1");
+        p.AddRequiredOption("jobs", "", "again");
+    }));
+    Assert.True(_throws(() => {
+        var p2 = new ArgParser("prog", "t");
+        p2.AddOption("jobs", "j", "jobs", "1");
+        p2.AddOptionWithEnv("jobs", "", "again", "1", "JOBS");
+    }));
+    Assert.True(_throws(() => {
+        var p3 = new ArgParser("prog", "t");
+        p3.AddOption("jobs", "j", "jobs", "1");
+        p3.AddRepeatedOption("jobs", "", "again");
+    }));
+}
+
+[Test]
+void test_duplicate_short_throws() {
+    Assert.True(_throws(() => {
+        var p = new ArgParser("prog", "t");
+        p.AddFlag("verbose", "v", "verbose");
+        p.AddOption("volume", "v", "volume", "5");
+    }));
+}
+
+[Test]
+void test_help_and_h_reserved() {
+    Assert.True(_throws(() => {
+        var p = new ArgParser("prog", "t");
+        p.AddFlag("help", "", "hijack help");
+    }));
+    Assert.True(_throws(() => {
+        var p = new ArgParser("prog", "t");
+        p.AddOption("mode", "h", "hijack -h", "x");
+    }));
+}
+
+[Test]
+void test_duplicate_positional_name_throws() {
+    Assert.True(_throws(() => {
+        var p = new ArgParser("prog", "t");
+        p.AddPositional("src", "source");
+        p.AddOptionalPositional("src", "again");
+    }));
+    Assert.True(_throws(() => {
+        var p2 = new ArgParser("prog", "t");
+        p2.AddVariadicPositional("rest", "extras");
+        p2.AddPositional("rest", "clash");
+    }));
+}
+
+[Test]
+void test_router_duplicate_name_throws() {
+    Assert.True(_throws(() => {
+        var r = new SubcommandRouter("prog", "t");
+        r.Add("build", "b", new ArgParser("prog build", ""));
+        r.Add("build", "again", new ArgParser("prog build", ""));
+    }));
+}
+
+[Test]
+void test_router_alias_collisions_throw() {
+    // 别名撞正名 / 别名互撞 / 正名撞别名
+    Assert.True(_throws(() => {
+        var r = new SubcommandRouter("prog", "t");
+        r.Add("list", "l", new ArgParser("prog list", ""));
+        r.Add("ls", "x", new ArgParser("prog ls", ""), new string[]{ "list" });
+    }));
+    Assert.True(_throws(() => {
+        var r = new SubcommandRouter("prog", "t");
+        r.Add("list", "l", new ArgParser("prog list", ""), new string[]{ "ls" });
+        r.Add("ls", "x", new ArgParser("prog ls", ""));
+    }));
+    Assert.True(_throws(() => {
+        var r = new SubcommandRouter("prog", "t");
+        r.Add("go", "g", new ArgParser("prog go", ""), new string[]{ "run", "run" });
+    }));
+}
+
+[Test]
+void test_distinct_registrations_still_fine() {
+    // 不撞的注册不受影响（含 flag 与 option 共存、不同 short）。
+    var p = new ArgParser("prog", "t");
+    p.AddFlag("verbose", "v", "verbose");
+    p.AddOption("jobs", "j", "jobs", "1");
+    p.AddPositional("src", "source");
+    p.AddVariadicPositional("rest", "extras");
+    string[] argv = new string[1];
+    argv[0] = "a";
+    ParseResult r = p.Parse(argv);
+    Assert.False(r.ShowHelp());
+}

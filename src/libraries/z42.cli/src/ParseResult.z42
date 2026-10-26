@@ -86,11 +86,18 @@ public class ParseResult {
     /// 位置参数数量。
     public int      _positionalCount;
 
+    /// 变长尾参（`AddVariadicPositional`）的追加存储；未声明时为 null。
+    public _RepeatedList _variadic;
+    /// 是否声明了变长尾参。
+    public bool _hasVariadic;
+
     /// 是否命中了 `-h` / `--help`。
     public bool _showHelp;
 
     /// 全空的初始结果；由 ArgParser.Parse 填充。
     public ParseResult() {
+        this._variadic    = null;
+        this._hasVariadic = false;
         this._flagLongs        = null;
         this._flagValues       = null;
         this._flagCount        = 0;
@@ -117,6 +124,26 @@ public class ParseResult {
             i = i + 1;
         }
         throw new CliException("flag '" + longName + "' not registered");
+    }
+
+    /// 指定 long-name 的 flag 是否注册过（不抛异常的探测）。
+    public bool HasFlag(string longName) {
+        int i = 0;
+        while (i < this._flagCount) {
+            if (this._flagLongs[i] == longName) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    /// 指定 long-name 的 option 是否注册过（不抛异常的探测）。
+    public bool HasOption(string longName) {
+        int i = 0;
+        while (i < this._optionCount) {
+            if (this._optionLongs[i] == longName) { return true; }
+            i = i + 1;
+        }
+        return false;
     }
 
     /// 返回 option 的最终值（argv → env → default 三级解析后的结果）。
@@ -239,6 +266,15 @@ public class ParseResult {
 
     /// argv 里实际提供的 positional 个数。
     public int PositionalCount() { return this._positionalCount; }
+
+    /// 返回变长尾参收集到的全部值（argv 序，含 `--` 之后的 token）；未声明或未出现返回空数组。
+    public string[] VariadicValues() {
+        if (this._variadic == null) { return new string[0]; }
+        return this._variadic.Snapshot();
+    }
+
+    /// 是否声明了变长尾参（`AddVariadicPositional`）。
+    public bool HasVariadic() { return this._hasVariadic; }
 
     /// argv 里出现过 `-h` / `--help`。
     public bool ShowHelp() { return this._showHelp; }

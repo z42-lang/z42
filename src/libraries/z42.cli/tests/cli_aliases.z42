@@ -1,0 +1,80 @@
+// cli-engine-hardening：子命令别名（路由归一为正名）。
+namespace Z42CliAliasTests;
+
+using Std.Cli;
+using Std.Harness;
+
+SubcommandRouter _router() {
+    SubcommandRouter r = new SubcommandRouter("prog", "t");
+    ArgParser list = new ArgParser("prog list", "list things");
+    list.AddFlag("all", "a", "show all");
+    r.Add("list", "l", list, new string[]{ "ls", "dir" });
+    r.Add("check", "c", new ArgParser("prog check", "check"));
+    return r;
+}
+
+[Test]
+void test_alias_resolves_to_canonical_path() {
+    string[] argv = new string[1];
+    argv[0] = "ls";
+    CommandResolution res = _router().Resolve(argv);
+    Assert.True(res.IsMatch());
+    Assert.Equal(1, res.Path().Length);
+    Assert.Equal("list", res.Path()[0]);   // 别名归一为正名
+}
+
+[Test]
+void test_second_alias_also_works() {
+    string[] argv = new string[1];
+    argv[0] = "dir";
+    CommandResolution res = _router().Resolve(argv);
+    Assert.True(res.IsMatch());
+    Assert.Equal("list", res.Path()[0]);
+}
+
+[Test]
+void test_alias_with_leaf_flags() {
+    string[] argv = new string[2];
+    argv[0] = "ls"; argv[1] = "-a";
+    CommandResolution res = _router().Resolve(argv);
+    Assert.True(res.IsMatch());
+    Assert.True(res.Result().GetFlag("all"));
+}
+
+[Test]
+void test_has_recognizes_alias() {
+    Assert.True(_router().Has("ls"));
+    Assert.True(_router().Has("list"));
+}
+
+[Test]
+void test_match_recognizes_alias() {
+    string[] argv = new string[2];
+    argv[0] = "ls"; argv[1] = "-a";
+    SubcommandMatch? m = _router().Match(argv);
+    Assert.True(m != null);
+    SubcommandMatch match = m;
+    Assert.Equal("list", match.Name());
+}
+
+[Test]
+void test_help_lists_alias() {
+    string help = _router().HelpText();
+    Assert.True(help.Contains("list (ls,dir)"));
+}
+
+[Test]
+void test_nested_router_alias() {
+    SubcommandRouter root = new SubcommandRouter("prog", "t");
+    SubcommandRouter pkg = new SubcommandRouter("prog package", "pkg");
+    pkg.Add("install", "i", new ArgParser("prog package install", "install"), new string[]{ "add" });
+    root.AddRouter("package", "p", pkg, new string[]{ "pkg" });
+
+    string[] argv = new string[2];
+    argv[0] = "pkg"; argv[1] = "add";
+    CommandResolution res = root.Resolve(argv);
+    Assert.True(res.IsMatch());
+    Assert.Equal(2, res.Path().Length);
+    Assert.Equal("package", res.Path()[0]);
+    Assert.Equal("install", res.Path()[1]);
+}

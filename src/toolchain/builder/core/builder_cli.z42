@@ -86,7 +86,6 @@ SubcommandRouter _builderRoot() {
     ArgParser test = new ArgParser("z42 test", "build the project and run its [Test] units");
     test.AddOptionalPositional("target", "<manifest|dir|file.zpkg|file.zbc|bundle.json> (default: the nearest manifest; a workspace tests its default_members)");
     test.AddFlag("workspace", "", "test every workspace member (default: default_members)");
-    test.AddOption("filter", "", "test name substring filter (reserved)", "");
     test.AddOption("format", "", "output format: pretty|json", "pretty");
     test.AddOption("name", "", "only build+run the [[test]] target with this name (default: all)", "");
     test.AddOption("filter", "", "only targets whose name contains this substring", "");
@@ -118,7 +117,6 @@ SubcommandRouter _builderRoot() {
     ArgParser bench = new ArgParser("z42 bench", "build the project and run its [Benchmark] units");
     bench.AddOptionalPositional("target", "<manifest|dir|file.zpkg|file.zbc> (default: the nearest manifest; a workspace benches its default_members)");
     bench.AddFlag("workspace", "", "bench every workspace member (default: default_members)");
-    bench.AddOption("filter", "", "benchmark name substring filter (reserved)", "");
     bench.AddOption("format", "", "output format: pretty|json (json adds bench_stats)", "pretty");
     bench.AddOption("name", "", "only build+run the [[bench]] target with this name (default: all)", "");
     bench.AddOption("filter", "", "only targets whose name contains this substring", "");

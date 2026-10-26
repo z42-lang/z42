@@ -1,0 +1,93 @@
+// cli-engine-hardening：未知 long option / 未知子命令的 "did you mean" 建议。
+namespace Z42CliSuggestionTests;
+
+using Std.Cli;
+using Std.Harness;
+
+string _message(Action body) {
+    try { body(); }
+    catch (CliException e) { return e.Message; }
+    return "";
+}
+
+[Test]
+void test_unknown_long_close_match_suggests() {
+    var p = new ArgParser("prog", "t");
+    p.AddOption("release", "r", "release", "");
+    string msg = _message(() => {
+        string[] argv = new string[1];
+        argv[0] = "--relase";
+        p.Parse(argv);
+    });
+    Assert.Contains("did you mean '--release'", msg);
+}
+
+[Test]
+void test_unknown_long_far_match_no_suggestion() {
+    var p = new ArgParser("prog", "t");
+    p.AddOption("release", "r", "release", "");
+    string msg = _message(() => {
+        string[] argv = new string[1];
+        argv[0] = "--zzzzzz";
+        p.Parse(argv);
+    });
+    Assert.False(msg.Contains("did you mean"));
+}
+
+[Test]
+void test_help_is_a_suggestion_candidate() {
+    var p = new ArgParser("prog", "t");
+    string msg = _message(() => {
+        string[] argv = new string[1];
+        argv[0] = "--hlep";
+        p.Parse(argv);
+    });
+    Assert.Contains("did you mean '--help'", msg);
+}
+
+[Test]
+void test_unknown_command_suggests() {
+    var r = new SubcommandRouter("prog", "t");
+    r.Add("build", "b", new ArgParser("prog build", ""));
+    r.Add("check", "c", new ArgParser("prog check", ""));
+    string[] argv = new string[1];
+    argv[0] = "bulid";
+    CommandResolution res = r.Resolve(argv);
+    Assert.True(res.IsUnknown());
+    Assert.Contains("did you mean 'build'", res.ErrorMessage());
+}
+
+[Test]
+void test_unknown_command_far_no_suggestion() {
+    var r = new SubcommandRouter("prog", "t");
+    r.Add("build", "b", new ArgParser("prog build", ""));
+    string[] argv = new string[1];
+    argv[0] = "zzzqqq";
+    CommandResolution res = r.Resolve(argv);
+    Assert.True(res.IsUnknown());
+    Assert.False(res.ErrorMessage().Contains("did you mean"));
+}
+
+[Test]
+void test_alias_is_suggestion_candidate() {
+    var r = new SubcommandRouter("prog", "t");
+    r.Add("list", "l", new ArgParser("prog list", ""), new string[]{ "ls" });
+    string[] argv = new string[1];
+    argv[0] = "lsa";
+    CommandResolution res = r.Resolve(argv);
+    Assert.True(res.IsUnknown());
+    Assert.Contains("did you mean 'ls'", res.ErrorMessage());
+}
+
+[Test]
+void test_unknown_short_no_suggestion() {
+    // 短名建议噪声大（1-2 字符），刻意不给建议。
+    var p = new ArgParser("prog", "t");
+    p.AddOption("release", "r", "release", "");
+    string msg = _message(() => {
+        string[] argv = new string[1];
+        argv[0] = "-q";
+        p.Parse(argv);
+    });
+    Assert.False(msg.Contains("did you mean"));
+}

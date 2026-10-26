@@ -1,0 +1,55 @@
+namespace Std.Cli;
+
+/// 编辑距离与拼写建议的内部工具（ArgParser 的未知 option 与 SubcommandRouter 的
+/// 未知子命令共用）。
+static class _Suggest {
+    /// 经典 Levenshtein DP（两滚动行）。CLI 名字都很短，O(len*len) 足够。
+    public static int EditDistance(string a, string b) {
+        int n = a.Length;
+        int m = b.Length;
+        if (n == 0) { return m; }
+        if (m == 0) { return n; }
+        int[] prev = new int[m + 1];
+        int[] curr = new int[m + 1];
+        int j = 0;
+        while (j <= m) { prev[j] = j; j = j + 1; }
+        int i = 1;
+        while (i <= n) {
+            curr[0] = i;
+            int k = 1;
+            while (k <= m) {
+                int cost = a.CharAt(i - 1) == b.CharAt(k - 1) ? 0 : 1;
+                int best = prev[k] + 1;                                        // 删除
+                if (curr[k - 1] + 1 < best) { best = curr[k - 1] + 1; }        // 插入
+                if (prev[k - 1] + cost < best) { best = prev[k - 1] + cost; }  // 替换
+                curr[k] = best;
+                k = k + 1;
+            }
+            int[] swap = prev;
+            prev = curr;
+            curr = swap;
+            i = i + 1;
+        }
+        return prev[m];
+    }
+
+    /// 在 candidates 里找与 name 编辑距离最近的；阈值「≤2 且 ≤ len(name)/2」
+    /// （名字越长容忍越大，但封顶 2），不达标返回 null。距离并列取先出现者。
+    public static string Nearest(string name, string[] candidates) {
+        if (name.Length < 2) { return null; }
+        int limit = name.Length / 2;
+        if (limit > 2) { limit = 2; }
+        string best = null;
+        int bestDist = limit + 1;
+        int i = 0;
+        while (i < candidates.Length) {
+            int d = _Suggest.EditDistance(name, candidates[i]);
+            if (d <= limit && d < bestDist) {
+                best = candidates[i];
+                bestDist = d;
+            }
+            i = i + 1;
+        }
+        return best;
+    }
+}

@@ -1,0 +1,105 @@
+// cli-engine-hardening：router 默认动作——argv 为空或首 token 是 flag 且不命中
+// 任何子命令时，整段交给默认 parser（`xtask test --no-build` 形态）。
+namespace Z42CliDefaultActionTests;
+
+using Std.Cli;
+using Std.Harness;
+
+SubcommandRouter _testRouter() {
+    SubcommandRouter r = new SubcommandRouter("xtask test", "run tests");
+    ArgParser gate = new ArgParser("xtask test", "full gate");
+    gate.AddFlag("no-build", "", "skip rebuild");
+    gate.AddOption("skip", "", "skip stages (csv)", "");
+    r.SetDefault(gate, "no subcommand = full GREEN gate");
+    r.Add("e2e", "end-to-end", new ArgParser("xtask test e2e", "e2e"));
+    r.Add("unit", "unit tests", new ArgParser("xtask test unit", "unit"));
+    return r;
+}
+
+[Test]
+void test_empty_argv_runs_default() {
+    CommandResolution res = _testRouter().Resolve(new string[0]);
+    Assert.True(res.IsMatch());
+    Assert.Equal(0, res.Path().Length);
+    Assert.False(res.Result().GetFlag("no-build"));
+}
+
+[Test]
+void test_leading_flag_runs_default() {
+    string[] argv = new string[2];
+    argv[0] = "--no-build"; argv[1] = "--skip=lint,fmt";
+    CommandResolution res = _testRouter().Resolve(argv);
+    Assert.True(res.IsMatch());
+    Assert.True(res.Result().GetFlag("no-build"));
+    Assert.Equal("lint,fmt", res.Result().GetOption("skip"));
+}
+
+[Test]
+void test_short_flag_runs_default() {
+    // 未注册的短旗标也进默认 parser（由它报错或解析）。
+    string[] argv = new string[1];
+    argv[0] = "--no-build";
+    CommandResolution res = _testRouter().Resolve(argv);
+    Assert.True(res.IsMatch());
+    Assert.True(res.Result().GetFlag("no-build"));
+}
+
+[Test]
+void test_subcommand_still_wins_over_default() {
+    string[] argv = new string[1];
+    argv[0] = "e2e";
+    CommandResolution res = _testRouter().Resolve(argv);
+    Assert.True(res.IsMatch());
+    Assert.Equal(1, res.Path().Length);
+    Assert.Equal("e2e", res.Path()[0]);
+}
+
+[Test]
+void test_unknown_non_flag_token_still_unknown() {
+    string[] argv = new string[1];
+    argv[0] = "zzz";
+    CommandResolution res = _testRouter().Resolve(argv);
+    Assert.True(res.IsUnknown());
+}
+
+[Test]
+void test_help_still_router_help() {
+    // `-h` 打的是本层路由帮助（列子命令 + 默认动作行），不进默认 parser。
+    string[] argv = new string[1];
+    argv[0] = "-h";
+    CommandResolution res = _testRouter().Resolve(argv);
+    Assert.True(res.IsHelp());
+    Assert.True(res.HelpText().Contains("(default)"));
+    Assert.True(res.HelpText().Contains("e2e"));
+}
+
+[Test]
+void test_default_parser_error_propagates() {
+    // 默认 parser 自己的解析错误（未知旗标）原样抛出。
+    string[] argv = new string[1];
+    argv[0] = "--bogus";
+    bool threw = false;
+    try { _testRouter().Resolve(argv); }
+    catch (CliException e) { threw = true; }
+    Assert.True(threw);
+}
+
+[Test]
+void test_no_default_empty_argv_help_regression() {
+    // 未声明默认动作的 router：空 argv 仍是帮助（不变行为）。
+    SubcommandRouter r = new SubcommandRouter("prog", "t");
+    r.Add("build", "b", new ArgParser("prog build", "build"));
+    CommandResolution res = r.Resolve(new string[0]);
+    Assert.True(res.IsHelp());
+}
+
+[Test]
+void test_default_with_subcommand_args_not_confused() {
+    // 首 token 是子命令名时不进默认动作，即便后面跟 flag。
+    string[] argv = new string[2];
+    argv[0] = "unit"; argv[1] = "--no-build";
+    bool threw = false;
+    try { _testRouter().Resolve(argv); }
+    catch (CliException e) { threw = true; }   // unit parser 不认识 --no-build → 抛
+    Assert.True(threw);
+}

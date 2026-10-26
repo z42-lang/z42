@@ -1,7 +1,12 @@
 namespace Std.Cli;
 
 /// 子命令路由：每个子命令要么是叶子 ArgParser，要么是嵌套 SubcommandRouter。
-/// 同名重复注册会覆盖先前那条（叶子与嵌套可互相覆盖）。
+///
+/// 除名字外可挂**别名**（`ls` / `list` 同槽，路由后归一为正名）；同名或别名互撞在
+/// 注册期抛 CliException（不再静默覆盖）。`AddPersistent*` 声明的全局旗标会在路由前
+/// 从 argv 任意位置剥出（子命令前后皆可，多层各管各的子树）；`SetDefault` 给节点挂
+/// 默认动作（argv 为空或首 token 是 flag 且不匹配任何子命令时执行）。未知子命令在
+/// 编辑距离足够近时附 `(did you mean '...')` 建议。
 public sealed class SubcommandRouter {
     string _programName;
     string _description;
@@ -12,8 +17,15 @@ public sealed class SubcommandRouter {
     // （`_childRouters[i]`，`_isRouter[i]==true`）。沿用本库 `_optionRequired` 风格的并行数组。
     SubcommandRouter[] _childRouters;
     bool[] _isRouter;
+    // 每槽位的别名串，逗号连写（"" = 无别名）。z42 没有原生 `string[][]`，沿用连写。
+    string[] _aliasJoined;
     int _count;
     int _capacity;
+    // 本层 persistent（跨子命令全局）旗标的解析器；懒建。剥出逻辑见 ArgParser.StripDeclared。
+    ArgParser _persistent;
+    // 本层默认动作（argv 为空 / 首 token 是 flag 且不命中任何子命令时整段交给它解析）。
+    ArgParser _defaultParser;
+    string    _defaultDesc;
 
     /// 用 programName 与 description 创建一个子命令路由。
     public SubcommandRouter(string programName, string description) {
@@ -25,118 +37,255 @@ public sealed class SubcommandRouter {
         this._parsers = new ArgParser[4];
         this._childRouters = new SubcommandRouter[4];
         this._isRouter     = new bool[4];
+        this._aliasJoined  = new string[4];
         this._count = 0;
+        this._persistent   = null;
+        this._defaultParser = null;
+        this._defaultDesc   = "";
     }
 
-    /// 注册叶子子命令（其参数由 `parser` 解析）；同名重复注册会覆盖。
+    // ── Registration ─────────────────────────────────────────────────────
+
+    /// 注册叶子子命令（其参数由 `parser` 解析）；无别名。
     public void Add(string name, string description, ArgParser parser) {
-        // Check existing — overwrite if present.
-        int i = 0;
-        while (i < this._count) {
-            if (this._names[i] == name) {
-                this._descs[i] = description;
-                this._parsers[i] = parser;
-                this._childRouters[i] = null;
-                this._isRouter[i] = false;
-                return;
-            }
-            i = i + 1;
-        }
+        this.Add(name, description, parser, new string[0]);
+    }
+
+    /// 注册叶子子命令并挂别名；别名同样参与路由、`Has` 与未知命令建议，命中后归一为正名。
+    /// 名字或别名与任何已注册名字 / 别名相撞抛 CliException（注册期暴露，不再静默覆盖）。
+    public void Add(string name, string description, ArgParser parser, string[] aliases) {
+        this.ValidateNewName(name, aliases);
         if (this._count == this._capacity) this._grow();
-        this._names[this._count]   = name;
-        this._descs[this._count]   = description;
-        this._parsers[this._count] = parser;
+        this._names[this._count]        = name;
+        this._descs[this._count]        = description;
+        this._parsers[this._count]      = parser;
         this._childRouters[this._count] = null;
-        this._isRouter[this._count] = false;
+        this._isRouter[this._count]     = false;
+        this._aliasJoined[this._count]  = _RouterUtil.JoinAliases(aliases);
         this._count = this._count + 1;
     }
 
-    /// 注册嵌套子命令路由（`prog build package …`）。
-    ///
-    /// `child` 处理该名字之后的 token；同名重复注册会覆盖（叶子 → 路由或路由 → 路由）。
+    /// 注册嵌套子命令路由（`prog build package …`）；无别名。
     public void AddRouter(string name, string description, SubcommandRouter child) {
-        int i = 0;
-        while (i < this._count) {
-            if (this._names[i] == name) {
-                this._descs[i] = description;
-                this._childRouters[i] = child;
-                this._parsers[i] = null;
-                this._isRouter[i] = true;
-                return;
-            }
-            i = i + 1;
-        }
+        this.AddRouter(name, description, child, new string[0]);
+    }
+
+    /// 注册嵌套子命令路由并挂别名；相撞语义同 `Add` 的四参重载。
+    public void AddRouter(string name, string description, SubcommandRouter child, string[] aliases) {
+        this.ValidateNewName(name, aliases);
         if (this._count == this._capacity) this._grow();
         this._names[this._count]        = name;
         this._descs[this._count]        = description;
         this._childRouters[this._count] = child;
         this._parsers[this._count]      = null;
         this._isRouter[this._count]     = true;
+        this._aliasJoined[this._count]  = _RouterUtil.JoinAliases(aliases);
         this._count = this._count + 1;
+    }
+
+    /// 声明本层跨子命令全局 flag：Resolve 先把它从 argv 任意位置（子命令前后皆可）剥出，
+    /// 剩余 token 才进路由；多层可各自声明（各管各的子树，根层优先取值）。
+    /// 取值用 `CommandResolution.PersistentFlag` / `PersistentOption`。
+    public void AddPersistentFlag(string longName, string shortName, string help) {
+        this.EnsurePersistent();
+        this._persistent.AddFlag(longName, shortName, help);
+    }
+
+    /// 声明本层跨子命令全局 option（`--name v` / `--name=v` / `-s v` / `-sv`）；
+    /// 剥离与取值语义同 `AddPersistentFlag`。
+    public void AddPersistentOption(string longName, string shortName, string help, string defaultValue) {
+        this.EnsurePersistent();
+        this._persistent.AddOption(longName, shortName, help, defaultValue);
+    }
+
+    /// 给本层挂默认动作：argv 为空、或首 token 是 flag（`-x` / `--x`）且不匹配任何子命令时，
+    /// 整段 argv 交给 `parser` 解析（其 `-h` 照常生效）。`xtask test --no-build` 这类
+    /// 「无子命令 = 默认全量」的形态由它表达，不再需要调用方在路由前手写拦截。
+    public void SetDefault(ArgParser parser, string actionDescription) {
+        this._defaultParser = parser;
+        this._defaultDesc   = actionDescription;
+    }
+
+    private void EnsurePersistent() {
+        if (this._persistent == null) {
+            this._persistent = new ArgParser(this._programName + " global options", "");
+        }
+    }
+
+    // 新名字 + 别名与现有槽位（名字 / 别名）及彼此互撞的注册期校验。
+    private void ValidateNewName(string name, string[] aliases) {
+        if (name.Length == 0) {
+            throw new CliException("SubcommandRouter: command name must not be empty");
+        }
+        int i = 0;
+        while (i < this._count) {
+            if (this._names[i] == name) {
+                throw new CliException("SubcommandRouter: duplicate command name '" + name + "'");
+            }
+            if (_RouterUtil.AliasContains(this._aliasJoined[i], name)) {
+                throw new CliException("SubcommandRouter: '" + name +
+                    "' collides with an alias of '" + this._names[i] + "'");
+            }
+            int j = 0;
+            while (j < aliases.Length) {
+                string al = aliases[j];
+                if (al == this._names[i] || _RouterUtil.AliasContains(this._aliasJoined[i], al)) {
+                    throw new CliException("SubcommandRouter: alias '" + al +
+                        "' collides with '" + this._names[i] + "'");
+                }
+                j = j + 1;
+            }
+            i = i + 1;
+        }
+        int a = 0;
+        while (a < aliases.Length) {
+            if (aliases[a].Length == 0) {
+                throw new CliException("SubcommandRouter: alias of '" + name + "' must not be empty");
+            }
+            if (aliases[a] == name) {
+                throw new CliException("SubcommandRouter: alias '" + aliases[a] +
+                    "' equals its own command name");
+            }
+            int b = a + 1;
+            while (b < aliases.Length) {
+                if (aliases[a] == aliases[b]) {
+                    throw new CliException("SubcommandRouter: duplicate alias '" + aliases[a] + "'");
+                }
+                b = b + 1;
+            }
+            a = a + 1;
+        }
+    }
+
+    // ── Routing ──────────────────────────────────────────────────────────
+
+    // 名字或别名命中槽位下标；未命中返回 -1。别名命中后对 path 归一为正名。
+    private int FindEntry(string token) {
+        int i = 0;
+        while (i < this._count) {
+            if (this._names[i] == token) { return i; }
+            if (_RouterUtil.AliasContains(this._aliasJoined[i], token)) { return i; }
+            i = i + 1;
+        }
+        return -1;
     }
 
     /// 单层 sugar：只看 argv[0]，命中叶子返回 `SubcommandMatch`。
     ///
     /// 其余情形（argv 为空 / argv[0] 是 `--help` / `-h` / 名字不认识）一律返回
-    /// null。不处理嵌套子命令。
+    /// null。不处理嵌套子命令，也不处理 persistent 剥离与默认动作。
     public SubcommandMatch? Match(string[] argv) {
         if (argv.Length == 0) return null;
         string first = argv[0];
         if (first == "--help" || first == "-h") return null;
-        int i = 0;
-        while (i < this._count) {
-            if (this._names[i] == first) {
-                // Slice argv[1..] for the child parser.
-                int n = argv.Length - 1;
-                string[] rest = new string[n];
-                int j = 0;
-                while (j < n) { rest[j] = argv[j + 1]; j = j + 1; }
-                ParseResult pr = this._parsers[i].Parse(rest);
-                return new SubcommandMatch(this._names[i], pr);
-            }
-            i = i + 1;
-        }
-        return null;
+        int i = this.FindEntry(first);
+        if (i < 0 || this._isRouter[i]) return null;
+        // Slice argv[1..] for the child parser.
+        int n = argv.Length - 1;
+        string[] rest = new string[n];
+        int j = 0;
+        while (j < n) { rest[j] = argv[j + 1]; j = j + 1; }
+        ParseResult pr = this._parsers[i].Parse(rest);
+        return new SubcommandMatch(this._names[i], pr);
     }
 
     /// 推荐入口：递归下钻整棵命令树，返回三态互斥的 `CommandResolution`。
     ///
-    /// IsMatch / IsHelp / IsUnknown 恰好一个为真。叶子 `ArgParser.Parse` 的 option
+    /// IsMatch / IsHelp / IsUnknown 恰好一个为真。本层 persistent 旗标先从 argv
+    /// 任意位置剥出（见 `AddPersistentFlag`）；叶子 `ArgParser.Parse` 的 option
     /// 级错误（未知 flag / 缺值 / 缺 positional）以 `CliException` 向上透传。
-    public CommandResolution Resolve(string[] argv) {
-        if (argv.Length == 0) { return CommandResolution.Help(this.HelpText()); }
+    public CommandResolution Resolve(string[] argvIn) {
+        ParseResult persistent = null;
+        string[] argv = argvIn;
+        if (this._persistent != null) {
+            _StripOutcome s = this._persistent.StripDeclared(argvIn);
+            argv = s.Kept;
+            persistent = s.Result;
+        }
+        CommandResolution res = this.ResolveStripped(argv);
+        res.AttachPersistent(persistent);
+        return res;
+    }
+
+    // persistent 剥离后的路由主体。
+    private CommandResolution ResolveStripped(string[] argv) {
+        if (argv.Length == 0) {
+            if (this._defaultParser != null) {
+                return CommandResolution.Match(this._defaultParser.Parse(argv));
+            }
+            return CommandResolution.Help(this.HelpText());
+        }
         string first = argv[0];
         if (first == "-h" || first == "--help") {
             return CommandResolution.Help(this.HelpText());
         }
-        int i = 0;
-        while (i < this._count) {
-            if (this._names[i] == first) {
-                int n = argv.Length - 1;
-                string[] rest = new string[n];
-                int j = 0;
-                while (j < n) { rest[j] = argv[j + 1]; j = j + 1; }
-                if (this._isRouter[i]) {
-                    SubcommandRouter child = this._childRouters[i];
-                    CommandResolution childRes = child.Resolve(rest);
-                    return childRes.Prepend(this._names[i]);
-                }
-                ParseResult pr = this._parsers[i].Parse(rest);
-                CommandResolution leaf;
-                if (pr.ShowHelp()) {
-                    leaf = CommandResolution.Help(this._parsers[i].HelpText());
-                } else {
-                    leaf = CommandResolution.Match(pr);
-                }
-                return leaf.Prepend(this._names[i]);
+        int i = this.FindEntry(first);
+        if (i >= 0) {
+            int n = argv.Length - 1;
+            string[] rest = new string[n];
+            int j = 0;
+            while (j < n) { rest[j] = argv[j + 1]; j = j + 1; }
+            if (this._isRouter[i]) {
+                SubcommandRouter child = this._childRouters[i];
+                CommandResolution childRes = child.Resolve(rest);
+                return childRes.Prepend(this._names[i]);
             }
-            i = i + 1;
+            ParseResult pr = this._parsers[i].Parse(rest);
+            CommandResolution leaf;
+            if (pr.ShowHelp()) {
+                leaf = CommandResolution.Help(this._parsers[i].HelpText());
+            } else {
+                leaf = CommandResolution.Match(pr);
+            }
+            return leaf.Prepend(this._names[i]);
         }
+        // 默认动作：首 token 是 flag 且不命中任何子命令 → 整段交给默认 parser
+        // （`xtask test --no-build` 形态）。非 flag 的未知 token 仍走 unknown。
+        if (this._defaultParser != null && first.Length >= 1 && first.CharAt(0) == '-') {
+            return CommandResolution.Match(this._defaultParser.Parse(argv));
+        }
+        string suggest = _Suggest.Nearest(first, this.CommandCandidates());
         string msg = this._programName + ": unknown command '" + first + "'";
+        if (suggest != null) {
+            msg = msg + " (did you mean '" + suggest + "'?)";
+        }
         return CommandResolution.Unknown(msg, this.HelpText());
     }
 
-    /// 渲染顶层帮助：programName - description + 一段 SUBCOMMANDS: 列表。
+    // 拼写建议候选：全部正名 + 别名（展平）。
+    private string[] CommandCandidates() {
+        int total = this._count;
+        int i = 0;
+        while (i < this._count) {
+            if (this._aliasJoined[i].Length > 0) {
+                total = total + this._aliasJoined[i].Split(",").Length;
+            }
+            i = i + 1;
+        }
+        string[] c = new string[total];
+        int k = 0;
+        int j = 0;
+        while (j < this._count) {
+            c[k] = this._names[j];
+            k = k + 1;
+            if (this._aliasJoined[j].Length > 0) {
+                string[] al = this._aliasJoined[j].Split(",");
+                int m = 0;
+                while (m < al.Length) {
+                    c[k] = al[m];
+                    k = k + 1;
+                    m = m + 1;
+                }
+            }
+            j = j + 1;
+        }
+        return c;
+    }
+
+    // ── Help ─────────────────────────────────────────────────────────────
+
+    /// 渲染顶层帮助：programName - description + SUBCOMMANDS 列表（别名括注），
+    /// 声明过默认动作 / persistent 旗标时分别附 `(default)` 行与 GLOBAL OPTIONS 段。
     public string HelpText() {
         string s = this._programName;
         if (this._description.Length > 0) {
@@ -145,8 +294,18 @@ public sealed class SubcommandRouter {
         s = s + "\n\nSUBCOMMANDS:\n";
         int i = 0;
         while (i < this._count) {
-            s = s + "  " + this._padRight(this._names[i], 14) + this._descs[i] + "\n";
+            string display = this._names[i];
+            if (this._aliasJoined[i].Length > 0) {
+                display = display + " (" + this._aliasJoined[i] + ")";
+            }
+            s = s + "  " + this._padRight(display, 14) + this._descs[i] + "\n";
             i = i + 1;
+        }
+        if (this._defaultParser != null) {
+            s = s + "  " + this._padRight("(default)", 14) + this._defaultDesc + "\n";
+        }
+        if (this._persistent != null) {
+            s = s + "\nGLOBAL OPTIONS (before or after any subcommand):\n" + this._persistent.OptionsHelp();
         }
         return s;
     }
@@ -154,14 +313,9 @@ public sealed class SubcommandRouter {
     /// 已注册的子命令个数。
     public int Count() { return this._count; }
 
-    /// 指定名字是否已注册为子命令。
+    /// 指定名字（或别名）是否已注册为子命令。
     public bool Has(string name) {
-        int i = 0;
-        while (i < this._count) {
-            if (this._names[i] == name) return true;
-            i = i + 1;
-        }
-        return false;
+        return this.FindEntry(name) >= 0;
     }
 
     // ── Internals ────────────────────────────────────────────────────────────
@@ -182,6 +336,7 @@ public sealed class SubcommandRouter {
         ArgParser[] np = new ArgParser[newCap];
         SubcommandRouter[] nc = new SubcommandRouter[newCap];
         bool[] nr = new bool[newCap];
+        string[] na = new string[newCap];
         int i = 0;
         while (i < this._count) {
             nn[i] = this._names[i];
@@ -189,6 +344,7 @@ public sealed class SubcommandRouter {
             np[i] = this._parsers[i];
             nc[i] = this._childRouters[i];
             nr[i] = this._isRouter[i];
+            na[i] = this._aliasJoined[i];
             i = i + 1;
         }
         this._names = nn;
@@ -196,6 +352,7 @@ public sealed class SubcommandRouter {
         this._parsers = np;
         this._childRouters = nc;
         this._isRouter = nr;
+        this._aliasJoined = na;
         this._capacity = newCap;
     }
 }
@@ -205,7 +362,7 @@ public sealed class SubcommandMatch {
     string _name;
     ParseResult _result;
 
-    /// 用命中的子命令名与解析结果创建匹配对象。
+    /// 用命中的子命令名（别名归一后的正名）与解析结果创建匹配对象。
     public SubcommandMatch(string name, ParseResult result) {
         this._name = name;
         this._result = result;
@@ -216,4 +373,37 @@ public sealed class SubcommandMatch {
 
     /// 命中的叶子 ParseResult。
     public ParseResult Result() { return this._result; }
+}
+
+/// 别名串（逗号连写）的内部工具。
+static class _RouterUtil {
+    /// 逗号连写串里是否含 token（段级精确比较）。
+    public static bool AliasContains(string joined, string token) {
+        if (joined.Length == 0) { return false; }
+        int start = 0;
+        int i = 0;
+        while (i <= joined.Length) {
+            if (i == joined.Length || joined.CharAt(i) == ',') {
+                int len = i - start;
+                if (len == token.Length && joined.Substring(start, len) == token) {
+                    return true;
+                }
+                start = i + 1;
+            }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    /// 别名数组连写成一段（空数组 → ""）。
+    public static string JoinAliases(string[] aliases) {
+        string s = "";
+        int i = 0;
+        while (i < aliases.Length) {
+            if (i > 0) { s = s + ","; }
+            s = s + aliases[i];
+            i = i + 1;
+        }
+        return s;
+    }
 }

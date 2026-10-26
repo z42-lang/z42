@@ -90,16 +90,15 @@ void test_match_strips_subcommand_arg_from_child_parse() {
 }
 
 [Test]
-void test_re_add_overwrites_existing() {
+void test_re_add_duplicate_name_throws() {
     var r = _git();
     var newCommit = new ArgParser("git commit", "v2");
     newCommit.AddFlag("amend", "a", "amend");
-    r.Add("commit", "record changes (amended)", newCommit);
-    Assert.Equal(2, r.Count());      // not duplicated
-    string[] argv = new string[2];
-    argv[0] = "commit"; argv[1] = "-a";
-    SubcommandMatch m = r.Match(argv).Expect("argv names a registered subcommand");
-    Assert.True(m.Result().GetFlag("amend"));
+    bool threw = false;
+    try { r.Add("commit", "record changes (amended)", newCommit); }
+    catch (CliException e) { threw = true; }
+    Assert.True(threw);             // 重复注册在声明期报错，不再静默覆盖
+    Assert.Equal(2, r.Count());     // 原树不受失败注册影响
 }
 
 [Test]
