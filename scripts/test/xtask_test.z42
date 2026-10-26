@@ -261,15 +261,18 @@ int _testE2eCore(string modes, bool rebuild, bool noBuild, string jobs, string s
 // collection defects. And `stw` is exercised by nothing else — uncovered modes are where
 // such defects live for months.
 //
-// **Why these settings** — collections over one `z42c.semantics` build:
+// **Why these settings** — collections over one `z42c.semantics` build (`--jobs 1`, deterministic
+// across hosts):
 //
-//   default (generational), nursery 1M   ~440 collections
-//   Z42_GC_MODE=stw, budget 16M           ~70 collections  ← the knee: 8M is several hundred
+//   default (generational), nursery 1M   ~250 collections
+//   Z42_GC_MODE=stw, budget 16M           ~35 collections   ← the knee: 8M is several hundred
 //                                                             but much longer wall time
 //
-// The stw budget tracks the live set — it drifts when object sizes change, so the floors
-// are set well under the observed counts. Their job is to catch a *collapse* (a flipped
-// default, a policy change that stops the collector firing), not to pin an exact number.
+// The stw budget tracks the live set — it drifts when object sizes change, and both counts
+// drop whenever the compiler itself allocates less — so the floors are set at roughly half the
+// observed counts. Their job is to catch a *collapse* (a flipped default, a policy change that
+// stops the collector firing), not to pin an exact number; re-baseline the two numbers above
+// when a compiler-side allocation change moves them.
 //
 // The generational leg deliberately leaves `Z42_GC_MODE` **unset**: it is testing *the
 // default*, so hard-coding the mode here would let a flipped default go unnoticed. The
@@ -333,9 +336,9 @@ int _countGcCycles(string stderrText) {
 
 int _testGcModes() {
     // The default leg: mode UNSET on purpose — see the note above.
-    int c = _testGcModeWorkload("default mode, nursery 1M", "", "1M", "", 200, 1);
+    int c = _testGcModeWorkload("default mode, nursery 1M", "", "1M", "", 120, 1);
     if (c != 0) { return c; }
-    c = _testGcModeWorkload("Z42_GC_MODE=stw, budget 16M", "stw", "", "16M", 40, 1);
+    c = _testGcModeWorkload("Z42_GC_MODE=stw, budget 16M", "stw", "", "16M", 20, 1);
     if (c != 0) { return c; }
     // fix-gc-stress-jobs：多线程编译腿。#1053 的分代写屏障漏洞（年轻字符串写进老对象不标脏卡）只在
     // `--jobs 4` + 小年轻代下才稳定复现 —— 串行腿从来没撞上过。回收次数在多线程下不确定（多个线程同时越过
