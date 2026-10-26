@@ -950,3 +950,25 @@ void test_objnew_field_init_keeps_synth_ctor_key() {
     Assert.Equal("fn @D.Make(1) -> C {\nentry:\n  %1 = obj_new C C.C()\n  ret %1\n}",
                  IrDump.DumpFunc(src, "D.Make"));
 }
+
+// ── OptSet 不变量 ─────────────────────────────────────────────────────────────
+// `Opt.All`（release 默认）必须恰好覆盖全部具名 pass 位：漏一位 = 新 pass 在 release 下静默不跑；多一位 = 开关表
+// 有空洞。名表与 `Opt.ByName` 同步维护（加新 pass 三处同改：位常量 / ByName / 这里，见 OptSet.z42 `All` 注释）。
+[Test]
+void test_opt_all_covers_every_named_bit() {
+    string[] names = new string[] { "const-fold", "copy-prop", "dce", "inline", "cse", "licm", "stack-alloc",
+                                    "loop-alloc-reuse", "readonly-load", "pure-call", "dead-branch", "devirt" };
+    int union = 0;
+    int i = 0;
+    while (i < names.Length) {
+        int b = Opt.ByName(names[i]);
+        Assert.True(b > 0);
+        Assert.True(Opt.Has(Opt.All, b));   // 每个具名 pass 都在 All 里
+        Assert.Equal(0, union & b);        // 位互不重叠
+        union = union | b;
+        i = i + 1;
+    }
+    Assert.Equal(union, Opt.All);           // All 不含任何未具名位
+    Assert.Equal(Opt.All, Opt.ByName("all"));
+    Assert.Equal(-1, Opt.ByName("no-such-pass"));
+}

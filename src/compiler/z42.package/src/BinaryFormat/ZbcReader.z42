@@ -63,10 +63,10 @@ public static class ZbcReader {
         string[] pool = ZbcReader._readStrs(data, dir);
         if (pool == null) { return null; }
         IrClassDesc[] classes = ZbcReader._readType(data, dir, pool);
-        int classCount = ZbcReader._lastN;
+        int classCount = classes.Length;
         SigEntryZ[] sigs = ZbcReader._readSigs(data, dir, pool);
         if (sigs == null) { return null; }
-        int fnCount = ZbcReader._lastN;
+        int fnCount = sigs.Length;
 
         // token 解析表（SIGS/TYPE 插入序，镜像 TokenAllocator.FromModule）。
         string[] fnNames = new string[fnCount];
@@ -129,9 +129,6 @@ public static class ZbcReader {
         return irm;
     }
 
-    // 段大小旁路（z42 无 out 参；单线程解码安全，与 ZbcReaderInstr._argN 同款）。
-    private static int _lastN = 0;
-
     // ── 目录与基础段 ────────────────────────────────────────────────────────────
 
     private static string _readNspc(byte[] data, ZpkgSection[] dir) {
@@ -156,7 +153,7 @@ public static class ZbcReader {
 
     private static IrClassDesc[] _readType(byte[] data, ZpkgSection[] dir, string[] pool) {
         ZpkgSection s = SectionDir.Find(dir, "TYPE");
-        if (s == null || s.Size < 4) { ZbcReader._lastN = 0; return new IrClassDesc[0]; }
+        if (s == null || s.Size < 4) { return new IrClassDesc[0]; }
         return ZbcReader.ReadTypeAt(data, s.Offset, pool);
     }
 
@@ -346,7 +343,6 @@ public static class ZbcReader {
             classes[ci] = cd;
             ci = ci + 1;
         }
-        ZbcReader._lastN = n;
         return classes;
     }
 
@@ -387,7 +383,6 @@ public static class ZbcReader {
             r[i] = e;
             i = i + 1;
         }
-        ZbcReader._lastN = n;
         return r;
     }
 

@@ -137,16 +137,15 @@ public static class ZbcReaderInstr {
         if (op == Op.Call) {
             string fname = ZbcReaderInstr._method(c.U32(), pool, fnNames, fnCount);
             TypedReg[] args = ZbcReaderInstr._args(c);
-            return new CallInstr(d, fname, args, ZbcReaderInstr._argN);
+            return new CallInstr(d, fname, args, args.Length);
         }
         // add-generic-methods：携方法类型实参的 Call/VCall（mta 在 method 标识后、args 前）。
         if (op == Op.CallGeneric) {
             string fname = ZbcReaderInstr._method(c.U32(), pool, fnNames, fnCount);
             string[] mta = ZbcReaderInstr._mta(c, pool);
-            int mtaN = ZbcReaderInstr._mtaN;
             TypedReg[] args = ZbcReaderInstr._args(c);
-            CallInstr ci = new CallInstr(d, fname, args, ZbcReaderInstr._argN);
-            ci.MethodTypeArgs = mta; ci.MethodTypeArgCount = mtaN;
+            CallInstr ci = new CallInstr(d, fname, args, args.Length);
+            ci.MethodTypeArgs = mta; ci.MethodTypeArgCount = mta.Length;
             return ci;
         }
         if (op == Op.MethodTypeArg) { return new MethodTypeArgInsn(d, c.U8()); }
@@ -154,29 +153,28 @@ public static class ZbcReaderInstr {
         if (op == Op.Builtin) {
             string name = ZbcReaderInstr._p(pool, c.U32());
             TypedReg[] args = ZbcReaderInstr._args(c);
-            return new BuiltinInstr(d, name, args, ZbcReaderInstr._argN);
+            return new BuiltinInstr(d, name, args, args.Length);
         }
         if (op == Op.CallNative) {
             string modu = ZbcReaderInstr._p(pool, c.U32());
             string typ = ZbcReaderInstr._p(pool, c.U32());
             string sym = ZbcReaderInstr._p(pool, c.U32());
             TypedReg[] args = ZbcReaderInstr._args(c);
-            return new CallNativeInstr(d, modu, typ, sym, args, ZbcReaderInstr._argN);
+            return new CallNativeInstr(d, modu, typ, sym, args, args.Length);
         }
         if (op == Op.VCall) {
             string method = ZbcReaderInstr._p(pool, c.U32());
             TypedReg obj = ZbcReaderInstr._ru(c.U16());
             TypedReg[] args = ZbcReaderInstr._args(c);
-            return new VCallInstr(d, obj, method, args, ZbcReaderInstr._argN);
+            return new VCallInstr(d, obj, method, args, args.Length);
         }
         if (op == Op.VCallGeneric) {
             string method = ZbcReaderInstr._p(pool, c.U32());
             TypedReg obj = ZbcReaderInstr._ru(c.U16());
             string[] mta = ZbcReaderInstr._mta(c, pool);
-            int mtaN = ZbcReaderInstr._mtaN;
             TypedReg[] args = ZbcReaderInstr._args(c);
-            VCallInstr vi = new VCallInstr(d, obj, method, args, ZbcReaderInstr._argN);
-            vi.MethodTypeArgs = mta; vi.MethodTypeArgCount = mtaN;
+            VCallInstr vi = new VCallInstr(d, obj, method, args, args.Length);
+            vi.MethodTypeArgs = mta; vi.MethodTypeArgCount = mta.Length;
             return vi;
         }
         return null;   // 本族无匹配，调用方继续下一族
@@ -236,14 +234,13 @@ public static class ZbcReaderInstr {
             string cls = ZbcReaderInstr._type(c.U32(), pool, clsNames, clsCount);
             string ctor = ZbcReaderInstr._method(c.U32(), pool, fnNames, fnCount);
             TypedReg[] args = ZbcReaderInstr._args(c);
-            int argN = ZbcReaderInstr._argN;
             int tc = c.U8();
             string[] targs = new string[tc];
             int t = 0;
             while (t < tc) { targs[t] = ZbcReaderInstr._p(pool, c.U32()); t = t + 1; }
             bool saO = c.U8() != 0;   // zbc 1.29 add-escape-analysis：尾 stack_alloc u8
             bool ckO = c.U8() != 0;   // zbc 1.39 encode-ctorless-objnew：尾 ctor_known u8
-            ObjNewInstr onI = new ObjNewInstr(d, cls, ctor, targs, tc, args, argN);
+            ObjNewInstr onI = new ObjNewInstr(d, cls, ctor, targs, tc, args, args.Length);
             onI.StackAlloc = saO;
             onI.CtorKnown = ckO;
             return onI;
@@ -279,10 +276,9 @@ public static class ZbcReaderInstr {
         }
         if (op == Op.ArrayNewLit) {
             TypedReg[] elems = ZbcReaderInstr._args(c);
-            int en = ZbcReaderInstr._argN;
             string elemName = ZbcReaderInstr._p(pool, c.U32());
             bool saL = c.U8() != 0;   // zbc 1.29 add-escape-analysis
-            ArrayNewLitInstr alI = new ArrayNewLitInstr(d, elems, en, elemName);
+            ArrayNewLitInstr alI = new ArrayNewLitInstr(d, elems, elems.Length, elemName);
             alI.StackAlloc = saL;
             return alI;
         }
@@ -305,12 +301,12 @@ public static class ZbcReaderInstr {
         if (op == Op.MkClos) {
             string fname = ZbcReaderInstr._method(c.U32(), pool, fnNames, fnCount);
             TypedReg[] caps = ZbcReaderInstr._args(c);
-            return new MkClosInstr(d, fname, caps, ZbcReaderInstr._argN);
+            return new MkClosInstr(d, fname, caps, caps.Length);
         }
         if (op == Op.CallIndirect) {
             TypedReg callee = ZbcReaderInstr._ru(c.U16());
             TypedReg[] args = ZbcReaderInstr._args(c);
-            return new CallIndirectInstr(d, callee, args, ZbcReaderInstr._argN);
+            return new CallIndirectInstr(d, callee, args, args.Length);
         }
         if (op == Op.LoadLocalAddr) { return new LoadLocalAddrInstr(d, ZbcReaderInstr._ru(c.U16())); }
         // fix-ref-lvalue-addressing：与写侧 ZbcInstr.WriteInstr 对称。
@@ -352,25 +348,21 @@ public static class ZbcReaderInstr {
         throw new Exception("zbc reader: string pool index " + idx.ToString() + " out of range (pool size " + pool.Length.ToString() + ")");
     }
 
-    // args：count u8 + id u16×。z42 无 out 参 → 长度经 _argN 旁路返回（单线程解码安全）。
-    private static int _argN = 0;
+    // args：count u8 + id u16×。返回**精确长度**数组，元素数即 `.Length`。
     private static TypedReg[] _args(ZpkgCursor c) {
         int n = c.U8();
         TypedReg[] r = new TypedReg[n];
         int i = 0;
         while (i < n) { r[i] = ZbcReaderInstr._ru(c.U16()); i = i + 1; }
-        ZbcReaderInstr._argN = n;
         return r;
     }
 
-    // add-generic-methods：方法类型实参串 —— count u16 + pool idx u32×。长度经 _mtaN 旁路（同 _argN 约定）。
-    private static int _mtaN = 0;
+    // add-generic-methods：方法类型实参串 —— count u16 + pool idx u32×。同 `_args`，精确长度。
     private static string[] _mta(ZpkgCursor c, string[] pool) {
         int n = c.U16();
         string[] r = new string[n];
         int i = 0;
         while (i < n) { r[i] = ZbcReaderInstr._p(pool, c.U32()); i = i + 1; }
-        ZbcReaderInstr._mtaN = n;
         return r;
     }
 
