@@ -1,0 +1,13 @@
+# 免清单目录条目（hooks/ 无工程清单）：z42b 合成最小插件清单（include = <目录>/**/*.z42 全收）→
+# ICompiler 代建 → 反射出包内**全部** BuildHooks 具体类（两个类分住两个文件——目录漏收即缺一条标记）。
+# _smokeHookDir 断言两条标记都在。
+[project]
+name    = "hd.app"
+version = "0.1.0"
+kind    = "exe"
+
+[sources]
+include = ["src/**/*.z42"]
+
+[plugins]
+"hd.a" = { path = "hooks" }

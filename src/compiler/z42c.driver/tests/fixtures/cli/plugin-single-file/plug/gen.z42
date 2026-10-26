@@ -1,0 +1,14 @@
+namespace E2eSGen;
+
+using Z42.Generators;
+
+// 单文件插件（无 z42.toml）：消费方 `[plugins] "e2e.sgen" = { path = "../plug/gen.z42" }` →
+// z42c 合成最小插件清单并代建。契约类型（Z42.Generators）经编译器域 ambient 解析——合成清单写不出
+// [dependencies]，这正是单文件形态只适合零依赖插件的原因。
+public sealed class E2eSGenerator : ModuleGenerator {
+    public void Generate(GenContext ctx, GenSink sink) {
+        sink.AddSource("e2e", "namespace E2eOut; public static class O { public static int V() { return 42; } }");
+    }
+    public string[] Consumes() { return new string[0]; }
+    public string[] Produces() { return new string[0]; }
+}

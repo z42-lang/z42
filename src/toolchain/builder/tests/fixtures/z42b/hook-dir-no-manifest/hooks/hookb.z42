@@ -1,0 +1,11 @@
+namespace Hd.B;
+
+using Std.IO;
+using Z42.Build;
+
+// 与 hooka.z42 同包不同文件：目录全收漏掉任何一个文件，对应标记行即缺——判绿必须两文件都编进。
+public class HookB : BuildHooks {
+    public override void BeforeCompile(IPipelineContext ctx) {
+        Console.WriteLine("HOOK-DIR-SMOKE: B BeforeCompile");
+    }
+}

@@ -1,0 +1,98 @@
+// 免清单插件条目（plugin-single-file）：PluginSynth 合成（单文件 / 目录全收）、SourceDiscovery
+// rooted `/**/` 直通（合成清单住 cache 目录、源在别处）、EffectiveSourceExcludes 对树内条目
+//（单文件与目录）的排除——后者是「插件源住消费方树内不被 **/*.z42 误扫进 app」的判据。
+namespace Z42ProjectPluginSynthTests;
+
+using Std.IO;
+using Z42.Project;
+using Std.Harness;
+
+// 造一棵临时源树：plug/hooka.z42 + plug/inner/hookb.z42（两文件一子目录，供目录全收断言）。
+string _mkPluginTree() {
+    string root = Directory.CreateTempDir("z42-pluginsynth");
+    Directory.Create(Path.Join(root, "plug"));
+    Directory.Create(Path.Join(root, Path.Join("plug", "inner")));
+    File.WriteAllText(Path.Join(root, Path.Join("plug", "hooka.z42")), "// a\n");
+    File.WriteAllText(Path.Join(root, Path.Join("plug", Path.Join("inner", "hookb.z42"))), "// b\n");
+    return root;
+}
+
+string[] _discoverInclude(string manifestPath) {
+    ProjectManifest pm = ManifestLoader.Load(manifestPath);
+    return SourceDiscovery.DiscoverWithExclude(
+        Path.GetDirectoryName(manifestPath), pm.Sources.Include, pm.Sources.IncludeCount,
+        new string[0], 0);
+}
+
+[Test]
+[Skip(platform: "wasm", reason: "wasm 沙箱没有真实文件系统，造不了临时源树")]
+void test_synth_file_include_is_abs_and_discovers() {
+    // 单文件：include 写源文件绝对路径（rooted 字面直通），发现恰一个文件。
+    string root = _mkPluginTree();
+    string src = Path.Join(root, Path.Join("plug", "hooka.z42"));
+    string cache = Path.Join(root, "cache");
+    string manifest = PluginSynth.SynthFile(cache, "demo.hook", src);
+    Assert.True(manifest.Length > 0);
+    ProjectManifest pm = ManifestLoader.Load(manifest);
+    Assert.Equal("demo.hook", pm.Project.Name);
+    Assert.True(pm.Project.IsPlugin());
+    string[] hits = _discoverInclude(manifest);
+    Assert.Equal(1, hits.Length);
+    Assert.Equal(src, hits[0]);
+}
+
+[Test]
+[Skip(platform: "wasm", reason: "wasm 沙箱没有真实文件系统，造不了临时源树")]
+void test_synth_dir_globs_recursive_and_empty_fails() {
+    // 目录：include 写 `<abs>/**/*.z42` 递归全收（含子目录）；空目录 / 不存在的目录 / 不存在的文件
+    // 一律返回 ""（不静默空合成——那与配错路径不可区分）。
+    string root = _mkPluginTree();
+    string cache = Path.Join(root, "cache");
+    string manifest = PluginSynth.SynthDir(cache, "demo.hook", Path.Join(root, "plug"));
+    Assert.True(manifest.Length > 0);
+    string[] hits = _discoverInclude(manifest);
+    Assert.Equal(2, hits.Length);
+
+    string empty = Path.Join(root, "empty");
+    Directory.Create(empty);
+    Assert.Equal("", PluginSynth.SynthDir(cache, "demo.hook", empty));
+    Assert.Equal("", PluginSynth.SynthDir(cache, "demo.hook", Path.Join(root, "missing")));
+    Assert.Equal("", PluginSynth.SynthFile(cache, "demo.hook", Path.Join(root, "missing.z42")));
+}
+
+[Test]
+[Skip(platform: "wasm", reason: "wasm 沙箱没有真实文件系统，造不了临时源树")]
+void test_effective_excludes_cover_in_tree_file_and_dir_entries() {
+    // 树内条目（单文件与目录）必须进有效排除——单文件条目写成 `<file>/**`：段匹配里 `**` 可吃零段，
+    // 恰好同时匹配文件本身与其（不存在的）子树。树外条目（../plug、.zpkg）与源发现无关，不进。
+    string toml = "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[plugins]\n"
+        + "\"demo.a\" = { path = \"hooks/hook.z42\" }\n"
+        + "\"demo.b\" = { path = \"igen\" }\n"
+        + "\"demo.c\" = { path = \"../plug\" }\n"
+        + "\"demo.d\" = { path = \"../x.zpkg\" }\n";
+    ProjectManifest m = ManifestLoader.ParseText(toml);
+    string[] ex = m.EffectiveSourceExcludes();
+    Assert.Equal(2, ex.Length);
+    Assert.Equal("hooks/hook.z42/**", ex[0]);
+    Assert.Equal("igen/**", ex[1]);
+}
+
+[Test]
+[Skip(platform: "wasm", reason: "wasm 沙箱没有真实文件系统，造不了临时源树")]
+void test_in_tree_single_file_plugin_not_swept_into_consumer() {
+    // 端到端钉子：消费方 include `**/*.z42`，树内单文件插件条目经有效排除后**不进**消费方源发现。
+    string root = _mkPluginTree();
+    string app = Path.Join(root, "app");
+    Directory.Create(app);
+    File.WriteAllText(Path.Join(app, "Main.z42"), "// main\n");
+    Directory.Create(Path.Join(app, "hooks"));
+    File.WriteAllText(Path.Join(app, Path.Join("hooks", "hook.z42")), "// hook\n");
+    ProjectManifest pm = ManifestLoader.ParseText(
+        "[project]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[sources]\ninclude = [\"**/*.z42\"]\n\n[plugins]\n"
+        + "\"demo.a\" = { path = \"hooks/hook.z42\" }\n");
+    string[] ex = pm.EffectiveSourceExcludes();
+    string[] hits = SourceDiscovery.DiscoverWithExclude(app, pm.Sources.Include, pm.Sources.IncludeCount,
+                                                        ex, ex.Length);
+    Assert.Equal(1, hits.Length);
+    Assert.Equal(Path.Join(app, "Main.z42"), hits[0]);
+}

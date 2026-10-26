@@ -1,0 +1,12 @@
+[project]
+name    = "e2e.dapp"
+version = "0.1.0"
+kind    = "exe"
+
+[sources]
+include = ["*.z42"]
+
+[plugins]
+# 免清单目录条目：path 指向目录、里面没有工程清单 ⇒ include = <目录>/**/*.z42 递归全收、合成
+# 最小插件清单后代建（plug/ 里刻意没有 z42.toml；值由第二个文件 helper.z42 提供）。
+"e2e.dgen" = { path = "../plug" }

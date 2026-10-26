@@ -1,0 +1,75 @@
+// 免清单插件条目（`[plugins]`）→ 合成最小插件清单。
+//
+// 「免清单」两种形态（对齐 tests：单文件测试 / 独立测试工程；`z42 run` 的单文件工程）：
+//   · 单文件：`x = { path = "hook.z42" }` → include = 该文件绝对路径；
+//   · 目录：  `x = { path = "hooks/" }`（目录里没有工程清单）→ include = `<目录>/**/*.z42` 递归全收。
+// 一个源文件 / 一目录源文件、零依赖的插件（hook 插件全是这个形态）不必手写 z42.toml——在消费方的
+// 构建树里合成一份最小清单（kind = "plugin"），之后**完全复用工程条目的代建路**（z42c
+// `PluginRefs._pluginFromProject` / z42c.pipeline `BuildSession._buildPluginProject` / z42b
+// `builder_hooks`）。需要清单能力（`[dependencies]` / `version` / include-exclude 精细控制）的插件
+// 仍用完整工程形态——目录里有清单时清单优先（配置存在即生效）。
+//
+// 与 launcher 的 `_synthSingleFileManifest` 同一套约定：
+//   · 源文件**绝不复制**——include 写绝对路径（`SourceDiscovery` 对 rooted 直通），诊断指回
+//     读者自己的文件，增量缓存也按真源生效；
+//   · 清单每次重写（成本可忽略）——免得源移动/改名后清单陈旧；
+//   · 合成目录按源绝对路径取指纹——同一插件反复构建落同一条目，代建的增量才有效。
+// 落点由调用方给（z42c = 消费方 cache 目录 ⇒ 随消费方缓存一起清；z42b = hook interDir），本函数不选家。
+namespace Z42.Project;
+
+using Std.IO;
+
+public static class PluginSynth {
+
+    // 单文件条目 → 合成清单；失败（源文件不存在 / 写不进 baseDir）返回 ""（不打印，由调用方出诊断）。
+    public static string SynthFile(string baseDir, string pluginName, string srcPath) {
+        if (srcPath.Length == 0 || !File.Exists(srcPath)) { return ""; }
+        return PluginSynth._write(baseDir, pluginName, PluginSynth._abs(srcPath));
+    }
+
+    // 免清单目录条目 → 合成清单（include = `<abs>/**/*.z42` 递归全收）；目录不存在或里面一个
+    // .z42 都没有 → ""（不静默空——那是「配错目录」与「真空插件」不可区分的最坏失败形态）。
+    public static string SynthDir(string baseDir, string pluginName, string srcDir) {
+        if (srcDir.Length == 0 || !Directory.Exists(srcDir)) { return ""; }
+        if (Path.GlobRecursive(srcDir, "*.z42").Length == 0) { return ""; }
+        return PluginSynth._write(baseDir, pluginName, PluginSynth._abs(srcDir) + "/**/*.z42");
+    }
+
+    // 统一写盘：目录 = `<baseDir>/plugin-synth/<name>-<指纹>/z42.toml`。
+    private static string _write(string baseDir, string pluginName, string includePattern) {
+        string dir = Path.Join(Path.Join(baseDir, "plugin-synth"), pluginName + "-" + PluginSynth._pathFp(includePattern));
+        try {
+            Directory.Create(dir);
+            string toml = "# 由 [plugins] 免清单条目自动生成，请勿手工编辑。\n"
+                + "# 源：" + includePattern + "\n"
+                + "[project]\n"
+                + "name    = \"" + pluginName + "\"\n"
+                + "version = \"0.0.0\"\n"
+                + "kind    = \"plugin\"\n"
+                + "\n"
+                + "[sources]\n"
+                + "include = [\"" + includePattern + "\"]\n";
+            string manifest = Path.Join(dir, "z42.toml");
+            File.WriteAllText(manifest, toml);
+            return manifest;
+        } catch (Exception ex) {
+            return "";
+        }
+    }
+
+    private static string _abs(string p) {
+        string abs = Path.IsRooted(p) ? p : Path.Join(Environment.GetCurrentDirectory(), p);
+        return abs.Replace("\\", "/");
+    }
+
+    // include 模式指纹（与 z42c `_bytesFp` 同款散列强度，够选目录用）：长度 + 字符串哈希。
+    private static string _pathFp(string s) {
+        int h = 0;
+        int i = 0;
+        while (i < s.Length) {
+            h = (h * 31 + (((int)s.CharAt(i)) & 255)) % 33554393;
+            i = i + 1;
+        }
+        return s.Length.ToString() + "_" + h.ToString();
+    }
+}

@@ -297,7 +297,7 @@ incremental = true     # 启用增量编译，默认 true
 | `dist_dir` | string? | 未配 `output_dir` 时 **`<清单目录>/dist`**；配了则 `${output_dir}/dist` | `${output_dir}/dist` | 最终分发产物（`.zpkg` + `.zsym`）。 |
 | `generated_dir` | string? | `${output_dir}/generated`（显式 `""` = 不落盘） | 同左 | generator 生成的源码。 |
 | `incremental` | bool | `true` | `true` | 基于 source hash 跳过未改动文件。CLI `--no-incremental` 是一次性覆盖，**永远压过本键**；两者任一为「关」即关。 |
-| ~~`hooks`~~ | — | — | — | **已删除**（unify-plugin-packages 1b）：hook 改为插件工程，经 [`[plugins]`](#plugins--加载进工具链进程运行不链入产物) 引用（`"x.hooks" = { path = "hooks" }`，hook 目录补一份 `kind = "plugin"` 清单）。写了旧键按未知键报错。 |
+| ~~`hooks`~~ | — | — | — | **已删除**（unify-plugin-packages 1b）：hook 改为插件，经 [`[plugins]`](#plugins--加载进工具链进程运行不链入产物) 引用（零依赖 hook 直接写免清单条目 `"x.hooks" = { path = "hooks/hook.z42" }` 或 `{ path = "hooks/" }`；要依赖/版本控制写插件工程 `"x.hooks" = { path = "hooks" }` + `kind = "plugin"` 清单）。写了旧键按未知键报错。 |
 
 发布目录不在 `[build]`：它是 `[platform.desktop].publish_dir`（见下文 publish 一节），默认 `${output_dir}/publish`。
 
@@ -949,6 +949,8 @@ artifacts/build/libraries/<lib>/<profile>/
 "demo.noemptycatch" = "0.1.0"                 # 按名：在插件目录找 demo.noemptycatch.zpkg
 "demo.gen"          = { path = "../gen" }     # 按工程路径：z42c 代建该工程，取其 dist
 "demo.local"        = { path = "../x.zpkg" }  # 按 zpkg 路径：现成产物，读头校验后直接用
+"demo.hook"         = { path = "hooks/hook.z42" }   # 免清单·单文件：一个 .z42 源文件，合成最小清单后代建
+"demo.multi"        = { path = "hooks/" }     # 免清单·目录：目录里没有工程清单 ⇒ <目录>/**/*.z42 全收
 "noisy.lint"        = false                   # 关闭携带进来的插件（见 [plugins.export]）
 ```
 
@@ -960,7 +962,7 @@ artifacts/build/libraries/<lib>/<profile>/
 | 何时用 | 编译目标代码时解析符号 | 加载进工具链（z42c / z42b）、构建期执行 |
 | 进不进产物 | 进 | **不进** |
 | 在哪找（按名） | 依赖目录（`Z42_LIBS` / SDK `libs/`） | **插件目录**（`Z42_PLUGINS` / 各依赖目录同级的 `plugins/`）——查找域刻意分开，插件不污染运行期解析域 |
-| `path = "..."` | 支持，z42c 代建整个**闭包** | 支持，代建**那一个工程**（它的依赖由它自己解析）；path 也可以指 `.zpkg` 文件（不代建，直接用）|
+| `path = "..."` | 支持，z42c 代建整个**闭包** | 支持：指工程目录（代建**那一个工程**，它的依赖由它自己解析）、指 `.zpkg` 文件（不代建，直接用）、或免清单地指单个 `.z42` 源文件 / 无清单源目录（合成最小清单后代建，见下）|
 | 被引工程的 `kind` | `lib`（引 `plugin` 会被拒绝——按名也拦得住，读头能力位）| 必须是 `plugin`（引普通库会在定位阶段被拒：头里没有插件能力位）|
 
 **path 条目（工程目录）**：判据同 `[dependencies]` 的 path（裸 `z42.toml` 优先，否则唯一一份
@@ -969,6 +971,16 @@ artifacts/build/libraries/<lib>/<profile>/
 hook 进 z42b）。改了插件的源码，消费方下次构建会重编（指纹含该 zpkg 内容）；`.zpkg` 条目同理——产物
 **字节**变了就失效缓存。住在工程目录里的 path 插件目录会自动排除出本工程的源发现，不会被 `**/*.z42`
 扫进 app 产物。
+
+**path 条目（免清单，单文件 / 目录）**：`path` 以 `.z42` 结尾指**一个源文件**；指目录且目录里**没有**
+工程清单时是**免清单目录**（include = `<目录>/**/*.z42` 递归全收）。两种形态工具链都合成一份最小插件
+清单（`name` = 条目键、`kind = "plugin"`，落消费方 cache 目录），之后走与工程条目**完全相同**的代建路
+——目录里有清单时清单优先（配置存在即生效）。适合零 `[dependencies]` 的插件（hook 插件几乎全是这个
+形态）——免写 `z42.toml`（`z42 new --plugin` 可脚手架完整工程）。源不复制：诊断指回原文件，增量按真源
+生效；住在工程目录里的免清单条目同样自动排除出源发现。空目录 / 目录里没有任何 `.z42` → 明确报错。
+带依赖的插件（如 z42.harness.lint）、要 `version` / include-exclude 精细控制的插件，仍用完整工程形态
+——对齐 tests 的两种配置：单文件测试 / 独立测试工程。
+`[plugins.export]` 不收免清单条目：携带钉**精确版本**并按 dist 验发布件，插件须是有 `version` 的完整工程。
 
 > **代建产物不进消费方的解析域**：与 `[dependencies]` 的 path 闭包刻意不同 —— 插件只活在工具链
 > 进程里，把它的 dist 并进依赖目录就等于让构建期代码对运行期代码可见。

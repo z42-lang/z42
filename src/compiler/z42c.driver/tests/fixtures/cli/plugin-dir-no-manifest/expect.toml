@@ -1,0 +1,11 @@
+desc = "[plugins] 免清单目录条目：path 指向无清单目录 ⇒ 合成清单 include=<dir>/**/*.z42 全收代建，多文件插件（值在第二个文件里）可用（见 README）"
+
+[[step]]
+args = ["build", "app/e2e.dapp.z42.toml", "--release"]
+exit = 0
+
+[[step]]
+tool = "run"
+target = "app/dist/e2e.dapp.zpkg"
+exit = 0
+stdout_equals = "42"

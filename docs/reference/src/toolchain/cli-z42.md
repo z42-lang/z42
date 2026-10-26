@@ -164,13 +164,14 @@ $ echo $?
 
 ---
 
-## `z42 new [--lib] [--path <dir>] [<name>]`
+## `z42 new [--lib] [--plugin] [--path <dir>] [<name>]`
 
 在 `<dir>/<name>`（`--path` 默认当前目录）创建工程。
 
 | 旗标 | 作用 |
 |---|---|
 | `--lib` | 库工程（默认可执行工程） |
+| `--plugin` | 插件工程（构建期扩展，加载进工具链、不链入 app；骨架是 build hook 样例） |
 | `--path <path>` | 创建到哪个目录下（默认当前目录） |
 
 `<name>` 须匹配小写字母 / 数字 / `-` / `_` / `.`，且首字符是字母或数字；不合规直接报错退出 2：
@@ -181,8 +182,8 @@ z42 new: invalid project name `Probe-K`
   use lowercase letters, digits, `-`, `_` or `.`, starting with a letter or digit (e.g. `my-app`)
 ```
 
-生成四个文件——`z42.toml`、`src/Main.z42`（`--lib` 时为 `src/Lib.z42`）、`.gitignore`、
-`README.md`：
+生成四个文件——`z42.toml`、`src/Main.z42`（`--lib` 时为 `src/Lib.z42`；`--plugin` 时为
+`src/ProjectHooks.z42`，一个 build hook 样例）、`.gitignore`、`README.md`：
 
 ```console
 $ z42 new hello

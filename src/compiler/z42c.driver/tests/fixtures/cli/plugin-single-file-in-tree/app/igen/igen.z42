@@ -1,0 +1,11 @@
+namespace E2eIGen;
+
+using Z42.Generators;
+
+public sealed class E2eIGenerator : ModuleGenerator {
+    public void Generate(GenContext ctx, GenSink sink) {
+        sink.AddSource("e2e", "namespace E2eOut; public static class O { public static int V() { return 42; } }");
+    }
+    public string[] Consumes() { return new string[0]; }
+    public string[] Produces() { return new string[0]; }
+}

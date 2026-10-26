@@ -1,0 +1,14 @@
+namespace E2eDGen;
+
+using Z42.Generators;
+
+// 免清单目录条目（plug/ 里没有 z42.toml）：值来自 helper.z42 —— 两文件必须作为一个包一起编译，
+// 才能产出正确值（单文件漏收即红）。
+public sealed class E2eDGenerator : ModuleGenerator {
+    public void Generate(GenContext ctx, GenSink sink) {
+        sink.AddSource("e2e", "namespace E2eOut; public static class O { public static int V() { return "
+            + E2eDConst.V().ToString() + "; } }");
+    }
+    public string[] Consumes() { return new string[0]; }
+    public string[] Produces() { return new string[0]; }
+}
