@@ -60,8 +60,8 @@ public sealed partial class MemberResolver {
         if (nk == "") { return null; }
         string ek = env.Symbols.EnumKey(nk);
         if (ek != null) { return this._bindEnumMember(ek, nk, m, env); }
-        if (!env.Symbols.HasClass(nk)) { return null; }
         Z42ClassType sct = env.Symbols.GetClass(nk);
+        if (sct == null) { return null; }
         // 写出的类名是一次类型引用（跨包同名判定 + 用量）；全限定写法只记依赖、不需要 using。
         this._tc._chkStaticOwnerQualified(env.Symbols, sct, MemberResolver._dottedPath(m.Target), m.Span);
         BoundExpr sm = this.BindStaticMember(sct, nk, m.Name, m.Span, env);

@@ -429,7 +429,7 @@ sealed class SurfaceSlotsZ {
     }
     // 名字 → 桶下标；新名字时追加（按需扩容）。
     public int SlotOf(string name) {
-        if (this.Slot.ContainsKey(name)) { return (this.Slot.Get(name) as IntBoxZ).Value; }   // IntBoxZ 复用 IncrementalDriver.z42 里那一个
+        int hit = this.Slot.Find(name); if (hit >= 0) { return (this.Slot.ValAt(hit) as IntBoxZ).Value; }   // IntBoxZ 复用 IncrementalDriver.z42 里那一个
         if (this.N == this.Names.Length) {
             string[] bn = new string[this.N * 2];
             SurfaceBufZ[] bb = new SurfaceBufZ[this.N * 2];
