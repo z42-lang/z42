@@ -121,8 +121,17 @@ void _cleanGlob(string dir, string pattern) {
     }
 }
 
+// 单文件覆盖拷贝：写入前先断链（`File.Copy` 是 truncate 语义，直接写到硬链接上会把同 inode 的
+// 所有路径一起改掉，见上一段头注），且显式 overwrite（`File.Copy` 两参形态目标存在即炸）。
+// 拷贝失败**抛出**——与 best-effort 的 `_copyAll` 相反：调用点都是「装进发布包 / 种子 / SDK」的路径，
+// 残件必须当场红而不是静默缺件。build/ 的 `_copyOverwrite`（被 package/ 跨族调用）已并入这里。
+void _copyFile(string src, string dst) {
+    _unlinkIfExists(dst);
+    File.Copy(src, dst);
+}
+
 void _copyIfExists(string src, string dst) {
-    if (File.Exists(src)) { File.Copy(src, dst); }
+    if (File.Exists(src)) { _copyFile(src, dst); }
 }
 
 void _makeExe(string path) {
