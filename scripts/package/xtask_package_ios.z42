@@ -63,7 +63,6 @@ int _buildRuntimePackageIos(string root, string rid, string version, string prof
 // ── workload tooling: Sources/ + Package.swift (placeholder) + manifest ──
 int _packageIos(string root, string pkgDir, string rid, string version, string profile, string hostRid) {
     Stopwatch sw = _procStart("package ios");
-    bool rel = (profile == "release");
     string iosMin = _vReadOr(root, "platform.ios.min_ios", "16.0");
     string macMin = _vReadOr(root, "platform.ios.min_macos", "13.0");
     string iosMajor = _nthDot(iosMin, 0);

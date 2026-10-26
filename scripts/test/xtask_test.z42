@@ -241,7 +241,7 @@ int _testE2eCore(string modes, bool rebuild, bool noBuild, string jobs, string s
         if (c != 0) { return c; }
     }
     // modes is a space-separated token string (e.g. "interp jit"); split to the
-    // string[] _runVmGoldens expects. jobs parses to int (default 1 on garbage).
+    // string[] _runVmGoldensF expects. jobs parses to int (default 1 on garbage).
     string[] modeList = _splitWords(modes);
     int jobsN = 1;
     try { jobsN = int.Parse(jobs); } catch (Exception e) { jobsN = 1; }

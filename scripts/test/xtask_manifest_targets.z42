@@ -52,24 +52,8 @@ RunTarget[] _explicitTargets(ProjectManifest m, string kind) {
 }
 
 // ── three-layer dev-dep merge (design D6: target > section > project) ──────────
-
-// Base deps for convention/auto units: section ∪ project, section wins on clash.
-DepBundle _baseDeps(ProjectManifest m, string kind) {
-    DepBundle b = _newBundle();
-    if (m == null) { return b; }
-    _bundleAddSection(b, m, kind);
-    _bundleAddDeps(b, m.Deps, m.DepCount);
-    return b;
-}
-
-// Full three-layer for one explicit target: target ∪ section ∪ project; first
-// added wins → target beats section beats project (design D6 priority).
-DepBundle _targetDeps(ProjectManifest m, string kind, RunTarget t) {
-    DepBundle b = _newBundle();
-    if (t != null) { _bundleAddDeps(b, t.Deps, t.DepCount); }
-    if (m != null) { _bundleAddSection(b, m, kind); _bundleAddDeps(b, m.Deps, m.DepCount); }
-    return b;
-}
+// 唯一活口是下面的 `_targetDepsPairs`（example 目标用）；convention 单元与显式 test/bench 目标的依赖
+// 合并已随 D2 转发给 z42b，xtask 侧不再自己算。
 
 void _bundleAddSection(DepBundle b, ProjectManifest m, string kind) {
     if (kind == "bench")        { _bundleAddDeps(b, m.BenchSection.Deps, m.BenchSection.DepCount); }
@@ -345,21 +329,6 @@ int _runLibKind(string root, string projDir, string lib, string kind,
     return _runLibViaZ42b(root, projDir, parentToml, lib, kind, label, filter,
                           builderZpkg, jobsN, mode, vm, driverZpkg, libs, agg,
                           ref totalFiles, ref libsTested);
-}
-
-RunTarget[] _explicitByHarness(RunTarget[] tgts, int n, bool harness, string filter) {
-    RunTarget[] tmp = new RunTarget[n];
-    int c = 0;
-    int i = 0;
-    while (i < n) {
-        RunTarget t = tgts[i];
-        if (t.Harness == harness && (filter.Length == 0 || t.Name.Contains(filter))) { tmp[c] = t; c = c + 1; }
-        i = i + 1;
-    }
-    RunTarget[] r = new RunTarget[c];
-    int k = 0;
-    while (k < c) { r[k] = tmp[k]; k = k + 1; }
-    return r;
 }
 
 // 一个 lib 的 test 走转发：`z42b test <真 manifest> --list` 拿单元名 → 并行拉起
