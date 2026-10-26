@@ -790,7 +790,18 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 | X-4 | perf/jit | 调用屏障纪元快路（静态字段门 `statics.rs` 的调用侧孪生）：`call_compiled` 的 module-init + owner-cctor 屏障在稳态下是 7–8 次 load + 3 层调用的短路链（z42c 程序 `any_cctor_pending` 恒真——存在大量未触达的静态构造器——`call_barriers`+`ensure_callee_owner_init` 合计 self ≈1.7%）。现 `FnEntry` 带 `init_ready` 纪元 cell：完整屏障通过且 `callee_barrier_settled`（无 module init 待跑 ∧（全局无 pending ∨ owner 解析且其 cctor 本代已完成/无 cctor））时记录纪元（读于屏障前，事件并发时留陈旧记录而非错误记录），之后每次调用一次 acquire + 一次 relaxed load 即过门。失效语义与静态字段门同源（`barrier_epoch` 集中失效，`barrier_epoch_moves_on_every_invalidating_event` 钉住）；vcall 无屏障（receiver 存在 ⇒ owner cctor 已跑），只 `call_compiled` 一处 | 单测 `callee_barrier_settled_tracks_the_same_events_as_the_epoch`（无 pending/owner 未解析/Exempt/module init pending 四态）+ 全量 lib 1692 零回归 + 现有 cctor 屏障集成测试（行为不变，只短路重复放行）。A/B（同 driver/flat 只换 VM，6 轮交错中位）：z42c 自建 **user CPU −5.3%**（9.602→9.090 s）、墙钟 −4.9%、33 产物 sha256 一致（收益远超屏障链的 1.7% self——快路消除的是每次调用的整条 load 短路链，z42c 一次自建的调用总量上亿）；GREEN 双模式 | ✅ #1401 |
 | X-5 | perf/vm | `string.GetHashCode` 块内记忆：string 块的 `kind_word` 原本恒 null（region carve/hole 复用/alloc_leaked 全路径都会清它），拿来惰性缓存不可变串的 FNV 哈希（非零 u32 位模式，strict-provenance `map_addr`/`addr`，与 `VarGcRef` tagged pointer 同手法；null=未缓存哨兵，零哈希不缓存；并发写同值幂等）。`str_hash_code` 首算后 memoize，之后 O(1)。动机：z42 层 `StrMap` 家族 ≈11.5%（内建采样）每操作一次 `GetHashCode`（外部剖面 native 侧 string 哈希 self ≈1.2%），stdlib 字典 string 键同受益 | 单测 `str_hash_code_is_stable_and_memoized`（FNV 参考值钉住 + memo 命中 + 异块独立 memo）+ 全量 lib 1693 零回归。A/B（同 driver/flat 只换 VM，6 轮交错中位）：z42c 自建 user CPU **−0.5%**、墙钟 −2.1%（高负载窗口）、33 产物 sha256 一致。收益小于剖面 self 的解释：只有**重复哈希同一串**受益（StrMap 探测重复、跨表同名键），z42c 一次性 mangled 名的首哈希占大头；机制收益随字符串键负载扩展；GREEN 双模式 | ✅ #1403 |
 
-下一候选以 §1.7 可信剖面为据（调用协议 / 帧构造、分配 / GC——fsync 批处理与算术 helper 内联已由 X-3 / X-2 落地），开工前出方案。X-4 后调用族残余大头：`new_args_from`（4.9% self，建帧侧 resize 全量 Null 写 + 实参拷贝）、`call_compiled`/`call_native`（push/pop VmFrame 栈行）、z42 层 `StrMap` 家族 ≈11.5%（内建采样口径）——候选：JIT→JIT 帧构造内联进机器码（阶段 2「每线程连续 VM 栈」的前奏，需方案）、~~免 Null 化~~（**审计否决**：`VarGcRef::mark` 设计上无 generation 校验——依赖「句柄必活」前提，stale 句柄可指向已 decommit 的 chunk（M7）直接崩溃；安全化需给每次 root mark 加校验，拖慢正路径得不偿失）、z42c max_reg 压缩（帧槽 Null 写总量 ∝ max_reg）。
+### X-5 后剖面复测与机械件边际结论（2026-10-26）
+
+X-2~X-5 落地后在 main `518e8a7cc`（含 #1404）复测双口径，两条结论修正此前的归因：
+
+- **剖面口径**：外部 `sample` 的 "Sort by top of stack" 段是**去重条目**（每函数一行、样本 ≥5），拿它除以猜测的主线程样本数会**大幅高估簇占比**——X-4 前所记「调用族 ≈18%」实际按主线程口径约 ⅓；正确分母是 call graph 顶层线程行。X-4 的 −5.3% user CPU 是 A/B 实测、不受影响，但簇归因以本节为准。
+- **机械件边际已到**：修正口径后调用族（`new_args_from`+`call_compiled`+`call_native`+`jit_call`+`pop_frame`+`new_method_args_from`+`jit_vcall`）合计 ≈2-3%，GC 族 ≈1-2%；bool[] 内联（X-6 探针，分支留存）8 轮干净窗口 A/B 1.002-1.004 亦印证——**z42c 负载下可机械消除的 helper/屏障成本已吃完**（X-2/X-4 是最后两块大头）。已审计否决的同类项：帧寄存器**免 Null 化**（`VarGcRef::mark` 设计上无 generation 校验——依赖「句柄必活」前提，stale 句柄可指向已 decommit 的 chunk（M7）直接崩溃；安全化需给每次 root mark 加校验，拖慢正路径得不偿失）。
+
+z42 层（内建采样）`StrMap` 家族仍 ≈11.4%（探测循环本体，非哈希计算——X-5 的 memo 只消重复哈希）。剩余三方向均超出机械小刀范畴，方案草案：
+
+1. **StrMap 数据结构战役**（z42c 侧，欠账「StrMap 分配」同项）：ctor 家族 3.3%（三数组分配）+ 探测/rehash 8%+。方向：键哈希驻留（`GetHashCode` 已 memo，StrMap 侧可存预哈希开链）、探测序列局部性（同槽缓存行）、rehash 次数（`expected` 构造的调用方覆盖率）。属 z42c 战役领地，开工前与该线对齐。
+2. **JIT→JIT 帧构造内联**（阶段 2「每线程连续 VM 栈」前奏，需 User 确认方案）：callee `max_reg`/入口偏移烘进已编译调用站点，caller 机器码直建寄存器文件（reg pool 需机器码可达的原语：take/give + tag guard）；`VmFrame` 栈行仍需（GC root + 栈追踪）→ 帧与栈行分离（栈行瘦身或惰性登记）。语义风险：safepoint 前实参的 root 暴露时机（现由 `push_frame` 前的 `new_args_from` 保证「建帧到 push 无 GC 点」——内联后同一不变式要在机器码层维持）。
+3. **加载链路 Rust 侧追查**：SipHash/memchr/CharSearcher 簇 ≈3%（修正口径）且 call graph 父链被无符号 JIT 帧遮蔽——需 lldb/符号化投入才能定位到表；系统性的热表替换（`NameIndex`、`branch_targets`）P1-2 已做，残留多为冷路径，预期收益有限。
 
 ### 阶段 2：紧凑执行与对象模型（1–2 个月，需另行确认）
 
