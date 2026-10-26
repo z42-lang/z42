@@ -248,6 +248,21 @@ impl VarGcRef {
         unsafe { self.header_ptr().as_ref().set_ascii_str() }
     }
 
+    /// The memoized `GetHashCode` of this string block, if computed before
+    /// (`block.rs`'s string hash memo).
+    #[inline]
+    pub(crate) fn str_hash_memo(&self) -> Option<i64> {
+        // SAFETY: the caller holds a live handle; the header address is valid.
+        unsafe { self.header_ptr().as_ref().str_hash_memo() }
+    }
+
+    /// Memoize this string block's `GetHashCode` (`h != 0`).
+    #[inline]
+    pub(crate) fn memo_str_hash(&self, h: u32) {
+        // SAFETY: the caller holds a live handle; the header address is valid.
+        unsafe { self.header_ptr().as_ref().memo_str_hash(h) }
+    }
+
     /// Whether this string block was marked all-ASCII at creation.
     #[inline]
     pub(crate) fn is_ascii_str(&self) -> bool {

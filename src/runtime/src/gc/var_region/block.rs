@@ -236,6 +236,31 @@ impl GcBlockHeader {
     pub(crate) fn clear_kind_word(&self) {
         self.kind_word.store(std::ptr::null_mut(), Ordering::Relaxed);
     }
+
+    // ── String hash memo ─────────────────────────────────────────────────────
+    // A string block's kind word is otherwise dead (null; the region nulls it on
+    // every carve, so a reused block starts unmemoized). A string is immutable,
+    // so `GetHashCode`'s FNV answer is a constant per block — memoized here after
+    // the first computation (concurrent writers store the same value; any store
+    // wins). The stored bits are `hash as usize` of a **non-zero** u32 — a zero
+    // hash is simply never memoized (null stays "not cached"), so null is an
+    // unambiguous sentinel. The pattern is never dereferenced (strict-provenance
+    // `map_addr`/`addr`, same scheme as `VarGcRef`'s tagged pointer).
+
+    /// The memoized `GetHashCode` value, `None` when this block has none yet.
+    #[inline]
+    pub(crate) fn str_hash_memo(&self) -> Option<i64> {
+        let bits = self.kind_word.load(Ordering::Relaxed).addr();
+        if bits == 0 { return None; }
+        Some(bits as u32 as i64)
+    }
+
+    /// Memoize this string block's hash. Caller guarantees `h != 0`.
+    #[inline]
+    pub(crate) fn memo_str_hash(&self, h: u32) {
+        let p = std::ptr::null_mut::<()>().map_addr(|_| h as usize);
+        self.kind_word.store(p, Ordering::Relaxed);
+    }
 }
 
 impl GcWord {

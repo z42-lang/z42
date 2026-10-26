@@ -144,6 +144,21 @@ impl Str {
         self.block.is_ascii_str()
     }
 
+    /// This string's memoized `GetHashCode`, if it was computed before. A string is
+    /// immutable, so the FNV answer is a per-block constant — `corelib::str_hash_code`
+    /// stores it in the block header's dead kind word after the first call (see
+    /// `GcBlockHeader::str_hash_memo` for the layout and the reuse story).
+    #[inline]
+    pub fn memoized_hash_code(&self) -> Option<i64> {
+        self.block.str_hash_memo()
+    }
+
+    /// Memoize the (non-zero) `GetHashCode` answer for later reads.
+    #[inline]
+    pub(crate) fn memoize_hash_code(&self, h: u32) {
+        self.block.memo_str_hash(h)
+    }
+
     /// Byte length in bytes (O(1) — the block header's `size`).
     #[inline]
     pub fn len(&self) -> usize {
