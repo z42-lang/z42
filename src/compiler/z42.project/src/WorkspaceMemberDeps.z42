@@ -55,29 +55,48 @@ public static class WorkspaceMemberDeps {
     // 非成员（独立工程 / 成员目录里的嵌套清单，如 tests/<unit>）照旧按名声明——FindWorkspaceFor
     // 只认成员目录本身，这里从源目录逐级向上试。workspace 坏了（成员环 / 重名）→ 空表：那是
     // workspace 构建自己的错误，别让单包构建替它红。
+    //
+    // 进程级 memo（键 = 该 workspace 的 toml 路径；与 DepScanCache 同一条进程级缓存纪律）：一次 workspace
+    // 构建里本函数被**逐成员**反复调用（driver 的 SDK 计划 + PackageCompile 的 E0497 放行集），而每次
+    // 发现成员都要解析**全部**成员清单。成员集在一个构建进程内不变（成员目录不会中途出现 / 消失；
+    // generator 只加源文件）。发现失败（空表）同样记住——workspace 坏了在本进程内不会自愈。
+    // 返回拷贝，调用方拿到的仍是自己的数组。只在单线程段调用（driver 主线程 / PackageCompile 并行段之前）。
+    private static string   _memoWsToml = "";
+    private static string[] _memoNames  = new string[0];
+
     public static string[] EnclosingMemberNames(string sourceDir) {
         string dir = sourceDir;
         while (dir.Length > 0) {
             string wsToml = WorkspaceLayout.FindWorkspaceFor(dir);
             if (wsToml.Length > 0) {
-                try {
-                    WorkspaceManifest ws = ManifestLoader.LoadWorkspace(wsToml);
-                    string d = Path.GetDirectoryName(wsToml);
-                    if (d.Length == 0) { d = "."; }
-                    WorkspaceMembers m = WorkspacePlan.DiscoverMembers(d, ws);
-                    string[] names = new string[m.Count];
-                    int i = 0;
-                    while (i < m.Count) { names[i] = m.Names[i]; i = i + 1; }
-                    return names;
-                } catch (Exception e) {
-                    return new string[0];
+                if (wsToml != WorkspaceMemberDeps._memoWsToml) {
+                    WorkspaceMemberDeps._memoNames  = WorkspaceMemberDeps._discoverNames(wsToml);
+                    WorkspaceMemberDeps._memoWsToml = wsToml;
                 }
+                string[] r = new string[WorkspaceMemberDeps._memoNames.Length];
+                Array.Copy(WorkspaceMemberDeps._memoNames, r, r.Length);
+                return r;
             }
             string parent = Path.GetDirectoryName(dir);
             if (parent.Length == 0 || parent == dir) { break; }
             dir = parent;
         }
         return new string[0];
+    }
+
+    private static string[] _discoverNames(string wsToml) {
+        try {
+            WorkspaceManifest ws = ManifestLoader.LoadWorkspace(wsToml);
+            string d = Path.GetDirectoryName(wsToml);
+            if (d.Length == 0) { d = "."; }
+            WorkspaceMembers m = WorkspacePlan.DiscoverMembers(d, ws);
+            string[] names = new string[m.Count];
+            int i = 0;
+            while (i < m.Count) { names[i] = m.Names[i]; i = i + 1; }
+            return names;
+        } catch (Exception e) {
+            return new string[0];
+        }
     }
 
     // WS032：成员清单 `[dependencies]` 里按名声明（无 path / 无 deploy——那两种键有真实语义）的
