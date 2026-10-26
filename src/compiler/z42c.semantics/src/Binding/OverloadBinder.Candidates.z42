@@ -6,6 +6,7 @@
 // 决议本身（适用性 / 最具体 / 歧义 / params 展开）仍在 `OverloadBinder.z42`。
 namespace Z42.Semantics;
 using Z42.IR;
+using Z42.Symbols;
 
 
 public sealed partial class OverloadBinder {

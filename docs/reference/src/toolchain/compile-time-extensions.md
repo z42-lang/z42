@@ -261,7 +261,7 @@ analyzer 可以在报诊断的同时给出修复：把 `diags` 下转成 `FixSin
 
 Generator 契约（`Generator` / `ModuleGenerator` / `GenTarget` / `GenSink` / `GenContext`）住在
 **`z42c.plugin`** 的 generator 面，命名空间 `Z42.Generators`。它比 analyzer 契约深一层：generator 在一次
-预备绑定**之后**运行，拿得到解析后的符号（`Z42ClassType` / `SymbolTable`，命名空间 `Z42.Semantics`，
+预备绑定**之后**运行，拿得到解析后的符号（`Z42ClassType` / `SymbolTable`，命名空间 `Z42.Symbols`，
 由 `z42c.plugin` 传递引入）。
 
 两种形态：

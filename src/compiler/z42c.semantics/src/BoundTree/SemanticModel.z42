@@ -2,6 +2,7 @@
 // Bodies key：类方法 = "Class.Method"，顶层函数 = 函数名。
 namespace Z42.Semantics;
 using Z42.IR;   // StrMap 统一到 z42c.ir（compiler-review §4.1）
+using Z42.Symbols;
 
 public sealed class SemanticModel {
     public SymbolTable Symbols;

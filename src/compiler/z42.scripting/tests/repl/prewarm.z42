@@ -2,7 +2,7 @@
 // 重复 Prewarm 幂等。REPL 里这份 Prewarm 由后台线程跑，这里单线程直接调用，只验「预热 + 消费」的结果。
 namespace Z42ScriptingTests;
 
-using Std.Scripting;
+using Z42.Scripting;
 using Std.Harness;
 
 [Test]

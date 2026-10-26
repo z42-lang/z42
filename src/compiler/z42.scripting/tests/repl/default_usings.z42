@@ -2,7 +2,7 @@
 // Math / StringBuilder 等。
 namespace Z42ScriptingTests;
 
-using Std.Scripting;
+using Z42.Scripting;
 using Std.Harness;
 
 [Test]

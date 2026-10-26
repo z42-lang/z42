@@ -1,6 +1,6 @@
 // attribute-handler-registry PR3a —— Analyzer 契约（编译期诊断分析框架的公共 API 面）。
 //
-// 放在 z42c.syntax（AST 所在处、被 z42c.semantics 依赖）——对齐 Roslyn：analyzer 包依赖编译器的
+// 住在 z42c.plugin（命名空间 Z42.Analyzers，与 generator 契约合包），只依赖 z42c.syntax + z42c.core——对齐 Roslyn：analyzer 包依赖编译器的
 // 语法 API（Microsoft.CodeAnalysis），而非纯运行时库（stdlib 不能反依赖编译器）。外部 analyzer
 // zpkg 经 [dependencies] 依赖 z42c.syntax + z42c.core 来编写，用 z42.toml `[plugins]` 段声明被
 // 编译器加载执行（D9：独立编译期 zpkg 类别，编译期运行、不链入目标程序、不入消费产物）。设计 SoT：

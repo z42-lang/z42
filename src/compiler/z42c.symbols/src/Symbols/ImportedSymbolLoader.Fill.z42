@@ -1,7 +1,7 @@
 // 导入类成员的并行填充（perf-parallel-import-fill）：`ImportedSymbolLoader.Load` Phase2 的类成员一段。
 // 按「类」分组：同一个类对象（partial 跨模块会出现多份 ExportedClassZ）的全部条目同组、保收集序，
 // 一组由一个任务独占 —— `_fillClass` 只写该类对象，只读 Phase1 的骨架表，组间无共享写。
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 
 using Z42.Package;   // IParallelTask
 

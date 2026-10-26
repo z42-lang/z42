@@ -2,7 +2,7 @@
 // 逐字搬来的**纯命名工具**（只依赖 Z42Type 家族 + PrimModel，零符号表、零 AST），供 Symbols/Types
 // 层（MemberCollector / SymbolCollector / InheritanceResolver / CtorInheritance / ConstraintChecker）
 // 与 Binding 层（OverloadResolver 薄转发）共用。定义点与跨包 import 两侧共用同一份 ⇒ round-trip 一致。
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 
 public static class DispatchKeys {
     // 统一签名键：每个方法（含唯一方法）一律编码完整签名 `名$参数数$类型键…`。

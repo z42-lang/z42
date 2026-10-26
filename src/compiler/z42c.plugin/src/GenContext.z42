@@ -4,7 +4,7 @@
 // 建 GenContextImpl 驱动 module generator；两文件同 namespace Z42.Semantics。契约见 Generation.z42。
 namespace Z42.Generators;
 
-using Z42.Semantics;   // 语义层：符号表 / 解析后的类型（generator 在 provisional 绑定上工作）
+using Z42.Symbols;   // 语义层：符号表 / 解析后的类型（generator 在 provisional 绑定上工作）
 
 using Z42.Syntax;   // CompilationUnit / ClassDecl / AttributedDecl / MethodDecl / Attr / Decl
 

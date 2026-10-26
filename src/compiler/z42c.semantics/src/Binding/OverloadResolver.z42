@@ -10,6 +10,7 @@
 namespace Z42.Semantics;
 
 using Z42.Syntax;   // MethodKeyOf 收 MethodDecl（阶段 1 的 `using Z42.IR` 是 DRAFT 版签名
+using Z42.Symbols;
                     // 收 StrMap 时加的，实现改收类型后就没用了 —— 顺手订正）
 
 // 决议结果（z42 无元组 → holder）。Kind：0=Resolved，1=NoMatch，2=Ambiguous。

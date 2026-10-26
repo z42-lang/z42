@@ -1,7 +1,7 @@
 // 会话变量活值的成员补全：直接反射（__repl_member_names）与经 completer 的 `b.` / `b.W`。
 namespace Z42ScriptingTests;
 
-using Std.Scripting;
+using Z42.Scripting;
 using Std.Harness;
 
 [Test]

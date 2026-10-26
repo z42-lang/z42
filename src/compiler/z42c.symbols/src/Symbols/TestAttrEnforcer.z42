@@ -4,7 +4,7 @@
 //
 // 编译侧只做这层校验——测试由 runner 在运行期反射发现（docs/internals/src/testing/framework.md）。
 //名字表（哪些 attribute 属测试家族）只在 HandlerRegistry。
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 using Z42.IR;       // StrMap
 using Z42.Syntax;
 using Z42.Core;

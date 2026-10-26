@@ -4,6 +4,7 @@
 namespace Z42cSemanticsExportBaseChainTests;
 
 using Z42.Semantics;
+using Z42.Symbols;
 using Z42.IR;
 using Z42.Emission;
 using Std.Harness;

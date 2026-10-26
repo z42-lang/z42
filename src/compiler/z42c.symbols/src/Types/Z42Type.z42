@@ -2,7 +2,7 @@
 // 受限写法：class 继承 + virtual（z42 无 abstract）。起步：Prim/Class/Void/Error/Unknown。
 // 后续增量：Array/Func/Interface/GenericParam/Instantiated/Option/Enum。
 // Z42ClassType 的 Fields/Methods（StrMap 符号）待 1A-2/1A-3（符号就绪后回填）。
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 using Z42.IR;   // StrMap 统一到 z42c.ir（compiler-review §4.1）
 using Z42.Syntax;   // TypeExpr（Z42InterfaceType.BaseRefs 存父接口的声明形态）
 

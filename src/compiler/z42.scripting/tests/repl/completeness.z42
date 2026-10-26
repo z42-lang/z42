@@ -1,7 +1,7 @@
 // 输入完整性探针（add-repl-parser-completeness）与续行缩进（sink-repl-indent-to-script）。
 namespace Z42ScriptingTests;
 
-using Std.Scripting;
+using Z42.Scripting;
 using Std.Harness;
 
 // 类型声明缺正文、自由函数缺正文、悬挂运算符、未闭合括号 / 语句块 → 续读。

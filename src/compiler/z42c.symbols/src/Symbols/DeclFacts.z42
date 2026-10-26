@@ -1,7 +1,7 @@
 // 声明修饰符 / 可见性 / 字面量文本的无状态助手——只看 AST 与字符串，不涉及 IR。
 // 语义层（符号收集、类型检查、常量求值、声明期校验）与代码生成共用；放在语义层，代码生成反过来引用它
 // （层次：Symbols / Types / Binding 不得引用 Emission 等更上层，见 z42c.semantics README「目录结构」）。
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 
 using Z42.Syntax;
 

@@ -1,7 +1,7 @@
 // z42c.semantics Z42Type 单测（1A-1）：赋值兼容（数值拓宽 / error 吸收 / class·void）。
 namespace Z42cSemanticsTypeTests;
 
-using Z42.Semantics;
+using Z42.Symbols;
 using Std.Harness;
 
 [Test]

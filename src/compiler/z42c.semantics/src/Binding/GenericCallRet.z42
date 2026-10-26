@@ -1,5 +1,6 @@
 // 泛型方法调用点的返回类型代换（机制见 MemberResolver.Generic.z42 头注）。
 namespace Z42.Semantics;
+using Z42.Symbols;
 
 public static class GenericCallRet {
     // 按方法级类型实参（`names[i]` ↔ `targs[i]`）代换 ms 声明的返回类型，再按受者实参代换类级型参，

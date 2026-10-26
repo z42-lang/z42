@@ -8,7 +8,7 @@
 // 函数平坦命名空间共享，不能重定义 → 直接调用）。
 namespace Z42cSemanticsCrossPkgNullableTests;
 
-using Z42.Semantics;
+using Z42.Symbols;
 using Z42cSemanticsCrossPkgDuplicateTests;
 using Std.Harness;
 

@@ -10,7 +10,7 @@
 // 集合与顺序对不上就是运行期字段槽错位。详见 `_instClassDesc` 的注释。
 namespace Z42.Emission;
 
-using Z42.Semantics;
+using Z42.Symbols;
 
 using Z42.Syntax;
 using Z42.IR;

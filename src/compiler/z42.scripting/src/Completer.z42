@@ -13,7 +13,7 @@
 //
 // rustyline Tab 经 `Std.Repl.Repl.SetCompleter` 注册的自由函数 `replComplete` 回调本模块
 // （机制见 z42vm `corelib/repl.rs`）。契约：`string[] replComplete(string line, int pos)`。
-namespace Std.Scripting;
+namespace Z42.Scripting;
 
 using Std.Collections;
 using Z42.Syntax;    // Lexer（关键字表权威源，KeywordCount/KeywordNameAt）——前端已是 stdlib

@@ -1,7 +1,7 @@
 // 尾随 `;`：方法调用无值成功且副作用生效；多语句单行只剥尾随那个；赋值不撞 `;;`；裸表达式仍打印值。
 namespace Z42ScriptingTests;
 
-using Std.Scripting;
+using Z42.Scripting;
 using Std.Harness;
 
 [Test]

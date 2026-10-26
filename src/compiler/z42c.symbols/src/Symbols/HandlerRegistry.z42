@@ -6,7 +6,7 @@
 //   · directive  —— 编译器原生封闭集（Native / Suppress / Deprecated / Record）：豁免后缀、不合成工厂，
 //     或烘进 descriptor、或纯编译期消费。
 //   · handler    —— 编译期消费并聚合成包级产物（`[ModuleInit]`）。外部 Generator / Analyzer 不经这里。
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 
 using Z42.Syntax;
 

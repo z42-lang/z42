@@ -6,6 +6,7 @@
 namespace Z42.Semantics;
 
 using Z42.Syntax;
+using Z42.Symbols;
 
 public sealed partial class ExprTyper {
     public BoundExpr VisitIntLitExpr(IntLitExpr n, TypeEnv env) { return this._bindLiteral(n); }

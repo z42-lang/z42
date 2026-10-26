@@ -24,7 +24,7 @@ z42 repl                                  launcher（特判命令，不走生成
        ├─ z42.interactive (Z42Interactive)   宿主：主循环 / 元指令 / 结果打印
        ├─ z42.repl        (Std.Repl)         tty 交互层：native 绑定 + 键位策略        ← toolchain
        │    └─ libz42_repl.{dylib,so,dll}    rustyline 行编辑器（host-only cdylib）    ← runtime
-       └─ z42.scripting   (Std.Scripting)    跨平台 eval-core：分类/改写/完整性/编译编排/补全 ← stdlib
+       └─ z42.scripting   (Z42.Scripting)    跨平台 eval-core：分类/改写/完整性/编译编排/补全 ← stdlib
             └─ z42.build  (Z42.Build)        IReplCompiler 门面（只有接口）
                  └─ z42c.pipeline            Z42cReplCompiler（运行期反射注入）
 ```
@@ -33,13 +33,13 @@ z42 repl                                  launcher（特判命令，不走生成
 
 | 包 | 命名空间 | 住处 | 分发落点 | 为什么在这一层 |
 |---|---|---|---|---|
-| `z42.scripting` | `Std.Scripting` | `src/libraries/` | `libs/z42.scripting.zpkg` | 纯计算，无 tty 依赖；playground / wasm 复用同一份 eval-core（`Playground.z42` 的 `evalFromVfs` 就是它的 VFS 入口） |
+| `z42.scripting` | `Z42.Scripting` | `src/libraries/` | `libs/z42.scripting.zpkg` | 纯计算，无 tty 依赖；playground / wasm 复用同一份 eval-core（`Playground.z42` 的 `evalFromVfs` 就是它的 VFS 入口） |
 | `z42.repl` | `Std.Repl` | `src/toolchain/interactive/repl/` | `programs/z42i/z42.repl.zpkg` | 绑 tty / rustyline，host-only |
 | `z42.interactive` | `Z42Interactive` | `src/toolchain/interactive/core/` | `programs/z42i/z42.interactive.zpkg`（apphost `z42i`） | 交互入口本体 |
 | `libz42_repl` | — | `src/runtime/crates/z42-repl/` | `programs/z42i/`（挨着 z42i） | 行编辑后端，见 §5 |
 
 依赖是**单向**的：`z42.repl` → `z42.scripting`（用 `Completeness`），反向没有边。会话变量活值的成员名
-反射（补全要用）因此归 `Std.Scripting.Engine.MemberNames` 而不是 `Std.Repl.Repl`——放错边就成环。
+反射（补全要用）因此归 `Z42.Scripting.Engine.MemberNames` 而不是 `Std.Repl.Repl`——放错边就成环。
 
 `z42 repl` 在 launcher 里是**特判命令**（launcher_cli.z42（`_runLauncher`））：`_forwardRepl` 自己拦 `-h`/`--help`
 打印帮助（跳过 `-c` 的值，故 `z42 repl -c "-h"` 仍是求值），其余参数里剥出 launcher 级的
@@ -193,7 +193,7 @@ REPL 仍能启动并给出明确的 stderr 提示，而不是崩。
 REPL 每读一行都要回答「当前累积的输入写完了没」。早期靠括号净深度，那只是完整性的一个**词法子集**：
 `class B`（缺正文）、`void foo()`（缺 `{`）、`1 +`（缺右操作数）括号计数全是 0，被误判成写完，直送编译报错。
 
-唯一知道语法上还缺什么的是 **parser**。`Std.Scripting.Completeness.IsIncomplete` 因此对输入做一次
+唯一知道语法上还缺什么的是 **parser**。`Z42.Scripting.Completeness.IsIncomplete` 因此对输入做一次
 **裸 parse**——不做语义分析 / codegen / 加载依赖 / 执行，不改 `ScriptState`，只读 parser 的标志位。
 
 ### 4.1 为什么必须是裸原文
@@ -326,7 +326,7 @@ Rust 答「光标在末尾没」（`ectx.pos() == ectx.line().len()`，字节比
 
 - **Tab 补全**：编辑器以 `CompletionType::List` 构造（bash 式：首 Tab 补最长公共前缀、再 Tab 列候选），
   而非 rustyline 默认的 `Circular`（反复 Tab 循环候选、转一圈回到原始输入，观感是「Tab 越按越退」）。
-  候选经进程全局 `REGISTERED_COMPLETER`（z42 的 `Std.Scripting.replComplete`，由 `Repl.SetCompleter` 注册）
+  候选经进程全局 `REGISTERED_COMPLETER`（z42 的 `Z42.Scripting.replComplete`，由 `Repl.SetCompleter` 注册）
   回调 VM 取得。
 - **inline ghost 提示**：`Hinter` 只在行尾、缓冲非空时出手。先试**补全 ghost**——复用同一个 completer，
   取第一个**严格扩展**当前词的候选的后缀（`starts_with` 过滤，非扩展就不提示，ghost 永不错）；

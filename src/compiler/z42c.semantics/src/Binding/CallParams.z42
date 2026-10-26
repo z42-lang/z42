@@ -7,6 +7,7 @@
 namespace Z42.Semantics;
 
 using Z42.Syntax;
+using Z42.Symbols;
 
 public static class CallParams {
     // 本地声明（有则按它归位、补默认值表达式）；导入符号返回 null。

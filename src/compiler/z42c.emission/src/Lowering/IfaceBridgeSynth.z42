@@ -18,7 +18,7 @@
 // VCall 裸名 ⇒ 改名纯粹是编译器内部的事。装箱只发生在接口边界，那里本来就必须装箱。
 namespace Z42.Emission;
 
-using Z42.Semantics;
+using Z42.Symbols;
 
 using Z42.IR;
 

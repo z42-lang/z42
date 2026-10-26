@@ -2,7 +2,7 @@
 // 数据源 = CachedScan，首轮 eval 后建成。
 namespace Z42ScriptingTests;
 
-using Std.Scripting;
+using Z42.Scripting;
 using Std.Harness;
 
 [Test]

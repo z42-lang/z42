@@ -2,7 +2,7 @@
 // 主文件保留相位编排（激活集 → Phase1 骨架 → Phase2 填充 → Phase3 impl 合并），
 // 本文件承载各相位的**单模块实现**——类/接口/枚举骨架、delegate/自由函数、接口方法填充。
 // 与 .Resolve 分片（纯叶子解析）、.Fill 分片（并行填充任务类）同一分工惯例：同 partial 类、共享 private 面。
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 
 using Z42.IR;
 using Z42.Package;

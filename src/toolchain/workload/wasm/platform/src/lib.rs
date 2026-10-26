@@ -167,7 +167,7 @@ impl Z42VM {
         z42::corelib::fs_backend::memory::mount("/input.z42", source.as_bytes().to_vec());
         let entry = self
             .host
-            .resolve_entry(&module.inner, "Std.Scripting.evalFromVfs")
+            .resolve_entry(&module.inner, "Z42.Scripting.evalFromVfs")
             .map_err(to_js_error)?;
         let no_args: [Value; 0] = [];
         self.host.invoke(&entry, &no_args).map_err(to_js_error)?;

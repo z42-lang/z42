@@ -30,6 +30,7 @@ namespace Z42.Semantics;
 using Z42.IR;
 
 using Z42.Core;
+using Z42.Symbols;
 
 public sealed partial class MemberResolver {
     // 全仓有没有任何已知类型声明过名为 `member` 的字段 / 属性 / 方法。

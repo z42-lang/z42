@@ -28,7 +28,7 @@
 // 必须确保被替换内容无有意义字符）——任何情形不满足一律走默认键行为，绝不干扰正常编辑与补全。
 namespace Std.Repl;
 
-using Std.Scripting;   // Completeness.IsIncomplete / ContinuationIndent（enter 分支整块完整性判定 + 续行缩进）
+using Z42.Scripting;   // Completeness.IsIncomplete / ContinuationIndent（enter 分支整块完整性判定 + 续行缩进）
 
 public static class ReplEditing {
     // 当前逻辑行光标前子串（末个 '\n' 之后到 pos）。pos 假定 ≤ line.Length。

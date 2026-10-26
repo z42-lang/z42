@@ -11,7 +11,7 @@
 // 为什么编码进字符串而不是加字段：`UsedDepNs` 随增量缓存 meta 落盘，由 driver 原样搬运
 // （IncrementalDriver / Main 构造 CachedNsMeta）。加字段 ⇒ driver 要引用新的 pipeline 符号，
 // 按自举纪律得晚一个 nightly；编进现有串，driver 零改动。ns 与包名都不含 `#`。
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 
 public static class DepRef {
     public static string Encode(string ns, string pkg) {

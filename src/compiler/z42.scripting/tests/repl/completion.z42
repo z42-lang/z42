@@ -2,7 +2,7 @@
 // 前缀匹配区分大小写：`ban` 不命中 `Bandit`。
 namespace Z42ScriptingTests;
 
-using Std.Scripting;
+using Z42.Scripting;
 using Std.Harness;
 
 [Test]

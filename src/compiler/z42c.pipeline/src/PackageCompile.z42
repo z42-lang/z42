@@ -12,7 +12,7 @@ namespace Z42.Pipeline;
 using Std.IO;         // Path（retire-member-dep-decls：E0497 成员放行的源目录推导）
 using Z42.Core;       // DiagnosticBag / Diagnostic / DiagnosticSeverity（analyzer 诊断合入）
 using Z42.Syntax;
-using Z42.Semantics;
+using Z42.Symbols;
 using Z42.Generators;   // CompileInputs 的测试注入面（Generator / ModuleGenerator）
 using Z42.Analyzers;   // CompileInputs.Lints（LintConfig）
 using Z42.IR;

@@ -14,11 +14,11 @@
 | 域 | 在哪 | 命名空间 | 面向 | 普通工程能看见吗 |
 |---|---|---|---|---|
 | **用户 stdlib** | `src/libraries/`（发布到 `<sdk>/libs/`）| `Std.*` | 应用开发者 | ✅ 隐式可见（框架面）|
-| **编译器域** | `src/compiler/`（发布到 `<sdk>/programs/z42c/`）| `Z42.*`（+ 暂留的 `Std.Scripting`）| 编译器 / 工具链自身 | ❌ 结构上看不见；要用得在 `[dependencies]` 里**显式引用** |
+| **编译器域** | `src/compiler/`（发布到 `<sdk>/programs/z42c/`）| `Z42.*` | 编译器 / 工具链自身 | ❌ 结构上看不见；要用得在 `[dependencies]` 里**显式引用** |
 
 编译器域的成员：`z42c.core`（`Z42.Core`）/ `z42c.syntax`（`Z42.Syntax`）/ `z42.package`（`Z42.IR` +
 `Z42.Package`）/ `z42.project`（`Z42.Project`）/ `z42.build`（`Z42.Build`）/ `z42.scripting`
-（`Std.Scripting` —— 命名空间待后续改名批次归位）+ 编译器后端 `z42c.optimization` / `z42c.semantics` /
+（`Z42.Scripting`）+ 编译器后端 `z42c.symbols`（`Z42.Symbols`）/ `z42c.optimization` / `z42c.semantics` /
 `z42c.emission` / `z42c.pipeline` / `z42c.driver`。
 
 ⭐ **为什么按位置区分**：若编译器域的 `Z42.*` 包与用户 stdlib 同住 `src/libraries/`，则「进不进 SDK

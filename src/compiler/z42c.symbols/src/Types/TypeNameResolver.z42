@@ -1,4 +1,4 @@
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 
 using Z42.Syntax;
 

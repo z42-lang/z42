@@ -5,7 +5,7 @@
 #   编译期扩展    z42c.plugin（analyzer + generator 契约与引擎合一，双命名空间 Z42.Analyzers / Z42.Generators）
 #   可移植前端    z42c.core / z42c.syntax（Lexer/Parser/AST/Span/Diagnostic）
 #   格式与模型    z42.package（IR + zbc/zpkg 后端）/ z42.project（工程清单）/ z42.build（构建管线）
-#   eval 内核     z42.scripting（Std.Scripting；命名空间待后续改名批次归位）
+#   eval 内核     z42.scripting（Z42.Scripting）
 #
 # 🔴 **物理位置就是「这是编译器域」的声明**：`src/libraries/` 只放用户 stdlib（`Std.*`），
 # 普通工程的解析域只有 shipped `libs/` ⇒ 结构上看不到本 workspace 的包；要用得在
@@ -37,7 +37,7 @@ members = ["*"]
 #   z42.package           → stdlib(core/encoding/io/crypto)
 #   z42.project           → stdlib(core/io/toml)
 #   z42.build             → z42.project（唯一保留下来的 path 依赖：喂 PathDepPlan 的闭包图，见其清单头注）
-#   z42c.symbols          → z42c.core, z42c.syntax, z42.package（semantics-split 拆出；命名空间仍 Z42.Semantics）
+#   z42c.symbols          → z42c.core, z42c.syntax, z42.package（semantics-split 拆出；命名空间 Z42.Symbols）
 #   z42c.optimization     → z42c.symbols, z42.package（IR → IR 优化管线）
 #   z42c.semantics        → z42c.core, z42c.syntax, z42.package, z42c.symbols（符号 / 绑定 / 检查）
 #   z42c.plugin           → z42c.symbols, z42c.core, z42c.syntax, z42c.semantics（analyzer 契约+加载+驱动+[lints]；generator 契约+加载+多轮引擎+内建 [Forward]）

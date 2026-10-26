@@ -1,6 +1,6 @@
 // 符号收集 Pass A（骨架 stub）：从 SymbolCollector 分出。接口 / 枚举 / 类 stub / 委托的注册，
 // 使成员类型可解析兄弟类。共享辅助（_unwrap）与编排入口留 hub SymbolCollector，经 _sc 委回。
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 using Z42.IR;
 using Z42.Syntax;
 using Z42.Core;
