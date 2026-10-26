@@ -274,7 +274,7 @@ public static class JsonPath {
 <a id="Std.Json.JsonPath.Select(JsonValue,string)"></a>
 ### static JsonValue? Select(JsonValue root, string path)
 
-[`src/libraries/z42.json/src/JsonPath.z42:17`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonPath.z42#L17)
+[`src/libraries/z42.json/src/JsonPath.z42:18`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.json/src/JsonPath.z42#L18)
 
 按 `path` 遍历 `root`，返回路径上的值；路径走不通（键缺失、下标越界、kind 不符）返回 null。
 

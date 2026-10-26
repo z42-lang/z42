@@ -543,6 +543,7 @@ public sealed partial class SymbolTable {
         }
     }
 
+    [Suppress("style.fnLinesHard", "163 body lines；拆分见 code-organization.md")]
     private Z42Type _resolveTypePCore(TypeExpr te, string[] paramNames, int paramCount) {
         if (te is ResolvedTypeExpr) { return (te as ResolvedTypeExpr).Resolved; }   // add-implicit-base-ctor-call：合成声明已解析的形参类型
         if (te is NamedType) {

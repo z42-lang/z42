@@ -414,6 +414,7 @@ public sealed class Lexer {
     // ── 符号（最长匹配）─────────────────────────────────────────────────────
     private void _sym(char c, int kind, string text) { this._sym1[(int)c] = kind; this._sym1Text[(int)c] = text; }
 
+    [Suppress("style.fnLinesHard", "62 body lines；拆分见 code-organization.md")]
     private void _lexSymbol() {
         char c = this._ch(this._pos);
         int ci = (int)c;

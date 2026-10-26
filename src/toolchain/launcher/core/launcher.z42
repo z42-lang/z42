@@ -130,6 +130,7 @@ void _printRunHelp() {
 }
 
 // z42 run [options] [<target>] [-- <program args>]
+[Suppress("style.fnLinesHard", "75 body lines；拆分见 code-organization.md")]
 void _cmdRun(string[] rest) {
     string? binOpt = _flagValue(rest, "--bin");
     string? cfgOpt = _flagValue(rest, "--config");

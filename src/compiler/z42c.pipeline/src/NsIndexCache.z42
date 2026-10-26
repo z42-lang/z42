@@ -133,6 +133,7 @@ public static class NsIndexCache {
     // nsMap + 路由 + 惰性 world + 惰性 libOpened，**不 open 任何包**；仅 prelude 现开 + reconcile
     // （首轮需要）。产出与未命中（open-all）路径等价：同一 sorted 顺序 → nsMap first-wins 一致、
     // 路由等价（EnsureFq 扫全部匹配 pair，非 first-wins，与顺序无关）。
+    [Suppress("style.fnLinesHard", "63 body lines；拆分见 code-organization.md")]
     internal static DepScanResult _scanFromIndex(string[] paths, NsIndexEntry[] idx, string excludeName,
                                                 string excludeZpkg, string[] declaredDeps, int declaredCount) {
         var index = new DependencyIndex();

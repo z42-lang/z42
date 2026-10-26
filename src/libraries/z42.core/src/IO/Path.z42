@@ -22,6 +22,7 @@ public static class Path {
         return false;
     }
 
+    [Suppress("style.fnLinesHard", "207 body lines；拆分见 code-organization.md")]
     /// 词法规范化路径，不碰文件系统。
     ///
     /// 折叠重复分隔符、去掉 `.` 段、抵消 `..` 段、去掉尾随 `/`，并把 `\` 统一换成

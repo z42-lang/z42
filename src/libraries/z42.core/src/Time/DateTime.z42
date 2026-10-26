@@ -266,6 +266,7 @@ public sealed class DateTime {
 
     // ── ISO-8601 解析 ────────────────────────────────────────────────────────
 
+    [Suppress("style.fnLinesHard", "113 body lines；拆分见 code-organization.md")]
     /// 解析 RFC 3339 / ISO 8601 子集，返回 UTC 时刻。
     ///
     /// 缺时区后缀按 UTC 处理；畸形输入抛 `ArgumentException`。接受的形状：

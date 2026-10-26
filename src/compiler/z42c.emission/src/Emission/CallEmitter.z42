@@ -107,6 +107,7 @@ public sealed class CallEmitter {
     }
 
     // 调用分派：free → call @f / static → call @Class.m / instance → vcall recv.m。
+    [Suppress("style.fnLinesHard", "144 body lines；拆分见 code-organization.md")]
     internal TypedReg _emitCall(BoundCall c) {
         // base ctor call：call @QualBaseCls.CtorKey %0, ...args（静态 direct call，args 含 this）
         if (c.Kind == "base_ctor") {
@@ -532,6 +533,7 @@ public sealed class CallEmitter {
     }
 
     // new T(args) / new Box<int>(args) → obj_new（结果 ref）。泛型实例化携 resolved type-args。ctor 解析延后。
+    [Suppress("style.fnLinesHard", "61 body lines；拆分见 code-organization.md")]
     internal TypedReg _emitNew(BoundNew n) {
         // add-generic-methods：`new T()` 其中 T 为方法级泛型形参 → 物化具体 Std.Type（读 frame 槽）+
         // __activator_create（无参反射构造）。零实参已由绑定期保证。

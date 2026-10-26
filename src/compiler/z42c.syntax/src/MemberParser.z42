@@ -103,6 +103,7 @@ public sealed class MemberParser {
         return d;
     }
 
+    [Suppress("style.fnLinesHard", "95 body lines；拆分见 code-organization.md")]
     private Decl _parseMemberBody(string mods, string className, AttrList attrs) {
         Span sp = this._p._peek().Span;
         // add-nested-types：嵌套类型声明（class/struct/interface/enum/record）作为成员 → 委托 DeclParser
@@ -376,6 +377,7 @@ public sealed class MemberParser {
         if (isRef || prm.Default != null) { this._p._diags.Error(DiagnosticCodes.ParamsModifierConflict, "'params' cannot combine with 'ref'/'out' or a default value", paramsTok); }
     }
 
+    [Suppress("style.fnLinesHard", "64 body lines；拆分见 code-organization.md")]
     public ParamList _parseParamList(bool allowDocs = false) {
         Span sp = this._p._peek().Span;
         this._p._expect(TokenKind.LParen, "(");

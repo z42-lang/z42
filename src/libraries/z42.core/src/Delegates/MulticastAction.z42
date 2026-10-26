@@ -73,6 +73,7 @@ public sealed class MulticastAction<T> {
         return c;
     }
 
+    [Suppress("style.fnLinesHard", "113 body lines；拆分见 code-organization.md")]
     /// 触发所有活跃 handler。
     ///
     /// `continueOnException = false`（默认）走 fail-fast：首个抛出的异常直接传播。

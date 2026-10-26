@@ -38,6 +38,7 @@ public sealed class SyntaxIndexer {
     }
 
     // parent = 所属条目的 Id；top = 是否命名空间级（决定默认可见性）；inIface = 接口成员（默认 public）。
+    [Suppress("style.fnLinesHard", "78 body lines；拆分见 code-organization.md")]
     private void _decl(Decl d0, string parent, bool top, bool inIface) {
         Decl d = d0;
         if (d is AttributedDecl) { d = (d as AttributedDecl).Inner; }

@@ -33,6 +33,7 @@ public sealed class IrLicm {
     }
 
     // 不变量分析 + 外提到 pre-header。
+    [Suppress("style.fnLinesHard", "80 body lines；拆分见 code-organization.md")]
     private static void _hoistInvariants(IrFunction f, int n, bool[] inLoop, int ph, int h, int[] dom, int dw, int optSet, PureTable pureTable) {
         int rc = f.MaxReg + 2;
         // defInLoop[reg] = 该 reg 在**被 header 支配的任一块**中定义（= 循环支配域，**含**异常/多出口退出块——

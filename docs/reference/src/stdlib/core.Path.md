@@ -43,7 +43,7 @@ public static class Path {
 <a id="Std.IO.Path.Normalize(string)"></a>
 ### static string Normalize(string path)
 
-[`src/libraries/z42.core/src/IO/Path.z42:30`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/Path.z42#L30)
+[`src/libraries/z42.core/src/IO/Path.z42:31`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/Path.z42#L31)
 
 词法规范化路径，不碰文件系统。
 
@@ -54,56 +54,56 @@ public static class Path {
 <a id="Std.IO.Path.Join(string,string)"></a>
 ### static string Join(string a, string b)
 
-[`src/libraries/z42.core/src/IO/Path.z42:72`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/Path.z42#L72)
+[`src/libraries/z42.core/src/IO/Path.z42:73`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/Path.z42#L73)
 
 拼接两段路径：b 是绝对路径则替换 a；否则用 `/` 分隔（a 已有尾随分隔符时不重复）。
 
 <a id="Std.IO.Path.Join(string[])"></a>
 ### static string Join(params string[] parts)
 
-[`src/libraries/z42.core/src/IO/Path.z42:82`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/Path.z42#L82)
+[`src/libraries/z42.core/src/IO/Path.z42:83`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/Path.z42#L83)
 
 多段路径拼接：逐段左折叠复用 2-arg 语义（绝对段替换、尾分隔去重）。
 
 <a id="Std.IO.Path.GetFileName(string)"></a>
 ### static string GetFileName(string path)
 
-[`src/libraries/z42.core/src/IO/Path.z42:98`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/Path.z42#L98)
+[`src/libraries/z42.core/src/IO/Path.z42:99`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/Path.z42#L99)
 
 返回路径最后一段（filename）。末尾分隔符被跳过；路径全是分隔符时返回 ""。
 
 <a id="Std.IO.Path.GetExtension(string)"></a>
 ### static string GetExtension(string path)
 
-[`src/libraries/z42.core/src/IO/Path.z42:114`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/Path.z42#L114)
+[`src/libraries/z42.core/src/IO/Path.z42:115`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/Path.z42#L115)
 
 返回 filename 中最后一个 `.` 之后的部分（不含 `.`）。`.bashrc` / `foo` / "" → ""。
 
 <a id="Std.IO.Path.GetFileNameWithoutExtension(string)"></a>
 ### static string GetFileNameWithoutExtension(string path)
 
-[`src/libraries/z42.core/src/IO/Path.z42:129`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/Path.z42#L129)
+[`src/libraries/z42.core/src/IO/Path.z42:130`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/Path.z42#L130)
 
 返回 filename 去除最后扩展名（保留 leading dot 的整体名）。
 
 <a id="Std.IO.Path.GetDirectoryName(string)"></a>
 ### static string GetDirectoryName(string path)
 
-[`src/libraries/z42.core/src/IO/Path.z42:144`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/Path.z42#L144)
+[`src/libraries/z42.core/src/IO/Path.z42:145`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/Path.z42#L145)
 
 返回路径父目录。无分隔符时返回 ""；根目录返回其分隔符段。
 
 <a id="Std.IO.Path.Glob(string,string)"></a>
 ### static extern string[] Glob(string dir, string pattern)
 
-[`src/libraries/z42.core/src/IO/Path.z42:168`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/Path.z42#L168)
+[`src/libraries/z42.core/src/IO/Path.z42:169`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/Path.z42#L169)
 
 在 dir 下匹配直接子项（不递归）。pattern 支持 `*`（任意序列）与 `?`（单字符）， 大小写敏感，不应含 `/`。返回排好序的全路径数组。
 
 <a id="Std.IO.Path.GlobRecursive(string,string)"></a>
 ### static string[] GlobRecursive(string dir, string pattern)
 
-[`src/libraries/z42.core/src/IO/Path.z42:174`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/Path.z42#L174)
+[`src/libraries/z42.core/src/IO/Path.z42:175`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/IO/Path.z42#L175)
 
 在 dir 下递归找所有匹配 pattern 的文件，返回绝对路径排序数组。
 

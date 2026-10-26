@@ -27,6 +27,7 @@ public sealed class AccessEmitter {
     // 静态字段/属性 / blob struct 字段），返回 val 寄存器。从 `_emitAssign` 抽出，让非-ident
     // 左值的自增/自减（`arr[i]++` / `obj.field++`）能**复用同一套已测的 store lowering**，
     // 而不是在 OperatorEmitter 里手抄第二份（属性 setter / blob / 嵌套链等分支一个都不能漏）。
+    [Suppress("style.fnLinesHard", "109 body lines；拆分见 code-organization.md")]
     internal TypedReg _emitStoreTo(BoundExpr target, TypedReg val) {
         // 限定静态字段赋值 `Class.staticField = v`（LHS 绑为 BoundStaticGet）→ static_set。
         // 否则落到末尾 return val 静默丢弃 → 静态字段 mutation 不持久（Log.SetMinLevel 等）。

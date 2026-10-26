@@ -134,6 +134,7 @@ public sealed class IrGenMemberEmitter {
     }
 
     // 属性：计算 getter（HasGetBody）→ 真实 get_X；extern getter → builtin 桩；auto-prop → field.get/set @__prop_X 桩。
+    [Suppress("style.fnLinesHard", "74 body lines；拆分见 code-organization.md")]
     public void EmitProperty(ClassDecl c, Z42ClassType owner, string ownerKey, Decl rawMem, PropertyDecl pd) {
         IrGen g = this._g; SemanticModel model = this._model;
         // fix-accessor-body-key：体查找键与 EmitMethod 同源——`ownerKey`（arity-mangle 时 `Name$N`，

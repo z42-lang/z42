@@ -61,7 +61,7 @@ ISubscription 包装器订阅 → advanced 慢路径（OnceRef / CompositeRef / 
 <a id="Std.MulticastAction<T>.Invoke(T,bool)"></a>
 ### void Invoke(T arg, bool continueOnException = false)
 
-[`src/libraries/z42.core/src/Delegates/MulticastAction.z42:81`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastAction.z42#L81)
+[`src/libraries/z42.core/src/Delegates/MulticastAction.z42:82`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastAction.z42#L82)
 
 触发所有活跃 handler。
 
@@ -72,7 +72,7 @@ ISubscription 包装器订阅 → advanced 慢路径（OnceRef / CompositeRef / 
 <a id="Std.MulticastAction<T>.Unsubscribe(Action<T>)"></a>
 ### void Unsubscribe(Action<T> handler)
 
-[`src/libraries/z42.core/src/Delegates/MulticastAction.z42:209`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastAction.z42#L209)
+[`src/libraries/z42.core/src/Delegates/MulticastAction.z42:210`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastAction.z42#L210)
 
 按 handler 取消订阅（仅扫 strong 通道；advanced 通道用 token-based dispose）。
 
@@ -82,7 +82,7 @@ ISubscription 包装器订阅 → advanced 慢路径（OnceRef / CompositeRef / 
 <a id="Std.MulticastAction<T>.RemoveAt(int,bool)"></a>
 ### void RemoveAt(int idx, bool isAdvanced)
 
-[`src/libraries/z42.core/src/Delegates/MulticastAction.z42:222`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastAction.z42#L222)
+[`src/libraries/z42.core/src/Delegates/MulticastAction.z42:223`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Delegates/MulticastAction.z42#L223)
 
 内部：dispose token 入口，把对应通道的 alive[idx] 置 false。
 

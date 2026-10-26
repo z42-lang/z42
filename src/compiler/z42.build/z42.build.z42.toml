@@ -6,6 +6,11 @@ name    = "z42.build"
 version = "0.1.0"
 kind    = "lib"
 
+[lints]
+# 内建行数 lint（style.*，默认关；见 compile-time-extensions.md「内建规则」）。硬限升 error =
+# 拦编译；软限不动。豁免走源内抑制：方法级 [Suppress]、文件顶部 #suppress。
+"style.fnLinesHard" = "error"
+
 [dependencies]
 # 🔴 **path 依赖，不是名字依赖**（relocate-compiler-domain-libs，2026-09-27）：
 # 名字依赖对 `PathDepPlan` 的图**不可见** ⇒ 仓库外/仓库内的 path-闭包消费者（如 xtask）拓扑序会

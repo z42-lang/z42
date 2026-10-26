@@ -28,6 +28,7 @@ public class HttpUrl {
         return this.Path + this.Query;
     }
 
+    [Suppress("style.fnLinesHard", "71 body lines；拆分见 code-organization.md")]
     /// 解析绝对 URL；只收 `http://` 与 `https://`，其它 scheme 抛 `FormatException`。
     public static HttpUrl Parse(string url) {
         if (url == null || url.Length == 0) {

@@ -115,6 +115,7 @@ public sealed class DeclParser {
         return false;
     }
 
+    [Suppress("style.fnLinesHard", "63 body lines；拆分见 code-organization.md")]
     public Decl _parseTypeDecl(string mods, string kind, AttrList attrs, int docTok = -1) {   // add-nested-types：MemberParser 嵌套类型也调用；param-docs：docTok 供主构造器认领类型 doc
         Span sp = this._p._peek().Span;
         this._p._advance();   // class / struct / interface

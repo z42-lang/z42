@@ -66,6 +66,7 @@ void _generateIosProject(string outputDir, string name, string bundleId,
 }
 
 // Generate project.pbxproj with fixed deterministic 24-char hex object IDs.
+[Suppress("style.fnLinesHard", "85 body lines；拆分见 code-organization.md")]
 string _iosPbxproj(string name, string bundleId, string minIos) {
     // Object IDs (deterministic, fixed — single target, single xcframework)
     string iBfMain = "A1000000000000000000000A"; string iBfZpkg = "A1000000000000000000000B";

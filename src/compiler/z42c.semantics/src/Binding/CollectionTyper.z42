@@ -177,6 +177,7 @@ public sealed class CollectionTyper {
 
     // [..a, x, ..b] spread → 各 spread 源先入临时（只求值一次）→ new T[总长] → 逐段拷贝。
     // 本轮 spread 源仅数组（用 .Length / 下标）；List 源留后续。
+    [Suppress("style.fnLinesHard", "63 body lines；拆分见 code-organization.md")]
     private BoundExpr _bindArraySpread(ArrayLitExpr al, TypeExpr elemTe, TypeEnv env) {
         Span sp = al.Span;
         // 元素类型推断（无目标）：取首元素类型，spread 首元素取其数组元素类型。

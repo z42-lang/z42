@@ -363,7 +363,7 @@ $ z42 doc --format md --out <dir>                            # 普通工程用
 |---|---|---|
 | `xtask doc gen` | 编译 stdlib，重新生成 reference 包页 | `xtask deps install vscode` 重新生成 grammar |
 | `xtask check docs-api` | 重新生成并与仓库内文件 diff，不一致即失败，并提示运行 `xtask doc gen` | `xtask check vscode-syntax` |
-| `xtask check doc-lints` | 硬门：任何 W08xx 即红；白名单走 `scripts/test/gates.toml` 的 `[doc-lints] allow` | `check lines`（gates.toml 棘轮先例） |
+| `xtask check doc-lints` | 硬门：任何 W08xx 即红；硬门，无白名单 | 编译器内建 style.* 行数 lint（豁免走源内 [Suppress]） |
 | `z42 test --doc` | stdlib 的 doctest 并入 GREEN gate | learn ↔ examples 重放 |
 | `xtask check doc-refs` | 书与 README 里的代码引用可解析、不写行号（§4.9；行号引用硬指标为 0），未解析链计数在 `scripts/test/gates.toml` 的 `[doc-refs]`（只降不升） | `check doc-lints`（同走 gates.toml） |
 | CI `docs-check` job | 纯文档 PR 也跑 `check docs-api` 与 `check doc-refs` | 现有 docs-check job |

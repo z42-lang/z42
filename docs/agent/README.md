@@ -71,7 +71,7 @@
 
 | 文件 | 管什么 |
 |------|--------|
-| [code-organization.md](rules/code-organization.md) | 哪层目录要 README + 文件/函数/类型的行数限制（`xtask check lines` 棘轮） |
+| [code-organization.md](rules/code-organization.md) | 哪层目录要 README + 文件/函数/类型的行数限制（编译器内建 style.* lint + 源内豁免） |
 | [common-pitfalls.md](rules/common-pitfalls.md) | 跨语言共同陷阱：加载顺序非确定性、id 作用域 |
 | [compiler-z42c.md](rules/compiler-z42c.md) | z42c 代码约定：只用当前语言子集、Parser 错误处理 |
 | [runtime-rust.md](rules/runtime-rust.md) | Rust VM 代码约定：错误处理、测试组织、原生代码与 GC 的四条规则、执行模式、依赖引入 |

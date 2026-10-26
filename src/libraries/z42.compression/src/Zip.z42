@@ -99,6 +99,7 @@ public static class Zip {
 
     // ── Write ────────────────────────────────────────────────────────
 
+    [Suppress("style.fnLinesHard", "75 body lines；拆分见 code-organization.md")]
     /// 逐条按 `CompressionMethod` 打包成 zip 字节。
     ///
     /// method 不是 0 / 8 抛 `ArchiveException`。空条目表产出 22 字节（只有 EOCD）的

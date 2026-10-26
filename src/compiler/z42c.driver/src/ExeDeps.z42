@@ -41,6 +41,7 @@ using Z42.Pipeline;    // CompilerDomain（编译器域解析域，与 BuildSess
 //      框架包不拷也不递归（它的依赖同在 libs/）；`deploy = "shared"` 在循环开头就 continue。
 //   ⭐ 这个缺口的**症状离原因很远**：`app → mid → leaf` 而 dist/ 只有 mid.zpkg 时，拷出去
 //      **死在 mid 的方法里**（`MissingSymbolException`）——报的像是「mid 的代码有问题」。
+[Suppress("style.fnLinesHard", "108 body lines；拆分见 code-organization.md")]
 int _bundleExeDeps(ProjectManifest pm, string[] closureNames, int closureN, string distDir, string[] libsDirs, int libsDirsN, WsTier tier) {
     // 复制判定（add-deployment-model 批 1）：**在不在 shipped `libs/`**（= `Z42_LIBS`）。
     // 在 → 框架，运行期从 libs/ 解析，不复制；不在 → 私有，复制进 dist。

@@ -425,8 +425,6 @@ string[] _gateStageNames() {
         "compiler",
         "gc modes (z42c.semantics build)",
         "vscode-syntax",
-        "lines",
-        "fnlines",
         "diagcodes",
         "stage2",
         "ci-shell",
@@ -665,20 +663,6 @@ int _testAll(bool noBuild, string skip) {
     if (!_skipHas(skip, "vscode")) {
         swStage = _stageStart("vscode-syntax");
         c = _testVscodeSyntax(); if (c != 0) { return c; }
-        _stageEnd(slog, swStage);
-    }
-    // stage 7: 文件行数硬上限 lint（add-line-count-lint）：新越界 / 继续膨胀 → 红；基线内 → warn。
-    // 纯文本扫描（~1s），host-independent。Skippable: "lines"。
-    if (!_skipHas(skip, "lines")) {
-        swStage = _stageStart("lines");
-        c = _testLines(false); if (c != 0) { return c; }
-        _stageEnd(slog, swStage);
-    }
-    // stage 7b: 函数体行数硬上限 lint（add-fn-line-lint）：新越界 / 继续膨胀 → 红；基线内 → warn。
-    // 与 stage 7 同形的棘轮，纯文本扫描（~1s），host-independent。Skippable: "fnlines"。
-    if (!_skipHas(skip, "fnlines")) {
-        swStage = _stageStart("fnlines");
-        c = _testFnLines(false); if (c != 0) { return c; }
         _stageEnd(slog, swStage);
     }
     // stage 9: 诊断码唯一性对账（enforce-diagnostic-code-uniqueness）：一个码号挂两个含义、

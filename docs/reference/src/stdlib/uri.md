@@ -307,7 +307,7 @@ public sealed class UriParser {
 <a id="Std.Uri.UriParser.ParseUri()"></a>
 ### Uri ParseUri()
 
-[`src/libraries/z42.uri/src/UriParser.z42:15`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/UriParser.z42#L15)
+[`src/libraries/z42.uri/src/UriParser.z42:16`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.uri/src/UriParser.z42#L16)
 
 解析为 Uri（只能对一个实例调用一次）。
 

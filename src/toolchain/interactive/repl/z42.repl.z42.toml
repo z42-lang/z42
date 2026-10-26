@@ -9,6 +9,11 @@ name    = "z42.repl"
 version = "0.1.0"
 kind    = "lib"
 
+[lints]
+# 内建行数 lint（style.*，默认关；见 compile-time-extensions.md「内建规则」）。硬限升 error =
+# 拦编译；软限不动。豁免走源内抑制：方法级 [Suppress]、文件顶部 #suppress。
+"style.fnLinesHard" = "error"
+
 [plugins]
 # hook 插件（unify-plugin-packages 1b）：ProvideNative 现场 cargo 编 cdylib 拷进 dist/<rid>/。
 # 免清单单文件条目（plugin-single-file）：零依赖 hook 直接指源文件；树内条目自动排除出 [sources]。

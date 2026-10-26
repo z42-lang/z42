@@ -12,6 +12,7 @@ public sealed class AssignTyper {
     private ExprTyper _et;   // 反向引用：递归 _bindExpr + target-typed BindWithTarget 委回 ExprTyper
     public AssignTyper(TypeChecker tc, ExprTyper et) { this._tc = tc; this._et = et; }
 
+    [Suppress("style.fnLinesHard", "123 body lines；拆分见 code-organization.md")]
     internal BoundExpr _bindAssign(AssignExpr a, TypeEnv env) {
             // 类索引器写 obj[i] = v → set_Item(i, v) 虚调用（仅简单 `=`；否则落普通路径）。
             if (a.Op == "=" && a.Target is IndexExpr) {

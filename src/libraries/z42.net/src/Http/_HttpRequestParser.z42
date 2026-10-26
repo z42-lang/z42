@@ -7,6 +7,7 @@ using Std.IO;
 /// 请求行是 "METHOD path_and_query HTTP/1.x"；返回的 HttpRequest.Url 为请求目标。
 public static class _HttpRequestParser {
 
+    [Suppress("style.fnLinesHard", "64 body lines；拆分见 code-organization.md")]
     /// 从流解析完整请求；线上格式错误 / 中途 EOF 抛 `HttpProtocolException`。
     ///
     /// 请求体按 `Transfer-Encoding: chunked` 或 `Content-Length` 读取，两者都没有则为空。

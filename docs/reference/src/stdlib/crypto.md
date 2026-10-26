@@ -1278,7 +1278,7 @@ RSA-OAEP / SHA-256 / MGF1-SHA-256 加密。`label` 可为空（用于上下文�
 <a id="Std.Crypto.Rsa.DecryptOaepSha256(RsaPrivateKey,byte[],byte[])"></a>
 ### static byte[] DecryptOaepSha256(RsaPrivateKey privateKey, byte[] ciphertext, byte[] label)
 
-[`src/libraries/z42.crypto/src/Rsa.z42:356`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.crypto/src/Rsa.z42#L356)
+[`src/libraries/z42.crypto/src/Rsa.z42:357`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.crypto/src/Rsa.z42#L357)
 
 RSA-OAEP / SHA-256 / MGF1-SHA-256 解密，返回明文。
 
@@ -1288,7 +1288,7 @@ RSA-OAEP / SHA-256 / MGF1-SHA-256 解密，返回明文。
 <a id="Std.Crypto.Rsa.RawPublicOp(RsaPublicKey,byte[])"></a>
 ### static byte[] RawPublicOp(RsaPublicKey publicKey, byte[] message)
 
-[`src/libraries/z42.crypto/src/Rsa.z42:466`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.crypto/src/Rsa.z42#L466)
+[`src/libraries/z42.crypto/src/Rsa.z42:467`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.crypto/src/Rsa.z42#L467)
 
 裸 `message^e mod n` 模幂（RSAEP，RFC 8017 §5.1.1），无 padding。
 
@@ -1297,7 +1297,7 @@ RSA-OAEP / SHA-256 / MGF1-SHA-256 解密，返回明文。
 <a id="Std.Crypto.Rsa.RawPrivateOp(RsaPrivateKey,byte[])"></a>
 ### static byte[] RawPrivateOp(RsaPrivateKey privateKey, byte[] ciphertext)
 
-[`src/libraries/z42.crypto/src/Rsa.z42:477`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.crypto/src/Rsa.z42#L477)
+[`src/libraries/z42.crypto/src/Rsa.z42:478`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.crypto/src/Rsa.z42#L478)
 
 裸 `ciphertext^d mod n`（RSADP，RFC 8017 §5.1.2），无 padding 剥离，输入约束同 RawPublicOp。
 
