@@ -6,4 +6,3 @@ kind    = "lib"
 
 [sources]
 include = ["src/**/*.z42"]
-

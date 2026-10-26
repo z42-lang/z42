@@ -121,6 +121,14 @@ public sealed class BuildSession {
 
     public BuildSession(BuildOptions o) { this._o = o; }
 
+    // retire-member-dep-decls 阶段 2：SDK 计划的成员感知版——本工程若是某 workspace 的成员，成员名
+    // 并入放行集（计划非空 ⇒ 编译器目录挂载；成员清单空声明后这是唯一挂载通道，原先借清单条目当
+    // 种子）。只动 plan（编译域），不回写 pm——那会污染 zpkg DEPS。
+    private static SdkLibPlan _memberAwarePlan(ProjectManifest pm, string projectDir, string[] libs, int libsN) {
+        return SdkLibs.PlanForMembers(pm, libs, libsN, pm.Project.IsPlugin(),
+                                      WorkspaceMemberDeps.EnclosingMemberNames(projectDir));
+    }
+
     public BuildResult Run() {
         BuildOptions o = this._o;
         ProjectManifest pm = o.Manifest;
@@ -152,10 +160,12 @@ public sealed class BuildSession {
             i = i + 1;
         }
         // ③ 解析域：调用方给的基础域 + SDK 库（add-sdk-libs，规则同 driver，见 SdkLibs.z42）：exe / lib 按名声明的
-        //    SDK 库（+ 闭包）可见，插件工程全部可见；不放行的进扫描 tier 的 Hidden。
+        //    SDK 库（+ 闭包）可见，插件工程全部可见；不放行的进扫描 tier 的 Hidden。成员工程自带的
+        //    workspace 可见性：这里把成员名并进 SDK 放行集（计划非空 ⇒ 编译器目录挂载——成员清单
+        //    空声明后这是唯一挂载通道）；扫描 tier 的成员放行与 E0497 契约在 `PackageCompile._resolveDeps`。
         string[] libs = o.BaseLibs;
         int libsN = o.BaseLibsN;
-        SdkLibPlan sdkPlan = SdkLibs.Plan(pm, libs, libsN, pm.Project.IsPlugin());
+        SdkLibPlan sdkPlan = BuildSession._memberAwarePlan(pm, o.ProjectDir, libs, libsN);
         if (sdkPlan.DirsN > 0) {
             libs = SdkLibs.AppendDirs(libs, libsN, sdkPlan);
             libsN = libsN + sdkPlan.DirsN;
