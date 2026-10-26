@@ -28,14 +28,8 @@ public class AndroidBackend : IPlatformBackend {
 
     // ① cargo-ndk per ABI → jniLibs, then gradle assembleRelease → AAR.
     public int BuildProject(string root) {
-        if (Process.Which("cargo") == null) {
-            ConsoleError.WriteLine("error: cargo not found (https://rustup.rs)");
-            return 1;
-        }
-        if (Process.Which("cargo-ndk") == null) {
-            ConsoleError.WriteLine("error: cargo-ndk not found (cargo install cargo-ndk)");
-            return 1;
-        }
+        if (!_requireTool("cargo", "https://rustup.rs")) { return 1; }
+        if (!_requireTool("cargo-ndk", "cargo install cargo-ndk")) { return 1; }
         string here = _deviceHost(root, "android");
         string ndk = _androidNdkDir(root);
         if (ndk.Length == 0) { return 1; }
@@ -107,14 +101,8 @@ string _androidSdkDir(string root) {
 // cargo ndk -t <abi>… -o <outDir> build --release → <outDir>/<abi>/*.so（jniLibs 形）。crate 在源码位置编；cargo-ndk 在 crate 目录里跑，找不到 src/runtime/.cargo，
 // 所以显式传 `--config`。
 int _cargoNdkJniLibs(string root, string[] abis, string outDir) {
-    if (Process.Which("cargo") == null) {
-        ConsoleError.WriteLine("error: cargo not found (https://rustup.rs)");
-        return 1;
-    }
-    if (Process.Which("cargo-ndk") == null) {
-        ConsoleError.WriteLine("error: cargo-ndk not found (cargo install cargo-ndk)");
-        return 1;
-    }
+    if (!_requireTool("cargo", "https://rustup.rs")) { return 1; }
+    if (!_requireTool("cargo-ndk", "cargo install cargo-ndk")) { return 1; }
     string ndk = _androidNdkDir(root);
     if (ndk.Length == 0) { return 1; }
     string rustDir = Path.Join(_deviceHostSrc(root, "android"), "rust");

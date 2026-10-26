@@ -28,14 +28,8 @@ public class IosBackend : IPlatformBackend {
 
     // ① cargo build each target → assemble Z42VM.xcframework (device + sim + macOS).
     public int BuildProject(string root) {
-        if (Process.Which("xcodebuild") == null) {
-            ConsoleError.WriteLine("error: xcodebuild not found (Xcode required for iOS build)");
-            return 1;
-        }
-        if (Process.Which("cargo") == null) {
-            ConsoleError.WriteLine("error: cargo not found (https://rustup.rs)");
-            return 1;
-        }
+        if (!_requireTool("xcodebuild", "Xcode required for iOS build")) { return 1; }
+        if (!_requireTool("cargo", "https://rustup.rs")) { return 1; }
         // rust crate 在源码位置编；xcframework 输出到宿主副本（SwiftPM 的 binaryTarget 在那里找它）。
         string manifest = Path.Join(_deviceHostSrc(root, "ios"), "rust/Cargo.toml");
         string here = _deviceHost(root, "ios");
@@ -98,14 +92,8 @@ public class IosBackend : IPlatformBackend {
 // IPHONEOS_DEPLOYMENT_TARGET 取 versions.toml 的 platform.ios.min_ios：C 依赖（zlib-ng）要和 rlib 的
 // 最低版本一致，否则真机链接失败。
 int _buildIosXcframework(string root, string rid, string rtDir) {
-    if (Process.Which("xcodebuild") == null) {
-        ConsoleError.WriteLine("error: xcodebuild not found (Xcode required for iOS build)");
-        return 1;
-    }
-    if (Process.Which("cargo") == null) {
-        ConsoleError.WriteLine("error: cargo not found (https://rustup.rs)");
-        return 1;
-    }
+    if (!_requireTool("xcodebuild", "Xcode required for iOS build")) { return 1; }
+    if (!_requireTool("cargo", "https://rustup.rs")) { return 1; }
     string manifest = Path.Join(_deviceHostSrc(root, "ios"), "rust/Cargo.toml");
     string targetDir = _cargoTargetDir(root);
     string libName = "libz42_platform_ios.a";

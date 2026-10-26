@@ -50,8 +50,7 @@ int _smokeWorkspaceDefault(string root, TargetTooling tt) {
 }
 
 ProcessResult _wsZ42b(string root, TargetTooling tt, string verb, string ws, string flag) {
-    Process p = _z42bProc(tt.Vm, tt.Libs).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
-        .Arg("--").Arg(verb).Arg(ws);
+    Process p = _z42bVerb(root, tt, verb).Arg(ws);
     if (flag.Length > 0) { p = p.Arg(flag); }
-    return p.WorkingDirectory(root).Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    return p.Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
 }
