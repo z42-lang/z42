@@ -1,0 +1,147 @@
+// LineLint（内建行数 lint，style.* 规则）单测：[lints] 启用 / severity 升级 / 两路抑制 / 默认关零影响。
+// 端到端走 PackageCompile.Compile（FrontLine._runLineLint → AnalyzerDiags → _mergePhaseDiags 全链），
+// fixture 全部单文件无依赖源（镜像 pkgcompile 测试的 _inputs 形状）。
+namespace Z42cPipelineLineLintTests;
+
+using Z42.Pipeline;     // PackageCompile / CompileInputs / LineLint
+using Z42.Analyzers;    // LintConfig
+using Z42.Emission;     // IrDump / CompiledModuleZ
+using Std.Text;         // StringBuilder（长 fixture 源构造）
+using Std.Harness;
+
+// >60 体行（非空非注释）的长方法：61 条语句行。methodPrefix 插在方法声明前（[Suppress] 用例）。
+string _longFnSrc(string methodPrefix) {
+    StringBuilder sb = new StringBuilder();
+    sb.Append("namespace T;\n");
+    if (methodPrefix.Length > 0) { sb.Append(methodPrefix).Append("\n"); }
+    sb.Append("int Long() {\n");
+    int i = 0;
+    while (i < 61) { sb.Append("    int x").Append(i.ToString()).Append(" = ").Append(i.ToString()).Append(";\n"); i = i + 1; }
+    sb.Append("    return 0;\n");
+    sb.Append("}\n");
+    return sb.ToString();
+}
+
+// 900 行小方法文件（每行都短、无函数越界——隔离文件级规则）。
+string _longFileSrc() {
+    StringBuilder sb = new StringBuilder();
+    sb.Append("namespace T;\n");
+    int i = 0;
+    while (i < 900) { sb.Append("int F").Append(i.ToString()).Append("() { return ").Append(i.ToString()).Append("; }\n"); i = i + 1; }
+    return sb.ToString();
+}
+
+CompileInputs _inputs(string src) {
+    string[] texts = new string[1]; texts[0] = src;
+    string[] files = new string[1]; files[0] = "a.z42";
+    string[] hashes = new string[1]; hashes[0] = "DEADBEEF";
+    CompileInputs cin = new CompileInputs();
+    cin.Texts = texts; cin.Files = files; cin.SrcHashes = hashes; cin.SrcCount = 1;
+    cin.Cus = IrDump.ParseAll(texts, files, 1);
+    cin.CachedMods = null; cin.CachedMetas = null;
+    cin.Name = "demo"; cin.Version = "0.1.0"; cin.Kind = "lib";
+    cin.HasEntry = false; cin.Entry = "";
+    cin.IsRelease = false;
+    cin.LibsDirs = new string[0]; cin.LibsDirsN = 0;
+    cin.DeclaredDeps = new string[0]; cin.DepCount = 0;
+    return cin;
+}
+
+// 单规则 [lints]：`<key> = "<sev>"`。
+LintConfig _cfg(string key, string sev) {
+    string[] keys = new string[1]; keys[0] = key;
+    string[] sevs = new string[1]; sevs[0] = sev;
+    return new LintConfig(keys, sevs, 1, false);
+}
+
+bool _cmsHasCode(CompileArtifacts art, string code) {
+    int i = 0;
+    while (i < art.CmCount) {
+        CompiledModuleZ cm = art.Cms[i];
+        int di = 0;
+        while (di < cm.DiagCount) {
+            if (cm.DiagMsgs[di].Contains(code)) { return true; }
+            di = di + 1;
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+[Test]
+void test_active_gate() {
+    Assert.False(LineLint.Active(null));
+    // 无关规则（未启用 style.*）→ 不活跃
+    Assert.False(LineLint.Active(_cfg("Z9002", "warning")));
+    Assert.True(LineLint.Active(_cfg("style.fnLinesHard", "error")));
+    Assert.True(LineLint.Active(_cfg("style.*", "error")));
+}
+
+[Test]
+void test_default_off_zero_diags() {
+    // 无 [lints] → 越界函数零诊断、零退出码影响（未启用即逐字节不动点的行为面）
+    CompileArtifacts art = PackageCompile.Compile(_inputs(_longFnSrc("")));
+    Assert.Equal(0, art.ErrorCount);
+    Assert.False(_cmsHasCode(art, "style."));
+}
+
+[Test]
+void test_lints_error_blocks_compile() {
+    CompileInputs cin = _inputs(_longFnSrc(""));
+    cin.Lints = _cfg("style.fnLinesHard", "error");
+    CompileArtifacts art = PackageCompile.Compile(cin);
+    Assert.True(art.ErrorCount > 0);
+    Assert.True(_cmsHasCode(art, "style.fnLinesHard"));
+}
+
+[Test]
+void test_lints_warning_not_blocking() {
+    CompileInputs cin = _inputs(_longFnSrc(""));
+    cin.Lints = _cfg("style.fnLinesHard", "warning");
+    CompileArtifacts art = PackageCompile.Compile(cin);
+    Assert.Equal(0, art.ErrorCount);
+    Assert.True(_cmsHasCode(art, "style.fnLinesHard"));
+}
+
+[Test]
+void test_lints_wae_upgrades_warning() {
+    // warnings_as_errors：显式 warning + WAE → 拦编译（LintConfig 决策链第三级）
+    string[] keys = new string[1]; keys[0] = "style.fnLinesHard";
+    string[] sevs = new string[1]; sevs[0] = "warning";
+    CompileInputs cin = _inputs(_longFnSrc(""));
+    cin.Lints = new LintConfig(keys, sevs, 1, true);
+    CompileArtifacts art = PackageCompile.Compile(cin);
+    Assert.True(art.ErrorCount > 0);
+}
+
+[Test]
+void test_suppress_attr_silences_fn() {
+    // 方法级 [Suppress("style.fnLinesHard", "理由")]（namespace 内、方法声明前一行）→ 整条丢弃
+    CompileInputs cin = _inputs(_longFnSrc("[Suppress(\"style.fnLinesHard\", \"测试豁免\")]"));
+    cin.Lints = _cfg("style.fnLinesHard", "error");
+    CompileArtifacts art = PackageCompile.Compile(cin);
+    Assert.Equal(0, art.ErrorCount);
+    Assert.False(_cmsHasCode(art, "style.fnLinesHard"));
+}
+
+[Test]
+void test_suppress_region_silences_file() {
+    // 文件级：900 行文件 + 顶部 #suppress（不闭合延伸到 EOF）→ 不红；无抑制则红
+    CompileInputs bare = _inputs(_longFileSrc());
+    bare.Lints = _cfg("style.fileLinesHard", "error");
+    Assert.True(PackageCompile.Compile(bare).ErrorCount > 0);
+
+    CompileInputs supp = _inputs("#suppress style.fileLinesHard \"测试豁免\"\n" + _longFileSrc());
+    supp.Lints = _cfg("style.fileLinesHard", "error");
+    CompileArtifacts art = PackageCompile.Compile(supp);
+    Assert.Equal(0, art.ErrorCount);
+}
+
+[Test]
+void test_short_fn_and_empty_body_pass() {
+    // 正常短方法 + 单行体 → 启用状态下也无诊断
+    CompileInputs cin = _inputs("namespace T;\nint Short() { return 1; }\nvoid Empty() { }\n");
+    cin.Lints = _cfg("style.fnLinesHard", "error");
+    CompileArtifacts art = PackageCompile.Compile(cin);
+    Assert.Equal(0, art.ErrorCount);
+}
