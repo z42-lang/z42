@@ -10,7 +10,7 @@
 // 集合与顺序对不上就是运行期字段槽错位。详见 `_instClassDesc` 的注释。
 namespace Z42.Emission;
 
-using Z42.Semantics;
+using Z42.Symbols;
 
 using Z42.Syntax;
 using Z42.IR;
@@ -139,6 +139,7 @@ public sealed partial class ClassDescBuilder {
         return r;
     }
 
+    [Suppress("style.fnLinesHard", "71 body lines；拆分见 code-organization.md")]
     private IrClassDesc _instClassDescIn(string instName, string bareDef, Decl rawDef, ClassDecl cdef, StructLayout ly) {
         StructLayoutInfo ol = ly.ObjectLayoutOf(instName);
         StructLayoutInfo il = ly.InlineLayoutOf(instName);

@@ -5,6 +5,7 @@ namespace Z42.Semantics;
 
 using Z42.Syntax;
 using Z42.Core;
+using Z42.Symbols;
 
 public sealed partial class MemberResolver {
     private TypeChecker _tc;
@@ -19,17 +20,17 @@ public sealed partial class MemberResolver {
             // under their wrapper name (`Int32`, `Double`); map through so that
             // `int.MaxValue` binds to the same static field as `Int32.MaxValue`.
             string clsName = tid.Name;
-            if (!env.Symbols.HasClass(clsName) && PrimModel.IsBuiltin(clsName)) {
-                clsName = PrimModel.Wrapper(clsName);
+            Z42ClassType sct = env.Symbols.GetClass(clsName);   // 解析一次随 clsName 携带；每次 HasClass/GetClass 都是整条作用域链
+            if (sct == null && PrimModel.IsBuiltin(clsName)) {
+                clsName = PrimModel.Wrapper(clsName); sct = env.Symbols.GetClass(clsName);
             }
             // complete-generic-class-identity P5-b：`GBox<int>.Count` —— 泛型类与同名非泛型类
             // 共存时符号表按 arity 分键（`GBox$1`），裸名查不到就按实参个数补上。
-            if (tid.TypeArgCount > 0 && !env.Symbols.HasClass(clsName)) {
+            if (tid.TypeArgCount > 0 && sct == null) {
                 string mk = clsName + "$" + tid.TypeArgCount.ToString();
-                if (env.Symbols.HasClass(mk)) { clsName = mk; }
+                Z42ClassType mct = env.Symbols.GetClass(mk); if (mct != null) { clsName = mk; sct = mct; }
             }
-            if (env.LookupVar(tid.Name) == null && env.Symbols.HasClass(clsName)) {
-                Z42ClassType sct = env.Symbols.GetClass(clsName);
+            if (env.LookupVar(tid.Name) == null && sct != null) {
                 // report-crosspkg-duplicate-*：**静态成员读**也是一次类型引用，同样要判同 FQN 跨包
                 // （E0601）/ 本包遮蔽（E0606）。此前只有「静态**调用**」那条被覆盖 ⇒ 实测
                 // `Cfg.N` 与 `Demo.Ns.Cfg.N` 都零诊断，而它们读到的是**哪个包**的那份 N 完全是撞出来的。
@@ -73,6 +74,7 @@ public sealed partial class MemberResolver {
     //
     // **刻意不改重载决议**：下方 `_resolveOverload` 的 typeArgCount 仍传 0。把它改成
     // `call.TypeArgCount` 会改变重载选择 → 撼动 codegen 与自举字节不动点，属另一件事。
+    [Suppress("style.fnLinesHard", "117 body lines；拆分见 code-organization.md")]
     private BoundExpr _bindInstanceMemberCall(MemberExpr mem, BoundExpr recv, Z42Type rt, BoundExpr[] args, int argCount, Expr[] rawArgs, TypeEnv env, Span sp, CallExpr call) {
         // define-null-check-marks D5：`Expect("理由")` intrinsic —— 空检查义务的唯一显式逃生口。
         //
@@ -103,7 +105,7 @@ public sealed partial class MemberResolver {
             //   ② ct 无方法且主符号表无（懒加载未载真类）→ 下方 ms==null 时 **loose 绑定 Unknown**，
             //      不报 "no method"（prim 路径 fallthrough，运行期经 DepIndex 解析）。
             bool _stub = ct.Methods.Count() == 0;
-            if (_stub && env.Symbols.HasClass(ct.Name())) { ct = env.Symbols.GetClass(ct.Name()); _stub = false; }
+            if (_stub) { Z42ClassType fct = env.Symbols.GetClass(ct.Name()); if (fct != null) { ct = fct; _stub = false; } }
             MethodSymbol ms = this._tc._overload._resolveOverload(env.Symbols, ct, mem.Name, args, argCount, 0, sp, rawArgs, env);   // 实例成员调用无 CallExpr → typeArgCount=0
             if (ms != null) {
                 ms = MethodTypeArgSubst.ForExplicitTypeArgs(ms, call, env);   // 显式 `<T>` → 先代换签名再绑实参
@@ -240,8 +242,8 @@ public sealed partial class MemberResolver {
         }
         // Z42GenericParamType：T.GetHashCode() 等继承自 Object 的方法 → 查 Object 类取真实返回类型。
         if (rt is Z42GenericParamType) {
-            if (env.Symbols.HasClass("Object")) {
-                Z42ClassType objCt = env.Symbols.GetClass("Object");
+            Z42ClassType objCt = env.Symbols.GetClass("Object");
+            if (objCt != null) {
                 string gpMkey = this._tc._overload._overloadKey(env.Symbols, objCt, mem.Name, argCount);
                 MethodSymbol gpMs = this._tc._overload._findMethod(env.Symbols, objCt, gpMkey);
                 if (gpMs != null) {
@@ -294,6 +296,7 @@ public sealed partial class MemberResolver {
         return this.BindPrimInstanceCall(mem, recv, rt, args, argCount, rawArgs, env, sp, call);
     }
 
+    [Suppress("style.fnLinesHard", "72 body lines；拆分见 code-organization.md")]
     private BoundExpr _bindInstanceMember(MemberExpr m, BoundExpr target, Z42Type tt, TypeEnv env) {
         // unify-value-types Phase 1：排除内建 Z42ClassType，让 string.Length（下方特例）+ 其余基元成员
         // 走 prim-wrapper 路径，与翻转前 Z42PrimType 收者同款。用户 class/struct 仍走类成员访问。
@@ -387,8 +390,8 @@ public sealed partial class MemberResolver {
         // stdlib 包装类（"string"→"String"，imported 自 z42.core TSIG）→ 取字段/属性真类型；
         // 查无则松绑 Unknown（codegen 经 DepIndex/VM builtin 真实解析，如 string.Length）。
         string wrapper = TypeFactsTc._primWrapper(tt.Name());
-        if (env.Symbols.HasClass(wrapper)) {
-            Z42ClassType wct = env.Symbols.GetClass(wrapper);
+        Z42ClassType wct = env.Symbols.GetClass(wrapper);
+        if (wct != null) {
             FieldSymbol wfs = this._findField(env.Symbols, wct, m.Name);
             if (wfs != null) { return new BoundMember(target, m.Name, wfs.FieldType, m.Span); }
             // 属性 getter 派发（镜像上面 Z42ClassType 分支）：wrapper 类的 extern 属性
@@ -456,8 +459,8 @@ public sealed partial class MemberResolver {
             int _sl0 = cur.Fields.Find(name); if (_sl0 >= 0) { return cur.Fields.ValAt(_sl0) as FieldSymbol; }
             if (!cur.HasBase) {
                 // 无显式 base 的 class 隐式继承 Object（struct 不继承，但字段不含在 Object）。
-                if (cur.Name() != "Object" && symbols.HasClass("Object")) { cur = symbols.GetClass("Object"); }
-                else { more = false; }
+                Z42ClassType objT = cur.Name() != "Object" ? symbols.GetClass("Object") : null;
+                if (objT != null) { cur = objT; } else { more = false; }
             } else {
                 Z42ClassType b = symbols.BaseOf(cur);   // A5：走句柄，零字符串哈希
                 if (b == null) { more = false; } else { cur = b; }
@@ -467,6 +470,7 @@ public sealed partial class MemberResolver {
     }
 
 
+    [Suppress("style.fnLinesHard", "78 body lines；拆分见 code-organization.md")]
     internal BoundExpr _bindCall(CallExpr call, TypeEnv env) {
         BoundExpr[] args = new BoundExpr[call.ArgCount];
         int i = 0;
@@ -580,6 +584,7 @@ public sealed partial class MemberResolver {
         return new BoundError("unsupported call", new Z42ErrorType(), call.Span);
     }
 
+    [Suppress("style.fnLinesHard", "82 body lines；拆分见 code-organization.md")]
     private BoundExpr _bindMemberCall(MemberExpr mem, BoundExpr[] args, int argCount, Expr[] rawArgs, TypeEnv env, Span sp, CallExpr call) {
         // fix-namespace-qualified-free-call：`ns.func()`（ns 可多段，`A.B.func()`）且 func 是 ns 里的自由函数
         // → 自由调用（否则被误当类 ns 的静态调用 → 双限定 ns.ns.func → 运行期 undefined）。全限定名不需要

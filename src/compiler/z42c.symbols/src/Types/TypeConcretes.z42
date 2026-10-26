@@ -1,6 +1,6 @@
 // 类型模型的小型具象类（自 Z42Type.z42 拆出：主文件多类共存过 886 硬限；各自独立无静态
 // 初始化器纠缠）。接口实例化 / 泛型形参 / 类实例化的形状与代换入口见各类头注。
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 
 
 // 实例化接口类型（add-associated-types PR-3 地基）：`IFoo<int>` 的类型实参承载。

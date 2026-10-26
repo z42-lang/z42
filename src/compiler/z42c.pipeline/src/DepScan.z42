@@ -36,6 +36,7 @@ public static class DepScan {
     // first-wins 跨目录确定（加载顺序确定性规则：成员名唯一，无跨目录同名碰撞）。单目录调用方
     // 经 Scan 退化到此（dirCount=1），扫描序与旧 _sortedZpkgs 一致 → 产物 byte-identical。
     // tier：解析分档 + 不可见包名（见 WsTier.z42 / ZpkgPathSort._sortedZpkgsMulti）；null = 全可见。
+    [Suppress("style.fnLinesHard", "118 body lines；拆分见 code-organization.md")]
     public static DepScanResult ScanDirs(string[] dirs, int dirCount, string excludeName, string[] declaredDeps, int declaredCount,
                                          WsTier tier) {
         var index = new DependencyIndex();
@@ -244,6 +245,7 @@ public static class DepScan {
     // 全量解析 world 的 TYPE/SIGS，Rebuild 基类链遇祖先按命名空间路由只解析引用闭包（实测 `1+2`
     // 解析 14/34 包 = prelude + 默认 using 闭包，且**不随库总量增长**）。仅用于 REPL 交互路径；
     // build/test 全量编译走 ScanDirs（同惰性 world，Rebuild 全部包 → 填满，byte-identical 不受影响）。
+    [Suppress("style.fnLinesHard", "96 body lines；拆分见 code-organization.md")]
     public static DepScanResult ScanDirsLazy(string[] dirs, int dirCount, string excludeName, string[] declaredDeps, int declaredCount) {
         var index = new DependencyIndex();
         string[] nsNames = new string[8];

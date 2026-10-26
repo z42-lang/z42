@@ -68,6 +68,7 @@ public static class Base32Crockford {
         return String.FromChars(result);
     }
 
+    [Suppress("style.fnLinesHard", "73 body lines；拆分见 code-organization.md")]
     /// 解码 Crockford Base32 字符串；大小写不敏感，`-` 丢弃，`I`/`L`→`1`、`O`→`0`。
     public static byte[] Decode(string s) {
         if (s.Length == 0) return new byte[0];

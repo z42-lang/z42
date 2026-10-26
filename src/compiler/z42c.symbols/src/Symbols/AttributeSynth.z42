@@ -12,7 +12,7 @@
 // 编译器/测试框架内建 attribute（Native/Test/Benchmark/Skip/ShouldThrow/Timeout）由别的 pass
 // 处理，**不**合成工厂（否则 `new Test()` 等失败 + 破坏 self-build byte-identical）。哪些名字算内建、
 // 哪些走 store-meta 工厂，判定统一收敛到 HandlerRegistry.KindOf（attribute-handler-registry PR1a）。
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 
 using Z42.Syntax;
 using Z42.Core;

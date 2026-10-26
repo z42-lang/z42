@@ -254,6 +254,7 @@ public sealed class StmtParser {
         return new WhileStmt(cond, body, sp);
     }
 
+    [Suppress("style.fnLinesHard", "80 body lines；拆分见 code-organization.md")]
     internal bool _isVarDeclStart() {
         int k = this._p._peek().Kind;
         if (k == TokenKind.Const) { return true; }   // add-const-keyword：`const T name = <const-expr>;` 局部常量声明前缀

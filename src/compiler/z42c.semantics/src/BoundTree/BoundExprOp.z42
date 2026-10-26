@@ -5,6 +5,7 @@
 namespace Z42.Semantics;
 
 using Z42.Core;
+using Z42.Symbols;
 
 // switch 表达式（求值版 switch）：等值比较链写入结果寄存器（镜像 C# BoundSwitchExpr）。
 public sealed class BoundSwitchArm {

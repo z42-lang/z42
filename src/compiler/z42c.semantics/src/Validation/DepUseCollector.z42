@@ -8,6 +8,7 @@
 //
 // 实现三个 bound visitor 接口：新增 Bound 节点类时这里编不过、直到处理它。
 namespace Z42.Semantics;
+using Z42.Symbols;
 
 public sealed class DepUseCollector : IBoundExprVisitor<Unit, Unit>, IBoundStmtVisitor<Unit, Unit>,
                                       IBoundPatternVisitor<Unit, Unit> {

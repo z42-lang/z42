@@ -1,6 +1,6 @@
 // 符号收集 Pass A（骨架 stub）：从 SymbolCollector 分出。接口 / 枚举 / 类 stub / 委托的注册，
 // 使成员类型可解析兄弟类。共享辅助（_unwrap）与编排入口留 hub SymbolCollector，经 _sc 委回。
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 using Z42.IR;
 using Z42.Syntax;
 using Z42.Core;
@@ -287,6 +287,7 @@ public sealed class StubCollector {
     }
 
     // Pass A：类 stub（基表判别：接口入 InterfaceNames，类→base）
+    [Suppress("style.fnLinesHard", "71 body lines；拆分见 code-organization.md")]
     internal void _passClassStubs(SymbolTable table, CompilationUnit cu, string file) {
         SymbolTable scoped = table.WithScopeOf(cu);   // 基类列表里的名字按本 CU 作用域判接口 / 类
         // arity-mangle 判据（镜像 C# NeedsMangle）：同短名有多个 arity 时，泛型版键带 `$N`。

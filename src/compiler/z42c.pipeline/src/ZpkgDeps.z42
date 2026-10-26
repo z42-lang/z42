@@ -16,7 +16,7 @@ namespace Z42.Pipeline;
 using Std.IO;
 using Z42.Package;
 using Z42.IR;   // StrMap
-using Z42.Semantics;
+using Z42.Symbols;
 
 public static class ZpkgDeps {
     public static ZpkgDepList Build(ZbcFileZ[] modules, int moduleCount,

@@ -575,7 +575,7 @@ jobs:
             mkdir -p artifacts/build/tests
             cp -r .z42-dl/tests/. artifacts/build/tests/
           else
-            echo "::error::current-sdk has no bundled goldens (tests/) — P2.4 regen step?"; exit 1
+            echo "::error::current-sdk has no bundled goldens (tests/) — assemble-current-sdk regen step?"; exit 1
           fi
       # interp: the shared compiled asset (prebuilt .zbc) runs with no regen/bootstrap.
       # GATE — 169/169 proven.

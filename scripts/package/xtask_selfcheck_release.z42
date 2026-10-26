@@ -3,14 +3,15 @@
 // 与同目录其它 selfcheck 同一形态：xtask 是 exe，反射 [Test] runner 看不到它 ⇒ 不匹配就抛。
 // 由 packages.toml 自检聚合（`package sdk --verify` 的第一步）。
 //
-// 不碰真实产物：在 xtask 的自检目录（`_xtaskWork`）下造齐 9 个 RID 的**假包目录**（各放一个小文件；桌面 workload 放
-// `apphost-<rid>`），外加一个 debug profile 的噪声目录，逐个目录出归档（`--archive` 的那一步，归档与包目录同在一处，
-// 同 artifacts/packages/），再在同一个目录上 release。锁住：
+// 不碰真实产物：在 xtask 的自检目录（`_xtaskWork`）下造齐 versions.toml 全部 RID 的**假包目录**（各放一个小文件；桌面
+// workload 放 `apphost-<rid>`），外加一个 debug profile 的噪声目录，逐个目录出归档（`--archive` 的那一步，归档与包目录
+// 同在一处，同 artifacts/packages/），再在同一个目录上 release。锁住：
 //   · 命名映射（sdk / runtime / desktop workload / 平台 workload 只由主 RID 出 / test workload）；
 //   · 噪声目录（非 release profile）不进归档；
-//   · windows-x64 出 .zip，其余 .tar.gz；
-//   · release 合并出一份含 4 个 apphost 的桌面 workload、删掉逐 RID 中间件，SHA256SUMS 与 index 齐全；
+//   · Windows RID 出 .zip，其余 .tar.gz，且 release-index 用的名字与 `--archive` 出的同源；
+//   · release 合并出一份含全部桌面 RID apphost 的桌面 workload、删掉逐 RID 中间件，SHA256SUMS 与 index 齐全；
 //     与包目录同处一个目录不干扰（SHA256SUMS 只收归档文件）。
+// 期望计数全部从 [rid.*] / [workload] 表推出（加 RID 不用改这里）。
 namespace Z42Xtask;
 
 using Std.IO;
@@ -37,16 +38,24 @@ int _testPackagesRelease() {
 
     try {
         // ── 命名映射（纯函数）──
-        _relAssert("sdk", _relArchiveBase("z42-" + ver + "-linux-x64-release", ver, label) == "z42-sdk-" + label + "-linux-x64");
-        _relAssert("platform tooling (primary)", _relArchiveBase("z42-" + ver + "-android-arm64-release", ver, label) == "z42-workload-" + label + "-android");
-        _relAssert("platform tooling (non-primary → none)", _relArchiveBase("z42-" + ver + "-android-x64-release", ver, label) == "");
-        _relAssert("debug profile → none", _relArchiveBase("z42-" + ver + "-linux-x64-debug", ver, label) == "");
-        _relAssert("other version → none", _relArchiveBase("z42-0.0.1-linux-x64-release", ver, label) == "");
-        _relAssert("windows ext", _relArchiveExt("z42-sdk-" + label + "-windows-x64") == ".zip");
-        _relAssert("unix ext", _relArchiveExt("z42-runtime-" + label + "-macos-arm64") == ".tar.gz");
+        _relAssert("sdk", _relArchiveName("z42-" + ver + "-linux-x64-release", ver, label) == "z42-sdk-" + label + "-linux-x64.tar.gz");
+        _relAssert("sdk (windows → zip)", _relArchiveName("z42-" + ver + "-windows-x64-release", ver, label) == "z42-sdk-" + label + "-windows-x64.zip");
+        _relAssert("platform tooling (primary)", _relArchiveName("z42-" + ver + "-android-arm64-release", ver, label) == "z42-workload-" + label + "-android.tar.gz");
+        _relAssert("platform tooling (non-primary → none)", _relArchiveName("z42-" + ver + "-android-x64-release", ver, label) == "");
+        _relAssert("debug profile → none", _relArchiveName("z42-" + ver + "-linux-x64-debug", ver, label) == "");
+        _relAssert("other version → none", _relArchiveName("z42-0.0.1-linux-x64-release", ver, label) == "");
+        _relAssert("desktop piece (windows → zip)", _relArchiveName("z42-workload-" + ver + "-desktop-windows-x64", ver, label) == "z42-workload-" + label + "-desktop-windows-x64.zip");
+        _relAssert("windows ext", _relArchiveExt("windows-x64") == ".zip");
+        _relAssert("unix ext", _relArchiveExt("macos-arm64") == ".tar.gz");
+        _relAssert("index sdk name = archive name", _sdkName(label, "windows-x64") == _relArchiveName("z42-" + ver + "-windows-x64-release", ver, label));
+        _relAssert("index runtime name = archive name", _rtName(label, "macos-arm64") == _relArchiveName("z42-runtime-" + ver + "-macos-arm64", ver, label));
 
         // ── 端到端：假包目录 → 逐个出归档 → index ──
         string[] rids = _relRids();
+        int nD = _vRidsOfCategory(root, "desktop").Length;   // 桌面 RID：sdk + runtime + desktop 零件
+        int nP = rids.Length - nD;                            // 平台 RID：runtime
+        int nW = _vCrossWorkloads(root).Length;               // 平台 workload：每个恰由一个主 RID 出（`check versions` 守）
+        _relAssert("rid table non-empty", nD > 0 && nP > 0 && nW > 0);
         int i = 0;
         while (i < rids.Length) {
             _relFakePkg(dist, "z42-" + ver + "-" + rids[i] + "-release", "manifest.toml");
@@ -62,9 +71,10 @@ int _testPackagesRelease() {
         foreach (var d in _sortedStrings(Directory.Enumerate(dist))) {
             _relAssert("archive " + d, _pkgArchiveDir(Path.Join(dist, d), ver, label, dist) >= 0);
         }
-        // 4 × (sdk + runtime + desktop wl) + 5 平台 runtime + 3 平台 workload + test = 21
+        // nD × (sdk + runtime + desktop 零件) + nP 平台 runtime + nW 平台 workload + test
+        int wantArch = nD * 3 + nP + nW + 1;
         int nArch = Path.Glob(dist, "z42-*.tar.gz").Length + Path.Glob(dist, "z42-*.zip").Length;
-        _relAssert("archive count 21 (got " + nArch.ToString() + ")", nArch == 21);
+        _relAssert("archive count " + wantArch.ToString() + " (got " + nArch.ToString() + ")", nArch == wantArch);
         _relAssert("windows sdk is zip", File.Exists(Path.Join(dist, "z42-sdk-" + label + "-windows-x64.zip")));
         _relAssert("no non-primary workload", !File.Exists(Path.Join(dist, "z42-workload-" + label + "-iossim.tar.gz")));
 
@@ -75,17 +85,18 @@ int _testPackagesRelease() {
         string x = Path.Join(work, "x");
         Directory.Create(x);
         _relAssert("extract merged", _exec(new Process("tar").Arg("-xzf").Arg(merged).Arg("-C").Arg(x)) == 0);
-        _relAssert("merged has 4 apphosts", Path.Glob(x, "apphost-*").Length == 4);
-        // 合并后：4 × (sdk + runtime) + desktop + 5 runtime + 3 workload + test = 18
+        _relAssert("merged has " + nD.ToString() + " apphosts", Path.Glob(x, "apphost-*").Length == nD);
+        // 合并后：nD × (sdk + runtime) + desktop + nP runtime + nW workload + test
+        int wantSums = nD * 2 + nP + nW + 2;
         string sums = File.ReadAllText(Path.Join(dist, "SHA256SUMS"));
         int lines = sums.Trim().Split("\n").Length;
-        _relAssert("SHA256SUMS has 18 lines (got " + lines.ToString() + ")", lines == 18);
+        _relAssert("SHA256SUMS has " + wantSums.ToString() + " lines (got " + lines.ToString() + ")", lines == wantSums);
         _relAssert("release-index.json", File.Exists(Path.Join(dist, "release-index.json")));
     } catch (Exception e) {
         ConsoleError.WriteLine("  ✗ " + e.Message);
         return 1;
     }
     Directory.Delete(work, true);
-    Console.WriteLine("  ✓ archive / release: 命名映射 + 21 → 18 归档 + 桌面 workload 合并 + SHA256SUMS + index");
+    Console.WriteLine("  ✓ archive / release: 命名映射 + 归档计数 + 桌面 workload 合并 + SHA256SUMS + index");
     return 0;
 }

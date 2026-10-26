@@ -3,7 +3,7 @@
 //   Invoke      —— 按 FQN 调用一个自由函数（如 Repl.__Eval_N），返回其（装箱的）结果。
 //   MemberNames —— 读会话变量活值的运行时类型成员名（补全用反射查询）。
 // 三者组合 = 「编译一轮会话 → 加载 → 求值 / 内省」的运行期骨架。
-namespace Std.Scripting;
+namespace Z42.Scripting;
 
 
 public static class Engine {

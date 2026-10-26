@@ -146,6 +146,7 @@ public static class CacheStore {
     }
 
     // 解析；版本 pin（metaVersion/zbc/zpkg）任一不符或格式坏 → null（= 条目作废）。
+    [Suppress("style.fnLinesHard", "68 body lines；拆分见 code-organization.md")]
     public static CacheMeta Parse(string text, string rel) {
         CacheMeta m = new CacheMeta(rel);
         bool verOk = false;
@@ -278,16 +279,19 @@ public static class CacheStore {
     // ── 包级源清单（增删文件 → 全量；spec 场景「源文件增删」）────────────────────
 
     // depsId = DepIdentity.Of(...)：本次编译扫到的依赖 zpkg 身份；下次不符 ⇒ 整包全量。
+    // 逐行进 parts 再一次 ConcatParts（同 Serialize）：`s = s + …` 在源文件数百的包上是平方级拷贝。
     public static void SaveSrcList(string cacheDir, string[] rels, int n, string depsId) {
-        string s = "z42c-meta " + CacheStore.MetaVersion.ToString() + "\n"
-                 + "z42c-fp " + CacheStore.Fingerprint() + "\n"
-                 + "zbc " + ZbcVersion.Minor.ToString() + "\n"
-                 + "zpkg " + ZpkgWriterZ.Minor.ToString() + "\n"
-                 + "deps " + depsId + "\n";
+        string[] parts = new string[5 + n];
+        int k = 0;
+        parts[k] = "z42c-meta " + CacheStore.MetaVersion.ToString() + "\n"; k = k + 1;
+        parts[k] = "z42c-fp " + CacheStore.Fingerprint() + "\n"; k = k + 1;
+        parts[k] = "zbc " + ZbcVersion.Minor.ToString() + "\n"; k = k + 1;
+        parts[k] = "zpkg " + ZpkgWriterZ.Minor.ToString() + "\n"; k = k + 1;
+        parts[k] = "deps " + depsId + "\n"; k = k + 1;
         int i = 0;
-        while (i < n) { s = s + "src " + rels[i] + "\n"; i = i + 1; }
+        while (i < n) { parts[k] = "src " + rels[i] + "\n"; k = k + 1; i = i + 1; }
         Directory.Create(cacheDir);
-        File.WriteAllText(Path.Join(cacheDir, "package.meta"), s);   // 缓存写非原子：坏文件由读端格式校验兜底（坏=全量），不依赖落盘顺序
+        File.WriteAllText(Path.Join(cacheDir, "package.meta"), String.ConcatParts(parts, k));   // 缓存写非原子：坏文件由读端格式校验兜底（坏=全量），不依赖落盘顺序
     }
 
     // 上次源清单；缺失/pin 不符/依赖身份不符/格式坏 → null（= 全量）。

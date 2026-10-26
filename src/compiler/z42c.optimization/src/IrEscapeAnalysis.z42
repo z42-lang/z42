@@ -78,6 +78,7 @@ public sealed class IrEscapeAnalysis {
     // 传 true；IrEscapeSummary 的摘要不动点传 false —— 摘要问的是「**传进来的那个值**是否逃逸」，
     // 参数槽被重新赋值不代表入参值逃逸，传 true 会把「循环里推进参数」这类常见写法误判成参数逃逸，
     // 白白让所有调用方的实参丢掉栈分配。
+    [Suppress("style.fnLinesHard", "62 body lines；拆分见 code-organization.md")]
     public static bool[] ComputeEscapedRegs(IrModule m, IrFunction f, ParamEscapeTable table, bool markRefWriteback) {
         int n = f.MaxReg + 2;
         bool[] esc = new bool[n];

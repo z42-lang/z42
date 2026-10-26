@@ -47,6 +47,103 @@ bool _benchTierValid(string want) {
     return false;
 }
 
+// ── 被测工具链 + 场景选择（`_bench` 与 `_benchAb` 共用；两条路径只差测量体）──────────────────
+// 此前两处各抄一份前奏（工具链 / 探针 / mode 展开）+ 枚举 + tier / requires-caps / mode 跳过，跳过文案
+// 已经漂移。现在只有一份：谁进门禁、谁被跳过、为什么，两条路径同口径。
+
+// 被测（PR 侧）工具链 + 探针结果 + 要扫的 mode。Rc != 0 ⇒ 工具链缺件 / 场景配置错误（已打印，调用方原样返回）。
+class BenchEnv {
+    public int Rc;
+    public string Root;
+    public string ScenDir;      // src/benches/scenarios
+    public string ResultsDir;   // artifacts/reports/benches
+    public string Vm;           // release z42vm
+    public string Libs;         // 纯 stdlib flat：场景只用 stdlib，z42c.driver 的 dist 自包含 ⇒ 编译与运行的 Z42_LIBS 都是它
+    public string Driver;       // z42c.driver.zpkg（场景经 z42c 编译）
+    public VmCaps Caps;
+    public string[] Modes;
+    public BenchEnv() {
+        this.Rc = 0; this.Root = ""; this.ScenDir = ""; this.ResultsDir = "";
+        this.Vm = ""; this.Libs = ""; this.Driver = ""; this.Caps = null; this.Modes = new string[0];
+    }
+}
+
+// _ensureToolchainDeps builds z42vm / stdlib / z42c.driver only if missing — CI bench bootstraps xtask alone
+// (against nightly .z42/libs), so the source-built tree may start empty; a dev who changed z42c runs
+// `build compiler` themselves. Probe the measured VM once (add-exec-profile-matrix) and expand --mode.
+BenchEnv _benchEnv(string modeOpt) {
+    BenchEnv e = new BenchEnv();
+    e.Root = _root();
+    e.ScenDir = Path.Join(e.Root, "src/benches/scenarios");
+    e.ResultsDir = _benchDir(e.Root);
+    Directory.Create(e.ResultsDir);
+    e.Rc = _ensureToolchainDeps(e.Root);
+    if (e.Rc != 0) { return e; }
+    e.Vm = _builtVm(e.Root, "release");
+    e.Libs = _libsDir(e.Root);
+    e.Driver = _driverZpkg(e.Root, "release");
+    e.Caps = _epProbe(e.Vm, e.Libs, _epEnsureProbe(e.Root, e.Vm, e.Driver, e.Libs));
+    e.Modes = _epModesToSweep(modeOpt);
+    return e;
+}
+
+// 一个选中的场景。
+class BenchScenario {
+    public string Name;        // 文件基名（结果条目名）
+    public string Ns;          // namespace → 入口 `<Ns>.Main`
+    public string Src;         // 源文件绝对路径
+    public bool ReportsPause;  // 头部声明 `// gc-pause: report`（add-incremental-major-gc M0）
+    public BenchScenario() { this.Name = ""; this.Ns = ""; this.Src = ""; this.ReportsPause = false; }
+}
+
+// 场景选择：排序枚举（文件系统序跨 OS 不确定，--quick 的「前 2 个」与结果序都依赖它），按 --tier 与
+// `// requires-caps:` 过滤；跳过一律打印理由，不做静默排除。--quick = 枚举序上的前 2 个 .z42（含被跳过的）。
+// 场景缺 namespace 是配置错误：打印并置 e.Rc = 2。
+BenchScenario[] _benchSelectScenarios(BenchEnv e, string tier, bool quick) {
+    string[] files = _sortedStrings(Directory.Enumerate(e.ScenDir));
+    BenchScenario[] picked = new BenchScenario[files.Length];
+    int n = 0;
+    int count = 0;
+    for (int fi = 0; fi < files.Length; fi = fi + 1) {
+        string f = files[fi];
+        if (!f.EndsWith(".z42")) { continue; }
+        if (quick && count >= 2) { break; }
+        count = count + 1;
+        string name = f.Substring(0, f.Length - 4);
+        string src = Path.Join(e.ScenDir, f);
+        string srcText = File.ReadAllText(src);
+        string ns = _extractNamespace(srcText);
+        if (ns.Length == 0) { ConsoleError.WriteLine("error: no namespace in " + f); e.Rc = 2; break; }
+        string stier = _benchScenarioTier(srcText);
+        if (!_benchTierWanted(tier, stier)) {
+            Console.WriteLine("  ⊘ skip " + name + ": tier=" + stier + " (--tier " + tier + ")");
+            continue;
+        }
+        string[] missing = _epCapsMissing(_epScenarioRequiredCaps(srcText), e.Caps.Caps);
+        if (missing.Length > 0) {
+            Console.WriteLine("  ⊘ skip " + name + ": missing cap(s) " + _epJsonStrArr(missing)
+                + " (VM caps=" + _epJsonStrArr(e.Caps.Caps) + ")");
+            continue;
+        }
+        BenchScenario s = new BenchScenario();
+        s.Name = name; s.Ns = ns; s.Src = src; s.ReportsPause = _benchScenarioReportsPause(srcText);
+        picked[n] = s; n = n + 1;
+    }
+    BenchScenario[] tight = new BenchScenario[n];
+    int k = 0;
+    while (k < n) { tight[k] = picked[k]; k = k + 1; }
+    return tight;
+}
+
+// mode 这一格在被测 VM 上可跑？不可跑（如 interp-only VM 上的 jit）打印理由——never silently dropped。
+bool _benchModeRunnable(BenchEnv e, string name, string m) {
+    string status = _epCellStatus(_epTiersForMode(m), new string[0], e.Caps.ExecModes);
+    if (status == "runnable") { return true; }
+    Console.WriteLine("  ⊘ skip " + name + " [" + m + "]: " + status
+        + " (VM exec_modes=" + _epJsonStrArr(e.Caps.ExecModes) + ")");
+    return false;
+}
+
 // `bench` (no subcommand) — e2e hyperfine scenario runner. The `stdlib`
 // subcommand (per-lib [Benchmark]) routes via _dispatchBench → _testLib, and
 // `--diff` routes via _benchE2e → _benchDiff (both in xtask_cli.z42). This
@@ -57,109 +154,55 @@ int _bench(ParseResult r) {
     string runs = quick ? "3" : "10";
     string tier = r.GetOption("tier");
     if (!_benchTierValid(tier)) { return 2; }
-    string root = _root();
-    string scenDir = Path.Join(root, "src/benches/scenarios");
-    string resultsDir = _benchDir(root);
-    Directory.Create(resultsDir);
-    // Bench needs z42vm + stdlib (scenarios `using Std.IO.Console`, resolved at
-    // `libs`) + the self-contained z42c driver (scenarios compile via z42c, not
-    // `dotnet run`). _ensureToolchainDeps builds each only if missing — CI bench
-    // bootstraps xtask alone (against nightly .z42/libs), so the source-built tree
-    // may start empty. A dev who changed z42c runs `build compiler` themselves.
-    int dep = _ensureToolchainDeps(root); if (dep != 0) { return dep; }
-    string vm = _builtVm(root, "release");
-    string libs = _libsDir(root);
-    // 纯 stdlib flat 作编译与运行的 Z42_LIBS：bench 场景只用 stdlib；z42c.driver 的 dist 自包含（兄弟包
-    // colocate 在它旁边），运行期不需要从 Z42_LIBS 找它们（此前这里用 alllibs 是多余的）。
-    string driverZpkg = _driverZpkg(root, "release");
-    string flat = _libsDir(root);
+    BenchEnv e = _benchEnv(r.GetOption("mode"));
+    if (e.Rc != 0) { return e.Rc; }
+    BenchScenario[] scen = _benchSelectScenarios(e, tier, quick);
+    if (e.Rc != 0) { return e.Rc; }
     string work = Directory.CreateTempDir("xtask-bench");
-
-    // add-exec-profile-matrix: probe the measured VM's real capabilities once,
-    // and expand --mode into the modes to sweep (each → one z42vm --mode run +
-    // one profile-tagged result). Non-runnable cells (e.g. jit on an interp-only
-    // VM) are skipped with a printed reason — never silently dropped.
-    string modeOpt = r.GetOption("mode");
-    string probeZbc = _epEnsureProbe(root, vm, driverZpkg, flat);
-    VmCaps vmc = _epProbe(vm, libs, probeZbc);
-    string[] modes = _epModesToSweep(modeOpt);
 
     string benchmarks = "";
     int nb = 0;
-    int count = 0;
-    // Sort before iterating: filesystem enumeration order is non-deterministic
-    // across OSes, and both --quick's "first 2" selection and the benchmarks
-    // array order depend on it (load-order determinism rule).
-    foreach (var f in _sortedStrings(Directory.Enumerate(scenDir))) {
-        if (!f.EndsWith(".z42")) { continue; }
-        if (quick && count >= 2) { break; }
-        string name = f.Substring(0, f.Length - 4);
-        string src = Path.Join(scenDir, f);
-        string srcText = File.ReadAllText(src);
-        string ns = _extractNamespace(srcText);
-        if (ns.Length == 0) { ConsoleError.WriteLine("error: no namespace in " + f); return 2; }
-        // simplify-bench-gate: 分层选择（--tier gate 时只跑门禁那一组）。
-        string stier = _benchScenarioTier(srcText);
-        if (!_benchTierWanted(tier, stier)) {
-            Console.WriteLine("  ⊘ skip " + name + ": tier=" + stier + " (--tier " + tier + ")");
-            count = count + 1;
-            continue;
-        }
-        // add-bench-speedup-cap-gating: skip scenarios whose declared
-        // `// requires-caps:` are not all present on the measured VM (e.g. a
-        // threads scenario on a wasm/interp-only build) — explicit skip, no crash.
-        string[] missing = _epCapsMissing(_epScenarioRequiredCaps(srcText), vmc.Caps);
-        if (missing.Length > 0) {
-            Console.WriteLine("  ⊘ skip " + name + ": missing cap(s) " + _epJsonStrArr(missing)
-                + " (VM caps=" + _epJsonStrArr(vmc.Caps) + ")");
-            count = count + 1;
-            continue;
-        }
+    for (int si = 0; si < scen.Length; si = si + 1) {
+        BenchScenario s = scen[si];
         // Compile once — the .zbc is mode-agnostic; only the measured run differs.
-        string zbc = Path.Join(work, name + ".zbc");
-        int cc = _exec(_z42cProc(vm, flat, driverZpkg)
-            .Arg("--emit-zbc").Arg(src).Arg(zbc));
+        string zbc = Path.Join(work, s.Name + ".zbc");
+        int cc = _exec(_z42cProc(e.Vm, e.Libs, e.Driver)
+            .Arg("--emit-zbc").Arg(s.Src).Arg(zbc));
         if (cc != 0) { return cc; }
-        for (int mi = 0; mi < modes.Length; mi = mi + 1) {
-            string m = modes[mi];
+        for (int mi = 0; mi < e.Modes.Length; mi = mi + 1) {
+            string m = e.Modes[mi];
+            if (!_benchModeRunnable(e, s.Name, m)) { continue; }
             string[] tiers = _epTiersForMode(m);
-            string status = _epCellStatus(tiers, new string[0], vmc.ExecModes);
-            if (status != "runnable") {
-                Console.WriteLine("  ⊘ skip " + name + " [" + m + "]: " + status
-                    + " (VM exec_modes=" + _epJsonStrArr(vmc.ExecModes) + ")");
-                continue;
-            }
-            string outJson = Path.Join(work, name + "-" + m + "-bench.json");
-            Console.WriteLine("→ Benchmarking " + name + " [" + m
+            string outJson = Path.Join(work, s.Name + "-" + m + "-bench.json");
+            Console.WriteLine("→ Benchmarking " + s.Name + " [" + m
                 + "] (warmup=" + warmup + ", runs=" + runs + ")...");
-            int hc = _exec(_z42Proc("hyperfine", libs)
+            int hc = _exec(_z42Proc("hyperfine", e.Libs)
                 .Arg("--warmup").Arg(warmup).Arg("--runs").Arg(runs)
                 .Arg("--export-json").Arg(outJson).Arg("--shell=none")
-                .Arg("--command-name").Arg(name + "-" + m)
-                .Arg(vm + " " + zbc + " " + ns + ".Main --mode " + m));
+                .Arg("--command-name").Arg(s.Name + "-" + m)
+                .Arg(e.Vm + " " + zbc + " " + s.Ns + ".Main --mode " + m));
             if (hc != 0) { return hc; }
             if (nb > 0) { benchmarks = benchmarks + ",\n"; }
-            benchmarks = benchmarks + _benchObj(outJson, name, runs, tiers, vmc);
+            benchmarks = benchmarks + _benchObj(outJson, s.Name, runs, tiers, e.Caps);
             nb = nb + 1;
             // add-incremental-major-gc M0: `// gc-pause: report` scenarios also yield pause metrics.
-            if (_benchScenarioReportsPause(srcText)) {
-                PauseMedian pm = _benchPauseRun(vm, zbc, ns + ".Main", m, libs, quick ? 1 : 3);
+            if (s.ReportsPause) {
+                PauseMedian pm = _benchPauseRun(e.Vm, zbc, s.Ns + ".Main", m, e.Libs, quick ? 1 : 3);
                 if (pm.Rc != 0) { return 2; }
-                benchmarks = benchmarks + ",\n" + _benchPauseObj(name, "max", pm.MaxMs, pm.Samples, tiers, vmc)
-                    + ",\n" + _benchPauseObj(name, "p99", pm.P99Ms, pm.Samples, tiers, vmc);
+                benchmarks = benchmarks + ",\n" + _benchPauseObj(s.Name, "max", pm.MaxMs, pm.Samples, tiers, e.Caps)
+                    + ",\n" + _benchPauseObj(s.Name, "p99", pm.P99Ms, pm.Samples, tiers, e.Caps);
                 nb = nb + 2;
             }
         }
-        count = count + 1;
     }
 
-    string commit = _gitOut(root, "rev-parse", "--short", "HEAD");
-    string branch = _gitOut(root, "rev-parse", "--abbrev-ref", "HEAD");
+    string commit = _gitOut(e.Root, "rev-parse", "--short", "HEAD");
+    string branch = _gitOut(e.Root, "rev-parse", "--abbrev-ref", "HEAD");
     string doc = "{\n  \"schema_version\": 2,\n  \"commit\": \"" + commit
-        + "\",\n  \"branch\": \"" + branch + "\",\n  \"z42vm_version\": \"" + _epVmVersion(vm)
+        + "\",\n  \"branch\": \"" + branch + "\",\n  \"z42vm_version\": \"" + _epVmVersion(e.Vm)
         + "\",\n  \"timestamp\": \"" + _utcNow() + "\",\n  \"benchmarks\": [\n"
         + benchmarks + "\n  ]\n}\n";
-    string outFile = Path.Join(resultsDir, "e2e.json");
+    string outFile = Path.Join(e.ResultsDir, "e2e.json");
     File.WriteAllText(outFile, doc);
     Console.WriteLine("✅ E2E bench complete (" + nb.ToString() + " results). Results: " + outFile);
     return 0;
@@ -468,52 +511,23 @@ int _benchAb(ParseResult r) {
     if (pt.Length > 0) { pauseThr = Double.Parse(pt); }
     string tier = r.GetOption("tier");
     if (!_benchTierValid(tier)) { return 2; }
-    string root = _root();
-    string scenDir = Path.Join(root, "src/benches/scenarios");
-    string resultsDir = _benchDir(root);
-    Directory.Create(resultsDir);
-    int dep = _ensureToolchainDeps(root); if (dep != 0) { return dep; }
-    string prVm = _builtVm(root, "release");
-    string prFlat = _libsDir(root);   // 纯 stdlib：场景只用 stdlib，driver 自包含
-    string prDriver = _driverZpkg(root, "release");
-    // Probe the PR (measured) VM once — mode sweep + cap gating mirror `_bench`.
-    string probeZbc = _epEnsureProbe(root, prVm, prDriver, prFlat);
-    VmCaps vmc = _epProbe(prVm, prFlat, probeZbc);
-    string[] modes = _epModesToSweep(r.GetOption("mode"));
+    // PR（被测）侧工具链 + 探针 + 场景选择与 `_bench` 同一份（门禁只测 gate 层：CI 传 --tier gate）。
+    BenchEnv e = _benchEnv(r.GetOption("mode"));
+    if (e.Rc != 0) { return e.Rc; }
+    BenchScenario[] scen = _benchSelectScenarios(e, tier, quick);
+    if (e.Rc != 0) { return e.Rc; }
     string work = Directory.CreateTempDir("xtask-bench-ab");
 
     string items = "";
-    int nb = 0; int count = 0; int regr = 0; int toolErr = 0;
-    // Sort — filesystem order is non-deterministic (load-order determinism rule).
-    foreach (var f in _sortedStrings(Directory.Enumerate(scenDir))) {
-        if (!f.EndsWith(".z42")) { continue; }
-        if (quick && count >= 2) { break; }
-        string name = f.Substring(0, f.Length - 4);
-        string src = Path.Join(scenDir, f);
-        string srcText = File.ReadAllText(src);
-        string ns = _extractNamespace(srcText);
-        if (ns.Length == 0) { ConsoleError.WriteLine("error: no namespace in " + f); return 2; }
-        // simplify-bench-gate: 门禁只测 gate 层（CI 传 --tier gate）。
-        string stier = _benchScenarioTier(srcText);
-        if (!_benchTierWanted(tier, stier)) {
-            Console.WriteLine("  ⊘ skip " + name + ": tier=" + stier + " (--tier " + tier + ")");
-            count = count + 1;
-            continue;
-        }
-        string[] missing = _epCapsMissing(_epScenarioRequiredCaps(srcText), vmc.Caps);
-        if (missing.Length > 0) {
-            Console.WriteLine("  ⊘ skip " + name + ": missing cap(s) " + _epJsonStrArr(missing));
-            count = count + 1; continue;
-        }
-        for (int mi = 0; mi < modes.Length; mi = mi + 1) {
-            string m = modes[mi];
-            if (_epCellStatus(_epTiersForMode(m), new string[0], vmc.ExecModes) != "runnable") {
-                Console.WriteLine("  ⊘ skip " + name + " [" + m + "]: not runnable on this VM");
-                continue;
-            }
+    int nb = 0; int regr = 0; int toolErr = 0;
+    for (int si = 0; si < scen.Length; si = si + 1) {
+        BenchScenario s = scen[si];
+        for (int mi = 0; mi < e.Modes.Length; mi = mi + 1) {
+            string m = e.Modes[mi];
+            if (!_benchModeRunnable(e, s.Name, m)) { continue; }
             int mayResample = resampleBudget > 0 ? extraRounds : 0;
-            AbOutcome o = _abOneScenario(work, name, ns, m, src,
-                baseVm, baseDriver, baseLibs, prVm, prDriver, prFlat, warmup, runs, thr, mayResample);
+            AbOutcome o = _abOneScenario(work, s.Name, s.Ns, m, s.Src,
+                baseVm, baseDriver, baseLibs, e.Vm, e.Driver, e.Libs, warmup, runs, thr, mayResample);
             if (o.Rc != 0) { toolErr = toolErr + 1; continue; }
             if (o.Resampled) { resampleBudget = resampleBudget - 1; }
             if (o.IsRegression && mayResample == 0 && extraRounds > 0) {
@@ -523,17 +537,16 @@ int _benchAb(ParseResult r) {
             if (nb > 0) { items = items + ",\n"; }
             items = items + o.Json; nb = nb + 1;
             if (o.IsRegression) { regr = regr + 1; }
-            if (_benchScenarioReportsPause(srcText)) {
-                AbOutcome po = _abPauseScenario(name, m, baseVm, Path.Join(work, name + "-base.zbc"), baseLibs,
-                    prVm, Path.Join(work, name + "-pr.zbc"), prFlat, ns + ".Main", pauseCap, pauseThr);
+            if (s.ReportsPause) {
+                AbOutcome po = _abPauseScenario(s.Name, m, baseVm, Path.Join(work, s.Name + "-base.zbc"), baseLibs,
+                    e.Vm, Path.Join(work, s.Name + "-pr.zbc"), e.Libs, s.Ns + ".Main", pauseCap, pauseThr);
                 if (po.Rc != 0) { toolErr = toolErr + 1; continue; }
                 items = items + ",\n" + po.Json; nb = nb + 1;
                 if (po.IsRegression) { regr = regr + 1; }
             }
         }
-        count = count + 1;
     }
-    _abWriteJson(root, resultsDir, items);
+    _abWriteJson(e.Root, e.ResultsDir, items);
     return _abFinish(nb, regr, toolErr);
 }
 
@@ -1062,12 +1075,6 @@ void _printSpeedups(JsonValue benchmarks) {
     }
 }
 
-// resolve a possibly-relative path under the repo root (absolute paths unchanged).
-string _absUnder(string root, string p) {
-    if (p.StartsWith("/")) { return p; }
-    return Path.Join(root, p);
-}
-
 // one benchmark object from a hyperfine export JSON (time values are seconds → ms).
 // add-exec-profile-matrix: carries the schema-v2 `profile` (mode composition +
 // platform + probed caps) so interp/jit results never compare against each other.
@@ -1081,89 +1088,4 @@ string _benchObj(string hjson, string name, string runs, string[] tiers, VmCaps 
         + ",\n      \"unit\": \"ms\",\n      \"ci_lower\": " + lo
         + ",\n      \"ci_upper\": " + hi + ",\n      \"samples\": " + runs
         + ",\n      \"profile\": " + _epProfileJson(tiers, new string[0], vm) + "\n    }";
-}
-
-string _gitOut(string root, string a, string b, string c) {
-    ProcessResult r = new Process("git").Arg(a).Arg(b).Arg(c).WorkingDirectory(root).Run();
-    if (r.ExitCode == 0) { return r.Stdout.Trim(); }
-    return "unknown";
-}
-
-// add-stdlib-bench-baseline: aggregate per-module z42b `--format json` bench_stats
-// into one schema-v1 baseline doc. median_ns is the primary metric (value); min/max
-// map to ci_lower/ci_upper. One instance is reused across all libs/modules by
-// `bench stdlib --json` (null when not capturing → pretty passthrough untouched).
-class MicroBenchAgg {
-    string _items;   // comma+newline-joined schema-v2 benchmark objects
-    int    _n;
-    // add-exec-profile-matrix: the profile every micro result is tagged with.
-    // Probed once (setProfileOnce) from the VM the z42b runner executes under, so
-    // interp vs jit micro baselines never compare against each other. Defaults to
-    // an interp/empty profile until set.
-    string[] _tiers;
-    VmCaps   _vm;
-    string   _vmVersion;
-    bool     _profSet;
-    public MicroBenchAgg() {
-        this._items = ""; this._n = 0;
-        this._tiers = new string[1]; this._tiers[0] = "interp";
-        this._vm = new VmCaps(); this._vmVersion = ""; this._profSet = false;
-    }
-    internal int count() { return this._n; }
-
-    // Record the execution profile (idempotent — first call wins). tiers comes
-    // from the micro `--mode`; vm/vmVersion from probing the runner's VM binary.
-    internal void setProfileOnce(string[] tiers, VmCaps vm, string vmVersion) {
-        if (this._profSet) { return; }
-        this._tiers = tiers; this._vm = vm; this._vmVersion = vmVersion;
-        this._profSet = true;
-    }
-
-    // Parse one z42b `--format json` module output; append each benchmark's stats.
-    // Non-benchmark entries (smoke [Test]) and failed benches (no bench_stats) skip.
-    internal void addModuleJson(string moduleJson, string lib) {
-        JsonValue root = JsonValue.Parse(moduleJson.Trim());
-        JsonValue results = null;
-        if (!root.TryGet("results", ref results)) { return; }
-        int i = 0;
-        while (i < results.Count()) {
-            JsonValue res = results.At(i);
-            bool isBench = false;
-            JsonValue bs = null;
-            if (res.TryGetValue<bool>("is_benchmark", ref isBench) && isBench
-                && res.TryGet("bench_stats", ref bs)) {
-                string name = lib + "." + bs.Get("label").AsString();
-                long med = bs.Get("median_ns").AsLong();
-                long lo  = bs.Get("min_ns").AsLong();
-                long hi  = bs.Get("max_ns").AsLong();
-                long smp = bs.Get("samples").AsLong();
-                // mean_ns / stddev_ns (extend-ab-bench-micro-criterion): optional
-                // in older reports → default -1. Carried into the schema-v2 object
-                // so the informational baseline is SEM-ready for future consumers.
-                long mean = -1; bs.TryGetValue<long>("mean_ns", ref mean);
-                long sd   = -1; bs.TryGetValue<long>("stddev_ns", ref sd);
-                if (this._n > 0) { this._items = this._items + ",\n"; }
-                this._items = this._items
-                    + "    {\n      \"name\": \"" + name + "\",\n"
-                    + "      \"tier\": \"z42-micro\",\n      \"metric\": \"time\",\n"
-                    + "      \"value\": " + med.ToString() + ",\n      \"unit\": \"ns\",\n"
-                    + "      \"ci_lower\": " + lo.ToString() + ",\n      \"ci_upper\": " + hi.ToString() + ",\n"
-                    + "      \"mean_ns\": " + mean.ToString() + ",\n      \"stddev_ns\": " + sd.ToString() + ",\n"
-                    + "      \"samples\": " + smp.ToString() + ",\n"
-                    + "      \"profile\": " + _epProfileJson(this._tiers, new string[0], this._vm) + "\n    }";
-                this._n = this._n + 1;
-            }
-            i = i + 1;
-        }
-    }
-
-    // Wrap accumulated items in the schema-v2 envelope (reuses _gitOut/_utcNow).
-    internal string toSchemaV2(string root) {
-        string commit = _gitOut(root, "rev-parse", "--short", "HEAD");
-        string branch = _gitOut(root, "rev-parse", "--abbrev-ref", "HEAD");
-        return "{\n  \"schema_version\": 2,\n  \"commit\": \"" + commit
-            + "\",\n  \"branch\": \"" + branch + "\",\n  \"z42vm_version\": \"" + this._vmVersion
-            + "\",\n  \"timestamp\": \"" + _utcNow() + "\",\n  \"benchmarks\": [\n"
-            + this._items + "\n  ]\n}\n";
-    }
 }

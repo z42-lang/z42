@@ -52,6 +52,21 @@ string _root() {
     return Environment.GetCurrentDirectory();
 }
 
+// resolve a possibly-relative path under the repo root (absolute paths unchanged).
+// bench（--diff / --micro-diff 的 json 路径）与 test（`bench stdlib --json` 落盘）共用。
+string _absUnder(string root, string p) {
+    if (p.StartsWith("/")) { return p; }
+    return Path.Join(root, p);
+}
+
+// `git <a> <b> <c>` at root, stdout trimmed; "unknown" on failure（bench 结果信封与 micro 聚合器的
+// commit / branch 字段共用）。
+string _gitOut(string root, string a, string b, string c) {
+    ProcessResult r = new Process("git").Arg(a).Arg(b).Arg(c).WorkingDirectory(root).Run();
+    if (r.ExitCode == 0) { return r.Stdout.Trim(); }
+    return "unknown";
+}
+
 // Run a prepared Process at the repo root, inheriting stdio; return its exit code.
 int _exec(Process p) {
     return p.WorkingDirectory(_root())
@@ -111,10 +126,6 @@ int _z42cWorkspaceBuild(string vm, string driver, string cwd, string libs, bool 
 // 单包 `build <toml> --release --output-dir <out>`：把一个成员 zpkg 直接写到 <out>/<name>.zpkg
 // （非 workspace 布局）。冷启动破 z42c⇄z42.package 环用（_ensureBootstrapSelfDepLibs）：种子 driver
 // 先把当前源码的 z42.package 编进 build-libs，让 fresh z42c 对着真 z42.package 编译+运行。
-int _z42cBuildPackage(string vm, string driver, string tomlPath, string libs, string outputDir) {
-    return _z42cBuildPackage(vm, driver, tomlPath, libs, outputDir, "");
-}
-
 // `runLibs` 同 `_z42cWorkspaceBuild`。
 int _z42cBuildPackage(string vm, string driver, string tomlPath, string libs, string outputDir,
                       string runLibs) {
@@ -614,21 +625,11 @@ int _ensureSeed(string root) {
 // stdlib flat dist (= the Z42_LIBS value the compiler + VM load stdlib from):
 //   artifacts/intermediate/libraries/flat/release.
 // This is the CANONICAL build-tree path — where the producer command (build stdlib)
-// WRITES. Consumer commands (test) that should READ from an active
-// `--toolchain` use _activeLibsDir() instead (which falls back here when unset).
-// ⚠️ scripts/hooks/hooks.z42（embed-libs）另写了一份（hooks 工程调不到本函数），改这里要同步。
+// WRITES. Consumers that must honour an active `--toolchain` resolve the toolchain
+// first themselves (`_activeVm` / `_toolchainLibs`) and fall back here.
+// ⚠️ scripts/xtask_hooks.z42（embed-libs）另写了一份（hooks 工程调不到本函数），改这里要同步。
 string _libsDir(string root) {
     return _libsFlatDist(root, "release");
-}
-
-// stdlib libs to READ for the current command: the active --toolchain's libs/
-// when set, else the canonical build-tree _libsDir. Consumer paths (test, and
-// build steps that resolve against an existing toolchain) call this; producers
-// keep writing to _libsDir.
-string _activeLibsDir(string root) {
-    string tc = _toolchainDir(root);
-    if (tc.Length > 0) { return _toolchainLibs(tc); }
-    return _libsDir(root);
 }
 
 // `_packagesDir` → common/xtask_layout.z42（top-level buckets，centralize-xtask-layout）。
@@ -690,6 +691,14 @@ bool _have(string bin) {
     } catch (Exception e) { return false; }
 }
 
+// `<bin>` 不在 PATH 上 ⇒ 打一行 `error: <bin> not found (<hint>)` 并返回 false（调用方 return 1）。
+// 平台测试 backend（desktop / ios / android）与 embedded 的入口门：此前 13 处各写一遍四行 if 块。
+bool _requireTool(string bin, string hint) {
+    if (Process.Which(bin) != null) { return true; }
+    ConsoleError.WriteLine("error: " + bin + " not found (" + hint + ")");
+    return false;
+}
+
 // stdout of a command, trimmed; "" on failure.
 string _cmdOut(string bin, string[] args) {
     try {
@@ -697,4 +706,15 @@ string _cmdOut(string bin, string[] args) {
         if (r.ExitCode != 0) { return ""; }
         return r.Stdout.Trim();
     } catch (Exception e) { return ""; }
+}
+
+// 文件的 sha256（小写 hex）；失败 → ""。走系统工具（Std.Crypto.Sha256 是纯脚本实现，解释模式下对几百 MB 的
+// 归档太慢）：macOS 只有 `shasum`，Linux 必有 `sha256sum`；两者都打 "<hash>  <file>"，取首 token。
+// 发布归档 SHA256SUMS（package/）与下载件 pin 校验（install/）共用。
+string _sha256Hex(string path) {
+    string outp = Platform.IsMacOS() ? _cmdOut("shasum", new string[] { "-a", "256", path })
+                                     : _cmdOut("sha256sum", new string[] { path });
+    int sp = outp.IndexOf(" ");
+    string hex = sp > 0 ? outp.Substring(0, sp) : outp;
+    return hex.Trim().ToLower();
 }

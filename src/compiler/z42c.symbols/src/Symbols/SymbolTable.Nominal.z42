@@ -15,7 +15,7 @@
 //
 // ⚠️ 本次拆分是**纯代码搬运**：方法体逐字未改，只是换了文件。判据、消息措辞、调用关系全不动。
 // `partial` 而非静态辅助类的理由同 `SymbolTable.Origins.z42` 抬头（零调用点改动、零额外帧）。
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 using Z42.IR;
 using Z42.Syntax;   // ClassDecl（LocalClassKey）
 

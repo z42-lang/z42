@@ -1,6 +1,6 @@
 // 转换 / 基元分类纯谓词（compiler-review P1-1 step5：拆 TypeChecker God-Class 的
 // 「ConversionChecker」片——无状态叶子助手集中到 static class，供各子绑定器 + Facade 共用。
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 
 public static class TypeFactsTc {
 

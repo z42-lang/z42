@@ -30,7 +30,10 @@ public static class Opt {
                                         //        可达性移除死块；喂料来自 const 替换 / const-fold；add-const-keyword）
     public static int Devirt    = 2048; // bit11：基于 sealed 的去虚化（receiver 静态类型是本地非泛型 sealed 类 →
                                         //        VCall 降级为直接 Call，解锁 IrInline 内联；emit 时就地，add-sealed-devirt）
-    public static int All       = 4095; // ...|DeadBranch|Devirt
+    // 全部具名位 = 最高位 × 2 − 1（静态字段按声明序初始化，Devirt 先于本行）。加新 pass：把这里指向新的最高位，
+    // 并把名字加进 `ByName` 与 codegen_tests `test_opt_all_covers_every_named_bit` 的名表——漏任一处该测试即红，
+    // 否则 release 默认（= All）会静默漏跑新 pass。
+    public static int All       = Opt.Devirt * 2 - 1;
 
     // (set & opt) != 0 —— 某优化是否启用。
     public static bool Has(int set, int opt) {

@@ -13,6 +13,7 @@ namespace Z42.Semantics;
 
 using Z42.Syntax;
 using Z42.IR;
+using Z42.Symbols;
 
 public static class ExportedTypeExtractor {
 
@@ -81,6 +82,7 @@ public static class ExportedTypeExtractor {
     }
 
     // skipFuncs：ExtractP 路径下自由函数会被全包 allFuncs 覆盖，故跳过每文件函数抽取（F3）。
+    [Suppress("style.fnLinesHard", "80 body lines；拆分见 code-organization.md")]
     private static ExportedModuleZ _extractCore(CompilationUnit cu, SymbolTable symbols, string ns, StrMap pkgClassMap, bool skipFuncs) {
         // 类 FQN → ClassDecl（本 CU 内；TSIG 继承方法合并走 base 链需祖先 ClassDecl 取自有方法 AST 序+签名）。
         // z42c.syntax/ir 继承均同文件（Expr+子类 / IrInstr+子类）→ per-CU 图足够；跨文件继承待扩展为包级图。G18。

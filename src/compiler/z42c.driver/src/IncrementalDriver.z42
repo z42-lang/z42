@@ -8,7 +8,7 @@ namespace Z42.Driver;
 using Std.IO;
 using Z42.Syntax;
 using Z42.Core;      // LanguageFeatures —— [syntax] 解出的语法特性开关
-using Z42.Semantics;
+using Z42.Symbols;
 using Z42.Package;
 using Z42.IR;
 using Z42.IR.BinaryFormat;
@@ -73,6 +73,7 @@ public static class IncrementalDriver {
     // 拿不到 IrModule 就只能全部重编，缓存白存（fix-incr-allcached-cache-drop 修的正是这条）。
     // srcs = 真实路径（缓存键 / 探测用）；dispSrcs = 呈现给用户的文件名（诊断位置用）。工程模式下两者
     // 逐项相同；单文件运行时 srcs 是绝对路径、dispSrcs 是用户敲的相对路径。
+    [Suppress("style.fnLinesHard", "85 body lines；拆分见 code-organization.md")]
     public static IncrPrep Prepare(string[] srcs, string[] dispSrcs, string[] texts, string[] hashes, int n,
                                    string projectDir, string cacheDir, string depsId, bool canPreserve,
                                    LanguageFeatures feats) {
@@ -205,6 +206,7 @@ public static class IncrementalDriver {
 
     // ── 残留回填（D5a）：占位 label → 真实 label；模块池 → meta 原序 ──
 
+    [Suppress("style.fnLinesHard", "69 body lines；拆分见 code-organization.md")]
     private static bool _applyResidue(IrModule irm, CacheMeta meta) {
         if (meta == null) { return false; }
         if (meta.FnLabelsCount != irm.FuncCount) { return false; }

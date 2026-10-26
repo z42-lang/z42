@@ -13,7 +13,7 @@
 // 实例化都有）；**特化名**管布局查询 / 成员派发（仅布局与定义不同者）。散开放会让后来者只改一处。
 namespace Z42.Emission;
 
-using Z42.Semantics;
+using Z42.Symbols;
 
 using Z42.IR;
 

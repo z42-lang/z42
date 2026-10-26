@@ -11,7 +11,7 @@
 //
 // 与求值解耦的收益：EvalResult / CompiledModuleZ / CompileArtifacts 均不改，信号只挂 parser 的
 // DiagnosticBag。探针轻量——不做语义分析 / codegen / 加载引用 / 执行，不改 ScriptState。
-namespace Std.Scripting;
+namespace Z42.Scripting;
 
 using Z42.Syntax;
 

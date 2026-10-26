@@ -15,6 +15,7 @@ namespace Z42.Semantics;
 using Z42.Syntax;
 using Z42.Core;
 using Z42.IR.BinaryFormat;
+using Z42.Symbols;
 
 public sealed partial class ExprTyper : IExprVisitor<BoundExpr, TypeEnv> {
     private TypeChecker _tc;
@@ -155,6 +156,7 @@ public sealed partial class ExprTyper : IExprVisitor<BoundExpr, TypeEnv> {
             return this._tc._stmt._bindLambda(lam2, new Z42FuncType(lpts, lam2.ParamCount, new Z42UnknownType()), env);
     }
 
+    [Suppress("style.fnLinesHard", "61 body lines；拆分见 code-organization.md")]
     private BoundExpr _bindIndex(IndexExpr ix, TypeEnv env) {
             BoundExpr target = this._bindExpr(ix.Target, env);
             Z42Type tt = target.Type();

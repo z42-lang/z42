@@ -299,6 +299,7 @@ public class Regex {
     }
 
     // 核心 match：从 seq[idx..count) 匹配，起始 pos。返回结束 pos 或 -1。
+    [Suppress("style.fnLinesHard", "105 body lines；拆分见 code-organization.md")]
     private int Match(RegexNode[] seq, int count, int idx, int pos) {
         if (idx >= count) { return pos; }
         RegexNode node = seq[idx];
@@ -435,6 +436,7 @@ public class Regex {
     }
 
     // greedy quantifier with backtracking
+    [Suppress("style.fnLinesHard", "68 body lines；拆分见 code-organization.md")]
     private int MatchQuant(RegexNode q, RegexNode[] seq, int count, int idx, int pos) {
         // 先匹配 min 次（必须成功，否则失败）
         int[] savS = this.SnapshotStarts();

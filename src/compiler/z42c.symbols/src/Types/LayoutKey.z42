@@ -7,7 +7,7 @@
 //
 // 基元（含 string / object）一律用**关键字**拼写（`int` 而非 `Std.Int32`）：运行期 `Tag.FromName` 只认关键字，
 // 且 stdlib 既有实例化名（`MulticastException$1<bool>`）因此逐字节不变。
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 
 public static class LayoutKey {
     // 类 → 布局键。基元包装类（Std.Int32 / Std.String / Std.Object …）→ 关键字。

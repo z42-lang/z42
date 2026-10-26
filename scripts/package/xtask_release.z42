@@ -10,10 +10,10 @@ using Std.IO;
 using Std.Json;
 using Std.Time;
 
-// `package release` 第一步：merge the 4 per-RID desktop-workload pieces (each carries its apphost-<rid>)
-// into ONE RID-agnostic z42-workload-<LABEL>-desktop.tar.gz —— 一次下载装齐，任何宿主都能
-// `publish --rid <其它桌面 target>`。每个 apphost-<rid> 只能在本平台编，零件分散在 4 台 runner 上，
-// 所以合并只能在汇总这一步做。Removes the per-RID intermediates.
+// `package release` 第一步：merge the per-RID desktop-workload pieces (one per desktop RID of versions.toml
+// `[rid.*]`, each carries its apphost-<rid>) into ONE RID-agnostic z42-workload-<LABEL>-desktop.tar.gz
+// —— 一次下载装齐，任何宿主都能 `publish --rid <其它桌面 target>`。每个 apphost-<rid> 只能在本平台编，
+// 零件分散在各台 runner 上，所以合并只能在汇总这一步做。Removes the per-RID intermediates.
 int _releaseAssembleDesktop(string label, string dist) {
     Stopwatch sw = _procStart("release assemble-desktop-workload");
     string root = _root();
@@ -24,25 +24,20 @@ int _releaseAssembleDesktop(string label, string dist) {
     string merged = Path.Join(work, "z42-workload-" + label + "-desktop");
     Directory.Create(merged);
 
-    string[] rids = new string[4];
-    rids[0] = "linux-x64"; rids[1] = "linux-arm64"; rids[2] = "macos-arm64"; rids[3] = "windows-x64";
+    string[] rids = _vRidsOfCategory(root, "desktop");
+    if (rids.Length == 0) { ConsoleError.WriteLine("assemble-desktop-workload: versions.toml [rid.*] 没有 category = desktop 的 RID"); return 1; }
     int i = 0;
     while (i < rids.Length) {
         string rid = rids[i];
-        string ar = Path.Join(distDir, "z42-workload-" + label + "-desktop-" + rid + ".tar.gz");
-        bool isZip = false;
+        string ar = Path.Join(distDir, _desktopPieceName(label, rid));
         if (!File.Exists(ar)) {
-            ar = Path.Join(distDir, "z42-workload-" + label + "-desktop-" + rid + ".zip");
-            isZip = true;
-        }
-        if (!File.Exists(ar)) {
-            ConsoleError.WriteLine("assemble-desktop-workload: missing piece for " + rid);
+            ConsoleError.WriteLine("assemble-desktop-workload: missing piece for " + rid + " (" + Path.GetFileName(ar) + ")");
             return 1;
         }
         string tmp = Path.Join(work, "x-" + rid);
         Directory.Create(tmp);
         int xc;
-        if (isZip) { xc = _exec(new Process("unzip").Arg("-q").Arg(ar).Arg("-d").Arg(tmp)); }
+        if (ar.EndsWith(".zip")) { xc = _exec(new Process("unzip").Arg("-q").Arg(ar).Arg("-d").Arg(tmp)); }
         else { xc = _exec(new Process("tar").Arg("-xzf").Arg(ar).Arg("-C").Arg(tmp)); }
         if (xc != 0) { ConsoleError.WriteLine("extract failed: " + ar); return 1; }
         string[] hosts = Path.Glob(tmp, "apphost-" + rid + "*");
@@ -71,7 +66,7 @@ int _releaseAssembleDesktop(string label, string dist) {
     _deleteGlob(distDir, "z42-workload-" + label + "-desktop-*.tar.gz");
     _deleteGlob(distDir, "z42-workload-" + label + "-desktop-*.zip");
 
-    string outTar = Path.Join(distDir, "z42-workload-" + label + "-desktop.tar.gz");
+    string outTar = Path.Join(distDir, _wlArchiveName(label, "desktop"));
     int tc = _exec(_relTar(merged, outTar));
     if (tc != 0) { ConsoleError.WriteLine("tar failed: " + outTar); return 1; }
     Directory.Delete(work, true);
@@ -87,8 +82,9 @@ void _deleteGlob(string dir, string pattern) {
 }
 
 // `package release` 第三步：generate <dist>/release-index.json from <dist>/SHA256SUMS — the launcher's supply
-// contract (`z42 workload install` and the install scripts read it). Shared by release.yml (tagged)
-// and ci.yml publish-nightly (rolling), so the schema lives in ONE place.
+// contract (`z42 workload install` / runtime resolution read it, see src/toolchain/launcher/core/launcher_network.z42;
+// the install scripts only consume SHA256SUMS). Shared by release.yml (tagged) and ci.yml publish-nightly
+// (rolling), so the schema lives in ONE place.
 int _releaseGenIndex(string label, string dist, string channel, string tag, string version) {
     Stopwatch sw = _procStart("release gen-release-index");
     if (channel.Length == 0) { channel = "stable"; }
@@ -137,7 +133,7 @@ int _releaseGenIndex(string label, string dist, string channel, string tag, stri
     }
     i = 0;
     while (i < wls.Length) {
-        if (_shaOf(sums, "z42-workload-" + label + "-" + wls[i] + ".tar.gz").Length == 0) { ConsoleError.WriteLine("release-index: missing sha for workload " + wls[i]); missing = missing + 1; }
+        if (_shaOf(sums, _wlArchiveName(label, wls[i])).Length == 0) { ConsoleError.WriteLine("release-index: missing sha for workload " + wls[i]); missing = missing + 1; }
         i = i + 1;
     }
     if (missing > 0) { return 1; }
@@ -185,14 +181,14 @@ int _releaseGenIndex(string label, string dist, string channel, string tag, stri
     return 0;
 }
 
-string _sdkName(string label, string rid) {
-    string ext = (rid == "windows-x64") ? ".zip" : ".tar.gz";
-    return "z42-sdk-" + label + "-" + rid + ext;
-}
-string _rtName(string label, string rid) {
-    string ext = (rid == "windows-x64") ? ".zip" : ".tar.gz";
-    return "z42-runtime-" + label + "-" + rid + ext;
-}
+// ── 归档命名（唯一出处：release-index、`--archive`、桌面 workload 合并都从这里取名）──────────────
+// 扩展名由 RID 的平台决定：Windows RID（versions.toml 的 triple 含 `windows`）出 `.zip`，其余 `.tar.gz`。
+string _relArchiveExt(string rid) { return _vRidTriple(_root(), rid).Contains("windows") ? ".zip" : ".tar.gz"; }
+string _sdkName(string label, string rid)          { return "z42-sdk-"      + label + "-" + rid + _relArchiveExt(rid); }
+string _rtName(string label, string rid)           { return "z42-runtime-"  + label + "-" + rid + _relArchiveExt(rid); }
+string _desktopPieceName(string label, string rid) { return "z42-workload-" + label + "-desktop-" + rid + _relArchiveExt(rid); }
+// 平台 workload（主 RID 出）/ 合并后的桌面 workload / test workload：不随宿主平台变，恒 `.tar.gz`。
+string _wlArchiveName(string label, string wl)     { return "z42-workload-" + label + "-" + wl + ".tar.gz"; }
 
 // first non-empty token of the SHA256SUMS line whose last token == archive.
 string _shaOf(string sums, string archive) {
@@ -219,7 +215,7 @@ JsonValue _jArch(string archive, string sha) {
     return o;
 }
 JsonValue _jWorkload(string label, string sums, string name, JsonValue host, JsonValue rts) {
-    string archive = "z42-workload-" + label + "-" + name + ".tar.gz";
+    string archive = _wlArchiveName(label, name);
     JsonValue o = JsonValue.OfObject();
     o.Set("archive",  JsonValue.OfString(archive));
     o.Set("sha256",   JsonValue.OfString(_shaOf(sums, archive)));
@@ -240,12 +236,13 @@ JsonValue _strArr4(string a, string b, string c, string d) { JsonValue r = JsonV
 //   · `--archive` 在**产出包的那台机器**上、随打包命令一起出（可执行位原样进 tar；Windows 包出真 zip），本地发布同一条命令；
 //   · `release` 在汇总 job 上跑：合并桌面 workload → SHA256SUMS → release-index.json。
 //
-// 包目录（release profile）→ 归档基名（`<L>` = label：版本号或 `nightly`）：
+// 包目录（release profile）→ 归档名（`<L>` = label：版本号或 `nightly`；映射在 `_relArchiveName`）：
 //   z42-<v>-<rid>-release            桌面 RID → z42-sdk-<L>-<rid>；平台 RID 只由主 RID 出 → z42-workload-<L>-<wl>
 //   z42-runtime-<v>-<rid>            → z42-runtime-<L>-<rid>
 //   z42-workload-<v>-desktop-<rid>   → z42-workload-<L>-desktop-<rid>（release 合并成一份）
 //   z42-workload-<v>-test            → z42-workload-<L>-test
-// windows-x64 的 sdk / runtime / desktop workload 出 `.zip`，其余 `.tar.gz`（与 `_sdkName` / `_rtName` 一致）。
+// 扩展名：Windows RID 的 sdk / runtime / desktop 零件出 `.zip`，其余 `.tar.gz`——规则只在 `_relArchiveExt` 一处
+// （按 versions.toml 的 triple 判定）；release-index 用的 `_sdkName` / `_rtName` 与 `--archive` 出的名字同源。
 
 // RID 清单 / 类别 / 主 RID：versions.toml `[rid.*]` 的唯一登记（加 RID = 改 toml，这里自动跟上）。
 string[] _relRids() {
@@ -263,26 +260,24 @@ string _relPrimaryWorkload(string rid) {
     return _vRidPrimary(_root(), rid) ? cat : "";
 }
 
-// 包目录名 → 归档基名（不含扩展名）；不是要发布的包 → ""。
-string _relArchiveBase(string dirName, string ver, string label) {
-    if (dirName == "z42-workload-" + ver + "-test") { return "z42-workload-" + label + "-test"; }
+// 包目录名 → 归档文件名（含扩展名）；不是要发布的包 → ""。
+string _relArchiveName(string dirName, string ver, string label) {
+    if (dirName == "z42-workload-" + ver + "-test") { return _wlArchiveName(label, "test"); }
     string[] rids = _relRids();
     int i = 0;
     while (i < rids.Length) {
         string rid = rids[i];
         if (dirName == "z42-" + ver + "-" + rid + "-release") {
-            if (_relIsDesktop(rid)) { return "z42-sdk-" + label + "-" + rid; }
+            if (_relIsDesktop(rid)) { return _sdkName(label, rid); }
             string wl = _relPrimaryWorkload(rid);
-            return wl.Length > 0 ? "z42-workload-" + label + "-" + wl : "";
+            return wl.Length > 0 ? _wlArchiveName(label, wl) : "";
         }
-        if (dirName == "z42-runtime-" + ver + "-" + rid)           { return "z42-runtime-" + label + "-" + rid; }
-        if (dirName == "z42-workload-" + ver + "-desktop-" + rid)  { return "z42-workload-" + label + "-desktop-" + rid; }
+        if (dirName == "z42-runtime-" + ver + "-" + rid)           { return _rtName(label, rid); }
+        if (dirName == "z42-workload-" + ver + "-desktop-" + rid)  { return _desktopPieceName(label, rid); }
         i = i + 1;
     }
     return "";
 }
-
-string _relArchiveExt(string baseName) { return baseName.EndsWith("-windows-x64") ? ".zip" : ".tar.gz"; }
 
 // 本进程里各打包命令产出的包目录（`_pkgFinish` / 桌面与 test workload 登记）——`--archive` 在命令跑完后
 // 把它们逐个出成归档。打包命令的产出目录名由各自的实现决定，登记比在命令层再推一遍名字少一份拷贝。
@@ -313,12 +308,12 @@ int _pkgArchiveOutputs(string label) {
 // 一个包目录 → <outDir>/<归档基名><ext>。返回 1 = 出了归档，0 = 不是要发布的包（跳过），-1 = 打包失败。
 int _pkgArchiveDir(string dir, string ver, string label, string outDir) {
     string name = Path.GetFileName(dir);
-    string baseName = _relArchiveBase(name, ver, label);
-    if (baseName.Length == 0) {
+    string arName = _relArchiveName(name, ver, label);
+    if (arName.Length == 0) {
         Console.WriteLine("- " + name + "：不是要发布的包（平台 tooling 只由主 RID 出归档），不出归档");
         return 0;
     }
-    string ar = Path.Join(outDir, baseName + _relArchiveExt(baseName));
+    string ar = Path.Join(outDir, arName);
     if (File.Exists(ar)) { File.Delete(ar); }
     int rc = ar.EndsWith(".zip") ? _relZipDir(dir, ar) : _exec(_relTar(dir, ar));
     if (rc != 0) { ConsoleError.WriteLine("--archive: 打包失败 " + ar); return -1; }
@@ -380,7 +375,7 @@ int _releaseWriteSums(string distDir) {
     string outp = "";
     i = 0;
     while (i < names.Length) {
-        string sha = _relSha256(Path.Join(distDir, names[i]));
+        string sha = _sha256Hex(Path.Join(distDir, names[i]));
         if (sha.Length != 64) { ConsoleError.WriteLine("SHA256SUMS: 算不出 " + names[i] + " 的 sha256"); return 1; }
         outp = outp + sha + "  " + names[i] + "\n";
         i = i + 1;
@@ -390,10 +385,3 @@ int _releaseWriteSums(string distDir) {
     return 0;
 }
 
-// 文件的 sha256（小写 hex）；失败 → ""。macOS 只有 `shasum`，Linux 两者通常都有、`sha256sum` 必有。
-string _relSha256(string path) {
-    string outp = Platform.IsMacOS() ? _cmdOut("shasum", new string[] { "-a", "256", path })
-                                     : _cmdOut("sha256sum", new string[] { path });
-    int sp = outp.IndexOf(" ");
-    return sp > 0 ? outp.Substring(0, sp) : "";
-}

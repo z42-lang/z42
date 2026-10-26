@@ -12,6 +12,7 @@ namespace Z42.Semantics;
 
 using Z42.Syntax;
 using Z42.Core;
+using Z42.Symbols;
 
 public sealed partial class MemberResolver {
     internal BoundExpr _applyMethodTypeArgs(BoundCall bc, CallExpr call, MethodSymbol ms, TypeEnv env) {

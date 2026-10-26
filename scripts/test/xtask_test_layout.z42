@@ -56,12 +56,6 @@ int _testLayout() {
     return 0;
 }
 
-bool _tlHas(string[] xs, string x) {
-    int i = 0;
-    while (i < xs.Length) { if (xs[i] == x) { return true; } i = i + 1; }
-    return false;
-}
-
 // ① src/tests 顶层类别对账。
 int _tlCheckCategories(string root, string doc) {
     Console.WriteLine("① src/tests 顶层类别 = 「语言类别」∪「待搬迁」");
@@ -79,24 +73,24 @@ int _tlCheckCategories(string root, string doc) {
     }
     int bad = 0;
     foreach (var d in dirs) {
-        if (!_tlHas(lang, d) && !_tlHas(pend, d)) {
+        if (!_strIn(lang, d) && !_strIn(pend, d)) {
             ConsoleError.WriteLine("  ✗ src/tests/" + d + "/ 未登记 —— 测语言 / VM 特性就登记进「语言类别」，"
                 + "测某个组件的契约就放进那个组件的 tests/");
             bad = bad + 1;
         }
     }
     foreach (var l in lang) {
-        if (!_tlHas(dirs, l)) {
+        if (!_strIn(dirs, l)) {
             ConsoleError.WriteLine("  ✗ 「语言类别」里的 `" + l + "` 在 src/tests 下不存在 —— 删掉这一行");
             bad = bad + 1;
         }
-        if (_tlHas(pend, l)) {
+        if (_strIn(pend, l)) {
             ConsoleError.WriteLine("  ✗ `" + l + "` 同时出现在「语言类别」与「待搬迁」—— 二选一");
             bad = bad + 1;
         }
     }
     foreach (var p in pend) {
-        if (!_tlHas(dirs, p)) {
+        if (!_strIn(dirs, p)) {
             ConsoleError.WriteLine("  ✗ 「待搬迁」里的 `" + p + "` 已不在 src/tests —— 搬完了就从清单删掉");
             bad = bad + 1;
         }
@@ -158,17 +152,17 @@ int _tlCheckCapVocab(string root, string doc, string[] active) {
     }
     int bad = 0;
     foreach (var c in rt) {
-        if (!_tlHas(active, c)) {
+        if (!_strIn(active, c)) {
             ConsoleError.WriteLine("  ✗ 运行期报告 `" + c + "`，但「已生效」区没有 —— 登记进去（含它在哪些平台出现）");
             bad = bad + 1;
         }
     }
     foreach (var c in active) {
-        if (!_tlHas(rt, c)) {
+        if (!_strIn(rt, c)) {
             ConsoleError.WriteLine("  ✗ 「已生效」区的 `" + c + "` 运行期并不报告 —— 移回「规划中」或删掉");
             bad = bad + 1;
         }
-        if (_tlHas(planned, c)) {
+        if (_strIn(planned, c)) {
             ConsoleError.WriteLine("  ✗ `" + c + "` 同时出现在「已生效」与「规划中」");
             bad = bad + 1;
         }
@@ -212,7 +206,7 @@ int _tlCheckCapUses(string root, string[] active) {
                 string c = raw.Trim();
                 if (c.Length == 0) { continue; }
                 uses = uses + 1;
-                if (!_tlHas(active, c)) {
+                if (!_strIn(active, c)) {
                     ConsoleError.WriteLine("  ✗ " + relp + ":" + i.ToString() + ": `" + c
                         + "` 不是已生效能力 —— 运行期不报告它 ⇒ 该用例在所有平台上都会被静默跳过");
                     bad = bad + 1;

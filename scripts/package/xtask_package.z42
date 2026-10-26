@@ -137,13 +137,9 @@ string _cargoTargetFor(string rid) {
 // The cargo output dir matching _cargoTargetFor: <profile> for host (no triple),
 // <triple>/<profile> for cross. All three desktop package functions read from here.
 string _cargoOutFor(string root, string rid, string profile) {
-    return _cargoOutIn(_cargoTargetDir(root), rid, profile);
-}
-
-string _cargoOutIn(string targetDir, string rid, string profile) {
     string t = _cargoTargetFor(rid);
     string sub = (t.Length == 0) ? profile : (t + "/" + profile);
-    return Path.Join(targetDir, sub);
+    return Path.Join(_cargoTargetDir(root), sub);
 }
 
 int _cargo(bool rel, string verb, string manifest, string target, string pkg) {
@@ -163,7 +159,7 @@ int _cargo(bool rel, string verb, string manifest, string target, string pkg) {
 // 正卡在整轮 CI 的关键路径上；② `--crate-type` 进 cargo 的指纹，两次调用参数不同 ⇒ **互相使对方失效**，
 // 什么都没改再打一次包也照样两遍全编（本地 `package sdk` 里那段「apphost ready 之后还在 cargo rustc」就是它）。
 // 合成一次后：一遍前端 + 每种产物各自链接；指纹稳定，未改动时直接命中。
-// ⚠️ 同一 host release 目标上的其它调用点（scripts/hooks/hooks.z42 的 embed、xtask test desktop）用**同一个
+// ⚠️ 同一 host release 目标上的其它调用点（scripts/xtask_hooks.z42 的 embed、xtask test desktop）用**同一个
 // 列表**，否则它们与打包交替时还是互相作废。iOS / wasm / android 是别的 target，各管各的。
 string _embedCrateTypes() { return "staticlib,cdylib"; }
 
@@ -175,7 +171,7 @@ string _embedCrateTypes() { return "staticlib,cdylib"; }
 //     name, unversioned (the C ABI is versioned by the `abi_version` the host passes in).
 // Not build.rs `cargo:rustc-cdylib-link-arg`: the z42 package has no cdylib target (only `--crate-type` makes one), so
 // cargo warns on every plain build that this may become an error (cargo#9562).
-// ⚠️ Same fingerprint rule as `_embedCrateTypes`: xtask test desktop and scripts/hooks/hooks.z42 pass the same args.
+// ⚠️ Same fingerprint rule as `_embedCrateTypes`: xtask test desktop and scripts/xtask_hooks.z42 pass the same args.
 string _embedLinkArg(string target) {
     bool mac = (target.Length == 0) ? Platform.IsMacOS() : target.Contains("apple-darwin");
     bool linux = (target.Length == 0) ? Platform.IsLinux() : target.Contains("linux-gnu");

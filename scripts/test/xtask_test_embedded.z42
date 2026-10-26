@@ -205,9 +205,7 @@ string _wasmDeployDir(string root) { return _workOut(root, "src/toolchain/worklo
 // Z42EmbeddedTests.testEmbeddedBundle (in the Z42VM scheme) — RUN via
 // `test app ios run` (→ z42b xcodebuild test, one sim boot).
 string _buildIosTesthost(string root, string filter, string rid, int shardK, int shardN) {
-    if (Process.Which("xcodebuild") == null) {
-        ConsoleError.WriteLine("error: xcodebuild not found (Xcode required for iOS)"); return "";
-    }
+    if (!_requireTool("xcodebuild", "Xcode required for iOS")) { return ""; }
     Console.WriteLine("→ build test-bundle" + (filter.Length > 0 ? (" (filter: " + filter + ")") : " (all)"));
     string manifest = _buildTestBundle(root, filter, rid, shardK, shardN);
     if (manifest.Length == 0) { return ""; }
@@ -250,9 +248,7 @@ int _runIosTesthost(string root, string rid) {
 // `test app android run` (→ z42b gradlew connectedAndroidTest, one
 // emulator boot with R1–R7). Real filesystem → no VFS, same z42_host_run_app core.
 string _buildAndroidTesthost(string root, string filter, string rid, int shardK, int shardN) {
-    if (Process.Which("cargo-ndk") == null) {
-        ConsoleError.WriteLine("error: cargo-ndk not found (cargo install cargo-ndk)"); return "";
-    }
+    if (!_requireTool("cargo-ndk", "cargo install cargo-ndk")) { return ""; }
     Console.WriteLine("→ build test-bundle" + (filter.Length > 0 ? (" (filter: " + filter + ")") : " (all)"));
     string manifest = _buildTestBundle(root, filter, rid, shardK, shardN);
     if (manifest.Length == 0) { return ""; }

@@ -15,7 +15,7 @@
 // `String.Split.z42` 三个 `public sealed partial class String`。
 //
 // ⚠️ 这次拆分是**纯代码搬运**：方法体逐字未改，只是换了文件。判据、消息措辞、调用关系全不动。
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 using Z42.IR;
 using Z42.Core;   // ReportTypeOrigin：DiagnosticBag / DiagnosticCodes / Span
 

@@ -7,6 +7,7 @@ namespace Z42.Semantics;
 
 using Z42.Syntax;
 using Z42.Core;
+using Z42.Symbols;
 
 public sealed partial class MemberResolver {
     // prim 收者（`string` / 数值 / `char`…）的实例方法调用：prim 名 → stdlib 包装类（"string"→"String"，
@@ -19,8 +20,8 @@ public sealed partial class MemberResolver {
         // imported 自 z42.core TSIG）→ 取方法 ret 真类型（dst tag 字节实证 Str 非 Unknown）；
         // 查无则松绑定 Unknown（codegen 经 DepIndex 真实解析）。
         string wrapper = TypeFactsTc._primWrapper(rt.Name());
-        if (env.Symbols.HasClass(wrapper)) {
-            Z42ClassType wct = env.Symbols.GetClass(wrapper);
+        Z42ClassType wct = env.Symbols.GetClass(wrapper);
+        if (wct != null) {
             // stabilize-instance-dispatch-keys：prim 收者实例方法**恒走完整 `_resolveOverload`**（镜像上方
             // class 收者路径 :69 → ms.RegKey）。旧的 `_sameArity<2` 快路径（`_overloadKey`/`_findMethod` 取
             // bare / `Name$arity`）在新键方案下**失效并致命**：arity 重载（如 `Substring(int)`/`Substring(int,int)`）
@@ -93,8 +94,8 @@ public sealed partial class MemberResolver {
     // （同 prim 路径 `BindPrimNoApplicableOverload` 的逃生口）。返回 null = 调用方继续原路径。
     internal BoundExpr BindArrayInstanceCall(MemberExpr mem, BoundExpr recv, Z42Type rt, BoundExpr[] args,
                                             int argCount, Expr[] rawArgs, TypeEnv env, Span sp) {
-        if (env.Symbols.HasClass("Object")) {
-            Z42ClassType objCt = env.Symbols.GetClass("Object");
+        Z42ClassType objCt = env.Symbols.GetClass("Object");
+        if (objCt != null) {
             string aMkey = this._tc._overload._overloadKey(env.Symbols, objCt, mem.Name, argCount);
             MethodSymbol aMs = this._tc._overload._findMethod(env.Symbols, objCt, aMkey);
             if (aMs != null) {

@@ -11,7 +11,7 @@ namespace Z42.Pipeline;
 
 using Std.IO;
 using Z42.Syntax;
-using Z42.Semantics;
+using Z42.Symbols;
 using Z42.Package;
 using Z42.Project;
 using Z42.Emission;
@@ -129,6 +129,7 @@ public sealed class BuildSession {
                                       WorkspaceMemberDeps.EnclosingMemberNames(projectDir));
     }
 
+    [Suppress("style.fnLinesHard", "122 body lines；拆分见 code-organization.md")]
     public BuildResult Run() {
         BuildOptions o = this._o;
         ProjectManifest pm = o.Manifest;

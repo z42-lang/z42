@@ -21,7 +21,7 @@
 // S5 外层已声明同名成员 → 不生成（③ 档天然满足：partial 声明本身就是「用户点名要这个」）
 namespace Z42.Generators;
 
-using Z42.Semantics;   // 语义层：符号表 / 解析后的类型（generator 在 provisional 绑定上工作）
+using Z42.Symbols;   // 语义层：符号表 / 解析后的类型（generator 在 provisional 绑定上工作）
 
 using Z42.Syntax;
 using Z42.Core;

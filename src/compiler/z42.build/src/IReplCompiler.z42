@@ -3,10 +3,10 @@ namespace Z42.Build;
 // REPL 增量编译 + 补全服务门面（sink-repl-compile-facade）。
 //
 // 设计动机（opaque session，in-process 共享实现）：
-//   REPL（`Std.Scripting`）把编译器当**有状态增量服务**——依赖世界跨轮缓存、逐轮增量并入、
+//   REPL（`Z42.Scripting`）把编译器当**有状态增量服务**——依赖世界跨轮缓存、逐轮增量并入、
 //   per-type 惰性 reconcile、E0401 回退重编，补全还要遍历导入世界。这些都住编译器
 //   （`z42c.pipeline`/`z42c.semantics`）。本门面把「有状态增量编译世界」封成 opaque `object`
-//   句柄 + 一组 coarse 查询——`Std.Scripting` 只依赖本接口（stdlib），实现（`Z42cReplCompiler`）
+//   句柄 + 一组 coarse 查询——`Z42.Scripting` 只依赖本接口（stdlib），实现（`Z42cReplCompiler`）
 //   运行期经反射注入（mirror `Z42cCompiler`/ICompiler 的 wire-z42b 动态注入）。
 //
 // 依赖方向（DIP）：z42.build **只定义接口**；z42c.pipeline **实现**它 → z42c.pipeline → z42.build

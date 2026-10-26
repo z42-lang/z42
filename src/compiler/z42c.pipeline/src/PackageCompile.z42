@@ -12,7 +12,7 @@ namespace Z42.Pipeline;
 using Std.IO;         // Path（retire-member-dep-decls：E0497 成员放行的源目录推导）
 using Z42.Core;       // DiagnosticBag / Diagnostic / DiagnosticSeverity（analyzer 诊断合入）
 using Z42.Syntax;
-using Z42.Semantics;
+using Z42.Symbols;
 using Z42.Generators;   // CompileInputs 的测试注入面（Generator / ModuleGenerator）
 using Z42.Analyzers;   // CompileInputs.Lints（LintConfig）
 using Z42.IR;
@@ -437,20 +437,23 @@ public static class PackageCompile {
             if (exeDiags.Count() > 0) { PackageCompile._mergeDiags(cms[0], exeDiags); }
         }
 
-        // 并入前置线暂存的 analyzer 诊断。gated on 非空 → z42c 自建无 [plugins] → 该分支不进 →
-        // 逐字节不动。analyzer 诊断合入 per-file Cms（默认 Warning 级不增 ErrorCount → 不 fail 编译，
-        // 但对调用方可见）。放在错误门**前**，让 analyzer 报的 Error 级也能拦编译。
-        if (inp.AnalyzerZpkgCount > 0 && fl.HandlersLoadable) {
+        // 并入前置线暂存的 analyzer 诊断。gated on 非空 → z42c 自建无 [plugins] 且 [lints] 未启用 →
+        // 该分支不进 → 逐字节不动。analyzer 诊断合入 per-file Cms（默认 Warning 级不增 ErrorCount → 不 fail
+        // 编译，但对调用方可见）。放在错误门**前**，让 analyzer 报的 Error 级也能拦编译。
+        // 内建行数 lint（LineLint）与外部 analyzer 共用这条合并路——诊断同住在 AnalyzerDiags。
+        if ((inp.AnalyzerZpkgCount > 0 && fl.HandlersLoadable) || LineLint.Active(inp.Lints)) {
             int ab = 0;
             while (ab < fl.AnalyzerDiags.Length) {
                 if (fl.AnalyzerDiags[ab] != null && ab < cms.Length) { PackageCompile._mergeDiags(cms[ab], fl.AnalyzerDiags[ab]); }
                 ab = ab + 1;
             }
+        }
+        if (inp.AnalyzerZpkgCount > 0 && fl.HandlersLoadable) {
             int externHandlers = fl.ExternHandlers;
             // 🔴 **零发现此前是静默空转**：声明的 zpkg 加载成功、里面一个 `: Analyzer` /
             // `: Generator` / `: ModuleGenerator` 都没有 ⇒ 两个 loader 各返回空数组 ⇒ 提前 return
             // ⇒ **编译退出码 0、零诊断**，用户的扩展干脆不跑，而他有充分理由以为跑了。
-            // （实测：把一个零 handler 的普通库按名挂进 `[plugins]` → 退出码 0、一句话都没有。）
+            // （实测：把一个零 handler 的普通库按名挂进 [plugins] → 退出码 0、一句话都没有。）
             // 两个成因都落在这里：挂错了包；或 handler 由**另一代编译器**编出、契约接口对不上
             // ⇒ `as Generator` 全部返回 null ⇒ 同样是零发现（格式代差那条已由 strict-pin 在加载
             // 时拦下、落 E0493，此处盖的是格式相同而接口形状不同的那半）。

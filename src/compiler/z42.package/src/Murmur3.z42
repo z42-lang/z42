@@ -35,6 +35,7 @@ public static class Murmur3 {
         return x;
     }
 
+    [Suppress("style.fnLinesHard", "70 body lines；拆分见 code-organization.md")]
     /// 128 位摘要（16 字节，小端 h1..h4）。seed 固定 0。
     public static byte[] Hash128(byte[] data) {
         long c1 = 0x239B961BL; long c2 = 0xAB0E9789L; long c3 = 0x38B34AE5L; long c4 = 0xA1E38B93L;

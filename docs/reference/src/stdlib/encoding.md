@@ -83,7 +83,7 @@ public static class Base32Crockford {
 <a id="Std.Encoding.Base32Crockford.Decode(string)"></a>
 ### static byte[] Decode(string s)
 
-[`src/libraries/z42.encoding/src/Base32Crockford.z42:72`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Base32Crockford.z42#L72)
+[`src/libraries/z42.encoding/src/Base32Crockford.z42:73`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Base32Crockford.z42#L73)
 
 解码 Crockford Base32 字符串；大小写不敏感，`-` 丢弃，`I`/`L`→`1`、`O`→`0`。
 
@@ -424,7 +424,7 @@ public static class Utf8 {
 <a id="Std.Encoding.Utf8.GetString(byte[])"></a>
 ### static string GetString(byte[] bytes)
 
-[`src/libraries/z42.encoding/src/Utf8.z42:52`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Utf8.z42#L52)
+[`src/libraries/z42.encoding/src/Utf8.z42:53`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Utf8.z42#L53)
 
 把 UTF-8 字节解码为字符串，严格校验。
 

@@ -5,7 +5,7 @@
 // （`Canon("u8")` 原样返回 "u8"，`Code` 给 -1 ⇒ 与用户未定义类名同格）。
 namespace Z42cSemanticsPrimModelTests;
 
-using Z42.Semantics;
+using Z42.Symbols;
 using Z42.IR;   // IrType
 using Std.Harness;
 

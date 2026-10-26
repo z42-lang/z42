@@ -118,12 +118,15 @@ fi
 # ── install ───────────────────────────────────────────────────────────────────
 # Extract to a staging dir next to DEST, then replace only the SDK's own top-level
 # entries — anything else in DEST (installed workloads, caches) is kept.
+# The list must name EVERY top-level entry the SDK archive carries (there is no z42 yet
+# at this point, so it cannot be read from packages.toml): `xtask package sdk --verify`
+# checks it against the assembled SDK and fails on drift. Keep install.ps1 in sync.
 mkdir -p "$DEST"
 STAGE="$DEST/.install-staging"
 rm -rf "$STAGE"; mkdir -p "$STAGE"
 tar -xzf "$PKG" -C "$STAGE" || err "failed to extract $PKG"
 [ -f "$STAGE/z42" ] && [ -d "$STAGE/bin" ] || err "archive does not look like a z42 SDK (no z42 / bin/)"
-for entry in z42 bin programs libs native manifest.toml; do
+for entry in z42 bin programs libs native plugins editors manifest.toml; do
   if [ -e "$STAGE/$entry" ]; then
     rm -rf "${DEST:?}/$entry"
     mv "$STAGE/$entry" "$DEST/$entry"

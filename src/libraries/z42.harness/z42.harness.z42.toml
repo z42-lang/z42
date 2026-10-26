@@ -3,6 +3,11 @@ name    = "z42.harness"
 version = "0.1.0"
 kind    = "lib"
 
+[lints]
+# 内建行数 lint（style.*，默认关；见 compile-time-extensions.md「内建规则」）。硬限升 error =
+# 拦编译；软限不动。豁免走源内抑制：方法级 [Suppress]、文件顶部 #suppress。
+"style.fnLinesHard" = "error"
+
 [plugins.export]
 # 携带（harness-as-plugin PR 2）：依赖 z42.harness 的工程（全部测试单元）自动获得约定 lint。
 # 插件 zpkg 分发在插件目录（SDK plugins/；开发树平铺在 stdlib flat 同级 plugins/）。

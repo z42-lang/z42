@@ -6,14 +6,15 @@ namespace Z42.Semantics;
 
 using Z42.Syntax;
 using Z42.Core;
+using Z42.Symbols;
 
 public sealed partial class MemberResolver {
     internal BoundExpr BindBareClassCall(IdentExpr id, CallExpr call, BoundExpr[] args, TypeEnv env) {
         // 同类无限定静态调用（unqualified static call within class body：OSKindValue() inside Platform）。
         if (env.HasClass()) {
             string cls = env.CurrentClass();
-            if (env.Symbols.HasClass(cls)) {
-                Z42ClassType sct = env.Symbols.GetClass(cls);
+            Z42ClassType sct = env.Symbols.GetClass(cls);
+            if (sct != null) {
                 MethodSymbol sms = this._tc._overload._resolveOverload(env.Symbols, sct, id.Name, args, call.ArgCount, call.TypeArgCount, call.Span, call.Args, env);
                 // nested-and-base-name-lookup：派生类体内裸调**基类**的静态方法 —— 合法（短名沿基类链查找），按**声明类**
                 // 发调用（发射端按 OwnerClass 拼目标）。经派生类名限定的 `Derived.M()` 仍报 E0401（见 MemberResolver 主文件）。
@@ -44,8 +45,8 @@ public sealed partial class MemberResolver {
                 if (sms == null) {
                     string e = MemberResolver._outerOf(cls);
                     while (e != "") {
-                        if (env.Symbols.HasClass(e)) {
-                            Z42ClassType ect = env.Symbols.GetClass(e);
+                        Z42ClassType ect = env.Symbols.GetClass(e);
+                        if (ect != null) {
                             MethodSymbol ems = this._tc._overload._resolveOverload(env.Symbols, ect, id.Name, args, call.ArgCount, call.TypeArgCount, call.Span, call.Args, env);
                             if (ems != null && ems.IsStatic) {
                                 bool viaBase = MemberResolver.IsBaseStaticMethod(ect, ems);

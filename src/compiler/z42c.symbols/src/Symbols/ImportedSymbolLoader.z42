@@ -3,7 +3,7 @@
 // 字段、自由函数）→ impl 合并（Phase3）。激活 = 全部候选包（prelude ∪ stdlib ∪ 声明依赖 ∪ 提供 using 的包），
 // 与命名空间解耦：名字查找落到哪个包就用哪个包，可见性由命名空间规则另判（decouple-pkg-activation，见 Load）。
 // 延后：Phase3 impl 合并 / 接口·委托·枚举 / 泛型实例化串解析 / E0601 冲突诊断。
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 
 using Z42.IR;
 using Z42.Package;   // IParallelTask

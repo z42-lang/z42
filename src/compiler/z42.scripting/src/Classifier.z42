@@ -5,7 +5,7 @@
 //
 // 判别只看头部 token（跳过前导修饰符）：区分 var(`=`) 与 函数(`(`) 靠第三 token；类型靠关键字。
 // 保守——漏判（如泛型返回 `List<int> f()`）退回表达式路径（自然报错），不误判纯表达式为声明。
-namespace Std.Scripting;
+namespace Z42.Scripting;
 
 using Z42.Syntax;
 

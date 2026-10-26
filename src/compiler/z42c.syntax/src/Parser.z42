@@ -72,9 +72,35 @@ public sealed class Parser {
         this._supOpenIds = new string[0]; this._supOpenStarts = new int[0]; this._supOpenCount = 0;
         this._features = null;   // 可空 = 全开，见字段抬头
         this._stmtErrBase = 0 - 1;
+        this._holeP = null;
         this._steps = new int[StmtRules.StepCount()];
         int si = 0;
         while (si < StmtRules.StepCount()) { this._steps[si] = StmtRules.StepAt(si); si = si + 1; }
+    }
+
+    // 插值洞的子解析器：每个 Parser 一个，按洞 `Reset` 复用——否则每个洞都新建一整套词法表
+    // （关键字桶 + 符号快表 + 全部关键字注册）与七个子解析器。嵌套插值由子解析器自己的 `_holeP`
+    // 承接，同一实例不会在使用中被重入。洞解析器不继承 `_features`（与每洞新建的行为一致）。
+    private Parser _holeP;
+    internal Parser HoleParser(string text) {
+        if (this._holeP == null) { this._holeP = new Parser(text, "<interp>"); return this._holeP; }
+        this._holeP.Reset(text, "<interp>");
+        return this._holeP;
+    }
+
+    // 换源复用：重置词法器、游标、诊断与抑制区间；子解析器 / 特性开关 / 步骤表不动。
+    internal void Reset(string src, string file) {
+        this._lx.Reset(src, file);
+        this._lx.Tokenize();
+        this._toks = this._lx.Tokens();
+        this._tokN = this._lx.TokenCount();
+        this._pos = 0;
+        this._pendingGt = 0;
+        this._diags = new DiagnosticBag();
+        this._lexMerged = false;
+        this._supRegions = new SuppressRegion[0]; this._supCount = 0;
+        this._supOpenIds = new string[0]; this._supOpenStarts = new int[0]; this._supOpenCount = 0;
+        this._stmtErrBase = 0 - 1;
     }
 
     // 语法特性门：该特性被 `[syntax]` 关掉时发 E0301 并返回 false（调用方据此跳过该构造）。
@@ -146,8 +172,15 @@ public sealed class Parser {
 
     // RuleId = 单个标识符（如 Z9002）；缺失 → 诊断 + 返回空串（抑制退化为无效，安全）。
     private string _parseSuppressRuleId() {
+        // 限定 Id（`style.fileLinesHard`）：规则 Id 常带 `域.` 前缀成族（[lints] 的 `域.*` 通配
+        // 正以此为准）。此前只收单个标识符 ⇒ 带 `.` 的 Id 在点号处断成普通语法错误。
         if (this._peek().Kind == TokenKind.Identifier) {
-            string id = this._peek().Text; this._advance(); return id;
+            string id = this._peek().Text; this._advance();
+            while (this._peek().Kind == TokenKind.Dot && this._peekAt(1).Kind == TokenKind.Identifier) {
+                id = id + "." + this._peekAt(1).Text;
+                this._advance(); this._advance();
+            }
+            return id;
         }
         this._diags.Error(DiagnosticCodes.ExpectedToken, "expected rule id after #suppress/#restore", this._peek().Span);
         return "";
@@ -582,6 +615,7 @@ public sealed class Parser {
     }
 
     // ════ 顶层声明 ══════════════════════════════════════════════════════════
+    [Suppress("style.fnLinesHard", "103 body lines；拆分见 code-organization.md")]
     public CompilationUnit ParseCompilationUnit() {
         Span cusp = this._peek().Span;
         bool hasNs = false;

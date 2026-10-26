@@ -560,6 +560,7 @@ public sealed partial class TomlParser {
     }
 
     // TOML 1.0 多行基本字符串 `"""…"""`：转义同单行，另支持 `\<newline>` 行尾续行折叠；紧跟开引号的换行被裁掉。
+    [Suppress("style.fnLinesHard", "66 body lines；拆分见 code-organization.md")]
     private string ParseMultiLineBasicString() {
         // Consume opening triple.
         this.Advance(); this.Advance(); this.Advance();

@@ -25,6 +25,7 @@ public sealed partial class FlowAnalyzer {
     // ⚠️ `break` / `continue` 一律算 **false**：它们虽然也不「正常结束」，但把它们算成
     // 必定退出会把 `while (true) { break; }` 判成永不落下来 —— 反而错得更远（这条陷坑已有案底）。
     // 循环的判定另用 `_canBreakOut` 扫描。
+    [Suppress("style.fnLinesHard", "61 body lines；拆分见 code-organization.md")]
     public static bool NeverCompletes(BoundStmt s) {
         if (s == null) { return false; }
         if (s is BoundReturn) { return true; }

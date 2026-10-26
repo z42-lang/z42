@@ -42,6 +42,7 @@ int _cmdPublishZ42b(ParseResult r) {
 
 // desktop apphost publish for `rid`. Emits <root>/<bin> (apphost) + optional
 // <root>/<payload> (copied zpkg); the apphost embeds the zpkg path relative to itself.
+[Suppress("style.fnLinesHard", "90 body lines；拆分见 code-organization.md")]
 int _pubDesktop(ParseResult r, string rid) {
     string tomlPath = r.GetPositional(0);
     if (tomlPath.Length == 0 || !tomlPath.EndsWith(".toml")) {

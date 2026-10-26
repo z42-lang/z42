@@ -6,6 +6,7 @@ using Z42.IR;
 
 using Z42.Syntax;
 using Z42.Core;
+using Z42.Symbols;
 
 // StmtBinder 语法树 visitor 的 D 参数：语句绑定需要两个上下文（作用域 env + 所属函数返回类型
 // ret——return 语句检查用），接口 D 只有一个槽 ⇒ 复用一个可变 ctx 对象。入口 `_bindStmt` 每次覆写
@@ -626,6 +627,7 @@ public sealed class StmtBinder : IStmtVisitor<BoundStmt, StmtCtx> {
         return vt;
     }
 
+    [Suppress("style.fnLinesHard", "70 body lines；拆分见 code-organization.md")]
     public BoundExpr _bindLambda(LambdaExpr lam, Z42FuncType expected, TypeEnv env) {
         if (lam.ParamCount != expected.ParamCount) {
             this._tc._diags.Error(DiagnosticCodes.TypeMismatch,

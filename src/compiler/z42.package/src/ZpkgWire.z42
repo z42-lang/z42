@@ -193,6 +193,7 @@ public static class ConstraintCodec {
 // → 每参 {type, name, default} → 方法级 tp {name, 约束包}× → 方法 attr 块 → 每参 attr 块。
 // 返回**原样**条目（参数名占位 "?"、全空的每参 attr 块都保留）；各读者的归一化留在调用方。
 public static class SigsCodec {
+    [Suppress("style.fnLinesHard", "63 body lines；拆分见 code-organization.md")]
     public static SigEntryZ ReadEntry(ZpkgCursor c, string[] pool) {
         SigEntryZ e = new SigEntryZ();
         e.Name = WireStr.At(pool, c.U32());

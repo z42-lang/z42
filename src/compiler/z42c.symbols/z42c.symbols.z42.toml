@@ -1,9 +1,14 @@
 # z42c.symbols — 符号世界（收集 / 符号表 / 导入装载 / 类型模型 / 布局），自 z42c.semantics 拆出
-#（semantics-split：Symbols/ + Types/ ≈12K 行；命名空间保持 `Z42.Semantics`——只挪物理包，不动
-# 类型名 ⇒ 无种子 ABI 变化）。依赖面 = z42c.core + z42c.syntax + z42.package（回边已清零：
+#（semantics-split：Symbols/ + Types/ ≈12K 行）。命名空间 `Z42.Symbols`（与物理包一致；消费方 `using`
+# 即声明来源）。依赖面 = z42c.core + z42c.syntax + z42.package（回边已清零：
 # 对 Binding 的活引用 0 处，见 #1351/#1355）。
 [project]
 name    = "z42c.symbols"
 version = "0.1.0"
 kind    = "lib"
+
+[lints]
+# 内建行数 lint（style.*，默认关；见 compile-time-extensions.md「内建规则」）。硬限升 error =
+# 拦编译；软限不动。豁免走源内抑制：方法级 [Suppress]、文件顶部 #suppress。
+"style.fnLinesHard" = "error"
 

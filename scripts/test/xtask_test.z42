@@ -26,7 +26,7 @@ public sealed class StageLogZ {
     }
 }
 
-Stopwatch _stageStart(string name) {
+StageRun _stageStart(string name) {
     // 注册校验：banner 名必须已在 _gateStageNames() 里登记。这半边保证「加了 stage
     // 却没进代码侧清单」当场炸，另半边（_checkGateStageDoc）保证清单与文档一致——
     // 两个环扣上，新 stage 才没法悄悄绕过 test-gate.md。
@@ -35,20 +35,26 @@ Stopwatch _stageStart(string name) {
             + "加 stage 要同时改 _gateStageNames() 与 docs/internals/src/devinfra/test-gate.md 的 gate-stages 区");
     }
     Console.WriteLine("\n=== stage: " + name + " ===");
-    return Stopwatch.StartNew();
+    StageRun r = new StageRun();
+    r.Name = name;
+    r.Sw = Stopwatch.StartNew();
+    return r;
 }
 
-bool _isRegisteredStage(string name) {
-    string[] all = _gateStageNames();
-    int i = 0;
-    while (i < all.Length) { if (all[i] == name) { return true; } i = i + 1; }
-    return false;
+// 一个在跑的 stage：`_stageStart` 返回，`_stageEnd` 从它取名——名字只在 start 处写一遍（此前 end 处再抄一遍，
+// 23 个 stage 名各写了两次）。
+class StageRun {
+    public string Name;
+    public Stopwatch Sw;
+    public StageRun() { this.Name = ""; this.Sw = null; }
 }
 
-void _stageEnd(StageLogZ log, string name, Stopwatch sw) {
-    long ms = sw.Elapsed().TotalMilliseconds();
-    log.Add(name, ms);
-    Console.WriteLine("--- stage: " + name + " — " + _fmtDur(ms) + " ---");
+bool _isRegisteredStage(string name) { return _strIn(_gateStageNames(), name); }
+
+void _stageEnd(StageLogZ log, StageRun r) {
+    long ms = r.Sw.Elapsed().TotalMilliseconds();
+    log.Add(r.Name, ms);
+    Console.WriteLine("--- stage: " + r.Name + " — " + _fmtDur(ms) + " ---");
 }
 
 // 降序耗时表 + 占比。stage 数 ≤ 24 → 选择排序足够，不值得引入更复杂的排序。
@@ -241,7 +247,7 @@ int _testE2eCore(string modes, bool rebuild, bool noBuild, string jobs, string s
         if (c != 0) { return c; }
     }
     // modes is a space-separated token string (e.g. "interp jit"); split to the
-    // string[] _runVmGoldens expects. jobs parses to int (default 1 on garbage).
+    // string[] _runVmGoldensF expects. jobs parses to int (default 1 on garbage).
     string[] modeList = _splitWords(modes);
     int jobsN = 1;
     try { jobsN = int.Parse(jobs); } catch (Exception e) { jobsN = 1; }
@@ -261,15 +267,18 @@ int _testE2eCore(string modes, bool rebuild, bool noBuild, string jobs, string s
 // collection defects. And `stw` is exercised by nothing else — uncovered modes are where
 // such defects live for months.
 //
-// **Why these settings** — collections over one `z42c.semantics` build:
+// **Why these settings** — collections over one `z42c.semantics` build (`--jobs 1`, deterministic
+// across hosts):
 //
-//   default (generational), nursery 1M   ~440 collections
-//   Z42_GC_MODE=stw, budget 16M           ~70 collections  ← the knee: 8M is several hundred
+//   default (generational), nursery 1M   ~250 collections
+//   Z42_GC_MODE=stw, budget 16M           ~35 collections   ← the knee: 8M is several hundred
 //                                                             but much longer wall time
 //
-// The stw budget tracks the live set — it drifts when object sizes change, so the floors
-// are set well under the observed counts. Their job is to catch a *collapse* (a flipped
-// default, a policy change that stops the collector firing), not to pin an exact number.
+// The stw budget tracks the live set — it drifts when object sizes change, and both counts
+// drop whenever the compiler itself allocates less — so the floors are set at roughly half the
+// observed counts. Their job is to catch a *collapse* (a flipped default, a policy change that
+// stops the collector firing), not to pin an exact number; re-baseline the two numbers above
+// when a compiler-side allocation change moves them.
 //
 // The generational leg deliberately leaves `Z42_GC_MODE` **unset**: it is testing *the
 // default*, so hard-coding the mode here would let a flipped default go unnoticed. The
@@ -333,9 +342,9 @@ int _countGcCycles(string stderrText) {
 
 int _testGcModes() {
     // The default leg: mode UNSET on purpose — see the note above.
-    int c = _testGcModeWorkload("default mode, nursery 1M", "", "1M", "", 200, 1);
+    int c = _testGcModeWorkload("default mode, nursery 1M", "", "1M", "", 120, 1);
     if (c != 0) { return c; }
-    c = _testGcModeWorkload("Z42_GC_MODE=stw, budget 16M", "stw", "", "16M", 40, 1);
+    c = _testGcModeWorkload("Z42_GC_MODE=stw, budget 16M", "stw", "", "16M", 20, 1);
     if (c != 0) { return c; }
     // fix-gc-stress-jobs：多线程编译腿。#1053 的分代写屏障漏洞（年轻字符串写进老对象不标脏卡）只在
     // `--jobs 4` + 小年轻代下才稳定复现 —— 串行腿从来没撞上过。回收次数在多线程下不确定（多个线程同时越过
@@ -419,8 +428,6 @@ string[] _gateStageNames() {
         "compiler",
         "gc modes (z42c.semantics build)",
         "vscode-syntax",
-        "lines",
-        "fnlines",
         "diagcodes",
         "stage2",
         "ci-shell",
@@ -522,11 +529,11 @@ int _testAll(bool noBuild, string skip) {
     StageLogZ slog = new StageLogZ();
     // build wave 也计时：它常常是整个 gate 里最大的一块（CI 上 regen + 自建），
     // 不计的话下面的 stage 表加起来对不上总时长，反而误导。
-    Stopwatch swStage = _stageStart("build wave (debug vm + regen)");
+    StageRun swStage = _stageStart("build wave (debug vm + regen)");
     int c = _buildDebugVmAndCompression(); if (c != 0) { return c; }
     c = _regenForTest(haveTc, noBuild);
     if (c != 0) { return c; }
-    _stageEnd(slog, "build wave (debug vm + regen)", swStage);
+    _stageEnd(slog, swStage);
     // stage 2: Rust 单测（窄版 —— `--lib` 跑 + `--no-run` 编；见 `_testRuntimeUnits` 头注）。
     //
     // NOTE（改前的原注，保留其判断）：**完整**的 `test runtime` 仍然不是 stage —— 它会拉起
@@ -538,7 +545,7 @@ int _testAll(bool noBuild, string skip) {
     if (!_skipHas(skip, "rust-units")) {
         swStage = _stageStart("rust units (cargo test --lib + --no-run)");
         c = _testRuntimeUnits(); if (c != 0) { return c; }
-        _stageEnd(slog, "rust units (cargo test --lib + --no-run)", swStage);
+        _stageEnd(slog, swStage);
     }
     // replace-csharp Phase C：删除 dotnet build/test stage——z42c 编译器正确性由 stage「compiler」
     // （自举不动点 gen1==gen2 + units）保证，golden 编译已全程 z42c（_regenGolden）。
@@ -550,25 +557,25 @@ int _testAll(bool noBuild, string skip) {
     // jit stage off every host leg's critical path.
     swStage = _stageStart("e2e goldens (interp; jit → vm-jit-consistency)");
     c = _testE2eCore("interp", false, false, "4", "", "", ""); if (c != 0) { return c; }
-    _stageEnd(slog, "e2e goldens (interp; jit → vm-jit-consistency)", swStage);
+    _stageEnd(slog, swStage);
 
     // stage 3: e2e cross-zpkg (skippable: CI offloads to a dedicated cross-zpkg-interp job)
     if (!_skipHas(skip, "cross-zpkg")) {
         swStage = _stageStart("e2e cross-zpkg");
         c = _testCrossZpkgCore("interp", true); if (c != 0) { return c; }
-        _stageEnd(slog, "e2e cross-zpkg", swStage);
+        _stageEnd(slog, swStage);
     }
     // stage 3b: e2e multi-exe (unify-run-modes P3 — one project → N exe zpkgs)
     if (!_skipHas(skip, "multi-exe")) {
         swStage = _stageStart("e2e multi-exe");
         c = _testMultiExeCore("interp", true); if (c != 0) { return c; }
-        _stageEnd(slog, "e2e multi-exe", swStage);
+        _stageEnd(slog, swStage);
     }
     // stage 4: stdlib [Test] (no build) (skippable: CI shards it across stdlib-interp jobs)
     if (!_skipHas(skip, "stdlib")) {
         swStage = _stageStart("stdlib [Test]");
         c = _testLibCore("test", new string[0], true, "", "4", "interp", null, "", "", ""); if (c != 0) { return c; }
-        _stageEnd(slog, "stdlib [Test]", swStage);
+        _stageEnd(slog, swStage);
     }
     // stage 4a1: 工具链组件的 [Test] 单元（test-layout §1；src/toolchain/<comp>/**/tests）。与 stdlib 同一个
     // runner，单独成 stage：CI 的 host 腿 `--skip stdlib`（stdlib 另有分 OS 的 job），工具链用例量小、
@@ -576,7 +583,7 @@ int _testAll(bool noBuild, string skip) {
     if (!_skipHas(skip, "toolchain")) {
         swStage = _stageStart("toolchain [Test]");
         c = _testToolchainCore("", true, "", false); if (c != 0) { return c; }
-        _stageEnd(slog, "toolchain [Test]", swStage);
+        _stageEnd(slog, swStage);
     }
     // stage 4a2: stdlib [Benchmark] —— 只验**语料能不能跑**，不看快慢。
     //
@@ -594,7 +601,7 @@ int _testAll(bool noBuild, string skip) {
     if (!_skipHas(skip, "bench")) {
         swStage = _stageStart("stdlib [Benchmark]");
         c = _testLibCore("bench", new string[0], true, "", "4", "interp", null, "", "", ""); if (c != 0) { return c; }
-        _stageEnd(slog, "stdlib [Benchmark]", swStage);
+        _stageEnd(slog, swStage);
     }
     // stage 4b: manifest-target fixtures (add-tests-bench-manifest-config P4 —
     // [[test]] harness true/false exit-code + explicit-overlay). noBuild=true:
@@ -603,7 +610,7 @@ int _testAll(bool noBuild, string skip) {
         swStage = _stageStart("manifest targets ([[test]] + [[example]])");
         c = _testTargetsCore("test", "", true); if (c != 0) { return c; }
         c = _testManifestExamples(true); if (c != 0) { return c; }
-        _stageEnd(slog, "manifest targets ([[test]] + [[example]])", swStage);
+        _stageEnd(slog, swStage);
     }
     // stage 4c: 学习手册配套示例（add-learn-book-examples-gate）：书 ↔ examples 引用校验 +
     // 用 SDK 里真实的 `z42` 重放每个 examples/**/*.console。SDK 用 artifacts/.z42：本地完整 gate
@@ -618,14 +625,14 @@ int _testAll(bool noBuild, string skip) {
         ExamplesOptions eo = new ExamplesOptions();
         eo.Filter = ""; eo.Sdk = ""; eo.BookOnly = false; eo.Bless = false; eo.Keep = false; eo.TimeoutS = 120;
         c = _testExamples(eo); if (c != 0) { return c; }
-        _stageEnd(slog, "examples (learn book transcripts)", swStage);
+        _stageEnd(slog, swStage);
     }
     // stage 4d: 文档门禁（restructure-docs-three-books 批 0）：相对链接死链清零。
     // 不需要 SDK、秒级；三书重构期间每一批搬运都靠它兜住链接。
     if (!_skipHas(skip, "docs")) {
         swStage = _stageStart("docs (relative links)");
         c = _testDocs(_root()); if (c != 0) { return c; }
-        _stageEnd(slog, "docs (relative links)", swStage);
+        _stageEnd(slog, swStage);
     }
     // stage 5: z42c self-host byte-identical (0.3.10 gate)
     // Skippable: CI offloads to a dedicated compiler-checks(linux-x64) job (1×)
@@ -633,7 +640,7 @@ int _testAll(bool noBuild, string skip) {
     if (!_skipHas(skip, "compiler")) {
         swStage = _stageStart("compiler");
         c = _testCompiler(true); if (c != 0) { return c; }
-        _stageEnd(slog, "compiler", swStage);
+        _stageEnd(slog, swStage);
     }
     // stage 5b: recompile one real package under each GC mode, with the collector tuned to
     // fire hundreds of times. Skippable: host-independent, CI runs it 1x.
@@ -651,7 +658,7 @@ int _testAll(bool noBuild, string skip) {
     if (!_skipHas(skip, "gcgen")) {
         swStage = _stageStart("gc modes (z42c.semantics build)");
         c = _testGcModes(); if (c != 0) { return c; }
-        _stageEnd(slog, "gc modes (z42c.semantics build)", swStage);
+        _stageEnd(slog, swStage);
     }
     // stage 6: VSCode grammar ↔ Lexer 关键字一致性（跨子系统 SoT，性质同自举不动点；
     // ≈一次 z42c fork，成本可忽略——add-vscode-syntax-ext）
@@ -659,28 +666,14 @@ int _testAll(bool noBuild, string skip) {
     if (!_skipHas(skip, "vscode")) {
         swStage = _stageStart("vscode-syntax");
         c = _testVscodeSyntax(); if (c != 0) { return c; }
-        _stageEnd(slog, "vscode-syntax", swStage);
-    }
-    // stage 7: 文件行数硬上限 lint（add-line-count-lint）：新越界 / 继续膨胀 → 红；基线内 → warn。
-    // 纯文本扫描（~1s），host-independent。Skippable: "lines"。
-    if (!_skipHas(skip, "lines")) {
-        swStage = _stageStart("lines");
-        c = _testLines(false); if (c != 0) { return c; }
-        _stageEnd(slog, "lines", swStage);
-    }
-    // stage 7b: 函数体行数硬上限 lint（add-fn-line-lint）：新越界 / 继续膨胀 → 红；基线内 → warn。
-    // 与 stage 7 同形的棘轮，纯文本扫描（~1s），host-independent。Skippable: "fnlines"。
-    if (!_skipHas(skip, "fnlines")) {
-        swStage = _stageStart("fnlines");
-        c = _testFnLines(false); if (c != 0) { return c; }
-        _stageEnd(slog, "fnlines", swStage);
+        _stageEnd(slog, swStage);
     }
     // stage 9: 诊断码唯一性对账（enforce-diagnostic-code-uniqueness）：一个码号挂两个含义、
     // 或发射一个没在登记表里登记过的码 → 红。纯文本扫描（~1s），host-independent。Skippable: "diagcodes"。
     if (!_skipHas(skip, "diagcodes")) {
         swStage = _stageStart("diagcodes");
         c = _testDiagCodes(false); if (c != 0) { return c; }
-        _stageEnd(slog, "diagcodes", swStage);
+        _stageEnd(slog, swStage);
     }
     // stage 10: 阶段-2 欠账（分阶段引入纪律）：过渡形态必须挂账、且不得超期。
     // 「阶段 2 忘了不会红」是本仓库反复吃过的亏 —— 诊断码那条线有 ④⑥ 盯着，其余一直靠谁记得。
@@ -688,7 +681,7 @@ int _testAll(bool noBuild, string skip) {
     if (!_skipHas(skip, "stage2")) {
         swStage = _stageStart("stage2");
         c = _testStage2Debt(); if (c != 0) { return c; }
-        _stageEnd(slog, "stage2", swStage);
+        _stageEnd(slog, swStage);
     }
     // stage 11: CI 内嵌 shell 的先用后赋（`.github/actions/**` 的 `run:` 块）。引导逻辑是 260+ 行
     // `set -euo pipefail` 的 bash，引用未赋值变量当场 exit 1，而这类错**只在 CI 上暴露**、每次代价
@@ -697,28 +690,28 @@ int _testAll(bool noBuild, string skip) {
     if (!_skipHas(skip, "ci-shell")) {
         swStage = _stageStart("ci-shell");
         c = _testCiShell(); if (c != 0) { return c; }
-        _stageEnd(slog, "ci-shell", swStage);
+        _stageEnd(slog, swStage);
     }
     // stage 12: xtask 子进程的 Z42_LIBS / Z42_PROBING_PATHS 只经 _z42Proc / _z42bProc 设置。漏设不在漏处报错
     // （继承 xtask 自身的旧 SDK libs / z42b 加载编译器包才炸），集中到工厂才不会漏。纯文本扫描。Skippable: "proc-env"。
     if (!_skipHas(skip, "proc-env")) {
         swStage = _stageStart("proc-env");
         c = _testProcEnv(); if (c != 0) { return c; }
-        _stageEnd(slog, "proc-env", swStage);
+        _stageEnd(slog, swStage);
     }
     // stage 13: 测试布局（test-layout.md 里能机械判定的部分）：src/tests 类别登记、能力词表 ↔
     // platform.rs、requires-caps / [Skip(feature:)] 只用已生效能力名。纯文本扫描。Skippable: "layout"。
     if (!_skipHas(skip, "layout")) {
         swStage = _stageStart("layout");
         c = _testLayout(); if (c != 0) { return c; }
-        _stageEnd(slog, "layout", swStage);
+        _stageEnd(slog, swStage);
     }
     // stage 14: versions.toml ↔ 投影文件（Cargo.toml / build.gradle.kts / Package.swift）一致。与机器无关的
     // 纯文本比对（本机装没装齐是 `setup check` 的事）。Skippable: "versions"。
     if (!_skipHas(skip, "versions")) {
         swStage = _stageStart("versions");
         c = _checkVersions(); if (c != 0) { return c; }
-        _stageEnd(slog, "versions", swStage);
+        _stageEnd(slog, swStage);
     }
     Console.WriteLine("\n✅ GREEN — all stages passed");
     _stageSummary(slog, sw.Elapsed().TotalMilliseconds());

@@ -14,7 +14,7 @@
 // 判据在 `ImportedSymbolLoader._isPrelude`（`pkg == "z42.core"`）—— 那是包名轴，
 // 与 ns 轴不是同一个东西（`Std` 由 11 个包共同声明，见 module-init 归属判定那条）。
 // ⚠️ `z42.core`（标准库包）≠ `z42c.core`（编译器包），别混。
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 
 public static class PreludeNs {
 

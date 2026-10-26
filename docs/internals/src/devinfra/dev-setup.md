@@ -30,7 +30,7 @@ git clone https://github.com/z42-lang/z42 && cd z42
   任何非 z42 的逃生编译器。
 - **②** `z42 publish` 产出的 `./xtask` 是原生 apphost，自己能定位 `./.z42` 运行时，**不需要
   PATH、也不需要装 desktop workload**：`scripts/xtask.z42.toml` 用 `[build] hooks` 声明了
-  `scripts/hooks/`，publish 期间现造 apphost stub。
+  `scripts/xtask_hooks.z42`，publish 期间现造 apphost stub。
 - **不想要 apphost** 时（CI 走的就是这条）直接跑 zpkg：
 
   ```bash

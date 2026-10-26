@@ -6,6 +6,7 @@
 namespace Z42.Emission;
 
 using Z42.Semantics;
+using Z42.Symbols;
 
 using Z42.Syntax;
 using Z42.IR;
@@ -44,6 +45,7 @@ public sealed class FunctionEmitter {
     // isStaticMethod = SIGS IsStatic 标志（仅静态类方法 true；**自由函数 false**，与 C# byte-identical 一致——
     //   自由函数无 this 但 IsStatic=0，故二者分离）。
     // owner = 实例方法所属类（裸字段识别）；classTp = 类活跃型参（CG-2，ResolveTypeP）。
+    [Suppress("style.fnLinesHard", "107 body lines；拆分见 code-organization.md")]
     public IrFunction EmitFunction(string name, MethodDecl md, BoundStmt body, bool isInstance, bool isStaticMethod,
                                    Z42ClassType owner, string[] classTp, int classTpCount) {
         this._ctx = new EmitContext(this._symbols, this._gen);
@@ -353,6 +355,7 @@ public sealed class FunctionEmitter {
 
     // lambda lift 发射（port-z42c-closures；镜像 C# EmitLifted/EmitLiftedLambdaWithEnv）。
     // hasEnv：env=reg0、参数 reg1..；否则参数 reg0..。体内 BoundCapturedIdent → array_get env[idx]。
+    [Suppress("style.fnLinesHard", "64 body lines；拆分见 code-organization.md")]
     public IrFunction EmitLambdaLifted(string name, BoundLambda lam) {
         // 子发射器自建 ctx（EmitFunction 才建 _ctx；镜像其入口装配）
         this._ctx = new EmitContext(this._symbols, this._gen);

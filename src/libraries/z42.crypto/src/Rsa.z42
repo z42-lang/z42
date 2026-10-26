@@ -349,6 +349,7 @@ public static class Rsa {
         return Rsa._writeBEBigInt(cInt, k);
     }
 
+    [Suppress("style.fnLinesHard", "65 body lines；拆分见 code-organization.md")]
     /// RSA-OAEP / SHA-256 / MGF1-SHA-256 解密，返回明文。
     ///
     /// 填充非法抛 `ArgumentException`（勿在调用层区分错误——区分 padding 错误与

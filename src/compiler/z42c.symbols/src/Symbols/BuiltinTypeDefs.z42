@@ -1,4 +1,4 @@
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 
 using Z42.IR;
 using Z42.Core;   // ProtocolNames —— 协议成员名的唯一 SoT（本表与 z42.core/src/Protocols/*.z42 逐字锁步）

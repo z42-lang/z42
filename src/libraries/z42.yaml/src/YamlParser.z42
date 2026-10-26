@@ -264,6 +264,7 @@ public sealed class YamlParser {
         return result;
     }
 
+    [Suppress("style.fnLinesHard", "97 body lines；拆分见 code-organization.md")]
     private YamlValue _ParseBlockMappingBody(YamlValue m, int indent) {
         while (true) {
             this._SkipBlankLines();
@@ -423,6 +424,7 @@ public sealed class YamlParser {
 
     // ── Block sequence ──────────────────────────────────────────────────
 
+    [Suppress("style.fnLinesHard", "92 body lines；拆分见 code-organization.md")]
     private YamlValue _ParseBlockSequence(int indent) {
         YamlValue seq = YamlValue.OfSequence();
         while (true) {
@@ -1156,6 +1158,7 @@ public sealed class YamlParser {
     // to the inline-scalar path). `parentIndent` is the indent of the
     // line containing the indicator; content lines must indent strictly
     // more than this.
+    [Suppress("style.fnLinesHard", "122 body lines；拆分见 code-organization.md")]
     private YamlValue _TryParseBlockScalar(int parentIndent) {
         if (this._pos >= this._src.Length) { return null; }
         char first = this._chars[this._pos];

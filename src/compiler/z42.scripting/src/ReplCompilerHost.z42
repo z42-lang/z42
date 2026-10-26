@@ -5,7 +5,7 @@
 // IReplCompiler` + 6 个 z42c.* 兄弟依赖闭包）加载进 live VM → `Type.GetType` 反射实例化 → 接口 cast。
 // 与 z42b 的 ICompiler 注入同构（wire-z42b-dynamic-injection-preference）。换/升级编译器 = 替换 zpkg，
 // 本文件零改动。组件缺失（runtime-only SDK）→ `NoReplCompiler` 兜底（编译恒失败、补全恒空）。
-namespace Std.Scripting;
+namespace Z42.Scripting;
 
 using Std.IO;
 using Z42.Build;       // IReplCompiler / NoReplCompiler

@@ -2,7 +2,7 @@
 // Classifier 判为 var 声明（只认单 token 类型时漏判成局部变量或误解析成比较链，`a` 跨轮未定义）。
 namespace Z42ScriptingTests;
 
-using Std.Scripting;
+using Z42.Scripting;
 using Std.Harness;
 
 [Test]

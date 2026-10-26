@@ -252,6 +252,37 @@ void Main() {
 区间内静默，`#restore` 之后照报。另有 `[Suppress]` 特性做声明级抑制。
 两者都是**纯编译期**的，不写进 zpkg。
 
+### 内建规则：`style.*` 行数 lint
+
+不写插件也自带的一组风格规则（默认全关，`[lints]` 显式打开才生效）：
+
+| 规则 Id | 阈值 | 默认 severity | 说明 |
+|---|---|---|---|
+| `style.fileLinesHard` | 886 行 | Warning（关） | 文件行数硬限 |
+| `style.fileLines` | 500 行 | Info（关） | 文件行数软限（提示） |
+| `style.fnLinesHard` | 60 行 | Warning（关） | 函数体行数硬限 |
+| `style.fnLines` | 40 行 | Info（关） | 函数体行数软限（提示） |
+
+「函数体行数」= 方法体 `{` 行与配对 `}` 行之间的非空、非注释行数（单行体计 0）；
+局部函数与 lambda 不计。打开方式与豁免方式：
+
+```toml
+[lints]
+"style.fnLinesHard"   = "error"   # 越限拦编译；或 "style.*" = "error" 一网打尽
+"style.fileLinesHard" = "error"
+```
+
+```z42
+// 某个文件历史原因超限、暂不拆——文件顶部（不闭合延伸到 EOF）：
+#suppress style.fileLinesHard "迁移自棘轮基线，拆分排期见 <issue>"
+
+// 某个方法暂豁免——声明级：
+[Suppress("style.fnLinesHard", "173 body lines, 拆分排期见 <issue>")]
+private static void _classDesc(...) { ... }
+```
+
+豁免是**显式且带理由**的：条目可见、可 grep；拆完后删掉标记即收口。
+
 ## 让诊断自带修复（`--fix`）
 
 analyzer 可以在报诊断的同时给出修复：把 `diags` 下转成 `FixSink`，调 `ReportFix(rule, at, fix)`
@@ -262,7 +293,7 @@ analyzer 可以在报诊断的同时给出修复：把 `diags` 下转成 `FixSin
 
 Generator 契约（`Generator` / `ModuleGenerator` / `GenTarget` / `GenSink` / `GenContext`）住在
 **`z42c.plugin`** 的 generator 面，命名空间 `Z42.Generators`。它比 analyzer 契约深一层：generator 在一次
-预备绑定**之后**运行，拿得到解析后的符号（`Z42ClassType` / `SymbolTable`，命名空间 `Z42.Semantics`，
+预备绑定**之后**运行，拿得到解析后的符号（`Z42ClassType` / `SymbolTable`，命名空间 `Z42.Symbols`，
 由 `z42c.plugin` 传递引入）。
 
 两种形态：

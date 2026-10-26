@@ -181,6 +181,7 @@ public class RegexParser {
         return int.Parse(this._src.Substring(start, this._pos - start));
     }
 
+    [Suppress("style.fnLinesHard", "74 body lines；拆分见 code-organization.md")]
     private RegexNode ParseAtom() {
         char c = this.Peek();
         if (c == '(') {

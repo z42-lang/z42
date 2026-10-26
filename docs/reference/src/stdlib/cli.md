@@ -139,14 +139,14 @@ help 中渲染为 `[name]`。
 <a id="Std.Cli.ArgParser.Parse(string[])"></a>
 ### ParseResult Parse(string[] argv)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:238`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L238)
+[`src/libraries/z42.cli/src/ArgParser.z42:239`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L239)
 
 解析 argv（不含 program name），返回 ParseResult；失败抛 CliException。
 
 <a id="Std.Cli.ArgParser.HelpText()"></a>
 ### string HelpText()
 
-[`src/libraries/z42.cli/src/ArgParser.z42:503`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L503)
+[`src/libraries/z42.cli/src/ArgParser.z42:505`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L505)
 
 生成 USAGE / FLAGS / OPTIONS / ARGS 四段帮助文本。
 

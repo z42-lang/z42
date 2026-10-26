@@ -77,6 +77,20 @@ public sealed class Lexer {
         this._initKeywords();
     }
 
+    // 换源复用（插值洞子解析器按洞复用同一个 Lexer）：只重置源相关状态，关键字 / 符号表与
+    // token / doc 块数组原地复用（计数归零，容量保留）。
+    internal void Reset(string src, string file) {
+        this._src = src;
+        this._chars = src.ToCharArray(); this._len = this._chars.Length;
+        this._file = file;
+        this._pos = 0;
+        this._line = 1;
+        this._col = 1;
+        this._diags = new DiagnosticBag();
+        this._tokCount = 0;
+        this._docCount = 0;
+    }
+
     public DiagnosticBag Diagnostics() { return this._diags; }
     public int   TokenCount()    { return this._tokCount; }
     public Token TokenAt(int i)  { return this._toks[i]; }
@@ -400,6 +414,7 @@ public sealed class Lexer {
     // ── 符号（最长匹配）─────────────────────────────────────────────────────
     private void _sym(char c, int kind, string text) { this._sym1[(int)c] = kind; this._sym1Text[(int)c] = text; }
 
+    [Suppress("style.fnLinesHard", "62 body lines；拆分见 code-organization.md")]
     private void _lexSymbol() {
         char c = this._ch(this._pos);
         int ci = (int)c;

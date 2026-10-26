@@ -12,6 +12,7 @@
 namespace Z42.Semantics;
 
 using Z42.Syntax;
+using Z42.Symbols;
 
 public static class MethodTypeArgSubst {
     // fix-explicit-type-arg-not-substituted：**显式**写出类型实参时，先把签名代换掉再去绑实参。

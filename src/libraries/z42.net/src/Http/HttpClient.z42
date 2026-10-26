@@ -169,6 +169,7 @@ public class HttpClient : IDisposable {
         return this.Post(url, Utf8.GetBytes(body), contentType);
     }
 
+    [Suppress("style.fnLinesHard", "73 body lines；拆分见 code-organization.md")]
     /// 发送任意 `HttpRequest`，返回解析后的 `HttpResponse`。
     ///
     /// 设置了 `SetMaxRedirects(n > 0)` 时会自动跟随 3xx 至多 n 跳。
@@ -339,6 +340,7 @@ public class HttpClient : IDisposable {
     }
 
     // 把 Digest 参数列表 tokenize 成并行的 names / values 数组（引号值去外引号）。
+    [Suppress("style.fnLinesHard", "68 body lines；拆分见 code-organization.md")]
     static object[] _parseDigestParams(string params_) {
         string[] names  = new string[16];
         string[] values = new string[16];
@@ -458,6 +460,7 @@ public class HttpClient : IDisposable {
 
     // 构造 `Authorization: Digest ...` 头值；不支持的算法抛 HttpProtocolException。
     // 服务器 qop 只含 auth-int 时，body 参与 HA2 = H(method:uri:H(body))。
+    [Suppress("style.fnLinesHard", "80 body lines；拆分见 code-organization.md")]
     static string _buildDigestAuthHeader(
             string challengeParams,
             string method,
@@ -648,6 +651,7 @@ public class HttpClient : IDisposable {
     }
 
     // 单次发送（不含重定向处理），供 Send 与测试使用。
+    [Suppress("style.fnLinesHard", "77 body lines；拆分见 code-organization.md")]
     private HttpResponse _sendOnce(HttpRequest request) {
         HttpUrl url = HttpUrl.Parse(request.Url);
 
@@ -924,6 +928,7 @@ public class HttpClient : IDisposable {
         return new _HttpResponseHead(statusCode, reason, headers, lr);
     }
 
+    [Suppress("style.fnLinesHard", "63 body lines；拆分见 code-organization.md")]
     static HttpResponse _readResponse(Stream stream) {
         _LineReader lr = new _LineReader(stream);
 

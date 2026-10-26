@@ -1,11 +1,11 @@
 // 共享 codegen 状态 + 低层助手（port-z42c-codegen，CG-1E 前 refactor）。
-// z42 无 partial class（C# 把 FunctionEmitter 拆 17 文件不可移植）→ 抽公共状态到 EmitContext：
-// FunctionEmitter（函数入口/语句/控制流）与 ExprEmitter（表达式）共用同一个 ctx，
-// 各自文件控制在行数限内。受限写法：public 字段 + 集合 typed array+count。
+// 发射器按关注点拆成 FunctionEmitter（函数入口/语句/控制流）与 ExprEmitter 及其子簇（表达式 / 调用 / 访问 /
+// 运算 / 模式 / 类型操作），全部共用同一个 ctx 而非把状态散在各发射器上；各文件控制在行数限内。
+// 受限写法：public 字段 + 集合 typed array+count。
 namespace Z42.Emission;
 
 using Z42.Syntax;
-using Z42.Semantics;
+using Z42.Symbols;
 
 using Z42.Core;
 using Z42.IR;
@@ -106,7 +106,7 @@ public sealed class EmitContext {
 
     // fqn-tables 5d：按**类型对象**限定 —— `name` 是该类型在 IR 里的名字（短名 / `Name$N` / 实例化布局名，
     // 由调用方给，原样保留），ns 取类型自己的声明 ns。发射端拿到的短名大多来自已解析类型（导入成员签名里的接收者
-    // 类型等），按短名查「短名 → ns」图会撞同短名的别的类（探针实测：`Std.Scripting.List` 遮住 `Std.Collections.List`、
+    // 类型等），按短名查「短名 → ns」图会撞同短名的别的类（探针实测：`Z42.Scripting.List` 遮住 `Std.Collections.List`、
     // `Std.Json` 里 `Object` 被限定成 `Std.Json.Object`）。类型没有 ns（全局 ns 类型、兜底合成类型）时回落 QualifyClass。
     public string QualifyType(Z42Type t, string name) {
         if (EmitContext.BaseHasDot(name)) { return name; }   // 调用方给的已是限定名（源码写的 `Std.Exception` 等）

@@ -40,6 +40,34 @@ class NoEmptyCatchAnalyzer : Analyzer {
     }
 }
 
+// 带点规则 Id 的同形 analyzer（`a.b`）：验证 #suppress/[Suppress]/[lints] 全链对 `域.` 前缀
+// 规则 Id 的支持（dotted-id-in-suppress：style.* 内建行数规则依赖此形态）。
+class DottedIdAnalyzer : Analyzer {
+    public DiagRule[] SupportedRules() {
+        DiagRule[] rules = new DiagRule[1];
+        rules[0] = DottedIdAnalyzer._rule();
+        return rules;
+    }
+    public int[] ObservedKinds() {
+        int[] k = new int[1];
+        k[0] = SyntaxKind.CatchClause;
+        return k;
+    }
+    public void OnSyntaxNode(int kind, object node, DiagSink diags) {
+        if (kind == SyntaxKind.CatchClause) {
+            CatchClause c = node as CatchClause;
+            if (c.Body is BlockStmt) {
+                BlockStmt b = c.Body as BlockStmt;
+                if (b.Count == 0) { diags.Report(DottedIdAnalyzer._rule(), c.Span); }
+            }
+        }
+    }
+    static DiagRule _rule() {
+        return new DiagRule("a.b", "dotted id", "dotted rule id report",
+            "Correctness", AnalyzerSeverity.Warning, true);
+    }
+}
+
 // 跑 analyzer over src（可带 [lints] 决策器；null → LintConfig.Empty()），返回诊断袋。
 DiagnosticBag _runCfg(Analyzer a, string src, LintConfig cfg) {
     var p = new Parser(src, "t.z42");
@@ -242,6 +270,18 @@ void test_suppress_pragma_unclosed_to_eof() {
     var bag = _run(new NoEmptyCatchAnalyzer(),
         "class C { void M() { #suppress Z9002 try { risky(); } catch (Error e) { } } }");
     Assert.Equal(false, _hasCode(bag, "Z9002"));
+}
+
+[Test]
+void test_suppress_pragma_dotted_rule_id() {
+    // 限定规则 Id（`style.fnLinesHard` 这类 `域.` 前缀族）：#suppress/#restore 与 [Suppress]
+    // 都要原样收下（此前点号处断成普通语法错误）。用带点 Id 的规则 `a.b` 验证区间抑制整链。
+    var bag = _run(new DottedIdAnalyzer(),
+        "class C { void M() { #suppress a.b try { risky(); } catch (Error e) { } #restore a.b } }");
+    Assert.Equal(false, _hasCode(bag, "a.b"));
+    var bag2 = _run(new DottedIdAnalyzer(),
+        "class C { void M() { try { risky(); } catch (Error e) { } } }");
+    Assert.Equal(true, _hasCode(bag2, "a.b"));
 }
 
 [Test]

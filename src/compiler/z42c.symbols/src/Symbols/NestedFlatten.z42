@@ -15,7 +15,7 @@
 // 幂等（cu.NestedFlattened 守卫）：多入口（CollectAll / Collect / CollectWithImports / IrGen.Generate）
 // 共享同一 cu，只展平一次。z42c / stdlib 源不含嵌套类型 → _ec==0 → cu 零改动 → 自举不动点零扰动。
 
-namespace Z42.Semantics;
+namespace Z42.Symbols;
 
 using Z42.Syntax;
 

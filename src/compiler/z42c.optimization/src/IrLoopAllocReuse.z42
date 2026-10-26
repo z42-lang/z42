@@ -50,6 +50,7 @@ public sealed class IrLoopAllocReuse {
     }
 
     // 处理一个「自然循环 + 干净 pre-header」：判资格 → 变换。
+    [Suppress("style.fnLinesHard", "63 body lines；拆分见 code-organization.md")]
     private static void _processLoop(IrModule m, IrFunction f, bool[] inLoop, int ph,
                                      int[] defs, string[] constText, int rc) {
         int n = f.BlockCount;

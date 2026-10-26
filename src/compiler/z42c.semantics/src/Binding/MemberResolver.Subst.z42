@@ -5,6 +5,7 @@
 // 与 MemberResolver 主文件同一个类（partial 拆分只为守 code-organization 的 886 行硬限，
 // 同 MemberResolver.Prim / .Static）。这组全是 static、不碰 `_tc`。
 namespace Z42.Semantics;
+using Z42.Symbols;
 
 
 public sealed partial class MemberResolver {
