@@ -26,6 +26,13 @@ public static class PluginCarry {
             DepEntry e = pm.PluginExports[i];
             string name = e.Name;
             string version = e.Version;
+            // 携带是发布承诺：钉名 + 精确版本、release 验 dist——源集条目（include/exclude，对齐
+            // [tests]）没有独立的产物与版本，不收；要携带的插件写成完整工程后以 path 引用。
+            if (e.IncludeCount > 0) {
+                ConsoleError.WriteLine("z42c build: [plugins.export] `" + name + "` 是源集条目（include）——"
+                    + "携带钉精确版本并按 dist 验发布件，插件须是有 version 的完整工程（path 引用）。");
+                return null;
+            }
             if (e.Path.Length == 0) {
                 if (version.Length == 0) {
                     ConsoleError.WriteLine("z42c build: [plugins.export] `" + name + "` 是名字条目但没写版本——"

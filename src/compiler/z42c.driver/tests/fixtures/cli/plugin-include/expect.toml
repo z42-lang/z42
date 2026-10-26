@@ -1,0 +1,11 @@
+desc = "[plugins] 源集条目（include/exclude，对齐 [tests]）：合成最小清单代建，多文件一包、exclude 圈掉的坏源不进编译（见 README）"
+
+[[step]]
+args = ["build", "app/e2e.setapp.z42.toml", "--release"]
+exit = 0
+
+[[step]]
+tool = "run"
+target = "app/dist/e2e.setapp.zpkg"
+exit = 0
+stdout_equals = "42"

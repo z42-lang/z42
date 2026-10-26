@@ -1,0 +1,5 @@
+namespace E2eSet;
+
+public static class E2eSetConst {
+    public static int V() { return 42; }
+}

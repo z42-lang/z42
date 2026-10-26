@@ -443,16 +443,26 @@ public static class ManifestLoader {
                 string pth = "";
                 string dep = "";
                 bool intl = false;
+                string[] inc = new string[0];
+                string[] exc = new string[0];
                 if (dv.IsTable()) {
                     dv.TryGetValue<string>("version", ref ver);
                     dv.TryGetValue<string>("path",    ref pth);
                     dv.TryGetValue<string>("deploy",  ref dep);
                     dv.TryGetValue<bool>("internal", ref intl);   // plugin-internal-access（见 DepEntry.Internal）
+                    // 源集条目（plugins-include-form，对齐 [tests] 的键名）：include/exclude 相对消费方
+                    // 工程目录。解析层只搬；与 path 的互斥、export 不收源集由消费方报。
+                    TomlValue iarr = null;
+                    if (dv.TryGet("include", ref iarr)) { inc = ManifestLoader._strArray(iarr); }
+                    TomlValue earr = null;
+                    if (dv.TryGet("exclude", ref earr)) { exc = ManifestLoader._strArray(earr); }
                 }
                 else { ver = dv.AsString(); }
                 deps[n] = new DepEntry(keys[i], ver, pth);
                 deps[n].Deploy = dep;
                 deps[n].Internal = intl;
+                deps[n].Include = inc; deps[n].IncludeCount = inc.Length;
+                deps[n].Exclude = exc; deps[n].ExcludeCount = exc.Length;
                 n = n + 1;
             }
             i = i + 1;

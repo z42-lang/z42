@@ -272,9 +272,9 @@ public sealed class BuildSession {
     }
 
     // [plugins] 条目 → 编译器侧插件 zpkg 路径（按清单顺序）；失败经 reporter 报错并返回 null。
-    //   · 名字条目：解析域里找 `<name>.zpkg`；
-    //   · `.zpkg` path：现成产物（相对工程目录）；
-    //   · 工程 path：定位清单 → 校验是插件工程且名字一致 → AnalyzerChild 会话代建 → 取其产物。
+    //   · 源集条目（include/exclude，对齐 [tests]）与工程 / 免清单 path：合成或定位清单 →
+    //     AnalyzerChild 会话代建 → 取其产物；
+    //   · 名字条目：解析域里找 `<name>.zpkg`；`.zpkg` path：现成产物（相对工程目录）。
     // 拿到 zpkg 后按 `PluginZpkg.Inspect` 校验名字与能力位；只收带 analyzer / generator 位的。
     // 代建产物**不并入**消费方解析域（插件只加载进工具链进程）。
     private PluginPaths _resolvePlugins(ProjectManifest pm, string[] libs, int libsN) {
@@ -283,25 +283,25 @@ public sealed class BuildSession {
         int n = 0;
         int ai = 0;
         while (ai < pm.PluginCount) {
-            string aname = pm.Plugins[ai].Name;
-            string apath = pm.Plugins[ai].Path;
+            DepEntry e = pm.Plugins[ai];
+            string aname = e.Name;
             ai = ai + 1;
             string got = "";
-            if (apath.Length == 0) {
+            if (e.IncludeCount > 0 || (e.Path.Length > 0 && !e.Path.EndsWith(".zpkg"))) {
+                got = this._buildPluginProject(e);
+                if (got == "") { return null; }
+            } else if (e.Path.Length == 0) {
                 got = BuildSession._findInLibs(libs, libsN, aname + ".zpkg");
                 if (got == "") {
                     rep.Fail("[plugins] `" + aname + "` 未找到 " + aname + ".zpkg；已查找：" + BuildSession._dirList(libs, libsN) + "。");
                     return null;
                 }
-            } else if (apath.EndsWith(".zpkg")) {
-                got = Path.IsRooted(apath) ? apath : Path.Join(this._o.ProjectDir, apath);
+            } else {
+                got = Path.IsRooted(e.Path) ? e.Path : Path.Join(this._o.ProjectDir, e.Path);
                 if (!File.Exists(got)) {
                     rep.Fail("[plugins] `" + aname + "` 的 path 指向 " + got + "，文件不存在。");
                     return null;
                 }
-            } else {
-                got = this._buildPluginProject(aname, apath);
-                if (got == "") { return null; }
             }
             PluginInspection pi = PluginZpkg.Inspect(got, aname);
             if (pi.Error.Length > 0) { rep.Fail(pi.Error); return null; }
@@ -313,41 +313,16 @@ public sealed class BuildSession {
         return new PluginPaths(trimmed, n);
     }
 
-    // path 条目的插件（工程目录 / 免清单目录 / 单文件）：定位（或合成）清单 → 校验 → AnalyzerChild
-    // 子会话代建 → 产物路径；失败报错返回 ""。免清单（单文件 / 目录）由 PluginSynth 合成最小清单
-    //（落消费方 cache 目录）→ 与工程条目同路（与 z42c.driver PluginRefs / z42b builder_hooks 同口径）。
-    private string _buildPluginProject(string aname, string apath) {
+    // path 条目的插件（工程目录 / 免清单目录 / 单文件）+ 源集条目（include/exclude）：定位（或合成）
+    // 清单 → 校验 → AnalyzerChild 子会话代建 → 产物路径；失败报错返回 ""。免清单（源集 / 单文件 /
+    // 目录）由 PluginSynth 合成最小清单（落消费方 cache 目录）→ 与工程条目同路（与 z42c.driver
+    // PluginRefs / z42b builder_hooks 同口径）。
+    private string _buildPluginProject(DepEntry e) {
         IBuildReporter rep = this._o.Reporter;
-        string adir = Path.Join(this._o.ProjectDir, apath);
+        string aname = e.Name;
         string cacheDir = BuildLayout.Resolve(this._o.Manifest, this._o.ProjectDir, this._o.IsRelease).CacheDir;
-        string atoml = "";
-        if (apath.EndsWith(".z42")) {
-            string asrc = Path.IsRooted(apath) ? apath : adir;
-            if (!File.Exists(asrc)) {
-                rep.Fail("[plugins] `" + aname + "` 的 path 指向 " + asrc + "，文件不存在。");
-                return "";
-            }
-            atoml = PluginSynth.SynthFile(cacheDir, aname, asrc);
-            if (atoml.Length == 0) {
-                rep.Fail("[plugins] `" + aname + "` 的单文件插件清单合成失败（源文件 " + asrc + "）。");
-                return "";
-            }
-        } else {
-            ManifestLocation aloc = ManifestLocator.FindIn(adir);
-            if (aloc.Kind == ManifestLocateKind.Project) {
-                atoml = aloc.ManifestPath;
-            } else if (aloc.Kind == ManifestLocateKind.NotFound && Directory.Exists(adir)) {
-                atoml = PluginSynth.SynthDir(cacheDir, aname, adir);
-                if (atoml.Length == 0) {
-                    rep.Fail("[plugins] `" + aname + "` 的 path 指向 " + adir
-                        + "，那里既没有工程清单，也没有任何 .z42 源文件。");
-                    return "";
-                }
-            } else {
-                rep.Fail("[plugins] `" + aname + "` 的 path 指向 " + adir + "，那里没有单个工程清单。");
-                return "";
-            }
-        }
+        string atoml = this._pluginEntryToml(e, cacheDir);
+        if (atoml.Length == 0) { return ""; }
         ProjectManifest apm = ManifestLoader.Load(atoml);
         if (!apm.Project.IsPlugin() || apm.Project.Name != aname) {
             rep.Fail("[plugins] `" + aname + "` 指向的工程 " + atoml + " 须是 kind = \"plugin\" 且名为 `"
@@ -376,6 +351,51 @@ public sealed class BuildSession {
         int i = 0;
         while (i < pm.DepCount) { if (pm.Deps[i].Path.Length > 0) { return true; } i = i + 1; }
         return false;
+    }
+
+    // 条目（源集 / 单文件 / 免清单目录 / 工程目录）→ 插件工程清单路径（定位或 PluginSynth 合成）；
+    // 失败经 reporter 报错返回 ""。
+    private string _pluginEntryToml(DepEntry e, string cacheDir) {
+        IBuildReporter rep = this._o.Reporter;
+        string aname = e.Name;
+        if (e.IncludeCount > 0) {
+            if (e.Path.Length > 0) {
+                rep.Fail("[plugins] `" + aname + "` 同时写了 include 与 path——二者互斥：源码集用 include/exclude"
+                    + "（相对本工程目录），插件工程用 path。");
+                return "";
+            }
+            string stoml = PluginSynth.SynthSet(cacheDir, aname, this._o.ProjectDir, e.Include, e.IncludeCount, e.Exclude, e.ExcludeCount);
+            if (stoml.Length == 0) {
+                rep.Fail("[plugins] `" + aname + "` 的源集 include 一个 .z42 都没匹配到——检查 glob"
+                    + "（须以文件模式收尾，如 `hooks/**/*.z42`）。");
+            }
+            return stoml;
+        }
+        string adir = Path.Join(this._o.ProjectDir, e.Path);
+        if (e.Path.EndsWith(".z42")) {
+            string asrc = Path.IsRooted(e.Path) ? e.Path : adir;
+            if (!File.Exists(asrc)) {
+                rep.Fail("[plugins] `" + aname + "` 的 path 指向 " + asrc + "，文件不存在。");
+                return "";
+            }
+            string ftoml = PluginSynth.SynthFile(cacheDir, aname, asrc);
+            if (ftoml.Length == 0) {
+                rep.Fail("[plugins] `" + aname + "` 的单文件插件清单合成失败（源文件 " + asrc + "）。");
+            }
+            return ftoml;
+        }
+        ManifestLocation aloc = ManifestLocator.FindIn(adir);
+        if (aloc.Kind == ManifestLocateKind.Project) { return aloc.ManifestPath; }
+        if (aloc.Kind == ManifestLocateKind.NotFound && Directory.Exists(adir)) {
+            string dtoml = PluginSynth.SynthDir(cacheDir, aname, adir);
+            if (dtoml.Length == 0) {
+                rep.Fail("[plugins] `" + aname + "` 的 path 指向 " + adir
+                    + "，那里既没有工程清单，也没有任何 .z42 源文件。");
+            }
+            return dtoml;
+        }
+        rep.Fail("[plugins] `" + aname + "` 的 path 指向 " + adir + "，那里没有单个工程清单。");
+        return "";
     }
 
 

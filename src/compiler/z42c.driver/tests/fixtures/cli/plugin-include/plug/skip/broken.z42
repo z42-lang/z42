@@ -1,0 +1,4 @@
+namespace E2eSkip;
+
+// 刻意的语法错体：exclude 挡住它 ⇒ 编译绿；exclude 失效（漏进源集）⇒ 这里直接编不过。
+public static class Broken { public static int V( { return 7; } }

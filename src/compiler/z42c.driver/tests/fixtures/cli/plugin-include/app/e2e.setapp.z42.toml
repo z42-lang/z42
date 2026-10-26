@@ -1,0 +1,12 @@
+[project]
+name    = "e2e.setapp"
+version = "0.1.0"
+kind    = "exe"
+
+[sources]
+include = ["*.z42"]
+
+[plugins]
+# 源集条目（plugins-include-form，对齐 [tests]）：include/exclude 相对本工程目录；合成最小清单
+# 后代建。值在 plug/helper.z42（多文件一包）；plug/skip/ 是坏源，exclude 挡住（漏进即红）。
+"e2e.set" = { include = ["plug/**/*.z42"], exclude = ["plug/skip/**"] }

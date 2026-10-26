@@ -35,8 +35,9 @@ public static class ManifestKeys {
     public static string SourcesKeys()   { return "include/exclude"; }
     public static string BuildKeys()     { return "output_dir/cache_dir/dist_dir/incremental/hooks/generated_dir"; }
     public static string DepKeys()       { return "version/path/deploy"; }
-    // 插件条目（[plugins] 与 [plugins.export]）比依赖多 internal（plugin-internal-access 宿主授权）。
-    public static string PluginDepKeys() { return "version/path/deploy/internal"; }
+    // 插件条目（[plugins] 与 [plugins.export]）比依赖多 internal（plugin-internal-access 宿主授权）
+    // 与源集键 include/exclude（plugins-include-form，对齐 [tests]；export 侧语义上不收、由消费方报）。
+    public static string PluginDepKeys() { return "version/path/deploy/internal/include/exclude"; }
     public static string ExeKeys()       { return "name/entry/include"; }
     public static string SectionKeys()   { return "include/exclude/auto/dependencies"; }
     public static string RunTargetKeys() { return "name/harness/entry/include/test/dependencies"; }

@@ -158,7 +158,9 @@ BuildHooks[] _loadCarriedHooks(ProjectManifest m, string[] extraDirs, int extraN
 }
 
 string _hookPluginZpkg(DepEntry e, string projDir, string interDir) {
-    if (e.Path.Length == 0) {
+    // 源集条目（include/exclude，对齐 [tests]）与工程 / 免清单 path 条目同走「合成或定位清单 →
+    // in-process 编译」；名字条目（Path 与 Include 都空）按名在插件目录解析。
+    if (e.Path.Length == 0 && e.IncludeCount == 0) {
         string[] dirs = _pluginSearchDirs();
         int di = 0;
         while (di < dirs.Length) {
@@ -207,6 +209,22 @@ string _hookPluginZpkg(DepEntry e, string projDir, string interDir) {
 string _hookPluginToml(DepEntry e, string projDir, string interDir, ref ProjectManifest pm) {
     string aname = e.Name;
     string asrc = Path.IsRooted(e.Path) ? e.Path : Path.Join(projDir, e.Path);
+    if (e.IncludeCount > 0) {
+        if (e.Path.Length > 0) {
+            ConsoleError.WriteLine("z42b: [plugins] `" + aname + "` 同时写了 include 与 path——二者互斥：源码集用"
+                + " include/exclude（相对本工程目录），插件工程用 path。");
+            return "";
+        }
+        string stoml = PluginSynth.SynthSet(Path.Join(interDir, "synth"), aname, projDir,
+                                            e.Include, e.IncludeCount, e.Exclude, e.ExcludeCount);
+        if (stoml.Length == 0) {
+            ConsoleError.WriteLine("z42b: [plugins] `" + aname + "` 的源集 include 一个 .z42 都没匹配到——"
+                + "检查 glob（须以文件模式收尾，如 `hooks/**/*.z42`）。");
+            return "";
+        }
+        pm = ManifestLoader.Load(stoml);
+        return stoml;
+    }
     if (e.Path.EndsWith(".z42")) {
         if (!File.Exists(asrc)) {
             ConsoleError.WriteLine("z42b: [plugins] `" + aname + "` 的 path 指向 " + asrc + "，文件不存在。");
