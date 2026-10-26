@@ -454,12 +454,31 @@ public static class TsigReconcile {
                                                 LazyReconWorld world) {
         bool isStruct = (cd.Flags & 4) != 0;
         string bare = TsigReconcile._bare(cd.Name, ns);
-        // base 链（惰性 world：遇祖先 FQ 先 EnsureFq 路由填充其包，再按 FQ 名在已填包中定位；
-        // 记录 (pkg, mod) 供祖先 SIGS 精确定位）。lazy-type-world：跳过未填充（null）条目。
-        // 链长不设上限（数组按需翻倍）；此前写死 32 层、超出静默截断。环（只可能来自损坏的包——
-        // 源码里的继承环编译期就报错）按 FQ 名判出后抛错，不再靠层数上限兜底。
+        // base 链（`_classChain`：惰性 world 逐祖先 EnsureFq 路由填充，记录 (pkg, mod) 供祖先 SIGS 精确定位）
         IrClassDesc[] chain = new IrClassDesc[8];
         int[] chainPkg = new int[8]; int[] chainMod = new int[8];
+        int chainLen = TsigReconcile._classChain(cd, world, ref chain, ref chainPkg, ref chainMod);
+        // base 名（oracle：非 struct 恒 HasBase=true 短名默认 "Object"；struct HasBase=false base ""）
+        string baseName = "Object";
+        if (cd.HasBase && cd.BaseName != "") { baseName = TsigReconcile._shortName(cd.BaseName); }
+        bool hasBase = !isStruct;
+        if (isStruct) { baseName = ""; }
+        // fields / methods（链 topmost-first 语义见各函数头注）
+        ExportedFieldZ[] fields = TsigReconcile._reconFields(cd, chain, chainLen);
+        ExportedMethodZ[] methods = TsigReconcile._reconMethods(cd, chain, chainPkg, chainMod, chainLen, world, isStruct);
+        ExportedClassZ ecz = new ExportedClassZ(bare, hasBase, baseName,
+                                  fields, fields.Length,
+                                  methods, methods.Length,
+                                  cd.TypeParams == null ? new string[0] : cd.TypeParams, cd.TypeParamCount);
+        TsigReconcile._reconClassTail(cd, ecz, isStruct);   // Interfaces / BaseFqn / flags / 约束搬运
+        return ecz;
+    }
+
+    // ── base 链构建（惰性 world：遇祖先 FQ 先 EnsureFq 路由填充其包，再按 FQ 名在已填包中定位）──
+    // lazy-type-world：跳过未填充（null）条目。链长不设上限（数组按需翻倍）；此前写死 32 层、超出
+    // 静默截断。环（只可能来自损坏的包——源码里的继承环编译期就报错）按 FQ 名判出后抛错。
+    private static int _classChain(IrClassDesc cd, LazyReconWorld world,
+                                   ref IrClassDesc[] chain, ref int[] chainPkg, ref int[] chainMod) {
         int chainLen = 0;
         IrClassDesc walk = cd;
         int walkPkg = 0 - 1; int walkMod = 0 - 1;
@@ -489,12 +508,11 @@ public static class TsigReconcile {
                 if (bs >= 0) { walk = world.FoundDesc(bs); walkPkg = world.FoundPkg(bs); walkMod = world.FoundMod(bs); }
             }
         }
-        // base 名（oracle：非 struct 恒 HasBase=true 短名默认 "Object"；struct HasBase=false base ""）
-        string baseName = "Object";
-        if (cd.HasBase && cd.BaseName != "") { baseName = TsigReconcile._shortName(cd.BaseName); }
-        bool hasBase = !isStruct;
-        if (isStruct) { baseName = ""; }
-        // fields：链 topmost-first 实例字段，再本类 static
+        return chainLen;
+    }
+
+    // ── 字段重建：链 topmost-first 实例字段，再本类 static ─────────────────────────────
+    private static ExportedFieldZ[] _reconFields(IrClassDesc cd, IrClassDesc[] chain, int chainLen) {
         ExportedFieldZ[] fields = new ExportedFieldZ[8]; int fldc = 0;
         int ci = chainLen - 1;
         while (ci >= 0) {
@@ -519,7 +537,15 @@ public static class TsigReconcile {
             fields[fldc] = sefz;
             fldc = fldc + 1; sfi = sfi + 1;
         }
-        // methods：Object 四方法（非 struct）+ 链 topmost-first SIGS 方法合并（override 保留祖先位）
+        return TsigReconcile._trimF(fields, fldc);
+    }
+
+    // ── 方法重建：Object 四方法（非 struct）+ 链 topmost-first SIGS 实例方法合并（override
+    //    保留祖先位）+ 本类 static ─────────────────────────────────────────────────────
+    // pass 1 oracle 语义：override 条目 IsVirtual=false（TSIG virtual=仅显式 virtual 关键字），abstract 同。
+    // pass 2 oracle：own-class only、声明序 append、不与实例 seen 合并。
+    private static ExportedMethodZ[] _reconMethods(IrClassDesc cd, IrClassDesc[] chain, int[] chainPkg, int[] chainMod,
+                                                   int chainLen, LazyReconWorld world, bool isStruct) {
         ExportedMethodZ[] methods = new ExportedMethodZ[16];
         string[] seenName = new string[16]; int[] seenAt = new int[16];
         int mc = 0; int seenc = 0;
@@ -530,9 +556,7 @@ public static class TsigReconcile {
             seenAt[0] = 0; seenAt[1] = 1; seenAt[2] = 2; seenAt[3] = 3;
             mc = 4; seenc = 4;
         }
-        // pass 1：实例方法——链 topmost-first 合并（override 替换祖先位；oracle 语义：
-        // override 条目 IsVirtual=false（TSIG virtual=仅显式 virtual 关键字），abstract 同）。
-        ci = chainLen - 1;
+        int ci = chainLen - 1;
         while (ci >= 0) {
             IrClassDesc anc = chain[ci];
             ZpkgModuleSigs ancSigs = null;
@@ -565,30 +589,33 @@ public static class TsigReconcile {
             }
             ci = ci - 1;
         }
-        // pass 2：本类 static 方法（oracle：own-class only、声明序 append、不与实例 seen 合并）。
         ZpkgModuleSigs selfSigs = null;
         if (chainPkg[0] >= 0 && chainMod[0] >= 0) { selfSigs = world.Wp[chainPkg[0]].Sigs[chainMod[0]]; }
-        if (selfSigs != null) {
-            string sprefix = cd.Name + ".";
-            int ssi = SigsClassIndex.First(selfSigs, cd.Name);   // perf-tsig-reconcile-index
-            while (ssi >= 0) {
-                IrFunction f = selfSigs.Functions[ssi];
-                if (f.IsStatic) {
-                    string mkey = f.Name.Substring(sprefix.Length);
-                    if (mkey != "__static_init__" && mkey.IndexOf("__lambda") < 0 && mkey.IndexOf("__local_") < 0) {
-                        ExportedMethodZ em = TsigReconcile._methodFromSig(f, mkey);
-                        em.IsVirtual = false;   // TSIG：static 恒 vfalse（`static override` 不置 virtual）
-                        if (mc == methods.Length) { ExportedMethodZ[] b = new ExportedMethodZ[methods.Length * 2]; int k = 0; while (k < mc) { b[k] = methods[k]; k = k + 1; } methods = b; }
-                        methods[mc] = em; mc = mc + 1;
-                    }
+        if (selfSigs != null) { TsigReconcile._appendStaticSigs(ref methods, ref mc, cd, selfSigs); }
+        return TsigReconcile._trimM(methods, mc);
+    }
+
+    // pass 2：本类 static 方法（oracle：own-class only、声明序 append、不与实例 seen 合并）。
+    private static void _appendStaticSigs(ref ExportedMethodZ[] methods, ref int mc, IrClassDesc cd, ZpkgModuleSigs selfSigs) {
+        string sprefix = cd.Name + ".";
+        int ssi = SigsClassIndex.First(selfSigs, cd.Name);   // perf-tsig-reconcile-index
+        while (ssi >= 0) {
+            IrFunction f = selfSigs.Functions[ssi];
+            if (f.IsStatic) {
+                string mkey = f.Name.Substring(sprefix.Length);
+                if (mkey != "__static_init__" && mkey.IndexOf("__lambda") < 0 && mkey.IndexOf("__local_") < 0) {
+                    ExportedMethodZ em = TsigReconcile._methodFromSig(f, mkey);
+                    em.IsVirtual = false;   // TSIG：static 恒 vfalse（`static override` 不置 virtual）
+                    if (mc == methods.Length) { ExportedMethodZ[] b = new ExportedMethodZ[methods.Length * 2]; int k = 0; while (k < mc) { b[k] = methods[k]; k = k + 1; } methods = b; }
+                    methods[mc] = em; mc = mc + 1;
                 }
-                ssi = selfSigs.ByClassNext[ssi];
-            }
         }
-        ExportedClassZ ecz = new ExportedClassZ(bare, hasBase, baseName,
-                                  TsigReconcile._trimF(fields, fldc), fldc,
-                                  TsigReconcile._trimM(methods, mc), mc,
-                                  cd.TypeParams == null ? new string[0] : cd.TypeParams, cd.TypeParamCount);
+            ssi = selfSigs.ByClassNext[ssi];
+        }
+    }
+
+    // ── 组装尾巴：接口表 / BaseFqn / flags / 可见性 / 关联类型绑定 / 泛型约束搬运 ──────────
+    private static void _reconClassTail(IrClassDesc cd, ExportedClassZ ecz, bool isStruct) {
         // 实现的接口表（fix-crosspkg-interface-impl 补齐）：TYPE 接口块存 **FQ 名，原样搬运**。
         //
         // 🔴 enforce-fqn-name-identity B2：**此前这里 `_shortName` 剥成裸名，那是有损的** ——
@@ -659,8 +686,8 @@ public static class TsigReconcile {
             ecz.TypeParamConstraints = copy;
             ecz.TpConstraintCount = bn;
         }
-        return ecz;
     }
+
 
     private static ExportedMethodZ _methodFromSig(IrFunction f, string mkey) {
         bool isInstance = !f.IsStatic;
