@@ -162,12 +162,19 @@ int _pkgBuildToolchainComponents(string root, string z42cDir, string cargoOut, s
 // any host can `publish --rid <target>` (cross-platform apphost output). No target
 // runtime pack — desktop reuses the host runtime shipped in the SDK. The apphost
 // binary is cargo-built by _packageDesktop's z42-apphost crate build; it lands here, not in SDK bin/.
+
+// 桌面 workload 零件的包目录名 / 其中 apphost 文件名——生产端（下面）与消费端（`package sdk --verify` 找 stub
+// 模板的 `_distWorkloadDir` / `_distApphostTemplate`）同一出处。release profile 无后缀，其余带 `-<profile>`。
+string _desktopWorkloadPkgName(string version, string rid, string profile) {
+    return "z42-workload-" + version + "-desktop-" + rid + (profile == "release" ? "" : "-" + profile);
+}
+string _desktopApphostName(string rid) { return rid.StartsWith("windows-") ? ("apphost-" + rid + ".exe") : ("apphost-" + rid); }
+
 int _buildDesktopWorkload(string root, string rid, string version, string profile) {
-    bool rel = (profile == "release");
     bool isWin = rid.StartsWith("windows-");
     string srcExe = isWin ? "apphost.exe" : "apphost";
-    string dstExe = isWin ? ("apphost-" + rid + ".exe") : ("apphost-" + rid);
-    string pkgName = "z42-workload-" + version + "-desktop-" + rid + (rel ? "" : "-" + profile);
+    string dstExe = _desktopApphostName(rid);
+    string pkgName = _desktopWorkloadPkgName(version, rid, profile);
     string pkgDir = Path.Join(_packagesDir(root), pkgName);
     Console.WriteLine("Desktop workload: " + pkgName);
     if (Directory.Exists(pkgDir)) { Directory.Delete(pkgDir, true); }

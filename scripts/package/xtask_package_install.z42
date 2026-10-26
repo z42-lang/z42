@@ -142,6 +142,17 @@ string _runtimePkgScaffold(string root, string rid, string version, string profi
     return pkgDir;
 }
 
+// Runtime package 收尾（`_runtimePkgScaffold` 的另一半，ios / android / wasm 共用）：装 stdlib libs/，然后跑门。
+// runtime pack 才是 libs/ + native/include/ 的真正落点 —— 门必须跑在这里（fix-package-gates-false-red）：
+// desktop 的 runtime pack 已于 #508 接上，ios/android/wasm 当时漏了——它们的 workload pack 跑了门却一个
+// source-derived 文件都没装，真装了的这个包反而从未被检查。stepLabel 是各 builder 自己的 "[k/n]" 步号。
+int _runtimePkgFinish(string root, string pkgDir, string rid, string stepLabel) {
+    Console.WriteLine("  " + stepLabel + " libs/");
+    int c = _pkgCopyLibs(_libsDir(root), pkgDir); if (c != 0) { return c; }
+    Console.WriteLine("  ✓ runtime package: " + pkgDir);
+    return _pkgFinish(root, pkgDir, "runtime", rid);
+}
+
 // [component.editor-assets] kind=editor-assets, dest="editors/" — editors/<target>/ from the in-repo asset dirs.
 // 这些是 `z42d install <target>` 的**输入**：装了 SDK 就能装编辑器集成，不需要仓库
 // （unify-editor-install）。**模板不进包**——`*.tpl.json` 是 xtask 生成器的输入，
