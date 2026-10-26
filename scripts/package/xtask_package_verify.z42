@@ -19,19 +19,77 @@ using Std.IO;
 
 string _distFixturesSrc() { return "src/toolchain/launcher/tests/fixtures/package"; }
 
-// `package sdk --verify`：packages.toml 自检 → 备好本机桌面 workload → 在 `sdkDir`（本次刚组装出的 SDK）上跑
-// 发行包夹具与 golden。全部通过返回 0。
+// `package sdk --verify`：packages.toml 自检 → 安装脚本顶层清单对账 → 备好本机桌面 workload → 在 `sdkDir`
+// （本次刚组装出的 SDK）上跑发行包夹具与 golden。全部通过返回 0。
 int _packageVerify(string sdkDir) {
     Console.WriteLine("");
     Console.WriteLine("── verify: packages.toml 自检 ──");
     int c = _pkgSelfCheck(); if (c != 0) { return c; }
     string root = _root();
+    c = _verifyInstallScriptLists(root, sdkDir); if (c != 0) { return c; }
     if (_distApphostTemplate(root).Length == 0) {
         Console.WriteLine("── verify: 本机桌面 workload 不在，先打一份（apphost 腿要它的 stub）──");
         c = _packageWorkloadBuild("", "release"); if (c != 0) { return c; }
     }
     Console.WriteLine("── verify: 打包出的 SDK 端到端 ──");
     return _verifyDist(sdkDir);
+}
+
+// 安装脚本（scripts/install/install.{sh,ps1}）只替换 SDK 自己的顶层条目、其余（已装 workload 等）保留，所以各自
+// 内嵌一份顶层清单——引导期还没有 z42，清单读不了 packages.toml。这里拿**本次真组装出的 SDK** 的顶层条目逐个
+// 对账两份脚本：SDK 新增顶层目录而脚本没跟上（plugins/、editors/ 曾各漏装一次）当场红。
+// Windows 上 launcher 是 `z42.exe`，对账时统一去掉 `.exe`。
+int _verifyInstallScriptLists(string root, string sdkDir) {
+    string[] shList  = _installListSh(File.ReadAllText(Path.Join(root, "scripts/install/install.sh")));
+    string[] ps1List = _installListPs1(File.ReadAllText(Path.Join(root, "scripts/install/install.ps1")));
+    if (shList.Length == 0 || ps1List.Length == 0) {
+        ConsoleError.WriteLine("error: install script top-level list not found (install.sh `for entry in …; do` / install.ps1 `foreach ($entry in @(…))`)");
+        return 1;
+    }
+    int bad = 0;
+    int total = 0;
+    foreach (var e in _sortedStrings(Directory.Enumerate(sdkDir))) {
+        if (e.StartsWith(".")) { continue; }
+        total = total + 1;
+        string name = e.EndsWith(".exe") ? e.Substring(0, e.Length - 4) : e;
+        if (!_strIn(shList, name))  { ConsoleError.WriteLine("error: install.sh replace list lacks SDK top-level entry `" + e + "`");  bad = bad + 1; }
+        if (!_strIn(ps1List, name)) { ConsoleError.WriteLine("error: install.ps1 replace list lacks SDK top-level entry `" + e + "`"); bad = bad + 1; }
+    }
+    if (bad > 0) { return 1; }
+    Console.WriteLine("  ✓ install.sh / install.ps1 replace lists cover all " + total.ToString() + " SDK top-level entries");
+    return 0;
+}
+
+// install.sh 的 `for entry in a b c; do` → [a, b, c]；找不到 → 空。
+string[] _installListSh(string text) {
+    foreach (var ln in text.Split("\n")) {
+        string t = ln.Trim();
+        if (!t.StartsWith("for entry in ")) { continue; }
+        int semi = t.IndexOf(";");
+        return _splitWords(semi > 0 ? t.Substring(13, semi - 13) : t.Substring(13));
+    }
+    return new string[0];
+}
+
+// install.ps1 的 `foreach ($entry in @("a", "b"))` → [a, b]（`z42.exe` → `z42`，与 sh 侧同名对账）；找不到 → 空。
+string[] _installListPs1(string text) {
+    foreach (var ln in text.Split("\n")) {
+        string t = ln.Trim();
+        if (!t.StartsWith("foreach ($entry in @(")) { continue; }
+        int open = t.IndexOf("@(");
+        int close = t.IndexOf("))");
+        if (close <= open) { return new string[0]; }
+        string[] raw = t.Substring(open + 2, close - open - 2).Split(",");
+        string[] xs = new string[raw.Length];
+        int i = 0;
+        while (i < raw.Length) {
+            string v = raw[i].Trim().Replace("\"", "");
+            xs[i] = v.EndsWith(".exe") ? v.Substring(0, v.Length - 4) : v;
+            i = i + 1;
+        }
+        return xs;
+    }
+    return new string[0];
 }
 
 // 发行包夹具 + golden 腿（interp / jit）。全部通过返回 0，否则 1（缺包 / 夹具不符 / golden 编译失败或不符）。

@@ -79,7 +79,8 @@ try {
     if (Test-Path $Stage) { Remove-Item -Recurse -Force $Stage }
     Expand-Archive -Path $Pkg -DestinationPath $Stage
     if (-not (Test-Path (Join-Path $Stage "z42.exe"))) { Fail "archive does not look like a z42 SDK (no z42.exe)" }
-    foreach ($entry in @("z42.exe", "bin", "programs", "libs", "native", "manifest.toml")) {
+    # Same top-level list as install.sh (z42 → z42.exe); `xtask package sdk --verify` checks both against the assembled SDK.
+    foreach ($entry in @("z42.exe", "bin", "programs", "libs", "native", "plugins", "editors", "manifest.toml")) {
         $src = Join-Path $Stage $entry
         if (Test-Path $src) {
             $dst = Join-Path $Dest $entry
