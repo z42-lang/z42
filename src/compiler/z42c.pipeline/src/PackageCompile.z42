@@ -328,10 +328,20 @@ public static class PackageCompile {
     // ── ② 跨包依赖解析（libsDirs 扫描 → DepIndex + nsMap + usings 聚合 → ImportedSymbols）──
     private static DepResolution _resolveDeps(CompileInputs inp) {
         DepResolution o = new DepResolution();
+        // retire-member-dep-decls：本工程若是某 workspace 的成员，成员名集合先算好——两处消费：
+        // ① 扫描 tier 的 Hidden 过滤（成员自带的 SDK 可见性，见 `_memberScanTier`）；
+        // ② E0497 依赖契约放行（见下方 contractDeps）。成员声明为空 ⇒ DepIndex 过滤本来就关。
+        string[] wsMembers = new string[0];
+        if (inp.EnforceDeclaredDeps && inp.SrcCount > 0 && inp.Files != null && inp.Files.Length > 0) {
+            string firstDir = Path.GetDirectoryName(inp.Files[0]);
+            if (firstDir.Length == 0) { firstDir = "."; }
+            wsMembers = WorkspaceMemberDeps.EnclosingMemberNames(firstDir);
+        }
         if (inp.CachedScan != null) {
             o.Scan = inp.CachedScan;                                    // 复用（scan-provider）
         } else if (inp.LibsDirsN > 0) {
-            o.Scan = DepScan.ScanDirs(inp.LibsDirs, inp.LibsDirsN, inp.Name, inp.DeclaredDeps, inp.DepCount, inp.Tier);   // 排除 self-zpkg
+            o.Scan = DepScan.ScanDirs(inp.LibsDirs, inp.LibsDirsN, inp.Name, inp.DeclaredDeps, inp.DepCount,
+                                      PackageCompile._memberScanTier(inp.Tier, wsMembers));   // 排除 self-zpkg
         }
         if (o.Scan != null) {
             o.DepIndex = o.Scan.Index;
@@ -362,20 +372,15 @@ public static class PackageCompile {
             // 加载父包时按同包待遇（其 internal 可见）。普通包为 "" → 行为与此前逐字节一致。
             //
             // retire-member-dep-decls：成员清单不再声明同 workspace 依赖（WS032）——`z42c.*` 不带
-            // `z42.` 前缀、吃不到 stdlib 豁免 ⇒ **E0497 的放行集**并入所属 workspace 的成员名（按
-            // 首个源文件目录向上找 workspace）。🔴 只扩这里的两处消费，**不进 `inp.DeclaredDeps`**：
-            // 那份会经 `_unionDeclaredDeps` 写进 zpkg 的 DEPS 段（把入口包变成假运行期候选 → 双代
-            // 注册、类型拒用），也会误开 DepIndex 的过滤白名单。成员声明为空 ⇒ 过滤本来就关。
+            // `z42.` 前缀、吃不到 stdlib 豁免 ⇒ **E0497 的放行集**并入所属 workspace 的成员名。
+            // 🔴 只扩这里的两处消费，**不进 `inp.DeclaredDeps`**：那份会经 `_unionDeclaredDeps`
+            // 写进 zpkg 的 DEPS 段（把入口包变成假运行期候选 → 双代注册、类型拒用），也会误开
+            // DepIndex 的过滤白名单。
             string[] contractDeps = inp.DeclaredDeps;
             int contractN = inp.DepCount;
-            if (inp.EnforceDeclaredDeps && inp.SrcCount > 0 && inp.Files != null && inp.Files.Length > 0) {
-                string firstDir = Path.GetDirectoryName(inp.Files[0]);
-                if (firstDir.Length == 0) { firstDir = "."; }
-                string[] wsMembers = WorkspaceMemberDeps.EnclosingMemberNames(firstDir);
-                if (wsMembers.Length > 0) {
-                    contractDeps = SdkLibs.WithMembers(inp.DeclaredDeps, inp.DepCount, wsMembers, wsMembers.Length);
-                    contractN = contractDeps.Length;
-                }
+            if (wsMembers.Length > 0) {
+                contractDeps = SdkLibs.WithMembers(inp.DeclaredDeps, inp.DepCount, wsMembers, wsMembers.Length);
+                contractN = contractDeps.Length;
             }
             o.Imported = ImportedSymbolLoader.Load(o.Scan.Exported, o.Scan.ExportedPkg, o.Scan.ExportedCount,
                                                    allUsings, auc, inp.ParentPkg, contractDeps, contractN);
@@ -386,6 +391,40 @@ public static class PackageCompile {
             while (dd < contractN) { o.Imported.DeclaredDeps.Put(contractDeps[dd], "1"); dd = dd + 1; }
         }
         return o;
+    }
+
+    // 扫描 tier 的成员放行（retire-member-dep-decls）：非 workspace 分档的 tier（`MemberDirs == 0`，
+    // 即 SdkLibs 合并档 / path 闭包子建 / z42b 测试目标路径）若把**本 workspace 成员**藏在 Hidden 里，
+    // 返回一个摘掉这些名字的副本——成员的 SDK 可见性由成员身份自带（此前借清单条目当种子，WS032 起
+    // 条目退役）。🔴 只动 `MemberDirs == 0` 的 tier：workspace 分档（MemberDirs > 0）的 Hidden 承载
+    // 「拓扑序在后成员不可见」的封闭性纪律（workspace-read-cache），不得豁免。不改调用方的 tier 对象。
+    private static WsTier _memberScanTier(WsTier tier, string[] wsMembers) {
+        if (tier == null || tier.MemberDirs > 0 || tier.HiddenN == 0 || wsMembers.Length == 0) { return tier; }
+        int hit = 0;
+        int i = 0;
+        while (i < tier.HiddenN) {
+            if (PackageCompile._inNames(wsMembers, tier.Hidden[i])) { hit = hit + 1; }
+            i = i + 1;
+        }
+        if (hit == 0) { return tier; }
+        WsTier t = new WsTier();
+        t.Members = tier.Members; t.MembersN = tier.MembersN; t.MemberDirs = tier.MemberDirs;
+        string[] hidden = new string[tier.HiddenN - hit];
+        int hn = 0;
+        int h = 0;
+        while (h < tier.HiddenN) {
+            string name = tier.Hidden[h];
+            h = h + 1;
+            if (!PackageCompile._inNames(wsMembers, name)) { hidden[hn] = name; hn = hn + 1; }
+        }
+        t.Hidden = hidden; t.HiddenN = hn;
+        return t;
+    }
+
+    private static bool _inNames(string[] names, string v) {
+        int i = 0;
+        while (i < names.Length) { if (names[i] == v) { return true; } i = i + 1; }
+        return false;
     }
 
     // ── ⑤后 cached meta 回填（增量条目 → cms 槽位）──────────────────────────────────

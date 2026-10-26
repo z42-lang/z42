@@ -3,6 +3,3 @@ name    = "z42.numerics"
 version = "0.1.0"
 kind    = "lib"
 
-[dependencies]
-"z42.core"   = "0.1.0"
-"z42.random" = "0.1.0"   # Miller-Rabin witnesses for BigInt.IsProbablyPrime (add-bigint-prime, 2026-05-25)

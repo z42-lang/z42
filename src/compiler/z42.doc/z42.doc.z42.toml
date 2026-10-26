@@ -7,6 +7,9 @@ kind    = "lib"
 [sources]
 include = ["src/**/*.z42"]
 
+# 🔴 这两条不随 WS032 退役（同 z42.build 的 path 条目先例）：z42.doc 被 xtask 以 path 依赖消费，
+# 冷引导（ci-bootstrap 用 **nightly 种子**编 xtask）经此子建——nightly 无本仓的成员域目录补路，
+# SDK 可见性种子只能由清单声明携带。compiler workspace 内的成员构建不依赖这两条。
 [dependencies]
 "z42c.core"   = "0.1.0"
 "z42c.syntax" = "0.1.0"

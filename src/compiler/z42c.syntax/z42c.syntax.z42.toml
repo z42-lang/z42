@@ -5,5 +5,3 @@ name    = "z42c.syntax"
 version = "0.1.0"
 kind    = "lib"
 
-[dependencies]
-"z42c.core" = "0.1.0"

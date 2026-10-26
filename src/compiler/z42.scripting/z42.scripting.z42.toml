@@ -12,12 +12,5 @@ name    = "z42.scripting"
 version = "0.1.0"
 kind    = "lib"
 
-[dependencies]
-"z42.build"     = "0.1.0"   # IReplCompiler 门面（编译经此；实现运行期注入）——sink-repl-compile-facade
-"z42c.core"     = "0.1.0"   # Z42.Core.Span（前端已 stdlib，PR-A）
-"z42c.syntax"   = "0.1.0"   # Lexer / Token / Parser / CompilationUnit（前端已 stdlib，PR-A）
-
-# tests/repl/ 是一个**目录单元**：共用助手 repl_kit.z42（`_step` / 补全探针）+ 每个用例一个文件，必须一起编。
-# 默认发现只认 `tests/*.z42`（一文件一单元），目录单元显式配。
 [tests]
 include = ["tests/*.z42", "tests/repl/**/*.z42"]

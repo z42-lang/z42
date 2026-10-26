@@ -209,6 +209,7 @@ LibsDomainOut _resolveLibsDomain(ProjectManifest pm, string tomlPath, string pro
     DirsOut zr = _appendZpkgRefDirs(pm, projectDir, o.LibsDirs, o.LibsDirsN);
     if (zr == null) { o.Rc = ExitCode.BuildError; return o; }
     o.LibsDirs = zr.Dirs; o.LibsDirsN = zr.N;
+    if (tier == null || tier.MemberDirs == 0) { o.LibsDirs = _memberDomainDirs(pm, projectDir, o.LibsDirs, ref o.LibsDirsN); }   // 见 _memberDomainDirs（BuildPaths.z42）
     // 声明了 stdlib ⇒ W0610（DepDecls.z42）。此刻 libsDirs = path 闭包 / vendored zpkg + 外部档，正是判「从哪解析到」的那一份。
     _warnStdlibDeps(pm, tomlPath, o.LibsDirs, o.LibsDirsN, tier);
     // ── SDK 库的可见性（add-sdk-libs；规则与实现见 z42c.pipeline 的 SdkLibs.z42）────────────────────

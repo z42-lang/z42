@@ -460,16 +460,10 @@ fn register_entry_as_loaded(
 ) {
     let byte_size = std::fs::metadata(file).ok().map(|m| m.len());
     loaded_for_replay.push((file.to_string(), byte_size));
-    let p = std::path::Path::new(file);
-    if let Some(entry_name) = p.file_name().and_then(|n| n.to_str()) {
-        initially_loaded_zpkgs.push(entry_name.to_string());
-        // register_loaded_artifact 的幂等键还有 `__loaded_path__<module>` 形态（模块名，去扩展）——
-        // 两个键都要登记，缺一个都会漏判（同 #1393 的观察）。
-        if let Some(stem) = entry_name.strip_suffix(".zpkg") {
-            initially_loaded_zpkgs.push(format!("__loaded_path__{stem}"));
-        }
-    }
-    if let Ok(entry_canonical) = p.canonicalize() {
+    // 两个幂等键（zpkg 文件名 + `__loaded_path__<module>`）已由 `entry_zpkg_idempotency_keys`
+    // 在 vec 初始化处统一登记（#1393）；本函数只补 replay 与 AOT 去重集——#1393 与 #1399
+    // 先后落 main 时各登记了一遍，此处去重。
+    if let Ok(entry_canonical) = std::path::Path::new(file).canonicalize() {
         loaded_paths.insert(entry_canonical);
     }
 }
