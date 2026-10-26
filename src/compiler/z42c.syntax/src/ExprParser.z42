@@ -16,102 +16,15 @@ public sealed partial class ExprParser {
             int k = this._p._peek().Kind;
             // ── 后缀一档（概念 bp 90，**无守卫**；等价性见 ParseTable.PostfixBp 与 V2 断言）──
             int pf = ParseTable.Postfix(k);
-            if (pf == PostfixKind.Member) {
-                this._p._advance();
-                Token nameTok = this._p._peek();
-                string name = nameTok.Text;
-                if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
-                else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected member name after '.'", this._p._peek().Span); }
-                // Span 仍复用 target 的（既有诊断位置不变）；NameSpan 记成员名自身区间，
-                // 供成员解析类诊断把下划线收窄到出问题的那个名字（⑦ span 地基）。
-                MemberExpr me = new MemberExpr(left, name, left.Span);
-                me.NameSpan = nameTok.Span;
-                left = me;
-                continue;
-            }
-            if (pf == PostfixKind.MemberNullCond) {
-                // define-null-check-marks：`?.` 已移除。它是 User 点名的「让问题逃掉」的口子之一——
-                // 把「可能为 null」静默向下传播，最终在离现场很远的地方崩。
-                //
-                // ⚠️ 顺带修掉一个真 bug：原脱糖把接收者**绑定了两次**（一次在 `access` 里、
-                // 一次作 `recv`），所以 `F()?.X` 会**调用 F 两次**。原注释自述
-                // 「简单接收者双求值无副作用；goldens 均为局部接收者」——即已知而未修。
-                Span qds = this._p._peek().Span;
-                this._p._advance();
-                this._p._diags.Error(DiagnosticCodes.ObsoleteNullOperator,
-                    "`?.` is no longer supported — write the check out: "
-                    + "`var t = <target>; if (t != null) { t.<member> }` "
-                    + "(the old form silently propagated null to somewhere far from the cause)", qds);
-                // 按普通 `.` 继续解析，避免级联错（同 E0471 手法）。
-                string nname = this._p._peek().Text;
-                if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
-                else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected member name after '?.'", this._p._peek().Span); }
-                MemberExpr qme = new MemberExpr(left, nname, left.Span);
-                qme.NameSpan = qds;
-                left = qme;
-                continue;
-            }
-            if (pf == PostfixKind.Call) { this._p._advance(); left = this._parseCall(left); continue; }
-            if (pf == PostfixKind.Index) {
-                this._p._advance();
-                // 逗号分隔的多下标：单维 obj[i]、多维索引器 obj[a, b]（派发 get_Item/set_Item）。
-                // 至少一个下标（obj[] 非法，由首个 _parseExpr 在 ']' 上产出诊断，保持非空不变式）。
-                Expr[] idxs = new Expr[8];
-                int ic = 0;
-                idxs[ic] = this._parseExpr(0); ic = ic + 1;
-                while (this._p._peek().Kind == TokenKind.Comma) {
-                    this._p._advance();
-                    if (ic == idxs.Length) {   // fix-parser-fixed-arrays：此前定长 8，第 9 个下标即编译器崩溃
-                        Expr[] bigger = new Expr[idxs.Length * 2];
-                        Array.Copy(idxs, bigger, ic);
-                        idxs = bigger;
-                    }
-                    idxs[ic] = this._parseExpr(0); ic = ic + 1;
-                }
-                this._p._expect(TokenKind.RBracket, "]");
-                left = new IndexExpr(left, idxs, ic, left.Span);
-                continue;
-            }
-            // 后置 ++ / --（无右操作数，结合性同 . / () / []）
-            if (pf == PostfixKind.PostIncDec) {
-                string pop = this._p._peek().Text;
-                this._p._advance();
-                left = new UnaryExpr(pop, left, left.Span);
-                continue;
-            }
-            // 泛型方法调用 `名<T,...>(args)`（add-generic-methods）：`<` 歧义消解。
-            // 仅当 <类型列表> 后紧跟 '(' 才判为泛型调用；否则回滚游标/诊断/_pendingGt，落到二元 '<'。
+            // 成员访问 / `?.`（已移除，按普通 `.` 继续防级联）—— `_applyMemberPostfix`。
+            if (pf == PostfixKind.Member || pf == PostfixKind.MemberNullCond) { left = this._applyMemberPostfix(left, pf); continue; }
+            // 调用 / 多下标 / 后置 ++ -- —— `_applyCallIndexInc`。
+            if (pf == PostfixKind.Call || pf == PostfixKind.Index || pf == PostfixKind.PostIncDec) { left = this._applyCallIndexInc(left, pf); continue; }
+            // 泛型调用尝试 `名<T,…>(args)` / 闭合泛型静态成员 —— `_tryGenericCall`（null = 回滚，落下面二元 '<'）。
             // 🔴 属后缀一档、**不受 minBp 约束**（`a + f<int>(x)` 以 minBp=71 进来也要认）——见 ParseTable 抬头。
             if (pf == PostfixKind.GenericCallTry) {
-                int posMark = this._p._mark();
-                int diagMark = this._p._diags.Count();
-                int gtMark = this._p._pendingGt;
-                TypeExpr[] targs = this._p._typeP._tryParseCallTypeArgs();
-                if (targs != null && this._p._peek().Kind == TokenKind.LParen) {
-                    this._p._advance();                       // consume '('
-                    CallExpr gcall = this._parseCall(left) as CallExpr;
-                    gcall.TypeArgs = targs; gcall.TypeArgCount = targs.Length;
-                    left = gcall;
-                    continue;
-                }
-                // complete-generic-class-identity P5-b：**闭合泛型上的静态成员** `GBox<int>.Count`。
-                //
-                // `<类型列表>` 后紧跟 `.` ⇒ 左边是一个**类型引用**（`GBox<int>`），不是比较。
-                // 这个形状无歧义：二元 `<` 的右操作数后面不可能紧跟 `>` 再跟 `.`
-                //（`a < b > .c` 里 `>` 之后缺操作数）。与 C# 的消歧规则同源
-                //（C# 是「`>` 后跟 `(` `)` `]` `}` `:` `;` `,` `.` `?` `==` `!=` 之一才算类型实参」）。
-                //
-                // 实参挂到左边的 `IdentExpr` 上（不新造节点 —— 见 `IdentExpr.TypeArgs` 的注释），
-                // 后续 `.` 由上面既有的成员访问分支照常接手。
-                if (targs != null && this._p._peek().Kind == TokenKind.Dot && (left is IdentExpr)) {
-                    IdentExpr tid = left as IdentExpr;
-                    tid.TypeArgs = targs; tid.TypeArgCount = targs.Length;
-                    continue;
-                }
-                this._p._reset(posMark);
-                this._p._diags.TruncateTo(diagMark);
-                this._p._pendingGt = gtMark;
-                // 落到下面二元 '<'（`LeftBp(Lt) = 60` / `Led = Binary`）
+                Expr g = this._tryGenericCall(left);
+                if (g != null) { left = g; continue; }
             }
             // ── led 一档：绑定力/角色/特性名三样都来自 ParseTable，守卫只此**一道**
             //（此前是九处各写一遍的 `minBp <= N`：85/85/60/60/25/20/10 + `_infixBp`）。
@@ -121,38 +34,8 @@ public sealed partial class ExprParser {
             string feat = ParseTable.Feature(k);
             if (feat != "") { this._p._requireFeature(feat, this._p._peek().Span); }
             int led = ParseTable.Led(k);
-            // switch 表达式（postfix 形，bp 85）：`subject switch { p => b, _ => d }`
-            if (led == LedKind.PostfixSwitch) {
-                Span swsp = this._p._peek().Span;
-                this._p._advance();
-                this._p._expect(TokenKind.LBrace, "{");
-                SwitchArm[] arms = new SwitchArm[8];
-                int ac = 0;
-                while (this._p._peek().Kind != TokenKind.RBrace && this._p._peek().Kind != TokenKind.Eof) {
-                    if (ac == arms.Length) {
-                        SwitchArm[] big = new SwitchArm[arms.Length * 2];
-                        Array.Copy(arms, big, ac);
-                        arms = big;
-                    }
-                    Span asp = this._p._peek().Span;
-                    bool hasPat = true;
-                    Pattern pat = null;
-                    Expr guard = null;
-                    if (this._p._peek().Kind == TokenKind.Underscore) { this._p._advance(); hasPat = false; }   // 顶层 `_` = 默认臂（byte-identical 保持）
-                    else {
-                        this._p._requireFeature(FeatureNames.PatternMatch, this._p._peek().Span);
-                        pat = this._p._patP._parsePattern();
-                        if (this._p._peek().Kind == TokenKind.If) { this._p._advance(); guard = this._parseExpr(ParseTable.AboveAssign()); }
-                    }
-                    this._p._expect(TokenKind.FatArrow, "=>");
-                    Expr armBody = this._parseExpr(ParseTable.AboveAssign());
-                    arms[ac] = new SwitchArm(hasPat, pat, guard, armBody, asp); ac = ac + 1;
-                    if (this._p._peek().Kind == TokenKind.Comma) { this._p._advance(); } else { break; }
-                }
-                this._p._expect(TokenKind.RBrace, "}");
-                left = new SwitchExpr(left, arms, ac, swsp);
-                continue;
-            }
+            // switch 表达式（postfix 形，bp 85）：`subject switch { p => b, _ => d }` —— `_parseSwitchExpr`。
+            if (led == LedKind.PostfixSwitch) { left = this._parseSwitchExpr(left); continue; }
             // with 表达式（postfix，bp 85）：`target with { F = v, x }`（模式匹配 D：record 非破坏式更新）
             if (led == LedKind.PostfixWith) {
                 Span wsp = this._p._peek().Span;
@@ -160,50 +43,8 @@ public sealed partial class ExprParser {
                 left = this._parseWithBody(left, wsp);
                 continue;
             }
-            // is（bp 60）：结构化模式（模式匹配核心 A1 + or/@ 放开）或 老 type/type+bind（byte-identical 保持）
-            if (led == LedKind.IsPattern) {
-                this._p._advance();
-                int nk = this._p._peek().Kind;
-                // `@` 绑定：`x is name @ P`（标识符后紧跟 `@` → At-模式，类型名后永不合法跟 `@`，无歧义）。
-                // 经 _parsePattern（含 `@` + 可能的 or-链）。放开自 complete-pattern-engine：@ 入 is。
-                if (nk == TokenKind.Identifier && this._p._peekAt(1).Kind == TokenKind.At) {
-                    this._p._requireFeature(FeatureNames.PatternMatch, this._p._peek().Span);
-                    Pattern pat = this._p._patP._parsePattern();
-                    left = new IsPatternExpr(left, pat, left.Span);
-                    continue;
-                }
-                // 结构化前瞻：字面量/负号/_/{/关系算子 → 结构化模式（老 is 从不以这些开头）。
-                // 用 _parsePrimaryPattern 取首 alt，再判 `|` 续 or-链（`x is 1 | 2` 现为 or-模式；旧解析
-                // `(x is 1) | 2` = bool|int 恒类型错、无合法程序回归 —— 放开自 complete-pattern-engine）。
-                if (this._p._patP._isPatternLead(nk)) {
-                    this._p._requireFeature(FeatureNames.PatternMatch, this._p._peek().Span);
-                    Pattern pat = this._p._patP._parsePrimaryPattern();
-                    if (this._p._peek().Kind == TokenKind.Pipe) { pat = this._p._patP._continueOrChain(pat); }
-                    left = new IsPatternExpr(left, pat, left.Span);
-                    continue;
-                }
-                // 类型引导：解析类型后看后随。
-                TypeExpr ty = this._p._typeP._parseType();
-                int nk2 = this._p._peek().Kind;
-                if (nk2 == TokenKind.LParen || nk2 == TokenKind.LBrace) {
-                    // `(`/`{` → 结构化（位置/属性），可续 or-链：`x is Circle(r) | Square(r)`。
-                    this._p._requireFeature(FeatureNames.PatternMatch, ty.Span);
-                    Pattern pat = this._p._patP._continueFromType(ty, ty.Span);
-                    if (this._p._peek().Kind == TokenKind.Pipe) { pat = this._p._patP._continueOrChain(pat); }
-                    left = new IsPatternExpr(left, pat, left.Span);
-                } else if (nk2 == TokenKind.Pipe) {
-                    // 纯类型名 or-模式：`x is Circle | Square`（旧解析 (x is Circle)|Square 中 Square 作值恒错）。
-                    this._p._requireFeature(FeatureNames.PatternMatch, ty.Span);
-                    Pattern first = new NamePattern(ty, "", ty.Span);
-                    Pattern pat = this._p._patP._continueOrChain(first);
-                    left = new IsPatternExpr(left, pat, left.Span);
-                } else {
-                    string bind = "";   // 老 is：`x is T` / `x is T v`（byte-identical，不入模式引擎）
-                    if (nk2 == TokenKind.Identifier) { bind = this._p._peek().Text; this._p._advance(); }
-                    left = new IsExpr(left, ty, bind, left.Span);
-                }
-                continue;
-            }
+            // is（bp 60）：结构化模式（模式匹配核心 A1 + or/@ 放开）或 老 type/type+bind —— `_parseIsPattern`。
+            if (led == LedKind.IsPattern) { left = this._parseIsPattern(left); continue; }
             // as（bp 60，右侧为类型）
             if (led == LedKind.As) {
                 this._p._advance();
@@ -211,21 +52,8 @@ public sealed partial class ExprParser {
                 left = new AsExpr(left, ty, left.Span);
                 continue;
             }
-            // `??` 已移除（E0480，与 `?.` 同码 —— 两者是同一个口子的两种写法）。
-            // 仍按原优先级（右结合，bp 25）**完整解析掉右侧**，否则 `a ?? b ? c : d`
-            // 之类会从表达式脱轨、级联出一串无关错误（同 E0471 / `?.` 的手法）。
-            // 继续时只取左侧：类型与后续检查都按 `a` 走，诊断更贴近真实意图。
-            if (led == LedKind.NullCoalesce) {
-                Span qqs = this._p._peek().Span;
-                this._p._advance();
-                Expr rr = this._parseExpr(bp);                  // 右结合 ⇒ 同 bp
-                this._p._diags.Error(DiagnosticCodes.ObsoleteNullOperator,
-                    "`??` is no longer supported — write the fallback out: "
-                    + "`var v = <left>; if (v == null) { v = <right>; }`. "
-                    + "For \"read a setting with a default\", prefer an API that takes the default "
-                    + "(e.g. `Environment.GetEnvironmentVariable(name, \"\")`)", qqs);
-                continue;   // 只取 left
-            }
+            // `??` 已移除（E0480，与 `?.` 同码 —— 两者是同一个口子的两种写法）—— `_errNullCoalesce`。
+            if (led == LedKind.NullCoalesce) { this._errNullCoalesce(bp); continue; }   // 只取 left
             // 三目 ?:（右结合，bp 20）
             if (led == LedKind.Ternary) {
                 this._p._advance();
@@ -252,6 +80,191 @@ public sealed partial class ExprParser {
         }
         return left;
     }
+
+    // ── 后缀：成员访问（`.`）与 `?.`（已移除——按普通 `.` 继续解析避免级联错，同 E0471 手法）──
+    private Expr _applyMemberPostfix(Expr left, int pf) {
+        if (pf == PostfixKind.Member) {
+            this._p._advance();
+            Token nameTok = this._p._peek();
+            string name = nameTok.Text;
+            if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
+            else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected member name after '.'", this._p._peek().Span); }
+            // Span 仍复用 target 的（既有诊断位置不变）；NameSpan 记成员名自身区间，
+            // 供成员解析类诊断把下划线收窄到出问题的那个名字（⑦ span 地基）。
+            MemberExpr me = new MemberExpr(left, name, left.Span);
+            me.NameSpan = nameTok.Span;
+            return me;
+        }
+        // define-null-check-marks：`?.` 已移除。它是 User 点名的「让问题逃掉」的口子之一——
+        // 把「可能为 null」静默向下传播，最终在离现场很远的地方崩。
+        //
+        // ⚠️ 顺带修掉一个真 bug：原脱糖把接收者**绑定了两次**（一次在 `access` 里、
+        // 一次作 `recv`），所以 `F()?.X` 会**调用 F 两次**。原注释自述
+        // 「简单接收者双求值无副作用；goldens 均为局部接收者」——即已知而未修。
+        Span qds = this._p._peek().Span;
+        this._p._advance();
+        this._p._diags.Error(DiagnosticCodes.ObsoleteNullOperator,
+            "`?.` is no longer supported — write the check out: "
+            + "`var t = <target>; if (t != null) { t.<member> }` "
+            + "(the old form silently propagated null to somewhere far from the cause)", qds);
+        string nname = this._p._peek().Text;
+        if (this._p._peek().Kind == TokenKind.Identifier) { this._p._advance(); }
+        else { this._p._diags.Error(DiagnosticCodes.ExpectedToken, "expected member name after '?.'", this._p._peek().Span); }
+        MemberExpr qme = new MemberExpr(left, nname, left.Span);
+        qme.NameSpan = qds;
+        return qme;
+    }
+
+    // ── 后缀：调用 / 多下标 / 后置 ++ -- ────────────────────────────────────────────
+    private Expr _applyCallIndexInc(Expr left, int pf) {
+        if (pf == PostfixKind.Call) { this._p._advance(); return this._parseCall(left); }
+        if (pf == PostfixKind.Index) {
+            this._p._advance();
+            // 逗号分隔的多下标：单维 obj[i]、多维索引器 obj[a, b]（派发 get_Item/set_Item）。
+            // 至少一个下标（obj[] 非法，由首个 _parseExpr 在 ']' 上产出诊断，保持非空不变式）。
+            Expr[] idxs = new Expr[8];
+            int ic = 0;
+            idxs[ic] = this._parseExpr(0); ic = ic + 1;
+            while (this._p._peek().Kind == TokenKind.Comma) {
+                this._p._advance();
+                if (ic == idxs.Length) {   // fix-parser-fixed-arrays：此前定长 8，第 9 个下标即编译器崩溃
+                    Expr[] bigger = new Expr[idxs.Length * 2];
+                    Array.Copy(idxs, bigger, ic);
+                    idxs = bigger;
+                }
+                idxs[ic] = this._parseExpr(0); ic = ic + 1;
+            }
+            this._p._expect(TokenKind.RBracket, "]");
+            return new IndexExpr(left, idxs, ic, left.Span);
+        }
+        // 后置 ++ / --（无右操作数，结合性同 . / () / []）
+        string pop = this._p._peek().Text;
+        this._p._advance();
+        return new UnaryExpr(pop, left, left.Span);
+    }
+
+    // ── 后缀：泛型方法调用 `名<T,...>(args)` 的 `<` 歧义消解（add-generic-methods）─────────
+    // 仅当 <类型列表> 后紧跟 '(' 才判为泛型调用；否则回滚游标/诊断/_pendingGt，落到二元 '<'
+    //（`LeftBp(Lt) = 60` / `Led = Binary`）。返回 null = 回滚（调用方继续 led 段）。
+    private Expr _tryGenericCall(Expr left) {
+        int posMark = this._p._mark();
+        int diagMark = this._p._diags.Count();
+        int gtMark = this._p._pendingGt;
+        TypeExpr[] targs = this._p._typeP._tryParseCallTypeArgs();
+        if (targs != null && this._p._peek().Kind == TokenKind.LParen) {
+            this._p._advance();                       // consume '('
+            CallExpr gcall = this._parseCall(left) as CallExpr;
+            gcall.TypeArgs = targs; gcall.TypeArgCount = targs.Length;
+            return gcall;
+        }
+        // complete-generic-class-identity P5-b：**闭合泛型上的静态成员** `GBox<int>.Count`。
+        //
+        // `<类型列表>` 后紧跟 `.` ⇒ 左边是一个**类型引用**（`GBox<int>`），不是比较。
+        // 这个形状无歧义：二元 `<` 的右操作数后面不可能紧跟 `>` 再跟 `.`
+        //（`a < b > .c` 里 `>` 之后缺操作数）。与 C# 的消歧规则同源
+        //（C# 是「`>` 后跟 `(` `)` `]` `}` `:` `;` `,` `.` `?` `==` `!=` 之一才算类型实参」）。
+        //
+        // 实参挂到左边的 `IdentExpr` 上（不新造节点 —— 见 `IdentExpr.TypeArgs` 的注释），
+        // 后续 `.` 由上面既有的成员访问分支照常接手。
+        if (targs != null && this._p._peek().Kind == TokenKind.Dot && (left is IdentExpr)) {
+            IdentExpr tid = left as IdentExpr;
+            tid.TypeArgs = targs; tid.TypeArgCount = targs.Length;
+            return left;   // 命中静态成员形态：left 引用不变（实参已就地挂上）
+        }
+        this._p._reset(posMark);
+        this._p._diags.TruncateTo(diagMark);
+        this._p._pendingGt = gtMark;
+        return null;
+    }
+
+    // ── led：switch 表达式（`subject switch { p => b, _ => d }`，臂收集）──────────────────
+    private Expr _parseSwitchExpr(Expr left) {
+        Span swsp = this._p._peek().Span;
+        this._p._advance();
+        this._p._expect(TokenKind.LBrace, "{");
+        SwitchArm[] arms = new SwitchArm[8];
+        int ac = 0;
+        while (this._p._peek().Kind != TokenKind.RBrace && this._p._peek().Kind != TokenKind.Eof) {
+            if (ac == arms.Length) {
+                SwitchArm[] big = new SwitchArm[arms.Length * 2];
+                Array.Copy(arms, big, ac);
+                arms = big;
+            }
+            Span asp = this._p._peek().Span;
+            bool hasPat = true;
+            Pattern pat = null;
+            Expr guard = null;
+            if (this._p._peek().Kind == TokenKind.Underscore) { this._p._advance(); hasPat = false; }   // 顶层 `_` = 默认臂（byte-identical 保持）
+            else {
+                this._p._requireFeature(FeatureNames.PatternMatch, this._p._peek().Span);
+                pat = this._p._patP._parsePattern();
+                if (this._p._peek().Kind == TokenKind.If) { this._p._advance(); guard = this._parseExpr(ParseTable.AboveAssign()); }
+            }
+            this._p._expect(TokenKind.FatArrow, "=>");
+            Expr armBody = this._parseExpr(ParseTable.AboveAssign());
+            arms[ac] = new SwitchArm(hasPat, pat, guard, armBody, asp); ac = ac + 1;
+            if (this._p._peek().Kind == TokenKind.Comma) { this._p._advance(); } else { break; }
+        }
+        this._p._expect(TokenKind.RBrace, "}");
+        return new SwitchExpr(left, arms, ac, swsp);
+    }
+
+    // ── led：is（结构化模式 / or-链 / @ 绑定，或老 type / type+bind——byte-identical 保持）──
+    private Expr _parseIsPattern(Expr left) {
+        this._p._advance();
+        int nk = this._p._peek().Kind;
+        // `@` 绑定：`x is name @ P`（标识符后紧跟 `@` → At-模式，类型名后永不合法跟 `@`，无歧义）。
+        // 经 _parsePattern（含 `@` + 可能的 or-链）。放开自 complete-pattern-engine：@ 入 is。
+        if (nk == TokenKind.Identifier && this._p._peekAt(1).Kind == TokenKind.At) {
+            this._p._requireFeature(FeatureNames.PatternMatch, this._p._peek().Span);
+            Pattern pat = this._p._patP._parsePattern();
+            return new IsPatternExpr(left, pat, left.Span);
+        }
+        // 结构化前瞻：字面量/负号/_/{/关系算子 → 结构化模式（老 is 从不以这些开头）。
+        // 用 _parsePrimaryPattern 取首 alt，再判 `|` 续 or-链（`x is 1 | 2` 现为 or-模式；旧解析
+        // `(x is 1) | 2` = bool|int 恒类型错、无合法程序回归 —— 放开自 complete-pattern-engine）。
+        if (this._p._patP._isPatternLead(nk)) {
+            this._p._requireFeature(FeatureNames.PatternMatch, this._p._peek().Span);
+            Pattern pat = this._p._patP._parsePrimaryPattern();
+            if (this._p._peek().Kind == TokenKind.Pipe) { pat = this._p._patP._continueOrChain(pat); }
+            return new IsPatternExpr(left, pat, left.Span);
+        }
+        // 类型引导：解析类型后看后随。
+        TypeExpr ty = this._p._typeP._parseType();
+        int nk2 = this._p._peek().Kind;
+        if (nk2 == TokenKind.LParen || nk2 == TokenKind.LBrace) {
+            // `(`/`{` → 结构化（位置/属性），可续 or-链：`x is Circle(r) | Square(r)`。
+            this._p._requireFeature(FeatureNames.PatternMatch, ty.Span);
+            Pattern pat = this._p._patP._continueFromType(ty, ty.Span);
+            if (this._p._peek().Kind == TokenKind.Pipe) { pat = this._p._patP._continueOrChain(pat); }
+            return new IsPatternExpr(left, pat, left.Span);
+        }
+        if (nk2 == TokenKind.Pipe) {
+            // 纯类型名 or-模式：`x is Circle | Square`（旧解析 (x is Circle)|Square 中 Square 作值恒错）。
+            this._p._requireFeature(FeatureNames.PatternMatch, ty.Span);
+            Pattern first = new NamePattern(ty, "", ty.Span);
+            Pattern pat = this._p._patP._continueOrChain(first);
+            return new IsPatternExpr(left, pat, left.Span);
+        }
+        string bind = "";   // 老 is：`x is T` / `x is T v`（byte-identical，不入模式引擎）
+        if (nk2 == TokenKind.Identifier) { bind = this._p._peek().Text; this._p._advance(); }
+        return new IsExpr(left, ty, bind, left.Span);
+    }
+
+    // ── led：`??` 已移除的诊断块（E0480）。仍按原优先级（右结合，bp 25）**完整解析掉右侧**，
+    //    否则 `a ?? b ? c : d` 之类会从表达式脱轨、级联出一串无关错误（同 E0471 / `?.` 的手法）。
+    //    调用方继续时只取左侧：类型与后续检查都按 `a` 走，诊断更贴近真实意图。
+    private void _errNullCoalesce(int bp) {
+        Span qqs = this._p._peek().Span;
+        this._p._advance();
+        Expr rr = this._parseExpr(bp);                  // 右结合 ⇒ 同 bp
+        this._p._diags.Error(DiagnosticCodes.ObsoleteNullOperator,
+            "`??` is no longer supported — write the fallback out: "
+            + "`var v = <left>; if (v == null) { v = <right>; }`. "
+            + "For \"read a setting with a default\", prefer an API that takes the default "
+            + "(e.g. `Environment.GetEnvironmentVariable(name, \"\")`)", qqs);
+    }
+
 
     // restore-named-arguments：解析**一个**调用实参，识别命名形态 `name: value`。
     //
