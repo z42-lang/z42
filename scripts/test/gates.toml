@@ -33,7 +33,6 @@ allow = []
 "src/compiler/z42.doc/src/SyntaxIndexer.z42::_decl" = 78
 "src/compiler/z42.package/src/BinaryFormat/ZbcReader.z42::Read" = 69
 "src/compiler/z42.package/src/BinaryFormat/ZbcReader.z42::ReadTypeAt" = 166
-"src/compiler/z42.package/src/BinaryFormat/ZbcWriter.z42::BuildType" = 168
 "src/compiler/z42.package/src/BinaryFormat/ZbcWriter.z42::InternPoolStrings" = 100
 "src/compiler/z42.package/src/BinaryFormat/ZbcWriter.z42::WriteSigEntries" = 63
 "src/compiler/z42.package/src/Murmur3.z42::Hash128" = 70
