@@ -8,6 +8,8 @@ public sealed class CommandResolution {
     ParseResult _result;
     string      _helpText;
     string      _errorMessage;
+    // 各层 router 剥出的 persistent 解析结果，根层在前（未声明任何 persistent 时为 null）。
+    ParseResult[] _persistents;
 
     /// 创建一个 CommandResolution（kind 0=match / 1=help / 2=unknown）。
     public CommandResolution(int kind, string[] path, ParseResult result,
@@ -17,6 +19,7 @@ public sealed class CommandResolution {
         this._result       = result;
         this._helpText     = helpText;
         this._errorMessage = errorMessage;
+        this._persistents  = null;
     }
 
     /// 命中叶子命令且未请求 help。
@@ -66,5 +69,54 @@ public sealed class CommandResolution {
         }
         this._path = np;
         return this;
+    }
+
+    /// 把祖先层剥出的 persistent 解析结果挂到结果**头部**（根层最终在最前；
+    /// Resolve 递归回卷时调用；原地修改并返回 this）。
+    public CommandResolution AttachPersistent(ParseResult p) {
+        if (p == null) { return this; }
+        int n = this._persistents == null ? 0 : this._persistents.Length;
+        ParseResult[] np = new ParseResult[n + 1];
+        np[0] = p;
+        int i = 0;
+        while (i < n) {
+            np[i + 1] = this._persistents[i];
+            i = i + 1;
+        }
+        this._persistents = np;
+        return this;
+    }
+
+    // 从根到叶扫 persistent 层，返回第一个注册了 longName 的结果；全无则返回 null。
+    ParseResult? _FindPersistent(string longName, bool option) {
+        int i = 0;
+        while (this._persistents != null && i < this._persistents.Length) {
+            ParseResult p = this._persistents[i];
+            if (option ? p.HasOption(longName) : p.HasFlag(longName)) {
+                return p;
+            }
+            i = i + 1;
+        }
+        return null;
+    }
+
+    /// 各层 persistent option 的最终值（根层优先）；名字未在任何层声明抛 CliException。
+    public string PersistentOption(string longName) {
+        ParseResult? found = this._FindPersistent(longName, true);
+        if (found == null) {
+            throw new CliException("persistent option '" + longName + "' not registered");
+        }
+        ParseResult p = found;
+        return p.GetOption(longName);
+    }
+
+    /// 各层 persistent flag 是否出现（根层优先）；名字未在任何层声明抛 CliException。
+    public bool PersistentFlag(string longName) {
+        ParseResult? found = this._FindPersistent(longName, false);
+        if (found == null) {
+            throw new CliException("persistent flag '" + longName + "' not registered");
+        }
+        ParseResult p = found;
+        return p.GetFlag(longName);
     }
 }

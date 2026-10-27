@@ -1,0 +1,141 @@
+// cli-engine-hardening：persistent（跨子命令全局）flag / option——路由前从 argv
+// 任意位置剥出，叶子不感知；取值走 CommandResolution.PersistentFlag/Option。
+namespace Z42CliPersistentTests;
+
+using Std.Cli;
+using Std.Harness;
+
+SubcommandRouter _root() {
+    SubcommandRouter r = new SubcommandRouter("xtask", "t");
+    r.AddPersistentOption("toolchain", "", "SDK dir", "");
+    r.AddPersistentOption("verbosity", "v", "verbosity", "minimal");
+    r.AddPersistentFlag("dry-run", "n", "show what would run");
+    ArgParser build = new ArgParser("xtask build", "build");
+    build.AddFlag("release", "", "release profile");
+    r.Add("build", "b", build);
+    return r;
+}
+
+[Test]
+void test_persistent_option_before_subcommand() {
+    string[] argv = new string[3];
+    argv[0] = "--toolchain"; argv[1] = "/sdk"; argv[2] = "build";
+    CommandResolution res = _root().Resolve(argv);
+    Assert.True(res.IsMatch());
+    Assert.Equal("/sdk", res.PersistentOption("toolchain"));
+    Assert.Equal("build", res.Path()[0]);
+}
+
+[Test]
+void test_persistent_option_after_subcommand() {
+    // 全局旗标在子命令之后出现同样剥出（git 风格）。
+    string[] argv = new string[3];
+    argv[0] = "build"; argv[1] = "--toolchain"; argv[2] = "/sdk";
+    CommandResolution res = _root().Resolve(argv);
+    Assert.True(res.IsMatch());
+    Assert.Equal("/sdk", res.PersistentOption("toolchain"));
+}
+
+[Test]
+void test_persistent_equals_and_short_and_attached_forms() {
+    string[] argv = new string[4];
+    argv[0] = "--toolchain=/a"; argv[1] = "-v"; argv[2] = "detailed"; argv[3] = "build";
+    CommandResolution res = _root().Resolve(argv);
+    Assert.True(res.IsMatch());
+    Assert.Equal("/a", res.PersistentOption("toolchain"));
+    Assert.Equal("detailed", res.PersistentOption("verbosity"));
+}
+
+[Test]
+void test_persistent_flag_default_and_set() {
+    string[] argv = new string[2];
+    argv[0] = "build"; argv[1] = "-n";
+    CommandResolution res = _root().Resolve(argv);
+    Assert.True(res.IsMatch());
+    Assert.True(res.PersistentFlag("dry-run"));
+    Assert.Equal("minimal", res.PersistentOption("verbosity"));   // 默认值兜底
+}
+
+[Test]
+void test_leaf_unaffected_by_persistent_strip() {
+    string[] argv = new string[4];
+    argv[0] = "-n"; argv[1] = "build"; argv[2] = "--release"; argv[3] = "--toolchain=/x";
+    CommandResolution res = _root().Resolve(argv);
+    Assert.True(res.IsMatch());
+    Assert.True(res.Result().GetFlag("release"));        // 叶子旗标照常
+    Assert.Equal("/x", res.PersistentOption("toolchain"));
+}
+
+[Test]
+void test_persistent_last_wins() {
+    string[] argv = new string[4];
+    argv[0] = "--toolchain"; argv[1] = "/first"; argv[2] = "--toolchain=/second"; argv[3] = "build";
+    CommandResolution res = _root().Resolve(argv);
+    Assert.True(res.IsMatch());
+    Assert.Equal("/second", res.PersistentOption("toolchain"));
+}
+
+[Test]
+void test_persistent_missing_value_throws() {
+    string[] argv = new string[1];
+    argv[0] = "--toolchain";
+    bool threw = false;
+    try { _root().Resolve(argv); }
+    catch (CliException e) { threw = true; }
+    Assert.True(threw);
+}
+
+[Test]
+void test_unregistered_persistent_lookup_throws() {
+    string[] argv = new string[1];
+    argv[0] = "build";
+    CommandResolution res = _root().Resolve(argv);
+    Assert.True(res.IsMatch());
+    bool threw = false;
+    try { res.PersistentOption("nope"); }
+    catch (CliException e) { threw = true; }
+    Assert.True(threw);
+}
+
+[Test]
+void test_double_dash_stops_persistent_strip() {
+    // `--` 之后的 token 是叶子的 positional，不归全局旗标剥。
+    SubcommandRouter r = new SubcommandRouter("prog", "t");
+    r.AddPersistentFlag("verbose", "v", "verbose");
+    ArgParser leaf = new ArgParser("prog run", "run");
+    leaf.AddVariadicPositional("args", "raw args");
+    r.Add("run", "", leaf);
+    string[] argv = new string[3];
+    argv[0] = "run"; argv[1] = "--"; argv[2] = "--verbose";
+    CommandResolution res = r.Resolve(argv);
+    Assert.True(res.IsMatch());
+    Assert.False(res.PersistentFlag("verbose"));
+    Assert.Equal(1, res.Result().VariadicValues().Length);
+}
+
+[Test]
+void test_help_lists_global_options() {
+    string help = _root().HelpText();
+    Assert.True(help.Contains("GLOBAL OPTIONS"));
+    Assert.True(help.Contains("--toolchain"));
+}
+
+[Test]
+void test_nested_layers_independent() {
+    // 根层与子层各声明各的 persistent；根层取值优先。
+    SubcommandRouter root = new SubcommandRouter("prog", "t");
+    root.AddPersistentOption("root-opt", "", "root level", "r");
+    SubcommandRouter mid = new SubcommandRouter("prog mid", "m");
+    mid.AddPersistentOption("mid-opt", "", "mid level", "m0");
+    ArgParser leaf = new ArgParser("prog mid leaf", "leaf");
+    mid.Add("leaf", "", leaf);
+    root.AddRouter("mid", "", mid);
+
+    string[] argv = new string[5];
+    argv[0] = "--root-opt"; argv[1] = "RV"; argv[2] = "mid"; argv[3] = "leaf"; argv[4] = "--mid-opt=MV";
+    // 根层先剥 --root-opt；mid.Resolve(["leaf","--mid-opt=MV"]) 再剥自己的 mid-opt。
+    CommandResolution res = root.Resolve(argv);
+    Assert.True(res.IsMatch());
+    Assert.Equal("RV", res.PersistentOption("root-opt"));
+    Assert.Equal("MV", res.PersistentOption("mid-opt"));
+}

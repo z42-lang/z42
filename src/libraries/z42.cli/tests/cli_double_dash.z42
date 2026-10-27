@@ -1,0 +1,80 @@
+// cli-engine-hardening：`--` 结束选项，其后 token 一律 positional。
+namespace Z42CliDoubleDashTests;
+
+using Std.Cli;
+using Std.Harness;
+
+[Test]
+void test_tokens_after_separator_are_positional() {
+    var p = new ArgParser("prog", "t");
+    p.AddPositional("src", "source");
+    p.AddOptionalPositional("dst", "destination");
+    string[] argv = new string[3];
+    argv[0] = "a"; argv[1] = "--"; argv[2] = "-weird";
+    ParseResult r = p.Parse(argv);
+    Assert.Equal("a", r.GetPositional(0));
+    Assert.Equal("-weird", r.GetPositional(1));
+}
+
+[Test]
+void test_flag_like_after_separator_not_parsed_as_flag() {
+    var p = new ArgParser("prog", "t");
+    p.AddFlag("verbose", "v", "verbose");
+    p.AddPositional("src", "source");
+    p.AddOptionalPositional("dst", "destination");
+    string[] argv = new string[3];
+    argv[0] = "--"; argv[1] = "--verbose"; argv[2] = "-v";
+    ParseResult r = p.Parse(argv);
+    Assert.False(r.GetFlag("verbose"));   // 分隔符后是字面值，不是旗标
+    Assert.Equal("--verbose", r.GetPositional(0));
+    Assert.Equal("-v", r.GetPositional(1));
+}
+
+[Test]
+void test_help_after_separator_is_positional() {
+    var p = new ArgParser("prog", "t");
+    p.AddPositional("src", "source");
+    string[] argv = new string[2];
+    argv[0] = "--"; argv[1] = "-h";
+    ParseResult r = p.Parse(argv);
+    Assert.False(r.ShowHelp());
+    Assert.Equal("-h", r.GetPositional(0));
+}
+
+[Test]
+void test_option_before_separator_still_parsed() {
+    var p = new ArgParser("prog", "t");
+    p.AddOption("mode", "m", "mode", "debug");
+    p.AddPositional("src", "source");
+    string[] argv = new string[4];
+    argv[0] = "--mode"; argv[1] = "release"; argv[2] = "--"; argv[3] = "a";
+    ParseResult r = p.Parse(argv);
+    Assert.Equal("release", r.GetOption("mode"));
+    Assert.Equal("a", r.GetPositional(0));
+}
+
+[Test]
+void test_separator_fills_variadic() {
+    var p = new ArgParser("prog", "t");
+    p.AddPositional("src", "source");
+    p.AddVariadicPositional("rest", "everything else");
+    string[] argv = new string[5];
+    argv[0] = "a"; argv[1] = "--"; argv[2] = "-x"; argv[3] = "--y"; argv[4] = "z";
+    ParseResult r = p.Parse(argv);
+    Assert.Equal("a", r.GetPositional(0));
+    string[] rest = r.VariadicValues();
+    Assert.Equal(3, rest.Length);
+    Assert.Equal("-x", rest[0]);
+    Assert.Equal("--y", rest[1]);
+    Assert.Equal("z", rest[2]);
+}
+
+[Test]
+void test_trailing_separator_alone_is_fine() {
+    var p = new ArgParser("prog", "t");
+    p.AddPositional("src", "source");
+    string[] argv = new string[2];
+    argv[0] = "a"; argv[1] = "--";
+    ParseResult r = p.Parse(argv);
+    Assert.Equal("a", r.GetPositional(0));
+}

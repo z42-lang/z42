@@ -1,0 +1,100 @@
+// cli-engine-hardening：变长尾参 AddVariadicPositional / VariadicValues。
+namespace Z42CliVariadicTests;
+
+using Std.Cli;
+using Std.Harness;
+
+[Test]
+void test_collects_all_remaining() {
+    var p = new ArgParser("prog", "t");
+    p.AddPositional("src", "source");
+    p.AddVariadicPositional("rest", "extra inputs");
+    string[] argv = new string[4];
+    argv[0] = "a"; argv[1] = "b"; argv[2] = "c"; argv[3] = "d";
+    ParseResult r = p.Parse(argv);
+    Assert.Equal("a", r.GetPositional(0));
+    string[] rest = r.VariadicValues();
+    Assert.Equal(3, rest.Length);
+    Assert.Equal("b", rest[0]);
+    Assert.Equal("d", rest[2]);
+}
+
+[Test]
+void test_zero_variadic_values_is_legal() {
+    var p = new ArgParser("prog", "t");
+    p.AddPositional("src", "source");
+    p.AddVariadicPositional("rest", "extra inputs");
+    string[] argv = new string[1];
+    argv[0] = "a";
+    ParseResult r = p.Parse(argv);
+    Assert.Equal(0, r.VariadicValues().Length);
+    Assert.True(r.HasVariadic());
+}
+
+[Test]
+void test_required_and_optional_before_variadic() {
+    var p = new ArgParser("prog", "t");
+    p.AddPositional("src", "source");
+    p.AddOptionalPositional("dst", "destination");
+    p.AddVariadicPositional("rest", "extras");
+    string[] argv = new string[4];
+    argv[0] = "a"; argv[1] = "b"; argv[2] = "c"; argv[3] = "d";
+    ParseResult r = p.Parse(argv);
+    Assert.Equal("a", r.GetPositional(0));
+    Assert.Equal("b", r.GetPositional(1));
+    Assert.Equal(2, r.VariadicValues().Length);
+}
+
+[Test]
+void test_missing_required_still_throws_with_variadic() {
+    var p = new ArgParser("prog", "t");
+    p.AddPositional("src", "source");
+    p.AddVariadicPositional("rest", "extras");
+    bool threw = false;
+    try { p.Parse(new string[0]); }
+    catch (CliException e) { threw = true; }
+    Assert.True(threw);
+}
+
+[Test]
+void test_positional_after_variadic_throws_at_declaration() {
+    var p = new ArgParser("prog", "t");
+    p.AddVariadicPositional("rest", "extras");
+    bool threw = false;
+    try { p.AddPositional("late", "too late"); }
+    catch (CliException e) { threw = true; }
+    Assert.True(threw);
+}
+
+[Test]
+void test_second_variadic_throws_at_declaration() {
+    var p = new ArgParser("prog", "t");
+    p.AddVariadicPositional("rest", "extras");
+    bool threw = false;
+    try { p.AddVariadicPositional("more", "second variadic"); }
+    catch (CliException e) { threw = true; }
+    Assert.True(threw);
+}
+
+[Test]
+void test_help_usage_shows_variadic() {
+    var p = new ArgParser("prog", "t");
+    p.AddPositional("src", "source");
+    p.AddVariadicPositional("rest", "extra inputs");
+    string help = p.HelpText();
+    Assert.True(help.Contains("[rest...]"));
+}
+
+[Test]
+void test_variadic_interleaved_with_options() {
+    var p = new ArgParser("prog", "t");
+    p.AddFlag("verbose", "v", "verbose");
+    p.AddVariadicPositional("files", "input files");
+    string[] argv = new string[4];
+    argv[0] = "-v"; argv[1] = "a.z42"; argv[2] = "--"; argv[3] = "-not-a-flag";
+    ParseResult r = p.Parse(argv);
+    Assert.True(r.GetFlag("verbose"));
+    string[] files = r.VariadicValues();
+    Assert.Equal(2, files.Length);
+    Assert.Equal("-not-a-flag", files[1]);
+}

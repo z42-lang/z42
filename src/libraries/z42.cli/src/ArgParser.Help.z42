@@ -1,0 +1,132 @@
+namespace Std.Cli;
+using Std.Text;
+
+/// `ArgParser` 的 partial 碎片 —— 帮助文本渲染（USAGE / FLAGS / OPTIONS / ARGS）。
+public partial class ArgParser {
+
+    // ── HelpText ─────────────────────────────────────────────────────────
+
+    /// 生成 USAGE / FLAGS / OPTIONS / ARGS 四段帮助文本。
+    public string HelpText() {
+        StringBuilder sb = new StringBuilder();
+        sb.Append(this._programName);
+        if (this._description.Length > 0) {
+            sb.Append(" — ");
+            sb.Append(this._description);
+        }
+        sb.Append("\n\n");
+        sb.Append(this._UsageLine());
+        sb.Append("\n\n");
+        sb.Append(this.OptionsHelp());
+        this._AppendArgsSection(sb);
+        return sb.ToString();
+    }
+
+    // USAGE 段：prog [OPTIONS] <必填> [可选] [变长...]。
+    private string _UsageLine() {
+        StringBuilder sb = new StringBuilder();
+        sb.Append("USAGE:\n    ");
+        sb.Append(this._programName);
+        sb.Append(" [OPTIONS]");
+        int p = 0;
+        while (p < this._positionalCount) {
+            if (this._positionalOptional[p]) {
+                sb.Append(" [");
+                sb.Append(this._positionalNames[p]);
+                sb.Append("]");
+            } else {
+                sb.Append(" <");
+                sb.Append(this._positionalNames[p]);
+                sb.Append(">");
+            }
+            p = p + 1;
+        }
+        if (this._hasVariadic) {
+            sb.Append(" [");
+            sb.Append(this._variadicName);
+            sb.Append("...]");
+        }
+        return sb.ToString();
+    }
+
+    /// 只渲染 FLAGS / OPTIONS 两段（不含 USAGE / ARGS）；`HelpText` 复用，
+    /// 也供 `SubcommandRouter` 的 GLOBAL OPTIONS 段直接展示。
+    public string OptionsHelp() {
+        StringBuilder sb = new StringBuilder();
+        // Flags
+        if (this._flagCount > 0) {
+            sb.Append("FLAGS:\n");
+            int i = 0;
+            while (i < this._flagCount) {
+                sb.Append("    ");
+                if (this._flagShorts[i].Length > 0) {
+                    sb.Append("-");
+                    sb.Append(this._flagShorts[i]);
+                    sb.Append(", ");
+                }
+                sb.Append("--");
+                sb.Append(this._flagLongs[i]);
+                sb.Append("    ");
+                sb.Append(this._flagHelps[i]);
+                sb.Append("\n");
+                i = i + 1;
+            }
+            sb.Append("    -h, --help    Print this help and exit\n\n");
+        } else {
+            sb.Append("FLAGS:\n    -h, --help    Print this help and exit\n\n");
+        }
+        // Options
+        if (this._optionCount > 0) {
+            sb.Append("OPTIONS:\n");
+            int i = 0;
+            while (i < this._optionCount) {
+                sb.Append("    ");
+                if (this._optionShorts[i].Length > 0) {
+                    sb.Append("-");
+                    sb.Append(this._optionShorts[i]);
+                    sb.Append(", ");
+                }
+                sb.Append("--");
+                sb.Append(this._optionLongs[i]);
+                sb.Append(" <");
+                sb.Append(this._optionLongs[i]);
+                sb.Append(">    ");
+                sb.Append(this._optionHelps[i]);
+                sb.Append("  [default: ");
+                sb.Append(this._optionDefaults[i]);
+                sb.Append("]\n");
+                i = i + 1;
+            }
+            sb.Append("\n");
+        }
+        return sb.ToString();
+    }
+
+    // ARGS 段（声明过 positional 时）：固定槽 + 变长槽。
+    private void _AppendArgsSection(StringBuilder sb) {
+        if (this._positionalCount == 0 && !this._hasVariadic) { return; }
+        sb.Append("ARGS:\n");
+        int i = 0;
+        while (i < this._positionalCount) {
+            if (this._positionalOptional[i]) {
+                sb.Append("    [");
+                sb.Append(this._positionalNames[i]);
+                sb.Append("]    ");
+            } else {
+                sb.Append("    <");
+                sb.Append(this._positionalNames[i]);
+                sb.Append(">    ");
+            }
+            sb.Append(this._positionalHelps[i]);
+            sb.Append("\n");
+            i = i + 1;
+        }
+        if (this._hasVariadic) {
+            sb.Append("    [");
+            sb.Append(this._variadicName);
+            sb.Append("...]    ");
+            sb.Append(this._variadicHelp);
+            sb.Append("\n");
+        }
+    }
+}

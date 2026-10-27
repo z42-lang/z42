@@ -1,0 +1,99 @@
+// cli-engine-hardening：紧贴短参 `-pvalue` / `-p=4`（首字符是 option 短名）。
+namespace Z42CliAttachedShortTests;
+
+using Std.Cli;
+using Std.Harness;
+
+[Test]
+void test_attached_value_form() {
+    var p = new ArgParser("prog", "t");
+    p.AddOption("jobs", "j", "parallelism", "1");
+    string[] argv = new string[1];
+    argv[0] = "-j4";
+    ParseResult r = p.Parse(argv);
+    Assert.Equal("4", r.GetOption("jobs"));
+}
+
+[Test]
+void test_attached_equals_form_strips_equals() {
+    var p = new ArgParser("prog", "t");
+    p.AddOption("jobs", "j", "parallelism", "1");
+    string[] argv = new string[1];
+    argv[0] = "-j=4";
+    ParseResult r = p.Parse(argv);
+    Assert.Equal("4", r.GetOption("jobs"));
+}
+
+[Test]
+void test_attached_does_not_eat_next_token() {
+    var p = new ArgParser("prog", "t");
+    p.AddOption("out", "o", "output", "");
+    p.AddPositional("src", "source");
+    string[] argv = new string[2];
+    argv[0] = "-otmp.txt"; argv[1] = "input.z42";
+    ParseResult r = p.Parse(argv);
+    Assert.Equal("tmp.txt", r.GetOption("out"));
+    Assert.Equal("input.z42", r.GetPositional(0));
+}
+
+[Test]
+void test_attached_repeated_option_appends() {
+    var p = new ArgParser("prog", "t");
+    p.AddRepeatedOption("define", "D", "repeatable defines");
+    string[] argv = new string[2];
+    argv[0] = "-Da=1"; argv[1] = "-Db=2";
+    ParseResult r = p.Parse(argv);
+    string[] vals = r.GetRepeatedOption("define");
+    Assert.Equal(2, vals.Length);
+    Assert.Equal("a=1", vals[0]);
+    Assert.Equal("b=2", vals[1]);
+}
+
+[Test]
+void test_attached_empty_equals_throws() {
+    var p = new ArgParser("prog", "t");
+    p.AddOption("jobs", "j", "parallelism", "1");
+    string[] argv = new string[1];
+    argv[0] = "-j=";
+    bool threw = false;
+    try { p.Parse(argv); }
+    catch (CliException e) { threw = true; }
+    Assert.True(threw);
+}
+
+[Test]
+void test_attached_only_when_first_char_is_option() {
+    // 首字符是 flag 短名 → 走簇路径；簇里混 option 仍报错（不变行为）。
+    var p = new ArgParser("prog", "t");
+    p.AddFlag("verbose", "v", "verbose");
+    p.AddOption("port", "p", "port", "0");
+    string[] argv = new string[1];
+    argv[0] = "-vp";
+    bool threw = false;
+    try { p.Parse(argv); }
+    catch (CliException e) { threw = true; }
+    Assert.True(threw);
+}
+
+[Test]
+void test_separate_short_form_still_works() {
+    // 回归：`-p 8080` 两 token 形态不受影响。
+    var p = new ArgParser("prog", "t");
+    p.AddOption("port", "p", "port", "0");
+    string[] argv = new string[2];
+    argv[0] = "-p"; argv[1] = "8080";
+    ParseResult r = p.Parse(argv);
+    Assert.Equal("8080", r.GetOption("port"));
+}
+
+[Test]
+void test_pure_flag_cluster_still_works() {
+    // 回归：全 flag 短名簇不受紧贴逻辑影响。
+    var p = new ArgParser("prog", "t");
+    p.AddFlag("verbose", "v", "verbose");
+    p.AddFlag("debug", "d", "debug");
+    string[] argv = new string[1];
+    argv[0] = "-vd";
+    ParseResult r = p.Parse(argv);
+    Assert.True(r.GetFlag("verbose") && r.GetFlag("debug"));
+}

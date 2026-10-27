@@ -85,7 +85,10 @@ ParseResult r = res.Result();  // 叶子解析结果
 | `--name value` | option with value |
 | `--name=value` | option with value (inline) |
 | `-n value`     | short-name option |
-| `positional1 positional2 ...` | positional 按声明顺序匹配 |
+| `-nvalue` / `-n=4` | 紧贴短参（首字符是 option 短名，余下整段为值） |
+| `--`           | 结束选项：其后一切 token（含 `-h` / `--x` / 负数）作 positional |
+| `-1` / `-2.5`  | 负数字面量：非已注册 option 且有 positional 容量时按 positional 处理 |
+| `positional1 positional2 ...` | positional 按声明顺序匹配，尾部可挂变长槽收集剩余 |
 | `-h` / `--help` | 自动 register；触发 `ShowHelp() == true`，跳过 positional 校验 |
 
 ### 必填 vs 可选 positional
@@ -96,12 +99,13 @@ ParseResult r = res.Result();  // 叶子解析结果
 
 ## 错误情况（抛 CliException）
 
-- 未知 long flag (`--bogus`)
+- 未知 long flag (`--bogus`)——编辑距离足够近时附 `(did you mean '--xxx'?)`
 - 未知 short flag (`-x`)
 - option 缺 value (`--profile` 末尾无 value)
 - 给 flag 传 value (`--verbose=yes`)
 - positional 数量不足（除非 `--help`）
-- positional 数量超出 declared
+- positional 数量超出 declared（声明变长槽后多余 token 进变长槽，不报错）
+- **重复注册**（long / short / positional 名 / 子命令名 / 别名互撞；`help` / `h` 保留）——声明期报错，不再静默先注册者胜
 - `GetFlag("undeclared")` / `GetOption("undeclared")` / `GetPositional(超出范围)`
 
 ## 依赖关系
@@ -111,19 +115,25 @@ HelpText 拼接）+ `z42.io`（`AddOptionWithEnv` 读环境变量）。
 ## 进阶特性（完整 API 见 `docs/reference/src/stdlib/cli.md`）
 
 - subcommand 单层（`SubcommandRouter`）+ **嵌套**（`AddRouter`/`Resolve`）
+- **子命令别名**（`Add(name, desc, parser, aliases)`，命中归一为正名，撞名声明期报错）
+- **跨子命令全局旗标**（`AddPersistentFlag` / `AddPersistentOption`：路由前从 argv 任意位置剥出；`CommandResolution.PersistentFlag` / `PersistentOption` 取值，多层各管各的子树、根层优先）
+- **节点默认动作**（`SetDefault(parser, desc)`：argv 为空或首 token 是 flag 且不命中任何子命令时整段交给默认 parser——`xtask test --no-build` 这类「无子命令 = 默认全量」形态）
+- **变长尾参**（`AddVariadicPositional` + `ParseResult.VariadicValues()`，收集剩余全部 positional 含 `--` 之后）
+- **`--` 分隔符**（其后 token 一律 positional）
+- **紧贴短参** `-nvalue` / `-n=4` + **负数字面量回退**（`-1` 作 positional）
+- **拼写建议**（未知 long option / 未知子命令，编辑距离 ≤2 且 ≤ len/2）
+- **重复注册声明期报错**（含 flag 与 option 之间同 long）
 - required option（`AddRequiredOption` + `WasOptionSet`）
 - 类型转换 getter（`GetIntOption`/`GetLongOption`/`GetDoubleOption`/`GetBoolOption`）
 - env-var fallback（`AddOptionWithEnv`，优先级 argv > env > default）
 - mutually-exclusive group（`AddMutuallyExclusive`）
 - 可重复 option（`AddRepeatedOption` + `GetRepeatedOption`）
-- short flag 串联（`-vxf`）
+- short flag 串联（`-vxf`，仅 flag；簇内嵌 option 短名仍报错）
 - strict-vs-extras 透传（`AllowExtras` + `ParseResult.Extras()`）
 
 ## 待办
 
-- subcommand 别名（`co` = `commit`）
-- 跨子命令全局 flag
-- `-nvalue` 紧贴形式（易歧义）
+- 科学计数负数（`-1e5`）不回退（`e` 更像短名）——刻意行为，重新评估时先看误吞风险
 
 ## 如何测试验证
 

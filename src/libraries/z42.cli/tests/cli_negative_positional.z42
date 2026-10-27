@@ -1,0 +1,99 @@
+// cli-engine-hardening：负数字面量在有 positional 容量时按 positional 回退。
+namespace Z42CliNegativePositionalTests;
+
+using Std.Cli;
+using Std.Harness;
+
+[Test]
+void test_negative_int_as_positional() {
+    var p = new ArgParser("prog", "t");
+    p.AddPositional("offset", "numeric offset");
+    string[] argv = new string[1];
+    argv[0] = "-1";
+    ParseResult r = p.Parse(argv);
+    Assert.Equal("-1", r.GetPositional(0));
+}
+
+[Test]
+void test_negative_double_as_positional() {
+    var p = new ArgParser("prog", "t");
+    p.AddPositional("ratio", "ratio");
+    string[] argv = new string[1];
+    argv[0] = "-2.5";
+    ParseResult r = p.Parse(argv);
+    Assert.Equal("-2.5", r.GetPositional(0));
+}
+
+[Test]
+void test_negative_fills_variadic() {
+    var p = new ArgParser("prog", "t");
+    p.AddVariadicPositional("values", "numeric values");
+    string[] argv = new string[3];
+    argv[0] = "-1"; argv[1] = "-2"; argv[2] = "-3.5";
+    ParseResult r = p.Parse(argv);
+    string[] vals = r.VariadicValues();
+    Assert.Equal(3, vals.Length);
+}
+
+[Test]
+void test_negative_without_capacity_still_throws() {
+    // 没有 positional 容量时仍是 unknown option（不会吞成Extras/静默）。
+    var p = new ArgParser("prog", "t");
+    p.AddOption("mode", "m", "mode", "x");
+    string[] argv = new string[1];
+    argv[0] = "-1";
+    bool threw = false;
+    try { p.Parse(argv); }
+    catch (CliException e) { threw = true; }
+    Assert.True(threw);
+}
+
+[Test]
+void test_negative_after_capacity_exhausted_throws() {
+    var p = new ArgParser("prog", "t");
+    p.AddPositional("only", "the only slot");
+    string[] argv = new string[2];
+    argv[0] = "first"; argv[1] = "-9";
+    bool threw = false;
+    try { p.Parse(argv); }
+    catch (CliException e) { threw = true; }
+    Assert.True(threw);
+}
+
+[Test]
+void test_scientific_notation_not_number() {
+    // `-1e5` 不当数字回退——`e` 更像短名，走 unknown option。
+    var p = new ArgParser("prog", "t");
+    p.AddPositional("v", "value");
+    string[] argv = new string[1];
+    argv[0] = "-1e5";
+    bool threw = false;
+    try { p.Parse(argv); }
+    catch (CliException e) { threw = true; }
+    Assert.True(threw);
+}
+
+[Test]
+void test_registered_short_beats_negative_fallback() {
+    // `-1` 被注册为 option 短名时按 option 解析，不回退。
+    var p = new ArgParser("prog", "t");
+    p.AddOption("level1", "1", "level one", "0");
+    string[] argv = new string[2];
+    argv[0] = "-1"; argv[1] = "7";
+    ParseResult r = p.Parse(argv);
+    Assert.Equal("7", r.GetOption("level1"));
+}
+
+[Test]
+void test_negative_with_extras_goes_to_extras() {
+    // AllowExtras 优先：未知 token（含负数）透传，不回退成 positional。
+    var p = new ArgParser("prog", "t");
+    p.AddPositional("src", "source");
+    p.AllowExtras();
+    string[] argv = new string[2];
+    argv[0] = "a"; argv[1] = "-1";
+    ParseResult r = p.Parse(argv);
+    Assert.Equal("a", r.GetPositional(0));
+    Assert.Equal(1, r.ExtrasCount());
+    Assert.Equal("-1", r.Extras()[0]);
+}

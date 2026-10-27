@@ -2,7 +2,7 @@
 //!
 //! 把 `string[] argv` 解析成 flag / option / positional 三类参数，并自动生成
 //! `-h/--help` 文本。`SubcommandRouter` 在其上叠一层 `git` / `cargo` 风格的
-//! （可嵌套的）子命令路由。
+//! （可嵌套的）子命令路由，外加跨子命令 persistent option 与节点默认动作。
 //!
 //! 参数值一律先当 `string` 拿；需要 `int` / `long` / `double` / `bool` 时在
 //! **取值处**转换（`ParseResult.GetIntOption` 等），声明期不区分类型。
@@ -10,31 +10,44 @@
 //! argv 从 `Std.IO.Environment.GetCommandLineArgs()` 取，**不含 program name**，
 //! 直接传给 `Parse`。
 //!
+//! ## 支持的 argv 形态
+//!
+//! - **`--` 结束选项**：其后一切 token（含 `-h` / `--foo` / 负数）都作 positional
+//!   落进固定槽或变长槽。
+//! - **紧贴短参 `-pvalue` / `-p=4`**：首字符是已注册 option 短名时，余下整段是值
+//!   （`=` 剥一层）。
+//! - **负数字面量作 positional**：`-1` / `-2.5` 在「不是已注册 option 且还有
+//!   positional 容量（含变长槽）」时按 positional 处理；无容量仍报 unknown option。
+//! - **变长尾参 `args...`**：`AddVariadicPositional` 收集全部剩余 positional。
+//! - **拼写建议**：未知 long option / 未知子命令在编辑距离足够近时附
+//!   `(did you mean '...')`。
+//! - **重名检测**：long / short / positional 重复注册在**声明期**抛 `CliException`
+//!   （`--help` / `-h` 保留）。
+//!
 //! ## 不支持
 //!
-//! - **`--` 结束选项**：`--` 不是分隔符，会当成未知 option 报 `unknown option '--'`。
-//! - **负数 / 以 `-` 开头的值作 positional**：`-1` 会走 short 解析路径报
-//!   `unknown option '-1'`；单个 `-` 长度不足 2，反而被当作 positional。
-//! - **紧贴形式 `-pvalue`**：不支持，会落进 short flag 簇路径，报
-//!   `contains option '-p' that requires a value`。
-//! - **变长 positional（`args...`）**：不支持；用可重复 option（`-D k=v`）或调用方
-//!   自己切 `Extras()` 替代。
 //! - **声明期类型**：没有 `AddIntOption` 之类；一律 `AddOption`，在 `GetIntOption`
 //!   等取值方法里转换。
-//! - **重名检测**：重复注册同一个 long name 不报错，查找取**先声明**的那条。
-//! - **子命令别名 / 跨子命令全局 flag**：没有；共享 flag 要在每个叶子 `ArgParser`
-//!   里各注册一遍。
-//! - **拼写纠正**：未知子命令只给 `unknown command '<token>'`，没有 "did you mean" 建议。
-//! - **`Match` 不认嵌套**：`AddRouter` 注册的名字用 `Match` 去命中会撞上空的叶子 parser
-//!   而崩溃；嵌套树只能用 `Resolve`。
-//! - **`AllowExtras` 与 short flag 簇互斥**：开启 extras 后不再走簇解析，`-abc`
-//!   整个 token 进 `Extras()`。
+//! - **簇内嵌 option 短名**：`-vp`（v 是 flag、p 是 option）报错——簇只收 flag；
+//!   紧贴值形式只认**首字符**是 option 短名（`-p4`），不支持「前面 flag 簇 + 尾随
+//!   option」的混合簇（`-vp 4`）。
+//! - **科学计数负数**：`-1e5` 不当数字回退（`e` 更像短名），走 unknown option。
+//! - **persistent 名与叶子重名**：router 层 `AddPersistent*` 声明的名字先于路由被剥走，
+//!   叶子里同名 option 从 argv 拿不到值——别重名。
+//! - **`Match` 不认嵌套**：`AddRouter` 注册的名字用 `Match` 去命中返回 null
+//!   （不进嵌套树）；嵌套树、persistent 剥离、默认动作都只在 `Resolve` 里。
+//! - **`AllowExtras` 与 short flag 簇 / 负数回退互斥**：开启 extras 后不再走簇解析，
+//!   `-abc` 与 `-1` 整个 token 进 `Extras()`。
+//!
+//! ArgParser 类按关注点分为四个 partial 碎片：本文件（声明 API 与注册表）、
+//! `ArgParser.Parse.z42`（解析主循环）、`ArgParser.Help.z42`（帮助文本）、
+//! `ArgParser.Persistent.z42`（persistent 剥离，供 SubcommandRouter）。
 namespace Std.Cli;
 using Std.Text;
 using Std.IO;
 
 /// 声明参数并解析 argv。所有 Add* 方法按调用顺序记录；Parse 可对同一 parser 重复调用。
-public class ArgParser {
+public partial class ArgParser {
     private string _programName;
     private string _description;
 
@@ -74,6 +87,12 @@ public class ArgParser {
     private bool[]   _positionalOptional;
     private int      _positionalCount;
 
+    // 变长尾参：最后一个 positional 槽，收集全部剩余 positional（含 `--` 之后的 token）。
+    // 不占 _positionalCount 的固定槽；不参与必填校验（0 个也合法）。
+    private bool     _hasVariadic;
+    private string   _variadicName;
+    private string   _variadicHelp;
+
     /// 用 programName 与 description 创建一个参数解析器。
     public ArgParser(string programName, string description) {
         this._programName     = programName;
@@ -97,12 +116,17 @@ public class ArgParser {
         this._positionalHelps = new string[8];
         this._positionalOptional = new bool[8];
         this._positionalCount = 0;
+        this._hasVariadic   = false;
+        this._variadicName  = "";
+        this._variadicHelp  = "";
     }
 
     // ── Declaration API ──────────────────────────────────────────────────
 
     /// 布尔开关：出现即 true。shortName 传 "" 表示无短名；`-h` / `--help` 自动注册，无需手加。
     public void AddFlag(string longName, string shortName, string help) {
+        this.ValidateLongName(longName);
+        this.ValidateShortName(shortName);
         this.EnsureFlagCap();
         this._flagLongs[this._flagCount]  = longName;
         this._flagShorts[this._flagCount] = shortName;
@@ -112,6 +136,8 @@ public class ArgParser {
 
     /// 注册带值 option（`--name value` 或 `--name=value`）；未出现时取 defaultValue。
     public void AddOption(string longName, string shortName, string help, string defaultValue) {
+        this.ValidateLongName(longName);
+        this.ValidateShortName(shortName);
         this.EnsureOptionCap();
         this._optionLongs[this._optionCount]    = longName;
         this._optionShorts[this._optionCount]   = shortName;
@@ -128,6 +154,8 @@ public class ArgParser {
     /// 环境变量不存在或为空串时落到 defaultValue；help 自动追加 " (env: $NAME)"。
     public void AddOptionWithEnv(string longName, string shortName, string help,
                                   string defaultValue, string envVarName) {
+        this.ValidateLongName(longName);
+        this.ValidateShortName(shortName);
         this.EnsureOptionCap();
         this._optionLongs[this._optionCount]    = longName;
         this._optionShorts[this._optionCount]   = shortName;
@@ -176,6 +204,8 @@ public class ArgParser {
     ///
     /// 默认值固定 ""，help 自动追加 " (repeatable)"。
     public void AddRepeatedOption(string longName, string shortName, string help) {
+        this.ValidateLongName(longName);
+        this.ValidateShortName(shortName);
         this.EnsureOptionCap();
         this._optionLongs[this._optionCount]    = longName;
         this._optionShorts[this._optionCount]   = shortName;
@@ -195,6 +225,8 @@ public class ArgParser {
     /// 注册必填 option：argv 里没写时 Parse 抛 CliException。默认值固定 ""，
     /// help 自动追加 " (required)"。
     public void AddRequiredOption(string longName, string shortName, string help) {
+        this.ValidateLongName(longName);
+        this.ValidateShortName(shortName);
         this.EnsureOptionCap();
         this._optionLongs[this._optionCount]    = longName;
         this._optionShorts[this._optionCount]   = shortName;
@@ -213,6 +245,11 @@ public class ArgParser {
             throw new CliException("required positional '" + name +
                 "' cannot follow an optional positional");
         }
+        if (this._hasVariadic) {
+            throw new CliException("positional '" + name +
+                "' cannot follow the variadic positional '" + this._variadicName + "'");
+        }
+        this.ValidatePositionalName(name);
         this.EnsurePositionalCap();
         this._positionalNames[this._positionalCount] = name;
         this._positionalHelps[this._positionalCount] = help;
@@ -225,6 +262,11 @@ public class ArgParser {
     /// 必须在所有必填 positional 之后声明，否则 `AddPositional` 抛 CliException。
     /// help 中渲染为 `[name]`。
     public void AddOptionalPositional(string name, string help) {
+        if (this._hasVariadic) {
+            throw new CliException("positional '" + name +
+                "' cannot follow the variadic positional '" + this._variadicName + "'");
+        }
+        this.ValidatePositionalName(name);
         this.EnsurePositionalCap();
         this._positionalNames[this._positionalCount] = name;
         this._positionalHelps[this._positionalCount] = help;
@@ -232,376 +274,81 @@ public class ArgParser {
         this._positionalCount = this._positionalCount + 1;
     }
 
-    // ── Parse ────────────────────────────────────────────────────────────
+    /// 注册变长尾参（必须是最后一个 positional）：收集固定槽填满后的**全部剩余**
+    /// positional（含 `--` 之后的 token），用 `ParseResult.VariadicValues()` 取回。
+    /// 变长槽不参与必填校验（0 个也合法）；help 的 USAGE 渲染为 `[name...]`。
+    public void AddVariadicPositional(string name, string help) {
+        if (this._hasVariadic) {
+            throw new CliException("AddVariadicPositional: only one variadic positional allowed ('" +
+                this._variadicName + "' already declared)");
+        }
+        this.ValidatePositionalName(name);
+        this._hasVariadic  = true;
+        this._variadicName = name;
+        this._variadicHelp = help;
+    }
 
-    [Suppress("style.fnLinesHard", "117 body lines；拆分见 code-organization.md")]
-    /// 解析 argv（不含 program name），返回 ParseResult；失败抛 CliException。
-    public ParseResult Parse(string[] argv) {
-        var r = new ParseResult();
-        // 初始化 flag results = 全部 false
-        r._flagLongs  = new string[this._flagCount];
-        r._flagValues = new bool[this._flagCount];
-        r._flagCount  = this._flagCount;
+    // ── Registration validators ──────────────────────────────────────────
+
+    // long 名唯一性 + help 保留字校验。重复（flag 之间 / option 之间 / flag 与 option 之间）
+    // 在声明期抛 CliException——静默取先声明者会把拼写错误变成难查的行为分歧。
+    private void ValidateLongName(string longName) {
+        if (longName == "help") {
+            throw new CliException("long name 'help' is reserved (-h/--help is auto-registered)");
+        }
         int i = 0;
         while (i < this._flagCount) {
-            r._flagLongs[i]  = this._flagLongs[i];
-            r._flagValues[i] = false;
+            if (this._flagLongs[i] == longName) {
+                throw new CliException("duplicate long name '--" + longName + "': already registered as a flag");
+            }
             i = i + 1;
         }
-        // 初始化 option results = defaults
-        r._optionLongs    = new string[this._optionCount];
-        r._optionValues   = new string[this._optionCount];
-        r._optionWasSet   = new bool[this._optionCount];
-        r._optionRepeated = new bool[this._optionCount];
-        r._optionLists    = new _RepeatedList[this._optionCount];
-        r._optionCount    = this._optionCount;
         int j = 0;
         while (j < this._optionCount) {
-            r._optionLongs[j]      = this._optionLongs[j];
-            // 取值优先级：init 时应用 env 后备（默认值 → 若 env 有值则用 env）；
-            // 后续 argv 解析再覆盖，并置 `_optionWasSet = true`。
-            string initVal = this._optionDefaults[j];
-            string envName = this._optionEnvVars[j];
-            if (envName.Length > 0) {
-                string? envVal = Environment.GetEnvironmentVariable(envName);
-                if (envVal != null) {
-                    string nonNull = envVal;   // 上一行已判空，`?? ""` 原本就是死代码
-                    if (nonNull.Length > 0) {
-                        initVal = nonNull;
-                    }
-                }
-            }
-            r._optionValues[j]     = initVal;
-            r._optionWasSet[j]     = false;
-            r._optionRepeated[j]   = this._optionRepeated[j];
-            if (this._optionRepeated[j]) {
-                r._optionLists[j] = new _RepeatedList();
-            } else {
-                r._optionLists[j] = null;
+            if (this._optionLongs[j] == longName) {
+                throw new CliException("duplicate long name '--" + longName + "': already registered as an option");
             }
             j = j + 1;
         }
-        // Extras 列表（仅当调用过 AllowExtras 时才会填充）。
-        r._extras = new string[4];
-        r._extrasCount = 0;
-        r._allowExtras = this._allowExtras;
-        // positionals
-        r._positionalNames  = new string[this._positionalCount];
-        r._positionalValues = new string[this._positionalCount];
-        int k = 0;
-        while (k < this._positionalCount) {
-            r._positionalNames[k]  = this._positionalNames[k];
-            r._positionalValues[k] = "";
-            k = k + 1;
-        }
-        r._positionalCount = 0;
-
-        // 扫描 argv
-        int idx = 0;
-        while (idx < argv.Length) {
-            string a = argv[idx];
-            if (a == "-h" || a == "--help") {
-                r._showHelp = true;
-                idx = idx + 1;
-                continue;
-            }
-            if (a.Length >= 2 && a.CharAt(0) == '-' && a.CharAt(1) == '-') {
-                // long flag/option
-                idx = this.ParseLong(a, argv, idx, r);
-            } else if (a.Length >= 2 && a.CharAt(0) == '-') {
-                // short flag/option
-                idx = this.ParseShort(a, argv, idx, r);
-            } else {
-                // positional
-                if (r._positionalCount >= this._positionalCount) {
-                    throw new CliException("unexpected positional argument '" + a +
-                        "' (expected " + this._positionalCount.ToString() + ")");
-                }
-                r._positionalValues[r._positionalCount] = a;
-                r._positionalCount = r._positionalCount + 1;
-                idx = idx + 1;
-            }
-        }
-
-        // positional 数量校验（ShowHelp 时跳过）—— 只对必填 positional。
-        // 必填全在前（AddPositional 排序约束），requiredCount = 前导必填数；缺可选不报错。
-        int requiredCount = 0;
-        while (requiredCount < this._positionalCount && !this._positionalOptional[requiredCount]) {
-            requiredCount = requiredCount + 1;
-        }
-        if (!r._showHelp && r._positionalCount < requiredCount) {
-            throw new CliException("missing positional argument: '" +
-                this._positionalNames[r._positionalCount] + "'");
-        }
-
-        // 必填 option 校验。请求 --help 时跳过（便于无参数打印帮助）。
-        if (!r._showHelp) {
-            int m = 0;
-            while (m < this._optionCount) {
-                if (this._optionRequired[m] && !r._optionWasSet[m]) {
-                    throw new CliException("required option '--" +
-                        this._optionLongs[m] + "' missing");
-                }
-                m = m + 1;
-            }
-        }
-        // 互斥组校验。请求 --help 时跳过。
-        if (!r._showHelp) {
-            int g = 0;
-            while (g < this._mutexGroupCount) {
-                _MutexGroup grp = this._mutexGroups[g];
-                int seenCount = 0;
-                string firstSeen = "";
-                string secondSeen = "";
-                int gk = 0;
-                while (gk < grp._count) {
-                    int oi = this.FindOptionLongIndex(grp._names[gk]);
-                    if (oi >= 0 && r._optionWasSet[oi]) {
-                        if (seenCount == 0) { firstSeen  = grp._names[gk]; }
-                        else if (seenCount == 1) { secondSeen = grp._names[gk]; }
-                        seenCount = seenCount + 1;
-                    }
-                    gk = gk + 1;
-                }
-                if (seenCount > 1) {
-                    throw new CliException("options '--" + firstSeen +
-                        "' and '--" + secondSeen + "' are mutually exclusive");
-                }
-                g = g + 1;
-            }
-        }
-
-        return r;
     }
 
-    // 解析 --long 或 --long=value 或 --long value
-    private int ParseLong(string a, string[] argv, int idx, ParseResult r) {
-        // 切割 = 形式
-        string name = "";
-        string value = "";
-        bool hasValue = false;
-        int eq = this.IndexOf(a, '=');
-        if (eq >= 0) {
-            name  = a.Substring(2, eq - 2);
-            value = a.Substring(eq + 1, a.Length - eq - 1);
-            hasValue = true;
-        } else {
-            name = a.Substring(2, a.Length - 2);
+    // short 名唯一性 + h 保留字校验；空串（无短名）放行。
+    private void ValidateShortName(string shortName) {
+        if (shortName.Length == 0) { return; }
+        if (shortName == "h") {
+            throw new CliException("short name 'h' is reserved (-h/--help is auto-registered)");
         }
-        // 找 flag
-        int fi = this.FindFlagByLong(name);
-        if (fi >= 0) {
-            if (hasValue) {
-                throw new CliException("flag '--" + name + "' does not take a value");
+        int i = 0;
+        while (i < this._flagCount) {
+            if (this._flagShorts[i] == shortName) {
+                throw new CliException("duplicate short name '-" + shortName + "': already registered as a flag");
             }
-            r._flagValues[fi] = true;
-            return idx + 1;
+            i = i + 1;
         }
-        // 找 option
-        int oi = this.FindOptionByLong(name);
-        if (oi >= 0) {
-            string val;
-            int  nextIdx;
-            if (hasValue) {
-                val     = value;
-                nextIdx = idx + 1;
-            } else {
-                if (idx + 1 >= argv.Length) {
-                    throw new CliException("option '--" + name + "' requires a value");
-                }
-                val     = argv[idx + 1];
-                nextIdx = idx + 2;
+        int j = 0;
+        while (j < this._optionCount) {
+            if (this._optionShorts[j] == shortName) {
+                throw new CliException("duplicate short name '-" + shortName + "': already registered as an option");
             }
-            r._optionValues[oi] = val;
-            r._optionWasSet[oi] = true;
-            if (this._optionRepeated[oi]) {
-                r._optionLists[oi].Append(val);
-            }
-            return nextIdx;
+            j = j + 1;
         }
-        // Pass-through unknown options if extras allowed.
-        if (this._allowExtras) {
-            ArgParser._AppendExtra(r, a);
-            return idx + 1;
-        }
-        throw new CliException("unknown option '--" + name + "'");
     }
 
-    // 把 token 追加进 ParseResult._extras（按需扩容）。
-    static void _AppendExtra(ParseResult r, string token) {
-        if (r._extrasCount >= r._extras.Length) {
-            int n = r._extras.Length * 2;
-            string[] g = new string[n];
-            int i = 0;
-            while (i < r._extrasCount) { g[i] = r._extras[i]; i = i + 1; }
-            r._extras = g;
+    // positional 名唯一性（固定槽 + 可选槽 + 变长槽之间）。
+    private void ValidatePositionalName(string name) {
+        int i = 0;
+        while (i < this._positionalCount) {
+            if (this._positionalNames[i] == name) {
+                throw new CliException("duplicate positional name '" + name + "'");
+            }
+            i = i + 1;
         }
-        r._extras[r._extrasCount] = token;
-        r._extrasCount = r._extrasCount + 1;
+        if (this._hasVariadic && this._variadicName == name) {
+            throw new CliException("duplicate positional name '" + name + "'");
+        }
     }
 
-    private int ParseShort(string a, string[] argv, int idx, ParseResult r) {
-        string name = a.Substring(1, a.Length - 1);
-        int fi = this.FindFlagByShort(name);
-        if (fi >= 0) {
-            r._flagValues[fi] = true;
-            return idx + 1;
-        }
-        int oi = this.FindOptionByShort(name);
-        if (oi >= 0) {
-            if (idx + 1 >= argv.Length) {
-                throw new CliException("option '-" + name + "' requires a value");
-            }
-            string val = argv[idx + 1];
-            r._optionValues[oi] = val;
-            r._optionWasSet[oi] = true;
-            if (this._optionRepeated[oi]) {
-                r._optionLists[oi].Append(val);
-            }
-            return idx + 2;
-        }
-        // GNU 风格 short-flag 簇 `-abc` = `-a -b -c`（仅布尔 flag）。
-        // 仅当 token 不是已注册的单个 short 时进入。每个字符都必须是已注册 flag
-        // 的短名；任一个字符是 option 短名即抛异常（簇无法与取值组合）。
-        // 开启 `_allowExtras` 时跳过簇解析——整个 token 进 extras。
-        if (name.Length > 1 && !this._allowExtras) {
-            // First pass: validate every char is a known flag short.
-            int p = 0;
-            while (p < name.Length) {
-                string ch = name.Substring(p, 1);
-                int cfi = this.FindFlagByShort(ch);
-                if (cfi < 0) {
-                    int coi = this.FindOptionByShort(ch);
-                    if (coi >= 0) {
-                        throw new CliException("short-flag cluster '-" + name +
-                            "' contains option '-" + ch +
-                            "' that requires a value (clusters are flags only)");
-                    }
-                    throw new CliException("unknown option '-" + name + "'");
-                }
-                p = p + 1;
-            }
-            // Second pass: set each flag.
-            int q = 0;
-            while (q < name.Length) {
-                string ch = name.Substring(q, 1);
-                int cfi = this.FindFlagByShort(ch);
-                r._flagValues[cfi] = true;
-                q = q + 1;
-            }
-            return idx + 1;
-        }
-        if (this._allowExtras) {
-            ArgParser._AppendExtra(r, a);
-            return idx + 1;
-        }
-        throw new CliException("unknown option '-" + name + "'");
-    }
-
-    // ── HelpText ─────────────────────────────────────────────────────────
-
-    [Suppress("style.fnLinesHard", "87 body lines；拆分见 code-organization.md")]
-    /// 生成 USAGE / FLAGS / OPTIONS / ARGS 四段帮助文本。
-    public string HelpText() {
-        StringBuilder sb = new StringBuilder();
-        sb.Append(this._programName);
-        if (this._description.Length > 0) {
-            sb.Append(" — ");
-            sb.Append(this._description);
-        }
-        sb.Append("\n\n");
-
-        // Usage line
-        sb.Append("USAGE:\n    ");
-        sb.Append(this._programName);
-        sb.Append(" [OPTIONS]");
-        int p = 0;
-        while (p < this._positionalCount) {
-            if (this._positionalOptional[p]) {
-                sb.Append(" [");
-                sb.Append(this._positionalNames[p]);
-                sb.Append("]");
-            } else {
-                sb.Append(" <");
-                sb.Append(this._positionalNames[p]);
-                sb.Append(">");
-            }
-            p = p + 1;
-        }
-        sb.Append("\n\n");
-
-        // Flags
-        if (this._flagCount > 0) {
-            sb.Append("FLAGS:\n");
-            int i = 0;
-            while (i < this._flagCount) {
-                sb.Append("    ");
-                if (this._flagShorts[i].Length > 0) {
-                    sb.Append("-");
-                    sb.Append(this._flagShorts[i]);
-                    sb.Append(", ");
-                }
-                sb.Append("--");
-                sb.Append(this._flagLongs[i]);
-                sb.Append("    ");
-                sb.Append(this._flagHelps[i]);
-                sb.Append("\n");
-                i = i + 1;
-            }
-            sb.Append("    -h, --help    Print this help and exit\n\n");
-        } else {
-            sb.Append("FLAGS:\n    -h, --help    Print this help and exit\n\n");
-        }
-
-        // Options
-        if (this._optionCount > 0) {
-            sb.Append("OPTIONS:\n");
-            int i = 0;
-            while (i < this._optionCount) {
-                sb.Append("    ");
-                if (this._optionShorts[i].Length > 0) {
-                    sb.Append("-");
-                    sb.Append(this._optionShorts[i]);
-                    sb.Append(", ");
-                }
-                sb.Append("--");
-                sb.Append(this._optionLongs[i]);
-                sb.Append(" <");
-                sb.Append(this._optionLongs[i]);
-                sb.Append(">    ");
-                sb.Append(this._optionHelps[i]);
-                sb.Append("  [default: ");
-                sb.Append(this._optionDefaults[i]);
-                sb.Append("]\n");
-                i = i + 1;
-            }
-            sb.Append("\n");
-        }
-
-        // Positionals
-        if (this._positionalCount > 0) {
-            sb.Append("ARGS:\n");
-            int i = 0;
-            while (i < this._positionalCount) {
-                if (this._positionalOptional[i]) {
-                    sb.Append("    [");
-                    sb.Append(this._positionalNames[i]);
-                    sb.Append("]    ");
-                } else {
-                    sb.Append("    <");
-                    sb.Append(this._positionalNames[i]);
-                    sb.Append(">    ");
-                }
-                sb.Append(this._positionalHelps[i]);
-                sb.Append("\n");
-                i = i + 1;
-            }
-        }
-
-        return sb.ToString();
-    }
-
-    // ── Internals ────────────────────────────────────────────────────────
+    // ── Internals: registry lookups & capacity ───────────────────────────
 
     private int FindFlagByLong(string name) {
         int i = 0;
