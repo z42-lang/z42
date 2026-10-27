@@ -46,8 +46,9 @@ include = ["builder_cli.z42", "builder_test.z42", "builder_device.z42", "builder
 [plugins]
 # hook 插件（unify-plugin-packages 1b）：编译前由 hooks/ 从 versions.toml 生成 builder_pins.z42
 # （见 hooks/hooks.z42；xtask 自举直编路径另有等价生成，两处文本须一致）。
-# 免清单单文件条目（plugin-single-file）：零依赖 hook 直接指源文件；树内条目自动排除出 [sources]。
-"z42.builder.hooks" = { path = "hooks/hooks.z42" }
+# 源集条目（plugins-include-form，对齐 [tests]，#1413）：零依赖 hook 用 include/exclude 圈源码；
+# include 模式自动排除出 [sources]（显式分区）。
+"z42.builder.hooks" = { include = ["hooks/hooks.z42"] }
 
 [build]
 # 产物落共享 artifacts 树：artifacts/build/toolchain/builder/{dist,.cache,publish}
