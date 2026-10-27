@@ -121,7 +121,7 @@ void test_digest_md5_round_trip_with_realm_and_qop() {
 }
 
 [Test]
-[Suppress("style.fnLinesHard", "87 body lines；RFC 2617 §3.5 手算链一体的表驱动用例，拆 helper 会切断对照可读性")]
+[Suppress("style.fnLinesHard", "74 body lines；拆分见 code-organization.md")]
 void test_digest_response_hash_matches_rfc_2617_inputs() {
     // RFC 2617 §3.5 hand-computed values to make sure our HA1 / HA2 /
     // response chain is wired correctly. Mock server canned with a
