@@ -16,8 +16,9 @@ kind    = "lib"
 
 [plugins]
 # hook 插件（unify-plugin-packages 1b）：ProvideNative 现场 cargo 编 cdylib 拷进 dist/<rid>/。
-# 免清单单文件条目（plugin-single-file）：零依赖 hook 直接指源文件；树内条目自动排除出 [sources]。
-"z42.repl.hooks" = { path = "hooks/hooks.z42" }
+# 源集条目（plugins-include-form，对齐 [tests]，#1413）：零依赖 hook 用 include/exclude 圈源码；
+# include 模式自动排除出 [sources]（显式分区）。
+"z42.repl.hooks" = { include = ["hooks/hooks.z42"] }
 
 [dependencies]
 "z42c.syntax"   = "0.1.0"   # Lexer 关键字表（语法着色的 SoT，只读不复制）

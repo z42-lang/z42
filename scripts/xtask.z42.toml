@@ -22,9 +22,10 @@ include = ["**/*.z42"]
 # 必须先随一次合入进 nightly、下一个 PR 再用（docs/internals/src/compiler/self-hosting.md）。
 [plugins]
 # hook 插件（unify-plugin-packages 1b）：`z42 publish` 时 z42b 代建并反射加载 scripts/xtask_hooks.z42
-# —— BeforeAssets 现场 cargo 编 apphost stub 并登记，免装 desktop workload。免清单单文件条目
-#（plugin-single-file）：零依赖 hook 直接指源文件，合成最小清单代建；树内条目自动排除出 [sources]。
-"xtask.hooks" = { path = "xtask_hooks.z42" }
+# —— BeforeAssets 现场 cargo 编 apphost stub 并登记，免装 desktop workload。源集条目
+#（plugins-include-form，对齐 [tests]，#1413）：零依赖 hook 用 include 圈源码，合成最小清单代建；
+# include 模式自动排除出 [sources]（显式分区）。
+"xtask.hooks" = { include = ["xtask_hooks.z42"] }
 
 [dependencies]
 "z42.project" = { version = "*", deploy = "sdk" }
