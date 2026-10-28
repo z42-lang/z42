@@ -286,12 +286,16 @@ module.classes 里有            → 回落描述符正确，放行
 `TypeDescCold.base_unmerged` 标出「`base_name` 有声明，但构建本描述符时那个基类不在当时的
 注册表里」⇒ `fields` / `vtable` 退化成「只有自己的」。
 
-- **置位**：`build_type_registry`，`desc.base_class.is_some() && !registry.contains_key(b)`。
-- **清位**：`try_fixup_inheritance`。⚠️ 清位**不能挂在 `needs_fixup` 上**——基类一旦可解析，
+- **置位**：`build_type_registry`——基类不在当时的注册表里，**或基类自己带旗**。旗子沿基链
+  传递：`C : B : CrossPkgBase`（B、C 同在主模块）里 B 跨包残缺，C 的继承切片是从残缺的 B
+  拷来的，同样缺祖先的字段槽；只看「直接基类在不在」会让 C 不带旗 ⇒ `ObjNew` 拿残缺的那份 ⇒
+  祖先构造器的 `FieldSet` 全被丢弃（两层链正常、三层链静默读出 `Null`）。
+- **清位**：`try_fixup_inheritance`，条件是**整条基链都可解析**（逐级向上，碰到不带旗的祖先
+  为止，同一轮内收敛）。⚠️ 清位**不能挂在 `needs_fixup` 上**——基类一旦可解析，
   `needs_fixup` 比的是「字段 / vtable 条数对不对得上」，基类若**零字段零非静态方法**（标记
   基类）条数天然相等 ⇒ `needs_fixup` 恒 `false` ⇒ 旗子永远清不掉 ⇒ 把一个其实完好的类型
-  误判成「基类缺失」。故单独收一份「基类已可解析」的清位名单。清位本身**不计入**
-  `newly_fixed`（那是不动点循环的终止条件）。
+  误判成「基类缺失」。故单独收一份清位名单。清位本身**不计入**
+  `newly_fixed`（那是不动点循环的终止条件）——所以链上的清位也必须在同一轮里一次算完。
 - **冷区保活**：`class Empty : CrossPkgBase {}` 的冷区可能什么都不剩，丢了冷区就丢了旗子，
   故冷区丢弃条件里加 `&& !cold_inner.base_unmerged`。
 

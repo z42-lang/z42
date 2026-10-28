@@ -1,0 +1,8 @@
+namespace Demo.CtorChainTarget;
+
+public class Base {
+    public string Name;
+    public int Count;
+    public Base(string name) { this.Name = name; this.Count = 1; }
+    public virtual string Who() { return "base:" + this.Name; }
+}

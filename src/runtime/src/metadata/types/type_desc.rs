@@ -201,7 +201,9 @@ pub struct TypeDescCold {
     /// 标在这里，让 `ObjNew` 能一眼认出「这份描述符的继承视图是残缺的」，去惰性加载器
     /// 取已经 fixup 过的那份；取回来还是残缺的，才是「基类确实不存在」（站点 ④）。
     ///
-    /// 由 `build_type_registry` 置位、`try_fixup_inheritance` 合上基类后清位。
+    /// **沿基链传递**：本地基类自己带旗（它的基类跨包）时子类也带旗——子类的继承切片是从那份
+    /// 残缺的基类拷来的。由 `build_type_registry` 置位、`try_fixup_inheritance` 在整条基链都可
+    /// 解析时清位。
     pub base_unmerged: bool,
 }
 

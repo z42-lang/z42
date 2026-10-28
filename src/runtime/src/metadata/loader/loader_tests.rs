@@ -399,6 +399,101 @@ fn fixup_converges_with_duplicate_field_names() {
     assert_eq!(sub.field_index.get("x"),   Some(&2));
 }
 
+// ── base_unmerged 沿基链传递 ──────────────────────────────────────────────────
+
+/// One module holding several classes (each `(name, base, fields)`), registry built.
+fn module_with_classes(
+    name: &str, classes: &[(&str, Option<&str>, Vec<(&str, &str)>)],
+) -> crate::metadata::bytecode::Module {
+    let mut m = module_with_one_class(name, None, vec![]);
+    m.classes = classes.iter().map(|(n, b, f)| {
+        let mut c = module_with_one_class(n, *b, f.clone()).classes.pop().unwrap();
+        c.name = (*n).to_owned();
+        c
+    }).collect();
+    crate::metadata::loader::build_type_registry(&mut m);
+    m
+}
+
+fn merge_and_converge(
+    mods: Vec<crate::metadata::bytecode::Module>,
+) -> rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>> {
+    let mut global = rustc_hash::FxHashMap::default();
+    for mut m in mods {
+        for (n, td) in std::mem::take(&mut m.type_registry) { global.insert(n, td); }
+    }
+    for _ in 0..16 {
+        if crate::metadata::loader::try_fixup_inheritance(&mut global) == 0 { break; }
+    }
+    global
+}
+
+/// `Leaf : Mid : CrossBase`，Mid / Leaf 同模块、CrossBase 跨包：Mid 的继承切片残缺，Leaf 是从
+/// 它拷来的，所以 Leaf 也必须带旗——否则 ObjNew 拿 Leaf 的急切副本，祖先字段槽全缺、
+/// 祖先构造器的 FieldSet 被静默丢弃。
+#[test]
+fn base_unmerged_propagates_through_a_local_base() {
+    let m = module_with_classes("App", &[
+        ("Mid",  Some("CrossBase"), vec![("m", "str")]),
+        ("Leaf", Some("Mid"),       vec![("l", "str")]),
+        ("Plain", None,             vec![]),
+        ("PlainSub", Some("Plain"), vec![]),
+    ]);
+    assert!(m.type_registry["Mid"].base_unmerged(), "direct cross-pkg base");
+    assert!(m.type_registry["Leaf"].base_unmerged(), "local base that is itself unmerged");
+    assert!(!m.type_registry["PlainSub"].base_unmerged(), "fully local chain stays clean");
+}
+
+/// 祖先到场后：整条链的旗子在不动点里清掉，叶子拿到祖先字段（槽位在最前）。
+#[test]
+fn transitive_flag_clears_once_the_whole_chain_resolves() {
+    let app = module_with_classes("App", &[
+        ("Mid",  Some("CrossBase"), vec![("m", "str")]),
+        ("Leaf", Some("Mid"),       vec![("l", "str")]),
+    ]);
+    let dep = module_with_classes("Dep", &[("CrossBase", None, vec![("msg", "str")])]);
+    let global = merge_and_converge(vec![app, dep]);
+    let leaf = &global["Leaf"];
+    assert!(!global["Mid"].base_unmerged());
+    assert!(!leaf.base_unmerged(), "flag cleared once every ancestor resolves");
+    assert_eq!(leaf.field_index.get("msg"), Some(&0), "ancestor field slot present");
+    assert_eq!(leaf.field_index.get("m"), Some(&1));
+    assert_eq!(leaf.field_index.get("l"), Some(&2));
+}
+
+/// 祖先链的上一段仍然缺席时，子类的旗子不能被提前清掉。
+#[test]
+fn transitive_flag_stays_while_an_ancestor_is_missing() {
+    // CrossBase 到场，但它自己的基类 Root 仍缺席 ⇒ Mid / Leaf 继续残缺。
+    let app = module_with_classes("App", &[
+        ("Mid",  Some("CrossBase"), vec![]),
+        ("Leaf", Some("Mid"),       vec![]),
+    ]);
+    let dep = module_with_classes("Dep", &[("CrossBase", Some("Root"), vec![("x", "str")])]);
+    let global = merge_and_converge(vec![app, dep]);
+    assert!(global["CrossBase"].base_unmerged());
+    assert!(global["Mid"].base_unmerged());
+    assert!(global["Leaf"].base_unmerged());
+}
+
+/// 标记基类（零字段零方法）：`needs_fixup` 恒 false、不动点循环第一轮就停，整条链的旗子
+/// 必须在**同一轮**里清完，否则叶子会被误判成「基类缺失」。
+#[test]
+fn transitive_flag_clears_in_one_round_for_a_marker_base() {
+    let app = module_with_classes("App", &[
+        ("Mid",  Some("Marker"), vec![]),
+        ("Leaf", Some("Mid"),    vec![]),
+    ]);
+    let dep = module_with_classes("Dep", &[("Marker", None, vec![])]);
+    let mut global = rustc_hash::FxHashMap::default();
+    for mut m in [app, dep] {
+        for (n, td) in std::mem::take(&mut m.type_registry) { global.insert(n, td); }
+    }
+    assert_eq!(crate::metadata::loader::try_fixup_inheritance(&mut global), 0, "nothing to merge");
+    assert!(!global["Mid"].base_unmerged());
+    assert!(!global["Leaf"].base_unmerged(), "cleared in the same round");
+}
+
 // ── indexed zpkg load（add-indexed-zpkg-min-patch，zpkg 0.24）─────────────────
 
 /// committed fixture: indexed 主文件 + 散装自包含 zbc（src/compiler/z42.package/tests/fixtures/zpkg-format/indexed-minimal）。

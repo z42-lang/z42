@@ -108,8 +108,11 @@ pub fn build_type_registry(module: &mut Module) {
             custom_attributes:      desc.attributes.clone(),
             // fix-silent-symbol-resolution：基类有声明但当时不在注册表里 ⇒ 这份合并视图
             // 是「只有自己的」，全部继承成员缺席。见 `TypeDescCold::base_unmerged`。
+            // 旗子**沿基链传递**：本地基类自己残缺（它的基类跨包）时，这里从它拷来的继承切片
+            // 同样残缺——`C : B(本地) : CrossPkgBase` 的 C 不置位，ObjNew 就拿这份缺了
+            // 祖先字段的描述符，祖先构造器的 FieldSet 全被丢弃。
             base_unmerged: desc.base_class.as_deref()
-                .is_some_and(|b| !registry.contains_key(b)),
+                .is_some_and(|b| registry.get(b).is_none_or(|bt| bt.base_unmerged())),
             // add-static-constructors：从类级 `$Cctor` 哨兵取静态构造器的发射函数名。
             // build_type_registry 是**所有**模块（急切 + 跨包惰性）的统一漏斗，
             // 在这里读一次，就不必在每个 type-registry 插入点各挂一遍钩子。
@@ -445,13 +448,11 @@ pub fn try_fixup_inheritance(
     // 零非静态方法**（标记基类），条数天然相等 ⇒ needs_fixup 恒 false ⇒ 旗子永远清不掉
     // ⇒ ObjNew 会把一个其实完好的类型误判成「基类缺失」。故单独收一份「基类已可解析」的
     // 清位名单，与 needs_fixup 无关。
-    let mut clear_flag: Vec<String> = Vec::new();
+    // 旗子沿基链传递（见 `build_type_registry`），清位同样要整条链都可解析：基类自己带旗且
+    // 本轮清不掉 ⇒ 子类也不清。按链在同一轮里收敛——标记基类不产生 `newly_fixed`，拖到下一轮
+    // 不动点循环就已经停了。
+    let clear_flag = clearable_flags(registry);
     for (name, td) in registry.iter() {
-        if td.base_unmerged()
-            && td.base_name.as_deref().is_some_and(|b| registry.contains_key(b))
-        {
-            clear_flag.push(name.clone());
-        }
         if !needs_fixup(td, registry) {
             continue;
         }
@@ -535,6 +536,25 @@ pub fn try_fixup_inheritance(
         newly_fixed += 1;
     }
     newly_fixed
+}
+
+/// Types whose `base_unmerged` flag can be cleared now: every class up the base chain is
+/// in `registry` and no ancestor keeps its flag. Chain-depth walk per flagged type.
+fn clearable_flags(registry: &FxHashMap<String, Arc<TypeDesc>>) -> Vec<String> {
+    let chain_resolved = |start: &TypeDesc| -> bool {
+        let mut cur = start;
+        for _ in 0..=registry.len() {
+            let Some(base) = cur.base_name.as_deref() else { return true; };
+            let Some(bt) = registry.get(base) else { return false; };
+            if !bt.base_unmerged() { return true; }
+            cur = bt;
+        }
+        false   // base-class cycle: never resolvable
+    };
+    registry.iter()
+        .filter(|(_, td)| td.base_unmerged() && chain_resolved(td))
+        .map(|(name, _)| name.clone())
+        .collect()
 }
 
 /// Names of types still reporting `needs_fixup` — used only to make the
