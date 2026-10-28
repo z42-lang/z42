@@ -5,7 +5,6 @@ namespace Z42Xtask;
 
 using Std.IO;
 using Std.Time;
-using Std.Cli;
 
 // 包的源码根 —— **两个 workspace 都要认**：用户 stdlib（`Std.*`）在 `src/libraries/`；编译器域库
 // 在 `src/compiler/`。🔴 只扫 `src/libraries/` 会让编译器域库的扁平 `tests/*.z42` 单元静默停跑——
@@ -100,11 +99,11 @@ string[] _shardLibs(string root, int k, int n) {
     return sized;
 }
 
-int _testLib(ParseResult r, string kind) {
+int _testLib(LibUnitsCommand c, string kind, string jsonOut) {
     Stopwatch sw = _procStart((kind == "bench") ? "bench stdlib" : "test stdlib");
-    string lib = r.GetPositional(0);
+    string lib = c.Lib;
     string[] libs;
-    int[] sh = _parseShard(r.GetOption("shard"));
+    int[] sh = _parseShard(c.Shard);
     if (sh[1] > 0) {
         libs = _shardLibs(_root(), sh[0], sh[1]);
         Console.WriteLine("→ shard " + sh[0].ToString() + "/" + sh[1].ToString()
@@ -115,12 +114,10 @@ int _testLib(ParseResult r, string kind) {
         libs = new string[0];
     }
     // `bench stdlib --json <out>` → capture aggregated bench_stats into a baseline file
-    // (median_ns primary metric). Only for bench; test path passes null.
-    string jsonOut = (kind == "bench") ? r.GetOption("json") : "";
+    // (median_ns primary metric). Only for bench; the test path passes "".
     MicroBenchAgg agg = (jsonOut.Length > 0) ? new MicroBenchAgg() : null;
     // --vm/--driver/--libs: optional explicit toolchain override (see _testLibCore).
-    int __rc = _testLibCore(kind, libs, r.GetFlag("no-build"), r.GetOption("filter"), r.GetOption("jobs"), r.GetOption("mode"), agg,
-                            r.GetOption("vm"), r.GetOption("driver"), r.GetOption("libs"));
+    int __rc = _testLibCore(kind, libs, c.NoBuild, c.Filter, c.Jobs, c.Mode, agg, c.Vm, c.Driver, c.Libs);
     if (agg != null) {
         string outPath = _absUnder(_root(), jsonOut);
         Directory.Create(Path.GetDirectoryName(outPath));   // 结果目录（reports/benches）可能还不存在

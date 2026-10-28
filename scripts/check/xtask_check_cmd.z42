@@ -1,4 +1,4 @@
-// xtask CLI — `check` 命令：不编译、不跑用例的静态检查（纯文本扫描 / 生成物比对，秒级）。
+// xtask `check`：不编译、不跑用例的静态检查（纯文本扫描 / 生成物比对，秒级）。
 //
 //   xtask check            全部跑一遍（顺序同 GREEN gate 里的对应 stage），汇总哪些红
 //   xtask check <name>     只跑一个
@@ -6,7 +6,6 @@
 //                                 （diagcodes / doc-refs / layers；其余无 --update）
 //
 // 它们在 GREEN gate 里仍各是一个 stage（stage 名不变，见 test-gate.md）；这里只是单跑的入口。
-// 各检查的实现留在 scripts/test/ 下原处。
 namespace Z42Xtask;
 
 using Std.IO;
@@ -32,35 +31,38 @@ string _checkDesc(string name) {
     return "";
 }
 
-ArgParser _checkParser() {
-    string names = "";
-    foreach (var n in _checkNames()) { names = names.Length == 0 ? n : names + " | " + n; }
-    ArgParser c = new ArgParser("xtask check", "static checks (no build, no test run): " + names);
-    c.AddOptionalPositional("name", "one check (default: all): " + names);
-    c.AddFlag("update", "", "diagcodes / doc-refs / layers: rewrite the gates.toml machine section from the current tree");
-    return c;
+class CheckCommand : Command {
+    [Option(help: "diagcodes / doc-refs / layers: rewrite the gates.toml machine section from the current tree")]
+    public bool Update;
+    [Argument(help: "one check (default: all; `xtask check -h` lists them)")]
+    public string Name = "";
+
+    public CheckCommand() : base("check", "static checks — no build, no test run (no name = all)") {}
+
+    public override int Run() {
+        if (this.Name.Length > 0) { return _checkNamed(this.Name, this.Update); }
+        if (this.Update) {
+            throw new CliException("--update needs a check name (diagcodes / doc-refs / layers)");
+        }
+        return _checkAll();
+    }
 }
 
-int _check(ParseResult r) {
-    string name = r.GetPositional(0);
-    bool update = r.GetFlag("update");
-    if (name.Length > 0) {
-        if (_checkDesc(name).Length == 0) {
-            ConsoleError.WriteLine("xtask check: unknown check '" + name + "'");
-            foreach (var n in _checkNames()) { ConsoleError.WriteLine("  " + _padRight(n, 15) + _checkDesc(n)); }
-            return 2;
-        }
-        if (update && name != "diagcodes" && name != "doc-refs" && name != "layers") {
-            ConsoleError.WriteLine("xtask check: --update only applies to diagcodes / doc-refs / layers");
-            return 2;
-        }
-        return _checkOne(name, update);
-    }
-    if (update) {
-        ConsoleError.WriteLine("xtask check: --update needs a check name (diagcodes / doc-refs / layers)");
+int _checkNamed(string name, bool update) {
+    if (_checkDesc(name).Length == 0) {
+        ConsoleError.WriteLine("xtask check: unknown check '" + name + "'");
+        foreach (var n in _checkNames()) { ConsoleError.WriteLine("  " + _padRight(n, 15) + _checkDesc(n)); }
         return 2;
     }
-    // 全跑：不在第一处红就停 —— 一次看到所有红的检查。
+    if (update && name != "diagcodes" && name != "doc-refs" && name != "layers") {
+        ConsoleError.WriteLine("xtask check: --update only applies to diagcodes / doc-refs / layers");
+        return 2;
+    }
+    return _checkOne(name, update);
+}
+
+// 全跑：不在第一处红就停 —— 一次看到所有红的检查。
+int _checkAll() {
     string failed = "";
     foreach (var n in _checkNames()) {
         Console.WriteLine("");

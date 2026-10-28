@@ -111,10 +111,6 @@ void _devSdkMergeApphosts(string root, string outDir) {
 // artifact. NOT z42vm or cargo intermediates — consuming jobs cargo-build their
 // own host z42vm.
 int _packageCi(string dest) {
-    if (dest.Length == 0) {
-        ConsoleError.WriteLine("usage: xtask package ci <dest-dir>");
-        return 2;
-    }
     string root = _root();
     Stopwatch sw = _procStart("package ci");
     // 1. stdlib flat dist (Z42_LIBS lookup): every file in dist/release/

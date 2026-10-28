@@ -127,7 +127,7 @@ install、`ci.yml`、`.github/actions/`——它们决定 SDK 里装什么或怎
 |---|---|
 | `docs/`、`*.md` | 文档 |
 | `**/tests/**`、`**/benches/**`、`examples/` | 测试 / bench 源码与夹具、学习手册示例，不进包 |
-| `scripts/test/`、`scripts/cli/xtask_cli_{test,check}.z42`、`scripts/xtask_{bench,profile}.z42` | xtask 只做测试 / 检查 / 性能编排的部分 |
+| `scripts/test/`、`scripts/check/`、`scripts/bench/` | xtask 只做测试 / 检查 / 性能编排的部分 |
 | `.github/workflows/{bench-pr,deploy-book,jit-fixpoint-check}.yml` | 不参与发布的 workflow |
 
 SoT 是脚本里的 `non_sdk_re`，这张表随它改。

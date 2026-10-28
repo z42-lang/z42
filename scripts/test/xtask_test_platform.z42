@@ -7,7 +7,7 @@
 // land (AssetLayout).
 //
 // Backends live in xtask_test_{wasm,ios,android,desktop}.z42; entry is `test app <p> [step]`
-// (xtask_test_app.z42). The device backends' `run` goes through z42b's device drivers
+// (TestAppCommand). The device backends' `run` goes through z42b's device drivers
 // (builder_device*.z42).
 namespace Z42Xtask;
 
@@ -38,7 +38,7 @@ public class AssetLayout {
     }
 }
 
-// ── Dispatch (called from xtask_test_app.z42) ──────────────────────────────
+// ── Dispatch (called from TestAppCommand via _testApp) ─────────────────────
 
 // name ∈ desktop|wasm|ios|android ; step ∈ ""(=all three phases)|stage|build|assets|run.
 int _platformDispatch(string name, string step, string root) {

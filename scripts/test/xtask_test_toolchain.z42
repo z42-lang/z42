@@ -7,19 +7,15 @@ namespace Z42Xtask;
 
 using Std.IO;
 using Std.Time;
-using Std.Cli;
 
 // `xtask test toolchain [<comp>] [--target <name>]`：各工程的 [Test] 单元；comp 为空或是 builder 时再跑 builder 的
 // manifest 目标夹具（`[[test]]` / `[[example]]` / `[[bench]]` 与 z42b 自身的清单 / hook / 发现规则，
 // test-layout §3 的 fixtures 表）。GREEN 里两者是两个 stage（`toolchain [Test]`、`manifest targets`）。
-int _testToolchain(ParseResult r) {
+int _testToolchain(string comp, bool noBuild, string filter, string target) {
     Stopwatch sw = _procStart("test toolchain");
-    string comp = r.GetPositional(0);
-    bool noBuild = r.GetFlag("no-build");
-    string target = r.GetOption("target");
     int rc = 0;
     if (target.Length == 0) {
-        rc = _testToolchainCore(comp, noBuild, r.GetOption("filter"), comp == "builder" || comp == "z42.builder");
+        rc = _testToolchainCore(comp, noBuild, filter, comp == "builder" || comp == "z42.builder");
     }
     if (rc == 0 && (comp.Length == 0 || comp == "builder" || comp == "z42.builder")) {
         rc = _testTargetsCore("test", target, noBuild);

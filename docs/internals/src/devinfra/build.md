@@ -347,5 +347,5 @@ per-member `--output-dir` + runlibs 累积的隔离布局才能让每个成员�
 ## 10. 边界与限制
 
 - cold 路径本地不可完整验证（依赖下载），其 GREEN 判定以 CI 为准。
-- `build stdlib [lib]` 的按库参数当前只接受 all（整 workspace 构建），`-h` 亦如此标注。
+- `build stdlib` 总是整 workspace 构建，没有按库参数。
 - `build test` 的并发度对少核机器固定为 8，不随 CPU 数向下自适应。

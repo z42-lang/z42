@@ -1,6 +1,6 @@
 // xtask — script performance profiling.
 //
-// `xtask profile <script.z42> [--cpu|--heap|--threads|--e2e|--all] [--mode M]`
+// `xtask profile <script.z42> [--cpu|--heap|--threads|--e2e] [--mode M]`
 // compiles the script once (via z42c, like `bench`) then, per requested
 // dimension, hangs an external profiler or a knob off the z42vm run:
 //
@@ -9,7 +9,7 @@
 //   --heap     build a throwaway dhat-heap VM → dhat-heap.json + counter摘要
 //   --threads  counter摘要 (safepoint/lock model note) + samply per-thread hint
 //   --e2e      hyperfine wall-clock + /usr/bin/time peak-RSS + counter摘要
-//   --all      run all four → write report.md
+//   (none)     run all four → write report.md
 //
 // The counter摘要 comes from the JSON counter surface (`z42vm --stats=json`, scraped off stderr).
 namespace Z42Xtask;
@@ -35,23 +35,28 @@ class ProfileCtx {
 }
 
 // `profile <script>` entry. Resolves + compiles the script, then dispatches the
-// selected dimensions. No dimension flag → all four (like `--all`).
-int _profile(ParseResult r) {
-    string script = r.GetPositional(0);
-    if (script.Length == 0) {
-        ConsoleError.WriteLine("usage: xtask profile <script.z42> [--cpu|--heap|--threads|--e2e|--all] [--mode interp|jit]");
-        return 2;
-    }
-    bool cpu = r.GetFlag("cpu");
-    bool heap = r.GetFlag("heap");
-    bool threads = r.GetFlag("threads");
-    bool e2e = r.GetFlag("e2e");
-    bool all = r.GetFlag("all");
-    if (all || (!cpu && !heap && !threads && !e2e)) {
-        cpu = true; heap = true; threads = true; e2e = true; all = true;
-    }
-    string mode = r.GetOption("mode");
-    if (mode.Length == 0) { mode = "jit"; }
+// selected dimensions. No dimension flag → all four + report.md.
+class ProfileCommand : Command {
+    [Option(help: "native CPU flamegraph via samply")] public bool Cpu;
+    [Option(help: "heap profile via dhat (builds a throwaway dhat-heap VM)")] public bool Heap;
+    [Option(help: "concurrency counters + per-thread timeline hint")] public bool Threads;
+    [Option(help: "wall-clock (hyperfine) + peak-RSS + counters")] public bool E2e;
+    [Option(help: "measured mode", choices: new string[]{ "interp", "jit" })] public string Mode = "jit";
+    [Argument(help: "<script.z42> to profile", required: true)] public string Script = "";
+
+    public ProfileCommand() : base("profile", "profile a .z42 script (cpu/heap/threads/e2e; no dimension flag = all four → report.md)") {}
+    public override int Run() { return _profile(this); }
+}
+
+int _profile(ProfileCommand c) {
+    string script = c.Script;
+    bool cpu = c.Cpu;
+    bool heap = c.Heap;
+    bool threads = c.Threads;
+    bool e2e = c.E2e;
+    bool all = !cpu && !heap && !threads && !e2e;
+    if (all) { cpu = true; heap = true; threads = true; e2e = true; }
+    string mode = c.Mode;
 
     string root = _root();
     string srcAbs = script.StartsWith("/") ? script : Path.Join(root, script);

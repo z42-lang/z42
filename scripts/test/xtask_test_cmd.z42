@@ -1,0 +1,188 @@
+// xtask `test` 命令族，按「契约属于谁」归类（test-layout.md §1 的 owner 表）：
+//   (无子命令)  完整 GREEN gate [--no-build] [--skip <csv>] [--changed <base>]（默认动作）
+//   changed     按改动推导该跑的命令
+//   e2e / stdlib / compiler / toolchain / runtime   各 owner 的用例
+//   app         嵌入宿主里跑（desktop / wasm / ios / android）
+//   docs        文档链接 + 学习手册示例
+//   list        用例目录（只读）
+// 不跑用例的静态检查在 `xtask check`；打包的验证在 `xtask package sdk --verify`。
+namespace Z42Xtask;
+
+using Std.Cli;
+
+class TestCommand : Command {
+    [Option(help: "skip z42c+stdlib rebuild — consume what the bootstrap/toolchain already built")]
+    public bool NoBuild;
+    [Option(help: "skip named stages (csv; see test-gate.md §5) — CI offloads stages to parallel jobs")]
+    public string Skip = "";
+    [Option(help: "only run the heavy stages affected by changes since <base> (test-changed mapping; static checks always run)")]
+    public string Changed = "";
+
+    public TestCommand() : base("test", "run tests") {
+        this.SetDefaultAction("the full GREEN gate");
+        this.AddCommand(new TestChangedCommand());
+        this.AddCommand(new TestE2eCommand());
+        this.AddCommand(new TestListCommand());
+        this.AddCommand(new LibUnitsCommand("test", "stdlib [Test] (all or one)"));
+        this.AddCommand(new TestCompilerCommand());
+        this.AddCommand(new TestToolchainCommand());
+        this.AddCommand(new TestRuntimeCommand());
+        this.AddCommand(new TestAppCommand());
+        this.AddCommand(new TestDocsCommand());
+    }
+
+    public override int Run() {
+        string skip = this.Skip;
+        if (this.Changed.Length > 0) {
+            string extra = _changedGateSkips(this.Changed);
+            if (extra.Length > 0) { skip = skip.Length == 0 ? extra : skip + "," + extra; }
+        }
+        return _testAll(this.NoBuild, skip);
+    }
+}
+
+class TestChangedCommand : Command {
+    [Option(help: "print the plan, don't run")] public bool DryRun;
+    [Argument(help: "git base ref (default: $Z42_TEST_CHANGED_BASE, else HEAD)")] public string Base = "";
+
+    public TestChangedCommand() : base("changed", "only changed-area tests") {}
+    public override int Run() { return _testChanged(this.Base, this.DryRun); }
+}
+
+class TestE2eCommand : Command {
+    [Option(help: "skip rebuild before run")] public bool NoRebuild;
+    [Option(help: "regen goldens only — skip z42c+stdlib rebuild (consume bootstrap output)")] public bool NoBuild;
+    [Option(help: "run only src/tests/<cat> (e.g. classes, cross-zpkg)")] public string Dir = "";
+    [Option(help: "run one case (name or source-path substring)")] public string File = "";
+    [Option(help: "execution mode (default: both)", choices: new string[]{ "interp", "jit" })] public string Mode = "";
+    [Option(help: "parallel jobs")] public string Jobs = "";
+    [Option(help: "k/n: run shard k of n golden cases (for parallel CI)")] public string Shard = "";
+
+    public TestE2eCommand() : base("e2e", "src/tests end-to-end (goldens + cross-zpkg; --dir/--file to narrow)") {}
+    public override int Run() { return _testE2e(this); }
+}
+
+// read-only catalog of the case-granular corpus: what cases exist, how to run one,
+// which platforms can run it — no source-reading needed.
+class TestListCommand : Command {
+    [Option(help: "only this bucket (src/tests <cat> or stdlib <lib>)")] public string Dir = "";
+    [Option(help: "only cases whose name contains this substring")] public string Filter = "";
+    [Option(help: "case kind", choices: new string[]{ "golden", "test", "all" })] public string Kind = "all";
+    [Option(help: "emit JSON instead of the human table")] public bool Json;
+
+    public TestListCommand() : base("list", "catalog the case-granular corpus (goldens + stdlib [Test])") {}
+    public override int Run() { return _testList(this.Dir, this.Filter, this.Kind, this.Json); }
+}
+
+// `test stdlib` 与 `bench stdlib`：同一个 _testLib 实现、同一组参数，按 kind 区分。
+// 用 kind 参数而非两个子类：跨包基类（Command）下的三层构造链目前会丢祖父构造器。
+class LibUnitsCommand : Command {
+    [Option(help: "skip tooling rebuild")] public bool NoBuild;
+    [Option(help: "name filter", shortName: "k")] public string Filter = "";
+    [Option(help: "parallel unit batch width")] public string Jobs = "";
+    [Option(help: "execution mode (default: interp; jit forks z42vm)", choices: new string[]{ "interp", "jit" })]
+    public string Mode = "";
+    [Option(help: "k/n: run shard k of n libs (balanced; for parallel CI)")] public string Shard = "";
+    [Option(help: "override: prebuilt z42vm (with --driver/--libs → skip in-tree build)")] public string Vm = "";
+    [Option(help: "override: prebuilt z42c.driver.zpkg")] public string Driver = "";
+    [Option(help: "override: prebuilt flat libs dir (stdlib + z42c siblings)")] public string Libs = "";
+    // add-stdlib-bench-baseline: 捕获聚合 bench_stats 到 schema-v1 baseline 文件（median_ns 主指标）。
+    [Option(help: "bench: capture aggregated bench_stats to a schema-v1 baseline file")] public string Json = "";
+    [Argument(help: "single lib (default: all)")] public string Lib = "";
+    private string _kind;   // "test" | "bench"
+
+    public LibUnitsCommand(string kind, string description) : base("stdlib", description) { this._kind = kind; }
+
+    public override int Run() {
+        if (this._kind == "test" && this.Json.Length > 0) { throw new CliException("--json is for `bench stdlib` only"); }
+        return _testLib(this, this._kind, this.Json);
+    }
+}
+
+// 编译器：不带 part = GREEN 里那三项（自举不动点 + [Test] 单元 + e2e）；其余是按需跑的专项。
+class TestCompilerCommand : Command {
+    [Option(help: "fingerprint: base source tree root (its stdlib already built by the base compiler)")]
+    public string Base = "";
+    [Option(help: "fingerprint: the base side's driver zpkg (tells whether both sides are the same binary)")]
+    public string BaseDriver = "";
+    [Option(help: "bootstrap: target RID (default: host)")] public string Rid = "";
+    [Argument(help: "one on-demand check (default: fixpoint + units + e2e)",
+              choices: new string[]{ "incremental", "fingerprint", "bootstrap" })]
+    public string Part = "";
+
+    public TestCompilerCommand() : base("compiler", "z42c fixpoint + units + e2e; or incremental | fingerprint | bootstrap") {}
+
+    public override int Run() {
+        if (this.Part == "incremental") { return _testIncremental(); }       // 文件级增量暴力对账（D4/D8）
+        if (this.Part == "fingerprint") { return _testFingerprint(this.Base, this.BaseDriver); }   // 编译器输出变 ⇒ 版本号必须累加
+        if (this.Part == "bootstrap")   { return _bootstrapCheck(this.Rid); }   // staged-bootstrap 边界检查
+        return _testCompiler(false);
+    }
+}
+
+// 工具链组件（test-layout §1）：各工程 tests/ 的 [Test] 单元 + builder 的 manifest 目标夹具。
+class TestToolchainCommand : Command {
+    [Option(help: "skip tooling rebuild")] public bool NoBuild;
+    [Option(help: "name filter", shortName: "k")] public string Filter = "";
+    [Option(help: "builder fixtures: one manifest target by name")] public string Target = "";
+    [Argument(help: "component dir (builder / interactive …) or package name (z42.repl); default: all")]
+    public string Comp = "";
+
+    public TestToolchainCommand() : base("toolchain", "toolchain components' units + builder manifest-target fixtures") {}
+    public override int Run() { return _testToolchain(this.Comp, this.NoBuild, this.Filter, this.Target); }
+}
+
+class TestRuntimeCommand : Command {
+    public TestRuntimeCommand() : base("runtime", "Rust VM unit tests (cargo test src/runtime, serialized)") {}
+    public override int Run() { return _testRuntime(); }
+}
+
+// 嵌入宿主（test-layout §6）：desktop 也是一个宿主平台（C ABI 宿主），与 wasm / iOS / Android 同一条流水线。
+class TestAppCommand : Command {
+    [Option(help: "only embedded cases whose name contains this substring")] public string Filter = "";
+    [Option(help: "k/n: run shard k of n of the embedded corpus (R1–R7 runs on shard 1 only)")] public string Shard = "";
+    [Option(help: "desktop run report (default: json)", choices: new string[]{ "json", "pretty", "tap" })]
+    public string Format = "";
+    [Option(help: "desktop: run one .zbc or one golden case dir instead of a corpus bundle")] public string Zbc = "";
+    [Argument(help: "a workload platform or all (all = every platform this host supports; others are skipped with a reason)")]
+    public string Platform = "";
+    [Argument(help: "one step only (default: the whole pipeline)",
+              choices: new string[]{ "stage", "build", "assets", "bundle", "run" })]
+    public string Step = "";
+
+    public TestAppCommand() : base("app", "embedding hosts: desktop / wasm / ios / android / all (unsupported hosts are skipped)") {
+        this.SetHelp("Platform", _joinStrings(_vWorkloads(_root()), " | ")
+            + " | all (all = every platform this host supports; others are skipped with a reason)");
+    }
+    public override int Run() { return _testApp(this); }
+}
+
+// 文档（三本书）：不带 kind = 两样都跑。
+class TestDocsCommand : Command {
+    [Option(help: "examples: SDK to run `z42` from (default: artifacts/.z42 — `xtask build toolchain` + `xtask package dev-sdk`)")]
+    public string Sdk = "";
+    [Option(help: "examples: only check docs/learn ↔ examples references (no SDK needed)")] public bool BookOnly;
+    [Option(help: "examples: rewrite mismatching expected output with the actual output")] public bool Bless;
+    [Option(help: "examples: keep every sandbox directory (failed ones are always kept)")] public bool Keep;
+    [Option(help: "examples: per-step timeout in seconds")] public int Timeout = 120;
+    [Argument(help: "default: both", choices: new string[]{ "links", "examples" })] public string Kind = "";
+    [Argument(help: "examples: only transcripts under examples/<path> (default: all)", name: "path")]
+    public string Under = "";
+
+    public TestDocsCommand() : base("docs", "documentation: links + learn-book examples") {}
+
+    public override int Run() {
+        if (this.Kind == "" || this.Kind == "links") {
+            int c = _testDocs(_root());
+            if (c != 0 || this.Kind == "links") { return c; }
+        }
+        ExamplesOptions o = new ExamplesOptions();
+        o.Filter = this.Under;
+        o.Sdk = this.Sdk;
+        o.BookOnly = this.BookOnly;
+        o.Bless = this.Bless;
+        o.Keep = this.Keep;
+        o.TimeoutS = this.Timeout;
+        return _testExamples(o);
+    }
+}

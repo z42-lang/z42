@@ -1,0 +1,116 @@
+// xtask `package` 命令族 = **组装**（把已编好的产物摆成某种布局），按产物命名：
+//   sdk / runtime / workload   发行包；都可带 `--archive [--label]` 在包目录旁出发布归档（本地即可），
+//                              `sdk --verify` 再在这份 SDK 上跑 packages.toml 自检 + 发行包夹具 + golden
+//   dev-sdk / ci               开发态布局（`.z42` SDK / CI 的构建树 zpkg 快照）
+//   release <label>            CI 汇总 job 专用：合并逐 RID 桌面 workload → SHA256SUMS → release-index.json
+//                              （要全部 RID 的归档，单机凑不齐）
+namespace Z42Xtask;
+
+using Std.Cli;
+
+class PackageCommand : Command {
+    public PackageCommand() : base("package", "assemble packages / layouts from built artifacts") {
+        this.AddCommand(new PackageSdkCommand());
+        this.AddCommand(new PackageRuntimeCommand());
+        this.AddCommand(new PackageWorkloadCommand());
+        this.AddCommand(new PackageDevSdkCommand());
+        this.AddCommand(new PackageCiCommand());
+        this.AddCommand(new PackageReleaseCommand());
+    }
+}
+
+// 发行包三兄弟（sdk / runtime / workload）共同的流程：组装 → `--archive` 时出归档 → sdk 的 `--verify`。
+// 不抽公共基类：跨包基类（Command）下的三层构造链目前会丢祖父构造器。
+void _pkgCheckArchive(bool archive, string profile) {
+    if (archive && profile != "release") {
+        throw new CliException("--archive only applies to --profile release (only release packages are published)");
+    }
+}
+
+int _pkgAfterAssemble(int rc, bool archive, string label) {
+    if (rc != 0 || !archive) { return rc; }
+    return _pkgArchiveOutputs(label);
+}
+
+class PackageSdkCommand : Command {
+    [Option(help: "build profile", choices: new string[]{ "release", "debug" })] public string Profile = "release";
+    [Option(help: "package variant suffix")] public string Variant = "";
+    [Option(help: "assemble from existing z42c+stdlib artifacts (CI warm)")] public bool NoBuild;
+    [Option(help: "then verify: packages.toml self-checks + package fixtures + goldens on THIS SDK (builds the host desktop workload if missing)")]
+    public bool Verify;
+    [Option(help: "also write the release archive next to the package dir (artifacts/packages/z42-…{.tar.gz,.zip}); release profile only")]
+    public bool Archive;
+    [Option(help: "--archive: version label in archive names (default: versions.toml version; CI nightly: nightly)")]
+    public string Label = "";
+
+    public PackageSdkCommand() : base("sdk", "assemble the host SDK package") {}
+
+    // 先出归档、再验证：--verify 可能顺带打一份桌面 workload，它不属于本次要出归档的产出。
+    public override int Run() {
+        _pkgCheckArchive(this.Archive, this.Profile);
+        int c = _pkgAfterAssemble(_packageSdk(this.Profile, this.Variant, this.NoBuild), this.Archive, this.Label);
+        if (c != 0 || !this.Verify) { return c; }
+        return _packageVerify(PackageOutputs.All()[0]);
+    }
+}
+
+class PackageRuntimeCommand : Command {
+    [Option(help: "target RID (default: host)")] public string Rid = "";
+    [Option(help: "build profile", choices: new string[]{ "release", "debug" })] public string Profile = "release";
+    [Option(help: "package variant suffix")] public string Variant = "";
+    [Option(help: "assemble from existing z42c+stdlib artifacts (CI warm)")] public bool NoBuild;
+    [Option(help: "also write the release archive next to the package dir; release profile only")] public bool Archive;
+    [Option(help: "--archive: version label in archive names (default: versions.toml version)")] public string Label = "";
+
+    public PackageRuntimeCommand() : base("runtime", "assemble the runtime package (native+stdlib; --rid for platform)") {}
+
+    public override int Run() {
+        _pkgCheckArchive(this.Archive, this.Profile);
+        return _pkgAfterAssemble(_packageRuntime(this.Rid, this.Profile, this.Variant, this.NoBuild), this.Archive, this.Label);
+    }
+}
+
+class PackageWorkloadCommand : Command {
+    [Option(help: "desktop workload for this RID (default: host)")] public string Rid = "";
+    [Option(help: "build profile", choices: new string[]{ "release", "debug" })] public string Profile = "release";
+    [Option(help: "also write the release archive next to the package dir; release profile only")] public bool Archive;
+    [Option(help: "--archive: version label in archive names (default: versions.toml version)")] public string Label = "";
+    [Argument(help: "test = the payload-only capability workload (default: per-RID desktop workload)",
+              choices: new string[]{ "test" })]
+    public string Kind = "";
+
+    public PackageWorkloadCommand() : base("workload", "per-RID desktop workload (--rid), or `workload test`") {}
+
+    public override int Run() {
+        _pkgCheckArchive(this.Archive, this.Profile);
+        int c = this.Kind == "test"
+            ? _buildTestWorkload(_root(), _versionsGet(_root()), this.Profile)
+            : _packageWorkloadBuild(this.Rid, this.Profile);
+        return _pkgAfterAssemble(c, this.Archive, this.Label);
+    }
+}
+
+class PackageDevSdkCommand : Command {
+    [Option(help: "output dir (default: artifacts/.z42)")] public string Out = "";
+
+    public PackageDevSdkCommand() : base("dev-sdk", "assemble built z42c + stdlib + z42vm (+ published apphosts) → .z42 layout (--toolchain / learn-book examples consume it)") {}
+    public override int Run() { return _packageDevSdk(this.Out); }
+}
+
+class PackageCiCommand : Command {
+    [Argument(help: "destination dir", required: true)] public string Dest = "";
+
+    public PackageCiCommand() : base("ci", "built-tree zpkg snapshot (z42c + stdlib + xtask + z42b) → <dest>, for the CI toolchain-<os> artifact") {}
+    public override int Run() { return _packageCi(this.Dest); }
+}
+
+class PackageReleaseCommand : Command {
+    [Argument(help: "release label, e.g. 0.3.0 or nightly", required: true)] public string Label = "";
+    [Option(help: "archive dir (default: artifacts/packages)")] public string Dir = "";
+    [Option(help: "channel (default: stable)")] public string Channel = "";
+    [Option(help: "tag (default: v<LABEL>)")] public string Tag = "";
+    [Option(help: "version (default: <LABEL>)")] public string Version = "";
+
+    public PackageReleaseCommand() : base("release", "CI release aggregate over all RIDs' archives: merge desktop workloads → SHA256SUMS → release-index.json") {}
+    public override int Run() { return _packageRelease(this.Label, this.Dir, this.Channel, this.Tag, this.Version); }
+}

@@ -21,11 +21,10 @@ namespace Z42Xtask;
 
 using Std.IO;
 using Std.Time;
-using Std.Cli;
 using Std.Crypto;
 using Z42.Project;
 
-int _testIncremental(ParseResult r) {
+int _testIncremental() {
     Stopwatch sw = _procStart("test compiler incremental");
     string root = _root();
     string vm = _builtVm(root, "release");

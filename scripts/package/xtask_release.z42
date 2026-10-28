@@ -343,10 +343,6 @@ int _relZipDir(string dir, string zipPath) {
 // （index 的校验会逐个点名缺的）。channel / tag / version 缺省 stable / v<label> / <label>。
 // DIR 缺省 = artifacts/packages（`--archive` 出归档的地方；SHA256SUMS 只认 `z42-*.tar.gz|zip` 文件，包目录不干扰）。
 int _packageRelease(string label, string dist, string channel, string tag, string version) {
-    if (label.Length == 0) {
-        ConsoleError.WriteLine("usage: xtask package release <LABEL> [--dir DIR] [--channel C] [--tag T] [--version V]");
-        return 2;
-    }
     string root = _root();
     if (dist.Length == 0) { dist = _packagesDir(root); }
     string distDir = Path.IsRooted(dist) ? dist : Path.Join(root, dist);

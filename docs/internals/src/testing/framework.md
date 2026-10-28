@@ -300,4 +300,4 @@ build wave 也算一个 stage：它同样走 `_stageStart` 打 banner、同样�
 | benchmark 统计形状 | `Bencher.printSummary` **和** `BenchStats._parseLine`，同一个 commit |
 | 加载/调用能力 | `src/runtime/src/corelib/reflection/module_load.rs` + `builtin_table.rs` 登记 |
 | gate 组成 | `_gateStageNames()` **和** test-gate 文档的 gate-stages 区 |
-| 单元编排 / 并行 / 分片 | `scripts/test/xtask_test_lib.z42`、`scripts/cli/xtask_cli_test.z42`（命令面） |
+| 单元编排 / 并行 / 分片 | `scripts/test/xtask_test_lib.z42`、`scripts/test/xtask_test_cmd.z42`（命令面） |

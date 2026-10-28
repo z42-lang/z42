@@ -1,8 +1,8 @@
 # xtask：仓库开发 CLI
 
-> 代码：`scripts/xtask.z42`、`scripts/cli/xtask_cli.z42`、`scripts/cli/`、`scripts/common/`
+> 代码：`scripts/xtask.z42`、各领域目录的 `xtask_<族>_cmd.z42`、`scripts/common/`
 >
-> 每个子命令的旗标以 `xtask <命令> -h` 为准（帮助文本由路由树自动生成）；逐文件职责表见
+> 每个子命令的旗标以 `xtask <命令> -h` 为准（帮助文本由命令类自动生成）；逐文件职责表见
 > [`scripts/README.md`](https://github.com/z42-lang/z42/blob/main/scripts/README.md)，本页不复列。
 
 `xtask` 是仓库里所有开发动作（构建 / 测试 / 打包 / 依赖 / 基准 / 剖析）的唯一入口，
@@ -57,45 +57,45 @@ publish 每次都过一遍 z42c 的增量编译：改了什么重编什么，全
 **不需要先 `z42 build`**，也不存在「zpkg 已存在就跳过编译」的短路——publish 见到既有产物照样过
 增量编译，否则会把旧 payload 重新签一遍而人不知情。
 
-## 3. CLI 分发：路由树 + 每族一文件
+## 3. CLI 分发：命令即类，就近声明
+
+命令树用 `Std.Cli` 的声明式 `Command` 搭（API 见 [z42.cli](https://z42-lang.github.io/z42/reference/stdlib/cli.html)）：
+一个命令一个类，参数是贴了 `[Option]` / `[Argument]` 的字段，动作是 `Run()`，层级由父命令在构造器里
+`AddCommand(child)` 挂上。`Main` 只做一件事：
 
 ```mermaid
 graph LR
     M[Main] --> E[_ensureDriverVm<br/>校验 z42vm 可用]
-    E --> R[_runCli]
-    R --> RT[SubcommandRouter 树<br/>Resolve]
-    RT --> G[全局选项 → 环境变量<br/>--toolchain → Z42_HOME<br/>--verbosity → Z42_VERBOSITY]
-    G --> D[_dispatch 按路径首段<br/>→ 各 _dispatchXxx]
+    E --> I[XtaskCommand.Invoke]
+    I --> B[解析 + 绑定字段]
+    B --> G[XtaskCommand.BeforeRun<br/>--toolchain → Z42_HOME<br/>--verbosity → Z42_VERBOSITY]
+    G --> R[目标命令 Run → handler]
 ```
 
-**全局选项**是根 router 的 persistent option（`AddPersistentOption`）：`Resolve` 先把它们从 argv 任意位置
-（子命令前后皆可，`--` 之后不算）剥出，`_applyGlobals` 再写进环境变量，子进程随之继承。
+- **全局选项**是根命令 `XtaskCommand` 上的 `[Option(global: true)]` 字段：子命令前后皆可写（`--` 之后、
+  `run` 之后不算），`BeforeRun` 把它们写进环境变量，子进程随之继承。
+- **默认动作**：`test` / `setup` / `bench` 在构造器里 `SetDefaultAction(…)`，不带子命令时执行它们自己的
+  `Run()`（裸 `test` = 完整 GREEN gate、裸 `setup` = 安装、裸 `bench` = e2e 场景）；默认动作的选项列在该层
+  `-h` 的 DEFAULT ACTION OPTIONS 段。
+- **`run`** 的参数是 `[Argument(passthrough: true)]`：`run` 之后的一切（含 launcher 自己的选项与 `--` 尾巴）
+  原样转给 launcher。
+- 取值校验（`choices:`、数字类型、必填）由命令层统一报错（退出码 2），handler 不再手写 usage 检查。
 
-**默认动作**由 `SetDefault` 表达：裸 `test` = 完整 GREEN gate、裸 `setup` = 安装、裸 `bench` = e2e 场景；
-argv 为空或首 token 是 flag 且不命中子命令时交给默认 parser，解析结果的路径只有命令族名一段
-（`_dispatchXxx` 里 `p.Length == 1` 即默认动作）。默认 parser 的选项列在该层 `-h` 的
-DEFAULT ACTION OPTIONS 段。
-
-`run` 不进路由：它之后的参数（含 launcher 自己的选项与 `--` 尾巴）原样转给 launcher，只有 `run` 之前的
-前缀交给路由树解析（全局选项照常生效）。
-
-命令族的 **router**（声明每个叶子的 flag / option / positional，`-h` 文本由此生成）与
-**dispatch**（把解析结果转给 handler）**成对出现、族间零耦合**——`build` 的 router 与 `test` 的
-dispatch 之间没有任何引用。所以按**族**分文件，而不是「所有 router 一段、所有 dispatch 一段」：
+**每个命令族的类与它的 handler 同住领域目录**——没有集中的 CLI 目录：
 
 ```
-scripts/cli/xtask_cli.z42              核心：_cliRoot 根树（含全局选项）→ _dispatch 分流
-scripts/cli/xtask_cli_build.z42    _buildRouter    + _dispatchBuild
-scripts/cli/xtask_cli_package.z42  _packageRouter  + _dispatchPackage
-scripts/cli/xtask_cli_test.z42     _testRouter     + _dispatchTest
-scripts/cli/xtask_cli_check.z42    _checkParser    + _check（静态检查的单跑入口；GREEN 里它们仍各是一个 stage）
-scripts/cli/xtask_cli_setup.z42    _setupRouter    + _dispatchSetup + 裸 setup 的安装入口
-scripts/cli/xtask_cli_bench.z42    _benchRouter    + _dispatchBench + 裸 bench 的 e2e 入口
+scripts/xtask.z42                    Main + XtaskCommand（根、全局选项、挂各族）+ RunCommand
+scripts/build/xtask_build_cmd.z42    build 族        （clean → build/xtask_clean.z42，doc → build/xtask_doc.z42）
+scripts/package/xtask_package_cmd.z42  package 族
+scripts/test/xtask_test_cmd.z42      test 族 + LibUnitsCommand（test stdlib / bench stdlib 共用）
+scripts/check/xtask_check_cmd.z42    check（静态检查的单跑入口；GREEN 里它们仍各是一个 stage）
+scripts/install/xtask_setup_cmd.z42  setup 族
+scripts/bench/xtask_bench_cmd.z42    bench 族        （profile → bench/xtask_profile.z42）
+scripts/common/xtask_layout.z42      layout
 ```
 
-**加一个命令族** = `scripts/cli/` 加一个文件 + `_cliRoot` 加一行 `AddRouter` + `_dispatch` 加一行。
-namespace 扁平（全仓 `Z42Xtask`）、工程 `include = ["**/*.z42"]` 递归收录，所以拆文件不需要改任何
-import。`scripts/xtask.z42` **只有入口**（`Main` → `_ensureDriverVm` → `_runCli`），不含任何命令 handler。
+**加一个命令** = 在领域目录写一个 `Command` 子类，并在父命令的构造器里 `AddCommand` 一行。
+namespace 扁平（全仓 `Z42Xtask`）、工程 `include = ["**/*.z42"]` 递归收录，所以放在哪个目录都不需要改 import。
 
 ## 4. `--toolchain` / `Z42_HOME` 的作用范围
 
