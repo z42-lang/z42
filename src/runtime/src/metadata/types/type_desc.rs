@@ -374,19 +374,47 @@ impl TypeDesc {
     /// the owning class's `"<ClassName>."` prefix, then the arity suffix
     /// `"$N"` (so `Foo.Bar.Method$2` → `Method`).
     ///
-    /// Returns the input unchanged when the prefix doesn't match — a
-    /// defensive fallback that should never fire in practice because
-    /// `build_type_registry` only inserts entries with the matching
-    /// prefix.
+    /// An instantiation's own methods may also live under its **erased definition**
+    /// (`Demo.Box.Get` for `Demo.Box<int>`, see [`TypeDesc::erased_definition_name`]);
+    /// that prefix is stripped the same way.
+    ///
+    /// Returns the input unchanged when neither prefix matches — a defensive fallback
+    /// that should never fire in practice because `build_type_registry` only inserts
+    /// entries with a matching prefix.
     #[inline]
     pub fn derive_simple_method_name<'a>(class_name: &str, fq: &'a str) -> &'a str {
+        if let Some(m) = Self::member_after(class_name, fq) {
+            return m;
+        }
+        Self::erased_definition_name(class_name)
+            .and_then(|def| Self::member_after(def, fq))
+            .unwrap_or(fq)
+    }
+
+    /// The generic **definition** a constructed instantiation's members are emitted under:
+    /// `Demo.Box<int>` → `Demo.Box`, `Demo.GBox$1<int>` → `Demo.GBox$1` (arity-keyed when a
+    /// same-named non-generic class coexists). `None` for a non-instantiated name.
+    ///
+    /// Identity is per instantiation, code is shared: the compiler re-emits members under
+    /// the instantiated name only when the instantiation's layout differs from the
+    /// definition's; every other member exists solely under this erased spelling. Same
+    /// split as `type_args_from_name` (everything from the first `<` is the argument list).
+    #[inline]
+    pub fn erased_definition_name(class_name: &str) -> Option<&str> {
+        if !class_name.ends_with('>') { return None; }
+        class_name.find('<').map(|lt| &class_name[..lt])
+    }
+
+    /// `fq` minus the `"<class_name>."` prefix, or `None` when `fq` is not a member of it.
+    #[inline]
+    fn member_after<'a>(class_name: &str, fq: &'a str) -> Option<&'a str> {
         let dot = class_name.len();
         if fq.len() <= dot + 1
             || !fq.is_char_boundary(dot)
             || !fq.as_bytes().get(dot).is_some_and(|&b| b == b'.')
             || &fq[..dot] != class_name
         {
-            return fq;
+            return None;
         }
         let after_prefix = &fq[dot + 1..];
         // stabilize-instance-dispatch-keys (H4): return the FULL method key (do NOT strip
@@ -397,7 +425,7 @@ impl TypeDesc {
         // "F" slot (observed: F(int) call → F(string) body). Keeping the full key gives each
         // overload its own slot; the bare primary keeps "F" for polymorphic/canonical
         // dispatch, and base/derived overrides align by identical full key.
-        after_prefix
+        Some(after_prefix)
     }
 }
 

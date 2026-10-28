@@ -72,6 +72,30 @@ pub fn build_type_registry(module: &mut Module) {
             own_methods.push(func.name.clone().into_boxed_str());
             own_static.push(func.is_static);
         }
+        // fix-generic-subclass-of-base: a constructed instantiation (`Demo.G<int>`) declares
+        // **every** member its definition declares, but only the layout-specialized ones are
+        // emitted under its own name — the rest exist solely under the erased definition
+        // (`Demo.G.Who`). Collect those too (a specialized body of the same key wins), or the
+        // merged vtable is the base's alone: `PB b = new G<int>(); b.Who()` hit the inherited
+        // `PB.Who` slot and never reached the override (a base-less generic class shows the
+        // same through `Std.Object`: its `ToString` override was ignored).
+        if let Some(def) = TypeDesc::erased_definition_name(class_name) {
+            let def_prefix = format!("{}.", def);
+            let specialized: rustc_hash::FxHashSet<&str> = own_methods.iter()
+                .map(|fq| TypeDesc::derive_simple_method_name(class_name, fq))
+                .collect();
+            let mut shared: Vec<(Box<str>, bool)> = Vec::new();
+            for func in &module.functions {
+                let Some(method) = func.name.strip_prefix(def_prefix.as_str()) else { continue };
+                if TypeDesc::is_ctor_member(def, method) || method.starts_with("__") { continue; }
+                if specialized.contains(method) { continue; }
+                shared.push((func.name.clone().into_boxed_str(), func.is_static));
+            }
+            for (fq, is_static) in shared {
+                own_methods.push(fq);
+                own_static.push(is_static);
+            }
+        }
 
         // ── Initial merged view: inherit from local-registry base if present.
         // Cross-zpkg base classes contribute nothing here — that's fixed up
