@@ -146,8 +146,8 @@ xtask 起的每个跑 z42 代码的子进程都经 `_z42Proc(exe, libs)` 建（z
 （见[项目模型](../compiler/project-model.md)）。`.EnvRemove(...)`（dist 测试刻意模拟用户机器）不判；夹具 `expect.toml`
 里的 `env` / `env_remove` 是夹具自己的输入，也不在扫描面内。
 
-**`lines` / `fnlines`（行数棘轮）已退役**：机制下沉为编译器内建 lint——`style.fileLines(Hard)`
-（886/500 两档）与 `style.fnLines(Hard)`（60/40 两档）四条规则，各包清单 `[lints]` 启用并升 error
+**`lines` / `fnlines`（行数棘轮）已退役**：机制下沉为编译器内建 lint——``style.fileLines`` / ``style.fileLinesHard``
+（886/500 两档）与 ``style.fnLines`` / ``style.fnLinesHard``（60/40 两档）四条规则，各包清单 `[lints]` 启用并升 error
 （越限拦编译，等价于原「新越界 = 红」）；原棘轮基线（gates.toml `[lines]` / `[fnlines]` 区）退役为
 源内显式豁免——方法级 `[Suppress("style.fnLinesHard", "…")]`、文件顶部 `#suppress`（见
 [编译期扩展](../../../reference/src/toolchain/compile-time-extensions.md)「内建规则」）。取舍：被豁免的条目可以继续增长
