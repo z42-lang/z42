@@ -1,30 +1,26 @@
 // xtask — `test toolchain builder` / `bench targets` impl（_testTargetsCore）：manifest-target
-// fixture runner (add-tests-bench-manifest-config P4).
-// Same Z42Xtask namespace. Runs the end-to-end fixtures under
+// fixture runner. Runs the end-to-end fixtures under
 // src/toolchain/builder/tests/fixtures/manifest-targets/<name>/ — each a real project whose z42.toml
 // declares `[[test]]`/`[[bench]]`/`[[example]]` targets — through the SAME
-// path the stdlib per-lib flow uses: **转发 z42b**（D2 起两条路合一）。This is
-// where harness=false (exit-code) targets, explicit-target overlay, 3-layer
-// dev-deps and named selection get exercised in a dedicated gate (existing stdlib
-// libs declare no explicit targets, so they only exercise the convention path).
+// path the stdlib per-lib flow uses (**转发 z42b**). This is where harness=false
+// (exit-code) targets, explicit-target overlay, 3-layer dev-deps and named selection
+// get exercised (stdlib libs declare no explicit targets, so they only exercise the
+// convention path); plus the z42b behaviour smokes (`_smoke*`) over fixtures/z42b.
 //
-// Tooling prep mirrors _testLibCore (release build-tree): stdlib + runtime +
-// self-built z42c + z42b, assembled into one flat Z42_LIBS. `xtask example` and
-// the example gate (xtask_test_example.z42) reuse _prepFixtureTooling here.
+// Tooling prep mirrors _testLibCore (release build-tree). The example gate
+// (xtask_test_example.z42) reuses _prepFixtureTooling.
 namespace Z42Xtask;
 
 using Std.IO;
 using Z42.Project;
 
 // Resolved toolchain for a manifest-target run (release build-tree paths).
-// Auto-properties (+ implicit default ctor) so `new TargetTooling()` works, per
-// the DepBundle pattern in this codebase.
 class TargetTooling {
     public string Vm { get; set; }
     public string DriverZpkg { get; set; }
     public string Libs { get; set; }         // stdlib flat（Z42_LIBS）
     public string BuilderZpkg { get; set; }  // z42b reflective runner
-    // isolate-xtask-fixture-builds：夹具在 build/ 镜像的**拷贝**上跑（z42b 把目标 / 父包产物写在
+    // 夹具在 build/ 镜像的**拷贝**上跑（z42b 把目标 / 父包产物写在
     // 清单目录旁，直接跑源码树里的夹具就会在 src/tests 下留产物）。两棵树各拷一次，整个 run 共用
     // —— 不能每个 smoke 各自重置：reuse-parent 等用例要看前面用例留下的父包产物。
     public string FixturesRoot { get; set; }      // src/toolchain/builder/tests/fixtures/manifest-targets 的拷贝
@@ -36,7 +32,7 @@ class TargetTooling {
 string _fixturesRoot(string root) { return Path.Join(root, "src/toolchain/builder/tests/fixtures/manifest-targets"); }
 
 // 一次 `z42b <verb> …` 的进程：reflective runner + `--mode`，cwd = 仓库根；调用方续接目标与自己的 flag，再
-// `_exec` 或 `.Stdout(Pipe()).Run()`。16 个 smoke 与 targets_ws 此前各拼一遍这五连前缀。
+// `_exec` 或 `.Stdout(Pipe()).Run()`。
 Process _z42bVerb(string root, TargetTooling tt, string verb) {
     return _z42bProc(tt.Vm, tt.Libs).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
         .Arg("--").Arg(verb).WorkingDirectory(root);
@@ -121,11 +117,8 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
         if (avail.Length > 0) { ConsoleError.WriteLine("  available: " + avail); }
         return 2;
     }
-    // compile-then-test smoke (add-z42b-compile-then-test): drive the whole
-    // toml→build→[Test] path through the single `z42b test <toml>` entry once —
-    // only on the full (unnamed) `test` run, so bench / named-target runs don't
-    // duplicate it. Covers the new project-manifest path the artifact-driven
-    // stdlib/compiler stages don't exercise.
+    // z42b behaviour smokes — only on the full (unnamed) `test` run, so bench /
+    // named-target runs don't duplicate them.
     if (kind == "test" && name.Length == 0) {
         failed = failed + _smokeCompileThenTest(root, tt);
         failed = failed + _smokeFallbackOutRoot(root, tt);
@@ -157,11 +150,10 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
 }
 
 // compile-then-test smoke: build + run the compile-then-test fixture through the
-// single `z42b test <z42.toml>` entry (add-z42b-compile-then-test). Exercises the
-// new project-manifest → _buildProject → Runner.RunModule path (distinct from the
-// already-compiled-artifact path stdlib/compiler stages cover abundantly).
-// Reuses the prepared tooling (built z42b + flat Z42_LIBS). Returns 0 pass /
-// 1 fail; skips cleanly (0) when the fixture is absent.
+// single `z42b test <z42.toml>` entry — the project-manifest → _buildProject →
+// Runner.RunModule path (distinct from the already-compiled-artifact path the
+// stdlib/compiler stages cover). Returns 0 pass / 1 fail; skips cleanly (0) when
+// the fixture is absent.
 int _smokeCompileThenTest(string root, TargetTooling tt) {
     string toml = Path.Join(tt.FixturesRoot, "compile-then-test/z42.toml");
     if (!_smokeBegin(toml, "compile-then-test (z42b test <z42.toml>)")) { return 0; }
@@ -174,9 +166,8 @@ int _smokeCompileThenTest(string root, TargetTooling tt) {
     return 0;
 }
 
-// 零目标回落也认 `--out-root`（fix-z42b-fallback-out-root）：compile-then-test 夹具没声明任何 [[test]]、源里自带
-// [Test] ⇒ 走 `_buildProject` 回落。此前那条路从磁盘重新加载清单，`_runDevTargets` 套在内存里的 out-root 覆盖到不了
-// ⇒ 产物照样写回 `<清单目录>/artifacts` + `<清单目录>/dist`（夹具若在源码树里，就是写进源码树）。
+// 零目标回落也认 `--out-root`：compile-then-test 夹具没声明任何 [[test]]、源里自带 [Test] ⇒ 走
+// `_buildProject` 回落；out-root 必须对这条路同样生效，否则产物写回清单目录旁（夹具在源码树里就写进源码树）。
 // 断言三条：① 通过；② 清单目录旁**没有** artifacts/ 与 dist/；③ out-root 下**有**建出的 zpkg（证明产物去了那儿，
 // 而不是压根没写 —— 没有 ③ 的话 ② 在「什么都没建」时也成立）。
 int _smokeFallbackOutRoot(string root, TargetTooling tt) {
@@ -210,19 +201,16 @@ int _smokeFallbackOutRoot(string root, TargetTooling tt) {
     return 0;
 }
 
-// dev-target internal smoke (z42b-owns-test-targets): 驱动 `z42b test <toml>` 走
-// **按 [[test]] 目标编译 + 运行**的新路径，并锁住两条此前不成立的性质：
-//   ① 目标**只编自己声明的源**（此前 in-process 路径把 include 硬编码成 `**/*.z42`，
-//      会把整个工程编进每个目标 —— 那也会让 ① 的 internal 断言假阳性，因为父包源被一起编了）；
+// dev-target internal smoke: 驱动 `z42b test <toml>` **按 [[test]] 目标编译 + 运行**，锁住两条性质：
+//   ① 目标**只编自己声明的源**（把整个工程编进每个目标会让 ② 的断言假阳性，因为父包源被一起编了）；
 //   ② 目标**看得见父包的 internal**（类与成员两条判定路径都覆盖）。
 // 回归方向（普通消费包仍被拒）由 cross-zpkg/class_internal_access 守着。
 int _smokeDevTargetInternal(string root, TargetTooling tt) {
     string toml = Path.Join(tt.Z42bFixturesRoot, "dev-target-internal/z42.toml");
     if (!_smokeBegin(toml, "dev-target internal (z42b test <toml>：按目标编译 + 可见父包 internal)")) { return 0; }
-    // fix-devtarget-parent-copy-stale 的负例：先在两个目标的 dist 里放一份**损坏的**父包同置副本，
-    // 模拟上一轮留下的过期拷贝。z42b 若沿用「已存在就不拷」，运行期会加载到这份垃圾、父包类型解析
-    // 不到 ⇒ 本 smoke 判红；正确行为是每次覆盖成刚建好的父包。（此前这里只在全新树上跑，过期副本
-    // 从未出现过 ⇒ 那个「不刷新」的 bug 在这道门下永远是绿的。）
+    // 负例：先在两个目标的 dist 里放一份**损坏的**父包同置副本，模拟上一轮留下的过期拷贝。z42b 若
+    // 「已存在就不拷」，运行期会加载到这份垃圾 ⇒ 本 smoke 判红；正确行为是每次覆盖成刚建好的父包。
+    // 只在全新树上跑的话过期副本永远不出现，这个 bug 就永远是绿的。
     string[] targetNames = new string[] { "internals_tests", "dirunit" };
     string targetsRoot = Path.Join(Path.GetDirectoryName(toml), "artifacts/test-targets");
     int ti = 0;
@@ -241,15 +229,15 @@ int _smokeDevTargetInternal(string root, TargetTooling tt) {
     return 0;
 }
 
-// `--reuse-parent` smoke（perf-z42b-reuse-parent）：xtask 每个库先跑一个单元把父包建好，其余单元带
+// `--reuse-parent` smoke：xtask 每个库先跑一个单元把父包建好，其余单元带
 // `--reuse-parent` 并行复用。这里锁住它的安全边：**父包 dist 不在时必须照常建**，而不是把一个不存在
 // 的目录当成父包交给编译器（那样目标编译会解析不到父包 internal ⇒ 判红，或更糟地悄悄用上旧产物）。
 // 先整个删掉 fixture 的父包产物，再带 flag 只跑 dirunit（它要看父包 internal）。
 int _smokeReuseParentMissing(string root, TargetTooling tt) {
     string toml = Path.Join(tt.Z42bFixturesRoot, "dev-target-internal/z42.toml");
     if (!_smokeBegin(toml, "reuse-parent (父包 dist 不在时 --reuse-parent 仍须先建父包)")) { return 0; }
-    // 父包 dist 的位置取 z42.project 的 `BuildLayout`（z42b `_computeDirs` 用的同一份答案，unify-build-layout），
-    // 不再写死 z42b 的旧默认 `artifacts/<name>/<profile>`。xtask 调 z42b 不带 --release ⇒ debug。
+    // 父包 dist 的位置取 z42.project 的 `BuildLayout`（z42b `_computeDirs` 用的同一份答案），不写死。
+    // xtask 调 z42b 不带 --release ⇒ debug。
     string parentOut = BuildLayout.Resolve(ManifestLoader.Load(toml), Path.GetDirectoryName(toml), false).DistDir;
     if (Directory.Exists(parentOut)) { Directory.Delete(parentOut, true); }
     int rc = _exec(_z42bVerb(root, tt, "test").Arg(toml).Arg("--name").Arg("dirunit").Arg("--reuse-parent"));
@@ -261,17 +249,9 @@ int _smokeReuseParentMissing(string root, TargetTooling tt) {
     return 0;
 }
 
-// 孤儿源守卫 smoke：**预期判红**的 fixture —— tests/ 下有 .z42 源，但默认 glob 不认领，
-// 且该子目录没有自己的 toml（有的话它就是独立工程）。守卫不在的话 z42b 会回落到「编译本包
-// 自己再跑」，而该 fixture 的 src/ 里**特意放了一个通过的 [Test]** —— 于是回落会跑出
-// 「1 passed」的绿色，下游 #571 的零测试判红也接不住。这个 fixture 锁的就是那片静默。
-//
-// 断言方向与其它 smoke 相反：rc == 0 才是失败。
-// 编译失败的**收尾姿势**：必须是一条干净的错误退出，不是未捕获异常。
-//
-// 守的不是「会不会红」—— 它一直会红；守的是**红得干净**：编译失败必须以干净的错误退出
-// 收尾（一条人话报错），不是抛未捕获异常——否则用户拿到的是带 z42b 内部栈帧的崩溃，
-// 看起来像 z42b 自己崩了，而「你的清单写错了」上一行早已打印过。
+// 编译失败的**收尾姿势** smoke。守的不是「会不会红」—— 它一直会红；守的是**红得干净**：编译失败
+// 必须以一条人话报错退出，不是抛未捕获异常——否则用户拿到的是带 z42b 内部栈帧的崩溃，看起来像
+// z42b 自己崩了，而「你的清单写错了」上一行早已打印过。
 //
 // 三条断言缺一不可：① 判红（否则清单写错等于没写错）；② 输出里**没有** uncaught
 // exception / 栈帧；③ 输出里**有** `compile failed` —— 没有 ③ 的话，哪天它因为别的原因
@@ -299,12 +279,12 @@ int _smokeCompileFailClean(string root, TargetTooling tt) {
     return 0;
 }
 
-// 清单段生效 smoke（add-build-session）：z42b 的编译按**整份清单**决策。**预期判红**：fixture 设
-// `[syntax] ternary = false`，测试目标里用了 `?:` ⇒ 必须报 E0301。此前 z42b 只传平铺字段、清单的
-// [syntax] / [optimize] / [lints] / [plugins] 被静默忽略 ⇒ 这里会跑出绿色。
+// 清单段生效 smoke：z42b 的编译按**整份清单**决策。**预期判红**：fixture 设
+// `[syntax] ternary = false`，测试目标里用了 `?:` ⇒ 必须报 E0301。z42b 若只传平铺字段、静默忽略
+// 清单的 [syntax] / [optimize] / [lints] / [plugins]，这里会跑出绿色。
 // 断言两条：① 判红；② 红的理由是 E0301（不是别的原因早早退出——红了不等于红对了）。
 int _smokeManifestSections(string root, TargetTooling tt) {
-    string toml = Path.Join(tt.Z42bFixturesRoot, "manifest-sections/z42.toml");   // isolate-xtask-fixture-builds：跑拷贝，src/tests 零写入
+    string toml = Path.Join(tt.Z42bFixturesRoot, "manifest-sections/z42.toml");   // 跑拷贝，源码树零写入
     if (!_smokeBegin(toml, "manifest sections (z42b 按整份清单编译：[syntax] 生效且被测试目标继承)")) { return 0; }
     ProcessResult r = _z42bVerb(root, tt, "test").Arg(toml)
         .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
@@ -322,9 +302,8 @@ int _smokeManifestSections(string root, TargetTooling tt) {
     return 0;
 }
 
-// build hooks smoke（drop-legacy-compile-request）：`[build] hooks` 目录经开发树的 ICompiler 编译 → 动态实例化 →
-// 挂进管线执行。断言两条：① `z42b build` 成功；② 输出里有 hook 打的标记行（证明 hook 真的被编译、加载、调用，
-// hook 收到的 Target.Mode（hooks-embed-on-demand）：普通 `z42b publish` 传 `publish`，`--self-contained` 传
+// build hooks smoke：`[build] hooks` 目录经开发树的 ICompiler 编译 → 动态实例化 → 挂进管线执行，并断言
+// hook 收到的 Target.Mode：普通 `z42b publish` 传 `publish`，`--self-contained` 传
 // `publish-self-contained`。项目 hook 靠这个值决定要不要准备 embed 产物（scripts/xtask_hooks.z42：embed apphost
 // 要把整个 VM 编成 libz42.a，普通 publish 一个字节都用不到）。两条路各断言一次，传反、传同值都会红。
 // 只看 hook 打出的那一行，不看退出码：fixture 不登记 stub / embed 产物，普通 publish 回落到假模板、
@@ -354,7 +333,7 @@ int _smokeBuildHooksMode(string root, TargetTooling tt) {
     return 0;
 }
 
-// hook 插件 smoke（unify-plugin-packages）：`[plugins]` 里两个带 hook 能力位的插件工程（path 条目）→
+// hook 插件 smoke：`[plugins]` 里两个带 hook 能力位的插件工程（path 条目）→
 // z42b 反射出 BuildHooks 具体类、按声明序组合执行。断言两行标记都在**且 A 在 B 前**——只查「都在」会把
 // 组合顺序错乱判绿；只查先后（IndexOf 比大小）不查存在会把「都打了但漏断言」漏掉。
 int _smokeHookPlugin(string root, TargetTooling tt) {
@@ -384,7 +363,7 @@ int _smokeHookPlugin(string root, TargetTooling tt) {
     return 0;
 }
 
-// 单文件 hook 插件 smoke（plugin-single-file）：`[plugins]` 条目 path 直接指向 .z42 源文件（无插件工程
+// 单文件 hook 插件 smoke：`[plugins]` 条目 path 直接指向 .z42 源文件（无插件工程
 // 清单）⇒ z42b 合成最小插件清单（PluginSynth.Synth）→ ICompiler 代建 → 反射出 BuildHooks 执行。
 // 断言标记行出现——这一条覆盖「合成 + 代建 + 加载 + 执行」全链；清单解析与组合顺序由 hook-plugin 钉。
 int _smokeHookSingleFile(string root, TargetTooling tt) {
@@ -407,7 +386,7 @@ int _smokeHookSingleFile(string root, TargetTooling tt) {
     return 0;
 }
 
-// 免清单目录 hook 插件 smoke（plugin-dir-no-manifest）：`[plugins]` 条目 path 指向**没有工程清单**的
+// 免清单目录 hook 插件 smoke：`[plugins]` 条目 path 指向**没有工程清单**的
 // 目录 ⇒ z42b 合成（include = <目录>/**/*.z42 全收）→ 代建 → 反射出包内全部 BuildHooks。两个类分住
 // 两个文件——**两条**标记都在才判绿（漏收任何一个文件即缺一条）。
 int _smokeHookDir(string root, TargetTooling tt) {
@@ -433,7 +412,7 @@ int _smokeHookDir(string root, TargetTooling tt) {
     return 0;
 }
 
-// 源集 hook 插件 smoke（plugins-include-form）：`[plugins]` 条目写 include/exclude（对齐 [tests]）
+// 源集 hook 插件 smoke：`[plugins]` 条目写 include/exclude（对齐 [tests]）
 // ⇒ z42b 合成最小清单（PluginSynth.SynthSet）→ ICompiler 代建 → 反射出全部 BuildHooks。
 // 两个类分住两文件——**两条**标记都在才判绿（漏收任何一个文件即缺一条）。
 int _smokeHookInclude(string root, TargetTooling tt) {
@@ -463,9 +442,7 @@ int _smokeHookInclude(string root, TargetTooling tt) {
     return 0;
 }
 
-// 坏 hook 插件 smoke（fail-build-on-plugin-error）：[plugins] 指向的插件工程编译不过 ⇒ `z42b build`
-// 非 0 退出。此前若把代建失败降级成「跳过该插件」，构建会静默缺 hook 照样退 0——publish 产物悄悄少东西。
-// 携带 hook smoke（unify-plugin-packages 1c）：app 零 [plugins]，依赖的 lib 经 [plugins.export] 携带
+// 携带 hook smoke：app 零 [plugins]，依赖的 lib 经 [plugins.export] 携带
 // hook 插件 ⇒ z42b 沿闭包自动加载执行。先编插件产物（放它的 dist），再以 Z42_PLUGINS 指向 dist 编 app。
 int _smokeHookCarry(string root, TargetTooling tt) {
     string dir = Path.Join(tt.Z42bFixturesRoot, "hook-carry");
@@ -496,6 +473,8 @@ int _smokeHookCarry(string root, TargetTooling tt) {
     return 0;
 }
 
+// 坏 hook 插件 smoke：[plugins] 指向的插件工程编译不过 ⇒ `z42b build` 非 0 退出。代建失败若降级成
+// 「跳过该插件」，构建会静默缺 hook 照样退 0——publish 产物悄悄少东西。
 int _smokeHookPluginBroken(string root, TargetTooling tt) {
     string toml = Path.Join(tt.Z42bFixturesRoot, "hook-plugin-broken/z42.toml");
     if (!_smokeBegin(toml, "broken hook plugin (插件编不过 ⇒ z42b build 判红)")) { return 0; }
@@ -515,6 +494,10 @@ int _smokeHookPluginBroken(string root, TargetTooling tt) {
     return 0;
 }
 
+// 孤儿源守卫 smoke：**预期判红**的 fixture —— tests/ 下有 .z42 源，但默认 glob 不认领，
+// 且该子目录没有自己的 toml（有的话它就是独立工程）。守卫不在的话 z42b 会回落到「编译本包
+// 自己再跑」，而该 fixture 的 src/ 里**特意放了一个通过的 [Test]** —— 于是回落会跑出
+// 「1 passed」的绿色。这个 fixture 锁的就是那片静默。断言方向与其它 smoke 相反：rc == 0 才是失败。
 int _smokeOrphanGuard(string root, TargetTooling tt) {
     string toml = Path.Join(tt.Z42bFixturesRoot, "orphan-source/z42.toml");
     if (!_smokeBegin(toml, "orphan-source guard (有源零单元必须判红)")) { return 0; }
@@ -528,11 +511,11 @@ int _smokeOrphanGuard(string root, TargetTooling tt) {
 }
 
 // 「本包压根没有测试」smoke：一个无 tests/、src/ 里零个 [Test] 的库，`z42b test` 必须
-// **退 0**（无事可做），不得判红 —— 否则 xtask 转发后全仓无测试的库会集体变红，而今天
-// 它们是被静默跳过的。与 compile-then-test 的区别只有「src/ 里有没有 [Test]」，那条
+// **退 0**（无事可做），不得判红 —— 否则 xtask 转发后全仓无测试的库会集体变红。
+// 与 compile-then-test 的区别只有「src/ 里有没有 [Test]」，那条
 // smoke 正好守着反方向（有 [Test] → 照常编+跑）。
 //
-// `bench` 动词同样要退 0（fix-bench-stage-zero-unit-kind）：GREEN gate 的 stdlib [Benchmark]
+// `bench` 动词同样要退 0：GREEN gate 的 stdlib [Benchmark]
 // stage 对无 bench 的库走的就是 `z42b bench <toml>`。fixture 的注释里故意写着 attribute 字面量，
 // 锁住「注释不算测试」这条判据。
 int _smokeNoTests(string root, TargetTooling tt) {
@@ -553,8 +536,7 @@ int _smokeNoTests(string root, TargetTooling tt) {
 }
 
 // `--list` smoke：列目标名而不编不跑。这是**转发架构的接缝** —— xtask 靠它拿单元清单后
-// 并行拉起 `z42b test <toml> --name <unit>`，发现规则从此只有 z42b 一份（两套规则各自漂移
-// 正是 #580 查出那三处分歧的来源）。断言：dev-target fixture 恰好列出 dirunit + internals_tests，
+// 并行拉起 `z42b test <toml> --name <unit>`，发现规则只有 z42b 一份。断言：dev-target fixture 恰好列出 dirunit + internals_tests，
 // 且**没有**任何编译/运行的痕迹。
 int _smokeListTargets(string root, TargetTooling tt) {
     string toml = Path.Join(tt.Z42bFixturesRoot, "dev-target-internal/z42.toml");
@@ -596,7 +578,7 @@ int _smokeHarnessFalse(string root, TargetTooling tt) {
     return 0;
 }
 
-// bundle-host smoke (wire-z42b-embedded-test ②b): compile a trivial [Test] unit →
+// bundle-host smoke: compile a trivial [Test] unit →
 // .zbc, wrap it in a 1-case manifest, and run it through the single
 // `z42b test <manifest.json> --rid host` entry — exercising the in-process
 // Std.Harness.BundleRunner path (the host half of the embedded flow xtask delegates
@@ -623,15 +605,9 @@ int _smokeBundleHost(string root, TargetTooling tt) {
     return 0;
 }
 
-// 跑一个 fixture 的 `kind` 目标 —— 与 stdlib 那条路一样，**一律转发 z42b**
-// （xtask-forward-tests-to-z42b D2）。把本 fixture 的目标名追加进 `avail`（点不中时的提示），
+// 跑一个 fixture 的 `kind` 目标 —— 与 stdlib 那条路一样，**一律转发 z42b**（`--name` 对约定单元、
+// harness=true / false 三种形态是同一个入口）。把本 fixture 的目标名追加进 `avail`（点不中时的提示），
 // 命中数加到 mref[0]，返回失败数。filter 语义：name=="" → 全跑；否则精确名。
-//
-// 这里曾是 xtask 自有执行器唯一还在用的地方：约定单元走合成 mini-manifest 批量编译
-// （_runUnitsBatched）、显式 harness=true 走 _runReflectTarget、harness=false 走
-// _runExitTargets。三条随 D2 一并退休 —— z42b 的 `--name` 对三种形态都是同一个入口
-// （harness=false 由它 fork 子进程、退出码即判定，#612）。于是本 stage 从「测 xtask 的
-// 引擎」变成「测 z42b 对这些 fixture 形态的处理」，与下面那批 _smoke* 同向。
 int _runFixtureKind(string root, string fixName, string toml,
                     string kind, string label, string name,
                     TargetTooling tt, int[] mref, ref string avail) {

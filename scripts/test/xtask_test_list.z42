@@ -1,13 +1,12 @@
-// xtask — `test list`: read-only catalog of the case-granular test corpus
-// (tidy-test-system). Answers "what cases exist, how do I run one,
-// which platforms can run it" without reading source. Reuses the single corpus
-// enumeration SoT (_enumerateCorpus in xtask_test_embedded.z42) so the catalog
-// never drifts from what the embed bundle / golden runner actually see.
+// xtask — `test list`: read-only catalog of the case-granular test corpus.
+// Answers "what cases exist, how do I run one, which caps does it need" without
+// reading source. Reuses the single corpus enumeration (_enumerateCorpus in
+// xtask_test_embedded_corpus.z42) so the catalog never drifts from what the embed
+// bundle actually sees.
 //
-// Scope: the case-granular, individually-runnable corpus — src/tests goldens
-// (run via `test e2e --file`) + stdlib [Test] units (run via `test stdlib -k`).
-// Coarser stage-level suites (cross-zpkg, compiler fixpoint, platform, runtime
-// cargo, bench) are NOT case-granular; see docs/workflow/testing/verify-by-change.md.
+// Scope: src/tests goldens (run via `test e2e --file`) + stdlib [Test] units (run via
+// `test stdlib -k`). Coarser stage-level suites (cross-zpkg, compiler fixpoint,
+// platform, runtime cargo, bench) are NOT case-granular; see test-gate.md.
 namespace Z42Xtask;
 
 using Std.IO;

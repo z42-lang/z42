@@ -1,9 +1,9 @@
-// xtask — `test compiler incremental` 的 stdlib 整体读回对账（workspace-read-cache）。
+// xtask — `test compiler incremental` 的 stdlib 整体读回对账。
 //
-// 小语料（demo / demo-packed / xtask）覆盖不到 stdlib 用到的全部指令与元数据：增量读回曾漏掉方法级泛型形参、
-// struct 指令的寄存器类型，只在 stdlib 上才暴露（下游 E0402 / 字节不一致）。这里用整个 stdlib 做一轮：
+// 小语料（demo / demo-packed / xtask）覆盖不到 stdlib 用到的全部指令与元数据（如方法级泛型形参、
+// struct 指令的寄存器类型），所以用整个 stdlib 再做一轮：
 //   release 全量建一遍 → 清空全部成员 dist（cache 保留）→ 再建：每个成员都全命中但无法 preserved，只能由
-//   cache 读回的 IR 重新打包 → 25 个包必须与全量逐字节一致。
+//   cache 读回的 IR 重新打包 → 每个包必须与全量逐字节一致。
 // 运行于 z42c.pipeline 的 tests/ 输出下的 incremental/stdlib（拷贝源，不动真实产物）。
 namespace Z42Xtask;
 
@@ -30,7 +30,7 @@ int _reconcileStdlibReadback(string root, string vm, string driver, string libs,
         i = i + 1;
     }
     if (_wsReadbackBuild(vm, driver, libs, srcLibs, true) != 0) { ConsoleError.WriteLine("  ✗ stdlib full build failed"); return 1; }
-    // 全量快照：拷到 snap 目录（z42 无交错数组，不在内存里存 25 份字节）。
+    // 全量快照：拷到 snap 目录（z42 无交错数组，不在内存里存每包字节）。
     string snap = Path.Join(scratch, "stdlib-full-snap");
     _resetDir(snap);
     i = 0;

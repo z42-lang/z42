@@ -1,13 +1,13 @@
-// 测试布局门（add-test-layout-spec）。
+// 测试布局门。
 //
 // ## 守的是什么
 //
-// 测试用例组织规范（docs/internals/src/devinfra/test-layout.md）里能机械判定的三条：
+// 测试用例组织规范（docs/internals/src/devinfra/test-layout.md）里能机械判定的几条：
 //
 //   ① src/tests 的顶层类别 = 规范页「语言类别」∪「待搬迁」两张清单（双向，且两张不得重叠）。
 //      新类别没登记 → 红：逼人先回答「它测的是语言 / VM 特性，还是某个组件的契约」——后者应放
 //      进所属组件的 tests/，不进 src/tests。已搬走却还挂在「待搬迁」→ 红：那张清单只缩不涨。
-//   ② 能力词表的「已生效」区 = src/runtime/src/corelib/platform.rs 的 builtin_platform_caps
+//   ② 能力词表的「已生效」区 = src/runtime/src/corelib/platform.rs 的 platform_caps
 //      实际报告的能力（双向）。运行期加 / 删一个能力不同步文档 → 红。
 //   ③ `// requires-caps:` 与 `[Skip(feature: "…")]` 只能用「已生效」的能力名。
 //      两处都是 deny-by-default：VM 不报告的名字一律视为「缺」⇒ 用例在**所有平台**上静默跳过——
@@ -101,7 +101,7 @@ int _tlCheckCategories(string root, string doc) {
     return bad;
 }
 
-// platform.rs 的 builtin_platform_caps 里 `caps.push("x")` 的全部 x；找不到函数返回 null。
+// platform.rs 的 platform_caps 里 `caps.push("x")` 的全部 x；找不到函数返回 null。
 string[] _tlRuntimeCaps(string root) {
     string src = File.ReadAllText(Path.Join(root, "src/runtime/src/corelib/platform.rs"));
     int b = src.IndexOf("fn platform_caps");
@@ -139,7 +139,7 @@ string _tlQuotedAfter(string s, string key) {
 
 // ② 能力词表「已生效」区 ↔ 运行期实际报告的能力。
 int _tlCheckCapVocab(string root, string doc, string[] active) {
-    Console.WriteLine("② 能力词表「已生效」= platform.rs 的 builtin_platform_caps");
+    Console.WriteLine("② 能力词表「已生效」= platform.rs 的 platform_caps");
     string[] planned = _docListBlock(doc, "caps-planned");
     if (active == null || planned == null) {
         ConsoleError.WriteLine("  ✗ test-layout.md 缺 caps-active / caps-planned 标记区");
@@ -147,7 +147,7 @@ int _tlCheckCapVocab(string root, string doc, string[] active) {
     }
     string[] rt = _tlRuntimeCaps(root);
     if (rt == null || rt.Length == 0) {
-        ConsoleError.WriteLine("  ✗ 在 src/runtime/src/corelib/platform.rs 里找不到 builtin_platform_caps 的 caps.push —— 扫描面不对");
+        ConsoleError.WriteLine("  ✗ 在 src/runtime/src/corelib/platform.rs 里找不到 platform_caps 的 caps.push —— 扫描面不对");
         return 1;
     }
     int bad = 0;

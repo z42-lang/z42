@@ -1,6 +1,6 @@
 // xtask — `test compiler fingerprint`：编译器输出变了，版本号必须累加。
 //
-// 增量缓存的键里，编译器身份 = `CacheStore.CompilerFingerprint` + zbc/zpkg 格式 Minor（见
+// 增量缓存的键里，编译器身份 = `CompilerFingerprint.Entries` 的内容哈希 + zbc/zpkg 格式 Minor（见
 // docs/internals/src/compiler/compiler-fingerprint.md）。规则是「凡是影响输出的编译器改动都要累加」；
 // 产物可复现（同源 + 同编译器 ⇒ 逐字节相同）之后可以机械地判：
 //
@@ -8,7 +8,8 @@
 //   字节变了 ∧ 指纹没变 ∧ 格式没变 ⇒ 红（缓存会把旧编译器的产物当成新的）。
 //
 // 输入：`--base <dir>` = base 源码树根，其 stdlib **已由 base 编译器建好**（产物位置按该树
-// src/libraries/z42.workspace.toml 的模板解析）。CI 里就是 bench-pr 的 base-src（同 runner 已建）。
+// src/libraries/z42.workspace.toml 的模板解析）。CI 里就是 bench-pr 的 base-src（同 runner 已建）；
+// `--base-driver` = base 侧 driver，用来判两侧是不是同一套编译器（见 _compilerSetsEqual）。
 // 本树一侧：把 base 的 src/libraries 拷进 scratch，用本树 driver 以 `--no-incremental` 重建。
 // 覆盖面 = stdlib 实际走到的编译器路径；stdlib 没用到的 codegen 分支测不到（假阴性，不会假阳性）。
 namespace Z42Xtask;
@@ -17,14 +18,9 @@ using Std.IO;
 using Std.Cli;
 using Std.Time;
 
-// `_srcIntConst`（源码里读 int 常量）住在 common/xtask_common.z42 —— `_ensureSeed`
-// 的种子代际校验也用它，故提到公共层。
-
-// 编译器身份三元组 "fp/zbc/zpkg"，从源码树读。
-// 指纹片段改读 `CompilerFingerprint.Entries` 的**条目数**（fingerprint-content-derived）：
-// 指纹本身是那张列表的内容哈希、不再是源码里的一个数，`_srcIntConst` 抓不到它。
-// 条目数是**可打印**且「追加一条即变」的代理；精确判定由 `_fingerprintSourceOf` 的全文比较做
-// —— 两者分工：数用来给人看，全文用来做决策（改了既有条目正文也能看见）。
+// 编译器身份三元组 "fp/zbc/zpkg"，从源码树读。fp 片段是 `CompilerFingerprint.Entries` 的**条目数**：
+// 指纹本身是内容哈希、源码里读不出来；条目数是可打印且「追加一条即变」的代理。
+// 分工：数只给人看，决策用 `_fingerprintSourceOf` 的全文比较（改了既有条目正文也能看见）。
 string _fingerprintSourceOf(string tree) {
     string p = Path.Join(tree, "src/compiler/z42c.pipeline/src/CompilerFingerprint.z42");
     if (!File.Exists(p)) { return ""; }
@@ -33,15 +29,9 @@ string _fingerprintSourceOf(string tree) {
 
 int _fpEntryCount(string tree) {
     string t = _fingerprintSourceOf(tree);
-    // 🔴 **过渡期回落**：base 树可能早于 fingerprint-content-derived，那时指纹还是
-    // `CacheStore.z42` 里的一个 int 常量、`CompilerFingerprint.z42` 根本不存在。
-    // 没有这条回落，守门读出 -1 并判「读不到版本常量」⇒ **换方案的那个 PR 自己必红**。
-    //
-    // 回落后：base 读出旧的整数、本树读出条目数 ⇒ 两者不同 ⇒ 守门正确地
-    // 认为「编译器身份已变」—— 而那确实是事实：换表示本身就让所有旧 `.meta` 失效。
-    //
-    // ⚠️ 这条回落在两侧都有新文件之后就永远走不到了，但**先留着**：它同时护住
-    // 「拿很旧的 base 跑守门」这个合法用法（`--base <任意旧树>`）。
+    // 回落：很旧的 base 树（`--base <任意旧树>`）没有 CompilerFingerprint.z42，指纹还是
+    // `CacheStore.z42` 里的一个 int 常量。读出的旧整数与本树条目数不同 ⇒ 判「身份已变」，
+    // 这是事实：换表示本身就让所有旧 `.meta` 失效。
     if (t.Length == 0) {
         return _srcIntConst(Path.Join(tree, "src/compiler/z42c.pipeline/src/CacheStore.z42"),
             "public static int CompilerFingerprint = ");
@@ -54,10 +44,7 @@ int _fpEntryCount(string tree) {
     int e = tail.IndexOf("};");
     if (e < 0) { return -1; }
     string body = tail.Substring(0, e);
-    // 数引号对。⚠️ **跳过 `//` 注释行** —— 否则条目注释里每写一对双引号（举个调用例子就会有）
-    // 就虚增一条「条目」，CI 日志里打印的编译器身份数字随之失真。
-    // 精确判定走 `_fingerprintSourceOf` 全文比较，不受本函数影响；坏的只是**可读性** ——
-    // 但那个数字正是给人看的，失真就等于没有。
+    // 数引号对。⚠️ **跳过 `//` 注释行** —— 条目注释里的双引号会虚增条目数，打印的身份数字随之失真。
     int n = 0;
     int i = 0;
     bool inLineComment = false;
@@ -84,25 +71,14 @@ string _compilerIdentityOf(string tree) {
 
 // ── 「源码没变就没得 bump」守卫 ──────────────────────────────────
 //
-// 🔴 **本门会对完全不碰编译器的 PR 假红**，且反复命中同一个包（z42.json）：
+// 两侧 driver 源码相同但**自举代不同**（base 侧是「PR 的 z42c 编 base 源码」，本树侧是种子链产物），
+// 而 z42c 自建每推进一代恰有一两个包字节不同（stdlib 构建不是代际收敛的）⇒ 同源 driver 编出的 stdlib
+// 本就可能差一两个包。源码逐字节相同时「输出变了」不可能是「身份该变而没变」，没有 slug 可加，
+// 照提示 bump 只会平白让全网增量缓存作废一次。
 //
-// 机理是**代际混淆**，它由本门的编排构造出来，与被测 PR 无关：base 侧的 driver 是
-// 「PR 的 z42c 编 base 源码」（bench-pr.yml），本树侧的 driver 是「种子链编本树源码」——
-// 源码相同、**自举代不同**。而 `stdlib-build-not-generationally-convergent` 是本仓库
-// 已记录的既有性质：z42c 自建每跑一遍推进一代，**每代恰有一两个包的字节不同**，要几代才到
-// 不动点。于是「两个不同代的同源 driver」编出的 stdlib 本就会有一两个包不一样。
-//
-// ⇒ 源码逐字节相同时，「输出变了」在**定义上**就不可能是「编译器身份该变而没变」——
-// 没有任何 slug 可以追加。此时照提示 bump 一行是**治症状**：既没消除代际漂移，
-// 又平白让全网增量缓存作废一次。
-//
-// 比 `src/compiler`（编译器本体，含 z42.package 的格式写端）**与** `src/libraries`
-// （编译器自己也编译/运行在它之上，stdlib 变了确实可能改变输出）两棵树；两棵都逐字节
-// 相同才跳过。跳过时**大声说明**，不做静默 return 0——静默跳过正是本仓库反复吃过的假门形状。
-//
-// ⚠️ VM 改动不在此列，也**不该**在：本门两侧的 stdlib 都是在**同一个 PR VM** 上编出来的
-//（bench-pr.yml 那行注释写明了「这一步用 PR 的 VM 跑」），所以它对 VM 造成的输出变化本就
-// 没有分辨力，跳过不损失覆盖。
+// 比 `src/compiler` **与** `src/libraries`（stdlib 变了也可能改变编译器输出）两棵树，都相同才跳过；
+// 跳过时大声说明，不静默 return 0。VM 改动不在此列：两侧 stdlib 都在同一个 PR VM 上编，本门对 VM
+// 造成的输出变化本就没有分辨力。
 bool _srcDirsEqual(string a, string b) {
     bool aEx = Directory.Exists(a);
     bool bEx = Directory.Exists(b);
@@ -139,25 +115,19 @@ bool _srcDirsEqual(string a, string b) {
     return true;
 }
 
-// 源码树里混着构建产物（`src/libraries/<lib>/artifacts/...` 实测就有）——它们**必然**不同，
-// 不是源码差异。跳过它们与缓存目录。
+// 源码树里混着构建产物（`src/libraries/<lib>/artifacts/...`）——它们必然不同，不是源码差异。
 bool _fpSkipEntry(string name) {
     return name == "artifacts" || name == ".cache" || name == "cache" || name == "dist";
 }
 
 // ── 可比性判据：两侧是不是**同一套编译器** ────────────────────────────────────
 //
-// 🔴 判据必须覆盖**整个编译器包集合**，不能只看 `z42c.driver.zpkg`。
-// 后者只有 ~110 KB、装的是 driver 那一层；真正会因改动而变的是并排的
-// `z42c.semantics.zpkg`（~1.2 MB）/ `z42c.syntax` / `z42c.pipeline` / `z42c.core`
-// 以及编译器域库（`z42.package` / `z42.project` / `z42.ir` …，relocate 之后同在
-// `src/compiler` 下）。只比 driver ⇒ 改 semantics 的 PR 两侧照样「相同」，
-// 门便据此宣布「判定有效」并判红 —— **声称验过的事其实没验**（#944 实测踩到）。
+// 🔴 判据必须覆盖**整个编译器包集合**（src/compiler 下全部成员），不能只看 `z42c.driver.zpkg`：
+// driver 只是最上一层，只比它 ⇒ 改 semantics 的 PR 两侧照样「相同」，门就会拿没验过的结论判红。
 //
-// `baseDir` = bench-pr.yml 平铺出来的 base 编译器产物目录（它把 base 的
-// `artifacts/build/compiler/*/release/dist/*.zpkg` 全 `cp` 进同一个目录）。
-// 逐个拿本树同名成员包去比；**任一缺失或不同即判「不可比」**（保守方向：
-// 宁可说判不了，也不要拿没验过的结论挡 PR）。
+// `baseDir` = bench-pr.yml 平铺出来的 base 编译器产物目录（base 的
+// `artifacts/build/compiler/*/release/dist/*.zpkg` 全拷进同一个目录）。逐个拿本树同名成员包去比；
+// **任一缺失或不同即判「不可比」**（宁可说判不了，也不要拿没验过的结论挡 PR）。
 bool _compilerSetsEqual(string baseDir, string root) {
     if (!Directory.Exists(baseDir)) { return false; }
     string[] members = _enumDirsSorted(_compilerBuildRoot(root));
@@ -196,9 +166,6 @@ int _testFingerprint(ParseResult r) {
         ConsoleError.WriteLine("usage: xtask test compiler fingerprint --base <base 源码树根（其 stdlib 已由 base 编译器建好）>");
         return 2;
     }
-    // enforce-fqn-name-identity 之外的独立修复：**两侧 driver 是不是同一个二进制**。
-    // 见下面 `_bothSidesComparable` 抬头 —— 不是同一个就没有可比性，本门此时只能如实说
-    // 「判不了」，不能继续给一个分辨不出真假的红。
     string baseDriver = r.GetOption("base-driver");
     string baseId = _compilerIdentityOf(baseTree);
     string headId = _compilerIdentityOf(root);
@@ -208,7 +175,7 @@ int _testFingerprint(ParseResult r) {
         return 1;
     }
 
-    // 源码没变 ⇒ 没得 bump（见上方守卫的头注：剩下的差异只可能是代际漂移）。
+    // 源码没变 ⇒ 没得 bump（见 _srcDirsEqual 头注：剩下的差异只可能是代际漂移）。
     bool sameCompiler = _srcDirsEqual(Path.Join(baseTree, "src/compiler"), Path.Join(root, "src/compiler"));
     bool sameStdlib = _srcDirsEqual(Path.Join(baseTree, "src/libraries"), Path.Join(root, "src/libraries"));
     if (sameCompiler && sameStdlib) {
@@ -221,10 +188,8 @@ int _testFingerprint(ParseResult r) {
     if (!sameCompiler) { Console.WriteLine("  src/compiler 与 base 不同 ⇒ 照常对比字节"); }
     else { Console.WriteLine("  src/compiler 相同但 src/libraries 不同 ⇒ 照常对比字节（stdlib 能改变编译器行为）"); }
 
-    // 🔴 **可比性先算、先打印**。此前它藏在「字节变了」之后 —— 于是
-    // 字节没变的那一路（本地对账的常态）**永远看不到这行**，我也就没法在本地观察它对不对：
-    // 一个只在判红那一刻才出声的判据，本身就没法被验证。门每一轮都该说清自己**这轮有没有
-    // 判别力**，而不是只在开火时才交代。
+    // 可比性先算、先打印：门每一轮都该说清自己这轮有没有判别力，不只在判红时才交代
+    // （否则字节没变的那一路永远看不到它，判据本身没法被验证）。
     bool comparable = true;
     if (baseDriver.Length > 0) {
         if (!File.Exists(baseDriver)) {
@@ -268,12 +233,8 @@ int _testFingerprint(ParseResult r) {
         string a = Path.Join(_memberDist(baseWs, m, "release"), m + ".zpkg");
         string b = Path.Join(_memberDist(headWs, m, "release"), m + ".zpkg");
         if (!File.Exists(a) && !File.Exists(b)) { continue; }
-        // 🔴 **只有一侧在场 ≠ 「字节变了」**。此前这里直接落到 `_filesEqual`，而它对
-        // 「文件不存在」只会答「不相等」⇒ 门把**输入不完整**报成了「编译器输出变了，请加
-        // 指纹 slug」。实测代价：base 树只铺了 flat libs（`dist/release/`）而没有 per-member
-        // 产物时，**25 个包全部**被判为变了，指示去追加一条根本不需要的 slug。
-        // 判别只靠「全变太反常」这种先验，太脆 —— 输入缺失必须自己响。
-        // 同 `audit-silent-gates`：门在输入不完整时给出了看似正当的结论。
+        // 🔴 只有一侧在场 ≠ 「字节变了」：`_filesEqual` 对缺文件只会答「不相等」，会把**输入不完整**
+        // 报成「编译器输出变了，请加 slug」。输入缺失必须单独报错。
         if (!File.Exists(a) || !File.Exists(b)) {
             missing = missing + (nMissing > 0 ? ", " : "") + m + (File.Exists(a) ? "(head 缺)" : "(base 缺)");
             nMissing = nMissing + 1;
@@ -303,34 +264,12 @@ int _testFingerprint(ParseResult r) {
         return 0;
     }
     Console.WriteLine("  编译器输出变了：" + nChanged.ToString() + " 个包（" + changed + "）");
-    // 🔴 **先确认这是不是你的改动**：本门红过一轮「与被测 PR 无关」的案例 ——
-    // 源码没变也报「1 个包（z42.json）」。源码相同那一类现在由本文件开头的守卫直接跳过，
-    // 但**两侧 driver 不是同一个二进制**这一类还在：base 侧 driver 由 bench-pr.yml 现建
-    // （PR 的 z42c 编 base 源码），本树侧是自举链的产物，二者可能处在不同的自举代，而
-    // stdlib-build-not-generationally-convergent 是既有性质（自建每代恰一两个包字节不同）。
-    // ⇒ 判据在 CI 日志里：bench-pr 的「driver sha」两行。两个 sha 相同却输出不同 ⇒ 非确定性；
-    //   不同 ⇒ 代际差异，别急着 bump（bump 只会让全网缓存作废一次，下个 PR 照样红）。
     Console.WriteLine("  ⓘ 本树 driver：" + _driverZpkg(root, "release"));
-    // 🔴 **可比性前置判断**：`--base-driver` 给了就**自己比**，不再让人去翻日志。
-    //
-    // 本门的判据是「两个编译器编同一份源码，字节是否相同」—— 它**默认两侧 driver 只差在
-    // 被测源码上**。而 bench-pr.yml 的编排不满足这个前提：`BASEDRIVER` 是 `PRDRIVER`
-    // **又编一代**的产物（`PRDRIVER` 由种子链产出）⇒ 两侧恒差一代。叠加
-    // stdlib-build-not-generationally-convergent（自建每代恰一两个包字节不同），
-    // 门就会在「编译器真改了」的 PR 上也报出**分辨不了真假**的红。
-    //
-    // 实测坐实（#931，单变量对照）：同一棵树、同一份改动、同一条命令，唯一变量是 base 侧
-    // 多跑一代 `build stdlib` ⇒ 同代时「19 个包逐字节一致」，多一代就变成「1 个包（z42.json）」
-    // —— 与 CI 上那条一字不差。
-    //
-    // ⇒ 两侧 driver 不是同一个二进制时，本门**没有判别力**。此时继续判红等于用一个不可信的
-    // 结论挡住 PR，而人只能靠猜；照它的提示 bump 更糟（平白作废一次全网增量缓存，下个 PR
-    // 照样红 —— #925 实测过）。**如实说「判不了」，别装作在守。**
-    //
-    // ⚠️ 这是**止血不是根治**。根治要让两侧 driver 处在同一代（门自己用同一个上游 driver
-    // 各编一遍两侧的 `src/compiler`，再各编一遍同一份 stdlib），那要在门里重建 bench-pr.yml
-    // 的 flat-libs 编排、4 轮构建，且只能在 CI 上验证 —— 单独评估，见 memory
-    // `fingerprint-gate-false-red-generation-drift`。
+    // 本门默认两侧 driver 只差在被测源码上；bench-pr.yml 的编排不满足（BASEDRIVER 是 PRDRIVER 又编
+    // 一代 ⇒ 两侧恒差一代），叠加代际漂移，「编译器真改了」的 PR 上也会报出分辨不了真假的红。
+    // 两侧不是同一套编译器时本门没有判别力：如实说「判不了」、不判红，也别据此 bump
+    // （平白作废一次全网增量缓存，下个 PR 照样红）。
+    // ⚠️ 止血不是根治：根治要让门自己用同一个上游 driver 把两侧编到同一代。
     if (!comparable) {
         Console.WriteLine("    base 编译器包目录：" + Path.GetDirectoryName(baseDriver));
         Console.WriteLine("    上面那 " + nChanged.ToString() + " 个包的差异**可能**来自自举代差异，也可能来自你的改动 ——");
@@ -346,7 +285,7 @@ int _testFingerprint(ParseResult r) {
             + "不同 ⇒ 先怀疑自举代差异，不是你的改动（传 `--base-driver` 可让本门自己判）。");
     }
     // 判定：格式/条目数变了（baseId 变），**或**指纹源文件全文变了（改了既有条目正文也算）。
-    // 全文比较是精确判据；baseId 只用于打印（见 `_compilerIdentityOf` 头注）。
+    // 全文比较是精确判据；条目数只用于打印（见 `_compilerIdentityOf` 头注）。
     bool fpSrcChanged = _fingerprintSourceOf(baseTree) != _fingerprintSourceOf(root);
     if (baseId != headId || fpSrcChanged) {
         Console.WriteLine("  ✓ 编译器身份已变（" + baseId + " → " + headId + "），旧缓存会作废");

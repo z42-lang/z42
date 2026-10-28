@@ -1,11 +1,7 @@
 // xtask — embedded test-host：golden → [Test] 归一 + 单元 zbc 发射
 //
-// 把 src/tests 的 golden case（source.z42 + expected_output.txt）包装成 [Test] 函数，
-// and 把 stdlib 的 [Test] 文件/目录发射成 bundle 里的 .zbc 单元。纯「单个 case 怎么变成
-// 一个可执行单元」，不含语料枚举与分片。
-//
-// 从 xtask_test_embedded.z42 拆出（原文件 848 行 = 500 行硬限的 1.7 倍，三个职责混装）。
-// 同 Z42Xtask 命名空间，跨文件裸名互调。
+// 「单个 case 怎么变成一个可执行单元」：golden 编成 .zbc（直接跑或包成 [Test]），stdlib 的 [Test]
+// 文件 / 目录发射成 bundle 里的 .zbc / .zpkg。语料枚举与分片在 xtask_test_embedded_corpus.z42。
 namespace Z42Xtask;
 
 using Std.IO;
@@ -17,7 +13,7 @@ string _ensureTestAgent(string root) {
     if (File.Exists(zpkg)) { return zpkg; }
     string vm = _builtVm(root, "release");
     string driver = _driverZpkg(root, "release");
-    string flat = _libsDir(root);   // 纯 stdlib flat：被编的东西只用 stdlib，driver 自包含（不需要 alllibs）
+    string flat = _libsDir(root);   // 纯 stdlib flat：被编的东西只用 stdlib，driver 自包含
     Console.WriteLine("  build test-agent → z42.testagent.zpkg");
     int c = _exec(_z42cProc(vm, flat, driver)
         .Arg("build").Arg(toml).Arg("--release"));
@@ -25,14 +21,12 @@ string _ensureTestAgent(string root) {
     return zpkg;
 }
 
-// ── golden → [Test] 归一 (wire-embedded-testhost G1) ─────────────────────────
+// ── golden → [Test] 归一（`test app desktop --zbc <golden-dir>`）──────────────
 //
-// A golden case is a whole program (source.z42 [+ expected_output.txt]). To run
-// it through the single Runner path, generate a [Test] wrapper in the SAME
-// module that captures Main()'s stdout and asserts it equals the expected output
-// (or, when there is no expected file, just runs Main — Assert-self-validating).
-// Proven approach: combine golden source + injected `using Std.Harness;` + appended
-// [Test] → one module with a [Test] the agent runs like any other.
+// A golden case is a whole program (source.z42 [+ expected_output.txt]). To run it
+// through the [Test] runner, generate a wrapper in the SAME module that captures
+// Main()'s stdout and asserts it equals the expected output (or, when there is no
+// expected file, just runs Main — Assert-self-validating).
 
 // Escape a string for embedding as a z42 double-quoted literal.
 string _zEscape(string s) {
@@ -98,7 +92,7 @@ string _buildGoldenCase(string root, string caseDir) {
     string zbc = Path.Join(outDir, name + ".golden.zbc");
     string vm = _builtVm(root, "release");
     string driver = _driverZpkg(root, "release");
-    string flat = _libsDir(root);   // 纯 stdlib flat：被编的东西只用 stdlib，driver 自包含（不需要 alllibs）
+    string flat = _libsDir(root);   // 纯 stdlib flat：被编的东西只用 stdlib，driver 自包含
     Process proc = _z42cProc(vm, flat, driver).Arg("--emit-zbc").Arg(wrappedSrc).Arg(zbc);
     if (File.Exists(Path.Join(caseDir, "opt_all"))) { proc = proc.Arg("--opt-all"); }   // same as the host gate
     int c = _exec(proc);
@@ -106,12 +100,7 @@ string _buildGoldenCase(string root, string caseDir) {
     return zbc;
 }
 
-// ── test-bundle 构建 (G2) ────────────────────────────────────────────────────
-//
-// Enumerate the corpus → compile each case to a .zbc (golden→[Test] wrapped;
-// stdlib [Test] unit→direct emit) → copy into a bundle dir + write manifest.json
-// (name→zbc). Build-time `filter` (substring; empty=all) bounds what's compiled
-// so `--case`/`--filter` don't compile the whole corpus for a single run.
+// ── bundle 单元发射 ─────────────────────────────────────────────────────────
 
 string _bundleSafeName(string name) {
     return name.Replace("/", "__").Replace(".", "_");
@@ -124,7 +113,7 @@ string _bundleSafeName(string name) {
 string _emitUnitZbc(string root, string unitSrc, string safe, string bundleDir, bool optAll) {
     string vm = _builtVm(root, "release");
     string driver = _driverZpkg(root, "release");
-    string flat = _libsDir(root);   // 纯 stdlib flat：被编的东西只用 stdlib，driver 自包含（不需要 alllibs）
+    string flat = _libsDir(root);   // 纯 stdlib flat：被编的东西只用 stdlib，driver 自包含
     string zbc = Path.Join(bundleDir, safe + ".zbc");
     Process proc = _z42cProc(vm, flat, driver).Arg("--emit-zbc").Arg(unitSrc).Arg(zbc);
     if (optAll) { proc = proc.Arg("--opt-all"); }
@@ -133,11 +122,10 @@ string _emitUnitZbc(string root, string unitSrc, string safe, string bundleDir, 
     return zbc;
 }
 
-// Build a DIR-mode stdlib [Test] unit (tests/<name>/ with helper .z42 files, or
-// an own manifest) into a packed .zpkg, then copy it into `bundleDir`. Reuses
-// the host runner's `_renderSyntheticManifest` (same build path as `test lib`,
-// no duplication) with empty deps — Z42_LIBS=flat resolves every `using`, same
-// as single-file `--emit-zbc`. Returns the copied path ("" on failure).
+// Build a DIR-mode stdlib [Test] unit (tests/<name>/ with helper .z42 files) into a
+// packed .zpkg, then copy it into `bundleDir`. Same synthetic manifest as `test lib`
+// (_renderSyntheticManifest) with empty deps — Z42_LIBS=flat resolves every `using`,
+// same as single-file `--emit-zbc`. Returns the copied path ("" on failure).
 string _emitDirUnit(string root, string lib, string name, string dirPath, string safe, string bundleDir) {
     string projName = lib + ".test." + name;
     string outDir = Path.Join(_workOut(root, "src/toolchain/workload/test", ""), "dm/" + projName);
@@ -148,7 +136,7 @@ string _emitDirUnit(string root, string lib, string name, string dirPath, string
     File.WriteAllText(toml, _renderSyntheticManifest(projName, "**/*.z42", outDir, name, _newBundle()));
     string vm = _builtVm(root, "release");
     string driver = _driverZpkg(root, "release");
-    string flat = _libsDir(root);   // 纯 stdlib flat：被编的东西只用 stdlib，driver 自包含（不需要 alllibs）
+    string flat = _libsDir(root);   // 纯 stdlib flat：被编的东西只用 stdlib，driver 自包含
     int c = _exec(_z42cProc(vm, flat, driver)
         .Arg("build").Arg(toml).Arg("--release"));
     File.Delete(toml);   // clean up the synthetic manifest regardless of outcome
@@ -168,8 +156,8 @@ string _readExpected(string path) {
 
 // Compile a golden source (no [Test] wrap) → <safe>.zbc + write <safe>.expected
 // sibling; return its manifest JSON entry, or "" on compile failure (e.g.
-// compile-fail goldens — skipped, they aren't runnable-in-embed). Shared by the
-// dir / flat / lib golden enumerations. Direct-run: agent runs it isolated.
+// compile-fail goldens — they aren't runnable-in-embed). Direct-run: the agent runs
+// it isolated, no [Test] wrap.
 string _goldenEntry(string root, string caseName, string src, string expTxt, string bundleDir, bool optAll) {
     string safe = _bundleSafeName(caseName);
     string zbc = _emitUnitZbc(root, src, safe, bundleDir, optAll);

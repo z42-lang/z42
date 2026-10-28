@@ -1,18 +1,15 @@
-// xtask — multi-exe e2e runner (unify-run-modes P3). Each case under
+// xtask — multi-exe e2e runner. Each case under
 // src/compiler/z42c.pipeline/tests/fixtures/multi-exe/<name>/ is ONE project whose z42.toml declares N `[[exe]]`
 // targets sharing `[sources]`. We build it once (z42c produces dist/<exe>.zpkg
 // per target — the compile-once-restamp path), then run EACH produced zpkg
 // through z42vm, concatenate stdout in sorted (by zpkg path) order, and diff
-// against expected_output.txt. Reuses the cross-zpkg build/run helpers
-// (_invokeBuildCompiler / _findToml / _fixtureDist / _copyStdlibZpkgs /
-// _enumDirsSorted / _append / _crossSummary / _firstLines) — same Z42Xtask
-// namespace, cross-file (see scripts/test/xtask_test_cross.z42).
+// against expected_output.txt. Build/run helpers are shared with cross-zpkg
+// (xtask_test_cross.z42).
 namespace Z42Xtask;
 
 using Std.IO;
 
-// 构建前置与 cross-zpkg 共用 _ensureFixtureToolchain（test/xtask_test.z42）——
-// 此前是逐行相同的两份拷贝（dedupe-cross-multiexe）。
+// 构建前置与 cross-zpkg 共用 _ensureFixtureToolchain（test/xtask_test.z42）。
 int _testMultiExeCore(string mode, bool noBuild) {
     int c = _ensureFixtureToolchain(noBuild); if (c != 0) { return c; }
     return _testMultiExeImpl(mode);
@@ -22,17 +19,12 @@ int _testMultiExeCore(string mode, bool noBuild) {
 int _testMultiExeImpl(string mode) {
     string root = _root();
     if (!Directory.Exists(Path.Join(root, "src/compiler/z42c.pipeline/tests/fixtures/multi-exe"))) { return 0; }   // no cases → clean skip
-    // isolate-xtask-fixture-builds：在 build/ 镜像的拷贝上编 / 跑，源码树零写入（同 cross-zpkg）。
+    // 在 build/ 镜像的拷贝上编 / 跑，源码树零写入（同 cross-zpkg）。
     string testsDir = _stageFixtureTree(root, "src/compiler/z42c.pipeline/tests/fixtures/multi-exe");
 
-    // Tool resolution (mirror cross-zpkg setup: --toolchain consume vs build-tree).
-    // Same VM-role split as cross-zpkg (speed-up-cross-zpkg-compile-vm): compile the
-    // project on the release vm, run each exe zpkg on the debug vm (keeps debug-
-    // assertions + overflow-checks coverage on real execution; compiling on debug adds
-    // no coverage). One fixture here, so the win is small — but it keeps the harness
-    // consistent and trims every test-host leg (multi-exe isn't skipped on any leg).
-    // 与 cross-zpkg 共用 _resolveToolset（scripts/common/xtask_toolset.z42）——
-    // 这两处此前是逐字相同的两份拷贝。
+    // Same toolset + VM-role split as cross-zpkg (_resolveToolset, common/xtask_toolset.z42):
+    // compile on the release vm, run each exe zpkg on the debug vm (keeps debug-assertions +
+    // overflow-checks coverage on real execution; compiling on debug adds no coverage).
     ToolsetZ ts = _resolveToolset(root);
     if (!ts.Ok) { return 1; }
     string stdlibDist = ts.StdlibDist;

@@ -1,13 +1,11 @@
 // xtask — embedded test-host：语料枚举 / 分片 / bundle 组装
 //
-// 扫描 src/tests + stdlib tests 得到 _CorpusCase 全集，按 filter/rid 排除、按 shard 切片，
-// 再调上面 golden 文件里的发射器逐个产出 .zbc，最后写 manifest.json 成 test-bundle。
-//
-// 从 xtask_test_embedded.z42 拆出（原文件 848 行 = 500 行硬限的 1.7 倍，三个职责混装）。
-// 同 Z42Xtask 命名空间，跨文件裸名互调。
+// 扫描 src/tests + stdlib tests 得到 _CorpusCase 全集，按 filter 筛、按 shard 切片或抽样，
+// 再调 xtask_test_embedded_golden.z42 里的发射器逐个产出 .zbc，最后写 manifest.json 成 test-bundle。
 namespace Z42Xtask;
 
 using Std.IO;
+
 // One enumerated corpus case (structural descriptor, rid-independent). Shared SoT
 // for both the embedded bundle builder (_buildTestBundle) and the `test list`
 // catalog (_testList) — one enumeration, two consumers, no drift.
@@ -145,8 +143,8 @@ _GoldenEntry[] _entriesInBucket(_GoldenEntry[] es, string segA, string segB, str
 }
 
 // Per-category sampling for the embed smoke cap: pick up to `cap` cases spread
-// EVENLY across buckets (round-robin) instead of the old "first `cap` in sort
-// order" (which starved alphabetically-late categories). cap<=0 or total<=cap →
+// EVENLY across buckets (round-robin) — "first `cap` in sort order" would starve
+// alphabetically-late categories. cap<=0 or total<=cap →
 // return all (desktop = full coverage). Deterministic: buckets are the contiguous
 // runs from _enumerateCorpus (first-appearance/sorted order), within-bucket order
 // preserved, and the result is emitted in original enumeration order.
@@ -189,8 +187,7 @@ _CorpusCase[] _sampleCorpus(_CorpusCase[] cases, int cap) {
     return outc;
 }
 
-// Full-coverage sharding for parallel tier-2 CI (tier2-shard-full-coverage).
-// Partition the (already capability-filtered) corpus into n DISJOINT slices by
+// Full-coverage sharding for parallel tier-2 CI. Partition the (already capability-filtered) corpus into n DISJOINT slices by
 // stable enumeration index: shard k gets every case where index % n == k-1. No
 // cap — the union of shards 1..n is the FULL runnable corpus (100% coverage),
 // with zero overlap. index%n interleaves across the contiguous bucket runs from
@@ -217,19 +214,14 @@ _CorpusCase[] _shardCorpus(_CorpusCase[] cases, int k, int n) {
 // Two select modes on tier-2 (wasm/ios/android):
 //   • shardN>0  → full-coverage slice k/n (_shardCorpus, NO cap). Nightly CI
 //     fans out n parallel shard jobs; their union = 100% of the runnable corpus.
-//     (tier2-shard-full-coverage — replaces the smoke-only tier-2 coverage.)
-//   • shardN==0 → per-category smoke sample to embedCap=60 (_sampleCorpus). This
-//     is the fast local/manual default: fix-wasm-embed-timeout / android-emu cap
-//     kept the whole corpus (~433 cases) from blowing the emulator/browser job
-//     wall (>20min; android hit 60min). tidy-test-system spread the cap per
-//     category (round-robin) so late-sorted categories still get representation.
+//   • shardN==0 → per-category smoke sample to embedCap=60 (_sampleCorpus) — the fast
+//     local default; the whole corpus would blow the emulator/browser job wall.
 string _buildTestBundle(string root, string filter, string rid, int shardK, int shardN) {
     string bundleDir = Path.Join(_workOut(root, "src/toolchain/workload/test", ""), "bundle");
     Directory.Create(bundleDir);
     _cleanGlob(bundleDir, "*.zbc");
     int embedCap = (rid.Contains("wasm") || rid.Contains("ios") || rid.Contains("android")) ? 60 : 0;
 
-    // enumerate (structural) → select (shard slice | smoke sample).
     _CorpusCase[] included = _enumerateCorpus(root, filter);
     int ni = included.Length;
     // --shard k/n wins over the smoke cap: run the full 1/n slice, no cap.
@@ -238,7 +230,6 @@ string _buildTestBundle(string root, string filter, string rid, int shardK, int 
     else            { sel = _sampleCorpus(included, embedCap); }
     int capped = (shardN > 0) ? 0 : (ni - sel.Length);
 
-    // compile the selection → manifest items.
     string items = "";
     int count = 0;
     int si = 0;
