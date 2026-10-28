@@ -6,7 +6,7 @@
 //   ios harness Package.swift .iOS / .macOS               ← [platform.ios]
 //   [rid.*].triple ↔ [platform.*].rust_targets            ← 双向（见 _checkRidTable）
 // 纯文本比对、与机器无关（不看装了什么）——所以它是 `xtask check` 的一项、GREEN gate 的一个 stage；
-// 「本机装没装齐」是另一回事，在 `xtask setup check`。scalar 解析复用 common/xtask_versions.z42 的 _scalarStr。
+// 「本机装没装齐」是另一回事，在 `xtask setup check`。
 namespace Z42Xtask;
 
 using Std.IO;
@@ -53,8 +53,7 @@ int _checkAndroidProjectionDrift(string root, TomlValue toml) {
 
 // iOS 锚点：committed host harness 的 Package.swift（`swift test` 用）。SDK 包的
 // Package.swift 由 xtask_package_ios.z42 运行期从 versions.toml 生成（结构上不可能
-// drift），故唯一残留的硬编码投影是这份 harness——drift 检查钉在它上面
-// （migrate-scripts-to-z42 锚点迁移史见 git）。
+// drift），故唯一残留的硬编码投影是这份 harness——drift 检查钉在它上面。
 int _checkIosProjectionDrift(string root, TomlValue toml) {
     string pkgSwiftText = File.ReadAllText(Path.Join(root, "src/toolchain/workload/ios/platform/Package.swift"));
     int fail = 0;
@@ -67,7 +66,7 @@ int _checkIosProjectionDrift(string root, TomlValue toml) {
     return fail;
 }
 
-// ── [rid.*] ↔ [platform.*] / [workload] 对账（unify-rid-workload-tables）────────
+// ── [rid.*] ↔ [platform.*] / [workload] 对账 ─────────────────────────────────
 //
 // [rid] 表是 xtask 侧的目标登记，[platform] 是运行时承诺——两边各自演化就会出现「CI 编得出、
 // xtask 打不出包」。规则（详见 versions.toml [rid] 头注）：
@@ -163,7 +162,7 @@ int _checkRidTable(string root, TomlValue toml) {
 
 // ── 输出与解析助手 ────────────────────────────────────────────────────────────
 
-// 同 bash check()：want == got → ✓，否则 ✗ + 计 1 失败。
+// want == got → ✓，否则 ✗ + 计 1 失败。
 int _check(string desc, string want, string got) {
     if (want == got) {
         Console.WriteLine("  ✓ " + _padRight(desc, 50) + " " + got);
@@ -184,9 +183,7 @@ string _padRight(string s, int width) {
     return acc;
 }
 
-// _scalarStr 现由 shared xtask_versions.z42 提供（同 Z42Xtask 命名空间）。
-
-// 第一个 regex match 的指定 group；找不到返回 ""（同 bash `head -1` 失败时空）。
+// 第一个 regex match 的指定 group；找不到返回 ""。
 string _firstMatchGroup(string text, string pattern, int groupIdx) {
     Regex r = Regex.Compile(pattern);
     Match m = r.Find(text);
@@ -194,8 +191,7 @@ string _firstMatchGroup(string text, string pattern, int groupIdx) {
     return m.Group(groupIdx);
 }
 
-// 等价 bash awk 块：找到 [workspace.package] section，取该 section 内第一个
-// `version = "..."` 行。section 边界由 `[...]` 起始的下一行决定。
+// [workspace.package] section 内第一个 `version = "..."` 行；section 边界是下一个 `[...]` 起始行。
 string _extractCargoWorkspaceVersion(string cargoText) {
     string[] lines = cargoText.Split("\n");
     Regex verLine = Regex.Compile("^\\s*version\\s*=\\s*\"([^\"]+)\"");

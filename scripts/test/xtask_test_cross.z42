@@ -1,31 +1,22 @@
-// xtask — cross-zpkg e2e runner (folded from the former scripts/test-cross-zpkg.z42
-// by the unify-scripts-into-xtask cross-zpkg fold). Same Z42Xtask namespace; the
-// generic helpers it relies on (_enumDirsSorted / _sortStrings / _append) live in
-// xtask_golden.z42, and _root / _z42vm come from xtask.z42 (cross-file, same ns).
+// xtask — cross-zpkg e2e runner.
 //
-// Each test under src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/<name>/ ships three z42.toml packages
-// (target / ext / main) plus expected_output.txt. We build them in
-// dependency order, populating each one's <pkg>/libs/ with prior zpkgs so
-// PackageCompiler's lib lookup resolves cross-package symbols. Then run
-// main's zpkg through z42vm with a temp libs dir that bundles stdlib +
-// our two test packages, capture stdout, and diff against expected.
-//
-// Build / run sequence per test (z42c.driver.zpkg on z42vm):
-//   1. z42vm z42c.driver.zpkg build <target>/z42.toml   (no deps)
-//   2. z42vm z42c.driver.zpkg build <ext>/z42.toml      (deps on target)
-//   3. z42vm z42c.driver.zpkg build <main>/z42.toml     (deps on target + ext)
-//   4. z42vm <main>.zpkg --mode <interp|jit>            (run + capture stdout)
-//
-// `mode` arrives as the function parameter (resolved by _testCrossZpkg in
-// xtask_test.z42), replacing the former Z42_VM_MODE env hop.
+// Each fixture under src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg/<name>/ ships z42.toml
+// packages target / [ext] / main (+ optional oldtarget/) plus expected_output.txt (or
+// expected_build_error.txt for a negative case; see that directory's README). Packages are built in
+// dependency order, each <pkg>/libs/ seeded with the prior zpkgs so cross-package symbols resolve;
+// then main's zpkg runs on z42vm with a temp libs dir (stdlib + the fixture's packages) and
+// stdout+stderr is diffed against expected:
+//   1. z42c build <target>/z42.toml   (no deps)
+//   2. z42c build <ext>/z42.toml      (deps on target)
+//   3. z42c build <main>/z42.toml     (deps on target + ext)
+//   4. z42vm <main>.zpkg --mode <interp|jit>
 namespace Z42Xtask;
 
 using Std.IO;
 
-// Returns 0 if every cross-zpkg case passes, 1 on any failure (or setup error).
 // 硬链接写穿透门。本 stage 把 stdlib **硬链接**进每个 fixture 的临时
-// `Z42_LIBS`（`_copyStdlibZpkgs`，为省下一轮 ≈198MB 的纯拷贝），而 `File.Copy` 是
-// truncate 语义 ⇒ 写到别名上会把**真正的 flat dist 与成员 dist 一起改掉**。今天躲过它
+// `Z42_LIBS`（`_copyStdlibZpkgs`），而 `File.Copy` 是
+// truncate 语义 ⇒ 写到别名上会把**真正的 flat dist 与成员 dist 一起改掉**。躲过它
 // 靠的是「fixture 包都叫 `demo.*`，不与 `z42.*` 撞名」这个巧合，没有任何东西约束它。
 //
 // ⇒ 每轮开跑前**真做一遍**：建一对硬链接、往其中一条 `_copyAll`，断言另一条没变。
@@ -61,31 +52,23 @@ int _assertCopyDoesNotWriteThroughHardLinks(string root) {
     return 0;
 }
 
+// Returns 0 if every cross-zpkg case passes, 1 on any failure (or setup error).
 int _testCrossZpkgImpl(string mode) {
     string root = _root();
     if (_assertCopyDoesNotWriteThroughHardLinks(root) != 0) { return 1; }
 
-    // isolate-xtask-fixture-builds：在 build/ 镜像里的**拷贝**上编 / 跑，源码树零写入
-    // （`_stageFixtureTree` 头注）。下面所有路径（`_fixtureDist` / `<pkg>/libs` / expected_*.txt）
-    // 都相对 testsDir，故只改这一处。
+    // 在 build/ 镜像里的**拷贝**上编 / 跑，源码树零写入（`_stageFixtureTree`）。下面所有路径
+    // （`_fixtureDist` / `<pkg>/libs` / expected_*.txt）都相对 testsDir。
     if (!Directory.Exists(Path.Join(root, "src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg"))) { return 0; }
     string testsDir = _stageFixtureTree(root, "src/compiler/z42c.pipeline/tests/fixtures/cross-zpkg");
-    // --toolchain (compile-once P3): when an active toolchain is selected, locate
-    // z42c.driver + its siblings + stdlib + z42vm from that `.z42` set (the
-    // downloaded current-sdk consumed cross-job) instead of the build-tree.
-    // The toolchain ships RELEASE z42vm only → compile + run both use it.
-    //
-    // speed-up-cross-zpkg-compile-vm: the cross-zpkg wall-time cost is the per-fixture
-    // 3-stage z42c compile (target→ext→main), ~40 z42c invocations per full run. On the
-    // build-tree path those ran on the DEBUG vm and were the ~18min pole of
-    // test-host(linux-x64). Split the two roles:
-    //   compileVm = RELEASE  — runs z42c.driver to build fixtures (the hot path)
+    // Toolset (_resolveToolset, shared with the multi-exe harness). With `--toolchain` active,
+    // z42c.driver + stdlib + z42vm come from that `.z42` set, which ships RELEASE z42vm only →
+    // compile + run both use it. On the build tree the two roles split:
+    //   compileVm = RELEASE  — runs z42c.driver to build fixtures (the hot path: the per-fixture
+    //                          3-stage z42c compile dominates wall time)
     //   runVm     = DEBUG    — runs each fixture's main.zpkg, so debug-assertions +
     //                          overflow-checks still guard real cross-package execution
-    //                          (the coverage that only debug vm gives; compiling on
-    //                          debug adds NO coverage — assertions fire at run, not build).
-    // 解析 + 校验全在 _resolveToolset（scripts/common/xtask_toolset.z42）；multi-exe
-    // harness 用的是同一份（此前两处逐字重复，连错误文案都一样）。
+    //                          (compiling on debug adds NO coverage — assertions fire at run).
     ToolsetZ ts = _resolveToolset(root);
     if (!ts.Ok) { return 1; }
     string stdlibDist = ts.StdlibDist;
@@ -101,25 +84,20 @@ int _testCrossZpkgImpl(string mode) {
     string[] failures = new string[8];
     int      failCount = 0;
 
-    // ── 分波并发（parallel-cross-zpkg）──────────────────────────
+    // ── 分波并发 ─────────────────────────────────────────────
     //
     // 每个 fixture 内部 target→ext→main **有真实依赖、必须串行**；但 **fixture 之间
     // 完全独立**。所以按「波次」并发：全部 target 一起编 → 等 → 全部 ext → 等 →
     // 全部 main → 等 → 全部 run。波内并发度见 _crossJobs()。
     //
-    // 为什么值得：一轮 19 个 fixture × 3 次 z42c build + 19 次 run ≈ 76 个进程，
-    // 此前**全串行**。成本由每进程 z42c 启动主导（同 golden regen 的形状——那边实测
-    // 4→40s / 8→20s / 16→12s，扩展性很好）。
-    //
-    // ⚠️ 先试过「把每次 build 的 stdlib 拷贝改成硬链接」（76 次 × 2.6MB ≈ 198MB），
-    // 实测 45s → 44s ≈ 噪声：**瓶颈是进程数，不是 I/O**。别再往 I/O 方向猜。
+    // ⚠️ 成本由每进程 z42c 启动主导：**瓶颈是进程数，不是 I/O**（stdlib 拷贝换成硬链接实测
+    // 只是噪声）。别往 I/O 方向猜。
     string[] act = new string[names.Length];
     int nAct = 0;
     int i = 0;
     while (i < names.Length) {
-        // report-crosspkg-duplicate-type：`expected_build_error.txt` = **期望 main 编译失败**的负例
-        // fixture（内容 = stderr 必须包含的子串）。此前只认 expected_output.txt ⇒ 负例 fixture 会被
-        // **静默跳过**（连 FAIL 都不是），正是 src/tests/README.md 记着的那个「跨包负例没有自动门」。
+        // `expected_build_error.txt` = **期望 main 编译失败**的负例 fixture（内容 = stderr 必须包含的
+        // 子串）。两个都没有的目录不是 fixture。
         string _fxDir = Path.Join(testsDir, names[i]);
         if (File.Exists(Path.Join(_fxDir, "expected_output.txt"))
             || File.Exists(Path.Join(_fxDir, "expected_build_error.txt"))) {
@@ -132,7 +110,7 @@ int _testCrossZpkgImpl(string mode) {
     i = 0; while (i < nAct) { label[i] = ""; i = i + 1; }
 
     _crossBuildWave(act, nAct, label, testsDir, "target", compileVm, driverZpkg, stdlibDist);
-    // fix-silent-symbol-resolution：可选 `oldtarget/` —— 与 target **同工程名**、但成员更少的
+    // 可选 `oldtarget/` —— 与 target **同工程名**、但成员更少的
     // 旧版依赖，只在运行前顶替 target 的产物（见 _applySkewReplace）。不参与 main 的编译。
     _crossBuildWave(act, nAct, label, testsDir, "oldtarget", compileVm, driverZpkg, stdlibDist);
     _crossBuildWave(act, nAct, label, testsDir, "ext",    compileVm, driverZpkg, stdlibDist);
@@ -178,10 +156,7 @@ int _crossSummary(int pass, int fail, string[] failures, int failCount) {
     return 0;
 }
 
-// ── z42c build path (replace-csharp Phase B：cross-zpkg gate 脱 dotnet) ──────
-
-
-
+// ── 波次 build / run ─────────────────────────────────────────────────────
 
 // 波内并发度。同 golden regen 的理由：成本由每进程 z42c 启动主导，超核数仍获益，
 // 但少核机器（GitHub 4 核 runner）不冒进 → max(8, CpuCount())；`Z42_XPKG_JOBS` 逃生舱
@@ -212,9 +187,8 @@ void _crossBuildWave(string[] act, int nAct, string[] label, string testsDir, st
                 string dir = Path.Join(testsDir, act[idx]);
                 string pkgDir = Path.Join(dir, stage);
                 string toml = "";
-                // add-symbol-availability-macro：`ext` 是**可选**中间层——只有 target + main 的
-                // 两包 fixture 合法（如 available_present / available_skew：一个依赖包就够演示
-                // 跨包 available!）。此前无条件要求三包，缺 ext 直接判失败。
+                // `ext` 是**可选**中间层——只有 target + main 的两包 fixture 合法（如
+                // available_present / available_skew）；`oldtarget` 同样可选。
                 // ⚠️ 判断必须在 _prepPkgLibs **之前**：它会创建 <pkg>/libs，调用后目录必然存在。
                 bool extMissing = (stage == "ext" || stage == "oldtarget") && !Directory.Exists(pkgDir);
                 if (extMissing) {
@@ -226,7 +200,7 @@ void _crossBuildWave(string[] act, int nAct, string[] label, string testsDir, st
                     toml = _prepPkgLibs(pkgDir, _fixtureDist(Path.Join(dir, "target")));
                 } else {
                     // main 依赖 target + ext 两个 dist —— _prepPkgLibs 只吃一个源，
-                    // 故先建空 libs 再手动并入两份（与串行版同语义）。
+                    // 故先建 libs（含 target）再手动并入 ext。
                     toml = _prepPkgLibs(pkgDir, _fixtureDist(Path.Join(dir, "target")));
                     _copyZpkgs(_fixtureDist(Path.Join(dir, "ext")), Path.Join(pkgDir, "libs"));
                 }
@@ -236,12 +210,11 @@ void _crossBuildWave(string[] act, int nAct, string[] label, string testsDir, st
                 } else if (toml.Length == 0) {
                     label[idx] = act[idx] + " (" + stage + ": no toml)";
                 } else {
-                    // report-crosspkg-duplicate-type：main 波读 `expected_build_error.txt`（若有）→
-                    // 该 fixture 期望 main **编不过**且 stderr 命中其内容（trim 后整串，通常是诊断码 + 关键词）。
+                    // main 波读 `expected_build_error.txt`（若有）→ 期望 main **编不过**且 stderr 命中其内容
+                    // （trim 后整串，通常是诊断码 + 关键词）；`expected_build_warning.txt` = 期望 main **编过且**
+                    // stderr 命中该告警文本（见 fixtures README）。两者同在时 expErr 优先。
                     string expErr = "";
                     string expWarn = "";
-                    // fix-free-function-attrs：`expected_build_warning.txt` = 期望 main **编过且**
-                    // stderr 命中该告警文本（正例 + 告警门，见 README）。与 expErr 互斥（前者优先）。
                     if (stage == "main") { expErr = _crossExpectedBuildError(dir); expWarn = _crossExpectedBuildWarning(dir); }
                     hs[b] = _spawnBuildPkgE(vmBin, driverZpkg, stdlibDist, pkgDir, toml, expErr, expWarn);
                 }
@@ -264,7 +237,7 @@ void _crossBuildWave(string[] act, int nAct, string[] label, string testsDir, st
 
 // 一波 run：并发跑每个 fixture 的 main zpkg，再逐个比对 expected_output.txt。
 // 运行用 runVm（**debug**）—— 保住跨包执行的 assertion / overflow 覆盖（compileVm 是
-// release，只用于编译；见文件头 speed-up-cross-zpkg-compile-vm 的分工说明）。
+// release，只用于编译；见 _testCrossZpkgImpl 的分工说明）。
 // 判定/打印按原顺序做，终端输出保持可读（同 _runVmBatch 的做法）。
 void _crossRunWave(string[] act, int nAct, string[] label, string testsDir,
                    string stdlibDist, string runVm, string mode) {
@@ -281,14 +254,14 @@ void _crossRunWave(string[] act, int nAct, string[] label, string testsDir,
             live[b] = false; tmpLibs[b] = "";
             if (label[idx].Length == 0) {
                 string dir = Path.Join(testsDir, act[idx]);
-                // report-crosspkg-duplicate-type：期望编译失败的负例没有 main 产物可跑——
+                // 期望编译失败的负例没有 main 产物可跑——
                 // 它在 main build 波已判定完毕（编不过且文本命中 = 通过），此处直接跳过。
                 if (File.Exists(Path.Join(dir, "expected_build_error.txt"))) { b = b + 1; continue; }
                 string mainDir = Path.Join(dir, "main");
                 string mainToml = _findToml(mainDir);
                 // 按**工程名**取 main zpkg：packed exe build 会把依赖 zpkg 也留在 dist 里，
-                // 旧的 `_firstZpkg`（排序后取 [0]）会间歇性挑中排在前面的依赖 → "no entry
-                // point" 假失败（fix-crosszpkg-run-app-by-name）。此处保持同一修复。
+                // 取 glob 第一个会间歇性挑中依赖 → "no entry point" 假失败。`_firstZpkg` 只是
+                // 读不到工程名时的兜底。
                 string appName = mainToml.Length > 0 ? _tomlName(mainToml) : "";
                 string mainZpkg = "";
                 if (appName.Length > 0) {
@@ -330,7 +303,7 @@ void _crossRunWave(string[] act, int nAct, string[] label, string testsDir,
                 bool runErr = false;
                 try {
                     ProcessResult r = hs[b].Wait();
-                    // 串行版用 `$(... 2>&1)` 的等价做法：拼接 stdout+stderr。
+                    // expected 覆盖 stdout+stderr。
                     actual = r.Stdout + r.Stderr;
                 } catch (Exception e) { runErr = true; }
                 if (tmpLibs[b].Length > 0) { Directory.Delete(tmpLibs[b], true); }
@@ -348,9 +321,9 @@ void _crossRunWave(string[] act, int nAct, string[] label, string testsDir,
     }
 }
 
-// ── 分波并发（parallel-cross-zpkg）────────────────────────────
+// ── 版本 skew 模拟 ───────────────────────────────────────────
 //
-// add-symbol-availability-macro：可选 `skew-absent.txt` —— 每行一个 zpkg 文件名，
+// 可选 `skew-absent.txt` —— 每行一个 zpkg 文件名，
 // 运行**前**从两处删除，模拟「编译时依赖在场、运行时不在场」的版本 skew。
 //
 // ⚠️ 必须两处都删：packed exe build 会把依赖 zpkg **colocate 进 main/dist**，而 VM 的
@@ -375,7 +348,7 @@ void _applySkewAbsent(string caseDir, string testLibs, string mainDist) {
     }
 }
 
-// fix-silent-symbol-resolution：可选 `skew-replace.txt` —— 每行一个 zpkg 文件名，运行**前**
+// 可选 `skew-replace.txt` —— 每行一个 zpkg 文件名，运行**前**
 // 用 `oldtarget/` 建出的同名产物顶替 testLibs 与 main/dist 里那份。
 //
 // 与 `skew-absent.txt`（整包不在场）的分工：absent 只能演示「依赖整个消失」，证不了
@@ -411,17 +384,16 @@ class XpkgJobZ {
     public ProcessHandle H { get; set; }
     public string Libs { get; set; }   // Wait 后要删的临时 Z42_LIBS
     public bool Live { get; set; }     // false = 本 fixture 已在更早的波次失败/跳过
-    // add-symbol-availability-macro：true = 本波**有意**不跑（如两包 fixture 没有 ext 中间层）。
+    // true = 本波**有意**不跑（如两包 fixture 没有 ext 中间层）。
     // 与 Live=false 的区别是关键：Live=false 兼指「spawn 失败」，await 波会判红；
     // Skipped 则明确表示「不该跑，也不该红」。
     public bool Skipped { get; set; }
     public string Dir { get; set; }    // 本次 build 的工程目录（失败时随输出一起打印）
-    // report-crosspkg-duplicate-type：非空 = 本次 build **期望失败**，且 stderr 须含此子串。
+    // 非空 = 本次 build **期望失败**，且 stderr 须含此子串。
     // 空串 = 常规（期望成功）。只有 main 波会置它。
     public string ExpectErr { get; set; }
-    // fix-free-function-attrs：非空 = 本次 build **期望成功**、且输出须含此子串（告警文本）。
-    // 与 ExpectErr 正交：此前跨包**警告**类行为全仓无处设门（只能断言「编不过」或 stdout），
-    // 于是跨包 `[Deprecated]` 静默失效数月无人发现。置它的 fixture 照常进 run 波。
+    // 非空 = 本次 build **期望成功**、且输出须含此子串（告警文本）——跨包告警行为的门
+    // （否则只能断言「编不过」或 stdout）。置它的 fixture 照常进 run 波。
     public string ExpectWarn { get; set; }
 }
 
@@ -438,24 +410,14 @@ XpkgJobZ _spawnBuildPkgE(string vmBin, string driverZpkg, string stdlibDist, str
     j.Live = false;
     j.ExpectErr = expectErr;
     j.ExpectWarn = expectWarn;
-    // 一律接管输出：期望失败 / 告警的要拿它比对；常规 build 失败时把尾部打印出来（此前只报
-    // 「(target build)」，CI 上偶发失败无从诊断）。
+    // 一律接管输出：期望失败 / 告警的要拿它比对；常规 build 失败时把尾部打印出来。
     bool capture = true;
     j.Dir = pkgDir;
     string outDir = _fixtureDist(pkgDir);
-    // 🔴 **重置**而不是只 Create。（isolate-xtask-fixture-builds 起夹具整棵在 build/ 镜像的拷贝里编、
-    // 每轮重建，下面这种残留已无从产生；重置保留作防御。原注：）这个目录曾在**源码树内**
-    // （`<fixture>/<stage>/artifacts/debug/dist`，gitignore 的产物），而 `--output-dir` 不清目录、`File.Copy` 只覆盖不删 ⇒ 更早 era 留下的兄弟
-    // zpkg 会一直躺在那儿。而 VM 的惰性加载器**先搜 entry zpkg 同目录再搜 `Z42_LIBS`**
-    // （`_applySkewAbsent` / `_applySkewReplace` 的头注就是靠这条），于是那份陈旧副本**赢过**
-    // 本轮刷新的 `<stage>/libs/`。
-    //
-    // 实测代价(#903 把 zpkg 抬到 0.50 之后）：`xtask test e2e` 的 cross-zpkg 格
-    // **52 个失败**，全是 `zpkg minor 49 not supported (writer is at 0.50)` —— 而 `libs/` 明明
-    // 已经是 0.50。清掉 224 个这类目录后立刻全绿。
-    //
-    // ⭐ 这是**只在本地会踩**的坑：CI 每次全新 checkout，永远碰不到 ⇒ 没有门会红。
-    //   fixture 的增量缓存按内容计 key，**格式 bump 不让它失效**。
+    // 🔴 **重置**而不是只 Create：`--output-dir` 不清目录，残留的兄弟 zpkg 会一直躺在那儿，而 VM 的
+    // 惰性加载器**先搜 entry zpkg 同目录再搜 `Z42_LIBS`**，于是陈旧副本**赢过**本轮刷新的
+    // `<stage>/libs/`（格式 bump 后表现为 `zpkg minor N not supported`；CI 全新 checkout 碰不到，
+    // 只在本地踩）。夹具在 build/ 镜像的拷贝里编，重置保留作防御。
     // ⚠️ 重置落在构建**之前**，而两处 skew 助手（故意利用 colocate 顶替/删除）跑在构建
     //   **之后**、运行波之前 —— 互不干扰。
     _resetDir(outDir);
@@ -493,14 +455,13 @@ bool _awaitBuildPkg(XpkgJobZ j) {
         || (j.ExpectWarn != null && j.ExpectWarn.Length > 0);
     if (!ok && !expectsSomething) { _crossPrintFailure(j.Dir, code, outp); }
     Directory.Delete(j.Libs, true);
-    // report-crosspkg-duplicate-type：期望失败的负例 —— 编过了是**失败**（诊断没响 = 门坏了），
+    // 期望失败的负例 —— 编过了是**失败**（诊断没响 = 门坏了），
     // 编不过还要求错误文本命中，否则「随便哪种编译失败都算过」= 没有判别力的门。
     if (j.ExpectErr != null && j.ExpectErr.Length > 0) {
         if (ok) { return false; }
         return outp.Contains(j.ExpectErr);
     }
-    // fix-free-function-attrs：期望「编过 **且** 告警响了」。编不过是失败（回归），编过但没这条
-    // 告警也是失败 —— 后者正是本 change 修的那个缺陷的形状（静默不报）。
+    // 期望「编过 **且** 告警响了」。编不过是失败（回归），编过但没这条告警也是失败（静默不报）。
     if (j.ExpectWarn != null && j.ExpectWarn.Length > 0) {
         if (!ok) { return false; }
         return outp.Contains(j.ExpectWarn);
@@ -520,27 +481,26 @@ void _crossPrintFailure(string dir, int code, string outp) {
     }
 }
 
-// report-crosspkg-duplicate-type：读 fixture 的 `expected_build_error.txt`（trim；不存在 → ""）。
+// 读 fixture 的 `expected_build_error.txt`（trim；不存在 → ""）。
 string _crossExpectedBuildError(string dir) {
     string f = Path.Join(dir, "expected_build_error.txt");
     if (!File.Exists(f)) { return ""; }
     return File.ReadAllText(f).Trim();
 }
 
-// fix-free-function-attrs：读 fixture 的 `expected_build_warning.txt`（trim；不存在 → ""）。
+// 读 fixture 的 `expected_build_warning.txt`（trim；不存在 → ""）。
 string _crossExpectedBuildWarning(string dir) {
     string f = Path.Join(dir, "expected_build_warning.txt");
     if (!File.Exists(f)) { return ""; }
     return File.ReadAllText(f).Trim();
 }
 
-// 阻塞版（multi-exe harness 仍在用）：就是 spawn + 立刻 wait，**不再有第二份实现**。
+// 阻塞版（multi-exe harness 在用）：spawn + 立刻 wait，不另起一份实现。
 bool _invokeBuildCompiler(string vmBin, string driverZpkg, string stdlibDist, string pkgDir, string toml) {
     return _awaitBuildPkg(_spawnBuildPkg(vmBin, driverZpkg, stdlibDist, pkgDir, toml));
 }
 
-// 准备一个 pkg 的 libs 目录（stage 1/2 的前半段，从 _buildCompilerPkg 抽出），
-// 返回该 pkg 的 toml（"" = 找不到）。
+// 重建一个 pkg 的 libs 目录（并入 srcLibsDir 的 zpkg），返回该 pkg 的 toml（"" = 找不到）。
 string _prepPkgLibs(string pkgDir, string srcLibsDir) {
     string pkgLibs = Path.Join(pkgDir, "libs");
     if (Directory.Exists(pkgLibs)) { Directory.Delete(pkgLibs, true); }
@@ -551,22 +511,13 @@ string _prepPkgLibs(string pkgDir, string srcLibsDir) {
 
 // ── Path / file helpers (cross-specific) ─────────────────────────────────
 
-// Thin wrappers over _copyAll (common/xtask_fs.z42): identical error
-// handling (Directory.Exists guard + try/catch skip), plus a harmless self-copy
-// guard (src≠dst always holds for these fixture-staging callers).
 void _copyZpkgs(string srcDir, string dstDir) {
     _copyAll(srcDir, dstDir, "*.zpkg");
 }
 
-// Stdlib artifacts live in the FLAT dist view at
-// artifacts/intermediate/libraries/flat/release (the same layout Z42_LIBS / _z42vm
-// consume). Copy *.zpkg + *.zsym from there.
-// stdlib 进每个 fixture 的临时 Z42_LIBS 目录：**硬链接**而非拷贝。
-//
+// stdlib（flat dist 的 *.zpkg + *.zsym）进每个 fixture 的临时 Z42_LIBS 目录：**硬链接**而非拷贝。
 // Z42_LIBS 只接受单一目录，所以每次 build / run 都要把「stdlib + 本 fixture 的依赖」
-// 并到一个临时目录里。stdlib 侧此前是逐文件 File.Copy —— flat dist 现在 50 个文件
-// / 2.6MB，而 cross-zpkg 一轮要建 19 个 fixture × 3 次 build + 19 次 run-libs
-// = 76 次 ≈ **198MB 的纯拷贝**，全串行。
+// 并到一个临时目录里。
 //
 // 这些文件对 VM 是**只读**的（只被加载，不被写），临时目录用完即
 // `Directory.Delete`（只断链、不动源文件），所以硬链接语义完全等价。
@@ -578,7 +529,7 @@ void _copyStdlibZpkgs(string distDir, string dstDir) {
 }
 
 // <pkgDir>/artifacts/debug/dist — where a per-package z42c build lands its zpkg
-// (mirrors the former C# path; consumed by run/diff + downstream lib seeding).
+// (consumed by run/diff + downstream lib seeding).
 // pkgDir 是 build/ 镜像里的夹具**拷贝**（`_stageFixtureTree`），不是源码树。
 string _fixtureDist(string pkgDir) {
     return Path.Join(Path.Join(Path.Join(pkgDir, "artifacts"), "debug"), "dist");
@@ -600,7 +551,7 @@ string _firstZpkg(string dir) {
 
 // [project] `name` from a z42.toml (the bare `name = "..."` line; dependency
 // entries are quoted-key `"pkg" = "ver"`, so their key != "name"). Empty on miss.
-// Used to pick the app zpkg by name in Stage 4 (fix-crosszpkg-run-app-by-name).
+// Used to pick the app zpkg by name in the run wave.
 string _tomlName(string tomlPath) {
     if (!File.Exists(tomlPath)) return "";
     string txt = File.ReadAllText(tomlPath);
@@ -623,7 +574,7 @@ string _tomlName(string tomlPath) {
     return "";
 }
 
-// Return first `n` lines joined by '|' — matches bash `head -3 | tr '\n' '|'`.
+// Return first `n` lines joined by '|'.
 string _firstLines(string s, int n) {
     string result = "";
     int count = 0;

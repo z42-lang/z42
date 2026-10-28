@@ -1,4 +1,4 @@
-// xtask — desktop platform backend (add-desktop-platform-backend).
+// xtask — desktop platform backend.
 // Implements IPlatformBackend for the host desktop via the Tier-1 C ABI. The
 // desktop peer of wasm/iOS/Android: a real external C consumer (r1_r7.c) links
 // libz42.a and runs the same R1–R7 embedding contract.
@@ -10,7 +10,7 @@
 // use for a prebuilt runtime pack): ① builds nothing; ③ links the PACKAGE's native/ instead of the build
 // tree — r1_r7 statically against native/libz42.a, and again dynamically against native/libz42.{dylib,so}
 // found through an rpath — and runs both against the package's libs/. This is the per-RID "C host links
-// the published artifact" smoke (P0-17): a bad install name (absolute CI path) makes the dynamic leg fail
+// the published artifact" smoke: a bad install name (absolute CI path) makes the dynamic leg fail
 // to load. Windows has no `cc`; CI checks the import lib there by presence.
 namespace Z42Xtask;
 
@@ -132,8 +132,8 @@ public class DesktopBackend : IPlatformBackend {
         return leg;
     }
 
-    // macOS / Linux native libs a Rust staticlib needs at link time (mirrors the
-    // host hello_c README link line; avoids the fragile --print=native-static-libs).
+    // macOS / Linux native libs a Rust staticlib needs at link time (hard-coded:
+    // avoids the fragile --print=native-static-libs).
     string[] _nativeLibs() {
         if (Platform.IsMacOS()) {
             string[] m = new string[4]; m[0] = "-liconv"; m[1] = "-lSystem"; m[2] = "-lc"; m[3] = "-lm";
@@ -174,7 +174,6 @@ public class DesktopBackend : IPlatformBackend {
         return cases;
     }
 
-    // → shared _writeJUnitReport, so the CI desktop job publishes it like the others.
     void _writeJUnit(string root, JUnitCase[] cases) {
         _writeJUnitReport(root, "desktop", "desktop.r1_r7", cases);
     }

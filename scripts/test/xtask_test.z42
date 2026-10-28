@@ -1,6 +1,5 @@
-// xtask — test orchestration (split from xtask.z42 for the 500-line code-org
-// limit). Same Z42Xtask namespace; these call _exec/_root/_z42vm/_build*/
-// _regenCore/_at defined in xtask.z42 (cross-file, same namespace).
+// xtask — test orchestration: the GREEN gate (`test`), `test e2e`, `test runtime`, the GC-mode
+// stage, and the stage list ↔ test-gate.md drift check.
 namespace Z42Xtask;
 
 using Std.IO;
@@ -41,8 +40,7 @@ StageRun _stageStart(string name) {
     return r;
 }
 
-// 一个在跑的 stage：`_stageStart` 返回，`_stageEnd` 从它取名——名字只在 start 处写一遍（此前 end 处再抄一遍，
-// 23 个 stage 名各写了两次）。
+// 一个在跑的 stage：`_stageStart` 返回，`_stageEnd` 从它取名——名字只在 start 处写一遍。
 class StageRun {
     public string Name;
     public Stopwatch Sw;
@@ -86,17 +84,13 @@ void _stageSummary(StageLogZ log, long totalMs) {
     Console.WriteLine("  " + _padRight("TOTAL", 48) + _fmtDur(totalMs));
 }
 
-// fix-call-arity-skew：此处原有一份 `_padRight`，与 xtask_deps.z42 的同名同签名定义跨文件重复（语义等价，
-// 未造成错误行为，但同属「单文件内才查重」的漏网者）；删之，统一用 xtask_deps.z42 那份。
-
 // ── test e2e ────────────────────────────────────────────────────────────────
 
 // `test e2e [--dir <cat>] [--file <path>] [--mode interp|jit] [--no-rebuild] [--jobs=N]`
-// — the src/tests end-to-end suite. Unifies what were two commands (`test vm` single-
-// source goldens + `test cross-zpkg` multi-package fixtures):
+// — the src/tests end-to-end suite (single-source goldens + multi-package fixtures):
 //   - default (no --dir/--file): run the golden runner over all categories, THEN the
-//     cross-zpkg multi-package harness.
-//   - `--dir cross-zpkg`: only the multi-package harness.
+//     cross-zpkg and multi-exe harnesses.
+//   - `--dir cross-zpkg` / `--dir multi-exe`: only that harness.
 //   - `--dir <cat>`: only that src/tests category's goldens (skips cross-zpkg + libs).
 //   - `--file <path>`: a single golden case (name or source-path substring).
 // The golden runner (_runVmGoldensF) and the cross-zpkg runner (_testCrossZpkgCore)
@@ -117,12 +111,12 @@ int _testE2e(ParseResult r) {
         // cross-zpkg only: build unless the caller opted out (--no-rebuild/--no-build)
         __rc = _testCrossZpkgCore(xmode, noBuild || !rebuild);
     } else if (dir == "multi-exe") {
-        // multi-exe only (unify-run-modes P3): same build/consume prep as cross-zpkg.
+        // multi-exe only: same build/consume prep as cross-zpkg.
         __rc = _testMultiExeCore(xmode, noBuild || !rebuild);
     } else {
         __rc = _testE2eCore(modes, rebuild, noBuild, r.GetOption("jobs"), shardOpt, dir, file);
-        // default (no --dir/--file narrowing, and NOT sharded) also runs the cross-zpkg
-        // harness once; the golden run above already built the toolchain (or --no-rebuild
+        // default (no --dir/--file narrowing, and NOT sharded) also runs the cross-zpkg +
+        // multi-exe harnesses once; the golden run above already built the toolchain (or --no-rebuild
         // was set), so cross-zpkg consumes it (noBuild=true) rather than rebuilding.
         // When sharded (CI vm-jit `--shard N/4`), skip it here: cross-zpkg is a fixed
         // multi-package set, NOT sharded, so running it per-shard is Nx redundant — the
@@ -140,10 +134,9 @@ int _testE2e(ParseResult r) {
 // `test runtime` — the Rust VM's own unit/integration harness (cargo test on
 // src/runtime), incl. the zbc/zpkg format strict-pin baselines (zbc_compat /
 // lazy_loader). `--test-threads=1` is REQUIRED: the --lib unit tests have a
-// pre-existing cross-thread memory-corruption race that SIGSEGVs under parallel
-// scheduling (reproducible on macOS too); serialized passes 736/736. RUST_MIN_STACK
-// lowers crash probability further. Root-causing the race is tracked separately
-// (suspect: GC region raw-pointer Send/Sync unsoundness with concurrent VmCores).
+// cross-thread memory-corruption race that SIGSEGVs under parallel scheduling
+// (reproducible on macOS too). RUST_MIN_STACK lowers crash probability further.
+// (Suspect: GC region raw-pointer Send/Sync unsoundness with concurrent VmCores.)
 int _testRuntime() {
     Stopwatch sw = _procStart("test runtime");
     // --features z42-test-fixtures：build.rs 里「用 z42c 编三个 .z42 fixture + emit
@@ -151,12 +144,10 @@ int _testRuntime() {
     // `xtask build compiler` 每轮重写 → 下一次 cargo 全量重编）。
     // Rust 单测是唯一真正需要这些 fixture 的地方，故在这里按需打开——覆盖面不变，
     // 只是把成本从「所有人的每次构建」挪到「真的要跑 Rust 单测时」。
-    // --workspace（fix-more-silent-gates）：不带它时包选择落到 Cargo.toml
-    // 的 `default-members`（只有根包 z42 + z42-compression），于是 z42-abi(12) /
-    // z42-repl(8) / z42-rs(3) / z42-macros(1) 共 **24 个测试从来没有被跑过**，z42-host
-    // 也在选择集外。这是全仓唯一的 `cargo test` 入口（CI 的 "Rust VM unit tests" 即此），
-    // 所以「从来没跑过」是字面意思。z42-abi 守的正是 C ABI 结构体布局契约——坏了直接
-    // 表现为嵌入端内存错位，却全绿。本地实测加上后全部通过、无存量红。
+    // --workspace：不带它时包选择落到 Cargo.toml 的 `default-members`（只有根包 z42 +
+    // z42-compression），z42-abi / z42-repl / z42-rs / z42-macros / z42-host 的测试整批不跑。
+    // 这是全仓唯一的 `cargo test` 入口（CI 的 "Rust VM unit tests" 即此）；z42-abi 守的正是
+    // C ABI 结构体布局契约——坏了直接表现为嵌入端内存错位。
     int __rc = _exec(_cargoCmd("test", _runtimeCargoConfig()).Arg("--locked").Arg("--workspace")
         .Arg("--features").Arg("z42-test-fixtures")
         .Arg("--manifest-path").Arg(_runtimeManifest())
@@ -168,30 +159,19 @@ int _testRuntime() {
 
 // GREEN 里的 Rust 单测（`test runtime` 的**窄版**）。
 //
-// ## 为什么以前整条不在 GREEN 里，而这一版可以进
+// 完整的 `test runtime` 不能进 GREEN：它会拉起 signal 崩溃辅助进程（`tests/signal_handler_e2e.rs`），
+// 在限制信号的沙箱里**挂住**。但「本地全绿、CI test-host 红」的典型事故都落在 lib 单测与编译失败
+// （公共 struct 加字段后 `tests/` 里的字面构造点没补）上，不需要跑那批。
 //
-// 原注（`_testAll` 里 build wave 之后）说得对：完整的 `test runtime` 会拉起 signal 崩溃辅助进程
-// （`tests/signal_handler_e2e.rs`），在限制信号的沙箱里**挂住**，常驻门就没法用了。
-//
-// 但记录在案的三次事故**都不需要跑那批**：
-//   ·  `jit::lazy::lazy_tests::tiering_cold_jit_call_callee_stays_interp` —— **lib 单测**；
-//   ·  `corelib::native_decl_tests::every_builtin_is_declared_or_allowlisted` —— **lib 单测**；
-//   ·  给 `Function` 加字段后 `tests/` 里的字面构造点没补 —— 那是**编译**失败，
-//     `--no-run` 就能抓（编所有 target、一个都不跑）。
-// 三次都是「本地 GREEN 全绿、CI test-host 四平台红」，每次损失约 18 分钟的 CI 反馈。
-//
-// ⇒ 本 stage = `--lib`（跑）+ `--no-run`（只编）。
+// ⇒ 本 stage = `--lib`（跑）+ `--no-run`（只编所有 target、一个都不跑）。
 // 🔴 **`--lib` 排除 `tests/` 是结构性的，不是靠过滤器**：signal / loom 那几个都在 `tests/` 下，
 // `--lib` 根本到不了它们。**不用 `--skip <名字>` 这类过滤**——那种写法会随文件改名悄悄失效
 // （本仓库踩过「带过滤器跑 cargo test = 等于没跑全局门」）。
 //
-// 实测成本（warm）：`--lib` 66s（1402 条：1367 + z42-abi 21 + 其余 14）、`--no-run` 0s（全缓存）。
 // 完整版仍保留为 `xtask test runtime` / CI 的独立 leg / `test changed`。
 int _testRuntimeUnits() {
     string m = _runtimeManifest();
-    // `--workspace`：不带它包选择会落到 default-members，z42-abi/z42-repl/z42-rs/z42-macros
-    // 的单测就整批不跑（fix-more-silent-gates 修过一次，别在这里重新引入）。
-    // `--features z42-test-fixtures`：见 `_testRuntime` 的头注（fixture 只有 Rust 单测需要）。
+    // `--workspace` / `--features z42-test-fixtures`：见 `_testRuntime`。
     int rc = _exec(_cargoCmd("test", _runtimeCargoConfig()).Arg("--locked").Arg("--workspace")
         .Arg("--features").Arg("z42-test-fixtures")
         .Arg("--manifest-path").Arg(m)
@@ -232,8 +212,8 @@ int _buildDebugVmAndCompression() {
 
 int _testE2eCore(string modes, bool rebuild, bool noBuild, string jobs, string shard, string dirFilter, string fileFilter) {
     if (jobs.Length == 0) { jobs = "1"; }
-    // --toolchain (compile-once P3) / --no-build (compile-once A1): consume an
-    // already-built z42c+stdlib → regen goldens only; else full rebuild.
+    // --toolchain / --no-build: consume an already-built z42c+stdlib → regen goldens
+    // only; else full rebuild.
     bool haveTc = _toolchainDir(_root()).Length > 0;
     // Build the debug z42vm BEFORE regen (see _testAll): regen resolves the debug
     // vm, so a stale one lacking a new builtin panics during regen. Skipped under a
@@ -297,10 +277,10 @@ int _testGcModeWorkload(string label, string modeEnv, string nurseryEnv, string 
     // mode "" = 保持 z42vm 缺省模式（回收次数下限是按这个模式标定的）。
     Process p = _z42cProcMode(vm, flat, driver, "")
         .Arg("build").Arg(toml).Arg("--release").Arg("--no-incremental")
-        // 显式给并行度：`z42c build` 的默认值是 min(4, 核数)（default-compile-jobs），而回收次数在多线程下
-        // 随平台与时序剧烈波动（同一构建 linux-arm64 88 次、linux-x64 1356 次）⇒ 串行腿钉 1 以保持确定性。
+        // 显式给并行度：`z42c build` 的默认值是 min(4, 核数)，而回收次数在多线程下随平台与时序
+        // 剧烈波动 ⇒ 串行腿钉 1 以保持确定性。
         .Arg("--jobs").Arg(jobs.ToString())
-        // isolate-xtask-fixture-builds：产物进 runtime 的 tests/ 输出，不落 `src/compiler/z42c.semantics/dist`
+        // 产物进 runtime 的 tests/ 输出，不落 `src/compiler/z42c.semantics/dist`
         // （这次构建只为给 GC 施压，产物本身没人用）。
         .Arg("--output-dir").Arg(_workOut(root, "src/runtime", "gc-modes"))
         .Env("Z42_GC_TRACE", "1");
@@ -346,22 +326,19 @@ int _testGcModes() {
     if (c != 0) { return c; }
     c = _testGcModeWorkload("Z42_GC_MODE=stw, budget 16M", "stw", "", "16M", 20, 1);
     if (c != 0) { return c; }
-    // fix-gc-stress-jobs：多线程编译腿。#1053 的分代写屏障漏洞（年轻字符串写进老对象不标脏卡）只在
-    // `--jobs 4` + 小年轻代下才稳定复现 —— 串行腿从来没撞上过。回收次数在多线程下不确定（多个线程同时越过
+    // 多线程编译腿：分代写屏障一类漏洞（年轻对象写进老对象不标脏卡）只在 `--jobs 4` + 小年轻代下
+    // 才稳定复现 —— 串行腿撞不上。回收次数在多线程下不确定（多个线程同时越过
     // 阈值时请求会合并），下限只用来抓「回收器完全没被触发」，不追求压测强度（那由上面的串行腿保证）。
     return _testGcModeWorkload("default mode, nursery 1M, --jobs 4", "", "1M", "", 20, 4);
 }
 
 // ── cross-zpkg harness (invoked by `test e2e`) ──────────────────────────────
 
-// noBuild=true: skip the debug-vm/stdlib/z42c rebuild — `test` already prepared
-// them in its build wave. `test e2e` passes noBuild per its --no-rebuild/--no-build
-// flags (or true after a golden run).
 // cross-zpkg 与 multi-exe 两个 fixture harness 的**共用**构建前置：确保 debug z42vm
 //（cargo，跑 fixtures）+ stdlib + z42c（种子自建，编 fixtures）就位。
 //
-// `--toolchain` 激活时（compile-once P3 的 consume 路径）整个跳过——工具链已供给
-// z42c+stdlib+z42vm，没有可建的东西。`noBuild` 同理（调用方已建过）。
+// `--toolchain` 激活时整个跳过——工具链已供给 z42c+stdlib+z42vm，没有可建的东西。
+// `noBuild` 同理（`test` 的 build wave / `test e2e` 的 golden run 已建过，或 --no-rebuild）。
 // 返回 0 = 就位；非 0 = 构建失败的 rc，调用方直接透传。
 //
 // ⚠️ 这里的**次序**只此一份（z42vm 必须先于 stdlib 自建——stdlib 正是用 z42vm 建的），
@@ -385,14 +362,11 @@ int _testCrossZpkgCore(string mode, bool noBuild) {
 
 // ── xtask test (unified GREEN gate) ───────────────────────────────────────────
 
-// `test` (no target) — the full GREEN gate, sequential: build once, then run
-// compiler + VM goldens + cross-zpkg + stdlib, short-circuiting on first
-// failure.
 // True if the comma/space-separated `skip` list names `stage`. Lets CI decompose
 // the monolithic gate: test-host legs run `test --skip stdlib,cross-zpkg` while
 // dedicated parallel jobs (stdlib-interp shards / cross-zpkg-interp) cover those
 // stages — cutting the per-leg critical path. Local `xtask test` passes skip="" →
-// full gate, unchanged.
+// full gate.
 bool _skipHas(string skip, string stage) {
     if (skip.Length == 0) { return false; }
     string[] parts = _splitWords(skip.Replace(",", " "));
@@ -505,27 +479,25 @@ int _checkGateStageDoc() {
     return 1;
 }
 
+// `test` (no target) — the full GREEN gate, sequential: build once, then run every stage
+// in _gateStageNames() order, short-circuiting on first failure.
 int _testAll(bool noBuild, string skip) {
     Stopwatch sw = _procStart("test");
     // stage 清单 ↔ 文档对账：放在构建波之前，几毫秒，失败即停——文档漂移不该让人
     // 等十几分钟的 gate 跑完才发现。
     int dc = _checkGateStageDoc(); if (dc != 0) { return dc; }
     // build wave (once): stdlib + compiler driver + release runtime + golden zbc.
-    // compile-once consume: skip the redundant z42c+stdlib rebuild when they're
-    // already present — either a --toolchain is set (CI downloads current-sdk) OR
-    // --no-build is passed (the CI bootstrap step already built the canonical
-    // z42c+stdlib). In both cases only regen the goldens (the bootstrap doesn't
-    // produce them); the stages below already run --no-build. This removes the CI
-    // build-wave redundancy (~12-15 min/leg) — `xtask test` locally still does
-    // the full build by default (noBuild=false).
+    // Skip the z42c+stdlib rebuild when they're already present — either a --toolchain
+    // is set (CI downloads current-sdk) OR --no-build is passed (the CI bootstrap step
+    // already built them). In both cases only regen the goldens (the bootstrap doesn't
+    // produce them); the stages below run --no-build.
     bool haveTc = _toolchainDir(_root()).Length > 0;
     // Build the debug z42vm + compression cdylib BEFORE regen. golden regen
     // (_regenGolden) resolves the debug vm via _activeVm(root,"debug"); if it runs
     // first against a STALE debug vm that predates a newly-added VM builtin, every
     // golden compile panics ("unknown builtin") and regen returns 1 — which then
     // early-returns here before the debug vm ever gets rebuilt. Building it first
-    // keeps regen on a current vm. (The [Test]/[Benchmark] runner is now z42b —
-    // z42.builder.zpkg, built by the lib/compiler stages with the current z42c.)
+    // keeps regen on a current vm.
     StageLogZ slog = new StageLogZ();
     // build wave 也计时：它常常是整个 gate 里最大的一块（CI 上 regen + 自建），
     // 不计的话下面的 stage 表加起来对不上总时长，反而误导。
@@ -534,50 +506,40 @@ int _testAll(bool noBuild, string skip) {
     c = _regenForTest(haveTc, noBuild);
     if (c != 0) { return c; }
     _stageEnd(slog, swStage);
-    // stage 2: Rust 单测（窄版 —— `--lib` 跑 + `--no-run` 编；见 `_testRuntimeUnits` 头注）。
-    //
-    // NOTE（改前的原注，保留其判断）：**完整**的 `test runtime` 仍然不是 stage —— 它会拉起
-    // signal 崩溃辅助进程（`tests/signal_handler_e2e.rs`），在限制信号的沙箱里挂住，常驻门就没法用。
-    // 完整版继续走独立 CI leg + 按需 `xtask test runtime` + `test changed`。
-    // 补上的是那条边界**之内**的部分：`--lib` 结构性地到不了 `tests/`，所以拿不到那批
-    // helper，而三次「本地全绿 / CI test-host 四平台红」的事故恰好全落在 lib 单测与编译失败上。
-    // 放在这里（build wave 之后、最靠前）是为了让 Rust 逻辑坏掉**第一时间**红，而不是 18 分钟后。
+    // Rust 单测（窄版 —— `--lib` 跑 + `--no-run` 编；完整版为何不进 gate 见 `_testRuntimeUnits` 头注）。
+    // 放在 build wave 之后、最靠前：Rust 逻辑坏掉**第一时间**红，而不是等后面的 stage 跑完。
     if (!_skipHas(skip, "rust-units")) {
         swStage = _stageStart("rust units (cargo test --lib + --no-run)");
         c = _testRuntimeUnits(); if (c != 0) { return c; }
         _stageEnd(slog, swStage);
     }
-    // replace-csharp Phase C：删除 dotnet build/test stage——z42c 编译器正确性由 stage「compiler」
-    // （自举不动点 gen1==gen2 + units）保证，golden 编译已全程 z42c（_regenGolden）。
-    // stage 2: e2e goldens — INTERP only. JIT is gated by the dedicated
-    // vm-jit-consistency CI job (linux-x64): cranelift JIT behaviour is
-    // host-independent, so running jit here on every build-and-test OS leg was
-    // redundant (5× the slow per-case cranelift compile). Splitting interp (here,
-    // all OS) from jit (one linux job) keeps full coverage while taking the slow
-    // jit stage off every host leg's critical path.
+    // e2e goldens — INTERP only. JIT is gated by the dedicated vm-jit-consistency CI
+    // job (linux-x64): cranelift JIT behaviour is host-independent, so running jit on
+    // every OS leg would be redundant and put the slow per-case cranelift compile on
+    // every host leg's critical path.
     swStage = _stageStart("e2e goldens (interp; jit → vm-jit-consistency)");
     c = _testE2eCore("interp", false, false, "4", "", "", ""); if (c != 0) { return c; }
     _stageEnd(slog, swStage);
 
-    // stage 3: e2e cross-zpkg (skippable: CI offloads to a dedicated cross-zpkg-interp job)
+    // e2e cross-zpkg (skippable: CI offloads to a dedicated cross-zpkg-interp job)
     if (!_skipHas(skip, "cross-zpkg")) {
         swStage = _stageStart("e2e cross-zpkg");
         c = _testCrossZpkgCore("interp", true); if (c != 0) { return c; }
         _stageEnd(slog, swStage);
     }
-    // stage 3b: e2e multi-exe (unify-run-modes P3 — one project → N exe zpkgs)
+    // e2e multi-exe (one project → N exe zpkgs)
     if (!_skipHas(skip, "multi-exe")) {
         swStage = _stageStart("e2e multi-exe");
         c = _testMultiExeCore("interp", true); if (c != 0) { return c; }
         _stageEnd(slog, swStage);
     }
-    // stage 4: stdlib [Test] (no build) (skippable: CI shards it across stdlib-interp jobs)
+    // stdlib [Test] (no build) (skippable: CI shards it across stdlib-interp jobs)
     if (!_skipHas(skip, "stdlib")) {
         swStage = _stageStart("stdlib [Test]");
         c = _testLibCore("test", new string[0], true, "", "4", "interp", null, "", "", ""); if (c != 0) { return c; }
         _stageEnd(slog, swStage);
     }
-    // stage 4a1: 工具链组件的 [Test] 单元（test-layout §1；src/toolchain/<comp>/**/tests）。与 stdlib 同一个
+    // 工具链组件的 [Test] 单元（test-layout §1；src/toolchain/<comp>/**/tests）。与 stdlib 同一个
     // runner，单独成 stage：CI 的 host 腿 `--skip stdlib`（stdlib 另有分 OS 的 job），工具链用例量小、
     // 又多是 host 相关（REPL 终端键位），就留在每条 host 腿上跑。
     if (!_skipHas(skip, "toolchain")) {
@@ -585,26 +547,21 @@ int _testAll(bool noBuild, string skip) {
         c = _testToolchainCore("", true, "", false); if (c != 0) { return c; }
         _stageEnd(slog, swStage);
     }
-    // stage 4a2: stdlib [Benchmark] —— 只验**语料能不能跑**，不看快慢。
+    // stdlib [Benchmark] —— 只验**语料能不能跑**，不看快慢。
     //
-    // 为什么它必须在 GREEN gate 里（fix-bench-corpus-using-stdtest）：
-    // bench 语料此前唯一的看门人是 `bench-regression`(bench-pr.yml)，而那个 job **不在
-    // 分支保护的 required 列表里**。#532 把 `Failure.z42` 搬出 z42.harness，14/19 个 bench
-    // 文件当场跑不起来（`Bencher` 解析成 `<unknown>`），门红了、PR 照合，此后连红 3 个 PR
-    // 无人过问 —— **会红但不挡人的门等价于没有门**。
-    // 把它提进 required 不可行：bench-pr.yml 是 path-filtered，纯文档 PR 上根本不触发 ⇒
-    // required check 恒 pending ⇒ PR 永远合不了。正确的收口是拆两层：
+    // 为什么它必须在 GREEN gate 里：bench 语料的另一个看门人 `bench-regression`(bench-pr.yml)
+    // **不在分支保护的 required 列表里**——会红但不挡人的门等价于没有门。把它提进 required 不可行：
+    // bench-pr.yml 是 path-filtered，纯文档 PR 上根本不触发 ⇒ required check 恒 pending。所以拆两层：
     //   「语料能不能跑」→ 本 stage（确定性；只有跑挂才红，不判时间 ⇒ 零噪声）
-    //   「跑多快」      → 留给 bench-regression 那套 A/B 判红（噪声治理是另一条线）
-    // 成本：本机 `bench stdlib --no-build` 全量 14.6s / 19 文件 / 66 条 benchmark。
+    //   「跑多快」      → 留给 bench-regression 那套 A/B 判红
     // host-independent ⇒ CI 只在 linux-x64 腿跑，其余腿 `--skip bench`（同 cross-zpkg 的处置）。
     if (!_skipHas(skip, "bench")) {
         swStage = _stageStart("stdlib [Benchmark]");
         c = _testLibCore("bench", new string[0], true, "", "4", "interp", null, "", "", ""); if (c != 0) { return c; }
         _stageEnd(slog, swStage);
     }
-    // stage 4b: manifest-target fixtures (add-tests-bench-manifest-config P4 —
-    // [[test]] harness true/false exit-code + explicit-overlay). noBuild=true:
+    // manifest-target fixtures ([[test]] harness true/false exit-code + explicit-overlay,
+    // [[example]]). noBuild=true:
     // the wave + stdlib stage already prepared the release toolchain.
     if (!_skipHas(skip, "targets")) {
         swStage = _stageStart("manifest targets ([[test]] + [[example]])");
@@ -612,9 +569,9 @@ int _testAll(bool noBuild, string skip) {
         c = _testManifestExamples(true); if (c != 0) { return c; }
         _stageEnd(slog, swStage);
     }
-    // stage 4c: 学习手册配套示例（add-learn-book-examples-gate）：书 ↔ examples 引用校验 +
+    // 学习手册配套示例：书 ↔ examples 引用校验 +
     // 用 SDK 里真实的 `z42` 重放每个 examples/**/*.console。SDK 用 artifacts/.z42：本地完整 gate
-    // 先建（apphost 发布 + 组装，warm ~25s）；--no-build（CI）消费前一步 `build toolchain` + `package dev-sdk`
+    // 先建（apphost 发布 + 组装）；--no-build（CI）消费前一步 `build toolchain` + `package dev-sdk`
     // 的产物，缺失即红。
     if (!_skipHas(skip, "examples")) {
         swStage = _stageStart("examples (learn book transcripts)");
@@ -627,55 +584,45 @@ int _testAll(bool noBuild, string skip) {
         c = _testExamples(eo); if (c != 0) { return c; }
         _stageEnd(slog, swStage);
     }
-    // stage 4d: 文档门禁（restructure-docs-three-books 批 0）：相对链接死链清零。
-    // 不需要 SDK、秒级；三书重构期间每一批搬运都靠它兜住链接。
+    // 文档门禁：相对链接死链清零。不需要 SDK、秒级。
     if (!_skipHas(skip, "docs")) {
         swStage = _stageStart("docs (relative links)");
         c = _testDocs(_root()); if (c != 0) { return c; }
         _stageEnd(slog, swStage);
     }
-    // stage 5: z42c self-host byte-identical (0.3.10 gate)
-    // Skippable: CI offloads to a dedicated compiler-checks(linux-x64) job (1×)
-    // — running on all 4 OS legs was 4× redundant (host-independent output).
+    // z42c self-host byte-identical. Skippable: CI offloads to a dedicated
+    // compiler-checks(linux-x64) job (host-independent output).
     if (!_skipHas(skip, "compiler")) {
         swStage = _stageStart("compiler");
         c = _testCompiler(true); if (c != 0) { return c; }
         _stageEnd(slog, swStage);
     }
-    // stage 5b: recompile one real package under each GC mode, with the collector tuned to
-    // fire hundreds of times. Skippable: host-independent, CI runs it 1x.
-    //
-    // add-ci-generational-coverage : nothing in CI had ever run
-    // `Z42_GC_MODE=generational` — `grep Z42_GC_MODE` found only a smoke of another mode —
-    // and that is the direct reason **three** premature-collection defects survived for
-    // months (#537 stale marks on old roots; #539 promotion and major card-clear each
-    // creating uncarded old→young edges). All three surfaced the same way: the compiler
-    // crashing mid-build on a dangling reference. So that is what this runs.
-    //
-    // flip-gc-default-to-generational : generational became the default, which
-    // moved `stw` into exactly the uncovered seat generational used to occupy — so both modes
-    // run here now, each with an asserted collection floor.
+    // recompile one real package under each GC mode, with the collector tuned to fire
+    // hundreds of times (see _testGcModeWorkload). Premature-collection defects surface
+    // as the compiler crashing mid-build on a dangling reference, and a GC mode nothing
+    // else exercises is where they hide — so both modes run, each with an asserted
+    // collection floor. Skippable: host-independent, CI runs it 1x.
     if (!_skipHas(skip, "gcgen")) {
         swStage = _stageStart("gc modes (z42c.semantics build)");
         c = _testGcModes(); if (c != 0) { return c; }
         _stageEnd(slog, swStage);
     }
-    // stage 6: VSCode grammar ↔ Lexer 关键字一致性（跨子系统 SoT，性质同自举不动点；
-    // ≈一次 z42c fork，成本可忽略——add-vscode-syntax-ext）
+    // VSCode grammar ↔ Lexer 关键字一致性（跨子系统 SoT，性质同自举不动点；
+    // ≈一次 z42c fork，成本可忽略）
     // Skippable: same rationale as compiler — host-independent, 1× on CI.
     if (!_skipHas(skip, "vscode")) {
         swStage = _stageStart("vscode-syntax");
         c = _testVscodeSyntax(); if (c != 0) { return c; }
         _stageEnd(slog, swStage);
     }
-    // stage 9: 诊断码唯一性对账（enforce-diagnostic-code-uniqueness）：一个码号挂两个含义、
+    // 诊断码唯一性对账：一个码号挂两个含义、
     // 或发射一个没在登记表里登记过的码 → 红。纯文本扫描（~1s），host-independent。Skippable: "diagcodes"。
     if (!_skipHas(skip, "diagcodes")) {
         swStage = _stageStart("diagcodes");
         c = _testDiagCodes(false); if (c != 0) { return c; }
         _stageEnd(slog, swStage);
     }
-    // stage 10: 阶段-2 欠账（分阶段引入纪律）：过渡形态必须挂账、且不得超期。
+    // 阶段-2 欠账（分阶段引入纪律）：过渡形态必须挂账、且不得超期。
     // 「阶段 2 忘了不会红」是本仓库反复吃过的亏 —— 诊断码那条线有 ④⑥ 盯着，其余一直靠谁记得。
     // 纯文本扫描（~1s），host-independent。Skippable: "stage2"。
     if (!_skipHas(skip, "stage2")) {
@@ -683,30 +630,28 @@ int _testAll(bool noBuild, string skip) {
         c = _testStage2Debt(); if (c != 0) { return c; }
         _stageEnd(slog, swStage);
     }
-    // stage 11: CI 内嵌 shell 的先用后赋（`.github/actions/**` 的 `run:` 块）。引导逻辑是 260+ 行
-    // `set -euo pipefail` 的 bash，引用未赋值变量当场 exit 1，而这类错**只在 CI 上暴露**、每次代价
-    // 一整轮 CI（B3b 那轮实打实付过一次）。`bash -n` 只查语法查不出它。纯文本扫描（~1s），
-    // host-independent，零外部依赖（刻意不调 shellcheck：装了才跑 = 假门）。Skippable: "ci-shell"。
+    // CI 内嵌 shell 的先用后赋（`.github/**` 的多行 `run:` 块；判据见 xtask_test_ci_shell.z42）。
+    // 纯文本扫描（~1s），host-independent，零外部依赖。Skippable: "ci-shell"。
     if (!_skipHas(skip, "ci-shell")) {
         swStage = _stageStart("ci-shell");
         c = _testCiShell(); if (c != 0) { return c; }
         _stageEnd(slog, swStage);
     }
-    // stage 12: xtask 子进程的 Z42_LIBS / Z42_PROBING_PATHS 只经 _z42Proc / _z42bProc 设置。漏设不在漏处报错
+    // xtask 子进程的 Z42_LIBS / Z42_PROBING_PATHS 只经 _z42Proc / _z42bProc 设置。漏设不在漏处报错
     // （继承 xtask 自身的旧 SDK libs / z42b 加载编译器包才炸），集中到工厂才不会漏。纯文本扫描。Skippable: "proc-env"。
     if (!_skipHas(skip, "proc-env")) {
         swStage = _stageStart("proc-env");
         c = _testProcEnv(); if (c != 0) { return c; }
         _stageEnd(slog, swStage);
     }
-    // stage 13: 测试布局（test-layout.md 里能机械判定的部分）：src/tests 类别登记、能力词表 ↔
+    // 测试布局（test-layout.md 里能机械判定的部分）：src/tests 类别登记、能力词表 ↔
     // platform.rs、requires-caps / [Skip(feature:)] 只用已生效能力名。纯文本扫描。Skippable: "layout"。
     if (!_skipHas(skip, "layout")) {
         swStage = _stageStart("layout");
         c = _testLayout(); if (c != 0) { return c; }
         _stageEnd(slog, swStage);
     }
-    // stage 14: versions.toml ↔ 投影文件（Cargo.toml / build.gradle.kts / Package.swift）一致。与机器无关的
+    // versions.toml ↔ 投影文件（Cargo.toml / build.gradle.kts / Package.swift）一致。与机器无关的
     // 纯文本比对（本机装没装齐是 `setup check` 的事）。Skippable: "versions"。
     if (!_skipHas(skip, "versions")) {
         swStage = _stageStart("versions");
@@ -720,8 +665,6 @@ int _testAll(bool noBuild, string skip) {
 }
 
 // ── shard parsing (shared: _testE2eCore + the test-lib harness) ──────────────
-// The stdlib [Test]/[Benchmark] harness (_testLib/_testLibCore + unit discovery,
-// dep harvest, batched compile/run, synthetic manifest) lives in xtask_test_lib.z42.
 
 // Parse a `--shard k/n` spec → [k, n]; returns [0,0] for empty/invalid (= no
 // sharding). Used to split the slow jit suites across N parallel CI machines.

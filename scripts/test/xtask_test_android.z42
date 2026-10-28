@@ -150,7 +150,7 @@ bool _androidDeviceAttached(string root) {
 }
 
 // The emulator tier (emulator + system image + AVD + Gradle, ~4GB) is an install-on-use
-// dependency with no command of its own (simplify-xtask-deps): needed only when z42b has to
+// dependency with no command of its own: needed only when z42b has to
 // boot an AVD, installed here when missing. An external SDK (ANDROID_HOME) is never modified —
 // missing emulator/ there is an error. Install failure = test failure.
 int _ensureAndroidEmulatorTier(string root) {

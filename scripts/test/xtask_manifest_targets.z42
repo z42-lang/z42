@@ -1,17 +1,14 @@
-// xtask — manifest-driven test/bench/example target engine
-// (add-tests-bench-manifest-config P2/P3). Same Z42Xtask namespace; consumed by
-// the stdlib per-lib flow (_testLibCore, xtask_test_lib.z42), the `test toolchain builder`
-// fixture flow (xtask_test_targets.z42) and the example runner
-// (xtask_test_example.z42).
+// xtask — manifest-driven test/bench/example target engine. Consumed by the per-package
+// flow (_testPkgsCore, xtask_test_lib.z42), the `test toolchain builder` fixture flow
+// (xtask_test_targets.z42) and the example runner (xtask_test_example.z42).
 //
-// 名字里没有 `xtask_test_` 前缀是有意的（scripts-batch3-naming）：那个前缀
-// 专表「`test <x>` 命令的实现」，本文件是被三个消费者共用的**引擎**、不对应任何命令。
-// Reads a project's `<name>.z42.toml` via the shared stdlib ManifestLoader
-// (Z42.Project) — no hand-rolled TOML — and turns the declared
-// `[tests]`/`[benches]`/`[examples]` sections + `[[test]]`/`[[bench]]`/
-// `[[example]]` targets into runnable units。
+// 名字里没有 `xtask_test_` 前缀是有意的：那个前缀专表「`test <x>` 命令的实现」，
+// 本文件是被三个消费者共用的**引擎**、不对应任何命令。
+// Reads a project's `<name>.z42.toml` via Z42.Project's ManifestLoader (no hand-rolled
+// TOML) and turns `[tests]`/`[benches]`/`[examples]` + `[[test]]`/`[[bench]]`/`[[example]]`
+// into runnable units.
 //
-// **D2 起 test/bench 只有一条路：转发 z42b**（`--list` 拿清单 → 并行 `--name` 逐个跑）。
+// **test/bench 只有一条路：转发 z42b**（`--list` 拿清单 → 并行 `--name` 逐个跑）。
 // 约定发现、显式目标（两种 harness）、孤儿源守卫、「本包压根没有测试」的分流全部住在 z42b，
 // xtask 侧只剩：清单 lint（`_validateRunTargets`）、并行编排、bench 聚合。
 // example 是唯一还留在本文件里执行的一类 —— 它不是测试（判据是「编得过 + 可选跑得通」），
@@ -52,9 +49,8 @@ RunTarget[] _explicitTargets(ProjectManifest m, string kind) {
     return m.Tests;
 }
 
-// ── three-layer dev-dep merge (design D6: target > section > project) ──────────
-// 唯一活口是下面的 `_targetDepsPairs`（example 目标用）；convention 单元与显式 test/bench 目标的依赖
-// 合并已随 D2 转发给 z42b，xtask 侧不再自己算。
+// ── three-layer dev-dep merge (target > section > project) ─────────────────────
+// 只服务 example 目标（`_targetDepsPairs`）；test/bench 的依赖合并在 z42b 里。
 
 void _bundleAddSection(DepBundle b, ProjectManifest m, string kind) {
     if (kind == "bench")        { _bundleAddDeps(b, m.BenchSection.Deps, m.BenchSection.DepCount); }
@@ -101,7 +97,7 @@ DepBundle _targetDepsPairs(ProjectManifest m, string kind, string[] names, strin
     return b;
 }
 
-// ── explicit-target validation (design D5/D6 error codes; discovery layer) ─────
+// ── explicit-target validation ───────────────────────────────────────────────
 
 // Returns "" when the kind's explicit targets are valid, else an error message.
 // Rules: [[target]] missing name → error; harness=false missing entry → error;
@@ -127,14 +123,10 @@ string _validateRunTargets(RunTarget[] t, int n, string kind) {
 }
 
 // ── example 目标的执行器（exit-code）───────────────────────────────────────────
-// 曾经这里还住着两个 test/bench 执行器：`_runReflectTarget`（显式 harness=true：编成 lib
-// zpkg 再让 z42b 反射）与 `_runExitTargets`（显式 harness=false 的批量包装）。D2 起 test/bench
-// 全线转发 z42b，两者没有调用方，已删。留下的 `_runExitTarget` 是 **example stage** 在用
-// （examples 不走 z42b —— 它们不是测试，判据是「编得过（+ 可选跑得通）」）。
+// examples 不走 z42b —— 它们不是测试，判据是「编得过（+ 可选跑得通）」。
 
-// One harness=false / example target: compile to a runnable exe zpkg, and (when
-// runAfter) run `z42vm <zpkg> [entry]`. Returns 0 pass / 1 fail. runAfter=false →
-// compile-only gate (example default: build failure fails, no execution).
+// One example target: compile to a runnable exe zpkg, and (when runAfter) run it.
+// Returns 0 pass / 1 fail. runAfter=false → compile-only gate (example default).
 int _runExitTarget(string root, string projDir, string projPrefix, string subdir,
                    string tName, bool tHasEntry, string tEntry, string[] tSources, int tSrcCount,
                    DepBundle deps, string vm, string driverZpkg, string libs,
@@ -143,9 +135,8 @@ int _runExitTarget(string root, string projDir, string projPrefix, string subdir
     string zpkg = _compileTarget(root, vm, driverZpkg, projDir, projName, subdir, tName, tHasEntry, tEntry, tSources, tSrcCount, deps, "exe", tName, libs);
     if (zpkg.Length == 0) { return 1; }
     if (!runAfter) { Console.WriteLine("✓ " + tName + " (compiled)"); return 0; }
-    // The exe zpkg bakes [project].entry (== tEntry) → run it directly, no CLI
-    // entry arg (matches the proven multi-exe run path; z42vm dispatches the baked
-    // entry). exit-code is the verdict (design D3: non-zero = fail, no golden).
+    // The exe zpkg bakes the entry (== tEntry) → run it directly, no CLI entry arg.
+    // exit-code is the verdict (non-zero = fail, no golden).
     ProcessResult rr = _z42Proc(vm, libs).Arg(zpkg).Run();
     Console.Write(rr.Stdout);
     if (rr.Stderr.Length > 0) { Console.Write(rr.Stderr); }
@@ -206,11 +197,8 @@ string[] _targetIncludes(string projDir, string subdir, string tName, string[] t
     return new string[0];
 }
 
-// Rewrite a source include so z42c's SourceDiscovery._expand matches it. That
-// matcher only handles `**/<g>`, `<prefix>/**/<g>`, or a bare single-level `<g>`
-// (Path.Glob over projDir basenames) — a plain `<dir>/<g>` (one subdir level, no
-// `**`) matches NOTHING. So `<dir>/<base>` → `<dir>/**/<base>` (GlobRecursive from
-// <dir>, which includes depth 0). Patterns already using `**` / bare basenames pass through.
+// Rewrite a source include for the synth manifest: `<dir>/<base>` → `<dir>/**/<base>`
+// (recursive from <dir>, includes depth 0). Patterns already using `**` / bare basenames pass through.
 string _z42cInclude(string pattern) {
     if (pattern.IndexOf("/**/") >= 0) { return pattern; }
     if (pattern.StartsWith("**/")) { return pattern; }
@@ -229,11 +217,7 @@ int _countMatches(string projDir, string[] patterns, int n) {
     return total;
 }
 
-// Expand one projDir-relative glob → absolute paths. Handles `<a>/**/<suffix>`
-// (recursive), `**/<suffix>`, `<dir>/<basePat>` (single dir), and bare `<basePat>`.
-// Index of the last '/' in s, or -1. Hand-rolled: z42 String has no LastIndexOf
-// (only IndexOf/Substring are builtins — a virtual LastIndexOf call VCall-crashes
-// on a Str receiver at runtime), so scan forward with IndexOf over the tail.
+// Index of the last '/' in s, or -1.
 int _lastSlash(string s) {
     int last = -1;
     int base = 0;
@@ -246,6 +230,8 @@ int _lastSlash(string s) {
     return last;
 }
 
+// Expand one projDir-relative glob → absolute paths. Handles `<a>/**/<suffix>`
+// (recursive), `**/<suffix>`, `<dir>/<basePat>` (single dir), and bare `<basePat>`.
 string[] _expandGlob(string projDir, string pattern) {
     int mid = pattern.IndexOf("/**/");
     if (mid >= 0) {
@@ -266,7 +252,7 @@ string[] _expandGlob(string projDir, string pattern) {
 }
 
 // Hand-rolled mini-manifest: [project] name/kind, [sources] include globs (projDir-relative),
-// packed both profiles, merged [dependencies]. 显式入口（目标的 `entry`）写成同名的单个 `[[exe]]`——
+// merged [dependencies]. 显式入口（目标的 `entry`）写成同名的单个 `[[exe]]`——
 // `[project]` 没有 `entry` 键（z42c 自动检测唯一 Main，写了报错）；`[[exe]]` 产物同样落 dist/<name>.zpkg。
 string _renderTargetManifest(string projName, string kindStr, string entry, bool hasEntry,
                              string[] inc, int n, string outputDir, DepBundle deps) {
@@ -284,12 +270,7 @@ string _renderTargetManifest(string projName, string kindStr, string entry, bool
     }
     body = body + "]\n\n[build]\noutput_dir = \"" + outputDir + "\"\n"
         + "dist_dir   = \"${output_dir}/dist\"\n"
-        + "cache_dir  = \"${output_dir}/cache\"\n\n"
-        // 此处曾写 `[profile.debug] pack = true`——**那一直是空操作**：被消费的是
-        // `[project].pack`（`ProjectInfo.Pack` → `Main.z42` 的 isPacked），
-        // `Profile.Pack` 解析后从无人读。restructure-profile-sections 删掉了那个死字段，
-        // 这里同步删掉这两行（行为等价：本来就没生效）。
-        ;
+        + "cache_dir  = \"${output_dir}/cache\"\n\n";
     if (hasEntry) { body = body + "\n[[exe]]\nname  = \"" + projName + "\"\nentry = \"" + entry + "\"\n"; }
     if (deps.Count > 0) {
         body = body + "\n[dependencies]\n";
@@ -304,17 +285,12 @@ string _renderTargetManifest(string projName, string kindStr, string entry, bool
 
 // ── per-package driver (called by _testPkgsCore, xtask_test_lib.z42) ───────────
 
-// 跑一个 lib 的 test/bench：**一律转发 z42b**（xtask-forward-tests-to-z42b D2）。
+// 跑一个 lib 的 test/bench：**一律转发 z42b**——发现规则、孤儿源守卫、harness=false、
+// 「本包压根没有测试」的分流只在 z42b 一处，xtask 不另起一套（两套规则必然各自漂移）。
 // 返回该 lib 的失败数，或 -1 表示目标声明有误（调用方中止整个 stage）。
 // totalFiles / libsTested 按引用更新。
 //
-// 此前这里有第二条「xtask 自己发现 + 自己编 + 自己跑」的路（约定扫描 + 显式目标
-// 的 reflect / exit-code 两种执行器），只在「本包有显式 [[test]]」时走。它随 D2 退休：
-// 发现规则、孤儿源守卫、harness=false、「本包压根没有测试」的分流**全部只剩 z42b 一份**。
-// 两套规则各自漂移正是 #580 那三处分歧的来源。
-//
-// File.Exists(parentToml)：`src/libraries` 的枚举里混着 README.md 之类的非目录条目，
-// 旧路径靠「清单缺失 → 约定扫描 → 零单元」静默跳过，这里改为显式确认这是个真工程。
+// File.Exists(parentToml)：`src/libraries` 的枚举里混着 README.md 之类的非工程条目，须显式跳过。
 int _runLibKind(string root, string projDir, string lib, string kind,
                 string label, string filter, string builderZpkg, int jobsN, string mode,
                 string vm, string driverZpkg, string libs, MicroBenchAgg agg,
@@ -333,11 +309,11 @@ int _runLibKind(string root, string projDir, string lib, string kind,
 }
 
 // 一个 lib 的 test 走转发：`z42b test <真 manifest> --list` 拿单元名 → 并行拉起
-// `z42b test <toml> --name <unit>`（xtask-forward-tests-to-z42b D1）。
+// `z42b test <toml> --name <unit>`。
 //
 // 零单元时**不在这里判**：直接不带 --name 跑一次 z42b，让它自己的判定说了算 ——
 // 孤儿源守卫（有源却零单元 → 红）与「本包压根没有测试」（→ 绿）都住在 z42b 里，
-// 判据只该有一处。xtask 侧那条同名守卫仍留给未转发的 bench 路径。
+// 判据只该有一处。
 int _runLibViaZ42b(string root, string projDir, string parentToml, string lib, string kind,
                    string label, string filter, string builderZpkg, int jobsN, string mode,
                    string vm, string driverZpkg, string libs, MicroBenchAgg agg,
@@ -364,7 +340,7 @@ int _runLibViaZ42b(string root, string projDir, string parentToml, string lib, s
     totalFiles = totalFiles + names.Length;
     libsTested = libsTested + 1;
     // capture 模式（bench 基线）：给聚合结果打上执行 profile 标签 —— 从 runner 实际运行的那个
-    // VM 探出来，interp 与 jit 的 micro 基线不能互相比。与遗留 _runUnitsBatched 同款。
+    // VM 探出来，interp 与 jit 的 micro 基线不能互相比。
     if (agg != null) {
         string epMode = (mode.Length > 0) ? mode : "interp";
         string epProbe = _epEnsureProbe(root, vm, driverZpkg, libs);
@@ -377,14 +353,14 @@ int _runLibViaZ42b(string root, string projDir, string parentToml, string lib, s
 
 // ── micro bench 结果聚合（`bench stdlib --json`：lib / units / targets 三个 flow 共用）──────────
 // 住在这里而不是 bench/：消费方全是 test 族（[[bench]] 目标与 [Benchmark] 单元的 z42b json 输出），bench 族自己不用。
-// add-stdlib-bench-baseline: aggregate per-module z42b `--format json` bench_stats
-// into one schema-v1 baseline doc. median_ns is the primary metric (value); min/max
+// Aggregate per-module z42b `--format json` bench_stats into one schema-v2
+// baseline doc. median_ns is the primary metric (value); min/max
 // map to ci_lower/ci_upper. One instance is reused across all libs/modules by
 // `bench stdlib --json` (null when not capturing → pretty passthrough untouched).
 class MicroBenchAgg {
     string _items;   // comma+newline-joined schema-v2 benchmark objects
     int    _n;
-    // add-exec-profile-matrix: the profile every micro result is tagged with.
+    // The profile every micro result is tagged with.
     // Probed once (setProfileOnce) from the VM the z42b runner executes under, so
     // interp vs jit micro baselines never compare against each other. Defaults to
     // an interp/empty profile until set.
@@ -425,9 +401,7 @@ class MicroBenchAgg {
                 long lo  = bs.Get("min_ns").AsLong();
                 long hi  = bs.Get("max_ns").AsLong();
                 long smp = bs.Get("samples").AsLong();
-                // mean_ns / stddev_ns (extend-ab-bench-micro-criterion): optional
-                // in older reports → default -1. Carried into the schema-v2 object
-                // so the informational baseline is SEM-ready for future consumers.
+                // mean_ns / stddev_ns: optional in older reports → default -1.
                 long mean = -1; bs.TryGetValue<long>("mean_ns", ref mean);
                 long sd   = -1; bs.TryGetValue<long>("stddev_ns", ref sd);
                 if (this._n > 0) { this._items = this._items + ",\n"; }
@@ -445,7 +419,7 @@ class MicroBenchAgg {
         }
     }
 
-    // Wrap accumulated items in the schema-v2 envelope (reuses _gitOut/_utcNow).
+    // Wrap accumulated items in the schema-v2 envelope.
     internal string toSchemaV2(string root) {
         string commit = _gitOut(root, "rev-parse", "--short", "HEAD");
         string branch = _gitOut(root, "rev-parse", "--abbrev-ref", "HEAD");
