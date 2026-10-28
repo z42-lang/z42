@@ -95,3 +95,34 @@ void test_passthrough_excludes_variadic() {
     try { p.AddPassthrough("args", "a"); } catch (CliException e) { threw = true; }
     Assert.True(threw);
 }
+
+// 全局旗标不越过透传叶子：`run` 之后的 `-v` 属于被转交的程序。
+SubcommandRouter _ptRouter() {
+    SubcommandRouter root = new SubcommandRouter("prog", "t");
+    root.AddPersistentOption("verbosity", "v", "level", "");
+    ArgParser run = new ArgParser("prog run", "forward");
+    run.AddPassthrough("args", "forwarded");
+    root.Add("run", "forward", run);
+    SubcommandRouter tools = new SubcommandRouter("prog tools", "nested");
+    ArgParser exec = new ArgParser("prog tools exec", "forward");
+    exec.AddPassthrough("args", "forwarded");
+    tools.Add("exec", "forward", exec);
+    root.AddRouter("tools", "nested", tools);
+    return root;
+}
+
+[Test]
+void test_persistent_not_stripped_after_passthrough_leaf() {
+    CommandResolution res = _ptRouter().Resolve(new string[]{ "-v", "d", "run", "app", "-v", "x" });
+    Assert.Equal("d", res.PersistentOption("verbosity"));
+    string[] v = res.Result().VariadicValues();
+    Assert.Equal(3, v.Length);
+    Assert.Equal("-v", v[1]);
+}
+
+[Test]
+void test_persistent_boundary_through_nested_router() {
+    CommandResolution res = _ptRouter().Resolve(new string[]{ "tools", "-v", "q", "exec", "--verbosity", "z" });
+    Assert.Equal("q", res.PersistentOption("verbosity"));
+    Assert.Equal(2, res.Result().VariadicValues().Length);
+}

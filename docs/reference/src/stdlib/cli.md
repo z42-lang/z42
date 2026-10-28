@@ -29,7 +29,8 @@ argv 从 `Std.IO.Environment.GetCommandLineArgs()` 取，**不含 program name**
   （`--help` / `-h` 保留）。
 - **long 名别名**：`AddAlias` 给已注册的 flag / option 再挂一个 long 名，解析后归一为正名。
 - **原样透传尾参**：`AddPassthrough` —— 固定槽填满后的全部 token（含 `-h` / 选项形态）
-  原样收进变长槽，供「把后半截交给另一个程序」的命令（`xtask run <app> …`）。
+  原样收进变长槽，供「把后半截交给另一个程序」的命令（`xtask run <app> …`）。router 的
+  persistent 旗标也只在透传叶子命令名**之前**剥离。
 
 ## 不支持
 
@@ -62,6 +63,8 @@ public partial class ArgParser {
     string OptionsHelp()
     ParseResult Parse(string[] argv)
     _StripOutcome StripDeclared(string[] argv)
+    _StripOutcome StripDeclared(string[] argv, int limit)
+    int DeclaredTokenEnd(string[] argv, int i)
     ArgParser(string programName, string description)
     void AddFlag(string longName, string shortName, string help)
     void AddOption(string longName, string shortName, string help, string defaultValue)
@@ -74,11 +77,12 @@ public partial class ArgParser {
     void AddOptionalPositional(string name, string help)
     void AddVariadicPositional(string name, string help)
     void AddPassthrough(string name, string help)
+    bool HasPassthrough()
     void AddAlias(string longName, string alias)
 }
 ```
 
-成员：[`HelpText`](#Std.Cli.ArgParser.HelpText()) · [`OptionsHelp`](#Std.Cli.ArgParser.OptionsHelp()) · [`Parse`](#Std.Cli.ArgParser.Parse(string[])) · [`StripDeclared`](#Std.Cli.ArgParser.StripDeclared(string[])) · [`ArgParser`](#Std.Cli.ArgParser.ctor(string,string)) · [`AddFlag`](#Std.Cli.ArgParser.AddFlag(string,string,string)) · [`AddOption`](#Std.Cli.ArgParser.AddOption(string,string,string,string)) · [`AddOptionWithEnv`](#Std.Cli.ArgParser.AddOptionWithEnv(string,string,string,string,string)) · [`AddMutuallyExclusive`](#Std.Cli.ArgParser.AddMutuallyExclusive(string[])) · [`AddRepeatedOption`](#Std.Cli.ArgParser.AddRepeatedOption(string,string,string)) · [`AllowExtras`](#Std.Cli.ArgParser.AllowExtras()) · [`AddRequiredOption`](#Std.Cli.ArgParser.AddRequiredOption(string,string,string)) · [`AddPositional`](#Std.Cli.ArgParser.AddPositional(string,string)) · [`AddOptionalPositional`](#Std.Cli.ArgParser.AddOptionalPositional(string,string)) · [`AddVariadicPositional`](#Std.Cli.ArgParser.AddVariadicPositional(string,string)) · [`AddPassthrough`](#Std.Cli.ArgParser.AddPassthrough(string,string)) · [`AddAlias`](#Std.Cli.ArgParser.AddAlias(string,string))
+成员：[`HelpText`](#Std.Cli.ArgParser.HelpText()) · [`OptionsHelp`](#Std.Cli.ArgParser.OptionsHelp()) · [`Parse`](#Std.Cli.ArgParser.Parse(string[])) · [`StripDeclared`](#Std.Cli.ArgParser.StripDeclared(string[])) · [`StripDeclared`](#Std.Cli.ArgParser.StripDeclared(string[],int)) · [`DeclaredTokenEnd`](#Std.Cli.ArgParser.DeclaredTokenEnd(string[],int)) · [`ArgParser`](#Std.Cli.ArgParser.ctor(string,string)) · [`AddFlag`](#Std.Cli.ArgParser.AddFlag(string,string,string)) · [`AddOption`](#Std.Cli.ArgParser.AddOption(string,string,string,string)) · [`AddOptionWithEnv`](#Std.Cli.ArgParser.AddOptionWithEnv(string,string,string,string,string)) · [`AddMutuallyExclusive`](#Std.Cli.ArgParser.AddMutuallyExclusive(string[])) · [`AddRepeatedOption`](#Std.Cli.ArgParser.AddRepeatedOption(string,string,string)) · [`AllowExtras`](#Std.Cli.ArgParser.AllowExtras()) · [`AddRequiredOption`](#Std.Cli.ArgParser.AddRequiredOption(string,string,string)) · [`AddPositional`](#Std.Cli.ArgParser.AddPositional(string,string)) · [`AddOptionalPositional`](#Std.Cli.ArgParser.AddOptionalPositional(string,string)) · [`AddVariadicPositional`](#Std.Cli.ArgParser.AddVariadicPositional(string,string)) · [`AddPassthrough`](#Std.Cli.ArgParser.AddPassthrough(string,string)) · [`HasPassthrough`](#Std.Cli.ArgParser.HasPassthrough()) · [`AddAlias`](#Std.Cli.ArgParser.AddAlias(string,string))
 
 <a id="Std.Cli.ArgParser.HelpText()"></a>
 ### string HelpText()
@@ -110,31 +114,45 @@ public partial class ArgParser {
 
 取值 token 缺失时抛 CliException。叶子路由 / 簇解析 / 负数回退都不在本方法职责内。
 
+<a id="Std.Cli.ArgParser.StripDeclared(string[],int)"></a>
+### _StripOutcome StripDeclared(string[] argv, int limit)
+
+[`src/libraries/z42.cli/src/ArgParser.Persistent.z42:21`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.Persistent.z42#L21)
+
+同 `StripDeclared(argv)`，但只剥 `[0, limit)` 内的 token；`limit` 起的尾巴原样留在 `Kept`（透传叶子的参数不归全局旗标）。
+
+<a id="Std.Cli.ArgParser.DeclaredTokenEnd(string[],int)"></a>
+### int DeclaredTokenEnd(string[] argv, int i)
+
+[`src/libraries/z42.cli/src/ArgParser.Persistent.z42:59`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.Persistent.z42#L59)
+
+`argv[i]` 是本 parser 声明过的 flag / option 时，返回它（含取值 token）之后的下标； 否则 -1。供路由在剥离前模拟走一遍命令路径。
+
 <a id="Std.Cli.ArgParser.ctor(string,string)"></a>
 ### ArgParser(string programName, string description)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:107`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L107)
+[`src/libraries/z42.cli/src/ArgParser.z42:108`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L108)
 
 用 programName 与 description 创建一个参数解析器。
 
 <a id="Std.Cli.ArgParser.AddFlag(string,string,string)"></a>
 ### void AddFlag(string longName, string shortName, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:141`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L141)
+[`src/libraries/z42.cli/src/ArgParser.z42:142`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L142)
 
 布尔开关：出现即 true。shortName 传 "" 表示无短名；`-h` / `--help` 自动注册，无需手加。
 
 <a id="Std.Cli.ArgParser.AddOption(string,string,string,string)"></a>
 ### void AddOption(string longName, string shortName, string help, string defaultValue)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:152`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L152)
+[`src/libraries/z42.cli/src/ArgParser.z42:153`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L153)
 
 注册带值 option（`--name value` 或 `--name=value`）；未出现时取 defaultValue。
 
 <a id="Std.Cli.ArgParser.AddOptionWithEnv(string,string,string,string,string)"></a>
 ### void AddOptionWithEnv(string longName, string shortName, string help, string defaultValue, string envVarName)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:169`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L169)
+[`src/libraries/z42.cli/src/ArgParser.z42:170`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L170)
 
 注册带环境变量后备的 option。取值优先级 argv > 环境变量 > defaultValue。
 
@@ -143,14 +161,14 @@ public partial class ArgParser {
 <a id="Std.Cli.ArgParser.AddMutuallyExclusive(string[])"></a>
 ### void AddMutuallyExclusive(string[] names)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:185`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L185)
+[`src/libraries/z42.cli/src/ArgParser.z42:186`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L186)
 
 声明一组 option long-name，argv 中至多出现一个；名字必须已注册，否则当场抛 CliException。
 
 <a id="Std.Cli.ArgParser.AddRepeatedOption(string,string,string)"></a>
 ### void AddRepeatedOption(string longName, string shortName, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:220`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L220)
+[`src/libraries/z42.cli/src/ArgParser.z42:221`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L221)
 
 注册可重复 option：每次出现都追加；用 `GetRepeatedOption` 取全部，`GetOption` 取最后一个。
 
@@ -159,28 +177,28 @@ public partial class ArgParser {
 <a id="Std.Cli.ArgParser.AllowExtras()"></a>
 ### void AllowExtras()
 
-[`src/libraries/z42.cli/src/ArgParser.z42:235`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L235)
+[`src/libraries/z42.cli/src/ArgParser.z42:236`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L236)
 
 一次性开关：开启后未知 flag / option 进 `ParseResult.Extras()` 而不抛异常。
 
 <a id="Std.Cli.ArgParser.AddRequiredOption(string,string,string)"></a>
 ### void AddRequiredOption(string longName, string shortName, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:241`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L241)
+[`src/libraries/z42.cli/src/ArgParser.z42:242`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L242)
 
 注册必填 option：argv 里没写时 Parse 抛 CliException。默认值固定 ""， help 自动追加 " (required)"。
 
 <a id="Std.Cli.ArgParser.AddPositional(string,string)"></a>
 ### void AddPositional(string name, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:256`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L256)
+[`src/libraries/z42.cli/src/ArgParser.z42:257`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L257)
 
 注册必填 positional，按声明顺序匹配 argv 中非 flag/option 的部分。
 
 <a id="Std.Cli.ArgParser.AddOptionalPositional(string,string)"></a>
 ### void AddOptionalPositional(string name, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:278`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L278)
+[`src/libraries/z42.cli/src/ArgParser.z42:279`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L279)
 
 注册可选 positional：缺省时 `GetPositional(i)` 返回 ""。
 
@@ -190,21 +208,28 @@ help 中渲染为 `[name]`。
 <a id="Std.Cli.ArgParser.AddVariadicPositional(string,string)"></a>
 ### void AddVariadicPositional(string name, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:294`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L294)
+[`src/libraries/z42.cli/src/ArgParser.z42:295`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L295)
 
 注册变长尾参（必须是最后一个 positional）：收集固定槽填满后的**全部剩余** positional（含 `--` 之后的 token），用 `ParseResult.VariadicValues()` 取回。 变长槽不参与必填校验（0 个也合法）；help 的 USAGE 渲染为 `[name...]`。
 
 <a id="Std.Cli.ArgParser.AddPassthrough(string,string)"></a>
 ### void AddPassthrough(string name, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:308`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L308)
+[`src/libraries/z42.cli/src/ArgParser.z42:309`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L309)
 
 注册透传尾参（必须是最后一个 positional）：固定槽填满后，余下全部 token 原样收进 变长槽——不再识别 `-h` / option / `--`，用 `ParseResult.VariadicValues()` 取回。 与 `AddVariadicPositional` 互斥（同一个变长槽）。
+
+<a id="Std.Cli.ArgParser.HasPassthrough()"></a>
+### bool HasPassthrough()
+
+[`src/libraries/z42.cli/src/ArgParser.z42:315`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L315)
+
+是否声明了透传尾参（`AddPassthrough`）。
 
 <a id="Std.Cli.ArgParser.AddAlias(string,string)"></a>
 ### void AddAlias(string longName, string alias)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:315`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L315)
+[`src/libraries/z42.cli/src/ArgParser.z42:319`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L319)
 
 给已注册的 flag / option 再挂一个 long 名：`--alias` 与 `--longName` 等价， 取值仍用正名。正名未注册、别名与任何 long 名 / 别名相撞时抛 CliException。
 
@@ -220,6 +245,8 @@ public partial class ArgParser {
     string OptionsHelp()
     ParseResult Parse(string[] argv)
     _StripOutcome StripDeclared(string[] argv)
+    _StripOutcome StripDeclared(string[] argv, int limit)
+    int DeclaredTokenEnd(string[] argv, int i)
     ArgParser(string programName, string description)
     void AddFlag(string longName, string shortName, string help)
     void AddOption(string longName, string shortName, string help, string defaultValue)
@@ -232,11 +259,12 @@ public partial class ArgParser {
     void AddOptionalPositional(string name, string help)
     void AddVariadicPositional(string name, string help)
     void AddPassthrough(string name, string help)
+    bool HasPassthrough()
     void AddAlias(string longName, string alias)
 }
 ```
 
-成员：[`HelpText`](#Std.Cli.ArgParser.HelpText()) · [`OptionsHelp`](#Std.Cli.ArgParser.OptionsHelp()) · [`Parse`](#Std.Cli.ArgParser.Parse(string[])) · [`StripDeclared`](#Std.Cli.ArgParser.StripDeclared(string[])) · [`ArgParser`](#Std.Cli.ArgParser.ctor(string,string)) · [`AddFlag`](#Std.Cli.ArgParser.AddFlag(string,string,string)) · [`AddOption`](#Std.Cli.ArgParser.AddOption(string,string,string,string)) · [`AddOptionWithEnv`](#Std.Cli.ArgParser.AddOptionWithEnv(string,string,string,string,string)) · [`AddMutuallyExclusive`](#Std.Cli.ArgParser.AddMutuallyExclusive(string[])) · [`AddRepeatedOption`](#Std.Cli.ArgParser.AddRepeatedOption(string,string,string)) · [`AllowExtras`](#Std.Cli.ArgParser.AllowExtras()) · [`AddRequiredOption`](#Std.Cli.ArgParser.AddRequiredOption(string,string,string)) · [`AddPositional`](#Std.Cli.ArgParser.AddPositional(string,string)) · [`AddOptionalPositional`](#Std.Cli.ArgParser.AddOptionalPositional(string,string)) · [`AddVariadicPositional`](#Std.Cli.ArgParser.AddVariadicPositional(string,string)) · [`AddPassthrough`](#Std.Cli.ArgParser.AddPassthrough(string,string)) · [`AddAlias`](#Std.Cli.ArgParser.AddAlias(string,string))
+成员：[`HelpText`](#Std.Cli.ArgParser.HelpText()) · [`OptionsHelp`](#Std.Cli.ArgParser.OptionsHelp()) · [`Parse`](#Std.Cli.ArgParser.Parse(string[])) · [`StripDeclared`](#Std.Cli.ArgParser.StripDeclared(string[])) · [`StripDeclared`](#Std.Cli.ArgParser.StripDeclared(string[],int)) · [`DeclaredTokenEnd`](#Std.Cli.ArgParser.DeclaredTokenEnd(string[],int)) · [`ArgParser`](#Std.Cli.ArgParser.ctor(string,string)) · [`AddFlag`](#Std.Cli.ArgParser.AddFlag(string,string,string)) · [`AddOption`](#Std.Cli.ArgParser.AddOption(string,string,string,string)) · [`AddOptionWithEnv`](#Std.Cli.ArgParser.AddOptionWithEnv(string,string,string,string,string)) · [`AddMutuallyExclusive`](#Std.Cli.ArgParser.AddMutuallyExclusive(string[])) · [`AddRepeatedOption`](#Std.Cli.ArgParser.AddRepeatedOption(string,string,string)) · [`AllowExtras`](#Std.Cli.ArgParser.AllowExtras()) · [`AddRequiredOption`](#Std.Cli.ArgParser.AddRequiredOption(string,string,string)) · [`AddPositional`](#Std.Cli.ArgParser.AddPositional(string,string)) · [`AddOptionalPositional`](#Std.Cli.ArgParser.AddOptionalPositional(string,string)) · [`AddVariadicPositional`](#Std.Cli.ArgParser.AddVariadicPositional(string,string)) · [`AddPassthrough`](#Std.Cli.ArgParser.AddPassthrough(string,string)) · [`HasPassthrough`](#Std.Cli.ArgParser.HasPassthrough()) · [`AddAlias`](#Std.Cli.ArgParser.AddAlias(string,string))
 
 <a id="Std.Cli.ArgParser.HelpText()"></a>
 ### string HelpText()
@@ -268,31 +296,45 @@ public partial class ArgParser {
 
 取值 token 缺失时抛 CliException。叶子路由 / 簇解析 / 负数回退都不在本方法职责内。
 
+<a id="Std.Cli.ArgParser.StripDeclared(string[],int)"></a>
+### _StripOutcome StripDeclared(string[] argv, int limit)
+
+[`src/libraries/z42.cli/src/ArgParser.Persistent.z42:21`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.Persistent.z42#L21)
+
+同 `StripDeclared(argv)`，但只剥 `[0, limit)` 内的 token；`limit` 起的尾巴原样留在 `Kept`（透传叶子的参数不归全局旗标）。
+
+<a id="Std.Cli.ArgParser.DeclaredTokenEnd(string[],int)"></a>
+### int DeclaredTokenEnd(string[] argv, int i)
+
+[`src/libraries/z42.cli/src/ArgParser.Persistent.z42:59`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.Persistent.z42#L59)
+
+`argv[i]` 是本 parser 声明过的 flag / option 时，返回它（含取值 token）之后的下标； 否则 -1。供路由在剥离前模拟走一遍命令路径。
+
 <a id="Std.Cli.ArgParser.ctor(string,string)"></a>
 ### ArgParser(string programName, string description)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:107`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L107)
+[`src/libraries/z42.cli/src/ArgParser.z42:108`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L108)
 
 用 programName 与 description 创建一个参数解析器。
 
 <a id="Std.Cli.ArgParser.AddFlag(string,string,string)"></a>
 ### void AddFlag(string longName, string shortName, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:141`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L141)
+[`src/libraries/z42.cli/src/ArgParser.z42:142`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L142)
 
 布尔开关：出现即 true。shortName 传 "" 表示无短名；`-h` / `--help` 自动注册，无需手加。
 
 <a id="Std.Cli.ArgParser.AddOption(string,string,string,string)"></a>
 ### void AddOption(string longName, string shortName, string help, string defaultValue)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:152`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L152)
+[`src/libraries/z42.cli/src/ArgParser.z42:153`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L153)
 
 注册带值 option（`--name value` 或 `--name=value`）；未出现时取 defaultValue。
 
 <a id="Std.Cli.ArgParser.AddOptionWithEnv(string,string,string,string,string)"></a>
 ### void AddOptionWithEnv(string longName, string shortName, string help, string defaultValue, string envVarName)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:169`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L169)
+[`src/libraries/z42.cli/src/ArgParser.z42:170`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L170)
 
 注册带环境变量后备的 option。取值优先级 argv > 环境变量 > defaultValue。
 
@@ -301,14 +343,14 @@ public partial class ArgParser {
 <a id="Std.Cli.ArgParser.AddMutuallyExclusive(string[])"></a>
 ### void AddMutuallyExclusive(string[] names)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:185`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L185)
+[`src/libraries/z42.cli/src/ArgParser.z42:186`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L186)
 
 声明一组 option long-name，argv 中至多出现一个；名字必须已注册，否则当场抛 CliException。
 
 <a id="Std.Cli.ArgParser.AddRepeatedOption(string,string,string)"></a>
 ### void AddRepeatedOption(string longName, string shortName, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:220`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L220)
+[`src/libraries/z42.cli/src/ArgParser.z42:221`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L221)
 
 注册可重复 option：每次出现都追加；用 `GetRepeatedOption` 取全部，`GetOption` 取最后一个。
 
@@ -317,28 +359,28 @@ public partial class ArgParser {
 <a id="Std.Cli.ArgParser.AllowExtras()"></a>
 ### void AllowExtras()
 
-[`src/libraries/z42.cli/src/ArgParser.z42:235`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L235)
+[`src/libraries/z42.cli/src/ArgParser.z42:236`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L236)
 
 一次性开关：开启后未知 flag / option 进 `ParseResult.Extras()` 而不抛异常。
 
 <a id="Std.Cli.ArgParser.AddRequiredOption(string,string,string)"></a>
 ### void AddRequiredOption(string longName, string shortName, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:241`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L241)
+[`src/libraries/z42.cli/src/ArgParser.z42:242`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L242)
 
 注册必填 option：argv 里没写时 Parse 抛 CliException。默认值固定 ""， help 自动追加 " (required)"。
 
 <a id="Std.Cli.ArgParser.AddPositional(string,string)"></a>
 ### void AddPositional(string name, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:256`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L256)
+[`src/libraries/z42.cli/src/ArgParser.z42:257`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L257)
 
 注册必填 positional，按声明顺序匹配 argv 中非 flag/option 的部分。
 
 <a id="Std.Cli.ArgParser.AddOptionalPositional(string,string)"></a>
 ### void AddOptionalPositional(string name, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:278`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L278)
+[`src/libraries/z42.cli/src/ArgParser.z42:279`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L279)
 
 注册可选 positional：缺省时 `GetPositional(i)` 返回 ""。
 
@@ -348,21 +390,28 @@ help 中渲染为 `[name]`。
 <a id="Std.Cli.ArgParser.AddVariadicPositional(string,string)"></a>
 ### void AddVariadicPositional(string name, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:294`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L294)
+[`src/libraries/z42.cli/src/ArgParser.z42:295`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L295)
 
 注册变长尾参（必须是最后一个 positional）：收集固定槽填满后的**全部剩余** positional（含 `--` 之后的 token），用 `ParseResult.VariadicValues()` 取回。 变长槽不参与必填校验（0 个也合法）；help 的 USAGE 渲染为 `[name...]`。
 
 <a id="Std.Cli.ArgParser.AddPassthrough(string,string)"></a>
 ### void AddPassthrough(string name, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:308`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L308)
+[`src/libraries/z42.cli/src/ArgParser.z42:309`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L309)
 
 注册透传尾参（必须是最后一个 positional）：固定槽填满后，余下全部 token 原样收进 变长槽——不再识别 `-h` / option / `--`，用 `ParseResult.VariadicValues()` 取回。 与 `AddVariadicPositional` 互斥（同一个变长槽）。
+
+<a id="Std.Cli.ArgParser.HasPassthrough()"></a>
+### bool HasPassthrough()
+
+[`src/libraries/z42.cli/src/ArgParser.z42:315`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L315)
+
+是否声明了透传尾参（`AddPassthrough`）。
 
 <a id="Std.Cli.ArgParser.AddAlias(string,string)"></a>
 ### void AddAlias(string longName, string alias)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:315`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L315)
+[`src/libraries/z42.cli/src/ArgParser.z42:319`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L319)
 
 给已注册的 flag / option 再挂一个 long 名：`--alias` 与 `--longName` 等价， 取值仍用正名。正名未注册、别名与任何 long 名 / 别名相撞时抛 CliException。
 
@@ -378,6 +427,8 @@ public partial class ArgParser {
     string OptionsHelp()
     ParseResult Parse(string[] argv)
     _StripOutcome StripDeclared(string[] argv)
+    _StripOutcome StripDeclared(string[] argv, int limit)
+    int DeclaredTokenEnd(string[] argv, int i)
     ArgParser(string programName, string description)
     void AddFlag(string longName, string shortName, string help)
     void AddOption(string longName, string shortName, string help, string defaultValue)
@@ -390,11 +441,12 @@ public partial class ArgParser {
     void AddOptionalPositional(string name, string help)
     void AddVariadicPositional(string name, string help)
     void AddPassthrough(string name, string help)
+    bool HasPassthrough()
     void AddAlias(string longName, string alias)
 }
 ```
 
-成员：[`HelpText`](#Std.Cli.ArgParser.HelpText()) · [`OptionsHelp`](#Std.Cli.ArgParser.OptionsHelp()) · [`Parse`](#Std.Cli.ArgParser.Parse(string[])) · [`StripDeclared`](#Std.Cli.ArgParser.StripDeclared(string[])) · [`ArgParser`](#Std.Cli.ArgParser.ctor(string,string)) · [`AddFlag`](#Std.Cli.ArgParser.AddFlag(string,string,string)) · [`AddOption`](#Std.Cli.ArgParser.AddOption(string,string,string,string)) · [`AddOptionWithEnv`](#Std.Cli.ArgParser.AddOptionWithEnv(string,string,string,string,string)) · [`AddMutuallyExclusive`](#Std.Cli.ArgParser.AddMutuallyExclusive(string[])) · [`AddRepeatedOption`](#Std.Cli.ArgParser.AddRepeatedOption(string,string,string)) · [`AllowExtras`](#Std.Cli.ArgParser.AllowExtras()) · [`AddRequiredOption`](#Std.Cli.ArgParser.AddRequiredOption(string,string,string)) · [`AddPositional`](#Std.Cli.ArgParser.AddPositional(string,string)) · [`AddOptionalPositional`](#Std.Cli.ArgParser.AddOptionalPositional(string,string)) · [`AddVariadicPositional`](#Std.Cli.ArgParser.AddVariadicPositional(string,string)) · [`AddPassthrough`](#Std.Cli.ArgParser.AddPassthrough(string,string)) · [`AddAlias`](#Std.Cli.ArgParser.AddAlias(string,string))
+成员：[`HelpText`](#Std.Cli.ArgParser.HelpText()) · [`OptionsHelp`](#Std.Cli.ArgParser.OptionsHelp()) · [`Parse`](#Std.Cli.ArgParser.Parse(string[])) · [`StripDeclared`](#Std.Cli.ArgParser.StripDeclared(string[])) · [`StripDeclared`](#Std.Cli.ArgParser.StripDeclared(string[],int)) · [`DeclaredTokenEnd`](#Std.Cli.ArgParser.DeclaredTokenEnd(string[],int)) · [`ArgParser`](#Std.Cli.ArgParser.ctor(string,string)) · [`AddFlag`](#Std.Cli.ArgParser.AddFlag(string,string,string)) · [`AddOption`](#Std.Cli.ArgParser.AddOption(string,string,string,string)) · [`AddOptionWithEnv`](#Std.Cli.ArgParser.AddOptionWithEnv(string,string,string,string,string)) · [`AddMutuallyExclusive`](#Std.Cli.ArgParser.AddMutuallyExclusive(string[])) · [`AddRepeatedOption`](#Std.Cli.ArgParser.AddRepeatedOption(string,string,string)) · [`AllowExtras`](#Std.Cli.ArgParser.AllowExtras()) · [`AddRequiredOption`](#Std.Cli.ArgParser.AddRequiredOption(string,string,string)) · [`AddPositional`](#Std.Cli.ArgParser.AddPositional(string,string)) · [`AddOptionalPositional`](#Std.Cli.ArgParser.AddOptionalPositional(string,string)) · [`AddVariadicPositional`](#Std.Cli.ArgParser.AddVariadicPositional(string,string)) · [`AddPassthrough`](#Std.Cli.ArgParser.AddPassthrough(string,string)) · [`HasPassthrough`](#Std.Cli.ArgParser.HasPassthrough()) · [`AddAlias`](#Std.Cli.ArgParser.AddAlias(string,string))
 
 <a id="Std.Cli.ArgParser.HelpText()"></a>
 ### string HelpText()
@@ -426,31 +478,45 @@ public partial class ArgParser {
 
 取值 token 缺失时抛 CliException。叶子路由 / 簇解析 / 负数回退都不在本方法职责内。
 
+<a id="Std.Cli.ArgParser.StripDeclared(string[],int)"></a>
+### _StripOutcome StripDeclared(string[] argv, int limit)
+
+[`src/libraries/z42.cli/src/ArgParser.Persistent.z42:21`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.Persistent.z42#L21)
+
+同 `StripDeclared(argv)`，但只剥 `[0, limit)` 内的 token；`limit` 起的尾巴原样留在 `Kept`（透传叶子的参数不归全局旗标）。
+
+<a id="Std.Cli.ArgParser.DeclaredTokenEnd(string[],int)"></a>
+### int DeclaredTokenEnd(string[] argv, int i)
+
+[`src/libraries/z42.cli/src/ArgParser.Persistent.z42:59`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.Persistent.z42#L59)
+
+`argv[i]` 是本 parser 声明过的 flag / option 时，返回它（含取值 token）之后的下标； 否则 -1。供路由在剥离前模拟走一遍命令路径。
+
 <a id="Std.Cli.ArgParser.ctor(string,string)"></a>
 ### ArgParser(string programName, string description)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:107`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L107)
+[`src/libraries/z42.cli/src/ArgParser.z42:108`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L108)
 
 用 programName 与 description 创建一个参数解析器。
 
 <a id="Std.Cli.ArgParser.AddFlag(string,string,string)"></a>
 ### void AddFlag(string longName, string shortName, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:141`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L141)
+[`src/libraries/z42.cli/src/ArgParser.z42:142`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L142)
 
 布尔开关：出现即 true。shortName 传 "" 表示无短名；`-h` / `--help` 自动注册，无需手加。
 
 <a id="Std.Cli.ArgParser.AddOption(string,string,string,string)"></a>
 ### void AddOption(string longName, string shortName, string help, string defaultValue)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:152`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L152)
+[`src/libraries/z42.cli/src/ArgParser.z42:153`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L153)
 
 注册带值 option（`--name value` 或 `--name=value`）；未出现时取 defaultValue。
 
 <a id="Std.Cli.ArgParser.AddOptionWithEnv(string,string,string,string,string)"></a>
 ### void AddOptionWithEnv(string longName, string shortName, string help, string defaultValue, string envVarName)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:169`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L169)
+[`src/libraries/z42.cli/src/ArgParser.z42:170`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L170)
 
 注册带环境变量后备的 option。取值优先级 argv > 环境变量 > defaultValue。
 
@@ -459,14 +525,14 @@ public partial class ArgParser {
 <a id="Std.Cli.ArgParser.AddMutuallyExclusive(string[])"></a>
 ### void AddMutuallyExclusive(string[] names)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:185`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L185)
+[`src/libraries/z42.cli/src/ArgParser.z42:186`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L186)
 
 声明一组 option long-name，argv 中至多出现一个；名字必须已注册，否则当场抛 CliException。
 
 <a id="Std.Cli.ArgParser.AddRepeatedOption(string,string,string)"></a>
 ### void AddRepeatedOption(string longName, string shortName, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:220`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L220)
+[`src/libraries/z42.cli/src/ArgParser.z42:221`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L221)
 
 注册可重复 option：每次出现都追加；用 `GetRepeatedOption` 取全部，`GetOption` 取最后一个。
 
@@ -475,28 +541,28 @@ public partial class ArgParser {
 <a id="Std.Cli.ArgParser.AllowExtras()"></a>
 ### void AllowExtras()
 
-[`src/libraries/z42.cli/src/ArgParser.z42:235`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L235)
+[`src/libraries/z42.cli/src/ArgParser.z42:236`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L236)
 
 一次性开关：开启后未知 flag / option 进 `ParseResult.Extras()` 而不抛异常。
 
 <a id="Std.Cli.ArgParser.AddRequiredOption(string,string,string)"></a>
 ### void AddRequiredOption(string longName, string shortName, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:241`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L241)
+[`src/libraries/z42.cli/src/ArgParser.z42:242`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L242)
 
 注册必填 option：argv 里没写时 Parse 抛 CliException。默认值固定 ""， help 自动追加 " (required)"。
 
 <a id="Std.Cli.ArgParser.AddPositional(string,string)"></a>
 ### void AddPositional(string name, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:256`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L256)
+[`src/libraries/z42.cli/src/ArgParser.z42:257`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L257)
 
 注册必填 positional，按声明顺序匹配 argv 中非 flag/option 的部分。
 
 <a id="Std.Cli.ArgParser.AddOptionalPositional(string,string)"></a>
 ### void AddOptionalPositional(string name, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:278`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L278)
+[`src/libraries/z42.cli/src/ArgParser.z42:279`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L279)
 
 注册可选 positional：缺省时 `GetPositional(i)` 返回 ""。
 
@@ -506,27 +572,34 @@ help 中渲染为 `[name]`。
 <a id="Std.Cli.ArgParser.AddVariadicPositional(string,string)"></a>
 ### void AddVariadicPositional(string name, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:294`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L294)
+[`src/libraries/z42.cli/src/ArgParser.z42:295`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L295)
 
 注册变长尾参（必须是最后一个 positional）：收集固定槽填满后的**全部剩余** positional（含 `--` 之后的 token），用 `ParseResult.VariadicValues()` 取回。 变长槽不参与必填校验（0 个也合法）；help 的 USAGE 渲染为 `[name...]`。
 
 <a id="Std.Cli.ArgParser.AddPassthrough(string,string)"></a>
 ### void AddPassthrough(string name, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:308`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L308)
+[`src/libraries/z42.cli/src/ArgParser.z42:309`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L309)
 
 注册透传尾参（必须是最后一个 positional）：固定槽填满后，余下全部 token 原样收进 变长槽——不再识别 `-h` / option / `--`，用 `ParseResult.VariadicValues()` 取回。 与 `AddVariadicPositional` 互斥（同一个变长槽）。
+
+<a id="Std.Cli.ArgParser.HasPassthrough()"></a>
+### bool HasPassthrough()
+
+[`src/libraries/z42.cli/src/ArgParser.z42:315`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L315)
+
+是否声明了透传尾参（`AddPassthrough`）。
 
 <a id="Std.Cli.ArgParser.AddAlias(string,string)"></a>
 ### void AddAlias(string longName, string alias)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:315`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L315)
+[`src/libraries/z42.cli/src/ArgParser.z42:319`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L319)
 
 给已注册的 flag / option 再挂一个 long 名：`--alias` 与 `--longName` 等价， 取值仍用正名。正名未注册、别名与任何 long 名 / 别名相撞时抛 CliException。
 
 ## _StripKind
 
-[`src/libraries/z42.cli/src/ArgParser.Persistent.z42:109`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.Persistent.z42#L109)
+[`src/libraries/z42.cli/src/ArgParser.Persistent.z42:122`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.Persistent.z42#L122)
 
 token 分类结果的内部载体（见 ArgParser._ClassifyLong / _ClassifyShort）。
 
@@ -543,27 +616,27 @@ public class _StripKind {
 <a id="Std.Cli._StripKind.Kind"></a>
 ### int Kind
 
-[`src/libraries/z42.cli/src/ArgParser.Persistent.z42:111`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.Persistent.z42#L111)
+[`src/libraries/z42.cli/src/ArgParser.Persistent.z42:124`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.Persistent.z42#L124)
 
 0=与本 parser 无关；1=flag；2=option 分离值；3=option 内联值。
 
 <a id="Std.Cli._StripKind.Next"></a>
 ### int Next
 
-[`src/libraries/z42.cli/src/ArgParser.Persistent.z42:113`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.Persistent.z42#L113)
+[`src/libraries/z42.cli/src/ArgParser.Persistent.z42:126`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.Persistent.z42#L126)
 
 命中时下一个未处理下标。
 
 <a id="Std.Cli._StripKind.ctor(int,int)"></a>
 ### _StripKind(int kind, int next)
 
-[`src/libraries/z42.cli/src/ArgParser.Persistent.z42:116`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.Persistent.z42#L116)
+[`src/libraries/z42.cli/src/ArgParser.Persistent.z42:129`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.Persistent.z42#L129)
 
 用类别与下一个下标创建。
 
 ## _StripOutcome
 
-[`src/libraries/z42.cli/src/ArgParser.Persistent.z42:123`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.Persistent.z42#L123)
+[`src/libraries/z42.cli/src/ArgParser.Persistent.z42:136`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.Persistent.z42#L136)
 
 `ArgParser.StripDeclared` 的结果：剥离后剩余的 argv（保序）+ 剥出 token 的解析结果。
 
@@ -580,27 +653,27 @@ public class _StripOutcome {
 <a id="Std.Cli._StripOutcome.Kept"></a>
 ### string[] Kept
 
-[`src/libraries/z42.cli/src/ArgParser.Persistent.z42:125`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.Persistent.z42#L125)
+[`src/libraries/z42.cli/src/ArgParser.Persistent.z42:138`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.Persistent.z42#L138)
 
 未命中的 token（原序）。
 
 <a id="Std.Cli._StripOutcome.Result"></a>
 ### ParseResult Result
 
-[`src/libraries/z42.cli/src/ArgParser.Persistent.z42:127`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.Persistent.z42#L127)
+[`src/libraries/z42.cli/src/ArgParser.Persistent.z42:140`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.Persistent.z42#L140)
 
 剥出 token 经本 parser 解析的结果。
 
 <a id="Std.Cli._StripOutcome.ctor(string[],ParseResult)"></a>
 ### _StripOutcome(string[] kept, ParseResult result)
 
-[`src/libraries/z42.cli/src/ArgParser.Persistent.z42:130`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.Persistent.z42#L130)
+[`src/libraries/z42.cli/src/ArgParser.Persistent.z42:143`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.Persistent.z42#L143)
 
 用两部分结果创建。
 
 ## ArgParser
 
-[`src/libraries/z42.cli/src/ArgParser.z42:53`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L53)
+[`src/libraries/z42.cli/src/ArgParser.z42:54`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L54)
 
 声明参数并解析 argv。所有 Add* 方法按调用顺序记录；Parse 可对同一 parser 重复调用。
 
@@ -610,6 +683,8 @@ public partial class ArgParser {
     string OptionsHelp()
     ParseResult Parse(string[] argv)
     _StripOutcome StripDeclared(string[] argv)
+    _StripOutcome StripDeclared(string[] argv, int limit)
+    int DeclaredTokenEnd(string[] argv, int i)
     ArgParser(string programName, string description)
     void AddFlag(string longName, string shortName, string help)
     void AddOption(string longName, string shortName, string help, string defaultValue)
@@ -622,11 +697,12 @@ public partial class ArgParser {
     void AddOptionalPositional(string name, string help)
     void AddVariadicPositional(string name, string help)
     void AddPassthrough(string name, string help)
+    bool HasPassthrough()
     void AddAlias(string longName, string alias)
 }
 ```
 
-成员：[`HelpText`](#Std.Cli.ArgParser.HelpText()) · [`OptionsHelp`](#Std.Cli.ArgParser.OptionsHelp()) · [`Parse`](#Std.Cli.ArgParser.Parse(string[])) · [`StripDeclared`](#Std.Cli.ArgParser.StripDeclared(string[])) · [`ArgParser`](#Std.Cli.ArgParser.ctor(string,string)) · [`AddFlag`](#Std.Cli.ArgParser.AddFlag(string,string,string)) · [`AddOption`](#Std.Cli.ArgParser.AddOption(string,string,string,string)) · [`AddOptionWithEnv`](#Std.Cli.ArgParser.AddOptionWithEnv(string,string,string,string,string)) · [`AddMutuallyExclusive`](#Std.Cli.ArgParser.AddMutuallyExclusive(string[])) · [`AddRepeatedOption`](#Std.Cli.ArgParser.AddRepeatedOption(string,string,string)) · [`AllowExtras`](#Std.Cli.ArgParser.AllowExtras()) · [`AddRequiredOption`](#Std.Cli.ArgParser.AddRequiredOption(string,string,string)) · [`AddPositional`](#Std.Cli.ArgParser.AddPositional(string,string)) · [`AddOptionalPositional`](#Std.Cli.ArgParser.AddOptionalPositional(string,string)) · [`AddVariadicPositional`](#Std.Cli.ArgParser.AddVariadicPositional(string,string)) · [`AddPassthrough`](#Std.Cli.ArgParser.AddPassthrough(string,string)) · [`AddAlias`](#Std.Cli.ArgParser.AddAlias(string,string))
+成员：[`HelpText`](#Std.Cli.ArgParser.HelpText()) · [`OptionsHelp`](#Std.Cli.ArgParser.OptionsHelp()) · [`Parse`](#Std.Cli.ArgParser.Parse(string[])) · [`StripDeclared`](#Std.Cli.ArgParser.StripDeclared(string[])) · [`StripDeclared`](#Std.Cli.ArgParser.StripDeclared(string[],int)) · [`DeclaredTokenEnd`](#Std.Cli.ArgParser.DeclaredTokenEnd(string[],int)) · [`ArgParser`](#Std.Cli.ArgParser.ctor(string,string)) · [`AddFlag`](#Std.Cli.ArgParser.AddFlag(string,string,string)) · [`AddOption`](#Std.Cli.ArgParser.AddOption(string,string,string,string)) · [`AddOptionWithEnv`](#Std.Cli.ArgParser.AddOptionWithEnv(string,string,string,string,string)) · [`AddMutuallyExclusive`](#Std.Cli.ArgParser.AddMutuallyExclusive(string[])) · [`AddRepeatedOption`](#Std.Cli.ArgParser.AddRepeatedOption(string,string,string)) · [`AllowExtras`](#Std.Cli.ArgParser.AllowExtras()) · [`AddRequiredOption`](#Std.Cli.ArgParser.AddRequiredOption(string,string,string)) · [`AddPositional`](#Std.Cli.ArgParser.AddPositional(string,string)) · [`AddOptionalPositional`](#Std.Cli.ArgParser.AddOptionalPositional(string,string)) · [`AddVariadicPositional`](#Std.Cli.ArgParser.AddVariadicPositional(string,string)) · [`AddPassthrough`](#Std.Cli.ArgParser.AddPassthrough(string,string)) · [`HasPassthrough`](#Std.Cli.ArgParser.HasPassthrough()) · [`AddAlias`](#Std.Cli.ArgParser.AddAlias(string,string))
 
 <a id="Std.Cli.ArgParser.HelpText()"></a>
 ### string HelpText()
@@ -658,31 +734,45 @@ public partial class ArgParser {
 
 取值 token 缺失时抛 CliException。叶子路由 / 簇解析 / 负数回退都不在本方法职责内。
 
+<a id="Std.Cli.ArgParser.StripDeclared(string[],int)"></a>
+### _StripOutcome StripDeclared(string[] argv, int limit)
+
+[`src/libraries/z42.cli/src/ArgParser.Persistent.z42:21`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.Persistent.z42#L21)
+
+同 `StripDeclared(argv)`，但只剥 `[0, limit)` 内的 token；`limit` 起的尾巴原样留在 `Kept`（透传叶子的参数不归全局旗标）。
+
+<a id="Std.Cli.ArgParser.DeclaredTokenEnd(string[],int)"></a>
+### int DeclaredTokenEnd(string[] argv, int i)
+
+[`src/libraries/z42.cli/src/ArgParser.Persistent.z42:59`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.Persistent.z42#L59)
+
+`argv[i]` 是本 parser 声明过的 flag / option 时，返回它（含取值 token）之后的下标； 否则 -1。供路由在剥离前模拟走一遍命令路径。
+
 <a id="Std.Cli.ArgParser.ctor(string,string)"></a>
 ### ArgParser(string programName, string description)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:107`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L107)
+[`src/libraries/z42.cli/src/ArgParser.z42:108`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L108)
 
 用 programName 与 description 创建一个参数解析器。
 
 <a id="Std.Cli.ArgParser.AddFlag(string,string,string)"></a>
 ### void AddFlag(string longName, string shortName, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:141`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L141)
+[`src/libraries/z42.cli/src/ArgParser.z42:142`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L142)
 
 布尔开关：出现即 true。shortName 传 "" 表示无短名；`-h` / `--help` 自动注册，无需手加。
 
 <a id="Std.Cli.ArgParser.AddOption(string,string,string,string)"></a>
 ### void AddOption(string longName, string shortName, string help, string defaultValue)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:152`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L152)
+[`src/libraries/z42.cli/src/ArgParser.z42:153`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L153)
 
 注册带值 option（`--name value` 或 `--name=value`）；未出现时取 defaultValue。
 
 <a id="Std.Cli.ArgParser.AddOptionWithEnv(string,string,string,string,string)"></a>
 ### void AddOptionWithEnv(string longName, string shortName, string help, string defaultValue, string envVarName)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:169`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L169)
+[`src/libraries/z42.cli/src/ArgParser.z42:170`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L170)
 
 注册带环境变量后备的 option。取值优先级 argv > 环境变量 > defaultValue。
 
@@ -691,14 +781,14 @@ public partial class ArgParser {
 <a id="Std.Cli.ArgParser.AddMutuallyExclusive(string[])"></a>
 ### void AddMutuallyExclusive(string[] names)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:185`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L185)
+[`src/libraries/z42.cli/src/ArgParser.z42:186`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L186)
 
 声明一组 option long-name，argv 中至多出现一个；名字必须已注册，否则当场抛 CliException。
 
 <a id="Std.Cli.ArgParser.AddRepeatedOption(string,string,string)"></a>
 ### void AddRepeatedOption(string longName, string shortName, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:220`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L220)
+[`src/libraries/z42.cli/src/ArgParser.z42:221`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L221)
 
 注册可重复 option：每次出现都追加；用 `GetRepeatedOption` 取全部，`GetOption` 取最后一个。
 
@@ -707,28 +797,28 @@ public partial class ArgParser {
 <a id="Std.Cli.ArgParser.AllowExtras()"></a>
 ### void AllowExtras()
 
-[`src/libraries/z42.cli/src/ArgParser.z42:235`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L235)
+[`src/libraries/z42.cli/src/ArgParser.z42:236`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L236)
 
 一次性开关：开启后未知 flag / option 进 `ParseResult.Extras()` 而不抛异常。
 
 <a id="Std.Cli.ArgParser.AddRequiredOption(string,string,string)"></a>
 ### void AddRequiredOption(string longName, string shortName, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:241`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L241)
+[`src/libraries/z42.cli/src/ArgParser.z42:242`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L242)
 
 注册必填 option：argv 里没写时 Parse 抛 CliException。默认值固定 ""， help 自动追加 " (required)"。
 
 <a id="Std.Cli.ArgParser.AddPositional(string,string)"></a>
 ### void AddPositional(string name, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:256`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L256)
+[`src/libraries/z42.cli/src/ArgParser.z42:257`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L257)
 
 注册必填 positional，按声明顺序匹配 argv 中非 flag/option 的部分。
 
 <a id="Std.Cli.ArgParser.AddOptionalPositional(string,string)"></a>
 ### void AddOptionalPositional(string name, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:278`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L278)
+[`src/libraries/z42.cli/src/ArgParser.z42:279`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L279)
 
 注册可选 positional：缺省时 `GetPositional(i)` 返回 ""。
 
@@ -738,21 +828,28 @@ help 中渲染为 `[name]`。
 <a id="Std.Cli.ArgParser.AddVariadicPositional(string,string)"></a>
 ### void AddVariadicPositional(string name, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:294`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L294)
+[`src/libraries/z42.cli/src/ArgParser.z42:295`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L295)
 
 注册变长尾参（必须是最后一个 positional）：收集固定槽填满后的**全部剩余** positional（含 `--` 之后的 token），用 `ParseResult.VariadicValues()` 取回。 变长槽不参与必填校验（0 个也合法）；help 的 USAGE 渲染为 `[name...]`。
 
 <a id="Std.Cli.ArgParser.AddPassthrough(string,string)"></a>
 ### void AddPassthrough(string name, string help)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:308`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L308)
+[`src/libraries/z42.cli/src/ArgParser.z42:309`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L309)
 
 注册透传尾参（必须是最后一个 positional）：固定槽填满后，余下全部 token 原样收进 变长槽——不再识别 `-h` / option / `--`，用 `ParseResult.VariadicValues()` 取回。 与 `AddVariadicPositional` 互斥（同一个变长槽）。
+
+<a id="Std.Cli.ArgParser.HasPassthrough()"></a>
+### bool HasPassthrough()
+
+[`src/libraries/z42.cli/src/ArgParser.z42:315`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L315)
+
+是否声明了透传尾参（`AddPassthrough`）。
 
 <a id="Std.Cli.ArgParser.AddAlias(string,string)"></a>
 ### void AddAlias(string longName, string alias)
 
-[`src/libraries/z42.cli/src/ArgParser.z42:315`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L315)
+[`src/libraries/z42.cli/src/ArgParser.z42:319`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/ArgParser.z42#L319)
 
 给已注册的 flag / option 再挂一个 long 名：`--alias` 与 `--longName` 等价， 取值仍用正名。正名未注册、别名与任何 long 名 / 别名相撞时抛 CliException。
 
@@ -1822,27 +1919,27 @@ IsMatch / IsHelp / IsUnknown 恰好一个为真。本层 persistent 旗标先从
 <a id="Std.Cli.SubcommandRouter.HelpText()"></a>
 ### string HelpText()
 
-[`src/libraries/z42.cli/src/SubcommandRouter.z42:305`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L305)
+[`src/libraries/z42.cli/src/SubcommandRouter.z42:333`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L333)
 
 渲染顶层帮助：programName - description + SUBCOMMANDS 列表（别名括注）， 声明过默认动作时附 `(default)` 行与 DEFAULT ACTION OPTIONS 段（默认 parser 的 FLAGS / OPTIONS），声明过 persistent 旗标时附 GLOBAL OPTIONS 段。
 
 <a id="Std.Cli.SubcommandRouter.Count()"></a>
 ### int Count()
 
-[`src/libraries/z42.cli/src/SubcommandRouter.z42:331`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L331)
+[`src/libraries/z42.cli/src/SubcommandRouter.z42:359`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L359)
 
 已注册的子命令个数。
 
 <a id="Std.Cli.SubcommandRouter.Has(string)"></a>
 ### bool Has(string name)
 
-[`src/libraries/z42.cli/src/SubcommandRouter.z42:334`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L334)
+[`src/libraries/z42.cli/src/SubcommandRouter.z42:362`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L362)
 
 指定名字（或别名）是否已注册为子命令。
 
 ## SubcommandMatch
 
-[`src/libraries/z42.cli/src/SubcommandRouter.z42:378`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L378)
+[`src/libraries/z42.cli/src/SubcommandRouter.z42:406`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L406)
 
 单层子命令命中的结果：名字 + 叶子 ParseResult。
 
@@ -1859,21 +1956,21 @@ public sealed class SubcommandMatch {
 <a id="Std.Cli.SubcommandMatch.ctor(string,ParseResult)"></a>
 ### SubcommandMatch(string name, ParseResult result)
 
-[`src/libraries/z42.cli/src/SubcommandRouter.z42:383`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L383)
+[`src/libraries/z42.cli/src/SubcommandRouter.z42:411`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L411)
 
 用命中的子命令名（别名归一后的正名）与解析结果创建匹配对象。
 
 <a id="Std.Cli.SubcommandMatch.Name()"></a>
 ### string Name()
 
-[`src/libraries/z42.cli/src/SubcommandRouter.z42:389`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L389)
+[`src/libraries/z42.cli/src/SubcommandRouter.z42:417`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L417)
 
 命中的子命令名。
 
 <a id="Std.Cli.SubcommandMatch.Result()"></a>
 ### ParseResult Result()
 
-[`src/libraries/z42.cli/src/SubcommandRouter.z42:392`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L392)
+[`src/libraries/z42.cli/src/SubcommandRouter.z42:420`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L420)
 
 命中的叶子 ParseResult。
 

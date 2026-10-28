@@ -25,7 +25,8 @@
 //!   （`--help` / `-h` 保留）。
 //! - **long 名别名**：`AddAlias` 给已注册的 flag / option 再挂一个 long 名，解析后归一为正名。
 //! - **原样透传尾参**：`AddPassthrough` —— 固定槽填满后的全部 token（含 `-h` / 选项形态）
-//!   原样收进变长槽，供「把后半截交给另一个程序」的命令（`xtask run <app> …`）。
+//!   原样收进变长槽，供「把后半截交给另一个程序」的命令（`xtask run <app> …`）。router 的
+//!   persistent 旗标也只在透传叶子命令名**之前**剥离。
 //!
 //! ## 不支持
 //!
@@ -309,6 +310,9 @@ public partial class ArgParser {
         this.AddVariadicPositional(name, help);
         this._variadicPassthrough = true;
     }
+
+    /// 是否声明了透传尾参（`AddPassthrough`）。
+    public bool HasPassthrough() { return this._variadicPassthrough; }
 
     /// 给已注册的 flag / option 再挂一个 long 名：`--alias` 与 `--longName` 等价，
     /// 取值仍用正名。正名未注册、别名与任何 long 名 / 别名相撞时抛 CliException。
