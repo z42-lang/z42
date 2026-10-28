@@ -1,5 +1,4 @@
-// xtask — `setup vscode` 组件 + `check vscode-syntax` 检查
-// (add-vscode-syntax-ext)。VSCode 编辑器资产的生成 + 安装：
+// xtask — `setup vscode` 组件 + `check vscode-syntax` 检查。VSCode 编辑器资产的生成 + 安装：
 //
 //   Lexer.z42 _initKeywords()（关键字唯一 SoT）
 //     → z42c --dump-keywords（每行一个，注册序）
@@ -11,10 +10,10 @@
 // **这条路是给仓库开发者的**：symlink 指回源码树，改 Lexer 关键字重跑本命令即时生效。
 // SDK 用户走另一条——`z42d install vscode` 从 <sdk>/editors/ 拷到 ~/.vscode/extensions/
 // （资产由 [component.editor-assets] 打进 SDK 包）。两条路的落点故意不同：
-// 仓库本地 vs 用户级，互不覆盖，开发者可以两者并存。见 unify-editor-install。
+// 仓库本地 vs 用户级，互不覆盖，开发者可以两者并存。
 //
-// 资产项组织：目前唯一项 = 语法扩展；B 期 LSP client / snippets 在 install/检查
-// 主流程追加新项即可。检查函数供 `check vscode-syntax` gate stage 调用（in-process，
+// 资产项组织：目前唯一项 = 语法扩展；新资产项（LSP client / snippets 等）在 install/检查
+// 主流程追加即可。检查函数供 `check vscode-syntax` gate stage 调用（in-process，
 // install 不留 --check flag——一个动词一个语义）。
 namespace Z42Xtask;
 
@@ -40,8 +39,8 @@ int _setupVscode() {
     File.WriteAllText(outPath, rendered);
     Console.WriteLine("  grammar → " + outPath);
 
-    // 工作区本地扩展（VSCode ≥1.89：.vscode/extensions/<name>/ 从源码加载；User 裁决
-    // 装项目目录而非用户目录）。相对 symlink → 仓库整体移动不破链。
+    // 工作区本地扩展（VSCode ≥1.89：.vscode/extensions/<name>/ 从源码加载；装项目目录而非用户目录）。
+    // 相对 symlink → 仓库整体移动不破链。
     if (Platform.IsWindows()) {
         ConsoleError.WriteLine("error: auto-install is symlink-based (macOS/Linux only). On Windows copy");
         ConsoleError.WriteLine("       src\\toolchain\\devtools\\vscode to .vscode\\extensions\\z42.z42-lang (repo-local)");

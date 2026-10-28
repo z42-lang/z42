@@ -5,7 +5,7 @@
 每个子目录是一个真实工程，其 `z42.toml` 声明 `[[test]]`/`[[bench]]`/`[[example]]` 目标 +
 `[tests]`/`[benches]`/`[examples]` 段，用来验证 xtask 的清单驱动发现 / harness 分派 /
 退出码判定 / 三层 dev-dep 合并 / 具名过滤 / 显式覆盖同名 auto。**不**参与 golden regen/run、
-不进 stdlib dist、不打包（`_isNonRegenCat` / `_isNonRunnableCat` 已排除本目录）。
+不进 stdlib dist、不打包（golden 遍历只看 `src/tests/` 与各库的 `tests/`，不到这里）。
 
 ## 功能索引
 | 覆盖点 | 承载 |

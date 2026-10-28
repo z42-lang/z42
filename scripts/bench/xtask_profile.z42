@@ -1,25 +1,17 @@
-// xtask — script performance profiling (plan-script-profiling P0, 2026-08-22).
+// xtask — script performance profiling.
 //
 // `xtask profile <script.z42> [--cpu|--heap|--threads|--e2e|--all] [--mode M]`
 // compiles the script once (via z42c, like `bench`) then, per requested
 // dimension, hangs an external profiler or a knob off the z42vm run:
 //
 //   --cpu      samply native flamegraph + z42-level sampling flamegraph
-//              (safepoint sampler → inferno SVG + perfetto trace, P2)
+//              (safepoint sampler → inferno SVG + perfetto trace)
 //   --heap     build a throwaway dhat-heap VM → dhat-heap.json + counter摘要
 //   --threads  counter摘要 (safepoint/lock model note) + samply per-thread hint
 //   --e2e      hyperfine wall-clock + /usr/bin/time peak-RSS + counter摘要
 //   --all      run all four → write report.md
 //
-// P0 was the "native world" pass (external tools, read DWARF, ~zero VM change) +
-// the JSON counter surface (`z42vm --stats=json`,
-// scraped off stderr). P2 (add-sampling-profiler) adds z42-source-function
-// attribution: `--cpu` now also runs the VM under Z42_SAMPLE_HZ → folded stacks
-// (inferno flamegraph) + a perfetto sample-trace. The design lives in
-// 变更 {plan-script-profiling,add-sampling-profiler}/. Same Z42Xtask
-// namespace; reuses _root/_exec/_have/_builtVm/_libsDir/_driverZpkg/
-// _ensureToolchainDeps/_extractNamespace from xtask_common /
-// xtask_toolchain / xtask_bench.
+// The counter摘要 comes from the JSON counter surface (`z42vm --stats=json`, scraped off stderr).
 namespace Z42Xtask;
 
 using Std.IO;
@@ -74,7 +66,7 @@ int _profile(ParseResult r) {
     string vm = _builtVm(root, "release");
     string libs = _libsDir(root);
     string driverZpkg = _driverZpkg(root, "release");
-    string flat = _libsDir(root);   // 纯 stdlib flat：被编的东西只用 stdlib，driver 自包含（不需要 alllibs）
+    string flat = _libsDir(root);   // 纯 stdlib flat：被编的东西只用 stdlib，driver 自包含
 
     string srcText = File.ReadAllText(srcAbs);
     string ns = _extractNamespace(srcText);
@@ -114,7 +106,7 @@ int _profile(ParseResult r) {
 
 // ── CPU (samply) ────────────────────────────────────────────────────────────
 
-// Two layers (script-profiling P2 adds the second):
+// Two layers:
 //   1. NATIVE (samply): Firefox Profiler format, reads DWARF, mac免root. Shows
 //      Rust/JIT machine frames — good for VM internals, opaque for "which z42
 //      function is hot" (JIT code is mangled machine frames, interp is all in
@@ -147,7 +139,7 @@ string _profileCpu(ProfileCtx c) {
     return report + _profileCpuZ42(c);
 }
 
-// Z42-level CPU sampling (safepoint sampler, P2). Runs the script once with
+// Z42-level CPU sampling (safepoint sampler). Runs the script once with
 // Z42_SAMPLE_HZ set → the VM writes folded stacks (+ perfetto trace); then
 // renders the folded stacks to an SVG via `inferno-flamegraph` if present.
 string _profileCpuZ42(ProfileCtx c) {
@@ -230,7 +222,7 @@ string _profileHeap(ProfileCtx c) {
 // ── threads / concurrency ───────────────────────────────────────────────────
 
 // z42 has NO background GC/JIT threads — GC is cooperative safepoint STW, JIT is
-// lazy on the calling thread. Concurrency signal (add-concurrency-probes P1b):
+// lazy on the calling thread. Concurrency signal:
 //   - park_count / park_us: how long mutators were STW-stalled at GC safepoints
 //     (always-on, from the default VM run).
 //   - lock_contended / lock_wait_us: user-lock (Std.Threading.Mutex/RwLock)
@@ -333,8 +325,8 @@ string _peakRss(ProfileCtx c) {
 
 // Scan stderr for the single-line `{"z42vm_counters":1,...}` object and reduce
 // it to a compact digest. Covers the RuntimeCounters fields plus the heap-derived
-// numbers merged in by ProfileSnapshot (allocations + GC minor/major/reclaimed,
-// extend-runtime-counters P1a). Absent → "(none)".
+// numbers merged in by ProfileSnapshot (allocations + GC minor/major/reclaimed).
+// Absent → "(none)".
 string _counterSummary(string stderr) {
     string[] lines = stderr.Split("\n");
     int i = 0;
@@ -350,7 +342,7 @@ string _counterSummary(string stderr) {
             string gmin = _jsonNum(ln, "minor_collections");
             string gmaj = _jsonNum(ln, "major_collections");
             string rec = _jsonNum(ln, "reclaimed_bytes");
-            // add-concurrency-probes (P1b): safepoint park + user-lock contention.
+            // safepoint park + user-lock contention.
             string pc = _jsonNum(ln, "park_count");
             string pu = _jsonNum(ln, "park_us_total");
             string lc = _jsonNum(ln, "lock_contentions");
@@ -421,14 +413,13 @@ long _trailingLong(string s) {
 
 bool _isDigit(char ch) { return ch >= '0' && ch <= '9'; }
 
-// bytes → MB string (String.Split gives no LastIndexOf; keep arithmetic simple).
+// bytes → MB string.
 string _mb(long bytes) {
     double mb = bytes / 1048576.0;
     return mb.ToString();
 }
 
-// last index of a single-char needle in s, or -1 (String has IndexOf but no
-// LastIndexOf — scan from the end).
+// last index of a single-char needle in s, or -1.
 int _lastIndexChar(string s, char needle) {
     int i = s.Length - 1;
     while (i >= 0) {

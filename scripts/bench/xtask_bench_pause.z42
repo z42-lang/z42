@@ -1,4 +1,4 @@
-// GC 停顿指标（add-incremental-major-gc M0）。
+// GC 停顿指标（设计见 docs/internals/src/devinfra/benchmarking.md「GC 停顿子门禁」）。
 //
 // 头部声明 `// gc-pause: report` 的 perf scenario 会在输出末尾打一行
 //   gc-pause max_us=<µs> p99_us=<µs> count=<n>
@@ -8,9 +8,8 @@
 //
 // 门禁规则（`_abPauseIsRegression`，纯函数，`bench --ab-selftest` 覆盖）：
 //   regression ⟺ pr_max > cap  且  pr_max > base_max × (1 + thr)
-// 只看绝对上限会让 M2 落地前的每个 PR 都红（main 上这个 scenario 的 major 就有 ~97 ms）；
-// 只看相对比例又守不住「停顿与堆无关」这个目标。两条同时成立才判红：M2 之前它是回归守卫，
-// M2 之后 base 与 pr 都在上限内，它就退化成纯绝对上限。上限默认 16 ms，M2 后收紧到 10 ms。
+// 只看绝对上限会让 base 本就超限时每个 PR 都红；只看相对比例又守不住「停顿与堆大小无关」这个目标。
+// base 与 pr 都在上限内时，规则自然退化成纯绝对上限。
 namespace Z42Xtask;
 
 using Std.IO;

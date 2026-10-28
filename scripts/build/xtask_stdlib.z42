@@ -1,27 +1,13 @@
-// xtask — `build stdlib` impl (unify-scripts-into-xtask). Folded from
-// the former standalone scripts/build-stdlib.z42 so the LAST command that still
-// shelled out to a separate .z42 via `dotnet -- run` now runs in-process.
+// xtask — `build stdlib`：z42c 自建后用它重建 stdlib workspace，再汇聚 flat 视图。流程（_buildStdlib）：
 //
-// Compiles the z42 stdlib workspace and assembles the flat dist view. The stdlib
-// is built by z42c (the self-hosting z42 compiler) — C# was fully removed
-// (remove-dotnet-from-builds). Flow (_buildStdlib):
+//   1. ensure seed  — warm 树复用树内 z42c.driver.zpkg + stdlib dist；冷树经 `_ensureSeed` 从 SDK 供种。
+//   2. build z42c   — z42c 自建全部编译器成员（_buildCompilerViaZ42c）。
+//   3. run-libs     — stdlib 快照进 stdlib-run，给重建 stdlib 时的 driver 一份稳定的运行期 Std.*。
+//   4. z42c rebuild — z42vm 跑 z42c.driver `build --workspace --release`（CWD=src/libraries），覆盖各成员 dist。
+//   5. 验产物；6. 硬链接汇聚 flat 视图。携带插件在 3.5（非 internal）/ 6.5（internal 授权）。
 //
-//   1. ensure seed — warm tree reuses in-tree z42c.driver.zpkg + stdlib dist; a
-//      cold tree stages them from an SDK toolchain via _ensureSeed (see
-//      common/xtask_common.z42). No dotnet anywhere.
-//   2. build z42c  — z42c self-builds the 7 z42c.* members (_buildCompilerViaZ42c).
-//   3. run-libs    — snapshot stdlib → .stdlib-run so the self-contained z42c.driver
-//      has a stable Std.* copy to load while it recompiles stdlib.
-//   4. z42c rebuild — z42vm runs z42c.driver `build --workspace --release` over
-//      src/libraries; the per-member dist dirs are OVERWRITTEN with z42c-built
-//      zpkg + .zsym (strip-symbols).
-//   5. verify + flat view (hard-link) over the z42c-built products.
-//
-// Cold-bootstrap note: this runs INSIDE xtask.zpkg, so xtask (and the stdlib it
-// depends on) must already exist. The CI/local cold bootstrap downloads the
-// previous nightly's z42c seed and builds xtask FIRST (see .github/actions/
-// ci-bootstrap); _buildStdlib's step 1 then stages that seed into the in-tree
-// layout before the z42c-takeover rebuild.
+// 冷自举：本代码跑在 xtask.zpkg 里，xtask 及其 stdlib 须已存在——冷自举先下 nightly 种子、先建 xtask
+// （.github/actions/ci-bootstrap），步骤 1 再把种子落进树内布局。
 namespace Z42Xtask;
 
 using Std.IO;
@@ -51,14 +37,9 @@ int _buildStdlib() {
     string flatDir = _libsFlatDist(root, profile);
     Stopwatch swAll = _procStart("build stdlib (z42c self-build + libs)");
 
-    // ── 1+2. Produce the seed: stdlib + z42c, from CURRENT source ─────────
-    //    Warm tree (prior build / nightly seed present): rebuild z42c via z42c.
-    //    Cold tree (fresh checkout, no seed): _ensureSeed stages a z42c.driver.zpkg
-    //    + stdlib dist from an SDK toolchain first. No dotnet — C# was removed
-    //    (remove-dotnet-from-builds).
+    // ── 1+2. 种子 + 当前源 z42c ──
     string[] members = _compilerMembers(root);
-    // warm 路径用绝对 release z42vm（_z42vm() 返回裸名 "z42vm"
-    // 不在 PATH → warm 自建会 NotFound）。缺则 cargo 建（幂等）。
+    // 用绝对路径的 release z42vm（`_z42vm()` 的裸名 "z42vm" 不在 PATH）。缺则 cargo 建（幂等）。
     string vm = _builtVm(root, "release");
     if (!File.Exists(vm)) { int rcv = _buildRuntime(); if (rcv != 0) { return rcv; } }
     // Cold tree → stage the z42c+stdlib seed from the resolved SDK; warm → no-op.
@@ -68,8 +49,7 @@ int _buildStdlib() {
 
     // ── 3. 稳定 stdlib 快照（供 z42c.driver 运行期的 Std.*）──────────────────
     //    stdlib 正被重建 → driver 的运行期 Std.* 需一份不随构建 churn 的稳定副本。
-    //    只拷 stdlib：driver 的 z42c 兄弟包已 bundle 在其自身 dist（自包含 exe，
-    //    simplify-compiler-build），不再拼 {stdlib+z42c} 的 dogfood 目录。
+    //    只拷 stdlib：driver 的编译器兄弟包已 bundle 在其自身 dist。
     string stdlibRun = _compilerWsWork(root, "stdlib-run/" + profile);
     _resetDir(stdlibRun);
     _copyAll(flatDir, stdlibRun, "*.zpkg");
@@ -81,10 +61,10 @@ int _buildStdlib() {
     }
 
     // ── 3.5 stdlib 携带插件（非 internal 条目）：release 验产物要求 dist 先在 ⇒ 必须先于 workspace。
-    //      internal 授权条目（以宿主为 ParentPkg 编译）构造上宿主先建 ⇒ 挪到 4.5（见下）。
+    //      internal 授权条目（以宿主为 ParentPkg 编译）构造上宿主先建 ⇒ 放 6.5（见下）。
     if (_buildStdlibCarriedPlugins(root, vm, z42cDriver, stdlibRun, false) != 0) { return 1; }
 
-    // ── 4. z42c rebuild stdlib per-member (M2 drop-in; overwrites seed) ──
+    // ── 4. z42c 重建 stdlib 各成员（覆盖种子）──
     //    CWD=src/libraries → workspace discovery + per-member output_dir template;
     //    Z42_LIBS=stdlibRun：稳定 stdlib 快照供 driver 运行期 Std.*（fresh member 从
     //    workspace dist 解析、优先于快照，故重建自洽）。mode 经 _z42cMode()（默认 interp）。
@@ -92,20 +72,20 @@ int _buildStdlib() {
     int bc = _z42cWorkspaceBuild(vm, z42cDriver, Path.Join(root, "src/libraries"), stdlibRun, false);
     if (bc != 0) { ConsoleError.WriteLine("  ✗ z42c build --workspace stdlib failed (" + bc.ToString() + ")"); return 1; }
 
-    // ── 5. Verify zpkg products (z42c-built) ─────────────────────────────
+    // ── 5. 验产物 ──
     string[] libs = _stdlibList(root);
     int fail = _verifyMemberZpkgs(_libsWsToml(root), libs, profile);
     int ok = libs.Length - fail;
     _vlog(1, "  build-stdlib: " + ok.ToString() + " succeeded, " + fail.ToString() + " failed");
     if (fail > 0) { return 1; }
 
-    // ── 6. Flat view (hard-link, z42c-built; overwrites step-1 C# seed view) ──
+    // ── 6. flat 视图（硬链接汇聚）──
     _assembleStdlibFlatView(root, profile);
     _vNormal("  flat view: " + flatDir + "/   (VM single-dir lookup target)");
 
-    // ── 6.5 internal 授权的携带插件（plugin-internal-access）：以宿主为 ParentPkg 编译（--internal-of）。
-    //      必须在 flat 汇聚之后——插件的解析域（flat）此刻才有**宿主的新 dist**（workspace 刚建完；
-    //      stdlibRun 是旧快照、4.5 时 flat 还是种子态，都不行）。
+    // ── 6.5 internal 授权的携带插件：以宿主为 ParentPkg 编译（--internal-of）。
+    //      必须在 flat 汇聚之后——插件的解析域（flat）此刻才有**宿主的新 dist**（stdlibRun 是旧快照、
+    //      workspace 之前 flat 还是种子态，都不行）。
     if (_buildStdlibCarriedPlugins(root, vm, z42cDriver, flatDir, true) != 0) { return 1; }
     if (_releaseGuard(root) != 0) { return 1; }
     _procEnd("build stdlib (z42c self-build + libs)", swAll);
@@ -153,10 +133,8 @@ bool _isHarnessZpkg(string name) {
     return false;
 }
 
-// Stdlib member list — derived from the workspace manifest's `default_members`
-// (single source of truth; no hand-maintained duplicate that could drift, cf.
-// the old index.json). Order is irrelevant here: z42c `build --workspace`
-// topo-sorts; this list only drives the verify + hard-link loops.
+// Stdlib member list — derived from the workspace manifest's `default_members` (single source of truth).
+// Order is irrelevant here: z42c `build --workspace` topo-sorts; this list only drives the verify + hard-link loops.
 string[] _stdlibList(string root) {
     return _vgetListFromFile(root, "src/libraries/z42.workspace.toml", "workspace.default_members");
 }
@@ -167,19 +145,18 @@ string[] _compilerMembers(string root) {
     return _vgetListFromFile(root, "src/compiler/z42.workspace.toml", "workspace.default_members");
 }
 
-// ── 编译器包的运行期 probing（drop-alllibs）──────────────────────────────────────────
+// ── 编译器包的运行期 probing ──────────────────────────────────────────────────────────────
 //
 // 运行期要**加载**编译器包的进程——z42b（自身依赖 `z42.build` / `z42.project`，并注入 `z42c.pipeline`）以及它为
 // 编译器单元测试 fork 的子 VM——拿这里给的 `Z42_PROBING_PATHS`：各编译器成员的 dist，平台分隔。
 // 编译期不需要它：driver 按名从编译器目录解析 SDK 库（`CompilerDomain` 开发树档）。
 //
-// 此前的做法是 alllibs（`artifacts/build/views/<profile>/all`）：把 stdlib flat 与全部编译器成员 dist **拷**进一个目录当
-// `Z42_LIBS`，因为 VM 的 `Z42_LIBS` 只能是一个目录。它带来两类问题：① 编译器成员 dist 里的 stdlib 副本会把新 stdlib
-// 遮蔽成旧的（#955，只能靠拷贝顺序 + 事后逐字节对账兜住）；② 工具链程序在它下面编译时，编译器包被当成「框架」⇒
-// 是否复制进发布包取决于构建环境而不是清单。现在 `Z42_LIBS` 只是 stdlib flat，编译器包走 probing。
+// 不把 stdlib flat 与编译器成员 dist 拷进一个目录当 `Z42_LIBS`（VM 的 `Z42_LIBS` 只能是一个目录）：① 编译器成员
+// dist 里的 stdlib 副本会把新 stdlib 遮蔽成旧的；② 工具链程序在其下编译时，编译器包被当成「框架」⇒ 是否复制进
+// 发布包取决于构建环境而不是清单。所以 `Z42_LIBS` 只是 stdlib flat，编译器包走 probing。
 //
 // 🔴 **不含 `z42c.driver`**：它的 dist 是自包含闭包（带全部编译器兄弟包；老 driver 建的还带 stdlib 副本）；probing 排在
-// `Z42_LIBS` **之前**，放进来就是 #955 原样复发。其余成员的 dist 只有自己（下方逐目录断言，违反即抛——不靠约定）。
+// `Z42_LIBS` **之前**，放进来就是上面的遮蔽原样复发。其余成员的 dist 只有自己（下方逐目录断言，违反即抛——不靠约定）。
 // ⚠️ 只给**这些进程**设，不往 xtask 自身环境里放：`Z42_PROBING_PATHS` 会**覆盖**程序侧车的 `probing-paths`，全局一设，
 // 测 probing / `deploy = "sdk"` 的那些用例就被干扰了。
 string _compilerProbingPaths(string root) {
@@ -208,7 +185,7 @@ string _compilerProbingPaths(string root) {
     return acc;
 }
 
-// ── z42 子进程的唯一入口（xtask-proc-factory）───────────────────────────────────────────
+// ── z42 子进程的唯一入口 ──────────────────────────────────────────────────────────────────
 //
 // xtask 起的每个「跑 z42 代码」的子进程都从这两个函数建，不在调用点手写 `.Env("Z42_LIBS", …)` /
 // `.Env("Z42_PROBING_PATHS", …)`。两个 env 各有一个静默坑：
@@ -262,11 +239,9 @@ Process _z42cProcMode(string vm, string libs, string driverZpkg, string mode) {
     return p.Arg("--");
 }
 
-// `_cleanGlob` / `_linkAll` 已移至 common/xtask_fs.z42（scripts-batch3-layering）。
-
 // stdlib 成员携带的插件工程（今天只有 z42.harness.lint）：逐个 z42c build --release 到插件工程
 // 自己的 dist（release 验证的判据位），并把产物平铺进 flat 同级 plugins/。放 flat 之外是刻意的：
-// libs 是运行期解析域，插件进插件目录（unify-plugin-packages 的查找域分离）。
+// libs 是运行期解析域，插件进插件目录（查找域分离）。
 // 冷启动垫底用的种子 driver zpkg（_ensureSeed 拷进 flat）在编译器自建完成后就成了**旧代副本**：
 // 留在 flat / stdlibRun 里，任何携带插件的加载链都可能把它拉进与新 driver 同进程（双代注册、类型按名
 // 实例化被拒）。flat 本该是纯 stdlib 世界——编译器包住各自成员 dist。此处双清（flat + stdlibRun）。
@@ -302,7 +277,7 @@ int _buildStdlibCarriedPlugins(string root, string vm, string driver, string run
     if (!File.Exists(toml)) { ConsoleError.WriteLine("  ✗ carried plugin manifest missing: " + toml); return 1; }
     string dist = Path.Join(Path.GetDirectoryName(toml), "dist");
     // --output-dir 显式指到插件工程 dist（与 BuildLayout 缺省一致；显式免受 cwd 影响）。
-    // internalOnly ⇒ --internal-of 宿主（同包待遇，宿主 internal 可见——plugin-internal-access）。
+    // internalOnly ⇒ --internal-of 宿主（同包待遇，宿主 internal 可见）。
     int rc = internalOnly
         ? _z42cBuildPackageInternal(vm, driver, toml, runLibs, dist, runLibs, host)
         : _z42cBuildPackage(vm, driver, toml, runLibs, dist, runLibs);

@@ -1,4 +1,4 @@
-// xtask — z42c e2e（called by _testCompilerE2e）。命令行与构建行为——单次或多步构建、产物对照、cache 布局、
+// xtask — z42c e2e（`test compiler` 的末段）。命令行与构建行为——单次或多步构建、产物对照、cache 布局、
 // 依赖身份、workspace 增量、部署判据、SDK 库与 analyzer 解析域——都是 src 的夹具
 // （src/compiler/z42c.driver/tests/fixtures/cli/，格式见该目录 README）；这里只定义套件（开发树工具链的工具表 +
 // 占位符），执行与判定由通用引擎 common/xtask_fixture_harness.z42 负责。

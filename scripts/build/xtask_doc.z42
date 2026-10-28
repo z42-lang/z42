@@ -148,9 +148,6 @@ int _docGen() {
     return 0;
 }
 
-// doc 注释硬门（z42-doc §4.6）：stdlib 各包跑 DocLint（W08xx 语法级检查），任何 W08xx 即红；
-// 白名单走 scripts/test/gates.toml 的 [doc-lints] allow。W0803（链接 / @throws 类型解析）
-// 需要语义信息，归编译器 DocChecker pass，不在此列。
 // 每码计数按码升序打印用的并列排序（counts 随 codes 同步换位）。
 void _sortCounts(string[] codes, int[] counts, int n) {
     int i = 1;
@@ -165,6 +162,8 @@ void _sortCounts(string[] codes, int[] counts, int n) {
     }
 }
 
+// doc 注释硬门：stdlib 各包跑 DocLint（W08xx 语法级检查），任何 W08xx 即红，无白名单（豁免走修注释或改
+// W08xx 码本身）。W0803（链接 / @throws 类型解析）需要语义信息，归编译器 DocChecker pass，不在此列。
 int _checkDocLints() {
     string root = _root();
     SourceFile[] all = SourceTree.Collect(root);
@@ -191,8 +190,7 @@ int _checkDocLints() {
         }
     }
 
-    // 每码计数（码升序打印，便于人工比对）。纯硬门：任何 W08xx 都红（原 gates.toml
-    // [doc-lints] allow 白名单从未启用过，退役；豁免走修注释或改 W08xx 码本身）。
+    // 每码计数（码升序打印，便于人工比对）。
     string[] codes = new string[n];
     int[] counts = new int[n];
     int cn = 0;
@@ -225,7 +223,7 @@ int _checkDocLints() {
 int _checkDocRefs(bool update) {
     string root = _root();
     // Rust 外部索引：门禁每次重建——不止「缺失才建」：rust.idx 过期时新引入的 Rust 符号查不到，
-    // 刚合并的运行时改动会被误报成书页失同步（#1310 的 M13 符号就撞过）。cargo 增量，代价秒级。
+    // 刚合并的运行时改动会被误报成书页失同步。cargo 增量，代价秒级。
     string rustIdx = Path.Join(root, "artifacts/doc/rust.idx");
     int rc = _docIndex();
     if (rc != 0 || !File.Exists(rustIdx)) {
@@ -282,7 +280,7 @@ int _checkDocRefs(bool update) {
         if (cnt > worstCnt[g]) { worstCnt[g] = cnt; worstPage[g] = rel; }
     }
 
-    // 行号引用已在三区清零，升为硬指标（不再进配置）；未解析链计数走 gates.toml [doc-refs]（只降不升）。
+    // 行号引用在三区是硬指标（零容忍）；未解析链计数走 gates.toml [doc-refs]（只降不升）。
     if (update) {
         string[] body = new string[gn + 1];
         body[0] = "[doc-refs]";
