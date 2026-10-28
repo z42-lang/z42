@@ -127,6 +127,24 @@ pub trait MagrGC: std::fmt::Debug + Send + Sync {
         0
     }
 
+    /// D7: the `(chunk, epoch)` identity of the variable-length chunk holding `b` — the stamp a
+    /// weak reference records (`VarRegion::chunk_epoch`: it moves when the chunk is pooled or
+    /// freed) — or `None` for a block in no chunk of this heap (a leaked / detached block, never
+    /// freed). Lets an address-keyed cache that outlives a block (`corelib::str_meta`) tell,
+    /// before reading the block's header, whether the memory under it went back to the
+    /// allocator. Takes the region lock. Mock heaps have no region: `None`.
+    fn var_chunk_stamp(&self, b: crate::gc::var_region::VarGcRef) -> Option<(u32, u32)> {
+        let _ = b;
+        None
+    }
+
+    /// D7: whether `chunk` still carries `epoch` (a stamp from [`Self::var_chunk_stamp`]) —
+    /// `false` once the chunk was pooled or freed. Takes the region lock.
+    fn var_chunk_unchanged(&self, chunk: u32, epoch: u32) -> bool {
+        let _ = (chunk, epoch);
+        false
+    }
+
     /// unify-gc-heap PR-2: allocate a capturing closure's [`ClosureData`](crate::metadata::types::ClosureData)
     /// into the GC variable-length region and return a `Value::Closure` handle. Default boxes it
     /// for mock heaps (no variable-length region); `ArcMagrGC` overrides to region-alloc in place.

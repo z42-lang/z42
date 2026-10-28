@@ -110,3 +110,75 @@ fn ascii_bit_is_set_only_for_ascii_strings() {
     assert_eq!(byte_range(&s, 1, 3), Some((1, 4)));
     assert_eq!(byte_range(&s, 3, 3), None);
 }
+
+// D7 regression (runtime audit): an oversized string (> 64 KB payload) lives alone in a
+// dedicated chunk, and when it dies the collection hands that chunk straight back to the
+// allocator (`VarRegion::reclaim_dead_var_chunks`). The next block malloc places at the same
+// address — another oversized string, or the first block of a fresh bump chunk — is born at
+// `FIRST_GEN`, the very generation the dead string had, so a cache entry left behind by the
+// dead string matched it on both the address and `is_live` and returned the dead string's
+// char count / offsets. Same byte size here, so the allocator typically hands the freed chunk
+// straight back (it does on macOS and glibc); the next test checks the mechanism without
+// relying on that.
+#[test]
+fn freed_dedicated_chunk_reused_address_no_false_hit() {
+    use crate::gc::ambient::HeapGuard;
+    use crate::gc::arc_heap::ArcMagrGC;
+    use crate::gc::heap::MagrGC;
+
+    let h = ArcMagrGC::new();
+    let _g = HeapGuard::enter(&h);
+    // 80 000 bytes each (well past a 64 KB bump chunk ⇒ a dedicated chunk), non-ASCII so
+    // both go through the cache, with different char counts.
+    let dead_text = "é".repeat(40_000);
+    let live_text = format!("{}é", "a".repeat(79_998));
+    for _ in 0..8 {
+        let dead = h.alloc_str(&dead_text);
+        assert_eq!(char_len(&dead), 40_000);
+        // `dead` is no root: the collection tombstones it and frees its dedicated chunk.
+        h.force_collect();
+        let live = h.alloc_str(&live_text);
+        assert_eq!(char_len(&live), 79_999, "false hit on a freed dedicated chunk's stale entry");
+        assert_eq!(char_at(&live, 0), Some('a'));
+        assert_eq!(char_at(&live, 79_998), Some('é'));
+        assert_eq!(byte_range(&live, 79_998, 1), Some((79_998, 80_000)));
+        h.force_collect();
+    }
+}
+
+// D7, independent of where malloc puts the next block: freeing a dedicated chunk drops the
+// entry stamped with that chunk (without reading its header), and only that one — a live
+// oversized string's entry and a bump-chunk string's entry survive and keep hitting.
+#[test]
+fn freed_dedicated_chunk_drops_only_its_own_entry() {
+    use crate::gc::ambient::HeapGuard;
+    use crate::gc::arc_heap::ArcMagrGC;
+    use crate::gc::heap::MagrGC;
+    use crate::metadata::Value;
+
+    let cached = || CACHE.with(|c| c.borrow().iter().map(|e| (data_ptr(&e.s), e.chunk.is_some())).collect::<Vec<_>>());
+    let h = ArcMagrGC::new();
+    let _g = HeapGuard::enter(&h);
+    let kept = h.alloc_str(&"ü".repeat(40_000)); // 80 000 B ⇒ dedicated chunk, rooted
+    let small = h.alloc_str("naïve"); // bump chunk, rooted
+    let _r1 = h.pin_root(Value::Str(kept.clone()));
+    let _r2 = h.pin_root(Value::Str(small.clone()));
+    let doomed = h.alloc_str(&"é".repeat(40_000)); // dedicated chunk, dies
+    let doomed_addr = doomed.as_ptr();
+    assert_eq!(char_len(&kept), 40_000);
+    assert_eq!(char_len(&small), 5);
+    assert_eq!(char_len(&doomed), 40_000);
+    let before = cached();
+    assert!(before.contains(&(kept.as_ptr(), true)), "an oversized string's entry is stamped");
+    assert!(before.contains(&(small.as_ptr(), false)), "a bump-chunk string's entry is not");
+    assert!(before.contains(&(doomed_addr, true)));
+
+    h.force_collect(); // frees `doomed`'s dedicated chunk
+    assert_eq!(char_len(&small), 5);
+    let after = cached();
+    assert!(!after.iter().any(|&(p, _)| p == doomed_addr), "the freed chunk's entry is dropped");
+    assert!(after.contains(&(kept.as_ptr(), true)), "a live dedicated chunk's entry survives");
+    assert!(after.contains(&(small.as_ptr(), false)));
+    assert_eq!(char_len(&kept), 40_000);
+    assert_eq!(char_at(&kept, 39_999), Some('ü'));
+}

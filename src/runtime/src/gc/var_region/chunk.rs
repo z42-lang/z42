@@ -4,7 +4,7 @@
 
 use std::alloc::{alloc, dealloc, handle_alloc_error, Layout};
 use std::ptr::NonNull;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use super::block::{payload_ptr_of, BlockType, GcBlockHeader, ALIVE_GEN_BIT, FIRST_GEN};
 use super::{VarGcRef, VarRegion};
@@ -63,10 +63,42 @@ const MAX_CLASS: u8 = (CHUNK_BYTES.trailing_zeros() << SUB_LOG2) as u8;
 /// immediately (see `reclaim_dead_var_chunks`) at the cost of a `malloc` per block.
 static LOH_BYTES: AtomicUsize = AtomicUsize::new(CHUNK_BYTES);
 
+/// The lowest large-object threshold this process has ever had in force: a block went to a
+/// dedicated chunk only if its footprint exceeded the threshold of its day, so it exceeded this.
+/// [`may_be_dedicated`] answers from it without knowing when the block was allocated.
+static LOH_BYTES_FLOOR: AtomicUsize = AtomicUsize::new(CHUNK_BYTES);
+
+/// How many [`VarRegion::reclaim_dead_var_chunks`] passes, in any heap of this process, have
+/// handed a dedicated chunk back to the allocator. Address-keyed caches that outlive a block
+/// (`corelib::str_meta`) compare it on every lookup — one load — and re-check their
+/// dedicated-chunk entries only when it moved (see [`dedicated_free_count`]).
+static DEDICATED_FREES: AtomicU64 = AtomicU64::new(0);
+
 /// Set the large-object threshold for this process. Called once from VM construction; clamped
 /// to `[MIN_BLOCK, CHUNK_BYTES]`.
 pub fn set_loh_bytes(bytes: usize) {
-    LOH_BYTES.store(clamp_loh_bytes(bytes), Ordering::Relaxed);
+    let bytes = clamp_loh_bytes(bytes);
+    LOH_BYTES.store(bytes, Ordering::Relaxed);
+    LOH_BYTES_FLOOR.fetch_min(bytes, Ordering::Relaxed);
+}
+
+/// Whether a block of `payload` bytes may sit in a dedicated chunk — the only kind of chunk
+/// whose memory goes back to the allocator while the region lives. `false` is definite (the
+/// block is in a bump chunk, whose memory stays mapped until the region drops); `true` is
+/// conservative across threshold changes.
+#[inline]
+pub(crate) fn may_be_dedicated(payload: usize) -> bool {
+    payload_footprint(payload) > LOH_BYTES_FLOOR.load(Ordering::Relaxed)
+}
+
+/// The process-wide count of reclaim passes that freed a dedicated chunk (`DEDICATED_FREES`).
+/// While it is unchanged no dedicated chunk was freed, so a dedicated block's header that was
+/// mapped when the count was read last still is. A reclaim runs inside a collection pause and a
+/// mutator reads the count between safepoints, so the resume handshake already orders the bump
+/// before the read; acquire / release only keeps the pair self-describing.
+#[inline]
+pub(crate) fn dedicated_free_count() -> u64 {
+    DEDICATED_FREES.load(Ordering::Acquire)
 }
 
 /// The clamp [`set_loh_bytes`] applies, as a pure function so it can be tested without storing
@@ -566,6 +598,11 @@ impl VarRegion {
             self.live_per_chunk[ci] = 0;
             self.var_free_chunk_pool.push(ci);
             self.footprint.pool(CHUNK_BYTES as u64, true);
+        }
+        if !free.is_empty() {
+            // Caches holding dedicated blocks' addresses re-check them on their next lookup
+            // (`corelib::str_meta`); this runs inside a collection pause, so no lookup is in flight.
+            DEDICATED_FREES.fetch_add(1, Ordering::Release);
         }
         let mut freed_bytes = 0u64;
         for &ci in &free {

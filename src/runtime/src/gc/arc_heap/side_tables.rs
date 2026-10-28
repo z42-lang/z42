@@ -35,7 +35,8 @@ impl crate::gc::arc_heap::ArcMagrGC {
 
     /// `(chunk, epoch)` a weak reference to `b` records: its chunk and that chunk's current reuse
     /// epoch. A block outside every chunk (a detached / leaked one) is never reclaimed.
-    fn weak_stamp(&self, b: VarGcRef) -> (u32, u32) {
+    /// `corelib::str_meta` records the same stamp (`MagrGC::var_chunk_stamp`).
+    pub(super) fn weak_stamp(&self, b: VarGcRef) -> (u32, u32) {
         let region = self.region_var.lock();
         match region.chunk_of(b.addr()) {
             Some(ci) => (ci as u32, region.chunk_epoch(ci as u32).unwrap_or(0)),

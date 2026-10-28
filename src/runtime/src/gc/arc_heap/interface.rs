@@ -18,6 +18,15 @@ impl MagrGC for ArcMagrGC {
         self.epoch
     }
 
+    fn var_chunk_stamp(&self, b: crate::gc::var_region::VarGcRef) -> Option<(u32, u32)> {
+        let (chunk, epoch) = self.weak_stamp(b);
+        (chunk != u32::MAX).then_some((chunk, epoch))
+    }
+
+    fn var_chunk_unchanged(&self, chunk: u32, epoch: u32) -> bool {
+        self.region_var.lock().chunk_epoch(chunk) == Some(epoch)
+    }
+
     // ── 2. Roots / scanner ───────────────────────────────────────────────────
 
     /// **Phase 3d.1** + **add-multithreading-foundation Phase 2.2**：
