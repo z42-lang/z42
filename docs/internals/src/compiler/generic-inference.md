@@ -64,14 +64,23 @@
 全是这一个形状，且全在 golden 语料里——运行期照常通过（型参已擦除），只有编译期在报，
 而 `--emit-zbc` 把它吞了。
 
-实现：`MemberResolver._substForExplicitTypeArgs` 在 7 个调用形态（自由函数 / 实例 / 接口 /
+实现：`MethodTypeArgSubst.ForExplicitTypeArgs` 在 7 个调用形态（自由函数 / 实例 / 接口 /
 实例化 / 裸类名静态 / prim wrapper 静态 / ns 限定静态）各接一次，产出一个换了签名的
 `MethodSymbol` 浅拷贝（`MethodSymbol.WithSignature`，`RegKey` 原样保留 ⇒ 发射目标不变）。
 按名代换需要方法级型参**名**，故 `MethodSymbol` 带 `TypeParamNames`（本地取
 `Decl.TypeParams.Names`，跨包取 `ExportedMethodZ.TypeParams`）。
 
-> 🔴 **`_substByName` 必须递归 `Z42FuncType`**，不能只递归数组元素与实例化类型实参：
+> 🔴 **`MethodTypeArgSubst.ByName` 必须递归 `Z42FuncType`**，不能只递归数组元素与实例化类型实参：
 > 「func 位少换一次不会出错」是错的——func 位正是 lambda 形参类型的唯一来源，少换一次就是上面那 18 条 E0402。
+
+**重载决议也用代换后的签名**（`OverloadBinder._resolveOverloadCands`）：显式写出 n 个类型实参时，
+候选集先只留**恰好声明 n 个方法级型参**的重载（非泛型重载、型参个数不同的泛型重载出局，C# 成员查找同规则），
+留下的按类型实参代换（`MethodTypeArgSubst.Substitute`，与上面绑实参用的是同一份代换）后再走普通的
+适用性 / 择优 / 歧义判定，选中后返回**原符号**交给上面的代换。缺这一步时适用性拿裸 `T` 比实参
+（`_assignable(int, T)` 恒假）⇒ 泛型候选被静默淘汰：同名非泛型重载要么抢走调用（`F<int>(1)` 选中
+`F(int)`），要么候选清空报 E0401（`this.AddOption<string>("os", "", help: "…")` 旁边有 `AddOption(Option)`）。
+这一步**不涉及推断**，所以不会引出下面「推断不参与重载决议」担心的那种新歧义；没有一个重载收 n 个类型实参
+时在决议里直接报 E0446。
 
 **与推断路径的分工**（两条不变式并存，别混）：
 
@@ -206,5 +215,6 @@ new Wrap<int>(new G<int>(7));
   [泛型的实现](generics.md)）
 - **穿过接口实现的推断只覆盖本包类**：跨包类的接口实参不在导出数据里（见上）
 - **推断不参与重载决议**：一律在决议选定唯一候选**之后**做（提前会把 `void F(int)` 与
-  `void F<T>(T)` 变歧义，让今天能编的代码编不过）
+  `void F<T>(T)` 变歧义，让今天能编的代码编不过）。只管省略 `<>` 的调用——显式写出类型实参时不需要推断，
+  已按型参个数预筛 + 代换后参与决议（见上「显式类型实参」节）
 

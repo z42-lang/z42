@@ -149,7 +149,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 
 | 码 | 含义 | 状态 | 触发示例 |
 |---|---|---|---|
-| E0425 | 重载歧义：多个候选同等匹配 | ✅ OverloadBinder.z42（`_crossPkgDefault` / `_ctorKey` / `_resolveOverloadCands`）、ConstructTyper.z42（`BoundDefault`） | 两个重载分别取 `int` / `long`，传 `byte` |
+| E0425 | 重载歧义：多个候选同等匹配 | ✅ OverloadBinder.z42（`_crossPkgDefault` / `_ctorKey` / `_resolveOverloadCore`）、ConstructTyper.z42（`BoundDefault`） | 两个重载分别取 `int` / `long`，传 `byte` |
 | E0426 | `new C(args)` 的实参与本地构造器形参不匹配（`params` / 默认值尾巴均已考虑）—— 防的是静默按位截断。**也覆盖「基元根本没有构造器」**：`new int(5)` / `new string(cs)` 报「takes no arguments — a primitive has no constructor」（后者附带 `String.FromChars` 的指引）。⚠️ 基元这一支**非加不可**——`new <基元>()` 现在折成零值（见[泛型约束](../language/generic-constraints.md#基元满足-new构造出来的是零值)），不拦实参的话 `new int(5)` 会被同一条折叠**静默变成 `0`** | ✅ ConstructTyper.z42（`BoundError` / `_bindCtorArgs`） | `new Point(1)`，而 `Point` 只有 `(int,int)`；`new int(5)` |
 | E0437 | target-typed `new()` 的目标类型推断不出来或有歧义 | ✅ ConstructTyper.z42（`BoundError` / `_packParamsTail`）、OverloadBinder.z42（`_ctorKey` / `_resolveFreeOverload`） | `var x = new();` |
 | E0439 | 存在显式转换但用在隐式上下文（窄化 / 有损）—— 必须写 `(T)` cast | ✅ TypeChecker.z42（`_suggestVia`） | `int i = someLong;` |
@@ -208,7 +208,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 |---|---|---|---|
 | E0422 | 类型实参不满足函数类型约束 | ✅ ConstraintChecker.z42（`_checkFuncConstraint`） | — |
 | E0423 | 型参把函数类型约束与其他约束混写，或同时要求 `class` + `struct` | ✅ ConstraintChecker.z42（`_fillBundle`） | `where T : (int)->int, IFoo` |
-| E0446 | 泛型方法调用 `Foo<...>()` 的类型实参数与声明的类型形参数不符 | ✅ MemberResolver.z42（`BoundCall`） | `Swap<int, string>(a, b)`，而 `Swap<T>` 只有一个型参 |
+| E0446 | 泛型方法调用 `Foo<...>()` 的类型实参数与声明的类型形参数不符；同名有多个重载时 = 没有一个重载声明这么多个类型形参（含全是非泛型重载：「is not generic」） | ✅ MemberResolver.Generic.z42（`BoundCall`）、OverloadBinder.Candidates.z42（`_resolveOverloadCands`，重载预筛） | `Swap<int, string>(a, b)`，而 `Swap<T>` 只有一个型参；`F<int>(1)`，而 `F` 只有非泛型重载 |
 | E0453 | 关联类型：接口里 `type Item;` 未被实现方绑定；实现方写了不带绑定的 `type Item;`；接口自己写了绑定；`where T : IFoo<Zzz = int>` 里 `Zzz` 不是该接口的关联类型；实参绑定与约束要求不符 | ✅ ConstraintChecker.z42（`_buildSet` / `_checkFuncConstraint`）、InheritanceResolver.z42（`_passSealedEnforce`）、MemberCollector.z42（`_passMembers` / `_fillInterface`） | — |
 | E0454 | 经**接口静态类型**调用形参位含 `Self` 的方法。`Self` 在形参位是逆变方向、没有唯一安全上界，放行即运行期类型混淆。替代写法是型参：`bool f<T>(T a, T b) where T : IEq` | ✅ MemberResolver.z42（`BoundCall`） | `IEq a, b; a.Same(b);` |
 | E0455 | 省略尖括号调用一个**方法体真的消费型参**的泛型方法（体内有 `typeof(T)` / `new T()` / `default(T)` / `new T[n]`，或把 `T` 转发给嵌套泛型调用）。这类 callee 在运行期会读到**空**的方法类型实参；本码把静默错值换成编译错误，修法是显式写出 `<T>` | ✅ MemberResolver.z42（`_bindMemberCall`） | `Make()` → 应写 `Make<int>()` |

@@ -19,7 +19,8 @@ public sealed partial class OverloadBinder {
     // 调用方（MemberResolver 的四个 E0401 发射点）不该再补一条「找不到方法」——
     // 同一处报两个码会让用户以为是两个问题。改动前歧义路径几乎不可达（适用性判据
     // 不认类层次 ⇒ 适用集恒空 ⇒ 直接 NoMatch），所以这个重复诊断一直没暴露。
-    internal bool LastAmbiguous;
+    // fix-explicit-type-arg-overload：显式类型实参无同 arity 重载（E0446）同样在决议内报、同样置位。
+    internal bool LastReported;
     public OverloadBinder(TypeChecker tc) { this._tc = tc; }
 
     // add-target-typed-new：回填延迟绑定的 target-typed new 实参（`_bindCall` 留 null 占位）。
@@ -686,28 +687,31 @@ public sealed partial class OverloadBinder {
         return name;
     }
 
+    // typeArgs = 调用点显式写出的类型实参（`MethodTypeArgSubst.ExplicitTypeArgs`），没写 `<>` 传 null。
     internal MethodSymbol _resolveOverload(SymbolTable symbols, Z42ClassType ct, string name,
-                                          BoundExpr[] args, int argCount, int typeArgCount, Span sp,
+                                          BoundExpr[] args, int argCount, Z42Type[] typeArgs, Span sp,
                                           Expr[] rawArgs, TypeEnv env) {
         return this._resolveOverloadCands(symbols, this._collectOverloads(symbols, ct, name), name,
-                                          args, argCount, typeArgCount, sp, rawArgs, env);
+                                          args, argCount, typeArgs, sp, rawArgs, env);
     }
 
     // free-function-overloads：自由函数重载决议——候选来自 SymbolTable.GetFuncCandidates（跨 ns 由调用点先定好 ns），
     // 决议核心与类方法完全同一套（arity 过滤 / params / 默认值 / 命名实参 / type-based 最具体 / 歧义诊断），
     // 只是候选来源不同。返回选中符号（其 RegKey 即发射键）；null = no-match 或歧义（歧义已报 E0425）。
     internal MethodSymbol _resolveFreeOverload(SymbolTable symbols, MethodSymbol[] cands, string name,
-                                          BoundExpr[] args, int argCount, int typeArgCount, Span sp,
+                                          BoundExpr[] args, int argCount, Z42Type[] typeArgs, Span sp,
                                           Expr[] rawArgs, TypeEnv env) {
-        return this._resolveOverloadCands(symbols, cands, name, args, argCount, typeArgCount, sp, rawArgs, env);
+        return this._resolveOverloadCands(symbols, cands, name, args, argCount, typeArgs, sp, rawArgs, env);
     }
 
     // 决议核心（类方法 + 自由函数共用）：接收已聚合的候选集 all，与来源（类基链 / 自由函数候选表）无关。
-    [Suppress("style.fnLinesHard", "76 body lines；拆分见 code-organization.md")]
-    internal MethodSymbol _resolveOverloadCands(SymbolTable symbols, MethodSymbol[] all, string name,
-                                          BoundExpr[] args, int argCount, int typeArgCount, Span sp,
+    // 显式类型实参的预筛与代换在它前面一层（`_resolveOverloadCands`，OverloadBinder.Candidates.z42），
+    // 进到这里的候选签名里已没有调用点写出了实参的方法级型参。
+    [Suppress("style.fnLinesHard", "64 body lines；拆分见 code-organization.md")]
+    private MethodSymbol _resolveOverloadCore(SymbolTable symbols, MethodSymbol[] all, string name,
+                                          BoundExpr[] args, int argCount, Span sp,
                                           Expr[] rawArgs, TypeEnv env) {
-        this.LastAmbiguous = false;       // 每次决议独立，别让上一次的歧义把这次的「找不到」吞掉
+        this.LastReported = false;        // 每次决议独立，别让上一次的歧义把这次的「找不到」吞掉
         if (all.Length == 0) { return null; }
         // fix-overload-defaults-named-args：命名实参 + 多个重载 ⇒ 按「实参映射」决议。此前命名实参在 `_bindCall` 里
         // 是延迟占位（null），被下面当成 target-typed `new` 的延迟位 ⇒ 报 E0437「需要显式类型」、再报 undefined。
@@ -770,20 +774,6 @@ public sealed partial class OverloadBinder {
             }
             return null;
         }
-        // add-array-paired-sort：泛型 arity 过滤（C# 规则）——调用带 N 个显式类型实参（`Sort<int>` → N=1）时，
-        // 只有恰好声明 N 个类型形参的候选合格（`Sort<T>` 合格、`Sort<TKey,TValue>` 不合格）。**防御性**：仅当
-        // 过滤后仍非空才采用——候选 TypeParamCount 未知/为 0（如某些跨包路径未回填）时不误删全部候选，保证不回归
-        // 既有可用的泛型调用（无此过滤前的行为）。
-        if (typeArgCount > 0 && na > 1) {
-            MethodSymbol[] byTp = new MethodSymbol[na];
-            int nt = 0;
-            int ti = 0;
-            while (ti < na) {
-                if (byArity[ti].TypeParamCount == typeArgCount) { byTp[nt] = byArity[ti]; nt = nt + 1; }
-                ti = ti + 1;
-            }
-            if (nt > 0) { byArity = byTp; na = nt; }
-        }
         if (na == 1) { return byArity[0]; }   // 单 arity 候选 → 行为保持（deferred 位稍后按形参类型回填）
         // 同 arity ≥2 → type-based 决议；deferred 位无类型无法决议 → 报 E0437 让用户写显式类名。
         if (anyDeferred) {
@@ -799,7 +789,7 @@ public sealed partial class OverloadBinder {
         if (res.IsAmbiguous()) {
             this._tc._diags.Error(DiagnosticCodes.AmbiguousOverload,
                 "ambiguous call to overloaded `" + name + "`; add an explicit cast to disambiguate", sp);
-            this.LastAmbiguous = true;
+            this.LastReported = true;
         }
         return null;
     }

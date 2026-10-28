@@ -1,0 +1,8 @@
+[project]
+name    = "demo.etaapp"
+version = "0.1.0"
+kind    = "exe"
+pack    = true
+
+[dependencies]
+"demo.etatarget" = "0.1.0"

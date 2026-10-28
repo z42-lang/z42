@@ -15,7 +15,7 @@ public sealed partial class MemberResolver {
             string cls = env.CurrentClass();
             Z42ClassType sct = env.Symbols.GetClass(cls);
             if (sct != null) {
-                MethodSymbol sms = this._tc._overload._resolveOverload(env.Symbols, sct, id.Name, args, call.ArgCount, call.TypeArgCount, call.Span, call.Args, env);
+                MethodSymbol sms = this._tc._overload._resolveOverload(env.Symbols, sct, id.Name, args, call.ArgCount, MethodTypeArgSubst.ExplicitTypeArgs(call, env), call.Span, call.Args, env);
                 // nested-and-base-name-lookup：派生类体内裸调**基类**的静态方法 —— 合法（短名沿基类链查找），按**声明类**
                 // 发调用（发射端按 OwnerClass 拼目标）。经派生类名限定的 `Derived.M()` 仍报 E0401（见 MemberResolver 主文件）。
                 if (MemberResolver.IsBaseStaticMethod(sct, sms)) {
@@ -47,7 +47,7 @@ public sealed partial class MemberResolver {
                     while (e != "") {
                         Z42ClassType ect = env.Symbols.GetClass(e);
                         if (ect != null) {
-                            MethodSymbol ems = this._tc._overload._resolveOverload(env.Symbols, ect, id.Name, args, call.ArgCount, call.TypeArgCount, call.Span, call.Args, env);
+                            MethodSymbol ems = this._tc._overload._resolveOverload(env.Symbols, ect, id.Name, args, call.ArgCount, MethodTypeArgSubst.ExplicitTypeArgs(call, env), call.Span, call.Args, env);
                             if (ems != null && ems.IsStatic) {
                                 bool viaBase = MemberResolver.IsBaseStaticMethod(ect, ems);
                                 return this._bareStaticCall(viaBase ? ems.ContainingTypeName : e,

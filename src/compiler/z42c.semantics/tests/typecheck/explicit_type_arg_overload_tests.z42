@@ -1,0 +1,90 @@
+// 显式类型实参参与重载决议的诊断契约（fix-explicit-type-arg-overload）。
+//
+// `M<A1..An>(...)`：只有恰好声明 n 个方法级型参的重载是候选（非泛型重载出局），候选签名按显式实参
+// 代换后判适用。改动前适用性拿裸 `T` 比实参 ⇒ 泛型候选被静默淘汰：旁边有同名非泛型重载时要么选错
+// （`F<int>(1)` 选中 `F(int)` 再报 E0446），要么报 E0401「no method」。
+// 没有任何重载收 n 个类型实参 ⇒ 一条 E0446（而不是 E0401）。
+namespace Z42cSemanticsExplicitTypeArgOverloadTests;
+
+using Z42.Semantics;
+using Std.Harness;
+
+string _cls() {
+    return "namespace D;"
+        + " class O { public int v; }"
+        + " class B {"
+        + "   public void Add(O o) { }"
+        + "   public int Add<T>(string n, T d, string help = \"\") { return 1; }"
+        + "   public static int G(int x) { return 0; }"
+        + "   public static int G<T>(T x, string tag = \"\") { return 1; }"
+        + " }";
+}
+
+// ── 继承来的泛型重载 + 命名实参（走实参映射决议）────────────────────
+[Test]
+void test_inherited_generic_overload_named_arg_resolves() {
+    string src = _cls() + " class Dd : B { public Dd() { this.Add<int>(\"a\", 1, help: \"x\"); } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 省略默认值：非泛型同名重载不再被 arity 快路径抢走 ─────────────────
+[Test]
+void test_static_generic_overload_default_omitted_resolves() {
+    string src = _cls() + " class U { int M() { return B.G<int>(1); } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 同形参个数：`F(int)` vs `F<T>(T)`，`F<int>(1)` 选泛型那个 ──────────
+[Test]
+void test_same_arity_explicit_type_arg_picks_generic() {
+    string src = "namespace D;"
+        + " class C { public int F(int x) { return 0; } public int F<T>(T x) { return 1; } }"
+        + " class U { int M(C c) { return c.F<int>(1) + c.F<string>(\"s\") + c.F(2); } }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 自由函数 ──────────────────────────────────────────────────────
+[Test]
+void test_free_function_explicit_type_arg_resolves() {
+    string src = "namespace D;"
+        + " int H(int x) { return 0; }"
+        + " int H<T>(T x, string tag = \"\") { return 1; }"
+        + " int M() { return H<int>(1, tag: \"t\"); }";
+    Assert.Equal("", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 代换后仍要真查实参：`Add<int>` 收不了 string ──────────────────────
+[Test]
+void test_substituted_signature_still_checks_args() {
+    string src = _cls() + " class Dd : B { public Dd() { this.Add<int>(\"a\", \"not an int\"); } }";
+    Assert.Equal("E0402", SemanticDump.FirstErrorCode(src));
+}
+
+// ── 阴性：全是非泛型重载 → E0446「not generic」，不再补 E0401 ─────────
+[Test]
+void test_type_args_on_non_generic_overloads_is_e0446() {
+    string src = "namespace D;"
+        + " class C { public int F(int x) { return 0; } public int F(string s) { return 1; } }"
+        + " class U { int M(C c) { return c.F<int>(1); } }";
+    Assert.Equal("E0446", SemanticDump.FirstErrorCode(src));
+    Assert.Equal(false, SemanticDump.HasErrorCode(src, "E0401"));
+    Assert.Equal(true, SemanticDump.FirstErrorMessage(src).Contains("not generic"));
+}
+
+// ── 阴性：有泛型重载但型参个数都对不上 → E0446「no overload takes N」 ─
+[Test]
+void test_no_overload_with_matching_type_arity_is_e0446() {
+    string src = _cls() + " class Dd : B { public Dd() { this.Add<int, string>(\"a\", 1); } }";
+    Assert.Equal("E0446", SemanticDump.FirstErrorCode(src));
+    Assert.Equal(true, SemanticDump.FirstErrorMessage(src).Contains("takes 2 type argument(s)"));
+}
+
+// ── 阴性：唯一的泛型方法、arity 不符 → 仍是 E0446 的原措辞 ──────────────
+[Test]
+void test_single_generic_method_arity_mismatch_keeps_message() {
+    string src = "namespace D;"
+        + " class C { public static int Id<T>(T x) { return 0; } }"
+        + " class U { int M() { return C.Id<int, int>(1); } }";
+    Assert.Equal("E0446", SemanticDump.FirstErrorCode(src));
+    Assert.Equal(true, SemanticDump.FirstErrorMessage(src).Contains("expects 1 type argument(s) but got 2"));
+}
