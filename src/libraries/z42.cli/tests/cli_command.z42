@@ -1,4 +1,4 @@
-// 声明式 Command 层：字段即参数、AddCommand 搭层级、默认动作、全局 option、enum choices、透传。
+// 声明式 Command 层（字段写法）：字段即参数、AddCommand 搭层级、默认动作、全局 option、enum choices、透传。
 namespace Z42CliCommandTests;
 
 using Std.Cli;
@@ -143,13 +143,6 @@ void test_passthrough_argument() {
     Assert.Equal("app.zpkg", t.Run.Target);
     Assert.Equal(5, t.Run.Args.Length);
     Assert.Equal("-h", t.Run.Args[0]);
-}
-
-[Test]
-void test_set_help_overrides_field_help() {
-    _Tree t = new _Tree();
-    t.E2e.SetHelp("Dir", "dynamic help text");
-    Assert.True(t.E2e.HelpText().Contains("dynamic help text"));
 }
 
 [Test]

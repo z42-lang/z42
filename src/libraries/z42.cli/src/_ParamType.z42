@@ -1,0 +1,117 @@
+namespace Std.Cli;
+
+/// `Option` / `Argument` 共用的值类型规则：类型类别、默认值、取值转换、enum choices、kebab-case 命名。
+internal static class _ParamType {
+    internal const int KString  = 0;
+    internal const int KBool    = 1;
+    internal const int KInt     = 2;
+    internal const int KLong    = 3;
+    internal const int KDouble  = 4;
+    internal const int KEnum    = 5;
+    internal const int KStrings = 6;
+
+    // 类型类别；不支持抛 CliException。
+    internal static int KindOf(Type t, string display) {
+        if (t.IsEnum) { return _ParamType.KEnum; }
+        string fn = t.FullName;
+        if (fn == "Std.String")   { return _ParamType.KString; }
+        if (fn == "Std.Boolean")  { return _ParamType.KBool; }
+        if (fn == "Std.Int32")    { return _ParamType.KInt; }
+        if (fn == "Std.Int64")    { return _ParamType.KLong; }
+        if (fn == "Std.Double")   { return _ParamType.KDouble; }
+        if (fn == "Std.String[]") { return _ParamType.KStrings; }
+        throw new CliException(display + ": unsupported value type '" + fn +
+            "' (use string / bool / int / long / double / enum / string[])");
+    }
+
+    // 未给默认值时的类型默认：空串 / false / 0 / 空数组 / enum 首个成员。
+    internal static object TypeDefault(int kind, Type t) {
+        if (kind == _ParamType.KString)  { return ""; }
+        if (kind == _ParamType.KBool)    { return false; }
+        if (kind == _ParamType.KInt)     { return 0; }
+        if (kind == _ParamType.KLong)    { return (long)0; }
+        if (kind == _ParamType.KDouble)  { return 0.0; }
+        if (kind == _ParamType.KStrings) { return new string[0]; }
+        long[] vs = Enum.GetValues(t);
+        return vs.Length > 0 ? vs[0] : (long)0;
+    }
+
+    // 显式 choices 优先；enum 自动取成员名（kebab-case）；否则 null（不限）。
+    internal static string[]? EffectiveChoices(int kind, Type t, string[] explicitChoices) {
+        if (explicitChoices != null) { return explicitChoices; }
+        if (kind != _ParamType.KEnum) { return null; }
+        string[] names = Enum.GetNames(t);
+        string[] outArr = new string[names.Length];
+        int i = 0;
+        while (i < names.Length) { outArr[i] = _ParamType.Kebab(names[i]); i = i + 1; }
+        return outArr;
+    }
+
+    // 值的参数文本，供帮助的 `[default: …]`；bool / string[] / null 不显示。
+    internal static string DefaultText(int kind, Type t, object v) {
+        if (v == null || kind == _ParamType.KBool || kind == _ParamType.KStrings) { return ""; }
+        if (kind == _ParamType.KEnum) {
+            return _ParamType.Kebab(Enum.GetName(t, long.Parse(v.ToString())));
+        }
+        return v.ToString();
+    }
+
+    // 参数文本 → 值；不在 choices 内 / 数字非法时抛 CliException。
+    internal static object Convert(int kind, Type t, string raw, string[]? choices, string display) {
+        if (choices != null) { _ParamType.CheckChoice(display, raw, choices); }
+        if (kind == _ParamType.KString) { return raw; }
+        try {
+            if (kind == _ParamType.KInt)    { return int.Parse(raw); }
+            if (kind == _ParamType.KLong)   { return long.Parse(raw); }
+            if (kind == _ParamType.KDouble) { return double.Parse(raw); }
+        } catch (Exception e) {
+            throw new CliException("invalid value '" + raw + "' for " + display + ": expected a number");
+        }
+        string[] names = Enum.GetNames(t);
+        int i = 0;
+        while (i < names.Length) {
+            if (_ParamType.Kebab(names[i]) == raw) { return Enum.Parse(t, names[i]); }
+            i = i + 1;
+        }
+        throw new CliException("internal: enum value '" + raw + "' passed the choice check");
+    }
+
+    private static void CheckChoice(string display, string raw, string[] choices) {
+        int i = 0;
+        while (i < choices.Length) {
+            if (choices[i] == raw) { return; }
+            i = i + 1;
+        }
+        string msg = "invalid value '" + raw + "' for " + display + " (choose from " + string.Join(" | ", choices) + ")";
+        string? near = _Suggest.Nearest(raw, choices);
+        if (near != null) { msg = msg + " (did you mean '" + near + "'?)"; }
+        throw new CliException(msg);
+    }
+
+    // 帮助说明 + choices 后缀 `{a|b}`。
+    internal static string HelpWithChoices(string help, string[]? choices) {
+        if (choices == null) { return help; }
+        string[] c = choices;
+        string list = string.Join("|", c);
+        return help.Length > 0 ? help + " {" + list + "}" : "{" + list + "}";
+    }
+
+    // PascalCase / camelCase → kebab-case：`NoBuild` → `no-build`，`HTTPPort` → `http-port`。
+    internal static string Kebab(string s) {
+        string outStr = "";
+        int i = 0;
+        while (i < s.Length) {
+            char c = s.CharAt(i);
+            bool upper = (int)c >= 65 && (int)c <= 90;
+            if (upper && i > 0) {
+                char prev = s.CharAt(i - 1);
+                bool prevUpper = (int)prev >= 65 && (int)prev <= 90;
+                bool nextLower = i + 1 < s.Length && (int)s.CharAt(i + 1) >= 97 && (int)s.CharAt(i + 1) <= 122;
+                if (!prevUpper || nextLower) { outStr = outStr + "-"; }
+            }
+            outStr = outStr + c.ToLower().ToString();
+            i = i + 1;
+        }
+        return outStr;
+    }
+}

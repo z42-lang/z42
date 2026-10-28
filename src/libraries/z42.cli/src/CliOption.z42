@@ -1,0 +1,35 @@
+namespace Std.Cli;
+
+/// `Command.AddOption<T>` 返回的强类型句柄：包着一个 `Option`，`Value` 直接是 `T`。
+public sealed class CliOption<T> {
+    private Option _option;
+
+    /// 包住一个已声明的 option（值类型须为 `T`）。
+    public CliOption(Option option) { this._option = option; }
+
+    /// 解析后的值（未出现 = 默认值）。
+    public T Value { get { return (T)this._option.Value; } }
+
+    /// argv 里是否显式给出。
+    public bool IsSet { get { return this._option.IsSet; } }
+
+    /// 底层的 option 对象。
+    public Option Underlying { get { return this._option; } }
+}
+
+/// `Command.AddArgument<T>` 返回的强类型句柄：包着一个 `Argument`，`Value` 直接是 `T`。
+public sealed class CliArgument<T> {
+    private Argument _argument;
+
+    /// 包住一个已声明的位置参数（值类型须为 `T`）。
+    public CliArgument(Argument argument) { this._argument = argument; }
+
+    /// 解析后的值（未给出 = 默认值）。
+    public T Value { get { return (T)this._argument.Value; } }
+
+    /// argv 里是否给出。
+    public bool IsSet { get { return this._argument.IsSet; } }
+
+    /// 底层的参数对象。
+    public Argument Underlying { get { return this._argument; } }
+}

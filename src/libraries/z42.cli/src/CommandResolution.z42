@@ -110,6 +110,16 @@ public sealed class CommandResolution {
         return p.GetOption(longName);
     }
 
+    /// 各层 persistent option 是否在 argv 里显式给出（根层优先）；名字未在任何层声明抛 CliException。
+    public bool PersistentOptionSet(string longName) {
+        ParseResult? found = this._FindPersistent(longName, true);
+        if (found == null) {
+            throw new CliException("persistent option '" + longName + "' not registered");
+        }
+        ParseResult p = found;
+        return p.WasOptionSet(longName);
+    }
+
     /// 各层 persistent flag 是否出现（根层优先）；名字未在任何层声明抛 CliException。
     public bool PersistentFlag(string longName) {
         ParseResult? found = this._FindPersistent(longName, false);

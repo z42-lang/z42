@@ -1,0 +1,251 @@
+namespace Std.Cli;
+using Std.Reflection;
+
+/// `Command` 的 partial 碎片 —— 参数表的汇集、声明与绑定。
+///
+/// 把 `[Option]` / `[Argument]` 字段与 `AddOption` / `AddArgument` 挂上的对象汇成一张
+/// `Option` / `Argument` 表，据此声明 parser、解析后绑定，字段来源的参数再把值回写字段。
+public partial class Command {
+
+    // 本命令的全部参数（字段在前、声明序；再接 AddOption / AddArgument 的调用序）。字段来源的对象
+    // 每次现造（默认值 = 字段当前值），挂上的对象是同一个实例。
+    private _CmdParams _params() {
+        _CmdParams ps = new _CmdParams();
+        FieldInfo[] fs = this.GetType().GetFields();
+        int i = 0;
+        while (i < fs.Length) {
+            FieldInfo f = fs[i];
+            i = i + 1;
+            Attribute? oa = f.GetAttribute(typeof(OptionAttribute));
+            Attribute? aa = f.GetAttribute(typeof(ArgumentAttribute));
+            if (oa != null && aa != null) {
+                throw new CliException("command '" + this._cmdName + "', field '" + f.Name +
+                    "': [Option] and [Argument] are mutually exclusive");
+            }
+            if (oa != null) { ps.AddOption(_CmdParams.OptionOf(f, (OptionAttribute)oa, this), f, true); }
+            if (aa != null) { ps.AddArgument(_CmdParams.ArgumentOf(f, (ArgumentAttribute)aa, this), f, true); }
+        }
+        int k = 0;
+        while (k < this._cmdOptionCount) { ps.AddOption(this._cmdOptions[k], null, false); k = k + 1; }
+        int m = 0;
+        while (m < this._cmdArgumentCount) { ps.AddArgument(this._cmdArguments[m], null, false); m = m + 1; }
+        return ps;
+    }
+
+    // 叶子 / 默认动作的 parser：非全局 option + 全部 argument；includeGlobals 时全局 option
+    // 也作普通 option（没有子命令可路由时，全局与否没有区别）。
+    private ArgParser _buildParser(bool includeGlobals) {
+        ArgParser p = new ArgParser(this._progName(), this._cmdDescription);
+        _CmdParams ps = this._params();
+        int i = 0;
+        while (i < ps.OptionCount) {
+            Option o = ps.Options[i];
+            if (!o.Global || includeGlobals) { _CmdParams.DeclareOption(p, o); }
+            i = i + 1;
+        }
+        int j = 0;
+        while (j < ps.ArgumentCount) { _CmdParams.DeclareArgument(p, ps.Arguments[j]); j = j + 1; }
+        return p;
+    }
+
+    // 有子命令时：全局 option 进 router 的 persistent 层。
+    private void _declareGlobals(SubcommandRouter r) {
+        _CmdParams ps = this._params();
+        int i = 0;
+        while (i < ps.OptionCount) {
+            Option o = ps.Options[i];
+            i = i + 1;
+            if (!o.Global) { continue; }
+            if (o.Kind == _ParamType.KStrings) { throw new CliException("option " + o.Display() + ": a global option cannot be repeatable"); }
+            if (o.Required) { throw new CliException("option " + o.Display() + ": a global option cannot be required"); }
+            if (o.Kind == _ParamType.KBool) {
+                r.AddPersistentFlag(o.Name, o.ShortName, o.HelpLine());
+            } else {
+                r.AddPersistentOption(o.Name, o.ShortName, o.HelpLine(), o.DefaultText());
+            }
+            string[] al = o.Alias == null ? new string[0] : o.Alias;
+            int k = 0;
+            while (k < al.Length) { r.AddPersistentAlias(o.Name, al[k]); k = k + 1; }
+        }
+    }
+
+    // 有子命令而无默认动作：非全局参数无处可写，声明期报错。
+    private void _requireNoLocals() {
+        _CmdParams ps = this._params();
+        int i = 0;
+        while (i < ps.OptionCount) {
+            if (!ps.Options[i].Global) { throw this._noDefaultError(ps.Options[i].Display()); }
+            i = i + 1;
+        }
+        if (ps.ArgumentCount > 0) { throw this._noDefaultError(ps.Arguments[0].Display()); }
+    }
+
+    private CliException _noDefaultError(string what) {
+        return new CliException("command '" + this._cmdName + "' has subcommands but no default action " +
+            "(SetDefaultAction); " + what + " is not global — only global options are allowed here");
+    }
+
+    // ── 绑定 ─────────────────────────────────────────────────────────────
+
+    private void _bindGlobals(CommandResolution res) {
+        _CmdParams ps = this._params();
+        int i = 0;
+        while (i < ps.OptionCount) {
+            Option o = ps.Options[i];
+            if (o.Global) {
+                o.Reset();
+                if (o.Kind == _ParamType.KBool) {
+                    if (res.PersistentFlag(o.Name)) { o.SetValue(true); }
+                } else if (res.PersistentOptionSet(o.Name)) {
+                    o.SetRaw(res.PersistentOption(o.Name));
+                }
+                ps.WriteBackOption(i, this);
+            }
+            i = i + 1;
+        }
+    }
+
+    private void _bindLocals(ParseResult pr, bool includeGlobals) {
+        _CmdParams ps = this._params();
+        int i = 0;
+        while (i < ps.OptionCount) {
+            Option o = ps.Options[i];
+            if (!o.Global || includeGlobals) {
+                _CmdParams.BindOption(pr, o);
+                ps.WriteBackOption(i, this);
+            }
+            i = i + 1;
+        }
+        int pos = 0;
+        int j = 0;
+        while (j < ps.ArgumentCount) {
+            Argument a = ps.Arguments[j];
+            a.Reset();
+            if (a.Kind == _ParamType.KStrings) {
+                string[] vs = pr.VariadicValues();
+                if (vs.Length > 0) { a.SetValue(vs); }
+            } else {
+                if (pos < pr.PositionalCount()) { a.SetRaw(pr.GetPositional(pos)); }
+                pos = pos + 1;
+            }
+            ps.WriteBackArgument(j, this);
+            j = j + 1;
+        }
+    }
+}
+
+// 一个命令的参数表（`Command._params` 的结果）：option / argument 对象 + 各自来源字段
+// （`*FromField[i]` 为 false = AddOption / AddArgument 挂上的，无来源字段）。
+internal class _CmdParams {
+    internal Option[] Options;
+    internal FieldInfo[] OptionFields;
+    internal bool[] OptionFromField;
+    internal int OptionCount;
+    internal Argument[] Arguments;
+    internal FieldInfo[] ArgumentFields;
+    internal bool[] ArgumentFromField;
+    internal int ArgumentCount;
+
+    internal _CmdParams() {
+        this.Options = new Option[0];
+        this.OptionFields = new FieldInfo[0];
+        this.OptionFromField = new bool[0];
+        this.OptionCount = 0;
+        this.Arguments = new Argument[0];
+        this.ArgumentFields = new FieldInfo[0];
+        this.ArgumentFromField = new bool[0];
+        this.ArgumentCount = 0;
+    }
+
+    internal void AddOption(Option o, FieldInfo f, bool fromField) {
+        int n = this.OptionCount;
+        Option[] go = new Option[n + 1];
+        FieldInfo[] gf = new FieldInfo[n + 1];
+        bool[] gb = new bool[n + 1];
+        int i = 0;
+        while (i < n) { go[i] = this.Options[i]; gf[i] = this.OptionFields[i]; gb[i] = this.OptionFromField[i]; i = i + 1; }
+        go[n] = o;
+        if (fromField) { gf[n] = f; }
+        gb[n] = fromField;
+        this.Options = go;
+        this.OptionFields = gf;
+        this.OptionFromField = gb;
+        this.OptionCount = n + 1;
+    }
+
+    internal void AddArgument(Argument a, FieldInfo f, bool fromField) {
+        int n = this.ArgumentCount;
+        Argument[] ga = new Argument[n + 1];
+        FieldInfo[] gf = new FieldInfo[n + 1];
+        bool[] gb = new bool[n + 1];
+        int i = 0;
+        while (i < n) { ga[i] = this.Arguments[i]; gf[i] = this.ArgumentFields[i]; gb[i] = this.ArgumentFromField[i]; i = i + 1; }
+        ga[n] = a;
+        if (fromField) { gf[n] = f; }
+        gb[n] = fromField;
+        this.Arguments = ga;
+        this.ArgumentFields = gf;
+        this.ArgumentFromField = gb;
+        this.ArgumentCount = n + 1;
+    }
+
+    // 字段 + `[Option]` → Option（名字缺省 = 字段名 kebab-case，默认值 = 字段当前值）。
+    internal static Option OptionOf(FieldInfo f, OptionAttribute oa, Command owner) {
+        string name = oa.Name.Length > 0 ? oa.Name : _ParamType.Kebab(f.Name);
+        return new Option(name, f.FieldType, f.GetValue(owner), oa.Help, oa.ShortName, oa.Alias,
+            oa.Choices, oa.Global, oa.Required);
+    }
+
+    // 字段 + `[Argument]` → Argument。
+    internal static Argument ArgumentOf(FieldInfo f, ArgumentAttribute aa, Command owner) {
+        string name = aa.Name.Length > 0 ? aa.Name : _ParamType.Kebab(f.Name);
+        return new Argument(name, f.FieldType, f.GetValue(owner), aa.Help, aa.Choices, aa.Required, aa.Passthrough);
+    }
+
+    // 绑定过且显式给出的值写回来源字段；未出现则字段保持初始值（即默认值）。
+    internal void WriteBackOption(int i, Command owner) {
+        if (this.OptionFromField[i] && this.Options[i].IsSet) { this.OptionFields[i].SetValue(owner, this.Options[i].Value); }
+    }
+
+    internal void WriteBackArgument(int i, Command owner) {
+        if (this.ArgumentFromField[i] && this.Arguments[i].IsSet) { this.ArgumentFields[i].SetValue(owner, this.Arguments[i].Value); }
+    }
+
+    internal static void DeclareOption(ArgParser p, Option o) {
+        if (o.Kind == _ParamType.KBool) {
+            if (o.Required) { throw new CliException("option " + o.Display() + ": a flag (bool) cannot be required"); }
+            p.AddFlag(o.Name, o.ShortName, o.HelpLine());
+        } else if (o.Kind == _ParamType.KStrings) {
+            p.AddRepeatedOption(o.Name, o.ShortName, o.HelpLine());
+        } else if (o.Required) {
+            p.AddRequiredOption(o.Name, o.ShortName, o.HelpLine());
+        } else {
+            p.AddOption(o.Name, o.ShortName, o.HelpLine(), o.DefaultText());
+        }
+        string[] al = o.Alias == null ? new string[0] : o.Alias;
+        int i = 0;
+        while (i < al.Length) { p.AddAlias(o.Name, al[i]); i = i + 1; }
+    }
+
+    internal static void DeclareArgument(ArgParser p, Argument a) {
+        if (a.Kind == _ParamType.KStrings) {
+            if (a.Passthrough) { p.AddPassthrough(a.Name, a.HelpLine()); }
+            else { p.AddVariadicPositional(a.Name, a.HelpLine()); }
+            return;
+        }
+        if (a.Required) { p.AddPositional(a.Name, a.HelpLine()); }
+        else { p.AddOptionalPositional(a.Name, a.HelpLine()); }
+    }
+
+    internal static void BindOption(ParseResult pr, Option o) {
+        o.Reset();
+        if (o.Kind == _ParamType.KBool) {
+            if (pr.GetFlag(o.Name)) { o.SetValue(true); }
+        } else if (o.Kind == _ParamType.KStrings) {
+            string[] vs = pr.GetRepeatedOption(o.Name);
+            if (vs.Length > 0) { o.SetValue(vs); }
+        } else if (pr.WasOptionSet(o.Name)) {
+            o.SetRaw(pr.GetOption(o.Name));
+        }
+    }
+}

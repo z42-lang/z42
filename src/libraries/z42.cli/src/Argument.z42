@@ -1,0 +1,73 @@
+namespace Std.Cli;
+
+/// 命令的一个位置参数——参数层最基础的对象：声明加解析后的值。
+///
+/// `Command.AddArgument(argument)`
+/// 挂上，按挂上的顺序落槽；`Invoke` 绑定后读 `Value` / `IsSet`。
+///
+/// 值类型：`string` / `int` / `long` / `double` / enum = 单个参数；`string[]` = 变长尾参（必须是最后
+/// 一个）。`Passthrough`（仅 `string[]`）= 固定参数之后的全部 token 原样收集，不再识别选项。
+/// `[Argument]` 字段与 `AddArgument<T>` 都是它的语法糖。
+public class Argument {
+    /// 帮助里显示的名字。
+    public string Name;
+    /// 值类型。
+    public Type ValueType;
+    /// 默认值（未给出时的值）；构造时传 null = 类型默认。
+    public object DefaultValue;
+    /// 帮助说明。
+    public string Help;
+    /// 允许的取值；null = 不限（enum 自动注入）。
+    public string[] Choices;
+    /// 必须给出（必填参数须排在可选参数之前）。
+    public bool Required;
+    /// 原样透传（仅 `string[]`）。
+    public bool Passthrough;
+
+    private object _value;
+    private bool _isSet;
+    internal int Kind;
+
+    /// 声明一个位置参数；可选状态走命名实参。
+    ///
+    /// 例：`new Argument("target", typeof(string), help: "app", required: true)`。
+    public Argument(string name, Type valueType, object defaultValue = null, string help = "",
+                    string[] choices = null, bool required = false, bool passthrough = false) {
+        this.Name = name;
+        this.ValueType = valueType;
+        this.Kind = _ParamType.KindOf(valueType, "argument <" + name + ">");
+        if (this.Kind == _ParamType.KBool) {
+            throw new CliException("argument <" + name + ">: an argument cannot be bool");
+        }
+        if (passthrough && this.Kind != _ParamType.KStrings) {
+            throw new CliException("argument <" + name + ">: passthrough needs a string[] value type");
+        }
+        this.DefaultValue = defaultValue != null ? defaultValue : _ParamType.TypeDefault(this.Kind, valueType);
+        this.Help = help;
+        this.Choices = choices;
+        this.Required = required;
+        this.Passthrough = passthrough;
+        this._value = this.DefaultValue;
+        this._isSet = false;
+    }
+
+    /// 解析后的值（未给出 = `DefaultValue`）；按 `ValueType` 拆箱。
+    public object Value { get { return this._value; } }
+
+    /// argv 里是否给出。
+    public bool IsSet { get { return this._isSet; } }
+
+    internal string Display() { return "<" + this.Name + ">"; }
+
+    internal string[]? EffectiveChoices() { return _ParamType.EffectiveChoices(this.Kind, this.ValueType, this.Choices); }
+
+    internal string HelpLine() { return _ParamType.HelpWithChoices(this.Help, this.EffectiveChoices()); }
+
+    internal void Reset() { this._value = this.DefaultValue; this._isSet = false; }
+
+    internal void SetValue(object v) { this._value = v; this._isSet = true; }
+
+    internal void SetRaw(string raw) {
+        this.SetValue(_ParamType.Convert(this.Kind, this.ValueType, raw, this.EffectiveChoices(), this.Display()));
+    }
+}

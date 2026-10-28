@@ -49,7 +49,9 @@ public partial class ArgParser {
         return sb.ToString();
     }
 
-    /// 只渲染 FLAGS / OPTIONS 两段（不含 USAGE / ARGS）；`HelpText` 复用，
+    /// 只渲染 FLAGS / OPTIONS 两段（不含 USAGE / ARGS）。
+    ///
+    /// `HelpText` 复用，
     /// 也供 `SubcommandRouter` 的 GLOBAL OPTIONS 段直接展示。
     public string OptionsHelp() {
         StringBuilder sb = new StringBuilder();

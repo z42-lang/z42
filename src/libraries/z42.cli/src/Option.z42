@@ -1,0 +1,76 @@
+namespace Std.Cli;
+
+/// 命令的一个 option（`--name value`）——参数层最基础的对象：声明（名字、值类型、默认值、
+/// 帮助 …）加解析后的值。
+///
+/// `Command.AddOption(option)` 挂上；`Invoke` 绑定后读 `Value` / `IsSet`。
+///
+/// 值类型决定形态：`bool` = flag（出现即 true）；`string` / `int` / `long` / `double` / enum =
+/// 单值；`string[]` = 可重复。enum 的可选值自动取自成员名（kebab-case）。`[Option]` 字段与
+/// `AddOption<T>` 都是它的语法糖。
+public class Option {
+    /// long 名（不带 `--`）。
+    public string Name;
+    /// 值类型。
+    public Type ValueType;
+    /// 默认值（未出现时的值）；构造时传 null = 类型默认（空串 / false / 0 / 空数组 / enum 首个成员）。
+    public object DefaultValue;
+    /// 帮助说明。
+    public string Help;
+    /// 单字符短名；空 = 无。
+    public string ShortName;
+    /// 额外的 long 名；null = 无。
+    public string[] Alias;
+    /// 允许的取值；null = 不限（enum 自动注入）。
+    public string[] Choices;
+    /// 跨子命令的全局 option：所在命令的整棵子树都认，子命令前后皆可写。
+    public bool Global;
+    /// argv 里必须出现。
+    public bool Required;
+
+    private object _value;
+    private bool _isSet;
+    internal int Kind;
+
+    /// 全部可选状态走命名实参：`new Option("jobs", typeof(int), 1, help: "parallel jobs")`。
+    public Option(string name, Type valueType, object defaultValue = null, string help = "",
+                  string shortName = "", string[] alias = null, string[] choices = null,
+                  bool global = false, bool required = false) {
+        this.Name = name;
+        this.ValueType = valueType;
+        this.Kind = _ParamType.KindOf(valueType, "option '--" + name + "'");
+        this.DefaultValue = defaultValue != null ? defaultValue : _ParamType.TypeDefault(this.Kind, valueType);
+        this.Help = help;
+        this.ShortName = shortName;
+        this.Alias = alias;
+        this.Choices = choices;
+        this.Global = global;
+        this.Required = required;
+        this._value = this.DefaultValue;
+        this._isSet = false;
+    }
+
+    /// 解析后的值（未出现 = `DefaultValue`）；按 `ValueType` 拆箱：`(int)opt.Value`。
+    public object Value { get { return this._value; } }
+
+    /// argv 里是否显式给出。
+    public bool IsSet { get { return this._isSet; } }
+
+    internal string Display() { return "'--" + this.Name + "'"; }
+
+    internal string[]? EffectiveChoices() { return _ParamType.EffectiveChoices(this.Kind, this.ValueType, this.Choices); }
+
+    internal string HelpLine() { return _ParamType.HelpWithChoices(this.Help, this.EffectiveChoices()); }
+
+    internal string DefaultText() { return _ParamType.DefaultText(this.Kind, this.ValueType, this.DefaultValue); }
+
+    internal void Reset() { this._value = this.DefaultValue; this._isSet = false; }
+
+    // 绑定一个已转换好的值。
+    internal void SetValue(object v) { this._value = v; this._isSet = true; }
+
+    // 绑定一个参数文本（按值类型转换 + choices 校验）。
+    internal void SetRaw(string raw) {
+        this.SetValue(_ParamType.Convert(this.Kind, this.ValueType, raw, this.EffectiveChoices(), this.Display()));
+    }
+}

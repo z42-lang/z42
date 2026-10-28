@@ -33,7 +33,9 @@ static class _Suggest {
         return prev[m];
     }
 
-    /// 在 candidates 里找与 name 编辑距离最近的；阈值「≤2 且 ≤ len(name)/2」
+    /// 在 candidates 里找与 name 编辑距离最近的。
+    ///
+    /// 阈值「≤2 且 ≤ len(name)/2」
     /// （名字越长容忍越大，但封顶 2），不达标返回 null。距离并列取先出现者。
     public static string Nearest(string name, string[] candidates) {
         if (name.Length < 2) { return null; }

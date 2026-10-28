@@ -51,7 +51,9 @@ public sealed class SubcommandRouter {
         this.Add(name, description, parser, new string[0]);
     }
 
-    /// 注册叶子子命令并挂别名；别名同样参与路由、`Has` 与未知命令建议，命中后归一为正名。
+    /// 注册叶子子命令并挂别名。
+    ///
+    /// 别名同样参与路由、`Has` 与未知命令建议，命中后归一为正名。
     /// 名字或别名与任何已注册名字 / 别名相撞抛 CliException（注册期暴露，不再静默覆盖）。
     public void Add(string name, string description, ArgParser parser, string[] aliases) {
         this.ValidateNewName(name, aliases);
@@ -84,14 +86,17 @@ public sealed class SubcommandRouter {
     }
 
     /// 声明本层跨子命令全局 flag：Resolve 先把它从 argv 任意位置（子命令前后皆可）剥出，
-    /// 剩余 token 才进路由；多层可各自声明（各管各的子树，根层优先取值）。
+    /// 剩余 token 才进路由。
+    ///
+    /// 多层可各自声明（各管各的子树，根层优先取值）。
     /// 取值用 `CommandResolution.PersistentFlag` / `PersistentOption`。
     public void AddPersistentFlag(string longName, string shortName, string help) {
         this.EnsurePersistent();
         this._persistent.AddFlag(longName, shortName, help);
     }
 
-    /// 声明本层跨子命令全局 option（`--name v` / `--name=v` / `-s v` / `-sv`）；
+    /// 声明本层跨子命令全局 option（`--name v` / `--name=v` / `-s v` / `-sv`）。
+    ///
     /// 剥离与取值语义同 `AddPersistentFlag`。
     public void AddPersistentOption(string longName, string shortName, string help, string defaultValue) {
         this.EnsurePersistent();
@@ -104,7 +109,9 @@ public sealed class SubcommandRouter {
         this._persistent.AddAlias(longName, alias);
     }
 
-    /// 给本层挂默认动作：argv 为空、或首 token 是 flag（`-x` / `--x`）且不匹配任何子命令时，
+    /// 给本层挂默认动作。
+    ///
+    /// argv 为空、或首 token 是 flag（`-x` / `--x`）且不匹配任何子命令时，
     /// 整段 argv 交给 `parser` 解析（其 `-h` 照常生效）。`xtask test --no-build` 这类
     /// 「无子命令 = 默认全量」的形态由它表达，不再需要调用方在路由前手写拦截。
     public void SetDefault(ArgParser parser, string actionDescription) {
@@ -327,7 +334,9 @@ public sealed class SubcommandRouter {
 
     // ── Help ─────────────────────────────────────────────────────────────
 
-    /// 渲染顶层帮助：programName - description + SUBCOMMANDS 列表（别名括注），
+    /// 渲染本层帮助。
+    ///
+    /// programName - description + SUBCOMMANDS 列表（别名括注），
     /// 声明过默认动作时附 `(default)` 行与 DEFAULT ACTION OPTIONS 段（默认 parser 的
     /// FLAGS / OPTIONS），声明过 persistent 旗标时附 GLOBAL OPTIONS 段。
     public string HelpText() {
