@@ -1,0 +1,214 @@
+namespace Std.Cli;
+using Std.IO;
+
+/// 声明式命令：一个命令 = 一个类，参数 = 贴了 `[Option]` / `[Argument]` 的字段，
+/// 动作 = `Run()`。层级由父命令 `AddCommand(child)` 搭起，`Invoke(argv)` 解析、绑定字段、
+/// 执行命中的那个命令。
+///
+/// ```z42
+/// class TestE2e : Command {
+///     [Option(help: "parallel jobs", shortName: "j")] public int Jobs = 1;
+///     [Argument(help: "case name")] public string File = "";
+///     public TestE2e() : base("e2e", "end-to-end suite") {}
+///     public override int Run() { ... }
+/// }
+/// ```
+///
+/// 有子命令的命令默认只做路由；构造器里调 `SetDefaultAction(desc)` 后，argv 为空或首 token
+/// 是 flag 时执行它自己的 `Run()`（它的非全局字段即默认动作的参数）。`[Option(global: true)]`
+/// 字段对整棵子树生效。执行前沿根 → 目标逐个调 `BeforeRun()`，再调目标的 `Run()`。
+/// 建在 `ArgParser` / `SubcommandRouter` 之上：同样的 argv 语义、帮助与报错。
+public partial class Command {
+    private string    _cmdName;
+    private string    _cmdDescription;
+    private Command?  _cmdParent;
+    private string[]  _cmdAliases;
+    private Command[] _cmdChildren;
+    private int       _cmdChildCount;
+    private string    _cmdDefaultDesc;     // "" = 无默认动作
+    private string[]  _cmdHelpFields;      // SetHelp 覆盖：字段名 → 帮助
+    private string[]  _cmdHelpTexts;
+    private int       _cmdHelpCount;
+
+    /// 用命令名与描述创建命令（根命令的名字即程序名）。
+    public Command(string name, string description) {
+        this._cmdName = name;
+        this._cmdDescription = description;
+        this._cmdParent = null;
+        this._cmdAliases = new string[0];
+        this._cmdChildren = new Command[4];
+        this._cmdChildCount = 0;
+        this._cmdDefaultDesc = "";
+        this._cmdHelpFields = new string[2];
+        this._cmdHelpTexts = new string[2];
+        this._cmdHelpCount = 0;
+    }
+
+    /// 命令名。
+    public string CommandName() { return this._cmdName; }
+
+    /// 父命令；根命令为 null。子命令可经它读祖先的全局 option 字段。
+    public Command? ParentCommand() { return this._cmdParent; }
+
+    /// 挂一个子命令。
+    public void AddCommand(Command child) { this.AddCommand(child, new string[0]); }
+
+    /// 挂一个子命令并给它别名（别名同样可路由，命中后归一为正名）。
+    public void AddCommand(Command child, string[] aliases) {
+        if (child._cmdParent != null) {
+            throw new CliException("command '" + child._cmdName + "' already has a parent");
+        }
+        child._cmdParent = this;
+        child._cmdAliases = aliases;
+        if (this._cmdChildCount >= this._cmdChildren.Length) {
+            Command[] g = new Command[this._cmdChildren.Length * 2];
+            int i = 0;
+            while (i < this._cmdChildCount) { g[i] = this._cmdChildren[i]; i = i + 1; }
+            this._cmdChildren = g;
+        }
+        this._cmdChildren[this._cmdChildCount] = child;
+        this._cmdChildCount = this._cmdChildCount + 1;
+    }
+
+    /// 声明本命令（有子命令时）自带默认动作：argv 为空或首 token 是 flag 且不命中子命令时
+    /// 执行 `Run()`；`description` 显示在帮助的 `(default)` 行。
+    public void SetDefaultAction(string description) { this._cmdDefaultDesc = description; }
+
+    /// 运行期覆盖某字段的帮助说明（attribute 实参只能是常量，动态内容走这里）。
+    public void SetHelp(string fieldName, string help) {
+        if (this._cmdHelpCount >= this._cmdHelpFields.Length) {
+            int n = this._cmdHelpFields.Length * 2;
+            string[] gf = new string[n];
+            string[] gt = new string[n];
+            int i = 0;
+            while (i < this._cmdHelpCount) { gf[i] = this._cmdHelpFields[i]; gt[i] = this._cmdHelpTexts[i]; i = i + 1; }
+            this._cmdHelpFields = gf;
+            this._cmdHelpTexts = gt;
+        }
+        this._cmdHelpFields[this._cmdHelpCount] = fieldName;
+        this._cmdHelpTexts[this._cmdHelpCount] = help;
+        this._cmdHelpCount = this._cmdHelpCount + 1;
+    }
+
+    /// 命令的动作，返回退出码。叶子命令与声明了默认动作的命令必须覆写。
+    public virtual int Run() {
+        throw new CliException("command '" + this._cmdName + "' has no action");
+    }
+
+    /// 执行前钩子：沿根 → 目标逐个调用（字段已绑定），用于把全局 option 落成副作用。
+    public virtual void BeforeRun() { }
+
+    /// 解析 argv、绑定字段并执行命中的命令，返回退出码：帮助 → 0；未知命令 / 参数错误 →
+    /// 打到 stderr 并返回 2；否则为 `Run()` 的返回值。
+    public int Invoke(string[] argv) {
+        try {
+            CommandResolution res = this.Resolve(argv);
+            if (res.IsHelp()) {
+                Console.WriteLine(res.HelpText());
+                return 0;
+            }
+            if (res.IsUnknown()) {
+                ConsoleError.WriteLine(res.ErrorMessage());
+                Console.WriteLine(res.HelpText());
+                return 2;
+            }
+            Command target = this.Bind(res);
+            target._beforeRunChain();
+            return target.Run();
+        } catch (CliException e) {
+            ConsoleError.WriteLine(this._cmdName + ": " + e.Message);
+            return 2;
+        }
+    }
+
+    /// 只解析不绑定：返回与 `SubcommandRouter.Resolve` 同语义的三态结果。
+    public CommandResolution Resolve(string[] argv) {
+        if (this._cmdChildCount > 0) {
+            return this._buildRouter().Resolve(argv);
+        }
+        ArgParser p = this._buildParser(true);
+        ParseResult pr = p.Parse(argv);
+        if (pr.ShowHelp()) { return CommandResolution.Help(p.HelpText()); }
+        return CommandResolution.Match(pr);
+    }
+
+    /// 把一次命中的解析结果绑定到路径上各命令的字段，返回目标命令（`Resolve` 的结果须 IsMatch）。
+    public Command Bind(CommandResolution res) {
+        string[] path = res.Path();
+        Command cmd = this;
+        int i = 0;
+        while (i < path.Length) {
+            if (cmd._cmdChildCount > 0) { cmd._bindGlobals(res); }
+            cmd = cmd._findChild(path[i]);
+            i = i + 1;
+        }
+        if (cmd._cmdChildCount > 0) { cmd._bindGlobals(res); }
+        cmd._bindLocals(res.Result(), cmd._cmdChildCount == 0);
+        return cmd;
+    }
+
+    /// 本命令的帮助文本（有子命令 = 路由帮助，否则 = 参数帮助）。
+    public string HelpText() {
+        if (this._cmdChildCount > 0) { return this._buildRouter().HelpText(); }
+        return this._buildParser(true).HelpText();
+    }
+
+    // ── 树 ───────────────────────────────────────────────────────────────
+
+    // 程序名：祖先名 + 自己（`xtask test e2e`）。
+    private string _progName() {
+        Command? p = this._cmdParent;
+        if (p == null) { return this._cmdName; }
+        Command parent = p;
+        return parent._progName() + " " + this._cmdName;
+    }
+
+    private Command _findChild(string name) {
+        int i = 0;
+        while (i < this._cmdChildCount) {
+            if (this._cmdChildren[i]._cmdName == name) { return this._cmdChildren[i]; }
+            i = i + 1;
+        }
+        throw new CliException("internal: resolved command '" + name + "' not found under '" + this._cmdName + "'");
+    }
+
+    private void _beforeRunChain() {
+        Command? p = this._cmdParent;
+        if (p != null) {
+            Command parent = p;
+            parent._beforeRunChain();
+        }
+        this.BeforeRun();
+    }
+
+    private SubcommandRouter _buildRouter() {
+        SubcommandRouter r = new SubcommandRouter(this._progName(), this._cmdDescription);
+        this._declareGlobals(r);
+        if (this._cmdDefaultDesc.Length > 0) {
+            r.SetDefault(this._buildParser(false), this._cmdDefaultDesc);
+        } else {
+            this._requireNoLocals();
+        }
+        int i = 0;
+        while (i < this._cmdChildCount) {
+            Command c = this._cmdChildren[i];
+            if (c._cmdChildCount > 0) {
+                r.AddRouter(c._cmdName, c._cmdDescription, c._buildRouter(), c._cmdAliases);
+            } else {
+                r.Add(c._cmdName, c._cmdDescription, c._buildParser(true), c._cmdAliases);
+            }
+            i = i + 1;
+        }
+        return r;
+    }
+
+    // 运行期帮助覆盖；无覆盖返回 null。
+    private string? _helpOverride(string fieldName) {
+        int i = 0;
+        while (i < this._cmdHelpCount) {
+            if (this._cmdHelpFields[i] == fieldName) { return this._cmdHelpTexts[i]; }
+            i = i + 1;
+        }
+        return null;
+    }
+}

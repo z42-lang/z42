@@ -1,0 +1,97 @@
+// ArgParser 的 long 名别名（AddAlias）与原样透传尾参（AddPassthrough）。
+namespace Z42CliAliasPassthroughTests;
+
+using Std.Cli;
+using Std.Harness;
+
+ArgParser _aliased() {
+    ArgParser p = new ArgParser("prog", "t");
+    p.AddFlag("no-build", "", "skip build");
+    p.AddOption("mode", "m", "run mode", "jit");
+    p.AddAlias("no-build", "no-rebuild");
+    p.AddAlias("mode", "exec-mode");
+    return p;
+}
+
+[Test]
+void test_flag_alias_sets_canonical() {
+    ParseResult r = _aliased().Parse(new string[]{ "--no-rebuild" });
+    Assert.True(r.GetFlag("no-build"));
+}
+
+[Test]
+void test_option_alias_both_forms() {
+    ParseResult r = _aliased().Parse(new string[]{ "--exec-mode", "interp" });
+    Assert.Equal("interp", r.GetOption("mode"));
+    ParseResult r2 = _aliased().Parse(new string[]{ "--exec-mode=both" });
+    Assert.Equal("both", r2.GetOption("mode"));
+}
+
+[Test]
+void test_alias_listed_in_help() {
+    string h = _aliased().HelpText();
+    Assert.True(h.Contains("--no-build, --no-rebuild"));
+    Assert.True(h.Contains("--mode, --exec-mode"));
+}
+
+[Test]
+void test_alias_of_unregistered_throws() {
+    ArgParser p = new ArgParser("prog", "t");
+    bool threw = false;
+    try { p.AddAlias("nope", "other"); } catch (CliException e) { threw = true; }
+    Assert.True(threw);
+}
+
+[Test]
+void test_alias_collision_throws() {
+    ArgParser p = _aliased();
+    bool threw = false;
+    try { p.AddAlias("mode", "no-build"); } catch (CliException e) { threw = true; }
+    Assert.True(threw);
+    bool threw2 = false;
+    try { p.AddFlag("no-rebuild", "", "dup"); } catch (CliException e) { threw2 = true; }
+    Assert.True(threw2);
+}
+
+[Test]
+void test_alias_is_suggested() {
+    string msg = "";
+    try { _aliased().Parse(new string[]{ "--exec-mod", "x" }); } catch (CliException e) { msg = e.Message; }
+    Assert.True(msg.Contains("did you mean '--exec-mode'"));
+}
+
+[Test]
+void test_passthrough_takes_everything_verbatim() {
+    ArgParser p = new ArgParser("run", "t");
+    p.AddFlag("verbose", "", "v");
+    p.AddPassthrough("args", "forwarded");
+    ParseResult r = p.Parse(new string[]{ "app.zpkg", "-h", "--verbose", "--", "x" });
+    string[] v = r.VariadicValues();
+    Assert.Equal(5, v.Length);
+    Assert.Equal("-h", v[1]);
+    Assert.Equal("--", v[3]);
+    Assert.False(r.ShowHelp());
+    Assert.False(r.GetFlag("verbose"));
+}
+
+[Test]
+void test_passthrough_after_fixed_positional() {
+    ArgParser p = new ArgParser("run", "t");
+    p.AddFlag("verbose", "", "v");
+    p.AddPositional("target", "app");
+    p.AddPassthrough("args", "forwarded");
+    ParseResult r = p.Parse(new string[]{ "--verbose", "app.zpkg", "--mode", "jit" });
+    Assert.True(r.GetFlag("verbose"));
+    Assert.Equal("app.zpkg", r.GetPositional(0));
+    Assert.Equal(2, r.VariadicValues().Length);
+    Assert.Equal("--mode", r.VariadicValues()[0]);
+}
+
+[Test]
+void test_passthrough_excludes_variadic() {
+    ArgParser p = new ArgParser("run", "t");
+    p.AddVariadicPositional("rest", "r");
+    bool threw = false;
+    try { p.AddPassthrough("args", "a"); } catch (CliException e) { threw = true; }
+    Assert.True(threw);
+}

@@ -1,0 +1,191 @@
+// 声明式 Command 层：字段即参数、AddCommand 搭层级、默认动作、全局 option、enum choices、透传。
+namespace Z42CliCommandTests;
+
+using Std.Cli;
+using Std.Harness;
+
+public enum ExecMode { Interp, Jit, BothModes }
+
+class Tool : Command {
+    [Option(help: "verbosity level", shortName: "v", global: true)] public string Verbosity = "minimal";
+    [Option(help: "dry run", global: true)] public bool DryRun;
+    public string Trace = "";
+    public Tool() : base("tool", "test tool") {}
+    public override void BeforeRun() { this.Trace = this.Trace + "tool;"; }
+}
+
+class TestGroup : Command {
+    [Option(help: "skip rebuild", alias: new string[]{ "no-rebuild" })] public bool NoBuild;
+    [Option(help: "skip stages")] public string Skip = "";
+    public int Ran = 0;
+    public TestGroup() : base("test", "run tests") { this.SetDefaultAction("the full gate"); }
+    public override int Run() { this.Ran = this.Ran + 1; return 10; }
+}
+
+class E2e : Command {
+    [Option(help: "exec mode")] public ExecMode Mode = ExecMode.Jit;
+    [Option(help: "parallel jobs", shortName: "j")] public int Jobs = 1;
+    [Option(help: "category", choices: new string[]{ "classes", "generics" })] public string Dir = "";
+    [Option(help: "extra tags")] public string[] Tag = new string[0];
+    [Argument(help: "case name")] public string File = "";
+    public int Ran = 0;
+    public E2e() : base("e2e", "end-to-end") {}
+    public override int Run() { this.Ran = this.Ran + 1; return 20; }
+}
+
+class RunCmd : Command {
+    [Argument(help: "app", required: true)] public string Target = "";
+    [Argument(help: "forwarded", passthrough: true)] public string[] Args = new string[0];
+    public RunCmd() : base("run", "run an app") {}
+    public override int Run() { return 30; }
+}
+
+class _Tree {
+    public Tool Root;
+    public TestGroup Test;
+    public E2e E2e;
+    public RunCmd Run;
+    public _Tree() {
+        this.Root = new Tool();
+        this.Test = new TestGroup();
+        this.E2e = new E2e();
+        this.Run = new RunCmd();
+        this.Test.AddCommand(this.E2e, new string[]{ "end2end" });
+        this.Root.AddCommand(this.Test);
+        this.Root.AddCommand(this.Run);
+    }
+}
+
+[Test]
+void test_leaf_fields_bound_and_run() {
+    _Tree t = new _Tree();
+    int rc = t.Root.Invoke(new string[]{ "test", "e2e", "--mode", "both-modes", "-j", "4", "--dir", "classes",
+        "--tag", "a", "--tag", "b", "foo" });
+    Assert.Equal(20, rc);
+    Assert.Equal(1, t.E2e.Ran);
+    Assert.True(t.E2e.Mode == ExecMode.BothModes);
+    Assert.Equal(4, t.E2e.Jobs);
+    Assert.Equal("classes", t.E2e.Dir);
+    Assert.Equal(2, t.E2e.Tag.Length);
+    Assert.Equal("foo", t.E2e.File);
+}
+
+[Test]
+void test_unset_fields_keep_initial_values() {
+    _Tree t = new _Tree();
+    Assert.Equal(20, t.Root.Invoke(new string[]{ "test", "e2e" }));
+    Assert.True(t.E2e.Mode == ExecMode.Jit);
+    Assert.Equal(1, t.E2e.Jobs);
+    Assert.Equal("", t.E2e.File);
+}
+
+[Test]
+void test_default_action_with_alias() {
+    _Tree t = new _Tree();
+    Assert.Equal(10, t.Root.Invoke(new string[]{ "test", "--no-rebuild", "--skip", "a,b" }));
+    Assert.Equal(1, t.Test.Ran);
+    Assert.True(t.Test.NoBuild);
+    Assert.Equal("a,b", t.Test.Skip);
+    Assert.Equal(10, new _Tree().Root.Invoke(new string[]{ "test" }));
+}
+
+[Test]
+void test_globals_anywhere_and_before_run_chain() {
+    _Tree t = new _Tree();
+    Assert.Equal(20, t.Root.Invoke(new string[]{ "test", "end2end", "-v", "detailed", "--dry-run" }));
+    Assert.Equal("detailed", t.Root.Verbosity);
+    Assert.True(t.Root.DryRun);
+    Assert.Equal("tool;", t.Root.Trace);
+    Assert.Equal(1, t.E2e.Ran);
+}
+
+[Test]
+void test_parent_reachable_from_leaf() {
+    _Tree t = new _Tree();
+    t.Root.Invoke(new string[]{ "--verbosity", "quiet", "test", "e2e" });
+    Command? p = t.E2e.ParentCommand();
+    Assert.True(p != null);
+    Assert.Equal("test", ((Command)p).CommandName());
+    Assert.Equal("quiet", t.Root.Verbosity);
+}
+
+[Test]
+void test_bad_values_exit_2() {
+    Assert.Equal(2, new _Tree().Root.Invoke(new string[]{ "test", "e2e", "--mode", "fast" }));
+    Assert.Equal(2, new _Tree().Root.Invoke(new string[]{ "test", "e2e", "--jobs", "many" }));
+    Assert.Equal(2, new _Tree().Root.Invoke(new string[]{ "test", "e2e", "--dir", "nope" }));
+    Assert.Equal(2, new _Tree().Root.Invoke(new string[]{ "zzz" }));
+    Assert.Equal(2, new _Tree().Root.Invoke(new string[]{ "run" }));   // required argument missing
+}
+
+[Test]
+void test_help_exit_0_and_content() {
+    _Tree t = new _Tree();
+    Assert.Equal(0, t.Root.Invoke(new string[]{ "-h" }));
+    Assert.Equal(0, t.E2e.Ran);
+    string h = t.E2e.HelpText();
+    Assert.True(h.Contains("tool test e2e"));
+    Assert.True(h.Contains("--mode <mode>"));
+    Assert.True(h.Contains("{interp|jit|both-modes}"));
+    Assert.True(h.Contains("[default: jit]"));
+    Assert.True(h.Contains("-j, --jobs"));
+    Assert.True(h.Contains("{classes|generics}"));
+    string g = t.Test.HelpText();
+    Assert.True(g.Contains("e2e (end2end)"));
+    Assert.True(g.Contains("--no-build, --no-rebuild"));
+    Assert.True(t.Root.HelpText().Contains("GLOBAL OPTIONS"));
+}
+
+[Test]
+void test_passthrough_argument() {
+    _Tree t = new _Tree();
+    Assert.Equal(30, t.Root.Invoke(new string[]{ "run", "app.zpkg", "-h", "--mode", "jit", "--", "x" }));
+    Assert.Equal("app.zpkg", t.Run.Target);
+    Assert.Equal(5, t.Run.Args.Length);
+    Assert.Equal("-h", t.Run.Args[0]);
+}
+
+[Test]
+void test_set_help_overrides_field_help() {
+    _Tree t = new _Tree();
+    t.E2e.SetHelp("Dir", "dynamic help text");
+    Assert.True(t.E2e.HelpText().Contains("dynamic help text"));
+}
+
+[Test]
+void test_kebab_names() {
+    _Tree t = new _Tree();
+    Assert.True(t.Root.HelpText().Contains("--dry-run"));
+}
+
+class BadGroup : Command {
+    [Option(help: "local but no default")] public string Local = "";
+    public BadGroup() : base("bad", "b") { this.AddCommand(new E2e()); }
+}
+
+class BadField : Command {
+    [Option(help: "x")] public object Thing = null;
+    public BadField() : base("badf", "b") {}
+    public override int Run() { return 0; }
+}
+
+[Test]
+void test_declaration_errors_exit_2() {
+    Assert.Equal(2, new BadGroup().Invoke(new string[]{ "e2e" }));
+    Assert.Equal(2, new BadField().Invoke(new string[0]));
+}
+
+class HelloApp : Command {
+    [Option(help: "name")] public string Who = "world";
+    [Option(help: "loud", global: true)] public bool Loud;
+    public string Said = "";
+    public HelloApp() : base("hello", "single-command app") {}
+    public override int Run() { this.Said = (this.Loud ? "HELLO " : "hello ") + this.Who; return 0; }
+}
+
+[Test]
+void test_single_command_app() {
+    HelloApp s = new HelloApp();
+    Assert.Equal(0, s.Invoke(new string[]{ "--who", "z42", "--loud" }));
+    Assert.Equal("HELLO z42", s.Said);
+}

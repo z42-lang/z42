@@ -16,6 +16,11 @@ public partial class ArgParser {
         int idx = 0;
         while (idx < argv.Length) {
             string a = argv[idx];
+            if (this._variadicPassthrough && r._positionalCount >= this._positionalCount) {
+                r._variadic.Append(a);   // 透传：固定槽已满，余下原样收集
+                idx = idx + 1;
+                continue;
+            }
             if (!sawSeparator) {
                 if (a == "-h" || a == "--help") {
                     r._showHelp = true;
@@ -350,14 +355,16 @@ public partial class ArgParser {
         return true;
     }
 
-    // 拼写建议的候选：全部 flag/option long + 保留的 help。
+    // 拼写建议的候选：全部 flag/option long + 别名 + 保留的 help。
     private string[] LongNameCandidates() {
-        string[] c = new string[this._flagCount + this._optionCount + 1];
+        string[] c = new string[this._flagCount + this._optionCount + this._aliasCount + 1];
         int k = 0;
         int i = 0;
         while (i < this._flagCount) { c[k] = this._flagLongs[i]; k = k + 1; i = i + 1; }
         int j = 0;
         while (j < this._optionCount) { c[k] = this._optionLongs[j]; k = k + 1; j = j + 1; }
+        int a = 0;
+        while (a < this._aliasCount) { c[k] = this._aliasNames[a]; k = k + 1; a = a + 1; }
         c[k] = "help";
         return c;
     }

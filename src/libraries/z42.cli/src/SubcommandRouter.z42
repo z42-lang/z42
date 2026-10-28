@@ -98,6 +98,12 @@ public sealed class SubcommandRouter {
         this._persistent.AddOption(longName, shortName, help, defaultValue);
     }
 
+    /// 给已声明的全局 flag / option 再挂一个 long 名（语义同 `ArgParser.AddAlias`）。
+    public void AddPersistentAlias(string longName, string alias) {
+        this.EnsurePersistent();
+        this._persistent.AddAlias(longName, alias);
+    }
+
     /// 给本层挂默认动作：argv 为空、或首 token 是 flag（`-x` / `--x`）且不匹配任何子命令时，
     /// 整段 argv 交给 `parser` 解析（其 `-h` 照常生效）。`xtask test --no-build` 这类
     /// 「无子命令 = 默认全量」的形态由它表达，不再需要调用方在路由前手写拦截。
