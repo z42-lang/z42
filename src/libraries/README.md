@@ -60,16 +60,18 @@ z42 标准库的 `.z42` 源文件。每个库是独立的 z42 包，通过 `xtas
    应用层（`FileStream` / `TcpClient` / `Thread` / `Stream` 家族 / 进程编排）留 `z42.io` / `z42.net` /
    `z42.threading` **转纯脚本**、调 core 的 `*Native` 原语。`Std.IO`（Console/File/Directory/Environment/Path）、
    `Std.Time`（DateTime/…）也在 core。
-2. **可插拔工具 / 算法**（compression / crypto / diagnostics / test / build）—— native + 应用整库**留独立**：
-   正常执行不需要的可选插件，可独立编译、按需加载、可裁剪。**例外：OS 熵原语**
+2. **带专属 native 库的独立库**（compression ↔ `crates/z42-compression`）—— native + 应用整库**留独立**：
+   正常执行不需要的可选插件，可独立编译、按需加载、可裁剪。native 实现在 VM 主 builtin 表里的能力
+   （diagnostics 的 heap 查询 / 计数器、harness 的 stdout 捕获 / `black_box`）不属此类：语义层进 core，
+   库本身转纯脚本。编译器 / 工具链包（`src/compiler/**`）一律零 extern。**另：OS 熵原语**
    `__crypto_random_bytes` 不是「crypto 算法」而是 OS 能力（同 `__time_now_*`），归 ③ 的
    cross-cutting 原语，落 core `Std.Runtime.Entropy`——
-   core 的 `Guid.NewGuid` 需要它、prelude 不能反依赖 crypto。crypto 的**算法**（哈希 / HMAC）仍留本类
+   core 的 `Guid.NewGuid` 需要它、prelude 不能反依赖 crypto。crypto 的**算法**（哈希 / HMAC）是纯脚本、留 crypto
    可裁剪；`SecureRandom` 作安全语义门面留 crypto、委托 core 熵原语。
 3. **运行时内核 + cross-cutting 原语**（值语义 / 反射 / GC / libm / 时钟 / 位转换 / **OS 熵**）—— 本就在 `z42.core`。
 
 **其余所有库一律纯脚本、零 interop**（collections / text / encoding / toml / json / yaml / uri / regex /
-cli / random / numerics / io.binary / …），要用 native 时**通过调 core 或工具库的公开 API 间接使用**。
+cli / random / numerics / io.binary / …），要用 native 时**通过调 core 或 ② 类库的公开 API 间接使用**。
 
 > **注意**：zpkg 是可移植字节码，native 引用只是"按名字在 VM **调用期**解析"的字符串，**所有 zpkg
 > 本就跨平台字节相同**（core 也是），且带缺失 builtin 的 zpkg 仍能加载、调用到才报错。本规则**不是**为了

@@ -8,5 +8,8 @@
 
 - **只用当前语言子集**：遇到表达不了的写法，停下汇报——能补进语言的当次补，**禁止在编译器代码里写 workaround**。
   现有的受限写法见[编译器自举 · 受限写法约定](../../internals/src/compiler/self-hosting.md)，沿用它们；不引入新依赖。
+- **编译器零 `extern` / `[Native]`**：`src/compiler/**` 不直接绑 VM builtin，需要的能力调 `z42.core`（或有对应 native
+  库的独立库）的公开 API；缺 API 就先在 core 补通用原语再调用。规则见
+  [包划分 · extern 落点](../../internals/src/stdlib/organization.md#extern-落点只有两处)。
 - **Parser 遇错不抛异常**：记录诊断后继续解析。错误码集中登记（新增流程见
   [错误码体系](../../internals/src/compiler/error-codes.md)）；消息面向语言使用者，不暴露内部名字。
