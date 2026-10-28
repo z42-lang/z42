@@ -91,6 +91,7 @@ zpkg colocate 进 main dist，而惰性加载器**先搜 entry zpkg 同目录**�
 | `crosspkg_ctor_default` | **跨包构造器**省略可选实参 → 注入作者声明的默认值（缺失时会读到零值） | `ConstructTyper._bindNew` → `OverloadBinder._crossPkgDefault`（`$Default` ConstBlob 解码） |
 | `missing_type_skew` | `new` 一个解析不到的类型须抛异常，不得合成零字段空壳 | ObjNew 类型解析 → `symres::missing_type_exception`（`skew-absent.txt`） |
 | `missing_base_skew` / `crosspkg_base_fields_main` | 基类解析不到须抛异常，不得静默退化成「只有自己的成员」 | 继承 fixup → `TypeDescCold::base_unmerged` → `symres::missing_base_exception`（`skew-absent.txt`） |
+| `crosspkg_ctor_chain_main` | 主模块里 `Leaf : Mid : 跨包 Base` 三层构造器链：祖先构造器写的字段不得丢失（直接基类是本地类、但它自己跨包残缺时，子类同样残缺） | `build_type_registry` 的 `base_unmerged` 沿基链传递 → `try_fixup_inheritance` 整链可解析才清位 → ObjNew 换修好的那份 |
 | `module_init_free_function` | 依赖包的 `[ModuleInit]` 在**只调它的自由函数**时也跑 —— 🔴 这条是 `[ModuleInit]` 机制的判别力核心：cctor 屏障推不出自由函数的 owner 类型，纯惰性方案在这条路上永远不跑初始化器 | `LazyLoader::insert_type`（登记）→ `VmContext::ensure_module_inits`（屏障执行） |
 | `module_init_in_exe_rejected` | **负例**：可执行包（`kind = "exe"`）里写 `[ModuleInit]` → E0487；同一 fixture 的 lib 依赖照常可用 —— 禁的是 exe，不是这个特性 | `Z42cCompiler`（kind 判据只有 pipeline 层拿得到）→ `ModuleInitScan.ExeRejectionDiag` |
 | `module_init_on_free_function` | `[ModuleInit]` 标在**顶层自由函数**上（豁免 `static`）端到端真的会跑 —— 编译期放行是一回事，合成的 `$Module.$cctor` 按自由函数发射名（`_q(RegKey)`）去调它是另一回事 | `ModuleInitSynth._targetIrName` 的自由函数分支 |

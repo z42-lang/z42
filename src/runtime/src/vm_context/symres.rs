@@ -407,7 +407,7 @@ pub fn missing_base_exception(
     Some(crate::exception::make_missing_symbol_exception(
         ctx, module,
         format!(
-            "base type `{base}` of `{name}` could not be resolved; every inherited field \
+            "base type `{base}` of `{name}` (or one of its ancestors) could not be resolved; every inherited field \
              and virtual method is absent from the layout — the loaded package may be \
              older than the one this code was compiled against"
         ),

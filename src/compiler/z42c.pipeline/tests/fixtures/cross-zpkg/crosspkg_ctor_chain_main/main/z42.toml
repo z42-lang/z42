@@ -1,0 +1,8 @@
+[project]
+name    = "demo.ctorchainapp"
+version = "0.1.0"
+kind    = "exe"
+pack    = true
+
+[dependencies]
+"demo.ctorchaintarget" = "0.1.0"

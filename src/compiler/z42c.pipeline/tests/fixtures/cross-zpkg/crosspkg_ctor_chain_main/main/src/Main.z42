@@ -1,0 +1,32 @@
+namespace Demo.CtorChainApp;
+
+using Std.IO;
+using Demo.CtorChainTarget;
+
+// 主模块里的三层构造器链，根基类在**另一个包**：`Leaf : Mid : Base`。
+//
+// 主模块的类型注册表构建期合不进跨包基类，Mid 的继承切片残缺（带 `base_unmerged` 旗）；
+// Leaf 的继承切片是从 Mid 拷来的，同样缺 Base 的字段槽。旗子曾只看「直接基类在不在
+// 注册表里」——Leaf 的直接基类 Mid 是本地的 ⇒ 不带旗 ⇒ ObjNew 拿残缺的那份，
+// Base 构造器的 FieldSet 被静默丢弃，`Name` 读出 null。两层（`new Mid`）一直是好的。
+public class Mid : Base {
+    public int Depth;
+    public Mid(string name) : base(name) { this.Depth = 2; }
+}
+
+public class Leaf : Mid {
+    public int Extra;
+    public Leaf() : base("leaf") { this.Extra = 3; }
+    public override string Who() { return "leaf:" + this.Name; }
+}
+
+void Main() {
+    Mid m = new Mid("mid");
+    Console.WriteLine("Mid.Name=" + m.Name + " Count=" + m.Count.ToString() + " Depth=" + m.Depth.ToString());
+    Leaf l = new Leaf();
+    Console.WriteLine("Leaf.Name=" + l.Name + " Count=" + l.Count.ToString()
+        + " Depth=" + l.Depth.ToString() + " Extra=" + l.Extra.ToString());
+    Console.WriteLine("Who=" + l.Who());
+    Base up = l;
+    Console.WriteLine("upName=" + up.Name);
+}
