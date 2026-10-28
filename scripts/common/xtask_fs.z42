@@ -1,26 +1,12 @@
-// xtask — 文件系统原语（scripts-batch3-layering）。
+// xtask — 文件系统原语：**不属于任何命令族**、被 common/ build/ test/ package/ 多方共用的最底层操作。
 //
-// 这些是**不属于任何命令族**、被 common/ build/ test/ package/ 多方共用的最底层
-// 操作。此前它们散落在各命令族的实现文件里，造成三条反向依赖：
+// 依赖只有一个方向：**build / test / package / install 各族 → common/**，族与族之间不互相调用。
+// namespace 扁平 + 裸名互调，编译器不会拦反向依赖，只能靠这条约定守住（scripts/README.md
+// 「目录分层规则」）。
 //
-//   common/xtask_common.z42  ──_copyAll──►  build/xtask_compiler.z42   ❌ 底层反调上层
-//   build/xtask_stdlib.z42   ──_makeExe─►  package/xtask_package.z42  ❌ 平级族互调
-//   package/xtask_release.z42──_resetDir►  build/xtask_compiler.z42   ❌ 平级族互调
-//
-// 收拢到 common/ 后依赖只剩一个方向：**build / test / package / install 各族 → common/**，
-// 族与族之间不再互相 include。namespace 扁平 + 裸名互调，所以「谁定义」纯粹是可读性
-// 问题——但恰恰因为编译器不会拦，反向依赖只能靠这条约定守住。规则见 scripts/README.md
-// 「目录分层」一节。
-//
-// 刻意**没有**收进来的（判据：只有一个文件用，或语义属于某个族而非通用原语）：
-//   - `_copyIfNewer`（build/xtask_compiler.z42）—— 只在同文件用；
-//   - `_stageCopyExt`（build/xtask_stdlib.z42）—— 只在同文件用，且**故意不吞异常**
-//     （staging CI artifact，拷贝失败必须炸而非静默产出残包），与下面 best-effort 的
-//     `_copyAll` 语义相反，不能合并；
-//   - `_rmIfExists`（build/xtask_clean.z42）—— 只在同文件用；
-//   - `_pkgCopyLibs` / `_copyNativeLibs`（package/xtask_package.z42）—— 不是原语：带
-//     `<dir>/libs` `<dir>/native` 的**布局语义** + 报错文案 + 返回码，只在 package/ 内用
-//     （含 `package dev-sdk`）。
+// 收进来的判据：不止一个文件用，且是通用原语。只在本文件用、或带某族布局语义的留在原处
+// （如 `_copyIfNewer`、`_rmIfExists`、`_pkgCopyLibs` / `_copyNativeLibs`）；`_stageCopyExt`
+// （package/xtask_package_dev.z42）**故意不吞异常**，与下面 best-effort 的 `_copyAll` 语义相反，不能合并。
 namespace Z42Xtask;
 
 using Std.IO;
@@ -36,19 +22,13 @@ void _resetDir(string d) {
 // 🔴 `File.Copy` / `File.WriteAllBytes` 都是 **truncate 语义、保留 inode**。于是往一个
 // **硬链接**上写，会把同 inode 的**所有**路径一起改掉 —— 包括那个你没打算碰的源文件。
 //
-// 这不是理论风险，`_assembleStdlibFlatView` 今天就在造这种别名（flat 里每个 zpkg 与
-// 对应成员 dist 同 inode，实测 `links=2`）。实测(临时目录）：
-//   member/p.zpkg ← 硬链接 → flat/p.zpkg，然后 `cp seed.zpkg flat/p.zpkg`
-//   ⇒ **member/p.zpkg 的内容当场变成 seed 的字节**。
-// 可达路径就在供种里：`_ensureSeed` 的 `_copyAll(stdlibDir, flatDir, "z42.*.zpkg")`
-// 把种子 stdlib 拷进 flat ⇒ 成员 dist 被静默改写成种子字节；而它**只拷 zpkg、不拷 zsym**
-// ⇒ 留下 zpkg 新、zsym 旧的**撕开的配对** —— 那正是 relocate-compiler-domain-libs 第 6 轮
-// 「一条 `build_id mismatch` WARN 让 1128 个 golden 假红」的同一个机制。
+// `_assembleStdlibFlatView` 就在造这种别名（flat 里每个 zpkg 与对应成员 dist 同 inode）。
+// 例：`_ensureSeed` 把种子 stdlib `_copyAll` 进 flat ⇒ 若穿透，成员 dist 被静默改写成种子字节，
+// 且留下 zpkg 新、zsym 旧的**撕开的配对**（`build_id mismatch`）。
 //
-// ⇒ 两个函数写入前都先 `File.Delete(dst)`：unlink 只断这一条链、不动别名的其它路径，
-// 之后 `File.Copy` 建的是**新文件**。代价是每文件多一次 unlink，换掉整类「改了 A 结果 B
-// 也变了」的隐形耦合。**不去掉 `_linkAll` 的硬链接本身** —— 它省的是真金白银（cross-zpkg
-// 一轮 ≈198MB 纯拷贝），有害的是「写到别名上」，不是「有别名」。
+// ⇒ 写入前都先 `File.Delete(dst)`：unlink 只断这一条链、不动别名的其它路径，之后 `File.Copy`
+// 建的是**新文件**。**不去掉 `_linkAll` 的硬链接本身** —— 它省掉大量纯拷贝，有害的是
+// 「写到别名上」，不是「有别名」。
 void _unlinkIfExists(string path) {
     if (File.Exists(path)) { try { File.Delete(path); } catch (Exception e) { /* best-effort */ } }
 }
@@ -62,8 +42,6 @@ void _breakHardLink(string path) {
     catch (Exception e) { /* best-effort：失败即保持原状 */ }
 }
 
-// 字节比较。两族共用（test 族的增量对账 / build 族的 `_assertStdlibNotShadowed`）⇒ 按头注
-// 的判据（不止一个文件用 + 是通用原语）收在这里。
 bool _bytesEqual(byte[] a, byte[] b) {
     if (a.Length != b.Length) { return false; }
     int i = 0;
@@ -92,8 +70,7 @@ void _copyAll(string srcDir, string dstDir, string pattern) {
     }
 }
 
-// Hard-link srcDir's matches into flatDir; fall back to Copy across filesystems
-// (mirrors bash `cp -l ... || cp`).
+// Hard-link srcDir's matches into flatDir; fall back to Copy across filesystems.
 void _linkAll(string srcDir, string flatDir, string pattern) {
     if (!Directory.Exists(srcDir)) { return; }
     string[] hits = Path.Glob(srcDir, pattern);
@@ -124,7 +101,7 @@ void _cleanGlob(string dir, string pattern) {
 // 单文件覆盖拷贝：写入前先断链（`File.Copy` 是 truncate 语义，直接写到硬链接上会把同 inode 的
 // 所有路径一起改掉，见上一段头注），且显式 overwrite（`File.Copy` 两参形态目标存在即炸）。
 // 拷贝失败**抛出**——与 best-effort 的 `_copyAll` 相反：调用点都是「装进发布包 / 种子 / SDK」的路径，
-// 残件必须当场红而不是静默缺件。build/ 的 `_copyOverwrite`（被 package/ 跨族调用）已并入这里。
+// 残件必须当场红而不是静默缺件。
 void _copyFile(string src, string dst) {
     _unlinkIfExists(dst);
     File.Copy(src, dst);
@@ -138,17 +115,14 @@ void _makeExe(string path) {
     if (File.Exists(path)) { File.MakeExecutable(path); }
 }
 
-// ── 测试夹具「拷出去再编」（isolate-xtask-fixture-builds）────────────────────────
+// ── 测试夹具「拷出去再编」 ──────────────────────────────────────────────────────
 //
 // 夹具工程（`<组件>/tests/fixtures/<suite>/**`）没有 `[build]`，z42c 按单工程默认布局把 dist /
-// cache / generated 写在**工程目录旁边**；xtask 还在旁边建 `libs/` 中转目录。结果是每跑一轮
-// e2e，源码树里就多出几百个产物目录（实测 ~670）。
+// cache / generated 写在**工程目录旁边**；xtask 还在旁边建 `libs/` 中转目录 ⇒ 原地构建会污染源码树。
 //
 // 做法：每轮把整棵夹具源码树拷到它在 `artifacts/intermediate/` 下的镜像位置（`_workMirror`，先整棵重置），
-// 之后的构建 / 运行全部在
-// 拷贝里进行。好处不只是源码树干净：
-//   · 每轮从零开始 —— 彻底消掉「上一轮留在源码树里的旧格式 zpkg 赢过本轮产物」这一整类假红
-//     （实测 52 个 cross-zpkg 失败，见 `_spawnBuildPkgE` 的头注）；
+// 之后的构建 / 运行全部在拷贝里进行。好处不只是源码树干净：
+//   · 每轮从零开始 —— 消掉「上一轮留下的旧格式 zpkg 赢过本轮产物」这一整类假红；
 //   · 对任何 z42c（含种子）都有效，不依赖 z42c 的 `--output-dir` 是否接管 cache。
 // 拷贝时跳过 `artifacts/` / `dist/`（旧工作树里的残留），其余原样（夹具间的相对 path 依赖不变）。
 string _stageFixtureTree(string root, string srcRel) {

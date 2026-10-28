@@ -1,10 +1,10 @@
-// xtask — packages.toml reader (add-package-layout-config, 阶段 3.2).
+// xtask — packages.toml reader.
 //
 // Parses scripts/packages.toml into two flat registries ([package.*] / [component.*])
 // and resolves a package's `include` names to their component definitions. This
 // module only reads — it knows nothing about how a component is produced (apphost
 // publish vs. cargo-bin vs. stdlib glob) or how a resolved component gets copied
-// into a package tree; that staging/assembly logic is 3.3/4.1b's job. Keeping the
+// into a package tree (xtask_package_install.z42). Keeping the
 // split this narrow means "add a package" or "add a component" is a packages.toml
 // edit only, never a change to this file.
 namespace Z42Xtask;
@@ -126,7 +126,7 @@ _PkgComponent _pkgcfgFindComponent(_PackagesConfig cfg, string name) {
 
 // Resolve a package's `include` names to their component definitions, in include
 // order. Include order only affects copy order, never build order — build order
-// is derived from each component's own dependency graph (design.md Decision 5).
+// is derived from each component's own dependency graph.
 _PkgComponent[] _pkgcfgResolveInclude(_PackagesConfig cfg, string packageName) {
     _PkgPackage pkg = _pkgcfgFindPackage(cfg, packageName);
     _PkgComponent[] resolved = new _PkgComponent[pkg.include.Length];

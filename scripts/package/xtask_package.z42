@@ -1,13 +1,11 @@
-// xtask — release packaging (migrate-scripts-to-z42, split-runtime-launcher-packages).
-// Desktop pipeline functions live in xtask_package_desktop.z42 (500-line split).
-// Same Z42Xtask namespace; calls _exec/_root/_buildCompiler from xtask.z42 (cross-file).
-// Desktop builds two artifacts: SDK (z42c+z42vm+libs) + runtime pkg.
+// xtask — release packaging: package sdk / runtime / workload entry points, RID + cargo helpers,
+// native/stdlib copy, and the source-identity gate. Desktop pipeline: xtask_package_desktop.z42.
 namespace Z42Xtask;
 
 using Std.IO;
 using Std.Time;
 
-// ── shared setup / finish (merge-package-release) ───────────────────────────
+// ── shared setup / finish ───────────────────────────────────────────────────
 // Compute pkgDir (z42-<ver>-<rid>-<profile>[-<variant>]) + create bin/libs/native.
 string _pkgSetupDir(string root, string rid, string version, string profile, string variant) {
     string pkgName = "z42-" + version + "-" + rid + "-" + profile;
@@ -20,12 +18,10 @@ string _pkgSetupDir(string root, string rid, string version, string profile, str
     Console.WriteLine("");
     if (Directory.Exists(pkgDir)) { Directory.Delete(pkgDir, true); }
     Directory.Create(Path.Join(pkgDir, "bin"));
-    // libs/ 与 native/include/ **不在这里建**（fix-package-gates-false-red）：
-    // 谁写谁建（_pkgCopyLibs / _copyAbiHeaders / _copyNativeLibs 各自 ensure 自己的
-    // 目标目录）。此前无条件预建，使 ios/android/wasm 的 workload pack（只装 Sources/
-    // + manifest，libs/headers 全在**另一个** runtime pack 里）带着两个空目录发布，
-    // 而 source-identity 门用「路径存在 ⇒ 本包有这一类」判存在 → 空壳被判成「规则与
-    // 拷贝点脱钩」，三个平台的 package job 全红。空目录消失后该判据重新成立。
+    // libs/ 与 native/include/ **不在这里建**：谁写谁建（_pkgCopyLibsOf / _copyAbiHeaders /
+    // _copyNativeLibs 各自 ensure 自己的目标目录）。ios/android/wasm 的 workload pack 不装这两类
+    // （在另一个 runtime pack 里），预建会留下空目录，而 source-identity 门用「路径存在 ⇒ 本包有
+    // 这一类」判存在 → 空壳被判成「规则与拷贝点脱钩」。
     return pkgDir;
 }
 // 组装完的包过两道门：source-identity（包内拷贝 == 仓库源）+ 包结构（xtask_package_layout.z42）。
@@ -43,7 +39,7 @@ int _pkgFinish(string root, string pkgDir, string kind, string rid) {
     return 0;
 }
 
-// ── package sdk (host SDK only; merge-package-release) ───────────────────────
+// ── package sdk (host SDK only) ─────────────────────────────────────────────
 int _packageSdk(string profile, string variant, bool noBuild) {
     Stopwatch sw = _procStart("package sdk");
     string root = _root();
@@ -69,9 +65,7 @@ int _packageRuntime(string rid, string profile, string variant, bool noBuild) {
     string version = _versionsGet(root);
     if (version.Length == 0) { ConsoleError.WriteLine("error: versions.toml [project].version missing"); return 1; }
     if (category == "desktop") {
-        // host runtime pack 自带 z42-runtime-<rid> 目录，并**自己调 _pkgFinish**
-        // （fix-silent-gates 补上——此前它直接 return 0，而这条注释写的
-        // "finishes internally" 是错的，于是这个已发布产物从不跑 source-identity 门）。
+        // host runtime pack 自带 z42-runtime-<rid> 目录，并**自己调 _pkgFinish**。
         int rc = _buildRuntimePackage(root, rid, version, profile);
         if (rc == 0) { _procEnd("package runtime", sw); }
         return rc;
@@ -117,9 +111,8 @@ string _ridCategory(string rid) { return _vRidCategory(_root(), rid); }
 
 string _ridToCargo(string rid) { return _vRidTriple(_root(), rid); }
 
-// Read versions.toml [project].version with native Std.Toml (was python3).
+// versions.toml [project].version; "" when versions.toml is absent.
 string _versionsGet(string root) {
-    // shared reader (xtask_versions.z42); "" when versions.toml is absent.
     return _vReadOr(root, "project.version", "");
 }
 
@@ -152,13 +145,11 @@ int _cargo(bool rel, string verb, string manifest, string target, string pkg) {
     return _exec(p);
 }
 
-// libz42 的 C 嵌入产物：staticlib + cdylib，**一次** `cargo rustc` 同时产出（cargo-one-rustc）。
+// libz42 的 C 嵌入产物：staticlib + cdylib，**一次** `cargo rustc` 同时产出。
 //
-// 此前是两次调用（先 staticlib 再 cdylib）。代价有两层：① 每次都是 z42 crate 的一遍完整编译 + fat LTO
-// （release 是 lto = true / codegen-units = 1），Windows CI 上 package-host 的 `[2/5]` 因此要 ~6 min，
-// 正卡在整轮 CI 的关键路径上；② `--crate-type` 进 cargo 的指纹，两次调用参数不同 ⇒ **互相使对方失效**，
-// 什么都没改再打一次包也照样两遍全编（本地 `package sdk` 里那段「apphost ready 之后还在 cargo rustc」就是它）。
-// 合成一次后：一遍前端 + 每种产物各自链接；指纹稳定，未改动时直接命中。
+// 不拆两次调用：① 每次都是 z42 crate 的一遍完整编译 + fat LTO（release 是 lto = true / codegen-units = 1）；
+// ② `--crate-type` 进 cargo 的指纹，两次调用参数不同 ⇒ **互相使对方失效**，什么都没改也两遍全编。
+// 一次调用 = 一遍前端 + 每种产物各自链接；指纹稳定，未改动时直接命中。
 // ⚠️ 同一 host release 目标上的其它调用点（scripts/xtask_hooks.z42 的 embed、xtask test desktop）用**同一个
 // 列表**，否则它们与打包交替时还是互相作废。iOS / wasm / android 是别的 target，各管各的。
 string _embedCrateTypes() { return "staticlib,cdylib"; }
@@ -180,7 +171,7 @@ string _embedLinkArg(string target) {
     return "";
 }
 
-// cargo rustc --crate-type=X[,Y] (best-effort: rlib already exists; ignore failure like the .sh).
+// cargo rustc --crate-type=X[,Y] (best-effort: rlib already exists; failure ignored).
 void _cargoRustc(bool rel, string target, string crateType) {
     Process p = _cargoCmd("rustc", _runtimeCargoConfig());
     if (rel) { p = p.Arg("--release"); }
@@ -196,8 +187,7 @@ void _cargoRustc(bool rel, string target, string crateType) {
 // ── file assembly helpers ───────────────────────────────────────────────────
 
 // The shared `[package]` header for the workload manifests (desktop / ios / android
-// / wasm). Empty rid / buildHost are omitted (desktop has neither). Adding a workload
-// manifest field now changes one place instead of four (review §2.5). NOTE: does NOT
+// / wasm). Empty rid / buildHost are omitted (desktop has neither). NOTE: does NOT
 // cover the runtime-pkg manifest (`z42-<rid>`, no `kind`) nor the merged release
 // manifest — those have distinct shapes and stay inline.
 string _workloadPkgHeader(string name, string version, string rid, string profile, string buildHost) {
@@ -212,8 +202,6 @@ string _workloadPkgHeader(string name, string version, string rid, string profil
     if (buildHost.Length > 0) { m = m + "build-host  = \"" + buildHost + "\"\n"; }
     return m + "\n";
 }
-
-// `_copyIfExists` / `_makeExe` 已移至 common/xtask_fs.z42（scripts-batch3-layering）。
 
 // Mobile/wasm packages don't ship z42c — bin/ gets a placeholder README.
 // Shared by _packageAndroid / _packageWasm (ios writes its own inline).
@@ -230,7 +218,7 @@ void _pkgEmitBinReadmePlaceholder(string pkgDir, string targetLabel) {
 // Desktop native libs, by exact file name (an allow-list, not a `libz42*` glob: the shared cargoOut also
 // holds things that must NOT ship from here — the mobile facades libz42_platform_{ios,android}.* that linger
 // from cross builds, the host-only REPL cdylib libz42_repl / z42_repl.dll that z42.repl's ProvideNative hook
-// colocates into programs/z42i/ instead (add-native-dep-config), ...).
+// colocates into programs/z42i/ instead, ...).
 //
 // Embedding libs: libz42 as staticlib + cdylib, and on Windows the cdylib's import library `z42.dll.lib` —
 // without it a C host cannot link z42.dll at all (MSVC links against the import lib, never the .dll).
@@ -243,7 +231,7 @@ bool _isEmbedLib(string f) {
 // stdlib native extensions: the cdylibs z42vm dlopens from `<sdk>/native/` at start-up (native/ext.rs
 // KNOWN_EXT_LIBS). Only the dynamic library — no libz42_compression.a / z42_compression.lib: desktop has no
 // static registration path, and the iOS / Android / wasm presets already link compression into libz42
-// (bundled-compression), so a separate staticlib was unusable everywhere (P0-17). Nor the import lib
+// (bundled-compression), so a separate staticlib was unusable everywhere. Nor the import lib
 // `z42_compression.dll.lib`: nothing links against an ext lib, it is only ever dlopened.
 bool _isNativeExtLib(string f) {
     return f == "libz42_compression.dylib" || f == "libz42_compression.so" || f == "z42_compression.dll";
@@ -251,7 +239,7 @@ bool _isNativeExtLib(string f) {
 
 // Copy the desktop native libs present in cargoOut into native/: the stdlib ext dylibs always, the libz42
 // embedding libs only when `withEmbed` (runtime package — the SDK's z42vm links the VM statically and
-// nothing in the SDK uses libz42, so the SDK ships only the ext dylibs; P0-17). Returns how many ext dylibs
+// nothing in the SDK uses libz42, so the SDK ships only the ext dylibs). Returns how many ext dylibs
 // were copied.
 int _copyNativeLibs(string cargoOut, string pkgDir, bool withEmbed) {
     if (!Directory.Exists(cargoOut)) { return 0; }
@@ -272,14 +260,8 @@ int _copyNativeLibs(string cargoOut, string pkgDir, bool withEmbed) {
 // flat（`artifacts/intermediate/libraries/flat/release`）**不只装 stdlib**：`build compiler` 的破环
 // 预建（`_ensureBootstrapSelfDepLibs`）会把编译器域的包写进去，而 `build stdlib` 的末步
 // `_assembleStdlibFlatView` 又会清空重装 ⇒ 那个目录里此刻有什么，**取决于最后跑的是哪条命令**。
-// 整目录拷因此让**发布包的内容依赖命令顺序**：实测 `build compiler` 之后 flat 里有 10 个
-// 编译器域包，照着打出来的 SDK 的 `libs/` 里就多出 `z42c.core` / `z42c.syntax` / `z42.package`
-// / `z42.project` / `z42.build` 五个 —— 而 relocate-compiler-domain-libs 的验收信号正是
-// 「编译器域一个都不许出现在 shipped `libs/`」。
-//
-// 门（`_testPackagesInstall` 那条断言，原 staging 自检）读的是**同一份可变状态**，所以它只在「恰好撞上脏
-// flat」时才红 —— 能抓到，但抓不住（同 relocate 第 2 轮那条教训：本地绿是命令顺序的巧合）。
-// ⇒ 改成按 `default_members` 逐个拷：**flat 里多出什么都进不来**，与命令顺序无关。
+// 整目录拷会让发布包的内容依赖命令顺序，把编译器域的包带进 shipped `libs/`（编译器域一个都不许出现在那里）。
+// 按 `default_members` 逐个拷：**flat 里多出什么都进不来**，与命令顺序无关。
 int _pkgCopyLibs(string libsDir, string pkgDir) {
     return _pkgCopyLibsOf(_root(), libsDir, pkgDir);
 }
@@ -319,16 +301,9 @@ int _pkgCopyLibsOf(string root, string libsDir, string pkgDir) {
 // ── source-identity invariant（包内副本 vs 仓库源，逐字节） ───────────────────
 //
 // **不是哈希**：直接读两个文件比字节（比 hash 更强——无碰撞面、不依赖外部工具）。
-// 本函数曾名 `_pkgSha256Check`，源自最初 bash `package.sh` 里真的算 sha256sum 的
-// `pkg_sha256_check`（add-host-package-conform design D4）；移植到 z42 时实现换成了
-// 字节比较，名字留了下来，后来正名（fix-package-identity-gate）。
 //
-// **为什么是「包 vs 源」而不是「包 vs 包」**：下表每一类文件，各个包里的副本都拷自
-// 仓库里**同一份源**，故 `A==源 ∧ B==源 ⟹ A==B`——「跨包 byte-identical」是本检查的
-// **推论**。反过来不成立：两两比对只能证明「大家一样」，证不了「大家都对」（所有包
-// 一致地拷了一份陈旧副本时，跨包比对全绿）。且各包在独立 xtask 进程 / 独立 CI job
-// 里打，`_pkgFinish` 只见得到一个 pkgDir，真做跨包比对得先改 CI 拓扑。
-// 论证全文见 变更 fix-package-identity-gate/proposal.md。
+// 「包 vs 源」而不是「包 vs 包」：各包副本都拷自同一份源，`A==源 ∧ B==源 ⟹ A==B`，反之不成立。
+// 设计见 docs/internals/src/devinfra/packaging.md §5。
 
 // 一条规则 = 包内相对路径 ↔ 仓库源绝对路径。
 // PkgRel 落在目录上 → **递归**比对以 Suffix 结尾的文件（Suffix="" 表示全部）；
@@ -363,20 +338,20 @@ _PkgIdentityRule[] _pkgIdentityRules(string root) {
     string andProj = Path.Join(root, "src/toolchain/workload/android/platform");
     string wasmJs  = Path.Join(root, "src/toolchain/workload/wasm/platform/js");
     _PkgIdentityRule[] rs = new _PkgIdentityRule[10];
-    // stdlib zpkg/zsym（_pkgCopyLibs）
+    // stdlib zpkg/zsym（_pkgCopyLibsOf）
     rs[0] = _pkgRule("stdlib libs",        "libs",                          _libsDir(root), "");
     // C ABI 头，三个落点同一份源（_copyAbiHeaders）
     rs[1] = _pkgRule("C ABI headers",      "native/include",                rtInc, ".h");
     rs[2] = _pkgRule("C ABI headers (ios)", "Sources/Z42VMC/include",       rtInc, ".h");
     rs[3] = _pkgRule("C ABI headers (android)", "z42vm/src/main/cpp/include", rtInc, ".h");
-    // iOS（_packageIos:95,97）
+    // iOS（_packageIos）
     rs[4] = _pkgRule("iOS Swift",          "Sources/Z42VM",                 Path.Join(iosSrc, "Sources/Z42VM"), ".swift");
     rs[5] = _pkgRule("iOS Z42VMC dummy.c", "Sources/Z42VMC/dummy.c",        Path.Join(iosSrc, "Sources/Z42VMC/dummy.c"), "");
-    // Android（_pkgEmitAndroidGradleProject:178,182,183）
+    // Android（_pkgEmitAndroidGradleProject）
     rs[6] = _pkgRule("Android Kotlin",     "z42vm/src/main/java",           Path.Join(andProj, "z42vm/src/main/java"), ".kt");
     rs[7] = _pkgRule("Android JNI bridge", "z42vm/src/main/cpp/z42vm_jni.c", Path.Join(andProj, "z42vm/src/main/cpp/z42vm_jni.c"), "");
     rs[8] = _pkgRule("Android CMakeLists", "z42vm/src/main/cpp/CMakeLists.txt", Path.Join(andProj, "z42vm/src/main/cpp/CMakeLists.txt"), "");
-    // wasm（_packageWasm:87）
+    // wasm（_packageWasm）
     rs[9] = _pkgRule("wasm js facade",     "js",                            wasmJs, "");
     return rs;
 }
@@ -395,10 +370,8 @@ int _pkgSourceIdentityCheck(string root, string pkgDir) {
         else                            { i = i + 1; continue; }   // 本包没有这一类
         int n = t.Compared - before;
         if (n == 0) {
-            // 路径在、却一个文件都没比 → 规则与拷贝点脱钩了。**这是失败，不是警告**
-            // （fix-silent-gates 收紧）：#496 初版只打 ⚠ 不计入 Mismatch，
-            // 于是「本门要防的那个形状」自己复发时门是黄的不是红的——正是本轮审计
-            // 要根除的「不会红的门」。规则失联必须让 package 命令挂掉。
+            // 路径在、却一个文件都没比 → 规则与拷贝点脱钩了。**这是失败，不是警告**：
+            // 只打 ⚠ 的话「本门要防的那个形状」自己复发时门是黄的不是红的。
             ConsoleError.WriteLine("  ✗ " + r.Label + ": " + r.PkgRel + " 存在但 0 个文件可比对 —— 规则已与拷贝点脱钩");
             t.Mismatch = t.Mismatch + 1;
         } else {
@@ -416,7 +389,7 @@ int _pkgSourceIdentityCheck(string root, string pkgDir) {
 }
 
 // 递归比对 pkgDir 子树内以 suffix 结尾的文件与 srcDir 下的同名对应文件。
-// **源侧缺失 → 跳过**（沿用原 libs 行为：包里可以有源树没有的产物，如 workload 自带件）。
+// **源侧缺失 → 跳过**（包里可以有源树没有的产物，如 workload 自带件）。
 void _pkgIdentityWalk(string pkgDir, string srcDir, string suffix, string rel, _PkgIdentityTally t) {
     foreach (var name in Directory.Enumerate(pkgDir)) {
         string p = Path.Join(pkgDir, name);

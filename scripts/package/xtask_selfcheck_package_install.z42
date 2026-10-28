@@ -1,5 +1,4 @@
-// xtask — package installer self-check (drop-package-staging；前身是 add-package-layout-config 阶段 3.3 的
-// staging handler 自检 + 4.1b 的 assembly 自检，暂存去掉后合成这一份).
+// xtask — package installer self-check.
 //
 // Same rationale as xtask_selfcheck_packages_config.z42: xtask is an exe, so the
 // [Test]-attribute reflection runner can't see it — this is a plain
@@ -70,14 +69,14 @@ int _testPackagesInstall() {
     string vmBin = Path.Join(pkgDir, "bin/z42vm");
     _stgAssert("bin/z42vm exists", File.Exists(vmBin));
     _stgAssert("bin/z42vm content", File.ReadAllText(vmBin) == "fake-z42vm-binary");
-    // add-native-dep-config: the repl cdylib is NOT put into bin/ (kept out of the
+    // The repl cdylib is NOT put into bin/ (kept out of the
     // shared dir the ext scanner walks). It is colocated into programs/z42i/ by z42.repl's
     // ProvideNative build hook during `z42b publish` — covered by the publish e2e.
     _stgAssert("bin/libz42_repl absent", !File.Exists(Path.Join(pkgDir, "bin/libz42_repl.dylib")));
 
     // native (runtime package): the libz42 embedding libs incl. the Windows import lib + the ext dylib,
     // headers copied from the real src/runtime/include/. Excluded by _copyNativeLibs' allow-list: the
-    // compression staticlib / import lib (P0-17), the mobile facade, the repl cdylib.
+    // compression staticlib / import lib, the mobile facade, the repl cdylib.
     _stgAssert("native/libz42.a exists", File.Exists(Path.Join(pkgDir, "native/libz42.a")));
     _stgAssert("native/libz42.dylib exists", File.Exists(Path.Join(pkgDir, "native/libz42.dylib")));
     _stgAssert("native/z42.dll.lib (import lib) exists", File.Exists(Path.Join(pkgDir, "native/z42.dll.lib")));
@@ -89,7 +88,7 @@ int _testPackagesInstall() {
     _stgAssert("native/include/z42_abi.h exists", File.Exists(Path.Join(pkgDir, "native/include/z42_abi.h")));
     _stgAssert("native/include/z42_host.h exists", File.Exists(Path.Join(pkgDir, "native/include/z42_host.h")));
 
-    // native-ext (SDK package): only the ext dylib z42vm dlopens — no embedding libs, no headers (P0-17).
+    // native-ext (SDK package): only the ext dylib z42vm dlopens — no embedding libs, no headers.
     string extDir = _xtaskWork(root, "install-test-ext");
     _resetDir(extDir);
     _PackagesConfig extCfg = _instConfig("install-test-ext", new string[]{ "native-ext" },
@@ -109,13 +108,11 @@ int _testPackagesInstall() {
 
     // 🔴 **装 libs 必须按成员清单，而不是「flat 里有什么拷什么」**。
     //
-    // 上面那两组「不得出现在 libs/」的断言读的是**真实 flat 的当下状态** —— 而 flat 里有什么
-    // 曾取决于最后跑的是哪条命令（`build compiler` 的破环预建往里写，`build stdlib` 末步又清空； 起
-    // `build compiler` 自建完即清走，但中途失败仍可能留下）。
-    // 所以它们**能抓到、抓不住**：实测 `build compiler` 之后打包，SDK 的 `libs/` 里就多出
-    // `z42c.core` / `z42c.syntax` / `z42.package` / `z42.project` / `z42.build` 五个。
+    // 下面那两组「不得出现在 libs/」的断言读的是**真实 flat 的当下状态** —— 而 flat 里有什么
+    // 取决于最后跑的是哪条命令（`build compiler` 的破环预建往里写，中途失败可能留下），
+    // 所以它们**能抓到、抓不住**。
     //
-    // 这一格改成**密闭**的：自己造一个「被污染的 libs」，看安装会不会把入侵者带进去。
+    // 这一格是**密闭**的：自己造一个「被污染的 libs」，看安装会不会把入侵者带进去。
     // 与命令顺序无关 ⇒ 它守的是**构造**，不是当下这一刻的目录内容。
     string fakeLibs = _xtaskWork(root, "install-test-fake-libs");
     _resetDir(fakeLibs);
@@ -137,12 +134,7 @@ int _testPackagesInstall() {
             f != "z42c.core.zpkg" && f != "z42.workload.ios.zpkg" && f != "totally.random.zpkg");
     }
 
-    // 🔴 **编译器域一个都不许出现在 shipped `libs/`**（relocate-compiler-domain-libs 的验收信号）。
-    //
-    // 这条是从原 `compiler-libs` 自检里**救回来并泛化**的那一半：那块原本有两条成对断言，
-    // ①「契约包在 compiler-libs/ 里」随该目录一并删除，而 ②「它**不在** libs/」**依然成立、
-    // 而且现在更重要** —— 删机制时顺手把这半也删掉，正是本仓反复吃过的「迁移带走一道活门」。
-    // 注释原话：只测①不测②，这门就管不住「哪天有人图省事把它塞进 libs/ 了事」。
+    // 🔴 **编译器域一个都不许出现在 shipped `libs/`**。
     // 清单读 `_compilerMembers`（compiler workspace 的 default_members）：拆出新编译器包时本门自动跟上，
     // 不留「名单在自检里手抄一份」的漂移面。
     string[] domain = _compilerMembers(root);
@@ -155,9 +147,8 @@ int _testPackagesInstall() {
 
     // 🔴 **workload 包一个都不许出现在 shipped `libs/`**。
     //
-    // 实测发布包里曾有 `z42.workload.{desktop,ios,android,wasm}.zpkg` 四个 —— 不是有人存心放的，
-    // 是它们的清单把 `dist_dir` 指向了 stdlib flat（为了让 launcher 的名字依赖解析得到），
-    // 而打包把 flat **整目录**拷进 `libs/`。`libs/` 是用户面的标准库表面，workload 不属于那里。
+    // workload 清单的 `dist_dir` 指向 stdlib flat（为了让 launcher 的名字依赖解析得到），flat 里因此有
+    // `z42.workload.*`。`libs/` 是用户面的标准库表面，workload 不属于那里。
     //
     // 按**前缀**判而不是列四个名字：下一个 workload 加进来时这门自动管得住它
     // （列名字的门只在有人想起来改它时才成立 —— 那正是「靠约定」）。

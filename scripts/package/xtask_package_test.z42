@@ -1,5 +1,4 @@
-// xtask — test workload packaging (package-test-workload).
-// Same Z42Xtask namespace.
+// xtask — test workload packaging.
 //
 // The test workload is a PAYLOAD-ONLY workload (unlike desktop/ios/android/wasm,
 // which are per-RID "tooling"): a single platform-agnostic payload — the test-agent
@@ -8,15 +7,15 @@
 // the corpus on any platform via the embedded test-host.
 //
 // Reuses the desktop template's RID-agnostic manifest shape (kind="workload-tooling",
-// host=["*"], no runtime pack) but describes its single zpkg via a new
-// [contents.payload] section (design D6): install/index code keeps recognising
+// host=["*"], no runtime pack) but describes its single zpkg via a
+// [contents.payload] section: install/index code keeps recognising
 // kind="workload-tooling" and skips bedding when runtimes=[] (same path desktop uses).
 namespace Z42Xtask;
 
 using Std.IO;
 
 // Build the payload-only test workload → z42-workload-<version>-test/ (the agent
-// zpkg + a payload manifest). No per-RID pieces, so NO merge step (design D6b): the
+// zpkg + a payload manifest). No per-RID pieces, so NO merge step: the
 // dir this produces IS the final publishable artifact (release/CI just tars it).
 int _buildTestWorkload(string root, string version, string profile) {
     if (profile.Length == 0) { profile = "release"; }
@@ -35,7 +34,7 @@ int _buildTestWorkload(string root, string version, string profile) {
     Console.WriteLine("      ✓ z42.testagent.zpkg (payload)");
 
     // Payload-only manifest: RID-agnostic (host=["*"]), no runtime pack, single zpkg
-    // payload described by [contents.payload] (design D6/D6a).
+    // payload described by [contents.payload].
     string m = _workloadPkgHeader("z42-workload-test", version, "", profile, "");
     m = m + "[contents.payload]\n";
     m = m + "payload = \"z42.testagent.zpkg\"  # platform-agnostic test-agent app.zpkg\n";

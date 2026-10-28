@@ -1,11 +1,10 @@
-// xtask — browser-wasm packaging (migrate-scripts-to-z42; runtime/workload split
-// for version management — impl-workload-install B2-3).
+// xtask — browser-wasm packaging.
 //
 // Splits into TWO artifacts (mirrors ios/desktop):
 //   _buildRuntimePackageWasm → z42-runtime-<ver>-browser-wasm/  (native/{libz42.a,
 //       z42_wasm_bg.wasm,include} + pkg-web/ + pkg-nodejs/ + libs/) — the wasm runtime
 //       (wasm module + wasm-bindgen bindings), version-managed independently.
-//   _packageWasm            → workload tooling (js/ + package.json) — UNCHANGED; the
+//   _packageWasm            → workload tooling (js/ + package.json); the
 //       runtime's pkg-web/pkg-nodejs are symlinked into the tooling at `z42 workload
 //       install` so the package.json `exports` map resolves them (no path rewrite).
 //
@@ -74,7 +73,7 @@ int _packageWasm(string root, string pkgDir, string rid, string version, string 
     Console.WriteLine("[1/3] bin/ placeholder");
     _pkgEmitBinReadmePlaceholder(pkgDir, "browser-wasm");
 
-    // js/ facade + package.json (UNCHANGED; `z42 workload install` symlinks the runtime
+    // js/ facade + package.json (`z42 workload install` symlinks the runtime
     // pack's pkg-web/pkg-nodejs into the tooling so the package.json `exports` map resolves).
     Console.WriteLine("[2/3] js/ + package.json (tooling)");
     string jsDir = Path.Join(wasmRoot, "js");

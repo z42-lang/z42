@@ -1,20 +1,17 @@
-// xtask — execution-profile vocabulary + support matrix (add-exec-profile-matrix),
-// The single home shared by `test` and `bench` for describing WHICH
-// {mode × platform × capability} cell a run exercises, and whether that cell is
+// xtask — execution-profile vocabulary + support matrix, shared by `test` and `bench`:
+// WHICH {mode × platform × capability} cell a run exercises, and whether that cell is
 // runnable / skipped-not-yet / never on the target VM binary.
+// Design: docs/internals/src/testing/exec-profile-matrix.md.
 //
-// mode is an execution COMPOSITION, not a scalar (design Decision 8):
+// mode is an execution COMPOSITION, not a scalar:
 //   tiers    — active backends this run uses; interp is always present, +jit.
-//   aot_pkgs — zpkgs precompiled to AOT. Empty today; a non-empty set (partial
-//              or full AOT, AOT+JIT hybrid) is `skipped-not-yet` until roadmap
-//              M9 implements AOT execution + its per-zpkg config. This change
-//              only MODELS the shape so results tag it and the matrix reserves it.
+//   aot_pkgs — zpkgs precompiled to AOT. Always empty for now; a non-empty set is
+//              `skipped-not-yet` until roadmap M9 implements AOT execution. Only the
+//              shape is modelled so results tag it and the matrix reserves it.
 //
 // caps come from the target VM itself: the harness runs src/benches/probe/capabilities.z42
 // (→ Std.Platform.Capabilities()/ExecModes()) under the binary being measured, so
 // each result carries real caps — never a static guess.
-//
-// Same Z42Xtask namespace; callers use these `_ep*` helpers by bare name.
 namespace Z42Xtask;
 
 using Std.IO;
@@ -223,15 +220,11 @@ string _epBenchModeKey(JsonValue b) {
 // `root` is the tree being measured; for `bench stdlib --json` under
 // bench-pr.yml's "Capture base micro baseline" that is base-src, a checkout of
 // the PR's merge base. So the probe must exist at the same path in BOTH trees —
-// any PR that moves it needs a transitional fallback here (move-bench-into-tests
-// carried one for exactly one PR, removed once main had the new layout).
+// any PR that moves it needs a one-PR transitional fallback here.
 //
-// Both the missing-source and failed-compile paths used to be silent: this
-// function ignored the compiler's exit code and _epProbe turned any unparseable
-// output into an empty VmCaps. An empty profile still yields a mode key
-// ("@/"), so base and PR rows stop matching and the whole micro diff degrades
-// to (new)/(removed) — invisible, because the micro tier is informational.
-// Hence the explicit checks and the loud warnings.
+// Missing-source / failed-compile must be loud: an empty profile still yields a
+// mode key ("@/"), so base and PR rows stop matching and the whole micro diff
+// degrades to (new)/(removed) — invisible, because the micro tier is informational.
 string _epEnsureProbe(string root, string vm, string driver, string libs) {
     string src = Path.Join(root, "src/benches/probe/capabilities.z42");
     if (!File.Exists(src)) {

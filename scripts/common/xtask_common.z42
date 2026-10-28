@@ -1,8 +1,5 @@
-// xtask — shared common code (unify-scripts-into-xtask). One home for
-// the infrastructure every xtask module reuses: repo-root + process-exec helpers,
-// the long artifact paths, the relative source paths, and the bin-invocation
-// builders (cargo / dotnet-driver). Same Z42Xtask namespace, so callers reference
-// these by bare name across files.
+// xtask shared infrastructure: repo root + process exec, z42c invocation, toolchain
+// selector, verbosity, cold-start seed resolution, built-binary paths, cargo builders.
 namespace Z42Xtask;
 
 using Std.IO;
@@ -11,8 +8,8 @@ using Std.Time;   // Stopwatch — diagnostic-level elapsed timing
 // ── 源码常量 / zpkg 头 ───────────────────────────────────────────────────────
 
 // 源码里 `<decl><n>;` 的 n（如 "public static int CompilerFingerprint = "）；读不到 → -1。
-// **从源码树读、不用编进 xtask 的常量**：xtask 自身可能是旧二进制（反复踩过的假故障），
-// 编进去的版本号会跟着一起旧，那就正好在最需要它的场合失效。
+// **从源码树读、不用编进 xtask 的常量**：xtask 自身可能是旧二进制，编进去的版本号会跟着
+// 一起旧，那就正好在最需要它的场合失效。
 int _srcIntConst(string file, string decl) {
     if (!File.Exists(file)) { return -1; }
     string t = File.ReadAllText(file);
@@ -53,14 +50,12 @@ string _root() {
 }
 
 // resolve a possibly-relative path under the repo root (absolute paths unchanged).
-// bench（--diff / --micro-diff 的 json 路径）与 test（`bench stdlib --json` 落盘）共用。
 string _absUnder(string root, string p) {
     if (p.StartsWith("/")) { return p; }
     return Path.Join(root, p);
 }
 
-// `git <a> <b> <c>` at root, stdout trimmed; "unknown" on failure（bench 结果信封与 micro 聚合器的
-// commit / branch 字段共用）。
+// `git <a> <b> <c>` at root, stdout trimmed; "unknown" on failure.
 string _gitOut(string root, string a, string b, string c) {
     ProcessResult r = new Process("git").Arg(a).Arg(b).Arg(c).WorkingDirectory(root).Run();
     if (r.ExitCode == 0) { return r.Stdout.Trim(); }
@@ -75,10 +70,8 @@ int _exec(Process p) {
         .Run().ExitCode;
 }
 
-// Like _exec but runs in an explicit working directory instead of _root().
-// Needed by the stdlib primer, which must invoke `z42c build --workspace` from
-// src/libraries (where the workspace toml lives) with --project relative to it.
-// (Passing a WorkingDirectory to _exec is silently overridden to _root().)
+// Like _exec but runs in an explicit working directory — passing a WorkingDirectory
+// to _exec is silently overridden to _root().
 int _execIn(Process p, string wd) {
     return p.WorkingDirectory(wd)
         .Stdout(Stdio.Inherit())
@@ -86,22 +79,18 @@ int _execIn(Process p, string wd) {
         .Run().ExitCode;
 }
 
-// ── z42c 编译执行模式 + workspace 构建收敛（consolidate-z42c-invocations）──────
+// ── z42c 编译执行模式 + workspace 构建 ───────────────────────────────────────
 
 // z42c 编译（xtask 驱动 z42vm 跑 z42c.driver）走 interp 还是 jit 的单一开关。
-// **默认 jit**：jit-fixpoint-check 四平台确认 z42c workspace 编译 interp==jit 逐字节一致，
-// 且 jit 快 1.67×（小编译）–3.6×（大编译），故自举不动点的信任基线已移到 cranelift/JIT。
+// **默认 jit**：四平台 z42c workspace 编译 interp==jit 逐字节一致，自举不动点的信任基线在 JIT。
 // 逃生舱 Z42C_BUILD_MODE=interp|jit（格式-bump 窗口 / 确定性审计 / 调试时回解释器）。
-//
-// 注：此处原先叠着两段互相矛盾的注释——上一段停留在「默认 interp、翻 jit 是待办的 B 步」，
-// 下一段才是翻默认之后的实况。翻默认时只追加了新注释、没删旧的（fix-xtask-doc-drift 清理）。
 string _z42cMode() {
     string m = Environment.GetEnvironmentVariable("Z42C_BUILD_MODE", "");
     if (m == "interp" || m == "jit") { return m; }
     return "jit";
 }
 
-// z42c `build --workspace --release` 的单一封装（§2.1）：stdlib / compiler gen1 / gen2
+// z42c `build --workspace --release` 的单一封装：stdlib / compiler gen1 / gen2
 // 三处 workspace 构建共用，把「gen1、gen2 必须完全同参」的自举不动点不变量从注释纪律
 // 固化成代码（三处仅 driver / cwd / libs 不同，mode 恒同经 _z42cMode()）。
 // noIncremental：凡是「必须真编一遍才有意义」的构建（不动点 gen2、编译器输出对比）传 true——
@@ -155,11 +144,6 @@ int _verifyMemberZpkgs(string wsToml, string[] members, string profile) {
     return fail;
 }
 
-// (_sh removed: the generic shell-string passthrough is gone — its
-// last caller, `run`, is now a native Process spawn. The few remaining bash
-// invocations elsewhere run SPECIFIC committed .sh scripts (install-z42.sh
-// cold-start primer), not arbitrary shell.)
-
 // Make xtask's z42vm visible to child tool subprocesses whose FindVm() locates
 // z42vm via (1) Z42VM env, (2) artifacts/build/runtime/..., (3) PATH. The launcher
 // exports Z42_PORTABLE_VM (the vm we run on) but NOT Z42VM, and in download/portable
@@ -195,8 +179,7 @@ string _z42vm() {
 // ── string / collection helpers (shared across modules) ─────────────────────
 
 /// Non-mutating sort: copy then sort the copy in place via `_sortStrings`
-/// (xtask_golden.z42) — one sort algorithm shared by both entry points.
-/// Deterministic ascending (load-order determinism rule); n is small (≤ ~64 entries).
+/// (xtask_golden.z42). Deterministic ascending (load-order determinism rule).
 string[] _sortedStrings(string[] src) {
     int n = src.Length;
     string[] arr = new string[n];
@@ -235,9 +218,8 @@ string[] _splitWords(string s) {
 
 // The SDK toolchain root in `.z42` layout (programs/z42c/*.zpkg + libs/ + bin/), or
 // "" when unset. Read from Z42_HOME — the single "SDK root" var, set either by the
-// launcher/install or by the global `--toolchain <dir>` option (which now exports
-// Z42_HOME so every helper + spawned child sees it; simplify-compiler-build folded the
-// former Z42_TOOLCHAIN into Z42_HOME). A MANAGED Z42_HOME uses a different layout
+// launcher/install or by the global `--toolchain <dir>` option (which exports
+// Z42_HOME so every helper + spawned child sees it). A MANAGED Z42_HOME uses a different layout
 // (runtimes/<ver>/ + config.toml, no programs//bin/z42vm); callers guard on programs/
 // (_seedSdkDir) or bin/z42vm existence (_activeVm) and fall back to the build tree when
 // this root is not an SDK-toolchain layout. Relative → repo root.
@@ -253,8 +235,8 @@ string _toolchainLibs(string tcDir) {
     return Path.Join(tcDir, "libs");
 }
 
-// z42c driver-home inside a `.z42` toolchain: <dir>/programs/z42c (driver + the 6
-// siblings colocated, so the VM resolves them next to the entry zpkg).
+// z42c driver-home inside a `.z42` toolchain: <dir>/programs/z42c (driver + its
+// sibling members colocated, so the VM resolves them next to the entry zpkg).
 string _toolchainDriverHome(string tcDir) {
     return Path.Join(Path.Join(tcDir, "programs"), "z42c");
 }
@@ -282,8 +264,8 @@ string _activeVm(string root, string profile) {
 
 // ── verbosity (MSBuild-style, cumulative): quiet<minimal<normal<detailed<diag ─
 //
-// Set via the global `--verbosity` / `-v <level>` option (stripped in xtask_cli),
-// stashed in Z42_VERBOSITY (canonical name) so spawned children inherit it.
+// Set via the global `--verbosity` / `-v <level>` option, stashed in Z42_VERBOSITY
+// so spawned children inherit it.
 //   quiet(0)      errors only
 //   minimal(1)    + ▶/✔ start & end markers per process         (default)
 //   normal(2)     + the final resolved result of each step
@@ -427,15 +409,14 @@ static class SeedStage {
 //    再 `build compiler`，调试时的常规动作）下，`Z42_LIBS` 可能指着**当前源**的 flat，而 driver
 //    刚从 SDK staged ⇒ 两者不同代，拿 env 就会让种子 driver 崩在旧 FQN 上。
 // ② **本进程启动时的 `Z42_LIBS`**（暖树：driver 是树内自建那代）。谁启动 xtask，谁就知道这个
-//    种子该配哪一代库；`ci-bootstrap` 正是这么传的（`boot_libsw`：快路径 = 下载的种子 libs；
+//    种子该配哪一代库；`ci-bootstrap` 正是这么传的（快路径 = 下载的种子 libs；
 //    **格式 bump 在飞时 = 两代路径产出的当代 stdlib**）。
 // ③ **SDK libs**（`Z42_HOME/libs`，其次仓内 dev 装 `.z42/`）—— 本地 apphost 启动时会自己把
 //    `Z42_LIBS` 设成 SDK libs，所以 ② 和 ③ 在本地通常同值。
 //
 // 🔴 为什么 ③ 不能无条件排前面：「SDK 就是种子那一代」这个假设**只在没有格式 bump 时成立**。
-//    zpkg/zbc 格式 bump 在飞时 SDK 还是**上一代格式**，拿它补 run-libs 会被 strict-pin 当场拒收：
-//      `zpkg minor 49 not supported (writer is at 0.50); regen via xtask build stdlib`
-//    （格式 bump 在飞、nightly 尚在旧版时实测命中）。
+//    zpkg/zbc 格式 bump 在飞时 SDK 还是**上一代格式**，拿它补 run-libs 会被 strict-pin 当场拒收
+//    （`zpkg minor N not supported …`）。
 //
 // ⚠️ 这里**故意不加**「minor 必须等于本树写端」的门：两代自举的 gen0 那一腿本就要用**旧** VM
 //    跑旧格式的种子，那道门会当场误报。判「配没配对」得比对**正在用的那个 VM**，不是源码树。
@@ -452,11 +433,11 @@ string _seedLibsSource(string root) {
     return "";
 }
 
-// ── 种子代的运行期 libs 快照（rename-project-namespaces B2）────────────────────
+// ── 种子代的运行期 libs 快照 ─────────────────────────────────────────────────
 //
 // **为什么需要它**：自举时跑的是**上一代** z42c 二进制。它运行期要加载那一代的 stdlib
 // （按它自己编译时的 FQN 调用），而它正在编译的源码要解析**当前源**新建出来的库。
-// 两件事此前共用 flat 一个目录 ⇒ 预建一覆盖 flat，种子 driver 自己就崩（改名/删符号时必然）。
+// 两件事若共用 flat 一个目录 ⇒ 预建一覆盖 flat，种子 driver 自己就崩（改名/删符号时必然）。
 //
 // 种子 driver 的调用把这里挂成运行期 probing、flat 当 `Z42_LIBS`（编译期面，见 `_z42cProcSeed`）。
 // driver 换代之后的调用两者同代，只用 flat。
@@ -471,11 +452,6 @@ string _seedRunLibs(string root, string profile) {
 // 或上一轮跑到一半，拿到的就是新代 ⇒ 种子 driver `MissingSymbolException`）。锚是**上一次自建成功时**的 flat
 // stdlib（`_snapshotDriverGenLibs`），那一刻它正是新 driver 编译时对着的那一代，见 `_relocateSeedRunLibs`。
 
-// Ensure an in-tree z42c + stdlib seed exists so the self-build (and its gen2
-// byte-identical fixpoint) can run. No-op when the in-tree seed is already present
-// (WARM). When absent (COLD), stage the resolved seed (Z42_LIBS / Z42_HOME
-// (--toolchain) / apphost SDK) into the in-tree layout — mirroring what CI used to
-// hand-copy. Returns 0 on success (or already warm), 1 if no seed source.
 // 供种覆盖了成员 m 的 dist ⇒ 作废它的增量 cache（让 workspace 自建按当前源重编，而不是 preserved 种子产物），
 // 并让 zsym 与种子 zpkg 配对：种子带 zsym 就用它的，不带就删掉 dist 里上一次构建留下的那份。
 void _seedInvalidateMember(string root, string m, string profile, string dist, string seedDir) {
@@ -487,15 +463,20 @@ void _seedInvalidateMember(string root, string m, string profile, string dist, s
     if (File.Exists(seedSym)) { File.Copy(seedSym, distSym); }
 }
 
+// Ensure an in-tree z42c + stdlib seed exists so the self-build (and its gen2
+// byte-identical fixpoint) can run. No-op when the in-tree seed is already present
+// (WARM). When absent (COLD), stage the resolved seed (Z42_LIBS / Z42_HOME
+// (--toolchain) / apphost SDK) into the in-tree layout. Returns 0 on success (or
+// already warm), 1 if no seed source.
 int _ensureSeed(string root) {
     string profile = "release";
     string flatDir = _libsFlatDist(root, profile);
     string inDriver = _driverZpkg(root, profile);
     string inCore = Path.Join(flatDir, "z42.core.zpkg");
     // 🔴 **只缺 flat ≠ 冷树**。flat 是 stdlib 成员 dist 汇聚出的视图（clean intermediate、手动删都会让它没了），
-    // 而 driver 还是本树当前那一代。此前这里一律落到下面的整树供种 ⇒ 用**上一代**种子覆盖当前的编译器成员 dist，
-    // 偏偏增量缓存还在 ⇒ workspace 自建「preserved」把种子产物当本代留下（emission 对着旧 semantics 报 E0404、
-    // 自举不动点 gen1≠gen2）。只缺 flat 时只给 flat 铺种子 stdlib，编译器一个不碰；随后 `build stdlib` 按当前源重建。
+    // 而 driver 还是本树当前那一代。若落到下面的整树供种 ⇒ 用**上一代**种子覆盖当前的编译器成员 dist，
+    // 而增量缓存还在 ⇒ workspace 自建「preserved」把种子产物当本代留下（gen1≠gen2）。
+    // 只缺 flat 时只给 flat 铺种子 stdlib，编译器一个不碰；随后 `build stdlib` 按当前源重建。
     int wantGen = _treeZpkgMinor(root);
     if (File.Exists(inDriver) && File.GetSize(inDriver) > 0L && !File.Exists(inCore)
         && (wantGen <= 0 || _zpkgFileMinor(inDriver) == wantGen)) {
@@ -511,12 +492,8 @@ int _ensureSeed(string root) {
     }
     if (File.Exists(inDriver) && File.GetSize(inDriver) > 0L
         && File.Exists(inCore) && File.GetSize(inCore) > 0L) {
-        // ⚠️ 「在不在」不等于「能用」——warm 判据此前只有 Exists + size>0，于是**任意老的**
-        // in-tree 产物都会被无声复用。实证代价：一棵树里躺着 zpkg 0.48 时代的
-        // driver，那一代的静态初始化还走 `__static_init__`，而 unify-static-init-into-cctor
-        // 已把运行期对它的支持删掉 ⇒ 静态量永不初始化，崩成
-        // `ArrayGet: expected array, got Null @ PrimModel.SurfaceName` —— 一个和「种子过期」
-        // 毫无字面关系的地方，还把人引去怀疑「main 有回归」。
+        // ⚠️ 「在不在」不等于「能用」：老一代 in-tree 产物被无声复用时，失败形态是运行期崩在
+        // 某个未初始化的静态量上，与「种子过期」毫无字面关系。
         // 所以这里加一道**代际校验**：产物的格式 minor 必须等于本源码树写端的 minor。
         int want = _treeZpkgMinor(root);
         int gotDriver = _zpkgFileMinor(inDriver);
@@ -570,12 +547,10 @@ int _ensureSeed(string root) {
 
     // 🔴 供种的期望清单来自**当前** `_compilerMembers()`，而种子是**上一代** —— **成员集合一变，
     // 这里立刻不匹配**，且只在冷启动（走供种）暴露，本地 warm 树看不见。
-    // relocate-compiler-domain-libs 就是这么让 CI 八个 job 全红在 `[3/5]` 的：
-    // `z42.scripting` 那一代还住种子的 `libs/`，当前源期望它在 `programs/z42c/`。
-    // ⇒ **挪动编译器成员集合前，先想「上一代种子里这个文件在哪」**（曾为此留过一代 `libs/` 兜底）。
-    // **新增成员**（种子那一代还没有它，如拆出的 z42c.optimization）不算缺：供种只给 dist 预置一份可用的上一代，
+    // ⇒ **挪动编译器成员集合前，先想「上一代种子里这个文件在哪」**。
+    // **新增成员**（种子那一代还没有它）不算缺：供种只给 dist 预置一份可用的上一代，
     // 随后的 `build --workspace` 按拓扑序从当前源建出每个成员。缺了就跳过、打一行提示；唯独 driver 必须有
-    // （它就是种子本身，下面的种子 driver 要靠它跑）。此前一律报错 ⇒ 新增成员的 PR 冷启动必红，而 nightly
+    // （它就是种子本身，下面的种子 driver 要靠它跑）。若一律报错 ⇒ 新增成员的 PR 冷启动必红，而 nightly
     // 只从绿的 main 发布 ⇒ 永远拿不到带新成员的种子（死锁）。
     //
     // 🔴 **成员 dist 与它的增量缓存必须出自同一次构建**。往 dist 里放种子产物时，同时作废该成员的 cache、删掉
@@ -600,11 +575,9 @@ int _ensureSeed(string root) {
         }
         i = i + 1;
     }
-    // 自举纪律（converge-z42c-ir-metadata 修）：种子 driver 可能是**收敛前**的 nightly
-    // （z42c.ir/z42c.project 尚在其兄弟集、当前 members 已不含）。它运行时按 entry-dir 解析兄弟，
-    // 缺 z42c.project → `ZpkgBuilder.Sha256Hex` 等 undefined（CI bootstrap 全红根因）。故把
-    // driverHome 的**全部 z42c.* 兄弟**（含遗留 z42c.ir/z42c.project）铺到 driver dist，令种子
-    // driver 自包含可跑。gen1 起用当前成员就地覆盖，遗留兄弟无害闲置（当前 z42c 不引用）。
+    // 自举纪律：种子 driver 的兄弟集可能含当前 members 已没有的包。它运行时按 entry-dir 解析兄弟，
+    // 缺一个就 undefined。故把 driverHome 的**全部 z42c.* 兄弟**铺到 driver dist，令种子 driver
+    // 自包含可跑。gen1 起用当前成员就地覆盖，遗留兄弟无害闲置。
     string driverDist = _driverDist(root, profile);
     Directory.Create(driverDist);
     _copyAll(driverHome, driverDist, "z42c.*.zpkg");
@@ -631,8 +604,6 @@ int _ensureSeed(string root) {
 string _libsDir(string root) {
     return _libsFlatDist(root, "release");
 }
-
-// `_packagesDir` → common/xtask_layout.z42（top-level buckets，centralize-xtask-layout）。
 
 // Absolute path to a cargo-built binary under artifacts/build/runtime/<profile>/,
 // WITH the platform exe suffix. Critical for File.Exists checks on Windows: the
@@ -692,7 +663,7 @@ bool _have(string bin) {
 }
 
 // `<bin>` 不在 PATH 上 ⇒ 打一行 `error: <bin> not found (<hint>)` 并返回 false（调用方 return 1）。
-// 平台测试 backend（desktop / ios / android）与 embedded 的入口门：此前 13 处各写一遍四行 if 块。
+// 平台测试 backend（desktop / ios / android）与 embedded 的入口门。
 bool _requireTool(string bin, string hint) {
     if (Process.Which(bin) != null) { return true; }
     ConsoleError.WriteLine("error: " + bin + " not found (" + hint + ")");

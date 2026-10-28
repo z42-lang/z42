@@ -1,8 +1,7 @@
 // xtask — 门禁棘轮与白名单的单一配置 `scripts/test/gates.toml` 的读写面。
 //
-// 为什么收进一个 toml：原 5 份散置 txt 基线各自一套格式与读写代码，且「白名单」类配置
-//（doc-lints 的 allow、stage2 的宽限天数）没有自然的家。统一后：机器维护区由各门的
-// `--update` 重写（`# z42-gates:<name>-begin/end` 标记之间），手写配置区按需增改。
+// 机器维护区由各门的 `--update` 重写（`# z42-gates:<name>-begin/end` 标记之间），
+// 手写配置区（白名单等）按需增改。
 //
 // 只提供两个原语：读一张表（_gatesSection，缺失返回空表）与重写一个机器区段
 //（_gatesWriteSection，标记不存在则追加到文件尾）。解析用 Std.Toml；重写走文本拼接——
@@ -63,8 +62,7 @@ void _gatesWriteSection(string root, string name, string[] bodyLines, int bn) {
     File.WriteAllTextAtomic(p, text.Substring(0, b) + block + tailRest);
 }
 
-// toml 基本字符串引号（路径 / 日期这类只可能含反斜杠与引号的值）。原住 xtask_test_lines.z42，
-// 行数门禁退役后随 gates 写入面安家于此。
+// toml 基本字符串引号（路径 / 日期这类只可能含反斜杠与引号的值）。
 string _tomlQuote(string s) {
     return "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
 }

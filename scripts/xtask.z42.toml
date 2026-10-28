@@ -1,4 +1,4 @@
-# xtask — z42 repo dev CLI (add-xtask-cli, 2026-06-04).
+# xtask — z42 repo dev CLI.
 # Built to an Exe-zpkg, run via the launcher: `z42 xtask.zpkg <command> [args]`.
 [project]
 name    = "xtask"
@@ -14,16 +14,16 @@ include = ["**/*.z42"]
 # 对这个 dev 工具来说显式列表是冗余的。（库/SDK 工程仍然显式声明依赖。）
 #
 # 编译器域的两个包（`Z42.Project`：读清单 / 布局解析；`Z42.Build`：构建编排）是 **SDK 库**：按名声明、
-# `deploy = "sdk"`（add-sdk-libs 阶段 3）。xtask 本就强依赖 SDK —— 本地 `./xtask` 与 CI 垫片都用仓库根 `.z42/`
+# `deploy = "sdk"`。xtask 本就强依赖 SDK —— 本地 `./xtask` 与 CI 垫片都用仓库根 `.z42/`
 # 这份 SDK 编它、跑它 ⇒ 编译期从这份 SDK 的编译器目录（`programs/z42c/`）解析，**不复制**进 artifacts/xtask/；
 # 运行期侧车自动带 `${Z42_HOME}/programs/z42c`，VM 由自己的位置（`.z42/bin/z42vm` ⇒ `.z42`）展开，取的是同一份。
 #
 # ⚠️ 代价 = 自举纪律：编 xtask 的是**上一版 nightly**，所以 xtask 用到的 `Z42.Project` / `Z42.Build` 新 API
 # 必须先随一次合入进 nightly、下一个 PR 再用（docs/internals/src/compiler/self-hosting.md）。
 [plugins]
-# hook 插件（unify-plugin-packages 1b）：`z42 publish` 时 z42b 代建并反射加载 scripts/xtask_hooks.z42
+# hook 插件：`z42 publish` 时 z42b 代建并反射加载 scripts/xtask_hooks.z42
 # —— BeforeAssets 现场 cargo 编 apphost stub 并登记，免装 desktop workload。源集条目
-#（plugins-include-form，对齐 [tests]，#1413）：零依赖 hook 用 include 圈源码，合成最小清单代建；
+#（对齐 [tests]）：零依赖 hook 用 include 圈源码，合成最小清单代建；
 # include 模式自动排除出 [sources]（显式分区）。
 "xtask.hooks" = { include = ["xtask_hooks.z42"] }
 
@@ -47,7 +47,7 @@ mode = "interp"
 # 运行期的 `Z42.Project` / `Z42.Build` 来自所在 SDK（`deploy = "sdk"` ⇒ z42c 在侧车自动追加
 # `probing-paths = "${Z42_HOME}/programs/z42c"`，见上面 [dependencies]）。这里不必手写。
 
-# apphost-as-config (2026-06-17): `z42 publish scripts/xtask.z42.toml` (--rid
+# `z42 publish scripts/xtask.z42.toml` (--rid
 # defaults to host) reads [platform.desktop] and emits a native `./xtask` apphost that runs the
 # built xtask.zpkg directly. z42c does NOT consume this section — it's read by
 # the desktop export patcher only.

@@ -1,5 +1,4 @@
-// xtask — android packaging (migrate-scripts-to-z42; runtime/workload split for
-// version management — impl-workload-install B2-3).
+// xtask — android packaging.
 //
 // Splits into TWO artifacts (mirrors ios's runtime/workload split):
 //   _buildRuntimePackageAndroid → z42-runtime-<ver>-android-<rid>/  (per-ABI
@@ -20,8 +19,7 @@
 // stubs `#include "../../../runtime/include/.."` break once packaged).
 //
 // Needs cargo-ndk + ANDROID_NDK_HOME (auto-detected from versions.toml
-// build.android.install_root). Same Z42Xtask namespace; reuses helpers from
-// xtask_common.z42 / xtask_package.z42 / xtask_package_desktop.z42. versions.toml = SoT.
+// build.android.install_root). versions.toml = SoT.
 namespace Z42Xtask;
 
 using Std.IO;
@@ -62,7 +60,7 @@ int _buildRuntimePackageAndroid(string root, string rid, string version, string 
         .Arg("rustc").Arg("--config").Arg(Path.Join(_root(), _runtimeCargoConfig())).Arg("--lib").Arg("--crate-type=staticlib").Arg("--quiet")
         .Stdout(Stdio.Null()).Stderr(Stdio.Null());
     if (rel) { p2 = p2.Arg("--release"); }
-    _execIn(p2, androidCrate);   // exits non-zero though .a is produced — ignore like the bash
+    _execIn(p2, androidCrate);   // exits non-zero though .a is produced — ignored
     string staticA = Path.Join(_cargoTargetDir(root), cargoTarget + "/" + profile + "/libz42_platform_android.a");
     if (!File.Exists(staticA)) { staticA = Path.Join(androidCrate, "target/" + cargoTarget + "/" + profile + "/libz42_platform_android.a"); }
     if (!File.Exists(staticA)) { ConsoleError.WriteLine("error: libz42_platform_android.a not produced for " + cargoTarget); return 1; }
@@ -71,7 +69,7 @@ int _buildRuntimePackageAndroid(string root, string rid, string version, string 
     Console.WriteLine("        ✓ native/libz42_platform_android.a (" + _getFileSize(Path.Join(nativeOut, "libz42_platform_android.a")) + ")");
 
     // [3/5] libz42_compression.so (no .a: the `android` preset already links compression into libz42 —
-    // bundled-compression — so a separate staticlib was unusable; P0-17)
+    // bundled-compression — so a separate staticlib was unusable)
     Console.WriteLine("  [3/5] libz42_compression.so (cargo ndk -p z42-compression)");
     string ndkOut2 = Path.Join(nativeOut, ".ndk-out2");
     Process p3 = new Process("cargo").Arg("ndk").Arg("-t").Arg(abi).Arg("-o").Arg(ndkOut2)
@@ -94,20 +92,20 @@ int _buildRuntimePackageAndroid(string root, string rid, string version, string 
 // ── workload tooling: the gradle project (buildable unit) ───────────────────────
 int _packageAndroid(string root, string pkgDir, string rid, string version, string profile, string hostRid) {
     Stopwatch sw = _procStart("package android");
-    // [1/4] build the separate runtime pack first (per-ABI .so + headers + libs live there).
+    // build the separate runtime pack first (per-ABI .so + headers + libs live there).
     int c = _buildRuntimePackageAndroid(root, rid, version, profile);
     if (c != 0) { return c; }
 
-    // [2/4] bin/ placeholder (mobile workloads ship no host compiler)
+    // [1/3] bin/ placeholder (mobile workloads ship no host compiler)
     Console.WriteLine("[1/3] bin/ placeholder");
     _pkgEmitBinReadmePlaceholder(pkgDir, "Android");
 
-    // [3/4] the gradle project (Kotlin facade + JNI bridge + self-contained headers)
+    // [2/3] the gradle project (Kotlin facade + JNI bridge + self-contained headers)
     Console.WriteLine("[2/3] gradle project (z42vm module + JNI bridge)");
     _pkgEmitAndroidGradleProject(root, pkgDir);
     Console.WriteLine("      ✓ gradle project");
 
-    // [4/4] manifest.toml (tooling — references the separate runtime pack)
+    // [3/3] manifest.toml (tooling — references the separate runtime pack)
     Console.WriteLine("[3/3] manifest.toml");
     _pkgEmitManifestAndroidTooling(root, pkgDir, rid, version, profile, hostRid);
     Console.WriteLine("      ✓ manifest.toml (workload tooling)");
@@ -143,7 +141,7 @@ string _ridToAndroidAbi(string rid) {
 // Assemble the buildable gradle project into pkgDir. Ships everything `gradlew
 // :z42vm:assembleRelease` needs EXCEPT the per-ABI .so + stdlib zpkgs, which
 // `z42 workload install android` drops into jniLibs/ + assets/stdlib/ from the
-// separately-installed runtime pack (runtime/workload split). The JNI bridge
+// separately-installed runtime pack. The JNI bridge
 // headers are copied as SELF-CONTAINED real runtime headers (not the source-tree
 // forwarding stubs, whose `#include "../../.."` only resolves inside the repo).
 void _pkgEmitAndroidGradleProject(string root, string pkgDir) {

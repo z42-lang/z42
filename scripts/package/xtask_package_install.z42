@@ -1,17 +1,13 @@
-// xtask — 把 packages.toml 的组件**直接装进包目录**（drop-package-staging）。
+// xtask — 把 packages.toml 的组件**直接装进包目录**（不经暂存根）。
 //
 // 一个包（sdk / runtime）= 按 `[package.<name>].include` 的顺序，把每个组件装到它在包里的落点：
 //   · cargo-bin（z42vm）/ cargo-native / cargo-native-ext / stdlib-glob / editor-assets —— 从构建产物拷到 `dest`；
 //   · apphost（launcher / z42c / z42b / z42d / z42i）—— `z42b publish --output <包目录>`，组件自带的
 //     `[platform.desktop] bin/payload` 决定落点（`bin/<名>` + `programs/<名>/`），工程路径取 packages.toml 的 `project`。
 //
-// 🔴 此前是两段：先各自产出到暂存根 `artifacts/publish/<comp>/`，再整目录拷进包（add-package-layout-config
-// Decision 6）。去掉暂存的理由（User）：
-//   ① 固定形态组件本就是从构建产物拷出来的，暂存只是多拷一遍；apphost 组件 publish 不清空 `--output`、各落各的
-//      子目录，可以直接发布进包目录；
-//   ② 只有桌面 sdk / runtime 用暂存 —— ios / wasm / android 与 `package dev-sdk` 一直直接往包目录写，两套做法并存；
-//   ③ apphost 组件的工程路径在 packages.toml 与打包代码里各写一份，现在只读 packages.toml。
-// packages.toml 仍是「哪个包装哪些组件」的唯一声明；本文件只按 kind 分派「怎么装」。
+// 为什么不经暂存：固定形态组件本就是从构建产物拷出来的；apphost 组件 publish 不清空 `--output`、各落各的
+// 子目录，可以直接发布进包目录；apphost 组件的工程路径只读 packages.toml。
+// packages.toml 是「哪个包装哪些组件」的唯一声明；本文件只按 kind 分派「怎么装」。
 //
 // apphost-stub（desktop workload 的 per-RID stub）不经这里：它只进 workload-desktop 包，由
 // `_buildDesktopWorkload` 自己装（落点按 RID 变）。
@@ -75,7 +71,7 @@ int _pkgInstallZ42vm(string cargoOut, string pkgDir) {
     _makeExe(Path.Join(bin, "z42vm"));
     // NB: the host-only REPL editor cdylib (libz42_repl) is NOT put into bin/ — it
     // ships in programs/z42i/ beside the interactive apphost payload, colocated there by
-    // z42.repl's ProvideNative build hook during `z42b publish` (add-native-dep-config).
+    // z42.repl's ProvideNative build hook during `z42b publish`.
     // Keeping it out of the shared bin/ stops the eager ext scanner (native::ext) from
     // warning `ignoring unknown lib repl` on every VM run.
     return 0;
@@ -91,7 +87,7 @@ int _pkgInstallNative(string root, string cargoOut, string pkgDir) {
 }
 
 // [component.native-ext] kind=cargo-native-ext, dest="native/" — only the stdlib ext dylibs z42vm dlopens
-// (libz42_compression.{dylib,so} / z42_compression.dll). SDK package: no embedding libs, no headers (P0-17).
+// (libz42_compression.{dylib,so} / z42_compression.dll). SDK package: no embedding libs, no headers.
 int _pkgInstallNativeExt(string cargoOut, string pkgDir) {
     if (cargoOut.Length == 0) { ConsoleError.WriteLine("error: native-ext: no cargo output dir"); return 1; }
     if (_copyNativeLibs(cargoOut, pkgDir, false) == 0) {
@@ -118,8 +114,8 @@ int _pkgInstallApphost(_PkgComponent comp, string pkgDir, _PkgInstallCtx ctx) {
 
 // Copy the two C ABI headers (z42_abi.h + z42_host.h) from the runtime source
 // tree into a package's include dir. Single source-path SoT for every packaging
-// backend that ships the embed headers (review §2.5). Creates destIncludeDir
-// itself — 谁写谁建，见 _pkgSetupDir 注释（fix-package-gates-false-red）。
+// backend that ships the embed headers. Creates destIncludeDir
+// itself — 谁写谁建，见 _pkgSetupDir 注释。
 void _copyAbiHeaders(string root, string destIncludeDir) {
     Directory.Create(destIncludeDir);
     File.Copy(Path.Join(root, "src/runtime/include/z42_abi.h"), Path.Join(destIncludeDir, "z42_abi.h"));
@@ -131,7 +127,7 @@ void _copyAbiHeaders(string root, string destIncludeDir) {
 // their VM libs straight into it). libs/ + native/include/ are created by their own
 // writers（谁写谁建，见 _pkgSetupDir 注释）. Returns pkgDir. Single SoT for the
 // runtime-pack name format + base layout (shared by ios/android/wasm runtime
-// builders; review §2.5). Debug profile appends "-<profile>" to the name.
+// builders). Debug profile appends "-<profile>" to the name.
 string _runtimePkgScaffold(string root, string rid, string version, string profile) {
     bool rel = (profile == "release");
     string pkgName = "z42-runtime-" + version + "-" + rid + (rel ? "" : "-" + profile);
@@ -143,9 +139,8 @@ string _runtimePkgScaffold(string root, string rid, string version, string profi
 }
 
 // Runtime package 收尾（`_runtimePkgScaffold` 的另一半，ios / android / wasm 共用）：装 stdlib libs/，然后跑门。
-// runtime pack 才是 libs/ + native/include/ 的真正落点 —— 门必须跑在这里（fix-package-gates-false-red）：
-// desktop 的 runtime pack 已于 #508 接上，ios/android/wasm 当时漏了——它们的 workload pack 跑了门却一个
-// source-derived 文件都没装，真装了的这个包反而从未被检查。stepLabel 是各 builder 自己的 "[k/n]" 步号。
+// runtime pack 才是 libs/ + native/include/ 的真正落点 —— 门必须跑在这里（workload pack 一个
+// source-derived 文件都不装）。stepLabel 是各 builder 自己的 "[k/n]" 步号。
 int _runtimePkgFinish(string root, string pkgDir, string rid, string stepLabel) {
     Console.WriteLine("  " + stepLabel + " libs/");
     int c = _pkgCopyLibs(_libsDir(root), pkgDir); if (c != 0) { return c; }
@@ -154,8 +149,8 @@ int _runtimePkgFinish(string root, string pkgDir, string rid, string stepLabel) 
 }
 
 // [component.editor-assets] kind=editor-assets, dest="editors/" — editors/<target>/ from the in-repo asset dirs.
-// 这些是 `z42d install <target>` 的**输入**：装了 SDK 就能装编辑器集成，不需要仓库
-// （unify-editor-install）。**模板不进包**——`*.tpl.json` 是 xtask 生成器的输入，
+// 这些是 `z42d install <target>` 的**输入**：装了 SDK 就能装编辑器集成，不需要仓库。
+// **模板不进包**——`*.tpl.json` 是 xtask 生成器的输入，
 // 用户扩展目录里出现它只会造成困惑。返回拷贝的文件数。
 int _pkgInstallEditorAssets(string root, string pkgDir) {
     string dest = Path.Join(pkgDir, "editors/vscode");
@@ -184,7 +179,7 @@ int _pkgInstallEditorAssets(string root, string pkgDir) {
 // Builds src/runtime once for (rid, profile): z42vm + libz42 (static + cdylib) + z42-compression. The package
 // installers above copy from the resulting cargoOut. NB: the REPL editor cdylib (libz42_repl) is NOT built here —
 // z42.repl's build hook (ProvideNative) compiles crates/z42-repl during `z42b publish` of z42.interactive and
-// colocates it into the z42i payload (add-native-dep-config).
+// colocates it into the z42i payload.
 int _pkgBuildRuntime(string rid, string profile) {
     bool rel = (profile == "release");
     string cargoTarget = _cargoTargetFor(rid);
