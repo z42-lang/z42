@@ -210,8 +210,49 @@ main `6723c6a50`（阶段 1 全部条目已合并：P1-2 函数/类型身份、P
 **收官后剖面头部**（2026-10-24 重测：z42c 工作区自建 `--jobs 1`、JIT、`sample` 9 s / 6763 主线程样本，load 7–9；inclusive = 函数在调用树最外层出现的样本占比）：vcall 落到解释器侧 `exec_vcall::invoke` 21.8%、`jit_obj_new` 分配路径 14.5%、GC 回收 10.0%（`check_safepoint_slow` → `collect_cycles_with_context`——即此前所称「safepoint 慢查」，是回收本身而非慢路径开销）、原子写 `write_atomic` 6.3%（其中 `fcntl` F_BARRIERFSYNC 3.7%，700 个产物文件各一次）、JIT 调用帧实参 `JitFrame::new_args_from` 5.3%、`resolve_slot_slow` 3.9%、JIT 编译 3.9%、`jit_add` / `jit_eq` 算术 helper 各 ≈2.7%。**此前记的那组（safepoint 18% / `jit_obj_new` 18% / vcall 17%）不可信**：Cranelift 默认 `preserve_frame_pointers=false`，JIT 帧没有帧指针链，`sample` 在 JIT 帧处读到栈上残留的旧返回地址——同一构建 70% 的样本被挂到早已返回的 `rename(2)` 叶子上，而进程单线程、全程 R 态、CPU 95% 忙，纯属幻影；interp 模式（无 JIT 帧）同一负载无此现象。JIT 现已开启帧指针（`jit/lazy.rs`），开销实测为零（z42c 构建 3 轮中位 10.39 → 10.37 s；micro 18 项双序 A/B 门内）——此后 JIT 模式的采样剖面可信。
 **头部第一项的归因与处置（2026-10-25）**：`exec_vcall::invoke` 21.8% 的根因是 JIT 把「含方法级泛型调用」的函数整函数拒译——z42c 四个遍的 visitor 派发入口（`ExprEmitter.Emit` / `StmtEmitter._emitStmt` / `ExprTyper._bindExpr` / `StmtBinder._bindStmt` / `FlowAnalyzer._stmt,_reads` / `DepUseCollector._expr,_stmt`）各含一处 `e.Accept<R, A>(this, arg)`，于是每节点每遍的派发全在解释器，`jit_native_from_interp` = 1,447,597；全工作区热拒译仅 36 个（8 个即上述，28 个是冷的 manifest 解析）。泛型调用站点 JIT 化后：拒译只剩 28 个冷函数，`jit_native_from_interp` **→ 128,135（−91%）**，但 z42c 自建（`--jobs 1`，4 轮同期交替，load 13–17）user CPU 仅 **−1.7%**（10.52 → 10.34 s 中位）、JIT 编译耗时持平（1.59 s）——解释器蹦床本身并不贵，21.8% inclusive 的主体是其下 native callee 的执行与 **JIT 调用协议自身**（`new_args_from` / `call_compiled` / `call_native` / `jit_call` / `pop_frame` 等 self ≈22%）。下一刀的靶子因此是调用协议 / 帧构造与 helper 内联，不是更多解释器残余。按名字的调用 / 字段路径在 z42c 剖面里已不显著（P1-2/P1-4 的收益）；「身份按名字」剩下的主要残余是三套函数注册表合一的清理与 PIC 未覆盖的反射侧。
 
----
 
+### 1.8 跨语言复测与启动分解（2026-10-28）
+
+10-25 nightly z42vm（release，jit + mimalloc），M2 Ultra，load 3–6。对照 Python 3.9.6、.NET 10.0.102（Release apphost，workstation GC）、Node 26。24 条对标负载（`bench/cross-language-compare` 分支）在当前编译器下原样编译通过、checksum 全对；每格 3 次中位，hello 15 次。
+
+**吞吐**（墙钟 ms，含启动；比值 > 1 表示 z42 更慢）：
+
+| 负载 | z42 jit | z42 interp | Python | .NET | z42 / Python | z42 / .NET |
+|---|---|---|---|---|---|---|
+| fib 32 | 202 | 384 | 432 | 40 | 0.47 | 5.1 |
+| nbody 500k | 309 | 1735 | 3847 | 59 | 0.08 | 5.3 |
+| vcall_mono 20M | 434 | 988 | 1537 | 39 | 0.28 | **11.2** |
+| vcall_poly 20M | 597 | 1592 | 2392 | 81 | 0.25 | 7.4 |
+| closures 2M | 241 | 350 | 384 | 52 | 0.63 | 4.7 |
+| list_ops 2M | 921 | — | 1897 | 56 | 0.49 | **16.3** |
+| dict_ops 1M | 530 | 1262 | 304 | 63 | **1.74** | 8.5 |
+| str_builder 1M | 371 | 1173 | 264 | 58 | **1.41** | 6.4 |
+| str_split_join 20k | 203 | — | 140 | 120 | **1.45** | 1.7 |
+| json 10k | 251 | 513 | 61 | 95 | **4.15** | 2.6 |
+| sort 1M | 130 | 281 | 478 | 94 | 0.27 | 1.4 |
+| binary_trees 16 | 1550（STW 1567） | 2630 | 4671 | 221 | 0.33 | 7.0 |
+| large_heap 50k | 836（STW 668） | 1275 | 2312 | 836 | 0.36 | 1.0 |
+
+比 CPython 还慢的只剩 json、dict_ops、str_builder、str_split_join；对 .NET 的差距集中在调用与内联（list_ops 的 `List<int>` Add / 索引约 40 ns 一次、单态虚调用约 22 ns 一次）。
+
+**密度**（B/个，(RSS(N)−RSS(0))/N）：小对象 32.3（.NET 30.6、Python 81.4）；`long[8]` 分代 117.3 / STW 80.7（.NET 91.1）；短字符串 58.4（.NET 74.0、Python 73.1）；`List<int>` 每元素 13.3（.NET 10.6、Python 41.4）；`Dictionary<string,int>` 每条 124.5（.NET 135.7、Python 181.3）。§1.6 时全部高于 Python，现在全部低于 Python、小对象与 .NET 持平。待查：`long[8]` 分代比 STW 每个多约 37 B。
+
+**GC**（`Z42_GC_TRACE=1`）：binary_trees 分代停顿合计 226 ms（GC 约占墙钟 15%，大头在分配与调用）；large_heap 的 STW 比分代墙钟快 20%、RSS 低 20%，但最大停顿是分代的 3 倍（26.5 vs 8.6 ms）。
+
+**启动**（hello，hyperfine 30 次均值）：z42 jit 9.6 ms / 13.3 MB；CPython 3.9 20.5 ms / 7.4 MB；.NET 10 JIT 23.9 ms / 35.7 MB、NativeAOT 3.3 ms / 3.8 MB；Node 31.3 ms / 42 MB。z42 不加载 z42.core 的空程序 3.0 ms / 5.3 MB——hello 的约 6 ms、7 MB 花在 z42.core 加载与库目录扫描上：
+
+| 相位 | 耗时 | 说明 |
+|---|---|---|
+| exec + dyld + Rust 运行时 + clap + 配置 / tracing | 2.3 ms | 配置与 tracing 约 0.1 ms，dyld 可忽略 |
+| VmContext + GC 堆初始化 | ≈0.7 ms | 启动期不起线程 |
+| `load_artifact(z42.core)` | 3.6–4.2 ms | 10.1 万次分配；261 KB 文件解码后驻留 4 MB。全部 1033 个函数的指令解码约 39%、`assemble_zpkg_artifact`（合并内层模块、type registry、block indices）约 40%、.zsym 约 7%、STRS 重复解码约 12% |
+| 库目录 NSPC 扫描（19 个 zpkg） | 1.0–1.5 ms | hello 用到的命名空间 z42.core 已提供，扫描白做 |
+| 合并入口模块后全量重建 | ≈1.1 ms | `build_type_registry` 第二遍 0.7 ms |
+| `resolve_module` 全量预填 token | 0.27 ms | |
+| JIT 安装 + 执行前编译 Main | ≈0.5 ms | `z42c --help` 编 Main 2.1 ms |
+| 输出 + 退出析构 | 0.3–0.4 ms | |
+
+`z42c --help` 25.5 ms / 26.7 MB：为打印帮助惰性加载了 5 个包，GC 堆只用 1 KB，RSS 几乎全是元数据。改进项见 §7「2026-10-28 复审新增」。
 
 ---
 
@@ -241,6 +282,7 @@ z42vm `__text` 构成（macOS arm64，共 4.97 MB），是拆 crate（阶段 2�
 | D4 | 每对象 Mutex 被 JIT 绕过（已随对象模型 R4 消除） | 【确认】JIT 在 hoist 时取出 bytes 指针即释放锁，之后裸写 | — | R4 删掉了每对象 Mutex：所有引擎对字段 / 元素的读写都是同宽原子单元访问，JIT 内联码与解释器、helper 走同一套内存序，没有「绕过锁」可言；`Array.CopyRange` 不再取锁，ABBA 死锁面随之消失 |
 | D5 | `isa_cache` / `subclass_memo` 以地址为 key | 【确认】`vm_context/isa_cache.rs` 以 `*const TypeDesc` 与类名字符串地址为 key，依据是"元数据在 VM 生命周期内不朽" | | 可回收 load context 被回收后不失效，地址复用可能误判【推断】；随 TypeId（P1-2）改为按 id 做 key |
 | D6 | OSR 后栈闭包 env 丢失（已随栈闭包删除而消除） | 【确认】z42c 从不给 `MkClos` 置栈分配标志，栈闭包路径不可达 | — | 已决（User，2026-10-07）：删除运行时栈闭包支持。`Value` 不再有栈闭包变体，interp `Frame` / `JitFrame` / `VmFrame` 不再有 `env_arena`，闭包恒堆分配；OSR 交接只有寄存器，无可丢的 env。zbc `MkClos` 的尾字节保留、VM 读后丢弃，下次 zbc bump 删除 |
+| D7 | `str_meta` 缓存对超大串可能读已释放内存 / 误命中 | 【确认】读代码，未写复现：`is_live` 假定块头在 region 生命周期内恒映射（`gc/var_region/var_ref.rs`），但 > 64 KB 的串在独占 chunk，死后 `free_in_place` 整块还给分配器（`gc/var_region/chunk.rs`），新的独占块恒从 `FIRST_GEN` 起 | `corelib/str_meta.rs` 的 `with_meta` 命中判定 | 地址未复用时读已释放内存，复用时误命中别的串（错误的长度 / 字符偏移）；触发面：z42c 读 > 64 KB 且含非 ASCII 的源文件。条目带上 chunk `pool_epoch`（弱引用同法）或改用不依赖块头的稳定身份 |
 
 ---
 
@@ -456,24 +498,107 @@ helpers 里有 59 处"镜像/对称"注释，多处记录的是已修过的分�
 - AOT：`app.rs` 先做急切 BFS，`vm.rs` 再报错退出，两处报错文本还互相矛盾（LLVM vs cranelift）。
 - 注释体量：GC 非测试代码 42% 是注释，大量是历史和实测叙述，文件常因触到行数上限而被机械拆分，而不是按内聚性拆。
 
-### 5.5 建议的目标分层（自下而上、无环）
+### 5.5 目标目录与模块分层（User 2026-10-29 定案）
 
-> ⚠️ User（2026-10-06）认为下面的目录结构不好。阶段 2 拆 crate 之前，先与 User 讨论分层与目录，不按此图直接实施。
+> 10-06 的草案（format / ir / object / link / dispatch / objops / heap / engines / stdlib-* / z42vm-cli）已被否决，本节是经逐项讨论后的定案。迁移步骤见 §7「目录与模块化迁移」。对照的实现：CoreCLR（`vm/` `gc/` `jit/` `md/` `pal/`，GC 经 `IGCHeap` / `IGCToCLR`、JIT 经 `ICorJitInfo` 与 VM 互通）、HotSpot（`classfile/` `oops/` `gc/shared`、平台代码集中在 `os/`）、CPython（`Objects/` `Python/` `Modules/`，PEP 669 `sys.monitoring`，PEP 684 每解释器状态）、wasmtime（`environ` 纯数据层、`Compiler` trait 接入 Cranelift、WASI 独立 crate）、Rust std（`std::sys` 按平台实现 + 上层公开 API）。
+
+#### 5.5.1 crate 总览
+
+`src/runtime/` 是 Cargo workspace，所有 crate 在 `crates/` 下。现在的单体 crate `src/runtime/src` 拆成下表，已有的 `z42-rs` / `z42-macros` / `z42-compression` / `z42-repl` 不动。
+
+| 层 | crate | 回答的问题 | 依赖 |
+|---|---|---|---|
+| 地基 | `z42-abi`（已有） | no_std C ABI 镜像 | — |
+| 地基 | `z42-pal` | 怎么跟 OS 打交道（只用 std 类型，不认识 z42 类型） | std / libc |
+| 地基 | `z42-metadata` | 包文件里静态写着什么（只读、无副作用，z42c 工具可复用） | — |
+| 地基 | `z42-object` | 值和对象在内存里长什么样：布局与**不带检查的原语** | metadata |
+| 地基 | `z42-gc` | 内存从哪来、何时回收、怎么回收 | object、pal |
+| 核心 | `z42-vm` | 一台 VM 怎么加载、组装运行时元数据、多线程按统一协议执行 | gc、object、metadata、pal |
+| 引擎 | `z42-interp`、`z42-jit`（将来拆 `z42-codegen` + `z42-aot`） | 指令怎么执行 | vm |
+| 能力 | `z42-corelib` | 标准库里必须用 Rust 实现的 builtin（按 feature 分组） | vm、pal |
+| 能力 | `z42-interop` | 外部 C 库互操作与扩展库加载 | vm、pal、abi |
+| 工具 | `z42-debugger` | 断点、单步、查看（调试引擎 + DAP 服务，可作 `libz42_debug` 组件） | vm |
+| 工具 | `z42-profiler` | CPU / 分配 / 锁 / 堆剖析与覆盖率 | vm |
+| 组装 | `z42` | 门面：配置装配，按 feature 组装 Runtime | 以上全部 |
+| 产品 | `z42-host`（已有，吸收 `src/host` C ABI 薄壳）、`z42vm`（可执行文件） | 嵌入 / 命令行 | z42 |
+
+硬规则（xtask 分层门禁检查）：
+
+1. **平台 `#[cfg(target_os/unix/windows)]` 与 `libc` 只出现在 `z42-pal/src/sys/`**；wasm 的功能裁剪用 cargo feature 表达。
+2. **同层互不依赖**：interp ↔ jit、corelib / interop / debugger / profiler 之间及它们与引擎之间都没有依赖，一律经 vm 的注册接口接入，由门面组装。
+3. **vm 不知道有哪些引擎、builtin、工具**：只提供注册槽（Engine、builtin 注册表、监控工具槽、extern 提供方）。
+4. **命名**：「native」只指面向用户的原生扩展（SDK `native/`、z42-rs）；VM 内建函数叫 builtin，调外部 C 库叫 interop。现 `native/` 改名 `interop`；interp `exec_native.rs::call_native`（执行 `CallNative` 指令）改名 `ffi_call`，jit `invoke.rs::call_native`（进入已编译代码）改名 `enter_compiled`。
+
+#### 5.5.2 地基 crate 内部
+
+- **`z42-pal`**：`fs.rs`（含 `Vfs` trait，每台 VM 一个句柄，取代进程全局 `fs_backend::ACTIVE`）+ `vfs/{local,memory}.rs`、`process.rs`（spawn / wait / kill / 进程树）、`net.rs`、`mem.rs`（现 `gc/os_mem.rs`）、`thread.rs`（栈边界、sigaltstack）、`signal.rs`、`dynlib.rs`（合并现 `native/loader`、`native/ext`、`corelib/repl_native` 三处 dlopen）、`console.rs`、`time.rs`、`sys.rs`；平台分支在 `sys/{unix,windows,wasm}/`。现 corelib 103 处、gc 21 处、vm_context 18 处平台 cfg 与 7 个非 PAL 文件的 `libc` 调用全部收进来。
+- **`z42-metadata`**：`format/`（常量、版本、build_id）、`reader/`（现 `zbc_reader/*`）、`ir/`（现 `bytecode/*`、`ir_type`）、`image.rs`（PackageImage：零拷贝、字符串表解析一次、函数体按需解码）、`index/`（包内按名找下标、知名类型名、类型名格式化——现 `name_index` / `well_known_names` / `type_names`）、`debug/`（行号表、局部变量、帧名，读 .zsym 按需）。**纯静态的查询（名字、行号、attribute、签名）调用方直接用本 crate，不经 vm。**
+- **`z42-object`**：`value/`（Value、ref word、codec、cells）、`header/`（16 B 统一头、`var_ref` / `obj_ref` / `arr_ref` 句柄）、`types/`（TypeDesc 形状、字段、elem kind、TypeArgs 形状、布局计算纯函数、引用槽位图）、`object/`、`array/`、`string/`（Str 句柄、非 ASCII 字符索引）。不抛异常、不查缓存、不管类型从哪来。
+- **`z42-gc`**：`heap.rs`（具体类型 `Heap`，取代 51 方法的 `dyn MagrGC`）、`config.rs`（`GcConfig` 由门面传入，取代 gc→config 27 处引用）、`to_vm.rs`（`GcToVm`：根枚举、`suspend_all` / `resume_all`）、`region/`、`alloc/`（含 TLAB）、`collect/`（标记、分代、增量、屏障、记忆集）、`policy/`、`refs/`、`walk.rs`（堆遍历原语）、`observe/`。移出：`sampler` / `snapshot` / `retention` → z42-profiler；`safepoint` → vm/threads；`ambient` → vm。
+
+#### 5.5.3 z42-vm 内部
+
+每个子目录是一个子系统、拥有一份状态；`VmCore` 只是这些状态的组合（不再挂散字段），`VmContext` 同理组合每线程状态。
 
 ```
-format/      纯 reader → PackageImage（不可变、进程级共享、按需解码）
-ir/          不可变 IR（无 serde、无运行期缓存）
-object/      Value / 句柄 / 对象头 / 布局 / codec（只暴露 for_each_ref_slot）
-link/        FuncTable / TypeTable / 惰性策略 / load context（副作用经 trait LinkEnv 反转）
-dispatch/    IC / tokens（interp 与 JIT 共享）
-objops/      引擎无关的对象操作语义（field/array/static/obj_new/call_indirect/vcall/isa）
-heap/        GC（编译期具体类型 + 冷 HeapAdmin trait；safepoint 移到 thread/）
-engines/     interp（预链接紧凑码）· jit（经 TierApi 注册槽接入，不被 core 静态依赖）
-host/        Rust 原生 host::core API + 薄 C 壳
-stdlib-*/    独立 crate：os（fs/process/platform）、net（rustls 可选）、repl-host；
-             通过 BuiltinDesc 描述符表静态注册，也可编成 cdylib 插件复用同一份描述符
-z42vm-cli/   clap / tracing-subscriber（不再是 lib 依赖）
+z42-vm/src/
+  lib.rs           对外 API：Vm、VmContext、invoke(FnId, args)、注册接口、ext::<T>() 每 VM 扩展状态
+  vm.rs            VmCore = { diagnostics, threads, runtime, loader, exec, heap, ext_state }
+  diagnostics/     发生了什么：counters（L1）、events（合并 RuntimeObserver 与 GcObserver）、monitor（监控 API）
+  threads/         谁在跑、怎么让大家停下：registry、safepoint（轮询 / park / suspend_all，实现 GcToVm）、fatal
+  runtime/         运行时元数据：组装、查询、缓存
+    ids/           FnId / TypeId / StrId 表；location(id) → (PackageImage, 包内下标)
+    types/         组装 TypeDesc（调 object 算布局）、泛型实例化、TypeArgs 驻留、constraints
+    statics/       每类型静态字段存储、初始化状态、屏障纪元
+    resolve/       名字 / token → 运行时身份（跨包、按加载上下文）、缺符号判定
+    dispatch/      ic（PIC / FieldIC）、vcall（接收者类型 + 方法 → 目标）、ctor（类 + 构造函数 → 目标）、isa（子类型判定 + IsaCache）
+    builtins.rs    builtin 注册表（静态表与扩展库动态表合一）
+  loader/          东西怎么进来、怎么卸载：locate/（probing、namespace 索引、第三方依赖）、package、lazy、
+                   contexts（加载上下文与卸载）、extern_bind（[Native] / extern 绑定，interop 注册提供方）、availability、init_queue
+  exec/            执行：会执行代码、抛异常、触发加载、等待的都在这里
+    engine.rs      Engine trait、注册槽、分层 / OSR / deopt 交接
+    call/          调用协议：frames、frame_stack、reg_pool、forward、builtin_abi/（参数、返回值、错误种类、invoke）
+    ops/           指令语义：scalar、field、array、statics、struct_ops、vcall、obj_new、cast
+                   （检查 → 查 runtime → 调 object 原语 → 屏障 → 抛异常）
+    init.rs        类型初始化的执行：认领 / 等待、执行 cctor、失败包装
+    exception.rs   异常对象与传播
+    stack.rs       统一栈遍历（异常栈回溯、GC 根、调试器、profiler 共用）
+    stack_guard.rs 栈余量检查
 ```
+
+内部依赖自下而上：`diagnostics, threads → runtime → loader → exec → vm.rs / lib.rs`；exec 之下的子系统只拿自己的状态，不拿 `VmContext`。
+
+**runtime 的「四不」**：不执行 z42 代码、不抛 z42 异常、不触发加载、不等待其他线程——只返回结果或「未加载 / 不存在」，由 exec 的慢路径请 loader 加载后重查。这是 runtime 不依赖 exec 的保证（现 resolver「查询时加载包、排空初始化队列」的环由此消除）。按此标准：类型初始化的**状态**归 `runtime/statics`、**执行**归 `exec/init`；字段偏移、派发目标、子类型判定等**查询与缓存**归 `runtime/dispatch`，指令的**执行语义**归 `exec/ops`。
+
+现 `VmCore` 39 个字段的去向：身份类（module、funcs、types、strings）、加载类（lazy_loader、context_registry、pending_type_inits 等）、初始化类（statics、cctors、static_init_error）分别进 runtime / loader；线程类（vm_contexts、gc_phase、parked_count、collector_active 等）进 threads；counters、observers、sampler、锁统计进 diagnostics；ext_builtins 并入 runtime 的 builtin 注册表；jit 变成 exec 的引擎槽；**移出 vm**：processes / file_handles / tcp / tls / udp 七个 OS 资源表进 corelib 各模块的扩展状态，native_types / native_libs / pinned_owned_buffers 进 interop 的扩展状态，program_args 进门面。
+
+#### 5.5.4 引擎、能力、工具、门面
+
+- **`z42-interp`**：`run/`（主循环）、`ops/`（指令到 vm/exec 的薄适配；`exec_native` → `ffi_call`）、`frame/`（帧与 arena；若 JIT 也用 transient arena 则下沉 vm/exec/call）、`superinstr.rs`（现 `metadata/superinstr.rs`）。
+- **`z42-jit`**：`compile/`（Cranelift 管线、代码 arena 与后台编译队列）、`translate/`、`helpers/`（原样保留）、`runtime/`（FnEntry、`enter_compiled`、JitFrame）。AOT（M9）落地时把 `translate/` 与 helper 声明拆成 `z42-codegen`，由 `z42-jit` 与 `z42-aot` 共用。
+- **`z42-corelib`**：只写 builtin 胶水（参数、异常映射、句柄表、park），碰 OS 一律调 pal。`core/`（string、convert、math、object、array、gc、threading、monitor、reflection/ 等，无 feature 开关）、`io/`（console、fs）、`os/`（feature `process`）、`net/`（feature `net`）、`tls/`（feature `tls`，启用 rustls）、`repl/`（feature `repl`）、`test_host.rs`。不再另设 stdlib-os / stdlib-net crate：OS 实现在 pal、胶水在 corelib，rustls 可选用 feature 表达。builtin 的 ABI 与注册表在 vm（`exec/call/builtin_abi`、`runtime/builtins.rs`），实现全部在 corelib 与 interop。
+- **`z42-interop`**：`tier1/`（Tier 1 C ABI：registry、marshal、dispatch、exports）、`ext/`（统一的扩展库加载器、REPL 编辑器懒加载、实现 loader 的 extern 提供方）。feature `ffi`（libffi，wasm 关闭）、`ext`（只需 libloading）。
+- **`z42-debugger`**：VM 进程内的调试代理（同 Node inspector / JVM JDWP 代理）。`engine/`（断点表——源位置经 metadata 行号表映射到 (FnId, pc)、条件与异常断点；step in / over / out；**默认全体暂停**，经 vm/threads 的 `suspend_all`，即路线图 Q14 的建议答案；帧 / 局部变量 / 对象检查；表达式求值复用 REPL 编译通道）+ `adapter/`（DAP：stdio / TCP 传输、会话分派，`z42vm --debug` 时起服务线程，feature `dap`）。前端（`z42d dbg`、VS Code 插件）不在 runtime 目录。前置：编译器把局部变量名与作用域写进 .zsym。
+- **`z42-profiler`**：`cpu/`（safepoint 采样，现 `gc/sampler.rs`）、`alloc/`（TLAB 每满 N KB 采一次栈，对标 .NET AllocationTick / JFR）、`locks/`（锁争用探针，现 `corelib/sync_contention.rs`）、`heap/`（堆快照、保留链，现 `gc/snapshot.rs` / `gc/retention.rs`，遍历用 `gc/walk.rs`）、`coverage/`、`jitmap/`（perf map / jitdump）、`export/`（folded、chrome / perfetto trace、V8 heapsnapshot、pprof）。`Std.Diagnostics` 的剖析类 builtin 由它自己登记。
+- **监控 API（vm/diagnostics/monitor）**：工具槽 DEBUGGER / PROFILER / COVERAGE；事件含函数进出、行 / pc 单步、分支、异常抛出与捕获、分配采样、safepoint 采样、线程起止、模块加载与卸载、JIT 编译、GC 阶段；按函数开关，未开启的函数零成本，开启后解释器走插桩分派、JIT 函数回退解释器（deopt）。对标 CPython PEP 669、CoreCLR ICorDebug / ICorProfiler、JVMTI。
+- **`z42`（门面）**：`lib.rs`（Runtime、RuntimeBuilder）、`config/`（现 `config.rs` + `config/*`，新增 `split.rs` 拆出 VmConfig / GcConfig / JitConfig）、`app.rs`（现 app / boot / startup / vm）、`crash.rs`（现 `signal_handler.rs`，可选安装）。feature：jit、interop、debugger、profiler、net、tls、process、repl、mimalloc；平台预设是 feature 组合。
+- **hot-reload** 不设 crate：loader 重载新版本包、runtime 做函数与类型的版本映射、exec/engine 负责 deopt 与替换，与调试器共用 deopt 和全体暂停。
+- 删除：`aot.rs`、`thread/`（空桩）。
+
+#### 5.5.5 易混边界
+
+| 两处 | 怎么分 |
+|---|---|
+| z42-metadata ↔ vm/runtime | metadata 是包文件里的静态信息，纯静态查询直接用它；runtime 是组装后的运行时身份、实例化与缓存 |
+| z42-object ↔ vm/runtime | object 定义形状、计算布局；runtime 组装类型、分配 id。判据：GC 标记一个对象只需要 object |
+| z42-object ↔ vm/exec/ops | object 是不带检查的原语；ops 是带检查、带异常、带 IC 的指令语义 |
+| vm/runtime ↔ vm/loader | loader 负责装进来与卸载；runtime 负责装进来以后是谁、怎么查 |
+| vm/runtime ↔ vm/exec | runtime 守「四不」；会执行、抛异常、触发加载、等待的都在 exec |
+| z42-gc ↔ vm/threads | gc 决定何时、怎么回收；threads 负责让所有线程停下 |
+| z42-pal ↔ z42-corelib | pal 直接调 OS、只用 std 类型；corelib 是 builtin 胶水 |
+| vm（builtin 注册表 + 调用约定）↔ corelib / interop | vm 是插座，corelib 与 interop 是插头 |
+| vm/diagnostics ↔ debugger / profiler | vm 提供计数、事件总线与监控 API；工具在各自 crate |
+| z42 门面 ↔ z42-vm | vm 是一台 VM 的运行机制；门面负责配置装配、启动编排与组件选择 |
 
 ---
 
@@ -803,16 +928,88 @@ z42 层（内建采样）`StrMap` 家族仍 ≈11.4%（探测循环本体，非�
 2. **JIT→JIT 帧构造内联**（阶段 2「每线程连续 VM 栈」前奏，需 User 确认方案）：callee `max_reg`/入口偏移烘进已编译调用站点，caller 机器码直建寄存器文件（reg pool 需机器码可达的原语：take/give + tag guard）；`VmFrame` 栈行仍需（GC root + 栈追踪）→ 帧与栈行分离（栈行瘦身或惰性登记）。语义风险：safepoint 前实参的 root 暴露时机（现由 `push_frame` 前的 `new_args_from` 保证「建帧到 push 无 GC 点」——内联后同一不变式要在机器码层维持）。
 3. **加载链路 Rust 侧追查**：SipHash/memchr/CharSearcher 簇 ≈3%（修正口径）且 call graph 父链被无符号 JIT 帧遮蔽——需 lldb/符号化投入才能定位到表；系统性的热表替换（`NameIndex`、`branch_targets`）P1-2 已做，残留多为冷路径，预期收益有限。
 
+### 2026-10-28 复审新增（对照 .NET / CPython：执行、内存与 GC、启动）
+
+依据 §1.8 与一轮只读代码审读。排序按预期收益；「结构性」项属阶段 2，动工前需 User 确认方案。行号对应审读时的 main `bd14a4958`。
+
+**执行**（X 系列续号；X-6 已被 bool[] 内联探针占用）
+
+| ID | 类型 | 内容 | 对照 | 预期 | 状态 |
+|---|---|---|---|---|---|
+| X-7 | perf/jit | **JIT 第二档：以 VCall PIC 为画像做守卫去虚化 + 内联**。现状：`emit_vcall_helper`（`jit/translate/object.rs`）一律调 helper，JIT 不内联任何 z42 callee；编译器 `IrInline` 只内联同包、直接调用、单块的函数体。改法：热函数按站点 PIC entry0 重编，生成「TypeId 守卫 → 内联 callee」，守卫失败回落 helper（不需要 deopt）；callee 寄存器映射到调用方寄存器文件的 `+max_reg` 窗口，栈回溯靠内联 pc 表 | CoreCLR tier1 + PGO 守卫去虚化 | 单态 getter / setter 调用 ≈22 → 1–2 ns；list_ops、vcall、z42c visitor | ⏸ 结构性 |
+| X-8 | perf/vm | **JIT→JIT 直接调用 + 每线程连续 Value 栈**（即阶段 2 第 2 项、X-5 后方向 2）。现状：JIT 帧是堆上寄存器数组，一次调用经 `jit_call`（10 参）→ 槽表 → 屏障 → `new_args_from` → `call_native` 约 6 层 Rust 调用、2 次 safepoint 轮询 | CoreCLR 机器栈直接 call；CPython 3.11 连续帧栈零分配 | 每次调用 ≈20 → 3–5 ns | ⏸ 结构性 |
+| X-9 | perf/jit | **数组访问全内联**：`ArrayLen` 恒走 helper（`translate/array.rs`）；hoist 只覆盖整函数不写的寄存器，`this._items[i]` 每次都调 `hr_array_data`；引用 / T 元素写恒走 `jit_array_set`。改法：内联 tag → 头 → len / data 解码，引用写复用字段 IC 的屏障判定，`i < arr.Length` 形态消除边界检查 | CoreCLR 内联长度、内联写屏障、BCE | 集合密集代码 1.3–2× | ⬜ |
+| X-10 | perf/jit | **is / as 内联**：`IsInstance` / `AsCast` 恒调 helper 再查 `isa_cache` 哈希。改法：TypeDesc 加 Cohen display（深度 + 祖先数组），类目标 O(1) 内联判定；接口目标用站点单态 memo | CoreCLR 精确类型比较 + cast cache | 类型判定密集代码该部分 3–5× | ⬜ |
+| X-11 | perf/jit | **方法级泛型函数体可 JIT + 方法类型实参驻留**：mta 是 `Box<[String]>`，解释器每次泛型调用深拷贝（`interp/exec_support.rs`）；读 T 的函数体被整函数拒译（`translate/unsupported.rs`）。改法：mta 改为驻留 `TypeArgs` 句柄（M14 同法）放进 Frame / JitFrame，`MethodTypeArg` 等经 helper 读句柄，`$mta` 转发直接传句柄 | CoreCLR 共享规范代码 + 泛型字典参数 | 最后一类泛型解释回落消失、泛型调用零分配 | ⬜ |
+| X-12 | perf/vm | **分配快路**（依赖 M15、M16）：`jit_obj_new` 是 11 参 helper，每次过 dyn `MagrGC`、2 次 TLS、全局原子记账、`Arc<TypeDesc>` clone，ctor 再走完整调用协议；解释器 `new` 还为 ctor 实参 malloc 一个 Vec。改法：TLAB cursor / limit 挪进 VmContext，站点稳定后用纪元门（同 X-4）跳过屏障，生成码直接 bump、写头、清零；空洞复用只走慢路 | CoreCLR 每线程分配上下文 + 内联 bump（≈10 条指令、0 原子） | 09_alloc_ctorless 1.5–2×；z42c `jit_obj_new` 14.5% inclusive | ⬜ |
+| X-13 | perf/jit | **后台 / 批量编译 + 代码 arena**（§4.5 第 3 条）：编译在调用线程上、持全局 `Mutex`，持锁期间其他线程直接等不 park；每函数一次 `finalize_definitions`、各占一块 mmap。动工前先对齐编译耗时两个口径（计数 1.59 s vs 采样 3.9%） | CoreCLR tier1 后台编译 | z42c 墙钟 −5~15%，`--jobs` 不再串行等锁 | ⬜ |
+| X-14 | perf/interp | **解释器调用路径瘦身**：`exec_call.rs` 每次调用跑两道屏障、两次 ambiguous 检查、扫一遍 `$mta:`；X-4 的纪元快路只覆盖 JIT `call_compiled`。改法：移植纪元快路、合并重复检查 | — | 解释器调用 −5~10% | ⬜ |
+| X-15 | perf/vm | **异常惰性栈**（§4.6 已列未修）：throw 时当场格式化整条栈（`exception/mod.rs`），`find_handler` 按 String label 查 HashMap。改法：只存 (func, pc) 快照，读 StackTrace 时才格式化；异常表用块下标 | CoreCLR 惰性 IP 数组 | 异常密集代码 5–10× | ⬜ |
+| X-16 | perf/jit | 编译期杂项：Br / BrCond 目标按 label 线性 `position` 查找（`translate/term.rs`，大函数 O(B²)）；前向 BrCond 也轮询 safepoint；每次调用 2 次轮询 | — | 编译期小幅 | ⬜ |
+
+**内存与 GC**（M 系列续号）
+
+| ID | 类型 | 内容 | 对照 | 预期 | 状态 |
+|---|---|---|---|---|---|
+| M15 | perf/gc | **对象类型字不计数**：`Arc<TypeDesc>` → arena 持有的 `*const TypeDesc`。现状每次 `new` 一次 `Arc::clone`（`interp/obj_new_resolve.rs`），每个死对象经 drop glue 一次 fetch_sub + 间接调用；多线程分配同类时争同一条 refcount 缓存行。改后 Object 块是纯 POD，是 X-12、M18 的前提。风险：可回收加载上下文卸载时须保证无活实例（`context_reclaimer` 钩子） | .NET MethodTable* 不计数 | 每次分配 / 死亡各省 1 次竞争原子 RMW | ⬜ |
+| M16 | perf/gc | **分配记账下沉到 TLAB + 热字段缓存行隔离**：`record_alloc_fast`（`gc/arc_heap/alloc.rs`）每次分配两次共享 fetch_add；`used_bytes` / `allocations` 与 JIT 屏障常读的 `mode` / `promotion_age` 同结构体无 padding（推断伪共享）。改法：claim 时按 cursor 差值记账，回收闸门做成 claim 的 limit 指针 | .NET alloc_limit：只在换缓冲时记账 | 单线程每次分配省 2 次 RMW；多线程扩展性（gc-tlab 实测 24 线程仅 2.76×） | ⬜ |
+| M17 | perf/gc | **引用实参的泛型数组 REF 打包**（M13 延伸）：`objops/array.rs` 只为基元实参打包，`List<string>` / `List<Node>` / 字典键数组仍是 16 B 一格的 MIXED | .NET 8 B / 元素 | 每元素 −8 B | ⬜ |
+| M18 | perf/gc | **免清扫 nursery**（移动式 nursery 的中间步，依赖 M15）：`sweep_young_with` 对每个死的年轻块做 tombstone / CAS / drop / 位图 / free-list push，minor 成本 ∝ 分配量。改法：标记时按 chunk 计存活，零存活 chunk 整块入池，半活 chunk 交给空洞补货时惰性清扫（Immix 式） | .NET gen0 成本 ∝ 存活量 | minor 时间 ÷2–4（推断） | ⬜ |
+| M19 | perf/gc | **标记内核**：单线程 BFS，队列元素 16 B `Value`，每条边一次 `&mut dyn FnMut`，经 `Arc<TypeDesc>` 多跳取引用偏移。改法：TypeDesc 热区放引用偏移位图（GCDesc 式），标记栈 8 B 头指针；之后用已 park 线程并行标记（阶段 3） | .NET GCDesc + 并行标记 | 单核 1.3–2×（推断） | ⬜ |
+| M20 | perf/gc | **大数组卡表**（§4.4 已述、R9 注明另做）：记忆集按属主整个重扫，100 万元素老 `object[]` 每次 minor ≈6 ms。≥1–4 KB 数组配逐区间卡字节，屏障置 `idx >> k` | .NET / HotSpot card table | 去掉记忆集穿透的停顿地板 | ⬜ |
+| M21 | perf/gc | **尺寸档细化**：`gc/var_region/chunk.rs` `SUB_LOG2 = 2`，注释实测取整浪费约占 footprint 15%；改 3 后 < 128 B 全按 8 B 对齐（stash 的 class 位图需加宽） | — | 堆 footprint −5~10%（推断） | ⬜ |
+| M22 | perf/gc | **chunk 64 KB 对齐 + 池按时间 purge**：chunk 从 mimalloc 按 16 B 对齐分配（arm64 64 KB chunk 只有 3 页可 decommit），`chunk_of` 走 BTreeMap，池至少留 64 MB 或 occupied/4（`gc/arc_heap/footprint.rs`）。改法：64 KB 对齐 mmap 段，`chunk_of` 一次 mask、整页 decommit、侧表固定偏移；池改延时 purge、去掉固定地板 | .NET regions / mimalloc segment | 小堆 RSS 降几十 MB | ⬜ |
+| M23 | perf/vm | **字符串**：分配先清零再拷贝（冗余）、之后再扫一遍 `is_ascii`，拼接不复用源串 ASCII 位；`""` 与单字符串无缓存；非 ASCII 串按字符索引靠 8 条目 TLS LRU，> 8 串交错退化 O(n²)。改法：去冗余清零；块尾 breadcrumb（每 64 字符）+ 前缀字符数，与 D7 一起修 | CPython 单字符缓存、PEP 393 O(1) 索引 | 拼接密集负载几个百分点；非 ASCII 索引去掉退化 | ⬜ |
+| M24 | perf/vm | **闭包单块**：闭包块 32 B + FROZEN env 16 + 16n B 两次分配，env 内联进闭包块 | — | 每闭包 −1 次分配、−16 B（T5 剩余大头） | ⬜ |
+| M25 | perf/gc | 低频全局锁：弱引用 downgrade / upgrade 每次拿 `region_var` 全局锁查 BTreeMap（`gc/arc_heap/side_tables.rs`）；safepoint 慢路径每 1024 次 poll 取一次 `gc_phase` Mutex；锁路径 `record_alloc` 为读 sampler 每次 `inner.lock()` | — | 争用场景 | ⬜ |
+
+不做：NaN-boxing（`long` 需 64 位全宽，大整数要装箱；16 B `Value` 只剩寄存器 / 型参单元 / MIXED 数组，走 M17 与阶段 2 类型化寄存器更划算）。
+
+**启动与加载**（S 系列；目标 hello ≈4–5 ms / 6–7 MB，即 NativeAOT 量级）
+
+| ID | 类型 | 内容 | 对照 | 预期 | 状态 |
+|---|---|---|---|---|---|
+| S1 | perf/load | `build_type_registry` 是 O(类 × 函数) 且跑两遍：`metadata/loader/type_registry.rs` 用 `classes.iter().find`，对每个类遍历全部函数做 `starts_with`；`metadata/loader/artifact.rs` 跑一次、`app.rs` 合并后全量重跑。改为一遍按 owner 分桶、合并入口模块时增量追加 | — | −0.9~1.1 ms | ⬜ |
+| S2 | perf/load | 库目录 NSPC 扫描冷启动全价（`metadata/namespace_index.rs` + `metadata/zbc_reader/zpkg.rs` 整读、全解 STRS）。改法：z42.core 已提供的命名空间不扫；只读文件头、目录与 NSPC 引用的串；SDK 安装时生成 `namespace → zpkg` 索引 | .NET TPA / deps.json | −1.0~1.5 ms | ⬜ |
+| S3 | perf/load | STRS 每包解码 3 次、每项一个 `String`（§4.7 已列）。改为一次解析 + `Arc<[u8]>` 偏移零拷贝 | — | −0.5~0.8 ms | ⬜ |
+| S4 | perf/load | `.zsym` 与 `frame_meta` 启动时 eager（`metadata/loader/artifact.rs` 解析 sidecar ≈0.3 ms，`metadata/loader/indices.rs` 给全部函数预格式化帧名）。改为首次生成栈回溯 / 调试器附加时加载 | .NET PDB 按需 | −0.3~0.4 ms、≈−0.5 MB | ⬜ |
+| S5 | perf/load | CLI 退出不析构：`app.rs` 结束时 drop 整个 ctx + Module（≈10 万次 free），刷完 stdout 后直接退出，嵌入路径不变 | CPython `os._exit`、.NET 退出不释放堆 | −0.3 ms | ⬜ |
+| S6 | perf/load | 入口函数不预编译：`jit/runtime.rs` 的 `resolve_fn_by_name` 先编译 Main 再执行；只跑一次的 Main / cctor 交给解释器 + OSR | .NET tier0 / OSR | hello −0.2 ms、`z42c --help` −2 ms | ⬜ |
+| S7 | perf/load | **函数体按需解码**（§4.7、阶段 2 第 4 项 PackageImage）：`read_mods_section` 把每条指令还原成带 `String` 的结构，`indices.rs` 给每个函数建 block_index / fused_tails，`resolve_module` 全量预填 token。改为启动只解 SIGS / TYPE，函数体首次调用时解码 | .NET 按方法懒 JIT、CPython 按模块导入 | hello −2.2~2.5 ms / −3~4 MB；`z42c --help` 25 → 10–12 ms | ⬜ |
+| S8 | perf/load | z42.core 链接后快照（阶段 3，S1/S3/S7 之后）：TypeId、函数表、驻留串做成可 mmap 只读镜像 | Java CDS、V8 snapshot、CPython deepfreeze | core 加载 ≈0.3 ms，多进程共享干净页 | ⬜ |
+
+不做：二进制体积与 dyld（比 C `return 0` 只多 0.9 ms）、toml / tracing 初始化（≈0.1 ms）。
+
+**缺陷**：D7（§3）先修。
+
+### 目录与模块化迁移（User 2026-10-29 定案，目标结构见 §5.5）
+
+先在单 crate 内把目录重排成 §5.5 的形状并由门禁守住，最后再物理拆 crate。每步一个 PR、行为不变（GREEN 双模式 + `./xtask test runtime`；拆 crate 后 z42c 自建产物逐字节一致）。
+
+| ID | 类型 | 内容 | 验证要点 | 状态 |
+|---|---|---|---|---|
+| L-1 | infra | xtask 分层门禁：按 §5.5 依赖矩阵检查模块 / crate 间引用与 pal 外的平台 cfg、`libc`；现有违规登记为欠账清单，只减不增 | 门禁自测（构造违规用例）；欠账清单与 grep 计数对账 | ⬜ |
+| L-2 | refactor | 平台代码收进 pal：corelib / gc / vm_context 的平台 cfg 与 `libc` 调用迁入 `pal/sys/`；三处 dlopen 合一为 `pal::dynlib`；`fs_backend` 改为每 VM 一个 Vfs 句柄 | pal 外平台 cfg 计数归零；wasm / Windows CI；两 VM 同进程 VFS 不串扰测试 | ⬜ |
+| L-3 | refactor | `native/` 改名 `interop/`，按 §5.5.1 命名规则改名（`ffi_call`、`enter_compiled`）；两张 builtin 注册表（`BUILTINS` 与 `ext_builtins`）合一 | `native_*` e2e；compression 扩展双路径（dlopen / wasm 静态） | ⬜ |
+| L-4 | refactor | metadata 一拆三：静态索引留 metadata（加 `index/` `debug/`），`types/` 形状进 object，组装与查询进 vm/runtime，加载进 vm/loader；`semantics.rs` 进 exec/ops | metadata 不再引用 gc / vm_context / corelib；启动项 S1–S4 可在新结构上做 | ⬜ |
+| L-5 | refactor | gc 断环：注入 `GcConfig`、加 `GcToVm`、safepoint 移到 vm/threads、`MagrGC` 改具体类型；sampler / snapshot / retention 先移到 vm/diagnostics 旁待 L-8 | gc 不再引用 config / vm_context / corelib；GC 模型测试与 loom 测试；13 / 09 微基准不退化 | ⬜ |
+| L-6 | refactor | 引擎断环：vcall / obj_new / isa 拆成 runtime/dispatch（查询）与 exec/ops（执行）；加 Engine 注册槽与统一栈遍历；interp ↔ jit 不再互相引用 | 双引擎一致性测试；OSR / 分层测试；`jit_native_from_interp` 计数不变 | ⬜ |
+| L-7 | refactor | VmCore 按子系统重组为状态组合；corelib 收尾（builtin ABI 移 vm/exec/call、OS 资源表移进扩展状态、corelib 不再引用 interp）；配置与启动编排移到门面层 | VmCore 无散字段；z42-host 嵌入与 C ABI 测试 | ⬜ |
+| L-8 | refactor | 物理拆 crate：pal → metadata → object → gc → vm → interp / jit / corelib / interop → profiler（接收 L-5 移出的代码）→ 门面 / host / z42vm | 每拆一个跑全量 GREEN；z42vm 二进制体积与 hello 启动不退化；增量编译耗时对比 | ⬜ |
+| L-9 | feature | 监控 API（vm/diagnostics/monitor）→ z42-debugger（0.8.x，前置：.zsym 局部变量信息）→ profiler 的分配采样与覆盖率；AOT（M9）时拆 z42-codegen | 各自立项，动工前出方案 | ⬜ |
+
+依赖与顺序：L-1 先行；L-2、L-3 可并行；L-4 先于 L-5、L-6（object 与 runtime 先成形）；L-7 在 L-5、L-6 之后；L-8 最后。阶段 2 第 4 项（PackageImage / LinkState / TierApi / GC 具体类型）分别落在 L-4、L-6、L-5，第 5 项（拆 crate）即 L-8。
+
 ### 阶段 2：紧凑执行与对象模型（1–2 个月，需另行确认）
 
-第 5 项拆 crate 之前先与 User 讨论目录分层（§5.5）。
+目录分层已定案（User 2026-10-29，§5.5），第 4、5 项按 §7「目录与模块化迁移」L-4…L-8 推进。
 
 
 1. 解释器预链接紧凑码（u16 寄存器 / 16 B op / 偏移跳转 / 内嵌 IC 槽 / quickening / 尾调用分发）。
 2. 每线程连续 VM 栈，interp 与 JIT 共用；JIT→JIT 直接调用；JIT 代码 arena；批量或后台编译；类型化 SSA 寄存器。
 3. 对象模型：去掉每对象 Mutex（内存模型已定，按 §7 的 R0–R9 推进）、16 B 统一头、string 内联、单次分配、8 B 引用数组元素。
 4. `PackageImage` + `LinkState`；metadata 分层；TierApi 注册槽解开 interp↔jit 环；GC 改为编译期具体类型。
-5. 拆 crate：core / stdlib-os / stdlib-net（rustls 可选）/ z42vm-cli。
+5. 拆 crate：按 §5.5 的目标结构，见 §7 L-8。
 
 ### 阶段 3：长期
 
