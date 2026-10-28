@@ -1,14 +1,14 @@
-// xtask CLI — `bench` 命令族：router + dispatch，外加 default-action 那一路
-// （`bench` 不带子命令 = e2e）的 parser 与入口 _benchE2e，_runCli 在 Resolve
-// 之前直接调它。拆分背景见 scripts/cli/xtask_cli_build.z42 头部。
+// xtask CLI — `bench` 命令族：router + dispatch，外加默认动作那一路
+// （`bench` 不带子命令 = e2e）的 parser 与入口 _benchE2e。拆分背景见
+// scripts/cli/xtask_cli_build.z42 头部。
 namespace Z42Xtask;
 
-using Std.IO;
 using Std.Cli;
 using Std.Time;   // Stopwatch — bench 进程计时标记
 
 SubcommandRouter _benchRouter() {
     SubcommandRouter bn = new SubcommandRouter("xtask bench", "benchmarks");
+    bn.SetDefault(_benchE2eParser(), "e2e hyperfine scenarios");
     ArgParser stdlib = new ArgParser("xtask bench stdlib", "per-lib [Benchmark]");
     stdlib.AddFlag("no-build", "", "skip tooling rebuild");
     stdlib.AddOption("filter", "k", "bench-name filter", "");
@@ -33,9 +33,9 @@ SubcommandRouter _benchRouter() {
     return bn;
 }
 
-// The `bench` default-action e2e parser (used by _benchE2e + `bench -h`).
+// The `bench` default-action e2e parser.
 ArgParser _benchE2eParser() {
-    ArgParser p = new ArgParser("xtask bench", "e2e hyperfine scenarios (no subcommand; subcommand: stdlib [lib])");
+    ArgParser p = new ArgParser("xtask bench", "e2e hyperfine scenarios");
     p.AddFlag("quick", "", "fewer runs/warmup");
     // add-exec-profile-matrix: sweep the measured VM's execution mode. `both`
     // runs each scenario under interp AND jit (two profile-tagged results).
@@ -76,15 +76,7 @@ ArgParser _benchE2eParser() {
     return p;
 }
 
-int _benchE2e(string[] argv) {
-    ArgParser p = _benchE2eParser();
-    ParseResult r;
-    try { r = p.Parse(_sliceFrom(argv, 1)); }
-    catch (CliException e) {
-        ConsoleError.WriteLine("xtask bench: " + e.Message);
-        return 2;
-    }
-    if (r.ShowHelp()) { Console.WriteLine(p.HelpText()); return 0; }
+int _benchE2e(ParseResult r) {
     if (r.GetFlag("ab-selftest")) { return _abSelfTest(); }
     if (r.GetFlag("micro-diff")) { return _benchMicroDiff(r); }
     Stopwatch sw = _procStart("bench");
@@ -95,7 +87,8 @@ int _benchE2e(string[] argv) {
 }
 
 int _dispatchBench(string[] p, ParseResult r) {
-    string sub = p.Length > 1 ? p[1] : "";
+    if (p.Length == 1) { return _benchE2e(r); }
+    string sub = p[1];
     if (sub == "stdlib") { return _testLib(r, "bench"); }
     if (sub == "targets") { return _testTargetsCore("bench", r.GetPositional(0), r.GetFlag("no-build")); }
     return 2;

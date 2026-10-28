@@ -103,3 +103,31 @@ void test_default_with_subcommand_args_not_confused() {
     catch (CliException e) { threw = true; }   // unit parser 不认识 --no-build → 抛
     Assert.True(threw);
 }
+
+[Test]
+void test_help_lists_default_action_options() {
+    // 本层帮助附默认 parser 的选项段——默认动作的旗标不必再手抄进 router 描述。
+    string[] argv = new string[1];
+    argv[0] = "-h";
+    string help = _testRouter().Resolve(argv).HelpText();
+    Assert.True(help.Contains("DEFAULT ACTION OPTIONS"));
+    Assert.True(help.Contains("--no-build"));
+    Assert.True(help.Contains("--skip"));
+}
+
+[Test]
+void test_help_after_default_flag_is_help() {
+    // 默认动作路径上的 `-h`（`xtask test --no-build -h`）给本层帮助，而不是执行默认动作。
+    string[] argv = new string[2];
+    argv[0] = "--no-build"; argv[1] = "-h";
+    CommandResolution res = _testRouter().Resolve(argv);
+    Assert.True(res.IsHelp());
+    Assert.True(res.HelpText().Contains("DEFAULT ACTION OPTIONS"));
+}
+
+[Test]
+void test_no_default_no_default_options_section() {
+    SubcommandRouter r = new SubcommandRouter("prog", "t");
+    r.Add("build", "b", new ArgParser("prog build", "build"));
+    Assert.False(r.HelpText().Contains("DEFAULT ACTION OPTIONS"));
+}

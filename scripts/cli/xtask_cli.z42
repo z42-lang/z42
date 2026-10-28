@@ -6,13 +6,11 @@
 // declares its flags/options/positionals via ArgParser, so `-h` works at
 // every level and help text is generated (no hand-written _help()).
 //
-// `test`, `setup` and `bench` are "default-action" commands (no subcommand = run
-// all / install / e2e) which the plain router doesn't model — _runCli handles those
-// default cases before Resolve. They are still registered in the tree
-// so `xtask -h` lists them and `xtask test e2e -h` etc. work via Resolve.
+// `test`, `setup` and `bench` carry a default action (no subcommand = full gate /
+// install / e2e) via SubcommandRouter.SetDefault; `--toolchain` / `--verbosity` are
+// root persistent options (accepted before or after the subcommand).
 //
-// This file is the CLI **core** only: argv pre-processing (global options),
-// the root tree, the top-level _dispatch fan-out, and their helpers. Each
+// This file is the CLI **core** only: global options, the root tree, the top-level _dispatch fan-out, and their helpers. Each
 // command FAMILY's router + dispatch pair lives beside its siblings in
 // scripts/cli/xtask_cli_<family>.z42 (split-xtask-cli) — the pairs
 // are mutually zero-coupled, so keeping them here only made this file long.
@@ -23,182 +21,73 @@ namespace Z42Xtask;
 using Std.IO;
 using Std.Cli;
 
-// ── entry: the whole Main body (shims + resolve + dispatch) → exit code ──────
+// ── entry: the whole Main body (resolve + dispatch) → exit code ──────────────
 
-int _runCli(string[] argvIn) {
-    // Pull the global `--toolchain <dir>` and `--verbosity <level>` out of argv
-    // before routing (the nested router models only per-leaf options). --toolchain
-    // sets Z42_HOME (the single "SDK root"; every locator redirects to that `.z42`);
-    // --verbosity sets Z42_VERBOSITY (read by _verbosity, inherited by children).
-    string[] argv = _applyVerbosityOpt(_applyToolchainOpt(argvIn));
-    string c0 = argv.Length > 0 ? argv[0] : "";
-    string c1 = argv.Length > 1 ? argv[1] : "";
-
-    // default-action shim: `test` (empty / leading non-help flag) → full GREEN gate. SubcommandRouter has no
-    // default action, so the gate's own flags are parsed here (previously they were silently dropped here, which
-    // is why CI had to spell `test --no-build`).
-    if (c0 == "test" && (c1 == "" || (_isFlag(c1) && !_isHelpFlag(c1)))) {
-        ArgParser gate = new ArgParser("xtask test", "full GREEN gate");
-        gate.AddFlag("no-build", "", "skip z42c+stdlib rebuild — consume what the bootstrap/toolchain already built");
-        gate.AddOption("skip", "", "skip named stages (csv; see test-gate.md §5) — CI offloads stages to parallel jobs", "");
-        gate.AddOption("changed", "", "only run the heavy stages affected by changes since <base> (test-changed mapping; static checks always run)", "");
-        try {
-            ParseResult gr = gate.Parse(_sliceFrom(argv, 1));
-            string skip = gr.GetOption("skip");
-            string changedBase = gr.GetOption("changed");
-            if (changedBase.Length > 0) {
-                string extra = _changedGateSkips(changedBase);
-                if (extra.Length > 0) { skip = skip.Length == 0 ? extra : skip + "," + extra; }
-            }
-            return _testAll(gr.GetFlag("no-build"), skip);
-        } catch (CliException e) {
-            ConsoleError.WriteLine("xtask: " + e.Message);
-            return 2;
-        }
-    }
-    // default-action shim: `setup` (empty / leading non-help flag) → install (host base, or --os <p>).
-    if (c0 == "setup" && (c1 == "" || (_isFlag(c1) && !_isHelpFlag(c1)))) {
-        try {
-            ParseResult sr = _setupInstallParser().Parse(_sliceFrom(argv, 1));
-            return _setupInstall(sr.GetOption("os"), sr.GetFlag("force"));
-        } catch (CliException e) {
-            ConsoleError.WriteLine("xtask: " + e.Message);
-            return 2;
-        }
-    }
-    // default-action shim: `bench` (anything but the `stdlib`/`targets` subcommands) → e2e.
-    if (c0 == "bench" && c1 != "stdlib" && c1 != "targets") {
-        return _benchE2e(argv);
-    }
-    // `run` is a raw passthrough to the launcher (forwards `<app> [-- args]`
-    // verbatim) — a strict ArgParser can't model the `--` tail, so intercept
-    // before Resolve. `xtask run -h` forwards to the launcher's own run help.
-    if (c0 == "run") {
-        return _run(argv);
-    }
-
+int _runCli(string[] argv) {
     SubcommandRouter root = _cliRoot();
-    CommandResolution res;
-    // A leaf ArgParser raises CliException on unknown flag / missing value /
-    // bad positional count — surface it cleanly (Resolve only routes; it does
-    // not swallow option-level errors).
-    try { res = root.Resolve(argv); }
-    catch (CliException e) {
+    try {
+        // `run` forwards everything after it verbatim to the launcher (its own options and
+        // `--` app tail included), so only the prefix up to `run` goes through the router.
+        int ri = _indexOf(argv, "run");
+        if (ri >= 0) {
+            CommandResolution pre = root.Resolve(_slice(argv, 0, ri + 1));
+            if (pre.IsMatch() && pre.Path().Length == 1 && pre.Path()[0] == "run") {
+                _applyGlobals(pre);
+                return _run(_slice(argv, ri + 1, argv.Length));
+            }
+        }
+        // A leaf ArgParser raises CliException on unknown flag / missing value /
+        // bad positional count — surface it cleanly (Resolve only routes; it does
+        // not swallow option-level errors).
+        CommandResolution res = root.Resolve(argv);
+        _applyGlobals(res);
+        if (res.IsHelp()) {
+            Console.WriteLine(res.HelpText());
+            return 0;
+        }
+        if (res.IsUnknown()) {
+            ConsoleError.WriteLine(res.ErrorMessage());
+            Console.WriteLine(res.HelpText());
+            return 2;
+        }
+        return _dispatch(res);
+    } catch (CliException e) {
         ConsoleError.WriteLine("xtask: " + e.Message);
         return 2;
     }
-    if (res.IsHelp())    {
-        Console.WriteLine(res.HelpText());
-        if (_isHelpFlag(c0)) { Console.WriteLine(_globalOptionsHelp()); }   // root -h: list pre-route globals
-        return 0;
-    }
-    if (res.IsUnknown()) {
-        ConsoleError.WriteLine(res.ErrorMessage());
-        Console.WriteLine(res.HelpText());
-        return 2;
-    }
-    return _dispatch(res);
 }
 
-bool _isFlag(string a) { return a.Length >= 1 && a.CharAt(0) == '-'; }
-bool _isHelpFlag(string a) { return a == "-h" || a == "--help"; }
-
-// Result of stripping a two-token global option from argv (last-wins): the last
-// value seen, whether it appeared with a value, and the surviving argv. Shared by
-// the toolchain / verbosity strippers so the two-pass strip lives in one place.
-class _OptStrip {
-    public string value;
-    public bool seen;
-    public string[] kept;
-
-    public _OptStrip() {
-        this.value = "";
-        this.seen = false;
-        this.kept = new string[0];
-    }
-}
-
-// Strip a global two-token option `<name1>|<name2> <value>` from argv, last-wins
-// (name2 == "" → single-name). Two passes (count survivors, then fill) — no List
-// type. Returns argv itself (unstripped) in `kept` when the option never appeared
-// with a value; caller applies the option-specific side effect (env var, validation).
-_OptStrip _stripTwoTokenOpt(string[] argv, string name1, string name2) {
-    int n = argv.Length;
-    _OptStrip r = new _OptStrip();
-    int keep = 0;
-    int i = 0;
-    while (i < n) {
-        if (argv[i] == name1 || (name2.Length > 0 && argv[i] == name2)) {
-            if (i + 1 < n) { r.value = argv[i + 1]; r.seen = true; i = i + 2; } else { i = i + 1; }
-            continue;
-        }
-        keep = keep + 1;
-        i = i + 1;
-    }
-    if (!r.seen) { r.kept = argv; return r; }
-    r.kept = new string[keep];
-    int j = 0;
-    i = 0;
-    while (i < n) {
-        if (argv[i] == name1 || (name2.Length > 0 && argv[i] == name2)) {
-            if (i + 1 < n) { i = i + 2; } else { i = i + 1; }
-            continue;
-        }
-        r.kept[j] = argv[i];
-        j = j + 1;
-        i = i + 1;
-    }
-    return r;
-}
-
-// Strip a global `--toolchain <dir>` (two-token form) from argv and stash <dir>
-// in Z42_HOME (the single "SDK root" var, read by _toolchainDir; simplify-compiler-
-// build folded the former Z42_TOOLCHAIN into Z42_HOME). Last occurrence wins. Returns
-// argv unchanged when absent or the value is empty.
-string[] _applyToolchainOpt(string[] argv) {
-    _OptStrip r = _stripTwoTokenOpt(argv, "--toolchain", "");
-    if (!r.seen || r.value.Length == 0) { return argv; }
-    Environment.SetEnvironmentVariable("Z42_HOME", r.value);
-    return r.kept;
-}
-
-// Strip a global `--verbosity <level>` / `-v <level>` (two-token form) from argv
-// and stash the canonical level name in Z42_VERBOSITY (read by _verbosity). Last
-// occurrence wins; an invalid level → error + exit(2). Mirrors _applyToolchainOpt.
-string[] _applyVerbosityOpt(string[] argv) {
-    _OptStrip r = _stripTwoTokenOpt(argv, "--verbosity", "-v");
-    if (!r.seen) { return argv; }
-    int lvl = _normVerbosity(r.value);
+// Global options → process env, inherited by every child: --toolchain sets Z42_HOME (the
+// single "SDK root"; every locator redirects to that `.z42`); --verbosity sets Z42_VERBOSITY
+// (read by _verbosity). An invalid level is a usage error.
+void _applyGlobals(CommandResolution res) {
+    string tc = res.PersistentOption("toolchain");
+    if (tc.Length > 0) { Environment.SetEnvironmentVariable("Z42_HOME", tc); }
+    string v = res.PersistentOption("verbosity");
+    if (v.Length == 0) { return; }
+    int lvl = _normVerbosity(v);
     if (lvl < 0) {
-        ConsoleError.WriteLine("xtask: invalid --verbosity '" + r.value
+        throw new CliException("invalid --verbosity '" + v
             + "' (use q[uiet] | m[inimal] | n[ormal] | d[etailed] | diag[nostic])");
-        Environment.Exit(2);
     }
     Environment.SetEnvironmentVariable("Z42_VERBOSITY", _verbName(lvl));
-    return r.kept;
 }
 
 // ── root tree ────────────────────────────────────────────────────────────────
 
-// Footer appended to `xtask -h` — the pre-route global options the router tree
-// (per-leaf only) doesn't model.
-string _globalOptionsHelp() {
-    return "\nGLOBAL OPTIONS (before any subcommand):\n"
-        + "  --toolchain <dir>       use a .z42 SDK layout (programs/z42c + libs + bin)\n"
-        + "  --verbosity, -v <lvl>   q[uiet] | m[inimal] (default) | n[ormal] | d[etailed] | diag[nostic]";
-}
-
 SubcommandRouter _cliRoot() {
     SubcommandRouter root = new SubcommandRouter("xtask", "z42 repo dev CLI");
+    root.AddPersistentOption("toolchain", "", "use a .z42 SDK layout (programs/z42c + libs + bin)", "");
+    root.AddPersistentOption("verbosity", "v", "q[uiet] | m[inimal] (default) | n[ormal] | d[etailed] | diag[nostic]", "");
 
     root.AddRouter("build", "build components", _buildRouter());
 
     root.AddRouter("package", "assemble from built artifacts (sdk / runtime / workload [--archive] · dev-sdk · ci · release)", _packageRouter());
 
     root.AddRouter("test", "run tests (no subcommand = full GREEN gate)", _testRouter());
-    root.Add("check", "static checks — no build, no test run (lines / fnlines / diagcodes / versions …; no name = all)", _checkParser());
+    root.Add("check", "static checks — no build, no test run (diagcodes / versions / docs-api …; no name = all)", _checkParser());
     root.AddRouter("setup", "prepare this machine (no subcommand = install; vscode / check)", _setupRouter());
-    root.AddRouter("bench", "benchmarks (no subcommand = e2e; see `bench -h`)", _benchRouter());
+    root.AddRouter("bench", "benchmarks (no subcommand = e2e)", _benchRouter());
     root.AddRouter("doc", "generate reference stdlib pages and index Rust crates (gen / index)", _docRouter());
 
     // plan-script-profiling P0: profile one .z42 script across four dimensions
@@ -223,10 +112,9 @@ SubcommandRouter _cliRoot() {
     clean.AddOptionalPositional("target", "tests|bench|intermediate|all (default: production cache/dist)");
     root.Add("clean", "remove build artifacts", clean);
 
-    ArgParser run = new ArgParser("xtask run", "run a zpkg / .z42 via the launcher");
-    run.AllowExtras();
-    run.AddOptionalPositional("target", "<app.zpkg|script.z42> [-- args]");
-    root.Add("run", "run a zpkg / .z42 via the launcher", run);
+    // Listed for `xtask -h` only: _runCli forwards everything after `run` to the launcher.
+    root.Add("run", "run a zpkg / .z42 via the launcher (args after `run` are forwarded verbatim)",
+        new ArgParser("xtask run", "run a zpkg / .z42 via the launcher"));
 
     return root;
 }
@@ -248,17 +136,21 @@ int _dispatch(CommandResolution res) {
     if (top == "profile")        { return _profile(r); }
     if (top == "clean")          { return _clean(r); }
     if (top == "layout")         { return _layoutCmd(r); }
-    // `run` is intercepted in _runCli (raw passthrough) — not reached here.
+    // `run` is forwarded in _runCli before dispatch — not reached here.
     return 2;
 }
 
-// ── small helper ──────────────────────────────────────────────────────────────
+// ── small helpers ─────────────────────────────────────────────────────────────
 
-string[] _sliceFrom(string[] arr, int start) {
-    if (start >= arr.Length) { return new string[0]; }
-    int n = arr.Length - start;
-    string[] outArr = new string[n];
+int _indexOf(string[] arr, string s) {
+    int i = 0;
+    while (i < arr.Length) { if (arr[i] == s) { return i; } i = i + 1; }
+    return -1;
+}
+
+string[] _slice(string[] arr, int from, int to) {
+    string[] outArr = new string[to - from];
     int j = 0;
-    while (j < n) { outArr[j] = arr[start + j]; j = j + 1; }
+    while (j < outArr.Length) { outArr[j] = arr[from + j]; j = j + 1; }
     return outArr;
 }

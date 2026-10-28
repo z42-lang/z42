@@ -5,7 +5,7 @@ using Std.IO;
 using Std.Cli;
 
 // `xtask test` 按「契约属于谁」归类（test-layout.md §1 的 owner 表）：
-//   (无子命令)  完整 GREEN gate [--no-build] [--skip <csv>] [--changed <base>]（在 xtask_cli.z42 的 shim 里解析，router 不支持默认动作）
+//   (无子命令)  完整 GREEN gate [--no-build] [--skip <csv>] [--changed <base>]（router 默认动作）
 //   changed     按改动推导该跑的命令
 //   e2e / stdlib / compiler / toolchain / runtime   各 owner 的用例
 //   app         嵌入宿主里跑（desktop / wasm / ios / android）
@@ -13,8 +13,12 @@ using Std.Cli;
 //   list        用例目录（只读）
 // 不跑用例的静态检查在 `xtask check`（xtask_cli_check.z42）；打包的验证在 `xtask package sdk --verify`。
 SubcommandRouter _testRouter() {
-    SubcommandRouter t = new SubcommandRouter("xtask test",
-        "run tests (no subcommand = the full GREEN gate: xtask test [--no-build] [--skip <csv>] [--changed <base>])");
+    SubcommandRouter t = new SubcommandRouter("xtask test", "run tests");
+    ArgParser gate = new ArgParser("xtask test", "full GREEN gate");
+    gate.AddFlag("no-build", "", "skip z42c+stdlib rebuild — consume what the bootstrap/toolchain already built");
+    gate.AddOption("skip", "", "skip named stages (csv; see test-gate.md §5) — CI offloads stages to parallel jobs", "");
+    gate.AddOption("changed", "", "only run the heavy stages affected by changes since <base> (test-changed mapping; static checks always run)", "");
+    t.SetDefault(gate, "the full GREEN gate");
     ArgParser changed = new ArgParser("xtask test changed", "only changed-area tests");
     changed.AddFlag("dry-run", "", "print the plan, don't run");
     changed.AddOptionalPositional("base", "git base ref (default: HEAD)");
@@ -88,7 +92,8 @@ SubcommandRouter _testRouter() {
 }
 
 int _dispatchTest(string[] p, ParseResult r) {
-    string sub = p.Length > 1 ? p[1] : "";
+    if (p.Length == 1)         { return _testGate(r); }
+    string sub = p[1];
     if (sub == "changed")      { return _testChanged(r); }
     if (sub == "e2e")          { return _testE2e(r); }
     if (sub == "list")         { return _testList(r); }        // read-only case catalog
@@ -99,6 +104,17 @@ int _dispatchTest(string[] p, ParseResult r) {
     if (sub == "app")          { return _testApp(r); }        // 嵌入宿主（test-layout §6）
     if (sub == "docs")         { return _testDocsCmd(r); }
     return 2;
+}
+
+// `test` (no subcommand): the full GREEN gate; `--changed <base>` adds the skips its mapping derives.
+int _testGate(ParseResult r) {
+    string skip = r.GetOption("skip");
+    string changedBase = r.GetOption("changed");
+    if (changedBase.Length > 0) {
+        string extra = _changedGateSkips(changedBase);
+        if (extra.Length > 0) { skip = skip.Length == 0 ? extra : skip + "," + extra; }
+    }
+    return _testAll(r.GetFlag("no-build"), skip);
 }
 
 // `test compiler [part]`。

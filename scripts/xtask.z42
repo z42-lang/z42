@@ -24,7 +24,7 @@
 //
 // 本文件只剩**入口**：`Main`（校验 VM → 转 _runCli）与 `run` 直通。任何 build /
 // test / setup 的 handler 都不在这里——它们归各自的族目录。`run` 留下是因为它是
-// _runCli 在 Resolve 之前就拦截的裸直通，属于入口层而非某个命令族。
+// 原样转给 launcher 的直通，属于入口层而非某个命令族。
 namespace Z42Xtask;
 
 using Std.IO;
@@ -37,15 +37,14 @@ void Main() {
 
 // ── run (thin passthrough to the launcher) ──────────────────────────────────
 
-// Forwards `<app.zpkg|script.z42> [-- args]` verbatim to `z42 run`. Raw
-// passthrough (intercepted in _runCli before Resolve) — the launcher itself
-// handles the `--` app-args tail. Native spawn (each argv element a separate
+// Forwards `<app.zpkg|script.z42> [-- args]` (everything after `run`) verbatim to
+// `z42 run` — the launcher itself handles its options and the `--` app-args tail. Native spawn (each argv element a separate
 // Arg → no shell re-splitting, so app args with spaces survive); _exec runs it
 // at the repo root with inherited stdio.
-int _run(string[] argv) {
+int _run(string[] args) {
     Process p = new Process("z42").Arg("run");
-    int i = 1;
-    while (i < argv.Length) { p = p.Arg(argv[i]); i = i + 1; }
+    int i = 0;
+    while (i < args.Length) { p = p.Arg(args[i]); i = i + 1; }
     // spawn-failure (z42 not on PATH) throws — surface it gracefully (bash used to
     // return 127 here), rather than crashing with an uncaught exception.
     try {

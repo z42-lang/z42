@@ -117,7 +117,7 @@ HelpText 拼接）+ `z42.io`（`AddOptionWithEnv` 读环境变量）。
 - subcommand 单层（`SubcommandRouter`）+ **嵌套**（`AddRouter`/`Resolve`）
 - **子命令别名**（`Add(name, desc, parser, aliases)`，命中归一为正名，撞名声明期报错）
 - **跨子命令全局旗标**（`AddPersistentFlag` / `AddPersistentOption`：路由前从 argv 任意位置剥出；`CommandResolution.PersistentFlag` / `PersistentOption` 取值，多层各管各的子树、根层优先）
-- **节点默认动作**（`SetDefault(parser, desc)`：argv 为空或首 token 是 flag 且不命中任何子命令时整段交给默认 parser——`xtask test --no-build` 这类「无子命令 = 默认全量」形态）
+- **节点默认动作**（`SetDefault(parser, desc)`：argv 为空或首 token 是 flag 且不命中任何子命令时整段交给默认 parser——`xtask test --no-build` 这类「无子命令 = 默认全量」形态；本层 `-h` 附 DEFAULT ACTION OPTIONS 段）
 - **变长尾参**（`AddVariadicPositional` + `ParseResult.VariadicValues()`，收集剩余全部 positional 含 `--` 之后）
 - **`--` 分隔符**（其后 token 一律 positional）
 - **紧贴短参** `-nvalue` / `-n=4` + **负数字面量回退**（`-1` 作 positional）

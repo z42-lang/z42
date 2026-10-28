@@ -51,7 +51,7 @@ xtask 是独立的 z42 应用——它不是通用 `z42` launcher 的一部分�
 
 ## 全局选项
 
-在任意子命令前（pre-route，见 `xtask_cli.z42` 的 `_apply*Opt`）：
+子命令前后皆可（根 router 的 persistent option，见 `xtask_cli.z42` 的 `_cliRoot` / `_applyGlobals`）：
 
 | 选项 | 作用 |
 |------|------|
@@ -243,7 +243,7 @@ scripts/
 │                        树内自动排除出 [sources]）：publish 前现场 cargo 编 apphost stub，免装 desktop workload
 ├── cli/                CLI 核心 + 每个命令族的 router（叶子的 flag/option 声明）+ dispatch（→ handler）
 │   │                   ——router 与 dispatch 成对出现、族间零耦合，故按族分文件，而非「router 一段 / dispatch 一段」
-│   ├── xtask_cli.z42          **核心**：全局选项剥离 + 根命令树 + 顶层 dispatch 分流（每层 -h 自动生成）；profile / layout / clean 的叶子也在这
+│   ├── xtask_cli.z42          **核心**：根命令树（含全局选项）+ 顶层 dispatch 分流（每层 -h 自动生成）；profile / layout / clean 的叶子也在这
 │   ├── xtask_cli_build.z42    `build` 族
 │   ├── xtask_cli_package.z42  `package` 族
 │   ├── xtask_cli_test.z42     `test` 族（含嵌套的 `test app` 子 router）

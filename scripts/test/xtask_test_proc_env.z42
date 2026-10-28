@@ -4,7 +4,8 @@
 //
 // xtask 起的「跑 z42 代码」的子进程，stdlib 世界（`Z42_LIBS`）与编译器包 probing（`Z42_PROBING_PATHS`）
 // 只能经 `_z42Proc` / `_z42bProc` / `_z42cProc`（scripts/build/xtask_stdlib.z42）设置。调用点直接写
-// `.Env("<这两个之一>", …)` ⇒ 红。
+// `.Env("<这两个之一>", …)` ⇒ 红；`Environment.SetEnvironmentVariable("<这两个之一>", …)` 同样红——
+// 它改的是 xtask 自身环境：同进程里后续的 gate stage 与种子解析（读 `Z42_LIBS`）都会被带偏。
 //
 // 为什么：两种漏法都**不在漏的地方报错**——
 //   · 漏 `Z42_LIBS`：子进程继承 xtask 自身的（`.z42/libs`，上一版 SDK），静默跑在旧 stdlib 上；
@@ -16,18 +17,22 @@
 // ## 不判的
 //
 //   · `.EnvRemove("Z42_LIBS")` —— dist 测试刻意清掉它，模拟用户机器；
-//   · `Environment.SetEnvironmentVariable(...)` —— 改的是 xtask 自身环境，不是某个子进程；
 //   · 注释行。
 namespace Z42Xtask;
 
 using Std.IO;
+
+// 一行代码是否直接设了 `name`：子进程级 `.Env(…)` 或 xtask 进程级 `SetEnvironmentVariable(…)`。
+bool _peSetsProcEnv(string line, string name) {
+    return line.Contains(".Env(\"" + name + "\"") || line.Contains("SetEnvironmentVariable(\"" + name + "\"");
+}
 
 // 允许直接设这些变量的唯一文件（工厂所在）。
 string _peFactoryFile() { return "scripts/build/xtask_stdlib.z42"; }
 
 int _testProcEnv() {
     string root = _root();
-    Console.WriteLine("① 子进程的 Z42_LIBS / Z42_PROBING_PATHS 只经 _z42Proc / _z42bProc / _z42cProc 设置");
+    Console.WriteLine("① Z42_LIBS / Z42_PROBING_PATHS 只经 _z42Proc / _z42bProc / _z42cProc 设置");
     string dir = Path.Join(root, "scripts");
     string[] rel = Directory.EnumerateRecursive(dir);
     int files = 0;
@@ -44,7 +49,7 @@ int _testProcEnv() {
             string t = lines[i].Trim();
             i = i + 1;
             if (t.StartsWith("//")) { continue; }
-            if (t.Contains(".Env(\"Z42_LIBS\"") || t.Contains(".Env(\"Z42_PROBING_PATHS\"")) {
+            if (_peSetsProcEnv(t, "Z42_LIBS") || _peSetsProcEnv(t, "Z42_PROBING_PATHS")) {
                 ConsoleError.WriteLine("  ✗ " + relp + ":" + i.ToString() + ": " + t);
                 bad = bad + 1;
             }

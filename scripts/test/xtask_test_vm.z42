@@ -50,7 +50,7 @@ int _runVmGoldensF(string[] modes, int jobs, int shardK, int shardN, string dirF
         return 1;
     }
 
-    // Pin Z42_LIBS to the freshly-built stdlib so spawned golden VMs resolve the
+    // Pin each golden VM's Z42_LIBS to the freshly-built stdlib so it resolves the
     // NEW z42.core, not whatever stale Z42_LIBS the xtask apphost inherited (e.g.
     // an installed .z42/libs). Without this, a golden using a brand-new stdlib
     // function/extern (add-method-invoke-non-generic: Std.Type.GetType) fails at
@@ -63,7 +63,6 @@ int _runVmGoldensF(string[] modes, int jobs, int shardK, int shardN, string dirF
     string tcLibs = (tc.Length > 0) ? _toolchainLibs(tc) : "";
     string goldenLibs = (tcLibs.Length > 0 && File.Exists(Path.Join(tcLibs, "z42.core.zpkg")))
         ? tcLibs : _libsDir(root);
-    Environment.SetEnvironmentVariable("Z42_LIBS", goldenLibs);
 
     int overallPass = 0;
     int overallFail = 0;
@@ -101,7 +100,7 @@ int _runVmGoldensF(string[] modes, int jobs, int shardK, int shardN, string dirF
                 + ": " + cases.Length.ToString() + " cases");
         }
 
-        int[] pf = _runVmCases(cases, vmBin, mode, jobs);
+        int[] pf = _runVmCases(cases, vmBin, goldenLibs, mode, jobs);
         Console.WriteLine("");
         Console.WriteLine("  Result: " + pf[0].ToString() + " passed, "
             + pf[1].ToString() + " failed");
@@ -125,13 +124,13 @@ int _runVmGoldensF(string[] modes, int jobs, int shardK, int shardN, string dirF
 
 // Run all cases for one mode — sequential (jobs<=1) or parallel batches.
 // Returns [pass, fail].
-int[] _runVmCases(_Case[] cases, string vmBin, string mode, int jobs) {
-    if (jobs > 1) { return _runVmBatch(cases, vmBin, mode, jobs); }
+int[] _runVmCases(_Case[] cases, string vmBin, string libs, string mode, int jobs) {
+    if (jobs > 1) { return _runVmBatch(cases, vmBin, libs, mode, jobs); }
     int pass = 0;
     int fail = 0;
     int i = 0;
     while (i < cases.Length) {
-        if (_runOneCase(vmBin, cases[i], mode)) { pass = pass + 1; }
+        if (_runOneCase(vmBin, libs, cases[i], mode)) { pass = pass + 1; }
         else { fail = fail + 1; }
         i = i + 1;
     }
@@ -143,7 +142,7 @@ int[] _runVmCases(_Case[] cases, string vmBin, string mode, int jobs) {
 
 // Parallel: spawn `jobs` cases per batch, wait on the batch, then judge + print
 // failures in original order so the terminal stays readable. Returns [pass, fail].
-int[] _runVmBatch(_Case[] cases, string vmBin, string mode, int jobs) {
+int[] _runVmBatch(_Case[] cases, string vmBin, string libs, string mode, int jobs) {
     int pass = 0;
     int fail = 0;
     int i = 0;
@@ -156,7 +155,7 @@ int[] _runVmBatch(_Case[] cases, string vmBin, string mode, int jobs) {
         int b = 0;
         while (b < batchSize) {
             batch[b] = cases[i + b];
-            handles[b] = _spawnCase(vmBin, batch[b], mode);
+            handles[b] = _spawnCase(vmBin, libs, batch[b], mode);
             b = b + 1;
         }
 
@@ -197,10 +196,10 @@ class _Case {
 
 // ── Execution ────────────────────────────────────────────────────────────
 
-bool _runOneCase(string vmBin, _Case c, string mode) {
+bool _runOneCase(string vmBin, string libs, _Case c, string mode) {
     ProcessResult r;
     try {
-        r = new Process(vmBin)
+        r = _z42Proc(vmBin, libs)
             .Arg(c.artifact).Arg(c.entryName).Arg("--mode").Arg(mode)
             .Run();
     } catch (Exception e) {
@@ -213,8 +212,8 @@ bool _runOneCase(string vmBin, _Case c, string mode) {
     return ok;
 }
 
-ProcessHandle _spawnCase(string vmBin, _Case c, string mode) {
-    return new Process(vmBin)
+ProcessHandle _spawnCase(string vmBin, string libs, _Case c, string mode) {
+    return _z42Proc(vmBin, libs)
         .Arg(c.artifact).Arg(c.entryName).Arg("--mode").Arg(mode)
         .Stdout(Stdio.Pipe())
         .Stderr(Stdio.Pipe())

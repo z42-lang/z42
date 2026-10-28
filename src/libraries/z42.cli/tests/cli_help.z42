@@ -63,7 +63,17 @@ void test_help_text_lists_options_with_defaults() {
     string h = p.HelpText();
     Assert.True(h.Contains("--profile"));
     Assert.True(h.Contains("build profile"));
-    Assert.True(h.Contains("release"));
+    Assert.True(h.Contains("[default: release]"));
+}
+
+[Test]
+void test_help_text_omits_empty_default() {
+    // 空默认 = 无默认：不渲染空的 `[default: ]`。
+    var p = new ArgParser("prog", "test");
+    p.AddOption("filter", "", "name filter", "");
+    string h = p.HelpText();
+    Assert.True(h.Contains("name filter"));
+    Assert.False(h.Contains("[default: ]"));
 }
 
 [Test]

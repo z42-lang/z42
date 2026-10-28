@@ -1,8 +1,8 @@
 name: JIT Fixpoint Check (experimental)
 
-# Manual-only prerequisite check for the z42c-JIT compile switch
-# (docs/xtask_review.md 附录 A, prerequisite #1). Verifies that compiling the
-# z42c 7-package workspace with `--mode jit` produces BYTE-IDENTICAL output
+# Manual-only prerequisite check for the z42c-JIT compile switch. Verifies that
+# compiling the compiler workspace (src/compiler default_members) with `--mode jit`
+# produces BYTE-IDENTICAL output
 # (mod the trailing 16B BLID content-hash) to `--mode interp`, per platform —
 # i.e. switching z42c to JIT would not break the self-host byte-identical fixpoint.
 #
@@ -57,12 +57,9 @@ jobs:
           vm="$PWD/artifacts/build/runtime/release/z42vm"; [ -f "$vm.exe" ] && vm="$vm.exe"
           driver="$PWD/artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg"
           libs="$PWD/artifacts/intermediate/libraries/flat/release"
-          # converge-z42-syntax-lib：z42c.core + z42c.syntax（可移植前端）已挪进 src/libraries/，
-          # 由 stdlib workspace 构建（不再是 src/compiler 的 member）。故本 workspace self-build
-          # 只比 optimization/semantics/emission/pipeline/driver 五个后端包；前端 lexer/parser 的 jit 安全性归 stdlib jit 覆盖
-          # （test-host jit / stdlib [Test]），此处只比编译器后端。它们在 $libs 里（stdlib dist）
-          # 已 warm，semantics 编译期从那里解析。
-          members="z42c.analyzers z42c.optimization z42c.semantics z42c.generators z42c.emission z42c.pipeline z42c.driver"
+          # 比对面 = 编译器 workspace 的 default_members（从清单读，不手抄——包拆合时不会漂）。
+          members=$(sed -n '/^default_members/,/^]/p' src/compiler/z42.workspace.toml | grep -o '"[^"]*"' | tr -d '"')
+          [ -n "$members" ] || { echo "no default_members parsed from src/compiler/z42.workspace.toml"; exit 1; }
 
           fsize() { stat -c%s "$1" 2>/dev/null || stat -f%z "$1"; }
           snapshot() { # $1 = dest dir
@@ -80,8 +77,9 @@ jobs:
           echo "── build z42c workspace (jit) ──";    build_ws jit;    snapshot /tmp/z42c_jit
 
           echo "── compare (ignore trailing 16B BLID) ──"
-          fail=0
+          fail=0; n=0
           for m in $members; do
+            n=$((n+1))
             I="/tmp/z42c_interp/$m.zpkg"; J="/tmp/z42c_jit/$m.zpkg"
             si=$(fsize "$I"); sj=$(fsize "$J")
             if cmp -s <(head -c $((si-16)) "$I") <(head -c $((sj-16)) "$J"); then
@@ -91,7 +89,7 @@ jobs:
             fi
           done
           if [ "$fail" -eq 0 ]; then
-            echo "=== ${{ matrix.rid }}: 4/4 (compiler backend) byte-identical → z42c JIT is fixpoint-safe on this platform ==="
+            echo "=== ${{ matrix.rid }}: $n/$n compiler packages byte-identical → z42c JIT is fixpoint-safe on this platform ==="
           else
             echo "=== ${{ matrix.rid }}: JIT diverges from interp — do NOT switch z42c to JIT here until root-caused ==="
             exit 1
