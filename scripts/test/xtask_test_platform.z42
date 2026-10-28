@@ -1,15 +1,14 @@
-// xtask — cross-platform test framework (add-platform-test-pipeline).
-// Same Z42Xtask namespace. Unifies wasm / iOS / Android behind one interface so
-// the three-phase flow (① build project ② build test assets ③ run tests) is
+// xtask — cross-platform test framework. Unifies desktop / wasm / iOS / Android behind one
+// interface so the three-phase flow (① build project ② build test assets ③ run tests) is
 // expressed once, with only the platform-specific bits delegated to a backend.
 //
 // Phase ② (compile R1–R7 fixtures → .zbc + gather stdlib zpkgs) is SHARED here
-// (_platformAssets); the three former build.sh scripts each duplicated it — the
-// part most prone to drift. Backends only declare WHERE assets land (AssetLayout).
+// (_platformAssets) — the part most prone to drift. Backends only declare WHERE assets
+// land (AssetLayout).
 //
-// Backends live in xtask_test_{wasm,ios,android,desktop}.z42; CLI wiring in
-// xtask_cli.z42 (`test app <p> [stage|build|assets|run]`). The device
-// backends' `run` goes through z42b's device drivers (builder_device*.z42).
+// Backends live in xtask_test_{wasm,ios,android,desktop}.z42; entry is `test app <p> [step]`
+// (xtask_test_app.z42). The device backends' `run` goes through z42b's device drivers
+// (builder_device*.z42).
 namespace Z42Xtask;
 
 using Std.IO;
@@ -19,7 +18,7 @@ using Std.Time;
 
 // One per platform. The shared driver calls these in the three phases.
 public interface IPlatformBackend {
-    string      Name();                 // "wasm" | "ios" | "android"
+    string      Name();                 // "desktop" | "wasm" | "ios" | "android"
     int         BuildProject(string root);  // ① native build (cargo + wasm-pack/xcframework/AAR)
     AssetLayout Assets(string root);         // ② where fixtures/.zbc + stdlib/.zpkg go
     int         RunTests(string root);       // ③ platform runner
@@ -39,9 +38,9 @@ public class AssetLayout {
     }
 }
 
-// ── Dispatch (called from xtask_cli.z42 _dispatchTest) ─────────────────────
+// ── Dispatch (called from xtask_test_app.z42) ──────────────────────────────
 
-// name ∈ wasm|ios|android ; step ∈ ""(=all)|stage|build|assets|run.
+// name ∈ desktop|wasm|ios|android ; step ∈ ""(=all three phases)|stage|build|assets|run.
 int _platformDispatch(string name, string step, string root) {
     Stopwatch sw = _procStart("test app (platform pipeline)");
     int __rc;
@@ -49,9 +48,8 @@ int _platformDispatch(string name, string step, string root) {
     else if (name == "wasm")    { __rc = _platformStep(new WasmBackend(), step, root); }
     else if (name == "ios")     { __rc = _platformStep(new IosBackend(), step, root); }
     else if (name == "android") { __rc = _platformStep(new AndroidBackend(), step, root); }
-    else if (name == "all")     { __rc = _platformAllPlatforms(step, root); }
     else {
-        ConsoleError.WriteLine("error: unknown platform '" + name + "' (desktop|wasm|ios|android|all)");
+        ConsoleError.WriteLine("error: unknown platform '" + name + "' (desktop|wasm|ios|android)");
         return 2;
     }
     if (__rc == 0) { _procEnd("test app (platform pipeline)", sw); }
@@ -63,20 +61,12 @@ int _platformStep(IPlatformBackend b, string step, string root) {
     // 读写都落在副本里，源码树零写入。desktop 的 C 壳没有宿主工程（直接编进 tests/ 输出）。
     if (b.Name() != "desktop" && _stageDeviceHost(root, b.Name()).Length == 0) { return 1; }
     if (step == "stage") { return 0; }   // 只同步宿主工程副本（上面已做）——CI 预装 node 依赖前用
-    if (step == "" || step == "all") { return _platformAll(b, root); }
+    if (step == "") { return _platformAll(b, root); }
     if (step == "build")  { return _platformBuild(b, root); }
     if (step == "assets") { return _platformAssets(b, root); }
     if (step == "run")    { return _platformRun(b, root); }
     ConsoleError.WriteLine("error: unknown step '" + step + "' (stage|build|assets|run)");
     return 2;
-}
-
-// `test app all <step>` — run the step on every backend; first failure wins.
-int _platformAllPlatforms(string step, string root) {
-    int c = _platformStep(new DesktopBackend(), step, root); if (c != 0) { return c; }
-    c = _platformStep(new WasmBackend(), step, root);        if (c != 0) { return c; }
-    c = _platformStep(new IosBackend(), step, root);         if (c != 0) { return c; }
-    return _platformStep(new AndroidBackend(), step, root);
 }
 
 // ── Three-phase driver ─────────────────────────────────────────────────────
@@ -97,8 +87,8 @@ int _platformRun(IPlatformBackend b, string root)   { return b.RunTests(root); }
 // declared destinations. The only platform variance is the destination paths
 // (and the optional browser fetch-list), captured by AssetLayout.
 int _platformAssets(IPlatformBackend b, string root) {
-    // replace-csharp Phase C：fixtures 用 z42c 编（z42vm + z42c.driver.zpkg），不再 dotnet。
-    // driverHome = driver 自己的 release dist（自包含，colocated 解析）；Std.IO 依赖走 Z42_LIBS。
+    // fixtures 用 z42c 编（z42vm + z42c.driver.zpkg）。driverHome = driver 自己的 release dist
+    // （自包含，colocated 解析）；Std.IO 依赖走 Z42_LIBS。
     string driverHome = _driverHome(root);
     if (driverHome.Length == 0) {
         ConsoleError.WriteLine("error: z42c driver not built (artifacts/build/compiler/z42c.*/release/dist); run build compiler");
@@ -134,10 +124,8 @@ int _platformAssets(IPlatformBackend b, string root) {
 
 // ── Shared helpers ─────────────────────────────────────────────────────────
 
-// Uniform JUnit report destination per platform, so a future CI change can
-// publish them to GitHub Checks (the aggregated cross-platform dashboard) with
-// no rework. The remote/transport layer (Checks API / test-reporter action) is
-// deferred to that CI change; backends only need to land a junit.xml here.
+// Uniform JUnit report destination per platform (artifacts/reports/tests/<platform>/);
+// backends only need to land a junit.xml here for CI to pick it up.
 string _reportDir(string root, string platform) {
     string d = Path.Join(_testReportsDir(root), platform);
     Directory.Create(d);
@@ -146,7 +134,7 @@ string _reportDir(string root, string platform) {
 
 // A single parsed test case for JUnit emission. Backends parse their runner's
 // stdout into JUnitCase[] and hand it to _writeJUnitReport; the XML skeleton
-// lives once here so every platform's junit.xml has the same shape (review §2.7).
+// lives once here so every platform's junit.xml has the same shape.
 public class JUnitCase {
     public string name;
     public bool   passed;
@@ -160,7 +148,7 @@ public class JUnitCase {
 }
 
 // stdout → lines, CRLF-normalised, empty lines kept. Shared by the platform
-// backends' line parsers (formerly a per-backend _splitLines).
+// backends' line parsers.
 string[] _stdoutLines(string s) {
     return s.Replace("\r\n", "\n").Split("\n");
 }
@@ -176,7 +164,7 @@ string _xmlEscape(string s) {
 
 // Build a JUnit report from parsed cases and write it to the uniform report dir
 // (artifacts/reports/tests/<platform>/junit.xml). `suite` doubles as the testsuite
-// name and each testcase's classname (matches the former per-backend writers).
+// name and each testcase's classname.
 void _writeJUnitReport(string root, string platform, string suite, JUnitCase[] cases) {
     int tests = cases.Length;
     int failures = 0;

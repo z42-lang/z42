@@ -1,19 +1,14 @@
 # 门禁棘轮与白名单的单一配置。
 #
-# 为什么一个文件：原 5 份散置 txt 基线各自一套格式与读写代码。统一后分两个区：
-#   · 手写配置区（下方）——按需增改，机器不碰；
+# 分两个区：
+#   · 手写配置区（放在机器维护区之前）——按需增改，机器不碰；
 #   · 机器维护区（`# z42-gates:<名>-begin/end` 标记之间）——由各门的
 #     `xtask check <门> --update` 从当前树重写，手工改动会被冲掉；对条目想说的话
 #     写在门脚本头注或 PR 描述里，别写在这里。
 # 读写面：scripts/common/xtask_gates.z42（_gatesSection / _gatesWriteSection）。
 #
-# 曾经住在这里、后来退役的区（机制下沉或简化）：
-#   · [lines] / [fnlines] —— 行数棘轮基线。下沉为编译器内建 style.* lint
-#     （[lints] 启用 + 源内 [Suppress]/#suppress 豁免，见 compile-time-extensions.md）。
-#   · [stage2] grace-days —— 宽限天数常量化进门脚本（从未改过）。
-#   · [doc-lints] allow —— 白名单从未启用过；门改为纯硬门。
-#   · [diagcodes-literal] / [diagcodes-untested] —— 空棘轮区；出现条目时 --update
-#     会自动把区段追加回来（缺区 = 空基线，语义不变）。
+# 缺区 = 空基线：[diagcodes-literal] / [diagcodes-untested] 这类棘轮区为空时不出现，出现条目时
+# --update 会自动把区段追加回来。
 
 # ── 机器维护区（--update 重写，勿手改）───────────────────────────────────────────
 

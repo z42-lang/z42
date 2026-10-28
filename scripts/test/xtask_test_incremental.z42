@@ -6,12 +6,12 @@
 // 逐文件注释轮之后再跑两轮：**改声明**（`_reconcileDeclTouch`，逐文件追加一个新自由函数 —— 注释轮碰不到声明面，
 // 名字级失效判据的主战场全靠它）与 **dist 被清空 + cache 全命中**（`_reconcileDistWiped`，「全命中但必须从 cache
 // 重新装配」那条路径）。最后是 stdlib 整体读回（`xtask_test_incremental_ws.z42`）。
-// 同时输出 D8 计时（增量 vs 全量墙钟，逐工程汇总）——「更快」是被测量的事实。
+// 同时输出增量 vs 全量的墙钟计时（逐工程汇总）——「更快」是被测量的事实。
 //
 // 语料：
 //   ① demo / demo-packed —— 合成多特性工程（跨文件类引用/继承/接口/try·catch/switch/数组/闭包/静态），
 //      覆盖 label 残留（多块函数）与 import token 路径；packed 变体让读回 IR 的缺陷变成字节差异；
-//   ② xtask 自身 —— 40+ 文件真实工程。
+//   ② xtask 自身 —— 真实多文件工程。
 // 运行于 z42c.pipeline 的 tests/ 输出下的 incremental/（拷贝源，不动真实工程）。
 //
 // 本文件只做「逐文件变异 × 增量 == 全量」这种按语料枚举的对账。固定剧本的缓存行为判据（旋钮生效、清单身份进缓存键、
@@ -28,7 +28,6 @@ using Z42.Project;
 int _testIncremental(ParseResult r) {
     Stopwatch sw = _procStart("test compiler incremental");
     string root = _root();
-    // 前置：z42c + stdlib（复用既有 warm/cold 链）。
     string vm = _builtVm(root, "release");
     string driver = _driverZpkg(root, "release");
     if (!File.Exists(vm) || !File.Exists(driver)) {
@@ -95,9 +94,8 @@ int _reconcileProject(string vm, string driver, string libs, string projDir, str
     return _reconcileDistWiped(vm, driver, libs, projDir, toml);
 }
 
-// 「改声明」轮（incr-name-level-invalidation）。上面那轮只 append 注释——**压根碰不到声明面**，
-// 于是名字级失效判据的主战场（新增名字 / 名字指纹变化 / 传播）全程没有门看着。
-// 本轮逐文件在末尾追加一个**新的自由函数声明**（= 新名字 + 该文件声明面变化），再做同款
+// 「改声明」轮：注释轮碰不到声明面，名字级失效判据（新增名字 / 名字指纹变化 / 传播）要靠本轮。
+// 逐文件在末尾追加一个**新的自由函数声明**（= 新名字 + 该文件声明面变化），再做同款
 // 「增量 dist == 全量 dist 逐字节」对账。名字每轮唯一、且随即还原，故不会跨文件撞名。
 int _reconcileDeclTouch(string vm, string driver, string libs, string projDir, string toml, string[] srcs) {
     int i = 0;
@@ -125,12 +123,9 @@ int _reconcileDeclTouch(string vm, string driver, string libs, string projDir, s
     return 0;
 }
 
-// 「全命中 + 必须重新装配」这一轮（fix-incr-allcached-cache-drop）。
-// 场景：源一个没动（cache 全命中），但 dist 主文件被清掉 → 不能走 `preserved` 捷径，必须拿
-// **全部 cached IrModule** 重新装配一次 dist。此前 `Prepare` 在全命中时无条件早退、返回全 null 的
-// cached[]，这条路径于是悄悄退化成「整包重编」——结果照样对，所以逐文件 touch 那轮抓不到它。
-// 本轮盯的正是「用 64 份 cache 装配出来的 dist」必须与全量逐字节相同：修复让这条路径第一次真的
-// 走 cached 装配，正确性得有门看着。
+// 「全命中 + 必须重新装配」这一轮：源一个没动（cache 全命中），但 dist 被清掉 → 不能走 `preserved`
+// 捷径，必须拿**全部 cached IrModule** 重新装配 dist，且与全量逐字节相同。这条路径若悄悄退化成
+// 「整包重编」结果照样对，逐文件 touch 那轮抓不到。
 int _reconcileDistWiped(string vm, string driver, string libs, string projDir, string toml) {
     string dist = Path.Join(projDir, "dist");
     // 基线：全量重建一次 dist（源未动）。
@@ -275,7 +270,7 @@ string _incrDemoDirNamed(string scratch, string name, bool pack) {
     return d;
 }
 
-// 拷贝 xtask 源（真实 40+ 文件工程）到 scratch，替换独立 toml（dist 落本地，不动真品）。
+// 拷贝 xtask 源到 scratch，替换独立 toml（dist 落本地，不动真品）。
 string _incrXtaskCopy(string root, string scratch) {
     string d = Path.Join(scratch, "xtask");
     Directory.Create(d);
@@ -298,12 +293,9 @@ string _incrXtaskCopy(string root, string scratch) {
 
 // 真品 `scripts/xtask.z42.toml` 的依赖，改写成拷贝里可用的 `[dependencies]` 段（没有 → ""）。
 //
-// 为什么必须带：relocate-compiler-domain-libs 把 `Z42.Project` / `Z42.Build` 挪出
-// `libs/` —— 而这份拷贝的替身清单此前只写了 `[project]` + `[sources]`，于是 xtask 轮当场
-// `E0494: 命名空间 Z42.Project 不存在`（`initial build failed`）。本门不在 GREEN 也不在 CI 里，所以坏了
-// 没人发现。从真品清单读而不是在这里抄一份依赖列表：下次 xtask 加减依赖时本门自动跟上。
-//   · 按名依赖（今天的 SDK 库 `z42.project` / `z42.build`，add-sdk-libs 阶段 3）：照抄名字 + 版本 —— SDK 库
-//     **声明了才可见**。`deploy` 不抄：替身是 `kind = "lib"`，不打包，部署无意义。
+// SDK 库**声明了才可见**（`Z42.Project` / `Z42.Build` 不在 stdlib flat 里），替身清单不带依赖就编不过。
+// 从真品清单读而不是在这里抄一份：xtask 加减依赖时本门自动跟上（本门不在 GREEN 也不在 CI 里，坏了没人发现）。
+//   · 按名依赖：照抄名字 + 版本。`deploy` 不抄：替身是 `kind = "lib"`，不打包，部署无意义。
 //   · path 依赖：相对路径改写成绝对路径（依赖 path 不支持宏）。
 string _incrXtaskDeps(string scriptsDir) {
     ProjectManifest m = ManifestLoader.Load(Path.Join(scriptsDir, "xtask.z42.toml"));

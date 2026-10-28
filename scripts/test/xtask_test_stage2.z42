@@ -38,9 +38,7 @@ namespace Z42Xtask;
 
 using Std.IO;
 
-
-
-// 宽限天数（原 gates.toml [stage2] grace-days，从未改过 ⇒ 常量化）。阶段 2 的前提是「支持侧
+// 宽限天数。阶段 2 的前提是「支持侧
 // 随 nightly 发布**并成为种子**」，nightly 每天发 ⇒ 2 天够；余下是给发布链偶发失败 + 人回来
 // 收尾留的余量。比 diagcodes 的 3 天宽，因为那条只要求常量进种子，而这里还要求真的把活干完。
 int _s2GraceDays() { return 7; }
@@ -77,8 +75,7 @@ int _s2ScanOne(string dir, string idPrefix, string[] outIds, string[] outDates, 
         if (_dcContains(relp, "/artifacts/")) { continue; }
         if (!relp.EndsWith(".z42") && !relp.EndsWith(".rs") && !relp.EndsWith(".yml")) { continue; }
         // 🔴 **排除本门自己**：头注里写着标记的语法示例、代码里有 `"STAGE2-DEBT("` 字面量，
-        // 扫到自己就凭空多出 `#<tag>` / `#"` 这种垃圾条目（扩到 scripts/ 后当场发生）。
-        // 与 diagcodes 门排除 `DiagnosticCodes.z42` 同一形状、同一理由：**登记器不登记自己**。
+        // 扫到自己就凭空多出 `#<tag>` / `#"` 这种垃圾条目。
         if (relp.EndsWith("xtask_test_stage2.z42")) { continue; }
         string text = "";
         try { text = File.ReadAllText(Path.Join(dir, relp)); }

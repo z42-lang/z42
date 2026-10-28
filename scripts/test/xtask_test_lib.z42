@@ -1,26 +1,15 @@
-// xtask — stdlib [Test] harness (split from xtask_test.z42, for the
-// 500-line code-org limit). Same Z42Xtask namespace; calls _root/_exec/_builtVm/
-// _builtBin/_buildStdlib/_buildRuntime/_libsDir/_compilerMembers/
-// _cleanGlob/_linkAll/_sortedStrings/_parseShard etc. cross-file (same namespace).
-//
-// `test stdlib|bench [lib]`: discover each src/libraries/<lib>/tests|benches/*,
-// compile to zpkg via z42c, run through z42b; results aggregated.
-// Single-file tests (tests/foo.z42) go through emit-zbc; dir-mode tests
-// (tests/<name>/source.z42) synthesise a mini-manifest + `z42c build`.
+// xtask — `test stdlib|bench [lib]`：stdlib（与编译器域库）的 [Test] / [Benchmark] 跑测器。
+// 备工具链后逐包转发 z42b（发现 / 编译 / 运行都在 z42b；单元级并行见 xtask_test_lib_units.z42），
+// 汇总结果；`--shard k/n` 按单元数均衡分包。
 namespace Z42Xtask;
 
 using Std.IO;
 using Std.Time;
 using Std.Cli;
 
-// 包的源码根 —— **两个 workspace 都要认**（relocate-compiler-domain-libs）：
-// 用户 stdlib（`Std.*`）在 `src/libraries/`；编译器域（`z42c.core` / `z42c.syntax` / `z42.package` /
-// `z42.project` / `z42.build` / `z42.scripting`）在 `src/compiler/`。
-//
-// 🔴 为什么跑测器必须认两处：`[Test]` 单元的发现以前只扫 `src/libraries/`，六个包挪走后
-// **265 个单元会静默停跑**（z42c.syntax 180 / z42.project 52 / z42.package 22 / z42c.core 11）——
-// 而编译器那条路（`xtask test compiler`）只认 `tests/<unit>/*.z42.toml` 目录单元，接不住它们的
-// 扁平 `tests/*.z42`（实测：`Directory.Exists(unitDir)` 为假 ⇒ 零单元、静默跳过）。
+// 包的源码根 —— **两个 workspace 都要认**：用户 stdlib（`Std.*`）在 `src/libraries/`；编译器域库
+// 在 `src/compiler/`。🔴 只扫 `src/libraries/` 会让编译器域库的扁平 `tests/*.z42` 单元静默停跑——
+// `xtask test compiler` 只认 `tests/<unit>/*.z42.toml` 目录单元，接不住它们。
 string _libSrcRoot(string root, string lib) {
     string a = Path.Join(root, "src/libraries");
     if (Directory.Exists(Path.Join(a, lib))) { return a; }
@@ -30,12 +19,11 @@ string _libSrcRoot(string root, string lib) {
 // 一个包的 `tests/` 是不是**编译器格式**（`tests/<unit>/*.z42.toml` 独立工程）—— 那种归
 // `xtask test compiler` 跑，本跑测器必须让开。
 //
-// 🔴 **判据刻意是「有没有 *.z42.toml」而不是「本发现规则找到几个单元」**：我最初想当然地以为
-// 「找到 0 个就自然跳过」，实测**不是** —— 清单感知的发现会去编**包本体**、然后报
-// `error: no [Test] or [Benchmark] found in …/z42c.pipeline.zpkg`，算 2 个文件失败（GREEN 当场红）。
-// 反过来也不能用「单元数为 0 就排除」：`z42.scripting` 的 11 个目录既无 `source.z42` 也无 toml
-// （清单里记的「零约定单元」），单元数正是 0，但它**必须继续被枚举** —— 孤儿源守卫每轮打的那行
-// ⚠ 是有意保留的欠债信号（「欠债不消音」），滤掉它就等于悄悄消音。
+// 🔴 **判据刻意是「有没有 *.z42.toml」而不是「找到几个单元」**：
+//   · 不能指望「找到 0 个就自然跳过」—— 清单感知的发现会去编**包本体**，然后报
+//     `no [Test] or [Benchmark] found`，算失败；
+//   · 也不能「单元数为 0 就排除」—— 有源却零约定单元的包必须继续被枚举，孤儿源守卫打的那行
+//     ⚠ 是有意保留的欠债信号，滤掉就等于悄悄消音。
 bool _isCompilerFormatTests(string root, string lib) {
     string td = Path.Join(Path.Join(root, "src/compiler"), Path.Join(lib, "tests"));
     if (!Directory.Exists(td)) { return false; }
@@ -126,13 +114,11 @@ int _testLib(ParseResult r, string kind) {
     } else {
         libs = new string[0];
     }
-    // add-stdlib-bench-baseline: `bench stdlib --json <out>` → capture aggregated
-    // bench_stats into a schema-v1 baseline file (median_ns primary metric). Only
-    // for bench; test path passes null (unchanged pretty behaviour).
+    // `bench stdlib --json <out>` → capture aggregated bench_stats into a baseline file
+    // (median_ns primary metric). Only for bench; test path passes null.
     string jsonOut = (kind == "bench") ? r.GetOption("json") : "";
     MicroBenchAgg agg = (jsonOut.Length > 0) ? new MicroBenchAgg() : null;
-    // extend-ab-bench-micro-criterion Part B: optional explicit toolchain override
-    // (micro A/B base capture points these at the pre-built base toolchain).
+    // --vm/--driver/--libs: optional explicit toolchain override (see _testLibCore).
     int __rc = _testLibCore(kind, libs, r.GetFlag("no-build"), r.GetOption("filter"), r.GetOption("jobs"), r.GetOption("mode"), agg,
                             r.GetOption("vm"), r.GetOption("driver"), r.GetOption("libs"));
     if (agg != null) {
@@ -152,17 +138,12 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     // [bench.dependencies], <lib>.bench.<unit> to <lib>/release/benches/. The
     // z42b runs both [Test] and [Benchmark] regardless.
     //
-    // extend-ab-bench-micro-criterion Part B: ovVm/ovDriver/ovLibs (empty = derive
-    // from in-tree). When all set, use that PROVIDED toolchain (a pre-built base
-    // toolchain — vm + z42c.driver.zpkg + flat libs dir) instead of `_builtVm` /
-    // `_driverZpkg` / `_libsDir`, and skip the in-tree rebuild. The micro
-    // A/B base capture points these at the same `.ab-base-alllibs` the e2e A/B uses,
-    // so base benchmarks compile+run against a proven-consistent base stdlib.
+    // ovVm/ovDriver/ovLibs (empty = derive from in-tree): when all set, use that PROVIDED
+    // toolchain (vm + z42c.driver.zpkg + flat libs dir) and skip the in-tree rebuild — the
+    // micro A/B base capture (bench-pr.yml) points these at the base toolchain the e2e A/B uses.
     string root = _root();
-    // add-tests-bench-manifest-config Phase 3.3 : sort
-    // Directory.Enumerate output so first-wins downstream behaviour is
-    // platform-stable (load-order determinism rule — macOS APFS vs Linux ext4
-    // give different orderings; CI on Linux blew up here before).
+    // 包序必须排序（_allTestableLibs）：Directory.Enumerate 的顺序随文件系统而变，下游 first-wins
+    // 行为要平台稳定。
     string[] libList = reqLibsIn.Length > 0 ? reqLibsIn : _allTestableLibs(root);
     string[] dirs = new string[libList.Length];
     int li = 0;
@@ -185,40 +166,27 @@ int _testPkgsCore(string kind, string suite, string[] dirs, string[] names, bool
         // nowhere near the cause (a builtin added in this tree but missing from
         // the stale VM surfaces as `unknown builtin __x` →
         // `z42c --workspace self-build failed`). _buildStdlib's own VM guard is
-        // build-if-MISSING (`if (!File.Exists(vm))`), so it cannot catch staleness;
-        // cargo is the only thing that knows whether the runtime sources changed,
-        // and it is a ~0.2s no-op when they did not. (fix-publish-stale-payload
-        // burned an investigation on exactly this.)
+        // build-if-MISSING, so it cannot catch staleness; cargo is the only thing
+        // that knows whether the runtime sources changed, and it is a ~0.2s no-op
+        // when they did not.
         int c = _buildRuntime(); if (c != 0) { return c; }
         c = _buildStdlib(); if (c != 0) { return c; }
-        // _buildStdlib already self-builds z42c (→ _buildCompilerViaZ42c:
-        // 7 z42c.* members + self-contained driver); test
-        // units compile through that z42c (z42vm + z42c.driver.zpkg). A trailing
-        // _buildCompiler would be a redundant byte-identical gen2 self-build.
+        // _buildStdlib already self-builds z42c (_buildCompilerViaZ42c); test units
+        // compile through that z42c. A trailing _buildCompiler would be a redundant
+        // byte-identical gen2 self-build.
     }
-    // add-tests-bench-manifest-config §6 : test artifacts persist
-    // under each lib's output_dir in a parallel `tests/` subtree
-    // (<lib>/<profile>/tests/{dist,cache}/) instead of a throwaway temp dir, so
-    // they're inspectable, incrementally cached, and visible to the CI
-    // release-guard. _compileTestUnit derives the path from root + lib.
-    // compile toolchain: z42vm + z42c.driver.zpkg + Z42_LIBS = 纯 stdlib flat（drop-alllibs）。driver 的 dist
+    // compile toolchain: z42vm + z42c.driver.zpkg + Z42_LIBS = 纯 stdlib flat。driver 的 dist
     // 自包含；编译器域的测试库（_allTestableLibs）按名声明的编译器包由 driver 从编译器目录解析；z42b 运行期
     // 加载编译器包经 `_z42bProc`（z42b 启动点统一挂）。override（--vm/--driver/--libs，bench A/B 的
     // base 侧）照旧用调用方给的目录。
     string vm = useOverride ? ovVm : _builtVm(root, "release");
     string driverZpkg = useOverride ? ovDriver : _driverZpkg(root, "release");
     string libs = useOverride ? ovLibs : _libsDir(root);
-    // retire-test-runner: the reflective runner is z42b (z42.builder.zpkg), run
-    // via z42vm — replaces the deleted Rust z42-test-runner. z42b loads each
-    // compiled test/bench artifact, discovers its [Test]/[Benchmark] functions
-    // by runtime reflection (Std.Harness.TestDiscovery) and runs them (Std.Harness.Runner.RunModule),
-    // exiting 0 (all passed) / 1 (any failure). Its deps (z42.harness/.project/.build
-    // + core) resolve from `libs`, same flat dir the test units compile against.
-    // Build z42b unconditionally (even under --no-build): it's a z42c incremental
-    // compile of a few small files — near-no-op when current — and it guarantees
-    // the runner exists AND its zpkg format matches the current z42c (the format-
-    // skew guard the old cargo test-runner build couldn't give). Its deps resolve
-    // from `libs` (the same flat dir the test units compile against).
+    // The reflective runner is z42b (z42.builder.zpkg) on z42vm: it discovers [Test]/[Benchmark]
+    // functions by runtime reflection and exits 0 (all passed) / 1 (any failure). Its deps resolve
+    // from `libs`, the same flat dir the test units compile against.
+    // Build z42b unconditionally (even under --no-build): an incremental compile, near-no-op when
+    // current, and it guarantees the runner exists AND its zpkg format matches the current z42c.
     string builderZpkg = _toolchainZpkg(root, _z42bToml());
     Console.WriteLine("→ Building z42b (z42.builder.zpkg; reflective test runner)...");
     int bcRC = _buildZ42bWith(root, vm, driverZpkg, libs);
@@ -226,21 +194,16 @@ int _testPkgsCore(string kind, string suite, string[] dirs, string[] names, bool
     int totalFailed = 0;
     int totalFiles = 0;
     int libsTested = 0;
-    // parallelize-and-jit-stdlib-tests A: `jobs` now means unit-level batch
-    // width (how many units compile+run concurrently), not the runner's
-    // within-unit --jobs. Default 1 = serial. `test` passes 4.
+    // `jobs` = unit-level batch width (how many units compile+run concurrently).
+    // Default 1 = serial.
     int jobsN = 1;
     try { jobsN = int.Parse(jobs); } catch (Exception e) { jobsN = 1; }
     if (jobsN < 1) { jobsN = 1; }
     // mode forwarded to z42b: "" / "interp" → in-process interp;
     // "jit" → runner forces subprocess fork of z42vm --mode jit.
     if (mode.Length == 0) { mode = "interp"; }
-    // add-tests-bench-manifest-config P2: discovery is now manifest-aware. Each
-    // lib's [tests]/[benches] section (Auto → convention scan, byte-identical to
-    // the legacy path for the many libs declaring no section) + explicit
-    // [[test]]/[[bench]] targets (harness=true → z42b reflection; harness=false →
-    // exit-code) drive _runLibKind (xtask_manifest_targets.z42). 3-layer dev-deps
-    // (target > section > project) via ManifestLoader replace the raw-toml harvest.
+    // Per lib: _runLibKind (xtask_manifest_targets.z42) lints the manifest's explicit targets, then
+    // forwards to z42b (discovery: [tests]/[benches] section + explicit [[test]]/[[bench]]).
     int pi = 0;
     while (pi < dirs.Length) {
         int f = _runLibKind(root, dirs[pi], names[pi], kind, label, filter,
@@ -252,16 +215,8 @@ int _testPkgsCore(string kind, string suite, string[] dirs, string[] names, bool
     }
     Console.WriteLine("");
     Console.WriteLine("════════════════════════════════════════════════");
-    // 孤儿源守卫（「tests/ 有 .z42 源、却没产出任何单元」= 发现规则没认领 = 假绿）
-    // 现在住在 z42b 里（_dtOrphanSourceDir），转发时逐 lib 生效 —— 判据只该有一处。
-    //
-    // 它原本就在这里，但**装错了路**（fix-silent-gates 修）：条件是
-    // `nReq > 0 && totalFiles == 0` ——
-    //   ① `nReq > 0` = 只在**显式点名 lib** 时查；而 GREEN gate 走的是不点名全扫
-    //      （`nReq == 0` → 内层 `while (qi < nReq)` 空转，orphaned 恒为空）；
-    //   ② `totalFiles` 是**全局**计数，全扫时必然 > 0，条件根本不成立。
-    // 两条独立原因让它在唯一重要的那条路径上永不触发。而它本就是为
-    // 「z42.package / z42c.core / z42c.syntax 静默数月」而加的——修补存在，却没装在漏过去的路上。
+    // 孤儿源守卫（「tests/ 有 .z42 源、却没产出任何单元」= 假绿）住在 z42b 里（_dtOrphanSourceDir），
+    // 转发时逐 lib 生效 —— 判据只该有一处。
     if (totalFailed > 0) {
         Console.WriteLine("  ❌ " + suite + " " + label + ": " + totalFailed.ToString()
             + " file(s) failed (of " + totalFiles.ToString() + " in " + libsTested.ToString() + " lib(s))");
@@ -271,21 +226,3 @@ int _testPkgsCore(string kind, string suite, string[] dirs, string[] names, bool
         + " file(s) passed (in " + libsTested.ToString() + " lib(s))");
     return 0;
 }
-
-// ── add-tests-bench-manifest-config Phase 3 helpers ─────────────────────────
-//
-// Phase 3 enables BOTH single-file tests (tests/foo.z42) and dir-mode tests
-// (tests/<name>/source.z42 + optional sibling files). Single-file goes
-// through the legacy z42c emit-zbc path (cheap; no manifest); dir-mode
-// synthesises a tiny mini-manifest and calls `z42c build` so the
-// compiler's regular project pipeline handles the multi-file package.
-//
-// Synthetic manifest content per dir-mode unit:
-//   [project] name = "<lib>.test.<unit>"  kind = "exe"  version = "0.1.0"
-//   [sources] include = ["<absolute>/<unit>/**/*.z42"]
-//   [dependencies] = parent.[dependencies] ∪ parent.[tests.dependencies]
-//   [build] output_dir = "<work>/<lib>/<unit>"  (Phase 3.1.4 forced isolation)
-// The merged deps make z42.harness resolvable after Phase 4 moves it from
-// [dependencies] to [tests.dependencies]: this xtask reads BOTH sections so
-// the migration is safe regardless of which section a parent puts a dep in.
-

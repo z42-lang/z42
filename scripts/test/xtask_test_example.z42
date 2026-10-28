@@ -1,7 +1,7 @@
-// xtask — 清单 `[examples]` / `[[example]]` 目标（工程级 example target，add-tests-bench-manifest-config P3）。
-// Same Z42Xtask namespace. 与仓库根 `examples/`（学习手册配套示例，见 xtask_test_examples.z42）无关。
+// xtask — 清单 `[examples]` / `[[example]]` 目标（工程级 example target）。
+// 与仓库根 `examples/`（学习手册配套示例，见 xtask_test_examples.z42）无关。
 //
-// example target 默认「只编不跑」（design D4）：GREEN 的 targets stage 编译每个声明的 example
+// example target 默认「只编不跑」：GREEN 的 targets stage 编译每个声明的 example
 // （必须能编过），只运行标了 `test = true` 的，退出码判定。entry 取 `[[example]].entry`，约定文件则取
 // 源文件 `namespace` + ".Main"。
 //
@@ -26,8 +26,8 @@ int _testManifestExamples(bool noBuild) {
     return _exampleRun(root, tt, "", true);
 }
 
-// Core: iterate every project dir under src/libraries + src/toolchain/builder/tests/fixtures/manifest-targets,
-// discover its example targets, compile all (gate), and run the selected ones.
+// Core: iterate every project dir under src/libraries + _fixturesRoot, discover its
+// example targets, compile all (gate), and run the selected ones.
 // gate=true → run only RunInTest targets; gate=false → run `name` (exact) or all
 // RunInTest when name=="". A name matching nothing → error listing available.
 int _exampleRun(string root, TargetTooling tt, string name, bool gate) {
@@ -83,11 +83,10 @@ void _exampleRunProject(string root, string projDir, string projName, string tom
     while (i < examples.Length) {
         ExampleUnit ex = examples[i];
         avail = _appendName(avail, ex.Name);
-        // run decision: gate → run iff RunInTest; explicit `xtask example name` →
-        // run iff name matches (any name); `xtask example` (no name) → RunInTest.
+        // run decision: a given name → run iff it matches; no name → RunInTest.
         bool selected = (name.Length > 0) ? (ex.Name == name) : ex.RunInTest;
         bool runAfter = selected;
-        // gate compiles EVERYTHING; `xtask example <name>` only touches the match.
+        // gate compiles EVERYTHING; a named non-gate run only touches the match.
         if (!gate && name.Length > 0 && ex.Name != name) { i = i + 1; continue; }
         DepBundle deps = _targetDepsPairs(man, "example", ex.DepNames, ex.DepVersions, ex.DepCount);
         int rc = _runExitTarget(root, projDir, projName + ".example", "examples",
@@ -100,10 +99,9 @@ void _exampleRunProject(string root, string projDir, string projName, string tom
     }
 }
 
-// Local example unit. xtask can reference/read the imported RunTarget (z42.project)
-// but CANNOT `new` it (constructing an all-libs-indexed type errors E0401), so
-// synthesised/normalised examples use this local type instead. Carries raw
-// DepEntry[] (reading imported DepEntry fields is fine; only construction fails).
+// Local example unit. xtask reads the imported RunTarget (z42.project) but does not
+// construct it, so synthesised / normalised examples use this local type; deps are
+// carried as raw (name, version) arrays.
 class ExampleUnit {
     public string   Name        { get; set; }
     public string   Entry       { get; set; }

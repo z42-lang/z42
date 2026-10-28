@@ -1,31 +1,25 @@
-// xtask — VM golden-test runner. Same Z42Xtask namespace; the golden-walk + entry-derivation
-// helpers it calls (_deriveEntry / _enumDirsSorted /
-// _firstLine / _stripTrailingNewlines / ...) live in xtask_golden.z42.
+// xtask — VM golden-test runner (`test e2e`), interp / jit mode. The golden-walk +
+// entry-derivation helpers live in common/xtask_golden.z42.
 //
-// Runs VM golden tests in interp / jit mode. Each golden case's source +
-// sidecars live in src; the compiled .zbc lives in the artifacts mirror
-// (redirect-golden-zbc-to-artifacts — keeps src/ free of build
-// output). Sidecar (src) → artifact (mirror) mapping:
+// Each golden case's source + sidecars live in src; the compiled .zbc lives in the
+// artifacts mirror (_goldenArtifactDir — keeps src/ free of build output):
 //   src/tests/<cat>/<name>/source.z42 + expected_output.txt
 //     → artifacts/build/tests/<cat>/<name>/source.zbc                     (dir)
 //   src/libraries/<lib>/tests/<name>/source.z42
-//     → artifacts/build/libraries/<lib>/tests/<name>/source.zbc           (dir)
+//     → artifacts/build/libraries/<lib>/release/tests/<name>/source.zbc   (dir)
 //   src/tests/<cat>/<name>.z42 + <name>.expected_output.txt
 //     → artifacts/build/tests/<cat>/<name>.zbc                            (flat)
 //
-// For each case: derive entry name from the .z42 source (mirrors the C#
-// GoldenTests resolution: `<namespace>.Main` > `Main` > `<namespace>.main` >
-// `main`), then run `z42vm <artifact> <entry> --mode <mode>` and diff stdout
-// against the expected file.
+// For each case: derive entry name from the .z42 source (`<namespace>.Main` > `Main` >
+// `<namespace>.main` > `main`), then run `z42vm <artifact> <entry> --mode <mode>` and
+// diff stdout against the expected file.
 //
 // Parallel mode: spawn `jobs` subprocesses per batch via Process.Spawn,
 // wait on the batch, then aggregate. Output is collected into per-job
 // strings and printed in original order so the terminal stays readable.
 //
-// Goldens deliberately run against the DEBUG vm binary at
-// artifacts/build/runtime/debug/z42vm (the caller _testE2e builds it first).
-// `modes` / `jobs` arrive as parameters (the former Z42_VM_MODES / Z42_VM_JOBS
-// env config is now resolved by _testE2e in xtask_test.z42).
+// Goldens deliberately run against the DEBUG vm binary (keeps debug-assertions +
+// overflow-checks coverage); the caller _testE2eCore builds it first.
 namespace Z42Xtask;
 
 using Std.IO;
@@ -41,8 +35,8 @@ int _runVmGoldensF(string[] modes, int jobs, int shardK, int shardN, string dirF
     string root = _root();
     if (jobs < 1) { jobs = 1; }
 
-    // --toolchain (compile-once P3): run goldens on the toolchain's z42vm (release)
-    // when a toolchain is selected; else the build-tree debug binary.
+    // --toolchain: run goldens on the toolchain's z42vm (release) when a toolchain is
+    // selected; else the build-tree debug binary.
     string vmBin = _activeVm(root, "debug");
     if (!File.Exists(vmBin)) {
         ConsoleError.WriteLine("error: VM binary not found at " + vmBin);
@@ -53,9 +47,8 @@ int _runVmGoldensF(string[] modes, int jobs, int shardK, int shardN, string dirF
     // Pin each golden VM's Z42_LIBS to the freshly-built stdlib so it resolves the
     // NEW z42.core, not whatever stale Z42_LIBS the xtask apphost inherited (e.g.
     // an installed .z42/libs). Without this, a golden using a brand-new stdlib
-    // function/extern (add-method-invoke-non-generic: Std.Type.GetType) fails at
-    // run time with "undefined function" against a stale z42.core, even though it
-    // compiled fine. Mirrors the regen step's stdlibDist selection.
+    // function/extern fails at run time with "undefined function" against a stale
+    // z42.core, even though it compiled fine. Mirrors the regen step's stdlibDist selection.
     // Z42_HOME (--toolchain) may be an SDK layout (has libs/) or a managed layout
     // (runtimes/, no libs/); use the toolchain libs only when they actually exist,
     // else the build-tree stdlib.
@@ -221,9 +214,8 @@ ProcessHandle _spawnCase(string vmBin, string libs, _Case c, string mode) {
 }
 
 bool _judgeResult(_Case c, ProcessResult r) {
-    // bash: actual=$(... 2>&1) — merge stderr into stdout. We approximate
-    // with concatenation (stderr-empty on pass, so ordering doesn't matter).
-    // bash $(...) also strips trailing newlines from both sides — mirror that.
+    // stderr is merged into stdout by concatenation (stderr is empty on pass, so
+    // ordering doesn't matter); trailing newlines are stripped on both sides.
     string actual = _stripTrailingNewlines(r.Stdout + r.Stderr);
     string expected = "";
     if (File.Exists(c.expected)) {
@@ -288,9 +280,8 @@ _Case[] _enumerateCasesF(string root, string mode, string dirFilter, string file
             if (_isExcludedDirName(e.cat, e.name)) { continue; }
             if (!_e2eIncluded(e.cat, e.name, e.src, dirFilter, fileFilter)) { continue; }
         }
-        // run-golden .zbc lives in the artifacts mirror, not beside source.z42
-        // (redirect-golden-zbc-to-artifacts). Sidecars (expected_output.txt,
-        // interp_only, source.z42 for entry derivation) stay in src.
+        // run-golden .zbc lives in the artifacts mirror, not beside source.z42. Sidecars
+        // (expected_output.txt, interp_only, source.z42 for entry derivation) stay in src.
         string artifact = _entryZbc(root, e);
         if (!File.Exists(artifact)) { continue; }
         if (mode == "jit" && e.interpOnly) { continue; }
@@ -298,7 +289,6 @@ _Case[] _enumerateCasesF(string root, string mode, string dirFilter, string file
         n = n + 1;
     }
 
-    // Trim to exact length.
     _Case[] tight = new _Case[n];
     int t = 0;
     while (t < n) { tight[t] = cases[t]; t = t + 1; }

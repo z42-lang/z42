@@ -1,6 +1,4 @@
-// xtask — wasm platform backend (add-platform-test-pipeline).
-// Implements IPlatformBackend for browser-wasm. Ports the three phases of
-// src/toolchain/workload/wasm/platform/{build.sh,test.sh} into z42:
+// xtask — wasm platform backend (IPlatformBackend for browser-wasm):
 //   ① BuildProject : wasm-pack build (web + nodejs)
 //   ② Assets       : declares js/fixtures + js/stdlib + files.json (shared driver fills)
 //   ③ RunTests     : local node + Playwright (R1–R7, Chromium headless)
@@ -35,8 +33,7 @@ public class WasmBackend : IPlatformBackend {
         bool localNode  = File.Exists(Path.Join(nodeBin, "node"));
         if (!localNode) {
             if (Process.Which("node") == null) {
-                // 用到才装兜底（零命令面，simplify-xtask-deps）：hermetic
-                // 与 PATH node 均缺 → 现场装 hermetic node；失败 = 测试失败。
+                // 用到才装兜底：hermetic 与 PATH node 均缺 → 现场装 hermetic node；失败 = 测试失败。
                 Console.WriteLine("  node missing — auto-installing hermetic node (one-time)");
                 int nic = _installNode(false);
                 if (nic != 0) { return nic; }
@@ -72,9 +69,8 @@ public class WasmBackend : IPlatformBackend {
             .Arg("playwright").Arg("install").Arg("chromium"), testsDir);
         if (c != 0) { return c; }
 
-        // Emit JUnit alongside the human reporter → uniform report dir for the
-        // future CI dashboard (GitHub Checks). PLAYWRIGHT_JUNIT_OUTPUT_NAME +
-        // --reporter=list,junit needs no playwright.config.ts edit.
+        // Emit JUnit alongside the human reporter → uniform report dir (_reportDir).
+        // PLAYWRIGHT_JUNIT_OUTPUT_NAME + --reporter=list,junit needs no playwright.config.ts edit.
         string junit = Path.Join(_reportDir(root, "wasm"), "junit.xml");
         Console.WriteLine("  npx playwright test (--reporter=list,junit → " + junit + ")");
         return _execIn(this._nodeProc(npx, nodeBin, browsers)
@@ -83,8 +79,8 @@ public class WasmBackend : IPlatformBackend {
     }
 
     // Build a Process with local node prepended to PATH + Playwright browser
-    // cache redirected in-repo (mirrors test.sh exports). npx/npm shebang
-    // (`env node`) resolves node from the modified PATH.
+    // cache redirected in-repo. npx/npm shebang (`env node`) resolves node from
+    // the modified PATH.
     Process _nodeProc(string program, string nodeBin, string browsers) {
         Process p = new Process(program).Env("PLAYWRIGHT_BROWSERS_PATH", browsers);
         if (nodeBin.Length > 0) {

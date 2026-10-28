@@ -1,25 +1,17 @@
 // xtask — 文档机械门禁（`xtask test docs`）。不需要 SDK，秒级。
 //
-// 批 0 只做一件事：**相对链接死链清零**。之后加了 ②：GREEN gate stage 清单 ↔ test-gate.md 对账
-// （ci-docs-fast-path：纯文档 PR 只跑本门 + diagcodes，读文档的检查必须都在这里）。
+// 纯文档 PR 只跑本门 + diagcodes，所以读文档的检查必须都在这里：
+//   ① 仓内相对链接必须能解析到真实文件 / 目录（死链一律红，无存量豁免，无 `--update`）
+//   ② GREEN gate stage 清单 ↔ test-gate.md
+//   ③ 书 / README / 代码不引用 docs/agent
+//   ④ 目录 README 有「关联文档」段
 //
-// 为什么需要：纯文档改动走 paths-ignore 不跑 CI，文档搬运（三书重构期尤其密集）产生的死链
-// 会一路漏到线上都没人知道——必须有这道网。
-//
-// 检查规则：
-//   D1  markdown 链接 `[text](target)` 的 target 若是仓内相对路径，必须能解析到真实文件/目录
-//
-// 死链**一律红**，无存量豁免；`--update` 不适用于本门。
-//
-// 不检查（有意）：
-//   - 外部 URL（http/https/mailto）—— 联网校验会让门禁变慢且不稳定
-//   - 纯锚点 `#section` —— 需要解析标题生成 slug，留待批 7
-//   - 代码块内的内容 —— 那是示例文本，不是链接（见 _stripFences）
+// 有意不查：外部 URL（联网让门禁慢且不稳）、纯锚点 `#section`（要解析标题生成 slug）、
+// 代码块内容（示例文本，见 _stripFences）。
 namespace Z42Xtask;
 
 using Std.IO;
 
-// `xtask test docs` 入口。返回退出码。
 int _testDocs(string root) {
     Console.WriteLine("▶ test docs");
     Console.WriteLine("① 相对链接可解析");
@@ -35,8 +27,8 @@ int _testDocs(string root) {
         ConsoleError.WriteLine("     链接目标按所在文件的目录解析；跨书链接请用相对路径或完整 URL。");
         return 1;
     }
-    // ② GREEN gate 的 stage 清单 ↔ test-gate.md（ci-docs-fast-path）。`xtask test` 开头也查这一条；放进本门，
-    // 纯文档 PR 走的 docs-check 才不会漏掉它 —— 只改 test-gate.md 的 PR 正是最可能把它改坏的那种。
+    // ② `xtask test` 开头也查这一条；放进本门，纯文档 PR 走的 docs-check 才不会漏掉它
+    // —— 只改 test-gate.md 的 PR 正是最可能把它改坏的那种。
     Console.WriteLine("② gate stage 清单与 test-gate.md 一致");
     if (_checkGateStageDoc() != 0) { return 1; }
     // ③ 分层链接方向（doc-system §2.1）：三本书与 README 不得引用 docs/agent。
@@ -182,9 +174,8 @@ string[] _docMarkdownFiles(string root) {
     int s = 0;
     while (s < srcMds.Length) {
         string rel = srcMds[s].Replace("\\", "/");
-        // 第三方依赖目录不是仓库文档（gitignore 掉的）：跑过 wasm 设备测试（`npm install` 进
-        // workload/wasm/platform/tests/node_modules）之后，本地 GREEN 会把那些包自带 README 的
-        // 死链算成「新死链」判红（fix-device-tests 实测 6 条）。
+        // 第三方依赖目录（gitignore 掉的）不是仓库文档：跑过 wasm 设备测试后 `npm install` 进来的
+        // node_modules 自带 README 的死链会让本地 GREEN 判红。
         if (rel.StartsWith("node_modules/") || rel.Contains("/node_modules/")) { s = s + 1; continue; }
         if (rel.EndsWith("README.md")) {
             string full = Path.Join(srcRoot, rel);
@@ -195,7 +186,6 @@ string[] _docMarkdownFiles(string root) {
     return _trimStrings(acc, n);
 }
 
-// 检查一篇。
 DocScan _checkOneDoc(string root, string file) {
     int checkedCount = 0;
     string[] dead = new string[64];
@@ -235,10 +225,8 @@ DocScan _checkOneDoc(string root, string file) {
     return new DocScan(checkedCount, _trimStrings(dead, dn));
 }
 
-// 去掉围栏代码块（``` 与 ~~~）与**行内 code span**（`…`）——里面是示例文本，不是链接。
-//
-// 行内 code span 起初没处理（以为「里面出现 [x](y) 的概率极低」），实测第一次跑就误报：
-// readme-writing.md 里的模板占位 `| 我想…… | [目标页](相对路径) |` 被当成真链接。
+// 去掉围栏代码块（``` 与 ~~~）与行内 code span（`…`）——里面是示例文本（如模板占位
+// `[目标页](相对路径)`），不是链接。
 string _stripFences(string text) {
     string[] lines = text.Split("\n");
     string[] keep = new string[lines.Length];
@@ -331,9 +319,7 @@ bool _isScannedCode(string rel) {
 // 去掉一行里成对的 code span（`…` / ``…`` / ```…```）。
 //
 // markdown 的规则是：**定界符是一串 N 个反引号，span 以「恰好 N 个」的下一个反引号串收尾**。
-// 早先按「每个反引号都翻转一次 inSpan」实现，遇到**双反引号定界**就错：``[文字](`Sym`)`` 里那对
-// 单反引号把状态翻了回去，span 的**后半截被当成正文** —— `docs/z42-doc.md` 讲链接写法的那行因此
-// 被误报成死链（`-> ``` `，基线里没有 → 判新死链 → main 红）。
+// 不能按「每个反引号翻转一次」实现：``[文字](`Sym`)`` 里那对单反引号会把 span 后半截翻成正文。
 //
 // 未闭合的反引号串按 markdown 语义是**普通文本**：原样保留这串反引号，从它后面继续扫
 // （其后的内容照常查链接，不漏报死链）。
@@ -406,7 +392,7 @@ int _matchParen(string line, int open) {
 // 仓内相对链接：不是外部 URL、不是纯锚点、不是绝对路径。
 bool _isRepoRelative(string target) {
     if (target.Length == 0) { return false; }
-    if (target.StartsWith("#")) { return false; }                     // 纯锚点（批 7）
+    if (target.StartsWith("#")) { return false; }                     // 纯锚点
     if (target.StartsWith("/")) { return false; }                     // 站点绝对路径，不解析到仓内
     if (target.StartsWith("<")) { return false; }                     // 尖括号形式，少见，跳过
     if (target.Contains("://")) { return false; }                     // http(s) / ftp / …
