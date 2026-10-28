@@ -272,7 +272,7 @@ interp `Frame` / `JitFrame` / `VmFrame` 没有闭包 env arena，`CallIndirect` 
 - **格式**：zbc 的 `MkClos` 仍带一个 `u8` 尾字节（原 `stack_alloc`）。VM 读出后丢弃
   （`zbc_reader/instr_decode.rs`），下次 zbc bump 时删除（登记在
   [zbc.md `## Deferred`](../formats/zbc.md#deferred)）。
-- **为什么不做栈闭包**（runtime-audit D6 决策）：它只覆盖「创建后当场调用」这一种用法；把 lambda 传给别的
+- **为什么不做栈闭包**（2026-10-07 决策）：它只覆盖「创建后当场调用」这一种用法；把 lambda 传给别的
   函数（`list.Where(x => …)`）本来就逃逸。维护两套闭包表示要让调用协议、对象模型、OSR、GC 根扫描每次都改两条
   路径，收益却很窄。以后真要消掉不逃逸闭包的分配，做法是 JIT 里的**标量替换**（把 env 拆进寄存器），不需要
   新的值变体。

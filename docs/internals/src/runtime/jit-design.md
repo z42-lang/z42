@@ -2,7 +2,7 @@
 
 > 代码：`src/runtime/src/jit/`（`mod.rs` / `runtime.rs` / `frame.rs` / `lazy.rs` / `translate/` / `helpers/`）
 > 相关：[惰性逐函数 JIT](jit.md)（编译时机、调用计数 tier-up、混合模式、OSR、原生快路径） · [解释器 / JIT 标量语义](interp-jit-semantics.md)
-> 待办：编译在调用线程的编译锁内串行进行，尚无批量 / 后台编译（runtime-audit §4.5 第 3 条）
+> 待办：编译在调用线程的编译锁内串行进行，尚无批量 / 后台编译（runtime-audit 待办 X-13）
 
 本页只讲 JIT 后端的骨架：入口、两块运行时数据结构、原生函数 ABI、指令怎么翻译、异常怎么走。
 
