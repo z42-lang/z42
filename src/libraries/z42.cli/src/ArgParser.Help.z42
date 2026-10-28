@@ -92,9 +92,12 @@ public partial class ArgParser {
                 sb.Append(this._optionLongs[i]);
                 sb.Append(">    ");
                 sb.Append(this._optionHelps[i]);
-                sb.Append("  [default: ");
-                sb.Append(this._optionDefaults[i]);
-                sb.Append("]\n");
+                if (this._optionDefaults[i].Length > 0) {   // 空默认 = 无默认，不渲染 `[default: ]`
+                    sb.Append("  [default: ");
+                    sb.Append(this._optionDefaults[i]);
+                    sb.Append("]");
+                }
+                sb.Append("\n");
                 i = i + 1;
             }
             sb.Append("\n");

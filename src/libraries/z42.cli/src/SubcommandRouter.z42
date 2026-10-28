@@ -5,7 +5,7 @@ namespace Std.Cli;
 /// 除名字外可挂**别名**（`ls` / `list` 同槽，路由后归一为正名）；同名或别名互撞在
 /// 注册期抛 CliException（不再静默覆盖）。`AddPersistent*` 声明的全局旗标会在路由前
 /// 从 argv 任意位置剥出（子命令前后皆可，多层各管各的子树）；`SetDefault` 给节点挂
-/// 默认动作（argv 为空或首 token 是 flag 且不匹配任何子命令时执行）。未知子命令在
+/// 默认动作（argv 为空或首 token 是 flag 且不匹配任何子命令时执行；本层帮助附其选项）。未知子命令在
 /// 编辑距离足够近时附 `(did you mean '...')` 建议。
 public sealed class SubcommandRouter {
     string _programName;
@@ -211,7 +211,7 @@ public sealed class SubcommandRouter {
     private CommandResolution ResolveStripped(string[] argv) {
         if (argv.Length == 0) {
             if (this._defaultParser != null) {
-                return CommandResolution.Match(this._defaultParser.Parse(argv));
+                return this.ResolveDefault(argv);
             }
             return CommandResolution.Help(this.HelpText());
         }
@@ -242,7 +242,7 @@ public sealed class SubcommandRouter {
         // 默认动作：首 token 是 flag 且不命中任何子命令 → 整段交给默认 parser
         // （`xtask test --no-build` 形态）。非 flag 的未知 token 仍走 unknown。
         if (this._defaultParser != null && first.Length >= 1 && first.CharAt(0) == '-') {
-            return CommandResolution.Match(this._defaultParser.Parse(argv));
+            return this.ResolveDefault(argv);
         }
         string suggest = _Suggest.Nearest(first, this.CommandCandidates());
         string msg = this._programName + ": unknown command '" + first + "'";
@@ -250,6 +250,15 @@ public sealed class SubcommandRouter {
             msg = msg + " (did you mean '" + suggest + "'?)";
         }
         return CommandResolution.Unknown(msg, this.HelpText());
+    }
+
+    // 整段 argv 交给默认 parser；其中出现 `-h` / `--help` 时给本层帮助（含默认动作的选项）。
+    private CommandResolution ResolveDefault(string[] argv) {
+        ParseResult pr = this._defaultParser.Parse(argv);
+        if (pr.ShowHelp()) {
+            return CommandResolution.Help(this.HelpText());
+        }
+        return CommandResolution.Match(pr);
     }
 
     // 拼写建议候选：全部正名 + 别名（展平）。
@@ -285,7 +294,8 @@ public sealed class SubcommandRouter {
     // ── Help ─────────────────────────────────────────────────────────────
 
     /// 渲染顶层帮助：programName - description + SUBCOMMANDS 列表（别名括注），
-    /// 声明过默认动作 / persistent 旗标时分别附 `(default)` 行与 GLOBAL OPTIONS 段。
+    /// 声明过默认动作时附 `(default)` 行与 DEFAULT ACTION OPTIONS 段（默认 parser 的
+    /// FLAGS / OPTIONS），声明过 persistent 旗标时附 GLOBAL OPTIONS 段。
     public string HelpText() {
         string s = this._programName;
         if (this._description.Length > 0) {
@@ -303,6 +313,7 @@ public sealed class SubcommandRouter {
         }
         if (this._defaultParser != null) {
             s = s + "  " + this._padRight("(default)", 14) + this._defaultDesc + "\n";
+            s = s + "\nDEFAULT ACTION OPTIONS (no subcommand):\n" + this._defaultParser.OptionsHelp();
         }
         if (this._persistent != null) {
             s = s + "\nGLOBAL OPTIONS (before or after any subcommand):\n" + this._persistent.OptionsHelp();

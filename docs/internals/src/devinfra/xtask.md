@@ -18,14 +18,14 @@
 | `build` | **编译**各组件：`runtime` / `compiler` / `stdlib` / `workload` / `toolchain [z42b]` / `test` / `all` |
 | `package` | **组装**（只把已编好的产物摆成某种布局，缺产物即报错并点名该跑的 `build`）：发行包 `sdk` / `runtime` / `workload`（都可带 `--archive [--label L]` 同时出发布归档；`sdk --verify` 再在这份 SDK 上跑 packages.toml 自检 + 发行包夹具 + golden）、开发态 `dev-sdk`（`.z42` SDK 布局）/ `ci`（已建好构建树的 zpkg 快照，CI 的 `toolchain-<os>` artifact）、发布汇总 `release`（CI 汇总 job 专用：合并 desktop workload → SHA256SUMS → release-index.json；见[打包引擎](packaging.md)）|
 | `test` | 跑用例，按「契约属于谁」分：`e2e` / `stdlib` / `compiler` / `toolchain` / `runtime` / `app` / `docs`，外加 `changed`、`list`；裸 `test [--no-build] [--skip …]` = 完整 GREEN gate（见[怎么跑测试](testing.md)、[测试门禁](test-gate.md)）|
-| `check` | 不编译、不跑用例的静态检查：`vscode-syntax` / `lines` / `fnlines` / `diagcodes` / `stage2` / `ci-shell` / `proc-env` / `layout` / `versions` / `docs-api` / `doc-lints` / `doc-refs`；不带名字 = 全跑并汇总（`--update` 重写 lines / fnlines / diagcodes / stage2 / doc-lints / doc-refs 的棘轮基线）。最后三道是文档门禁，不是 GREEN gate 的 stage；CI 只在纯文档 PR 的 docs-check 里跑 doc-refs 与 docs-api，doc-lints 纯本地，见[怎么跑测试](testing.md) |
+| `check` | 不编译、不跑用例的静态检查：`vscode-syntax` / `diagcodes` / `stage2` / `ci-shell` / `proc-env` / `layout` / `versions` / `docs-api` / `doc-lints` / `doc-refs`；不带名字 = 全跑并汇总（`--update` 重写 diagcodes / doc-refs 的棘轮基线）。最后三道是文档门禁，不是 GREEN gate 的 stage；CI 只在纯文档 PR 的 docs-check 里跑 doc-refs 与 docs-api，doc-lints 纯本地，见[怎么跑测试](testing.md) |
 | `bench` | 基准；裸 `bench` = e2e 场景（见[性能基准与回归门禁](benchmarking.md)）|
 | `setup` | 准备本机：裸 `setup [--os android\|ios\|wasm] [--force]` = 安装，`setup vscode` = 编辑器扩展，`setup check` = 只读在场校验（见 §6）|
 | `profile` | 对单个 `.z42` 脚本做 cpu / heap / threads / e2e 剖析 |
 | `doc` | `z42 doc` 的索引：`doc index` 把 Rust 运行时各 crate 的条目与 rustdoc 写进 `artifacts/doc/rust.idx`，`z42 doc` 由此也能查 Rust 符号（见[文档索引与 `z42 doc`](../toolchain/doc.md)）|
 | `clean` | 删构建产物（`tests` / `bench` / `intermediate` / `all`，默认删生产 cache/dist；各自删什么见[产物目录布局](artifacts-layout.md) §4）|
 | `layout` | 打印产物布局路径：无参列出全部 `key  path`，`layout <key>` 只打印一条（给 CI / 脚本查询，见[产物目录布局](artifacts-layout.md)）|
-| `run` | 把参数原样透传给 **PATH 上的 `z42` launcher**（找不到 launcher 即报错退出）|
+| `run` | 把 `run` 之后的参数原样透传给 **PATH 上的 `z42` launcher**（找不到 launcher 即报错退出）|
 
 > `build regen` 这个命令名不存在——golden 基线重生现在是 `build test`。
 
@@ -35,7 +35,7 @@
 |---|---|---|
 | 实现语言 | z42（不是 bash / cargo-xtask） | dogfooding：工具链本身是语言与 stdlib 最大的真实用例（`Std.Cli`/`Std.IO`/`Std.Toml`/`Std.Process` 都被它压出来的）；跨平台无 shell 方言差 |
 | 命令路由 | `Std.Cli` 的 `SubcommandRouter` 树 | 每层的 `-h` 由树自动渲染；命令面是数据结构，可静态审阅 |
-| 工具链选择 | 全局 `--toolchain <dir>` → 环境变量 `Z42_HOME` | 一处剥离、处处生效，命令实现不必逐个透传参数（见 §4）|
+| 工具链选择 | 全局 `--toolchain <dir>` → 环境变量 `Z42_HOME` | 一处声明、处处生效，命令实现不必逐个透传参数（见 §4）|
 | 运行形态 | 原生 apphost 可执行（仓库根 `./xtask`，内嵌 launcher + `xtask.zpkg`）| 单文件、不依赖 PATH 上的 launcher；与用户发布自己的 app 走同一套 apphost 机制 |
 
 代价是**自举依赖**：编 xtask 需要 z42c 和 stdlib，而它们又由 xtask 编排构建（见 §5）。
@@ -57,36 +57,34 @@ publish 每次都过一遍 z42c 的增量编译：改了什么重编什么，全
 **不需要先 `z42 build`**，也不存在「zpkg 已存在就跳过编译」的短路——publish 见到既有产物照样过
 增量编译，否则会把旧 payload 重新签一遍而人不知情。
 
-## 3. CLI 分发：三段式 + 每族一文件
+## 3. CLI 分发：路由树 + 每族一文件
 
 ```mermaid
 graph LR
     M[Main] --> E[_ensureDriverVm<br/>校验 z42vm 可用]
     E --> R[_runCli]
-    R --> T[① 全局标志剥离<br/>--toolchain → Z42_HOME<br/>--verbosity]
-    T --> I[② 拦截层<br/>裸 test / 裸 bench / run]
-    I --> RT[③ SubcommandRouter 树<br/>Resolve]
-    RT --> D[_dispatch 按路径首段<br/>→ 各 _dispatchXxx]
+    R --> RT[SubcommandRouter 树<br/>Resolve]
+    RT --> G[全局选项 → 环境变量<br/>--toolchain → Z42_HOME<br/>--verbosity → Z42_VERBOSITY]
+    G --> D[_dispatch 按路径首段<br/>→ 各 _dispatchXxx]
 ```
 
-① **全局标志剥离**（`_applyToolchainOpt` / `_applyVerbosityOpt`，`scripts/cli/xtask_cli.z42`）：
-两 token 形式从 argv 摘除、last-wins，`--toolchain` 写进 `Z42_HOME`。
-② **拦截层**：有两个命令的默认语义是路由树表达不了的——裸 `test` = 完整 GREEN gate、
-裸 `bench` = e2e 场景；它们在 `Resolve` 之前被拦下，但**仍注册在树里**，好让 `xtask -h` 列出、
-`xtask bench stdlib -h` 正常工作。裸 `test` 自己的旗标（`--no-build` / `--skip`）由拦截层用一个独立的
-`ArgParser` 解析。`run` 同样在 Resolve 前直通 launcher。
+**全局选项**是根 router 的 persistent option（`AddPersistentOption`）：`Resolve` 先把它们从 argv 任意位置
+（子命令前后皆可，`--` 之后不算）剥出，`_applyGlobals` 再写进环境变量，子进程随之继承。
 
-路由树没有「不带子项 = 默认动作」，所以需要默认动作的子命令做成**叶子 + 可选位置参数**：
-`test compiler [incremental|fingerprint|bootstrap]`、`test app <platform> [step]`、`test docs [links|examples]`、
-`check [<name>]`，不带位置参数就是默认动作。
-③ **路由树**解析后按路径首段分发。
+**默认动作**由 `SetDefault` 表达：裸 `test` = 完整 GREEN gate、裸 `setup` = 安装、裸 `bench` = e2e 场景；
+argv 为空或首 token 是 flag 且不命中子命令时交给默认 parser，解析结果的路径只有命令族名一段
+（`_dispatchXxx` 里 `p.Length == 1` 即默认动作）。默认 parser 的选项列在该层 `-h` 的
+DEFAULT ACTION OPTIONS 段。
+
+`run` 不进路由：它之后的参数（含 launcher 自己的选项与 `--` 尾巴）原样转给 launcher，只有 `run` 之前的
+前缀交给路由树解析（全局选项照常生效）。
 
 命令族的 **router**（声明每个叶子的 flag / option / positional，`-h` 文本由此生成）与
 **dispatch**（把解析结果转给 handler）**成对出现、族间零耦合**——`build` 的 router 与 `test` 的
 dispatch 之间没有任何引用。所以按**族**分文件，而不是「所有 router 一段、所有 dispatch 一段」：
 
 ```
-scripts/cli/xtask_cli.z42              核心：全局选项剥离 → _cliRoot 根树 → _dispatch 分流
+scripts/cli/xtask_cli.z42              核心：_cliRoot 根树（含全局选项）→ _dispatch 分流
 scripts/cli/xtask_cli_build.z42    _buildRouter    + _dispatchBuild
 scripts/cli/xtask_cli_package.z42  _packageRouter  + _dispatchPackage
 scripts/cli/xtask_cli_test.z42     _testRouter     + _dispatchTest

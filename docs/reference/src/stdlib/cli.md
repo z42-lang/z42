@@ -1251,7 +1251,7 @@ argv 里出现过 `-h` / `--help`。
 除名字外可挂**别名**（`ls` / `list` 同槽，路由后归一为正名）；同名或别名互撞在
 注册期抛 CliException（不再静默覆盖）。`AddPersistent*` 声明的全局旗标会在路由前
 从 argv 任意位置剥出（子命令前后皆可，多层各管各的子树）；`SetDefault` 给节点挂
-默认动作（argv 为空或首 token 是 flag 且不匹配任何子命令时执行）。未知子命令在
+默认动作（argv 为空或首 token 是 flag 且不匹配任何子命令时执行；本层帮助附其选项）。未知子命令在
 编辑距离足够近时附 `(did you mean '...')` 建议。
 
 ```z42
@@ -1354,27 +1354,27 @@ IsMatch / IsHelp / IsUnknown 恰好一个为真。本层 persistent 旗标先从
 <a id="Std.Cli.SubcommandRouter.HelpText()"></a>
 ### string HelpText()
 
-[`src/libraries/z42.cli/src/SubcommandRouter.z42:289`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L289)
+[`src/libraries/z42.cli/src/SubcommandRouter.z42:299`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L299)
 
-渲染顶层帮助：programName - description + SUBCOMMANDS 列表（别名括注）， 声明过默认动作 / persistent 旗标时分别附 `(default)` 行与 GLOBAL OPTIONS 段。
+渲染顶层帮助：programName - description + SUBCOMMANDS 列表（别名括注）， 声明过默认动作时附 `(default)` 行与 DEFAULT ACTION OPTIONS 段（默认 parser 的 FLAGS / OPTIONS），声明过 persistent 旗标时附 GLOBAL OPTIONS 段。
 
 <a id="Std.Cli.SubcommandRouter.Count()"></a>
 ### int Count()
 
-[`src/libraries/z42.cli/src/SubcommandRouter.z42:314`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L314)
+[`src/libraries/z42.cli/src/SubcommandRouter.z42:325`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L325)
 
 已注册的子命令个数。
 
 <a id="Std.Cli.SubcommandRouter.Has(string)"></a>
 ### bool Has(string name)
 
-[`src/libraries/z42.cli/src/SubcommandRouter.z42:317`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L317)
+[`src/libraries/z42.cli/src/SubcommandRouter.z42:328`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L328)
 
 指定名字（或别名）是否已注册为子命令。
 
 ## SubcommandMatch
 
-[`src/libraries/z42.cli/src/SubcommandRouter.z42:361`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L361)
+[`src/libraries/z42.cli/src/SubcommandRouter.z42:372`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L372)
 
 单层子命令命中的结果：名字 + 叶子 ParseResult。
 
@@ -1391,21 +1391,21 @@ public sealed class SubcommandMatch {
 <a id="Std.Cli.SubcommandMatch.ctor(string,ParseResult)"></a>
 ### SubcommandMatch(string name, ParseResult result)
 
-[`src/libraries/z42.cli/src/SubcommandRouter.z42:366`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L366)
+[`src/libraries/z42.cli/src/SubcommandRouter.z42:377`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L377)
 
 用命中的子命令名（别名归一后的正名）与解析结果创建匹配对象。
 
 <a id="Std.Cli.SubcommandMatch.Name()"></a>
 ### string Name()
 
-[`src/libraries/z42.cli/src/SubcommandRouter.z42:372`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L372)
+[`src/libraries/z42.cli/src/SubcommandRouter.z42:383`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L383)
 
 命中的子命令名。
 
 <a id="Std.Cli.SubcommandMatch.Result()"></a>
 ### ParseResult Result()
 
-[`src/libraries/z42.cli/src/SubcommandRouter.z42:375`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L375)
+[`src/libraries/z42.cli/src/SubcommandRouter.z42:386`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.cli/src/SubcommandRouter.z42#L386)
 
 命中的叶子 ParseResult。
 
