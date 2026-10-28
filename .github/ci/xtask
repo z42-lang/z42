@@ -4,15 +4,13 @@
 # $GITHUB_PATH，此后 workflow 的步骤里直接写 `xtask test ...`。
 #
 # `.z42/` 由 setup-z42-sdk 装（上一版 nightly，与本地 `scripts/install-z42.sh` 同位置同形态），xtask.zpkg 也是用
-# 这份 SDK 的 z42c 编的 ⇒ **编 xtask 与跑 xtask 是同一个工具链**，与本地一致（add-sdk-libs D7）。此前 CI 用
-# 种子编 xtask、却跑在 cargo 现编的构建树 z42vm + 构建树 stdlib 上 —— 「用种子编、用新版跑」的错位一直存在。
+# 这份 SDK 的 z42c 编的 ⇒ **编 xtask 与跑 xtask 是同一个工具链**，与本地一致。
 #
 # 与本地 apphost 逐项对齐：
 #   · VM / libs 取 `.z42/`（Windows 带 `.exe`）；调用方显式设了 Z42_LIBS 则尊重（apphost 同款）；
 #   · **不设** Z42_PORTABLE_VM：仓库根的 `./xtask` 旁没有 z42vm，apphost 不设它；xtask 构建 / 测试当前源码时
 #     派生的子进程由 xtask 自己定位构建树工具。
-#   · 不再需要「Windows 从 z42vm.exe 的拷贝启动」：那是为了 `package` 等命令让 cargo 重链**构建树**的 z42vm.exe
-#     时不撞上正在运行的它；xtask 现在跑在 SDK 的 VM 上，cargo 从不碰它。
+#   · xtask 跑在 SDK 的 VM 上，cargo 重链**构建树**的 z42vm(.exe) 时碰不到它（Windows 上不会覆盖运行中的 exe）。
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

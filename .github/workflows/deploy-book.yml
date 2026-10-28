@@ -1,12 +1,13 @@
 name: Deploy book to GitHub Pages
 
-# 每次 push 到 main 且改动了两本书、配套示例或安装脚本时，构建 mdBook 并发布到 GitHub Pages：
-#   https://z42-lang.github.io/z42/         知识库（docs/book）
-#   https://z42-lang.github.io/z42/learn/   学习手册（docs/learn；代码 include 自 examples/，发布即是最新代码）
+# 每次 push 到 main 且改动了文档、配套示例或安装脚本时，构建 mdBook 并发布到 GitHub Pages：
+#   https://z42-lang.github.io/z42/             站点首页（docs/book：三本书的分流索引）
+#   https://z42-lang.github.io/z42/learn/       学习手册（docs/learn；代码 include 自 examples/，发布即是最新代码）
+#   https://z42-lang.github.io/z42/reference/   参考手册（docs/reference）
+#   https://z42-lang.github.io/z42/internals/   内部实现（docs/internals）
 #   https://z42-lang.github.io/z42/install.sh / install.ps1   安装脚本
 # PR 上只构建不发布：mdBook 的 include 出错不会让构建失败（缺文件只打 ERROR），这里把 [ERROR] 判红。
 # 一次性前置：仓库 Settings → Pages → Source 选 "GitHub Actions"。
-# 发布后网址：https://z42-lang.github.io/z42/
 
 on:
   push:
@@ -63,8 +64,6 @@ jobs:
           site="$PWD/_site"
           ( cd docs/book && mdbook-mermaid install . && mdbook build -d "$site" ) 2>&1 | tee book.log
           ( cd docs/learn && mdbook build -d "$site/learn" ) 2>&1 | tee -a book.log
-          # 三书重构（restructure-docs-three-books）：reference / internals 与 learn 并列发布。
-          # docs/book 在搬迁完成前继续发布到站点根，搬完即删（批 6）。
           ( cd docs/reference && mdbook build -d "$site/reference" ) 2>&1 | tee -a book.log
           ( cd docs/internals && mdbook-mermaid install . && mdbook build -d "$site/internals" ) 2>&1 | tee -a book.log
           if grep -q '\[ERROR\]' book.log; then

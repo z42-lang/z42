@@ -6,7 +6,6 @@ name: Release
 # Pre-1.0 versions and tags containing '-' are published as GitHub prereleases.
 #
 # Pipeline: verify (tag ↔ versions.toml) → package × 9 RIDs → publish (with SHA256SUMS).
-# See 变更 add-release-automation/.
 
 on:
   push:
@@ -44,10 +43,9 @@ jobs:
           else
             tag="${{ inputs.version }}"
           fi
-          # read versions.toml [project].version (no versions.sh; this job has no
-          # z42 toolchain — same awk pattern as scripts/install-z42.sh). Split on
-          # the quote so a trailing comment (`version = "0.2.0"  # ...`) doesn't
-          # leak into the value (the old gsub /.*"|".*/ kept the comment).
+          # read versions.toml [project].version with awk (this job has no z42
+          # toolchain). Split on the quote so a trailing comment
+          # (`version = "0.2.0"  # ...`) doesn't leak into the value.
           repo_version=$(awk '
             /^\[project\]/ {inblock=1; next}
             /^\[/ {inblock=0}
@@ -100,10 +98,9 @@ jobs:
         with:
           tool: cargo-ndk
 
-      # local-cache: false — local-cache: true produced an incomplete
-      # ANDROID_NDK_HOME directory (clang missing under toolchains/llvm/prebuilt/),
-      # causing libffi-sys's configure to fail with "C compiler cannot create
-      # executables". Fresh download every run is ~2 min slower but reliable.
+      # local-cache: false — local-cache produced an incomplete ANDROID_NDK_HOME
+      # (clang missing under toolchains/llvm/prebuilt/) causing libffi-sys's
+      # configure to fail. Fresh download is ~2 min slower but reliable.
       - name: Setup Android NDK r30
         if: startsWith(matrix.rid, 'android-')
         uses: nttld/setup-ndk@v1
@@ -119,9 +116,8 @@ jobs:
         with:
           tool: wasm-pack,wasm-tools
 
-      # build the host toolchain from the prev nightly's z42c
-      # seed (same path as CI build-and-test), then the package steps below run via
-      # `z42vm xtask.zpkg`. The host RID is derived from the runner; the cross target
+      # Build the host toolchain from the prev nightly's z42c seed (same path as
+      # ci.yml test-host); the package steps below then run via the `xtask` shim. The host RID is derived from the runner; the cross target
       # (matrix.rust-target) is handled by `xtask package`.
       - name: Bootstrap toolchain (nightly z42c seed → current source)
         uses: ./.github/actions/ci-bootstrap
@@ -178,9 +174,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Provision z42vm + xtask.zpkg so the release-packaging steps run as
-      # `xtask release …` (script-zero — no scripts/release/*.sh). Bootstrap
-      # from the prev nightly seed, same as the package job. Host = linux-x64.
+      # Provision z42vm + xtask so the aggregate step runs as `xtask package release`.
+      # Bootstrap from the prev nightly seed, same as the package job.
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Cache Rust deps (Swatinem)

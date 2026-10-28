@@ -2,8 +2,7 @@ name: ci-bootstrap
 description: >
   Self-hosted CI bootstrap into the STANDARD artifact locations that later steps
   (xtask test / package release / upload) expect. Seeds from the PREVIOUS published
-  nightly SDK's z42c compiler (programs/z42c/, host tooling — the runtime package
-  no longer carries a z42c seed, 2026-07-01): prev-nightly z42c seed → builds
+  nightly SDK's z42c compiler (programs/z42c/): prev-nightly z42c seed → builds
   current xtask → xtask builds current z42c (warm self-build) + stdlib (flat dist
   + index). xtask is compiled by AND runs on the SDK in `.z42` (setup-z42-sdk), exactly like the
   local `./xtask` apphost; the cargo-built z42vm is the build-tree VM under test. Needs gh (auth'd
@@ -26,8 +25,8 @@ inputs:
 runs:
   using: composite
   steps:
-    # 种子 = 上一版 nightly SDK，装到 .z42（与本地 install-z42.sh 同一位置、同一形态）。CI 之后编 xtask、跑 xtask
-    # 都用它 —— 与本地 `./xtask` apphost 完全一致（add-sdk-libs D7）。下载重试与回退链都在那个 action 里。
+    # 种子 = 上一版 nightly SDK，装到 .z42（与本地 scripts/install-z42.sh 同一位置、同一形态）。CI 之后编
+    # xtask、跑 xtask 都用它 —— 与本地 `./xtask` apphost 完全一致。下载重试与回退链都在那个 action 里。
     - name: Install the nightly z42 SDK into .z42
       id: sdk
       uses: ./.github/actions/setup-z42-sdk
@@ -69,13 +68,12 @@ runs:
         }
         ROOT="$PWD"
 
-        # z42vm（Rust）不在这里单独 cargo：[3/5] `xtask build compiler` 先跑 `_buildRuntime`（全 workspace
-        # `cargo build --release`），cargo 调用只在 xtask 一处（含 --config / target-dir 的处理）。
-        # 1.5 的两代自举用的是 SDK 自带的旧 VM，不依赖构建树 VM。
+        # z42vm（Rust）不在这里单独 cargo：[3/5] `xtask build compiler` 先建 runtime，cargo 调用只在 xtask
+        # 一处（含 --config / target-dir 的处理）。1.5 的两代自举用的是 SDK 自带的旧 VM，不依赖构建树 VM。
 
         # ── 1. 种子 = setup-z42-sdk 装好的 .z42（nightly，或回退到最近成功 CI 运行的归档）────────
-        # The seed lives in the SDK's programs/z42c/ (host tooling), NOT the runtime package — the runtime
-        # package is a pure embeddable pack (native + stdlib only, no z42c/z42vm, 2026-07-01).
+        # The seed lives in the SDK's programs/z42c/ (host tooling), NOT the runtime package (a pure
+        # embeddable pack: native + stdlib only).
         SDK="$ROOT/.z42"
         echo "── [1/5] seed SDK = $SDK (${SEED_SRC:-unknown}) ──"
         seed="$ROOT/.ci-seed"; rm -rf "$seed"; mkdir -p "$seed"
@@ -90,12 +88,10 @@ runs:
         seedw="$(winpath "$seed")"
         driverw="$(winpath "$seed/z42c.driver.zpkg")"
 
-        # ── 1.5 版本差 gate:两代自举根治格式-bump 死结 ────────────────────────────────
-        # (fix-bootstrap-format-bump-deadlock) 种子 zpkg minor 与当前源 writer minor 相等
-        # → 日常 push,种子与新 VM 同版本,直接走下面的单 VM 快路径(零改动)。不等(zpkg/zbc
-        # 格式 bump)→ cargo 新 VM strict-pin 读不了旧种子 stdlib → 单 VM 必炸。改用 nightly SDK
-        # 自带的**旧 VM**(bin/z42vm,与旧种子同版本)做两代自举,把种子推进到当前格式,再交新 VM。
-        # 机理见 变更 fix-bootstrap-format-bump-deadlock/design.md(D7,已本地端到端验证)。
+        # ── 1.5 版本差 gate：两代自举（docs/internals/src/compiler/self-hosting.md 轴 ②）──────────────
+        # 种子 zpkg minor == 当前源 writer minor → 直接走下面的单 VM 快路径。不等（格式 bump）→ cargo 新 VM
+        # strict-pin 读不了旧种子 stdlib ⇒ 改用 nightly SDK 自带的**旧 VM**（bin/z42vm，与旧种子同版本）
+        # 做两代自举，把种子推进到当前格式，再交新 VM。
         seed_minor=$(od -An -tu2 -j6 -N2 "$seed/z42c.driver.zpkg" | tr -d ' ')
         cur_minor=$(grep -oE 'Minor = [0-9]+' "$ROOT/src/compiler/z42.package/src/ZpkgWriter.z42" | head -1 | grep -oE '[0-9]+')
         echo "   zpkg minor: seed=$seed_minor  current=$cur_minor"
@@ -104,11 +100,8 @@ runs:
           OLDVM="$SDK/bin/z42vm"; case "$RID" in windows-*) OLDVM="$OLDVM.exe";; esac
           [ -f "$OLDVM" ] || { echo "::error::nightly SDK 缺 bin/z42vm — 两代自举需旧 VM(重发带 bin/z42vm 的 nightly)"; exit 1; }
           chmod +x "$OLDVM" 2>/dev/null || true
-          # Gen0 stdlib: 旧VM + 旧种子 z42c → 编**当前** stdlib → 产出携带**当前 z42.package API**
-          # (如本次新增的 IR 字段 StackAlloc)的新 z42.package(旧格式、旧VM 可读)。这样下面 gen1 z42c
-          # 才对着「有新 API 的 z42.package」编——否则 z42c 源新用 z42.package 字段(轴④)在格式-bump 两代路径
-          # 会 `no field` 编译失败(正常路径由 _ensureBootstrapSelfDepLibs 解,两代路径此前缺此步)。stdlib
-          # 源不引用任何比种子更新的 API(轴② 纪律),故旧种子能编它。add-escape-analysis-stack-alloc。
+          # Gen0 stdlib：旧 VM + 旧种子 z42c 编**当前** stdlib ⇒ 得到带当前 z42.package API（旧格式、旧 VM
+          # 可读）的库，gen1 z42c 才能对着新 API 编（轴 ④）。stdlib 源不引用比种子更新的 API（轴 ③ 纪律）。
           G0LIBS="$ROOT/.ci-gen0libs"; rm -rf "$G0LIBS"; mkdir -p "$G0LIBS"
           ( cd "$ROOT/src/libraries" && Z42_LIBS="$seedw" "$OLDVM" "$driverw" --mode interp -- build --workspace --release --no-incremental )
           for f in "$ROOT/artifacts/build/libraries/"*/release/dist/*.zpkg; do cp -f "$f" "$G0LIBS/"; done
@@ -123,16 +116,8 @@ runs:
           cp -f "$ROOT/artifacts/build/compiler/z42c.driver/release/dist/"*.zpkg "$G1RUN/"
           cp -f "$G0LIBS/"*.zpkg "$G1RUN/"
           g1runw="$(winpath "$G1RUN")"
-          # 修 two-gen 格式-bump 回归(probe-two-gen-verify)——根因 = z42c DepScanCache（F2 进程级
-          # memo，#247/#252 引入）的 path→内容稳定不变式在两代自举被破坏：gen0 与 gen1 stdlib **同一
-          # `artifacts/build/libraries` 就地覆写**，故 gen1 stdlib 起步时该目录仍是 gen0 旧格式产物
-          # (z42.core 旧 minor)。gen1 z42c 建 [1/25] z42.core 时 DepScan 预开循环 Get(该 path)读到
-          # 旧份 → strict-pin skip → **缓存 null**;[1/25] 随即覆写为新 minor,但 [2/25] z42.encoding
-          # 复用缓存 null → z42.core 缺席 → String/FormatException undefined(E0401/E0443)全红。
-          # DepScanCache 注释原文即言:「进程内覆写 zpkg 后重扫需 mtime/size 守卫」——两代自举正是此路径。
-          # 修法(恢复该不变式,CI 侧最小改动):每代 stdlib/compiler 构建前清空其就地 artifacts,使各成员
-          # dist 起步为空(与 DepScanCache「建成员前其 dist 空、不在 paths」的前提一致)。gen0 产物已在
-          # 上面拷进 G0LIBS,gen1 driver 已拷进 G1RUN,故清 artifacts 安全。
+          # 每代构建前清空就地 artifacts，让各成员 dist 起步为空（DepScanCache 已按 size+mtime 识别就地覆写，
+          # 见 self-hosting.md；这里是额外保险）。gen0 产物已拷进 G0LIBS、gen1 driver 已拷进 G1RUN，清掉安全。
           rm -rf "$ROOT/artifacts/build/libraries"
           ( cd "$ROOT/src/libraries" && Z42_LIBS="$g1runw" "$OLDVM" "$(winpath "$G1RUN/z42c.driver.zpkg")" --mode interp -- build --workspace --release --no-incremental )
           echo "   ✓ gen1 stdlib: fresh z42.core minor=$(od -An -tu2 -j6 -N2 "$ROOT/artifacts/build/libraries/z42.core/release/dist/z42.core.zpkg" | tr -d ' ')"
@@ -142,13 +127,9 @@ runs:
           flatw="$(winpath "$FLAT")"
           # Gen2 z42c: 旧VM + gen1 z42c(entry-dir=旧 stdlib 供运行时)+ Z42_LIBS=新 stdlib(编译期 TSIG)
           # → z42c 新壳。per-member topo 序:兄弟本轮先重写为新格式再被依赖。
-          # ⚠️ 「entry-dir 供运行时」依赖旧VM 的 prelude(z42.core)解析**先看 entry-dir**:VM 把 $Z42_LIBS 当
-          # libs 目录,若 prelude 只看 libs 目录,就会打开这里的**新格式** z42.core 并 bail —— 2026-09 两代自举
-          # 因此回归(#444 把版本失配改成 bail 后触发)。修复 #631(app.rs 5.1b 走 search_dirs)随 nightly
-          # 进入 OLDVM 后才成立;改动这段前先确认 OLDVM 仍具备该行为。
-          # 同 gen1 stdlib:清就地 artifacts/build/compiler(gen1 已写 minor 41,gen2 重写 42),避免
-          # DepScanCache 缓存 gen1 旧份的 strict-pin skip → gen2 兄弟(z42c.*)解析缺席。gen1 driver
-          # 已在 G1RUN,gen2 用它作 driver,故清 artifacts/build/compiler 安全(gen2 重建)。
+          # ⚠️ 「entry-dir 供运行时」依赖旧 VM 的 prelude（z42.core）解析**先看 entry-dir**：若只看 libs 目录，
+          # 就会打开这里的**新格式** z42.core 并 bail。改动这段前先确认 OLDVM 仍具备该行为。
+          # 同 gen1 stdlib：清就地 artifacts/build/compiler（gen2 用 G1RUN 里的 gen1 driver 重建）。
           rm -rf "$ROOT/artifacts/build/compiler"
           ( cd "$ROOT/src/compiler" && Z42_LIBS="$flatw" "$OLDVM" "$(winpath "$G1RUN/z42c.driver.zpkg")" --mode interp -- build --workspace --release --no-incremental )
           g2_minor=$(od -An -tu2 -j6 -N2 "$ROOT/artifacts/build/compiler/z42c.driver/release/dist/z42c.driver.zpkg" | tr -d ' ')
@@ -172,7 +153,7 @@ runs:
         # 种子身份随 xtask 走（toolchain artifact 带着它）：下游 job 装的 SDK 若不是同一份，就用自己的 SDK 重编 xtask。
         cp -f "$SDK/seed-id.txt" "$ROOT/artifacts/xtask/seed-id.txt"
 
-        # xtask-only（ci-docs-fast-path）：只要 xtask 跑纯源码 / 文档检查的 job 到此为止 —— 省掉 build compiler / stdlib。
+        # xtask-only：只要 xtask 跑纯源码 / 文档检查的 job 到此为止 —— 省掉 build compiler / stdlib。
         if [ "${XTASK_ONLY:-false}" = "true" ]; then
           echo "✅ CI bootstrap (xtask-only) OK ($RID) — xtask.zpkg built by and running on the SDK"
           exit 0
@@ -182,8 +163,7 @@ runs:
         # 冷树：xtask 的 `_ensureSeed` 经 `_seedSdkDir` 自己找到 `./.z42`（Z42_HOME → Z42_PORTABLE_VM 反推 → ./.z42）
         # 并把种子 stage 进构建树 —— 不再需要 Z42_HOME。两代路径下构建树已 warm（当前格式），xtask 直接 warm 自建。
         # `-v detailed`：CI 日志保留完整的种子查找过程与逐文件输出（排查自举用）。
-        # Windows 上「xtask 从构建树 z42vm.exe 的拷贝启动，免得 cargo 重链时覆盖正在运行的 exe」那层绕行随之删掉：
-        # xtask 现在跑在 SDK 的 VM 上，cargo 从不重链它。
+        # xtask 跑在 SDK 的 VM 上，cargo 重链构建树 z42vm(.exe) 时碰不到它（Windows 上不会覆盖运行中的 exe）。
         xt() { env -u Z42_HOME -u Z42_PORTABLE_VM "$GITHUB_WORKSPACE/.github/ci/xtask" "$@"; }
         echo "── [3/5] xtask build compiler ──"
         xt -v detailed build compiler

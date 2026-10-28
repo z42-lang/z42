@@ -4,10 +4,7 @@
 #
 # Why a file instead of an inline `script: |` block: android-emulator-runner executes
 # EVERY line of `script:` in its own `sh -c`, so shell variables never survive to the
-# next line. The inline version (#340) expanded `"$vm"` to an empty string and died
-# with `sh: 1: : Permission denied` (exit 127) — every nightly from 2026-08-30 on,
-# without a single instrumented test having run. One line calling this file keeps all
-# state in one shell.
+# next line. One line calling this file keeps all state in one shell.
 #
 # `xtask test app android --shard k/3` (test-layout §6) runs the whole pipeline — agent,
 # .so + AAR into the staged host copy, this shard's embedded slice, then ONE
@@ -17,7 +14,7 @@
 # The step's working-directory is the android platform dir, but every path here
 # is absolute and xtask's `_root()` uses `git rev-parse`, so cwd does not matter.
 #
-# diagnose-mobile-wasm-embed (#159): the embedded corpus can crash the app process
+# The embedded corpus can crash the app process
 # natively ("Instrumentation run failed due to Process crashed") — the cause lives in
 # logcat/tombstones, not the JUnit XML, and a post-crash `adb logcat -d` returns
 # nothing. So logcat is captured CONTINUOUSLY in the background and its tail is echoed
@@ -45,7 +42,7 @@ adb logcat -c || true
 adb logcat > "$GITHUB_WORKSPACE/android-embed-logcat.txt" 2>&1 &
 logcat_pid=$!
 
-# xtask 经 CI shim 跑在 `.z42` SDK 上（与本地 `./xtask` 一致，add-sdk-libs D7）。
+# xtask 经 CI shim 跑在 `.z42` SDK 上（与本地 `./xtask` 一致）。
 "$GITHUB_WORKSPACE/.github/ci/xtask" test app android --shard "${Z42_SHARD:-1}/3"
 rc=$?
 

@@ -2,7 +2,7 @@ name: setup-z42-sdk
 description: >
   Install the previous nightly z42 SDK (host RID) into $GITHUB_WORKSPACE/.z42 — the same place and layout
   `scripts/install-z42.sh` gives a developer locally. CI then compiles AND runs xtask on this SDK, exactly
-  like the local `./xtask` apphost does (add-sdk-libs D7: CI 与本地一致), and it doubles as the z42c seed
+  like the local `./xtask` apphost does, and it doubles as the z42c seed
   (xtask's `_seedSdkDir` finds `./.z42` on its own).
   Fallback when the nightly is unusable: the newest successful main CI run's `release-host-<rid>` archive
   (candidates come from the artifact list, not the filtered run list — see the fallback block).
@@ -17,12 +17,6 @@ inputs:
     description: "GitHub token for `gh release download` / `gh run download` (needs actions: read for the fallback)"
     required: true
 outputs:
-  rid:
-    description: "resolved runtime ID"
-    value: ${{ steps.sdk.outputs.rid }}
-  seed-id:
-    description: "identity of the installed seed (same value as .z42/seed-id.txt)"
-    value: ${{ steps.sdk.outputs.seed-id }}
   seed-src:
     description: "where the seed came from: nightly | ci-run-<id>"
     value: ${{ steps.sdk.outputs.seed-src }}
@@ -84,14 +78,13 @@ runs:
 
         # ── 回退：nightly 不可用时，用最近一次成功 CI 运行的 host-package 归档 ──
         #
-        # 为什么必须有这条：nightly 是**唯一**种子来源时，它一旦不可用（卡成 draft —— draft 对别的
-        # 运行的 GITHUB_TOKEN 不可见 —— 或缺 SDK 包），所有 bootstrap job
-        # 全挂 → package/publish-nightly 被 skip → **发不出新 nightly 自救**。2026-09-17 实际发生过一次，
-        # 全仓卡了约 5 小时，最后靠人工从 CI artifact 重打包重发 nightly 才解开。这条就是把那次人工操作自动化。
+        # 为什么必须有这条：nightly 是唯一种子来源时，它一旦不可用（卡成 draft —— draft 对别的
+        # 运行的 GITHUB_TOKEN 不可见 —— 或缺 SDK 包），所有 bootstrap job 全挂 → publish-nightly
+        # 被 skip → 发不出新 nightly 自救（ci.md §3.1「为什么必须有回退」）。
         #
         # 为什么是 CI artifact 而不是最近的正式 release：**格式版本**。正式 release 可能落后很多个 zpkg
-        # 格式 bump，会触发两代自举而那条路在旧 VM 上必挂（run 35290607109）。成功 CI 运行的 artifact
-        # 顶多落后一两个 commit，格式天然对得上。保留期 90 天。
+        # 格式 bump，会触发两代自举而那条路在旧 VM 上必挂。成功 CI 运行的 artifact 顶多落后一两个
+        # commit，格式天然对得上。
         #
         # 权限：需要 token 的 `actions: read`。仓库默认 workflow 权限是 read（含 actions），
         # 且用本 action 的 job 都没有自定义 permissions 块。**若将来给这些 job 加
@@ -99,9 +92,9 @@ runs:
         if [ "$dl_ok" != 1 ]; then
           echo "   nightly unusable — falling back to the newest successful CI run's host package"
           # 候选运行从 **artifact 列表**（按名字，新→旧）里挑，不用 `gh run list --branch main --status success`：
-          # 带过滤条件的运行列表是最终一致的，故障期间能长时间返回陈旧结果——2026-10-05 它给出的 5 个
-          # 「最近成功运行」全是 9 月的（artifact 早已过期），整条回退因此失效。artifact 列表是实时的；
-          # 每个候选再按 ID 查一次运行结论（单个运行查询不走过滤索引），只用 main 上 success 的。
+          # 带过滤条件的运行列表是最终一致的，故障期间能长时间返回陈旧结果（artifact 早已过期）。
+          # artifact 列表是实时的；每个候选再按 ID 查一次运行结论（单个运行查询不走过滤索引），
+          # 只用 main 上 success 的。
           cand=$(gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=release-host-${RID}&per_page=30" \
                    --jq '.artifacts[] | select(.expired == false and .workflow_run.head_branch == "main") | .workflow_run.id' \
                    2>/dev/null || true)
@@ -123,8 +116,6 @@ runs:
               echo "     release-host-${RID} has no usable z42-sdk-nightly-${RID}.${EXT}"
               continue
             fi
-            # 打出**这一次**下载的真实错误（此前紧跟一条旧形态 `z42-host-package-*` 的重试，日志里只剩
-            # 它的报错，把主路径失败的原因盖掉了）。
             echo "     release-host-${RID} download failed ($(head -1 "$work/dlerr" 2>/dev/null))"
           done
         fi
@@ -136,12 +127,10 @@ runs:
           cat "$work/dlerr" 2>/dev/null || true
           exit 1
         fi
-        # upload-artifact（旧形态回退）不保留可执行位；归档本身保留，补一次无妨。
+        # 归档本身保留可执行位；防御性补一次。
         case "$RID" in windows-*) ;; *) chmod +x "$DEST/z42" "$DEST"/bin/* 2>/dev/null || true ;; esac
         [ -n "$seed_id" ] || seed_id="$seed_src-unknown"
         printf '%s\n' "$seed_id" > "$DEST/seed-id.txt"
         rm -rf "$work"
         echo "   seed source: $seed_src  seed-id: $seed_id"
-        echo "rid=$RID" >> "$GITHUB_OUTPUT"
-        echo "seed-id=$seed_id" >> "$GITHUB_OUTPUT"
         echo "seed-src=$seed_src" >> "$GITHUB_OUTPUT"
