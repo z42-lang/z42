@@ -20,7 +20,7 @@ public sealed partial class MemberResolver {
     }
 
     // 解析泛型方法调用 `Foo<A,B>(...)` 的类型实参，写入 BoundCall.MethodTypeArgs（解析后的具体 Z42Type[]，
-    // ExprEmitter 转 FQ 名编进 IR Call）；省略尖括号时从实参推断。ms 有本地 Decl 时校验 arity（E0445）与 where
+    // ExprEmitter 转 FQ 名编进 IR Call）；省略尖括号时从实参推断。ms 有本地 Decl 时校验 arity（E0446）与 where
     // 约束；ms=null（间接 / loose 绑定）→ 仅解析、不校验、不代换返回。
     // 幂等：已附加（MethodTypeArgCount>0）即不再改写。返回调用表达式的最终形态（bc 本身，或包了拆箱的 bc）。
     // `instRecv` = 受者那一层的代换来源（实例化类 / 接口，见 GenericCallRet.Finish），无则 null。

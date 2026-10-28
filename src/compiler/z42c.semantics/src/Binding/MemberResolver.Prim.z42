@@ -29,7 +29,7 @@ public sealed partial class MemberResolver {
             // `Substring$2` → 回落裸 `Substring` → `_findMethod` 命中 **primary（arity-1）** → emit 裸名 + argCount=2
             // → 运行期按裸名派发到 arity-1 方法却传 2 实参 → **错-arity 调用 → 段错误**。`_resolveOverload` 按
             // arity 过滤 + 返回正确 `rms.RegKey`（primary 裸 / 非-primary 全键），根治。唯一方法字节中性（RegKey=裸）。
-            MethodSymbol rms = this._tc._overload._resolveOverload(env.Symbols, wct, mem.Name, args, argCount, 0, sp, rawArgs, env);
+            MethodSymbol rms = this._tc._overload._resolveOverload(env.Symbols, wct, mem.Name, args, argCount, MethodTypeArgSubst.ExplicitTypeArgs(call, env), sp, rawArgs, env);
             if (rms != null) {
                 rms = MethodTypeArgSubst.ForExplicitTypeArgs(rms, call, env);   // 显式 `<T>` → 先代换签名再绑实参
                 this._tc._access.CheckAccess(rms.Visibility, rms.ContainingTypeName, env, env.Symbols, "method", mem.Name, sp);
@@ -71,7 +71,7 @@ public sealed partial class MemberResolver {
     // （`MemberResolver.z42` :104-119）。
     internal BoundExpr BindPrimNoApplicableOverload(Z42ClassType wct, MemberExpr mem, BoundExpr recv, Z42Type rt,
                                                    BoundExpr[] args, int argCount, Expr[] rawArgs, TypeEnv env, Span sp) {
-        if (this._tc._overload.LastAmbiguous) { return null; }   // 歧义由 _resolveOverload 自己报
+        if (this._tc._overload.LastReported) { return null; }   // 歧义由 _resolveOverload 自己报
         string msg = "no overload of `" + mem.Name + "` on `" + wct.Name() + "` accepts these arguments";
         if (!this._tc._overload._hasAnyOverload(env.Symbols, wct, mem.Name)) {
             if (wct.Methods.Count() == 0) { return null; }       // stub 包装类 → 按老路松绑定

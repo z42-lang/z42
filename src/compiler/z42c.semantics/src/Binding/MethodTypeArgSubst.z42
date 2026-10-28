@@ -33,15 +33,26 @@ public static class MethodTypeArgSubst {
     // 代价（已知并接受）：lambda 形参类型进闭包签名 ⇒ 发射字节会变，自举走两代收敛，无格式 bump。
     //
     // 只按**方法级**型参名代换（`ms.TypeParamNames`）；类级型参留给阶段 A 的 `_substGenericSig`。
-    // arity 不符时原样返回 —— 那是 E0445 的活，别在这里悄悄按错的对应关系代换。
+    // arity 不符时原样返回 —— 那是 E0446 的活，别在这里悄悄按错的对应关系代换。
     public static MethodSymbol ForExplicitTypeArgs(MethodSymbol ms, CallExpr call, TypeEnv env) {
-        if (ms == null || call == null || call.TypeArgCount == 0) { return ms; }
+        return MethodTypeArgSubst.Substitute(ms, MethodTypeArgSubst.ExplicitTypeArgs(call, env));
+    }
+    // 调用点显式写出的类型实参（解析后，声明序）；没写 `<>` ⇒ null。只解析、不报诊断
+    // （可访问性 / 存在性由 `_applyMethodTypeArgs` 的 `_chkTypeRef` 报，别在这里报第二遍）。
+    public static Z42Type[] ExplicitTypeArgs(CallExpr call, TypeEnv env) {
+        if (call == null || call.TypeArgCount == 0) { return null; }
+        Z42Type[] targs = new Z42Type[call.TypeArgCount];
+        int i = 0;
+        while (i < call.TypeArgCount) { targs[i] = env.ResolveType(call.TypeArgs[i]); i = i + 1; }
+        return targs;
+    }
+    // 按显式类型实参代换整条签名（形参位 + 返回位）。重载决议的显式实参预筛
+    // （`OverloadBinder._resolveOverloadCands`）也走这里——判适用性用的签名与随后绑实参用的是同一份。
+    public static MethodSymbol Substitute(MethodSymbol ms, Z42Type[] targs) {
+        if (ms == null || targs == null) { return ms; }
         if (ms.Signature == null || ms.TypeParamNames == null) { return ms; }
         int n = ms.TypeParamNames.Length;
-        if (n == 0 || n != call.TypeArgCount) { return ms; }
-        Z42Type[] targs = new Z42Type[n];
-        int i = 0;
-        while (i < n) { targs[i] = env.ResolveType(call.TypeArgs[i]); i = i + 1; }
+        if (n == 0 || n != targs.Length) { return ms; }
         Z42FuncType sig = ms.Signature;
         Z42Type[] np = new Z42Type[sig.ParamCount];
         int p = 0;

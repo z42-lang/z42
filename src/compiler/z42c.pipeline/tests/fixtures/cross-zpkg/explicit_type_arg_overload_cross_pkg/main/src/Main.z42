@@ -1,0 +1,24 @@
+namespace Demo.EtaApp;
+
+using Std.IO;
+using Demo.EtaTarget;
+
+class MyCommand : Command {
+    public TypedOption<string> Os;
+    public TypedOption<int> Jobs;
+    public MyCommand() {
+        this.Os = this.AddOption<string>("os", "", help: "target os");   // 命名实参 → 映射决议
+        this.Jobs = this.AddOption<int>("jobs", 4);                      // 省略默认值
+        this.AddOption(new Option("plain"));                             // 不写 <> 仍是非泛型那个
+    }
+}
+
+void Main() {
+    MyCommand c = new MyCommand();
+    Console.WriteLine(c.Log);
+    Console.WriteLine(c.Os.Inner.Name);
+    Console.WriteLine(Command.Kind(1));
+    Console.WriteLine(Command.Kind<int>(1, tag: "!"));
+    Console.WriteLine(Pick(1));
+    Console.WriteLine(Pick<int>(1));
+}

@@ -3,13 +3,77 @@
 //
 // 归在一起的理由是它们共享同一条**基链遍历 + Object 隐式根**的规则：`_findMethod` 按名直查、
 // `_collectOverloads` 按**有效签名**去重地全收（派生隐藏基类同签名），另两个是它上面的谓词。
-// 决议本身（适用性 / 最具体 / 歧义 / params 展开）仍在 `OverloadBinder.z42`。
+// 决议本身（适用性 / 最具体 / 歧义 / params 展开）仍在 `OverloadBinder.z42`；显式类型实参的预筛
+// （`_resolveOverloadCands`）也在这里——它决定的是「哪些重载算候选」。
 namespace Z42.Semantics;
 using Z42.IR;
+using Z42.Core;
+using Z42.Syntax;
 using Z42.Symbols;
 
 
 public sealed partial class OverloadBinder {
+    // fix-explicit-type-arg-overload：显式类型实参 `M<A1..An>(...)` 的候选预筛（C# 成员查找规则）。
+    //
+    // 只留**恰好声明 n 个方法级型参**的重载（非泛型重载、型参个数不符的泛型重载一律出局），留下的按显式
+    // 实参**代换签名**（`T` → `int`）后进普通决议——适用性 / 择优 / 歧义判据与不写 `<>` 的调用同一套，
+    // **不做推断**，所以不会给 `F(int)` + `F<T>(T)` 带来新的歧义。缺这一步时，适用性拿裸 `T` 形参去比实参
+    // （`_assignable(int, T)` 恒假）⇒ 泛型候选被静默淘汰：同名非泛型重载要么抢走调用（`F<int>(1)` 选中
+    // `F(int)`），要么候选清空报 E0401（`this.Add<int>("a", 1, help: "x")` 旁边有 `Add(O)`）。
+    //
+    // 决议在代换后的副本上做、**返回原符号**：调用方随后照常 `ForExplicitTypeArgs`，发射键 / 基类判定认原符号。
+    // 预筛后为空 = 名字在、但没有一个重载收 n 个类型实参 ⇒ 就地报 E0446、置 LastReported（调用方不再补 E0401）。
+    internal MethodSymbol _resolveOverloadCands(SymbolTable symbols, MethodSymbol[] all, string name,
+                                          BoundExpr[] args, int argCount, Z42Type[] typeArgs, Span sp,
+                                          Expr[] rawArgs, TypeEnv env) {
+        if (typeArgs == null || typeArgs.Length == 0 || all.Length == 0) {
+            return this._resolveOverloadCore(symbols, all, name, args, argCount, sp, rawArgs, env);
+        }
+        int n = typeArgs.Length;
+        MethodSymbol[] orig = new MethodSymbol[all.Length];
+        MethodSymbol[] subst = new MethodSymbol[all.Length];
+        int k = 0;
+        int i = 0;
+        while (i < all.Length) {
+            if (all[i].TypeParamCount == n) {
+                orig[k] = all[i];
+                subst[k] = MethodTypeArgSubst.Substitute(all[i], typeArgs);
+                k = k + 1;
+            }
+            i = i + 1;
+        }
+        if (k == 0) {
+            this._tc._diags.Error(DiagnosticCodes.GenericMethodArity, OverloadBinder._typeArgArityMsg(all, name, n), sp);
+            this.LastReported = true;
+            return null;
+        }
+        MethodSymbol[] pool = new MethodSymbol[k];
+        int c = 0;
+        while (c < k) { pool[c] = subst[c]; c = c + 1; }
+        MethodSymbol pick = this._resolveOverloadCore(symbols, pool, name, args, argCount, sp, rawArgs, env);
+        int j = 0;
+        while (j < k) {
+            if (pool[j] == pick) { return orig[j]; }
+            j = j + 1;
+        }
+        return pick;
+    }
+
+    // E0446 的措辞按候选形态分三种：全是非泛型 / 唯一一个泛型重载 / 多个都对不上。
+    private static string _typeArgArityMsg(MethodSymbol[] all, string name, int n) {
+        bool anyGeneric = false;
+        int i = 0;
+        while (i < all.Length) { if (all[i].TypeParamCount > 0) { anyGeneric = true; } i = i + 1; }
+        if (!anyGeneric) {
+            return "method `" + name + "` is not generic and cannot be called with type arguments";
+        }
+        if (all.Length == 1) {
+            return "generic method `" + name + "` expects " + all[0].TypeParamCount.ToString()
+                + " type argument(s) but got " + n.ToString();
+        }
+        return "no overload of `" + name + "` takes " + n.ToString() + " type argument(s)";
+    }
+
     internal string _overloadKey(SymbolTable symbols, Z42ClassType ct, string name, int argCount) {
         string ak = name + "$" + argCount.ToString();
         if (this._findMethod(symbols, ct, ak) != null) { return ak; }

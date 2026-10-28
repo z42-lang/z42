@@ -96,9 +96,40 @@ class Eval : IVisitor<int> { public int VisitLit(Lit n) { return n.V; } }
 int total = node.Accept(new Eval()) + 1;   // Accept(...) 的类型是 int
 ```
 
+## 显式类型实参与重载
+
+同名方法既有非泛型重载、又有泛型重载时，写出 `<…>` 的调用只在**恰好声明这么多个类型形参**的重载里选：
+非泛型重载、类型形参个数不同的泛型重载都不参与。留下的重载把类型形参换成写出的类型实参，再按普通的重载规则
+（实参个数、默认值、命名实参、类型匹配、择优）选一个。实例方法、静态方法、自由函数、继承来的方法、
+另一个包里声明的方法都一样：
+
+```z42
+class Command {
+    public void AddOption(Option option) { … }
+    public CliOption<T> AddOption<T>(string name, T defaultValue, string help = "") { … }
+}
+class Build : Command {
+    public Build() {
+        this.AddOption<string>("os", "", help: "target os");   // AddOption<T>，T = string
+        this.AddOption(new Option("verbose"));                 // 不写 <…>：AddOption(Option)
+    }
+}
+
+string F(int x)  { return "plain"; }
+string F<T>(T x) { return "generic"; }
+F<int>(1);   // "generic"：写了 <int>，F(int) 不是候选
+F(1);        // "plain"
+```
+
+没有任何重载声明这么多个类型形参时报 `E0446`。
+
+⚠️ 反过来，同名有多个重载时，**不写 `<…>` 的调用目前选不中泛型重载**（`F("s")` 报 `E0401`，类型实参推断
+只在同名只有一个候选时进行）——要调用泛型重载就写出类型实参：`F<string>("s")`。
+
 ## 校验
 
-- **arity**：类型实参数必须等于方法声明的类型形参数，否则 `E0446`。
+- **arity**：类型实参数必须等于方法声明的类型形参数，否则 `E0446`（有多个同名重载时，是「没有一个重载
+  声明这么多个类型形参」）。
 - **where 约束**：方法的 `where` 子句在调用点校验（复用 `ConstraintChecker`，与类级同规则）。
 
 ## 实现原理与流程

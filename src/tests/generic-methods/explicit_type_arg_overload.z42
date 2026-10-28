@@ -1,0 +1,76 @@
+// Test: explicit type arguments select among overloads by generic arity (C# rule).
+// `M<int>(...)` only considers overloads declaring exactly one type parameter —
+// non-generic overloads of the same name are excluded — and the surviving
+// candidates are checked against their signature with the type arguments
+// substituted (`T` → `int`). No inference is involved.
+//
+// Regression: with a non-generic `Add(O)` next to `Add<T>(string, T, string help = "")`,
+// `this.Add<int>("a", 1, help: "x")` reported E0401 "no method `Add`", and
+// `o.F<int>(1)` silently picked the non-generic `F(int)`.
+
+class O {
+    public string N;
+    public O(string n) { this.N = n; }
+}
+
+class Base {
+    public string Log = "";
+    public void Add(O o) { this.Log = this.Log + "plain:" + o.N + ";"; }
+    public string Add<T>(string n, T d, string help = "") {
+        this.Add(new O(n + "/" + typeof(T).Name + "/" + help));
+        return typeof(T).Name;
+    }
+}
+
+// Inherited: generic overload declared on the base, non-generic overload next to it.
+class Derived : Base {
+    public string Got = "";
+    public Derived() {
+        this.Got = this.Add<int>("a", 1, help: "h");          // named arg (mapped resolution path)
+        this.Got = this.Got + "," + this.Add<string>("b", "s");   // default omitted
+        this.Got = this.Got + "," + Add<bool>("c", true, "x");    // bare call inside the class body
+    }
+}
+
+// Same class: same parameter count, `F(int)` vs `F<T>(T)`.
+class Same {
+    public string F(int x) { return "plain"; }
+    public string F<T>(T x) { return "gen:" + typeof(T).Name; }
+    // Same parameter count again, different generic arity: `K<int>` vs `K<int, int>`.
+    public string K<T>(T x, int y) { return "k1:" + typeof(T).Name; }
+    public string K<T, U>(T x, U y) { return "k2:" + typeof(T).Name + "+" + typeof(U).Name; }
+}
+
+// Static methods.
+class S {
+    public static string G(int x) { return "plain"; }
+    public static string G<T>(T x, string tag = "") { return "gen:" + typeof(T).Name + tag; }
+}
+
+// Free functions.
+string H(int x) { return "plain"; }
+string H<T>(T x, string tag = "") { return "gen:" + typeof(T).Name + tag; }
+
+void Main() {
+    Derived d = new Derived();
+    Assert.Equal(typeof(int).Name + "," + typeof(string).Name + "," + typeof(bool).Name, d.Got);
+    Assert.Equal("plain:a/" + typeof(int).Name + "/h;plain:b/" + typeof(string).Name + "/;plain:c/"
+        + typeof(bool).Name + "/x;", d.Log);
+    d.Add(new O("z"));   // the non-generic overload is still reachable without type args
+    Assert.Equal(true, d.Log.EndsWith("plain:z;"));
+
+    Same s = new Same();
+    Assert.Equal("plain", s.F(1));
+    Assert.Equal("gen:" + typeof(int).Name, s.F<int>(1));
+    Assert.Equal("gen:" + typeof(string).Name, s.F<string>("x"));
+    Assert.Equal("k1:" + typeof(int).Name, s.K<int>(1, 2));
+    Assert.Equal("k2:" + typeof(int).Name + "+" + typeof(int).Name, s.K<int, int>(1, 2));
+
+    Assert.Equal("plain", S.G(1));
+    Assert.Equal("gen:" + typeof(int).Name, S.G<int>(1));
+    Assert.Equal("gen:" + typeof(int).Name + "!", S.G<int>(1, tag: "!"));
+
+    Assert.Equal("plain", H(1));
+    Assert.Equal("gen:" + typeof(int).Name, H<int>(1));
+    Assert.Equal("gen:" + typeof(long).Name + "?", H<long>(1, tag: "?"));
+}

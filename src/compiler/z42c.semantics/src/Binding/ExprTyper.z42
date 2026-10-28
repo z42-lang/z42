@@ -649,7 +649,7 @@ public sealed partial class ExprTyper : IExprVisitor<BoundExpr, TypeEnv> {
             Z42ClassType lct = lt as Z42ClassType;
             BoundExpr[] opArgs = new BoundExpr[2];
             opArgs[0] = left; opArgs[1] = right;
-            MethodSymbol opMs = this._tc._overload._resolveOverload(env.Symbols, lct, opMethod, opArgs, 2, 0, sp, null, env);   // 运算符重载无显式类型实参 → typeArgCount=0
+            MethodSymbol opMs = this._tc._overload._resolveOverload(env.Symbols, lct, opMethod, opArgs, 2, null, sp, null, env);   // 运算符重载无显式类型实参
             if (opMs != null) {
                 // unify-blob-return-abi：目标名必须走 `CallKey()` 而不是裸 `RegKey` —— 被桥接的
                 // 运算符（返回 blob struct 的 `static override op_X`）其裸名槽已让给**无 sret 的桥接**，

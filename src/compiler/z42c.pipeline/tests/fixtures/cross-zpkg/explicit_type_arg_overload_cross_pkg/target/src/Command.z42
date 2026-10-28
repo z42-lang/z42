@@ -1,0 +1,31 @@
+namespace Demo.EtaTarget;
+
+// 同名的非泛型重载与泛型重载并存（形状取自 Std.Cli.Command 的 AddOption）——消费方在**另一个包**里
+// 用显式类型实参调用，候选来自 TSIG 重建的符号（TypeParamCount / TypeParamNames 由导入侧回填）。
+public class Option {
+    public string Name;
+    public Option(string name) { this.Name = name; }
+}
+
+public sealed class TypedOption<T> {
+    public Option Inner;
+    public TypedOption(Option inner) { this.Inner = inner; }
+}
+
+public class Command {
+    public string Log = "";
+
+    public void AddOption(Option option) { this.Log = this.Log + "[" + option.Name + "]"; }
+
+    public TypedOption<T> AddOption<T>(string name, T defaultValue, string help = "") {
+        Option o = new Option(name + ":" + typeof(T).Name + ":" + help);
+        this.AddOption(o);
+        return new TypedOption<T>(o);
+    }
+
+    public static string Kind(int x) { return "plain"; }
+    public static string Kind<T>(T x, string tag = "") { return "gen:" + typeof(T).Name + tag; }
+}
+
+public string Pick(int x) { return "plain"; }
+public string Pick<T>(T x, string tag = "") { return "gen:" + typeof(T).Name + tag; }

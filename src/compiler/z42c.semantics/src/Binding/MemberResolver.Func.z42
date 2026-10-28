@@ -52,7 +52,7 @@ public sealed partial class MemberResolver {
     // 返回 null = 不是委托成员，交回原诊断路径。
     internal BoundExpr TryBindDelegateMemberCall(MemberExpr mem, Z42ClassType ct, bool wantStatic, BoundExpr[] args,
                                                  int argCount, Expr[] rawArgs, TypeEnv env, Span sp) {
-        if (this._tc._overload.LastAmbiguous) { return null; }
+        if (this._tc._overload.LastReported) { return null; }
         if (!this._hasValueMember(env.Symbols, ct, mem.Name, wantStatic)) { return null; }
         // 读成员走普通的成员读取绑定：字段 / 属性 getter / 静态成员、访问检查、泛型代换都在那里。
         BoundExpr callee = this._tc._expr._bindExpr(mem, env);
