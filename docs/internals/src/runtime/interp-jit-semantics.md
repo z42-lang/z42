@@ -153,7 +153,7 @@ JIT helpers/* (extern C) ┘                       └ Err(OpError) → 引擎�
 （`array::packed_data`），**都从不抛**：拿不到快路就回落到慢路 helper，异常在真实访问点由 objops 给出。逐访问取
 打包数组数据也用同一个不抛的 helper。FieldIC 的解析与安装在 objops 里（`field::resolve`），两引擎共用同一个站点 IC。
 
-> **改存储表示只改 objops**。对象模型改造（`docs/runtime-audit.md` §7「对象模型（M10 + M11）已定方案」，
+> **改存储表示只改 objops**。对象模型改造（
 > R1–R9：原子单元格、8 B 自描述引用、数组模式、去掉每对象 Mutex……）以本层为前提：引擎里不得再出现
 > `borrow()` 字段槽、`get_boxed` / `set_boxed`、`field_value` 之类的直接存储访问；新增对象 / 数组操作时先在
 > objops 写实现，再给两个引擎各加一个适配。

@@ -1021,7 +1021,7 @@ match callee_value {
 - **JIT 的 `LoadFn`**：编译时站点 token 已绑定（绝大多数情况，resolver 预填）就直接内联一次寄存器写
   （tag 9 + id），不调 helper；`MkClos` 把已绑定的 id 烘焙成 helper 参数。未绑定的站点由 helper 首执绑定。
 - **错误时机**：目标名解析不到，`LoadFn` / `MkClos` 当场抛 `Std.MissingSymbolException`（`undefined function `…``），
-  而不是等第一次调用；目标所在的包在创建时加载（runtime-audit §7 P1-2 的已定方案）。
+  而不是等第一次调用；目标所在的包在创建时加载。
 - **身份与反射**：`FuncRef` 相等 = id 相等；闭包相等 = `fn_id` 相等且 env 是同一数组。`__delegate_fn_name`、显示
   （`<fn 名字>` / `<closure 名字>`，`interp::dispatch::tostring_result`）从 id 指向的 `Function` 取名字；没有 ctx 的
   `value_to_str` 只能打印 `<fn #id>`。`__make_closure` 把传入的名字走同一条 `fn_ref_id` 绑定。
