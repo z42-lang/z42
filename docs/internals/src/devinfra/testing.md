@@ -50,6 +50,7 @@ gate 里还串着若干**静态检查** stage（纯文本扫描 / 生成物比�
 | `xtask check proc-env` | `Z42_LIBS` / `Z42_PROBING_PATHS` 只经 `_z42Proc` / `_z42bProc` / `_z42cProc` 设置 |
 | `xtask check layout` | 测试布局规范里能机械判定的部分（[test-layout](test-layout.md) 的「实现」节） |
 | `xtask check versions` | `scripts/versions.toml` 与它的投影文件（Cargo workspace 版本、Android / iOS 平台下限）文本一致 |
+| `xtask check layers [--update]` | 运行时源码的跨组件引用与 pal 外的平台 cfg / `libc::` 不超 `gates.toml [layers.*]` 的欠账基线（只降不升，见[测试门禁](test-gate.md)） |
 | `xtask check docs-api` | **文档门禁**：已迁移 stdlib 包的 reference 生成页（含 SUMMARY 的 type-split 区段）与源码 `///` 一致，不一致提示 `xtask doc gen` |
 | `xtask check doc-lints [--update]` | **文档门禁**：stdlib doc 注释的 W08xx 语法级计数不超 `scripts/test/doc-lint-baseline.txt`（只降不升） |
 | `xtask check doc-refs [--update]` | **文档门禁**：internals / reference 手写页与 README 的代码引用可解析、不写行号（行号基线已为 0，即硬指标；未解析多段链按 `scripts/test/doc-refs-baseline.txt` 只降不升） |

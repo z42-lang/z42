@@ -31,7 +31,8 @@ graph LR
     S10 --> S11[proc-env<br/>子进程 env 单一入口]
     S11 --> S12[layout<br/>测试布局规范]
     S12 --> S13[versions<br/>versions.toml ↔ 投影文件]
-    S13 --> G((GREEN))
+    S13 --> S14[layers<br/>运行时分层欠账只减不增]
+    S14 --> G((GREEN))
 ```
 
 **机器可读清单**（`_checkGateStageDoc` 解析此区；条目文本 = `_stageStart` 打的 banner 名，
@@ -58,6 +59,7 @@ graph LR
 - `proc-env`
 - `layout`
 - `versions`
+- `layers`
 <!-- gate-stages:end -->
 
 先备工具链与基线（build wave），再依序跑其余验证 stage；任一步失败立即终止。
@@ -114,6 +116,7 @@ fixture、debug VM 跑 `main.zpkg`——跨包 dispatch 的 debug 断言覆盖�
 | `proc-env` | xtask 子进程的 `Z42_LIBS` / `Z42_PROBING_PATHS` **只经** `_z42Proc` / `_z42bProc` / `_z42cProc` 设置，调用点不得直接 `.Env(...)`，见下 | 纯文本扫描 < 1 s |
 | `layout` | [测试用例组织规范](test-layout.md)里能机械判定的部分：`src/tests` 类别登记、能力词表 ↔ 运行期、能力声明只用已生效的名字 | 纯文本扫描，秒级 |
 | `versions` | `scripts/versions.toml` 与它的投影文件一致：`src/runtime/Cargo.toml` 的 workspace 版本、Android `build.gradle.kts` 的 minSdk / compileSdk、iOS harness `Package.swift` 的平台下限。只比文本、不看本机装了什么（那是 `xtask setup check`） | 纯文本扫描 < 1 s |
+| `layers` | 运行时源码按目标分层归到组件后，跨组件引用只朝允许的方向、平台 `cfg` 与 `libc::` 只在 pal；现存违规是欠账，记在 `gates.toml [layers.*]`，只减不增，见下 | 纯文本扫描，约 1.5 s |
 
 **`stdlib [Benchmark]` 为什么必须在 gate 里**：bench 语料若只靠 `bench-pr.yml` 看门，
 而那个 job **不在分支保护的 required 列表里**。实例：一次把 `Failure.z42` 搬出 `z42.harness` 的改动让
@@ -145,6 +148,23 @@ xtask 起的每个跑 z42 代码的子进程都经 `_z42Proc(exe, libs)` 建（z
 的新 smoke，就是这么红的。本树 driver / z42b 的编译器目录不用设：`Z42_LIBS` 在开发树里，`CompilerDomain` 先取开发树档
 （见[项目模型](../compiler/project-model.md)）。`.EnvRemove(...)`（dist 测试刻意模拟用户机器）不判；夹具 `expect.toml`
 里的 `env` / `env_remove` 是夹具自己的输入，也不在扫描面内。
+
+**`layers`（`scripts/test/xtask_test_layers.z42`）守的是「运行时只朝目标分层收敛」**：
+`src/runtime/src` 的每个源文件（测试文件除外）按 `xtask_layers_rules.z42` 的映射表（路径前缀 → 组件，最长前缀胜出）
+归到目标组件：地基 pal / metadata / object / gc，VM 子系统 vm.diagnostics / vm.threads / vm.runtime / vm.loader /
+vm.exec / vm.core，引擎 interp / jit，能力与工具 corelib / interop / profiler / debugger，门面 facade 与产品 host。
+同一文件里的允许依赖矩阵规定谁能引用谁：自下而上单向，引擎之间、能力 / 工具之间、能力 / 工具与引擎之间互不引用。
+判据：`crate::` / `$crate::` / `z42::` 开头的路径（含多行 `use crate::{…}` 组），经 `pub use` 再导出解析到真正定义
+它的文件再取组件，同一行引用同一组件只计一次；`self::` / `super::` 不判；注释、字符串、`#[cfg(test)]` 条目不算。
+平台 cfg = `cfg` / `cfg!` / `cfg_attr` 的谓词里出现 `target_os` / `target_family` / `target_vendor` / `target_env` /
+`unix` / `windows` 或 `target_arch = "wasm32"`（JIT 的其他 `target_arch` 与 feature 不算）；`libc::` 按行计。
+
+基线是三张计数表：`[layers.edges]` 按「from -> to」记违规引用数，`[layers.cfg]` / `[layers.libc]` 按组件记 pal 外的
+平台 cfg 与 `libc::`——这就是运行时目录迁移的欠账清单。任何一项变多、或出现基线里没有的违规边 → 红：新边逐条列
+`file:line`，已有欠账变多的项按文件汇总条数（分不出哪条是新的，对照 `git diff` 定位）；新违规要改代码消掉，不靠
+`--update` 收进基线。某项变少 → 提示「可收紧」，跑 `xtask check layers --update` 写回。文件落在映射表没登记的位置
+直接红：先回答它属于哪一层。每次运行先跑 `_lySelfTest`（映射、矩阵、词法、use 组、cfg、再导出、基线比较的构造
+用例），自测不过不信扫描结果。迁移挪动文件时改映射表对应的一行。
 
 **`lines` / `fnlines`（行数棘轮）已退役**：机制下沉为编译器内建 lint——``style.fileLines`` / ``style.fileLinesHard``
 （886/500 两档）与 ``style.fnLines`` / ``style.fnLinesHard``（60/40 两档）四条规则，各包清单 `[lints]` 启用并升 error
@@ -288,7 +308,7 @@ xtask 起的每个跑 z42 代码的子进程都经 `_z42Proc(exe, libs)` 建（z
 除 build wave 与 `e2e goldens` 外，其余 stage 都可经 `--skip <csv>` 下放到独立 CI job
 （`_skipHas`）。skip 名是短名，**不等于 banner 全名**：`rust-units` / `cross-zpkg` / `multi-exe` / `stdlib` /
 `toolchain` / `bench` / `targets` / `examples` / `docs` / `compiler` / `gcgen` / `vscode` / `walkers` / `diagcodes` /
-`stage2` / `ci-shell` / `proc-env` / `layout` / `versions`。
+`stage2` / `ci-shell` / `proc-env` / `layout` / `versions` / `layers`。
 
 skip 只影响**在哪跑**，不改变 gate 的 stage 组成，所以 §1 的清单不随 `--skip` 变化，
 `_checkGateStageDoc` 也照常对全量清单对账。

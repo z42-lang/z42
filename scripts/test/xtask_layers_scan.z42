@@ -1,0 +1,228 @@
+// 运行时分层门：语法层——从记号流里取出跨模块引用、再导出、平台 cfg 与 `libc::`（纯函数，`_lySelfTest` 覆盖）。
+//
+// 两遍：第一遍逐文件记下 `use` 叶子、行内 `crate::` 路径、`pub use` 再导出与条目定义；第二遍才解析
+// 引用落在哪个文件——`crate::metadata::LazyLoader` 经 `metadata/mod.rs` 的 `pub use` 落到
+// lazy_loader.rs，`crate::gc::ObjRef` 落到 gc/obj_ref.rs，而不是记在 hub 头上。
+//
+// 判据与刻意不判的：
+//   · 引用 = `crate::` / `$crate::` / `z42::`（z42vm 二进制里指库 crate）开头的路径，含多行
+//     `use crate::{a, b::{c, d}}` 组。`self::` / `super::` 是本模块内的相对引用，不判。
+//   · `#[cfg(test)]` 标注的条目（行内 `mod tests { … }`、`mod x_tests;`）整段不算：测试不构成生产依赖。
+//   · 平台 cfg = `cfg(…)` / `cfg!(…)` / `cfg_attr(…)` 的谓词里出现 target_os / target_family /
+//     target_vendor / target_env / unix / windows，或 `target_arch = "wasm32"`；其余 target_arch
+//    （JIT 的 aarch64 / x86_64 代码生成）与 feature 不算。
+namespace Z42Xtask;
+
+using Std.Collections;
+
+class LyRef {
+    public int Line;
+    public List<string> Segs;   // 去掉 crate 根之后的段
+    public LyRef(int line, List<string> segs) { this.Line = line; this.Segs = segs; }
+}
+
+class LyFile {
+    public string Rel;
+    public string Mod;
+    public string Comp;
+    public List<LyRef> Refs;
+    public List<int> Cfg;
+    public List<int> Libc;
+    public LyFile(string rel, string mod, string comp) {
+        this.Rel = rel; this.Mod = mod; this.Comp = comp;
+        this.Refs = new List<LyRef>(); this.Cfg = new List<int>(); this.Libc = new List<int>();
+    }
+}
+
+// 一个 crate 的模块图：模块路径（`gc/obj_ref`，根 = ""）→ 文件，以及每个模块的再导出与定义。
+class LyCrate {
+    public Dictionary<string, string> ModFile;
+    public Dictionary<string, string> Exports;   // "模块#名字" → 目标路径（`metadata/types/Value`）
+    public Dictionary<string, string> Globs;     // 模块 → "目标模块|目标模块"
+    public Dictionary<string, bool> Defs;        // "模块#名字"
+    public List<LyFile> Files;
+    public List<string> Texts;
+    public LyCrate() {
+        this.ModFile = new Dictionary<string, string>(); this.Exports = new Dictionary<string, string>();
+        this.Globs = new Dictionary<string, string>(); this.Defs = new Dictionary<string, bool>();
+        this.Files = new List<LyFile>(); this.Texts = new List<string>();
+    }
+    public void AddFile(string rel, string text) {
+        string mod = _lyModOf(rel);
+        if (rel != "main.rs") { this.ModFile[mod] = rel; }
+        this.Files.Add(new LyFile(rel, mod, _lyComponentOf(rel)));
+        this.Texts.Add(text);
+    }
+}
+
+// `gc/obj_ref.rs` → `gc/obj_ref`；`gc/mod.rs` → `gc`；`lib.rs` / `main.rs` → ""。
+string _lyModOf(string rel) {
+    string m = rel.EndsWith(".rs") ? rel.Substring(0, rel.Length - 3) : rel;
+    if (m == "lib" || m == "main" || m == "mod") { return ""; }
+    if (m.EndsWith("/mod")) { m = m.Substring(0, m.Length - 4); }
+    return m;
+}
+
+string _lyJoin(string mod, string seg) { return mod.Length == 0 ? seg : mod + "/" + seg; }
+
+// 第一遍：一个文件的记号流 → 引用 / 平台计数 / 再导出 / 定义。
+void _lyCollect(LyCrate c, LyFile f, string text) {
+    LyToks t = _lyLex(text);
+    bool[] mask = _lyTestMask(t);
+    int i = 0;
+    while (i < t.Count()) {
+        if (mask[i] || t.Kind[i] != 0) { i = i + 1; continue; }
+        string w = t.Text[i];
+        if (w == "use") { i = _lyCollectUse(c, f, t, i); continue; }
+        if ((w == "cfg" || w == "cfg_attr") && !t.Is(i - 1, "::")) {
+            int e = _lyCfgEnd(t, i);
+            if (e > i && _lyCfgIsPlatform(t, i, e)) { f.Cfg.Add(t.Line[i]); }
+            i = e > i ? e : i + 1;
+            continue;
+        }
+        if (w == "libc" && t.Is(i + 1, "::") && !t.Is(i - 1, "::")) { _lyAddLine(f.Libc, t.Line[i]); }
+        if (_lyIsRoot(w) && t.Is(i + 1, "::") && !t.Is(i - 1, "::")) { i = _lyCollectPath(f, t, i); continue; }
+        if (_lyIsItemKw(w)) { _lyCollectDef(c, f, t, i); }
+        i = i + 1;
+    }
+}
+
+// 同一行只记一次（`libc::` 计的是行数，与 grep 对账）。
+void _lyAddLine(List<int> lines, int line) {
+    if (lines.Count == 0 || lines[lines.Count - 1] != line) { lines.Add(line); }
+}
+
+bool _lyIsRoot(string w) { return w == "crate" || w == "$crate" || w == "z42"; }
+
+bool _lyIsItemKw(string w) {
+    return w == "struct" || w == "enum" || w == "fn" || w == "trait" || w == "type" || w == "union"
+        || w == "mod" || w == "static" || w == "const" || w == "macro_rules";
+}
+
+void _lyCollectDef(LyCrate c, LyFile f, LyToks t, int i) {
+    int j = i + 1;
+    if (t.Is(j, "!") || t.Is(j, "mut")) { j = j + 1; }
+    if (t.IsIdent(j)) { c.Defs[f.Mod + "#" + t.Text[j]] = true; }
+}
+
+// 行内路径 `crate::a::b::C` → 一条引用；返回路径之后的位置。
+int _lyCollectPath(LyFile f, LyToks t, int i) {
+    List<string> segs = new List<string>();
+    int j = i + 1;
+    while (t.Is(j, "::") && t.IsIdent(j + 1)) { segs.Add(t.Text[j + 1]); j = j + 2; }
+    if (segs.Count > 0) { f.Refs.Add(new LyRef(t.Line[i], segs)); }
+    return j;
+}
+
+// `use …;`：叶子里 crate 根开头的记为引用；带 pub 的另记再导出。返回 `;` 之后的位置。
+int _lyCollectUse(LyCrate c, LyFile f, LyToks t, int i) {
+    bool pub = t.Is(i - 1, "pub") || (t.Is(i - 1, ")") && _lyPubParen(t, i - 1));
+    List<string> segs = new List<string>();
+    List<string> leaves = new List<string>();
+    List<int> lines = new List<int>();
+    int j = _lyUseTree(t, i + 1, segs, leaves, lines);
+    while (j < t.Count() && !t.Is(j, ";")) { j = j + 1; }
+    int k = 0;
+    while (k < leaves.Count) {
+        string[] parts = leaves[k].Split(" ");   // "段/段/段 别名"
+        List<string> path = _lySplitSegs(parts[0]);
+        if (path.Count > 1 && _lyIsRoot(path[0])) { f.Refs.Add(new LyRef(lines[k], _lyTail(path))); }
+        if (path.Count > 0 && path[0] == "libc") { _lyAddLine(f.Libc, lines[k]); }
+        if (pub) { _lyAddExport(c, f.Mod, path, parts[1]); }
+        k = k + 1;
+    }
+    return j + 1;
+}
+
+// `pub(crate) use` / `pub(super) use` / `pub(in …) use`：`)` 往回配到 `(`，前面是 pub。
+bool _lyPubParen(LyToks t, int close) {
+    int k = close - 1;
+    while (k >= 0 && !t.Is(k, "(") && close - k < 8) { k = k - 1; }
+    return t.Is(k - 1, "pub");
+}
+
+List<string> _lySplitSegs(string s) {
+    List<string> r = new List<string>();
+    foreach (var p in s.Split("/")) { if (p.Length > 0) { r.Add(p); } }
+    return r;
+}
+
+List<string> _lyTail(List<string> segs) {
+    List<string> r = new List<string>();
+    int k = 1;
+    while (k < segs.Count) { r.Add(segs[k]); k = k + 1; }
+    return r;
+}
+
+string _lyJoinSegs(List<string> segs, string sep) {
+    string s = "";
+    foreach (var p in segs.ToArray()) { s = s.Length == 0 ? p : s + sep + p; }
+    return s;
+}
+
+// use 树展开：每个叶子记成 "段/段/段 别名"（glob 的别名是 `*`）与它所在行。返回树之后的位置。
+int _lyUseTree(LyToks t, int i, List<string> prefix, List<string> leaves, List<int> lines) {
+    List<string> segs = new List<string>();
+    foreach (var p in prefix.ToArray()) { segs.Add(p); }
+    if (t.Is(i, "::")) { i = i + 1; }
+    while (i < t.Count()) {
+        if (t.Is(i, "{")) {
+            i = i + 1;
+            while (i < t.Count() && !t.Is(i, "}")) {
+                i = _lyUseTree(t, i, segs, leaves, lines);
+                if (t.Is(i, ",")) { i = i + 1; } else if (!t.Is(i, "}")) { return i; }
+            }
+            return i + 1;
+        }
+        if (t.Is(i, "*")) { leaves.Add(_lyJoinSegs(segs, "/") + " *"); lines.Add(t.Line[i]); return i + 1; }
+        if (!t.IsIdent(i)) { return i; }
+        string name = t.Text[i];
+        int line = t.Line[i];
+        i = i + 1;
+        if (t.Is(i, "::")) { segs.Add(name); i = i + 1; continue; }
+        string alias = name;
+        if (t.Is(i, "as") && t.IsIdent(i + 1)) { alias = t.Text[i + 1]; i = i + 2; }
+        if (name != "self") { segs.Add(name); }
+        else if (alias == "self" && segs.Count > 0) { alias = segs[segs.Count - 1]; }
+        leaves.Add(_lyJoinSegs(segs, "/") + " " + alias);
+        lines.Add(line);
+        return i;
+    }
+    return i;
+}
+
+// 再导出登记：路径换成绝对模块路径（crate / self / super / 子模块开头）；外部 crate 的不记。
+void _lyAddExport(LyCrate c, string mod, List<string> path, string alias) {
+    string abs = _lyAbsUse(c, mod, path);
+    if (abs == null) { return; }
+    if (alias == "*") {
+        string g = "";
+        if (c.Globs.ContainsKey(mod)) { g = c.Globs[mod] + "|"; }
+        c.Globs[mod] = g + abs;
+        return;
+    }
+    c.Exports[mod + "#" + alias] = abs;
+}
+
+string _lyAbsUse(LyCrate c, string mod, List<string> path) {
+    if (path.Count == 0) { return null; }
+    string head = path[0];
+    string base_ = mod;
+    int k = 1;
+    if (_lyIsRoot(head)) { base_ = ""; }
+    else if (head == "self") { base_ = mod; }
+    else if (head == "super") {
+        base_ = _lyParent(mod);
+        while (k < path.Count && path[k] == "super") { base_ = _lyParent(base_); k = k + 1; }
+    }
+    else if (c.ModFile.ContainsKey(_lyJoin(mod, head))) { k = 0; }
+    else { return null; }
+    string abs = base_;
+    while (k < path.Count) { abs = _lyJoin(abs, path[k]); k = k + 1; }
+    return abs;
+}
+
+string _lyParent(string mod) {
+    int s = mod.LastIndexOf("/");
+    return s < 0 ? "" : mod.Substring(0, s);
+}

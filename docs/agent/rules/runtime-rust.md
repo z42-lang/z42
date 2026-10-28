@@ -2,6 +2,12 @@
 
 > 写 `src/runtime` 及 native 扩展时的约定。VM 的机制在书里，入口见[开工导航](../README.md#开工先找-readme-和书)的「虚拟机」行。
 
+## 跑 cargo
+
+- **cargo 只经 xtask 跑，或在 `src/runtime/` 目录里跑，或显式带 `--config src/runtime/.cargo/config.toml`**：仓库根下
+  `cargo … --manifest-path src/runtime/Cargo.toml` 读不到这份配置，产物会落进 `src/runtime/target/` 而不是
+  `artifacts/build/runtime/`。
+
 ## 错误处理
 
 - 可能失败的函数返回 `anyhow::Result<T>`；内部 VM 错误（非用户错误）用 `bail!` / `anyhow!`。

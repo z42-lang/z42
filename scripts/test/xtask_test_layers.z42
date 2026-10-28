@@ -1,0 +1,264 @@
+// 运行时分层门（`xtask check layers`，GREEN gate 的 `layers` stage）。
+//
+// ## 守的是什么
+//
+// src/runtime/src 的每个源文件（测试文件除外）按 _lyMapTable 归到目标组件（docs/runtime-audit.md §4），
+// 然后查两件事：
+//   ① 跨组件引用（`crate::…` 路径，经 `pub use` 再导出解析到真正的文件）必须在 _lyAllowTable 允许的方向上；
+//   ② 平台 `cfg(…)` 与 `libc::` 只出现在 pal。
+// 现状的违规是欠账：逐条「from -> to」引用数与每组件的平台 cfg / libc 数记在 gates.toml [layers.*]，
+// **只减不增**——出现新的违规边 → 红并逐条列 file:line；已有项变多 → 红并按文件汇总；变少 → 提示「可收紧」，
+// 用 `xtask check layers --update` 写回基线。这张基线就是 §6.1 L-2…L-7 的欠账清单。
+// 文件落在映射表没登记的位置 → 红（先回答它属于哪一层）。
+//
+// 每次运行先跑 _lySelfTest（映射、词法、use 组展开、cfg 判定、再导出解析、基线比较的构造用例）：
+// 自测不过就不信扫描结果。
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Toml;
+using Std.Collections;
+
+class LyReport {
+    public Dictionary<string, int> Edges;   // "from -> to" → 引用数（同一行引用同一组件只算一次）
+    public Dictionary<string, int> Cfg;     // 组件 → 平台 cfg 数
+    public Dictionary<string, int> Libc;    // 组件 → `libc::` 行数
+    public Dictionary<string, List<string>> Sites; // "edges|from -> to" / "cfg|comp" / "libc|comp" → 全部位置
+    public List<string> Unmapped;
+    public int Refs;
+    public LyReport() {
+        this.Edges = new Dictionary<string, int>(); this.Cfg = new Dictionary<string, int>();
+        this.Libc = new Dictionary<string, int>(); this.Sites = new Dictionary<string, List<string>>();
+        this.Unmapped = new List<string>(); this.Refs = 0;
+    }
+}
+
+// 扫描面：.rs，去掉测试文件（`*_tests.rs` / `tests.rs` / `test_*.rs` / `*_tests/` 目录）。
+bool _lyIsSource(string rel) {
+    if (!rel.EndsWith(".rs")) { return false; }
+    foreach (var seg in rel.Split("/")) {
+        if (seg.EndsWith("_tests") || seg.EndsWith("_tests.rs") || seg == "tests.rs" || seg.StartsWith("test_")) { return false; }
+    }
+    return true;
+}
+
+LyCrate _lyLoadCrate(string srcDir) {
+    LyCrate c = new LyCrate();
+    foreach (var r in Directory.EnumerateRecursive(srcDir)) {
+        string rel = r.Replace("\\", "/");
+        if (_lyIsSource(rel)) { c.AddFile(rel, File.ReadAllText(Path.Join(srcDir, rel))); }
+    }
+    return c;
+}
+
+// 两遍：先收集全部文件（再导出表要齐），再解析引用、计数。
+LyReport _lyAnalyze(LyCrate c) {
+    int i = 0;
+    while (i < c.Files.Count) { _lyCollect(c, c.Files[i], c.Texts[i]); i = i + 1; }
+    LyReport r = new LyReport();
+    Dictionary<string, string> compOfMod = new Dictionary<string, string>();
+    foreach (var f in c.Files.ToArray()) {
+        if (f.Comp.Length == 0) { r.Unmapped.Add(f.Rel); continue; }
+        _lyCountRefs(c, f, r, compOfMod);
+        if (!_lyPlatformExempt(f.Comp)) {
+            foreach (var ln in f.Cfg.ToArray()) { _lyBump(r, r.Cfg, "cfg", f.Comp, f.Rel + ":" + ln.ToString()); }
+            foreach (var ln in f.Libc.ToArray()) { _lyBump(r, r.Libc, "libc", f.Comp, f.Rel + ":" + ln.ToString()); }
+        }
+    }
+    return r;
+}
+
+void _lyCountRefs(LyCrate c, LyFile f, LyReport r, Dictionary<string, string> compOfMod) {
+    Dictionary<string, bool> seen = new Dictionary<string, bool>();
+    foreach (var rf in f.Refs.ToArray()) {
+        r.Refs = r.Refs + 1;
+        string mod = _lyResolve(c, rf.Segs, 0);
+        if (!compOfMod.ContainsKey(mod)) {
+            compOfMod[mod] = c.ModFile.ContainsKey(mod) ? _lyComponentOf(c.ModFile[mod]) : "";
+        }
+        string to = compOfMod[mod];
+        if (to.Length == 0 || _lyAllowed(f.Comp, to)) { continue; }
+        string key = rf.Line.ToString() + "|" + to;
+        if (seen.ContainsKey(key)) { continue; }
+        seen[key] = true;
+        _lyBump(r, r.Edges, "edges", f.Comp + " -> " + to,
+            f.Rel + ":" + rf.Line.ToString() + "  crate::" + _lyJoinSegs(rf.Segs, "::"));
+    }
+}
+
+void _lyBump(LyReport r, Dictionary<string, int> counts, string kind, string key, string site) {
+    int n = counts.ContainsKey(key) ? counts[key] : 0;
+    counts[key] = n + 1;
+    string sk = kind + "|" + key;
+    if (!r.Sites.ContainsKey(sk)) { r.Sites[sk] = new List<string>(); }
+    r.Sites[sk].Add(site);
+}
+
+// 路径段（crate 根之后）→ 目标所在模块。逐段走子模块；走不下去的那一段按当前模块的再导出
+//（显式 `pub use` 优先，其次 glob 目标里的定义）继续解析；都没有 = 定义在当前模块。
+string _lyResolve(LyCrate c, List<string> segs, int depth) {
+    string mod = "";
+    int i = 0;
+    while (i < segs.Count) {
+        string child = _lyJoin(mod, segs[i]);
+        if (c.ModFile.ContainsKey(child)) { mod = child; i = i + 1; continue; }
+        string hit = depth > 6 ? null : _lyExportOf(c, mod, segs[i], depth);
+        if (hit == null) { return mod; }
+        return _lyResolve(c, _lySplitSegs(hit), depth + 1);
+    }
+    return mod;
+}
+
+string _lyExportOf(LyCrate c, string mod, string name, int depth) {
+    if (depth > 6) { return null; }
+    string key = mod + "#" + name;
+    if (c.Exports.ContainsKey(key)) { return c.Exports[key]; }
+    if (c.Defs.ContainsKey(key) || !c.Globs.ContainsKey(mod)) { return null; }
+    foreach (var g in c.Globs[mod].Split("|")) {
+        if (c.Defs.ContainsKey(g + "#" + name)) { return _lyJoin(g, name); }
+        string e = _lyExportOf(c, g, name, depth + 1);
+        if (e != null) { return e; }
+    }
+    return null;
+}
+
+// ── 门 ─────────────────────────────────────────────────────────────────────
+
+int _testLayers(bool update) {
+    string root = _root();
+    int st = _lySelfTest();
+    if (st != 0) {
+        ConsoleError.WriteLine("check layers: ✗ 自测 " + st.ToString() + " 处失败 —— 门本身坏了，扫描结果不可信");
+        return 1;
+    }
+    LyReport r = _lyAnalyze(_lyLoadCrate(Path.Join(root, "src/runtime/src")));
+    // 空门守卫：扫描面没了（目录搬家 / 枚举出错）就别报绿。
+    if (r.Refs < 1000) {
+        ConsoleError.WriteLine("check layers: ✗ 只解析到 " + r.Refs.ToString() + " 条 crate:: 引用 —— 扫描面不对（src/runtime/src 搬了？）");
+        return 1;
+    }
+    if (r.Unmapped.Count > 0) {
+        foreach (var u in r.Unmapped.ToArray()) { ConsoleError.WriteLine("  ✗ src/runtime/src/" + u + " 不在分层映射表里"); }
+        ConsoleError.WriteLine("check layers: ✗ 先在 scripts/test/xtask_layers_rules.z42 的 _lyMapTable 登记它属于哪一层");
+        return 1;
+    }
+    if (update) {
+        _lyWriteBaseline(root, r);
+        Console.WriteLine("check layers: ↻ [layers.*] 区段已重写（gates.toml）");
+        return 0;
+    }
+    return _lyCheckBaseline(root, r);
+}
+
+int _lyCheckBaseline(string root, LyReport r) {
+    TomlValue cfg = _gatesSection(root, "layers");
+    List<string> fails = new List<string>();
+    List<string> tight = new List<string>();
+    _lyCompare("edges", r.Edges, _lyTomlCounts(cfg, "edges"), fails, tight);
+    _lyCompare("cfg", r.Cfg, _lyTomlCounts(cfg, "cfg"), fails, tight);
+    _lyCompare("libc", r.Libc, _lyTomlCounts(cfg, "libc"), fails, tight);
+    foreach (var s in tight.ToArray()) { Console.WriteLine("  " + s + "（可收紧基线：xtask check layers --update）"); }
+    if (fails.Count > 0) {
+        _lyPrintFails(r, fails);
+        return 1;
+    }
+    Console.WriteLine("check layers: ✓ 违规边 " + _lySum(r.Edges).ToString() + " 处、pal 外平台 cfg "
+        + _lySum(r.Cfg).ToString() + " 处、libc " + _lySum(r.Libc).ToString() + " 处，均在基线内（gates.toml [layers.*]）");
+    return 0;
+}
+
+// 新出现的项（基线为 0）逐条列出位置；已有欠账变多的项，位置混在旧欠账里分不出哪条是新的，
+// 按文件汇总条数（与 `git diff` 对照即可定位）。
+void _lyPrintFails(LyReport r, List<string> fails) {
+    int printed = 0;
+    foreach (var f in fails.ToArray()) {
+        string[] p = f.Split("\t");   // kind \t key \t 现值 \t 基线
+        string what = p[0] == "edges" ? "违规引用 " + p[1] : (p[0] == "cfg" ? "pal 外平台 cfg（" + p[1] + "）" : "pal 外 libc::（" + p[1] + "）");
+        ConsoleError.WriteLine("  ✗ " + what + "：" + p[3] + " → " + p[2]);
+        string sk = p[0] + "|" + p[1];
+        if (!r.Sites.ContainsKey(sk)) { continue; }
+        string[] sites = r.Sites[sk].ToArray();
+        if (p[3] != "0") { ConsoleError.WriteLine("      按文件：" + _lyPerFile(sites)); continue; }
+        foreach (var site in sites) {
+            if (printed >= 15) { break; }
+            ConsoleError.WriteLine("      " + site);
+            printed = printed + 1;
+        }
+    }
+    ConsoleError.WriteLine("check layers: ✗ 超出基线 —— 允许的依赖方向见 scripts/test/xtask_layers_rules.z42（§4）；"
+        + "新违规改代码消掉（经 vm 的注册接口 / 下沉共用部分），不用 --update 收进基线");
+}
+
+// "a.rs:3 …" 位置表 → "a.rs ×2, b.rs ×1"（按首次出现顺序）。
+string _lyPerFile(string[] sites) {
+    List<string> files = new List<string>();
+    Dictionary<string, int> n = new Dictionary<string, int>();
+    foreach (var site in sites) {
+        string file = site.Substring(0, site.IndexOf(":"));
+        if (!n.ContainsKey(file)) { n[file] = 0; files.Add(file); }
+        n[file] = n[file] + 1;
+    }
+    string s = "";
+    foreach (var file in files.ToArray()) { s = s + (s.Length == 0 ? "" : ", ") + file + " ×" + n[file].ToString(); }
+    return s;
+}
+
+int _lySum(Dictionary<string, int> d) {
+    int s = 0;
+    foreach (var k in d.Keys()) { s = s + d[k]; }
+    return s;
+}
+
+// ── 基线 ───────────────────────────────────────────────────────────────────
+
+// 比较一类计数：现值 > 基线（含基线里没有的新项）→ fails 记 "kind\tkey\t现值\t基线"；
+// 现值 < 基线（含已清零的项）→ tight 记一行提示。
+void _lyCompare(string kind, Dictionary<string, int> cur, Dictionary<string, int> base_, List<string> fails, List<string> tight) {
+    List<string> keys = new List<string>();
+    foreach (var k in cur.Keys()) { keys.Add(k); }
+    foreach (var k in base_.Keys()) { if (!cur.ContainsKey(k)) { keys.Add(k); } }
+    keys.Sort();
+    foreach (var k in keys.ToArray()) {
+        int c = cur.ContainsKey(k) ? cur[k] : 0;
+        int b = base_.ContainsKey(k) ? base_[k] : 0;
+        if (c > b) { fails.Add(kind + "\t" + k + "\t" + c.ToString() + "\t" + b.ToString()); }
+        else if (c < b) { tight.Add(kind + " " + k + "：" + b.ToString() + " → " + c.ToString()); }
+    }
+}
+
+// gates.toml [layers.<sub>] → 计数表（缺表 = 空基线）。
+Dictionary<string, int> _lyTomlCounts(TomlValue sec, string sub) {
+    Dictionary<string, int> d = new Dictionary<string, int>();
+    TomlValue t = null;
+    if (!sec.TryGet(sub, ref t) || !t.IsTable()) { return d; }
+    foreach (var k in t.Keys()) {
+        TomlValue v = t.Get(k);
+        if (v.IsLong()) { d[k] = (int)v.AsLong(); }
+    }
+    return d;
+}
+
+void _lyWriteBaseline(string root, LyReport r) {
+    List<string> body = new List<string>();
+    _lyAppendTable(body, "edges", r.Edges);
+    _lyAppendTable(body, "cfg", r.Cfg);
+    _lyAppendTable(body, "libc", r.Libc);
+    _gatesWriteSection(root, "layers", body.ToArray(), body.Count);
+}
+
+// `[layers.<sub>]` + 按计数降序（同数按名字）的 `"key" = n` 行。
+void _lyAppendTable(List<string> body, string sub, Dictionary<string, int> d) {
+    body.Add("[layers." + sub + "]");
+    List<string> keys = new List<string>();
+    foreach (var k in d.Keys()) { keys.Add(k); }
+    keys.Sort();
+    int i = 1;
+    while (i < keys.Count) {   // 插入排序：稳定，先按名字排过，这里只按计数降序挪
+        string k = keys[i];
+        int j = i - 1;
+        while (j >= 0 && d[keys[j]] < d[k]) { keys[j + 1] = keys[j]; j = j - 1; }
+        keys[j + 1] = k;
+        i = i + 1;
+    }
+    foreach (var k in keys.ToArray()) { body.Add(_tomlQuote(k) + " = " + d[k].ToString()); }
+}

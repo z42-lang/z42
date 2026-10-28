@@ -57,7 +57,8 @@ pub fn os_version() -> String;
 
 1. **OS-neutral surface**：pub fn signatures 不带 OS 类型（不暴露
    `libc::c_char` / `winapi::HANDLE` 等）
-2. **每个 concern 一个文件**：`#[cfg(...)]` 切分在文件内部，consumer 零 cfg
+2. **每个 concern 一个文件**：`#[cfg(...)]` 切分在文件内部，consumer 零 cfg。pal 外现存的平台 cfg 与
+   `libc::` 是欠账，由 GREEN 的 `layers` stage 按组件计数、只减不增（见[测试门禁](../devinfra/test-gate.md)）
 3. **graceful degrade**：未实现的平台返回 `None` / `""` / `Err` 而非 panic
 4. **错误 OS-neutral**：`Option<T>` / `Result<T, E>` 抽象，不暴露 errno
 5. **每个 pal 子模块必须有 unit tests**：smoke test 覆盖 unix 路径 + non-unix
