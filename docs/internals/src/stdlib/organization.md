@@ -81,8 +81,25 @@ stdlib 上的特化。
 | 类别 | 声明 interop？ | 成员 |
 |---|---|---|
 | **① 语义汇聚核** | ✅ 全部执行基座 + 内核原语 | `z42.core` |
-| **② 可插拔工具 / 算法库** | ✅ 各库自持 | `z42.compression` / `z42.diagnostics` / `z42.harness` / `z42.scripting` |
-| **③ 纯脚本库** | ❌ 零 interop | 其余全部，含 **io / net / threading / json / text / crypto** |
+| **② 带专属 native 库的独立库** | ✅ 各库自持，须有对应的 native 库 | `z42.compression` |
+| **③ 纯脚本库** | ❌ 零 interop | 其余全部，含 **io / net / threading / json / text / crypto / diagnostics / harness** |
+
+### extern 落点：只有两处
+
+`extern` / `[Native(...)]` 声明**只允许**出现在：
+
+1. **`z42.core`**（①）；
+2. **有对应 native 库的独立库**（②）——库与一份专属的 native 实现成对存在（如 `z42.compression` ↔
+   `crates/z42-compression` cdylib），整库连同 native 一起装载 / 裁剪。
+   native 实现混在 VM 主 builtin 表里、与别的库共用模块的，不算「有对应 native 库」。
+
+**其余位置一律零 extern**，包括 ③ 纯脚本库，以及**编译器与工具链的全部包**（`src/compiler/**`：
+`z42c.*`、`z42.package`、`z42.project`、`z42.build`、`z42.doc`、`z42.scripting`……）。它们需要的平台
+能力、哈希、编码、反射，一律调 core 或 ② 库的**公开 API**，不直接绑 VM builtin、不重复声明别处已有的符号。
+
+编译器侧的性能需求同样走[性能升级阶梯](architecture.md#2-落点决策script-first)：先优化脚本；仍不达标，就把
+**通用原语**下沉成 core 的公开 API（例：hex 编码、非加密哈希、文件 mtime），编译器再调那个 API。不在编译器
+包里开私有的 `[Native]` 通道——那样等于把编译器的内部需求写进 VM 的 ABI 面，别的包用不到，审计也看不见。
 
 三类的角色：
 
@@ -90,20 +107,20 @@ stdlib 上的特化。
   时钟、位转换、熵、parse/format、反射、GC）**加上执行基座**（io / net / threading 的 OS 原语，住在
   `src/Native/NetNative.z42`、`src/Native/ThreadingNative.z42`、`src/IO/*Native.z42`）。core 是深度 0 +
   隐式 prelude，是唯一能承载共享 sink 的地方。
-- **② 可插拔工具 / 算法库** —— native 是**可选插件**（codec、GC 内省、测试 harness、模块加载），正常
-  程序执行不依赖；整库可单独编译、按需加载、从部署裁剪。
-- **③ 纯脚本库** —— 要用 native 时**通过 core 或工具库的公开 API 间接调**。
+- **② 带专属 native 库的独立库** —— native 是**可选插件**（codec 这类有独立 native 实现的能力），正常
+  程序执行不依赖；整库连同它的 native 库可单独编译、按需加载、从部署裁剪。
+- **③ 纯脚本库** —— 要用 native 时**通过 core 或 ② 类库的公开 API 间接调**。
 
 ### 每个能力拆两层
 
 | 层 | 内容 | 归属 |
 |---|---|---|
-| **native 语义层** | `[Native]` / `extern` 原语，最低层 native 意义 | 执行基座 → core；可插拔工具 → 各自库 |
+| **native 语义层** | `[Native]` / `extern` 原语，最低层 native 意义 | 执行基座 / VM 内省 → core；② → 各自库 |
 | **应用层** | 建在原语之上的**纯脚本**高层 API（`File` / `TcpClient` / `Thread` / `Stream` 家族） | 留在能力库；抽走语义后逻辑过薄的包直接删掉、并入 core |
 
 这层「应用层 / 语义层」剥离是 z42 相对 .NET 的**额外**动作（.NET 的 native 与 BCL 同语言，没有
 「脚本 vs native」之别），服务的是 Script-First 纪律。io / threading 语义入 core 对齐 .NET CoreLib
-持有 `File` / `Thread`；compression / crypto / diagnostics 独立对齐 .NET 的独立程序集。
+持有 `File` / `Thread`；compression / crypto / diagnostics 的应用层独立，对齐 .NET 的独立程序集。
 
 ### 归属判据
 
@@ -113,12 +130,17 @@ stdlib 上的特化。
     （类型系统协议 / libm / 时钟 / 位运算 / 熵 / parse-format）    → z42.core
   执行基座：OS / socket / 线程 —— 缺了程序跑不起来                → z42.core（语义层）
                                                                   + 能力库（纯脚本应用层）
-  可插拔工具 / 算法：codec / GC 内省 / test harness               → 独立能力库，整库自持 native
+  VM 内省与测试钩子：heap 查询 / 运行计数 / stdout 捕获 / black_box → z42.core（语义层）
+                                                                  + diagnostics / harness（纯脚本应用层）
+  有专属 native 库的能力：codec                                   → 独立能力库，整库自持 native
   纯计算逻辑                                                      → 纯脚本，零 interop
+  编译器 / 工具链自己的需求（缓存哈希、mtime、REPL 内省）          → 不声明 native；调 core / ② 库的公开 API，
+                                                                    缺 API 就先在 core 补通用原语
 ```
 
-`Std.Diagnostics.Heap`（`DirectReferrers` / `RetainingRoots`，heap 反向可达查询）是「可插拔工具」的
-样板：虽与 GC 深度耦合，但对正常执行非必需、可裁剪 → 语义 + 应用整体留 `z42.diagnostics`，不进 core。
+`Std.Diagnostics.Heap`（`DirectReferrers` / `RetainingRoots`，heap 反向可达查询）的实现就在 VM 主 builtin
+表里（与 GC 深度耦合，没有、也不该有独立 native 库）→ 原语与 core 的 `GC` 同类，**语义层进 core**，
+`z42.diagnostics` 只留纯脚本应用层。test harness 的 stdout 捕获、`black_box` 同理进 core。
 
 **OS 熵是反向的样板**：`__crypto_random_bytes` 名字里带 crypto，但它是 OS 能力而非加密算法（同
 `__time_now_*`），归 core `Std.Runtime.Entropy`——core 的 `Guid.NewGuid` 要用它，而 prelude 不能反

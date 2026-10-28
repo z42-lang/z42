@@ -109,7 +109,8 @@ public static extern long Spawn(object action);
    `#[builtin(name = "__…")] fn f(…) -> Result<T, BuiltinError>`（新模块要在 `builtin_table.rs` 的 `TYPED`
    里加一行；签名约定、错误类型、`blocking` 见 [native ABI §6.2](../runtime/native-abi.md)）。
 2. `src/libraries/z42.core/src/…` —— 写 `[Native("__…")] public static extern` 声明；归属见
-   [包划分](organization.md)。
+   [包划分](organization.md)。声明只能落在 core 或有对应 native 库的独立库，编译器 / 工具链包不行
+   （[extern 落点](organization.md#extern-落点只有两处)）。
 
 没有第三处：z42c 不维护 builtin 签名表，签名就是那条 z42 声明本身，参数个数与类型也不在编译期对账
 （不一致时调用即报内部错误，靠测试发现）。命名约定（`__<area>_<verb>`）与 area 清单在
@@ -126,10 +127,10 @@ VM 注册表 `BUILTINS` 共 **332** 个条目（桌面 arm64），全部是 ABI 
 | 包 | 声明文件数 | 不同 `__` 符号 | 性质 |
 |---|---|---|---|
 | `z42.core` | 51 | 293 | 语义汇聚核 |
-| `z42.harness` | 2 | 5 | 可插拔工具（harness / 计时 / 模块加载） |
-| `z42.diagnostics` | 2 | 3 | 可插拔工具（heap 内省 / 计数器） |
-| `z42.scripting` / `z42.package` / `z42c.*`（`src/compiler/`） | 6 | 4 | 编译器域（模块加载 / REPL） |
-| `z42.compression` | 8 | 12 个 `entry =`（`lib = "z42_compression"`） | 可插拔工具（外部 cdylib） |
+| `z42.harness` | 2 | 5 | **违反[落点规则](organization.md#extern-落点只有两处)**，待迁入 core |
+| `z42.diagnostics` | 2 | 3 | **违反[落点规则](organization.md#extern-落点只有两处)**，待迁入 core |
+| `z42.scripting` / `z42.package` / `z42c.*`（`src/compiler/`） | 6 | 4 | **违反[落点规则](organization.md#extern-落点只有两处)**，待迁到 core 公开 API |
+| `z42.compression` | 8 | 12 个 `entry =`（`lib = "z42_compression"`） | 带专属 native 库（外部 cdylib） |
 
 compression 那 12 个**不在** `BUILTINS` 里——它们由 cdylib 在加载时注册进 per-VM 的 ext 表
 （见 [native ABI §6.6](../runtime/native-abi.md)）。
