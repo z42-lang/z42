@@ -258,10 +258,10 @@ void Main() {
 
 | 规则 Id | 阈值 | 默认 severity | 说明 |
 |---|---|---|---|
-| `style.fileLinesHard` | 886 行 | Warning（关） | 文件行数硬限 |
-| `style.fileLines` | 500 行 | Info（关） | 文件行数软限（提示） |
-| `style.fnLinesHard` | 60 行 | Warning（关） | 函数体行数硬限 |
-| `style.fnLines` | 40 行 | Info（关） | 函数体行数软限（提示） |
+| ``style.fileLinesHard`` | 886 行 | Warning（关） | 文件行数硬限 |
+| ``style.fileLines`` | 500 行 | Info（关） | 文件行数软限（提示） |
+| ``style.fnLinesHard`` | 60 行 | Warning（关） | 函数体行数硬限 |
+| ``style.fnLines`` | 40 行 | Info（关） | 函数体行数软限（提示） |
 
 「函数体行数」= 方法体 `{` 行与配对 `}` 行之间的非空、非注释行数（单行体计 0）；
 局部函数与 lambda 不计。打开方式与豁免方式：

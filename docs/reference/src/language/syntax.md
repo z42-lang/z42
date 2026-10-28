@@ -101,7 +101,7 @@ void Main() {
 
 规则：
 
-- `RuleId` 是一个裸标识符或点号限定 Id（如 `Z9002`、`deprecated`、`style.fnLinesHard`），
+- `RuleId` 是一个裸标识符或点号限定 Id（如 `Z9002`、`deprecated`、``style.fnLinesHard``），
   **精确匹配，不支持通配符**。`#suppress Z9999` 不会抑制 `Z9002`。
 - 可选的字符串是给人看的理由，编译器接受后丢弃。
 - 抑制区间是 `[#suppress 起点, #restore 起点)` 的**字节区间**——指令本身的位置决定边界，
