@@ -21,8 +21,12 @@
 //! - **变长尾参 `args...`**：`AddVariadicPositional` 收集全部剩余 positional。
 //! - **拼写建议**：未知 long option / 未知子命令在编辑距离足够近时附
 //!   `(did you mean '...')`。
-//! - **重名检测**：long / short / positional 重复注册在**声明期**抛 `CliException`
+//! - **重名检测**：long / short / 别名 / positional 重复注册在**声明期**抛 `CliException`
 //!   （`--help` / `-h` 保留）。
+//! - **long 名别名**：`AddAlias` 给已注册的 flag / option 再挂一个 long 名，解析后归一为正名。
+//! - **原样透传尾参**：`AddPassthrough` —— 固定槽填满后的全部 token（含 `-h` / 选项形态）
+//!   原样收进变长槽，供「把后半截交给另一个程序」的命令（`xtask run <app> …`）。router 的
+//!   persistent 旗标也只在透传叶子命令名**之前**剥离。
 //!
 //! ## 不支持
 //!
@@ -92,6 +96,13 @@ public partial class ArgParser {
     private bool     _hasVariadic;
     private string   _variadicName;
     private string   _variadicHelp;
+    // 变长槽是否为透传：固定槽填满后，余下 token 不再识别选项、原样收集。
+    private bool     _variadicPassthrough;
+
+    // long 名别名（并行数组）：别名 → 正名（flag 或 option 的 long 名）。
+    private string[] _aliasNames;
+    private string[] _aliasTargets;
+    private int      _aliasCount;
 
     /// 用 programName 与 description 创建一个参数解析器。
     public ArgParser(string programName, string description) {
@@ -119,6 +130,10 @@ public partial class ArgParser {
         this._hasVariadic   = false;
         this._variadicName  = "";
         this._variadicHelp  = "";
+        this._variadicPassthrough = false;
+        this._aliasNames   = new string[4];
+        this._aliasTargets = new string[4];
+        this._aliasCount   = 0;
     }
 
     // ── Declaration API ──────────────────────────────────────────────────
@@ -288,6 +303,38 @@ public partial class ArgParser {
         this._variadicHelp = help;
     }
 
+    /// 注册透传尾参（必须是最后一个 positional）：固定槽填满后，余下全部 token 原样收进
+    /// 变长槽——不再识别 `-h` / option / `--`，用 `ParseResult.VariadicValues()` 取回。
+    /// 与 `AddVariadicPositional` 互斥（同一个变长槽）。
+    public void AddPassthrough(string name, string help) {
+        this.AddVariadicPositional(name, help);
+        this._variadicPassthrough = true;
+    }
+
+    /// 是否声明了透传尾参（`AddPassthrough`）。
+    public bool HasPassthrough() { return this._variadicPassthrough; }
+
+    /// 给已注册的 flag / option 再挂一个 long 名：`--alias` 与 `--longName` 等价，
+    /// 取值仍用正名。正名未注册、别名与任何 long 名 / 别名相撞时抛 CliException。
+    public void AddAlias(string longName, string alias) {
+        if (this.FindFlagByLong(longName) < 0 && this.FindOptionByLong(longName) < 0) {
+            throw new CliException("AddAlias: '--" + longName + "' is not a registered flag or option");
+        }
+        this.ValidateLongName(alias);
+        if (this._aliasCount >= this._aliasNames.Length) {
+            int n = this._aliasNames.Length * 2;
+            string[] gn = new string[n];
+            string[] gt = new string[n];
+            int i = 0;
+            while (i < this._aliasCount) { gn[i] = this._aliasNames[i]; gt[i] = this._aliasTargets[i]; i = i + 1; }
+            this._aliasNames = gn;
+            this._aliasTargets = gt;
+        }
+        this._aliasNames[this._aliasCount] = alias;
+        this._aliasTargets[this._aliasCount] = this.CanonicalLong(longName);
+        this._aliasCount = this._aliasCount + 1;
+    }
+
     // ── Registration validators ──────────────────────────────────────────
 
     // long 名唯一性 + help 保留字校验。重复（flag 之间 / option 之间 / flag 与 option 之间）
@@ -309,6 +356,14 @@ public partial class ArgParser {
                 throw new CliException("duplicate long name '--" + longName + "': already registered as an option");
             }
             j = j + 1;
+        }
+        int k = 0;
+        while (k < this._aliasCount) {
+            if (this._aliasNames[k] == longName) {
+                throw new CliException("duplicate long name '--" + longName + "': already an alias of '--" +
+                    this._aliasTargets[k] + "'");
+            }
+            k = k + 1;
         }
     }
 
@@ -350,7 +405,29 @@ public partial class ArgParser {
 
     // ── Internals: registry lookups & capacity ───────────────────────────
 
-    private int FindFlagByLong(string name) {
+    // 别名 → 正名；非别名原样返回。
+    private string CanonicalLong(string name) {
+        int i = 0;
+        while (i < this._aliasCount) {
+            if (this._aliasNames[i] == name) { return this._aliasTargets[i]; }
+            i = i + 1;
+        }
+        return name;
+    }
+
+    // 正名下挂的别名（逗号分隔 `--a, --b` 形态供帮助渲染）；无别名返回 ""。
+    private string AliasesOf(string longName) {
+        string s = "";
+        int i = 0;
+        while (i < this._aliasCount) {
+            if (this._aliasTargets[i] == longName) { s = s + ", --" + this._aliasNames[i]; }
+            i = i + 1;
+        }
+        return s;
+    }
+
+    private int FindFlagByLong(string nameIn) {
+        string name = this.CanonicalLong(nameIn);
         int i = 0;
         while (i < this._flagCount) {
             if (this._flagLongs[i] == name) { return i; }
@@ -368,7 +445,8 @@ public partial class ArgParser {
         return -1;
     }
 
-    private int FindOptionByLong(string name) {
+    private int FindOptionByLong(string nameIn) {
+        string name = this.CanonicalLong(nameIn);
         int i = 0;
         while (i < this._optionCount) {
             if (this._optionLongs[i] == name) { return i; }

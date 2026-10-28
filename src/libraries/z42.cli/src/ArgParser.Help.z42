@@ -66,6 +66,7 @@ public partial class ArgParser {
                 }
                 sb.Append("--");
                 sb.Append(this._flagLongs[i]);
+                sb.Append(this.AliasesOf(this._flagLongs[i]));
                 sb.Append("    ");
                 sb.Append(this._flagHelps[i]);
                 sb.Append("\n");
@@ -88,6 +89,7 @@ public partial class ArgParser {
                 }
                 sb.Append("--");
                 sb.Append(this._optionLongs[i]);
+                sb.Append(this.AliasesOf(this._optionLongs[i]));
                 sb.Append(" <");
                 sb.Append(this._optionLongs[i]);
                 sb.Append(">    ");

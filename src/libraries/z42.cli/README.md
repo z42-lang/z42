@@ -1,8 +1,8 @@
 # z42.cli
 
 ## 职责
-CLI argv 解析器 — flag / option / positional + auto `-h/--help` 文本生成。
-最小子集，参照 Python `argparse` / Rust `clap` / Go `flag`。
+CLI argv 解析器 — flag / option / positional + auto `-h/--help` 文本生成，外加其上的
+**声明式命令层**（命令 = 类、参数 = 字段，参照 C# System.CommandLine / Rust clap derive）。
 
 **用途**：脚本类 z42 程序解析命令行参数。为 z42 脚本（含 `xtask`）提供 argv parser。
 
@@ -13,6 +13,9 @@ CLI argv 解析器 — flag / option / positional + auto `-h/--help` 文本生�
 | `src/ParseResult.z42` | `Std.Cli.ParseResult` — GetFlag / GetOption / GetPositional / ShowHelp |
 | `src/CliException.z42`| `Std.CliException`（未知 flag / 缺 value / 缺 positional） |
 | `src/SubcommandRouter.z42` | `Std.Cli.SubcommandRouter` + `SubcommandMatch` — git/cargo 风格 `Add(name, desc, ArgParser)`（叶子）+ `AddRouter(name, desc, child)`（嵌套）+ `Match(argv)`（单层）/ `Resolve(argv)`（嵌套，逐层下钻）派发；`HelpText()` 该层帮助 |
+| `src/Command.z42` / `src/Command.Fields.z42` | `Std.Cli.Command` — 声明式命令：`AddCommand` 搭层级、`[Option]` / `[Argument]` 字段即参数、`Invoke(argv)` 解析 + 绑定 + 执行 |
+| `src/CommandAttributes.z42` | `OptionAttribute` / `ArgumentAttribute`（全部状态走命名实参） |
+| `src/_FieldSpec.z42` | 字段 → 参数名 / 类型类别 / choices / 取值转换（内部） |
 | `src/CommandResolution.z42` | `Std.Cli.CommandResolution` — `Resolve` 的三态结果（`IsMatch`/`IsHelp`/`IsUnknown` + `Path`/`Result`/`HelpText`/`ErrorMessage`）|
 
 ## 入口点
@@ -48,7 +51,61 @@ void Main() {
 }
 ```
 
-## 嵌套子命令（`prog build package …`）
+## 声明式命令（推荐写法）
+
+一个命令一个类：参数是贴了 `[Option]` / `[Argument]` 的字段（初始值即默认值），动作是 `Run()`；
+层级由父命令在构造器里 `AddCommand(child)` 搭起。根命令 `Invoke(argv)` 一次完成解析、绑定、执行：
+
+```z42
+using Std.Cli;
+using Std.IO;
+
+enum Mode { Interp, Jit, Both }
+
+class E2eCommand : Command {
+    [Option(help: "execution mode")] public Mode Mode = Mode.Both;      // --mode {interp|jit|both}
+    [Option(help: "parallel jobs", shortName: "j")] public int Jobs = 1;
+    [Option(help: "skip rebuild", alias: new string[]{ "no-rebuild" })] public bool NoBuild;  // --no-build
+    [Argument(help: "case name")] public string File = "";
+    public E2eCommand() : base("e2e", "end-to-end suite") {}
+    public override int Run() { /* 用 this.Mode / this.Jobs … */ return 0; }
+}
+
+class TestCommand : Command {
+    [Option(help: "skip named stages")] public string Skip = "";
+    public TestCommand() : base("test", "run tests") {
+        this.SetDefaultAction("the full gate");   // 裸 `test` / `test --skip x` 执行本类 Run()
+        this.AddCommand(new E2eCommand());
+    }
+    public override int Run() { return 0; }
+}
+
+class App : Command {
+    [Option(help: "q|m|n|d", shortName: "v", global: true)] public string Verbosity = "minimal";
+    public App() : base("xtask", "dev CLI") { this.AddCommand(new TestCommand()); }
+    public override void BeforeRun() { /* 全局 option 落成副作用 */ }
+}
+
+void Main() { Environment.Exit(new App().Invoke(Environment.GetCommandLineArgs())); }
+```
+
+| 规则 | 说明 |
+|------|------|
+| 参数名 | `name:` 显式给；否则字段名转 kebab-case（`NoBuild` → `--no-build`） |
+| 字段类型 | `bool` = flag；`string` / `int` / `long` / `double` / enum = 单值；`string[]` = 可重复 option / 变长参数 |
+| choices | `choices:` 显式给；enum 字段自动取成员名（kebab-case），帮助里显示 `{a|b}`，不在其中报错并给建议 |
+| 别名 | `[Option(alias: …)]` 给 option 额外 long 名；`AddCommand(child, aliases)` 给子命令别名 |
+| 必填 | `required: true`（option / argument 默认都可选；bool 不能必填） |
+| 全局 | `[Option(global: true)]`：所在命令整棵子树都认，子命令前后皆可写 |
+| 透传 | `[Argument(passthrough: true)] string[]`：固定参数之后的 token 原样收集（`run <app> …`） |
+| 动态帮助 | attribute 实参只能是常量；运行期内容用 `SetHelp(fieldName, text)` |
+| 退出码 | 帮助 → 0；未知命令 / 参数错误（含声明错误）→ stderr + 2；否则 `Run()` 的返回值 |
+
+执行顺序：解析 → 绑定路径上各命令的字段 → 沿根 → 目标调 `BeforeRun()` → 目标 `Run()`。
+子命令经 `ParentCommand()` 取祖先（读全局 option 字段）。只要解析不执行用 `Resolve(argv)`，
+再 `Bind(res)` 得到绑定好的目标命令。
+
+## 嵌套子命令（底层 API：`prog build package …`）
 
 多层命令树用 `AddRouter` 挂子 router，`Resolve` 逐层下钻，每层各自拦 `-h`：
 
@@ -116,6 +173,8 @@ HelpText 拼接）+ `z42.io`（`AddOptionWithEnv` 读环境变量）。
 
 - subcommand 单层（`SubcommandRouter`）+ **嵌套**（`AddRouter`/`Resolve`）
 - **子命令别名**（`Add(name, desc, parser, aliases)`，命中归一为正名，撞名声明期报错）
+- **option long 名别名**（`AddAlias(longName, alias)` / router `AddPersistentAlias`，帮助里与正名同列）
+- **原样透传尾参**（`AddPassthrough`：固定槽填满后其余 token 不做解析，供「转交给另一个程序」；各层 persistent 旗标只在透传叶子命令名之前剥离）
 - **跨子命令全局旗标**（`AddPersistentFlag` / `AddPersistentOption`：路由前从 argv 任意位置剥出；`CommandResolution.PersistentFlag` / `PersistentOption` 取值，多层各管各的子树、根层优先）
 - **节点默认动作**（`SetDefault(parser, desc)`：argv 为空或首 token 是 flag 且不命中任何子命令时整段交给默认 parser——`xtask test --no-build` 这类「无子命令 = 默认全量」形态；本层 `-h` 附 DEFAULT ACTION OPTIONS 段）
 - **变长尾参**（`AddVariadicPositional` + `ParseResult.VariadicValues()`，收集剩余全部 positional 含 `--` 之后）

@@ -98,6 +98,12 @@ public sealed class SubcommandRouter {
         this._persistent.AddOption(longName, shortName, help, defaultValue);
     }
 
+    /// 给已声明的全局 flag / option 再挂一个 long 名（语义同 `ArgParser.AddAlias`）。
+    public void AddPersistentAlias(string longName, string alias) {
+        this.EnsurePersistent();
+        this._persistent.AddAlias(longName, alias);
+    }
+
     /// 给本层挂默认动作：argv 为空、或首 token 是 flag（`-x` / `--x`）且不匹配任何子命令时，
     /// 整段 argv 交给 `parser` 解析（其 `-h` 照常生效）。`xtask test --no-build` 这类
     /// 「无子命令 = 默认全量」的形态由它表达，不再需要调用方在路由前手写拦截。
@@ -198,13 +204,41 @@ public sealed class SubcommandRouter {
         ParseResult persistent = null;
         string[] argv = argvIn;
         if (this._persistent != null) {
-            _StripOutcome s = this._persistent.StripDeclared(argvIn);
+            _StripOutcome s = this._persistent.StripDeclared(argvIn, this.PassthroughBoundary(argvIn));
             argv = s.Kept;
             persistent = s.Result;
         }
         CommandResolution res = this.ResolveStripped(argv);
         res.AttachPersistent(persistent);
         return res;
+    }
+
+    // 透传边界：沿 argv 模拟路由（跳过沿途各层已声明的 persistent token），命中透传叶子
+    // （`AddPassthrough`）时返回其命令名之后的下标——那之后的 token 原样归该叶子，
+    // 任何一层的全局旗标都不剥；路径上没有透传叶子返回 argv.Length。
+    private int PassthroughBoundary(string[] argv) {
+        SubcommandRouter cur = this;
+        ArgParser[] known = new ArgParser[argv.Length + 1];   // 路径深度 ≤ argv 长度
+        int kn = 0;
+        if (cur._persistent != null) { known[kn] = cur._persistent; kn = kn + 1; }
+        int i = 0;
+        while (i < argv.Length) {
+            string t = argv[i];
+            if (t == "--") { return argv.Length; }
+            if (t.Length >= 2 && t.CharAt(0) == '-') {
+                i = _RouterUtil.SkipDeclared(known, kn, argv, i);
+                continue;
+            }
+            int e = cur.FindEntry(t);
+            if (e < 0) { return argv.Length; }
+            if (!cur._isRouter[e]) {
+                return cur._parsers[e].HasPassthrough() ? i + 1 : argv.Length;
+            }
+            cur = cur._childRouters[e];
+            if (cur._persistent != null) { known[kn] = cur._persistent; kn = kn + 1; }
+            i = i + 1;
+        }
+        return argv.Length;
     }
 
     // persistent 剥离后的路由主体。
@@ -404,6 +438,17 @@ static class _RouterUtil {
             i = i + 1;
         }
         return false;
+    }
+
+    /// 越过 argv[i]：被某个已知 persistent parser 声明则连同取值一起越过，否则只越过这一个 token。
+    public static int SkipDeclared(ArgParser[] known, int kn, string[] argv, int i) {
+        int k = 0;
+        while (k < kn) {
+            int end = known[k].DeclaredTokenEnd(argv, i);
+            if (end >= 0) { return end; }
+            k = k + 1;
+        }
+        return i + 1;
     }
 
     /// 别名数组连写成一段（空数组 → ""）。

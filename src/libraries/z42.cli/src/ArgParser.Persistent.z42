@@ -14,7 +14,11 @@ public partial class ArgParser {
     /// `Kept`（`--` 之后的剥离语义归叶子 parser 的 positional，不归全局旗标）。
     ///
     /// 取值 token 缺失时抛 CliException。叶子路由 / 簇解析 / 负数回退都不在本方法职责内。
-    public _StripOutcome StripDeclared(string[] argv) {
+    public _StripOutcome StripDeclared(string[] argv) { return this.StripDeclared(argv, argv.Length); }
+
+    /// 同 `StripDeclared(argv)`，但只剥 `[0, limit)` 内的 token；`limit` 起的尾巴原样留在
+    /// `Kept`（透传叶子的参数不归全局旗标）。
+    public _StripOutcome StripDeclared(string[] argv, int limit) {
         string[] persistent = new string[argv.Length * 2 + 1];
         int pc = 0;
         string[] kept = new string[argv.Length];
@@ -23,7 +27,7 @@ public partial class ArgParser {
         int i = 0;
         while (i < argv.Length) {
             string t = argv[i];
-            if (sawSeparator || t == "--" || t.Length < 2 || t.CharAt(0) != '-' ||
+            if (i >= limit || sawSeparator || t == "--" || t.Length < 2 || t.CharAt(0) != '-' ||
                 t == "-h" || t == "--help") {
                 if (t == "--") { sawSeparator = true; }
                 kept[kc] = t;
@@ -48,6 +52,15 @@ public partial class ArgParser {
         // 剥出的 token 只含已声明项，Parse 不可能报 unknown；空剥出也解析一次（取默认值）。
         ParseResult parsed = pc > 0 ? this.Parse(_Exact(persistent, pc)) : this.Parse(new string[0]);
         return new _StripOutcome(_Exact(kept, kc), parsed);
+    }
+
+    /// `argv[i]` 是本 parser 声明过的 flag / option 时，返回它（含取值 token）之后的下标；
+    /// 否则 -1。供路由在剥离前模拟走一遍命令路径。
+    public int DeclaredTokenEnd(string[] argv, int i) {
+        string t = argv[i];
+        if (t.Length < 2 || t.CharAt(0) != '-' || t == "--" || t == "-h" || t == "--help") { return -1; }
+        _StripKind k = t.CharAt(1) == '-' ? this._ClassifyLong(argv, i) : this._ClassifyShort(argv, i);
+        return k.Kind == 0 ? -1 : k.Next;
     }
 
     // long token 分类：0=与本 parser 无关；1=flag（1 token）；2=option 分离值（2 token）；
