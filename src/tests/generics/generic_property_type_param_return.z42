@@ -1,0 +1,85 @@
+// Test: fix-generic-property-return — reading a property whose type is a class type parameter
+// through an instantiated receiver (`Box<int>.Value`) follows the same return protocol as a
+// method call: the erased getter hands back a box (`(T)obj` is a no-op inside the body), the
+// call site unboxes; a layout-specialized getter returns a value struct through sret.
+// Before the fix the property path read the box as the substituted type (JIT: garbage
+// arithmetic, interpreter: type mismatch) and called a specialized getter without its sret slot.
+
+namespace GenericPropertyTypeParamReturn;
+
+struct Pt {
+    public int X; public int Y;
+    public Pt(int x, int y) { this.X = x; this.Y = y; }
+}
+
+sealed class Box<T> {
+    private object _o;
+    public Box(object o) { this._o = o; }
+    public T Value { get { return (T)this._o; } }
+    public T Get() { return (T)this._o; }
+    public void Set(object o) { this._o = o; }
+}
+
+class PB {
+    public object Boxed;
+    public PB(object init) { this.Boxed = init; }
+}
+
+sealed class Opt<T> : PB {
+    public Opt(T init) : base(init) {}
+    public T Value { get { return (T)this.Boxed; } }
+}
+
+// A `T` field makes `Holder<Pt>` layout-specialized: its getters return through sret.
+class Holder<T> {
+    private T _f;
+    public object B;
+    public Holder(T f, object b) { this._f = f; this.B = b; }
+    public T Field { get { return this._f; } }
+    public T FromObject { get { return (T)this.B; } }
+}
+
+object Parsed() { return int.Parse("9"); }
+object Literal() { return 9; }
+
+void Main() {
+    Box<int> b1 = new Box<int>(Literal());
+    Assert.Equal(10, b1.Value + 1);
+    Assert.Equal(10, b1.Get() + 1);
+    Box<int> b2 = new Box<int>(Parsed());
+    Assert.Equal(10, b2.Value + 1);
+    int local = b2.Value;
+    Assert.Equal(18, local * 2);
+    b2.Set(41);
+    Assert.Equal(42, b2.Value + 1);
+
+    // Inherited base field: value passed as `T` through the base ctor, then reassigned boxed.
+    Opt<int> a = new Opt<int>(4);
+    Assert.Equal(5, a.Value + 1);
+    a.Boxed = 9;
+    Assert.Equal(10, a.Value + 1);
+    PB pb = a;
+    pb.Boxed = 20;
+    Assert.Equal(21, a.Value + 1);
+
+    Box<double> bd = new Box<double>(1.5);
+    Assert.Equal(2.5, bd.Value + 1.0);
+    Box<long> bl = new Box<long>(10L);
+    Assert.Equal(11L, bl.Value + 1L);
+    Box<bool> bb = new Box<bool>(true);
+    Assert.True(bb.Value);
+    Box<string> bs = new Box<string>("s");
+    Assert.Equal("st", bs.Value + "t");
+
+    Box<Pt> bp = new Box<Pt>(new Pt(3, 4));
+    Assert.Equal(3, bp.Value.X);
+    Pt p = bp.Value;
+    Assert.Equal(4, p.Y);
+
+    Holder<Pt> h = new Holder<Pt>(new Pt(5, 6), new Pt(7, 8));
+    Assert.Equal(5, h.Field.X);
+    Assert.Equal(6, h.Field.Y);
+    Assert.Equal(8, h.FromObject.Y);
+    Holder<int> hi = new Holder<int>(1, 2);
+    Assert.Equal(3, hi.Field + hi.FromObject);
+}
