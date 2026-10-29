@@ -6,6 +6,7 @@
 // （`build compiler` / `build stdlib` / `build runtime` / `build toolchain`）。
 namespace Z42Xtask;
 
+using Std.Collections;
 using Std.IO;
 using Std.Time;
 
@@ -45,13 +46,10 @@ int _packageDevSdk(string outOpt) {
     string z42cDir = Path.Join(Path.Join(outDir, "programs"), "z42c");
     Directory.Create(z42cDir);
     string[] members = _compilerMembers(root);
-    int i = 0;
-    while (i < members.Length) {
-        string m = members[i];
+    foreach (var m in members) {
         string distDir = _compilerMemberDist(root, m, "release");
         _copyIfExists(Path.Join(distDir, m + ".zpkg"), Path.Join(z42cDir, m + ".zpkg"));
         _copyIfExists(Path.Join(distDir, m + ".zsym"), Path.Join(z42cDir, m + ".zsym"));
-        i = i + 1;
     }
     Console.WriteLine("  ✓ programs/z42c/ (" + members.Length.ToString() + " pkgs)");
 
@@ -80,15 +78,12 @@ bool _devSdkMissing(string path, string buildCmd) {
 // z42c + 4 个工具链 apphost 的 publish_dir 树（bin apphost + programs payload，布局按各自 toml）
 // 合进 SDK。publish_dir 从 toml 读（SoT）。没发布过的跳过并列出（见 _packageDevSdk 头注）。
 void _devSdkMergeApphosts(string root, string outDir) {
-    string[] tc4 = _toolchainApphostTomls();
-    string[] tomls = new string[tc4.Length + 1];
-    tomls[0] = _z42cDriverToml();
-    int k = 0;
-    while (k < tc4.Length) { tomls[k + 1] = tc4[k]; k = k + 1; }
+    List<string> tomls = new List<string>();
+    tomls.Add(_z42cDriverToml());
+    tomls.AddRange(_toolchainApphostTomls());
     int merged = 0;
     string skipped = "";
-    int i = 0;
-    while (i < tomls.Length) {
+    for (int i = 0; i < tomls.Count; i = i + 1) {
         string pub = _desktopPublishDir(root, tomls[i]);
         if (Directory.Exists(pub)) {
             _vNormal("  dev-sdk: merge apphost ← " + pub);
@@ -97,9 +92,8 @@ void _devSdkMergeApphosts(string root, string outDir) {
         } else {
             skipped = skipped.Length == 0 ? _rootRel(root, pub) : skipped + ", " + _rootRel(root, pub);
         }
-        i = i + 1;
     }
-    Console.WriteLine("  ✓ apphosts: " + merged.ToString() + "/" + tomls.Length.ToString() + " merged from publish_dir");
+    Console.WriteLine("  ✓ apphosts: " + merged.ToString() + "/" + tomls.Count.ToString() + " merged from publish_dir");
     if (skipped.Length > 0) {
         Console.WriteLine("  - not published (skipped; run `xtask build toolchain` for a runnable SDK): " + skipped);
     }
@@ -117,21 +111,14 @@ int _packageCi(string dest) {
     string flatSrc = _libsDir(root);
     string flatDst = Path.Join(dest, _rootRel(root, flatSrc));
     Directory.Create(flatDst);
-    string[] flat = Path.Glob(flatSrc, "*");
-    int fi = 0;
-    while (fi < flat.Length) {
-        _copyIfExists(flat[fi], Path.Join(flatDst, Path.GetFileName(flat[fi])));
-        fi = fi + 1;
-    }
+    _stageCopyExt(flatSrc, flatDst, "*");
     // 1b. stdlib flat 同级 plugins/（携带插件平铺位；下游夹具 / SDK 打包都从
     //     这里取）。空 / 不存在则跳过——恢复端按 sibling 相对位置落位，无需额外登记。
     string pluginsSrc = Path.Join(Path.GetDirectoryName(flatSrc), "plugins");
     if (Directory.Exists(pluginsSrc)) {
         string pluginsDst = Path.Join(dest, _rootRel(root, pluginsSrc));
         Directory.Create(pluginsDst);
-        string[] pz = Path.Glob(pluginsSrc, "*.zpkg");
-        int zi = 0;
-        while (zi < pz.Length) { _copyIfExists(pz[zi], Path.Join(pluginsDst, Path.GetFileName(pz[zi]))); zi = zi + 1; }
+        _stageCopyExt(pluginsSrc, pluginsDst, "*.zpkg");
     }
     // 2. stdlib per-member dist (warm-seed self-build inputs)
     _stageMembers(_libsBuildRoot(root), dest, _rootRel(root, _libsBuildRoot(root)));
@@ -153,15 +140,7 @@ int _packageCi(string dest) {
     string xtSrc = Path.GetDirectoryName(_xtaskZpkg(root));
     string xtDst = Path.Join(dest, _rootRel(root, xtSrc));
     Directory.Create(xtDst);
-    string[] xtFiles = Path.Glob(xtSrc, "*");
-    int xi2 = 0;
-    while (xi2 < xtFiles.Length) {
-        // ⚠️ glob 也会返回**目录**（这里有个 `.cache/`）—— 拷目录当文件会抛。只拷文件。
-        if (!Directory.Exists(xtFiles[xi2])) {
-            _copyIfExists(xtFiles[xi2], Path.Join(xtDst, Path.GetFileName(xtFiles[xi2])));
-        }
-        xi2 = xi2 + 1;
-    }
+    _stageCopyExt(xtSrc, xtDst, "*");   // 只拷文件：glob 也会返回目录（这里有个 `.cache/`）
     // 5. z42b（z42.builder.zpkg）—— 单-target 执行器。
     //
     // 为什么必须进这个 artifact：`test app desktop` / `test app {ios,android}`
@@ -182,15 +161,9 @@ int _packageCi(string dest) {
     }
     string bDst = Path.Join(dest, _rootRel(root, bSrc));
     Directory.Create(bDst);
-    string[] bFiles = Path.Glob(bSrc, "*");
-    int bi = 0;
-    while (bi < bFiles.Length) {
-        // 只拷产物文件、不拷子目录：dist 里可能有按 rid 分的 native 子目录（hooks 产出），
-        // 那些不属于 z42b 运行所需。
-        if (Directory.Exists(bFiles[bi])) { bi = bi + 1; continue; }
-        _copyIfExists(bFiles[bi], Path.Join(bDst, Path.GetFileName(bFiles[bi])));
-        bi = bi + 1;
-    }
+    // 只拷产物文件、不拷子目录：dist 里可能有按 rid 分的 native 子目录（hooks 产出），
+    // 那些不属于 z42b 运行所需。
+    _stageCopyExt(bSrc, bDst, "*");
     Console.WriteLine("staged toolchain -> " + dest);
     _procEnd("package ci", sw);
     return 0;
@@ -199,11 +172,7 @@ int _packageCi(string dest) {
 // Copy <baseSrc>/<m>/release/dist/*.{zpkg,zsym} → <dest>/<relBase>/<m>/release/dist/
 // for every member dir <m> that has a release/dist (the flat `dist` dir has none).
 void _stageMembers(string baseSrc, string dest, string relBase) {
-    if (!Directory.Exists(baseSrc)) { return; }
-    string[] members = _enumDirsSorted(baseSrc);
-    int i = 0;
-    while (i < members.Length) {
-        string m = members[i];
+    foreach (var m in _enumDirsSorted(baseSrc)) {
         string srcDist = Path.Join(Path.Join(baseSrc, m), "release/dist");
         if (Directory.Exists(srcDist)) {
             string dstDist = Path.Join(Path.Join(Path.Join(dest, relBase), m), "release/dist");
@@ -211,15 +180,12 @@ void _stageMembers(string baseSrc, string dest, string relBase) {
             _stageCopyExt(srcDist, dstDist, "*.zpkg");
             _stageCopyExt(srcDist, dstDist, "*.zsym");
         }
-        i = i + 1;
     }
 }
 
+// srcDir 下匹配 pattern 的**文件**（跳过子目录）拷进 dstDir。
 void _stageCopyExt(string srcDir, string dstDir, string pattern) {
-    string[] fs = Path.Glob(srcDir, pattern);
-    int i = 0;
-    while (i < fs.Length) {
-        _copyIfExists(fs[i], Path.Join(dstDir, Path.GetFileName(fs[i])));
-        i = i + 1;
+    foreach (var f in Path.Glob(srcDir, pattern)) {
+        if (!Directory.Exists(f)) { _copyIfExists(f, Path.Join(dstDir, Path.GetFileName(f))); }
     }
 }

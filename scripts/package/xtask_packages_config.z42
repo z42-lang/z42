@@ -81,19 +81,15 @@ _PackagesConfig _pkgcfgLoad(string repoRoot) {
     TomlValue pkgTable = doc.Get("package");
     string[] pkgNames = pkgTable.Keys();
     _PkgPackage[] pkgs = new _PkgPackage[pkgNames.Length];
-    int i = 0;
-    while (i < pkgNames.Length) {
+    for (int i = 0; i < pkgs.Length; i = i + 1) {
         pkgs[i] = _pkgcfgParsePackage(pkgNames[i], pkgTable.Get(pkgNames[i]));
-        i = i + 1;
     }
 
     TomlValue compTable = doc.Get("component");
     string[] compNames = compTable.Keys();
     _PkgComponent[] comps = new _PkgComponent[compNames.Length];
-    int j = 0;
-    while (j < compNames.Length) {
-        comps[j] = _pkgcfgParseComponent(compNames[j], compTable.Get(compNames[j]));
-        j = j + 1;
+    for (int i = 0; i < comps.Length; i = i + 1) {
+        comps[i] = _pkgcfgParseComponent(compNames[i], compTable.Get(compNames[i]));
     }
 
     _PackagesConfig cfg = new _PackagesConfig();
@@ -106,21 +102,13 @@ _PackagesConfig _pkgcfgLoad(string repoRoot) {
 // Throws — an unknown package name is a packages.toml/caller bug, not a condition
 // to tolerate silently.
 _PkgPackage _pkgcfgFindPackage(_PackagesConfig cfg, string name) {
-    int i = 0;
-    while (i < cfg.packages.Length) {
-        if (cfg.packages[i].name == name) { return cfg.packages[i]; }
-        i = i + 1;
-    }
+    foreach (var p in cfg.packages) { if (p.name == name) { return p; } }
     throw new Exception("packages.toml: no [package." + name + "]");
 }
 
 // Look up a declared component by name (e.g. "z42vm"/"native"/"stdlib"/"launcher").
 _PkgComponent _pkgcfgFindComponent(_PackagesConfig cfg, string name) {
-    int i = 0;
-    while (i < cfg.components.Length) {
-        if (cfg.components[i].name == name) { return cfg.components[i]; }
-        i = i + 1;
-    }
+    foreach (var c in cfg.components) { if (c.name == name) { return c; } }
     throw new Exception("packages.toml: no [component." + name + "]");
 }
 
@@ -130,10 +118,6 @@ _PkgComponent _pkgcfgFindComponent(_PackagesConfig cfg, string name) {
 _PkgComponent[] _pkgcfgResolveInclude(_PackagesConfig cfg, string packageName) {
     _PkgPackage pkg = _pkgcfgFindPackage(cfg, packageName);
     _PkgComponent[] resolved = new _PkgComponent[pkg.include.Length];
-    int i = 0;
-    while (i < pkg.include.Length) {
-        resolved[i] = _pkgcfgFindComponent(cfg, pkg.include[i]);
-        i = i + 1;
-    }
+    for (int i = 0; i < resolved.Length; i = i + 1) { resolved[i] = _pkgcfgFindComponent(cfg, pkg.include[i]); }
     return resolved;
 }

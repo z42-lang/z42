@@ -213,7 +213,7 @@ void _pkgEmitManifestAndroidTooling(string root, string pkgDir, string rid, stri
 
 string _getFileSize(string path) {
     if (!File.Exists(path)) { return "0B"; }
-    long bytes = File.ReadAllBytes(path).Length;
+    long bytes = File.GetSize(path);
     if (bytes < 1024) { return bytes.ToString() + "B"; }
     if (bytes < 1048576) { return (bytes / 1024).ToString() + "K"; }
     return (bytes / 1048576).ToString() + "M";

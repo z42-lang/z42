@@ -2,6 +2,7 @@
 // walk, the golden .zbc artifact mirror, and entry-name derivation.
 namespace Z42Xtask;
 
+using Std.Collections;
 using Std.IO;
 
 // Enumerate immediate subdirectories of `dir`, returning sorted basenames.
@@ -9,26 +10,13 @@ using Std.IO;
 // Sort enforces cross-OS determinism per the load-order determinism rule.
 string[] _enumDirsSorted(string dir) {
     if (!Directory.Exists(dir)) { return new string[0]; }
-    string[] entries = Directory.Enumerate(dir);
-    // First pass: count subdirs
-    int n = 0;
-    int i = 0;
-    while (i < entries.Length) {
-        if (Directory.Exists(Path.Join(dir, entries[i]))) { n = n + 1; }
-        i = i + 1;
+    List<string> subs = new List<string>();
+    foreach (var e in Directory.Enumerate(dir)) {
+        if (Directory.Exists(Path.Join(dir, e))) { subs.Add(e); }
     }
-    string[] subs = new string[n];
-    int j = 0;
-    i = 0;
-    while (i < entries.Length) {
-        if (Directory.Exists(Path.Join(dir, entries[i]))) {
-            subs[j] = entries[i];
-            j = j + 1;
-        }
-        i = i + 1;
-    }
-    _sortStrings(subs);
-    return subs;
+    string[] arr = subs.ToArray();
+    _sortStrings(arr);
+    return arr;
 }
 
 // In-place insertion sort (deterministic; load-order determinism rule).
@@ -114,136 +102,87 @@ string _entryZbc(string root, _GoldenEntry e) {
     return Path.Join(_goldenArtifactDir(root, e.relUnderSrc), e.zbcName);
 }
 
-_GoldenEntry[] _appendEntry(_GoldenEntry[] arr, int n, _GoldenEntry v) {
-    if (n < arr.Length) { arr[n] = v; return arr; }
-    _GoldenEntry[] bigger = new _GoldenEntry[arr.Length * 2 + 8];
-    int i = 0;
-    while (i < n) { bigger[i] = arr[i]; i = i + 1; }
-    bigger[n] = v;
-    return bigger;
-}
-
 _GoldenEntry[] _walkGoldenCorpus(string root) {
-    _GoldenEntry[] es = new _GoldenEntry[512];
-    int n = 0;
-
+    List<_GoldenEntry> es = new List<_GoldenEntry>();
     string testsRoot = Path.Join(root, "src/tests");
     string[] cats = _enumDirsSorted(testsRoot);
     string libsRoot = Path.Join(root, "src/libraries");
     string[] libs = _enumDirsSorted(libsRoot);
 
     // 1. src/tests/<cat>/<name>/source.z42
-    int ci = 0;
-    while (ci < cats.Length) {
-        string cat = cats[ci];
+    foreach (var cat in cats) {
         string catDir = Path.Join(testsRoot, cat);
-        string[] names = _enumDirsSorted(catDir);
-        int ni = 0;
-        while (ni < names.Length) {
-            string name = names[ni];
-            string dir = Path.Join(catDir, name);
-            _GoldenEntry e = new _GoldenEntry();
-            e.seg = "tests-dir"; e.cat = cat; e.name = name; e.entryName = name;
-            e.dir = dir;
-            e.src = Path.Join(dir, "source.z42");
-            e.expected = Path.Join(dir, "expected_output.txt");
-            e.relUnderSrc = Path.Join(Path.Join("tests", cat), name);
-            e.zbcName = "source.zbc";
-            e.hasSource = File.Exists(e.src);
-            e.interpOnly = File.Exists(Path.Join(dir, "interp_only"));
-            e.optAll     = File.Exists(Path.Join(dir, "opt_all"));
-            es = _appendEntry(es, n, e); n = n + 1;
-            ni = ni + 1;
+        foreach (var name in _enumDirsSorted(catDir)) {
+            es.Add(_goldenDirEntry("tests-dir", cat, name, Path.Join(catDir, name),
+                Path.Join(Path.Join("tests", cat), name), false));
         }
-        ci = ci + 1;
     }
 
     // 2. src/libraries/<lib>/tests/<name>/ — golden dirs AND [Test] dir-units.
-    int li = 0;
-    while (li < libs.Length) {
-        string lib = libs[li];
+    foreach (var lib in libs) {
         string tdir = Path.Join(libsRoot, lib + "/tests");
-        if (Directory.Exists(tdir)) {
-            string[] names = _enumDirsSorted(tdir);
-            int ni = 0;
-            while (ni < names.Length) {
-                string name = names[ni];
-                string dir = Path.Join(tdir, name);
-                _GoldenEntry e = new _GoldenEntry();
-                e.seg = "lib-dir"; e.cat = lib; e.name = name; e.entryName = name;
-                e.dir = dir; e.isLib = true;
-                e.src = Path.Join(dir, "source.z42");
-                e.expected = Path.Join(dir, "expected_output.txt");
-                e.relUnderSrc = Path.Join(Path.Join(Path.Join("libraries", lib), "tests"), name);
-                e.zbcName = "source.zbc";
-                e.hasSource = File.Exists(e.src);
-                e.interpOnly = File.Exists(Path.Join(dir, "interp_only"));
-                e.optAll     = File.Exists(Path.Join(dir, "opt_all"));
-                e.hasTestMethods = _dirHasTestMethods(dir);
-                es = _appendEntry(es, n, e); n = n + 1;
-                ni = ni + 1;
-            }
+        foreach (var name in _enumDirsSorted(tdir)) {
+            es.Add(_goldenDirEntry("lib-dir", lib, name, Path.Join(tdir, name),
+                Path.Join(Path.Join(Path.Join("libraries", lib), "tests"), name), true));
         }
-        li = li + 1;
     }
 
     // 3. src/tests/<cat>/<name>.z42 (flat mode; sidecars are <name>.<sidecar>)
-    ci = 0;
-    while (ci < cats.Length) {
-        string cat = cats[ci];
+    foreach (var cat in cats) {
         string catDir = Path.Join(testsRoot, cat);
-        string[] entries = _sortedStrings(Directory.Enumerate(catDir));
-        int ei = 0;
-        while (ei < entries.Length) {
-            string f = entries[ei];
-            if (f.EndsWith(".z42")) {
-                string name = f.Substring(0, f.Length - 4);
-                _GoldenEntry e = new _GoldenEntry();
-                e.seg = "tests-flat"; e.cat = cat; e.name = name; e.entryName = f;
-                e.dir = catDir;
-                e.src = Path.Join(catDir, f);
-                e.expected = Path.Join(catDir, name + ".expected_output.txt");
-                e.relUnderSrc = Path.Join("tests", cat);
-                e.zbcName = name + ".zbc";
-                e.hasSource = File.Exists(e.src);
-                e.interpOnly = File.Exists(Path.Join(catDir, name + ".interp_only"));
-                e.optAll     = File.Exists(Path.Join(catDir, name + ".opt_all"));
-                es = _appendEntry(es, n, e); n = n + 1;
-            }
-            ei = ei + 1;
+        foreach (var f in _z42FilesSorted(catDir)) {
+            string name = f.Substring(0, f.Length - 4);
+            _GoldenEntry e = _newGoldenEntry("tests-flat", cat, name, f, catDir, false);
+            e.src = Path.Join(catDir, f);
+            e.expected = Path.Join(catDir, name + ".expected_output.txt");
+            e.relUnderSrc = Path.Join("tests", cat);
+            e.zbcName = name + ".zbc";
+            e.hasSource = File.Exists(e.src);
+            e.interpOnly = File.Exists(Path.Join(catDir, name + ".interp_only"));
+            e.optAll     = File.Exists(Path.Join(catDir, name + ".opt_all"));
+            es.Add(e);
         }
-        ci = ci + 1;
     }
 
     // 4. src/libraries/<lib>/tests/<name>.z42 — stdlib [Test] file units.
-    li = 0;
-    while (li < libs.Length) {
-        string lib = libs[li];
+    foreach (var lib in libs) {
         string tdir = Path.Join(libsRoot, lib + "/tests");
-        if (Directory.Exists(tdir)) {
-            string[] entries = _sortedStrings(Directory.Enumerate(tdir));
-            int ei = 0;
-            while (ei < entries.Length) {
-                string f = entries[ei];
-                if (f.EndsWith(".z42")) {
-                    string name = f.Substring(0, f.Length - 4);
-                    _GoldenEntry e = new _GoldenEntry();
-                    e.seg = "lib-file"; e.cat = lib; e.name = name; e.entryName = f;
-                    e.dir = tdir; e.isLib = true;
-                    e.src = Path.Join(tdir, f);
-                    e.hasSource = true;
-                    es = _appendEntry(es, n, e); n = n + 1;
-                }
-                ei = ei + 1;
-            }
+        if (!Directory.Exists(tdir)) { continue; }
+        foreach (var f in _z42FilesSorted(tdir)) {
+            _GoldenEntry e = _newGoldenEntry("lib-file", lib, f.Substring(0, f.Length - 4), f, tdir, true);
+            e.src = Path.Join(tdir, f);
+            e.hasSource = true;
+            es.Add(e);
         }
-        li = li + 1;
     }
+    return es.ToArray();
+}
 
-    _GoldenEntry[] tight = new _GoldenEntry[n];
-    int t = 0;
-    while (t < n) { tight[t] = es[t]; t = t + 1; }
-    return tight;
+_GoldenEntry _newGoldenEntry(string seg, string cat, string name, string entryName, string dir, bool isLib) {
+    _GoldenEntry e = new _GoldenEntry();
+    e.seg = seg; e.cat = cat; e.name = name; e.entryName = entryName; e.dir = dir; e.isLib = isLib;
+    return e;
+}
+
+// Dir-mode case (tests-dir / lib-dir): source + sidecars live in the case dir.
+_GoldenEntry _goldenDirEntry(string seg, string cat, string name, string dir, string relUnderSrc, bool isLib) {
+    _GoldenEntry e = _newGoldenEntry(seg, cat, name, name, dir, isLib);
+    e.src = Path.Join(dir, "source.z42");
+    e.expected = Path.Join(dir, "expected_output.txt");
+    e.relUnderSrc = relUnderSrc;
+    e.zbcName = "source.zbc";
+    e.hasSource = File.Exists(e.src);
+    e.interpOnly = File.Exists(Path.Join(dir, "interp_only"));
+    e.optAll     = File.Exists(Path.Join(dir, "opt_all"));
+    if (isLib) { e.hasTestMethods = _dirHasTestMethods(dir); }
+    return e;
+}
+
+// `*.z42` entry names directly in `dir`, sorted.
+string[] _z42FilesSorted(string dir) {
+    List<string> fs = new List<string>();
+    foreach (var f in _sortedStrings(Directory.Enumerate(dir))) { if (f.EndsWith(".z42")) { fs.Add(f); } }
+    return fs.ToArray();
 }
 
 // ── golden-zbc artifact mirror ───────────────────────────────────────────────
@@ -267,10 +206,10 @@ _GoldenEntry[] _walkGoldenCorpus(string root) {
 string _goldenArtifactDir(string root, string relUnderSrc) {
     string[] segs = relUnderSrc.Replace("\\", "/").Split("/");
     if (segs.Length > 2 && (segs[0] == "libraries" || segs[0] == "compiler")) {
-        string rest = "";
-        int i = 2;
-        while (i < segs.Length) { rest = rest.Length == 0 ? segs[i] : rest + "/" + segs[i]; i = i + 1; }
-        return Path.Join(Path.Join(Path.Join(Path.Join(_buildDir(root), segs[0]), segs[1]), "release"), rest);
+        string[] rest = new string[segs.Length - 2];
+        Array.Copy(segs, 2, rest, 0, rest.Length);
+        return Path.Join(Path.Join(Path.Join(Path.Join(_buildDir(root), segs[0]), segs[1]), "release"),
+            String.Join("/", rest));
     }
     return Path.Join(_buildDir(root), relUnderSrc);
 }
@@ -289,13 +228,8 @@ string _deriveEntry(string srcFile) {
     if (!File.Exists(srcFile)) return "Main";
     string content = File.ReadAllText(srcFile);
     string ns = _extractNamespace(content);
-    bool hasUpper = _hasMain(content, "Main");
-    bool hasLower = _hasMain(content, "main");
-    string fnName = "Main";
-    if (hasUpper) { fnName = "Main"; }
-    else if (hasLower) { fnName = "main"; }
-    if (ns.Length > 0) { return ns + "." + fnName; }
-    return fnName;
+    string fnName = (!_hasMain(content, "Main") && _hasMain(content, "main")) ? "main" : "Main";
+    return ns.Length > 0 ? ns + "." + fnName : fnName;
 }
 
 // Find first `namespace <Identifier>;` line; return the identifier (or "").
@@ -393,9 +327,8 @@ int _indexOfFrom(string s, string needle, int start) {
 // ── string helpers ───────────────────────────────────────────────────────────
 
 string _firstLine(string s) {
-    int i = 0;
-    while (i < s.Length && s.CharAt(i) != '\n') { i = i + 1; }
-    return s.Substring(0, i);
+    int nl = s.IndexOf('\n');
+    return nl < 0 ? s : s.Substring(0, nl);
 }
 
 string _stripTrailingNewlines(string s) {

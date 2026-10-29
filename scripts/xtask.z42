@@ -63,9 +63,7 @@ class RunCommand : Command {
     // Native spawn（每个参数单独 Arg → 不经 shell 重新分词，带空格的参数原样到达）；
     // 找不到 launcher 时报错退出，而不是抛未捕获异常。
     public override int Run() {
-        Process p = new Process("z42").Arg("run");
-        int i = 0;
-        while (i < this.Args.Length) { p = p.Arg(this.Args[i]); i = i + 1; }
+        Process p = new Process("z42").Arg("run").Args(this.Args);
         try {
             return _exec(p);
         } catch (Exception e) {

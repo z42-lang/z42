@@ -42,10 +42,13 @@ void _breakHardLink(string path) {
     catch (Exception e) { /* best-effort：失败即保持原状 */ }
 }
 
-bool _bytesEqual(byte[] a, byte[] b) {
-    if (a.Length != b.Length) { return false; }
-    int i = 0;
-    while (i < a.Length) { if (a[i] != b[i]) { return false; } i = i + 1; }
+// 两个文件逐字节相同；任一不存在 → false。
+bool _filesEqual(string a, string b) {
+    if (!File.Exists(a) || !File.Exists(b)) { return false; }
+    byte[] ba = File.ReadAllBytes(a);
+    byte[] bb = File.ReadAllBytes(b);
+    if (ba.Length != bb.Length) { return false; }
+    for (int i = 0; i < ba.Length; i = i + 1) { if (ba[i] != bb[i]) { return false; } }
     return true;
 }
 
@@ -53,48 +56,39 @@ bool _bytesEqual(byte[] a, byte[] b) {
 // 的 hard-link inode 别名污染（共享目录被 rebuild 会把 per-member 源弄坏）。
 void _copyAll(string srcDir, string dstDir, string pattern) {
     if (!Directory.Exists(srcDir)) { return; }
-    string[] hits = Path.Glob(srcDir, pattern);
-    int i = 0;
-    while (i < hits.Length) {
-        string dstPath = Path.Join(dstDir, Path.GetFileName(hits[i]));
+    foreach (var hit in Path.Glob(srcDir, pattern)) {
+        string dstPath = Path.Join(dstDir, Path.GetFileName(hit));
         // Guard self-copy: File.Copy(X, X) opens the dest for write FIRST (truncating
         // X to 0) then reads the now-empty source → silently zeroes the file. Reachable
         // when a caller's src and dst resolve to the same dir (e.g. _ensureSeed staging
         // stdlib while Z42_LIBS already points at the flat dist). Skip it.
-        if (hits[i] != dstPath) {
+        if (hit != dstPath) {
             _unlinkIfExists(dstPath);   // 先断链（见本段头注）：别写到别人的 inode 上
-            try { File.Copy(hits[i], dstPath); }
+            try { File.Copy(hit, dstPath); }
             catch (Exception e) { /* skip */ }
         }
-        i = i + 1;
     }
 }
 
 // Hard-link srcDir's matches into flatDir; fall back to Copy across filesystems.
 void _linkAll(string srcDir, string flatDir, string pattern) {
     if (!Directory.Exists(srcDir)) { return; }
-    string[] hits = Path.Glob(srcDir, pattern);
-    int i = 0;
-    while (i < hits.Length) {
-        string dst = Path.Join(flatDir, Path.GetFileName(hits[i]));
-        if (hits[i] == dst) { i = i + 1; continue; }   // 自链接：断了就没得链了
+    foreach (var hit in Path.Glob(srcDir, pattern)) {
+        string dst = Path.Join(flatDir, Path.GetFileName(hit));
+        if (hit == dst) { continue; }   // 自链接：断了就没得链了
         // dst 已存在时 `File.Link` 本就会失败并**退回 File.Copy** —— 那次 copy 同样会穿透。
         // 先断链让「link 成功」成为常态路径，copy 兜底也不再写到别名上。
         _unlinkIfExists(dst);
-        try { File.Link(hits[i], dst); }
+        try { File.Link(hit, dst); }
         catch (Exception e) {
-            try { File.Copy(hits[i], dst); } catch (Exception e2) { /* skip */ }
+            try { File.Copy(hit, dst); } catch (Exception e2) { /* skip */ }
         }
-        i = i + 1;
     }
 }
 
 void _cleanGlob(string dir, string pattern) {
-    string[] hits = Path.Glob(dir, pattern);
-    int i = 0;
-    while (i < hits.Length) {
-        try { File.Delete(hits[i]); } catch (Exception e) { /* best-effort */ }
-        i = i + 1;
+    foreach (var hit in Path.Glob(dir, pattern)) {
+        try { File.Delete(hit); } catch (Exception e) { /* best-effort */ }
     }
 }
 

@@ -2,6 +2,7 @@
 // selector, verbosity, cold-start seed resolution, built-binary paths, cargo builders.
 namespace Z42Xtask;
 
+using Std.Collections;
 using Std.IO;
 using Std.Time;   // Stopwatch — diagnostic-level elapsed timing
 
@@ -42,11 +43,17 @@ int _zpkgFileMinor(string file) {
 
 // ── repo root + process exec ─────────────────────────────────────────────────
 
+// 进程内缓存：xtask 不切换 cwd，仓库根一次运行内不变，只问一次 git。
+static class RepoRoot {
+    public static string Value = "";
+}
+
 // Repo root via git (spawned directly — no bash), falling back to CWD.
 string _root() {
+    if (RepoRoot.Value.Length > 0) { return RepoRoot.Value; }
     ProcessResult r = new Process("git").Arg("rev-parse").Arg("--show-toplevel").Run();
-    if (r.ExitCode == 0) { return r.Stdout.Trim(); }
-    return Environment.GetCurrentDirectory();
+    RepoRoot.Value = r.ExitCode == 0 ? r.Stdout.Trim() : Environment.GetCurrentDirectory();
+    return RepoRoot.Value;
 }
 
 // resolve a possibly-relative path under the repo root (absolute paths unchanged).
@@ -130,16 +137,14 @@ int _z42cBuildPackage(string vm, string driver, string tomlPath, string libs, st
 // count (0 = all present). Shared by `build stdlib` + `test compiler` verify loops.
 int _verifyMemberZpkgs(string wsToml, string[] members, string profile) {
     int fail = 0;
-    int i = 0;
-    while (i < members.Length) {
-        string zpkg = Path.Join(_memberDist(wsToml, members[i], profile), members[i] + ".zpkg");
+    foreach (var m in members) {
+        string zpkg = Path.Join(_memberDist(wsToml, m, profile), m + ".zpkg");
         if (File.Exists(zpkg) && File.GetSize(zpkg) > 0L) {
-            _vDetailed("    ✓ " + members[i] + ".zpkg (" + File.GetSize(zpkg).ToString() + " bytes)");
+            _vDetailed("    ✓ " + m + ".zpkg (" + File.GetSize(zpkg).ToString() + " bytes)");
         } else {
-            Console.WriteLine("    ✗ " + members[i] + ".zpkg — workspace product missing at " + zpkg);
+            Console.WriteLine("    ✗ " + m + ".zpkg — workspace product missing at " + zpkg);
             fail = fail + 1;
         }
-        i = i + 1;
     }
     return fail;
 }
@@ -181,38 +186,26 @@ string _z42vm() {
 /// Non-mutating sort: copy then sort the copy in place via `_sortStrings`
 /// (xtask_golden.z42). Deterministic ascending (load-order determinism rule).
 string[] _sortedStrings(string[] src) {
-    int n = src.Length;
-    string[] arr = new string[n];
-    int i = 0;
-    while (i < n) { arr[i] = src[i]; i = i + 1; }
+    string[] arr = new string[src.Length];
+    Array.Copy(src, arr, src.Length);
     _sortStrings(arr);
     return arr;
 }
 
 // Split a string on ASCII whitespace (space / tab / newline), dropping empties.
 string[] _splitWords(string s) {
-    string[] result = new string[4];
-    int n = 0;
+    List<string> words = new List<string>();
     int i = 0;
     while (i < s.Length) {
-        while (i < s.Length
-            && (s.CharAt(i) == ' ' || s.CharAt(i) == '\t' || s.CharAt(i) == '\n')) {
-            i = i + 1;
-        }
-        if (i >= s.Length) break;
+        while (i < s.Length && _isWordSep(s.CharAt(i))) { i = i + 1; }
         int start = i;
-        while (i < s.Length
-            && s.CharAt(i) != ' ' && s.CharAt(i) != '\t' && s.CharAt(i) != '\n') {
-            i = i + 1;
-        }
-        result = _append(result, n, s.Substring(start, i - start));
-        n = n + 1;
+        while (i < s.Length && !_isWordSep(s.CharAt(i))) { i = i + 1; }
+        if (i > start) { words.Add(s.Substring(start, i - start)); }
     }
-    string[] tight = new string[n];
-    int t = 0;
-    while (t < n) { tight[t] = result[t]; t = t + 1; }
-    return tight;
+    return words.ToArray();
 }
+
+bool _isWordSep(char c) { return c == ' ' || c == '\t' || c == '\n'; }
 
 // ── toolchain selector (--toolchain <dir>) ───────────────────────────────────
 
@@ -556,10 +549,7 @@ int _ensureSeed(string root) {
     // 🔴 **成员 dist 与它的增量缓存必须出自同一次构建**。往 dist 里放种子产物时，同时作废该成员的 cache、删掉
     // 配不上的 zsym（种子的 programs/z42c 不带 zsym）—— 否则随后的 workspace 自建判「源没变」直接 preserved，
     // 种子那一代的产物就冒充了当前源的产物。
-    string[] members = _compilerMembers(root);
-    int i = 0;
-    while (i < members.Length) {
-        string m = members[i];
+    foreach (var m in _compilerMembers(root)) {
         string dst = _compilerMemberDist(root, m, profile);
         Directory.Create(dst);
         _copyAll(driverHome, dst, m + ".zpkg");
@@ -573,7 +563,6 @@ int _ensureSeed(string root) {
             }
             _vNormal("  seed: no " + m + ".zpkg (member newer than the seed) — built from source by the workspace build");
         }
-        i = i + 1;
     }
     // 自举纪律：种子 driver 的兄弟集可能含当前 members 已没有的包。它运行时按 entry-dir 解析兄弟，
     // 缺一个就 undefined。故把 driverHome 的**全部 z42c.* 兄弟**铺到 driver dist，令种子 driver
@@ -653,14 +642,9 @@ Process _cargoRelease(string config) {
 
 // ── tool presence ────────────────────────────────────────────────────────────
 
-// "is <bin> on PATH" — spawn `<bin> --version`; spawn-failure (not found) → false.
-// Shared primitive: deps-install presence checks + package-time tooling gates.
-bool _have(string bin) {
-    try {
-        new Process(bin).Arg("--version").Stdout(Stdio.Null()).Stderr(Stdio.Null()).Run();
-        return true;
-    } catch (Exception e) { return false; }
-}
+// "is <bin> on PATH" (PATHEXT-aware on Windows). Shared primitive: deps-install presence checks +
+// package-time tooling gates.
+bool _have(string bin) { return Process.Which(bin) != null; }
 
 // `<bin>` 不在 PATH 上 ⇒ 打一行 `error: <bin> not found (<hint>)` 并返回 false（调用方 return 1）。
 // 平台测试 backend（desktop / ios / android）与 embedded 的入口门。
