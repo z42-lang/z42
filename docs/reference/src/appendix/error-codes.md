@@ -241,7 +241,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | E0503 | 泛型实例化**展不完**：值类型的每个实例化各有一份代码，泛型体里用到自身、且类型实参更深一层（`struct Rec<T>` 里用 `Rec<Rec<T>>`）时，编译 `Rec<int>` 需要 `Rec<Rec<int>>`，如此无穷。报在该泛型的声明处。引用类型（`class`）实例化共用代码，同样的写法不触发 | ✅ SpecializationGuard.z42（`Exceeded`） | `struct Rec<T> { public T V; public Rec<Rec<T>> Next() { return new Rec<Rec<T>>(); } }` |
 | E0504 | struct 不参与继承：struct 的 `:` 后只能写接口，类也不能派生自 struct。对齐 C# CS0527 / CS0509。报在派生类型的声明处，报错后按「无基类」继续检查 | ✅ `SymbolCollector._rejectStructBase` | `struct B : A { }`、`class C : SomeStruct { }` |
 | E0505 | `kind = "plugin"` 的插件工程里**没有任何类实现插件契约**（`Z42.Analyzers.Analyzer` / `Z42.Generators.Generator` / `Z42.Generators.ModuleGenerator`，或继承 `Z42.Build.BuildHooks`）。插件包提供哪几类由构建按实现的契约推导、写进 zpkg 头能力位；一类都没有的包对任何宿主都是空转，故在**构建插件本身**时即报，而非等使用方加载后发现零 handler（E0496）。判据看本包类型的全名基类与接口（经本包内基类传递） | ✅ `PackageCompile.z42`（常量 `PluginNoContract`） | `kind = "plugin"` 的工程里只有一个普通类 |
-| E0506 | 在**推不出类型**的值上调方法（如无类型标注、也没有目标类型的 lambda 形参 `(x) => x.Run(1, 2)`）。推不出类型就选不了重载：此前静默降级成按裸名的运行期派发，只认得同名重载里的第一个（`x.Substring(0, 3)` 派到单参的 `Substring(int)`），运行期才报签名不符。修法是给该值写出类型。字段 / 属性读与下标不报（按名取无歧义）；已报过错的值不再级联报本码 | ✅ MemberResolver.z42（`ReportUnknownReceiver`） | `var f = (x) => x.Run(1, 2);` |
+| E0506 | 在**推不出类型**的值上调方法（如无类型标注、也没有目标类型的 lambda 形参 `(x) => x.Run(1, 2)`）。推不出类型就选不了重载：此前静默降级成按裸名的运行期派发，只认得同名重载里的第一个（对 `x` 调 `Substring(0, 3)` 会派到单参的 `Substring(int)`），运行期才报签名不符。修法是给该值写出类型。字段 / 属性读与下标不报（按名取无歧义）；已报过错的值不再级联报本码 | ✅ MemberResolver.z42（`ReportUnknownReceiver`） | `var f = (x) => x.Run(1, 2);` |
 
 ### `[Forward]` 转发生成（⚠️ 常量名与实际发射不符，以本表为准）
 
@@ -303,7 +303,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 
 ### E0901–E0916 原生互操作（⚠️ 部分未接线）
 
-> `extern` ↔ `[Native]` 的配对与 `[Native(...)]` 的形态（E0903 / E0904 / E0907）已在符号收集期强制。
+> `extern` ↔ `[Native]` 的配对、`[Native(...)]` 的形态与落点（E0903 / E0904 / E0907 / E0919）已在符号收集期强制。
 > 其余几条仍是**全仓零发射点**——`pinned` 块里写 `return`、`.z42abi` manifest 有问题，
 > 这些当前编译器**都不会拦**（`pinned` 与 manifest 通路本身也还不存在）。
 
@@ -313,6 +313,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | E0903 | `extern` 方法 / 属性缺少 `[Native]` 标注 | ✅ DeclEnforcer.Native.z42（`_nvCheck`） |
 | E0904 | `[Native]` 标注用在非 `extern` 的声明上（有体方法、类、字段……） | ✅ DeclEnforcer.Native.z42（`_nvCheck`） |
 | E0907 | `[Native(...)]` 形态错：没有入口名（无实参 / 只有 `lib` / 空串）、未知键、值不是字符串字面量、同一个键给了两次、有 `type` 却没有 `lib`，或同一声明贴了两个 `[Native]` | ✅ DeclEnforcer.Native.z42（`_nvCheck`） |
+| E0919 | `z42.core` 以外的包里，`[Native]` 没写 `lib =`。只有 `z42.core` 能绑裸 VM builtin；其余包的 native 要写它成对的 native 库或运行时组件名（如 `lib = "z42_compression"`），没有专属 native 库的包改调 `z42.core` 的公开 API。只在包编译时判（单文件编译 / REPL 无包名，不判） | ✅ DeclEnforcer.Native.z42（`_nvCheck`） |
 | E0908a | `pinned p = <expr> { ... }` 中 `<expr>` 类型不是 `string` | ⚠️ 零发射点 |
 | E0908b | `pinned` 块体内含 `return` / `break` / `continue` / `throw` | ⚠️ 零发射点 |
 | E0909 | `.z42abi` manifest 读取失败：文件不存在 / IO 失败 / JSON 不合法 / `abi_version` 不符 / 缺必需字段 | ⚠️ 零发射点 |

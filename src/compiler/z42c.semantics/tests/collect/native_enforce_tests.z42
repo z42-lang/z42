@@ -174,3 +174,49 @@ void test_native_type_without_lib() {
 void test_native_twice() {
     Assert.Equal(1, nvCount(nvDiags("class C { [Native(\"__a\")] [Native(\"__b\")] public static extern int X(); }"), "E0907"));
 }
+
+// ── 落点：`z42.core` 之外必须写 `lib =`（E0919）─────────────────────────────────
+
+// 以包 `pkg` 的身份收集（`SelfPkg` 随 ImportedSymbols 进符号表，同 PackageCompile）。
+DiagnosticBag nvDiagsIn(string pkg, string src) {
+    var p = new Parser(src, "t.z42");
+    var cu = p.ParseCompilationUnit();
+    var imp = new ImportedSymbols();
+    imp.SelfPkg = pkg;
+    var coll = new SymbolCollector();
+    coll.CollectAll(new CompilationUnit[] { cu }, new string[] { "t.z42" }, 1, imp);
+    return coll.Diags;
+}
+
+[Test]
+void test_bare_native_outside_core_needs_lib() {
+    DiagnosticBag d = nvDiagsIn("z42.diagnostics", "class H { [Native(\"__x\")] public static extern int F(); }");
+    Assert.Equal(1, nvCount(d, "E0919"));
+    Assert.Contains("lib =", nvMsg(d, "E0919"));
+    Assert.Equal(1, nvCount(nvDiagsIn("z42.app", "class H { [Native(entry = \"__x\")] public static extern int F(); }"), "E0919"));
+}
+
+[Test]
+void test_lib_native_outside_core_ok() {
+    DiagnosticBag d = nvDiagsIn("z42.diagnostics", "class H { [Native(lib = \"z42_diagnostics\", entry = \"__x\")] public static extern int F(); }");
+    Assert.Equal(0, nvCount(d, "E0919"));
+}
+
+[Test]
+void test_bare_native_in_core_ok() {
+    Assert.Equal(0, nvCount(nvDiagsIn("z42.core", "class H { [Native(\"__x\")] public static extern int F(); }"), "E0919"));
+}
+
+[Test]
+void test_unknown_package_not_judged() {
+    // 单文件 / REPL / 单测 harness 没有包名 ⇒ 落点规则无从谈起，不报。
+    Assert.Equal(0, nvCount(nvDiags("class H { [Native(\"__x\")] public static extern int F(); }"), "E0919"));
+}
+
+[Test]
+void test_malformed_native_reports_shape_not_lib() {
+    // 形态先错（E0907）就只报形态，不再叠一条 E0919。
+    DiagnosticBag d = nvDiagsIn("z42.app", "class H { [Native(\"\")] public static extern int F(); }");
+    Assert.Equal(1, nvCount(d, "E0907"));
+    Assert.Equal(0, nvCount(d, "E0919"));
+}

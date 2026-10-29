@@ -350,7 +350,7 @@ public sealed class SymbolCollector {
         // enforce-test-attr-placement：[Test]/[Benchmark]/[Setup]/[Teardown] 位置+签名强制（E0911/0912/0915）。
         while (c < cuCount) { this._tests._passTestAttrEnforce(cus[c]); c = c + 1; }
         c = 0;
-        while (c < cuCount) { this._enforce._passNativeEnforce(cus[c]); c = c + 1; }   // validate-extern-native（E0903/E0904/E0907）
+        while (c < cuCount) { this._enforce._passNativeEnforce(cus[c], table.SelfPkg); c = c + 1; }   // validate-extern-native（E0903/E0904/E0907/E0919）
         c = 0;
         // complete-test-attr-arg-checks：E0913（[ShouldThrow<E>] 的 E 须派生 Exception）——
         // 需符号表走基类链，故与上面的纯语法 pass 分开（design §1）。

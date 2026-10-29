@@ -97,6 +97,8 @@ stdlib 上的特化。
    判据是「运行时离了它能不能跑」，不是「实现今天住在哪」：diagnostics / harness 的实现眼下还在 VM 主
    builtin 表里，`lib=` 写它们将来拆出的组件名；运行时拆分时只动运行时一侧，库里的声明不用改。
 
+   编译期强制：包编译时，`z42.core` 以外的 `[Native]` 缺 `lib=` 报 `E0919`，没有白名单。
+
 **其余位置一律零 extern**，包括 ③ 纯脚本库，以及**编译器与工具链的全部包**（`src/compiler/**`：
 `z42c.*`、`z42.package`、`z42.project`、`z42.build`、`z42.doc`、`z42.scripting`……）。它们需要的平台
 能力、哈希、编码、反射，一律调 core 或 ② 库的**公开 API**，不直接绑 VM builtin、不重复声明别处已有的符号。
