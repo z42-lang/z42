@@ -71,15 +71,16 @@ public static class LineLint {
                 "文件 " + total.ToString() + " 行，超过 " + LineLint.FileLimitSoft().ToString() + " 行软限（提示，考虑拆分）", cu);
         }
 
+        LineIndex lx = new LineIndex(text);
         int i = 0;
         while (i < cu.DeclCount) {
-            LineLint._walkDecl(cu.Decls[i], text, cfg, bag, cu);
+            LineLint._walkDecl(cu.Decls[i], lx, cfg, bag, cu);
             i = i + 1;
         }
     }
 
     // 声明树遍历（不入语句体 ⇒ 局部函数 / lambda 天然排除）。
-    private static void _walkDecl(Decl d, string text, LintConfig cfg, DiagnosticBag bag, CompilationUnit cu) {
+    private static void _walkDecl(Decl d, LineIndex lx, LintConfig cfg, DiagnosticBag bag, CompilationUnit cu) {
         if (d == null) { return; }
         Attr[] attrs = null; int attrCount = 0;
         Decl inner = d;
@@ -91,28 +92,28 @@ public static class LineLint {
         if (inner is MethodDecl) {
             MethodDecl m = inner as MethodDecl;
             if (m.HasBody && !m.IsSynthesized) {
-                LineLint._checkFn(m, attrs, attrCount, text, cfg, bag, cu);
+                LineLint._checkFn(m, attrs, attrCount, lx, cfg, bag, cu);
             }
             return;
         }
         if (inner is ClassDecl) {
             ClassDecl cd = inner as ClassDecl;
             int i = 0;
-            while (i < cd.MemberCount) { LineLint._walkDecl(cd.Members[i], text, cfg, bag, cu); i = i + 1; }
+            while (i < cd.MemberCount) { LineLint._walkDecl(cd.Members[i], lx, cfg, bag, cu); i = i + 1; }
             return;
         }
         if (inner is ImplDecl) {
             ImplDecl im = inner as ImplDecl;
             int i = 0;
-            while (i < im.MethodCount) { LineLint._walkDecl(im.Methods[i], text, cfg, bag, cu); i = i + 1; }
+            while (i < im.MethodCount) { LineLint._walkDecl(im.Methods[i], lx, cfg, bag, cu); i = i + 1; }
             return;
         }
     }
 
     // 一个方法的体行数检查。位置报在方法头首 token（SuppressionSet 的字节区间以 token 偏移为准）。
-    private static void _checkFn(MethodDecl m, Attr[] attrs, int attrCount, string text,
+    private static void _checkFn(MethodDecl m, Attr[] attrs, int attrCount, LineIndex lx,
                                  LintConfig cfg, DiagnosticBag bag, CompilationUnit cu) {
-        int body = LineLint._fnBodyLines(m, text);
+        int body = LineLint._fnBodyLines(m, lx);
         if (body < 0) { return; }
         if (body > LineLint.FnLimitHard()) {
             LineLint._reportFn(bag, cfg, m.Span, attrs, attrCount, cu, LineLint.FnLinesHardRule,
@@ -163,39 +164,23 @@ public static class LineLint {
     // 方法体行数：Body.Span 锚定 `{` token（BlockStmt 的 Span 恰是 `{`——decl Span 只盖首 token 的通病
     // 在这里反而是便利）；从该行起按剥字面量后的括号深度找配对 `}` 行，数两行**之间**的非空、非 `//` 行。
     // 返回 -1 = 不可测（锚点不是 `{`——表达式体等合成形态；或括号不配对——畸形源）。
-    private static int _fnBodyLines(MethodDecl m, string text) {
+    // 只走本方法覆盖的行；逐行量（括号增量 / 是否计数）由 LineIndex 每文件算一次。
+    private static int _fnBodyLines(MethodDecl m, LineIndex lx) {
         if (!(m.Body is BlockStmt)) { return 0 - 1; }
         int open = (m.Body as BlockStmt).Span.Start;
-        if (open < 0 || open >= text.Length || text.CharAt(open) != '{') { return 0 - 1; }
-        string[] lines = text.Split("\n");
-        int hdr = LineLint._lineAt(text, open);
-        string[] stripped = new string[lines.Length];
-        int i = 0;
-        while (i < lines.Length) { stripped[i] = LineLint._stripLiterals(lines[i]); i = i + 1; }
-        int depth = LineLint._braceDelta(stripped[hdr]);
+        if (open < 0 || open >= lx.Text.Length || lx.Text.CharAt(open) != '{') { return 0 - 1; }
+        int hdr = lx.LineAt(open);
+        int depth = lx.Delta[hdr];
         if (depth <= 0) { return 0 - 1; }
         int body = 0;
         int j = hdr + 1;
-        while (j < lines.Length && depth > 0) {
-            depth = depth + LineLint._braceDelta(stripped[j]);
-            if (depth > 0) {
-                string t = lines[j].Trim();
-                if (t.Length > 0 && !t.StartsWith("//")) { body = body + 1; }
-            }
+        while (j < lx.Count && depth > 0) {
+            depth = depth + lx.Delta[j];
+            if (depth > 0 && lx.Counted[j]) { body = body + 1; }
             j = j + 1;
         }
         if (depth != 0) { return 0 - 1; }   // 到 EOF 没配上——畸形源，别误报
         return body;
-    }
-
-    // offset 所在行号（0 基，与 Split("\n") 下标同口径）。
-    private static int _lineAt(string text, int offset) {
-        int n = 0; int i = 0;
-        while (i < offset && i < text.Length) {
-            if (text.CharAt(i) == '\n') { n = n + 1; }
-            i = i + 1;
-        }
-        return n;
     }
 
     private static int _countLines(string text) {
@@ -204,42 +189,71 @@ public static class LineLint {
         if (len > 0 && text.CharAt(len - 1) != '\n') { n = n + 1; }
         return n;
     }
+}
 
-    private static int _braceDelta(string strippedLine) {
-        int d = 0; int i = 0; int len = strippedLine.Length;
-        while (i < len) {
-            char c = strippedLine.CharAt(i);
-            if (c == '{') { d = d + 1; } else if (c == '}') { d = d - 1; }
+// 一个文件的逐行量，按 `Split("\n")` 的行下标：每行括号增量（字符串 / 字符字面量与 `//` 注释里的括号不计，
+// 原门禁 _fnStripLiterals + _fnBraceDelta 的口径）、是否计入体行数（Trim 后非空且不以 `//` 开头）、行首偏移。
+// 此前每个方法都把整个文件重新 Split + 逐行剥字面量（剥法本身逐字符拼串），编 z42.core 时占约三成编译耗时。
+internal sealed class LineIndex {
+    public string Text;
+    public int    Count;
+    public int[]  Delta;
+    public bool[] Counted;
+    private int[] _starts;
+
+    public LineIndex(string text) {
+        this.Text = text;
+        string[] lines = text.Split("\n");
+        this.Count = lines.Length;
+        this.Delta = new int[lines.Length];
+        this.Counted = new bool[lines.Length];
+        this._starts = new int[lines.Length];
+        int off = 0;
+        int i = 0;
+        while (i < lines.Length) {
+            string line = lines[i];
+            this._starts[i] = off;
+            off = off + line.Length + 1;
+            this.Delta[i] = LineIndex._braceDelta(line.ToCharArray());
+            string t = line.Trim();
+            this.Counted[i] = t.Length > 0 && !t.StartsWith("//");
             i = i + 1;
         }
-        return d;
     }
 
-    // 剥字符串 / 字符字面量与 `//` 注释（原门禁 _fnStripLiterals 的移植——字面量里的括号不干扰计数）。
-    private static string _stripLiterals(string line) {
-        string outp = ""; int i = 0; int len = line.Length;
+    // offset 所在行号（0 基）：行首偏移表上二分，取最后一个 start <= offset 的行。
+    public int LineAt(int offset) {
+        int lo = 0; int hi = this.Count - 1;
+        while (lo < hi) {
+            int mid = (lo + hi + 1) / 2;
+            if (this._starts[mid] <= offset) { lo = mid; } else { hi = mid - 1; }
+        }
+        return lo;
+    }
+
+    // 跳过字符串 / 字符字面量，遇 `//` 截止，数其余位置的 `{` / `}`。
+    private static int _braceDelta(char[] cs) {
+        int d = 0; int i = 0; int len = cs.Length;
         while (i < len) {
-            char c = line.CharAt(i);
-            if (c == '/' && i + 1 < len && line.CharAt(i + 1) == '/') { break; }
+            char c = cs[i];
+            if (c == '/' && i + 1 < len && cs[i + 1] == '/') { break; }
             if (c == '"') {
                 i = i + 1;
                 while (i < len) {
-                    char d = line.CharAt(i);
-                    if (d == '\\') { i = i + 2; continue; }
-                    if (d == '"') { break; }
+                    if (cs[i] == '\\') { i = i + 2; continue; }
+                    if (cs[i] == '"') { break; }
                     i = i + 1;
                 }
-                outp = outp + "\"\"";
                 i = i + 1;
                 continue;
             }
             if (c == '\'') {
-                if (i + 2 < len && line.CharAt(i + 2) == '\'') { outp = outp + "''"; i = i + 3; continue; }
-                if (i + 3 < len && line.CharAt(i + 1) == '\\' && line.CharAt(i + 3) == '\'') { outp = outp + "''"; i = i + 4; continue; }
+                if (i + 2 < len && cs[i + 2] == '\'') { i = i + 3; continue; }
+                if (i + 3 < len && cs[i + 1] == '\\' && cs[i + 3] == '\'') { i = i + 4; continue; }
             }
-            outp = outp + line.Substring(i, 1);
+            if (c == '{') { d = d + 1; } else if (c == '}') { d = d - 1; }
             i = i + 1;
         }
-        return outp;
+        return d;
     }
 }
