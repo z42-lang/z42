@@ -69,7 +69,5 @@ reference = 253
 "vm.threads -> facade" = 1
 "vm.threads -> vm.core" = 1
 [layers.cfg]
-"corelib" = 71
 [layers.libc]
-"corelib" = 2
 # z42-gates:layers-end

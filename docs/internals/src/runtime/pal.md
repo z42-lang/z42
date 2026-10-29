@@ -2,7 +2,7 @@
 
 > single home for every `#[cfg(target_os)]` /
 > `#[cfg(unix)]` / `#[cfg(windows)]` split in the runtime.
-> 待办：corelib 剩余平台代码迁入、`pal::dynlib`、每 VM 一个 Vfs（runtime-audit §6.1 L-2）；Windows 实现、wasm32-wasi 见下文。
+> 待办：动态库加载（dynlib）、每 VM 一个 Vfs（runtime-audit §6.1 L-2）；Windows 实现、wasm32-wasi 见下文。
 
 ## 设计目标
 
@@ -20,9 +20,10 @@ CoreCLR `src/coreclr/pal/` 含 ~50 个文件抽象：
 | File I/O | `file.cpp` / `path.cpp` | `pal/fs.rs` | Done |
 | Signal / exceptions | `signal.cpp` | `pal/signal.rs`（仅 OS 原语；z42 reporter 留 signal_handler.rs） | Done |
 | Memory / pages | `virtual.cpp` | `pal/mem.rs` | Done |
-| Process / environ | `process.cpp` / `environ.cpp` | `pal/system.rs` | Done |
+| Process / environ | `process.cpp` / `environ.cpp` | `pal/process.rs`、`pal/system.rs` | Done |
 | Sockets | —（.NET 放在 System.Native 的 pal_networking） | `pal/net.rs` | Done |
 | Clock / time | `time.cpp` | `pal/time.rs` | Done |
+| Entropy | `random.cpp` | `pal/random.rs` | Done |
 
 z42 不抄 CoreCLR 的 PAL 内部分层（CoreCLR 还有 `pal/src/<arch>/` per-arch
 ASM）—— Cranelift / Rust 已经兜底 arch 差异。z42 PAL 只关心 **OS 差异**。
@@ -35,11 +36,13 @@ ASM）—— Cranelift / Rust 已经兜底 arch 差异。z42 PAL 只关心 **OS 
 pal/
 ├── mod.rs               — 模块入口 + 子模块 re-exports
 ├── README.md            — 快速 orientation
-├── system.rs            — hostname / os_version / os_name
-├── fs.rs                — make_executable / symlink / PATH_LIST_SEP
+├── system.rs            — hostname / os_version / os_name、进程环境（pid / cwd / env / temp）、OS_CAPS
+├── fs.rs                — make_executable / symlink / sync_before_rename / PATH_LIST_SEP
+├── process.rs           — 退出码解码、进程树 kill（进程组 / job object）、PATH 查找
+├── random.rs            — OS CSPRNG
 ├── mem.rs               — 页大小、GC chunk 页的 decommit / recommit
 ├── thread.rs            — 栈边界、线程 token、在大栈线程上运行
-├── time.rs              — 单调时钟（wasm32 无时钟时退为计数器）
+├── time.rs              — 单调时钟与墙钟（wasm32 无时钟时单调钟退为计数器、墙钟为 0）
 ├── net.rs               — socket 的 OS 部分：errno → Winsock 码、可中断 accept 等待、TCP keep-alive
 ├── signal.rs            — fatal 信号原语（非 POSIX 平台注册返回 false、写入为空操作）
 └── *_tests.rs           — 单元测试
@@ -50,6 +53,14 @@ pal/
 ```rust
 pub fn hostname() -> Option<String>;
 pub fn os_version() -> String;
+pub fn os_name() -> &'static str;                  // wasm32 统一为 "wasm"
+pub fn pid() -> u32;                               // 以下在 wasm32 上返回固定值 / 空操作
+pub fn current_exe() -> Option<PathBuf>;
+pub fn current_dir() -> io::Result<PathBuf>;
+pub fn set_current_dir(path: &str) -> io::Result<()>;
+pub fn temp_dir() -> PathBuf;
+pub fn set_env(name: &str, value: Option<&str>);
+pub const OS_CAPS: OsCaps;                         // Std.Platform.Capabilities() 的 OS 部分
 ```
 
 `#[cfg(unix)]` 走 libc::gethostname / libc::uname；`#[cfg(target_arch =
@@ -162,12 +173,31 @@ pub(crate) unsafe fn recommit(addr, len);
 
 GC 的 chunk 池用它把多余空 chunk 的物理页还给 OS（见 [GC TLAB](gc-tlab.md)）。
 
+### `pal/process.rs` — 子进程
+
+```rust
+// pal/process.rs
+pub fn exit_code(status: ExitStatus) -> i64;                 // unix 被信号杀 → 128 + 信号
+pub fn own_process_group(cmd: &mut Command);                 // unix：子进程自成进程组
+pub struct ProcessTree;                                      // attach(child, own_group) / kill(child)
+pub fn find_executable(name: &str) -> Option<String>;        // POSIX `command -v` / Windows `where`
+```
+
+超时 kill 要连孙进程一起杀：unix 杀整个进程组，Windows 把子进程放进 job object 后 `TerminateJobObject`。
+
+### `pal/random.rs` — 熵
+
+`fill(buf) -> io::Result<()>`；wasm32 没有接入熵源，返回 `Unsupported`（`Std.Crypto` 映射为 NotSupportedException）。
+
 ### `pal/time.rs` — 时钟
 
 ```rust
 // pal/time.rs
 pub const HAS_CLOCK: bool;                                  // wasm32-unknown-unknown 为 false
 pub fn monotonic_us() -> u64;                               // 无时钟时每次调用返回下一个计数
+pub fn monotonic_ns() -> u64;
+pub fn wall_unix_ms() -> i64;                               // 无时钟时为 0
+pub fn wall_unix_ns() -> u64;
 ```
 
 GC 的停顿计时用 `monotonic_us`；增量 GC 的分片预算与停顿自适应在 `HAS_CLOCK` 为 `false` 时改按工作量计。
