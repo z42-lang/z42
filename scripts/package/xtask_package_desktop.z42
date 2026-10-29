@@ -7,6 +7,7 @@
 //   desktop manifest/example/helper functions
 namespace Z42Xtask;
 
+using Std.Collections;
 using Std.IO;
 using Std.Time;
 
@@ -37,12 +38,8 @@ int _packageDesktop(string root, string pkgDir, string rid, string version, stri
     }
     string z42cDir = Path.Join(pkgDir, "programs/z42c");
     Directory.Create(z42cDir);
-    string[] z42cSeedMembers = _compilerMembers(root);
-    int zsi = 0;
-    while (zsi < z42cSeedMembers.Length) {
-        string zsp = _compilerMemberZpkg(root, z42cSeedMembers[zsi], "release");
-        _copyIfExists(zsp, Path.Join(z42cDir, z42cSeedMembers[zsi] + ".zpkg"));
-        zsi = zsi + 1;
+    foreach (var m in _compilerMembers(root)) {
+        _copyIfExists(_compilerMemberZpkg(root, m, "release"), Path.Join(z42cDir, m + ".zpkg"));
     }
     Console.WriteLine("      ✓ programs/z42c/ (z42c.* seed zpkgs)");
 
@@ -79,8 +76,7 @@ int _packageDesktop(string root, string pkgDir, string rid, string version, stri
         string[] pz = Path.Glob(flatPlugins, "*.zpkg");
         if (pz.Length > 0) {
             Directory.Create(Path.Join(pkgDir, "plugins"));
-            int zi = 0;
-            while (zi < pz.Length) { _copyFile(pz[zi], Path.Join(pkgDir, "plugins", Path.GetFileName(pz[zi]))); zi = zi + 1; }
+            foreach (var z in pz) { _copyFile(z, Path.Join(pkgDir, "plugins", Path.GetFileName(z))); }
             Console.WriteLine("  plugins/: " + pz.Length.ToString() + " carried plugin zpkg(s)");
         }
     }
@@ -113,27 +109,14 @@ int _pkgBuildToolchainComponents(string root, string z42cDir, string cargoOut, s
     // **包**装的是 Rust 的 per-RID apphost stub，与这里的 z42 lib 无关）+ 工具链 apphost（packages.toml
     // `[component.*]`，`_toolchainApphostTomls`）。z42i 例外：依赖 z42.repl，须在循环后单建（见下）。
     string z42iToml = _pkgcfgFindComponent(_pkgcfgLoad(root), "z42i").project;
-    string[] wl = _workloadTomls();
-    string[] tc = _toolchainApphostTomls();
-    string[] seq = new string[wl.Length + tc.Length];
-    int sn = 0;
-    int si = 0;
-    while (si < wl.Length) { seq[sn] = wl[si]; sn = sn + 1; si = si + 1; }
-    si = 0;
-    while (si < tc.Length) {
-        if (tc[si] != z42iToml) { seq[sn] = tc[si]; sn = sn + 1; }
-        si = si + 1;
-    }
-    string[] buildTomls = new string[sn];
-    int bk = 0;
-    while (bk < sn) { buildTomls[bk] = seq[bk]; bk = bk + 1; }
-    int bi = 0;
-    while (bi < buildTomls.Length) {
+    List<string> buildTomls = new List<string>();
+    buildTomls.AddRange(_workloadTomls());
+    foreach (var t in _toolchainApphostTomls()) { if (t != z42iToml) { buildTomls.Add(t); } }
+    for (int bi = 0; bi < buildTomls.Count; bi = bi + 1) {
         // 本循环「边建边被后面的项依赖」（workload lib 先建，launcher / z42b / z42d 依赖 `z42.workload.*`）——
         // 解析面是**实时**的 stdlib flat（workload 产物就落那儿），每轮都看得到前面刚建的。
         c = _z42cBuildToml(hostVm, z42cDir, _toolchainCompileLibs(root), buildTomls[bi]);
         if (c != 0) { return c; }
-        bi = bi + 1;
     }
     // z42.interactive（z42i）：z42.repl 是其**私有 path 依赖**（z42.interactive.z42.toml 声明
     // `"z42.repl" = { path = "../repl" }`）——`z42c build`

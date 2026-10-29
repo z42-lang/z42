@@ -278,11 +278,7 @@ int _pkgCopyLibsOf(string root, string libsDir, string pkgDir) {
             + " —— 拒绝回落到「整目录拷」，那会把编译器域的包一起打进 libs/");
         return 1;
     }
-    int n = 0;
-    int i = 0;
-    while (i < members.Length) {
-        string m = members[i];
-        i = i + 1;
+    foreach (var m in members) {
         string zp = Path.Join(libsDir, m + ".zpkg");
         if (!File.Exists(zp)) {
             ConsoleError.WriteLine("error: stdlib 成员 " + m + " 的 zpkg 不在 " + libsDir
@@ -290,11 +286,10 @@ int _pkgCopyLibsOf(string root, string libsDir, string pkgDir) {
             return 1;
         }
         File.Copy(zp, Path.Join(pkgDir, "libs/" + m + ".zpkg"));
-        n = n + 1;
         string zs = Path.Join(libsDir, m + ".zsym");
         if (File.Exists(zs)) { File.Copy(zs, Path.Join(pkgDir, "libs/" + m + ".zsym")); }
     }
-    _vDetailed("  stdlib: staged " + n.ToString() + " member(s) by default_members");
+    _vDetailed("  stdlib: staged " + members.Length.ToString() + " member(s) by default_members");
     return 0;
 }
 
@@ -357,17 +352,14 @@ _PkgIdentityRule[] _pkgIdentityRules(string root) {
 }
 
 int _pkgSourceIdentityCheck(string root, string pkgDir) {
-    _PkgIdentityRule[] rules = _pkgIdentityRules(root);
     _PkgIdentityTally t = new _PkgIdentityTally();
     string covered = "";
-    int i = 0;
-    while (i < rules.Length) {
-        _PkgIdentityRule r = rules[i];
+    foreach (var r in _pkgIdentityRules(root)) {
         string pkgPath = Path.Join(pkgDir, r.PkgRel);
         int before = t.Compared;
         if (Directory.Exists(pkgPath))  { _pkgIdentityWalk(pkgPath, r.SrcAbs, r.Suffix, r.PkgRel, t); }
         else if (File.Exists(pkgPath))  { _pkgIdentityOne(pkgPath, r.SrcAbs, r.PkgRel, t); }
-        else                            { i = i + 1; continue; }   // 本包没有这一类
+        else                            { continue; }   // 本包没有这一类
         int n = t.Compared - before;
         if (n == 0) {
             // 路径在、却一个文件都没比 → 规则与拷贝点脱钩了。**这是失败，不是警告**：
@@ -377,7 +369,6 @@ int _pkgSourceIdentityCheck(string root, string pkgDir) {
         } else {
             covered = covered + (covered.Length > 0 ? ", " : "") + r.Label + " " + n.ToString();
         }
-        i = i + 1;
     }
     if (t.Mismatch > 0) { return 1; }
     if (t.Compared == 0) {
@@ -408,17 +399,4 @@ void _pkgIdentityOne(string pkgFile, string srcFile, string rel, _PkgIdentityTal
         ConsoleError.WriteLine("  ✗ " + rel + " differs from " + srcFile);
         t.Mismatch = t.Mismatch + 1;
     }
-}
-
-bool _filesEqual(string a, string b) {
-    if (!File.Exists(a) || !File.Exists(b)) { return false; }
-    byte[] ba = File.ReadAllBytes(a);
-    byte[] bb = File.ReadAllBytes(b);
-    if (ba.Length != bb.Length) { return false; }
-    int i = 0;
-    while (i < ba.Length) {
-        if (ba[i] != bb[i]) { return false; }
-        i = i + 1;
-    }
-    return true;
 }

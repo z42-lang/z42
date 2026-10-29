@@ -1,8 +1,9 @@
 // xtask — the single versions.toml reader. Two access styles:
-//   - TomlValue-based (_vget/_vgetList): parse once, read many keys (setup).
-//   - root-based (_vRead/_vReadOr): convenience that parses versions.toml fresh.
+//   - TomlValue-based (_vget/_vgetList): read keys from an already-parsed doc.
+//   - root-based (_vRead/_vReadOr/_v*): read through `_vparse`, which parses once per process.
 namespace Z42Xtask;
 
+using Std.Collections;
 using Std.IO;
 using Std.Toml;
 
@@ -31,8 +32,7 @@ string[] _vgetList(TomlValue toml, string dotted) {
         node = node.Get(key);
     }
     string[] xs = new string[node.Count()];
-    int i = 0;
-    while (i < node.Count()) { xs[i] = _scalarStr(node.At(i)); i = i + 1; }
+    for (int i = 0; i < xs.Length; i = i + 1) { xs[i] = _scalarStr(node.At(i)); }
     return xs;
 }
 
@@ -40,12 +40,23 @@ string[] _vgetList(TomlValue toml, string dotted) {
 // 全部读取方都经这里，别再各自 Path.Join(root, …)。
 string _versionsPath(string root) { return Path.Join(root, "scripts/versions.toml"); }
 
-// Parse versions.toml into a TomlValue.
-TomlValue _vparse(string root) {
-    return TomlValue.Parse(File.ReadAllText(_versionsPath(root)));
+// 进程内缓存：xtask 是短命进程、不写 versions.toml，一次运行里每个 root 只读一遍、解析一遍。
+static class VersionsCache {
+    public static string Root = "";
+    public static TomlValue? Doc = null;
 }
 
-// Dotted-path scalar, parsing versions.toml fresh (convenience for one-off reads).
+// Parse versions.toml into a TomlValue (cached per root; callers only read it).
+TomlValue _vparse(string root) {
+    TomlValue? doc = VersionsCache.Doc;
+    if (doc != null && VersionsCache.Root == root) { return doc; }
+    TomlValue parsed = TomlValue.Parse(File.ReadAllText(_versionsPath(root)));
+    VersionsCache.Doc = parsed;
+    VersionsCache.Root = root;
+    return parsed;
+}
+
+// Dotted-path scalar from versions.toml.
 // Throws if the file or key is missing — use _vReadOr when a default is wanted.
 string _vRead(string root, string dotted) {
     return _vget(_vparse(root), dotted);
@@ -72,42 +83,23 @@ string[] _vgetListFromFile(string root, string relPath, string dotted) {
 // 到代码里另抄的名单。
 
 bool _strIn(string[] xs, string x) {
-    int i = 0;
-    while (i < xs.Length) { if (xs[i] == x) { return true; } i = i + 1; }
+    foreach (var s in xs) { if (s == x) { return true; } }
     return false;
 }
 
 // 用 sep 连接字符串数组（错误信息里列参数域用，如 "android|ios|wasm"）。
-string _joinStrings(string[] xs, string sep) {
-    string acc = "";
-    int i = 0;
-    while (i < xs.Length) {
-        if (acc.Length > 0) { acc = acc + sep; }
-        acc = acc + xs[i];
-        i = i + 1;
-    }
-    return acc;
-}
+string _joinStrings(string[] xs, string sep) { return String.Join(sep, xs); }
 
 // 全部 workload（[workload].members，文件序）。desktop = 宿主 workload，恒在列。
 string[] _vWorkloads(string root) {
-    return _vgetListFromFile(root, "scripts/versions.toml", "workload.members");
+    return _vgetList(_vparse(root), "workload.members");
 }
 
 // 跨平台 workload（= members 去 desktop）：`setup --os` / `setup check --os` 的参数域。
 string[] _vCrossWorkloads(string root) {
-    string[] ms = _vWorkloads(root);
-    string[] xs = new string[ms.Length];
-    int n = 0;
-    int i = 0;
-    while (i < ms.Length) {
-        if (ms[i] != "desktop") { xs[n] = ms[i]; n = n + 1; }
-        i = i + 1;
-    }
-    string[] tight = new string[n];
-    int k = 0;
-    while (k < n) { tight[k] = xs[k]; k = k + 1; }
-    return tight;
+    List<string> xs = new List<string>();
+    foreach (var m in _vWorkloads(root)) { if (m != "desktop") { xs.Add(m); } }
+    return xs.ToArray();
 }
 
 // [rid.*] 表节点；文件缺 rid 段时返回 null（调用方按配置错误处理）。
@@ -144,18 +136,9 @@ bool _vRidPrimary(string root, string rid) {
 
 // 某类别下的全部 RID（排序）。
 string[] _vRidsOfCategory(string root, string category) {
-    string[] names = _vRidNames(root);
-    string[] xs = new string[names.Length];
-    int n = 0;
-    int i = 0;
-    while (i < names.Length) {
-        if (_vRidCategory(root, names[i]) == category) { xs[n] = names[i]; n = n + 1; }
-        i = i + 1;
-    }
-    string[] tight = new string[n];
-    int k = 0;
-    while (k < n) { tight[k] = xs[k]; k = k + 1; }
-    return tight;
+    List<string> xs = new List<string>();
+    foreach (var rid in _vRidNames(root)) { if (_vRidCategory(root, rid) == category) { xs.Add(rid); } }
+    return xs.ToArray();
 }
 
 // ── z42b 构建期常量（生成物，不入库）─────────────────────────────────────────

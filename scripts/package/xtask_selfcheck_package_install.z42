@@ -32,8 +32,7 @@ _PackagesConfig _instConfig(string pkgName, string[] include, _PkgComponent[] co
     pkg.name = pkgName;
     pkg.include = include;
     _PackagesConfig cfg = new _PackagesConfig();
-    cfg.packages = new _PkgPackage[1];
-    cfg.packages[0] = pkg;
+    cfg.packages = new _PkgPackage[]{ pkg };
     cfg.components = comps;
     return cfg;
 }
@@ -94,9 +93,7 @@ int _testPackagesInstall() {
     _PackagesConfig extCfg = _instConfig("install-test-ext", new string[]{ "native-ext" },
         new _PkgComponent[]{ _instComp("native-ext", "cargo-native-ext", "") });
     _stgAssert("native-ext install ok", _pkgInstallPackage(extCfg, root, "install-test-ext", extDir, ctx) == 0);
-    int extFiles = 0;
-    foreach (var f in Directory.Enumerate(Path.Join(extDir, "native"))) { extFiles = extFiles + 1; }
-    _stgAssert("native-ext: exactly the compression dylib", extFiles == 1
+    _stgAssert("native-ext: exactly the compression dylib", Directory.Enumerate(Path.Join(extDir, "native")).Length == 1
         && File.Exists(Path.Join(extDir, "native/libz42_compression.dylib")));
 
     // stdlib: reuses the repo's real built dist — at least one zpkg lands at the declared libs/ dest.
@@ -116,12 +113,9 @@ int _testPackagesInstall() {
     // 与命令顺序无关 ⇒ 它守的是**构造**，不是当下这一刻的目录内容。
     string fakeLibs = _xtaskWork(root, "install-test-fake-libs");
     _resetDir(fakeLibs);
-    string[] mem = _stdlibList(root);
-    int mi = 0;
-    while (mi < mem.Length) {
-        string src = Path.Join(_libsDir(root), mem[mi] + ".zpkg");
-        if (File.Exists(src)) { File.Copy(src, Path.Join(fakeLibs, mem[mi] + ".zpkg")); }
-        mi = mi + 1;
+    foreach (var m in _stdlibList(root)) {
+        string src = Path.Join(_libsDir(root), m + ".zpkg");
+        if (File.Exists(src)) { File.Copy(src, Path.Join(fakeLibs, m + ".zpkg")); }
     }
     File.WriteAllText(Path.Join(fakeLibs, "z42c.core.zpkg"), "INTRUDER");          // 编译器域
     File.WriteAllText(Path.Join(fakeLibs, "z42.workload.ios.zpkg"), "INTRUDER");   // workload
@@ -137,12 +131,8 @@ int _testPackagesInstall() {
     // 🔴 **编译器域一个都不许出现在 shipped `libs/`**。
     // 清单读 `_compilerMembers`（compiler workspace 的 default_members）：拆出新编译器包时本门自动跟上，
     // 不留「名单在自检里手抄一份」的漂移面。
-    string[] domain = _compilerMembers(root);
-    int di = 0;
-    while (di < domain.Length) {
-        _stgAssert(domain[di] + " NOT in shipped libs/",
-            !File.Exists(Path.Join(pkgDir, Path.Join("libs", domain[di] + ".zpkg"))));
-        di = di + 1;
+    foreach (var m in _compilerMembers(root)) {
+        _stgAssert(m + " NOT in shipped libs/", !File.Exists(Path.Join(pkgDir, Path.Join("libs", m + ".zpkg"))));
     }
 
     // 🔴 **workload 包一个都不许出现在 shipped `libs/`**。

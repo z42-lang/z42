@@ -56,14 +56,10 @@ int _testPackagesRelease() {
         int nP = rids.Length - nD;                            // 平台 RID：runtime
         int nW = _vCrossWorkloads(root).Length;               // 平台 workload：每个恰由一个主 RID 出（`check versions` 守）
         _relAssert("rid table non-empty", nD > 0 && nP > 0 && nW > 0);
-        int i = 0;
-        while (i < rids.Length) {
-            _relFakePkg(dist, "z42-" + ver + "-" + rids[i] + "-release", "manifest.toml");
-            _relFakePkg(dist, "z42-runtime-" + ver + "-" + rids[i], "manifest.toml");
-            if (_relIsDesktop(rids[i])) {
-                _relFakePkg(dist, "z42-workload-" + ver + "-desktop-" + rids[i], "apphost-" + rids[i]);
-            }
-            i = i + 1;
+        foreach (var rid in rids) {
+            _relFakePkg(dist, "z42-" + ver + "-" + rid + "-release", "manifest.toml");
+            _relFakePkg(dist, "z42-runtime-" + ver + "-" + rid, "manifest.toml");
+            if (_relIsDesktop(rid)) { _relFakePkg(dist, "z42-workload-" + ver + "-desktop-" + rid, "apphost-" + rid); }
         }
         _relFakePkg(dist, "z42-workload-" + ver + "-test", "manifest.toml");
         _relFakePkg(dist, "z42-" + ver + "-linux-x64-debug", "manifest.toml");   // 噪声

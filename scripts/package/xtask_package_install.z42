@@ -30,17 +30,14 @@ class _PkgInstallCtx {
 
 // 按 `[package.<packageName>].include` 顺序把每个组件装进 pkgDir。任一组件失败 ⇒ 立即返回非 0（不留半个包当成功）。
 int _pkgInstallPackage(_PackagesConfig cfg, string root, string packageName, string pkgDir, _PkgInstallCtx ctx) {
-    _PkgComponent[] comps = _pkgcfgResolveInclude(cfg, packageName);
-    int i = 0;
-    while (i < comps.Length) {
-        int c = _pkgInstallComponent(root, comps[i], pkgDir, ctx);
+    foreach (var comp in _pkgcfgResolveInclude(cfg, packageName)) {
+        int c = _pkgInstallComponent(root, comp, pkgDir, ctx);
         if (c != 0) {
-            ConsoleError.WriteLine("error: [package." + packageName + "] component '" + comps[i].name
-                + "' (kind=" + comps[i].kind + ") failed to install into " + pkgDir);
+            ConsoleError.WriteLine("error: [package." + packageName + "] component '" + comp.name
+                + "' (kind=" + comp.kind + ") failed to install into " + pkgDir);
             return c;
         }
-        Console.WriteLine("      ✓ " + comps[i].name);
-        i = i + 1;
+        Console.WriteLine("      ✓ " + comp.name);
     }
     return 0;
 }

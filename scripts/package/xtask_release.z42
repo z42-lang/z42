@@ -6,6 +6,7 @@
 // (same as cargo elsewhere); the orchestration logic lives here in z42.
 namespace Z42Xtask;
 
+using Std.Collections;
 using Std.IO;
 using Std.Json;
 using Std.Time;
@@ -26,9 +27,7 @@ int _releaseAssembleDesktop(string label, string dist) {
 
     string[] rids = _vRidsOfCategory(root, "desktop");
     if (rids.Length == 0) { ConsoleError.WriteLine("assemble-desktop-workload: versions.toml [rid.*] 没有 category = desktop 的 RID"); return 1; }
-    int i = 0;
-    while (i < rids.Length) {
-        string rid = rids[i];
+    foreach (var rid in rids) {
         string ar = Path.Join(distDir, _desktopPieceName(label, rid));
         if (!File.Exists(ar)) {
             ConsoleError.WriteLine("assemble-desktop-workload: missing piece for " + rid + " (" + Path.GetFileName(ar) + ")");
@@ -40,13 +39,9 @@ int _releaseAssembleDesktop(string label, string dist) {
         if (ar.EndsWith(".zip")) { xc = _exec(new Process("unzip").Arg("-q").Arg(ar).Arg("-d").Arg(tmp)); }
         else { xc = _exec(new Process("tar").Arg("-xzf").Arg(ar).Arg("-C").Arg(tmp)); }
         if (xc != 0) { ConsoleError.WriteLine("extract failed: " + ar); return 1; }
-        string[] hosts = Path.Glob(tmp, "apphost-" + rid + "*");
-        int h = 0;
-        while (h < hosts.Length) {
-            File.Copy(hosts[h], Path.Join(merged, Path.GetFileName(hosts[h])));
-            h = h + 1;
+        foreach (var h in Path.Glob(tmp, "apphost-" + rid + "*")) {
+            File.Copy(h, Path.Join(merged, Path.GetFileName(h)));
         }
-        i = i + 1;
     }
 
     File.WriteAllText(Path.Join(merged, "manifest.toml"),
@@ -76,9 +71,7 @@ int _releaseAssembleDesktop(string label, string dist) {
 }
 
 void _deleteGlob(string dir, string pattern) {
-    string[] hits = Path.Glob(dir, pattern);
-    int i = 0;
-    while (i < hits.Length) { File.Delete(hits[i]); i = i + 1; }
+    foreach (var hit in Path.Glob(dir, pattern)) { File.Delete(hit); }
 }
 
 // `package release` 第三步：generate <dist>/release-index.json from <dist>/SHA256SUMS — the launcher's supply
@@ -100,70 +93,55 @@ int _releaseGenIndex(string label, string dist, string channel, string tag, stri
     // RID / workload 清单：versions.toml [rid.*] / [workload].members（desktop RID 出 sdk+runtime，
     // 其余出 runtime；workload 归档另加 release 专用的 `test` 伪 workload——测试 bundle 的归档名，不是平台）。
     string[] dRids = _vRidsOfCategory(root, "desktop");
-    string[] allRids = _vRidNames(root);
-    string[] pRids = new string[allRids.Length];
-    int pn = 0;
-    int pi = 0;
-    while (pi < allRids.Length) {
-        if (_vRidCategory(root, allRids[pi]) != "desktop") { pRids[pn] = allRids[pi]; pn = pn + 1; }
-        pi = pi + 1;
-    }
-    string[] pRidsTight = new string[pn];
-    int pk = 0;
-    while (pk < pn) { pRidsTight[pk] = pRids[pk]; pk = pk + 1; }
-    pRids = pRidsTight;
-    string[] wlMembers = _vWorkloads(root);
-    string[] wls = new string[wlMembers.Length + 1];
-    int wn = 0;
-    while (wn < wlMembers.Length) { wls[wn] = wlMembers[wn]; wn = wn + 1; }
-    wls[wn] = "test";
+    List<string> pRids = new List<string>();
+    foreach (var rid in _vRidNames(root)) { if (_vRidCategory(root, rid) != "desktop") { pRids.Add(rid); } }
+    List<string> wls = new List<string>();
+    wls.AddRange(_vWorkloads(root));
+    wls.Add("test");
 
     // ── validate: every required archive has a sha in SHA256SUMS ──
+    List<string> required = new List<string>();
+    foreach (var rid in dRids) { required.Add(_sdkName(label, rid)); required.Add(_rtName(label, rid)); }
+    for (int i = 0; i < pRids.Count; i = i + 1) { required.Add(_rtName(label, pRids[i])); }
     int missing = 0;
-    int i = 0;
-    while (i < dRids.Length) {
-        if (_shaOf(sums, _sdkName(label, dRids[i])).Length == 0)     { ConsoleError.WriteLine("release-index: missing sha for " + _sdkName(label, dRids[i])); missing = missing + 1; }
-        if (_shaOf(sums, _rtName(label, dRids[i])).Length == 0)      { ConsoleError.WriteLine("release-index: missing sha for " + _rtName(label, dRids[i])); missing = missing + 1; }
-        i = i + 1;
+    for (int i = 0; i < required.Count; i = i + 1) {
+        if (_shaOf(sums, required[i]).Length == 0) {
+            ConsoleError.WriteLine("release-index: missing sha for " + required[i]); missing = missing + 1;
+        }
     }
-    i = 0;
-    while (i < pRids.Length) {
-        if (_shaOf(sums, _rtName(label, pRids[i])).Length == 0)      { ConsoleError.WriteLine("release-index: missing sha for " + _rtName(label, pRids[i])); missing = missing + 1; }
-        i = i + 1;
-    }
-    i = 0;
-    while (i < wls.Length) {
-        if (_shaOf(sums, _wlArchiveName(label, wls[i])).Length == 0) { ConsoleError.WriteLine("release-index: missing sha for workload " + wls[i]); missing = missing + 1; }
-        i = i + 1;
+    for (int i = 0; i < wls.Count; i = i + 1) {
+        if (_shaOf(sums, _wlArchiveName(label, wls[i])).Length == 0) {
+            ConsoleError.WriteLine("release-index: missing sha for workload " + wls[i]); missing = missing + 1;
+        }
     }
     if (missing > 0) { return 1; }
 
     // ── build the index JSON ──
     JsonValue runtimes = JsonValue.OfObject();
-    i = 0;
-    while (i < dRids.Length) {
-        string rid = dRids[i];
+    foreach (var rid in dRids) {
         JsonValue e = JsonValue.OfObject();
         e.Set("sdk",     _jArch(_sdkName(label, rid), _shaOf(sums, _sdkName(label, rid))));
         e.Set("runtime", _jArch(_rtName(label, rid),  _shaOf(sums, _rtName(label, rid))));
         runtimes.Set(rid, e);
-        i = i + 1;
     }
-    i = 0;
-    while (i < pRids.Length) {
+    for (int i = 0; i < pRids.Count; i = i + 1) {
         string rid = pRids[i];
         JsonValue e = JsonValue.OfObject();
         e.Set("runtime", _jArch(_rtName(label, rid), _shaOf(sums, _rtName(label, rid))));
         runtimes.Set(rid, e);
-        i = i + 1;
     }
 
+    JsonValue any = _jStrs(new string[]{ "*" });
+    JsonValue none = JsonValue.OfArray();
     JsonValue workloads = JsonValue.OfObject();
-    workloads.Set("ios",     _jWorkload(label, sums, "ios",     _strArr1("macos-arm64"),                                       _strArr2("ios-arm64", "iossim-arm64")));
-    workloads.Set("android", _jWorkload(label, sums, "android", _strArr4("macos-arm64", "linux-x64", "linux-arm64", "windows-x64"), _strArr2("android-arm64", "android-x64")));
-    workloads.Set("wasm",    _jWorkload(label, sums, "wasm",    _strArr1("*"),                                                 _strArr1("browser-wasm")));
-    workloads.Set("desktop", _jWorkload(label, sums, "desktop", _strArr1("*"),                                                 JsonValue.OfArray()));
-    workloads.Set("test",    _jWorkload(label, sums, "test",    _strArr1("*"),                                                 JsonValue.OfArray()));
+    workloads.Set("ios",     _jWorkload(label, sums, "ios",     _jStrs(new string[]{ "macos-arm64" }),
+        _jStrs(new string[]{ "ios-arm64", "iossim-arm64" })));
+    workloads.Set("android", _jWorkload(label, sums, "android",
+        _jStrs(new string[]{ "macos-arm64", "linux-x64", "linux-arm64", "windows-x64" }),
+        _jStrs(new string[]{ "android-arm64", "android-x64" })));
+    workloads.Set("wasm",    _jWorkload(label, sums, "wasm",    any, _jStrs(new string[]{ "browser-wasm" })));
+    workloads.Set("desktop", _jWorkload(label, sums, "desktop", any, none));
+    workloads.Set("test",    _jWorkload(label, sums, "test",    any, none));
 
     JsonValue idx = JsonValue.OfObject();
     idx.Set("schema",    JsonValue.OfLong(1L));
@@ -192,18 +170,9 @@ string _wlArchiveName(string label, string wl)     { return "z42-workload-" + la
 
 // first non-empty token of the SHA256SUMS line whose last token == archive.
 string _shaOf(string sums, string archive) {
-    string[] lines = sums.Split("\n");
-    int i = 0;
-    while (i < lines.Length) {
-        string ln = lines[i].Trim();
-        if (ln.Length > 0) {
-            string[] parts = ln.Split(" ");
-            string name = "";
-            int k = parts.Length - 1;
-            while (k >= 0) { if (parts[k].Length > 0) { name = parts[k]; break; } k = k - 1; }
-            if (name == archive) { return parts[0]; }
-        }
-        i = i + 1;
+    foreach (var line in sums.Split("\n")) {
+        string[] parts = _splitWords(line);
+        if (parts.Length > 0 && parts[parts.Length - 1] == archive) { return parts[0]; }
     }
     return "";
 }
@@ -223,9 +192,11 @@ JsonValue _jWorkload(string label, string sums, string name, JsonValue host, Jso
     o.Set("runtimes", rts);
     return o;
 }
-JsonValue _strArr1(string a) { JsonValue r = JsonValue.OfArray(); r.Add(JsonValue.OfString(a)); return r; }
-JsonValue _strArr2(string a, string b) { JsonValue r = JsonValue.OfArray(); r.Add(JsonValue.OfString(a)); r.Add(JsonValue.OfString(b)); return r; }
-JsonValue _strArr4(string a, string b, string c, string d) { JsonValue r = JsonValue.OfArray(); r.Add(JsonValue.OfString(a)); r.Add(JsonValue.OfString(b)); r.Add(JsonValue.OfString(c)); r.Add(JsonValue.OfString(d)); return r; }
+JsonValue _jStrs(string[] xs) {
+    JsonValue r = JsonValue.OfArray();
+    foreach (var x in xs) { r.Add(JsonValue.OfString(x)); }
+    return r;
+}
 
 // ── `--archive` / `xtask package release` ──────────────────────────────────────────────────
 //
@@ -260,10 +231,7 @@ string _relPrimaryWorkload(string rid) {
 // 包目录名 → 归档文件名（含扩展名）；不是要发布的包 → ""。
 string _relArchiveName(string dirName, string ver, string label) {
     if (dirName == "z42-workload-" + ver + "-test") { return _wlArchiveName(label, "test"); }
-    string[] rids = _relRids();
-    int i = 0;
-    while (i < rids.Length) {
-        string rid = rids[i];
+    foreach (var rid in _relRids()) {
         if (dirName == "z42-" + ver + "-" + rid + "-release") {
             if (_relIsDesktop(rid)) { return _sdkName(label, rid); }
             string wl = _relPrimaryWorkload(rid);
@@ -271,7 +239,6 @@ string _relArchiveName(string dirName, string ver, string label) {
         }
         if (dirName == "z42-runtime-" + ver + "-" + rid)           { return _rtName(label, rid); }
         if (dirName == "z42-workload-" + ver + "-desktop-" + rid)  { return _desktopPieceName(label, rid); }
-        i = i + 1;
     }
     return "";
 }
@@ -356,22 +323,16 @@ int _packageRelease(string label, string dist, string channel, string tag, strin
 // <dist>/SHA256SUMS：`<sha>  <name>`，按文件名排序（与 `shasum -a 256 … | sort -k2` 同形）。
 // 摘要走系统工具：Std.Crypto.Sha256 是纯脚本实现，解释模式下对几百 MB 的归档太慢。
 int _releaseWriteSums(string distDir) {
-    string[] tgz = Path.Glob(distDir, "z42-*.tar.gz");
-    string[] zips = Path.Glob(distDir, "z42-*.zip");
-    string[] names = new string[tgz.Length + zips.Length];
-    int i = 0;
-    while (i < tgz.Length) { names[i] = Path.GetFileName(tgz[i]); i = i + 1; }
-    int j = 0;
-    while (j < zips.Length) { names[tgz.Length + j] = Path.GetFileName(zips[j]); j = j + 1; }
-    names = _sortedStrings(names);
+    List<string> found = new List<string>();
+    foreach (var f in Path.Glob(distDir, "z42-*.tar.gz")) { found.Add(Path.GetFileName(f)); }
+    foreach (var f in Path.Glob(distDir, "z42-*.zip")) { found.Add(Path.GetFileName(f)); }
+    string[] names = _sortedStrings(found.ToArray());
     if (names.Length == 0) { ConsoleError.WriteLine("SHA256SUMS: " + distDir + " 下没有归档"); return 1; }
     string outp = "";
-    i = 0;
-    while (i < names.Length) {
-        string sha = _sha256Hex(Path.Join(distDir, names[i]));
-        if (sha.Length != 64) { ConsoleError.WriteLine("SHA256SUMS: 算不出 " + names[i] + " 的 sha256"); return 1; }
-        outp = outp + sha + "  " + names[i] + "\n";
-        i = i + 1;
+    foreach (var name in names) {
+        string sha = _sha256Hex(Path.Join(distDir, name));
+        if (sha.Length != 64) { ConsoleError.WriteLine("SHA256SUMS: 算不出 " + name + " 的 sha256"); return 1; }
+        outp = outp + sha + "  " + name + "\n";
     }
     File.WriteAllText(Path.Join(distDir, "SHA256SUMS"), outp);
     Console.WriteLine("✓ SHA256SUMS (" + names.Length.ToString() + " archives)");

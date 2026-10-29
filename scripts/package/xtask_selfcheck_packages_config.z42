@@ -79,23 +79,19 @@ int _testPackagesConfig() {
     _pkgAssertEq("runtime.include[0]", "native", runtimeComps[0].name);
     _pkgAssertEq("runtime.include[0].kind", "cargo-native", runtimeComps[0].kind);
     _pkgAssertEq("runtime.include[1]", "stdlib", runtimeComps[1].name);
-    int i = 0;
-    while (i < runtimeComps.Length) {
+    foreach (var rc in runtimeComps) {
         // 整个编译器域同列：它按定义是编译期的东西，进 runtime 包就等于把契约包塞给一个
         // 永远不会编译任何东西的运行时。它随 `z42c` 组件一起走（`programs/z42c/`）
         // ⇒ 排除 `z42c` 就等于排除了整个编译器域。
-        if (runtimeComps[i].name == "z42c" || runtimeComps[i].name == "z42vm") {
-            throw new Exception("packages-config: runtime package must not include " + runtimeComps[i].name);
+        if (rc.name == "z42c" || rc.name == "z42vm") {
+            throw new Exception("packages-config: runtime package must not include " + rc.name);
         }
-        i = i + 1;
     }
     // …and the reverse: the embedding libs stay out of the SDK.
-    int si = 0;
-    while (si < sdkComps.Length) {
-        if (sdkComps[si].kind == "cargo-native") {
-            throw new Exception("packages-config: sdk package must not include the embedding libs (" + sdkComps[si].name + ")");
+    foreach (var sc in sdkComps) {
+        if (sc.kind == "cargo-native") {
+            throw new Exception("packages-config: sdk package must not include the embedding libs (" + sc.name + ")");
         }
-        si = si + 1;
     }
 
     // Component kind-dependent optional fields: apphost carries no `dest`;

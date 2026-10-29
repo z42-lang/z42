@@ -8,6 +8,7 @@
 // 加用例 = 加一个目录；断言写不进现有的键时，在这里加一个通用的键（并补进 fixture-harness.md），不在 xtask 里写专项检查。
 namespace Z42Xtask;
 
+using Std.Collections;
 using Std.IO;
 using Std.Toml;
 
@@ -65,27 +66,14 @@ public sealed class FixtureCtx {
 // 一步的环境：工具缺省 + 这一步的 `env` / `env_remove`，后写的覆盖先写的。
 // 合并后再交给 Process —— Process 对同一个变量「删」恒胜过「设」，不能直接把两层叠上去。
 public sealed class FixtureEnv {
-    public string[] Keys;
-    public string[] Vals;
-    public bool[] Del;
-    public int N;
-    public FixtureEnv() { Keys = new string[16]; Vals = new string[16]; Del = new bool[16]; N = 0; }
+    public List<string> Keys;
+    public List<string> Vals;
+    public List<bool> Del;
+    public FixtureEnv() { Keys = new List<string>(); Vals = new List<string>(); Del = new List<bool>(); }
     public void Put(string k, string v, bool del) {
-        int i = 0;
-        while (i < N && Keys[i] != k) { i = i + 1; }
-        if (i == N) {
-            if (N == Keys.Length) { Grow(); }
-            N = N + 1;
-        }
-        Keys[i] = k; Vals[i] = v; Del[i] = del;
-    }
-    void Grow() {
-        string[] k2 = new string[Keys.Length * 2];
-        string[] v2 = new string[Keys.Length * 2];
-        bool[] d2 = new bool[Keys.Length * 2];
-        int i = 0;
-        while (i < N) { k2[i] = Keys[i]; v2[i] = Vals[i]; d2[i] = Del[i]; i = i + 1; }
-        Keys = k2; Vals = v2; Del = d2;
+        int i = Keys.IndexOf(k);
+        if (i < 0) { Keys.Add(k); Vals.Add(v); Del.Add(del); return; }
+        Vals[i] = v; Del[i] = del;
     }
 }
 
@@ -160,8 +148,7 @@ int[] _runFixtureSuite(string root, FixtureSuite suite) {
 bool _fxHasTag(TomlValue exp, string tag) {
     if (!exp.ContainsKey("tags")) { return false; }
     TomlValue a = exp.Get("tags");
-    int i = 0;
-    while (i < a.Length()) { if (a.At(i).AsString() == tag) { return true; } i = i + 1; }
+    for (int i = 0; i < a.Length(); i = i + 1) { if (a.At(i).AsString() == tag) { return true; } }
     return false;
 }
 
@@ -171,11 +158,9 @@ bool _fxHasTag(TomlValue exp, string tag) {
 string _runFixtureCase(FixtureCtx cx, TomlValue exp) {
     if (exp.ContainsKey("step")) {
         TomlValue steps = exp.Get("step");
-        int i = 0;
-        while (i < steps.Length()) {
+        for (int i = 0; i < steps.Length(); i = i + 1) {
             string why = _fxStep(cx, steps.At(i));
             if (why.Length > 0) { return "step " + (i + 1).ToString() + ": " + why; }
-            i = i + 1;
         }
         return _fxFileChecks(exp, cx, "");
     }
@@ -211,8 +196,7 @@ string _fxStep(FixtureCtx cx, TomlValue st) {
 }
 
 int _fxToolIndex(FixtureSuite s, string name) {
-    int i = 0;
-    while (i < s.Tools.Length) { if (s.Tools[i].Name == name) { return i; } i = i + 1; }
+    for (int i = 0; i < s.Tools.Length; i = i + 1) { if (s.Tools[i].Name == name) { return i; } }
     return -1;
 }
 
@@ -256,10 +240,8 @@ Process _fxEnv(FixtureCtx cx, FixtureTool t, TomlValue st, Process p) {
         foreach (var k in tb.Keys()) { e.Put(k, _fxExpand(tb.Get(k).AsString(), cx), false); }
     }
     foreach (var k in _fxStrings(st, "env_remove", cx)) { e.Put(k, "", true); }
-    i = 0;
-    while (i < e.N) {
+    for (i = 0; i < e.Keys.Count; i = i + 1) {
         if (e.Del[i]) { p = p.EnvRemove(e.Keys[i]); } else { p = p.Env(e.Keys[i], e.Vals[i]); }
-        i = i + 1;
     }
     return p;
 }
@@ -353,10 +335,10 @@ string _fxFileChecks(TomlValue exp, FixtureCtx cx, string got) {
         if (File.Exists(pa) || Directory.Exists(pa)) { return "不该写出 " + f + " " + got; }
     }
     foreach (var pr in _fxPairs(exp, "same_bytes", cx)) {
-        if (!_fxFilesEqual(_fxAbs(cx, pr.A), _fxAbs(cx, pr.B))) { return pr.A + " 与 " + pr.B + " 应逐字节相同"; }
+        if (!_filesEqual(_fxAbs(cx, pr.A), _fxAbs(cx, pr.B))) { return pr.A + " 与 " + pr.B + " 应逐字节相同"; }
     }
     foreach (var pr in _fxPairs(exp, "diff_bytes", cx)) {
-        if (_fxFilesEqual(_fxAbs(cx, pr.A), _fxAbs(cx, pr.B))) { return pr.A + " 与 " + pr.B + " 应不同"; }
+        if (_filesEqual(_fxAbs(cx, pr.A), _fxAbs(cx, pr.B))) { return pr.A + " 与 " + pr.B + " 应不同"; }
     }
     foreach (var pr in _fxPairs(exp, "file_contains", cx)) {
         string fp = _fxAbs(cx, pr.A);
@@ -378,16 +360,7 @@ string _fxFileChecks(TomlValue exp, FixtureCtx cx, string got) {
     return "";
 }
 
-bool _fxFilesEqual(string a, string b) {
-    if (!File.Exists(a) || !File.Exists(b)) { return false; }
-    return _bytesEqual(File.ReadAllBytes(a), File.ReadAllBytes(b));
-}
-
-string _fxJoinSorted(string[] names) {
-    string s = "";
-    foreach (var n in _sortedStrings(names)) { s = s.Length == 0 ? n : s + " " + n; }
-    return s;
-}
+string _fxJoinSorted(string[] names) { return String.Join(" ", _sortedStrings(names)); }
 
 // ── 小工具 ───────────────────────────────────────────────────────────────────
 
@@ -407,8 +380,7 @@ string[] _fxStrings(TomlValue t, string key, FixtureCtx cx) {
     if (!t.ContainsKey(key)) { return new string[0]; }
     TomlValue a = t.Get(key);
     string[] r = new string[a.Length()];
-    int i = 0;
-    while (i < r.Length) { r[i] = _fxExpand(a.At(i).AsString(), cx); i = i + 1; }
+    for (int i = 0; i < r.Length; i = i + 1) { r[i] = _fxExpand(a.At(i).AsString(), cx); }
     return r;
 }
 
@@ -417,10 +389,8 @@ FixturePair[] _fxPairs(TomlValue t, string key, FixtureCtx cx) {
     if (!t.ContainsKey(key)) { return new FixturePair[0]; }
     TomlValue a = t.Get(key);
     FixturePair[] r = new FixturePair[a.Length()];
-    int i = 0;
-    while (i < r.Length) {
+    for (int i = 0; i < r.Length; i = i + 1) {
         r[i] = new FixturePair(_fxExpand(a.At(i).At(0).AsString(), cx), _fxExpand(a.At(i).At(1).AsString(), cx));
-        i = i + 1;
     }
     return r;
 }
