@@ -161,7 +161,11 @@ public static class CompilerFingerprint {
         "subst-generic-return",
         // foreach-var-elem-type：`foreach (var x in c)` 与 `c[i]` 的元素类型按收者代换型参（此前泛型容器上是 Unknown）；
         // 推不出类型的收者上调方法报 E0506，泛型实例化收者上找不到的方法 / 字段报 E0401 —— 输出与诊断变化。
-        "foreach-var-elem-type"
+        "foreach-var-elem-type",
+        // checked-conversions：必败的显式转换 / `as` 报 E0424；其余引用目标的 `(T)x` 一律运行期受检；blob struct
+        // 拆箱核结果抛 NRE / ICE；泛型 struct 实例化算值类型（E0476 / E0475）；数组元素名、数组类型测试目标、
+        // `typeof(X[])` 改由 `_arrayElemName` 一个出口产出 —— 输出与诊断变化。
+        "checked-conversions"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

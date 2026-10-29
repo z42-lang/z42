@@ -140,11 +140,32 @@ catch (Exception e) { Console.WriteLine(e.GetType().Name); }   // InvalidCastExc
 **健全性**：装箱 = 加宽上转（安全）+ 受检下转（运行期核对精确类型）。因为装箱值携带精确类型，
 下转可靠、`is` / `as` 精确——没有办法把一个类型当成另一个用。引用类型之间的硬转换同样受检。
 
+值 `struct`（含泛型 struct 的实例化）拆箱同此表：`(P)o` 在 `o` 为 null 时抛 `NullReferenceException`，
+装的不是 `P`（包括 `Wrap<string>` 拆成 `Wrap<int>`）抛 `InvalidCastException`。
+
 > 想要「不符就给 null」而不是抛，用 `as`：两者的分工是**明确要求** vs **试一下**。
 > `(T)x` 说的是「它就是 T」，说错了应当立刻响；`x as T` 说的是「是 T 的话给我」。
 
 > 只有把值赋给 **`object` 或接口**才发生装箱。赋给泛型形参（`List<int>` 的元素）不装箱，
 > 容器里外的表示不变。
+
+## 必败的显式转换在编译期报错（E0424）
+
+`(T)x` / `x as T` 若在**任何**运行期值上都不可能成功，编译期报 **E0424**（对应 C# CS0030 / CS0039），
+而不是留到运行期才抛或给 null：
+
+| 情形 | 示例 |
+|---|---|
+| 两个类互不在对方的基类链上 | `class A {} class B {}` → `(B)a` |
+| 同一泛型类的不同实例化（类不变） | `(Box<int>)boxOfString`、`boxOfInt as Box<string>` |
+| sealed 类 / 值类型 与它没实现的接口 | `sealed class S {}` → `(IA)s`、`(S)ia` |
+| 元素类型不同的数组（数组不变） | `(long[])intArray` |
+| 数组 与 `object` / `Array` 以外的类 | `(int[])someA`、`(A)intArray` |
+| 引用类（含 `string`）与值类型之间 | `(P)someA`、`(int)"5"`、`(string)'c'` |
+
+**可能**成功的转换照常编译、在运行期核对（不符抛 `InvalidCastException`，`as` 给 null）：基类 → 派生类
+（含派生的泛型实例化 `(Sub<int>)baseRef`）、`object` / 接口 → 任意类型、非 sealed 类 ↔ 接口、
+接口 ↔ 接口、`Array` → `T[]`、含泛型形参的类型。
 
 ## 用户自定义转换（User-defined conversions）
 

@@ -32,6 +32,8 @@ fn elem_tag(name: &str) -> &str {
         "double" | "f64" | "Std.Double" => "double",
         "bool" | "Std.Boolean" => "bool",
         "char" | "Std.Char" => "char",
+        "string" | "Std.String" => "string",
+        "object" | "Std.Object" => "object",
         other => other,
     }
 }

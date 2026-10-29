@@ -51,3 +51,10 @@ void test_array_class_and_type_param_are_fine() {
 void test_keyword_reported_once() {
     Assert.Equal(1, nvtCount("namespace D; int? Get() { return 1; }"));
 }
+
+// 泛型 struct 的实例化同样是值类型。
+[Test]
+void test_generic_struct_instantiation_is_rejected() {
+    Assert.Equal(1, nvtCount("namespace D; struct SB<T> { public T V; public int K; } void Main() { SB<int>? s = new SB<int>(); }"));
+    Assert.Equal(0, nvtCount("namespace D; class CB<T> { public T V; } void Main() { CB<int>? c = null; }"));
+}

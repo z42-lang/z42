@@ -239,3 +239,29 @@ fn erased_descriptor_entries_match_instantiated_targets() {
     let boxed = lazy(&ctx, "Pkg.Box<int>");
     assert!(!isa(&ctx, &boxed, "Pkg.Box<string>", &TypeKeyCell::new()));
 }
+
+#[test]
+fn arrays_test_by_element_type_and_are_invariant() {
+    // Array / Object roots.
+    for root in ["Std.Array", "Std.Object", "Array", "Object"] {
+        assert!(array_isa("int", root));
+    }
+    // Same element ⇒ is-a; different element ⇒ not (no covariance).
+    assert!(array_isa("int", "int[]"));
+    assert!(!array_isa("int", "long[]"));
+    assert!(!array_isa("Demo.Dog", "Demo.Animal[]"));
+    assert!(!array_isa("Demo.Dog", "object[]"));
+    assert!(!array_isa("int", "Demo.Box"));
+    // Constructed generic elements compare their arguments; nested arrays recurse.
+    assert!(array_isa("Demo.Box<int>", "Demo.Box<int>[]"));
+    assert!(!array_isa("Demo.Box<int>", "Demo.Box<string>[]"));
+    assert!(array_isa("int[]", "int[][]"));
+    assert!(!array_isa("int[]", "long[][]"));
+    // Undecidable elements: an unsubstituted type parameter (whole or as an argument) and an
+    // element-less runtime array match any element type.
+    assert!(array_isa("T", "Demo.Box<int>[]"));
+    assert!(array_isa("Demo.Box<T>", "Demo.Box<int>[]"));
+    assert!(!array_isa("Demo.Box<T>", "Demo.Pair<int>[]"));
+    assert!(array_isa("", "string[]"));
+    assert!(!array_isa("", "Demo.Box"));
+}

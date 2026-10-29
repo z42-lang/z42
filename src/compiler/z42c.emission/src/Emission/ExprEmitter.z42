@@ -247,15 +247,11 @@ public sealed partial class ExprEmitter : IBoundExprVisitor<TypedReg, Unit> {
         // （镜像 add-reflection-array-element-type：数组运行期非擦除，elem 名须可解析）。
         string elemName = an.ElemName;
         Z42ArrayType at = an.Type() as Z42ArrayType;
-        if (at != null && !this._isBuiltinValueElem(at.Elem) && !(at.Elem is Z42GenericParamType)) {
-            // generic-struct-erased-slot-value-copy：命中闸门的实例化元素用**规范名**，不能用
-            // `an.ElemName`（它来自 `Z42Type.Name()`，渲染成 `Pair<P2, Int32>`——wrapper 名 + 空格）。
-            // 名字对不上 ⇒ 运行期 `try_struct_backed` 全名 miss、回落裸名 ⇒ 数组按**定义**布局建
-            // （型参字段 8B 句柄），而元素是实例化形状 ⇒ stride 与偏移错位
-            // （实测 `struct field write out of blob bounds (off=32, w=4, len=32)`：
-            //  2 元素 × 定义布局 16B = 32，写实例化的 Second 落在 32 已越界）。
-            string ie = this._instIdentityName(at.Elem);   // 元素类型身份 = 实例化
-            elemName = ie != "" ? this._qualifyInstName(ie) : this._qualifyElemName(at.Elem, an.ElemName);
+        if (at != null && !(at.Elem is Z42GenericParamType)) {
+            // 元素名出自 `_arrayElemName`（数组类型测试目标同一函数）。不能用 `an.ElemName`：它来自
+            // `Z42Type.Name()`，渲染成 `Pair<P2, Int32>`——wrapper 名 + 空格；实例化 struct 元素名对不上
+            // ⇒ 运行期 `try_struct_backed` 全名 miss、按**定义**布局建数组 ⇒ stride 与偏移错位。
+            elemName = this._arrayElemName(at.Elem);
         }
         // ElemTag：直接用实际元素 Z42Type 走 ToIrType（泛型形参→Unknown 0x00，非 Ref）。
         // 修 PrimTag 对泛型形参名回落 Ref 的 bug：通过 Z42PrimType 包装会调 PrimTag("T")→Ref。
@@ -277,9 +273,7 @@ public sealed partial class ExprEmitter : IBoundExprVisitor<TypedReg, Unit> {
         TypedReg dst = this._ctx.Alloc(IrType.Ref);
         string elemName = al.ElemName;
         Z42ArrayType at = al.Type() as Z42ArrayType;
-        if (at != null && !this._isBuiltinValueElem(at.Elem) && !(at.Elem is Z42GenericParamType)) {
-            elemName = this._qualifyElemName(at.Elem, al.ElemName);
-        }
+        if (at != null && !(at.Elem is Z42GenericParamType)) { elemName = this._arrayElemName(at.Elem); }
         // fix-zbc-writer-silent-truncation：`arr.new.lit` 的元素个数在 zbc 里是 u8。超过 255 个元素时
         // 改下沉为 `array_new` + 逐元素 `array_set`（元素已按源序求值完毕，语义等价）。此前写端把个数
         // 静默截成 `n & 0xFF`，产出不可解析的 zbc —— 查表常量一写长就中。
@@ -591,19 +585,6 @@ public sealed partial class ExprEmitter : IBoundExprVisitor<TypedReg, Unit> {
         return dst;
     }
 
-    // 数组元素类型名限定：泛型实例名（`Kv<String,Int32>`）须先剥实参到裸基名再 QualifyClass
-    // （imported ns 解析按裸键 `Kv`），再回贴实参保运行期非擦除元素反射——镜像 StructAlloc 的
-    // `_blobStructName`（裸基名先行）。否则 QualifyClass 对含实参的名 miss imported 键 → 回落当前
-    // ns → 跨包泛型 struct 数组绑错 ns → try_struct_backed miss → 退化引用数组 → StructFieldSetPrim 崩。
-    // 裸名（无 `<`）走 else 分支，与旧 QualifyClass 调用逐字节等价。
-    // fqn-tables 5d：基名的 ns 取元素**类型对象**的声明 ns（不按短名查图）；类型没有 ns 时回落按短名。
-    private string _qualifyElemName(Z42Type elem, string elemName) {
-        int lt = elemName.IndexOf('<');
-        string baseN = lt < 0 ? elemName : elemName.Substring(0, lt);
-        string suffix = lt < 0 ? "" : elemName.Substring(lt, elemName.Length - lt);
-        return this._ctx.QualifyType(elem, baseN) + suffix;
-    }
-
     // complete-struct：模式嵌套 struct 字段读复用 AccessEmitter 的 struct 值副本产出（_access private，故转发）。
     internal TypedReg _copyStructOut(TypedReg srcBase, string srcRoot, int[] srcPath, string structName) { return this._access._copyStructOut(srcBase, srcRoot, srcPath, structName); }
 
@@ -628,17 +609,10 @@ public sealed partial class ExprEmitter : IBoundExprVisitor<TypedReg, Unit> {
 
 
 
-    // FQ 运行期类型名：prim→裸名 / array→elem[] / class·iface→QualifyClass /
+    // FQ 运行期类型名：prim→关键字 / array→`_arrayElemName(elem)[]` / class·iface→QualifyClass /
     // instantiated→QualifyClass(def)（args 另发）/ generic-param→裸名（镜像 C# Z42TypeName）。
-    // unify-value-types Phase 1：翻转后数组元素若为内建 Z42ClassType（int[]→elem Z42ClassType(Int32)），
-    // 元素名不走 QualifyClass（否则 "int"→"Std.Int32" 破 byte-identical）——与历史 Z42PrimType 元素同款
-    // 保留源短名（an.ElemName）。翻转前无内建名 Z42ClassType 元素 → 当前中立。
-    private bool _isBuiltinValueElem(Z42Type elem) {
-        return (elem is Z42ClassType) && elem.IsBuiltinType();
-    }
-
     internal string _typeofName(Z42Type t) {
-        if (t is Z42ArrayType) { return this._typeofName((t as Z42ArrayType).Elem) + "[]"; }
+        if (t is Z42ArrayType) { return this._arrayElemName((t as Z42ArrayType).Elem) + "[]"; }
         // unify-value-types Phase 1：翻转后内建（int→Z42ClassType(Int32)）的 typeof 名须回到历史
         // Z42PrimType 拼写（PrimModel.Keyword: Int32→"int"），而非 QualifyClass 的 FQ "Std.Int32"。
         if (t is Z42ClassType) { int _c = t.PrimCode(); if (_c >= 0) { return PrimModel.KeywordOfCode(_c); } }
