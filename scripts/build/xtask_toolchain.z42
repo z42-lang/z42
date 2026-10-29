@@ -1,12 +1,11 @@
-// xtask — build toolchain / build workload (add-build-toolchain).
+// xtask — build toolchain / build workload.
 //
 // Symmetry with `build compiler`↔src/compiler & `build stdlib`↔src/libraries:
 //   build workload  ↔ src/toolchain/workload/*  (kind=lib; launcher's deps)
 //   build toolchain ↔ src/toolchain/{launcher,builder,devtools,interactive} apphosts
 //
-// SoT principle (User): every toolchain output/publish path is READ from
-// the component's own z42.toml (`[build].dist_dir`, `[platform.desktop].publish_dir`),
-// NEVER hardcoded here — change a path in the toml and xtask follows automatically.
+// SoT: every toolchain output/publish path is READ from the component's own z42.toml
+// (`[build].dist_dir`, `[platform.desktop].publish_dir`), NEVER hardcoded here.
 namespace Z42Xtask;
 
 using Std.IO;
@@ -15,12 +14,11 @@ using Std.Toml;
 using Z42.Project;   // BuildLayout / ManifestLoader（工程产物布局的唯一答案）
 
 // ── component manifests ──────────────────────────────────────────────────────
-// workload libs (kind=lib)：各自建进自己的 `artifacts/build/toolchain/workload/<n>/dist`。
-// **不再落进 stdlib flat** ——那会让它们随整目录被打进 SDK 的 `libs/`。
-// launcher 编译期靠 path 依赖解析它们，运行期靠 ExeDeps 拷进 `programs/launcher/`。
-// 🔅 清单 = 目录约定：`src/toolchain/workload/<n>/appbuilder/z42.workload.<n>.z42.toml`
-// 存在的才算 workload lib。desktop 没有 appbuilder（drop-dead-desktop-appbuilder：桌面复用宿主
-// runtime，不需要 export）⇒ 目录不在列；新增 workload = 建 appbuilder 目录，这里自动跟上。
+// workload libs (kind=lib)：各自建进自己的 `artifacts/build/toolchain/workload/<n>/dist`，**不**落进 stdlib flat
+// ——那会让它们随整目录被打进 SDK 的 `libs/`。launcher 编译期靠 path 依赖解析它们，运行期靠 ExeDeps 拷进
+// `programs/launcher/`。
+// 🔅 清单 = 目录约定：`src/toolchain/workload/<n>/appbuilder/z42.workload.<n>.z42.toml` 存在的才算 workload lib
+// （desktop 复用宿主 runtime、没有 appbuilder ⇒ 不在列）；新增 workload = 建 appbuilder 目录，这里自动跟上。
 string[] _workloadTomls() {
     string root = _root();
     string[] dirs = _enumDirsSorted(Path.Join(root, "src/toolchain/workload"));
@@ -80,12 +78,8 @@ string _resolveFromToml(string absToml, string value) {
     return Path.Join(Path.GetDirectoryName(absToml), value);
 }
 // 工程产物布局一律取 z42.project 的 `BuildLayout.Resolve`（profile = release）—— z42c 写产物、z42b / launcher
-// 找产物的同一份答案，含 workspace 成员继承与全部模板变量（unify-build-layout）。
-//
-// 此前这里手抄了一份级联（`_wsOutputDir` / `_outputDirOf` / `_toolchainDistDir`）：模板只展开 `${project_name}` /
-// `${profile}`、dist 的 `${output_dir}` 替换成**未解析**的原始字符串、未配 output_dir 时退回「清单自身目录」
-// —— 与 z42c 的默认（`<清单目录>/artifacts/<profile>` + `<清单目录>/dist`）并不一致，只是四个 toolchain 清单
-// 与 z42c.driver 恰好都配了 output_dir 才没露馅。
+// 找产物的同一份答案，含 workspace 成员继承与全部模板变量。不在这里手抄级联：z42c 的默认布局与模板展开细节
+// 一抄就漂。
 BuildLayout _tomlLayout(string root, string tomlPath) {
     string abs = _absToml(root, tomlPath);
     return BuildLayout.Resolve(ManifestLoader.Load(abs), Path.GetDirectoryName(abs), true);
@@ -110,22 +104,16 @@ string _toolchainDistDir(string root, string tomlPath) {
     return _cleanPath(_tomlLayout(root, tomlPath).DistDir);
 }
 
-// self-contained z42c.driver dist (driver + 6 siblings colocated; simplify-compiler-
-// build). Usable directly as the z42c seed dir for _z42cBuildToml.
+// self-contained z42c.driver dist (driver + compiler siblings colocated). Usable directly as the z42c seed
+// dir for _z42cBuildToml.
 string _selfContainedDriverDir(string root) {
     return _driverDist(root, "release");
 }
 
-// fix-call-arity-skew：此处原有一个 `string _driverZpkg(string root)`，与 common/xtask_layout.z42 的
-// `_driverZpkg(string root, string profile)` **跨文件同名**。z42 自由函数不重载，而重复定义检查只在单文件内做，
-// 于是两份发成同一个键、运行期只剩一份——所有 2 参调用一直静默跑的是这个 1 参版（丢掉 profile）。新的运行期
-// 签名判定上线即在 CI 拦下。所有调用方的 profile 实为 "release"，与本函数语义一致，故删之、统一走 2 参版。
-
-// Ensure the toolchain build prereqs (z42vm + stdlib + self-contained z42c.driver)
-// EXIST — build only what's missing. Unlike `_buildCompiler`, this does NOT force a
-// z42c `--workspace` rebuild on a warm tree (User "只需要编译就行"): `build workload`/
-// `build toolchain` compile the toolchain, not the compiler — a dev who changed z42c
-// runs `build compiler` themselves.
+// Ensure the toolchain build prereqs (z42vm + stdlib + self-contained z42c.driver) EXIST — build only what's
+// missing. Unlike `_buildCompiler`, this does NOT force a z42c `--workspace` rebuild on a warm tree:
+// `build workload` / `build toolchain` compile the toolchain, not the compiler — a dev who changed z42c runs
+// `build compiler` themselves.
 int _ensureToolchainDeps(string root) {
     if (!File.Exists(_builtVm(root, "release"))) {
         int r = _buildRuntime(); if (r != 0) { return r; }
@@ -136,10 +124,8 @@ int _ensureToolchainDeps(string root) {
     if (!File.Exists(Path.Join(_selfContainedDriverDir(root), "z42c.driver.zpkg"))) {
         int r = _buildCompiler(); if (r != 0) { return r; }
     }
-    // z42.repl（tty 交互层）不再单独建入 <sdk>/libs：它是 z42.interactive 的**私有 path 依赖**
-    //（add-path-dependencies）——z42.interactive.z42.toml 声明 `"z42.repl" = { path = "../repl" }`，
-    // z42c build z42.interactive 时自动建 z42.repl 闭包 + colocate z42.repl.zpkg 进 z42i payload
-    //（programs/z42i/），不进共享 libs。故此处删去昔日的 `_buildReplLib` 步。
+    // z42.repl 不单独建：它是 z42.interactive 的私有 path 依赖，z42c build z42.interactive 时自动建闭包并
+    // colocate 进 z42i payload（programs/z42i/），不进共享 libs。
     return 0;
 }
 
@@ -147,23 +133,21 @@ int _ensureToolchainDeps(string root) {
 // 避免各站点各写一遍字面路径；挪 z42b 的工程位置只改 packages.toml。
 string _z42bToml() { return _pkgcfgFindComponent(_pkgcfgLoad(_root()), "z42b").project; }
 
+// 工具链程序（launcher / z42b / z42d / z42i / workload libs）的**编译期解析面** = 纯 stdlib flat。它们用到的
+// `Z42.Project` / `Z42.Build` / `Z42.Package` / `Z42.Scripting` / `Z42.Syntax` 是 **SDK 库**：清单里按名声明 +
+// `deploy = "shared"`，编译期由 driver 从编译器目录解析（CompilerDomain 开发树档），不复制进程序的发布包；发布态
+// 运行期靠各自的 `probing-paths = "../z42c"`，开发树里运行 z42b 时由 xtask 经 `_z42bProc` 起进程。
+// 不把编译器包放进 Z42_LIBS：那样它们被当成「框架」不复制——发布包里有没有它们就取决于构建环境而不是清单。
+string _toolchainCompileLibs(string root) { return _libsDir(root); }
+
 // 用**调用方给定**的 (vm, driver, libs) 编 z42b 并校验产物。
 //
-// 为什么参数化而不是让本函数自己解析：四个调用点的 vm/driver/libs 来源**各不相同**——
+// 为什么参数化而不是让本函数自己解析：各调用点的 vm/driver/libs 来源**各不相同**——
 //   test stdlib：支持 `--toolchain` override（ovVm/ovDriver/ovLibs）
 //   test compiler：按 profile 取（_driverZpkg(root, profile)）
 //   test toolchain builder（manifest 目标夹具）：固定 release
 //   package ci：release + `_toolchainCompileLibs`
 // **能统一的只有「怎么编 + 怎么校验」，输入不能统一** —— 强行统一就会把 override / profile 语义弄丢。
-// 工具链程序（launcher / z42b / z42d / z42i / workload libs）的**编译期解析面**。
-//
-// = 纯 stdlib flat（drop-alllibs）。它们用到的 `Z42.Project` / `Z42.Build` / `Z42.Package` /
-// `Z42.Scripting` / `Z42.Syntax` 是 **SDK 库**：清单里按名声明 + `deploy = "shared"`，编译期由 driver 从编译器目录
-// 解析（CompilerDomain 开发树档），不复制进程序的发布包；发布态运行期靠各自的 `probing-paths = "../z42c"`，
-// 开发树里运行 z42b 时由 xtask 经 `_z42bProc` 起进程。
-// 此前这里是 alllibs（stdlib + 全部编译器成员拷成一个目录）：编译器包在 Z42_LIBS 里 ⇒ 被当成「框架」不复制——
-// 发布包里有没有它们取决于构建环境，而不是清单；现在由清单的 `deploy = "shared"` 显式决定。
-string _toolchainCompileLibs(string root) { return _libsDir(root); }
 
 int _buildZ42bWith(string root, string vm, string driverZpkg, string libs) {
     _syncBuilderPins(root);
@@ -183,7 +167,6 @@ int _buildZ42bWith(string root, string vm, string driverZpkg, string libs) {
 // 为什么无条件重编而非 File.Exists 就跳过：z42b 是 zpkg，必须与当前 z42c 的 zpkg
 // 格式一致（strict-pin）——「存在」≠「可用」，上一格式版本的 z42.builder.zpkg 会在
 // 运行期被 z42vm 直接拒。而它只是几个小文件的 z42c 增量编译，源未变时近 no-op。
-// （同 test-lib stage 里既有 z42b 构建的理由，那里称之为 format-skew guard。）
 // libs = `_toolchainCompileLibs`（纯 stdlib flat；z42b 的编译器包按名声明、从编译器目录解析，见那里的头注）。
 int _ensureZ42b(string root) {
     int pc = _ensureToolchainDeps(root); if (pc != 0) { return pc; }
@@ -192,9 +175,8 @@ int _ensureZ42b(string root) {
 }
 
 // ── build workload ───────────────────────────────────────────────────────────
-// Compile the 3 workload libs → 各自的 dist（见 `_workloadTomls` 头注）。launcher 的
-// z42c build 不再依赖这一步的产物位置（它走 path 依赖，自己会建），这里保留是因为
-// `build workload` 本身是个面向人的命令。
+// Compile the workload libs → 各自的 dist（见 `_workloadTomls` 头注）。launcher 的 z42c build 不依赖这一步的
+// 产物位置（它走 path 依赖，自己会建），这里保留是因为 `build workload` 本身是个面向人的命令。
 // Prereq: z42vm + z42c + stdlib present (build-if-missing; warm ≈ no-op).
 int _buildWorkload() {
     string root = _root();
@@ -213,16 +195,13 @@ int _buildWorkload() {
 }
 
 // ── build toolchain ──────────────────────────────────────────────────────────
-// payload 完整性门（add-deployment-model 批 2.3）。
+// payload 完整性门：payload 里那些依赖 zpkg 的唯一来源是 z42b publish 从 dist 拷过去的那份，而 dist 的内容由
+// **z42c 的 `_bundleExeDeps`** 决定（复制判据 + 传递闭包）——「发布出去的东西全不全」取决于另一个组件的两条规则。
+// 没有这道门，payload 少一个包 `build toolchain` 照样打印 ✅，症状要等到用户跑起来才现形（还会现形成「某个包的
+// 方法有问题」）。
 //
-// **为什么需要它**：payload 里那些依赖 zpkg 的唯一来源是 `_pubCopyDistDeps(dist → payload)`，
-// 而 dist 的内容由 **z42c 的 `_bundleExeDeps`** 决定（复制判据 + 传递闭包）。也就是说
-// 「发布出去的东西全不全」取决于另一个组件的两条规则，而在本门之前**没有任何东西盯着它** ——
-// payload 少一个包，`build toolchain` 照样打印 ✅，症状要等到用户跑起来才现形（而且会现形成
-// 「某个包的方法有问题」，见 project-model.md 那条记录）。
-//
-// 判据刻意是**结构对账**而不是写死名单：dist 里每个非-app 产物（zpkg + 同族 native）都必须在
-// payload 里有同名文件。写死名单会随组件依赖变化腐坏（本仓库在别处已被这条咬过多次）。
+// 判据刻意是**结构对账**而不是写死名单：dist 里每个非-app 产物（zpkg + 同族 native）都必须在 payload 里有同名
+// 文件。写死名单会随组件依赖变化腐坏。
 int _assertPayloadComplete(string root, string tomlPath) {
     string abs = _absToml(root, tomlPath);
     string distDir = _toolchainDistDir(root, tomlPath);
@@ -253,10 +232,10 @@ int _assertPayloadComplete(string root, string tomlPath) {
 // 编，这里只发布；与其余 apphost 同一个 stub、同一个 z42b。路径 = packages.toml `[component.z42c].project`。
 string _z42cDriverToml() { return _pkgcfgFindComponent(_pkgcfgLoad(_root()), "z42c").project; }
 
-// Publish the toolchain apphosts (launcher / z42b / z42d / z42i + z42c) → each toml's
-// publish_dir. Auto-builds workloads first (launcher depends on them, User Q1). z42b
-// compiled first since it publishes the others. Every output/publish location is read
-// from the component toml. 这是 SDK 的全部编译步骤 —— `package dev-sdk` 只把这些产物组装起来。
+// Publish the toolchain apphosts (launcher / z42b / z42d / z42i + z42c) → each toml's publish_dir. Auto-builds
+// workloads first (launcher depends on them). z42b compiled first since it publishes the others. Every
+// output/publish location is read from the component toml. 这是 SDK 的全部编译步骤 —— `package dev-sdk` 只把
+// 这些产物组装起来。
 int _buildToolchain() {
     string root = _root();
     Stopwatch sw = _procStart("build toolchain (apphosts via publish)");
@@ -278,9 +257,6 @@ int _buildToolchain() {
     string z42bZpkg = _toolchainZpkg(root, builderToml);
     // compile + publish each apphost → its own publish_dir (from toml).
     foreach (var toml in _toolchainApphostTomls()) {
-        // move-scripting-to-libraries：z42.scripting 已成 stdlib 成员（在 libs），z42.repl 已由
-        // _buildReplLib 建入 libs，前端 z42c.core/syntax 亦在 libs（PR-A）→ z42.interactive 的编译期
-        // 依赖闭包全在纯 stdlib libs，与其余 apphost 同用 libs（不再需要 `.scripting-libs` 合并目录）。
         int c = _z42cBuildToml(vm, z42cDir, libs, toml);
         if (c != 0) { ConsoleError.WriteLine("  ✗ compile failed: " + toml); return c; }
         string pubDir = _desktopPublishDir(root, toml);

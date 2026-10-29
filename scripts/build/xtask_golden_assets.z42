@@ -1,44 +1,26 @@
-// xtask — `build test` golden test-asset compilation. Impl of the `build test`
-// command (_buildTest) + the shared golden-regen machinery (_regenGolden) used by
-// the `test` gate build-wave (_regenForTest in xtask_test.z42 → _regenCore below).
-// (Was scripts/xtask_regen.z42; the standalone `regen` command was folded into
-// `build test` — redesign-xtask-test.)
+// xtask — `build test`：编译 golden 测试资产（_buildTest）+ 共享的 golden regen 机制（_regenGolden / _regenCore，
+// `test` 门禁的构建波经 _regenForTest 调用）。文件名不带 `xtask_test_` 前缀是有意的：那个前缀专表「`test <x>`
+// 命令的实现」，本文件编译测试资产、自己不含测试（命名规则见 scripts/README.md）。
 //
-// 文件名不带 `xtask_test_` 前缀是有意的（scripts-batch3-naming）：那个前缀
-// 专表「`test <x>` 命令的实现」，而本文件是 `build test` 的实现——它*编译*测试资产、
-// 自己不含测试。命名规则全表见 scripts/README.md。
-//
-// Recompiles every golden `.z42` the shared corpus walk finds (_walkGoldenCorpus,
-// common/xtask_golden.z42 — see there for the segments, and for how the four
-// consumers' inclusion policies differ). Output goes to the artifacts mirror.
-// The full (unfiltered) regen also rewrites the checked-in zbc wire-format byte
-// baselines IN PLACE (_formatZbcFixtureCases), so `git diff` flags format drift.
-// Categories skipped here: _isNonRegenCat. Tally + return 1 on any failure.
+// Recompiles every golden `.z42` the shared corpus walk finds (_walkGoldenCorpus, common/xtask_golden.z42 —
+// see there for the segments and how the consumers' inclusion policies differ). Output goes to the artifacts
+// mirror. The full (unfiltered) regen also rewrites the checked-in zbc wire-format byte baselines IN PLACE
+// (_formatZbcFixtureCases), so `git diff` flags format drift. Tally + return 1 on any failure.
 namespace Z42Xtask;
 
 using Std.IO;
 
-// `xtask build test` — compile the golden test assets (src/tests + library tests →
-// `.zbc` mirror under artifacts/build/tests), symmetric with build compiler/stdlib/
-// toolchain/workload. Ensures z42c + stdlib + z42vm are present (build-if-missing,
-// like the other build commands), then compiles the goldens — i.e. regen's golden
-// compile WITHOUT rebuilding the toolchain (CI's compile-test-assets does the same
-// via `regen --no-stdlib`).
+// `xtask build test` — compile the golden test assets (src/tests + library tests → `.zbc` mirror under
+// artifacts/build/tests). Ensures z42c + stdlib + z42vm are present (build-if-missing, like the other build
+// commands), then compiles the goldens WITHOUT rebuilding the toolchain.
 int _buildTest() {
     int p = _ensureToolchainDeps(_root()); if (p != 0) { return p; }
     return _regenGolden();
 }
 
-// golden regen 的并发度。此前硬编码 8、且 CLI/环境都调不了。
-//
-// 这批 case 的成本由**每个进程的 z42c 启动**主导（载 driver.zpkg + 7 个兄弟包 +
-// stdlib），不是编译本身——所以并发度远超核数仍能继续获益。24 核机本地实测：
-// 硬编码 8 在开发机上白白浪费一半以上的时间。
-//
-// 取 max(8, CpuCount())：**对少核机器（GitHub 标准 runner 4 核）保持原样 8，不冒进**——
-// 上面那条曲线是在 24 核机上测的，不能外推到 4 核；CI 是否该更高须在 CI 上实测。
-// `Z42_REGEN_JOBS` 逃生舱正是为此：不改代码就能在 CI 上试一个值再决定
-//（同 Z42C_BUILD_MODE 的既有逃生舱写法）。
+// golden regen 的并发度。成本由**每个进程的 z42c 启动**主导（载 driver.zpkg + 兄弟包 + stdlib）而非编译本身，
+// 所以并发度高于核数仍有收益。取 max(8, CpuCount())：少核机器（GitHub 标准 runner 4 核）保持 8、不外推；
+// `Z42_REGEN_JOBS` 逃生舱可不改代码在 CI 上试别的值。
 int _regenJobs() {
     string ov = Environment.GetEnvironmentVariable("Z42_REGEN_JOBS", "");
     if (ov.Length > 0) {
@@ -75,10 +57,9 @@ _GoldenCases _collectGoldenCases(string root) {
     return _collectGoldenCasesF(root, "", "");
 }
 
-// Filtered variant: mirrors _enumerateCasesF's --dir (category) / --file (name or
-// source-path substring) narrowing so `test e2e --file X` on the fast --no-build /
-// --toolchain path regenerates ONLY the matched case's .zbc instead of all ~333.
-// Both filters empty = the full set (`build test` + gate build-wave — unchanged).
+// Filtered variant: mirrors _enumerateCasesF's --dir (category) / --file (name or source-path substring)
+// narrowing so `test e2e --file X` on the fast --no-build / --toolchain path regenerates ONLY the matched
+// case's .zbc. Both filters empty = the full set (`build test` + gate build-wave).
 _GoldenCases _collectGoldenCasesF(string root, string dirFilter, string fileFilter) {
     _GoldenEntry[] entries = _walkGoldenCorpus(root);
     string[] caseNames    = new string[entries.Length];
@@ -101,7 +82,6 @@ _GoldenCases _collectGoldenCasesF(string root, string dirFilter, string fileFilt
             if (e.hasTestMethods) { continue; }
             if (fileFilter.Length > 0 && !_e2eIncluded("", e.name, e.src, "", fileFilter)) { continue; }
         } else {
-            if (_isNonRegenCat(e.cat)) { continue; }
             if (!_e2eIncluded(e.cat, e.name, e.src, dirFilter, fileFilter)) { continue; }
         }
         string mirrorDir = _goldenArtifactDir(root, e.relUnderSrc);
@@ -178,10 +158,8 @@ int _regenGolden() {
 // Both empty = full regen (the `build test` + gate build-wave behavior).
 int _regenGoldenF(string dirFilter, string fileFilter) {
     string root = _root();
-    // replace-csharp Phase C：golden 编译改用 z42c（z42vm + z42c.driver.zpkg），不再 dotnet。
     // driverHome = driver 自己的 release dist（自包含）；golden 的 stdlib 依赖走 Z42_LIBS=stdlibDist。
-    // --toolchain (compile-once P3): compile goldens with the selected toolchain's
-    // z42c + stdlib + z42vm when set; else the build-tree.
+    // --toolchain：用所选工具链的 z42c + stdlib + z42vm，否则用构建树。
     string tc = _toolchainDir(root);
     string driverHome = (tc.Length > 0) ? _toolchainDriverHome(tc) : _driverHome(root);
     if (driverHome.Length == 0) {
@@ -191,15 +169,10 @@ int _regenGoldenF(string dirFilter, string fileFilter) {
     }
     string driverZpkg = Path.Join(driverHome, "z42c.driver.zpkg");
     string stdlibDist = (tc.Length > 0) ? _toolchainLibs(tc) : _libsDir(root);
-    // Golden regen z42c-compiles EVERY case — prefer the RELEASE z42vm: z42c runs
-    // many× faster optimized than the debug vm, and regen dominated the build-and-
-    // test critical path (~39 min/leg on slow arm64 runners with the debug vm). This
-    // is safe because _regenGolden is only reached on the CI-warm / --toolchain path
-    // (_regenForTest gates on haveTc||noBuild; the local full build uses _regenCore),
-    // where a CURRENT release/toolchain vm exists (ci-bootstrap cargo-builds it, or
-    // the toolchain supplies it). Fall back to the debug vm only if release is absent.
-    // NOTE: regen just COMPILES the .zbc (deterministic z42c output); the golden RUN
-    // still resolves its own vm (_runVmGoldensF), so this doesn't change what's tested.
+    // Golden regen z42c-compiles EVERY case — prefer the RELEASE z42vm (z42c runs many× faster than on the
+    // debug vm); fall back to the debug vm only if release is absent. Regen only COMPILES the .zbc
+    // (deterministic z42c output); the golden RUN resolves its own vm (_runVmGoldensF), so this doesn't
+    // change what's tested.
     string vmBin = _activeVm(root, "release");
     if (!File.Exists(vmBin)) { vmBin = _activeVm(root, "debug"); }
     if (!File.Exists(vmBin)) {
@@ -217,7 +190,7 @@ int _regenGoldenF(string dirFilter, string fileFilter) {
     }
     Console.WriteLine("");
 
-    // ── Enumerate cases (three layouts → parallel arrays; split: _collectGoldenCases) ──
+    // ── Enumerate cases ──
     _GoldenCases gc = _collectGoldenCasesF(root, dirFilter, fileFilter);
     string[] caseNames   = gc.names;
     string[] caseSources = gc.sources;
@@ -230,11 +203,9 @@ int _regenGoldenF(string dirFilter, string fileFilter) {
     }
 
     // ── Compile each case (parallel batches) ─────────────────────────────
-    // Each case spawns z42vm + z42c.driver to compile one source.z42 — the cost
-    // is dominated by per-process driver startup (load driver.zpkg + 7 members +
-    // stdlib), not the compile itself, so the ~333 cases parallelize well.
-    // Batches of `jobs`: spawn jobs compiles → wait → collect. Outputs are
-    // independent .zbc files, so order doesn't matter. Mirrors _runUnitsBatched.
+    // Each case spawns z42vm + z42c.driver to compile one source.z42 — the cost is dominated by per-process
+    // driver startup, not the compile itself, so the cases parallelize well. Batches of `jobs`: spawn → wait →
+    // collect. Outputs are independent .zbc files, so order doesn't matter.
     int jobs = _regenJobs();
     int pass = 0;
     int fail = 0;
@@ -294,27 +265,14 @@ int _regenGoldenF(string dirFilter, string fileFilter) {
     return 0;
 }
 
-// Categories with no single-source golden .zbc to regenerate: errors / parse
-// expect compile/parse failure (no .zbc).
-//
-// `errors` / `parse` do not exist under src/tests today — that negative-test corpus
-// evaporated when the C# compiler was removed. The guards stay as the landing pad
-// for restoring it (nothing else here depends on them being live).
-
-bool _isNonRegenCat(string cat) {
-    return cat == "errors" || cat == "parse";
-}
-
-// z42c 编译单个 golden（z42vm 跑 z42c.driver.zpkg --emit-zbc）。golden 的 stdlib 依赖
-// （Assert/Console 等）经 Z42_LIBS=stdlibDist 解析；driver 自身 z42c.* 依赖从 driverHome 解析。
-// Spawn (don't wait) the z42c compile of one golden case; caller batches the
-// Wait() across `jobs` concurrent handles. Output .zbc paths are unique per case.
+// Spawn (don't wait) the z42c compile of one golden case (z42vm 跑 z42c.driver.zpkg --emit-zbc；golden 的 stdlib
+// 依赖经 Z42_LIBS=stdlibDist 解析）。Caller batches the Wait() across `jobs` concurrent handles; output .zbc
+// paths are unique per case.
 ProcessHandle _compileCaseSpawn(string vmBin, string driverZpkg, string stdlibDist, string source, string output, bool optAll) {
     Process p = _z42cProc(vmBin, stdlibDist, driverZpkg).Arg("--emit-zbc").Arg(source).Arg(output);
     // opt_all sidecar：这条用例要按**真实 release 全优化**编。默认 emit-zbc 优化集关掉了
     // 逃逸分析 / 内联 / loop-alloc-reuse（会改 golden 字节，见 IrDump.EmitZbcDefaultOpt），
-    // 于是那几个 pass 在整个 golden 语料里一次也跑不到——fix-ref-param-escape 的悬垂栈句柄
-    // 就是这么漏出去的。用例加个 `opt_all` 空文件即可让它真的跑在优化后的代码上。
+    // 于是那几个 pass 在整个 golden 语料里一次也跑不到；用例加个 `opt_all` 空文件即可让它跑在优化后的代码上。
     if (optAll) { p = p.Arg("--opt-all"); }
     return p
         .Stdout(Stdio.Null())
@@ -322,27 +280,16 @@ ProcessHandle _compileCaseSpawn(string vmBin, string driverZpkg, string stdlibDi
         .Spawn();
 }
 
-// ── golden 资产重建的共享入口（relocate-xtask-handlers 从 xtask.z42 搬来） ──
-
 // ── golden-asset rebuild (shared by `build test` + the gate build-wave) ─────
-//
-// The standalone `regen` command was folded into `build test` (redesign-xtask-test):
-// `build test` (_buildTest) = ensure deps (build-if-missing) + _regenGolden. These
-// functions remain as the shared golden-asset machinery — _regenForTest (test gate
-// build-wave) and _buildTest both call them. Post-format-bump fixture regen is now
-// `xtask build stdlib && xtask build test`.
 
 int _regenCore(bool rebuildStdlib) {
     // ⚠ release z42vm FIRST —— stdlib 是**用 z42vm 自建**的，VM 一旦旧于 src/runtime/，
     // 第一个 stage 就炸在指不到真因的 `unknown builtin __x` →
     // `z42c --workspace self-build failed` 上（本轮源码新加的 builtin 不在已建 VM 里）。
-    // `_buildStdlib` 自己的 VM 兜底是 build-if-MISSING（`if (!File.Exists(vm))`），
-    // 判不了「旧」；cargo 才是唯一知道 runtime 源码变没变的东西，且没变时是 ~0.2s 空转。
-    // 与上面 `_buildDebugVmAndCompression` 先于 regen 是同一条道理（debug VM 那条已修）。
-    int cr = _buildRuntime(); if (cr != 0) { return cr; }   // cargo build --release
-    // golden 编译走 z42c。
-    // _buildStdlib（warm 路径）顺带把 z42c per-member dist 建好，_regenGolden 直接用 driver 的 dist。
+    // `_buildStdlib` 自己的 VM 兜底是 build-if-MISSING，判不了「旧」；cargo 才知道 runtime 源码变没变，
+    // 且没变时近乎空转。
+    int cr = _buildRuntime(); if (cr != 0) { return cr; }
+    // _buildStdlib 顺带把 z42c per-member dist 建好，_regenGolden 直接用 driver 的 dist。
     if (rebuildStdlib) { int c = _buildStdlib(); if (c != 0) { return c; } }
-    // in-process (unify-scripts-into-xtask): regen logic folded into xtask_regen.z42（_regenGolden，z42c）。
     return _regenGolden();
 }

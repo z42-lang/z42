@@ -5,10 +5,7 @@
 // source uses syntax / a zbc·zpkg format newer than the published nightly supports
 // — a boundary violation that would break the bootstrap (build-and-test seeds from
 // the previous nightly). The boundary is exercised in CI by every job that runs the
-// ci-bootstrap action (test-host ×4 OS, compile-toolchain); this is the fast local equivalent.
-//
-// gh / tar / unzip are driven as EXTERNAL subprocesses (same as cargo) — the
-// orchestration logic lives here in xtask, not in a shell script.
+// ci-bootstrap action; this is the fast local equivalent (no CI job invokes it).
 //
 // Dual-compiles the z42c workspace and reports:
 //   (A) nightly z42c → current source   ← the boundary check (must PASS)
@@ -16,8 +13,7 @@
 // (A) fails but (B) passes ⇒ you used something newer than the published nightly:
 // split into "support first (old-syntax-written), use later" per the discipline.
 //
-// WHAT THIS GATE DOES AND DOESN'T GUARD (read before concluding it "stopped
-// working"). Both runs go through `_ensureBootstrapSelfDepLibs`,
+// WHAT THIS GATE DOES AND DOESN'T GUARD. Both runs go through `_ensureBootstrapSelfDepLibs`,
 // exactly like the real `build compiler` path, so:
 //
 //   ✅ axis ① syntax          — the seed z42c must parse current source (incl. the self-dep
@@ -34,9 +30,6 @@
 //                               RUNS the freshly built z42c). Cold-start runtime breakage
 //                               (`undefined function …`) surfaces in CI's ci-bootstrap jobs
 //                               (they RUN gen1 z42c to build stdlib + goldens) and compiler-checks.
-//
-// Note this is a LOCAL fast gate — no CI job invokes it; in CI the same
-// `_ensureBootstrapSelfDepLibs` path runs inside the ci-bootstrap action.
 namespace Z42Xtask;
 
 using Std.IO;
@@ -140,12 +133,7 @@ int _bootstrapCheck(string ridArg) {
         ConsoleError.WriteLine("   This is the SECOND generation (gen1 built gen2) —— 只有本阶段能发现「gen1 编出的");
         ConsoleError.WriteLine("   gen2 是坏的」这类缺陷（如静态初始化顺序导致投影表全零 → 转换指令被静默丢弃）。");
     }
-    // fix-primtype-static-init-order：`b` 此前**被算出来、被打印，却从不进退出码** —— 于是
-    // [repo] 阶段（第二代自建）全红时本门仍 exit 0，唯一信号是「少打印了一行成功」。
-    // 实证代价：一个两代自举回归（PrimModel 投影表跨包静态初始化顺序 → 全零 → 所有数值转换
-    // 被静默丢弃）就是从这个缺口进 main 的，且进去后本门继续报绿。
-    // 判据（audit-silent-gates-program）：门的价值不在于它打印什么，而在于**它真会红吗**。
-    // `b == 2`（repo z42c 未构建，非失败）不计入。
+    // [repo]（第二代自建）失败也必须进退出码，否则本门只是「少打印一行成功」；`b == 2`（未构建）不算失败。
     int __rc = a;
     if (__rc == 0 && b != 0 && b != 2) { __rc = b; }
     if (__rc == 0) { _procEnd("test compiler bootstrap", sw); }
@@ -167,23 +155,13 @@ int _bcRunWorkspace(string root, string label, string vm, string driver, string 
     _resetDir(runlibs);
     _copyAll(stdlibDir, runlibs, "*.zpkg");
     _copyAll(Path.GetDirectoryName(driver), runlibs, "*.zpkg");
-    // Mirror the REAL `build compiler` path (xtask_compiler.z42 _buildCompilerViaZ42c): break the
-    // axis-④ self-dependency ring by pre-building the CURRENT-source self-dep libs with this seed
-    // before compiling the workspace. `_ensureBootstrapSelfDepLibs`'s flat-dir parameter doubles as
-    // both Z42_LIBS (compile surface) and the prebuild output dir, so passing `runlibs` keeps this check fully isolated.
-    //
-    // Without this the check diverged from reality and produced FALSE REDS (add-associated-types)
-    // the nightly `libs/` carries the PREVIOUS nightly's z42.package, so any z42c source
-    // consuming a current-source z42.package member (routine since 07596b57 removed the warm-skip — see
-    // self-hosting.md axis ④) failed here on the day it landed and "self-healed" the next day when
-    // the nightly caught up. It also never rebuilt z42c.core/z42c.syntax, which moved out of
-    // `_compilerMembers` into src/libraries/ (#317) — so new frontend symbols were false-red too.
-    // rename-project-namespaces B2：本门的 `runlibs` **同时**是种子 driver 的运行期面、
-    // 预建产物落点、以及编译期解析面 —— 三合一。自举跑的是**上一代** driver，它运行期要那一代的
-    // stdlib，而预建产出的是**当前源**的库；三合一时预建一覆盖，种子 driver 自己就崩
-    // （改名/删符号这类变更必然踩到，也正是 design.md §5 点 2 点名的这个面）。
-    // ⇒ 先把 runlibs 快照成种子代运行期面（挂 probing），再让预建/编译对着 runlibs 产出与解析
-    // （同 `_buildCompilerViaZ42c` / `_z42cProcSeed`）。
+    // Mirror the REAL `build compiler` path (`_buildCompilerViaZ42c`): break the axis-④ self-dependency
+    // ring by pre-building the CURRENT-source self-dep libs with this seed before compiling the workspace
+    // (otherwise the nightly's older self-dep libs make z42c source using their new APIs false-red).
+    // `runlibs` is both the prebuild output dir and the compile surface (Z42_LIBS), which keeps this check
+    // isolated; the seed driver's own runtime libs are snapshotted first (`bcSeedRun`, mounted as probing),
+    // since the prebuild overwrites runlibs with current-source libs the seed generation can't load
+    // (same split as `_buildCompilerViaZ42c` / `_z42cProcSeed`).
     string bcSeedRun = Path.Join(work, label + "-seedrun");
     _resetDir(bcSeedRun);
     _copyAll(runlibs, bcSeedRun, "*.zpkg");

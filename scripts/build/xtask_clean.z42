@@ -1,6 +1,4 @@
 // xtask — `clean` 命令：按 target 删 artifacts/build/（编译产物）与 artifacts/intermediate/（中间物）。
-// 从 xtask.z42 搬来（relocate-xtask-handlers）——它删的全是 build/
-// 产物，归 build 族。
 namespace Z42Xtask;
 
 using Std.IO;
@@ -18,11 +16,6 @@ using Std.Cli;   // ParseResult
 //                 bench/ profile/）+ 源码树里各 z42 工程旁的 artifacts/、dist/
 //                 **保留**：xtask/（驱动自身，正在运行）、tools/（下载的第三方工具）、
 //                 packages/ .z42/（成品）、reports/（结果）
-//
-// tidy-artifacts-tmp-and-clean 修了两处：
-//   · `clean tests|bench` 此前删的是 `<lib>/<profile>/{tests,benches}` —— 当前布局里**不存在**这个目录
-//     （golden 镜像在 `<lib>/tests`，dev 目标由 z42b 写在工程目录下），于是恒删 0 个、恒报 ✅。
-//   · `clean all` 此前只删 build/，`.scratch` / `tmp` / `publish` 与源码树里的残留都不管。
 //
 // 源码树残留：单独编一个 workspace 成员（xtask 的 path 依赖、z42b 的 dev 目标父包）时不继承
 // `[workspace.build].output_dir`，会走单工程默认布局写进 `<工程目录>/{artifacts,dist}`。只删**带
@@ -65,12 +58,11 @@ int _clean(ParseResult r) {
 // 成员目录下的 profile 子目录（产物、测试目标、golden 都按 profile 放在其中）。
 string[] _cleanProfiles() { return new string[]{ "debug", "release" }; }
 
-// `clean tests` / `clean bench`。
 int _cleanDevOutputs(string root, string kind) {
     int n = 0;
     if (kind == "tests") {
         // 测试的编译产物全部在 build/ 镜像里名为 tests/ 的目录下（golden、z42b 的 `<m>/<profile>/tests`），
-        // 按名字递归找，不再维护一张位置清单 —— 新组件的测试输出自动被覆盖。
+        // 按名字递归找，不维护位置清单 —— 新组件的测试输出自动被覆盖。
         n = n + _rmTestsDirs(_buildDir(root), true);
     } else {
         // z42b bench 目标经 `--out-root` 落在输出目录的 profile 下（`_devTargetOutRoot`：`<m>/<profile>/benches`）。
@@ -102,7 +94,7 @@ int _rmTestsDirs(string dir, bool top) {
     return n;
 }
 
-// build/ 下所有「profile 目录（debug / release）里的 bench/」。跳过 cargo 的 target 目录（build/runtime）
+// build/ 下所有「profile 目录（debug / release）里的 benches/」。跳过 cargo 的 target 目录（build/runtime）
 // 与 src/benches 的镜像（build/benches，那是 bench 探针的编译产物，不是 z42b 的 bench 目标）。
 int _rmProfileBenchDirs(string dir, bool top) {
     if (!Directory.Exists(dir)) { return 0; }

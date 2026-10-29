@@ -279,12 +279,12 @@ golden 语料被 4 条命令消费。遍历只有一次——`_walkGoldenCorpus(
 
 **准入策略留在调用点**——四套集合本就有意不同，摆在调用点比藏进四份遍历里可读：
 
-| 消费者 | 排除类别 | 额外过滤 |
-|---|---|---|
-| `build test`（regen） | `_isNonRegenCat` | — |
-| `test e2e`（VM golden） | — | `_isExcludedDirName`、镜像 `.zbc` 存在、`interp_only` |
-| `package sdk --verify` | — | `_isTestRunnerSource`、`interp_only` |
-| `test app desktop` / `test list` | — | `_isExcludedDirName` |
+| 消费者 | 额外过滤 |
+|---|---|
+| `build test`（regen） | — |
+| `test e2e`（VM golden） | `_isExcludedDirName`、镜像 `.zbc` 存在、`interp_only` |
+| `package sdk --verify` | `_isTestRunnerSource`、`interp_only` |
+| `test app desktop` / `test list` | `_isExcludedDirName` |
 
 `src/tests/` 的每个类别都是可运行的语言 golden（[测试用例组织规范](test-layout.md)），runner 不需要按类别排除；
 多包 / 多目标夹具、字节基线、性能场景都在各自 owner 的 `tests/fixtures/` 或 `src/benches/`，不在这次遍历里。

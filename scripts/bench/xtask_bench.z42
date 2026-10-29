@@ -1,21 +1,17 @@
-// xtask — e2e benchmarks (migrate-scripts-to-z42). Native port of
-// the former scripts/bench-run.sh + scripts/_merge-bench-results.py. Compiles
-// src/benches/scenarios/*.z42, runs hyperfine on z42vm per scenario, then merges the
-// hyperfine JSONs into artifacts/reports/benches/e2e.json — parse with native Std.Json,
-// output string-built (replacing python3). Same Z42Xtask namespace; calls
-// _exec/_root/_buildRuntime/_utcNow in xtask.z42 / xtask_package.z42.
+// xtask — e2e benchmarks + A/B regression gates. Compiles src/benches/scenarios/*.z42, runs hyperfine on z42vm
+// per scenario, then merges the hyperfine JSONs into artifacts/reports/benches/e2e.json. Gate semantics
+// (same-runner A/B, resample-on-suspicion, thresholds) live in docs/internals/src/devinfra/benchmarking.md.
 namespace Z42Xtask;
 
 using Std.IO;
 using Std.Json;
 using Std.Cli;
 
-// ── 场景分层（simplify-bench-gate）────────────────────────────────────────────
+// ── 场景分层 ──────────────────────────────────────────────────────────────────────────────
 // 每个场景在头部注释里声明 `// tier: gate` 或 `// tier: full`：
 //   gate —— PR 门禁测量的那一小组代表性场景（`bench --tier gate`）。
-//   full —— 其余场景，本地 / 按需跑（`bench` 默认 --tier all，行为不变）。
-// 分层不只是省时间：它把每个 PR 的比较次数从 22 条降到 6 条，直接压掉「87 次
-// 比较不做多重比较校正 ⇒ 期望假红 ~2 条/PR」里的多重比较项（见 book 判红语义页）。
+//   full —— 其余场景，本地 / 按需跑（`bench` 默认 --tier all）。
+// 分层不只是省时间：它把每个 PR 的比较次数压小，直接减掉不做多重比较校正带来的期望假红（见 book 判红语义页）。
 // 未声明 tier 的场景按 `full` 记 —— 新场景必须**显式选择加入**门禁，且跳过时
 // 一定打印（与 requires-caps 的跳过同款），不做静默排除。
 string _benchScenarioTier(string src) {
@@ -48,8 +44,8 @@ bool _benchTierValid(string want) {
 }
 
 // ── 被测工具链 + 场景选择（`_bench` 与 `_benchAb` 共用；两条路径只差测量体）──────────────────
-// 此前两处各抄一份前奏（工具链 / 探针 / mode 展开）+ 枚举 + tier / requires-caps / mode 跳过，跳过文案
-// 已经漂移。现在只有一份：谁进门禁、谁被跳过、为什么，两条路径同口径。
+// 只有一份前奏（工具链 / 探针 / mode 展开）+ 枚举 + tier / requires-caps / mode 跳过：谁进门禁、谁被跳过、
+// 为什么，两条路径同口径。
 
 // 被测（PR 侧）工具链 + 探针结果 + 要扫的 mode。Rc != 0 ⇒ 工具链缺件 / 场景配置错误（已打印，调用方原样返回）。
 class BenchEnv {
@@ -70,7 +66,7 @@ class BenchEnv {
 
 // _ensureToolchainDeps builds z42vm / stdlib / z42c.driver only if missing — CI bench bootstraps xtask alone
 // (against nightly .z42/libs), so the source-built tree may start empty; a dev who changed z42c runs
-// `build compiler` themselves. Probe the measured VM once (add-exec-profile-matrix) and expand --mode.
+// `build compiler` themselves. Probe the measured VM once and expand --mode.
 BenchEnv _benchEnv(string modeOpt) {
     BenchEnv e = new BenchEnv();
     e.Root = _root();
@@ -92,7 +88,7 @@ class BenchScenario {
     public string Name;        // 文件基名（结果条目名）
     public string Ns;          // namespace → 入口 `<Ns>.Main`
     public string Src;         // 源文件绝对路径
-    public bool ReportsPause;  // 头部声明 `// gc-pause: report`（add-incremental-major-gc M0）
+    public bool ReportsPause;  // 头部声明 `// gc-pause: report`
     public BenchScenario() { this.Name = ""; this.Ns = ""; this.Src = ""; this.ReportsPause = false; }
 }
 
@@ -144,10 +140,8 @@ bool _benchModeRunnable(BenchEnv e, string name, string m) {
     return false;
 }
 
-// `bench` (no subcommand) — e2e hyperfine scenario runner. The `stdlib`
-// subcommand (per-lib [Benchmark]) routes via _dispatchBench → _testLib, and
-// `--diff` routes via _benchE2e → _benchDiff (both in xtask_cli.z42). This
-// handler is the bare-e2e path; args from a Std.Cli ParseResult.
+// `bench` (no subcommand) — e2e hyperfine scenario runner (the bare-e2e path; `bench stdlib` and `bench --diff`
+// are routed elsewhere by the CLI dispatch). Args from a Std.Cli ParseResult.
 int _bench(ParseResult r) {
     bool quick = r.GetFlag("quick");
     string warmup = quick ? "1" : "3";
@@ -185,7 +179,7 @@ int _bench(ParseResult r) {
             if (nb > 0) { benchmarks = benchmarks + ",\n"; }
             benchmarks = benchmarks + _benchObj(outJson, s.Name, runs, tiers, e.Caps);
             nb = nb + 1;
-            // add-incremental-major-gc M0: `// gc-pause: report` scenarios also yield pause metrics.
+            // `// gc-pause: report` scenarios also yield pause metrics.
             if (s.ReportsPause) {
                 PauseMedian pm = _benchPauseRun(e.Vm, zbc, s.Ns + ".Main", m, e.Libs, quick ? 1 : 3);
                 if (pm.Rc != 0) { return 2; }
@@ -208,7 +202,7 @@ int _bench(ParseResult r) {
     return 0;
 }
 
-// ── add-same-runner-ab-bench-gate: 同-runner A/B 对照门禁 ──────────────────────
+// ── 同-runner A/B 对照门禁 ──────────────────────────────────────────────────────────────
 // The regression verdict of one scenario's A/B comparison (base vs pr, both
 // compiled + measured on the SAME runner, seconds apart). See `_abVerdict`.
 class AbVerdict {
@@ -219,8 +213,8 @@ class AbVerdict {
     public bool IsRegression;
     public bool HasCi;        // false = stddev/n missing → bare-ratio fallback (no-ci)
     public int Rounds;        // measurement rounds behind the interval: 1 = single-round
-                              // SEM; k>1 = ab-resample-on-suspicion, interval from the
-                              // BETWEEN-ROUND ratio dispersion (see _abResampleVerdict).
+                              // SEM; k>1 = resampled, interval from the BETWEEN-ROUND
+                              // ratio dispersion (see _abResampleVerdict).
     public AbVerdict() {
         this.Ratio = 1.0; this.RLower = 1.0; this.RUpper = 1.0;
         this.Verdict = "overlap"; this.IsRegression = false; this.HasCi = true;
@@ -230,9 +224,8 @@ class AbVerdict {
 
 // Pure regression verdict from two same-runner measurements. Because base & pr
 // are measured on the SAME machine seconds apart, the machine speed factor k
-// cancels in ratio = pr/base, so the within-run SEM is statistically valid here
-// (it is NOT under the old cross-runner baseline diff — that is the whole point
-// of same-runner A/B). thr = fractional regression threshold (0.10 = 10%);
+// cancels in ratio = pr/base, so the within-run SEM is usable here (unlike a
+// cross-runner baseline diff). thr = fractional regression threshold (0.10 = 10%);
 // Z = 1.96 (95%). Missing stddev/n (n≤1 or stddev≤0) → bare-ratio (no-ci).
 //   relSE = sqrt((SEM_p/mean_p)^2 + (SEM_b/mean_b)^2)      // quotient error prop
 //   R_lower = ratio*(1 - Z*relSE);  regression ⟺ R_lower > 1 + thr
@@ -267,37 +260,20 @@ void _abClassify(AbVerdict v, double thr) {
     else { v.Verdict = "overlap"; }
 }
 
-// ── ab-resample-on-suspicion (2026-09-06) ───────────────────────────────────
-// Final verdict for an entry that round 1 flagged as a regression, recomputed
-// from k INDEPENDENT same-runner ratios (one per round).
-//
-// WHY this exists — the defect it fixes. `_abVerdict`'s interval comes from the
-// WITHIN-run sample variance of one hyperfine invocation, but base and pr are two
-// separate processes, so the between-process variance (CPU frequency, page cache,
-// allocator + GC start state, code-layout lottery) is not modelled at all. The
-// claimed intervals are therefore ~3x too narrow (measured on two perf-neutral
-// PRs: claimed 4.8% median vs a real noise floor of ±13~16%), which is why the
-// "intervals separated" safety net never actually held and the threshold had to
-// sit at 0.25, above the noise floor, to keep the gate quiet.
-//
-// Re-measuring the SAME two binaries k times and taking the dispersion OF THE
-// RATIOS is the one estimate that does see that between-process variance — it is
-// the whole point, not an accuracy tweak. Because only entries that round 1
-// already flagged get resampled (1~2 per PR in practice, capped by the caller's
-// budget), the cost is +30~60s rather than k×.
+// ── 可疑即复测（benchmarking.md §5「可疑即复测」）──────────────────────────────────────
+// Final verdict for an entry that round 1 flagged as a regression, recomputed from k INDEPENDENT same-runner
+// ratios (one per round). `_abVerdict`'s interval comes from the WITHIN-run variance of one hyperfine
+// invocation and does not model between-process variance (CPU frequency, page cache, allocator/GC start state,
+// code layout), so it is ~3x too narrow; the dispersion OF THE RATIOS across re-measurements of the SAME two
+// binaries is the estimate that sees it.
 //
 //   R_lower = mean(ratios) − t(1-sided 95%, df=k-1) · sd(ratios)/sqrt(k)
 //   regression ⟺ R_lower > 1 + thr        (same rule as every other path)
 //
-// ONE-SIDED on purpose, unlike `_abVerdict`'s two-sided Z=1.96. The gate asks a
-// one-sided question ("is pr slower by more than thr?"), and at k=3 the two-sided
-// quantile (4.303) would make the margin 2.48·sd instead of 1.69·sd — blunt enough
-// that a real +20% regression would be waved through. The two paths are not
-// inconsistent in strictness the way the constants suggest: `_abVerdict` applies a
-// nominally stricter quantile to a dispersion that is known to be ~3x too small,
-// so its EFFECTIVE coverage is the looser of the two.
+// ONE-SIDED on purpose, unlike `_abVerdict`'s two-sided Z=1.96: the gate asks a one-sided question, and at k=3
+// the two-sided quantile (4.303) would blunt the margin enough to wave a real +20% regression through.
 //
-// COVERED BY `bench --ab-selftest` (pure function; four cases, see _abSelfTest).
+// COVERED BY `bench --ab-selftest` (pure function, see _abSelfTest).
 AbVerdict _abResampleVerdict(double[] ratios, double thr) {
     AbVerdict v = new AbVerdict();
     int k = ratios.Length;
@@ -392,13 +368,12 @@ AbRound _abOneRound(string work, string name, string m, int round,
 // One scenario×mode A/B: compile base.zbc + pr.zbc, measure round 1, and — when
 // round 1 says "regression" and the caller still has resample budget — re-measure
 // the SAME two binaries `extraRounds` more times and re-decide from the
-// between-round ratio dispersion (ab-resample-on-suspicion; see _abResampleVerdict
-// for why the single-round interval cannot be trusted on its own).
+// between-round ratio dispersion (see _abResampleVerdict for why the single-round
+// interval cannot be trusted on its own).
 //
 // Only a round-1 REGRESSION is resampled. `faster` and `overlap` are not: the gate
-// is one-sided, so spending 2 extra rounds to refine a verdict that cannot fail the
-// job buys nothing, and the whole cost argument for this feature is that suspicion
-// is rare (1~2 entries per PR).
+// is one-sided, so refining a verdict that cannot fail the job buys nothing, and
+// the cost argument rests on suspicion being rare.
 AbOutcome _abOneScenario(string work, string name, string ns, string m, string src,
     string baseVm, string baseDriver, string baseLibs,
     string prVm, string prDriver, string prLibs,
@@ -484,9 +459,8 @@ int _benchAb(ParseResult r) {
     double thr = 0.10;
     string tt = r.GetOption("threshold-time");
     if (tt.Length > 0) { thr = Double.Parse(tt); }
-    // ab-resample-on-suspicion: extra rounds for an entry round 1 flagged (0 = off,
-    // the rollback knob). Default 2 ⇒ k=3 ratios ⇒ df=2. Cost lands only on flagged
-    // entries, so a clean PR pays nothing at all.
+    // Resample: extra rounds for an entry round 1 flagged (0 = off, the rollback knob). Default 2 ⇒ k=3 ratios ⇒
+    // df=2. Cost lands only on flagged entries, so a clean PR pays nothing at all.
     int extraRounds = 2;
     string rr = r.GetOption("resample-rounds");
     if (rr.Length > 0) {
@@ -502,7 +476,7 @@ int _benchAb(ParseResult r) {
     // remaining entries keep their round-1 verdict (which fails the job) instead of
     // spending unbounded runner time to confirm what is already the likely answer.
     int resampleBudget = 3;
-    // add-incremental-major-gc M0: pause gate = pr_max > cap AND pr_max > base_max*(1+thr).
+    // pause gate = pr_max > cap AND pr_max > base_max*(1+thr)（见 xtask_bench_pause.z42 头注）。
     double pauseCap = 16.0;
     string pc = r.GetOption("pause-cap-ms");
     if (pc.Length > 0) { pauseCap = Double.Parse(pc); }
@@ -580,36 +554,28 @@ int _abFinish(int nb, int regr, int toolErr) {
 // runnable; no z42vm scenario spawning). Exit 0 = all pass, 1 = failure(s).
 //
 // `_abVerdict` is the e2e A/B gate — the ONE hard red in bench-pr.yml — and it
-// cannot be driven by a JSON fixture the way `_benchDiff`/`_microDiff` are (it
+// cannot be driven by a JSON fixture the way `_benchDiff`/`_benchMicroDiff` are (it
 // takes two real toolchains measured on one runner), so this unit check is its
 // only mechanical coverage. bench-pr.yml runs it in the verdict self-check step.
 //
-// The five cases are chosen so each ingredient of the rule has one that flips
-// when that ingredient breaks:
+// The cases are chosen so each ingredient of the rule has one that flips when that ingredient breaks:
 //   real-regression           +20% tight, thr 0.10 ⇒ red
-//   separated-under-threshold THE SAME NUMBERS at thr 0.25 ⇒ NOT red. The only
-//       pair that differs solely in thr — without it the suite would still pass
-//       if the threshold stopped being consulted at all (the `lo > 0` vs
-//       `lo > thr` class of bug fix-criterion-ci-separation found in criterion).
+//   separated-under-threshold THE SAME NUMBERS at thr 0.25 ⇒ NOT red. The only pair that differs solely in
+//       thr — without it the suite would still pass if the threshold stopped being consulted at all
+//       (the `lo > 0` vs `lo > thr` class of bug).
 //   noisy-overlap             +15% but 20x the stddev ⇒ interval spans 1 ⇒ noise
 //   faster                    -20% tight ⇒ never a red
 //   no-ci-regression          stddev 0 ⇒ bare-ratio fallback, HasCi=false
 //
-// ab-resample-on-suspicion adds four more for `_abResampleVerdict` — the function
-// that DECIDES the flagged entries once resampling is on, so leaving it unguarded
-// would put the hard gate's final say outside the self-check again:
+// `_abResampleVerdict` DECIDES the flagged entries once resampling is on, so it is covered too:
 //   resample-real-regression  three tight ratios ~+30% ⇒ red even at thr 0.15
-//   resample-drift-rescued    THE case this feature exists for: round 1 saw +60%,
-//       rounds 2-3 saw +5%/+10% ⇒ the between-round dispersion swallows it ⇒ NOT red.
-//       Under the single-round rule this is exactly the false red we kept shipping.
-//       Its mean ratio (1.25) is deliberately ABOVE 1+thr so the case fails if the
-//       interval width is ever lost — a drift case whose mean sits under the
-//       threshold would pass either way and assert nothing.
-//   resample-threshold-sensitive  the same +20% numbers red at 0.15, quiet at 0.25 —
-//       the thr-sensitivity guard for THIS path (see the fixture note in bench-pr.yml:
-//       without such a pair the suite passes even if the threshold stops being read).
-//   resample-too-few-rounds   k=1 ⇒ no-data + HasCi=false, so a degenerate call can
-//       never come back looking like a resampled verdict.
+//   resample-drift-rescued    round 1 saw +60%, rounds 2-3 saw +5%/+10% ⇒ the between-round dispersion
+//       swallows it ⇒ NOT red. Its mean ratio (1.25) is deliberately ABOVE 1+thr so the case fails if the
+//       interval width is ever lost — a drift case whose mean sits under the threshold asserts nothing.
+//   resample-threshold-sensitive  the same +20% numbers red at 0.15, quiet at 0.25 — the thr-sensitivity
+//       guard for THIS path.
+//   resample-too-few-rounds   k=1 ⇒ no-data + HasCi=false, so a degenerate call can never come back looking
+//       like a resampled verdict.
 int _abSelfTest() {
     int fails = 0;
     AbVerdict a = _abVerdict(100.0, 1.0, 10.0, 120.0, 1.0, 10.0, 0.10);
@@ -624,7 +590,7 @@ int _abSelfTest() {
     fails = fails + _abExpect("no-ci-regression", d, "regression", true);
     if (d.HasCi) { Console.WriteLine("  FAIL no-ci-regression: expected HasCi=false"); fails = fails + 1; }
 
-    // ── _abResampleVerdict (ab-resample-on-suspicion) ──
+    // ── _abResampleVerdict ──
     double[] tight = new double[3]; tight[0] = 1.30; tight[1] = 1.32; tight[2] = 1.29;
     AbVerdict f = _abResampleVerdict(tight, 0.15);
     fails = fails + _abExpect("resample-real-regression", f, "regression", true);
@@ -648,7 +614,7 @@ int _abSelfTest() {
     fails = fails + _abExpect("resample-too-few-rounds", h, "no-data", false);
     if (h.HasCi) { Console.WriteLine("  FAIL resample-too-few-rounds: expected HasCi=false"); fails = fails + 1; }
 
-    fails = fails + _abPauseSelfTest();   // add-incremental-major-gc M0: pause gate (4 cases)
+    fails = fails + _abPauseSelfTest();   // pause gate
 
     if (fails == 0) { Console.WriteLine("✅ _abVerdict + _abResampleVerdict + pause selftest: 14/14 passed"); return 0; }
     Console.WriteLine("❌ _abVerdict + _abResampleVerdict selftest: " + fails.ToString() + " failure(s)");
@@ -667,7 +633,7 @@ int _abExpect(string label, AbVerdict v, string wantVerdict, bool wantRegr) {
     return 1;
 }
 
-// ── extend-ab-bench-micro-criterion Part B: micro/stdlib tier same-runner A/B ──
+// ── micro/stdlib tier same-runner A/B ──
 //
 // `bench --micro-diff --current <prMicro.json> --baseline <baseMicro.json> [--threshold-time T]`
 //
@@ -676,9 +642,9 @@ int _abExpect(string label, AbVerdict v, string wantVerdict, bool wantRegr) {
 // same-runner A/B is therefore achieved by capturing TWO isolated `bench stdlib
 // --json` baselines on THIS runner — one in the base(merge-base) tree, one in the
 // PR tree — and diffing them here. Because both were measured on the same machine,
-// the machine speed factor cancels in ratio = pr/base, making the SEM (from Part A's
-// mean/stddev) statistically valid — exactly as for the e2e A/B, just base-batch
-// then pr-batch instead of hyperfine's adjacent double-command.
+// the machine speed factor cancels in ratio = pr/base, making the SEM (from the Bencher mean/stddev)
+// statistically valid — exactly as for the e2e A/B, just base-batch then pr-batch instead of hyperfine's
+// adjacent double-command.
 //
 // Per benchmark (matched by name + mode key so interp/jit never cross-compare),
 // `_abVerdict` on mean_ns/stddev_ns/samples. Regression ⟺ R_lower > 1+thr. A
@@ -706,8 +672,8 @@ int _benchMicroDiff(ParseResult r) {
     double thr = 0.10;
     string tt = r.GetOption("threshold-time");
     if (tt.Length > 0) { thr = Double.Parse(tt); }
-    // ab-resample-on-suspicion: comma-separated round files, pr and base in lockstep.
-    // One file each = the single-round SEM path (unchanged). k>=2 = the resampled
+    // Resample: comma-separated round files, pr and base in lockstep.
+    // One file each = the single-round SEM path. k>=2 = the resampled
     // path: the interval comes from the between-round dispersion of the ratios.
     string[] curPaths  = current.Split(",");
     string[] basePaths = baseline.Split(",");
@@ -759,7 +725,7 @@ int _benchMicroDiff(ParseResult r) {
                 // Present in round 1 but not in every round. A benchmark that comes and
                 // goes between rounds is not evidence of a regression — keep it OUT of
                 // the gate, but say so: silently dropping gate entries is how a gate
-                // goes blind (the empty-VmCaps failure this suite already fixed once).
+                // goes blind.
                 Console.WriteLine("  ⚠️  " + name + " [" + mkey + "]: missing from some round — excluded from the gate");
                 dropped = dropped + 1;
                 j = j + 1;
@@ -808,13 +774,10 @@ AbVerdict _microResampled(JsonValue[] curDocs, JsonValue[] baseDocs, int k,
     return _abResampleVerdict(ratios, thr);
 }
 
-// Per-benchmark micro verdict. Prefer the SEM path (Bencher mean/stddev) when
-// BOTH baselines carry it. During the transition where the base tree predates
-// Part A's Bencher enrichment (base mean_ns/stddev_ns = -1, since base stdlib's
-// Bencher emits the old summary line), fall back to the INTERVAL-AWARE min/max
-// comparison — both baselines always carry value + ci_lower/ci_upper. Same
-// R_lower > 1+thr criterion either way (via _abClassify). After this change ships
-// and one nightly passes, base baselines also carry mean/stddev → full SEM.
+// Per-benchmark micro verdict. Prefer the SEM path (Bencher mean/stddev) when BOTH baselines carry it;
+// otherwise (a baseline without mean_ns/stddev_ns, = -1) fall back to the INTERVAL-AWARE min/max comparison —
+// both baselines always carry value + ci_lower/ci_upper. Same R_lower > 1+thr criterion either way
+// (via _abClassify).
 AbVerdict _microVerdict(JsonValue b, JsonValue c, double thr) {
     if (_microHasSem(b) && _microHasSem(c)) {
         return _abVerdict(_microMean(b), _microSd(b), _microN(b),
@@ -875,7 +838,7 @@ double _microN(JsonValue b) {
 }
 
 // `bench --diff [--current P] [--baseline P] [--threshold-time T] [--threshold-memory M] [--quiet]`
-// Native port of the former scripts/bench-diff.sh. Compares current bench results
+// Compares current bench results
 // against a baseline (both conform to src/benches/baseline-schema.json): per-benchmark
 // delta = (cur - base) / base. Interval-aware gate — a regression requires BOTH
 // delta > --threshold-time (default 0.05) / --threshold-memory (default 0.10) AND
@@ -895,9 +858,7 @@ int _benchDiff(ParseResult r) {
     string tm = r.GetOption("threshold-memory");
     if (tm.Length > 0) { thrMem = Double.Parse(tm); }
     bool quiet = r.GetFlag("quiet");
-    // simplify-bench-gate: `bench/baselines/` 目录与它的持续产出（bench-update.yml +
-    // bench-baselines 孤儿分支）已删，故不再有「自动挑一份主分支基线」的默认值 ——
-    // `--diff` 现在必须显式给 --baseline <path>（本地优化前后对比的正常用法）。
+    // 没有「自动挑一份主分支基线」的默认值：`--diff` 必须显式给 --baseline <path>（本地优化前后对比的正常用法）。
     if (baseline.Length == 0) {
         ConsoleError.WriteLine("error: bench --diff requires an explicit --baseline <path>");
         ConsoleError.WriteLine("  hint: capture one first, e.g. `xtask bench` then copy artifacts/reports/benches/e2e.json aside");
@@ -952,8 +913,7 @@ int _benchDiff(ParseResult r) {
         // Interval-aware gate: a regression must be BOTH large (|delta| > thr) AND
         // statistically distinguishable (current CI separated from baseline CI).
         // Overlapping intervals ⇒ the mean shift is within measurement noise ⇒ ≈,
-        // no matter how big delta looks. Kills the cross-runner false-positive reds
-        // that made the old bare-mean-ratio gate untrustworthy.
+        // no matter how big delta looks.
         if (_hasCi(c) && _hasCi(baseObj)) {
             double cLo = c.Get("ci_lower").AsDouble();
             double cHi = c.Get("ci_upper").AsDouble();
@@ -963,7 +923,7 @@ int _benchDiff(ParseResult r) {
             else if (delta < (0.0 - thr) && cHi < bLo) { sym = "↓"; }
             else if (delta > thr || delta < (0.0 - thr)) { note = " (overlap)"; }
         } else {
-            // Fallback: a side lacks ci_lower/ci_upper → legacy bare-mean-ratio gate.
+            // Fallback: a side lacks ci_lower/ci_upper → bare-mean-ratio gate.
             note = " (no-ci)";
             if (delta > thr) { sym = "↑"; regressions = regressions + 1; }
             else if (delta < (0.0 - thr)) { sym = "↓"; }
@@ -990,7 +950,7 @@ int _benchDiff(ParseResult r) {
         }
     }
 
-    // add-bench-speedup-cap-gating: derive interp/jit speedup where both were measured.
+    // derive interp/jit speedup where both were measured.
     _printSpeedups(curBs);
 
     Console.WriteLine("");
@@ -1003,7 +963,7 @@ int _benchDiff(ParseResult r) {
 }
 
 // value of the benchmark matching name+metric+mode-key, or -1.0 if absent.
-// add-exec-profile-matrix: mkey ("<mode_label>@<os>/<arch>") keeps interp-vs-jit
+// mkey ("<mode_label>@<os>/<arch>") keeps interp-vs-jit
 // and cross-platform results from ever comparing against each other.
 double _findBenchValue(JsonValue benchmarks, string name, string metric, string mkey) {
     int i = 0;
@@ -1042,7 +1002,7 @@ bool _hasCi(JsonValue b) {
     return true;
 }
 
-// add-bench-speedup-cap-gating: for each (name, metric, platform) measured under
+// for each (name, metric, platform) measured under
 // BOTH interp and jit, print the interp/jit speedup (>1 = jit faster). Iterates
 // the jit-labelled entries and looks up the matching interp entry. Informational
 // only — not a schema field, never a regression signal.
@@ -1076,7 +1036,7 @@ void _printSpeedups(JsonValue benchmarks) {
 }
 
 // one benchmark object from a hyperfine export JSON (time values are seconds → ms).
-// add-exec-profile-matrix: carries the schema-v2 `profile` (mode composition +
+// carries the schema-v2 `profile` (mode composition +
 // platform + probed caps) so interp/jit results never compare against each other.
 string _benchObj(string hjson, string name, string runs, string[] tiers, VmCaps vm) {
     JsonValue r0 = JsonValue.Parse(File.ReadAllText(hjson)).Get("results").At(0);

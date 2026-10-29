@@ -51,7 +51,7 @@ int _setupCheck(string os) {
     return 0;
 }
 
-// wasm 工具 min 版本真校验（替换旧 `_check(wpm, wpm)` 自比恒真的假检查）。
+// wasm 工具 min 版本真校验。
 // wasm-pack 的 presence 由 _setupWasm(check) 负责，这里只在已安装时比版本；
 // wasm-tools 是可选工具，同样仅在场时比版本。
 int _checkWasmToolMins(TomlValue toml) {
@@ -79,7 +79,7 @@ int _checkWasmToolMins(TomlValue toml) {
     return fail;
 }
 
-// emulator tier 状态行——纯信息性。emulator 零命令面（User 裁决）：
+// emulator tier 状态行——纯信息性。emulator 零命令面：
 // 由 `test app android run` 用到时自动安装，setup check 只报告不装。
 void _emulatorStatus(string root, TomlValue toml) {
     string sdkDir = Path.Join(root, _vget(toml, "build.android.install_root"));

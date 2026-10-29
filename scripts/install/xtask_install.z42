@@ -1,8 +1,7 @@
-// xtask — `setup`：按 versions.toml 装开发依赖（native port of the former scripts/setup-tools.sh）。
-// Source-of-truth = versions.toml (parsed with Std.Toml, no python).
+// xtask — `setup`：按 versions.toml（唯一事实源）装开发依赖。
 //
-// 依赖两层模型（simplify-xtask-deps, User 裁决）：
-//   无 --os = 当前 host 基础（跨平台 rust/node 检查，不装交叉栈；User 裁决）
+// 依赖两层模型：
+//   无 --os = 当前 host 基础（跨平台 rust/node 检查，不装交叉栈）
 //   平台必备 — 该平台构建/测试没它就跑不了，`setup --os <p>` 显式装：
 //     android = rust targets + cargo-ndk + JDK check + build SDK (cmdline-tools
 //               + platforms;<p> + build-tools;<bt> + platform-tools + ndk;<ver>)
@@ -17,14 +16,12 @@
 // 与机器无关的静态检查，在 `xtask check versions`（test/xtask_check_versions.z42）。没有环境导出命令：
 // xtask 自己解析 NDK / SDK 位置（versions.toml 的 install_root，ANDROID_NDK_HOME / ANDROID_HOME 覆盖），
 // `setup --os android` 装完打印的 export 只给在 xtask 之外直接调 gradle / cargo-ndk 的人用。
-//
-// Same Z42Xtask namespace; calls _root/_exec/_have... defined here + in xtask.z42.
 namespace Z42Xtask;
 
 using Std.IO;
 using Std.Toml;
 
-// `setup [--os <platform>] [--force]`（default action，在 xtask_cli.z42 的 shim 里解析）。
+// `setup [--os <platform>] [--force]`（default action）。
 // --os 参数域 = versions.toml [workload] 的跨平台 workload（[build.*] 各平台栈一一对应）。
 int _setupInstall(string platform, bool force) {
     string root = _root();
@@ -38,8 +35,7 @@ int _setupInstall(string platform, bool force) {
     _checkRust(toml);
     _checkNode(toml);
 
-    // 无 --os = 当前 host 基础（User 裁决：默认不铺开装全部平台栈）。
-    // host 开发只需上面的跨平台基础；android/ios/wasm 交叉栈显式 --os 才装。
+    // 无 --os = 当前 host 基础：host 开发只需上面的跨平台基础；android/ios/wasm 交叉栈显式 --os 才装。
     if (platform.Length == 0) {
         Console.WriteLine("");
         Console.WriteLine("✅ host toolchain checked (cross-platform base only)");
@@ -63,9 +59,8 @@ int _setupInstall(string platform, bool force) {
     return rc;
 }
 
-// ── node installer (was install-node-local.sh; 现为内部函数，无命令面) ───────
+// ── node installer（内部函数，无命令面）────────────────────────────────────────
 // 调用方：_setupWasm（wasm 必备直装）+ WasmBackend.RunTests（用到才装兜底）。
-
 // Download Node.js LTS into artifacts/tools/node/ (no system PATH changes).
 // Idempotent; force redownloads. POSIX-only (.tar.gz); Windows → MSI.
 int _installNode(bool force) {
@@ -75,7 +70,6 @@ int _installNode(bool force) {
     string installDir = Path.Join(_toolsDir(root), "node");
     string nodeBin = Path.Join(installDir, "bin/node");
 
-    // Idempotence.
     if (File.Exists(nodeBin) && !force) {
         string cur = _cmdOut(nodeBin, new string[]{ "--version" });
         if (cur == "v" + nodeVersion) {
@@ -125,11 +119,7 @@ int _installNode(bool force) {
     return 0;
 }
 
-// versions.toml access (_vget/_vgetList/_scalarStr) now lives in the shared
-// xtask_versions.z42 module — same Z42Xtask namespace, so callers are unchanged.
-
 // ── host helpers ─────────────────────────────────────────────────────────────
-// _have (is <bin> on PATH) is the shared tool-presence primitive in xtask_common.z42.
 
 string _detectOs() {
     if (Platform.IsWindows()) { return "windows"; }
@@ -188,7 +178,6 @@ string _nthWord(string s, int n) {
     return "";
 }
 
-// _firstLine (first line of a string) lives in the shared xtask_golden.z42.
 
 string _nthDot(string s, int n) {
     string[] p = s.Split(".");
@@ -198,13 +187,12 @@ string _nthDot(string s, int n) {
 
 // ── 下载 ─────────────────────────────────────────────────────────────────────
 
-// `curl` 下载到 outPath。三个 install 下载点（node / android cmdline-tools / gradle）
-// 此前各自拼一遍完全相同的 4 个 flag——这里收成一处（dedupe-cross-multiexe）。
+// `curl` 下载到 outPath。install 的各下载点（node / android cmdline-tools / gradle）一律走本函数，别再手拼。
 //
 // **这四个 flag 不是可选装饰**，尤其 `--fail`：没有它，curl 遇到 4xx/5xx 会把错误页
 // **以 0 退出码**写进 outPath，于是一个 HTML 错误页被当成 tarball/zip 交给下游解压
 // （android 那两处还会先过 sha256 校验，报出来的是「哈希不符」而非「下载失败」——
-// 指不到真因）。新增下载点一律走本函数，别再手拼。
+// 指不到真因）。
 int _curlDownload(string url, string outPath) {
     return _exec(new Process("curl")
         .Arg("--fail").Arg("--location").Arg("--silent").Arg("--show-error")
@@ -331,9 +319,8 @@ int _setupIos(string root, TomlValue toml, string mode) {
 
 // ── wasm ───────────────────────────────────────────────────────────────────
 
-// wasm 平台必备：rust targets + wasm-pack + hermetic node。node 从"用户手动 step"
-// 升为 wasm 必备（simplify-xtask-deps, User 裁决）——wasm 测试面
-// （pkg-nodejs smoke + Playwright）没有 node 跑不了。mode: "install" | "check"。
+// wasm 平台必备：rust targets + wasm-pack + hermetic node（wasm 测试面 pkg-nodejs smoke + Playwright
+// 没有 node 跑不了）。mode: "install" | "check"。
 int _setupWasm(string root, TomlValue toml, string mode, bool force) {
     Console.WriteLine("── wasm ──");
     int rc = 0;
