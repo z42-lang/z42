@@ -48,7 +48,7 @@ public sealed partial class ExprParser {
             // as（bp 60，右侧为类型）
             if (led == LedKind.As) {
                 this._p._advance();
-                TypeExpr ty = this._p._typeP._parseType();
+                TypeExpr ty = this._p._typeP._parseTypeBeforeExpr();   // `x as T ? a : b` 的 `?` 归三目
                 left = new AsExpr(left, ty, left.Span);
                 continue;
             }
@@ -229,8 +229,8 @@ public sealed partial class ExprParser {
             if (this._p._peek().Kind == TokenKind.Pipe) { pat = this._p._patP._continueOrChain(pat); }
             return new IsPatternExpr(left, pat, left.Span);
         }
-        // 类型引导：解析类型后看后随。
-        TypeExpr ty = this._p._typeP._parseType();
+        // 类型引导：解析类型后看后随（`x is T ? a : b` 的 `?` 归三目，见 `_parseTypeBeforeExpr`）。
+        TypeExpr ty = this._p._typeP._parseTypeBeforeExpr();
         int nk2 = this._p._peek().Kind;
         if (nk2 == TokenKind.LParen || nk2 == TokenKind.LBrace) {
             // `(`/`{` → 结构化（位置/属性），可续 or-链：`x is Circle(r) | Square(r)`。
@@ -360,6 +360,20 @@ public sealed partial class ExprParser {
         if (k == TokenKind.True || k == TokenKind.False) { return true; }
         if (k == TokenKind.New) { return true; }
         return false;
+    }
+
+    // 能否开始一个表达式 —— 与下面 `_parsePrefix` 的分发**同一张名单**（改一处必须改另一处）。
+    // 供类型位消歧用：`x is T ? …` 的 `?` 后随若能开始表达式，就是三目而非可空后缀。
+    internal bool _canStartExpr(int k) {
+        if (k == TokenKind.LBracket || k == TokenKind.LBrace || k == TokenKind.LParen) { return true; }
+        if (k == TokenKind.Minus || k == TokenKind.Bang || k == TokenKind.Tilde || k == TokenKind.Plus) { return true; }
+        if (k == TokenKind.PlusPlus || k == TokenKind.MinusMinus) { return true; }
+        if (k == TokenKind.Typeof || k == TokenKind.Methodof || k == TokenKind.New || k == TokenKind.Default) { return true; }
+        if (k == TokenKind.IntLiteral || k == TokenKind.CharLiteral || k == TokenKind.FloatLiteral) { return true; }
+        if (k == TokenKind.StringLiteral || k == TokenKind.RawStringLiteral || k == TokenKind.InterpolatedStringLiteral) { return true; }
+        if (k == TokenKind.True || k == TokenKind.False || k == TokenKind.Null) { return true; }
+        if (k == TokenKind.Identifier) { return true; }
+        return this._p._isTypeKeyword(k);
     }
 
     private Expr _parsePrefix() {
