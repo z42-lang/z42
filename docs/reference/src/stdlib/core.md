@@ -147,6 +147,7 @@ Platform.OS），其余是纯 z42 脚本（如 String.Contains / Math.Abs / Arra
 - [SynchronizationLockException](core.SynchronizationLockException.md)
 - [ThreadNative](core.ThreadNative.md)
 - [MonitorNative](core.MonitorNative.md)
+- [Murmur3](core.Murmur3.md)
 - [TcpSocketNative](core.TcpSocketNative.md)
 - [UdpSocketNative](core.UdpSocketNative.md)
 - [TlsSocketNative](core.TlsSocketNative.md)

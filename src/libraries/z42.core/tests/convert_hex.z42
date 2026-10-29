@@ -1,0 +1,31 @@
+// Convert.ToHexStringLower 两个重载：byte[] 走脚本实现，string 走 native `__hex_str`（按 UTF-8）。
+// 两者对同一份 UTF-8 字节必须逐字相等——编译器增量缓存 meta 的行式格式靠 string 重载。
+namespace Z42CoreConvertHexTests;
+
+using Std.Encoding;
+using Std.Harness;
+
+[Test]
+void test_bytes_to_hex_lower() {
+    Assert.Equal("", Convert.ToHexStringLower(new byte[0]));
+    byte[] b = new byte[] { (byte)0, (byte)1, (byte)15, (byte)16, (byte)171, (byte)255 };
+    Assert.Equal("00010f10abff", Convert.ToHexStringLower(b));
+}
+
+[Test]
+void test_string_to_hex_lower_is_utf8() {
+    Assert.Equal("", Convert.ToHexStringLower(""));
+    Assert.Equal("616263", Convert.ToHexStringLower("abc"));
+    Assert.Equal("c3a9", Convert.ToHexStringLower("é"));
+    Assert.Equal("f09f8e89", Convert.ToHexStringLower("🎉"));
+}
+
+[Test]
+void test_string_and_bytes_overloads_agree() {
+    string[] samples = new string[] { "a b\nc", "café你🎉", "pool entry\twith tab" };
+    int i = 0;
+    while (i < samples.Length) {
+        Assert.Equal(Convert.ToHexStringLower(Utf8.GetBytes(samples[i])), Convert.ToHexStringLower(samples[i]));
+        i = i + 1;
+    }
+}

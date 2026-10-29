@@ -1,18 +1,28 @@
-// Murmur3（MurmurHash3 x86_128）对拍单测 —— 向量由 smhasher 参考实现产出（seed=0，
+// Std.Hashing.Murmur3（MurmurHash3 x86_128）对拍单测 —— 向量由 smhasher 参考实现产出（seed=0，
 // h1..h4 各按小端拼接成 32 个 hex 字符）。
+//
+// 三条路径逐向量互相对拍：脚本实现 `Hash128`（经 `Convert.ToHexStringLower` 转 hex）、native
+// `Hash128Hex(byte[])`、native `Hash128Hex(string)`（按 UTF-8）。增量缓存键与 build_id 跨这几条路径
+// 可比，靠的就是它们逐字相等（Rust 侧 convert.rs::mmh3_x86_128_tests 用同源向量反向盯）。
 //
 // 覆盖点（这三处最容易写错，所以逐条钉死）：
 //   1. 长度 0..33 全枚举 —— 尾部 fallthrough 的 15 条分支、整块循环、块+尾混合各走一遍；
 //   2. 高位字节（UTF-8 非 ASCII）—— z42 的 byte 走 `(int)b & 0xFF` 拆包，漏掩码会出负数；
 //   3. `_rotl` 的逻辑右移语义 —— z42 无 `>>>`，靠 `& 0xFFFFFFFF` 保持非负来让 `>>` 等价。
-namespace Z42IrMurmur3Tests;
+namespace Z42CoreMurmur3Tests;
 
 using Std.Encoding;
-using Z42.IR;
-using Z42.Package;   // ZpkgBuilder.SourceHashHex
+using Std.Hashing;
 using Std.Harness;
 
-string _h(string text) { return Murmur3.Hash128Hex(Utf8.GetBytes(text)); }
+// 三条路径必须一致；返回脚本实现那一份供向量比对。
+string _h(string text) {
+    byte[] bytes = Utf8.GetBytes(text);
+    string script = Convert.ToHexStringLower(Murmur3.Hash128(bytes));
+    Assert.Equal(script, Murmur3.Hash128Hex(bytes));
+    Assert.Equal(script, Murmur3.Hash128Hex(text));
+    return script;
+}
 
 // 长度 0..33：0 个整块（0..15）、1 个整块 + 0..15 尾（16..31）、2 个整块 + 尾（32..33）。
 [Test]
@@ -72,51 +82,14 @@ void test_murmur3_long_input_and_shape() {
     Assert.True(_h(a) != _h(b));
 }
 
-// `ZpkgBuilder.SourceHashHex` —— zpkg MODS 里源变更检测字段的最终形态：`"mmh3:"` + 32 hex。
-// 前缀本身是失效开关：与 2026-09-06 前的 `"sha256:"` 天然不等 ⇒ 混版本缓存一次全量重编。
+// 任意字节（非 UTF-8 形态）：native bytes 路径与脚本实现逐字相等。
 [Test]
-void test_source_hash_hex_form() {
-    Assert.Equal("mmh3:d1c6cd75a506b0a2a506b0a2a506b0a2", ZpkgBuilder.SourceHashHex("abc"));
-    Assert.True(ZpkgBuilder.SourceHashHex("abc").StartsWith("mmh3:"));
-    Assert.True(ZpkgBuilder.SourceHashHex("abc") != ZpkgBuilder.SourceHashHex("abd"));
-}
-
-// native-hash 等值对拍：HashHexOfStr（builtin __mmh3_hex_str）必须与「GetBytes + Hash128Hex」
-// 逐字相等——这是编译器源文本哈希换到 native 后、增量缓存键仍可比的依据（Rust 侧
-// convert.rs::mmh3_x86_128_tests 用同源向量反向盯）。
-[Test]
-void test_hash_hex_of_str_equals_z42_impl() {
-    Assert.Equal(_h(""), Murmur3.HashHexOfStr(""));
-    Assert.Equal(_h("a"), Murmur3.HashHexOfStr("a"));
-    Assert.Equal(_h("abcdefghijklmnopqrst"), Murmur3.HashHexOfStr("abcdefghijklmnopqrst"));
-    Assert.Equal(_h("café你🎉"), Murmur3.HashHexOfStr("café你🎉"));
-    string long34 = "abcdefghijklmnopqrstuvwxyz01234567";
-    Assert.Equal(_h(long34), Murmur3.HashHexOfStr(long34));
-}
-
-[Test]
-void test_source_hash_hex_stable_shape() {
-    string s = ZpkgBuilder.SourceHashHex("hello");
-    Assert.True(s.StartsWith("mmh3:"));
-    Assert.Equal(5 + 32, s.Length);
-    Assert.Equal(s, ZpkgBuilder.SourceHashHex("hello"));   // 确定性
-}
-
-// native-hash(bytes) 等值对拍：HashHexOfBytes（builtin __mmh3_hex_bytes）与 Hash128Hex 逐字相等
-// ——cache zbc 内容哈希的写端（_writeCacheZbc）/ 读端校验（配对 meta.zbchash）与 DepIdentity 指纹
-// 都换到了 native，值不变 ⇒ 增量缓存零失效。
-[Test]
-void test_hash_hex_of_bytes_equals_z42_impl() {
-    Assert.Equal(_h(""), Murmur3.HashHexOfBytes(new byte[0]));
-    byte[] b1 = new byte[] { (byte)'a' };
-    Assert.Equal(_h("a"), Murmur3.HashHexOfBytes(b1));
+void test_murmur3_arbitrary_bytes() {
     byte[] b17 = new byte[17];
     int i = 0; while (i < 17) { b17[i] = (byte)(i + 1); i = i + 1; }
-    Assert.Equal(Murmur3.Hash128Hex(b17), Murmur3.HashHexOfBytes(b17));
+    Assert.Equal(Convert.ToHexStringLower(Murmur3.Hash128(b17)), Murmur3.Hash128Hex(b17));
     byte[] b33 = new byte[33];
     i = 0; while (i < 33) { b33[i] = (byte)(255 - i); i = i + 1; }
-    Assert.Equal(Murmur3.Hash128Hex(b33), Murmur3.HashHexOfBytes(b33));
-    // 高位字节（UTF-8 非 ASCII 形态）
-    byte[] hi = Utf8.GetBytes("café你🎉");
-    Assert.Equal(Murmur3.Hash128Hex(hi), Murmur3.HashHexOfBytes(hi));
+    Assert.Equal(Convert.ToHexStringLower(Murmur3.Hash128(b33)), Murmur3.Hash128Hex(b33));
+    Assert.Equal(16, Murmur3.Hash128(b33).Length);
 }
