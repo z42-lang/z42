@@ -13,9 +13,11 @@ CLI argv 解析器 — flag / option / positional + auto `-h/--help` 文本生�
 | `src/ParseResult.z42` | `Std.Cli.ParseResult` — GetFlag / GetOption / GetPositional / ShowHelp |
 | `src/CliException.z42`| `Std.CliException`（未知 flag / 缺 value / 缺 positional） |
 | `src/SubcommandRouter.z42` | `Std.Cli.SubcommandRouter` + `SubcommandMatch` — git/cargo 风格 `Add(name, desc, ArgParser)`（叶子）+ `AddRouter(name, desc, child)`（嵌套）+ `Match(argv)`（单层）/ `Resolve(argv)`（嵌套，逐层下钻）派发；`HelpText()` 该层帮助 |
-| `src/Command.z42` / `src/Command.Fields.z42` | `Std.Cli.Command` — 声明式命令：`AddCommand` 搭层级、`[Option]` / `[Argument]` 字段即参数、`Invoke(argv)` 解析 + 绑定 + 执行 |
-| `src/CommandAttributes.z42` | `OptionAttribute` / `ArgumentAttribute`（全部状态走命名实参） |
-| `src/_FieldSpec.z42` | 字段 → 参数名 / 类型类别 / choices / 取值转换（内部） |
+| `src/Command.z42` / `src/Command.Params.z42` | `Std.Cli.Command` — 声明式命令：`AddCommand` 搭层级、`Invoke(argv)` 解析 + 绑定 + 执行；参数表（字段 + 挂上的对象）的声明与绑定 |
+| `src/Option.z42` / `src/Argument.z42` | 参数层最基础的对象：声明 + 解析后的 `Value` / `IsSet`（`AddOption(option)` / `AddArgument(argument)`） |
+| `src/CliOption.z42` | `CliOption<T>` / `CliArgument<T>` — `AddOption<T>` / `AddArgument<T>` 返回的强类型句柄 |
+| `src/CommandAttributes.z42` | `OptionAttribute` / `ArgumentAttribute`（字段写法；全部状态走命名实参） |
+| `src/_ParamType.z42` | 值类型规则：类型类别 / 默认值 / choices / 取值转换 / kebab-case（内部） |
 | `src/CommandResolution.z42` | `Std.Cli.CommandResolution` — `Resolve` 的三态结果（`IsMatch`/`IsHelp`/`IsUnknown` + `Path`/`Result`/`HelpText`/`ErrorMessage`）|
 
 ## 入口点
@@ -98,10 +100,29 @@ void Main() { Environment.Exit(new App().Invoke(Environment.GetCommandLineArgs()
 | 必填 | `required: true`（option / argument 默认都可选；bool 不能必填） |
 | 全局 | `[Option(global: true)]`：所在命令整棵子树都认，子命令前后皆可写 |
 | 透传 | `[Argument(passthrough: true)] string[]`：固定参数之后的 token 原样收集（`run <app> …`） |
-| 动态帮助 | attribute 实参只能是常量；运行期内容用 `SetHelp(fieldName, text)` |
+| 运行期才知道的 | attribute 实参只能是常量；choices / 帮助要现算时用 `AddOption<T>` / `AddArgument<T>`（见下） |
 | 退出码 | 帮助 → 0；未知命令 / 参数错误（含声明错误）→ stderr + 2；否则 `Run()` 的返回值 |
 
-执行顺序：解析 → 绑定路径上各命令的字段 → 沿根 → 目标调 `BeforeRun()` → 目标 `Run()`。
+参数的三种写法共用同一份 `Option` / `Argument` 规格（同样的类型规则、校验与帮助），可在一个命令里混用：
+
+```z42
+class SetupCommand : Command {
+    [Option(help: "force reinstall")] public bool Force;          // ① 字段：静态参数
+    private CliOption<string> _os;                                // ② 强类型句柄：运行期 choices
+    private Option _level;                                        // ③ 基础对象
+    public SetupCommand() : base("setup", "prepare this machine") {
+        this._os = this.AddOption<string>("os", "", help: "platform", choices: Platforms());
+        this._level = new Option("level", typeof(int), 1, help: "detail level");
+        this.AddOption(this._level);
+    }
+    public override int Run() { return Install(this._os.Value, (int)this._level.Value, this.Force); }
+}
+```
+
+`AddOption<T>` / `AddArgument<T>` 须写明类型实参（`T` 在运行期用到）。位置参数先按字段声明序落槽，再按
+`AddArgument` 的调用序。
+
+执行顺序：解析 → 绑定路径上各命令的参数（字段来源的回写字段）→ 沿根 → 目标调 `BeforeRun()` → 目标 `Run()`。
 子命令经 `ParentCommand()` 取祖先（读全局 option 字段）。只要解析不执行用 `Resolve(argv)`，
 再 `Bind(res)` 得到绑定好的目标命令。
 

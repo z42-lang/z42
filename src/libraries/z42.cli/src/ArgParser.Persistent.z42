@@ -1,13 +1,15 @@
 namespace Std.Cli;
 
-/// `ArgParser` 的 partial 碎片 —— persistent 剥离：把本 parser 已注册的
-/// flag / option 从 argv 任意位置剥出，供 `SubcommandRouter` 的跨子命令
-/// 全局旗标使用。
+/// `ArgParser` 的 partial 碎片 —— persistent 剥离。
+///
+/// 把本 parser 已注册的 flag / option 从 argv 任意位置剥出，供 `SubcommandRouter` 的
+/// 跨子命令全局旗标使用。
 public partial class ArgParser {
 
     // ── Persistent strip ─────────────────────────────────────────────────
 
-    /// 把本 parser 已注册的 flag / option 从 argv 的**任意位置**剥出并解析：
+    /// 把本 parser 已注册的 flag / option 从 argv 的**任意位置**剥出并解析。
+    ///
     /// 命中的 token（及其取值 token）进本 parser 的 Parse，其余原样保留在
     /// `Kept`（保序）。只识别 `--long` / `--long=v` / `--long v` / `-s` / `-s v` /
     /// `-sv` 六种形态；不认识的 token、`-h/--help`、以及 `--` 之后的 token 全部留在
@@ -16,7 +18,9 @@ public partial class ArgParser {
     /// 取值 token 缺失时抛 CliException。叶子路由 / 簇解析 / 负数回退都不在本方法职责内。
     public _StripOutcome StripDeclared(string[] argv) { return this.StripDeclared(argv, argv.Length); }
 
-    /// 同 `StripDeclared(argv)`，但只剥 `[0, limit)` 内的 token；`limit` 起的尾巴原样留在
+    /// 同 `StripDeclared(argv)`，但只剥 `[0, limit)` 内的 token。
+    ///
+    /// `limit` 起的尾巴原样留在
     /// `Kept`（透传叶子的参数不归全局旗标）。
     public _StripOutcome StripDeclared(string[] argv, int limit) {
         string[] persistent = new string[argv.Length * 2 + 1];
@@ -54,7 +58,8 @@ public partial class ArgParser {
         return new _StripOutcome(_Exact(kept, kc), parsed);
     }
 
-    /// `argv[i]` 是本 parser 声明过的 flag / option 时，返回它（含取值 token）之后的下标；
+    /// `argv[i]` 是本 parser 声明过的 flag / option 时，返回它（含取值 token）之后的下标。
+    ///
     /// 否则 -1。供路由在剥离前模拟走一遍命令路径。
     public int DeclaredTokenEnd(string[] argv, int i) {
         string t = argv[i];

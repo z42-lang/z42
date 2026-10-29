@@ -1,9 +1,17 @@
 namespace Std.Cli;
 using Std.IO;
 
-/// 声明式命令：一个命令 = 一个类，参数 = 贴了 `[Option]` / `[Argument]` 的字段，
-/// 动作 = `Run()`。层级由父命令 `AddCommand(child)` 搭起，`Invoke(argv)` 解析、绑定字段、
-/// 执行命中的那个命令。
+/// 声明式命令：一个命令 = 一个类，动作 = `Run()`。
+///
+/// 层级由父命令 `AddCommand(child)` 搭起，
+/// `Invoke(argv)` 解析、绑定参数、执行命中的那个命令。
+///
+/// 参数有三种写法，底层是同一份 `Option` / `Argument` 对象：
+/// - 字段：贴 `[Option]` / `[Argument]`，字段类型即值类型、初始值即默认值，绑定后回写字段；
+/// - 强类型句柄：`AddOption<T>` / `AddArgument<T>` 返回 `CliOption<T>` / `CliArgument<T>`
+///   （choices / 帮助在运行期才知道时用它）；
+/// - 基础对象：`AddOption(new Option(...))` / `AddArgument(new Argument(...))`。
+/// 位置参数的落槽顺序：先字段（声明序），再按 `AddArgument` 的调用序。
 ///
 /// ```z42
 /// class TestE2e : Command {
@@ -26,9 +34,10 @@ public partial class Command {
     private Command[] _cmdChildren;
     private int       _cmdChildCount;
     private string    _cmdDefaultDesc;     // "" = 无默认动作
-    private string[]  _cmdHelpFields;      // SetHelp 覆盖：字段名 → 帮助
-    private string[]  _cmdHelpTexts;
-    private int       _cmdHelpCount;
+    private Option[]   _cmdOptions;        // AddOption 挂上的（字段之外）
+    private int        _cmdOptionCount;
+    private Argument[] _cmdArguments;      // AddArgument 挂上的（字段之外）
+    private int        _cmdArgumentCount;
 
     /// 用命令名与描述创建命令（根命令的名字即程序名）。
     public Command(string name, string description) {
@@ -39,9 +48,10 @@ public partial class Command {
         this._cmdChildren = new Command[4];
         this._cmdChildCount = 0;
         this._cmdDefaultDesc = "";
-        this._cmdHelpFields = new string[2];
-        this._cmdHelpTexts = new string[2];
-        this._cmdHelpCount = 0;
+        this._cmdOptions = new Option[2];
+        this._cmdOptionCount = 0;
+        this._cmdArguments = new Argument[2];
+        this._cmdArgumentCount = 0;
     }
 
     /// 命令名。
@@ -71,23 +81,50 @@ public partial class Command {
     }
 
     /// 声明本命令（有子命令时）自带默认动作：argv 为空或首 token 是 flag 且不命中子命令时
-    /// 执行 `Run()`；`description` 显示在帮助的 `(default)` 行。
+    /// 执行 `Run()`。
+    ///
+    /// `description` 显示在帮助的 `(default)` 行。
     public void SetDefaultAction(string description) { this._cmdDefaultDesc = description; }
 
-    /// 运行期覆盖某字段的帮助说明（attribute 实参只能是常量，动态内容走这里）。
-    public void SetHelp(string fieldName, string help) {
-        if (this._cmdHelpCount >= this._cmdHelpFields.Length) {
-            int n = this._cmdHelpFields.Length * 2;
-            string[] gf = new string[n];
-            string[] gt = new string[n];
+    /// 挂一个 option（基础形态）。
+    public void AddOption(Option option) {
+        if (this._cmdOptionCount >= this._cmdOptions.Length) {
+            Option[] g = new Option[this._cmdOptions.Length * 2];
             int i = 0;
-            while (i < this._cmdHelpCount) { gf[i] = this._cmdHelpFields[i]; gt[i] = this._cmdHelpTexts[i]; i = i + 1; }
-            this._cmdHelpFields = gf;
-            this._cmdHelpTexts = gt;
+            while (i < this._cmdOptionCount) { g[i] = this._cmdOptions[i]; i = i + 1; }
+            this._cmdOptions = g;
         }
-        this._cmdHelpFields[this._cmdHelpCount] = fieldName;
-        this._cmdHelpTexts[this._cmdHelpCount] = help;
-        this._cmdHelpCount = this._cmdHelpCount + 1;
+        this._cmdOptions[this._cmdOptionCount] = option;
+        this._cmdOptionCount = this._cmdOptionCount + 1;
+    }
+
+    /// 挂一个位置参数（基础形态）；落在字段参数与先前挂上的参数之后。
+    public void AddArgument(Argument argument) {
+        if (this._cmdArgumentCount >= this._cmdArguments.Length) {
+            Argument[] g = new Argument[this._cmdArguments.Length * 2];
+            int i = 0;
+            while (i < this._cmdArgumentCount) { g[i] = this._cmdArguments[i]; i = i + 1; }
+            this._cmdArguments = g;
+        }
+        this._cmdArguments[this._cmdArgumentCount] = argument;
+        this._cmdArgumentCount = this._cmdArgumentCount + 1;
+    }
+
+    /// 挂一个强类型 option，返回句柄（调用处写明类型实参：`AddOption<int>("jobs", 1, help: "…")`）。
+    public CliOption<T> AddOption<T>(string name, T defaultValue, string help = "", string shortName = "",
+                                     string[] alias = null, string[] choices = null,
+                                     bool global = false, bool required = false) {
+        Option o = new Option(name, typeof(T), defaultValue, help, shortName, alias, choices, global, required);
+        this.AddOption(o);
+        return new CliOption<T>(o);
+    }
+
+    /// 挂一个强类型位置参数，返回句柄（调用处写明类型实参）。
+    public CliArgument<T> AddArgument<T>(string name, T defaultValue, string help = "", string[] choices = null,
+                                         bool required = false, bool passthrough = false) {
+        Argument a = new Argument(name, typeof(T), defaultValue, help, choices, required, passthrough);
+        this.AddArgument(a);
+        return new CliArgument<T>(a);
     }
 
     /// 命令的动作，返回退出码。叶子命令与声明了默认动作的命令必须覆写。
@@ -98,7 +135,9 @@ public partial class Command {
     /// 执行前钩子：沿根 → 目标逐个调用（字段已绑定），用于把全局 option 落成副作用。
     public virtual void BeforeRun() { }
 
-    /// 解析 argv、绑定字段并执行命中的命令，返回退出码：帮助 → 0；未知命令 / 参数错误 →
+    /// 解析 argv、绑定字段并执行命中的命令，返回退出码：帮助 → 0。
+    ///
+    /// 未知命令 / 参数错误 →
     /// 打到 stderr 并返回 2；否则为 `Run()` 的返回值。
     public int Invoke(string[] argv) {
         try {
@@ -200,15 +239,5 @@ public partial class Command {
             i = i + 1;
         }
         return r;
-    }
-
-    // 运行期帮助覆盖；无覆盖返回 null。
-    private string? _helpOverride(string fieldName) {
-        int i = 0;
-        while (i < this._cmdHelpCount) {
-            if (this._cmdHelpFields[i] == fieldName) { return this._cmdHelpTexts[i]; }
-            i = i + 1;
-        }
-        return null;
     }
 }

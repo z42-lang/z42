@@ -1,8 +1,9 @@
 namespace Std.Cli;
 using Std.IO;
 
-/// `ArgParser` 的 partial 碎片 —— 解析主循环与 token 分派
-/// （`--` 分隔、长/短形态、紧贴短参、簇、负数回退、positional 落槽）。
+/// `ArgParser` 的 partial 碎片 —— 解析主循环与 token 分派。
+///
+/// 覆盖 `--` 分隔、长/短形态、紧贴短参、簇、负数回退、positional 落槽。
 public partial class ArgParser {
 
     // ── Parse ────────────────────────────────────────────────────────────

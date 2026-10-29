@@ -1,0 +1,133 @@
+// Command 的命令式参数：基础对象 AddOption(Option) / AddArgument(Argument) 与强类型句柄
+// AddOption<T> / AddArgument<T>；与字段写法共用同一份规格（混用、校验、帮助一致）。
+namespace Z42CliCommandObjectsTests;
+
+using Std.Cli;
+using Std.Harness;
+
+public enum Plat { Ios, Android, Wasm }
+
+class Setup : Command {
+    [Option(help: "force reinstall")] public bool Force;
+    public CliOption<string> Os;
+    public CliOption<int> Jobs;
+    public CliOption<Plat> Target;
+    public CliOption<string[]> Tag;
+    public Option Raw;
+    public Argument Lib;
+    public CliArgument<string[]> Rest;
+    public int Ran = 0;
+
+    public Setup(string[] osDomain) : base("setup", "prepare") {
+        this.Os = this.AddOption<string>("os", "", help: "platform", choices: osDomain);
+        this.Jobs = this.AddOption<int>("jobs", 4, help: "parallel jobs", shortName: "j");
+        this.Target = this.AddOption<Plat>("target", Plat.Wasm, help: "target platform");
+        this.Tag = this.AddOption<string[]>("tag", new string[0], help: "tags");
+        this.Raw = new Option("raw-level", typeof(long), (long)7, help: "basic object form", alias: new string[]{ "level" });
+        this.AddOption(this.Raw);
+        this.Lib = new Argument("lib", typeof(string), help: "one lib");
+        this.AddArgument(this.Lib);
+        this.Rest = this.AddArgument<string[]>("rest", new string[0], help: "the rest");
+    }
+    public override int Run() { this.Ran = this.Ran + 1; return 5; }
+}
+
+class Root : Command {
+    public CliOption<string> Verbosity;
+    public CliOption<bool> Quiet;
+    public Setup Child;
+    public Root() : base("tool", "t") {
+        this.Verbosity = this.AddOption<string>("verbosity", "minimal", help: "level", shortName: "v", global: true);
+        this.Quiet = this.AddOption<bool>("quiet", false, help: "quiet", global: true);
+        this.Child = new Setup(new string[]{ "ios", "android" });
+        this.AddCommand(this.Child);
+    }
+}
+
+[Test]
+void test_typed_handles_bound() {
+    Root r = new Root();
+    Assert.Equal(5, r.Invoke(new string[]{ "setup", "--os", "ios", "-j", "8", "--target", "android",
+        "--tag", "a", "--tag", "b", "--force", "--level", "9", "z42.core", "x", "y" }));
+    Setup s = r.Child;
+    Assert.Equal("ios", s.Os.Value);
+    Assert.True(s.Os.IsSet);
+    Assert.Equal(9, s.Jobs.Value + 1);
+    Assert.True(s.Target.Value == Plat.Android);
+    Assert.Equal(2, s.Tag.Value.Length);
+    Assert.True(s.Force);
+    Assert.Equal((long)9, (long)s.Raw.Value);
+    Assert.True(s.Raw.IsSet);
+    Assert.Equal("z42.core", (string)s.Lib.Value);
+    Assert.Equal(2, s.Rest.Value.Length);
+}
+
+[Test]
+void test_defaults_and_is_set() {
+    Root r = new Root();
+    Assert.Equal(5, r.Invoke(new string[]{ "setup" }));
+    Setup s = r.Child;
+    Assert.Equal("", s.Os.Value);
+    Assert.False(s.Os.IsSet);
+    Assert.Equal(4, s.Jobs.Value);
+    Assert.True(s.Target.Value == Plat.Wasm);
+    Assert.Equal((long)7, (long)s.Raw.Value);
+    Assert.False(s.Lib.IsSet);
+    Assert.Equal("minimal", r.Verbosity.Value);
+    Assert.False(r.Verbosity.IsSet);
+    Assert.False(r.Quiet.Value);
+}
+
+[Test]
+void test_global_handles_anywhere() {
+    Root r = new Root();
+    Assert.Equal(5, r.Invoke(new string[]{ "setup", "-v", "detailed", "--quiet" }));
+    Assert.Equal("detailed", r.Verbosity.Value);
+    Assert.True(r.Verbosity.IsSet);
+    Assert.True(r.Quiet.Value);
+}
+
+[Test]
+void test_runtime_choices_validated() {
+    Assert.Equal(2, new Root().Invoke(new string[]{ "setup", "--os", "linux" }));
+    Assert.Equal(2, new Root().Invoke(new string[]{ "setup", "--target", "mac" }));
+    Assert.Equal(2, new Root().Invoke(new string[]{ "setup", "--jobs", "x" }));
+}
+
+[Test]
+void test_help_shows_imperative_params() {
+    Root r = new Root();
+    string h = r.Child.HelpText();
+    Assert.True(h.Contains("--os <os>"));
+    Assert.True(h.Contains("{ios|android}"));
+    Assert.True(h.Contains("-j, --jobs"));
+    Assert.True(h.Contains("[default: 4]"));
+    Assert.True(h.Contains("{ios|android|wasm}"));
+    Assert.True(h.Contains("[default: wasm]"));
+    Assert.True(h.Contains("--raw-level, --level"));
+    Assert.True(h.Contains("[lib]"));
+    Assert.True(r.HelpText().Contains("GLOBAL OPTIONS"));
+}
+
+[Test]
+void test_reinvoke_resets_values() {
+    Root r = new Root();
+    r.Invoke(new string[]{ "setup", "--os", "ios", "-j", "8" });
+    r.Invoke(new string[]{ "setup" });
+    Assert.Equal("", r.Child.Os.Value);
+    Assert.False(r.Child.Os.IsSet);
+    Assert.Equal(4, r.Child.Jobs.Value);
+}
+
+[Test]
+void test_bad_declarations() {
+    bool threw = false;
+    try { new Option("x", typeof(object)); } catch (CliException e) { threw = true; }
+    Assert.True(threw);
+    bool threw2 = false;
+    try { new Argument("x", typeof(bool)); } catch (CliException e) { threw2 = true; }
+    Assert.True(threw2);
+    bool threw3 = false;
+    try { new Argument("x", typeof(string), passthrough: true); } catch (CliException e) { threw3 = true; }
+    Assert.True(threw3);
+}

@@ -289,8 +289,9 @@ public partial class ArgParser {
         this._positionalCount = this._positionalCount + 1;
     }
 
-    /// 注册变长尾参（必须是最后一个 positional）：收集固定槽填满后的**全部剩余**
-    /// positional（含 `--` 之后的 token），用 `ParseResult.VariadicValues()` 取回。
+    /// 注册变长尾参（必须是最后一个 positional）。
+    ///
+    /// 收集固定槽填满后的**全部剩余** positional（含 `--` 之后的 token），用 `ParseResult.VariadicValues()` 取回。
     /// 变长槽不参与必填校验（0 个也合法）；help 的 USAGE 渲染为 `[name...]`。
     public void AddVariadicPositional(string name, string help) {
         if (this._hasVariadic) {
@@ -303,8 +304,9 @@ public partial class ArgParser {
         this._variadicHelp = help;
     }
 
-    /// 注册透传尾参（必须是最后一个 positional）：固定槽填满后，余下全部 token 原样收进
-    /// 变长槽——不再识别 `-h` / option / `--`，用 `ParseResult.VariadicValues()` 取回。
+    /// 注册透传尾参（必须是最后一个 positional）。
+    ///
+    /// 固定槽填满后，余下全部 token 原样收进变长槽——不再识别 `-h` / option / `--`，用 `ParseResult.VariadicValues()` 取回。
     /// 与 `AddVariadicPositional` 互斥（同一个变长槽）。
     public void AddPassthrough(string name, string help) {
         this.AddVariadicPositional(name, help);
@@ -315,7 +317,9 @@ public partial class ArgParser {
     public bool HasPassthrough() { return this._variadicPassthrough; }
 
     /// 给已注册的 flag / option 再挂一个 long 名：`--alias` 与 `--longName` 等价，
-    /// 取值仍用正名。正名未注册、别名与任何 long 名 / 别名相撞时抛 CliException。
+    /// 取值仍用正名。
+    ///
+    /// 正名未注册、别名与任何 long 名 / 别名相撞时抛 CliException。
     public void AddAlias(string longName, string alias) {
         if (this.FindFlagByLong(longName) < 0 && this.FindOptionByLong(longName) < 0) {
             throw new CliException("AddAlias: '--" + longName + "' is not a registered flag or option");
