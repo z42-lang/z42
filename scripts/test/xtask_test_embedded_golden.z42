@@ -1,6 +1,6 @@
-// xtask — embedded test-host：golden → [Test] 归一 + 单元 zbc 发射
+// xtask — embedded test-host：golden / 单元 zbc 发射（+ `--zbc <golden-dir>` 的一例 bundle）
 //
-// 「单个 case 怎么变成一个可执行单元」：golden 编成 .zbc（直接跑或包成 [Test]），stdlib 的 [Test]
+// 「单个 case 怎么变成一个可执行单元」：golden 编成 .zbc（隔离直接跑、比对 stdout），stdlib 的 [Test]
 // 文件 / 目录发射成 bundle 里的 .zbc / .zpkg。语料枚举与分片在 xtask_test_embedded_corpus.z42。
 namespace Z42Xtask;
 
@@ -23,71 +23,37 @@ string _ensureTestAgent(string root) {
     return zpkg;
 }
 
-// ── golden → [Test] 归一（`test app desktop --zbc <golden-dir>`）──────────────
+// ── 单个 golden 用例 → 一例 bundle（`test app desktop --zbc <golden-dir>`）──────
 //
-// A golden case is a whole program (source.z42 [+ expected_output.txt]). To run it
-// through the [Test] runner, generate a wrapper in the SAME module that captures
-// Main()'s stdout and asserts it equals the expected output (or, when there is no
-// expected file, just runs Main — Assert-self-validating).
-
-// Escape a string for embedding as a z42 double-quoted literal.
-string _zEscape(string s) {
-    string o = s.Replace("\\", "\\\\");
-    o = o.Replace("\"", "\\\"");
-    o = o.Replace("\r", "");
-    o = o.Replace("\n", "\\n");
-    return o;
-}
-
-// Build the combined golden+wrapper source. Injects `using Std.Harness;` after the
-// `namespace ...;` line if present, else at the top; appends the [Test] wrapper.
-string _wrapGoldenSource(string src, bool hasExpected, string expected) {
-    string inject = "using Std.Harness;\n";
-    string body = inject + src;
-    int off = 0;   // offset just past the current line's "\n"
-    foreach (var line in src.Split("\n")) {
-        off = off + line.Length + 1;
-        if (!line.Trim().StartsWith("namespace ")) { continue; }
-        if (off > src.Length) { src = src + "\n"; }   // namespace is the unterminated last line
-        body = src.Substring(0, off) + inject + src.Substring(off);
-        break;
-    }
-    // Use short names (TestIO / Assert) via the injected `using Std.Harness;` —
-    // fully-qualified `Std.Harness.TestIO` parses as a field-access chain (→ Null).
-    string wrapper;
-    if (hasExpected) {
-        wrapper = "\n[Test] void __golden_check() {\n"
-            + "    string __c = TestIO.captureStdout(() => { Main(); });\n"
-            + "    Assert.Equal(\"" + _zEscape(expected.TrimEnd()) + "\", __c.TrimEnd());\n}\n";
-    } else {
-        // Assert-self-validating golden: Main throws on failure.
-        wrapper = "\n[Test] void __golden_check() { Main(); }\n";
-    }
-    return body + wrapper;
-}
-
-// Build a golden case dir (<caseDir>/source.z42 [+ expected_output.txt]) into a
-// [Test]-wrapped .zbc. Returns the .zbc path ("" on failure).
-string _buildGoldenCase(string root, string caseDir) {
+// 与语料 bundle 里的 golden 走同一条路（_goldenEntry + BundleRunner）：source.z42 原样编成 .zbc，
+// 在隔离 VM 里直接跑入口、比对 stdout 与 expected_output.txt（没有则期望空输出）；`opt_all`、
+// `// requires-caps:` 同样生效。golden 不包成 [Test] 交给 Runner：那样跑在共享 VM 里、与语料的隔离跑
+// 不同口径（且反射发现把 `__` 前缀函数当编译器合成物滤掉，生成的包装函数名还得避开这个约定）。
+// 返回 manifest.json 路径（"" = 失败）。
+string _buildGoldenBundle(string root, string caseDir) {
     string src = Path.Join(caseDir, "source.z42");
     if (!File.Exists(src)) { ConsoleError.WriteLine("error: no source.z42 in " + caseDir); return ""; }
-    string srcText = File.ReadAllText(src);
-    string expPath = Path.Join(caseDir, "expected_output.txt");
-    bool hasExp = File.Exists(expPath);
-    string exp = hasExp ? File.ReadAllText(expPath) : "";
-    string combined = _wrapGoldenSource(srcText, hasExp, exp);
+    _CorpusCase c = new _CorpusCase();
+    string dir = caseDir;
+    while (dir.Length > 1 && dir.EndsWith("/")) { dir = dir.Substring(0, dir.Length - 1); }
+    c.name = Path.GetFileName(Path.GetDirectoryName(dir)) + "/" + Path.GetFileName(dir);
+    c.kind = "golden"; c.src = src; c.dir = dir;
+    c.exp = _readExpected(Path.Join(dir, "expected_output.txt"));
+    c.optAll = File.Exists(Path.Join(dir, "opt_all"));
 
-    string outDir = _workOut(root, "src/toolchain/workload/test", "");
-    Directory.Create(outDir);
-    string name = Path.GetFileName(caseDir);
-    string wrappedSrc = Path.Join(outDir, name + ".golden.z42");
-    File.WriteAllText(wrappedSrc, combined);
-    string zbc = Path.Join(outDir, name + ".golden.zbc");
-    Process proc = _releaseZ42c(root).Arg("--emit-zbc").Arg(wrappedSrc).Arg(zbc);
-    if (File.Exists(Path.Join(caseDir, "opt_all"))) { proc = proc.Arg("--opt-all"); }   // same as the host gate
-    int c = _exec(proc);
-    if (c != 0) { return ""; }
-    return zbc;
+    string bundleDir = Path.Join(_workOut(root, "src/toolchain/workload/test", ""), "golden-bundle");
+    Directory.Create(bundleDir);
+    _cleanGlob(bundleDir, "*.zbc");
+    string entry = _goldenEntry(root, c.name, c.src, c.exp, bundleDir, c.optAll);
+    if (entry.Length == 0) { return ""; }
+    return _writeBundleManifest(bundleDir, _withRequires(entry, _caseRequires(c)));
+}
+
+// Write `<bundleDir>/manifest.json` around the already-joined case entries; returns its path.
+string _writeBundleManifest(string bundleDir, string items) {
+    string mpath = Path.Join(bundleDir, "manifest.json");
+    File.WriteAllText(mpath, "{\n  \"cases\": [\n" + items + "\n  ]\n}\n");
+    return mpath;
 }
 
 // ── bundle 单元发射 ─────────────────────────────────────────────────────────

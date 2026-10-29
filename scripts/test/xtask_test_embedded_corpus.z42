@@ -245,8 +245,7 @@ string _buildTestBundle(string root, string filter, string rid, int shardK, int 
             + capped.ToString() + " — full coverage runs on desktop or via --shard)");
     }
     if (count == 0) { ConsoleError.WriteLine("error: no cases matched filter"); return ""; }
-    string mpath = Path.Join(bundleDir, "manifest.json");
-    File.WriteAllText(mpath, "{\n  \"cases\": [\n" + items + "\n  ]\n}\n");
+    string mpath = _writeBundleManifest(bundleDir, items);
     Console.WriteLine("  bundle: " + count.ToString() + " cases → " + mpath);
     return mpath;
 }
