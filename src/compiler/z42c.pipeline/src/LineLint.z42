@@ -60,8 +60,9 @@ public static class LineLint {
     public static void Check(CompilationUnit cu, string text, LintConfig cfg, DiagnosticBag bag) {
         if (cu == null || text == null) { return; }
 
+        LineIndex lx = new LineIndex(text);
         // 文件级：total > 硬限 → 只报硬限；介于软硬之间 → 只报软限（提示，不重复计）。
-        int total = LineLint._countLines(text);
+        int total = lx.Total;
         if (total > LineLint.FileLimitHard()) {
             LineLint._report(bag, cfg, cu.Span, LineLint.FileLinesHardRule,
                 "文件 " + total.ToString() + " 行，超过 " + LineLint.FileLimitHard().ToString()
@@ -71,7 +72,6 @@ public static class LineLint {
                 "文件 " + total.ToString() + " 行，超过 " + LineLint.FileLimitSoft().ToString() + " 行软限（提示，考虑拆分）", cu);
         }
 
-        LineIndex lx = new LineIndex(text);
         int i = 0;
         while (i < cu.DeclCount) {
             LineLint._walkDecl(cu.Decls[i], lx, cfg, bag, cu);
@@ -183,41 +183,44 @@ public static class LineLint {
         return body;
     }
 
-    private static int _countLines(string text) {
-        int n = 0; int i = 0; int len = text.Length;
-        while (i < len) { if (text.CharAt(i) == '\n') { n = n + 1; } i = i + 1; }
-        if (len > 0 && text.CharAt(len - 1) != '\n') { n = n + 1; }
-        return n;
-    }
 }
 
 // 一个文件的逐行量，按 `Split("\n")` 的行下标：每行括号增量（字符串 / 字符字面量与 `//` 注释里的括号不计，
-// 原门禁 _fnStripLiterals + _fnBraceDelta 的口径）、是否计入体行数（Trim 后非空且不以 `//` 开头）、行首偏移。
+// 原门禁 _fnStripLiterals + _fnBraceDelta 的口径）、是否计入体行数（Trim 后非空且不以 `//` 开头）、行首偏移，
+// 外加文件行数（`\n` 个数，末行无换行再 +1）。一次遍历全文字符数组算完，不 Split、不逐行建串。
 // 此前每个方法都把整个文件重新 Split + 逐行剥字面量（剥法本身逐字符拼串），编 z42.core 时占约三成编译耗时。
 internal sealed class LineIndex {
     public string Text;
     public int    Count;
+    public int    Total;
     public int[]  Delta;
     public bool[] Counted;
     private int[] _starts;
 
     public LineIndex(string text) {
         this.Text = text;
-        string[] lines = text.Split("\n");
-        this.Count = lines.Length;
-        this.Delta = new int[lines.Length];
-        this.Counted = new bool[lines.Length];
-        this._starts = new int[lines.Length];
-        int off = 0;
-        int i = 0;
-        while (i < lines.Length) {
-            string line = lines[i];
-            this._starts[i] = off;
-            off = off + line.Length + 1;
-            this.Delta[i] = LineIndex._braceDelta(line.ToCharArray());
-            string t = line.Trim();
-            this.Counted[i] = t.Length > 0 && !t.StartsWith("//");
-            i = i + 1;
+        char[] cs = text.ToCharArray();
+        int len = cs.Length;
+        int n = 1;
+        int k = 0;
+        while (k < len) { if (cs[k] == '\n') { n = n + 1; } k = k + 1; }
+        this.Count = n;
+        this.Total = len > 0 && cs[len - 1] != '\n' ? n : n - 1;
+        this.Delta = new int[n];
+        this.Counted = new bool[n];
+        this._starts = new int[n];
+        int start = 0;
+        int li = 0;
+        while (li < n) {
+            int end = start;
+            while (end < len && cs[end] != '\n') { end = end + 1; }
+            this._starts[li] = start;
+            this.Delta[li] = LineIndex._braceDelta(cs, start, end);
+            int s = start;
+            while (s < end && cs[s].IsWhiteSpace()) { s = s + 1; }
+            this.Counted[li] = s < end && !(cs[s] == '/' && s + 1 < end && cs[s + 1] == '/');
+            start = end + 1;
+            li = li + 1;
         }
     }
 
@@ -231,15 +234,15 @@ internal sealed class LineIndex {
         return lo;
     }
 
-    // 跳过字符串 / 字符字面量，遇 `//` 截止，数其余位置的 `{` / `}`。
-    private static int _braceDelta(char[] cs) {
-        int d = 0; int i = 0; int len = cs.Length;
-        while (i < len) {
+    // [from, to) 一行：跳过字符串 / 字符字面量，遇 `//` 截止，数其余位置的 `{` / `}`。
+    private static int _braceDelta(char[] cs, int from, int to) {
+        int d = 0; int i = from;
+        while (i < to) {
             char c = cs[i];
-            if (c == '/' && i + 1 < len && cs[i + 1] == '/') { break; }
+            if (c == '/' && i + 1 < to && cs[i + 1] == '/') { break; }
             if (c == '"') {
                 i = i + 1;
-                while (i < len) {
+                while (i < to) {
                     if (cs[i] == '\\') { i = i + 2; continue; }
                     if (cs[i] == '"') { break; }
                     i = i + 1;
@@ -248,8 +251,8 @@ internal sealed class LineIndex {
                 continue;
             }
             if (c == '\'') {
-                if (i + 2 < len && cs[i + 2] == '\'') { i = i + 3; continue; }
-                if (i + 3 < len && cs[i + 1] == '\\' && cs[i + 3] == '\'') { i = i + 4; continue; }
+                if (i + 2 < to && cs[i + 2] == '\'') { i = i + 3; continue; }
+                if (i + 3 < to && cs[i + 1] == '\\' && cs[i + 3] == '\'') { i = i + 4; continue; }
             }
             if (c == '{') { d = d + 1; } else if (c == '}') { d = d - 1; }
             i = i + 1;
