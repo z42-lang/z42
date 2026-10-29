@@ -179,6 +179,7 @@ pub(super) fn run_one_golden_isolated(path: &str, entry: Option<&str>, libs: Opt
         program_args: Vec::new(),
         print_stats: false,
         stats_json: false,
+        exit_after_run: false,
     };
     let res = crate::app::run(path, entry, opts);
     let captured = crate::corelib::io::take_stdout_sink();
