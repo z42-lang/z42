@@ -12,8 +12,7 @@ public static class Engine {
     public static object Invoke(string fqn) { return ModuleLoader.Invoke(fqn); }
 
     // 读会话变量活值（静态字段 FQN = `Repl.R{N}.Vars{N}.{var}`）的运行时类型成员名（字段/方法/属性）。
-    // 零副作用（读已存静态字段，不重求值）。null / 基元 / 未加载 → 空。add-completion-query-api 阶段 3b。
+    // 零副作用（读已存静态字段，不重求值）。null / 未加载 → 空。
     // 反射查询（非 tty 行编辑）→ 归引擎，不归 Std.Repl.Repl（split-z42-repl：消 scripting↔repl 环）。
-    [Native("__repl_member_names")]
-    public static extern string[] MemberNames(string staticFieldFqn);
+    public static string[] MemberNames(string staticFieldFqn) { return ModuleLoader.MemberNamesOfStaticValue(staticFieldFqn); }
 }

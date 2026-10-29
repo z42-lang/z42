@@ -279,21 +279,21 @@ public static class Hex {
 <a id="Std.Encoding.Hex.Encode(byte[])"></a>
 ### static string Encode(byte[] bytes)
 
-[`src/libraries/z42.encoding/src/Hex.z42:13`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Hex.z42#L13)
+[`src/libraries/z42.encoding/src/Hex.z42:12`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Hex.z42#L12)
 
 把字节编码为小写十六进制字符串。
 
 <a id="Std.Encoding.Hex.EncodeUpper(byte[])"></a>
 ### static string EncodeUpper(byte[] bytes)
 
-[`src/libraries/z42.encoding/src/Hex.z42:18`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Hex.z42#L18)
+[`src/libraries/z42.encoding/src/Hex.z42:17`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Hex.z42#L17)
 
 把字节编码为大写十六进制字符串。
 
 <a id="Std.Encoding.Hex.Decode(string)"></a>
 ### static byte[] Decode(string hex)
 
-[`src/libraries/z42.encoding/src/Hex.z42:36`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Hex.z42#L36)
+[`src/libraries/z42.encoding/src/Hex.z42:32`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.encoding/src/Hex.z42#L32)
 
 把十六进制字符串解码为字节；接受混合大小写，严格校验。
 

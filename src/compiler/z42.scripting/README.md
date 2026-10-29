@@ -12,7 +12,7 @@ REPL / 脚本场景的**跨平台编译+执行内核**（scripting-charter Form 
 |------|-----------|
 | 内存加载编译产物 | `Engine.LoadBytes`（`__load_bytecode_in_memory`）|
 | 按 FQN 调自由函数取结果 | `Engine.Invoke`（`__invoke_static`）|
-| 会话变量 live 值成员名反射（补全用）| `Engine.MemberNames`（`__repl_member_names`）|
+| 会话变量 live 值成员名反射（补全用）| `Engine.MemberNames`（转发 core `ModuleLoader.MemberNamesOfStaticValue`）|
 | 会话状态 / 结果 | `ScriptState.z42`（含 `DeclNames`/`DeclTypeNames`/`DeclNamespaces`）/ `EvalResult.z42` |
 | 输入分类（using/var/顶层声明/表达式/语句；类型 vs 自由函数）| `Classifier.z42`（`Classify` + `ParsedInput.IsTypeDecl`；`_typeRefEnd` 跳完整类型引用——限定名/泛型/数组/可空，识别 `List<int> a = new()` 等多 token 类型声明）|
 | 编译+执行编排 | `Script.z42`（`Create` / `Eval`；编译经 `IReplCompiler.CompileRound`）。**求值期错误恢复**：编译错误及运行异常（用户 `throw` / 除零 / 越界 / `__box_prim` 类型不符）均被捕获、作失败 `EvalResult` 返回、会话不推进，异常不逃逸终止 REPL；轮次号进程级单调、只在本轮模块加载进 VM 后前进（重用轮号会让已加载的旧函数胜出：异常「粘住」、`.reset` 后的新会话拿到旧结果）|

@@ -12,6 +12,11 @@ public class Probe {
 
 int answer() { return 42; }
 
+public class Holder {
+    public static Probe Value = new Probe();
+    public static Probe Empty = null;
+}
+
 [Test]
 void test_create_known_type() {
     object o = ModuleLoader.Create("Z42CoreModuleLoaderTests.Probe");
@@ -57,4 +62,23 @@ void test_load_keeps_static_state() {
     }
     Assert.True(loaded);
     Assert.Equal(5, LoadProbe.Count);
+}
+
+bool _has(string[] a, string name) {
+    int i = 0;
+    while (i < a.Length) { if (a[i] == name) { return true; } i = i + 1; }
+    return false;
+}
+
+[Test]
+void test_member_names_of_static_value() {
+    Assert.NotNull(Holder.Value);   // 只读已存的值：先让 Holder 的静态初始化跑过
+    string[] m = ModuleLoader.MemberNamesOfStaticValue("Z42CoreModuleLoaderTests.Holder.Value");
+    Assert.True(_has(m, "V"));
+}
+
+[Test]
+void test_member_names_of_null_or_missing_static_is_empty() {
+    Assert.Equal(0, ModuleLoader.MemberNamesOfStaticValue("Z42CoreModuleLoaderTests.Holder.Empty").Length);
+    Assert.Equal(0, ModuleLoader.MemberNamesOfStaticValue("Z42CoreModuleLoaderTests.Holder.Nope").Length);
 }

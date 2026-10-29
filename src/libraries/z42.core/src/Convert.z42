@@ -43,4 +43,26 @@ public static class Convert {
     public static bool  ToBoolean(string s) { return Boolean.Parse(s); }
     /// 解析为 `char`。
     public static char  ToChar(string s)    { return Char.Parse(s); }
+
+    // ── 十六进制编码 ─────────────────────────────────────────────────────────
+
+    /// 把字节编码为小写十六进制字符串（每字节 2 字符，无前缀、无分隔）。
+    public static string ToHexStringLower(byte[] bytes) {
+        if (bytes.Length == 0) { return ""; }
+        string alpha = "0123456789abcdef";
+        char[] result = new char[bytes.Length * 2];
+        int i = 0;
+        while (i < bytes.Length) {
+            int b = (int)bytes[i];
+            result[i * 2]     = alpha.CharAt((b >> 4) & 0x0F);
+            result[i * 2 + 1] = alpha.CharAt(b & 0x0F);
+            i = i + 1;
+        }
+        return String.FromChars(result);
+    }
+
+    /// 把 `text` 的 UTF-8 编码字节编码为小写十六进制字符串，等价于
+    /// `ToHexStringLower(Utf8.GetBytes(text))`，但不物化中间字节数组。
+    [Native("__hex_str")]
+    public static extern string ToHexStringLower(string text);
 }

@@ -1,0 +1,126 @@
+// 实现笔记：z42 没有逻辑右移、也没有无符号整数，故选 lane 为 32 位的 x86_128 而非 x64_128——lane
+// 用 `long` 承载并 `& MASK32` 掩码，值恒非负，`>>` 即逻辑右移，无符号语义全程显式；乘法按 wrapping
+// 取低位。两个 `Hash128Hex` 重载由 native（`corelib/convert.rs`）实现，与这里的 `Hash128` 逐字面镜像，
+// 等值由 `tests/murmur3.z42` 双向对拍盯住。
+namespace Std.Hashing;
+
+/// MurmurHash3 x86_128：快速的**非加密**哈希，用于内容标识与变更检测（构建产物 id、缓存键）。
+///
+/// 不抗碰撞攻击，不能用于任何安全边界——需要密码学强度时用 `Std.Crypto` 的 `Sha256` / `Blake3`。
+/// 输出 16 字节：h1..h4 各按小端写出，与参考实现（smhasher 的 `MurmurHash3_x86_128`）一致；seed 固定 0。
+
+public static class Murmur3 {
+    private const long MASK32 = 0xFFFFFFFFL;
+
+    // 32 位左循环。x 已掩码到 32 位（非负），故 `x >> (32-r)` 就是逻辑右移。
+    private static long _rotl(long x, int r) {
+        return ((x << r) | (x >> (32 - r))) & Murmur3.MASK32;
+    }
+
+    private static long _mul(long x, long c) { return (x * c) & Murmur3.MASK32; }
+
+    private static long _fmix(long h) {
+        long x = h & Murmur3.MASK32;
+        x = x ^ (x >> 16); x = Murmur3._mul(x, 0x85EBCA6BL);
+        x = x ^ (x >> 13); x = Murmur3._mul(x, 0xC2B2AE35L);
+        x = x ^ (x >> 16);
+        return x;
+    }
+
+    /// 128 位摘要（16 字节，小端 h1..h4）。
+    [Suppress("style.fnLinesHard", "70 body lines；拆分见 code-organization.md")]
+    public static byte[] Hash128(byte[] data) {
+        long c1 = 0x239B961BL; long c2 = 0xAB0E9789L; long c3 = 0x38B34AE5L; long c4 = 0xA1E38B93L;
+        long h1 = 0; long h2 = 0; long h3 = 0; long h4 = 0;
+        int n = data.Length;
+        int nblocks = n / 16;
+        int i = 0;
+        // ⚠⚠ 内环**手工内联** `_rd32` / `_mul` / `_rotl`——解释执行下一层调用帧的成本远大于这几个
+        // helper 的函数体本身，改 helper 必须同步改这里的展开。等价性：
+        // `_rotl(x,r) = ((x<<r)|(x>>(32-r))) & MASK32`、`_mul(x,c) = (x*c) & MASK32`，逐字面展开；
+        // `(_mul(h,5) + K) & MASK32` 保留内层掩码，与原式逐字面同形。尾部与 `_fmix` 每次哈希只调
+        // 一次，仍走 helper。
+        while (i < nblocks) {
+            int o = i * 16;
+            long k1 = ((long)((int)data[o]      & 0xFF)) | (((long)((int)data[o +  1] & 0xFF)) << 8)
+                    | (((long)((int)data[o +  2] & 0xFF)) << 16) | (((long)((int)data[o +  3] & 0xFF)) << 24);
+            long k2 = ((long)((int)data[o +  4] & 0xFF)) | (((long)((int)data[o +  5] & 0xFF)) << 8)
+                    | (((long)((int)data[o +  6] & 0xFF)) << 16) | (((long)((int)data[o +  7] & 0xFF)) << 24);
+            long k3 = ((long)((int)data[o +  8] & 0xFF)) | (((long)((int)data[o +  9] & 0xFF)) << 8)
+                    | (((long)((int)data[o + 10] & 0xFF)) << 16) | (((long)((int)data[o + 11] & 0xFF)) << 24);
+            long k4 = ((long)((int)data[o + 12] & 0xFF)) | (((long)((int)data[o + 13] & 0xFF)) << 8)
+                    | (((long)((int)data[o + 14] & 0xFF)) << 16) | (((long)((int)data[o + 15] & 0xFF)) << 24);
+            k1 = (k1 * c1) & Murmur3.MASK32; k1 = ((k1 << 15) | (k1 >> 17)) & Murmur3.MASK32; k1 = (k1 * c2) & Murmur3.MASK32; h1 = h1 ^ k1;
+            h1 = ((h1 << 19) | (h1 >> 13)) & Murmur3.MASK32; h1 = (h1 + h2) & Murmur3.MASK32;
+            h1 = (((h1 * 5L) & Murmur3.MASK32) + 0x561CCD1BL) & Murmur3.MASK32;
+            k2 = (k2 * c2) & Murmur3.MASK32; k2 = ((k2 << 16) | (k2 >> 16)) & Murmur3.MASK32; k2 = (k2 * c3) & Murmur3.MASK32; h2 = h2 ^ k2;
+            h2 = ((h2 << 17) | (h2 >> 15)) & Murmur3.MASK32; h2 = (h2 + h3) & Murmur3.MASK32;
+            h2 = (((h2 * 5L) & Murmur3.MASK32) + 0x0BCAA747L) & Murmur3.MASK32;
+            k3 = (k3 * c3) & Murmur3.MASK32; k3 = ((k3 << 17) | (k3 >> 15)) & Murmur3.MASK32; k3 = (k3 * c4) & Murmur3.MASK32; h3 = h3 ^ k3;
+            h3 = ((h3 << 15) | (h3 >> 17)) & Murmur3.MASK32; h3 = (h3 + h4) & Murmur3.MASK32;
+            h3 = (((h3 * 5L) & Murmur3.MASK32) + 0x96CD1C35L) & Murmur3.MASK32;
+            k4 = (k4 * c4) & Murmur3.MASK32; k4 = ((k4 << 18) | (k4 >> 14)) & Murmur3.MASK32; k4 = (k4 * c1) & Murmur3.MASK32; h4 = h4 ^ k4;
+            h4 = ((h4 << 13) | (h4 >> 19)) & Murmur3.MASK32; h4 = (h4 + h1) & Murmur3.MASK32;
+            h4 = (((h4 * 5L) & Murmur3.MASK32) + 0x32AC3B17L) & Murmur3.MASK32;
+            i = i + 1;
+        }
+        // 尾部（< 16 字节），按参考实现的 fallthrough 次序。
+        int t = nblocks * 16;
+        int tl = n - t;
+        long q1 = 0; long q2 = 0; long q3 = 0; long q4 = 0;
+        if (tl >= 15) { q4 = q4 ^ (((long)((int)data[t + 14] & 0xFF)) << 16); }
+        if (tl >= 14) { q4 = q4 ^ (((long)((int)data[t + 13] & 0xFF)) << 8); }
+        if (tl >= 13) {
+            q4 = q4 ^ ((long)((int)data[t + 12] & 0xFF));
+            q4 = Murmur3._mul(Murmur3._rotl(Murmur3._mul(q4, c4), 18), c1); h4 = h4 ^ q4;
+        }
+        if (tl >= 12) { q3 = q3 ^ (((long)((int)data[t + 11] & 0xFF)) << 24); }
+        if (tl >= 11) { q3 = q3 ^ (((long)((int)data[t + 10] & 0xFF)) << 16); }
+        if (tl >= 10) { q3 = q3 ^ (((long)((int)data[t + 9] & 0xFF)) << 8); }
+        if (tl >= 9) {
+            q3 = q3 ^ ((long)((int)data[t + 8] & 0xFF));
+            q3 = Murmur3._mul(Murmur3._rotl(Murmur3._mul(q3, c3), 17), c4); h3 = h3 ^ q3;
+        }
+        if (tl >= 8) { q2 = q2 ^ (((long)((int)data[t + 7] & 0xFF)) << 24); }
+        if (tl >= 7) { q2 = q2 ^ (((long)((int)data[t + 6] & 0xFF)) << 16); }
+        if (tl >= 6) { q2 = q2 ^ (((long)((int)data[t + 5] & 0xFF)) << 8); }
+        if (tl >= 5) {
+            q2 = q2 ^ ((long)((int)data[t + 4] & 0xFF));
+            q2 = Murmur3._mul(Murmur3._rotl(Murmur3._mul(q2, c2), 16), c3); h2 = h2 ^ q2;
+        }
+        if (tl >= 4) { q1 = q1 ^ (((long)((int)data[t + 3] & 0xFF)) << 24); }
+        if (tl >= 3) { q1 = q1 ^ (((long)((int)data[t + 2] & 0xFF)) << 16); }
+        if (tl >= 2) { q1 = q1 ^ (((long)((int)data[t + 1] & 0xFF)) << 8); }
+        if (tl >= 1) {
+            q1 = q1 ^ ((long)((int)data[t] & 0xFF));
+            q1 = Murmur3._mul(Murmur3._rotl(Murmur3._mul(q1, c1), 15), c2); h1 = h1 ^ q1;
+        }
+        long ln = ((long)n) & Murmur3.MASK32;
+        h1 = h1 ^ ln; h2 = h2 ^ ln; h3 = h3 ^ ln; h4 = h4 ^ ln;
+        h1 = (h1 + h2) & Murmur3.MASK32; h1 = (h1 + h3) & Murmur3.MASK32; h1 = (h1 + h4) & Murmur3.MASK32;
+        h2 = (h2 + h1) & Murmur3.MASK32; h3 = (h3 + h1) & Murmur3.MASK32; h4 = (h4 + h1) & Murmur3.MASK32;
+        h1 = Murmur3._fmix(h1); h2 = Murmur3._fmix(h2); h3 = Murmur3._fmix(h3); h4 = Murmur3._fmix(h4);
+        h1 = (h1 + h2) & Murmur3.MASK32; h1 = (h1 + h3) & Murmur3.MASK32; h1 = (h1 + h4) & Murmur3.MASK32;
+        h2 = (h2 + h1) & Murmur3.MASK32; h3 = (h3 + h1) & Murmur3.MASK32; h4 = (h4 + h1) & Murmur3.MASK32;
+        byte[] o2 = new byte[16];
+        Murmur3._put32(o2, 0, h1); Murmur3._put32(o2, 4, h2);
+        Murmur3._put32(o2, 8, h3); Murmur3._put32(o2, 12, h4);
+        return o2;
+    }
+
+    private static void _put32(byte[] o, int at, long v) {
+        o[at]     = (byte)(v & 0xFFL);
+        o[at + 1] = (byte)((v >> 8) & 0xFFL);
+        o[at + 2] = (byte)((v >> 16) & 0xFFL);
+        o[at + 3] = (byte)((v >> 24) & 0xFFL);
+    }
+
+    /// `Hash128(data)` 的 32 个小写十六进制字符（无前缀）。
+    [Native("__mmh3_hex_bytes")]
+    public static extern string Hash128Hex(byte[] data);
+
+    /// `text` 按 UTF-8 编码后的 `Hash128` 的 32 个小写十六进制字符，等价于
+    /// `Hash128Hex(Utf8.GetBytes(text))`，但不物化中间字节数组。
+    [Native("__mmh3_hex_str")]
+    public static extern string Hash128Hex(string text);
+}

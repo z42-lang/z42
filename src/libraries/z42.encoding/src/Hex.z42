@@ -6,21 +6,17 @@ namespace Std.Encoding;
 /// 奇数长度抛 `FormatException("odd-length hex string")`，非 `[0-9a-fA-F]` 字符抛 `invalid hex character '<c>'`。
 
 public static class Hex {
-    private static string _alphaLower = "0123456789abcdef";
     private static string _alphaUpper = "0123456789ABCDEF";
 
     /// 把字节编码为小写十六进制字符串。
     public static string Encode(byte[] bytes) {
-        return EncodeWith(bytes, Hex._alphaLower);
+        return Convert.ToHexStringLower(bytes);
     }
 
     /// 把字节编码为大写十六进制字符串。
     public static string EncodeUpper(byte[] bytes) {
-        return EncodeWith(bytes, Hex._alphaUpper);
-    }
-
-    private static string EncodeWith(byte[] bytes, string alpha) {
         if (bytes.Length == 0) return "";
+        string alpha = Hex._alphaUpper;
         char[] result = new char[bytes.Length * 2];
         int i = 0;
         while (i < bytes.Length) {

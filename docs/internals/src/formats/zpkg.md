@@ -136,7 +136,7 @@ zbc_hash       pool idx（散装 zbc 内容 SHA-256，一致性校验）
 
 ### BLID — Build ID
 
-16 字节 **MurmurHash3 x86_128**（`Z42.IR.Murmur3.Hash128`）。release strip 的主 packed 包先写 16 字节占位、装配后对全字节 hash 回填；sidecar 直接写同一 build id。runtime 据此把 sidecar 与主包配对。
+16 字节 **MurmurHash3 x86_128**（`Std.Hashing.Murmur3.Hash128`）。release strip 的主 packed 包先写 16 字节占位、装配后对全字节 hash 回填；sidecar 直接写同一 build id。runtime 据此把 sidecar 与主包配对。
 
 > **为什么不是密码学哈希**：build_id 只做「这个 `.zsym` 配不配这个 `.zpkg`」的**配对识别**，不参与
 > 任何信任决策；runtime 只**读取两个值比相等**，从不重算（`metadata::build_id::compute` 在整个
