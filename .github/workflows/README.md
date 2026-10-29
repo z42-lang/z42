@@ -11,7 +11,7 @@
 | 文件 | 触发条件 | 职责 |
 |------|---------|------|
 | `ci.yml` | `pull_request` / `push` 到 main；`workflow_dispatch`；每日 16:00 UTC `schedule` | 主门禁 + nightly 发布，job 见下表 |
-| `bench-pr.yml` | `pull_request` 到 main（仅 runtime / libraries / compiler / bench / xtask 脚本路径，纯 `.md` 不触发）；`push` main 与每周一 `schedule` 仅预热缓存；`workflow_dispatch` | `bench-regression(linux-x64)`：同 runner A/B，`xtask bench --ab --tier gate --threshold-time 0.15`（初判回归的条目再测 2 轮重算区间，见 yml 内注释），>15% 时间回归且区间分离即 fail；micro 层同为硬门禁（base / pr 各出 `xtask bench stdlib --json`，`xtask bench --micro-diff --threshold-time 0.15` 判红）。`bench-cache-warm`：main 上预热 Rust 依赖缓存。阈值依据见 internals「性能基准与回归门禁」 |
+| `bench-pr.yml` | `pull_request` 到 main（仅 runtime / libraries / compiler / bench / xtask 脚本路径，纯 `.md` 不触发）；`push` main 与每周一 `schedule` 仅预热缓存；`workflow_dispatch` | `bench-regression(linux-x64)`：同 runner A/B，`xtask bench --ab --tier gate --threshold-time 0.15`（初判回归的条目再测 2 轮、用跑间离散度重算区间），>15% 时间回归且区间分离即 fail；micro 层同为硬门禁（base / pr 各出 `xtask bench stdlib --json`，`xtask bench --micro-diff --threshold-time 0.15` 判红）；criterion 层只打印。`bench-cache-warm`：main 上预热 Rust 依赖缓存。判红语义与阈值依据见 internals「性能基准与回归门禁」 |
 | `release.yml` | 推 tag `v*.*.*`；`workflow_dispatch`（输入 version） | `verify-version`（tag ↔ `scripts/versions.toml`）→ `package-<rid>` × 9 个 RID → `publish-release`（含 SHA256SUMS） |
 | `deploy-book.yml` | `push` main 且改动书 / examples / 安装脚本；`pull_request`（只构建，`[ERROR]` 判红）；`workflow_dispatch` | 构建 mdBook 并发布到 GitHub Pages（含 `install.sh` / `install.ps1`） |
 | `jit-fixpoint-check.yml` | 仅 `workflow_dispatch`（实验性，不进门禁） | 逐平台验证 z42c 工作区 `--mode jit` 与 `--mode interp` 产物逐字节一致 |
@@ -39,7 +39,7 @@
 - **统一入口**：workflow 只调 `xtask <cmd>`，不在 yaml 里硬编码构建 / 测试命令。
 - **自举**：CI 从上一个 nightly（取不到则回退 main 上最近成功 CI 的产物）的 SDK 起步，自己编当前源码；机制见 [CI 拓扑 · 自举种子从哪来](../../docs/internals/src/devinfra/ci.md)。
 - **缓存**：Rust 依赖用 Swatinem `rust-cache`，bench 缓存由 main 上的 `bench-cache-warm` 预热。
-- **并发控制**：同一 ref、同一事件类型的旧 run 自动取消（`concurrency` 段）。
+- **并发控制**：PR 上同一 ref 的旧 run 自动取消（`concurrency` 段）；main 的 push 运行不自动取消，由 `../ci/main-supersede.sh` 只取消不影响 SDK 的旧运行；同时在跑重 job 的 PR 运行数由 `../ci/pr-gate.sh` 限流。
 
 ## 如何测试验证
 

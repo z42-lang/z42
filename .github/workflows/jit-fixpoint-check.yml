@@ -2,12 +2,12 @@ name: JIT Fixpoint Check (experimental)
 
 # Manual-only prerequisite check for the z42c-JIT compile switch. Verifies that
 # compiling the compiler workspace (src/compiler default_members) with `--mode jit`
-# produces BYTE-IDENTICAL output
-# (mod the trailing 16B BLID content-hash) to `--mode interp`, per platform —
+# produces BYTE-IDENTICAL output (mod the trailing 16B BLID content-hash) to
+# `--mode interp`, per platform —
 # i.e. switching z42c to JIT would not break the self-host byte-identical fixpoint.
 #
 # NOT gating and NOT triggered on push/PR: dispatch it manually when you want the
-# cross-platform data (macos-arm64 already verified locally 2026-07-11). A red here
+# cross-platform data. A red here
 # means JIT diverges from interp on that platform → do NOT switch z42c to JIT until
 # the divergence is root-caused (cranelift is a separate codegen path; arch/memory-
 # ordering-sensitive corners can differ — load-order determinism rule).
@@ -44,7 +44,7 @@ jobs:
           workspaces: src/runtime -> ../../artifacts/build/runtime
           shared-key: host-v2
 
-      # Nightly seed → build current z42c + stdlib + xtask (same path as build-and-test).
+      # Nightly seed → build current z42c + stdlib + xtask (same path as ci.yml test-host).
       - uses: ./.github/actions/ci-bootstrap
         with:
           rid: ${{ matrix.rid }}

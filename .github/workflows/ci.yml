@@ -94,9 +94,7 @@ jobs:
               # vscode 语法门比对「入库生成产物 ↔ 模板 + Lexer 关键字表」，产物与模板都在这里。
               - 'src/toolchain/devtools/vscode/**'
               - '.github/workflows/ci.yml'
-            # change-detect rule (c): gates the Rust VM unit harness (cargo test)
-            # + JIT consistency. Only a src/runtime change can affect it.
-            # ci.yml fallback = 保底全跑.
+            # Rust VM 单测（cargo test）+ JIT 一致性门；只有 src/runtime 改动能影响它们。
             vm:
               # （含 src/runtime/.cargo/config.toml：target-dir 与 wasm rustflags）
               - 'src/runtime/**'
@@ -160,7 +158,7 @@ jobs:
       - uses: actions/checkout@v7
 
       # Rust 只为 `xtask check doc-refs`：它先 cargo 编 rust-index（syn 解析运行时 crate）重建 artifacts/doc/rust.idx，
-      # 书页里的 Rust 符号才按当前源码解析；其余门禁跑在 `.z42` SDK 的 z42vm 上、不碰构建树（add-sdk-libs D7）。
+      # 书页里的 Rust 符号才按当前源码解析；其余门禁跑在 `.z42` SDK 的 z42vm 上、不碰构建树。
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -185,9 +183,8 @@ jobs:
     name: test-host(${{ matrix.platform }})
     # 全量 gate 在 linux-x64 上接近 60 分钟，留余量。
     timeout-minutes: 75
-    # needs: changes so the Windows cargo-test step can gate on the `vm` filter
-    # (rule c). The job itself still runs on every non-docs push (changes always
-    # succeeds); only the Rust-unit step is conditionally skipped.
+    # needs: changes so the Rust-unit steps can gate on the `vm` filter; the job
+    # itself runs on every non-docs change.
     needs: changes
     # 纯文档改动（PR 与 main push）走 docs-check（见 changes 的 Docs-only 步骤）；本 job 被 skip 时 ci-ok 照样绿。
     if: needs.changes.outputs.docs_only != 'true'
@@ -204,8 +201,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # build-and-test runs on ALL OS — every leg downloads the prev nightly's z42c
-      # seed and bootstraps the toolchain from source with it. See the Bootstrap step.
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -410,7 +405,7 @@ jobs:
           echo "✓ installed SDK: new + run → Hello, World!"
 
       - name: C host links the packaged runtime (static + dynamic)
-        # P0-17：同一套 R1–R7 C 宿主（test-desktop-cabi 用的那份 r1_r7.c）改链**打出来的 runtime 包**，
+        # 同一套 R1–R7 C 宿主（test-desktop-cabi 用的那份 r1_r7.c）改链**打出来的 runtime 包**，
         # 静态一遍、动态一遍（经 rpath 找 libz42.{dylib,so}）——install name / SONAME 坏了，动态那遍就加载不了。
         # Windows 没有 `cc`，上一步按文件检查 import lib。
         if: runner.os != 'Windows'
@@ -436,9 +431,7 @@ jobs:
   toolchain-bootstrap:
     name: compile-toolchain(linux-x64)
     timeout-minutes: 30
-    # Runs unconditionally (like the test jobs) — its artifact roots the package
-    # jobs (which always run) + the platform-test jobs, so it must always be present.
-    # 例外：纯文档改动（ci-docs-fast-path）——它下游的 assemble / consume current-sdk 随之 skip。
+    # 除纯文档改动外恒跑：它的 artifact 是打包 / 平台测试 / current-sdk 各 job 的根。
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
@@ -479,7 +472,7 @@ jobs:
           retention-days: 3
           if-no-files-found: error
 
-      # 名字保留 `-ubuntu-latest` 后缀：xtask-bootstrap-artifact / bench 等消费方按这个名字取。
+      # 名字保留 `-ubuntu-latest` 后缀：xtask-bootstrap-artifact 按这个名字取。
       - name: Upload toolchain-ubuntu-latest
         uses: actions/upload-artifact@v7
         with:
@@ -578,7 +571,6 @@ jobs:
             echo "::error::current-sdk has no bundled goldens (tests/) — assemble-current-sdk regen step?"; exit 1
           fi
       # interp: the shared compiled asset (prebuilt .zbc) runs with no regen/bootstrap.
-      # GATE — 169/169 proven.
       - name: Run VM goldens INTERP from shared asset (--no-rebuild)
         shell: bash
         run: |
@@ -638,9 +630,7 @@ jobs:
     timeout-minutes: 45
     runs-on: ubuntu-latest
     needs: [changes, toolchain-bootstrap]
-    # change-detect rule (d+c): stdlib [Test] JIT divergence can arise from a VM
-    # change (JIT codegen) or a stdlib change (test content). Skip when neither
-    # changed. Schedule/dispatch = 全跑.
+    # vm（JIT codegen）/ stdlib（测试内容）/ compiler（IR 形状）任一改动都可能挪动结果；schedule / dispatch 全跑。
     if: ${{ needs.changes.outputs.vm == 'true' || needs.changes.outputs.stdlib == 'true' || needs.changes.outputs.compiler == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     strategy:
       fail-fast: false
@@ -653,7 +643,7 @@ jobs:
       # 吃 toolchain artifact，不在每个分片重新自举（rust toolchain + cache 由 action 自带）。
       - uses: ./.github/actions/xtask-bootstrap-artifact
         with:
-          prebuilt-vm: "true"   # 后续只跑 xtask、不调 cargo（ci-prebuilt-vm；非 linux-x64 腿照常自建）
+          prebuilt-vm: "true"   # 后续只跑 xtask、不调 cargo（非 linux-x64 腿照常自建）
 
       - name: stdlib [Test] — JIT mode (shard ${{ matrix.shard }}/2)
         shell: bash
@@ -670,8 +660,7 @@ jobs:
     timeout-minutes: 45
     runs-on: ${{ matrix.os }}
     needs: [changes, toolchain-bootstrap]
-    # change-detect rule (d+c): stdlib [Test] interp can diverge on VM change
-    # (interp dispatch) or stdlib change (test content/API). Schedule/dispatch = 全跑.
+    # vm（interp 派发）/ stdlib（测试内容 / API）/ compiler 任一改动都可能挪动结果；schedule / dispatch 全跑。
     if: ${{ needs.changes.outputs.vm == 'true' || needs.changes.outputs.stdlib == 'true' || needs.changes.outputs.compiler == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     strategy:
       fail-fast: false
@@ -688,7 +677,7 @@ jobs:
       # 吃与架构无关的 toolchain artifact，本机 cargo 编 z42vm（rust toolchain + cache 由 action 自带）。
       - uses: ./.github/actions/xtask-bootstrap-artifact
         with:
-          prebuilt-vm: "true"   # 后续只跑 xtask、不调 cargo（ci-prebuilt-vm；非 linux-x64 腿照常自建）
+          prebuilt-vm: "true"   # 后续只跑 xtask、不调 cargo（非 linux-x64 腿照常自建）
 
       - name: stdlib [Test] — INTERP mode (full)
         shell: bash
@@ -867,7 +856,7 @@ jobs:
           xtask package runtime --rid browser-wasm --archive --label nightly
 
       # 每个 push / PR 真跑一次 wasm VM（上面只编译、校验、打包；真执行的 test-wasm-browser 只在 nightly）——
-      # 第一次 loadZbc 就 trap 的 VM 能一路打包通过。pkg-nodejs 在暂存的 host 副本里构建，不写源码目录。
+      # 第一次 loadZbc 就 trap 的 VM 能一路打包通过。pkg-nodejs 已由上面的 `test app wasm build` 建在暂存的 host 副本里。
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
@@ -875,7 +864,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          xtask test app wasm build
           xtask test app wasm assets
           node artifacts/intermediate/toolchain/workload/wasm/host/demo/node/run.js
 
@@ -906,7 +894,7 @@ jobs:
       - package-ios
       - package-android
       - package-wasm
-      - toolchain-bootstrap   # provides the toolchain-<os> artifact for `xtask release`
+      - toolchain-bootstrap   # provides the toolchain artifact for `xtask package release`
     runs-on: ubuntu-latest
     # 所有事件的 publish-nightly 串行（job 级 group）：并发的两次会交错改同一个 nightly Release；不取消，排队等前一个发完。
     concurrency:
@@ -940,7 +928,7 @@ jobs:
         if: steps.stale.outputs.stale != 'true'
         uses: ./.github/actions/xtask-bootstrap-artifact
         with:
-          prebuilt-vm: "true"   # 后续只跑 xtask、不调 cargo（ci-prebuilt-vm；非 linux-x64 腿照常自建）
+          prebuilt-vm: "true"   # 后续只跑 xtask、不调 cargo（非 linux-x64 腿照常自建）
 
       # 各 package job 已在自己的 runner 上用 `--archive` 出好归档——upload-artifact 不保留可执行位，
       # 所以不能下载包目录到这里再打。
@@ -1270,8 +1258,7 @@ jobs:
     name: test-desktop-cabi(linux-x64)
     timeout-minutes: 30
     needs: [changes, toolchain-bootstrap]
-    # Tier-1 (desktop C ABI, fast — no emulator/sim/browser): stays per-PR on
-    # platform changes (only Tier-2 wasm/iOS/Android moved to nightly-only).
+    # Tier-1 (desktop C ABI, fast — no emulator/sim/browser): runs per-PR on platform changes.
     if: ${{ needs.changes.outputs.platform == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     permissions:

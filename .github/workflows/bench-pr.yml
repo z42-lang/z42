@@ -1,74 +1,12 @@
 name: Bench PR Regression
 
-# Trigger: pull requests that touch performance-sensitive code.
-# add-same-runner-ab-bench-gate: builds BOTH the PR toolchain and the PR's
-# merge-base (base.sha) toolchain on THIS runner, then `xtask bench --ab`
-# compiles + measures every scenario under each — base and pr adjacent on the
-# same machine, so the runner speed factor cancels in ratio=pr/base and the
-# within-run SEM is statistically valid. A regression = ratio 95% lower bound
-# R_lower > 1 + threshold. This replaces the old cross-runner baseline diff
-# (bench-baselines snapshot on ANOTHER runner ⇒ ±26–60% between-run drift that
-# made the gate near-blind).
-#
-# simplify-bench-gate (2026-09-05)：门禁此前**每个 PR 期望假红约 2 条**，实测最近
-# 4 次失败逐条核对全是假红 —— 三个叠加缺陷（完整数据与推导见 book 判红语义页
-# docs/book/src/dev/benchmarking.md「噪声底与阈值」）：
-#   ① 判红阈值 10% 画在**噪声底之下**：两个 perf-neutral PR 上实测比值对数标准差
-#      6.4%（e2e）/ 8.1%（micro）⇒ 真实噪声 ±13~16%。
-#   ② 声称的置信区间被系统性低估（micro 中位 4.8% vs 真实 ±16%，约三倍），
-#      「区间分离」这道保险因此失效。
-#   ③ 每个 PR 做 22+65=87 次比较、不做多重比较校正。
-# 对策（本次落地，与上面三条一一对应）：
-#   ① --threshold-time 0.25（抬到噪声底之上）。
-#   ② micro 层降级为**信息性、不再 fail**（见下面那一步的注释）。
-#   ③ e2e 只测 --tier gate 的 6 条场景 + --mode 按改动面收窄 ⇒ 比较数 87 → 6~12。
-# 同时删掉 allocations 探针（informational、从不 fail，却占单次 job 的 26%）。
-# 单次 job 执行墙钟 17~18 min → 约 8~10 min。
-# 未做（下一步）：「可疑即复测」—— 只对初判超阈值的条目做 k=3 交替重测、用跑间
-# 比值离散度重算区间。那是让阈值从 25% 收回 15%、以及让 micro 重新硬门禁的前提。
-#
-# extend-ab-bench-micro-criterion: micro/stdlib tier 仍每次采两份隔离基线
-# （PR 树 + base 树，同 runner）并 diff，但**只打印不判红**。base's toolchain is
-# reused from the "Build base toolchain" step; only base z42b is built fresh.
-#
-# Trigger paths intentionally narrow — doc-only PRs skip the run.
-#
-# narrow-bench-gate-guards (2026-09-05)：#442 落地后实测两条路径分化——不碰
-# src/runtime 的 PR 445s（7.4 min，达标），碰 src/runtime 的 1227~1239s（20.5 min），
-# 慢路径大头是 criterion A/B 531s(43%) + cargo 建 base z42vm ~140s + e2e --mode both。
-# 问题在于「碰没碰 src/runtime」这个判据太粗：该目录下有 13 个 README，改其中一行
-# 也算「VM 变了」。#442 自己就踩了——只动 src/runtime/benches/README.md 一行，白跑
-# criterion 463s + 重建 base z42vm 98s，约 9 分钟。三处守卫（base 工具链 / --mode /
-# criterion）因此都加 ':(exclude,glob)src/runtime/**/*.md'。
-# 为什么用「排除文档」而不是「只列 *.rs + Cargo.toml/lock」：白名单一旦漏掉某种真会
-# 影响 z42vm 产物的文件类型，门禁会**静默跳过**本该跑的比较（假阴性，门禁变瞎）；
-# 排除法最坏只是多跑一次（假阳性，费时间不费正确性）。这条门禁整治的全部意义就是
-# 别让判定失真，故取只可能错向「多跑」的那一边。
-#
-# lighten-criterion-ab (2026-09-05)：慢路径 1227s 的大头 criterion A/B 531s，先分解再削
-# （逐行日志时间戳，两次 run 吻合 ±3s）：base 编译 115s + base 测量 148s + pr 编译 116s +
-# pr 测量 151s ⇒ 编译 233s(44%) / 测量 297s(56%)，测量里 concurrent_* 占 75s(14%) 却从不判红。
-# 落地两刀（只动成本、不动判红语义）：① 本 job 用自己的 cache key（原先与 CI 共用 host-v2 ⇒ 每次
-# exact hit、从不回存，bench profile 的依赖产物和 base-src 的 target 从来没进过缓存）；② concurrent_*
-# 排除在测量之外（实测 pr 侧 151s→103s；这三条后随 gc-mode=concurrent 一并删除）。
-# **试过并回退**：把 [profile.bench] 从继承 release 的 fat-LTO 改成 thin-LTO+cgu16——本机重链
-# 68s→20s，但 CI 上 base(fat) 116s vs pr(thin) 132s **更慢**（4 vCPU 吃不满并行，且换 profile 多编
-# 82 个依赖 crate），同时把 gc_alloc/array_throughput_10k 的测值挪了 +16.8%。教训：**编译耗时的
-# 本机对照不可外推到 CI runner**，只有省「总工作量」的改法才跨机器成立。
-# 没做：砍 sample_size（区间变宽=判红变钝）、再收窄 criterion 守卫（gc_cycle_bench 链接整个 crate，
-# 收窄=假阴性）。见 book 判红语义页「criterion 成本分解与削减」。
-# 实测（#457 自身，冷缓存 run 33954602385 / 暖缓存 33955693181）：criterion 531s → 480s → **427s**
-# （暖缓存下 base/pr 编译各 115s→84s，只剩编 z42 crate 本身；缓存回存 469MB），bootstrap 181s、
-# 建 base 工具链 120s，job 合计 1227s → **1047s**；合并后 base 侧也带上跳过开关 ⇒ criterion ≈390s。
-#
-# fix-criterion-ci-separation + align-criterion-threshold (2026-09-05)：#457 自身跑了四次
-# **base 与 pr 的 VM 代码逐字节相同**的对照，criterion 判红两次，全是假的。两个独立根因，都已修：
-#   ① 区间语义：`pe > thr and lo > 0` 把「CI 分离」实现成「下界大于零」⇒ [+0.5%, +60%] 也算证据。
-#      改成 `lo > thr`（整个区间在阈值之上）。
-#   ② 阈值：修完①之后又红一次（+15.9%，区间只有 5.1pp 宽）——**criterion 层的噪声底同样在 ±16%**
-#      （四次空跑单条极差最大 31.9pp），10% 画在噪声底之下。阈值 0.10 → 0.25，与 e2e 对齐。
-# 两者别混：①治「宽区间冒充证据」，②治「跑间漂移 + 跑内区间很窄」。详见下面判红脚本的注释与
-# book 判红语义页「判红规则的一处实现偏差」「criterion 层的噪声底也在 ±16%」。
+# 同-runner A/B 性能门：在本 runner 上同时建 PR 与其 merge-base（base.sha）两套工具链，
+# 两侧相邻测量 ⇒ runner 速度因子在 ratio=pr/base 里抵消。
+#   · e2e（`bench --ab --tier gate`）与 micro（`bench --micro-diff`）是硬门禁：阈值 0.15，
+#     初判可疑的条目整轮复测、用跑间离散度判红；
+#   · criterion（Rust）层只打印、不 fail。
+# 判红语义、噪声底与阈值、改动面守卫、格式代差的完整推导见
+# docs/internals/src/devinfra/benchmarking.md（§5–§10）；改阈值 / 守卫前先读那页。
 
 on:
   pull_request:
@@ -83,11 +21,9 @@ on:
       - 'scripts/**/*.z42'
       - 'scripts/xtask.z42.toml'
       - '.github/workflows/bench-pr.yml'
-      # narrow-bench-gate-guards: 上面的目录通配会把纯文档 PR 也拉进来（改一行
-      # docs 里的 .md 就烧一个完整门禁 job）。负向模式在后 ⇒ 覆盖前面的匹配：
-      # 只动 .md 的 PR 一个文件都不命中 → 整个 workflow 不触发；.md 与代码同改照旧跑。
+      # 负向模式在后 ⇒ 覆盖前面的匹配：只动 .md 的 PR 不触发；.md 与代码同改照旧跑。
       - '!**/*.md'
-  # ci-bench-cache-warm：main 上预热 bench 的 Rust 依赖缓存（见下面的 bench-cache-warm job）。
+  # main 上预热 bench 的 Rust 依赖缓存（见 bench-cache-warm job）。
   # 只在会改变缓存内容的路径上触发（Cargo.lock 就在 src/runtime/ 下）；每周一次兜住 rustc stable 升级
   # （缓存 key 含 rustc 版本，升级后 main 上没有 runtime 改动就不会有人重建）。
   push:
@@ -106,10 +42,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ── 缓存预热（ci-bench-cache-warm）──────────────────────────────────────────
-  # GitHub 的缓存作用域：PR 分支上存的缓存**只有这个 PR 自己**能读；main 上存的才对所有 PR 可见。
-  # 此前只有 PR 在存 ⇒ 每个新 PR 都冷编一轮（同一个 key、每个 PR 各存一份 172MB，还挤占仓库 10GB 配额，
-  # 把 main 上有用的缓存挤出去）。现在：main 上编一遍、存一份；PR 只读（bench-regression 的 save-if）。
+  # ── 缓存预热 ──────────────────────────────────────────────────────────────
+  # GitHub 的缓存作用域：PR 分支上存的缓存只有该 PR 能读，main 上存的才对所有 PR 可见 ⇒
+  # main 上编一遍、存一份；PR 只读（bench-regression 的 save-if: false）。
   # 编的东西与 bench-regression 实际会编的一致：z42vm + z42-compression（ci-bootstrap 里的 `xtask build runtime` 与 base
   # 工具链那两条）+ gc_cycle_bench 的 bench profile（criterion A/B）。Rust 配置逐字照抄，key 才对得上。
   bench-cache-warm:
@@ -164,38 +99,17 @@ jobs:
           path: base-src
           fetch-depth: 0
 
-      # skip-ab-across-format-gap：base 与 PR 的 zbc/zpkg **writer 格式常量**不同 ⇒ A/B 结构上不可测。
-      #
-      # 为什么不可测（不是「慢」或「偶发」，是必然）：下面「Build base toolchain」用 **PR 的 driver**
-      # 编 base 源码，并把 PR stdlib 塞进 BASEALL 让 base driver 跑得起来 —— 而格式常量住在 z42.package 里，
-      # 于是 base stdlib 被写成 **PR 的格式**；实测环节却用 BASEVM（base 源码建的旧格式 VM）去读它 ⇒
-      # `zpkg minor <PR> not supported (writer is at <base>)`。与 ci-bootstrap 两代自举 gen2 踩的是
-      # 同一个坑（encode-ctorless-objnew #629 / #631 实证）。此前这条门在**每一次**格式 bump 的 PR 上
-      # 都亮红、却从没产出过性能判断 —— 一道「必然红但什么都没测」的门。
-      #
-      # 处置：检测到代差就**跳过依赖 base 产物的步骤**，并用 ::warning:: + job summary 明示「本次没测」
-      # （不能静默变绿，否则读者会误以为测过且通过）。不依赖 base zpkg 的步骤照跑：判定逻辑自检
-      # （只用 PR 工具链）、Criterion A/B（纯 Rust，不读 zpkg）。
-      # 常量读不出来 ⇒ 直接失败，绝不按「无代差」放行（门必须会红）。
+      # 代差检测（benchmarking.md §10）：base 侧 stdlib 的写出格式由 PR 一侧的 z42.package 决定 ⇒ 格式
+      # 常量不同时 base VM 读不了，A/B 结构上不可测。检测到代差就跳过依赖 base 产物的步骤，并用
+      # ::warning:: + job summary 明示「本次没测」（不能静默变绿）；自检与 criterion 照跑。
+      # 常量读不出来 ⇒ 直接失败，绝不按「无代差」放行。
       - name: Detect zbc/zpkg format gap (base vs PR)
         id: fmtgap
         shell: bash
         run: |
           set -euo pipefail
-          # rename-z42-ir-to-z42-package：本函数对 **base 与 PR 两棵树**都调用，而改名 PR 里
-          # 只有 PR 侧叫 `z42.package`、base 侧仍叫 `z42.ir` ⇒ **写死任一个名字都会有一侧找不到**
-          # （实测：只改新名，base 侧 `grep: No such file` ⇒ 本门 17s 就红）。两个名字都试。
-          # STAGE2-DEBT(bench-pr-libdir-probe,2026-10-27): 旧名/旧位置彻底退役后删掉后两档。2026-09-30 推到 10-27：后两档是给 **base 树**兜底的，base 若早于 #921（09-27 把该库挪进 src/compiler/）就仍在 src/libraries/ ⇒ 现在删会让「从 09-27 前的 main 分出来的 PR」本门红。等 relocate 满一个月
-          # ⚠️ 本函数对 **base 与 PR 两棵树**都调用（同 `ver()` 的纪律）：relocate-compiler-domain-libs
-          # 把该库从 `src/libraries/` 挪到 `src/compiler/`，改名 PR 那次是名字不同、这次是**位置**不同
-          # ⇒ 同样必须「两个都试」，写死任一侧都会有一棵树找不到、本门 17s 就红。
-          libdir() { # <tree-root> → 该树里 IR/package 库的目录（新位置优先 → 旧位置 → 旧名）
-            if   [ -d "$1/src/compiler/z42.package" ];  then echo "$1/src/compiler/z42.package";
-            elif [ -d "$1/src/libraries/z42.package" ]; then echo "$1/src/libraries/z42.package";
-            else echo "$1/src/libraries/z42.ir"; fi
-          }
           ver() { # <tree-root> → "zbcMajor.zbcMinor/zpkgMajor.zpkgMinor"
-            local ld; ld=$(libdir "$1")
+            local ld="$1/src/compiler/z42.package"
             local zf="$ld/src/BinaryFormat/ZbcFormat.z42"
             local pf="$ld/src/ZpkgWriter.z42"
             local a b c d
@@ -210,18 +124,9 @@ jobs:
             fi
             echo "$a.$b/$c.$d"
           }
-          # rename-project-namespaces B3a：**第二种代差** —— 命名空间。A/B 的 base 那一侧是
-          # 「base 的编译器源码 + **PR 的 libs**」（见下面 `Build base ... for A/B` 的头注：
-          # PR flat libs 就是 base 源码被类型检查时的 TSIG 面）。这个假设对普通改动成立，
-          # 但 PR **删掉或改掉** stdlib 的某个命名空间时必破：base 源码里的 `using Z42.Project;`
-          # 在 PR 的 libs 里已经不存在 ⇒ base 侧 `E0494 命名空间不存在`，整个 job 红
-          # （#905 实测，红在 `Build base (merge-base) toolchain for A/B`）。
-          #
-          # 判据取「**base 有而 PR 没有**」而不是「两边不相等」：纯新增命名空间不影响 base 侧
-          # 的类型检查，那种 PR 仍该正常测性能。
-          #
-          # ⚠️ 与 `ver()` 同一条纪律：本函数对 **base 与 PR 两棵树**都调用，不得写死任何
-          # 只有一侧成立的路径（`src/libraries` 两棵树都有）。
+          # 第二种代差——命名空间：base 编译器源码是对着 PR libs 类型检查的，PR 删掉/改名的
+          # stdlib 命名空间会让 base 侧 E0494。判据取「base 有而 PR 没有」：纯新增不影响 base。
+          # ⚠️ ver() / nsset() 对 base 与 PR 两棵树都调用，不得写死只有一侧成立的路径。
           nsset() { # <tree-root> → 该树 stdlib 声明的命名空间集合（排序去重）
             grep -rhoE '^namespace [A-Za-z0-9_.]+;' "$1/src/libraries" --include='*.z42' 2>/dev/null \
               | sed 's/^namespace //; s/;$//' | sort -u
@@ -266,13 +171,8 @@ jobs:
           wget -q https://github.com/sharkdp/hyperfine/releases/download/v1.20.0/hyperfine_1.20.0_amd64.deb
           sudo dpkg -i hyperfine_1.20.0_amd64.deb
 
-      # lighten-criterion-ab (2026-09-05)：这个 job 需要**自己的** cache key。
-      # 原先和 CI workflow 共用 `shared-key: host-v2`，每次都是 exact hit ⇒ post 步骤
-      # 恒为 "Cache up-to-date"、**一次都没回存过**。后果：`cargo bench` 用的那份依赖
-      # 产物（dev-deps 参与 feature 统一 ⇒ 与 `cargo build --bin z42vm` 的哈希不同）
-      # 每次从零编 112 个 crate（实测 base/pr 各 43s），base-src 的依赖同理（另 34s）。
-      # 换成独立 key 后本 job 自己维护缓存：首次（含每次 Cargo.lock 变动）会冷编一轮，
-      # 此后每次省下这 ~120s。base-src 也纳入 workspaces —— 它的 target 目录同样从零。
+      # 独立 key（不与 ci.yml 共用）：`cargo bench` 的依赖产物（dev-deps 参与 feature 统一）与
+      # `cargo build --bin z42vm` 哈希不同，共用 key 时恒 exact hit、从不回存。base-src 同理纳入。
       - name: Cache Rust deps (Swatinem)
         uses: Swatinem/rust-cache@v2
         with:
@@ -280,7 +180,7 @@ jobs:
             src/runtime -> ../../artifacts/build/runtime
             base-src/src/runtime -> ../../artifacts/build/runtime
           shared-key: bench-ab-v1
-          # ci-bench-cache-warm：只读。缓存由 main 上的 bench-cache-warm 维护（PR 存的缓存别的 PR 读不到）。
+          # 只读：缓存由 main 上的 bench-cache-warm 维护（PR 存的缓存别的 PR 读不到）。
           save-if: false
 
       # Seed from the prev nightly + build current source warm (xtask bench
@@ -291,39 +191,11 @@ jobs:
           rid: linux-x64
           gh-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # Verdict-logic self-check (move-bench-into-tests / cover-micro-verdict,
-      # 2026-09-05).
-      #
-      # 判红规则是这个 job 的**全部价值**，但它此前只在真 PR 上被间接行使——规则
-      # 改坏了，症状是「数字看着怪」，没人守。这一步把三条判红路径都用可复现的输入
-      # 钉住。纯 JSON / 纯函数，几秒，且跑在二十分钟的测量**之前**，规则坏了立刻失败。
-      #
-      # 三条路径与它们的可测性各不相同：
-      #   `_abVerdict`  —— e2e A/B，本 job 唯一的硬门禁。吃两套同机实测的真工具链，
-      #                    **喂不了 JSON fixture**；但它是纯函数 ⇒ `bench --ab-selftest`
-      #                    单测（五例，见 scripts/bench/xtask_bench.z42 的函数头）。
-      #   `_benchDiff`  —— `bench --diff`，历史/本地对比路径。四个 fixture。
-      #   `_microDiff`  —— `bench --micro-diff`，micro 层 A/B（ab-resample-on-suspicion
-      #                    之后重新是**硬门禁**）。单轮七个 fixture（SEM 路径 + 无 SEM 的
-      #                    区间回退路径），复测四个（见下）。
-      #   `_abResampleVerdict` —— 复测后的最终判定，e2e 与 micro 共用。它是纯函数
-      #                    ⇒ 进 `--ab-selftest`（四例）；接线后的形态另有 micro 三轮
-      #                    fixture 守（`micro-rs-*`），两层缺一不可 —— 实测「轮次错配」
-      #                    这种缺陷纯函数自测抓不到，只有接线后的 fixture 会翻。
-      #
-      # 每个 fixture 套件都跑 **thr 0.15（门禁在用的那个）和 0.25 两遍**。这不是冗余：
-      # 每条套件里都有一个只在其中一个阈值下翻红的用例（`separated-under-threshold`
-      # 的 +20%、resample 的 `rs-mid`）——它是**唯一对阈值本身敏感**的用例。没有它，
-      # 把 --threshold-time 一路降到 0.001 结果都纹丝不动（接线时实测过），即门禁根本
-      # 没在看阈值。这正是 #457 修的 `lo > 0` vs `lo > thr` 那一类缺陷。其余用例在两个
-      # 阈值下结论必须一致，顺带证明它们判的是区间/方向而不是阈值噪声。
-      #
-      # ⚠️ 0.15 这一列必须跟着门禁实际用的阈值走。改了 --threshold-time 而没改这里，
-      # 等于自检不再检门禁在跑的那套规则。
-      #
-      # 覆盖边界（别误以为门禁都被守住了）：守的是**判定规则**，不是测量与编排
-      # ——`_abOneScenario` 的 hyperfine 调用、base 工具链构建、micro 基线采集
-      # 都只能靠真 run 行使。
+      # 判红逻辑自检（benchmarking.md §9「第 3 步自检守的是什么」）：纯 JSON / 纯函数，放在测量之前，
+      # 规则改坏立刻失败。每个 fixture 套件跑 0.15 与 0.25 两遍——各套件里有一个只在其中一个阈值下
+      # 翻红的用例，是唯一对阈值本身敏感的用例。
+      # ⚠️ 0.15 这一列必须跟着门禁实际用的 --threshold-time 走。
+      # 覆盖边界：守的是判定规则，不是测量与编排（hyperfine 调用、base 工具链构建、基线采集）。
       - name: Verdict logic self-check (_abVerdict/_abResampleVerdict + _benchDiff + _microDiff fixtures)
         shell: bash
         run: |
@@ -369,21 +241,15 @@ jobs:
               "$(xt bench --micro-diff --current "$T/micro-$name.json" --baseline "$T/micro-base.json" --threshold-time 0.25)"
           done
 
-          # 4) _microDiff RESAMPLED (ab-resample-on-suspicion) — three rounds per side,
+          # 4) _microDiff RESAMPLED — three rounds per side,
           #    verdict from the BETWEEN-ROUND ratio dispersion. Each case guards one thing:
-          #      rs-drift   round 1 saw +60%, rounds 2-3 saw +5%/+10%. Its MEAN ratio (1.25)
-          #                 is above 1+0.15 on purpose, so it stays green only if the
-          #                 interval width is really computed — this is the false red the
-          #                 whole feature exists to kill (round 1 alone is a screaming red).
-          #      rs-real    +30% in every round ⇒ tight dispersion ⇒ still red. The proof
-          #                 that resampling did not simply blind the gate.
+          #      rs-drift   round 1 +60%, rounds 2-3 +5%/+10%. MEAN ratio (1.25) is above
+          #                 1+0.15 on purpose ⇒ green only if the interval width is computed.
+          #      rs-real    +30% in every round ⇒ still red (resampling did not blind the gate).
           #      rs-mid     +20%-ish, the thr-sensitive one: red at 0.15, quiet at 0.25.
-          #      rs-missing rs-real's rounds with the regressing entry absent from round 3
-          #                 ⇒ must be EXCLUDED (with a warning) ⇒ green. Red would mean an
-          #                 entry that is not in every round still gets to fail the job.
-          #    The base rounds carry DIFFERENT values per round, so pairing round i's pr
-          #    with the wrong round's base changes the ratios — rs-mid@0.15 flips green
-          #    when that is broken (verified by injecting exactly that defect).
+          #      rs-missing regressing entry absent from round 3 ⇒ EXCLUDED (warning) ⇒ green.
+          #    Base rounds carry DIFFERENT values per round ⇒ pairing pr round i with the
+          #    wrong base round flips rs-mid@0.15.
           RSB="$T/micro-rs-base-r1.json,$T/micro-rs-base-r2.json,$T/micro-rs-base-r3.json"
           for c in drift:0:0 real:1:1 mid:1:0; do
             name="${c%%:*}"; rest="${c#*:}"; w15="${rest%%:*}"; w25="${rest##*:}"
@@ -405,13 +271,11 @@ jobs:
           [ "$fail" -eq 0 ] || { echo "❌ 判红规则与 fixture 不符 —— 改了阈值或区间条件?"; exit 1; }
           echo "✅ verdict logic matches all fixtures (10 pure-function cases + 15 fixtures x 2 thresholds + 1 usage-error case)"
 
-      # Build the base (merge-base) toolchain on THIS runner. The PR z42c
-      # (newer) compiles the older base source — the staged-bootstrap discipline
-      # guarantees a newer z42c compiles older source. Only the scenario RUNTIME
-      # is measured, so base's driver being emitted by the PR z42c is irrelevant:
-      # base's driver still runs base's codegen logic → base-style scenario .zbc.
-      # VM reuse: if the PR did not touch src/runtime, base_vm == pr_vm (byte
-      # identical) → skip building base's Rust VM (the heaviest step).
+      # Build the base (merge-base) toolchain on THIS runner. The PR z42c (newer)
+      # compiles the older base source (staged bootstrap guarantees newer compiles
+      # older). Only scenario RUNTIME is measured, and base's driver still runs base's
+      # codegen logic → base-style scenario .zbc. If src/runtime is unchanged,
+      # base_vm == pr_vm (byte identical) → skip building base's Rust VM.
       - name: Build base (merge-base) toolchain for A/B
         if: steps.fmtgap.outputs.gap != '1'
         id: base
@@ -432,32 +296,24 @@ jobs:
           # a per-file loop (last-wins) is safe. (Same for every dist-glob copy below.)
           PRALL="$ROOT/.ab-pr-alllibs"; rm -rf "$PRALL"; mkdir -p "$PRALL"
           cp -f "$ROOT/artifacts/intermediate/libraries/flat/release/"*.zpkg "$PRALL/"
-          # bench-ab-pkgset-filter：只拷 **base 成员表里也存在** 的编译器包。HEAD 可能重命名/合并包
-          # （z42c-plugin-merge：HEAD 有 z42c.plugin、base 还是 z42c.analyzers/generators）——HEAD 独有的
-          # 包进 base 的解析域 ⇒ 同 FQN 双包（E0606：declared in this package and also in package …），
-          # base workspace 当场红。同名的照拷（base 自建同名产物优先，与此前行为一致）。
+          # 只拷 base 成员表里也存在的编译器包：PR 独有（重命名/合并出来）的包进 base 解析域
+          # ⇒ 同 FQN 双包 E0606，base workspace 当场红。
           for f in "$ROOT/artifacts/build/compiler/"*/release/dist/*.zpkg; do
             n="$(basename "$f" .zpkg)"
             if grep -q "\"$n\"" "$ROOT/base-src/src/compiler/z42.workspace.toml"; then cp -f "$f" "$PRALL/"; fi
           done
 
           # base z42vm: reuse PR's unless src/runtime differs base..pr.
-          # 路径集见文件头 narrow-bench-gate-guards：排除 *.md，README 改动不算「VM 变了」。
+          # 排除 *.md：README 改动不算「VM 变了」（benchmarking.md §8）。
           if git diff --quiet "$BASE_SHA"..HEAD -- src/runtime ':(exclude,glob)src/runtime/**/*.md'; then
             echo "→ src/runtime unchanged base..pr → base_vm = pr_vm"
             BASEVM="$PRVM"
           else
             echo "→ src/runtime changed → cargo-build base z42vm + native cdylib"
-            # fix-bench-base-cdylib (2026-09-03): build the z42-compression cdylib too.
-            # The VM resolves `[Native(lib = "z42_compression")]` next to its own binary
-            # (`artifacts/build/runtime/release/`, per the .cargo target-dir).
-            # Building only `--bin z42vm` left base-src's dir without the dylib, so every
-            # compression [Benchmark] failed on the BASE side → "captured compression_bench
-            # (partial: some benches failed)" → non-zero exit → this job red. That hit
-            # EVERY PR touching src/runtime (#394 / #395 / #402 / #406 / #409 / #413) and
-            # no others — the PR side was fine because its dylib sits beside the PR vm.
-            # Run inside src/runtime: cargo reads .cargo/config.toml from its cwd upward, which
-            # finds the config whether base still has it at the repo root or in src/runtime/.
+            # Also build the z42-compression cdylib: the VM resolves
+            # `[Native(lib = "z42_compression")]` next to its own binary, so without it
+            # every compression [Benchmark] fails on the BASE side.
+            # Run inside src/runtime: cargo reads .cargo/config.toml from its cwd upward.
             ( cd base-src/src/runtime && cargo build --locked --release --bin z42vm \
               && cargo build --locked --release \
                 --manifest-path crates/z42-compression/Cargo.toml )
@@ -468,77 +324,38 @@ jobs:
           ( cd base-src/src/compiler && \
             Z42_LIBS="$PRALL" "$PRVM" "$PRDRIVER" --mode jit -- build --workspace --release --no-incremental )
 
-          # 取证：两侧 driver 是不是**同一个二进制**（2026-09-28）。
-          # 下面的 fingerprint guard 比的是「两侧 driver 各编一遍同一份 stdlib 源码」的字节。
-          # 它红过一轮与被测 PR 无关的案例（源码没变也报「1 个包」）——而事后回看只有这份日志，
-          # 却查不到最要紧的那一条：两侧 driver 本身是否一致。
-          #   · sha 相同而输出不同 ⇒ 编译非确定性（那是真 bug，不是该 bump 指纹的事）；
-          #   · sha 不同         ⇒ 自举代差异（PRDRIVER 由种子链产出，BASEDRIVER 是 PRDRIVER 又编一代；
-          #                        stdlib-build-not-generationally-convergent 说每代恰一两个包不同）。
-          # 两行 echo，不改任何行为 —— 先有证据再谈改编排。
+          # 取证：两侧 driver 是否同一个二进制（下面 fingerprint guard 判读用）。sha 相同而输出不同
+          # ⇒ 编译非确定性；sha 不同 ⇒ 自举代差（BASEDRIVER 是 PRDRIVER 又编一代）。
           echo "driver sha (pr)   $(sha256sum "$PRDRIVER" | cut -c1-16)  $PRDRIVER"
 
           # base flat libs = base z42c siblings + stdlib (to RUN the base driver) +
           # base stdlib (built next, overwriting the seed stdlib for measurement).
           BASEALL="$ROOT/.ab-base-alllibs"; rm -rf "$BASEALL"; mkdir -p "$BASEALL"
           for f in "$ROOT/base-src/artifacts/build/compiler/"*/release/dist/*.zpkg; do cp -f "$f" "$BASEALL/"; done
-          # ⚠️ 过期注释已订正（fix-alllibs-stdlib-shadowed，2026-09-30）：原文写的是
-          # 「The compiler dist does NOT bundle stdlib」—— relocate-compiler-domain-libs
-          # 之后**不再成立**，上面那圈拷贝已经把编译器构建时那一代 stdlib 副本带进了 BASEALL。
-          # ⇒ **下面那圈 flat dist 必须在后**（后拷者赢），它才是这里要的 stdlib。顺序承重，别调。
-          # 同一个陷阱在 `_assembleAllLibs` 里咬过一次（PR #955：alllibs 的 stdlib 被编译器域
-          # 旧副本覆盖 ⇒ CI 的 test stdlib 整轮在测上一代），那边已改成不覆盖 + 逐字节对账。
-          # BASEDRIVER (compiled by the PR z42c against PR stdlib) needs a matching
-          # stdlib to RUN — seed it with the PR stdlib (same z42c ⇒ same extern
-          # mangling). Without this the base driver falls back to the VM entry-dir
-          # stdlib, whose mangling can differ across z42c versions → runtime
-          # `undefined function …$N` (regressed once #295's parser changed mangling).
-          # This mirrors PRALL (which stages stdlib + compiler); base stdlib built
-          # below then overwrites these for the actual measurement.
+          # ⚠️ 顺序承重：上面那圈编译器 dist 自带构建时那一代 stdlib 副本 ⇒ 下面的 PR flat 必须
+          # 在后（后拷者赢）。BASEDRIVER 是 PR z42c 对着 PR stdlib 编的，要同代 stdlib 才跑得起来
+          # （extern mangling 跨 z42c 版本可能不同 → `undefined function …$N`）；下面建好的 base
+          # stdlib 再覆盖它们用于实测。
           for f in "$ROOT/artifacts/intermediate/libraries/flat/release/"*.zpkg; do cp -f "$f" "$BASEALL/"; done
           BASEDRIVER="$BASEALL/z42c.driver.zpkg"
           echo "driver sha (base) $(sha256sum "$BASEDRIVER" | cut -c1-16)  $BASEDRIVER"
-          # ⚠ 这一步用 **PR 的 VM** 跑，不是 BASEVM。上面刚把 PR stdlib 塞进 BASEALL（理由见
-          # 紧邻的注释：BASEDRIVER 是 PR z42c 编的，要 PR stdlib 才跑得起来）—— 而 PR stdlib
-          # 可能用到本 PR 新增的 builtin，base VM 里还没有（perf-bulk-array-copy 实证：
-          # `unknown builtin __array_copy`，栈在 ByteWriter._grow → Array.Copy）。
-          # 「BASEDRIVER + PR stdlib + PR VM」才是自洽的三件套。产物不受影响：base stdlib
-          # 的字节由 BASEDRIVER 的代码决定，与执行它的 VM 无关。BASEVM 仍然只用于下面的
-          # 实测环节（那时 BASEALL 已被 base stdlib 覆盖，不再引用新 builtin）。
+          # ⚠ 以下构建用 **PR 的 VM** 跑，不是 BASEVM：BASEALL 里此刻是 PR stdlib，可能用到 base VM
+          # 还没有的 builtin。产物字节由 BASEDRIVER 决定、与执行它的 VM 无关；BASEVM 只用于实测环节
+          # （那时 BASEALL 已被 base stdlib 覆盖）。
           #
-          # 携带插件先于 workspace（harness-as-plugin）：z42.harness 经 [plugins.export] 携带
-          # z42.harness.lint，它的 release 构建会验插件工程 dist 里的 zpkg（PluginCarry._verifyDist），
-          # 产物必须先于 workspace 存在。`xtask build stdlib` 在 workspace 前由 _buildStdlibCarriedPlugins
-          # 编它；这里裸调 driver 走 workspace，同一步得自己补——同一 CLI 形态（_z42cBuildPackage：
-          # `build <toml> --release --output-dir <工程>/dist`，dist 即 BuildLayout 缺省、验证的判据位）。
-          # 解析域与 xtask 同构（上一代 z42c.core/syntax + 当前代 z42c.analyzers 混编插件）。只建产物，
-          # 不平铺进 BASEALL 同级 plugins/：bench 单元按 ambient 标准库消费 harness，携带缺件静默，且
-          # PR 侧 PRALL 同样无同级 plugins/——两侧对称。base 早于该机制时无此清单，跳过。
-          # plugin-internal-access（#1370）起本步须带 --internal-of z42.harness（xtask 的
-          # _buildStdlibCarriedPlugins 同款旗标——LintSupport 的 internal 成员只有宿主同包待遇可见）；
-          # base 早于 #1370 的 driver 不认识该旗标，按祖先关系判定后再加。
+          # 携带插件先于 workspace：z42.harness 经 [plugins.export] 携带 z42.harness.lint，其 release
+          # 构建会验插件工程 dist（PluginCarry._verifyDist）⇒ 产物须先于 workspace 存在。与 xtask 的
+          # _buildStdlibCarriedPlugins 同一 CLI 形态（`build <toml> --release --output-dir <工程>/dist
+          # --internal-of z42.harness`：lint 用宿主的 internal 成员）。只建产物、不平铺进 BASEALL 同级
+          # plugins/——PR 侧 PRALL 同样没有，两侧对称。
+          # Z42_LIBS 用 PR flat（纯 stdlib）而不是 BASEALL：契约包（z42c.syntax / z42c.plugin）对
+          # kind=plugin 免声明，靠 SdkLibs.Plan 从 Z42_LIBS 上溯探到 driver dist 收集候选；BASEALL 的
+          # 祖先探不到 driver dist，且同名 zpkg 被 BASEALL 遮蔽 ⇒ 候选空 ⇒ E0497。
           LINT_TOML="$ROOT/base-src/src/libraries/z42.harness/plugins/lint/z42.z42.toml"
-          INTERNAL_OF=""
-          if [ -f "$LINT_TOML" ] && git -C base-src merge-base --is-ancestor e2e055abb HEAD; then
-            INTERNAL_OF="--internal-of z42.harness"
-          fi
           if [ -f "$LINT_TOML" ]; then
-            # --internal-of z42.harness（#1370 起）：lint 用宿主 internal 成员（LintSupport.MixFixNote），
-            # 裸构建撞 E0404。解析域里的 z42.harness 来自 PR flat——宿主先在不在场由 ParentPkg
-            # 同包待遇兜住。base < #1370 不存在该旗标——所有以现行 main 为底的 PR 都 ≥ #1370。
-            # Z42_LIBS 用 **PR flat（纯 stdlib）**，不是 BASEALL（bench-base-lint-pkgset，#1391 实证）：
-            # #1373（合包）起 lint 是两行最小清单——契约包（z42c.syntax / z42c.plugin）对 kind=plugin
-            # 免声明。免声明的机制 = SdkLibs.Plan 把编译器目录（CompilerDomain 从 Z42_LIBS 上溯探到的
-            # driver dist）里的包收集为 SDK 库候选、hostExtension 全放行进 ExtendDeclared。BASEALL 作
-            # Z42_LIBS 时两头全断：上溯（.ab-base-alllibs 的祖先）探不到 driver dist，且 SDK 兜底目录
-            # 里的同名 zpkg 又全被 BASEALL 基础域遮蔽（_inDirs 剔重）⇒ 候选空 ⇒ 零放行 ⇒
-            # E0497「comes from package z42c.syntax/z42c.plugin, which this project does not declare」。
-            # PR flat 里没有编译器包 ⇒ 上溯命中 PR 树的 driver dist ⇒ 候选齐全 ⇒ 免声明恢复——与 xtask
-            # 的 _buildStdlibCarriedPlugins（Z42_LIBS = stdlib flat）同构。契约包从追加进来的 driver
-            # dist 解析；z42.harness 仍从 flat 来（本就在）。
             ( cd base-src/src/libraries && \
               Z42_LIBS="$ROOT/artifacts/intermediate/libraries/flat/release" "$PRVM" "$BASEDRIVER" --mode jit -- build "$LINT_TOML" --release \
-                --output-dir "$(dirname "$LINT_TOML")/dist" $INTERNAL_OF )
+                --output-dir "$(dirname "$LINT_TOML")/dist" --internal-of z42.harness )
           fi
           ( cd base-src/src/libraries && \
             Z42_LIBS="$BASEALL" "$PRVM" "$BASEDRIVER" --mode jit -- build --workspace --release --no-incremental )
@@ -548,18 +365,10 @@ jobs:
           echo "base_libs=$BASEALL"      >> "$GITHUB_OUTPUT"
           echo "base_driver=$BASEDRIVER" >> "$GITHUB_OUTPUT"
 
-      # guard-compiler-fingerprint：增量缓存的键靠 CacheStore.CompilerFingerprint + 格式 Minor 认编译器。
-      # 上一步已用 base 编译器建好 base stdlib；这里用 PR 编译器把同一份 base stdlib 源码再编一遍，
-      # 逐包比字节（#654 起产物可复现）。输出变了而版本号没累加 ⇒ 红。格式有代差时整步跳过——
-      # 格式 Minor 变了本身就让全部旧缓存作废，无需再查。判定逻辑在 xtask，本地同命令可复现。
-      # `--base-driver`：把 base 侧 driver 交给门自己判「两侧是不是同一个二进制」，
-      # 不必再让人去翻上面那两行 `driver sha`。这里**本来就不是**同一个（BASEDRIVER 是
-      # PRDRIVER 又编一代，见 base step 的注释）⇒ 门会如实说「判不了」而不判红。
-      # 此前它在这种输入下给的是一个**分辨不出真假**的红：#931 用单变量对照坐实过 ——
-      # 同一份改动，base 侧多跑一代 `build stdlib`，结论就从「19 个包逐字节一致」
-      # 翻成「1 个包（z42.json）」，与 CI 那条一字不差。
-      # ⚠ 止血不是根治：根治要让两侧 driver 同代（门自己用同一上游 driver 各编一遍两侧
-      # src/compiler），那要在门里重建本文件的 flat-libs 编排，单独评估。
+      # 编译器指纹门：用 PR 编译器把 base stdlib 源码再编一遍、逐包比字节——输出变了而
+      # CompilerFingerprint / 格式 Minor 没累加 ⇒ 红（docs/internals/src/compiler/compiler-fingerprint.md）。
+      # `--base-driver` 让门自己判两侧 driver 是否同一个二进制；这里本就不是（BASEDRIVER 是 PRDRIVER
+      # 又编一代）⇒ 门如实说「判不了」而不判红。根治需两侧 driver 同代，尚未做。
       - name: Compiler fingerprint guard (output changed ⇒ version bumped)
         if: steps.fmtgap.outputs.gap != '1'
         shell: bash
@@ -573,39 +382,29 @@ jobs:
         run: |
           set -euo pipefail
           BASE_SHA="${{ github.event.pull_request.base.sha }}"
-          # simplify-bench-gate: --mode 按改动面收窄。interp 与 jit 的相对性能只可能
-          # 被 VM 改动挪动，src/runtime 没变就只测 jit（默认执行模式），measurement
-          # 数量减半。碰了 runtime 才扫 both。
-          # 路径集见文件头 narrow-bench-gate-guards：排除 *.md，README 改动不算「VM 变了」。
+          # --mode 按改动面收窄：interp 与 jit 的相对性能只会被 VM 改动挪动，src/runtime 没变只测 jit。
+          # 排除 *.md：README 改动不算「VM 变了」（benchmarking.md §8）。
           if git diff --quiet "$BASE_SHA"..HEAD -- src/runtime ':(exclude,glob)src/runtime/**/*.md'; then
             MODE=jit;  echo "→ src/runtime unchanged base..pr → --mode jit"
           else
             MODE=both; echo "→ src/runtime changed → --mode both (interp + jit)"
           fi
-          # --tier gate: 只测门禁那 6 条代表性场景（其余 tier=full 的场景本地/按需跑）。
-          # 这同时把每个 PR 的比较次数从 22 条降到 6–12 条 —— 多重比较的假红概率随之
-          # 降一个量级，不只是省时间。
-          # --threshold-time 0.15 (ab-resample-on-suspicion, 2026-09-06)：#442 把阈值抬到
-          # 0.25 是**在噪声底之上躲着走**的权宜之计 —— 真实噪声 ±13~16%，而单轮区间低估
-          # 约三倍，所以除了抬阈值没有别的办法。现在初判回归的条目会被再测 2 轮、用**跑间**
-          # 比值离散度重算区间（`--resample-rounds`，0 = 关掉），不确定度第一次被真的量出来，
-          # 阈值因此有依据收回 0.15。收阈值与复测是**同一件事的两半**：单独收阈值 = 退回假红。
-          # --pause-cap-ms / --threshold-pause (add-incremental-major-gc M0, 2026-09-15)：头部声明
-          # `// gc-pause: report` 的场景（13_gc_large_heap）另跑 3 次取 max 停顿中位数；
-          # 判红 ⟺ pr 超上限 **且** 比 base 差 25% 以上。M2（增量 major）落地前 main 上就有 ~97 ms，
-          # 只看绝对上限会让每个 PR 都红；M2 后 base/pr 都在上限内，规则退化为纯绝对上限，届时收紧到 10。
+          # --tier gate：只测门禁场景，同时压低多重比较的假红概率。
+          # --threshold-time 0.15 与复测（--resample-rounds，默认开）是同一件事的两半：单独收阈值
+          # = 退回假红（benchmarking.md §5–§6）。改它必须同步上面自检的 0.15 那一列。
+          # --pause-cap-ms / --threshold-pause：`// gc-pause: report` 的场景另判 GC 停顿——pr 超上限
+          # **且**比 base 差 25% 以上才红（benchmarking.md §3「GC 停顿子门禁」）。
           xtask bench --ab --tier gate --mode "$MODE" --threshold-time 0.15 \
               --pause-cap-ms 16 --threshold-pause 0.25 \
               --base-vm     "${{ steps.base.outputs.base_vm }}" \
               --base-libs   "${{ steps.base.outputs.base_libs }}" \
               --base-driver "${{ steps.base.outputs.base_driver }}"
 
-      # ── extend-ab-bench-micro-criterion Part B: micro/stdlib tier same-runner A/B ──
+      # ── micro/stdlib tier same-runner A/B ──
       # micro [Benchmark]s run IN-PROCESS under z42b, so base+pr stdlib cannot be
-      # co-loaded (unlike e2e's isolated per-scenario z42vm). Instead we capture two
+      # co-loaded (unlike e2e's isolated per-scenario z42vm). Instead capture two
       # ISOLATED `bench stdlib --json` baselines on THIS runner — PR tree + base tree —
-      # and diff them (bench --micro-diff). Same machine ⇒ speed factor cancels in
-      # ratio=pr/base; Part A's per-benchmark mean/stddev make the SEM valid.
+      # and diff them (bench --micro-diff).
       - name: Capture PR micro baseline (bench stdlib --json)
         if: steps.fmtgap.outputs.gap != '1'
         shell: bash
@@ -624,7 +423,7 @@ jobs:
           # base's). The measured toolchain is passed EXPLICITLY via --vm/--driver/--libs
           # = the exact base toolchain the e2e A/B already used (.ab-base-alllibs), so
           # base benchmarks compile+run against a proven-consistent base stdlib — no
-          # in-tree rebuild, no reliance on base-src's assembled-libs layout.
+          # in-tree rebuild.
           # `xtask` 垫片按**自己所在位置**定位 `.z42` 与 PR 树的 xtask.zpkg，不看 cwd ⇒ cd 进 base-src 照样是 PR 的 xtask。
           ( cd base-src && \
             xtask bench stdlib --json "$ROOT/artifacts/reports/benches/micro-base.json" --no-build --mode interp \
@@ -632,23 +431,9 @@ jobs:
               --driver "${{ steps.base.outputs.base_driver }}" \
               --libs   "${{ steps.base.outputs.base_libs }}" )
 
-      # ab-resample-on-suspicion (2026-09-06)：micro 层**恢复硬门禁**。
-      #
-      # 它在 #442 被降级是因为区间不可信：`Bencher` 的 stddev 是单个进程内批次样本的
-      # 离散度，而 base 与 pr 是两个独立进程，进程间那部分方差（CPU 频率 / page cache /
-      # 分配器与 GC 起始状态 / 代码布局）完全没被建模 —— 声称宽度中位 4.8%、最窄 0.25%，
-      # 真实噪声却是 ±16%，**低估约三倍**。区间既然不可信，「区间分离」这道保险就不成立，
-      # 判红退化成「谁的区间碰巧最窄」的抽签（同一批里 sha256_4k +11.5% 判红、
-      # sha256_small +11.0% 放过，aes_cbc_4k 报「快 19%、区间 ±0.06%」）。
-      #
-      # 复测把那个缺失的方差**真的测出来**：整轮重采 2 次，比值的离散度取自**跑间**而非
-      # 跑内。恢复硬门禁靠的是这个，不是把阈值调松。
-      #
-      # 成本形状（这是它能负担的原因）：第 1 轮什么都没标 ⇒ **零额外开销**，与今天一样；
-      # 只有标了才多花约 180s（两轮 × 两棵树的整份捕获）。这里**不按 benchmark 名过滤**
-      # 重采：`bench stdlib --filter` 过滤的是**文件名**而不是 benchmark 名，要按名重采
-      # 就得新造一层 benchmark→文件 映射 —— 映射错了是静默少测（门禁变瞎），
-      # 而整轮重采最坏只是多花时间。与 #447「排除文档而非白名单」同一条取向。
+      # micro 硬门禁 = 可疑即复测（benchmarking.md §5）：第 1 轮只点名可疑条目；有标记才整轮
+      # 重采两次，用三轮比值的跑间离散度判红。整轮重采而不按 benchmark 名过滤：
+      # `bench stdlib --filter` 过滤的是文件名，按名重采要另建映射，映射错 = 静默少测。
       - name: Micro A/B gate (resample-on-suspicion; >15% time fails)
         if: steps.fmtgap.outputs.gap != '1'
         shell: bash
@@ -693,35 +478,18 @@ jobs:
               --current  "$A/micro-pr.json,$A/micro-pr-r2.json,$A/micro-pr-r3.json" \
               --baseline "$A/micro-base.json,$A/micro-base-r2.json,$A/micro-base-r3.json"
 
-      # ── extend-ab-bench-micro-criterion Part C: criterion(Rust) tier A/B ──
-      # Only when the PR touched src/runtime (VM unchanged ⇒ criterion result cannot
-      # move). Uses criterion's NATIVE same-runner baseline compare — base tree SAVES
-      # a baseline, PR tree COMPARES against it — with criterion doing its own outlier
-      # detection + bootstrap CI. A shared CRITERION_HOME lets the two trees' runs meet.
-      # gc_cycle_bench is a real VM benchmark (gated); smoke_bench is a pure-Rust
-      # sanity harness (NOT gated). Gate: any bench mean change >10% AND CI-separated.
-      # demote-criterion-to-informational (2026-09-06)：criterion 层**不再 fail job**。
-      #
-      # 依据是它自己的战绩：至今 **0 次真阳性、3 次假红**（#423 一次、#457 两次 —— 后两次
-      # 是在 base 与 pr 的 VM 代码**逐字节相同**的对照上判的红）。而它判红所依赖的证据，
-      # 与 micro 被降级的那个是同一个：criterion 的 bootstrap CI 也是**跑内**的，
-      # `--baseline` 比的却是两次独立跑，跑间漂移（实测单条极差 15~32pp）它结构性地看不见。
-      # 也就是说这一层的硬判从来没建立在能支撑它的证据上。
-      #
-      # 那为什么不跟 e2e/micro 一样上复测？因为这一层的复测代价完全不同：一轮 criterion
-      # A/B 约 390s，重采两轮 ≈ +780s，比它守住的东西贵得多 —— 而 GC 热路径的真回归会
-      # 在 e2e 的 gate 场景里露头（`gc_cycle_bench` 链接整个 crate，VM 改动挪得动它，
-      # 也就挪得动场景）。所以这一层保留**测量与打印**（改 GC 后眼看一下的材料），
-      # 只收回它 fail job 的权力。
-      #
-      # ⚠️ 别顺手把测量也删掉：删了就再没有 GC 内部热路径的观测点，回归只能靠 e2e 间接
-      # 反映。要重新硬门禁，前提是先把跑间漂移量出来（同 e2e 的复测思路），不是调阈值。
+      # ── criterion(Rust) tier A/B — informational, never fails (benchmarking.md §7) ──
+      # Only when the PR touched src/runtime (VM unchanged ⇒ result cannot move).
+      # criterion's NATIVE baseline compare: base tree SAVES, PR tree COMPARES; a shared
+      # CRITERION_HOME lets the two trees' runs meet. Its bootstrap CI is within-run and
+      # blind to between-run drift, so it only prints. ⚠️ 别删测量：它是 GC 内部热路径
+      # 唯一的观测点；要重新硬门禁需先量出跑间漂移，不是调阈值。
       - name: Criterion(Rust) A/B (informational — never fails; only if src/runtime changed)
         shell: bash
         run: |
           set -euo pipefail
           BASE_SHA="${{ github.event.pull_request.base.sha }}"
-          # 路径集见文件头 narrow-bench-gate-guards：排除 *.md，README 改动不算「VM 变了」。
+          # 排除 *.md：README 改动不算「VM 变了」（benchmarking.md §8）。
           if git diff --quiet "$BASE_SHA"..HEAD -- src/runtime ':(exclude,glob)src/runtime/**/*.md'; then
             echo "→ src/runtime unchanged base..pr → skip criterion A/B (VM byte-identical)"
             exit 0
@@ -738,29 +506,8 @@ jobs:
               --bench gc_cycle_bench -- --baseline ab-base )
           echo "── informational: 整个 95% 区间在 +25% 之上（lower_bound > thr）= 标记，但不 fail ──"
           python3 - "$CRITERION_HOME" <<'PY'
-          # fix-criterion-ci-separation (2026-09-05)：判红条件是**整个区间**在阈值之上
-          # （lower_bound > thr），不是「点估计过阈值 + 下界大于零」。
-          #
-          # 旧条件 `pe > thr and lo > 0.0` 把 book 里写的「CI 分离」实现成了「下界大于**零**」，
-          # 于是 [+0.5%, +60%] 这种毫无信息量的宽区间照样算「分离」。实测踩中两次，全是假红：
-          #   · #457 自身（run 33955693181）：gc_cycle/large_array_10k 报 +20.9%（下界 +0.5%），
-          #     而该 PR 只改 workflow + bench harness + book，**一行 VM 代码都没动**；原始值
-          #     base 200.0µs vs pr 207.9µs（真实差 +4%），criterion 自己的 p = 0.24 > 0.05
-          #     （即「无显著变化」）；同一条 bench 上一跑是 +0.6%、区间 [+0.35%, +0.93%]。
-          #   · #423：+13.2%（下界 +4.5%）→ 作者按假红照常合并。
-          # 新条件 `lo > thr` 对这两例都不判红，而一条测准的真回归（如区间 [+18%, +22%]）照红。
-          # 点估计不再单独参与判定——它落在区间里，区间才是结论。
-          # align-criterion-threshold (2026-09-05)：阈值 0.10 → 0.25，与 e2e 同一个理由、同一个量级。
-          # #457 自身跑了四次**base 与 pr 的 VM 代码逐字节相同**的对照（改动只有 workflow + bench
-          # harness + book），单条 bench 的判定值散布：
-          #   gc_cycle/large_array_10k              +0.6 / +20.9 / +0.3 / -11.0  (极差 31.9pp)
-          #   gc_minor/1k_young_with_10k_pinned_old +0.0 /  -1.5 / +5.9 / +15.9  (极差 17.4pp)
-          #   gc_sweep/10k_survivors                +0.7 /  +6.2 / -9.1 /  +1.1  (极差 15.3pp)
-          # ⇒ **criterion 层的噪声底也在 ±16% 上下**（与 #442 给 e2e/micro 测出的 ±13~16% 同量级），
-          # 10% 的阈值画在噪声底之下，假红是数学必然。注意这跟上面的区间修正是**两个**问题：
-          # `lo > thr` 修的是「宽区间冒充证据」；这里修的是「跑间漂移 + 跑内区间很窄」——跑5 那条
-          # +15.9% 的区间只有 5.1pp 宽，任何基于**跑内**区间的规则都拦不住它。
-          # 收回 0.15 的前提仍是「可疑即复测」（用跑间离散度重算区间），见 book 判红语义页。
+          # 标记条件是**整个区间**在阈值之上（lower_bound > thr），不是「点估计过阈值 + 下界 > 0」
+          # ——后者让 [+0.5%, +60%] 这种宽区间也算证据。thr 0.25：criterion 层噪声底约 ±16%。
           import json, os, sys, glob
           home = sys.argv[1]; thr = 0.25; regr = []
           for est in glob.glob(os.path.join(home, "**", "change", "estimates.json"), recursive=True):
@@ -770,17 +517,16 @@ jobs:
               lo, hi = ci.get("lower_bound"), ci.get("upper_bound")
               if pe is None or lo is None or hi is None: continue
               bench = est.split(os.sep)[-3]
-              # 区间宽度是这层的关键信息（旧输出只打下界，看不出 [+0.5%, +60%] 有多没用）
+              # 打完整区间与宽度：只打下界看不出 [+0.5%, +60%] 这种区间有多没用
               tag = f"{pe*100:+.1f}% (CI [{lo*100:+.1f}%, {hi*100:+.1f}%], 宽 {(hi-lo)*100:.1f}pp)"
               if lo > thr:
                   regr.append(bench); print(f"  ↑ REGRESSION {bench}: {tag}")
               elif pe > thr:
                   # 点估计过阈值但区间没整体过 —— 正是「可疑」，也正是「可疑即复测」该接手的地方
-                  print(f"  ? {bench}: {tag} — 点估计过阈值但区间未分离，判为噪声（见 book「可疑即复测」）")
+                  print(f"  ? {bench}: {tag} — 点估计过阈值但区间未分离，判为噪声（见 benchmarking.md「可疑即复测」）")
               else:
                   print(f"  ≈ {bench}: {tag}")
-          # demote-criterion-to-informational: 只打印，不 sys.exit(1)。判定条件原样保留 ——
-          # 它仍是「这条值得人看一眼」的最好线索，只是不再替人做拦不拦的决定。
+          # 只打印，不 sys.exit(1)。
           if regr:
               print(f"⚠️  {len(regr)} criterion 条目整个区间在 +{int(thr*100)}% 之上 —— "
                     f"informational，不 fail job；改了 GC 请人工看一眼上面的区间")

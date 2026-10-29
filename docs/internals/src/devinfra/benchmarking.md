@@ -362,7 +362,7 @@ zbc/zpkg 格式 bump 的 PR 上，e2e / micro A/B **结构上不可测**——�
                   └─ zpkg minor <PR> not supported (writer is at <base>)  ✗
 ```
 
-格式常量住在 `z42.package`（stdlib 库），**谁的 z42.package 在跑、就写谁的格式**。
+格式常量住在 `z42.package`（`src/compiler/z42.package`），**谁的 z42.package 在跑、就写谁的格式**。
 
 **处置**：读两棵树 `z42.package` 的 writer 常量（`ZbcFormat.z42` / `ZpkgWriter.z42` 的 Major/Minor），
 不同 ⇒ 跳过**依赖 base 产物**的四步（建 base 工具链 / e2e A/B / 两侧 micro 捕获 / micro 判定），

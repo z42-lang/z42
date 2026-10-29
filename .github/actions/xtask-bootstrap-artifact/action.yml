@@ -22,14 +22,9 @@ inputs:
       byte-identical to the one below. Override ONLY when the job builds strictly
       MORE than this action does — e.g. host-package's package step additionally
       builds cdylib/staticlib/apphost, so it owns `package-host-v2`.
-
-      历史：`host-v2`（ci-bootstrap 侧的 key）曾经只含 bin/rlib —— 那时 ci-bootstrap
-      跑的是 `cargo build --bin z42vm`，共用它会让这里建的 cdylib 永远进不了缓存、
-      每轮冷编（2026-09-04 前有 7 个 job 中招）。2026-09-05 起 ci-bootstrap 的 runtime 构建
-      （现为 `xtask build runtime`）已改为全 workspace（与本 action 同一 unit 集合，见该 action 注释），两边内容
-      因此趋同；但仍保持两个 key 分开，因为两条 bootstrap 路径后续做的事不同，
-      合并需要单独验证。把缓存配置留在本 action 内（而不是每个 job 抄一份）才是
-      当初那个 bug 不再复发的原因。
+      Kept separate from ci-bootstrap's `host-v2`: the two bootstrap paths do different
+      work afterwards. Keep the cache config here (not copied into each job) so the
+      key always matches what this action builds.
     required: false
     default: artifact-host-v1
   rust-targets:
@@ -78,17 +73,15 @@ runs:
       shell: bash
       run: chmod +x artifacts/build/runtime/release/z42vm && artifacts/build/runtime/release/z42vm --version
 
-    # z42c + stdlib + xtask.zpkg (.zpkg products) → restored at repo root
-    # under artifacts/build/{libraries,z42c}/ and artifacts/xtask/.
-    # 所有宿主都取同一份 linux 产物（zpkg 与宿主无关；Windows 一直如此）。原先 macOS
-    # 取自己的 toolchain-macos-26 —— 那条腿已删（speed-up-ci-quick-wins）。
+    # z42c + stdlib + xtask + z42b (.zpkg products) → restored at their repo-relative
+    # build-tree locations (`xtask package ci` snapshot). 所有宿主都取同一份 linux 产物（zpkg 与宿主无关）。
     - name: Download toolchain artifact
       uses: actions/download-artifact@v8
       with:
         name: toolchain-ubuntu-latest
         path: .
 
-    # xtask 跑在 `.z42` SDK 上（与本地 `./xtask` 一致，add-sdk-libs D7）——每个 job 都装一份，同 ci-bootstrap。
+    # xtask 跑在 `.z42` SDK 上（与本地 `./xtask` 一致）——每个 job 都装一份，同 ci-bootstrap。
     - name: Install z42 SDK (.z42)
       id: sdk
       uses: ./.github/actions/setup-z42-sdk
