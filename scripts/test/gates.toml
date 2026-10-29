@@ -15,7 +15,7 @@
 # z42-gates:doc-refs-begin（xtask check doc-refs --update 维护）
 [doc-refs]
 readme = 173
-internals = 798
+internals = 789
 reference = 253
 # z42-gates:doc-refs-end
 

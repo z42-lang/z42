@@ -16,15 +16,15 @@ CoreCLR `src/coreclr/pal/` 含 ~50 个文件抽象：
 
 | Concern | CoreCLR pal/ 文件 | z42 pal/ 计划 | Status |
 |---|---|---|---|
-| Thread / stack | `thread.cpp` | `pal/thread.rs` | Done |
-| File I/O | `file.cpp` / `path.cpp` | `pal/fs.rs` | Done |
-| Signal / exceptions | `signal.cpp` | `pal/signal.rs`（仅 OS 原语；z42 reporter 留 signal_handler.rs） | Done |
-| Memory / pages | `virtual.cpp` | `pal/mem.rs` | Done |
-| Process / environ | `process.cpp` / `environ.cpp` | `pal/process.rs`、`pal/system.rs` | Done |
+| Thread / stack | thread.cpp | `pal/thread.rs` | Done |
+| File I/O | file.cpp / path.cpp | `pal/fs.rs` | Done |
+| Signal / exceptions | signal.cpp | `pal/signal.rs`（仅 OS 原语；z42 reporter 留 signal_handler.rs） | Done |
+| Memory / pages | virtual.cpp | `pal/mem.rs` | Done |
+| Process / environ | process.cpp / environ.cpp | `pal/process.rs`、`pal/system.rs` | Done |
 | Sockets | —（.NET 放在 System.Native 的 pal_networking） | `pal/net.rs` | Done |
-| Clock / time | `time.cpp` | `pal/time.rs` | Done |
-| Entropy | `random.cpp` | `pal/random.rs` | Done |
-| Dynamic libraries | `loader.cpp` | `pal/dynlib.rs` | Done |
+| Clock / time | time.cpp | `pal/time.rs` | Done |
+| Entropy | random.cpp | `pal/random.rs` | Done |
+| Dynamic libraries | loader.cpp | `pal/dynlib.rs` | Done |
 
 z42 不抄 CoreCLR 的 PAL 内部分层（CoreCLR 还有 `pal/src/<arch>/` per-arch
 ASM）—— Cranelift / Rust 已经兜底 arch 差异。z42 PAL 只关心 **OS 差异**。
