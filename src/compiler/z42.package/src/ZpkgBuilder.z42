@@ -223,7 +223,7 @@ public static class ZpkgBuilder {
     public static string SourceHashHex(string text) {
         // native-hash：直接对字符串哈希（与 Murmur3.Hash128Hex(Utf8.GetBytes(text)) 等值，
         // 对拍见 tests/murmur3.z42）——省掉整份源文本的 byte[] 物化与解释执行的哈希内环。
-        return "mmh3:" + Murmur3.HashHexOfStr(text);
+        return "mmh3:" + Std.Hashing.Murmur3.Hash128Hex(text);
     }
 
     // SHA-256 十六进制（"sha256:" 前缀 + 小写 hex，真 C# CLI 字节实测形态）。
