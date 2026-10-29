@@ -42,8 +42,19 @@ catch          { /* 落到这里 */ }
 
 ### 泛型异常类型
 
-`catch (MulticastException<int> e)` 透明工作：编译器把类型实参编进 mangled 名
-（`Std.MulticastException$1`），运行期按同一个名字比对并沿基类链上溯。
+`catch (Err<int> e)` 核对**类型实参**，与 `is Err<int>` 同口径（本包与导入的泛型异常都是）：
+`Err<string>` 不会被它接住，`class IntErr : Err<int>` 会。泛型体里的 `catch (Err<T> e)` 按本次调用 /
+本个实例绑定的 `T` 判：
+
+```z42
+string Catch<T>(Exception x) {
+    try { throw x; }
+    catch (Err<T> e) { return "Err<T>"; }
+    catch (Exception e) { return "Exception"; }
+}
+Catch<int>(new Err<int>(1))       // "Err<T>"
+Catch<string>(new Err<int>(1))    // "Exception"
+```
 
 ### 非对象抛出
 

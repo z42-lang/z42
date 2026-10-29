@@ -45,6 +45,12 @@ pub(crate) struct Frame {
 }
 
 impl Frame {
+    /// What this activation binds the type-parameter markers of its body to
+    /// (`$mta:N` → `method_type_args`, `$cta:N@Owner` → the receiver in reg 0).
+    pub(crate) fn type_param_env(&self) -> super::type_param_env::TypeParamEnv<'_> {
+        super::type_param_env::TypeParamEnv::new(&self.method_type_args, self.regs.first())
+    }
+
     /// A frame whose first registers are `args`. The register file comes from
     /// the context's register pool (`VmContext::reg_pool`, all `Null`); the
     /// frame's [`FrameGuard`] hands it back after popping the frame. A `Frame`

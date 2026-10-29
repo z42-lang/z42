@@ -163,8 +163,8 @@ pub(super) fn call(
     // already concrete (each call resolves before setting its callee frame), so nesting
     // works. No alloc unless a marker is actually present.
     let fwd_storage;
-    let method_type_args: &[String] = if method_type_args.iter().any(|s| s.starts_with("$mta:")) {
-        fwd_storage = super::resolve_forwarded_mta(frame, method_type_args);
+    let method_type_args: &[String] = if super::has_forwarded_mta(method_type_args) {
+        fwd_storage = super::resolve_forwarded_mta(ctx, frame, method_type_args);
         &fwd_storage
     } else {
         method_type_args

@@ -9,6 +9,8 @@
 
 pub mod types;
 pub mod type_names;
+/// `$mta:N` / `$cta:N@Owner` type-parameter markers in runtime type names (shared generic bodies).
+pub mod type_param_markers;
 pub mod tokens;
 /// unify-object-byte-layout PR-4: `Str` — 8-byte thin ref-counted UTF-8 string handle
 /// (replaces `Value::Str(Arc<str>)`'s 16-byte fat pointer; lets `Value` reach 16 B in PR-5).

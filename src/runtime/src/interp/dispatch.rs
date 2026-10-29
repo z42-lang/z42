@@ -116,6 +116,88 @@ pub fn isa_object(
     isa_td(ctx, registry, td, target, key)
 }
 
+/// `Value::Array` against a type-test target. add-array-base-class: `T[]` is-a `Std.Array` is-a
+/// `Std.Object` — hardcoded, since an array carries no `TypeDesc`.
+pub fn array_isa(class_name: &str) -> bool {
+    matches!(class_name, "Array" | "Object" | "Std.Array" | "Std.Object")
+}
+
+/// The extra matches a type test against a **bound type parameter** gives (`o is T` / `(T)o` in a
+/// shared generic body, target substituted from the activation) — values whose runtime form does
+/// not carry the type the parameter is bound to, so the ordinary test would answer "no" for a value
+/// that *is* a `T`:
+/// - an array, `T` bound to an array type: element types are not recorded consistently enough to
+///   compare (no array type test compares them yet) — any array;
+/// - a callable, `T` bound to a delegate type ([`callable_isa`]);
+/// - an integer, `T` bound to an enum type ([`integer_as_enum_isa`]).
+///
+/// `false` = no extra match; the ordinary test decides.
+pub fn bound_param_extra_isa(
+    ctx: &VmContext,
+    registry: &rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>>,
+    v: &Value,
+    class_name: &str,
+) -> bool {
+    match v {
+        Value::Array(_) => class_name.ends_with("[]"),
+        Value::Closure(_) | Value::FuncRef(_) => callable_isa(ctx, registry, class_name),
+        Value::I64(_) => integer_as_enum_isa(ctx, registry, class_name),
+        Value::BoxedStruct(b) => b.borrow().boxed_prim_i64().is_some() && integer_as_enum_isa(ctx, registry, class_name),
+        _ => false,
+    }
+}
+
+/// A callable (`Closure` / `FuncRef`) against a **type parameter** bound to some type
+/// (`(TD)closure` in `WeakRef<TD>`; see [`bound_param_extra_isa`]). A callable carries no delegate type — converting a lambda or
+/// method group to `Action<int>` is erased — so which delegate type it is cannot be decided; it is
+/// answered like the erased test: a match unless the bound type is a known non-delegate type
+/// (a primitive, an array, a registered class / struct / interface that is not a delegate).
+fn callable_isa(
+    ctx: &VmContext,
+    registry: &rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>>,
+    class_name: &str,
+) -> bool {
+    if class_name == "Std.Object" || class_name == "Object" {
+        return true;
+    }
+    if class_name.ends_with("[]") || crate::metadata::type_names::builtin_fqn(class_name).is_some() {
+        return false;
+    }
+    let erased = class_name.split('<').next().unwrap_or(class_name);
+    match registry.get(erased).cloned().or_else(|| ctx.try_lookup_type(erased)) {
+        Some(td) => td.is_delegate(),
+        None => true,
+    }
+}
+
+/// An integer (raw `I64` or an integer wrapper box) against a **type parameter** bound to an enum
+/// type. z42 backs every enum by an `i64`, and the enum APIs hand values out as plain integers
+/// (`Enum.Parse` / `GetValues` return `long`), so generic code that holds an enum value that way
+/// (`CliOption<Plat>.Value` over a parsed option) has no other spelling of it: a match, as integer
+/// widths already are for a raw integer (`prim_isa`).
+fn integer_as_enum_isa(
+    ctx: &VmContext,
+    registry: &rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>>,
+    class_name: &str,
+) -> bool {
+    registry.get(class_name).cloned().or_else(|| ctx.try_lookup_type(class_name)).is_some_and(|td| td.is_enum())
+}
+
+/// An **unboxed** value struct (`StructRef` — a `T`-typed value in a generic body, a struct that
+/// reached an `object` slot unboxed) against a target: its precise type comes from the arena slot,
+/// the rest of the answer from that type's descriptor (interfaces, `Std.Object`).
+pub(crate) fn struct_ref_isa(
+    ctx: &VmContext,
+    registry: &rustc_hash::FxHashMap<String, std::sync::Arc<crate::metadata::TypeDesc>>,
+    idx: u32, frame_id: u32, class_name: &str,
+) -> bool {
+    if class_name == "Std.Object" || class_name == "Object" {
+        return true;
+    }
+    let Ok(name) = ctx.struct_arena.lock().with(idx, frame_id, |s| s.type_name.clone()) else { return false };
+    &*name == class_name || is_subclass_or_eq_td(ctx, registry, &name, class_name)
+}
+
 /// `Some(verdict)` when `target` names an instantiation of the erased definition `def` (that is,
 /// `target == "{def}<…>"` and `def` itself is not an instantiation); `None` = not this case.
 ///

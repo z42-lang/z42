@@ -116,8 +116,26 @@ List<int> xs = (List<int>)o;     // InvalidCastException
 o is List                        // true
 ```
 
-> 运行期判不了实参时按「任一实例化」回答：泛型体里 `new List<T>()` 构造的实例只记得型参 `T`；
-> 非泛型类实现泛型接口（`class Bar : IFoo<int>`）的接口表不记实参，于是 `bar is IFoo<string>` 也为真。
+> 运行期判不了实参时按「任一实例化」回答：非泛型类实现泛型接口（`class Bar : IFoo<int>`）的接口表
+> 不记实参，于是 `bar is IFoo<string>` 也为真。
+
+目标里的**型参**按本次调用 / 本个实例绑定的实参判 —— `o is T`、`o as T`、`(T)o`、`o is List<T>`、
+`catch (Err<T> e)` 都是；泛型体里 `new List<T>()` 构造的实例同样记着具体实参：
+
+```z42
+bool IsT<T>(object o) { return o is T; }
+class Bag<T> { public object Make() { return new List<T>(); } }
+
+IsT<Entry>(new Sub())                     // true（子类）
+IsT<int>(5)                               // true；IsT<long>(5) 为 false
+new Bag<int>().Make() is List<string>     // false
+```
+
+`(T)o` 类型不符抛 `InvalidCastException`；`T` 绑到数组类型时不比元素类型（任一数组都放行），
+绑到委托类型时任一 lambda / 方法组都放行（它们不记得自己被转成了哪个委托类型），绑到 enum 时整数值放行
+（enum 以 `long` 为底，`Enum.Parse` 返回的就是整数）。
+类级型参只在实例方法里有实参可读 —— 静态方法里的 `o is T` 读不到，不匹配任何对象（同静态方法里的
+`typeof(T)` 只得占位名）。
 
 ### 拆箱失败抛可捕获的异常
 

@@ -36,7 +36,7 @@ public sealed class FunctionEmitter {
     private string[] _seedMethodTp; private int _seedMethodTpCount;
     public void SeedMethodTp(string[] names, int n) { this._seedMethodTp = names; this._seedMethodTpCount = n; }
     private void _applyMethodTp(string[] own, int ownCount) {
-        if (ownCount > 0) { this._ctx.MethodTpNames = own; this._ctx.MethodTpCount = ownCount; return; }
+        if (ownCount > 0) { this._ctx.MethodTpNames = own; this._ctx.MethodTpCount = ownCount; this._ctx.MethodTpOwn = true; return; }
         if (this._seedMethodTp != null) { this._ctx.MethodTpNames = this._seedMethodTp; this._ctx.MethodTpCount = this._seedMethodTpCount; }
     }
 

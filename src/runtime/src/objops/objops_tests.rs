@@ -163,7 +163,7 @@ fn array_roundtrip_heap_and_stack() {
     assert_eq!(array_get(&vm, &a, &Value::I64(1), no_fid).unwrap(), Value::I64(21));
     assert_eq!(array_len(&vm, &a).unwrap(), 3);
 
-    let s = array_new(&vm, &Value::I64(2), 0, ElemType::intern("long"), false, None, Some(|| 4u32)).unwrap();
+    let s = array_new(&vm, &Value::I64(2), 0, ElemType::intern("long"), false, None, None, Some(|| 4u32)).unwrap();
     assert!(matches!(s, Value::StackArray { frame_id: 4, .. }));
     array_set(&vm, &s, &Value::I64(0), &Value::I64(5)).unwrap();
     assert_eq!(array_get(&vm, &s, &Value::I64(0), no_fid).unwrap(), Value::I64(5));
@@ -196,7 +196,7 @@ fn null_check_comes_before_the_index_check() {
 #[test]
 fn out_of_range_index_throws_index_out_of_range() {
     let vm = VmContext::new();
-    for a in [long_array(&vm, &[1, 2, 3]), array_new(&vm, &Value::I64(3), 0, ElemType::intern("long"), false, None, Some(|| 2u32)).unwrap()] {
+    for a in [long_array(&vm, &[1, 2, 3]), array_new(&vm, &Value::I64(3), 0, ElemType::intern("long"), false, None, None, Some(|| 2u32)).unwrap()] {
         for (i, msg) in [(3, "index 3 is out of range for an array of length 3"),
                          (-1, "index -1 is out of range for an array of length 3")] {
             let t = thrown(array_get(&vm, &a, &Value::I64(i), no_fid).unwrap_err());
@@ -214,17 +214,17 @@ fn out_of_range_index_throws_index_out_of_range() {
 #[test]
 fn negative_array_size_throws_overflow() {
     let vm = VmContext::new();
-    let t = thrown(array_new(&vm, &Value::I64(-2), 0, ElemType::intern("long"), false, None, None::<fn() -> u32>).unwrap_err());
+    let t = thrown(array_new(&vm, &Value::I64(-2), 0, ElemType::intern("long"), false, None, None, None::<fn() -> u32>).unwrap_err());
     assert_eq!(t.class, "Std.OverflowException");
     assert_eq!(t.msg, "array size cannot be negative (got -2)");
-    assert_eq!(internal(array_new(&vm, &Value::Null, 0, ElemType::intern("long"), false, None, None::<fn() -> u32>).unwrap_err()),
+    assert_eq!(internal(array_new(&vm, &Value::Null, 0, ElemType::intern("long"), false, None, None, None::<fn() -> u32>).unwrap_err()),
         "ArrayNew: array size must be an integer, got Null");
 }
 
 #[test]
 fn packed_data_never_throws() {
     let vm = VmContext::new();
-    let a = array_new(&vm, &Value::I64(4), crate::metadata::types::TAG_I64, ElemType::intern("long"), false, None, None::<fn() -> u32>).unwrap();
+    let a = array_new(&vm, &Value::I64(4), crate::metadata::types::TAG_I64, ElemType::intern("long"), false, None, None, None::<fn() -> u32>).unwrap();
     let (ptr, len, width) = packed_data(&a);
     assert!(!ptr.is_null());
     assert_eq!((len, width), (4, 8));

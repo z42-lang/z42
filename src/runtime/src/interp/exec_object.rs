@@ -7,7 +7,6 @@ use crate::vm_context::VmContext;
 use anyhow::Result;
 
 use super::dispatch::isa_td;
-use super::exec_vcall::is_array_isa;
 use super::ops::collect_args;
 use super::Frame;
 
@@ -33,6 +32,9 @@ pub(super) fn obj_new(
     ctor_known: bool,
 ) -> Result<Option<Value>> {
     use super::obj_new_resolve::{instance_type_args, resolve_class, resolve_ctor, site_for};
+    // `new List<T>()` in a shared generic body: the site's arguments carry type-parameter
+    // markers, bound per activation (one flag test for every other site).
+    let type_args = frame.type_param_env().instantiate(ctx, type_args);
     let site = site_for(ctx, module, site);
     let type_desc = match resolve_class(ctx, module, class_name, site) {
         Ok(td) => td,

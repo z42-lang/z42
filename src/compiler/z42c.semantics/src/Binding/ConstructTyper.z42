@@ -190,6 +190,19 @@ public sealed class ConstructTyper {
                     bn.IsMethodTypeParam = true; bn.MethodParamIndex = mIdx;
                     return bn;
                 }
+                // 类级型参（实例语境）：同一条运行期构造路，型参从受者读（与类级 `typeof(T)` 同判据，
+                // 见 `TypeOpTyper` —— 静态帧的 reg0 不是 this，落不到类级）。此前这里落到下面的
+                // 常规 `new` ⇒ 发 `obj_new Demo.T` ⇒ 运行期 MissingSymbolException。
+                int cIdx = env.ClassParamIndexOf(t.Name());
+                if (cIdx >= 0 && env.LookupVar("this") != null) {
+                    if (n.ArgCount != 0) {
+                        this._tc._diags.Error(DiagnosticCodes.CtorArgMismatch,
+                            "`new " + t.Name() + "()` on a type parameter takes no arguments", n.Span);
+                    }
+                    BoundNew cbn = new BoundNew(t.Name(), "", new BoundExpr[0], 0, t, n.Span);
+                    cbn.ClassParamIndex = cIdx;
+                    return cbn;
+                }
             }
             // 未定义类型（含 new）统一由 _chkTypeRef → E0443 报（fix-undefined-type-diagnostic：
             // 单一 choke point，不再在此另发 E0401，避免同一未定义类型双重报错）。

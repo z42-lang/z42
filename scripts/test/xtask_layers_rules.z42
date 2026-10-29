@@ -93,6 +93,7 @@ string[] _lyMapVmHigh() {
         "stack_guard.rs                = vm.exec         # exec/stack_guard",
         "corelib/abi/                  = vm.exec         # exec/call/builtin_abi",
         "interp/forward.rs             = vm.exec         # exec/call/forward（两引擎共用）",
+        "interp/type_param_env.rs      = vm.exec         # exec/call（型参标记的绑定，两引擎共用）",
         "interp/exec_struct.rs         = vm.exec         # exec/ops/struct_ops（interp、jit、corelib 共用）",
         "interp/transient_arena.rs     = vm.exec         # exec/call（§4.4：JIT / objops 也用 → 下沉）",
         "interp/stack_alloc.rs         = vm.exec         # exec/call（同上）",

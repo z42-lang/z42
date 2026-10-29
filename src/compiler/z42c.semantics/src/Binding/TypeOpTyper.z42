@@ -24,6 +24,10 @@ public sealed class TypeOpTyper {
     // ⚠️ **目标是值类型的一律排除**：`(int)o` / `(P2)o` 是**拆箱**，另有其路
     //（值类型那半 #746 已修；blob struct 走 `_emitConvert` 上面的 AsCast 拆箱臂）。
     private static bool _isCheckedRefCast(ConvResult ur, Z42Type from, Z42Type to) {
+        // 目标是型参（`(T)o`）：`T` 是什么运行期才知道，检查也只能在运行期做 —— 目标名是型参
+        // 本身（特化体里代换成具体名、共享体里是型参标记，见 `ExprEmitter._typeParamTestName`）。
+        // 此前这里一条检查都不发，`CastT<Sub>(entry)` 不抛、错类型的对象原样流下去。
+        if (to is Z42GenericParamType) { return !(from is Z42GenericParamType && from.Name() == to.Name()); }
         if (ur.Kind == ConvKind.ExplicitRef) { return true; }
         if (ur.Kind != ConvKind.None) { return false; }
         bool fromRefRoot = Conversion._isObjectPrim(from) || (from is Z42InterfaceType);

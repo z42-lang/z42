@@ -1,0 +1,212 @@
+// 泛型体里以**型参**为目标 / 实参的类型运算：`o is T` / `o as T` / `(T)o`、`new List<T>()`、
+// `new T[n]`、类级 `new T()`、`catch (Err<T>)`，以及 `catch (Err<int>)` 核对实参。
+//
+// 同包泛型方法按调用点特化（型参在编译期代换成具体名）；泛型**类**的成员体是共享的，型参
+// 运行期从受者读 —— 与类级 `typeof(T)` 同一载体。跨包（泛型方法的共享体，型参从
+// method_type_args 读）见 z42c.pipeline 的 cross-zpkg/generic_type_param_tests_cross_pkg。
+//
+// 修前：型参目标被当成本 ns 的类发出去（`is_instance %0, Demo.T`）⇒ `o is T` 恒 false、
+// `o as T` 恒 null、`(T)o` 不检查；`new List<T>()` 的实例永远记着字面 `T`（匹配任一实例化）；
+// 类级 `new T()` 发 `obj_new Demo.T` ⇒ MissingSymbolException；`catch` 只比擦除名。
+namespace Demo;
+
+using Std.Collections;
+
+class Entry {
+    public int N;
+    public Entry(int n) { this.N = n; }
+}
+class Sub : Entry { public Sub(int n) : base(n) { } }
+class Item { public int V; public Item() { this.V = 7; } }
+struct Pt { public int X; public int Y; public Pt(int x, int y) { this.X = x; this.Y = y; } }
+class Box<T> { public T V; public Box(T v) { this.V = v; } }
+class Err<T> : Exception { public T P; public Err(T p) : base("err") { this.P = p; } }
+class IntErr : Err<int> { public IntErr() : base(3) { } }
+
+// ── 泛型方法（特化体）──────────────────────────────────────────────────────
+bool IsT<T>(object o) { return o is T; }
+bool AsT<T>(object o) { return (o as T) != null; }
+bool CastThrows<T>(object o) {
+    try { T t = (T)o; } catch (InvalidCastException e) { return true; }
+    return false;
+}
+bool IsListOf<T>(object o) { return o is List<T>; }
+object MkList<T>() { return new List<T>(); }
+object MkBox<T>(T v) { return new Box<T>(v); }
+string ArrType<T>(int n) { T[] a = new T[n]; return a.GetType().FullName; }
+string CatchT<T>(Exception x) {
+    try { throw x; } catch (Err<T> e) { return "Err<T>"; } catch (Exception e) { return "Exception"; }
+}
+
+// ── 泛型类（共享体，型参从受者读）──────────────────────────────────────────
+class G<T> where T : new() {
+    public bool Is(object o) { return o is T; }
+    public bool As(object o) { return (o as T) != null; }
+    public bool CastThrows(object o) {
+        try { T t = (T)o; } catch (InvalidCastException e) { return true; }
+        return false;
+    }
+    public bool IsList(object o) { return o is List<T>; }
+    public object MkList() { return new List<T>(); }
+    public object MkBox() { return new Box<T>(new T()); }
+    public T Make() { return new T(); }
+    public string ArrType(int n) { T[] a = new T[n]; return a.GetType().FullName; }
+    public string Catch(Exception x) {
+        try { throw x; } catch (Err<T> e) { return "Err<T>"; } catch (Exception e) { return "Exception"; }
+    }
+}
+// 型参在基类上声明：沿基链定位声明层（同类级 `typeof(T)`）。
+class GItem : G<Item> { }
+
+class Fac<T> where T : new() { public T Make() { return new T(); } }
+
+// 类级型参转发给泛型方法（裸 `T` 与嵌在构造实参里的 `List<T>`）：callee 收到本个实例的实参。
+string TypeName<T>() { return typeof(T).FullName; }
+class Fwd<T> {
+    public bool Is(object o) { return IsT<T>(o); }
+    public bool IsList(object o) { return IsT<List<T>>(o); }
+    public string Name() { return TypeName<T>(); }
+    public string ListName() { return TypeName<List<T>>(); }
+}
+
+// `catch (T e)`：型参本身作 catch 类型。
+string CatchParam<T>(Exception x) where T : Exception {
+    try { throw x; } catch (T e) { return "T:" + e.Message; } catch (Exception e) { return "Exception"; }
+}
+class Catcher<T> where T : Exception {
+    public string Catch(Exception x) {
+        try { throw x; } catch (T e) { return "T:" + e.Message; } catch (Exception e) { return "Exception"; }
+    }
+}
+
+// 型参绑到委托类型：闭包不记得自己被转成了哪个委托类型 ⇒ 判不了是哪一种，按擦除口径放行
+// （`WeakRef<TD>` 重建闭包后 `(TD)closure` 的形态）；绑到非委托类型照常判否。
+class DelBox<TD> {
+    private object _o;
+    public DelBox(object o) { this._o = o; }
+    public bool Is() { return this._o is TD; }
+    public TD Get() { return (TD)this._o; }
+}
+
+// 型参绑到 enum 类型：enum 以 i64 为底，`Enum.Parse` 交出的是整数 ⇒ 整数值按该 enum 的值放行。
+enum Plat { Ios, Wasm }
+object ParsePlat(string s) { return Enum.Parse(typeof(Plat), s); }
+
+string CatchConstructed(Exception x) {
+    try { throw x; }
+    catch (Err<int> e) { return "Err<int>:" + e.P.ToString(); }
+    catch (Err<string> e) { return "Err<string>:" + e.P; }
+    catch (Exception e) { return "Exception"; }
+}
+
+void Main() {
+    object e = new Entry(1);
+    object s = new Sub(2);
+    object five = 5;
+    object li = new List<int>();
+
+    // ── ① 方法级 `o is T` / `o as T` / `(T)o` ────────────────────────────
+    Assert.True(IsT<Entry>(e));
+    Assert.True(IsT<Entry>(s));
+    Assert.False(IsT<Sub>(e));
+    Assert.True(IsT<int>(five));
+    Assert.False(IsT<long>(five));
+    Assert.False(IsT<string>(five));
+    Assert.True(IsT<object>(five));
+    Assert.True(IsT<Pt>(new Pt(1, 2)));
+    Assert.False(IsT<Pt>(e));
+    Assert.True(IsT<List<int>>(li));
+    Assert.False(IsT<List<string>>(li));
+    Assert.True(AsT<Entry>(s));
+    Assert.False(AsT<Sub>(e));
+    Assert.False(AsT<List<string>>(li));
+    Assert.True(CastThrows<Sub>(e));
+    Assert.False(CastThrows<Entry>(s));
+    Assert.True(CastThrows<int>("s"));
+    Assert.False(CastThrows<int>(five));
+    Assert.True(CastThrows<List<string>>(li));
+    Assert.False(CastThrows<Sub>(null));           // (T)null 放行（同引用下转）
+
+    // ── ② `new List<T>()` / `new Box<T>()` / `new T[n]` 记具体实参 ────────────
+    object ml = MkList<int>();
+    Assert.Equal("Std.Collections.List<Std.Int32>", ml.GetType().FullName);
+    Assert.True(ml is List<int>);
+    Assert.False(ml is List<string>);
+    Assert.True(IsListOf<int>(ml));
+    Assert.False(IsListOf<Entry>(ml));
+    object mb = MkBox<string>("x");
+    Assert.True(mb is Box<string>);
+    Assert.False(mb is Box<int>);
+    Assert.Equal("Std.Int32[]", ArrType<int>(1));
+    Assert.Equal("Demo.Entry[]", ArrType<Entry>(1));
+
+    // ── ③ `catch (Err<T>)` 与 `catch (Err<int>)` 核对实参 ─────────────────────
+    Assert.Equal("Err<T>", CatchT<int>(new Err<int>(1)));
+    Assert.Equal("Exception", CatchT<string>(new Err<int>(1)));
+    Assert.Equal("Err<int>:1", CatchConstructed(new Err<int>(1)));
+    Assert.Equal("Err<string>:s", CatchConstructed(new Err<string>("s")));
+    Assert.Equal("Exception", CatchConstructed(new Err<long>(1L)));
+    Assert.Equal("Err<int>:3", CatchConstructed(new IntErr()));
+    Assert.Equal("T:err", CatchParam<Err<int>>(new IntErr()));
+    Assert.Equal("Exception", CatchParam<Err<string>>(new IntErr()));
+    Assert.Equal("T:err", new Catcher<Err<int>>().Catch(new Err<int>(1)));
+    Assert.Equal("Exception", new Catcher<Err<int>>().Catch(new Err<string>("s")));
+
+    // ── ④ 泛型类成员体：类级型参 ─────────────────────────────────────────
+    G<Item> g = new G<Item>();
+    Assert.True(g.Is(new Item()));
+    Assert.False(g.Is(e));
+    Assert.True(g.As(new Item()));
+    Assert.False(g.As(e));
+    Assert.True(g.CastThrows(e));
+    Assert.False(g.CastThrows(new Item()));
+    Assert.True(g.IsList(new List<Item>()));
+    Assert.False(g.IsList(li));
+    Assert.Equal("Std.Collections.List<Demo.Item>", g.MkList().GetType().FullName);
+    Assert.True(g.MkList() is List<Item>);
+    Assert.False(g.MkList() is List<int>);
+    Assert.True(g.MkBox() is Box<Item>);
+    Assert.False(g.MkBox() is Box<int>);
+    Assert.Equal(7, g.Make().V);
+    Assert.Equal("Demo.Item[]", g.ArrType(1));
+    Assert.Equal("Err<T>", g.Catch(new Err<Item>(new Item())));
+    Assert.Equal("Exception", g.Catch(new Err<int>(1)));
+
+    G<int> gi = new G<int>();
+    Assert.True(gi.Is(five));
+    Assert.False(gi.Is("s"));
+    Assert.False(gi.CastThrows(five));
+    Assert.True(gi.CastThrows("s"));
+    Assert.Equal(0, gi.Make());
+    Assert.Equal("Std.Int32[]", gi.ArrType(2));
+
+    GItem gd = new GItem();
+    Assert.True(gd.Is(new Item()));
+    Assert.False(gd.Is(e));
+    Assert.True(gd.MkList() is List<Item>);
+    Assert.Equal(7, gd.Make().V);
+
+    // ── ⑤ 类级 `new T()` ────────────────────────────────────────────────
+    Assert.Equal(7, new Fac<Item>().Make().V);
+    Assert.Equal(0, new Fac<int>().Make());
+    Assert.Equal("", new Fac<string>().Make());
+
+    Action<int> act = (int x) => { };
+    Assert.True(new DelBox<Action<int>>(act).Is());
+    Assert.True(new DelBox<Action<int>>(act).Get() != null);
+    Assert.False(new DelBox<Entry>(act).Is());
+
+    object parsed = ParsePlat("Wasm");
+    Assert.True(new DelBox<Plat>(parsed).Is());
+    Assert.True(new DelBox<Plat>(parsed).Get() == Plat.Wasm);
+    Assert.False(new DelBox<Plat>("Wasm").Is());
+
+    // ── ⑥ 类级型参转发给泛型方法 ──────────────────────────────────────────
+    Fwd<Entry> fw = new Fwd<Entry>();
+    Assert.True(fw.Is(s));
+    Assert.False(fw.Is(new Item()));
+    Assert.True(fw.IsList(new List<Entry>()));
+    Assert.False(fw.IsList(li));
+    Assert.Equal("Demo.Entry", fw.Name());
+    Assert.Equal("Std.Collections.List<Demo.Entry>", fw.ListName());
+}
