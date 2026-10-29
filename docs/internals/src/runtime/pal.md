@@ -2,7 +2,7 @@
 
 > single home for every `#[cfg(target_os)]` /
 > `#[cfg(unix)]` / `#[cfg(windows)]` split in the runtime.
-> 待办：动态库加载（dynlib）、每 VM 一个 Vfs（runtime-audit §6.1 L-2）；Windows 实现、wasm32-wasi 见下文。
+> 待办：每 VM 一个 Vfs（runtime-audit §6.1 L-2）；Windows 实现、wasm32-wasi 见下文。
 
 ## 设计目标
 
@@ -16,14 +16,15 @@ CoreCLR `src/coreclr/pal/` 含 ~50 个文件抽象：
 
 | Concern | CoreCLR pal/ 文件 | z42 pal/ 计划 | Status |
 |---|---|---|---|
-| Thread / stack | `thread.cpp` | `pal/thread.rs` | Done |
-| File I/O | `file.cpp` / `path.cpp` | `pal/fs.rs` | Done |
-| Signal / exceptions | `signal.cpp` | `pal/signal.rs`（仅 OS 原语；z42 reporter 留 signal_handler.rs） | Done |
-| Memory / pages | `virtual.cpp` | `pal/mem.rs` | Done |
-| Process / environ | `process.cpp` / `environ.cpp` | `pal/process.rs`、`pal/system.rs` | Done |
+| Thread / stack | thread.cpp | `pal/thread.rs` | Done |
+| File I/O | file.cpp / path.cpp | `pal/fs.rs` | Done |
+| Signal / exceptions | signal.cpp | `pal/signal.rs`（仅 OS 原语；z42 reporter 留 signal_handler.rs） | Done |
+| Memory / pages | virtual.cpp | `pal/mem.rs` | Done |
+| Process / environ | process.cpp / environ.cpp | `pal/process.rs`、`pal/system.rs` | Done |
 | Sockets | —（.NET 放在 System.Native 的 pal_networking） | `pal/net.rs` | Done |
-| Clock / time | `time.cpp` | `pal/time.rs` | Done |
-| Entropy | `random.cpp` | `pal/random.rs` | Done |
+| Clock / time | time.cpp | `pal/time.rs` | Done |
+| Entropy | random.cpp | `pal/random.rs` | Done |
+| Dynamic libraries | loader.cpp | `pal/dynlib.rs` | Done |
 
 z42 不抄 CoreCLR 的 PAL 内部分层（CoreCLR 还有 `pal/src/<arch>/` per-arch
 ASM）—— Cranelift / Rust 已经兜底 arch 差异。z42 PAL 只关心 **OS 差异**。
@@ -40,6 +41,7 @@ pal/
 ├── fs.rs                — make_executable / symlink / sync_before_rename / PATH_LIST_SEP
 ├── process.rs           — 退出码解码、进程树 kill（进程组 / job object）、PATH 查找
 ├── random.rs            — OS CSPRNG
+├── dynlib.rs            — 动态库文件名、打开、取符号（native 扩展、压缩库、REPL 编辑器共用）
 ├── mem.rs               — 页大小、GC chunk 页的 decommit / recommit
 ├── thread.rs            — 栈边界、线程 token、在大栈线程上运行
 ├── time.rs              — 单调时钟与墙钟（wasm32 无时钟时单调钟退为计数器、墙钟为 0）
@@ -184,6 +186,21 @@ pub fn find_executable(name: &str) -> Option<String>;        // POSIX `command -
 ```
 
 超时 kill 要连孙进程一起杀：unix 杀整个进程组，Windows 把子进程放进 job object 后 `TerminateJobObject`。
+
+### `pal/dynlib.rs` — 动态库
+
+```rust
+// pal/dynlib.rs
+pub fn file_name(stem: &str) -> String;                      // lib<stem>.dylib / .so、<stem>.dll
+pub struct Library;                                          // feature native-interop；drop 即卸载
+impl Library {
+    pub unsafe fn open(path: &Path) -> io::Result<Self>;     // 错误信息带路径
+    pub unsafe fn symbol<T: Copy>(&self, name: &str) -> io::Result<T>;
+}
+```
+
+运行时只在这里 dlopen：用户 native 扩展（`native/loader`）、`libz42_compression`（`native/ext`）、REPL 编辑器
+`libz42_repl`（`corelib/repl_native`）。
 
 ### `pal/random.rs` — 熵
 

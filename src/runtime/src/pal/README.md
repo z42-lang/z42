@@ -16,6 +16,7 @@ runtime 其余模块**零 cfg 调用** OS 服务。每个 concern 一个文件�
 | `fs.rs` | `make_executable()` / `symlink()` / `sync_before_rename()` / `is_name_too_long()` / `PATH_LIST_SEP` / `HAS_FS` |
 | `process.rs` | `exit_code()`、`own_process_group()`、`ProcessTree`（超时杀整棵进程树）、`find_executable()` |
 | `random.rs` | `fill()` —— OS CSPRNG |
+| `dynlib.rs` | `file_name()`、`Library::open()` / `symbol()` —— 运行时唯一的 dlopen 入口 |
 | `mem.rs` | 页大小、GC chunk 页的 `decommit` / `recommit` |
 | `thread.rs` | 栈边界、`current_token()`、`run_with_stack()` |
 | `time.rs` | `HAS_CLOCK`、`monotonic_us()` / `monotonic_ns()`、`wall_unix_ms()` / `wall_unix_ns()` |
@@ -57,4 +58,4 @@ runtime 其余模块**零 cfg 调用** OS 服务。每个 concern 一个文件�
 `docs/internals/src/runtime/pal.md` "platform feature gates" 节。
 
 ## 待办
-- corelib 剩余平台代码、`dynlib.rs`（三处 dlopen 合一）、每 VM 一个 Vfs —— runtime-audit §6.1 L-2
+- 每 VM 一个 Vfs —— runtime-audit §6.1 L-2

@@ -17,6 +17,7 @@
 //!   interruptible accept wait, TCP keep-alive knobs.
 //! - [`process`] — exit-status decoding, process-tree kill, `PATH` lookup.
 //! - [`random`] — OS entropy.
+//! - [`dynlib`] — shared-library file names, open, symbol lookup.
 //! - [`signal`] — fatal-signal registration + async-signal-safe write
 //!   primitives + signal-name table. The z42 crash *reporter*
 //!   (`signal_handler.rs`) drives these; pal owns only the OS primitives.
@@ -30,3 +31,4 @@ pub mod net;
 pub mod signal;
 pub mod process;
 pub mod random;
+pub mod dynlib;

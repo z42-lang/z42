@@ -28,8 +28,8 @@ type RegisterFn = unsafe extern "C" fn();
 pub fn load_library(ctx: &VmContext, path: &Path) -> Result<()> {
     error::clear();
 
-    let lib = unsafe { libloading::Library::new(path) }
-        .with_context(|| format!("dlopen({})", path.display()))
+    let lib = unsafe { crate::pal::dynlib::Library::open(path) }
+        .map_err(anyhow::Error::from)
         .map_err(|e| {
             error::set(LIB_LOAD_FAILURE, format!("{e:#}"));
             e
@@ -45,7 +45,7 @@ pub fn load_library(ctx: &VmContext, path: &Path) -> Result<()> {
             anyhow!(msg)
         })?;
 
-    let register: libloading::Symbol<RegisterFn> = unsafe { lib.get(entry_name.as_bytes()) }
+    let register: RegisterFn = unsafe { lib.symbol(&entry_name) }
         .with_context(|| format!("missing register symbol `{entry_name}` in {}", path.display()))
         .map_err(|e| {
             error::set(LIB_LOAD_FAILURE, format!("{e:#}"));
@@ -57,8 +57,6 @@ pub fn load_library(ctx: &VmContext, path: &Path) -> Result<()> {
     // → `VmContext::register_native_type` on the current thread.
     unsafe { register() };
 
-    // Drop the symbol borrow before moving the library into native_libs.
-    drop(register);
     ctx.core.native_libs.lock().push(lib);
     Ok(())
 }
