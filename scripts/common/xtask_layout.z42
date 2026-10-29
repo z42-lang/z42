@@ -1,4 +1,4 @@
-// xtask — build-tree layout paths (unify-xtask-paths-from-toml).
+// xtask — build-tree layout paths.
 //
 // ONE home for the artifacts/build/... layout that xtask navigates. Two kinds:
 //
@@ -14,20 +14,17 @@
 //   ③ the top-level `artifacts/` buckets (tools / packages / reports / .z42 …).
 //      每个桶**只在这里定义一次**，使用点只写桶名 + 自己的子目录名——散写字面量的话，调整
 //      artifacts/ 布局就得逐个找。`xtask layout` 把它们打印成目录树，也按相对路径给 CI / 脚本查询。
-//
-// Same Z42Xtask namespace as the rest of xtask, so callers use bare names.
 namespace Z42Xtask;
 
 using Std.IO;
 using Std.Cli;   // ParseResult（`_layoutCmd`）
 // ⚠️ 这个命名空间**不能随手改名**：xtask 是**两头都挂在上一代 SDK 上**的消费者 —— CI 用下载的
 // nightly SDK libs **编译** xtask.zpkg，之后又用**本轮新建的 flat** 当 `Z42_LIBS` **运行**它。
-// 抹掉旧 FQN 的改名会让其中一头必炸（实测两种排法各炸一头）。
+// 抹掉旧 FQN 的改名会让其中一头必炸。
 //
-// 🔴 要动它，别按直觉「在 `z42.project` 里加一版并存」——**那条实测编不出来**（同包内两套同短名类
-// 串味 `E0401`，且种子 z42c 一样如此），另立兼容包也没用（运行期按 **zpkg 文件名**解析，没有任何
-// `DEPS` 指向它）。可行形态 = **编译期 overlay + 运行期旁置**，配方与四段实测判据见
-// `变更 rename-project-namespaces/design.md` §6.1/§6.2。
+// 🔴 要动它，别按直觉「在 `z42.project` 里加一版并存」——编不出来（同包内两套同短名类串味 `E0401`，
+// 种子 z42c 一样），另立兼容包也没用（运行期按 **zpkg 文件名**解析，没有任何 `DEPS` 指向它）。
+// 可行形态 = **编译期 overlay + 运行期旁置**。
 using Z42.Project;   // ManifestLoader / WorkspaceManifest / PathTemplate / TemplateContext
 
 // ── source-of-truth workspace manifests (per-member layout templates) ─────────
@@ -70,7 +67,7 @@ string _cleanPath(string p) {
 }
 
 // Per-member dist / cache directory — 委托 z42.project 的 `WorkspaceLayout`（z42c 的 `PlanLayout` 与
-// `BuildLayout.Resolve` 的成员布局用的同一份实现，unify-build-layout；此前这里是它的手抄）。
+// `BuildLayout.Resolve` 的成员布局用的同一份实现）。
 string _memberDist(string wsToml, string member, string profile) {
     return _cleanPath(Path.Join(_memberOutputDir(wsToml, member, profile), "dist"));
 }
@@ -113,10 +110,7 @@ string _compilerMemberDist(string root, string member, string profile) {
     return _memberDist(_compilerWsToml(root), member, profile);
 }
 
-// per-member <name>.zpkg full paths.
-string _libMemberZpkg(string root, string member, string profile) {
-    return Path.Join(_libMemberDist(root, member, profile), member + ".zpkg");
-}
+// per-member <name>.zpkg full path.
 string _compilerMemberZpkg(string root, string member, string profile) {
     return Path.Join(_compilerMemberDist(root, member, profile), member + ".zpkg");
 }
@@ -230,7 +224,7 @@ string _compilerWsWork(string root, string name) { return Path.Join(_workMirror(
 // xtask's own product — resolved from scripts/xtask.z42.toml [build] (dist_dir/output_dir).
 string _xtaskZpkg(string root) { return _toolchainZpkg(root, "scripts/xtask.z42.toml"); }
 
-// z42b dev 目标（test / bench）的产物根 —— 传给 `z42b test|bench --out-root`（fix-z42b-source-tree-outputs）。
+// z42b dev 目标（test / bench）的产物根 —— 传给 `z42b test|bench --out-root`。
 // 不传时 z42b 写 `<清单目录>/artifacts/…`，而 stdlib / 编译器成员的清单没有 [build] ⇒ 落进源码树。
 // 它们是编译产物，落 build/，形状与运行时一致：`<镜像>/<profile>/{tests,benches}`（profile = debug：xtask 调
 // z42b 不带 --release）。
@@ -270,17 +264,13 @@ string _intermediateDir(string root) { return Path.Join(_artifactsDir(root), "in
 string _legacyTmpDir(string root) { return Path.Join(_artifactsDir(root), "tmp"); }
 string _legacyScratchDir(string root) { return Path.Join(_artifactsDir(root), ".scratch"); }
 
-// （artifacts/build/views/<profile>/all —— alllibs 删除：`Z42_LIBS` 只是 stdlib flat，
-//  编译器包运行期走 `_compilerProbingPaths`、编译期由 driver 从编译器目录解析。旧树里的残留由 `clean all` 随 build/ 删。）
-
 // artifacts/tools — downloaded third-party tools (node / android-sdk / gradle / playwright).
 string _toolsDir(string root) { return Path.Join(_artifactsDir(root), "tools"); }
 
 // artifacts/.z42 — the local dev SDK assembled by `package dev-sdk` (default `--sdk` of `test docs examples`).
 string _devSdkDir(string root) { return Path.Join(_artifactsDir(root), ".z42"); }
 
-// 旧的 artifacts/publish（打包暂存根）—— drop-package-staging 起组件直接装进包目录，不再写这里。
-// 只供 `xtask clean all` 清理旧工作树里的残留。不要往这里写。
+// 旧的 artifacts/publish（打包暂存根；组件现在直接装进包目录）—— 只供 `xtask clean all` 清理旧工作树里的残留。不要往这里写。
 string _legacyPubStagingDir(string root) { return Path.Join(_artifactsDir(root), "publish"); }
 
 // artifacts/packages — assembled package dirs (z42-<ver>-<rid>-<profile>…) + 打包命令 `--archive` 出的

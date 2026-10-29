@@ -1,4 +1,4 @@
-// xtask 项目 build hook（wire-z42b build-hook 终章）。
+// xtask 项目 build hook。
 //
 // 目的：`z42 publish scripts/xtask.z42.toml` 免装 desktop workload——apphost stub 的
 // 源码就在本仓（src/toolchain/workload/desktop/platform/apphost/），hook 现场 cargo
@@ -11,7 +11,6 @@
 // 不被调用的类，无害）；hook 生效路径只经 manifest `[build] hooks` 显式声明。
 namespace Build;
 
-using Std;
 using Std.IO;
 using Z42.Build;
 
@@ -43,13 +42,11 @@ public class ProjectHooks : BuildHooks {
         ctx.AddOutput("apphost-stub", stub);
         ctx.Log("xtask hooks: apphost stub ready: " + stub);
 
-        // embed-workload-publish: --self-contained 还要 embed 三件套（embed apphost 链 libz42 + stdlib libs
-        // [+ dynamic libz42]），免手设 Z42_EMBED_*。**只在 --self-contained 时做**：z42b 那条路传
-        // `Target.Mode = "publish-self-contained"`（BuildMode.PublishSelfContained）。此前每次 publish 都做，
-        // libz42.a 不在就整个 z42 crate 按 staticlib 重编一遍（fat LTO），而普通 publish 一个字节都用不到。
+        // --self-contained 还要 embed 三件套（embed apphost 链 libz42 + stdlib libs [+ dynamic libz42]），
+        // 免手设 Z42_EMBED_*。**只在 --self-contained 时做**（z42b 传 `Target.Mode = "publish-self-contained"`）：
+        // libz42.a 不在时要把整个 z42 crate 按 staticlib 重编一遍（fat LTO），普通 publish 一个字节都用不到。
         // ⚠️ 用字面量、不引用 BuildMode.PublishSelfContained：本 hook 由**编 xtask 的那份 SDK**（上一 nightly）
-        // 的 z42.build 编译，新常量要晚一个 nightly 才在那里（self-hosting.md）。旧 z42b 永远传 "publish"
-        // ⇒ 过渡期 xtask 的 --self-contained publish 拿不到 embed 产物（会明确报缺，可用 Z42_EMBED_* 顶上）。
+        // 的 z42.build 编译，新常量要晚一个 nightly 才在那里（self-hosting.md）。
         if (ctx.Target.Mode == "publish-self-contained") { this._embedArtifacts(ctx, repo); }
     }
 
@@ -98,9 +95,9 @@ public class ProjectHooks : BuildHooks {
         } else {
             ctx.Warn("xtask hooks: embed apphost (static) cc failed (rc=" + r2.ExitCode.ToString() + ")");
         }
-        // embed-libs = **只有 stdlib** 的 flat（`xtask layout intermediate/libraries/flat/release`）。此前指向 alllibs（stdlib + 全部编译器包）：
-        // ① self-contained app 会把整套 z42c 一起嵌进去；② alllibs 只在测试时才拼，平时多半不存在 ⇒
-        // publish 报「stdlib libs dir not available」。flat 在任何 build 之后都在，且只有 stdlib。
+        // embed-libs = **只有 stdlib** 的 flat（`xtask layout intermediate/libraries/flat/release`）：含编译器包的目录
+        // 会让 self-contained app 把整套 z42c 一起嵌进去。flat 在任何 build 之后都在。
+        // ⚠️ 路径与 xtask 的 `_libsFlatDist`（common/xtask_layout.z42）同步：hooks 工程调不到它。
         string flat = Path.Join(repo, "artifacts/intermediate/libraries/flat/release");
         if (ctx.Exists(flat)) { ctx.AddOutput("embed-libs", flat); }
 

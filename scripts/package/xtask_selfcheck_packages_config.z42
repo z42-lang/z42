@@ -1,10 +1,9 @@
-// xtask — packages.toml parser self-check (add-package-layout-config, 阶段 3.4).
+// xtask — packages.toml parser self-check.
 //
 // xtask is an exe (scripts/xtask.z42.toml kind="exe"), not a stdlib zpkg — the
 // [Test]-attribute reflection runner (`z42 xtask.zpkg test stdlib`) only discovers
-// stdlib library members, so it cannot see this module. Mirrors the existing
-// `test compiler` precedent: a plain functional self-check command living in xtask
-// itself, asserting via throw-on-mismatch rather than [Test]-attribute discovery.
+// stdlib library members, so it cannot see this module. A plain functional self-check
+// living in xtask itself, asserting via throw-on-mismatch rather than [Test]-attribute discovery.
 // One of three layers of the packages.toml self-check (see xtask_package_selfcheck.z42).
 namespace Z42Xtask;
 
@@ -35,15 +34,14 @@ void _pkgAssertThrows(string what, string packageName, bool findPackage) {
 }
 
 // packages-config layer of the packages.toml self-check — parses the real scripts/packages.toml and asserts the
-// shape callers rely on. Doubles as a regression guard for the  ruling
-// that the runtime package is a pure embeddable runtime (native + stdlib only,
-// no z42c/z42vm — both host-only tooling; see design.md Decision 4/6).
+// shape callers rely on. Doubles as a regression guard that the runtime package is a pure
+// embeddable runtime (native + stdlib only, no z42c/z42vm — both host-only tooling).
 int _testPackagesConfig() {
     string root = _root();
     _PackagesConfig cfg = _pkgcfgLoad(root);
 
     _pkgAssertLen("package count", 3, cfg.packages.Length);
-    _pkgAssertLen("component count", 11, cfg.components.Length);   // relocate-compiler-domain-libs：删掉 compiler-libs ⇒ 10；P0-17 加 native-ext ⇒ 11
+    _pkgAssertLen("component count", 11, cfg.components.Length);
 
     _PkgPackage sdk = _pkgcfgFindPackage(cfg, "sdk");
     _pkgAssertEq("sdk.artifact", "z42-sdk-{version}-{rid}", sdk.artifact);
@@ -54,11 +52,9 @@ int _testPackagesConfig() {
     _pkgAssertLen("sdk resolved components", 9, sdkComps.Length);
     _pkgAssertEq("sdk.include[0].name", "z42vm", sdkComps[0].name);
     _pkgAssertEq("sdk.include[0].kind", "cargo-bin", sdkComps[0].kind);
-    // P0-17：SDK 的 native/ 只装 z42vm 要 dlopen 的 ext 动态库；嵌入件（native 组件）只进 runtime 包。
+    // SDK 的 native/ 只装 z42vm 要 dlopen 的 ext 动态库；嵌入件（native 组件）只进 runtime 包。
     _pkgAssertEq("sdk.include[1].name", "native-ext", sdkComps[1].name);
     _pkgAssertEq("sdk.include[1].kind", "cargo-native-ext", sdkComps[1].kind);
-    // relocate-compiler-domain-libs：`compiler-libs` 组件已删（编译期扩展的解析域
-    // 就是 `programs/z42c/`）⇒ 批 1 那次的「其后各项索引 +1」**又减回来了**。
     // ⚠️ 改 `[package.sdk].include` 的顺序/条数就必须同步这些下标 —— 这正是本自检存在的理由。
     _pkgAssertEq("sdk.include[3].name", "z42c", sdkComps[3].name);
     _pkgAssertEq("sdk.include[6].name", "z42d", sdkComps[6].name);
@@ -67,8 +63,7 @@ int _testPackagesConfig() {
     _pkgAssertEq("sdk.include[8].kind", "editor-assets", sdkComps[8].kind);
     _pkgAssertEq("sdk.include[8].dest", "editors/", sdkComps[8].dest);
 
-    // z42d/z42i (devtools/interactive User decision): registered as
-    // scaffold placeholders — apphost kind, same producer path as launcher/z42c/z42b.
+    // z42d/z42i: apphost kind, same producer path as launcher/z42c/z42b.
     _PkgComponent z42d = _pkgcfgFindComponent(cfg, "z42d");
     _pkgAssertEq("z42d.kind", "apphost", z42d.kind);
     _pkgAssertEq("z42d.project", "src/toolchain/devtools/core/z42.devtools.z42.toml", z42d.project);
@@ -77,7 +72,7 @@ int _testPackagesConfig() {
     _pkgAssertEq("z42i.project", "src/toolchain/interactive/core/z42.interactive.z42.toml", z42i.project);
 
     // Regression guard: runtime is a pure embeddable runtime — native + stdlib
-    // only, never z42c/z42vm (host-only tooling;  ruling).
+    // only, never z42c/z42vm (host-only tooling).
     _PkgPackage runtime = _pkgcfgFindPackage(cfg, "runtime");
     _pkgAssertLen("runtime.include", 2, runtime.include.Length);
     _PkgComponent[] runtimeComps = _pkgcfgResolveInclude(cfg, "runtime");
@@ -87,14 +82,14 @@ int _testPackagesConfig() {
     int i = 0;
     while (i < runtimeComps.Length) {
         // 整个编译器域同列：它按定义是编译期的东西，进 runtime 包就等于把契约包塞给一个
-        // 永远不会编译任何东西的运行时。relocate-compiler-domain-libs 之后它随 `z42c` 组件
-        // 一起走（`programs/z42c/`）⇒ 排除 `z42c` 就等于排除了整个编译器域。
+        // 永远不会编译任何东西的运行时。它随 `z42c` 组件一起走（`programs/z42c/`）
+        // ⇒ 排除 `z42c` 就等于排除了整个编译器域。
         if (runtimeComps[i].name == "z42c" || runtimeComps[i].name == "z42vm") {
             throw new Exception("packages-config: runtime package must not include " + runtimeComps[i].name);
         }
         i = i + 1;
     }
-    // …and the reverse (P0-17): the embedding libs stay out of the SDK.
+    // …and the reverse: the embedding libs stay out of the SDK.
     int si = 0;
     while (si < sdkComps.Length) {
         if (sdkComps[si].kind == "cargo-native") {

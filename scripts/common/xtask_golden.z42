@@ -1,8 +1,5 @@
-// xtask — shared golden-test infrastructure (unify-scripts-into-xtask).
-// Generic enumeration/array helpers that the folded test commands (build test / test
-// e2e / package sdk --verify) all need — defined ONCE here instead of a private
-// copy per script. Golden-walk + entry-derivation helpers also live here.
-// Same Z42Xtask namespace.
+// xtask — shared golden-test infrastructure: enumeration/array helpers, the golden-corpus
+// walk, the golden .zbc artifact mirror, and entry-name derivation.
 namespace Z42Xtask;
 
 using Std.IO;
@@ -64,36 +61,29 @@ string[] _append(string[] arr, int count, string v) {
     return bigger;
 }
 
-// ── unified golden-corpus walk (unify-golden-corpus-walk) ────────
+// ── unified golden-corpus walk ───────────────────────────────────────────────
 //
-// ONE filesystem traversal of the golden corpus, shared by all four consumers
-// (`build test` regen, `test e2e`, `package sdk --verify`, `test app desktop` / `test list`).
-// Before this, each consumer had its own ~100-line copy of the same three-layout
-// walk, kept in sync by hand via "mirrors XXX" comments — and they HAD drifted.
+// ONE filesystem traversal of the golden corpus, shared by every consumer
+// (`build test` regen, `test e2e`, `package sdk --verify`, `test app desktop` / `test list`)
+// so the layouts cannot drift between hand-kept copies.
 //
 // The walk is deliberately policy-FREE: it reports every case it finds plus the
 // facts a consumer needs to decide (category, sidecars, artifact-mirror
-// location, whether the dir holds `[Test]` methods). Inclusion policy stays at
-// the four call sites, where the sets differ ON PURPOSE:
-//
-//   consumer             excluded cats        extra filters
-//   build test  (assets) _isNonRegenCat       —
-//   test e2e    (vm)     —                    _isExcludedDirName · mirror .zbc exists · interp_only
-//   package sdk --verify       —                    _isTestRunnerSource · interp_only
-//   test app / test list —                    _isExcludedDirName
+// location, whether the dir holds `[Test]` methods). Inclusion policy (excluded
+// categories / dirs, interp_only, mirror .zbc presence) stays at the call sites,
+// where the sets differ ON PURPOSE.
 //
 // Every src/tests category is a runnable language golden (test-layout.md). The
 // wire-format byte baselines live in z42.package's tests/fixtures/ and are only
 // regenerated, never run — `build test` appends them itself (_formatZbcFixtureCases).
 //
-// Segments, emitted in this order (the pre-existing regen / e2e / dist order):
+// Segments, emitted in this order:
 //   "tests-dir"   src/tests/<cat>/<name>/source.z42
 //   "lib-dir"     src/libraries/<lib>/tests/<name>/       (golden OR [Test] dir-unit)
 //   "tests-flat"  src/tests/<cat>/<name>.z42
 //   "lib-file"    src/libraries/<lib>/tests/<name>.z42    (stdlib [Test] file unit)
-// Within a segment: category/lib sorted, then case name sorted — determinism per
-// The load-order determinism rule (this also replaces the unsorted `Path.Glob` the flat
-// walks used to trust).
+// Within a segment: category/lib sorted, then case name sorted (load-order
+// determinism rule).
 class _GoldenEntry {
     public string seg;            // tests-dir | lib-dir | tests-flat | lib-file
     public string cat;            // src/tests category, or lib name for lib-*
@@ -108,7 +98,7 @@ class _GoldenEntry {
     public bool   hasSource;      // src exists on disk
     public bool   interpOnly;     // interp_only sidecar present → no jit run
     public bool   optAll;         // opt_all sidecar present → 用 `--emit-zbc --opt-all` 按 release 全优化编
-                                  //（fix-ref-param-escape：逃逸分析等 pass 在 emit-zbc 默认集里是关的）
+                                  //（逃逸分析等 pass 在 emit-zbc 默认集里是关的）
     public bool   hasTestMethods; // lib-dir only: some .z42 in dir declares [Test]
 
     public _GoldenEntry() {
@@ -256,7 +246,7 @@ _GoldenEntry[] _walkGoldenCorpus(string root) {
     return tight;
 }
 
-// ── golden-zbc artifact mirror (mirror-build-output-per-component) ─
+// ── golden-zbc artifact mirror ───────────────────────────────────────────────
 //
 // Run-golden compiled `.zbc` is build output, not source — it lives under
 // `artifacts/build/` mirroring the src layout, NOT beside `source.z42`:
@@ -292,9 +282,9 @@ bool _isExcludedDirName(string cat, string name) {
     return false;
 }
 
-// ── entry-name derivation (added by test-vm fold) ────────────────────────────
+// ── entry-name derivation ────────────────────────────────────────────────────
 
-// Mirror bash derive_entry: priority `<ns>.Main > Main > <ns>.main > main`.
+// Entry priority: `<ns>.Main > Main > <ns>.main > main`.
 string _deriveEntry(string srcFile) {
     if (!File.Exists(srcFile)) return "Main";
     string content = File.ReadAllText(srcFile);
@@ -346,7 +336,7 @@ bool _isIdentChar(char c) {
         || (c >= '0' && c <= '9') || c == '_' || c == '.';
 }
 
-// Bash: `grep -c '\bvoid\s+<name>\s*('` — count > 0 means found.
+// True when the source has `\bvoid\s+<name>\s*(`.
 bool _hasMain(string content, string name) {
     int i = 0;
     while (i < content.Length) {
@@ -400,15 +390,13 @@ int _indexOfFrom(string s, string needle, int start) {
     return -1;
 }
 
-// ── string helpers (added by test-vm fold) ───────────────────────────────────
+// ── string helpers ───────────────────────────────────────────────────────────
 
 string _firstLine(string s) {
     int i = 0;
     while (i < s.Length && s.CharAt(i) != '\n') { i = i + 1; }
     return s.Substring(0, i);
 }
-
-// _splitWords moved to xtask_common.z42 (shared string/collection helpers).
 
 string _stripTrailingNewlines(string s) {
     int end = s.Length;

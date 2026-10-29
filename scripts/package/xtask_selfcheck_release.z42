@@ -1,4 +1,4 @@
-// xtask — 打包命令的 `--archive` / `package release` 自检（unify-release-archive）。
+// xtask — 打包命令的 `--archive` / `package release` 自检。
 //
 // 与同目录其它 selfcheck 同一形态：xtask 是 exe，反射 [Test] runner 看不到它 ⇒ 不匹配就抛。
 // 由 packages.toml 自检聚合（`package sdk --verify` 的第一步）。

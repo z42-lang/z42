@@ -37,7 +37,7 @@ int _packageVerify(string sdkDir) {
 
 // 安装脚本（scripts/install/install.{sh,ps1}）只替换 SDK 自己的顶层条目、其余（已装 workload 等）保留，所以各自
 // 内嵌一份顶层清单——引导期还没有 z42，清单读不了 packages.toml。这里拿**本次真组装出的 SDK** 的顶层条目逐个
-// 对账两份脚本：SDK 新增顶层目录而脚本没跟上（plugins/、editors/ 曾各漏装一次）当场红。
+// 对账两份脚本：SDK 新增顶层目录而脚本没跟上时当场红。
 // Windows 上 launcher 是 `z42.exe`，对账时统一去掉 `.exe`。
 int _verifyInstallScriptLists(string root, string sdkDir) {
     string[] shList  = _installListSh(File.ReadAllText(Path.Join(root, "scripts/install/install.sh")));
@@ -246,13 +246,9 @@ string _distPkgRid(string distDir) {
 // zbc under each mode with the packaged z42vm and diff stdout. Returns [pass, fail]
 // where fail folds in compile errors (as the caller aggregates).
 //
-// perf-dist-golden-parallel : 此前逐 mode、逐 case **串行**「编 + 跑」——
-// interp 313 + jit 309 例在 CI 上 linux 8 分钟 / windows 10 分钟，而 zbc 与 mode 无关，
-// 等于每例编译两遍。现在：
-//   ① 编译一遍（jit 的用例集 = interp 的去掉 interpOnly，同一份源）；
+//   ① zbc 与 mode 无关 ⇒ 只编译一遍（jit 的用例集 = interp 的去掉 interpOnly，同一份源）；
 //   ② 编译与运行都按批并行（同 golden regen / e2e goldens 的批模式，批内按原序判定打印，
 //      输出确定）。
-// 覆盖面不变：仍是同一套用例、同一个打包 z42c/z42vm、同样两种 mode。
 int[] _runDistGoldens(string[] modes, string root, string z42c, string z42vm, string libsDir, string work) {
     bool wantInterp = false;
     int mi = 0;
@@ -417,7 +413,7 @@ string _distApphostTemplate(string root) {
 // ── Case shape + enumeration ───────────────────────────────────────────────
 // _DistCase is dist-specific: it names the `.z42` SOURCE to compile with the
 // packaged z42c, where the VM runner's _Case (xtask_test_vm.z42, same namespace)
-// names a prebuilt `.zbc`. Both are now mapped from the ONE shared corpus walk
+// names a prebuilt `.zbc`. Both are mapped from the ONE shared corpus walk
 // (_walkGoldenCorpus, common/xtask_golden.z42) — only the selection policy and
 // the record shape stay local.
 

@@ -48,17 +48,17 @@ version = "0.7.0"                       # → Cargo.toml [workspace.package].ver
 
 [toolchain.rust]
 channel     = "stable"
-min_version = "1.95"                    # MSRV；cranelift 0.135 requires 1.95+（2026-09 依赖升级）; scripts/install/xtask_install.z42 的 rust 检查校它
+min_version = "1.95"                    # MSRV；cranelift 0.135 requires 1.95+; scripts/install/xtask_install.z42 的 rust 检查校它
 components  = ["rustfmt", "clippy"]
-# rust_targets 由各 [platform.*] 汇总（cross-compile 时各 build.sh 单装单平台）
+# rust_targets 由各 [platform.*] 汇总
 
 [toolchain.node]
 min_version = "22"
-# wasm tests / playwright 需要；versions_check_node verify-only
+# wasm tests / playwright 需要；verify-only
 version = "24.21.0"   # Active LTS "Krypton"; `xtask setup --os wasm`（及 wasm 测试缺 node 时）下载此版本到 artifacts/tools/node
 
 [toolchain.z42]
-# z42-bootstrap (2026-06-04): which prebuilt z42 launcher package
+# z42-bootstrap: which prebuilt z42 launcher package
 # scripts/install-z42.{sh,bat,command} downloads into <repo>/.z42.
 #   "nightly" → tag nightly, re-download when the nightly release changes
 #   "0.1.0"   → tag v0.1.0, download once (immutable)
@@ -120,7 +120,7 @@ wasm_tools_min  = "1.0"     # Bytecode Alliance wasm-tools CLI (validate + print
 min_api      = 23                       # → build.gradle.kts minSdk
 target_api   = 37                       # → build.gradle.kts compileSdk
 rust_targets = ["aarch64-linux-android", "x86_64-linux-android"]
-abis         = ["arm64-v8a", "x86_64"]                         # gradle 命名（cargo ndk -t 用这套）；32-bit ABI 已退场（见 memory project_supported_platforms）
+abis         = ["arm64-v8a", "x86_64"]                         # gradle 命名（cargo ndk -t 用这套）；32-bit ABI 已退场
 tier         = "tier2"
 
 [platform.ios]
@@ -138,7 +138,7 @@ tier             = "tier2"
 # 实测值，不是愿望值：Linux 包在 ubuntu-latest（glibc 2.39）上构建，产物的**硬**版本需求是 GLIBC_2.34
 # （__libc_start_main / pthread_* / dl* 在 2.34 换了符号版本）。还会出现 GLIBC_2.39（pidfd_spawnp /
 # pidfd_getpid），但那是 Rust std 的弱引用（verneed flag 0x02 WEAK），旧 glibc 上照样加载。
-# 原先写的 2.31 从未成立。→ 打包的结构门（scripts/package/xtask_package_layout.z42 :: _plGlibc）对账。
+# → 打包的结构门（scripts/package/xtask_package_layout.z42 :: _plGlibc）对账。
 # 要真降到 2.31，得换更老的构建环境（容器 / cargo-zigbuild 指定 glibc），不是改这一行。
 # 按架构分开：linux-arm64 的产物在 CI（ubuntu-24.04-arm）上实测对 GLIBC_2.39 有**硬**需求。
 min_glibc       = "2.34"   # linux-x64

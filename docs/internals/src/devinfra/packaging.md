@@ -165,7 +165,7 @@ graph LR
 2. **这个判据依赖「不预建空目录」。** 若 `_pkgSetupDir` 无条件预建 `libs/` 与 `native/include/`，
    而 ios/android/wasm 的 **workload pack** 根本不装这两类（它们在另一个 **runtime pack** 里）
    → 门会看见空壳，把「本包没有这一类」误判成「规则脱钩」，三个平台的 package job 全红。
-   现在是**谁写谁建**：`_pkgCopyLibs` / `_copyAbiHeaders` / `_copyNativeLibs` 各自 ensure 自己的
+   现在是**谁写谁建**：`_pkgCopyLibsOf` / `_copyAbiHeaders` / `_copyNativeLibs` 各自 ensure 自己的
    目标目录，空目录不会出现在发布包里。
 3. **ios 的 `Sources/Z42VMC/` 与 android 的 `…/cpp/` 不能整棵目录递归比**：它们的 `include/` 装的是
    拷进去的**真 runtime 头**，而源树同名目录里是 `#include "../../.."` 的转发 stub，整棵比会假红。

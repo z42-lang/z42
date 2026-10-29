@@ -1,5 +1,5 @@
 // xtask — 发布归档：各打包命令的 `--archive`（包目录 → 归档）+ `package release`（合并 per-RID 桌面
-// workload → SHA256SUMS → release-index.json）。Called from the `package` router (_dispatchPackage).
+// workload → SHA256SUMS → release-index.json）。
 //
 // Release-time packaging glue, shared by release.yml (tagged) + ci.yml
 // publish-nightly (rolling). tar / unzip are driven as external subprocesses
@@ -95,7 +95,7 @@ int _releaseGenIndex(string label, string dist, string channel, string tag, stri
     string sumsPath = Path.Join(distDir, "SHA256SUMS");
     if (!File.Exists(sumsPath)) { ConsoleError.WriteLine("error: missing " + sumsPath); return 1; }
     string sums = File.ReadAllText(sumsPath);
-    string ts = _utcNow();   // shared helper (ExitCode-guarded); avoids re-inlining `date`
+    string ts = _utcNow();
 
     // RID / workload 清单：versions.toml [rid.*] / [workload].members（desktop RID 出 sdk+runtime，
     // 其余出 runtime；workload 归档另加 release 专用的 `test` 伪 workload——测试 bundle 的归档名，不是平台）。
@@ -227,13 +227,10 @@ JsonValue _strArr1(string a) { JsonValue r = JsonValue.OfArray(); r.Add(JsonValu
 JsonValue _strArr2(string a, string b) { JsonValue r = JsonValue.OfArray(); r.Add(JsonValue.OfString(a)); r.Add(JsonValue.OfString(b)); return r; }
 JsonValue _strArr4(string a, string b, string c, string d) { JsonValue r = JsonValue.OfArray(); r.Add(JsonValue.OfString(a)); r.Add(JsonValue.OfString(b)); r.Add(JsonValue.OfString(c)); r.Add(JsonValue.OfString(d)); return r; }
 
-// ── `--archive` / `xtask package release`（unify-release-archive）─────────────────────────
+// ── `--archive` / `xtask package release` ──────────────────────────────────────────────────
 //
-// 发布归档此前在两处各写了一遍 bash：release.yml 的 package job（按 RID 分支 + `_tar` / `_wl_of` /
-// `_is_primary`）与 ci.yml 的 publish-nightly（把各 job 上传的**原始包目录**集中在 Linux 上打包，
-// 还要从目录名反推 RID）。两份命名规则相同、实现不同，而且后者有一个真缺陷：upload-artifact 不保留
-// 可执行位，集中打包出的 tar.gz 里 `z42vm` 等都不可执行。现在命名规则只在这里写一次：
-//   · `--archive` 在**产出包的那台机器**上、随打包命令一起出（可执行位原样进 tar；Windows 包出真 zip），本地发布同一条命令；
+// 命名规则只在这里写一次：
+//   · `--archive` 在**产出包的那台机器**上（upload-artifact 不保留可执行位，集中打包会丢）、随打包命令一起出（可执行位原样进 tar；Windows 包出真 zip），本地发布同一条命令；
 //   · `release` 在汇总 job 上跑：合并桌面 workload → SHA256SUMS → release-index.json。
 //
 // 包目录（release profile）→ 归档名（`<L>` = label：版本号或 `nightly`；映射在 `_relArchiveName`）：

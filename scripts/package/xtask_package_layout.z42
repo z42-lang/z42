@@ -1,7 +1,7 @@
 // xtask — 包结构门：打出来的包「该有的在、不该有的不在、原生产物的形态对」。
 //
 // 由 `_pkgFinish`（与 source-identity 门同处）在每个包组装完后调用，桌面 workload 在生成处调用 ——
-// 本地打包与 CI 跑的是同一组断言（此前它们是 ci.yml 各 package job 里的内联 bash，本地打包从不检查）。
+// 本地打包与 CI 跑的是同一组断言。
 // 逐项报告、不在第一处就停：一次看全哪些不对。
 //
 // 用到的外部工具按平台：macOS `otool` / `lipo`，Linux `readelf` / `objdump`，Android 的 `file`，

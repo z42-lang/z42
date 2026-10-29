@@ -1,17 +1,15 @@
-# packages.toml — 发行包内容清单（add-package-layout-config）
+# packages.toml — 发行包内容清单
 #
 # 「哪个包装哪些组件」只在这里声明。打包时按 `include` 顺序把每个组件**直接装进包目录**
 # （scripts/package/xtask_package_install.z42，按 kind 分派）：固定形态组件从构建产物拷到 `dest`，
-# apphost 组件 `z42b publish <project> --output <包目录>`。drop-package-staging（2026-10-01）删掉了
-# 原先的暂存根 artifacts/publish/<comp>/——它只是让每个组件多拷一遍，且只有桌面 sdk / runtime 在用。
+# apphost 组件 `z42b publish <project> --output <包目录>`。
 #
 # 组件分两类，纯按"谁控制它的构建"区分：
 #   ① z42 组件（launcher / z42c / z42b / z42d / z42i）：自带
 #      [platform.desktop] bin/payload，统一走 `z42 publish` 产出。这套 bin/payload
 #      是**用户面**机制——任何人发布自己的 app 用的是同一套配置，z42c/z42b 只是
 #      恰好也用它打包自己，不享有特殊待遇。z42c.driver 依赖的其余编译器成员库
-#      （core/ir/syntax/project/semantics/pipeline）是它的项目依赖（workspace 内
-#      本地包，非 stdlib），`z42 publish` 会自动解析拷到同一落点
+#      是它的项目依赖（compiler workspace 内本地包，非 stdlib），`z42 publish` 会自动解析拷到同一落点
 #      （programs/z42c/），因此**不单独登记组件**，include 里只写一次 "z42c"。
 #
 #   ② 固定形态组件：不经 `z42 publish`，由 xtask 按 kind 从构建产物拷进包，
@@ -34,8 +32,8 @@
 # 加一个新组件（如 z42d）= 它自己 toml 写 bin/payload + 在这里 include 加 "z42d"。
 #
 # {version} / {rid} 由 xtask 在组装时按目标展开。manifest = "auto" 表示 [contents]
-# 段仍按组装后的目录树自动 glob（保持现状机制不变）。include 顺序只影响拷贝顺序，
-# 不影响构建顺序（构建顺序由各组件自己的依赖图拓扑推导，见 design.md Decision 5）。
+# 段按组装后的目录树自动 glob。include 顺序只影响拷贝顺序，
+# 不影响构建顺序（构建顺序由各组件自己的依赖图拓扑推导）。
 
 # ── 桌面 SDK：完整开发包 ─────────────────────────────────────────────
 #    native/ 只装 z42vm 自己要 dlopen 的 stdlib 扩展（native-ext），**不装嵌入件**
@@ -46,11 +44,11 @@ artifact = "z42-sdk-{version}-{rid}"
 include  = ["z42vm", "native-ext", "stdlib", "z42c", "launcher", "z42b", "z42d", "z42i", "editor-assets"]
 manifest = "auto"
 
-# ── 可嵌入运行时：只含 native + stdlib，纯粹给嵌入场景用（2026-07-01 修订）。
+# ── 可嵌入运行时：只含 native + stdlib，纯粹给嵌入场景用。
 #    z42c / z42vm 都是 host 平台工具，不属于「运行时」定位——同一份 runtime 包
 #    还会被跨 host 使用（如 android runtime 在 Windows/macOS host 上安装），
 #    塞一个只有单一 host 平台意义的 z42c 没有意义，与 ios/android/wasm 的
-#    runtime 包（同样不含 z42c/z42vm CLI）保持形态一致。自举种子改由 SDK 包
+#    runtime 包（同样不含 z42c/z42vm CLI）保持形态一致。自举种子由 SDK 包
 #    的 programs/z42c/ 提供（见 docs/internals/src/compiler/self-hosting.md）────
 [package.runtime]
 artifact = "z42-runtime-{version}-{rid}"
@@ -82,22 +80,21 @@ project = "src/toolchain/builder/core/z42.builder.z42.toml"
 [component.z42d]
 kind = "apphost"
 project = "src/toolchain/devtools/core/z42.devtools.z42.toml"
-# → bin/z42d + programs/z42d/z42.devtools.zpkg（scaffold：子命令均 planned）
+# → bin/z42d + programs/z42d/z42.devtools.zpkg
 
 [component.z42i]
 kind = "apphost"
 project = "src/toolchain/interactive/core/z42.interactive.z42.toml"
-# → bin/z42i + programs/z42i/z42.interactive.zpkg（scaffold：REPL 待 extract-compile-pipeline-api）
+# → bin/z42i + programs/z42i/z42.interactive.zpkg
 
 [component.z42c]
 kind = "apphost"
 project = "src/compiler/z42c.driver/z42c.driver.z42.toml"
 # → bin/z42c + programs/z42c/z42c.driver.zpkg
-#   + 它的非 stdlib 项目依赖（z42c.optimization/semantics/pipeline 等编译器成员）由 `z42 publish` 自动解析拷贝到
-#     programs/z42c/ 同目录。可移植前端 z42c.core/syntax 与 z42.package 已下沉共享库层
-#     （src/libraries/），随 stdlib 打进 libs/，driver 运行期从 libs/ 解析（与 z42.io 等同理）。
+#   + 它的非 stdlib 项目依赖（z42c.* / z42.package 等编译器成员）由 `z42 publish` 自动解析拷贝到
+#     programs/z42c/ 同目录（编译器域不进 libs/）。
 
-# ② 固定 staging handler 组件（非 z42-toml 驱动，xtask 各自一个固定函数产出）
+# ② 固定形态组件（非 z42-toml 驱动，xtask 按 kind 各一个固定函数产出）
 [component.z42vm]
 kind = "cargo-bin"
 project = "src/runtime/Cargo.toml"

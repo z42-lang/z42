@@ -1,4 +1,4 @@
-// xtask — 开发态的两种组装（tidy-xtask-cli 从 build 族挪来）：
+// xtask — 开发态的两种组装：
 //   package dev-sdk          已编好的工具链 → `.z42` SDK 布局（默认 artifacts/.z42；`--toolchain` / 学习手册示例消费）
 //   package ci               已建好的构建树的 zpkg 快照（仓库相对路径）→ CI 的 `toolchain-<os>` artifact，
 //                            下游 job 原地还原即得一棵 warm 构建树
@@ -59,8 +59,7 @@ int _packageDevSdk(string outOpt) {
     int c = _pkgCopyLibs(_libsDir(root), outDir); if (c != 0) { return c; }
     Console.WriteLine("  ✓ libs/ (stdlib)");
 
-    // 注：**没有独立的 `compiler-libs/`**（relocate-compiler-domain-libs）——编译期扩展的
-    // 解析域就是上面的 `programs/z42c/`，z42c 侧由 `_compilerDomainDirs()` 探它。
+    // 注：**没有独立的 `compiler-libs/`**——编译期扩展的解析域就是上面的 `programs/z42c/`。
     string binDir = Path.Join(outDir, "bin");
     Directory.Create(binDir);
     _copyIfExists(Path.Join(cargoOut, vmName), Path.Join(binDir, vmName));
@@ -106,11 +105,11 @@ void _devSdkMergeApphosts(string root, string outDir) {
     }
 }
 
-// ── package ci (script-zero: replaces scripts/ci-stage-toolchain.sh) ──────────────
+// ── package ci ───────────────────────────────────────────────────────────────────
 // Stage ONLY the .zpkg/.zsym products (z42c per-member dist + stdlib flat dist +
 // per-member dist + xtask.zpkg) into <dest> for upload as the `toolchain-<os>` CI
 // artifact. NOT z42vm or cargo intermediates — consuming jobs cargo-build their
-// own host z42vm. Byte-for-byte the same layout the former bash script produced.
+// own host z42vm.
 int _packageCi(string dest) {
     if (dest.Length == 0) {
         ConsoleError.WriteLine("usage: xtask package ci <dest-dir>");
@@ -128,7 +127,7 @@ int _packageCi(string dest) {
         _copyIfExists(flat[fi], Path.Join(flatDst, Path.GetFileName(flat[fi])));
         fi = fi + 1;
     }
-    // 1b. stdlib flat 同级 plugins/（harness-as-plugin：携带插件平铺位；下游夹具 / SDK 打包都从
+    // 1b. stdlib flat 同级 plugins/（携带插件平铺位；下游夹具 / SDK 打包都从
     //     这里取）。空 / 不存在则跳过——恢复端按 sibling 相对位置落位，无需额外登记。
     string pluginsSrc = Path.Join(Path.GetDirectoryName(flatSrc), "plugins");
     if (Directory.Exists(pluginsSrc)) {
@@ -140,7 +139,7 @@ int _packageCi(string dest) {
     }
     // 2. stdlib per-member dist (warm-seed self-build inputs)
     _stageMembers(_libsBuildRoot(root), dest, _rootRel(root, _libsBuildRoot(root)));
-    // 3. z42c compiler per-member dist (7 zpkgs incl z42c.driver.zpkg = warm seed)
+    // 3. z42c compiler per-member dist (incl z42c.driver.zpkg = warm seed)
     _stageMembers(_compilerBuildRoot(root), dest, _rootRel(root, _compilerBuildRoot(root)));
     // 3b. warm 种子 driver 那一代的 stdlib 锚（下游再跑 `build compiler` 时作种子 run-libs，见 `_relocateSeedRunLibs`）。
     string genLibs = _driverGenLibs(root, "release");
@@ -153,11 +152,8 @@ int _packageCi(string dest) {
     // 4. xtask dev CLI —— **整目录拷，不能只拷 .zpkg**。
     //
     // 🔴 侧车（`xtask.runtimeconfig.toml`）承载 `[runtime]` 的声明，其中包括
-    // `probing-paths`（relocate-compiler-domain-libs 给 xtask 加的编译器域搜索路径）。
-    // 只拷 zpkg ⇒ **声明在 artifact 里丢失** ⇒ 消费方（`xtask-bootstrap-artifact` 还原后
-    // 跑 xtask 的那些 job：test-stdlib-interp / test-stdlib-jit / …）当场
-    // `MissingSymbolException: Z42.Project.ManifestLoader.LoadWorkspace`。实测踩到（#921 三轮 CI）。
-    // 同 z42b（第 5 步）一直是整目录拷 —— 这里少的正是那一步的等价物。
+    // `probing-paths`（编译器域搜索路径）。只拷 zpkg ⇒ **声明在 artifact 里丢失** ⇒ 消费方
+    // （`xtask-bootstrap-artifact` 还原后跑 xtask 的那些 job）当场 `MissingSymbolException`。
     string xtSrc = Path.GetDirectoryName(_xtaskZpkg(root));
     string xtDst = Path.Join(dest, _rootRel(root, xtSrc));
     Directory.Create(xtDst);
@@ -170,16 +166,12 @@ int _packageCi(string dest) {
         }
         xi2 = xi2 + 1;
     }
-    // 5. z42b（z42.builder.zpkg）—— 单-target 执行器（unify-test-pipeline-z42b）。
+    // 5. z42b（z42.builder.zpkg）—— 单-target 执行器。
     //
     // 为什么必须进这个 artifact：`test app desktop` / `test app {ios,android}`
     // 都经 _z42bDevice 调 z42b，而消费方（tier-2 的 test-ios/test-android 等）只
-    // 跑 xtask-bootstrap-artifact —— 它只还原 stdlib + z42c + xtask。此前 z42b 既
-    // 不在 artifact 里、CI 也从没有一个 `build toolchain` 步骤去建它，于是那些 job
-    // 恒定死在 `error: z42b (z42.builder.zpkg) not built`。因为 tier-2 是 nightly-only
-    // （PR 上 skip），这个洞在 nightly 里连红了很多晚都没人看见。
-    // 建一次、随 artifact 分发给所有消费方，比让每个 job 各自 `build toolchain` 便宜得多
-    // （后者还要重编 workload + apphost stub + 5 个 apphost publish）。
+    // 跑 xtask-bootstrap-artifact —— 它只还原 stdlib + z42c + xtask。建一次、随 artifact 分发，
+    // 比让每个 job 各自 `build toolchain` 便宜得多（后者还要重编 workload + apphost stub + apphost publish）。
     // 只组装：z42b 由前一步 `xtask build toolchain z42b` 按当前 z42c 编好（格式须与 z42c 一致，见 _ensureZ42b）。
     if (!File.Exists(_toolchainZpkg(root, _z42bToml()))) {
         ConsoleError.WriteLine("package ci: z42b 未编（" + _toolchainZpkg(root, _z42bToml())
@@ -198,7 +190,7 @@ int _packageCi(string dest) {
     int bi = 0;
     while (bi < bFiles.Length) {
         // 只拷产物文件、不拷子目录：dist 里可能有按 rid 分的 native 子目录（hooks 产出），
-        // 那些不属于 z42b 运行所需（历史上 dist_dir == output_dir 时这里还混着 .cache/）。
+        // 那些不属于 z42b 运行所需。
         if (Directory.Exists(bFiles[bi])) { bi = bi + 1; continue; }
         _copyIfExists(bFiles[bi], Path.Join(bDst, Path.GetFileName(bFiles[bi])));
         bi = bi + 1;
