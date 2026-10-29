@@ -8,6 +8,53 @@
 
 use std::io::Result;
 
+/// Whether the target has an OS file system (wasm32 runs on the in-memory VFS).
+pub const HAS_FS: bool = !cfg!(target_arch = "wasm32");
+
+/// Whether an `InvalidFilename` error means the name was too long (`ENAMETOOLONG`).
+/// Platforms without the errno distinction report `true`.
+pub fn is_name_too_long(e: &std::io::Error) -> bool {
+    #[cfg(unix)]
+    return e.raw_os_error() == Some(libc::ENAMETOOLONG);
+    #[cfg(not(unix))]
+    {
+        let _ = e;
+        true
+    }
+}
+
+/// Make a tmp file's contents reach the disk no later than the rename that publishes it —
+/// the crash-safety argument of an atomic write: after a crash a reader sees the old file
+/// or the complete new one.
+///
+/// That needs ordering, not a full flush of the drive cache. `File::sync_all` is
+/// `F_FULLFSYNC` on Apple (drains the device cache; it was 6–12 % of a z42c build, which
+/// writes every compile-cache file through an atomic write) and `fsync` elsewhere (also
+/// flushes metadata the rename rewrites anyway).
+/// - Apple: `F_BARRIERFSYNC` — writes issued before it hit the media before writes issued
+///   after it (the rename). Falls back to `sync_data` if the file system rejects it.
+/// - Linux / Android: `fdatasync` (`sync_data`).
+/// - Elsewhere: `sync_all`.
+pub fn sync_before_rename(file: &std::fs::File) -> Result<()> {
+    #[cfg(target_vendor = "apple")]
+    {
+        use std::os::fd::AsRawFd;
+        // SAFETY: plain fcntl on a file descriptor `file` owns for the call.
+        if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_BARRIERFSYNC) } == 0 {
+            return Ok(());
+        }
+        file.sync_data()
+    }
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        file.sync_data()
+    }
+    #[cfg(not(any(target_vendor = "apple", target_os = "linux", target_os = "android")))]
+    {
+        file.sync_all()
+    }
+}
+
 /// The separator of a path list (`PATH`-style): `;` on Windows, `:` elsewhere.
 pub const PATH_LIST_SEP: char = if cfg!(windows) { ';' } else { ':' };
 
