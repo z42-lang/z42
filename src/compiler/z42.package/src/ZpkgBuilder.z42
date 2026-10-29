@@ -221,8 +221,8 @@ public static class ZpkgBuilder {
     // 前缀与旧 `"sha256:"` 天然不等 ⇒ 混版本产物一次全量重编，正是想要的失效语义。
     // 需要密码学强度时用下面的 `Sha256Hex` / `Std.Crypto`，别用这个。
     public static string SourceHashHex(string text) {
-        // native-hash：直接对字符串哈希（与 Murmur3.Hash128Hex(Utf8.GetBytes(text)) 等值，
-        // 对拍见 tests/murmur3.z42）——省掉整份源文本的 byte[] 物化与解释执行的哈希内环。
+        // native-hash：直接对字符串哈希（与 Hash128Hex(Utf8.GetBytes(text)) 等值，
+        // 对拍见 z42.core 的 tests/murmur3.z42）——省掉整份源文本的 byte[] 物化与解释执行的哈希内环。
         return "mmh3:" + Std.Hashing.Murmur3.Hash128Hex(text);
     }
 
