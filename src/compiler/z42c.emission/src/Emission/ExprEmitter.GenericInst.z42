@@ -223,6 +223,8 @@ public sealed partial class ExprEmitter {
         if (resolved != null) {
             string idn = this._instIdentityName(resolved);
             if (idn != "") { return this._qualifyInstName(idn); }
+            string gn = this._genericTestName(resolved);
+            if (gn != "") { return gn; }
         }
         // fqn-tables 5d：非泛型类 / 接口目标按其类型对象的声明 ns 限定（不按短名查图）。
         if (resolved != null && astName.IndexOf('<') < 0 && EmitContext.DeclNsOf(resolved) != ""
@@ -233,6 +235,61 @@ public sealed partial class ExprEmitter {
         if (qn == "Array") { return "Std.Array"; }        // 内建根类（VM 硬编码 Std.Array/Std.Object）
         if (qn == "Object") { return "Std.Object"; }
         return qn;
+    }
+
+    // 没有本包身份描述符的**构造泛型**（导入的泛型类 `List<Entry>`、泛型接口 `IFoo<Entry>`、
+    // 实参含未代换型参的 `Box<T>`）作类型测试目标时的名字；不是构造泛型 → ""。
+    //
+    // 此前这些都落到下面的 AST 名回落：`NamedType.Name` 不带实参，`QualifyTypeName("List")`
+    // 又按**当前** ns 限定 ⇒ `o as List<Entry>` 发出 `Demo.List`，运行期永远不匹配（恒 null）。
+    //
+    // · 实参全具体 → 完整实例化名，拼法与 `ObjNew` 记在实例上的实参**同一个函数**
+    //   （`_typeofArgName`）：运行期拿实例自己的实参逐字比（`dispatch::isa_object`）；
+    //   泛型接口则与实例化描述符里代换后的接口名逐字比。
+    // · 实参含未代换型参（泛型体里的 `o is List<T>`）→ 擦除名：匹配任一实例化，与本包泛型
+    //   在同一情形下的既有口径一致（运行期 `erased_name_matches`）。
+    private string _genericTestName(Z42Type t) {
+        Z42Type[] targs = null;
+        int argc = 0;
+        string defName = "";
+        if (t is Z42InstantiatedType) {
+            Z42InstantiatedType it = t as Z42InstantiatedType;
+            if (it.Def == null) { return ""; }
+            targs = it.TypeArgs; argc = it.ArgCount;
+            // 与 `CallEmitter` 里 ObjNew 的类名同一口径（运行期描述符就注册在这个名字下）。
+            defName = it.Def.Namespace != "" ? it.Def.Fqn() : this._ctx.QualifyClass(it.Def.IrName());
+        } else if (t is Z42InstantiatedInterfaceType) {
+            Z42InstantiatedInterfaceType ii = t as Z42InstantiatedInterfaceType;
+            if (ii.Def == null) { return ""; }
+            targs = ii.TypeArgs; argc = ii.ArgCount;
+            defName = ii.Def.Namespace != "" ? ii.Def.Fqn() : this._ctx.QualifyType(ii.Def, ii.Def.Name());
+        }
+        if (argc <= 0) { return ""; }
+        string s = defName + "<";
+        int k = 0;
+        while (k < argc) {
+            if (!this._isConcreteTypeArg(targs[k])) { return defName; }
+            if (k > 0) { s = s + ","; }
+            s = s + this._testArgName(targs[k]);
+            k = k + 1;
+        }
+        return s + ">";
+    }
+
+    // 类型测试目标的实参拼法 = `_typeofArgName`（ObjNew 记到实例上的那份），只多一件事：特化体内
+    // 已绑定的型参（含嵌套在实参里的）先代换成具体名 —— 否则 `Chk<Entry>` 特化体里的
+    // `o is List<T>` 会发出字面 `List<T>`。
+    private string _testArgName(Z42Type a) {
+        string sub = this._substTypeParam(a);
+        if (sub != "") { return sub; }
+        if (a is Z42InstantiatedType) {
+            Z42InstantiatedType it = a as Z42InstantiatedType;
+            string s = this._ctx.QualifyType(it, it.Def.Name()) + "<";
+            int k = 0;
+            while (k < it.ArgCount) { if (k > 0) { s = s + ","; } s = s + this._testArgName(it.TypeArgs[k]); k = k + 1; }
+            return s + ">";
+        }
+        return this._typeofArgName(a);
     }
 
     // 实例化名的 IR 名。布局键已是全名，`QualifyLayout` 只给全局 ns 的定义兜底。

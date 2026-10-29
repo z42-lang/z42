@@ -9,7 +9,7 @@ use crate::metadata::{Module, Value};
 use crate::vm_context::VmContext;
 use anyhow::Result;
 
-use super::super::dispatch::isa_td;
+use super::super::dispatch::{isa_object, isa_td};
 use super::super::exec_vcall::is_array_isa;
 use super::super::{prim_isa, Frame};
 
@@ -28,7 +28,7 @@ pub(crate) fn is_instance(
     key: &TypeKeyCell,
 ) -> Result<()> {
     let result = match frame.get(obj)? {
-        Value::Object(rc) => isa_td(ctx, &module.type_registry, rc.type_desc(), class_name, key),
+        Value::Object(rc) => isa_object(ctx, &module.type_registry, rc.type_desc(), rc.type_args(), class_name, key),
         // add-array-base-class: T[] is-a Std.Array is-a Std.Object.
         // VM hardcodes the chain since Value::Array doesn't carry a TypeDesc.
         Value::Array(_) => is_array_isa(class_name),
@@ -90,7 +90,7 @@ pub(crate) fn as_cast(
         return Ok(());
     }
     let is_match = match &val {
-        Value::Object(rc) => isa_td(ctx, &module.type_registry, rc.type_desc(), class_name, key),
+        Value::Object(rc) => isa_object(ctx, &module.type_registry, rc.type_desc(), rc.type_args(), class_name, key),
         Value::Array(_) => is_array_isa(class_name),
         Value::Null => true,
         // fix-boxed-primitive-is-as: 未装箱裸基元按其 stdlib 类名松匹配兜底。

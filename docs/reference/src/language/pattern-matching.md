@@ -285,8 +285,8 @@ Pair<int, Box<int>>(o, Box<int>(iw)) = ...;  // 嵌套泛型字段
 **机制（运行时擦除 + 编译期替换）**：`Box<int>` 解析成 `Z42InstantiatedType`（`Def = Box`，`TypeArgs = [int]`）。
 binder 解开 `.Def` 走 `IsRecord` / arity 校验，字段类型（声明为 `T`）经 `MemberResolver._substGeneric` 把类
 形参替换成实参（`T → int`）再递归绑定子模式——与字段访问 `b.Value` 的泛型替换同一设施。emit 侧的
-`IsInstance` 只测**擦除基类** `Box`（不 reify `<int>`），与泛型 `is` 表达式（`x is Box<int> b`）一致；字段读
-按名 `FieldGet` 类型擦除。故泛型 record 解构**无新运行时、无格式 bump**，纯 binder 层补线。
+`IsInstance` 测的是**构造类型** `Box<int>`（`Box<string>` 的实例不匹配），与泛型 `is` 表达式（`x is Box<int> b`）
+同口径（见 [conversions](conversions.md)）；字段读按名 `FieldGet`。
 
 > **泛型 struct record 解构** defer（诊断 `E0402`）——struct 值语义需按实例化单态化 blob 布局
 > （`Box<int>` vs `Box<string>` 布局不同），首版限泛型 **class** record。

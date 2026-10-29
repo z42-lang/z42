@@ -105,6 +105,20 @@ GBox<GBox<int>> n = (GBox<GBox<int>>)m;       // 嵌套（`>>` 正确拆开）
 > `(f<int>)(x)` 仍解析为**泛型调用**而非 cast（与 `(f)(x)` 一致，这条歧义刻意留给调用）。
 > 要在那种形状下转换，请用 `as` 或临时变量。
 
+`is` / `as` / `(T)` 对构造泛型核对**类型实参**，本包定义的泛型与导入的泛型（`Std.Collections.List<T>`）
+同口径；不写实参的 `x is List` 匹配任一实例化：
+
+```z42
+object o = new List<Entry>();
+o is List<Entry>                 // true
+o as List<string>                // null
+List<int> xs = (List<int>)o;     // InvalidCastException
+o is List                        // true
+```
+
+> 运行期判不了实参时按「任一实例化」回答：泛型体里 `new List<T>()` 构造的实例只记得型参 `T`；
+> 非泛型类实现泛型接口（`class Bar : IFoo<int>`）的接口表不记实参，于是 `bar is IFoo<string>` 也为真。
+
 ### 拆箱失败抛可捕获的异常
 
 `(T)o` 在运行期核对盒里的精确类型，不符即抛，且**两种失因分开**：

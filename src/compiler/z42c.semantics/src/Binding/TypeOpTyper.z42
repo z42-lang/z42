@@ -33,6 +33,12 @@ public sealed class TypeOpTyper {
             Z42ClassType tc = to as Z42ClassType;
             return !tc.IsStruct && tc.PrimCode() < 0;   // 值类型 / 基元 → 拆箱，不归本条
         }
+        // 构造泛型类（`(List<Entry>)o` / `(Box<Entry>)o`）同样是引用下转。它不是 `Z42ClassType`，
+        // 此前漏在上一格外 ⇒ 一条检查都不发，错实例化的对象原样流下去。泛型 struct 是拆箱，同上排除。
+        if (to is Z42InstantiatedType) {
+            Z42InstantiatedType it = to as Z42InstantiatedType;
+            return it.Def != null && !it.Def.IsStruct;
+        }
         return false;
     }
 

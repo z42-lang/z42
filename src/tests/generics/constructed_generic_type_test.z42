@@ -1,0 +1,122 @@
+// is / as / (T) 的目标是**构造泛型**（`List<Entry>` / `Box<Entry>` / `IFoo<Entry>`）。
+//
+// 修前：`object o = new List<Entry>(); o as List<Entry>` 恒 null、`o is List<Entry>` 恒 false。
+// 两头各错一半：
+//   ① 编译器：没有本包身份描述符的构造泛型（导入的 `List<T>`、泛型接口）落到 AST 名回落，
+//      `NamedType.Name` 不带实参、又按**当前** ns 限定 ⇒ 目标名发成 `Demo.List`，谁都不匹配；
+//   ② 运行期：导入泛型的实例挂的是**定义**描述符（`Std.Collections.List`）+ 实例自己的实参，
+//      类型测试只比描述符名 ⇒ 目标就算写对成 `Std.Collections.List<Demo.Entry>` 也匹配不上。
+// 另：`(List<Entry>)o` / `(Box<Entry>)o` 从 object 下转**一条检查都不发**（构造泛型不是
+// `Z42ClassType`，漏在受检引用下转的判据外）⇒ 错实例化原样流下去。
+namespace Demo;
+
+using Std.Collections;
+
+class Entry {
+    public int N;
+    public Entry(int n) { this.N = n; }
+}
+
+class Box<T> {
+    public T V;
+    public Box(T v) { this.V = v; }
+}
+
+interface IFoo<T> { T Get(); }
+
+class Foo<T> : IFoo<T> {
+    public T V;
+    public Foo(T v) { this.V = v; }
+    public T Get() { return this.V; }
+}
+
+// 非泛型类实现泛型接口：它的描述符只记擦除接口名（`Demo.IFoo`），
+// 判不了实参 ⇒ 按擦除口径匹配（修前靠目标名也是擦除的才碰巧为真，修后不得因此回归）。
+class Bar : IFoo<int> {
+    public int Get() { return 9; }
+}
+
+// 泛型体里构造：运行期实例记的实参还是型参名 `T`（判不了）⇒ 按擦除口径放行。
+class Maker<T> {
+    public object Make() { return new List<T>(); }
+}
+
+bool IsListOf<T>(object o) { return o is List<T>; }
+
+bool CastThrows(object o) {
+    try { List<Entry> xs = (List<Entry>)o; } catch (InvalidCastException e) { return true; }
+    return false;
+}
+
+bool BoxCastThrows(object o) {
+    try { Box<Entry> b = (Box<Entry>)o; } catch (InvalidCastException e) { return true; }
+    return false;
+}
+
+void Main() {
+    // ── ① 导入的泛型类（z42.collections 的 List<T>）──────────────────────────
+    List<Entry> src = new List<Entry>();
+    src.Add(new Entry(7));
+    object o = src;
+    List<Entry>? xs = o as List<Entry>;
+    Assert.True(xs != null);
+    Assert.Equal(7, xs[0].N);
+    Assert.True(o is List<Entry>);
+    Assert.True(o is List);                       // 擦除名：任一实例化
+    List<Entry> ys = (List<Entry>)o;
+    Assert.Equal(1, ys.Count);
+
+    // 阴性：别的实例化不匹配，强转抛 InvalidCastException
+    Assert.True((o as List<string>) == null);
+    Assert.False(o is List<int>);
+    object li = new List<int>();
+    Assert.True(li is List<int>);
+    Assert.False(li is List<Entry>);
+    Assert.True(CastThrows(li));
+    Assert.False(CastThrows(o));
+    Assert.False(CastThrows(null));               // (T)null 放行（对齐 C#）
+
+    // 多实参 + 嵌套实参
+    object d = new Dictionary<string, List<Entry>>();
+    Assert.True(d is Dictionary<string, List<Entry>>);
+    Assert.True((d as Dictionary<string, List<Entry>>) != null);
+    Assert.False(d is Dictionary<string, List<int>>);
+    Assert.False(d is Dictionary<int, List<Entry>>);
+
+    // ── ② 用户代码里的泛型类 ─────────────────────────────────────────────
+    object b = new Box<Entry>(new Entry(3));
+    Box<Entry>? bb = b as Box<Entry>;
+    Assert.True(bb != null);
+    Assert.Equal(3, bb.V.N);
+    Assert.True(b is Box<Entry>);
+    Assert.False(b is Box<int>);
+    Assert.True((b as Box<string>) == null);
+    Assert.Equal(3, ((Box<Entry>)b).V.N);
+    Assert.False(BoxCastThrows(b));
+    Assert.True(BoxCastThrows(new Box<int>(1)));
+
+    // ── ③ 泛型接口 ──────────────────────────────────────────────────────
+    object f = new Foo<Entry>(new Entry(5));
+    Assert.True(f is IFoo<Entry>);
+    Assert.False(f is IFoo<int>);
+    Assert.True(f is IFoo);                       // 擦除接口名：任一实例化
+    IFoo<Entry>? fi = f as IFoo<Entry>;
+    Assert.True(fi != null);
+    Assert.Equal(5, fi.Get().N);
+    Assert.Equal(5, ((IFoo<Entry>)f).Get().N);
+    Assert.True((f as IFoo<string>) == null);
+    object bar = new Bar();
+    Assert.True(bar is IFoo<int>);
+    Assert.Equal(9, ((IFoo<int>)bar).Get());
+    object li2 = new List<int>();
+    Assert.True(li2 is IEnumerable<int>);
+
+    // ── ④ 泛型方法里的 `List<T>`（特化体内 T 代换成具体实参）────────────────
+    Assert.True(IsListOf<Entry>(o));
+    Assert.False(IsListOf<string>(o));
+
+    // ── ⑤ 泛型体里构造的实例（实参未代换）不被误判成「不是」────────────────
+    object m = new Maker<Entry>().Make();
+    Assert.True(m is List<Entry>);
+    Assert.True((m as List<Entry>) != null);
+}

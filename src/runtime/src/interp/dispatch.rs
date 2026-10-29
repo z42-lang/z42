@@ -69,6 +69,91 @@ pub fn isa_td(
     isa_keyed(ctx, registry, td, target, k)
 }
 
+/// Type test for an **object** receiver: [`isa_td`] plus the one thing a descriptor alone cannot
+/// answer — the per-instance type arguments of an *erased* generic instance.
+///
+/// A generic instantiated in its own package gets an identity descriptor (`Demo.Box<Demo.Entry>`)
+/// and [`isa_td`] compares names. A generic **imported** from another package (`new List<Entry>()`
+/// in user code) has no such descriptor: the object carries the definition's descriptor
+/// (`Std.Collections.List`) plus its type arguments (`["Demo.Entry"]`) on the instance. The test
+/// `o is List<Entry>` (target `Std.Collections.List<Demo.Entry>`) must read those arguments, or
+/// it is false for every instantiation — `o as List<Entry>` was always null.
+#[inline]
+pub fn isa_object(
+    ctx: &VmContext,
+    registry: &rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>>,
+    td: &TypeDesc,
+    inst_args: &[String],
+    target: &str,
+    key: &crate::metadata::tokens::TypeKeyCell,
+) -> bool {
+    if !inst_args.is_empty() {
+        if let Some(v) = erased_instance_matches(&td.name, inst_args, target) {
+            return v;
+        }
+    }
+    isa_td(ctx, registry, td, target, key)
+}
+
+/// `Some(verdict)` when `target` names an instantiation of the erased definition `def` (that is,
+/// `target == "{def}<…>"` and `def` itself is not an instantiation); `None` = not this case.
+///
+/// Arguments compare by spelling — the compiler renders the instance's arguments (`ObjNew` site)
+/// and the target's with the same function. An instance argument that is still an **unsubstituted
+/// type parameter** (`new List<T>()` inside a generic body records `"T"`) cannot be decided: it
+/// matches, which is the erased-generic answer the test had before instantiations had identity.
+#[inline(never)]
+fn erased_instance_matches(def: &str, inst_args: &[String], target: &str) -> Option<bool> {
+    let inner = target.strip_prefix(def)?.strip_prefix('<')?.strip_suffix('>')?;
+    if def.contains('<') {
+        return None;
+    }
+    let targs = split_top_level_args(inner);
+    if targs.len() != inst_args.len() {
+        return Some(false);
+    }
+    Some(inst_args.iter().zip(targs.iter()).all(|(a, t)| a == t || is_open_type_arg(a)))
+}
+
+/// `"a,B<c,d>,e"` → `["a", "B<c,d>", "e"]` (commas nested in `<…>` do not split).
+fn split_top_level_args(s: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut depth = 0usize;
+    let mut start = 0usize;
+    for (i, ch) in s.char_indices() {
+        match ch {
+            '<' => depth += 1,
+            '>' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                out.push(s[start..i].trim());
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    out.push(s[start..].trim());
+    out
+}
+
+/// Does a recorded type argument still contain an unsubstituted type parameter? Runtime type
+/// names are namespace-qualified (`Demo.Entry`) or primitive keywords (`int`); a bare identifier
+/// that is neither is a type parameter (`T`).
+fn is_open_type_arg(arg: &str) -> bool {
+    arg.split(|c: char| matches!(c, '<' | '>' | ',' | '[' | ']' | '?' | ' '))
+        .filter(|t| !t.is_empty())
+        .any(|t| !t.contains('.') && !is_keyword_type_name(t))
+}
+
+/// The compiler's keyword spellings of built-in types — the only dot-free names a type argument
+/// can carry.
+fn is_keyword_type_name(t: &str) -> bool {
+    matches!(
+        t,
+        "int" | "long" | "short" | "byte" | "sbyte" | "uint" | "ulong" | "ushort"
+            | "float" | "double" | "bool" | "char" | "string" | "object"
+    )
+}
+
 /// Front cache, then the memo / walk. `td.id` is resolved; `key` is `target`'s key.
 #[inline]
 fn isa_keyed(
@@ -163,6 +248,19 @@ fn erased_name_matches(full: &str, target: &str) -> bool {
     }
 }
 
+/// [`erased_name_matches`] in either direction: one name is an instantiation, the other its
+/// erased definition.
+///
+/// The second direction (the **descriptor** is the erased one, the **target** is instantiated)
+/// is the descriptor not knowing its arguments, not a wildcard in the test: a non-generic class's
+/// interface list is recorded erased (`class Bar : IFoo<int>` lists `Demo.IFoo`), as are the base
+/// and interfaces of a generic *definition*. `bar is IFoo<int>` cannot be decided from that and is
+/// answered as the erased test — the only answer such a descriptor ever gave. Instantiation
+/// descriptors list their bases / interfaces instantiated, and those compare exactly.
+fn erased_either(a: &str, b: &str) -> bool {
+    erased_name_matches(a, b) || erased_name_matches(b, a)
+}
+
 /// Number of top-level type arguments in `"<a,b<c,d>>"` (nested `<…>` do not count).
 fn top_level_arg_count(args: &str) -> usize {
     let mut depth = 0usize;
@@ -211,7 +309,7 @@ fn is_subclass_or_eq_td_walk(
         //
         // Only the bare prefix matches — `GBox<int>` against target `GBox<string>` stays false,
         // which is the whole point of giving instantiations identity.
-        if erased_name_matches(&cur_td.name, target) {
+        if erased_either(&cur_td.name, target) {
             return true;
         }
         // add-reflection-transitive-interfaces: a declared interface matches `target`
@@ -227,7 +325,7 @@ fn is_subclass_or_eq_td_walk(
             Some(b) => b,
             None => return false,
         };
-        if base == target {
+        if base == target || erased_either(base, target) {
             return true;
         }
         let next = match registry
@@ -256,7 +354,8 @@ fn iface_reaches_td(
     let mut queue: Vec<String> = vec![iface.to_string()];
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     while let Some(name) = queue.pop() {
-        if name == target { return true; }
+        // Erased on either side — same rule as the class chain (see `erased_either`).
+        if name == target || erased_either(&name, target) { return true; }
         if !seen.insert(name.clone()) { continue; }
         let td = registry.get(name.as_str()).cloned()
             .or_else(|| ctx.try_lookup_type(name.as_str()));
