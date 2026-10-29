@@ -19,7 +19,8 @@
 //   无嵌套调用 → 不存在间接递归）；④ **每块**终结子 ∈ {Ret,Br,BrCond}（Throw 不可内联）+ 全 curated 指令
 //   （单块 Phase A 就地 splice；多块 Phase B 拆 caller 块 + relabel + Ret→续延块，inline-multiblock）；
 //   ⑤ 无异常表 / 无 varargs / 实参数 == 形参数（精确 arity，避开默认值/params 打包）；
-//   ⑥ **总** instrCount ≤ INLINE_MAX_SIZE **或** 全模块单调用点（恒内联）。
+//   ⑥ **总** instrCount ≤ INLINE_MAX_SIZE **或** 全模块单调用点（恒内联）；
+//   ⑨ callee 无 `[MethodImpl(NoInlining)]`，caller 无 `[MethodImpl(NoOptimization)]`（IrMethodImpl）。
 //
 // ── 展开（D5）────────────────────────────────────────────────────────────────────────
 //   offset = caller.MaxReg（fresh reg 区，> 所有 caller reg，无碰撞）；callee reg r → caller reg r+offset。
@@ -93,6 +94,7 @@ public sealed class IrInline {
     // 把 caller 内所有合格调用点内联：Phase A 单块 callee 就地 splice；Phase B 多块 callee split+insert。
     private static void _inlineInto(IrModule m, IrFunction caller) {
         if (caller.BlockCount == 0) { return; }   // 抽象/extern 桩：无体
+        if (IrMethodImpl.Has(caller, IrMethodImpl.NoOptimization)) { return; }   // ⑨ 体原样保留
         InlineState st = new InlineState(caller.MaxReg);
         // ref 实参的调用点不可内联（fix-inline-breaks-ref-params）——两个 Phase 共用同一份判据。
         // 在两个 Phase **之前**算：Phase B 会拆块，但 `LoadLocalAddrInstr` 只在 caller 原有块里，
@@ -349,6 +351,7 @@ public sealed class IrInline {
         if (callee == null) { return null; }                             // ② 同模块可解析
         if (callee.Name == caller.Name) { return null; }                 // ③ 非递归（curated 体无嵌套调用 → 无间接递归）
         if (callee.BlockCount < 1) { return null; }
+        if (IrMethodImpl.Has(callee, IrMethodImpl.NoInlining)) { return null; }   // ⑨ 调用方当黑盒
         if (callee.ExcCount != 0) { return null; }                       // ⑤ 无异常表
         if (callee.ParamsFrom != 255) { return null; }                   // ⑤ 无 varargs
         if (call.ArgCount != callee.ParamCount) { return null; }         // ⑤ 精确 arity

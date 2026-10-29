@@ -25,10 +25,11 @@ public sealed partial class DeclEnforcer {
     }
 
     // 遍历面同 `_teWalk`：顶层 → 类成员 → impl 方法；跳过嵌套类型成员（NestedFlatten 已把它们提升为
-    // 顶层副本、但仍留在外层 Members，不跳会报两次）。
+    // 顶层副本、但仍留在外层 Members，不跳会报两次）。同一遍顺带查 `[MethodImpl]`（DeclEnforcer.MethodImpl.z42）。
     private void _nvWalk(Decl raw, string owner) {
         Decl d = this._sc._unwrap(raw);
         this._nvCheck(raw, d, owner);
+        this._miCheck(raw, d);
         if (d is ClassDecl) {
             ClassDecl c = d as ClassDecl;
             int j = 0;

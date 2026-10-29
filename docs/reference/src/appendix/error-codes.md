@@ -323,6 +323,12 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 > 触发场景：字符串含 interior NUL 投到 `*const c_char`；`PinPtr` 源不是 `String` / `Array<u8>`；
 > `PinPtr` 数组元素不在 `0..=255`。
 
+### E0918 `[MethodImpl]`
+
+| 码 | 含义 | 状态 | 触发示例 |
+|---|---|---|---|
+| E0918 | `[MethodImpl(...)]` 贴在没有体的声明上（类、字段、`extern` / 抽象方法……），实参不是恰好一个，或选项不在 `MethodImplOptions` 的 `NoInlining` / `NoOptimization` 两项之内（两项可用 `\|` 组合） | ✅ DeclEnforcer.MethodImpl.z42（`_miCheck`） | `[MethodImpl(MethodImplOptions.AggressiveInlining)] int f() { return 1; }` |
+
 ### E0911–E0917 测试框架
 
 发射点全在

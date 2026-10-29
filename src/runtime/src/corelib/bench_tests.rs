@@ -26,40 +26,13 @@ fn now_ns_advances_across_busy_loop() {
     assert!(b > a, "expected b > a after busy loop, got a={} b={}", a, b);
 }
 
+/// split-null-sentinel-channels ⑥：**arity 不符报错，不再静默给 Null**——typed 化(P1-8 批次 12)后
+/// arity 由 ABI 解包层检查，经 exec_builtin_value 多传一个实参必须报错。
 #[test]
-fn black_box_returns_arg_unchanged_int() {
-    let r = bench_black_box(Value::I64(42));
-    assert_eq!(r, Value::I64(42));
-}
-
-#[test]
-fn black_box_returns_arg_unchanged_bool() {
-    let r = bench_black_box(Value::Bool(true));
-    assert_eq!(r, Value::Bool(true));
-}
-
-#[test]
-fn black_box_returns_arg_unchanged_string() {
-    let r = bench_black_box(Value::Str("xyz".into()));
-    assert_eq!(r, Value::Str("xyz".into()));
-}
-
-/// split-null-sentinel-channels ⑥：**arity 不符报错，不再静默给 Null**。
-///
-/// 🔴 本测试原名 `black_box_no_arg_returns_null`，断言的是「零参调用返回 `Value::Null`」
-/// —— 那正是本 change 要消掉的混用：「少传了参数」与「显式传了 null」压成同一个值。
-/// `Bench.BlackBox` 的 stdlib 声明是 1 个形参，零参只可能来自 stdlib 声明与 Rust 实现
-/// 不一致（编译器会校验 extern 调用点）⇒ 那是维护错误，该报出来而不是吞掉。
-#[test]
-fn black_box_arity_mismatch_raises() {
-    // typed 化(P1-8 批次 12)后 arity 由 ABI 解包层检查——经 exec_builtin_value
-    // 零参调用必须报「expects 1」,不是静默 Null(split-null-sentinel-channels ⑥)。
+fn now_ns_arity_mismatch_raises() {
     let ctx = ctx();
-    let err = crate::corelib::exec_builtin_value(&ctx, "__bench_black_box", &[])
-        .expect_err("zero-arg call must raise");
+    let err = crate::corelib::exec_builtin_value(&ctx, "__time_now_mono_ns", &[Value::I64(1)])
+        .expect_err("one-arg call must raise");
     let msg = format!("{err:#}");
-    assert!(msg.contains("expects 1") || msg.contains("argument"), "实际消息：{msg}");
-    // 回归门：正常一参照旧原样返回（不是「把整条路堵死」）。
-    let r = bench_black_box(Value::I64(7));
-    assert_eq!(r, Value::I64(7));
+    assert!(msg.contains("expects 0") || msg.contains("argument"), "实际消息：{msg}");
 }

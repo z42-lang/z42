@@ -1,0 +1,53 @@
+// DeclEnforcer 的 `[MethodImpl(...)]` 形态检查（E0918）。
+//
+// 消费方 HandlerRegistry.MethodImplFlags 只认「有体方法上、一个实参、`|` 连接的
+// `MethodImplOptions.NoInlining` / `MethodImplOptions.NoOptimization`」；其余写法若放过，就是静默不生效——
+// 想挡住优化的 `blackBox` 照样被内联 / 外提，问题只在 bench 数字里露头。纯语法，随 `_nvWalk` 一起走。
+namespace Z42.Symbols;
+
+using Z42.Syntax;
+using Z42.Core;
+
+public sealed partial class DeclEnforcer {
+
+    private void _miCheck(Decl raw, Decl d) {
+        if (!(raw is AttributedDecl)) { return; }
+        AttributedDecl ad = raw as AttributedDecl;
+        int a = 0;
+        while (a < ad.AttrCount) {
+            Attr at = ad.Attrs[a];
+            if (HandlerRegistry.IsMethodImplDirective(at.Name)) {
+                string bad = DeclEnforcer._miShape(at, d);
+                if (bad != "") { this._sc.Diags.Error(DiagnosticCodes.MethodImplMalformed, bad, at.Span); }
+            }
+            a = a + 1;
+        }
+    }
+
+    // 返回首个问题的消息；"" = 合法。
+    private static string _miShape(Attr at, Decl d) {
+        if (!(d is MethodDecl) || !(d as MethodDecl).HasBody) {
+            return "`[MethodImpl]` can only be applied to a method with a body"
+                + " (it controls how that body is inlined and optimized)";
+        }
+        string usage = " (expected `MethodImplOptions.NoInlining`, `MethodImplOptions.NoOptimization`"
+            + " or both joined by `|`)";
+        if (at.ArgCount != 1) { return "`[MethodImpl]` takes exactly one argument" + usage; }
+        return DeclEnforcer._miOptions(at.Args[0], usage);
+    }
+
+    private static string _miOptions(Expr e, string usage) {
+        if (e is BinaryExpr && (e as BinaryExpr).Op == "|") {
+            BinaryExpr be = e as BinaryExpr;
+            string left = DeclEnforcer._miOptions(be.Left, usage);
+            if (left != "") { return left; }
+            return DeclEnforcer._miOptions(be.Right, usage);
+        }
+        if (HandlerRegistry.MethodImplOption(e) != 0) { return ""; }
+        if (e is MemberExpr && (e as MemberExpr).Target is IdentExpr) {
+            MemberExpr me = e as MemberExpr;
+            return "`" + (me.Target as IdentExpr).Name + "." + me.Name + "` is not a `[MethodImpl]` option" + usage;
+        }
+        return "`[MethodImpl]` options must be named, not computed" + usage;
+    }
+}

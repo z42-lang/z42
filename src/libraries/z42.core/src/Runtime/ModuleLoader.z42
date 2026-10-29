@@ -42,8 +42,9 @@ public static class ModuleLoader {
     [Native("__run_goldens_isolated")]
     public static extern string[] RunIsolated(string[] paths, string[] entries, string libsDir, int jobs);
 
-    /// 读静态字段 `staticFieldFqn`（`<类型 FQN>.<字段名>`）里存着的**活值**，返回其运行时类型的成员名
-    /// （字段 / 方法 / 属性 / 嵌套类型，与 `Type.GetMembers()` 同一集合）。只读已存的字段值，不求值、
+    /// 静态字段 `staticFieldFqn`（`<类型 FQN>.<字段名>`）里存着的值，其运行时类型的成员名。
+    ///
+    /// 成员含字段 / 方法 / 属性 / 嵌套类型，与 `Type.GetMembers()` 同一集合。只读已存的字段值，不求值、
     /// 也不触发静态初始化；值为 null / 数组、字段不存在或所在类型尚未初始化时返回空数组。
     [Native("__repl_member_names")]
     public static extern string[] MemberNamesOfStaticValue(string staticFieldFqn);

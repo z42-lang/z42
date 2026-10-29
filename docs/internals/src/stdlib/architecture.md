@@ -118,16 +118,16 @@ public static extern long Spawn(object action);
 
 ## 5. 全仓 native 表面（实测）
 
-VM 注册表 `BUILTINS` 共 **332** 个条目（桌面 arm64），全部是 ABI v2 的 `#[builtins]` 模块
+VM 注册表 `BUILTINS` 共 **331** 个条目（桌面 arm64），全部是 ABI v2 的 `#[builtins]` 模块
 （P1-8 批次 12b 后旧表清零，`builtin_table.rs` 只做 `DESCS` 拼接）。stdlib 侧
-`[Native("__…")]` 声明的**不同符号** **311** 个，全部能在表里找到。
+`[Native("__…")]` 声明的**不同符号** **310** 个，全部能在表里找到。
 
 按包分布：
 
 | 包 | 声明文件数 | 不同 `__` 符号 | 性质 |
 |---|---|---|---|
 | `z42.core` | 52 | 303 | 语义汇聚核 |
-| `z42.harness` | 2 | 5 | 运行时非必需（②）；声明待补 `lib=` |
+| `z42.harness` | 1 | 4 | 运行时非必需（②）；声明待补 `lib=` |
 | `z42.diagnostics` | 2 | 3 | 运行时非必需（②）；声明待补 `lib=` |
 | `z42.compression` | 8 | 12 个 `entry =`（`lib = "z42_compression"`） | 运行时非必需（②，外部 cdylib） |
 

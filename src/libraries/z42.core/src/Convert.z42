@@ -61,8 +61,9 @@ public static class Convert {
         return String.FromChars(result);
     }
 
-    /// 把 `text` 的 UTF-8 编码字节编码为小写十六进制字符串，等价于
-    /// `ToHexStringLower(Utf8.GetBytes(text))`，但不物化中间字节数组。
+    /// 把 `text` 的 UTF-8 编码字节编码为小写十六进制字符串。
+    ///
+    /// 等价于 `ToHexStringLower(Utf8.GetBytes(text))`，但不物化中间字节数组。
     [Native("__hex_str")]
     public static extern string ToHexStringLower(string text);
 }

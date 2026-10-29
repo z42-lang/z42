@@ -305,8 +305,9 @@ void bench_with_arg(Bencher b) {
 | `long MinNs` `MaxNs` `MedianNs` `MeanNs` `TotalNs` `{ get; }` | 采样的最小 / 最大 / 中位 / 均值 / 总和，纳秒 |
 | `long StdDevNs` `{ get; }` | 总体标准差（÷n），四舍五入到纳秒；亚纳秒离散度舍成 0 |
 
-`BenchHelpers.blackBox(object value)` 是恒等包装，标记「别把这段优化掉」。当前是空操作，
-无条件使用是安全的。
+`BenchHelpers.blackBox(object value)` 是恒等包装，标记「别把这段优化掉」：它标了
+[`[MethodImpl(NoInlining | NoOptimization)]`](language/attributes.md#控制内联与优化methodimpl)，编译器不内联它、
+也不把它当纯函数，调用和实参的计算都留在原处。无条件使用是安全的。
 
 `printSummary` 的输出格式是稳定契约：
 

@@ -4,7 +4,7 @@
 // CallInstr」或「readonly 字段读（FieldGetInstr.Readonly）」，且没有块以 throw 终结。纯 = 同参数
 // 同结果 + 无副作用 + 不抛 → 其调用可被 CSE 消重 / LICM 外提。摘要互相依赖（f 调 g）→ 模块单调
 // 不动点。方向与 IrEscapeSummary **相反**：escape 乐观全 false 上升；pure 乐观全纯，发现副作用/读
-// 可变/抛/调非纯就**降级**，单调收缩到不动点。imported / 无体函数 → 未登记 → 保守非纯。
+// 可变/抛/调非纯就**降级**，单调收缩到不动点。imported / 无体 / `[MethodImpl(NoInlining)]`（调用方当黑盒）函数 → 未登记 → 保守非纯。
 // 设计见 变更 add-pure-call-opt/design.md（Decision 2/4）。
 //
 // StrMap 无 Remove（compiler-z42c.md 踩坑）→ 不动点每轮**重建** pure 集（单调收缩，几轮收敛）。
@@ -35,7 +35,7 @@ public sealed class IrPureFunctionTable {
         int fi = 0;
         while (fi < m.FuncCount) {
             IrFunction f = m.Functions[fi];
-            if (f.BlockCount > 0) { pure.Put(f.Name, "1"); }
+            if (IrPureFunctionTable._summarized(f)) { pure.Put(f.Name, "1"); }
             fi = fi + 1;
         }
         // 单调收缩不动点：反复重建——用当前 pure 集判每个函数，只保留仍纯的。集合只缩不增 →
@@ -47,7 +47,7 @@ public sealed class IrPureFunctionTable {
             fi = 0;
             while (fi < m.FuncCount) {
                 IrFunction f = m.Functions[fi];
-                if (f.BlockCount > 0) {
+                if (IrPureFunctionTable._summarized(f)) {
                     bool isP = IrPureFunctionTable._isFuncPure(f, pure);
                     if (isP) { next.Put(f.Name, "1"); }
                     else if (pure.ContainsKey(f.Name)) { changed = true; }   // 本轮从纯降级
@@ -57,6 +57,11 @@ public sealed class IrPureFunctionTable {
             pure = next;
         }
         return new PureTable(pure, IrPureFunctionTable._computeSpeculatable(m, pure));
+    }
+
+    // 参与纯度推断的函数：有体，且没要求调用方把它当黑盒。
+    private static bool _summarized(IrFunction f) {
+        return f.BlockCount > 0 && !IrMethodImpl.Has(f, IrMethodImpl.NoInlining);
     }
 
     // ── 可投机执行（fix-release-opt-soundness；fix-licm-no-recursive-speculation）──────────────

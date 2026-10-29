@@ -542,6 +542,7 @@ public sealed class IrGen {
                                          owner, new string[0], 0);
         irf.Visibility = DeclFacts._visCode(md.ModFlags, isMember ? 1 : 3);
         irf.MethodFlags = irf.MethodFlags | IrGenFacts._methodFlags(md.ModFlags);
+        irf.MethodFlags = irf.MethodFlags | HandlerRegistry.MethodImplFlags(src.Raw);   // [MethodImpl]
         irf.ParamAttrs = this._classDescB._paramAttrRefs(md, isInstance); irf.ParamAttrsLen = irf.ParamAttrs.Length;
         IrGenFacts._fillParamMeta(irf, md, isInstance);
         sink.AddFunc(irf);

@@ -1,13 +1,10 @@
-//! Bench helpers — minimal native primitives for `Std.Harness.Bencher`.
+//! Bench clock — the native primitive behind `Std.Runtime.Clock.MonoNanos` (`Bencher.iter`).
 //!
 //! `__time_now_mono_ns` returns nanoseconds since the first call (an internal
 //! EPOCH); used as a monotonic clock by `Bencher.iter` to time samples.
 //!
-//! `__bench_black_box` is the identity function. Interp does no
-//! dead-code elimination, so the wrapper is structurally a no-op today.
-//! It exists so user code can mark "do not optimise this away" the way
-//! criterion / std::hint::black_box does — once the JIT learns to elide
-//! pure expressions, this hook is the canonical opt-out.
+//! `BenchHelpers.blackBox` needs no native: it is a plain z42 identity marked
+//! `[MethodImpl(NoInlining | NoOptimization)]`, which the compiler's optimizer honours.
 
 use crate::metadata::Value;
 use crate::vm_context::VmContext;
@@ -44,24 +41,15 @@ fn mono_ns() -> i64 {
     TICK.fetch_add(1_000, Ordering::Relaxed)
 }
 
-pub fn bench_black_box<T>(v: T) -> T {
-    std::hint::black_box(v)
-}
-
 #[cfg(test)]
 #[path = "bench_tests.rs"]
 mod bench_tests;
 
-/// bench 计时与防优化迁 builtin ABI v2(P1-8 批次 12):全 PURE。
+/// bench 计时迁 builtin ABI v2(P1-8 批次 12):PURE。
 #[z42_macros::builtins]
 pub mod typed {
     use super::*;
 
     #[builtin(name = "__time_now_mono_ns", pure)]
     pub fn now_mono_ns() -> i64 { time_now_mono_ns() }
-
-    #[builtin(name = "__bench_black_box", pure)]
-    pub fn black_box(v: &crate::metadata::Value) -> crate::metadata::Value {
-        super::bench_black_box(*v)
-    }
 }

@@ -38,7 +38,9 @@ public static class Murmur3 {
 <a id="Std.Hashing.Murmur3.Hash128Hex(string)"></a>
 ### static extern string Hash128Hex(string text)
 
-[`src/libraries/z42.core/src/Hashing/Murmur3.z42:125`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Hashing/Murmur3.z42#L125)
+[`src/libraries/z42.core/src/Hashing/Murmur3.z42:126`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Hashing/Murmur3.z42#L126)
 
-`text` 按 UTF-8 编码后的 `Hash128` 的 32 个小写十六进制字符，等价于 `Hash128Hex(Utf8.GetBytes(text))`，但不物化中间字节数组。
+`text` 按 UTF-8 编码后的 `Hash128`，32 个小写十六进制字符。
+
+等价于 `Hash128Hex(Utf8.GetBytes(text))`，但不物化中间字节数组。
 

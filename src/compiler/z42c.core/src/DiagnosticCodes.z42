@@ -168,6 +168,7 @@ public static class DiagnosticCodes {
     public static string ExternRequiresNative     = "E0903";
     public static string NativeRequiresExtern     = "E0904";
     public static string NativeAttributeMalformed = "E0907";
+    public static string MethodImplMalformed      = "E0918";   // `[MethodImpl(...)]` 位置或实参不对
 
     // Native interop — pinned block
     public static string PinnedNotPinnable = "E0908a";

@@ -40,12 +40,12 @@ public sealed class IrEscapeSummary {
     // 模块入口：单调不动点算全模块参数逃逸摘要。
     public static ParamEscapeTable Compute(IrModule m) {
         ParamEscapeTable t = new ParamEscapeTable();
-        // init：每个有体函数登记 bool[ParamCount]（全 false=乐观）。无体 stub（abstract/extern）**不登记**
-        //   → Lookup 返回 null → 调用点保守全标（无体不可证非逃逸）。
+        // init：每个有体函数登记 bool[ParamCount]（全 false=乐观）。无体 stub（abstract/extern）与
+        //   `[MethodImpl(NoInlining)]`（调用方当黑盒）**不登记** → Lookup 返回 null → 调用点保守全标。
         int fi = 0;
         while (fi < m.FuncCount) {
             IrFunction f = m.Functions[fi];
-            if (f.BlockCount > 0) { t.Put(f.Name, new bool[f.ParamCount]); }
+            if (f.BlockCount > 0 && !IrMethodImpl.Has(f, IrMethodImpl.NoInlining)) { t.Put(f.Name, new bool[f.ParamCount]); }
             fi = fi + 1;
         }
         // 单调不动点：反复扫所有有体函数，用当前摘要算逃逸集 → 把逃逸的参数槽置 true（只增不减）→

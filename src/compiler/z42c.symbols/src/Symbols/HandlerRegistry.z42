@@ -3,12 +3,13 @@
 // 三路 kind：
 //   · store-meta —— 普通 `: Attribute` 类 → 反射 blob（IrAttrRef），AttributeSynth 合成工厂。应用名按 D8
 //     后缀展开解析成类名（`[Route]` → `RouteAttribute`，见 StoreMetaClassName）。测试家族也在此列。
-//   · directive  —— 编译器原生封闭集（Native / Suppress / Deprecated / Record）：豁免后缀、不合成工厂，
+//   · directive  —— 编译器原生封闭集（Native / Suppress / Deprecated / Record / MethodImpl）：豁免后缀、不合成工厂，
 //     或烘进 descriptor、或纯编译期消费。
 //   · handler    —— 编译期消费并聚合成包级产物（`[ModuleInit]`）。外部 Generator / Analyzer 不经这里。
 namespace Z42.Symbols;
 
 using Z42.Syntax;
+using Z42.IR;
 
 // attribute 应用 `[X]` 的三路 kind。z42 无 enum → static class + int 常量（同 StructLayout）。
 public static class AttrKind {
@@ -61,7 +62,8 @@ public static class HandlerRegistry {
         return HandlerRegistry.IsNativeDirective(name)
             || HandlerRegistry.IsSuppressDirective(name)
             || HandlerRegistry.IsDeprecatedDirective(name)
-            || HandlerRegistry.IsRecordDirective(name);
+            || HandlerRegistry.IsRecordDirective(name)
+            || HandlerRegistry.IsMethodImplDirective(name);
     }
 
     // PR3c：`[Suppress("Id","reason")]` directive 识别（AnalyzerDriver 读，不持久化）。保留名，用户不可
@@ -125,6 +127,47 @@ public static class HandlerRegistry {
             a = a + 1;
         }
         return false;
+    }
+
+    // `[MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.NoOptimization)]`（取 C# 同名写法）：烘进
+    // IrFunction.MethodFlags（IrMethodImpl 两位），z42c.optimization 据此跳过内联 / 优化。实参是编译器认的
+    // 词表、不经名字解析（不需要 using，也没有对应的 z42 类型）；形态由 DeclEnforcer._miCheck 查（E0918）。
+    public static bool IsMethodImplDirective(string name) {
+        return name == "MethodImpl";
+    }
+
+    // `MethodImplOptions.<选项>` → IrMethodImpl 位；不认识的选项 → 0。
+    public static int MethodImplOption(Expr e) {
+        if (!(e is MemberExpr)) { return 0; }
+        MemberExpr me = e as MemberExpr;
+        if (!(me.Target is IdentExpr) || (me.Target as IdentExpr).Name != "MethodImplOptions") { return 0; }
+        if (me.Name == "NoInlining") { return IrMethodImpl.NoInlining; }
+        if (me.Name == "NoOptimization") { return IrMethodImpl.NoOptimization; }
+        return 0;
+    }
+
+    // `[MethodImpl(...)]` 实参（`|` 连接的选项）合成的位；无该 attr → 0。形态错的部分不计位（另报 E0918）。
+    public static int MethodImplFlags(Decl rawMem) {
+        if (!(rawMem is AttributedDecl)) { return 0; }
+        AttributedDecl ad = rawMem as AttributedDecl;
+        int flags = 0;
+        int a = 0;
+        while (a < ad.AttrCount) {
+            Attr at = ad.Attrs[a];
+            if (HandlerRegistry.IsMethodImplDirective(at.Name) && at.ArgCount == 1) {
+                flags = flags | HandlerRegistry._methodImplBits(at.Args[0]);
+            }
+            a = a + 1;
+        }
+        return flags;
+    }
+
+    private static int _methodImplBits(Expr e) {
+        if (e is BinaryExpr && (e as BinaryExpr).Op == "|") {
+            BinaryExpr be = e as BinaryExpr;
+            return HandlerRegistry._methodImplBits(be.Left) | HandlerRegistry._methodImplBits(be.Right);
+        }
+        return HandlerRegistry.MethodImplOption(e);
     }
 
     // StubEmitter 专用：`[Native(...)]` 绑定 directive 识别（取代散落的 `at.Name == "Native"` 字面量）。

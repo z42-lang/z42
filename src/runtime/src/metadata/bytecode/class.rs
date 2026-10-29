@@ -61,6 +61,15 @@ pub const METHOD_FLAG_SEALED: u8 = 1 << 2;
 /// signatures stay clean). Recording it here is what lets the runtime check a call's
 /// argument count exactly instead of guessing — see `symres::call_arity`.
 pub const METHOD_FLAG_SRET: u8 = 1 << 3;
+/// `[MethodImpl(MethodImplOptions.NoInlining)]`: callers treat the method as opaque — the
+/// compiler neither inlines it nor summarizes it (purity / parameter escape), so its calls
+/// survive CSE and LICM. The JIT has no cross-function inlining or call elimination yet, so it
+/// has nothing to skip; a JIT that grows either must honour this bit.
+pub const METHOD_FLAG_NO_INLINING: u8 = 1 << 4;
+/// `[MethodImpl(MethodImplOptions.NoOptimization)]`: the method's own body is emitted as
+/// written — the compiler runs no IR optimization on it and inlines nothing into it. Same JIT
+/// note as [`METHOD_FLAG_NO_INLINING`].
+pub const METHOD_FLAG_NO_OPTIMIZATION: u8 = 1 << 5;
 
 #[derive(Debug)]
 pub struct ClassDesc {
