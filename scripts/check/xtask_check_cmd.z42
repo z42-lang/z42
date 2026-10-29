@@ -13,7 +13,7 @@ using Std.Cli;
 
 // 名字 → 说明。顺序即 `xtask check` 全跑的顺序（= GREEN gate 里的顺序）。
 string[] _checkNames() {
-    return new string[]{ "vscode-syntax", "diagcodes", "stage2", "ci-shell", "proc-env", "layout", "versions", "layers", "docs-api", "doc-lints", "doc-refs" };
+    return new string[]{ "vscode-syntax", "diagcodes", "stage2", "ci-shell", "proc-env", "layout", "versions", "layers", "doc-lints", "doc-refs" };
 }
 
 string _checkDesc(string name) {
@@ -25,7 +25,6 @@ string _checkDesc(string name) {
     if (name == "layout")        { return "test layout spec: src/tests categories, capability vocabulary, artifacts mirror"; }
     if (name == "versions")      { return "versions.toml ↔ its projections (Cargo.toml / build.gradle.kts / Package.swift) agree"; }
     if (name == "layers")        { return "runtime module layering: cross-component refs + platform cfg / libc outside pal within the gates.toml baseline (`--update` after shrinking)"; }
-    if (name == "docs-api")      { return "generated reference stdlib pages match the source doc comments (run `xtask doc gen` to regenerate)"; }
     if (name == "doc-lints")     { return "stdlib doc comments: any W08xx finding is red (hard gate, no allowlist)"; }
     if (name == "doc-refs")      { return "book pages and READMEs cite code by resolvable symbols, no stale line numbers (run `xtask check doc-refs --update` after fixing)"; }
     return "";
@@ -79,7 +78,6 @@ int _checkOne(string name, bool update) {
     if (name == "proc-env")      { return _testProcEnv(); }
     if (name == "versions")      { return _checkVersions(); }
     if (name == "layers")        { return _testLayers(update); }
-    if (name == "docs-api")      { return _checkDocsApi(); }
     if (name == "doc-lints")     { return _checkDocLints(); }   // doc-lints 无 --update：硬门、无白名单
     if (name == "doc-refs")      { return _checkDocRefs(update); }
     return _testLayout();

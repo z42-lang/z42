@@ -96,11 +96,11 @@ PR 的 xtask，而 xtask 的 `_root()` 取 cwd 的仓库根 = base-src（base �
 示例会被重放）时，`detect-changes` 输出 `docs_only=true`，只跑 `docs-check`。改动集合：PR 取 PR 的文件列表，
 main push 取 `before...sha` 的 compare（新分支的全零 `before`、API 失败、到 compare 的 300 文件上限 ⇒ 当作非纯文档）。
 `docs-check` 的内容：ci-bootstrap 的 `xtask-only`
-模式（种子 z42c 只编出 xtask，省掉 build compiler / stdlib）+ `xtask test docs links`（相对链接 + gate stage 清单
-↔ `test-gate.md`）+ `xtask check diagcodes`（诊断码 ↔ `error-codes.md`）+ `xtask check doc-refs`（书页代码引用；
-为此装一份 stable Rust，先 cargo 编 rust-index 重建 Rust 外部索引）+ `xtask check docs-api`（生成页 ↔ stdlib `///`）。
-docs-api 用的解析器是种子 SDK 的 z42c.syntax（xtask-only 的既定语义）：改动 doc 挂靠语义的 PR 合入后、下一次 nightly
-种子发布前，它在纯文档 PR 上可能假红（种子随每次 main push 重发，窗口很短）。doc-lints 不在这里——纯文档改动碰不到
+模式（种子 z42c 只编出 xtask，省掉 build compiler / stdlib）+ `xtask test docs links`（先 `doc gen` 生成不入库的
+reference stdlib 页，再查相对链接 + gate stage 清单 ↔ `test-gate.md`）+ `xtask check diagcodes`（诊断码 ↔
+`error-codes.md`）+ `xtask check doc-refs`（书页代码引用；为此装一份 stable Rust，先 cargo 编 rust-index 重建 Rust
+外部索引）。gen 用的解析器是种子 SDK 的 z42c.syntax（xtask-only 的既定语义）：stdlib 用上种子还不认的语法时，下一次
+nightly 种子发布前这里可能假红（种子随每次 main push 重发，窗口很短）。doc-lints 不在这里——纯文档改动碰不到
 stdlib 的 `///`；它是 GREEN gate 的 stage，随 test-host 跑。
 `test-host` ×4 与 toolchain 链（`compile-toolchain` → `compile-test-assets` / `test-consume`）随之 skip；
 main push 上 `publish-nightly` 也随之不跑（纯文档本来就不影响 SDK，见下节的 `sdk` 判定）。schedule / dispatch 不走快速通道。
@@ -400,7 +400,7 @@ release 仍是可用的已发布状态，下一次发布会补齐。
 |---|---|---|
 | `bench-pr.yml` | `bench-regression(linux-x64)` | 同 runner A/B 性能门；用窄 `paths:` allowlist，纯文档 PR 天然跳过 |
 | `release.yml` | `verify-version` / `package-<rid>` ×9 / `publish-release` | tag 触发的正式发布，见[打包与发版](release.md) |
-| `deploy-book.yml` | `build` / `deploy` | 三本书 + 安装脚本发到 GitHub Pages |
+| `deploy-book.yml` | `build` / `deploy` | 三本书 + 安装脚本发到 GitHub Pages；构建前 xtask-only bootstrap 后 `xtask doc gen` 现生成 reference 的 stdlib 包页（不入库），所以 stdlib 源码 / `z42.doc` / `xtask_doc.z42` 的改动也触发 |
 | `jit-fixpoint-check.yml` | `jit-fixpoint(<rid>)` | JIT 不动点实验腿 |
 
 ## 5. 本地镜像 CI

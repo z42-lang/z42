@@ -1,7 +1,7 @@
 # 文档索引与 `z42 doc`
 
 > 代码：`src/compiler/z42.doc/src/`（引擎，含 `DocParser.z42` / `DocLint.z42` / `DocRefs.z42` / `DocMd.z42`）、`src/toolchain/devtools/core/doc_cmd.z42`（`DocCommand`）、
-> `src/toolchain/devtools/rust-index/`（Rust 索引器）、`scripts/build/xtask_doc.z42`（`xtask doc gen` / `doc index` / `check docs-api` / `doc-lints` / `doc-refs`）、
+> `src/toolchain/devtools/rust-index/`（Rust 索引器）、`scripts/build/xtask_doc.z42`（`xtask doc gen` / `doc index` / `check doc-lints` / `doc-refs`）、
 > `src/toolchain/launcher/core/launcher_cli.z42`（`_forwardZ42d`）、`src/compiler/z42c.syntax/src/DocBlock.z42`（doc 挂靠）
 >
 > 要查**怎么用**（旗标、输出、名字怎么写）→ 语言与库参考的 `z42` 命令页与 doc 注释页。
@@ -83,18 +83,28 @@ z42 doc <args>                      launcher：`doc` 原样转发
 - **成员导航**：每个成员带一个 `<a id>` 锚点（Doc ID 的 slug），类型标题下一行成员索引链到各锚点。mdBook 的
   SUMMARY 不支持锚点条目，成员级导航只能放在页内。
 - **源码位置**：每个声明一行 `file:line`。`DocMd.SourceBase` 非空时渲染成链接，点击直达仓库源码的那一行；
-  基址取 book.toml 的 `git-repository-url`（`blob/main`），`Z42_DOC_SOURCE_BASE` 可覆盖（本地预览 / 镜像），
-  gen 与 check 必须同值否则漂移门禁误报。生成页里的行号随每次 gen 重写，不会腐——这也是生成页不受
+  基址取 book.toml 的 `git-repository-url`（`blob/main`），`Z42_DOC_SOURCE_BASE` 可覆盖（本地预览 / 镜像）。
+  生成页里的行号随每次 gen 重写，不会腐——这也是生成页不受
   doc-refs 门禁「禁写行号」约束的原因（§8）。
 - **同名声明合并**：partial 类型并成一页（代表声明），泛型委托按元数各一页。
 - **type-split**：太大的包一个类型一页——索引页 `<short>.md` 加每个类型的 `<short>.<Type>.md`（当前只有
   `z42.core`，清单硬编码在 xtask 里，待 `[doc] split` 清单键就绪后改读清单）。SUMMARY.md 里该包的页清单
-  区段由 `xtask doc gen` / `check docs-api` 维护：标记注释夹住，按命名空间分草稿章、章下列类型；区段外不许
-  生成改动。
+  区段由 `xtask doc gen` 重写：标记注释夹住，按命名空间分草稿章、章下列类型；区段外不许生成改动。区段随
+  SUMMARY 入库、不设门禁——发布前总会重新生成，入库那份落后只表现为本地 gen 后 `git status` 多一处改动。
 
 `z42d doc --format mdbook --out <dir> --pkg <name>` 渲染一个包到 `<dir>/<name>.md`（生成不写共享索引缓存）。
-`xtask doc gen` 重新生成全部**已迁移**包（写了 `//!` 的包）的页面；`xtask check docs-api` 重新生成并与仓库内
-文件 diff，不一致即失败并提示跑 gen（§8）。
+`xtask doc gen` 生成全部写了 `//!` 的包的页面到 `docs/reference/src/stdlib/`，并删掉不再生成的旧页（该目录除
+`README.md` 外全归 gen 所有）；内容不变的页不重写。**生成页不入库**（`.gitignore`），由用到它们的地方现生成：
+
+| 谁 | 何时 |
+|---|---|
+| `deploy-book.yml` | 构建 reference 之前（xtask-only bootstrap 后 `xtask doc gen`）；stdlib 源码、`z42.doc`、`xtask_doc.z42` 的改动都触发它 |
+| `xtask test docs`（GREEN gate 的 docs stage、CI docs-check） | 查链接之前——手写页链进生成页的链接、生成页自己的链接一起查 |
+| 本地 | 读 / 预览 reference 的 stdlib 页之前手动跑一次 |
+
+所以没有「生成页 ↔ 源码」的漂移门禁：发布物永远从当前源码渲染。代价是 GitHub 源码树里看不到这些页，看网站或
+本地 gen。gen 用的解析器是 xtask 自带的 z42c.syntax，CI 上是种子 SDK 的那份——stdlib 用上种子还不认的语法时，
+到下一次 nightly 前 deploy-book 与 docs-check 会红。
 
 ## 6. Rust 条目（外部索引）
 
@@ -133,12 +143,11 @@ xtask doc index
 
 ## 8. 门禁（`xtask check`）
 
-doc-lints 是 GREEN gate 的一个 stage（改 stdlib `///` 的 PR 都会过它）；doc-refs、docs-api 不在 GREEN gate 里，
-CI 只在**纯文档 PR** 的 docs-check 里跑（见 [CI 拓扑](../devinfra/ci.md)）。三道的单跑方式见[怎么跑测试](../devinfra/testing.md)。
+doc-lints 是 GREEN gate 的一个 stage（改 stdlib `///` 的 PR 都会过它）；doc-refs 不在 GREEN gate 里，
+CI 只在**纯文档 PR** 的 docs-check 里跑（见 [CI 拓扑](../devinfra/ci.md)）。两道的单跑方式见[怎么跑测试](../devinfra/testing.md)。
 
 | 门 | 守什么 | 基线 |
 |---|---|---|
-| `check docs-api` | 已迁移包的 reference 页与源码 `///` 一致：重新渲染（§5）并与仓库内文件 diff，连 SUMMARY 的 type-split 区段一起对账；不一致即红并提示 `xtask doc gen` | 无（生成物对账） |
 | `check doc-lints` | stdlib（`src/libraries/`）各包的 doc 注释过 `DocLint` 语法级检查，任何 W08xx 发现即红并逐条列出位置 | 无（硬门、无白名单） |
 | `check doc-refs` | internals / reference 手写页与 `src/**/README.md` 三区域里的代码引用：**行号引用**（硬指标——任何新增即红）与**解析不了的多段链**（棘轮） | `scripts/test/gates.toml [doc-refs]`，每区域一个数，只降不升；`--update` 重写 |
 

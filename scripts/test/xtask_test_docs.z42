@@ -1,7 +1,8 @@
 // xtask — 文档机械门禁（`xtask test docs`）。不需要 SDK，秒级。
 //
 // 纯文档 PR 只跑本门 + diagcodes，所以读文档的检查必须都在这里：
-//   ① 仓内相对链接必须能解析到真实文件 / 目录（死链一律红，无存量豁免，无 `--update`）
+//   ① 仓内相对链接必须能解析到真实文件 / 目录（死链一律红，无存量豁免，无 `--update`）；
+//      reference/stdlib 的生成页不入库，先 `doc gen` 生成，手写页链进去的链接和生成页自己的链接一起查
 //   ② GREEN gate stage 清单 ↔ test-gate.md
 //   ③ 书 / README / 代码不引用 docs/agent
 //   ④ 目录 README 有「关联文档」段
@@ -15,6 +16,7 @@ using Std.Collections;
 
 int _testDocs(string root) {
     Console.WriteLine("▶ test docs");
+    if (_docGen() != 0) { return 1; }
     Console.WriteLine("① 相对链接可解析");
     string[] found = _collectDeadLinks(root);
     if (found.Length > 0) {
