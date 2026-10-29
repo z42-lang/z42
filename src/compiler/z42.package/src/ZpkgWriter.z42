@@ -76,7 +76,7 @@ public static class ZpkgWriterZ {
         // build_id = MurmurHash3 x86_128 over 主字节（末尾 16B BLID 占位为零）。
         // 非密码学 —— build_id 只做「zpkg ↔ zsym 配对识别」，不参与信任决策，Rust 侧只读取
         // 两个值比相等、从不重算（`metadata::build_id::compute` 全 runtime 无调用点）。解释执行
-        // 的 BLAKE3 在这条路径上占编译负载约 6.7%，换掉后近乎归零（见 Murmur3.z42 头注）。
+        // 的 BLAKE3 在这条路径上占编译负载约 6.7%，换掉后近乎归零。
         byte[] buildId = Std.Hashing.Murmur3.Hash128(mainBytes);
         int k = 0;
         while (k < 16) { mainBytes[mainBytes.Length - 16 + k] = buildId[k]; k = k + 1; }
