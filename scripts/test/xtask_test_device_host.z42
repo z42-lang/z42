@@ -29,6 +29,7 @@
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Collections;
 
 // <p> 的宿主工程副本：artifacts/intermediate/toolchain/workload/<p>/host。
 string _deviceHost(string root, string platform) {
@@ -56,8 +57,7 @@ string _stageDeviceHost(string root, string platform) {
     string[] prev = File.Exists(listPath) ? File.ReadAllText(listPath).Split("\n") : new string[0];
 
     string[] lines = ls.Stdout.Split("\n");
-    string[] now = new string[lines.Length];
-    int n = 0;
+    var now = new List<string>();
     int copied = 0;
     foreach (var raw in lines) {
         // `<mode> <sha> <stage>\t<path>`
@@ -65,8 +65,7 @@ string _stageDeviceHost(string root, string platform) {
         if (tab < 0) { continue; }
         string mode = raw.Substring(0, 6);
         string rel = raw.Substring(tab + 1).Substring(srcRel.Length + 1);
-        now[n] = rel;
-        n = n + 1;
+        now.Add(rel);
         string s = _dhContentSource(root, platform, rel, Path.Join(src, rel));
         string d = Path.Join(host, rel);
         if (!File.Exists(s)) { continue; }   // 工作树里删了但还没提交
@@ -81,27 +80,19 @@ string _stageDeviceHost(string root, string platform) {
     foreach (var p in prev) {
         string rel = p.Trim();
         if (rel.Length == 0) { continue; }
-        bool still = false;
-        int i = 0;
-        while (i < n) { if (now[i] == rel) { still = true; } i = i + 1; }
-        if (!still && File.Exists(Path.Join(host, rel))) { File.Delete(Path.Join(host, rel)); removed = removed + 1; }
+        if (!now.Contains(rel) && File.Exists(Path.Join(host, rel))) { File.Delete(Path.Join(host, rel)); removed = removed + 1; }
     }
     string listing = "";
-    int k = 0;
-    while (k < n) { listing = listing + now[k] + "\n"; k = k + 1; }
+    foreach (var rel in now) { listing = listing + rel + "\n"; }
     File.WriteAllText(listPath, listing);
-    Console.WriteLine("  host project → " + host + " (" + n.ToString() + " tracked files; "
+    Console.WriteLine("  host project → " + host + " (" + now.Count.ToString() + " tracked files; "
         + copied.ToString() + " updated, " + removed.ToString() + " removed)");
     return host;
 }
 
 bool _dhSameBytes(string a, string b) {
     if (File.GetSize(a) != File.GetSize(b)) { return false; }
-    byte[] x = File.ReadAllBytes(a);
-    byte[] y = File.ReadAllBytes(b);
-    int i = 0;
-    while (i < x.Length) { if (x[i] != y[i]) { return false; } i = i + 1; }
-    return true;
+    return _bytesEqual(File.ReadAllBytes(a), File.ReadAllBytes(b));
 }
 
 // 副本里 `rel` 这个文件的内容取自哪里：默认是源码里的同名文件；转发到 runtime/include/ 的头文件

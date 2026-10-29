@@ -14,6 +14,7 @@ namespace Z42Xtask;
 
 using Std.IO;
 using Std.Time;
+using Std.Collections;
 
 // `test changed` body — run in-process. Returns the overall exit code:
 // 0 on success, 2 when not a git repo / spawn failure, or the first failing
@@ -35,11 +36,7 @@ int _testChangedRun(string base_, bool dryRun) {
     }
 
     Console.WriteLine("[test-changed] changed files (" + changed.Length.ToString() + "):");
-    int li = 0;
-    while (li < changed.Length) {
-        Console.WriteLine("  " + changed[li]);
-        li = li + 1;
-    }
+    foreach (var f in changed) { Console.WriteLine("  " + f); }
 
     // ── Map → de-duped plan ──────────────────────────────────────────────
     _ChangedPlan plan = _buildChangedPlan(changed);
@@ -57,11 +54,7 @@ int _testChangedRun(string base_, bool dryRun) {
 
     // ── Plan output ──────────────────────────────────────────────────────
     Console.WriteLine("[test-changed] plan:");
-    int pi = 0;
-    while (pi < plan.cmds.Length) {
-        Console.WriteLine("  → " + plan.cmds[pi]);
-        pi = pi + 1;
-    }
+    foreach (var cmd in plan.cmds) { Console.WriteLine("  → " + cmd); }
 
     if (dryRun) {
         Console.WriteLine("[test-changed] --dry-run: not executing");
@@ -94,11 +87,10 @@ string[] _stagesAllZ42() {
 }
 
 string[] _withStage(string[] xs, string extra) {
-    string[] r = new string[xs.Length + 1];
-    int i = 0;
-    while (i < xs.Length) { r[i] = xs[i]; i = i + 1; }
-    r[xs.Length] = extra;
-    return r;
+    var r = new List<string>();
+    r.AddRange(xs);
+    r.Add(extra);
+    return r.ToArray();
 }
 
 // `xtask test --changed <base>` 的分流：返回要追加进 --skip 的重 stage（csv；"" = 一个都不跳）。
@@ -144,38 +136,21 @@ class _ChangedPlan {
 // collapses the whole plan to the full gate ("xtask test").
 _ChangedPlan _buildChangedPlan(string[] changed) {
     var p = new _ChangedPlan();
-    string[] plan = new string[8];
-    int planCount = 0;
+    var plan = new List<string>();
     bool needsFull = false;
-    int i = 0;
-    while (i < changed.Length) {
-        _MapResult m = _mapFile(changed[i]);
+    foreach (var f in changed) {
+        _MapResult m = _mapFile(f);
         if (m.needsFull) {
             needsFull = true;
             p.touchedAny = true;
         } else if (m.touchedAny) {
             p.touchedAny = true;
-            int ci = 0;
-            while (ci < m.commands.Length) {
-                if (m.commands[ci].Length > 0
-                    && !_contains(plan, planCount, m.commands[ci])) {
-                    plan = _append(plan, planCount, m.commands[ci]);
-                    planCount = planCount + 1;
-                }
-                ci = ci + 1;
+            foreach (var cmd in m.commands) {
+                if (cmd.Length > 0 && !plan.Contains(cmd)) { plan.Add(cmd); }
             }
         }
-        i = i + 1;
     }
-    if (needsFull) {
-        p.cmds = new string[1];
-        p.cmds[0] = "xtask test";
-        return p;
-    }
-    string[] sized = new string[planCount];
-    int k = 0;
-    while (k < planCount) { sized[k] = plan[k]; k = k + 1; }
-    p.cmds = sized;
+    p.cmds = needsFull ? new string[]{ "xtask test" } : plan.ToArray();
     return p;
 }
 
@@ -186,9 +161,7 @@ int _executeChangedPlan(string[] cmds) {
     Console.WriteLine("");
 
     int exitCode = 0;
-    int pi = 0;
-    while (pi < cmds.Length) {
-        string cmd = cmds[pi];
+    foreach (var cmd in cmds) {
         Console.WriteLine("──── " + cmd + " ────");
         int rc = _runPlanCmd(cmd);
         if (rc != 0) {
@@ -198,7 +171,6 @@ int _executeChangedPlan(string[] cmds) {
             break;
         }
         Console.WriteLine("");
-        pi = pi + 1;
     }
 
     if (exitCode == 0) {
@@ -218,8 +190,7 @@ int _runPlanCmd(string cmd) {
     if (toks[0] == "xtask") {
         // Drop the leading "xtask"; the remainder is the XtaskCommand argv.
         string[] argv = new string[toks.Length - 1];
-        int i = 1;
-        while (i < toks.Length) { argv[i - 1] = toks[i]; i = i + 1; }
+        Array.Copy(toks, 1, argv, 0, argv.Length);
         return new XtaskCommand().Invoke(argv);
     }
     if (toks[0] == "cargo") {
@@ -384,69 +355,22 @@ string _gitOutput(string[] args) {
 
 // Return the n-th path segment (0-based; '/'-split).
 string _segment(string path, int n) {
-    int idx = 0;
-    int start = 0;
-    int i = 0;
-    while (i <= path.Length) {
-        if (i == path.Length || path.CharAt(i) == '/') {
-            if (idx == n) {
-                return path.Substring(start, i - start);
-            }
-            idx = idx + 1;
-            start = i + 1;
-        }
-        i = i + 1;
-    }
-    return "";
+    string[] parts = path.Split("/");
+    return n < parts.Length ? parts[n] : "";
 }
 
 string[] _splitLines(string s) {
-    string[] result = new string[8];
-    int n = 0;
-    int start = 0;
-    int i = 0;
-    while (i <= s.Length) {
-        if (i == s.Length || s.CharAt(i) == '\n') {
-            if (i > start) {
-                result = _append(result, n, s.Substring(start, i - start));
-                n = n + 1;
-            }
-            start = i + 1;
-        }
-        i = i + 1;
-    }
-    string[] tight = new string[n];
-    int t = 0;
-    while (t < n) { tight[t] = result[t]; t = t + 1; }
-    return tight;
+    var r = new List<string>();
+    foreach (var line in s.Split("\n")) { if (line.Length > 0) { r.Add(line); } }
+    return r.ToArray();
 }
 
 string[] _dedupeNonEmpty(string[] xs) {
-    string[] result = new string[xs.Length];
-    int n = 0;
-    int i = 0;
-    while (i < xs.Length) {
-        if (xs[i].Length > 0 && !_contains(result, n, xs[i])) {
-            result[n] = xs[i];
-            n = n + 1;
-        }
-        i = i + 1;
-    }
-    // Tighten to exactly the deduped elements (_sortStrings sorts the whole array).
-    string[] tight = new string[n];
-    int t = 0;
-    while (t < n) { tight[t] = result[t]; t = t + 1; }
+    var r = new List<string>();
+    foreach (var x in xs) { if (x.Length > 0 && !r.Contains(x)) { r.Add(x); } }
+    string[] tight = r.ToArray();
     _sortStrings(tight);
     return tight;
-}
-
-bool _contains(string[] arr, int count, string v) {
-    int i = 0;
-    while (i < count) {
-        if (arr[i] == v) return true;
-        i = i + 1;
-    }
-    return false;
 }
 
 // ── `test changed` 命令入口 ──

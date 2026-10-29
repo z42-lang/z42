@@ -11,17 +11,14 @@
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Collections;
 
 int _testDocs(string root) {
     Console.WriteLine("▶ test docs");
     Console.WriteLine("① 相对链接可解析");
     string[] found = _collectDeadLinks(root);
     if (found.Length > 0) {
-        int i = 0;
-        while (i < found.Length) {
-            ConsoleError.WriteLine("  ✗ " + found[i]);
-            i = i + 1;
-        }
+        foreach (var f in found) { ConsoleError.WriteLine("  ✗ " + f); }
         Console.WriteLine("");
         ConsoleError.WriteLine("  ❌ docs: " + found.Length.ToString() + " 条死链");
         ConsoleError.WriteLine("     链接目标按所在文件的目录解析；跨书链接请用相对路径或完整 URL。");
@@ -44,20 +41,17 @@ int _testDocs(string root) {
 // 范围与「哪层目录要 README」一致：`src/<X>/README.md` 与 `src/<X>/<Y>/README.md`。
 int _checkReadmeRelatedDocs(string root) {
     Console.WriteLine("④ 目录 README 有「关联文档」段");
-    string[] files = _docMarkdownFiles(root);
     int bad = 0;
-    int i = 0;
-    while (i < files.Length) {
-        string rel = _relToRoot(root, files[i]);
+    foreach (var file in _docMarkdownFiles(root)) {
+        string rel = _relToRoot(root, file);
         int depth = rel.Split("/").Length;
         if (rel.StartsWith("src/") && rel.EndsWith("/README.md") && (depth == 3 || depth == 4)) {
-            string text = "\n" + _stripFences(File.ReadAllText(files[i]));
+            string text = "\n" + _stripFences(File.ReadAllText(file));
             if (!text.Contains("\n## 关联文档")) {
                 ConsoleError.WriteLine("  ✗ " + rel);
                 bad = bad + 1;
             }
         }
-        i = i + 1;
     }
     if (bad > 0) {
         Console.WriteLine("");
@@ -78,30 +72,18 @@ int _checkReadmeRelatedDocs(string root) {
 // —— 它们本身就是「文档与代码的总入口」，不指路会让贡献者找不到规范。
 int _checkAgentRefs(string root) {
     Console.WriteLine("③ 分层链接：书 / README / 代码不引用 agent");
-    string[] files = _docMarkdownFiles(root);
     int bad = 0;
-    int i = 0;
-    while (i < files.Length) {
-        string rel = _relToRoot(root, files[i]);
-        bool exempt = rel.StartsWith("docs/agent/") || rel == "README.md" || rel == "docs/README.md";
-        if (!exempt) {
-            string text = _stripFences(File.ReadAllText(files[i]));
-            string[] lines = text.Split("\n");
-            int li = 0;
-            while (li < lines.Length) {
-                string[] targets = _linkTargets(lines[li]);
-                int t = 0;
-                while (t < targets.Length) {
-                    if (targets[t].Contains("docs/agent/") || targets[t].Contains("agent/rules/")) {
-                        ConsoleError.WriteLine("  ✗ " + rel + " -> " + targets[t]);
-                        bad = bad + 1;
-                    }
-                    t = t + 1;
+    foreach (var file in _docMarkdownFiles(root)) {
+        string rel = _relToRoot(root, file);
+        if (rel.StartsWith("docs/agent/") || rel == "README.md" || rel == "docs/README.md") { continue; }
+        foreach (var line in _stripFences(File.ReadAllText(file)).Split("\n")) {
+            foreach (var target in _linkTargets(line)) {
+                if (target.Contains("docs/agent/") || target.Contains("agent/rules/")) {
+                    ConsoleError.WriteLine("  ✗ " + rel + " -> " + target);
+                    bad = bad + 1;
                 }
-                li = li + 1;
             }
         }
-        i = i + 1;
     }
     bad = bad + _checkCodeAgentRefs(root);
     if (bad > 0) {
@@ -119,23 +101,16 @@ int _checkAgentRefs(string root) {
 // 基线要对编辑稳定）。
 string[] _collectDeadLinks(string root) {
     string[] files = _docMarkdownFiles(root);
-    string[] acc = new string[512];
-    int n = 0;
+    var acc = new List<string>();
     int checked = 0;
-    int i = 0;
-    while (i < files.Length) {
-        DocScan sc = _checkOneDoc(root, files[i]);
+    foreach (var file in files) {
+        DocScan sc = _checkOneDoc(root, file);
         checked = checked + sc.Checked;
-        int j = 0;
-        while (j < sc.Dead.Length) {
-            if (n < acc.Length) { acc[n] = sc.Dead[j]; n = n + 1; }
-            j = j + 1;
-        }
-        i = i + 1;
+        acc.AddRange(sc.Dead);
     }
     Console.WriteLine("  扫描 " + files.Length.ToString() + " 篇，检查 "
         + checked.ToString() + " 条相对链接");
-    return _trimStrings(acc, n);
+    return acc.ToArray();
 }
 
 sealed class DocScan {
@@ -146,59 +121,37 @@ sealed class DocScan {
 
 // 参与检查的 markdown：docs/ 全部 + 根 README + src/**/README.md + scripts/README.md。
 string[] _docMarkdownFiles(string root) {
-    string[] acc = new string[1024];
-    int n = 0;
+    var acc = new List<string>();
     // EnumerateRecursive 返回的是**相对传入目录**的子路径，须自行拼回。
     string docs = Path.Join(root, "docs");
-    string[] all = Directory.EnumerateRecursive(docs);
-    int i = 0;
-    while (i < all.Length) {
-        string rel = all[i].Replace("\\", "/");
-        if (rel.EndsWith(".md")) {
-            string full = Path.Join(docs, rel);
-            if (File.Exists(full) && n < acc.Length) { acc[n] = full.Replace("\\", "/"); n = n + 1; }
-        }
-        i = i + 1;
+    foreach (var f in Directory.EnumerateRecursive(docs)) {
+        string rel = f.Replace("\\", "/");
+        if (rel.EndsWith(".md")) { _addIfFile(acc, Path.Join(docs, rel)); }
     }
-    string[] extra = new string[3];
-    extra[0] = Path.Join(root, "README.md");
-    extra[1] = Path.Join(root, "scripts/README.md");
-    extra[2] = Path.Join(root, "examples/README.md");
-    int e = 0;
-    while (e < extra.Length) {
-        if (File.Exists(extra[e]) && n < acc.Length) { acc[n] = extra[e].Replace("\\", "/"); n = n + 1; }
-        e = e + 1;
-    }
+    _addIfFile(acc, Path.Join(root, "README.md"));
+    _addIfFile(acc, Path.Join(root, "scripts/README.md"));
+    _addIfFile(acc, Path.Join(root, "examples/README.md"));
     string srcRoot = Path.Join(root, "src");
-    string[] srcMds = Directory.EnumerateRecursive(srcRoot);
-    int s = 0;
-    while (s < srcMds.Length) {
-        string rel = srcMds[s].Replace("\\", "/");
+    foreach (var f in Directory.EnumerateRecursive(srcRoot)) {
+        string rel = f.Replace("\\", "/");
         // 第三方依赖目录（gitignore 掉的）不是仓库文档：跑过 wasm 设备测试后 `npm install` 进来的
         // node_modules 自带 README 的死链会让本地 GREEN 判红。
-        if (rel.StartsWith("node_modules/") || rel.Contains("/node_modules/")) { s = s + 1; continue; }
-        if (rel.EndsWith("README.md")) {
-            string full = Path.Join(srcRoot, rel);
-            if (File.Exists(full) && n < acc.Length) { acc[n] = full.Replace("\\", "/"); n = n + 1; }
-        }
-        s = s + 1;
+        if (rel.StartsWith("node_modules/") || rel.Contains("/node_modules/")) { continue; }
+        if (rel.EndsWith("README.md")) { _addIfFile(acc, Path.Join(srcRoot, rel)); }
     }
-    return _trimStrings(acc, n);
+    return acc.ToArray();
+}
+
+void _addIfFile(List<string> acc, string full) {
+    if (File.Exists(full)) { acc.Add(full.Replace("\\", "/")); }
 }
 
 DocScan _checkOneDoc(string root, string file) {
     int checkedCount = 0;
-    string[] dead = new string[64];
-    int dn = 0;
-    string text = _stripFences(File.ReadAllText(file));
+    var dead = new List<string>();
     string dir = Path.GetDirectoryName(file);
-    string[] lines = text.Split("\n");
-    int li = 0;
-    while (li < lines.Length) {
-        string[] targets = _linkTargets(lines[li]);
-        int t = 0;
-        while (t < targets.Length) {
-            string target = targets[t];
+    foreach (var line in _stripFences(File.ReadAllText(file)).Split("\n")) {
+        foreach (var target in _linkTargets(line)) {
             if (_isRepoRelative(target)) {
                 checkedCount = checkedCount + 1;
                 string rel = _stripAnchor(target);
@@ -211,77 +164,49 @@ DocScan _checkOneDoc(string root, string file) {
                         resolved = fwd.Substring(0, fwd.Length - "index.md".Length) + "README.md";
                     }
                     if (!File.Exists(resolved) && !Directory.Exists(resolved)) {
-                        if (dn < dead.Length) {
-                            dead[dn] = _relToRoot(root, file) + " -> " + target;
-                            dn = dn + 1;
-                        }
+                        dead.Add(_relToRoot(root, file) + " -> " + target);
                     }
                 }
             }
-            t = t + 1;
         }
-        li = li + 1;
     }
-    return new DocScan(checkedCount, _trimStrings(dead, dn));
+    return new DocScan(checkedCount, dead.ToArray());
 }
 
 // 去掉围栏代码块（``` 与 ~~~）与行内 code span（`…`）——里面是示例文本（如模板占位
 // `[目标页](相对路径)`），不是链接。
 string _stripFences(string text) {
     string[] lines = text.Split("\n");
-    string[] keep = new string[lines.Length];
-    int n = 0;
     bool inFence = false;
-    int i = 0;
-    while (i < lines.Length) {
+    for (int i = 0; i < lines.Length; i++) {
         string t = lines[i].Trim();
         if (t.StartsWith("```") || t.StartsWith("~~~")) {
             inFence = !inFence;
-            keep[n] = ""; n = n + 1;       // 占位，保持行号不变
+            lines[i] = "";                 // 占位，保持行号不变
         } else {
-            keep[n] = inFence ? "" : _stripCodeSpans(lines[i]);
-            n = n + 1;
+            lines[i] = inFence ? "" : _stripCodeSpans(lines[i]);
         }
-        i = i + 1;
     }
-    string outText = "";
-    int j = 0;
-    while (j < n) {
-        if (j > 0) { outText = outText + "\n"; }
-        outText = outText + keep[j];
-        j = j + 1;
-    }
-    return outText;
+    return string.Join("\n", lines);
 }
 
 // ③ 的代码侧：`src/` / `scripts/` / `.github/` 下的代码、脚本与 CI 配置同样不以路径引用 `docs/agent/`。
 // 代码注释是写给下一个改它的人看的，事实与操作在书里；agent 的文件随时会改名、删并，指过去迟早变成死指针，
 // 而注释里的路径不是 markdown 链接，死链检查照不到。门本身（本文件）要提到这个路径，豁免。
 int _checkCodeAgentRefs(string root) {
-    string[] dirs = new string[3];
-    dirs[0] = "src";
-    dirs[1] = "scripts";
-    dirs[2] = ".github";
     int bad = 0;
-    int d = 0;
-    while (d < dirs.Length) {
-        string top = Path.Join(root, dirs[d]);
-        if (Directory.Exists(top)) {
-            string[] all = Directory.EnumerateRecursive(top);
-            int i = 0;
-            while (i < all.Length) {
-                string rel = dirs[d] + "/" + all[i].Replace("\\", "/");
-                if (_isScannedCode(rel)) {
-                    string full = Path.Join(root, rel);
-                    if (File.Exists(full) && !Directory.Exists(full) && File.ReadAllText(full).Contains("docs/agent/")) {
-                        ConsoleError.WriteLine("  ✗ " + rel);
-                        bad = bad + 1;
-                    }
-                }
-                i = i + 1;
+    foreach (var dir in new string[]{ "src", "scripts", ".github" }) {
+        string top = Path.Join(root, dir);
+        if (!Directory.Exists(top)) { continue; }
+        foreach (var f in Directory.EnumerateRecursive(top)) {
+            string rel = dir + "/" + f.Replace("\\", "/");
+            if (!_isScannedCode(rel)) { continue; }
+            string full = Path.Join(root, rel);
+            if (File.Exists(full) && !Directory.Exists(full) && File.ReadAllText(full).Contains("docs/agent/")) {
+                ConsoleError.WriteLine("  ✗ " + rel);
+                bad = bad + 1;
             }
         }
-        d = d + 1;
     }
     return bad;
 }
@@ -290,28 +215,13 @@ int _checkCodeAgentRefs(string root) {
 // 白名单按名字匹配，目录也可能撞上（`src/libraries/z42.toml`），读之前调用方另判是不是目录。
 bool _isScannedCode(string rel) {
     if (rel == "scripts/test/xtask_test_docs.z42") { return false; }
-    string[] skipDirs = new string[6];
-    skipDirs[0] = "/node_modules/";
-    skipDirs[1] = "/target/";
-    skipDirs[2] = "/dist/";
-    skipDirs[3] = "/artifacts/";
-    skipDirs[4] = "/build/";
-    skipDirs[5] = "/.gradle/";
-    int k = 0;
-    while (k < skipDirs.Length) {
-        if (rel.Contains(skipDirs[k])) { return false; }
-        k = k + 1;
+    foreach (var skip in new string[]{ "/node_modules/", "/target/", "/dist/", "/artifacts/", "/build/", "/.gradle/" }) {
+        if (rel.Contains(skip)) { return false; }
     }
-    string[] exts = new string[17];
-    exts[0] = ".rs";    exts[1] = ".z42";   exts[2] = ".toml";  exts[3] = ".yml";
-    exts[4] = ".yaml";  exts[5] = ".sh";    exts[6] = ".ps1";   exts[7] = ".bat";
-    exts[8] = ".h";     exts[9] = ".c";     exts[10] = ".kt";   exts[11] = ".kts";
-    exts[12] = ".swift"; exts[13] = ".js";  exts[14] = ".ts";   exts[15] = ".py";
-    exts[16] = ".txt";
-    int e = 0;
-    while (e < exts.Length) {
-        if (rel.EndsWith(exts[e])) { return true; }
-        e = e + 1;
+    string[] exts = new string[]{ ".rs", ".z42", ".toml", ".yml", ".yaml", ".sh", ".ps1", ".bat",
+        ".h", ".c", ".kt", ".kts", ".swift", ".js", ".ts", ".py", ".txt" };
+    foreach (var ext in exts) {
+        if (rel.EndsWith(ext)) { return true; }
     }
     return false;
 }
@@ -353,8 +263,7 @@ int _findTickRun(string line, int from, int run) {
 
 // 一行里的所有 `](target)` 目标。返回可能为空数组。
 string[] _linkTargets(string line) {
-    string[] acc = new string[16];
-    int n = 0;
+    var acc = new List<string>();
     int i = 0;
     while (i < line.Length - 1) {
         if (line.CharAt(i) == ']' && line.CharAt(i + 1) == '(') {
@@ -364,13 +273,13 @@ string[] _linkTargets(string line) {
                 // `[text](url "title")` → 去掉 title
                 int sp = target.IndexOf(" ");
                 if (sp > 0) { target = target.Substring(0, sp); }
-                if (target.Length > 0 && n < acc.Length) { acc[n] = target; n = n + 1; }
+                if (target.Length > 0) { acc.Add(target); }
                 i = close;
             }
         }
         i = i + 1;
     }
-    return _trimStrings(acc, n);
+    return acc.ToArray();
 }
 
 // 从 `(` 位置找配对的 `)`，支持一层嵌套括号（URL 里出现 `(1)` 之类）。找不到返回 -1。
@@ -419,9 +328,3 @@ string _relToRoot(string root, string p) {
     return f;
 }
 
-string[] _trimStrings(string[] arr, int n) {
-    string[] outArr = new string[n];
-    int i = 0;
-    while (i < n) { outArr[i] = arr[i]; i = i + 1; }
-    return outArr;
-}
