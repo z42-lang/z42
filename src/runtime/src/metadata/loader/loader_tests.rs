@@ -986,3 +986,54 @@ fn empty_value_struct_without_a_field_table_is_accepted() {
     let td = m.type_registry.get("Demo.Phantom").expect("类型进了注册表");
     assert_eq!(td.struct_layout().expect("struct_layout 在").field_count(), 0);
 }
+
+// ── Members by owner (runtime-audit S1) ───────────────────────────────────────
+
+fn stub_fn(name: &str, is_static: bool) -> crate::metadata::Function {
+    use crate::metadata::bytecode::{BasicBlock, Terminator};
+    crate::metadata::Function {
+        name: name.to_string(),
+        param_count: if is_static { 0 } else { 1 },
+        ret_type: "void".to_string(),
+        exec_mode: crate::metadata::types::ExecMode::Interp,
+        blocks: vec![BasicBlock { label: "entry".to_string(), instructions: vec![], terminator: Terminator::Ret { reg: None } }],
+        is_static,
+        visibility: 0,
+        method_flags: 0, min_arg: 0, params_from: 0xFF,
+        max_reg: 1,
+        cold: None,
+        reg_types: Box::new([]),
+        block_index: std::collections::HashMap::new(),
+        branch_targets: Vec::new(),
+        fused_tails: Vec::new(),
+        frame_meta: None,
+        resolved: std::sync::OnceLock::new(),
+        owner_init: Default::default(),
+        id: Default::default(),
+        forward: Default::default(),
+    }
+}
+
+/// A class's own methods are every function named `<class>.<member>` in declaration
+/// order — also when another class's name extends this one (`A.B` vs `A.B.C`), and
+/// never the constructor; a constructed instantiation also gets its erased
+/// definition's members it does not specialize.
+#[test]
+fn own_methods_are_the_functions_under_the_class_name() {
+    let mut m = module_with_class_names("M", &["A.B", "A.B.C", "G", "G<int>"]);
+    m.functions = vec![
+        stub_fn("A.B.First", false),
+        stub_fn("A.B.C.Inner", false),
+        stub_fn("A.B.B", false),          // ctor
+        stub_fn("A.Bx.Other", false),     // `A.Bx` is not `A.B`
+        stub_fn("A.B.Last", true),
+        stub_fn("G.Shared", false),
+        stub_fn("G.Special", false),
+        stub_fn("G<int>.Special", false),
+    ];
+    crate::metadata::loader::build_type_registry(&mut m);
+    let own = |c: &str| m.type_registry[c].own_methods().iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    assert_eq!(own("A.B"), ["A.B.First", "A.B.C.Inner", "A.B.Last"]);
+    assert_eq!(own("A.B.C"), ["A.B.C.Inner"]);
+    assert_eq!(own("G<int>"), ["G<int>.Special", "G.Shared"]);
+}
