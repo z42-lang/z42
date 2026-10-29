@@ -97,11 +97,17 @@ pub fn build_type_registry(module: &mut Module) {
             }
         }
 
+        // fix-interface-overload-dispatch: the class's interface-slot table (compiler-matched
+        // by signature) — applied as `vtable_index` aliases by `merge_with_base`.
+        let own_iface_slots: Box<[(Box<str>, Box<str>)]> = desc.iface_slots.iter()
+            .map(|(k, v)| (k.as_str().into(), v.as_str().into()))
+            .collect();
+
         // ── Initial merged view: inherit from local-registry base if present.
         // Cross-zpkg base classes contribute nothing here — that's fixed up
         // later by `try_fixup_inheritance` once the dep is loaded.
         let (fields, field_index, vtable, vtable_index) =
-            merge_with_base(&own_fields, &own_methods, &own_static, class_name, desc.base_class.as_deref(), &registry);
+            merge_with_base(&own_fields, &own_methods, &own_static, &own_iface_slots, class_name, desc.base_class.as_deref(), &registry);
 
         let type_id = crate::metadata::tokens::TypeId(next_type_id);
         next_type_id += 1;
@@ -119,6 +125,7 @@ pub fn build_type_registry(module: &mut Module) {
             own_fields:             own_fields.into(),
             own_methods:            own_methods.into(),
             own_static_flags:       own_static.into(),
+            own_iface_slots,
             type_params:            desc.type_params.clone(),
             // complete-generic-class-identity P1: the name of a constructed instantiation
             // *is* its argument list (`Demo.Box<int>`), and the compiler ships no separate
@@ -241,6 +248,7 @@ pub fn build_type_registry(module: &mut Module) {
         };
         let cold = if cold_inner.own_fields.is_empty()
             && cold_inner.own_methods.is_empty()
+            && cold_inner.own_iface_slots.is_empty()
             && cold_inner.type_params.is_empty()
             // An instantiation's interned arguments live here too (`type_args_handle`).
             && cold_inner.type_args.is_empty()
@@ -389,6 +397,7 @@ fn merge_with_base(
     own_fields:  &[FieldSlot],
     own_methods: &[Box<str>],
     own_static:  &[bool],
+    own_iface_slots: &[(Box<str>, Box<str>)],
     class_name:  &str,
     base_class_name: Option<&str>,
     registry:    &FxHashMap<String, Arc<TypeDesc>>,
@@ -426,7 +435,28 @@ fn merge_with_base(
         }
     }
 
+    apply_iface_slots(&mut vtable_index, own_iface_slots);
+
     (fields, field_index, vtable, vtable_index)
+}
+
+/// fix-interface-overload-dispatch: make each interface-slot key an **alias of the slot**
+/// holding the implementing method. Interface call sites emit the slot key
+/// (`Demo.IPlain#Get`), so the call lands on the overload the compiler matched by
+/// signature — not on whichever same-named overload owns the bare key. Aliasing the
+/// *slot* (not the function) is what keeps overrides working: a subclass that overrides
+/// the implementing method replaces that slot's entry, and the inherited alias follows.
+///
+/// Own aliases are applied after own methods and win over inherited ones with the same
+/// key (a subclass that re-implements an interface). An implementing key not in the
+/// vtable yet (inherited from a cross-zpkg base that is still unmerged) is skipped here;
+/// `try_fixup_inheritance` re-runs this once the base resolves.
+fn apply_iface_slots(vtable_index: &mut NameIndex, own_iface_slots: &[(Box<str>, Box<str>)]) {
+    for (key, impl_key) in own_iface_slots {
+        if let Some(&slot) = vtable_index.get(impl_key) {
+            vtable_index.insert(key.to_string(), slot);
+        }
+    }
 }
 
 /// Walk the global type `registry` and, for any TypeDesc whose base class
@@ -484,6 +514,7 @@ pub fn try_fixup_inheritance(
             td.own_fields(),
             td.own_methods(),
             td.own_static_flags(),
+            td.own_iface_slots(),
             &td.name,
             td.base_name.as_deref(),
             registry,

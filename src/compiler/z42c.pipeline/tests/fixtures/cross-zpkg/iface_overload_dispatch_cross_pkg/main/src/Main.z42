@@ -1,0 +1,41 @@
+namespace Demo.IfovApp;
+
+using Std;
+using Std.IO;
+using Demo.IfovTarget;
+
+// 跨包基类 + 本包新增重载：Get(int) 不得占用 B0 的裸键槽。
+class D0 : B0 {
+    public string Get(int x) { return "D0.int"; }
+}
+
+// 跨包类的 override：接口槽别名指向槽，override 跟着生效。
+class W2 : W {
+    public override string Get(string x) { return "W2.str:" + x; }
+}
+
+// 本包类实现跨包接口。
+class Mine : IFoo<string> {
+    public string Get(int x) { return "Mine.int"; }
+    public string Get(string x) { return "Mine.str:" + x; }
+}
+
+void Main() {
+    IPlain w = new W();
+    Console.WriteLine(w.Get("a"));
+    IFoo<int> xi = new X();
+    IFoo<string> xs = new X();
+    Console.WriteLine(xi.Get(1));
+    Console.WriteLine(xs.Get("b"));
+    B0 b = new D0();
+    Console.WriteLine(b.Get("c"));
+    IPlain d = new D0();
+    Console.WriteLine(d.Get("d"));
+    IPlain w2 = new W2();
+    Console.WriteLine(w2.Get("e"));
+    IFoo<string> m = new Mine();
+    Console.WriteLine(m.Get("f"));
+    // 调用点在依赖包里（接口槽键由依赖包的编译器发，实现在本包）。
+    Console.WriteLine(Calls.ViaPlain(new W2(), "g"));
+    Console.WriteLine(Calls.ViaFoo<string>(new Mine(), "h"));
+}

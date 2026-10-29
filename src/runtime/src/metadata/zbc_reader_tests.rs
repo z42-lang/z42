@@ -271,6 +271,26 @@ fn struct_layout_block_roundtrips_ref_bitmap() {
     assert_eq!(&*sl.ref_kinds, &[crate::metadata::types::STRUCT_REF_ARC_STRING]);
 }
 
+/// fix-interface-overload-dispatch: `class_flags2` bit1 gates the interface-slot table at
+/// the very end of the record (after the assoc block).
+#[test]
+fn iface_slot_table_roundtrips_when_flags2_bit1_is_set() {
+    let pool = vec!["Demo.S".to_owned(), "Demo.IPlain#Get".to_owned(), "Get$1$string".to_owned()];
+    let mut sec = build_type_section_one_struct(0, &[]);
+    // class_flags2 sits right after class_flags(u8) + visibility(u8): offset 4+4+4+2+1+2+1+1.
+    let flags2_at = 4 + 4 + 4 + 2 + 1 + 2 + 1 + 1;
+    sec[flags2_at..flags2_at + 2].copy_from_slice(&crate::metadata::bytecode::CLASS_FLAGS2_HAS_IFACE_SLOTS.to_le_bytes());
+    sec.extend_from_slice(&1u16.to_le_bytes());      // slot count
+    sec.extend_from_slice(&1u32.to_le_bytes());      // key → pool[1]
+    sec.extend_from_slice(&2u32.to_le_bytes());      // impl → pool[2]
+    let classes = read_type(&sec, &pool).expect("read_type");
+    assert_eq!(&*classes[0].iface_slots, &[("Demo.IPlain#Get".to_owned(), "Get$1$string".to_owned())]);
+
+    // bit clear ⇒ no table read (the record ends at the assoc block).
+    let plain = read_type(&build_type_section_one_struct(0, &[]), &pool).expect("read_type");
+    assert!(plain[0].iface_slots.is_empty());
+}
+
 #[test]
 fn pure_primitive_struct_block_has_no_ref_leaves() {
     // struct { x: int @0; y: int @4 } → size 8, empty reference bitmap.

@@ -105,6 +105,10 @@ public sealed class Z42ClassType : Z42Type {
     // 型参类型实参推断穿过接口实现时用（`Accept<R>(INodeVisitor<R>)` 传 `Eval` ⇒ R := int）。只有本包类有：
     // 填自 AST 基类列表（InheritanceResolver），跨包类的导出数据只带接口名，这里为空。
     public Z42InterfaceType[] IfaceInsts; public int IfaceInstCount;
+    // fix-interface-overload-dispatch：接口槽 → 实现方法（`IfaceSlotKeys` 的键 → 实现方法符号）。
+    // 接口满足性校验按签名找到实现时登记（`InheritanceResolver._checkOneIfaceMethod`），类描述符
+    // 发射时读实现的 **RegKey**（读晚不读早：override 对齐 / 重载重键 pass 都可能改它）。只有本包类有。
+    public string[] IfaceSlotKeys; public MethodSymbol[] IfaceSlotImpls; public int IfaceSlotCount;
     // 本类**自有实例字段**（声明序 + AST 源拼写 + 可见性），供 TSIG 继承字段展开走 base 链按序读取
     // （Fields 是 hashed StrMap，迭代非确定；TSIG 需确定序 + 源拼写 → 单独有序元数据）。G18。
     public string[] OwnFieldNames; public string[] OwnFieldSpellings; public string[] OwnFieldVis; public int OwnFieldCount;
@@ -210,6 +214,7 @@ public sealed class Z42ClassType : Z42Type {
         this.InterfaceNames = new string[0]; this.InterfaceCount = 0;
         this.Interfaces = new int[0];   // B3：句柄数组，与 InterfaceNames 同长（0 = 未绑定）
         this.IfaceInsts = new Z42InterfaceType[0]; this.IfaceInstCount = 0;
+        this.IfaceSlotKeys = new string[0]; this.IfaceSlotImpls = new MethodSymbol[0]; this.IfaceSlotCount = 0;
         this.OwnFieldNames = new string[0]; this.OwnFieldSpellings = new string[0]; this.OwnFieldVis = new string[0]; this.OwnFieldCount = 0;
         this.OwnMethodNames = new string[0]; this.OwnMethodIsVirtual = new bool[0]; this.OwnMethodIsAbstract = new bool[0]; this.OwnMethodCount = 0;
         this.IsEnum = false;
@@ -328,6 +333,20 @@ public sealed class Z42ClassType : Z42Type {
         while (i < this.IfaceInstCount) { n[i] = this.IfaceInsts[i]; i = i + 1; }
         n[this.IfaceInstCount] = it;
         this.IfaceInsts = n; this.IfaceInstCount = this.IfaceInstCount + 1;
+    }
+
+    // 登记一个接口槽。同键**首个**胜出（多入口路径重复跑校验 / 擦除键被两个实例化各要一次时，
+    // 声明序首个那份定案）。
+    public void AddIfaceSlot(string key, MethodSymbol implMs) {
+        if (key == "" || implMs == null) { return; }
+        int i = 0;
+        while (i < this.IfaceSlotCount) { if (this.IfaceSlotKeys[i] == key) { return; } i = i + 1; }
+        string[] nk = new string[this.IfaceSlotCount + 1];
+        MethodSymbol[] nm = new MethodSymbol[this.IfaceSlotCount + 1];
+        int j = 0;
+        while (j < this.IfaceSlotCount) { nk[j] = this.IfaceSlotKeys[j]; nm[j] = this.IfaceSlotImpls[j]; j = j + 1; }
+        nk[this.IfaceSlotCount] = key; nm[this.IfaceSlotCount] = implMs;
+        this.IfaceSlotKeys = nk; this.IfaceSlotImpls = nm; this.IfaceSlotCount = this.IfaceSlotCount + 1;
     }
 
     public void AddInterfaceName(string name) {

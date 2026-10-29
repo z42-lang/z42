@@ -893,7 +893,7 @@ struct TypeDesc {
     //   type_tag 用于 ObjNew 选默认值
     field_index: NameIndex,                // 字段名 → slot（linear scan，见下）
     vtable: Vec<(String, String)>,         // 方法名 → FQ func name
-    vtable_index: NameIndex,               // method → vtable slot（同上）
+    vtable_index: NameIndex,               // method → vtable slot（同上）；另含接口槽键 → 实现所在槽的别名
     class_flags: u8,
     visibility: u8,
     cold: Option<Box<TypeDescCold>>,       // own_fields / own_methods / type_params / type_args /
@@ -966,6 +966,35 @@ if let Some(&slot) = type_desc.vtable_index.get(method) {
 > 注：派发目标的**决议**集中在
 > `src/runtime/src/interp/vcall_resolve.rs`，interp 与 JIT 共用同一条阶梯（boxed primitive →
 > boxed struct → primitive/array receiver → object vtable / 继承链），各自只决定「怎么调」。
+
+### 接口调用：接口槽
+
+类的同名重载按「声明序首个 → 裸键、其余 → 全签名键」注册（`Get` / `Get$1$string`），裸键上坐的是哪个
+重载只取决于声明顺序，与某个接口要的签名无关；同一泛型接口实现两次（`X : IFoo<int>, IFoo<string>`）时，
+一个名字更不可能同时指两个实现。所以接口调用**不按方法名派发**，而按接口槽：
+
+- **键**：`<接口 FQN>[<实参键,…>]#<接口方法名>`（z42c `IfaceSlotKeys`）。精确键带接口实参
+  （`Demo.IFoo<string>#Get`），只在实参全部闭合（不含型参）时有；擦除键不带（`Demo.IFoo#Get`），总有。
+  `#` 不出现在任何类型名或方法键里，运行期按最后一个 `#` 切分。
+- **映射在编译期按签名定案**：接口满足性校验本来就在为每个接口方法找实现（接口实参与 `Self` 代换后比
+  签名，沿基类链找），找到时把「精确键 / 擦除键 → 实现方法」登记到类上；类描述符发射时取实现的 RegKey，
+  写进 TYPE 记录尾部的接口槽表（`class_flags2` bit1，见 [zbc.md](../formats/zbc.md)）。同一擦除键被两个
+  实例化各要一次时声明序首个胜出。
+- **运行期一次建好**：`merge_with_base` 在合并完自有方法之后，把每个键作为 `vtable_index` 的**别名**指向
+  实现方法所在的槽（不新增 vtable 项）。别名指的是槽而不是函数，所以子类 override 该方法时继承来的别名
+  自动跟过去；子类重新声明接口时自己的别名覆盖继承的。实现方法继承自尚未合并的跨包基类时别名先跳过，
+  `try_fixup_inheritance` 重算布局时补上。
+- **调用点**：接口静态类型收者、以及 `where` 约束接口提供的实例方法，VCall 的方法名都是接口槽键
+  （有精确键发精确键，否则擦除键；共享泛型体里的 `IFoo<T>` 只能发擦除键）。`resolve_vcall` 先把它翻成
+  实现方法的键再走阶梯（[object-protocol-dispatch.md](object-protocol-dispatch.md)），PIC 照常按接收者类型缓存。
+- **已知限制**：共享泛型体经 `IFoo<T>` 调用一个**重复实现了** `IFoo` 的类（`X : IFoo<int>, IFoo<string>`）
+  只能命中擦除键 ⇒ 落到声明序首个实例化的实现。
+
+类层面同一个问题的另一半在编译器：派生类**新增**的同名重载若也拿裸键，会在 `merge_with_base` 里按键覆盖
+基类那个签名不同的方法的槽（`B b = new D(); b.Get("s")` 跑进 `D.Get(int)`）。`InheritanceResolver`
+在 override 键对齐之后再跑一趟：派生类非 override 的实例方法拿了裸键、而祖先链最顶层持有该裸键的方法
+签名不同（按基类实参代换后比）时改用全签名键。协议名（`ToString` / `Equals` / `GetHashCode` /
+`GetType` / `get_Item` / `set_Item`）不在此列。
 
 ### 非 Object receiver 的派发：`primitive_class_name`
 

@@ -187,6 +187,8 @@ public sealed partial class MemberResolver {
                 }
                 BoundCall ifc = BoundCall.Marked(new BoundCall("instance", true, recv, it.Name(), mem.Name, args, argCount,
                                      ifRet, sp), ims.Signature);
+                // fix-interface-overload-dispatch：按**归属接口**（继承来的成员归父接口，实参已逐层代下）发接口槽键。
+                if (!ims.IsStatic) { ifc.IfaceSlot = IfaceSlotKeys.CallSite(iown != null ? iown : it, ims.Name); }
                 return this._applyMethodTypeArgs(ifc, call, ims, env, iown != null ? iown : it);
             }
             this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
@@ -289,7 +291,8 @@ public sealed partial class MemberResolver {
             // 签名里的 `Self` 在这条路上**精确替换为该型参本身**（不是上界）：约束 `T : IEq` 就是
             // 「运行期 T 即那个实现类型」的断言 ⇒ `Self ≡ T`。与接口静态类型收者那条（只能取接口作
             // 上界，见 _substSelf 抬头）本质不同。
-            MethodSymbol cms = this._tc._expr._constraintIfaceMethod(env, rt.Name(), mem.Name);
+            IfaceMethodHit chit = this._tc._expr._constraintIfaceHit(env, rt.Name(), mem.Name);
+            MethodSymbol cms = chit != null ? chit.Sym : null;
             if (cms != null && cms.Signature != null) {
                 Z42FuncType csig = MemberResolver._substSelfSig(cms.Signature, rt);
                 args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, csig, env);
@@ -297,7 +300,11 @@ public sealed partial class MemberResolver {
                 // 的 CheckArgTypes 命中 Conversion 分支 B「恰一侧含型参→擦除」把具体实参静默放行。补一道
                 // 方向敏感的严格检查（E0463）——门控来自 Self 的形参位、只报「具体类型实参」。见 design D1–D5。
                 this._tc._overload.CheckConstraintIfaceArgs(args, rawArgs, argCount, cms.Signature, rt.Name(), mem.Name, cms.ContainingTypeName);
-                return BoundCall.Marked(new BoundCall("instance", true, recv, rt.Name(), mem.Name, args, argCount, csig.Ret, sp), csig);
+                BoundCall ccall = BoundCall.Marked(new BoundCall("instance", true, recv, rt.Name(), mem.Name, args, argCount, csig.Ret, sp), csig);
+                // fix-interface-overload-dispatch：约束接口提供的实例方法同样按接口槽派发（实现类的重载
+                // 不能靠裸名猜）。静态接口成员（`static abstract op_*`）不走实例 vtable，保持原样。
+                if (!cms.IsStatic) { ccall.IfaceSlot = IfaceSlotKeys.CallSite(chit.Owner, cms.Name); }
+                return ccall;
             }
             // check-bare-type-param-member-access B：`Object` 成员与约束都没提供 ⇒ 若这个名字
             // **在任何已知类型上都不存在**，那就是必然错（拼错 / 调不存在的方法），报 E0401。
@@ -336,8 +343,10 @@ public sealed partial class MemberResolver {
                 // 接口型参也同款代换（`IBox<int>.Cur` 是 int 而非 T）。getter 无形参，不必补查实参。
                 Z42Type gRet = MemberResolver._substSelf(ig.Signature.Ret, it);
                 if (gown is Z42InstantiatedInterfaceType) { gRet = MemberResolver._substIfaceArgs(gRet, gown as Z42InstantiatedInterfaceType); }
-                return BoundCall.Marked(new BoundCall("instance", true, target, it.Name(), "get_" + m.Name, new BoundExpr[0], 0,
+                BoundCall gcall = BoundCall.Marked(new BoundCall("instance", true, target, it.Name(), "get_" + m.Name, new BoundExpr[0], 0,
                                      gRet, m.Span), ig.Signature);
+                gcall.IfaceSlot = IfaceSlotKeys.CallSite(gown, ig.Name);   // fix-interface-overload-dispatch：同方法那条
+                return gcall;
             }
             return new BoundMember(target, m.Name, new Z42ErrorType(), m.Span);
         }
@@ -373,12 +382,15 @@ public sealed partial class MemberResolver {
             // （GetType / Equals / GetHashCode / ToString / ReferenceEquals），**没有任何属性**，
             // 故此处只查约束。将来 Object 若新增属性，**必须在这一行之前**补 Object 查找 ——
             // 顺序反了会改派发键、撼动自举字节（见上方方法路同款告警）。
-            MethodSymbol cgs = this._tc._expr._constraintIfaceMethod(env, tt.Name(), "get_" + m.Name);
+            IfaceMethodHit cghit = this._tc._expr._constraintIfaceHit(env, tt.Name(), "get_" + m.Name);
+            MethodSymbol cgs = cghit != null ? cghit.Sym : null;
             if (cgs != null && cgs.Signature != null) {
                 Z42FuncType cgsig = MemberResolver._substSelfSig(cgs.Signature, tt);
                 this._tc._access.CheckDeprecatedM(cgs, m.Name, m.Span);
-                return BoundCall.Marked(new BoundCall("instance", true, target, tt.Name(), "get_" + m.Name,
+                BoundCall cgcall = BoundCall.Marked(new BoundCall("instance", true, target, tt.Name(), "get_" + m.Name,
                                                       new BoundExpr[0], 0, cgsig.Ret, m.Span), cgsig);
+                if (!cgs.IsStatic) { cgcall.IfaceSlot = IfaceSlotKeys.CallSite(cghit.Owner, cgs.Name); }
+                return cgcall;
             }
             // check-bare-type-param-member-access B：同方法路 —— 只报「全仓无此成员名」。
             this.ReportTypeParamMemberUnknown(env.Symbols, tt.Name(), m.Name, false, m.Span);

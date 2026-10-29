@@ -1,0 +1,41 @@
+// fix-interface-overload-dispatch：派生类**新增**的同名重载不得顶掉基类方法的 vtable 槽。
+//
+// 类的重载键按本类声明序定（首个同名 → 裸键）。此前派生类的第一个 `Get` 一律拿裸键 `Get`，
+// 哪怕基类的裸键 `Get` 是另一个签名 ⇒ VM 按键合并 vtable 时它覆盖了基类的槽：
+// `B1 b = new D1(); b.Get("s")` 跑进 `D1.Get(int)`（实参还是个 string）。
+namespace Demo;
+
+using Std;
+
+class B1 { public virtual string Get(string x) { return "B1.str:" + x; } }
+class D1 : B1 { public string Get(int x) { return "D1.int:" + x.ToString(); } }
+
+// 派生类同时 override 基类那个、又新增一个：两者不能撞同一个键
+class D3 : B1 {
+    public string Get(int x) { return "D3.int:" + x.ToString(); }
+    public override string Get(string x) { return "D3.str:" + x; }
+}
+
+// 三层：中间层新增的重载同样不占祖先的槽
+class M4 : B1 { public string Get(long x) { return "M4.long"; } }
+class L4 : M4 { public override string Get(string x) { return "L4.str:" + x; } }
+
+void Main() {
+    B1 b = new D1();
+    Assert.Equal("B1.str:a", b.Get("a"));
+    D1 d = new D1();
+    Assert.Equal("D1.int:1", d.Get(1));
+    Assert.Equal("B1.str:b", d.Get("b"));
+
+    B1 b3 = new D3();
+    Assert.Equal("D3.str:c", b3.Get("c"));
+    D3 d3 = new D3();
+    Assert.Equal("D3.int:2", d3.Get(2));
+    Assert.Equal("D3.str:d", d3.Get("d"));
+
+    B1 b4 = new L4();
+    Assert.Equal("L4.str:e", b4.Get("e"));
+    M4 m4 = new L4();
+    Assert.Equal("M4.long", m4.Get(3L));
+    Assert.Equal("L4.str:f", m4.Get("f"));
+}

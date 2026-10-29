@@ -204,3 +204,77 @@ fn null_receiver_is_a_null_reference_and_not_cached() {
         "Std.NullReferenceException: cannot read property `Name` of a null reference");
     assert_eq!(vcall_ic_hit(Some(&ic), &Value::Null), None);
 }
+
+// ── fix-interface-overload-dispatch ─────────────────────────────────────────────────
+
+#[test]
+fn iface_slot_key_parts() {
+    assert_eq!(iface_slot_method("Demo.IFoo<string>#Get"), Some("Get"));
+    assert_eq!(iface_slot_method("Get$1$string"), None, "ordinary keys never carry `#`");
+    assert_eq!(erased_iface_slot_key("Demo.IFoo<string>#Get").as_deref(), Some("Demo.IFoo#Get"));
+    assert_eq!(erased_iface_slot_key("Demo.IFoo<Demo.Box<int>,int>#Get").as_deref(), Some("Demo.IFoo#Get"));
+    assert_eq!(erased_iface_slot_key("Demo.IPlain#Get"), None, "no type arguments to drop");
+}
+
+/// An object of `Demo.W` whose vtable holds `Get` (the bare-keyed `Get(int)`) and
+/// `Get$1$string`, with the interface-slot aliases `aliases` pointing at slot 1.
+fn w_object(ctx: &VmContext, aliases: &[&str]) -> Value {
+    let mut vtable_index = NameIndex::new();
+    vtable_index.insert("Get".to_string(), 0);
+    vtable_index.insert("Get$1$string".to_string(), 1);
+    for a in aliases { vtable_index.insert(a.to_string(), 1); }
+    let td = Arc::new(TypeDesc {
+        class_flags: 0,
+        visibility: 0,
+        name: "Demo.W".to_string(),
+        base_name: None,
+        fields: Vec::new(),
+        field_index: NameIndex::new(),
+        vtable: vec![("Get".to_string(), "Demo.W.Get".to_string()),
+                     ("Get$1$string".to_string(), "Demo.W.Get$1$string".to_string())],
+        vtable_index,
+        cold: None,
+        id: TypeId(alloc_type_id_block(1)),
+    });
+    ctx.heap().alloc_object(td, Vec::new(), NativeData::None)
+}
+
+fn w_module() -> Module {
+    let mut get_int = method("Demo.W.Get", 1);
+    get_int.param_count = 2;
+    let mut get_str = method("Demo.W.Get$1$string", 2);
+    get_str.param_count = 2;
+    module("Entry", vec![get_int, get_str])
+}
+
+fn target_name(r: &ResolvedVCall<'_>) -> String {
+    match &r.target {
+        VCallTarget::Local { func, .. } => func.name.clone(),
+        _ => panic!("expected a function target"),
+    }
+}
+
+/// The interface call reaches the overload the slot alias names, not the one holding the
+/// bare method name — exact key, and the erased key for a site with type arguments.
+#[test]
+fn iface_slot_key_dispatches_through_the_alias() {
+    let ctx = VmContext::with_module(w_module());
+    let entry = Arc::clone(ctx.module().unwrap());
+    let obj = w_object(&ctx, &["Demo.IPlain#Get", "Demo.IFoo#Get"]);
+
+    let r = resolve_vcall(&ctx, &entry, &obj, "Demo.IPlain#Get", 1, None).unwrap();
+    assert_eq!(target_name(&r), "Demo.W.Get$1$string");
+    let r = resolve_vcall(&ctx, &entry, &obj, "Demo.IFoo<string>#Get", 1, None).unwrap();
+    assert_eq!(target_name(&r), "Demo.W.Get$1$string", "falls back to the erased slot key");
+}
+
+/// A receiver type without a slot table (compiled before slots existed) still dispatches by
+/// the bare interface method name.
+#[test]
+fn iface_slot_key_without_a_table_falls_back_to_the_bare_name() {
+    let ctx = VmContext::with_module(w_module());
+    let entry = Arc::clone(ctx.module().unwrap());
+    let obj = w_object(&ctx, &[]);
+    let r = resolve_vcall(&ctx, &entry, &obj, "Demo.IPlain#Get", 1, None).unwrap();
+    assert_eq!(target_name(&r), "Demo.W.Get");
+}

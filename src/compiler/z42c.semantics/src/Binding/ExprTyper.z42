@@ -695,6 +695,13 @@ public sealed partial class ExprTyper : IExprVisitor<BoundExpr, TypeEnv> {
     //   - **类级** `class Calc<T> where T : INumber<T>` —— 经 SymbolTable.ClassConstraints 取
     //     ConstraintSet（键须走 ClassConstraintKey：按短名查会让同短名的泛型类互相串味）。
     internal MethodSymbol _constraintIfaceMethod(TypeEnv env, string paramName, string opMethod) {
+        IfaceMethodHit hit = this._constraintIfaceHit(env, paramName, opMethod);
+        if (hit == null) { return null; }
+        return hit.Sym;
+    }
+
+    // 同上，连**归属接口**一起给（fix-interface-overload-dispatch：调用点按它发接口槽键）。
+    internal IfaceMethodHit _constraintIfaceHit(TypeEnv env, string paramName, string opMethod) {
         MethodDecl md = this._tc._curMethodDecl;
         if (md != null) {
             int w = 0;
@@ -705,7 +712,7 @@ public sealed partial class ExprTyper : IExprVisitor<BoundExpr, TypeEnv> {
                     while (k < wc.Count) {
                         WhereConstraint con = wc.Constraints[k];
                         if (con.IsType && (con.Type is NamedType)) {
-                            MethodSymbol hit = this._ifaceMethodClosure(env, (con.Type as NamedType).Name, opMethod);
+                            IfaceMethodHit hit = this._ifaceMethodClosure(env, (con.Type as NamedType).Name, opMethod);
                             if (hit != null) { return hit; }
                         }
                         k = k + 1;
@@ -725,7 +732,7 @@ public sealed partial class ExprTyper : IExprVisitor<BoundExpr, TypeEnv> {
                     ConstraintBundle b = cs.Bundles[pi];
                     int i = 0;
                     while (i < b.InterfaceCount) {
-                        MethodSymbol hit = this._ifaceMethodClosure(env, b.InterfaceNames[i], opMethod);
+                        IfaceMethodHit hit = this._ifaceMethodClosure(env, b.InterfaceNames[i], opMethod);
                         if (hit != null) { return hit; }
                         i = i + 1;
                     }
@@ -737,8 +744,9 @@ public sealed partial class ExprTyper : IExprVisitor<BoundExpr, TypeEnv> {
 
     // 接口（含其父接口闭包）是否声明了 `opMethod`。遍历收敛到 `InterfaceClosure`——
     // 成员解析那条路径要的是同一份闭包语义，两处各写一份必然漂移。
-    private MethodSymbol _ifaceMethodClosure(TypeEnv env, string ifaceName, string opMethod) {
-        return InterfaceClosure.FindMethodByName(env.Symbols, ifaceName, opMethod);
+    private IfaceMethodHit _ifaceMethodClosure(TypeEnv env, string ifaceName, string opMethod) {
+        if (env.Symbols == null || !env.Symbols.HasInterface(ifaceName)) { return null; }
+        return InterfaceClosure.Find(env.Symbols, env.Symbols.GetInterface(ifaceName), opMethod);
     }
 
     private BoundExpr _bindUnary(UnaryExpr u, TypeEnv env) {

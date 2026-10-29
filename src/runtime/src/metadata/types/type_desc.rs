@@ -107,6 +107,11 @@ pub struct TypeDescCold {
     /// [`TypeDesc::derive_simple_method_name`] given the owning class
     /// name. Saves one heap allocation + 16–24 B per method.
     pub own_methods: Box<[Box<str>]>,
+    /// fix-interface-overload-dispatch: this class's own interface-slot table
+    /// (`ClassDesc::iface_slots`) — `(slot key, implementing method's vtable key)`.
+    /// Kept so the cross-zpkg fixup can re-apply the aliases after rebuilding the vtable
+    /// (the implementing method may be inherited from a base that resolves later).
+    pub own_iface_slots: Box<[(Box<str>, Box<str>)]>,
     /// fix-value-type-object-methods ③: per-entry `is_static` flag, index-aligned
     /// with `own_methods`. Used by `merge_with_base` to keep **static** methods out
     /// of the instance vtable — a static method (e.g. `Type.GetType(string)`) whose
@@ -219,6 +224,7 @@ impl TypeDesc {
     #[inline] pub fn own_fields(&self)             -> &[FieldSlot]                              { self.cold_slice(|c| &c.own_fields) }
     #[inline] pub fn own_methods(&self)            -> &[Box<str>]                               { self.cold_slice(|c| &c.own_methods) }
     #[inline] pub fn own_static_flags(&self)       -> &[bool]                                   { self.cold_slice(|c| &c.own_static_flags) }
+    #[inline] pub fn own_iface_slots(&self)        -> &[(Box<str>, Box<str>)]                   { self.cold_slice(|c| &c.own_iface_slots) }
     #[inline] pub fn type_params(&self)            -> &[String]                                 { self.cold_slice(|c| &c.type_params) }
     #[inline] pub fn type_args(&self)              -> &[String]                                 { self.cold_slice(|c| c.type_args.as_slice()) }
     /// The instantiation's interned type-arguments (empty handle for non-generic / open).

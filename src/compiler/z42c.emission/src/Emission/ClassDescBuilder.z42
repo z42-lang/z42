@@ -351,6 +351,7 @@ public sealed partial class ClassDescBuilder {
             cd2.Interfaces = ifqs;
             cd2.InterfaceCount = expanded.Length;
         }
+        this._fillIfaceSlots(cd2, ctd);
         // class-shape flags（zbc 1.12，G12）：从修饰符/kind 推导（镜像 C# cls.IsAbstract/IsSealed/IsStruct/IsRecord）。
         int flags = 0;
         if (Mod.Has(c.ModFlags, Mod.Abstract)) { flags = flags + 1; }   // bit0
@@ -429,6 +430,24 @@ public sealed partial class ClassDescBuilder {
             cd2.AssocCount = ctd.AssocBindingCount;
         }
         return cd2;
+    }
+
+    // 接口槽表（fix-interface-overload-dispatch，Flags2 bit1）：接口满足性校验按签名登记的
+    // 「接口槽键 → 实现方法」，实现键此刻才读 RegKey（override 对齐 / 重载重键 pass 都可能改过它）。
+    // 实例化描述符经 `_classDesc(定义)` 复制，同样带上（实参含型参的接口只有擦除键）。
+    private void _fillIfaceSlots(IrClassDesc cd, Z42ClassType ctd) {
+        if (ctd == null || ctd.IfaceSlotCount == 0) { return; }
+        int n = ctd.IfaceSlotCount;
+        string[] keys = new string[n];
+        string[] impls = new string[n];
+        int i = 0;
+        while (i < n) {
+            keys[i] = ctd.IfaceSlotKeys[i];
+            impls[i] = ctd.IfaceSlotImpls[i].RegKey;
+            i = i + 1;
+        }
+        cd.IfaceSlotKeys = keys; cd.IfaceSlotImpls = impls; cd.IfaceSlotCount = n;
+        cd.Flags2 = cd.Flags2 | 2;
     }
 
     // ConstraintSet（语义侧，八类承载）→ IrConstraintDesc[]（IR 侧，与 zbc flag 位一一对应）。
