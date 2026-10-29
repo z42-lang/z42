@@ -180,7 +180,14 @@ int _checkDocLints() {
         }
     }
 
-    // 每码计数（码升序打印，便于人工比对）。
+    // 逐条列出（硬门红了要能直接定位），再按码计数（码升序打印，便于人工比对）。
+    string rootSlash = root + "/";
+    int f = 0;
+    while (f < n) {
+        string file = fs[f].File.StartsWith(rootSlash) ? fs[f].File.Substring(rootSlash.Length) : fs[f].File;
+        ConsoleError.WriteLine("  " + file + ":" + fs[f].Line.ToString() + ": " + fs[f].Code + " " + fs[f].Msg);
+        f = f + 1;
+    }
     string[] codes = new string[n];
     int[] counts = new int[n];
     int cn = 0;
