@@ -1,0 +1,33 @@
+// xtask `setup` 命令族：准备本机开发环境（实现在本目录）。
+//   setup [--os <platform>] [--force]   装 host 基础 / 某平台必备（默认动作）
+//   setup vscode                        生成语法 + 装 VSCode 扩展到工作区
+//   setup check [--os <p>]              只读：本机依赖是否在场
+// 重型依赖（android emulator tier）零命令面——`test app android run` 用到才自动装。versions.toml 的
+// 漂移检查与机器无关，在 `xtask check versions`。
+namespace Z42Xtask;
+
+using Std.Cli;
+
+class SetupCommand : Command {
+    [Option(help: "platform: a cross workload in versions.toml [workload] (default: host base only, no cross stacks)")] public string Os = "";
+    [Option(help: "force reinstall")] public bool Force;
+
+    public SetupCommand() : base("setup", "prepare this machine") {
+        this.SetDefaultAction("install the host base / a platform's essential deps");
+        this.AddCommand(new SetupVscodeCommand());
+        this.AddCommand(new SetupCheckCommand());
+    }
+    public override int Run() { return _setupInstall(this.Os, this.Force); }
+}
+
+class SetupVscodeCommand : Command {
+    public SetupVscodeCommand() : base("vscode", "regenerate the TextMate grammar + link the VSCode extension into <repo>/.vscode/extensions") {}
+    public override int Run() { return _setupVscode(); }
+}
+
+class SetupCheckCommand : Command {
+    [Option(help: "platform: a cross workload in versions.toml [workload] (default: all, informational; with --os a missing dep fails)")] public string Os = "";
+
+    public SetupCheckCommand() : base("check", "dev deps present? (read-only; strict only with --os)") {}
+    public override int Run() { return _setupCheck(this.Os); }
+}

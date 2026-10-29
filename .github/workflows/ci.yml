@@ -65,7 +65,6 @@ jobs:
               # （launcher / devtools / interactive）——不在这里就等于没有任何 PR job 编过它们。
               - 'scripts/package/**'
               - 'scripts/packages.toml'
-              - 'scripts/cli/xtask_cli_package.z42'
               # 安装脚本：package-host 用刚打出的包离线跑一遍（Installer smoke）。
               - 'scripts/install/**'
               - 'src/toolchain/launcher/**'

@@ -173,7 +173,7 @@ ParseResult r = res.Result();  // 叶子解析结果
 
 - `AddPositional(name, help)` —— **必填**，缺则抛 `CliException`，help 渲染 `<name>`。
 - `AddOptionalPositional(name, help)` —— **可选**，未提供时 `GetPositional(i)` 返回 `""`、不报错，help 渲染 `[name]`。
-- **排序约束**：可选 positional 必须在所有必填之后声明（否则声明期抛）。典型用法 `prog [release|debug]`、`test vm [interp|jit]`、`build stdlib [lib]`。
+- **排序约束**：可选 positional 必须在所有必填之后声明（否则声明期抛）。典型用法 `prog [release|debug]`、`test vm [interp|jit]`。
 
 ## 错误情况（抛 CliException）
 

@@ -2,7 +2,7 @@
 namespace Z42Xtask;
 
 using Std.IO;
-using Std.Cli;   // ParseResult
+using Std.Cli;
 
 // ── clean ─────────────────────────────────────────────────────────────────────
 //
@@ -21,20 +21,23 @@ using Std.Cli;   // ParseResult
 // `[workspace.build].output_dir`，会走单工程默认布局写进 `<工程目录>/{artifacts,dist}`。只删**带
 // `*.z42.toml` 的工程目录**旁边的这两个名字（不做全树通配，免得碰到 wasm / node 工程的同名目录）；
 // 它们被 .gitignore 忽略、仓库里没有任何入库文件在其下。
-int _clean(ParseResult r) {
+class CleanCommand : Command {
+    [Argument(help: "what to remove (default: production cache/dist)",
+              choices: new string[]{ "tests", "bench", "intermediate", "all" })]
+    public string Target = "";
+
+    public CleanCommand() : base("clean", "remove build artifacts") {}
+    public override int Run() { return _clean(this.Target); }
+}
+
+int _clean(string sub) {
     string root = _root();
-    string sub  = r.GetPositional(0);   // "" | tests | bench | all
     if (sub == "all") { return _cleanAll(root); }
     if (sub == "tests" || sub == "bench") { return _cleanDevOutputs(root, sub); }
     if (sub == "intermediate") {
         int ni = _rmIfExists(_intermediateDir(root));
         Console.WriteLine("✅ clean intermediate: removed " + ni.ToString() + " dir(s)");
         return 0;
-    }
-    if (sub != "") {
-        ConsoleError.WriteLine("xtask clean: unknown target '" + sub
-            + "'  (empty=production cache/dist | tests | bench | intermediate | all)");
-        return 2;
     }
     // 扁平视图由成员 dist 汇聚而来，成员 dist 删了它就是陈旧的 ⇒ 一起删。
     int n = 0;

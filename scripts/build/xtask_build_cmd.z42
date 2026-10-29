@@ -1,0 +1,68 @@
+// xtask `build` 命令族：编译各组件（实现在本目录的 xtask_runtime / xtask_compiler / xtask_stdlib /
+// xtask_toolchain / xtask_golden_assets）。
+namespace Z42Xtask;
+
+using Std.Cli;
+
+class BuildCommand : Command {
+    public BuildCommand() : base("build", "build components") {
+        this.AddCommand(new BuildRuntimeCommand());
+        this.AddCommand(new BuildCompilerCommand());
+        this.AddCommand(new BuildStdlibCommand());
+        this.AddCommand(new BuildWorkloadCommand());
+        this.AddCommand(new BuildToolchainCommand());
+        this.AddCommand(new BuildTestCommand());
+        this.AddCommand(new BuildAllCommand());
+    }
+}
+
+class BuildRuntimeCommand : Command {
+    public BuildRuntimeCommand() : base("runtime", "cargo build z42vm + libz42 (--release)") {}
+    public override int Run() { return _buildRuntime(); }
+}
+
+class BuildCompilerCommand : Command {
+    public BuildCompilerCommand() : base("compiler", "build z42 self-host compiler (src/compiler)") {}
+    public override int Run() { return _buildCompiler(); }
+}
+
+class BuildStdlibCommand : Command {
+    public BuildStdlibCommand() : base("stdlib", "build stdlib -> build/libraries/<lib> + flat view") {}
+    public override int Run() { return _buildStdlib(); }
+}
+
+class BuildWorkloadCommand : Command {
+    public BuildWorkloadCommand() : base("workload", "build toolchain workload libs (src/toolchain/workload)") {}
+    public override int Run() { return _buildWorkload(); }
+}
+
+// `build toolchain [z42b]`：不带 component = 全部 apphost；`z42b` = 只按当前 z42c 编 z42b（CI 暂存
+// toolchain artifact 前用，不必付 workload + apphost publish 的代价）。
+class BuildToolchainCommand : Command {
+    [Argument(help: "only (re)build the z42b builder zpkg, no apphost publish (default: all apphosts)",
+              choices: new string[]{ "z42b" })]
+    public string Component = "";
+
+    public BuildToolchainCommand() : base("toolchain", "publish toolchain apphosts (z42/z42c/z42b/z42d/z42i) → each toml's publish_dir") {}
+
+    public override int Run() {
+        if (this.Component == "z42b") { return _ensureZ42b(_root()); }
+        return _buildToolchain();
+    }
+}
+
+class BuildTestCommand : Command {
+    public BuildTestCommand() : base("test", "compile golden test assets (src/tests → .zbc mirror; = regen golden)") {}
+    public override int Run() { return _buildTest(); }
+}
+
+class BuildAllCommand : Command {
+    public BuildAllCommand() : base("all", "runtime + compiler + stdlib") {}
+
+    // stdlib 构建本身就自举 z42c，再跟一个 _buildCompiler 只是多编一代。
+    public override int Run() {
+        int c = _buildRuntime();
+        if (c != 0) { return c; }
+        return _buildStdlib();
+    }
+}

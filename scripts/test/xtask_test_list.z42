@@ -10,7 +10,6 @@
 namespace Z42Xtask;
 
 using Std.IO;
-using Std.Cli;
 
 // The command a developer runs to execute just this one case.
 string _runCmdFor(_CorpusCase c) {
@@ -20,12 +19,8 @@ string _runCmdFor(_CorpusCase c) {
 }
 
 // `test list [--dir <bucket>] [--filter <substr>] [--kind golden|test|all] [--json]`
-int _testList(ParseResult r) {
+int _testList(string dirF, string filter, string kindF, bool json) {
     string root = _root();
-    string dirF = r.GetOption("dir");
-    string filter = r.GetOption("filter");
-    string kindF = r.GetOption("kind");     // golden | test | all(default)
-    bool json = r.GetFlag("json");
 
     _CorpusCase[] all = _enumerateCorpus(root, filter);
 

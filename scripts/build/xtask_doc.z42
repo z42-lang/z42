@@ -9,7 +9,25 @@ namespace Z42Xtask;
 using Std.IO;
 using Std.Toml;
 using Std.Time;
+using Std.Cli;
 using Z42.Doc;
+
+class DocCommand : Command {
+    public DocCommand() : base("doc", "generate reference stdlib pages and index Rust crates") {
+        this.AddCommand(new DocGenCommand());
+        this.AddCommand(new DocIndexCommand());
+    }
+}
+
+class DocGenCommand : Command {
+    public DocGenCommand() : base("gen", "regenerate reference stdlib pages from source doc comments (only packages with a //! doc)") {}
+    public override int Run() { return _docGen(); }
+}
+
+class DocIndexCommand : Command {
+    public DocIndexCommand() : base("index", "index the Rust runtime crates → artifacts/doc/rust.idx (z42 doc then finds Rust symbols too)") {}
+    public override int Run() { return _docIndex(); }
+}
 
 // 包名 → 页名：z42.<domain> → <domain>。
 string _docPageName(string pkg) {

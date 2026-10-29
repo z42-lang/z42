@@ -5,7 +5,6 @@ namespace Z42Xtask;
 
 using Std.IO;
 using Std.Json;
-using Std.Cli;
 
 // ── 场景分层 ──────────────────────────────────────────────────────────────────────────────
 // 每个场景在头部注释里声明 `// tier: gate` 或 `// tier: full`：
@@ -34,13 +33,6 @@ string _benchScenarioTier(string src) {
 bool _benchTierWanted(string want, string have) {
     if (want.Length == 0 || want == "all") { return true; }
     return want == have;
-}
-
-// 校验 `--tier` 取值；非法返回 false 并已打印错误。
-bool _benchTierValid(string want) {
-    if (want.Length == 0 || want == "all" || want == "gate" || want == "full") { return true; }
-    ConsoleError.WriteLine("error: --tier must be gate|full|all (got '" + want + "')");
-    return false;
 }
 
 // ── 被测工具链 + 场景选择（`_bench` 与 `_benchAb` 共用；两条路径只差测量体）──────────────────
@@ -140,15 +132,14 @@ bool _benchModeRunnable(BenchEnv e, string name, string m) {
     return false;
 }
 
-// `bench` (no subcommand) — e2e hyperfine scenario runner (the bare-e2e path; `bench stdlib` and `bench --diff`
-// are routed elsewhere by the CLI dispatch). Args from a Std.Cli ParseResult.
-int _bench(ParseResult r) {
-    bool quick = r.GetFlag("quick");
+// `bench` (no subcommand) — e2e hyperfine scenario runner; BenchCommand routes
+// --diff / --ab / --micro-diff to their handlers, this is the bare-e2e path.
+int _bench(BenchCommand cmd) {
+    bool quick = cmd.Quick;
     string warmup = quick ? "1" : "3";
     string runs = quick ? "3" : "10";
-    string tier = r.GetOption("tier");
-    if (!_benchTierValid(tier)) { return 2; }
-    BenchEnv e = _benchEnv(r.GetOption("mode"));
+    string tier = cmd.Tier;
+    BenchEnv e = _benchEnv(cmd.Mode);
     if (e.Rc != 0) { return e.Rc; }
     BenchScenario[] scen = _benchSelectScenarios(e, tier, quick);
     if (e.Rc != 0) { return e.Rc; }
@@ -445,48 +436,35 @@ void _abPrint(string name, string m, AbVerdict v) {
 // toolchain and the PR toolchain, hyperfine both on this runner, and verdict via
 // `_abVerdict`. Writes artifacts/reports/benches/ab.json. Exit: 0 = no regression, 1 =
 // regression(s), 2 = tool error / bad args. bench-baselines/bench-update untouched.
-int _benchAb(ParseResult r) {
-    string baseVm = r.GetOption("base-vm");
-    string baseLibs = r.GetOption("base-libs");
-    string baseDriver = r.GetOption("base-driver");
+int _benchAb(BenchCommand cmd) {
+    string baseVm = cmd.BaseVm;
+    string baseLibs = cmd.BaseLibs;
+    string baseDriver = cmd.BaseDriver;
     if (baseVm.Length == 0 || baseLibs.Length == 0 || baseDriver.Length == 0) {
         ConsoleError.WriteLine("error: bench --ab requires --base-vm, --base-libs and --base-driver");
         return 2;
     }
-    bool quick = r.GetFlag("quick");
+    bool quick = cmd.Quick;
     string warmup = quick ? "1" : "3";
     string runs = quick ? "3" : "10";
     double thr = 0.10;
-    string tt = r.GetOption("threshold-time");
+    string tt = cmd.ThresholdTime;
     if (tt.Length > 0) { thr = Double.Parse(tt); }
     // Resample: extra rounds for an entry round 1 flagged (0 = off, the rollback knob). Default 2 ⇒ k=3 ratios ⇒
     // df=2. Cost lands only on flagged entries, so a clean PR pays nothing at all.
-    int extraRounds = 2;
-    string rr = r.GetOption("resample-rounds");
-    if (rr.Length > 0) {
-        try { extraRounds = int.Parse(rr); }
-        catch (Exception ex) {
-            ConsoleError.WriteLine("error: --resample-rounds must be an integer >= 0 (got '" + rr + "')");
-            return 2;
-        }
-        if (extraRounds < 0) { ConsoleError.WriteLine("error: --resample-rounds must be >= 0"); return 2; }
-    }
+    int extraRounds = cmd.ResampleRounds;
+    if (extraRounds < 0) { ConsoleError.WriteLine("error: --resample-rounds must be >= 0"); return 2; }
     // Budget cap. Resampling is priced on suspicion being RARE; if a PR flags more
     // entries than this, that is itself evidence of a real, broad regression, so the
     // remaining entries keep their round-1 verdict (which fails the job) instead of
     // spending unbounded runner time to confirm what is already the likely answer.
     int resampleBudget = 3;
     // pause gate = pr_max > cap AND pr_max > base_max*(1+thr)（见 xtask_bench_pause.z42 头注）。
-    double pauseCap = 16.0;
-    string pc = r.GetOption("pause-cap-ms");
-    if (pc.Length > 0) { pauseCap = Double.Parse(pc); }
-    double pauseThr = 0.25;
-    string pt = r.GetOption("threshold-pause");
-    if (pt.Length > 0) { pauseThr = Double.Parse(pt); }
-    string tier = r.GetOption("tier");
-    if (!_benchTierValid(tier)) { return 2; }
+    double pauseCap = cmd.PauseCapMs;
+    double pauseThr = cmd.ThresholdPause;
+    string tier = cmd.Tier;
     // PR（被测）侧工具链 + 探针 + 场景选择与 `_bench` 同一份（门禁只测 gate 层：CI 传 --tier gate）。
-    BenchEnv e = _benchEnv(r.GetOption("mode"));
+    BenchEnv e = _benchEnv(cmd.Mode);
     if (e.Rc != 0) { return e.Rc; }
     BenchScenario[] scen = _benchSelectScenarios(e, tier, quick);
     if (e.Rc != 0) { return e.Rc; }
@@ -663,14 +641,14 @@ int _abExpect(string label, AbVerdict v, string wantVerdict, bool wantRegr) {
 // ever went loose they would turn red instead of being skipped). Resampled, four:
 // rs-drift / rs-real / rs-mid / rs-missing (see the self-check step for what each
 // one guards). Change the rule ⇒ update the fixtures and the expected table.
-int _benchMicroDiff(ParseResult r) {
+int _benchMicroDiff(BenchCommand cmd) {
     string root = _root();
-    string current = r.GetOption("current");
+    string current = cmd.Current;
     if (current.Length == 0) { current = Path.Join(_benchDir(root), "micro-pr.json"); }
-    string baseline = r.GetOption("baseline");
+    string baseline = cmd.Baseline;
     if (baseline.Length == 0) { baseline = Path.Join(_benchDir(root), "micro-base.json"); }
     double thr = 0.10;
-    string tt = r.GetOption("threshold-time");
+    string tt = cmd.ThresholdTime;
     if (tt.Length > 0) { thr = Double.Parse(tt); }
     // Resample: comma-separated round files, pr and base in lockstep.
     // One file each = the single-round SEM path. k>=2 = the resampled
@@ -706,7 +684,7 @@ int _benchMicroDiff(ParseResult r) {
     // for the caller to decide whether resampling is worth starting. Always written
     // when asked — an empty file is the "nothing suspicious" answer, and callers test
     // it with `[ -s ]`, so not writing it would read as "no suspects" on a crash.
-    string suspectsPath = r.GetOption("suspects");
+    string suspectsPath = cmd.Suspects;
     string suspects = "";
 
     int regr = 0; int compared = 0; int newb = 0; int dropped = 0;
@@ -846,18 +824,16 @@ double _microN(JsonValue b) {
 // base.ci_upper). Overlapping intervals ⇒ noise ⇒ not a regression (marked
 // (overlap)). A side lacking ci_lower/ci_upper falls back to the bare-mean-ratio
 // gate (marked (no-ci)). Exit codes: 0 = no regression, 1 = regression, 2 = tool error.
-int _benchDiff(ParseResult r) {
+int _benchDiff(BenchCommand cmd) {
     string root = _root();
-    string current = r.GetOption("current");
+    string current = cmd.Current;
     if (current.Length == 0) { current = Path.Join(_benchDir(root), "e2e.json"); }
-    string baseline = r.GetOption("baseline");
+    string baseline = cmd.Baseline;
     double thrTime = 0.05;
-    string tt = r.GetOption("threshold-time");
+    string tt = cmd.ThresholdTime;
     if (tt.Length > 0) { thrTime = Double.Parse(tt); }
-    double thrMem = 0.10;
-    string tm = r.GetOption("threshold-memory");
-    if (tm.Length > 0) { thrMem = Double.Parse(tm); }
-    bool quiet = r.GetFlag("quiet");
+    double thrMem = cmd.ThresholdMemory;
+    bool quiet = cmd.Quiet;
     // 没有「自动挑一份主分支基线」的默认值：`--diff` 必须显式给 --baseline <path>（本地优化前后对比的正常用法）。
     if (baseline.Length == 0) {
         ConsoleError.WriteLine("error: bench --diff requires an explicit --baseline <path>");

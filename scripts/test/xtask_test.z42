@@ -4,7 +4,6 @@ namespace Z42Xtask;
 
 using Std.IO;
 using Std.Time;
-using Std.Cli;
 
 // ── GREEN gate 的 stage 计时归因 ─────────────────────────────────────────────
 //
@@ -95,17 +94,16 @@ void _stageSummary(StageLogZ log, long totalMs) {
 //   - `--file <path>`: a single golden case (name or source-path substring).
 // The golden runner (_runVmGoldensF) and the cross-zpkg runner (_testCrossZpkgCore)
 // stay separate harnesses; this only routes between them.
-int _testE2e(ParseResult r) {
+int _testE2e(TestE2eCommand c) {
     Stopwatch sw = _procStart("test e2e");
-    string dir = r.GetOption("dir");
-    string file = r.GetOption("file");
-    string modeArg = r.GetOption("mode");
-    string modes = modeArg.Length > 0 ? modeArg : "interp jit";
-    bool rebuild = !r.GetFlag("no-rebuild");
-    bool noBuild = r.GetFlag("no-build");
+    string dir = c.Dir;
+    string file = c.File;
+    string modes = c.Mode.Length > 0 ? c.Mode : "interp jit";
+    bool rebuild = !c.NoRebuild;
+    bool noBuild = c.NoBuild;
     string[] mw = _splitWords(modes);
     string xmode = mw.Length > 0 ? mw[0] : "interp";   // cross-zpkg runs a single mode
-    string shardOpt = r.GetOption("shard");
+    string shardOpt = c.Shard;
     int __rc;
     if (dir == "cross-zpkg") {
         // cross-zpkg only: build unless the caller opted out (--no-rebuild/--no-build)
@@ -114,7 +112,7 @@ int _testE2e(ParseResult r) {
         // multi-exe only: same build/consume prep as cross-zpkg.
         __rc = _testMultiExeCore(xmode, noBuild || !rebuild);
     } else {
-        __rc = _testE2eCore(modes, rebuild, noBuild, r.GetOption("jobs"), shardOpt, dir, file);
+        __rc = _testE2eCore(modes, rebuild, noBuild, c.Jobs, shardOpt, dir, file);
         // default (no --dir/--file narrowing, and NOT sharded) also runs the cross-zpkg +
         // multi-exe harnesses once; the golden run above already built the toolchain (or --no-rebuild
         // was set), so cross-zpkg consumes it (noBuild=true) rather than rebuilding.

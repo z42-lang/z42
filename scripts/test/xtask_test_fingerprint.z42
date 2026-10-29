@@ -15,7 +15,6 @@
 namespace Z42Xtask;
 
 using Std.IO;
-using Std.Cli;
 using Std.Time;
 
 // 编译器身份三元组 "fp/zbc/zpkg"，从源码树读。fp 片段是 `CompilerFingerprint.Entries` 的**条目数**：
@@ -158,15 +157,13 @@ bool _compilerSetsEqual(string baseDir, string root) {
     return true;
 }
 
-int _testFingerprint(ParseResult r) {
+int _testFingerprint(string baseTree, string baseDriver) {
     Stopwatch sw = _procStart("test compiler fingerprint");
     string root = _root();
-    string baseTree = r.GetOption("base");
     if (baseTree.Length == 0) {
         ConsoleError.WriteLine("usage: xtask test compiler fingerprint --base <base 源码树根（其 stdlib 已由 base 编译器建好）>");
         return 2;
     }
-    string baseDriver = r.GetOption("base-driver");
     string baseId = _compilerIdentityOf(baseTree);
     string headId = _compilerIdentityOf(root);
     Console.WriteLine("  编译器身份（CompilerFingerprint/zbc/zpkg）：base " + baseId + " · 本树 " + headId);

@@ -14,7 +14,6 @@ namespace Z42Xtask;
 
 using Std.IO;
 using Std.Time;
-using Std.Cli;
 
 // `test changed` body — run in-process. Returns the overall exit code:
 // 0 on success, 2 when not a git repo / spawn failure, or the first failing
@@ -208,8 +207,8 @@ int _executeChangedPlan(string[] cmds) {
     return exitCode;
 }
 
-// Run one plan command in-process. Any logical `xtask …` re-enters the Std.Cli
-// router via `_runCli` with the verb as argv[0] — usually "test", also "bench"
+// Run one plan command in-process. Any logical `xtask …` re-enters the command tree
+// (a fresh XtaskCommand) with the verb as argv[0] — usually "test", also "bench"
 // (the perf subtree maps to `bench --quick`); raw `cargo …` runs via _exec. Returns the command's exit code (2 on an
 // unrecognized prefix, which shouldn't occur given the mapping only ever emits
 // an `xtask` or a `cargo` command).
@@ -217,11 +216,11 @@ int _runPlanCmd(string cmd) {
     string[] toks = _splitWords(cmd);
     if (toks.Length == 0) { return 0; }
     if (toks[0] == "xtask") {
-        // Drop the leading "xtask"; the remainder is the _runCli argv.
+        // Drop the leading "xtask"; the remainder is the XtaskCommand argv.
         string[] argv = new string[toks.Length - 1];
         int i = 1;
         while (i < toks.Length) { argv[i - 1] = toks[i]; i = i + 1; }
-        return _runCli(argv);
+        return new XtaskCommand().Invoke(argv);
     }
     if (toks[0] == "cargo") {
         // Plan cargo commands are runtime-workspace ones; load its config (see _cargoCmd).
@@ -453,11 +452,11 @@ bool _contains(string[] arr, int count, string v) {
 // ── `test changed` 命令入口 ──
 
 // Base ref: positional, else env `Z42_TEST_CHANGED_BASE`, else HEAD.
-int _testChanged(ParseResult r) {
-    string base_ = r.GetPositional(0);
+int _testChanged(string baseArg, bool dryRun) {
+    string base_ = baseArg;
     if (base_.Length == 0) {
         base_ = Environment.GetEnvironmentVariable("Z42_TEST_CHANGED_BASE", "");
     }
     if (base_.Length == 0) { base_ = "HEAD"; }
-    return _testChangedRun(base_, r.GetFlag("dry-run"));
+    return _testChangedRun(base_, dryRun);
 }

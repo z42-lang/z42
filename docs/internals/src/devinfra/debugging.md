@@ -104,7 +104,7 @@ z42vm script.zbc --stats=json     # 单行 JSON，供工具抓取
 ## 5. `xtask profile`：一条命令四个维度
 
 ```bash
-xtask profile <script.z42> [--cpu|--heap|--threads|--e2e|--all] [--mode interp|jit]
+xtask profile <script.z42> [--cpu|--heap|--threads|--e2e] [--mode interp|jit]
 ```
 
 不给维度旗标就四个全跑并写 `report.md`。

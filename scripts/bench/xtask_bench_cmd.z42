@@ -1,0 +1,60 @@
+// xtask `bench` 命令族：不带子命令 = e2e hyperfine 场景（默认动作；--diff / --micro-diff / --ab /
+// --ab-selftest 切到对比与门禁模式）；`stdlib` = 各库 [Benchmark]；`targets` = 清单 [[bench]] 目标夹具。
+namespace Z42Xtask;
+
+using Std.Cli;
+using Std.Time;   // Stopwatch — bench 进程计时标记
+
+class BenchCommand : Command {
+    [Option(help: "fewer runs/warmup")] public bool Quick;
+    // `both` runs each scenario under interp AND jit (two profile-tagged results).
+    [Option(help: "measured-run mode (default: jit)", choices: new string[]{ "interp", "jit", "both" })]
+    public string Mode = "";
+    // 场景分层：`gate` = PR 门禁那一小组代表性场景，`full` = 其余；场景在源码头部用 `// tier: gate` 声明。
+    [Option(help: "scenario tier to run", choices: new string[]{ "gate", "full", "all" })]
+    public string Tier = "all";
+    [Option(help: "compare two result sets")] public bool Diff;
+    // --micro-diff takes a comma-separated LIST of round files (pr and base in lockstep):
+    // one each = single-round SEM, k>=2 = ab-resample-on-suspicion.
+    [Option(help: "current result path (--micro-diff: comma-separated rounds)")] public string Current = "";
+    [Option(help: "baseline result path (--micro-diff: comma-separated rounds)")] public string Baseline = "";
+    [Option(help: "--micro-diff: write flagged benchmark names here (empty file = none)")] public string Suspects = "";
+    [Option(help: "time regression threshold (default: --diff 0.05, --ab / --micro-diff 0.10)")] public string ThresholdTime = "";
+    [Option(help: "--diff: memory regression threshold")] public double ThresholdMemory = 0.10;
+    [Option(help: "quiet output")] public bool Quiet;
+    // 同 runner A/B 门禁：每个场景在 base 与 PR 两套工具链下都编译 + 测量（跨 runner 漂移在比值里抵消）。
+    [Option(help: "same-runner A/B gate (needs --base-vm/--base-libs/--base-driver)")] public bool Ab;
+    [Option(help: "unit-check the _abVerdict pure function and exit")] public bool AbSelftest;
+    [Option(help: "micro A/B: diff two bench-stdlib --json baselines (--current/--baseline)")] public bool MicroDiff;
+    // ab-resample-on-suspicion: round 1 判退化的条目再测这么多轮，按轮间比值离散度重判；0 = 关（回滚开关）。
+    [Option(help: "A/B: extra rounds for a round-1 regression (0 = off)")] public int ResampleRounds = 2;
+    // add-incremental-major-gc M0: regression ⟺ pr 最大停顿中位数 > cap 且 > base × (1 + threshold)。
+    [Option(help: "A/B: absolute max-pause cap in ms")] public double PauseCapMs = 16.0;
+    [Option(help: "A/B: relative max-pause regression threshold")] public double ThresholdPause = 0.25;
+    [Option(help: "A/B: base z42vm binary")] public string BaseVm = "";
+    [Option(help: "A/B: base flat libs dir (stdlib + z42c siblings)")] public string BaseLibs = "";
+    [Option(help: "A/B: base z42c.driver.zpkg")] public string BaseDriver = "";
+
+    public BenchCommand() : base("bench", "benchmarks") {
+        this.SetDefaultAction("e2e hyperfine scenarios");
+        this.AddCommand(new LibUnitsCommand("bench", "per-lib [Benchmark]"));
+        this.AddCommand(new BenchTargetsCommand());
+    }
+
+    public override int Run() {
+        if (this.AbSelftest) { return _abSelfTest(); }
+        if (this.MicroDiff) { return _benchMicroDiff(this); }
+        Stopwatch sw = _procStart("bench");
+        int rc = this.Ab ? _benchAb(this) : (this.Diff ? _benchDiff(this) : _bench(this));
+        if (rc == 0) { _procEnd("bench", sw); }
+        return rc;
+    }
+}
+
+class BenchTargetsCommand : Command {
+    [Option(help: "skip tooling rebuild")] public bool NoBuild;
+    [Argument(help: "single target name (default: all)")] public string Name = "";
+
+    public BenchTargetsCommand() : base("targets", "manifest [[bench]] target fixtures (src/toolchain/builder/tests/fixtures/manifest-targets)") {}
+    public override int Run() { return _testTargetsCore("bench", this.Name, this.NoBuild); }
+}

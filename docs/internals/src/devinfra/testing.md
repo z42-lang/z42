@@ -1,7 +1,7 @@
 # 测试怎么跑
 
 > 代码：`scripts/test/`、
-> `scripts/cli/xtask_cli_test.z42`、`src/tests/`、`src/libraries/<lib>/tests/`、`src/runtime/src/*_tests.rs`
+> `src/tests/`、`src/libraries/<lib>/tests/`、`src/runtime/src/*_tests.rs`
 >
 > 用例放哪、写成什么形态、平台能力怎么声明见[测试用例组织规范](test-layout.md)（唯一权威）；
 > gate 由哪些 stage 组成、`--skip` 与 `test changed` 的清单见[测试门禁](test-gate.md)（唯一权威）；
@@ -29,7 +29,7 @@
 | 工具链 | `xtask test toolchain [<comp>] [--target <name>]` | `src/toolchain/<comp>/` 下各工程 `tests/` 的 `[Test]`（`fixtures/` 除外）+ builder 的 manifest 目标夹具（`[[test]]` / `[[example]]` / `[[bench]]`、z42b 清单 / hook / 发现规则） |
 | VM（Rust） | `xtask test runtime` | `src/runtime/src/*_tests.rs` + `src/runtime/tests/*.rs` |
 | 嵌入宿主 | `xtask test app <desktop\|wasm\|ios\|android\|all> [step]` | R1–R7 + 嵌入语料在宿主 / 设备上跑（[test-layout §6](test-layout.md)） |
-| 文档 | `xtask test docs [links\|examples]` | 相对链接可解析（棘轮基线，`--update` 只许减不许加）+ 学习手册会话脚本用真实 SDK 重放 |
+| 文档 | `xtask test docs [links\|examples]` | 相对链接可解析（死链一律红，无基线）+ 学习手册会话脚本用真实 SDK 重放 |
 | 查询 | `xtask test list` | 用例目录（只读） |
 
 裸 `test` 先跑一个重建波（debug VM + stdlib + z42c 自建 + golden `.zbc` 基线），

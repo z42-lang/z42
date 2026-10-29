@@ -17,7 +17,7 @@
 namespace Z42Xtask;
 
 using Std.IO;
-using Std.Cli;   // ParseResult（`_layoutCmd`）
+using Std.Cli;
 // ⚠️ 这个命名空间**不能随手改名**：xtask 是**两头都挂在上一代 SDK 上**的消费者 —— CI 用下载的
 // nightly SDK libs **编译** xtask.zpkg，之后又用**本轮新建的 flat** 当 `Z42_LIBS` **运行**它。
 // 抹掉旧 FQN 的改名会让其中一头必炸。
@@ -399,9 +399,17 @@ LayoutEntriesZ _layoutEntries(string root) {
 // `xtask layout [path]`：无参 = 打印 artifacts/ 的目录树（首行是 artifacts/ 的绝对路径，其余相对它、按层级缩进）；
 // 带参 = 该条目的绝对路径（给 CI / 脚本：`libs=$(xtask layout intermediate/libraries/flat/release)`）。
 // 参数就是树里显示的相对路径，尾 / 可有可无。未知 → exit 2 并列出全部路径。
-int _layoutCmd(ParseResult r) {
+class LayoutCommand : Command {
+    [Argument(help: "an entry's path relative to artifacts/, e.g. intermediate/libraries/flat/release or reports/benches", name: "path")]
+    public string Entry = "";
+
+    public LayoutCommand() : base("layout", "print the artifacts/ tree (no path) or one entry's absolute path") {}
+    public override int Run() { return _layoutCmd(this.Entry); }
+}
+
+int _layoutCmd(string keyIn) {
     string root = _root();
-    string key = r.GetPositional(0).Replace("\\", "/");
+    string key = keyIn.Replace("\\", "/");
     LayoutEntriesZ e = _layoutEntries(root);
     if (key.Length > 0) {
         string k = key.EndsWith("/") ? key.Substring(0, key.Length - 1) : key;

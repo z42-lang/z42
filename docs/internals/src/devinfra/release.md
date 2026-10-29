@@ -1,7 +1,7 @@
 # 打包与发版
 
 > 代码：`scripts/package/`、
-> `scripts/packages.toml`、`scripts/cli/xtask_cli_package.z42`、`.github/workflows/release.yml`、
+> `scripts/packages.toml`、`.github/workflows/release.yml`、
 > `.github/workflows/ci.yml`（`publish-nightly`）、`scripts/versions.toml`
 >
 > 打包**引擎**（清单三层结构、组装流水、source-identity 门的实现）见[打包引擎](packaging.md)；
