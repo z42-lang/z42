@@ -12,21 +12,19 @@ namespace Z42Xtask;
 
 using Std.IO;
 using Std.Time;
+using Std.Collections;
 
 // 把各成员 dist/*.zpkg + *.zsym hard-link 汇聚到 flat view（VM 单目录查找点）。
 // 不写 namespace index（VM 扫目录读 NSPC，嵌入解析器读 zpkg NSPC）。
 void _assembleStdlibFlatView(string root, string profile) {
     string flatDir = _libsFlatDist(root, profile);
-    string[] libs = _stdlibList(root);
     Directory.Create(flatDir);
     _cleanGlob(flatDir, "*.zpkg");
     _cleanGlob(flatDir, "*.zsym");
-    int i = 0;
-    while (i < libs.Length) {
-        string srcDir = _libMemberDist(root, libs[i], profile);
+    foreach (var lib in _stdlibList(root)) {
+        string srcDir = _libMemberDist(root, lib, profile);
         _linkAll(srcDir, flatDir, "*.zpkg");
         _linkAll(srcDir, flatDir, "*.zsym");
-        i = i + 1;
     }
 }
 
@@ -160,29 +158,22 @@ string[] _compilerMembers(string root) {
 // ⚠️ 只给**这些进程**设，不往 xtask 自身环境里放：`Z42_PROBING_PATHS` 会**覆盖**程序侧车的 `probing-paths`，全局一设，
 // 测 probing / `deploy = "sdk"` 的那些用例就被干扰了。
 string _compilerProbingPaths(string root) {
-    string[] members = _compilerMembers(root);
     string[] libs = _stdlibList(root);
-    string sep = Platform.IsWindows() ? ";" : ":";
-    string acc = "";
-    int i = 0;
-    while (i < members.Length) {
-        string m = members[i];
-        i = i + 1;
+    List<string> dirs = new List<string>();
+    foreach (var m in _compilerMembers(root)) {
         if (m == "z42c.driver") { continue; }
         string dir = _compilerMemberDist(root, m, "release");
         if (!Directory.Exists(dir)) { continue; }
-        int j = 0;
-        while (j < libs.Length) {
-            if (File.Exists(Path.Join(dir, libs[j] + ".zpkg"))) {
-                throw new Exception("compiler probing: " + dir + " 里有 stdlib 包 " + libs[j]
+        foreach (var lib in libs) {
+            if (File.Exists(Path.Join(dir, lib + ".zpkg"))) {
+                throw new Exception("compiler probing: " + dir + " 里有 stdlib 包 " + lib
                     + ".zpkg —— probing 排在 Z42_LIBS 之前，它会遮蔽 stdlib flat 里的新版本（#955）。"
                     + "编译器成员（driver 以外）的 dist 只应有它自己。");
             }
-            j = j + 1;
         }
-        acc = acc.Length == 0 ? dir : acc + sep + dir;
+        dirs.Add(dir);
     }
-    return acc;
+    return String.Join(Platform.IsWindows() ? ";" : ":", dirs.ToArray());
 }
 
 // ── z42 子进程的唯一入口 ──────────────────────────────────────────────────────────────────
@@ -246,17 +237,13 @@ Process _z42cProcMode(string vm, string libs, string driverZpkg, string mode) {
 // 留在 flat / stdlibRun 里，任何携带插件的加载链都可能把它拉进与新 driver 同进程（双代注册、类型按名
 // 实例化被拒）。flat 本该是纯 stdlib 世界——编译器包住各自成员 dist。此处双清（flat + stdlibRun）。
 void _purgeSeedDriverZpkg(string root) {
-    string flat = _libsFlatDist(root, "release");
-    string[] victims = new string[2];
-    victims[0] = Path.Join(flat, "z42c.driver.zpkg");
-    victims[1] = Path.Join(_compilerWsWork(root, "stdlib-run/release"), "z42c.driver.zpkg");
-    int i = 0;
-    while (i < victims.Length) {
-        if (File.Exists(victims[i])) {
-            File.Delete(victims[i]);
-            _vNormal("  purged stale seed driver: " + victims[i]);
+    string[] victims = new string[]{ Path.Join(_libsFlatDist(root, "release"), "z42c.driver.zpkg"),
+        Path.Join(_compilerWsWork(root, "stdlib-run/release"), "z42c.driver.zpkg") };
+    foreach (var v in victims) {
+        if (File.Exists(v)) {
+            File.Delete(v);
+            _vNormal("  purged stale seed driver: " + v);
         }
-        i = i + 1;
     }
 }
 
@@ -278,9 +265,7 @@ int _buildStdlibCarriedPlugins(string root, string vm, string driver, string run
     string dist = Path.Join(Path.GetDirectoryName(toml), "dist");
     // --output-dir 显式指到插件工程 dist（与 BuildLayout 缺省一致；显式免受 cwd 影响）。
     // internalOnly ⇒ --internal-of 宿主（同包待遇，宿主 internal 可见）。
-    int rc = internalOnly
-        ? _z42cBuildPackageInternal(vm, driver, toml, runLibs, dist, runLibs, host)
-        : _z42cBuildPackage(vm, driver, toml, runLibs, dist, runLibs);
+    int rc = _z42cBuildPackageInternal(vm, driver, toml, runLibs, dist, runLibs, host);
     if (rc != 0) { ConsoleError.WriteLine("  ✗ carried plugin build failed: " + toml); return 1; }
     string zpkg = Path.Join(dist, "z42.harness.lint.zpkg");
     if (!File.Exists(zpkg)) { ConsoleError.WriteLine("  ✗ carried plugin produced no zpkg: " + zpkg); return 1; }

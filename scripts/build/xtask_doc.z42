@@ -10,6 +10,7 @@ using Std.IO;
 using Std.Toml;
 using Std.Time;
 using Std.Cli;
+using Std.Collections;
 using Z42.Doc;
 
 class DocCommand : Command {
@@ -36,13 +37,7 @@ string _docPageName(string pkg) {
 }
 
 // type-split 包（一个类型一页）：z42.core 太大。硬编码清单，等 `[doc] split` 清单解析就绪后改读清单。
-bool _isTypeSplit(string pkg) {
-    string[] ts = new string[1];
-    ts[0] = "z42.core";
-    int i = 0;
-    while (i < ts.Length) { if (ts[i] == pkg) { return true; } i = i + 1; }
-    return false;
-}
+bool _isTypeSplit(string pkg) { return _strIn(new string[]{ "z42.core" }, pkg); }
 
 // 一个 type-split 包的产出：索引页 `<short>.md` + 每个类型 `<short>.<Type>.md`。
 sealed class _GenFile {
@@ -53,25 +48,14 @@ sealed class _GenFile {
 
 _GenFile[] _typeSplitFiles(string pkg, string shortName, DocIndex ix) {
     string pkgDir = DocMd.PkgDir(ix);
-    _GenFile[] acc = new _GenFile[16];
-    int n = 0;
-    acc[n] = new _GenFile(shortName + ".md", DocMd.TypeIndex(pkg, pkgDir, ix)); n = n + 1;
-    string[] nss = DocMd.Namespaces(ix);
-    int i = 0;
-    while (i < nss.Length) {
-        TypeGroup[] groups = DocMd.TopLevelTypeGroups(ix, nss[i]);
-        int j = 0;
-        while (j < groups.Length) {
-            if (n == acc.Length) { _GenFile[] g = new _GenFile[n * 2]; Array.Copy(acc, g, n); acc = g; }
-            acc[n] = new _GenFile(shortName + "." + groups[j].Name + ".md", DocMd.TypePage(pkg, pkgDir, nss[i], groups[j], ix));
-            n = n + 1;
-            j = j + 1;
+    List<_GenFile> acc = new List<_GenFile>();
+    acc.Add(new _GenFile(shortName + ".md", DocMd.TypeIndex(pkg, pkgDir, ix)));
+    foreach (var ns in DocMd.Namespaces(ix)) {
+        foreach (var g in DocMd.TopLevelTypeGroups(ix, ns)) {
+            acc.Add(new _GenFile(shortName + "." + g.Name + ".md", DocMd.TypePage(pkg, pkgDir, ns, g, ix)));
         }
-        i = i + 1;
     }
-    _GenFile[] r = new _GenFile[n];
-    Array.Copy(acc, r, n);
-    return r;
+    return acc.ToArray();
 }
 
 // SUMMARY.md 里 type-split 包的页清单区段：mdBook 只构建 SUMMARY 列出的页，上百个类型页
@@ -85,19 +69,13 @@ string _summaryBlock(string shortName, DocIndex ix) {
     // 命名空间一层草稿章（mdBook 草稿章无目标页、只作可展开的分组），类型挂其下；
     // 配 book.toml 的 [output.html.fold]（level=0：默认收起、当前页祖先自动展开）。
     // 成员级不进侧边栏——mdBook SUMMARY 不支持锚点条目；成员导航在类型页内（成员索引行 + <a id>）。
-    string[] nss = DocMd.Namespaces(ix);
-    int i = 0;
-    while (i < nss.Length) {
-        TypeGroup[] groups = DocMd.TopLevelTypeGroups(ix, nss[i]);
-        if (groups.Length > 0) {
-            s = s + "    - [" + nss[i] + "]()\n";
-            int j = 0;
-            while (j < groups.Length) {
-                s = s + "        - [" + groups[j].Name + "](stdlib/" + shortName + "." + groups[j].Name + ".md)\n";
-                j = j + 1;
-            }
+    foreach (var ns in DocMd.Namespaces(ix)) {
+        TypeGroup[] groups = DocMd.TopLevelTypeGroups(ix, ns);
+        if (groups.Length == 0) { continue; }
+        s = s + "    - [" + ns + "]()\n";
+        foreach (var g in groups) {
+            s = s + "        - [" + g.Name + "](stdlib/" + shortName + "." + g.Name + ".md)\n";
         }
-        i = i + 1;
     }
     s = s + _summaryEnd(shortName);
     return s;
@@ -139,28 +117,22 @@ string _docSourceBase() {
 int _docGen() {
     string root = _root();
     string outDir = Path.Join(root, "docs/reference/src/stdlib");
-    string[] libs = _stdlibList(root);
     DocMd.SourceBase = _docSourceBase();
     int n = 0;
-    int i = 0;
-    while (i < libs.Length) {
-        string pkg = libs[i];
+    foreach (var pkg in _stdlibList(root)) {
         DocIndex ix = DocQuery.BuildIndex(root, pkg, "");
-        if (DocMd.HasNamespaceDoc(ix)) {
-            if (_isTypeSplit(pkg)) {
-                _GenFile[] fs = _typeSplitFiles(pkg, _docPageName(pkg), ix);
-                int j = 0;
-                while (j < fs.Length) { File.WriteAllText(Path.Join(outDir, fs[j].Name), fs[j].Content); j = j + 1; }
-                int rc = _syncSummary(root, _docPageName(pkg), ix, false);
-                if (rc != 0) { return rc; }
-                n = n + fs.Length;
-            } else {
-                string page = DocMd.PackagePage(pkg, DocMd.PkgDir(ix), ix);
-                File.WriteAllText(Path.Join(outDir, _docPageName(pkg) + ".md"), page);
-                n = n + 1;
-            }
+        if (!DocMd.HasNamespaceDoc(ix)) { continue; }
+        if (_isTypeSplit(pkg)) {
+            _GenFile[] fs = _typeSplitFiles(pkg, _docPageName(pkg), ix);
+            foreach (var f in fs) { File.WriteAllText(Path.Join(outDir, f.Name), f.Content); }
+            int rc = _syncSummary(root, _docPageName(pkg), ix, false);
+            if (rc != 0) { return rc; }
+            n = n + fs.Length;
+        } else {
+            string page = DocMd.PackagePage(pkg, DocMd.PkgDir(ix), ix);
+            File.WriteAllText(Path.Join(outDir, _docPageName(pkg) + ".md"), page);
+            n = n + 1;
         }
-        i = i + 1;
     }
     Console.WriteLine("doc gen: wrote " + n.ToString() + " package page(s)");
     return 0;
@@ -252,24 +224,18 @@ int _checkDocRefs(bool update) {
     ExternalIndex.LoadDir(root, Path.Join(root, "artifacts/doc"), "", ix);
 
     // 分区域：internals / reference / readme（根 README + src/**/README.md）。其余页跳过。
-    string[] pages = DocQuery.BookPages(root);
-    string[] all = new string[pages.Length + 1];
-    int an = 0;
-    int pi = 0;
-    while (pi < pages.Length) { all[an] = pages[pi]; an = an + 1; pi = pi + 1; }
-    if (File.Exists(Path.Join(root, "README.md"))) { all[an] = Path.Join(root, "README.md"); an = an + 1; }
+    List<string> all = new List<string>();
+    all.AddRange(DocQuery.BookPages(root));
+    if (File.Exists(Path.Join(root, "README.md"))) { all.Add(Path.Join(root, "README.md")); }
 
-    string[] groups = new string[an];
+    int an = all.Count;
+    List<string> groups = new List<string>();
     int[] lineNos = new int[an];
     int[] unresolved = new int[an];
-    int gn = 0;
     string[] worstPage = new string[an];
     int[] worstCnt = new int[an];
     int printed = 0;
-    int i = 0;
-    while (i < an) {
-        string p = all[i];
-        i = i + 1;
+    foreach (var p in all) {
         string rel = p.Substring(root.Length + 1);
         string group = "";
         if (rel.EndsWith("README.md")) { group = "readme"; }
@@ -279,31 +245,28 @@ int _checkDocRefs(bool update) {
         string md = File.ReadAllText(p);
         if (md.IndexOf("由 z42 doc 生成") >= 0) { continue; }   // 生成页：位置行随 gen 重写
         if (rel.EndsWith("SUMMARY.md")) { continue; }           // 纯链接清单
-        int g = _groupAt(groups, gn, group);
-        if (g < 0) { groups[gn] = group; g = gn; gn = gn + 1; }
+        int g = groups.IndexOf(group);
+        if (g < 0) { groups.Add(group); g = groups.Count - 1; }
         DocPage page = DocRefs.Extract(md);
         DocRefs.Resolve(page, ix);
-        int r = 0;
-        while (r < page.Refs.Length) {
-            DocRef rf = page.Refs[r];
+        foreach (var rf in page.Refs) {
             if (rf.Kind == DocRef.LineNo) {
                 lineNos[g] = lineNos[g] + 1;
                 if (printed < 15) { ConsoleError.WriteLine("  " + rel + ":" + rf.Line.ToString() + ": 行号引用 " + rf.Text + " —— 写符号，位置用 z42 doc --page 现查"); printed = printed + 1; }
             } else if (rf.Multi && rf.Target == null) {
                 unresolved[g] = unresolved[g] + 1;
             }
-            r = r + 1;
         }
         int cnt = DocRefs.ProblemCount(page);
         if (cnt > worstCnt[g]) { worstCnt[g] = cnt; worstPage[g] = rel; }
     }
 
     // 行号引用在三区是硬指标（零容忍）；未解析链计数走 gates.toml [doc-refs]（只降不升）。
+    int gn = groups.Count;
     if (update) {
         string[] body = new string[gn + 1];
         body[0] = "[doc-refs]";
-        int w = 0;
-        while (w < gn) { body[w + 1] = groups[w] + " = " + unresolved[w].ToString(); w = w + 1; }
+        for (int w = 0; w < gn; w = w + 1) { body[w + 1] = groups[w] + " = " + unresolved[w].ToString(); }
         _gatesWriteSection(root, "doc-refs", body, gn + 1);
         Console.WriteLine("check doc-refs: ↻ [doc-refs] 区段已重写（gates.toml）");
         return 0;
@@ -312,8 +275,7 @@ int _checkDocRefs(bool update) {
     TomlValue cfg = _gatesSection(root, "doc-refs");
     string fail = "";
     string failWorst = "";
-    int q = 0;
-    while (q < gn) {
+    for (int q = 0; q < gn; q = q + 1) {
         string g = groups[q];
         int bu = 0;
         TomlValue v = null;
@@ -328,7 +290,6 @@ int _checkDocRefs(bool update) {
         } else if (unresolved[q] < bu) {
             Console.WriteLine("  " + g + ": 未解析 " + bu.ToString() + " → " + unresolved[q].ToString() + "（可收紧基线）");
         }
-        q = q + 1;
     }
     if (fail.Length > 0) {
         ConsoleError.WriteLine("check doc-refs: 超出基线：" + fail);
@@ -338,54 +299,37 @@ int _checkDocRefs(bool update) {
     return 0;
 }
 
-int _groupAt(string[] groups, int n, string g) {
-    int i = 0;
-    while (i < n) { if (groups[i] == g) { return i; } i = i + 1; }
-    return -1;
-}
-
 // 漂移门禁：重新生成并与仓库内文件 diff，不一致即失败并提示 `xtask doc gen`。
 int _checkDocsApi() {
     string root = _root();
     string outDir = Path.Join(root, "docs/reference/src/stdlib");
-    string[] libs = _stdlibList(root);
     DocMd.SourceBase = _docSourceBase();
-    string failed = "";
-    int i = 0;
-    while (i < libs.Length) {
-        string pkg = libs[i];
+    List<string> failed = new List<string>();
+    foreach (var pkg in _stdlibList(root)) {
         DocIndex ix = DocQuery.BuildIndex(root, pkg, "");
-        if (!DocMd.HasNamespaceDoc(ix)) { i = i + 1; continue; }
+        if (!DocMd.HasNamespaceDoc(ix)) { continue; }
         if (_isTypeSplit(pkg)) {
-            _GenFile[] fs = _typeSplitFiles(pkg, _docPageName(pkg), ix);
-            int j = 0;
-            while (j < fs.Length) {
-                string path = Path.Join(outDir, fs[j].Name);
-                string committed = File.Exists(path) ? File.ReadAllText(path) : "";
-                if (committed != fs[j].Content) {
-                    if (failed.Length > 0) { failed = failed + ", "; }
-                    failed = failed + fs[j].Name;
-                }
-                j = j + 1;
+            foreach (var f in _typeSplitFiles(pkg, _docPageName(pkg), ix)) {
+                if (!_docFileMatches(Path.Join(outDir, f.Name), f.Content)) { failed.Add(f.Name); }
             }
             if (_syncSummary(root, _docPageName(pkg), ix, true) != 0) { return 1; }
         } else {
             string page = DocMd.PackagePage(pkg, DocMd.PkgDir(ix), ix);
-            string path = Path.Join(outDir, _docPageName(pkg) + ".md");
-            string committed = File.Exists(path) ? File.ReadAllText(path) : "";
-            if (committed != page) {
-                if (failed.Length > 0) { failed = failed + ", "; }
-                failed = failed + _docPageName(pkg);
-            }
+            if (!_docFileMatches(Path.Join(outDir, _docPageName(pkg) + ".md"), page)) { failed.Add(_docPageName(pkg)); }
         }
-        i = i + 1;
     }
-    if (failed.Length > 0) {
-        ConsoleError.WriteLine("check docs-api: 生成的页面与仓库内文件不一致（" + failed + "）。运行 `xtask doc gen` 重新生成。");
+    if (failed.Count > 0) {
+        ConsoleError.WriteLine("check docs-api: 生成的页面与仓库内文件不一致（" + String.Join(", ", failed.ToArray())
+            + "）。运行 `xtask doc gen` 重新生成。");
         return 1;
     }
     Console.WriteLine("check docs-api: ✓ 已迁移包的页面与源码一致");
     return 0;
+}
+
+// committed file at `path` (absent = "") equals the generated content?
+bool _docFileMatches(string path, string want) {
+    return (File.Exists(path) ? File.ReadAllText(path) : "") == want;
 }
 
 int _docIndex() {
@@ -399,9 +343,7 @@ int _docIndex() {
     Process p = new Process(bin).Arg("--root").Arg(root)
         .Arg("--out").Arg(Path.Join(_docIndexDir(root), "rust.idx"))
         .Arg("--regen").Arg("xtask doc index");
-    string[] crates = _docRustCrates(root);
-    int i = 0;
-    while (i < crates.Length) { p = p.Arg(crates[i]); i = i + 1; }
+    foreach (var crate in _docRustCrates(root)) { p = p.Arg(crate); }
     c = _exec(p);
     if (c != 0) { ConsoleError.WriteLine("  ✗ rust-index failed"); return c; }
     _procEnd("doc index", sw);
@@ -411,15 +353,12 @@ int _docIndex() {
 // 要索引的 crate：`<crate 名>=<相对仓库根的 crate 根文件>`。运行时主 crate（lib + z42vm 二进制）加
 // src/runtime/crates/ 下每个带 src/lib.rs 的子 crate（目录名的 `-` 换成 `_`，与 Rust 里引用它的写法一致）。
 string[] _docRustCrates(string root) {
-    string[] acc = new string[32];
-    int n = 0;
-    acc[n] = "z42=src/runtime/src/lib.rs"; n = n + 1;
-    acc[n] = "z42vm=src/runtime/src/main.rs"; n = n + 1;
+    List<string> acc = new List<string>();
+    acc.Add("z42=src/runtime/src/lib.rs");
+    acc.Add("z42vm=src/runtime/src/main.rs");
     foreach (var d in Directory.Enumerate(Path.Join(root, "src/runtime/crates"))) {
         string lib = "src/runtime/crates/" + d + "/src/lib.rs";
-        if (n < acc.Length && File.Exists(Path.Join(root, lib))) { acc[n] = d.Replace("-", "_") + "=" + lib; n = n + 1; }
+        if (File.Exists(Path.Join(root, lib))) { acc.Add(d.Replace("-", "_") + "=" + lib); }
     }
-    string[] r = new string[n];
-    Array.Copy(acc, r, n);
-    return r;
+    return acc.ToArray();
 }

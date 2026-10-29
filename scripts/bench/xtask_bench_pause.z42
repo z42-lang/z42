@@ -13,6 +13,7 @@
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Collections;
 
 // 一个 scenario×mode 在一套工具链下的停顿中位数。
 class PauseMedian {
@@ -45,26 +46,17 @@ long _benchPauseField(string stdout, string key) {
 }
 
 // 三个及以上样本的中位数（输入会被排序）。
-double _benchMedian(double[] xs) {
-    int n = xs.Length;
-    int i = 1;
-    while (i < n) {
-        double v = xs[i];
-        int j = i - 1;
-        while (j >= 0 && xs[j] > v) { xs[j + 1] = xs[j]; j = j - 1; }
-        xs[j + 1] = v;
-        i = i + 1;
-    }
-    return xs[n / 2];
+double _benchMedian(List<double> xs) {
+    xs.Sort();
+    return xs[xs.Count / 2];
 }
 
 // 同一条 scenario 命令跑 `runs` 次，取 max / p99 停顿各自的中位数（ms）。
 PauseMedian _benchPauseRun(string vm, string zbc, string entry, string m, string libs, int runs) {
     PauseMedian o = new PauseMedian();
-    double[] maxs = new double[runs];
-    double[] p99s = new double[runs];
-    int k = 0;
-    while (k < runs) {
+    List<double> maxs = new List<double>();
+    List<double> p99s = new List<double>();
+    for (int k = 0; k < runs; k = k + 1) {
         ProcessResult r = _z42Proc(vm, libs).Arg(zbc).Arg(entry).Arg("--mode").Arg(m)
             .Run();
         long mx = r.ExitCode == 0 ? _benchPauseField(r.Stdout, "max_us") : -1L;
@@ -75,9 +67,8 @@ PauseMedian _benchPauseRun(string vm, string zbc, string entry, string m, string
             o.Rc = 2;
             return o;
         }
-        maxs[k] = (double)mx / 1000.0;
-        p99s[k] = (double)p9 / 1000.0;
-        k = k + 1;
+        maxs.Add((double)mx / 1000.0);
+        p99s.Add((double)p9 / 1000.0);
     }
     o.MaxMs = _benchMedian(maxs);
     o.P99Ms = _benchMedian(p99s);
