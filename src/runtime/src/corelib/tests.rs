@@ -211,6 +211,18 @@ fn obj_ref_eq_both_null_is_true() {
 }
 
 #[test]
+fn obj_ref_eq_compares_array_and_string_identity() {
+    let c = ctx();
+    let arr = |v: i64| Value::Array(crate::metadata::types::ArrayObj::leaked(vec![Value::I64(v)]));
+    let a = arr(1);
+    assert_eq!(exec_builtin_value(&c, "__obj_ref_eq", &[a.clone(), a]).unwrap(), Value::Bool(true));
+    assert_eq!(exec_builtin_value(&c, "__obj_ref_eq", &[arr(1), arr(1)]).unwrap(), Value::Bool(false));
+    let t = s("subject");
+    assert_eq!(exec_builtin_value(&c, "__obj_ref_eq", &[t.clone(), t]).unwrap(), Value::Bool(true));
+    assert_eq!(exec_builtin_value(&c, "__obj_ref_eq", &[s("subject"), s("subject")]).unwrap(), Value::Bool(false));
+}
+
+#[test]
 fn obj_ref_eq_one_null_is_false() {
     let c = ctx();
     assert_eq!(
