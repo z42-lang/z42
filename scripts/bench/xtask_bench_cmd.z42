@@ -7,7 +7,7 @@ using Std.Time;   // Stopwatch — bench 进程计时标记
 
 class BenchCommand : Command {
     [Option(help: "fewer runs/warmup")] public bool Quick;
-    // add-exec-profile-matrix: `both` runs each scenario under interp AND jit (two profile-tagged results).
+    // `both` runs each scenario under interp AND jit (two profile-tagged results).
     [Option(help: "measured-run mode (default: jit)", choices: new string[]{ "interp", "jit", "both" })]
     public string Mode = "";
     // 场景分层：`gate` = PR 门禁那一小组代表性场景，`full` = 其余；场景在源码头部用 `// tier: gate` 声明。

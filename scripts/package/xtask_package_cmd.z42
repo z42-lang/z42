@@ -20,7 +20,6 @@ class PackageCommand : Command {
 }
 
 // 发行包三兄弟（sdk / runtime / workload）共同的流程：组装 → `--archive` 时出归档 → sdk 的 `--verify`。
-// 不抽公共基类：跨包基类（Command）下的三层构造链目前会丢祖父构造器。
 void _pkgCheckArchive(bool archive, string profile) {
     if (archive && profile != "release") {
         throw new CliException("--archive only applies to --profile release (only release packages are published)");

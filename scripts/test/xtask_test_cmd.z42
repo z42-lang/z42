@@ -75,7 +75,6 @@ class TestListCommand : Command {
 }
 
 // `test stdlib` 与 `bench stdlib`：同一个 _testLib 实现、同一组参数，按 kind 区分。
-// 用 kind 参数而非两个子类：跨包基类（Command）下的三层构造链目前会丢祖父构造器。
 class LibUnitsCommand : Command {
     [Option(help: "skip tooling rebuild")] public bool NoBuild;
     [Option(help: "name filter", shortName: "k")] public string Filter = "";
@@ -86,7 +85,6 @@ class LibUnitsCommand : Command {
     [Option(help: "override: prebuilt z42vm (with --driver/--libs → skip in-tree build)")] public string Vm = "";
     [Option(help: "override: prebuilt z42c.driver.zpkg")] public string Driver = "";
     [Option(help: "override: prebuilt flat libs dir (stdlib + z42c siblings)")] public string Libs = "";
-    // add-stdlib-bench-baseline: 捕获聚合 bench_stats 到 schema-v1 baseline 文件（median_ns 主指标）。
     [Option(help: "bench: capture aggregated bench_stats to a schema-v1 baseline file")] public string Json = "";
     [Argument(help: "single lib (default: all)")] public string Lib = "";
     private string _kind;   // "test" | "bench"
@@ -144,16 +142,13 @@ class TestAppCommand : Command {
     [Option(help: "desktop run report (default: json)", choices: new string[]{ "json", "pretty", "tap" })]
     public string Format = "";
     [Option(help: "desktop: run one .zbc or one golden case dir instead of a corpus bundle")] public string Zbc = "";
-    [Argument(help: "a workload platform or all (all = every platform this host supports; others are skipped with a reason)")]
+    [Argument(help: "a workload in versions.toml [workload], or all (all = every platform this host supports; others are skipped with a reason)")]
     public string Platform = "";
     [Argument(help: "one step only (default: the whole pipeline)",
               choices: new string[]{ "stage", "build", "assets", "bundle", "run" })]
     public string Step = "";
 
-    public TestAppCommand() : base("app", "embedding hosts: desktop / wasm / ios / android / all (unsupported hosts are skipped)") {
-        this.SetHelp("Platform", _joinStrings(_vWorkloads(_root()), " | ")
-            + " | all (all = every platform this host supports; others are skipped with a reason)");
-    }
+    public TestAppCommand() : base("app", "embedding hosts: desktop / wasm / ios / android / all (unsupported hosts are skipped)") {}
     public override int Run() { return _testApp(this); }
 }
 
