@@ -225,6 +225,8 @@
         - [SynchronizationLockException](stdlib/core.SynchronizationLockException.md)
         - [ThreadNative](stdlib/core.ThreadNative.md)
         - [MonitorNative](stdlib/core.MonitorNative.md)
+    - [Std.Hashing]()
+        - [Murmur3](stdlib/core.Murmur3.md)
     - [Std.Net.Sockets]()
         - [TcpSocketNative](stdlib/core.TcpSocketNative.md)
         - [UdpSocketNative](stdlib/core.UdpSocketNative.md)

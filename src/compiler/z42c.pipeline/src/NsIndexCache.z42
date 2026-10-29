@@ -13,15 +13,13 @@ public static class NsIndexCache {
     // 惰性 scan 的 open-all（读+解全部 ~26 个 zpkg 只为建 ns 路由）是 REPL 首次 eval 的一次性大头
     // （macOS 暖 ~0.375s；Windows 每次文件打开被 Defender 逐个扫，更甚）。把「每包→命名空间」落盘缓存，
     // 命中则从缓存建 nsMap + 路由、只 open prelude + 引用闭包。指纹变（任一 zpkg 增删改）→ 自动重建。
-    [Native("__file_last_write_time_ms")] private static extern long _mtimeMs(string path);
-
     // libs 指纹：sorted path 列表逐个 (basename,size,mtime) 拼串。任一 zpkg 变 → 串变 → 索引失效。
     internal static string _libsFingerprint(string[] paths) {
         string s = "";
         int i = 0;
         while (i < paths.Length) {
             s = s + Path.GetFileName(paths[i]) + ":" + File.GetSize(paths[i]).ToString()
-                  + ":" + NsIndexCache._mtimeMs(paths[i]).ToString() + ";";
+                  + ":" + File.GetLastWriteTime(paths[i]).UnixMs().ToString() + ";";
             i = i + 1;
         }
         return s;

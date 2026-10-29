@@ -11,8 +11,6 @@
 namespace Z42.Pipeline;
 
 using Std.IO;
-using Std.Encoding;
-using Z42.IR;
 using Z42.Package;
 
 public static class DepIdentity {
@@ -34,7 +32,7 @@ public static class DepIdentity {
             }
             i = i + 1;
         }
-        return Murmur3.HashHexOfStr(String.ConcatParts(parts, k));   // native-hash：串路径直哈
+        return Std.Hashing.Murmur3.Hash128Hex(String.ConcatParts(parts, k));   // native-hash：串路径直哈
     }
 
     private static string _idOf(CachedZpkg ce) {
@@ -51,7 +49,7 @@ public static class DepIdentity {
                 if (sec.Tag == "BLID") { id = "blid:" + DepIdentity._hex(z.Data, sec.Offset, sec.Size); }
                 s = s + 1;
             }
-            if (id.Length == 0) { id = "bytes:" + Murmur3.HashHexOfBytes(z.Data); }
+            if (id.Length == 0) { id = "bytes:" + Std.Hashing.Murmur3.Hash128Hex(z.Data); }
         }
         ce.Identity = id;
         return id;

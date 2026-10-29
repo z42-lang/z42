@@ -9,7 +9,7 @@ using Std.IO;
 using Z42.Pipeline;
 using Z42.Package;
 using Z42.Semantics;
-using Z42.IR;   // Murmur3（v8 zbchash）
+using Z42.IR;
 using Z42.IR.BinaryFormat;
 using Z42.Emission;
 using Std.Harness;
@@ -47,7 +47,7 @@ void _writeEntry(string cacheDir, string rel, string text) {
     File.WriteAllBytes(zbcPath, zbytes);
     CacheMeta m = new CacheMeta(rel);
     m.SourceHash = ZpkgBuilder.SourceHashHex(text);
-    m.ZbcHash = Murmur3.Hash128Hex(zbytes);   // v8：zbc↔meta 配对
+    m.ZbcHash = Std.Hashing.Murmur3.Hash128Hex(zbytes);   // v8：zbc↔meta 配对
     _fillNames(m, rel, "Add", "Mul");
     m.Namespace = "T";
     CacheStore.Save(cacheDir, m);

@@ -1,0 +1,22 @@
+// `ZpkgBuilder.SourceHashHex` —— zpkg MODS 里源变更检测字段的最终形态：`"mmh3:"` + 32 hex。
+// 算法本身的向量对拍在 z42.core 的 `tests/murmur3.z42`（`Std.Hashing.Murmur3`）。
+namespace Z42IrSourceHashTests;
+
+using Z42.Package;   // ZpkgBuilder.SourceHashHex
+using Std.Harness;
+
+// 前缀本身是失效开关：与 2026-09-06 前的 `"sha256:"` 天然不等 ⇒ 混版本缓存一次全量重编。
+[Test]
+void test_source_hash_hex_form() {
+    Assert.Equal("mmh3:d1c6cd75a506b0a2a506b0a2a506b0a2", ZpkgBuilder.SourceHashHex("abc"));
+    Assert.True(ZpkgBuilder.SourceHashHex("abc").StartsWith("mmh3:"));
+    Assert.True(ZpkgBuilder.SourceHashHex("abc") != ZpkgBuilder.SourceHashHex("abd"));
+}
+
+[Test]
+void test_source_hash_hex_stable_shape() {
+    string s = ZpkgBuilder.SourceHashHex("hello");
+    Assert.True(s.StartsWith("mmh3:"));
+    Assert.Equal(5 + 32, s.Length);
+    Assert.Equal(s, ZpkgBuilder.SourceHashHex("hello"));   // 确定性
+}

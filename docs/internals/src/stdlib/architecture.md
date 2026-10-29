@@ -119,17 +119,16 @@ public static extern long Spawn(object action);
 ## 5. 全仓 native 表面（实测）
 
 VM 注册表 `BUILTINS` 共 **332** 个条目（桌面 arm64），全部是 ABI v2 的 `#[builtins]` 模块
-（P1-8 批次 12b 后旧表清零，`builtin_table.rs` 只做 `DESCS` 拼接）。stdlib 与编译器域侧
-`[Native("__…")]` 声明的**不同符号** **307** 个，全部能在表里找到。
+（P1-8 批次 12b 后旧表清零，`builtin_table.rs` 只做 `DESCS` 拼接）。stdlib 侧
+`[Native("__…")]` 声明的**不同符号** **311** 个，全部能在表里找到。
 
 按包分布：
 
 | 包 | 声明文件数 | 不同 `__` 符号 | 性质 |
 |---|---|---|---|
-| `z42.core` | 51 | 293 | 语义汇聚核 |
+| `z42.core` | 52 | 303 | 语义汇聚核 |
 | `z42.harness` | 2 | 5 | 运行时非必需（②）；声明待补 `lib=` |
 | `z42.diagnostics` | 2 | 3 | 运行时非必需（②）；声明待补 `lib=` |
-| `z42.scripting` / `z42.package` / `z42c.*`（`src/compiler/`） | 6 | 4 | **违反[落点规则](organization.md#extern-落点只有两处)**，待迁到 core 公开 API |
 | `z42.compression` | 8 | 12 个 `entry =`（`lib = "z42_compression"`） | 运行时非必需（②，外部 cdylib） |
 
 compression 那 12 个**不在** `BUILTINS` 里——它们由 cdylib 在加载时注册进 per-VM 的 ext 表
@@ -137,9 +136,9 @@ compression 那 12 个**不在** `BUILTINS` 里——它们由 cdylib 在加载�
 
 其余 **全部为零**：`io` / `net` / `threading` / `json` / `text` / `collections` / `encoding` /
 `toml` / `yaml` / `uri` / `regex` / `cli` / `random` / `numerics` / `crypto` / `build` / `project`
-/ `ir` / `z42c.core` / `z42c.syntax`。`z42.crypto` 的全部哈希、HMAC、椭圆曲线都是纯 z42。
+/ `ir`，以及 `src/compiler/` 的全部包（`z42c.*` / `z42.package` / `z42.scripting` …，见[落点规则](organization.md#extern-落点只有两处)）。`z42.crypto` 的全部哈希、HMAC、椭圆曲线都是纯 z42。
 
-`z42.core` 内部 293 个符号的来源（前几名）：
+`z42.core` 内部 303 个符号的来源（前几名）：
 
 | 文件 | 符号数 | 领域 |
 |---|---|---|
