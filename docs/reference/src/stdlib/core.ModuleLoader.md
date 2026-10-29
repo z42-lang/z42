@@ -18,10 +18,11 @@ public static class ModuleLoader {
     static extern object Invoke(string fqn)
     static object Create(string typeFqn)
     static extern string[] RunIsolated(string[] paths, string[] entries, string libsDir, int jobs)
+    static extern string[] MemberNamesOfStaticValue(string staticFieldFqn)
 }
 ```
 
-成员：[`Load`](#Std.Runtime.ModuleLoader.Load(string)) · [`LoadBytes`](#Std.Runtime.ModuleLoader.LoadBytes(byte[])) · [`Invoke`](#Std.Runtime.ModuleLoader.Invoke(string)) · [`Create`](#Std.Runtime.ModuleLoader.Create(string)) · [`RunIsolated`](#Std.Runtime.ModuleLoader.RunIsolated(string[],string[],string,int))
+成员：[`Load`](#Std.Runtime.ModuleLoader.Load(string)) · [`LoadBytes`](#Std.Runtime.ModuleLoader.LoadBytes(byte[])) · [`Invoke`](#Std.Runtime.ModuleLoader.Invoke(string)) · [`Create`](#Std.Runtime.ModuleLoader.Create(string)) · [`RunIsolated`](#Std.Runtime.ModuleLoader.RunIsolated(string[],string[],string,int)) · [`MemberNamesOfStaticValue`](#Std.Runtime.ModuleLoader.MemberNamesOfStaticValue(string))
 
 <a id="Std.Runtime.ModuleLoader.Load(string)"></a>
 ### static void Load(string path)
@@ -64,4 +65,11 @@ public static class ModuleLoader {
 程序为自包含的 app.zpkg / .zbc，各自拥有独立的堆、静态字段、函数表。
 `entries[i]` 是 `paths[i]` 的入口全限定名（"" = 产物内置入口）；`libsDir`
 提供标准库；`jobs` 个上下文并行（<=0 = 按核数，1 = 串行）。
+
+<a id="Std.Runtime.ModuleLoader.MemberNamesOfStaticValue(string)"></a>
+### static extern string[] MemberNamesOfStaticValue(string staticFieldFqn)
+
+[`src/libraries/z42.core/src/Runtime/ModuleLoader.z42:49`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Runtime/ModuleLoader.z42#L49)
+
+读静态字段 `staticFieldFqn`（`<类型 FQN>.<字段名>`）里存着的**活值**，返回其运行时类型的成员名 （字段 / 方法 / 属性 / 嵌套类型，与 `Type.GetMembers()` 同一集合）。只读已存的字段值，不求值、 也不触发静态初始化；值为 null / 数组、字段不存在或所在类型尚未初始化时返回空数组。
 

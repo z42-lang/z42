@@ -26,10 +26,12 @@ public static class Convert {
     static float ToSingle(string s)
     static bool ToBoolean(string s)
     static char ToChar(string s)
+    static string ToHexStringLower(byte[] bytes)
+    static extern string ToHexStringLower(string text)
 }
 ```
 
-成员：[`ToInt32`](#Std.Convert.ToInt32(string)) · [`ToInt64`](#Std.Convert.ToInt64(string)) · [`ToDouble`](#Std.Convert.ToDouble(string)) · [`ToString`](#Std.Convert.ToString(object)) · [`ToSByte`](#Std.Convert.ToSByte(string)) · [`ToByte`](#Std.Convert.ToByte(string)) · [`ToInt16`](#Std.Convert.ToInt16(string)) · [`ToUInt16`](#Std.Convert.ToUInt16(string)) · [`ToUInt32`](#Std.Convert.ToUInt32(string)) · [`ToUInt64`](#Std.Convert.ToUInt64(string)) · [`ToSingle`](#Std.Convert.ToSingle(string)) · [`ToBoolean`](#Std.Convert.ToBoolean(string)) · [`ToChar`](#Std.Convert.ToChar(string))
+成员：[`ToInt32`](#Std.Convert.ToInt32(string)) · [`ToInt64`](#Std.Convert.ToInt64(string)) · [`ToDouble`](#Std.Convert.ToDouble(string)) · [`ToString`](#Std.Convert.ToString(object)) · [`ToSByte`](#Std.Convert.ToSByte(string)) · [`ToByte`](#Std.Convert.ToByte(string)) · [`ToInt16`](#Std.Convert.ToInt16(string)) · [`ToUInt16`](#Std.Convert.ToUInt16(string)) · [`ToUInt32`](#Std.Convert.ToUInt32(string)) · [`ToUInt64`](#Std.Convert.ToUInt64(string)) · [`ToSingle`](#Std.Convert.ToSingle(string)) · [`ToBoolean`](#Std.Convert.ToBoolean(string)) · [`ToChar`](#Std.Convert.ToChar(string)) · [`ToHexStringLower`](#Std.Convert.ToHexStringLower(byte[])) · [`ToHexStringLower`](#Std.Convert.ToHexStringLower(string))
 
 <a id="Std.Convert.ToInt32(string)"></a>
 ### static extern int ToInt32(string s)
@@ -121,4 +123,18 @@ public static class Convert {
 [`src/libraries/z42.core/src/Convert.z42:45`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Convert.z42#L45)
 
 解析为 `char`。
+
+<a id="Std.Convert.ToHexStringLower(byte[])"></a>
+### static string ToHexStringLower(byte[] bytes)
+
+[`src/libraries/z42.core/src/Convert.z42:50`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Convert.z42#L50)
+
+把字节编码为小写十六进制字符串（每字节 2 字符，无前缀、无分隔）。
+
+<a id="Std.Convert.ToHexStringLower(string)"></a>
+### static extern string ToHexStringLower(string text)
+
+[`src/libraries/z42.core/src/Convert.z42:67`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Convert.z42#L67)
+
+把 `text` 的 UTF-8 编码字节编码为小写十六进制字符串，等价于 `ToHexStringLower(Utf8.GetBytes(text))`，但不物化中间字节数组。
 
