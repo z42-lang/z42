@@ -25,7 +25,9 @@ cargo bench -- --quick               # 快速模式（每个 bench 总耗时上�
 ## 结果位置
 
 - 文本输出：终端
-- HTML 报告：`src/runtime/target/criterion/<bench-name>/index.html`（含分布图）
+- 原始数据：`artifacts/build/runtime/criterion/<bench-id>/{new,base}/*.json`（`src/runtime/.cargo/config.toml` 的
+  target-dir 下；`--save-baseline` / `--baseline` 读写的就是它）。没有 HTML 报告：`Cargo.toml` 里 criterion 只开了
+  `cargo_bench_support`，没开 `html_reports`
 
 ## 设计约定
 

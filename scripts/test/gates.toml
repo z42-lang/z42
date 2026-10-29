@@ -18,3 +18,66 @@ readme = 173
 internals = 799
 reference = 253
 # z42-gates:doc-refs-end
+
+# z42-gates:layers-begin（xtask check layers --update 维护）
+[layers.edges]
+"jit -> interp" = 22
+"object -> gc" = 18
+"gc -> facade" = 15
+"interp -> jit" = 13
+"metadata -> object" = 13
+"corelib -> interp" = 12
+"metadata -> vm.runtime" = 12
+"vm.exec -> corelib" = 12
+"vm.runtime -> corelib" = 10
+"vm.runtime -> vm.exec" = 10
+"corelib -> facade" = 9
+"jit -> corelib" = 7
+"gc -> profiler" = 6
+"interp -> corelib" = 6
+"vm.exec -> interp" = 6
+"vm.runtime -> vm.core" = 6
+"gc -> vm.loader" = 5
+"object -> vm.runtime" = 5
+"vm.loader -> vm.exec" = 5
+"gc -> vm.threads" = 4
+"vm.core -> corelib" = 4
+"vm.core -> interop" = 4
+"vm.core -> profiler" = 4
+"gc -> vm.core" = 3
+"jit -> facade" = 3
+"object -> vm.threads" = 3
+"vm.core -> facade" = 3
+"corelib -> interop" = 2
+"corelib -> profiler" = 2
+"interp -> facade" = 2
+"object -> vm.loader" = 2
+"vm.core -> jit" = 2
+"vm.exec -> interop" = 2
+"vm.runtime -> vm.loader" = 2
+"gc -> vm.exec" = 1
+"interop -> corelib" = 1
+"interop -> facade" = 1
+"interp -> interop" = 1
+"metadata -> interp" = 1
+"object -> corelib" = 1
+"object -> vm.exec" = 1
+"vm.exec -> facade" = 1
+"vm.loader -> interp" = 1
+"vm.runtime -> interop" = 1
+"vm.runtime -> jit" = 1
+"vm.threads -> facade" = 1
+"vm.threads -> vm.core" = 1
+[layers.cfg]
+"corelib" = 107
+"gc" = 13
+"vm.core" = 8
+"facade" = 5
+"vm.runtime" = 4
+"host" = 3
+"vm.exec" = 2
+[layers.libc]
+"corelib" = 6
+"facade" = 6
+"vm.exec" = 1
+# z42-gates:layers-end

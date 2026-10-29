@@ -1,0 +1,223 @@
+// 运行时分层门：Rust 源的词法层（纯函数，`_lySelfTest` 覆盖）。
+//
+// 只切出分层判定需要的记号：标识符（含 `$crate` 这类宏变量）、标点（`::` 合成一个记号）、字符串字面量
+// （保留内容：`cfg(target_arch = "wasm32")` 要看值）。注释（含嵌套块注释）、字符字面量、生命周期、
+// 数字一律丢弃——注释和字符串里出现的 `crate::x` / `cfg(unix)` 不算数，靠的就是这一层。
+// 每个记号带 1 起的行号，供违规报告定位。
+namespace Z42Xtask;
+
+using Std.Collections;
+
+class LyToks {
+    public List<string> Text;
+    public List<int> Kind;   // 0 = 标识符；1 = 标点；2 = 字符串字面量（Text 为内容）
+    public List<int> Line;
+    public LyToks() { this.Text = new List<string>(); this.Kind = new List<int>(); this.Line = new List<int>(); }
+    public int Count() { return this.Text.Count; }
+    public void Add(string t, int kind, int line) { this.Text.Add(t); this.Kind.Add(kind); this.Line.Add(line); }
+    // 第 i 个记号是不是给定的标点 / 标识符（越界 = 否）。
+    public bool Is(int i, string t) { return i >= 0 && i < this.Text.Count && this.Kind[i] != 2 && this.Text[i] == t; }
+    public bool IsIdent(int i) { return i >= 0 && i < this.Text.Count && this.Kind[i] == 0; }
+}
+
+string _lySlice(char[] cs, int start, int len) {
+    char[] buf = new char[len];
+    Array.Copy(cs, start, buf, 0, len);
+    return String.FromChars(buf);
+}
+
+bool _lyIdStart(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; }
+bool _lyIdChar(char c) { return _lyIdStart(c) || (c >= '0' && c <= '9'); }
+
+// 词法扫描入口。
+LyToks _lyLex(string text) {
+    LyToks t = new LyToks();
+    char[] cs = text.ToCharArray();
+    int n = cs.Length;
+    int[] st = new int[2];   // [0] = 位置，[1] = 行号（子扫描器就地推进）
+    st[0] = 0; st[1] = 1;
+    while (st[0] < n) {
+        int i = st[0];
+        char c = cs[i];
+        char d = i + 1 < n ? cs[i + 1] : ' ';
+        if (c == '\n') { st[1] = st[1] + 1; st[0] = i + 1; }
+        else if (c == '/' && d == '/') { while (st[0] < n && cs[st[0]] != '\n') { st[0] = st[0] + 1; } }
+        else if (c == '/' && d == '*') { _lySkipBlock(cs, st); }
+        else if (c == '"') { _lyString(cs, st, t, 0); }
+        else if (c == '\'') { _lyQuote(cs, st); }
+        else if (_lyIdStart(c) || (c == '$' && i + 1 < n && _lyIdStart(d))) { _lyIdent(cs, st, t); }
+        else if (c >= '0' && c <= '9') { while (st[0] < n && (_lyIdChar(cs[st[0]]) || cs[st[0]] == '.')) { st[0] = st[0] + 1; } }
+        else if (c == ':' && d == ':') { t.Add("::", 1, st[1]); st[0] = i + 2; }
+        else if (c == ' ' || c == '\t' || c == '\r' || (int)c > 127) { st[0] = i + 1; }
+        else { t.Add(c.ToString(), 1, st[1]); st[0] = i + 1; }
+    }
+    return t;
+}
+
+// 块注释（Rust 允许嵌套）。
+void _lySkipBlock(char[] cs, int[] st) {
+    int n = cs.Length;
+    int depth = 0;
+    int i = st[0];
+    while (i < n) {
+        if (cs[i] == '/' && i + 1 < n && cs[i + 1] == '*') { depth = depth + 1; i = i + 2; continue; }
+        if (cs[i] == '*' && i + 1 < n && cs[i + 1] == '/') {
+            depth = depth - 1; i = i + 2;
+            if (depth == 0) { break; }
+            continue;
+        }
+        if (cs[i] == '\n') { st[1] = st[1] + 1; }
+        i = i + 1;
+    }
+    st[0] = i;
+}
+
+// 字符串字面量：st[0] 指向开引号。hashes < 0 = 普通串（认转义）；>= 0 = 原始串 r#..#"…"#..#。
+void _lyString(char[] cs, int[] st, LyToks t, int hashes) {
+    int n = cs.Length;
+    int line = st[1];
+    int i = st[0] + 1;
+    bool raw = hashes > 0 || (st[0] > 0 && cs[st[0] - 1] == 'r');
+    int start = i;
+    while (i < n) {
+        char c = cs[i];
+        if (c == '\n') { st[1] = st[1] + 1; }
+        if (!raw && c == '\\') { i = i + 2; continue; }
+        if (c == '"' && _lyHashesAt(cs, i + 1, hashes)) { break; }
+        i = i + 1;
+    }
+    int end = i < n ? i : n;
+    t.Add(_lySlice(cs, start, end - start), 2, line);
+    st[0] = end + 1 + hashes;
+}
+
+bool _lyHashesAt(char[] cs, int at, int hashes) {
+    int k = 0;
+    while (k < hashes) {
+        if (at + k >= cs.Length || cs[at + k] != '#') { return false; }
+        k = k + 1;
+    }
+    return true;
+}
+
+// `'`：字符字面量（`'x'` / `'\n'` / `'\u{..}'`）整个跳过；否则是生命周期 / 标签，跳过名字。
+void _lyQuote(char[] cs, int[] st) {
+    int n = cs.Length;
+    int i = st[0];
+    if (i + 1 < n && cs[i + 1] == '\\') {
+        int j = i + 2;
+        while (j < n && j < i + 14 && cs[j] != '\'') { j = j + 1; }
+        st[0] = j + 1;
+        return;
+    }
+    if (i + 2 < n && cs[i + 2] == '\'') { st[0] = i + 3; return; }
+    int k = i + 1;
+    while (k < n && _lyIdChar(cs[k])) { k = k + 1; }
+    st[0] = k;
+}
+
+// 标识符；`r"…"` / `r#"…"#` / `b"…"` / `br"…"` 前缀转给字符串扫描。
+void _lyIdent(char[] cs, int[] st, LyToks t) {
+    int n = cs.Length;
+    int i = st[0];
+    int j = cs[i] == '$' ? i + 1 : i;
+    while (j < n && _lyIdChar(cs[j])) { j = j + 1; }
+    string id = _lySlice(cs, i, j - i);
+    if ((id == "r" || id == "br" || id == "b") && j < n && (cs[j] == '"' || cs[j] == '#')) {
+        int h = 0;
+        while (j + h < n && cs[j + h] == '#') { h = h + 1; }
+        if (j + h < n && cs[j + h] == '"') {
+            st[0] = j + h;
+            _lyString(cs, st, t, id == "b" ? 0 : h);
+            return;
+        }
+    }
+    t.Add(id, 0, st[1]);
+    st[0] = j;
+}
+
+// ── 记号流上的两个小判定 ──────────────────────────────────────────────────────
+
+// `#[cfg(test)]` / `#![cfg(test)]` 标注的条目 → 掩码（true = 不参与判定）。条目 = 其后（越过其余属性）
+// 到深度 0 的 `;`，或到深度 0 的 `{…}` 闭合为止；`#![cfg(test)]` 遮住整个文件。
+bool[] _lyTestMask(LyToks t) {
+    int n = t.Count();
+    bool[] m = new bool[n];
+    int i = 0;
+    while (i < n) {
+        int a = _lyCfgTestAttrEnd(t, i);
+        if (a < 0) { i = i + 1; continue; }
+        int e = t.Is(i + 1, "!") ? n : _lyItemEnd(t, a);
+        int k = i;
+        while (k < e && k < n) { m[k] = true; k = k + 1; }
+        i = e;
+    }
+    return m;
+}
+
+// i 处是 `#[cfg(test)]`（或 `#![cfg(test)]`）→ 返回 `]` 之后的位置；否则 -1。
+int _lyCfgTestAttrEnd(LyToks t, int i) {
+    if (!t.Is(i, "#")) { return -1; }
+    int j = t.Is(i + 1, "!") ? i + 2 : i + 1;
+    if (t.Is(j, "[") && t.Is(j + 1, "cfg") && t.Is(j + 2, "(") && t.Is(j + 3, "test") && t.Is(j + 4, ")") && t.Is(j + 5, "]")) {
+        return j + 6;
+    }
+    return -1;
+}
+
+// 从 i 开始越过其余属性，返回条目结束之后的位置。
+int _lyItemEnd(LyToks t, int i) {
+    int n = t.Count();
+    while (t.Is(i, "#") && t.Is(i + 1, "[")) { i = _lyBalanced(t, i + 1); }
+    int depth = 0;
+    while (i < n) {
+        if (t.Is(i, "(") || t.Is(i, "[") || t.Is(i, "{")) { depth = depth + 1; }
+        else if (t.Is(i, ")") || t.Is(i, "]")) { depth = depth - 1; }
+        else if (t.Is(i, "}")) {
+            depth = depth - 1;
+            if (depth == 0) { return i + 1; }
+        }
+        else if (t.Is(i, ";") && depth == 0) { return i + 1; }
+        i = i + 1;
+    }
+    return n;
+}
+
+// i 处是开括号 → 返回配对闭括号之后的位置（不区分括号种类，源码本身是配平的）。
+int _lyBalanced(LyToks t, int i) {
+    int n = t.Count();
+    int depth = 0;
+    while (i < n) {
+        if (t.Is(i, "(") || t.Is(i, "[") || t.Is(i, "{")) { depth = depth + 1; }
+        else if (t.Is(i, ")") || t.Is(i, "]") || t.Is(i, "}")) {
+            depth = depth - 1;
+            if (depth == 0) { return i + 1; }
+        }
+        i = i + 1;
+    }
+    return n;
+}
+
+// i 处是 `cfg` / `cfg_attr`：其后（可有 `!`）是 `(` → 返回配对 `)` 之后的位置；否则返回 i。
+int _lyCfgEnd(LyToks t, int i) {
+    int j = t.Is(i + 1, "!") ? i + 2 : i + 1;
+    if (!t.Is(j, "(")) { return i; }
+    return _lyBalanced(t, j);
+}
+
+// [i, e) 这段 cfg 谓词是否是平台条件。
+bool _lyCfgIsPlatform(LyToks t, int i, int e) {
+    int k = i + 1;
+    while (k < e) {
+        if (t.Kind[k] == 0) {
+            string w = t.Text[k];
+            if (w == "target_os" || w == "target_family" || w == "target_vendor" || w == "target_env"
+                || w == "unix" || w == "windows") { return true; }
+            if (w == "target_arch" && t.Is(k + 1, "=") && k + 2 < e && t.Kind[k + 2] == 2 && t.Text[k + 2] == "wasm32") {
+                return true;
+            }
+        }
+        k = k + 1;
+    }
+    return false;
+}

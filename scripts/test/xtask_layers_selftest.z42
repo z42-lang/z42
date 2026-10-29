@@ -1,0 +1,140 @@
+// 运行时分层门的自测：构造用例覆盖映射、依赖矩阵、词法（注释 / 字符串 / 字符字面量）、多行 use 组展开、
+// `#[cfg(test)]` 遮罩、平台 cfg / libc 判定、再导出解析与基线比较。`xtask check layers` 每次先跑它，
+// 返回失败数（0 = 通过）。
+namespace Z42Xtask;
+
+using Std.IO;
+using Std.Collections;
+
+int _lySelfTest() {
+    int fails = _lySelfTestMap() + _lySelfTestAllow() + _lySelfTestRefs() + _lySelfTestCfg()
+        + _lySelfTestResolve() + _lySelfTestCompare();
+    if (fails == 0) { Console.WriteLine("  自测通过（映射 / 矩阵 / 词法 / use 组 / cfg / 再导出 / 基线）"); }
+    return fails;
+}
+
+int _lyExpect(string what, string got, string want) {
+    if (got == want) { return 0; }
+    ConsoleError.WriteLine("  ✗ 自测 " + what + "：得到 [" + got + "]，应为 [" + want + "]");
+    return 1;
+}
+
+int _lySelfTestMap() {
+    int f = 0;
+    f = f + _lyExpect("map pal", _lyComponentOf("pal/fs.rs"), "pal");
+    f = f + _lyExpect("map os_mem", _lyComponentOf("gc/os_mem.rs"), "pal");
+    f = f + _lyExpect("map gc 默认", _lyComponentOf("gc/arc_heap/alloc.rs"), "gc");
+    f = f + _lyExpect("map safepoint", _lyComponentOf("gc/safepoint.rs"), "vm.threads");
+    f = f + _lyExpect("map sampler", _lyComponentOf("gc/sampler.rs"), "profiler");
+    f = f + _lyExpect("map types 目录", _lyComponentOf("metadata/types/value.rs"), "object");
+    f = f + _lyExpect("map types hub", _lyComponentOf("metadata/types.rs"), "object");
+    f = f + _lyExpect("map type_table 不被 types 吃掉", _lyComponentOf("metadata/type_table.rs"), "vm.runtime");
+    f = f + _lyExpect("map zbc_reader", _lyComponentOf("metadata/zbc_reader/cursor.rs"), "metadata");
+    f = f + _lyExpect("map loader 内细分", _lyComponentOf("metadata/loader/type_registry.rs"), "vm.runtime");
+    f = f + _lyExpect("map loader 默认", _lyComponentOf("metadata/loader/artifact.rs"), "vm.loader");
+    f = f + _lyExpect("map corelib/abi", _lyComponentOf("corelib/abi/args.rs"), "vm.exec");
+    f = f + _lyExpect("map corelib 默认", _lyComponentOf("corelib/fs.rs"), "corelib");
+    f = f + _lyExpect("map vm_context 默认", _lyComponentOf("vm_context/mod.rs"), "vm.core");
+    f = f + _lyExpect("map interp 共用解析", _lyComponentOf("interp/vcall_resolve.rs"), "vm.runtime");
+    f = f + _lyExpect("map config 文件", _lyComponentOf("config.rs"), "facade");
+    f = f + _lyExpect("map config 目录", _lyComponentOf("config/cli.rs"), "facade");
+    f = f + _lyExpect("map 未登记", _lyComponentOf("nowhere.rs"), "");
+    f = f + _lyExpect("map vm.rs 不吃 vm_context", _lyComponentOf("vm_context/cctor.rs"), "vm.exec");
+    return f;
+}
+
+int _lySelfTestAllow() {
+    string got = "";
+    string[] pairs = new string[]{ "interp>jit", "jit>interp", "corelib>interop", "profiler>corelib", "corelib>interp",
+        "gc>object", "object>gc", "metadata>object", "vm.runtime>vm.exec", "vm.exec>vm.runtime", "vm.loader>vm.core",
+        "interp>vm.core", "facade>jit", "facade>host", "host>facade", "pal>metadata", "gc>pal", "jit>jit" };
+    foreach (var p in pairs) {
+        string[] ft = p.Split(">");
+        got = got + (_lyAllowed(ft[0], ft[1]) ? "1" : "0");
+    }
+    return _lyExpect("allow 矩阵", got, "000001000101101011");
+}
+
+// 一段源码 → "行:段/段 …"（行内引用与 use 叶子，按出现顺序）。
+string _lyRefsOf(string text) {
+    LyCrate c = new LyCrate();
+    c.AddFile("x/a.rs", text);
+    _lyCollect(c, c.Files[0], text);
+    string s = "";
+    foreach (var r in c.Files[0].Refs.ToArray()) { s = s + (s.Length == 0 ? "" : " ") + r.Line.ToString() + ":" + _lyJoinSegs(r.Segs, "/"); }
+    return s;
+}
+
+int _lySelfTestRefs() {
+    int f = 0;
+    f = f + _lyExpect("use 组", _lyRefsOf("use crate::{a::b, c::{d, e as f}, g::*};\nuse crate::h;"),
+        "1:a/b 1:c/d 1:c/e 1:g 2:h");
+    f = f + _lyExpect("多行 use 组", _lyRefsOf("pub(crate) use crate::{\n    gc::X,\n    jit::{self, Y},\n};"),
+        "2:gc/X 3:jit 3:jit/Y");
+    f = f + _lyExpect("行内路径", _lyRefsOf("fn f() { let x = crate::gc::heap::alloc::<T>(1); $crate::m::n!(); }"),
+        "1:gc/heap/alloc 1:m/n");
+    f = f + _lyExpect("z42 根 / 非根", _lyRefsOf("use z42::config::X;\nlet y = foo::crate_like::z;"), "1:config/X");
+    f = f + _lyExpect("注释与字符串不算",
+        _lyRefsOf("// crate::jit::a\nlet s = \"crate::jit::b\";\n/* crate::jit /* 嵌套 */ c */ let y = crate::gc::Z;\nlet c = '\"'; let d = crate::pal::W;"),
+        "3:gc/Z 4:pal/W");
+    f = f + _lyExpect("原始串与生命周期", _lyRefsOf("let s = r#\"crate::jit\"#;\nfn g<'a>(x: &'a u8) -> crate::gc::R { }"), "2:gc/R");
+    f = f + _lyExpect("cfg(test) 条目遮罩",
+        _lyRefsOf("#[cfg(test)]\nmod t {\n    use crate::jit::X;\n}\n#[cfg(test)]\n#[path = \"x_tests.rs\"]\nmod x_tests;\nuse crate::gc::Y;"),
+        "8:gc/Y");
+    f = f + _lyExpect("self/super 不判", _lyRefsOf("use super::jit;\nuse self::a::b;\nuse std::sync::Arc;"), "");
+    return f;
+}
+
+// 一段源码 → "cfg 行,行|libc 行,行"。
+string _lyPlatOf(string text) {
+    LyCrate c = new LyCrate();
+    c.AddFile("x/a.rs", text);
+    _lyCollect(c, c.Files[0], text);
+    string a = "";
+    foreach (var l in c.Files[0].Cfg.ToArray()) { a = a + (a.Length == 0 ? "" : ",") + l.ToString(); }
+    string b = "";
+    foreach (var l in c.Files[0].Libc.ToArray()) { b = b + (b.Length == 0 ? "" : ",") + l.ToString(); }
+    return a + "|" + b;
+}
+
+int _lySelfTestCfg() {
+    string src = "#[cfg(unix)]\n#[cfg(target_arch = \"wasm32\")]\n#[cfg(target_arch = \"x86_64\")]\n"
+        + "if cfg!(windows) { }\n#[cfg(feature = \"windows\")]\n#[cfg(any(\n    target_os = \"linux\",\n))]\n"
+        + "#[cfg_attr(unix, allow(dead_code))]\nunsafe { libc::getpid(); libc::getppid() }\n// libc::x cfg(unix)\nlet p = a::libc::b;\n"
+        + "#[cfg(test)]\nmod t { #[cfg(unix)] fn f() { libc::x(); } }\nuse libc::{a, b};";
+    return _lyExpect("平台 cfg / libc", _lyPlatOf(src), "1,2,4,6,9|10,15");
+}
+
+int _lySelfTestResolve() {
+    LyCrate c = new LyCrate();
+    string[] files = new string[]{
+        "lib.rs", "pub mod metadata;",
+        "metadata/mod.rs", "pub mod loader; pub mod types;\npub use loader::Foo;\npub use types::*;\npub(crate) use crate::gc::Bar as Baz;",
+        "metadata/loader.rs", "pub struct Foo;",
+        "metadata/types.rs", "mod value; pub use value::*;",
+        "metadata/types/value.rs", "pub enum Value { A }",
+        "gc/mod.rs", "pub struct Bar;"
+    };
+    int i = 0;
+    while (i < files.Length) { c.AddFile(files[i], files[i + 1]); i = i + 2; }
+    i = 0;
+    while (i < c.Files.Count) { _lyCollect(c, c.Files[i], c.Texts[i]); i = i + 1; }
+    string got = "";
+    string[] paths = new string[]{ "metadata/Foo", "metadata/Value", "metadata/types/Value", "metadata/Unknown",
+        "metadata/loader/x/y", "metadata/Baz", "metadata", "gc/Bar" };
+    foreach (var p in paths) { got = got + (got.Length == 0 ? "" : " ") + _lyResolve(c, _lySplitSegs(p), 0); }
+    return _lyExpect("再导出解析", got,
+        "metadata/loader metadata/types/value metadata/types/value metadata metadata/loader gc metadata gc");
+}
+
+int _lySelfTestCompare() {
+    Dictionary<string, int> cur = new Dictionary<string, int>();
+    cur["a -> b"] = 3; cur["c -> d"] = 1; cur["g -> h"] = 2;
+    Dictionary<string, int> base_ = new Dictionary<string, int>();
+    base_["a -> b"] = 2; base_["e -> f"] = 4; base_["g -> h"] = 2;
+    List<string> fails = new List<string>();
+    List<string> tight = new List<string>();
+    _lyCompare("edges", cur, base_, fails, tight);
+    string got = _lyJoinSegs(fails, ";") + " / " + _lyJoinSegs(tight, ";");
+    return _lyExpect("基线比较", got, "edges\ta -> b\t3\t2;edges\tc -> d\t1\t0 / edges e -> f：4 → 0");
+}

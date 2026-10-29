@@ -433,7 +433,8 @@ string[] _gateStageNames() {
         "ci-shell",
         "proc-env",
         "layout",
-        "versions"
+        "versions",
+        "layers"
     };
 }
 
@@ -711,6 +712,13 @@ int _testAll(bool noBuild, string skip) {
     if (!_skipHas(skip, "versions")) {
         swStage = _stageStart("versions");
         c = _checkVersions(); if (c != 0) { return c; }
+        _stageEnd(slog, swStage);
+    }
+    // stage 15: 运行时分层（runtime-audit §5.5 的目标组件与依赖方向）：跨组件引用与 pal 外的平台 cfg / libc
+    // 只减不增（基线 gates.toml [layers.*]）。纯文本扫描，host-independent。Skippable: "layers"。
+    if (!_skipHas(skip, "layers")) {
+        swStage = _stageStart("layers");
+        c = _testLayers(false); if (c != 0) { return c; }
         _stageEnd(slog, swStage);
     }
     Console.WriteLine("\n✅ GREEN — all stages passed");
