@@ -13,6 +13,7 @@
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Collections;
 
 // 硬链接写穿透门。本 stage 把 stdlib **硬链接**进每个 fixture 的临时
 // `Z42_LIBS`（`_copyStdlibZpkgs`），而 `File.Copy` 是
@@ -80,9 +81,7 @@ int _testCrossZpkgImpl(string mode) {
     string[] names = _enumDirsSorted(testsDir);
 
     int pass = 0;
-    int fail = 0;
-    string[] failures = new string[8];
-    int      failCount = 0;
+    var failures = new List<string>();
 
     // ── 分波并发 ─────────────────────────────────────────────
     //
@@ -92,22 +91,21 @@ int _testCrossZpkgImpl(string mode) {
     //
     // ⚠️ 成本由每进程 z42c 启动主导：**瓶颈是进程数，不是 I/O**（stdlib 拷贝换成硬链接实测
     // 只是噪声）。别往 I/O 方向猜。
-    string[] act = new string[names.Length];
-    int nAct = 0;
-    int i = 0;
-    while (i < names.Length) {
+    var actList = new List<string>();
+    foreach (var name in names) {
         // `expected_build_error.txt` = **期望 main 编译失败**的负例 fixture（内容 = stderr 必须包含的
         // 子串）。两个都没有的目录不是 fixture。
-        string _fxDir = Path.Join(testsDir, names[i]);
+        string _fxDir = Path.Join(testsDir, name);
         if (File.Exists(Path.Join(_fxDir, "expected_output.txt"))
             || File.Exists(Path.Join(_fxDir, "expected_build_error.txt"))) {
-            act[nAct] = names[i]; nAct = nAct + 1;
+            actList.Add(name);
         }
-        i = i + 1;
     }
+    string[] act = actList.ToArray();
+    int nAct = act.Length;
 
     string[] label = new string[nAct];   // "" = 仍存活；非空 = 失败标签（后续波次跳过它）
-    i = 0; while (i < nAct) { label[i] = ""; i = i + 1; }
+    for (int i = 0; i < nAct; i++) { label[i] = ""; }
 
     _crossBuildWave(act, nAct, label, testsDir, "target", compileVm, driverZpkg, stdlibDist);
     // 可选 `oldtarget/` —— 与 target **同工程名**、但成员更少的
@@ -117,21 +115,17 @@ int _testCrossZpkgImpl(string mode) {
     _crossBuildWave(act, nAct, label, testsDir, "main",   compileVm, driverZpkg, stdlibDist);
     _crossRunWave(act, nAct, label, testsDir, stdlibDist, runVm, mode);
 
-    i = 0;
-    while (i < nAct) {
+    for (int i = 0; i < nAct; i++) {
         if (label[i].Length == 0) {
             Console.WriteLine("  PASS " + act[i]);
             pass = pass + 1;
         } else {
             Console.WriteLine("  FAIL " + label[i]);
-            fail = fail + 1;
-            failures = _append(failures, failCount, label[i]);
-            failCount = failCount + 1;
+            failures.Add(label[i]);
         }
-        i = i + 1;
     }
 
-    return _crossSummary(pass, fail, failures, failCount);
+    return _crossSummary(pass, failures.Count, failures.ToArray(), failures.Count);
 }
 
 
@@ -334,17 +328,14 @@ void _crossRunWave(string[] act, int nAct, string[] label, string testsDir,
 void _applySkewAbsent(string caseDir, string testLibs, string mainDist) {
     string marker = Path.Join(caseDir, "skew-absent.txt");
     if (!File.Exists(marker)) { return; }
-    string[] lines = File.ReadAllText(marker).Split("\n");
-    int i = 0;
-    while (i < lines.Length) {
-        string nm = lines[i].Trim();
+    foreach (var line in File.ReadAllText(marker).Split("\n")) {
+        string nm = line.Trim();
         if (nm.Length > 0) {
             string a = Path.Join(testLibs, nm);
             if (File.Exists(a)) { File.Delete(a); }
             string c = Path.Join(mainDist, nm);
             if (File.Exists(c)) { File.Delete(c); }
         }
-        i = i + 1;
     }
 }
 
@@ -361,10 +352,8 @@ void _applySkewReplace(string caseDir, string testLibs, string mainDist) {
     string marker = Path.Join(caseDir, "skew-replace.txt");
     if (!File.Exists(marker)) { return; }
     string oldDist = _fixtureDist(Path.Join(caseDir, "oldtarget"));
-    string[] lines = File.ReadAllText(marker).Split("\n");
-    int i = 0;
-    while (i < lines.Length) {
-        string nm = lines[i].Trim();
+    foreach (var line in File.ReadAllText(marker).Split("\n")) {
+        string nm = line.Trim();
         if (nm.Length > 0) {
             string src = Path.Join(oldDist, nm);
             if (File.Exists(src)) {
@@ -375,7 +364,6 @@ void _applySkewReplace(string caseDir, string testLibs, string mainDist) {
                 if (File.Exists(c)) { File.Delete(c); File.Copy(src, c); }
             }
         }
-        i = i + 1;
     }
 }
 
@@ -410,8 +398,6 @@ XpkgJobZ _spawnBuildPkgE(string vmBin, string driverZpkg, string stdlibDist, str
     j.Live = false;
     j.ExpectErr = expectErr;
     j.ExpectWarn = expectWarn;
-    // 一律接管输出：期望失败 / 告警的要拿它比对；常规 build 失败时把尾部打印出来。
-    bool capture = true;
     j.Dir = pkgDir;
     string outDir = _fixtureDist(pkgDir);
     // 🔴 **重置**而不是只 Create：`--output-dir` 不清目录，残留的兄弟 zpkg 会一直躺在那儿，而 VM 的
@@ -429,8 +415,8 @@ XpkgJobZ _spawnBuildPkgE(string vmBin, string driverZpkg, string stdlibDist, str
         j.H = _z42cProc(vmBin, libs, driverZpkg).Arg("build").Arg(toml)
             .Arg("--output-dir").Arg(outDir).Arg("--release")
             .WorkingDirectory(pkgDir)
-            .Stdout(capture ? Stdio.Pipe() : Stdio.Null())
-            .Stderr(capture ? Stdio.Pipe() : Stdio.Null())
+            // 一律接管输出：期望失败 / 告警的要拿它比对；常规 build 失败时把尾部打印出来。
+            .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe())
             .Spawn();
         j.Live = true;
     } catch (Exception e) {
@@ -554,11 +540,8 @@ string _firstZpkg(string dir) {
 // Used to pick the app zpkg by name in the run wave.
 string _tomlName(string tomlPath) {
     if (!File.Exists(tomlPath)) return "";
-    string txt = File.ReadAllText(tomlPath);
-    string[] lines = txt.Split("\n");
-    int i = 0;
-    while (i < lines.Length) {
-        string ln = lines[i].Trim();
+    foreach (var line in File.ReadAllText(tomlPath).Split("\n")) {
+        string ln = line.Trim();
         int eq = ln.IndexOf("=");
         if (eq > 0 && ln.Substring(0, eq).Trim() == "name") {
             string rest = ln.Substring(eq + 1);
@@ -569,7 +552,6 @@ string _tomlName(string tomlPath) {
                 if (q2 >= 0) { return after.Substring(0, q2); }
             }
         }
-        i = i + 1;
     }
     return "";
 }

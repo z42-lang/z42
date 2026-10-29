@@ -12,6 +12,7 @@
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Collections;
 
 // 返回违规条数（每条已打印）。
 int _checkLearnBook(string root) {
@@ -19,17 +20,15 @@ int _checkLearnBook(string root) {
     string ex = Path.Join(root, "examples");
     if (!Directory.Exists(src)) { ConsoleError.WriteLine("  ✗ docs/learn/src missing"); return 1; }
     string[] pages = _learnPages(src);
-    string[] included = new string[0];
+    var included = new List<string>();
     int bad = 0;
-    int i = 0;
-    while (i < pages.Length) {
-        PageCheck pc = _checkLearnPage(root, src, pages[i]);
+    foreach (var page in pages) {
+        PageCheck pc = _checkLearnPage(root, src, page);
         bad = bad + pc.Bad;
-        included = _concatStrings(included, pc.Included);
-        i = i + 1;
+        included.AddRange(pc.Included);
     }
     bad = bad + _checkSummary(src, pages);
-    bad = bad + _checkExamplesCoverage(root, ex, pages, included);
+    bad = bad + _checkExamplesCoverage(root, ex, pages, included.ToArray());
     bad = bad + _checkProseDiagCodes(root, src, pages);
     return bad;
 }
@@ -46,49 +45,34 @@ int _checkProseDiagCodes(string root, string src, string[] pages) {
     string allowPath = Path.Join(root, "scripts/test/learn-prose-diag-allow.txt");
     string allow = File.Exists(allowPath) ? File.ReadAllText(allowPath) : "";
     int bad = 0;
-    int i = 0;
-    while (i < pages.Length) {
-        string page = pages[i];
+    foreach (var page in pages) {
         string[] codes = _diagCodesIn(File.ReadAllText(Path.Join(src, page)));
-        if (codes.Length > 0) {
-            string tx = _transcriptTextFor(root, page);
-            int c = 0;
-            while (c < codes.Length) {
-                string code = codes[c];
-                bool allowed = allow.Contains(page + " " + code);
-                if (!allowed && !tx.Contains(code)) {
-                    ConsoleError.WriteLine("  ✗ B11 docs/learn/src/" + page + " — 正文引用 " + code
-                        + " 但本章 transcript 里没有它（码被重排过？给它加个演示示例，或登记进 scripts/test/learn-prose-diag-allow.txt）");
-                    bad = bad + 1;
-                }
-                c = c + 1;
+        if (codes.Length == 0) { continue; }
+        string tx = _transcriptTextFor(root, page);
+        foreach (var code in codes) {
+            if (!allow.Contains(page + " " + code) && !tx.Contains(code)) {
+                ConsoleError.WriteLine("  ✗ B11 docs/learn/src/" + page + " — 正文引用 " + code
+                    + " 但本章 transcript 里没有它（码被重排过？给它加个演示示例，或登记进 scripts/test/learn-prose-diag-allow.txt）");
+                bad = bad + 1;
             }
         }
-        i = i + 1;
     }
     return bad;
 }
 
 // 文本里出现的全部 `E####` / `W####`（去重，出现序）。
 string[] _diagCodesIn(string text) {
-    string[] acc = new string[16];
-    int n = 0;
+    var acc = new List<string>();
     int i = 0;
     while (i + 4 < text.Length) {
         char c = text.CharAt(i);
         if ((c == 'E' || c == 'W') && _allDigits(text, i + 1, 4)) {
             string code = text.Substring(i, 5);
-            bool dup = false;
-            int k = 0;
-            while (k < n) { if (acc[k] == code) { dup = true; } k = k + 1; }
-            if (!dup && n < acc.Length) { acc[n] = code; n = n + 1; }
+            if (!acc.Contains(code)) { acc.Add(code); }
             i = i + 5;
         } else { i = i + 1; }
     }
-    string[] outp = new string[n];
-    int j = 0;
-    while (j < n) { outp[j] = acc[j]; j = j + 1; }
-    return outp;
+    return acc.ToArray();
 }
 
 bool _allDigits(string text, int from, int count) {
@@ -110,33 +94,23 @@ string _transcriptTextFor(string root, string page) {
     string acc = "";
     // ⚠️ `Directory.EnumerateRecursive` 返回**相对于 dir 的路径**，须自己 join 回去才能读；
     // 再 `File.Exists` 过一道，挡住目录条目。
-    string[] all = Directory.EnumerateRecursive(dir);
-    int i = 0;
-    while (i < all.Length) {
-        if (all[i].EndsWith(".console")) {
-            string full = Path.Join(dir, all[i]);
+    foreach (var rel in Directory.EnumerateRecursive(dir)) {
+        if (rel.EndsWith(".console")) {
+            string full = Path.Join(dir, rel);
             if (File.Exists(full)) { acc = acc + File.ReadAllText(full); }
         }
-        i = i + 1;
     }
     return acc;
 }
 
 // docs/learn/src 下全部 .md（相对路径，正斜杠，字典序），不含 SUMMARY.md。
 string[] _learnPages(string src) {
-    string[] all = _sortedStrings(Directory.EnumerateRecursive(src));
-    string[] acc = new string[all.Length];
-    int n = 0;
-    int i = 0;
-    while (i < all.Length) {
-        string rel = all[i].Replace("\\", "/");
-        if (rel.EndsWith(".md") && rel != "SUMMARY.md") { acc[n] = rel; n = n + 1; }
-        i = i + 1;
+    var acc = new List<string>();
+    foreach (var f in _sortedStrings(Directory.EnumerateRecursive(src))) {
+        string rel = f.Replace("\\", "/");
+        if (rel.EndsWith(".md") && rel != "SUMMARY.md") { acc.Add(rel); }
     }
-    string[] r = new string[n];
-    int k = 0;
-    while (k < n) { r[k] = acc[k]; k = k + 1; }
-    return r;
+    return acc.ToArray();
 }
 
 // 一页的检查结果：违规条数 + 该页 include 到的文件（绝对路径）。
@@ -151,8 +125,7 @@ PageCheck _checkLearnPage(string root, string src, string page) {
     string mdDir = Path.GetDirectoryName(mdPath);
     string[] lines = File.ReadAllText(mdPath).Replace("\r\n", "\n").Split("\n");
     string mirror = _collapseDots(Path.Join(root, "examples/" + page.Substring(0, page.Length - 3))) + "/";
-    string[] got = new string[lines.Length];
-    int gn = 0;
+    var got = new List<string>();
     int bad = 0;
     bool inFence = false;
     string fenceLang = "";
@@ -195,16 +168,13 @@ PageCheck _checkLearnPage(string root, string src, string page) {
             string directive = end > at ? l.Substring(at + 3, end - at - 3).Trim() : l.Substring(at + 3);
             string resolved = "";
             bad = bad + _checkIncludeDirective(mdDir, mirror, directive, loc, ref resolved);
-            if (resolved.Length > 0) { got[gn] = resolved; gn = gn + 1; }
+            if (resolved.Length > 0) { got.Add(resolved); }
         }
         li = li + 1;
     }
-    string[] r = new string[gn];
-    int k = 0;
-    while (k < gn) { r[k] = got[k]; k = k + 1; }
     PageCheck pc = new PageCheck();
     pc.Bad = bad;
-    pc.Included = r;
+    pc.Included = got.ToArray();
     return pc;
 }
 
@@ -219,7 +189,7 @@ int _checkIncludeDirective(string mdDir, string mirror, string directive, string
     string anchor = "";
     int colon = arg.IndexOf(":");
     if (colon >= 0) { file = arg.Substring(0, colon); anchor = arg.Substring(colon + 1); }
-    if (anchor.Length > 0 && _isDigits(anchor.Substring(0, 1))) {
+    if (anchor.Length > 0 && _allDigits(anchor, 0, 1)) {
         ConsoleError.WriteLine("  ✗ B3 " + loc + " — line-range include `" + arg + "`: use an ANCHOR instead");
         return 1;
     }
@@ -249,9 +219,8 @@ int _checkIncludeDirective(string mdDir, string mirror, string directive, string
 
 // 信息串里的 `example=<examples 下相对路径>`（将来 playground 按钮用）必须指向存在的路径。
 int _checkExampleAttr(string root, string[] parts, string loc) {
-    int i = 0;
-    while (i < parts.Length) {
-        string p = parts[i].Trim();
+    foreach (var part in parts) {
+        string p = part.Trim();
         if (p.StartsWith("example=")) {
             string rel = p.Substring(8);
             if (!Directory.Exists(Path.Join(root, "examples/" + rel)) && !File.Exists(Path.Join(root, "examples/" + rel))) {
@@ -259,7 +228,6 @@ int _checkExampleAttr(string root, string[] parts, string loc) {
                 return 1;
             }
         }
-        i = i + 1;
     }
     return 0;
 }
@@ -304,13 +272,11 @@ string _fencePathComment(string body, string mdDir) {
 int _checkSummary(string src, string[] pages) {
     string summary = File.ReadAllText(Path.Join(src, "SUMMARY.md"));
     int bad = 0;
-    int i = 0;
-    while (i < pages.Length) {
-        if (!summary.Contains("](" + pages[i] + ")")) {
-            ConsoleError.WriteLine("  ✗ B10 docs/learn/src/" + pages[i] + " is not listed in SUMMARY.md");
+    foreach (var page in pages) {
+        if (!summary.Contains("](" + page + ")")) {
+            ConsoleError.WriteLine("  ✗ B10 docs/learn/src/" + page + " is not listed in SUMMARY.md");
             bad = bad + 1;
         }
-        i = i + 1;
     }
     string[] parts = summary.Split("](");
     int k = 1;
@@ -330,28 +296,24 @@ int _checkSummary(string src, string[] pages) {
 int _checkExamplesCoverage(string root, string ex, string[] pages, string[] included) {
     if (!Directory.Exists(ex)) { return 0; }
     string[] files = _sortedStrings(Directory.EnumerateRecursive(ex));
-    string[] consoleDirs = new string[files.Length];
-    int cdn = 0;
+    var consoleDirs = new List<string>();
     int bad = 0;
-    int i = 0;
-    while (i < files.Length) {
-        string rel = files[i].Replace("\\", "/");
+    foreach (var f in files) {
+        string rel = f.Replace("\\", "/");
         string abs = _collapseDots(Path.Join(ex, rel));
         if (rel.EndsWith(".console")) {
-            consoleDirs[cdn] = Path.GetDirectoryName(abs) + "/"; cdn = cdn + 1;
+            consoleDirs.Add(Path.GetDirectoryName(abs) + "/");
             if (!_strIn(included, abs)) {
                 ConsoleError.WriteLine("  ✗ B7 examples/" + rel + " is not included by any page");
                 bad = bad + 1;
             }
         }
-        i = i + 1;
     }
-    i = 0;
-    while (i < files.Length) {
-        string rel = files[i].Replace("\\", "/");
+    foreach (var f in files) {
+        string rel = f.Replace("\\", "/");
         if (rel.EndsWith("z42.toml")) {
             string projDir = _collapseDots(Path.GetDirectoryName(Path.Join(ex, rel))) + "/";
-            if (!_underAny(projDir, consoleDirs, cdn)) {
+            if (!_underAny(projDir, consoleDirs)) {
                 ConsoleError.WriteLine("  ✗ B8 examples/" + rel + " — project is not exercised by any .console (put one in its directory or a parent)");
                 bad = bad + 1;
             }
@@ -362,52 +324,26 @@ int _checkExamplesCoverage(string root, string ex, string[] pages, string[] incl
                 bad = bad + 1;
             }
         }
-        i = i + 1;
     }
     return bad;
 }
 
 // examples/<a>/<b>/... ↔ 页面 <a>/<b>.md
 bool _hasChapterPage(string rel, string[] pages) {
-    int i = 0;
-    while (i < pages.Length) {
-        string chapter = pages[i].Substring(0, pages[i].Length - 3) + "/";
-        if (rel.StartsWith(chapter)) { return true; }
-        i = i + 1;
+    foreach (var page in pages) {
+        if (rel.StartsWith(page.Substring(0, page.Length - 3) + "/")) { return true; }
     }
     return false;
 }
 
-bool _underAny(string dir, string[] prefixes, int n) {
-    int i = 0;
-    while (i < n) { if (dir.StartsWith(prefixes[i])) { return true; } i = i + 1; }
+bool _underAny(string dir, List<string> prefixes) {
+    foreach (var p in prefixes) { if (dir.StartsWith(p)) { return true; } }
     return false;
 }
 
 bool _strArrHasTrimmed(string[] a, string v) {
-    int i = 0;
-    while (i < a.Length) { if (a[i].Trim() == v) { return true; } i = i + 1; }
+    foreach (var x in a) { if (x.Trim() == v) { return true; } }
     return false;
-}
-
-bool _isDigits(string s) {
-    if (s.Length == 0) { return false; }
-    int i = 0;
-    while (i < s.Length) {
-        string c = s.Substring(i, 1);
-        if (c.CompareTo("0") < 0 || c.CompareTo("9") > 0) { return false; }
-        i = i + 1;
-    }
-    return true;
-}
-
-string[] _concatStrings(string[] a, string[] b) {
-    string[] r = new string[a.Length + b.Length];
-    int i = 0;
-    while (i < a.Length) { r[i] = a[i]; i = i + 1; }
-    int k = 0;
-    while (k < b.Length) { r[a.Length + k] = b[k]; k = k + 1; }
-    return r;
 }
 
 string _repoRel(string abs) {

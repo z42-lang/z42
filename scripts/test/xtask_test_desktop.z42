@@ -15,6 +15,7 @@
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Collections;
 
 public class DesktopBackend : IPlatformBackend {
     public string Name() { return "desktop"; }
@@ -84,12 +85,10 @@ public class DesktopBackend : IPlatformBackend {
         }
         _DesktopLeg dy = this._runLeg(root, outDir, fixtures, "r1_r7_pkg_dynamic", "dynamic.",
             inc, dylib, nat, libs);
-        JUnitCase[] all = new JUnitCase[st.cases.Length + dy.cases.Length];
-        int i = 0;
-        while (i < st.cases.Length) { all[i] = st.cases[i]; i = i + 1; }
-        int j = 0;
-        while (j < dy.cases.Length) { all[i + j] = dy.cases[j]; j = j + 1; }
-        this._writeJUnit(root, all);
+        var all = new List<JUnitCase>();
+        all.AddRange(st.cases);
+        all.AddRange(dy.cases);
+        this._writeJUnit(root, all.ToArray());
         return (st.rc != 0) ? st.rc : dy.rc;
     }
 
@@ -135,29 +134,14 @@ public class DesktopBackend : IPlatformBackend {
     // macOS / Linux native libs a Rust staticlib needs at link time (hard-coded:
     // avoids the fragile --print=native-static-libs).
     string[] _nativeLibs() {
-        if (Platform.IsMacOS()) {
-            string[] m = new string[4]; m[0] = "-liconv"; m[1] = "-lSystem"; m[2] = "-lc"; m[3] = "-lm";
-            return m;
-        }
-        if (Platform.IsLinux()) {
-            string[] l = new string[6];
-            l[0] = "-lc"; l[1] = "-lm"; l[2] = "-lpthread"; l[3] = "-ldl"; l[4] = "-lrt"; l[5] = "-lgcc_s";
-            return l;
-        }
+        if (Platform.IsMacOS()) { return new string[]{ "-liconv", "-lSystem", "-lc", "-lm" }; }
+        if (Platform.IsLinux()) { return new string[]{ "-lc", "-lm", "-lpthread", "-ldl", "-lrt", "-lgcc_s" }; }
         return new string[0];
     }
 
     // Parse `[Rn] PASS` / `[Rn] FAIL: msg` lines into JUnitCase[] (names prefixed with `prefix`).
     JUnitCase[] _parseCases(string stdout, string prefix) {
-        int n = 0;
-        foreach (var line in _stdoutLines(stdout)) {
-            string t = line.Trim();
-            if (!t.StartsWith("[R")) { continue; }
-            if (t.IndexOf("]") < 0) { continue; }
-            n = n + 1;
-        }
-        JUnitCase[] cases = new JUnitCase[n];
-        int idx = 0;
+        var cases = new List<JUnitCase>();
         foreach (var line in _stdoutLines(stdout)) {
             string t = line.Trim();
             if (!t.StartsWith("[R")) { continue; }
@@ -168,10 +152,9 @@ public class DesktopBackend : IPlatformBackend {
             bool passed = rest.StartsWith("PASS");
             string msg = "";
             if (!passed) { msg = rest.StartsWith("FAIL:") ? rest.Substring(5).Trim() : rest; }
-            cases[idx] = new JUnitCase(prefix + name, passed, msg);
-            idx = idx + 1;
+            cases.Add(new JUnitCase(prefix + name, passed, msg));
         }
-        return cases;
+        return cases.ToArray();
     }
 
     void _writeJUnit(string root, JUnitCase[] cases) {

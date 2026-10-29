@@ -7,6 +7,7 @@
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Collections;
 
 class ExampleRunResult {
     public int  Steps  { get; set; }
@@ -25,9 +26,9 @@ ExampleRunResult _runTranscript(string sdk, string consolePath, int timeoutMs, b
     Directory.Create(home);
     _copyExampleTree(srcDir, work);
     string cwd = work;
-    int i = 0;
-    while (i < items.Length && !res.Failed) {
-        TranscriptStep st = items[i].Step;
+    foreach (var item in items) {
+        if (res.Failed) { break; }
+        TranscriptStep st = item.Step;
         if (st != null) {
             res.Steps = res.Steps + 1;
             string[] argv = _splitCommand(st.Command);
@@ -68,7 +69,6 @@ ExampleRunResult _runTranscript(string sdk, string consolePath, int timeoutMs, b
                 }
             }
         }
-        i = i + 1;
     }
     if (res.Blessed) { File.WriteAllText(consolePath, _renderTranscript(items)); }
     if (res.Failed || keep) {
@@ -91,11 +91,9 @@ ProcessResult _runSdkZ42(string sdk, string home, string cwd, string[] argv, int
         .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe())
         .Timeout(timeoutMs);
     string[] passthrough = new string[]{ "SystemRoot", "SYSTEMROOT", "TEMP", "TMP", "TMPDIR", "PATHEXT", "ComSpec", "WINDIR" };
-    int k = 0;
-    while (k < passthrough.Length) {
-        string v = Environment.GetEnvironmentVariable(passthrough[k], "");
-        if (v.Length > 0) { p = p.Env(passthrough[k], v); }
-        k = k + 1;
+    foreach (var name in passthrough) {
+        string v = Environment.GetEnvironmentVariable(name, "");
+        if (v.Length > 0) { p = p.Env(name, v); }
     }
     int a = 1;
     while (a < argv.Length) { p = p.Arg(argv[a]); a = a + 1; }
@@ -111,18 +109,15 @@ string _sandboxPath(string cwd, string rel) {
 
 string _collapseDots(string p) {
     string[] parts = p.Replace("\\", "/").Split("/");
-    string[] st = new string[parts.Length];
-    int n = 0;
+    var st = new List<string>();
     int i = 0;
     while (i < parts.Length) {
         string seg = parts[i];
-        if (seg == "..") { if (n > 0) { n = n - 1; } }
-        else if (seg != "." && !(seg.Length == 0 && i > 0)) { st[n] = seg; n = n + 1; }
+        if (seg == "..") { if (st.Count > 0) { st.RemoveAt(st.Count - 1); } }
+        else if (seg != "." && !(seg.Length == 0 && i > 0)) { st.Add(seg); }
         i = i + 1;
     }
-    string r = "";
-    int k = 0;
-    while (k < n) { r = k == 0 ? st[k] : r + "/" + st[k]; k = k + 1; }
+    string r = string.Join("/", st.ToArray());
     return r.Length == 0 ? "/" : r;
 }
 
@@ -131,12 +126,10 @@ string _lsListing(string dir) {
     if (!Directory.Exists(dir)) { return "ls: no such directory\n"; }
     string[] names = _sortedStrings(Directory.Enumerate(dir));
     string s = "";
-    int i = 0;
-    while (i < names.Length) {
-        if (!names[i].StartsWith(".")) {
-            s = s + names[i] + (Directory.Exists(Path.Join(dir, names[i])) ? "/" : "") + "\n";
+    foreach (var name in names) {
+        if (!name.StartsWith(".")) {
+            s = s + name + (Directory.Exists(Path.Join(dir, name)) ? "/" : "") + "\n";
         }
-        i = i + 1;
     }
     return s;
 }
@@ -144,10 +137,7 @@ string _lsListing(string dir) {
 // 拷贝示例目录进沙箱：排除会话脚本本身、example.toml 与构建产物（避免带入增量缓存）。
 void _copyExampleTree(string src, string dst) {
     Directory.Create(dst);
-    string[] names = _sortedStrings(Directory.Enumerate(src));
-    int i = 0;
-    while (i < names.Length) {
-        string name = names[i];
+    foreach (var name in _sortedStrings(Directory.Enumerate(src))) {
         string s = Path.Join(src, name);
         string d = Path.Join(dst, name);
         if (Directory.Exists(s)) {
@@ -155,6 +145,5 @@ void _copyExampleTree(string src, string dst) {
         } else if (!name.EndsWith(".console") && name != "example.toml") {
             File.Copy(s, d);
         }
-        i = i + 1;
     }
 }

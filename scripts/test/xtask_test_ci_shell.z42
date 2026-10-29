@@ -36,6 +36,7 @@
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Collections;
 
 // 扫描根：`.github/` 整个（composite action 清单 + workflow）。见头注「覆盖边界」。
 string _csScanDir(string root) { return Path.Join(root, ".github"); }
@@ -44,29 +45,18 @@ string _csScanDir(string root) { return Path.Join(root, ".github"); }
 // 🔴 **加进来之前先确认它真是环境提供的**：把一个「本该在脚本里赋值」的名字放进来 = 亲手
 // 挖一个洞。本表刻意短，缺了就让门报出来、逐个判断再加。
 string[] _csEnvNames() {
-    string[] e = new string[34];
-    e[0]  = "PWD";        e[1]  = "HOME";       e[2]  = "PATH";      e[3]  = "TMPDIR";
-    e[4]  = "USER";       e[5]  = "SHELL";      e[6]  = "OSTYPE";    e[7]  = "LANG";
-    e[8]  = "TERM";       e[9]  = "IFS";        e[10] = "RANDOM";    e[11] = "LINENO";
-    e[12] = "FUNCNAME";   e[13] = "BASH_SOURCE"; e[14] = "PIPESTATUS"; e[15] = "SECONDS";
-    e[16] = "CI";         e[17] = "RUNNER_TEMP"; e[18] = "RUNNER_OS"; e[19] = "RUNNER_ARCH";
-    e[20] = "RUNNER_TOOL_CACHE";
-    e[21] = "GITHUB_WORKSPACE"; e[22] = "GITHUB_ENV";  e[23] = "GITHUB_OUTPUT";
-    e[24] = "GITHUB_PATH";      e[25] = "GITHUB_STEP_SUMMARY"; e[26] = "GITHUB_TOKEN";
-    e[27] = "GITHUB_SHA";       e[28] = "GITHUB_REF";  e[29] = "GITHUB_REPOSITORY";
-    e[30] = "GITHUB_EVENT_NAME"; e[31] = "GITHUB_RUN_ID";
-    e[32] = "CARGO_HOME";       e[33] = "RUSTUP_TOOLCHAIN";
-    return e;
+    return new string[]{
+        "PWD", "HOME", "PATH", "TMPDIR", "USER", "SHELL", "OSTYPE", "LANG",
+        "TERM", "IFS", "RANDOM", "LINENO", "FUNCNAME", "BASH_SOURCE", "PIPESTATUS", "SECONDS",
+        "CI", "RUNNER_TEMP", "RUNNER_OS", "RUNNER_ARCH", "RUNNER_TOOL_CACHE",
+        "GITHUB_WORKSPACE", "GITHUB_ENV", "GITHUB_OUTPUT", "GITHUB_PATH", "GITHUB_STEP_SUMMARY", "GITHUB_TOKEN",
+        "GITHUB_SHA", "GITHUB_REF", "GITHUB_REPOSITORY", "GITHUB_EVENT_NAME", "GITHUB_RUN_ID",
+        "CARGO_HOME", "RUSTUP_TOOLCHAIN"
+    };
 }
 
 bool _csIdentChar(char c) {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
-}
-
-bool _csInList(string[] arr, int n, string v) {
-    int i = 0;
-    while (i < n) { if (arr[i] == v) { return true; } i = i + 1; }
-    return false;
 }
 
 int _csIndent(string line) {
@@ -81,12 +71,32 @@ int _csIndent(string line) {
 
 bool _csBlank(string line) { return line.Trim() == ""; }
 
-// 一行里能被视作「赋值」的变量名，写进 outNames。覆盖：
+// s 开头的标识符（没有则 ""）。
+string _csLeadIdent(string s) {
+    int k = 0;
+    while (k < s.Length && _csIdentChar(s.CharAt(k))) { k = k + 1; }
+    return s.Substring(0, k);
+}
+
+// 跳过命令名与其后的 `-flag` 参数，返回第一个非 flag 参数开头的标识符（`read -r X` → X）。
+string _csFirstArgIdent(string t) {
+    int sp0 = t.IndexOf(" ");
+    string rest = t.Substring(sp0 + 1, t.Length - sp0 - 1).Trim();
+    while (rest.StartsWith("-")) {
+        int sp = rest.IndexOf(" ");
+        if (sp < 0) { rest = ""; } else { rest = rest.Substring(sp + 1, rest.Length - sp - 1).Trim(); }
+    }
+    return _csLeadIdent(rest);
+}
+
+void _csAddNonEmpty(List<string> xs, string v) { if (v.Length > 0) { xs.Add(v); } }
+
+// 一行里能被视作「赋值」的变量名。覆盖：
 //   `X=…`（含 `A=1 B=2 cmd` 这种 env 前缀连写）、`for X in …`、`read [-r] X …`、`local X=…`。
 // 判据：标识符紧跟 `=`（且不是 `==`），其前一个字符是行首 / 空白 / `;` / `(` / `&` / `|` / `{` / 反引号，
 // 且**不是** `$`（那是取值不是赋值）。
-int _csAssignsIn(string line, string[] outNames) {
-    int n = 0;
+List<string> _csAssignsIn(string line) {
+    var names = new List<string>();
     string s = line;
     int i = 0;
     while (i < s.Length) {
@@ -103,50 +113,26 @@ int _csAssignsIn(string line, string[] outNames) {
             string name = s.Substring(i, j - i);
             if (boundary && j < s.Length && s.CharAt(j) == '=') {
                 bool isEq = (j + 1 < s.Length && s.CharAt(j + 1) == '=');
-                if (!isEq) { outNames[n] = name; n = n + 1; }
+                if (!isEq) { names.Add(name); }
             }
             i = j;
         } else {
             i = i + 1;
         }
     }
-    // `for X in …`
     string t = s.Trim();
-    if (t.StartsWith("for ")) {
-        string rest = t.Substring(4, t.Length - 4).Trim();
-        int k = 0;
-        while (k < rest.Length && _csIdentChar(rest.CharAt(k))) { k = k + 1; }
-        if (k > 0) { outNames[n] = rest.Substring(0, k); n = n + 1; }
-    }
+    // `for X in …`
+    if (t.StartsWith("for ")) { _csAddNonEmpty(names, _csLeadIdent(t.Substring(4, t.Length - 4).Trim())); }
     // `mapfile -t X` / `readarray -t X`（数组读入）
-    if (t.StartsWith("mapfile ") || t.StartsWith("readarray ")) {
-        int sp0 = t.IndexOf(" ");
-        string rest0 = t.Substring(sp0 + 1, t.Length - sp0 - 1).Trim();
-        while (rest0.StartsWith("-")) {
-            int sp1 = rest0.IndexOf(" ");
-            if (sp1 < 0) { rest0 = ""; } else { rest0 = rest0.Substring(sp1 + 1, rest0.Length - sp1 - 1).Trim(); }
-        }
-        int k0 = 0;
-        while (k0 < rest0.Length && _csIdentChar(rest0.CharAt(k0))) { k0 = k0 + 1; }
-        if (k0 > 0) { outNames[n] = rest0.Substring(0, k0); n = n + 1; }
-    }
+    if (t.StartsWith("mapfile ") || t.StartsWith("readarray ")) { _csAddNonEmpty(names, _csFirstArgIdent(t)); }
     // `read [-flags] X [Y …]`
-    if (t.StartsWith("read ")) {
-        string rest = t.Substring(5, t.Length - 5).Trim();
-        while (rest.StartsWith("-")) {
-            int sp = rest.IndexOf(" ");
-            if (sp < 0) { rest = ""; } else { rest = rest.Substring(sp + 1, rest.Length - sp - 1).Trim(); }
-        }
-        int k2 = 0;
-        while (k2 < rest.Length && _csIdentChar(rest.CharAt(k2))) { k2 = k2 + 1; }
-        if (k2 > 0) { outNames[n] = rest.Substring(0, k2); n = n + 1; }
-    }
-    return n;
+    if (t.StartsWith("read ")) { _csAddNonEmpty(names, _csFirstArgIdent(t)); }
+    return names;
 }
 
-// 一行里「会触发 set -u」的变量取值，写进 outNames。跳过头注列的四类。
-int _csUsesIn(string line, string[] outNames) {
-    int n = 0;
+// 一行里「会触发 set -u」的变量取值。跳过头注列的四类。
+List<string> _csUsesIn(string line) {
+    var names = new List<string>();
     string s = line;
     int i = 0;
     while (i + 1 < s.Length) {
@@ -165,82 +151,51 @@ int _csUsesIn(string line, string[] outNames) {
             bool guarded = false;
             if (j < s.Length) {
                 char g = s.CharAt(j);
-                if (g == '-' || g == '+' || g == '?') { guarded = true; }
-                if (g == ':') { guarded = true; }
+                guarded = g == '-' || g == '+' || g == '?' || g == ':';
             }
-            if (name != "" && !guarded) { outNames[n] = name; n = n + 1; }
+            if (name != "" && !guarded) { names.Add(name); }
             i = j;
         } else if (_csIdentChar(nx) && (nx < '0' || nx > '9')) {
             int j = i + 1;
             while (j < s.Length && _csIdentChar(s.CharAt(j))) { j = j + 1; }
-            outNames[n] = s.Substring(i + 1, j - i - 1);
-            n = n + 1;
+            names.Add(s.Substring(i + 1, j - i - 1));
             i = j;
         } else {
             i = i + 2;   // `$1` `$@` `$?` … 位置/特殊参数
         }
     }
-    return n;
+    return names;
 }
 
 // workflow 的各步之间靠 `echo "X=…" >> "$GITHUB_ENV"` 传值：那是**跨块**可见的赋值，按块判会误报。
 // ⇒ 先全文件扫一遍这种行，把名字当作「进块前就已存在」。
-int _csEnvHandoffNames(string[] lines, string[] outNames) {
-    int n = 0;
-    string[] tmp = new string[64];
-    int i = 0;
-    while (i < lines.Length) {
-        string ln = lines[i];
-        i = i + 1;
+List<string> _csEnvHandoffNames(string[] lines) {
+    var names = new List<string>();
+    foreach (var ln in lines) {
         if (ln.IndexOf("GITHUB_ENV") < 0) { continue; }
-        int an = _csAssignsIn(ln, tmp);
-        int k = 0;
-        while (k < an) {
-            if (!_csInList(outNames, n, tmp[k])) { outNames[n] = tmp[k]; n = n + 1; }
-            k = k + 1;
-        }
+        foreach (var v in _csAssignsIn(ln)) { if (!names.Contains(v)) { names.Add(v); } }
     }
-    return n;
+    return names;
 }
 
 // 一个 `run:` 块 → 报告数。`fileRel` / `lineNos` 只用于错误信息（指回 yml 的真实行号）。
-// `pre` / `preN` = 进块前就已存在的名字（`$GITHUB_ENV` 传过来的）。
-int _csCheckBlock(string fileRel, string[] body, int[] lineNos, int count, int[] outBad,
-                  string[] pre, int preN) {
-    string[] names = new string[4096];
-    int[] firstAt = new int[4096];
-    int nv = 0;
-    string[] envs = _csEnvNames();
-    string[] tmp = new string[64];
-
+// `pre` = 进块前就已存在的名字（`$GITHUB_ENV` 传过来的）。
+int _csCheckBlock(string fileRel, List<string> body, List<int> lineNos, List<string> pre) {
     // pass 1：首次赋值行序
-    int i = 0;
-    while (i < count) {
-        int an = _csAssignsIn(body[i], tmp);
-        int k = 0;
-        while (k < an) {
-            if (!_csInList(names, nv, tmp[k])) { names[nv] = tmp[k]; firstAt[nv] = i; nv = nv + 1; }
-            k = k + 1;
-        }
-        i = i + 1;
+    var firstAt = new Dictionary<string, int>();
+    for (int i = 0; i < body.Count; i++) {
+        foreach (var v in _csAssignsIn(body[i])) { if (!firstAt.ContainsKey(v)) { firstAt[v] = i; } }
     }
 
     // pass 2：取值处比对
+    string[] envs = _csEnvNames();
     int bad = 0;
-    int u = 0;
-    while (u < count) {
+    for (int u = 0; u < body.Count; u++) {
         string ln = body[u];
-        if (ln.Trim().StartsWith("#")) { u = u + 1; continue; }
-        int un = _csUsesIn(ln, tmp);
-        int k2 = 0;
-        while (k2 < un) {
-            string v = tmp[k2];
-            k2 = k2 + 1;
-            if (_csInList(envs, envs.Length, v)) { continue; }
-            if (_csInList(pre, preN, v)) { continue; }
-            int at = -1;
-            int q = 0;
-            while (q < nv) { if (names[q] == v) { at = firstAt[q]; q = nv; } else { q = q + 1; } }
+        if (ln.Trim().StartsWith("#")) { continue; }
+        foreach (var v in _csUsesIn(ln)) {
+            if (_strIn(envs, v) || pre.Contains(v)) { continue; }
+            int at = firstAt.ContainsKey(v) ? firstAt[v] : -1;
             if (at < 0 || at > u) {
                 string why = "从未赋值（拼错？或本该由上层 env: 提供）";
                 if (at > u) { why = "首次赋值在更晚的第 " + lineNos[at].ToString() + " 行"; }
@@ -250,9 +205,7 @@ int _csCheckBlock(string fileRel, string[] body, int[] lineNos, int count, int[]
                 bad = bad + 1;
             }
         }
-        u = u + 1;
     }
-    outBad[0] = outBad[0] + bad;
     return bad;
 }
 
@@ -262,12 +215,7 @@ int _csCheckFile(string path, string fileRel, int[] outBad, int[] outBlocks) {
     try { text = File.ReadAllText(path); } catch (Exception ex) { text = ""; }
     if (text == "") { return 0; }
     string[] lines = text.Replace("\r\n", "\n").Split("\n");
-
-    string[] pre = new string[256];
-    int preN = _csEnvHandoffNames(lines, pre);
-
-    string[] body = new string[4096];
-    int[] lineNos = new int[4096];
+    List<string> pre = _csEnvHandoffNames(lines);
 
     int i = 0;
     while (i < lines.Length) {
@@ -275,19 +223,19 @@ int _csCheckFile(string path, string fileRel, int[] outBad, int[] outBlocks) {
         bool isRun = (t == "run: |" || t == "run: |-" || t == "run: >" || t.StartsWith("run: |"));
         if (!isRun) { i = i + 1; continue; }
         int runIndent = _csIndent(lines[i]);
+        var body = new List<string>();
+        var lineNos = new List<int>();
         int j = i + 1;
-        int count = 0;
         while (j < lines.Length) {
-            if (_csBlank(lines[j])) { body[count] = ""; lineNos[count] = j + 1; count = count + 1; j = j + 1; continue; }
-            if (_csIndent(lines[j]) <= runIndent) { j = j + 1 - 1; break; }
-            body[count] = lines[j];
-            lineNos[count] = j + 1;
-            count = count + 1;
+            bool blank = _csBlank(lines[j]);
+            if (!blank && _csIndent(lines[j]) <= runIndent) { break; }
+            body.Add(blank ? "" : lines[j]);
+            lineNos.Add(j + 1);
             j = j + 1;
         }
         // 末尾若是空行，不影响判定。
         outBlocks[0] = outBlocks[0] + 1;
-        _csCheckBlock(fileRel, body, lineNos, count, outBad, pre, preN);
+        outBad[0] = outBad[0] + _csCheckBlock(fileRel, body, lineNos, pre);
         i = j;
     }
     return 0;
@@ -301,14 +249,11 @@ int _testCiShell() {
         ConsoleError.WriteLine("  ✗ 找不到 " + dir + " —— 本门没有扫描面（目录搬了？）");
         return 1;
     }
-    string[] rel = Directory.EnumerateRecursive(dir);
     int[] bad = new int[1];
     int[] blocks = new int[1];
     int files = 0;
-    int f = 0;
-    while (f < rel.Length) {
-        string relp = rel[f].Replace("\\", "/");
-        f = f + 1;
+    foreach (var r in Directory.EnumerateRecursive(dir)) {
+        string relp = r.Replace("\\", "/");
         if (!relp.EndsWith(".yml") && !relp.EndsWith(".yaml")) { continue; }
         files = files + 1;
         _csCheckFile(Path.Join(dir, relp), ".github/" + relp, bad, blocks);

@@ -154,16 +154,12 @@ List<string> _lyTail(List<string> segs) {
     return r;
 }
 
-string _lyJoinSegs(List<string> segs, string sep) {
-    string s = "";
-    foreach (var p in segs.ToArray()) { s = s.Length == 0 ? p : s + sep + p; }
-    return s;
-}
+string _lyJoinSegs(List<string> segs, string sep) { return string.Join(sep, segs.ToArray()); }
 
 // use 树展开：每个叶子记成 "段/段/段 别名"（glob 的别名是 `*`）与它所在行。返回树之后的位置。
 int _lyUseTree(LyToks t, int i, List<string> prefix, List<string> leaves, List<int> lines) {
     List<string> segs = new List<string>();
-    foreach (var p in prefix.ToArray()) { segs.Add(p); }
+    segs.AddRange(prefix.ToArray());
     if (t.Is(i, "::")) { i = i + 1; }
     while (i < t.Count()) {
         if (t.Is(i, "{")) {

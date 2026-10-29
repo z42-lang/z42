@@ -12,6 +12,7 @@ namespace Z42Xtask;
 using Std.IO;
 using Std.Toml;
 using Std.Regex;
+using Std.Collections;
 
 int _checkVersions() {
     string root = _root();
@@ -94,51 +95,33 @@ int _checkRidTable(string root, TomlValue toml) {
     string[] ridNames = ridTable.Keys();
     int fail = 0;
     // ① + ③：triple ↔ platform.rust_targets、category ∈ workloads。
-    int i = 0;
-    while (i < ridNames.Length) {
-        string rid = ridNames[i];
-        i = i + 1;
+    var triples = new List<string>();
+    foreach (var rid in ridNames) {
         string category = _scalarStr(ridTable.Get(rid).Get("category"));
+        string triple = _scalarStr(ridTable.Get(rid).Get("triple"));
+        triples.Add(triple);
         if (!_strIn(workloads, category)) {
             ConsoleError.WriteLine("✗ [rid." + rid + "].category '" + category + "' 不在 [workload].members 里");
             fail = fail + 1;
             continue;
         }
         string platform = _ridPlatformOf(rid, category);
-        string[] targets = _vgetList(toml, "platform." + platform + ".rust_targets");
-        string triple = _scalarStr(ridTable.Get(rid).Get("triple"));
-        if (!_strIn(targets, triple)) {
+        if (!_strIn(_vgetList(toml, "platform." + platform + ".rust_targets"), triple)) {
             ConsoleError.WriteLine("✗ [rid." + rid + "].triple '" + triple + "' 不在 [platform." + platform + "].rust_targets 里");
             fail = fail + 1;
         }
     }
     // ② 反向：platform 的每个 target 都得有 rid。
-    string[] plats = toml.Get("platform").Keys();
-    int p = 0;
-    while (p < plats.Length) {
-        string[] targets = _vgetList(toml, "platform." + plats[p] + ".rust_targets");
-        p = p + 1;
-        int t = 0;
-        while (t < targets.Length) {
-            string triple = targets[t];
-            t = t + 1;
-            bool found = false;
-            int j = 0;
-            while (j < ridNames.Length) {
-                if (_scalarStr(ridTable.Get(ridNames[j]).Get("triple")) == triple) { found = true; break; }
-                j = j + 1;
-            }
-            if (!found) {
-                ConsoleError.WriteLine("✗ [platform." + plats[p - 1] + "].rust_targets 的 '" + triple + "' 没有对应的 [rid.*]（CI 编得出、xtask 打不出包）");
+    foreach (var plat in toml.Get("platform").Keys()) {
+        foreach (var triple in _vgetList(toml, "platform." + plat + ".rust_targets")) {
+            if (!triples.Contains(triple)) {
+                ConsoleError.WriteLine("✗ [platform." + plat + "].rust_targets 的 '" + triple + "' 没有对应的 [rid.*]（CI 编得出、xtask 打不出包）");
                 fail = fail + 1;
             }
         }
     }
     // ④ 每个跨平台 workload：≥1 个 rid、主 RID 恰一个。
-    int w = 0;
-    while (w < workloads.Length) {
-        string wl = workloads[w];
-        w = w + 1;
+    foreach (var wl in workloads) {
         if (wl == "desktop") { continue; }
         string[] rids = _vRidsOfCategory(root, wl);
         if (rids.Length == 0) {
@@ -147,10 +130,8 @@ int _checkRidTable(string root, TomlValue toml) {
             continue;
         }
         int primaries = 0;
-        int r = 0;
-        while (r < rids.Length) {
-            if (_vRidPrimary(root, rids[r])) { primaries = primaries + 1; }
-            r = r + 1;
+        foreach (var r in rids) {
+            if (_vRidPrimary(root, r)) { primaries = primaries + 1; }
         }
         if (primaries != 1) {
             ConsoleError.WriteLine("✗ workload '" + wl + "' 的主 RID 有 " + primaries.ToString() + " 个（须恰 1 个：release 归档按主 RID 命名）");
@@ -174,14 +155,7 @@ int _check(string desc, string want, string got) {
 }
 
 // 左对齐到 width 列；超长不截断。
-string _padRight(string s, int width) {
-    if (s.Length >= width) { return s; }
-    string acc = s;
-    int n = width - s.Length;
-    int i = 0;
-    while (i < n) { acc = acc + " "; i = i + 1; }
-    return acc;
-}
+string _padRight(string s, int width) { return s.PadRight(width); }
 
 // 第一个 regex match 的指定 group；找不到返回 ""。
 string _firstMatchGroup(string text, string pattern, int groupIdx) {
@@ -196,16 +170,13 @@ string _extractCargoWorkspaceVersion(string cargoText) {
     string[] lines = cargoText.Split("\n");
     Regex verLine = Regex.Compile("^\\s*version\\s*=\\s*\"([^\"]+)\"");
     bool inSection = false;
-    int i = 0;
-    while (i < lines.Length) {
-        string line = lines[i];
-        if (line.StartsWith("[workspace.package]")) { inSection = true; i = i + 1; continue; }
-        if (line.StartsWith("[")) { inSection = false; i = i + 1; continue; }
+    foreach (var line in lines) {
+        if (line.StartsWith("[workspace.package]")) { inSection = true; continue; }
+        if (line.StartsWith("[")) { inSection = false; continue; }
         if (inSection) {
             Match m = verLine.Find(line);
             if (m != null) { return m.Group(1); }
         }
-        i = i + 1;
     }
     return "";
 }

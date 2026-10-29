@@ -9,6 +9,7 @@
 // 运行 / 沙箱见 xtask_examples_run.z42，书引用校验见 xtask_examples_book.z42。
 namespace Z42Xtask;
 
+using Std.Collections;
 
 class TranscriptStep {
     public string   Command  { get; set; }   // `$ ` 之后的原文
@@ -38,55 +39,48 @@ int _exitMarker(string line) {
 
 TranscriptItem[] _parseTranscript(string text) {
     string[] lines = text.Replace("\r\n", "\n").Split("\n");
-    TranscriptItem[] items = new TranscriptItem[lines.Length + 1];
-    int n = 0;
+    var items = new List<TranscriptItem>();
     TranscriptStep cur = null;
-    string[] buf = new string[lines.Length + 1];
-    int bn = 0;
+    var buf = new List<string>();
     int i = 0;
     while (i < lines.Length) {
         string l = lines[i];
         if (l.StartsWith("$ ")) {
-            if (cur != null) { cur.Expected = _trimTrailingBlank(buf, bn); }
+            if (cur != null) { cur.Expected = _trimTrailingBlank(buf.ToArray()); }
             cur = new TranscriptStep();
             cur.Command = l.Substring(2).Trim();
             cur.ExitCode = 0;
             cur.Line = i + 1;
-            bn = 0;
+            buf = new List<string>();
             TranscriptItem it = new TranscriptItem();
             it.Step = cur;
-            items[n] = it; n = n + 1;
+            items.Add(it);
         } else if (_isAnchorLine(l)) {
             TranscriptItem ai = new TranscriptItem();
             ai.Anchor = l;
-            items[n] = ai; n = n + 1;
+            items.Add(ai);
         } else if (cur != null && _exitMarker(l) >= 0) {
             cur.ExitCode = _exitMarker(l);
         } else if (cur != null) {
-            buf[bn] = l; bn = bn + 1;
+            buf.Add(l);
         }
         i = i + 1;
     }
-    if (cur != null) { cur.Expected = _trimTrailingBlank(buf, bn); }
-    TranscriptItem[] r = new TranscriptItem[n];
-    int k = 0;
-    while (k < n) { r[k] = items[k]; k = k + 1; }
-    return r;
+    if (cur != null) { cur.Expected = _trimTrailingBlank(buf.ToArray()); }
+    return items.ToArray();
 }
 
-string[] _trimTrailingBlank(string[] buf, int n) {
-    int end = n;
-    while (end > 0 && buf[end - 1].Trim().Length == 0) { end = end - 1; }
+string[] _trimTrailingBlank(string[] lines) {
+    int end = lines.Length;
+    while (end > 0 && lines[end - 1].Trim().Length == 0) { end = end - 1; }
     string[] r = new string[end];
-    int i = 0;
-    while (i < end) { r[i] = buf[i]; i = i + 1; }
+    Array.Copy(lines, r, end);
     return r;
 }
 
 // 命令行 → 参数：空白分隔；单 / 双引号内的空白不分隔（引号本身去掉）。
 string[] _splitCommand(string cmd) {
-    string[] acc = new string[cmd.Length + 1];
-    int n = 0;
+    var acc = new List<string>();
     string cur = "";
     bool inTok = false;
     string quote = "";
@@ -98,17 +92,14 @@ string[] _splitCommand(string cmd) {
         } else if (c == "\"" || c == "'") {
             quote = c; inTok = true;
         } else if (c == " " || c == "\t") {
-            if (inTok) { acc[n] = cur; n = n + 1; cur = ""; inTok = false; }
+            if (inTok) { acc.Add(cur); cur = ""; inTok = false; }
         } else {
             cur = cur + c; inTok = true;
         }
         i = i + 1;
     }
-    if (inTok) { acc[n] = cur; n = n + 1; }
-    string[] r = new string[n];
-    int k = 0;
-    while (k < n) { r[k] = acc[k]; k = k + 1; }
-    return r;
+    if (inTok) { acc.Add(cur); }
+    return acc.ToArray();
 }
 
 // 实际输出 → 行：CRLF 规范化、沙箱路径替换成 [ROOT]、去掉末尾空行。
@@ -119,7 +110,7 @@ string[] _normalizeOutput(string raw, string root) {
     if (root.StartsWith("/var/")) { s = s.Replace("/private" + root, "[ROOT]"); }   // macOS 临时目录的真实路径
     s = s.Replace("[ROOT]\\", "[ROOT]/");
     string[] lines = s.Split("\n");
-    return _trimTrailingBlank(lines, lines.Length);
+    return _trimTrailingBlank(lines);
 }
 
 // 期望行（含 `[..]` / `...`）是否匹配实际行。
@@ -160,11 +151,10 @@ bool _matchLine(string pat, string s) {
 // 失败报告：期望与实际逐行并列，第一处不同标 `>`。
 string _diffReport(string[] exp, string[] act) {
     string s = "      expected:\n";
-    int i = 0;
-    while (i < exp.Length) { s = s + "        | " + exp[i] + "\n"; i = i + 1; }
+    foreach (var e in exp) { s = s + "        | " + e + "\n"; }
     s = s + "      actual:\n";
     int first = _firstMismatch(exp, act);
-    i = 0;
+    int i = 0;
     while (i < act.Length) {
         s = s + (i == first ? "      > | " : "        | ") + act[i] + "\n";
         i = i + 1;
@@ -186,18 +176,14 @@ int _firstMismatch(string[] exp, string[] act) {
 // --bless：把条目序列写回文件（步骤输出已被替换为实际输出）。
 string _renderTranscript(TranscriptItem[] items) {
     string s = "";
-    int i = 0;
-    while (i < items.Length) {
-        TranscriptItem it = items[i];
+    foreach (var it in items) {
         if (it.Step == null) {
             s = s + it.Anchor + "\n";
         } else {
             s = s + "$ " + it.Step.Command + "\n";
-            int j = 0;
-            while (j < it.Step.Expected.Length) { s = s + it.Step.Expected[j] + "\n"; j = j + 1; }
+            foreach (var line in it.Step.Expected) { s = s + line + "\n"; }
             if (it.Step.ExitCode != 0) { s = s + "[exit: " + it.Step.ExitCode.ToString() + "]\n"; }
         }
-        i = i + 1;
     }
     return s;
 }
