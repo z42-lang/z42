@@ -155,7 +155,7 @@ int _testAppStep(string root, string platform, string step, string filter, strin
 
 // 把 test agent 装进 z42b 会去找的 SDK：z42b 由 Z42_PORTABLE_VM（= xtask 用来跑 z42b 的那个 VM，
 // 见 _z42bDevice）推出 SDK 根，再找 `<home>/runtimes/*/workloads/test/z42.testagent.zpkg`。
-// 构建树里 home = VM 所在目录的上一级（artifacts/build/runtime）。CI 原先用一个单独的 step 做这件事。
+// 构建树里 home = VM 所在目录的上一级（artifacts/build/runtime）。
 int _provisionTestAgent(string root) {
     string agent = _ensureTestAgent(root);
     if (agent.Length == 0) { ConsoleError.WriteLine("error: build test-agent failed"); return 1; }

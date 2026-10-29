@@ -1,25 +1,15 @@
-// xtask — `test changed` body (unify-scripts-into-xtask; folded from the former
-// standalone scripts/test-changed.z42). Same Z42Xtask namespace.
-//
-// Inspect uncommitted git changes, map each file to a coarse test command,
-// dedupe, and run the union in order.
+// xtask — `test changed`: inspect uncommitted git changes, map each file to a coarse
+// test command, dedupe, and run the union in order.
 //
 // 同一张映射表（_mapFile）每条规则给两样东西：本地用的**窄命令**（`test stdlib <lib>` 这类，`test changed` 执行）
 // 与受影响的 **gate stage**（`--skip` 的短名，`xtask test --changed <base>` 用来只跑相关的重 stage；CI 的 PR
-// test-host 腿就是这么分流的）。分类只写一次，两种消费方各取一列。 Mirrors docs/design/testing/testing.md
-// "增量测试" mapping. Driven in-process by `_testChanged` (xtask.z42), which
-// parses the legacy CLI (base ref positional + --dry-run) and calls
-// `_testChangedRun(base_, dryRun)` directly.
+// test-host 腿就是这么分流的）。分类只写一次，两种消费方各取一列。
+// 设计见 docs/internals/src/devinfra/test-gate.md §7。
 //
 // Each mapped plan command is a logical `xtask …` verb — `test …`, or `bench
 // --quick` for the perf subtree (run by re-entering the in-process CLI router,
-// NOT by shelling out) — or a raw `cargo …`
-// (run via `_exec(new Process("cargo")…)`). First failing command
+// NOT by shelling out) — or a raw `cargo …`. First failing command
 // short-circuits the remainder.
-//
-// Shared helpers (_root / _exec / _at / _splitWords / _append / _sortStrings)
-// live in xtask.z42 / xtask_golden.z42 (same namespace) and are not redefined
-// here. The file-classification / git-output helpers below are module-private.
 namespace Z42Xtask;
 
 using Std.IO;
@@ -220,16 +210,14 @@ int _executeChangedPlan(string[] cmds) {
 
 // Run one plan command in-process. Any logical `xtask …` re-enters the Std.Cli
 // router via `_runCli` with the verb as argv[0] — usually "test", also "bench"
-// since move-bench-into-tests mapped the perf subtree to `bench --quick`; raw
-// `cargo …` runs via _exec. Returns the command's exit code (2 on an
+// (the perf subtree maps to `bench --quick`); raw `cargo …` runs via _exec. Returns the command's exit code (2 on an
 // unrecognized prefix, which shouldn't occur given the mapping only ever emits
 // an `xtask` or a `cargo` command).
 int _runPlanCmd(string cmd) {
     string[] toks = _splitWords(cmd);
     if (toks.Length == 0) { return 0; }
     if (toks[0] == "xtask") {
-        // Drop the leading "xtask"; the remainder ("test", "vm", …) is the
-        // _runCli argv (argv[0] == "test").
+        // Drop the leading "xtask"; the remainder is the _runCli argv.
         string[] argv = new string[toks.Length - 1];
         int i = 1;
         while (i < toks.Length) { argv[i - 1] = toks[i]; i = i + 1; }
@@ -281,11 +269,8 @@ _MapResult _mapSkip() { return new _MapResult(); }
 
 // src/libraries/<lib>/... → lib [+ vm] tests. Non-src/test/bench/toml paths inside
 // a lib (workspace.toml at root, README inside lib root, etc.) → no test impact.
-//
-// `/bench/` 此前落在 `_mapSkip()`：改一个 bench 文件，`test changed` 判定「无测试影响」，
-// 什么都不跑。而 bench 语料唯一的另一个看门人（`bench-regression`）不在 required 列表
-// ⇒ 这类改动实际上零验证。fix-bench-corpus-using-stdtest  接上：映射到
-// `bench stdlib <lib>`（与 gate 的 `stdlib [Benchmark]` stage 同一条流水，只是收窄到本库）。
+// `/benches/` 不能落 `_mapSkip()`（bench-regression 不在 required 列表，跳了就零验证）：
+// 映射到 `bench stdlib <lib>`（与 gate 的 `stdlib [Benchmark]` stage 同一条流水，只是收窄到本库）。
 _MapResult _mapLibraryFile(string f) {
     string lib = _segment(f, 2);
     // 库源码 / 清单一变，所有编译、执行 z42 代码的 stage 都可能受影响（编译器自身也链 stdlib）。
@@ -297,7 +282,7 @@ _MapResult _mapLibraryFile(string f) {
 }
 
 _MapResult _mapFile(string f) {
-    // 学习手册与配套示例（add-learn-book-examples-gate）：必须排在「.md / docs/ 一律跳过」之前，
+    // 学习手册与配套示例：必须排在「.md / docs/ 一律跳过」之前，
     // 否则 examples 里的 README / 手册页改动会被当成纯文档跳过。
     if (f.StartsWith("examples/")) {
         string chapter = _segment(f, 1) + "/" + _segment(f, 2);
@@ -330,7 +315,7 @@ _MapResult _mapFile(string f) {
     // src/benches/ — whole-program timing scenarios, probe, schema, verdict fixtures.
     // Not `test e2e` (they're not goldens) and not _mapSkip: a scenario broken by an
     // edit (won't compile, Main moved) would otherwise stay invisible until bench-pr.yml
-    // ran it (~1030s on a VM-touching PR). `bench --quick` (first 2 scenarios, runs=3,
+    // ran it. `bench --quick` (first 2 scenarios, runs=3,
     // warmup=1) answers "does it still compile and run" in under a minute. Whole
     // subtree: probe/ and the schema feed the same pipeline, and over-matching only
     // costs one quick run.
@@ -356,11 +341,8 @@ _MapResult _mapFile(string f) {
         return _mapCmds(new string[]{ "xtask test stdlib", "xtask test toolchain" }, new string[]{ "stdlib", "toolchain" });
     }
 
-    // All xtask CLI source is now ONE compiled xtask.zpkg (the command logic is
-    // folded across scripts/{,common,build,test,package,install}/), so any script
-    // change rebuilds the whole CLI → full sweep. Shell install scripts + workspace
-    // config too. (Prefix broadened from `scripts/xtask` after the subdir reorg;
-    // the trailing unknown-file default already full-swept, this makes it explicit.)
+    // All xtask CLI source is ONE compiled xtask.zpkg, so any script change rebuilds the
+    // whole CLI → full sweep. Shell install scripts + workspace config too.
     if (f.StartsWith("scripts/") || f.EndsWith(".workspace.toml")) { return _mapFull(); }
     // Anything else under src/ → full sweep (defensive).
     if (f.StartsWith("src/")) { return _mapFull(); }
@@ -400,11 +382,6 @@ string _gitOutput(string[] args) {
 }
 
 // ── String / array helpers (module-private) ──────────────────────────────
-
-// Prefix/suffix/substring tests use native String.StartsWith / EndsWith /
-// Contains (z42.core String.z42) — the former hand-rolled CharAt loops were
-// byte-equivalent. "LICENSE" / "README" matching is StartsWith (covers
-// "LICENSE.md" / "LICENSE-MIT" style suffixes).
 
 // Return the n-th path segment (0-based; '/'-split).
 string _segment(string path, int n) {
@@ -456,8 +433,7 @@ string[] _dedupeNonEmpty(string[] xs) {
         }
         i = i + 1;
     }
-    // Tighten to exactly the deduped elements, then sort with the shared
-    // arity-1 _sortStrings (xtask_golden.z42) which sorts the whole array.
+    // Tighten to exactly the deduped elements (_sortStrings sorts the whole array).
     string[] tight = new string[n];
     int t = 0;
     while (t < n) { tight[t] = result[t]; t = t + 1; }
@@ -474,12 +450,9 @@ bool _contains(string[] arr, int count, string v) {
     return false;
 }
 
-// ── `test changed` 命令入口（relocate-xtask-handlers 从 xtask.z42 搬来） ──
+// ── `test changed` 命令入口 ──
 
-// `test changed` — native, bash-free, in-process. Reads base-ref positional +
-// --dry-run from the ParseResult; env `Z42_TEST_CHANGED_BASE` is the fallback
-// when no positional given; default HEAD. Mapped `xtask test …` plan commands
-// re-enter the in-process router; raw `cargo …` runs via `_exec`.
+// Base ref: positional, else env `Z42_TEST_CHANGED_BASE`, else HEAD.
 int _testChanged(ParseResult r) {
     string base_ = r.GetPositional(0);
     if (base_.Length == 0) {

@@ -36,13 +36,8 @@ int _checkLearnBook(string root) {
 
 // B11：**正文里引用的诊断码，必须出现在该章自己的 transcript 里**（否则登记进 allowlist）。
 //
-// 为什么需要这道门：全书的代码与输出都由 `.console` 重放钉着——改坏了判红。而**正文不受任何
-// 门禁管**，于是正文里写的诊断码会随着码被重排而烂掉，且烂得毫无声息。
-// 实例（抓到）：第 16 章正文写 `E0470`，而「赋值目标不是左值」这条码早已经
-// `enforce-diagnostic-code-uniqueness` 归位两次（#749 → E0477，#759/#762 → E0482）。
-// **同章的 run.console 是对的**（写着 E0482，它被重放）⇒ 正文与 transcript 自相矛盾而没人发现。
-// 更阴的是 E0470 是个**活着的、完全不同**的诊断（`ref` 实参不可取址）——不是「码不存在」，
-// 而是静默指向别的东西，存在性检查抓不到它。
+// 为什么需要这道门：代码与输出由 `.console` 重放钉着，**正文却不受任何门禁管**——诊断码被重排后
+// 正文会静默烂掉，而且旧码常常仍是一条活着的、含义不同的诊断，单查「码存在」抓不到。
 //
 // 例外（正文提及但本章不演示，如「写 `a ?? b` 会报 E0480」）登记在
 // `scripts/test/learn-prose-diag-allow.txt`（`<页面路径> <码>` 每行一条）。
@@ -113,9 +108,8 @@ string _transcriptTextFor(string root, string page) {
     string dir = Path.Join(Path.Join(root, "examples"), stem);
     if (!Directory.Exists(dir)) { return ""; }
     string acc = "";
-    // ⚠️ `Directory.EnumerateRecursive` 返回的是**相对于 dir 的相对路径**（同 `_learnPages` 的用法），
-    // 必须自己 join 回去才能读 —— 直接拿它喂 `ReadAllText` 会抛 `No such file or directory`
-    // （本门禁第一版就是这么崩的）。再 `File.Exists` 过一道，挡住目录条目。
+    // ⚠️ `Directory.EnumerateRecursive` 返回**相对于 dir 的路径**，须自己 join 回去才能读；
+    // 再 `File.Exists` 过一道，挡住目录条目。
     string[] all = Directory.EnumerateRecursive(dir);
     int i = 0;
     while (i < all.Length) {
@@ -282,9 +276,8 @@ bool _isSingleInclude(string body) {
 //   {{#include ../../../../examples/basics/variables/types/types.z42:decl}}
 //   ```
 //
-// 注释是给读者看「这段代码是哪个文件里的」。**门禁校验它与 include 指向同一个文件** ——
-// 这正是它比页面上手写的加粗标注强的地方：标注没人管，改了 include 忘了改标注不会判红，
-// 而这里会。返回 "" 表示合法，否则返回要报给用户的原因。
+// 注释告诉读者代码出自哪个文件；门禁校验它与 include 指向同一个文件，改 include 忘改注释会判红。
+// 返回 "" 表示合法，否则返回要报给用户的原因。
 string _fencePathComment(string body, string mdDir) {
     string t = body.Trim();
     int nl = t.IndexOf("\n");
