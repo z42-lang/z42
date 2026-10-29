@@ -81,14 +81,14 @@ impl Default for ArcMagrGC {
             // The entry cap only applies to the default gates: a configured nursery is taken as is.
             entry_unit: entry_unit::EntryUnit::new(crate::config::runtime_config().gc_nursery_bytes.is_none()),
             incremental: Default::default(),
-            // M9: wasm32's `now_us` counts ticks, so pauses are not comparable as time there.
-            young_policy: young_policy::YoungPolicy::new(!cfg!(target_arch = "wasm32")),
+            // M9: without a clock (wasm32) `now_us` counts ticks, so pauses are not comparable as time.
+            young_policy: young_policy::YoungPolicy::new(crate::pal::time::HAS_CLOCK),
             // add-pause-budget-nursery: an explicit nursery is a manual override — it turns the
             // adaptation off rather than seeding it, so "I set the nursery and it did not stick"
-            // cannot happen. wasm32 has no microsecond clock (`now_us` counts ticks), so the cost
-            // model would be meaningless there.
+            // cannot happen. Without a clock (wasm32; `now_us` counts ticks) the cost model would be
+            // meaningless.
             pause_budget: pause_budget::PauseBudget::new(
-                if cfg!(target_arch = "wasm32") || crate::config::runtime_config().gc_nursery_bytes.is_some() {
+                if !crate::pal::time::HAS_CLOCK || crate::config::runtime_config().gc_nursery_bytes.is_some() {
                     0
                 } else {
                     (crate::config::runtime_config().gc_pause_target_ms * 1000.0) as u64

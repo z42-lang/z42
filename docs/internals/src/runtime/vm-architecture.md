@@ -234,7 +234,7 @@ blob）、`transient_arena`（`Ref`/`PinnedView`/`StructRefHeap` 的 payload）�
 `stack_guard`（`src/runtime/src/stack_guard.rs`）在**每个 z42 帧入口**比较栈指针与本线程的下限：
 
 - 下限 = 栈底 + 余量，余量为栈大小的 1/8、夹在 256 KiB–1 MiB（给两次检查之间的原生工作：builtin、
-  一次惰性 JIT 编译、生成报告）。栈边界来自 `pal::stack`，线程首次进入时算一次，存 TLS。
+  一次惰性 JIT 编译、生成报告）。栈边界来自 `pal::thread`，线程首次进入时算一次，存 TLS。
 - interp：`enter_frame` 在 `push_frame` 之后检查（报告里含这一帧），越界返回内部错误。
 - JIT：函数 prologue 内联 `get_stack_pointer` 与上下文参数的 `jit_head.stack_limit` 比较（运行线程自己的
   `VmContext`，值在栈底帧 push 时按该线程写入），越界调 `jit_stack_overflow` 后返回「已抛出」。每条线程（含 worker）

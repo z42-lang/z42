@@ -118,7 +118,7 @@ impl crate::gc::arc_heap::ArcMagrGC {
 
     /// Decommit pooled chunks beyond [`Self::pool_keep_bytes`] (whole 64 KB chunks).
     fn trim_chunk_pools(&self) {
-        if !crate::gc::os_mem::CAN_DECOMMIT {
+        if !crate::pal::mem::CAN_DECOMMIT {
             return;
         }
         let excess = self.footprint.pooled().saturating_sub(self.pool_keep_bytes());

@@ -50,7 +50,7 @@ pub(super) fn toml_value_to_string(v: &toml::Value, kind: ValueKind) -> Option<S
         if kind != ValueKind::PathList {
             return None;
         }
-        let sep = if cfg!(windows) { ';' } else { ':' };
+        let sep = crate::pal::fs::PATH_LIST_SEP;
         let parts: Vec<String> = items
             .iter()
             .filter_map(toml_scalar_to_string)

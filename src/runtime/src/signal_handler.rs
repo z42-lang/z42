@@ -35,15 +35,16 @@
 //!
 //! Handler ends by resetting the signal disposition to `SIG_DFL` and
 //! re-raising — this preserves kernel coredump behaviour (`ulimit -c`).
-
-#![cfg(unix)]
+//!
+//! Where the target has no POSIX signals `pal::signal` registers nothing and
+//! [`install`] only records that it ran.
 
 use std::sync::atomic::{AtomicI32, Ordering};
 
 // PAL Phase 3 (add-pal-signal): OS signal primitives live in `pal::signal`;
 // the call sites below (`sigsafe::*`, `signal_name(sig)`) resolve to them via
 // these imports, so the z42 crash-report logic in this file stays unchanged.
-use crate::pal::signal::{self, sigsafe, signal_name};
+use crate::pal::signal::{self, sigsafe, signal_name, STDERR_FD};
 
 /// File descriptor for the optional `Z42_CRASH_DIR` persistence file.
 /// `-1` = no file (env var not set or open failed). Opened once at
@@ -64,14 +65,12 @@ pub fn install() {
     open_crash_report_fd();
 
     // Register the z42 crash `handler` for the 5 fatal signals (OS primitive).
-    signal::register_fatal_handlers(handler);
-
-    tracing::debug!("OS signal handlers installed for SIGSEGV/SIGABRT/SIGFPE/SIGILL/SIGBUS");
+    if signal::register_fatal_handlers(handler) {
+        tracing::debug!("OS signal handlers installed for SIGSEGV/SIGABRT/SIGFPE/SIGILL/SIGBUS");
+    }
 }
 
 fn open_crash_report_fd() {
-    use std::os::fd::IntoRawFd;
-
     // adopt-inline-env-knobs : the `crash-dir` knob off the layered
     // config, not a raw env read — `--set crash-dir=` / `[runtime].crash-dir` were
     // silently ignored here. (This runs at `install()` time, pre-opening the fd; the
@@ -94,9 +93,10 @@ fn open_crash_report_fd() {
         .open(&path)
     {
         Ok(file) => {
-            let fd = file.into_raw_fd();  // leak; OS reclaims at exit
-            SIGNAL_CRASH_FD.store(fd, Ordering::SeqCst);
-            tracing::debug!("signal crash report fd opened: {}", path.display());
+            if let Some(fd) = signal::leak_fd(file) {
+                SIGNAL_CRASH_FD.store(fd, Ordering::SeqCst);
+                tracing::debug!("signal crash report fd opened: {}", path.display());
+            }
         }
         Err(e) => {
             tracing::warn!("Z42_CRASH_DIR {} not writable: {e}; OS signal reports go to stderr only", path.display());
@@ -111,15 +111,15 @@ fn open_crash_report_fd() {
 ///  - no thread_local! reads (may allocate)
 extern "C" fn handler(sig: i32) {
     // 1. Write header to stderr
-    sigsafe::write_str(libc::STDERR_FILENO, b"\n[z42vm signal ");
-    sigsafe::write_str(libc::STDERR_FILENO, signal_name(sig));
-    sigsafe::write_str(libc::STDERR_FILENO, b"]\n");
+    sigsafe::write_str(STDERR_FD, b"\n[z42vm signal ");
+    sigsafe::write_str(STDERR_FD, signal_name(sig));
+    sigsafe::write_str(STDERR_FD, b"]\n");
 
     // 2. Build banner
-    write_banner(libc::STDERR_FILENO);
+    write_banner(STDERR_FD);
 
     // 3. Z42 call stacks (best-effort, try_lock; other threads: frame count only)
-    write_call_stacks(libc::STDERR_FILENO);
+    write_call_stacks(STDERR_FD);
 
     // 4. Mirror to crash_report fd if configured
     let fd = SIGNAL_CRASH_FD.load(Ordering::SeqCst);
@@ -129,7 +129,7 @@ extern "C" fn handler(sig: i32) {
         sigsafe::write_str(fd, b"]\n");
         write_banner(fd);
         write_call_stacks(fd);
-        sigsafe::write_str(libc::STDERR_FILENO, b"[signal hook] crash report appended to Z42_CRASH_DIR fd\n");
+        sigsafe::write_str(STDERR_FD, b"[signal hook] crash report appended to Z42_CRASH_DIR fd\n");
     }
 
     // 5. Reset disposition + reraise — kernel default takes over (coredump if ulimit -c permits)

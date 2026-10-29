@@ -12,9 +12,12 @@ runtime 其余模块**零 cfg 调用** OS 服务。每个 concern 一个文件�
 
 | 文件 | 职责 |
 |------|------|
-| `system.rs` | `hostname()` / `os_version()` |
-| `fs.rs` | `make_executable()` / `symlink()` |
-| `signal.rs` (unix) | fatal-signal 注册 + `sigsafe` async-signal-safe write + `signal_name` + reset/reraise（z42 崩溃 reporter 在 `signal_handler.rs`，调本模块）|
+| `system.rs` | `hostname()` / `os_version()` / `os_name()` |
+| `fs.rs` | `make_executable()` / `symlink()` / `PATH_LIST_SEP` |
+| `mem.rs` | 页大小、GC chunk 页的 `decommit` / `recommit` |
+| `thread.rs` | 栈边界、`current_token()`、`run_with_stack()` |
+| `time.rs` | `HAS_CLOCK`、`monotonic_us()` |
+| `signal.rs` | fatal-signal 注册 + `sigsafe` async-signal-safe write + `signal_name` + reset/reraise；非 POSIX 平台为空操作（z42 崩溃 reporter 在 `signal_handler.rs`，调本模块）|
 
 测试：各文件配套 `*_tests.rs`。
 
@@ -24,8 +27,10 @@ runtime 其余模块**零 cfg 调用** OS 服务。每个 concern 一个文件�
 `pal::system::os_version()` — `String`，空字符串表示 syscall 失败
 `pal::fs::make_executable(path)` — `io::Result<()>`，unix 加 u+x g+x o+x；非 unix no-op
 `pal::fs::symlink(src, dst)` — `io::Result<()>`，unix 建符号链接；非 unix 报 `Unsupported`
-`pal::signal::register_fatal_handlers(handler)` — 注册 5 fatal 信号（unix）
-`pal::signal::sigsafe::write_str(fd, bytes)` — async-signal-safe 写（unix）
+`pal::signal::register_fatal_handlers(handler)` — 注册 5 fatal 信号；非 POSIX 平台返回 `false`
+`pal::signal::sigsafe::write_str(fd, bytes)` — async-signal-safe 写
+`run_with_stack`（`pal::thread`）— 在指定栈大小的线程上跑闭包；不能起线程时就地跑
+`pal::time::monotonic_us()` — 单调微秒；无时钟时为计数
 
 ## 不变量（必须遵守）
 
@@ -47,4 +52,4 @@ runtime 其余模块**零 cfg 调用** OS 服务。每个 concern 一个文件�
 `docs/internals/src/runtime/pal.md` "platform feature gates" 节。
 
 ## 待办
-- `thread.rs`（随多线程 runtime 落地，按 consumer 驱动）/ `mem.rs`（随 GC bump allocator 落地）
+- corelib 剩余平台代码、`dynlib.rs`（三处 dlopen 合一）、每 VM 一个 Vfs —— runtime-audit §6.1 L-2

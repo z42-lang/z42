@@ -516,7 +516,7 @@ pub fn runtime_config() -> &'static RuntimeConfig {
 }
 
 fn split_paths(s: &str) -> Vec<PathBuf> {
-    let sep = if cfg!(windows) { ';' } else { ':' };
+    let sep = crate::pal::fs::PATH_LIST_SEP;
     s.split(sep)
         .map(str::trim)
         .filter(|p| !p.is_empty())

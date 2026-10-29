@@ -4,33 +4,16 @@
 #[cfg(test)]
 use super::{BarrierEvent, BarrierObserver};
 use std::sync::Arc;
-#[cfg(not(target_arch = "wasm32"))]
-use std::sync::OnceLock;
-#[cfg(not(target_arch = "wasm32"))]
-use std::time::Instant;
 use crate::metadata::{Value};
 #[cfg(test)]
 use crate::gc::ArrRef;
 use crate::gc::types::{GcEvent, HeapSnapshot, HeapStats, SnapshotCoverage};
 
 impl crate::gc::arc_heap::ArcMagrGC {
-    #[cfg(not(target_arch = "wasm32"))]
+    /// Pause-timing clock. fix-wasm-embed-gc-time: GC pause timing runs on every
+    /// collection, and wasm32 has no clock — `pal::time` counts ticks there instead.
     pub(super) fn now_us() -> u64 {
-        static EPOCH: OnceLock<Instant> = OnceLock::new();
-        EPOCH.get_or_init(Instant::now).elapsed().as_micros() as u64
-    }
-
-    /// fix-wasm-embed-gc-time: `wasm32-unknown-unknown` has no `std::time`
-    /// (`Instant::now()` panics "time not implemented on this platform"). GC
-    /// pause-timing runs on every collection — heavy-allocation workloads (the
-    /// in-browser embedded test-host, which runs the whole corpus) triggered a
-    /// GC cycle and trapped. Use a monotonic counter on wasm so timing stats
-    /// stay non-negative (values are ticks, not µs) instead of panicking.
-    #[cfg(target_arch = "wasm32")]
-    pub(super) fn now_us() -> u64 {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static TICK: AtomicU64 = AtomicU64::new(0);
-        TICK.fetch_add(1, Ordering::Relaxed)
+        crate::pal::time::monotonic_us()
     }
 
     /// 取 Value 的"类型名"（用于 snapshot 聚合）。

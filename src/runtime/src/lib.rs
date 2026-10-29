@@ -67,5 +67,4 @@ pub mod observer;
 // (SIGSEGV / SIGABRT / SIGFPE / SIGILL / SIGBUS). Phase 2 of D4 panic-hook
 // story (Phase 1 = main.rs install_panic_hook). Windows VEH = Phase 2.1.
 // Spec: 变更 add-os-signal-handler/.
-#[cfg(unix)]
 pub mod signal_handler;

@@ -34,3 +34,9 @@ fn symlink_creates_resolving_link() {
     let _ = std::fs::remove_file(&link);
     let _ = std::fs::remove_file(&target);
 }
+
+#[test]
+fn path_list_sep_splits_path() {
+    let joined = std::env::join_paths(["a", "b"]).unwrap();
+    assert_eq!(joined.to_str().unwrap(), format!("a{}b", super::PATH_LIST_SEP));
+}

@@ -54,7 +54,7 @@ pub fn limit() -> usize {
     LIMIT.with(|l| {
         let v = l.get();
         if v != 0 { return v; }
-        let v = match crate::pal::stack::current_thread_stack() {
+        let v = match crate::pal::thread::current_thread_stack() {
             Some((low, high)) => low + margin(high - low),
             None => 1,
         };

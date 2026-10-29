@@ -1,5 +1,7 @@
-//! POSIX signal OS primitives — fatal-signal registration, signal-name table,
-//! disposition reset, and the async-signal-safe write helpers a handler may use.
+//! Fatal-signal OS primitives — registration, signal-name table, disposition
+//! reset, and the async-signal-safe write helpers a handler may use. POSIX
+//! signals only: elsewhere (Windows, wasm) registration reports `false`, the
+//! writers and the reset are no-ops, so the crash reporter compiles unchanged.
 //!
 //! review.md Part 1 P2 Phase 3 (add-pal-signal). The OS-specific
 //! signal machinery lives here; the **z42-specific crash reporter** that walks
@@ -15,43 +17,40 @@
 //! raw `libc::write` / atomics / `libc::raise` (no allocation, no locks, no
 //! stdio).
 
-#![cfg(unix)]
+/// The standard-error file descriptor the `sigsafe` writers take.
+pub const STDERR_FD: i32 = 2;
 
 /// Register the same `handler` for the 5 covered fatal POSIX signals
 /// (SIGSEGV / SIGABRT / SIGFPE / SIGILL / SIGBUS). Registration failures are
 /// logged and skipped (best-effort). The caller's `handler` must invoke only
 /// async-signal-safe primitives (the `sigsafe::*` helpers below qualify).
-pub fn register_fatal_handlers(handler: extern "C" fn(i32)) {
-    for &sig in &[libc::SIGSEGV, libc::SIGABRT, libc::SIGFPE, libc::SIGILL, libc::SIGBUS] {
-        // SAFETY: `handler` only invokes async-signal-safe primitives
-        // (`sigsafe::write_*` → `libc::write`, atomic loads, `libc::raise`).
-        unsafe {
-            if let Err(e) = signal_hook_registry::register_signal_unchecked(sig, move || handler(sig)) {
-                tracing::warn!("failed to register signal handler for {}: {e}",
-                    std::str::from_utf8(signal_name(sig)).unwrap_or("?"));
-                continue;
-            }
-            run_on_alternate_stack(sig);
-        }
+/// Returns `false` where the target has no POSIX signals.
+pub fn register_fatal_handlers(handler: extern "C" fn(i32)) -> bool {
+    #[cfg(unix)]
+    {
+        unix::register_fatal_handlers(handler);
+        true
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = handler;
+        false
     }
 }
 
-/// Add `SA_ONSTACK` to `sig`'s installed action. `signal-hook-registry` installs
-/// without it, so a SIGSEGV from running into a thread's guard page (native
-/// stack overflow) ran the handler on the exhausted stack and the process died
-/// silently. With it the handler runs on the thread's alternate signal stack,
-/// which the Rust runtime sets up for the main thread and for every
-/// `std::thread`.
-unsafe fn run_on_alternate_stack(sig: i32) {
-    unsafe {
-        let mut act: libc::sigaction = std::mem::zeroed();
-        if libc::sigaction(sig, std::ptr::null(), &mut act) != 0 {
-            return;
-        }
-        if act.sa_flags & libc::SA_ONSTACK == 0 {
-            act.sa_flags |= libc::SA_ONSTACK;
-            libc::sigaction(sig, &act, std::ptr::null_mut());
-        }
+/// Hand `file`'s descriptor over to the caller for the rest of the process
+/// (the OS reclaims it at exit), for the `sigsafe` writers. `None` where the
+/// writers have no descriptor to write to.
+pub fn leak_fd(file: std::fs::File) -> Option<i32> {
+    #[cfg(unix)]
+    {
+        use std::os::fd::IntoRawFd;
+        Some(file.into_raw_fd())
+    }
+    #[cfg(not(unix))]
+    {
+        drop(file);
+        None
     }
 }
 
@@ -59,22 +58,64 @@ unsafe fn run_on_alternate_stack(sig: i32) {
 /// default action (coredump if `ulimit -c` permits) takes over after a handler
 /// has finished its best-effort report. Async-signal-safe.
 pub fn reset_default_and_reraise(sig: i32) {
+    #[cfg(unix)]
     unsafe {
         libc::signal(sig, libc::SIG_DFL);
         libc::raise(sig);
     }
+    let _ = sig;
 }
 
 /// Map signal number to a constant string. Returns `b"UNKNOWN"` for any signal
 /// outside the covered fatal set. Async-signal-safe (const match, no alloc).
 pub fn signal_name(sig: i32) -> &'static [u8] {
+    #[cfg(unix)]
     match sig {
-        libc::SIGSEGV => b"SIGSEGV",
-        libc::SIGABRT => b"SIGABRT",
-        libc::SIGFPE  => b"SIGFPE",
-        libc::SIGILL  => b"SIGILL",
-        libc::SIGBUS  => b"SIGBUS",
-        _             => b"UNKNOWN",
+        libc::SIGSEGV => return b"SIGSEGV",
+        libc::SIGABRT => return b"SIGABRT",
+        libc::SIGFPE  => return b"SIGFPE",
+        libc::SIGILL  => return b"SIGILL",
+        libc::SIGBUS  => return b"SIGBUS",
+        _             => {}
+    }
+    let _ = sig;
+    b"UNKNOWN"
+}
+
+#[cfg(unix)]
+mod unix {
+    pub(super) fn register_fatal_handlers(handler: extern "C" fn(i32)) {
+        for &sig in &[libc::SIGSEGV, libc::SIGABRT, libc::SIGFPE, libc::SIGILL, libc::SIGBUS] {
+            // SAFETY: `handler` only invokes async-signal-safe primitives
+            // (`sigsafe::write_*` → `libc::write`, atomic loads, `libc::raise`).
+            unsafe {
+                if let Err(e) = signal_hook_registry::register_signal_unchecked(sig, move || handler(sig)) {
+                    tracing::warn!("failed to register signal handler for {}: {e}",
+                        std::str::from_utf8(super::signal_name(sig)).unwrap_or("?"));
+                    continue;
+                }
+                run_on_alternate_stack(sig);
+            }
+        }
+    }
+
+    /// Add `SA_ONSTACK` to `sig`'s installed action. `signal-hook-registry` installs
+    /// without it, so a SIGSEGV from running into a thread's guard page (native
+    /// stack overflow) ran the handler on the exhausted stack and the process died
+    /// silently. With it the handler runs on the thread's alternate signal stack,
+    /// which the Rust runtime sets up for the main thread and for every
+    /// `std::thread`.
+    unsafe fn run_on_alternate_stack(sig: i32) {
+        unsafe {
+            let mut act: libc::sigaction = std::mem::zeroed();
+            if libc::sigaction(sig, std::ptr::null(), &mut act) != 0 {
+                return;
+            }
+            if act.sa_flags & libc::SA_ONSTACK == 0 {
+                act.sa_flags |= libc::SA_ONSTACK;
+                libc::sigaction(sig, &act, std::ptr::null_mut());
+            }
+        }
     }
 }
 
@@ -87,7 +128,11 @@ pub mod sigsafe {
     /// any negative return (including EINTR) gives up silently — process is
     /// already crashing, partial output is better than infinite loop.
     pub fn write_str(fd: i32, bytes: &[u8]) {
+        #[cfg(not(unix))]
+        let _ = (fd, bytes);
+        #[cfg(unix)]
         let mut remaining = bytes;
+        #[cfg(unix)]
         while !remaining.is_empty() {
             let n = unsafe {
                 libc::write(fd, remaining.as_ptr() as *const _, remaining.len())

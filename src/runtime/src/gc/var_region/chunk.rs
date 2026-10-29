@@ -798,13 +798,13 @@ impl VarRegion {
     /// The whole pages of chunk `ci` (`(addr, len)`), if any.
     fn chunk_pages(&self, ci: usize) -> Option<(usize, usize)> {
         let base = self.chunks[ci].base.as_ptr() as usize;
-        crate::gc::os_mem::inner_pages(base, base + self.chunks[ci].cap)
+        crate::pal::mem::inner_pages(base, base + self.chunks[ci].cap)
     }
 
     /// Decommit pooled chunks, oldest first, until about `budget` bytes have been given back.
     /// Returns the bytes given back. Runs at the sweep tail (STW).
     pub fn decommit_pool(&mut self, budget: u64) -> u64 {
-        if !crate::gc::os_mem::CAN_DECOMMIT {
+        if !crate::pal::mem::CAN_DECOMMIT {
             return 0;
         }
         let mut freed = 0u64;
@@ -813,7 +813,7 @@ impl VarRegion {
             self.pool_decommitted += 1;
             if let Some((addr, len)) = self.chunk_pages(ci) {
                 // SAFETY: whole pages inside a pooled chunk this region owns; nothing live in it.
-                unsafe { crate::gc::os_mem::decommit(addr, len) };
+                unsafe { crate::pal::mem::decommit(addr, len) };
                 self.footprint.credit(len as u64);
                 self.footprint.pool(len as u64, false);
                 freed += len as u64;
@@ -831,7 +831,7 @@ impl VarRegion {
             self.pool_decommitted -= 1;
             if let Some((addr, len)) = self.chunk_pages(ci) {
                 // SAFETY: the same pages `decommit_pool` gave back.
-                unsafe { crate::gc::os_mem::recommit(addr, len) };
+                unsafe { crate::pal::mem::recommit(addr, len) };
                 self.footprint.charge(len as u64);
                 pooled -= len as u64;
             }
@@ -845,7 +845,7 @@ impl VarRegion {
         for i in 0..self.pool_decommitted.min(self.var_free_chunk_pool.len()) {
             if let Some((addr, len)) = self.chunk_pages(self.var_free_chunk_pool[i]) {
                 // SAFETY: pages `decommit_pool` gave back; the chunk is still allocated.
-                unsafe { crate::gc::os_mem::recommit(addr, len) };
+                unsafe { crate::pal::mem::recommit(addr, len) };
             }
         }
     }

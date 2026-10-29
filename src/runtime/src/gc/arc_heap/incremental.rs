@@ -59,8 +59,7 @@ const SWEEPING: u8 = 2;
 /// How often (in work units — traced values, swept entries) a native budget reads the clock.
 const CLOCK_EVERY: u32 = 64;
 
-/// wasm32 has no clock (`std::time` panics there), so a slice is measured in work units instead.
-#[cfg(target_arch = "wasm32")]
+/// Without a clock (`pal::time::HAS_CLOCK`, wasm32) a slice is measured in work units instead.
 const UNITS_PER_MS: f64 = 10_000.0;
 
 /// The per-heap state of the incremental major. One field on `ArcMagrGC`, so the heap's own
@@ -150,10 +149,8 @@ pub(super) struct SliceOutcome {
 /// The budget of one slice: a deadline on native, a work-unit count on wasm32 (no clock there) and
 /// in tests (deterministic interleavings).
 pub(super) struct SliceBudget {
-    #[cfg(not(target_arch = "wasm32"))]
     deadline: Option<std::time::Instant>,
     units_left: Option<u64>,
-    #[cfg(not(target_arch = "wasm32"))]
     since_check: u32,
     spent: bool,
 }
@@ -162,10 +159,8 @@ impl SliceBudget {
     /// No limit: a synchronous finish.
     pub(super) fn unlimited() -> Self {
         Self {
-            #[cfg(not(target_arch = "wasm32"))]
             deadline: None,
             units_left: None,
-            #[cfg(not(target_arch = "wasm32"))]
             since_check: 0,
             spent: false,
         }
@@ -174,21 +169,16 @@ impl SliceBudget {
     /// `Z42_GC_SLICE_MS`.
     pub(super) fn from_config() -> Self {
         let ms = crate::config::runtime_config().gc_slice_ms;
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            Self {
-                deadline: Some(std::time::Instant::now() + std::time::Duration::from_secs_f64(ms / 1000.0)),
-                ..Self::unlimited()
-            }
+        if !crate::pal::time::HAS_CLOCK {
+            return Self::from_units((ms * UNITS_PER_MS).max(1.0) as u64);
         }
-        #[cfg(target_arch = "wasm32")]
-        {
-            Self::from_units((ms * UNITS_PER_MS).max(1.0) as u64)
+        Self {
+            deadline: Some(std::time::Instant::now() + std::time::Duration::from_secs_f64(ms / 1000.0)),
+            ..Self::unlimited()
         }
     }
 
     /// A budget of `units` work units (traced values; `CHUNK_SIZE` per swept chunk).
-    #[cfg(any(test, target_arch = "wasm32"))]
     pub(super) fn from_units(units: u64) -> Self {
         Self { units_left: Some(units.max(1)), ..Self::unlimited() }
     }
@@ -203,7 +193,6 @@ impl SliceBudget {
             *left = left.saturating_sub(units as u64);
             self.spent = *left == 0;
         }
-        #[cfg(not(target_arch = "wasm32"))]
         if let Some(deadline) = self.deadline {
             self.since_check += units;
             if self.since_check >= CLOCK_EVERY {

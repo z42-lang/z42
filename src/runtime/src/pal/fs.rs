@@ -8,6 +8,9 @@
 
 use std::io::Result;
 
+/// The separator of a path list (`PATH`-style): `;` on Windows, `:` elsewhere.
+pub const PATH_LIST_SEP: char = if cfg!(windows) { ';' } else { ':' };
+
 /// Add execute permission (`u+x,g+x,o+x`) to `path`. No-op on platforms where
 /// executability isn't a permission bit — NTFS decides by file extension, not
 /// an ACL bit.

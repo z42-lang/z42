@@ -25,6 +25,12 @@ pub fn os_version() -> String {
     os_version_impl()
 }
 
+/// Short OS name: `std::env::consts::OS`, except that every wasm32 target
+/// (`wasm32-unknown-unknown` reports `"unknown"`, WASI reports `"wasi"`) is `"wasm"`.
+pub fn os_name() -> &'static str {
+    if cfg!(target_arch = "wasm32") { "wasm" } else { std::env::consts::OS }
+}
+
 // ── unix impls ───────────────────────────────────────────────────────────────
 
 #[cfg(unix)]

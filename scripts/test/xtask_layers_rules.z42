@@ -34,7 +34,6 @@ string[] _lyMapTable() {
 string[] _lyMapBase() {
     return new string[]{
         "pal/                          = pal",
-        "gc/os_mem.rs                  = pal             # pal mem.rs",
         "corelib/fs_backend/           = pal             # pal fs.rs（Vfs）+ vfs/{local,memory}",
         "metadata/                     = metadata        # 静态包信息（hub 与未单列的文件）",
         "metadata/zbc_reader/          = metadata        # reader/",

@@ -2,7 +2,7 @@
 
 > single home for every `#[cfg(target_os)]` /
 > `#[cfg(unix)]` / `#[cfg(windows)]` split in the runtime.
-> 待办：`pal/thread.rs`、`pal/mem.rs`、`pal/clock.rs`、Windows 实现、wasm32-wasi 见下文（consumer-gated，未实施）。
+> 待办：corelib 剩余平台代码迁入、`pal::dynlib`、每 VM 一个 Vfs（runtime-audit §6.1 L-2）；Windows 实现、wasm32-wasi 见下文。
 
 ## 设计目标
 
@@ -16,12 +16,12 @@ CoreCLR `src/coreclr/pal/` 含 ~50 个文件抽象：
 
 | Concern | CoreCLR pal/ 文件 | z42 pal/ 计划 | Status |
 |---|---|---|---|
-| Thread / mutex / TLS | `thread.cpp` / `mutex.cpp` | `pal/thread.rs` | Pending |
+| Thread / stack | `thread.cpp` | `pal/thread.rs` | Done |
 | File I/O | `file.cpp` / `path.cpp` | `pal/fs.rs` | Done |
 | Signal / exceptions | `signal.cpp` | `pal/signal.rs`（仅 OS 原语；z42 reporter 留 signal_handler.rs） | Done |
-| Memory / mmap | `virtual.cpp` | `pal/mem.rs` | Pending |
+| Memory / pages | `virtual.cpp` | `pal/mem.rs` | Done |
 | Process / environ | `process.cpp` / `environ.cpp` | `pal/system.rs` | Done |
-| Clock / time | `time.cpp` | `pal/clock.rs` (post-MVP) | Pending |
+| Clock / time | `time.cpp` | `pal/time.rs` | Done |
 
 z42 不抄 CoreCLR 的 PAL 内部分层（CoreCLR 还有 `pal/src/<arch>/` per-arch
 ASM）—— Cranelift / Rust 已经兜底 arch 差异。z42 PAL 只关心 **OS 差异**。
@@ -34,11 +34,13 @@ ASM）—— Cranelift / Rust 已经兜底 arch 差异。z42 PAL 只关心 **OS 
 pal/
 ├── mod.rs               — 模块入口 + 子模块 re-exports
 ├── README.md            — 快速 orientation
-├── system.rs            — hostname / os_version
-├── fs.rs                — make_executable / symlink
-├── signal.rs            — POSIX signal 原语（unix）
-├── stack.rs             — 当前线程的原生栈边界（`stack_guard` 用）
-└── system_tests.rs      — 单元测试
+├── system.rs            — hostname / os_version / os_name
+├── fs.rs                — make_executable / symlink / PATH_LIST_SEP
+├── mem.rs               — 页大小、GC chunk 页的 decommit / recommit
+├── thread.rs            — 栈边界、线程 token、在大栈线程上运行
+├── time.rs              — 单调时钟（wasm32 无时钟时退为计数器）
+├── signal.rs            — fatal 信号原语（非 POSIX 平台注册返回 false、写入为空操作）
+└── *_tests.rs           — 单元测试
 ```
 
 `pal::system` surface：
@@ -90,13 +92,16 @@ pub fn symlink(src: &str, dst: &str) -> Result<()>; // unix symlink；非 unix b
 > （`write_call_stacks` 走 `VM_CORES`/`vm_contexts`，是 runtime 内省，非 OS 代码）。整文件
 > 搬会把 VM 内部知识塞进 `pal/`。故**只抽 OS 原语**，z42 崩溃逻辑留 `signal_handler.rs`。
 
-抽到 `pal/signal.rs`（`#![cfg(unix)]`，async-signal-safe）：
+抽到 `pal/signal.rs`（async-signal-safe）。接口在所有目标上都存在：没有 POSIX 信号的目标（Windows、wasm）上
+注册返回 `false`，写入与 reset 是空操作，所以 `signal_handler.rs` 不需要平台 cfg：
 
 ```rust
 // pal/signal.rs
-pub fn register_fatal_handlers(handler: extern "C" fn(i32)); // 5 fatal 信号注册
+pub const STDERR_FD: i32;
+pub fn register_fatal_handlers(handler: extern "C" fn(i32)) -> bool; // 5 fatal 信号注册
+pub fn leak_fd(file: std::fs::File) -> Option<i32>;                // Z42_CRASH_DIR 文件交给 sigsafe 写
 pub fn signal_name(sig: i32) -> &'static [u8];
-pub fn reset_default_and_reraise(sig: i32);                  // SIG_DFL + raise
+pub fn reset_default_and_reraise(sig: i32);                         // SIG_DFL + raise
 pub mod sigsafe { pub fn write_str / write_dec_u32 / write_hex_u64 }
 ```
 
@@ -104,7 +109,7 @@ pub mod sigsafe { pub fn write_str / write_dec_u32 / write_hex_u64 }
 原生代码撞上栈的 guard page 时 SIGSEGV handler 就跑在已经耗尽的栈上，进程无声死亡。带上后 handler
 跑在线程的备用信号栈上（Rust 运行时为主线程和每个 `std::thread` 都建了一个）。
 
-`pal/stack.rs` 的 `current_thread_stack() -> Option<(low, high)>`：macOS / iOS 用
+`pal/thread.rs` 的 `current_thread_stack() -> Option<(low, high)>`：macOS / iOS 用
 `pthread_get_stackaddr_np` + `pthread_get_stacksize_np`，Linux / Android 用 `pthread_getattr_np`，
 Windows 用 `GetCurrentThreadStackLimits`；其他平台返回 `None`，栈检查对该线程关闭。
 
@@ -112,32 +117,40 @@ Windows 用 `GetCurrentThreadStackLimits`；其他平台返回 `None`，栈检�
 走 VM_CORES），call `crate::pal::signal::*`（async-signal-safe 约束）。Windows VEH
 走 `pal::signal` 同接口不同 impl，仍延后（无 Windows CI runner）。
 
-### `pal/thread.rs` — 多线程基础（**consumer-gated**）
-
-当前 `thread/` 是 stub。将引入 PAL 抽象 thread spawn / TLS /
-join 作为 multi-thread runtime 的底座。**不 speculative 提前做**——它是为多线程 runtime 服务的新
-抽象（非现有平台代码迁移），无 consumer 前空 API 没意义；随多线程 runtime 一起落地。
+### `pal/thread.rs` — 线程
 
 ```rust
 // pal/thread.rs
-pub fn spawn<F>(f: F) -> ThreadHandle where F: FnOnce() + Send;
-pub fn current_id() -> ThreadId;
-pub fn yield_now();
+pub const CAN_SPAWN: bool;                                  // wasm32 为 false
+pub fn run_with_stack<R>(name, stack_bytes, f) -> Result<R, RunError>; // 不能起线程时在当前线程跑
+pub fn current_token() -> usize;                            // unix 为 pthread_self，信号处理中可用
+pub fn current_thread_stack() -> Option<(usize, usize)>;
 ```
 
-### `pal/mem.rs` — 页对齐分配 / mmap（**consumer-gated**）
+`run_with_stack` 供嵌入入口（`host`）在大栈线程上跑 VM；`current_token` 供帧栈记录归属线程。
 
-GC bump allocator（review.md C6）需要页对齐大块虚拟内存。当前用 std::alloc
-顶住，之后切到 mmap / VirtualAlloc 抽象。**不 speculative 提前做**——
-它是为 bump allocator 服务的新抽象（非现有平台代码迁移），随 GC bump allocator
-（C6，目前未实现）一起落地。
+### `pal/mem.rs` — 页
 
 ```rust
 // pal/mem.rs
-pub fn alloc_pages(n: usize) -> PageBlock;
-pub fn protect(block: &PageBlock, prot: Protection);
-pub fn free_pages(block: PageBlock);
+pub(crate) const CAN_DECOMMIT: bool;                        // macOS / iOS / Linux / Android
+pub(crate) fn page_size() -> usize;
+pub(crate) fn inner_pages(start, end) -> Option<(usize, usize)>;
+pub(crate) unsafe fn decommit(addr, len);                   // MADV_FREE_REUSABLE / MADV_FREE
+pub(crate) unsafe fn recommit(addr, len);
 ```
+
+GC 的 chunk 池用它把多余空 chunk 的物理页还给 OS（见 [GC TLAB](gc-tlab.md)）。
+
+### `pal/time.rs` — 时钟
+
+```rust
+// pal/time.rs
+pub const HAS_CLOCK: bool;                                  // wasm32-unknown-unknown 为 false
+pub fn monotonic_us() -> u64;                               // 无时钟时每次调用返回下一个计数
+```
+
+GC 的停顿计时用 `monotonic_us`；增量 GC 的分片预算与停顿自适应在 `HAS_CLOCK` 为 `false` 时改按工作量计。
 
 ## Platform feature gates
 

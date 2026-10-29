@@ -3,6 +3,8 @@
 //! tested in `pal/signal_tests.rs`; the actual signal-firing path is covered by
 //! the `tests/signal_handler_e2e.rs` integration tests.
 
+#![cfg(unix)]
+
 #[test]
 fn install_is_idempotent() {
     // Call install() twice — second call must not panic, must not double-

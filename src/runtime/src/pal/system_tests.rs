@@ -43,3 +43,8 @@ fn hostname_and_os_version_are_callable_repeatedly() {
         let _ = os_version();
     }
 }
+
+#[test]
+fn os_name_is_non_empty() {
+    assert!(!super::os_name().is_empty());
+}
