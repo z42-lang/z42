@@ -69,7 +69,7 @@ string _stageDeviceHost(string root, string platform) {
         string s = _dhContentSource(root, platform, rel, Path.Join(src, rel));
         string d = Path.Join(host, rel);
         if (!File.Exists(s)) { continue; }   // 工作树里删了但还没提交
-        if (!File.Exists(d) || !_dhSameBytes(s, d)) {
+        if (!_filesEqual(s, d)) {
             Directory.Create(Path.GetDirectoryName(d));
             File.Copy(s, d);
             copied = copied + 1;
@@ -90,10 +90,6 @@ string _stageDeviceHost(string root, string platform) {
     return host;
 }
 
-bool _dhSameBytes(string a, string b) {
-    if (File.GetSize(a) != File.GetSize(b)) { return false; }
-    return _bytesEqual(File.ReadAllBytes(a), File.ReadAllBytes(b));
-}
 
 // 副本里 `rel` 这个文件的内容取自哪里：默认是源码里的同名文件；转发到 runtime/include/ 的头文件
 // （正文是一行 `#include "<相对路径>/runtime/include/<name>"`）取被转发的真实文件。
