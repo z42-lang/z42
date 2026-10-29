@@ -232,29 +232,8 @@ pub mod typed {
                 return Err(out_of_range(name));
             }
         }
-        sref.set_tcp_keepalive(&keepalive(idle_secs as u64, interval_secs as u64, probes as u32))
+        let secs = std::time::Duration::from_secs;
+        crate::pal::net::set_tcp_keepalive(&s, secs(idle_secs as u64), secs(interval_secs as u64), probes as u32)
             .map_err(|e| socket_error(&e, None))
     }
-}
-
-/// socket2's `TcpKeepalive` with the parts this OS supports (`with_interval` /
-/// `with_retries` exist only where socket2 exposes them).
-fn keepalive(idle: u64, interval: u64, probes: u32) -> socket2::TcpKeepalive {
-    let ka = socket2::TcpKeepalive::new().with_time(std::time::Duration::from_secs(idle));
-    #[cfg(any(
-        target_os = "linux", target_os = "android", target_os = "macos", target_os = "ios",
-        target_os = "tvos", target_os = "watchos", target_os = "freebsd", target_os = "dragonfly",
-        target_os = "netbsd", target_os = "illumos", target_os = "solaris", target_os = "aix",
-        target_os = "windows",
-    ))]
-    let ka = ka.with_interval(std::time::Duration::from_secs(interval));
-    #[cfg(any(
-        target_os = "android", target_os = "dragonfly", target_os = "freebsd", target_os = "fuchsia",
-        target_os = "illumos", target_os = "ios", target_os = "visionos", target_os = "linux",
-        target_os = "macos", target_os = "netbsd", target_os = "tvos", target_os = "watchos",
-        target_os = "cygwin",
-    ))]
-    let ka = ka.with_retries(probes);
-    let _ = (interval, probes);
-    ka
 }

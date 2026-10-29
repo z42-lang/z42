@@ -61,7 +61,7 @@ pub fn platform_arch_kind() -> i64 {
 /// probes the target VM binary with `Std.Platform.Capabilities()` and tags each
 /// result with the caps the binary actually reports — never a static guess. The
 /// values are the ground truth of "what was compiled in":
-///   - cargo-feature caps (`jit` / `native-interop` / `bundled-compression`) via cfg.
+///   - cargo-feature caps (`jit` / `native-interop` / `bundled-compression` / `socket` ← `net`) via cfg.
 ///   - `threads`: real OS-thread support (`corelib::threading`) is compiled in
 ///     wherever `std::thread` exists — i.e. everywhere except wasm. It is *not*
 ///     a cargo feature, so it is gated on `target_arch` directly (mirrors the
@@ -87,8 +87,8 @@ pub fn platform_caps(ctx: &VmContext) -> Value {
     #[cfg(feature = "bundled-compression")] caps.push("bundled-compression");
     #[cfg(not(target_arch = "wasm32"))]     caps.push("threads");
     // fix-wasm-corpus-capability-gate: `socket` = real OS networking (TCP/UDP/HTTP/
-    // WS) — compiled in wherever `std::net` works, i.e. everywhere except wasm.
-    #[cfg(not(target_arch = "wasm32"))]     caps.push("socket");
+    // WS) — the `net` feature (off in the wasm preset; without it the builtins throw).
+    #[cfg(feature = "net")]                 caps.push("socket");
     #[cfg(not(target_arch = "wasm32"))]     caps.push("fs");
     #[cfg(not(target_arch = "wasm32"))]     caps.push("clock");
     #[cfg(not(target_arch = "wasm32"))]     caps.push("entropy");

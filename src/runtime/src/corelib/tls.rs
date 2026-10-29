@@ -29,14 +29,12 @@
 /// One TLS connection. `stream` holds the TLS session plus the socket; `sock` is a dup
 /// of the same socket, used to shut it down on close — waking a read blocked inside
 /// `stream`'s lock — and to set timeouts without waiting for that lock.
-#[cfg(not(target_arch = "wasm32"))]
 pub(crate) struct TlsSlot {
     pub(crate) stream: parking_lot::Mutex<rustls::StreamOwned<rustls::ClientConnection, std::net::TcpStream>>,
     pub(crate) sock: std::net::TcpStream,
 }
 
 /// Process-wide rustls client config (root store + ring provider), built once.
-#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn client_config() -> Result<std::sync::Arc<rustls::ClientConfig>, crate::corelib::abi::BuiltinError> {
     use std::sync::{Arc, OnceLock};
     static CONFIG: OnceLock<Arc<rustls::ClientConfig>> = OnceLock::new();
@@ -55,7 +53,6 @@ pub(crate) fn client_config() -> Result<std::sync::Arc<rustls::ClientConfig>, cr
     Ok(CONFIG.get_or_init(|| Arc::new(config)).clone())
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 mod imp {
     use super::TlsSlot;
     use crate::corelib::abi::BuiltinError;
@@ -112,7 +109,6 @@ mod imp {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 #[z42_macros::builtins]
 pub mod typed {
     use super::imp::{handshake_error, slot, still_open, stream_error};
@@ -248,6 +244,6 @@ pub mod typed {
     }
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(test)]
 #[path = "tls_tests.rs"]
 mod tls_tests;

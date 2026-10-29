@@ -46,14 +46,16 @@ const TYPED: &[&[abi::BuiltinDesc]] = &[
     #[cfg(feature = "native-interop")]
     crate::native::ext::typed::DESCS,
     super::monitor::typed::DESCS,
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(feature = "net")]
     super::network::tcp::typed::DESCS,
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(feature = "net")]
     super::network::udp::typed::DESCS,
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(feature = "net"))]
+    super::network::unsupported::net::DESCS,
+    #[cfg(feature = "tls")]
     super::tls::typed::DESCS,
-    #[cfg(target_arch = "wasm32")]
-    super::network::wasm::typed::DESCS,
+    #[cfg(not(feature = "tls"))]
+    super::network::unsupported::tls::DESCS,
     super::diagnostics::typed::DESCS,
     super::array::typed::DESCS,
     #[cfg(test)]

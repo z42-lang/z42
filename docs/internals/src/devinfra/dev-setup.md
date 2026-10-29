@@ -87,6 +87,8 @@ mkdir -p artifacts && cp -R <warm 树>/artifacts/xtask artifacts/
 | `jit` | ✅ | Cranelift JIT 后端（桌面 x64 / aarch64） |
 | `native-interop` | ✅ | Tier 1 native 扩展 ABI（dlopen + libffi） |
 | `mimalloc-alloc` | ✅ | z42vm 二进制的全局分配器走 mimalloc |
+| `net` | ✅ | `Std.Net` socket（Rust 标准库 net 模块 + `socket2`）；关掉时网络 builtin 抛 `NetUnsupportedException` |
+| `tls` | ✅ | 在 `net` 之上加 rustls TLS 客户端 |
 | `interp-only` | — | 只表意图（不引额外依赖），平台 preset 用它 |
 | `aot` | — | AOT 占位，无实现 |
 | `bundled-compression` | — | 静态链接 `z42-compression` 而不是 dlopen（wasm 必须） |
@@ -94,7 +96,7 @@ mkdir -p artifacts && cp -R <warm 树>/artifacts/xtask artifacts/
 | `z42-test-fixtures` | — | build.rs 现编两个 `.z42` fixture；默认关是因为它会把 build script 挂到 `z42c.driver.zpkg` 上，每轮 `build compiler` 后整图重编 |
 
 平台 preset 是现成的组合：`wasm` = `interp-only` + `bundled-compression`；
-`ios` / `android` = `interp-only` + `aot` + `native-interop` + `bundled-compression`。
+`ios` / `android` = `interp-only` + `aot` + `native-interop` + `bundled-compression` + `net` + `tls`。
 
 ```bash
 ./xtask build runtime

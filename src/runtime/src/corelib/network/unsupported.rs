@@ -1,10 +1,15 @@
-//! wasm32: no sockets. The ABI v2 network / TLS builtins throw
+//! Builds without sockets: the ABI v2 network / TLS builtins throw
 //! `NetUnsupportedException : PlatformNotSupportedException` (closing is a no-op, as
 //! there is never anything open). Same names and arities as `network/{tcp,udp}.rs` /
 //! `tls.rs` — the stdlib declarations are shared.
+//!
+//! `net` stands in for `tcp` / `udp` when the `net` feature is off; `tls` stands in
+//! for `corelib/tls.rs` when the `tls` feature is off (`tls` implies `net`, so a build
+//! can have sockets without TLS but not the reverse). The wasm preset has neither.
 
+#[cfg(not(feature = "net"))]
 #[z42_macros::builtins]
-pub mod typed {
+pub mod net {
     use crate::corelib::abi::BuiltinError;
     use crate::corelib::network::error::unsupported;
     use crate::metadata::Value;
@@ -65,6 +70,14 @@ pub mod typed {
     pub fn udp_set_write_timeout(_a0: &Value, _a1: &Value) -> Result<(), BuiltinError> { Err(unsupported()) }
     #[builtin(name = "__dns_lookup")]
     pub fn dns_lookup(_a0: &Value) -> Result<Value, BuiltinError> { Err(unsupported()) }
+}
+
+#[z42_macros::builtins]
+pub mod tls {
+    use crate::corelib::abi::BuiltinError;
+    use crate::corelib::network::error::unsupported;
+    use crate::metadata::Value;
+
     #[builtin(name = "__tls_connect")]
     pub fn tls_connect(_a0: &Value, _a1: &Value, _a2: &Value) -> Result<Value, BuiltinError> { Err(unsupported()) }
     #[builtin(name = "__tls_read")]

@@ -1,6 +1,6 @@
-#![cfg_attr(target_arch = "wasm32", allow(dead_code))]
+#![cfg_attr(not(feature = "net"), allow(dead_code))]
 //! .NET-shaped socket failures for the ABI v2 network builtins (`network/tcp.rs`,
-//! `network/udp.rs`, `tls.rs`, the wasm32 stubs).
+//! `network/udp.rs`, `tls.rs`, the `network/unsupported.rs` stubs).
 //!
 //! | failure | exception (fallbacks when the class is not loaded) |
 //! |---|---|
@@ -9,7 +9,7 @@
 //! | host name resolution failed | `SocketException`, `HostNotFound` (11001) — the resolver's text (`gai_strerror` on Unix, `No such host is known.` on Windows) |
 //! | a closed / disposed / unknown socket handle, or closed while blocked on it | `Std.Net.Sockets.SocketClosedException : Std.ObjectDisposedException : InvalidOperationException` (`ObjectName` = `Std.Net.Sockets.Socket`) |
 //! | port / TTL / keep-alive argument out of range | `ArgumentOutOfRangeException` |
-//! | the platform has no sockets (wasm32) | `Std.Net.NetUnsupportedException : Std.PlatformNotSupportedException : NotSupportedException` |
+//! | the build has no sockets (`net` / `tls` feature off, e.g. wasm32) | `Std.Net.NetUnsupportedException : Std.PlatformNotSupportedException : NotSupportedException` |
 
 use crate::corelib::abi::{BuiltinError, FieldInit};
 
@@ -20,7 +20,7 @@ pub(crate) const SOCKET_EXCEPTION: &[&str] =
 const SOCKET_CLOSED: &[&str] = &[
     "Std.Net.Sockets.SocketClosedException", "Std.ObjectDisposedException", "Std.InvalidOperationException",
 ];
-#[cfg(any(target_arch = "wasm32", test))]
+#[cfg(any(not(feature = "tls"), test))]
 const NET_UNSUPPORTED: &[&str] = &[
     "Std.Net.NetUnsupportedException", "Std.PlatformNotSupportedException", "Std.NotSupportedException",
 ];
@@ -47,68 +47,15 @@ pub(crate) mod code {
     pub const HOST_NOT_FOUND: i64 = 11001;
 }
 
-/// The `SocketError` code of an OS error — .NET's Unix errno table (`SocketErrorPal`),
-/// the Winsock code itself on Windows, else by `io::ErrorKind`. `EAGAIN` on these
-/// blocking sockets only comes from an expired `SO_RCVTIMEO` / `SO_SNDTIMEO`, which .NET
-/// reports as `TimedOut`.
+/// The `SocketError` code of an OS error — the Winsock code the OS error maps to
+/// (`pal::net::winsock_code`: .NET's Unix errno table, the code itself on Windows),
+/// else by `io::ErrorKind`.
 pub(crate) fn socket_error_code(e: &std::io::Error) -> i64 {
     e.raw_os_error().and_then(from_os).unwrap_or_else(|| from_kind(e.kind()))
 }
 
-#[cfg(unix)]
-fn from_os(errno: i32) -> Option<i64> {
-    use libc::*;
-    Some(match errno {
-        EINTR => code::INTERRUPTED,
-        EACCES | EPERM => code::ACCESS_DENIED,
-        EFAULT => 10014,
-        EINVAL => code::INVALID_ARGUMENT,
-        EMFILE | ENFILE => 10024,
-        EAGAIN => code::TIMED_OUT,
-        EINPROGRESS => 10036,
-        EALREADY => 10037,
-        ENOTSOCK => 10038,
-        EDESTADDRREQ => 10039,
-        EMSGSIZE => 10040,
-        EPROTOTYPE => 10041,
-        ENOPROTOOPT => 10042,
-        EPROTONOSUPPORT => 10043,
-        EOPNOTSUPP => code::OPERATION_NOT_SUPPORTED,
-        EPFNOSUPPORT => 10046,
-        EAFNOSUPPORT => 10047,
-        EADDRINUSE => code::ADDRESS_ALREADY_IN_USE,
-        EADDRNOTAVAIL => code::ADDRESS_NOT_AVAILABLE,
-        ENETDOWN => code::NETWORK_DOWN,
-        ENETUNREACH => code::NETWORK_UNREACHABLE,
-        ENETRESET => 10052,
-        ECONNABORTED => code::CONNECTION_ABORTED,
-        ECONNRESET => code::CONNECTION_RESET,
-        ENOBUFS => 10055,
-        EISCONN => 10056,
-        ENOTCONN => code::NOT_CONNECTED,
-        EPIPE | ESHUTDOWN => code::SHUTDOWN,
-        ETIMEDOUT => code::TIMED_OUT,
-        ECONNREFUSED => code::CONNECTION_REFUSED,
-        EHOSTDOWN => 10064,
-        EHOSTUNREACH => code::HOST_UNREACHABLE,
-        _ => return None,
-    })
-}
-
-#[cfg(windows)]
-fn from_os(code: i32) -> Option<i64> {
-    // Winsock errors are the `SocketError` values; 995 / 997 are the overlapped-I/O pair.
-    const WSAEWOULDBLOCK: i32 = 10035;
-    match code {
-        WSAEWOULDBLOCK => Some(self::code::TIMED_OUT),
-        995 | 997 | 10004..=11004 => Some(code as i64),
-        _ => None,
-    }
-}
-
-#[cfg(not(any(unix, windows)))]
-fn from_os(_: i32) -> Option<i64> {
-    None
+fn from_os(raw: i32) -> Option<i64> {
+    crate::pal::net::winsock_code(raw).map(i64::from)
 }
 
 fn from_kind(kind: std::io::ErrorKind) -> i64 {
@@ -146,13 +93,8 @@ pub(crate) fn describe(e: &std::io::Error) -> String {
 /// `SO_RCVTIMEO` surfaces as `EAGAIN` — "Resource temporarily unavailable" — which is not
 /// what happened).
 pub(crate) fn timeout_message() -> String {
-    #[cfg(unix)]
-    let raw = Some(libc::ETIMEDOUT);
-    #[cfg(windows)]
-    let raw = Some(10060);
-    #[cfg(not(any(unix, windows)))]
-    let raw: Option<i32> = None;
-    raw.map(|c| describe(&std::io::Error::from_raw_os_error(c)))
+    crate::pal::net::timed_out_error()
+        .map(|e| describe(&e))
         .unwrap_or_else(|| "Connection timed out".to_string())
 }
 
@@ -202,8 +144,8 @@ pub(crate) fn closed() -> BuiltinError {
     )
 }
 
-/// No sockets on this target (wasm32).
-#[cfg(any(target_arch = "wasm32", test))]
+/// No sockets in this build (the `net` / `tls` feature is off, e.g. wasm32).
+#[cfg(any(not(feature = "tls"), test))]
 pub(crate) fn unsupported() -> BuiltinError {
     BuiltinError::detailed(NET_UNSUPPORTED, "network sockets are not supported on this target (e.g. wasm32)", vec![])
 }
@@ -236,7 +178,7 @@ pub(crate) fn timeout(millis: i64) -> Option<std::time::Duration> {
 
 /// Resolve `host:port` (numeric addresses do not touch the network). Blocks for the
 /// resolver: callers run it parked. No address → `HostNotFound`.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "net")]
 pub(crate) fn resolve(host: &str, port: u16) -> Result<Vec<std::net::SocketAddr>, BuiltinError> {
     use std::net::ToSocketAddrs;
     match (host, port).to_socket_addrs() {
