@@ -3,6 +3,7 @@ namespace Z42Xtask;
 
 using Std.IO;
 using Std.Cli;
+using Std.Collections;
 
 // ── clean ─────────────────────────────────────────────────────────────────────
 //
@@ -142,27 +143,17 @@ int _cleanAll(string root) {
 // 跳过输出目录与 node_modules 里的。
 string[] _srcZ42ProjectDirs(string root) {
     string src = Path.Join(root, "src");
-    string[] named = Path.GlobRecursive(src, "*.z42.toml");
-    string[] plain = Path.GlobRecursive(src, "z42.toml");
-    string[] tomls = new string[named.Length + plain.Length];
-    int c = 0;
-    foreach (var t in named) { tomls[c] = t; c = c + 1; }
-    foreach (var t in plain) { tomls[c] = t; c = c + 1; }
-    string[] dirs = new string[tomls.Length];
-    int n = 0;
+    List<string> tomls = new List<string>();
+    tomls.AddRange(Path.GlobRecursive(src, "*.z42.toml"));
+    tomls.AddRange(Path.GlobRecursive(src, "z42.toml"));
+    List<string> dirs = new List<string>();
     foreach (var t in tomls) {
         string u = t.Replace("\\", "/");
         if (u.Contains("/artifacts/") || u.Contains("/dist/") || u.Contains("/node_modules/")) { continue; }
         string d = Path.GetDirectoryName(t);
-        bool seen = false;
-        int k = 0;
-        while (k < n) { if (dirs[k] == d) { seen = true; } k = k + 1; }
-        if (!seen) { dirs[n] = d; n = n + 1; }
+        if (!dirs.Contains(d)) { dirs.Add(d); }
     }
-    string[] outArr = new string[n];
-    int i = 0;
-    while (i < n) { outArr[i] = dirs[i]; i = i + 1; }
-    return outArr;
+    return dirs.ToArray();
 }
 
 int _rmIfExists(string dir) {

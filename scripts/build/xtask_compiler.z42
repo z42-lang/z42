@@ -32,10 +32,7 @@ int _buildCompiler() {
 // 且 driver bundle 与成员 dist 不再是同一份产物。
 void _ensureDriverSelfContained(string root, string profile, string[] members) {
     string driverDist = _driverDist(root, profile);
-    int i = 0;
-    while (i < members.Length) {
-        string m = members[i];
-        i = i + 1;
+    foreach (var m in members) {
         if (m == "z42c.driver") { continue; }
         string memberDist = _compilerMemberDist(root, m, profile);
         if (memberDist != driverDist) { _copyZpkgPair(memberDist, driverDist, m); }
@@ -75,17 +72,12 @@ void _copyZpkgPair(string srcDir, string dstDir, string name) {
 int _relocateSeedRunLibs(string root, string profile, string[] members, string dst) {
     _resetDir(dst);
     int moved = 0;
-    int mi = 0;
-    while (mi < members.Length) {
-        string dist = _compilerMemberDist(root, members[mi], profile);
-        mi = mi + 1;
+    foreach (var m in members) {
+        string dist = _compilerMemberDist(root, m, profile);
         if (!Directory.Exists(dist)) { continue; }
-        string[] hits = Path.Glob(dist, "*.zpkg");
-        int hi = 0;
-        while (hi < hits.Length) {
-            string name = Path.GetFileNameWithoutExtension(hits[hi]);
-            hi = hi + 1;
-            if (_isCompilerMember(members, name)) { continue; }   // 成员产物归成员 dist，不碰
+        foreach (var hit in Path.Glob(dist, "*.zpkg")) {
+            string name = Path.GetFileNameWithoutExtension(hit);
+            if (_strIn(members, name)) { continue; }   // 成员产物归成员 dist，不碰
             _moveZpkgPair(dist, dst, name);
             moved = moved + 1;
         }
@@ -94,11 +86,8 @@ int _relocateSeedRunLibs(string root, string profile, string[] members, string d
     // 上面搬出来的与锚同代，已在的不覆盖。
     string anchor = _driverGenLibs(root, profile);
     if (Directory.Exists(anchor)) {
-        string[] gl = Path.Glob(anchor, "*.zpkg");
-        int gi = 0;
-        while (gi < gl.Length) {
-            string name = Path.GetFileNameWithoutExtension(gl[gi]);
-            gi = gi + 1;
+        foreach (var g in Path.Glob(anchor, "*.zpkg")) {
+            string name = Path.GetFileNameWithoutExtension(g);
             if (File.Exists(Path.Join(dst, name + ".zpkg"))) { continue; }
             _copyZpkgPair(anchor, dst, name);
             moved = moved + 1;
@@ -114,30 +103,19 @@ void _snapshotDriverGenLibs(string root, string profile, string stdlibFlat) {
     if (libs.Length == 0) { return; }   // 读不到成员清单就不记：缺锚回落 SDK 补齐，好过记一份错的
     string anchor = _driverGenLibs(root, profile);
     _resetDir(anchor);
-    int i = 0;
-    while (i < libs.Length) { _copyZpkgPair(stdlibFlat, anchor, libs[i]); i = i + 1; }
+    foreach (var lib in libs) { _copyZpkgPair(stdlibFlat, anchor, lib); }
 }
 
 // <name>.zpkg + 同名 .zsym 从 srcDir 搬到 dstDir（先拷后删；dst 已存在则覆盖）。
 void _moveZpkgPair(string srcDir, string dstDir, string name) {
-    string[] exts = new string[2];
-    exts[0] = ".zpkg"; exts[1] = ".zsym";
-    int i = 0;
-    while (i < exts.Length) {
-        string src = Path.Join(srcDir, name + exts[i]);
-        string dst = Path.Join(dstDir, name + exts[i]);
-        i = i + 1;
+    foreach (var ext in new string[]{ ".zpkg", ".zsym" }) {
+        string src = Path.Join(srcDir, name + ext);
+        string dst = Path.Join(dstDir, name + ext);
         if (!File.Exists(src)) { continue; }
         if (File.Exists(dst)) { File.Delete(dst); }
         File.Copy(src, dst);
         File.Delete(src);
     }
-}
-
-bool _isCompilerMember(string[] members, string name) {
-    int i = 0;
-    while (i < members.Length) { if (members[i] == name) { return true; } i = i + 1; }
-    return false;
 }
 
 // 用种子那一代的 libs（`_seedLibsSource`：启动时的 `Z42_LIBS` 优先、其次 SDK）补齐 run-libs 的缺口。
@@ -149,16 +127,12 @@ int _topUpSeedRunLibs(string root, string dst, string[] members) {
     if (sdkLibs.Length == 0) { return 0; }
     // 来源目录打进日志：一眼可判是走了 `Z42_LIBS` 还是回落了 SDK。
     _vNormal("  run-libs 缺口来源: " + sdkLibs);
-    string[] hits = Path.Glob(sdkLibs, "*.zpkg");
     int filled = 0;
-    int i = 0;
-    while (i < hits.Length) {
-        string name = Path.GetFileNameWithoutExtension(hits[i]);
-        i = i + 1;
-        if (_isCompilerMember(members, name)) { continue; }
+    foreach (var hit in Path.Glob(sdkLibs, "*.zpkg")) {
+        string name = Path.GetFileNameWithoutExtension(hit);
+        if (_strIn(members, name)) { continue; }
         if (File.Exists(Path.Join(dst, name + ".zpkg"))) { continue; }   // bundle 已提供 = 更可信
-        _copyIfNewer(Path.Join(sdkLibs, name + ".zpkg"), Path.Join(dst, name + ".zpkg"));
-        _copyIfNewer(Path.Join(sdkLibs, name + ".zsym"), Path.Join(dst, name + ".zsym"));
+        _copyZpkgPair(sdkLibs, dst, name);
         filled = filled + 1;
     }
     return filled;
@@ -233,21 +207,10 @@ int _buildCompilerViaZ42c(string root, string profile, string[] members, string 
 void _purgeBootstrapPrebuildsFromFlat(string root, string stdlibFlat) {
     string[] libs = _stdlibList(root);
     if (libs.Length == 0) { return; }   // 读不到成员清单就不动：宁可留脏，不可误删 stdlib
-    string[] hits = Path.Glob(stdlibFlat, "*");
     int purged = 0;
-    int i = 0;
-    while (i < hits.Length) {
-        string f = hits[i];
-        i = i + 1;
+    foreach (var f in Path.Glob(stdlibFlat, "*")) {
         if (!(f.EndsWith(".zpkg") || f.EndsWith(".zsym"))) { continue; }
-        string name = Path.GetFileNameWithoutExtension(f);
-        bool isLib = false;
-        int j = 0;
-        while (j < libs.Length) {
-            if (libs[j] == name) { isLib = true; break; }
-            j = j + 1;
-        }
-        if (isLib) { continue; }
+        if (_strIn(libs, Path.GetFileNameWithoutExtension(f))) { continue; }
         try { File.Delete(f); purged = purged + 1; } catch (Exception e) { /* best-effort，同 _cleanGlob */ }
     }
     if (purged > 0) { _vNormal("  flat 清走破环预建的非 stdlib 包 " + purged.ToString() + " 个（回到规范形态）"); }
@@ -290,17 +253,13 @@ int _ensureBootstrapSelfDepLibs(string root, string vm, string driver, string st
     // 🔴 先断链再写：flat 由 `_assembleStdlibFlatView` 从成员 dist 硬链接装配，z42c 就地写产物 ⇒ 直接写 flat 会
     // 穿透到规范 dist，随后 `build stdlib` 增量命中就把这份对着种子 run-libs 编的预建版当规范产物留下（DEPS 成环、
     // 字节逐代翻转）。断链 = 内容复制成独立 inode（预建失败时 flat 照旧可用）。
-    int pb = 0;
-    while (pb < prebuilt.Length) {
-        _breakHardLink(Path.Join(stdlibFlat, prebuilt[pb] + ".zpkg"));
-        _breakHardLink(Path.Join(stdlibFlat, prebuilt[pb] + ".zsym"));
-        pb = pb + 1;
+    foreach (var p in prebuilt) {
+        _breakHardLink(Path.Join(stdlibFlat, p + ".zpkg"));
+        _breakHardLink(Path.Join(stdlibFlat, p + ".zsym"));
     }
     // 逐个按清单序预建（每项进 flat 的理由与序约束见 `_bootstrapPrebuilds` 头注）。
-    pb = 0;
-    while (pb < prebuilt.Length) {
-        if (_prebuildOne(vm, driver, _bootstrapToml(root, prebuilt[pb]), prebuilt[pb], runLibs, stdlibFlat) != 0) { return 1; }
-        pb = pb + 1;
+    foreach (var p in prebuilt) {
+        if (_prebuildOne(vm, driver, _bootstrapToml(root, p), p, runLibs, stdlibFlat) != 0) { return 1; }
     }
     return 0;
 }
@@ -383,9 +342,8 @@ int _testCompilerUnits(string root, string profile, string[] members) {
 
     int totalFailed = 0;
     int totalUnits = 0;
-    int i = 0;
-    while (i < members.Length) {
-        string testsDir = Path.Join(root, "src/compiler/" + members[i] + "/tests");
+    foreach (var member in members) {
+        string testsDir = Path.Join(root, "src/compiler/" + member + "/tests");
         if (Directory.Exists(testsDir)) {
             foreach (var unit in _sortedStrings(Directory.Enumerate(testsDir))) {
                 string unitDir = Path.Join(testsDir, unit);
@@ -394,7 +352,7 @@ int _testCompilerUnits(string root, string profile, string[] members) {
                 if (tomls.Length == 0) { continue; }
                 totalUnits = totalUnits + 1;
                 Console.WriteLine("");
-                Console.WriteLine("── z42c test: " + members[i] + " / " + unit + " ──");
+                Console.WriteLine("── z42c test: " + member + " / " + unit + " ──");
                 // compile (release/packed) with z42c；stdlib 从 flat、单元声明的编译器包从编译器目录解析；
                 // 输出落单元 toml 的 [build] output_dir 镜像。
                 // 编译器目录由 _z42cProc 显式指向本树刚建的 driver dist（不指时单元会对着种子 SDK 里的旧编译器包编）。
@@ -409,7 +367,7 @@ int _testCompilerUnits(string root, string profile, string[] members) {
                 // 产物经单元 toml 的 [build] output_dir 落到镜像：
                 //   src/compiler/<member>/tests/<unit> → artifacts/build/compiler/<member>/release/tests/<unit>/dist
                 string mirrorDist = Path.Join(
-                    Path.Join(_compilerBuildRoot(root), members[i] + "/release/tests/" + unit),
+                    Path.Join(_compilerBuildRoot(root), member + "/release/tests/" + unit),
                     "dist");
                 string[] zps = Path.Glob(mirrorDist, "*.zpkg");
                 // 编译成功却在镜像里找不到产物 ⇒ 判失败：否则路径错位会表现成「跑了 0 个、全部通过」的假绿。
@@ -420,18 +378,15 @@ int _testCompilerUnits(string root, string profile, string[] members) {
                 }
                 // Run each produced test zpkg through z42b's runner, which discovers the
                 // [Test] functions by runtime reflection.
-                int j = 0;
-                while (j < zps.Length) {
+                foreach (var zp in zps) {
                     int rc = _z42bProc(vm, flat)
                         .Arg("--mode").Arg(_z42cMode()).Arg(builderZpkg)
-                        .Arg("--").Arg("test").Arg(zps[j])
+                        .Arg("--").Arg("test").Arg(zp)
                         .Stdout(Stdio.Inherit()).Stderr(Stdio.Inherit()).Run().ExitCode;
                     if (rc != 0) { totalFailed = totalFailed + 1; }
-                    j = j + 1;
                 }
             }
         }
-        i = i + 1;
     }
 
     Console.WriteLine("");
@@ -459,15 +414,13 @@ int _testSelfHostByteIdentical(string root, string vm, string[] members, string 
     // gen1 快照：把现有 canonical dist 的各 <member>.zpkg 拷到独立目录（随后 gen2 会覆盖 canonical dist）。
     string snapDir = _compilerWsWork(root, "selfhost-gen1");
     _resetDir(snapDir);
-    int i = 0;
-    while (i < members.Length) {
-        string src = _compilerMemberZpkg(root, members[i], profile);
+    foreach (var m in members) {
+        string src = _compilerMemberZpkg(root, m, profile);
         if (!File.Exists(src)) {
             Console.WriteLine("  ✗ gen1 missing (先跑 build compiler): " + src);
             return 1;
         }
-        File.Copy(src, Path.Join(snapDir, members[i] + ".zpkg"));
-        i = i + 1;
+        File.Copy(src, Path.Join(snapDir, m + ".zpkg"));
     }
 
     // gen2：用 gen1 的自包含 driver 再跑 --workspace → 覆盖 canonical dist。与 gen1
@@ -480,10 +433,7 @@ int _testSelfHostByteIdentical(string root, string vm, string[] members, string 
 
     int ok = 0;
     int fail = 0;
-    i = 0;
-    while (i < members.Length) {
-        string member = members[i];
-        i = i + 1;
+    foreach (var member in members) {
         byte[] want = File.ReadAllBytes(Path.Join(snapDir, member + ".zpkg"));  // gen1
         byte[] got = File.ReadAllBytes(                                          // gen2
             _compilerMemberZpkg(root, member, profile));
@@ -514,51 +464,41 @@ bool _sectionsEqualIgnoreBlid(byte[] got, byte[] want) {
     if (got.Length < 16 || want.Length < 16) { return false; }
     int gotSec  = _zpkgU16(got, 10);
     int wantSec = _zpkgU16(want, 10);
-    // For each section in got, find matching section in want and compare data
-    int gi = 0;
-    while (gi < gotSec) {
+    // For each section in got, find matching section(s) in want and compare data
+    for (int gi = 0; gi < gotSec; gi = gi + 1) {
         int gd   = 16 + gi * 12;
         int goff = _zpkgU32(got, gd + 4);
         int gsiz = _zpkgU32(got, gd + 8);
         bool found = false;
-        int wi = 0;
-        while (wi < wantSec) {
+        for (int wi = 0; wi < wantSec; wi = wi + 1) {
             int wd = 16 + wi * 12;
-            if (got[gd] == want[wd] && got[gd+1] == want[wd+1] && got[gd+2] == want[wd+2] && got[gd+3] == want[wd+3]) {
-                found = true;
-                if (_zpkgU32(want, wd + 8) != gsiz) { return false; }
-                int woff = _zpkgU32(want, wd + 4);
-                int bi = 0;
-                while (bi < gsiz) {
-                    if (got[goff + bi] != want[woff + bi]) { return false; }
-                    bi = bi + 1;
-                }
+            if (!_zpkgTagEq(got, gd, want, wd)) { continue; }
+            found = true;
+            if (_zpkgU32(want, wd + 8) != gsiz) { return false; }
+            int woff = _zpkgU32(want, wd + 4);
+            for (int bi = 0; bi < gsiz; bi = bi + 1) {
+                if (got[goff + bi] != want[woff + bi]) { return false; }
             }
-            wi = wi + 1;
         }
         if (!found) { return false; }
-        gi = gi + 1;
     }
     // Verify want has no extra sections besides BLID
-    int wi2 = 0;
-    while (wi2 < wantSec) {
-        int wd = 16 + wi2 * 12;
+    for (int wi = 0; wi < wantSec; wi = wi + 1) {
+        int wd = 16 + wi * 12;
         bool isBlid = want[wd] == 66 && want[wd+1] == 76 && want[wd+2] == 73 && want[wd+3] == 68;
-        if (!isBlid) {
-            bool foundInGot = false;
-            int gi2 = 0;
-            while (gi2 < gotSec) {
-                int gd = 16 + gi2 * 12;
-                if (got[gd] == want[wd] && got[gd+1] == want[wd+1] && got[gd+2] == want[wd+2] && got[gd+3] == want[wd+3]) {
-                    foundInGot = true;
-                }
-                gi2 = gi2 + 1;
-            }
-            if (!foundInGot) { return false; }
+        if (isBlid) { continue; }
+        bool foundInGot = false;
+        for (int gi = 0; gi < gotSec; gi = gi + 1) {
+            if (_zpkgTagEq(got, 16 + gi * 12, want, wd)) { foundInGot = true; break; }
         }
-        wi2 = wi2 + 1;
+        if (!foundInGot) { return false; }
     }
     return true;
+}
+
+// 4-byte section tag at a[ai..] == b[bi..].
+bool _zpkgTagEq(byte[] a, int ai, byte[] b, int bi) {
+    return a[ai] == b[bi] && a[ai+1] == b[bi+1] && a[ai+2] == b[bi+2] && a[ai+3] == b[bi+3];
 }
 
 int _zpkgU16(byte[] data, int off) {

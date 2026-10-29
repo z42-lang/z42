@@ -129,12 +129,7 @@ string _detectOs() {
 
 // major.minor → comparable int (1.79 → 1079); only the first two components.
 int _verKey(string ver) {
-    string[] parts = ver.Split(".");
-    int major = 0;
-    int minor = 0;
-    if (parts.Length >= 1) { major = _parseIntOr(parts[0], 0); }
-    if (parts.Length >= 2) { minor = _parseIntOr(parts[1], 0); }
-    return major * 1000 + minor;
+    return _parseIntOr(_nthDot(ver, 0), 0) * 1000 + _parseIntOr(_nthDot(ver, 1), 0);
 }
 
 int _parseIntOr(string s, int fallback) {
@@ -271,8 +266,9 @@ int _checkAndroidBuildSdk(string root, TomlValue toml) {
         ConsoleError.WriteLine("  ✗ javac not on PATH (need JDK " + jdkMin.ToString() + "+)"); rc = 1;
     }
     string ndkVer = _vget(toml, "build.android.ndk.version");
-    if (_resolveNdkHome(root, toml).Length > 0) {
-        Console.WriteLine("  ✓ NDK " + ndkVer + " at " + _resolveNdkHome(root, toml));
+    string ndkHome = _resolveNdkHome(root, toml);
+    if (ndkHome.Length > 0) {
+        Console.WriteLine("  ✓ NDK " + ndkVer + " at " + ndkHome);
     } else {
         ConsoleError.WriteLine("  ✗ NDK " + ndkVer + " missing (run: xtask setup --os android)"); rc = 1;
     }

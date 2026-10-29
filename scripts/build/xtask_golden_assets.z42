@@ -9,6 +9,7 @@
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Collections;
 
 // `xtask build test` — compile the golden test assets (src/tests + library tests → `.zbc` mirror under
 // artifacts/build/tests). Ensures z42c + stdlib + z42vm are present (build-if-missing, like the other build
@@ -34,44 +35,24 @@ int _regenJobs() {
     return cpu > 8 ? cpu : 8;
 }
 
-// Golden regen cases: parallel arrays (name / source .z42 / output .zbc) + count.
-// Sized to the corpus-walk upper bound, so `count` — NOT `.Length` — is the number
-// of cases; the tail is unused.
-class _GoldenCases {
-    public string[] names;
-    public string[] sources;
-    public string[] outputs;
-    public bool[]   optAlls;   // opt_all sidecar → 按 release 全优化编（见 _compileCaseSpawn）
-    public int count;
-    public _GoldenCases() {
-        this.names   = new string[0];
-        this.sources = new string[0];
-        this.outputs = new string[0];
-        this.optAlls = new bool[0];
-        this.count   = 0;
+// One golden regen case: source .z42 → output .zbc.
+class _GoldenCase {
+    public string name;
+    public string source;
+    public string output;
+    public bool   optAll;   // opt_all sidecar → 按 release 全优化编（见 _compileCaseSpawn）
+    public _GoldenCase(string name, string source, string output, bool optAll) {
+        this.name = name; this.source = source; this.output = output; this.optAll = optAll;
     }
 }
 
-// Select the regen set out of the shared corpus walk, into parallel arrays.
-_GoldenCases _collectGoldenCases(string root) {
-    return _collectGoldenCasesF(root, "", "");
-}
-
-// Filtered variant: mirrors _enumerateCasesF's --dir (category) / --file (name or source-path substring)
+// Select the regen set out of the shared corpus walk.
+// Filters mirror _enumerateCasesF's --dir (category) / --file (name or source-path substring)
 // narrowing so `test e2e --file X` on the fast --no-build / --toolchain path regenerates ONLY the matched
 // case's .zbc. Both filters empty = the full set (`build test` + gate build-wave).
-_GoldenCases _collectGoldenCasesF(string root, string dirFilter, string fileFilter) {
-    _GoldenEntry[] entries = _walkGoldenCorpus(root);
-    string[] caseNames    = new string[entries.Length];
-    string[] caseSources  = new string[entries.Length];
-    string[] caseOutputs  = new string[entries.Length];
-    bool[]   caseOptAlls  = new bool[entries.Length];
-    int      caseCount    = 0;
-
-    int i = 0;
-    while (i < entries.Length) {
-        _GoldenEntry e = entries[i];
-        i = i + 1;
+_GoldenCase[] _collectGoldenCasesF(string root, string dirFilter, string fileFilter) {
+    List<_GoldenCase> cases = new List<_GoldenCase>();
+    foreach (var e in _walkGoldenCorpus(root)) {
         if (e.seg == "lib-file") { continue; }   // stdlib [Test] file units — z42b's, not golden
         if (!e.hasSource) { continue; }
         if (e.isLib) {
@@ -86,44 +67,18 @@ _GoldenCases _collectGoldenCasesF(string root, string dirFilter, string fileFilt
         }
         string mirrorDir = _goldenArtifactDir(root, e.relUnderSrc);
         Directory.Create(mirrorDir);
-        string outPath = Path.Join(mirrorDir, e.zbcName);
-        caseNames[caseCount]   = e.name;
-        caseSources[caseCount] = e.src;
-        caseOutputs[caseCount] = outPath;
-        caseOptAlls[caseCount] = e.optAll;
-        caseCount = caseCount + 1;
+        cases.Add(new _GoldenCase(e.name, e.src, Path.Join(mirrorDir, e.zbcName), e.optAll));
     }
 
     // Full regen only: the zbc wire-format byte baselines, rewritten in place. A
     // --dir / --file narrowed regen is for iterating on goldens and leaves them alone.
     if (dirFilter.Length == 0 && fileFilter.Length == 0) {
-        string[] fx = _formatZbcFixtureCases(root);
-        string[] n2 = new string[caseCount + fx.Length];
-        string[] s2 = new string[caseCount + fx.Length];
-        string[] o2 = new string[caseCount + fx.Length];
-        bool[]   a2 = new bool[caseCount + fx.Length];
-        int k = 0;
-        while (k < caseCount) {
-            n2[k] = caseNames[k]; s2[k] = caseSources[k]; o2[k] = caseOutputs[k]; a2[k] = caseOptAlls[k];
-            k = k + 1;
+        foreach (var d in _formatZbcFixtureCases(root)) {
+            cases.Add(new _GoldenCase("zbc-format/" + Path.GetFileName(d),
+                Path.Join(d, "source.z42"), Path.Join(d, "source.zbc"), false));
         }
-        foreach (var d in fx) {
-            n2[k] = "zbc-format/" + Path.GetFileName(d);
-            s2[k] = Path.Join(d, "source.z42");
-            o2[k] = Path.Join(d, "source.zbc");
-            a2[k] = false;
-            k = k + 1;
-        }
-        caseNames = n2; caseSources = s2; caseOutputs = o2; caseOptAlls = a2; caseCount = k;
     }
-
-    _GoldenCases gc = new _GoldenCases();
-    gc.names   = caseNames;
-    gc.sources = caseSources;
-    gc.outputs = caseOutputs;
-    gc.optAlls = caseOptAlls;
-    gc.count   = caseCount;
-    return gc;
+    return cases.ToArray();
 }
 
 // The checked-in `.zbc` wire-format byte baselines (z42.package owns the writer):
@@ -135,17 +90,12 @@ string _formatZbcFixtureDir(string root) {
 }
 
 string[] _formatZbcFixtureCases(string root) {
-    string[] dirs = _enumDirsSorted(_formatZbcFixtureDir(root));
-    string[] found = new string[dirs.Length];
-    int n = 0;
-    foreach (var d in dirs) {
+    List<string> found = new List<string>();
+    foreach (var d in _enumDirsSorted(_formatZbcFixtureDir(root))) {
         string full = Path.Join(_formatZbcFixtureDir(root), d);
-        if (File.Exists(Path.Join(full, "source.z42"))) { found[n] = full; n = n + 1; }
+        if (File.Exists(Path.Join(full, "source.z42"))) { found.Add(full); }
     }
-    string[] r = new string[n];
-    int i = 0;
-    while (i < n) { r[i] = found[i]; i = i + 1; }
-    return r;
+    return found.ToArray();
 }
 
 int _regenGolden() {
@@ -191,12 +141,8 @@ int _regenGoldenF(string dirFilter, string fileFilter) {
     Console.WriteLine("");
 
     // ── Enumerate cases ──
-    _GoldenCases gc = _collectGoldenCasesF(root, dirFilter, fileFilter);
-    string[] caseNames   = gc.names;
-    string[] caseSources = gc.sources;
-    string[] caseOutputs = gc.outputs;
-    bool[]   caseOptAlls = gc.optAlls;
-    int      caseCount   = gc.count;
+    _GoldenCase[] cases = _collectGoldenCasesF(root, dirFilter, fileFilter);
+    int caseCount = cases.Length;
 
     if (filtered && caseCount == 0) {
         Console.WriteLine("  (no golden case matched the filter — nothing to regenerate)");
@@ -208,23 +154,18 @@ int _regenGoldenF(string dirFilter, string fileFilter) {
     // collect. Outputs are independent .zbc files, so order doesn't matter.
     int jobs = _regenJobs();
     int pass = 0;
-    int fail = 0;
-    string[] failures = new string[8];
-    int      failCount = 0;
+    List<string> failures = new List<string>();
     int k = 0;
     while (k < caseCount) {
         int bsz = jobs;
         if (k + bsz > caseCount) { bsz = caseCount - k; }
         ProcessHandle[] hs = new ProcessHandle[bsz];
-        int b = 0;
-        while (b < bsz) {
-            hs[b] = _compileCaseSpawn(vmBin, driverZpkg, stdlibDist,
-                                      caseSources[k + b], caseOutputs[k + b], caseOptAlls[k + b]);
-            b = b + 1;
+        for (int b = 0; b < bsz; b = b + 1) {
+            _GoldenCase c = cases[k + b];
+            hs[b] = _compileCaseSpawn(vmBin, driverZpkg, stdlibDist, c.source, c.output, c.optAll);
         }
-        b = 0;
-        while (b < bsz) {
-            string name = caseNames[k + b];
+        for (int b = 0; b < bsz; b = b + 1) {
+            string name = cases[k + b].name;
             bool ok = false;
             try {
                 ProcessResult r = hs[b].Wait();
@@ -237,11 +178,8 @@ int _regenGoldenF(string dirFilter, string fileFilter) {
                 pass = pass + 1;
             } else {
                 Console.WriteLine("  FAIL: " + name);
-                fail = fail + 1;
-                failures = _append(failures, failCount, name);
-                failCount = failCount + 1;
+                failures.Add(name);
             }
-            b = b + 1;
         }
         k = k + bsz;
     }
@@ -249,17 +187,13 @@ int _regenGoldenF(string dirFilter, string fileFilter) {
     Console.WriteLine("");
     Console.WriteLine("══════════════════════════════════════");
     Console.WriteLine(" Regenerated: " + pass.ToString() + " ok, "
-        + fail.ToString() + " failed, 0 skipped");
+        + failures.Count.ToString() + " failed, 0 skipped");
     Console.WriteLine("══════════════════════════════════════");
 
-    if (failCount > 0) {
+    if (failures.Count > 0) {
         Console.WriteLine("");
         Console.WriteLine("Failed tests:");
-        int fi = 0;
-        while (fi < failCount) {
-            Console.WriteLine("  - " + failures[fi]);
-            fi = fi + 1;
-        }
+        foreach (var f in failures) { Console.WriteLine("  - " + f); }
         return 1;
     }
     return 0;

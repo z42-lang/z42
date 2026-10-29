@@ -5,6 +5,7 @@ namespace Z42Xtask;
 
 using Std.IO;
 using Std.Json;
+using Std.Collections;
 
 // ── 场景分层 ──────────────────────────────────────────────────────────────────────────────
 // 每个场景在头部注释里声明 `// tier: gate` 或 `// tier: full`：
@@ -14,9 +15,8 @@ using Std.Json;
 // 未声明 tier 的场景按 `full` 记 —— 新场景必须**显式选择加入**门禁，且跳过时
 // 一定打印（与 requires-caps 的跳过同款），不做静默排除。
 string _benchScenarioTier(string src) {
-    string[] lines = src.Split("\n");
-    for (int i = 0; i < lines.Length; i = i + 1) {
-        string ln = lines[i].Trim();
+    foreach (var line in src.Split("\n")) {
+        string ln = line.Trim();
         if (ln.StartsWith("// tier:")) {
             // 只取第一个词 —— 声明行后面允许接理由（`// tier: gate — 为什么在门禁里`）。
             string rest = ln.Substring(8).Trim();
@@ -88,12 +88,9 @@ class BenchScenario {
 // `// requires-caps:` 过滤；跳过一律打印理由，不做静默排除。--quick = 枚举序上的前 2 个 .z42（含被跳过的）。
 // 场景缺 namespace 是配置错误：打印并置 e.Rc = 2。
 BenchScenario[] _benchSelectScenarios(BenchEnv e, string tier, bool quick) {
-    string[] files = _sortedStrings(Directory.Enumerate(e.ScenDir));
-    BenchScenario[] picked = new BenchScenario[files.Length];
-    int n = 0;
+    List<BenchScenario> picked = new List<BenchScenario>();
     int count = 0;
-    for (int fi = 0; fi < files.Length; fi = fi + 1) {
-        string f = files[fi];
+    foreach (var f in _sortedStrings(Directory.Enumerate(e.ScenDir))) {
         if (!f.EndsWith(".z42")) { continue; }
         if (quick && count >= 2) { break; }
         count = count + 1;
@@ -115,12 +112,9 @@ BenchScenario[] _benchSelectScenarios(BenchEnv e, string tier, bool quick) {
         }
         BenchScenario s = new BenchScenario();
         s.Name = name; s.Ns = ns; s.Src = src; s.ReportsPause = _benchScenarioReportsPause(srcText);
-        picked[n] = s; n = n + 1;
+        picked.Add(s);
     }
-    BenchScenario[] tight = new BenchScenario[n];
-    int k = 0;
-    while (k < n) { tight[k] = picked[k]; k = k + 1; }
-    return tight;
+    return picked.ToArray();
 }
 
 // mode 这一格在被测 VM 上可跑？不可跑（如 interp-only VM 上的 jit）打印理由——never silently dropped。
@@ -147,15 +141,13 @@ int _bench(BenchCommand cmd) {
 
     string benchmarks = "";
     int nb = 0;
-    for (int si = 0; si < scen.Length; si = si + 1) {
-        BenchScenario s = scen[si];
+    foreach (var s in scen) {
         // Compile once — the .zbc is mode-agnostic; only the measured run differs.
         string zbc = Path.Join(work, s.Name + ".zbc");
         int cc = _exec(_z42cProc(e.Vm, e.Libs, e.Driver)
             .Arg("--emit-zbc").Arg(s.Src).Arg(zbc));
         if (cc != 0) { return cc; }
-        for (int mi = 0; mi < e.Modes.Length; mi = mi + 1) {
-            string m = e.Modes[mi];
+        foreach (var m in e.Modes) {
             if (!_benchModeRunnable(e, s.Name, m)) { continue; }
             string[] tiers = _epTiersForMode(m);
             string outJson = Path.Join(work, s.Name + "-" + m + "-bench.json");
@@ -472,10 +464,8 @@ int _benchAb(BenchCommand cmd) {
 
     string items = "";
     int nb = 0; int regr = 0; int toolErr = 0;
-    for (int si = 0; si < scen.Length; si = si + 1) {
-        BenchScenario s = scen[si];
-        for (int mi = 0; mi < e.Modes.Length; mi = mi + 1) {
-            string m = e.Modes[mi];
+    foreach (var s in scen) {
+        foreach (var m in e.Modes) {
             if (!_benchModeRunnable(e, s.Name, m)) { continue; }
             int mayResample = resampleBudget > 0 ? extraRounds : 0;
             AbOutcome o = _abOneScenario(work, s.Name, s.Ns, m, s.Src,
@@ -569,7 +559,7 @@ int _abSelfTest() {
     if (d.HasCi) { Console.WriteLine("  FAIL no-ci-regression: expected HasCi=false"); fails = fails + 1; }
 
     // ── _abResampleVerdict ──
-    double[] tight = new double[3]; tight[0] = 1.30; tight[1] = 1.32; tight[2] = 1.29;
+    double[] tight = new double[]{ 1.30, 1.32, 1.29 };
     AbVerdict f = _abResampleVerdict(tight, 0.15);
     fails = fails + _abExpect("resample-real-regression", f, "regression", true);
     if (f.Rounds != 3) { Console.WriteLine("  FAIL resample-real-regression: expected Rounds=3"); fails = fails + 1; }
@@ -577,17 +567,17 @@ int _abSelfTest() {
     // mean(ratios) = 1.25 is ITSELF above 1+0.15 — only the between-round dispersion
     // rescues it, so this case falsifies "the interval width got lost" (t=0 / SEM
     // substituted in), which a drift case with a below-threshold mean cannot do.
-    double[] drift = new double[3]; drift[0] = 1.60; drift[1] = 1.05; drift[2] = 1.10;
+    double[] drift = new double[]{ 1.60, 1.05, 1.10 };
     AbVerdict g = _abResampleVerdict(drift, 0.15);
     fails = fails + _abExpect("resample-drift-rescued", g, "overlap", false);
 
-    double[] mid = new double[3]; mid[0] = 1.20; mid[1] = 1.21; mid[2] = 1.19;
+    double[] mid = new double[]{ 1.20, 1.21, 1.19 };
     fails = fails + _abExpect("resample-threshold-sensitive@0.15",
         _abResampleVerdict(mid, 0.15), "regression", true);
     fails = fails + _abExpect("resample-threshold-sensitive@0.25",
         _abResampleVerdict(mid, 0.25), "overlap", false);
 
-    double[] one = new double[1]; one[0] = 1.30;
+    double[] one = new double[]{ 1.30 };
     AbVerdict h = _abResampleVerdict(one, 0.15);
     fails = fails + _abExpect("resample-too-few-rounds", h, "no-data", false);
     if (h.HasCi) { Console.WriteLine("  FAIL resample-too-few-rounds: expected HasCi=false"); fails = fails + 1; }
@@ -688,14 +678,13 @@ int _benchMicroDiff(BenchCommand cmd) {
     string suspects = "";
 
     int regr = 0; int compared = 0; int newb = 0; int dropped = 0;
-    int j = 0;
-    while (j < curBs.Count()) {
+    for (int j = 0; j < curBs.Count(); j = j + 1) {
         JsonValue c = curBs.At(j);
         string name   = c.Get("name").AsString();
         string metric = c.Get("metric").AsString();
         string mkey   = _epBenchModeKey(c);
         JsonValue b = _findBenchObj(baseBs, name, metric, mkey);
-        if (b == null) { newb = newb + 1; j = j + 1; continue; }
+        if (b == null) { newb = newb + 1; continue; }
         AbVerdict v = new AbVerdict();
         if (k > 1) {
             v = _microResampled(curDocs, baseDocs, k, name, metric, mkey, thr);
@@ -706,7 +695,6 @@ int _benchMicroDiff(BenchCommand cmd) {
                 // goes blind.
                 Console.WriteLine("  ⚠️  " + name + " [" + mkey + "]: missing from some round — excluded from the gate");
                 dropped = dropped + 1;
-                j = j + 1;
                 continue;
             }
         } else {
@@ -715,7 +703,6 @@ int _benchMicroDiff(BenchCommand cmd) {
         compared = compared + 1;
         _abPrint(name, mkey, v);
         if (v.IsRegression) { regr = regr + 1; suspects = suspects + name + "\n"; }
-        j = j + 1;
     }
     if (newb > 0) {
         Console.WriteLine("  (" + newb.ToString() + " new benchmark(s) with no base match — skipped)");
@@ -739,15 +726,15 @@ int _benchMicroDiff(BenchCommand cmd) {
 // in all k rounds (the caller excludes it from the gate and says so).
 AbVerdict _microResampled(JsonValue[] curDocs, JsonValue[] baseDocs, int k,
                           string name, string metric, string mkey, double thr) {
+    // An unmatched / non-positive round records ratio 0, which `_abResampleVerdict` turns into "no-data".
     double[] ratios = new double[k];
     for (int i = 0; i < k; i = i + 1) {
         JsonValue ci = _findBenchObj(curDocs[i], name, metric, mkey);
         JsonValue bi = _findBenchObj(baseDocs[i], name, metric, mkey);
-        if (ci == null || bi == null) { AbVerdict miss = new AbVerdict(); miss.Verdict = "no-data"; miss.HasCi = false; return miss; }
+        if (ci == null || bi == null) { ratios[i] = 0.0; continue; }
         double bm = _microMean(bi);
         double cm = _microMean(ci);
-        if (bm <= 0.0 || cm <= 0.0) { AbVerdict miss = new AbVerdict(); miss.Verdict = "no-data"; miss.HasCi = false; return miss; }
-        ratios[i] = cm / bm;
+        ratios[i] = bm > 0.0 && cm > 0.0 ? cm / bm : 0.0;
     }
     return _abResampleVerdict(ratios, thr);
 }
@@ -861,8 +848,7 @@ int _benchDiff(BenchCommand cmd) {
     int regressions = 0;
     int total = 0;
     // current-driven diff (matches baseline by name+metric; (new) when absent).
-    int j = 0;
-    while (j < curBs.Count()) {
+    for (int j = 0; j < curBs.Count(); j = j + 1) {
         JsonValue c = curBs.At(j);
         string name   = c.Get("name").AsString();
         string metric = c.Get("metric").AsString();
@@ -874,12 +860,12 @@ int _benchDiff(BenchCommand cmd) {
         JsonValue baseObj = _findBenchObj(baseBs, name, metric, mkey);
         if (baseObj == null) {
             if (!quiet) { Console.WriteLine("  " + label + "  (new)  " + curV.ToString() + " " + unit); }
-            j = j + 1; continue;
+            continue;
         }
         double baseV = baseObj.Get("value").AsDouble();
         if (baseV == 0.0) {
             if (!quiet) { Console.WriteLine("  " + label + "  baseline=0 (skip)"); }
-            j = j + 1; continue;
+            continue;
         }
         double delta = (curV - baseV) / baseV;
         bool isMem = (metric == "memory" || unit == "bytes" || unit == "KB" || unit == "MB");
@@ -908,12 +894,10 @@ int _benchDiff(BenchCommand cmd) {
             Console.WriteLine("  " + label + "  " + baseV.ToString() + " " + unit
                 + " → " + curV.ToString() + " " + unit + "  " + sym + " " + (delta * 100.0).ToString() + "%" + note);
         }
-        j = j + 1;
     }
     // baseline-only (removed) annotations — informational, never a regression.
     if (!quiet) {
-        int k = 0;
-        while (k < baseBs.Count()) {
+        for (int k = 0; k < baseBs.Count(); k = k + 1) {
             JsonValue b = baseBs.At(k);
             string name   = b.Get("name").AsString();
             string metric = b.Get("metric").AsString();
@@ -922,7 +906,6 @@ int _benchDiff(BenchCommand cmd) {
                 Console.WriteLine("  " + name + " [" + metric + " " + mkey + "]  (removed)  "
                     + b.Get("value").AsDouble().ToString() + " " + b.Get("unit").AsString());
             }
-            k = k + 1;
         }
     }
 
@@ -942,29 +925,19 @@ int _benchDiff(BenchCommand cmd) {
 // mkey ("<mode_label>@<os>/<arch>") keeps interp-vs-jit
 // and cross-platform results from ever comparing against each other.
 double _findBenchValue(JsonValue benchmarks, string name, string metric, string mkey) {
-    int i = 0;
-    while (i < benchmarks.Count()) {
-        JsonValue b = benchmarks.At(i);
-        if (b.Get("name").AsString() == name && b.Get("metric").AsString() == metric
-            && _epBenchModeKey(b) == mkey) {
-            return b.Get("value").AsDouble();
-        }
-        i = i + 1;
-    }
-    return -1.0;
+    JsonValue b = _findBenchObj(benchmarks, name, metric, mkey);
+    return b == null ? -1.0 : b.Get("value").AsDouble();
 }
 
 // like _findBenchValue but returns the whole benchmark object (or null if absent),
 // so the interval-aware gate can read ci_lower/ci_upper off the baseline entry.
 JsonValue _findBenchObj(JsonValue benchmarks, string name, string metric, string mkey) {
-    int i = 0;
-    while (i < benchmarks.Count()) {
+    for (int i = 0; i < benchmarks.Count(); i = i + 1) {
         JsonValue b = benchmarks.At(i);
         if (b.Get("name").AsString() == name && b.Get("metric").AsString() == metric
             && _epBenchModeKey(b) == mkey) {
             return b;
         }
-        i = i + 1;
     }
     return null;
 }
@@ -984,30 +957,23 @@ bool _hasCi(JsonValue b) {
 // only — not a schema field, never a regression signal.
 void _printSpeedups(JsonValue benchmarks) {
     bool header = false;
-    int i = 0;
-    while (i < benchmarks.Count()) {
+    for (int i = 0; i < benchmarks.Count(); i = i + 1) {
         JsonValue b = benchmarks.At(i);
         JsonValue p = null;
-        if (b.TryGet("profile", ref p)) {
-            if (p.Get("mode_label").AsString() == "jit") {
-                string name    = b.Get("name").AsString();
-                string metric  = b.Get("metric").AsString();
-                JsonValue plat = p.Get("platform");
-                string suffix  = "@" + plat.Get("os").AsString() + "/" + plat.Get("arch").AsString();
-                double jitV    = b.Get("value").AsDouble();
-                double interpV = _findBenchValue(benchmarks, name, metric, "interp" + suffix);
-                if (interpV > 0.0 && jitV > 0.0) {
-                    if (!header) {
-                        Console.WriteLine("");
-                        Console.WriteLine("Speedup (interp/jit, >1 = jit faster):");
-                        header = true;
-                    }
-                    double ratio = interpV / jitV;
-                    Console.WriteLine("  " + name + " [" + metric + suffix + "]  " + ratio.ToString() + "x");
-                }
-            }
+        if (!b.TryGet("profile", ref p) || p.Get("mode_label").AsString() != "jit") { continue; }
+        string name    = b.Get("name").AsString();
+        string metric  = b.Get("metric").AsString();
+        JsonValue plat = p.Get("platform");
+        string suffix  = "@" + plat.Get("os").AsString() + "/" + plat.Get("arch").AsString();
+        double jitV    = b.Get("value").AsDouble();
+        double interpV = _findBenchValue(benchmarks, name, metric, "interp" + suffix);
+        if (interpV <= 0.0 || jitV <= 0.0) { continue; }
+        if (!header) {
+            Console.WriteLine("");
+            Console.WriteLine("Speedup (interp/jit, >1 = jit faster):");
+            header = true;
         }
-        i = i + 1;
+        Console.WriteLine("  " + name + " [" + metric + suffix + "]  " + (interpV / jitV).ToString() + "x");
     }
 }
 

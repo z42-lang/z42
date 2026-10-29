@@ -10,6 +10,7 @@ namespace Z42Xtask;
 
 using Std.IO;
 using Std.Time;
+using Std.Collections;
 using Std.Toml;
 using Z42.Project;   // BuildLayout / ManifestLoader（工程产物布局的唯一答案）
 
@@ -21,39 +22,23 @@ using Z42.Project;   // BuildLayout / ManifestLoader（工程产物布局的唯�
 // （desktop 复用宿主 runtime、没有 appbuilder ⇒ 不在列）；新增 workload = 建 appbuilder 目录，这里自动跟上。
 string[] _workloadTomls() {
     string root = _root();
-    string[] dirs = _enumDirsSorted(Path.Join(root, "src/toolchain/workload"));
-    string[] xs = new string[dirs.Length];
-    int n = 0;
-    int i = 0;
-    while (i < dirs.Length) {
-        string rel = "src/toolchain/workload/" + dirs[i] + "/appbuilder/z42.workload." + dirs[i] + ".z42.toml";
-        i = i + 1;
-        if (File.Exists(Path.Join(root, rel))) { xs[n] = rel; n = n + 1; }
+    List<string> xs = new List<string>();
+    foreach (var d in _enumDirsSorted(Path.Join(root, "src/toolchain/workload"))) {
+        string rel = "src/toolchain/workload/" + d + "/appbuilder/z42.workload." + d + ".z42.toml";
+        if (File.Exists(Path.Join(root, rel))) { xs.Add(rel); }
     }
-    string[] tight = new string[n];
-    int k = 0;
-    while (k < n) { tight[k] = xs[k]; k = k + 1; }
-    return tight;
+    return xs.ToArray();
 }
 // apphost components (kind=exe, apphost=true): published to their own publish_dir.
 // 清单 = packages.toml `[component.*]` 里 kind = "apphost" 且工程在 src/toolchain/ 下的（z42c
 // 的工程在 src/compiler/ ⇒ 天然不在列，它由 `build compiler` 自建）：新增工具链程序只需在
 // packages.toml 登记组件，这里自动跟上。顺序 = packages.toml 文件序（launcher → z42b → z42d → z42i）。
 string[] _toolchainApphostTomls() {
-    _PkgComponent[] comps = _pkgcfgLoad(_root()).components;
-    string[] xs = new string[comps.Length];
-    int n = 0;
-    int i = 0;
-    while (i < comps.Length) {
-        if (comps[i].kind == "apphost" && comps[i].project.StartsWith("src/toolchain/")) {
-            xs[n] = comps[i].project; n = n + 1;
-        }
-        i = i + 1;
+    List<string> xs = new List<string>();
+    foreach (var c in _pkgcfgLoad(_root()).components) {
+        if (c.kind == "apphost" && c.project.StartsWith("src/toolchain/")) { xs.Add(c.project); }
     }
-    string[] tight = new string[n];
-    int k = 0;
-    while (k < n) { tight[k] = xs[k]; k = k + 1; }
-    return tight;
+    return xs.ToArray();
 }
 
 // ── toml-driven path readers (SoT: never hardcode toolchain paths) ───────────

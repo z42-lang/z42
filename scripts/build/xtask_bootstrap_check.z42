@@ -106,11 +106,7 @@ int _bootstrapCheck(string ridArg) {
         // colocate the repo z42c siblings into one dir (per-member dist isn't colocated)
         string rdh = Path.Join(work, "repo-driver-home");
         _resetDir(rdh);
-        int mi = 0;
-        while (mi < members.Length) {
-            _copyAll(_compilerMemberDist(root, members[mi], "release"), rdh, members[mi] + ".zpkg");
-            mi = mi + 1;
-        }
+        foreach (var m in members) { _copyAll(_compilerMemberDist(root, m, "release"), rdh, m + ".zpkg"); }
         b = _bcRunWorkspace(root, "repo", repoVm, Path.Join(rdh, "z42c.driver.zpkg"), repoStd, members, work);
     } else {
         Console.WriteLine("── [repo] skipped: repo z42c not built (run `xtask build compiler` first) ──");
@@ -170,9 +166,7 @@ int _bcRunWorkspace(string root, string label, string vm, string driver, string 
     string outRoot = Path.Join(work, label + "-out");
     _resetDir(outRoot);
     int fail = 0;
-    int i = 0;
-    while (i < members.Length) {
-        string m = members[i];
+    foreach (var m in members) {
         string outDir = Path.Join(outRoot, m);
         int rc = _z42cProcMode(vm, runlibs, driver, "interp")
             .Arg("build").Arg(Path.Join(root, "src/compiler/" + m + "/" + m + ".z42.toml"))
@@ -186,7 +180,6 @@ int _bcRunWorkspace(string root, string label, string vm, string driver, string 
             Console.WriteLine("   ✗ " + m + " FAILED");
             fail = 1;
         }
-        i = i + 1;
     }
     return fail;
 }

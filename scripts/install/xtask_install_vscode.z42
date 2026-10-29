@@ -19,6 +19,7 @@ namespace Z42Xtask;
 
 using Std.IO;
 using Std.Time;
+using Std.Collections;
 
 // ── 关键字分类表 ──────────────────────────────────────────────────────────────
 // 新关键字进 Lexer 后必须在此恰好归入一组，否则生成/gate 报错（防漂移闭环）。
@@ -28,6 +29,12 @@ string[] _kwModifier() { return new string[]{ "static", "public", "private", "pr
 string[] _kwOperatorExpr() { return new string[]{ "new", "typeof", "methodof", "is", "as", "with" }; }
 string[] _kwPrimType() { return new string[]{ "string", "int", "long", "short", "double", "float", "byte", "uint", "ulong", "ushort", "sbyte", "object", "bool", "char", "void" }; }
 string[] _kwLiteral() { return new string[]{ "null", "true", "false" }; }
+
+// 分组名（模板占位符 = `__KW_<名字大写>__`）与分组，同序；渲染 / 穷尽校验 / 幽灵校验共读这一份。
+string[] _kwGroupNames() { return new string[]{ "control", "declaration", "modifier", "operator", "type", "literal" }; }
+string[][] _kwGroups() {
+    return new string[][]{ _kwControl(), _kwDeclaration(), _kwModifier(), _kwOperatorExpr(), _kwPrimType(), _kwLiteral() };
+}
 
 // ── `setup vscode` 入口 ────────────────────────────────────────────────
 int _setupVscode() {
@@ -95,12 +102,11 @@ string _vscodeRenderGrammar(string root) {
     string tplPath = Path.Join(root, "src/toolchain/devtools/vscode/syntaxes/z42.tmLanguage.tpl.json");
     if (!File.Exists(tplPath)) { ConsoleError.WriteLine("error: template missing: " + tplPath); return ""; }
     string outText = File.ReadAllText(tplPath);
-    outText = outText.Replace("__KW_CONTROL__", _vscodeAlt(kws, _kwControl()));
-    outText = outText.Replace("__KW_DECLARATION__", _vscodeAlt(kws, _kwDeclaration()));
-    outText = outText.Replace("__KW_MODIFIER__", _vscodeAlt(kws, _kwModifier()));
-    outText = outText.Replace("__KW_OPERATOR__", _vscodeAlt(kws, _kwOperatorExpr()));
-    outText = outText.Replace("__KW_TYPE__", _vscodeAlt(kws, _kwPrimType()));
-    outText = outText.Replace("__KW_LITERAL__", _vscodeAlt(kws, _kwLiteral()));
+    string[] names = _kwGroupNames();
+    string[][] groups = _kwGroups();
+    for (int g = 0; g < groups.Length; g = g + 1) {
+        outText = outText.Replace("__KW_" + names[g].ToUpper() + "__", _vscodeAlt(kws, groups[g]));
+    }
     return outText;
 }
 
@@ -132,82 +138,50 @@ string _vscodeDumpKeywords(string root) {
 
 // dump 文本 → 非空行数组（注册序保持）。
 string[] _vscodeSplitKeywords(string dump) {
-    string[] raw = dump.Split("\n");
-    int n = 0;
-    int i = 0;
-    while (i < raw.Length) { if (raw[i].Trim().Length > 0) { n = n + 1; } i = i + 1; }
-    string[] kws = new string[n];
-    int k = 0;
-    i = 0;
-    while (i < raw.Length) {
-        string t = raw[i].Trim();
-        if (t.Length > 0) { kws[k] = t; k = k + 1; }
-        i = i + 1;
+    List<string> kws = new List<string>();
+    foreach (var line in dump.Split("\n")) {
+        string t = line.Trim();
+        if (t.Length > 0) { kws.Add(t); }
     }
-    return kws;
+    return kws.ToArray();
 }
 
 // 穷尽校验：dump 的每个关键字恰好落一个分组；分组里的每个词必须在 dump 中。
 bool _vscodeValidateCategories(string[] kws) {
     bool ok = true;
-    int i = 0;
-    while (i < kws.Length) {
+    string[][] groups = _kwGroups();
+    foreach (var kw in kws) {
         int hits = 0;
-        if (_vscodeIn(_kwControl(), kws[i]))      { hits = hits + 1; }
-        if (_vscodeIn(_kwDeclaration(), kws[i]))  { hits = hits + 1; }
-        if (_vscodeIn(_kwModifier(), kws[i]))     { hits = hits + 1; }
-        if (_vscodeIn(_kwOperatorExpr(), kws[i])) { hits = hits + 1; }
-        if (_vscodeIn(_kwPrimType(), kws[i]))     { hits = hits + 1; }
-        if (_vscodeIn(_kwLiteral(), kws[i]))      { hits = hits + 1; }
+        foreach (var grp in groups) { if (_strIn(grp, kw)) { hits = hits + 1; } }
         if (hits == 0) {
-            ConsoleError.WriteLine("error: keyword '" + kws[i] + "' (Lexer) not in any category — add it to a _kw* group in scripts/install/xtask_install_vscode.z42");
+            ConsoleError.WriteLine("error: keyword '" + kw + "' (Lexer) not in any category — add it to a _kw* group in scripts/install/xtask_install_vscode.z42");
             ok = false;
         } else if (hits > 1) {
-            ConsoleError.WriteLine("error: keyword '" + kws[i] + "' appears in " + hits.ToString() + " categories — must be exactly one");
+            ConsoleError.WriteLine("error: keyword '" + kw + "' appears in " + hits.ToString() + " categories — must be exactly one");
             ok = false;
         }
-        i = i + 1;
     }
-    ok = _vscodeNoGhosts(kws, _kwControl(), "control") && ok;
-    ok = _vscodeNoGhosts(kws, _kwDeclaration(), "declaration") && ok;
-    ok = _vscodeNoGhosts(kws, _kwModifier(), "modifier") && ok;
-    ok = _vscodeNoGhosts(kws, _kwOperatorExpr(), "operator") && ok;
-    ok = _vscodeNoGhosts(kws, _kwPrimType(), "type") && ok;
-    ok = _vscodeNoGhosts(kws, _kwLiteral(), "literal") && ok;
+    string[] names = _kwGroupNames();
+    for (int g = 0; g < groups.Length; g = g + 1) { ok = _vscodeNoGhosts(kws, groups[g], names[g]) && ok; }
     return ok;
 }
 
 // 分组不得含 dump 中不存在的"幽灵"关键字（Lexer 删词后分类表必须跟删）。
 bool _vscodeNoGhosts(string[] kws, string[] group, string name) {
     bool ok = true;
-    int i = 0;
-    while (i < group.Length) {
-        if (!_vscodeIn(kws, group[i])) {
-            ConsoleError.WriteLine("error: category '" + name + "' lists '" + group[i] + "' which Lexer no longer has — remove it from the table");
+    foreach (var kw in group) {
+        if (!_strIn(kws, kw)) {
+            ConsoleError.WriteLine("error: category '" + name + "' lists '" + kw + "' which Lexer no longer has — remove it from the table");
             ok = false;
         }
-        i = i + 1;
     }
     return ok;
-}
-
-bool _vscodeIn(string[] arr, string s) {
-    int i = 0;
-    while (i < arr.Length) { if (arr[i] == s) { return true; } i = i + 1; }
-    return false;
 }
 
 // 按 dump 注册序输出该组的 alternation（kw1|kw2|…）——顺序取自 dump 而非分组
 // 声明序，保证生成确定性且与 SoT 顺序一致。
 string _vscodeAlt(string[] kws, string[] group) {
-    string s = "";
-    int i = 0;
-    while (i < kws.Length) {
-        if (_vscodeIn(group, kws[i])) {
-            if (s.Length > 0) { s = s + "|"; }
-            s = s + kws[i];
-        }
-        i = i + 1;
-    }
-    return s;
+    List<string> hit = new List<string>();
+    foreach (var kw in kws) { if (_strIn(group, kw)) { hit.Add(kw); } }
+    return String.Join("|", hit.ToArray());
 }
