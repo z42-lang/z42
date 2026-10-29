@@ -32,7 +32,8 @@ graph LR
     S11 --> S12[layout<br/>测试布局规范]
     S12 --> S13[versions<br/>versions.toml ↔ 投影文件]
     S13 --> S14[layers<br/>运行时分层欠账只减不增]
-    S14 --> G((GREEN))
+    S14 --> S15[doc-lints<br/>stdlib 文档注释无欠账]
+    S15 --> G((GREEN))
 ```
 
 **机器可读清单**（`_checkGateStageDoc` 解析此区；条目文本 = `_stageStart` 打的 banner 名，
@@ -60,6 +61,7 @@ graph LR
 - `layout`
 - `versions`
 - `layers`
+- `doc-lints`
 <!-- gate-stages:end -->
 
 先备工具链与基线（build wave），再依序跑其余验证 stage；任一步失败立即终止。
@@ -117,6 +119,7 @@ fixture、debug VM 跑 `main.zpkg`——跨包 dispatch 的 debug 断言覆盖�
 | `layout` | [测试用例组织规范](test-layout.md)里能机械判定的部分：`src/tests` 类别登记、能力词表 ↔ 运行期、能力声明只用已生效的名字 | 纯文本扫描，秒级 |
 | `versions` | `scripts/versions.toml` 与它的投影文件一致：`src/runtime/Cargo.toml` 的 workspace 版本、Android `build.gradle.kts` 的 minSdk / compileSdk、iOS harness `Package.swift` 的平台下限。只比文本、不看本机装了什么（那是 `xtask setup check`） | 纯文本扫描 < 1 s |
 | `layers` | 运行时源码按目标分层归到组件后，跨组件引用只朝允许的方向、平台 `cfg` 与 `libc::` 只在 pal；现存违规是欠账，记在 `gates.toml [layers.*]`，只减不增，见下 | 纯文本扫描，约 1.5 s |
+| `doc-lints` | stdlib（`src/libraries/`）的 `///` 文档注释没有 W08xx 发现（显式 public 声明缺 `///` 等）；硬门、无白名单，红时逐条列出位置 | 纯文本扫描，约 3 s |
 
 **`stdlib [Benchmark]` 为什么必须在 gate 里**：bench 语料若只靠 `bench-pr.yml` 看门，
 而那个 job **不在分支保护的 required 列表里**。实例：一次把 `Failure.z42` 搬出 `z42.harness` 的改动让

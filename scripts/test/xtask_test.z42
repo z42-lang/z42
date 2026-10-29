@@ -393,7 +393,8 @@ string[] _gateStageNames() {
         "proc-env",
         "layout",
         "versions",
-        "layers"
+        "layers",
+        "doc-lints"
     };
 }
 
@@ -581,6 +582,9 @@ int _testAll(bool noBuild, string skip) {
     // stage 15: 运行时分层（runtime-audit §5.5 的目标组件与依赖方向）：跨组件引用与 pal 外的平台 cfg / libc
     // 只减不增（基线 gates.toml [layers.*]）。纯文本扫描，host-independent。Skippable: "layers"。
     c = _gateStage(slog, skip, "layers", "layers", () => _testLayers(false));
+    if (c != 0) { return c; }
+    // stdlib 的 `///` 文档注释欠账（W08xx，无白名单）。纯文本扫描，host-independent。Skippable: "doc-lints"。
+    c = _gateStage(slog, skip, "doc-lints", "doc-lints", () => _checkDocLints());
     if (c != 0) { return c; }
     Console.WriteLine("\n✅ GREEN — all stages passed");
     _stageSummary(slog, sw.Elapsed().TotalMilliseconds());

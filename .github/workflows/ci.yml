@@ -146,7 +146,7 @@ jobs:
 
   # ── 纯文档改动的全部门禁：死链 + gate 清单对账、诊断码文档对账、书页代码引用（doc-refs）、生成页对账
   #    （docs-api）。不需要 SDK 构建树，xtask 用种子 z42c 编出即可。doc-lints 不在这里：纯文档改动碰不到 stdlib
-  #    的 `///`（那是 src/），它在 docs-check 里只会随种子滞后假红、抓不到任何东西——仍是本地 `xtask check` 专属。
+  #    的 `///`（那是 src/）；它是 `xtask test` 的一个 stage，随 build-and-test 跑。
   docs-check:
     name: docs-check(linux-x64)
     timeout-minutes: 20
