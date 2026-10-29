@@ -142,3 +142,27 @@ pub fn current_heap() -> Option<&'static dyn MagrGC> {
 pub fn current_heap_epoch() -> u64 {
     CURRENT_EPOCH.with(|e| e.get())
 }
+
+/// **D7**: [`current_heap_epoch`] paired with the process-wide dedicated-chunk free count
+/// (`var_region::dedicated_free_count`): while both are unchanged, every dedicated-chunk block
+/// header an address-keyed cache saw is still mapped.
+#[inline]
+pub fn current_heap_epoch_and_frees() -> (u64, u64) {
+    (current_heap_epoch(), crate::gc::var_region::dedicated_free_count())
+}
+
+/// **D7**: the ambient heap's chunk stamp ([`MagrGC::var_chunk_stamp`]) for a block of
+/// `payload` bytes that may sit in a dedicated chunk; `None` for a bump-chunk block (its
+/// header stays mapped) or with no heap installed.
+pub fn var_chunk_stamp(b: crate::gc::var_region::VarGcRef, payload: usize) -> Option<(u32, u32)> {
+    if !crate::gc::var_region::may_be_dedicated(payload) {
+        return None;
+    }
+    current_heap().and_then(|h| h.var_chunk_stamp(b))
+}
+
+/// **D7**: whether a stamp from [`var_chunk_stamp`] still holds in the ambient heap. `false`
+/// with no heap installed: a stamp from a heap that is gone can't be vouched for.
+pub fn var_chunk_unchanged(chunk: u32, epoch: u32) -> bool {
+    current_heap().is_some_and(|h| h.var_chunk_unchanged(chunk, epoch))
+}
