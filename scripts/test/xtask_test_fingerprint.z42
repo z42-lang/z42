@@ -16,6 +16,7 @@ namespace Z42Xtask;
 
 using Std.IO;
 using Std.Time;
+using Std.Collections;
 
 // 编译器身份三元组 "fp/zbc/zpkg"，从源码树读。fp 片段是 `CompilerFingerprint.Entries` 的**条目数**：
 // 指纹本身是内容哈希、源码里读不出来；条目数是可打印且「追加一条即变」的代理。
@@ -83,26 +84,14 @@ bool _srcDirsEqual(string a, string b) {
     bool bEx = Directory.Exists(b);
     if (aEx != bEx) { return false; }
     if (!aEx) { return true; }
-    string[] ea = _sortedStrings(Directory.Enumerate(a));
-    string[] eb = _sortedStrings(Directory.Enumerate(b));
+    List<string> ea = _fpSrcEntries(a);
+    List<string> eb = _fpSrcEntries(b);
     // 先按名字集合比，再逐项下钻：名字不同就不必读内容。
-    int na = 0;
-    int nb = 0;
-    int i = 0;
-    while (i < ea.Length) { if (!_fpSkipEntry(ea[i])) { na = na + 1; } i = i + 1; }
-    i = 0;
-    while (i < eb.Length) { if (!_fpSkipEntry(eb[i])) { nb = nb + 1; } i = i + 1; }
-    if (na != nb) { return false; }
-    i = 0;
-    int j = 0;
-    while (i < ea.Length) {
-        string name = ea[i];
-        i = i + 1;
-        if (_fpSkipEntry(name)) { continue; }
-        // 对齐 b 侧的下一个非跳过项
-        while (j < eb.Length && _fpSkipEntry(eb[j])) { j = j + 1; }
-        if (j >= eb.Length || eb[j] != name) { return false; }
-        j = j + 1;
+    if (ea.Count != eb.Count) { return false; }
+    for (int i = 0; i < ea.Count; i = i + 1) {
+        if (ea[i] != eb[i]) { return false; }
+    }
+    foreach (var name in ea) {
         string pa = Path.Join(a, name);
         string pb = Path.Join(b, name);
         if (Directory.Exists(pa) || Directory.Exists(pb)) {
@@ -112,6 +101,15 @@ bool _srcDirsEqual(string a, string b) {
         }
     }
     return true;
+}
+
+// 目录的源码项（字典序），去掉 _fpSkipEntry 的构建产物。
+List<string> _fpSrcEntries(string dir) {
+    List<string> r = new List<string>();
+    foreach (var e in _sortedStrings(Directory.Enumerate(dir))) {
+        if (!_fpSkipEntry(e)) { r.Add(e); }
+    }
+    return r;
 }
 
 // 源码树里混着构建产物（`src/libraries/<lib>/artifacts/...`）——它们必然不同，不是源码差异。
@@ -129,12 +127,8 @@ bool _fpSkipEntry(string name) {
 // **任一缺失或不同即判「不可比」**（宁可说判不了，也不要拿没验过的结论挡 PR）。
 bool _compilerSetsEqual(string baseDir, string root) {
     if (!Directory.Exists(baseDir)) { return false; }
-    string[] members = _enumDirsSorted(_compilerBuildRoot(root));
     int n = 0;
-    int i = 0;
-    while (i < members.Length) {
-        string m = members[i];
-        i = i + 1;
+    foreach (var m in _enumDirsSorted(_compilerBuildRoot(root))) {
         string head = _compilerMemberZpkg(root, m, "release");
         if (!File.Exists(head)) { continue; }          // 没建出来的成员不参与判定
         string bp = Path.Join(baseDir, m + ".zpkg");
@@ -216,16 +210,10 @@ int _testFingerprint(string baseTree, string baseDriver) {
 
     string baseWs = Path.Join(baseTree, "src/libraries/z42.workspace.toml");
     string headWs = Path.Join(srcLibs, "z42.workspace.toml");
-    string[] dirs = _enumDirsSorted(Path.Join(baseTree, "src/libraries"));
-    string changed = "";
-    string missing = "";
-    int nChanged = 0;
+    List<string> changed = new List<string>();
+    List<string> missing = new List<string>();
     int nSame = 0;
-    int nMissing = 0;
-    int i = 0;
-    while (i < dirs.Length) {
-        string m = dirs[i];
-        i = i + 1;
+    foreach (var m in _enumDirsSorted(Path.Join(baseTree, "src/libraries"))) {
         if (Path.Glob(Path.Join(Path.Join(baseTree, "src/libraries"), m), "*.z42.toml").Length == 0) { continue; }
         string a = Path.Join(_memberDist(baseWs, m, "release"), m + ".zpkg");
         string b = Path.Join(_memberDist(headWs, m, "release"), m + ".zpkg");
@@ -233,18 +221,17 @@ int _testFingerprint(string baseTree, string baseDriver) {
         // 🔴 只有一侧在场 ≠ 「字节变了」：`_filesEqual` 对缺文件只会答「不相等」，会把**输入不完整**
         // 报成「编译器输出变了，请加 slug」。输入缺失必须单独报错。
         if (!File.Exists(a) || !File.Exists(b)) {
-            missing = missing + (nMissing > 0 ? ", " : "") + m + (File.Exists(a) ? "(head 缺)" : "(base 缺)");
-            nMissing = nMissing + 1;
+            missing.Add(m + (File.Exists(a) ? "(head 缺)" : "(base 缺)"));
             continue;
         }
         if (_filesEqual(a, b)) { nSame = nSame + 1; continue; }
         // 带上两侧尺寸：差 11 字节和差 3KB 是完全不同的故事，而事后回看只有 CI 日志。
-        changed = changed + (nChanged > 0 ? ", " : "") + m
-            + "(base " + File.GetSize(a).ToString() + "B / head " + File.GetSize(b).ToString() + "B)";
-        nChanged = nChanged + 1;
+        changed.Add(m + "(base " + File.GetSize(a).ToString() + "B / head " + File.GetSize(b).ToString() + "B)");
     }
-    if (nMissing > 0) {
-        ConsoleError.WriteLine("  ✗ 有 " + nMissing.ToString() + " 个包只有一侧有产物，无从比对：" + missing);
+    int nChanged = changed.Count;
+    if (missing.Count > 0) {
+        ConsoleError.WriteLine("  ✗ 有 " + missing.Count.ToString() + " 个包只有一侧有产物，无从比对："
+            + String.Join(", ", missing.ToArray()));
         ConsoleError.WriteLine("    这**不是**「编译器输出变了」——是本门的输入不完整，别据此加指纹 slug。");
         ConsoleError.WriteLine("    base 侧缺 ⇒ 该树必须**真跑过** `xtask build stdlib`；门比的是 per-member dist");
         ConsoleError.WriteLine("    （`" + _memberDist(baseWs, "<pkg>", "release") + "`），只把 flat libs 铺进");
@@ -260,7 +247,7 @@ int _testFingerprint(string baseTree, string baseDriver) {
         _procEnd("test compiler fingerprint", sw);
         return 0;
     }
-    Console.WriteLine("  编译器输出变了：" + nChanged.ToString() + " 个包（" + changed + "）");
+    Console.WriteLine("  编译器输出变了：" + nChanged.ToString() + " 个包（" + String.Join(", ", changed.ToArray()) + "）");
     Console.WriteLine("  ⓘ 本树 driver：" + _driverZpkg(root, "release"));
     // 本门默认两侧 driver 只差在被测源码上；bench-pr.yml 的编排不满足（BASEDRIVER 是 PRDRIVER 又编
     // 一代 ⇒ 两侧恒差一代），叠加代际漂移，「编译器真改了」的 PR 上也会报出分辨不了真假的红。

@@ -198,9 +198,9 @@ string _lyPerFile(string[] sites) {
         if (!n.ContainsKey(file)) { n[file] = 0; files.Add(file); }
         n[file] = n[file] + 1;
     }
-    string s = "";
-    foreach (var file in files.ToArray()) { s = s + (s.Length == 0 ? "" : ", ") + file + " ×" + n[file].ToString(); }
-    return s;
+    List<string> parts = new List<string>();
+    foreach (var file in files.ToArray()) { parts.Add(file + " ×" + n[file].ToString()); }
+    return String.Join(", ", parts.ToArray());
 }
 
 int _lySum(Dictionary<string, int> d) {
@@ -251,14 +251,6 @@ void _lyAppendTable(List<string> body, string sub, Dictionary<string, int> d) {
     body.Add("[layers." + sub + "]");
     List<string> keys = new List<string>();
     foreach (var k in d.Keys()) { keys.Add(k); }
-    keys.Sort();
-    int i = 1;
-    while (i < keys.Count) {   // 插入排序：稳定，先按名字排过，这里只按计数降序挪
-        string k = keys[i];
-        int j = i - 1;
-        while (j >= 0 && d[keys[j]] < d[k]) { keys[j + 1] = keys[j]; j = j - 1; }
-        keys[j + 1] = k;
-        i = i + 1;
-    }
+    keys.Sort((a, b) => d[a] != d[b] ? d[b] - d[a] : a.CompareTo(b));
     foreach (var k in keys.ToArray()) { body.Add(_tomlQuote(k) + " = " + d[k].ToString()); }
 }

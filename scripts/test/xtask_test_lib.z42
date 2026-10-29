@@ -5,6 +5,7 @@ namespace Z42Xtask;
 
 using Std.IO;
 using Std.Time;
+using Std.Collections;
 
 // 包的源码根 —— **两个 workspace 都要认**：用户 stdlib（`Std.*`）在 `src/libraries/`；编译器域库
 // 在 `src/compiler/`。🔴 只扫 `src/libraries/` 会让编译器域库的扁平 `tests/*.z42` 单元静默停跑——
@@ -36,21 +37,12 @@ bool _isCompilerFormatTests(string root, string lib) {
 
 // 参与 stdlib 跑测器的包 = 两个 workspace 的目录并集（排序稳定），减去编译器格式测试的那些。
 string[] _allTestableLibs(string root) {
-    string[] a = _sortedStrings(Directory.Enumerate(Path.Join(root, "src/libraries")));
-    string[] b = _sortedStrings(Directory.Enumerate(Path.Join(root, "src/compiler")));
-    string[] r = new string[a.Length + b.Length];
-    int n = 0;
-    int i = 0;
-    while (i < a.Length) { r[n] = a[i]; n = n + 1; i = i + 1; }
-    int j = 0;
-    while (j < b.Length) {
-        if (!_isCompilerFormatTests(root, b[j])) { r[n] = b[j]; n = n + 1; }
-        j = j + 1;
+    List<string> r = new List<string>();
+    r.AddRange(_sortedStrings(Directory.Enumerate(Path.Join(root, "src/libraries"))));
+    foreach (var b in _sortedStrings(Directory.Enumerate(Path.Join(root, "src/compiler")))) {
+        if (!_isCompilerFormatTests(root, b)) { r.Add(b); }
     }
-    string[] outv = new string[n];
-    int k = 0;
-    while (k < n) { outv[k] = r[k]; k = k + 1; }
-    return outv;
+    return r.ToArray();
 }
 
 // Count a lib's [Test] units (single-file tests/*.z42 + dir-mode tests/<name>/
@@ -59,11 +51,8 @@ int _libUnitCount(string root, string lib) {
     string td = Path.Join(Path.Join(_libSrcRoot(root, lib), lib), "tests");
     if (!Directory.Exists(td)) { return 0; }
     int c = Path.Glob(td, "*.z42").Length;
-    string[] entries = Path.Glob(td, "*");
-    int i = 0;
-    while (i < entries.Length) {
-        if (File.Exists(Path.Join(entries[i], "source.z42"))) { c = c + 1; }
-        i = i + 1;
+    foreach (var e in Path.Glob(td, "*")) {
+        if (File.Exists(Path.Join(e, "source.z42"))) { c = c + 1; }
     }
     return c;
 }
@@ -86,17 +75,9 @@ string[] _shardLibs(string root, int k, int n) {
         int t = idx[a]; idx[a] = idx[best]; idx[best] = t;
         a = a + 1;
     }
-    string[] picked = new string[m];
-    int oc = 0;
-    int p = 0;
-    while (p < m) {
-        if ((p % n) == (k - 1)) { picked[oc] = all[idx[p]]; oc = oc + 1; }
-        p = p + 1;
-    }
-    string[] sized = new string[oc];
-    i = 0;
-    while (i < oc) { sized[i] = picked[i]; i = i + 1; }
-    return sized;
+    List<string> picked = new List<string>();
+    for (int p = k - 1; p < m; p = p + n) { picked.Add(all[idx[p]]); }
+    return picked.ToArray();
 }
 
 int _testLib(LibUnitsCommand c, string kind, string jsonOut) {
@@ -109,7 +90,7 @@ int _testLib(LibUnitsCommand c, string kind, string jsonOut) {
         Console.WriteLine("→ shard " + sh[0].ToString() + "/" + sh[1].ToString()
             + ": " + libs.Length.ToString() + " libs");
     } else if (lib.Length > 0) {
-        libs = new string[1]; libs[0] = lib;
+        libs = new string[] { lib };
     } else {
         libs = new string[0];
     }
@@ -142,10 +123,9 @@ int _testLibCore(string kind, string[] reqLibsIn, bool noBuild, string filter, s
     // 包序必须排序（_allTestableLibs）：Directory.Enumerate 的顺序随文件系统而变，下游 first-wins
     // 行为要平台稳定。
     string[] libList = reqLibsIn.Length > 0 ? reqLibsIn : _allTestableLibs(root);
-    string[] dirs = new string[libList.Length];
-    int li = 0;
-    while (li < libList.Length) { dirs[li] = Path.Join(_libSrcRoot(root, libList[li]), libList[li]); li = li + 1; }
-    return _testPkgsCore(kind, "stdlib", dirs, libList, noBuild, filter, jobs, mode, agg, ovVm, ovDriver, ovLibs);
+    List<string> dirs = new List<string>();
+    foreach (var l in libList) { dirs.Add(Path.Join(_libSrcRoot(root, l), l)); }
+    return _testPkgsCore(kind, "stdlib", dirs.ToArray(), libList, noBuild, filter, jobs, mode, agg, ovVm, ovDriver, ovLibs);
 }
 
 // 共用的 [Test] / [Benchmark] 跑测器：给定一组包（目录 + 包名，清单 = <dir>/<name>.z42.toml），先备工具链

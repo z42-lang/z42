@@ -26,6 +26,7 @@
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Collections;
 
 string _tlDocPath(string root) { return Path.Join(root, "docs/internals/src/devinfra/test-layout.md"); }
 
@@ -109,19 +110,14 @@ string[] _tlRuntimeCaps(string root) {
     string body = src.Substring(b);
     int e = body.IndexOf("\n}");
     if (e > 0) { body = body.Substring(0, e); }
-    string[] lines = body.Split("\n");
-    string[] caps = new string[8];
-    int n = 0;
-    foreach (var raw in lines) {
+    List<string> caps = new List<string>();
+    foreach (var raw in body.Split("\n")) {
         string ln = raw.Trim();
         if (ln.StartsWith("//")) { continue; }
         string c = _tlQuotedAfter(ln, "caps.push(");
-        if (c.Length > 0) { caps = _append(caps, n, c); n = n + 1; }
+        if (c.Length > 0) { caps.Add(c); }
     }
-    string[] outCaps = new string[n];
-    int i = 0;
-    while (i < n) { outCaps[i] = caps[i]; i = i + 1; }
-    return outCaps;
+    return caps.ToArray();
 }
 
 // `key` 之后的第一个 "…" 字面量内容；没有则 ""。

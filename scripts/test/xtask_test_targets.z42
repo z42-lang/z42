@@ -97,21 +97,16 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
         ? _stageFixtureTree(root, "src/toolchain/builder/tests/fixtures/z42b") : "";
     fixRoot = tt.FixturesRoot;
     string label  = (kind == "bench") ? "bench" : "test";
-    string[] fixtures = _sortedStrings(Directory.Enumerate(fixRoot));
     int failed = 0;
-    int matched = 0;
+    int[] mref = new int[] { 0 };   // matched
     string avail = "";
-    int i = 0;
-    while (i < fixtures.Length) {
-        string projDir = Path.Join(fixRoot, fixtures[i]);
+    foreach (var fx in _sortedStrings(Directory.Enumerate(fixRoot))) {
+        string projDir = Path.Join(fixRoot, fx);
         string toml = _findToml(projDir);
-        if (toml.Length == 0 || !Directory.Exists(projDir)) { i = i + 1; continue; }
-        int[] mref = new int[1]; mref[0] = matched;
-        failed = failed + _runFixtureKind(root, fixtures[i], toml, kind, label,
-                                          name, tt, mref, ref avail);
-        matched = mref[0];
-        i = i + 1;
+        if (toml.Length == 0 || !Directory.Exists(projDir)) { continue; }
+        failed = failed + _runFixtureKind(root, fx, toml, kind, label, name, tt, mref, ref avail);
     }
+    int matched = mref[0];
     if (name.Length > 0 && matched == 0) {
         ConsoleError.WriteLine("error: no " + label + " target named '" + name + "'");
         if (avail.Length > 0) { ConsoleError.WriteLine("  available: " + avail); }
@@ -175,9 +170,8 @@ int _smokeFallbackOutRoot(string root, TargetTooling tt) {
     if (!_smokeBegin(toml, "fallback --out-root (零目标回落：产物落 --out-root，不落清单目录旁)")) { return 0; }
     string projDir = Path.GetDirectoryName(toml);
     string[] beside = new string[] { Path.Join(projDir, "artifacts"), Path.Join(projDir, "dist") };
-    int bi = 0;
     // 上一个 smoke（不带 --out-root）在拷贝旁留下的产物先清掉，否则 ② 判不出来。
-    while (bi < beside.Length) { if (Directory.Exists(beside[bi])) { Directory.Delete(beside[bi], true); } bi = bi + 1; }
+    foreach (var d in beside) { if (Directory.Exists(d)) { Directory.Delete(d, true); } }
     string outRoot = _workOut(root, "src/toolchain/builder", "z42b-fallback-out-root");
     if (Directory.Exists(outRoot)) { Directory.Delete(outRoot, true); }
     int rc = _exec(_z42bVerb(root, tt, "test").Arg(toml).Arg("--out-root").Arg(outRoot));
@@ -185,13 +179,11 @@ int _smokeFallbackOutRoot(string root, TargetTooling tt) {
         Console.WriteLine("  ❌ fallback --out-root: `z42b test <toml> --out-root` exited " + rc.ToString());
         return 1;
     }
-    bi = 0;
-    while (bi < beside.Length) {
-        if (Directory.Exists(beside[bi])) {
-            Console.WriteLine("  ❌ fallback --out-root: 清单目录旁仍然出现了 " + beside[bi] + " —— 回落路径无视了 --out-root");
+    foreach (var d in beside) {
+        if (Directory.Exists(d)) {
+            Console.WriteLine("  ❌ fallback --out-root: 清单目录旁仍然出现了 " + d + " —— 回落路径无视了 --out-root");
             return 1;
         }
-        bi = bi + 1;
     }
     if (!Directory.Exists(outRoot) || Path.GlobRecursive(outRoot, "compile-then-test.zpkg").Length == 0) {
         Console.WriteLine("  ❌ fallback --out-root: " + outRoot + " 下没有 compile-then-test.zpkg —— 产物去哪了？");
@@ -211,14 +203,11 @@ int _smokeDevTargetInternal(string root, TargetTooling tt) {
     // 负例：先在两个目标的 dist 里放一份**损坏的**父包同置副本，模拟上一轮留下的过期拷贝。z42b 若
     // 「已存在就不拷」，运行期会加载到这份垃圾 ⇒ 本 smoke 判红；正确行为是每次覆盖成刚建好的父包。
     // 只在全新树上跑的话过期副本永远不出现，这个 bug 就永远是绿的。
-    string[] targetNames = new string[] { "internals_tests", "dirunit" };
     string targetsRoot = Path.Join(Path.GetDirectoryName(toml), "artifacts/test-targets");
-    int ti = 0;
-    while (ti < targetNames.Length) {
-        string distDir = Path.Join(Path.Join(targetsRoot, targetNames[ti]), "dist");
+    foreach (var t in new string[] { "internals_tests", "dirunit" }) {
+        string distDir = Path.Join(Path.Join(targetsRoot, t), "dist");
         Directory.Create(distDir);
         File.WriteAllText(Path.Join(distDir, "dt.internal.zpkg"), "STALE-COLOCATED-PARENT-COPY");
-        ti = ti + 1;
     }
     int rc = _exec(_z42bVerb(root, tt, "test").Arg(toml));
     if (rc != 0) {
@@ -259,8 +248,7 @@ int _smokeReuseParentMissing(string root, TargetTooling tt) {
 int _smokeCompileFailClean(string root, TargetTooling tt) {
     string toml = Path.Join(tt.Z42bFixturesRoot, "empty-glob/z42.toml");
     if (!_smokeBegin(toml, "compile-fail 收尾 (编译失败须干净退出，不得是未捕获异常)")) { return 0; }
-    ProcessResult r = _z42bVerb(root, tt, "test").Arg(toml)
-        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult r = _z42bRunPiped(root, tt, "test", toml, "");
     string all = r.Stdout + r.Stderr;
     if (r.ExitCode == 0) {
         Console.WriteLine("  ❌ compile-fail 收尾: 清单 include 一个文件都不匹配，竟然返回 0");
@@ -286,8 +274,7 @@ int _smokeCompileFailClean(string root, TargetTooling tt) {
 int _smokeManifestSections(string root, TargetTooling tt) {
     string toml = Path.Join(tt.Z42bFixturesRoot, "manifest-sections/z42.toml");   // 跑拷贝，源码树零写入
     if (!_smokeBegin(toml, "manifest sections (z42b 按整份清单编译：[syntax] 生效且被测试目标继承)")) { return 0; }
-    ProcessResult r = _z42bVerb(root, tt, "test").Arg(toml)
-        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult r = _z42bRunPiped(root, tt, "test", toml, "");
     string all = r.Stdout + r.Stderr;
     if (r.ExitCode == 0) {
         Console.WriteLine("  ❌ manifest sections: `[syntax] ternary = false` 下 `?:` 竟然编过 —— 清单段被 z42b 忽略");
@@ -339,8 +326,7 @@ int _smokeBuildHooksMode(string root, TargetTooling tt) {
 int _smokeHookPlugin(string root, TargetTooling tt) {
     string toml = Path.Join(tt.Z42bFixturesRoot, "hook-plugin/z42.toml");
     if (!_smokeBegin(toml, "hook plugin ([plugins] 插件加载进 z42b、按声明序执行)")) { return 0; }
-    ProcessResult r = _z42bVerb(root, tt, "build").Arg(toml)
-        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult r = _z42bRunPiped(root, tt, "build", toml, "");
     string all = r.Stdout + r.Stderr;
     if (r.ExitCode != 0) {
         Console.WriteLine("  ❌ hook plugin: `z42b build` exited " + r.ExitCode.ToString());
@@ -369,8 +355,7 @@ int _smokeHookPlugin(string root, TargetTooling tt) {
 int _smokeHookSingleFile(string root, TargetTooling tt) {
     string toml = Path.Join(tt.Z42bFixturesRoot, "hook-single-file/z42.toml");
     if (!_smokeBegin(toml, "hook single-file plugin ([plugins] 单文件条目 → 合成清单代建)")) { return 0; }
-    ProcessResult r = _z42bVerb(root, tt, "build").Arg(toml)
-        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult r = _z42bRunPiped(root, tt, "build", toml, "");
     string all = r.Stdout + r.Stderr;
     if (r.ExitCode != 0) {
         Console.WriteLine("  ❌ hook single-file plugin: `z42b build` exited " + r.ExitCode.ToString());
@@ -392,8 +377,7 @@ int _smokeHookSingleFile(string root, TargetTooling tt) {
 int _smokeHookDir(string root, TargetTooling tt) {
     string toml = Path.Join(tt.Z42bFixturesRoot, "hook-dir-no-manifest/z42.toml");
     if (!_smokeBegin(toml, "hook dir plugin ([plugins] 免清单目录条目 → 全收代建)")) { return 0; }
-    ProcessResult r = _z42bVerb(root, tt, "build").Arg(toml)
-        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult r = _z42bRunPiped(root, tt, "build", toml, "");
     string all = r.Stdout + r.Stderr;
     if (r.ExitCode != 0) {
         Console.WriteLine("  ❌ hook dir plugin: `z42b build` exited " + r.ExitCode.ToString());
@@ -417,13 +401,8 @@ int _smokeHookDir(string root, TargetTooling tt) {
 // 两个类分住两文件——**两条**标记都在才判绿（漏收任何一个文件即缺一条）。
 int _smokeHookInclude(string root, TargetTooling tt) {
     string toml = Path.Join(tt.Z42bFixturesRoot, "hook-include/z42.toml");
-    if (!File.Exists(toml)) { return 0; }
-    Console.WriteLine("");
-    Console.WriteLine("── hook include plugin ([plugins] 源集条目 include/exclude → 合成清单代建) ──");
-    ProcessResult r = _z42bProc(tt.Vm, tt.Libs).Arg(tt.BuilderZpkg).Arg("--mode").Arg(_z42cMode())
-        .Arg("--").Arg("build").Arg(toml)
-        .WorkingDirectory(root)
-        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    if (!_smokeBegin(toml, "hook include plugin ([plugins] 源集条目 include/exclude → 合成清单代建)")) { return 0; }
+    ProcessResult r = _z42bRunPiped(root, tt, "build", toml, "");
     string all = r.Stdout + r.Stderr;
     if (r.ExitCode != 0) {
         Console.WriteLine("  ❌ hook include plugin: `z42b build` exited " + r.ExitCode.ToString());
@@ -478,8 +457,7 @@ int _smokeHookCarry(string root, TargetTooling tt) {
 int _smokeHookPluginBroken(string root, TargetTooling tt) {
     string toml = Path.Join(tt.Z42bFixturesRoot, "hook-plugin-broken/z42.toml");
     if (!_smokeBegin(toml, "broken hook plugin (插件编不过 ⇒ z42b build 判红)")) { return 0; }
-    ProcessResult r = _z42bVerb(root, tt, "build").Arg(toml)
-        .Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
+    ProcessResult r = _z42bRunPiped(root, tt, "build", toml, "");
     string all = r.Stdout + r.Stderr;
     if (r.ExitCode == 0) {
         Console.WriteLine("  ❌ broken hook plugin: 插件编译失败仍退 0 —— 降级成「无 hook」了");
@@ -521,16 +499,13 @@ int _smokeOrphanGuard(string root, TargetTooling tt) {
 int _smokeNoTests(string root, TargetTooling tt) {
     string toml = Path.Join(tt.Z42bFixturesRoot, "no-tests/z42.toml");
     if (!_smokeBegin(toml, "no-tests (没有测试的库不得判红)")) { return 0; }
-    string[] verbs = new string[] { "test", "bench" };
-    int vi = 0;
-    while (vi < verbs.Length) {
-        int rc = _exec(_z42bVerb(root, tt, verbs[vi]).Arg(toml));
+    foreach (var verb in new string[] { "test", "bench" }) {
+        int rc = _exec(_z42bVerb(root, tt, verb).Arg(toml));
         if (rc != 0) {
-            Console.WriteLine("  ❌ no-tests: `z42b " + verbs[vi] + "` 把无测试的库判红（rc=" + rc.ToString() + "）—— 转发后会拖红整条 stage");
+            Console.WriteLine("  ❌ no-tests: `z42b " + verb + "` 把无测试的库判红（rc=" + rc.ToString() + "）—— 转发后会拖红整条 stage");
             return 1;
         }
-        Console.WriteLine("  ✅ no-tests: `z42b " + verbs[vi] + "` 无测试的库退 0（无事可做）");
-        vi = vi + 1;
+        Console.WriteLine("  ✅ no-tests: `z42b " + verb + "` 无测试的库退 0（无事可做）");
     }
     return 0;
 }
@@ -619,9 +594,9 @@ int _runFixtureKind(string root, string fixName, string toml,
     bool ok = true;
     string[] all = _listUnitsViaZ42b(root, toml, kind, "", "interp", tt.Vm, tt.BuilderZpkg, tt.Libs, ref ok);
     if (!ok) { return 1; }
-    int a = 0;
-    while (a < all.Length) { avail = _appendName(avail, all[a]); a = a + 1; }
-    string[] sel = (name.Length > 0) ? _namesEq(all, name) : all;
+    foreach (var u in all) { avail = _appendName(avail, u); }
+    string[] sel = all;   // 精确名筛选（0 或 1 个）
+    if (name.Length > 0) { sel = _strIn(all, name) ? new string[] { name } : new string[0]; }
     if (sel.Length == 0) { return 0; }
     mref[0] = mref[0] + sel.Length;
     Console.WriteLine("");
@@ -629,16 +604,6 @@ int _runFixtureKind(string root, string fixName, string toml,
     // jobs=1：fixture 数量小，串行输出更好读（stdlib 那条才需要并行）。
     return _runUnitsViaZ42b(root, toml, sel, sel.Length, kind,
                             1, "interp", tt.Vm, tt.BuilderZpkg, tt.Libs, fixName, null);
-}
-
-// 精确名筛选（0 或 1 个）。
-string[] _namesEq(string[] names, string name) {
-    int i = 0;
-    while (i < names.Length) {
-        if (names[i] == name) { string[] r = new string[1]; r[0] = names[i]; return r; }
-        i = i + 1;
-    }
-    return new string[0];
 }
 
 // Append a target name to a comma-space list (for the not-found hint), deduped.

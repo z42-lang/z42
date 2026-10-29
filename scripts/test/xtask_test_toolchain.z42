@@ -7,6 +7,7 @@ namespace Z42Xtask;
 
 using Std.IO;
 using Std.Time;
+using Std.Collections;
 
 // `xtask test toolchain [<comp>] [--target <name>]`：各工程的 [Test] 单元；comp 为空或是 builder 时再跑 builder 的
 // manifest 目标夹具（`[[test]]` / `[[example]]` / `[[bench]]` 与 z42b 自身的清单 / hook / 发现规则，
@@ -28,10 +29,14 @@ int _testToolchain(string comp, bool noBuild, string filter, string target) {
 // noUnitsOk：该组件只有夹具、没有单元（builder）时不报错。
 int _testToolchainCore(string comp, bool noBuild, string filter, bool noUnitsOk) {
     string root = _root();
-    string[] all = _toolchainTestPkgs(root);
-    int n = 0;
-    foreach (var d in all) { if (_toolchainPkgMatches(root, d, comp)) { n = n + 1; } }
-    if (n == 0) {
+    List<string> dirs = new List<string>();
+    List<string> names = new List<string>();
+    foreach (var d in _toolchainTestPkgs(root)) {
+        if (!_toolchainPkgMatches(root, d, comp)) { continue; }
+        dirs.Add(d);
+        names.Add(_toolchainPkgName(d));
+    }
+    if (dirs.Count == 0) {
         if (comp.Length > 0 && !noUnitsOk) {
             ConsoleError.WriteLine("error: no toolchain package with tests matches '" + comp + "'");
             return 2;
@@ -39,39 +44,23 @@ int _testToolchainCore(string comp, bool noBuild, string filter, bool noUnitsOk)
         Console.WriteLine("  (no toolchain package has tests)");
         return 0;
     }
-    string[] dirs = new string[n];
-    string[] names = new string[n];
-    int k = 0;
-    foreach (var d in all) {
-        if (!_toolchainPkgMatches(root, d, comp)) { continue; }
-        dirs[k] = d;
-        names[k] = _toolchainPkgName(d);
-        k = k + 1;
-    }
-    return _testPkgsCore("test", "toolchain", dirs, names, noBuild, filter, "4", "interp", null, "", "", "");
+    return _testPkgsCore("test", "toolchain", dirs.ToArray(), names.ToArray(), noBuild, filter, "4", "interp", null, "", "", "");
 }
 
 // `src/toolchain/` 下有单元用例的工程目录（排序稳定）：目录里有 `<name>.z42.toml`，且 `tests/` 下有
 // `fixtures/` 以外的条目。不进 `tests/` 内部找工程 —— fixture 工程不是被测对象。
 string[] _toolchainTestPkgs(string root) {
-    string[] found = new string[64];
-    int n = 0;
-    _tcCollect(Path.Join(root, "src/toolchain"), found, ref n);
-    string[] r = new string[n];
-    int i = 0;
-    while (i < n) { r[i] = found[i]; i = i + 1; }
-    return _sortedStrings(r);
+    List<string> found = new List<string>();
+    _tcCollect(Path.Join(root, "src/toolchain"), found);
+    return _sortedStrings(found.ToArray());
 }
 
-void _tcCollect(string dir, string[] found, ref int n) {
-    if (_toolchainPkgName(dir).Length > 0 && _tcHasUnits(dir) && n < found.Length) {
-        found[n] = dir;
-        n = n + 1;
-    }
+void _tcCollect(string dir, List<string> found) {
+    if (_toolchainPkgName(dir).Length > 0 && _tcHasUnits(dir)) { found.Add(dir); }
     foreach (var e in _sortedStrings(Directory.Enumerate(dir))) {
         if (e == "tests" || e.StartsWith(".")) { continue; }
         string sub = Path.Join(dir, e);
-        if (Directory.Exists(sub)) { _tcCollect(sub, found, ref n); }
+        if (Directory.Exists(sub)) { _tcCollect(sub, found); }
     }
 }
 

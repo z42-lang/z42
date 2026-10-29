@@ -8,6 +8,7 @@ namespace Z42Xtask;
 
 using Std.IO;
 using Std.Time;
+using Std.Collections;
 
 class ExamplesOptions {
     public string Filter   { get; set; }   // 只跑 examples/ 下以此开头的相对路径；"" = 全部
@@ -44,15 +45,13 @@ int _testExamples(ExamplesOptions o) {
     int failed = 0;
     int steps = 0;
     int blessed = 0;
-    int i = 0;
-    while (i < consoles.Length) {
-        string rel = consoles[i].Substring(Path.Join(root, "examples").Length + 1);
-        ExampleRunResult r = _runTranscript(sdk, consoles[i], o.TimeoutS * 1000, o.Bless, o.Keep);
+    foreach (var c in consoles) {
+        string rel = c.Substring(Path.Join(root, "examples").Length + 1);
+        ExampleRunResult r = _runTranscript(sdk, c, o.TimeoutS * 1000, o.Bless, o.Keep);
         steps = steps + r.Steps;
         if (r.Failed) { failed = failed + 1; }
         else if (r.Blessed) { blessed = blessed + 1; Console.WriteLine("  ✎ examples/" + rel + " (rewritten — review the diff, restore [..] wildcards if needed)"); }
         else { Console.WriteLine("  ✓ examples/" + rel + " (" + r.Steps.ToString() + " steps)"); }
-        i = i + 1;
     }
     if (failed > 0) {
         ConsoleError.WriteLine("  ❌ examples: " + failed.ToString() + " of " + consoles.Length.ToString() + " transcript(s) failed");
@@ -71,17 +70,10 @@ string[] _exampleTranscripts(string root, string filter) {
     if (!Directory.Exists(ex)) { return new string[0]; }
     string f = filter.Replace("\\", "/");
     if (f.StartsWith("examples/")) { f = f.Substring(9); }
-    string[] all = _sortedStrings(Directory.EnumerateRecursive(ex));
-    string[] acc = new string[all.Length];
-    int n = 0;
-    int i = 0;
-    while (i < all.Length) {
-        string rel = all[i].Replace("\\", "/");
-        if (rel.EndsWith(".console") && rel.StartsWith(f)) { acc[n] = Path.Join(ex, rel); n = n + 1; }
-        i = i + 1;
+    List<string> r = new List<string>();
+    foreach (var a in _sortedStrings(Directory.EnumerateRecursive(ex))) {
+        string rel = a.Replace("\\", "/");
+        if (rel.EndsWith(".console") && rel.StartsWith(f)) { r.Add(Path.Join(ex, rel)); }
     }
-    string[] r = new string[n];
-    int k = 0;
-    while (k < n) { r[k] = acc[k]; k = k + 1; }
-    return r;
+    return r.ToArray();
 }

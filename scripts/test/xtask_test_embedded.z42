@@ -11,6 +11,12 @@ namespace Z42Xtask;
 
 using Std.IO;
 
+// _buildTestBundle with the "→ build test-bundle" progress line.
+string _announceTestBundle(string root, string filter, string rid, int shardK, int shardN) {
+    Console.WriteLine("→ build test-bundle" + (filter.Length > 0 ? (" (filter: " + filter + ")") : " (all)"));
+    return _buildTestBundle(root, filter, rid, shardK, shardN);
+}
+
 // ── wasm ─────────────────────────────────────────────────────────────────────
 //
 // Assemble a browser-servable dir that runs the SAME test bundle through the
@@ -19,8 +25,7 @@ using Std.IO;
 string _buildWasmTesthost(string root, string filter, int shardK, int shardN) {
     // Same bundle as desktop; cases whose `requires-caps` the wasm VM lacks are skipped
     // on-device by BundleRunner.
-    Console.WriteLine("→ build test-bundle" + (filter.Length > 0 ? (" (filter: " + filter + ")") : " (all)"));
-    string manifest = _buildTestBundle(root, filter, "browser-wasm", shardK, shardN);
+    string manifest = _announceTestBundle(root, filter, "browser-wasm", shardK, shardN);
     if (manifest.Length == 0) { return ""; }
 
     string outDir = _wasmDeployDir(root);
@@ -80,7 +85,7 @@ int _z42bDeviceEnv(string root, string manifestPath, string rid, string destDir,
     Process p = _z42bProc(vm, flat).Arg("--mode").Arg("interp").Arg(builderZpkg)
         .Arg("--").Arg("test").Arg(manifestPath).Arg("--rid").Arg(rid)
         .Arg("--out").Arg(destDir);
-    for (int i = 0; i < extra.Length; i = i + 1) { p = p.Arg(extra[i]); }
+    foreach (var a in extra) { p = p.Arg(a); }
     for (int e = 0; e + 1 < envKv.Length; e = e + 2) { p = p.Env(envKv[e], envKv[e + 1]); }
     // **总是**覆盖：z42b 由 Z42_PORTABLE_VM（`<home>/<x>/z42vm` → `<home>`）推出 SDK 根去找 test agent，
     // agent 装在构建树里（home = artifacts/build/runtime）。经 `.z42/z42` apphost 跑 xtask 时 apphost 会注入
@@ -127,9 +132,7 @@ int _buildDeviceRuntime(string root, string rid, string cat, string rt) {
         string abi = _ridToAndroidAbi(rid);
         string ndkOut = Path.Join(rt, ".ndk-out");
         if (Directory.Exists(ndkOut)) { Directory.Delete(ndkOut, true); }
-        string[] abis = new string[1];
-        abis[0] = abi;
-        int c = _cargoNdkJniLibs(root, abis, ndkOut);
+        int c = _cargoNdkJniLibs(root, new string[] { abi }, ndkOut);
         if (c != 0) { return c; }
         string nat = Path.Join(rt, "native");
         if (Directory.Exists(nat)) { Directory.Delete(nat, true); }
@@ -171,8 +174,7 @@ string _wasmDeployDir(string root) { return _workOut(root, "src/toolchain/worklo
 // The embedded runner is Z42EmbeddedTests.testEmbeddedBundle (Z42VM scheme).
 string _buildIosTesthost(string root, string filter, string rid, int shardK, int shardN) {
     if (!_requireTool("xcodebuild", "Xcode required for iOS")) { return ""; }
-    Console.WriteLine("→ build test-bundle" + (filter.Length > 0 ? (" (filter: " + filter + ")") : " (all)"));
-    string manifest = _buildTestBundle(root, filter, rid, shardK, shardN);
+    string manifest = _announceTestBundle(root, filter, rid, shardK, shardN);
     if (manifest.Length == 0) { return ""; }
 
     string here = _deviceHost(root, "ios");
@@ -207,8 +209,7 @@ int _runIosTesthost(string root, string rid) {
 // `android-arm64` → arm64-v8a. The embedded runner is Z42EmbeddedInstrumentedTest.
 string _buildAndroidTesthost(string root, string filter, string rid, int shardK, int shardN) {
     if (!_requireTool("cargo-ndk", "cargo install cargo-ndk")) { return ""; }
-    Console.WriteLine("→ build test-bundle" + (filter.Length > 0 ? (" (filter: " + filter + ")") : " (all)"));
-    string manifest = _buildTestBundle(root, filter, rid, shardK, shardN);
+    string manifest = _announceTestBundle(root, filter, rid, shardK, shardN);
     if (manifest.Length == 0) { return ""; }
 
     string here = _deviceHost(root, "android");
@@ -257,8 +258,7 @@ int _runDesktopEmbedded(string root, string filter, string target, string format
     if (format.Length == 0) { format = "json"; }
     string runArg = "";
     if (target.Length == 0) {
-        Console.WriteLine("→ build test-bundle" + (filter.Length > 0 ? (" (filter: " + filter + ")") : " (all)"));
-        string manifest = _buildTestBundle(root, filter, "", shardK, shardN);
+        string manifest = _announceTestBundle(root, filter, "", shardK, shardN);
         if (manifest.Length == 0) { return 1; }
         runArg = manifest;
     } else if (Directory.Exists(target) && File.Exists(Path.Join(target, "source.z42"))) {
@@ -268,8 +268,7 @@ int _runDesktopEmbedded(string root, string filter, string target, string format
     } else {
         runArg = target;
     }
-    string vm = _builtVm(root, "release");
-    if (!File.Exists(vm)) { vm = _builtVm(root, "debug"); }
+    string vm = _z42bDeviceVm(root);
     string builderZpkg = _toolchainZpkg(root, _z42bToml());
     if (builderZpkg.Length == 0 || !File.Exists(builderZpkg)) {
         ConsoleError.WriteLine("error: z42b (z42.builder.zpkg) not built; run build toolchain");

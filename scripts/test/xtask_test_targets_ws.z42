@@ -13,7 +13,7 @@ int _smokeWorkspaceDefault(string root, TargetTooling tt) {
     int failed = 0;
 
     // ① build：只建 default_members（hello）+ 它按名依赖的兄弟成员 greet；故意编不过的 broken 不碰。
-    ProcessResult b = _wsZ42b(root, tt, "build", ws, "");
+    ProcessResult b = _z42bRunPiped(root, tt, "build", ws, "");
     string bo = b.Stdout + b.Stderr;
     if (b.ExitCode != 0 || bo.IndexOf("[1/2] ws.greet (dependency)") < 0 || bo.IndexOf("[2/2] ws.hello") < 0
         || bo.IndexOf("ws.broken") >= 0) {
@@ -26,7 +26,7 @@ int _smokeWorkspaceDefault(string root, TargetTooling tt) {
     }
 
     // ② test：目标只有 hello，它的 [Test] 经兄弟成员 greet 跑通。
-    ProcessResult t = _wsZ42b(root, tt, "test", ws, "");
+    ProcessResult t = _z42bRunPiped(root, tt, "test", ws, "");
     string to = t.Stdout + t.Stderr;
     if (t.ExitCode != 0 || to.IndexOf("test_line_uses_sibling") < 0 || to.IndexOf("ws.broken") >= 0) {
         Console.WriteLine("  ❌ workspace test: 期望跑 ws.hello 的测试且通过；实得 rc=" + t.ExitCode.ToString());
@@ -37,7 +37,7 @@ int _smokeWorkspaceDefault(string root, TargetTooling tt) {
     }
 
     // ③ --workspace：全部成员 ⇒ 必须建到 broken 并失败。
-    ProcessResult a = _wsZ42b(root, tt, "build", ws, "--workspace");
+    ProcessResult a = _z42bRunPiped(root, tt, "build", ws, "--workspace");
     string ao = a.Stdout + a.Stderr;
     if (a.ExitCode == 0 || ao.IndexOf("member `ws.broken` failed to build") < 0) {
         Console.WriteLine("  ❌ workspace build --workspace: 期望建到 ws.broken 并失败；实得 rc=" + a.ExitCode.ToString());
@@ -49,8 +49,9 @@ int _smokeWorkspaceDefault(string root, TargetTooling tt) {
     return failed;
 }
 
-ProcessResult _wsZ42b(string root, TargetTooling tt, string verb, string ws, string flag) {
-    Process p = _z42bVerb(root, tt, verb).Arg(ws);
+// `z42b <verb> <target> [flag]`，stdout/stderr 收回（smoke 看输出断言）。
+ProcessResult _z42bRunPiped(string root, TargetTooling tt, string verb, string target, string flag) {
+    Process p = _z42bVerb(root, tt, verb).Arg(target);
     if (flag.Length > 0) { p = p.Arg(flag); }
     return p.Stdout(Stdio.Pipe()).Stderr(Stdio.Pipe()).Run();
 }
