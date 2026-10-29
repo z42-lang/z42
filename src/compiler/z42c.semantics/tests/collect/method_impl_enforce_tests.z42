@@ -1,0 +1,42 @@
+// `[MethodImpl(...)]` 位置 + 实参形态（DeclEnforcer._miCheck，E0918）。写错若放过就是静默不生效——
+// 想挡住优化的方法照样被内联 / 外提。
+namespace Z42cSemanticsMethodImplEnforceTests;
+
+using Z42.Syntax;
+using Z42.Symbols;
+using Std.Harness;
+
+int miCount(string src) {
+    var p = new Parser(src, "t.z42");
+    var cu = p.ParseCompilationUnit();
+    var coll = new SymbolCollector();
+    coll.Collect(cu);
+    int n = 0; int i = 0;
+    while (i < coll.Diags.Count()) { if (coll.Diags.Get(i).Code == "E0918") { n = n + 1; } i = i + 1; }
+    return n;
+}
+
+[Test]
+void test_options_ok() {
+    Assert.Equal(0, miCount("class C { [MethodImpl(MethodImplOptions.NoInlining)] static int F() { return 1; } }"));
+    Assert.Equal(0, miCount("[MethodImpl(MethodImplOptions.NoOptimization)] int G() { return 1; }"));
+    Assert.Equal(0, miCount("[MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.NoOptimization)] int H() { return 1; }"));
+}
+
+[Test]
+void test_unknown_option() {
+    Assert.Equal(1, miCount("[MethodImpl(MethodImplOptions.AggressiveInlining)] int F() { return 1; }"));
+    Assert.Equal(1, miCount("[MethodImpl(MethodImplOptions.NoInlining | 4)] int F() { return 1; }"));
+}
+
+[Test]
+void test_wrong_arity() {
+    Assert.Equal(1, miCount("[MethodImpl] int F() { return 1; }"));
+    Assert.Equal(1, miCount("[MethodImpl(MethodImplOptions.NoInlining, MethodImplOptions.NoOptimization)] int F() { return 1; }"));
+}
+
+[Test]
+void test_needs_method_with_body() {
+    Assert.Equal(1, miCount("[MethodImpl(MethodImplOptions.NoInlining)] class C { }"));
+    Assert.Equal(1, miCount("class C { [MethodImpl(MethodImplOptions.NoInlining)] [Native(\"__x\")] static extern int F(); }"));
+}

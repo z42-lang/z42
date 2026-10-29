@@ -972,3 +972,35 @@ void test_opt_all_covers_every_named_bit() {
     Assert.Equal(Opt.All, Opt.ByName("all"));
     Assert.Equal(-1, Opt.ByName("no-such-pass"));
 }
+
+// ── [MethodImpl(NoInlining / NoOptimization)]（IrMethodImpl 位）──────────────────────────
+[Test]
+void test_method_impl_no_inlining_keeps_call() {
+    // 同一 callee 不标时会被内联（test_inline_free_call）；标 NoInlining → 调用留着。
+    string src = "[MethodImpl(MethodImplOptions.NoInlining)] int Helper() { return 7; } int Main() { return Helper(); }";
+    Assert.Contains("call @Helper", IrDump.DumpFuncOpt(src, "Main", Opt.All));
+}
+
+[Test]
+void test_method_impl_no_inlining_is_not_pure() {
+    // 同参重复调用不标时被 PureCall 消重（test_pure_call_cse_dedups）；NoInlining = 调用方当黑盒 → 两条 call。
+    string src = "[MethodImpl(MethodImplOptions.NoInlining)] int square(int x) { return x * x; } int F(int a) { return square(a) + square(a); }";
+    Assert.Contains("add i32 %1, %2", IrDump.DumpFuncOpt(src, "F", Opt.All));
+}
+
+[Test]
+void test_method_impl_no_optimization_keeps_body() {
+    // 自己的体不优化：Opt.All 与 -O0 输出一致；也不把 Helper 内联进来。
+    string src = "int Helper() { return 7; } [MethodImpl(MethodImplOptions.NoOptimization)] int Main() { int a = 2 + 3; return a + Helper(); }";
+    string opt = IrDump.DumpFuncOpt(src, "Main", Opt.All);
+    Assert.Equal(IrDump.DumpFuncOpt(src, "Main", Opt.None), opt);
+    Assert.Contains("call @Helper", opt);
+}
+
+[Test]
+void test_method_impl_combined_options() {
+    // `|` 组合两位：既不被内联（调用方），自己的体也原样（callee 内 2 + 3 不折）。
+    string src = "[MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.NoOptimization)] int Keep(int v) { return v + (2 + 3); } int Main() { return Keep(1); }";
+    Assert.Contains("call @Keep", IrDump.DumpFuncOpt(src, "Main", Opt.All));
+    Assert.Equal(IrDump.DumpFuncOpt(src, "Keep", Opt.None), IrDump.DumpFuncOpt(src, "Keep", Opt.All));
+}

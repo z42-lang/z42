@@ -133,7 +133,7 @@ ret_name      pool idx
 exec_mode     u8（0 Interp / 1 Jit / 2 Aot）
 is_static     u8
 visibility    u8
-method_flags  u8（bit0 virtual / bit1 abstract / bit2 sealed / bit3 sret；bit4-7 空）
+method_flags  u8（bit0 virtual / bit1 abstract / bit2 sealed / bit3 sret / bit4 no-inlining / bit5 no-optimization；bit6-7 空）
 min_arg       u16（必填逻辑参数数）
 params_from   u8（变长参数起始逻辑下标；0xFF = 无）
 每参 ×        { param_type pool idx; param_name pool idx; default_kind u8; [default payload] }

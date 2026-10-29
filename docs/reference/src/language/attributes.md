@@ -163,6 +163,23 @@ try { risky(); } catch (Error e) { }   // 此处 Z9002 被抑制
 - `[Suppress("<Id>", "reason")]` 按**声明子树**生效，比区间精确。
 - `Suppress` 是保留名，不能再定义同名的自定义 attribute 类。
 
+## 控制内联与优化：`[MethodImpl]`
+
+对应 C# 的 `[MethodImpl(MethodImplOptions...)]`，只贴在有体的方法上：
+
+```z42
+[MethodImpl(MethodImplOptions.NoInlining)]
+int Slow(int x) { return x * x; }
+
+[MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.NoOptimization)]
+object Keep(object v) { return v; }
+```
+
+- `NoInlining`：调用方把它当黑盒——不内联，也不当纯函数，所以重复调用不会被合并、循环里的调用不会被提出循环。
+- `NoOptimization`：它自己的函数体原样编译，不做任何 IR 优化，也不把别的函数内联进来。
+- 两个选项用 `|` 组合；这是编译器认的词表，不需要 `using`。写成别的选项、多给参数、贴在没有体的声明上都报 `E0918`。
+- `MethodImpl` 是保留名，不能再定义同名的自定义 attribute 类。
+
 ## 编译期 caller 宏
 
 对齐 C# 的 `[CallerMemberName]` / `[CallerLineNumber]` / `[CallerFilePath]`——四个内建的编译期宏，

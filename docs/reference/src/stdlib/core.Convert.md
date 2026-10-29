@@ -134,7 +134,9 @@ public static class Convert {
 <a id="Std.Convert.ToHexStringLower(string)"></a>
 ### static extern string ToHexStringLower(string text)
 
-[`src/libraries/z42.core/src/Convert.z42:67`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Convert.z42#L67)
+[`src/libraries/z42.core/src/Convert.z42:68`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Convert.z42#L68)
 
-把 `text` 的 UTF-8 编码字节编码为小写十六进制字符串，等价于 `ToHexStringLower(Utf8.GetBytes(text))`，但不物化中间字节数组。
+把 `text` 的 UTF-8 编码字节编码为小写十六进制字符串。
+
+等价于 `ToHexStringLower(Utf8.GetBytes(text))`，但不物化中间字节数组。
 

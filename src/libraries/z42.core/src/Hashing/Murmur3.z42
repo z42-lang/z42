@@ -119,8 +119,9 @@ public static class Murmur3 {
     [Native("__mmh3_hex_bytes")]
     public static extern string Hash128Hex(byte[] data);
 
-    /// `text` 按 UTF-8 编码后的 `Hash128` 的 32 个小写十六进制字符，等价于
-    /// `Hash128Hex(Utf8.GetBytes(text))`，但不物化中间字节数组。
+    /// `text` 按 UTF-8 编码后的 `Hash128`，32 个小写十六进制字符。
+    ///
+    /// 等价于 `Hash128Hex(Utf8.GetBytes(text))`，但不物化中间字节数组。
     [Native("__mmh3_hex_str")]
     public static extern string Hash128Hex(string text);
 }

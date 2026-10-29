@@ -69,7 +69,10 @@ public static class ModuleLoader {
 <a id="Std.Runtime.ModuleLoader.MemberNamesOfStaticValue(string)"></a>
 ### static extern string[] MemberNamesOfStaticValue(string staticFieldFqn)
 
-[`src/libraries/z42.core/src/Runtime/ModuleLoader.z42:49`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Runtime/ModuleLoader.z42#L49)
+[`src/libraries/z42.core/src/Runtime/ModuleLoader.z42:50`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Runtime/ModuleLoader.z42#L50)
 
-读静态字段 `staticFieldFqn`（`<类型 FQN>.<字段名>`）里存着的**活值**，返回其运行时类型的成员名 （字段 / 方法 / 属性 / 嵌套类型，与 `Type.GetMembers()` 同一集合）。只读已存的字段值，不求值、 也不触发静态初始化；值为 null / 数组、字段不存在或所在类型尚未初始化时返回空数组。
+静态字段 `staticFieldFqn`（`<类型 FQN>.<字段名>`）里存着的值，其运行时类型的成员名。
+
+成员含字段 / 方法 / 属性 / 嵌套类型，与 `Type.GetMembers()` 同一集合。只读已存的字段值，不求值、
+也不触发静态初始化；值为 null / 数组、字段不存在或所在类型尚未初始化时返回空数组。
 

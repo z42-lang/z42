@@ -86,6 +86,14 @@ z42 源码 ──z42c──> z42 IR
 > 注：这是**唯一的 emit 时优化**（其余在 `IrOptPipeline` post-emit）——因去虚化需 receiver 的**静态类型**，
 > 而 lowering 后的 IR `VCall` 已不携带该信息。
 
+> **按方法关掉优化：`[MethodImpl(MethodImplOptions.NoInlining | NoOptimization)]`**（取 C# 同名写法）。
+> `HandlerRegistry.MethodImplFlags` 把它烘进 `IrFunction.MethodFlags`（`IrMethodImpl`，zbc `method_flags`
+> bit4 / bit5），本包各 pass 按位跳过：**NoInlining** = 调用方把它当黑盒——`IrInline` 不内联、
+> `IrPureFunctionTable` 与 `IrEscapeSummary` 不给它出摘要（调用不被 CSE / LICM 消掉、实参保守标逃逸）；
+> **NoOptimization** = 它自己的体原样保留——`_optFunc`、`IrEscapeAnalysis`、`IrLoopAllocReuse` 都跳过它，
+> `IrInline` 也不往里内联。JIT 目前没有跨函数内联、也不消除调用，没有要跳过的东西；将来做其一时须读这两位。
+> 典型用户是 `BenchHelpers.blackBox`（纯 z42 恒等函数，不需要 native）。
+
 **OptSet：可独立开关的具名优化集**：`Opt` 位集 `ConstFold=1/CopyProp=2/
 Dce=4/Inline=8/Cse=16/Licm=32/StackAlloc=64/LoopAllocReuse=128/ReadonlyLoad=256/PureCall=512/DeadBranch=1024/Devirt=2048/All=4095`。`IrOptPipeline.Run(m, optSet)` 逐 pass `if Opt.Has(optSet, X)` 门控（Devirt 例外：emit 时门控）——用户自助
 勾选任意子集（**非**「高档含低档」的单调档位）。profile 默认：**debug=None**（`-O0`，忠实可调试）、

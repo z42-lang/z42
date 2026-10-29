@@ -272,21 +272,21 @@ json 模式下 runner 捕获这行并经 `BenchStats.parse` 解析成 `TestResul
 
 ```z42
 public static class BenchHelpers {
-    static extern object blackBox(object value)
+    static object blackBox(object value)
 }
 ```
 
 成员：[`blackBox`](#Std.Harness.BenchHelpers.blackBox(object))
 
 <a id="Std.Harness.BenchHelpers.blackBox(object)"></a>
-### static extern object blackBox(object value)
+### static object blackBox(object value)
 
 [`src/libraries/z42.harness/src/Bencher.z42:188`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.harness/src/Bencher.z42#L188)
 
 「别把这次计算优化掉」的恒等包装（对应 criterion 的 black_box）。
 
-目前解释器不做死代码消除，恒等返回；留着这个形口，用户代码在 JIT 学会消除
-纯表达式后无需改动。可无条件使用。
+标了 `[MethodImpl(NoInlining | NoOptimization)]`：编译器不内联它、也不把它当纯函数，
+所以调用不会被公共子表达式消除或循环外提吃掉，实参的计算也就留在原处。可无条件使用。
 
 > ⚠️ 形参是 `object` 而非 `<T>`：跨 zpkg 的方法级泛型实参推断尚未就绪， 装箱开销由调用方自负。
 

@@ -32,6 +32,17 @@ public static class IrDeprecation {
     }
 }
 
+// `[MethodImpl(MethodImplOptions.…)]` 烘进 `IrFunction.MethodFlags` 的两位（SIGS `method_flags:u8` bit4 / bit5，
+// 运行时 `METHOD_FLAG_NO_INLINING` / `METHOD_FLAG_NO_OPTIMIZATION`）。生产方 HandlerRegistry.MethodImplFlags，
+// 消费方 z42c.optimization：
+//   · NoInlining —— 调用方把它当黑盒：不内联、不进纯函数表 / 参数逃逸摘要（调用不被 CSE / LICM 消掉）；
+//   · NoOptimization —— 它自己的体原样保留：不跑任何 IR 优化 pass，也不把别的函数内联进来。
+public static class IrMethodImpl {
+    public static int NoInlining = 16;
+    public static int NoOptimization = 32;
+    public static bool Has(IrFunction f, int bit) { return (f.MethodFlags & bit) != 0; }
+}
+
 // add-static-constructors（零格式-bump）：类带静态构造器时，在**类级** attr-ref 块挂 `$Cctor` 哨兵，
 // FactoryFunc = cctor 的**发射函数名**（FQ，如 `Ns.C.C`）。
 //

@@ -62,6 +62,7 @@ public sealed class IrGenMemberEmitter {
                 irf.ParamAttrs = g._classDescB._paramAttrRefs(md, isInstance); irf.ParamAttrsLen = irf.ParamAttrs.Length;
                 irf.Visibility = DeclFacts._visCode(md.ModFlags, 1);   // add-member-visibility（成员默认 private）
                 irf.MethodFlags = irf.MethodFlags | IrGenFacts._methodFlags(md.ModFlags);   // 或：保住 FunctionEmitter 置的 sret 位   // add-method-modifiers
+                irf.MethodFlags = irf.MethodFlags | HandlerRegistry.MethodImplFlags(rawMem);   // [MethodImpl]
                 IrGenFacts._fillParamMeta(irf, md, isInstance);       // add-param-metadata
                 this._out.AddFunc(irf);
                 // add-iface-return-bridge：具体实现已挪到 `<m>$struct`（irName），裸名槽腾出来了 ⇒

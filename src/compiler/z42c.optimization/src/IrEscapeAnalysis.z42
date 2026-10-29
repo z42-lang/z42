@@ -30,7 +30,8 @@ public sealed class IrEscapeAnalysis {
         ParamEscapeTable table = IrEscapeSummary.Compute(m);
         int fi = 0;
         while (fi < m.FuncCount) {
-            IrEscapeAnalysis._markFunc(m, m.Functions[fi], table);
+            // `[MethodImpl(NoOptimization)]`：体原样保留，不标栈上分配。
+            if (!IrMethodImpl.Has(m.Functions[fi], IrMethodImpl.NoOptimization)) { IrEscapeAnalysis._markFunc(m, m.Functions[fi], table); }
             fi = fi + 1;
         }
     }

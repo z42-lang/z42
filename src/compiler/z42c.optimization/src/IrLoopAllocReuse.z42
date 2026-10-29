@@ -31,6 +31,7 @@ public sealed class IrLoopAllocReuse {
     }
 
     private static void _runFunc(IrModule m, IrFunction f) {
+        if (IrMethodImpl.Has(f, IrMethodImpl.NoOptimization)) { return; }   // 体原样保留
         LoopCfg cfg = IrLoopUtil.BuildCfg(f);
         if (cfg == null) { return; }   // <2 块 / 有异常表
         int n = cfg.N;
