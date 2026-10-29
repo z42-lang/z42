@@ -171,7 +171,7 @@ string _epBenchModeKey(JsonValue b) {
 // profile" (see _epProbe).
 //
 // `root` is the tree being measured; for `bench stdlib --json` under
-// bench-pr.yml's "Capture base micro baseline" that is base-src, a checkout of
+// bench-pr.yml's "Micro A/B gate" (base side) that is base-src, a checkout of
 // the PR's merge base. So the probe must exist at the same path in BOTH trees —
 // any PR that moves it needs a one-PR transitional fallback here.
 //

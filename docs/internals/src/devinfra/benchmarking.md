@@ -101,6 +101,18 @@ PR 树采一份、base 树采一份（复用已建的 base 工具链，仅新建
 `bench --micro-diff --current … --baseline …` 逐基准（按 `name` + 画像键配对）过同一个 `_abVerdict`。
 PR 新增或改名的基准在 base 无对应 ⇒ 信息性 skip。
 
+**两侧必须同形捕获，否则同一份代码也会被判慢。** 被测 z42b 进程的内存布局由它的输入字节决定——
+argv、env（`Z42_LIBS` / `Z42_PROBING_PATHS` / `PWD` …）、树根与工具链目录的路径长度。布局一变，
+同一份代码就能**稳定地**快慢一截：本机只把 env 块改大 12 字节，`hex_roundtrip` 的中位数就在
+130 µs 与 79 µs 之间来回，每次复现。这个偏差每轮都一样，所以[复测](#5-可疑即复测)看不见它，
+只会把它当回归。因此 PR 侧不用树内隐式工具链，而是与 base 侧走同一个 `capture`：
+
+- **树根等长**：PR 源码另开 worktree `head-src`，与 `base-src` 等长，`artifacts` 软链回 PR 产物。
+- **工具链显式且同配方**：`.ab-head-alllibs` 与 `.ab-base-alllibs` 等长，按同一套顺序拷贝；
+  `--vm` 两侧同串（VM 未变）或各取本树 `artifacts` 下的那个（等长）。
+
+workflow 里断言这两组路径等长，谁改了目录名当场红。
+
 ### GC 停顿子门禁
 
 头部声明 `// gc-pause: report` 的场景（目前只有 `13_gc_large_heap`）末尾自报一行
@@ -138,6 +150,8 @@ A/B 对**同一 scenario × mode** 在 base/pr 之间比较，两模式永不交
 **它治的缺陷**：`_abVerdict` 的 SEM 来自**一次** hyperfine invocation 的跑内样本方差，而 base 与 pr
 是两个独立进程。进程间那部分方差（CPU 频率、page cache、分配器与 GC 起始状态、代码布局彩票）
 **根本没进模型**，于是声称的区间比真实窄约三倍。
+复测只抓得住**每轮重新抽签**的那部分；由进程输入字节决定的布局每轮都一样，复测抓不住，
+只能靠两侧同形捕获消掉（见 [micro 的同-runner A/B](#micro-的同-runner-ab)）。
 
 **做法**：第一轮照常测；**只对初判 `R_lower > 1+thr` 的条目**，把同一份二进制再测 2 轮，拿到
 k = 3 个独立比值，用**它们之间的离散度**重算区间：
@@ -304,7 +318,7 @@ criterion 层噪声底的实测（同一个 PR 的四次跑，**每次 base 与 
 5. **e2e A/B（硬门禁）**：`bench --ab --tier gate --mode $MODE --threshold-time 0.15
    --pause-cap-ms 16 --threshold-pause 0.25 --base-vm/-libs/-driver …`。`MODE` 按改动面收窄：
    `src/runtime` 无非文档改动 → `jit`，否则 `both`。
-6. **micro A/B（硬门禁）**：两棵树各采一份 `bench stdlib --json` → 第 1 轮
+6. **micro A/B（硬门禁）**：两棵树（`head-src` / `base-src`）各采一份 `bench stdlib --json`，**同形捕获** → 第 1 轮
    `--micro-diff --suspects …` **只点名不判红**；`suspects` 为空 ⇒ 直接通过（**零额外开销**）；
    非空 ⇒ 再采两轮，用三轮判红。
 7. **criterion A/B（informational，永不 fail）**：仅 `src/runtime` 有非文档改动时跑。

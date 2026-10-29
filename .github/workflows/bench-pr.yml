@@ -405,36 +405,17 @@ jobs:
       # co-loaded (unlike e2e's isolated per-scenario z42vm). Instead capture two
       # ISOLATED `bench stdlib --json` baselines on THIS runner — PR tree + base tree —
       # and diff them (bench --micro-diff).
-      - name: Capture PR micro baseline (bench stdlib --json)
-        if: steps.fmtgap.outputs.gap != '1'
-        shell: bash
-        run: |
-          set -euo pipefail
-          xtask bench stdlib --json "$PWD/artifacts/reports/benches/micro-pr.json" --no-build --mode interp
-
-      - name: Capture base micro baseline (base tree, same runner)
-        if: steps.fmtgap.outputs.gap != '1'
-        shell: bash
-        run: |
-          set -euo pipefail
-          ROOT="$PWD"
-          # Run the PR xtask (on the `.z42` SDK, like every xtask step) against the base
-          # tree (cwd=base-src → _root()=base-src, so bench sources / output dirs are
-          # base's). The measured toolchain is passed EXPLICITLY via --vm/--driver/--libs
-          # = the exact base toolchain the e2e A/B already used (.ab-base-alllibs), so
-          # base benchmarks compile+run against a proven-consistent base stdlib — no
-          # in-tree rebuild.
-          # `xtask` 垫片按**自己所在位置**定位 `.z42` 与 PR 树的 xtask.zpkg，不看 cwd ⇒ cd 进 base-src 照样是 PR 的 xtask。
-          ( cd base-src && \
-            xtask bench stdlib --json "$ROOT/artifacts/reports/benches/micro-base.json" --no-build --mode interp \
-              --vm     "${{ steps.base.outputs.base_vm }}" \
-              --driver "${{ steps.base.outputs.base_driver }}" \
-              --libs   "${{ steps.base.outputs.base_libs }}" )
-
+      #
+      # 🔴 两侧必须**同形**捕获（benchmarking.md §4「micro 的同-runner A/B」）：被测进程的 argv / env /
+      # 路径字节数决定它的内存布局，布局能让同一份代码稳定快慢 10%~60%，且每轮复测都一样 ⇒ 复测看不见、
+      # 只会当成回归。所以 PR 侧不用树内隐式工具链，而是与 base 侧走同一个 `capture`：
+      #   · 树根等长：PR 源码另开 worktree `head-src`（与 `base-src` 等长），artifacts 软链回 PR 产物；
+      #   · 工具链显式且同配方：`.ab-head-alllibs` 与 `.ab-base-alllibs` 等长、同一套拷贝顺序。
+      #
       # micro 硬门禁 = 可疑即复测（benchmarking.md §5）：第 1 轮只点名可疑条目；有标记才整轮
       # 重采两次，用三轮比值的跑间离散度判红。整轮重采而不按 benchmark 名过滤：
       # `bench stdlib --filter` 过滤的是文件名，按名重采要另建映射，映射错 = 静默少测。
-      - name: Micro A/B gate (resample-on-suspicion; >15% time fails)
+      - name: Micro A/B gate (symmetric capture; resample-on-suspicion; >15% time fails)
         if: steps.fmtgap.outputs.gap != '1'
         shell: bash
         run: |
@@ -442,15 +423,35 @@ jobs:
           A="$PWD/artifacts/reports/benches"
           ROOT="$PWD"
           xt() { xtask "$@"; }
-          # 一轮 base 侧捕获：跑 PR 的 xtask，但 cwd=base-src 且**显式**传 base 工具链
-          # （与上面「Capture base micro baseline」逐字同构 —— 改一处必须改两处）。
-          capture_base() { # <out.json>
-            ( cd base-src && \
-              xtask bench stdlib --json "$1" --no-build --mode interp \
-                --vm     "${{ steps.base.outputs.base_vm }}" \
-                --driver "${{ steps.base.outputs.base_driver }}" \
-                --libs   "${{ steps.base.outputs.base_libs }}" )
+
+          # PR 侧的树与工具链，逐项对齐 base 侧（Build base 步）的形状。
+          git worktree add --detach head-src HEAD
+          ln -s ../artifacts head-src/artifacts
+          HEADALL="$ROOT/.ab-head-alllibs"; rm -rf "$HEADALL"; mkdir -p "$HEADALL"
+          for f in "$ROOT/artifacts/build/compiler/"*/release/dist/*.zpkg; do cp -f "$f" "$HEADALL/"; done
+          for f in "$ROOT/artifacts/intermediate/libraries/flat/release/"*.zpkg; do cp -f "$f" "$HEADALL/"; done
+          for f in "$ROOT/artifacts/build/libraries/"*/release/dist/*.zpkg; do cp -f "$f" "$HEADALL/"; done
+          BASEVM="${{ steps.base.outputs.base_vm }}"
+          BASEALL="${{ steps.base.outputs.base_libs }}"
+          # VM 没变 ⇒ base_vm 就是 PR 的 z42vm，两侧同一个路径串；变了 ⇒ 各取本树 artifacts 下的那个（等长）。
+          if [ "$BASEVM" = "$ROOT/artifacts/build/runtime/release/z42vm" ]; then
+            HEADVM="$BASEVM"
+          else
+            HEADVM="$ROOT/head-src/artifacts/build/runtime/release/z42vm"
+          fi
+          # 等长是这一步的不变量：谁改了目录名，这里当场红，而不是悄悄变回有偏的门。
+          [ "${#HEADALL}" -eq "${#BASEALL}" ] && [ "${#HEADVM}" -eq "${#BASEVM}" ] \
+            || { echo "::error::micro A/B 两侧工具链路径不等长（$HEADALL / $BASEALL；$HEADVM / $BASEVM）"; exit 1; }
+
+          # 一轮捕获，两侧共用：跑 PR 的 xtask（垫片按自己所在位置定位 `.z42` 与 xtask.zpkg，不看 cwd），
+          # cwd=<tree> ⇒ _root()=<tree>（bench 源码 / 产物目录都是那棵树的），工具链显式传入、不做树内重建。
+          capture() { # <tree> <vm> <libs> <out.json>
+            ( cd "$1" && \
+              xtask bench stdlib --json "$4" --no-build --mode interp \
+                --vm "$2" --driver "$3/z42c.driver.zpkg" --libs "$3" )
           }
+          capture head-src "$HEADVM" "$HEADALL" "$A/micro-pr.json"
+          capture base-src "$BASEVM" "$BASEALL" "$A/micro-base.json"
 
           # 第 1 轮：只用来点名可疑条目，**不判红**（它的区间正是不可信的那个）。
           xt bench --micro-diff --threshold-time 0.15 \
@@ -469,8 +470,8 @@ jobs:
 
           for r in 2 3; do
             echo "── micro resample round $r ──"
-            xt bench stdlib --json "$A/micro-pr-r$r.json" --no-build --mode interp
-            capture_base "$A/micro-base-r$r.json"
+            capture head-src "$HEADVM" "$HEADALL" "$A/micro-pr-r$r.json"
+            capture base-src "$BASEVM" "$BASEALL" "$A/micro-base-r$r.json"
           done
 
           # 最终判定：三轮比值的**跑间**离散度重算区间。这一步才是硬门禁。

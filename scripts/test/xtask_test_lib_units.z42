@@ -164,7 +164,7 @@ int _runUnitsViaZ42b(string root, string projToml, string[] names, int nUnits, s
 
 // ── z42b 能力探测：`--out-root` ─────────────────────────────────────────────────
 //
-// xtask 并不总是驱动**同一代**的 z42b：bench A/B（bench-pr.yml 的「Capture base micro baseline」）
+// xtask 并不总是驱动**同一代**的 z42b：bench A/B（bench-pr.yml 的「Micro A/B gate」base 侧）
 // 用本树的 xtask 驱动 **base 树**现建的 z42b，不认这个旗标的 z42b 会直接 `unknown option` 失败。
 // 先看 `test --help` 里有没有，没有就不传（产物回落到清单目录旁）。每个 z42b 路径只探测一次。
 class Z42bCaps {
