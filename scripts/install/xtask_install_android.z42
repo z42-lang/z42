@@ -28,7 +28,7 @@ int _installAndroidSdk(bool force, string tier) {
     bool wantEmu = (tier != "build");   // "emulator"/"full" → emulator + AVD + Gradle
     string root = _root();
     // ── version pins — single source of truth: versions.toml ─────────────
-    TomlValue toml = TomlValue.Parse(File.ReadAllText(_versionsPath(root)));
+    TomlValue toml = _vparse(root);
     string ndkVer = _vget(toml, "build.android.ndk.version");
     string platformVer = _vget(toml, "build.android.sdk.platform");
     string buildToolsVer = _vget(toml, "build.android.sdk.build_tools");

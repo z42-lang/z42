@@ -14,7 +14,7 @@ using Std.Toml;
 
 int _setupCheck(string os) {
     string root = _root();
-    TomlValue toml = TomlValue.Parse(File.ReadAllText(_versionsPath(root)));
+    TomlValue toml = _vparse(root);
     int presenceFail = 0;
 
     Console.WriteLine("── toolchain (cross-platform) ───────────────────────────────────────────");

@@ -25,7 +25,7 @@ using Std.Toml;
 // platform 已由 --os 的 choices（versions.toml 跨平台 workload）校验过。
 int _setupInstall(string platform, bool force) {
     string root = _root();
-    TomlValue toml = TomlValue.Parse(File.ReadAllText(_versionsPath(root)));
+    TomlValue toml = _vparse(root);
 
     Console.WriteLine("── toolchain (cross-platform) ──");
     _checkRust(toml);
@@ -61,7 +61,7 @@ int _setupInstall(string platform, bool force) {
 // Idempotent; force redownloads. POSIX-only (.tar.gz); Windows → MSI.
 int _installNode(bool force) {
     string root = _root();
-    TomlValue toml = TomlValue.Parse(File.ReadAllText(_versionsPath(root)));
+    TomlValue toml = _vparse(root);
     string nodeVersion = _vget(toml, "toolchain.node.version");   // SoT: versions.toml
     string installDir = Path.Join(_toolsDir(root), "node");
     string nodeBin = Path.Join(installDir, "bin/node");

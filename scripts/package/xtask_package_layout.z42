@@ -9,7 +9,6 @@
 namespace Z42Xtask;
 
 using Std.IO;
-using Std.Toml;
 
 // kind：sdk（桌面 SDK）| runtime（嵌入用 runtime 包，桌面或平台）| tooling（ios / android / wasm 的 workload
 // tooling 包）| workload-desktop（per-RID 桌面 workload）。返回 0 = 全过，1 = 有不符。
@@ -166,7 +165,7 @@ string _plSoname(string readelf) {
 // 照样加载）不得高于 versions.toml [platform.linux] 的声明（x64：min_glibc，arm64：min_glibc_arm64）。
 void _plGlibc(string root, _PkgLayout L, string rid, string rel) {
     string key = rid == "linux-arm64" ? "min_glibc_arm64" : "min_glibc";
-    string want = _vget(TomlValue.Parse(File.ReadAllText(_versionsPath(root))), "platform.linux." + key);
+    string want = _vget(_vparse(root), "platform.linux." + key);
     string need = "";
     foreach (var line in _cmdOut("objdump", new string[]{ "-p", L.P(rel) }).Split("\n")) {
         string[] w = _splitWords(line.Trim());
