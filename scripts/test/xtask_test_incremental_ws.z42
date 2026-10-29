@@ -8,6 +8,7 @@
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Collections;
 
 int _wsReadbackBuild(string vm, string driver, string libs, string cwd, bool noIncr) {
     Process p = _z42cProc(vm, libs, driver)
@@ -21,38 +22,30 @@ int _reconcileStdlibReadback(string root, string vm, string driver, string libs,
     string srcLibs = Path.Join(scratch, "stdlib/src/libraries");
     Directory.Copy(Path.Join(root, "src/libraries"), srcLibs, true);
     string ws = Path.Join(srcLibs, "z42.workspace.toml");
-    string[] dirs = _enumDirsSorted(srcLibs);
-    string[] members = new string[dirs.Length];
-    int mc = 0;
-    int i = 0;
-    while (i < dirs.Length) {
-        if (Path.Glob(Path.Join(srcLibs, dirs[i]), "*.z42.toml").Length > 0) { members[mc] = dirs[i]; mc = mc + 1; }
-        i = i + 1;
+    List<string> members = new List<string>();
+    foreach (var d in _enumDirsSorted(srcLibs)) {
+        if (Path.Glob(Path.Join(srcLibs, d), "*.z42.toml").Length > 0) { members.Add(d); }
     }
     if (_wsReadbackBuild(vm, driver, libs, srcLibs, true) != 0) { ConsoleError.WriteLine("  ✗ stdlib full build failed"); return 1; }
     // 全量快照：拷到 snap 目录（z42 无交错数组，不在内存里存每包字节）。
     string snap = Path.Join(scratch, "stdlib-full-snap");
     _resetDir(snap);
-    i = 0;
-    while (i < mc) {
-        string z = Path.Join(_memberDist(ws, members[i], "release"), members[i] + ".zpkg");
-        if (File.Exists(z)) { File.Copy(z, Path.Join(snap, members[i] + ".zpkg")); }
-        Directory.Delete(_memberDist(ws, members[i], "release"), true);
-        i = i + 1;
+    foreach (var m in members) {
+        string z = Path.Join(_memberDist(ws, m, "release"), m + ".zpkg");
+        if (File.Exists(z)) { File.Copy(z, Path.Join(snap, m + ".zpkg")); }
+        Directory.Delete(_memberDist(ws, m, "release"), true);
     }
     if (_wsReadbackBuild(vm, driver, libs, srcLibs, false) != 0) { ConsoleError.WriteLine("  ✗ stdlib all-cached rebuild failed"); return 1; }
-    string bad = "";
-    int nBad = 0;
-    i = 0;
-    while (i < mc) {
-        string z = Path.Join(_memberDist(ws, members[i], "release"), members[i] + ".zpkg");
-        if (!_filesEqual(z, Path.Join(snap, members[i] + ".zpkg"))) { bad = bad + (nBad > 0 ? ", " : "") + members[i]; nBad = nBad + 1; }
-        i = i + 1;
+    List<string> bad = new List<string>();
+    foreach (var m in members) {
+        string z = Path.Join(_memberDist(ws, m, "release"), m + ".zpkg");
+        if (!_filesEqual(z, Path.Join(snap, m + ".zpkg"))) { bad.Add(m); }
     }
-    if (nBad > 0) {
-        ConsoleError.WriteLine("  ✗ MISMATCH: all-cached reassembly != full for " + nBad.ToString() + " package(s): " + bad);
+    if (bad.Count > 0) {
+        ConsoleError.WriteLine("  ✗ MISMATCH: all-cached reassembly != full for " + bad.Count.ToString()
+            + " package(s): " + String.Join(", ", bad.ToArray()));
         return 1;
     }
-    Console.WriteLine("  ✓ dist wiped + all-cached reassembly: " + mc.ToString() + "/" + mc.ToString() + " stdlib packages byte-identical to full");
+    Console.WriteLine("  ✓ dist wiped + all-cached reassembly: " + members.Count.ToString() + "/" + members.Count.ToString() + " stdlib packages byte-identical to full");
     return 0;
 }

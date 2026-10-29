@@ -22,6 +22,8 @@ namespace Z42Xtask;
 using Std.IO;
 using Std.Time;
 using Std.Crypto;
+using Std.Encoding;
+using Std.Collections;
 using Z42.Project;
 
 int _testIncremental() {
@@ -60,9 +62,7 @@ int _reconcileProject(string vm, string driver, string libs, string projDir, str
     if (_incrBuild(vm, driver, libs, toml, false) != 0) { ConsoleError.WriteLine("  ✗ initial build failed"); return 1; }
     double incrMs = 0.0;
     double fullMs = 0.0;
-    int i = 0;
-    while (i < srcs.Length) {
-        string f = srcs[i];
+    foreach (var f in srcs) {
         string orig = File.ReadAllText(f);
         File.WriteAllText(f, orig + "\n// incr-reconcile-touch\n");
         Stopwatch ti = Stopwatch.StartNew();
@@ -82,7 +82,6 @@ int _reconcileProject(string vm, string driver, string libs, string projDir, str
             return 1;
         }
         File.WriteAllText(f, orig);   // 还原（下轮 hash 回原值 → 该文件重编，正确性不受影响）
-        i = i + 1;
     }
     Console.WriteLine("  ✓ " + srcs.Length.ToString() + "/" + srcs.Length.ToString()
         + " files byte-identical (whole dist); wall-clock incr=" + incrMs.ToString() + "ms full=" + fullMs.ToString()
@@ -163,32 +162,15 @@ public sealed class DistSnapZ {
 
 DistSnapZ _distSnapshot(string projDir) {
     string dist = Path.Join(projDir, "dist");
-    string[] a = Path.GlobRecursive(dist, "*.zpkg");
-    string[] b = Path.GlobRecursive(dist, "*.zbc");
-    string[] all = new string[a.Length + b.Length];
-    int i = 0;
-    while (i < a.Length) { all[i] = a[i]; i = i + 1; }
-    int j = 0;
-    while (j < b.Length) { all[a.Length + j] = b[j]; j = j + 1; }
-    all = _sortedStrings(all);
+    List<string> files = new List<string>();
+    files.AddRange(Path.GlobRecursive(dist, "*.zpkg"));
+    files.AddRange(Path.GlobRecursive(dist, "*.zbc"));
+    string[] all = _sortedStrings(files.ToArray());
     string[] hs = new string[all.Length];
-    i = 0;
-    while (i < all.Length) { hs[i] = _blakeHexOf(all[i]); i = i + 1; }
-    return new DistSnapZ(all, hs, all.Length);
-}
-
-string _blakeHexOf(string path) {
-    byte[] bts = File.ReadAllBytes(path);
-    byte[] h = Blake3.HashLen(bts, 16);
-    string ds = "0123456789abcdef";
-    string r = "";
-    int i = 0;
-    while (i < h.Length) {
-        int v = (int)h[i];
-        r = r + ds.Substring((v >> 4) & 0xF, 1) + ds.Substring(v & 0xF, 1);
-        i = i + 1;
+    for (int i = 0; i < all.Length; i = i + 1) {
+        hs[i] = Hex.Encode(Blake3.HashLen(File.ReadAllBytes(all[i]), 16));
     }
-    return r;
+    return new DistSnapZ(all, hs, all.Length);
 }
 
 // 逐文件（rel 与指纹）比较；返回首个不一致描述（"" = 全等）。
@@ -274,15 +256,12 @@ string _incrXtaskCopy(string root, string scratch) {
     string d = Path.Join(scratch, "xtask");
     Directory.Create(d);
     string src = Path.Join(root, "scripts");
-    string[] files = _sortedStrings(Path.GlobRecursive(src, "*.z42"));
-    int i = 0;
-    while (i < files.Length) {
-        string rel = files[i].Substring(src.Length + 1);
+    foreach (var f in _sortedStrings(Path.GlobRecursive(src, "*.z42"))) {
+        string rel = f.Substring(src.Length + 1);
         string dst = Path.Join(d, rel);
         string parent = Path.GetDirectoryName(dst);
         if (parent.Length > 0) { Directory.Create(parent); }
-        File.Copy(files[i], dst);
-        i = i + 1;
+        File.Copy(f, dst);
     }
     File.WriteAllText(Path.Join(d, "t.z42.toml"),
         "[project]\nname = \"incrpkg\"\nversion = \"0.1.0\"\nkind = \"lib\"\n[sources]\ninclude = [\"**/*.z42\"]\n"

@@ -11,6 +11,7 @@
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Collections;
 using Z42.Project;
 
 // targets stage 的 example 部分：编译全部工程的 example target，运行 `test = true` 的。
@@ -31,30 +32,22 @@ int _testManifestExamples(bool noBuild) {
 // gate=true → run only RunInTest targets; gate=false → run `name` (exact) or all
 // RunInTest when name=="". A name matching nothing → error listing available.
 int _exampleRun(string root, TargetTooling tt, string name, bool gate) {
-    string[] roots = new string[2];
-    roots[0] = Path.Join(root, "src/libraries");
-    roots[1] = _fixturesRoot(root);
+    string[] roots = new string[] { Path.Join(root, "src/libraries"), _fixturesRoot(root) };
     int failed = 0;
     int compiled = 0;
     int ran = 0;
     string avail = "";
-    int ri = 0;
-    while (ri < roots.Length) {
-        if (Directory.Exists(roots[ri])) {
-            string[] projs = _sortedStrings(Directory.Enumerate(roots[ri]));
-            int pi = 0;
-            while (pi < projs.Length) {
-                string projDir = Path.Join(roots[ri], projs[pi]);
-                string toml = _findToml(projDir);
-                if (toml.Length > 0 && Directory.Exists(projDir)) {
-                    int[] cref = new int[3]; cref[0] = compiled; cref[1] = ran; cref[2] = failed;
-                    _exampleRunProject(root, projDir, projs[pi], toml, tt, name, gate, cref, ref avail);
-                    compiled = cref[0]; ran = cref[1]; failed = cref[2];
-                }
-                pi = pi + 1;
+    foreach (var r in roots) {
+        if (!Directory.Exists(r)) { continue; }
+        foreach (var proj in _sortedStrings(Directory.Enumerate(r))) {
+            string projDir = Path.Join(r, proj);
+            string toml = _findToml(projDir);
+            if (toml.Length > 0 && Directory.Exists(projDir)) {
+                int[] cref = new int[] { compiled, ran, failed };
+                _exampleRunProject(root, projDir, proj, toml, tt, name, gate, cref, ref avail);
+                compiled = cref[0]; ran = cref[1]; failed = cref[2];
             }
         }
-        ri = ri + 1;
     }
     if (!gate && name.Length > 0 && ran == 0 && failed == 0) {
         ConsoleError.WriteLine("error: no example named '" + name + "'");
@@ -78,16 +71,13 @@ void _exampleRunProject(string root, string projDir, string projName, string tom
     RunTarget[] tgts = _explicitTargets(man, "example");
     string verr = _validateRunTargets(tgts, tgts.Length, "example");
     if (verr.Length > 0) { ConsoleError.WriteLine("error: " + projName + ": " + verr); cref[2] = cref[2] + 1; return; }
-    ExampleUnit[] examples = _discoverExamples(projDir, man, tgts);
-    int i = 0;
-    while (i < examples.Length) {
-        ExampleUnit ex = examples[i];
+    foreach (var ex in _discoverExamples(projDir, man, tgts)) {
         avail = _appendName(avail, ex.Name);
         // run decision: a given name → run iff it matches; no name → RunInTest.
         bool selected = (name.Length > 0) ? (ex.Name == name) : ex.RunInTest;
         bool runAfter = selected;
         // gate compiles EVERYTHING; a named non-gate run only touches the match.
-        if (!gate && name.Length > 0 && ex.Name != name) { i = i + 1; continue; }
+        if (!gate && name.Length > 0 && ex.Name != name) { continue; }
         DepBundle deps = _targetDepsPairs(man, "example", ex.DepNames, ex.DepVersions, ex.DepCount);
         int rc = _runExitTarget(root, projDir, projName + ".example", "examples",
                                 ex.Name, ex.HasEntry, ex.Entry, ex.Sources, ex.SrcCount, deps,
@@ -95,7 +85,6 @@ void _exampleRunProject(string root, string projDir, string projName, string tom
         cref[0] = cref[0] + 1;
         if (runAfter) { cref[1] = cref[1] + 1; }
         if (rc != 0) { cref[2] = cref[2] + 1; }
-        i = i + 1;
     }
 }
 
@@ -118,30 +107,15 @@ class ExampleUnit {
 // dir `examples/`) overlaid by explicit [[example]] (same name overrides). Auto
 // examples derive entry = <namespace>.Main from their source file.
 ExampleUnit[] _discoverExamples(string projDir, ProjectManifest man, RunTarget[] explicitTgts) {
-    ExampleUnit[] auto = new ExampleUnit[0];
-    if (_sectionAuto(man, "example")) { auto = _autoExamples(projDir); }
-    ExampleUnit[] acc = new ExampleUnit[auto.Length + explicitTgts.Length];
-    int n = 0;
-    int i = 0;
-    while (i < auto.Length) { acc[n] = auto[i]; n = n + 1; i = i + 1; }
-    int ti = 0;
-    while (ti < explicitTgts.Length) {
-        RunTarget t = explicitTgts[ti];
-        int at = _indexOfTarget(acc, n, t.Name);
+    List<ExampleUnit> acc = new List<ExampleUnit>();
+    if (_sectionAuto(man, "example")) { acc.AddRange(_autoExamples(projDir)); }
+    foreach (var t in explicitTgts) {
         ExampleUnit norm = _normalizeExample(projDir, t);
-        if (at >= 0) { acc[at] = norm; } else { acc[n] = norm; n = n + 1; }
-        ti = ti + 1;
+        int at = 0;
+        while (at < acc.Count && acc[at].Name != t.Name) { at = at + 1; }
+        if (at < acc.Count) { acc[at] = norm; } else { acc.Add(norm); }
     }
-    ExampleUnit[] r = new ExampleUnit[n];
-    int k = 0;
-    while (k < n) { r[k] = acc[k]; k = k + 1; }
-    return r;
-}
-
-int _indexOfTarget(ExampleUnit[] a, int n, string name) {
-    int i = 0;
-    while (i < n) { if (a[i].Name == name) { return i; } i = i + 1; }
-    return -1;
+    return acc.ToArray();
 }
 
 // Convention examples under <projDir>/examples/: single-file *.z42 (name=stem)
@@ -149,30 +123,20 @@ int _indexOfTarget(ExampleUnit[] a, int n, string name) {
 ExampleUnit[] _autoExamples(string projDir) {
     string dir = Path.Join(projDir, "examples");
     if (!Directory.Exists(dir)) { return new ExampleUnit[0]; }
-    string[] entries = _sortedStrings(Directory.Enumerate(dir));
-    ExampleUnit[] tmp = new ExampleUnit[entries.Length];
-    int c = 0;
-    int i = 0;
-    while (i < entries.Length) {
-        string e = entries[i];
+    List<ExampleUnit> r = new List<ExampleUnit>();
+    foreach (var e in _sortedStrings(Directory.Enumerate(dir))) {
         string full = Path.Join(dir, e);
         if (Directory.Exists(full)) {
             string src = Path.Join(full, "source.z42");
             if (File.Exists(src)) {
-                string[] inc = new string[1]; inc[0] = "examples/" + e + "/**/*.z42";
-                tmp[c] = _mkExample(e, _fileEntry(src), inc); c = c + 1;
+                r.Add(_mkExample(e, _fileEntry(src), new string[] { "examples/" + e + "/**/*.z42" }));
             }
         } else if (e.EndsWith(".z42")) {
             string stem = e.Substring(0, e.Length - 4);
-            string[] inc = new string[1]; inc[0] = "examples/" + e;
-            tmp[c] = _mkExample(stem, _fileEntry(full), inc); c = c + 1;
+            r.Add(_mkExample(stem, _fileEntry(full), new string[] { "examples/" + e }));
         }
-        i = i + 1;
     }
-    ExampleUnit[] r = new ExampleUnit[c];
-    int k = 0;
-    while (k < c) { r[k] = tmp[k]; k = k + 1; }
-    return r;
+    return r.ToArray();
 }
 
 // Convert an explicit [[example]] RunTarget → ExampleUnit, deriving entry from the

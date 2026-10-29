@@ -11,9 +11,7 @@ public class WasmBackend : IPlatformBackend {
 
     public AssetLayout Assets(string root) {
         string wasmDir = _deviceHost(root, "wasm");
-        string[] stdlibDirs = new string[1];
-        stdlibDirs[0] = Path.Join(wasmDir, "js/stdlib");
-        return new AssetLayout(Path.Join(wasmDir, "js/fixtures"), stdlibDirs, true);
+        return new AssetLayout(Path.Join(wasmDir, "js/fixtures"), new string[] { Path.Join(wasmDir, "js/stdlib") }, true);
     }
 
     // ① wasm-pack build → pkg-web/ + pkg-nodejs/ (wasm-bindgen output).

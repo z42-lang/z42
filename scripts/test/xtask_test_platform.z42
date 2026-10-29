@@ -13,6 +13,7 @@ namespace Z42Xtask;
 
 using Std.IO;
 using Std.Time;
+using Std.Collections;
 
 // ── Backend contract ──────────────────────────────────────────────────────
 
@@ -62,9 +63,9 @@ int _platformStep(IPlatformBackend b, string step, string root) {
     if (b.Name() != "desktop" && _stageDeviceHost(root, b.Name()).Length == 0) { return 1; }
     if (step == "stage") { return 0; }   // 只同步宿主工程副本（上面已做）——CI 预装 node 依赖前用
     if (step == "") { return _platformAll(b, root); }
-    if (step == "build")  { return _platformBuild(b, root); }
+    if (step == "build")  { return b.BuildProject(root); }
     if (step == "assets") { return _platformAssets(b, root); }
-    if (step == "run")    { return _platformRun(b, root); }
+    if (step == "run")    { return b.RunTests(root); }
     ConsoleError.WriteLine("error: unknown step '" + step + "' (stage|build|assets|run)");
     return 2;
 }
@@ -73,15 +74,12 @@ int _platformStep(IPlatformBackend b, string step, string root) {
 
 int _platformAll(IPlatformBackend b, string root) {
     Console.WriteLine("=== platform " + b.Name() + " ① build project ===");
-    int c = _platformBuild(b, root);  if (c != 0) { return c; }
+    int c = b.BuildProject(root);     if (c != 0) { return c; }
     Console.WriteLine("=== platform " + b.Name() + " ② build test assets ===");
     c = _platformAssets(b, root);     if (c != 0) { return c; }
     Console.WriteLine("=== platform " + b.Name() + " ③ run tests ===");
-    return _platformRun(b, root);
+    return b.RunTests(root);
 }
-
-int _platformBuild(IPlatformBackend b, string root) { return b.BuildProject(root); }
-int _platformRun(IPlatformBackend b, string root)   { return b.RunTests(root); }
 
 // ② SHARED: compile R1–R7 fixtures + gather stdlib zpkgs into the backend's
 // declared destinations. The only platform variance is the destination paths
@@ -106,13 +104,12 @@ int _platformAssets(IPlatformBackend b, string root) {
     c = _compileFixture(vm, driverZpkg, stdlibDist, root, "multi_line", layout.fixturesDir);      if (c != 0) { return c; }
 
     // (b) stdlib zpkgs → each declared dir
-    string libs = _libsDir(root);
-    if (!Directory.Exists(libs)) {
-        ConsoleError.WriteLine("error: stdlib not built at " + libs + "; run build stdlib");
+    if (!Directory.Exists(stdlibDist)) {
+        ConsoleError.WriteLine("error: stdlib not built at " + stdlibDist + "; run build stdlib");
         return 1;
     }
     foreach (var dir in layout.stdlibDirs) {
-        c = _copyZpkgsTo(libs, dir);  if (c != 0) { return c; }
+        c = _copyZpkgsTo(stdlibDist, dir);  if (c != 0) { return c; }
     }
 
     // (c) browser fetch-list (wasm only)
@@ -217,26 +214,11 @@ int _copyZpkgsTo(string libsDir, string destDir) {
 // remote dir over HTTP, so it fetches the names listed here. Derived `ls`, never
 // hand-maintained.
 void _writeFilesJson(string stdlibDir) {
-    int n = 0;
-    foreach (var f in Directory.Enumerate(stdlibDir)) {
-        if (f.EndsWith(".zpkg")) { n = n + 1; }
+    List<string> items = new List<string>();
+    foreach (var f in _sortedStrings(Directory.Enumerate(stdlibDir))) {
+        if (f.EndsWith(".zpkg")) { items.Add("  \"" + f + "\""); }
     }
-    string[] names = new string[n];
-    int i = 0;
-    foreach (var f in Directory.Enumerate(stdlibDir)) {
-        if (f.EndsWith(".zpkg")) { names[i] = f; i = i + 1; }
-    }
-    _sortStrings(names);
-
-    string json = "[\n";
-    int k = 0;
-    while (k < names.Length) {
-        json = json + "  \"" + names[k] + "\"";
-        if (k < names.Length - 1) { json = json + ","; }
-        json = json + "\n";
-        k = k + 1;
-    }
-    json = json + "]\n";
+    string json = "[\n" + String.Join(",\n", items.ToArray()) + (items.Count > 0 ? "\n" : "") + "]\n";
     File.WriteAllText(Path.Join(stdlibDir, "files.json"), json);
-    Console.WriteLine("  files.json (" + names.Length + " zpkgs)");
+    Console.WriteLine("  files.json (" + items.Count + " zpkgs)");
 }

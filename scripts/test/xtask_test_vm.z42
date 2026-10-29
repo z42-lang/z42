@@ -23,6 +23,7 @@
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Collections;
 
 // Returns 0 if every case in every mode passes, 1 on any failure (or setup error).
 // shardK/shardN (both > 0) split the golden set across parallel CI machines: a
@@ -60,9 +61,7 @@ int _runVmGoldensF(string[] modes, int jobs, int shardK, int shardN, string dirF
     int overallPass = 0;
     int overallFail = 0;
 
-    int mi = 0;
-    while (mi < modes.Length) {
-        string mode = modes[mi];
+    foreach (var mode in modes) {
         Console.WriteLine("══════════════════════════════════════");
         Console.WriteLine(" Mode: " + mode);
         Console.WriteLine("══════════════════════════════════════");
@@ -78,17 +77,9 @@ int _runVmGoldensF(string[] modes, int jobs, int shardK, int shardN, string dirF
             return 1;
         }
         if (shardN > 0) {
-            _Case[] f = new _Case[cases.Length];
-            int fc = 0;
-            int ci = 0;
-            while (ci < cases.Length) {
-                if ((ci % shardN) == (shardK - 1)) { f[fc] = cases[ci]; fc = fc + 1; }
-                ci = ci + 1;
-            }
-            _Case[] sized = new _Case[fc];
-            ci = 0;
-            while (ci < fc) { sized[ci] = f[ci]; ci = ci + 1; }
-            cases = sized;
+            List<_Case> f = new List<_Case>();
+            for (int ci = shardK - 1; ci < cases.Length; ci = ci + shardN) { f.Add(cases[ci]); }
+            cases = f.ToArray();
             Console.WriteLine(" shard " + shardK.ToString() + "/" + shardN.ToString()
                 + ": " + cases.Length.ToString() + " cases");
         }
@@ -101,7 +92,6 @@ int _runVmGoldensF(string[] modes, int jobs, int shardK, int shardN, string dirF
 
         overallPass = overallPass + pf[0];
         overallFail = overallFail + pf[1];
-        mi = mi + 1;
     }
 
     Console.WriteLine("══════════════════════════════════════");
@@ -121,16 +111,11 @@ int[] _runVmCases(_Case[] cases, string vmBin, string libs, string mode, int job
     if (jobs > 1) { return _runVmBatch(cases, vmBin, libs, mode, jobs); }
     int pass = 0;
     int fail = 0;
-    int i = 0;
-    while (i < cases.Length) {
-        if (_runOneCase(vmBin, libs, cases[i], mode)) { pass = pass + 1; }
+    foreach (var c in cases) {
+        if (_runOneCase(vmBin, libs, c, mode)) { pass = pass + 1; }
         else { fail = fail + 1; }
-        i = i + 1;
     }
-    int[] res = new int[2];
-    res[0] = pass;
-    res[1] = fail;
-    return res;
+    return new int[] { pass, fail };
 }
 
 // Parallel: spawn `jobs` cases per batch, wait on the batch, then judge + print
@@ -165,10 +150,7 @@ int[] _runVmBatch(_Case[] cases, string vmBin, string libs, string mode, int job
         }
         i = i + batchSize;
     }
-    int[] res = new int[2];
-    res[0] = pass;
-    res[1] = fail;
-    return res;
+    return new int[] { pass, fail };
 }
 
 // ── Case shape ───────────────────────────────────────────────────────────
@@ -258,14 +240,8 @@ bool _e2eIncluded(string cat, string name, string srcPath, string dirFilter, str
 // drops out on its own (that is also why the flat segment needs no cat filter of
 // its own: `build test` never emitted a .zbc for a non-regen category).
 _Case[] _enumerateCasesF(string root, string mode, string dirFilter, string fileFilter) {
-    _GoldenEntry[] entries = _walkGoldenCorpus(root);
-    _Case[] cases = new _Case[entries.Length];
-    int n = 0;
-
-    int i = 0;
-    while (i < entries.Length) {
-        _GoldenEntry e = entries[i];
-        i = i + 1;
+    List<_Case> cases = new List<_Case>();
+    foreach (var e in _walkGoldenCorpus(root)) {
         if (e.seg == "lib-file") { continue; }       // stdlib [Test] file units — z42b's, not golden
         if (e.isLib) {
             // Library golden tests are not a src/tests category, so a --dir <cat>
@@ -285,12 +261,7 @@ _Case[] _enumerateCasesF(string root, string mode, string dirFilter, string file
         string artifact = _entryZbc(root, e);
         if (!File.Exists(artifact)) { continue; }
         if (mode == "jit" && e.interpOnly) { continue; }
-        cases[n] = new _Case(e.name, artifact, e.expected, _deriveEntry(e.src));
-        n = n + 1;
+        cases.Add(new _Case(e.name, artifact, e.expected, _deriveEntry(e.src)));
     }
-
-    _Case[] tight = new _Case[n];
-    int t = 0;
-    while (t < n) { tight[t] = cases[t]; t = t + 1; }
-    return tight;
+    return cases.ToArray();
 }

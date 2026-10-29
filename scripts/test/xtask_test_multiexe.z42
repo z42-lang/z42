@@ -8,6 +8,7 @@
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Collections;
 
 // 构建前置与 cross-zpkg 共用 _ensureFixtureToolchain（test/xtask_test.z42）。
 int _testMultiExeCore(string mode, bool noBuild) {
@@ -32,29 +33,17 @@ int _testMultiExeImpl(string mode) {
     string runVm      = ts.RunVm;
     string driverZpkg = ts.DriverZpkg;
 
-    string[] names = _enumDirsSorted(testsDir);
     int pass = 0;
-    int fail = 0;
-    string[] failures = new string[8];
-    int failCount = 0;
-    int i = 0;
-    while (i < names.Length) {
-        string name = names[i];
+    List<string> failures = new List<string>();
+    foreach (var name in _enumDirsSorted(testsDir)) {
         string dir = Path.Join(testsDir, name);
         if (File.Exists(Path.Join(dir, "expected_output.txt"))) {
             Console.WriteLine("── MultiExe: " + name + " ──");
             string failLabel = _runOneMultiExe(compileVm, runVm, driverZpkg, stdlibDist, dir, name, mode);
-            if (failLabel.Length == 0) {
-                pass = pass + 1;
-            } else {
-                fail = fail + 1;
-                failures = _append(failures, failCount, failLabel);
-                failCount = failCount + 1;
-            }
+            if (failLabel.Length == 0) { pass = pass + 1; } else { failures.Add(failLabel); }
         }
-        i = i + 1;
     }
-    return _crossSummary(pass, fail, failures, failCount);
+    return _crossSummary(pass, failures.Count, failures.ToArray(), failures.Count);
 }
 
 // Build the ONE project (→ dist/<exe>.zpkg per `[[exe]]`), then run each produced
@@ -80,18 +69,16 @@ string _runOneMultiExe(string compileVm, string runVm, string driverZpkg, string
 
     string actual = "";
     bool runErr = false;
-    int zi = 0;
-    while (zi < zpkgs.Length) {
+    foreach (var z in zpkgs) {
         try {
             ProcessResult vr = _z42Proc(runVm, testLibs)
-                .Arg(zpkgs[zi])
+                .Arg(z)
                 .Arg("--mode").Arg(mode)
                 .Run();
             actual = actual + vr.Stdout + vr.Stderr;
         } catch (Exception e) {
             runErr = true;
         }
-        zi = zi + 1;
     }
     Directory.Delete(testLibs, true);
 

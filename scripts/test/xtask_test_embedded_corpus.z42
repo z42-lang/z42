@@ -5,6 +5,7 @@
 namespace Z42Xtask;
 
 using Std.IO;
+using Std.Collections;
 
 // One enumerated corpus case (structural descriptor, rid-independent). Shared SoT
 // for both the embedded bundle builder (_buildTestBundle) and the `test list`
@@ -41,17 +42,12 @@ class _CorpusCase {
 // sort — hence the per-bucket regrouping below rather than a single pass.
 _CorpusCase[] _enumerateCorpus(string root, string filter) {
     _GoldenEntry[] es = _walkGoldenCorpus(root);
-    _CorpusCase[] cs = new _CorpusCase[es.Length];
-    int n = 0;
+    List<_CorpusCase> cs = new List<_CorpusCase>();
 
     // 1. src/tests goldens — per category, dir-mode (<cat>/<name>/source.z42) and
     // flat-mode (<cat>/<name>.z42) merged back into one sorted-by-entry-name run.
     foreach (var cat in _enumDirsSorted(Path.Join(root, "src/tests"))) {
-        _GoldenEntry[] bucket = _entriesInBucket(es, "tests-dir", "tests-flat", cat);
-        int bi = 0;
-        while (bi < bucket.Length) {
-            _GoldenEntry e = bucket[bi];
-            bi = bi + 1;
+        foreach (var e in _entriesInBucket(es, "tests-dir", "tests-flat", cat)) {
             if (e.seg == "tests-dir") {
                 if (!e.hasSource) { continue; }
                 if (_isExcludedDirName(cat, e.name)) { continue; }
@@ -62,7 +58,7 @@ _CorpusCase[] _enumerateCorpus(string root, string filter) {
             c.name = caseName; c.bucket = cat; c.kind = "golden";
             c.src = e.src; c.exp = _readExpected(e.expected); c.dir = e.dir;
             c.interpOnly = e.interpOnly; c.optAll = e.optAll;
-            cs[n] = c; n = n + 1;
+            cs.Add(c);
         }
     }
 
@@ -75,7 +71,7 @@ _CorpusCase[] _enumerateCorpus(string root, string filter) {
             _CorpusCase c = new _CorpusCase();
             c.name = caseName; c.bucket = lib; c.kind = "unit";
             c.src = e.src; c.lib = lib; c.leaf = e.name;
-            cs[n] = c; n = n + 1;
+            cs.Add(c);
         }
         _GoldenEntry[] dirs = _entriesInBucket(es, "lib-dir", "lib-dir", lib);
         // 2b. dir-mode [Test] units (tests/<nm>/ with [Test] methods)
@@ -86,7 +82,7 @@ _CorpusCase[] _enumerateCorpus(string root, string filter) {
             _CorpusCase c = new _CorpusCase();
             c.name = caseName; c.bucket = lib; c.kind = "dir-unit";
             c.lib = lib; c.leaf = e.name; c.dir = e.dir;
-            cs[n] = c; n = n + 1;
+            cs.Add(c);
         }
         // 2c. lib-mode goldens (tests/<nm>/source.z42 WITHOUT [Test])
         foreach (var e in dirs) {
@@ -98,13 +94,11 @@ _CorpusCase[] _enumerateCorpus(string root, string filter) {
             c.src = e.src; c.exp = _readExpected(e.expected);
             c.lib = lib; c.leaf = e.name; c.dir = e.dir;
             c.interpOnly = e.interpOnly; c.optAll = e.optAll;
-            cs[n] = c; n = n + 1;
+            cs.Add(c);
         }
     }
 
-    _CorpusCase[] outc = new _CorpusCase[n];
-    int i = 0; while (i < n) { outc[i] = cs[i]; i = i + 1; }
-    return outc;
+    return cs.ToArray();
 }
 
 // Entries of `bucket` (src/tests category or lib name) drawn from one or two
@@ -112,34 +106,23 @@ _CorpusCase[] _enumerateCorpus(string root, string filter) {
 // already name-sorted inside the walk, so a two-pointer merge suffices; pass the
 // same segment twice to select just that one.
 _GoldenEntry[] _entriesInBucket(_GoldenEntry[] es, string segA, string segB, string bucket) {
-    int cap = 0;
-    int i = 0;
-    while (i < es.Length) {
-        if (es[i].cat == bucket && (es[i].seg == segA || es[i].seg == segB)) { cap = cap + 1; }
-        i = i + 1;
-    }
-    _GoldenEntry[] a = new _GoldenEntry[cap];
-    _GoldenEntry[] b = new _GoldenEntry[cap];
-    int na = 0; int nb = 0;
-    i = 0;
-    while (i < es.Length) {
-        _GoldenEntry e = es[i];
-        i = i + 1;
+    List<_GoldenEntry> a = new List<_GoldenEntry>();
+    List<_GoldenEntry> b = new List<_GoldenEntry>();
+    foreach (var e in es) {
         if (e.cat != bucket) { continue; }
-        if (e.seg == segA) { a[na] = e; na = na + 1; }
-        else if (e.seg == segB) { b[nb] = e; nb = nb + 1; }
+        if (e.seg == segA) { a.Add(e); }
+        else if (e.seg == segB) { b.Add(e); }
     }
-    _GoldenEntry[] merged = new _GoldenEntry[cap];
-    int ia = 0; int ib = 0; int m = 0;
-    while (ia < na || ib < nb) {
-        if (ib >= nb || (ia < na && a[ia].entryName.CompareTo(b[ib].entryName) <= 0)) {
-            merged[m] = a[ia]; ia = ia + 1;
+    List<_GoldenEntry> merged = new List<_GoldenEntry>();
+    int ia = 0; int ib = 0;
+    while (ia < a.Count || ib < b.Count) {
+        if (ib >= b.Count || (ia < a.Count && a[ia].entryName.CompareTo(b[ib].entryName) <= 0)) {
+            merged.Add(a[ia]); ia = ia + 1;
         } else {
-            merged[m] = b[ib]; ib = ib + 1;
+            merged.Add(b[ib]); ib = ib + 1;
         }
-        m = m + 1;
     }
-    return merged;
+    return merged.ToArray();
 }
 
 // Per-category sampling for the embed smoke cap: pick up to `cap` cases spread
@@ -181,10 +164,10 @@ _CorpusCase[] _sampleCorpus(_CorpusCase[] cases, int cap) {
         }
     }
     // Emit in original enumeration order (stable bundle / manifest ordering).
-    _CorpusCase[] outc = new _CorpusCase[picked];
-    int k = 0; i = 0;
-    while (i < total) { if (selected[i]) { outc[k] = cases[i]; k = k + 1; } i = i + 1; }
-    return outc;
+    List<_CorpusCase> outc = new List<_CorpusCase>();
+    i = 0;
+    while (i < total) { if (selected[i]) { outc.Add(cases[i]); } i = i + 1; }
+    return outc.ToArray();
 }
 
 // Full-coverage sharding for parallel tier-2 CI. Partition the (already capability-filtered) corpus into n DISJOINT slices by
@@ -194,14 +177,10 @@ _CorpusCase[] _sampleCorpus(_CorpusCase[] cases, int cap) {
 // _enumerateCorpus, so each shard stays category-balanced. Deterministic: keyed
 // on enumeration order only, so re-runs and shard boundaries are reproducible.
 _CorpusCase[] _shardCorpus(_CorpusCase[] cases, int k, int n) {
-    int total = cases.Length;
-    int cnt = 0;
-    int i = 0;
-    while (i < total) { if ((i % n) == (k - 1)) { cnt = cnt + 1; } i = i + 1; }
-    _CorpusCase[] outc = new _CorpusCase[cnt];
-    int o = 0; i = 0;
-    while (i < total) { if ((i % n) == (k - 1)) { outc[o] = cases[i]; o = o + 1; } i = i + 1; }
-    return outc;
+    List<_CorpusCase> outc = new List<_CorpusCase>();
+    int i = k - 1;
+    while (i < cases.Length) { outc.Add(cases[i]); i = i + n; }
+    return outc.ToArray();
 }
 
 // Build the test bundle. Returns the manifest.json path ("" if no cases matched).
@@ -232,29 +211,26 @@ string _buildTestBundle(string root, string filter, string rid, int shardK, int 
 
     string items = "";
     int count = 0;
-    int si = 0;
-    while (si < sel.Length) {
-        _CorpusCase c = sel[si];
+    foreach (var c in sel) {
         string entry = "";
         if (c.kind == "unit") {
             string safe = _bundleSafeName(c.name);
             string zbc = _emitUnitZbc(root, c.src, safe, bundleDir, false);
-            if (zbc.Length == 0) { ConsoleError.WriteLine("  ✗ unit " + c.name); si = si + 1; continue; }
+            if (zbc.Length == 0) { ConsoleError.WriteLine("  ✗ unit " + c.name); continue; }
             entry = "    {\"name\": \"" + c.name + "\", \"zbc\": \"" + safe + ".zbc\"}";
         } else if (c.kind == "dir-unit") {
             string safe = _bundleSafeName(c.name);
             string zbc = _emitDirUnit(root, c.lib, c.leaf, c.dir, safe, bundleDir);
-            if (zbc.Length == 0) { ConsoleError.WriteLine("  ✗ dir-unit " + c.name); si = si + 1; continue; }
+            if (zbc.Length == 0) { ConsoleError.WriteLine("  ✗ dir-unit " + c.name); continue; }
             entry = "    {\"name\": \"" + c.name + "\", \"zbc\": \"" + safe + ".zpkg\"}";
         } else {   // golden
             entry = _goldenEntry(root, c.name, c.src, c.exp, bundleDir, c.optAll);
-            if (entry.Length == 0) { ConsoleError.WriteLine("  ✗ golden " + c.name); si = si + 1; continue; }
+            if (entry.Length == 0) { ConsoleError.WriteLine("  ✗ golden " + c.name); continue; }
         }
         entry = _withRequires(entry, _caseRequires(c));
         if (count > 0) { items = items + ",\n"; }
         items = items + entry;
         count = count + 1;
-        si = si + 1;
     }
 
     if (shardN > 0) {
@@ -282,32 +258,19 @@ string[] _caseRequires(_CorpusCase c) {
     string[] files = new string[0];
     if (c.src.Length > 0) { files = new string[]{ c.src }; }
     else if (c.dir.Length > 0 && Directory.Exists(c.dir)) { files = _sortedStrings(Path.GlobRecursive(c.dir, "*.z42")); }
-    string[] acc = new string[8];
-    int n = 0;
+    List<string> acc = new List<string>();
     foreach (var f in files) {
         foreach (var cap in _epScenarioRequiredCaps(File.ReadAllText(f))) {
-            bool seen = false;
-            int i = 0;
-            while (i < n) { if (acc[i] == cap) { seen = true; } i = i + 1; }
-            if (!seen) { acc = _append(acc, n, cap); n = n + 1; }
+            if (!acc.Contains(cap)) { acc.Add(cap); }
         }
     }
-    string[] r = new string[n];
-    int k = 0;
-    while (k < n) { r[k] = acc[k]; k = k + 1; }
-    return r;
+    return acc.ToArray();
 }
 
 // Append `"requires": [...]` to a manifest entry object (`{...}`) when non-empty.
 string _withRequires(string entry, string[] reqs) {
     if (reqs.Length == 0) { return entry; }
-    string arr = "";
-    int i = 0;
-    while (i < reqs.Length) {
-        if (i > 0) { arr = arr + ", "; }
-        arr = arr + "\"" + reqs[i] + "\"";
-        i = i + 1;
-    }
+    string arr = "\"" + String.Join("\", \"", reqs) + "\"";
     int close = entry.LastIndexOf("}");
     return entry.Substring(0, close) + ", \"requires\": [" + arr + "]" + entry.Substring(close);
 }
