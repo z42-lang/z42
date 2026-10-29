@@ -56,15 +56,10 @@ pub fn feature_enabled(name: &str) -> bool {
     }
 }
 
-/// 当前 OS 标识。**归一化**：wasm 目标下 `std::env::consts::OS` 是 `"unknown"`
-/// （wasm32-unknown-unknown）或 `"wasi"`，都不便在旋钮表里书写；这里统一报
-/// `"wasm"`，与 `Std.Platform` 的 `OSKind::Wasm` 口径一致。
+/// 当前 OS 标识。**归一化**：wasm 目标统一报 `"wasm"`（见 [`crate::pal::system::os_name`]），
+/// 与 `Std.Platform` 的 `OSKind::Wasm` 口径一致。
 pub fn current_os() -> &'static str {
-    if cfg!(target_arch = "wasm32") {
-        "wasm"
-    } else {
-        std::env::consts::OS
-    }
+    crate::pal::system::os_name()
 }
 
 /// 求值所处的构建/运行环境。单测注入假值，避免断言随 build preset 漂移。

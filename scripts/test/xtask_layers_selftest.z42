@@ -22,7 +22,7 @@ int _lyExpect(string what, string got, string want) {
 int _lySelfTestMap() {
     int f = 0;
     f = f + _lyExpect("map pal", _lyComponentOf("pal/fs.rs"), "pal");
-    f = f + _lyExpect("map os_mem", _lyComponentOf("gc/os_mem.rs"), "pal");
+    f = f + _lyExpect("map pal mem", _lyComponentOf("pal/mem.rs"), "pal");
     f = f + _lyExpect("map gc 默认", _lyComponentOf("gc/arc_heap/alloc.rs"), "gc");
     f = f + _lyExpect("map safepoint", _lyComponentOf("gc/safepoint.rs"), "vm.threads");
     f = f + _lyExpect("map sampler", _lyComponentOf("gc/sampler.rs"), "profiler");

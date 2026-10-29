@@ -15,7 +15,7 @@
 # z42-gates:doc-refs-begin（xtask check doc-refs --update 维护）
 [doc-refs]
 readme = 173
-internals = 799
+internals = 798
 reference = 253
 # z42-gates:doc-refs-end
 
@@ -70,14 +70,8 @@ reference = 253
 "vm.threads -> vm.core" = 1
 [layers.cfg]
 "corelib" = 107
-"gc" = 13
 "vm.core" = 8
-"facade" = 5
 "vm.runtime" = 4
-"host" = 3
-"vm.exec" = 2
 [layers.libc]
 "corelib" = 6
-"facade" = 6
-"vm.exec" = 1
 # z42-gates:layers-end

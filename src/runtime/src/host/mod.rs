@@ -735,40 +735,26 @@ pub unsafe extern "C" fn z42_host_run_app(
                 }
             }
         };
-        // wasm is single-threaded and enters via z42_wasm (not this C symbol), so
-        // this native-only big-stack path never runs there — but host/mod.rs still
-        // compiles for wasm32, so gate the thread spawn out.
-        #[cfg(target_arch = "wasm32")]
-        {
-            run_vm()
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            // 16 MB = 2× the desktop main-thread default (8 MB on Linux/macOS, which
-            // the corpus is known to run within). The bound is principled: the
-            // crashing cases overflow the ~1 MB Android/iOS runner thread but pass on
-            // desktop's 8 MB, so ≥8 MB suffices; 2× is margin. Bigger buys nothing —
-            // a program needing >8 MB would already fail on desktop. Virtual
-            // reservation on 64-bit (only touched pages commit), well within
-            // Android/iOS per-thread limits.
-            // runtime-audit P0-4: configurable as `thread-stack-bytes` (default 16M).
-            let embed_stack = crate::config::runtime_config().vm_thread_stack_size();
-            match std::thread::Builder::new()
-                .name("z42-embedded-run".to_string())
-                .stack_size(embed_stack)
-                .spawn(run_vm)
-            {
-                Ok(h) => match h.join() {
-                    Ok(code) => code,
-                    Err(_) => {
-                        eprintln!("z42_host_run_app: VM thread panicked (see stderr above)");
-                        70
-                    }
-                },
-                Err(e) => {
-                    eprintln!("z42_host_run_app: spawn VM thread failed: {e}");
-                    71
-                }
+        // 16 MB = 2× the desktop main-thread default (8 MB on Linux/macOS, which
+        // the corpus is known to run within). The bound is principled: the
+        // crashing cases overflow the ~1 MB Android/iOS runner thread but pass on
+        // desktop's 8 MB, so ≥8 MB suffices; 2× is margin. Bigger buys nothing —
+        // a program needing >8 MB would already fail on desktop. Virtual
+        // reservation on 64-bit (only touched pages commit), well within
+        // Android/iOS per-thread limits.
+        // runtime-audit P0-4: configurable as `thread-stack-bytes` (default 16M).
+        // wasm is single-threaded and enters via z42_wasm (not this C symbol);
+        // `run_with_stack` runs inline there.
+        let embed_stack = crate::config::runtime_config().vm_thread_stack_size();
+        match crate::pal::thread::run_with_stack("z42-embedded-run", embed_stack, run_vm) {
+            Ok(code) => code,
+            Err(crate::pal::thread::RunError::Panicked) => {
+                eprintln!("z42_host_run_app: VM thread panicked (see stderr above)");
+                70
+            }
+            Err(crate::pal::thread::RunError::Spawn(e)) => {
+                eprintln!("z42_host_run_app: spawn VM thread failed: {e}");
+                71
             }
         }
     }));

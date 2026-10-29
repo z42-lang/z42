@@ -172,21 +172,10 @@ impl FrameStack {
     }
 }
 
-/// A process-unique id of the calling thread. On unix it is `pthread_self()`
-/// — a register read, safe in a signal handler (unlike a `thread_local!`,
-/// whose first access may allocate).
-#[cfg(unix)]
+/// A process-unique id of the calling thread (see [`crate::pal::thread::current_token`]).
 #[inline]
 pub(crate) fn thread_token() -> usize {
-    // SAFETY: `pthread_self` has no preconditions.
-    unsafe { libc::pthread_self() as usize }
-}
-
-#[cfg(not(unix))]
-#[inline]
-pub(crate) fn thread_token() -> usize {
-    thread_local! { static TOKEN: u8 = const { 0 }; }
-    TOKEN.with(|t| t as *const u8 as usize)
+    crate::pal::thread::current_token()
 }
 
 #[cfg(test)]

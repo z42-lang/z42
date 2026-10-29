@@ -12,7 +12,6 @@ observers / profiler / weak refs / finalizers / strict OOM / ...）。
 |------|------|
 | `heap.rs` | `trait MagrGC` —— GC 抽象接口（MMTk porting contract 形态，11 能力组） |
 | `mode.rs` | `GcMode`：`GenerationalMarkSweep`（默认）/ `StwMarkSweep`，`Z42_GC_MODE` 选择 |
-| `os_mem.rs` | 页粒度内存：slab 的 `mmap`/`munmap`（非 unix 走分配器）、`decommit`/`recommit`（`madvise`），chunk 池 decommit 用。机制见 [book: GC TLAB · decommit](../../../../docs/internals/src/runtime/gc-tlab.md#池中空-chunk-的-decommit) |
 | `footprint.rs` | `Footprint`：堆的真实占用（committed / pooled / occupied），三个 region 共用一份、随变随记；`malloc_size` 分配器取整模型。机制见 [book: GC 调参 · 真实占用记账](../../../../docs/internals/src/runtime/gc-tuning.md#真实占用记账与软上限) |
 | `arc_heap.rs` | `ArcMagrGC` 协调器 —— struct/字段、句柄表、类型别名、`Default`/`Debug` + concern 子模块声明 |
 | `arc_heap/construct.rs` | `Default` 构造（`new()` 委托到它） |

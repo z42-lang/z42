@@ -2,6 +2,8 @@
 //! table. The actual signal-firing path is covered by the
 //! `signal_handler` integration tests.
 
+#![cfg(unix)]
+
 use super::sigsafe;
 use super::signal_name;
 
