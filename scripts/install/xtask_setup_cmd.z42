@@ -8,16 +8,19 @@ namespace Z42Xtask;
 
 using Std.Cli;
 
+// --os 的取值域 = versions.toml [workload] 的跨平台 workload，运行时注入 choices。
 class SetupCommand : Command {
-    [Option(help: "platform: a cross workload in versions.toml [workload] (default: host base only, no cross stacks)")] public string Os = "";
     [Option(help: "force reinstall")] public bool Force;
+    public CliOption<string> Os;
 
     public SetupCommand() : base("setup", "prepare this machine") {
+        this.Os = this.AddOption<string>("os", "", help: "platform (default: host base only, no cross stacks)",
+                                         choices: _vCrossWorkloads(_root()));
         this.SetDefaultAction("install the host base / a platform's essential deps");
         this.AddCommand(new SetupVscodeCommand());
         this.AddCommand(new SetupCheckCommand());
     }
-    public override int Run() { return _setupInstall(this.Os, this.Force); }
+    public override int Run() { return _setupInstall(this.Os.Value, this.Force); }
 }
 
 class SetupVscodeCommand : Command {
@@ -26,8 +29,11 @@ class SetupVscodeCommand : Command {
 }
 
 class SetupCheckCommand : Command {
-    [Option(help: "platform: a cross workload in versions.toml [workload] (default: all, informational; with --os a missing dep fails)")] public string Os = "";
+    public CliOption<string> Os;
 
-    public SetupCheckCommand() : base("check", "dev deps present? (read-only; strict only with --os)") {}
-    public override int Run() { return _setupCheck(this.Os); }
+    public SetupCheckCommand() : base("check", "dev deps present? (read-only; strict only with --os)") {
+        this.Os = this.AddOption<string>("os", "", help: "platform (default: all, informational; with --os a missing dep fails)",
+                                         choices: _vCrossWorkloads(_root()));
+    }
+    public override int Run() { return _setupCheck(this.Os.Value); }
 }

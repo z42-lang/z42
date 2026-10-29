@@ -14,11 +14,6 @@ using Std.Toml;
 
 int _setupCheck(string os) {
     string root = _root();
-    string[] cross = _vCrossWorkloads(root);
-    if (os.Length > 0 && !_strIn(cross, os)) {
-        ConsoleError.WriteLine("setup check --os: unknown platform '" + os + "' (" + _joinStrings(cross, "|") + ")");
-        return 2;
-    }
     TomlValue toml = TomlValue.Parse(File.ReadAllText(_versionsPath(root)));
     int presenceFail = 0;
 

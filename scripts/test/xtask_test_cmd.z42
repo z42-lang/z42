@@ -9,6 +9,7 @@
 namespace Z42Xtask;
 
 using Std.Cli;
+using Std.Collections;
 
 class TestCommand : Command {
     [Option(help: "skip z42c+stdlib rebuild — consume what the bootstrap/toolchain already built")]
@@ -142,13 +143,19 @@ class TestAppCommand : Command {
     [Option(help: "desktop run report (default: json)", choices: new string[]{ "json", "pretty", "tap" })]
     public string Format = "";
     [Option(help: "desktop: run one .zbc or one golden case dir instead of a corpus bundle")] public string Zbc = "";
-    [Argument(help: "a workload in versions.toml [workload], or all (all = every platform this host supports; others are skipped with a reason)")]
-    public string Platform = "";
-    [Argument(help: "one step only (default: the whole pipeline)",
-              choices: new string[]{ "stage", "build", "assets", "bundle", "run" })]
-    public string Step = "";
+    public CliArgument<string> Platform;
+    public CliArgument<string> Step;
 
-    public TestAppCommand() : base("app", "embedding hosts: desktop / wasm / ios / android / all (unsupported hosts are skipped)") {}
+    // 平台域 = versions.toml [workload].members + all，运行时注入 choices。
+    public TestAppCommand() : base("app", "embedding hosts: desktop / wasm / ios / android / all (unsupported hosts are skipped)") {
+        List<string> plats = new List<string>();
+        plats.AddRange(_vWorkloads(_root()));
+        plats.Add("all");
+        this.Platform = this.AddArgument<string>("platform", "", required: true, choices: plats.ToArray(),
+            help: "all = every platform this host supports; others are skipped with a reason");
+        this.Step = this.AddArgument<string>("step", "", help: "one step only (default: the whole pipeline)",
+            choices: new string[]{ "stage", "build", "assets", "bundle", "run" });
+    }
     public override int Run() { return _testApp(this); }
 }
 

@@ -133,16 +133,14 @@ xtask doc index
 
 ## 8. 门禁（`xtask check`）
 
-三道都**不在 GREEN gate 的 stage 清单里**；CI 只在**纯文档 PR** 的 docs-check 里跑其中两道（doc-refs、docs-api，
-见 [CI 拓扑](../devinfra/ci.md)）。doc-lints 任何 CI job 都不跑：纯文档改动碰不到 stdlib 的 `///`，而改了 `///`
-的 PR 又不走 docs-check——所以改 stdlib `///` 的 PR 合并前要本地 `xtask check doc-lints`，否则棘轮会被无声推高、
-漂移到下一个人手里才红。三道的单跑方式与基线见[怎么跑测试](../devinfra/testing.md)。
+doc-lints 是 GREEN gate 的一个 stage（改 stdlib `///` 的 PR 都会过它）；doc-refs、docs-api 不在 GREEN gate 里，
+CI 只在**纯文档 PR** 的 docs-check 里跑（见 [CI 拓扑](../devinfra/ci.md)）。三道的单跑方式见[怎么跑测试](../devinfra/testing.md)。
 
 | 门 | 守什么 | 基线 |
 |---|---|---|
 | `check docs-api` | 已迁移包的 reference 页与源码 `///` 一致：重新渲染（§5）并与仓库内文件 diff，连 SUMMARY 的 type-split 区段一起对账；不一致即红并提示 `xtask doc gen` | 无（生成物对账） |
-| `check doc-lints` | stdlib（`src/libraries/`）各包的 doc 注释过 `DocLint` 语法级检查，各 W08xx 码的计数不得超过基线 | `scripts/test/doc-lint-baseline.txt`，只降不升；只列还有存量的码，清零即删行；`--update` 重写 |
-| `check doc-refs` | internals / reference 手写页与 `src/**/README.md` 三区域里的代码引用：**行号引用**（基线已为 0，即硬指标——任何新增即红）与**解析不了的多段链**（棘轮） | `scripts/test/doc-refs-baseline.txt`，每区域两数，只降不升；`--update` 重写 |
+| `check doc-lints` | stdlib（`src/libraries/`）各包的 doc 注释过 `DocLint` 语法级检查，任何 W08xx 发现即红并逐条列出位置 | 无（硬门、无白名单） |
+| `check doc-refs` | internals / reference 手写页与 `src/**/README.md` 三区域里的代码引用：**行号引用**（硬指标——任何新增即红）与**解析不了的多段链**（棘轮） | `scripts/test/gates.toml [doc-refs]`，每区域一个数，只降不升；`--update` 重写 |
 
 **DocLint**（`z42.doc` 包的 `DocLint.CheckPaths`）在语法索引上做不需要语义的检查，按包分组跑（W0808
 「同一命名空间一份 `//!`」按包判）：W0801 孤立块、W0802 `@param` / `@typeparam` 名不在签名里、W0804 未知
