@@ -83,7 +83,7 @@ pub struct VmCore {
     /// pointers stored in `native_types` stay valid. Lock contention low
     /// (only `dlopen` adds entries) → plain Mutex.
     #[cfg(feature = "native-interop")]
-    pub(crate) native_libs:        Mutex<Vec<libloading::Library>>,
+    pub(crate) native_libs:        Mutex<Vec<crate::pal::dynlib::Library>>,
     /// Spec C10 — owned byte buffers backing `Value::PinnedView` instances.
     /// Keyed by buffer data pointer so `UnpinPtr` can drop the entry.
     pub(crate) pinned_owned_buffers: Mutex<HashMap<u64, Box<[u8]>>>,

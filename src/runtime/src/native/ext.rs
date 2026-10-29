@@ -156,10 +156,7 @@ const KNOWN_EXT_LIBS: &[(&str, &[&str])] = &[
 /// the usual missing-builtin error).
 #[cfg(not(feature = "bundled-compression"))]
 fn load_by_name(ctx: &VmContext, name: &str) -> Result<bool> {
-    let file = format!(
-        "{}z42_{}{}",
-        std::env::consts::DLL_PREFIX, name, std::env::consts::DLL_SUFFIX
-    );
+    let file = crate::pal::dynlib::file_name(&format!("z42_{name}"));
     for dir in native_search_paths() {
         let path = dir.join(&file);
         if !path.is_file() { continue; }
@@ -226,13 +223,7 @@ pub(crate) fn native_search_paths() -> Vec<PathBuf> {
 /// (add-path-dependencies D9/D10 — native dependencies colocated beside the
 /// consumer's zpkg; supersedes isolate-repl-cdylib.)
 pub(crate) fn resolve_native_beside(zpkg_dir: &std::path::Path, lib_name: &str) -> Option<PathBuf> {
-    let file = format!(
-        "{}{}{}",
-        std::env::consts::DLL_PREFIX,
-        lib_name,
-        std::env::consts::DLL_SUFFIX
-    );
-    let candidate = zpkg_dir.join(file);
+    let candidate = zpkg_dir.join(crate::pal::dynlib::file_name(lib_name));
     candidate.is_file().then_some(candidate)
 }
 
@@ -240,7 +231,7 @@ pub(crate) fn resolve_native_beside(zpkg_dir: &std::path::Path, lib_name: &str) 
 
 #[cfg(not(feature = "bundled-compression"))]
 fn load_one(ctx: &VmContext, path: &std::path::Path, name: &str) -> Result<()> {
-    let lib = unsafe { libloading::Library::new(path)? };
+    let lib = unsafe { crate::pal::dynlib::Library::open(path)? };
 
     match name {
         "compression" => {
@@ -332,7 +323,7 @@ type CLastErrorFn = unsafe extern "C" fn() -> *const std::os::raw::c_char;
 
 /// The complete set of C ABI fn ptrs from libz42_compression. Stashed in
 /// process-static `LoadedCompression` so wrapper closures can look them
-/// up without re-querying the libloading::Library on every call.
+/// up without re-querying the library on every call.
 ///
 /// `free` frees a buffer the cdylib returned (via its OWN allocator). unify-gc-heap
 /// PR-3 fix: `take_owned_buffer` now copies the returned bytes into a Rust-owned Vec and
@@ -359,7 +350,7 @@ struct LoadedCompression {
     /// process-static table, so it stays loaded for as long as the pointers can
     /// be called — not just for the VM that happened to load it first.
     #[cfg(not(feature = "bundled-compression"))]
-    _lib:                libloading::Library,
+    _lib:                crate::pal::dynlib::Library,
 }
 
 /// Set once per process by the first VM that loads the library. Read without a
@@ -388,7 +379,7 @@ fn loaded(ctx: &VmContext, name: &str) -> Result<&'static LoadedCompression> {
 
 #[cfg(not(feature = "bundled-compression"))]
 unsafe fn compression_symbols_via_dlopen(
-    lib: libloading::Library,
+    lib: crate::pal::dynlib::Library,
 ) -> Result<&'static [(&'static str, NativeFn)]> {
     // ABI handshake — resolve the version symbol FIRST and refuse to bind the
     // rest unless it matches what these signatures were written against. The
@@ -397,7 +388,7 @@ unsafe fn compression_symbols_via_dlopen(
     // possibly different layout; calling it through the current `C*Fn` types
     // would be UB. A missing symbol (pre-versioning build) fails the `?` the same
     // way — the caller warns and skips the library rather than guess.
-    let abi_version: CAbiVersionFn = *(lib.get(b"z42_compression_abi_version")?);
+    let abi_version: CAbiVersionFn = lib.symbol("z42_compression_abi_version")?;
     let got = abi_version();
     if got != EXPECTED_COMPRESSION_ABI {
         anyhow::bail!(
@@ -413,23 +404,22 @@ unsafe fn compression_symbols_via_dlopen(
         return Ok(&[]);
     }
 
-    // libloading::Symbol::* deref to the underlying fn ptr. We copy the
-    // fn ptrs out (Copy) and move the Library into the table next to them
+    // Copy the fn ptrs out and move the library into the table next to them
     // so the symbols stay resident.
-    let deflate_compress: CDeflateCompressFn = *(lib.get(b"z42_compression_deflate_compress")?);
-    let deflate_decompress: CDeflateDecompressFn = *(lib.get(b"z42_compression_deflate_decompress")?);
-    let zstd_compress: CZstdCompressFn = *(lib.get(b"z42_compression_zstd_compress")?);
-    let zstd_decompress: CZstdDecompressFn = *(lib.get(b"z42_compression_zstd_decompress")?);
-    let brotli_compress: CBrotliCompressFn = *(lib.get(b"z42_compression_brotli_compress")?);
-    let brotli_decompress: CBrotliDecompressFn = *(lib.get(b"z42_compression_brotli_decompress")?);
-    let lz4_compress: CLz4CompressFn = *(lib.get(b"z42_compression_lz4_compress")?);
-    let lz4_decompress: CLz4DecompressFn = *(lib.get(b"z42_compression_lz4_decompress")?);
-    let compressor_begin: CCompressorBeginFn = *(lib.get(b"z42_compression_compressor_begin")?);
-    let compressor_feed: CCompressorFeedFn = *(lib.get(b"z42_compression_compressor_feed")?);
-    let compressor_finish: CCompressorFinishFn = *(lib.get(b"z42_compression_compressor_finish")?);
-    let compressor_dispose: CCompressorDisposeFn = *(lib.get(b"z42_compression_compressor_dispose")?);
-    let free: CFreeFn = *(lib.get(b"z42_compression_free")?);
-    let last_error: CLastErrorFn = *(lib.get(b"z42_compression_last_error")?);
+    let deflate_compress: CDeflateCompressFn = lib.symbol("z42_compression_deflate_compress")?;
+    let deflate_decompress: CDeflateDecompressFn = lib.symbol("z42_compression_deflate_decompress")?;
+    let zstd_compress: CZstdCompressFn = lib.symbol("z42_compression_zstd_compress")?;
+    let zstd_decompress: CZstdDecompressFn = lib.symbol("z42_compression_zstd_decompress")?;
+    let brotli_compress: CBrotliCompressFn = lib.symbol("z42_compression_brotli_compress")?;
+    let brotli_decompress: CBrotliDecompressFn = lib.symbol("z42_compression_brotli_decompress")?;
+    let lz4_compress: CLz4CompressFn = lib.symbol("z42_compression_lz4_compress")?;
+    let lz4_decompress: CLz4DecompressFn = lib.symbol("z42_compression_lz4_decompress")?;
+    let compressor_begin: CCompressorBeginFn = lib.symbol("z42_compression_compressor_begin")?;
+    let compressor_feed: CCompressorFeedFn = lib.symbol("z42_compression_compressor_feed")?;
+    let compressor_finish: CCompressorFinishFn = lib.symbol("z42_compression_compressor_finish")?;
+    let compressor_dispose: CCompressorDisposeFn = lib.symbol("z42_compression_compressor_dispose")?;
+    let free: CFreeFn = lib.symbol("z42_compression_free")?;
+    let last_error: CLastErrorFn = lib.symbol("z42_compression_last_error")?;
 
     // Losing a race with another thread's load is fine: the winner's table is
     // equivalent, and this handle is dropped with the rejected value.
