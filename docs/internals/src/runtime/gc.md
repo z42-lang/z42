@@ -320,6 +320,15 @@ chunk 内存还给系统 malloc，新堆可能在**同一地址**重分配块，
 `"".Length==13` 类串味；`is_live` 的 gen 守卫只防同 region 内复用，防不住跨堆）。epoch 单调 ⇒
 换堆必变 ⇒ 缓存整清 ⇒ 复用地址永不被误判为旧堆的活条目。
 
+**同一个堆里也有一种地址会还给 malloc：超大块的独占 chunk。** bump chunk 空了只进池、region 活着就一直映射，
+所以 gen 守卫对它们够用；> 64 KB（`Z42_GC_LOH_BYTES`）的块独占一个 chunk，块一死该 chunk 就 `dealloc`，
+malloc 下一次在同址放下的块（另一个超大块，或新 bump chunk 的首块）从 `FIRST_GEN` 起——与死串的
+generation 相同，旧条目照样假命中。所以 `str_meta` 条目在块**可能**位于独占 chunk 时
+（`var_region::may_be_dedicated`）记下弱引用同款的 `(chunk, epoch)` 戳（`MagrGC::var_chunk_stamp`，
+chunk 被释放时 epoch 前进）；每次查表比一次进程级的「独占 chunk 释放计数」（`var_region::dedicated_free_count`，
+一次 load），计数变了才在 region 锁下逐条核对带戳条目、丢掉 chunk 已释放的——在读它的块头之前。
+bump chunk 里的条目从不核对，别处释放大块只让带戳条目多一次加锁、不重算。
+
 **融合拼接分配 `alloc_str_concat2(a, b)`**：字符串 `+`
 （IR `StrConcat` / `Std.String.Concat`）若走 `alloc_str(&format!("{a}{b}"))` 是**两次堆分配**
 （中间 `String` + GC 块）+ interp 侧还各 clone 一份操作数（`str_val`）共 **4 次分配 / 3 次 O(n) 拷贝**。

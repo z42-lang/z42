@@ -41,6 +41,23 @@
 //! epoch. Because the epoch is never reused, a recycled address in a *new* heap can
 //! never be mistaken for a live entry from the *old* one.
 //!
+//! Freed-chunk soundness (D7): `is_live` reads the cached block's header, which is only
+//! sound while that memory is still the region's. Blocks in bump chunks qualify — a bump
+//! chunk is pooled when it empties, never handed back while the region lives. An oversized
+//! block (> 64 KB, `Z42_GC_LOH_BYTES`) does not: it sits alone in a dedicated chunk that the
+//! collection `dealloc`s the moment the block dies, and whatever malloc puts at that address
+//! next (another oversized block, the first block of a fresh bump chunk) is born at
+//! `FIRST_GEN` — the dead string's generation — so the stale entry would pass both checks and
+//! return the dead string's char count and offsets (wrong `Length`, `CharAt` slicing at a
+//! non-boundary). So an entry whose block may be in a dedicated chunk
+//! ([`var_region::may_be_dedicated`]) records that chunk's `(chunk, epoch)` stamp — the identity
+//! weak references use; the epoch moves when the chunk is freed — and every lookup compares the
+//! process-wide dedicated-free count ([`var_region::dedicated_free_count`], one load). When the
+//! count moved since the last lookup, each stamped entry is re-checked against its chunk under
+//! the region lock and dropped if the chunk was freed — before anything reads its header.
+//! Bump-chunk entries are never re-checked, and a free elsewhere costs a dedicated entry one
+//! lock, not a recompute.
+//!
 //! The cache only changes *speed*, never the returned value — byte-identical
 //! output is preserved.
 //!
@@ -51,6 +68,7 @@
 //! set the bit.
 
 use std::cell::{Cell, RefCell};
+use crate::gc::var_region;
 use crate::metadata::vstr::Str;
 
 struct StrMeta {
@@ -62,6 +80,10 @@ struct StrMeta {
     /// `Some` only for non-ASCII strings: `offsets[i]` is the byte offset of
     /// the i-th char. ASCII strings index bytes directly (offset == index).
     offsets:  Option<Box<[u32]>>,
+    /// D7: `Some((chunk, epoch))` when `s` may sit in a dedicated chunk, whose memory goes back
+    /// to the allocator when `s` dies — see the module's freed-chunk note. `None` for a block in
+    /// a bump chunk (or in no chunk at all), whose header stays readable.
+    chunk:    Option<(u32, u32)>,
 }
 
 // Small N-way cache. The lexer hammers a single source string (→ ~100% hit on
@@ -75,7 +97,10 @@ thread_local! {
     /// a mismatch with the current epoch (a heap switch — a new VM on this thread), the whole
     /// cache is dropped, because a torn-down heap's block addresses get recycled and a fresh
     /// gen-0 block at a recycled address would otherwise false-hit a stale gen-0 entry.
-    static LAST_EPOCH: Cell<u64> = const { Cell::new(0) };
+    /// Paired with **D7**'s dedicated-chunk free count ([`var_region::dedicated_free_count`]) at
+    /// the last lookup: when that moves, every entry stamped with a chunk is re-checked before
+    /// reuse. One cell, so the lookup pays one TLS access for both.
+    static LAST_EPOCH: Cell<(u64, u64)> = const { Cell::new((0, 0)) };
 }
 
 #[inline]
@@ -84,14 +109,38 @@ fn data_ptr(s: &Str) -> *const u8 {
 }
 
 fn compute(s: &Str) -> StrMeta {
+    // D7: stamp a block that may live in a dedicated chunk (`s` is live here, so the stamp names
+    // its chunk). One region lock, only for blocks past the large-object threshold — whose
+    // offsets table below is a ≥ 64 KB walk anyway.
+    let chunk = if var_region::may_be_dedicated(s.len()) {
+        crate::gc::ambient::current_heap().and_then(|h| h.var_chunk_stamp(s.var_ref()))
+    } else {
+        None
+    };
     let bytes = s.as_bytes();
     if bytes.is_ascii() {
-        StrMeta { s: s.clone(), char_len: bytes.len(), ascii: true, offsets: None }
+        StrMeta { s: s.clone(), char_len: bytes.len(), ascii: true, offsets: None, chunk }
     } else {
         let offsets: Vec<u32> = s.char_indices().map(|(b, _)| b as u32).collect();
         let char_len = offsets.len();
-        StrMeta { s: s.clone(), char_len, ascii: false, offsets: Some(offsets.into_boxed_slice()) }
+        StrMeta { s: s.clone(), char_len, ascii: false, offsets: Some(offsets.into_boxed_slice()), chunk }
     }
+}
+
+/// D7: drop every entry whose dedicated chunk was freed since it was stamped — its header
+/// address may now be unmapped, or hold a different block at the same generation. Called only
+/// when the dedicated-free count moved; reads no header.
+fn drop_entries_in_freed_chunks(cache: &mut Vec<StrMeta>) {
+    if cache.iter().all(|e| e.chunk.is_none()) {
+        return;
+    }
+    let heap = crate::gc::ambient::current_heap();
+    cache.retain(|e| match (e.chunk, heap) {
+        (None, _) => true,
+        (Some((chunk, epoch)), Some(h)) => h.var_chunk_unchanged(chunk, epoch),
+        // Stamped by a heap that is no longer installed: can't vouch for it.
+        (Some(_), None) => false,
+    });
 }
 
 /// Run `f` against `s`'s cached metadata, computing + caching on first sight.
@@ -104,16 +153,23 @@ fn with_meta<R>(s: &Str, f: impl FnOnce(&StrMeta) -> R) -> R {
     // (`ambient::current_heap_epoch`, never reused) changes on every heap switch; drop the whole
     // cache when it does. Within one heap the epoch is constant ⇒ no clearing, no perf loss.
     let epoch = crate::gc::ambient::current_heap_epoch();
+    let frees = var_region::dedicated_free_count();
     CACHE.with(|c| {
         let mut cache = c.borrow_mut();
-        if LAST_EPOCH.with(|le| le.replace(epoch)) != epoch {
+        let (last_epoch, last_frees) = LAST_EPOCH.with(|le| le.replace((epoch, frees)));
+        if last_epoch != epoch {
             cache.clear();
+        } else if last_frees != frees {
+            // D7: a dedicated chunk was freed somewhere since the last lookup — drop the entries
+            // whose chunk it was, before `is_live` below could read their (freed) headers.
+            drop_entries_in_freed_chunks(&mut cache);
         }
         let key = data_ptr(s);
         // Hit = same allocation address AND the cached handle is still live (its
         // block wasn't swept + its slot reused by a different string) — see the
-        // module soundness note. A stale (dead-slot) entry fails `is_live` and is
-        // skipped, so we recompute for the current `s`.
+        // module soundness notes. A stale (dead-slot) entry fails `is_live` and is
+        // skipped, so we recompute for the current `s`. Every entry left here has a
+        // mapped header: bump-chunk blocks always, dedicated ones by the check above.
         if let Some(pos) = cache.iter().position(|e| data_ptr(&e.s) == key && e.s.var_ref().is_live()) {
             if pos != 0 {
                 let e = cache.remove(pos);
