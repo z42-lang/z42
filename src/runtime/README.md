@@ -91,13 +91,15 @@ xtask test e2e                                # VM golden 端到端（interp + j
 
 ### Cargo features
 
-`default = ["jit", "native-interop", "mimalloc-alloc"]`（桌面）。平台预设经
+`default = ["jit", "native-interop", "mimalloc-alloc", "net", "tls"]`（桌面）。平台预设经
 `--no-default-features --features <wasm|ios|android>` 裁剪。
 
 | feature | 作用 |
 |---------|------|
 | `jit` | Cranelift JIT 后端（desktop x64/arm64） |
 | `native-interop` | Tier 1 原生扩展 ABI（dlopen + libffi） |
+| `net` | `Std.Net` socket（TCP / UDP / DNS，Rust 标准库 net 模块 + `socket2`）。关掉时网络 builtin 抛 `NetUnsupportedException` |
+| `tls` | 在 `net` 之上加 rustls TLS 客户端（`ring` 后端 + `webpki-roots`）。关掉时 `__tls_*` 抛 `NetUnsupportedException` |
 | `mimalloc-alloc` | z42vm 二进制的 `#[global_allocator]` 走 mimalloc。z42c 自编译**分配受限**，换 mimalloc 后 z42c 编译显著提速。仅二进制生效（嵌入 lib 用宿主分配器）；wasm/移动预设不含（C 构建不入 wasm 沙箱 / 移动体积敏感） |
 
 ## 关联文档

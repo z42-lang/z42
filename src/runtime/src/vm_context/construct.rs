@@ -227,13 +227,13 @@ impl VmContext {
             #[cfg(feature = "native-interop")]
             ext_builtins:         Mutex::new(crate::native::ext::ExtBuiltinTable::default()),
             file_handles:         ResourceRegistry::new(),
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(feature = "net")]
             tcp_sockets:          ResourceRegistry::new(),
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(feature = "net")]
             tcp_listeners:        ResourceRegistry::new(),
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(feature = "tls")]
             tls_sockets:          ResourceRegistry::new(),
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(feature = "net")]
             udp_sockets:          ResourceRegistry::new(),
 
             // add-runtime-counters : all-zero start; Phase 1

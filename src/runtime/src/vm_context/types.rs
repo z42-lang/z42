@@ -221,32 +221,32 @@ pub struct VmCore {
     /// id. `__tcp_connect` / `__tcp_accept` insert; `__tcp_close`
     /// removes and shuts the stream down. Read / write clone the `Arc` instead of
     /// taking the stream out, so the socket is full duplex; the fd closes when the
-    /// last `Arc` drops. wasm32 target: never populated.
+    /// last `Arc` drops. Present with the `net` feature only.
     /// (**M2**: slot-id counter embedded in the registry.)
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(feature = "net")]
     pub(crate) tcp_sockets:          ResourceRegistry<std::sync::Arc<std::net::TcpStream>>,
     /// live `Std.Net.Sockets.TcpListener` instances keyed by monotonic u64 slot id.
     /// (**M2**: slot-id counter embedded in the registry.)
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(feature = "net")]
     pub(crate) tcp_listeners:        ResourceRegistry<crate::corelib::network::ListenerSlot>,
 
     // ── add-z42-net-tls  ──────────────────────────────────────
     /// live rustls client TLS streams (TCP + handshake state) keyed by
     /// monotonic u64 slot id. `__tls_connect` inserts; `__tls_close`
     /// removes and shuts the socket down; the fd closes when the last `Arc`
-    /// drops. Slot space is independent from `tcp_sockets`. wasm32: never
-    /// populated (TLS builtins throw `NetUnsupportedException`).
+    /// drops. Slot space is independent from `tcp_sockets`. Present with the
+    /// `tls` feature only (without it the TLS builtins throw `NetUnsupportedException`).
     /// (**M2**: slot-id counter embedded in the registry.)
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(feature = "tls")]
     pub(crate) tls_sockets:
         ResourceRegistry<std::sync::Arc<crate::corelib::tls::TlsSlot>>,
 
     // ── add-z42-net-udp (K2) ───────────────────────────────────
     /// live `Std.Net.Sockets.UdpClient` sockets keyed by monotonic u64 slot id.
     /// `__udp_bind` inserts; `__udp_close` removes. Send / recv clone the
-    /// `Arc`; the fd closes when the last `Arc` drops. wasm32 target: never populated.
+    /// `Arc`; the fd closes when the last `Arc` drops. Present with the `net` feature only.
     /// (**M2**: slot-id counter embedded in the registry.)
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(feature = "net")]
     pub(crate) udp_sockets:          ResourceRegistry<std::sync::Arc<std::net::UdpSocket>>,
 
     /// **add-runtime-counters **: atomic observation-only

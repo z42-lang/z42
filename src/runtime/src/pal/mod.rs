@@ -13,6 +13,8 @@
 //! - [`mem`] — page size and decommit / recommit of GC chunk pages.
 //! - [`thread`] — stack bounds, thread token, run-on-a-big-stack.
 //! - [`time`] — monotonic clock (a tick counter where the target has none).
+//! - [`net`] — socket OS bits for `Std.Net`: errno → Winsock code table,
+//!   interruptible accept wait, TCP keep-alive knobs.
 //! - [`signal`] — fatal-signal registration + async-signal-safe write
 //!   primitives + signal-name table. The z42 crash *reporter*
 //!   (`signal_handler.rs`) drives these; pal owns only the OS primitives.
@@ -22,4 +24,5 @@ pub mod fs;
 pub mod mem;
 pub mod thread;
 pub mod time;
+pub mod net;
 pub mod signal;

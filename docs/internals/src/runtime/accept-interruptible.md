@@ -52,7 +52,7 @@
 Windows 的 `WSAPoll` 只能 poll socket 所以还得换回环 socket 对 —— 三套实现）。
 
 > **Deferred**：真需要显式唤醒（大量监听 socket / 省电诉求）时，换成 eventfd / `EVFILT_USER` / 自管道。
-> 唤醒机制完全封在 `network/listener.rs` 的 `accept_wait` 里，z42 侧只看到「accept 抛 `SocketClosedException`」，
+> 唤醒机制完全封在 `network/listener.rs` 的 `accept_wait` 里（等待本身的 OS 调用在 `pal::net::wait_readable`），z42 侧只看到「accept 抛 `SocketClosedException`」，
 > 换实现不影响任何调用方。**触发条件：运行时开始需要事件循环时一起做。**
 
 ## 已连接的 socket（TCP / TLS / UDP）

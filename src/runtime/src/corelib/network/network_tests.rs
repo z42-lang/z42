@@ -347,12 +347,7 @@ fn os_errors_map_to_dotnet_socket_error_codes() {
     assert_eq!(socket_error_code(&Error::from(ErrorKind::WouldBlock)), code::TIMED_OUT);
     assert_eq!(socket_error_code(&Error::from(ErrorKind::BrokenPipe)), code::SHUTDOWN);
     assert_eq!(socket_error_code(&Error::other("x")), code::SOCKET_ERROR);
-    #[cfg(unix)]
-    {
-        assert_eq!(socket_error_code(&Error::from_raw_os_error(libc::ECONNRESET)), code::CONNECTION_RESET);
-        assert_eq!(socket_error_code(&Error::from_raw_os_error(libc::EAGAIN)), code::TIMED_OUT);
-        assert_eq!(socket_error_code(&Error::from_raw_os_error(libc::EHOSTUNREACH)), code::HOST_UNREACHABLE);
-    }
-    #[cfg(windows)]
-    assert_eq!(socket_error_code(&Error::from_raw_os_error(10054)), code::CONNECTION_RESET);
+    // Raw OS errors go through `pal::net::winsock_code` (per-OS tables tested there).
+    let os_timeout = crate::pal::net::timed_out_error().unwrap();
+    assert_eq!(socket_error_code(&os_timeout), code::TIMED_OUT);
 }

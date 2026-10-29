@@ -91,6 +91,22 @@ blake3 = "1"
 # default; non-wasm targets dlopen the cdylib via native::ext at startup).
 z42-compression = { path = "crates/z42-compression", optional = true }
 
+# Networking (Std.Net) — optional, enabled by the `net` / `tls` features (on in
+# `default` and the ios / android presets, off in the wasm preset).
+# add-net-socket-options-extended (2026-05-30): cross-platform setsockopt
+# for SO_REUSEADDR / SO_KEEPALIVE. Rust networking working group crate;
+# only deps libc on Unix; ships Winsock bindings on Windows. Feature `net`.
+socket2 = { version = "0.6", features = ["all"], optional = true }
+# add-z42-net-tls (2026-06-03): pure-Rust TLS for Std.Net (HTTPS in
+# HttpClient + raw TlsClient). rustls with the `ring` crypto backend
+# (no OpenSSL / no aws-lc-rs C-toolchain dependency → identical build
+# across host + cross-compile targets, same rationale as bundled libffi).
+# webpki-roots bundles the Mozilla CA root set so cert verification works
+# with zero host trust-store wiring. tls12 enabled for broad endpoint
+# compatibility. Feature `tls`.
+rustls       = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
+webpki-roots = { version = "1", optional = true }
+
 # CLI
 clap = { version = "4", features = ["derive"] }
 
@@ -139,8 +155,14 @@ cranelift-native   = { version = "0.135", optional = true }
 #   deselect it (no dlopen / no libffi support inside the wasm sandbox).
 # - `aot` is a placeholder for future AOT compilation (M9; no impl yet)
 # - `interp-only` is intent-only (no extra deps); used by platform presets
+# - `net` enables Std.Net sockets (TCP / UDP / DNS over std::net + socket2);
+#   `tls` adds the rustls-backed TLS client on top. Without them the
+#   `__tcp_*` / `__udp_*` / `__dns_lookup` / `__tls_*` builtins are stubs that
+#   throw `NetUnsupportedException` (corelib/network/unsupported.rs). On in
+#   `default` and the ios / android presets; the wasm preset omits them
+#   (no sockets inside the wasm sandbox).
 # - platform presets are convenience combos for `--no-default-features --features <preset>`
-default              = ["jit", "native-interop", "mimalloc-alloc"]
+default              = ["jit", "native-interop", "mimalloc-alloc", "net", "tls"]
 # mimalloc-alloc: route the z42vm binary's global allocator through mimalloc
 # (default-on desktop; omitted by the --no-default-features wasm/ios/android presets).
 mimalloc-alloc       = ["dep:mimalloc"]
@@ -166,6 +188,8 @@ profile-contention   = []
 z42-test-fixtures    = []
 jit                  = ["dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-jit", "dep:cranelift-module", "dep:cranelift-native"]
 native-interop       = ["dep:libffi", "dep:libloading"]
+net                  = ["dep:socket2"]
+tls                  = ["net", "dep:rustls", "dep:webpki-roots"]
 aot                  = []
 interp-only          = []
 # bundled-compression: statically link z42-compression instead of dlopen'ing it.
@@ -176,8 +200,8 @@ wasm                 = ["interp-only", "bundled-compression"]
 # dlopen (iOS App Store) or strongly prefer single-binary integration
 # (Android JNI side-load convention). No separate libz42_compression.a is
 # built or shipped: it would duplicate what libz42.a already contains.
-ios                  = ["interp-only", "aot", "native-interop", "bundled-compression"]
-android              = ["interp-only", "aot", "native-interop", "bundled-compression"]
+ios                  = ["interp-only", "aot", "native-interop", "bundled-compression", "net", "tls"]
+android              = ["interp-only", "aot", "native-interop", "bundled-compression", "net", "tls"]
 
 # Platform / system info (Std.Platform / Std.OperatingSystem stdlib, 2026-05-14).
 # Only needed on unix-like for gethostname / uname; windows uses winapi via direct
@@ -187,19 +211,6 @@ android              = ["interp-only", "aot", "native-interop", "bundled-compres
 # wasm32-unknown-unknown; our crypto.rs cfg-gates that path to throw
 # NotSupportedException instead (add-csprng-wasm-bridge follow-up).
 getrandom = "0.4"
-# add-net-socket-options-extended (2026-05-30): cross-platform setsockopt
-# for SO_REUSEADDR / SO_KEEPALIVE. Rust networking working group crate;
-# only deps libc on Unix; ships Winsock bindings on Windows.
-socket2 = { version = "0.6", features = ["all"] }
-# add-z42-net-tls (2026-06-03): pure-Rust TLS for Std.Net (HTTPS in
-# HttpClient + raw TlsClient). rustls with the `ring` crypto backend
-# (no OpenSSL / no aws-lc-rs C-toolchain dependency → identical build
-# across host + cross-compile targets, same rationale as bundled libffi).
-# webpki-roots bundles the Mozilla CA root set so cert verification works
-# with zero host trust-store wiring. tls12 enabled for broad endpoint
-# compatibility.
-rustls       = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
-webpki-roots = "1"
 # REPL line editor: rustyline was extracted into the host-only cdylib
 # `crates/z42-repl` (libz42_repl), dlopen'd lazily by `corelib::repl_native`.
 # The core z42vm crate no longer links rustyline (or its ~19 transitive crates);

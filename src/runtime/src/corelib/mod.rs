@@ -53,6 +53,7 @@ pub mod monitor;
 // `sync.rs` 都用它。
 mod sync_contention;
 pub mod network;
+#[cfg(feature = "tls")]
 pub mod tls;
 pub mod crypto;
 

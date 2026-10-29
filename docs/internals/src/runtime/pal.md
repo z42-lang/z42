@@ -21,6 +21,7 @@ CoreCLR `src/coreclr/pal/` 含 ~50 个文件抽象：
 | Signal / exceptions | `signal.cpp` | `pal/signal.rs`（仅 OS 原语；z42 reporter 留 signal_handler.rs） | Done |
 | Memory / pages | `virtual.cpp` | `pal/mem.rs` | Done |
 | Process / environ | `process.cpp` / `environ.cpp` | `pal/system.rs` | Done |
+| Sockets | —（.NET 放在 System.Native 的 pal_networking） | `pal/net.rs` | Done |
 | Clock / time | `time.cpp` | `pal/time.rs` | Done |
 
 z42 不抄 CoreCLR 的 PAL 内部分层（CoreCLR 还有 `pal/src/<arch>/` per-arch
@@ -39,6 +40,7 @@ pal/
 ├── mem.rs               — 页大小、GC chunk 页的 decommit / recommit
 ├── thread.rs            — 栈边界、线程 token、在大栈线程上运行
 ├── time.rs              — 单调时钟（wasm32 无时钟时退为计数器）
+├── net.rs               — socket 的 OS 部分：errno → Winsock 码、可中断 accept 等待、TCP keep-alive
 ├── signal.rs            — fatal 信号原语（非 POSIX 平台注册返回 false、写入为空操作）
 └── *_tests.rs           — 单元测试
 ```
@@ -117,6 +119,24 @@ Windows 用 `GetCurrentThreadStackLimits`；其他平台返回 `None`，栈检�
 走 VM_CORES），call `crate::pal::signal::*`（async-signal-safe 约束）。Windows VEH
 走 `pal::signal` 同接口不同 impl，仍延后（无 Windows CI runner）。
 
+### `pal/net.rs` — socket 的 OS 部分
+
+承接 `corelib/network/{error,listener,tcp}.rs` 的平台分支（runtime-audit §6.1 L-2b）。`corelib/network`
+只剩 builtin 胶水（参数、.NET 异常映射、句柄表、park），零平台 cfg：
+
+```rust
+// pal/net.rs
+pub fn winsock_code(raw: i32) -> Option<i32>;                  // OS 错误 → Winsock 码（= .NET SocketError）
+pub fn timed_out_error() -> Option<io::Error>;                 // OS 自己的 ETIMEDOUT / WSAETIMEDOUT
+pub fn wait_readable(l: &TcpListener, timeout_ms: i32) -> io::Result<bool>; // unix poll / windows WSAPoll
+#[cfg(feature = "net")]
+pub fn set_tcp_keepalive(s: &TcpStream, idle: Duration, interval: Duration, retries: u32) -> io::Result<()>;
+```
+
+Unix 用 .NET `SocketErrorPal` 的 errno 表；Windows 的 OS 错误本身就是 Winsock 码；其他目标（wasm32）
+没有映射（`None`），`wait_readable` 报 `Unsupported`。`set_tcp_keepalive` 经 `socket2`，只在 `net`
+feature 下存在；`interval` / `retries` 只在 OS 提供对应 knob 时生效。
+
 ### `pal/thread.rs` — 线程
 
 ```rust
@@ -163,7 +183,9 @@ Cargo.toml 的 `wasm` / `ios` / `android` preset feature 与 PAL 互补：
 | `ios` / `android` | 走 unix 分支（mobile 仍是 POSIX）；个别 syscall 受 sandbox 约束 |
 
 PAL **不** 是 Cargo feature；它是 cfg-based static dispatch。Feature gate
-的角色是关掉某些 module（如 `jit`），PAL 始终在。
+的角色是关掉某些 module（如 `jit`），PAL 始终在。wasm 的功能裁剪用 feature 表达而不是
+`cfg(target_arch = "wasm32")`：网络是 `net` / `tls`（`default` 与 ios / android preset 开，`wasm`
+preset 不开），关掉时 `corelib/network/unsupported.rs` 的桩抛 `NetUnsupportedException`，任何目标上都一样。
 
 ## Deferred / Future Work
 

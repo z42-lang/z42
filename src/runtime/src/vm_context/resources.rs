@@ -45,12 +45,12 @@ impl VmContext {
     // accepting connections + a worker thread reading from them can't collide
     // on slot ids.
 
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(feature = "net")]
     pub fn alloc_tcp_socket_slot(&self, stream: std::net::TcpStream) -> u64 {
         self.core.tcp_sockets.insert_new(std::sync::Arc::new(stream))
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(feature = "net")]
     pub fn alloc_tcp_listener_slot(&self, listener: std::net::TcpListener) -> u64 {
         self.core.tcp_listeners.insert_new(
             crate::corelib::network::ListenerSlot::new(listener),
@@ -59,40 +59,40 @@ impl VmContext {
 
     /// add-z42-net-tls : register a connected + handshaken rustls
     /// stream and return its slot id. `__tls_close` removes (closing the fd).
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(feature = "tls")]
     pub(crate) fn alloc_tls_socket_slot(&self, slot: crate::corelib::tls::TlsSlot) -> u64 {
         self.core.tls_sockets.insert_new(std::sync::Arc::new(slot))
     }
 
     /// Number of currently allocated TLS socket slots. Used by tests to
     /// verify cleanup paths drop entries.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(feature = "tls")]
     pub fn tls_socket_slot_count(&self) -> usize {
         self.core.tls_sockets.count()
     }
 
     /// Number of currently allocated TCP socket slots. Used by tests to
     /// verify cleanup paths drop entries.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(feature = "net")]
     pub fn tcp_socket_slot_count(&self) -> usize {
         self.core.tcp_sockets.count()
     }
 
     /// Number of currently allocated TCP listener slots.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(feature = "net")]
     pub fn tcp_listener_slot_count(&self) -> usize {
         self.core.tcp_listeners.count()
     }
 
     // ── add-z42-net-udp (K2) ────────────────────────────────
 
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(feature = "net")]
     pub fn alloc_udp_socket_slot(&self, sock: std::net::UdpSocket) -> u64 {
         self.core.udp_sockets.insert_new(std::sync::Arc::new(sock))
     }
 
     /// Number of currently allocated UDP socket slots.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(feature = "net")]
     pub fn udp_socket_slot_count(&self) -> usize {
         self.core.udp_sockets.count()
     }
