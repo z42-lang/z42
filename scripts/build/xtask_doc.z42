@@ -1,6 +1,7 @@
 // xtask — `doc` 命令族的两块引擎：
-//   ① `doc gen` / `check docs-api`：用 z42.doc 的 DocMd 渲染器重新生成 reference/stdlib 包页，
-//      并与仓库内文件对账（漂移门禁）。只对写了 `//!` 的包（已迁移）生效，未迁移的包页保持手写。
+//   ① `doc gen`：用 z42.doc 的 DocMd 渲染器把 reference/stdlib 包页生成到 docs/reference/src/stdlib/。
+//      生成页不入库（.gitignore），发布书时（deploy-book.yml）与 `test docs` 前现生成，所以没有漂移门禁。
+//      只对写了 `//!` 的包生效。
 //   ② `doc index`：把 Rust 运行时各 crate 的条目与 rustdoc 写成 `z42 doc` 的外部索引
 //      （artifacts/doc/rust.idx），让 `z42 doc` 一并查 Rust 符号。索引器是
 //      src/toolchain/devtools/rust-index（syn 解析，沿 mod 声明走模块树，测试模块不进索引）。
@@ -59,7 +60,8 @@ _GenFile[] _typeSplitFiles(string pkg, string shortName, DocIndex ix) {
 }
 
 // SUMMARY.md 里 type-split 包的页清单区段：mdBook 只构建 SUMMARY 列出的页，上百个类型页
-// 手写必然漂移，这段由 doc gen / check docs-api 同步维护（标记注释夹住，区段外不许生成改动）。
+// 手写必然漂移，这段由 doc gen 重写（标记注释夹住，区段外不许生成改动）。区段随 SUMMARY 入库但不设门禁：
+// 发布前总会重新生成，入库那份落后只是本地 `git status` 里多一处改动，提交即可。
 string _summaryBegin(string shortName) { return "<!-- z42-doc:summary:" + shortName + "-begin（xtask doc gen 维护，勿手改） -->"; }
 string _summaryEnd(string shortName)   { return "<!-- z42-doc:summary:" + shortName + "-end -->"; }
 
@@ -81,8 +83,8 @@ string _summaryBlock(string shortName, DocIndex ix) {
     return s;
 }
 
-// 把 SUMMARY.md 里 shortName 的区段换成 / 对账生成内容。check=false 重写文件，check=true 只比对。
-int _syncSummary(string root, string shortName, DocIndex ix, bool check) {
+// 把 SUMMARY.md 里 shortName 的区段换成生成内容（不变就不写，免得碰 mtime）。
+int _syncSummary(string root, string shortName, DocIndex ix) {
     string path = Path.Join(root, "docs/reference/src/SUMMARY.md");
     string text = File.ReadAllText(path);
     string begin = _summaryBegin(shortName);
@@ -94,51 +96,50 @@ int _syncSummary(string root, string shortName, DocIndex ix, bool check) {
         return 1;
     }
     string want = text.Substring(0, b) + _summaryBlock(shortName, ix) + text.Substring(e + end.Length);
-    if (check) {
-        if (want != text) {
-            ConsoleError.WriteLine("check docs-api: SUMMARY.md 的 " + shortName + " 区段与生成结果不一致。运行 `xtask doc gen`。");
-            return 1;
-        }
-        return 0;
-    }
-    File.WriteAllText(path, want);
+    if (want != text) { File.WriteAllText(path, want); }
     return 0;
 }
 
 // 生成页源码链接的基址：取 book.toml 的 git-repository-url 口径（blob/main）。
-// Z42_DOC_SOURCE_BASE 可覆盖（本地预览 / 镜像）。gen 与 check 同值，否则漂移门禁误报。
+// Z42_DOC_SOURCE_BASE 可覆盖（本地预览 / 镜像）。
 string _docSourceBase() {
     string env = Environment.GetEnvironmentVariable("Z42_DOC_SOURCE_BASE", "");
     if (env.Length > 0) { return env; }
     return "https://github.com/z42-lang/z42/blob/main";
 }
 
-// 生成全部已迁移包（写了 `//!`）的 reference 页到 docs/reference/src/stdlib/。返回写了几个。
+// 生成全部写了 `//!` 的包的 reference 页到 docs/reference/src/stdlib/，并删掉不再生成的旧页
+// （类型改名 / 删除后留下的）——该目录除 README.md 外全归 gen 所有。
 int _docGen() {
     string root = _root();
     string outDir = Path.Join(root, "docs/reference/src/stdlib");
     DocMd.SourceBase = _docSourceBase();
-    int n = 0;
+    HashSet<string> written = new HashSet<string>();
     foreach (var pkg in _stdlibList(root)) {
         DocIndex ix = DocQuery.BuildIndex(root, pkg, "");
         if (!DocMd.HasNamespaceDoc(ix)) { continue; }
         if (_isTypeSplit(pkg)) {
-            _GenFile[] fs = _typeSplitFiles(pkg, _docPageName(pkg), ix);
-            foreach (var f in fs) { File.WriteAllText(Path.Join(outDir, f.Name), f.Content); }
-            int rc = _syncSummary(root, _docPageName(pkg), ix, false);
+            foreach (var f in _typeSplitFiles(pkg, _docPageName(pkg), ix)) { _writeDocPage(outDir, f.Name, f.Content, written); }
+            int rc = _syncSummary(root, _docPageName(pkg), ix);
             if (rc != 0) { return rc; }
-            n = n + fs.Length;
         } else {
-            string page = DocMd.PackagePage(pkg, DocMd.PkgDir(ix), ix);
-            File.WriteAllText(Path.Join(outDir, _docPageName(pkg) + ".md"), page);
-            n = n + 1;
+            _writeDocPage(outDir, _docPageName(pkg) + ".md", DocMd.PackagePage(pkg, DocMd.PkgDir(ix), ix), written);
         }
     }
-    Console.WriteLine("doc gen: wrote " + n.ToString() + " package page(s)");
+    foreach (var name in Directory.Enumerate(outDir)) {
+        if (name.EndsWith(".md") && name != "README.md" && !written.Contains(name)) { File.Delete(Path.Join(outDir, name)); }
+    }
+    Console.WriteLine("doc gen: " + written.Count.ToString() + " page(s) → docs/reference/src/stdlib/");
     return 0;
 }
 
-// 每码计数按码升序打印用的并列排序（counts 随 codes 同步换位）。
+// 内容不变就不写：mdbook serve 按 mtime 重建，`test docs` 每次都会先 gen。
+void _writeDocPage(string outDir, string name, string content, HashSet<string> written) {
+    string path = Path.Join(outDir, name);
+    if (!File.Exists(path) || File.ReadAllText(path) != content) { File.WriteAllText(path, content); }
+    written.Add(name);
+}
+
 void _sortCounts(string[] codes, int[] counts, int n) {
     int i = 1;
     while (i < n) {
@@ -304,39 +305,6 @@ int _checkDocRefs(bool update) {
     }
     Console.WriteLine("check doc-refs: ✓ 各区域引用在基线内（gates.toml [doc-refs]）");
     return 0;
-}
-
-// 漂移门禁：重新生成并与仓库内文件 diff，不一致即失败并提示 `xtask doc gen`。
-int _checkDocsApi() {
-    string root = _root();
-    string outDir = Path.Join(root, "docs/reference/src/stdlib");
-    DocMd.SourceBase = _docSourceBase();
-    List<string> failed = new List<string>();
-    foreach (var pkg in _stdlibList(root)) {
-        DocIndex ix = DocQuery.BuildIndex(root, pkg, "");
-        if (!DocMd.HasNamespaceDoc(ix)) { continue; }
-        if (_isTypeSplit(pkg)) {
-            foreach (var f in _typeSplitFiles(pkg, _docPageName(pkg), ix)) {
-                if (!_docFileMatches(Path.Join(outDir, f.Name), f.Content)) { failed.Add(f.Name); }
-            }
-            if (_syncSummary(root, _docPageName(pkg), ix, true) != 0) { return 1; }
-        } else {
-            string page = DocMd.PackagePage(pkg, DocMd.PkgDir(ix), ix);
-            if (!_docFileMatches(Path.Join(outDir, _docPageName(pkg) + ".md"), page)) { failed.Add(_docPageName(pkg)); }
-        }
-    }
-    if (failed.Count > 0) {
-        ConsoleError.WriteLine("check docs-api: 生成的页面与仓库内文件不一致（" + String.Join(", ", failed.ToArray())
-            + "）。运行 `xtask doc gen` 重新生成。");
-        return 1;
-    }
-    Console.WriteLine("check docs-api: ✓ 已迁移包的页面与源码一致");
-    return 0;
-}
-
-// committed file at `path` (absent = "") equals the generated content?
-bool _docFileMatches(string path, string want) {
-    return (File.Exists(path) ? File.ReadAllText(path) : "") == want;
 }
 
 int _docIndex() {

@@ -264,7 +264,7 @@ scripts/
 │   ├── xtask_toolchain.z42      build workload / build toolchain [z42b]（apphost publish，路径从各 toml 读）
 │   ├── xtask_golden_assets.z42  **`build test` 的实现**（golden .zbc 编译；_buildTest / _regenGolden / _regenCore）
 │   ├── xtask_clean.z42          clean 命令（production / tests / bench / intermediate / all，见 artifacts-layout.md §4）
-│   ├── xtask_doc.z42            doc 命令族（gen / index）+ `check docs-api` / `doc-lints` / `doc-refs` 的引擎
+│   ├── xtask_doc.z42            doc 命令族（gen / index）+ `check doc-lints` / `doc-refs` 的引擎
 │   └── xtask_bootstrap_check.z42 上一版 nightly z42c 能否编当前源（分阶段纪律边界检查）
 ├── test/               test 命令族 + 大部分 `check` 的实现（注意：`test compiler` / `test compiler bootstrap` /
 │   │                   `check vscode-syntax` 的实现**不在**本目录，见 build/ install/）

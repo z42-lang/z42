@@ -4,7 +4,8 @@
 # 判据：不读实现也能用对。三本书的分工见 docs/agent/rules/doc-system.md。
 #
 # 🔴 本书不得链接 docs/internals/——一旦反向链，用户会被带进实现细节（doc-system §2.1）。
-# 本地预览：cargo install mdbook 后，在本目录跑  mdbook serve --open
+# 本地预览：cargo install mdbook 后，先在仓库根跑  xtask doc gen（标准库页由源码 /// 生成、不入库），
+# 再在本目录跑  mdbook serve --open
 
 [book]
 title = "z42 语言与库参考"
