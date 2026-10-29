@@ -10,9 +10,9 @@ using Std.Collections;
 // One enumerated corpus case (structural descriptor, rid-independent). Shared SoT
 // for both the embedded bundle builder (_buildTestBundle) and the `test list`
 // catalog (_testList) — one enumeration, two consumers, no drift.
-//   kind: "golden"   → direct-run (src/tests + lib goldens) via _goldenEntry
-//         "unit"     → stdlib [Test] file  (tests/<f>.z42)   via _emitUnitZbc
-//         "dir-unit" → stdlib [Test] dir   (tests/<nm>/)     via _emitDirUnit
+//   kind: "golden"   → direct-run (src/tests + lib goldens) via _compileBundleCases + _goldenEntryFor
+//         "unit"     → stdlib [Test] file  (tests/<f>.z42)   via _compileBundleCases (--emit-zbc)
+//         "dir-unit" → stdlib [Test] dir   (tests/<nm>/)     via _compileBundleCases (_dirUnitManifest → build)
 class _CorpusCase {
     public string name;        // caseName, e.g. "classes/basic_class" | "z42.io/env_cwd"
     public string bucket;      // grouping key (src/tests <cat> or stdlib <lib>)
@@ -209,27 +209,14 @@ string _buildTestBundle(string root, string filter, string rid, int shardK, int 
     else            { sel = _sampleCorpus(included, embedCap); }
     int capped = (shardN > 0) ? 0 : (ni - sel.Length);
 
+    // 每例一个 z42c 进程，成本由进程启动主导——与 `build test` 同样分批并发（_regenJobs），manifest 仍按选中顺序写。
+    string[] entries = _compileBundleCases(root, sel, bundleDir);
     string items = "";
     int count = 0;
-    foreach (var c in sel) {
-        string entry = "";
-        if (c.kind == "unit") {
-            string safe = _bundleSafeName(c.name);
-            string zbc = _emitUnitZbc(root, c.src, safe, bundleDir, false);
-            if (zbc.Length == 0) { ConsoleError.WriteLine("  ✗ unit " + c.name); continue; }
-            entry = "    {\"name\": \"" + c.name + "\", \"zbc\": \"" + safe + ".zbc\"}";
-        } else if (c.kind == "dir-unit") {
-            string safe = _bundleSafeName(c.name);
-            string zbc = _emitDirUnit(root, c.lib, c.leaf, c.dir, safe, bundleDir);
-            if (zbc.Length == 0) { ConsoleError.WriteLine("  ✗ dir-unit " + c.name); continue; }
-            entry = "    {\"name\": \"" + c.name + "\", \"zbc\": \"" + safe + ".zpkg\"}";
-        } else {   // golden
-            entry = _goldenEntry(root, c.name, c.src, c.exp, bundleDir, c.optAll);
-            if (entry.Length == 0) { ConsoleError.WriteLine("  ✗ golden " + c.name); continue; }
-        }
-        entry = _withRequires(entry, _caseRequires(c));
+    for (int i = 0; i < sel.Length; i = i + 1) {
+        if (entries[i].Length == 0) { continue; }
         if (count > 0) { items = items + ",\n"; }
-        items = items + entry;
+        items = items + _withRequires(entries[i], _caseRequires(sel[i]));
         count = count + 1;
     }
 
@@ -248,6 +235,62 @@ string _buildTestBundle(string root, string filter, string rid, int shardK, int 
     string mpath = _writeBundleManifest(bundleDir, items);
     Console.WriteLine("  bundle: " + count.ToString() + " cases → " + mpath);
     return mpath;
+}
+
+// 编译选中的用例进 bundleDir，返回与 sel 对齐的 manifest 条目（编译失败的位置是 ""，并打印 ✗ 与 z42c 的输出）。
+// 分批：spawn 一批 → 逐个 wait → 收尾（golden 写 .expected、dir-unit 删合成清单并拷出 zpkg）。各例输出路径互不相同。
+string[] _compileBundleCases(string root, _CorpusCase[] sel, string bundleDir) {
+    string[] entries = new string[sel.Length];
+    int jobs = _regenJobs();
+    int k = 0;
+    while (k < sel.Length) {
+        int bsz = jobs;
+        if (k + bsz > sel.Length) { bsz = sel.Length - k; }
+        ProcessHandle[] hs = new ProcessHandle[bsz];
+        string[] tomls = new string[bsz];
+        for (int b = 0; b < bsz; b = b + 1) {
+            _CorpusCase c = sel[k + b];
+            string safe = _bundleSafeName(c.name);
+            tomls[b] = "";
+            Process p;
+            if (c.kind == "dir-unit") {
+                tomls[b] = _dirUnitManifest(root, c.lib, c.leaf, c.dir);
+                p = _releaseZ42c(root).Arg("build").Arg(tomls[b]).Arg("--release");
+            } else {
+                p = _releaseZ42c(root).Arg("--emit-zbc").Arg(c.src).Arg(Path.Join(bundleDir, safe + ".zbc"));
+                // opt_all 旁车 → `--opt-all`，与宿主 golden 门编法一致；否则 bundle 会把这些用例按未优化编，
+                // 依赖优化可观察效果的断言就和宿主分叉。
+                if (c.kind == "golden" && c.optAll) { p = p.Arg("--opt-all"); }
+            }
+            hs[b] = p.Spawn();
+        }
+        for (int b = 0; b < bsz; b = b + 1) {
+            _CorpusCase c = sel[k + b];
+            string safe = _bundleSafeName(c.name);
+            ProcessResult r = hs[b].Wait();
+            if (tomls[b].Length > 0) { File.Delete(tomls[b]); }   // 合成清单不管成败都删
+            string entry = "";
+            if (r.ExitCode == 0) {
+                if (c.kind == "unit") {
+                    entry = "    {\"name\": \"" + c.name + "\", \"zbc\": \"" + safe + ".zbc\"}";
+                } else if (c.kind == "dir-unit") {
+                    if (_copyDirUnit(root, c.lib, c.leaf, safe, bundleDir).Length > 0) {
+                        entry = "    {\"name\": \"" + c.name + "\", \"zbc\": \"" + safe + ".zpkg\"}";
+                    }
+                } else {
+                    entry = _goldenEntryFor(c.name, c.src, c.exp, safe, bundleDir);
+                }
+            }
+            if (entry.Length == 0) {
+                ConsoleError.WriteLine("  ✗ " + c.kind + " " + c.name);
+                if (r.Stdout.Length > 0) { ConsoleError.Write(r.Stdout); }
+                if (r.Stderr.Length > 0) { ConsoleError.Write(r.Stderr); }
+            }
+            entries[k + b] = entry;
+        }
+        k = k + bsz;
+    }
+    return entries;
 }
 
 // The capabilities a case declares (`// requires-caps: a, b` in its source; see

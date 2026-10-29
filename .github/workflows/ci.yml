@@ -74,6 +74,7 @@ jobs:
               - 'src/toolchain/builder/**'
               - 'scripts/common/xtask_fixture_harness.z42'
               - 'scripts/test/xtask_test_platform.z42'
+              - 'scripts/test/xtask_test_app.z42'
               - 'scripts/test/xtask_test_wasm.z42'
               - 'scripts/test/xtask_test_ios.z42'
               - 'scripts/test/xtask_test_android.z42'
@@ -405,6 +406,7 @@ jobs:
       - name: C host links the packaged runtime (static + dynamic)
         # 同一套 R1–R7 C 宿主（test-desktop-cabi 用的那份 r1_r7.c）改链**打出来的 runtime 包**，
         # 静态一遍、动态一遍（经 rpath 找 libz42.{dylib,so}）——install name / SONAME 坏了，动态那遍就加载不了。
+        # 打包模式只跑 R1–R7：嵌入语料用的是构建树的 VM，与包无关，归 test-desktop-cabi。
         # Windows 没有 `cc`，上一步按文件检查 import lib。
         if: runner.os != 'Windows'
         shell: bash
