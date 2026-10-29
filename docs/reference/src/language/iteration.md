@@ -9,7 +9,8 @@ foreach (var item in collection) { /* ... */ }
 foreach (string s in names)      { /* ... */ }   // 也可以写显式类型
 ```
 
-- 写 `var` 时元素类型由编译器推断；写显式类型时按该类型绑定。
+- 写 `var` 时元素类型由编译器推断，与写出显式类型等价：数组取元素类型，索引路径取 `this[int]` 的返回类型、
+  泛型容器按类型实参代换（`List<Entry>` → `Entry`），枚举器路径取 `Current` 的类型。写显式类型时按该类型绑定。
 - `in` 后面的表达式**只求值一次**，不是每轮一次。
 - 循环体里可以用 `break` / `continue`。
 

@@ -124,19 +124,9 @@ public sealed class StmtBinder : IStmtVisitor<BoundStmt, StmtCtx> {
             if (fePlan.Path == ForeachPlan.Enumerator) {
                 return this._bindForeachEnumerable(fe, env, ret, fePlan.Disposable);
             }
-            Z42Type feElem = new Z42UnknownType();
+            // `var` 的元素类型随路径一起由 `ForeachProtocol.Resolve` 定（按收者代换型参，见 `ForeachPlan.Elem`）。
             bool feIsVar = (fe.Type is NamedType) && ((fe.Type as NamedType).Name == "var");
-            if (feIsVar) {
-                if (feIter.Type() is Z42ArrayType) { feElem = (feIter.Type() as Z42ArrayType).Elem; }
-                else if (feIter.Type() is Z42ClassType) {
-                    // class-iter：elem type from get_Item return type（镜像 C# ElemTypeOf）
-                    Z42ClassType feCt = feIter.Type() as Z42ClassType;
-                    if (feCt.Methods.ContainsKey(ProtocolNames.GetItem)) {
-                        MethodSymbol feMs = feCt.Methods.Get(ProtocolNames.GetItem) as MethodSymbol;
-                        if (feMs != null && feMs.Signature != null) { feElem = feMs.Signature.Ret; }
-                    }
-                }
-            } else { feElem = feScope.ResolveType(fe.Type); }
+            Z42Type feElem = feIsVar ? fePlan.Elem : feScope.ResolveType(fe.Type);
             TypeEnv elemScope = feScope.PushScope();
             this._tc.DefineLocal(elemScope, fe.Name, feElem, fe.Span);
             this._tc._loopDepth = this._tc._loopDepth + 1;

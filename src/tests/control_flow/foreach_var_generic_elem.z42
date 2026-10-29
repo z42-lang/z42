@@ -1,0 +1,71 @@
+// `foreach (var x in c)` 与 `var x = c[i]` 在泛型容器上拿到**代换后**的元素类型。
+//
+// 回归来源：`List<Entry>` 走索引路径，`var` 的元素类型推导只认非泛型 `Z42ClassType`，
+// `Z42InstantiatedType` 落空 ⇒ 循环变量是 Unknown；`c[i]` 的读也只把裸型参擦成 Unknown、
+// 从不按收者代换。Unknown 收者上的 `x.Rel.Substring(0, 3)` 编译零诊断，丢了重载信息、按裸名
+// 派发到单参的 `Substring(int)`，运行期才报「签名不符（2 个物理实参，调用传 3 个）」。
+// 写成 `foreach (Entry e in xs)` / `Entry e = xs[0]` 一直是对的 —— 两种写法必须同型。
+namespace Demo;
+
+using Std.Collections;
+
+class Entry {
+    public string Rel;
+    public Entry(string r) { this.Rel = r; }
+}
+
+void Main() {
+    List<Entry> xs = new List<Entry>();
+    xs.Add(new Entry("abcdef"));
+    xs.Add(new Entry("ghijkl"));
+
+    // ① 显式元素类型 —— 既有行为，别回归
+    string typed = "";
+    foreach (Entry e in xs) { typed = typed + e.Rel.Substring(0, 3); }
+    Assert.Equal("abcghi", typed);
+
+    // ② `var` 循环变量（索引路径）：元素类型是 Entry，重载按双参解析
+    string viaVar = "";
+    foreach (var it in xs) { viaVar = viaVar + it.Rel.Substring(0, 3); }
+    Assert.Equal("abcghi", viaVar);
+
+    // ③ `var` 接索引器读
+    var first = xs[0];
+    Assert.Equal("abc", first.Rel.Substring(0, 3));
+
+    // ④ 元素本身是 string：`List<string>` 上的 `var`
+    List<string> ss = new List<string>();
+    ss.Add("mnopqr");
+    string viaStr = "";
+    foreach (var s in ss) { viaStr = viaStr + s.Substring(1, 2); }
+    Assert.Equal("no", viaStr);
+    var s0 = ss[0];
+    Assert.Equal("qr", s0.Substring(4, 2));
+
+    // ⑤ 值类型元素：`List<int>` 上的 `var` 照常参与算术
+    List<int> ns = { 1, 2, 3 };
+    int sum = 0;
+    foreach (var n in ns) { sum = sum + n * 2; }
+    Assert.Equal(12, sum);
+    var n0 = ns[2];
+    Assert.Equal(4, n0 + 1);
+
+    // ⑥ 数组与枚举器路径（Dictionary）—— 既有行为，别回归
+    Entry[] arr = new Entry[1];
+    arr[0] = new Entry("stuvwx");
+    string viaArr = "";
+    foreach (var a in arr) { viaArr = viaArr + a.Rel.Substring(0, 3); }
+    Assert.Equal("stu", viaArr);
+    Dictionary<string, Entry> d = new Dictionary<string, Entry>();
+    d.Set("k", new Entry("yzabcd"));
+    string viaDict = "";
+    foreach (var kv in d) { viaDict = viaDict + kv.Key + kv.Value.Rel.Substring(0, 3); }
+    Assert.Equal("kyza", viaDict);
+
+    // ⑦ 索引器取出的函数值带着函数类型：可就地调用，`var` 接住也能调（此前前者报 E0402，后者 E0401）
+    List<Func<int, int>> hs = new List<Func<int, int>>();
+    hs.Add((int x) => x * 10);
+    Assert.Equal(30, hs[0](3));
+    var h = hs[0];
+    Assert.Equal(40, h(4));
+}

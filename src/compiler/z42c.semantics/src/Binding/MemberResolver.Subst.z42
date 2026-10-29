@@ -42,6 +42,23 @@ public sealed partial class MemberResolver {
     // `InheritanceResolver._substForIface`），**不能按下标直取**：接口的 `TypeParamNames` 里混着
     // 隐式的 `Self`（`MemberCollector._withSelf` 把它当作接口的隐式类型参数并进去），而 `TypeArgs`
     // 只有用户写出的那几个 ⇒ 下标会错位。没命中的（含 `Self`）原样返回，交 `_substSelf` 处理。
+    // 成员返回位按**收者静态类型**代换：实例化类 → 类型实参；接口 → `Self` 取接口本身，实例化接口再换
+    // 接口型参；其它收者（非泛型类、泛型类体内的 `this`）原样返回。
+    // 「`c[i]` 的类型」（`ExprTyper._bindIndex`）与「`foreach (var x in c)` 的元素类型」
+    // （`ForeachProtocol.ElemType`）都从这里取 —— 两处此前各自只认一部分收者形态，`List<T>` 上的
+    // `var` 拿到 Unknown，后续成员调用失去重载信息、按裸名派发到别的重载，运行期才炸。
+    public static Z42Type SubstForRecv(Z42Type t, Z42Type recv) {
+        if (recv is Z42InstantiatedType) { return MemberResolver._substGeneric(t, recv as Z42InstantiatedType); }
+        if (recv is Z42InterfaceType) {
+            Z42Type r = MemberResolver._substSelf(t, recv);
+            if (recv is Z42InstantiatedInterfaceType) {
+                r = MemberResolver._substIfaceArgs(r, recv as Z42InstantiatedInterfaceType);
+            }
+            return r;
+        }
+        return t;
+    }
+
     public static Z42Type _substIfaceArgs(Z42Type t, Z42InstantiatedInterfaceType inst) {
         return TypeSubst.Apply(t, new IfaceArgsMap(inst));
     }

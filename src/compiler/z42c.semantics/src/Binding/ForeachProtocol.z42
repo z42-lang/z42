@@ -168,9 +168,11 @@ public sealed class ForeachProtocol {
     // 此前这条链散在两处：`StmtBinder._bindForeach` 的 if 嵌套挑路径、本文件提供判据。
     // 「两处各写一份」正是 `Count`/`Length` 曾判据分叉的形状（见 `CountOf` 抬头）。
     //
-    // ⚠️ **元素类型推导不在这里**：`var` 那一支今天只认 `Z42ClassType`（`List<int>` 这种
-    // `Z42InstantiatedType` 落不进去、元素类型停在 Unknown），**比协议成员面窄**。挪进来顺手
-    // 「修齐」它就是行为变更、字节会变，而本批要求字节不变 ⇒ 原样留在 `StmtBinder`，另起记账。
+    // `var` 循环变量的元素类型也在这里随路径一起定（`ForeachPlan.Elem`），与路径判定用**同一张成员面**：
+    // 此前它留在 `StmtBinder`、只认 `Z42ClassType`，于是 `List<Entry>`（`Z42InstantiatedType`）上的
+    // `foreach (var e in xs)` 元素类型停在 Unknown —— 编译零诊断，`e.Rel.Substring(0, 3)` 丢了重载信息、
+    // 按裸名派发到单参重载，运行期才报签名不符。枚举器路径不在此列：它脱糖成 `var x = __e.Current`，
+    // 走普通的 `var` 推断。
     public static ForeachPlan Resolve(SymbolTable symbols, Z42Type ct0) {
         StrMap m = ForeachProtocol.MethodsOf(ct0);
         StrMap f = ForeachProtocol.FieldsOf(ct0);
@@ -209,17 +211,25 @@ public sealed class ForeachProtocol {
                 pi.CountIsField = ck.StartsWith("f:");
                 pi.CountMember = ck.Substring(2);
                 pi.HasMemberFace = m2 != null;
+                MethodSymbol gi = m2.Get(ProtocolNames.GetItem) as MethodSymbol;
+                pi.Elem = MemberResolver.SubstForRecv(gi.Signature.Ret, ct0);
                 return pi;
             }
         }
 
         // ④ 数组（发射端的数组臂）。
-        if (isArray) { return new ForeachPlan(ForeachPlan.ArrayPath); }
+        if (isArray) {
+            ForeachPlan pa = new ForeachPlan(ForeachPlan.ArrayPath);
+            pa.Elem = (ct0 as Z42ArrayType).Elem;
+            return pa;
+        }
 
         // ⑤ 三条全落空。`HasMemberFace` 决定调用方能不能据此报「不可迭代」——型参 / Unknown /
         //    Error 的成员面是 null，那些场合判据不足以断言不可迭代，保守放过（诊断宁可漏不可误）。
         ForeachPlan pn = new ForeachPlan(ForeachPlan.None);
         pn.HasMemberFace = m2 != null;
+        // 被迭代对象本身已是错误值（上游报过错）⇒ 元素也记成错误值，循环体里的成员访问不再级联报 E0506。
+        if (ct0 is Z42ErrorType) { pn.Elem = ct0; }
         return pn;
     }
 }
@@ -240,6 +250,7 @@ public sealed class ForeachPlan {
     public string CountMember;     // Index：发射时用的那个名字（已剥掉 "f:"/"m:" 前缀）
     public bool   Disposable;      // Enumerator：脱糖要不要发 try/finally + Dispose
     public bool   HasMemberFace;   // None：调用方能否据此报「不可迭代」
+    public Z42Type Elem;           // ArrayPath / Index：`var` 循环变量的元素类型（其余路径为 Unknown；迭代错误值时为 Error）
 
     public ForeachPlan(int path) {
         this.Path = path;
@@ -247,5 +258,6 @@ public sealed class ForeachPlan {
         this.CountMember = "";
         this.Disposable = false;
         this.HasMemberFace = false;
+        this.Elem = new Z42UnknownType();
     }
 }

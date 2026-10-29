@@ -337,21 +337,14 @@ class EventBus {
 var bus = new EventBus();
 bus.Handlers.Add((int x) => Console.WriteLine($"h {x}"));
 
-(int) -> void h = bus.Handlers[0];   // 先接到一个**显式函数类型**的局部变量
-h(9);                                // 再调用
+bus.Handlers[0](9);                  // 从索引器取出的函数值可以就地调用
+var h = bus.Handlers[0];             // `var` 接到的是 `(int) -> void`
+h(9);
 ```
 
-> 从 **`List` 的索引器**里取出的函数值**不能就地调用**：`bus.Handlers[0](9)` 报
-> `E0402: unsupported call form`，用 `var` 接也认不出是函数（`E0401: undefined function`）。
-> 必须像上面那样先赋给一个写明 `(T) -> R` 类型的局部变量。
->
-> ⚠️ **这条只管 `List` 索引器，不是「函数值取出后一律不能就地调用」**：**数组下标可以**就地调 ——
-> `Action<int>[] arr; arr[0](9)` 正常，标准库自己就这么用
-> （`MulticastAction.Invoke` 里的 `snapStrong[i](arg)`）。区别在载体是数组还是索引器（属性）。
->
-> 🔴 但**函数类型不能当数组元素类型**：`((int) -> void)[] arr` 连声明都过不去
+> 🔴 **函数类型不能当数组元素类型**：`((int) -> void)[] arr` 连声明都过不去
 > （报 `E0401: undefined: arr`）。要数组就用**委托类型**写（`Action<int>[]`），
-> 要 `(T) -> R` 拼写就用 `List<(int) -> void>`（代价是取出后不能就地调，见上）。
+> 要 `(T) -> R` 拼写就用 `List<(int) -> void>`。
 
 **函数类型与委托类型可以双向互赋**——`(T) -> R` 和 `Action` / `Func` / `Predicate` /
 用户 `delegate` 在编译器里是**同一种类型**，赋值按**结构**（arity + 各形参 + 返回类型）判定，

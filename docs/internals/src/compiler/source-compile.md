@@ -808,7 +808,8 @@ CallExpr ─► MemberResolver._bindCall / _bindMemberCall
 | 洞 | 原因 |
 |---|---|
 | 懒加载 stub 接收者 loose-bind | 签名不可知，运行期经 DepIndex 解析 |
-| `Z42ErrorType` / `Z42UnknownType` 接收者 | 级联抑制 |
+| `Z42ErrorType` 接收者 | 级联抑制（上游已报过错） |
+| `Z42UnknownType` 接收者 | 签名不可知。**方法调用**报 `E0506`（`MemberResolver.ReportUnknownReceiver`）：裸名只认得重载集的 primary，按名派发会静默选错重载；字段 / 属性读与下标仍松绑定（按名取无歧义，`ref var b` 的 `b.V` 等合法写法依赖它） |
 | **enum 位** | z42 现行 enum-as-int 模型自身不自洽（成员是 `long`、类型名是孤立类，转换格里无边相连）——在调用点补 cast 只会掩盖它；待办：独立的 enum 区分类型改造 |
 
 > **泛型自由函数**：跨包调用泛型自由函数（`T IdOf<T>(T a)` 在包 A，包 B 调 `IdOf(7)`）要求型参 `T` 不退化成普通类
