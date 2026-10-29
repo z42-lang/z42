@@ -1,4 +1,5 @@
-// DeclEnforcer 的 `extern` ↔ `[Native]` 配对 + `[Native(...)]` 形态检查（E0903 / E0904 / E0907）。
+// DeclEnforcer 的 `extern` ↔ `[Native]` 配对 + `[Native(...)]` 形态检查（E0903 / E0904 / E0907），
+// 以及落点规则：`z42.core` 之外的 `[Native]` 必须写 `lib =`（E0919）。
 //
 // 三码在诊断码表里登记已久、全仓零发射点。此前三种写错都编得过，症状全推到运行期且指不回病灶：
 //   · `extern` 缺 `[Native]`：发射期 `_nativeIntrinsic` 取不到入口名 ⇒ **静默不出桩**，
@@ -9,6 +10,10 @@
 // 判据与消费方 `StubEmitter._nativeIntrinsic` / `_nativeLibType` 对齐（native-interop.md §2.1）：
 //   入口名 = 首个位置实参（字符串字面量）或 `entry =`；`lib =` / `type =` 可选，`type =` 要求 `lib =`。
 // 纯语法：只看 AST，不查符号表，挂在 `_passTestAttrEnforce` 旁边。
+//
+// E0919 判据见 stdlib/organization.md「extern 落点」：只有 `z42.core` 能写裸 builtin；其余包的 native 必须
+// 与一个真实存在或已规划的 native 库 / 运行时组件成对，`lib =` 写那个名字。本包名未知（`selfPkg == ""`：
+// 单文件编译、REPL、单测 harness）时不判——落点是包级规则，没有包就无从谈起。
 namespace Z42.Symbols;
 
 using Z42.Syntax;
@@ -16,26 +21,27 @@ using Z42.Core;
 
 public sealed partial class DeclEnforcer {
 
-    internal void _passNativeEnforce(CompilationUnit cu) {
+    internal void _passNativeEnforce(CompilationUnit cu, string selfPkg) {
+        bool libRequired = selfPkg != "" && selfPkg != "z42.core";
         int i = 0;
         while (i < cu.DeclCount) {
-            this._nvWalk(cu.Decls[i], "");
+            this._nvWalk(cu.Decls[i], "", libRequired);
             i = i + 1;
         }
     }
 
     // 遍历面同 `_teWalk`：顶层 → 类成员 → impl 方法；跳过嵌套类型成员（NestedFlatten 已把它们提升为
     // 顶层副本、但仍留在外层 Members，不跳会报两次）。同一遍顺带查 `[MethodImpl]`（DeclEnforcer.MethodImpl.z42）。
-    private void _nvWalk(Decl raw, string owner) {
+    private void _nvWalk(Decl raw, string owner, bool libRequired) {
         Decl d = this._sc._unwrap(raw);
-        this._nvCheck(raw, d, owner);
+        this._nvCheck(raw, d, owner, libRequired);
         this._miCheck(raw, d);
         if (d is ClassDecl) {
             ClassDecl c = d as ClassDecl;
             int j = 0;
             while (j < c.MemberCount) {
                 Decl mem = this._sc._unwrap(c.Members[j]);
-                if (!(mem is ClassDecl) && !(mem is EnumDecl)) { this._nvWalk(c.Members[j], c.Name); }
+                if (!(mem is ClassDecl) && !(mem is EnumDecl)) { this._nvWalk(c.Members[j], c.Name, libRequired); }
                 j = j + 1;
             }
         } else if (d is ImplDecl) {
@@ -43,11 +49,11 @@ public sealed partial class DeclEnforcer {
             string tn = "";
             if (im.TargetType is NamedType) { tn = (im.TargetType as NamedType).Name; }
             int j = 0;
-            while (j < im.MethodCount) { this._nvWalk(im.Methods[j], tn); j = j + 1; }
+            while (j < im.MethodCount) { this._nvWalk(im.Methods[j], tn, libRequired); j = j + 1; }
         }
     }
 
-    private void _nvCheck(Decl raw, Decl d, string owner) {
+    private void _nvCheck(Decl raw, Decl d, string owner, bool libRequired) {
         bool isExtern = false;
         string what = "";
         if (d is MethodDecl) {
@@ -94,7 +100,29 @@ public sealed partial class DeclEnforcer {
             return;
         }
         string bad = this._nvShape(nat);
-        if (bad != "") { this._sc.Diags.Error(DiagnosticCodes.NativeAttributeMalformed, bad, nat.Span); }
+        if (bad != "") { this._sc.Diags.Error(DiagnosticCodes.NativeAttributeMalformed, bad, nat.Span); return; }
+        if (libRequired && !DeclEnforcer._nvHasKey(nat, "lib")) {
+            this._sc.Diags.Error(DiagnosticCodes.NativeLibRequired,
+                "`[Native]` on " + what + " outside `z42.core` must name its native library:"
+                    + " write `[Native(lib = \"<library>\", entry = \"...\")]`, where `<library>` is the native"
+                    + " library or runtime component this package pairs with (e.g. `z42_compression`)."
+                    + " Only `z42.core` binds bare VM builtins; a package without its own native library"
+                    + " calls `z42.core`'s public API instead",
+                nat.Span);
+        }
+    }
+
+    // `[Native(...)]` 是否带 `key = ...` 命名实参。
+    private static bool _nvHasKey(Attr at, string key) {
+        int i = 0;
+        while (i < at.ArgCount) {
+            Expr arg = at.Args[i];
+            if (arg is AssignExpr && (arg as AssignExpr).Target is IdentExpr && ((arg as AssignExpr).Target as IdentExpr).Name == key) {
+                return true;
+            }
+            i = i + 1;
+        }
+        return false;
     }
 
     // 返回首个形态问题的消息；"" = 合法。一次只报一条：后面几条往往是同一个笔误的连带。

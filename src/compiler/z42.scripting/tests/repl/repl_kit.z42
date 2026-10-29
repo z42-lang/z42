@@ -21,7 +21,7 @@ bool _has(string[] a, string name) {
 
 // 与 rustyline Tab 同一条查找路径：按 FQN 运行期回调 Z42.Scripting.replComplete（免 PTY）。
 class ReplNative {
-    [Native("__repl_complete_probe")] public static extern string[] Probe(string fqn, string line, int pos);
+    [Native(lib = "z42_repl", entry = "__repl_complete_probe")] public static extern string[] Probe(string fqn, string line, int pos);
 }
 
 string[] _complete(string line, int pos) {

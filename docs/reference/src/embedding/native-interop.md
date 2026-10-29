@@ -12,7 +12,7 @@ VM；两边共用同一套 `Z42Value` / `Z42Args` 值形状。
 
 | 目标 | 写法 | 现状 |
 |---|---|---|
-| 调用 z42vm 内置的原生函数 | `extern` + `[Native("__name")]` | 名字必须**已在** VM 的内置表里；用户加不了新名字 |
+| 调用 z42vm 内置的原生函数 | `extern` + `[Native("__name")]` | 只有 `z42.core` 能这样写；其余包写了报 `E0919`，改调 core 的公开 API |
 | 调用随 SDK 分发的 native 扩展库（如压缩） | `[Native(lib="z42_x", entry="__y")]` | 可用；解析只看 `entry`，`lib` 是给人看的 |
 | 调用**自己**用 C / Rust 写的 native 类型的方法 | `[Native(lib=, type=, entry=)]` + Tier 1 注册 | 可用，**仅解释器**；类型须由宿主或静态链接注册 |
 | 在宿主程序里启动 z42 VM | `z42_host.h` | 见 [C ABI 契约](c-abi.md) |
@@ -62,7 +62,7 @@ public static class Console {
 | 形态 | 分派到 | `lib=` 的作用 |
 |---|---|---|
 | `[Native("__name")]` / `[Native(entry="__name")]` | VM 内置函数表，未命中再查 native 扩展表 | — |
-| `[Native(lib="L", entry="__name")]` | 同上（**按 `entry` 名解析，`lib` 不参与**） | 仅作文档说明 |
+| `[Native(lib="L", entry="__name")]` | 同上（**按 `entry` 名解析，`lib` 不参与**） | 不参与解析；但 `z42.core` 以外的包**必须写**（落点规则，缺了报 `E0919`） |
 | `[Native(lib="L", type="T", entry="E")]` | Tier 1：`L::T::E`，经 `z42_register_type` 注册的方法表 | 参与解析，必须与注册时的 `module_name` 一致 |
 
 第三种形态是扩展作者真正会用的：`lib` 对应描述符的 `module_name`，`type` 对应 `type_name`，`entry`

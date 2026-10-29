@@ -12,23 +12,23 @@ public static class Repl {
     // 就在缓冲内插换行 + 续行缩进（可上下方向键跨行编辑、粘贴回改），写完才提交整块。非交互（管道 /
     // 无 tty）下退化成读一物理行，多行仍由调用方按 Completeness.IsIncomplete 累积（见 corelib/repl.rs）。
     // 续行缩进由回车策略在缓冲内插入 → 不再需要 initial 预填参数。
-    [Native("__repl_readline")]
+    [Native(lib = "z42_repl", entry = "__repl_readline")]
     public static extern string ReadLine(string prompt);
 
     // 注册 Tab 补全的自由函数 FQN（契约 `string[] f(string line, int pos)`）；空串清除。
     // rustyline Completer 在每次 Tab 回调它取候选（见 z42vm corelib/repl.rs）。add-completion-query-api。
-    [Native("__repl_set_completer")]
+    [Native(lib = "z42_repl", entry = "__repl_set_completer")]
     public static extern void SetCompleter(string fqn);
 
     // 注册缩进感知键位回调的自由函数 FQN（契约 `string f(string key, string line, int pos)`）；空串清除。
     // rustyline 在 Backspace / Tab / `}` 按下时回调它取「动作串」（见 z42vm corelib/repl_editing.rs）。
     // 策略全在 z42（Std.Repl.ReplEditing），Rust 只翻译动作串。add-repl-indent-editing。
-    [Native("__repl_set_key_editor")]
+    [Native(lib = "z42_repl", entry = "__repl_set_key_editor")]
     public static extern void SetKeyEditor(string fqn);
 
     // 安装输入行语法着色的关键字表（`\n` 分隔）。空串 = 不着色关键字。
     // 加载不到行编辑器 cdylib（非 tty / wasm / 老版本 cdylib）时静默 no-op。
-    [Native("__repl_set_keywords")]
+    [Native(lib = "z42_repl", entry = "__repl_set_keywords")]
     public static extern void SetKeywords(string joined);
 
     // 便捷入口：从 Lexer 取当前关键字表装进去。**关键字的唯一 SoT 是

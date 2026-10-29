@@ -3,6 +3,6 @@ namespace Std.Diagnostics;
 /// 读取 VM 自身累计运行计数（alloc / GC / 异常 / JIT）的第一方入口。
 public static class RuntimeStats {
     /// 读取自 VM 启动以来的累计计数快照（各计数独立读取，彼此有微小 skew）。
-    [Native("__diag_counters")]
+    [Native(lib = "z42_diagnostics", entry = "__diag_counters")]
     public static extern RuntimeCounters Counters();
 }

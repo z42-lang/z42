@@ -3,10 +3,10 @@ namespace Std.Diagnostics;
 /// 堆保留诊断：回答「某对象为什么没被回收、被谁钉住」。
 public static class Heap {
     /// 直接持有 `target` 引用的堆对象（object / array）列表；非堆对象返回空。
-    [Native("__heap_direct_referrers")]
+    [Native(lib = "z42_diagnostics", entry = "__heap_direct_referrers")]
     public static extern Retainer[] DirectReferrers(object target);
 
     /// 从 `target` 反向可达的 GC 根（类别级，去重）；非堆对象返回空。
-    [Native("__heap_retaining_roots")]
+    [Native(lib = "z42_diagnostics", entry = "__heap_retaining_roots")]
     public static extern RootRef[] RetainingRoots(object target);
 }

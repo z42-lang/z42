@@ -127,8 +127,8 @@ VM 注册表 `BUILTINS` 共 **331** 个条目（桌面 arm64），全部是 ABI 
 | 包 | 声明文件数 | 不同 `__` 符号 | 性质 |
 |---|---|---|---|
 | `z42.core` | 52 | 303 | 语义汇聚核 |
-| `z42.harness` | 1 | 4 | 运行时非必需（②）；声明待补 `lib=` |
-| `z42.diagnostics` | 2 | 3 | 运行时非必需（②）；声明待补 `lib=` |
+| `z42.harness` | 1 | 4 | 运行时非必需（②，`lib = "z42_harness"`；实现暂在 VM 主 builtin 表） |
+| `z42.diagnostics` | 2 | 3 | 运行时非必需（②，`lib = "z42_diagnostics"`；实现暂在 VM 主 builtin 表） |
 | `z42.compression` | 8 | 12 个 `entry =`（`lib = "z42_compression"`） | 运行时非必需（②，外部 cdylib） |
 
 compression 那 12 个**不在** `BUILTINS` 里——它们由 cdylib 在加载时注册进 per-VM 的 ext 表

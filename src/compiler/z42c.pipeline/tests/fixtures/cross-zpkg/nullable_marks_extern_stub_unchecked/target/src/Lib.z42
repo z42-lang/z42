@@ -4,11 +4,12 @@
 // ⇒ `$RetNullable` 哨兵一个字都没写进 zpkg，标记位在导入侧恒落 false，
 // 调用方直接解引用**零诊断**。非 extern 的同形用例（nullable_marks_cross_pkg_unchecked）
 // 却一直是报的 —— 两者只差「被调方是不是 extern」这一个变量。
+// （`lib = "z42_fixture"`：非 core 包必须写 `lib =`（E0919）；只是库名标注，入口仍是 VM builtin `__env_get`。）
 namespace Demo.ExternNullNs;
 
 public class EnvProbe {
     // 指向真实 builtin（`Environment.GetEnvironmentVariable` 用的同一个），
     // 这样桩能正常发射；本用例只编译不运行，不依赖它的返回内容。
-    [Native("__env_get")]
+    [Native(lib = "z42_fixture", entry = "__env_get")]
     public static extern string? Get(string name);
 }

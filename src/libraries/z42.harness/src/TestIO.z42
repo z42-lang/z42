@@ -66,15 +66,15 @@ public static class TestIO {
     // ── Native bindings ───────────────────────────────────────────────────
     // Internal — exposed via the public capture* methods above.
 
-    [Native("__test_io_install_stdout_sink")]
+    [Native(lib = "z42_harness", entry = "__test_io_install_stdout_sink")]
     private static extern void __install_stdout_sink();
 
-    [Native("__test_io_take_stdout_buffer")]
+    [Native(lib = "z42_harness", entry = "__test_io_take_stdout_buffer")]
     private static extern string __take_stdout_buffer();
 
-    [Native("__test_io_install_stderr_sink")]
+    [Native(lib = "z42_harness", entry = "__test_io_install_stderr_sink")]
     private static extern void __install_stderr_sink();
 
-    [Native("__test_io_take_stderr_buffer")]
+    [Native(lib = "z42_harness", entry = "__test_io_take_stderr_buffer")]
     private static extern string __take_stderr_buffer();
 }
