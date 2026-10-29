@@ -13,16 +13,24 @@
 
 ```z42
 public class ConstructorInfo : MethodBase {
+    string __owner
     extern object Invoke(object[] args)
 }
 ```
 
-成员：[`Invoke`](#Std.Reflection.ConstructorInfo.Invoke(object[]))
+成员：[`__owner`](#Std.Reflection.ConstructorInfo.__owner) · [`Invoke`](#Std.Reflection.ConstructorInfo.Invoke(object[]))
+
+<a id="Std.Reflection.ConstructorInfo.__owner"></a>
+### string __owner
+
+[`src/libraries/z42.core/src/Reflection/ConstructorInfo.z42:10`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/ConstructorInfo.z42#L10)
+
+VM 写入：调用本构造器所构造的类型的规范名（从构造泛型 `Type` 枚举时带实参，如 `Demo.Box<int>`），`Invoke` 按它分配实例。
 
 <a id="Std.Reflection.ConstructorInfo.Invoke(object[])"></a>
 ### extern object Invoke(object[] args)
 
-[`src/libraries/z42.core/src/Reflection/ConstructorInfo.z42:13`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/ConstructorInfo.z42#L13)
+[`src/libraries/z42.core/src/Reflection/ConstructorInfo.z42:17`](https://github.com/z42-lang/z42/blob/main/src/libraries/z42.core/src/Reflection/ConstructorInfo.z42#L17)
 
 分配新实例并跑构造体，返回构造出的对象。
 
