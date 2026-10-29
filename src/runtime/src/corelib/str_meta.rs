@@ -49,10 +49,10 @@
 //! next (another oversized block, the first block of a fresh bump chunk) is born at
 //! `FIRST_GEN` — the dead string's generation — so the stale entry would pass both checks and
 //! return the dead string's char count and offsets (wrong `Length`, `CharAt` slicing at a
-//! non-boundary). So an entry whose block may be in a dedicated chunk
-//! ([`var_region::may_be_dedicated`]) records that chunk's `(chunk, epoch)` stamp — the identity
+//! non-boundary). So an entry whose block may be in a dedicated chunk records that chunk's `(chunk, epoch)` stamp — the identity
 //! weak references use; the epoch moves when the chunk is freed — and every lookup compares the
-//! process-wide dedicated-free count ([`var_region::dedicated_free_count`], one load). When the
+//! process-wide dedicated-free count (one load). Both come from the heap layer through
+//! [`crate::gc::ambient::cache_scope`], the one ambient entry this cache uses. When the
 //! count moved since the last lookup, each stamped entry is re-checked against its chunk under
 //! the region lock and dropped if the chunk was freed — before anything reads its header.
 //! Bump-chunk entries are never re-checked, and a free elsewhere costs a dedicated entry one
@@ -68,7 +68,6 @@
 //! set the bit.
 
 use std::cell::{Cell, RefCell};
-use crate::gc::var_region;
 use crate::metadata::vstr::Str;
 
 struct StrMeta {
@@ -97,7 +96,7 @@ thread_local! {
     /// a mismatch with the current epoch (a heap switch — a new VM on this thread), the whole
     /// cache is dropped, because a torn-down heap's block addresses get recycled and a fresh
     /// gen-0 block at a recycled address would otherwise false-hit a stale gen-0 entry.
-    /// Paired with **D7**'s dedicated-chunk free count ([`var_region::dedicated_free_count`]) at
+    /// Paired with **D7**'s dedicated-chunk free count (`CacheScope::dedicated_frees`) at
     /// the last lookup: when that moves, every entry stamped with a chunk is re-checked before
     /// reuse. One cell, so the lookup pays one TLS access for both.
     static LAST_EPOCH: Cell<(u64, u64)> = const { Cell::new((0, 0)) };
@@ -108,15 +107,8 @@ fn data_ptr(s: &Str) -> *const u8 {
     s.as_ptr()
 }
 
-fn compute(s: &Str) -> StrMeta {
-    // D7: stamp a block that may live in a dedicated chunk (`s` is live here, so the stamp names
-    // its chunk). One region lock, only for blocks past the large-object threshold — whose
-    // offsets table below is a ≥ 64 KB walk anyway.
-    let chunk = if var_region::may_be_dedicated(s.len()) {
-        crate::gc::ambient::current_heap().and_then(|h| h.var_chunk_stamp(s.var_ref()))
-    } else {
-        None
-    };
+/// `chunk`: D7's stamp for `s` (`CacheScope::dedicated_chunk_stamp`).
+fn compute(s: &Str, chunk: Option<(u32, u32)>) -> StrMeta {
     let bytes = s.as_bytes();
     if bytes.is_ascii() {
         StrMeta { s: s.clone(), char_len: bytes.len(), ascii: true, offsets: None, chunk }
@@ -130,17 +122,8 @@ fn compute(s: &Str) -> StrMeta {
 /// D7: drop every entry whose dedicated chunk was freed since it was stamped — its header
 /// address may now be unmapped, or hold a different block at the same generation. Called only
 /// when the dedicated-free count moved; reads no header.
-fn drop_entries_in_freed_chunks(cache: &mut Vec<StrMeta>) {
-    if cache.iter().all(|e| e.chunk.is_none()) {
-        return;
-    }
-    let heap = crate::gc::ambient::current_heap();
-    cache.retain(|e| match (e.chunk, heap) {
-        (None, _) => true,
-        (Some((chunk, epoch)), Some(h)) => h.var_chunk_unchanged(chunk, epoch),
-        // Stamped by a heap that is no longer installed: can't vouch for it.
-        (Some(_), None) => false,
-    });
+fn drop_entries_in_freed_chunks(cache: &mut Vec<StrMeta>, unchanged: impl Fn(u32, u32) -> bool) {
+    cache.retain(|e| e.chunk.is_none_or(|(chunk, epoch)| unchanged(chunk, epoch)));
 }
 
 /// Run `f` against `s`'s cached metadata, computing + caching on first sight.
@@ -152,8 +135,8 @@ fn with_meta<R>(s: &Str, f: impl FnOnce(&StrMeta) -> R) -> R {
     // generation guard only distinguishes reuse WITHIN one region). The per-heap monotonic epoch
     // (`ambient::current_heap_epoch`, never reused) changes on every heap switch; drop the whole
     // cache when it does. Within one heap the epoch is constant ⇒ no clearing, no perf loss.
-    let epoch = crate::gc::ambient::current_heap_epoch();
-    let frees = var_region::dedicated_free_count();
+    let scope = crate::gc::ambient::cache_scope();
+    let (epoch, frees) = (scope.epoch, scope.dedicated_frees);
     CACHE.with(|c| {
         let mut cache = c.borrow_mut();
         let (last_epoch, last_frees) = LAST_EPOCH.with(|le| le.replace((epoch, frees)));
@@ -162,7 +145,7 @@ fn with_meta<R>(s: &Str, f: impl FnOnce(&StrMeta) -> R) -> R {
         } else if last_frees != frees {
             // D7: a dedicated chunk was freed somewhere since the last lookup — drop the entries
             // whose chunk it was, before `is_live` below could read their (freed) headers.
-            drop_entries_in_freed_chunks(&mut cache);
+            drop_entries_in_freed_chunks(&mut cache, |chunk, ep| scope.chunk_unchanged(chunk, ep));
         }
         let key = data_ptr(s);
         // Hit = same allocation address AND the cached handle is still live (its
@@ -177,7 +160,10 @@ fn with_meta<R>(s: &Str, f: impl FnOnce(&StrMeta) -> R) -> R {
             }
             return f(&cache[0]);
         }
-        let meta = compute(s);
+        // D7: stamp a block that may live in a dedicated chunk (`s` is live here, so the stamp
+        // names its chunk). One region lock, only past the large-object threshold — whose offsets
+        // table is a ≥ 64 KB walk anyway.
+        let meta = compute(s, scope.dedicated_chunk_stamp(s));
         cache.insert(0, meta);
         if cache.len() > CACHE_CAP {
             cache.pop();

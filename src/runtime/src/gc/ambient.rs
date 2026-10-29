@@ -142,3 +142,41 @@ pub fn current_heap() -> Option<&'static dyn MagrGC> {
 pub fn current_heap_epoch() -> u64 {
     CURRENT_EPOCH.with(|e| e.get())
 }
+
+/// **D7**: what an address-keyed cache that outlives its blocks ([`crate::corelib::str_meta`])
+/// needs from the heap layer, behind the one ambient entry it already goes through. `epoch` is
+/// [`current_heap_epoch`] (a heap switch drops the whole cache); `dedicated_frees` is the
+/// process-wide dedicated-chunk free count (when it moves, every chunk-stamped entry is re-checked
+/// before its header is read). Taking the scope costs two cheap reads; the heap itself is only
+/// looked up by the two methods, on a miss or after a free.
+#[derive(Clone, Copy)]
+pub struct CacheScope {
+    pub epoch: u64,
+    pub dedicated_frees: u64,
+}
+
+impl CacheScope {
+    /// `Some((chunk, epoch))` — the stamp weak references record — when `s` may sit in a dedicated
+    /// chunk (payload past the large-object threshold), whose memory goes back to the allocator
+    /// the moment `s` dies; `None` for a bump-chunk block (pooled, never handed back while the
+    /// region lives), or with no heap installed. `s` must be live. Takes the region lock.
+    pub fn dedicated_chunk_stamp(&self, s: &crate::metadata::vstr::Str) -> Option<(u32, u32)> {
+        if !super::var_region::may_be_dedicated(s.len()) {
+            return None;
+        }
+        current_heap().and_then(|h| h.var_chunk_stamp(s.var_ref()))
+    }
+
+    /// Whether the chunk named by a [`Self::dedicated_chunk_stamp`] stamp still holds the same
+    /// memory — `false` once it was freed, or when no heap is installed (a stamp from a heap that
+    /// is gone can't be vouched for). Takes the region lock.
+    pub fn chunk_unchanged(&self, chunk: u32, epoch: u32) -> bool {
+        current_heap().is_some_and(|h| h.var_chunk_unchanged(chunk, epoch))
+    }
+}
+
+/// The current [`CacheScope`].
+#[inline]
+pub fn cache_scope() -> CacheScope {
+    CacheScope { epoch: current_heap_epoch(), dedicated_frees: super::var_region::dedicated_free_count() }
+}
