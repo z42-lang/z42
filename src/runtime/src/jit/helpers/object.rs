@@ -2,7 +2,7 @@
 //! Object allocation, field access, type tests, static fields, and the
 //! generic `default(T)` runtime helper.
 
-use crate::interp::dispatch::isa_td;
+use crate::interp::dispatch::{isa_object, isa_td};
 use crate::metadata::resolver::ObjNewSite;
 use crate::metadata::Value;
 
@@ -222,7 +222,7 @@ pub unsafe extern "C" fn jit_is_instance(
     let key = &*key;
     let module = super::jit_module(ctx);
     let result = match &(*frame).regs[obj as usize] {
-        Value::Object(rc) => isa_td(vm_ctx_ref(ctx), &module.type_registry, rc.type_desc(), class_name, key),
+        Value::Object(rc) => isa_object(vm_ctx_ref(ctx), &module.type_registry, rc.type_desc(), rc.type_args(), class_name, key),
         Value::Array(_)   => is_array_isa(class_name),
         // add-struct-object-boxing → unify Phase 2 R3: 装箱值类型（struct 或基元）is-a 精确类型 /
         // object（镜像 interp is_instance；基元盒 type_desc.name 即精确 wrapper）。
@@ -290,7 +290,7 @@ pub unsafe extern "C" fn jit_as_cast(
         return;
     }
     let is_match = match &val {
-        Value::Object(rc) => isa_td(vm_ctx_ref(ctx), &module.type_registry, rc.type_desc(), class_name, key),
+        Value::Object(rc) => isa_object(vm_ctx_ref(ctx), &module.type_registry, rc.type_desc(), rc.type_args(), class_name, key),
         Value::Array(_)   => is_array_isa(class_name),
         Value::Null => true,
         // fix-boxed-primitive-is-as: 未装箱裸基元按其 stdlib 类名匹配。

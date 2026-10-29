@@ -201,3 +201,41 @@ fn explicit_reload_clears_the_caches() {
     assert_eq!(ctx.isa_cache.get(leaf.id.0, key.get().unwrap()), None);
     assert!(ctx.subclass_memo.lock().is_empty());
 }
+
+/// An imported generic instantiated in another package carries the **definition's** descriptor
+/// plus per-instance type arguments; `is Def<args>` reads those arguments. An argument that is
+/// still a type parameter (`T`, recorded by `new List<T>()` in a generic body) cannot be decided
+/// and matches.
+#[test]
+fn erased_generic_instance_compares_its_own_type_args() {
+    let ctx = setup();
+    let entry = Arc::clone(ctx.module().unwrap());
+    let base = lazy(&ctx, "Pkg.Base");
+    let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let test = |inst: &[String], target: &str| {
+        isa_object(&ctx, &entry.type_registry, &base, inst, target, &TypeKeyCell::new())
+    };
+    assert!(test(&args(&["App.Entry"]), "Pkg.Base<App.Entry>"));
+    assert!(!test(&args(&["App.Entry"]), "Pkg.Base<int>"));
+    assert!(!test(&args(&["App.Entry"]), "Pkg.Base<App.Entry,int>"));
+    assert!(test(&args(&["string", "Pkg.Box<int>"]), "Pkg.Base<string,Pkg.Box<int>>"));
+    assert!(!test(&args(&["string", "Pkg.Box<int>"]), "Pkg.Base<string,Pkg.Box<long>>"));
+    assert!(test(&args(&["T"]), "Pkg.Base<App.Entry>"), "open argument ⇒ erased answer");
+    // Not an instantiation of the receiver's definition ⇒ the ordinary descriptor test.
+    assert!(test(&args(&["App.Entry"]), "Pkg.Base"));
+    assert!(test(&args(&["App.Entry"]), "Pkg.IShape"));
+    assert!(!test(&args(&["App.Entry"]), "Pkg.Leaf"));
+}
+
+/// A descriptor that records a base / interface erased (non-generic class implementing
+/// `IShape<int>` lists `Pkg.IShape`) cannot tell instantiations apart: an instantiated target
+/// of it matches, as the erased test does. Instantiation descriptors still compare exactly.
+#[test]
+fn erased_descriptor_entries_match_instantiated_targets() {
+    let ctx = setup();
+    let leaf = lazy(&ctx, "Pkg.Leaf");
+    assert!(isa(&ctx, &leaf, "Pkg.IShape<int>", &TypeKeyCell::new()));
+    assert!(isa(&ctx, &leaf, "Pkg.Base<int>", &TypeKeyCell::new()));
+    let boxed = lazy(&ctx, "Pkg.Box<int>");
+    assert!(!isa(&ctx, &boxed, "Pkg.Box<string>", &TypeKeyCell::new()));
+}
