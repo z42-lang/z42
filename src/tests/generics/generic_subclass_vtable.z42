@@ -1,0 +1,92 @@
+// Test: fix-generic-subclass-of-base — a constructed generic class (`G<int>`) dispatches to
+// its own overrides even when only the erased definition (`G.Who`) carries the bodies.
+// Before the fix the instantiation's vtable was the base's alone ⇒ the base method ran.
+
+namespace GenericSubclassVtable;
+
+interface INamed { string Name(); }
+
+class PB {
+    public int Count;
+    public virtual string Who() { return "base"; }
+    public virtual object Get() { return null; }
+    public string Call() { return this.Who(); }
+}
+
+sealed class NG : PB { public override string Who() { return "nongeneric"; } }
+
+sealed class G<T> : PB {
+    private T _v;
+    public G(T v) { this._v = v; }
+    public override string Who() { return "generic"; }
+    public override object Get() { return this._v; }
+    public void Bump(int n) { this.Count = this.Count + n; }
+}
+
+// 3 levels: G3<T> : Mid : PB, override at the generic leaf and at the middle.
+class Mid : PB {
+    public override string Who() { return "mid"; }
+    public virtual string Tag() { return "mid-tag"; }
+}
+sealed class G3<T> : Mid {
+    public override string Tag() { return "g3-tag"; }
+}
+
+// Base class + interface on a generic subclass.
+sealed class GI<T> : PB, INamed {
+    public override string Who() { return "gi"; }
+    public string Name() { return "gi-name"; }
+}
+
+// No explicit base: the override of an `Std.Object` virtual.
+class Plain<T> {
+    public override string ToString() { return "plain<T>"; }
+    public override int GetHashCode() { return 42; }
+}
+
+// A generic and a non-generic class sharing one name (arity-keyed `Box$1`).
+class Box { public virtual string Who() { return "box"; } }
+class Box<T> : Box { public override string Who() { return "box<T>"; } }
+
+void Main() {
+    PB a = new NG();
+    PB b = new G<int>(5);
+    Assert.Equal("nongeneric", a.Who());
+    Assert.Equal("generic", b.Who());
+    Assert.Equal("generic", b.Call());           // virtual call from a base method body
+    object o = b.Get();
+    Assert.True(o != null);
+    Assert.Equal("5", o.ToString());
+
+    G<string> gs = new G<string>("s");
+    Assert.Equal("generic", gs.Who());
+    Assert.Equal("s", gs.Get().ToString());
+
+    // Base field read/write through the generic subclass and through the base reference.
+    G<int> gi = new G<int>(1);
+    gi.Bump(3);
+    PB gb = gi;
+    gb.Count = gb.Count + 10;
+    gi.Bump(1);
+    Assert.Equal(14, gi.Count);
+    Assert.Equal(14, gb.Count);
+
+    PB m = new G3<int>();
+    Assert.Equal("mid", m.Who());
+    Mid mm = new G3<long>();
+    Assert.Equal("g3-tag", mm.Tag());
+    Assert.Equal("mid-tag", new Mid().Tag());
+
+    PB pi = new GI<int>();
+    Assert.Equal("gi", pi.Who());
+    INamed n = new GI<string>();
+    Assert.Equal("gi-name", n.Name());
+
+    object po = new Plain<int>();
+    Assert.Equal("plain<T>", po.ToString());
+    Assert.Equal(42, po.GetHashCode());
+
+    Box bx = new Box<int>();
+    Assert.Equal("box<T>", bx.Who());
+    Assert.Equal("box", new Box().Who());
+}

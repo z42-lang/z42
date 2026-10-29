@@ -178,6 +178,8 @@ public sealed class AccessEmitter {
 
     // obj.field 读 → field_get。
     internal TypedReg _emitMember(BoundMember m) {
+        // fix-generic-property-return：返回类级型参的属性读走方法调用的返回协议（拆箱 / 特化 sret）。
+        if (m.InstGetter != null) { return this._ee.Emit(m.InstGetter); }
         // arr.Length（PS-2/SA）：C# 字节实证 = FieldGet obj, "Length"（非 ArrayLen 指令；VM 对数组特判）
         if (m.MemberName == "Length" && (m.Target.Type() is Z42ArrayType)) {
             TypedReg arr0 = this._ee.Emit(m.Target);

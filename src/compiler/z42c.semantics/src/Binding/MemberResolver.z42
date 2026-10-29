@@ -369,7 +369,14 @@ public sealed partial class MemberResolver {
             FieldSymbol itFs = this._findField(env.Symbols, itDef, m.Name);
             if (itFs != null) {
                 Z42Type fType = MemberResolver._substGeneric(itFs.FieldType, instT);
-                return new BoundMember(target, m.Name, fType, m.Span);
+                BoundMember bm = new BoundMember(target, m.Name, fType, m.Span);
+                if (itFs.IsProp) {
+                    MethodSymbol pg = this._tc._overload._findMethod(env.Symbols, itDef, "get_" + m.Name);
+                    if (pg != null && pg.Signature != null) {
+                        bm.InstGetter = this._instTypeParamGetter(target, itDef, pg, instT, m.Span);
+                    }
+                }
+                return bm;
             }
             // fix-generic-struct-property-getter：泛型实例化收者的**属性 getter**（无字段但有 get_Name）→
             // BoundCall(get_Name)，返回类型经 _substGeneric 按 receiver 实参替换（镜像 :218-222 class 路径 +
@@ -381,6 +388,8 @@ public sealed partial class MemberResolver {
             if (itGetter != null && itGetter.Signature != null) {
                 this._tc._access.CheckAccess(itGetter.Visibility, itGetter.ContainingTypeName, env, env.Symbols, "property", m.Name, m.Span);
                 this._tc._access.CheckDeprecatedM(itGetter, m.Name, m.Span);
+                BoundExpr tpg = this._instTypeParamGetter(target, itDef, itGetter, instT, m.Span);
+                if (tpg != null) { return tpg; }
                 Z42Type gret = MemberResolver._substGeneric(itGetter.Signature.Ret, instT);
                 return new BoundCall("instance", true, target, itDef.Name(), "get_" + m.Name, new BoundExpr[0], 0, gret, m.Span);
             }
@@ -469,6 +478,24 @@ public sealed partial class MemberResolver {
         return null;
     }
 
+
+    // fix-generic-property-return：泛型实例化收者上、声明类型是**类级型参**的属性读，走与方法调用
+    // （`_bindMemberCall` GS6 的 `StructUnboxTarget` 分支）**同一个返回协议**：擦除体按装箱模型交出
+    // 值（`(T)obj` 在体内是 no-op，交出的就是盒）→ 调用侧拆箱；成员已特化时 callee 走 sret
+    // （`InstRetType` 交给发射端判）。此前属性路直接按代换后的类型读 ⇒ `Box<int>.Value` 把
+    // `Std.Int32` 盒当 i64 参与运算（JIT 出垃圾数、解释器报类型不符），`G<Pt>.P` 调特化 getter
+    // 不传 sret 槽（实参个数不符）。不适用（返回非型参 / 代换后非值类型）→ null。
+    internal BoundExpr _instTypeParamGetter(BoundExpr target, Z42ClassType def, MethodSymbol getter,
+                                            Z42InstantiatedType instT, Span sp) {
+        // 值 struct 收者不在此列：它的属性读是静态 Call 传 handle、按特化 getter 走（`AccessEmitter` blob 分支）。
+        if (def.IsStruct) { return null; }
+        Z42Type ubR = this._tc.StructUnboxTarget(getter.Signature.Ret, instT);
+        if (ubR == null) { return null; }
+        BoundCall raw = new BoundCall("instance", true, target, def.Name(), getter.CallKey(),
+                                      new BoundExpr[0], 0, new Z42UnknownType(), sp);
+        raw.InstRetType = ubR;
+        return new BoundConvert(raw, ubR, sp);
+    }
 
     [Suppress("style.fnLinesHard", "78 body lines；拆分见 code-organization.md")]
     internal BoundExpr _bindCall(CallExpr call, TypeEnv env) {

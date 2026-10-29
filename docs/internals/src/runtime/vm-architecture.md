@@ -956,6 +956,13 @@ if let Some(&slot) = type_desc.vtable_index.get(method) {
 构建 TypeDesc.name，而 ClassDesc.name 由编译器写入 —— 编译期 `QualifyClassName`
 是最终决定者。
 
+**泛型实例化的 vtable 含擦除定义的成员**：实例化（`Demo.G<int>`）有自己的 TypeDesc，但编译器只把
+**布局特化**过的成员以实例化名发射，其余成员只在擦除定义名下（`Demo.G.Who`；与同名非泛型类共存时是
+`Demo.G$1.Who`，即名字里第一个 `<` 之前的部分，`TypeDesc::erased_definition_name`）。`build_type_registry`
+收 own methods 时两个前缀都收（同键的特化体优先），合并后的 vtable 才带得上 override。只收实例化名前缀的
+话，有基类的 `G<T>` 的 vtable 只剩基类的槽 ⇒ 4a 命中基类实现，永远到不了 4c 的擦除名回落（无显式基的泛型类经
+`Std.Object` 同样中招：`ToString` override 被无视）。
+
 > 注：派发目标的**决议**集中在
 > `src/runtime/src/interp/vcall_resolve.rs`，interp 与 JIT 共用同一条阶梯（boxed primitive →
 > boxed struct → primitive/array receiver → object vtable / 继承链），各自只决定「怎么调」。

@@ -165,6 +165,13 @@ callee 不收 sret（`FunctionEmitter._blobStructNameT` 对方法级型参恒判
 `FunctionEmitter.SeedMethodTp` 继承）判定。泛型**类**不需要：blob struct 实例化总有自己的特化体（`InstNeedsOwnBody`），
 体内 `T` 就是具体 struct。
 
+**类级**型参返回经实例化收者读出（`Box<int>.Get()`）是同一个约定：`TypeChecker.StructUnboxTarget` 给出代换后的
+值类型 ⇒ 内层 `BoundCall` 定型 `Unknown` + 记 `InstRetType`（成员已特化时发射端据此走 sret），外包 `BoundConvert`
+拆箱（基元发 `convert`，blob struct 发 AsCast）。擦除体里 `(T)obj` 是 no-op，交出去的就是盒，拆箱只能在调用侧做。
+**属性读与方法调用走同一条**（`MemberResolver._instTypeParamGetter`）：本包属性在符号表里登记成字段，绑出来仍是
+`BoundMember`（赋值 / 复合赋值按左值认它），读形态挂在 `BoundMember.InstGetter` 上、由 `AccessEmitter._emitMember`
+优先发射；导入属性直接返回该读形态。值 struct 收者不走这条（它的属性读是静态 Call 传 handle）。
+
 `MethodTypeArgSubst.ForExplicitTypeArgs` 的型参个数取 `ms.TypeParamNames.Length`：本地符号在 `SymbolCollector`
 裁成恰好 `TypeParamCount` 长（parser 的 `TypeParams.Names` 是带余量的容量数组），与导入侧（精确长度）同口径。
 

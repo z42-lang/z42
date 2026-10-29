@@ -105,3 +105,16 @@ fn type_param_vocabularies_agree_with_default_value_for() {
         assert!(matches!(crate::metadata::types::default_value_for(name), Value::Null), "{name:?}");
     }
 }
+
+// fix-generic-subclass-of-base: an instantiation's members may live under the erased
+// definition; the vtable-slot key derivation must strip that prefix too.
+#[test]
+fn erased_definition_name_and_member_keys() {
+    assert_eq!(crate::metadata::TypeDesc::erased_definition_name("Demo.G<int>"), Some("Demo.G"));
+    assert_eq!(crate::metadata::TypeDesc::erased_definition_name("Demo.G$1<Demo.P<int>>"), Some("Demo.G$1"));
+    assert_eq!(crate::metadata::TypeDesc::erased_definition_name("Demo.G"), None);
+    assert_eq!(crate::metadata::TypeDesc::derive_simple_method_name("Demo.G<int>", "Demo.G<int>.Who"), "Who");
+    assert_eq!(crate::metadata::TypeDesc::derive_simple_method_name("Demo.G<int>", "Demo.G.Who$1$int"), "Who$1$int");
+    assert_eq!(crate::metadata::TypeDesc::derive_simple_method_name("Demo.G", "Demo.G.Who"), "Who");
+    assert_eq!(crate::metadata::TypeDesc::derive_simple_method_name("Demo.H<int>", "Demo.G.Who"), "Demo.G.Who");
+}

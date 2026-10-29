@@ -130,9 +130,13 @@ public sealed class BoundFuncRef : BoundExpr {
 public sealed class BoundMember : BoundExpr {
     public BoundExpr Target;
     public string    MemberName;
+    // fix-generic-property-return：泛型实例化收者上返回**类级型参**的属性，其**读**形态
+    // （`BoundConvert(BoundCall(get_X))`，与 `Target` 共用同一子树，见 `MemberResolver._instTypeParamGetter`）；
+    // 其余为 null。节点本身仍是 BoundMember —— 赋值 / 复合赋值按左值认它，只有读走这条。
+    public BoundExpr InstGetter;
     private Z42Type _type;
     public BoundMember(BoundExpr target, string memberName, Z42Type type, Span span) { this.Span = span;
-        this.Target = target; this.MemberName = memberName; this._type = type;
+        this.Target = target; this.MemberName = memberName; this._type = type; this.InstGetter = null;
     }
     public override Z42Type Type() { return this._type; }
     public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitMember(this, d); }
