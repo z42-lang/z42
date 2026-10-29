@@ -1,9 +1,9 @@
 // xtask `check`：不编译、不跑用例的静态检查（纯文本扫描 / 生成物比对，秒级）。
 //
 //   xtask check            全部跑一遍（顺序同 GREEN gate 里的对应 stage），汇总哪些红
-//   xtask check <name>     只跑一个
+//   xtask check <name>     只跑一个（每项是一个子命令）
 //   xtask check <name> --update   重写该检查在 scripts/test/gates.toml 的机器区段
-//                                 （diagcodes / doc-refs / layers；其余无 --update）
+//                                 （只有 diagcodes / doc-refs / layers 有 --update）
 //
 // 它们在 GREEN gate 里仍各是一个 stage（stage 名不变，见 test-gate.md）；这里只是单跑的入口。
 namespace Z42Xtask;
@@ -31,34 +31,27 @@ string _checkDesc(string name) {
     return "";
 }
 
+// 每项检查是一个子命令（帮助里列出名字 + 说明）；只有带机器区段的三项挂 --update。
 class CheckCommand : Command {
-    [Option(help: "diagcodes / doc-refs / layers: rewrite the gates.toml machine section from the current tree")]
-    public bool Update;
-    [Argument(help: "one check (default: all; `xtask check -h` lists them)")]
-    public string Name = "";
-
-    public CheckCommand() : base("check", "static checks — no build, no test run (no name = all)") {}
-
-    public override int Run() {
-        if (this.Name.Length > 0) { return _checkNamed(this.Name, this.Update); }
-        if (this.Update) {
-            throw new CliException("--update needs a check name (diagcodes / doc-refs / layers)");
-        }
-        return _checkAll();
+    public CheckCommand() : base("check", "static checks — no build, no test run") {
+        this.SetDefaultAction("run them all (GREEN gate order) and report every red one");
+        foreach (var n in _checkNames()) { this.AddCommand(new CheckOneCommand(n)); }
     }
+    public override int Run() { return _checkAll(); }
 }
 
-int _checkNamed(string name, bool update) {
-    if (_checkDesc(name).Length == 0) {
-        ConsoleError.WriteLine("xtask check: unknown check '" + name + "'");
-        foreach (var n in _checkNames()) { ConsoleError.WriteLine("  " + _padRight(n, 15) + _checkDesc(n)); }
-        return 2;
+class CheckOneCommand : Command {
+    private CliOption<bool>? _update;
+
+    public CheckOneCommand(string name) : base(name, _checkDesc(name)) {
+        if (name == "diagcodes" || name == "doc-refs" || name == "layers") {
+            this._update = this.AddOption<bool>("update", false, help: "rewrite this check's gates.toml machine section from the current tree");
+        }
     }
-    if (update && name != "diagcodes" && name != "doc-refs" && name != "layers") {
-        ConsoleError.WriteLine("xtask check: --update only applies to diagcodes / doc-refs / layers");
-        return 2;
+    public override int Run() {
+        var u = this._update;
+        return _checkOne(this.CommandName(), u != null && u.Value);
     }
-    return _checkOne(name, update);
 }
 
 // 全跑：不在第一处红就停 —— 一次看到所有红的检查。
@@ -87,7 +80,7 @@ int _checkOne(string name, bool update) {
     if (name == "versions")      { return _checkVersions(); }
     if (name == "layers")        { return _testLayers(update); }
     if (name == "docs-api")      { return _checkDocsApi(); }
-    if (name == "doc-lints")     { return _checkDocLints(); }   // doc-lints 无 --update：硬门，白名单在 gates.toml [doc-lints]
+    if (name == "doc-lints")     { return _checkDocLints(); }   // doc-lints 无 --update：硬门、无白名单
     if (name == "doc-refs")      { return _checkDocRefs(update); }
     return _testLayout();
 }

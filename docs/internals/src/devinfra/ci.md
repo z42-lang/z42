@@ -100,8 +100,8 @@ main push 取 `before...sha` 的 compare（新分支的全零 `before`、API 失
 ↔ `test-gate.md`）+ `xtask check diagcodes`（诊断码 ↔ `error-codes.md`）+ `xtask check doc-refs`（书页代码引用；
 为此装一份 stable Rust，先 cargo 编 rust-index 重建 Rust 外部索引）+ `xtask check docs-api`（生成页 ↔ stdlib `///`）。
 docs-api 用的解析器是种子 SDK 的 z42c.syntax（xtask-only 的既定语义）：改动 doc 挂靠语义的 PR 合入后、下一次 nightly
-种子发布前，它在纯文档 PR 上可能假红（种子随每次 main push 重发，窗口很短）。`xtask check doc-lints` 刻意不在这里
-——纯文档改动碰不到 stdlib 的 `///`，放进来只会假红，见[怎么跑测试](testing.md)。
+种子发布前，它在纯文档 PR 上可能假红（种子随每次 main push 重发，窗口很短）。doc-lints 不在这里——纯文档改动碰不到
+stdlib 的 `///`；它是 GREEN gate 的 stage，随 test-host 跑。
 `test-host` ×4 与 toolchain 链（`compile-toolchain` → `compile-test-assets` / `test-consume`）随之 skip；
 main push 上 `publish-nightly` 也随之不跑（纯文档本来就不影响 SDK，见下节的 `sdk` 判定）。schedule / dispatch 不走快速通道。
 

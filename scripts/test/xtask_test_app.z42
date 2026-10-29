@@ -15,21 +15,14 @@ namespace Z42Xtask;
 using Std.IO;
 
 int _testApp(TestAppCommand c) {
-    string which = c.Platform;
-    string step = c.Step;
+    string which = c.Platform.Value;
+    string step = c.Step.Value;
     string filter = c.Filter;
     string format = c.Format;
     string zbc = c.Zbc;
     int[] sh = _parseShard(c.Shard);
-    // 平台域 = versions.toml [workload].members（test app 在每个 workload 的 testhost 上跑）。
-    string[] plats = _vWorkloads(_root());
-    if (which != "all") {
-        if (_strIn(plats, which)) { plats = new string[]{ which }; }
-        else {
-            ConsoleError.WriteLine("error: xtask test app <" + _joinStrings(plats, "|") + "|all> — unknown platform '" + which + "'");
-            return 2;
-        }
-    }
+    // which 已由 choices 校验（versions.toml [workload].members + all）。
+    string[] plats = which == "all" ? _vWorkloads(_root()) : new string[]{ which };
     if (step.Length > 0 && which == "all") {
         ConsoleError.WriteLine("error: a single step needs a single platform (xtask test app <platform> " + step + ")");
         return 2;

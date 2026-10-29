@@ -37,8 +37,8 @@
 signal-crash helper 会挂死整套 `cargo test`，所以 CI 每条腿单列一步。
 `--skip` 的完整 stage 名清单以[测试门禁 §5](test-gate.md) 为准。
 
-gate 里还串着若干**静态检查** stage（纯文本扫描 / 生成物比对，秒级），单跑入口是 `xtask check`；`xtask check`
-另有三道**只在它这里**的文档门禁，一起列在下表：
+gate 里还串着若干**静态检查** stage（纯文本扫描 / 生成物比对，秒级），单跑入口是 `xtask check`（每项是一个子命令，
+`xtask check -h` 列出全部）；其中 docs-api / doc-refs 两道文档门禁**只在 `xtask check` 里**、不进 GREEN gate，一起列在下表：
 
 | 命令 | 守什么 |
 |---|---|
@@ -52,13 +52,12 @@ gate 里还串着若干**静态检查** stage（纯文本扫描 / 生成物比�
 | `xtask check versions` | `scripts/versions.toml` 与它的投影文件（Cargo workspace 版本、Android / iOS 平台下限）文本一致 |
 | `xtask check layers [--update]` | 运行时源码的跨组件引用与 pal 外的平台 cfg / `libc::` 不超 `gates.toml [layers.*]` 的欠账基线（只降不升，见[测试门禁](test-gate.md)） |
 | `xtask check docs-api` | **文档门禁**：已迁移 stdlib 包的 reference 生成页（含 SUMMARY 的 type-split 区段）与源码 `///` 一致，不一致提示 `xtask doc gen` |
-| `xtask check doc-lints [--update]` | **文档门禁**：stdlib doc 注释的 W08xx 语法级计数不超 `scripts/test/doc-lint-baseline.txt`（只降不升） |
-| `xtask check doc-refs [--update]` | **文档门禁**：internals / reference 手写页与 README 的代码引用可解析、不写行号（行号基线已为 0，即硬指标；未解析多段链按 `scripts/test/doc-refs-baseline.txt` 只降不升） |
+| `xtask check doc-lints` | **文档门禁**：stdlib doc 注释没有 W08xx 发现（硬门、无白名单）；是 GREEN gate 的一个 stage |
+| `xtask check doc-refs [--update]` | **文档门禁**：internals / reference 手写页与 README 的代码引用可解析、不写行号（行号已是硬指标；未解析多段链按 `gates.toml [doc-refs]` 只降不升） |
 
-三道文档门禁**不在 GREEN gate 的 stage 清单里**。CI 只在纯文档 PR 的 docs-check 里跑 doc-refs 与 docs-api
-（见 [CI 拓扑](ci.md)）；doc-lints 哪个 job 都不跑——纯文档改动碰不到 stdlib 的 `///`，改了 `///` 的 PR 又不走
-docs-check。所以改 stdlib `///` 的 PR 合并前要本地 `xtask check doc-lints`，否则棘轮被无声推高，直到下一个本地跑的
-人才看到红。三道的机制见[文档索引与 `z42 doc`](../toolchain/doc.md)。
+docs-api 与 doc-refs **不在 GREEN gate 的 stage 清单里**，CI 只在纯文档 PR 的 docs-check 里跑它们（见
+[CI 拓扑](ci.md)）。doc-lints 在 GREEN gate 里，改了 stdlib `///` 的 PR 走的正是它。三道的机制见
+[文档索引与 `z42 doc`](../toolchain/doc.md)。
 
 打包相关：`xtask package sdk --verify` 组装完 SDK 后先自检 `packages.toml` 的解析 / 组件安装 / 发布归档，再拿这份
 发行版（`bin/z42c`、`bin/z42vm`、`libs/`、launcher）跑[发行包夹具](fixture-harness.md)（命令行路径 / 桌面发布 /
