@@ -134,7 +134,7 @@ public static class IncrementalDriver {
                         byte[] zbc = File.ReadAllBytes(CacheStore.ZbcPath(cacheDir, rel));
                         // zbc↔meta 配对校验（fix-cache-atomic-writes）：对不上 = 这份 zbc 不是这条 meta 写的
                         // （崩溃留下的新旧混搭）→ 按不可读处理，走下方同一条降级（该文件 fresh）。
-                        if (Murmur3.HashHexOfBytes(zbc) == plan.Metas[i].ZbcHash) { m = ZbcReader.Read(zbc); }
+                        if (Std.Hashing.Murmur3.Hash128Hex(zbc) == plan.Metas[i].ZbcHash) { m = ZbcReader.Read(zbc); }
                     } catch (Exception e) { m = null; }
                     if (m != null && !IncrementalDriver._applyResidue(m, plan.Metas[i])) { m = null; }
                     if (m == null) {
@@ -440,7 +440,7 @@ string _writeCacheZbc(string cacheDir, string projectDir, string src, IrModule i
     if (parent.Length > 0) { Directory.Create(parent); }
     byte[] bytes = ZbcWriter.Write(irm).ToBytes();
     File.WriteAllBytes(zbcPath, bytes);   // 缓存写非原子：坏 zbc 由 meta 的 zbchash 配对校验兜底（坏=按 fresh 重建，IncrementalDriver 读端全量重算哈希），不依赖落盘顺序
-    return Murmur3.HashHexOfBytes(bytes);   // native-hash(bytes)：与写端同源
+    return Std.Hashing.Murmur3.Hash128Hex(bytes);   // native-hash(bytes)：与写端同源
 }
 
 // 第 i 个文件的解析（ParseAllTk 的并行体）。只读输入、只写第 i 个槽；`SurfaceHash.Of` 不碰静态状态。

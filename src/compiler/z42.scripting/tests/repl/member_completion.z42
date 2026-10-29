@@ -1,4 +1,4 @@
-// 会话变量活值的成员补全：直接反射（__repl_member_names）与经 completer 的 `b.` / `b.W`。
+// 会话变量活值的成员补全：直接反射（Engine.MemberNames）与经 completer 的 `b.` / `b.W`。
 namespace Z42ScriptingTests;
 
 using Z42.Scripting;
@@ -12,7 +12,7 @@ void test_member_completion() {
     Completer.SetActive(s);
 
     string vr = s.VarsRound.ToString();
-    string[] m = ReplNative.MemberNames("Repl.R" + vr + ".Vars" + vr + ".b");
+    string[] m = Engine.MemberNames("Repl.R" + vr + ".Vars" + vr + ".b");
     Assert.True(_has(m, "W"));
     Assert.True(_has(m, "H"));
 

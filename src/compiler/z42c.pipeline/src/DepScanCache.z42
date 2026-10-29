@@ -61,9 +61,6 @@ public static class DepScanCache {
     private static CachedZpkg[] _entries = null;
     private static int _count = 0;
 
-    // mtime（unix epoch 毫秒）。直接绑 native，避开 z42.time 依赖 —— 与同包 NsIndexCache._mtimeMs 同款。
-    [Native("__file_last_write_time_ms")] private static extern long _mtimeMs(string path);
-
     // 按 path 取缓存条目；未命中则 File.ReadAllBytes + ZpkgReader.Open 一次并缓存。
     // 命中路径只做两次 stat（size + mtime），**零重解码**（这正是 O(N²)→O(N) 的来源）。
     //
@@ -79,7 +76,7 @@ public static class DepScanCache {
         long mtime = -1;
         try {
             size = File.GetSize(path);
-            mtime = DepScanCache._mtimeMs(path);
+            mtime = File.GetLastWriteTime(path).UnixMs();
         } catch (Exception ex) { size = -1; mtime = -1; }
         int i = 0;
         while (i < DepScanCache._count) {
