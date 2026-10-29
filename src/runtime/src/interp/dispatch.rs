@@ -30,13 +30,34 @@ pub fn is_subclass_or_eq_td(
         return true;
     }
     let Some(td) = registry.get(derived).cloned().or_else(|| ctx.try_lookup_type(derived)) else {
-        return false;
+        return constructed_name_isa(ctx, registry, derived, target);
     };
     if !td.id.is_resolved() {
         return is_subclass_or_eq_td_walk(ctx, registry, derived, target);
     }
     let key = target_key(ctx, registry, target);
     isa_keyed(ctx, registry, &td, target, key)
+}
+
+/// [`is_subclass_or_eq_td`] for a constructed name no package declares a descriptor for
+/// (`Std.Collections.List<int>` — an imported generic instantiated elsewhere): the type an
+/// instance carrying the definition's descriptor plus these arguments has, answered the way
+/// [`isa_object`] answers for such an instance.
+fn constructed_name_isa(
+    ctx: &VmContext,
+    registry: &rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>>,
+    derived: &str,
+    target: &str,
+) -> bool {
+    let def = crate::metadata::type_names::erased(derived);
+    if def.len() == derived.len() {
+        return false;
+    }
+    let args = crate::metadata::types::type_args_from_name(derived);
+    if let Some(v) = erased_instance_matches(def, &args, target) {
+        return v;
+    }
+    is_subclass_or_eq_td(ctx, registry, def, target)
 }
 
 /// Type test for a **receiver descriptor** — the single entry used by interp `is` / `as` /
@@ -98,8 +119,10 @@ pub fn isa_object(
 /// `Some(verdict)` when `target` names an instantiation of the erased definition `def` (that is,
 /// `target == "{def}<…>"` and `def` itself is not an instantiation); `None` = not this case.
 ///
-/// Arguments compare by spelling — the compiler renders the instance's arguments (`ObjNew` site)
-/// and the target's with the same function. An instance argument that is still an **unsubstituted
+/// Arguments compare by spelling: both sides are in the canonical spelling
+/// (`type_names::canonical_arg`) — the compiler emits it for the instance's arguments (`ObjNew`)
+/// and for the target, and every runtime producer of instance arguments (reflection) goes through
+/// that function. An instance argument that is still an **unsubstituted
 /// type parameter** (`new List<T>()` inside a generic body records `"T"`) cannot be decided: it
 /// matches, which is the erased-generic answer the test had before instantiations had identity.
 #[inline(never)]
@@ -144,14 +167,10 @@ fn is_open_type_arg(arg: &str) -> bool {
         .any(|t| !t.contains('.') && !is_keyword_type_name(t))
 }
 
-/// The compiler's keyword spellings of built-in types — the only dot-free names a type argument
-/// can carry.
+/// The keyword spellings of built-in types (`type_names::canonical_arg`) — the only dot-free
+/// names a canonical type argument can carry.
 fn is_keyword_type_name(t: &str) -> bool {
-    matches!(
-        t,
-        "int" | "long" | "short" | "byte" | "sbyte" | "uint" | "ulong" | "ushort"
-            | "float" | "double" | "bool" | "char" | "string" | "object"
-    )
+    crate::metadata::type_names::builtin_keyword(t) == Some(t)
 }
 
 /// Front cache, then the memo / walk. `td.id` is resolved; `key` is `target`'s key.

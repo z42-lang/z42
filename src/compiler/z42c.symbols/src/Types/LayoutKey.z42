@@ -52,10 +52,35 @@ public static class LayoutKey {
             return StructLayout.InstName(ii.Def.Fqn(), iargs, ii.ArgCount);
         }
         if (t is Z42InterfaceType) { return (t as Z42InterfaceType).Fqn(); }
+        if (t is Z42FuncType) { return LayoutKey.OfFunc(t as Z42FuncType); }
         if (t is Z42GenericParamType) { return t.Name(); }
         if ((t is Z42UnknownType) || (t is Z42ErrorType)) { return ""; }
         string n = t.Name();
         return n == "" ? "" : PrimModel.Canon(n);
+    }
+
+    // 函数类型 → 它的委托类型名：`Std.Func<p…,ret>` / `Std.Action<p…>` / `Std.Action`，成分同 `Of` 递归。
+    // 不能用 `Z42FuncType.Name()`：那是签名拼写（`Func<Int32, Int32>`：短名、包装名、带空格），作类型实参时
+    // 运行期认不出 `Func` / `Int32`（不带 `.` 的成分被当成未代换的型参 ⇒ `List<Func<int,int>>` 匹配任何实参）。
+    public static string OfFunc(Z42FuncType ft) {
+        bool isVoid = ft.Ret is Z42VoidType;
+        if (isVoid && ft.ParamCount == 0) { return "Std.Action"; }
+        string s = isVoid ? "Std.Action<" : "Std.Func<";
+        int i = 0;
+        while (i < ft.ParamCount) {
+            string p = LayoutKey.Of(ft.ParamTypes[i]);
+            if (p == "") { return ""; }
+            if (i > 0) { s = s + ","; }
+            s = s + p;
+            i = i + 1;
+        }
+        if (!isVoid) {
+            string r = LayoutKey.Of(ft.Ret);
+            if (r == "") { return ""; }
+            if (ft.ParamCount > 0) { s = s + ","; }
+            s = s + r;
+        }
+        return s + ">";
     }
 
     // 查表前的规范化：剥尾部 `?`；基元的任何拼写（`Int32` / `Std.Int32`）→ 关键字；其余**原样**

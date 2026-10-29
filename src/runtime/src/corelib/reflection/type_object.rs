@@ -7,6 +7,12 @@ use super::*;
 /// `NativeData::TypeHandle`. Falls back to a handle-less synthetic only if
 /// z42.core's `Std.Type` isn't loaded (shouldn't happen in practice).
 pub fn make_type_object(ctx: &VmContext, td: Arc<TypeDesc>) -> Value {
+    // An instantiation descriptor (`Demo.Box<int>`, the compiler's own name for a closed
+    // instantiation) is a constructed type: same Type as `typeof(Box<int>)` — definition handle
+    // plus `__typeArgs`, FullName with arguments (see `make_constructed_type`).
+    if !td.type_args().is_empty() && td.name.contains('<') {
+        return make_type_from_name(ctx, &td.name);
+    }
     let full = td.name.clone();
     let simple = type_simple_name(&full);
     build_type(ctx, &simple, &full, NativeData::TypeHandle(td))
@@ -169,32 +175,12 @@ pub fn make_type_from_name(ctx: &VmContext, name: &str) -> Value {
     build_type(ctx, &simple, &canon, NativeData::None)
 }
 
-/// Map a primitive keyword (`int`) *or* VM tag (`i32`) to its fully-qualified
-/// `Std.*` wrapper struct name. `None` for non-primitive names (user/class names,
-/// arrays, generics — handled earlier in `make_type_from_name`).
-///
-/// fix-type-reflection-names: reflection resolves primitives to real handles, so
-/// `typeof(int)` ≡ `(5).GetType()`. Covers both vocabularies (field-slot keywords
-/// and function-signature tags) — the sibling of `canonical_type_name`, which maps
-/// the same inputs to display aliases; this maps them to FQNs.
+/// Map any built-in type spelling — keyword (`int`), VM tag (`i32`) or FQN — to its `Std.*`
+/// struct / class name. `None` for non-built-in names (user/class names, arrays, generics —
+/// handled earlier in `make_type_from_name`). One table with the canonical type-name spelling
+/// (`type_names::builtin_fqn`), so `typeof(object)` and `new object().GetType()` agree.
 pub(super) fn primitive_fqn(name: &str) -> Option<&'static str> {
-    use crate::metadata::well_known_names::*;
-    Some(match name {
-        "sbyte" | "i8" => "Std.SByte",
-        "byte" | "u8" => "Std.Byte",
-        "short" | "i16" => "Std.Int16",
-        "ushort" | "u16" => "Std.UInt16",
-        "int" | "i32" => STD_INT32,
-        "uint" | "u32" => "Std.UInt32",
-        "long" | "i64" => STD_INT64,
-        "ulong" | "u64" => "Std.UInt64",
-        "float" | "f32" => STD_SINGLE,
-        "double" | "f64" => STD_DOUBLE,
-        "bool" => STD_BOOLEAN,
-        "char" => STD_CHAR,
-        "string" | "str" => STD_STRING,
-        _ => return None,
-    })
+    crate::metadata::type_names::builtin_fqn(name)
 }
 
 /// Backs the `Typeof` opcode (add-reflection-generic-type-definition; replaces
@@ -345,6 +331,64 @@ pub(super) fn resolve_dotless_simple(ctx: &VmContext, name: &str) -> Option<Arc<
         }
     }
     ctx.try_lookup_type(&fq)
+}
+
+/// The canonical runtime name (`type_names::canonical`) of the type a `Std.Type` stands for:
+/// `typeof(List<int>)` → `Std.Collections.List<int>`, `typeof(int)` → `Std.Int32`. Derived from
+/// `FullName`, which is always the display form of that same name — so a Type built from any
+/// spelling (reflection, `typeof`, `GetType`) answers with the one the VM compares by.
+pub(crate) fn type_value_name(ty: &Value) -> Option<String> {
+    match read_type_slot_of(ty, "__fullName") {
+        Value::Str(s) if !s.is_empty() => Some(crate::metadata::type_names::canonical(&s)),
+        _ => None,
+    }
+}
+
+/// [`type_value_name`] spelled as a **type argument** (`typeof(int)` → `int`) — what an
+/// instance's `type_args` and a frame's `method_type_args` hold.
+pub(crate) fn type_value_arg_name(ty: &Value) -> Option<String> {
+    type_value_name(ty).map(|n| crate::metadata::type_names::canonical_arg(&n))
+}
+
+/// The instantiation descriptor of a constructed `Std.Type` (`typeof(Sub<int>)` → the
+/// descriptor registered as `Demo.Sub<int>`), when a loaded package carries one. A constructed
+/// Type's handle is its generic *definition* (members, constructors and the definition itself
+/// are read from it); facts that differ per instantiation — the substituted base class and
+/// interfaces — live on this descriptor. `None` for a non-constructed Type, or an
+/// instantiation no loaded package declared (an imported generic the main package instantiated:
+/// its definition's base / interface names are all there is).
+pub(super) fn instantiation_desc(ctx: &VmContext, ty: &Value) -> Option<Arc<TypeDesc>> {
+    if !matches!(read_type_slot_of(ty, "__typeArgs"), Value::Array(_)) {
+        return None;
+    }
+    let name = type_value_name(ty)?;
+    ctx.module()
+        .and_then(|m| m.type_registry.get(&name).cloned())
+        .or_else(|| ctx.try_lookup_type(&name))
+}
+
+/// Type-parameter substitution for a constructed `Std.Type`'s member signatures: the
+/// definition's parameter names paired with the Type's canonical argument names
+/// (`typeof(Box<int>)` → `(["T"], ["int"])`). `None` for anything else (no rewrite).
+pub(super) fn member_subst(ty: &Value) -> Option<(Vec<String>, Vec<String>)> {
+    let td = type_handle_of(ty)?;
+    let params = td.type_params().to_vec();
+    if params.is_empty() {
+        return None;
+    }
+    let args: Vec<String> = match read_type_slot_of(ty, "__typeArgs") {
+        Value::Array(rc) => rc.borrow().iter_boxed().filter_map(|t| type_value_arg_name(&t)).collect(),
+        _ => return None,
+    };
+    (args.len() == params.len()).then_some((params, args))
+}
+
+/// A member's type tag under [`member_subst`] (`T` → `int` on `Box<int>`); unchanged without one.
+pub(super) fn subst_tag(tag: &str, subst: Option<&(Vec<String>, Vec<String>)>) -> String {
+    match subst {
+        Some((p, a)) => crate::metadata::type_names::substitute(tag, p, a),
+        None => tag.to_string(),
+    }
 }
 
 pub(super) fn type_handle(args: &[Value]) -> Option<Arc<TypeDesc>> {

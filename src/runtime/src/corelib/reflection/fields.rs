@@ -18,17 +18,30 @@ pub fn type_fields(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> {
         Some(t) => t,
         None => return Ok(ctx.heap().alloc_array(Vec::new())),
     };
+    // A constructed Type (`typeof(Box<int>)`) reports member types with its arguments
+    // substituted (`V : int`, not `V : T`): from its instantiation descriptor when a package
+    // declares one (fields inherited from a generic base are substituted there too), else by
+    // substituting the definition's own parameters.
+    let subst = member_subst(ty);
+    let subst = subst.as_ref();
+    let inst = instantiation_desc(ctx, ty);
+    let field_tag = |i: usize, f: &crate::metadata::FieldSlot| -> String {
+        match inst.as_ref().and_then(|d| d.fields.get(i)).filter(|g| g.name == f.name) {
+            Some(g) => g.type_tag.to_string(),
+            None => subst_tag(&f.type_tag, subst),
+        }
+    };
     let mut out = Vec::with_capacity(td.fields.len() + td.static_fields().len());
     // Instance fields (already base-first — cross-zpkg fixup merges inherited
     // instance fields into `td.fields`; IsStatic = false). Auto-property backing
     // fields (compiler-synthesized `__prop_<Name>`, see IrGen auto-prop stubs) are
     // hidden from GetFields, mirroring C# which never surfaces the backing field —
     // the property is visible via GetProperties instead.
-    for f in &td.fields {
+    for (i, f) in td.fields.iter().enumerate() {
         if is_autoprop_backing(&f.name) {
             continue;
         }
-        out.push(build_field_info(ctx, &td.name, &f.name, &f.type_tag, false, f.visibility).map_err(BuiltinError::Legacy)?);
+        out.push(build_field_info(ctx, &td.name, &f.name, &field_tag(i, f), false, f.visibility).map_err(BuiltinError::Legacy)?);
     }
     // add-reflection-inherited-static-fields: static fields are stored per
     // declaring class (no instance-field-style fixup), so walk the base chain
@@ -44,7 +57,8 @@ pub fn type_fields(ctx: &VmContext, ty: &Value) -> Result<Value, BuiltinError> {
                 continue;
             }
             if seen.insert(f.name.clone()) {
-                out.push(build_field_info(ctx, &c.name, &f.name, &f.type_tag, true, f.visibility).map_err(BuiltinError::Legacy)?);
+                let tag = if Arc::ptr_eq(&c, &td) { subst_tag(&f.type_tag, subst) } else { f.type_tag.clone() };
+                out.push(build_field_info(ctx, &c.name, &f.name, &tag, true, f.visibility).map_err(BuiltinError::Legacy)?);
             }
         }
         cur = c.base_name.as_ref().and_then(|b| {

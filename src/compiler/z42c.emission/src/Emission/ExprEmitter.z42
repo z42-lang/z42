@@ -645,6 +645,11 @@ public sealed partial class ExprEmitter : IBoundExprVisitor<TypedReg, Unit> {
         if (t is Z42ClassType) { return this._ctx.QualifyType(t, t.Name()); }
         if (t is Z42InterfaceType) { return this._ctx.QualifyType(t, t.Name()); }
         if (t is Z42InstantiatedType) { return this._ctx.QualifyType(t, (t as Z42InstantiatedType).Def.Name()); }
+        // 函数类型：委托名 + 成分（`Std.Func<int,int>`），与身份名同一拼写（`LayoutKey.OfFunc`）。
+        if (t is Z42FuncType) {
+            string fk = LayoutKey.OfFunc(t as Z42FuncType);
+            if (fk != "") { return fk; }
+        }
         // fix-emit-zbc-swallows-diagnostics：未解析类型的内部哨兵**不得以尖括号形态**进 IR。
         // `Z42UnknownType.Name()` 是字面串 `<unknown>`，落到下面的 `t.Name()` 后被 intern 进 zbc
         // 的字符串池；运行期 `make_type_from_name` 见它 `<` 开头 `>` 结尾 → **误判为构造泛型**，
@@ -671,6 +676,15 @@ public sealed partial class ExprEmitter : IBoundExprVisitor<TypedReg, Unit> {
             int k = 0;
             while (k < it.ArgCount) { if (k > 0) { s = s + ","; } s = s + this._typeofArgName(it.TypeArgs[k]); k = k + 1; }
             return s + ">";
+        }
+        // 构造泛型接口同理带实参（`IFoo<int>`）：`_typeofName` 给的是裸名（`Name()` 刻意不带实参），
+        // 作实参时会让 `List<IFoo<int>>` 与 `List<IFoo<string>>` 落成同一个名字。
+        if (t is Z42InstantiatedInterfaceType) {
+            Z42InstantiatedInterfaceType ii = t as Z42InstantiatedInterfaceType;
+            string s2 = this._typeofName(ii) + "<";
+            int j = 0;
+            while (j < ii.ArgCount) { if (j > 0) { s2 = s2 + ","; } s2 = s2 + this._typeofArgName(ii.TypeArgs[j]); j = j + 1; }
+            return s2 + ">";
         }
         return this._typeofName(t);
     }

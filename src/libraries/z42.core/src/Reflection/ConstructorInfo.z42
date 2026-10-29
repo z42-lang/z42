@@ -5,6 +5,10 @@ namespace Std.Reflection;
 /// 与 `MethodInfo.Invoke`（在既有接收者上调方法）不同，`Invoke` 分配新实例并跑构造体，返回构造
 /// 出的对象（带参构造）。构造器永不静态，继承自 MethodBase 的 `IsStatic` 恒为 false。
 public class ConstructorInfo : MethodBase {
+    /// VM 写入：调用本构造器所构造的类型的规范名（从构造泛型 `Type` 枚举时带实参，如
+    /// `Demo.Box<int>`），`Invoke` 按它分配实例。
+    public string __owner;
+
     /// 分配新实例并跑构造体，返回构造出的对象。
     ///
     /// `args` 按声明序映射形参。实参个数不符抛 `Std.Exception`；构造体内的 `throw`

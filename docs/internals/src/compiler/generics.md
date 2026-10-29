@@ -314,54 +314,14 @@ TypeDesc {
 
 ## 运行时支持
 
-### 反射
+### 构造类型的运行期身份
 
-```z42
-var stack = new Stack<int>(10);
-var type = stack.GetType();
-// type.Name == "Stack<int>"
-// type.TypeArgs == ["int"]
-
-if (stack is Stack<int>) {
-    // true — 运行时类型信息完整
-}
-```
-
-### TypeDesc 扩展
-
-```rust
-pub struct TypeDesc {
-    pub name: String,
-    pub base_name: Option<String>,
-    pub fields: Vec<FieldSlot>,
-    pub field_index: HashMap<String, usize>,
-    pub vtable: Vec<(String, String)>,
-    pub vtable_index: HashMap<String, usize>,
-
-    // === L3 泛型新增 ===
-    /// 泛型参数名：["T"]、["K", "V"]
-    pub type_params: Vec<String>,
-    /// 实例化时的具体类型：["int"]、["string", "int"]
-    /// 定义时为空，实例化时填充。
-    pub type_args: Vec<String>,
-    /// 关联类型映射：{"Output" => "int"}
-    pub assoc_types: HashMap<String, String>,
-}
-```
-
-### 实例化机制
-
-当 VM 遇到 `new Stack<int>(10)` 时：
-
-1. 查找 `Stack` 的 TypeDesc（泛型定义）
-2. 创建 `Stack<int>` 的实例化 TypeDesc（clone + 填充 type_args）
-3. 缓存实例化 TypeDesc（相同 type_args 共享）
-4. ScriptObject 引用实例化后的 TypeDesc
-
-```rust
-/// 泛型实例化缓存：(generic_name, type_args) → TypeDesc
-type_instantiation_cache: HashMap<(String, Vec<String>), Arc<TypeDesc>>
-```
+本包泛型的每个具体实例化由编译器发一条**实例化描述符**（`Demo.Box<int>`，基类 / 接口 / 字段类型按实参代换，
+见 `ClassDescBuilder._instClassDesc`）；导入的泛型没有这样的描述符，实例挂定义描述符、实参记在实例上
+（`ObjNew` 的 type args）。两种表示是同一个类型：身份是一个**规范名**（类全名、实参里的内建类型写关键字、
+无空格；编译器经 `LayoutKey` 发射），`GetType` / `typeof` / `IsAssignableFrom` / 反射构造 / `is` 都按它比。
+运行期侧（规范名函数、构造类型的 `Type`、反射构造）见
+[反射 Type 身份 §构造类型](../runtime/reflection-type-identity.md#构造类型一个规范名一种-type)。
 
 ### 型参具化的两个载体（`typeof(T)` / `default(T)` / `new T()` / `new T[n]`）
 
@@ -824,7 +784,7 @@ TypeCheck:  类型参数作用域；泛型实例化时替换 T → 具体类型
 IrGen:      生成共享代码 + .type_params 元数据
 ZbcWriter:  SIGS section 写入 type_param_count + names
 VM loader:  读取 type_params → TypeDesc
-VM interp:  ObjNew 时创建实例化 TypeDesc（填充 type_args）
+VM interp:  ObjNew：本包实例化 → 实例化描述符；导入泛型 → 定义描述符 + 实例 type_args
 ```
 
 ---

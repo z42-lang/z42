@@ -49,10 +49,16 @@
 | `string` | `String` | `Std.String` |
 | `double` | `Double` | `Std.Double` |
 | `bool` | `Boolean` | `Std.Boolean` |
+| `object` | `Object` | `Std.Object` |
 | `int[]` | `Int32[]` | `Std.Int32[]` |
+| `List<int>` | `List` | `Std.Collections.List<Std.Int32>` |
 | 自己的 `Shop.Product` | `Product` | `Shop.Product` |
 
 `typeof(int)` 与 `(5).GetType()` 是同一个类型身份，所以上面最后一行是 `true`。
+
+泛型也一样：`typeof(List<int>)` 与 `new List<int>().GetType()` 相等，不管对象是在哪个包里 `new` 出来的，
+还是经 `Activator.CreateInstance` / `MakeGenericType` 反射造出来的。构造类型的 `BaseType`、
+`GetInterfaces()`、字段与方法的类型都带着实参（`Box<int>` 的 `T V` 字段报 `Std.Int32`）。
 
 ### 问这个类型是什么形状
 

@@ -1,0 +1,18 @@
+lib-made GBox<int>=Lib.GBox<Std.Int32>
+main-made GBox<int>=Lib.GBox<Std.Int32>
+lib-made == main-made=true
+typeof == lib-made=true
+typeof == main-made=true
+lib-made is GBox<int>=true
+lib-made is GBox<string>=false
+main-made is GBox<int>=true
+main-made is GBox<string>=false
+lib-made Pair=Lib.Pair<Std.String,Lib.Item>
+Pair lib-made == main-made=true
+Pair args=Std.String,Lib.Item
+List<object> lib-made == typeof=true
+List<object> is List<object>=true
+Activator GBox<int> is GBox<int>=true
+Activator GBox<int> == typeof=true
+MakeGenericType == typeof(GBox<Item>)=true
+GBox<int> field V=Std.Int32
