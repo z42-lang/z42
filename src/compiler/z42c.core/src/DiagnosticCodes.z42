@@ -125,6 +125,11 @@ public static class DiagnosticCodes {
     // 报在派生类型的声明处；报错后清掉基类断开，下游不再级联。struct 实现接口不受影响。
     public static string StructInheritance = "E0504";
 
+    // reject-unknown-receiver：在**推不出类型**的值上调方法。此前静默降级成按裸名的运行期派发：重载信息丢了
+    // （`x.Substring(0, 3)` 派到单参的 `Substring(int)`），运行期才报「签名不符」，位置也不在出错的那一行。
+    // 字段 / 属性读与下标不报（按名取无歧义）；已报过错的值（ErrorType）不再级联报本码。
+    public static string UnknownReceiverType = "E0506";
+
     // IrGen
     public static string UnsupportedSyntax   = "E0501";
 

@@ -377,21 +377,10 @@ lambda 里可以直接用外层的局部变量，这样的 lambda 叫**闭包**�
 下面这条不是写法问题，是**当前实现的洞**，踩到时别怀疑自己（另一条——类的静态方法取不了
 引用——在前面「直接把具名函数当值传」里）。
 
-### 从 `List` 里取出来的函数值不能就地调用
+### 函数类型不能当数组元素类型
 
-```z42
-// examples/types/lambdas/gaps/listcall.z42
-{{#include ../../../../examples/types/lambdas/gaps/listcall.z42}}
-```
-
-```console
-{{#include ../../../../examples/types/lambdas/gaps/run.console:listcall}}
-```
-
-先赋给一个写明类型的局部变量再调（`Action<int> h = hs[0]; h(9);`）。
-**数组不受影响**——`Action<int>[] arr; arr[0](9)` 是可以的；只有 `List` 的下标不行。
-另外函数类型**不能**当数组元素类型（`((int) -> void)[]` 连声明都过不去），要么用委托类型
-`Action<int>[]`，要么用 `List<(int) -> void>`。
+`((int) -> void)[]` 连声明都过不去。要么用委托类型 `Action<int>[]`，要么用 `List<(int) -> void>`
+——从 `List` 里取出的函数值可以就地调用（`hs[0](9)`）。
 
 ## 小结
 

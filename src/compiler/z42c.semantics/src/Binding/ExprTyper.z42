@@ -170,13 +170,14 @@ public sealed partial class ExprTyper : IExprVisitor<BoundExpr, TypeEnv> {
                 }
                 return new BoundIndex(target, index, at.Elem, ix.Span);
             }
-            // 类索引器读 obj[i, ...] → get_Item(i, ...) 虚调用（泛型返回类型擦除为 Unknown）。
+            // 类索引器读 obj[i, ...] → get_Item(i, ...) 虚调用。返回位按收者代换（`List<Entry>[i]` → Entry，
+            // 与 `foreach (var x in c)` 同一出处 `SubstForRecv`）；代换后仍是裸型参的擦除为 Unknown。
             Z42ClassType ixCls = null;
             if (tt is Z42ClassType) { ixCls = tt as Z42ClassType; }
             else if (tt is Z42InstantiatedType) { ixCls = (tt as Z42InstantiatedType).Def; }
             if (ixCls != null && ixCls.Methods.ContainsKey("get_Item")) {
                 MethodSymbol gm = ixCls.Methods.Get("get_Item") as MethodSymbol;
-                Z42Type gret = gm.Signature.Ret;
+                Z42Type gret = MemberResolver.SubstForRecv(gm.Signature.Ret, tt);
                 // 绑定全部下标（N 维）；add-struct-generic-boxing (P3a)：get_Item 索引实参（key，type-param）
                 // 逐位装箱——否则 struct 键裸 StructRef 进 FindSlot 的 key.GetHashCode() VCall 崩（读路径手搭、绕过 BoxArgs）。
                 int n = ix.IndexCount;
@@ -191,7 +192,7 @@ public sealed partial class ExprTyper : IExprVisitor<BoundExpr, TypeEnv> {
                 }
                 // add-struct-generic-boxing (P3a)：元素类型 subst 为 blob 值 struct → get_Item 返回装箱值 →
                 // 包 BoundConvert 拆箱回值 struct（内层 call 类型 Unknown 触发 _emitConvert 的 AsCast 拆箱臂）。
-                Z42Type ubT = this._tc.StructUnboxTarget(gret, tt);
+                Z42Type ubT = this._tc.StructUnboxTarget(gm.Signature.Ret, tt);
                 if (ubT != null) {
                     BoundExpr rawGet = new BoundCall("instance", true, target, ixCls.Name(), "get_Item",
                                                      ia, n, new Z42UnknownType(), ix.Span);
@@ -210,7 +211,7 @@ public sealed partial class ExprTyper : IExprVisitor<BoundExpr, TypeEnv> {
                 Z42InterfaceType ixIf = tt as Z42InterfaceType;
                 if (ixIf.Methods.ContainsKey("get_Item")) {
                     MethodSymbol gm = ixIf.Methods.Get("get_Item") as MethodSymbol;
-                    Z42Type gret = MemberResolver._substSelf(gm.Signature.Ret, ixIf);
+                    Z42Type gret = MemberResolver.SubstForRecv(gm.Signature.Ret, ixIf);
                     int n = ix.IndexCount;
                     bool gboxable = gm.Signature != null && gm.Signature.ParamTypes != null && gm.Signature.ParamTypes.Length >= n;
                     BoundExpr[] ia = new BoundExpr[n];

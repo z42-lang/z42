@@ -1,0 +1,85 @@
+// `foreach (var x in c)` / `var x = c[i]` 的元素类型，以及推不出类型时的收口诊断。
+//
+// 三条契约：
+//   ① 泛型容器（`Z42InstantiatedType`）上，`var` 循环变量与索引器读都拿到**代换后**的元素类型 ——
+//      证据是在它上面写一个不存在的成员会报 E0401（Unknown 收者不会报 E0401）。此前元素类型停在
+//      Unknown，`x.Rel.Substring(0, 3)` 编译零诊断、按裸名派发到单参重载，运行期才报签名不符。
+//      运行期行为由 e2e src/tests/control_flow/foreach_var_generic_elem.z42 钉住。
+//   ② 收者类型推不出来（Unknown）时**方法调用**报 E0506，不再静默降级成按裸名的运行期派发
+//      （裸名只认得重载集里的第一个）。字段读不报。
+//   ③ 泛型实例化收者上找不到的方法 / 字段报 E0401，与非泛型类收者同口径（此前松绑定成 Unknown，
+//      正是 ② 那类 Unknown 的来源之一）。
+namespace Z42cSemanticsForeachVarElemTests;
+
+using Z42.Semantics;
+using Std.Harness;
+
+string _bag() {
+    return "namespace D; class Entry { public string Rel; }"
+        + " class Bag<T> { public int Count; private T[] _a;"
+        + " public T get_Item(int i) { return this._a[i]; } public void Put(T v) { } }";
+}
+
+// ── ① 元素类型按收者代换 ─────────────────────────────────────────
+
+[Test]
+void test_foreach_var_over_generic_elem_typed() {
+    string src = _bag() + " class T { void M(Bag<Entry> b) { foreach (var x in b) { string r = x.Rel; } } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}
+
+[Test]
+void test_foreach_var_over_generic_unknown_member_e0401() {
+    string src = _bag() + " class T { void M(Bag<Entry> b) { foreach (var x in b) { string r = x.Nope; } } }";
+    Assert.Equal("E0401", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_var_from_generic_indexer_unknown_member_e0401() {
+    string src = _bag() + " class T { void M(Bag<Entry> b) { var x = b[0]; string r = x.Nope; } }";
+    Assert.Equal("E0401", SemanticDump.FirstErrorCode(src));
+}
+
+// 元素类型代换后参与类型检查：`Bag<Entry>` 的元素不能当 int 用。
+[Test]
+void test_foreach_var_over_generic_elem_mismatch() {
+    string src = _bag() + " class T { void M(Bag<Entry> b) { foreach (var x in b) { int n = x; } } }";
+    Assert.True(SemanticDump.ErrorCount(src) > 0);
+}
+
+// ── ② Unknown 收者上的方法调用 → E0506 ─────────────────────────
+
+// 无类型、也无目标类型的 lambda 形参是 Unknown：在它上面调方法此前零诊断、按裸名派发。
+[Test]
+void test_call_on_unknown_receiver_e0506() {
+    string src = "namespace D; class T { void M() { var f = (x) => x.Run(1, 2); } }";
+    Assert.Equal("E0506", SemanticDump.FirstErrorCode(src));
+}
+
+// 字段读按名取无歧义，仍松绑定（`ref var b` 的 `b.V` 等合法写法依赖它）—— 只管方法调用。
+[Test]
+void test_field_on_unknown_receiver_not_e0506() {
+    string src = "namespace D; class Entry { public string Rel; } class T { void M() { var f = (x) => x.Rel; } }";
+    Assert.False(SemanticDump.HasErrorCode(src, "E0506"));
+}
+
+// ── ③ 泛型实例化收者上不存在的成员 → E0401 ──────────────────────
+
+[Test]
+void test_missing_method_on_instantiated_e0401() {
+    string src = _bag() + " class T { void M(Bag<Entry> b) { b.Add(new Entry()); } }";
+    Assert.Equal("E0401", SemanticDump.FirstErrorCode(src));
+}
+
+[Test]
+void test_missing_field_on_instantiated_e0401() {
+    string src = _bag() + " class T { void M(Bag<Entry> b) { int n = b.Size; } }";
+    Assert.Equal("E0401", SemanticDump.FirstErrorCode(src));
+}
+
+// 存在的方法、方法组取值照常（不误报）。
+[Test]
+void test_existing_members_on_instantiated_ok() {
+    string src = _bag() + " class T { void M(Bag<Entry> b) { b.Put(new Entry()); int n = b.Count; } }";
+    Assert.Equal(0, SemanticDump.ErrorCount(src));
+}

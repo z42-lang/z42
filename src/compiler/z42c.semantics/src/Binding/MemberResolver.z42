@@ -11,6 +11,18 @@ public sealed partial class MemberResolver {
     private TypeChecker _tc;
     public MemberResolver(TypeChecker tc) { this._tc = tc; }
 
+    // E0506：收者类型推不出来（Unknown）时**方法调用**报错，不降级成按裸名的运行期派发 —— 裸名只认得
+    // 重载集里的第一个（primary 键），`x.Substring(0, 3)` 会派到单参的 `Substring(int)`，运行期才报签名不符，
+    // 位置也不在出错的那一行。
+    // 只管方法调用：字段 / 属性读与下标仍松绑定 —— 字段名没有重载、按名取就是对的，而 `ref var b` 的
+    // `b.V`、裸型参返回值上的 `id(g).In.A` 这类合法写法今天正依赖它（e2e 钉着）。
+    // ErrorType 收者不报：那是上游已报过错的值，再报只是级联噪音。
+    internal void ReportUnknownReceiver(string method, Span sp) {
+        this._tc._diags.Error(DiagnosticCodes.UnknownReceiverType,
+            "cannot resolve method `" + method + "`: the type of the receiver could not be inferred, so the overload"
+            + " cannot be chosen — give the receiver an explicit type", sp);
+    }
+
     internal BoundExpr _bindMember(MemberExpr m, TypeEnv env) {
         // 裸类名静态字段读（SA-2）：Sev.Error——target 是类名（非变量）→ StaticGet
         if (m.Target is IdentExpr) {
@@ -183,6 +195,7 @@ public sealed partial class MemberResolver {
             return new BoundCall("instance", true, recv, it.Name(), mem.Name, args, argCount, new Z42ErrorType(), sp);
         }
         if ((rt is Z42ErrorType) || (rt is Z42UnknownType)) {
+            if (rt is Z42UnknownType) { this.ReportUnknownReceiver(mem.Name, mem.NameSpan); }
             args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
             return new BoundCall("instance", true, recv, "<?>", mem.Name, args, argCount, new Z42ErrorType(), sp);
         }
@@ -238,7 +251,17 @@ public sealed partial class MemberResolver {
             }
             BoundExpr dgc = this.TryBindDelegateMemberCall(mem, itDef2, false, args, argCount, rawArgs, env, sp); if (dgc != null) { return dgc; }   // `Box<F>` 上类型为 T 的委托字段
             args = this._tc._overload.BindArgsToSignature(args, rawArgs, argCount, null, env);
-            return new BoundCall("instance", true, recv, itDef2.Name(), mem.Name, args, argCount, new Z42UnknownType(), sp);
+            // 成员表为空的 stub（懒加载未载真类）候选集不完整，判「不存在」会误报 ⇒ 仍松绑定，同非泛型类收者。
+            // 否则与非泛型类收者同报 E0401：此前这里一律松绑定成 Unknown，`dict.Add(k, v)`（Dictionary 只有
+            // `Set`）编译零诊断、运行期才报「function not found」。
+            if (itDef2.Methods.Count() == 0) {
+                return new BoundCall("instance", true, recv, itDef2.Name(), mem.Name, args, argCount, new Z42UnknownType(), sp);
+            }
+            if (!this._tc._overload.LastReported) {
+                this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
+                    "no method `" + mem.Name + "` on `" + rt.Name() + "`", mem.NameSpan);
+            }
+            return new BoundCall("instance", true, recv, itDef2.Name(), mem.Name, args, argCount, new Z42ErrorType(), sp);
         }
         // Z42GenericParamType：T.GetHashCode() 等继承自 Object 的方法 → 查 Object 类取真实返回类型。
         if (rt is Z42GenericParamType) {
@@ -393,7 +416,15 @@ public sealed partial class MemberResolver {
                 Z42Type gret = MemberResolver._substGeneric(itGetter.Signature.Ret, instT);
                 return new BoundCall("instance", true, target, itDef.Name(), "get_" + m.Name, new BoundExpr[0], 0, gret, m.Span);
             }
-            return new BoundMember(target, m.Name, new Z42UnknownType(), m.Span);
+            // 无字段、无 getter：同非泛型类收者报 E0401（此前一律松绑定 Unknown ⇒ 后续成员全按裸名派发）。
+            // 仍松绑定的两种：成员表为空的 stub（候选集不完整）；名字其实是方法（方法组取值不归这里管）。
+            if ((itDef.Fields.Count() == 0 && itDef.Methods.Count() == 0)
+                || this._tc._overload._hasAnyOverload(env.Symbols, itDef, m.Name)) {
+                return new BoundMember(target, m.Name, new Z42UnknownType(), m.Span);
+            }
+            this._tc._diags.Error(DiagnosticCodes.UndefinedSymbol,
+                "no field `" + m.Name + "` on `" + tt.Name() + "`", m.NameSpan);
+            return new BoundMember(target, m.Name, new Z42ErrorType(), m.Span);
         }
         // prim receiver 属性访问（镜像 _bindMemberCall 的 prim 处理）：prim 名首字母大写 →
         // stdlib 包装类（"string"→"String"，imported 自 z42.core TSIG）→ 取字段/属性真类型；
