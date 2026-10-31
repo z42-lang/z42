@@ -713,9 +713,20 @@ impl crate::vm_context::VmContext {
     /// cell. After the first call it holds the answer, so the steady-state cost
     /// is one `OnceLock` read — and nothing at all for free functions and
     /// methods of types without a static constructor, which is almost every call.
-    pub fn ensure_callee_owner_init(        &self, func_fq: &str, owner: &crate::metadata::bytecode::OwnerInitCell,
+    #[inline]
+    pub fn ensure_callee_owner_init(
+        &self, func_fq: &str, owner: &crate::metadata::bytecode::OwnerInitCell,
     ) -> Result<(), String> {
         if !self.core.cctors.any_pending() { return Ok(()); }
+        // Owner resolved and without a static constructor — almost every call.
+        if let Some(None) = owner.get() { return Ok(()); }
+        self.ensure_callee_owner_init_slow(func_fq, owner)
+    }
+
+    #[inline(never)]
+    fn ensure_callee_owner_init_slow(
+        &self, func_fq: &str, owner: &crate::metadata::bytecode::OwnerInitCell,
+    ) -> Result<(), String> {
         if let Some(cached) = owner.get() {
             return match cached {
                 Some(td) => self.ensure_type_init(td),

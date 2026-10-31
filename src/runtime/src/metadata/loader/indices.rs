@@ -73,27 +73,27 @@ pub fn build_func_index(module: &mut Module) {
 
 /// Return class names in topological order (base before derived).
 pub(super) fn topo_sort_classes(module: &Module) -> Vec<String> {
-    let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let base_of: rustc_hash::FxHashMap<&str, Option<&str>> = module.classes.iter()
+        .map(|c| (c.name.as_str(), c.base_class.as_deref()))
+        .collect();
+    let mut visited: rustc_hash::FxHashSet<&str> = rustc_hash::FxHashSet::default();
     let mut order: Vec<String> = Vec::new();
 
-    fn visit(
-        name: &str,
-        module: &Module,
-        visited: &mut std::collections::HashSet<String>,
+    fn visit<'m>(
+        name: &'m str,
+        base_of: &rustc_hash::FxHashMap<&'m str, Option<&'m str>>,
+        visited: &mut rustc_hash::FxHashSet<&'m str>,
         order: &mut Vec<String>,
     ) {
-        if visited.contains(name) { return; }
-        visited.insert(name.to_string());
-        if let Some(desc) = module.classes.iter().find(|c| c.name == name) {
-            if let Some(base) = &desc.base_class {
-                visit(base, module, visited, order);
-            }
+        if !visited.insert(name) { return; }
+        if let Some(Some(base)) = base_of.get(name) {
+            visit(base, base_of, visited, order);
         }
         order.push(name.to_string());
     }
 
     for cls in &module.classes {
-        visit(&cls.name, module, &mut visited, &mut order);
+        visit(&cls.name, &base_of, &mut visited, &mut order);
     }
     order
 }

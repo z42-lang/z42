@@ -162,6 +162,9 @@ public static class CompilerFingerprint {
         // foreach-var-elem-type：`foreach (var x in c)` 与 `c[i]` 的元素类型按收者代换型参（此前泛型容器上是 Unknown）；
         // 推不出类型的收者上调方法报 E0506，泛型实例化收者上找不到的方法 / 字段报 E0401 —— 输出与诊断变化。
         "foreach-var-elem-type",
+        // is-as-type-then-ternary：`is` / `as` / 模式位类型后的 `?` 按 C# 规则消歧（后随能开始表达式 ⇒ 三目），
+        // `A<B<C>>?` 的 `?` 归外层（此前挂到 `>>` 拆出的内层）—— 解析结果与诊断变化。
+        "is-as-type-then-ternary",
         // type-param-markers：泛型体里以型参为目标 / 实参的类型名（`o is T` / `(T)o` / `new List<T>()` /
         // `catch (Err<T>)` / 泛型调用站点的类级型参）特化体内代换、共享体里发 `$mta:` / `$cta:` 型参标记；
         // `(T)o` 受检；类级 `new T()` 走 `__class_type_arg` + `__activator_create`；catch 目标带实参 —— 输出变化。

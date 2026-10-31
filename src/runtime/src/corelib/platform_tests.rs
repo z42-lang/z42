@@ -9,7 +9,7 @@ fn os_returns_consts_value() {
     let ctx = VmContext::new();
     let os = platform_os()
         else { panic!("expected Str"); };
-    assert_eq!(os, HOST_OS);
+    assert_eq!(os, crate::pal::system::os_name());
     assert!(!os.is_empty(), "os string must not be empty");
 }
 

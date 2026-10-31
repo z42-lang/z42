@@ -34,21 +34,6 @@ void _sortStrings(string[] arr) {
     }
 }
 
-// Append `v` at index `count`, growing (×2) when the backing array is full.
-string[] _append(string[] arr, int count, string v) {
-    if (count < arr.Length) {
-        arr[count] = v;
-        return arr;
-    }
-    int newCap = arr.Length * 2;
-    if (newCap < 4) { newCap = 4; }
-    string[] bigger = new string[newCap];
-    int i = 0;
-    while (i < count) { bigger[i] = arr[i]; i = i + 1; }
-    bigger[count] = v;
-    return bigger;
-}
-
 // ── unified golden-corpus walk ───────────────────────────────────────────────
 //
 // ONE filesystem traversal of the golden corpus, shared by every consumer
@@ -247,7 +232,7 @@ string _extractNamespace(string content) {
             // Skip whitespace.
             while (n < content.Length && (content.CharAt(n) == ' ' || content.CharAt(n) == '\t')) { n = n + 1; }
             int idStart = n;
-            while (n < content.Length && _isIdentChar(content.CharAt(n))) { n = n + 1; }
+            while (n < content.Length && (_isIdentChar(content.CharAt(n)) || content.CharAt(n) == '.')) { n = n + 1; }
             if (n > idStart) {
                 return content.Substring(idStart, n - idStart);
             }
@@ -263,11 +248,6 @@ bool _isWordEnd(string s, int i) {
     if (i >= s.Length) return true;
     char c = s.CharAt(i);
     return c == ' ' || c == '\t';
-}
-
-bool _isIdentChar(char c) {
-    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
-        || (c >= '0' && c <= '9') || c == '_' || c == '.';
 }
 
 // True when the source has `\bvoid\s+<name>\s*(`.

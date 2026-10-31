@@ -124,6 +124,7 @@ int _testTargetsCore(string kind, string name, bool noBuild) {
         failed = failed + _smokeListTargets(root, tt);
         failed = failed + _smokeHarnessFalse(root, tt);
         failed = failed + _smokeBundleHost(root, tt);
+        failed = failed + _smokeGoldenBundleHost(root, tt);
         failed = failed + _smokeCompileFailClean(root, tt);
         failed = failed + _smokeManifestSections(root, tt);
         failed = failed + _smokeBuildHooksMode(root, tt);
@@ -577,6 +578,29 @@ int _smokeBundleHost(string root, TargetTooling tt) {
         return 1;
     }
     Console.WriteLine("  ✅ bundle-host: `z42b test <manifest> --rid host` passed");
+    return 0;
+}
+
+// 单例 golden 也须经 bundle 编译与隔离执行，stdout 不符必须使宿主失败。
+int _smokeGoldenBundleHost(string root, TargetTooling tt) {
+    string dir = Path.Join(_workOut(root, "src/toolchain/workload/test", ""), "smoke-golden-host");
+    Directory.Create(dir);
+    File.WriteAllText(Path.Join(dir, "source.z42"),
+        "namespace GoldenBundleSmoke;\nusing Std.IO;\nvoid Main() { Console.WriteLine(\"golden bundle\"); }\n");
+    string expected = Path.Join(dir, "expected_output.txt");
+    File.WriteAllText(expected, "golden bundle\n");
+    string manifest = _buildGoldenBundle(root, dir);
+    if (manifest.Length == 0) { return 1; }
+    int rc = _exec(_z42bVerb(root, tt, "test").Arg(manifest).Arg("--rid").Arg("host"));
+    if (rc != 0) { ConsoleError.WriteLine("  ❌ golden bundle: matching stdout failed"); return 1; }
+    File.WriteAllText(expected, "wrong output\n");
+    manifest = _buildGoldenBundle(root, dir);
+    if (manifest.Length == 0) { return 1; }
+    ProcessResult mismatch = _z42bVerb(root, tt, "test").Arg(manifest).Arg("--rid").Arg("host").Run();
+    if (mismatch.ExitCode == 0) {
+        ConsoleError.WriteLine("  ❌ golden bundle: mismatched stdout passed"); return 1;
+    }
+    Console.WriteLine("  ✅ golden bundle: matching stdout passes, mismatched stdout fails");
     return 0;
 }
 

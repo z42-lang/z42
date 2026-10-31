@@ -6,7 +6,7 @@
 //!   - [`native`] — `std::fs` (default on non-wasm; byte-identical to before)
 //!   - [`memory`] — `path → bytes` VFS (default on wasm; host mounts zpkgs)
 //!
-//! Selection: `cfg(wasm32)` picks the default (Memory / Native); `set_backend`
+//! Selection: `pal::fs::HAS_FS` picks the default (Native, or Memory on wasm32); `set_backend`
 //! overrides at runtime — so the VFS↔disk consistency test runs on native, and
 //! wasm can later swap Memory ↔ a JS-callback backend. fs is I/O-bound and
 //! low-frequency, so the one `match` per call is free.
@@ -28,18 +28,11 @@ pub enum FsBackend {
 const NATIVE: u8 = 0;
 const MEMORY: u8 = 1;
 
-// Default is compile-time (wasm → Memory, else Native); `set_backend` overrides.
+// Default is compile-time (no OS file system, i.e. wasm → Memory, else Native); `set_backend` overrides.
 static ACTIVE: AtomicU8 = AtomicU8::new(default_code());
 
 const fn default_code() -> u8 {
-    #[cfg(target_arch = "wasm32")]
-    {
-        MEMORY
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        NATIVE
-    }
+    if crate::pal::fs::HAS_FS { NATIVE } else { MEMORY }
 }
 
 pub fn set_backend(b: FsBackend) {

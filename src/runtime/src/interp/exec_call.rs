@@ -206,11 +206,16 @@ pub(super) fn call(
     // A generic call diverts too: a callee that could read its method_type_args never
     // compiles (`jit::translate::unsupported`'s invariant), so a compiled one does not
     // need them; the interpreter path below threads them for the rest.
-    // runtime-ambiguous-use-site（下方）先于折叠：歧义调用不该因为目标是 `[Native]` 桩就静默通过。
-    if crate::vm_context::symres::ambiguous_function_exception(ctx, module, fname).is_none()
-        && method_type_args.is_empty()
-    {
-        // runtime-audit P1-8: a `[Native]` forwarder runs its builtin directly.
+    // runtime-ambiguous-use-site：**调用**一个被两个已加载 zpkg 各自声明的函数 → 报错。
+    // 放在派发前的这一处即可覆盖上面解析出的每条路（token 命中 / 模块内直查 / 惰性回落）——
+    // token 可能是解析期按名填好的惰性目标，所以每次调用都判，不能只在绑定时判。
+    // 也先于折叠与转入原生码：歧义调用不该因为目标是 `[Native]` 桩或已编译就静默通过。
+    // 常态代价 = 一次 relaxed 原子读（进程内从没碰撞过时恒 false）。
+    if let Some(exc) = crate::vm_context::symres::ambiguous_function_exception(ctx, module, fname) {
+        return Ok(Some(exc));
+    }
+    // runtime-audit P1-8: a `[Native]` forwarder runs its builtin directly.
+    if method_type_args.is_empty() {
         if let Some(res) = try_fold(ctx, module, frame, dst, target, None, args) {
             return res;
         }
@@ -219,13 +224,6 @@ pub(super) fn call(
         if let Some(res) = try_native_static_call(ctx, frame, dst, id, args) {
             return res;
         }
-    }
-    // runtime-ambiguous-use-site：**调用**一个被两个已加载 zpkg 各自声明的函数 → 报错。
-    // 放在派发前的这一处即可覆盖上面解析出的每条路（token 命中 / 模块内直查 / 惰性回落）——
-    // token 可能是解析期按名填好的惰性目标，所以每次调用都判，不能只在绑定时判。
-    // 常态代价 = 一次 relaxed 原子读（进程内从没碰撞过时恒 false）。
-    if let Some(exc) = crate::vm_context::symres::ambiguous_function_exception(ctx, module, fname) {
-        return Ok(Some(exc));
     }
     // perf-vm-iteration Phase 1 (Decision 3): fill the callee frame directly
     // from caller regs + arg indices — no `collect_args` Vec, args cloned once.
@@ -276,18 +274,28 @@ pub(super) fn raised(r: crate::corelib::abi::error::Raised) -> Result<Option<Val
 /// A call that resolved to a `[Native]` forwarder: run its builtin straight from this
 /// frame's registers (`interp::forward`). `None` = not a forwarder (or the argument
 /// count differs from the wrapper's parameters) → the ordinary call.
-#[inline]
+///
+/// The not-a-forwarder answer (a count compare + one relaxed load) is inlined into the
+/// call path; running the folded builtin is not.
+#[inline(always)]
 pub(super) fn try_fold(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32,
     target: &Function, this: Option<Value>, args: &[u32],
 ) -> Option<Result<Option<Value>>> {
     if args.len() + this.is_some() as usize != target.param_count { return None; }
     let id = super::forward::forward_of(ctx, module, target)?;
-    Some(match super::forward::run_folded(ctx, target, id, this, &frame.regs, args, || module) {
+    Some(run_fold(ctx, module, frame, dst, target, id, this, args))
+}
+
+fn run_fold(
+    ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32,
+    target: &Function, id: u32, this: Option<Value>, args: &[u32],
+) -> Result<Option<Value>> {
+    match super::forward::run_folded(ctx, target, id, this, &frame.regs, args, || module) {
         Ok(Some(v)) => { frame.set(dst, v); Ok(None) }
         Ok(None) => { frame.set(dst, Value::Null); Ok(None) }
         Err(f) => raised(f.raise(ctx, module, target)),
-    })
+    }
 }
 
 // ── Function references (P1-2 PR 8) ─────────────────────────────────────────────

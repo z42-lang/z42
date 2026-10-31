@@ -15,7 +15,7 @@
 - **节流**：per-thread 计数器，每 N 次（默认 `safepoint_throttle=1024`，env 可调）才真做 Mutex poll → 热循环近零成本。计数器 fast path 是**普通 load/store 递减**（非原子 RMW）——`safepoint_skip` 每-mutator 单写（唯一跨线程写 `force_safepoint` 是 test/embedder-only），故 RMW 原子性对正确性不必要。
 - **请求时戳醒**：GC 请求（自动回收 trip 置 `needs_auto_collect`、collector 进 `request_gc_pause`）时把**每个**已注册 mutator 的计数器置 1（`poke_safepoints`），下一次 check 就进 slow path，而不是再等最多 N 次。这一写是跨线程的普通 store，可能被 mutator 自己的递减覆盖，所以 collector 等待期间每 1 ms 再戳一遍；trip 侧的请求本身是**粘性**的（只有拿到暂停的 collector 才清），丢一次戳最多退回到节流上界。
 - **每次停顿都是 STW**：一次性 mark+sweep、minor、增量 major 的一个切片都走同一个 `Idle → Requested → Marking → Idle`；collector 与 mutator 从不同时运行。
-- **JIT 插桩**：fast-path **内联**——`translate::emit_safepoint_check` 在 5 处 site（function entry / 后向 Br / BrCond / Call·CallIndirect 返回）emit 原生 `load + iadd_imm(-1) + store + brif`，替代 `jit_check_safepoint` helper call（~10ns→~1-2ns）；仅 counter 归零的 slow 分支调 `jit_check_safepoint_slow`。用普通 load/store（非 `atomic_rmw`）是关键：`atomic_rmw sub` 在 x86_64 Cranelift lowering 会 panic。
+- **JIT 插桩**：fast-path **内联**——`translate::emit_safepoint_check` 在 5 处 site（function entry / 后向 Br / 带后向目标的 BrCond / Call·CallIndirect 返回）emit 原生 `load + iadd_imm(-1) + store + brif`，替代 `jit_check_safepoint` helper call（~10ns→~1-2ns）；仅 counter 归零的 slow 分支调 `jit_check_safepoint_slow`。用普通 load/store（非 `atomic_rmw`）是关键：`atomic_rmw sub` 在 x86_64 Cranelift lowering 会 panic。
 
 → 机制可用，但**硬绑 GC**（单一 `gc_phase`），且**无显式线程状态**。
 

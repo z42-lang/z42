@@ -376,6 +376,7 @@ belong to the app and come only from its <app>.runtimeconfig.toml sidecar.");
             program_args: cli.args.clone(),
             print_stats: cli.stats.is_some(),
             stats_json: cli.stats == Some(StatsFormat::Json),
+            exit_after_run: true,
         },
     );
     // runtime-audit P0-4: a fatal VM error (stack overflow) — whatever the run

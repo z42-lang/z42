@@ -34,7 +34,7 @@ use crate::interp::{exec_function, ExecOutcome};
 use crate::metadata::Value;
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
-#[cfg(all(not(target_arch = "wasm32"), feature = "native-interop"))]
+#[cfg(feature = "native-interop")]
 use std::ffi::{c_char, c_void, CStr, CString};
 
 /// `__repl_readline` (builtin ABI v2).
@@ -163,7 +163,7 @@ fn complete_via_callback(ctx: &VmContext, fqn: &str, line: Value, pos: i64) -> R
 /// `readline` span; `line` a valid NUL-terminated C string. Both hold on the same
 /// thread for the duration of the call (same window/thread invariant as the old
 /// `ACTIVE_CTX`).
-#[cfg(all(not(target_arch = "wasm32"), feature = "native-interop"))]
+#[cfg(feature = "native-interop")]
 pub(crate) extern "C" fn complete_trampoline(
     ctx: *mut c_void,
     line: *const c_char,
@@ -271,18 +271,12 @@ fn complete_arity_check(fqn: &str, param_count: usize) -> Result<()> {
 
 // ── Line source: cdylib editor on host, plain stdin on wasm / when unavailable ──
 
-/// Host: drive the dlopen'd `libz42_repl` editor (lazy load; plain-stdin fallback
-/// when the lib is absent or the terminal can't host an editor). See `repl_native`.
-/// `None` is EOF. Returns a Rust `String` rather than a `Value` because it runs parked —
-/// see `typed::repl_readline`.
-#[cfg(not(target_arch = "wasm32"))]
+/// Drive the dlopen'd `libz42_repl` editor (lazy load; plain-stdin fallback when the lib
+/// is absent, the terminal can't host an editor, or the build has no `native-interop` —
+/// wasm). See `repl_native`. `None` is EOF. Returns a Rust `String` rather than a `Value`
+/// because it runs parked — see `typed::repl_readline`.
 fn read_one_line(ctx: &VmContext, prompt: &str) -> Result<Option<String>> {
     super::repl_native::readline(ctx, prompt)
-}
-
-#[cfg(target_arch = "wasm32")]
-fn read_one_line(_ctx: &VmContext, prompt: &str) -> Result<Option<String>> {
-    plain_readline(prompt)
 }
 
 /// Fallback: print the prompt to stderr, read one physical line from stdin. EOF → null.
@@ -302,6 +296,6 @@ pub(crate) fn plain_readline(prompt: &str) -> Result<Option<String>> {
     Ok(Some(line.trim_end_matches(['\n', '\r']).to_string()))
 }
 
-#[cfg(all(test, not(target_arch = "wasm32"), feature = "native-interop"))]
+#[cfg(all(test, feature = "native-interop"))]
 #[path = "repl_tests.rs"]
 mod repl_tests;

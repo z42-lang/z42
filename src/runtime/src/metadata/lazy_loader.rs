@@ -178,6 +178,7 @@ static AMBIGUITY_SEEN: std::sync::atomic::AtomicBool = std::sync::atomic::Atomic
 /// True once any duplicate FQ name has been recorded. Cheap enough to call on a
 /// dispatch path; callers should gate the (locking) precise query behind it.
 #[inline]
+#[inline]
 pub fn ambiguity_seen() -> bool {
     AMBIGUITY_SEEN.load(std::sync::atomic::Ordering::Relaxed)
 }

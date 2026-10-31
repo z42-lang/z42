@@ -7,9 +7,14 @@
 // 中位数挡掉偶发的一次长停顿，同时不会把「每次都长」的真回归抹平。
 //
 // 门禁规则（`_abPauseIsRegression`，纯函数，`bench --ab-selftest` 覆盖）：
-//   regression ⟺ pr_max > cap  且  pr_max > base_max × (1 + thr)
-// 只看绝对上限会让 base 本就超限时每个 PR 都红；只看相对比例又守不住「停顿与堆大小无关」这个目标。
-// base 与 pr 都在上限内时，规则自然退化成纯绝对上限。
+//   regression ⟺ over(p99, thr)  或  over(max, maxThr)
+//   over(x, t)  ⟺ pr_x > cap  且  pr_x > base_x × (1 + t)        thr = 0.25，maxThr = 1.0（2× base）
+// · 主判据是 **p99**：它是成百次停顿里的高分位，调度抖动挪不动它；major 停顿真变长时它跟着涨。
+// · **max** 是一次停顿的极值——runner 上一次被抢占就能把它推高几 ms（实测 p99 两侧持平、max 17.1 ms
+//   对 16 ms 上限就判了红）。所以 max 只在比 base 差出一倍以上时才判红（守「p99 不动、但冒出一次
+//   超长停顿」这种真回归），超上限而没差出这么多 ⇒ 只报告（⚠️ 行 + ab.json 的 `max_over_cap`）。
+// · 「且」的理由不变：只看绝对上限会让 base 本就超限时每个 PR 都红；只看相对比例又守不住「停顿与堆大小
+//   无关」这个目标。base 与 pr 都在上限内时，规则自然退化成纯绝对上限。
 namespace Z42Xtask;
 
 using Std.IO;
@@ -85,53 +90,77 @@ string _benchPauseObj(string name, string which, double valueMs, int samples, st
         + ",\n      \"profile\": " + _epProfileJson(tiers, new string[0], vm) + "\n    }";
 }
 
+// 一个停顿指标的单侧判定：pr 超上限且比 base 差 t 以上。
+bool _abPauseOver(double baseMs, double prMs, double capMs, double t) {
+    if (prMs <= capMs) { return false; }
+    return prMs > baseMs * (1.0 + t);
+}
+
 // 门禁判定（见文件头）。纯函数。
-bool _abPauseIsRegression(double baseMaxMs, double prMaxMs, double capMs, double thr) {
-    if (prMaxMs <= capMs) { return false; }
-    return prMaxMs > baseMaxMs * (1.0 + thr);
+bool _abPauseIsRegression(PauseMedian b, PauseMedian p, double capMs, double thr, double maxThr) {
+    return _abPauseOver(b.P99Ms, p.P99Ms, capMs, thr) || _abPauseOver(b.MaxMs, p.MaxMs, capMs, maxThr);
 }
 
 // ab.json 的一条停顿对比。
 string _abPauseJson(string name, string m, PauseMedian b, PauseMedian p, double capMs, bool regr) {
+    bool maxOverCap = p.MaxMs > capMs;
     return "    {\n      \"name\": \"" + name + "\",\n      \"mode\": \"" + m + "\""
         + ",\n      \"metric\": \"pause\""
         + ",\n      \"base_max_ms\": " + b.MaxMs.ToString() + ",\n      \"pr_max_ms\": " + p.MaxMs.ToString()
         + ",\n      \"base_p99_ms\": " + b.P99Ms.ToString() + ",\n      \"pr_p99_ms\": " + p.P99Ms.ToString()
         + ",\n      \"cap_ms\": " + capMs.ToString() + ",\n      \"samples\": " + p.Samples.ToString()
+        + ",\n      \"max_over_cap\": " + (maxOverCap ? "true" : "false")
         + ",\n      \"verdict\": \"" + (regr ? "regression" : "ok") + "\"\n    }";
 }
 
 // A/B 一个 scenario×mode 的停顿：两边各跑 3 次取中位数，按 `_abPauseIsRegression` 判定。
 // 返回 (Rc, IsRegression, Json)，复用 AbOutcome。
 AbOutcome _abPauseScenario(string name, string m, string baseCmdVm, string baseZbc, string baseLibs,
-    string prVm, string prZbc, string prLibs, string entry, double capMs, double thr) {
+    string prVm, string prZbc, string prLibs, string entry, double capMs, double thr, double maxThr) {
     AbOutcome o = new AbOutcome();
     Console.WriteLine("→ A/B pause " + name + " [" + m + "] (3 runs each)...");
     PauseMedian b = _benchPauseRun(baseCmdVm, baseZbc, entry, m, baseLibs, 3);
     if (b.Rc != 0) { o.Rc = 2; return o; }
     PauseMedian p = _benchPauseRun(prVm, prZbc, entry, m, prLibs, 3);
     if (p.Rc != 0) { o.Rc = 2; return o; }
-    o.IsRegression = _abPauseIsRegression(b.MaxMs, p.MaxMs, capMs, thr);
+    o.IsRegression = _abPauseIsRegression(b, p, capMs, thr, maxThr);
     o.Json = _abPauseJson(name, m, b, p, capMs, o.IsRegression);
     Console.WriteLine("  " + name + " [" + m + "] pause  " + (o.IsRegression ? "↑ regression" : "ok")
         + "  base max=" + b.MaxMs.ToString() + "ms p99=" + b.P99Ms.ToString()
         + "ms  pr max=" + p.MaxMs.ToString() + "ms p99=" + p.P99Ms.ToString()
-        + "ms  cap=" + capMs.ToString() + "ms");
+        + "ms  cap=" + capMs.ToString() + "ms  (red: p99 > cap & > base×" + (1.0 + thr).ToString()
+        + ", or max > cap & > base×" + (1.0 + maxThr).ToString() + ")");
+    if (!o.IsRegression && p.MaxMs > capMs) {
+        // 只报告：max 是单次停顿的极值，没差出 base 一倍就当调度噪声（见文件头）。
+        Console.WriteLine("::warning title=gc pause max over cap (report only)::" + name + " [" + m
+            + "] pr max=" + p.MaxMs.ToString() + "ms > cap " + capMs.ToString() + "ms, but p99 "
+            + p.P99Ms.ToString() + "ms is within the gate and max is not > base×" + (1.0 + maxThr).ToString()
+            + " (base max=" + b.MaxMs.ToString() + "ms) — single-pause extreme, not judged");
+    }
     return o;
 }
 
-// `bench --ab-selftest` 的停顿判定用例。返回失败数。
+// `bench --ab-selftest` 的停顿判定用例（cap 16 ms，thr 0.25，maxThr 1.0 = 门禁实际用的那组）。返回失败数。
 int _abPauseSelfTest() {
     int fails = 0;
-    fails = fails + _abPauseExpect("under-cap-even-if-worse", 5.0, 12.0, false);
-    fails = fails + _abPauseExpect("over-cap-but-not-worse-than-base", 97.0, 99.0, false);
-    fails = fails + _abPauseExpect("over-cap-and-worse", 40.0, 97.0, true);
-    fails = fails + _abPauseExpect("post-M2-breaks-cap", 8.0, 30.0, true);
+    //                                     base p99 / max   pr p99 / max
+    fails = fails + _abPauseExpect("under-cap-even-if-worse",          4.0,  5.0,   10.0, 12.0, false);
+    fails = fails + _abPauseExpect("over-cap-but-not-worse-than-base", 90.0, 97.0,  92.0, 99.0, false);
+    fails = fails + _abPauseExpect("over-cap-and-worse",               30.0, 40.0,  80.0, 97.0, true);
+    fails = fails + _abPauseExpect("post-M2-breaks-cap",               7.0,  8.0,   25.0, 30.0, true);
+    // p99 两侧持平、max 一次抖到上限之外 —— 实测假红那组数，必须放行（只报告）。
+    fails = fails + _abPauseExpect("max-noise-over-cap-p99-equal",     10.0, 12.0,  10.0, 17.1, false);
+    // p99 超上限且比 base 差 25% 以上，max 还没到 2× —— 靠 p99 判红。
+    fails = fails + _abPauseExpect("p99-over-cap-and-worse",           10.0, 12.0,  18.0, 22.0, true);
+    // p99 不动、冒出一次超长停顿（> cap 且 > 2× base）—— 靠 max 判红。
+    fails = fails + _abPauseExpect("max-spike-over-2x-base",           10.0, 12.0,  10.0, 30.0, true);
     return fails;
 }
 
-int _abPauseExpect(string label, double baseMax, double prMax, bool want) {
-    bool got = _abPauseIsRegression(baseMax, prMax, 16.0, 0.25);
+int _abPauseExpect(string label, double baseP99, double baseMax, double prP99, double prMax, bool want) {
+    PauseMedian b = new PauseMedian(); b.P99Ms = baseP99; b.MaxMs = baseMax;
+    PauseMedian p = new PauseMedian(); p.P99Ms = prP99;   p.MaxMs = prMax;
+    bool got = _abPauseIsRegression(b, p, 16.0, 0.25, 1.0);
     if (got == want) { Console.WriteLine("  ok pause/" + label); return 0; }
     Console.WriteLine("  FAIL pause/" + label + ": got " + (got ? "regression" : "ok"));
     return 1;

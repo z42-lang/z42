@@ -1,0 +1,59 @@
+namespace Demo;
+
+using Std.Collections;
+
+// `x is T ? a : b` / `x as T ? …`：`is` / `as` 后的类型若紧跟 `?`，按 C# 规则消歧 ——
+// `?` 后随能开始表达式 ⇒ 三目；否则 ⇒ 可空后缀。此前泛型（`List<Entry>`）、嵌套泛型、
+// 数组与非泛型类型名后的 `?` 一律被吞成可空类型，三目随即解析失败（E0202）。
+// 运行期断言只取类型测试结果与泛型实参无关的情形（构造泛型的 is/as 核对另有用例）。
+
+class Entry {
+    public string Name;
+    public Entry(string n) { this.Name = n; }
+}
+
+[Record] class Pair(int A, int B);
+
+void Main() {
+    object e = new Entry("e");
+    object s = "str";
+    object arr = new int[] { 1, 2, 3 };
+
+    // ── 非泛型 / 内置类型 ───────────────────────────────────
+    Assert.Equal(1, e is Entry ? 1 : 2);
+    Assert.Equal(2, s is Entry ? 1 : 2);
+    Assert.Equal("yes", s is string ? "yes" : "no");
+
+    // ── 泛型 / 嵌套泛型（`>>` 拆分）/ 泛型数组 ──────────────
+    Assert.Equal(2, s is List<Entry> ? 1 : 2);
+    Assert.Equal(2, e is List<List<Entry>> ? 1 : 2);
+    Assert.Equal(2, e is List<int>[] ? 1 : 2);
+
+    // ── 数组 ───────────────────────────────────────────────
+    // （正例不在此断言：main 上运行期 `object is int[]` 恒为 false，属另一个运行期问题）
+    Assert.Equal(0, e is int[] ? 1 : 0);
+    Assert.Equal(0, s is string[] ? 1 : 0);
+    Assert.Equal(3, arr is Array ? (arr as Array).Length : 0);
+
+    // ── 三目分支以一元 / 字面量 / new / null 开头 ──────────
+    Assert.Equal(-1, s is List<Entry> ? 1 : -1);
+    Entry made = e is Entry ? new Entry("made") : null;
+    Assert.Equal("made", made.Name);
+
+    // ── 赋值右侧与嵌套三目 ─────────────────────────────────
+    int n = 0;
+    n = s is List<Entry> ? 10 : e is Entry ? 20 : 30;
+    Assert.Equal(20, n);
+
+    // ── 类型 + 绑定 / 结构化模式 / or-链 之后接三目 ─────────
+    Assert.Equal("e", e is Entry en ? en.Name : "none");
+    object p = new Pair(1, 2);
+    Assert.Equal(3, p is Pair(a, b) ? a + b : 0);
+    Assert.Equal(1, e is Pair | Entry ? 1 : 0);
+
+    // ── 真·可空后缀照旧：`?` 后随不能开始表达式 ─────────────
+    Entry viaAs = e as Entry?;
+    Assert.Equal("e", viaAs.Name);
+    Assert.True(s as Entry? == null);
+    Assert.Equal(7, (s as Entry?) == null ? 7 : 8);
+}

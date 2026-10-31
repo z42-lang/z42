@@ -29,8 +29,8 @@ public class Regex {
     // ── mutable match state ───────────────────────────────────────────────
     // 单线程模型；多次 Match 调用会 reset 这些字段。
     private string _input;
-    // Bulk-materialised match subject (one `ToCharArray()` per match run in
-    // ResetState) so the backtracking engine's repeated same-position reads are
+    // Bulk-materialised match subject (one `ToCharArray()` per public call, see
+    // _BindInput) so the backtracking engine's repeated same-position reads are
     // O(1) array indexing instead of a `CharAt` builtin call each. `_input` is
     // kept for `.Length` / `.Substring`.
     private char[] _chars;
@@ -135,7 +135,8 @@ public class Regex {
 
     /// 返回第一个 match；无匹配返回 null。`^` 开头（且未开 `(?m)`）时只尝试位置 0。
     public Match Find(string input) {
-        return this.FindFrom(input, 0);
+        this._BindInput(input);
+        return this.ScanFrom(0);
     }
 
     /// 返回所有非重叠 match（可能为空数组）；空匹配也计入，每遇空匹配起点前进一格。
@@ -143,8 +144,9 @@ public class Regex {
         Match[] buf = new Match[8];
         int n = 0;
         int pos = 0;
+        this._BindInput(input);
         while (pos <= input.Length) {
-            Match m = this.FindFrom(input, pos);
+            Match m = this.ScanFrom(pos);
             if (m == null) { break; }
             if (n >= buf.Length) {
                 Match[] grown = new Match[buf.Length * 2];
@@ -258,14 +260,16 @@ public class Regex {
 
     // ── Engine ────────────────────────────────────────────────────────────
 
-    private Match FindFrom(string input, int startPos) {
+    // Scans the subject bound by _BindInput from startPos onward.
+    private Match ScanFrom(int startPos) {
+        string input = this._input;
         // ^ anchored 优化：若第一个 atom 是 ANCHOR_START，仅尝试 startPos == 0。
         // 但 multiline 下 `^` 也匹配 `\n` 之后，这个快速失败优化不安全——multiline 时整体关闭。
         bool anchoredStart = (this._seqCount > 0 && this._seq[0]._kind == 4)
                           && !this._multiline;
         int from = startPos;
         while (from <= input.Length) {
-            this.ResetState(input);
+            this.ResetState();
             int end = this.Match(this._seq, this._seqCount, 0, from);
             if (end >= 0) {
                 // R2: give the Match its own copy of the reused slot arrays (null when
@@ -278,14 +282,20 @@ public class Regex {
         return null;
     }
 
+    // Materialise the subject once per public call, not once per scan position: an
+    // unanchored scan calls ResetState at every start position, and FindAll (hence Replace /
+    // Split) calls ScanFrom once per match on the same subject.
+    private void _BindInput(string input) {
+        this._input = input;
+        this._chars = input.ToCharArray();
+    }
+
     // perf (R2): reuse the group-slot arrays across scan positions — allocate once
     // (or on group-count change) and reset in place, instead of `new int[groupCount]`
     // ×2 at every start position (O(n) throwaway allocs on an unanchored no-match
-    // scan). A matched Match gets its OWN copy at construction (see FindFrom), so the
+    // scan). A matched Match gets its OWN copy at construction (see ScanFrom), so the
     // reused arrays are never aliased by a returned Match.
-    private void ResetState(string input) {
-        this._input = input;
-        this._chars = input.ToCharArray();
+    private void ResetState() {
         if (this._gStarts == null || this._gStarts.Length != this._groupCount) {
             this._gStarts = new int[this._groupCount];
             this._gEnds   = new int[this._groupCount];
