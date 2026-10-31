@@ -104,11 +104,11 @@ VM 是一个 crate（`src/runtime/src`，包名 `z42`），**暂不拆成多个 
 1. **平台 `#[cfg(target_os/unix/windows)]` 与 `libc` 只出现在 `pal/`**；wasm 的功能裁剪用 cargo feature 表达。
 2. **同层互不依赖**：interp ↔ jit、corelib / interop / debugger / profiler 之间及它们与引擎之间都没有依赖，一律经 vm 的注册接口接入，由门面组装。
 3. **vm 不知道有哪些引擎、builtin、工具**：只提供注册槽（Engine、builtin 注册表、监控工具槽、extern 提供方）。
-4. **命名**：「native」只指面向用户的原生扩展（SDK `native/`、z42-rs）；VM 内建函数叫 builtin，调外部 C 库叫 interop。现 `native/` 改名 `interop`；interp `exec_native.rs::call_native`（执行 `CallNative` 指令）改名 `ffi_call`，jit `invoke.rs::call_native`（进入已编译代码）改名 `enter_compiled`。
+4. **命名**：「native」只指面向用户的原生扩展（SDK `native/`、z42-rs）；VM 内建函数叫 builtin，调外部 C 库叫 interop。VM 互操作模块使用 `interop/`；interp 的 `exec_ffi.rs::ffi_call` 执行 `CallNative` 指令，jit 的 `invoke.rs::enter_compiled` 进入已编译代码。
 
 ### 4.2 地基模块内部
 
-- **`pal/`**：`fs.rs`（含 `Vfs` trait，每台 VM 一个句柄，取代进程全局 `fs_backend::ACTIVE`）+ `vfs/{local,memory}.rs`、`process.rs`（spawn / wait / kill / 进程树）、`net.rs`、`mem.rs`（现 `gc/os_mem.rs`）、`thread.rs`（栈边界、sigaltstack）、`signal.rs`、`dynlib.rs`（合并现 `native/loader`、`native/ext`、`corelib/repl_native` 三处 dlopen）、`console.rs`、`time.rs`、`sys.rs`；平台分支在 `sys/{unix,windows,wasm}/`。现 corelib 103 处、gc 21 处、vm_context 18 处平台 cfg 与 7 个非 PAL 文件的 `libc` 调用全部收进来。
+- **`pal/`**：`fs.rs`（含 `Vfs` trait，每台 VM 一个句柄，文件系统状态归属 VmCore）+ `vfs/{local,memory}.rs`、`process.rs`（spawn / wait / kill / 进程树）、`net.rs`、`mem.rs`（现 `gc/os_mem.rs`）、`thread.rs`（栈边界、sigaltstack）、`signal.rs`、`dynlib.rs`（合并`interop/loader`、`interop/ext`、`corelib/repl_native` 三处 dlopen）、`console.rs`、`time.rs`、`sys.rs`；平台分支在 `sys/{unix,windows,wasm}/`。现 corelib 103 处、gc 21 处、vm_context 18 处平台 cfg 与 7 个非 PAL 文件的 `libc` 调用全部收进来。
 - **`metadata/`**：`format/`（常量、版本、build_id）、`reader/`（现 `zbc_reader/*`）、`ir/`（现 `bytecode/*`、`ir_type`）、`image.rs`（PackageImage：零拷贝、字符串表解析一次、函数体按需解码）、`index/`（包内按名找下标、知名类型名、类型名格式化——现 `name_index` / `well_known_names` / `type_names`）、`debug/`（行号表、局部变量、帧名，读 .zsym 按需）。**纯静态的查询（名字、行号、attribute、签名）调用方直接用本模块，不经 vm。**
 - **`object/`**：`value/`（Value、ref word、codec、cells）、`header/`（16 B 统一头、`var_ref` / `obj_ref` / `arr_ref` 句柄）、`types/`（TypeDesc 形状、字段、elem kind、TypeArgs 形状、布局计算纯函数、引用槽位图）、`object/`、`array/`、`string/`（Str 句柄、非 ASCII 字符索引）。不抛异常、不查缓存、不管类型从哪来。
 - **`gc/`**：`heap.rs`（具体类型 `Heap`，取代 51 方法的 `dyn MagrGC`）、`config.rs`（`GcConfig` 由门面传入，取代 gc→config 27 处引用）、`to_vm.rs`（`GcToVm`：根枚举、`suspend_all` / `resume_all`）、`region/`、`alloc/`（含 TLAB）、`collect/`（标记、分代、增量、屏障、记忆集）、`policy/`、`refs/`、`walk.rs`（堆遍历原语）、`observe/`。移出：`sampler` / `snapshot` / `retention` → profiler；`safepoint` → vm/threads；`ambient` → vm。
@@ -147,11 +147,11 @@ vm/
 
 **runtime 的「四不」**：不执行 z42 代码、不抛 z42 异常、不触发加载、不等待其他线程——只返回结果或「未加载 / 不存在」，由 exec 的慢路径请 loader 加载后重查。这是 runtime 不依赖 exec 的保证（现 resolver「查询时加载包、排空初始化队列」的环由此消除）。按此标准：类型初始化的**状态**归 `runtime/statics`、**执行**归 `exec/init`；字段偏移、派发目标、子类型判定等**查询与缓存**归 `runtime/dispatch`，指令的**执行语义**归 `exec/ops`。
 
-现 `VmCore` 39 个字段的去向：身份类（module、funcs、types、strings）、加载类（lazy_loader、context_registry、pending_type_inits 等）、初始化类（statics、cctors、static_init_error）分别进 runtime / loader；线程类（vm_contexts、gc_phase、parked_count、collector_active 等）进 threads；counters、observers、sampler、锁统计进 diagnostics；ext_builtins 并入 runtime 的 builtin 注册表；jit 变成 exec 的引擎槽；**移出 vm**：processes / file_handles / tcp / tls / udp 七个 OS 资源表进 corelib 各模块的扩展状态，native_types / native_libs / pinned_owned_buffers 进 interop 的扩展状态，program_args 进门面。
+现 `VmCore` 39 个字段的去向：身份类（module、funcs、types、strings）、加载类（lazy_loader、context_registry、pending_type_inits 等）、初始化类（statics、cctors、static_init_error）分别进 runtime / loader；线程类（vm_contexts、gc_phase、parked_count、collector_active 等）进 threads；counters、observers、sampler、锁统计进 diagnostics；builtin 注册表归 runtime；jit 变成 exec 的引擎槽；**移出 vm**：processes / file_handles / tcp / tls / udp 七个 OS 资源表进 corelib 各模块的扩展状态，native_types / native_libs / pinned_owned_buffers 进 interop 的扩展状态，program_args 进门面。
 
 ### 4.4 引擎、能力、工具、门面
 
-- **`interp/`**：`run/`（主循环）、`ops/`（指令到 vm/exec 的薄适配；`exec_native` → `ffi_call`）、`frame/`（帧与 arena；若 JIT 也用 transient arena 则下沉 vm/exec/call）、`superinstr.rs`（现 `metadata/superinstr.rs`）。
+- **`interp/`**：`run/`（主循环）、`ops/`（指令到 vm/exec 的薄适配；`exec_ffi::ffi_call`）、`frame/`（帧与 arena；若 JIT 也用 transient arena 则下沉 vm/exec/call）、`superinstr.rs`（现 `metadata/superinstr.rs`）。
 - **`jit/`**：`compile/`（Cranelift 管线、代码 arena 与后台编译队列）、`translate/`、`helpers/`（原样保留）、`runtime/`（FnEntry、`enter_compiled`、JitFrame）。AOT（M9）落地时把 `translate/` 与 helper 声明拆成 `codegen/`，由 `jit/` 与 `aot/` 共用。
 - **`corelib/`**：只写 builtin 胶水（参数、异常映射、句柄表、park），碰 OS 一律调 pal。`core/`（string、convert、math、object、array、gc、threading、monitor、reflection/ 等，无 feature 开关）、`io/`（console、fs）、`os/`（feature `process`）、`net/`（feature `net`）、`tls/`（feature `tls`，启用 rustls）、`repl/`（feature `repl`）、`test_host.rs`。不再另设 stdlib-os / stdlib-net 模块：OS 实现在 pal、胶水在 corelib，rustls 可选用 feature 表达。builtin 的 ABI 与注册表在 vm（`exec/call/builtin_abi`、`runtime/builtins.rs`），实现全部在 corelib 与 interop。
 - **`interop/`**：`tier1/`（Tier 1 C ABI：registry、marshal、dispatch、exports）、`ext/`（统一的扩展库加载器、REPL 编辑器懒加载、实现 loader 的 extern 提供方）。feature `ffi`（libffi，wasm 关闭）、`ext`（只需 libloading）。
@@ -185,7 +185,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 
 1. **嵌入路径比 z42vm 慢 1.26–1.55 倍**（分配器能解释大约 2/3）：给 staticlib/cdylib 打包构建加 lib 内 mimalloc feature；剩余差距需要 profile。影响面：self-contained、iOS、Android、wasm。
 2. libz42.a 导出 69 个 `jit_*` 和 37 个 `ffi_*` 全局符号，嵌入者容易撞名。
-3. clap / tracing-subscriber 只给 z42vm 可执行文件用（feature 开关，嵌入的库不带），`env-filter` 换成 `Targets`（省 0.3–0.45 MB）；rustls 加 feature 开关。
+3. clap / tracing-subscriber 只给 z42vm 可执行文件用（feature 开关，嵌入的库不带），`env-filter` 换成 `Targets`（省 0.3–0.45 MB）。
 4. z42-compression 没做 LTO；macOS 部署目标不一致。
 5. Android `opt-level="z"`；打包吞掉错误（nightly Android 包里 compression 确实缺失）。
 6. apphost 用 spawn + wait 而不是 exec，子进程被信号杀死时退出码变成 1。
@@ -204,6 +204,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 
 | ID | 类型 | 内容 | 验证要点 | 状态 |
 |---|---|---|---|---|
+| L-2 | refactor | **PAL 平台分支收尾**：将各 concern 文件中剩余的操作系统分支迁入 `pal/sys/`，上层 concern 保留平台无关接口 | 分层门覆盖到 pal/sys；Windows / wasm CI 与完整 runtime 测试 | ⬜ |
 | L-4 | refactor | metadata 一拆三：静态索引留 metadata（加 `index/` `debug/`），`types/` 形状进 object，组装与查询进 vm/runtime，加载进 vm/loader；`semantics.rs` 进 exec/ops | metadata 不再引用 gc / vm_context / corelib；启动项 S1–S4 可在新结构上做 | ⬜ |
 | L-5 | refactor | gc 断环：注入 `GcConfig`、加 `GcToVm`、safepoint 移到 vm/threads、`MagrGC` 改具体类型；sampler / snapshot / retention 移到 `profiler/` | gc 不再引用 config / vm_context / corelib；GC 模型测试与 loom 测试；13 / 09 微基准不退化 | ⬜ |
 | L-6 | refactor | 引擎断环：vcall / obj_new / isa 拆成 runtime/dispatch（查询）与 exec/ops（执行）；加 Engine 注册槽与统一栈遍历；interp ↔ jit 不再互相引用 | 双引擎一致性测试；OSR / 分层测试；`jit_native_from_interp` 计数不变 | ⬜ |
@@ -211,7 +212,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 | L-8 | — | 物理拆 crate：暂不做，VM 保持单 crate、各层是 `src/runtime/src/<模块>/`（User 2026-10-29）；以后是否拆另议 | — | ⏸ |
 | L-9 | feature | 监控 API（vm/diagnostics/monitor）→ debugger（0.8.x，前置：.zsym 局部变量信息）→ profiler 的分配采样与覆盖率；AOT（M9）时拆出 codegen | 各自立项，动工前出方案 | ⬜ |
 
-依赖与顺序：下一步为 L-4；L-4 先于 L-5、L-6（object 与 runtime 先成形）；L-7 在 L-5、L-6 之后。阶段 2 第 3 项（PackageImage / 每 VM 链接状态 / TierApi / GC 具体类型）分别落在 L-4、L-6、L-5。
+依赖与顺序：L-2 继续收尾；模块拆层下一步为 L-4；L-4 先于 L-5、L-6（object 与 runtime 先成形）；L-7 在 L-5、L-6 之后。阶段 2 第 3 项（PackageImage / 每 VM 链接状态 / TierApi / GC 具体类型）分别落在 L-4、L-6、L-5。
 
 以下 6.2–6.4 依据 §1 与 2026-10-28 一轮只读代码审读。排序按预期收益；「结构性」项属阶段 2，动工前需 User 确认方案。行号对应审读时的 main `bd14a4958`。
 
@@ -220,7 +221,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 | ID | 类型 | 内容 | 对照 | 预期 | 状态 |
 |---|---|---|---|---|---|
 | X-7 | perf/jit | **JIT 第二档：以 VCall PIC 为画像做守卫去虚化 + 内联**。现状：`emit_vcall_helper`（`jit/translate/object.rs`）一律调 helper，JIT 不内联任何 z42 callee；编译器 `IrInline` 只内联同包、直接调用、单块的函数体。改法：热函数按站点 PIC entry0 重编，生成「TypeId 守卫 → 内联 callee」，守卫失败回落 helper（不需要 deopt）；callee 寄存器映射到调用方寄存器文件的 `+max_reg` 窗口，栈回溯靠内联 pc 表 | CoreCLR tier1 + PGO 守卫去虚化 | 单态 getter / setter 调用 ≈22 → 1–2 ns；list_ops、vcall、z42c visitor | ⏸ 结构性 |
-| X-8 | perf/vm | **JIT→JIT 直接调用 + 每线程连续 Value 栈**（即阶段 2 第 2 项、X-5 后方向 2）。现状：JIT 帧是堆上寄存器数组，一次调用经 `jit_call`（10 参）→ 槽表 → 屏障 → `new_args_from` → `call_native` 约 6 层 Rust 调用、2 次 safepoint 轮询 | CoreCLR 机器栈直接 call；CPython 3.11 连续帧栈零分配 | 每次调用 ≈20 → 3–5 ns | ⏸ 结构性 |
+| X-8 | perf/vm | **JIT→JIT 直接调用 + 每线程连续 Value 栈**（即阶段 2 第 2 项、X-5 后方向 2）。现状：JIT 帧是堆上寄存器数组，一次调用经 `jit_call`（10 参）→ 槽表 → 屏障 → `new_args_from` → `enter_compiled` 约 6 层 Rust 调用、2 次 safepoint 轮询 | CoreCLR 机器栈直接 call；CPython 3.11 连续帧栈零分配 | 每次调用 ≈20 → 3–5 ns | ⏸ 结构性 |
 | X-9 | perf/jit | **数组访问全内联**：`ArrayLen` 恒走 helper（`translate/array.rs`）；hoist 只覆盖整函数不写的寄存器，`this._items[i]` 每次都调 `hr_array_data`；引用 / T 元素写恒走 `jit_array_set`。改法：内联 tag → 头 → len / data 解码，引用写复用字段 IC 的屏障判定，`i < arr.Length` 形态消除边界检查 | CoreCLR 内联长度、内联写屏障、BCE | 集合密集代码 1.3–2× | ⬜ |
 | X-10 | perf/jit | **is / as 内联**：`IsInstance` / `AsCast` 恒调 helper 再查 `isa_cache` 哈希。改法：TypeDesc 加 Cohen display（深度 + 祖先数组），类目标 O(1) 内联判定；接口目标用站点单态 memo | CoreCLR 精确类型比较 + cast cache | 类型判定密集代码该部分 3–5× | ⬜ |
 | X-11 | perf/jit | **方法级泛型函数体可 JIT + 方法类型实参驻留**：mta 是 `Box<[String]>`，解释器每次泛型调用深拷贝（`interp/exec_support.rs`）；读 T 的函数体被整函数拒译（`translate/unsupported.rs`）。改法：mta 改为驻留 `TypeArgs` 句柄（M14 同法）放进 Frame / JitFrame，`MethodTypeArg` 等经 helper 读句柄，`$mta` 转发直接传句柄 | CoreCLR 共享规范代码 + 泛型字典参数 | 最后一类泛型解释回落消失、泛型调用零分配 | ⬜ |
