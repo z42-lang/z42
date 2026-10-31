@@ -170,6 +170,47 @@ void test_type_expr_forms() {
     Assert.Equal("(is d List<int>[])", parse("d is List<int>[]"));             // 泛型 + 数组
 }
 
+// `is T` / `as T` 后的 `?`：同 C#，后随能开始表达式 ⇒ 三目；否则 ⇒ 可空后缀。
+// 「零诊断」一并核（此前 `o is List<Entry> ? a : b` 把 `List<Entry>?` 吞成可空类型，在 `a` 处报 E0202）。
+string parseClean(string src) {
+    var p = new Parser(src, "t.z42");
+    var e = p.ParseExpression();
+    int errs = p.Diagnostics().ErrorCount();
+    if (p._peek().Kind != TokenKind.Eof) { return "LEFTOVER " + e.Dump(); }
+    if (errs != 0) { return "ERR " + e.Dump(); }
+    return e.Dump();
+}
+
+[Test]
+void test_is_as_type_then_ternary() {
+    Assert.Equal("(?: (is o Foo) a b)", parseClean("o is Foo ? a : b"));
+    Assert.Equal("(?: (is o List<Entry>) a b)", parseClean("o is List<Entry> ? a : b"));
+    Assert.Equal("(?: (is o Map<K,List<V>>) 1 2)", parseClean("o is Map<K, List<V>> ? 1 : 2"));   // 嵌套 >>
+    Assert.Equal("(?: (is o List<int>[]) a b)", parseClean("o is List<int>[] ? a : b"));          // 泛型数组
+    Assert.Equal("(?: (is o int[]) a b)", parseClean("o is int[] ? a : b"));
+    Assert.Equal("(?: (is o Foo.Bar<int>) (- 1) \"s\")", parseClean("o is Foo.Bar<int> ? -1 : \"s\""));
+    Assert.Equal("(?: (as o List<int>) a b)", parseClean("o as List<int> ? a : b"));
+    Assert.Equal("(?: (is o string) (new Foo) null)", parseClean("o is string ? new Foo() : null"));
+    Assert.Equal("(= x (?: (is o List<int>) (call f) (call g)))", parseClean("x = o is List<int> ? f() : g()"));
+    Assert.Equal("(?: (is o Circle) (?: (is o List<int>) 1 2) 3)",
+        parseClean("o is Circle ? o is List<int> ? 1 : 2 : 3"));                                   // 三目嵌套
+    // 带绑定 / 结构化模式 / or-链之后接三目
+    Assert.Equal("(?: (is o List<int>) (. l Count) 0)", parseClean("o is List<int> l ? l.Count : 0"));
+    Assert.Equal("(?: (is-pat o (or (name Foo) (name List<int>))) 1 2)", parseClean("o is Foo | List<int> ? 1 : 2"));
+}
+
+[Test]
+void test_is_as_genuine_nullable_kept() {
+    Assert.Equal("(as c T?)", parseClean("c as T?"));                                    // EOF
+    Assert.Equal("(as c List<int>?)", parseClean("(c as List<int>?)"));                  // `)`
+    Assert.Equal("(== (as c Foo?) null)", parseClean("c as Foo? == null"));              // `==` 不能开始表达式
+    Assert.Equal("(&& (is c Foo?) ok)", parseClean("c is Foo? && ok"));
+    Assert.Equal("(?: (as c Foo?) a b)", parseClean("c as Foo? ? a : b"));                // 可空 + 三目
+    Assert.Equal("(?: (as c int[]?) a b)", parseClean("c as int[]? ? a : b"));
+    Assert.Equal("(as c Map<K,List<V>>?)", parseClean("c as Map<K, List<V>>?"));         // `>>` 拆分后 `?` 归外层
+    Assert.Equal("(as c A<B<C<int>>>?)", parseClean("c as A<B<C<int>>>?"));
+}
+
 // ── add-partial-types: partial 修饰符解析（Dump 经 Mods 渲染 "partial"）──────────
 string parseUnit(string src) {
     var p = new Parser(src, "t.z42");

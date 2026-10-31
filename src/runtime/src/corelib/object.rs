@@ -72,6 +72,8 @@ fn instance_type(ctx: &VmContext, td: std::sync::Arc<crate::metadata::TypeDesc>,
 pub fn obj_ref_eq(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Object(a), Value::Object(b)) => crate::gc::ObjRef::ptr_eq(a, b),
+        (Value::Array(a),  Value::Array(b))  => crate::gc::ArrRef::ptr_eq(a, b),
+        (Value::Str(a),    Value::Str(b))    => std::ptr::eq(a.as_ptr(), b.as_ptr()),
         (Value::Null, Value::Null)           => true,
         (Value::Null, _) | (_, Value::Null) => false,
         _                                  => false,

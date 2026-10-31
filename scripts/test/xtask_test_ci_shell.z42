@@ -55,10 +55,6 @@ string[] _csEnvNames() {
     };
 }
 
-bool _csIdentChar(char c) {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
-}
-
 int _csIndent(string line) {
     int i = 0;
     while (i < line.Length) {
@@ -71,13 +67,6 @@ int _csIndent(string line) {
 
 bool _csBlank(string line) { return line.Trim() == ""; }
 
-// s 开头的标识符（没有则 ""）。
-string _csLeadIdent(string s) {
-    int k = 0;
-    while (k < s.Length && _csIdentChar(s.CharAt(k))) { k = k + 1; }
-    return s.Substring(0, k);
-}
-
 // 跳过命令名与其后的 `-flag` 参数，返回第一个非 flag 参数开头的标识符（`read -r X` → X）。
 string _csFirstArgIdent(string t) {
     int sp0 = t.IndexOf(" ");
@@ -86,7 +75,7 @@ string _csFirstArgIdent(string t) {
         int sp = rest.IndexOf(" ");
         if (sp < 0) { rest = ""; } else { rest = rest.Substring(sp + 1, rest.Length - sp - 1).Trim(); }
     }
-    return _csLeadIdent(rest);
+    return _leadIdent(rest);
 }
 
 void _csAddNonEmpty(List<string> xs, string v) { if (v.Length > 0) { xs.Add(v); } }
@@ -101,7 +90,7 @@ List<string> _csAssignsIn(string line) {
     int i = 0;
     while (i < s.Length) {
         char c = s.CharAt(i);
-        if (_csIdentChar(c) && (c < '0' || c > '9')) {
+        if (_isIdentStart(c)) {
             // 前一个字符必须是「语句边界」
             bool boundary = (i == 0);
             if (i > 0) {
@@ -109,7 +98,7 @@ List<string> _csAssignsIn(string line) {
                 boundary = (p == ' ' || p == '\t' || p == ';' || p == '(' || p == '&' || p == '|' || p == '{' || p == '`');
             }
             int j = i;
-            while (j < s.Length && _csIdentChar(s.CharAt(j))) { j = j + 1; }
+            while (j < s.Length && _isIdentChar(s.CharAt(j))) { j = j + 1; }
             string name = s.Substring(i, j - i);
             if (boundary && j < s.Length && s.CharAt(j) == '=') {
                 bool isEq = (j + 1 < s.Length && s.CharAt(j + 1) == '=');
@@ -122,7 +111,7 @@ List<string> _csAssignsIn(string line) {
     }
     string t = s.Trim();
     // `for X in …`
-    if (t.StartsWith("for ")) { _csAddNonEmpty(names, _csLeadIdent(t.Substring(4, t.Length - 4).Trim())); }
+    if (t.StartsWith("for ")) { _csAddNonEmpty(names, _leadIdent(t.Substring(4, t.Length - 4).Trim())); }
     // `mapfile -t X` / `readarray -t X`（数组读入）
     if (t.StartsWith("mapfile ") || t.StartsWith("readarray ")) { _csAddNonEmpty(names, _csFirstArgIdent(t)); }
     // `read [-flags] X [Y …]`
@@ -145,7 +134,7 @@ List<string> _csUsesIn(string line) {
             int st = j;
             // `${#X}` 的 `#` 不属于名字
             if (j < s.Length && s.CharAt(j) == '#') { j = j + 1; st = j; }
-            while (j < s.Length && _csIdentChar(s.CharAt(j))) { j = j + 1; }
+            while (j < s.Length && _isIdentChar(s.CharAt(j))) { j = j + 1; }
             string name = s.Substring(st, j - st);
             // 紧跟 `:-` `-` `:+` `+` `:?` ⇒ 带默认，未设也安全
             bool guarded = false;
@@ -155,9 +144,9 @@ List<string> _csUsesIn(string line) {
             }
             if (name != "" && !guarded) { names.Add(name); }
             i = j;
-        } else if (_csIdentChar(nx) && (nx < '0' || nx > '9')) {
+        } else if (_isIdentStart(nx)) {
             int j = i + 1;
-            while (j < s.Length && _csIdentChar(s.CharAt(j))) { j = j + 1; }
+            while (j < s.Length && _isIdentChar(s.CharAt(j))) { j = j + 1; }
             names.Add(s.Substring(i + 1, j - i - 1));
             i = j;
         } else {

@@ -1,7 +1,7 @@
 // 运行时分层门（`xtask check layers`）的数据：源文件 → 目标组件映射表 + 允许依赖矩阵。
 //
-// 目标结构的唯一定义是 docs/runtime-audit.md §4「目标目录与模块分层」（crate 总览、地基 crate 内部、
-// z42-vm 子系统、引擎 / 能力 / 工具 / 门面、易混边界）。这里只把它翻成机器可查的两张表：
+// 目标结构的唯一定义是 docs/runtime-audit.md §4「目标目录与模块分层」（模块总览、地基模块内部、
+// vm 子系统、引擎 / 能力 / 工具 / 门面、易混边界）。这里只把它翻成机器可查的两张表：
 //
 //   · _lyMapTable：src/runtime/src 下的相对路径前缀 → 组件，**最长前缀胜出**。前缀以 `/` 结尾的是目录；
 //     不带 `/` 的同时匹配同名文件与同名目录（`metadata/types` 覆盖 `types.rs` 与 `types/`）。
@@ -9,13 +9,13 @@
 //     按主体归，拆分时跟着改表。
 //   · _lyAllowTable：组件 → 允许直接引用的组件。同组件内引用恒允许。
 //
-// 迁移（§6.1 L-2…L-8）每挪一个文件，改这里的一行；新文件落在已登记的前缀下自动继承归属，
+// 迁移（§6.1 L-2…L-7）每挪一个文件，改这里的一行；新文件落在已登记的前缀下自动继承归属，
 // 落在未登记的位置 → 门红，逼人先回答「它属于哪一层」。
 namespace Z42Xtask;
 
 using Std.Collections;
 
-// 组件名全集（报告与校验用）。`vm.core` = z42-vm 的 lib.rs / vm.rs（VmCore / VmContext 的组合）。
+// 组件名全集（报告与校验用）。`vm.core` = vm 的 mod.rs / vm.rs（VmCore / VmContext 的组合）。
 string[] _lyComponents() {
     return new string[]{ "pal", "metadata", "object", "gc",
         "vm.diagnostics", "vm.threads", "vm.runtime", "vm.loader", "vm.exec", "vm.core",
@@ -50,7 +50,7 @@ string[] _lyMapBase() {
     };
 }
 
-// z42-vm 下层：diagnostics / threads / runtime。
+// vm 下层：diagnostics / threads / runtime。
 string[] _lyMapVmLow() {
     return new string[]{
         "counters.rs                   = vm.diagnostics  # diagnostics/counters",
@@ -77,7 +77,7 @@ string[] _lyMapVmLow() {
     };
 }
 
-// z42-vm 上层：loader / exec / core。
+// vm 上层：loader / exec / core。
 string[] _lyMapVmHigh() {
     return new string[]{
         "metadata/loader/              = vm.loader       # loader/package、availability、locate",
@@ -110,7 +110,7 @@ string[] _lyMapVmHigh() {
 string[] _lyMapTop() {
     return new string[]{
         "interp/                       = interp",
-        "metadata/superinstr.rs        = interp          # z42-interp superinstr.rs",
+        "metadata/superinstr.rs        = interp          # interp/superinstr.rs",
         "jit/                          = jit",
         "corelib/                      = corelib",
         "vm_context/resources.rs       = corelib         # OS 资源表 → corelib 扩展状态",

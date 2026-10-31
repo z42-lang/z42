@@ -2,7 +2,7 @@
 //!
 //! All values pass through from `std::env::consts::{OS, ARCH, FAMILY}` which
 //! are compile-time constants from rustc's target triple — except OS on wasm32,
-//! where rustc reports `""` and we report `"wasm"` (see [`HOST_OS`]). The Kind value
+//! where rustc reports `""` and we report `"wasm"` (see [`platform_os`]). The Kind value
 //! mapping below must stay in lockstep with
 //! `src/libraries/z42.io/src/Platform.z42` constants `OSKind::*` /
 //! `ArchKind::*` (the z42 stdlib spec lists the canonical values).
@@ -13,14 +13,9 @@ use crate::metadata::Value;
 use crate::vm_context::VmContext;
 use anyhow::Result;
 
-/// 宿主 OS 名。其余平台就是 `std::env::consts::OS`；**wasm32 例外**：
-/// `wasm32-unknown-unknown` 的 `consts::OS` 是空串，不是 `"wasm"`。旧写法照搬它，
-/// 于是 wasm 上 `Platform.OS()` 为 `""`、`OSKindValue()` 落进 `_ => 0`、`IsWasm()` 恒假、
-/// `[Skip(platform: "wasm")]` 永不生效 —— 契约（`OSKind.Wasm = 6`）从来没在 wasm 上兑现过
-/// （fix-wasm-std-time 发现：nightly 全红期间没人跑到这里）。
-const HOST_OS: &str = if cfg!(target_arch = "wasm32") { "wasm" } else { std::env::consts::OS };
-
-pub fn platform_os() -> &'static str { HOST_OS }
+/// 宿主 OS 名。wasm32 报 `"wasm"` 而不是 `consts::OS`（见 [`crate::pal::system::os_name`]），
+/// 否则 `OSKind.Wasm`、`IsWasm()`、`[Skip(platform: "wasm")]` 在 wasm 上都不生效。
+pub fn platform_os() -> &'static str { crate::pal::system::os_name() }
 
 pub fn platform_arch() -> &'static str { std::env::consts::ARCH }
 
@@ -29,7 +24,7 @@ pub fn platform_family() -> &'static str { std::env::consts::FAMILY }
 /// Keep in sync with `Std.OSKind` in
 /// `src/libraries/z42.core/src/Platform.z42`.
 pub fn platform_os_kind() -> i64 {
-    match HOST_OS {
+    match platform_os() {
         "linux"   => 1,
         "macos"   => 2,
         "windows" => 3,
@@ -62,13 +57,11 @@ pub fn platform_arch_kind() -> i64 {
 /// result with the caps the binary actually reports — never a static guess. The
 /// values are the ground truth of "what was compiled in":
 ///   - cargo-feature caps (`jit` / `native-interop` / `bundled-compression` / `socket` ← `net`) via cfg.
-///   - `threads`: real OS-thread support (`corelib::threading`) is compiled in
-///     wherever `std::thread` exists — i.e. everywhere except wasm. It is *not*
-///     a cargo feature, so it is gated on `target_arch` directly (mirrors the
-///     wasm `interp-only` preset which also has no threads).
+///   - `threads`: real OS-thread support (`corelib::threading`) — everywhere except
+///     wasm. Not a cargo feature: it comes from `pal::system::OS_CAPS`.
 ///   - OS-facility caps (`fs` / `clock` / `entropy` / `process` / `tty` / `env` /
 ///     `socket-listen` / `hardlink`): what the TARGET's process environment
-///     provides, gated on `target_arch` / `target_os`. Three tiers:
+///     provides (`pal::system::OS_CAPS`). Three tiers:
 ///       · wasm32 — none of them (no real fs, no SystemTime, no OS entropy …);
 ///       · ios / android — a real native process inside an APP SANDBOX: fs, clock and
 ///         entropy yes; no fork/exec, no TTY, no mutable env / desktop OS identity,
@@ -85,18 +78,19 @@ pub fn platform_caps(ctx: &VmContext) -> Value {
     #[cfg(feature = "jit")]                 caps.push("jit");
     #[cfg(feature = "native-interop")]      caps.push("native-interop");
     #[cfg(feature = "bundled-compression")] caps.push("bundled-compression");
-    #[cfg(not(target_arch = "wasm32"))]     caps.push("threads");
+    let os = crate::pal::system::OS_CAPS;
+    if os.threads { caps.push("threads"); }
     // fix-wasm-corpus-capability-gate: `socket` = real OS networking (TCP/UDP/HTTP/
     // WS) — the `net` feature (off in the wasm preset; without it the builtins throw).
     #[cfg(feature = "net")]                 caps.push("socket");
-    #[cfg(not(target_arch = "wasm32"))]     caps.push("fs");
-    #[cfg(not(target_arch = "wasm32"))]     caps.push("clock");
-    #[cfg(not(target_arch = "wasm32"))]     caps.push("entropy");
-    #[cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "android")))] caps.push("process");
-    #[cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "android")))] caps.push("tty");
-    #[cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "android")))] caps.push("env");
-    #[cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "android")))] caps.push("socket-listen");
-    #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]                    caps.push("hardlink");
+    if os.fs { caps.push("fs"); }
+    if os.clock { caps.push("clock"); }
+    if os.entropy { caps.push("entropy"); }
+    if os.process { caps.push("process"); }
+    if os.tty { caps.push("tty"); }
+    if os.env { caps.push("env"); }
+    if os.socket_listen { caps.push("socket-listen"); }
+    if os.hardlink { caps.push("hardlink"); }
     let list: Vec<Value> = caps.into_iter().map(|s| Value::Str(s.to_string().into())).collect();
     ctx.heap().alloc_array(list)
 }

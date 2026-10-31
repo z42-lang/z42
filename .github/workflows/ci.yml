@@ -74,6 +74,7 @@ jobs:
               - 'src/toolchain/builder/**'
               - 'scripts/common/xtask_fixture_harness.z42'
               - 'scripts/test/xtask_test_platform.z42'
+              - 'scripts/test/xtask_test_app.z42'
               - 'scripts/test/xtask_test_wasm.z42'
               - 'scripts/test/xtask_test_ios.z42'
               - 'scripts/test/xtask_test_android.z42'
@@ -144,8 +145,8 @@ jobs:
           MAX_WAIT_MIN: "240"
         run: .github/ci/pr-gate.sh
 
-  # ── 纯文档改动的全部门禁：死链 + gate 清单对账、诊断码文档对账、书页代码引用（doc-refs）、生成页对账
-  #    （docs-api）。不需要 SDK 构建树，xtask 用种子 z42c 编出即可。doc-lints 不在这里：纯文档改动碰不到 stdlib
+  # ── 纯文档改动的全部门禁：死链 + gate 清单对账、诊断码文档对账、书页代码引用（doc-refs）。不需要 SDK
+  #    构建树，xtask 用种子 z42c 编出即可。doc-lints 不在这里：纯文档改动碰不到 stdlib
   #    的 `///`（那是 src/）；它是 `xtask test` 的一个 stage，随 build-and-test 跑。
   docs-check:
     name: docs-check(linux-x64)
@@ -167,8 +168,8 @@ jobs:
           gh-token: ${{ secrets.GITHUB_TOKEN }}
           xtask-only: "true"
 
-      # docs-api 经 xtask 自带的 z42c.syntax 解析 stdlib 源码——xtask-only 下那是种子 SDK 的解析器。改动 doc 挂靠
-      # 语义的 PR 合入后，到下一次 nightly 种子发布前它可能假红（种子随每次 main push 重发，窗口很短）。
+      # `test docs links` 先 `doc gen` 生成 reference 的 stdlib 包页（不入库），用的是 xtask 自带的 z42c.syntax——
+      # xtask-only 下那是种子 SDK 的解析器；stdlib 用上种子还不认的语法时，到下一次 nightly 前这里会红（窗口很短）。
       - name: Docs gates
         shell: bash
         run: |
@@ -176,7 +177,6 @@ jobs:
           xtask test docs links
           xtask check diagcodes
           xtask check doc-refs
-          xtask check docs-api
 
   build-and-test:
     name: test-host(${{ matrix.platform }})
@@ -406,6 +406,7 @@ jobs:
       - name: C host links the packaged runtime (static + dynamic)
         # 同一套 R1–R7 C 宿主（test-desktop-cabi 用的那份 r1_r7.c）改链**打出来的 runtime 包**，
         # 静态一遍、动态一遍（经 rpath 找 libz42.{dylib,so}）——install name / SONAME 坏了，动态那遍就加载不了。
+        # 打包模式只跑 R1–R7：嵌入语料用的是构建树的 VM，与包无关，归 test-desktop-cabi。
         # Windows 没有 `cc`，上一步按文件检查 import lib。
         if: runner.os != 'Windows'
         shell: bash

@@ -93,6 +93,7 @@ int _testAppOne(string root, string platform, string filter, string format, int 
     if (platform == "desktop") {
         // C ABI 宿主的 R1–R7（与语料无关，分片时只在第 1 片），再在 z42b 进程内跑嵌入语料。
         if (firstShard) { int c = _platformDispatch("desktop", "", root); if (c != 0) { return c; } }
+        if (_desktopPackagedSkipsCorpus()) { return 0; }
         return _runDesktopEmbedded(root, filter, "", format, shardK, shardN);
     }
     if (platform == "wasm") {
@@ -118,6 +119,15 @@ int _testAppOne(string root, string platform, string filter, string format, int 
     return _runAndroidTesthost(root, arid);
 }
 
+// 打包模式（Z42_RUNTIME_DIR = 桌面 runtime 包）只验「C 宿主能链上发布产物」：R1–R7 链的是包里的 libz42，
+// 嵌入语料却在 z42b 进程里用构建树的 VM 与 libs 跑，和包无关——那是 test-desktop-cabi 的活，这里再跑一遍
+// 只是白花十几分钟。
+bool _desktopPackagedSkipsCorpus() {
+    if (_desktopRuntimeDir().Length == 0) { return false; }
+    Console.WriteLine("  packaged runtime: R1–R7 only (the embedded corpus runs on the build tree, not the package)");
+    return true;
+}
+
 // 只做一步（调试 / CI 分步）。stage / build / assets 是平台三段式里的同名阶段；bundle / run 是嵌入语料段。
 int _testAppStep(string root, string platform, string step, string filter, string format, int shardK, int shardN) {
     if (step == "stage" || step == "build" || step == "assets") { return _platformDispatch(platform, step, root); }
@@ -131,6 +141,7 @@ int _testAppStep(string root, string platform, string step, string filter, strin
     // run：desktop / wasm 的 R1–R7 与语料是两次运行；iOS / Android 一次设备运行同时跑两组。
     if (platform == "desktop") {
         int c = _platformDispatch("desktop", "run", root); if (c != 0) { return c; }
+        if (_desktopPackagedSkipsCorpus()) { return 0; }
         return _runDesktopEmbedded(root, filter, "", format, shardK, shardN);
     }
     if (platform == "wasm") {

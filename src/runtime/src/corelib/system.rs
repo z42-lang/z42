@@ -13,36 +13,20 @@ use crate::vm_context::VmContext;
 use anyhow::Result;
 use crate::corelib::abi::BuiltinError;
 
-// fix-wasm-corpus-capability-gate: std::process::id / std::env::current_exe /
-// current_dir / set_current_dir all panic on wasm32 ("not supported"). Degrade
-// to browser-safe values so infrastructure paths don't abort the VM module.
 pub fn system_pid() -> i64 {
-    #[cfg(not(target_arch = "wasm32"))]
-    { std::process::id() as i64 }
-    #[cfg(target_arch = "wasm32")]
-    { 0 }
+    pal::system::pid() as i64
 }
 
 pub fn system_exe_path() -> String {
-    #[cfg(not(target_arch = "wasm32"))]
-    { std::env::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default() }
-    #[cfg(target_arch = "wasm32")]
-    { String::new() }
+    pal::system::current_exe().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
 pub fn system_cwd() -> String {
-    #[cfg(not(target_arch = "wasm32"))]
-    { std::env::current_dir().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default() }
-    #[cfg(target_arch = "wasm32")]
-    { "/".to_string() }
+    pal::system::current_dir().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
 pub fn system_set_cwd(path: &str) -> Result<(), BuiltinError> {
-    #[cfg(not(target_arch = "wasm32"))]
-    { std::env::set_current_dir(path).map_err(|e| BuiltinError::Io(e.to_string()))?; }
-    #[cfg(target_arch = "wasm32")]
-    let _ = path;
-    Ok(())
+    pal::system::set_current_dir(path).map_err(|e| BuiltinError::Io(e.to_string()))
 }
 
 pub fn system_hostname() -> String {

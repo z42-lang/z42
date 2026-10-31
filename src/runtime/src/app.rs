@@ -97,6 +97,10 @@ pub struct RunOpts {
     /// When `print_stats`, emit a single-line JSON object instead of the human
     /// text block (z42vm `--stats-format=json`; `xtask profile` scrapes it).
     pub stats_json: bool,
+    /// The process exits as soon as `run` returns (z42vm): leave the VM to the
+    /// OS instead of freeing it block by block. Embedders and nested runs keep
+    /// using the process, so they say `false`.
+    pub exit_after_run: bool,
 }
 
 /// Idempotency keys for the entry zpkg, seeded into `initially_loaded_zpkgs`.
@@ -344,6 +348,13 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
 
     report_on_exit(&ctx);
 
+    // runtime-audit S5: tearing the VM down frees every object, type and function
+    // one by one (≈10⁵ frees, ~0.3 ms) — work the OS does for free at exit. Nothing
+    // in that teardown is visible outside the process; `Environment.Exit` skips it
+    // the same way.
+    if opts.exit_after_run {
+        std::mem::forget(ctx);
+    }
     result
 }
 

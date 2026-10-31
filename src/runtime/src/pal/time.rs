@@ -7,23 +7,44 @@
 /// Whether `std::time::Instant::now` works on this target.
 pub const HAS_CLOCK: bool = !cfg!(target_arch = "wasm32");
 
-/// Microseconds since the first call in this process. Without a clock
+/// Microseconds since the first clock read in this process. Without a clock
 /// ([`HAS_CLOCK`] is `false`) each call returns the next tick of a counter, so
 /// values stay monotonic but are not microseconds.
 pub fn monotonic_us() -> u64 {
-    imp()
+    if HAS_CLOCK { since_epoch().as_micros() as u64 } else { next_tick() }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-fn imp() -> u64 {
+/// Nanoseconds since the first clock read in this process. Without a clock each call
+/// advances by 1 000 (one tick), so durations stay positive but are not nanoseconds.
+pub fn monotonic_ns() -> u64 {
+    if HAS_CLOCK { since_epoch().as_nanos() as u64 } else { next_tick() * 1_000 }
+}
+
+/// Milliseconds since the Unix epoch; `0` without a clock.
+pub fn wall_unix_ms() -> i64 {
+    wall_since_unix_epoch().as_millis() as i64
+}
+
+/// Nanoseconds since the Unix epoch; `0` without a clock.
+pub fn wall_unix_ns() -> u64 {
+    wall_since_unix_epoch().as_nanos() as u64
+}
+
+fn since_epoch() -> std::time::Duration {
     use std::sync::OnceLock;
     use std::time::Instant;
     static EPOCH: OnceLock<Instant> = OnceLock::new();
-    EPOCH.get_or_init(Instant::now).elapsed().as_micros() as u64
+    EPOCH.get_or_init(Instant::now).elapsed()
 }
 
-#[cfg(target_arch = "wasm32")]
-fn imp() -> u64 {
+fn wall_since_unix_epoch() -> std::time::Duration {
+    if !HAS_CLOCK {
+        return std::time::Duration::ZERO;
+    }
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default()
+}
+
+fn next_tick() -> u64 {
     use std::sync::atomic::{AtomicU64, Ordering};
     static TICK: AtomicU64 = AtomicU64::new(0);
     TICK.fetch_add(1, Ordering::Relaxed)
@@ -36,5 +57,12 @@ mod tests {
         let a = super::monotonic_us();
         let b = super::monotonic_us();
         assert!(b >= a);
+        let (c, d) = (super::monotonic_ns(), super::monotonic_ns());
+        assert!(d >= c);
+    }
+
+    #[test]
+    fn wall_clock_is_after_2020() {
+        assert!(super::wall_unix_ms() > 1_577_836_800_000);
     }
 }

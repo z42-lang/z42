@@ -1,0 +1,46 @@
+// fix-object-export (2026-10-29): `Object`'s statics are visible outside z42.core.
+// Test targets import core through its TSIG, so this file is a cross-package caller:
+// before the fix TSIG skipped `Object` and importers saw a stub without statics (E0401).
+namespace Z42CoreObjectReferenceEqualsTests;
+
+using Std.Harness;
+
+class Box {
+    public int V;
+    public Box(int v) { this.V = v; }
+}
+
+[Test]
+void test_objects_compare_by_identity() {
+    Box a = new Box(1);
+    Box b = new Box(1);
+    Box alias = a;
+    Assert.True(Object.ReferenceEquals(a, alias));
+    Assert.False(Object.ReferenceEquals(a, b));
+    Assert.True(Std.Object.ReferenceEquals(a, a));
+}
+
+[Test]
+void test_null_operands() {
+    Box a = new Box(1);
+    Box? n = null;
+    Assert.True(Object.ReferenceEquals(null, null));
+    Assert.True(Object.ReferenceEquals(n, null));
+    Assert.False(Object.ReferenceEquals(a, null));
+    Assert.False(Object.ReferenceEquals(null, a));
+}
+
+[Test]
+void test_arrays_compare_by_identity() {
+    int[] xs = new int[2];
+    int[] alias = xs;
+    Assert.True(Object.ReferenceEquals(xs, alias));
+    Assert.False(Object.ReferenceEquals(xs, new int[2]));
+}
+
+[Test]
+void test_same_string_object_is_reference_equal() {
+    string s = "subject".ToUpper();
+    string alias = s;
+    Assert.True(Object.ReferenceEquals(s, alias));
+}

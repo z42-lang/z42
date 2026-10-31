@@ -101,34 +101,49 @@ PR 树采一份、base 树采一份（复用已建的 base 工具链，仅新建
 `bench --micro-diff --current … --baseline …` 逐基准（按 `name` + 画像键配对）过同一个 `_abVerdict`。
 PR 新增或改名的基准在 base 无对应 ⇒ 信息性 skip。
 
-**两侧必须同形捕获，否则同一份代码也会被判慢。** 被测 z42b 进程的内存布局由它的输入字节决定——
-argv、env（`Z42_LIBS` / `Z42_PROBING_PATHS` / `PWD` …）、树根与工具链目录的路径长度。布局一变，
-同一份代码就能**稳定地**快慢一截：本机只把 env 块改大 12 字节，`hex_roundtrip` 的中位数就在
-130 µs 与 79 µs 之间来回，每次复现。这个偏差每轮都一样，所以[复测](#5-可疑即复测)看不见它，
-只会把它当回归。因此 PR 侧不用树内隐式工具链，而是与 base 侧走同一个 `capture`：
+### 两侧必须同形捕获（e2e 与 micro 同一条规则）
+
+**否则同一份代码也会被判慢。** 被测进程的内存布局由它的输入字节决定——argv、env（`Z42_LIBS` /
+`Z42_PROBING_PATHS` / `PWD` …）、树根与工具链目录的路径长度。布局一变，同一份代码就能**稳定地**
+快慢一截：本机只把 env 块改大 12 字节，`hex_roundtrip` 的中位数就在 130 µs 与 79 µs 之间来回，
+每次复现。这个偏差每轮都一样，所以[复测](#5-可疑即复测)看不见它，只会把它当回归。
+`Z42_LIBS` 目录的**内容**也算输入：VM 启动时逐个读该目录下每个 zpkg 的 NSPC，base 侧目录里多十几个
+编译器包 = base 侧启动多干活 ⇒ 比值整体偏向「PR 更快」，盖住真回归（e2e 曾因此 `03_startup`
+稳定测出 0.81~0.84）。
+
+因此 PR 侧不用树内隐式工具链，而是由 workflow 的「Prepare head toolchain」步备一套与 base 同形的，
+e2e（`bench --ab --pr-vm/--pr-libs/--pr-driver`）与 micro（`capture`）两道 A/B 共用：
 
 - **树根等长**：PR 源码另开 worktree `head-src`，与 `base-src` 等长，`artifacts` 软链回 PR 产物。
 - **工具链显式且同配方**：`.ab-head-alllibs` 与 `.ab-base-alllibs` 等长，按同一套顺序拷贝；
-  `--vm` 两侧同串（VM 未变）或各取本树 `artifacts` 下的那个（等长）。
+  vm 两侧同串（VM 未变）或各取本树 `artifacts` 下的那个（等长）。
+- **e2e 的 scenario `.zbc` 等长**：`<name>-base.zbc` / `<name>-head.zbc`（`_abZbcPath`）。
 
-workflow 里断言这两组路径等长，谁改了目录名当场红。
+workflow 里断言这两组路径等长，谁改了目录名当场红；`bench --ab` 自己发现两侧 vm / libs 路径不等长时
+打一行 ⚠️（本地不传 `--pr-*` 时就是这样，结果里混着布局偏差）。
 
 ### GC 停顿子门禁
 
 头部声明 `// gc-pause: report` 的场景（目前只有 `13_gc_large_heap`）末尾自报一行
 `gc-pause max_us=… p99_us=… count=…`（数据来自 `Std.GC.PauseStatsRaw()` / `RecentPauses()`）。
-hyperfine 丢弃被测程序的 stdout，所以停顿要**另跑**：base / pr 各跑 3 次取 max 与 p99 的**中位数**
-——单次 max 受调度抖动影响大，中位数挡掉偶发的一次长停顿，又不会把「每次都长」的真回归抹平。
-写成 `ab.json` 里 `"metric": "pause"` 的一条。
+hyperfine 丢弃被测程序的 stdout，所以停顿要**另跑**：base / pr 各跑 3 次取 max 与 p99 的**中位数**。
+写成 `ab.json` 里 `"metric": "pause"` 的一条（含 `max_over_cap`）。
 
 ```
-regression ⟺ pr_max > --pause-cap-ms(默认 16)  且  pr_max > base_max × (1 + --threshold-pause(默认 0.25))
+over(x, t)  ⟺ pr_x > --pause-cap-ms(默认 16)  且  pr_x > base_x × (1 + t)
+regression  ⟺ over(p99, --threshold-pause(默认 0.25))  或  over(max, --threshold-pause-max(默认 1.0))
 ```
+
+**主判据是 p99**：它是一次运行里成百次停顿的高分位，调度抖动挪不动它；major 停顿真变长时它跟着涨。
+**max 是单次停顿的极值**：共享 runner 上一次被抢占就能把它推高几 ms，3 次取中位数也挡不住——实测
+两侧 p99 持平、pr max 17.1 ms 对 16 ms 上限就判了红。所以 max 只在比 base **差出一倍以上**时判红
+（守「p99 不动、但冒出一次超长停顿」这种真回归）；超上限而没差出这么多 ⇒ 只报告（`::warning::` 行 +
+`max_over_cap: true`），不判红。近几次 CI 上同机两侧 max 之比在 1.0~1.1，两侧 max 本身在 9~12 ms；17.1 ms 相对这个量级的 base max 也在 2× 以内。
 
 **为什么是「且」**：只看绝对上限会让增量 major 落地前的每个 PR 都红（main 上这个场景的 major 停顿
 本来就有约 97 ms）；只看相对比例又守不住「停顿与堆大小无关」这个目标。两条同时成立才判红 ⇒
 落地后 base 与 pr 都在上限内，规则自然退化成纯绝对上限，届时把 cap 收紧到 10 ms。
-判定是纯函数 `_abPauseIsRegression`，由 `bench --ab-selftest` 覆盖。
+判定是纯函数 `_abPauseIsRegression`，由 `bench --ab-selftest` 覆盖（含上面那组假红数据，必须放行）。
 
 ## 4. 执行画像（schema v2）
 
@@ -151,7 +166,7 @@ A/B 对**同一 scenario × mode** 在 base/pr 之间比较，两模式永不交
 是两个独立进程。进程间那部分方差（CPU 频率、page cache、分配器与 GC 起始状态、代码布局彩票）
 **根本没进模型**，于是声称的区间比真实窄约三倍。
 复测只抓得住**每轮重新抽签**的那部分；由进程输入字节决定的布局每轮都一样，复测抓不住，
-只能靠两侧同形捕获消掉（见 [micro 的同-runner A/B](#micro-的同-runner-ab)）。
+只能靠两侧同形捕获消掉（见 [两侧必须同形捕获](#两侧必须同形捕获e2e-与-micro-同一条规则)）。
 
 **做法**：第一轮照常测；**只对初判 `R_lower > 1+thr` 的条目**，把同一份二进制再测 2 轮，拿到
 k = 3 个独立比值，用**它们之间的离散度**重算区间：
@@ -316,7 +331,8 @@ criterion 层噪声底的实测（同一个 PR 的四次跑，**每次 base 与 
    等二十分钟。
 4. **建 base 工具链**（同 runner，见 §3）。
 5. **e2e A/B（硬门禁）**：`bench --ab --tier gate --mode $MODE --threshold-time 0.15
-   --pause-cap-ms 16 --threshold-pause 0.25 --base-vm/-libs/-driver …`。`MODE` 按改动面收窄：
+   --pause-cap-ms 16 --threshold-pause 0.25 --threshold-pause-max 1.0 --base-vm/-libs/-driver …
+   --pr-vm/-libs/-driver …`（PR 侧用「Prepare head toolchain」步的同形工具链，见 §3）。`MODE` 按改动面收窄：
    `src/runtime` 无非文档改动 → `jit`，否则 `both`。
 6. **micro A/B（硬门禁）**：两棵树（`head-src` / `base-src`）各采一份 `bench stdlib --json`，**同形捕获** → 第 1 轮
    `--micro-diff --suspects …` **只点名不判红**；`suspects` 为空 ⇒ 直接通过（**零额外开销**）；
@@ -335,7 +351,7 @@ main 上存的才对所有 PR 可见。若让 PR 自己存，每个新 PR 都冷
 
 | 路径 | 怎么测 | 用例 |
 |---|---|---|
-| `_abVerdict` + `_abResampleVerdict`（纯函数）| `bench --ab-selftest` | 10（时间 5 + 停顿等 5）|
+| `_abVerdict` + `_abResampleVerdict` + `_abPauseIsRegression`（纯函数）| `bench --ab-selftest` | 17（单轮 5 + 复测 5 + 停顿 7）|
 | `_benchDiff`（`--diff`，历史/本地对比）| `testdata/current-*.json` vs `baseline.json` | 4 |
 | `_microDiff` 单轮（`--micro-diff`）| `testdata/micro-*.json` vs `micro-base.json` | 7 |
 | `_microDiff` **复测**（三轮 × 两侧）| `testdata/micro-rs-*-r{1,2,3}.json` | 4 + 1 用法错误 |

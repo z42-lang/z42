@@ -81,7 +81,7 @@ public sealed class PatternParser {
         }
         // 4. 类型/名字引导
         if (k == TokenKind.Identifier || this._p._isTypeKeyword(k)) {
-            TypeExpr ty = this._p._typeP._parseType();
+            TypeExpr ty = this._p._typeP._parseTypeBeforeExpr();   // 同 C# DefinitePattern：`?` 后随能开始表达式则归三目
             return this._continueFromType(ty, sp);
         }
         // 5. 回退：报错 + 通配恢复
