@@ -13,7 +13,7 @@
 /// • exec_object.rs  — ObjNew / FieldGet / FieldSet / IsInstance / AsCast / Static*
 /// • vcall_resolve.rs — VCall target resolution (shared with jit/helpers/vcall.rs)
 /// • obj_new_resolve.rs — ObjNew class / ctor resolution + site cache (shared with jit_obj_new)
-/// • exec_vcall.rs   — VCall invoke side + primitive_class_name + is_array_isa
+/// • exec_vcall.rs   — VCall invoke side + primitive_class_name
 /// • exec_native.rs  — CallNative / CallNativeVtable / PinPtr / UnpinPtr
 /// • dispatch.rs   — object dispatch helpers (vtable, ToString, static fields)
 /// • ops.rs        — register-level helpers (int_binop, collect_args, …)
@@ -31,6 +31,7 @@ pub(crate) mod exec_value;
 mod exec_vcall;
 pub(crate) mod vcall_resolve;   // unify-vcall-resolution: shared with jit/helpers/vcall.rs
 pub(crate) mod forward;         // runtime-audit P1-8: `[Native]` stub folding, shared with the JIT
+pub(crate) mod type_param_env;  // `$mta:` / `$cta:` markers of shared generic bodies, shared with the JIT helpers
 pub(crate) mod obj_new_resolve; // P1-2 PR 5: ObjNew class / ctor + site cache, shared with jit_obj_new
 mod ops;
 pub(crate) mod stack_alloc;   // add-escape-analysis-stack-alloc: per-context stack arena

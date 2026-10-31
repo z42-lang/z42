@@ -3,7 +3,7 @@
 /// unify-vcall-resolution : *what* to call is decided by
 /// `vcall_resolve::resolve_vcall` (shared with `jit/helpers/vcall.rs::jit_vcall`);
 /// this file only keeps the interpreter-specific pieces — the receiver-kind
-/// helpers (`primitive_class_name` / `value_synthetic_type_id` / `is_array_isa`),
+/// helpers (`primitive_class_name` / `value_synthetic_type_id`),
 /// the mixed-mode divert to an already-compiled native method, and running the
 /// resolved target on an interpreter frame.
 
@@ -112,14 +112,6 @@ pub(crate) fn value_synthetic_type_id(obj: &Value) -> Option<u32> {
     }
 }
 
-/// add-array-base-class: hardcoded is-a check for `Value::Array`.
-/// Class name comparison accepts both unqualified and `Std.`-qualified forms
-/// because IR-emitted class names depend on TypeChecker's qualification path
-/// (imported classes use FQ; bare references unqualified).
-pub(super) fn is_array_isa(class_name: &str) -> bool {
-    matches!(class_name, "Array" | "Object" | "Std.Array" | "Std.Object")
-}
-
 pub(super) fn vcall(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
     dst: u32, obj: u32, method: &str, args: &[u32],
@@ -134,8 +126,8 @@ pub(super) fn vcall(
     // against the caller frame before threading to the callee (see exec_call::call
     // and interp::resolve_forwarded_mta). No alloc unless a marker is present.
     let fwd_storage;
-    let method_type_args: &[String] = if method_type_args.iter().any(|s| s.starts_with("$mta:")) {
-        fwd_storage = super::resolve_forwarded_mta(frame, method_type_args);
+    let method_type_args: &[String] = if super::has_forwarded_mta(method_type_args) {
+        fwd_storage = super::resolve_forwarded_mta(ctx, frame, method_type_args);
         &fwd_storage
     } else {
         method_type_args

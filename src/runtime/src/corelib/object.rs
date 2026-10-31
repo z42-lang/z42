@@ -14,28 +14,21 @@ use std::sync::Arc;
 /// Primitives / arrays / strings get a handle-less `Std.Type` (member queries
 /// reflect empty) — element-typed array reflection deferred (reflection.md).
 pub fn obj_get_type(ctx: &VmContext, this: &Value) -> Result<Value, BuiltinError> {
-    use crate::corelib::reflection::{make_constructed_type, make_type_from_name, make_type_object};
     obj_get_type_impl(ctx, this).map_err(BuiltinError::Legacy)
 }
 
 fn obj_get_type_impl(ctx: &VmContext, this: &Value) -> Result<Value> {
-    use crate::corelib::reflection::{make_constructed_type, make_type_from_name, make_type_object};
+    use crate::corelib::reflection::make_type_from_name;
     match this {
+        // A generic instance is either an instantiation descriptor (`Demo.Box<int>`: a generic
+        // instantiated in its own package — the name carries the arguments) or an erased
+        // definition descriptor plus per-instance arguments (an imported generic: `Std.Collections.List`
+        // + `[int]`). Both answer with the same Type — the one `typeof` builds from the canonical
+        // name (`instance_type`), so `typeof(Box<int>) == o.GetType()` and a lib-made and a
+        // main-made `GBox<int>` report equal Types.
         Value::Object(rc) => {
             let td = rc.type_desc_arc().clone();
-            // add-reflection-instance-generic-args: a generic instance
-            // (`new Box<int>()`) carries its construction type-args on the
-            // ScriptObject. Surface them via the same constructed-Type path as
-            // `typeof(Box<int>)` (make_constructed_type → __typeArgs slot) so
-            // `obj.GetType().GetGenericArguments()` returns [int], consistent
-            // with typeof. Non-generic instances keep the bare definition Type.
-            let type_args = rc.type_args();
-            if type_args.is_empty() {
-                Ok(make_type_object(ctx, td))
-            } else {
-                let args_owned: Vec<String> = type_args.to_vec();
-                Ok(make_constructed_type(ctx, &td.name, &args_owned))
-            }
+            Ok(instance_type(ctx, td, rc.type_args()))
         }
         Value::Array(rc) => {
             // add-reflection-array-element-type: the array value carries its
@@ -50,7 +43,7 @@ fn obj_get_type_impl(ctx: &VmContext, this: &Value) -> Result<Value> {
         }
         // add-struct-object-boxing → unify Phase 2 R3: 装箱值类型（struct 或基元）→ 其**精确类型**
         // （type_desc.name：struct 类型 / 基元 wrapper 如 Std.Int64——两者统一为 BoxedStruct）。
-        Value::BoxedStruct(b) => Ok(make_type_from_name(ctx, &b.type_desc().name)),
+        Value::BoxedStruct(b) => Ok(instance_type(ctx, b.type_desc_arc().clone(), b.type_args())),
         // 未装箱裸基元 → canonical stdlib 类（I64→Std.Int32；装箱后走上面精确类）。
         v @ (Value::I64(_) | Value::F64(_) | Value::Bool(_) | Value::Char(_)) => {
             match crate::interp::primitive_class_name(v) {
@@ -60,6 +53,17 @@ fn obj_get_type_impl(ctx: &VmContext, this: &Value) -> Result<Value> {
         }
         Value::Null => bail!("__obj_get_type: null reference"),
         _ => bail!("__obj_get_type: expected an object"),
+    }
+}
+
+/// The `Std.Type` of a heap instance with descriptor `td` and per-instance type arguments
+/// `args`: see `obj_get_type_impl`.
+fn instance_type(ctx: &VmContext, td: std::sync::Arc<crate::metadata::TypeDesc>, args: &[String]) -> Value {
+    use crate::corelib::reflection::{make_type_from_name, make_type_object};
+    if args.is_empty() || !td.type_args().is_empty() {
+        make_type_object(ctx, td)
+    } else {
+        make_type_from_name(ctx, &crate::metadata::type_names::constructed(&td.name, args))
     }
 }
 

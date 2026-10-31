@@ -1,0 +1,41 @@
+// 拆箱成值 struct（`(P)o`）失败时抛可 catch 的异常，与基元拆箱同一语义：
+// 源是 null → NullReferenceException，类型不符 → InvalidCastException。泛型 struct 实例化按实参区分。
+namespace Demo;
+
+using Std;
+
+struct P { public int X; public int Y; }
+struct Q { public int A; public int B; }
+struct Wrap<T> { public T V; public int K; public Wrap(T v) { this.V = v; this.K = 7; } }
+
+void Main() {
+    object s = "s";
+    bool ice = false;
+    try { P p = (P)s; } catch (InvalidCastException e) { ice = true; }
+    Assert.True(ice);
+
+    object q = new Q();
+    bool ice2 = false;
+    try { P p2 = (P)q; } catch (InvalidCastException e2) { ice2 = true; }
+    Assert.True(ice2);
+
+    object n = null;
+    bool nre = false;
+    try { P p3 = (P)n; } catch (NullReferenceException e3) { nre = true; }
+    Assert.True(nre);
+
+    object w = new Wrap<string>("x");
+    bool ice3 = false;
+    try { Wrap<int> wi = (Wrap<int>)w; } catch (InvalidCastException e4) { ice3 = true; }
+    Assert.True(ice3);
+
+    // 阴性对照：类型相符照常拆箱
+    Wrap<string> ws = (Wrap<string>)w;
+    Assert.Equal("x", ws.V);
+    Assert.Equal(7, ws.K);
+    P src = new P();
+    src.X = 3;
+    object bp = src;
+    P ok = (P)bp;
+    Assert.Equal(3, ok.X);
+}

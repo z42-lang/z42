@@ -1,0 +1,44 @@
+namespace App;
+using Std.IO;
+using Std.Collections;
+using Std.Reflection;
+using Lib;
+
+void P(string l, bool b) { Console.WriteLine(l + "=" + b.ToString()); }
+void S(string l, string v) { Console.WriteLine(l + "=" + v); }
+
+// One runtime identity per constructed type: an instance made in the defining package (its
+// instantiation descriptor) and one made here (definition + type arguments) report the same
+// Type, equal to typeof, and both pass the same type tests.
+void Main() {
+    object libMade = Make.GBoxInt();
+    object mainMade = new GBox<int>(5);
+    S("lib-made GBox<int>", libMade.GetType().FullName);
+    S("main-made GBox<int>", mainMade.GetType().FullName);
+    P("lib-made == main-made", libMade.GetType() == mainMade.GetType());
+    P("typeof == lib-made", typeof(GBox<int>) == libMade.GetType());
+    P("typeof == main-made", typeof(GBox<int>) == mainMade.GetType());
+    P("lib-made is GBox<int>", libMade is GBox<int>);
+    P("lib-made is GBox<string>", libMade is GBox<string>);
+    P("main-made is GBox<int>", mainMade is GBox<int>);
+    P("main-made is GBox<string>", mainMade is GBox<string>);
+
+    object lp = Make.PairOf();
+    object mp = new Pair<string, Item>("b", new Item(2));
+    S("lib-made Pair", lp.GetType().FullName);
+    P("Pair lib-made == main-made", lp.GetType() == mp.GetType());
+    Type[] ga = lp.GetType().GetGenericArguments();
+    S("Pair args", ga[0].FullName + "," + ga[1].FullName);
+
+    object lo = Make.ListOfObject();
+    P("List<object> lib-made == typeof", lo.GetType() == typeof(List<object>));
+    P("List<object> is List<object>", lo is List<object>);
+
+    // Reflection builds the same identity.
+    object made = Activator.CreateInstance(typeof(GBox<int>));
+    P("Activator GBox<int> is GBox<int>", made is GBox<int>);
+    P("Activator GBox<int> == typeof", made.GetType() == typeof(GBox<int>));
+    Type mk = typeof(GBox<int>).GetGenericTypeDefinition().MakeGenericType(typeof(Item));
+    P("MakeGenericType == typeof(GBox<Item>)", mk == typeof(GBox<Item>));
+    S("GBox<int> field V", typeof(GBox<int>).GetFields()[0].FieldType.FullName);
+}

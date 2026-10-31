@@ -240,3 +240,91 @@ fn erased_descriptor_entries_match_instantiated_targets() {
     let boxed = lazy(&ctx, "Pkg.Box<int>");
     assert!(!isa(&ctx, &boxed, "Pkg.Box<string>", &TypeKeyCell::new()));
 }
+
+/// A constructed name no package declares a descriptor for (an imported generic instantiated
+/// elsewhere — `Type.IsAssignableFrom` on `typeof(List<int>)`) is tested as an instance of the
+/// definition carrying those arguments would be: arguments compare exactly, the definition's
+/// own bases / interfaces still apply.
+#[test]
+fn name_test_on_an_undeclared_instantiation_reads_its_arguments() {
+    let ctx = setup();
+    let pkg = module("Pkg2", vec![class("Pkg.List", Some("Pkg.Base"), &[])]);
+    load_lazily(&ctx, pkg);
+    let entry = Arc::clone(ctx.module().unwrap());
+    let reg = &entry.type_registry;
+    assert!(is_subclass_or_eq_td(&ctx, reg, "Pkg.List<int>", "Pkg.List<int>"));
+    assert!(!is_subclass_or_eq_td(&ctx, reg, "Pkg.List<int>", "Pkg.List<string>"));
+    assert!(is_subclass_or_eq_td(&ctx, reg, "Pkg.List<int>", "Pkg.List"));
+    assert!(is_subclass_or_eq_td(&ctx, reg, "Pkg.List<int>", "Pkg.Base"));
+    assert!(is_subclass_or_eq_td(&ctx, reg, "Pkg.List<int>", "Pkg.IShape"));
+    assert!(!is_subclass_or_eq_td(&ctx, reg, "Pkg.List<int>", "App.Thing"));
+    // A declared instantiation keeps answering from its own descriptor.
+    assert!(is_subclass_or_eq_td(&ctx, reg, "Pkg.Box<int>", "Pkg.Box"));
+    assert!(!is_subclass_or_eq_td(&ctx, reg, "Pkg.Box<int>", "Pkg.Box<string>"));
+    // Neither declared nor constructed: unknown.
+    assert!(!is_subclass_or_eq_td(&ctx, reg, "Pkg.Nope", "Pkg.Base"));
+}
+
+#[test]
+fn bound_parameter_extra_matches() {
+    let ctx = VmContext::new();
+    let registry = rustc_hash::FxHashMap::default();
+    // Written and bound targets both check the element type.
+    assert!(array_isa("int", "Std.Array"));
+    assert!(!array_isa("int", "string[]"));
+    // A bound parameter does not bypass the ordinary array check.
+    let arr = crate::metadata::types::ArrayObj::alloc_typed_filled(ctx.heap(),
+        crate::metadata::types::ElemType::intern("int"), 1, Value::I64(0));
+    assert!(!bound_param_extra_isa(&ctx, &registry, &arr, "string[]"));
+    assert!(!bound_param_extra_isa(&ctx, &registry, &arr, "Demo.Entry"));
+    // An integer is no extra match for a non-enum (here: unknown) type.
+    assert!(!bound_param_extra_isa(&ctx, &registry, &Value::I64(1), "Demo.Plat"));
+}
+
+#[test]
+fn unboxed_struct_matches_object_and_misses_a_stale_slot() {
+    let ctx = VmContext::new();
+    let registry = rustc_hash::FxHashMap::default();
+    assert!(struct_ref_isa(&ctx, &registry, 0, 1, "Std.Object"));
+    // No such arena slot: no type to compare — not an instance.
+    assert!(!struct_ref_isa(&ctx, &registry, 0, 1, "Demo.Pt"));
+}
+
+#[test]
+fn callable_matches_a_bound_parameter_unless_it_is_a_known_non_delegate() {
+    // `callable_isa` is the callable arm of `bound_param_extra_isa`.
+    let ctx = VmContext::new();
+    let registry = rustc_hash::FxHashMap::default();
+    assert!(callable_isa(&ctx, &registry, "Action<Int32>"));       // delegate types are not decidable
+    assert!(callable_isa(&ctx, &registry, "Std.Object"));
+    assert!(!callable_isa(&ctx, &registry, "int"));
+    assert!(!callable_isa(&ctx, &registry, "Std.Int32"));
+    assert!(!callable_isa(&ctx, &registry, "Std.String"));
+    assert!(!callable_isa(&ctx, &registry, "string[]"));
+}
+
+#[test]
+fn arrays_test_by_element_type_and_are_invariant() {
+    // Array / Object roots.
+    for root in ["Std.Array", "Std.Object", "Array", "Object"] {
+        assert!(array_isa("int", root));
+    }
+    // Same element ⇒ is-a; different element ⇒ not (no covariance).
+    assert!(array_isa("int", "int[]"));
+    assert!(!array_isa("int", "long[]"));
+    assert!(!array_isa("Demo.Dog", "Demo.Animal[]"));
+    assert!(!array_isa("Demo.Dog", "object[]"));
+    assert!(!array_isa("int", "Demo.Box"));
+    // Constructed generic elements compare their arguments; nested arrays recurse.
+    assert!(array_isa("Demo.Box<int>", "Demo.Box<int>[]"));
+    assert!(!array_isa("Demo.Box<int>", "Demo.Box<string>[]"));
+    assert!(array_isa("int[]", "int[][]"));
+    assert!(!array_isa("int[]", "long[][]"));
+    // Undecidable elements: an unsubstituted type parameter (whole or as an argument) and an
+    // element-less runtime array match any element type.
+    assert!(array_isa("T", "Demo.Box<int>[]"));
+    assert!(array_isa("Demo.Box<T>", "Demo.Box<int>[]"));
+    assert!(!array_isa("Demo.Box<T>", "Demo.Pair<int>[]"));
+    assert!(array_isa("", "string[]"));
+    assert!(!array_isa("", "Demo.Box"));
+}

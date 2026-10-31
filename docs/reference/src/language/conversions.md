@@ -116,8 +116,26 @@ List<int> xs = (List<int>)o;     // InvalidCastException
 o is List                        // true
 ```
 
-> 运行期判不了实参时按「任一实例化」回答：泛型体里 `new List<T>()` 构造的实例只记得型参 `T`；
-> 非泛型类实现泛型接口（`class Bar : IFoo<int>`）的接口表不记实参，于是 `bar is IFoo<string>` 也为真。
+> 运行期判不了实参时按「任一实例化」回答：非泛型类实现泛型接口（`class Bar : IFoo<int>`）的接口表
+> 不记实参，于是 `bar is IFoo<string>` 也为真。
+
+目标里的**型参**按本次调用 / 本个实例绑定的实参判 —— `o is T`、`o as T`、`(T)o`、`o is List<T>`、
+`catch (Err<T> e)` 都是；泛型体里 `new List<T>()` 构造的实例同样记着具体实参：
+
+```z42
+bool IsT<T>(object o) { return o is T; }
+class Bag<T> { public object Make() { return new List<T>(); } }
+
+IsT<Entry>(new Sub())                     // true（子类）
+IsT<int>(5)                               // true；IsT<long>(5) 为 false
+new Bag<int>().Make() is List<string>     // false
+```
+
+`(T)o` 类型不符抛 `InvalidCastException`；`T` 绑到数组类型时同样核对元素类型，数组不变，
+绑到委托类型时任一 lambda / 方法组都放行（它们不记得自己被转成了哪个委托类型），绑到 enum 时整数值放行
+（enum 以 `long` 为底，`Enum.Parse` 返回的就是整数）。
+类级型参只在实例方法里有实参可读 —— 静态方法里的 `o is T` 读不到，不匹配任何对象（同静态方法里的
+`typeof(T)` 只得占位名）。
 
 ### 拆箱失败抛可捕获的异常
 
@@ -140,11 +158,32 @@ catch (Exception e) { Console.WriteLine(e.GetType().Name); }   // InvalidCastExc
 **健全性**：装箱 = 加宽上转（安全）+ 受检下转（运行期核对精确类型）。因为装箱值携带精确类型，
 下转可靠、`is` / `as` 精确——没有办法把一个类型当成另一个用。引用类型之间的硬转换同样受检。
 
+值 `struct`（含泛型 struct 的实例化）拆箱同此表：`(P)o` 在 `o` 为 null 时抛 `NullReferenceException`，
+装的不是 `P`（包括 `Wrap<string>` 拆成 `Wrap<int>`）抛 `InvalidCastException`。
+
 > 想要「不符就给 null」而不是抛，用 `as`：两者的分工是**明确要求** vs **试一下**。
 > `(T)x` 说的是「它就是 T」，说错了应当立刻响；`x as T` 说的是「是 T 的话给我」。
 
 > 只有把值赋给 **`object` 或接口**才发生装箱。赋给泛型形参（`List<int>` 的元素）不装箱，
 > 容器里外的表示不变。
+
+## 必败的显式转换在编译期报错（E0424）
+
+`(T)x` / `x as T` 若在**任何**运行期值上都不可能成功，编译期报 **E0424**（对应 C# CS0030 / CS0039），
+而不是留到运行期才抛或给 null：
+
+| 情形 | 示例 |
+|---|---|
+| 两个类互不在对方的基类链上 | `class A {} class B {}` → `(B)a` |
+| 同一泛型类的不同实例化（类不变） | `(Box<int>)boxOfString`、`boxOfInt as Box<string>` |
+| sealed 类 / 值类型 与它没实现的接口 | `sealed class S {}` → `(IA)s`、`(S)ia` |
+| 元素类型不同的数组（数组不变） | `(long[])intArray` |
+| 数组 与 `object` / `Array` 以外的类 | `(int[])someA`、`(A)intArray` |
+| 引用类（含 `string`）与值类型之间 | `(P)someA`、`(int)"5"`、`(string)'c'` |
+
+**可能**成功的转换照常编译、在运行期核对（不符抛 `InvalidCastException`，`as` 给 null）：基类 → 派生类
+（含派生的泛型实例化 `(Sub<int>)baseRef`）、`object` / 接口 → 任意类型、非 sealed 类 ↔ 接口、
+接口 ↔ 接口、`Array` → `T[]`、含泛型形参的类型。
 
 ## 用户自定义转换（User-defined conversions）
 

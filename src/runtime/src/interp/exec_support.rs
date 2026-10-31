@@ -81,26 +81,22 @@ pub(crate) fn exec_function(ctx: &VmContext, module: &Module, func: &Function, a
     exec_function_body(ctx, module, func, frame)
 }
 
-/// add-generic-activator: resolve method-type-arg *forwarding* markers in `mta`
-/// against the CALLER frame's already-concrete `method_type_args`. A marker
-/// `"$mta:N"` (emitted when a generic call's type-arg is a bare method-level type
-/// param of the enclosing method — `Foo<T>() { Bar<T>() }`) is replaced by
-/// `caller.method_type_args[N]`. Non-marker entries pass through. Only called when
-/// the caller carries at least one marker (see the `starts_with("$mta:")` guard at
-/// the call sites), so the common concrete-type-arg path allocates nothing.
-pub(super) fn resolve_forwarded_mta(caller: &Frame, mta: &[String]) -> Vec<String> {
-    mta.iter()
-        .map(|s| {
-            if let Some(n) = s.strip_prefix("$mta:") {
-                if let Ok(i) = n.parse::<usize>() {
-                    if let Some(v) = caller.method_type_args.get(i) {
-                        return v.clone();
-                    }
-                }
-            }
-            s.clone()
-        })
-        .collect()
+/// add-generic-activator: resolve type-parameter markers in a generic call site's `mta`
+/// against the CALLER activation. A bare method-level param of the enclosing generic method
+/// (`Foo<T>() { Bar<T>() }`) is the forwarding marker `"$mta:N"` → `caller.method_type_args[N]`;
+/// a class-level one (`class H<T> { M() { Bar<T>(); } }`) is `"$cta:N@Owner"` → the caller's
+/// receiver; either may sit inside a constructed argument (`Bar<List<T>>()`). Same binding as
+/// the caller's own `o is T` / `typeof(T)` (`type_param_env`). Only called when the site carries
+/// at least one marker (see [`has_forwarded_mta`]), so the common concrete path allocates nothing.
+pub(super) fn resolve_forwarded_mta(ctx: &VmContext, caller: &Frame, mta: &[String]) -> Vec<String> {
+    let env = caller.type_param_env();
+    mta.iter().map(|s| env.substitute(ctx, s)).collect()
+}
+
+/// Does a call site's `method_type_args` carry type-parameter markers to bind first?
+#[inline]
+pub(super) fn has_forwarded_mta(mta: &[String]) -> bool {
+    mta.iter().any(|s| crate::metadata::type_param_markers::has_markers(s))
 }
 
 /// add-reflective-invoke: like [`exec_function`] but threads method-level generic
@@ -364,13 +360,17 @@ pub(super) fn find_handler(
     block_map: &HashMap<String, usize>,
     type_registry: &rustc_hash::FxHashMap<String, std::sync::Arc<crate::metadata::TypeDesc>>,
     thrown: &Value,
+    // Binds the type-parameter markers of a `catch (Err<T> e)` in a shared generic body.
+    tp_env: super::type_param_env::TypeParamEnv<'_>,
 ) -> Option<usize> {
     // A fatal VM error (stack overflow) unwinds past every handler.
     if crate::stack_guard::is_fatal(ctx) { return None; }
     // perf-vm-isa-cache: match on the thrown object's descriptor (cached by TypeId), no
     // per-throw `String` clone of its class name.
-    let thrown_td: Option<&crate::metadata::TypeDesc> = match thrown {
-        Value::Object(rc) => Some(rc.type_desc()),
+    // The thrown object's own type arguments take part, as in `is` (`dispatch::isa_object`):
+    // `catch (Err<int>)` must not catch an `Err<string>` of an imported generic.
+    let thrown_obj = match thrown {
+        Value::Object(rc) => Some((rc.type_desc(), rc.type_args())),
         _                 => None,
     };
 
@@ -387,8 +387,15 @@ pub(super) fn find_handler(
             None      => return Some(i),                   // user untyped catch
             Some("*") => return Some(i),                   // synthetic finally fallthrough
             Some(target) => {
-                if let Some(td) = thrown_td {
-                    if super::dispatch::isa_td(ctx, type_registry, td, target, &entry.catch_key) {
+                if let Some((td, inst_args)) = thrown_obj {
+                    let hit = if crate::metadata::type_param_markers::has_markers(target) {
+                        let t = tp_env.test_target(ctx, target);
+                        let key = crate::metadata::tokens::TypeKeyCell::new();
+                        super::dispatch::isa_object(ctx, type_registry, td, inst_args, &t, &key)
+                    } else {
+                        super::dispatch::isa_object(ctx, type_registry, td, inst_args, target, &entry.catch_key)
+                    };
+                    if hit {
                         return Some(i);
                     }
                 }

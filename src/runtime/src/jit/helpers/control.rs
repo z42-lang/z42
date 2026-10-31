@@ -55,13 +55,18 @@ pub unsafe extern "C" fn jit_match_catch_type(
         Some(v) => v,
         None    => return 0,
     };
-    let td = match &exc {
-        Value::Object(rc) => rc.type_desc(),
+    let (td, inst_args) = match &exc {
+        Value::Object(rc) => (rc.type_desc(), rc.type_args()),
         _                 => return 0, // primitives / null don't match typed catches
     };
     let module = super::jit_module(ctx);
+    // `catch (Err<T>)` in a generic class body: bound from the receiver, own key.
+    let dynamic = super::object::dynamic_target(_frame, ctx, target);
+    let fresh = crate::metadata::tokens::TypeKeyCell::new();
     // `key` is the exception-table row's key cell, baked into the JIT code with `target`.
-    if crate::interp::dispatch::isa_td(vm_ctx, &module.type_registry, td, target, &*key) {
+    let (target, key) = match &dynamic { Some(t) => (t.as_str(), &fresh), None => (target, &*key) };
+    // The thrown object's own type arguments count, as in `is` (`catch (Err<int>)` vs `Err<string>`).
+    if crate::interp::dispatch::isa_object(vm_ctx, &module.type_registry, td, inst_args, target, key) {
         1
     } else {
         0

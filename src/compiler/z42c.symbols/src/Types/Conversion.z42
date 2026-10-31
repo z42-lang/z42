@@ -257,6 +257,101 @@ public static class Conversion {
         return new ConvResult(ConvKind.None);
     }
 
+    // ── 显式转换「可证必败」（C# CS0030 / CS0039）────────────────────────────────
+    //
+    // 只在 `Classify` 已给 `None`（无任何内建 / 用户转换）时问：`(T)x` / `x as T` 在**任何**运行期值上都不可能
+    // 成功吗？是 ⇒ 编译期 E0424；否 ⇒ 引用目标照常发运行期检查（下转 / 接口 / 型参实参未知）。
+    // 必须**宁放勿错**：判不准（含型参、基链没解析全、接口闭包）一律放行，留给运行期检查。
+    //
+    //   · 类 ↔ 类：两定义互不在对方基链上；或同一泛型定义、实参不同（类不变）。
+    //   · 数组 ↔ 数组：数组不变（无协变，见 conversions.md），元素类型不同一即必败。
+    //   · 类 / 值类型 ↔ 数组：数组只是 `object` / `Array` 的子类型。
+    //   · 引用类 ↔ 值类型：值类型只经 `object` / 接口装箱拆箱。
+    //   · 接口 ↔ sealed 类 / 值类型：没实现该接口的 sealed 类型不可能有实现它的子类。
+    public static bool ProvablyFails(Z42Type from, Z42Type to, SymbolTable symbols) {
+        if (from == null || to == null || symbols == null) { return false; }
+        if (Conversion._hasGenericParam(from) || Conversion._hasGenericParam(to)) { return false; }
+        int fk = Conversion._castKind(from);
+        int tk = Conversion._castKind(to);
+        if (fk == Conversion.K_OPEN || tk == Conversion.K_OPEN) { return false; }
+        if (fk == Conversion.K_IFACE && tk == Conversion.K_IFACE) { return false; }
+        if (fk == Conversion.K_VALUE && tk == Conversion.K_VALUE) { return false; }   // 数值 / enum 转换另有其路
+        if (fk == Conversion.K_IFACE) { return Conversion._sealedWithout(to, from, symbols); }
+        if (tk == Conversion.K_IFACE) { return Conversion._sealedWithout(from, to, symbols); }
+        if (fk == Conversion.K_CLASS && tk == Conversion.K_CLASS) { return !Conversion._classesRelated(from, to, symbols); }
+        if (tk == Conversion.K_ARRAY && Conversion._isArrayBase(from)) { return false; }   // Array → T[]：下转
+        return true;
+    }
+
+    // 显式引用转换的运行期检查适用面：`Classify` 给 `None`、又不可证必败的引用目标（下转、接口、
+    // 实参未知的实例化、数组）——值类型目标是拆箱，另有其路。
+    public static bool IsRefTarget(Z42Type t) {
+        int k = Conversion._castKind(t);
+        if (k == Conversion.K_IFACE || k == Conversion.K_ARRAY) { return true; }
+        if (k != Conversion.K_CLASS) { return false; }
+        return t.PrimCode() < 0;   // string 走 ConvertInstr（目标 IrType.Str）
+    }
+
+    private static int K_OPEN  = 0;   // 判不了：object / 型参 / func / unknown …
+    private static int K_CLASS = 1;   // 引用类（含 string、Array、类实例化）
+    private static int K_ARRAY = 2;
+    private static int K_IFACE = 3;
+    private static int K_VALUE = 4;   // struct / 基元值 / enum（含泛型 struct 实例化）
+
+    private static int _castKind(Z42Type t) {
+        if (t is Z42ArrayType) { return Conversion.K_ARRAY; }
+        if (t is Z42InterfaceType) { return Conversion.K_IFACE; }
+        if (t is Z42InstantiatedType) {
+            Z42InstantiatedType it = t as Z42InstantiatedType;
+            if (it.Def == null) { return Conversion.K_OPEN; }
+            return it.Def.IsStruct ? Conversion.K_VALUE : Conversion.K_CLASS;
+        }
+        if (t is Z42ClassType) {
+            Z42ClassType ct = t as Z42ClassType;
+            if (ct.IsStruct || ct.IsEnum) { return Conversion.K_VALUE; }
+            if (Conversion._isObjectBuiltin(t)) { return Conversion.K_OPEN; }
+            return Conversion.K_CLASS;
+        }
+        return Conversion.K_OPEN;
+    }
+
+    private static Z42ClassType _defOf(Z42Type t) {
+        if (t is Z42InstantiatedType) { return (t as Z42InstantiatedType).Def; }
+        return t as Z42ClassType;
+    }
+
+    // `t`（类 / 值类型）是 sealed 且没实现接口 `iface` ⇒ 它与该接口之间的转换必败。
+    private static bool _sealedWithout(Z42Type t, Z42Type iface, SymbolTable symbols) {
+        Z42ClassType d = Conversion._defOf(t);
+        if (d == null) { return false; }
+        bool sealedT = d.IsSealed || d.IsStruct || d.IsEnum || d.PrimCode() >= 0;
+        if (!sealedT || !Conversion._chainResolved(d, symbols)) { return false; }
+        return !symbols.Implements(d.Name(), iface.Name());   // 与分支 F 同一判据（实例化接口的 Name() 是裸名）
+    }
+
+    // 两个类（或类实例化）是否可能指向同一对象：一方定义在另一方基链上。同一定义而 Classify 已给 None
+    // ⇒ 实参不同（同实参在 D / H2 已是 Identity / ImplicitRef）⇒ 不相关。基链没解析全 ⇒ 当作相关（放行）。
+    private static bool _classesRelated(Z42Type from, Z42Type to, SymbolTable symbols) {
+        Z42ClassType fd = Conversion._defOf(from);
+        Z42ClassType td = Conversion._defOf(to);
+        if (fd == null || td == null) { return true; }
+        if (fd == td || fd.Fqn() == td.Fqn()) { return false; }
+        if (symbols.IsSubclassOfType(fd, td) || symbols.IsSubclassOfType(td, fd)) { return true; }
+        return !Conversion._chainResolved(fd, symbols) || !Conversion._chainResolved(td, symbols);
+    }
+
+    // 基链每一跳都解析得到（导入包缺失时 `BaseOf` 取不到 ⇒ 不知道上面还有谁）。
+    private static bool _chainResolved(Z42ClassType ct, SymbolTable symbols) {
+        Z42ClassType cur = ct;
+        int hops = 0;
+        while (cur != null && cur.HasBase) {
+            hops = SymbolTable.NextBaseHop(hops);
+            cur = symbols.BaseOf(cur);
+            if (cur == null) { return false; }
+        }
+        return true;
+    }
+
     // 两个实例化类型的类型实参是否逐位规范同名（arity 也须一致）。供 H2 分支判定类不变量。
     private static bool _sameTypeArgs(Z42InstantiatedType a, Z42InstantiatedType b) {
         if (a.ArgCount != b.ArgCount) { return false; }

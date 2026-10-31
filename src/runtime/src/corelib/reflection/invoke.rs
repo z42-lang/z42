@@ -118,14 +118,7 @@ pub(super) fn read_type_arg_names(mi: &Value) -> Vec<String> {
         Value::Array(rc) => rc
             .borrow()
             .iter_boxed()
-            .map(|t| match read_obj_slot(&t, "__fullName") {
-                Value::Str(s) => s.to_string(),
-                // fall back to the simple Name slot if __fullName is absent
-                _ => match read_obj_slot(&t, "Name") {
-                    Value::Str(s) => s.to_string(),
-                    _ => String::new(),
-                },
-            })
+            .map(|t| type_value_arg_name(&t).unwrap_or_default())
             .collect(),
         _ => Vec::new(),
     }
@@ -310,6 +303,49 @@ pub(super) fn invoke_arity_check(qualified: &str, expected: usize, got: usize) -
     Ok(())
 }
 
+/// What a reflective construction of the type named `name` (canonical) allocates — the same
+/// representation `new` gives that type: its instantiation descriptor when a loaded package
+/// declares one (with the arguments the descriptor carries), else its definition descriptor
+/// plus the arguments as per-instance type args (an imported generic). Non-generic `name` →
+/// its descriptor. `None` when nothing by that name is loaded.
+pub(super) fn construction_target(
+    ctx: &VmContext, name: &str,
+) -> Option<(Arc<TypeDesc>, crate::metadata::types::TypeArgs)> {
+    let lookup = |n: &str| {
+        ctx.module()
+            .and_then(|m| m.type_registry.get(n).cloned())
+            .or_else(|| ctx.try_lookup_type(n))
+    };
+    if let Some(td) = lookup(name) {
+        let args = td.type_args_handle();
+        return Some((td, args));
+    }
+    let def = crate::metadata::type_names::erased(name);
+    if def.len() == name.len() {
+        return None;
+    }
+    let td = lookup(def)?;
+    let args = crate::metadata::types::type_args_from_name(name);
+    Some((td, crate::metadata::types::TypeArgs::intern(&args)))
+}
+
+/// A default-initialised instance of `td` with generic arguments `type_args` — fields zeroed as
+/// `ObjNew` zeroes them (type-parameter fields included), arguments installed before the object
+/// is published (object model R4). `Null` under strict-OOM refusal.
+fn alloc_default(ctx: &VmContext, td: &Arc<TypeDesc>, type_args: crate::metadata::types::TypeArgs) -> Value {
+    let mut inst = crate::metadata::types::OwnedObject::of_type(td.clone());
+    for (i, f) in td.fields.iter().enumerate() {
+        inst.set_field_value(i, &crate::metadata::default_value_for(&f.type_tag));
+    }
+    for (i, v) in crate::metadata::types::generic_field_zero_overrides(td, &type_args) {
+        inst.set_field_value(i, &v);
+    }
+    if !type_args.is_empty() {
+        inst.set_type_args(type_args);
+    }
+    ctx.heap().alloc_script_object(inst)
+}
+
 /// `__activator_create(type: Type) -> object` — no-arg reflective construction.
 /// Mirrors the interpreter's `ObjNew`: alloc with per-field defaults, then run the
 /// no-arg ctor (`<Class>` bare or `<Class>$0` overload-mangled) if one exists. A
@@ -344,29 +380,15 @@ pub fn activator_create(ctx: &VmContext, t: &Value) -> anyhow::Result<Value> {
     if crate::metadata::well_known_names::is_scalar_prim_wrapper(&td.name) {
         return Ok(crate::metadata::default_value_for(&td.name));
     }
-    let class_name = td.name.clone();
-    let slots: Vec<Value> = td
-        .fields
-        .iter()
-        .map(|f| crate::metadata::default_value_for(&f.type_tag))
-        .collect();
     // plan-generic-reflection G1: a constructed generic Type (typeof(Box<int>) or
-    // MakeGenericType(...)) carries its argument Types in `__typeArgs`; reify them
-    // onto the new instance's `type_args` (mirrors ObjNew) so reflection survives —
-    // `Activator.CreateInstance(typeof(Box<>).MakeGenericType(t)).GetType()
-    // .GetGenericArguments()` returns the args. Non-generic Type → slot absent → no-op.
-    // Set before allocation: a published object never changes its extras (object model R4).
-    let mut inst = crate::metadata::types::OwnedObject::of_type(td.clone());
-    for (i, v) in slots.iter().enumerate() {
-        inst.set_field_value(i, v);
-    }
-    if let Value::Array(rc) = read_type_str_slot(args, "__typeArgs") {
-        let names: Vec<String> = rc.borrow().iter_boxed().filter_map(|v| type_arg_name(&v)).collect();
-        if !names.is_empty() {
-            inst.set_type_args(crate::metadata::types::TypeArgs::intern(&names));
-        }
-    }
-    let obj = ctx.heap().alloc_script_object(inst);
+    // MakeGenericType(...)) builds an instance of *that* instantiation, the same one `new`
+    // builds (`construction_target`) — so it passes `is Box<int>` and reports its own Type.
+    let (td, type_args) = match type_value_name(t).and_then(|n| construction_target(ctx, &n)) {
+        Some(target) => target,
+        None => (td, crate::metadata::types::TypeArgs::empty()),
+    };
+    let class_name = td.name.clone();
+    let obj = alloc_default(ctx, &td, type_args);
     if matches!(obj, Value::Null) {
         bail!("Activator.CreateInstance: allocation failed for `{class_name}`");
     }
@@ -389,8 +411,13 @@ pub fn activator_create(ctx: &VmContext, t: &Value) -> anyhow::Result<Value> {
     // `Activator.CreateInstance(typeof(Outer.Inner))` silently fell through to the
     // default-field allocation — object handed back with its constructor never run.
     let simple = crate::metadata::types::TypeDesc::ctor_member_name(class_name.as_str());
-    let cand_bare = format!("{class_name}.{simple}");
-    let cand_zero = format!("{class_name}.{simple}$0");
+    // An instantiation descriptor (`Demo.Box<int>`) has its own constructor only when its layout
+    // differs from the definition's; otherwise it shares the definition's (what `new` calls).
+    let def_name = crate::metadata::type_names::erased(&class_name);
+    let cands = [
+        format!("{class_name}.{simple}"), format!("{class_name}.{simple}$0"),
+        format!("{def_name}.{simple}"), format!("{def_name}.{simple}$0"),
+    ];
     // fix-activator-arity: **the bare candidate is not necessarily parameterless.**
     // A type whose *only* constructor takes arguments registers it under the bare name
     // (single/primary-ctor convention, `OverloadBinder._ctorKey`), so `<Class>.<Simple>`
@@ -403,7 +430,7 @@ pub fn activator_create(ctx: &VmContext, t: &Value) -> anyhow::Result<Value> {
     // `new T()` cannot: `T` is only known here. So replicate the arity requirement — and when
     // nothing satisfies it, the default-field allocation IS the construction (exactly what the
     // comment above says for a type with no constructor at all, and what C# gives a struct).
-    run_first_noarg_ctor(ctx, module, class_name.as_str(), &cand_bare, &cand_zero, &obj)?;
+    run_first_noarg_ctor(ctx, module, &cands, &obj)?;
     Ok(boxed_if_struct(&td, obj))
 }
 
@@ -412,12 +439,11 @@ pub fn activator_create(ctx: &VmContext, t: &Value) -> anyhow::Result<Value> {
 /// `<FQ>.<Simple>$0` 的次序找第一个**零参**(param_count ≤ 1,含 this)构造函数并跑它;
 /// 都不存在则什么也不跑(默认字段分配即构造)。构造器 `throw` 原样传播(pending_thrown)。
 fn run_first_noarg_ctor(
-    ctx: &VmContext, module: &crate::metadata::Module, class_name: &str,
-    cand_bare: &str, cand_zero: &str, obj: &Value,
+    ctx: &VmContext, module: &crate::metadata::Module, cands: &[String], obj: &Value,
 ) -> anyhow::Result<()> {
-    let _ = class_name;
     let arity_ok = |f: &crate::metadata::Function| f.param_count <= 1;   // param_count includes `this`
-    for cand in [cand_bare, cand_zero] {
+    for cand in cands {
+        let cand = cand.as_str();
         let outcome = match module.func_index.get(cand) {
             Some(&idx) if arity_ok(&module.functions[idx]) => {
                 Some(exec_function(ctx, module, &module.functions[idx], &[obj.clone()])?)
@@ -471,18 +497,25 @@ pub fn ctor_invoke(ctx: &VmContext, ci: &Value, args_arr: &Value) -> anyhow::Res
         Some(i) => qualified[..i].to_string(),
         None => bail!("ConstructorInfo.Invoke: malformed constructor name `{qualified}`"),
     };
-    let td = ctx
-        .module()
-        .and_then(|m| m.type_registry.get(&class_name).cloned())
-        .or_else(|| ctx.try_lookup_type(&class_name))
-        .ok_or_else(|| anyhow::anyhow!("ConstructorInfo.Invoke: type `{class_name}` not found"))?;
-    // Allocate with per-field defaults (same as ObjNew / Activator).
-    let slots: Vec<Value> = td
-        .fields
-        .iter()
-        .map(|f| crate::metadata::default_value_for(&f.type_tag))
-        .collect();
-    let obj = ctx.heap().alloc_object(td.clone(), slots, NativeData::None);
+    // The type the ConstructorInfo was enumerated from (`__owner`): a constructed Type's
+    // constructor builds that instantiation, not the bare definition.
+    let owner = match read_obj_slot(&ci, "__owner") {
+        Value::Str(s) if !s.is_empty() => s.to_string(),
+        _ => class_name.clone(),
+    };
+    let (td, type_args) = construction_target(ctx, &owner)
+        .ok_or_else(|| anyhow::anyhow!("ConstructorInfo.Invoke: type `{owner}` not found"))?;
+    // An instantiation with its own (layout-specialised) constructor runs that one.
+    let qualified = match qualified.strip_prefix(class_name.as_str()) {
+        Some(member) if td.name != class_name => {
+            let spec = format!("{}{member}", td.name);
+            let exists = ctx.module().is_some_and(|m| m.func_index.contains_key(&spec))
+                || ctx.try_lookup_function(&spec).is_some();
+            if exists { spec } else { qualified }
+        }
+        _ => qualified,
+    };
+    let obj = alloc_default(ctx, &td, type_args);
     if matches!(obj, Value::Null) {
         bail!("ConstructorInfo.Invoke: allocation failed for `{class_name}`");
     }

@@ -131,7 +131,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | E0414 | event 字段的外部访问控制 | ⚠️ 零发射点 | — |
 | E0420 | `catch (T e)` 的 `T` 不是 `Exception` 或其子类。写错类型会让运行期那个 catch **静默永不匹配** ⇒ 异常穿出去变成 `uncaught exception`，所以编译期校验 | ✅ `StmtBinder._chkCatchType` | `class NotEx { } … catch (NotEx e) { }`。⚠️ 本次编译解析不到 `Exception` 时不报（不链 stdlib 的编译路径拿不准）|
 | E0421 | 非法的 `default(T)` 目标类型 | ⚠️ 零发射点 | — |
-| E0424 | 非法强制转换 | ⚠️ 零发射点。非法 cast 实际走 E0402 / E0439，或运行期 `Std.InvalidCastException` | — |
+| E0424 | 显式转换 `(T)x` / `x as T` **必败**：两类型之间不可能有同一个对象（互不继承的类、同一泛型类的不同实例化、sealed 类 / 值类型与其未实现的接口、元素不同的数组、引用类与值类型）。可能成功的转换（下转、接口、`object` 源）不报，运行期核对 | ✅ TypeOpTyper.z42（`_rejectImpossibleCast`，判据 `Conversion.ProvablyFails`） | `class A {} class B {}` → `(B)new A()`；`(Box<int>)new Box<string>()` |
 | E0443 | 类型注解引用了未定义的类型名（对标 C# CS0246） | ✅ AccessChecker.z42（`CheckTypeRef`）、ConstraintChecker.z42（`_fillBundle`）、TypeOpTyper.z42（`_bindTypeofExpr`） | `Nope x = null;` |
 
 ### `const` / `readonly` / 属性写入
@@ -176,7 +176,7 @@ E0442 / E0457 / E0462 除外（见上一节）。**E0402 另有一处语法层�
 | E0473 | 形参**不是** `ref`，实参却多写了 `ref`。与 E0472 方向相反但同样有害：写入会**传回调用方**，即「按引用与否由调用点决定」，光看函数声明判断不出参数会不会被改 | ✅ `OverloadBinder.z42`（`_checkRefSymmetry`）| `void ByValue(int x){} ... ByValue(ref v)` |
 | E0474 | 属性的两个访问器**混合** auto 与带体（一半 `get;`/`set;`、另一半 `get { }`/`set { }`）。z42 无 C# 的 `field` 关键字，auto 半边读/写合成后备 `__prop_X`、带体半边写自备字段 → 读写错位。须**要么都 auto、要么都带体** | ✅ `MemberParser.z42`（`_parseProperty`，发 `DiagnosticCodes.MixedPropertyAccessors`） | `int P { get; set { _x = value; } }` |
 | E0475 | 把可空表达式隐式转给不可空的值类型目标。若放行，运行期才会以 `type mismatch in arithmetic: Null vs I64` 之类的**内部错误**炸出来 | ✅ `TypeChecker.z42`（`CheckImplicitConvert`） | `int? m = null; int y = m;` |
-| E0476 | 对**值类型**写 `?`（`int?` / `Guid?` / 值 struct）。可空只适用引用类型——`?` 对值类型会是个「看起来存在、实际为零」的标注。⚠️ `byte[]?` 这类**数组**不受限（数组是引用类型） | ✅ `TypeParser.z42`（基元关键字）/ `NullableValueTypes.z42`（struct / enum） | `int? m = null;`、`Guid? g;`、`Color? c;` |
+| E0476 | 对**值类型**写 `?`（`int?` / `Guid?` / 值 struct，含泛型 struct 的实例化 `SB<int>?`）。可空只适用引用类型——`?` 对值类型会是个「看起来存在、实际为零」的标注。⚠️ `byte[]?` 这类**数组**不受限（数组是引用类型） | ✅ `TypeParser.z42`（基元关键字）/ `NullableValueTypes.z42`（struct / enum / 泛型 struct 实例化） | `int? m = null;`、`Guid? g;`、`Color? c;`、`SB<int>? s;` |
 | E0477 | 取一个**重载自由函数**的引用时，目标委托类型在场，但**没有任何重载**的签名（形参逐位 + 返回）与该委托**精确相等**。诊断列出该名字下全部候选签名。见 [delegates §2.5](../language/delegates-events.md#25-重载自由函数取引用按目标委托消解) | ✅ `ExprTyper.Funcref.z42`（`_bindFuncRefTargeted`，发 `DiagnosticCodes.FuncRefNoMatchingOverload`） | `Func<string,bool> b = Parse;`，`Parse` 无 `(string)->bool` 重载 |
 | E0478 | 解引用一个标了 `?` 的形参，而此前没有检查过空值。`?` 的语义是「**请编译器在这里强制检查**」——**不标就不强制**，所以存量代码一行不用改。逃生口是窄化：`if (s != null) { … }` / 早返回守卫 `if (s == null) { return; }` / `s != null && s.X` / 三元。**没有 `!` 那样的「我保证」后缀**（那正是要避开的逃逸口）。覆盖**裸名**解引用与**调用结果**解引用；事实来源是标 `?` 的**形参**与标 `?` 的**返回值**。字段 / 属性见 E0484 | ✅ `FlowAnalyzer.z42` | `int M(string? s) { return s.Length; }` |
 | E0479 | 把「可能为 null」的值 `return` 给**未标 `?`** 的返回类型。未标的返回类型意味着「调用方不必检查」，放行就等于凭空造一个洞。两条修法诊断里都给：给返回类型加 `?`（把义务传给调用方），或在这里先检查。⚠️ 只认**确定性**来源（标 `?` 的名字 / 标 `?` 的调用结果）；裸 `return null;` **不报**——那是「建议加 `?`」的反向推导，另有其码 | ✅ `FlowAnalyzer.z42` | `string M(string? s) { return s; }` |

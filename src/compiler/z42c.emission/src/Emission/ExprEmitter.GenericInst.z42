@@ -220,6 +220,12 @@ public sealed partial class ExprEmitter {
     // 算不出实例化身份（内建类 / 跨包泛型 / 开放泛型）→ 回落 AST 名，那正是 `TypeName`
     // 当初存在的理由（`ResolveType` 得 Unknown → `<unknown>` 会失配）。
     internal string _typeTestName(Z42Type resolved, string astName) {
+        if (resolved is Z42GenericParamType) {
+            string pn = this._typeParamTestName(resolved);
+            if (pn != "") { return pn; }
+        }
+        // 数组目标：元素名与 `ArrayNew` 记到数组上的同一个函数（见 `_arrayElemName`）。
+        if (resolved is Z42ArrayType) { return this._typeofName(resolved); }
         if (resolved != null) {
             string idn = this._instIdentityName(resolved);
             if (idn != "") { return this._qualifyInstName(idn); }
@@ -238,16 +244,16 @@ public sealed partial class ExprEmitter {
     }
 
     // 没有本包身份描述符的**构造泛型**（导入的泛型类 `List<Entry>`、泛型接口 `IFoo<Entry>`、
-    // 实参含未代换型参的 `Box<T>`）作类型测试目标时的名字；不是构造泛型 → ""。
+    // 实参含型参的 `Box<T>`）作类型测试目标时的名字；不是构造泛型 → ""。
     //
     // 此前这些都落到下面的 AST 名回落：`NamedType.Name` 不带实参，`QualifyTypeName("List")`
     // 又按**当前** ns 限定 ⇒ `o as List<Entry>` 发出 `Demo.List`，运行期永远不匹配（恒 null）。
     //
-    // · 实参全具体 → 完整实例化名，拼法与 `ObjNew` 记在实例上的实参**同一个函数**
-    //   （`_typeofArgName`）：运行期拿实例自己的实参逐字比（`dispatch::isa_object`）；
-    //   泛型接口则与实例化描述符里代换后的接口名逐字比。
-    // · 实参含未代换型参（泛型体里的 `o is List<T>`）→ 擦除名：匹配任一实例化，与本包泛型
-    //   在同一情形下的既有口径一致（运行期 `erased_name_matches`）。
+    // 实参拼法与 `ObjNew` 记在实例上的实参**同一个函数**（`_rtArgName`）：运行期拿实例自己的
+    // 实参逐字比（`dispatch::isa_object`）；泛型接口则与实例化描述符里代换后的接口名逐字比。
+    // 实参里的型参（泛型体里的 `o is List<T>`）在特化体内代换成具体名，在共享体里发型参标记、
+    // 运行期按本次激活的实参代换（`_typeParamMarker`）。本帧绑不到（lifted lambda 里的方法级
+    // 型参、静态方法里的类级型参）→ 擦除名：匹配任一实例化。
     private string _genericTestName(Z42Type t) {
         Z42Type[] targs = null;
         int argc = 0;
@@ -268,28 +274,103 @@ public sealed partial class ExprEmitter {
         string s = defName + "<";
         int k = 0;
         while (k < argc) {
-            if (!this._isConcreteTypeArg(targs[k])) { return defName; }
+            string an = this._rtArgName(targs[k]);
+            if (an == "") { return defName; }
             if (k > 0) { s = s + ","; }
-            s = s + this._testArgName(targs[k]);
+            s = s + an;
             k = k + 1;
         }
         return s + ">";
     }
 
-    // 类型测试目标的实参拼法 = `_typeofArgName`（ObjNew 记到实例上的那份），只多一件事：特化体内
-    // 已绑定的型参（含嵌套在实参里的）先代换成具体名 —— 否则 `Chk<Entry>` 特化体里的
-    // `o is List<T>` 会发出字面 `List<T>`。
-    private string _testArgName(Z42Type a) {
-        string sub = this._substTypeParam(a);
-        if (sub != "") { return sub; }
+    // 数组创建与类型测试共用元素名；共享泛型体的元素携带同一套型参标记。
+    internal string _arrayElemName(Z42Type elem) {
+        string idn = this._instIdentityName(elem);
+        if (idn != "") { return this._qualifyInstName(idn); }
+        string bound = this._rtArgName(elem);
+        return bound != "" ? bound : this._typeofArgName(elem);
+    }
+
+    // **运行期类型实参拼法**（`ObjNew` 记到实例上的、类型测试目标里的，同一份）= `_typeofArgName`，
+    // 只多一件事：实参里的型参先绑定 —— 特化体内代换成具体名（含嵌套在实参里的），共享体里发
+    // 型参标记（`_typeParamMarker`）。否则 `Chk<Entry>` 特化体里的 `o is List<T>` 会发出字面
+    // `List<T>`、共享体里 `new List<T>()` 的实例永远记着 `T`。
+    // 不含型参的类型原样走 `_typeofArgName`（逐字节不变）。本帧绑不到的型参 → ""。
+    internal string _rtArgName(Z42Type a) {
+        if (!this._hasTypeParam(a)) { return this._typeofArgName(a); }
+        if (a is Z42GenericParamType) {
+            string sub = this._substTypeParam(a);
+            if (sub != "") { return sub; }
+            return this._typeParamMarker(a);
+        }
+        if (a is Z42ArrayType) {
+            string en = this._rtArgName((a as Z42ArrayType).Elem);
+            return en == "" ? "" : en + "[]";
+        }
+        Z42InstantiatedType it = a as Z42InstantiatedType;
+        string s = this._ctx.QualifyType(it, it.Def.Name()) + "<";
+        int k = 0;
+        while (k < it.ArgCount) {
+            string an = this._rtArgName(it.TypeArgs[k]);
+            if (an == "") { return ""; }
+            if (k > 0) { s = s + ","; }
+            s = s + an;
+            k = k + 1;
+        }
+        return s + ">";
+    }
+
+    // 类型里是否出现型参（`T` / `List<T>` / `T[]`）。
+    private bool _hasTypeParam(Z42Type a) {
+        if (a is Z42GenericParamType) { return true; }
+        if (a is Z42ArrayType) { return this._hasTypeParam((a as Z42ArrayType).Elem); }
         if (a is Z42InstantiatedType) {
             Z42InstantiatedType it = a as Z42InstantiatedType;
-            string s = this._ctx.QualifyType(it, it.Def.Name()) + "<";
+            if (it.Def == null) { return false; }
             int k = 0;
-            while (k < it.ArgCount) { if (k > 0) { s = s + ","; } s = s + this._testArgName(it.TypeArgs[k]); k = k + 1; }
-            return s + ">";
+            while (k < it.ArgCount) { if (this._hasTypeParam(it.TypeArgs[k])) { return true; } k = k + 1; }
         }
-        return this._typeofArgName(a);
+        return false;
+    }
+
+    // 共享泛型体里型参 `T` 的**运行期标记**（VM `metadata/type_param_markers.rs`）：
+    //   · 方法级 → `$mta:<下标>`，运行期读本帧 `method_type_args`（与转发调用 `Bar<T>()` 同一标记）；
+    //   · 类级   → `$cta:<下标>@<声明类 FQ>`，运行期读 reg0 受者、沿基链定位声明层（与类级
+    //     `typeof(T)` 的 `__class_type_arg` 同一解析）。
+    // 与 `typeof(T)` 读同一载体，故 `o is T` / `new List<T>()` / `catch (Err<T>)` / `typeof(T)`
+    // 对 `T` 是什么给同一个答案。就近优先（方法级遮蔽类级），与绑定期 `MethodParamIndexOf`
+    // → `ClassParamIndexOf` 同序。
+    // 本帧绑不到 → ""：lifted lambda / 局部函数的帧没有外层方法的实参（`MethodTpOwn` 为假）；
+    // 静态语境没有受者（reg0 是第一个实参）。
+    internal string _typeParamMarker(Z42Type a) {
+        if (!(a is Z42GenericParamType)) { return ""; }
+        string n = a.Name();
+        int mi = 0;
+        while (mi < this._ctx.MethodTpCount) {
+            if (this._ctx.MethodTpNames[mi] == n) { return this._ctx.MethodTpOwn ? "$mta:" + mi.ToString() : ""; }
+            mi = mi + 1;
+        }
+        Z42ClassType oc = this._ctx.OwnerCt;
+        if (oc == null || this._ctx.Locals.Get("this") == null) { return ""; }
+        int ci = 0;
+        while (ci < oc.GenericParamCount) {
+            if (oc.GenericParamNames[ci] == n) { return "$cta:" + ci.ToString() + "@" + this._top._classOwnerFqPub(); }
+            ci = ci + 1;
+        }
+        return "";
+    }
+
+    // 类级型参 → 运行期 `Std.Type`（`new T()` 的 `__activator_create` 输入，见 `CallEmitter._emitNew`）。
+    internal TypedReg _emitClassTypeArg(int classParamIndex) { return this._top._emitClassTypeArg(classParamIndex); }
+
+    // 目标**本身**是型参（`o is T` / `o as T` / `(T)o` / `catch (T e)`）时的类型测试名；绑不到 → ""。
+    // 特化体内是具体名：基元按包装类（`int` → `Std.Int32`，同源码直接写 `o is int`）；共享体里是
+    // 标记，运行期代换后同样把基元关键字归到包装类（`TypeParamEnv::test_target`）。
+    private string _typeParamTestName(Z42Type t) {
+        string sub = this._substTypeParam(t);
+        if (sub == "") { return this._typeParamMarker(t); }
+        if (sub.IndexOf('.') < 0 && sub.IndexOf('<') < 0 && sub.IndexOf('[') < 0) { return this._ctx.QualifyTypeName(sub); }
+        return sub;
     }
 
     // 实例化名的 IR 名。布局键已是全名，`QualifyLayout` 只给全局 ns 的定义兜底。

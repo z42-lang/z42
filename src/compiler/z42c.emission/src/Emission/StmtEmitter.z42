@@ -438,11 +438,15 @@ public sealed class StmtEmitter : IBoundStmtVisitor<Unit, Unit> {
             bool hasType = cc.HasType;
             string typeName = "";
             if (hasType) {
-                typeName = cc.ExType != null ? this._fe._ctx.QualifyType(cc.ExType, cc.ExTypeName) : this._fe._ctx.QualifyClass(cc.ExTypeName);
-                // imported 泛型异常 → arity-mangled（Std.MulticastException$1）；local 泛型不加后缀。
-                if (cc.ExArity > 0
-                    && !this._fe._ctx.IsLocalClass(cc.ExType as Z42ClassType)) {
-                    typeName = typeName + "$" + cc.ExArity.ToString();
+                // 泛型异常（`catch (Err<int>)`）与型参（`catch (Err<T>)` / `catch (T e)`）走类型测试的
+                // **同一出口**（`_typeTestName`）：实参进目标名，运行期按抛出对象的实参比
+                // （`dispatch::isa_object`），型参在共享体里发标记、按本次激活绑定。
+                // 此前这里只发擦除名（导入的再无条件补 `$<arity>`）：`catch (Err<int>)` 接住
+                // `Err<string>`，导入的用户泛型异常连自己的类型都接不住（运行期类名不带 `$N`）。
+                if (cc.ExType is Z42InstantiatedType || cc.ExType is Z42GenericParamType) {
+                    typeName = this._fe._expr._typeTestName(cc.ExType, cc.ExTypeName);
+                } else {
+                    typeName = cc.ExType != null ? this._fe._ctx.QualifyType(cc.ExType, cc.ExTypeName) : this._fe._ctx.QualifyClass(cc.ExTypeName);
                 }
             }
             this._fe._ctx.AddExc(new IrExcEntry(tryStartL, tryEndL, catchL, hasType, typeName, catchReg));

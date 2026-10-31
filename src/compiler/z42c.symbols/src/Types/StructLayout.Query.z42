@@ -76,8 +76,7 @@ public sealed partial class StructLayout {
         return typeName.Substring(0, lt);
     }
 
-    // 实例化规范名：基名 + `<` + 实参逗号连接 + `>`。**编译器 / wire / 运行期三方必须用这一份拼法**
-    // （与数组元素类型名同源：`ExprEmitter._qualifyElemName` 也是「在 `<` 处切开、只限定基名」）。
+    // 实例化规范名：基名 + `<` + 实参逗号连接 + `>`。**编译器 / wire / 运行期三方必须用这一份拼法**。
     // argCount==0 → 返回基名（非泛型不该进来，兜底）。
     public static string InstName(string baseName, string[] args, int argCount) {
         if (argCount <= 0) { return baseName; }

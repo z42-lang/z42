@@ -30,13 +30,34 @@ pub fn is_subclass_or_eq_td(
         return true;
     }
     let Some(td) = registry.get(derived).cloned().or_else(|| ctx.try_lookup_type(derived)) else {
-        return false;
+        return constructed_name_isa(ctx, registry, derived, target);
     };
     if !td.id.is_resolved() {
         return is_subclass_or_eq_td_walk(ctx, registry, derived, target);
     }
     let key = target_key(ctx, registry, target);
     isa_keyed(ctx, registry, &td, target, key)
+}
+
+/// [`is_subclass_or_eq_td`] for a constructed name no package declares a descriptor for
+/// (`Std.Collections.List<int>` — an imported generic instantiated elsewhere): the type an
+/// instance carrying the definition's descriptor plus these arguments has, answered the way
+/// [`isa_object`] answers for such an instance.
+fn constructed_name_isa(
+    ctx: &VmContext,
+    registry: &rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>>,
+    derived: &str,
+    target: &str,
+) -> bool {
+    let def = crate::metadata::type_names::erased(derived);
+    if def.len() == derived.len() {
+        return false;
+    }
+    let args = crate::metadata::types::type_args_from_name(derived);
+    if let Some(v) = erased_instance_matches(def, &args, target) {
+        return v;
+    }
+    is_subclass_or_eq_td(ctx, registry, def, target)
 }
 
 /// Type test for a **receiver descriptor** — the single entry used by interp `is` / `as` /
@@ -95,11 +116,86 @@ pub fn isa_object(
     isa_td(ctx, registry, td, target, key)
 }
 
+/// The extra matches a type test against a **bound type parameter** gives (`o is T` / `(T)o` in a
+/// shared generic body, target substituted from the activation) — values whose runtime form does
+/// not carry the type the parameter is bound to, so the ordinary test would answer "no" for a value
+/// that *is* a `T`:
+/// - a callable, `T` bound to a delegate type ([`callable_isa`]);
+/// - an integer, `T` bound to an enum type ([`integer_as_enum_isa`]).
+///
+/// `false` = no extra match; the ordinary test decides.
+pub fn bound_param_extra_isa(
+    ctx: &VmContext,
+    registry: &rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>>,
+    v: &Value,
+    class_name: &str,
+) -> bool {
+    match v {
+        Value::Closure(_) | Value::FuncRef(_) => callable_isa(ctx, registry, class_name),
+        Value::I64(_) => integer_as_enum_isa(ctx, registry, class_name),
+        Value::BoxedStruct(b) => b.borrow().boxed_prim_i64().is_some() && integer_as_enum_isa(ctx, registry, class_name),
+        _ => false,
+    }
+}
+
+/// A callable (`Closure` / `FuncRef`) against a **type parameter** bound to some type
+/// (`(TD)closure` in `WeakRef<TD>`; see [`bound_param_extra_isa`]). A callable carries no delegate type — converting a lambda or
+/// method group to `Action<int>` is erased — so which delegate type it is cannot be decided; it is
+/// answered like the erased test: a match unless the bound type is a known non-delegate type
+/// (a primitive, an array, a registered class / struct / interface that is not a delegate).
+fn callable_isa(
+    ctx: &VmContext,
+    registry: &rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>>,
+    class_name: &str,
+) -> bool {
+    if class_name == "Std.Object" || class_name == "Object" {
+        return true;
+    }
+    if class_name.ends_with("[]") || crate::metadata::type_names::builtin_fqn(class_name).is_some() {
+        return false;
+    }
+    let erased = class_name.split('<').next().unwrap_or(class_name);
+    match registry.get(erased).cloned().or_else(|| ctx.try_lookup_type(erased)) {
+        Some(td) => td.is_delegate(),
+        None => true,
+    }
+}
+
+/// An integer (raw `I64` or an integer wrapper box) against a **type parameter** bound to an enum
+/// type. z42 backs every enum by an `i64`, and the enum APIs hand values out as plain integers
+/// (`Enum.Parse` / `GetValues` return `long`), so generic code that holds an enum value that way
+/// (`CliOption<Plat>.Value` over a parsed option) has no other spelling of it: a match, as integer
+/// widths already are for a raw integer (`prim_isa`).
+fn integer_as_enum_isa(
+    ctx: &VmContext,
+    registry: &rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>>,
+    class_name: &str,
+) -> bool {
+    registry.get(class_name).cloned().or_else(|| ctx.try_lookup_type(class_name)).is_some_and(|td| td.is_enum())
+}
+
+/// An **unboxed** value struct (`StructRef` — a `T`-typed value in a generic body, a struct that
+/// reached an `object` slot unboxed) against a target: its precise type comes from the arena slot,
+/// the rest of the answer from that type's descriptor (interfaces, `Std.Object`).
+pub(crate) fn struct_ref_isa(
+    ctx: &VmContext,
+    registry: &rustc_hash::FxHashMap<String, std::sync::Arc<crate::metadata::TypeDesc>>,
+    idx: u32, frame_id: u32, class_name: &str,
+) -> bool {
+    if class_name == "Std.Object" || class_name == "Object" {
+        return true;
+    }
+    let Ok(name) = ctx.struct_arena.lock().with(idx, frame_id, |s| s.type_name.clone()) else { return false };
+    &*name == class_name || is_subclass_or_eq_td(ctx, registry, &name, class_name)
+}
+
 /// `Some(verdict)` when `target` names an instantiation of the erased definition `def` (that is,
 /// `target == "{def}<…>"` and `def` itself is not an instantiation); `None` = not this case.
 ///
-/// Arguments compare by spelling — the compiler renders the instance's arguments (`ObjNew` site)
-/// and the target's with the same function. An instance argument that is still an **unsubstituted
+/// Arguments compare by spelling: both sides are in the canonical spelling
+/// (`type_names::canonical_arg`) — the compiler emits it for the instance's arguments (`ObjNew`)
+/// and for the target, and every runtime producer of instance arguments (reflection) goes through
+/// that function. An instance argument that is still an **unsubstituted
 /// type parameter** (`new List<T>()` inside a generic body records `"T"`) cannot be decided: it
 /// matches, which is the erased-generic answer the test had before instantiations had identity.
 #[inline(never)]
@@ -113,6 +209,53 @@ fn erased_instance_matches(def: &str, inst_args: &[String], target: &str) -> Opt
         return Some(false);
     }
     Some(inst_args.iter().zip(targs.iter()).all(|(a, t)| a == t || is_open_type_arg(a)))
+}
+
+/// Type test for an **array** receiver whose element type is `elem` — the single entry used by
+/// interp and JIT `is` / `as` / checked casts.
+///
+/// An array is-a `Std.Array` and `Std.Object`, and is-a `X[]` exactly when its element type is
+/// `X`: arrays are invariant (no covariance — `Dog[]` is not an `Animal[]`). The compiler spells
+/// the element of an array target and the element recorded by `ArrayNew` with the same function,
+/// so the comparison is by name; [`type_name_matches`] adds the cases a name cannot decide.
+/// An element-less array (`""`: built by the runtime without an element type) matches any `X[]`.
+pub fn array_isa(elem: &str, target: &str) -> bool {
+    if matches!(target, "Array" | "Object" | "Std.Array" | "Std.Object") {
+        return true;
+    }
+    match target.strip_suffix("[]") {
+        Some(t) => elem.is_empty() || type_name_matches(elem, t),
+        None => false,
+    }
+}
+
+/// Does the runtime type name `actual` match the test target `target`? Equal names match; so does
+/// an `actual` that is (or contains, at the same position) an unsubstituted type parameter
+/// (`new T[n]` / `new Box<T>[n]` in a generic body records `T`) — the erased answer
+/// [`erased_instance_matches`] gives for the same situation.
+fn type_name_matches(actual: &str, target: &str) -> bool {
+    if actual == target || is_open_type_arg_name(actual) {
+        return true;
+    }
+    if let (Some(a), Some(t)) = (actual.strip_suffix("[]"), target.strip_suffix("[]")) {
+        return type_name_matches(a, t);
+    }
+    let (Some(al), Some(tl)) = (actual.find('<'), target.find('<')) else {
+        return false;
+    };
+    if actual[..al] != target[..tl] || !actual.ends_with('>') || !target.ends_with('>') {
+        return false;
+    }
+    let aargs = split_top_level_args(&actual[al + 1..actual.len() - 1]);
+    let targs = split_top_level_args(&target[tl + 1..target.len() - 1]);
+    aargs.len() == targs.len() && aargs.iter().zip(targs.iter()).all(|(a, t)| type_name_matches(a, t))
+}
+
+/// A whole name that is a bare type parameter (`T`): dot-free, not a keyword, no structure.
+fn is_open_type_arg_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.contains(['.', '<', '[', ','])
+        && !is_keyword_type_name(name)
 }
 
 /// `"a,B<c,d>,e"` → `["a", "B<c,d>", "e"]` (commas nested in `<…>` do not split).
@@ -144,14 +287,10 @@ fn is_open_type_arg(arg: &str) -> bool {
         .any(|t| !t.contains('.') && !is_keyword_type_name(t))
 }
 
-/// The compiler's keyword spellings of built-in types — the only dot-free names a type argument
-/// can carry.
+/// The keyword spellings of built-in types (`type_names::canonical_arg`) — the only dot-free
+/// names a canonical type argument can carry.
 fn is_keyword_type_name(t: &str) -> bool {
-    matches!(
-        t,
-        "int" | "long" | "short" | "byte" | "sbyte" | "uint" | "ulong" | "ushort"
-            | "float" | "double" | "bool" | "char" | "string" | "object"
-    )
+    crate::metadata::type_names::builtin_keyword(t) == Some(t)
 }
 
 /// Front cache, then the memo / walk. `td.id` is resolved; `key` is `target`'s key.

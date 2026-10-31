@@ -1,0 +1,135 @@
+// 构造类型（`Box<int>` / `List<int>` / `List<Func<int,int>>`）在运行期只有**一个**身份：
+// 一个规范名（类全名、类型实参里的内建类型写关键字 `int` / `object`、无空格），`GetType`、`typeof`、
+// `Type` 相等、`IsAssignableFrom`、反射构造（`Activator` / `MakeGenericType` / `ConstructorInfo.Invoke`
+// / `MakeGenericMethod`）与 `is` 全按它比。
+//
+// 修前：
+//   ① 本包泛型实例的 `GetType()` 把实参拼两遍（`Demo.Box<Std.Int32><Std.Int32>`）⇒ 与 `typeof` 不等；
+//   ② 反射造出的实例记 `Std.Int32`、`is` 的目标写 `int` ⇒ `new T()`（T = `List<int>`）造出的对象
+//      `is List<int>` 为假；`ConstructorInfo.Invoke` 造出的实例不带实参（`is Box<string>` 与
+//      `is Box<int>` 同真）；`MakeGenericType` 的实参若本身是构造类型，内层实参丢失；
+//   ③ 构造类型的 `Type` 以泛型定义为句柄：`BaseType` / `GetInterfaces` 丢实参、成员类型停在 `T`、
+//      `IsAssignableFrom` 只比定义名；`typeof(IFoo<string>)` 干脆丢了实参；
+//   ④ `Func<int,int>` 作实参拼成 `Func<Int32, Int32>`（短名、带空格）⇒ 被当成未代换型参，
+//      `List<Func<int,int>> is List<Func<string,int>>` 为真；
+//   ⑤ `typeof(object).FullName` 是 `object`、`new object().GetType().FullName` 是 `Std.Object` ⇒ 不等。
+namespace Demo;
+
+using Std.Collections;
+using Std.Reflection;
+
+class Entry { }
+
+class Box<T> {
+    public T V;
+    public Box() { }
+    public Box(T v) { this.V = v; }
+    public T Get() { return this.V; }
+    public void Set(T v) { this.V = v; }
+}
+
+class Pair<A, B> { public A X; public B Y; }
+
+interface IFoo<T> { T Peek(); }
+
+class Sub<U> : Box<U>, IFoo<U> {
+    public Sub(U u) : base(u) { }
+    public U Peek() { return this.V; }
+}
+
+class DInt : Box<int> { }
+
+T Make<T>() where T : new() { return new T(); }
+
+ConstructorInfo OneArgCtor(Type t) {
+    ConstructorInfo[] cs = t.GetConstructors();
+    int i = 0;
+    while (i < cs.Length) {
+        if (cs[i].GetParameters().Length == 1) { return cs[i]; }
+        i = i + 1;
+    }
+    return null;
+}
+
+void Main() {
+    // ── ① GetType 与 typeof 是同一个 Type ─────────────────────────────────
+    object bi = new Box<int>(1);
+    Assert.Equal("Demo.Box<Std.Int32>", bi.GetType().FullName);
+    Assert.True(typeof(Box<int>) == bi.GetType());
+    Assert.False(typeof(Box<string>) == bi.GetType());
+    object be = new Box<Entry>(new Entry());
+    Assert.True(typeof(Box<Entry>) == be.GetType());
+    object nb = new Box<List<int>>(new List<int>());
+    Assert.Equal("Demo.Box<Std.Collections.List<Std.Int32>>", nb.GetType().FullName);
+    Assert.True(typeof(Box<List<int>>) == nb.GetType());
+    object p = new Pair<int, string>();
+    Assert.True(typeof(Pair<int, string>) == p.GetType());
+    Assert.Equal(2, p.GetType().GetGenericArguments().Length);
+    Assert.True(typeof(Box<int>).GetGenericTypeDefinition() == typeof(Box<Entry>).GetGenericTypeDefinition());
+
+    // ── ② 反射造出的实例与 `new` 造出的同一身份 ─────────────────────────────
+    object a = Make<List<int>>();
+    Assert.True(a is List<int>);
+    Assert.False(a is List<string>);
+    Assert.True(a.GetType() == typeof(List<int>));
+    object b = Make<Box<int>>();
+    Assert.True(b is Box<int>);
+    Assert.False(b is Box<string>);
+    object c = Activator.CreateInstance(typeof(Box<int>));
+    Assert.True(c is Box<int>);
+    Assert.True(c.GetType() == typeof(Box<int>));
+    object d = Activator.CreateInstance(typeof(List<int>));
+    Assert.True(d is List<int>);
+    Type made = typeof(Box<int>).GetGenericTypeDefinition().MakeGenericType(typeof(string));
+    Assert.True(made == typeof(Box<string>));
+    object inv = OneArgCtor(made).Invoke(new object[] { "hi" });
+    Assert.True(inv is Box<string>);
+    Assert.False(inv is Box<int>);
+    Assert.True(inv.GetType() == typeof(Box<string>));
+    // 实参本身是构造类型：不丢内层实参
+    Type nested = typeof(Box<int>).GetGenericTypeDefinition().MakeGenericType(typeof(List<int>));
+    Assert.True(nested == typeof(Box<List<int>>));
+
+    // ── ③ 构造类型的反射：基类 / 接口 / 成员类型 / 可赋值性按实参 ────────────
+    Type st = new Sub<int>(1).GetType();
+    Assert.Equal("Demo.Box<Std.Int32>", st.BaseType.FullName);
+    Assert.Equal("Demo.IFoo<Std.Int32>", st.GetInterfaces()[0].FullName);
+    Assert.Equal("Demo.Box<Std.Int32>", typeof(DInt).BaseType.FullName);
+    FieldInfo[] fs = typeof(Box<int>).GetFields();
+    Assert.Equal("Std.Int32", fs[0].FieldType.FullName);
+    Assert.Equal("Std.Int32[]", typeof(List<int>).GetFields()[0].FieldType.FullName);
+    MethodInfo[] ms = typeof(Box<string>).GetMethods();
+    int i = 0;
+    while (i < ms.Length) {
+        if (ms[i].Name == "Get") { Assert.Equal("Std.String", ms[i].ReturnType.FullName); }
+        if (ms[i].Name == "Set") { Assert.Equal("Std.String", ms[i].GetParameters()[0].ParameterType.FullName); }
+        i = i + 1;
+    }
+    Assert.False(typeof(Box<string>).IsAssignableFrom(typeof(DInt)));
+    Assert.True(typeof(Box<int>).IsAssignableFrom(typeof(DInt)));
+    Assert.True(typeof(Box<int>).IsAssignableFrom(typeof(Sub<int>)));
+    Assert.False(typeof(Box<string>).IsAssignableFrom(typeof(Sub<int>)));
+    Assert.True(typeof(IFoo<int>).IsAssignableFrom(typeof(Sub<int>)));
+    Assert.False(typeof(IFoo<string>).IsAssignableFrom(typeof(Sub<int>)));
+    Assert.Equal("Demo.IFoo<Std.String>", typeof(IFoo<string>).FullName);
+    Assert.False(typeof(List<string>).IsAssignableFrom(typeof(List<int>)));
+    Assert.True(typeof(object).IsAssignableFrom(typeof(List<int>)));
+
+    // ── ④ 函数类型 / 接口作实参 ───────────────────────────────────────────
+    object lf = new List<Func<int, int>>();
+    Assert.True(lf is List<Func<int, int>>);
+    Assert.False(lf is List<Func<string, int>>);
+    Assert.Equal("Std.Collections.List<Std.Func<Std.Int32,Std.Int32>>", lf.GetType().FullName);
+    Assert.True(lf.GetType() == typeof(List<Func<int, int>>));
+    object li = new List<IFoo<int>>();
+    Assert.True(li is List<IFoo<int>>);
+    Assert.False(li is List<IFoo<string>>);
+
+    // ── ⑤ object ──────────────────────────────────────────────────────────
+    Assert.Equal("Std.Object", typeof(object).FullName);
+    Assert.True(typeof(object) == new object().GetType());
+    object lo = new List<object>();
+    Assert.Equal("Std.Collections.List<Std.Object>", lo.GetType().FullName);
+    Assert.True(lo.GetType() == typeof(List<object>));
+    Assert.True(new Box<object>().GetType() == typeof(Box<object>));
+}

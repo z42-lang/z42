@@ -1,0 +1,21 @@
+// 下转到泛型子类的实例化（`(Sub<string>)baseRef`）在运行期核对类型实参：实参不符抛
+// InvalidCastException，相符照常通过。
+namespace Demo;
+
+using Std;
+
+class Base { }
+class Sub<T> : Base { public T V; }
+
+void Main() {
+    Base b = new Sub<int>();
+    bool threw = false;
+    try { Sub<string> s = (Sub<string>)b; } catch (InvalidCastException e) { threw = true; }
+    Assert.True(threw);
+    Assert.True((b as Sub<string>) == null);
+
+    Sub<int> si = (Sub<int>)b;
+    si.V = 5;
+    Assert.Equal(5, si.V);
+    Assert.True((b as Sub<int>) != null);
+}

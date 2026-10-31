@@ -9,8 +9,7 @@ use crate::metadata::{Module, Value};
 use crate::vm_context::VmContext;
 use anyhow::Result;
 
-use super::super::dispatch::{isa_object, isa_td};
-use super::super::exec_vcall::is_array_isa;
+use super::super::dispatch::{array_isa, bound_param_extra_isa, isa_object, isa_td, struct_ref_isa};
 use super::super::{prim_isa, Frame};
 
 /// 整数族类名（编译器 QualifyTypeName 发 FQ 形；带非限定形兜底）。
@@ -22,16 +21,42 @@ pub(crate) fn is_integer_class(cn: &str) -> bool {
         | "Byte" | "UInt16" | "UInt32" | "UInt64")
 }
 
+/// A target naming a type parameter of a shared generic body (`o is T`, `o is List<T>`) carries
+/// markers; it is substituted from this activation first and tested with a key of its own (the
+/// site's cached key belongs to the marker spelling, which names a different type per call).
+fn dynamic_target(ctx: &VmContext, frame: &Frame, class_name: &str) -> Option<String> {
+    crate::metadata::type_param_markers::has_markers(class_name)
+        .then(|| frame.type_param_env().test_target(ctx, class_name))
+}
+
 #[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
 pub(crate) fn is_instance(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, obj: u32, class_name: &str,
     key: &TypeKeyCell,
 ) -> Result<()> {
-    let result = match frame.get(obj)? {
+    match dynamic_target(ctx, frame, class_name) {
+        Some(t) => is_instance_of(ctx, module, frame, dst, obj, &t, &TypeKeyCell::new(), true),
+        None => is_instance_of(ctx, module, frame, dst, obj, class_name, key, false),
+    }
+}
+
+/// `bound_param`: `class_name` was substituted for a type-parameter marker — the extra matches of
+/// `dispatch::bound_param_extra_isa` apply.
+#[allow(clippy::too_many_arguments)]
+fn is_instance_of(
+    ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, obj: u32, class_name: &str,
+    key: &TypeKeyCell, bound_param: bool,
+) -> Result<()> {
+    let v = frame.get(obj)?;
+    if bound_param && bound_param_extra_isa(ctx, &module.type_registry, v, class_name) {
+        frame.set(dst, Value::Bool(true));
+        return Ok(());
+    }
+    let result = match v {
         Value::Object(rc) => isa_object(ctx, &module.type_registry, rc.type_desc(), rc.type_args(), class_name, key),
-        // add-array-base-class: T[] is-a Std.Array is-a Std.Object.
-        // VM hardcodes the chain since Value::Array doesn't carry a TypeDesc.
-        Value::Array(_) => is_array_isa(class_name),
+        // T[] is-a Std.Array is-a Std.Object, and is-a X[] iff its element type is X (invariant).
+        Value::Array(rc) => array_isa(&rc.borrow().element_type(), class_name),
+        Value::StructRef { idx, frame_id } => struct_ref_isa(ctx, &module.type_registry, *idx, *frame_id, class_name),
         Value::Null => false,
         // add-struct-object-boxing → unify Phase 2 R3: 装箱值类型（struct 或基元）is-a 精确类型 /
         // object（值类型经装箱进 object 层级）；接口 / 基链经 type_desc 解析。基元盒的 type_desc.name
@@ -53,7 +78,22 @@ pub(crate) fn as_cast(
     ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, obj: u32, class_name: &str,
     key: &TypeKeyCell,
 ) -> Result<()> {
+    match dynamic_target(ctx, frame, class_name) {
+        Some(t) => as_cast_to(ctx, module, frame, dst, obj, &t, &TypeKeyCell::new(), true),
+        None => as_cast_to(ctx, module, frame, dst, obj, class_name, key, false),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn as_cast_to(
+    ctx: &VmContext, module: &Module, frame: &mut Frame, dst: u32, obj: u32, class_name: &str,
+    key: &TypeKeyCell, bound_param: bool,
+) -> Result<()> {
     let val = frame.get(obj)?.clone();
+    if bound_param && bound_param_extra_isa(ctx, &module.type_registry, &val, class_name) {
+        frame.set(dst, val);
+        return Ok(());
+    }
     // add-struct-object-boxing → unify Phase 2 R3: BoxedStruct 特判（struct 或基元装箱统一）——
     // 命中**精确类型** → 拆箱（基元盒 → 裸标量 `o as long`；struct 盒 → 当前帧 arena StructRef 值副本）；
     // 命中 object/base/接口 → 保持 boxed（多态用）；否则 Null。基元 vs struct 盒由 boxed_prim_i64 分流。
@@ -91,7 +131,7 @@ pub(crate) fn as_cast(
     }
     let is_match = match &val {
         Value::Object(rc) => isa_object(ctx, &module.type_registry, rc.type_desc(), rc.type_args(), class_name, key),
-        Value::Array(_) => is_array_isa(class_name),
+        Value::Array(rc) => array_isa(&rc.borrow().element_type(), class_name),
         Value::Null => true,
         // fix-boxed-primitive-is-as: 未装箱裸基元按其 stdlib 类名松匹配兜底。
         other => prim_isa(other, class_name),

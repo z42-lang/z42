@@ -28,6 +28,9 @@ pub struct TypeArgsInfo {
     /// M13: 每个实参名按 [`ElemKind::of_type_param`] 折好的打包种类（基元宽度或 `Mixed`），
     /// 驻留时算一次——`new T[n]` 的分配点读它，不重复字符串 match。
     kinds: Box<[ElemKind]>,
+    /// 实参里有没有型参标记（`$mta:N` / `$cta:N@Owner`，见 `metadata::type_param_markers`）——
+    /// 共享泛型体里 `new List<T>()` 的站点实参。驻留时判一次，建对象的热路径只读这一位。
+    open: bool,
 }
 
 /// 驻留的类型实参列表：8 B 细指针，`Copy`。`Deref<Target = [String]>`，所以既有的
@@ -58,6 +61,7 @@ impl TypeArgs {
         let info: &'static TypeArgsInfo = Box::leak(Box::new(TypeArgsInfo {
             args: args.to_vec().into_boxed_slice(),
             kinds: args.iter().map(|n| ElemKind::of_type_param(n)).collect(),
+            open: args.iter().any(|n| crate::metadata::type_param_markers::has_markers(n)),
         }));
         // `info` is leaked ⇒ its slice lives for the process, so a `&'static [String]`
         // view of it is sound as the map key.
@@ -74,6 +78,7 @@ impl TypeArgs {
             TypeArgs(Box::leak(Box::new(TypeArgsInfo {
                 args: Box::new([]),
                 kinds: Box::new([]),
+                open: false,
             })))
         })
     }
@@ -87,6 +92,12 @@ impl TypeArgs {
     #[inline]
     pub fn elem_kind(self, i: usize) -> ElemKind {
         self.0.kinds.get(i).copied().unwrap_or(ElemKind::Mixed)
+    }
+
+    /// 是否含型参标记（站点实参要按运行期型参代换，见 `interp::type_param_env`）。
+    #[inline]
+    pub fn has_markers(self) -> bool {
+        self.0.open
     }
 
     /// JIT 把句柄当一个指针常量烤进代码；helper 用 [`Self::from_raw`] 还原。

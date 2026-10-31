@@ -1,7 +1,7 @@
 # 类型转换的实现
 
 > **页型**: 机制页 ｜ **代码**: `src/compiler/z42c.symbols/src/Types/Conversion.z42`
-> （`Classify` / `_classifyUser` / `_findConvOn`）· `TypeChecker.ConvertIfNeeded` · `TypeOpTyper._bindCastExpr`
+> （`Classify` / `_classifyUser` / `_findConvOn` / `ProvablyFails`）· `TypeChecker.ConvertIfNeeded` · `TypeOpTyper._bindCastExpr`
 > **相关**: [源代码编译流程](source-compile.md) · [架构总览](architecture.md)
 >
 > 用户视角的**转换规则**（哪些隐式、哪些要写 `(T)`、报什么错）在参考手册的「类型转换」页
@@ -110,6 +110,28 @@
 > 正确拓宽为 `F64` → Pow 遵守其 `double` 签名返 `F64(8.0)`（否则会落入 native 的 `(I64,I64)→I64`
 > 分支静默返 `Int32(8)`）。
 
+
+---
+
+## 显式转换：编译期必败 / 运行期受检
+
+`(T)x`（`TypeOpTyper._bindCastExpr`）与 `x as T`（`_bindAsExpr`）在 `Classify` 给 `None` 时分两路：
+
+1. **可证必败** → E0424。判据 `Conversion.ProvablyFails` 先把两侧归类（引用类 / 数组 / 接口 / 值类型 /
+   判不了），再按 C# CS0030 的规则判：类 ↔ 类看两定义是否在对方基链上（同一定义 ⇒ 实参不同 ⇒ 必败）；
+   接口一侧只在另一侧是 sealed 类或值类型且没实现它时必败；数组不变，元素不同即必败；数组、引用类、值类型
+   三者互相必败（`Array` → `T[]` 除外）。**宁放勿错**：含型参、基链有一跳解析不到、`object` 一律不判。
+2. **其余引用目标** → `BoundConvert.CheckedRefCast`（`_isCheckedRefCast`：`ExplicitRef`，或 `None` 且
+   `Conversion.IsRefTarget`）。发射端 `TypeOpEmitter._emitConvert` 合成 `is_instance` + 分支 + `throw`：
+   null 放行，类型不符抛 `InvalidCastException`。值类型目标不走这条：基元拆箱是 `ConvertInstr`（VM
+   `semantics::hard_cast_failure`），blob struct 拆箱是 `AsCast` + 结果判空（`_emitStructUnbox`：源 null 抛
+   `NullReferenceException`、类型不符抛 `InvalidCastException`）。全部复用现有指令，不新增 opcode。
+
+运行期类型测试的目标名出自 `ExprEmitter._typeTestName` 一个出口。数组目标是 `_arrayElemName(元素) + "[]"`，
+而 `ArrayNew` / `ArrayNewLit` 记到数组上的元素名出自**同一个** `_arrayElemName`（本包泛型取身份名、导入泛型
+带实参、基元取关键字），所以 VM 只需按名比：`dispatch::array_isa`（interp / JIT 共用）认 `Array` / `Object`，
+以及元素名相同的 `X[]`；元素名是未代换型参（泛型体里 `new T[n]` 记的 `T`）或空（运行期合成的无类型数组）
+时按「任一元素类型」回答。
 
 ---
 

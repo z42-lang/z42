@@ -30,11 +30,24 @@ pub(super) fn array_new(
 ) -> Result<Option<Value>> {
     let len = *frame.get(size)?;
     let tp_prim = generic_prim_elem(frame, type_param_kind, type_param_index);
+    let bound = generic_bound_elem(frame, type_param_kind, type_param_index);
     let r = objops::array::array_new(
-        ctx, &len, elem_tag, element_type, type_param_kind != 0, tp_prim, stack_frame(ctx, frame, stack_alloc));
+        ctx, &len, elem_tag, element_type, type_param_kind != 0, tp_prim, bound, stack_frame(ctx, frame, stack_alloc));
     match r {
         Ok(arr) => { frame.set(dst, arr); Ok(None) }
         Err(e) => raise(ctx, module, e),
+    }
+}
+
+/// `new T[n]`: the argument `T` is bound to here (same carriers as [`generic_prim_elem`]) — the
+/// element type the array reports.
+fn generic_bound_elem(frame: &Frame, kind: u8, index: i32) -> Option<ElemType> {
+    if index < 0 { return None; }
+    let idx = index as usize;
+    match kind {
+        1 => objops::array::type_param_bound_elem(frame.method_type_args.get(idx).map(String::as_str)),
+        2 => objops::array::class_type_param_bound(frame.get(0).ok(), idx),
+        _ => None,
     }
 }
 

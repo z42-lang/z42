@@ -100,7 +100,10 @@ public sealed class CallEmitter {
             if (c.MethodTypeArgFwd != null && i < c.MethodTypeArgFwd.Length && c.MethodTypeArgFwd[i] >= 0) {
                 names[i] = "$mta:" + c.MethodTypeArgFwd[i].ToString();
             } else {
-                names[i] = this._ee._typeofArgName(c.MethodTypeArgs[i]);
+                // 类级型参（`class H<T> { M() { Bar<T>(); } }`）与嵌在构造实参里的型参（`Bar<List<T>>()`）
+                // 同样发型参标记（`_rtArgName`），运行期按调用方本次激活绑定 —— 否则 callee 收到字面 `T`。
+                string ra = this._ee._rtArgName(c.MethodTypeArgs[i]);
+                names[i] = ra != "" ? ra : this._ee._typeofArgName(c.MethodTypeArgs[i]);
             }
             i = i + 1;
         }
@@ -545,9 +548,9 @@ public sealed class CallEmitter {
     internal TypedReg _emitNew(BoundNew n) {
         // add-generic-methods：`new T()` 其中 T 为方法级泛型形参 → 物化具体 Std.Type（读 frame 槽）+
         // __activator_create（无参反射构造）。零实参已由绑定期保证。
-        if (n.IsMethodTypeParam) {
-            TypedReg treg = this._ctx.Alloc(IrType.Ref);
-            this._ctx.Emit(new MethodTypeArgInsn(treg, n.MethodParamIndex));
+        if (n.IsMethodTypeParam || n.ClassParamIndex >= 0) {
+            TypedReg treg = n.IsMethodTypeParam ? this._ctx.Alloc(IrType.Ref) : this._ee._emitClassTypeArg(n.ClassParamIndex);
+            if (n.IsMethodTypeParam) { this._ctx.Emit(new MethodTypeArgInsn(treg, n.MethodParamIndex)); }
             TypedReg[] acargs = new TypedReg[1];
             acargs[0] = treg;
             TypedReg acdst = this._ctx.Alloc(IrType.Ref);
@@ -569,7 +572,13 @@ public sealed class CallEmitter {
             // 实参用 _typeofArgName（FQ + 递归带尖括号，与 typeof 同款）而非 .Name()（短名 + ", "
             // 分隔）——让 obj.GetType().GetGenericArguments() 的嵌套实参能解析为真句柄 + 递归，
             // 与 typeof 一致（add-reflection-instance-nested-generic-args）。基元/泛型形参不变。
-            while (k < inst.ArgCount) { targs[k] = this._ee._typeofArgName(inst.TypeArgs[k]); k = k + 1; }
+            // 泛型体里的 `new List<T>()`：实参里的型参特化体内代换、共享体里发型参标记（运行期
+            // 按本次激活绑定，`_rtArgName`）——否则实例永远记着字面 `T`，类型测试只能对它放行。
+            while (k < inst.ArgCount) {
+                string ra = this._ee._rtArgName(inst.TypeArgs[k]);
+                targs[k] = ra != "" ? ra : this._ee._typeofArgName(inst.TypeArgs[k]);
+                k = k + 1;
+            }
             tcount = inst.ArgCount;
         }
         // fix-type-ref-ns-collision：已解析到的类型直接用其 FQN 发射（曾按短名查图致 `new A.Foo` emit `B.Foo`）。
@@ -591,7 +600,7 @@ public sealed class CallEmitter {
             int size = this._ctx.Gen.Layouts.StructSize(sname);
             // generic-struct-erased-slot-value-copy：命中闸门的实例化，StructAlloc 必须携**实例化的 FQ 名**
             // 与**实例化的 ctor**——否则运行期按定义名 resolve_layout（First 是 8B 句柄）而 size 已是实例化的，
-            // 且 ctor 体按定义偏移往里写句柄 ⇒ 读出 0。限定只加在基名上、实参原样（同 _qualifyElemName 约定），
+            // 且 ctor 体按定义偏移往里写句柄 ⇒ 读出 0。限定只加在基名上、实参原样，
             // 与合成描述符的注册键（ns + 短实例化名）对齐。
             // 身份与布局解耦（User 裁决「实例化是独立类型」）：
             //  · StructAlloc 的类型名走**身份名** —— 所有实例化一律独立，`GetType()` 才自洽；

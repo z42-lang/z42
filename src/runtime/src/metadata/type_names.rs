@@ -86,6 +86,164 @@ fn split_top_commas(s: &str) -> Vec<&str> {
     out
 }
 
+// ── 构造类型的规范拼写 ─────────────────────────────────────────────────────────
+//
+// 一个构造类型（`List<int>`）在运行期有**一个**身份名，比较一律逐字比它：实例上记的实参
+// （`ObjNew`）、类型测试的目标（`is_instance`）、实例化描述符的注册名、`Type` 的身份全由它定。
+// 编译器发射时已按这套拼写写（`LayoutKey`：类全名、内建类型关键字、无空格）；运行期**自己造出**
+// 名字的地方（反射：`MakeGenericType` / `Activator` / `ConstructorInfo.Invoke` 从 `Type` 取名）
+// 经 [`canonical`] 回到同一拼写。`Type.FullName` 是它的展示形 [`display`]（内建类型写 `Std.Int32`）。
+//
+// 规则：
+// - 顶层名：内建类型写全名（`Std.Int32`、`Std.Object` —— 描述符的注册键）；
+// - 类型实参与数组元素：内建类型写关键字（`int`、`object`），递归；
+// - 去掉空白（旧拼写 `Pair<Int32, Int64>` 的逗号后空格）。
+
+/// 内建类型：关键字 ↔ `Std` 全名（顺序无关；`float` 是 `Std.Single`）。
+const BUILTIN_TYPES: [(&str, &str); 14] = [
+    ("sbyte", "Std.SByte"), ("byte", "Std.Byte"), ("short", "Std.Int16"), ("ushort", "Std.UInt16"),
+    ("int", "Std.Int32"), ("uint", "Std.UInt32"), ("long", "Std.Int64"), ("ulong", "Std.UInt64"),
+    ("float", "Std.Single"), ("double", "Std.Double"), ("bool", "Std.Boolean"), ("char", "Std.Char"),
+    ("string", "Std.String"), ("object", "Std.Object"),
+];
+
+/// 内建类型的任一拼写（关键字 `int`、VM 标签 `i32`、全名 `Std.Int32`）→ 关键字；不是内建类型 → `None`。
+pub fn builtin_keyword(name: &str) -> Option<&'static str> {
+    let kw = match name {
+        "i8" => "sbyte", "u8" => "byte", "i16" => "short", "u16" => "ushort",
+        "i32" => "int", "u32" => "uint", "i64" => "long", "u64" => "ulong",
+        "f32" => "float", "f64" => "double", "str" => "string",
+        _ => name,
+    };
+    BUILTIN_TYPES.iter().find(|(k, f)| *k == kw || *f == kw).map(|(k, _)| *k)
+}
+
+/// 内建类型的任一拼写 → `Std` 全名；不是内建类型 → `None`。
+pub fn builtin_fqn(name: &str) -> Option<&'static str> {
+    let kw = builtin_keyword(name)?;
+    BUILTIN_TYPES.iter().find(|(k, _)| *k == kw).map(|(_, f)| *f)
+}
+
+/// 类型名的规范拼写（运行期身份名）。见本节抬头的规则。
+pub fn canonical(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    write_name(name, Spelling::Top, &mut out);
+    out
+}
+
+/// 类型名作为**类型实参**时的规范拼写（内建类型写关键字）。
+pub fn canonical_arg(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    write_name(name, Spelling::Arg, &mut out);
+    out
+}
+
+/// `Type.FullName` 的拼写：同 [`canonical`]，但内建类型一律写全名（`Std.Collections.List<Std.Int32>`）。
+pub fn display(name: &str) -> String {
+    let mut out = String::with_capacity(name.len() + 8);
+    write_name(name, Spelling::Display, &mut out);
+    out
+}
+
+/// `def` 实例化在 `args` 上的规范名（`Std.Collections.List` + `[Std.Int32]` → `Std.Collections.List<int>`）。
+/// `args` 为空 → `def` 本身的规范名。
+pub fn constructed(def: &str, args: &[String]) -> String {
+    if args.is_empty() {
+        return canonical(def);
+    }
+    let mut out = String::with_capacity(def.len() + 8 * args.len());
+    write_name(def, Spelling::Top, &mut out);
+    out.push('<');
+    for (i, a) in args.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        write_name(a, Spelling::Arg, &mut out);
+    }
+    out.push('>');
+    out
+}
+
+/// 去掉实参的定义名：`Demo.Box<int>` → `Demo.Box`。
+pub fn erased(name: &str) -> &str {
+    match name.find('<') {
+        Some(i) => &name[..i],
+        None => name,
+    }
+}
+
+/// 把 `name` 里**整词**等于型参 `params[i]` 的成分换成 `args[i]`（`T[]` / `List<T>` / `Func<T,R>` 均按词替换，
+/// `TArray` 这类含型参名的标识符不受影响），结果是规范拼写（顶层）。元数不符 → 原样规范化。
+pub fn substitute(name: &str, params: &[String], args: &[String]) -> String {
+    if params.is_empty() || params.len() != args.len() {
+        return canonical(name);
+    }
+    let is_ident = |c: char| c.is_alphanumeric() || matches!(c, '_' | '.' | '+' | '$');
+    let mut out = String::with_capacity(name.len());
+    let mut word = String::new();
+    let flush = |word: &mut String, out: &mut String| {
+        match params.iter().position(|p| p == word) {
+            Some(i) => out.push_str(&args[i]),
+            None => out.push_str(word),
+        }
+        word.clear();
+    };
+    for c in name.chars() {
+        if is_ident(c) {
+            word.push(c);
+        } else {
+            flush(&mut word, &mut out);
+            out.push(c);
+        }
+    }
+    flush(&mut word, &mut out);
+    canonical(&out)
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Spelling {
+    /// 顶层身份名：内建类型写全名。
+    Top,
+    /// 类型实参 / 数组元素：内建类型写关键字。
+    Arg,
+    /// `Type.FullName`：内建类型处处写全名。
+    Display,
+}
+
+fn write_name(name: &str, sp: Spelling, out: &mut String) {
+    let name = name.trim();
+    let inner_sp = if sp == Spelling::Display { Spelling::Display } else { Spelling::Arg };
+    if let Some(elem) = name.strip_suffix("[]") {
+        write_name(elem, inner_sp, out);
+        out.push_str("[]");
+        return;
+    }
+    if let Some(inner) = name.strip_suffix('?') {
+        write_name(inner, sp, out);
+        out.push('?');
+        return;
+    }
+    if let Some(lt) = name.find('<') {
+        if lt > 0 && name.ends_with('>') {
+            out.push_str(name[..lt].trim());
+            out.push('<');
+            for (i, a) in split_top_commas(&name[lt + 1..name.len() - 1]).iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                write_name(a, inner_sp, out);
+            }
+            out.push('>');
+            return;
+        }
+    }
+    let mapped = match sp {
+        Spelling::Arg => builtin_keyword(name),
+        Spelling::Top | Spelling::Display => builtin_fqn(name),
+    };
+    out.push_str(mapped.unwrap_or(name));
+}
+
 #[cfg(test)]
 #[path = "type_names_tests.rs"]
 mod tests;

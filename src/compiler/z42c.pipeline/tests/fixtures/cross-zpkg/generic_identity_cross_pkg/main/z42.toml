@@ -1,0 +1,8 @@
+[project]
+name    = "generic_identity_app"
+version = "0.1.0"
+kind    = "exe"
+pack    = true
+
+[dependencies]
+"generic_identity_lib" = "0.1.0"

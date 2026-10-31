@@ -1,0 +1,7 @@
+[project]
+name = "demo.tpapp"   # 字母序排在 demo.tptarget 之前（cross-zpkg 驱动取首个 zpkg 当 exe）
+version = "0.1.0"
+kind = "exe"
+pack = true
+[dependencies]
+"demo.tptarget" = "0.1.0"

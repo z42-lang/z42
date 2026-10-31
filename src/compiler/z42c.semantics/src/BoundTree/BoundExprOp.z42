@@ -367,10 +367,14 @@ public sealed class BoundNew : BoundExpr {
     // MethodParamIndex = 该形参在方法 TypeParams 序号。默认 false（常规 new）。
     public bool        IsMethodTypeParam;
     public int         MethodParamIndex;
+    // 类级型参的 `new T()`（实例语境）：ClassParamIndex = 该形参在**类** TypeParams 中的序号 ⇒
+    // 发 `__class_type_arg(this, idx, 声明类)` + `__activator_create`（与类级 `typeof(T)` 同一载体）。
+    // 非此形态为 -1。
+    public int         ClassParamIndex;
     private Z42Type _type;
     public BoundNew(string typeName, string ctorName, BoundExpr[] args, int argCount, Z42Type type, Span span) { this.Span = span;
         this.TypeName = typeName; this.CtorName = ctorName; this.Args = args; this.ArgCount = argCount; this._type = type;
-        this.IsMethodTypeParam = false; this.MethodParamIndex = -1;
+        this.IsMethodTypeParam = false; this.MethodParamIndex = -1; this.ClassParamIndex = -1;
     }
     public override Z42Type Type() { return this._type; }
     public override R Accept<R, D>(IBoundExprVisitor<R, D> v, D d) { return v.VisitNew(this, d); }

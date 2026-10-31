@@ -164,7 +164,15 @@ public static class CompilerFingerprint {
         "foreach-var-elem-type",
         // is-as-type-then-ternary：`is` / `as` / 模式位类型后的 `?` 按 C# 规则消歧（后随能开始表达式 ⇒ 三目），
         // `A<B<C>>?` 的 `?` 归外层（此前挂到 `>>` 拆出的内层）—— 解析结果与诊断变化。
-        "is-as-type-then-ternary"
+        "is-as-type-then-ternary",
+        // checked-conversions：必败的显式转换 / `as` 报 E0424；其余引用目标的 `(T)x` 一律运行期受检；blob struct
+        // 拆箱核结果抛 NRE / ICE；泛型 struct 实例化算值类型（E0476 / E0475）；数组元素名、数组类型测试目标、
+        // `typeof(X[])` 改由 `_arrayElemName` 一个出口产出 —— 输出与诊断变化。
+        "checked-conversions",
+        // type-param-markers：泛型体里以型参为目标 / 实参的类型名（`o is T` / `(T)o` / `new List<T>()` /
+        // `catch (Err<T>)` / 泛型调用站点的类级型参）特化体内代换、共享体里发 `$mta:` / `$cta:` 型参标记；
+        // `(T)o` 受检；类级 `new T()` 走 `__class_type_arg` + `__activator_create`；catch 目标带实参 —— 输出变化。
+        "type-param-markers"
     };
 
     // 指纹值：`Entries` 逐条以 `\n` 连接后取内容哈希（`mmh3:` 前缀，同 SourceHash）。

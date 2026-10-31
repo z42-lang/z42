@@ -193,10 +193,14 @@ pub fn array_size(len: &Value) -> OpResult<usize> {
 /// - `tp_prim`：泛型型参在运行期解析成**基元**实参时的（打包种类, 零值）——数组按该宽度打包
 ///   （M13;`List<int>` 的 backing 每元素 4 B）。引用 / struct / 未解析的型参 → `None`，
 ///   擦除 MIXED（现状）。方法级型参只有 interp 会解析（JIT 不翻译这种站点）。
+/// - `bound`：`new T[n]` 里 `T` 在运行期绑定的实参（[`type_param_bound_elem`]）——数组**报告**的
+///   元素类型（`GetType()`、`Array.GetValue` 的装箱）是它而非字面 `T`；backing 的种类仍按上面
+///   擦除口径选（共享泛型体里的 `T[]` 一律按擦除形态存取）。
 /// - `stack`：编译器证明不逃逸且运行期允许时给出栈帧号，数组进栈 arena。
+#[allow(clippy::too_many_arguments)]
 pub fn array_new<F: FnOnce() -> u32>(
     ctx: &VmContext, len: &Value, elem_tag: u8, element_type: ElemType,
-    type_param: bool, tp_prim: Option<TypeParamElem>, stack: Option<F>,
+    type_param: bool, tp_prim: Option<TypeParamElem>, bound: Option<ElemType>, stack: Option<F>,
 ) -> OpResult<Value> {
     let n = array_size(len)?;
     let kind = match tp_prim {
@@ -212,7 +216,20 @@ pub fn array_new<F: FnOnce() -> u32>(
         return Ok(stack_array(ctx, frame_id(), vec![default; n]));
     }
     // 默认值直接填进 GC 块，不经 `vec![default; n]` 中转。
-    alloc(ArrayObj::alloc_filled(ctx.heap(), element_type, kind, n, default), || format!("array[{n}]"))
+    alloc(ArrayObj::alloc_filled(ctx.heap(), bound.unwrap_or(element_type), kind, n, default), || format!("array[{n}]"))
+}
+
+/// `new T[n]`'s element type as bound at run time: the argument's name, interned. `None` when
+/// the parameter is not bound here (the array keeps reporting `T`).
+pub fn type_param_bound_elem(arg: Option<&str>) -> Option<ElemType> {
+    arg.filter(|a| !a.is_empty() && !crate::metadata::type_param_markers::has_markers(a)).map(ElemType::intern)
+}
+
+/// The class-level argument `index` on `receiver` (the carrier [`class_type_param_elem`] reads).
+pub fn class_type_param_bound(receiver: Option<&Value>, index: usize) -> Option<ElemType> {
+    let Some(Value::Object(rc)) = receiver else { return None };
+    let ta = rc.borrow().type_args_handle();
+    type_param_bound_elem(ta.get(index).map(String::as_str))
 }
 
 /// `ArrayNewLit`：由 `elems` 构成的数组（blob 值 struct 字面量逐个打包进 STRUCT 数组）。

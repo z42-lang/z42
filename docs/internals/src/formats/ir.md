@@ -121,7 +121,7 @@ tag; source type is read at runtime from the source `Value` variant.
 | `char → f64` | scalar value as double |
 | `i64 → char` | scalar value validation; surrogate / >U+10FFFF → exception |
 
-**Rejected at TypeCheck (E0424 IllegalCast)**: `bool ↔ numeric/char/string`, `string ↔ numeric/char`. Users go through conditional expressions or `Parse` / `ToString` instead.
+**Rejected at TypeCheck (E0424 IllegalCast)**: `string ↔ numeric/char/bool` (a reference class and a value type are unrelated — `Conversion.ProvablyFails`). Users go through `Parse` / `ToString` instead.
 
 **Identity casts** (e.g. `(int)int_val`) are elided by Codegen and don't emit `Convert` — register flows through unchanged.
 
