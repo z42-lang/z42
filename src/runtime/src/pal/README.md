@@ -3,8 +3,8 @@
 ## 职责
 
 集中处理 `#[cfg(target_os)]` / `#[cfg(unix)]` / `#[cfg(windows)]` 分支，让
-runtime 其余模块**零 cfg 调用** OS 服务。每个 concern 一个文件，公开 surface
-返回 OS-neutral 类型。
+runtime 其余模块**零 cfg 调用** OS 服务。每个 concern 提供平台无关接口，
+操作系统实现与编译期选择集中在 `sys/`。
 
 完整设计见 [`docs/internals/src/runtime/pal.md`](../../../../docs/internals/src/runtime/pal.md)。
 
@@ -12,6 +12,7 @@ runtime 其余模块**零 cfg 调用** OS 服务。每个 concern 一个文件�
 
 | 文件 | 职责 |
 |------|------|
+| `sys/` | `unix/`、`windows/`、`wasm/` 后端及保留原降级行为的 `fallback/`；`common/` 复用共享实现 |
 | `system.rs` | `hostname()` / `os_version()` / `os_name()`、进程环境（`pid` / `current_dir` / `set_env` / `temp_dir`）、`OS_CAPS` |
 | `fs.rs` | `Vfs` trait（每台 VM 一个句柄，路径型文件操作全走它）/ `default_vfs()` / `glob_match()`；VFS 之外的 OS 调用 `make_executable()` / `symlink()` / `sync_before_rename()` / `is_name_too_long()` / `PATH_LIST_SEP` / `HAS_FS` |
 | `vfs/` | `Vfs` 的实现：`LocalFs`（标准库 fs）、`MemoryFs`（实例自有的 `path → bytes`，`mount()` 挂文件）|
@@ -45,7 +46,7 @@ runtime 其余模块**零 cfg 调用** OS 服务。每个 concern 一个文件�
 
 1. **OS-neutral surface**：pub fn signatures 不带 OS 类型（不 `libc::c_char` /
    `winapi::HANDLE` 等）
-2. **每个 concern 一个文件**：`#[cfg(...)]` 切分在内部，consumer 零 cfg
+2. **平台边界**：生产代码的平台 cfg 与 `libc` 仅允许出现在 `pal/sys/`；上层 concern 和 consumer 都不选择操作系统。测试可直接验证 OS 行为
 3. **graceful degrade**：未实现的平台返回 None / 空字符串而非 panic
 4. **错误也 OS-neutral**：用 `Option<T>` / `Result<T, E>` 抽象，不暴露 errno
 

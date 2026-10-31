@@ -101,7 +101,7 @@ VM 是一个 crate（`src/runtime/src`，包名 `z42`），**暂不拆成多个 
 
 硬规则（xtask 分层门禁检查）：
 
-1. **平台 `#[cfg(target_os/unix/windows)]` 与 `libc` 只出现在 `pal/`**；wasm 的功能裁剪用 cargo feature 表达。
+1. **平台 `#[cfg(target_os/unix/windows)]` 与 `libc` 只出现在 `pal/sys/`**；wasm 的功能裁剪用 cargo feature 表达。
 2. **同层互不依赖**：interp ↔ jit、corelib / interop / debugger / profiler 之间及它们与引擎之间都没有依赖，一律经 vm 的注册接口接入，由门面组装。
 3. **vm 不知道有哪些引擎、builtin、工具**：只提供注册槽（Engine、builtin 注册表、监控工具槽、extern 提供方）。
 4. **命名**：「native」只指面向用户的原生扩展（SDK `native/`、z42-rs）；VM 内建函数叫 builtin，调外部 C 库叫 interop。VM 互操作模块使用 `interop/`；interp 的 `exec_ffi.rs::ffi_call` 执行 `CallNative` 指令，jit 的 `invoke.rs::enter_compiled` 进入已编译代码。

@@ -13,8 +13,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Whether [`decommit`] does anything on this target.
-pub(crate) const CAN_DECOMMIT: bool =
-    cfg!(any(target_os = "macos", target_os = "ios", target_os = "linux", target_os = "android"));
+pub(crate) const CAN_DECOMMIT: bool = super::sys::mem::CAN_DECOMMIT;
 
 /// The OS page size (cached).
 pub(crate) fn page_size() -> usize {
@@ -23,11 +22,7 @@ pub(crate) fn page_size() -> usize {
     if p != 0 {
         return p;
     }
-    #[cfg(all(unix, not(target_arch = "wasm32")))]
-    // SAFETY: `sysconf` has no preconditions.
-    let p = unsafe { libc::sysconf(libc::_SC_PAGESIZE) }.max(4096) as usize;
-    #[cfg(not(all(unix, not(target_arch = "wasm32"))))]
-    let p = 4096usize;
+    let p = super::sys::mem::page_size();
     PAGE.store(p, Ordering::Relaxed);
     p
 }
@@ -48,13 +43,7 @@ pub(crate) fn inner_pages(start: usize, end: usize) -> Option<(usize, usize)> {
 /// `addr` / `len` must be page-aligned and inside memory this process owns, and nothing may
 /// rely on the range's contents afterwards.
 pub(crate) unsafe fn decommit(addr: usize, len: usize) {
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
-    libc::madvise(addr as *mut libc::c_void, len, libc::MADV_FREE_REUSABLE);
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    if libc::madvise(addr as *mut libc::c_void, len, libc::MADV_FREE) != 0 {
-        libc::madvise(addr as *mut libc::c_void, len, libc::MADV_DONTNEED);
-    }
-    let _ = (addr, len);
+    unsafe { super::sys::mem::decommit(addr, len) }
 }
 
 /// Announce that a [`decommit`]ted range is about to be written again (macOS / iOS need this
@@ -63,24 +52,9 @@ pub(crate) unsafe fn decommit(addr: usize, len: usize) {
 /// # Safety
 /// As [`decommit`].
 pub(crate) unsafe fn recommit(addr: usize, len: usize) {
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
-    libc::madvise(addr as *mut libc::c_void, len, libc::MADV_FREE_REUSE);
-    let _ = (addr, len);
+    unsafe { super::sys::mem::recommit(addr, len) }
 }
 
 #[cfg(test)]
-mod tests {
-    #[test]
-    fn page_size_is_a_power_of_two() {
-        let p = super::page_size();
-        assert!(p >= 4096 && p.is_power_of_two());
-    }
-
-    #[test]
-    fn inner_pages_keeps_only_whole_pages() {
-        let p = super::page_size();
-        assert_eq!(super::inner_pages(1, 3 * p - 1), Some((p, p)));
-        assert_eq!(super::inner_pages(p, 3 * p), Some((p, 2 * p)));
-        assert_eq!(super::inner_pages(1, 2 * p - 1), None);
-    }
-}
+#[path = "mem_tests.rs"]
+mod tests;
