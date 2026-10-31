@@ -43,7 +43,7 @@ VM 装了 JIT（`--mode jit`）时 worker 一样跑原生码：`VmCore.jit` 是�
 - `lazy_loader: RwLock<Option<LazyLoader>>` — 按需 zpkg 加载器（**RwLock**：符号查找稳态下是纯读，只有真正加载 zpkg 才取写锁）
 - `native_types: RwLock<HashMap<(String,String), Arc<RegisteredType>>>` — Tier 1 native interop 注册表（**RwLock**，读多写少：dispatch 是纯读，写仅在 module 加载期；`#[cfg(feature="native-interop")]`）
 - `native_libs: Mutex<Vec<libloading::Library>>` — 已加载的 native 库句柄（同上 cfg）
-- `ext_builtins: Mutex<ExtBuiltinTable>` — stdlib 原生扩展库注册的 builtin（`interop::ext::load_all` 填充；同上 cfg）
+- `ext_libs_tried: Mutex<HashSet<&str>>` — 本 VM 已尝试打开的 stdlib 原生扩展库（`interop::ext::ensure_lib_for`，每个库只找一次；同上 cfg）
 - `pinned_owned_buffers: Mutex<HashMap<u64, Box<[u8]>>>` — `Value::PinnedView` 的 owned 缓冲
 - `fatal: AtomicBool` — 致命 VM 错误（栈溢出）正在展开，见下文「原生栈预算」
 - `processes: ResourceRegistry<ProcessSlot>` — `Std.IO.Process` 子进程注册表

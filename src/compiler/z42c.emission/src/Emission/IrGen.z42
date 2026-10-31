@@ -571,7 +571,7 @@ public sealed class IrGen {
     //   ① positional `[Native("__name")]`（legacy / L1 stdlib）→ 首个字符串实参。
     //   ② named 短形 `[Native(lib = "L", entry = "E")]`（add-z42-compression，z42.compression）
     //      → 取 `entry =` 值。镜像 C# EmitNativeStub 短形（type= 省略 → BuiltinInstr(entry)，
-    //      经 dlopen 的 ext_builtins 注册表解析）。named args 解析为 AssignExpr（Target=ident）。
+    //      在 VM 的 builtin 表里按名解析，库首次调用时 dlopen）。named args 解析为 AssignExpr（Target=ident）。
     //   无匹配 → ""。
     // add-attribute-reflection：从原始 Decl（可能是 AttributedDecl）抽取已合成工厂的 attr-ref。
     // 仅 FactoryFunc != "" 的用户 attribute 入表（内建 Native/Test 等无工厂 → 跳过）。

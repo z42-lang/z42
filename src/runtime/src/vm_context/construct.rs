@@ -247,7 +247,7 @@ impl VmContext {
             needs_auto_collect:   Arc::new(std::sync::atomic::AtomicBool::new(false)),
             program_args:         Mutex::new(Vec::new()),
             #[cfg(feature = "native-interop")]
-            ext_builtins:         Mutex::new(crate::interop::ext::ExtBuiltinTable::default()),
+            ext_libs_tried:       Mutex::new(Default::default()),
             file_handles:         ResourceRegistry::new(),
             vfs,
             #[cfg(feature = "net")]

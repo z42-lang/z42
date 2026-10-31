@@ -28,10 +28,9 @@
 //!
 //! # Discovery
 //!
-//! The dispatcher (`z42_compression_register`) returns a static table of
-//! `(name, fn_ptr)` pairs that z42vm reads to populate its `ext_builtins`
-//! registry. Names map 1:1 onto the z42 `[Native(entry = "...")]`
-//! attribute strings.
+//! z42vm resolves the `z42_compression_*` symbols by name (after checking
+//! [`z42_compression_abi_version`]); its typed builtins `__deflate_compress`
+//! etc. — the z42 `[Native(entry = "...")]` strings — call through them.
 
 use std::cell::RefCell;
 use std::os::raw::c_char;

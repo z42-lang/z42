@@ -91,7 +91,7 @@ public sealed class StubEmitter {
         TypedReg dst = new TypedReg(totalParams, dstTag);
         IrInstr[] instrs = new IrInstr[1];
         // `[Native(lib="L", type="T", entry="E")]` 带 type= → typed native call（CallNative，Tier 1 C ABI
-        // 经 z42_register_type 直接符号分派）；否则（positional / 仅 entry=）→ builtin 桩（ext_builtins 表）。
+        // 经 z42_register_type 直接符号分派）；否则（positional / 仅 entry=）→ builtin 桩（VM 的 builtin 表）。
         string[] lt = this._nativeLibType(rawMem);
         if (lt[1] != "") {
             instrs[0] = new CallNativeInstr(dst, lt[0], lt[1], nat, args, totalParams);

@@ -1,10 +1,11 @@
 //! Stdlib native extension loader (add-z42-compression).
 //!
-//! Loads `lib<basename>.{so,dylib,dll}` files from the SDK native search
-//! path at VM startup, dlopen's each, resolves a known set of `extern
-//! "C"` entries by name, and registers VM-side wrapper functions into
-//! `VmCore.ext_builtins` keyed by the `__<entry>` builtin names that
-//! z42 facades reference via `[Native(lib="<basename>", entry="...")]`.
+//! Opens `lib<basename>.{so,dylib,dll}` from the SDK native search path the
+//! first time one of its builtins runs, resolves a known set of `extern "C"`
+//! entries by name, and keeps the fn ptrs in a process-static table. The
+//! builtins themselves (`__<entry>`, referenced by z42 facades via
+//! `[Native(lib="<basename>", entry="...")]`) are ordinary typed builtins in
+//! the main `BUILTINS` table ([`typed`]); their bodies call through that table.
 //!
 //! # Difference vs Tier 1 (`loader.rs`)
 //!
@@ -24,74 +25,22 @@
 //!
 //! When the `bundled-compression` feature is on (wasm32 default), this
 //! module bypasses dlopen and calls into the statically-linked
-//! `z42_compression` rlib directly during [`load_all`]. The
-//! `ext_builtins` registry is populated the same way; consumers can't
+//! `z42_compression` rlib directly during [`load_all`]; the builtins can't
 //! tell the difference.
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 use std::sync::OnceLock;
 
 use anyhow::Result;
 
-use crate::corelib::NativeFn;
-use crate::metadata::Value;
 use crate::corelib::abi::BuiltinError;
 use crate::vm_context::VmContext;
 
-// ── ExtBuiltinTable ──────────────────────────────────────────────────────────
-
-/// Indexed builtin table, filled as ext libs are loaded (on first use).
-///
-/// `by_name` resolves a textual `__<entry>` name to a stable index; the
-/// resolver caches this index as the low 31 bits of a `BuiltinId` with
-/// the high bit (`0x8000_0000`) set so dispatch can distinguish static
-/// vs ext builtins. `by_idx` lets the dispatch fast path go straight
-/// from id → fn ptr without re-hashing the name.
-#[derive(Default)]
-pub struct ExtBuiltinTable {
-    by_name: HashMap<String, u32>,
-    by_idx:  Vec<NativeFn>,
-    /// Libraries this VM already tried to load (see `ensure_lib_for`), so a
-    /// missing library is looked for once, not on every lookup miss.
-    #[cfg_attr(feature = "bundled-compression", allow(dead_code))]
-    attempted: std::collections::HashSet<&'static str>,
-}
-
-impl ExtBuiltinTable {
-    /// Register `(name, fn_ptr)`. Returns the stable index. Idempotent:
-    /// re-registering the same name returns the existing index without
-    /// changing the fn ptr (warn-only — first registration wins, so
-    /// duplicate libs don't silently swap implementations).
-    pub fn register(&mut self, name: &str, fn_ptr: NativeFn) -> u32 {
-        if let Some(&idx) = self.by_name.get(name) {
-            tracing::warn!("ext builtin `{name}` already registered; ignoring duplicate");
-            return idx;
-        }
-        let idx = self.by_idx.len() as u32;
-        self.by_idx.push(fn_ptr);
-        self.by_name.insert(name.to_string(), idx);
-        idx
-    }
-
-    pub fn lookup_id(&self, name: &str) -> Option<u32> {
-        self.by_name.get(name).copied()
-    }
-
-    pub fn dispatch(&self, idx: u32) -> Option<NativeFn> {
-        self.by_idx.get(idx as usize).copied()
-    }
-}
-
 // ── Entry point ──────────────────────────────────────────────────────────────
 
-/// VM-startup hook. The bundled build (wasm) registers the statically linked
-/// z42-compression entries here — no I/O involved. The dlopen build loads
-/// nothing at startup: a library is opened the first time one of its
-/// builtins is resolved ([`ensure_lib_for`]). Startup used to scan every
-/// native search directory and dlopen `libz42_compression` for every VM,
-/// whether or not the program compresses anything.
+/// VM-startup hook. Bundled builds initialize the compression symbol table without I/O.
+/// Dynamic builds defer opening the library until a typed wrapper first needs its symbols.
 pub fn load_all(ctx: &VmContext) -> Result<()> {
     #[cfg(feature = "bundled-compression")]
     {
@@ -103,10 +52,8 @@ pub fn load_all(ctx: &VmContext) -> Result<()> {
     Ok(())
 }
 
-/// Load the ext library that provides builtin `name`, once per VM, if it is
-/// one of ours and not loaded yet. Returns `true` if a library was loaded by
-/// this call (the caller then looks `name` up again). Called on a lookup miss
-/// in the ext table.
+/// Load the known library needed by a typed builtin wrapper, at most once per VM.
+/// Returns whether this call opened it; resolved symbols live in the process symbol table.
 pub fn ensure_lib_for(ctx: &VmContext, name: &str) -> bool {
     #[cfg(feature = "bundled-compression")]
     {
@@ -119,10 +66,7 @@ pub fn ensure_lib_for(ctx: &VmContext, name: &str) -> bool {
             .find(|(_, names)| names.contains(&name))
             .map(|(lib, _)| *lib)
         else { return false };
-        {
-            let mut table = ctx.core.ext_builtins.lock();
-            if !table.attempted.insert(lib) { return false; }
-        }
+        if !ctx.core.ext_libs_tried.lock().insert(lib) { return false; }
         load_by_name(ctx, lib).unwrap_or(false)
     }
 }
@@ -150,10 +94,9 @@ const KNOWN_EXT_LIBS: &[(&str, &[&str])] = &[
 ];
 
 /// Open `lib<z42_{name}>.{so,dylib,dll}` from the first native search path
-/// that has it and register its builtins. A named probe per directory — no
+/// that has it and bind its entry points. A named probe per directory — no
 /// directory listing. Logs and returns `false` when the library is missing
-/// or fails to load (the builtin then stays unresolved and its caller gets
-/// the usual missing-builtin error).
+/// or fails to load; the typed wrapper reports the unavailable native entry.
 #[cfg(not(feature = "bundled-compression"))]
 fn load_by_name(ctx: &VmContext, name: &str) -> Result<bool> {
     let file = crate::pal::dynlib::file_name(&format!("z42_{name}"));
@@ -237,7 +180,7 @@ fn load_one(ctx: &VmContext, path: &std::path::Path, name: &str) -> Result<()> {
         "compression" => {
             // The library handle moves into the process-static table (see
             // `LoadedCompression::_lib`), not into this VM's `native_libs`.
-            let _ = unsafe { compression_symbols_via_dlopen(lib)? };
+            unsafe { compression_symbols_via_dlopen(lib)? };
             tracing::debug!("ext: loaded compression symbols from {}", path.display());
             Ok(())
         }
@@ -380,7 +323,7 @@ fn loaded(ctx: &VmContext, name: &str) -> Result<&'static LoadedCompression> {
 #[cfg(not(feature = "bundled-compression"))]
 unsafe fn compression_symbols_via_dlopen(
     lib: crate::pal::dynlib::Library,
-) -> Result<&'static [(&'static str, NativeFn)]> {
+) -> Result<()> {
     // ABI handshake — resolve the version symbol FIRST and refuse to bind the
     // rest unless it matches what these signatures were written against. The
     // loader searches the executable's own directory (`native_search_paths`), so
@@ -401,7 +344,7 @@ unsafe fn compression_symbols_via_dlopen(
     // A later VM in the same process (or a second copy of the library) keeps
     // using the table the first load installed; this handle is just dropped.
     if LOADED_COMPRESSION.get().is_some() {
-        return Ok(&[]);
+        return Ok(());
     }
 
     // Copy the fn ptrs out and move the library into the table next to them
@@ -433,7 +376,7 @@ unsafe fn compression_symbols_via_dlopen(
         _lib: lib,
     });
 
-    Ok(&[])
+    Ok(())
 }
 
 #[cfg(feature = "bundled-compression")]
@@ -459,56 +402,6 @@ fn compression_symbols_bundled() {
 }
 
 // ── Wrapper helpers ──────────────────────────────────────────────────────────
-
-fn require_byte_array(args: &[Value], idx: usize, ctx: &str) -> Result<Vec<u8>> {
-    use anyhow::bail;
-    match args.get(idx) {
-        Some(Value::Array(rc)) => {
-            let borrowed = rc.borrow();
-            // packed-primitive-arrays Step 3: a packed `byte[]` (`Bytes` backing)
-            // is already a contiguous `&[u8]` — copy it straight out, no per-byte
-            // unbox (the "简化 extern call" win). Boxed falls back to validation.
-            if let Some(b) = borrowed.byte_snapshot() {
-                return Ok(b);
-            }
-            let mut out = Vec::with_capacity(borrowed.len());
-            for (i, v) in borrowed.iter_boxed().enumerate() {
-                match v {
-                    Value::I64(n) if (0..=255).contains(&n) => out.push(n as u8),
-                    other => bail!("{}: arg {} byte {} not u8 in 0..=255: {:?}",
-                                   ctx, idx, i, other),
-                }
-            }
-            Ok(out)
-        }
-        Some(other) => bail!("{}: arg {} expected byte array, got {:?}", ctx, idx, other),
-        None => bail!("{}: missing arg {}", ctx, idx),
-    }
-}
-
-fn arg_i64(args: &[Value], idx: usize, ctx: &str) -> Result<i64> {
-    use anyhow::bail;
-    match args.get(idx) {
-        Some(Value::I64(n)) => Ok(*n),
-        Some(other) => bail!("{}: arg {} expected I64, got {:?}", ctx, idx, other),
-        None => bail!("{}: missing arg {}", ctx, idx),
-    }
-}
-
-fn arg_bool(args: &[Value], idx: usize, ctx: &str) -> Result<bool> {
-    use anyhow::bail;
-    match args.get(idx) {
-        Some(Value::Bool(b)) => Ok(*b),
-        Some(other) => bail!("{}: arg {} expected Bool, got {:?}", ctx, idx, other),
-        None => bail!("{}: missing arg {}", ctx, idx),
-    }
-}
-
-fn bytes_to_value(ctx: &VmContext, bytes: Vec<u8>) -> Value {
-    // packed-primitive-arrays Step 3: pack the native result straight into a
-    // `Bytes` backing — no intermediate `Vec<Value>` boxing.
-    ctx.heap().alloc_bytes(bytes)
-}
 
 fn take_owned_buffer(free: CFreeFn, out_ptr: *mut u8, out_len: usize) -> Vec<u8> {
     if out_ptr.is_null() || out_len == 0 { return Vec::new(); }
@@ -543,7 +436,7 @@ fn last_error_string() -> String {
     }
 }
 
-// ── Wrappers (NativeFn signatures, called by interp / JIT dispatch) ──────────
+// ── Builtin bodies (called by the typed wrappers in `typed`) ──────────
 
 fn deflate_compress(ctx: &VmContext, input: Vec<u8>, level: i64, mode: i64) -> Result<Vec<u8>, BuiltinError> {
     const NAME: &str = "__deflate_compress";

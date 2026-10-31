@@ -235,8 +235,7 @@ time so no name lookup happens at runtime, matching C# 11+
 > method's stub body is emitted from its `[Native]` attribute. The **typed** named
 > form `[Native(lib="L", type="T", entry="E")]` lowers to `call.native L::T::E(...)`
 > (this opcode). The **positional / `entry=`-only** form `[Native("__name")]` lowers
-> to `builtin __name(...)` (`0x51`), resolved via the VM's `dispatch_table` /
-> `ext_builtins` registry.
+> to `builtin __name(...)` (`0x51`), resolved by name in the VM's builtin table.
 
 `pin` borrows the raw buffer of a `String` (and, in a follow-up spec,
 blittable-element byte arrays) for FFI use; `unpin` returns it to normal

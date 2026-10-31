@@ -31,24 +31,22 @@ extra.
 
 ```
 z42 user code                         z42vm binary
-[Native(lib="z42_compression",        ┌──────────────────────────┐
-        entry="__deflate_compress")]  │ corelib::BUILTINS[]      │
-       ↓                              │ (small in-VM natives)    │
-compiler short-circuit                │                          │
-(lib + entry without type=)           │ VmCore.ext_builtins      │
-       ↓                              │   ├ by_name: HashMap     │
-BuiltinInstr("__deflate_compress")    │   └ by_idx: Vec<NativeFn>│
-       ↓ resolver                     │                          │
-ext_builtin_id_of(ctx, name)          │ miss → ensure_lib_for()  │
-       ↓ returns id with              │   1. builtin name → lib  │
-BUILTIN_ID_EXT_BIT (0x8000_0000) set  │      (KNOWN_EXT_LIBS)    │
-       ↓                              │   2. probe each search   │
-invoke_builtin checks high bit:       │      path for that file  │
-  id & EXT_BIT → ext_builtins.dispatch│   3. dlopen it, resolve  │
-  else         → BUILTINS[idx]        │      known symbols       │
-       ↓                              │   4. register VM-side wrappers
-NativeFn wrapper                      │      into ext_builtins
-(Vec<u8> ↔ Value::Array<I64>)         └──────────────────────────┘
+[Native(lib="z42_compression",        ┌──────────────────────────────┐
+        entry="__deflate_compress")]  │ corelib::BUILTINS[]          │
+       ↓                              │   … small in-VM natives      │
+compiler short-circuit                │   … interop::ext::typed      │
+(lib + entry without type=)           │       (__deflate_compress …) │
+       ↓                              │                              │
+BuiltinInstr("__deflate_compress")    │ typed body, first call:      │
+       ↓ resolver: builtin_id_of      │   loaded(ctx, name)          │
+BUILTINS[idx] (one table, one id      │   miss → ensure_lib_for()    │
+space for every builtin)              │   1. builtin name → lib      │
+       ↓                              │      (KNOWN_EXT_LIBS)        │
+typed body                            │   2. probe each search path  │
+(Vec<u8> in / Vec<u8> out)            │   3. dlopen, ABI handshake,  │
+       ↓                              │      resolve known symbols   │
+LoadedCompression fn ptr              │      into LoadedCompression  │
+                                      └──────────────────────────────┘
        ↓                                          ↓ dlopen
 extern "C" deflate_compress(           libz42_compression.{so,dylib,dll}
   *const u8, usize, ...) -> i32        ┌──────────────────────────┐
@@ -99,15 +97,17 @@ First match wins per file name — later directories don't override.
 
 ### Lazy loading
 
-Nothing is loaded at VM startup (the bundled wasm build registers its
-statically linked entries in `load_all`, which involves no I/O). When the
-resolver or `exec_builtin` misses a name in `ext_builtins`,
+Nothing is loaded at VM startup (the bundled wasm build fills
+`LoadedCompression` from its statically linked entries in `load_all`, which
+involves no I/O). The builtins themselves are ordinary typed builtins in
+`BUILTINS` (`interop::ext::typed`), so they always resolve; the first call
+whose library is not loaded yet goes to
 [`ensure_lib_for`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interop/ext.rs)
 maps the builtin name to its library through `KNOWN_EXT_LIBS`
 (`[("compression", COMPRESSION_BUILTINS)]`), probes each search path for
 exactly `{DLL_PREFIX}z42_<lib>{DLL_SUFFIX}` — no directory listing — and
-loads the first one found. Each library is looked for once per VM (the
-table records attempts), so a missing library costs one probe, not one per
+loads the first one found. Each library is looked for once per VM
+(`VmCore.ext_libs_tried`), so a missing library costs one probe, not one per
 call. Names not in the map never trigger a probe; a `libz42_*` file in a
 search directory is only ever opened when one of its builtins is asked for
 (the cargo-target directory, one of the search paths, holds every cdylib of
@@ -140,89 +140,49 @@ runs:
      `bundled-compression` unit test `abi_handshake_tests` gates that they
      agree.
    - other basenames: warn + skip (future ext libs add a match arm)
-3. Register `(name, wrapper_fn)` pairs into `VmCore.ext_builtins`. The
-   wrappers are static Rust functions with `NativeFn` signature
-   (`fn(&VmContext, &[Value]) -> Result<Value>`) that marshal Value ↔
-   raw bytes and dispatch into the `LoadedCompression` fn ptrs.
-4. The `libloading::Library` moves into the process-static
+3. The `libloading::Library` moves into the process-static
    `LoadedCompression` table (a `OnceLock`, set by the first VM that loads
    it) next to the fn ptrs, so they stay valid for the whole process. The
    wrappers read the table without a lock; a later VM reuses it.
 
-Failures (lib not found, symbol missing, etc.) are logged, and the
-builtin stays unresolved — the call site sees
-`unknown builtin '__deflate_compress'`.
+Failures (lib not found, symbol missing, etc.) are logged, and the call
+fails with `__deflate_compress: z42-compression not loaded`.
 
-### ext_builtins table
+### Builtin bodies
 
-[`VmCore.ext_builtins: Mutex<ExtBuiltinTable>`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interop/ext.rs):
+The typed builtins in `interop::ext::typed` (`#[builtin(name = "__deflate_compress")]`
+etc.) take and return `Vec<u8>` — the builtin ABI does the `byte[]` ↔ `Vec<u8>`
+conversion — and call a body that dispatches into the `LoadedCompression` fn ptrs:
 
 ```rust
-pub struct ExtBuiltinTable {
-    by_name:   HashMap<String, u32>,
-    by_idx:    Vec<NativeFn>,
-    attempted: HashSet<&'static str>,   // libraries already looked for
+fn deflate_compress(ctx: &VmContext, input: Vec<u8>, level: i64, mode: i64) -> Result<Vec<u8>, BuiltinError> {
+    let lc = loaded(ctx, NAME).map_err(BuiltinError::Legacy)?;   // loads the lib on first use
+    let (mut out_ptr, mut out_len) = (std::ptr::null_mut(), 0usize);
+    let rc = unsafe { (lc.deflate_compress)(
+        input.as_ptr(), input.len(), level as i32, mode as i32, &mut out_ptr, &mut out_len) };
+    if rc != 0 { return Err(BuiltinError::Io(/* last_error_string() */)); }
+    Ok(take_owned_buffer(lc.free, out_ptr, out_len))
 }
 ```
 
-Parallel to the static `BUILTINS[]` slice. Resolver checks both:
-
-```rust
-crate::corelib::builtin_id_of(name)                  // static BUILTINS[]
-    .or_else(|| crate::corelib::ext_builtin_id_of(ctx, name))  // ext
-    .ok_or(...)?
-```
-
-### BuiltinId high-bit dispatch
-
-[`BUILTIN_ID_EXT_BIT = 0x8000_0000`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/corelib/mod.rs).
-When set on a `BuiltinId.0`, dispatch routes through
-`ext_builtins.dispatch(low_31_bits)` instead of `BUILTINS[id]`. The
-existing fast-path indexing for static builtins stays one array index
-deep; ext dispatch is one HashMap-then-Vec lookup (cached after first
-resolve via the stable `by_idx` index).
-
-### Marshalling wrappers
-
-[`wrap_deflate_compress`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interop/ext.rs) and
-its siblings handle the Value ↔ raw-bytes conversion:
-
-```rust
-fn wrap_deflate_compress(ctx: &VmContext, args: &[Value]) -> Result<Value> {
-    let input = require_byte_array(args, 0, NAME)?;   // Value::Array<I64> → Vec<u8>
-    let level = arg_i64(args, 1, NAME)? as i32;
-    let mode  = arg_i64(args, 2, NAME)? as i32;
-    let mut out_ptr: *mut u8 = std::ptr::null_mut();
-    let mut out_len: usize   = 0;
-    let rc = unsafe { (LC.deflate_compress)(
-        input.as_ptr(), input.len(), level, mode, &mut out_ptr, &mut out_len) };
-    if rc != 0 { bail!("{}: {} (rc={})", NAME, last_error_string(), rc); }
-    Ok(bytes_to_value(ctx, take_owned_buffer(out_ptr, out_len)))
-                                  //  Vec<u8> → Value::Array<I64> on the heap
-}
-```
-
-`take_owned_buffer` reconstructs a `Vec<u8>` from the (ptr, len) the
-cdylib returned via `Vec::into_boxed_slice().as_mut_ptr()`. Rust's
-allocator drops it when the Vec falls out of scope — no need to call
-the cdylib's `z42_compression_free` entry (which exists for non-Rust
-consumers).
+`take_owned_buffer` copies the cdylib's output into a Rust-owned `Vec<u8>` and
+frees the original through the library's own `z42_compression_free`, so the two
+sides never mix allocators.
 
 ## Platform variance
 
 | Platform | dlopen available? | Compression delivery |
 |----------|-------------------|----------------------|
 | linux-x64 / linux-arm64 / macos-arm64 / windows-x64 | yes | `libz42_compression.{so,dylib,dll}` dlopened from `<sdk>/native/` |
-| ios-arm64 / iossim-arm64 | **no** (App Store bans dlopen of arbitrary dylibs) | `bundled-compression` Cargo feature: z42 main crate links the `z42-compression` rlib at compile time; `ext::load_all` calls `register_bundled_compression` instead of dlopen. No separate `libz42_compression.a` is built or shipped (it would duplicate what libz42.a already contains). |
+| ios-arm64 / iossim-arm64 | **no** (App Store bans dlopen of arbitrary dylibs) | `bundled-compression` Cargo feature: z42 main crate links the `z42-compression` rlib at compile time; `ext::load_all` fills `LoadedCompression` from it instead of dlopen. No separate `libz42_compression.a` is built or shipped (it would duplicate what libz42.a already contains). |
 | android-arm64 / android-x64 | yes (JNI side-load convention) | Same as iOS — `bundled-compression` feature on. JNI integrators can additionally `System.loadLibrary("z42_compression")` to use the .so. |
 | browser-wasm | **no** | `bundled-compression` static link; `flate2` uses `miniz_oxide` (pure Rust) instead of zlib-ng (which has no SIMD on wasm and is bigger). |
 
 The `bundled-compression` Cargo feature in `src/runtime/Cargo.toml`
 adds `z42-compression` as an optional rlib dep and changes
-`ext::load_all` to call `register_bundled_compression` (statically
-linked entry) rather than dlopen-scan paths. The bundled path
-populates the same `ext_builtins` table with the same wrapper
-functions — consumers can't tell the difference.
+`ext::load_all` to fill `LoadedCompression` from the statically linked
+entries rather than dlopen one. The builtin bodies read the same table
+either way — they can't tell the difference.
 
 ## Adding a new stdlib ext lib
 
@@ -230,14 +190,11 @@ Suppose `z42.net` wants to follow this pattern. Steps:
 
 1. Create `src/runtime/crates/z42-net/` (cdylib + staticlib + rlib),
    pure C ABI symbols
-2. Add a match arm to `ext::load_one`:
-   ```rust
-   "net" => {
-       let symbols = unsafe { net_symbols_via_dlopen(&lib)? };
-       /* register into ext_builtins */
-   }
-   ```
-3. Add wrapper functions per symbol (parallel to the compression set)
+2. Add a match arm to `ext::load_one` that resolves the symbols into a
+   process-static table (parallel to `LoadedCompression`), and add the lib
+   with its builtin names to `KNOWN_EXT_LIBS`
+3. Add typed `#[builtin]` functions per symbol (parallel to
+   `interop::ext::typed`) — they join `BUILTINS` like any other builtin
 4. Add `bundled-net` feature in z42 main crate (mirroring
    `bundled-compression`) for wasm / mobile static link
 5. Update the `./xtask package` desktop / iOS / Android
