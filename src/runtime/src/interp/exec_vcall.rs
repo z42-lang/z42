@@ -3,7 +3,7 @@
 /// unify-vcall-resolution : *what* to call is decided by
 /// `vcall_resolve::resolve_vcall` (shared with `jit/helpers/vcall.rs::jit_vcall`);
 /// this file only keeps the interpreter-specific pieces — the receiver-kind
-/// helpers (`primitive_class_name` / `value_synthetic_type_id` / `is_array_isa`),
+/// helpers (`primitive_class_name` / `value_synthetic_type_id`),
 /// the mixed-mode divert to an already-compiled native method, and running the
 /// resolved target on an interpreter frame.
 
@@ -110,14 +110,6 @@ pub(crate) fn value_synthetic_type_id(obj: &Value) -> Option<u32> {
         Value::Array(_) => Some(PRIM_TYPE_ARRAY),
         _ => None,
     }
-}
-
-/// add-array-base-class: hardcoded is-a check for `Value::Array`.
-/// Class name comparison accepts both unqualified and `Std.`-qualified forms
-/// because IR-emitted class names depend on TypeChecker's qualification path
-/// (imported classes use FQ; bare references unqualified).
-pub(super) fn is_array_isa(class_name: &str) -> bool {
-    matches!(class_name, "Array" | "Object" | "Std.Array" | "Std.Object")
 }
 
 pub(super) fn vcall(

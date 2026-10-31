@@ -13,7 +13,7 @@
 /// • exec_object.rs  — ObjNew / FieldGet / FieldSet / IsInstance / AsCast / Static*
 /// • vcall_resolve.rs — VCall target resolution (shared with jit/helpers/vcall.rs)
 /// • obj_new_resolve.rs — ObjNew class / ctor resolution + site cache (shared with jit_obj_new)
-/// • exec_vcall.rs   — VCall invoke side + primitive_class_name + is_array_isa
+/// • exec_vcall.rs   — VCall invoke side + primitive_class_name
 /// • exec_native.rs  — CallNative / CallNativeVtable / PinPtr / UnpinPtr
 /// • dispatch.rs   — object dispatch helpers (vtable, ToString, static fields)
 /// • ops.rs        — register-level helpers (int_binop, collect_args, …)

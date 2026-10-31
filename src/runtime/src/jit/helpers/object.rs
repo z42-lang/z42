@@ -2,7 +2,7 @@
 //! Object allocation, field access, type tests, static fields, and the
 //! generic `default(T)` runtime helper.
 
-use crate::interp::dispatch::{isa_object, isa_td};
+use crate::interp::dispatch::{array_isa, isa_object, isa_td};
 use crate::metadata::resolver::ObjNewSite;
 use crate::metadata::Value;
 
@@ -205,11 +205,6 @@ pub unsafe extern "C" fn jit_convert(
 // `iface_reaches_mod` mirror) is gone — both helpers now call the interpreter's single
 // `dispatch::isa_td` (id-keyed `IsaCache` → shared memo → chain walk), so
 // there is exactly one type-test implementation for interp, JIT and typed `catch`.
-// add-array-base-class: T[] is-a Std.Array is-a Std.Object.
-// Mirror the interp `is_array_isa` hardcoded chain.
-pub(super) fn is_array_isa(class_name: &str) -> bool {
-    matches!(class_name, "Array" | "Object" | "Std.Array" | "Std.Object")
-}
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_is_instance(
@@ -223,7 +218,7 @@ pub unsafe extern "C" fn jit_is_instance(
     let module = super::jit_module(ctx);
     let result = match &(*frame).regs[obj as usize] {
         Value::Object(rc) => isa_object(vm_ctx_ref(ctx), &module.type_registry, rc.type_desc(), rc.type_args(), class_name, key),
-        Value::Array(_)   => is_array_isa(class_name),
+        Value::Array(rc)  => array_isa(&rc.borrow().element_type(), class_name),
         // add-struct-object-boxing → unify Phase 2 R3: 装箱值类型（struct 或基元）is-a 精确类型 /
         // object（镜像 interp is_instance；基元盒 type_desc.name 即精确 wrapper）。
         Value::BoxedStruct(b) => class_name == "Std.Object" || class_name == "Object"
@@ -291,7 +286,7 @@ pub unsafe extern "C" fn jit_as_cast(
     }
     let is_match = match &val {
         Value::Object(rc) => isa_object(vm_ctx_ref(ctx), &module.type_registry, rc.type_desc(), rc.type_args(), class_name, key),
-        Value::Array(_)   => is_array_isa(class_name),
+        Value::Array(rc)  => array_isa(&rc.borrow().element_type(), class_name),
         Value::Null => true,
         // fix-boxed-primitive-is-as: 未装箱裸基元按其 stdlib 类名匹配。
         other       => crate::interp::prim_isa(other, class_name),

@@ -112,7 +112,6 @@ void test_setvalue_mismatched_kind_throws() {
     // 无类型 API 的值是用户给的:错误种类 → InvalidCastException（同 int[] 语义）,
     // 数组不动。装箱 Int32 拆箱后正常写入。
     var b = new Buf<int>(2);
-    var arr = (Array)b;   // 经 object 通道拿无类型视图 —— 无此语法则直接用反射结果
     Assert.Equal(2, b.Length);
     // 直接构造场景:反射建一个 int[](PRIM)再 SetValue 校验既有语义不回归。
     object ints = new int[1];

@@ -1,0 +1,84 @@
+// 数组的运行期类型测试：数组 is-a `Array` / `object`，并且 is-a `X[]` 当且仅当元素类型就是 `X`
+// （数组不变，没有协变）。`is` / `as` / `(X[])o` / `case X[] v` 共用同一判定；`typeof(X[])` 与
+// `GetType()` 给出同一个类型。
+namespace Demo;
+
+using Std;
+using Std.Collections;
+
+class Box<T> { public T V; }
+class Animal { }
+class Dog : Animal { }
+
+string Tag(object o) {
+    switch (o) {
+        case int[] ia: return "int[" + ia.Length.ToString() + "]";
+        case string[] sa: return "string[]";
+        case Box<int>[] ba: return "Box<int>[]";
+        default: return "other";
+    }
+}
+
+void Main() {
+    // ── 元素类型相同才是 ──────────────────────────────────────────────
+    object ints = new int[2];
+    Assert.True(ints is int[]);
+    Assert.False(ints is long[]);
+    Assert.False(ints is string[]);
+    Assert.True(ints is Array);
+    Assert.True(ints is object);
+
+    // 构造泛型元素：本包泛型（身份描述符）与导入泛型（List）都按实参区分
+    object lists = new List<int>[1];
+    Assert.True(lists is List<int>[]);
+    Assert.False(lists is List<string>[]);
+    object boxes = new Box<int>[1];
+    Assert.True(boxes is Box<int>[]);
+    Assert.False(boxes is Box<string>[]);
+    object lit = new Box<int>[] { new Box<int>() };
+    Assert.True(lit is Box<int>[]);
+
+    // 嵌套数组
+    object jag = new int[][] { new int[1] };
+    Assert.True(jag is int[][]);
+    Assert.False(jag is long[][]);
+
+    // 不变：Dog[] 不是 Animal[]，也不是 object[]
+    object dogs = new Dog[1];
+    Assert.True(dogs is Dog[]);
+    Assert.False(dogs is Animal[]);
+    Assert.False(dogs is object[]);
+
+    // ── as / 硬转换 ───────────────────────────────────────────────────
+    Assert.True((boxes as Box<string>[]) == null);
+    Box<int>[] back = boxes as Box<int>[];
+    Assert.Equal(1, back.Length);
+    Box<int>[] back2 = (Box<int>[])boxes;
+    Assert.Equal(1, back2.Length);
+    bool threw = false;
+    try { Box<string>[] bad = (Box<string>[])boxes; } catch (InvalidCastException e) { threw = true; }
+    Assert.True(threw);
+    // Array → T[] 是下转，同样受检
+    Array arr = new int[3];
+    int[] fromArr = (int[])arr;
+    Assert.Equal(3, fromArr.Length);
+    bool threw2 = false;
+    try { string[] bad2 = (string[])arr; } catch (InvalidCastException e2) { threw2 = true; }
+    Assert.True(threw2);
+    object nul = null;
+    int[] nullArr = (int[])nul;
+    Assert.True(nullArr == null);
+
+    // ── 类型模式 ──────────────────────────────────────────────────────
+    Assert.Equal("int[2]", Tag(ints));
+    Assert.Equal("string[]", Tag(new string[1]));
+    Assert.Equal("Box<int>[]", Tag(boxes));
+    Assert.Equal("other", Tag(new long[1]));
+
+    // ── typeof 与 GetType 一致 ────────────────────────────────────────
+    Assert.Equal("Demo.Box<Std.Int32>[]", typeof(Box<int>[]).FullName);
+    Assert.Equal(boxes.GetType().FullName, typeof(Box<int>[]).FullName);
+    Assert.True(typeof(Box<int>[]) == boxes.GetType());
+    Assert.Equal(lists.GetType().FullName, typeof(List<int>[]).FullName);
+    Assert.Equal(jag.GetType().FullName, typeof(int[][]).FullName);
+}

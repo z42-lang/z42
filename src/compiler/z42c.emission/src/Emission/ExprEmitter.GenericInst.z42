@@ -220,6 +220,8 @@ public sealed partial class ExprEmitter {
     // 算不出实例化身份（内建类 / 跨包泛型 / 开放泛型）→ 回落 AST 名，那正是 `TypeName`
     // 当初存在的理由（`ResolveType` 得 Unknown → `<unknown>` 会失配）。
     internal string _typeTestName(Z42Type resolved, string astName) {
+        // 数组目标：元素名与 `ArrayNew` 记到数组上的同一个函数（见 `_arrayElemName`）。
+        if (resolved is Z42ArrayType) { return this._typeofName(resolved); }
         if (resolved != null) {
             string idn = this._instIdentityName(resolved);
             if (idn != "") { return this._qualifyInstName(idn); }
@@ -274,6 +276,17 @@ public sealed partial class ExprEmitter {
             k = k + 1;
         }
         return s + ">";
+    }
+
+    // 数组**元素类型**的运行期名：`ArrayNew` / `ArrayNewLit` 记到数组上的那份，同时是数组类型测试目标
+    // （`o is Box<int>[]` / `case int[] ia` / `(Box<string>[])o`）与 `typeof(Box<int>[])` 的元素名 ——
+    // 运行期按名比（`dispatch::array_isa`，数组不变），所以两边必须出自这**一个**函数。
+    // 本包泛型实例化取身份名（struct 数组据此按实例化布局建）；其余同类型测试实参的拼法
+    // （导入泛型带实参、基元取关键字、类/接口取全名、嵌套数组递归）。
+    internal string _arrayElemName(Z42Type elem) {
+        string idn = this._instIdentityName(elem);
+        if (idn != "") { return this._qualifyInstName(idn); }
+        return this._testArgName(elem);
     }
 
     // 类型测试目标的实参拼法 = `_typeofArgName`（ObjNew 记到实例上的那份），只多一件事：特化体内

@@ -55,7 +55,7 @@ public static class DiagnosticCodes {
     public static string AmbiguousOverload        = "E0425";   // 重载歧义（add-type-based-overloads）
     public static string CtorArgMismatch          = "E0426";   // new C(args) 实参与本地 ctor 形参不匹配（防静默按位截断）
     public static string InvalidFuncConstraint    = "E0423";
-    public static string IllegalCast              = "E0424";
+    public static string IllegalCast              = "E0424";   // 显式转换 `(T)x` / `x as T` 必败（C# CS0030 / CS0039）：两类型不可能指向同一对象——互不继承的类、同一泛型类的不同实例化、sealed 类 / 值类型与其未实现的接口、元素不同的数组（数组不变）、数组与 object/Array 以外的类、引用类与值类型。判据 `Conversion.ProvablyFails`，判不准（含型参、基链未解析全）一律放行给运行期检查。
     // impl-sealed-semantics（E0416–E0419 已被 add-const-keyword 占用 → sealed 用 E0427–E0429）
     public static string SealedInheritance        = "E0427";   // 不能继承 sealed 类
     public static string SealedOverride           = "E0428";   // 不能 override 一个 sealed（override）方法
