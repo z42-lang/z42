@@ -26,7 +26,7 @@ pub mod aot;
 // code registering types into z42) requires libffi + dlopen which the wasm
 // sandbox cannot provide. Gated on the `native-interop` feature.
 #[cfg(feature = "native-interop")]
-pub mod native;
+pub mod interop;
 // Embedding API (Tier 1 C ABI for host applications). Spec:
 // docs/internals/src/runtime/embedding.md, 变更 add-embedding-api/.
 pub mod host;

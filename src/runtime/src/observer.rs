@@ -21,7 +21,7 @@
 //! Phase 2 (independent refactors):
 //! - [`RuntimeEvent::JitCompiled`] ← `jit::compile_module`
 //! - [`RuntimeEvent::ExceptionThrown`] / `ExceptionCaught` ← `exception::*`
-//! - [`RuntimeEvent::NativeCallEntered`] ← `interp::exec_native`
+//! - [`RuntimeEvent::NativeCallEntered`] ← `interp::exec_ffi`
 //!
 //! # Concurrency
 //!

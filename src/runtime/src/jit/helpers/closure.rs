@@ -181,7 +181,7 @@ pub unsafe extern "C" fn jit_call_indirect(
 
     // 3) Build the callee frame straight from the caller's registers (env, when a
     //    closure was invoked, is the implicit first parameter — reg 0 like a receiver)
-    //    and run it (GC-root enrolment + trace row in `call_native`).
+    //    and run it (GC-root enrolment + trace row in `enter_compiled`).
     let callee_frame = match env_val_opt {
         Some(env) => JitFrame::new_method_args_from(vm_ctx, entry.max_reg, env, &frame_ref.regs, user_regs),
         None => JitFrame::new_args_from(vm_ctx, entry.max_reg, &frame_ref.regs, user_regs),

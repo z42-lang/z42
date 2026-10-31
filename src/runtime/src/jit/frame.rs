@@ -31,7 +31,7 @@ pub struct JitFrame {
     /// Return value, written by compiled code at `Ret %r` (a 16-byte copy of the
     /// register slot — `Value` is `Copy`, no refcount / barrier). Meaningful only
     /// when `has_ret != 0`. Not a GC root: nothing reaches a safepoint between
-    /// the store and `call_native` taking it out.
+    /// the store and `enter_compiled` taking it out.
     pub ret: Value,
     /// `1` once `Ret %r` stored `ret`; stays `0` for a void `Ret` — the
     /// `Returned(None)` vs `Returned(Some(Null))` distinction.

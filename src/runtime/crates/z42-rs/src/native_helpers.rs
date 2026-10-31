@@ -8,7 +8,7 @@
 use core::ffi::c_char;
 
 extern "C" {
-    /// Implemented in `z42::native::exports`. Stores the message into
+    /// Implemented in `z42::interop::exports`. Stores the message into
     /// the per-thread `LAST_ERROR` slot using error code Z0905.
     pub fn z42_set_panic_message(msg: *const c_char);
 }

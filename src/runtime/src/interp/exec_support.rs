@@ -161,7 +161,7 @@ pub(super) fn try_native_exec(ctx: &VmContext, func: &Function, args: &[Value]) 
     };
     ctx.counters().jit_native_from_interp.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let callee = crate::jit::frame::JitFrame::new(ctx, max_reg, args);
-    let outcome = unsafe { crate::jit::invoke::call_native(ctx, ptr, callee_fn, callee) };
+    let outcome = unsafe { crate::jit::invoke::enter_compiled(ctx, ptr, callee_fn, callee) };
     Some(Ok(outcome.into_exec(ctx)))
 }
 
@@ -218,13 +218,13 @@ fn osr_hand_off(
     // then takes one on its first allocation.
     osr.frame_id = frame.frame_id_if_taken();
     // NB v1 simplification: the interpreter's own VmFrame for this activation is
-    // still on the stack; `call_native` pushes a second one for the OSR native frame.
+    // still on the stack; `enter_compiled` pushes a second one for the OSR native frame.
     // GC scans both — the interp regs are clones of the OSR regs (same heap refs), so
     // the double-scan is conservatively correct. A crash trace shows the frame twice
-    // (cosmetic). Popped in `call_native`; the interp frame's guard pops on the
+    // (cosmetic). Popped in `enter_compiled`; the interp frame's guard pops on the
     // caller's `return`.
     let outcome = unsafe {
-        crate::jit::invoke::call_native(ctx, entry.ptr, entry.func, osr)
+        crate::jit::invoke::enter_compiled(ctx, entry.ptr, entry.func, osr)
     };
     Some(Ok(outcome.into_exec(ctx)))
 }

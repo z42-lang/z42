@@ -47,7 +47,7 @@ fn try_native_static_call(
     };
     ctx.counters().jit_native_from_interp.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let callee = crate::jit::frame::JitFrame::new_args_from(ctx, max_reg, &frame.regs, args);
-    let outcome = unsafe { crate::jit::invoke::call_native(ctx, ptr, callee_fn, callee) };
+    let outcome = unsafe { crate::jit::invoke::enter_compiled(ctx, ptr, callee_fn, callee) };
     Some(Ok(native_result_to_dst(ctx, frame, dst, outcome)))
 }
 
@@ -387,7 +387,7 @@ fn try_native_indirect_call(
         Some(env) => crate::jit::frame::JitFrame::new_method_args_from(ctx, max_reg, env, &frame.regs, args),
         None => crate::jit::frame::JitFrame::new_args_from(ctx, max_reg, &frame.regs, args),
     };
-    let outcome = unsafe { crate::jit::invoke::call_native(ctx, ptr, callee_fn, callee) };
+    let outcome = unsafe { crate::jit::invoke::enter_compiled(ctx, ptr, callee_fn, callee) };
     Some(Ok(native_result_to_dst(ctx, frame, dst, outcome)))
 }
 

@@ -47,7 +47,7 @@ Z42_LOG=z42=warn ./z42vm --verbose script.zbc      # 即便 --verbose 也安静
 ```
 
 target 就是各个 mod 自己的路径：`z42` / `z42::interp` / `z42::jit` / `z42::gc` /
-`z42::native::*` / `z42::metadata::*` …
+`z42::interop::*` / `z42::metadata::*` …
 
 ## 3. 崩溃抓盘：`Z42_CRASH_DIR`
 

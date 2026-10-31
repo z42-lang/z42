@@ -11,7 +11,7 @@
 // 连带效果：短名（`i8` / `u8` / `i32` …）**不再是合法的 z42 类型拼写**——它们走到 `Code()` 得 -1，
 // 与用户未定义的类名同格（源码写 `u8 x = 1;` 报未定义类型）。
 // **注意**：`[Extern]` FFI 签名串里的 `i8` / `u8` / `usize` / `*const T` 是 **C/Rust ABI 记法**，由 VM 的
-// `native/dispatch.rs::parse_type` 解析，与本表无关、不受此变更影响（见 docs/design/language/interop.md §6.1）。
+// `interop/dispatch.rs::parse_type` 解析，与本表无关、不受此变更影响（见 docs/design/language/interop.md §6.1）。
 //
 // 设计不变式：归一覆盖 struct 值语义无关的**内建标量/引用类型**：整数族 sbyte..ulong、float/double、
 // bool、char 为 **Scalar 值类型**（裸 Value 承载、算术热路径）；string/object 为**有专属 IR 标签的内建

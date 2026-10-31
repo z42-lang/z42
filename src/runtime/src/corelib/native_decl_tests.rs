@@ -21,7 +21,7 @@
 //! 会假缺席）。
 //!
 //! Only the positional `[Native("__x")]` form is checked: the `[Native(lib=..., entry=...)]`
-//! form binds to native extensions (`native/ext.rs`), not to `BUILTINS`.
+//! form binds to native extensions (`interop/ext.rs`), not to `BUILTINS`.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};

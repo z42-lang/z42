@@ -8,7 +8,7 @@ fn frame() -> VmFrame {
 
 #[cfg(feature = "native-interop")]
 fn current_vm_ptr() -> *const VmContext {
-    crate::native::exports::current_vm().map_or(std::ptr::null(), |v| v as *const _)
+    crate::interop::exports::current_vm().map_or(std::ptr::null(), |v| v as *const _)
 }
 
 #[test]

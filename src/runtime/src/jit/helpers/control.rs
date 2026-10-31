@@ -84,7 +84,7 @@ pub unsafe extern "C" fn jit_match_catch_type(
 /// the JIT helpers — every helper is `(frame, ctx, ...)`).
 ///
 /// Safety: `ctx` must be the running thread's live `VmContext` — the context
-/// parameter every compiled function is entered with (`jit::invoke::call_native`).
+/// parameter every compiled function is entered with (`jit::invoke::enter_compiled`).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_check_safepoint(
     _frame: *mut JitFrame,

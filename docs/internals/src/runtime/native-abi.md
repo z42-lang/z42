@@ -87,7 +87,7 @@
 | 路径 | 内容 |
 |---|---|
 | [`src/runtime/include/z42_abi.h`](https://github.com/z42-lang/z42/blob/main/src/runtime/include/z42_abi.h) | Tier 1 C 头（与 `z42_host.h` 平行） |
-| [`src/runtime/src/native/`](https://github.com/z42-lang/z42/tree/main/src/runtime/src/native) | Tier 1 在 VM 内的实现（`registry` / `marshal` / `dispatch` / `loader` / `error` / `exports` / `ext`） |
+| [`src/runtime/src/interop/`](https://github.com/z42-lang/z42/tree/main/src/runtime/src/interop) | Tier 1 在 VM 内的实现（`registry` / `marshal` / `dispatch` / `loader` / `error` / `exports` / `ext`） |
 | [`src/runtime/crates/z42-abi`](https://github.com/z42-lang/z42/tree/main/src/runtime/crates/z42-abi) | Tier 1 的 Rust 镜像（结构体 + 冻结 tag 常量 + `extern "C"` 声明） |
 | [`src/runtime/crates/z42-rs`](https://github.com/z42-lang/z42/tree/main/src/runtime/crates/z42-rs) | 面向用户的门面 crate（`Z42Type` trait + helper） |
 | [`src/runtime/crates/z42-macros`](https://github.com/z42-lang/z42/tree/main/src/runtime/crates/z42-macros) | proc macro：`methods_attr` / `module_macro` / `shim` / `signature`（Tier 2）；`builtins_attr`（VM 自己的 builtin ABI，§6.2） |
@@ -148,7 +148,7 @@ native 库                      z42vm
 ### 4.1 `CallNative`
 
 `CallNativeInstr(dst, module, type, symbol, args)` 由编译器发射（`StubEmitter`），interp 在
-`exec_native::call_native` 消费：
+`exec_ffi::ffi_call` 消费：
 
 ```
 计数 native_calls + 发 NativeCallEntered 事件
@@ -510,10 +510,10 @@ z42.net 改调新方法，旧方法与旧 builtin 一起挂债；种子不再声
 
 ### 8.1 Tier 3 源生成器
 
-`CallNativeVtable` 在 `exec_native.rs` 里是**无条件 `bail!`**：
+`CallNativeVtable` 在 `exec_ffi.rs` 里是**无条件 `bail!`**：
 
 ```rust
-pub(super) fn call_native_vtable(vtable_slot: u16) -> Result<()> {
+pub(super) fn ffi_call_vtable(vtable_slot: u16) -> Result<()> {
     bail!("CallNativeVtable not yet implemented (...): slot={vtable_slot}");
 }
 ```

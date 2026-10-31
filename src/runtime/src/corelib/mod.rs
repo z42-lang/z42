@@ -62,7 +62,7 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 
 /// Function pointer type of an **ext** builtin（dlopen / bundled 的 native 扩展 ABI，
-/// `native::ext`）——不是 builtin 表的形态，表里只有 ABI v2 的类型化描述符
+/// `interop::ext`）——不是 builtin 表的形态，表里只有 ABI v2 的类型化描述符
 /// （`abi::BuiltinDesc`）。
 pub type NativeFn = fn(&VmContext, &[Value]) -> Result<Value>;
 
@@ -96,7 +96,7 @@ pub fn builtin_id_of(name: &str) -> Option<BuiltinId> {
 }
 
 /// Resolve a builtin name via the per-VM extension table. A miss loads the
-/// ext library that provides `name` (first use only, `native::ext::ensure_lib_for`)
+/// ext library that provides `name` (first use only, `interop::ext::ensure_lib_for`)
 /// and looks again. Returns a `BuiltinId` whose high bit is set; dispatch
 /// routes it through `ext_builtins.dispatch`. Only available when the
 /// `native-interop` feature is enabled.
@@ -105,7 +105,7 @@ pub fn ext_builtin_id_of(ctx: &VmContext, name: &str) -> Option<BuiltinId> {
     let lookup = || ctx.core.ext_builtins.lock().lookup_id(name)
         .map(|idx| BuiltinId(idx | BUILTIN_ID_EXT_BIT));
     lookup().or_else(|| {
-        if crate::native::ext::ensure_lib_for(ctx, name) { lookup() } else { None }
+        if crate::interop::ext::ensure_lib_for(ctx, name) { lookup() } else { None }
     })
 }
 

@@ -3,7 +3,7 @@
 //! entry (`jit::run_fn`), the call helpers (`jit_call` / `jit_vcall` /
 //! `jit_call_indirect` / `jit_obj_new` / `jit_to_str`) and the interpreter's
 //! mixed-mode diverts (`try_native_exec` / OSR / `try_native_static_call` /
-//! `try_native_method_call`) — goes through [`call_native`]. What differs between
+//! `try_native_method_call`) — goes through [`enter_compiled`]. What differs between
 //! them (how the callee frame is filled, where the return value goes, whether the
 //! exception stays pending or is taken) stays at the call site.
 
@@ -66,7 +66,7 @@ impl NativeOutcome {
 /// `code` must be a compiled `JitFn` of `vm`'s VM JIT (`VmCore::jit`), and `vm`
 /// must be driven by the calling thread. `func` must stay alive for the call (an
 /// `FnEntry`'s `func` always does — see [`FnEntry::func`]).
-pub(crate) unsafe fn call_native(
+pub(crate) unsafe fn enter_compiled(
     vm: &VmContext, code: *const u8, func: *const Function, mut frame: JitFrame,
 ) -> NativeOutcome {
     let jit_fn: JitFn = unsafe { std::mem::transmute(code) };
@@ -82,11 +82,11 @@ pub(crate) unsafe fn call_native(
     NativeOutcome::Returned(ret)
 }
 
-/// [`call_native`] for a borrowed compiled entry (the JIT helpers' case).
+/// [`enter_compiled`] for a borrowed compiled entry (the JIT helpers' case).
 ///
 /// # Safety
-/// As [`call_native`]; `entry` must come from `vm`'s VM JIT.
+/// As [`enter_compiled`]; `entry` must come from `vm`'s VM JIT.
 #[inline]
 pub(crate) unsafe fn call_entry(vm: &VmContext, entry: &FnEntry, frame: JitFrame) -> NativeOutcome {
-    unsafe { call_native(vm, entry.ptr, entry.func, frame) }
+    unsafe { enter_compiled(vm, entry.ptr, entry.func, frame) }
 }

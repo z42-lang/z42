@@ -43,7 +43,7 @@ const TYPED: &[&[abi::BuiltinDesc]] = &[
     super::repl::typed::DESCS,
     super::repl_editing::typed::DESCS,
     #[cfg(feature = "native-interop")]
-    crate::native::ext::typed::DESCS,
+    crate::interop::ext::typed::DESCS,
     super::monitor::typed::DESCS,
     #[cfg(feature = "net")]
     super::network::tcp::typed::DESCS,

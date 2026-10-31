@@ -78,7 +78,7 @@ pub struct VmCore {
     /// load / `z42_register_type`. Concurrent reads from multiple threads
     /// not serialized.
     #[cfg(feature = "native-interop")]
-    pub(crate) native_types:       RwLock<HashMap<(String, String), Arc<crate::native::RegisteredType>>>,
+    pub(crate) native_types:       RwLock<HashMap<(String, String), Arc<crate::interop::RegisteredType>>>,
     /// Loaded native libraries kept alive for VM lifetime so function
     /// pointers stored in `native_types` stay valid. Lock contention low
     /// (only `dlopen` adds entries) → plain Mutex.
@@ -202,13 +202,13 @@ pub struct VmCore {
     /// **add-z42-compression **: stdlib native extension builtins
     /// (e.g. `__deflate_compress` from libz42_compression). Filled when a
     /// library is first needed: a lookup miss loads the library that provides
-    /// the name (`crate::native::ext::ensure_lib_for`), which registers its
+    /// the name (`crate::interop::ext::ensure_lib_for`), which registers its
     /// `(name, fn_ptr)` pairs. Lookup parallels static `BUILTINS[]`;
     /// see `corelib::ext_builtin_id_of` for the resolver fallback.
     /// Only present when `native-interop` feature is enabled (gated alongside
     /// the `native` module in lib.rs).
     #[cfg(feature = "native-interop")]
-    pub(crate) ext_builtins:       Mutex<crate::native::ext::ExtBuiltinTable>,
+    pub(crate) ext_builtins:       Mutex<crate::interop::ext::ExtBuiltinTable>,
     /// **add-z42-io-filestream **: live `Std.IO.FileStream`
     /// handles keyed by monotonic slot id. `__file_open` inserts;
     /// `__file_close` removes (or marks slot dead). Pattern mirrors
@@ -413,7 +413,7 @@ pub struct VmContext {
     ///
     /// Raw ptrs valid only while the owning Rust frame
     /// (`interp::Frame` / `JitFrame`) is alive — `FrameGuard` RAII for
-    /// interp and `jit::invoke::call_native` for JIT pop before the owner
+    /// interp and `jit::invoke::enter_compiled` for JIT pop before the owner
     /// returns.
     pub(crate) call_stack:        super::frame_stack::FrameStack,
     /// Free-list of register files for interp `Frame`s and `JitFrame`s.

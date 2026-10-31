@@ -29,11 +29,11 @@ const INVALID_MARSHAL_FQ: &str = "Std.InvalidMarshalException";
 /// `Std.InvalidMarshalException`; `Ok(None)` on success; `Err` on internal
 /// VM faults (unknown native type / method / arity mismatch).
 #[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
-pub(super) fn call_native(
+pub(super) fn ffi_call(
     ctx: &VmContext, module: &Module, frame: &mut Frame,
     dst: u32, module_name: &str, type_name: &str, symbol: &str, args: &[u32],
 ) -> Result<Option<Value>> {
-    use crate::native::{marshal, dispatch as ndisp};
+    use crate::interop::{marshal, dispatch as ndisp};
 
     // Phase 2 D3+D6 wiring : count + event for native FFI calls.
     // Increment fires BEFORE dispatch so even failing calls (unknown type /
@@ -105,7 +105,7 @@ pub(super) fn call_native(
 }
 
 #[inline(never)] // 热循环布局：留在 exec_function_body 之外（见 exec_instr.rs 模块注释）
-pub(super) fn call_native_vtable(vtable_slot: u16) -> Result<()> {
+pub(super) fn ffi_call_vtable(vtable_slot: u16) -> Result<()> {
     bail!(
         "CallNativeVtable not yet implemented (spec C5 / impl-source-generator): slot={vtable_slot}"
     );

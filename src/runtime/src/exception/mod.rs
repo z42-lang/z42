@@ -17,7 +17,7 @@
 //! ## Stack-trace capture (exception-stack-trace)
 //!
 //! `VmContext.call_stack` holds one [`VmFrame`] per active script frame,
-//! pushed by `interp::exec_support::enter_frame` / `jit::invoke::call_native`.
+//! pushed by `interp::exec_support::enter_frame` / `jit::invoke::enter_compiled`.
 //! Caller frames record the code offset of the call site before they invoke a
 //! callee, so a snapshot at throw time produces a complete
 //! `<func> at <file>:<line>` chain (line resolved from the offset then).
@@ -57,7 +57,7 @@ use crate::vm_context::VmContext;
 /// JIT runtime (merged module or a lazily-loaded function kept
 /// alive by its lazy slot) holds for at least the activation. All are valid
 /// for the duration of the corresponding `exec_function` / native call —
-/// RAII (`FrameGuard` for interp, `jit::invoke::call_native` for JIT)
+/// RAII (`FrameGuard` for interp, `jit::invoke::enter_compiled` for JIT)
 /// guarantees the pop runs before the owning frame's stack slot goes away.
 ///
 /// `pc` is mutable via [`Cell`] so callers can stamp the current call-site
@@ -100,7 +100,7 @@ pub const PC_UNSET: u32 = u32::MAX;
 
 // SAFETY (add-multithreading-foundation Phase 3):
 // `VmFrame` holds raw pointers (`func` / `regs`) valid for the
-// frame's lifetime, which is enclosed by `FrameGuard` RAII / `call_native`.
+// frame's lifetime, which is enclosed by `FrameGuard` RAII / `enter_compiled`.
 // The GC scanner is the only cross-thread reader (mark phase invoked from a
 // possible GC worker thread); it only ever reads these pointers while the
 // owning thread is paused at a safepoint. The `Cell<u32>` `pc` is covered by

@@ -769,7 +769,7 @@ mod abi_handshake_tests {
         assert_eq!(
             super::EXPECTED_COMPRESSION_ABI,
             z42_compression::Z42_COMPRESSION_ABI_VERSION,
-            "native/ext.rs EXPECTED_COMPRESSION_ABI is out of sync with \
+            "interop/ext.rs EXPECTED_COMPRESSION_ABI is out of sync with \
              z42-compression's Z42_COMPRESSION_ABI_VERSION — bump both together",
         );
         assert_eq!(

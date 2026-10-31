@@ -1,4 +1,4 @@
-//! Unit tests for `native::ext` — search path resolution + lazy library loading.
+//! Unit tests for `interop::ext` — search path resolution + lazy library loading.
 
 use super::ext::*;
 
@@ -95,7 +95,7 @@ fn a_library_is_looked_for_once_per_vm() {
     // P1-8 批次 9:压缩 builtin 迁主表后不再进 ext 表,装载成功的可见信号是
     // 进程级 fn ptr 表已填充(typed 内部 `loaded` 读它)。
     if ensure_lib_for(&ctx, "__deflate_compress") {
-        assert!(crate::native::ext::compression_loaded_for_test());
+        assert!(crate::interop::ext::compression_loaded_for_test());
     }
     assert!(!ensure_lib_for(&ctx, "__zstd_compress"), "second miss for the same library must not retry");
 }

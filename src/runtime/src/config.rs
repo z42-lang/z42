@@ -5,7 +5,7 @@
 //! registers every runtime knob with a default + type + description in
 //! one place. docs/review.md Part 4 D1 — was P0 because adding a new
 //! knob previously meant scattering `std::env::var("Z42_X")` calls
-//! across `main.rs` / `signal_handler.rs` / `gc/` / `native/`, with no
+//! across `main.rs` / `signal_handler.rs` / `gc/` / `interop/`, with no
 //! single place to discover what knobs exist.
 //!
 //! # Scope (this Phase 1 refactor)
@@ -16,7 +16,7 @@
 //! reads at boot.
 //!
 //! Subsystem-local OnceLock-cached env reads (`Z42_NATIVE_PATH` in
-//! `native/ext.rs`, `Z42_SAFEPOINT_THROTTLE` / `Z42_GC_*` in `gc/`,
+//! `interop/ext.rs`, `Z42_SAFEPOINT_THROTTLE` / `Z42_GC_*` in `gc/`,
 //! `Z42_STRESS_ITERS` in tests) keep their existing inline reads —
 //! migrating those is Phase 2 (separate small refactor). The `KNOWN_KNOBS`
 //! table here lists ALL of them for discovery / `--info` purposes
