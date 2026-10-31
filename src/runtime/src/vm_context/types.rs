@@ -215,6 +215,11 @@ pub struct VmCore {
     /// `processes` / `compressors` slot tables（`mutexes`/`channels`/`rwlocks` 随旧同步原语退役一并删除）。
     /// (**M2**: slot-id counter embedded in the registry.)
     pub(crate) file_handles:       ResourceRegistry<crate::corelib::fs::FileHandleSlot>,
+    /// The file system this VM's file builtins, package loader and lazy loader read through.
+    /// Given by whoever creates the VM ([`VmContext::with_module_and_vfs`] /
+    /// [`VmContext::with_vfs`]); [`crate::pal::fs::default_vfs`] otherwise. Per VM, so two
+    /// VMs in one process never see each other's in-memory files.
+    pub(crate) vfs:                Arc<dyn crate::pal::fs::Vfs>,
 
     // ── add-z42-net K1  ───────────────────────────────────────
     /// live `Std.Net.Sockets.TcpClient` streams keyed by monotonic u64 slot

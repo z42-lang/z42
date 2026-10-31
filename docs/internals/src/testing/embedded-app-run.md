@@ -98,14 +98,14 @@ C `z42_host_run_app`）、两链接形态，全部产出同一份结构化 JSON�
 wasm 没有文件系统、也没有进程 stdout，所以它**不能**直接复用 desktop 那条路。
 只有两点不同，其余全共享：
 
-**(a) 加载走 fs backend，不是 `std::fs`。** 运行期工件读取改走
-`corelib::fs_backend::active()`——native 仍是 `std::fs`（字节不变），wasm 是内存 VFS。
-改动点集中在 `metadata/loader.rs`（`load_zbc` / `load_zpkg` 及 `.zsym` sidecar、
-indexed-zpkg 散装读、命名空间目录扫描）、`metadata/lazy_loader.rs`（`ZpkgCandidate::build`）、
+**(a) 加载走 VM 的 VFS，不是 `std::fs`。** 运行期工件读取一律走这台 VM 的 `pal::fs::Vfs`
+句柄（`RunOpts::vfs`，不给就是默认：native 为 `LocalFs`，即 `std::fs`；wasm 为内存 VFS）。
+走它的有 `metadata/loader/artifact.rs`（`load_zbc` / `load_zpkg` 及 `.zsym` sidecar、indexed-zpkg
+散装读）、`metadata/namespace_index.rs`（命名空间目录扫描、`ZpkgCandidate::build`）、惰性加载器、
 `app.rs`（`z42.core` 预载的 `exists`、entry-dir 的 `is_dir`）。
 
-于是宿主先把 agent app.zpkg + stdlib zpkg + bundle（manifest + 各 case zbc）挂进 VFS，
-`z42::app::run` 就能像在磁盘上一样加载它们——**同一个 app-run 核心**。
+于是宿主先把 agent app.zpkg + stdlib zpkg + bundle（manifest + 各 case zbc）挂进它自己的
+`MemoryFs`，再把它交给 `z42::app::run`，就能像在磁盘上一样加载它们——**同一个 app-run 核心**。
 
 **(b) 报告经 VFS 文件回传，不是 stdout**（即 §2 的 `out-path`）。
 
@@ -113,7 +113,7 @@ wasm-bindgen 面只有自足的三个函数（`workload/wasm/platform/src/lib.rs
 与 `Z42VM` handle API 并列）：
 
 ```
-mountAsset(path, bytes)                // 挂进全局内存 VFS
+mountAsset(path, bytes)                // 挂进本页的内存 VFS（wasm 宿主持有，交给它创建的每台 VM）
 runTestApp(app, entry, libs, args)     // → z42::app::run（interp；wasm 无 JIT）
 readAsset(path) -> bytes               // 读回报告文件
 ```

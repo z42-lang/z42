@@ -52,13 +52,11 @@ const UNDECLARED_ALLOWLIST: &[(&str, &str)] = &[
     ("__class_default", "compiler-emitted: 继承链按声明类寻址（类级 default(T)）"),
     // Invoked by the VM itself (boxed-struct `GetHashCode` protocol intercept in vcall_resolve).
     ("__struct_hash_code", "VM-internal: boxed struct GetHashCode"),
-    // Host-only surfaces (REPL line editor, wasm virtual filesystem) wired by their hosts.
+    // Host-only surfaces (REPL line editor) wired by their hosts.
     ("__repl_readline",       "host-only: z42-repl cdylib"),
     ("__repl_set_completer",  "host-only: z42-repl cdylib"),
     ("__repl_set_key_editor", "host-only: z42-repl cdylib"),
     ("__repl_set_keywords",   "host-only: z42-repl cdylib"),
-    ("__vfs_enable", "host-only: wasm playground VFS"),
-    ("__vfs_mount",  "host-only: wasm playground VFS"),
     // 🪦 store-sync-values-in-heap 阶段 2 已落地：旧同步原语的 19 条豁免连同它们的
     // 表槽、`corelib/sync.rs`、三个 registry 一并删除 —— 所以这里**不再需要**对应条目。
     //

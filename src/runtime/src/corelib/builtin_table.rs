@@ -38,7 +38,6 @@ const TYPED: &[&[abi::BuiltinDesc]] = &[
     super::assemblyloadcontext::typed::DESCS,
     super::threading::typed::DESCS,
     super::fs::typed::DESCS,
-    super::fs_backend::memory::typed::DESCS,
     super::process::typed::DESCS,
     super::io::typed::DESCS,
     super::repl::typed::DESCS,

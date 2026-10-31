@@ -146,7 +146,7 @@ fn make_fake_zpkg(dir: &Path, filename: &str, namespaces: &[&str]) {
 /// resolve_namespace with empty paths returns an empty vec
 #[test]
 fn test_resolve_namespace_empty_paths() {
-    let result = resolve_namespace("Std.IO", &[]);
+    let result = resolve_namespace(&crate::pal::vfs::LocalFs, "Std.IO", &[]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_empty());
 }
@@ -162,7 +162,7 @@ fn test_resolve_namespace_ambiguous_returns_both() {
     make_fake_zpkg(&tmp, "libA.zpkg", &["z42.conflict"]);
     make_fake_zpkg(&tmp, "libB.zpkg", &["z42.conflict"]);
 
-    let result = resolve_namespace("z42.conflict", &[tmp.clone()]);
+    let result = resolve_namespace(&crate::pal::vfs::LocalFs, "z42.conflict", &[tmp.clone()]);
     std::fs::remove_dir_all(&tmp).ok();
 
     assert!(result.is_ok(), "unexpected error: {:?}", result.err());
@@ -512,7 +512,7 @@ fn indexed_zpkg_loads_via_path() {
     std::fs::copy(indexed_fixture_dir().join("source.zpkg"), base.join("demo.indexed.zpkg")).unwrap();
     std::fs::copy(indexed_fixture_dir().join("source.zbc"), base.join("source.zbc")).unwrap();
 
-    let art = crate::metadata::loader::load_artifact(
+    let art = crate::metadata::loader::load_artifact(&crate::pal::vfs::LocalFs,
         base.join("demo.indexed.zpkg").to_str().unwrap(),
     )
     .expect("indexed zpkg loads through the path-aware loader");
@@ -529,7 +529,7 @@ fn indexed_zpkg_rejects_hash_mismatch() {
     zbc.push(0x78); // 篡改散装 zbc → 内容 hash 必不符
     std::fs::write(base.join("source.zbc"), zbc).unwrap();
 
-    let err = match crate::metadata::loader::load_artifact(
+    let err = match crate::metadata::loader::load_artifact(&crate::pal::vfs::LocalFs,
         base.join("demo.indexed.zpkg").to_str().unwrap(),
     ) {
         Ok(_) => panic!("tampered scattered zbc must be rejected"),

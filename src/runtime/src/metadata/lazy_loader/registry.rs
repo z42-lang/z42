@@ -63,7 +63,7 @@ impl LazyLoader {
         self.mark_zpkg_loaded_both(file_name);
 
         let path_str = file_path.to_string_lossy().into_owned();
-        let mut artifact = load_artifact(&path_str)?;
+        let mut artifact = load_artifact(&*self.vfs, &path_str)?;
 
         // add-crosspkg-impl-reflection: register this package's
         // `impl Trait for Type` pairs (backs GetInterfaces cross-pkg traits).
@@ -187,7 +187,7 @@ impl LazyLoader {
                 {
                     continue;
                 }
-                match ZpkgCandidate::build_in_dirs(&dirs, &dep.file) {
+                match ZpkgCandidate::build_in_dirs(&*self.vfs, &dirs, &dep.file) {
                     Ok(cand) => {
                         self.declared_zpkgs.insert(dep.file.clone(), cand);
                     }
@@ -235,13 +235,13 @@ impl LazyLoader {
                 parent.to_path_buf()
             };
             let is_dir = dir.to_str()
-                .map(|s| crate::corelib::fs_backend::active().is_dir(s))
+                .map(|s| self.vfs.is_dir(s))
                 .unwrap_or(false);
             if is_dir && !self.search_dirs.iter().any(|d| d == &dir) {
                 self.search_dirs.push(dir);
             }
         }
-        let artifact = load_artifact(path)?;
+        let artifact = load_artifact(&*self.vfs, path)?;
         self.register_loaded_artifact(artifact)
     }
 
@@ -287,7 +287,7 @@ impl LazyLoader {
                 {
                     continue;
                 }
-                match ZpkgCandidate::build_in_dirs(&dirs, &dep.file) {
+                match ZpkgCandidate::build_in_dirs(&*self.vfs, &dirs, &dep.file) {
                     Ok(cand) => {
                         self.declared_zpkgs.insert(dep.file.clone(), cand);
                     }
@@ -306,7 +306,7 @@ impl LazyLoader {
             // candidates retained directly. The stored path is now the dir where
             // the namespace actually matched (was first-dir-by-name) — identical
             // for real single-location zpkgs. (refactor-metadata-namespace-index)
-            let scanned = namespace_index::scan_zpkg_candidates(&dirs);
+            let scanned = namespace_index::scan_zpkg_candidates(&*self.vfs, &dirs);
             for ns in &artifact.import_namespaces {
                 for cand in &scanned {
                     if !cand.namespaces.iter().any(|n| n == ns) {

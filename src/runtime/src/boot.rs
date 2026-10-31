@@ -33,6 +33,8 @@ use std::pin::Pin;
 
 /// Everything besides the merged module that the context needs to find more code later.
 pub(crate) struct BootPlan {
+    /// The file system the VM reads and writes through (the caller probed its packages on it).
+    pub vfs: std::sync::Arc<dyn crate::pal::fs::Vfs>,
     /// Directories the lazy loader searches for not-yet-loaded packages.
     pub search_dirs: Vec<PathBuf>,
     /// Declared-but-not-loaded packages (namespace → candidate). Also decides `available!`.
@@ -58,7 +60,7 @@ pub(crate) fn boot_context(mut module: Module, plan: BootPlan) -> Pin<Box<VmCont
     //     后续 `fix-silent-symbol-resolution` 的急切校验也就不会对它抛出。
     //     `available!` 正是那条校验的唯一显式豁免通道。
     let avail_stats =
-        crate::metadata::loader::fold_availability(&mut module, &plan.declared_candidates);
+        crate::metadata::loader::fold_availability(&*plan.vfs, &mut module, &plan.declared_candidates);
     if !avail_stats.is_noop() {
         // 剪枝改了块集合 → 派生侧表（block_index / branch_targets）必须按剪枝后的 CFG 重建。
         crate::metadata::loader::build_block_indices(&mut module);
@@ -67,7 +69,7 @@ pub(crate) fn boot_context(mut module: Module, plan: BootPlan) -> Pin<Box<VmCont
     }
 
     let string_pool_len = module.string_pool.len();
-    let ctx = VmContext::with_module(module);
+    let ctx = VmContext::with_module_and_vfs(module, plan.vfs);
     // add-static-constructors：急切合并进来的类型（主程序 + stdlib + eager deps）在此登记
     // 静态构造器。跨包惰性加载的类型由 `try_lookup_type` 登记——两处合起来保证
     // 「登记早于使用」，这是 cctor 屏障那个 `pending` 门成立的前提。

@@ -302,6 +302,7 @@ pub struct HostConfig {
     pub stderr:        Option<Box<dyn Fn(&[u8]) + Send + Sync + 'static>>,
     pub search_paths:  Vec<PathBuf>,
     pub zpkg_resolver: Option<Arc<dyn ZpkgResolver>>,
+    pub vfs:           Option<Arc<dyn Vfs>>,   // VM 的文件系统；None = pal::fs::default_vfs()
 }
 
 impl Host {
@@ -317,7 +318,7 @@ impl Host {
 `run_app()`（一次性跑 app，对应 C 的 `z42_host_run_app`）、
 内置 resolver `MapResolver`（`HashMap` eager，移动 / wasm 用）与 `SearchPathsResolver`（包文件系统扫描）。
 
-三处**不是**照抄 Tier 1 的地方：
+四处**不是**照抄 Tier 1 的地方：
 
 1. **闭包 sink 的跳板**。`HostConfig.stdout` 是 `Box<dyn Fn>`，C 那边只认函数指针 + `user_data`。
    crate 把闭包装进 `Box<SinkBox>`、由 `Host` 持有保活，`user_data` 传 `&*SinkBox`，
@@ -327,7 +328,10 @@ impl Host {
    把 stderr 的 `user_data` 换成它自己的 `SinkBox`。
 3. **Rust resolver 不走 C 往返**。`cfg.zpkg_resolver` 在 `initialize` 成功后经
    `install_zpkg_resolver(Arc<dyn ZpkgResolver>)` 直接装进运行时状态，绕开 `CHookResolver` 适配层。
-   这三步里任何一步失败，`Host::new` 都会先 `z42_host_shutdown` 再返回 Err，不留半初始化的 VM。
+4. **VFS 也不走 C 往返**。`HostConfig::vfs`（例如宿主先 `mount` 好文件的 `MemoryFs`）同样在 `initialize` 之后经
+   `install_vfs` 装入；之后加载的模块都建在这个文件系统上，`search_paths` 里的
+   `z42.core.zpkg` 也在它上面重新探测。
+   这几步里任何一步失败，`Host::new` 都会先 `z42_host_shutdown` 再返回 Err，不留半初始化的 VM。
 
 `Host` / `Module` / `Entry` 都手工 `unsafe impl Send`（内部真正的同步在运行时那把 `RwLock` 里，
 句柄本身只是 sentinel），但都**不是 `Sync`**——与「调用串行化由宿主负责」的契约一致。

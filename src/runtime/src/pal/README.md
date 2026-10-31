@@ -13,7 +13,8 @@ runtime 其余模块**零 cfg 调用** OS 服务。每个 concern 一个文件�
 | 文件 | 职责 |
 |------|------|
 | `system.rs` | `hostname()` / `os_version()` / `os_name()`、进程环境（`pid` / `current_dir` / `set_env` / `temp_dir`）、`OS_CAPS` |
-| `fs.rs` | `make_executable()` / `symlink()` / `sync_before_rename()` / `is_name_too_long()` / `PATH_LIST_SEP` / `HAS_FS` |
+| `fs.rs` | `Vfs` trait（每台 VM 一个句柄，路径型文件操作全走它）/ `default_vfs()` / `glob_match()`；VFS 之外的 OS 调用 `make_executable()` / `symlink()` / `sync_before_rename()` / `is_name_too_long()` / `PATH_LIST_SEP` / `HAS_FS` |
+| `vfs/` | `Vfs` 的实现：`LocalFs`（标准库 fs）、`MemoryFs`（实例自有的 `path → bytes`，`mount()` 挂文件）|
 | `process.rs` | `exit_code()`、`own_process_group()`、`ProcessTree`（超时杀整棵进程树）、`find_executable()` |
 | `random.rs` | `fill()` —— OS CSPRNG |
 | `dynlib.rs` | `file_name()`、`Library::open()` / `symbol()` —— 运行时唯一的 dlopen 入口 |
@@ -33,6 +34,8 @@ runtime 其余模块**零 cfg 调用** OS 服务。每个 concern 一个文件�
 `pal::fs::symlink(src, dst)` — `io::Result<()>`，unix 建符号链接；非 unix 报 `Unsupported`
 `pal::net::winsock_code()` — `Option<i32>`，OS 错误对应的 Winsock 码（= .NET `SocketError`）；无对应为 None
 `pal::net::wait_readable()` — `io::Result<bool>`，unix `poll` / windows `WSAPoll`；其他目标 `Unsupported`
+`pal::fs::default_vfs()` — `Arc<dyn Vfs>`，有 OS 文件系统时是 `LocalFs`，否则一个新的空 `MemoryFs`
+`MemoryFs::mount` — `(path, bytes)`，往这个内存 VFS 挂一个文件（宿主在创建 VM 前调）
 `pal::signal::register_fatal_handlers(handler)` — 注册 5 fatal 信号；非 POSIX 平台返回 `false`
 `pal::signal::sigsafe::write_str(fd, bytes)` — async-signal-safe 写
 `run_with_stack`（`pal::thread`）— 在指定栈大小的线程上跑闭包；不能起线程时就地跑
@@ -56,6 +59,3 @@ runtime 其余模块**零 cfg 调用** OS 服务。每个 concern 一个文件�
 
 依赖 `libc` (unix-only)；`net.rs` 的 `set_tcp_keepalive` 用 `socket2`（`net` feature）。其他 cargo feature 见
 `docs/internals/src/runtime/pal.md` "platform feature gates" 节。
-
-## 待办
-- 每 VM 一个 Vfs —— runtime-audit §6.1 L-2

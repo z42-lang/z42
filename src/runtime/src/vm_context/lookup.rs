@@ -29,6 +29,8 @@ impl VmContext {
         loader.set_type_table(Arc::clone(&self.core.types));
         // 惰性包的字符串池追加到 VmCore 的 StrTable（ConstStr 操作数即其中的 id，永不复用）。
         loader.set_str_table(Arc::clone(&self.core.strings));
+        // 惰性加载按需读包，走本 VM 的文件系统。
+        loader.set_vfs(Arc::clone(&self.core.vfs));
         let mut state = self.core.lazy_loader.write();
         // 再次安装（只有测试会）= 新的名字空间：旧加载器登记的名字不再可见，与两张表合并前一致。
         // 旧槽位与 id 保留（id 永不复用），已缓存的 id 仍指向旧函数。

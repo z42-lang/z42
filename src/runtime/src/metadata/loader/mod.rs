@@ -13,11 +13,10 @@ use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
 
-// add-wasm-testhost (G6): artifact reads route through the platform fs backend
-// (`native` = std::fs, byte-identical; `memory` = in-memory VFS on wasm) so a
-// wasm host that mounts test zbcs / stdlib zpkgs can load them at runtime. On
-// native this is exactly std::fs — no behaviour change.
-use crate::corelib::fs_backend;
+// Artifact reads go through the caller's VFS (the VM's `pal::fs::Vfs` handle), so a
+// wasm host that mounts test zbcs / stdlib zpkgs into a `MemoryFs` loads them exactly
+// as files on disk.
+use crate::pal::fs::Vfs;
 
 use super::bytecode::Module;
 use super::formats::{ZpkgDep, ZBC_MAGIC, ZPKG_MAGIC};

@@ -47,7 +47,7 @@
 | `bytecode.rs` + `bytecode/` | zbc IR 数据结构：`module`（Module）、`class`（ClassDesc / FieldDesc / 布局描述 / CLASS_FLAG_*）、`function`（Function / BasicBlock / 异常表）、`insn`（*Insn 载荷）、`instruction`（Instruction / Terminator）；`bytecode_serde.rs` 为 TypedReg 兼容 serde |
 | `formats.rs` | `.zbc` / `.zpkg` magic 常量 + 依赖记录 `ZpkgDep` |
 | `zbc_reader/` | zbc / zpkg 二进制读取：`cursor` / `opcodes` / `instr_decode` / `func_reader` / `type_reader` / `zpkg` / `zpkg_index` / `sidecar` / `versions` |
-| `loader.rs` + `loader/` | 统一加载入口 `load_artifact(path)` → `Module`；`build_type_registry` 预构建 `TypeDesc` 注册表；`namespace` / `indices` / `constraints` / `availability` 等关注点子模块 |
+| `loader.rs` + `loader/` | 统一加载入口 `load_artifact(fs, path)` → `Module`（从调用方给的 VFS 读）；`build_type_registry` 预构建 `TypeDesc` 注册表；`namespace` / `indices` / `constraints` / `availability` 等关注点子模块 |
 | `lazy_loader.rs` + `lazy_loader/` | 惰性依赖加载（启动只载 `z42.core`，其余 zpkg 首次用到时加载：按 DEPS 引用表精确路由到定义包 `symbols.rs`，无静态引用的名字按命名空间前缀兜底 `resolve.rs`；加载与注册 `registry.rs`） |
 | `merge.rs` | 多模块合并：字符串池重映射 + 函数拼接 |
 | `resolver.rs` + `resolver/` | 加载期 token 解析（预填每函数 `ResolvedTokens`）+ 内联缓存（`ic.rs`） |
