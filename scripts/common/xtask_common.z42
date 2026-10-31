@@ -207,6 +207,17 @@ string[] _splitWords(string s) {
 
 bool _isWordSep(char c) { return c == ' ' || c == '\t' || c == '\n'; }
 
+// ASCII identifier chars: `[A-Za-z_]` to start, `[A-Za-z0-9_]` after.
+bool _isIdentStart(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; }
+bool _isIdentChar(char c) { return _isIdentStart(c) || (c >= '0' && c <= '9'); }
+
+// s 开头的标识符字符段（没有则 ""）。
+string _leadIdent(string s) {
+    int k = 0;
+    while (k < s.Length && _isIdentChar(s.CharAt(k))) { k = k + 1; }
+    return s.Substring(0, k);
+}
+
 // ── toolchain selector (--toolchain <dir>) ───────────────────────────────────
 
 // The SDK toolchain root in `.z42` layout (programs/z42c/*.zpkg + libs/ + bin/), or

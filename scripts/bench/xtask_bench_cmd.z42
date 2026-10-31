@@ -28,12 +28,19 @@ class BenchCommand : Command {
     [Option(help: "micro A/B: diff two bench-stdlib --json baselines (--current/--baseline)")] public bool MicroDiff;
     // ab-resample-on-suspicion: round 1 判退化的条目再测这么多轮，按轮间比值离散度重判；0 = 关（回滚开关）。
     [Option(help: "A/B: extra rounds for a round-1 regression (0 = off)")] public int ResampleRounds = 2;
-    // add-incremental-major-gc M0: regression ⟺ pr 最大停顿中位数 > cap 且 > base × (1 + threshold)。
-    [Option(help: "A/B: absolute max-pause cap in ms")] public double PauseCapMs = 16.0;
-    [Option(help: "A/B: relative max-pause regression threshold")] public double ThresholdPause = 0.25;
+    // GC 停顿子门禁（xtask_bench_pause.z42 头注）：p99 超 cap 且 > base×(1+threshold-pause) ⇒ 红；
+    // max 是单次极值，只在超 cap 且 > base×(1+threshold-pause-max) 时红，否则只报告。
+    [Option(help: "A/B: absolute pause cap in ms (applies to p99 and max)")] public double PauseCapMs = 16.0;
+    [Option(help: "A/B: relative p99-pause regression threshold")] public double ThresholdPause = 0.25;
+    [Option(help: "A/B: relative max-pause regression threshold (max over cap but under it = report only)")]
+    public double ThresholdPauseMax = 1.0;
     [Option(help: "A/B: base z42vm binary")] public string BaseVm = "";
     [Option(help: "A/B: base flat libs dir (stdlib + z42c siblings)")] public string BaseLibs = "";
     [Option(help: "A/B: base z42c.driver.zpkg")] public string BaseDriver = "";
+    // PR 侧工具链显式传入（三项同给；不给 = 树内那套）。CI 用它让两侧同形（路径等长、libs 同配方）。
+    [Option(help: "A/B: PR-side z42vm (default: in-tree)")] public string PrVm = "";
+    [Option(help: "A/B: PR-side flat libs dir (default: in-tree stdlib flat)")] public string PrLibs = "";
+    [Option(help: "A/B: PR-side z42c.driver.zpkg (default: in-tree)")] public string PrDriver = "";
 
     public BenchCommand() : base("bench", "benchmarks") {
         this.SetDefaultAction("e2e hyperfine scenarios");

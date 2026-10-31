@@ -199,7 +199,8 @@ Z42VM(zpkgResolver = AssetZpkgResolver(assets)).use { vm ->
 
 默认链构建树的 `libz42.a`。设了 `Z42_RUNTIME_DIR=<桌面 runtime 包>` 时改链**打出来的包**：静态链
 `native/libz42.a` 跑一遍，再经 rpath 动态链 `native/libz42.{dylib,so}` 跑一遍，stdlib 用包里的 `libs/`
-——这是「C 宿主能链上发布产物」的冒烟（install name / SONAME 坏了，动态那遍就加载不了）。CI 的
+——这是「C 宿主能链上发布产物」的冒烟（install name / SONAME 坏了，动态那遍就加载不了）。此模式**只跑 R1–R7**：
+嵌入语料在 z42b 进程里用构建树的 VM 与 libs 跑，和包无关，归不设该变量的 `test app desktop`（CI 的 test-desktop-cabi）。CI 的
 host-package 在 macOS / Linux 上每个 RID 都跑；Windows 没有 `cc`，只按文件检查 `z42.dll.lib`。
 
 ## 5. 跨平台契约

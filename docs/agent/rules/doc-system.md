@@ -87,7 +87,9 @@ learn  ──链──▶  reference          internals  ──链──▶  lea
 **每个 PR 合并前，凡改变了对外行为或内部机制的，知识必须在同一个 PR 内上浮进书**；目的地由三问决定，不由作者偏好决定：
 
 1. **用户能看见吗？**（语法 / stdlib API / CLI / 清单字段 / 诊断文本 / 产物格式）
-   → `reference` 对应页必改；该特性若已被 learn 覆盖 → `examples/<章节>/` + learn 章一并改
+   → `reference` 对应页必改；该特性若已被 learn 覆盖 → `examples/<章节>/` + learn 章一并改。
+   stdlib API 的 reference 页是生成物（不入库，发布时由 `xtask doc gen` 从源码生成）：**改源码的 `///` / `//!`**，
+   不手改页面；要看效果就本地 `xtask doc gen`
 2. **下一个接手的人不读文档能看懂吗？**（多阶段编排 / 有状态或累积的循环 / 反直觉决策与踩过的坑 /
    跨组件或跨进程协议）
    → `internals` 对应机制页必改

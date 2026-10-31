@@ -5,6 +5,7 @@
 use super::*;
 use super::ctx::TxCtx;
 use crate::jit::helpers::value::JIT_GET_BOOL_ERR;
+use crate::metadata::BranchTargets;
 use crate::jit::reg_access::{PAYLOAD_OFFSET, TAG_OFFSET};
 
 impl<'a, 'b> TxCtx<'a, 'b> {
@@ -51,8 +52,10 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                 self.builder.ins().return_(&[zero]);
             }
             Terminator::Br { label } => {
-                let target = self.func.blocks.iter().position(|b| &b.label == label)
-                    .expect("Br label not found");
+                let target = match self.func.branch_targets.get(self.block_idx) {
+                    Some(BranchTargets::Br(t)) => *t,
+                    _ => self.label_block(label),
+                };
                 // add-gc-safepoint-jit : backward branch =
                 // loop back-edge; check safepoint so long-running JIT
                 // loops park promptly when GC requests a pause.
@@ -62,16 +65,17 @@ impl<'a, 'b> TxCtx<'a, 'b> {
                 self.builder.ins().jump(self.cl_blocks[target], &[]);
             }
             Terminator::BrCond { cond, true_label, false_label } => {
-                // add-gc-safepoint-jit : BrCond's runtime target
-                // isn't known until cond is evaluated; check unconditionally.
-                // Idle fast path is cheap; this catches loops where the
-                // back-edge is a BrCond rather than a Br.
-                emit_safepoint_check(self.builder, self.ctx_val, self.frame_val, self.hr_check_safepoint_slow);
-
-                let true_idx  = self.func.blocks.iter().position(|blk| &blk.label == true_label)
-                    .expect("true_label not found");
-                let false_idx = self.func.blocks.iter().position(|blk| &blk.label == false_label)
-                    .expect("false_label not found");
+                let (true_idx, false_idx) = match self.func.branch_targets.get(self.block_idx) {
+                    Some(BranchTargets::BrCond(t, f)) => (*t, *f),
+                    _ => (self.label_block(true_label), self.label_block(false_label)),
+                };
+                // add-gc-safepoint-jit : the runtime target isn't known until cond
+                // is evaluated, so a BrCond with a back-edge (a loop whose back-edge
+                // is a BrCond rather than a Br) polls before branching. Both targets
+                // forward ⇒ no poll — the same back-edge rule as `Br` and the interp.
+                if true_idx <= self.block_idx || false_idx <= self.block_idx {
+                    emit_safepoint_check(self.builder, self.ctx_val, self.frame_val, self.hr_check_safepoint_slow);
+                }
 
                 // C2 P1 step 4 : when reg_types[cond] confirms
                 // Bool, skip the `jit_get_bool` helper call entirely — load
@@ -111,6 +115,16 @@ impl<'a, 'b> TxCtx<'a, 'b> {
             }
         }
         Ok(())
+    }
+}
+
+impl TxCtx<'_, '_> {
+    /// A branch label's block index, for a function the loader did not
+    /// post-process (no `branch_targets`; hand-built test functions).
+    fn label_block(&self, label: &str) -> usize {
+        self.func.block_index.get(label).copied()
+            .or_else(|| self.func.blocks.iter().position(|b| b.label == label))
+            .expect("branch label not found")
     }
 }
 

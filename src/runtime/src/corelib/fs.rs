@@ -64,7 +64,7 @@ pub(crate) fn fs_error(e: std::io::Error, path: &str, role: PathRole) -> Builtin
         }
         ErrorKind::PermissionDenied => denied(path),
         ErrorKind::IsADirectory if role != PathRole::Dir => denied(path),
-        ErrorKind::InvalidFilename if is_name_too_long(&e) => BuiltinError::PathTooLong(format!(
+        ErrorKind::InvalidFilename if crate::pal::fs::is_name_too_long(&e) => BuiltinError::PathTooLong(format!(
             "The path '{path}' is too long, or a component of the specified path is too long.")),
         ErrorKind::AlreadyExists => BuiltinError::Io(format!("The file '{path}' already exists.")),
         ErrorKind::InvalidInput => BuiltinError::Argument(e.to_string()),
@@ -77,10 +77,6 @@ fn denied(path: &str) -> BuiltinError {
     BuiltinError::UnauthorizedAccess(format!("Access to the path '{path}' is denied."))
 }
 
-#[cfg(unix)]
-fn is_name_too_long(e: &std::io::Error) -> bool { e.raw_os_error() == Some(libc::ENAMETOOLONG) }
-#[cfg(not(unix))]
-fn is_name_too_long(_: &std::io::Error) -> bool { true }
 
 /// Whether `path`'s directory exists — a missing file in an existing directory is
 /// `FileNotFound`, a missing directory `DirectoryNotFound` (.NET's distinction). The VFS
@@ -164,45 +160,22 @@ pub(crate) fn glob_match(pattern: &str, text: &str) -> bool {
 fn unique_temp_path(prefix: &str, suffix: &str) -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
-    // fix-wasm-time-builtins: guard `std::time` (panics on wasm32). The COUNTER +
-    // pid already give uniqueness; nanos is just extra entropy → 0 on wasm.
-    #[cfg(not(target_arch = "wasm32"))]
-    let nanos = {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        SystemTime::now().duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64).unwrap_or(0)
-    };
-    #[cfg(target_arch = "wasm32")]
-    let nanos = 0u64;
-    // fix-wasm-corpus-capability-gate: std::process::id() panics on wasm32.
-    #[cfg(not(target_arch = "wasm32"))]
-    let pid = std::process::id();
-    #[cfg(target_arch = "wasm32")]
-    let pid = 0u32;
+    // The COUNTER + pid already give uniqueness; nanos is extra entropy (0 without a
+    // clock). On wasm32 pid is 0 and the temp dir is the in-memory VFS's "/tmp".
+    let nanos = crate::pal::time::wall_unix_ns();
+    let pid = crate::pal::system::pid();
     let bump  = COUNTER.fetch_add(1, Ordering::Relaxed);
-    // fix-wasm-corpus-capability-gate: std::env::temp_dir() panics on wasm32
-    // (sys/paths/unsupported). "/tmp" in the in-memory VFS works fine.
-    #[cfg(not(target_arch = "wasm32"))]
-    let mut p = std::env::temp_dir();
-    #[cfg(target_arch = "wasm32")]
-    let mut p = std::path::PathBuf::from("/tmp");
+    let mut p = crate::pal::system::temp_dir();
     p.push(format!("{prefix}.{nanos:x}.{pid}.{bump:x}{suffix}"));
     p.to_string_lossy().into_owned()
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+// fix-wasm-time-builtins: `wasm32-unknown-unknown` has no `std::time`; `pal::time` reports
+// epoch 0 there so `Std.Time` doesn't trap in the browser (real wall-clock via JS
+// `Date.now` is Deferred — it would need js-sys in this crate).
 fn wall_now_ms() -> i64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now().duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64).unwrap_or(0)
+    crate::pal::time::wall_unix_ms()
 }
-
-// fix-wasm-time-builtins: `wasm32-unknown-unknown` has no `std::time`
-// (`SystemTime::now()` panics "time not implemented"). Return epoch 0 so
-// `Std.Time` doesn't trap in the browser; real wall-clock via JS `Date.now` is
-// Deferred (would need js-sys in this crate).
-#[cfg(target_arch = "wasm32")]
-fn wall_now_ms() -> i64 { 0 }
 
 // ── FileStream slot table ─────────────────────────────────────────────────────
 //
@@ -597,24 +570,18 @@ pub mod typed {
 
     // ── Environment / process / clock ─────────────────────────────────────────
 
-    /// `pwd`. fix-wasm-corpus-capability-gate: `current_dir()` panics on wasm32 — a
-    /// browser has no working directory, report the VFS root.
+    /// `pwd`. A browser (wasm32) has no working directory: the VFS root.
     #[builtin(name = "__env_get_cwd")]
     pub fn env_get_cwd() -> Result<String, BuiltinError> {
-        #[cfg(not(target_arch = "wasm32"))]
-        return std::env::current_dir().map(|p| p.to_string_lossy().into_owned()).map_err(BuiltinError::from);
-        #[cfg(target_arch = "wasm32")]
-        return Ok("/".to_string());
+        crate::pal::system::current_dir().map(|p| p.to_string_lossy().into_owned()).map_err(BuiltinError::from)
     }
 
     /// `cd path` — missing → `DirectoryNotFoundException` (.NET `SetCurrentDirectory`).
     #[builtin(name = "__env_set_cwd")]
     pub fn env_set_cwd(path: &str) -> Result<(), BuiltinError> {
         check_path(path, "path")?;
-        // wasm has no working directory — `cd` is a no-op (see env_get_cwd).
-        #[cfg(not(target_arch = "wasm32"))]
-        std::env::set_current_dir(path).map_err(|e| fs_error(e, path, PathRole::Dir))?;
-        Ok(())
+        // wasm has no working directory — `cd` is a no-op there (see env_get_cwd).
+        crate::pal::system::set_current_dir(path).map_err(|e| fs_error(e, path, PathRole::Dir))
     }
 
     #[builtin(name = "__env_get")]
@@ -623,30 +590,15 @@ pub mod typed {
     }
 
     /// A null value removes the variable (.NET `SetEnvironmentVariable(name, null)`).
-    /// fix-wasm-corpus-capability-gate: `set_var` / `remove_var` panic on wasm32 (a
-    /// browser has no OS environment) — no-op there.
+    /// A browser (wasm32) has no OS environment — no-op there.
     #[builtin(name = "__env_set")]
     pub fn env_set(name: &str, value: Option<&str>) {
-        #[cfg(not(target_arch = "wasm32"))]
-        // Safety: environment writes race only with other threads' reads; z42 makes no
-        // stronger promise than .NET here.
-        unsafe {
-            match value {
-                None => std::env::remove_var(name),
-                Some(v) => std::env::set_var(name, v),
-            }
-        }
-        #[cfg(target_arch = "wasm32")]
-        let _ = (name, value);
+        crate::pal::system::set_env(name, value);
     }
 
     #[builtin(name = "__env_unset")]
     pub fn env_unset(name: &str) {
-        #[cfg(not(target_arch = "wasm32"))]
-        // Safety: see `env_set`.
-        unsafe { std::env::remove_var(name) }
-        #[cfg(target_arch = "wasm32")]
-        let _ = name;
+        crate::pal::system::set_env(name, None);
     }
 
     /// `KEY=VALUE` entries.

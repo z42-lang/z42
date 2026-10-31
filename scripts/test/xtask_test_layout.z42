@@ -50,6 +50,7 @@ int _testLayout() {
     bad = bad + _tlCheckCapVocab(root, doc, active);
     if (active != null) { bad = bad + _tlCheckCapUses(root, active); }
     bad = bad + _tlCheckBuildMirror(root);
+    bad = bad + _tlCheckCaseNameClash(root);
     if (bad > 0) {
         ConsoleError.WriteLine("  " + bad.ToString() + " 处不符 —— 规范见 docs/internals/src/devinfra/test-layout.md");
         return 1;
@@ -256,4 +257,34 @@ int _tlMirrorBad(string root, string dir) {
         + "都镜像 owner 在 src/ 下的位置（_buildMirror / _workOut / _compilerWsWork，见 scripts/common/xtask_layout.z42）。"
         + "旧布局的残留直接删掉：rm -rf artifacts/" + rel);
     return 1;
+}
+
+// ⑤ 同一个用例目录里 `<x>.z42` 与 `<x>/` 不能并存：两者的用例名都是 `<所在>/<x>`，app bundle 按用例名落盘，
+// 同名就互相覆盖——谁后写谁赢，另一个静默不跑（并发编译下还会随机红）。只查两处测试语料，源码树里
+// `Foo.z42` 旁边有 `Foo/` 是正常结构。
+int _tlCheckCaseNameClash(string root) {
+    Console.WriteLine("⑤ 用例目录里 <x>.z42 与 <x>/ 不同名");
+    List<string> dirs = new List<string>();
+    foreach (var cat in _enumDirsSorted(Path.Join(root, "src/tests"))) { dirs.Add(Path.Join(Path.Join(root, "src/tests"), cat)); }
+    string libs = Path.Join(root, "src/libraries");
+    foreach (var lib in _enumDirsSorted(libs)) {
+        string t = Path.Join(Path.Join(libs, lib), "tests");
+        if (Directory.Exists(t)) { dirs.Add(t); }
+    }
+    // 空门守卫：扫描面没了就别报绿。
+    if (dirs.Count < 20) {
+        ConsoleError.WriteLine("  ✗ 只找到 " + dirs.Count.ToString() + " 个用例目录 —— 扫描面不对");
+        return 1;
+    }
+    int bad = 0;
+    foreach (var d in dirs) {
+        foreach (var sub in _enumDirsSorted(d)) {
+            if (File.Exists(Path.Join(d, sub + ".z42")) && !Directory.Exists(Path.Join(d, sub + ".z42"))) {
+                ConsoleError.WriteLine("  ✗ " + _relToRoot(root, Path.Join(d, sub)) + "/ 与同目录的 " + sub + ".z42 同名 —— 给其中一个改名");
+                bad = bad + 1;
+            }
+        }
+    }
+    if (bad == 0) { Console.WriteLine("  ✓ " + dirs.Count.ToString() + " 个用例目录无同名"); }
+    return bad;
 }

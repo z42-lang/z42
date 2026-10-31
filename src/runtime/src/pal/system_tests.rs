@@ -48,3 +48,21 @@ fn hostname_and_os_version_are_callable_repeatedly() {
 fn os_name_is_non_empty() {
     assert!(!super::os_name().is_empty());
 }
+
+#[test]
+fn process_environment_queries_work_on_desktop() {
+    assert!(pid() > 0);
+    assert!(current_dir().is_ok());
+    assert!(!temp_dir().as_os_str().is_empty());
+    set_env("Z42_PAL_SYSTEM_TEST", Some("1"));
+    assert_eq!(std::env::var("Z42_PAL_SYSTEM_TEST").as_deref(), Ok("1"));
+    set_env("Z42_PAL_SYSTEM_TEST", None);
+    assert!(std::env::var("Z42_PAL_SYSTEM_TEST").is_err());
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux", windows))]
+#[test]
+fn desktop_has_every_os_capability() {
+    let c = OS_CAPS;
+    assert!(c.threads && c.fs && c.clock && c.entropy && c.process && c.tty && c.env && c.socket_listen && c.hardlink);
+}

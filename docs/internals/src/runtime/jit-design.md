@@ -90,7 +90,7 @@ pub type JitFn = unsafe extern "C" fn(frame: *mut JitFrame, ctx: *const VmContex
 - 每个 z42 基本块对应一个 Cranelift 块；`Br` / `BrCond` / `Ret` / `Throw` 译成原生跳转与返回。
   `Ret %r` 内联把返回值写进 `frame.ret` 并置 `frame.has_ret = 1`（偏移见 `JIT_FRAME_RET_OFFSET` / `JIT_FRAME_HAS_RET_OFFSET`），不调 helper。
   `BrCond` 先调 `jit_get_bool`（返回 0 / 1，非 Bool 时返回 `JIT_GET_BOOL_ERR` 并挂异常）。
-- 回边和 `BrCond` 前内联 safepoint 快路（两次 load/store + 分支），慢路调 `jit_check_safepoint_slow`；函数序言内联栈深检查，越界调 `jit_stack_overflow`。
+- 回边（后向 `Br`，以及有一个目标在后方的 `BrCond`）前内联 safepoint 快路（两次 load/store + 分支），慢路调 `jit_check_safepoint_slow`；函数序言内联栈深检查，越界调 `jit_stack_overflow`。
 - 类型已知的整数 / 浮点标量运算、比较、转换、除余，以及部分字段读写，直接生成原生指令（寄存器缓存、loop-carried 驻留等见 [jit.md](jit.md)）。
 - 其余操作调 `extern "C"` helper。helper 在 `helpers/registry.rs` 统一登记：`register_symbols` 把符号交给 `JITBuilder`，
   `declare_imports` 在模块里声明导入，生成码用普通 `call` 调用。约定：前两个参数总是 `(frame, ctx)`；

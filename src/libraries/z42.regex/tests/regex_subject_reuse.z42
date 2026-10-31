@@ -1,0 +1,38 @@
+// 同一个 Regex 实例换着匹配不同的串：字符数组按串缓存（_BindInput），换串必须重新物化，
+// 同一个串上的 FindAll / Replace / Split 复用它。
+namespace Z42RegexSubjectReuseTests;
+
+using Std.Regex;
+using Std.Harness;
+
+[Test]
+void test_switching_subjects_rebinds() {
+    Regex r = Regex.Compile("[0-9]+");
+    Assert.Equal("12", r.Find("ab12cd").Value());
+    Assert.Equal("7", r.Find("x7").Value());
+    Assert.Null(r.Find("no digits"));
+    Assert.Equal("345", r.Find("345 after a miss").Value());
+}
+
+[Test]
+void test_same_subject_across_matches() {
+    Regex r = Regex.Compile("[0-9]+");
+    string s = "a1b22c333";
+    Match[] all = r.FindAll(s);
+    Assert.Equal(3, all.Length);
+    Assert.Equal("333", all[2].Value());
+    Assert.Equal("a#b#c#", r.Replace(s, "#"));
+    Assert.Equal(4, r.Split(s).Length);
+    // 换成内容不同但长度相同的串，结果跟着变。
+    Assert.Equal("9", r.Find("a9bxxcxxx").Value());
+}
+
+[Test]
+void test_long_unanchored_miss() {
+    // 无匹配的非锚定扫描：每个起点都重来一遍，字符数组只物化一次。
+    string hay = "";
+    int i = 0;
+    while (i < 2000) { hay = hay + "a"; i = i + 1; }
+    Assert.False(Regex.Compile("b").IsMatch(hay));
+    Assert.True(Regex.Compile("b").IsMatch(hay + "b"));
+}

@@ -8,8 +8,7 @@ using Std.Text;
 public static class DocMd {
     // 源码链接基址（如 "https://github.com/z42-lang/z42/blob/main"，取自 book.toml 的
     // git-repository-url 口径）。空 → 位置行是纯 `file:line` 文本；非空 → 渲染成链接，
-    // 显示文本仍是 file:line（可 grep），目标 <base>/<file>#L<line>。由 xtask doc gen 设置，
-    // 生成与对账（check docs-api）必须同值，否则门禁误报。
+    // 显示文本仍是 file:line（可 grep），目标 <base>/<file>#L<line>。由 xtask doc gen 设置。
     public static string SourceBase = "";
 
     // 一包一页。pkgPath 相对索引根（如 "src/libraries/z42.random"），写进页首注释与包路径行。
@@ -192,7 +191,7 @@ public static class DocMd {
         return "";
     }
 
-    // 包是否写了 `//!`（命名空间概述）：迁移完成的信号，`xtask doc gen` 据此决定生成还是保留手写页。
+    // 包是否写了 `//!`（命名空间概述）：`xtask doc gen` 只为写了的包生成页。
     public static bool HasNamespaceDoc(DocIndex ix) {
         int i = 0;
         while (i < ix.Count()) {

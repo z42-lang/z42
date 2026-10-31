@@ -26,7 +26,7 @@ README.md           仓库门面      定位 + 上手 + 分流
 | [`internals/`](internals/) | 改 z42 本身的人：要动这块代码才需要读 | 怎么实现的、为什么这样、在哪改、怎么构建测试 | <https://z42-lang.github.io/z42/internals/> |
 
 三本书各是一个 mdBook，同站发布；站点根（[`book/`](book/)）是三书分流索引。
-本地渲染：`cargo install mdbook` 后进对应目录跑 `mdbook serve --open`。
+本地渲染：`cargo install mdbook` 后进对应目录跑 `mdbook serve --open`（reference 先在仓库根跑 `xtask doc gen`：标准库页由源码 `///` 生成、不入库）。
 
 语种：`learn` / `reference` 中文先行，内容稳定后出英文版（另一套 SUMMARY，共用 `examples/`）；
 `internals` 只有中文。关键术语一律保留英文原词。

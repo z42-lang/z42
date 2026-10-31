@@ -720,6 +720,7 @@ pub unsafe extern "C" fn z42_host_run_app(
                 program_args: prog_args,
                 print_stats: false,
                 stats_json: false,
+                exit_after_run: false,
             };
             let result = crate::app::run(&app, entry_owned.as_deref(), opts);
             // runtime-audit P0-4: fatal VM error → its report + the fixed code.

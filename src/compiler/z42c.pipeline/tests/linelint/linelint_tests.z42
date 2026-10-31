@@ -145,3 +145,32 @@ void test_short_fn_and_empty_body_pass() {
     CompileArtifacts art = PackageCompile.Compile(cin);
     Assert.Equal(0, art.ErrorCount);
 }
+
+// 每文件一张行表、各方法只走自己的行：长方法排在短方法之后，体内字面量 / 注释里的括号不改深度。
+string _mixedSrc(int stmts) {
+    StringBuilder sb = new StringBuilder();
+    sb.Append("namespace T;\n");
+    sb.Append("int Short() { return 1; }\n");
+    sb.Append("string Long() {\n");
+    sb.Append("    string s = \"}\"; char c = '{'; char e = '\\'';   // } }\n");
+    int i = 0;
+    while (i < stmts) { sb.Append("    s = s + \"{\";\n"); i = i + 1; }
+    sb.Append("    return s;\n");
+    sb.Append("}\n");
+    sb.Append("int After() { return 2; }\n");
+    return sb.ToString();
+}
+
+[Test]
+void test_literal_braces_and_multiple_methods() {
+    // 体行 = 1（字面量行）+ stmts + 1（return）：61 → 63 行越硬限；57 → 59 行不越
+    CompileInputs over = _inputs(_mixedSrc(61));
+    over.Lints = _cfg("style.fnLinesHard", "error");
+    CompileArtifacts a1 = PackageCompile.Compile(over);
+    Assert.True(a1.ErrorCount > 0);
+    Assert.True(_cmsHasCode(a1, "style.fnLinesHard"));
+
+    CompileInputs under = _inputs(_mixedSrc(57));
+    under.Lints = _cfg("style.fnLinesHard", "error");
+    Assert.Equal(0, PackageCompile.Compile(under).ErrorCount);
+}

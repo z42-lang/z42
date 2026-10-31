@@ -239,6 +239,11 @@ Console.WriteLine(p.X);     // 0
 - `expr is T` — 类型检查，返回 `bool`。
 - `expr as T` — 尝试转换，失败得 `null`。
 
+`is T` / `as T`（及模式里的类型）后紧跟的 `?` 与 C# 同规则消歧：`?` 之后的 token
+**能开始一个表达式**就是条件运算符，否则才是可空后缀——`o is List<int> ? a : b` 是三目，
+`x as Foo?;`、`(x as Foo?)`、`x as Foo? == null` 是可空类型。因此 `x is Foo? v`
+（可空类型 + 绑定）不成立。
+
 **哪些转换是隐式的、哪些必须写 `(T)`、数值溢出与 NaN 的行为、用户自定义 `implicit` /
 `explicit operator`** 全部在[类型转换](conversions.md)——z42 的隐式转换集比 C# 更严
 （例如 `i32 → f32`、`i64 → f64` 在 z42 是**显式**转换），不要按 C# 的直觉推断。

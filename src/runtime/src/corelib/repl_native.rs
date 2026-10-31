@@ -94,7 +94,7 @@ pub(super) mod native {
         /// 拿不到就 `None`，REPL 照常工作、只是输入行不着色。硬绑定会让
         /// 新 VM 配旧 cdylib 时整个 REPL 退化成 plain-stdin，代价不成比例。
         set_keywords: Option<SetKeywordsFn>,
-        _lib: libloading::Library,
+        _lib: crate::pal::dynlib::Library,
     }
 
     /// Process-global, resolved on first `readline`. `Some` = loaded; `None` = no lib
@@ -138,14 +138,13 @@ pub(super) mod native {
     }
 
     unsafe fn try_load(path: &std::path::Path) -> Result<LoadedRepl> {
-        let lib = libloading::Library::new(path)?;
+        let lib = crate::pal::dynlib::Library::open(path)?;
         // Copy the fn ptrs out (Copy); keep `lib` alive in the struct so they resolve.
-        let readline: ReadlineFn = *lib.get::<ReadlineFn>(b"z42_repl_readline")?;
-        let free: FreeFn = *lib.get::<FreeFn>(b"z42_repl_free")?;
-        let last_error: LastErrorFn = *lib.get::<LastErrorFn>(b"z42_repl_last_error")?;
+        let readline: ReadlineFn = lib.symbol("z42_repl_readline")?;
+        let free: FreeFn = lib.symbol("z42_repl_free")?;
+        let last_error: LastErrorFn = lib.symbol("z42_repl_last_error")?;
         // 可选符号：缺失不是错误（见 LoadedRepl::set_keywords 的注释）。
-        let set_keywords: Option<SetKeywordsFn> =
-            lib.get::<SetKeywordsFn>(b"z42_repl_set_keywords").ok().map(|f| *f);
+        let set_keywords: Option<SetKeywordsFn> = lib.symbol("z42_repl_set_keywords").ok();
         if set_keywords.is_none() {
             tracing::debug!("repl: cdylib has no z42_repl_set_keywords; input line will not be colored");
         }
@@ -190,7 +189,7 @@ pub(super) mod native {
 
     /// Platform lib filename: `libz42_repl.so` / `.dylib`, `z42_repl.dll` on Windows.
     fn lib_filename() -> String {
-        format!("{}z42_repl{}", std::env::consts::DLL_PREFIX, std::env::consts::DLL_SUFFIX)
+        crate::pal::dynlib::file_name("z42_repl")
     }
 
     pub(super) fn readline(ctx: &VmContext, prompt: &str) -> Result<Option<String>> {
