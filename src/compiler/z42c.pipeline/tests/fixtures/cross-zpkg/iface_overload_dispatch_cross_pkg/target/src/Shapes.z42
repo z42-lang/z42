@@ -1,0 +1,26 @@
+namespace Demo.IfovTarget;
+
+public interface IPlain { string Get(string x); }
+public interface IFoo<T> { string Get(T x); }
+
+// 重载的声明序故意让「错的那个」拿裸键：接口要的 Get(string) 是第二个。
+public class W : IPlain {
+    public string Get(int x) { return "W.int"; }
+    public virtual string Get(string x) { return "W.str:" + x; }
+}
+
+// 同一个泛型接口实现两次：一个名字不可能同时指两个实现。
+public class X : IFoo<int>, IFoo<string> {
+    public string Get(int x) { return "X.int:" + x.ToString(); }
+    public string Get(string x) { return "X.str:" + x; }
+}
+
+// 只有一个 Get —— 派生类（在别的包里）再加重载时不能顶掉它的槽。
+public class B0 : IPlain {
+    public virtual string Get(string x) { return "B0.str:" + x; }
+}
+
+public static class Calls {
+    public static string ViaPlain(IPlain p, string s) { return p.Get(s); }
+    public static string ViaFoo<T>(IFoo<T> f, T v) { return f.Get(v); }
+}

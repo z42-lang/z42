@@ -205,7 +205,10 @@ pub const ZBC_VERSION_MAJOR: u16 = 1;
 // retire-tidx: bumped to 1.47 — the TIDX section is gone (tests are discovered by
 // runtime reflection in z42.harness, so the compiler no longer writes a test index), and `MkClos`
 // drops its always-zero trailing u8 (the former stack-alloc flag; closures are always heap).
-pub const ZBC_VERSION_MINOR: u16 = 47;
+// fix-interface-overload-dispatch: bumped to 1.48 — `class_flags2` bit1 gates an
+// interface-slot table at the end of each TYPE record (slot key → implementing method key);
+// interface call sites name the slot key in `VCall.Method`.
+pub const ZBC_VERSION_MINOR: u16 = 48;
 
 // ── zpkg wire format version (mirror of C# ZpkgWriter.VersionMajor/Minor) ────
 //
@@ -336,7 +339,9 @@ pub const ZPKG_VERSION_MAJOR: u16 = 0;
 // (referenced type / free-function full names defined by that dependency) for precise lazy routing.
 // retire-tidx: bumped to 0.53 — embeds zbc 1.47; each MODS module record drops its
 // trailing `tidx_len: u32 + tidx_data` (four length-prefixed bodies: func/type/dbug/regt).
-pub const ZPKG_VERSION_MINOR: u16 = 53;
+// fix-interface-overload-dispatch: bumped to 0.54 — embeds zbc 1.48 (TYPE interface-slot
+// table). Outer layout unchanged.
+pub const ZPKG_VERSION_MINOR: u16 = 54;
 
 // ── Strict-pin header verification ────────────────────────────────────────────
 //

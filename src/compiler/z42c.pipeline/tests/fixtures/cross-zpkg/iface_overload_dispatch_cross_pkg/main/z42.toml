@@ -1,0 +1,8 @@
+[project]
+name    = "demo.ifovapp"
+version = "0.1.0"
+kind    = "exe"
+pack    = true
+
+[dependencies]
+"demo.ifovtarget" = "0.1.0"

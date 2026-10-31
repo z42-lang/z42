@@ -279,7 +279,7 @@ public sealed class CallEmitter {
                 int vi = 0; while (vi < c.ArgCount) { vargs[vi] = iargs[vi]; vi = vi + 1; }
                 vargs[c.ArgCount] = sretH;   // 末尾隐藏 sret 实参
                 TypedReg vvoid = this._ctx.Alloc(IrType.Void);
-                this._ctx.Emit(new VCallInstr(vvoid, recv, c.MethodName, vargs, c.ArgCount + 1));
+                this._ctx.Emit(new VCallInstr(vvoid, recv, c.IfaceSlot != "" ? c.IfaceSlot : c.MethodName, vargs, c.ArgCount + 1));
                 return sretH;
             }
             TypedReg idst = this._ctx.Alloc(itag);
@@ -287,7 +287,7 @@ public sealed class CallEmitter {
             // vcall 只带简单名，运行期从接收者类型起按 `<类型>.<方法名>` 走基类链查 func_index
             // （`vcall_resolve` 的 4c），故改简单名即可命中 `Demo.Helper.ReadSecond:P2`，无须动 vtable；
             // 命中后照常装 IC，热路径不受影响。
-            VCallInstr vci = new VCallInstr(idst, recv, this._specializeVCallName(c), iargs, c.ArgCount);
+            VCallInstr vci = new VCallInstr(idst, recv, this._vcallName(c), iargs, c.ArgCount);
             if (c.MethodTypeArgCount > 0) { vci.MethodTypeArgs = this._methodTypeArgNames(c); vci.MethodTypeArgCount = c.MethodTypeArgCount; }
             this._ctx.Emit(vci);
             return idst;
@@ -361,6 +361,13 @@ public sealed class CallEmitter {
             hops = SymbolTable.NextBaseHop(hops);
         }
         return null;
+    }
+
+    // VCall 的方法名：接口方法调用发**接口槽键**（fix-interface-overload-dispatch，见 `IfaceSlotKeys`
+    // 抬头 —— 运行期经类描述符的接口槽别名按签名落到实现）；其余照旧（含实例泛型方法的特化名）。
+    private string _vcallName(BoundCall c) {
+        if (c.IfaceSlot != "") { return c.IfaceSlot; }
+        return this._specializeVCallName(c);
     }
 
     // complete-generic-instantiation S1-c：实例泛型方法的 vcall 简单名 → 特化简单名。

@@ -338,6 +338,10 @@ public sealed class SymbolCollector {
         c = 0;
         while (c < cuCount) { this._inherit._passFixupOverrides(table, cus[c]); c = c + 1; }
         c = 0;
+        // fix-interface-overload-dispatch：派生类新增重载不占祖先裸键槽——须在 override 对齐之后、
+        // 接口满足性校验（`_passSealedEnforce` 内，登记接口槽）之前。
+        while (c < cuCount) { this._inherit._passRekeyShadowedOverloads(table, cus[c]); c = c + 1; }
+        c = 0;
         while (c < cuCount) { this._inherit._passSealedEnforce(table, cus[c]); c = c + 1; }   // impl-sealed-semantics-devirt
         this._inherit._propagateBridgeMarks(table);   // add-iface-return-bridge ⑦：全部 CU 之后一次（perf-bridge-marks-once）
         c = 0;

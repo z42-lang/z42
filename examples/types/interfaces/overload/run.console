@@ -1,0 +1,6 @@
+# ANCHOR: run
+$ z42 run overload.z42
+你好，小明
+放进数字 7
+放进文字 苹果
+# ANCHOR_END: run

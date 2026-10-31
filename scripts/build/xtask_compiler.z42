@@ -84,11 +84,14 @@ int _relocateSeedRunLibs(string root, string profile, string[] members, string d
     }
     // 锚：driver 那一代编译时对着的 stdlib。z42c 不把 stdlib 复制进 exe 的 dist（判为框架），所以锚由 xtask 自己记。
     // 上面搬出来的与锚同代，已在的不覆盖。
+    // 锚若比 driver 旧一个格式代（driver 由两代自举在 xtask 之外换过代）就不再是这一代的锚，跳过。
     string anchor = _driverGenLibs(root, profile);
+    int driverMinor = _zpkgFileMinor(_driverZpkg(root, profile));
     if (Directory.Exists(anchor)) {
         foreach (var g in Path.Glob(anchor, "*.zpkg")) {
             string name = Path.GetFileNameWithoutExtension(g);
             if (File.Exists(Path.Join(dst, name + ".zpkg"))) { continue; }
+            if (driverMinor > 0 && _zpkgFileMinor(g) != driverMinor) { continue; }
             _copyZpkgPair(anchor, dst, name);
             moved = moved + 1;
         }
@@ -122,7 +125,10 @@ void _moveZpkgPair(string srcDir, string dstDir, string name) {
 // 锚 / bundle 是主来源（与 driver 同代），但可能不完整（冷启动刚从 SDK 供种的 driver 没有 bundle；清理过的树
 // 只剩零星几个）——判据是「**齐了吗**」而非「搬到了吗」。不无条件取 SDK：格式 bump 在飞时 SDK 还是上一代
 // 格式、会被 strict-pin 拒收（见 `_seedLibsSource` 头注）。
-int _topUpSeedRunLibs(string root, string dst, string[] members) {
+// 🔴 只补与 driver **同一格式代**的库（`driverMinor` = driver zpkg 头里的 minor）：两代自举之后 driver 已是当前
+// 格式、而 SDK 仍是上一代，不挡的话 run-libs 被整批补成旧格式 ⇒ 新 VM 拒收、driver 运行期 `MissingSymbolException`。
+// 一个都补不进时由调用方回落 flat（两代自举的 gen1 stdlib，正是 driver 编译时对着的那一代）。
+int _topUpSeedRunLibs(string root, string dst, string[] members, int driverMinor) {
     string sdkLibs = _seedLibsSource(root);
     if (sdkLibs.Length == 0) { return 0; }
     // 来源目录打进日志：一眼可判是走了 `Z42_LIBS` 还是回落了 SDK。
@@ -132,17 +138,18 @@ int _topUpSeedRunLibs(string root, string dst, string[] members) {
         string name = Path.GetFileNameWithoutExtension(hit);
         if (_strIn(members, name)) { continue; }
         if (File.Exists(Path.Join(dst, name + ".zpkg"))) { continue; }   // bundle 已提供 = 更可信
+        if (driverMinor > 0 && _zpkgFileMinor(hit) != driverMinor) { continue; }   // 别代格式：driver 加载不了
         _copyZpkgPair(sdkLibs, dst, name);
         filled = filled + 1;
     }
     return filled;
 }
 
-// 既无 bundle 也无 SDK 的末路回落：flat。改命名空间 / 删符号类变更在这种树上救不了，明说而不是静默走错代。
+// 既无 bundle 也无同代 SDK libs 的末路回落：flat（两代自举之后正是这条：flat = driver 编译时对着的 gen1 stdlib）。改命名空间 / 删符号类变更在这种树上救不了，明说而不是静默走错代。
 void _seedRunLibsFallbackFlat(string root, string profile, string dst, string stdlibFlat) {
     _copyAll(stdlibFlat, dst, "*.zpkg");
     _copyAll(stdlibFlat, dst, "*.zsym");
-    _vNormal("  ⚠ seed run-libs ← flat（既无 bundle 也无 SDK libs）——改命名空间/删符号类变更在这种树上救不了");
+    _vNormal("  ⚠ seed run-libs ← flat（既无 bundle 也无同代 SDK libs）——改命名空间/删符号类变更在这种树上救不了");
 }
 
 // 覆盖复制（存在即删后拷，断开可能的硬链）；src 不存在则跳过（冷启动首刷时 libraries dist 可能尚未产出前端库，
@@ -167,7 +174,7 @@ int _buildCompilerViaZ42c(string root, string profile, string[] members, string 
     // 自己就崩（改名 / 删符号必踩）。driver 换代之后的步骤只用 flat。锚为何不取 flat 见 `_relocateSeedRunLibs` 头注。
     string seedRun = _seedRunLibs(root, profile);
     int movedLibs = _relocateSeedRunLibs(root, profile, members, seedRun);
-    int filledLibs = _topUpSeedRunLibs(root, seedRun, members);
+    int filledLibs = _topUpSeedRunLibs(root, seedRun, members, _zpkgFileMinor(driver));
     if (movedLibs + filledLibs > 0) {
         _vNormal("  seed run-libs ← driver 代际锚/bundle " + movedLibs.ToString()
                  + " + SDK 补齐 " + filledLibs.ToString() + "（外部包搬出成员 dist）");

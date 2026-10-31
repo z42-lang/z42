@@ -1,0 +1,24 @@
+using Std.IO;
+
+// ANCHOR: code
+interface IGreeter { string Greet(string name); }
+interface IBox<T> { string Put(T item); }
+
+class Robot : IGreeter, IBox<int>, IBox<string> {
+    public string Greet(int id) { return "机器人 #" + id.ToString(); }
+    public string Greet(string name) { return "你好，" + name; }   // 这个才是 IGreeter 要的
+
+    public string Put(int item) { return "放进数字 " + item.ToString(); }
+    public string Put(string item) { return "放进文字 " + item; }
+}
+// ANCHOR_END: code
+
+void Main() {
+    Robot r = new Robot();
+    IGreeter g = r;
+    IBox<int> nums = r;
+    IBox<string> words = r;
+    Console.WriteLine(g.Greet("小明"));
+    Console.WriteLine(nums.Put(7));
+    Console.WriteLine(words.Put("苹果"));
+}

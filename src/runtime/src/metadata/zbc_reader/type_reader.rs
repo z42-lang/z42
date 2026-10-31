@@ -283,6 +283,23 @@ pub(super) fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
         // so consume the bytes to keep the cursor aligned for the next TYPE record.
         let assoc_count = c.read_u16()? as usize;
         for _ in 0..assoc_count { c.read_u32()?; c.read_u32()?; }
+        // fix-interface-overload-dispatch: interface-slot table, gated by `class_flags2`
+        // bit1, at the very end of the record. slot_count:u16 + (key_idx:u32, impl_idx:u32)×n.
+        let iface_slots: Box<[(String, String)]> = if class_flags2
+            & crate::metadata::bytecode::CLASS_FLAGS2_HAS_IFACE_SLOTS
+            != 0
+        {
+            let n = c.read_u16()? as usize;
+            let mut v = Vec::with_capacity(n);
+            for _ in 0..n {
+                let key_idx = c.read_u32()?;
+                let impl_idx = c.read_u32()?;
+                v.push((c.pool_str(pool, key_idx)?.to_owned(), c.pool_str(pool, impl_idx)?.to_owned()));
+            }
+            v.into_boxed_slice()
+        } else {
+            Box::new([])
+        };
         classes.push(ClassDesc {
             name,
             base_class,
@@ -305,6 +322,7 @@ pub(super) fn read_type(sec: &[u8], pool: &[String]) -> Result<Vec<ClassDesc>> {
             inline_layout: inline_layout_desc,
             // unify-object-byte-layout (PR-1): full object field layout (zbc 1.34). Dormant.
             object_layout: object_layout_desc,
+            iface_slots,
         });
     }
     Ok(classes)

@@ -236,6 +236,103 @@ public sealed class InheritanceResolver {
         }
     }
 
+    // fix-interface-overload-dispatch：派生类**新增**的同名重载不得占用祖先的裸键槽。
+    //
+    // 根因：primary/非-primary 键（`MemberCollector._fillClass`）只看**本类**的声明序 —— 派生类里
+    // 第一个 `Get` 拿裸键 `Get`，哪怕基类的裸键 `Get` 是另一个签名。VM 建 vtable 按键合并
+    // （`merge_with_base`：同键即覆盖），于是派生类的 `Get(int)` 静默**顶掉**基类 `Get(string)` 的槽：
+    // `B1 b = new D1(); b.Get("s")` 跑进 `D1.Get(int)`。接口槽别名（`IfaceSlotKeys`）指向的也是槽，
+    // 同一个顶替会把接口调用一起带歪。
+    //
+    // 修法：派生类的非 override 实例方法若拿了裸键，而祖先链上**最顶层**持有该裸键的方法签名不同
+    // （按基类实参代换后比，`class D : B<int>` 的 `Get(int)` 与 `B<T>.Get(T)` 算同签名），就改用全签名
+    // 键（`MangleKey`）。最顶层持有者的键永不被本 pass 改动，故结果与 CU / 类的处理顺序无关。
+    // 同签名的（含隐藏基类方法的）仍留裸键 —— 行为与此前一致。必须在 `_passFixupOverrides` 之后跑
+    //（override 的键要先对齐到祖先，否则会被误判成「新增重载」）。
+    internal void _passRekeyShadowedOverloads(SymbolTable table, CompilationUnit cu) {
+        table = table.WithScopeOf(cu);   // 基类实参（`class D : B<int>`）按本 CU 作用域解析
+        int i = 0;
+        while (i < cu.DeclCount) {
+            Decl d = this._sc._unwrap(cu.Decls[i]);
+            if (d is ClassDecl) {
+                ClassDecl c = d as ClassDecl;
+                if (c.Kind == "class" || c.Kind == "struct") {
+                    Z42ClassType ct = table.LocalClassOf(cu.HasNamespace ? cu.Namespace : "", c);
+                    if (ct != null && table.BaseOf(ct) != null) {
+                        int j = 0;
+                        while (j < c.MemberCount) {
+                            Decl mem = this._sc._unwrap(c.Members[j]);
+                            if (mem is MethodDecl) { this._rekeyIfShadowing(table, ct, mem as MethodDecl); }
+                            j = j + 1;
+                        }
+                    }
+                }
+            }
+            i = i + 1;
+        }
+    }
+
+    private void _rekeyIfShadowing(SymbolTable table, Z42ClassType ct, MethodDecl md) {
+        if (md.IsCtor || md.RegKey != md.Name) { return; }
+        // 协议名（`Equals(T)` / `ToString(string)` …）的裸键是 VM / DepIndex 硬查的锚点，且既有约定就是
+        // 「首个同名占 Object 的协议槽」（`MemberCollector` 的协议豁免注释）。不在本 pass 的范围内。
+        if (SymbolCollector.IsProtocolExempt(md.Name)) { return; }
+        if (Mod.Has(md.ModFlags, Mod.Static) || Mod.Has(md.ModFlags, Mod.Override) || Mod.Has(md.ModFlags, Mod.Sealed)) { return; }
+        MethodSymbol sym = this._symbolOfDecl(ct, md);
+        if (sym == null || sym.Signature == null) { return; }
+        string mine = DispatchKeys.MangleKey(md.Name, sym.Signature.ParamTypes, sym.Signature.ParamCount);
+        string owner = this._topBareKeyOwnerSig(table, ct, md.Name);
+        if (owner == "" || owner == mine) { return; }
+        sym.RegKey = mine;
+        md.RegKey = mine;
+        ct.Methods.Put(mine, sym);   // 旧裸键留存无害（同 _passFixupOverrides：同一对象，按 RegKey 去重）
+    }
+
+    // 本类里**这个声明**对应的方法符号（裸键可能已被 override 对齐改指别的符号，故按 Decl 认）。
+    private MethodSymbol _symbolOfDecl(Z42ClassType ct, MethodDecl md) {
+        MethodSymbol[] cands = ct.OverloadsOf(md.Name);
+        int k = 0;
+        while (k < cands.Length) {
+            if (cands[k].HasDecl && cands[k].Decl == md) { return cands[k]; }
+            k = k + 1;
+        }
+        return null;
+    }
+
+    // 祖先链上最顶层以裸键 `name` 注册的实例方法的签名键（按 ct 视角代换基类实参）；没有 → ""。
+    private string _topBareKeyOwnerSig(SymbolTable table, Z42ClassType ct, string name) {
+        string found = "";
+        Z42ClassType cur = ct;
+        Z42InstantiatedType curInst = null;
+        int depth = 0;
+        while (cur != null && table.BaseOf(cur) != null) {
+            Z42ClassType baseCt = table.BaseOf(cur);
+            Z42InstantiatedType baseInst = this._baseInstOf(table, cur, curInst);
+            MethodSymbol[] cands = baseCt.OverloadsOf(name);
+            int k = 0;
+            while (k < cands.Length) {
+                MethodSymbol bs = cands[k];
+                if (bs.RegKey == name && !bs.IsStatic && bs.Signature != null) {
+                    int pc = bs.Signature.ParamCount;
+                    Z42Type[] ps = new Z42Type[pc];
+                    int p = 0;
+                    while (p < pc) {
+                        Z42Type pt = bs.Signature.ParamTypes[p];
+                        if (baseInst != null) { pt = TypeSubst.Apply(pt, new ClassArgsMap(baseInst)); }
+                        ps[p] = pt;
+                        p = p + 1;
+                    }
+                    found = DispatchKeys.MangleKey(name, ps, pc);
+                }
+                k = k + 1;
+            }
+            curInst = baseInst;
+            cur = baseCt;
+            depth = SymbolTable.NextBaseHop(depth);
+        }
+        return found;
+    }
+
     // 沿 base 链逐层上溯，找到（name, paramTypes）对应虚方法**最初**（非 override）声明所在层的
     // MethodSymbol，返回其 RegKey 作为权威键。imported 基类方法无 AST Decl（HasDecl=false）→ 视为终点
     // （其 RegKey 即该 imported 包编译时已定案的键，无需也无法继续上溯）。全链找不到匹配 → 返回 null
@@ -637,6 +734,13 @@ public sealed class InheritanceResolver {
                     // define-null-check-marks D7：`?` 方向一致性（见 _checkNullableDirection）。
                     // 与 static / 可见性 / 返回类型同族——都是「MangleKey 命中不代表契约兑现」。
                     this._checkNullableDirection("interface", cName, it.Name(), ims, cm, cSpan);
+                    // fix-interface-overload-dispatch：这里正是「接口方法 → 按签名（已代换接口实参与
+                    // `Self`）找到的实现」，登记成接口槽，随类描述符下发（见 `IfaceSlotKeys` 抬头）。
+                    // 静态接口成员不走实例 vtable，不登记。
+                    if (!ims.IsStatic) {
+                        ct.AddIfaceSlot(IfaceSlotKeys.Exact(it, ims.Name), cm);
+                        ct.AddIfaceSlot(IfaceSlotKeys.Erased(it, ims.Name), cm);
+                    }
                     return;
                 }
                 j = j + 1;

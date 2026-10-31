@@ -342,6 +342,17 @@ public static class ZbcReader {
                 cd.AssocTypes[aar] = ZbcReader._p(pool, c.U32());
                 aar = aar + 1;
             }
+            // 接口槽表（fix-interface-overload-dispatch）：Flags2 bit1 gated，记录最末尾。
+            if ((cd.Flags2 & 2) != 0) {
+                int isc = c.U16();
+                cd.IfaceSlotKeys = new string[isc]; cd.IfaceSlotImpls = new string[isc]; cd.IfaceSlotCount = isc;
+                int isr = 0;
+                while (isr < isc) {
+                    cd.IfaceSlotKeys[isr] = ZbcReader._p(pool, c.U32());
+                    cd.IfaceSlotImpls[isr] = ZbcReader._p(pool, c.U32());
+                    isr = isr + 1;
+                }
+            }
             classes[ci] = cd;
             ci = ci + 1;
         }

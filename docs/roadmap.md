@@ -361,6 +361,7 @@ z42 是一门**全栈系统编程语言**：从嵌入式固件到云端后端，
 | 特性 | 描述 | 在哪里 |
 |------|------|------|
 | 跨包类的接口实现参与推断（generic-inference-future-imported-iface-args）| 推断穿过接口实现只认本包类：跨包类的导出数据不带接口类型实参（需 zpkg 格式变更）。workaround：显式写类型实参 | [internals generics](internals/src/compiler/generics.md) Deferred |
+| 共享泛型体经 `IFoo<T>` 调用重复实现了 `IFoo` 的类（iface-slot-shared-body-type-args）| 调用点只能发擦除接口槽键，落到声明序首个实例化的实现；需运行期实参拼写统一后按帧代换 | [internals generics](internals/src/compiler/generics.md) Deferred |
 | 泛型类特化体 `new T[n]` 存 struct 元素悬垂（generic-class-tarray-struct-escape）| `Holder<Vec2>` 里自建 `T[]` 存元素后返回，读元素报 struct 句柄出帧；main 上即存在 | [internals generics](internals/src/compiler/generics.md) Deferred |
 | 关联类型跨包（assoc-type-crosspkg）| 同包已实现（add-associated-types PR-3）。跨包**不校验**：类给出的绑定与接口的关联类型名单都无 wire 表示，需要约束 bundle 的 **bit7**（实测 bit7 **未被三方 reader 预留**，`type_reader.rs:296-335` 只解析 bit0–6 ⇒ 与 PR-1 不同，这次是真 wire 变更）+ **zbc/zpkg 双 minor bump** + `ExportedClassZ`/`ExportedInterfaceZ`/`TsigReconcile` 三段搬运。⚠️ 落地前编译器在三个点**主动跳过**导入类型（约束声明处 / 使用点 / 补齐强制）——不跳则合法跨包代码被判「未绑定」**假红** | `ConstraintChecker._checkAssocBinding` / `_fillBundle` / `InheritanceResolver._checkOneIfaceAssoc` 的 `IsImported` 守卫 |
 | 关联类型：嵌套约束（assoc-type-nested-constraint）| `where T : IIterator<Item = U>, U : IDisplay` —— 绑定引出的类型再被约束。同包关联类型已落，此项未做 | [book: generic-constraints.md](reference/src/language/generic-constraints.md) 已知限制 §5 |

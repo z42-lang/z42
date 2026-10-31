@@ -105,6 +105,12 @@ i64），先查 enum 名才能让 `Console.WriteLine(Color.Blue)` 与 `((object)
 每个候选名都经 `target_by_name` 绑定：先本模块 `func_index`，再惰性加载器（`try_lookup_function`，
 可能加载定义包），惰性函数从 `FuncTable` 借出，不持有 `Arc`。
 
+**接口槽键先翻译**：方法名形如 `Demo.IFoo<string>#Get` 时（接口调用点发的接口槽键，见
+[vm-architecture.md「接口调用：接口槽」](vm-architecture.md#接口调用接口槽)），进阶梯之前先在接收者类型
+（对象 / 盒的 `TypeDesc`，裸基元按 `primitive_class_name` 查到的 `TypeDesc`；实例化再试其擦除定义）的
+`vtable_index` 里查这个键、再查擦除键（`Demo.IFoo#Get`），命中就换成该槽实现方法的键（`Get$1$string`），
+之后整条阶梯照常；都不命中（接收者类型不带接口槽表）退回 `#` 后的裸名。空接收者报错时用的也是裸名。
+
 第 4 级里 `vtable_index` 必须排在 `resolve_virtual` **前面**：
 vtable 把「可能重载的方法名」映射到编译器为该站点绑定的那个覆写槽，而 `resolve_virtual` 的
 `Class.method` 字符串走法会撞上先遇到的同名函数。

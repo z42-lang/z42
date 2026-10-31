@@ -93,12 +93,25 @@ tp_count        u8（泛型形参数）
 attr_count      u16（类级 attribute）
 attr ×          { type_name u32; factory u32 }
 flags           u8（类形状，见下）
+visibility      u8
+flags2          u16（第二个类标志字，见下）
 static_field_count  u16
 静态字段 ×      （布局同实例字段）
 interface_count u16
 interface ×     pool idx
 [enum 块]       仅 flags bit5 置位：member_count u16 + 每成员{name u32, value i64}
+[接口方法块 / struct 布局块 / struct 逐字段表 / 内联布局块 / 对象全字段块]（各自 gated，略）
+assoc_count     u16；assoc × {name u32, type u32}
+[接口槽表]      仅 flags2 bit1 置位：slot_count u16 + 每项{key pool idx, impl pool idx}
 ```
+
+**第二个类标志字（`flags2` u16）**：`bit0` has-struct-field-table（struct 逐字段布局表在场）、
+`bit1` has-iface-slots（记录末尾带接口槽表）。其余位保留。
+
+**接口槽表**：类实现的每个接口方法一项——键是接口槽键（`Demo.IFoo<string>#Get` 带实参的精确键，
+或 `Demo.IFoo#Get` 擦除键），值是实现该方法的 vtable 键（`Get$1$string`）。编译器按签名定案；运行期
+建 vtable 时作为别名指向实现所在的槽，接口调用点的 `VCall.Method` 就是这个键（见
+[vm-architecture.md「接口调用：接口槽」](../runtime/vm-architecture.md#接口调用接口槽)）。
 
 **约束 flags（`constraint_flags` u8）**：`bit0` requires-class（`where T : class`）、
 `bit1` requires-struct、`bit2` has-base-class（载荷 `base_class` pool idx）、

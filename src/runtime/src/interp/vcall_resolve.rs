@@ -152,8 +152,21 @@ pub(crate) fn resolve_vcall<'a>(
     // this call already missed on the existing tag match) ⇒ the check costs the hit path
     // nothing. Catchable `NullReferenceException`, same text in both engines.
     if matches!(obj_val, Value::Null) {
-        return null_receiver(ctx, module, method);
+        return null_receiver(ctx, module, iface_slot_method(method).unwrap_or(method));
     }
+    // fix-interface-overload-dispatch: an interface call site names an interface *slot*
+    // (`Demo.IFoo<string>#Get`). Translate it into the key of the method that implements the
+    // slot on this receiver's type, then resolve that key exactly like a class call. Miss
+    // (receiver type compiled without a slot table) → the bare method name, i.e. the
+    // pre-slot behaviour.
+    let slot_impl;
+    let method: &str = match iface_slot_method(method) {
+        None => method,
+        Some(bare) => {
+            slot_impl = resolve_iface_slot(ctx, module, obj_val, method);
+            slot_impl.as_deref().unwrap_or(bare)
+        }
+    };
     let resolved = resolve_vcall_unchecked(ctx, module, obj_val, method, arity, ic)?;
     let phys = arity + 1;   // + receiver
     let (name, sig) = match &resolved.target {
@@ -165,6 +178,54 @@ pub(crate) fn resolve_vcall<'a>(
         return Ok(ResolvedVCall { target: VCallTarget::Thrown(exc), this: resolved.this });
     }
     Ok(resolved)
+}
+
+/// The interface method name of an interface-slot key (`Demo.IFoo<int>#Get` → `Get`);
+/// `None` for an ordinary method key. `#` never occurs in a type name or a method key
+/// (overload mangling uses `$`, specializations `:`, nested types `+`), so its presence is
+/// the whole test.
+#[inline]
+pub(crate) fn iface_slot_method(method: &str) -> Option<&str> {
+    method.rfind('#').map(|i| &method[i + 1..])
+}
+
+/// The erased form of an interface-slot key: type arguments dropped from the interface part
+/// (`Demo.IFoo<int>#Get` → `Demo.IFoo#Get`). `None` when the key carries none. A class that
+/// implements a generic interface whose arguments mention its own type parameters only
+/// registers the erased key, and a shared generic body calling through `IFoo<T>` only emits
+/// it.
+pub(crate) fn erased_iface_slot_key(key: &str) -> Option<String> {
+    let hash = key.rfind('#')?;
+    let lt = key[..hash].find('<')?;
+    Some(format!("{}{}", &key[..lt], &key[hash..]))
+}
+
+/// fix-interface-overload-dispatch: the vtable key of the method implementing interface slot
+/// `key` on `obj_val`'s runtime type, from the slot aliases `merge_with_base` installed into
+/// `vtable_index` (the compiler matched slot → implementation by signature). Probes the exact
+/// key, then its erased form, on the receiver's type and then on its erased generic
+/// definition (instantiations whose descriptor carries no table of its own). `None` when the
+/// type has no matching slot.
+pub(crate) fn resolve_iface_slot(
+    ctx: &VmContext, module: &Module, obj_val: &Value, key: &str,
+) -> Option<String> {
+    let erased = erased_iface_slot_key(key);
+    let lookup = |name: &str| module.type_registry.get(name).cloned().or_else(|| ctx.try_lookup_type(name));
+    let probe = |td: &crate::metadata::TypeDesc| -> Option<String> {
+        let at = |k: &str| td.vtable_index.get(k).and_then(|&slot| td.vtable.get(slot)).map(|(simple, _)| simple.clone());
+        at(key).or_else(|| erased.as_deref().and_then(at))
+    };
+    let probe_with_def = |td: &crate::metadata::TypeDesc| -> Option<String> {
+        probe(td).or_else(|| {
+            let def = crate::metadata::TypeDesc::erased_definition_name(&td.name)?;
+            probe(&*lookup(def)?)
+        })
+    };
+    match obj_val {
+        Value::Object(rc) => probe_with_def(rc.type_desc()),
+        Value::BoxedStruct(gc) => probe_with_def(gc.type_desc()),
+        other => probe_with_def(&*lookup(primitive_class_name(other)?)?),
+    }
 }
 
 /// `VCall` on a null receiver → `objops::OpError::null_call`, materialised as the target's

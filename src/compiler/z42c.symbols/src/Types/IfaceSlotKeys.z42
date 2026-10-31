@@ -1,0 +1,89 @@
+// 接口槽键（fix-interface-overload-dispatch）——接口方法在实现类 vtable 里的**独立键**。
+//
+// 问题：接口调用点此前只发 `vcall <方法名>`（裸名），运行期按名字落到实现类的 vtable 槽。而类的
+// 重载按「声明序首个同名 → 裸键、其余 → 全签名键」注册（`MemberCollector`），裸键上坐的是**哪个
+// 重载取决于声明顺序**，与接口要的签名毫无关系：`class W : IPlain { Get(int); Get(string) }` 经
+// `IPlain.Get(string)` 调到 `Get(int)`。同一接口实现两次（`X : IFoo<int>, IFoo<string>`）时，一个
+// 名字更不可能同时指两处。
+//
+// 修法：接口方法槽 → 实现方法的映射在**编译期按签名**算好（接口满足性校验本来就在逐个找实现，
+// 见 `InheritanceResolver._checkOneIfaceMethod`），随类描述符下发；运行期建 vtable 时把这些键作为
+// **别名**指向实现方法所在的槽（`merge_with_base`），一次定案。调用点发的是接口槽键，不再是裸名。
+//
+// 键形：`<接口 FQN>[<实参键,…>]#<接口方法名>`。
+//   · 精确键带实参（`Demo.IFoo<string>#Get`）——仅当实参**全部闭合**（不含任何型参）时才有；
+//   · 擦除键不带实参（`Demo.IFoo#Get`）——总有。
+// 调用点优先发精确键；运行期精确键未命中再试擦除键（共享泛型体里的 `IFoo<T>` 只能发擦除键）。
+// 类侧两种键都登记；同一擦除键被两个实例化各要一次时（`X : IFoo<int>, IFoo<string>`）**声明序首个**
+// 胜出 —— 只有「共享泛型体经 `IFoo<T>` 调用一个重复实现了 `IFoo` 的类」会落到它上面（已知限制，见
+// internals generics.md）。
+//
+// `#` 不出现在任何类型名 / 方法键里（MangleKey 用 `$`、特化名用 `:`、嵌套类型用 `+`），故运行期按
+// 最后一个 `#` 切分即可，且普通方法键永远不会被误认成接口槽键。
+//
+// 实参键用 `DispatchKeys.TypeKey`（与重载键同一口径：`Int32≡int`、`String≡string`、无空格），两侧
+// （类侧登记 / 调用点）用的是同一个函数，拼写必然一致。
+namespace Z42.Symbols;
+
+public static class IfaceSlotKeys {
+
+    // 擦除键：`<接口 FQN>#<方法名>`。
+    public static string Erased(Z42InterfaceType it, string method) {
+        return IfaceSlotKeys._defFqn(it) + "#" + method;
+    }
+
+    // 精确键：`<接口 FQN><实参…>#<方法名>`；非实例化接口 / 实参含型参 → ""。
+    public static string Exact(Z42InterfaceType it, string method) {
+        if (!(it is Z42InstantiatedInterfaceType)) { return ""; }
+        Z42InstantiatedInterfaceType ii = it as Z42InstantiatedInterfaceType;
+        if (ii.ArgCount == 0) { return ""; }
+        string s = IfaceSlotKeys._defFqn(it) + "<";
+        int i = 0;
+        while (i < ii.ArgCount) {
+            if (!IfaceSlotKeys.IsClosed(ii.TypeArgs[i])) { return ""; }
+            if (i > 0) { s = s + ","; }
+            s = s + DispatchKeys.TypeKey(ii.TypeArgs[i]);
+            i = i + 1;
+        }
+        return s + ">" + "#" + method;
+    }
+
+    // 调用点用的键：有精确键用精确键，否则擦除键。
+    public static string CallSite(Z42InterfaceType it, string method) {
+        string e = IfaceSlotKeys.Exact(it, method);
+        if (e != "") { return e; }
+        return IfaceSlotKeys.Erased(it, method);
+    }
+
+    // 类型里有没有型参（含嵌套在数组 / 实例化 / 函数类型里的）。Unknown / Error 也算不闭合 ——
+    // 拼不出可靠的名字，宁可退到擦除键。
+    public static bool IsClosed(Z42Type t) {
+        if (t == null) { return false; }
+        if ((t is Z42GenericParamType) || (t is Z42UnknownType) || (t is Z42ErrorType)) { return false; }
+        if (t is Z42ArrayType) { return IfaceSlotKeys.IsClosed((t as Z42ArrayType).Elem); }
+        if (t is Z42InstantiatedType) {
+            Z42InstantiatedType ct = t as Z42InstantiatedType;
+            int i = 0;
+            while (i < ct.ArgCount) { if (!IfaceSlotKeys.IsClosed(ct.TypeArgs[i])) { return false; } i = i + 1; }
+            return true;
+        }
+        if (t is Z42InstantiatedInterfaceType) {
+            Z42InstantiatedInterfaceType it = t as Z42InstantiatedInterfaceType;
+            int j = 0;
+            while (j < it.ArgCount) { if (!IfaceSlotKeys.IsClosed(it.TypeArgs[j])) { return false; } j = j + 1; }
+            return true;
+        }
+        if (t is Z42FuncType) {
+            Z42FuncType ft = t as Z42FuncType;
+            int k = 0;
+            while (k < ft.ParamCount) { if (!IfaceSlotKeys.IsClosed(ft.ParamTypes[k])) { return false; } k = k + 1; }
+            return IfaceSlotKeys.IsClosed(ft.Ret);
+        }
+        return true;
+    }
+
+    private static string _defFqn(Z42InterfaceType it) {
+        if (it is Z42InstantiatedInterfaceType) { return (it as Z42InstantiatedInterfaceType).Def.Fqn(); }
+        return it.Fqn();
+    }
+}

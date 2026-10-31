@@ -115,6 +115,9 @@ public static class ZbcWriter {
             // TYPE 统一 assoc 块名/类型（zbc 1.42，assoc-type-crosspkg）：接口名单 + 类侧绑定。
             int aai = 0;
             while (aai < cd.AssocCount) { pool.Intern(cd.AssocNames[aai]); pool.Intern(cd.AssocTypes[aai]); aai = aai + 1; }
+            // 接口槽表（fix-interface-overload-dispatch）：键 + 实现键入池。
+            int isi = 0;
+            while (isi < cd.IfaceSlotCount) { pool.Intern(cd.IfaceSlotKeys[isi]); pool.Intern(cd.IfaceSlotImpls[isi]); isi = isi + 1; }
             c = c + 1;
         }
         pool.Intern("?");   // SIGS 缺省 param 类型占位
@@ -337,6 +340,17 @@ public static class ZbcWriter {
             w.WriteU32(pool.Idx(cd.AssocNames[aaw]));
             w.WriteU32(pool.Idx(cd.AssocTypes[aaw]));
             aaw = aaw + 1;
+        }
+        // 接口槽表（fix-interface-overload-dispatch）：Flags2 bit1 gated，记录最末尾。
+        // slot_count:u16 + (key_idx:u32, impl_idx:u32)×n。键 = 接口槽键，值 = 实现方法的 vtable 键。
+        if ((cd.Flags2 & 2) != 0) {
+            w.WriteU16(cd.IfaceSlotCount);
+            int isw = 0;
+            while (isw < cd.IfaceSlotCount) {
+                w.WriteU32(pool.Idx(cd.IfaceSlotKeys[isw]));
+                w.WriteU32(pool.Idx(cd.IfaceSlotImpls[isw]));
+                isw = isw + 1;
+            }
         }
     }
 

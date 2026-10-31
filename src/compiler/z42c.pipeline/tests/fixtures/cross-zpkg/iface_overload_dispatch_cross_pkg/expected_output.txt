@@ -1,0 +1,9 @@
+W.str:a
+X.int:1
+X.str:b
+B0.str:c
+B0.str:d
+W2.str:e
+Mine.str:f
+W2.str:g
+Mine.str:h

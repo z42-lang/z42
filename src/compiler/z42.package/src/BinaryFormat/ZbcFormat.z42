@@ -5,8 +5,11 @@ namespace Z42.IR.BinaryFormat;
 // 文件版本（须与 Rust reader 的 ZBC_VERSION_* 一致；strict-pin。bump 清单见 docs/internals/src/devinfra/format-bump.md）。
 public static class ZbcVersion {
     public static int Major = 1;
-    public static int Minor = 47;   //  retire-tidx：删除 TIDX section（测试改由 runner 运行期反射发现，
-    // 编译器不再写测试索引）；`MkClos` 删掉恒 0 的 `u8` 尾字节（原 stack_alloc，运行时栈闭包已删）。随 zpkg 0.53 同 bump。
+    public static int Minor = 48;   //  fix-interface-overload-dispatch：TYPE 记录尾部加接口槽表（class_flags2 bit1
+    // gated：slot_count:u16 + (key,impl)×n，接口槽键 → 实现方法键），接口调用点的 VCall 方法名改发接口槽键。
+    // 随 zpkg 0.54 同 bump。
+    // 旧注（1.47  retire-tidx：删除 TIDX section（测试改由 runner 运行期反射发现，
+    // 编译器不再写测试索引）；`MkClos` 删掉恒 0 的 `u8` 尾字节（原 stack_alloc，运行时栈闭包已删）。随 zpkg 0.53 同 bump。）
     // 旧注（1.46  symbolic-struct-field-access P2：struct 叶子访问符号化）
     // `StructFieldGetPrim` / `StructFieldSetPrim` 的 `byte_off:u32` → `root_type:u32(池) +
     // depth:u8 + idx:u16 × depth`（**字段序号路径**）。

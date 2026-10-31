@@ -126,15 +126,15 @@ fn zbc_version_constants_pinned() {
     // `ZbcFormat.z42` / `ZpkgWriter.z42` and compares against these constants.
     assert_eq!(ZBC_VERSION_MAJOR, 1, "zbc major locked at 1 by freeze-zbc-v1");
     assert_eq!(
-        ZBC_VERSION_MINOR, 47,
-        "zbc minor at 1.47 (retire-tidx: TIDX section removed; MkClos drops its reserved u8)"
+        ZBC_VERSION_MINOR, 48,
+        "zbc minor at 1.48 (fix-interface-overload-dispatch: TYPE interface-slot table)"
     );
 }
 
 #[test]
 fn zpkg_version_constants_pinned() {
     assert_eq!(ZPKG_VERSION_MAJOR, 0, "zpkg major locked at 0 by freeze-zpkg-v0");
-    assert_eq!(ZPKG_VERSION_MINOR, 53, "zpkg minor at 0.53 (retire-tidx: MODS drops tidx_len + body)");
+    assert_eq!(ZPKG_VERSION_MINOR, 54, "zpkg minor at 0.54 (fix-interface-overload-dispatch: embeds zbc 1.48)");
 }
 
 #[test]
@@ -269,6 +269,26 @@ fn struct_layout_block_roundtrips_ref_bitmap() {
     assert_eq!(sl.size, 20);
     assert_eq!(&*sl.ref_offsets, &[0u32]);
     assert_eq!(&*sl.ref_kinds, &[crate::metadata::types::STRUCT_REF_ARC_STRING]);
+}
+
+/// fix-interface-overload-dispatch: `class_flags2` bit1 gates the interface-slot table at
+/// the very end of the record (after the assoc block).
+#[test]
+fn iface_slot_table_roundtrips_when_flags2_bit1_is_set() {
+    let pool = vec!["Demo.S".to_owned(), "Demo.IPlain#Get".to_owned(), "Get$1$string".to_owned()];
+    let mut sec = build_type_section_one_struct(0, &[]);
+    // class_flags2 sits right after class_flags(u8) + visibility(u8): offset 4+4+4+2+1+2+1+1.
+    let flags2_at = 4 + 4 + 4 + 2 + 1 + 2 + 1 + 1;
+    sec[flags2_at..flags2_at + 2].copy_from_slice(&crate::metadata::bytecode::CLASS_FLAGS2_HAS_IFACE_SLOTS.to_le_bytes());
+    sec.extend_from_slice(&1u16.to_le_bytes());      // slot count
+    sec.extend_from_slice(&1u32.to_le_bytes());      // key → pool[1]
+    sec.extend_from_slice(&2u32.to_le_bytes());      // impl → pool[2]
+    let classes = read_type(&sec, &pool).expect("read_type");
+    assert_eq!(&*classes[0].iface_slots, &[("Demo.IPlain#Get".to_owned(), "Get$1$string".to_owned())]);
+
+    // bit clear ⇒ no table read (the record ends at the assoc block).
+    let plain = read_type(&build_type_section_one_struct(0, &[]), &pool).expect("read_type");
+    assert!(plain[0].iface_slots.is_empty());
 }
 
 #[test]

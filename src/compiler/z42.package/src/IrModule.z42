@@ -275,8 +275,16 @@ public sealed class IrClassDesc {
     // （「非 struct/接口/枚举/委托」，写端 `(cd.Flags & 116) == 0`），而那个谓词在**两侧各抄一份**
     // —— 正是审计 R2「判据复制」的样本。`Flags2` 就是为「新块按位 gated、判据下沉为数据」开的位面。
     //
-    // bit0 = HAS_STRUCT_FIELD_TABLE（下面那张表在场）。其余位留空。
+    // bit0 = HAS_STRUCT_FIELD_TABLE（下面那张表在场）。
+    // bit1 = HAS_IFACE_SLOTS（接口槽表在场，fix-interface-overload-dispatch，见下）。其余位留空。
     public int Flags2;
+    // ── 接口槽表（Flags2 bit1 gated，TYPE 记录最末尾，assoc 块之后）─────────────────────
+    //
+    // 平行数组：接口槽键（`Demo.IFoo<string>#Get` / `Demo.IFoo#Get`，见 z42c.symbols `IfaceSlotKeys`）→
+    // 实现方法的 vtable 键（RegKey，如 `Get$1$string`）。由编译期接口满足性校验按签名定案；运行期建
+    // vtable 时把键作为**别名**指向实现所在的槽（`merge_with_base`），接口调用点发接口槽键派发。
+    // 没有的类零字节（bit 不置位）。
+    public string[] IfaceSlotKeys; public string[] IfaceSlotImpls; public int IfaceSlotCount;
     // ── 值 struct 的**逐字段**布局表（zbc 1.45）────────────────────────────────────────
     //
     // 平行于 `Fields`（同序同长），每项 = 该直接字段在 blob 内的 (offset, size, kind)。
@@ -325,6 +333,7 @@ public sealed class IrClassDesc {
         this.AssocNames = new string[0]; this.AssocTypes = new string[0]; this.AssocCount = 0;
         this.StructSize = 0; this.StructRefOffsets = new int[0]; this.StructRefKinds = new int[0]; this.StructRefCount = 0;
         this.Flags2 = 0;
+        this.IfaceSlotKeys = new string[0]; this.IfaceSlotImpls = new string[0]; this.IfaceSlotCount = 0;
         this.StructFieldOffsets = new int[0]; this.StructFieldSizes = new int[0];
         this.StructFieldKinds = new int[0]; this.StructFieldCount = 0;
         this.InlineSize = 0; this.InlineRefOffsets = new int[0]; this.InlineRefKinds = new int[0]; this.InlineRefCount = 0;

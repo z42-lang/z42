@@ -202,6 +202,7 @@ fn module_with_one_class(
             visibility: 0,
             class_flags2: 0,
             struct_field_table: Box::new([]),
+            iface_slots: Box::new([]),
             name: name.to_owned(),
             base_class: base.map(str::to_owned),
             fields: fields.into_iter().map(|(n, t)| FieldDesc {
@@ -720,6 +721,7 @@ fn module_with_class_names(name: &str, names: &[&str]) -> crate::metadata::bytec
             visibility: 0,
             class_flags2: 0,
             struct_field_table: Box::new([]),
+            iface_slots: Box::new([]),
             name: (*n).to_owned(),
             base_class: None,
             fields: Box::new([]),
@@ -985,6 +987,87 @@ fn empty_value_struct_without_a_field_table_is_accepted() {
 
     let td = m.type_registry.get("Demo.Phantom").expect("类型进了注册表");
     assert_eq!(td.struct_layout().expect("struct_layout 在").field_count(), 0);
+}
+
+// ── fix-interface-overload-dispatch: interface-slot aliases ───────
+
+/// A bodiless instance method stub named `name` — only its name matters to
+/// `build_type_registry` (own methods are collected by `<class>.` prefix).
+fn iface_stub_fn(name: &str) -> crate::metadata::Function {
+    use crate::metadata::bytecode::{BasicBlock, Terminator};
+    crate::metadata::Function {
+        name: name.to_string(),
+        param_count: 1,
+        ret_type: "string".to_string(),
+        exec_mode: crate::metadata::ExecMode::Interp,
+        blocks: vec![BasicBlock { label: "entry".to_string(), instructions: vec![], terminator: Terminator::Ret { reg: None } }],
+        is_static: false,
+        visibility: 0,
+        method_flags: 0, min_arg: 0, params_from: 0xFF,
+        max_reg: 1,
+        cold: None,
+        reg_types: Box::new([]),
+        block_index: std::collections::HashMap::new(),
+        branch_targets: Vec::new(),
+        fused_tails: Vec::new(),
+        frame_meta: None,
+        resolved: std::sync::OnceLock::new(),
+        owner_init: Default::default(),
+        id: Default::default(),
+        forward: Default::default(),
+    }
+}
+
+/// `W` declares `Get(int)` (bare key `Get`, declared first) and `Get(string)`
+/// (`Get$1$string`) and implements `IPlain.Get(string)`. The slot alias must point at the
+/// `Get$1$string` slot — the bare `Get` belongs to the wrong overload — and a subclass that
+/// overrides `Get(string)` must be reached through the inherited alias.
+#[test]
+fn iface_slot_aliases_the_implementing_slot_and_follows_overrides() {
+    let mut m = module_with_class_names("m", &["Demo.W", "Demo.D"]);
+    m.classes[0].class_flags2 = crate::metadata::bytecode::CLASS_FLAGS2_HAS_IFACE_SLOTS;
+    m.classes[0].iface_slots = vec![("Demo.IPlain#Get".to_string(), "Get$1$string".to_string())].into();
+    m.classes[1].base_class = Some("Demo.W".to_string());
+    m.functions = vec![iface_stub_fn("Demo.W.Get"), iface_stub_fn("Demo.W.Get$1$string"),
+                       iface_stub_fn("Demo.D.Get$1$string")];
+    build_type_registry(&mut m);
+
+    let w = m.type_registry.get("Demo.W").unwrap();
+    let slot = *w.vtable_index.get("Demo.IPlain#Get").expect("alias installed");
+    assert_eq!(Some(&slot), w.vtable_index.get("Get$1$string"), "alias = the implementing slot");
+    assert_ne!(Some(&slot), w.vtable_index.get("Get"), "not the bare-named overload");
+    assert_eq!(w.vtable.len(), 2, "an alias adds no vtable entry");
+
+    let d = m.type_registry.get("Demo.D").unwrap();
+    let dslot = *d.vtable_index.get("Demo.IPlain#Get").expect("alias inherited");
+    assert_eq!(d.vtable[dslot].1, "Demo.D.Get$1$string", "the override is reached through the alias");
+}
+
+/// The implementing method is inherited from a base in another package: unresolvable when
+/// the subclass's module is built, so the alias is skipped — and installed by the
+/// cross-zpkg fixup once the base merges in.
+#[test]
+fn iface_slot_alias_to_an_inherited_method_is_installed_by_fixup() {
+    let mut mod_a = module_with_class_names("PkgA", &["A.Base"]);
+    mod_a.functions = vec![iface_stub_fn("A.Base.Get"), iface_stub_fn("A.Base.Get$1$string")];
+    let mut mod_b = module_with_class_names("PkgB", &["B.Sub"]);
+    mod_b.classes[0].base_class = Some("A.Base".to_string());
+    mod_b.classes[0].class_flags2 = crate::metadata::bytecode::CLASS_FLAGS2_HAS_IFACE_SLOTS;
+    mod_b.classes[0].iface_slots = vec![("B.IPlain#Get".to_string(), "Get$1$string".to_string())].into();
+    mod_b.functions = vec![iface_stub_fn("B.Sub.Other")];
+    build_type_registry(&mut mod_a);
+    build_type_registry(&mut mod_b);
+    assert!(mod_b.type_registry.get("B.Sub").unwrap().vtable_index.get("B.IPlain#Get").is_none(),
+        "the implementing method is not visible before the base merges");
+
+    let mut global: rustc_hash::FxHashMap<String, std::sync::Arc<TypeDesc>> = rustc_hash::FxHashMap::default();
+    for (n, td) in std::mem::take(&mut mod_a.type_registry) { global.insert(n, td); }
+    for (n, td) in std::mem::take(&mut mod_b.type_registry) { global.insert(n, td); }
+    crate::metadata::loader::try_fixup_inheritance(&mut global);
+
+    let sub = global.get("B.Sub").unwrap();
+    let slot = *sub.vtable_index.get("B.IPlain#Get").expect("alias installed by fixup");
+    assert_eq!(sub.vtable[slot].1, "A.Base.Get$1$string");
 }
 
 // ── Members by owner (runtime-audit S1) ───────────────────────────────────────

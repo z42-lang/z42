@@ -24,6 +24,9 @@ pub const CLASS_FLAG_STRUCT: u8 = 1 << 2;
 /// per-field struct layout table is present. **A flag bit, not a derived predicate**:
 /// that distinction is the whole reason `class_flags2` exists (see `ClassDesc::class_flags2`).
 pub const CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE: u16 = 1 << 0;
+/// fix-interface-overload-dispatch: `class_flags2` bit1 —— the class record ends with an
+/// **interface-slot table** (`ClassDesc::iface_slots`), after the assoc block.
+pub const CLASS_FLAGS2_HAS_IFACE_SLOTS: u16 = 1 << 1;
 pub const CLASS_FLAG_RECORD: u8 = 1 << 3;
 /// add-reflection-interface-class-predicates (zbc 1.19): set on the minimal
 /// TYPE entry emitted for an `interface`. Backs `Type.IsInterface`; excluded
@@ -104,7 +107,8 @@ pub struct ClassDesc {
     /// below and the writer's `(cd.Flags & 116) == 0`. That mirroring is exactly the
     /// duplicated-criterion pattern the 2026-09 structural audit calls R2.
     ///
-    /// bit0 = `CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE`. Other bits reserved.
+    /// bit0 = `CLASS_FLAGS2_HAS_STRUCT_FIELD_TABLE`, bit1 = `CLASS_FLAGS2_HAS_IFACE_SLOTS`.
+    /// Other bits reserved.
     pub class_flags2: u16,
     /// type-section-flags2-and-struct-fields (zbc 1.45): per-field byte layout of a
     /// **value struct** — parallel to `fields` (same order, same length), each entry
@@ -168,6 +172,18 @@ pub struct ClassDesc {
     /// still uses `slots`); PR-2 switches field storage to this byte layout. `None` for
     /// value/interface/enum/delegate types and old zbc without the block.
     pub object_layout: Option<ObjectLayoutDesc>,
+    /// fix-interface-overload-dispatch: the class's **interface-slot table** —
+    /// `(slot key, implementing method key)` pairs, gated by `class_flags2` bit1.
+    ///
+    /// A slot key names one interface method (`Demo.IFoo<string>#Get`, or the erased
+    /// `Demo.IFoo#Get`); the value is the vtable key of the method that implements it
+    /// (`Get$1$string`). The compiler matched them **by signature** (the interface's type
+    /// arguments substituted), and interface call sites emit the slot key as their VCall
+    /// method name. `merge_with_base` turns each pair into a `vtable_index` alias of the
+    /// implementing slot, so the call reaches the right overload — and any override of it
+    /// — without ever consulting the bare method name. Empty for classes that implement
+    /// no interface.
+    pub iface_slots: Box<[(String, String)]>,
 }
 
 /// unify-object-byte-layout (PR-1): serialized full-object field layout carried in

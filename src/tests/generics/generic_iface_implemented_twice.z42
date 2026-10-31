@@ -1,0 +1,45 @@
+// fix-interface-overload-dispatch：同一泛型接口实现两次（`X : IFoo<int>, IFoo<string>`）。
+//
+// 一个裸名不可能同时指两个实现。接口槽键带接口的类型实参（`Demo.IFoo<string>#Get`），
+// 由编译期按「代换了接口实参的签名」找到各自的实现。
+namespace Demo;
+
+using Std;
+
+interface IFoo<T> { string Get(T x); }
+
+class X : IFoo<int>, IFoo<string> {
+    public string Get(int x) { return "int:" + x.ToString(); }
+    public string Get(string x) { return "str:" + x; }
+}
+
+// 只实现一次、但实现不是声明序首个
+class Z : IFoo<string> {
+    public string Get(int x) { return "Z.int"; }
+    public string Get(string x) { return "Z.str:" + x; }
+}
+
+// 泛型类实现泛型接口：接口实参是类自己的型参，只有擦除键 `Demo.ISink#Put`
+interface ISink<T> { string Put(T x); }
+class Sink<T> : ISink<T> {
+    public string Put(int x) { return "Sink.int"; }
+    public string Put(T x) { return "Sink.T"; }
+}
+
+// 共享泛型体经 `IFoo<T>` 调用：只能发擦除键
+string Via<T>(IFoo<T> f, T v) { return f.Get(v); }
+
+void Main() {
+    X x = new X();
+    IFoo<int> a = x;
+    IFoo<string> b = x;
+    Assert.Equal("int:1", a.Get(1));
+    Assert.Equal("str:q", b.Get("q"));
+
+    IFoo<string> z = new Z();
+    Assert.Equal("Z.str:r", z.Get("r"));
+    Assert.Equal("Z.str:s", Via<string>(new Z(), "s"));
+
+    ISink<string> sink = new Sink<string>();
+    Assert.Equal("Sink.T", sink.Put("t"));
+}

@@ -1,0 +1,87 @@
+// fix-interface-overload-dispatch：接口调用按**接口槽**派发，不按裸方法名。
+//
+// 类的同名重载按「声明序首个 → 裸键、其余 → 全签名键」注册，裸键上坐的是哪个重载只取决于
+// 声明顺序。接口调用点此前发裸名 ⇒ `IPlain.Get(string)` 跑进 `Get(int)`。现在接口方法槽 →
+// 实现方法由编译期按签名定案、随类描述符下发，运行期作为 vtable 别名一次建好。
+//
+// 本用例的每个类都故意让**错的那个重载**先声明（拿裸键）。
+namespace Demo;
+
+using Std;
+
+interface IPlain { string Get(string x); }
+
+// ① 实现不是声明序首个
+class W : IPlain {
+    public string Get(int x) { return "W.int"; }
+    public string Get(string x) { return "W.str:" + x; }
+}
+
+// ② 实现继承自基类，派生类再加同名重载（派生的 Get(int) 不得顶掉基类 Get(string) 的槽）
+class B0 { public string Get(string x) { return "B0.str:" + x; } }
+class D0 : B0, IPlain { public string Get(int x) { return "D0.int"; } }
+
+// ③ virtual 重载 + 派生类只 override 其中一个：经接口调用要落到 override
+class B2 : IPlain {
+    public virtual string Get(int x) { return "B2.int"; }
+    public virtual string Get(string x) { return "B2.str:" + x; }
+}
+class D2 : B2 { public override string Get(string x) { return "D2.str:" + x; } }
+
+// ④ struct 实现（装箱后经接口调用）
+struct S : IPlain {
+    public int K;
+    public string Get(int x) { return "S.int"; }
+    public string Get(string x) { return "S.str:" + x; }
+}
+
+// ⑤ 接口继承接口：经子接口调用父接口（泛型、实参由子接口给定）的成员
+interface IBase<T> { string Pick(T x); }
+interface IDer : IBase<string> { string Name(); }
+class C : IDer {
+    public string Pick(int x) { return "C.int"; }
+    public string Pick(string x) { return "C.str:" + x; }
+    public string Name() { return "C"; }
+}
+
+// ⑥ 抽象类实现接口，具体实现在子类
+abstract class A : IPlain {
+    public string Get(int x) { return "A.int"; }
+    public abstract string Get(string x);
+}
+class AC : A { public override string Get(string x) { return "AC.str:" + x; } }
+
+// ⑦ where 约束接口提供的方法（型参收者）
+string ViaConstraint<T>(T t, string s) where T : IPlain { return t.Get(s); }
+
+void Main() {
+    IPlain w = new W();
+    Assert.Equal("W.str:a", w.Get("a"));
+
+    IPlain d0 = new D0();
+    Assert.Equal("B0.str:b", d0.Get("b"));
+
+    IPlain d2 = new D2();
+    Assert.Equal("D2.str:c", d2.Get("c"));
+    IPlain b2 = new B2();
+    Assert.Equal("B2.str:c", b2.Get("c"));
+
+    IPlain s = new S();
+    Assert.Equal("S.str:d", s.Get("d"));
+
+    IDer der = new C();
+    Assert.Equal("C.str:e", der.Pick("e"));
+    IBase<string> bas = der;
+    Assert.Equal("C.str:f", bas.Pick("f"));
+
+    IPlain ac = new AC();
+    Assert.Equal("AC.str:g", ac.Get("g"));
+
+    Assert.Equal("W.str:h", ViaConstraint<W>(new W(), "h"));
+    Assert.Equal("D2.str:i", ViaConstraint<D2>(new D2(), "i"));
+
+    // 直接经类调用，重载决议照旧
+    W wc = new W();
+    Assert.Equal("W.int", wc.Get(1));
+    Assert.Equal("W.str:j", wc.Get("j"));
+}

@@ -61,6 +61,42 @@ class C : IA { int A() { return 3; } }
 // ✗ E0412: `C` implements `IA` but `A` must be implemented `public` (it is `private` here)
 ```
 
+## 经接口调用：按签名找实现
+
+接口方法由实现方**签名相同**的那个成员兑现——实现类有同名重载时，经接口静态类型调用落到的是签名对得上
+的那一个，与重载的声明顺序无关；实现继承自基类、或被子类 `override` 时同样成立：
+
+```z42
+interface IPlain { string Get(string x); }
+
+class W : IPlain {
+    public string Get(int x)    { return "int"; }
+    public string Get(string x) { return "str:" + x; }
+}
+
+IPlain p = new W();
+p.Get("a");        // "str:a"
+```
+
+同一个泛型接口可以按不同实参**实现多次**，每个实例化各自对应签名相符的成员：
+
+```z42
+interface IFoo<T> { string Get(T x); }
+
+class X : IFoo<int>, IFoo<string> {
+    public string Get(int x)    { return "int"; }
+    public string Get(string x) { return "str"; }
+}
+
+IFoo<int> a = new X();      a.Get(1);      // "int"
+IFoo<string> b = new X();   b.Get("q");    // "str"
+```
+
+`where T : IPlain` 约束下对 `T` 值的调用同样按这条规则派发。
+
+> 已知限制：在**泛型代码**里（泛型函数、泛型类的成员）经 `IFoo<T>` 调用（`T` 是类型形参），而实参对象恰好把 `IFoo`
+> 实现了不止一次时，调用落到**声明序第一个** `IFoo<…>` 的实现。只实现一次的类不受影响。
+
 ## 可以出现在接口里的成员
 
 ### 方法与属性
