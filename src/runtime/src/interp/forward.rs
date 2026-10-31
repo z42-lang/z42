@@ -66,14 +66,13 @@ pub(crate) fn builtin_forward(func: &Function) -> Option<u32> {
         || insn.args.iter().enumerate().any(|(i, &r)| r as usize != i) {
         return None;
     }
-    // The per-site token when the resolver ran, else the static table by name (an
-    // ext builtin — not in the static table — is not folded).
+    // The per-site token when the resolver ran, else the table by name.
     let id = func.resolved.get()
         .and_then(|r| {
             let site = *r.site_index.first()?.first()?;
             r.builtin_tokens.get(site as usize).copied()
         })
-        .filter(|&id| id != UNRESOLVED && id & crate::corelib::BUILTIN_ID_EXT_BIT == 0)
+        .filter(|&id| id != UNRESOLVED)
         .or_else(|| crate::corelib::builtin_id_of(&insn.name).map(|b| b.0))?;
     (id != UNRESOLVED).then_some(id)
 }

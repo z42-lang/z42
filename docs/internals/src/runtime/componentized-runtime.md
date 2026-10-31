@@ -84,7 +84,7 @@ pub fn register() -> BackendApi { BackendApi { run: jit_run, compile: jit_compil
 
 结果：**jit → core 直接；core → 后端走抽象槽（不静态依赖后端 crate）→ 无环**，Cargo 通过。
 
-这与 [src/runtime/src/interop/ext.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interop/ext.rs) 现对 native 扩展的做法（core 持 `ExtBuiltinTable`、插件注册 fn 指针）**完全同构**；调试钩子复用 [src/runtime/src/observer.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/observer.rs)（JIT 编译事件已 fire observer）。框架地基已有雏形。
+这与 [src/runtime/src/interop/ext.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interop/ext.rs) 现对 native 扩展的做法（core 持函数指针表、扩展库按需填入）**同构**；调试钩子复用 [src/runtime/src/observer.rs](https://github.com/z42-lang/z42/blob/main/src/runtime/src/observer.rs)（JIT 编译事件已 fire observer）。框架地基已有雏形。
 
 > interp→jit 的 tier-up / OSR 边收敛后也走同一注册槽 → 无环。
 

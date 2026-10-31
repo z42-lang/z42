@@ -34,16 +34,17 @@ z42vm 把一部分「重、依赖多、或平台特有」的能力放进**独立
   的 `z42_compression_*`：入 `(*const u8, len, params…)`，出参 `(*mut *mut u8, *mut usize)` +
   `i32` 返回码；错误经 thread-local `z42_compression_last_error()` 取串；缓冲用**库自己的
   分配器**分配、经 `z42_compression_free(ptr, len)` 释放。
-- **加载**：`src/runtime/src/interop/ext.rs` 在 VM 启动 `load_all` 里扫 `native_search_paths()`
-  下的 `libz42_*.{so,dylib,dll}`，`match name { "compression" => … }` 解析已知符号集，把每个
-  `__<entry>` builtin 名注册进 `VmCore.ext_builtins`（供 interp/JIT dispatch）。
-- **wrap shim 留在 z42vm 侧**：每个 builtin 有一个 `wrap_*(ctx, args) -> Result<Value>`，负责
-  `Value` ↔ `*const u8` 的 marshal，再调库函数指针。marshal 逻辑属于 z42vm，不进库。
+- **加载**：`__<entry>` 是 `BUILTINS` 里普通的类型化 builtin（`interop::ext::typed`）；某个库的
+  builtin 第一次被调用时，`src/runtime/src/interop/ext.rs` 的 `ensure_lib_for` 在
+  `native_search_paths()` 下按名找 `libz42_<lib>.{so,dylib,dll}`，`match name { "compression" => … }`
+  解析已知符号集，存进进程级的函数指针表。
+- **builtin 体留在 z42vm 侧**：每个 builtin 收 / 返 `Vec<u8>`（`byte[]` 的转换由 builtin ABI 做），
+  再调库函数指针。marshal 逻辑属于 z42vm，不进库。
 - **分配器纪律**（unify-gc-heap PR-3 教训）：库返回的缓冲**必须用库自己的 `free`** 释放
   （`take_owned_buffer` 先 copy 进 z42vm 的 Vec、再调库 free）——`dlopen` 的库可能与 z42vm 用
   不同 global allocator，混用会 Linux 段错误、macOS 侥幸不炸。
-- **wasm**：`bundled-compression` feature 把 rlib 静态链进来，`load_all` 短路到直接注册函数
-  指针，`ext_builtins` 表填法不变，消费方无感。
+- **wasm**：`bundled-compression` feature 把 rlib 静态链进来，`load_all` 直接填函数指针表，
+  builtin 体无感。
 
 搜索路径（`native_search_paths()`，急切扫描用）按序：`Z42_NATIVE_PATH` 覆盖 → `<exe>/../native/`
 （SDK 布局）→ `<exe>/native/` → `<exe>/`（dev cargo target 直放）。**都必须先 `sort` 再迭代**
@@ -165,7 +166,7 @@ cdylib（与 compression 一致，靠开发者 `cargo build -p`）。
 
 1. 建 crate `src/runtime/crates/z42-<name>`（cdylib+rlib，对 z42 主 crate 零依赖）；导出
    `#[unsafe(no_mangle)] z42_<name>_*` 的纯 C ABI（错误经 thread-local last-error + 返回码）。
-2. 决定形状：**单向**（照 compression：进 `native/`、急切扫描、wrap shim + `ext_builtins`）还是
+2. 决定形状：**单向**（照 compression：进 `native/`、按需加载、typed builtin + 函数指针表）还是
    **双向 / host-only**（照 repl：回调表 + trampoline + 懒 dlopen + 专用发现路径 + 进 bin/）。
 3. z42vm 侧加加载臂：单向在 `interop/ext.rs` 的 `match name`；双向另起一个 `corelib::<name>_native`
    懒加载模块。**符号名两侧手抄，务必逐字节对齐**（版本锁同树构建 → 打包期暴露不匹配）。

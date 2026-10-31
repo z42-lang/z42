@@ -199,16 +199,11 @@ pub struct VmCore {
     /// Mutex, with an additional Read/Write variant tracked per slot so
     /// release picks the correct unlock path.
     /// (**M2**: slot-id counter embedded in the registry.)
-    /// **add-z42-compression **: stdlib native extension builtins
-    /// (e.g. `__deflate_compress` from libz42_compression). Filled when a
-    /// library is first needed: a lookup miss loads the library that provides
-    /// the name (`crate::interop::ext::ensure_lib_for`), which registers its
-    /// `(name, fn_ptr)` pairs. Lookup parallels static `BUILTINS[]`;
-    /// see `corelib::ext_builtin_id_of` for the resolver fallback.
-    /// Only present when `native-interop` feature is enabled (gated alongside
-    /// the `native` module in lib.rs).
+    /// Stdlib ext libraries this VM already tried to open
+    /// (`interop::ext::ensure_lib_for`), so a missing one is looked for once,
+    /// not on every call of one of its builtins.
     #[cfg(feature = "native-interop")]
-    pub(crate) ext_builtins:       Mutex<crate::interop::ext::ExtBuiltinTable>,
+    pub(crate) ext_libs_tried:     Mutex<std::collections::HashSet<&'static str>>,
     /// **add-z42-io-filestream **: live `Std.IO.FileStream`
     /// handles keyed by monotonic slot id. `__file_open` inserts;
     /// `__file_close` removes (or marks slot dead). Pattern mirrors

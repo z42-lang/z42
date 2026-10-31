@@ -16,7 +16,7 @@
 | `dispatch.rs` | `SigType` 枚举 + 签名解析 + libffi `Cif::new` / `Cif::call` 包装 |
 | `loader.rs` | `dlopen`：`libloading::Library::new(path)` + 调用 `<basename>_register` 入口 |
 | `error.rs` | thread-local `LAST_ERROR` 槽 + `z42_last_error()` 实现 |
-| `ext.rs` | stdlib native 扩展加载器：启动时从 SDK native 搜索路径 dlopen `lib<basename>.{so,dylib,dll}`，把 `[Native(lib=…, entry=…)]` 引用的 `__<entry>` 注册进 `VmCore.ext_builtins`（与 Tier 1 `loader.rs` 的通用 libffi 路径互补） |
+| `ext.rs` | stdlib native 扩展加载器：`[Native(lib=…, entry=…)]` 引用的 `__<entry>` 是 `BUILTINS` 里的类型化 builtin（`typed`），首次调用时从 SDK native 搜索路径 dlopen `lib<basename>.{so,dylib,dll}` 绑定符号（与 Tier 1 `loader.rs` 的通用 libffi 路径互补） |
 | `exports.rs` | `#[no_mangle]` `z42_*` extern 函数体 + thread-local `CURRENT_VM` + `VmGuard` RAII |
 | `*_tests.rs` | 单元测试（registry / marshal / dispatch / ext）|
 

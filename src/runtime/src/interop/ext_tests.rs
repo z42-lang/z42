@@ -48,36 +48,6 @@ fn native_search_paths_includes_exec_dir_fallback() {
     );
 }
 
-#[test]
-fn ext_builtin_table_register_and_lookup() {
-    use crate::corelib::NativeFn;
-    use crate::metadata::Value;
-    use crate::vm_context::VmContext;
-    use anyhow::Result;
-
-    fn dummy_fn(_ctx: &VmContext, _args: &[Value]) -> Result<Value> {
-        Ok(Value::I64(42))
-    }
-    let f: NativeFn = dummy_fn;
-
-    let mut table = ExtBuiltinTable::default();
-    let id0 = table.register("__test_foo", f);
-    let id1 = table.register("__test_bar", f);
-    assert_ne!(id0, id1);
-
-    assert_eq!(table.lookup_id("__test_foo"), Some(id0));
-    assert_eq!(table.lookup_id("__test_bar"), Some(id1));
-    assert_eq!(table.lookup_id("__nonexistent"), None);
-
-    assert!(table.dispatch(id0).is_some());
-    assert!(table.dispatch(id1).is_some());
-    assert!(table.dispatch(99).is_none());
-
-    // Idempotent: re-register same name returns existing id, doesn't swap.
-    let id0_again = table.register("__test_foo", f);
-    assert_eq!(id0_again, id0);
-}
-
 #[cfg(not(feature = "bundled-compression"))]
 #[test]
 fn unknown_builtin_names_never_trigger_a_library_load() {

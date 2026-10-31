@@ -14,7 +14,7 @@
 |---|---|
 | **本页** | **typed native type** 通路：`Z42TypeDescriptor_v1` 注册 → `CallNative` → libffi |
 | [native-extensions.md](native-extensions.md) | 独立 cdylib 的 C ABI 范式（compression / repl 两个实例、回调 trampoline） |
-| [native-ext-loader.md](native-ext-loader.md) | 那些 cdylib 怎么被发现、符号怎么注册进 `ext_builtins` |
+| [native-ext-loader.md](native-ext-loader.md) | 那些 cdylib 怎么被发现、符号怎么绑定 |
 | [native-libraries.md](native-libraries.md) | native 库住哪个目录、发布期怎么拍平 |
 | [embedding.md](embedding.md) | 反方向：宿主启动并驱动 VM（`z42_host.h`） |
 
@@ -476,8 +476,8 @@ z42.net 改调新方法，旧方法与旧 builtin 一起挂债；种子不再声
 
 `[Native(lib="z42_compression", entry="__deflate_compress")]` 这类 facade 声明发的是同一条
 `BuiltinInstr`——`lib=` 在这条路上**完全不参与解析**，只是给人看的标注。实际的库发现与符号注册在
-[native-ext-loader.md](native-ext-loader.md)：ext builtin 的 id 在高位打标
-（`BUILTIN_ID_EXT_BIT`），低 31 位是 ext 表下标；它们仍是旧 ABI（`&[Value]`），不参与折叠。
+[native-ext-loader.md](native-ext-loader.md)：这些 builtin 和其他 builtin 在同一张 `BUILTINS` 表、同一个 id 空间里，
+同样参与折叠。
 
 ---
 
