@@ -19,7 +19,7 @@ impl<'a, 'b> TxCtx<'a, 'b> {
             }
             Terminator::Ret { reg: Some(r) } => {
                 // Inline return: copy the 16-byte `Value` into `frame.ret` and set
-                // `frame.has_ret = 1` (`call_native` turns that into
+                // `frame.has_ret = 1` (`enter_compiled` turns that into
                 // `Returned(Some(_))`; a void `Ret` leaves it 0). `Value` is `Copy`,
                 // so a raw two-word copy is exactly what a clone does.
                 let flags = MemFlagsData::trusted();

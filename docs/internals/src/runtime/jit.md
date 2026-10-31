@@ -50,7 +50,7 @@ VmContext（每线程一份）
 ```
 
 **上下文参数 = 运行线程自己的 `VmContext`**。每个编译出的函数和每个 helper 的签名都是
-`fn(frame: *mut JitFrame, ctx: *const VmContext, …)`，`ctx` 就是调用它的那条线程的上下文（`invoke::call_native`
+`fn(frame: *mut JitFrame, ctx: *const VmContext, …)`，`ctx` 就是调用它的那条线程的上下文（`invoke::enter_compiled`
 传入）。于是帧栈、待抛异常、寄存器池、arena、计数器分片、safepoint 计数、栈下限都直接是本线程的；生成码按
 `offset_of!` 常量读 `VM_CONTEXT_STACK_LIMIT_OFFSET` / `VM_CONTEXT_CCTORS_OFFSET` / `VM_CONTEXT_SAFEPOINT_SKIP_OFFSET`，
 helper 与解释器分流经 `VmContext::jit()` 取共享的 `JitRuntime`（`helpers::jit_rt` / `jit_module`）：一次 relaxed load
@@ -155,7 +155,7 @@ VM 的每条线程都跑 JIT 代码：主线程和 `__thread_spawn` 的 worker�
 - **OSR 缓存**：在编译锁内再查一次、编完在锁内写入（锁序：编译锁 → `osr_entries`），同一 `(id, K)` 只编一次。
 - **调用点缓存**：生成码烘焙的可变单元全在 `Function.resolved` 里（`method_tokens` / `VCallIC` / `FieldIC` / `ObjNew`
   站点），本就由解释器的多线程共用、原子读写；JIT 没有私有的可变缓存。
-- **GC**：worker 的 JIT 帧经 `call_native` 压进 worker 自己的帧栈，safepoint 计数与慢路径都用 worker 自己的上下文，
+- **GC**：worker 的 JIT 帧经 `enter_compiled` 压进 worker 自己的帧栈，safepoint 计数与慢路径都用 worker 自己的上下文，
   park 后由回收线程经 `scan_frames_parked` 扫描——与主线程完全相同。
 - 单测：`concurrent_first_call_compiles_exactly_once`（两线程竞争首调）、`runtime_tests.rs`（一条线程编译、另一条线程原生调用；
   worker 到阈值在本线程编译；worker 上抛异常只落在 worker；序言按运行线程自己的栈下限检查）。

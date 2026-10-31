@@ -14,7 +14,7 @@ use z42_abi::Z42Error;
 // retire-z-codes: the named `Z####` constants formerly declared
 // here (Z0905 / Z0906 / Z0910) were retired alongside the cross-language
 // catalog. Callers now inline the numeric codes locally (see
-// `native::exports::TYPE_REGISTRATION_FAILURE` etc.). The `Z42Error.code`
+// `interop::exports::TYPE_REGISTRATION_FAILURE` etc.). The `Z42Error.code`
 // field stays in the ABI for embedder wire-compat; values are unchanged.
 
 thread_local! {

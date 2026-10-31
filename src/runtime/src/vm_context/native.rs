@@ -7,14 +7,14 @@ impl VmContext {
     // `native-interop` feature. wasm builds drop these methods (and the
     // backing fields) entirely.
 
-    /// Register a native type with this VM. Returns `false` (with [`crate::native::error::set`]
+    /// Register a native type with this VM. Returns `false` (with [`crate::interop::error::set`]
     /// already populated) on duplicate `(module, name)`. Internally invoked
     /// from `z42_register_type`; tests may also call this directly with a
     /// pre-built [`RegisteredType`].
     #[cfg(feature = "native-interop")]
     pub fn register_native_type(
         &self,
-        ty: Arc<crate::native::RegisteredType>,
+        ty: Arc<crate::interop::RegisteredType>,
     ) -> bool {
         let key = (ty.module().to_string(), ty.type_name().to_string());
         let mut map = self.core.native_types.write();
@@ -32,7 +32,7 @@ impl VmContext {
         &self,
         module: &str,
         name: &str,
-    ) -> Option<Arc<crate::native::RegisteredType>> {
+    ) -> Option<Arc<crate::interop::RegisteredType>> {
         let key = (module.to_string(), name.to_string());
         self.core.native_types.read().get(&key).cloned()
     }
@@ -94,6 +94,6 @@ impl VmContext {
         &self,
         path: impl AsRef<std::path::Path>,
     ) -> anyhow::Result<()> {
-        crate::native::loader::load_library(self, path.as_ref())
+        crate::interop::loader::load_library(self, path.as_ref())
     }
 }

@@ -1,4 +1,4 @@
-//! Native interop runtime — Tier 1 C ABI implementation.
+//! Interop runtime — Tier 1 C ABI implementation (calling external C libraries).
 //!
 //! See `docs/design/language/interop.md` and spec C2 (`impl-tier1-c-abi`). This
 //! module wires together:

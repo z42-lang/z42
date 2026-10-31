@@ -247,7 +247,7 @@ impl VmContext {
             needs_auto_collect:   Arc::new(std::sync::atomic::AtomicBool::new(false)),
             program_args:         Mutex::new(Vec::new()),
             #[cfg(feature = "native-interop")]
-            ext_builtins:         Mutex::new(crate::native::ext::ExtBuiltinTable::default()),
+            ext_builtins:         Mutex::new(crate::interop::ext::ExtBuiltinTable::default()),
             file_handles:         ResourceRegistry::new(),
             vfs,
             #[cfg(feature = "net")]
@@ -381,7 +381,7 @@ impl VmContext {
                     // collector's own — `scan_frames_parked`'s contract.
                     // SAFETY (frame.regs): raw ptr valid for the
                     // lifetime of the owning Rust frame (FrameGuard RAII for
-                    // interp; `call_native` for JIT), which outlives the park.
+                    // interp; `enter_compiled` for JIT), which outlives the park.
                     unsafe {
                         ctx.scan_frames_parked(|frames| {
                             for frame in frames {
@@ -509,7 +509,7 @@ impl VmContext {
         // first lookup miss for one of its builtins (`ext::ensure_lib_for`).
         // Workers via `new_with_core` share the core's table.
         #[cfg(feature = "native-interop")]
-        if let Err(e) = crate::native::ext::load_all(&boxed) {
+        if let Err(e) = crate::interop::ext::load_all(&boxed) {
             tracing::warn!("native ext loader: {:#}", e);
         }
 

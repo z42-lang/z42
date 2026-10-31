@@ -43,7 +43,7 @@ VM 装了 JIT（`--mode jit`）时 worker 一样跑原生码：`VmCore.jit` 是�
 - `lazy_loader: RwLock<Option<LazyLoader>>` — 按需 zpkg 加载器（**RwLock**：符号查找稳态下是纯读，只有真正加载 zpkg 才取写锁）
 - `native_types: RwLock<HashMap<(String,String), Arc<RegisteredType>>>` — Tier 1 native interop 注册表（**RwLock**，读多写少：dispatch 是纯读，写仅在 module 加载期；`#[cfg(feature="native-interop")]`）
 - `native_libs: Mutex<Vec<libloading::Library>>` — 已加载的 native 库句柄（同上 cfg）
-- `ext_builtins: Mutex<ExtBuiltinTable>` — stdlib 原生扩展库注册的 builtin（`native::ext::load_all` 填充；同上 cfg）
+- `ext_builtins: Mutex<ExtBuiltinTable>` — stdlib 原生扩展库注册的 builtin（`interop::ext::load_all` 填充；同上 cfg）
 - `pinned_owned_buffers: Mutex<HashMap<u64, Box<[u8]>>>` — `Value::PinnedView` 的 owned 缓冲
 - `fatal: AtomicBool` — 致命 VM 错误（栈溢出）正在展开，见下文「原生栈预算」
 - `processes: ResourceRegistry<ProcessSlot>` — `Std.IO.Process` 子进程注册表
@@ -113,7 +113,7 @@ regs，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
 
 | 读写者 | 线程 | 入口 | 条件 |
 |---|---|---|---|
-| 调用序列（`enter_frame` / `call_native`）、`set_top_frame_pc` | 所属线程 | `push` / `pop` / `set_top_pc` | 无锁 |
+| 调用序列（`enter_frame` / `enter_compiled`）、`set_top_frame_pc` | 所属线程 | `push` / `pop` / `set_top_pc` | 无锁 |
 | 异常回溯、栈溢出报告、采样器、`RefKind::Stack` deref、`LoadLocalAddr` | 所属线程 | `with_frames` / `regs_at` / `depth` | 无锁；闭包里不许 push / pop |
 | GC root scanner（标记用的、retention 诊断用的分类版） | collector | `VmContext::scan_frames_parked`（`unsafe`） | 调用方是所属线程，或所属线程已 park |
 | 崩溃信号处理器 | 崩溃线程 | 自己的栈：`scan_parked`；别的线程：`published_depth` | 只读自己拥有的帧；别的线程只读深度原子 |
@@ -142,7 +142,7 @@ regs，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
 
 - **interp 帧**：`interp::exec_support::enter_frame`（由 `exec_function_body` 调用）——`push_frame`、
   建 `FrameGuard`（任何退出路径都先 pop，再把寄存器文件还给 `reg_pool`），再做栈深检查。
-- **原生帧**：`jit::invoke::call_native`——`push_frame` → 运行编译码 → `pop_frame` → 回收 `JitFrame`（寄存器文件还给 `reg_pool`），
+- **原生帧**：`jit::invoke::enter_compiled`——`push_frame` → 运行编译码 → `pop_frame` → 回收 `JitFrame`（寄存器文件还给 `reg_pool`），
   返回 `NativeOutcome`（`Returned(ret)` / `Threw`，异常仍挂在 `VmContext` 上）。JIT 入口 `run_fn`、
   各调用 helper（`jit_call` / `jit_vcall` / `jit_call_indirect` / `jit_obj_new` / `jit_to_str`）与 interp 的
   混合模式分流（`try_native_exec` / OSR / `try_native_static_call` / `try_native_method_call`）都经它；
@@ -157,13 +157,13 @@ regs，interp `RefKind::Stack` 跨帧 deref 通过 `frame.regs`。
 一次调用除了 push / pop 之外的固定开销都收在 `VmContext` 上，调用路径上不碰 thread-local、不做 RMW：
 
 - **寄存器池**（`vm_context/reg_pool.rs`）：interp `Frame::new*` 与 `JitFrame::new*` 都从 `reg_pool.take(need)`
-  取寄存器文件，`FrameGuard` / `call_native` 在 pop **之后**用 `give` 还回。不变量：池里的 `Vec` 长度为 0；
+  取寄存器文件，`FrameGuard` / `enter_compiled` 在 pop **之后**用 `give` 还回。不变量：池里的 `Vec` 长度为 0；
   `take` 用 `resize(need, Null)` 把每个槽写一遍 `Null`（每次调用恰好一遍，不能省——帧一 push，GC 就扫
   `regs[0..len)`，此前每个槽都必须是合法值）；`give` 只 `clear()`（`Value` 是 `Copy`，只改长度），容量以外的
   旧位无人读取——池里的 `Vec` 不是根。上限 512 个。没进入过 `enter_frame` 的 `Frame`（入口拷参失败）直接释放。
 - **引擎入口 guard**（`vm_context/engine_guards.rs`）：两个 thread-local 要在 z42 代码运行期间指向当前 VM——
   `gc::ambient` 的堆（`Str::new` / `.into()` 从它分配，`str_meta` 缓存按它的 epoch 作用域）和
-  `native-interop` 下 `native::exports` 的 `CURRENT_VM`（`z42_*` 导出函数经 `current_vm()` 找 VM）。
+  `native-interop` 下 `interop::exports` 的 `CURRENT_VM`（`z42_*` 导出函数经 `current_vm()` 找 VM）。
   它们在一条活动链内不变，所以只在**栈底帧** push 时安装（`push_frame` 里 `FrameStack::push` 报告深度 0→1，
   一次 load 一次分支），栈再次变空时（`pop_frame` 后深度为 0）恢复原值。嵌套帧不碰 thread-local。
   - 同一 ctx 上的嵌套引擎入口——反射 invoke、静态构造器、`ToString` 分派、REPL、JIT ↔ interp 分流、OSR——
@@ -224,7 +224,7 @@ blob）、`transient_arena`（`Ref`/`PinnedView`/`StructRefHeap` 的 payload）�
 /`.so`/`.dll` 并调用其 `<basename>_register` 入口（约定）让 native 库通过
 `z42_register_type` 把类型推入 `native_types`。栈底帧 push 时安装 thread-local
 `CURRENT_VM`（见上「寄存器池、引擎入口 guard、frame_id」）让 native callback 能找回 VM；详见
-`src/runtime/src/native/exports.rs` 的 `VmGuard`。
+`src/runtime/src/interop/exports.rs` 的 `VmGuard`。
 
 ---
 
@@ -395,7 +395,7 @@ for ((module, ns, _tidx), (sym_ns, fns)) in module_pairs.iter_mut().zip(sidecar.
 
 ## Embedding Entry
 
-> **本节边界**：从 VM 内部视角描述 `crate::host` 模块如何融入 VM 架构（数据归属、状态管理、与 `crate::native` 的边界）。**API 形态、Host C ABI 函数签名、宿主使用模式**归 [`embedding.md`](embedding.md)，不在本文重复。
+> **本节边界**：从 VM 内部视角描述 `crate::host` 模块如何融入 VM 架构（数据归属、状态管理、与 `crate::interop` 的边界）。**API 形态、Host C ABI 函数签名、宿主使用模式**归 [`embedding.md`](embedding.md)，不在本文重复。
 
 `src/runtime/src/host/` 是 z42 VM 的**宿主嵌入入口**：与上方 `z42vm` CLI 启动流程并列，存在于另一条进入 VM 的路径。
 
@@ -420,13 +420,13 @@ interp::run_returning（解释执行；装配与 CLI 启动流程共用 boot::bo
 | host 模块 ↔ `VmContext` | `host::state::HOST` 持有 `HostState { config: ResolvedConfig, modules, entries, corelib }`；每个已加载 module 独占一个 `VmContext`（`HostModule.ctx`），`load_zbc` 经 `load_artifact_from_bytes` + `merge_modules`（急切并入 `z42.core` 与 `import_namespaces` 对应的 zpkg）后走 `boot::boot_context` + `prepare_execution`（与 `app::run` 同一套装配）；`invoke` 先（每 module 一次）`interp::init_static_fields`，再 `interp::run_returning`。`Z42ExecMode` 在 `initialize` 时只校验所选后端是否编入，不改变 `invoke` 的执行后端 |
 | stdout / stderr | `Z42WriteSink` 函数指针经 `corelib::io::install_host_stdout_sink`（stderr 同理）登记；`invoke` 期间 `HostSinkGuard` 置位 per-thread「host sink active」标志，`corelib/io` 据此把输出路由到宿主回调，结束时复原 |
 | panic 隔离 | 每个 `extern "C"` 入口经 `host::guard()` `catch_unwind` 兜底，panic → `Z42_HOST_ERR_INTERNAL` |
-| 错误诊断 | TLS `LAST_ERROR` 由 `host::error::set_error / clear_error` 管理；与 `native::error::LAST_ERROR` 独立（两条 ABI 各自维护） |
+| 错误诊断 | TLS `LAST_ERROR` 由 `host::error::set_error / clear_error` 管理；与 `interop::error::LAST_ERROR` 独立（两条 ABI 各自维护） |
 
-### 与 `crate::native` 的边界
+### 与 `crate::interop` 的边界
 
 | 方向 | 模块 | 解决问题 |
 |------|------|---------|
-| native 代码 → 注册类型/方法 | `crate::native` (`z42_register_type` 等) | 扩展语言（CPython C 扩展类比） |
+| native 代码 → 注册类型/方法 | `crate::interop` (`z42_register_type` 等) | 扩展语言（CPython C 扩展类比） |
 | 宿主 app → 启动 VM | `crate::host` (`z42_host_initialize` 等) | 嵌入运行时（CoreCLR `coreclrhost.h` 类比） |
 
 两者复用 `z42_abi::Z42Value` / `Z42Args` / `Z42Error` 类型，互不调用对方。
@@ -1453,7 +1453,7 @@ builtin 按功能分 submodule：`string.rs` / `io.rs` / `math.rs` / `fs.rs` 等
 | Pending exception / 静态字段 (JIT) | `ctx.pending_exception` / `VmCore.statics`，无同步桥接 |
 
 > JIT 端所有 extern "C" helper 签名都带 `ctx: *const VmContext` 第 2 参——**运行线程自己的**上下文，
-> 即编译码被调用时收到的那个（`jit::invoke::call_native` 传入）；Cranelift translate 在调用点插入 `ctx_val`。
+> 即编译码被调用时收到的那个（`jit::invoke::enter_compiled` 传入）；Cranelift translate 在调用点插入 `ctx_val`。
 > helper 用 `vm_ctx_ref(ctx)` 直接解引用，共享的 JIT 状态经 `ctx.jit()`（缓存的 `&VmCore.jit`，`jit_rt(ctx)`）取。
 >
 > 寄存器池也在 `VmContext` 上（`reg_pool`）。`VmContext` 是所有 runtime-mutable 状态的唯一规范来源；

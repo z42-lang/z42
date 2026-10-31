@@ -11,12 +11,12 @@ use anyhow::{anyhow, Result};
 use z42_abi::Z42Value;
 
 use crate::metadata::Value;
-use crate::native::dispatch::{
+use crate::interop::dispatch::{
     self, SigType, Z42_VALUE_TAG_BOOL, Z42_VALUE_TAG_F64, Z42_VALUE_TAG_I64,
     Z42_VALUE_TAG_NATIVEPTR, Z42_VALUE_TAG_NULL,
 };
 
-/// Marshal failure surfaced to the caller (`call_native`).
+/// Marshal failure surfaced to the caller (`ffi_call`).
 ///
 /// `InvalidMarshal` is **user-catchable** — the caller constructs a
 /// `Std.InvalidMarshalException` instance carrying the embedded message and

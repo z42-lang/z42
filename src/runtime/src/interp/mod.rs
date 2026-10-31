@@ -14,7 +14,7 @@
 /// • vcall_resolve.rs — VCall target resolution (shared with jit/helpers/vcall.rs)
 /// • obj_new_resolve.rs — ObjNew class / ctor resolution + site cache (shared with jit_obj_new)
 /// • exec_vcall.rs   — VCall invoke side + primitive_class_name
-/// • exec_native.rs  — CallNative / CallNativeVtable / PinPtr / UnpinPtr
+/// • exec_ffi.rs  — CallNative / CallNativeVtable / PinPtr / UnpinPtr
 /// • dispatch.rs   — object dispatch helpers (vtable, ToString, static fields)
 /// • ops.rs        — register-level helpers (int_binop, collect_args, …)
 
@@ -24,7 +24,7 @@ mod exec_address;
 pub(crate) mod exec_array;                 // add-struct-jit-value-path: JIT reuses try_struct_backed/pack_struct_elem
 mod exec_call;
 #[cfg(feature = "native-interop")]
-mod exec_native;
+mod exec_ffi;
 mod exec_object;
 pub(crate) mod exec_struct;   // add-struct-value-semantics: blob value-type instruction exec (JIT helpers reuse the *_val cores)
 pub(crate) mod exec_value;

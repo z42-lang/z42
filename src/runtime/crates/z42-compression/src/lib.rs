@@ -58,7 +58,7 @@ pub const Z42_COMPRESSION_ERR_INTERNAL:      i32 = 99;
 
 /// C-ABI contract version of this crate's `z42_compression_*` exports.
 ///
-/// z42vm's dlopen loader (`native/ext.rs`) calls [`z42_compression_abi_version`]
+/// z42vm's dlopen loader (`interop/ext.rs`) calls [`z42_compression_abi_version`]
 /// on a freshly-opened `libz42_compression` and refuses to bind the rest of the
 /// symbols unless it matches the loader's own `EXPECTED_COMPRESSION_ABI`. Bump
 /// this constant — and the loader's, together — on **any** change to a

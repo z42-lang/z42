@@ -21,7 +21,7 @@ z42 Tier 1 native interop ABI 的 Rust 镜像。是 [`include/z42_abi.h`](../../
 
 ## 实现位置
 
-本 crate 只声明 `extern "C"` 签名；函数实现在 VM 主 crate `z42` 的 `src/native/`（`exports.rs` 等，见 [`src/native/README.md`](../../src/native/README.md)）。
+本 crate 只声明 `extern "C"` 签名；函数实现在 VM 主 crate `z42` 的 `src/interop/`（`exports.rs` 等，见 [`src/interop/README.md`](../../src/interop/README.md)）。
 
 ## 依赖关系
 

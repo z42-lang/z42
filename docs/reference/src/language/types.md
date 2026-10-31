@@ -47,7 +47,7 @@ canonical 表里 `int`/`long`/`float`/`double` 走关键字、窄整数族走短
 
 | 记法 | 例子 | 说明 |
 |---|---|---|
-| `[Extern]` FFI 签名串 | `u8`、`usize`、`*const T`、`CStr` | C / Rust ABI 记法，由 VM 的 `native/dispatch.rs` 解析（见 interop 参考页） |
+| `[Extern]` FFI 签名串 | `u8`、`usize`、`*const T`、`CStr` | C / Rust ABI 记法，由 VM 的 `interop/dispatch.rs` 解析（见 interop 参考页） |
 | IR 文本 dump | `add i32 %1, %2` | LLVM 风格的 IR 汇编记法 |
 
 这与 C# 的「源码 `int` / CIL `int32` / 元数据 `System.Int32`」分层同形：同一个类型在不同层用不同

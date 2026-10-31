@@ -109,9 +109,9 @@ fn str_to_ptr_uses_same_path_as_cstr() {
 fn str_with_interior_nul_returns_invalid_marshal() {
     // retire-z-codes: interior NUL surfaces as
     // `MarshalErr::InvalidMarshal` carrying a plain-text diagnostic.
-    // The caller (`exec_native::call_native`) wraps the message into a
+    // The caller (`exec_ffi::ffi_call`) wraps the message into a
     // `Std.InvalidMarshalException` instance for user-catchable throw.
-    use crate::native::marshal::MarshalErr;
+    use crate::interop::marshal::MarshalErr;
     let mut a = arena();
     let err = value_to_z42(&Value::Str("a\0b".into()), &SigType::CStr, &mut a)
         .expect_err("interior NUL rejected");

@@ -34,7 +34,7 @@ z42vm 把一部分「重、依赖多、或平台特有」的能力放进**独立
   的 `z42_compression_*`：入 `(*const u8, len, params…)`，出参 `(*mut *mut u8, *mut usize)` +
   `i32` 返回码；错误经 thread-local `z42_compression_last_error()` 取串；缓冲用**库自己的
   分配器**分配、经 `z42_compression_free(ptr, len)` 释放。
-- **加载**：`src/runtime/src/native/ext.rs` 在 VM 启动 `load_all` 里扫 `native_search_paths()`
+- **加载**：`src/runtime/src/interop/ext.rs` 在 VM 启动 `load_all` 里扫 `native_search_paths()`
   下的 `libz42_*.{so,dylib,dll}`，`match name { "compression" => … }` 解析已知符号集，把每个
   `__<entry>` builtin 名注册进 `VmCore.ext_builtins`（供 interp/JIT dispatch）。
 - **wrap shim 留在 z42vm 侧**：每个 builtin 有一个 `wrap_*(ctx, args) -> Result<Value>`，负责
@@ -167,7 +167,7 @@ cdylib（与 compression 一致，靠开发者 `cargo build -p`）。
    `#[unsafe(no_mangle)] z42_<name>_*` 的纯 C ABI（错误经 thread-local last-error + 返回码）。
 2. 决定形状：**单向**（照 compression：进 `native/`、急切扫描、wrap shim + `ext_builtins`）还是
    **双向 / host-only**（照 repl：回调表 + trampoline + 懒 dlopen + 专用发现路径 + 进 bin/）。
-3. z42vm 侧加加载臂：单向在 `native/ext.rs` 的 `match name`；双向另起一个 `corelib::<name>_native`
+3. z42vm 侧加加载臂：单向在 `interop/ext.rs` 的 `match name`；双向另起一个 `corelib::<name>_native`
    懒加载模块。**符号名两侧手抄，务必逐字节对齐**（版本锁同树构建 → 打包期暴露不匹配）。
 4. 打包接线（`scripts/package/`）：`cargo build -p z42-<name>` + 拷到正确位置——跨平台 stdlib 扩展
    进 `<sdk>/native/`：把它的动态库文件名加进 `_isNativeExtLib` 白名单（SDK 的 `native-ext` 与 runtime 包的

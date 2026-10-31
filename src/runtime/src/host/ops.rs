@@ -285,7 +285,7 @@ pub(crate) fn invoke_impl(
     // time; each guard restores what it found, and is a no-op when they already
     // name this VM.
     #[cfg(feature = "native-interop")]
-    let _vm_guard = crate::native::exports::VmGuard::enter(ctx);
+    let _vm_guard = crate::interop::exports::VmGuard::enter(ctx);
     let _heap_guard = crate::gc::ambient::HeapGuard::enter(ctx.heap());
     // fix-host-static-init: run the merged packages' `__static_init__` once per module,
     // before the first entry — `Vm::run` does the same right before `Main`. Inside the

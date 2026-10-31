@@ -1,9 +1,9 @@
 //! Lazy dlopen loader + callback wiring for the host-only REPL editor cdylib
 //! (`libz42_repl`, crate `z42-repl`). (extract-repl-native-cdylib)
 //!
-//! # Why a separate loader from `native/ext.rs`
+//! # Why a separate loader from `interop/ext.rs`
 //!
-//! The compression ext loader (`native/ext.rs`) is **eager** (all `libz42_*` in
+//! The compression ext loader (`interop/ext.rs`) is **eager** (all `libz42_*` in
 //! `<sdk>/native/` are dlopen'd at VM startup) and **one-directional** (VM → native).
 //! The REPL editor is different on both axes:
 //!   - **Lazy**: dlopen'd on the *first* `__repl_readline`, so a non-interactive run
@@ -178,7 +178,7 @@ pub(super) mod native {
                 // shared colocated-native-dependency resolver.
                 if let Some(sdk_root) = dir.parent() {
                     let z42i_dir = sdk_root.join("programs").join("z42i");
-                    if let Some(p) = crate::native::ext::resolve_native_beside(&z42i_dir, "z42_repl") {
+                    if let Some(p) = crate::interop::ext::resolve_native_beside(&z42i_dir, "z42_repl") {
                         out.push(p);
                     }
                 }

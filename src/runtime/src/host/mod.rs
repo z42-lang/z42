@@ -6,7 +6,7 @@
 //! H1 scope: lifecycle (initialize / shutdown / sinks / last_error).
 //! H2 scope: load_zbc / resolve_entry / invoke + stdout sink VM wiring.
 //!
-//! Sibling: `crate::native` (interop — native code registering types into z42).
+//! Sibling: `crate::interop` (interop — native code registering types into z42).
 
 pub mod config;
 pub mod entry;

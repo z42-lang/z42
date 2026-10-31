@@ -3,7 +3,7 @@
 //!
 //! Two thread-locals must name the running VM while z42 code runs:
 //! `gc::ambient`'s heap (heap-less `Str::new` / `.into()` allocate from it) and,
-//! with `native-interop`, `native::exports`' `CURRENT_VM` (`z42_*` exports find
+//! with `native-interop`, `interop::exports`' `CURRENT_VM` (`z42_*` exports find
 //! the VM through it). Both stay the same for a whole activation chain, so they
 //! are installed when the **bottom** frame is pushed (`VmContext::push_frame`,
 //! frame-stack depth 0 → 1) and restored when the stack is empty again
@@ -34,7 +34,7 @@ use super::VmContext;
 struct Installed {
     // Field order = drop order: restore `CURRENT_VM`, then the heap.
     #[cfg(feature = "native-interop")]
-    _vm: crate::native::exports::VmGuard<'static>,
+    _vm: crate::interop::exports::VmGuard<'static>,
     _heap: HeapGuard,
 }
 
@@ -69,7 +69,7 @@ impl EngineGuards {
         let ctx_static: &'static VmContext = unsafe { &*(ctx as *const VmContext) };
         let installed = Installed {
             #[cfg(feature = "native-interop")]
-            _vm: crate::native::exports::VmGuard::enter(ctx_static),
+            _vm: crate::interop::exports::VmGuard::enter(ctx_static),
             _heap: HeapGuard::enter(ctx.heap()),
         };
         // SAFETY: owner-thread access.

@@ -8,11 +8,11 @@
 //! # Increment sites (current)
 //!
 //! - `builtin_calls`         ← `corelib::exec_builtin`
-//! - `native_calls`          ← `interp::exec_native::call_native` 
-//! - `jit_methods_compiled`  ← `jit::frame` tier-up compile 
+//! - `native_calls`          ← `interp::exec_ffi::ffi_call`
+//! - `jit_methods_compiled`  ← `jit::frame` tier-up compile
 //! - `jit_native_from_interp`← `interp::exec_call` / `exec_vcall` native routing
-//! - `exceptions_thrown`     ← `interp::fire_exception_thrown` 
-//! - `exceptions_caught`     ← `interp::fire_exception_caught` 
+//! - `exceptions_thrown`     ← `interp::fire_exception_thrown`
+//! - `exceptions_caught`     ← `interp::fire_exception_caught`
 //!
 //! Still at 0 (not yet wired): `jit_compile_us_total` — per-compile wall time
 //! is tracked as a diagnostics.md §4.2 span item, deferred.
@@ -50,7 +50,7 @@ pub struct RuntimeCounters {
     pub builtin_calls:        AtomicU64,
 
     /// Native FFI calls dispatched (e.g. user `[Native("...")]` extern methods).
-    /// Incremented at top of `interp::exec_native::call_native` .
+    /// Incremented at top of `interp::exec_ffi::ffi_call` .
     pub native_calls:         AtomicU64,
 
     /// Methods JIT-compiled. Incremented on tier-up compile in `jit::frame`

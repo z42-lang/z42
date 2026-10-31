@@ -54,7 +54,7 @@ pub fn exec_instr(
 ) -> Result<Option<Value>> {
     use super::{exec_address, exec_array, exec_call, exec_object, exec_struct, exec_value, exec_vcall};
     #[cfg(feature = "native-interop")]
-    use super::exec_native;
+    use super::exec_ffi;
 
     // `resolved` = `func.resolved`, read once per activation by the execution loop
     // (not one acquire load per instruction). None only when the resolver never ran
@@ -349,20 +349,20 @@ pub fn exec_instr(
             let CallNativeInsn { dst, module: m, type_name, symbol, args } = &**insn;
             // retire-z-codes: marshal failures throw
             // Std.InvalidMarshalException via Ok(Some(exc)).
-            if let Some(thrown) = exec_native::call_native(ctx, module, frame, *dst, m, type_name, symbol, args)? {
+            if let Some(thrown) = exec_ffi::ffi_call(ctx, module, frame, *dst, m, type_name, symbol, args)? {
                 return Ok(Some(thrown));
             }
         }
         #[cfg(feature = "native-interop")]
-        Instruction::CallNativeVtable { vtable_slot, .. } => exec_native::call_native_vtable(*vtable_slot)?,
+        Instruction::CallNativeVtable { vtable_slot, .. } => exec_ffi::ffi_call_vtable(*vtable_slot)?,
         #[cfg(feature = "native-interop")]
         Instruction::PinPtr   { dst, src }   => {
-            if let Some(thrown) = exec_native::pin_ptr(ctx, module, frame, *dst, *src)? {
+            if let Some(thrown) = exec_ffi::pin_ptr(ctx, module, frame, *dst, *src)? {
                 return Ok(Some(thrown));
             }
         }
         #[cfg(feature = "native-interop")]
-        Instruction::UnpinPtr { pinned }     => exec_native::unpin_ptr(ctx, frame, *pinned)?,
+        Instruction::UnpinPtr { pinned }     => exec_ffi::unpin_ptr(ctx, frame, *pinned)?,
         #[cfg(not(feature = "native-interop"))]
         Instruction::CallNative(_)
         | Instruction::CallNativeVtable { .. }

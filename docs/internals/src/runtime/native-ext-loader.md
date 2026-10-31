@@ -85,7 +85,7 @@ See `src/compiler/z42c.emission/src/Emission/StubEmitter.z42` (`_emitNativeStub`
 
 ### Native search path
 
-[`src/runtime/src/native/ext.rs::native_search_paths`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/native/ext.rs)
+[`src/runtime/src/interop/ext.rs::native_search_paths`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interop/ext.rs)
 returns a `Vec<PathBuf>` in priority order:
 
 1. **`$Z42_NATIVE_PATH`** env var (colon-separated on Unix, semicolon
@@ -102,7 +102,7 @@ First match wins per file name — later directories don't override.
 Nothing is loaded at VM startup (the bundled wasm build registers its
 statically linked entries in `load_all`, which involves no I/O). When the
 resolver or `exec_builtin` misses a name in `ext_builtins`,
-[`ensure_lib_for`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/native/ext.rs)
+[`ensure_lib_for`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interop/ext.rs)
 maps the builtin name to its library through `KNOWN_EXT_LIBS`
 (`[("compression", COMPRESSION_BUILTINS)]`), probes each search path for
 exactly `{DLL_PREFIX}z42_<lib>{DLL_SUFFIX}` — no directory listing — and
@@ -118,7 +118,7 @@ Before this, every VM listed every search directory and dlopened
 
 ### dlopen + registration
 
-For the library found, [`load_one`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/native/ext.rs)
+For the library found, [`load_one`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interop/ext.rs)
 runs:
 
 1. `libloading::Library::new(path)` — opens the cdylib
@@ -155,7 +155,7 @@ builtin stays unresolved — the call site sees
 
 ### ext_builtins table
 
-[`VmCore.ext_builtins: Mutex<ExtBuiltinTable>`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/native/ext.rs):
+[`VmCore.ext_builtins: Mutex<ExtBuiltinTable>`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interop/ext.rs):
 
 ```rust
 pub struct ExtBuiltinTable {
@@ -184,7 +184,7 @@ resolve via the stable `by_idx` index).
 
 ### Marshalling wrappers
 
-[`wrap_deflate_compress`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/native/ext.rs) and
+[`wrap_deflate_compress`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interop/ext.rs) and
 its siblings handle the Value ↔ raw-bytes conversion:
 
 ```rust
@@ -251,12 +251,12 @@ and z42vm auto-discovers it" path — the symbol resolution + wrapper
 functions are hardcoded per lib. This is intentional for stdlib's
 curated finite set; for user-extensible plugins, the existing Tier 1
 type-registry path
-([`src/runtime/src/native/loader.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/native/loader.rs))
+([`src/runtime/src/interop/loader.rs`](https://github.com/z42-lang/z42/blob/main/src/runtime/src/interop/loader.rs))
 is the right tool once spec C5 (byte[] / String marshal) lands.
 
 ## Relationship to Tier 1 native interop
 
-| Aspect | Tier 1 (`native::loader`) | Ext loader (`native::ext`) |
+| Aspect | Tier 1 (`interop::loader`) | Ext loader (`interop::ext`) |
 |--------|---------------------------|----------------------------|
 | Target | User-supplied native libs (e.g. `numz42`) | Curated stdlib backings (compression, future net / numerics) |
 | z42 syntax | `[Native(lib=, type=, entry=)]` (full form) | `[Native(lib=, entry=)]` (short form, no `type=`) |

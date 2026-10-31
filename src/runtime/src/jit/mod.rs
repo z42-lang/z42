@@ -7,7 +7,7 @@
 ///                       cache), shared by every thread; compiled code and helpers take the
 ///                       running thread's own `VmContext` as their context parameter
 /// * `lazy.rs`         — LazyCompiler: per-function compilation on first call / OSR entries
-/// * `invoke.rs`       — `call_native`: the single push_frame → native code → pop_frame sequence
+/// * `invoke.rs`       — `enter_compiled`: the single push_frame → native code → pop_frame sequence
 /// * `helpers/`        — `extern "C"` helper functions called by JIT code, split
 ///                       by `Instruction` category and registered through
 ///                       `helpers::registry`. See `helpers/mod.rs` for the list.
@@ -92,7 +92,7 @@ pub fn run_fn(ctx: &VmContext, entry_name: &str) -> Result<()> {
         };
     };
     // One `VmFrame` push enrolling the entry frame's regs (GC roots)
-    // + function (trace); inner calls go through the same `invoke::call_native`.
+    // + function (trace); inner calls go through the same `invoke::enter_compiled`.
     let outcome = unsafe { invoke::call_entry(ctx, entry, JitFrame::new(ctx, entry.max_reg, &[])) };
     if let invoke::NativeOutcome::Threw = outcome {
         return Err(take_exception_error(ctx, module));

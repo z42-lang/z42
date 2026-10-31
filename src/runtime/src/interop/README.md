@@ -1,4 +1,4 @@
-# native/ — Tier 1 C ABI runtime
+# interop/ — Tier 1 C ABI runtime
 
 ## 职责
 
@@ -24,7 +24,7 @@
 
 - `z42_abi::z42_register_type` / `z42_resolve_type` / `z42_invoke` / `z42_last_error`：本目录 `exports.rs` 提供 `#[no_mangle]` 实现
 - `VmContext::register_native_type` / `resolve_native_type` / `load_native_library`：z42 内部调用入口
-- `Instruction::CallNative` IR dispatch：在 `interp/exec_instr.rs` → `exec_native.rs` 调 `RegisteredType::method(symbol)` + `dispatch::call`
+- `Instruction::CallNative` IR dispatch：在 `interp/exec_instr.rs` → `exec_ffi.rs` 调 `RegisteredType::method(symbol)` + `dispatch::call`
 
 ## 能力范围
 

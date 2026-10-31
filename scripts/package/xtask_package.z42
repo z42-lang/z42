@@ -228,7 +228,7 @@ bool _isEmbedLib(string f) {
         || f == "z42.lib" || f == "z42.dll" || f == "z42.dll.lib";
 }
 
-// stdlib native extensions: the cdylibs z42vm dlopens from `<sdk>/native/` at start-up (native/ext.rs
+// stdlib native extensions: the cdylibs z42vm dlopens from `<sdk>/native/` at start-up (interop/ext.rs
 // KNOWN_EXT_LIBS). Only the dynamic library — no libz42_compression.a / z42_compression.lib: desktop has no
 // static registration path, and the iOS / Android / wasm presets already link compression into libz42
 // (bundled-compression), so a separate staticlib was unusable everywhere. Nor the import lib

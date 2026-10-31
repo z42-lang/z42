@@ -114,7 +114,7 @@ string[] _lyMapTop() {
         "jit/                          = jit",
         "corelib/                      = corelib",
         "vm_context/resources.rs       = corelib         # OS 资源表 → corelib 扩展状态",
-        "native/                       = interop",
+        "interop/                      = interop",
         "vm_context/native.rs          = interop         # native_types 等 → interop 扩展状态",
         "gc/sampler.rs                 = profiler        # profiler cpu/",
         "gc/snapshot.rs                = profiler        # profiler heap/",

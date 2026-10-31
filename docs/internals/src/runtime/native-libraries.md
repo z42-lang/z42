@@ -52,7 +52,7 @@ compression 等是**运行时横切库**（跨平台、随 SDK 走、不属任�
   只有「平铺 beside zpkg」这一条路径，dead simple。
 
 ```rust
-// src/runtime/src/native/ext.rs
+// src/runtime/src/interop/ext.rs
 pub(crate) fn resolve_native_beside(zpkg_dir: &Path, lib_name: &str) -> Option<PathBuf> {
     let file = format!("{}{}{}", DLL_PREFIX, lib_name, DLL_SUFFIX); // 反向拼 lib<name>.<suffix>
     let candidate = zpkg_dir.join(file);
