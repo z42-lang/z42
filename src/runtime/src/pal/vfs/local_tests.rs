@@ -30,7 +30,7 @@ fn round_trips_through_the_os_file_system() {
     let mut names = fs.read_dir(&s(&dir)).unwrap();
     names.sort();
     assert_eq!(names, vec!["a.txt", "c.txt"]);
-    assert_eq!(fs.glob(&s(&dir), "*.txt").unwrap(), vec![s(&dir.join("a.txt")), s(&dir.join("c.txt"))]);
+    assert_eq!(fs.glob(&s(&dir), "*.txt").unwrap(), vec![format!("{}/a.txt", s(&dir)), format!("{}/c.txt", s(&dir))]);
 
     fs.remove_file(&f).unwrap();
     assert!(!fs.exists(&f));
