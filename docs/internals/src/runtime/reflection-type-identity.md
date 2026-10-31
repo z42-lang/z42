@@ -22,7 +22,7 @@
 
 身份就是一个名字，比较一律逐字比：
 
-- 类按全名（`Demo.Box`），实参递归；无空白；
+- 类按全名（例如 Demo.Box），实参递归；无空白；
 - 顶层的内建类型写全名（`Std.Int32`、`Std.Object` —— 描述符的注册键）；
 - **类型实参与数组元素**里的内建类型写关键字：`Std.Collections.List<int>`、`Demo.Box<object>`、`int[]`；
 - 函数类型作实参写成委托名：`Std.Func<int,int>` / `Std.Action<string>`。
@@ -52,7 +52,7 @@
 FullName 是展示形。
 
 - **`GetType()`**：实例化描述符 → 以其名字构造（不再把实参拼两遍）；定义 + 实例实参 →
-  `type_names::constructed(定义名, 实参)` 再构造。两种表示因此得到相等的 Type，也等于 `typeof`。
+  `type_names::constructed`（定义名 + 实参）再构造。两种表示因此得到相等的 Type，也等于 `typeof`。
 - **`BaseType` / `GetInterfaces()`**：定义的基类 / 接口表不带实参，于是先查**以规范名注册的实例化描述符**
   （`instantiation_desc`：任一已加载包里有就用它，`Sub<int>` → `Box<int>` / `IFoo<int>`），没有才退回定义。
 - **`GetFields()` / `GetMethods()` / `GetConstructors()`**：成员类型按「定义的型参 → 实参」代换
@@ -63,12 +63,12 @@ FullName 是展示形。
 ### 反射构造得到与 `new` 相同的表示
 
 `construction_target(规范名)`：有实例化描述符就分配它（实参取自描述符），否则分配定义 + 规范实参。
-`Activator.CreateInstance(typeof(Box<int>))` 与 `new T()`（T = `List<int>`）造出的对象因此 `is Box<int>` /
+`Activator.CreateInstance`（实参 `typeof(Box<int>)`）与 `new T()`（T = `List<int>`）造出的对象因此 `is Box<int>` /
 `is List<int>`、`GetType()` 等于 `typeof`。`ConstructorInfo` 记下枚举它的那个 Type 的规范名（`__owner`），
 `Invoke` 按它分配；实例化有自己的（布局特化）构造器时用它，否则用定义的。
 
 > 尚未覆盖：导入的**泛型 struct** 装箱后不带实参（`object o = new Lib.SBox<int>(4)` 的 `GetType()` 是
-> `Lib.SBox`）。消费方按定义布局分配它，而定义方给自己的实例化另算了一份布局，两边布局对不上之前，
+> Lib.SBox）。消费方按定义布局分配它，而定义方给自己的实例化另算了一份布局，两边布局对不上之前，
 > 消费方不能用实例化名指代它。
 
 ## Type 对象的 `GetType()`：static 与 instance 同名在 vtable 撞车

@@ -268,13 +268,13 @@ fn name_test_on_an_undeclared_instantiation_reads_its_arguments() {
 fn bound_parameter_extra_matches() {
     let ctx = VmContext::new();
     let registry = rustc_hash::FxHashMap::default();
-    // Arrays: only the hardcoded chain for a written target …
-    assert!(array_isa("Std.Array"));
-    assert!(!array_isa("string[]"));
-    // … any array for a parameter bound to an array type (elements not compared).
+    // Written and bound targets both check the element type.
+    assert!(array_isa("int", "Std.Array"));
+    assert!(!array_isa("int", "string[]"));
+    // A bound parameter does not bypass the ordinary array check.
     let arr = crate::metadata::types::ArrayObj::alloc_typed_filled(ctx.heap(),
         crate::metadata::types::ElemType::intern("int"), 1, Value::I64(0));
-    assert!(bound_param_extra_isa(&ctx, &registry, &arr, "string[]"));
+    assert!(!bound_param_extra_isa(&ctx, &registry, &arr, "string[]"));
     assert!(!bound_param_extra_isa(&ctx, &registry, &arr, "Demo.Entry"));
     // An integer is no extra match for a non-enum (here: unknown) type.
     assert!(!bound_param_extra_isa(&ctx, &registry, &Value::I64(1), "Demo.Plat"));
@@ -300,4 +300,30 @@ fn callable_matches_a_bound_parameter_unless_it_is_a_known_non_delegate() {
     assert!(!callable_isa(&ctx, &registry, "Std.Int32"));
     assert!(!callable_isa(&ctx, &registry, "Std.String"));
     assert!(!callable_isa(&ctx, &registry, "string[]"));
+}
+
+#[test]
+fn arrays_test_by_element_type_and_are_invariant() {
+    // Array / Object roots.
+    for root in ["Std.Array", "Std.Object", "Array", "Object"] {
+        assert!(array_isa("int", root));
+    }
+    // Same element ⇒ is-a; different element ⇒ not (no covariance).
+    assert!(array_isa("int", "int[]"));
+    assert!(!array_isa("int", "long[]"));
+    assert!(!array_isa("Demo.Dog", "Demo.Animal[]"));
+    assert!(!array_isa("Demo.Dog", "object[]"));
+    assert!(!array_isa("int", "Demo.Box"));
+    // Constructed generic elements compare their arguments; nested arrays recurse.
+    assert!(array_isa("Demo.Box<int>", "Demo.Box<int>[]"));
+    assert!(!array_isa("Demo.Box<int>", "Demo.Box<string>[]"));
+    assert!(array_isa("int[]", "int[][]"));
+    assert!(!array_isa("int[]", "long[][]"));
+    // Undecidable elements: an unsubstituted type parameter (whole or as an argument) and an
+    // element-less runtime array match any element type.
+    assert!(array_isa("T", "Demo.Box<int>[]"));
+    assert!(array_isa("Demo.Box<T>", "Demo.Box<int>[]"));
+    assert!(!array_isa("Demo.Box<T>", "Demo.Pair<int>[]"));
+    assert!(array_isa("", "string[]"));
+    assert!(!array_isa("", "Demo.Box"));
 }

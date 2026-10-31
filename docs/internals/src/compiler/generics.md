@@ -369,7 +369,7 @@ key 属于标记拼法，每次激活指的类型不同）。`ObjNew` 的站点�
   **本函数自己的**时发 `$mta:`，`EmitContext.MethodTpOwn`）；静态语境没有受者。原样的标记读作开放
   实参（`dispatch::is_open_type_arg`），与此前的字面 `T` 同口径。
 - `(T)o` 是受检转换（`TypeOpTyper._isCheckedRefCast`）：类型不符抛 `InvalidCastException`；
-  `T` 绑到数组类型时按擦除数组口径放行（数组类型测试尚不比元素类型，`dispatch::array_isa`）；
+  `T` 绑到数组类型时与直接书写数组目标一样，经 `dispatch::array_isa` 核对元素类型；
   值是闭包 / 函数引用而 `T` 绑到委托类型、值是整数而 `T` 绑到 enum 时同样放行（闭包不记得被转成哪个委托类型；
   enum 以 i64 为底、`Enum.Parse` 交出整数）—— 这几条额外匹配集中在 `dispatch::bound_param_extra_isa`；
   未装箱的值 struct（`StructRef`）按 arena 槽里的精确类型判（`dispatch::struct_ref_isa`）。

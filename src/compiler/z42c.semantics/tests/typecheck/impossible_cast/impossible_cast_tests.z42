@@ -1,0 +1,75 @@
+// E0424：显式转换 `(T)x` / `x as T` 在任何运行期值上都不可能成功 ⇒ 编译期报错（C# CS0030 / CS0039）。
+// 判据 `Conversion.ProvablyFails`；可能成功的（下转、接口、基链相关的实例化、object / Array 源）
+// 不报，留给运行期检查。
+namespace Z42cSemanticsImpossibleCastTests;
+
+using Z42.Semantics;
+using Std.Harness;
+
+string _decls() {
+    return "namespace D; interface IA { } interface IB { }"
+        + " class A { } class B { } class Base { } class Sub : Base { }"
+        + " sealed class S { } sealed class SImpl : IA { } class Open { } class Impl : IA { }"
+        + " class Box<T> { public T V; } class GSub<T> : Base { }"
+        + " struct P { public int X; public int Y; }";
+}
+
+string _code(string body) {
+    return SemanticDump.FirstErrorCode(_decls() + " class C { static void M() { " + body + " } }");
+}
+
+// ── 阳性：必败 ─────────────────────────────────────
+
+[Test]
+void test_unrelated_classes() {
+    Assert.Equal("E0424", _code("A a = new A(); B b = (B)a;"));
+    Assert.Equal("E0424", _code("A a = new A(); object o = a as B;"));
+}
+
+[Test]
+void test_different_instantiations_of_same_generic() {
+    Assert.Equal("E0424", _code("Box<string> b = new Box<string>(); Box<int> x = (Box<int>)b;"));
+    Assert.Equal("E0424", _code("Box<string> b = new Box<string>(); object x = b as Box<int>;"));
+    Assert.Equal("E0424", _code("A a = new A(); object x = a as Box<int>;"));
+}
+
+[Test]
+void test_sealed_class_and_unimplemented_interface() {
+    Assert.Equal("E0424", _code("S s = new S(); IA i = (IA)s;"));
+    Assert.Equal("E0424", _code("IA i = new Impl(); S s = (S)i;"));
+    Assert.Equal("E0424", _code("S s = new S(); object o = s as IA;"));
+    Assert.Equal("E0424", _code("P p = new P(); object o = (IA)p;"));
+}
+
+[Test]
+void test_arrays_are_invariant_and_unrelated_to_classes() {
+    Assert.Equal("E0424", _code("int[] a = new int[1]; long[] b = (long[])a;"));
+    Assert.Equal("E0424", _code("A a = new A(); int[] b = (int[])a;"));
+    Assert.Equal("E0424", _code("int[] a = new int[1]; A b = (A)a;"));
+}
+
+[Test]
+void test_reference_class_and_value_type() {
+    Assert.Equal("E0424", _code("A a = new A(); P p = (P)a;"));
+}
+
+// ── 阴性：可能成功，留给运行期 ─────────────────────
+
+[Test]
+void test_possible_conversions_compile() {
+    Assert.Equal("", _code("Base b = new Sub(); Sub s = (Sub)b;"));              // 下转
+    Assert.Equal("", _code("Base b = new Sub(); GSub<int> g = (GSub<int>)b;"));   // 下转到泛型子类实例化
+    Assert.Equal("", _code("Open o = new Open(); IA i = (IA)o;"));               // 非 sealed：子类可能实现
+    Assert.Equal("", _code("IA i = new Impl(); Open o = (Open)i;"));
+    Assert.Equal("", _code("IA i = new Impl(); SImpl s = (SImpl)i;"));
+    Assert.Equal("", _code("IA i = new Impl(); IB b = (IB)i;"));                 // 接口 ↔ 接口
+    Assert.Equal("", _code("object o = new A(); B b = (B)o;"));                  // object 源
+    Assert.Equal("", _code("object o = new int[1]; long[] b = (long[])o;"));
+    Assert.Equal("", _code("object o = new P(); P p = (P)o;"));                  // 拆箱
+}
+
+[Test]
+void test_generic_param_is_not_judged() {
+    Assert.Equal("", SemanticDump.FirstErrorCode(_decls()
+        + " class C { static A M<T>(T t) { return (A)t; } static B N<T>(Box<T> b) { return b as B; } }"));
+}

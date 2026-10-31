@@ -85,6 +85,20 @@ typeof(int[][]).FullName;                // "Std.Int32[][]"（逐层递归）
 
 int[] xs = new int[3];
 xs.GetType().FullName;                   // "Std.Int32[]"，与 typeof 一致
+typeof(Box<int>[]).FullName;             // "Demo.Box<Std.Int32>[]"（元素的类型实参不丢）
+```
+
+类型测试按**元素类型**判（数组不变）：数组 is-a `X[]` 当且仅当元素类型就是 `X`。`is` / `as` /
+`(X[])o` / `case X[] v` 同一口径：
+
+```z42
+object o = new Box<int>[1];
+o is Box<int>[]              // true
+o is Box<string>[]           // false
+o is object[]                // false（不变）
+(Box<string>[])o             // InvalidCastException
+Array a = new int[3];
+int[] back = (int[])a;       // Array → T[] 是下转，运行期受检
 ```
 
 `Std.Array` 上除 `Length` / `Clone()` 与对象协议（`GetType` / `Equals` / `GetHashCode` /

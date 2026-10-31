@@ -224,6 +224,8 @@ public sealed partial class ExprEmitter {
             string pn = this._typeParamTestName(resolved);
             if (pn != "") { return pn; }
         }
+        // 数组目标：元素名与 `ArrayNew` 记到数组上的同一个函数（见 `_arrayElemName`）。
+        if (resolved is Z42ArrayType) { return this._typeofName(resolved); }
         if (resolved != null) {
             string idn = this._instIdentityName(resolved);
             if (idn != "") { return this._qualifyInstName(idn); }
@@ -279,6 +281,14 @@ public sealed partial class ExprEmitter {
             k = k + 1;
         }
         return s + ">";
+    }
+
+    // 数组创建与类型测试共用元素名；共享泛型体的元素携带同一套型参标记。
+    internal string _arrayElemName(Z42Type elem) {
+        string idn = this._instIdentityName(elem);
+        if (idn != "") { return this._qualifyInstName(idn); }
+        string bound = this._rtArgName(elem);
+        return bound != "" ? bound : this._typeofArgName(elem);
     }
 
     // **运行期类型实参拼法**（`ObjNew` 记到实例上的、类型测试目标里的，同一份）= `_typeofArgName`，

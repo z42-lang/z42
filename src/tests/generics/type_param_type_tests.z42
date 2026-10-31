@@ -99,7 +99,41 @@ string CatchConstructed(Exception x) {
     catch (Exception e) { return "Exception"; }
 }
 
+// 数组元素检查与型参绑定组合：具体数组、方法特化和类共享体必须给出相同答案。
+class ArrayChecks<T> {
+    public bool Is(object o) { return o is T; }
+    public bool IsArray(object o) { return o is T[]; }
+    public bool AsArray(object o) { return (o as T[]) != null; }
+    public object Make() { return new T[1]; }
+    public bool CastThrows(object o) {
+        try { T t = (T)o; } catch (InvalidCastException e) { return true; }
+        return false;
+    }
+}
+void CheckGenericArrays() {
+    object ints = new int[1];
+    object strings = new string[1];
+    Assert.True(IsT<int[]>(ints));
+    Assert.False(IsT<string[]>(ints));
+    Assert.True(AsT<int[]>(ints));
+    Assert.False(AsT<string[]>(ints));
+    Assert.True(CastThrows<string[]>(ints));
+    ArrayChecks<int[]> target = new ArrayChecks<int[]>();
+    Assert.True(target.Is(ints));
+    Assert.False(target.Is(strings));
+    Assert.True(target.CastThrows(strings));
+    ArrayChecks<int> elems = new ArrayChecks<int>();
+    Assert.True(elems.IsArray(ints));
+    Assert.False(elems.IsArray(strings));
+    Assert.True(elems.AsArray(ints));
+    Assert.False(elems.AsArray(strings));
+    object made = elems.Make();
+    Assert.True(made is int[]);
+    Assert.False(made is string[]);
+}
+
 void Main() {
+    CheckGenericArrays();
     object e = new Entry(1);
     object s = new Sub(2);
     object five = 5;

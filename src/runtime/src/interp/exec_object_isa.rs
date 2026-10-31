@@ -54,7 +54,8 @@ fn is_instance_of(
     }
     let result = match v {
         Value::Object(rc) => isa_object(ctx, &module.type_registry, rc.type_desc(), rc.type_args(), class_name, key),
-        Value::Array(_) => array_isa(class_name),
+        // T[] is-a Std.Array is-a Std.Object, and is-a X[] iff its element type is X (invariant).
+        Value::Array(rc) => array_isa(&rc.borrow().element_type(), class_name),
         Value::StructRef { idx, frame_id } => struct_ref_isa(ctx, &module.type_registry, *idx, *frame_id, class_name),
         Value::Null => false,
         // add-struct-object-boxing → unify Phase 2 R3: 装箱值类型（struct 或基元）is-a 精确类型 /
@@ -130,7 +131,7 @@ fn as_cast_to(
     }
     let is_match = match &val {
         Value::Object(rc) => isa_object(ctx, &module.type_registry, rc.type_desc(), rc.type_args(), class_name, key),
-        Value::Array(_) => array_isa(class_name),
+        Value::Array(rc) => array_isa(&rc.borrow().element_type(), class_name),
         Value::Null => true,
         // fix-boxed-primitive-is-as: 未装箱裸基元按其 stdlib 类名松匹配兜底。
         other => prim_isa(other, class_name),

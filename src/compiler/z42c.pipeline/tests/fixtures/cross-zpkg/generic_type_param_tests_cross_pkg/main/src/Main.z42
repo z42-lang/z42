@@ -60,4 +60,11 @@ void Main() {
     S("Holder<Local>.Catch(Err<Local>)", h.Catch(new Err<Local>(new Local())));
     S("Holder<Local>.Catch(Err<int>)", h.Catch(new Err<int>(1)));
     S("Holder<int>.Make", new Holder<int>().Make().ToString());
+    object ints = new int[1];
+    P("Is<int[]>(ints)", Ops.Is<int[]>(ints));
+    P("Is<string[]>(ints)", Ops.Is<string[]>(ints));
+    P("IsNull<int[]>(ints)", Ops.IsNull<int[]>(ints));
+    P("IsNull<string[]>(ints)", Ops.IsNull<string[]>(ints));
+    S("Cast<int[]>(ints)", Ops.Cast<int[]>(ints));
+    S("Cast<string[]>(ints)", Ops.Cast<string[]>(ints));
 }

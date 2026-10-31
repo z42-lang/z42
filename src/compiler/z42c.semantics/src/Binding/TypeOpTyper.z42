@@ -13,37 +13,29 @@ public sealed class TypeOpTyper {
     private ExprTyper _et;   // 反向引用：递归 _bindExpr 委回 ExprTyper
     public TypeOpTyper(TypeChecker tc, ExprTyper et) { this._tc = tc; this._et = et; }
 
-    // make-ref-hard-cast-checked：这次 `(T)x` 是不是需要**运行期受检**的引用下转？
+    // make-ref-hard-cast-checked：这次 `(T)x` 是不是需要**运行期受检**的引用转换？
     //
-    // 主判据是 `ConvKind.ExplicitRef`（基→派生）。但**从 `object` 或接口强转到引用类型**
-    // 同样是下转，而 `Conversion.Classify` 对它给的是 `None` —— 因为 `SymbolTable.IsSubclassOf`
-    // 不认 `Std.Object` 这条**隐式根基**（实测：`object o; B b = (B)o;` 在修前一条指令都不发，
-    // 而 `A o; B b = (B)o;` 走的是 ExplicitRef）。这里把那一格补上，而不是去动 `IsSubclassOf`
-    // ——后者是全仓赋值/重载决议的公共判据，为一条 cast 改它的波及面不成比例。
-    //
-    // ⚠️ **目标是值类型的一律排除**：`(int)o` / `(P2)o` 是**拆箱**，另有其路
-    //（值类型那半 #746 已修；blob struct 走 `_emitConvert` 上面的 AsCast 拆箱臂）。
+    // `ExplicitRef`（基→派生）之外，`Classify` 给 `None` 而又不可证必败（必败的已报 E0424）的
+    // 引用目标同样是要在运行期核对的转换：从 `object` / 接口下转、`Array` → `T[]`、类 → 其泛型子类
+    // 实例化、基链相关但实参无从代换的实例化、`object` → 数组。`Conversion.IsRefTarget` 排除值类型
+    // 目标（`(int)o` / `(P2)o` 是**拆箱**，另有其路：基元走 ConvertInstr，blob struct 走 `_emitConvert`
+    // 的拆箱臂）与 string（ConvertInstr 按目标 IrType.Str 核）。
     private static bool _isCheckedRefCast(ConvResult ur, Z42Type from, Z42Type to) {
-        // 目标是型参（`(T)o`）：`T` 是什么运行期才知道，检查也只能在运行期做 —— 目标名是型参
-        // 本身（特化体里代换成具体名、共享体里是型参标记，见 `ExprEmitter._typeParamTestName`）。
-        // 此前这里一条检查都不发，`CastT<Sub>(entry)` 不抛、错类型的对象原样流下去。
         if (to is Z42GenericParamType) { return !(from is Z42GenericParamType && from.Name() == to.Name()); }
         if (ur.Kind == ConvKind.ExplicitRef) { return true; }
         if (ur.Kind != ConvKind.None) { return false; }
-        bool fromRefRoot = Conversion._isObjectPrim(from) || (from is Z42InterfaceType);
-        if (!fromRefRoot) { return false; }
-        if (to is Z42InterfaceType) { return true; }
-        if (to is Z42ClassType) {
-            Z42ClassType tc = to as Z42ClassType;
-            return !tc.IsStruct && tc.PrimCode() < 0;   // 值类型 / 基元 → 拆箱，不归本条
-        }
-        // 构造泛型类（`(List<Entry>)o` / `(Box<Entry>)o`）同样是引用下转。它不是 `Z42ClassType`，
-        // 此前漏在上一格外 ⇒ 一条检查都不发，错实例化的对象原样流下去。泛型 struct 是拆箱，同上排除。
-        if (to is Z42InstantiatedType) {
-            Z42InstantiatedType it = to as Z42InstantiatedType;
-            return it.Def != null && !it.Def.IsStruct;
-        }
-        return false;
+        return Conversion.IsRefTarget(to);
+    }
+
+    // 显式转换在任何运行期值上都不可能成功 ⇒ E0424（C# CS0030 / CS0039）。判据见 `Conversion.ProvablyFails`。
+    private bool _rejectImpossibleCast(ConvResult ur, Z42Type from, Z42Type to, SymbolTable syms, string op, Span sp) {
+        if (ur.Kind != ConvKind.None) { return false; }
+        if (!Conversion.ProvablyFails(from, to, syms)) { return false; }
+        this._tc._diags.Error(DiagnosticCodes.IllegalCast,
+            op + ": `" + TypeNameResolver.SurfaceTypeName(from) + "` can never be a `"
+            + TypeNameResolver.SurfaceTypeName(to)
+            + "` — the types are unrelated, so the conversion would fail for every value", sp);
+        return true;
     }
 
     internal BoundExpr _bindCastExpr(CastExpr cx, TypeEnv env) {
@@ -67,6 +59,9 @@ public sealed class TypeOpTyper {
                     return new BoundError("no conversion", new Z42ErrorType(), cx.Span);
                 }
             }
+            if (this._rejectImpossibleCast(ur, operand.Type(), target, env.Symbols, "cannot cast", cx.Span)) {
+                return new BoundError("impossible cast", new Z42ErrorType(), cx.Span);
+            }
             BoundConvert bc = new BoundConvert(operand, target, cx.Span);
             // make-ref-hard-cast-checked：引用**下**转（基→派生）此前在发射层**一条指令都不发**
             // ⇒ `(B)o`（o 其实是 A）不抛、返回非 null，错类型的对象原样流下去，到很远的地方才崩。
@@ -86,6 +81,10 @@ public sealed class TypeOpTyper {
             Z42Type asTarget = env.ResolveType(ax.Type);
             this._tc._chkTypeRef(asTarget, env, ax.Type.Span);   // enforce-class-access：as 目标类型引用
             this._tc.ChkAmbiguousBareNameT(env.Symbols, ax.Type, ax.Type.Span);   // add-bare-name-ambiguity-diagnostic：E0456
+            ConvResult ur = Conversion.Classify(operand.Type(), asTarget, env.Symbols);
+            if (this._rejectImpossibleCast(ur, operand.Type(), asTarget, env.Symbols, "`as` never succeeds", ax.Span)) {
+                return new BoundError("impossible as", new Z42ErrorType(), ax.Span);
+            }
             return new BoundCast(operand, asTarget, tn, ax.Span);
     }
 

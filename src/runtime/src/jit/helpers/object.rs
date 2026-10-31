@@ -253,7 +253,7 @@ pub unsafe extern "C" fn jit_is_instance(
     }
     let result = match v {
         Value::Object(rc) => isa_object(vm_ctx_ref(ctx), &module.type_registry, rc.type_desc(), rc.type_args(), class_name, key),
-        Value::Array(_)   => dispatch::array_isa(class_name),
+        Value::Array(rc)  => dispatch::array_isa(&rc.borrow().element_type(), class_name),
         Value::StructRef { idx, frame_id } =>
             dispatch::struct_ref_isa(vm_ctx_ref(ctx), &module.type_registry, *idx, *frame_id, class_name),
         // add-struct-object-boxing → unify Phase 2 R3: 装箱值类型（struct 或基元）is-a 精确类型 /
@@ -330,7 +330,7 @@ pub unsafe extern "C" fn jit_as_cast(
     }
     let is_match = match &val {
         Value::Object(rc) => isa_object(vm_ctx_ref(ctx), &module.type_registry, rc.type_desc(), rc.type_args(), class_name, key),
-        Value::Array(_)   => dispatch::array_isa(class_name),
+        Value::Array(rc)  => dispatch::array_isa(&rc.borrow().element_type(), class_name),
         Value::Null => true,
         // fix-boxed-primitive-is-as: 未装箱裸基元按其 stdlib 类名匹配。
         other       => crate::interp::prim_isa(other, class_name),
