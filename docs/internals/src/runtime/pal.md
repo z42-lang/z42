@@ -241,7 +241,7 @@ impl Library {
 }
 ```
 
-运行时只在这里 dlopen：用户 native 扩展（`native/loader`）、`libz42_compression`（`native/ext`）、REPL 编辑器
+运行时只在这里 dlopen：用户 native 扩展（`interop/loader`）、`libz42_compression`（`interop/ext`）、REPL 编辑器
 `libz42_repl`（`corelib/repl_native`）。
 
 ### `pal/random.rs` — 熵

@@ -108,7 +108,7 @@ VM 是一个 crate（`src/runtime/src`，包名 `z42`），**暂不拆成多个 
 
 ### 4.2 地基模块内部
 
-- **`pal/`**：`fs.rs`（含 `Vfs` trait，每台 VM 一个句柄，文件系统状态归属 VmCore）+ `vfs/{local,memory}.rs`、`process.rs`（spawn / wait / kill / 进程树）、`net.rs`、`mem.rs`（GC 页管理）、`thread.rs`（栈边界、sigaltstack）、`signal.rs`、`dynlib.rs`（运行时唯一的动态库装载入口）、`console.rs`、`time.rs`、`sys.rs`；平台分支在 `sys/{unix,windows,wasm}/`。尚在 PAL 各 concern 文件中的操作系统分支统一迁入 `sys/`，上层保留平台无关接口。
+- **`pal/`**：`fs.rs`（含 `Vfs` trait，每台 VM 一个句柄，文件系统状态归属 VmCore）+ `vfs/{local,memory}.rs`、`process.rs`（spawn / wait / kill / 进程树）、`net.rs`、`mem.rs`（GC 页管理）、`thread.rs`（栈边界、sigaltstack）、`signal.rs`、`dynlib.rs`（运行时唯一的动态库装载入口）、`console.rs`、`time.rs`、`system.rs`；上层 concern 保留平台无关接口，操作系统实现与后端选择集中在 `sys/`。`sys/mod.rs` 在编译期选择 `unix/`、`windows/`、`wasm/` 或 `fallback/`，`common/` 复用共享实现与降级行为。
 - **`metadata/`**：`format/`（常量、版本、build_id）、`reader/`（现 `zbc_reader/*`）、`ir/`（现 `bytecode/*`、`ir_type`）、`image.rs`（PackageImage：零拷贝、字符串表解析一次、函数体按需解码）、`index/`（包内按名找下标、知名类型名、类型名格式化——现 `name_index` / `well_known_names` / `type_names`）、`debug/`（行号表、局部变量、帧名，读 .zsym 按需）。**纯静态的查询（名字、行号、attribute、签名）调用方直接用本模块，不经 vm。**
 - **`object/`**：`value/`（Value、ref word、codec、cells）、`header/`（16 B 统一头、`var_ref` / `obj_ref` / `arr_ref` 句柄）、`types/`（TypeDesc 形状、字段、elem kind、TypeArgs 形状、布局计算纯函数、引用槽位图）、`object/`、`array/`、`string/`（Str 句柄、非 ASCII 字符索引）。不抛异常、不查缓存、不管类型从哪来。
 - **`gc/`**：`heap.rs`（具体类型 `Heap`，取代 51 方法的 `dyn MagrGC`）、`config.rs`（`GcConfig` 由门面传入，取代 gc→config 27 处引用）、`to_vm.rs`（`GcToVm`：根枚举、`suspend_all` / `resume_all`）、`region/`、`alloc/`（含 TLAB）、`collect/`（标记、分代、增量、屏障、记忆集）、`policy/`、`refs/`、`walk.rs`（堆遍历原语）、`observe/`。移出：`sampler` / `snapshot` / `retention` → profiler；`safepoint` → vm/threads；`ambient` → vm。
@@ -204,7 +204,6 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 
 | ID | 类型 | 内容 | 验证要点 | 状态 |
 |---|---|---|---|---|
-| L-2 | refactor | **PAL 平台分支收尾**：将各 concern 文件中剩余的操作系统分支迁入 `pal/sys/`，上层 concern 保留平台无关接口 | 分层门覆盖到 pal/sys；Windows / wasm CI 与完整 runtime 测试 | ⬜ |
 | L-4 | refactor | metadata 一拆三：静态索引留 metadata（加 `index/` `debug/`），`types/` 形状进 object，组装与查询进 vm/runtime，加载进 vm/loader；`semantics.rs` 进 exec/ops | metadata 不再引用 gc / vm_context / corelib；启动项 S1–S4 可在新结构上做 | ⬜ |
 | L-5 | refactor | gc 断环：注入 `GcConfig`、加 `GcToVm`、safepoint 移到 vm/threads、`MagrGC` 改具体类型；sampler / snapshot / retention 移到 `profiler/` | gc 不再引用 config / vm_context / corelib；GC 模型测试与 loom 测试；13 / 09 微基准不退化 | ⬜ |
 | L-6 | refactor | 引擎断环：vcall / obj_new / isa 拆成 runtime/dispatch（查询）与 exec/ops（执行）；加 Engine 注册槽与统一栈遍历；interp ↔ jit 不再互相引用 | 双引擎一致性测试；OSR / 分层测试；`jit_native_from_interp` 计数不变 | ⬜ |
@@ -212,7 +211,7 @@ z42vm 继续静态链接 VM，不改为动态链接 `native/libz42`（结论与�
 | L-8 | — | 物理拆 crate：暂不做，VM 保持单 crate、各层是 `src/runtime/src/<模块>/`（User 2026-10-29）；以后是否拆另议 | — | ⏸ |
 | L-9 | feature | 监控 API（vm/diagnostics/monitor）→ debugger（0.8.x，前置：.zsym 局部变量信息）→ profiler 的分配采样与覆盖率；AOT（M9）时拆出 codegen | 各自立项，动工前出方案 | ⬜ |
 
-依赖与顺序：L-2 继续收尾；模块拆层下一步为 L-4；L-4 先于 L-5、L-6（object 与 runtime 先成形）；L-7 在 L-5、L-6 之后。阶段 2 第 3 项（PackageImage / 每 VM 链接状态 / TierApi / GC 具体类型）分别落在 L-4、L-6、L-5。
+依赖与顺序：模块拆层下一步为 L-4；L-4 先于 L-5、L-6（object 与 runtime 先成形）；L-7 在 L-5、L-6 之后。阶段 2 第 3 项（PackageImage / 每 VM 链接状态 / TierApi / GC 具体类型）分别落在 L-4、L-6、L-5。
 
 以下 6.2–6.4 依据 §1 与 2026-10-28 一轮只读代码审读。排序按预期收益；「结构性」项属阶段 2，动工前需 User 确认方案。行号对应审读时的 main `bd14a4958`。
 
