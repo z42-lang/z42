@@ -31,8 +31,11 @@ pub unsafe extern "C" fn jit_array_new(
     let tp_prim = if class_tp >= 0 {
         crate::objops::array::class_type_param_elem((*frame).regs.first(), class_tp as usize)
     } else { None };
+    let bound = if class_tp >= 0 {
+        crate::objops::array::class_type_param_bound((*frame).regs.first(), class_tp as usize)
+    } else { None };
     let r = crate::objops::array::array_new(
-        vm_ctx_ref(ctx), &len, elem_tag, element_type, tp_kind != 0, tp_prim, None::<fn() -> u32>);
+        vm_ctx_ref(ctx), &len, elem_tag, element_type, tp_kind != 0, tp_prim, bound, None::<fn() -> u32>);
     match r {
         Ok(arr) => { (*frame).regs[dst as usize] = arr; 0 }
         Err(e) => raise(ctx, e),

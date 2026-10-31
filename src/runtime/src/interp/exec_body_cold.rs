@@ -79,7 +79,10 @@ fn catch_or_propagate(
     frames_unwound: u32,
 ) -> Result<Unwind> {
     let block_map = &func.block_index;
-    let Some(entry_idx) = find_handler(ctx, func, block_idx, block_map, &module.type_registry, &val) else {
+    let Some(entry_idx) = find_handler(
+        ctx, func, block_idx, block_map, &module.type_registry, &val,
+        frame.type_param_env(),
+    ) else {
         run_ref_writebacks(frame, ctx)?;
         return Ok(Unwind::Propagate(val));
     };

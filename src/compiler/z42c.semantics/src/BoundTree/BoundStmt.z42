@@ -107,7 +107,7 @@ public sealed class BoundCatchClause {
     public Span     Span;
     public bool     HasType;
     public string   ExTypeName;   // 解析后 FQ 候选（QualifyClass 在 codegen；此处存解析类名或 ""）
-    public int      ExArity;      // 泛型异常实参数（0=非泛型）；codegen 据此补 `$N` 后缀
+    public int      ExArity;      // 泛型异常实参数（0=非泛型）
     public bool     HasVar;
     public string   VarName;
     public Z42Type  ExType;       // fqn-tables 5d：解析后的异常类型（发射端按其声明 ns 限定 ExTypeName）；解析失败为 null

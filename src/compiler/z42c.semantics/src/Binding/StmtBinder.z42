@@ -380,13 +380,14 @@ public sealed class StmtBinder : IStmtVisitor<BoundStmt, StmtCtx> {
                     if (t is Z42ClassType) { exName = t.Name(); exType = t;
                         this._chkCatchType(t as Z42ClassType, env, cc.ExType.Span);
                     }
-                    // 泛型异常（catch (MulticastException<int>)）：存裸 Def 名 + arity，codegen 限定为
-                    // QualifyClass(裸名)+"$"+arity（= Std.MulticastException$1，匹配运行期抛出类型）。
-                    // 否则 Dump() 含 <int> → QualifyClass 误前缀当前 ns（Demo.MulticastException<int>）→ 不匹配。
+                    // 泛型异常（catch (MulticastException<int>)）：存裸 Def 名 + arity（Dump 用）；
+                    // 发射端按实例化类型 `exType` 发类型测试目标（带实参，见 StmtEmitter._emitTry）。
                     else if (t is Z42InstantiatedType) {
                         Z42InstantiatedType it = t as Z42InstantiatedType;
                         exName = it.Def.Name(); exArity = it.ArgCount; exType = t;
                     }
+                    // `catch (T e)`（`T : Exception`）：保留型参类型，发射端按型参发类型测试目标。
+                    else if (t is Z42GenericParamType) { exType = t; }
                 }
                 TypeEnv cenv = env;
                 if (cc.HasVar) {
@@ -395,7 +396,7 @@ public sealed class StmtBinder : IStmtVisitor<BoundStmt, StmtCtx> {
                 }
                 BoundStmt body = this._bindStmt(cc.Body, cenv, ret);
                 catches[ci] = new BoundCatchClause(cc.HasType, exName, exArity, cc.HasVar, cc.VarName, body, cc.Span);
-                if (exType is Z42ClassType || exType is Z42InstantiatedType) { catches[ci].ExType = exType; }
+                if (exType is Z42ClassType || exType is Z42InstantiatedType || exType is Z42GenericParamType) { catches[ci].ExType = exType; }
                 ci = ci + 1;
             }
             BoundStmt fin = null;

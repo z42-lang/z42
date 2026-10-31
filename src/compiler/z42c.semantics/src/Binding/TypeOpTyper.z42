@@ -20,7 +20,8 @@ public sealed class TypeOpTyper {
     // 实例化、基链相关但实参无从代换的实例化、`object` → 数组。`Conversion.IsRefTarget` 排除值类型
     // 目标（`(int)o` / `(P2)o` 是**拆箱**，另有其路：基元走 ConvertInstr，blob struct 走 `_emitConvert`
     // 的拆箱臂）与 string（ConvertInstr 按目标 IrType.Str 核）。
-    private static bool _isCheckedRefCast(ConvResult ur, Z42Type to) {
+    private static bool _isCheckedRefCast(ConvResult ur, Z42Type from, Z42Type to) {
+        if (to is Z42GenericParamType) { return !(from is Z42GenericParamType && from.Name() == to.Name()); }
         if (ur.Kind == ConvKind.ExplicitRef) { return true; }
         if (ur.Kind != ConvKind.None) { return false; }
         return Conversion.IsRefTarget(to);
@@ -66,7 +67,7 @@ public sealed class TypeOpTyper {
             // ⇒ `(B)o`（o 其实是 A）不抛、返回非 null，错类型的对象原样流下去，到很远的地方才崩。
             // 值类型那半 #746 已修（null→NullReferenceException / 类型不符→InvalidCastException），
             // 引用这半一直欠着。判据就是 `ExplicitRef`，**只在这条（用户写的 cast）路上置位**。
-            bc.CheckedRefCast = TypeOpTyper._isCheckedRefCast(ur, target);
+            bc.CheckedRefCast = TypeOpTyper._isCheckedRefCast(ur, operand.Type(), target);
             return bc;
     }
 

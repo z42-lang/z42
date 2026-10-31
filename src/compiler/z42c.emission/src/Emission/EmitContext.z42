@@ -62,6 +62,9 @@ public sealed class EmitContext {
     // 当前函数（及其 lifted lambda / 局部函数）所在泛型方法的**方法级**型参名。泛型方法体对型参位走装箱模型：
     // 静态类型是这些型参的值必须是自有副本 —— 读 struct 数组元素得到的是帧内视图，要经 `__box_struct` 快照。
     public string[] MethodTpNames; public int MethodTpCount;
+    // 上面那组型参是不是**本函数自己的**（false = lifted lambda / 局部函数从外层继承来的名字）。
+    // 只有自己的才在本帧 `method_type_args` 里有实参（`ExprEmitter._typeParamMarker`）。
+    public bool MethodTpOwn;
 
     public EmitContext(SymbolTable symbols, IrGen gen) {
         this._tlPath = null; this._tlBase = "";
@@ -69,7 +72,7 @@ public sealed class EmitContext {
         this.Locals = new StrMap(); this.Fields = new StrMap(); this.ReadonlyFields = new StrMap();
         this.InstProps = new StrMap(); this.InstPropHasSet = new StrMap();
         this.OwnerStructName = "";
-        this.MethodTpNames = new string[0]; this.MethodTpCount = 0;
+        this.MethodTpNames = new string[0]; this.MethodTpCount = 0; this.MethodTpOwn = false;
         this.OwnerClassName = "";
         this.OwnerCt = null;
         this.RetIsStruct = false; this.RetStructSize = 0; this.SretReg = null;

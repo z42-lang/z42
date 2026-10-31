@@ -36,7 +36,7 @@ class Bar : IFoo<int> {
     public int Get() { return 9; }
 }
 
-// 泛型体里构造：运行期实例记的实参还是型参名 `T`（判不了）⇒ 按擦除口径放行。
+// 泛型体里构造：实例记的是本次绑定的具体实参（型参运行期从受者读）。
 class Maker<T> {
     public object Make() { return new List<T>(); }
 }
@@ -115,8 +115,9 @@ void Main() {
     Assert.True(IsListOf<Entry>(o));
     Assert.False(IsListOf<string>(o));
 
-    // ── ⑤ 泛型体里构造的实例（实参未代换）不被误判成「不是」────────────────
+    // ── ⑤ 泛型体里构造的实例记具体实参 ────────────────────────────────────
     object m = new Maker<Entry>().Make();
     Assert.True(m is List<Entry>);
     Assert.True((m as List<Entry>) != null);
+    Assert.False(m is List<int>);
 }

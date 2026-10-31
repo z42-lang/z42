@@ -31,6 +31,7 @@ pub(crate) mod exec_value;
 mod exec_vcall;
 pub(crate) mod vcall_resolve;   // unify-vcall-resolution: shared with jit/helpers/vcall.rs
 pub(crate) mod forward;         // runtime-audit P1-8: `[Native]` stub folding, shared with the JIT
+pub(crate) mod type_param_env;  // `$mta:` / `$cta:` markers of shared generic bodies, shared with the JIT helpers
 pub(crate) mod obj_new_resolve; // P1-2 PR 5: ObjNew class / ctor + site cache, shared with jit_obj_new
 mod ops;
 pub(crate) mod stack_alloc;   // add-escape-analysis-stack-alloc: per-context stack arena

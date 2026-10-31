@@ -195,6 +195,7 @@ pub fn class_default(ctx: &VmContext, recv: &Value, idx: i64, owner: &crate::met
     }
 }
 
+#[cfg(test)]
 fn class_type_arg_of(recv: &Value, idx: usize) -> Option<String> {
     match recv {
         Value::Object(rc) => rc.borrow().type_args().get(idx).cloned(),
@@ -202,74 +203,11 @@ fn class_type_arg_of(recv: &Value, idx: usize) -> Option<String> {
     }
 }
 
-/// complete-generic-class-identity（邻线收尾）: resolve a **class-level** type parameter to the
-/// concrete argument bound at the level that **declares** it.
-///
-/// Two carriers, and the order between them is the whole point:
-///
-/// 1. **The declaring level's name.** `class DInt : Box<int> {}` has an empty `type_args` of
-///    its own — the argument lives in the *base name*, which is `Demo.Box<int>` only since P1
-///    stopped stripping closed generic bases. Walk the chain to the level whose erased name is
-///    `owner`, then read the argument off that name.
-/// 2. **The receiver's own `type_args`.** Still needed for cross-package generics, which get no
-///    identity name (so their descriptor name carries no arguments) and rely on the per-instance
-///    carrier `ObjNew` fills in.
-///
-/// 🔴 **(2) must not run when the declaring class is a *base*.** `class DG<U> : Box<int>` has
-/// `type_args = [U's argument]`, so reading index 0 off the receiver answers with `DG`'s
-/// parameter while the question was about `Box`'s — a plausible-but-wrong type, which is worse
-/// than the placeholder. Measured: `DG<string>` reported `Std.String` for `Box`'s `T`.
+/// The class-level resolution itself lives with the VM's type-parameter binding
+/// (`interp::type_param_env::class_type_arg`), shared with `o is T` / `new List<T>()` in the
+/// same class body — so those and `typeof(T)` read one argument.
 fn resolve_class_type_arg(ctx: &VmContext, recv: &Value, idx: usize, owner: Option<&str>) -> Option<String> {
-    if let Some(o) = &owner {
-        if let Some(n) = inherited_type_arg(ctx, Some(recv), o, idx) {
-            return Some(n);
-        }
-    }
-    let own_is_declaring = match (&owner, recv) {
-        (None, _) => true,   // old bytecode: keep the previous behaviour verbatim
-        (Some(o), Value::Object(rc)) => {
-            erased_of(&rc.borrow().type_desc.name) == erased_of(o)
-        }
-        _ => false,
-    };
-    if own_is_declaring {
-        return class_type_arg_of(recv, idx);
-    }
-    None
-}
-
-/// Erased prefix of a (possibly instantiated) type name: `Demo.Box<int>` → `Demo.Box`.
-fn erased_of(name: &str) -> &str {
-    match name.find('<') {
-        Some(i) => &name[..i],
-        None => name,
-    }
-}
-
-/// Walk the receiver's base chain to the level declaring `owner`, and read the `idx`-th
-/// type argument **off that level's name**. `None` when the chain has no such level or it
-/// carries no arguments (both degrade to today's placeholder).
-fn inherited_type_arg(
-    ctx: &VmContext,
-    recv: Option<&Value>,
-    owner: &str,
-    idx: usize,
-) -> Option<String> {
-    let mut cur = match recv {
-        Some(Value::Object(rc)) => rc.borrow().type_desc.name.clone(),
-        _ => return None,
-    };
-    let want = erased_of(owner).to_string();
-    // Bounded: a class hierarchy is finite, but a corrupt `base_name` cycle must not hang us.
-    for _ in 0..64 {
-        if erased_of(&cur) == want {
-            let targs = crate::metadata::types::type_args_from_name(&cur);
-            return targs.get(idx).cloned();
-        }
-        let td = ctx.try_lookup_type(&cur)?;
-        cur = td.base_name.clone()?;
-    }
-    None
+    crate::interp::type_param_env::class_type_arg(ctx, recv, idx, owner)
 }
 
 /// The pure name-selection half of `builtin_class_type_arg`: `(receiver, index)`
@@ -280,6 +218,7 @@ fn inherited_type_arg(
 /// unit tests), so asserting on the builtin's *returned value* would compare
 /// `Null` against `Null` — a gate that can never fire. Asserting on the selected
 /// name instead keeps both sides discriminating.
+#[cfg(test)]
 pub(super) fn class_type_arg_name(recv: &Value, idx: usize) -> Option<String> {
     class_type_arg_of(recv, idx)
 }

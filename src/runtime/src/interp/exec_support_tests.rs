@@ -51,6 +51,7 @@ fn find_handler_skips_an_entry_whose_try_end_does_not_resolve() {
     let block_map: HashMap<String, usize> =
         [("b0", 0), ("b1", 1), ("b2", 2)].into_iter().map(|(l, i)| (l.to_string(), i)).collect();
     let ctx = VmContext::new();
-    let found = find_handler(&ctx, &func, 0, &block_map, &rustc_hash::FxHashMap::default(), &Value::I64(1));
+    let found = find_handler(&ctx, &func, 0, &block_map, &rustc_hash::FxHashMap::default(), &Value::I64(1),
+        crate::interp::type_param_env::TypeParamEnv::new(&[], None));
     assert_eq!(found, Some(1));
 }

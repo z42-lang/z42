@@ -1,0 +1,70 @@
+namespace App;
+using Std.IO;
+using Std.Collections;
+using Lib;
+
+class Local { public Local() { } }
+
+void P(string l, bool b) { Console.WriteLine(l + "=" + b.ToString()); }
+void S(string l, string v) { Console.WriteLine(l + "=" + v); }
+
+string CatchHere(Action a) {
+    try { a(); return "none"; }
+    catch (Err<int> e) { return "Err<int>"; }
+    catch (Err<string> e) { return "Err<string>"; }
+    catch (Exception e) { return "Exception"; }
+}
+
+void Main() {
+    object item = new Item();
+    object sub = new Sub();
+    object five = 5;
+    P("Is<Item>(sub)", Ops.Is<Item>(sub));
+    P("Is<Sub>(item)", Ops.Is<Sub>(item));
+    P("Is<Local>(local)", Ops.Is<Local>(new Local()));
+    P("Is<int>(5)", Ops.Is<int>(five));
+    P("Is<string>(5)", Ops.Is<string>(five));
+    P("IsNull<Sub>(item)", Ops.IsNull<Sub>(item));
+    S("Cast<Sub>(item)", Ops.Cast<Sub>(item));
+    S("Cast<Item>(sub)", Ops.Cast<Item>(sub));
+    object gi = new GBox<Item>(new Item());
+    P("IsGBoxOf<Item>(GBox<Item>)", Ops.IsGBoxOf<Item>(gi));
+    P("IsGBoxOf<string>(GBox<Item>)", Ops.IsGBoxOf<string>(gi));
+    P("IsListOf<Local>(List<Local>)", Ops.IsListOf<Local>(new List<Local>()));
+    P("IsListOf<int>(List<Local>)", Ops.IsListOf<int>(new List<Local>()));
+    object ng = Ops.NewGBox<Local>(new Local());
+    P("NewGBox<Local> is GBox<Local>", ng is GBox<Local>);
+    P("NewGBox<Local> is GBox<Item>", ng is GBox<Item>);
+    object nl = Ops.NewList<int>();
+    S("NewList<int> type", nl.GetType().FullName);
+    P("NewList<int> is List<int>", nl is List<int>);
+    P("NewList<int> is List<string>", nl is List<string>);
+    S("Make<Local> type", Ops.Make<Local>().GetType().FullName);
+    S("ArrType<Local>", Ops.ArrType<Local>(1));
+    S("Catch<int>(Err<int>)", Ops.Catch<int>(new Err<int>(1)));
+    S("Catch<string>(Err<int>)", Ops.Catch<string>(new Err<int>(1)));
+    // 导入的用户泛型异常按自己的类型（含实参）接住。
+    S("catch imported Err<int>", CatchHere(() => { throw new Err<int>(1); }));
+    S("catch imported Err<string>", CatchHere(() => { throw new Err<string>("s"); }));
+    S("catch imported Err<long>", CatchHere(() => { throw new Err<long>(1L); }));
+    S("catch lib-thrown Err<string>", CatchHere(() => { Ops.ThrowErr<string>("s"); }));
+
+    Holder<Local> h = new Holder<Local>();
+    P("Holder<Local>.Is(local)", h.Is(new Local()));
+    P("Holder<Local>.Is(item)", h.Is(item));
+    P("Holder<Local>.IsGBox(GBox<Local>)", h.IsGBox(new GBox<Local>(new Local())));
+    P("Holder<Local>.IsGBox(GBox<Item>)", h.IsGBox(gi));
+    P("Holder<Local>.NewList is List<Local>", h.NewList() is List<Local>);
+    P("Holder<Local>.NewList is List<Item>", h.NewList() is List<Item>);
+    S("Holder<Local>.Make type", h.Make().GetType().FullName);
+    S("Holder<Local>.Catch(Err<Local>)", h.Catch(new Err<Local>(new Local())));
+    S("Holder<Local>.Catch(Err<int>)", h.Catch(new Err<int>(1)));
+    S("Holder<int>.Make", new Holder<int>().Make().ToString());
+    object ints = new int[1];
+    P("Is<int[]>(ints)", Ops.Is<int[]>(ints));
+    P("Is<string[]>(ints)", Ops.Is<string[]>(ints));
+    P("IsNull<int[]>(ints)", Ops.IsNull<int[]>(ints));
+    P("IsNull<string[]>(ints)", Ops.IsNull<string[]>(ints));
+    S("Cast<int[]>(ints)", Ops.Cast<int[]>(ints));
+    S("Cast<string[]>(ints)", Ops.Cast<string[]>(ints));
+}

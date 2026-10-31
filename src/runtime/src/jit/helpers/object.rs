@@ -2,7 +2,7 @@
 //! Object allocation, field access, type tests, static fields, and the
 //! generic `default(T)` runtime helper.
 
-use crate::interp::dispatch::{array_isa, isa_object, isa_td};
+use crate::interp::dispatch::{self, isa_object, isa_td};
 use crate::metadata::resolver::ObjNewSite;
 use crate::metadata::Value;
 
@@ -75,6 +75,9 @@ pub unsafe extern "C" fn jit_obj_new(
     // word, object model R4 / R6). The arguments are set before the ctor runs so its `default(T)` resolves correctly.
     // SAFETY: `type_args` was baked from `TypeArgs::as_raw` at translate time.
     let site_args = unsafe { crate::metadata::types::TypeArgs::from_raw(type_args) };
+    // `new List<T>()` in a generic class body: class-level markers bound from the receiver.
+    let site_args = crate::interp::type_param_env::TypeParamEnv::new(&[], frame_ref.regs.first())
+        .instantiate(vm, site_args);
     let inst_args = instance_type_args(site_args, &type_desc);
     let obj_val = vm.heap().alloc_instance(type_desc, inst_args);
 
@@ -205,6 +208,28 @@ pub unsafe extern "C" fn jit_convert(
 // `iface_reaches_mod` mirror) is gone — both helpers now call the interpreter's single
 // `dispatch::isa_td` (id-keyed `IsaCache` → shared memo → chain walk), so
 // there is exactly one type-test implementation for interp, JIT and typed `catch`.
+// Arrays, unboxed structs and bound type-parameter targets: `dispatch::array_isa` /
+// `struct_ref_isa` / `bound_param_extra_isa` (one rule for both engines, like `isa_td`).
+
+/// A type-test target carrying type-parameter markers, bound for this JIT frame (receiver in
+/// reg 0; no method arguments) — the interp `exec_object_isa::dynamic_target` counterpart.
+pub(super) unsafe fn dynamic_target(frame: *mut JitFrame, ctx: *const VmContext, class_name: &str) -> Option<String> {
+    if !crate::metadata::type_param_markers::has_markers(class_name) {
+        return None;
+    }
+    let env = crate::interp::type_param_env::TypeParamEnv::new(&[], (*frame).regs.first());
+    Some(env.test_target(vm_ctx_ref(ctx), class_name))
+}
+
+/// A generic call site's `method_type_args` with class-level markers bound for this JIT frame;
+/// `None` = none to bind (the baked constant is used as is).
+pub(super) unsafe fn bind_forwarded_mta(frame: *mut JitFrame, ctx: *const VmContext, mta: &[String]) -> Option<Vec<String>> {
+    if !mta.iter().any(|s| crate::metadata::type_param_markers::has_markers(s)) {
+        return None;
+    }
+    let env = crate::interp::type_param_env::TypeParamEnv::new(&[], (*frame).regs.first());
+    Some(mta.iter().map(|s| env.substitute(vm_ctx_ref(ctx), s)).collect())
+}
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jit_is_instance(
@@ -215,10 +240,22 @@ pub unsafe extern "C" fn jit_is_instance(
     let class_name = super::baked_str(cls_ptr, cls_len);
     // The instruction's own key cell, baked at translate time (lives as long as the code).
     let key = &*key;
+    // A class-level type-parameter target (`o is T` in a generic class body): bound from the
+    // receiver, tested with a key of its own (method-level ones never reach the JIT).
+    let dynamic = dynamic_target(frame, ctx, class_name);
+    let fresh = crate::metadata::tokens::TypeKeyCell::new();
+    let (class_name, key) = match &dynamic { Some(t) => (t.as_str(), &fresh), None => (class_name, key) };
     let module = super::jit_module(ctx);
-    let result = match &(*frame).regs[obj as usize] {
+    let v = &(*frame).regs[obj as usize];
+    if dynamic.is_some() && dispatch::bound_param_extra_isa(vm_ctx_ref(ctx), &module.type_registry, v, class_name) {
+        (*frame).regs[dst as usize] = Value::Bool(true);
+        return;
+    }
+    let result = match v {
         Value::Object(rc) => isa_object(vm_ctx_ref(ctx), &module.type_registry, rc.type_desc(), rc.type_args(), class_name, key),
-        Value::Array(rc)  => array_isa(&rc.borrow().element_type(), class_name),
+        Value::Array(rc)  => dispatch::array_isa(&rc.borrow().element_type(), class_name),
+        Value::StructRef { idx, frame_id } =>
+            dispatch::struct_ref_isa(vm_ctx_ref(ctx), &module.type_registry, *idx, *frame_id, class_name),
         // add-struct-object-boxing → unify Phase 2 R3: 装箱值类型（struct 或基元）is-a 精确类型 /
         // object（镜像 interp is_instance；基元盒 type_desc.name 即精确 wrapper）。
         Value::BoxedStruct(b) => class_name == "Std.Object" || class_name == "Object"
@@ -239,8 +276,15 @@ pub unsafe extern "C" fn jit_as_cast(
     let class_name = super::baked_str(cls_ptr, cls_len);
     // The instruction's own key cell, baked at translate time (lives as long as the code).
     let key = &*key;
+    let dynamic = dynamic_target(frame, ctx, class_name);
+    let fresh = crate::metadata::tokens::TypeKeyCell::new();
+    let (class_name, key) = match &dynamic { Some(t) => (t.as_str(), &fresh), None => (class_name, key) };
     let module = super::jit_module(ctx);
     let val    = (*frame).regs[obj as usize].clone();
+    if dynamic.is_some() && dispatch::bound_param_extra_isa(vm_ctx_ref(ctx), &module.type_registry, &val, class_name) {
+        (*frame).regs[dst as usize] = val;
+        return;
+    }
     // add-struct-object-boxing → unify Phase 2 R3: BoxedStruct 特判（struct 或基元装箱统一，镜像
     // interp as_cast）——精确类型命中 → 拆箱（基元盒 → 裸标量；struct 盒 → 当前帧 arena StructRef 值
     // 副本，frame_id 由 struct_ops::frame_id_of 惰性分配）；object/base/接口 → 保持 boxed（多态）；否则
@@ -286,7 +330,7 @@ pub unsafe extern "C" fn jit_as_cast(
     }
     let is_match = match &val {
         Value::Object(rc) => isa_object(vm_ctx_ref(ctx), &module.type_registry, rc.type_desc(), rc.type_args(), class_name, key),
-        Value::Array(rc)  => array_isa(&rc.borrow().element_type(), class_name),
+        Value::Array(rc)  => dispatch::array_isa(&rc.borrow().element_type(), class_name),
         Value::Null => true,
         // fix-boxed-primitive-is-as: 未装箱裸基元按其 stdlib 类名匹配。
         other       => crate::interp::prim_isa(other, class_name),

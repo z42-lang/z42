@@ -126,8 +126,8 @@ pub(super) fn vcall(
     // against the caller frame before threading to the callee (see exec_call::call
     // and interp::resolve_forwarded_mta). No alloc unless a marker is present.
     let fwd_storage;
-    let method_type_args: &[String] = if method_type_args.iter().any(|s| s.starts_with("$mta:")) {
-        fwd_storage = super::resolve_forwarded_mta(frame, method_type_args);
+    let method_type_args: &[String] = if super::has_forwarded_mta(method_type_args) {
+        fwd_storage = super::resolve_forwarded_mta(ctx, frame, method_type_args);
         &fwd_storage
     } else {
         method_type_args

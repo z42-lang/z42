@@ -265,6 +265,44 @@ fn name_test_on_an_undeclared_instantiation_reads_its_arguments() {
 }
 
 #[test]
+fn bound_parameter_extra_matches() {
+    let ctx = VmContext::new();
+    let registry = rustc_hash::FxHashMap::default();
+    // Written and bound targets both check the element type.
+    assert!(array_isa("int", "Std.Array"));
+    assert!(!array_isa("int", "string[]"));
+    // A bound parameter does not bypass the ordinary array check.
+    let arr = crate::metadata::types::ArrayObj::alloc_typed_filled(ctx.heap(),
+        crate::metadata::types::ElemType::intern("int"), 1, Value::I64(0));
+    assert!(!bound_param_extra_isa(&ctx, &registry, &arr, "string[]"));
+    assert!(!bound_param_extra_isa(&ctx, &registry, &arr, "Demo.Entry"));
+    // An integer is no extra match for a non-enum (here: unknown) type.
+    assert!(!bound_param_extra_isa(&ctx, &registry, &Value::I64(1), "Demo.Plat"));
+}
+
+#[test]
+fn unboxed_struct_matches_object_and_misses_a_stale_slot() {
+    let ctx = VmContext::new();
+    let registry = rustc_hash::FxHashMap::default();
+    assert!(struct_ref_isa(&ctx, &registry, 0, 1, "Std.Object"));
+    // No such arena slot: no type to compare — not an instance.
+    assert!(!struct_ref_isa(&ctx, &registry, 0, 1, "Demo.Pt"));
+}
+
+#[test]
+fn callable_matches_a_bound_parameter_unless_it_is_a_known_non_delegate() {
+    // `callable_isa` is the callable arm of `bound_param_extra_isa`.
+    let ctx = VmContext::new();
+    let registry = rustc_hash::FxHashMap::default();
+    assert!(callable_isa(&ctx, &registry, "Action<Int32>"));       // delegate types are not decidable
+    assert!(callable_isa(&ctx, &registry, "Std.Object"));
+    assert!(!callable_isa(&ctx, &registry, "int"));
+    assert!(!callable_isa(&ctx, &registry, "Std.Int32"));
+    assert!(!callable_isa(&ctx, &registry, "Std.String"));
+    assert!(!callable_isa(&ctx, &registry, "string[]"));
+}
+
+#[test]
 fn arrays_test_by_element_type_and_are_invariant() {
     // Array / Object roots.
     for root in ["Std.Array", "Std.Object", "Array", "Object"] {

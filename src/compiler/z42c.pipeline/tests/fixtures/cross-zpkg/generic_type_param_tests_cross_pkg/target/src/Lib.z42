@@ -1,0 +1,37 @@
+namespace Lib;
+using Std.Collections;
+
+public class Item { public int N; public Item() { this.N = 7; } }
+public class Sub : Item { public Sub() { } }
+public class GBox<T> { public T V; public GBox(T v) { this.V = v; } }
+public class Err<T> : Exception { public T P; public Err(T p) : base("err") { this.P = p; } }
+
+// 泛型方法体对调用方包是**共享体**（跨包不特化）：型参只能运行期从 method_type_args 读。
+public static class Ops {
+    public static bool Is<T>(object o) { return o is T; }
+    public static bool IsNull<T>(object o) { return (o as T) == null; }
+    public static string Cast<T>(object o) {
+        try { T t = (T)o; return "ok"; } catch (InvalidCastException e) { return "ICE"; }
+    }
+    public static bool IsGBoxOf<T>(object o) { return o is GBox<T>; }
+    public static bool IsListOf<T>(object o) { return o is List<T>; }
+    public static object NewGBox<T>(T v) { return new GBox<T>(v); }
+    public static object NewList<T>() { return new List<T>(); }
+    public static T Make<T>() where T : new() { return new T(); }
+    public static string ArrType<T>(int n) { T[] a = new T[n]; return a.GetType().FullName; }
+    public static string Catch<T>(Exception x) {
+        try { throw x; } catch (Err<T> e) { return "Err<T>"; } catch (Exception e) { return "Exception"; }
+    }
+    public static void ThrowErr<T>(T p) { throw new Err<T>(p); }
+}
+
+// 类级型参：共享体从受者（reg0）读实参。
+public class Holder<T> where T : new() {
+    public bool Is(object o) { return o is T; }
+    public bool IsGBox(object o) { return o is GBox<T>; }
+    public object NewList() { return new List<T>(); }
+    public T Make() { return new T(); }
+    public string Catch(Exception x) {
+        try { throw x; } catch (Err<T> e) { return "Err<T>"; } catch (Exception e) { return "Exception"; }
+    }
+}

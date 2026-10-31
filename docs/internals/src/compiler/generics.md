@@ -323,18 +323,58 @@ TypeDesc {
 运行期侧（规范名函数、构造类型的 `Type`、反射构造）见
 [反射 Type 身份 §构造类型](../runtime/reflection-type-identity.md#构造类型一个规范名一种-type)。
 
-### 型参具化的两个载体（`typeof(T)` / `default(T)` / `new T()` / `new T[n]`）
+### 型参具化的两个载体（`typeof(T)` / `default(T)` / `new T()` / `new T[n]` / 类型测试）
 
 型参的实参在运行期从**哪里**读，取决于它是类级还是方法级。这是个反复被记错的分岔
-，四个消费点都按同一张表走：
+，所有消费点都按同一张表走：
 
 | 载体 | 存放位置 | 谁填 | 消费指令 |
 |---|---|---|---|
-| **方法级** | `Frame.method_type_args` | 调用点（`CallInsn::method_type_args`）| `MethodTypeArg` / `MethodDefault` |
-| **类级** | `regs[0]` 指向对象的 per-instance `type_args` | `ObjNew`（从 IR 指令的 type args）| `DefaultOf` / **`__class_type_arg` builtin** |
+| **方法级** | `Frame.method_type_args` | 调用点（`CallInsn::method_type_args`）| `MethodTypeArg` / `MethodDefault` / `$mta:N` 标记 |
+| **类级** | `regs[0]` 指向对象的 per-instance `type_args` | `ObjNew`（从 IR 指令的 type args）| `DefaultOf` / **`__class_type_arg` builtin** / `$cta:N@Owner` 标记 |
 
 绑定期按「**方法级就近优先**」分流（`TypeOpTyper._bindTypeofExpr` /
-`ExprTyper._bindDefault` / `_bindArrayNew` 三处同序）：方法级先查，同名时遮蔽类级。
+`ExprTyper._bindDefault` / `_bindArrayNew` / `ConstructTyper._bindNew` 同序）：方法级先查，同名时遮蔽类级。
+发射期的 `ExprEmitter._typeParamMarker` 也是这个顺序。
+
+#### 型参出现在类型**名字**里：`o is T` / `new List<T>()` / `catch (Err<T>)`
+
+`typeof(T)` 产的是一个 `Type` 值，能用一条指令取；可 `o is T`、`o as T`、`(T)o`、`new List<T>()`、
+`catch (Err<T> e)` 消费的是**类型名**（`IsInstance` / `AsCast` 的目标、`ObjNew` 的实参、异常表的
+catch 类型）。名字里的型参按体的种类处理：
+
+- **特化体**（同包调用点按具体实参重发的泛型方法体、布局特化的泛型类成员体）：编译期代换成
+  具体名（`IrGen.SpecTypeArgs`）。
+- **共享体**（泛型类的成员体、跨包被调的泛型方法体、经转发调用到达的泛型方法体）：发**型参标记**，
+  运行期按本次激活代换 —— `$mta:N`（读 `frame.method_type_args[N]`，即转发调用 `Bar<T>()` 已在用的
+  那个标记）、`$cta:N@<声明类 FQ>`（读 reg0 受者，沿基链定位声明层，与 `__class_type_arg` 同一解析）。
+  标记可嵌在任何类型名位置（`Std.Collections.List<$cta:0@Demo.Bag>`）。
+
+泛型调用站点的类型实参也一样（`CallEmitter._methodTypeArgNames`）：`class H<T> { M() { Bar<T>(); } }`
+发 `$cta:0@Demo.H`、`Bar<List<T>>()` 发 `Std.Collections.List<$mta:0>`，运行期按调用方本次激活绑定后再
+交给 callee 帧（interp `resolve_forwarded_mta`、JIT `bind_forwarded_mta`）。
+
+实参拼法统一走 `ExprEmitter._rtArgName`（不含型参时就是 `_typeofArgName`，逐字节不变）；类型测试
+目标走 `_typeTestName`，`is` / `as` / `(T)` / 模式 / `catch` 共用这一个出口。运行期一侧：
+`metadata/type_param_markers.rs`（找 / 换标记，纯字符串）+ `interp/type_param_env.rs`（标记在本次激活
+绑到什么，interp 与 JIT helper 共用）；目标本身是型参且绑到基元时，关键字归到包装类
+（`int` → `Std.Int32`，同源码直接写 `o is int`）。代换后的目标用一个**新的** `TypeKeyCell`（站点缓存的
+key 属于标记拼法，每次激活指的类型不同）。`ObjNew` 的站点实参在驻留时记一位「含标记」
+（`TypeArgs::has_markers`），其余站点每次分配只多读这一位。
+
+- 🔴 **JIT**：JIT 帧没有 `method_type_args`，含 `$mta:` 的 `IsInstance` / `AsCast` / `ObjNew` / 异常表行 /
+  调用站点在 `jit/translate/unsupported.rs` 里判不可译，整个函数留在 interp（与 `MethodTypeArg` 同一条不变式）。
+  `$cta:` 从 reg0 解析，照常 JIT。
+- **绑不到时**标记原样保留：lifted lambda / 局部函数的帧没有外层方法的实参（发射端只在型参是
+  **本函数自己的**时发 `$mta:`，`EmitContext.MethodTpOwn`）；静态语境没有受者。原样的标记读作开放
+  实参（`dispatch::is_open_type_arg`），与此前的字面 `T` 同口径。
+- `(T)o` 是受检转换（`TypeOpTyper._isCheckedRefCast`）：类型不符抛 `InvalidCastException`；
+  `T` 绑到数组类型时与直接书写数组目标一样，经 `dispatch::array_isa` 核对元素类型；
+  值是闭包 / 函数引用而 `T` 绑到委托类型、值是整数而 `T` 绑到 enum 时同样放行（闭包不记得被转成哪个委托类型；
+  enum 以 i64 为底、`Enum.Parse` 交出整数）—— 这几条额外匹配集中在 `dispatch::bound_param_extra_isa`；
+  未装箱的值 struct（`StructRef`）按 arena 槽里的精确类型判（`dispatch::struct_ref_isa`）。
+- `new T[n]` 的数组**报告**绑定后的元素类型（`GetType()` → `Std.Int32[]`），backing 仍按擦除口径选
+  （`objops::array::array_new` 的 `bound`）。
 
 #### 为什么类级 `typeof(T)` 是 builtin 而不是一条新 opcode
 
@@ -453,13 +493,16 @@ void Main() {
 
 #### `new T()` 走哪条路（两条，都要记住）
 
-**T 是方法级型参时才走运行期 activator**，其余形态在编译期就定了 —— 这个分岔是
+**T 是型参时走运行期 activator**，其余形态在编译期就定了 —— 这个分岔是
 `new` 相关缺陷反复出现的地方（同一个语义，两处实现，改一处漏一处）：
 
 | 形态 | 类型何时已知 | 发射 | 落点 |
 |---|---|---|---|
 | `new Widget()` / `new int()` | 编译期 | `obj_new` / **折叠成常量** | `ConstructTyper._bindNew` |
 | `new T()`（方法级型参） | **运行期** | `MethodTypeArgInsn` + builtin `__activator_create` | `CallEmitter._emitNew` → `reflection/invoke.rs` |
+| `new T()`（类级型参，实例语境） | **运行期** | `__class_type_arg(this, idx, 声明类)` + `__activator_create` | 同上 |
+
+静态语境里的类级 `new T()` 没有受者可读，仍落到常规 `obj_new`（运行期 `MissingSymbolException`）。
 
 两条路都要处理基元：**基元的零值在两条路上各要处理一次**：
 
