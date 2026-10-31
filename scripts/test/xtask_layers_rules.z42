@@ -207,5 +207,5 @@ bool _lyAllowed(string from, string to) {
     return false;
 }
 
-// 平台 cfg / libc 计数是否豁免（只有 pal 可以碰平台）。
-bool _lyPlatformExempt(string comp) { return comp == "pal"; }
+// 平台实现与编译期选择只属于 pal/sys；PAL 上层也受零平台分支门禁约束。
+bool _lyPlatformExempt(string rel) { return rel.StartsWith("pal/sys/"); }

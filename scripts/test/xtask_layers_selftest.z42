@@ -8,7 +8,7 @@ using Std.Collections;
 
 int _lySelfTest() {
     int fails = _lySelfTestMap() + _lySelfTestAllow() + _lySelfTestRefs() + _lySelfTestCfg()
-        + _lySelfTestResolve() + _lySelfTestCompare();
+        + _lySelfTestResolve() + _lySelfTestCompare() + _lySelfTestPalBoundary();
     if (fails == 0) { Console.WriteLine("  自测通过（映射 / 矩阵 / 词法 / use 组 / cfg / 再导出 / 基线）"); }
     return fails;
 }
@@ -137,4 +137,18 @@ int _lySelfTestCompare() {
     _lyCompare("edges", cur, base_, fails, tight);
     string got = _lyJoinSegs(fails, ";") + " / " + _lyJoinSegs(tight, ";");
     return _lyExpect("基线比较", got, "edges\ta -> b\t3\t2;edges\tc -> d\t1\t0 / edges e -> f：4 → 0");
+}
+
+int _lySelfTestPalBoundary() {
+    LyCrate c = new LyCrate();
+    string src = "#[cfg(unix)]\nfn probe() { unsafe { libc::getpid(); } }";
+    c.AddFile("pal/fs.rs", src);
+    c.AddFile("pal/sys_fake/fs.rs", src);
+    c.AddFile("pal/sys/unix/fs.rs", src);
+    c.AddFile("pal/sys/mod.rs", "#[cfg(unix)]\nmod unix;");
+    LyReport r = _lyAnalyze(c);
+    int f = _lyExpect("PAL 上层平台 cfg", r.Cfg["pal"].ToString(), "2");
+    f = f + _lyExpect("PAL 上层 libc", r.Libc["pal"].ToString(), "2");
+    f = f + _lyExpect("sys 文件不是后端目录", _lyPlatformExempt("pal/sys.rs") ? "exempt" : "checked", "checked");
+    return f;
 }

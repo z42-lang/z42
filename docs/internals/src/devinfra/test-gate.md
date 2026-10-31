@@ -162,7 +162,7 @@ vm.exec / vm.core，引擎 interp / jit，能力与工具 corelib / interop / pr
 平台 cfg = `cfg` / `cfg!` / `cfg_attr` 的谓词里出现 `target_os` / `target_family` / `target_vendor` / `target_env` /
 `unix` / `windows` 或 `target_arch = "wasm32"`（JIT 的其他 `target_arch` 与 feature 不算）；`libc::` 按行计。
 
-基线是三张计数表：`[layers.edges]` 按「from -> to」记违规引用数，`[layers.cfg]` / `[layers.libc]` 按组件记 pal 外的
+基线是三张计数表：`[layers.edges]` 按「from -> to」记违规引用数，`[layers.cfg]` / `[layers.libc]` 按组件记 pal/sys 外的
 平台 cfg 与 `libc::`——这就是运行时目录迁移的欠账清单。任何一项变多、或出现基线里没有的违规边 → 红：新边逐条列
 `file:line`，已有欠账变多的项按文件汇总条数（分不出哪条是新的，对照 `git diff` 定位）；新违规要改代码消掉，不靠
 `--update` 收进基线。某项变少 → 提示「可收紧」，跑 `xtask check layers --update` 写回。文件落在映射表没登记的位置

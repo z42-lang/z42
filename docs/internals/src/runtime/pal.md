@@ -7,7 +7,7 @@
 ## 设计目标
 
 让 runtime 其余模块**零 cfg 调用** OS 服务。OS-specific 实现集中在
-`src/runtime/src/pal/<concern>.rs`，公开 surface 返回 OS-neutral 类型
+`src/runtime/src/pal/sys/`，`pal/<concern>.rs` 保留接口和共享策略，公开 surface 返回 OS-neutral 类型
 (`Option<String>` / `Result<T, E>`)。
 
 ## CoreCLR 对照
@@ -37,6 +37,7 @@ ASM）—— Cranelift / Rust 已经兜底 arch 差异。z42 PAL 只关心 **OS 
 pal/
 ├── mod.rs               — 模块入口 + 子模块 re-exports
 ├── README.md            — 快速 orientation
+├── sys/                 — 编译期后端选择；unix/、windows/、wasm/、fallback/ 和 common/
 ├── system.rs            — hostname / os_version / os_name、进程环境（pid / cwd / env / temp）、OS_CAPS
 ├── fs.rs                — Vfs trait / default_vfs / glob_match；make_executable / symlink / sync_before_rename / PATH_LIST_SEP
 ├── vfs/                 — Vfs 的实现：local.rs（LocalFs，std::fs）、memory.rs（MemoryFs，path → bytes）
@@ -68,19 +69,28 @@ pub const OS_CAPS: OsCaps;                         // Std.Platform.Capabilities(
 
 `#[cfg(unix)]` 走 libc::gethostname / libc::uname；`#[cfg(target_arch =
 "wasm32")]` 返回 None / "wasm"；其他 (Windows-without-impl) 返回 None / 空
-字符串。**所有 cfg 切分都在 `pal/system.rs` 内部** —— `corelib/system.rs`
+字符串。**所有平台 cfg 切分都在 `pal/sys/` 内部** —— `corelib/system.rs`
 零 cfg。
 
 ## 不变量（必须遵守）
 
 1. **OS-neutral surface**：pub fn signatures 不带 OS 类型（不暴露
    `libc::c_char` / `winapi::HANDLE` 等）
-2. **每个 concern 一个文件**：`#[cfg(...)]` 切分在文件内部，consumer 零 cfg。pal 外现存的平台 cfg 与
+2. **每个 concern 一个接口**：`pal/<concern>.rs` 不含操作系统选择；`sys/mod.rs` 选择后端，后端实现集中在 `sys/`。`pal/sys/` 外现存的平台 cfg 与
    `libc::` 是欠账，由 GREEN 的 `layers` stage 按组件计数、只减不增（见[测试门禁](../devinfra/test-gate.md)）
 3. **graceful degrade**：未实现的平台返回 `None` / `""` / `Err` 而非 panic
 4. **错误 OS-neutral**：`Option<T>` / `Result<T, E>` 抽象，不暴露 errno
 5. **每个 pal 子模块必须有 unit tests**：smoke test 覆盖 unix 路径 + non-unix
    sentinel return
+
+## 编译期后端边界
+
+`sys/mod.rs` 按目标选择 Unix、Windows、wasm32；其他目标进入 fallback，保持已有的降级返回值。
+Unix 后端包含 Apple、Linux/Android 等子分支。共享的宿主实现和不支持操作的哨兵放在 common，
+只在所选后端需要时编译。模块选择不产生运行期虚调用；每 VM 的 VFS 句柄保持原有抽象。
+
+平台 cfg 和 libc 的生产代码只能位于 `pal/sys/`。分层门同时检查 PAL 上层，且按完整目录前缀判断，
+相似名称的目录不能取得豁免。feature 裁剪和测试代码维持各自原有规则。
 
 ## 各 concern 与待办
 
@@ -268,8 +278,8 @@ preset 不开），关掉时 `corelib/network/unsupported.rs` 的桩抛 `NetUnsu
 
 ## Deferred / Future Work
 
-- **Windows real impl** — 各 concern 的 Windows 分支都 stub。等
-  Windows CI runner 投产后实现（review.md backlog 项）。
+- **Windows system queries / symlink** — 主机名、系统版本查询与符号链接仍保留降级行为；
+  进程 job、线程栈边界和 socket 等已有实现不受此限制。
 - **wasm32-wasi** — 目前 wasm32 全 stub，wasi 有 fs / network syscall 可
   实装；视用户需求引入。
 - **PAL trait 化** — 目前 PAL 是 free functions + cfg dispatch。若未来需要

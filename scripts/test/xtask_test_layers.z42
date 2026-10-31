@@ -5,7 +5,7 @@
 // src/runtime/src 的每个源文件（测试文件除外）按 _lyMapTable 归到目标组件（docs/runtime-audit.md §4），
 // 然后查两件事：
 //   ① 跨组件引用（`crate::…` 路径，经 `pub use` 再导出解析到真正的文件）必须在 _lyAllowTable 允许的方向上；
-//   ② 平台 `cfg(…)` 与 `libc::` 只出现在 pal。
+//   ② 平台 `cfg(…)` 与 `libc::` 只出现在 pal/sys。
 // 现状的违规是欠账：逐条「from -> to」引用数与每组件的平台 cfg / libc 数记在 gates.toml [layers.*]，
 // **只减不增**——出现新的违规边 → 红并逐条列 file:line；已有项变多 → 红并按文件汇总；变少 → 提示「可收紧」，
 // 用 `xtask check layers --update` 写回基线。这张基线就是 §6.1 L-2…L-7 的欠账清单。
@@ -60,7 +60,7 @@ LyReport _lyAnalyze(LyCrate c) {
     foreach (var f in c.Files.ToArray()) {
         if (f.Comp.Length == 0) { r.Unmapped.Add(f.Rel); continue; }
         _lyCountRefs(c, f, r, compOfMod);
-        if (!_lyPlatformExempt(f.Comp)) {
+        if (!_lyPlatformExempt(f.Rel)) {
             foreach (var ln in f.Cfg.ToArray()) { _lyBump(r, r.Cfg, "cfg", f.Comp, f.Rel + ":" + ln.ToString()); }
             foreach (var ln in f.Libc.ToArray()) { _lyBump(r, r.Libc, "libc", f.Comp, f.Rel + ":" + ln.ToString()); }
         }
@@ -162,7 +162,7 @@ int _lyCheckBaseline(string root, LyReport r) {
         _lyPrintFails(r, fails);
         return 1;
     }
-    Console.WriteLine("check layers: ✓ 违规边 " + _lySum(r.Edges).ToString() + " 处、pal 外平台 cfg "
+    Console.WriteLine("check layers: ✓ 违规边 " + _lySum(r.Edges).ToString() + " 处、pal/sys 外平台 cfg "
         + _lySum(r.Cfg).ToString() + " 处、libc " + _lySum(r.Libc).ToString() + " 处，均在基线内（gates.toml [layers.*]）");
     return 0;
 }
@@ -173,7 +173,7 @@ void _lyPrintFails(LyReport r, List<string> fails) {
     int printed = 0;
     foreach (var f in fails.ToArray()) {
         string[] p = f.Split("\t");   // kind \t key \t 现值 \t 基线
-        string what = p[0] == "edges" ? "违规引用 " + p[1] : (p[0] == "cfg" ? "pal 外平台 cfg（" + p[1] + "）" : "pal 外 libc::（" + p[1] + "）");
+        string what = p[0] == "edges" ? "违规引用 " + p[1] : (p[0] == "cfg" ? "pal/sys 外平台 cfg（" + p[1] + "）" : "pal/sys 外 libc::（" + p[1] + "）");
         ConsoleError.WriteLine("  ✗ " + what + "：" + p[3] + " → " + p[2]);
         string sk = p[0] + "|" + p[1];
         if (!r.Sites.ContainsKey(sk)) { continue; }
