@@ -25,7 +25,7 @@ string _ensureTestAgent(string root) {
 
 // ── 单个 golden 用例 → 一例 bundle（`test app desktop --zbc <golden-dir>`）──────
 //
-// 与语料 bundle 里的 golden 走同一条路（_goldenEntry + BundleRunner）：source.z42 原样编成 .zbc，
+// 与语料 bundle 里的 golden 走同一条路（_compileBundleCases + BundleRunner）：source.z42 原样编成 .zbc，
 // 在隔离 VM 里直接跑入口、比对 stdout 与 expected_output.txt（没有则期望空输出）；`opt_all`、
 // `// requires-caps:` 同样生效。golden 不包成 [Test] 交给 Runner：那样跑在共享 VM 里、与语料的隔离跑
 // 不同口径（且反射发现把 `__` 前缀函数当编译器合成物滤掉，生成的包装函数名还得避开这个约定）。
@@ -44,7 +44,8 @@ string _buildGoldenBundle(string root, string caseDir) {
     string bundleDir = Path.Join(_workOut(root, "src/toolchain/workload/test", ""), "golden-bundle");
     Directory.Create(bundleDir);
     _cleanGlob(bundleDir, "*.zbc");
-    string entry = _goldenEntry(root, c.name, c.src, c.exp, bundleDir, c.optAll);
+    string[] entries = _compileBundleCases(root, new _CorpusCase[]{ c }, bundleDir);
+    string entry = entries[0];
     if (entry.Length == 0) { return ""; }
     return _writeBundleManifest(bundleDir, _withRequires(entry, _caseRequires(c)));
 }
