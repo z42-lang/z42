@@ -40,3 +40,19 @@ fn path_list_sep_splits_path() {
     let joined = std::env::join_paths(["a", "b"]).unwrap();
     assert_eq!(joined.to_str().unwrap(), format!("a{}b", super::PATH_LIST_SEP));
 }
+
+#[test]
+fn glob_match_star_and_question() {
+    assert!(glob_match("*.zpkg", "z42.core.zpkg"));
+    assert!(glob_match("a?c", "abc"));
+    assert!(glob_match("*", ""));
+    assert!(!glob_match("*.zpkg", "z42.core.zbc"));
+    assert!(!glob_match("a?c", "ac"));
+    assert!(glob_match("a*b*c", "axxbyyc"));
+}
+
+#[test]
+fn default_vfs_follows_has_fs() {
+    let vfs = default_vfs();
+    assert_eq!(vfs.local_path("/").is_some(), HAS_FS);
+}

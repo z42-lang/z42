@@ -46,12 +46,13 @@ use z42_abi::{Z42Value, Z42_VALUE_TAG_BOOL, Z42_VALUE_TAG_F64, Z42_VALUE_TAG_I64
 use z42::host::config::{Z42HostConfig, Z42_HOST_ABI_VERSION};
 use z42::host::error::Z42HostStatus;
 use z42::host::{
-    install_zpkg_resolver, z42_host_initialize, z42_host_invoke, z42_host_last_error,
+    install_vfs, install_zpkg_resolver, z42_host_initialize, z42_host_invoke, z42_host_last_error,
     z42_host_load_zbc, z42_host_resolve_entry, z42_host_set_stderr_sink, z42_host_shutdown,
     Z42Host,
 };
 
 pub use z42::host::resolver::ZpkgResolver;
+pub use z42::pal::fs::Vfs;
 
 // ── Public types ────────────────────────────────────────────────────────
 
@@ -92,6 +93,11 @@ pub struct HostConfig {
     /// `search_paths` on miss. See
     /// [`docs/internals/src/runtime/embedding.md §11`].
     pub zpkg_resolver: Option<Arc<dyn ZpkgResolver>>,
+    /// The file system the host's VMs load packages from and run on (`search_paths`
+    /// are looked up on it too). `None` = the runtime's default: the OS file system,
+    /// or a fresh in-memory one where the target has none. A host that mounts files
+    /// into a `z42::pal::vfs::MemoryFs` passes it here.
+    pub vfs: Option<Arc<dyn Vfs>>,
 }
 
 impl Default for HostConfig {
@@ -104,6 +110,7 @@ impl Default for HostConfig {
             stderr: None,
             search_paths: Vec::new(),
             zpkg_resolver: None,
+            vfs: None,
         }
     }
 }
@@ -150,6 +157,7 @@ pub fn run_app(
         print_stats: false,
         stats_json: false,
         exit_after_run: false,
+        vfs: None,
     };
     z42::app::run(file, entry, opts).map_err(|e| match z42::stack_guard::take_report() {
         Some(report) => HostError::Fatal(report),
@@ -392,6 +400,14 @@ impl Host {
             if s != Z42HostStatus::Ok {
                 let _ = unsafe { z42_host_shutdown(handle) };
                 return Err(translate_status(s, "install_zpkg_resolver"));
+            }
+        }
+
+        if let Some(vfs) = cfg.vfs {
+            let s = install_vfs(vfs);
+            if s != Z42HostStatus::Ok {
+                let _ = unsafe { z42_host_shutdown(handle) };
+                return Err(translate_status(s, "install_vfs"));
             }
         }
 

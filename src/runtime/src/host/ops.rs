@@ -31,10 +31,12 @@ use super::state::{HostCorelib, HostEntry, HostModule};
 /// diagnostic at first reference.
 pub(crate) fn probe_corelib(config: &ResolvedConfig) -> Result<Option<HostCorelib>> {
     const CORELIB_FILE: &str = "z42.core.zpkg";
+    let fs = &*config.vfs;
     for raw in &config.search_paths {
         let dir = PathBuf::from(raw);
         let candidate = dir.join(CORELIB_FILE);
-        if !candidate.is_file() {
+        let is_file = candidate.to_str().is_some_and(|p| fs.exists(p) && !fs.is_dir(p));
+        if !is_file {
             continue;
         }
         // Eager probe-load to validate the file is parseable; result
@@ -42,7 +44,7 @@ pub(crate) fn probe_corelib(config: &ResolvedConfig) -> Result<Option<HostCoreli
         // initialize-time error instead of a confusing failure on the
         // first load_zbc.
         let path_str = candidate.to_string_lossy().into_owned();
-        load_artifact(&path_str)
+        load_artifact(fs, &path_str)
             .with_context(|| format!("validating corelib at {path_str}"))?;
         return Ok(Some(HostCorelib {
             zpkg_path: candidate,
@@ -70,10 +72,12 @@ pub(crate) fn probe_corelib(config: &ResolvedConfig) -> Result<Option<HostCoreli
 /// dependency walk once per `load_zbc`, so we trade a small load-time
 /// cost for "no surprising lazy lookups during invoke".
 pub(crate) fn build_host_module(
+    vfs: &Arc<dyn crate::pal::fs::Vfs>,
     bytes: &[u8],
     corelib: Option<&HostCorelib>,
     resolver: Option<&Arc<dyn ZpkgResolver>>,
 ) -> Result<HostModule> {
+    let fs = &**vfs;
     let user_artifact = load_artifact_from_bytes(bytes)
         .context("z42_host_load_zbc: cannot parse bytes as a .zbc / .zpkg artifact")?;
 
@@ -117,7 +121,7 @@ pub(crate) fn build_host_module(
         if ns == "z42.core" {
             if let Some(c) = corelib {
                 let path_str = c.zpkg_path.to_string_lossy().into_owned();
-                let corelib_artifact = load_artifact(&path_str).with_context(|| {
+                let corelib_artifact = load_artifact(fs, &path_str).with_context(|| {
                     format!("z42_host_load_zbc: re-reading corelib at {path_str}")
                 })?;
                 eager_impl_pairs.extend(corelib_artifact.impl_pairs.iter().cloned());
@@ -134,7 +138,7 @@ pub(crate) fn build_host_module(
         } else if let Some(libs) = libs_dir.as_ref() {
             let libs_paths = vec![libs.clone()];
             let Ok(zpkg_paths) =
-                crate::metadata::resolve_namespace(ns, &libs_paths)
+                crate::metadata::resolve_namespace(fs, ns, &libs_paths)
             else {
                 continue;
             };
@@ -146,7 +150,7 @@ pub(crate) fn build_host_module(
                     continue;
                 }
                 let path_str = zpkg_path.to_string_lossy().into_owned();
-                let dep = load_artifact(&path_str).with_context(|| {
+                let dep = load_artifact(fs, &path_str).with_context(|| {
                     format!("z42_host_load_zbc: loading import dependency {path_str}")
                 })?;
                 eager_impl_pairs.extend(dep.impl_pairs.iter().cloned());
@@ -184,6 +188,7 @@ pub(crate) fn build_host_module(
     // FFI/embedded path loads the module from bytes (no on-disk entry dir), so
     // the search set is just the libs dir (support-colocated-zpkg-deps).
     let ctx = crate::boot::boot_context(final_module, crate::boot::BootPlan {
+        vfs: Arc::clone(vfs),
         search_dirs: libs_dir.into_iter().collect(),
         declared_candidates: Vec::new(),
         initially_loaded,

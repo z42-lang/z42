@@ -2,7 +2,7 @@
 
 > single home for every `#[cfg(target_os)]` /
 > `#[cfg(unix)]` / `#[cfg(windows)]` split in the runtime.
-> 待办：每 VM 一个 Vfs（runtime-audit §6.1 L-2）；Windows 实现、wasm32-wasi 见下文。
+> 待办：Windows 实现、wasm32-wasi 见下文。
 
 ## 设计目标
 
@@ -38,7 +38,8 @@ pal/
 ├── mod.rs               — 模块入口 + 子模块 re-exports
 ├── README.md            — 快速 orientation
 ├── system.rs            — hostname / os_version / os_name、进程环境（pid / cwd / env / temp）、OS_CAPS
-├── fs.rs                — make_executable / symlink / sync_before_rename / PATH_LIST_SEP
+├── fs.rs                — Vfs trait / default_vfs / glob_match；make_executable / symlink / sync_before_rename / PATH_LIST_SEP
+├── vfs/                 — Vfs 的实现：local.rs（LocalFs，std::fs）、memory.rs（MemoryFs，path → bytes）
 ├── process.rs           — 退出码解码、进程树 kill（进程组 / job object）、PATH 查找
 ├── random.rs            — OS CSPRNG
 ├── dynlib.rs            — 动态库文件名、打开、取符号（native 扩展、压缩库、REPL 编辑器共用）
@@ -83,9 +84,40 @@ pub const OS_CAPS: OsCaps;                         // Std.Platform.Capabilities(
 
 ## 各 concern 与待办
 
-### `pal/fs.rs` — 文件系统
+### `pal/fs.rs` + `pal/vfs/` — 文件系统
 
-承接 `corelib/fs.rs` 的 2 个 `#[cfg(unix)]` 块（`make_executable` / `symlink`）：
+**每台 VM 一个 `Vfs` 句柄。** 路径型文件操作（`File.*` / `Directory.*` / `Path.Glob` 的 builtin）、包加载
+（`metadata/loader`、`namespace_index`、惰性加载器）与 `app::run` 的启动探测都走 VM 持有的
+`Arc<dyn Vfs>`，没有进程级的「当前后端」开关：
+
+```rust
+// pal/fs.rs
+pub trait Vfs: Send + Sync {
+    fn read_to_string / read / write / append / exists / is_dir / remove_file / remove_dir
+       / copy / rename / create_dir_all / modified_ms / file_len / read_dir / glob / write_atomic;
+    fn local_path<'a>(&self, path: &'a str) -> Option<&'a Path> { None }  // 能力：是否真文件系统
+}
+pub fn default_vfs() -> Arc<dyn Vfs>;     // HAS_FS ? LocalFs : 新的空 MemoryFs
+pub fn glob_match(pattern, text) -> bool; // Vfs::glob 的 `*` / `?` 语言
+
+// pal/vfs/
+pub struct LocalFs;                       // std::fs；write_atomic = tmp + sync_before_rename + rename
+pub struct MemoryFs;                      // 实例自有 path → bytes；mount(path, bytes)；目录由前缀推出
+```
+
+- **谁给句柄**：创建 VM 的一方——`VmContext::with_vfs` / `with_module_and_vfs`、`app::RunOpts::vfs`、
+  嵌入 API 的 `HostConfig::vfs`（Tier 2 经 `host::install_vfs` 装入）。不给就是 `default_vfs()`。
+  `__run_goldens_isolated` 起的子 VM 沿用父 VM 的句柄。wasm 宿主（`workload/wasm/platform`）持有一个
+  页级 `MemoryFs`，`mountFile` / `mountAsset` 写进去，再交给它创建的每台 VM。
+- **隔离**：两台 VM 拿两个 `MemoryFs` 就互不可见（`vm_context_tests` 的
+  `two_vms_with_separate_memory_fs_do_not_see_each_others_files`）；共享同一个 `Arc` 才共享文件。
+- **能力而非类型判断**：需要「真文件系统」性质的调用方问 `local_path`——.NET 的
+  FileNotFound / DirectoryNotFound 区分要看父目录是否存在（虚拟文件系统没有真目录，一律按存在算）；
+  `namespace_index` 按 (size, mtime) 记忆 NSPC 只在本地文件系统上做（`MemoryFs` 的 mtime 恒为 0）。
+- **不走 VFS 的**：FileStream 句柄、临时文件 / 目录、硬链接 / 符号链接、权限位、`Stdio.ToFile`——它们是
+  OS 操作，直接用标准库的文件 API / 下面的 OS 调用。
+
+VFS 之外的 OS 调用承接 `corelib/fs.rs` 的 2 个 `#[cfg(unix)]` 块（`make_executable` / `symlink`）：
 
 ```rust
 // pal/fs.rs

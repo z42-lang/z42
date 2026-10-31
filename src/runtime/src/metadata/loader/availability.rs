@@ -65,8 +65,10 @@ impl AvailabilityStats {
 
 /// 加载期折叠 + 剪枝。返回统计供测试与 trace 断言。
 ///
-/// `declared` 是「声明了但尚未加载」的候选 zpkg（与 lazy loader 用的是同一份）。
+/// `declared` 是「声明了但尚未加载」的候选 zpkg（与 lazy loader 用的是同一份）；probe 从 `fs`
+/// （这台 VM 的文件系统）读它们。
 pub fn fold_availability(
+    fs: &dyn crate::pal::fs::Vfs,
     module: &mut Module,
     declared: &[(String, ZpkgCandidate)],
 ) -> AvailabilityStats {
@@ -81,7 +83,7 @@ pub fn fold_availability(
     let mut cache: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
 
     for fi in 0..module.functions.len() {
-        let folded_here = fold_probes_in_function(module, fi, declared, &mut cache, &mut stats);
+        let folded_here = fold_probes_in_function(fs, module, fi, declared, &mut cache, &mut stats);
         if folded_here == 0 {
             continue;
         }
@@ -116,6 +118,7 @@ fn module_has_probe(module: &Module) -> bool {
 /// （编译器发射时紧邻产出，见 `TypeOpEmitter._emitSymAvailable`）。这里做块内单赋值扫描，
 /// 与编译器侧 `IrDeadBranch._foldBranches` 收集 `ConstBoolInstr` 的手法同形。
 fn fold_probes_in_function(
+    fs: &dyn crate::pal::fs::Vfs,
     module: &mut Module,
     fi: usize,
     declared: &[(String, ZpkgCandidate)],
@@ -148,7 +151,7 @@ fn fold_probes_in_function(
                     let val = match cache.get(&key) {
                         Some(&v) => v,
                         None => {
-                            let v = resolve_key(module, &key, declared);
+                            let v = resolve_key(fs, module, &key, declared);
                             cache.insert(key.clone(), v);
                             v
                         }
@@ -170,14 +173,14 @@ fn fold_probes_in_function(
 }
 
 /// 判定一个 key 是否可解析。
-fn resolve_key(module: &Module, key: &str, declared: &[(String, ZpkgCandidate)]) -> bool {
+fn resolve_key(fs: &dyn crate::pal::fs::Vfs, module: &Module, key: &str, declared: &[(String, ZpkgCandidate)]) -> bool {
     if let Some(fq) = key.strip_prefix(KEY_METHOD) {
         if module.func_index.contains_key(fq) { return true; }
-        return probe_declared(declared, fq, ProbeKind::Method);
+        return probe_declared(fs, declared, fq, ProbeKind::Method);
     }
     if let Some(fq) = key.strip_prefix(KEY_TYPE) {
         if module.type_registry.contains_key(fq) { return true; }
-        return probe_declared(declared, fq, ProbeKind::Type);
+        return probe_declared(fs, declared, fq, ProbeKind::Type);
     }
     // 未知前缀 = 编译器与 VM 失配。保守当作「不可用」并留痕，而不是静默 true——
     // true 会让代码走进一条它以为存在的分支，错得更远。
@@ -192,7 +195,7 @@ enum ProbeKind { Method, Type }
 ///
 /// **只加载认领了该 namespace 的那些文件**，不做全量加载。probe 是只读的：加载出来的
 /// artifact 用完即弃，不并入运行模块——回答存在性不需要副作用。
-fn probe_declared(declared: &[(String, ZpkgCandidate)], fq: &str, kind: ProbeKind) -> bool {
+fn probe_declared(fs: &dyn crate::pal::fs::Vfs, declared: &[(String, ZpkgCandidate)], fq: &str, kind: ProbeKind) -> bool {
     let Some(ns) = namespace_of(fq) else { return false };
 
     // 稳定序 + 去重：候选来自文件系统枚举，顺序不确定（加载顺序确定性规则）。probe 只回答
@@ -208,7 +211,7 @@ fn probe_declared(declared: &[(String, ZpkgCandidate)], fq: &str, kind: ProbeKin
     for cand in files {
         if !seen.insert(cand.file_path.as_path()) { continue; }
         let path = cand.file_path.to_string_lossy().into_owned();
-        let Ok(art) = crate::metadata::load_artifact(&path) else {
+        let Ok(art) = crate::metadata::load_artifact(fs, &path) else {
             // probe 失败不是错误：文件可能损坏/版本不符，此时「不可用」正是我们要的答案。
             tracing::debug!("available!: probe of `{path}` failed; treating as unavailable");
             continue;

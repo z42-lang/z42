@@ -154,11 +154,11 @@ OS-neutral 函数。
   `__env_get` / `__env_set` / `__env_unset` / `__env_vars` / `__env_args` /
   `__env_get_cwd` / `__env_set_cwd` 实现与注册都在 `corelib/fs.rs` 的 `typed` 模块
   （经 `builtin_table.rs` 的 TYPED 登记）。
-- **文件系统**：`corelib/fs.rs` 的路径型 builtin 一律走
-  `corelib/fs_backend::active()`，两个实现——`native`（`std::fs`）与 `memory`（`path → bytes`
-  的内存 VFS，宿主挂载 zpkg）。默认按 `cfg(target_arch)` 选（wasm → Memory），`set_backend`
-  可在运行期切，所以「VFS 与磁盘行为一致」这类测试能在 native 上跑。加 WASI / 移动端后端 =
-  多一个模块 + 多一组 match 分支，builtin 本身不动。
+- **文件系统**：`corelib/fs.rs` 的路径型 builtin 一律走**本 VM 的** `Vfs` 句柄（`VmContext::vfs`，
+  trait 在 `pal/fs.rs`），两个实现在 `pal/vfs/`——`LocalFs`（`std::fs`）与 `MemoryFs`（`path → bytes`
+  的内存 VFS，宿主挂载 zpkg）。句柄由创建 VM 的一方给（`VmContext::with_vfs` / `RunOpts::vfs` /
+  `HostConfig::vfs`），不给就按 `pal::fs::HAS_FS` 取默认（wasm → 新的 `MemoryFs`）；同一进程里两台
+  VM 各用各的，互不可见。加 WASI / 移动端后端 = `pal/vfs/` 多一个 `Vfs` 实现，builtin 本身不动。
 
 ## 8. 加一个 OS / 加一个能力
 

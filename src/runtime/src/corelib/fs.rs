@@ -1,8 +1,9 @@
 //! File system / environment / clock builtins (builtin ABI v2 — the `typed` module).
 //!
-//! - **Path-based file ops are platform-agnostic** (add-wasm-vfs-backend): they only
-//!   call `active().X`; platform differences (native `std::fs` / the wasm in-memory VFS)
-//!   live in `fs_backend/{native,memory}.rs`, which return `std::io::Error`.
+//! - **Path-based file ops go through the VM's file system** (`ctx.vfs()`, a
+//!   [`pal::fs::Vfs`](crate::pal::fs::Vfs)): `LocalFs` on disk, `MemoryFs` on wasm or
+//!   wherever the VM's creator chose one. They return `std::io::Error`. FileStream handles,
+//!   temp files, links and permission bits are OS operations and stay on `std::fs` / `pal::fs`.
 //! - **Errors are .NET's** ([`fs_error`]): a missing file → `FileNotFoundException`, a
 //!   missing directory (or a missing part of the path) → `DirectoryNotFoundException`,
 //!   permission denied / a directory where a file is expected → `UnauthorizedAccessException`,
@@ -25,8 +26,9 @@
 //!
 //! [`Blocking`]: crate::corelib::abi::Blocking
 
-use crate::corelib::abi::BuiltinError;
-use crate::corelib::fs_backend::{active, FsBackend};
+use crate::corelib::abi::{Blocking, BuiltinError};
+use crate::pal::fs::Vfs;
+use crate::vm_context::VmContext;
 use std::io::ErrorKind;
 use std::sync::Arc;
 
@@ -41,7 +43,15 @@ pub(crate) enum PathRole {
     Dir,
 }
 
-/// Map an OS error on `path` to the exception .NET throws for it (`Interop.GetExceptionForIoErrno`).
+/// Map an error on the OS path `path` to the exception .NET throws for it — [`vfs_error`]
+/// on the OS file system, for the operations that bypass the VM's VFS (FileStream, temp
+/// files, links, `Stdio.ToFile`).
+pub(crate) fn fs_error(e: std::io::Error, path: &str, role: PathRole) -> BuiltinError {
+    vfs_error(&crate::pal::vfs::LocalFs, e, path, role)
+}
+
+/// Map an error on `path` in the file system `fs` to the exception .NET throws for it
+/// (`Interop.GetExceptionForIoErrno`).
 ///
 /// | `io::ErrorKind` | exception | message |
 /// |---|---|---|
@@ -53,10 +63,10 @@ pub(crate) enum PathRole {
 /// | `InvalidInput` (a NUL in the path …) | `ArgumentException` | the OS message |
 /// | `Unsupported` (wasm: no such OS facility) | `NotSupportedException` | the OS message |
 /// | anything else | `IOException` | `<OS message> : '<path>'` |
-pub(crate) fn fs_error(e: std::io::Error, path: &str, role: PathRole) -> BuiltinError {
+pub(crate) fn vfs_error(fs: &dyn Vfs, e: std::io::Error, path: &str, role: PathRole) -> BuiltinError {
     match e.kind() {
         ErrorKind::NotFound => {
-            if role == PathRole::File && parent_exists(path) {
+            if role == PathRole::File && parent_exists(fs, path) {
                 BuiltinError::FileNotFound(format!("Could not find file '{path}'."))
             } else {
                 BuiltinError::DirectoryNotFound(format!("Could not find a part of the path '{path}'."))
@@ -79,12 +89,12 @@ fn denied(path: &str) -> BuiltinError {
 
 
 /// Whether `path`'s directory exists — a missing file in an existing directory is
-/// `FileNotFound`, a missing directory `DirectoryNotFound` (.NET's distinction). The VFS
-/// has no real directories: always "exists" there.
-fn parent_exists(path: &str) -> bool {
-    match active() {
-        FsBackend::Memory => true,
-        FsBackend::Native => match std::path::Path::new(path).parent() {
+/// `FileNotFound`, a missing directory `DirectoryNotFound` (.NET's distinction). A virtual
+/// file system (no [`Vfs::local_path`]) has no real directories: always "exists" there.
+fn parent_exists(fs: &dyn Vfs, path: &str) -> bool {
+    match fs.local_path(path) {
+        None => true,
+        Some(local) => match local.parent() {
             None => true,
             Some(p) if p.as_os_str().is_empty() => true,
             Some(p) => p.is_dir(),
@@ -104,57 +114,38 @@ fn check_path(path: &str, param: &str) -> Result<(), BuiltinError> {
 /// A two-path op (copy / move / link) failed: blame the source when it is missing,
 /// otherwise the destination (.NET `File.Copy`: missing source → `FileNotFoundException`,
 /// missing destination directory → `DirectoryNotFoundException`).
-fn two_path_error(e: std::io::Error, src: &str, dst: &str) -> BuiltinError {
-    if active().exists(src) { fs_error(e, dst, PathRole::Create) } else { fs_error(e, src, PathRole::File) }
+fn two_path_error(fs: &dyn Vfs, e: std::io::Error, src: &str, dst: &str) -> BuiltinError {
+    if fs.exists(src) { vfs_error(fs, e, dst, PathRole::Create) } else { vfs_error(fs, e, src, PathRole::File) }
 }
 
-/// Depth-first listing relative to `root`, backend-agnostic (`active().read_dir` +
-/// `is_dir`). `rel` = the current directory relative to `root` (`""` = root itself).
-fn walk_dir(root: &str, rel: &str, out: &mut Vec<String>) -> Result<(), BuiltinError> {
+/// Run `op` on the VM's file system with the context parked: the `Arc` is taken out
+/// before parking, `op` sees only the `Vfs` and plain data.
+fn on_vfs<R: Send + 'static>(
+    ctx: &VmContext,
+    op: impl FnOnce(&dyn Vfs) -> Result<R, BuiltinError> + Send + 'static,
+) -> Blocking<R> {
+    let fs = Arc::clone(ctx.vfs());
+    Blocking::new(move || op(&*fs))
+}
+
+/// Depth-first listing relative to `root` on `fs` (`read_dir` + `is_dir`). `rel` = the
+/// current directory relative to `root` (`""` = root itself).
+fn walk_dir(fs: &dyn Vfs, root: &str, rel: &str, out: &mut Vec<String>) -> Result<(), BuiltinError> {
     let cur = if rel.is_empty() {
         root.trim_end_matches('/').to_string()
     } else {
         format!("{}/{}", root.trim_end_matches('/'), rel)
     };
-    let names = active().read_dir(&cur).map_err(|e| fs_error(e, &cur, PathRole::Dir))?;
+    let names = fs.read_dir(&cur).map_err(|e| vfs_error(fs, e, &cur, PathRole::Dir))?;
     for name in names {
         let child_rel = if rel.is_empty() { name.clone() } else { format!("{rel}/{name}") };
         out.push(child_rel.clone());
         let child_path = format!("{cur}/{name}");
-        if active().is_dir(&child_path) {
-            walk_dir(root, &child_rel, out)?;
+        if fs.is_dir(&child_path) {
+            walk_dir(fs, root, &child_rel, out)?;
         }
     }
     Ok(())
-}
-
-/// `*` / `?` glob matcher — recursion-free, backtracking via two cursors
-/// (same idea as the classic K&R wildcard match).
-pub(crate) fn glob_match(pattern: &str, text: &str) -> bool {
-    let p: Vec<char> = pattern.chars().collect();
-    let t: Vec<char> = text.chars().collect();
-    let mut pi = 0usize;
-    let mut ti = 0usize;
-    let mut star_pi: Option<usize> = None;
-    let mut star_ti = 0usize;
-    while ti < t.len() {
-        if pi < p.len() && (p[pi] == '?' || p[pi] == t[ti]) {
-            pi += 1;
-            ti += 1;
-        } else if pi < p.len() && p[pi] == '*' {
-            star_pi = Some(pi);
-            star_ti = ti;
-            pi += 1;
-        } else if let Some(sp) = star_pi {
-            pi = sp + 1;
-            star_ti += 1;
-            ti = star_ti;
-        } else {
-            return false;
-        }
-    }
-    while pi < p.len() && p[pi] == '*' { pi += 1; }
-    pi == p.len()
 }
 
 fn unique_temp_path(prefix: &str, suffix: &str) -> String {
@@ -253,96 +244,99 @@ pub(crate) fn write_byte_range(arr: &crate::metadata::types::ArrayObj, off: usiz
 
 #[z42_macros::builtins]
 pub mod typed {
-    use super::{check_buffer_range, check_path, fs_error, open_file, two_path_error, FileHandleSlot, PathRole};
+    use super::{check_buffer_range, check_path, fs_error, on_vfs, open_file, two_path_error, vfs_error, FileHandleSlot, PathRole};
     use crate::corelib::abi::{Blocking, BuiltinError, Then};
-    use crate::corelib::fs_backend::active;
     use crate::metadata::Value;
     use crate::vm_context::VmContext;
     use std::io::{Read, Seek, SeekFrom, Write};
 
     // ── File (path-based) ─────────────────────────────────────────────────────
+    //
+    // Everything below that touches a path goes through the VM's file system (`on_vfs`
+    // runs it parked; the stat-only probes run unparked on `ctx.vfs()` directly).
 
-    #[builtin(name = "__file_read_text", blocking)]
-    pub fn file_read_text(path: String) -> Result<String, BuiltinError> {
+    #[builtin(name = "__file_read_text")]
+    pub fn file_read_text(ctx: &VmContext, path: String) -> Result<Blocking<String>, BuiltinError> {
         check_path(&path, "path")?;
-        active().read_to_string(&path).map_err(|e| fs_error(e, &path, PathRole::File))
+        Ok(on_vfs(ctx, move |fs| fs.read_to_string(&path).map_err(|e| vfs_error(fs, e, &path, PathRole::File))))
     }
 
-    #[builtin(name = "__file_write_text", blocking)]
-    pub fn file_write_text(path: String, contents: String) -> Result<(), BuiltinError> {
+    #[builtin(name = "__file_write_text")]
+    pub fn file_write_text(ctx: &VmContext, path: String, contents: String) -> Result<Blocking<()>, BuiltinError> {
         check_path(&path, "path")?;
-        active().write(&path, contents.as_bytes()).map_err(|e| fs_error(e, &path, PathRole::Create))
+        Ok(on_vfs(ctx, move |fs| fs.write(&path, contents.as_bytes()).map_err(|e| vfs_error(fs, e, &path, PathRole::Create))))
     }
 
-    #[builtin(name = "__file_append_text", blocking)]
-    pub fn file_append_text(path: String, contents: String) -> Result<(), BuiltinError> {
+    #[builtin(name = "__file_append_text")]
+    pub fn file_append_text(ctx: &VmContext, path: String, contents: String) -> Result<Blocking<()>, BuiltinError> {
         check_path(&path, "path")?;
-        active().append(&path, contents.as_bytes()).map_err(|e| fs_error(e, &path, PathRole::Create))
+        Ok(on_vfs(ctx, move |fs| fs.append(&path, contents.as_bytes()).map_err(|e| vfs_error(fs, e, &path, PathRole::Create))))
     }
 
     /// .NET `File.Exists`: false for a null / empty path, never throws.
     #[builtin(name = "__file_exists")]
-    pub fn file_exists(path: Option<&str>) -> bool {
-        path.is_some_and(|p| !p.is_empty() && active().exists(p))
+    pub fn file_exists(ctx: &VmContext, path: Option<&str>) -> bool {
+        path.is_some_and(|p| !p.is_empty() && ctx.vfs().exists(p))
     }
 
     /// Deleting a missing file throws `FileNotFoundException` (z42 keeps throwing where
     /// .NET's `File.Delete` is silent — a script that deletes the wrong path should hear
     /// about it); a missing directory `DirectoryNotFoundException` as in .NET.
-    #[builtin(name = "__file_delete", blocking)]
-    pub fn file_delete(path: String) -> Result<(), BuiltinError> {
+    #[builtin(name = "__file_delete")]
+    pub fn file_delete(ctx: &VmContext, path: String) -> Result<Blocking<()>, BuiltinError> {
         check_path(&path, "path")?;
-        active().remove_file(&path).map_err(|e| fs_error(e, &path, PathRole::File))
+        Ok(on_vfs(ctx, move |fs| fs.remove_file(&path).map_err(|e| vfs_error(fs, e, &path, PathRole::File))))
     }
 
     /// Overwrites an existing destination (z42 semantics; .NET's two-argument `Copy` refuses).
-    #[builtin(name = "__file_copy", blocking)]
-    pub fn file_copy(src: String, dst: String) -> Result<(), BuiltinError> {
+    #[builtin(name = "__file_copy")]
+    pub fn file_copy(ctx: &VmContext, src: String, dst: String) -> Result<Blocking<()>, BuiltinError> {
         check_path(&src, "src")?;
         check_path(&dst, "dst")?;
-        active().copy(&src, &dst).map_err(|e| two_path_error(e, &src, &dst))
+        Ok(on_vfs(ctx, move |fs| fs.copy(&src, &dst).map_err(|e| two_path_error(fs, e, &src, &dst))))
     }
 
-    #[builtin(name = "__file_move", blocking)]
-    pub fn file_move(src: String, dst: String) -> Result<(), BuiltinError> {
+    #[builtin(name = "__file_move")]
+    pub fn file_move(ctx: &VmContext, src: String, dst: String) -> Result<Blocking<()>, BuiltinError> {
         check_path(&src, "src")?;
         check_path(&dst, "dst")?;
-        active().rename(&src, &dst).map_err(|e| two_path_error(e, &src, &dst))
+        Ok(on_vfs(ctx, move |fs| fs.rename(&src, &dst).map_err(|e| two_path_error(fs, e, &src, &dst))))
     }
 
     /// add-file-last-write-time : mtime as unix epoch milliseconds (same unit as
     /// `__time_now_ms`; `File.GetLastWriteTime` wraps it into a `DateTime`).
     #[builtin(name = "__file_last_write_time_ms")]
-    pub fn file_last_write_time_ms(path: &str) -> Result<i64, BuiltinError> {
+    pub fn file_last_write_time_ms(ctx: &VmContext, path: &str) -> Result<i64, BuiltinError> {
         check_path(path, "path")?;
-        active().modified_ms(path).map_err(|e| fs_error(e, path, PathRole::File))
+        let fs = &**ctx.vfs();
+        fs.modified_ms(path).map_err(|e| vfs_error(fs, e, path, PathRole::File))
     }
 
     /// add-z42-io-ergonomics-bytes-glob : one-shot binary read → packed `byte[]`.
-    #[builtin(name = "__file_read_bytes", blocking)]
-    pub fn file_read_bytes(path: String) -> Result<Vec<u8>, BuiltinError> {
+    #[builtin(name = "__file_read_bytes")]
+    pub fn file_read_bytes(ctx: &VmContext, path: String) -> Result<Blocking<Vec<u8>>, BuiltinError> {
         check_path(&path, "path")?;
-        active().read(&path).map_err(|e| fs_error(e, &path, PathRole::File))
+        Ok(on_vfs(ctx, move |fs| fs.read(&path).map_err(|e| vfs_error(fs, e, &path, PathRole::File))))
     }
 
-    #[builtin(name = "__file_write_bytes", blocking)]
-    pub fn file_write_bytes(path: String, bytes: Vec<u8>) -> Result<(), BuiltinError> {
+    #[builtin(name = "__file_write_bytes")]
+    pub fn file_write_bytes(ctx: &VmContext, path: String, bytes: Vec<u8>) -> Result<Blocking<()>, BuiltinError> {
         check_path(&path, "path")?;
-        active().write(&path, &bytes).map_err(|e| fs_error(e, &path, PathRole::Create))
+        Ok(on_vfs(ctx, move |fs| fs.write(&path, &bytes).map_err(|e| vfs_error(fs, e, &path, PathRole::Create))))
     }
 
-    /// add-file-atomic-write : tmp sibling + ordered sync
+    /// add-file-atomic-write : on disk, tmp sibling + ordered sync
     /// (`F_BARRIERFSYNC` / `fdatasync`) + rename — the whole sequence runs parked.
-    #[builtin(name = "__file_write_text_atomic", blocking)]
-    pub fn file_write_text_atomic(path: String, contents: String) -> Result<(), BuiltinError> {
+    #[builtin(name = "__file_write_text_atomic")]
+    pub fn file_write_text_atomic(ctx: &VmContext, path: String, contents: String) -> Result<Blocking<()>, BuiltinError> {
         check_path(&path, "path")?;
-        active().write_atomic(&path, contents.as_bytes()).map_err(|e| fs_error(e, &path, PathRole::Create))
+        Ok(on_vfs(ctx, move |fs| fs.write_atomic(&path, contents.as_bytes()).map_err(|e| vfs_error(fs, e, &path, PathRole::Create))))
     }
 
-    #[builtin(name = "__file_write_bytes_atomic", blocking)]
-    pub fn file_write_bytes_atomic(path: String, bytes: Vec<u8>) -> Result<(), BuiltinError> {
+    #[builtin(name = "__file_write_bytes_atomic")]
+    pub fn file_write_bytes_atomic(ctx: &VmContext, path: String, bytes: Vec<u8>) -> Result<Blocking<()>, BuiltinError> {
         check_path(&path, "path")?;
-        active().write_atomic(&path, &bytes).map_err(|e| fs_error(e, &path, PathRole::Create))
+        Ok(on_vfs(ctx, move |fs| fs.write_atomic(&path, &bytes).map_err(|e| vfs_error(fs, e, &path, PathRole::Create))))
     }
 
     /// extend-z42-io-glob-temp : a unique directory under the system temp root.
@@ -374,7 +368,7 @@ pub mod typed {
     pub fn file_link(src: String, dst: String) -> Result<(), BuiltinError> {
         check_path(&src, "src")?;
         check_path(&dst, "dst")?;
-        std::fs::hard_link(&src, &dst).map_err(|e| two_path_error(e, &src, &dst))
+        std::fs::hard_link(&src, &dst).map_err(|e| two_path_error(&crate::pal::vfs::LocalFs, e, &src, &dst))
     }
 
     /// Symbolic link `dst → src` (the target need not exist).
@@ -387,56 +381,61 @@ pub mod typed {
 
     /// File size in bytes; a directory is `FileNotFoundException` (.NET `FileInfo.Length`).
     #[builtin(name = "__file_get_size")]
-    pub fn file_get_size(path: &str) -> Result<i64, BuiltinError> {
+    pub fn file_get_size(ctx: &VmContext, path: &str) -> Result<i64, BuiltinError> {
         check_path(path, "path")?;
-        active().file_len(path).map(|n| n as i64).map_err(|e| fs_error(e, path, PathRole::File))
+        let fs = &**ctx.vfs();
+        fs.file_len(path).map(|n| n as i64).map_err(|e| vfs_error(fs, e, path, PathRole::File))
     }
 
     /// Glob `dir/pattern` direct children (`*` / `?`; no `/` in the pattern) — sorted full paths.
-    #[builtin(name = "__path_glob", blocking)]
-    pub fn path_glob(dir: String, pattern: String) -> Result<Vec<String>, BuiltinError> {
-        active().glob(&dir, &pattern).map_err(|e| fs_error(e, &dir, PathRole::Dir))
+    #[builtin(name = "__path_glob")]
+    pub fn path_glob(ctx: &VmContext, dir: String, pattern: String) -> Blocking<Vec<String>> {
+        on_vfs(ctx, move |fs| fs.glob(&dir, &pattern).map_err(|e| vfs_error(fs, e, &dir, PathRole::Dir)))
     }
 
     // ── Directory ─────────────────────────────────────────────────────────────
 
     /// .NET `Directory.Exists`: false for a null / empty path, never throws.
     #[builtin(name = "__dir_exists")]
-    pub fn dir_exists(path: Option<&str>) -> bool {
-        path.is_some_and(|p| !p.is_empty() && active().is_dir(p))
+    pub fn dir_exists(ctx: &VmContext, path: Option<&str>) -> bool {
+        path.is_some_and(|p| !p.is_empty() && ctx.vfs().is_dir(p))
     }
 
     /// `mkdir -p`; an existing file at `path` is `IOException` (.NET `CreateDirectory`).
-    #[builtin(name = "__dir_create", blocking)]
-    pub fn dir_create(path: String) -> Result<(), BuiltinError> {
+    #[builtin(name = "__dir_create")]
+    pub fn dir_create(ctx: &VmContext, path: String) -> Result<Blocking<()>, BuiltinError> {
         check_path(&path, "path")?;
-        active().create_dir_all(&path).map_err(|e| fs_error(e, &path, PathRole::Create))
+        Ok(on_vfs(ctx, move |fs| fs.create_dir_all(&path).map_err(|e| vfs_error(fs, e, &path, PathRole::Create))))
     }
 
     /// Missing → `DirectoryNotFoundException`; not empty (non-recursive) → `IOException`.
-    #[builtin(name = "__dir_delete", blocking)]
-    pub fn dir_delete(path: String, recursive: bool) -> Result<(), BuiltinError> {
+    #[builtin(name = "__dir_delete")]
+    pub fn dir_delete(ctx: &VmContext, path: String, recursive: bool) -> Result<Blocking<()>, BuiltinError> {
         check_path(&path, "path")?;
-        active().remove_dir(&path, recursive).map_err(|e| fs_error(e, &path, PathRole::Dir))
+        Ok(on_vfs(ctx, move |fs| fs.remove_dir(&path, recursive).map_err(|e| vfs_error(fs, e, &path, PathRole::Dir))))
     }
 
     /// Direct children (basenames), sorted.
-    #[builtin(name = "__dir_enumerate", blocking)]
-    pub fn dir_enumerate(path: String) -> Result<Vec<String>, BuiltinError> {
+    #[builtin(name = "__dir_enumerate")]
+    pub fn dir_enumerate(ctx: &VmContext, path: String) -> Result<Blocking<Vec<String>>, BuiltinError> {
         check_path(&path, "path")?;
-        let mut names = active().read_dir(&path).map_err(|e| fs_error(e, &path, PathRole::Dir))?;
-        names.sort();
-        Ok(names)
+        Ok(on_vfs(ctx, move |fs| {
+            let mut names = fs.read_dir(&path).map_err(|e| vfs_error(fs, e, &path, PathRole::Dir))?;
+            names.sort();
+            Ok(names)
+        }))
     }
 
     /// Every descendant, as paths relative to `path`, sorted.
-    #[builtin(name = "__dir_enumerate_recursive", blocking)]
-    pub fn dir_enumerate_recursive(path: String) -> Result<Vec<String>, BuiltinError> {
+    #[builtin(name = "__dir_enumerate_recursive")]
+    pub fn dir_enumerate_recursive(ctx: &VmContext, path: String) -> Result<Blocking<Vec<String>>, BuiltinError> {
         check_path(&path, "path")?;
-        let mut out = Vec::new();
-        super::walk_dir(&path, "", &mut out)?;
-        out.sort();
-        Ok(out)
+        Ok(on_vfs(ctx, move |fs| {
+            let mut out = Vec::new();
+            super::walk_dir(fs, &path, "", &mut out)?;
+            out.sort();
+            Ok(out)
+        }))
     }
 
     // ── FileStream handles ────────────────────────────────────────────────────

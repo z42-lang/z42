@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
-use crate::corelib::fs_backend;
+use crate::pal::fs::Vfs;
 use super::formats::{ZBC_MAGIC, ZPKG_MAGIC};
 use super::zbc_reader::read_zpkg_meta;
 
@@ -36,16 +36,14 @@ pub struct ZpkgCandidate {
 }
 
 impl ZpkgCandidate {
-    /// Build a candidate by reading the zpkg metadata from disk.
-    ///
-    /// add-wasm-testhost (G6): reads via the platform fs backend so a wasm host
-    /// that mounts stdlib zpkgs into the in-memory VFS resolves declared
-    /// candidates too. Byte-identical to `std::fs` on native.
-    pub fn build(libs_dir: &Path, file_name: &str) -> Result<Self> {
+    /// Build a candidate by reading the zpkg metadata from `fs` (the VM's file system,
+    /// so a wasm host that mounts stdlib zpkgs into a `MemoryFs` resolves declared
+    /// candidates too).
+    pub fn build(fs: &dyn Vfs, libs_dir: &Path, file_name: &str) -> Result<Self> {
         let file_path = libs_dir.join(file_name);
         let path_str = file_path.to_str()
             .ok_or_else(|| anyhow::anyhow!("non-UTF8 zpkg path `{}`", file_path.display()))?;
-        let data = fs_backend::active().read(path_str)?;
+        let data = fs.read(path_str)?;
         let meta = read_zpkg_meta(&data)?;
         Ok(Self {
             file_path,
@@ -59,11 +57,11 @@ impl ZpkgCandidate {
     /// apphost whose payload + its deps live together (e.g.
     /// `programs/z42c/z42c.driver.zpkg` next to `z42c.core.zpkg`) resolves
     /// those siblings even though they aren't in the stdlib `libs/` dir.
-    pub fn build_in_dirs(dirs: &[PathBuf], file_name: &str) -> Result<Self> {
+    pub fn build_in_dirs(fs: &dyn Vfs, dirs: &[PathBuf], file_name: &str) -> Result<Self> {
         for dir in dirs {
             let file_path = dir.join(file_name);
-            if backend_is_file(&file_path) {
-                return Self::build(dir, file_name);
+            if is_file(fs, &file_path) {
+                return Self::build(fs, dir, file_name);
             }
         }
         anyhow::bail!(
@@ -76,15 +74,11 @@ impl ZpkgCandidate {
     }
 }
 
-// add-wasm-testhost (G6): `is_file` semantics via the platform fs backend —
-// exists && !is_dir. Native delegates to std::fs (byte-identical); on wasm a
-// mounted zpkg exists in the VFS and is not a directory.
-fn backend_is_file(path: &Path) -> bool {
+// `Path::is_file` on `fs`: exists && !is_dir (a mounted zpkg exists in a `MemoryFs` and is
+// not a directory).
+fn is_file(fs: &dyn Vfs, path: &Path) -> bool {
     match path.to_str() {
-        Some(s) => {
-            let b = fs_backend::active();
-            b.exists(s) && !b.is_dir(s)
-        }
+        Some(s) => fs.exists(s) && !fs.is_dir(s),
         None => false,
     }
 }
@@ -96,18 +90,17 @@ fn backend_is_file(path: &Path) -> bool {
 /// (exact for `resolve_namespace`, prefix for `candidates_for_namespace`) and
 /// keeps or drops the result. Filenames within a dir are sorted first
 /// (load-order determinism rule) so the output order is deterministic.
-pub fn scan_zpkg_candidates(dirs: &[PathBuf]) -> Vec<ZpkgCandidate> {
-    let backend = fs_backend::active();
+pub fn scan_zpkg_candidates(fs: &dyn Vfs, dirs: &[PathBuf]) -> Vec<ZpkgCandidate> {
     let mut out = Vec::new();
     for dir in dirs {
         let dir_str = match dir.to_str() { Some(s) => s, None => continue };
-        let mut names = match backend.read_dir(dir_str) { Ok(e) => e, Err(_) => continue };
+        let mut names = match fs.read_dir(dir_str) { Ok(e) => e, Err(_) => continue };
         names.sort();
         for name in names {
             let path = dir.join(&name);
             if path.extension().and_then(|e| e.to_str()) != Some("zpkg") { continue; }
             let path_str = match path.to_str() { Some(s) => s, None => continue };
-            let namespaces = match cached_zpkg_namespaces(path_str) { Some(v) => v, None => continue };
+            let namespaces = match cached_zpkg_namespaces(fs, path_str) { Some(v) => v, None => continue };
             out.push(ZpkgCandidate { file_path: path, namespaces });
         }
     }
@@ -125,24 +118,21 @@ pub fn scan_zpkg_candidates(dirs: &[PathBuf]) -> Vec<ZpkgCandidate> {
 /// **必须带 (size, mtime) 守卫**：REPL / z42b 会在运行中往 libs 目录写入新编译的 zpkg，
 /// 纯 path 键的缓存会读到旧导出面 —— `DepScanCache` 正是这么踩过一次
 /// （见 `GeneratorLoader.z42` 的注释）。守卫后重复扫描退化为 readdir + 每文件一次 stat。
-fn cached_zpkg_namespaces(path_str: &str) -> Option<Vec<String>> {
+fn cached_zpkg_namespaces(fs: &dyn Vfs, path_str: &str) -> Option<Vec<String>> {
     use std::sync::OnceLock;
     type Memo = parking_lot::Mutex<std::collections::HashMap<String, (u64, i64, Vec<String>)>>;
     static MEMO: OnceLock<Memo> = OnceLock::new();
 
-    let backend = fs_backend::active();
-    // **只在有真实 mtime 的后端上缓存**。内存后端（wasm host 把 stdlib zpkg 挂进 VFS）
-    // 的 `modified_ms` 恒返回 0——它的本意是「按最旧处理 ⇒ 缓存一律视为过期」，
-    // 但等值守卫会把它变成「永远命中」，正好相反。所以这里按后端种类显式放行：
-    // 新增后端时这个 match 会编译报错，逼着做同样的判断。
-    let stamp = match backend {
-        fs_backend::FsBackend::Native => {
-            match (backend.file_len(path_str), backend.modified_ms(path_str)) {
-                (Ok(len), Ok(ms)) => Some((len, ms)),
-                _ => None,   // stat 失败 → 退回「每次读+解析」，不缓存
-            }
-        }
-        fs_backend::FsBackend::Memory => None,
+    // **只在本地文件系统上缓存**（`Vfs::local_path` 为 Some）。内存 VFS（wasm host 把 stdlib
+    // zpkg 挂进去）的 `modified_ms` 恒返回 0——它的本意是「按最旧处理 ⇒ 缓存一律视为过期」，
+    // 但等值守卫会把它变成「永远命中」，正好相反。备忘录按路径键、进程共享，也只有本地
+    // 文件系统上「同一路径 = 同一文件」对所有 VM 成立；内存 VFS 是每 VM 各一份。
+    let stamp = match fs.local_path(path_str) {
+        Some(_) => match (fs.file_len(path_str), fs.modified_ms(path_str)) {
+            (Ok(len), Ok(ms)) => Some((len, ms)),
+            _ => None,   // stat 失败 → 退回「每次读+解析」，不缓存
+        },
+        None => None,
     };
     if let Some((len, ms)) = stamp {
         let memo = MEMO.get_or_init(Default::default);
@@ -153,7 +143,7 @@ fn cached_zpkg_namespaces(path_str: &str) -> Option<Vec<String>> {
         }
     }
 
-    let data = backend.read(path_str).ok()?;
+    let data = fs.read(path_str).ok()?;
     if data.len() < 4 || &data[0..4] != ZPKG_MAGIC { return None; }
     // Passed the zpkg magic but the NSPC parse failed — a corrupt / incompatible
     // package. Warn rather than let it vanish from the candidate set (see the

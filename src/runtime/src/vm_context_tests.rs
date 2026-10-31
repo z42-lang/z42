@@ -154,6 +154,84 @@ fn lazy_loader_two_contexts_independent() {
     assert_eq!(ctx2.declared_namespaces(), Vec::<String>::new());
 }
 
+// ── per-VM file system ───────────────────────────────────
+
+fn vfs_call(ctx: &VmContext, name: &str, args: &[&str]) -> anyhow::Result<Value> {
+    let args: Vec<Value> = args.iter().map(|s| Value::Str((*s).into())).collect();
+    crate::corelib::exec_builtin_value(ctx, name, &args)
+}
+
+fn vfs_do(ctx: &VmContext, name: &str, args: &[&str]) {
+    let args: Vec<Value> = args.iter().map(|s| Value::Str((*s).into())).collect();
+    crate::corelib::exec_builtin(ctx, name, &args).unwrap();
+}
+
+fn memory_vm() -> (std::sync::Arc<crate::pal::vfs::MemoryFs>, std::pin::Pin<Box<VmContext>>) {
+    let fs = std::sync::Arc::new(crate::pal::vfs::MemoryFs::new());
+    let ctx = VmContext::with_vfs(fs.clone());
+    (fs, ctx)
+}
+
+#[test]
+fn two_vms_with_separate_memory_fs_do_not_see_each_others_files() {
+    use crate::pal::fs::Vfs;
+    let (fs_a, a) = memory_vm();
+    let (fs_b, b) = memory_vm();
+    fs_a.mount("/libs/only-a.txt", b"mounted".to_vec());
+    vfs_do(&a, "__file_write_text", &["/out/a.txt", "written"]);
+
+    assert_eq!(vfs_call(&a, "__file_exists", &["/libs/only-a.txt"]).unwrap(), Value::Bool(true));
+    assert_eq!(vfs_call(&a, "__dir_exists", &["/libs"]).unwrap(), Value::Bool(true));
+    assert!(matches!(vfs_call(&a, "__file_read_text", &["/out/a.txt"]).unwrap(), Value::Str(s) if s.as_ref() == "written"));
+
+    assert_eq!(vfs_call(&b, "__file_exists", &["/libs/only-a.txt"]).unwrap(), Value::Bool(false));
+    assert_eq!(vfs_call(&b, "__file_exists", &["/out/a.txt"]).unwrap(), Value::Bool(false));
+    assert_eq!(vfs_call(&b, "__dir_exists", &["/libs"]).unwrap(), Value::Bool(false));
+    assert!(vfs_call(&b, "__file_read_text", &["/out/a.txt"]).is_err());
+    assert!(!fs_b.exists("/out/a.txt"), "a write in VM a never reaches VM b's store");
+    assert!(fs_a.exists("/out/a.txt"));
+
+    vfs_do(&b, "__file_write_text", &["/out/a.txt", "b's own"]);
+    assert!(matches!(vfs_call(&a, "__file_read_text", &["/out/a.txt"]).unwrap(), Value::Str(s) if s.as_ref() == "written"));
+}
+
+#[test]
+fn threads_of_one_vm_share_the_same_file_system() {
+    let (_fs, parent) = memory_vm();
+    let worker = VmContext::new_with_core(std::sync::Arc::clone(&parent.core));
+    assert!(std::sync::Arc::ptr_eq(parent.vfs(), worker.vfs()));
+    vfs_do(&worker, "__file_write_text", &["/shared.txt", "worker"]);
+    assert!(matches!(vfs_call(&parent, "__file_read_text", &["/shared.txt"]).unwrap(),
+        Value::Str(s) if s.as_ref() == "worker"));
+}
+
+#[test]
+fn lazy_loader_reads_packages_through_its_vms_file_system() {
+    let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../compiler/z42.package/tests/fixtures/zpkg-format/packed-minimal/source.zpkg");
+    let (fs_a, a) = memory_vm();
+    let (_fs_b, b) = memory_vm();
+    fs_a.mount("/pkgs/m.zpkg", std::fs::read(&fixture).expect("fixture zpkg"));
+    a.install_lazy_loader(None, 0);
+    b.install_lazy_loader(None, 0);
+    let load = |ctx: &VmContext| ctx.core.lazy_loader.write().as_mut().map(|l| l.load_module_from_path("/pkgs/m.zpkg"));
+    assert!(matches!(load(&a), Some(Ok(()))), "VM a loads the package mounted in its file system");
+    assert!(matches!(load(&b), Some(Err(_))), "VM b's file system has no such package");
+}
+
+#[test]
+fn a_local_fs_vm_sees_the_disk_and_a_memory_vm_does_not() {
+    let path = std::env::temp_dir().join(format!("z42-vm-vfs-{}-{:?}.txt", std::process::id(), std::thread::current().id()));
+    std::fs::write(&path, b"on disk").unwrap();
+    let p = path.to_str().unwrap();
+    let local = VmContext::new();
+    let (_fs, mem) = memory_vm();
+    assert!(local.vfs().local_path(p).is_some() == crate::pal::fs::HAS_FS);
+    assert!(matches!(vfs_call(&local, "__file_read_text", &[p]).unwrap(), Value::Str(s) if s.as_ref() == "on disk"));
+    assert_eq!(vfs_call(&mem, "__file_exists", &[p]).unwrap(), Value::Bool(false));
+    let _ = std::fs::remove_file(&path);
+}
+
 // ── add-vmcontext-registry  ───────────────────────────────────────
 
 #[test]

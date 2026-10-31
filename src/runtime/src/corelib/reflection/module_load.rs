@@ -85,6 +85,9 @@ pub fn run_goldens_isolated(
     let jobs = jobs;
     let libs = if libs_dir.is_empty() { None } else { Some(std::path::PathBuf::from(libs_dir)) };
     let n = paths.len();
+    // The child VMs run on this VM's file system: on wasm the goldens and their libs are
+    // mounted in it, not on any disk.
+    let vfs = std::sync::Arc::clone(ctx.vfs());
 
     // Effective worker count: jobs<=0 → cores, capped at n.
     let workers = if jobs <= 0 {
@@ -98,7 +101,7 @@ pub fn run_goldens_isolated(
         (0..n)
             .map(|i| {
                 let entry = entries.get(i).map(|s| s.as_str()).filter(|s| !s.is_empty());
-                run_one_golden_isolated(&paths[i], entry, libs.clone())
+                run_one_golden_isolated(&paths[i], entry, libs.clone(), &vfs)
             })
             .collect()
     } else {
@@ -119,13 +122,14 @@ pub fn run_goldens_isolated(
             let paths = paths.clone();
             let entries = entries.clone();
             let libs = libs.clone();
+            let vfs = vfs.clone();
             handles.push(std::thread::spawn(move || loop {
                 let i = next.fetch_add(1, Ordering::Relaxed);
                 if i >= paths.len() {
                     break;
                 }
                 let entry = entries.get(i).map(|s| s.as_str()).filter(|s| !s.is_empty());
-                let cap = run_one_golden_isolated(&paths[i], entry, (*libs).clone());
+                let cap = run_one_golden_isolated(&paths[i], entry, (*libs).clone(), &vfs);
                 *slots[i].lock().unwrap() = cap;
             }));
         }
@@ -171,7 +175,12 @@ pub(super) fn read_str_vec(v: Option<&Value>, what: &str) -> Result<Vec<String>>
 
 /// Run one golden in a fresh isolated VM (interp), returning its captured stdout.
 /// Never propagates — a run error is folded into the returned string as a marker.
-pub(super) fn run_one_golden_isolated(path: &str, entry: Option<&str>, libs: Option<std::path::PathBuf>) -> String {
+pub(super) fn run_one_golden_isolated(
+    path: &str,
+    entry: Option<&str>,
+    libs: Option<std::path::PathBuf>,
+    vfs: &std::sync::Arc<dyn crate::pal::fs::Vfs>,
+) -> String {
     crate::corelib::io::push_stdout_sink();
     let opts = crate::app::RunOpts {
         mode: crate::metadata::ExecMode::Interp,
@@ -180,6 +189,7 @@ pub(super) fn run_one_golden_isolated(path: &str, entry: Option<&str>, libs: Opt
         print_stats: false,
         stats_json: false,
         exit_after_run: false,
+        vfs: Some(std::sync::Arc::clone(vfs)),
     };
     let res = crate::app::run(path, entry, opts);
     let captured = crate::corelib::io::take_stdout_sink();

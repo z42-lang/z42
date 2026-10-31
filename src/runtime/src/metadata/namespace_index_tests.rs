@@ -31,7 +31,7 @@ fn scan_skips_non_zpkg_and_bad_magic() {
     write_file(&dir, "notes.txt", b"hello");
     write_file(&dir, "bad.zpkg", b"XXXXrest");
     write_file(&dir, "short.zpkg", b"ZP");
-    let got = scan_zpkg_candidates(&[dir.clone()]);
+    let got = scan_zpkg_candidates(&crate::pal::vfs::LocalFs, &[dir.clone()]);
     // None are valid zpkgs → no candidates, and crucially no panic on short/bad.
     assert!(got.is_empty(), "expected no candidates, got {got:?}");
     let _ = std::fs::remove_dir_all(&dir);
@@ -55,7 +55,7 @@ fn scan_within_dir_is_sorted_deterministic() {
     write_file(&dir, "z_last.zpkg", b"XXXXbody");
     write_file(&dir, "a_first.zpkg", b"XXXXbody");
     // Bad magic → skipped; the point is no panic and stable (empty) output.
-    let got = scan_zpkg_candidates(&[dir.clone()]);
+    let got = scan_zpkg_candidates(&crate::pal::vfs::LocalFs, &[dir.clone()]);
     assert!(got.is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }

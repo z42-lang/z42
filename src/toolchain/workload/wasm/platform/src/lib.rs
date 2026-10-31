@@ -12,9 +12,11 @@
 //! marshaling. Async, multi-instance, string marshaling tracked in
 //! embedding.md §12 Deferred.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use wasm_bindgen::prelude::*;
+use z42::pal::fs::Vfs;
+use z42::pal::vfs::MemoryFs;
 
 use z42_host::{ExecMode, Host, HostConfig, Value};
 
@@ -48,6 +50,19 @@ pub fn _init_panic_hook() {
     std::panic::set_hook(Box::new(|info| {
         console_error(&format!("z42 wasm panic: {info}"));
     }));
+}
+
+/// The in-memory file system of this page: `mountFile` / `mountAsset` write into it,
+/// `readAsset` reads from it, and every VM this crate creates (`Z42VM`, `runTestApp`) is
+/// handed it at construction. Host-level state — the runtime itself has no process-wide
+/// file system; a VM sees exactly the VFS its creator passes.
+fn page_vfs() -> &'static Arc<MemoryFs> {
+    static VFS: OnceLock<Arc<MemoryFs>> = OnceLock::new();
+    VFS.get_or_init(|| Arc::new(MemoryFs::new()))
+}
+
+fn page_vfs_handle() -> Arc<dyn Vfs> {
+    page_vfs().clone()
 }
 
 /// Single-instance z42 VM handle for JavaScript hosts.
@@ -88,6 +103,7 @@ impl Z42VM {
     pub fn new(options: JsValue) -> Result<Z42VM, JsValue> {
         let mut cfg = HostConfig {
             exec_mode: ExecMode::Interp,
+            vfs: Some(page_vfs_handle()),
             ..Default::default()
         };
 
@@ -145,26 +161,25 @@ impl Z42VM {
         Ok(value_to_js(result))
     }
 
-    /// Mount a zpkg (or any file) into the in-memory VFS at `path`
-    /// (add-wasm-vfs-backend). The VFS is the default fs backend on wasm, so once
-    /// the stdlib + z42c compiler zpkgs are mounted under (say) `/libs`, setting
+    /// Mount a zpkg (or any file) into the page's in-memory VFS at `path`. The VM
+    /// runs on that VFS, so once the stdlib + z42c compiler zpkgs are mounted under
+    /// (say) `/libs`, setting
     /// `Z42_LIBS=/libs` lets `DepScan` / z42c / `Script.Eval` **compile z42 source
     /// in the browser** — `File.ReadAllBytes` / `Path.Glob` route here, no real fs.
     /// (Runtime module loading is served separately by the `zpkgResolver`.)
     #[wasm_bindgen(js_name = mountFile)]
     pub fn mount_file(&self, path: &str, bytes: &[u8]) {
-        z42::corelib::fs_backend::memory::mount(path, bytes.to_vec());
+        page_vfs().mount(path, bytes.to_vec());
     }
 
-    /// Compile + run a z42 **source string** in the browser (add-wasm-vfs-backend
-    /// 阶段 2). `module` is the loaded `z42.scripting` zpkg (`loadZbc` it once).
+    /// Compile + run a z42 **source string** in the browser. `module` is the loaded `z42.scripting` zpkg (`loadZbc` it once).
     /// The source goes in via the VFS (`/input.z42`, bytes — no string marshaling
     /// needed) and the program's output comes out via the configured
     /// `stdoutHandler`/`stderrHandler` (the eval result value / errors are printed
     /// there). Prereq: stdlib + z42c zpkgs mounted under `/libs` (`mountFile`).
     #[wasm_bindgen(js_name = evalIn)]
     pub fn eval_in(&self, module: &Z42VMModule, source: &str) -> Result<(), JsValue> {
-        z42::corelib::fs_backend::memory::mount("/input.z42", source.as_bytes().to_vec());
+        page_vfs().mount("/input.z42", source.as_bytes().to_vec());
         let entry = self
             .host
             .resolve_entry(&module.inner, "Z42.Scripting.evalFromVfs")
@@ -210,24 +225,23 @@ pub fn read_namespaces(bytes: &[u8]) -> Result<Vec<String>, JsValue> {
 //                  ["/bundle/manifest.json", "json", "/out/report.json"])`
 //   3. `const json = new TextDecoder().decode(readAsset("/out/report.json"))`
 //
-// Because loader / lazy-loader / app-run reads route through the fs backend
-// (loader.rs, lazy_loader.rs, app.rs — all VFS on wasm), the mounted zpkgs and
-// test zbcs load exactly as files would on desktop; the runner is the same z42
-// bytecode agent.
+// The VM `runTestApp` creates runs on the page VFS (`RunOpts::vfs`), and its loader /
+// lazy loader / file builtins all read through it, so the mounted zpkgs and test zbcs
+// load exactly as files would on desktop; the runner is the same z42 bytecode agent.
 
-/// Mount a file (zpkg / zbc / manifest) into the in-memory VFS at `path`. The
-/// VFS is process-global, so this needs no VM instance — call it before
-/// [`run_test_app`]. Bytes are copied; the caller may reuse the buffer.
+/// Mount a file (zpkg / zbc / manifest) into the page's in-memory VFS at `path`. The
+/// VFS belongs to this module, not to a VM, so this needs no VM instance — call it
+/// before [`run_test_app`]. Bytes are copied; the caller may reuse the buffer.
 #[wasm_bindgen(js_name = mountAsset)]
 pub fn mount_asset(path: &str, bytes: &[u8]) {
-    z42::corelib::fs_backend::memory::mount(path, bytes.to_vec());
+    page_vfs().mount(path, bytes.to_vec());
 }
 
-/// Read a file back out of the in-memory VFS (e.g. the agent's report file).
+/// Read a file back out of the page's in-memory VFS (e.g. the agent's report file).
 /// Returns the raw bytes; decode as UTF-8 on the JS side.
 #[wasm_bindgen(js_name = readAsset)]
 pub fn read_asset(path: &str) -> Result<Vec<u8>, JsValue> {
-    z42::corelib::fs_backend::active()
+    page_vfs()
         .read(path)
         .map_err(|e| js_error("IoError", 30, &format!("{e:#}")))
 }
@@ -259,6 +273,7 @@ pub fn run_test_app(
         print_stats: false,
         stats_json: false,
         exit_after_run: false,
+        vfs: Some(page_vfs_handle()),
     };
     z42::app::run(app_path, entry_opt, opts)
         .map_err(|e| js_error("VmException", 40, &format!("{e:#}")))

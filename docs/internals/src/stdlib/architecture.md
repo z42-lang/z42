@@ -32,7 +32,7 @@ concern：
 | 机制 | 覆盖 | 位置 |
 |---|---|---|
 | **PAL** | OS 差异（`#[cfg(target_os)]` 的唯一归集地），按 concern 分阶段迁入 | `src/runtime/src/pal/`，见 [PAL](../runtime/pal.md) |
-| **fs backend** | native `std::fs` ↔ wasm 内存 VFS 的运行期切换 | `corelib/fs_backend/{native,memory}.rs` |
+| **VFS** | 每台 VM 一个文件系统句柄：本地文件系统或内存 VFS（wasm），由创建 VM 的一方选 | `pal/fs.rs`（`Vfs` trait）+ `pal/vfs/{local,memory}.rs` |
 
 其余 builtin（`__net_*` / `__thread_*` / `__math_*` …）没有抽象层，直接落在 `corelib/<area>.rs`
 里用 `std::` 或第三方 crate 实现。要加平台时是逐 concern 往 PAL 搬，不是补一个统一 HAL。
@@ -153,7 +153,7 @@ compression 那 12 个**不在** `BUILTINS` 里——它们由 cdylib 在加载�
 ### 表里没有 stdlib 声明的条目
 
 一部分是编译器直接发射的（`__box_prim` / `__box_struct` / `__methodof` / `__struct_hash_code` /
-`__class_type_arg` / `__class_default`），一部分住在宿主侧（`__repl_*` / `__vfs_*`）。清单与理由在
+`__class_type_arg` / `__class_default`），一部分住在宿主侧（`__repl_*`）。清单与理由在
 `corelib/native_decl_tests.rs` 的 `UNDECLARED_ALLOWLIST`；表项可以真删——`BuiltinId` 不跨进程持久化，
 判据只是「已发布种子里还有没有 z42 源声明这个名字」（零引用的 `__concat` / `__len` / `__contains`
 已按此判据连同实现删除）。

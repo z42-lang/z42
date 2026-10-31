@@ -25,15 +25,16 @@ pub struct LoadedArtifact {
     pub package_name: Option<String>,
 }
 
-/// Load a compiler output artifact from `path`, returning a `LoadedArtifact`.
+/// Load a compiler output artifact from `path` on `fs`, returning a `LoadedArtifact`.
+/// The `.zsym` sidecar and an indexed zpkg's scattered zbcs are read from `fs` too.
 ///
 /// Format is determined by file extension (case-insensitive):
 /// - `.zbc`  → binary zbc (full mode)
 /// - `.zpkg` → binary zpkg (packed mode)
-pub fn load_artifact(path: &str) -> Result<LoadedArtifact> {
+pub fn load_artifact(fs: &dyn Vfs, path: &str) -> Result<LoadedArtifact> {
     match Path::new(path).extension().and_then(|e| e.to_str()) {
-        Some("zbc")  => load_zbc(path),
-        Some("zpkg") => load_zpkg(path),
+        Some("zbc")  => load_zbc(fs, path),
+        Some("zpkg") => load_zpkg(fs, path),
         ext => bail!(
             "unrecognised artifact extension {:?} in `{}`; expected .zbc or .zpkg",
             ext, path
@@ -72,15 +73,15 @@ pub fn load_artifact_from_bytes(raw: &[u8]) -> Result<LoadedArtifact> {
 
 // ── Format-specific loaders ───────────────────────────────────────────────────
 
-fn load_zbc(path: &str) -> Result<LoadedArtifact> {
-    let raw = fs_backend::active().read(path).with_context(|| format!("cannot read `{path}`"))?;
+fn load_zbc(fs: &dyn Vfs, path: &str) -> Result<LoadedArtifact> {
+    let raw = fs.read(path).with_context(|| format!("cannot read `{path}`"))?;
     let mut artifact = load_zbc_bytes(&raw).with_context(|| format!("cannot parse binary zbc `{path}`"))?;
 
     // 1.2 split-debug-symbols: probe `<basename>.zsym` adjacent to the main file
     // and merge debug info when build_id matches.
     let sidecar_path = Path::new(path).with_extension("zsym");
     if let Some(sp) = sidecar_path.to_str() {
-        if let Ok(sym_raw) = fs_backend::active().read(sp) {
+        if let Ok(sym_raw) = fs.read(sp) {
             apply_zbc_sidecar(&mut artifact.module, &raw, &sym_raw, &sidecar_path);
         }
     }
@@ -164,8 +165,8 @@ fn load_zbc_bytes(raw: &[u8]) -> Result<LoadedArtifact> {
     })
 }
 
-fn load_zpkg(path: &str) -> Result<LoadedArtifact> {
-    let raw = fs_backend::active().read(path).with_context(|| format!("cannot read `{path}`"))?;
+fn load_zpkg(fs: &dyn Vfs, path: &str) -> Result<LoadedArtifact> {
+    let raw = fs.read(path).with_context(|| format!("cannot read `{path}`"))?;
 
     // add-indexed-zpkg-min-patch (zpkg 0.24): indexed main file (flags bit0
     // clear, not a SymOnly sidecar) → load scattered self-contained zbc via
@@ -173,7 +174,7 @@ fn load_zpkg(path: &str) -> Result<LoadedArtifact> {
     if raw.len() >= 10 {
         let flags = u16::from_le_bytes([raw[8], raw[9]]);
         if (flags & 0x01) == 0 && (flags & 0x04) == 0 {
-            return load_zpkg_indexed(path, &raw)
+            return load_zpkg_indexed(fs, path, &raw)
                 .with_context(|| format!("cannot load indexed zpkg `{path}`"));
         }
     }
@@ -183,7 +184,7 @@ fn load_zpkg(path: &str) -> Result<LoadedArtifact> {
     // build_id matches. We do this before merge_modules so that line tables
     // land in the right place (before namespace flattening).
     let sidecar_path = Path::new(path).with_extension("zsym");
-    let sidecar_raw = sidecar_path.to_str().and_then(|sp| fs_backend::active().read(sp).ok());
+    let sidecar_raw = sidecar_path.to_str().and_then(|sp| fs.read(sp).ok());
 
     load_zpkg_bytes_with_sidecar(&raw, sidecar_raw.as_deref(), Some(&sidecar_path))
         .with_context(|| format!("cannot parse zpkg `{path}`"))
@@ -194,7 +195,7 @@ fn load_zpkg(path: &str) -> Result<LoadedArtifact> {
 /// main file's directory, verify its BLAKE3-128 content hash against the
 /// index, then run the same aggregation pipeline as packed. No `.zsym`
 /// pairing — indexed is dev-mode (DBUG inline in each scattered zbc).
-fn load_zpkg_indexed(path: &str, raw: &[u8]) -> Result<LoadedArtifact> {
+fn load_zpkg_indexed(fs: &dyn Vfs, path: &str, raw: &[u8]) -> Result<LoadedArtifact> {
     let meta = read_zpkg_meta(raw).context("cannot read zpkg metadata")?;
     let entries = read_zpkg_file_entries(raw).context("cannot read indexed FILE directory")?;
     let base = Path::new(path)
@@ -208,7 +209,7 @@ fn load_zpkg_indexed(path: &str, raw: &[u8]) -> Result<LoadedArtifact> {
         let zbc_path_str = zbc_path.to_str().with_context(|| {
             format!("indexed zpkg: non-UTF8 scattered zbc path `{}`", zbc_path.display())
         })?;
-        let bytes = fs_backend::active().read(zbc_path_str).with_context(|| {
+        let bytes = fs.read(zbc_path_str).with_context(|| {
             format!("indexed zpkg: cannot read scattered zbc `{}`", zbc_path.display())
         })?;
         // plain BLAKE3-128（区别于 BLID：那个是"尾 16B 清零"后的写入端标签、runtime

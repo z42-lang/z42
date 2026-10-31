@@ -104,7 +104,12 @@ impl VmContext {
     /// builtin / static-field / alloc tests. Production paths use
     /// [`with_module`](Self::with_module).
     pub fn new() -> std::pin::Pin<Box<Self>> {
-        Self::new_internal(None)
+        Self::new_internal(None, crate::pal::fs::default_vfs())
+    }
+
+    /// [`new`](Self::new) on the file system `vfs` instead of the default one.
+    pub fn with_vfs(vfs: Arc<dyn crate::pal::fs::Vfs>) -> std::pin::Pin<Box<Self>> {
+        Self::new_internal(None, vfs)
     }
 
     /// Production entry: constructs a VmContext with the user's compiled
@@ -112,7 +117,21 @@ impl VmContext {
     /// path that may invoke `__thread_spawn` (which dispatches into the
     /// shared module from the spawned thread).
     pub fn with_module(module: crate::metadata::Module) -> std::pin::Pin<Box<Self>> {
-        Self::new_internal(Some(Arc::new(module)))
+        Self::new_internal(Some(Arc::new(module)), crate::pal::fs::default_vfs())
+    }
+
+    /// [`with_module`](Self::with_module) on the file system `vfs`: every path-based file
+    /// builtin and every package load of this VM goes through it.
+    pub fn with_module_and_vfs(
+        module: crate::metadata::Module,
+        vfs: Arc<dyn crate::pal::fs::Vfs>,
+    ) -> std::pin::Pin<Box<Self>> {
+        Self::new_internal(Some(Arc::new(module)), vfs)
+    }
+
+    /// The file system this VM reads and writes through.
+    pub fn vfs(&self) -> &Arc<dyn crate::pal::fs::Vfs> {
+        &self.core.vfs
     }
 
     /// Spawned-thread entry: build a VmContext that **shares** an existing
@@ -188,7 +207,10 @@ impl VmContext {
         unsafe { std::pin::Pin::new_unchecked(boxed) }
     }
 
-    fn new_internal(module: Option<Arc<crate::metadata::Module>>) -> std::pin::Pin<Box<Self>> {
+    fn new_internal(
+        module: Option<Arc<crate::metadata::Module>>,
+        vfs: Arc<dyn crate::pal::fs::Vfs>,
+    ) -> std::pin::Pin<Box<Self>> {
         let pending_exception: Arc<Mutex<Option<Value>>> = Arc::new(Mutex::new(None));
 
         // Construct VmCore with heap embedded; scanner is installed AFTER
@@ -227,6 +249,7 @@ impl VmContext {
             #[cfg(feature = "native-interop")]
             ext_builtins:         Mutex::new(crate::native::ext::ExtBuiltinTable::default()),
             file_handles:         ResourceRegistry::new(),
+            vfs,
             #[cfg(feature = "net")]
             tcp_sockets:          ResourceRegistry::new(),
             #[cfg(feature = "net")]

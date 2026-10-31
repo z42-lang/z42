@@ -5,7 +5,7 @@
 ///   `bytecode` — IR data structures (Module, Function, Instruction, Terminator)
 ///   `formats`  — .zbc / .zpkg magic bytes + the package dependency record
 ///   `merge`    — multi-module merge algorithm (string pool remap + function concat)
-///   `loader`   — format-dispatch entry point: `load_artifact(path)`
+///   `loader`   — format-dispatch entry point: `load_artifact(fs, path)`
 
 pub mod types;
 pub mod type_names;

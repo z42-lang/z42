@@ -13,24 +13,24 @@
 //! resolution + CLI/process concerns stay in the caller; `run` takes a resolved
 //! [`RunOpts`].
 
-use crate::corelib::fs_backend;
 use crate::metadata::lazy_loader::ZpkgCandidate;
 use crate::metadata::{ExecMode, LoadedArtifact};
+use crate::pal::fs::Vfs;
 use anyhow::{bail, Context, Result};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-// add-wasm-testhost (G6): dir/exists probes go through the platform fs backend
-// so `run` works on wasm (in-memory VFS) as well as native (std::fs). Native is
-// byte-identical. `metadata`/`canonicalize` below stay on std::fs — they only
-// feed replay byte-sizes / symlink dedup and degrade gracefully (None / raw
-// path) when absent, so wasm needs no change there.
-fn be_is_dir(p: &Path) -> bool {
-    p.to_str().map(|s| fs_backend::active().is_dir(s)).unwrap_or(false)
+// Dir / exists probes and every package read go through the run's VFS (`RunOpts::vfs`), so
+// `run` works on an in-memory VFS (wasm) as well as on disk. `metadata` / `canonicalize`
+// below stay on std::fs — they only feed replay byte-sizes / symlink dedup and degrade
+// gracefully (None / raw path) when absent, so a virtual file system needs no change there.
+fn vfs_is_dir(fs: &dyn Vfs, p: &Path) -> bool {
+    p.to_str().map(|s| fs.is_dir(s)).unwrap_or(false)
 }
 
-fn be_exists(p: &Path) -> bool {
-    p.to_str().map(|s| fs_backend::active().exists(s)).unwrap_or(false)
+fn vfs_exists(fs: &dyn Vfs, p: &Path) -> bool {
+    p.to_str().map(|s| fs.exists(s)).unwrap_or(false)
 }
 
 /// Ordered prelude candidates — `<dir>/z42.core.zpkg` for every search dir that
@@ -39,11 +39,11 @@ fn be_exists(p: &Path) -> bool {
 ///
 /// The prelude used to be the ONE dependency that ignored that order and looked
 /// only at `libs/`. See `run`'s 5.1b for what that cost.
-pub(crate) fn prelude_candidates(search_dirs: &[PathBuf]) -> Vec<PathBuf> {
+pub(crate) fn prelude_candidates(fs: &dyn Vfs, search_dirs: &[PathBuf]) -> Vec<PathBuf> {
     search_dirs
         .iter()
         .map(|d| d.join("z42.core.zpkg"))
-        .filter(|p| be_exists(p))
+        .filter(|p| vfs_exists(fs, p))
         .collect()
 }
 
@@ -101,6 +101,10 @@ pub struct RunOpts {
     /// OS instead of freeing it block by block. Embedders and nested runs keep
     /// using the process, so they say `false`.
     pub exit_after_run: bool,
+    /// The file system the app is loaded from and runs on (the VM's [`Vfs`]). `None` =
+    /// [`crate::pal::fs::default_vfs`]. An embedder that mounted the app into a
+    /// `MemoryFs` passes that here; a nested run passes its caller's.
+    pub vfs: Option<Arc<dyn Vfs>>,
 }
 
 /// Idempotency keys for the entry zpkg, seeded into `initially_loaded_zpkgs`.
@@ -129,6 +133,8 @@ fn entry_zpkg_idempotency_keys(file: &str) -> Vec<String> {
 /// the artifact's baked-in entry hint). Returns the program's result.
 pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
     let libs_dir = opts.libs_dir;
+    let vfs: Arc<dyn Vfs> = opts.vfs.unwrap_or_else(crate::pal::fs::default_vfs);
+    let fs: &dyn Vfs = &*vfs;
 
     // Dependency search dirs (support-colocated-zpkg-deps): resolve a dep zpkg
     // from the ENTRY zpkg's own directory first, then any declared probing paths,
@@ -145,7 +151,7 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
             Some(d) if !d.as_os_str().is_empty() => d.to_path_buf(),
             _ => PathBuf::from("."),
         };
-        if be_is_dir(&entry_dir) {
+        if vfs_is_dir(fs, &entry_dir) {
             dirs.push(entry_dir.clone());
         }
         // Relative probing paths resolve against the entry zpkg's dir, so the same
@@ -209,11 +215,11 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
     {
         let mut prelude_err: Option<String> = None;
         let mut seen_any = false;
-        for core_path in prelude_candidates(&search_dirs) {
+        for core_path in prelude_candidates(fs, &search_dirs) {
             seen_any = true;
             let core_canonical = core_path.canonicalize().unwrap_or(core_path.clone());
             let core_str = core_path.to_string_lossy().into_owned();
-            match crate::metadata::load_artifact(&core_str) {
+            match crate::metadata::load_artifact(fs, &core_str) {
                 Ok(a) => {
                     tracing::debug!("loaded stdlib z42.core from {core_str}");
                     let byte_size = std::fs::metadata(&core_path).ok().map(|m| m.len());
@@ -244,7 +250,7 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
     }
 
     // 5.1c — load the user artifact.
-    let user_artifact = crate::metadata::load_artifact(file)?;
+    let user_artifact = crate::metadata::load_artifact(fs, file)?;
     register_entry_as_loaded(file, &mut loaded_paths, &mut initially_loaded_zpkgs, &mut loaded_for_replay);
 
     // 5.1d — dependency loading strategy: Interp / JIT → pure lazy (declared
@@ -260,7 +266,7 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
             user_artifact.import_namespaces.iter().cloned().collect();
         loop {
             while let Some(ns) = ns_queue.pop_front() {
-                let Ok(zpkg_paths) = crate::metadata::resolve_namespace(&ns, &libs_paths)
+                let Ok(zpkg_paths) = crate::metadata::resolve_namespace(fs, &ns, &libs_paths)
                 else { continue };
                 for zpkg_path in zpkg_paths {
                     if let Some(name) = zpkg_path.file_name().and_then(|n| n.to_str()) {
@@ -271,12 +277,12 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
             let Some(dep_file) = file_queue.pop_front() else { break };
             let Some(dep_path) = search_dirs.iter()
                 .map(|d| d.join(&dep_file))
-                .find(|p| p.exists())
+                .find(|p| vfs_exists(fs, p))
             else { continue };
             let canonical = dep_path.canonicalize().unwrap_or_else(|_| dep_path.clone());
             if !loaded_paths.insert(canonical) { continue; }  // already merged
             let dep_str = dep_path.to_string_lossy().into_owned();
-            if let Ok(a) = crate::metadata::load_artifact(&dep_str) {
+            if let Ok(a) = crate::metadata::load_artifact(fs, &dep_str) {
                 for d in &a.dependencies { file_queue.push_back(d.file.clone()); }
                 for ns in &a.import_namespaces { ns_queue.push_back(ns.clone()); }
                 eager_impl_pairs.extend(a.impl_pairs.iter().cloned());
@@ -291,6 +297,7 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
     // Build declared-but-not-loaded zpkg candidate set for the lazy loader,
     // BEFORE moving `user_artifact.module` into `modules` (partial-move).
     let declared_candidates = build_declared_candidates(
+        fs,
         &user_artifact,
         &search_dirs,
         &initially_loaded_zpkgs,
@@ -320,6 +327,7 @@ pub fn run(file: &str, entry: Option<&str>, opts: RunOpts) -> Result<()> {
     // fix-host-static-init: availability folding → ctx → cctor registration → lazy loader
     // live in `boot::boot_context`, shared with the embedding host path.
     let ctx = crate::boot::boot_context(final_module, crate::boot::BootPlan {
+        vfs: Arc::clone(&vfs),
         search_dirs: search_dirs.clone(),
         declared_candidates,
         initially_loaded: initially_loaded_zpkgs,
@@ -488,6 +496,7 @@ fn register_entry_as_loaded(
 /// Entries already in `initially_loaded` (e.g. eager-loaded z42.core, or AOT-merged
 /// deps) are excluded.
 fn build_declared_candidates(
+    fs: &dyn Vfs,
     user_artifact: &LoadedArtifact,
     search_dirs: &[PathBuf],
     initially_loaded: &[String],
@@ -504,12 +513,12 @@ fn build_declared_candidates(
     // sibling `namespaces` field if the literal filename does not resolve.
     for dep in &user_artifact.dependencies {
         if loaded_has(&dep.file) || declared_has(&declared, &dep.file) { continue; }
-        if let Ok(cand) = ZpkgCandidate::build_in_dirs(search_dirs, &dep.file) {
+        if let Ok(cand) = ZpkgCandidate::build_in_dirs(fs, search_dirs, &dep.file) {
             declared.push((dep.file.clone(), cand));
             continue;
         }
         for ns in &dep.namespaces {
-            let Ok(zpkg_paths) = crate::metadata::resolve_namespace(ns, &libs_paths) else {
+            let Ok(zpkg_paths) = crate::metadata::resolve_namespace(fs, ns, &libs_paths) else {
                 continue;
             };
             for zpkg_path in zpkg_paths {
@@ -519,7 +528,7 @@ fn build_declared_candidates(
                     .map(str::to_owned)
                 else { continue };
                 if loaded_has(&file_name) || declared_has(&declared, &file_name) { continue; }
-                match ZpkgCandidate::build_in_dirs(search_dirs, &file_name) {
+                match ZpkgCandidate::build_in_dirs(fs, search_dirs, &file_name) {
                     Ok(cand) => declared.push((file_name, cand)),
                     // Left as a warning on purpose: a namespace can resolve to several
                     // candidates, so one unreadable file is not yet fatal. The hint
@@ -536,7 +545,7 @@ fn build_declared_candidates(
 
     // .zbc import_namespaces — reverse lookup
     for ns in &user_artifact.import_namespaces {
-        let Ok(zpkg_paths) = crate::metadata::resolve_namespace(ns, &libs_paths) else {
+        let Ok(zpkg_paths) = crate::metadata::resolve_namespace(fs, ns, &libs_paths) else {
             continue;
         };
         for zpkg_path in zpkg_paths {
@@ -547,7 +556,7 @@ fn build_declared_candidates(
             else { continue };
             if loaded_has(&file_name) { continue; }
             if declared_has(&declared, &file_name) { continue; }
-            match ZpkgCandidate::build_in_dirs(search_dirs, &file_name) {
+            match ZpkgCandidate::build_in_dirs(fs, search_dirs, &file_name) {
                 Ok(cand) => declared.push((file_name, cand)),
                 // Left as a warning on purpose: a namespace can resolve to several
                 // candidates, so one unreadable file is not yet fatal. The hint

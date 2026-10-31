@@ -242,3 +242,18 @@ fn a_collection_completes_while_a_thread_is_blocked_in_a_file_read() {
     assert_eq!(parked(&c), 0);
     let _ = std::fs::remove_dir_all(&d);
 }
+
+/// On a virtual file system a missing file is `FileNotFoundException` whatever its
+/// "directory" (no real directories there — `Vfs::local_path` is `None`); on disk a
+/// missing directory is `DirectoryNotFoundException` (the test above).
+#[test]
+fn memory_fs_missing_file_is_file_not_found() {
+    let c = VmContext::with_vfs(std::sync::Arc::new(crate::pal::vfs::MemoryFs::new()));
+    let e = fail(&c, "__file_read_text", &[str_v("/no-dir/f.txt")]);
+    assert!(matches!(&e, BuiltinError::FileNotFound(m) if m == "Could not find file '/no-dir/f.txt'."), "{e:?}");
+    crate::corelib::exec_builtin(&c, "__file_write_bytes", &[str_v("/d/a.bin"), c.heap().alloc_bytes(vec![1, 2])]).unwrap();
+    crate::corelib::exec_builtin(&c, "__file_copy", &[str_v("/d/a.bin"), str_v("/d/b.bin")]).unwrap();
+    let names = exec_builtin_value(&c, "__dir_enumerate_recursive", &[str_v("/d")]).unwrap();
+    assert_eq!(extract_strings(names), vec!["a.bin", "b.bin"]);
+    assert_eq!(exec_builtin_value(&c, "__file_get_size", &[str_v("/d/b.bin")]).unwrap(), Value::I64(2));
+}

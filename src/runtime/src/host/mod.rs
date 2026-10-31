@@ -221,7 +221,7 @@ pub unsafe extern "C" fn z42_host_load_zbc(
         // Build the merged module + ctx outside the write lock so we do
         // I/O without blocking other readers.
         let host_module = match state::with_state_read(|s| {
-            ops::build_host_module(slice, s.corelib.as_ref(), s.config.zpkg_resolver.as_ref())
+            ops::build_host_module(&s.config.vfs, slice, s.corelib.as_ref(), s.config.zpkg_resolver.as_ref())
         }) {
             Some(Ok(m)) => m,
             Some(Err(e)) => {
@@ -601,6 +601,37 @@ pub fn install_zpkg_resolver(resolver: Arc<dyn ZpkgResolver>) -> Z42HostStatus {
     }
 }
 
+/// Install the file system the host's VMs run on (every module loaded after this call),
+/// replacing the default one. Like [`install_zpkg_resolver`], a Tier 2 hook — not
+/// `extern "C"`: a trait object does not cross the C ABI. `z42.core.zpkg` is looked
+/// up in `search_paths` again, on `vfs`.
+///
+/// Returns `Ok`, `NotInit` if no VM is initialized, or `BadConfig` if the corelib found
+/// on `vfs` does not load (the previous file system stays installed then).
+pub fn install_vfs(vfs: Arc<dyn crate::pal::fs::Vfs>) -> Z42HostStatus {
+    let outcome = state::with_state_write(|s| {
+        let old = std::mem::replace(&mut s.config.vfs, vfs);
+        match ops::probe_corelib(&s.config) {
+            Ok(corelib) => {
+                s.corelib = corelib;
+                Ok(())
+            }
+            Err(e) => {
+                s.config.vfs = old;
+                Err(e)
+            }
+        }
+    });
+    match outcome {
+        Some(Ok(())) => {
+            clear_error();
+            Z42HostStatus::Ok
+        }
+        Some(Err(e)) => set_error(Z42HostStatus::BadConfig, format!("install_vfs: corelib probe failed: {e:#}")),
+        None => set_error(Z42HostStatus::NotInit, "install_vfs: VM is not initialized"),
+    }
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────
 
 fn classify_config_error(e: config::ConfigError) -> Z42HostStatus {
@@ -721,6 +752,7 @@ pub unsafe extern "C" fn z42_host_run_app(
                 print_stats: false,
                 stats_json: false,
                 exit_after_run: false,
+                vfs: None,
             };
             let result = crate::app::run(&app, entry_owned.as_deref(), opts);
             // runtime-audit P0-4: fatal VM error → its report + the fixed code.

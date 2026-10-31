@@ -62,6 +62,9 @@ pub struct LazyLoader {
     /// colocated package deps resolve alongside the stdlib
     /// (support-colocated-zpkg-deps).
     search_dirs:    Vec<PathBuf>,
+    /// The file system packages are read from — the owning VM's (`set_vfs`);
+    /// `pal::fs::default_vfs()` until attached.
+    vfs:            Arc<dyn crate::pal::fs::Vfs>,
 
     /// zpkg file names that have been loaded (either eagerly at startup or
     /// by a previous lazy-load). Used for de-duplication and cycle-cutting
@@ -299,6 +302,7 @@ impl LazyLoader {
         strings.reserve(main_pool_len);
         Self {
             search_dirs,
+            vfs: crate::pal::fs::default_vfs(),
             loaded_zpkgs,
             newly_loaded:   Vec::new(),
             declared_zpkgs,
@@ -379,6 +383,11 @@ impl LazyLoader {
     pub(crate) fn set_str_table(&mut self, table: Arc<crate::metadata::str_table::StrTable>) {
         table.reserve(self.strings.len());
         self.strings = table;
+    }
+
+    /// Attach the VM's file system (see the `vfs` field doc).
+    pub(crate) fn set_vfs(&mut self, vfs: Arc<dyn crate::pal::fs::Vfs>) {
+        self.vfs = vfs;
     }
 
     /// Attach the VM's type table (see the `types` field doc).

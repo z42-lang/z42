@@ -108,6 +108,9 @@ pub struct ResolvedConfig {
     /// Rust trait object handed to us by Tier 2 via
     /// [`super::install_zpkg_resolver`].
     pub zpkg_resolver: Option<Arc<dyn ZpkgResolver>>,
+    /// The file system the host's VMs load packages from and run on. The default VFS
+    /// (`pal::fs::default_vfs`) unless Tier 2 installed one via [`super::install_vfs`].
+    pub vfs: Arc<dyn crate::pal::fs::Vfs>,
 }
 
 impl std::fmt::Debug for ResolvedConfig {
@@ -181,6 +184,7 @@ pub(crate) unsafe fn validate(cfg: *const Z42HostConfig) -> Result<ResolvedConfi
         sink_user_data: cfg.sink_user_data as usize,
         search_paths,
         zpkg_resolver,
+        vfs: crate::pal::fs::default_vfs(),
     })
 }
 

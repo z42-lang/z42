@@ -33,7 +33,7 @@ fn entry_dir_prelude_comes_before_libs() {
     touch_core(&entry);
     touch_core(&libs);
 
-    let got = prelude_candidates(&[entry.clone(), libs.clone()]);
+    let got = prelude_candidates(&crate::pal::vfs::LocalFs, &[entry.clone(), libs.clone()]);
     assert_eq!(
         got,
         vec![entry.join("z42.core.zpkg"), libs.join("z42.core.zpkg")],
@@ -51,7 +51,7 @@ fn libs_still_used_when_entry_dir_has_no_prelude() {
     std::fs::create_dir_all(&entry).expect("dir");
     touch_core(&libs);
 
-    let got = prelude_candidates(&[entry, libs.clone()]);
+    let got = prelude_candidates(&crate::pal::vfs::LocalFs, &[entry, libs.clone()]);
     assert_eq!(got, vec![libs.join("z42.core.zpkg")]);
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -66,7 +66,7 @@ fn every_candidate_is_offered_not_just_the_first() {
     touch_core(&a);
     touch_core(&b);
 
-    assert_eq!(prelude_candidates(&[a.clone(), b.clone()]).len(), 2);
+    assert_eq!(prelude_candidates(&crate::pal::vfs::LocalFs, &[a.clone(), b.clone()]).len(), 2);
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -75,6 +75,6 @@ fn missing_prelude_yields_no_candidates() {
     let root = scratch("none");
     let entry = root.join("entry");
     std::fs::create_dir_all(&entry).expect("dir");
-    assert!(prelude_candidates(&[entry]).is_empty());
+    assert!(prelude_candidates(&crate::pal::vfs::LocalFs, &[entry]).is_empty());
     let _ = std::fs::remove_dir_all(&root);
 }
