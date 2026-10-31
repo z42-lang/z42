@@ -116,7 +116,7 @@ xtask test stdlib
 | `reflection/attributes.rs` | custom-attribute 反射（type/method/field/property/param → 调工厂函数实例化）|
 | `reflection/generics.rs` | 运行期泛型实例化（`MakeGenericType` + `where` 约束校验）|
 | `reflection/enums.rs` | 枚举反射（names/values/name/parse/is_defined/underlying）|
-| `reflection/invoke.rs` | 反射调用（`Method.Invoke` / `MakeGenericMethod` / `Activator.CreateInstance` / `Ctor.Invoke` / `__invoke_static`）+ slot 读取 |
+| `reflection/invoke.rs` | 反射调用（`MethodInfo.Invoke` / `MakeGenericMethod` / `Activator.CreateInstance` / `ConstructorInfo.Invoke` / `__invoke_static`）+ slot 读取 |
 | `reflection/accessors.rs` | 反射读写字段/属性值（含内联/装箱 struct 的 byte-region 读写 + 写屏障）|
 | `reflection/methodof.rs` | `methodof(Type.Member(sig))` 运行期支持（编译期已绑定重载，运行期按签名取 `MethodInfo`） |
 | `reflection/module_load.rs` | 运行期加载模块/字节码（REPL、test 宿主）+ `__run_goldens_isolated` |
