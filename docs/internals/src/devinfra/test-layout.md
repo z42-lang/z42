@@ -294,6 +294,7 @@ stdlib、`bundle` 组嵌入语料并放进宿主、`run` 在宿主 / 设备上�
 | ② | §4「已生效」能力 = `platform.rs` 里 `builtin_platform_caps` 实际 `push` 的能力 | 运行期加了能力就登记，删了就移除 |
 | ③ | `src/**/*.z42` 里的 `// requires-caps:` 与 `[Skip(feature: "…")]` 只用「已生效」的名字 | 改成已生效的名字；需要新能力就先让运行期报告它 |
 | ④ | `build/` 的一级目录、`build/{compiler,libraries,toolchain}/` 的二级目录、`intermediate/` 的一级目录，在 `src/` 下都有同名目录（不存在的跳过） | 编译产物改到 `build/` 镜像（`_buildMirror`），其余改到 `intermediate/` 镜像（`_workOut` 等）；旧布局残留按报错给的 `rm -rf` 删掉 |
+| ⑤ | `src/tests/<类别>/` 与 `src/libraries/<lib>/tests/` 里，`<x>.z42` 与 `<x>/` 不同名（两者用例名相同，app bundle 按用例名落盘会互相覆盖，一个静默不跑） | 给其中一个改名 |
 
 ③ 豁免故意写未知能力名的 fixture（`_tlCapFixtures()`）：`z42.harness` 的 `skip_platform_demo.z42`（deny-by-default 演示）。④ 的例外只有 `intermediate/xtask`（xtask 不在 `src/` 下）。
 
@@ -316,6 +317,6 @@ stdlib、`bundle` 组嵌入语料并放进宿主、`run` 在宿主 / 设备上�
 
 按顺序推进，每一步一个 PR；完成后删掉本页对应的 ⏳ 标记：
 
-1. **bundle 组装**：bundle 引用用例自己的测试输出、内部按用例 ID 镜像（§6 第 2、3 步）。目前每个设备分片
-   逐例编 bundle 约 2–3 分钟（wasm 分片 239 例约 2m48s），省下的就是这部分；代价是三个平台的资源暂存都要
+1. **bundle 组装**：bundle 引用用例自己的测试输出、内部按用例 ID 镜像（§6 第 2、3 步）。bundle 现已与 `build test`
+   同样分批并发编（全量 782 例本地 11m41s → 51s），这一步省下的只剩各分片重复编的那部分；代价是三个平台的资源暂存都要
    支持嵌套目录，并且设备 job 里要先有用例的测试输出。

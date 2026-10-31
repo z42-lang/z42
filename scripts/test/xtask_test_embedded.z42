@@ -251,7 +251,7 @@ int _runAndroidTesthost(string root, string rid) {
 // desktop 嵌入运行（`xtask test app desktop` 的语料段）：组 bundle（或用给定的单个 `.zbc` / golden 用例目录），
 // 交给 z42b 在本进程里跑（`--rid host`，共享的 Std.Harness.BundleRunner —— 设备上 agent 内嵌的是同一个核心）。
 //   target 为空 → 按 filter / 分片组 bundle，逐例跑、汇总成一份报告；
-//   golden 用例目录（有 source.z42）→ 包成 [Test] 的 .zbc；
+//   golden 用例目录（有 source.z42）→ 一例 bundle（与语料里的 golden 同路：隔离直接跑、比对 stdout）；
 //   其它路径 → 当作 .zbc 直接跑。
 // --shard k/n：完整覆盖的第 k 片（不受 smoke 上限约束）。
 int _runDesktopEmbedded(string root, string filter, string target, string format, int shardK, int shardN) {
@@ -262,9 +262,9 @@ int _runDesktopEmbedded(string root, string filter, string target, string format
         if (manifest.Length == 0) { return 1; }
         runArg = manifest;
     } else if (Directory.Exists(target) && File.Exists(Path.Join(target, "source.z42"))) {
-        Console.WriteLine("→ golden case → [Test] wrap: " + target);
-        runArg = _buildGoldenCase(root, target);
-        if (runArg.Length == 0) { ConsoleError.WriteLine("error: wrap/build golden case failed"); return 1; }
+        Console.WriteLine("→ golden case → one-case bundle: " + target);
+        runArg = _buildGoldenBundle(root, target);
+        if (runArg.Length == 0) { ConsoleError.WriteLine("error: build golden case failed: " + target); return 1; }
     } else {
         runArg = target;
     }

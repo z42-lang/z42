@@ -7,6 +7,8 @@ name: Deploy book to GitHub Pages
 #   https://z42-lang.github.io/z42/internals/   内部实现（docs/internals）
 #   https://z42-lang.github.io/z42/install.sh / install.ps1   安装脚本
 # PR 上只构建不发布：mdBook 的 include 出错不会让构建失败（缺文件只打 ERROR），这里把 [ERROR] 判红。
+# reference 的 stdlib 包页不入库：构建前用 `xtask doc gen` 从 stdlib 源码的 `///` 现生成，所以 stdlib 源码与
+# 渲染器（z42.doc、xtask_doc.z42）的改动也触发发布。
 # 一次性前置：仓库 Settings → Pages → Source 选 "GitHub Actions"。
 
 on:
@@ -19,6 +21,9 @@ on:
       - 'docs/internals/**'
       - 'examples/**'
       - 'scripts/install/**'
+      - 'src/libraries/**'
+      - 'src/compiler/z42.doc/**'
+      - 'scripts/build/xtask_doc.z42'
       - '.github/workflows/deploy-book.yml'
   pull_request:
     paths:
@@ -27,6 +32,9 @@ on:
       - 'docs/reference/**'
       - 'docs/internals/**'
       - 'examples/**'
+      - 'src/libraries/**'
+      - 'src/compiler/z42.doc/**'
+      - 'scripts/build/xtask_doc.z42'
       - '.github/workflows/deploy-book.yml'
   workflow_dispatch:
 
@@ -35,10 +43,11 @@ permissions:
   pages: write
   id-token: write
 
-# 允许一个并发部署；不打断进行中的发布
+# 允许一个并发部署；不打断进行中的发布。PR 的只构建运行各自一组（新 push 取消旧的）——同在 pages 组里时，
+# 排队中的 PR 运行会顶掉排队中的 main 发布（一组只留一个待跑）。
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: ${{ github.event_name == 'pull_request' && format('pages-pr-{0}', github.ref) || 'pages' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
@@ -46,6 +55,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # stdlib 包页：种子 z42c 只编出 xtask（xtask-only，不建构建树），xtask 自带的 z42.doc 解析 stdlib 源码生成。
+      - name: Bootstrap xtask (seed z42c → current xtask only)
+        uses: ./.github/actions/ci-bootstrap
+        with:
+          gh-token: ${{ secrets.GITHUB_TOKEN }}
+          xtask-only: "true"
+      - name: Generate reference stdlib pages
+        run: xtask doc gen
       - name: Install mdBook + mdbook-mermaid
         run: |
           MDBOOK_VERSION=0.4.40

@@ -12,11 +12,14 @@ runtime 其余模块**零 cfg 调用** OS 服务。每个 concern 一个文件�
 
 | 文件 | 职责 |
 |------|------|
-| `system.rs` | `hostname()` / `os_version()` / `os_name()` |
-| `fs.rs` | `make_executable()` / `symlink()` / `PATH_LIST_SEP` |
+| `system.rs` | `hostname()` / `os_version()` / `os_name()`、进程环境（`pid` / `current_dir` / `set_env` / `temp_dir`）、`OS_CAPS` |
+| `fs.rs` | `make_executable()` / `symlink()` / `sync_before_rename()` / `is_name_too_long()` / `PATH_LIST_SEP` / `HAS_FS` |
+| `process.rs` | `exit_code()`、`own_process_group()`、`ProcessTree`（超时杀整棵进程树）、`find_executable()` |
+| `random.rs` | `fill()` —— OS CSPRNG |
+| `dynlib.rs` | `file_name()`、`Library::open()` / `symbol()` —— 运行时唯一的 dlopen 入口 |
 | `mem.rs` | 页大小、GC chunk 页的 `decommit` / `recommit` |
 | `thread.rs` | 栈边界、`current_token()`、`run_with_stack()` |
-| `time.rs` | `HAS_CLOCK`、`monotonic_us()` |
+| `time.rs` | `HAS_CLOCK`、`monotonic_us()` / `monotonic_ns()`、`wall_unix_ms()` / `wall_unix_ns()` |
 | `net.rs` | socket 的 OS 部分：`winsock_code()`（errno → Winsock 码）/ `timed_out_error()` / `wait_readable()`（可中断 accept 等待）/ `set_tcp_keepalive()`（`net` feature）|
 | `signal.rs` | fatal-signal 注册 + `sigsafe` async-signal-safe write + `signal_name` + reset/reraise；非 POSIX 平台为空操作（z42 崩溃 reporter 在 `signal_handler.rs`，调本模块）|
 
@@ -55,4 +58,4 @@ runtime 其余模块**零 cfg 调用** OS 服务。每个 concern 一个文件�
 `docs/internals/src/runtime/pal.md` "platform feature gates" 节。
 
 ## 待办
-- corelib 剩余平台代码、`dynlib.rs`（三处 dlopen 合一）、每 VM 一个 Vfs —— runtime-audit §6.1 L-2
+- 每 VM 一个 Vfs —— runtime-audit §6.1 L-2

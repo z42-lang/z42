@@ -543,7 +543,7 @@ int _dcLoadRegistry(string root, List<string> outName, List<string> outCode) {
         string line = _dcStripComment(raw).Trim();
         if (!line.StartsWith("public static string ")) { continue; }
         string rest = line.Substring(21, line.Length - 21);
-        string name = _dcFirstIdent(rest);
+        string name = _leadIdent(rest);
         int eq = rest.IndexOf("=");
         if (name == "" || eq < 0) { continue; }
         List<string> lits = _dcStringLiterals(rest.Substring(eq, rest.Length - eq));
@@ -600,7 +600,7 @@ List<string> _dcConstRefs(string line) {
     var names = new List<string>();
     string[] parts = line.Split("DiagnosticCodes.");
     for (int k = 1; k < parts.Length; k++) {
-        string id = _dcFirstIdent(parts[k]);
+        string id = _leadIdent(parts[k]);
         if (id != "") { names.Add(id); }
     }
     return names;
@@ -633,7 +633,7 @@ List<string> _dcScanCodes(string text) {
     int n = text.Length; int i = 0;
     while (i < n) {
         char c = text.CharAt(i);
-        bool head = (c == 'E' || c == 'W' || c == 'I') && (i == 0 || !_dcIsIdent(text.CharAt(i - 1)));
+        bool head = (c == 'E' || c == 'W' || c == 'I') && (i == 0 || !_isIdentChar(text.CharAt(i - 1)));
         if (head && i + 5 <= n) {
             int j = i + 1; bool digits = true;
             while (j < i + 5) {
@@ -647,7 +647,7 @@ List<string> _dcScanCodes(string text) {
                     char sfx = text.CharAt(end);
                     if (sfx >= 'a' && sfx <= 'z') { end = end + 1; }
                 }
-                if (end >= n || !_dcIsIdent(text.CharAt(end))) {
+                if (end >= n || !_isIdentChar(text.CharAt(end))) {
                     _dcAddNew(codes, text.Substring(i, end - i));
                     i = end;
                     continue;
@@ -657,16 +657,6 @@ List<string> _dcScanCodes(string text) {
         i = i + 1;
     }
     return codes;
-}
-
-bool _dcIsIdent(char c) {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
-}
-
-string _dcFirstIdent(string s) {
-    int i = 0; int n = s.Length;
-    while (i < n && _dcIsIdent(s.CharAt(i))) { i = i + 1; }
-    return s.Substring(0, i);
 }
 
 bool _dcContains(string s, string sub) { return s.Contains(sub); }

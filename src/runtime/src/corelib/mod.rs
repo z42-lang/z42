@@ -21,10 +21,8 @@ pub mod convert;
 pub mod io;
 pub mod repl;
 pub mod repl_editing;
-// Lazy dlopen loader for the host-only REPL editor cdylib (libz42_repl). Host-only:
-// wasm keeps the plain-stdin fallback in `repl` and never references this module.
-// (extract-repl-native-cdylib)
-#[cfg(not(target_arch = "wasm32"))]
+// Lazy dlopen loader for the REPL editor cdylib (libz42_repl); without `native-interop`
+// (wasm) it is the plain-stdin fallback in `repl`. (extract-repl-native-cdylib)
 pub mod repl_native;
 pub mod string;
 pub mod str_meta;

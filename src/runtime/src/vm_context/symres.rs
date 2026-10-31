@@ -315,10 +315,19 @@ pub fn wrong_arity_exception(
 ///
 /// 常态是一次 relaxed 原子读（`ambiguity_seen()`，进程内从没发生过碰撞时恒 false），
 /// 只有真出现过碰撞才去拿读锁精确查。
+#[inline]
 pub fn ambiguous_function_exception(
     ctx: &VmContext, module: &Module, fname: &str,
 ) -> Option<crate::metadata::Value> {
     if !crate::metadata::lazy_loader::ambiguity_seen() { return None; }
+    ambiguous_function_exception_slow(ctx, module, fname)
+}
+
+#[cold]
+#[inline(never)]
+fn ambiguous_function_exception_slow(
+    ctx: &VmContext, module: &Module, fname: &str,
+) -> Option<crate::metadata::Value> {
     if !ctx.is_ambiguous_function(fname) { return None; }
     Some(crate::exception::make_missing_symbol_exception(
         ctx, module,
@@ -332,10 +341,19 @@ pub fn ambiguous_function_exception(
 }
 
 /// 类型侧孪生（`new` / 类型解析位）。判定与理由同 [`ambiguous_function_exception`]。
+#[inline]
 pub fn ambiguous_type_exception(
     ctx: &VmContext, module: &Module, class_name: &str,
 ) -> Option<crate::metadata::Value> {
     if !crate::metadata::lazy_loader::ambiguity_seen() { return None; }
+    ambiguous_type_exception_slow(ctx, module, class_name)
+}
+
+#[cold]
+#[inline(never)]
+fn ambiguous_type_exception_slow(
+    ctx: &VmContext, module: &Module, class_name: &str,
+) -> Option<crate::metadata::Value> {
     if !ctx.is_ambiguous_type(class_name) { return None; }
     Some(crate::exception::make_missing_symbol_exception(
         ctx, module,

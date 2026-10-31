@@ -11,7 +11,23 @@ public sealed class TypeParser {
     // **只在 where 约束里开**（`_parseConstraint` 开、退出即关）——普通类型位 `List<Item = int>`
     // 仍是语法错误。不开全局是因为 `=` 在类型位没有别的含义、一旦全放开就再也收不回来了。
     private bool _allowAssocBindings;
-    public TypeParser(Parser p) { this._p = p; this._allowAssocBindings = false; }
+    // 置位 = 下一次 `_parseType` 是「表达式尾部的类型」（`is` / `as` / 模式位），见 `_parseTypeBeforeExpr`。
+    // 只对**最外层**那次调用生效（`_parseType` 入口即读即清），类型实参里的 `List<Foo?>` 不受影响。
+    private bool _exprTail;
+    public TypeParser(Parser p) { this._p = p; this._allowAssocBindings = false; this._exprTail = false; }
+
+    // `x is T` / `x as T` / 模式里的类型：后面可能紧跟三目的 `?`。
+    //
+    // `o is List<Entry> ? a : b` 此前把 `List<Entry>?` 当成可空类型吞掉，随后在 `a` 处报错；
+    // 非泛型的 `o is Foo ? a : b` 同病（`ClassDescBuilder.GenericInst` 里有过一处为此绕开三目的写法）。
+    // 消歧规则同 C#（Roslyn `ParseTypeMode.AfterIs / DefinitePattern / AsExpression`）：
+    // 这些位置上的 `?` 只在**下一个 token 不能开始表达式**时才是可空后缀
+    // （`x as Foo?;` / `(x as Foo?)` / `x is Foo? && y`），否则留给三目。
+    // 由此 `x is Foo? v`（可空类型 + 绑定）不再成立 —— C# 同样不允许（CS8116）。
+    internal TypeExpr _parseTypeBeforeExpr() {
+        this._exprTail = true;
+        return this._parseType();
+    }
 
     internal TypeExpr _emptyType() { return new NamedType("", new TypeExpr[0], 0, this._p._peek().Span); }
 
@@ -114,6 +130,8 @@ public sealed class TypeParser {
     }
 
     internal TypeExpr _parseType() {
+        bool exprTail = this._exprTail;   // 即读即清：嵌套的实参 / 元素类型按普通类型位解析
+        this._exprTail = false;
         Span sp = this._p._peek().Span;
         // 类型位 `(`：函数类型 `(T1,...) -> R`、元组类型 `(T1, ..., Tn)`（add-tuple-types）、
         // 或括号分组 `(T)`。先解析括号内类型列表，再按尾随 `->` 有无分流（func vs tuple/分组）。
@@ -155,7 +173,11 @@ public sealed class TypeParser {
             t = new ArrayType(t, sp);
             isArray = true;
         }
-        if (this._p._peek().Kind == TokenKind.Question) {
+        // 表达式尾部的类型：`?` 后随能开始表达式 ⇒ 是三目，不是可空（见 `_parseTypeBeforeExpr`）。
+        // `_pendingGt > 0` ⇒ 本层的 `>` 是从 `>>` 拆出来的、外层还没闭合：此时的 `?` 属于外层
+        //（同上面数组 `[]` 循环的守卫；此前 `Map<K, List<V>>?` 被解析成 `Map<K, List<V>?>`）。
+        if (this._p._pendingGt == 0 && this._p._peek().Kind == TokenKind.Question
+            && !(exprTail && this._p._exprP._canStartExpr(this._p._peekAt(1).Kind))) {
             Span qsp = this._p._peek().Span;
             this._p._advance();
             // enforce-value-type-non-null：值类型永不可空 ⇒ 基元关键字上的 `?` 报 E0476。

@@ -149,6 +149,7 @@ pub fn run_app(
         program_args: args,
         print_stats: false,
         stats_json: false,
+        exit_after_run: false,
     };
     z42::app::run(file, entry, opts).map_err(|e| match z42::stack_guard::take_report() {
         Some(report) => HostError::Fatal(report),

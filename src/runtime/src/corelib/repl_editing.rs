@@ -23,7 +23,7 @@
 use crate::metadata::Value;
 use crate::vm_context::VmContext;
 use anyhow::{bail, Result};
-#[cfg(all(not(target_arch = "wasm32"), feature = "native-interop"))]
+#[cfg(feature = "native-interop")]
 use std::ffi::{c_char, c_void, CStr, CString};
 
 /// Registered key-editor FQN (set by z42 via `__repl_set_key_editor`); read by
@@ -55,13 +55,13 @@ pub fn repl_set_keywords(joined: &str) {
 // ── Host-only: VM re-entrancy for the cdylib key handlers ────────────────────
 // (wasm / no-native-interop fall back to plain stdin, no editing)
 
-#[cfg(all(not(target_arch = "wasm32"), feature = "native-interop"))]
+#[cfg(feature = "native-interop")]
 use crate::interp::{exec_function, ExecOutcome};
 
 /// Invoke the z42 key-editor `fqn(key, line, pos)` and return its action string.
 /// Mirrors `repl::complete_via_callback` but with (string, string, int) args and a
 /// string result. A `throw` inside propagates via `set_pending_thrown`.
-#[cfg(all(not(target_arch = "wasm32"), feature = "native-interop"))]
+#[cfg(feature = "native-interop")]
 fn key_edit_via_callback(
     ctx: &VmContext,
     fqn: &str,
@@ -104,7 +104,7 @@ fn key_edit_via_callback(
 }
 
 /// The key-editor must take exactly `(string key, string line, int pos)` — 3 params.
-#[cfg(all(not(target_arch = "wasm32"), feature = "native-interop"))]
+#[cfg(feature = "native-interop")]
 fn key_edit_arity_check(fqn: &str, param_count: usize) -> Result<()> {
     if param_count != 3 {
         bail!("__repl_set_key_editor: key-editor `{fqn}` must take (string key, string line, int pos) — 3 params, got {param_count}");
@@ -126,7 +126,7 @@ fn key_edit_arity_check(fqn: &str, param_count: usize) -> Result<()> {
 /// `ctx` must be the live `*mut VmContext` installed for this `readline` span; `key`
 /// and `line` valid NUL-terminated C strings. Same window/thread invariant as
 /// `repl::complete_trampoline`.
-#[cfg(all(not(target_arch = "wasm32"), feature = "native-interop"))]
+#[cfg(feature = "native-interop")]
 pub(crate) extern "C" fn keyedit_trampoline(
     ctx: *mut c_void,
     key: *const c_char,
@@ -157,7 +157,7 @@ pub(crate) extern "C" fn keyedit_trampoline(
     }
 }
 
-#[cfg(all(test, not(target_arch = "wasm32"), feature = "native-interop"))]
+#[cfg(all(test, feature = "native-interop"))]
 #[path = "repl_editing_tests.rs"]
 mod repl_editing_tests;
 

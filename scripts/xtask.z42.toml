@@ -30,7 +30,7 @@ include = ["**/*.z42"]
 [dependencies]
 "z42.project" = { version = "*", deploy = "sdk" }
 "z42.build"   = { version = "*", deploy = "sdk" }
-"z42.doc"     = { path = "../src/compiler/z42.doc" }   # `xtask doc gen` / `check docs-api` 的渲染引擎；path 依赖由 z42c 代建
+"z42.doc"     = { path = "../src/compiler/z42.doc" }   # `xtask doc gen` 的渲染引擎；path 依赖由 z42c 代建
 
 [build]
 # xtask is the build DRIVER, so its output lives at artifacts/xtask — NOT under

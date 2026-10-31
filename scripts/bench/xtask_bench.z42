@@ -60,16 +60,31 @@ class BenchEnv {
 // (against nightly .z42/libs), so the source-built tree may start empty; a dev who changed z42c runs
 // `build compiler` themselves. Probe the measured VM once and expand --mode.
 BenchEnv _benchEnv(string modeOpt) {
+    return _benchEnvWith(modeOpt, "", "", "");
+}
+
+// 同 _benchEnv，但被测工具链可整套显式给出（`bench --ab --pr-vm/--pr-libs/--pr-driver`）：三项都给 ⇒
+// 不建树内工具链、直接用它们；都不给 ⇒ 树内那套。只给一部分是用法错误（Rc = 2）。
+BenchEnv _benchEnvWith(string modeOpt, string vm, string libs, string driver) {
     BenchEnv e = new BenchEnv();
     e.Root = _root();
     e.ScenDir = Path.Join(e.Root, "src/benches/scenarios");
     e.ResultsDir = _benchDir(e.Root);
     Directory.Create(e.ResultsDir);
-    e.Rc = _ensureToolchainDeps(e.Root);
-    if (e.Rc != 0) { return e; }
-    e.Vm = _builtVm(e.Root, "release");
-    e.Libs = _libsDir(e.Root);
-    e.Driver = _driverZpkg(e.Root, "release");
+    int given = (vm.Length > 0 ? 1 : 0) + (libs.Length > 0 ? 1 : 0) + (driver.Length > 0 ? 1 : 0);
+    if (given == 3) {
+        e.Vm = vm; e.Libs = libs; e.Driver = driver;
+    } else if (given == 0) {
+        e.Rc = _ensureToolchainDeps(e.Root);
+        if (e.Rc != 0) { return e; }
+        e.Vm = _builtVm(e.Root, "release");
+        e.Libs = _libsDir(e.Root);
+        e.Driver = _driverZpkg(e.Root, "release");
+    } else {
+        ConsoleError.WriteLine("error: --pr-vm, --pr-libs and --pr-driver go together (all three or none)");
+        e.Rc = 2;
+        return e;
+    }
     e.Caps = _epProbe(e.Vm, e.Libs, _epEnsureProbe(e.Root, e.Vm, e.Driver, e.Libs));
     e.Modes = _epModesToSweep(modeOpt);
     return e;
@@ -307,6 +322,12 @@ class AbOutcome {
     public AbOutcome() { this.Rc = 0; this.IsRegression = false; this.Resampled = false; this.Json = ""; }
 }
 
+// 一侧的 scenario .zbc 路径。side ∈ {"base","head"}：两个词**等长**是承重的——.zbc 路径进被测进程的
+// argv，两侧 argv 字节数不同就会挪动内存布局、把同一份代码测出快慢（benchmarking.md「两侧必须同形」）。
+string _abZbcPath(string work, string name, string side) {
+    return Path.Join(work, name + "-" + side + ".zbc");
+}
+
 // Compile `src` to a .zbc with the given toolchain (vm+driver, Z42_LIBS=libs).
 int _abEmitZbc(string vm, string driver, string libs, string src, string zbc) {
     return _exec(_z42cProc(vm, libs, driver)
@@ -362,8 +383,8 @@ AbOutcome _abOneScenario(string work, string name, string ns, string m, string s
     string prVm, string prDriver, string prLibs,
     string warmup, string runs, double thr, int extraRounds) {
     AbOutcome o = new AbOutcome();
-    string baseZbc = Path.Join(work, name + "-base.zbc");
-    string prZbc   = Path.Join(work, name + "-pr.zbc");
+    string baseZbc = _abZbcPath(work, name, "base");
+    string prZbc   = _abZbcPath(work, name, "head");
     if (_abEmitZbc(baseVm, baseDriver, baseLibs, src, baseZbc) != 0) { o.Rc = 2; return o; }
     if (_abEmitZbc(prVm,   prDriver,   prLibs,   src, prZbc)   != 0) { o.Rc = 2; return o; }
     string baseCmd = "env Z42_LIBS=" + baseLibs + " " + baseVm + " " + baseZbc + " " + ns + ".Main --mode " + m;
@@ -451,13 +472,22 @@ int _benchAb(BenchCommand cmd) {
     // remaining entries keep their round-1 verdict (which fails the job) instead of
     // spending unbounded runner time to confirm what is already the likely answer.
     int resampleBudget = 3;
-    // pause gate = pr_max > cap AND pr_max > base_max*(1+thr)（见 xtask_bench_pause.z42 头注）。
+    // pause gate = p99 超 cap 且 > base×(1+thr)，或 max 超 cap 且 > base×(1+maxThr)（见 xtask_bench_pause.z42 头注）。
     double pauseCap = cmd.PauseCapMs;
     double pauseThr = cmd.ThresholdPause;
+    double pauseMaxThr = cmd.ThresholdPauseMax;
     string tier = cmd.Tier;
     // PR（被测）侧工具链 + 探针 + 场景选择与 `_bench` 同一份（门禁只测 gate 层：CI 传 --tier gate）。
-    BenchEnv e = _benchEnv(cmd.Mode);
+    // CI 显式传 --pr-*，与 --base-* 同配方、等长（bench-pr.yml「Prepare head toolchain」）。
+    BenchEnv e = _benchEnvWith(cmd.Mode, cmd.PrVm, cmd.PrLibs, cmd.PrDriver);
     if (e.Rc != 0) { return e.Rc; }
+    // 两侧被测进程的输入（`env Z42_LIBS=<libs> <vm> <zbc> …`）字节数不同 ⇒ 内存布局不同 ⇒ 同一份代码也会
+    // 测出快慢；libs 目录的内容也要同配方（VM 启动时逐个读 libs 下每个 zpkg 的 NSPC）。这里只能查长度。
+    if (e.Vm.Length != baseVm.Length || e.Libs.Length != baseLibs.Length) {
+        Console.WriteLine("⚠️  A/B 两侧工具链路径不等长（vm " + e.Vm.Length.ToString() + " vs " + baseVm.Length.ToString()
+            + "，libs " + e.Libs.Length.ToString() + " vs " + baseLibs.Length.ToString()
+            + "）——比值里混着布局偏差；要可信的结果请用 --pr-vm/--pr-libs/--pr-driver 传同形工具链");
+    }
     BenchScenario[] scen = _benchSelectScenarios(e, tier, quick);
     if (e.Rc != 0) { return e.Rc; }
     string work = Directory.CreateTempDir("xtask-bench-ab");
@@ -480,8 +510,8 @@ int _benchAb(BenchCommand cmd) {
             items = items + o.Json; nb = nb + 1;
             if (o.IsRegression) { regr = regr + 1; }
             if (s.ReportsPause) {
-                AbOutcome po = _abPauseScenario(s.Name, m, baseVm, Path.Join(work, s.Name + "-base.zbc"), baseLibs,
-                    e.Vm, Path.Join(work, s.Name + "-pr.zbc"), e.Libs, s.Ns + ".Main", pauseCap, pauseThr);
+                AbOutcome po = _abPauseScenario(s.Name, m, baseVm, _abZbcPath(work, s.Name, "base"), baseLibs,
+                    e.Vm, _abZbcPath(work, s.Name, "head"), e.Libs, s.Ns + ".Main", pauseCap, pauseThr, pauseMaxThr);
                 if (po.Rc != 0) { toolErr = toolErr + 1; continue; }
                 items = items + ",\n" + po.Json; nb = nb + 1;
                 if (po.IsRegression) { regr = regr + 1; }
@@ -584,7 +614,7 @@ int _abSelfTest() {
 
     fails = fails + _abPauseSelfTest();   // pause gate
 
-    if (fails == 0) { Console.WriteLine("✅ _abVerdict + _abResampleVerdict + pause selftest: 14/14 passed"); return 0; }
+    if (fails == 0) { Console.WriteLine("✅ _abVerdict + _abResampleVerdict + pause selftest: 17/17 passed"); return 0; }
     Console.WriteLine("❌ _abVerdict + _abResampleVerdict selftest: " + fails.ToString() + " failure(s)");
     return 1;
 }

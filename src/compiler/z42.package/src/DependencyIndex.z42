@@ -28,13 +28,7 @@ public sealed class DependencyIndex {
     public DepCallEntry? GetStatic(string cls, string method) {
         string key = cls + "." + method;
         int _sl0 = this.Statics.Find(key); if (_sl0 >= 0) { return this.Statics.ValAt(_sl0) as DepCallEntry; }
-        int cut = 0 - 1;
-        int i = cls.Length - 1;
-        bool more = i >= 0;
-        while (more) {
-            if (cls.CharAt(i) == '.') { cut = i; more = false; }
-            else { i = i - 1; more = i >= 0; }
-        }
+        int cut = cls.LastIndexOf('.');
         if (cut >= 0) {
             string shortCls = cls.Substring(cut + 1, cls.Length - cut - 1);
             string k2 = shortCls + "." + method;
@@ -86,31 +80,34 @@ public sealed class DependencyIndex {
 
     // 注册一个依赖模块的全部函数签名（镜像 DependencyIndex.Build 单模块段）。
     // fname 形态：ns.Class.Method[$arity] 或 ns.Func。__static_init__ / 非本 ns 前缀跳过。
+    // 各键都是 name 的后缀 / 前缀切片（`Cls.Method` 即 local），直接截取，不再逐段拼接。
     public void AddModule(IrFunction[] fns, int fnCount, string ns) {
+        string nsDot = ns + ".";
+        int pre = nsDot.Length;
         int i = 0;
         while (i < fnCount) {
             IrFunction f = fns[i];
             string name = f.Name;
-            if (!name.EndsWith("__static_init__") && name.StartsWith(ns + ".")) {
-                string local = name.Substring(ns.Length + 1, name.Length - ns.Length - 1);
+            if (!name.EndsWith("__static_init__") && name.StartsWith(nsDot)) {
+                string local = name.Substring(pre, name.Length - pre);
                 // local = "Class.Method[$N]" 或 "Func[$N]"
-                int dot = DependencyIndex._lastDot(local);
+                int dot = local.LastIndexOf('.');
                 if (dot >= 0) {
                     string cls = local.Substring(0, dot);
                     string method = local.Substring(dot + 1, local.Length - dot - 1);
                     var entry = new DepCallEntry(name, ns, f.RetType, f.ParamCount);
-                    this.Statics.TryAdd(cls + "." + method, entry);
-                    int dollar = DependencyIndex._dollar(method);
+                    this.Statics.TryAdd(local, entry);                                  // Cls.Method[$N]
+                    int dollar = method.IndexOf('$');
                     string bare = method;
                     if (dollar >= 0) {
                         bare = method.Substring(0, dollar);
-                        this.Statics.TryAdd(cls + "." + bare, entry);
+                        this.Statics.TryAdd(local.Substring(0, dot + 1 + dollar), entry);   // Cls.Method
                     }
                     // path C：额外注册全名键 ns.ShortCls.Method[$arity]（供 GetStaticScoped 精确消歧；
                     // name == ns + "." + local == ns.Cls.Method[$arity]）。同短类名跨 ns 各占独立键，不 first-wins。
                     this.Statics.TryAdd(name, entry);
                     if (dollar >= 0) {
-                        this.Statics.TryAdd(ns + "." + cls + "." + bare, entry);
+                        this.Statics.TryAdd(name.Substring(0, pre + dot + 1 + dollar), entry);   // ns.Cls.Method
                     }
                     if (!f.IsStatic && cls != "Object" && !DependencyIndex._isProtocol(bare)) {
                         int userArity = f.ParamCount - 1;
@@ -146,22 +143,6 @@ public sealed class DependencyIndex {
         this.Instances = clean;
     }
 
-    private static int _lastDot(string s) {
-        int i = s.Length - 1;
-        while (i >= 0) {
-            if (s.CharAt(i) == '.') { return i; }
-            i = i - 1;
-        }
-        return 0 - 1;
-    }
-    private static int _dollar(string s) {
-        int i = 0;
-        while (i < s.Length) {
-            if (s.CharAt(i) == '$') { return i; }
-            i = i + 1;
-        }
-        return 0 - 1;
-    }
     private static bool _isProtocol(string m) {
         return m == "ToString" || m == "Equals" || m == "GetHashCode" || m == "GetType";
     }

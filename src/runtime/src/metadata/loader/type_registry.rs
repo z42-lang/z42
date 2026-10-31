@@ -2,6 +2,29 @@ use super::*;
 
 // ── TypeDesc registry ─────────────────────────────────────────────────────────
 
+/// The member functions of each class (and of each constructed class's erased
+/// definition), as indices into `module.functions` in declaration order: a function
+/// belongs to every such owner its name starts with followed by `.` — what the
+/// registry used to find by scanning every function once per class (runtime-audit S1).
+/// One pass, a hash probe at each `.` of each name.
+fn functions_by_owner(module: &Module) -> FxHashMap<&str, Vec<usize>> {
+    let mut owners: FxHashMap<&str, Vec<usize>> = FxHashMap::default();
+    for c in &module.classes {
+        owners.entry(c.name.as_str()).or_default();
+        if let Some(def) = TypeDesc::erased_definition_name(&c.name) {
+            owners.entry(def).or_default();
+        }
+    }
+    for (fi, func) in module.functions.iter().enumerate() {
+        for (i, _) in func.name.match_indices('.') {
+            if let Some(list) = owners.get_mut(&func.name[..i]) {
+                list.push(fi);
+            }
+        }
+    }
+    owners
+}
+
 /// Pre-build a `TypeDesc` for every class in `module.classes` and store the
 /// results in `module.type_registry` (by-name HashMap).
 ///
@@ -26,9 +49,15 @@ pub fn build_type_registry(module: &mut Module) {
     // dispatch into each other. See `tokens::alloc_type_id_block`.
     let mut next_type_id: u32 = crate::metadata::tokens::alloc_type_id_block(order.len() as u32);
 
+    let class_by_name: FxHashMap<&str, &crate::metadata::ClassDesc> =
+        module.classes.iter().map(|c| (c.name.as_str(), c)).collect();
+    let members = functions_by_owner(module);
+    let no_members: Vec<usize> = Vec::new();
+    let members_of = |owner: &str| members.get(owner).unwrap_or(&no_members);
+
     for class_name in &order {
-        let desc = match module.classes.iter().find(|c| &c.name == class_name) {
-            Some(d) => d,
+        let desc = match class_by_name.get(class_name.as_str()) {
+            Some(d) => *d,
             None    => continue,
         };
 
@@ -52,10 +81,9 @@ pub fn build_type_registry(module: &mut Module) {
         // fix-value-type-object-methods ③: index-aligned is_static per own method,
         // so `merge_with_base` can keep statics out of the instance vtable.
         let mut own_static: Vec<bool> = Vec::new();
-        let prefix = format!("{}.", class_name);
-        for func in &module.functions {
-            if !func.name.starts_with(&prefix) { continue; }
-            let method = &func.name[prefix.len()..];
+        for &fi in members_of(class_name) {
+            let func = &module.functions[fi];
+            let method = &func.name[class_name.len() + 1..];
             // Skip constructors and __static_init__.
             //
             // fix-nested-ctor-key: the ctor test is `TypeDesc::is_ctor_member`, shared with
@@ -80,13 +108,13 @@ pub fn build_type_registry(module: &mut Module) {
         // `PB.Who` slot and never reached the override (a base-less generic class shows the
         // same through `Std.Object`: its `ToString` override was ignored).
         if let Some(def) = TypeDesc::erased_definition_name(class_name) {
-            let def_prefix = format!("{}.", def);
             let specialized: rustc_hash::FxHashSet<&str> = own_methods.iter()
                 .map(|fq| TypeDesc::derive_simple_method_name(class_name, fq))
                 .collect();
             let mut shared: Vec<(Box<str>, bool)> = Vec::new();
-            for func in &module.functions {
-                let Some(method) = func.name.strip_prefix(def_prefix.as_str()) else { continue };
+            for &fi in members_of(def) {
+                let func = &module.functions[fi];
+                let method = &func.name[def.len() + 1..];
                 if TypeDesc::is_ctor_member(def, method) || method.starts_with("__") { continue; }
                 if specialized.contains(method) { continue; }
                 shared.push((func.name.clone().into_boxed_str(), func.is_static));

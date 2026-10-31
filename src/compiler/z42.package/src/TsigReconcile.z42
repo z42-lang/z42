@@ -358,7 +358,6 @@ public static class TsigReconcile {
                 i = i + 1;
                 continue;
             }
-            if (cd.Name == "Std.Object" || cd.Name == "Object") { i = i + 1; continue; }   // TSIG 不导出隐式根 Object
             if ((cd.Flags & 32) != 0) {                          // enum：TYPE 成员块 → ExportedEnumZ
                 ExportedEnumMemberZ[] mems = new ExportedEnumMemberZ[cd.EnumMemberCount];
                 int em = 0;
